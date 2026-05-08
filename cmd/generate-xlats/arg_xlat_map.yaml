@@ -1,0 +1,13 @@
+syscalls:
+  access:
+    mode: access_modes
+  faccessat:
+    mode: access_modes
+  open:
+    flags: open_mode_flags
+  openat:
+    flags: open_mode_flags
+
+# Custom mapping logic can be added later if needed.
+# Note: open_mode_flags doesn't include access modes (O_RDONLY etc), 
+# so the decoder logic will handle it using open_access_modes implicitly.
