@@ -7,6 +7,31 @@ syscalls:
     flags: open_mode_flags
   openat:
     flags: open_mode_flags
+  faccessat2:
+    mode: access_modes
+  arch_prctl:
+    option: archvals
+  x86_xfeatures_table:
+    # dummy for generation
+    dummy: x86_xfeatures
+  accept4:
+    flags: sock_type_flags
+  bpf:
+    cmd: bpf_commands
+  clock_adjtime:
+    which_clock: clocknames
+  clock_nanosleep:
+    which_clock: clocknames
+  clock_settime:
+    which_clock: clocknames
+  poll_table:
+    dummy: pollflags
+  epoll_table:
+    dummy: epollevents
+  epoll_ctl:
+    op: epollctls
+  epoll_create1:
+    flags: epollflags
 
 # Custom mapping logic can be added later if needed.
 # Note: open_mode_flags doesn't include access modes (O_RDONLY etc), 

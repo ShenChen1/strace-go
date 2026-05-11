@@ -12,7 +12,11 @@ strace-go/
 │   ├── generate-xlats/    # 标志位常量翻译生成器 (从 strace-upstream 提取 flags 字典)
 │   └── strace-go/         # 主程序入口及 eBPF 加载器
 ├── pkg/
-│   └── meta/              # 生成的元数据包 (syscall_table.go, xlat_auto.go)
+│   ├── cli/               # 命令行参数解析
+│   ├── event/             # eBPF 事件解析与字符串解码
+│   ├── format/            # 系统调用数据结构与标志位格式化
+│   ├── meta/              # 生成的元数据包 (syscall_table.go, xlat_auto.go)
+│   └── procmem/           # 进程内存读取 (支持 ptrace fallback)
 ├── test/                  # 测试用例与批量回归测试脚本
 ├── strace-upstream/       # 官方 strace 仓库 (作为数据源及测试参照的 Submodule)
 ├── build.sh               # 自动化生成与构建脚本

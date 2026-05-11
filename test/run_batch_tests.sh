@@ -1,7 +1,13 @@
 #!/bin/bash
 export STRACE=/opt/strace-go/test/strace-sudo.sh
 export SIZEOF_LONG=8
-cd ../strace-upstream/tests || exit 1
+cd ../strace-upstream || exit 1
+if [ ! -f Makefile ]; then
+    ./bootstrap
+    ./configure --enable-mpers=no --disable-werror
+fi
+make -j$(nproc) >/dev/null 2>&1
+cd tests || exit 1
 passed=0
 failed=0
 total=0
@@ -10,6 +16,10 @@ total=0
 tests=$(ls *.gen.test | head -n 50)
 
 for t in $tests; do
+    bin_name=${t%.test}
+    bin_name=${bin_name%.gen}
+    make $bin_name >/dev/null 2>&1
+
     total=$((total+1))
     if ./$t >/dev/null 2>&1; then
         echo "PASS: $t"

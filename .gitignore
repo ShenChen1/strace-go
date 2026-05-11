@@ -32,6 +32,7 @@ go.work.sum
 # .vscode/
 
 # Local build artifacts
-strace-go
 *.o
 .agent.md
+/strace-go
+/cmd/strace-go/strace-go

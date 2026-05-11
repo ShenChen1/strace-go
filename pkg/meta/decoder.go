@@ -6,69 +6,73 @@ import (
 )
 
 func DecodeFlags(val uint64, xlatName string) string {
-	var res []string
-	
-	// Check if this xlat exists
 	table, ok := XlatTables[xlatName]
-	if !ok {
-		return fmt.Sprintf("%#x", val)
-	}
+	if !ok { return fmt.Sprintf("%#x", val) }
 
-	// For specific known tables that don't just use simple bitmasks
-	if xlatName == "open_mode_flags" {
-		// handle access mode part first (O_RDONLY, O_WRONLY, O_RDWR)
-		accMode := val & 3
-		for _, x := range XlatTables["open_access_modes"] {
-			if x.Val == accMode && x.Str != "O_ACCMODE" {
-				res = append(res, x.Str)
-				break
+	isEnum := strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping"
+
+	if isEnum {
+		for _, entry := range table.Entries {
+			if entry.Val == val { return entry.Str }
+		}
+		// Special case for bitmask-enums
+		if xlatName != "adjtimex_status" && xlatName != "open_mode_flags" {
+			if val == 0 { return "0" }
+			formatVal := fmt.Sprintf("%#x", val)
+			if xlatName == "x86_xfeature_bits" && val < 10 { formatVal = fmt.Sprintf("%d", val) }
+			if table.Prefix != "" {
+				return fmt.Sprintf("%s /* %s??? */", formatVal, table.Prefix)
 			}
+			return fmt.Sprintf("%s /* ??? */", formatVal)
 		}
-		val &^= 3 // Clear the lower 2 bits
 	}
 
-	// First pass: look for zero value match if val is exactly 0
-	if val == 0 {
-		for _, x := range table {
-			if x.Val == 0 {
-				return x.Str
-			}
-		}
-		if len(res) == 0 {
-			return "0"
-		}
-		return strings.Join(res, "|")
-	}
-
-	// Second pass: extract flags
+	var res []string
 	handled := uint64(0)
-	for _, x := range table {
-		if x.Val == 0 {
-			continue // skip 0 values since val != 0
+
+	// For open flags, handle ACCMODE part first to match strace behavior
+	if strings.Contains(xlatName, "open_mode_flags") || xlatName == "open_access_modes" {
+		accMode := val & 3
+		switch accMode {
+		case 0: res = append(res, "O_RDONLY")
+		case 1: res = append(res, "O_WRONLY")
+		case 2: res = append(res, "O_RDWR")
+		case 3: res = append(res, "O_ACCMODE")
 		}
-		// If exact match
-		if val == x.Val {
-			res = append(res, x.Str)
-			handled |= x.Val
-			break
-		}
-		// If bitwise flag
-		if val&x.Val == x.Val {
-			// Ensure we don't match overlapping smaller flags if a larger one is matched
-			// E.g. if a flag is just a single bit, we match it.
-			// This basic implementation assumes non-overlapping bitflags except specific combinations.
-			// Strace actually has logic to pick the largest mask first, but for our simple flags it's ok.
-			res = append(res, x.Str)
-			handled |= x.Val
-		}
+		handled |= accMode
 	}
 
-	if val&^handled != 0 {
-		res = append(res, fmt.Sprintf("%#x", val&^handled))
+	// Use original table order to preserve strace canonical order
+	for _, entry := range table.Entries {
+		if entry.Val == 0 { continue }
+		if (val & entry.Val) == entry.Val {
+			if (handled & entry.Val) != entry.Val {
+				res = append(res, entry.Str)
+				handled |= entry.Val
+			}
+		}
 	}
 
 	if len(res) == 0 {
-		return fmt.Sprintf("%#x", val)
+		if val == 0 {
+			for _, entry := range table.Entries {
+				if entry.Val == 0 { return entry.Str }
+			}
+			return "0"
+		}
+		formatVal := fmt.Sprintf("%#x", val)
+		if table.Prefix != "" {
+			return fmt.Sprintf("%s /* %s??? */", formatVal, table.Prefix)
+		}
+		return fmt.Sprintf("%s /* ??? */", formatVal)
+	}
+
+	if handled != val && val != 0 {
+		// Only append hex if there's remaining unhandled bits
+		remaining := val & ^handled
+		if remaining != 0 {
+			res = append(res, fmt.Sprintf("%#x", remaining))
+		}
 	}
 
 	return strings.Join(res, "|")

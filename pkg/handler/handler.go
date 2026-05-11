@@ -1,0 +1,65 @@
+// Package handler provides a registry-based architecture for decoding syscall arguments.
+package handler
+
+import (
+	"strace-go/pkg/cli"
+	"strace-go/pkg/event"
+	"strace-go/pkg/meta"
+	"strace-go/pkg/procmem"
+)
+
+// Context encapsulates all data needed to decode a single syscall event.
+type Context struct {
+	Pid           int
+	Tid           int
+	TargetPid     int
+	SysId         uint32
+	SysName       string
+	Args          [6]uint64
+	Ret           int64
+	ProbeRetEnter int32
+	ProbeRetExit  int32
+	Ptr           uint64
+	StrArgBuf     []byte
+	RawStrArg     string
+
+	ScMeta    meta.Syscall
+	MemReader *procmem.Reader
+	Decoder   *event.Decoder
+	Opts      *cli.Options
+	FdMap     map[string]string
+}
+
+// Result contains the formatted arguments and optional hex dump.
+type Result struct {
+	ArgParts   []string
+	HexDumpStr string
+}
+
+// Handler defines the interface for decoding specific syscalls.
+type Handler interface {
+	Handle(ctx *Context) Result
+}
+
+var (
+	registry       = make(map[string]Handler)
+	defaultHandler Handler
+)
+
+// Register registers a handler for a specific syscall name.
+func Register(name string, h Handler) {
+	registry[name] = h
+}
+
+// SetDefault sets the fallback handler for unregistered syscalls.
+func SetDefault(h Handler) {
+	defaultHandler = h
+}
+
+// Get returns the registered handler for the syscall, or the default handler.
+func Get(name string) Handler {
+	if h, ok := registry[name]; ok {
+		return h
+	}
+	return defaultHandler
+}

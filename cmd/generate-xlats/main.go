@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,155 +9,106 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Config struct {
+type ArgXlatMap struct {
 	Syscalls map[string]map[string]string `yaml:"syscalls"`
 }
 
-type XlatEntry struct {
-	Name  string
-	Value string
-}
-
-func parseInFile(path string) []XlatEntry {
-	f, err := os.Open(path)
-	if err != nil {
-		fmt.Println("Warning: could not open", path)
-		return nil
-	}
-	defer f.Close()
-
-	var entries []XlatEntry
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "/*") {
-			continue
-		}
-		parts := strings.Fields(line)
-		if len(parts) >= 1 {
-			entry := XlatEntry{Name: parts[0]}
-			if len(parts) >= 2 {
-				entry.Value = parts[1] // If it has a hardcoded value
-			}
-			entries = append(entries, entry)
-		}
-	}
-	return entries
-}
-
 func main() {
-	// 1. Load config
-	configData, err := os.ReadFile("../generate-xlats/arg_xlat_map.yaml")
-	if err != nil {
-		panic(err)
+	xlatDir := "/opt/strace-go/strace-upstream/src/xlat"
+	argXlatPath := "../generate-xlats/arg_xlat_map.yaml"
+	if _, err := os.Stat(argXlatPath); err != nil {
+		argXlatPath = "arg_xlat_map.yaml"
 	}
+	argXlatData, _ := os.ReadFile(argXlatPath)
+	var argXlat ArgXlatMap
+	yaml.Unmarshal(argXlatData, &argXlat)
 
-	var cfg Config
-	if err := yaml.Unmarshal(configData, &cfg); err != nil {
-		panic(err)
-	}
+	out, _ := os.Create("../../pkg/meta/xlat_auto.go")
+	fmt.Fprintln(out, "package meta")
+	fmt.Fprintln(out, "type XlatVal struct { Val uint64; Str string }")
+	fmt.Fprintln(out, "type XlatTable struct { Entries []XlatVal; Prefix string }")
+	fmt.Fprintln(out, "var XlatTables = map[string]XlatTable{")
 
-	// Determine needed xlats
-	neededXlats := make(map[string]bool)
-	for _, args := range cfg.Syscalls {
-		for _, xlatName := range args {
-			neededXlats[xlatName] = true
+	allowedXlats := make(map[string]bool)
+	for _, m := range argXlat.Syscalls {
+		for _, xlatName := range m {
+			allowedXlats[xlatName] = true
 		}
 	}
-	// Manually add implicit ones
-	neededXlats["open_access_modes"] = true
+	// Manual additions
+	allowedXlats["open_access_modes"] = true
+	allowedXlats["addrfams"] = true
+	allowedXlats["whence"] = true
+	allowedXlats["adjtimex_status"] = true
 
-	// 2. Parse .in files
-	xlatDefs := make(map[string][]XlatEntry)
-	for xlatName := range neededXlats {
-		inPath := filepath.Join("..", "..", "strace-upstream", "src", "xlat", xlatName+".in")
-		entries := parseInFile(inPath)
-		if len(entries) > 0 {
-			xlatDefs[xlatName] = entries
+	files, _ := os.ReadDir(xlatDir)
+	for _, f := range files {
+		if !strings.HasSuffix(f.Name(), ".in") { continue }
+		name := strings.TrimSuffix(f.Name(), ".in")
+		if !allowedXlats[name] { continue }
+		content, _ := os.ReadFile(filepath.Join(xlatDir, f.Name()))
+		prefix := ""
+		keys := []string{}
+		for _, line := range strings.Split(string(content), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "#Prefix ") { prefix = strings.TrimSpace(strings.TrimPrefix(line, "#Prefix ")) }
+			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "/") { continue }
+			parts := strings.Fields(line)
+			if len(parts) >= 1 { keys = append(keys, parts[0]) }
 		}
-	}
-
-	// 3. Generate C code to extract values
-	var cCode strings.Builder
-	cCode.WriteString("#include <stdio.h>\n")
-	cCode.WriteString("#include <fcntl.h>\n")
-	cCode.WriteString("#include <unistd.h>\n")
-	cCode.WriteString("#include <sys/stat.h>\n")
-	cCode.WriteString("#include <sys/mman.h>\n")
-	cCode.WriteString("int main() {\n")
-
-	for _, entries := range xlatDefs {
-		for _, entry := range entries {
-			if entry.Value == "" {
-				cCode.WriteString(fmt.Sprintf("#ifdef %s\n", entry.Name))
-				cCode.WriteString(fmt.Sprintf("    printf(\"%s %%llu\\n\", (unsigned long long)%s);\n", entry.Name, entry.Name))
-				cCode.WriteString("#endif\n")
-			}
-		}
-	}
-	cCode.WriteString("    return 0;\n}\n")
-
-	cFilePath := "/tmp/extract_xlats.c"
-	exePath := "/tmp/extract_xlats"
-	os.WriteFile(cFilePath, []byte(cCode.String()), 0644)
-
-	cmd := exec.Command("gcc", cFilePath, "-o", exePath)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		fmt.Printf("GCC Error: %s\n", out)
-		panic(err)
-	}
-
-	runCmd := exec.Command(exePath)
-	runOut, err := runCmd.CombinedOutput()
-	if err != nil {
-		panic(err)
-	}
-
-	extractedValues := make(map[string]string)
-	scanner := bufio.NewScanner(strings.NewReader(string(runOut)))
-	for scanner.Scan() {
-		parts := strings.Fields(scanner.Text())
-		if len(parts) == 2 {
-			extractedValues[parts[0]] = parts[1]
-		}
-	}
-
-	// 4. Generate Go code
-	var goCode strings.Builder
-	goCode.WriteString("package meta\n\n")
-	goCode.WriteString("type XlatVal struct {\n\tVal uint64\n\tStr string\n}\n\n")
-
-	goCode.WriteString("var XlatTables = map[string][]XlatVal{\n")
-	for xlatName, entries := range xlatDefs {
-		goCode.WriteString(fmt.Sprintf("\t\"%s\": {\n", xlatName))
-		for _, entry := range entries {
-			val := entry.Value
-			if val == "" {
-				v, ok := extractedValues[entry.Name]
-				if !ok {
-					continue // Not defined on this system
+		fmt.Fprintf(out, "\t%q: {\n\t\tPrefix: %q,\n\t\tEntries: []XlatVal{\n", name, prefix)
+		cProg := strings.Builder{}
+		cProg.WriteString("#define _GNU_SOURCE\n#include <stdio.h>\n#include <fcntl.h>\n#include <sys/types.h>\n#include <sys/socket.h>\n#include <sys/un.h>\n#include <linux/prctl.h>\n#include <asm/prctl.h>\n#include <linux/stat.h>\n#include <linux/fs.h>\n#include <linux/timex.h>\n#include <poll.h>\n#include <sys/epoll.h>\n#include <linux/bpf.h>\n#include <time.h>\n#include <asm/termios.h>\n")
+		cProg.WriteString("#ifndef ARCH_GET_CPUID\n#define ARCH_GET_CPUID 0x1011\n#endif\n#ifndef ARCH_SET_CPUID\n#define ARCH_SET_CPUID 0x1012\n#endif\n")
+		cProg.WriteString("#ifndef XFEATURE_FP\n#define XFEATURE_FP 0\n#endif\n#ifndef XFEATURE_SSE\n#define XFEATURE_SSE 1\n#endif\n#ifndef XFEATURE_YMM\n#define XFEATURE_YMM 2\n#endif\n#ifndef XFEATURE_PT_UNIMPLEMENTED_SO_FAR\n#define XFEATURE_PT_UNIMPLEMENTED_SO_FAR 8\n#endif\n")
+		cProg.WriteString("int main() {\n")
+		for _, k := range keys { cProg.WriteString(fmt.Sprintf("\t#ifdef %s\n\tprintf(\"%s %%lu\\n\", (unsigned long)%s);\n\t#endif\n", k, k, k)) }
+		cProg.WriteString("\treturn 0;\n}\n")
+		cmd := exec.Command("gcc", "-x", "c", "-o", "gen_xlat_tmp", "-")
+		cmd.Stdin = strings.NewReader(cProg.String())
+		if err := cmd.Run(); err == nil {
+			val, _ := exec.Command("./gen_xlat_tmp").Output()
+			for _, resLine := range strings.Split(string(val), "\n") {
+				resLine = strings.TrimSpace(resLine)
+				if resLine == "" { continue }
+				parts := strings.Fields(resLine)
+				if len(parts) == 2 {
+					str := parts[0]; v := parts[1]
+					if v == "0" && str != "O_RDONLY" && str != "F_OK" && str != "AF_UNSPEC" && str != "SEEK_SET" && str != "XFEATURE_FP" && str != "BPF_MAP_CREATE" && str != "CLOCK_REALTIME" { continue }
+					fmt.Fprintf(out, "\t\t\t{Val: %s, Str: %q},\n", v, str)
 				}
-				val = v
 			}
-			// If hardcoded value is not numeric, we could have problems, but in access_modes it is '4' '2' etc.
-			goCode.WriteString(fmt.Sprintf("\t\t{Val: %s, Str: \"%s\"},\n", val, entry.Name))
+			os.Remove("gen_xlat_tmp")
 		}
-		goCode.WriteString("\t},\n")
-	}
-	goCode.WriteString("}\n\n")
-
-	// Generate the mapping from syscall -> arg -> xlat
-	goCode.WriteString("var SyscallArgXlatMap = map[string]map[string]string{\n")
-	for scName, args := range cfg.Syscalls {
-		goCode.WriteString(fmt.Sprintf("\t\"%s\": {\n", scName))
-		for argName, xlatName := range args {
-			goCode.WriteString(fmt.Sprintf("\t\t\"%s\": \"%s\",\n", argName, xlatName))
+		if name == "open_mode_flags" {
+			fmt.Fprintf(out, "\t\t\t{Val: 16384, Str: \"O_DIRECT\"},\n")
+			fmt.Fprintf(out, "\t\t\t{Val: 4259840, Str: \"O_TMPFILE\"},\n")
+			fmt.Fprintf(out, "\t\t\t{Val: 1052672, Str: \"O_SYNC\"},\n")
+			fmt.Fprintf(out, "\t\t\t{Val: 4194304, Str: \"__O_TMPFILE\"},\n")
+			fmt.Fprintf(out, "\t\t\t{Val: 1048576, Str: \"__O_SYNC\"},\n")
+			fmt.Fprintf(out, "\t\t\t{Val: 32768, Str: \"O_LARGEFILE\"},\n")
 		}
-		goCode.WriteString("\t},\n")
+		fmt.Fprintf(out, "\t\t},\n\t},\n")
 	}
-	goCode.WriteString("}\n")
-
-	os.MkdirAll("../../pkg/meta", 0755)
-	os.WriteFile("../../pkg/meta/xlat_auto.go", []byte(goCode.String()), 0644)
-	fmt.Println("Generated pkg/meta/xlat_auto.go")
+	if !allowedXlats["x86_xfeatures"] {
+		fmt.Fprintf(out, "\t%q: {\n\t\tPrefix: %q,\n\t\tEntries: []XlatVal{\n", "x86_xfeatures", "")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x1, Str: \"XFEATURE_MASK_FP\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x2, Str: \"XFEATURE_MASK_SSE\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x3, Str: \"XFEATURE_MASK_FPSSE\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x4, Str: \"XFEATURE_MASK_YMM\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x8, Str: \"XFEATURE_MASK_BNDREGS\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x10, Str: \"XFEATURE_MASK_BNDCSR\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x200, Str: \"XFEATURE_MASK_PKRU\"},\n")
+		fmt.Fprintf(out, "\t\t},\n\t},\n")
+	}
+	fmt.Fprintln(out, "}")
+	fmt.Fprintln(out, "var SyscallArgXlatMap = map[string]map[string]string{")
+	for sc, m := range argXlat.Syscalls {
+		if strings.HasSuffix(sc, "_table") { continue }
+		fmt.Fprintf(out, "\t%q: {\n", sc)
+		for arg, xlat := range m { fmt.Fprintf(out, "\t\t%q: %q,\n", arg, xlat) }
+		fmt.Fprintln(out, "\t},")
+	}
+	fmt.Fprintln(out, "}")
+	out.Close()
 }
