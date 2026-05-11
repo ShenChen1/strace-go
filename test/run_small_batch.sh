@@ -1,5 +1,6 @@
 #!/bin/bash
-export STRACE=/opt/strace-go/test/strace-sudo.sh
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+export STRACE="$DIR/strace-sudo.sh"
 export SIZEOF_LONG=8
 cd ../strace-upstream || exit 1
 if [ ! -f Makefile ]; then
