@@ -108,6 +108,24 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 				continue
 			}
 
+			if strings.Contains(argTyp, "struct timespec *") || strings.Contains(argTyp, "struct __kernel_timespec *") {
+				data := ctx.StrArgBuf[:16]
+				if ctx.Ret >= 0 || ctx.ProbeRetExit > 0 {
+					if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 16, true); err == nil { data = d }
+				}
+				res.ArgParts = append(res.ArgParts, format.Timespec(data))
+				continue
+			}
+
+			if strings.Contains(argTyp, "struct timeval *") {
+				data := ctx.StrArgBuf[:16]
+				if ctx.Ret >= 0 || ctx.ProbeRetExit > 0 {
+					if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 16, true); err == nil { data = d }
+				}
+				res.ArgParts = append(res.ArgParts, format.Timeval(data))
+				continue
+			}
+
 			if scName := ctx.ScMeta.Name; scName == "adjtimex" && argName == "txc_p" && ctx.Ret >= 0 {
 				sdata := ctx.StrArgBuf[512:768]
 				if ctx.ProbeRetExit < 0 || (binary.LittleEndian.Uint32(sdata[40:44]) == 0 && binary.LittleEndian.Uint64(sdata[8:16]) == 0) {

@@ -58,7 +58,7 @@ func main() {
 		}
 		fmt.Fprintf(out, "\t%q: {\n\t\tPrefix: %q,\n\t\tEntries: []XlatVal{\n", name, prefix)
 		cProg := strings.Builder{}
-		cProg.WriteString("#define _GNU_SOURCE\n#include <stdio.h>\n#include <fcntl.h>\n#include <sys/types.h>\n#include <sys/socket.h>\n#include <sys/un.h>\n#include <linux/prctl.h>\n#include <asm/prctl.h>\n#include <linux/stat.h>\n#include <linux/fs.h>\n#include <linux/timex.h>\n#include <poll.h>\n#include <sys/epoll.h>\n#include <linux/bpf.h>\n#include <time.h>\n#include <asm/termios.h>\n")
+		cProg.WriteString("#define _GNU_SOURCE\n#include <stdio.h>\n#include <fcntl.h>\n#include <sys/types.h>\n#include <sys/socket.h>\n#include <sys/un.h>\n#include <linux/prctl.h>\n#include <asm/prctl.h>\n#include <linux/stat.h>\n#include <linux/fs.h>\n#include <linux/timex.h>\n#include <poll.h>\n#include <sys/epoll.h>\n#include <linux/bpf.h>\n#include <time.h>\n#include <asm/termios.h>\n#include <sys/mman.h>\n#include <sched.h>\n#include <linux/futex.h>\n#include <sys/wait.h>\n#include <sys/mount.h>\n")
 		cProg.WriteString("#ifndef ARCH_GET_CPUID\n#define ARCH_GET_CPUID 0x1011\n#endif\n#ifndef ARCH_SET_CPUID\n#define ARCH_SET_CPUID 0x1012\n#endif\n")
 		cProg.WriteString("#ifndef XFEATURE_FP\n#define XFEATURE_FP 0\n#endif\n#ifndef XFEATURE_SSE\n#define XFEATURE_SSE 1\n#endif\n#ifndef XFEATURE_YMM\n#define XFEATURE_YMM 2\n#endif\n#ifndef XFEATURE_PT_UNIMPLEMENTED_SO_FAR\n#define XFEATURE_PT_UNIMPLEMENTED_SO_FAR 8\n#endif\n")
 		cProg.WriteString("int main() {\n")
@@ -74,7 +74,7 @@ func main() {
 				parts := strings.Fields(resLine)
 				if len(parts) == 2 {
 					str := parts[0]; v := parts[1]
-					if v == "0" && str != "O_RDONLY" && str != "F_OK" && str != "AF_UNSPEC" && str != "SEEK_SET" && str != "XFEATURE_FP" && str != "BPF_MAP_CREATE" && str != "CLOCK_REALTIME" { continue }
+					if v == "0" && str != "O_RDONLY" && str != "F_OK" && str != "AF_UNSPEC" && str != "SEEK_SET" && str != "XFEATURE_FP" && str != "BPF_MAP_CREATE" && str != "CLOCK_REALTIME" && str != "PROT_NONE" && str != "FUTEX_WAIT" && str != "MADV_NORMAL" && str != "SIG_BLOCK" { continue }
 					fmt.Fprintf(out, "\t\t\t{Val: %s, Str: %q},\n", v, str)
 				}
 			}

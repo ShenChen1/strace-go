@@ -32,6 +32,31 @@ syscalls:
     op: epollctls
   epoll_create1:
     flags: epollflags
+  mmap:
+    prot: mmap_prot
+    flags: mmap_flags
+  mprotect:
+    prot: mmap_prot
+  mremap:
+    flags: mremap_flags
+  clone:
+    clone_flags: clone_flags
+  clone3:
+    flags: clone3_flags
+  futex:
+    op: futexops
+  madvise:
+    behavior: madvise_cmds
+  lseek:
+    whence: whence_codes
+  wait4:
+    options: wait4_options
+  umount2:
+    flags: umount_flags
+  mount:
+    mountflags: mount_flags
+  rt_sigprocmask:
+    how: sigprocmaskcmds
 
 # Custom mapping logic can be added later if needed.
 # Note: open_mode_flags doesn't include access modes (O_RDONLY etc), 

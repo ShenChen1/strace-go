@@ -37,6 +37,22 @@ func Whence(val uint64) string {
 	return fmt.Sprintf("%d", val)
 }
 
+// Timespec formats a struct timespec.
+func Timespec(data []byte) string {
+	if len(data) < 16 { return "{...}" }
+	sec := binary.LittleEndian.Uint64(data[0:8])
+	nsec := binary.LittleEndian.Uint64(data[8:16])
+	return fmt.Sprintf("{tv_sec=%d, tv_nsec=%d}", sec, nsec)
+}
+
+// Timeval formats a struct timeval.
+func Timeval(data []byte) string {
+	if len(data) < 16 { return "{...}" }
+	sec := binary.LittleEndian.Uint64(data[0:8])
+	usec := binary.LittleEndian.Uint64(data[8:16])
+	return fmt.Sprintf("{tv_sec=%d, tv_usec=%d}", sec, usec)
+}
+
 // Hexdump produces a hex+ASCII dump of binary data.
 func Hexdump(data []byte) string {
 	var sb strings.Builder
@@ -260,4 +276,57 @@ func Winsize(data []byte) string {
 	xpixel := binary.LittleEndian.Uint16(data[4:6])
 	ypixel := binary.LittleEndian.Uint16(data[6:8])
 	return fmt.Sprintf("{ws_row=%d, ws_col=%d, ws_xpixel=%d, ws_ypixel=%d}", row, col, xpixel, ypixel)
+}
+
+// Dirents formats a buffer of struct linux_dirent64.
+func Dirents(data []byte, count int) string {
+	if len(data) == 0 { return "[]" }
+	var res []string
+	off := 0
+	for off < len(data) && off < count && len(res) < 16 {
+		if off+19 > len(data) { break }
+		d_ino := binary.LittleEndian.Uint64(data[off : off+8])
+		d_reclen := binary.LittleEndian.Uint16(data[off+16 : off+18])
+		if d_reclen == 0 { break }
+		d_type := data[off+18]
+		nameEnd := off + int(d_reclen)
+		if nameEnd > len(data) { nameEnd = len(data) }
+		nameBytes := data[off+19 : nameEnd]
+		if idx := indexByte(nameBytes, 0); idx != -1 { nameBytes = nameBytes[:idx] }
+		name := string(nameBytes)
+		
+		typeStr := "DT_UNKNOWN"
+		switch d_type {
+		case 1: typeStr = "DT_FIFO"; case 2: typeStr = "DT_CHR"; case 4: typeStr = "DT_DIR"
+		case 6: typeStr = "DT_BLK"; case 8: typeStr = "DT_REG"; case 10: typeStr = "DT_LNK"
+		case 12: typeStr = "DT_SOCK"; case 14: typeStr = "DT_WHT"
+		}
+		
+		res = append(res, fmt.Sprintf("{d_ino=%d, d_reclen=%d, d_type=%s, d_name=%q}", d_ino, d_reclen, typeStr, name))
+		off += int(d_reclen)
+	}
+	if off < count { res = append(res, "...") }
+	return "[" + strings.Join(res, ", ") + "]"
+}
+
+// Sigset formats a sigset_t bitmask.
+func Sigset(data []byte) string {
+	if len(data) < 8 { return "[]" }
+	mask := binary.LittleEndian.Uint64(data[0:8])
+	if mask == 0 { return "[]" }
+	var res []string
+	signals := []string{
+		"", "HUP", "INT", "QUIT", "ILL", "TRAP", "ABRT", "BUS", "FPE", "KILL", "USR1", "SEGV", "USR2", "PIPE", "ALRM", "TERM",
+		"STKFLT", "CHLD", "CONT", "STOP", "TSTP", "TTIN", "TTOU", "URG", "XCPU", "XFSZ", "VTALRM", "PROF", "WINCH", "IO", "PWR", "SYS",
+	}
+	for i := 1; i <= 64; i++ {
+		if (mask & (1 << (uint(i) - 1))) != 0 {
+			if i > 0 && i < len(signals) && signals[i] != "" {
+				res = append(res, signals[i])
+			} else {
+				res = append(res, fmt.Sprintf("%d", i))
+			}
+		}
+	}
+	return "[" + strings.Join(res, " ") + "]"
 }

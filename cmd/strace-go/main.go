@@ -23,7 +23,7 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 )
 
-//go:generate go run ../generate-syscalls/main.go
+//go:generate go run ../generate-syscalls
 //go:generate go run ../generate-xlats/main.go
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpf ../../bpf/strace.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
 
