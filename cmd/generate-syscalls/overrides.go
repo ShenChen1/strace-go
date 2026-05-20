@@ -76,6 +76,7 @@ var manualOverrides = map[string]SyscallMeta{
 
 	// Time
 	"nanosleep":      {Name: "nanosleep", Args: []string{"rqtp", "rmtp"}, ArgTypes: []string{"struct timespec *", "struct timespec *"}},
+	"alarm":          {Name: "alarm", Args: []string{"seconds"}, ArgTypes: []string{"unsigned int"}},
 	"clock_gettime":  {Name: "clock_gettime", Args: []string{"which_clock", "tp"}, ArgTypes: []string{"clockid_t", "struct timespec *"}},
 	"clock_settime":  {Name: "clock_settime", Args: []string{"which_clock", "tp"}, ArgTypes: []string{"const clockid_t", "const struct timespec *"}},
 	"clock_getres":   {Name: "clock_getres", Args: []string{"which_clock", "tp"}, ArgTypes: []string{"clockid_t", "struct timespec *"}},
@@ -106,6 +107,12 @@ var manualOverrides = map[string]SyscallMeta{
 	"lchown":     {Name: "lchown", Args: []string{"filename", "user", "group"}, ArgTypes: []string{"const char *", "uid_t", "gid_t"}},
 	"chroot":     {Name: "chroot", Args: []string{"filename"}, ArgTypes: []string{"const char *"}},
 	"readlink":   {Name: "readlink", Args: []string{"path", "buf", "bufsiz"}, ArgTypes: []string{"const char *", "char *", "int"}},
+	"acct":       {Name: "acct", Args: []string{"filename"}, ArgTypes: []string{"const char *"}},
+	"mount":      {Name: "mount", Args: []string{"dev_name", "dir_name", "type", "flags", "data"}, ArgTypes: []string{"const char *", "const char *", "const char *", "unsigned long", "void *"}},
+	"umount2":    {Name: "umount2", Args: []string{"target", "flags"}, ArgTypes: []string{"const char *", "int"}},
+	"swapon":     {Name: "swapon", Args: []string{"specialfile", "swap_flags"}, ArgTypes: []string{"const char *", "int"}},
+	"swapoff":    {Name: "swapoff", Args: []string{"specialfile"}, ArgTypes: []string{"const char *"}},
+	"quotactl":   {Name: "quotactl", Args: []string{"cmd", "special", "id", "addr"}, ArgTypes: []string{"int", "const char *", "int", "void *"}},
 
 	// *at variants
 	"openat":     {Name: "openat", Args: []string{"dfd", "filename", "flags", "mode"}, ArgTypes: []string{"int", "const char *", "int", "umode_t"}},
@@ -122,11 +129,25 @@ var manualOverrides = map[string]SyscallMeta{
 	"linkat":     {Name: "linkat", Args: []string{"olddfd", "oldname", "newdfd", "newname", "flags"}, ArgTypes: []string{"int", "const char *", "int", "const char *", "int"}},
 	"symlinkat":  {Name: "symlinkat", Args: []string{"oldname", "newdfd", "newname"}, ArgTypes: []string{"const char *", "int", "const char *"}},
 
+	// AIO
+	"io_setup":     {Name: "io_setup", Args: []string{"nr_events", "ctxp"}, ArgTypes: []string{"unsigned int", "aio_context_t *"}},
+	"io_destroy":   {Name: "io_destroy", Args: []string{"ctx"}, ArgTypes: []string{"aio_context_t"}},
+	"io_submit":    {Name: "io_submit", Args: []string{"ctx_id", "nr", "iocbpp"}, ArgTypes: []string{"aio_context_t", "long", "struct iocb **"}},
+	"io_getevents": {Name: "io_getevents", Args: []string{"ctx_id", "min_nr", "nr", "events", "timeout"}, ArgTypes: []string{"aio_context_t", "long", "long", "struct io_event *", "struct timespec *"}},
+	"io_cancel":    {Name: "io_cancel", Args: []string{"ctx_id", "iocb", "result"}, ArgTypes: []string{"aio_context_t", "struct iocb *", "struct io_event *"}},
+
+	// Keys
+	"add_key":      {Name: "add_key", Args: []string{"type", "description", "payload", "plen", "ringid"}, ArgTypes: []string{"const char *", "const char *", "const void *", "size_t", "key_serial_t"}},
+	"request_key":  {Name: "request_key", Args: []string{"type", "description", "callout_info", "destringid"}, ArgTypes: []string{"const char *", "const char *", "const char *", "key_serial_t"}},
+	"keyctl":       {Name: "keyctl", Args: []string{"option", "arg2", "arg3", "arg4", "arg5"}, ArgTypes: []string{"int", "unsigned long", "unsigned long", "unsigned long", "unsigned long"}},
+
 	// IPC
 	"futex": {Name: "futex", Args: []string{"uaddr", "op", "val", "utime", "uaddr2", "val3"}, ArgTypes: []string{"u32 *", "int", "u32", "const struct timespec *", "u32 *", "u32"}},
 
 	// Misc
-	"arch_prctl":  {Name: "arch_prctl", Args: []string{"option", "arg2"}, ArgTypes: []string{"int", "unsigned long"}},
+	"bpf":           {Name: "bpf", Args: []string{"cmd", "attr", "size"}, ArgTypes: []string{"int", "void *", "unsigned int"}},
+	"arch_prctl":    {Name: "arch_prctl", Args: []string{"option", "arg2"}, ArgTypes: []string{"int", "unsigned long"}},
+
 	"adjtimex":    {Name: "adjtimex", Args: []string{"txc_p"}, ArgTypes: []string{"struct timex *"}},
 	"pselect6":    {Name: "pselect6", Args: []string{"n", "inp", "outp", "exp", "tsp", "sig"}, ArgTypes: []string{"int", "fd_set *", "fd_set *", "fd_set *", "struct timespec *", "void *"}},
 	"ppoll":       {Name: "ppoll", Args: []string{"ufds", "nfds", "tsp", "sigmask", "sigsetsize"}, ArgTypes: []string{"struct pollfd *", "unsigned int", "struct timespec *", "const sigset_t *", "size_t"}},

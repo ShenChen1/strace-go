@@ -1,64 +1,75 @@
-// Package event provides BPF event string decoding and path matching logic.
 package event
 
 import (
 	"bytes"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"strace-go/pkg/procmem"
 )
 
-// Decoder decodes string arguments from BPF events and matches trace paths.
 type Decoder struct {
 	MemReader *procmem.Reader
 }
 
-// NewDecoder creates a Decoder backed by the given memory reader.
-func NewDecoder(memReader *procmem.Reader) *Decoder {
-	return &Decoder{MemReader: memReader}
+func NewDecoder(mr *procmem.Reader) *Decoder {
+	return &Decoder{MemReader: mr}
 }
 
-// DecodeString extracts a string from the target process's address space.
-// It first tries the BPF-captured buffer, then falls back to reading /proc/<pid>/mem.
+// DecodeString decodes a string from BPF-captured data or process memory.
 func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int32, scName string, expectedLen int) string {
-	if ptr == 0 { return "" }
-	if probeRet >= 0 {
-		if scName == "read" || scName == "write" {
-			limit := expectedLen; if limit > len(bpfData) { limit = len(bpfData) }
-			if limit > 0 { return string(bpfData[:limit]) }
-		} else if probeRet > 0 {
-			limit := int(probeRet); if limit > len(bpfData) { limit = len(bpfData) }
-			if limit > 0 && bpfData[limit-1] == 0 { limit-- }
-			return string(bpfData[:limit])
+	if ptr == 0 { return "NULL" }
+
+	// Try BPF data first
+	if len(bpfData) > 0 {
+		if idx := bytes.IndexByte(bpfData, 0); idx != -1 {
+			if idx > 0 || probeRet >= 0 {
+				return string(bpfData[:idx])
+			}
 		}
 	}
+
+	// Fallback to process memory
 	if data, err := d.MemReader.ReadRobust(pid, ptr, 512, false); err == nil {
-		if idx := bytes.IndexByte(data, 0); idx != -1 { return string(data[:idx]) }; return string(data)
+		if idx := bytes.IndexByte(data, 0); idx != -1 {
+			return string(data[:idx])
+		}
+		return string(data)
 	}
-	return ""
+
+	return fmt.Sprintf("%#x", ptr)
 }
 
-// MatchPath checks whether a syscall event matches any of the traced paths.
-// Returns true if paths is empty (no filtering) or if the event's file argument
-// or file descriptor resolves to one of the traced paths.
-func MatchPath(pid int, fd int32, syscallName string, ptr uint64, argStr string, paths map[string]bool, fdMap map[string]string) bool {
-	if len(paths) == 0 { return true }
-	if ptr != 0 && argStr != "" {
-		for p := range paths {
-			if strings.Contains(argStr, p) { return true }
-			if abs, err := filepath.Abs(p); err == nil && strings.Contains(argStr, abs) { return true }
-		}
+// MatchPath checks if the syscall matches any of the paths in the filter list.
+func MatchPath(pid int, fd int32, scName string, ptr uint64, rawStrArg string, tracePaths map[string]bool, fdMap map[string]string) bool {
+	if len(tracePaths) == 0 { return true }
+	
+	p := rawStrArg
+	if (p == "" || p == "NULL") && fd != -1 {
+		if path, ok := fdMap[fmt.Sprintf("%d:%d", pid, fd)]; ok { p = path }
 	}
-	if fd >= 0 {
-		link, _ := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", pid, fd))
-		if link == "" { link = fdMap[fmt.Sprintf("%d:%d", pid, fd)] }
-		for p := range paths {
-			if strings.HasSuffix(link, p) || strings.Contains(link, p) { return true }
-			if abs, err := filepath.Abs(p); err == nil && (strings.HasSuffix(link, abs) || strings.Contains(link, abs)) { return true }
+
+	if p == "" || p == "NULL" || strings.HasPrefix(p, "0x") { return false }
+	
+	for tp := range tracePaths {
+		if p == tp || strings.HasPrefix(p, tp+"/") { return true }
+		
+		absP := p
+		if !strings.HasPrefix(p, "/") {
+			if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid)); err == nil {
+				absP = cwd + "/" + p
+			}
 		}
+		
+		absTP := tp
+		if !strings.HasPrefix(tp, "/") {
+			if cwd, err := os.Getwd(); err == nil {
+				absTP = cwd + "/" + tp
+			}
+		}
+
+		if absP == absTP || strings.HasPrefix(absP, absTP+"/") { return true }
 	}
 	return false
 }

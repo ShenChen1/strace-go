@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/binary"
 	"fmt"
+	"strings"
 
 	"strace-go/pkg/meta"
 )
@@ -56,7 +57,12 @@ func (h *ArchPrctlHandler) Handle(ctx *Context) Result {
 							res.ArgParts = append(res.ArgParts, "[NULL]")
 						} else {
 							if opt >= 0x1021 && opt <= 0x1024 {
-								res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%#x /* %s */]", outV, meta.DecodeFlags(outV, "x86_xfeatures")))
+								decoded := meta.DecodeFlags(outV, "x86_xfeatures")
+								if strings.HasPrefix(decoded, "0x") && strings.Contains(decoded, "/*") {
+									res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%s]", decoded))
+								} else {
+									res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%#x /* %s */]", outV, decoded))
+								}
 							} else {
 								res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%#x]", outV))
 							}

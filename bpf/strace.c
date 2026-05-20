@@ -18,12 +18,12 @@ struct bpf_event {
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 25);
+    __uint(max_entries, 1 << 26);
 } events SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 1024);
+    __uint(max_entries, 8192);
     __type(key, u32);
     __type(value, struct bpf_event);
 } events_map SEC(".maps");
@@ -47,11 +47,14 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     u32 tid = (u32)bpf_get_current_pid_tgid();
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
     u32 key = 0;
+    
     u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &key);
     if (!filter_pid || *filter_pid != pid) return 0;
+    
     struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
     if (!e) return 0;
-    e->pid = pid; e->sys_id = ctx->id; e->tid = tid; e->probe_ret_enter = -1; e->probe_ret_exit = -1; e->ptr = 0; e->ret = 0;
+    
+    e->pid = pid; e->sys_id = (u32)ctx->id; e->tid = tid; e->probe_ret_enter = -1; e->probe_ret_exit = -1; e->ptr = 0; e->ret = 0;
     
     e->args[0] = ctx->args[0];
     e->args[1] = ctx->args[1];
@@ -60,8 +63,11 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     e->args[4] = ctx->args[4];
     e->args[5] = ctx->args[5];
 
-    
-    if (ctx->id == 1) { e->probe_ret_enter = bpf_probe_read_user(e->str_arg, 12, (void *)ctx->args[1]); }
+    #pragma unroll
+    for (int i = 0; i < 256; i++) {
+        ((volatile u64 *)e->str_arg)[i] = 0;
+    }
+
     CAPTURE_ARGS_ENTER(e->sys_id, e);
     bpf_map_update_elem(&events_map, &tid, e, BPF_ANY);
     return 0;
@@ -73,7 +79,13 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     struct bpf_event *e = bpf_map_lookup_elem(&events_map, &tid);
     if (!e) return 0;
     e->ret = ctx->ret;
+    
     CAPTURE_ARGS_EXIT(e->sys_id, e);
+    
+    if (e->probe_ret_enter < 0) {
+        CAPTURE_ARGS_ENTER(e->sys_id, e);
+    }
+    
     bpf_ringbuf_output(&events, e, sizeof(*e), 0);
     bpf_map_delete_elem(&events_map, &tid);
     return 0;

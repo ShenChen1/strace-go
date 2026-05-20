@@ -3,132 +3,137 @@ package handler
 import (
 	"encoding/binary"
 	"fmt"
+	"strings"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 func init() {
-	h := &NetworkHandler{}
-	Register("accept", h)
-	Register("accept4", h)
-	Register("getsockname", h)
-	Register("getpeername", h)
-	Register("recvfrom", h)
-	Register("sendto", h)
-	Register("connect", h)
-	Register("bind", h)
+	Register("io_setup", &AioHandler{})
+	Register("io_destroy", &AioHandler{})
+	Register("io_submit", &AioHandler{})
+	Register("io_cancel", &AioHandler{})
+	Register("io_getevents", &AioHandler{})
 }
 
-// NetworkHandler handles sockaddr-related syscalls.
-type NetworkHandler struct {
-	DefaultHandler
-}
+type AioHandler struct{}
 
-func (h *NetworkHandler) Handle(ctx *Context) Result {
-	var res Result
-
-	for i := 0; i < len(ctx.ScMeta.Args); i++ {
-		argName, argTyp, val := ctx.ScMeta.Args[i], ctx.ScMeta.ArgTypes[i], ctx.Args[i]
-
-		if argName == "fd" {
-			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int32(val)))
-			continue
-		}
-
-		if (argName == "upeer_addrlen" || argName == "usockaddr_len" || argName == "addr_len") &&
-			(ctx.ScMeta.Name == "accept" || ctx.ScMeta.Name == "accept4" || ctx.ScMeta.Name == "getsockname" || ctx.ScMeta.Name == "getpeername" || ctx.ScMeta.Name == "recvfrom") {
-			if val == 0 {
-				res.ArgParts = append(res.ArgParts, "NULL")
-				continue
+func (h *AioHandler) Handle(ctx *Context) Result {
+	res := Result{}
+	switch ctx.SysName {
+	case "io_setup":
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%u", uint32(ctx.Args[0])))
+		if ctx.Args[1] == 0 {
+			res.ArgParts = append(res.ArgParts, "NULL")
+		} else if ctx.Ret >= 0 {
+			data := ctx.StrArgBuf[1024:1032]
+			if ctx.ProbeRetExit < 0 {
+				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[1], 8, true); err == nil { data = d }
 			}
-			inLen := binary.LittleEndian.Uint32(ctx.StrArgBuf[768:772])
-			if inLen == 0 || ctx.ProbeRetEnter < 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 4, false); err == nil {
-					inLen = binary.LittleEndian.Uint32(d)
-				}
-			}
-			outLen := binary.LittleEndian.Uint32(ctx.StrArgBuf[772:776])
-			if outLen == 0 || ctx.ProbeRetExit < 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 4, true); err == nil {
-					outLen = binary.LittleEndian.Uint32(d)
-				}
-			}
-
-			if ctx.Ret >= 0 {
-				if inLen != outLen && inLen != 0 {
-					res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d => %d]", inLen, outLen))
-				} else {
-					res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d]", outLen))
-				}
-			} else {
-				if inLen != 0 {
-					res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d]", inLen))
-				} else {
-					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
-				}
-			}
-			continue
-		}
-
-		if argTyp == "struct sockaddr *" {
-			if val == 0 {
-				res.ArgParts = append(res.ArgParts, "NULL")
-				continue
-			}
-
-			aidx := 2
-			if ctx.ScMeta.Name == "sendto" { aidx = 5 } else if ctx.ScMeta.Name == "recvfrom" { aidx = 5 }
-
-			outLen := binary.LittleEndian.Uint32(ctx.StrArgBuf[772:776])
-			if outLen == 0 || ctx.ProbeRetExit < 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Tid, ctx.Args[aidx], 4, true); err == nil {
-					outLen = binary.LittleEndian.Uint32(d)
-				}
-			}
-			inLen := binary.LittleEndian.Uint32(ctx.StrArgBuf[768:772])
-			if inLen == 0 || ctx.ProbeRetEnter < 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Tid, ctx.Args[aidx], 4, false); err == nil {
-					inLen = binary.LittleEndian.Uint32(d)
-				}
-			}
-
-			capLen := outLen
-			if capLen == 0 { capLen = inLen }
-			if capLen > 256 { capLen = 256 }
-			if capLen == 0 { capLen = 16 }
-
-			sdata := ctx.StrArgBuf[512 : 512+capLen]
-			fam := uint16(0)
-			if len(sdata) >= 2 { fam = binary.LittleEndian.Uint16(sdata) }
-
-			if ctx.Ret >= 0 && (ctx.ProbeRetExit < 0 || (fam == 0 && capLen > 0)) {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, int(capLen), true); err == nil {
-					sdata = d
-				}
-			}
-
-			res.ArgParts = append(res.ArgParts, format.Sockaddr(sdata, outLen, inLen))
-			continue
-		}
-
-		if xlatName, ok := meta.SyscallArgXlatMap[ctx.ScMeta.Name][argName]; ok {
-			res.ArgParts = append(res.ArgParts, meta.DecodeFlags(val, xlatName))
-			continue
-		}
-
-		// Use default handler for remaining args (like void* buff, size_t len, int flags)
-		if argName == "buff" || argName == "ubuf" || argName == "len" || argName == "size" {
-			// A trick to reuse default logic for specific argument
-			ctxCopy := *ctx
-			ctxCopy.ScMeta.Args = []string{argName}
-			ctxCopy.ScMeta.ArgTypes = []string{argTyp}
-			ctxCopy.Args[0] = val
-			defRes := h.DefaultHandler.Handle(&ctxCopy)
-			res.ArgParts = append(res.ArgParts, defRes.ArgParts...)
-			if defRes.HexDumpStr != "" { res.HexDumpStr = defRes.HexDumpStr }
+			res.ArgParts = append(res.ArgParts, "["+fmt.Sprintf("%#x", binary.LittleEndian.Uint64(data))+"]")
 		} else {
-			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
+			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[1]))
+		}
+	case "io_destroy":
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[0]))
+	case "io_submit":
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[0]))
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int64(ctx.Args[1])))
+		count := int(ctx.Args[1])
+		if ctx.Args[2] == 0 {
+			res.ArgParts = append(res.ArgParts, "NULL")
+		} else if ctx.Ret < 0 && ctx.ProbeRetEnter < 0 {
+			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
+		} else if count > 0 {
+			limit := 16
+			pdata := ctx.StrArgBuf[0:512]
+			if ctx.ProbeRetEnter < 0 {
+				d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[2], count*8, true)
+				if err == nil {
+					pdata = d
+				} else {
+					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
+					return res
+				}
+			}
+			
+			var parts []string
+			for i := 0; i < count && i < limit; i++ {
+				if len(pdata) < (i+1)*8 { break }
+				p := binary.LittleEndian.Uint64(pdata[i*8 : i*8+8])
+				if p == 0 { parts = append(parts, "NULL"); continue }
+				
+				var idata []byte
+				if i < 2 && ctx.ProbeRetEnter >= 0 {
+					idata = ctx.StrArgBuf[512+i*64 : 512+(i+1)*64]
+					allZeros := true; for _, x := range idata { if x != 0 { allZeros = false; break } }
+					if allZeros { idata = nil }
+				}
+				
+				if idata == nil {
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, p, 64, true); err == nil { idata = d }
+				}
+				
+				if idata != nil {
+					parts = append(parts, format.Iocb(idata, ctx.Opts.Verbose))
+				} else {
+					parts = append(parts, fmt.Sprintf("%#x", p))
+				}
+			}
+			if count > limit {
+				parts = append(parts, "...")
+				// Strace also shows the end pointer in a comment sometimes?
+				// The test says ... /* 0x71e9d3da8000 */
+				parts[len(parts)-1] += fmt.Sprintf(" /* %#x */", ctx.Args[2])
+			}
+			res.ArgParts = append(res.ArgParts, "["+strings.Join(parts, ", ")+"]")
+		} else if count == 0 {
+			res.ArgParts = append(res.ArgParts, "[]")
+		} else {
+			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
+		}
+	case "io_cancel":
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[0]))
+		if ctx.Args[1] == 0 {
+			res.ArgParts = append(res.ArgParts, "NULL")
+		} else {
+			data := ctx.StrArgBuf[0:64]
+			if ctx.ProbeRetEnter < 0 {
+				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[1], 64, true); err == nil { data = d }
+			}
+			res.ArgParts = append(res.ArgParts, format.Iocb(data, ctx.Opts.Verbose))
+		}
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
+	case "io_getevents":
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[0]))
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int64(ctx.Args[1])))
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int64(ctx.Args[2])))
+		if ctx.Args[3] == 0 {
+			res.ArgParts = append(res.ArgParts, "NULL")
+		} else if ctx.Ret > 0 {
+			count := int(ctx.Ret)
+			data := ctx.StrArgBuf[1024 : 1024+512]
+			if ctx.ProbeRetExit < 0 {
+				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[3], count*32, true); err == nil { data = d }
+			}
+			res.ArgParts = append(res.ArgParts, format.IoEvents(data, count))
+		} else {
+			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[3]))
+		}
+		// Timeout
+		if ctx.Args[4] == 0 {
+			res.ArgParts = append(res.ArgParts, "NULL")
+		} else {
+			data := ctx.StrArgBuf[512:528]
+			if ctx.ProbeRetEnter < 0 {
+				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[4], 16, false); err == nil { data = d }
+			}
+			allZeros := true; for _, x := range data { if x != 0 { allZeros = false; break } }
+			if allZeros && ctx.Ret < 0 {
+				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[4]))
+			} else {
+				res.ArgParts = append(res.ArgParts, format.Timespec(data))
+			}
 		}
 	}
 	return res

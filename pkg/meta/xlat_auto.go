@@ -1,6 +1,6 @@
 package meta
 type XlatVal struct { Val uint64; Str string }
-type XlatTable struct { Entries []XlatVal; Prefix string }
+type XlatTable struct { Prefix string; Entries []XlatVal }
 var XlatTables = map[string]XlatTable{
 	"access_modes": {
 		Prefix: "",
@@ -114,6 +114,92 @@ var XlatTables = map[string]XlatTable{
 	"bpf_commands": {
 		Prefix: "BPF_",
 		Entries: []XlatVal{
+			{Val: 0, Str: "BPF_MAP_CREATE"},
+			{Val: 1, Str: "BPF_MAP_LOOKUP_ELEM"},
+			{Val: 2, Str: "BPF_MAP_UPDATE_ELEM"},
+			{Val: 3, Str: "BPF_MAP_DELETE_ELEM"},
+			{Val: 4, Str: "BPF_MAP_GET_NEXT_KEY"},
+			{Val: 5, Str: "BPF_PROG_LOAD"},
+			{Val: 6, Str: "BPF_OBJ_PIN"},
+			{Val: 7, Str: "BPF_OBJ_GET"},
+			{Val: 8, Str: "BPF_PROG_ATTACH"},
+			{Val: 9, Str: "BPF_PROG_DETACH"},
+			{Val: 10, Str: "BPF_PROG_TEST_RUN"},
+			{Val: 11, Str: "BPF_PROG_GET_NEXT_ID"},
+			{Val: 12, Str: "BPF_MAP_GET_NEXT_ID"},
+			{Val: 13, Str: "BPF_PROG_GET_FD_BY_ID"},
+			{Val: 14, Str: "BPF_MAP_GET_FD_BY_ID"},
+			{Val: 15, Str: "BPF_OBJ_GET_INFO_BY_FD"},
+			{Val: 16, Str: "BPF_PROG_QUERY"},
+			{Val: 17, Str: "BPF_RAW_TRACEPOINT_OPEN"},
+			{Val: 18, Str: "BPF_BTF_LOAD"},
+			{Val: 19, Str: "BPF_BTF_GET_FD_BY_ID"},
+			{Val: 20, Str: "BPF_TASK_FD_QUERY"},
+			{Val: 21, Str: "BPF_MAP_LOOKUP_AND_DELETE_ELEM"},
+			{Val: 22, Str: "BPF_MAP_FREEZE"},
+			{Val: 23, Str: "BPF_BTF_GET_NEXT_ID"},
+			{Val: 24, Str: "BPF_MAP_LOOKUP_BATCH"},
+			{Val: 25, Str: "BPF_MAP_LOOKUP_AND_DELETE_BATCH"},
+			{Val: 26, Str: "BPF_MAP_UPDATE_BATCH"},
+			{Val: 27, Str: "BPF_MAP_DELETE_BATCH"},
+			{Val: 28, Str: "BPF_LINK_CREATE"},
+			{Val: 29, Str: "BPF_LINK_UPDATE"},
+			{Val: 30, Str: "BPF_LINK_GET_FD_BY_ID"},
+			{Val: 31, Str: "BPF_LINK_GET_NEXT_ID"},
+			{Val: 32, Str: "BPF_ENABLE_STATS"},
+			{Val: 33, Str: "BPF_ITER_CREATE"},
+			{Val: 34, Str: "BPF_LINK_DETACH"},
+			{Val: 35, Str: "BPF_PROG_BIND_MAP"},
+			{Val: 36, Str: "BPF_TOKEN_CREATE"},
+			{Val: 37, Str: "BPF_PROG_STREAM_READ_BY_FD"},
+			{Val: 38, Str: "BPF_PROG_ASSOC_STRUCT_OPS"},
+		},
+	},
+	"bpf_map_flags": {
+		Prefix: "BPF_F_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "BPF_F_NO_PREALLOC"},
+			{Val: 8192, Str: "BPF_F_LINK"},
+		},
+	},
+	"bpf_map_types": {
+		Prefix: "BPF_MAP_TYPE_",
+		Entries: []XlatVal{
+			{Val: 0, Str: "BPF_MAP_TYPE_UNSPEC"},
+			{Val: 1, Str: "BPF_MAP_TYPE_HASH"},
+			{Val: 2, Str: "BPF_MAP_TYPE_ARRAY"},
+			{Val: 3, Str: "BPF_MAP_TYPE_PROG_ARRAY"},
+			{Val: 4, Str: "BPF_MAP_TYPE_PERF_EVENT_ARRAY"},
+			{Val: 5, Str: "BPF_MAP_TYPE_PERCPU_HASH"},
+			{Val: 6, Str: "BPF_MAP_TYPE_PERCPU_ARRAY"},
+			{Val: 7, Str: "BPF_MAP_TYPE_STACK_TRACE"},
+			{Val: 8, Str: "BPF_MAP_TYPE_CGROUP_ARRAY"},
+			{Val: 9, Str: "BPF_MAP_TYPE_LRU_HASH"},
+			{Val: 10, Str: "BPF_MAP_TYPE_LRU_PERCPU_HASH"},
+			{Val: 11, Str: "BPF_MAP_TYPE_LPM_TRIE"},
+			{Val: 12, Str: "BPF_MAP_TYPE_ARRAY_OF_MAPS"},
+			{Val: 13, Str: "BPF_MAP_TYPE_HASH_OF_MAPS"},
+			{Val: 14, Str: "BPF_MAP_TYPE_DEVMAP"},
+			{Val: 15, Str: "BPF_MAP_TYPE_SOCKMAP"},
+			{Val: 16, Str: "BPF_MAP_TYPE_CPUMAP"},
+			{Val: 17, Str: "BPF_MAP_TYPE_XSKMAP"},
+			{Val: 18, Str: "BPF_MAP_TYPE_SOCKHASH"},
+			{Val: 19, Str: "BPF_MAP_TYPE_CGROUP_STORAGE"},
+			{Val: 20, Str: "BPF_MAP_TYPE_REUSEPORT_SOCKARRAY"},
+			{Val: 21, Str: "BPF_MAP_TYPE_PERCPU_CGROUP_STORAGE"},
+			{Val: 22, Str: "BPF_MAP_TYPE_QUEUE"},
+			{Val: 23, Str: "BPF_MAP_TYPE_STACK"},
+			{Val: 24, Str: "BPF_MAP_TYPE_SK_STORAGE"},
+			{Val: 25, Str: "BPF_MAP_TYPE_DEVMAP_HASH"},
+			{Val: 26, Str: "BPF_MAP_TYPE_STRUCT_OPS"},
+			{Val: 27, Str: "BPF_MAP_TYPE_RINGBUF"},
+			{Val: 28, Str: "BPF_MAP_TYPE_INODE_STORAGE"},
+			{Val: 29, Str: "BPF_MAP_TYPE_TASK_STORAGE"},
+			{Val: 30, Str: "BPF_MAP_TYPE_BLOOM_FILTER"},
+			{Val: 31, Str: "BPF_MAP_TYPE_USER_RINGBUF"},
+			{Val: 32, Str: "BPF_MAP_TYPE_CGRP_STORAGE"},
+			{Val: 33, Str: "BPF_MAP_TYPE_ARENA"},
+			{Val: 34, Str: "BPF_MAP_TYPE_INSN_ARRAY"},
 		},
 	},
 	"clocknames": {
@@ -183,6 +269,7 @@ var XlatTables = map[string]XlatTable{
 			{Val: 4, Str: "EPOLLOUT"},
 			{Val: 8, Str: "EPOLLERR"},
 			{Val: 16, Str: "EPOLLHUP"},
+			{Val: 0x00000020, Str: "EPOLLNVAL"},
 			{Val: 64, Str: "EPOLLRDNORM"},
 			{Val: 128, Str: "EPOLLRDBAND"},
 			{Val: 256, Str: "EPOLLWRNORM"},
@@ -218,26 +305,19 @@ var XlatTables = map[string]XlatTable{
 			{Val: 11, Str: "FUTEX_WAIT_REQUEUE_PI"},
 			{Val: 12, Str: "FUTEX_CMP_REQUEUE_PI"},
 			{Val: 13, Str: "FUTEX_LOCK_PI2"},
-			{Val: 128, Str: "FUTEX_WAIT_PRIVATE"},
-			{Val: 129, Str: "FUTEX_WAKE_PRIVATE"},
-			{Val: 130, Str: "FUTEX_FD|FUTEX_PRIVATE_FLAG"},
-			{Val: 131, Str: "FUTEX_REQUEUE_PRIVATE"},
-			{Val: 132, Str: "FUTEX_CMP_REQUEUE_PRIVATE"},
-			{Val: 133, Str: "FUTEX_WAKE_OP_PRIVATE"},
-			{Val: 134, Str: "FUTEX_LOCK_PI_PRIVATE"},
-			{Val: 135, Str: "FUTEX_UNLOCK_PI_PRIVATE"},
-			{Val: 136, Str: "FUTEX_TRYLOCK_PI_PRIVATE"},
-			{Val: 137, Str: "FUTEX_WAIT_BITSET_PRIVATE"},
-			{Val: 138, Str: "FUTEX_WAKE_BITSET_PRIVATE"},
-			{Val: 139, Str: "FUTEX_WAIT_REQUEUE_PI_PRIVATE"},
-			{Val: 140, Str: "FUTEX_CMP_REQUEUE_PI_PRIVATE"},
-			{Val: 141, Str: "FUTEX_LOCK_PI2_PRIVATE"},
-			{Val: 256, Str: "FUTEX_WAIT|FUTEX_CLOCK_REALTIME"},
-			{Val: 384, Str: "FUTEX_WAIT_PRIVATE|FUTEX_CLOCK_REALTIME"},
-			{Val: 265, Str: "FUTEX_WAIT_BITSET|FUTEX_CLOCK_REALTIME"},
-			{Val: 393, Str: "FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME"},
-			{Val: 267, Str: "FUTEX_WAIT_REQUEUE_PI|FUTEX_CLOCK_REALTIME"},
-			{Val: 395, Str: "FUTEX_WAIT_REQUEUE_PI_PRIVATE|FUTEX_CLOCK_REALTIME"},
+		},
+	},
+	"key_spec": {
+		Prefix: "KEY_SPEC_",
+		Entries: []XlatVal{
+			{Val: 18446744073709551615, Str: "KEY_SPEC_THREAD_KEYRING"},
+			{Val: 18446744073709551614, Str: "KEY_SPEC_PROCESS_KEYRING"},
+			{Val: 18446744073709551613, Str: "KEY_SPEC_SESSION_KEYRING"},
+			{Val: 18446744073709551612, Str: "KEY_SPEC_USER_KEYRING"},
+			{Val: 18446744073709551611, Str: "KEY_SPEC_USER_SESSION_KEYRING"},
+			{Val: 18446744073709551610, Str: "KEY_SPEC_GROUP_KEYRING"},
+			{Val: 18446744073709551609, Str: "KEY_SPEC_REQKEY_AUTH_KEY"},
+			{Val: 18446744073709551608, Str: "KEY_SPEC_REQUESTOR_KEYRING"},
 		},
 	},
 	"madvise_cmds": {
@@ -259,6 +339,7 @@ var XlatTables = map[string]XlatTable{
 			{Val: 23, Str: "MADV_POPULATE_WRITE"},
 			{Val: 24, Str: "MADV_DONTNEED_LOCKED"},
 			{Val: 100, Str: "MADV_HWPOISON"},
+			{Val: 101, Str: "MADV_SOFT_OFFLINE"},
 			{Val: 102, Str: "MADV_GUARD_INSTALL"},
 			{Val: 103, Str: "MADV_GUARD_REMOVE"},
 		},
@@ -280,6 +361,8 @@ var XlatTables = map[string]XlatTable{
 			{Val: 64, Str: "MAP_32BIT"},
 			{Val: 128, Str: "MAP_ABOVE4G"},
 			{Val: 128, Str: "MAP_ABOVE4G"},
+			{Val: 0x20, Str: "MAP_RENAME"},
+			{Val: 0x20, Str: "MAP_RENAME"},
 			{Val: 16384, Str: "MAP_NORESERVE"},
 			{Val: 16384, Str: "MAP_NORESERVE"},
 			{Val: 16384, Str: "MAP_NORESERVE"},
@@ -290,18 +373,28 @@ var XlatTables = map[string]XlatTable{
 			{Val: 65536, Str: "MAP_NONBLOCK"},
 			{Val: 65536, Str: "MAP_NONBLOCK"},
 			{Val: 65536, Str: "MAP_NONBLOCK"},
+			{Val: 0x80000000, Str: "_MAP_NEW"},
+			{Val: 0x80000000, Str: "_MAP_NEW"},
 			{Val: 256, Str: "MAP_GROWSDOWN"},
 			{Val: 256, Str: "MAP_GROWSDOWN"},
 			{Val: 256, Str: "MAP_GROWSDOWN"},
 			{Val: 256, Str: "MAP_GROWSDOWN"},
+			{Val: 0x200, Str: "MAP_GROWSUP"},
+			{Val: 0x200, Str: "MAP_GROWSUP"},
 			{Val: 2048, Str: "MAP_DENYWRITE"},
 			{Val: 2048, Str: "MAP_DENYWRITE"},
 			{Val: 4096, Str: "MAP_EXECUTABLE"},
 			{Val: 4096, Str: "MAP_EXECUTABLE"},
+			{Val: 0x80, Str: "MAP_INHERIT"},
+			{Val: 0x80, Str: "MAP_INHERIT"},
+			{Val: 0x400, Str: "_MAP_INHERIT"},
+			{Val: 0x400, Str: "_MAP_INHERIT"},
 			{Val: 8192, Str: "MAP_LOCKED"},
 			{Val: 8192, Str: "MAP_LOCKED"},
 			{Val: 8192, Str: "MAP_LOCKED"},
 			{Val: 8192, Str: "MAP_LOCKED"},
+			{Val: 0x200, Str: "_MAP_HASSEMAPHORE"},
+			{Val: 0x200, Str: "_MAP_HASSEMAPHORE"},
 			{Val: 131072, Str: "MAP_STACK"},
 			{Val: 131072, Str: "MAP_STACK"},
 			{Val: 131072, Str: "MAP_STACK"},
@@ -309,8 +402,17 @@ var XlatTables = map[string]XlatTable{
 			{Val: 262144, Str: "MAP_HUGETLB"},
 			{Val: 262144, Str: "MAP_HUGETLB"},
 			{Val: 524288, Str: "MAP_SYNC"},
+			{Val: 0x4000000, Str: "MAP_UNINITIALIZED"},
 			{Val: 1048576, Str: "MAP_FIXED_NOREPLACE"},
 			{Val: 1048576, Str: "MAP_FIXED_NOREPLACE"},
+			{Val: 0x40, Str: "MAP_AUTOGROW"},
+			{Val: 0x40, Str: "MAP_AUTOGROW"},
+			{Val: 0x100, Str: "MAP_AUTORSRV"},
+			{Val: 0x100, Str: "MAP_AUTORSRV"},
+			{Val: 0x80, Str: "MAP_LOCAL"},
+			{Val: 0x80, Str: "MAP_LOCAL"},
+			{Val: 0x800, Str: "_MAP_UNALIGNED"},
+			{Val: 0x800, Str: "_MAP_UNALIGNED"},
 		},
 	},
 	"mmap_prot": {
@@ -322,6 +424,18 @@ var XlatTables = map[string]XlatTable{
 			{Val: 4, Str: "PROT_EXEC"},
 			{Val: 16777216, Str: "PROT_GROWSDOWN"},
 			{Val: 33554432, Str: "PROT_GROWSUP"},
+		},
+	},
+	"modetypes": {
+		Prefix: "S_",
+		Entries: []XlatVal{
+			{Val: 32768, Str: "S_IFREG"},
+			{Val: 49152, Str: "S_IFSOCK"},
+			{Val: 4096, Str: "S_IFIFO"},
+			{Val: 40960, Str: "S_IFLNK"},
+			{Val: 16384, Str: "S_IFDIR"},
+			{Val: 24576, Str: "S_IFBLK"},
+			{Val: 8192, Str: "S_IFCHR"},
 		},
 	},
 	"mount_flags": {
@@ -426,6 +540,7 @@ var XlatTables = map[string]XlatTable{
 			{Val: 4096, Str: "POLLREMOVE"},
 			{Val: 8192, Str: "POLLRDHUP"},
 			{Val: 8192, Str: "POLLRDHUP"},
+			{Val: 0x8000, Str: "POLL_BUSY_LOOP"},
 		},
 	},
 	"sigprocmaskcmds": {
@@ -476,6 +591,29 @@ var XlatTables = map[string]XlatTable{
 			{Val: 4, Str: "SEEK_HOLE"},
 		},
 	},
+	"x86_xfeature_bits": {
+		Prefix: "XFEATURE_",
+		Entries: []XlatVal{
+			{Val: 0, Str: "XFEATURE_FP"},
+			{Val: 1, Str: "XFEATURE_SSE"},
+			{Val: 2, Str: "XFEATURE_YMM"},
+			{Val: 3, Str: "XFEATURE_BNDREGS"},
+			{Val: 4, Str: "XFEATURE_BNDCSR"},
+			{Val: 5, Str: "XFEATURE_OPMASK"},
+			{Val: 6, Str: "XFEATURE_ZMM_Hi256"},
+			{Val: 7, Str: "XFEATURE_Hi16_ZMM"},
+			{Val: 8, Str: "XFEATURE_PT_UNIMPLEMENTED_SO_FAR"},
+			{Val: 9, Str: "XFEATURE_PKRU"},
+			{Val: 10, Str: "XFEATURE_PASID"},
+			{Val: 15, Str: "XFEATURE_LBR"},
+			{Val: 17, Str: "XFEATURE_XTILE_CFG"},
+			{Val: 18, Str: "XFEATURE_XTILE_DATA"},
+			{Val: 8, Str: "XFEATURE_PT_UNIMPLEMENTED_SO_FAR"},
+			{Val: 15, Str: "XFEATURE_LBR"},
+			{Val: 17, Str: "XFEATURE_XTILE_CFG"},
+			{Val: 18, Str: "XFEATURE_XTILE_DATA"},
+		},
+	},
 	"x86_xfeatures": {
 		Prefix: "XFEATURE_MASK_",
 		Entries: []XlatVal{
@@ -483,63 +621,56 @@ var XlatTables = map[string]XlatTable{
 	},
 }
 var SyscallArgXlatMap = map[string]map[string]string{
-	"faccessat": {
-		"mode": "access_modes",
-	},
-	"epoll_ctl": {
-		"op": "epollctls",
-	},
-	"epoll_create1": {
-		"flags": "epollflags",
-	},
-	"clone": {
-		"clone_flags": "clone_flags",
-	},
-	"madvise": {
-		"behavior": "madvise_cmds",
-	},
-	"rt_sigprocmask": {
-		"how": "sigprocmaskcmds",
-	},
-	"faccessat2": {
-		"mode": "access_modes",
+	"openat": {
+		"flags": "open_mode_flags",
 	},
 	"arch_prctl": {
 		"option": "archvals",
 	},
-	"clock_adjtime": {
-		"which_clock": "clocknames",
+	"mprotect": {
+		"prot": "mmap_prot",
 	},
-	"clock_nanosleep": {
-		"which_clock": "clocknames",
+	"madvise": {
+		"behavior": "madvise_cmds",
 	},
 	"lseek": {
 		"whence": "whence_codes",
 	},
-	"wait4": {
-		"options": "wait4_options",
-	},
 	"mount": {
 		"mountflags": "mount_flags",
+	},
+	"access": {
+		"mode": "access_modes",
 	},
 	"open": {
 		"flags": "open_mode_flags",
 	},
-	"openat": {
-		"flags": "open_mode_flags",
+	"faccessat2": {
+		"mode": "access_modes",
 	},
-	"accept4": {
-		"flags": "sock_type_flags",
+	"bpf": {
+		"arg0": "bpf_commands",
+	},
+	"clock_adjtime": {
+		"which_clock": "clocknames",
 	},
 	"clock_settime": {
 		"which_clock": "clocknames",
 	},
-	"mmap": {
-		"flags": "mmap_flags",
-		"prot": "mmap_prot",
+	"epoll_ctl": {
+		"op": "epollctls",
 	},
-	"mprotect": {
-		"prot": "mmap_prot",
+	"rt_sigprocmask": {
+		"how": "sigprocmaskcmds",
+	},
+	"clock_nanosleep": {
+		"which_clock": "clocknames",
+	},
+	"request_key": {
+		"destringid": "key_spec",
+	},
+	"epoll_create1": {
+		"flags": "epollflags",
 	},
 	"futex": {
 		"op": "futexops",
@@ -547,16 +678,29 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"umount2": {
 		"flags": "umount_flags",
 	},
-	"access": {
+	"faccessat": {
 		"mode": "access_modes",
-	},
-	"bpf": {
-		"cmd": "bpf_commands",
 	},
 	"mremap": {
 		"flags": "mremap_flags",
 	},
 	"clone3": {
 		"flags": "clone3_flags",
+	},
+	"mmap": {
+		"prot": "mmap_prot",
+		"flags": "mmap_flags",
+	},
+	"clone": {
+		"clone_flags": "clone_flags",
+	},
+	"wait4": {
+		"options": "wait4_options",
+	},
+	"add_key": {
+		"ringid": "key_spec",
+	},
+	"accept4": {
+		"flags": "sock_type_flags",
 	},
 }

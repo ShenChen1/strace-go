@@ -4,151 +4,183 @@
 
 rules:
   # Path-based syscalls (enter)
-  - syscalls: [stat, lstat, open, mkdir, chmod, access, rmdir, chdir, unlink, chown, lchown, chroot, readlink, creat, truncate]
+  - syscalls: [open, creat, access, chdir, chmod, chown, lchown, mkdir, rmdir, unlink, execve, swapon, swapoff, acct]
+    enter:
+      ptr_arg: 0
+      reads: [{ arg: 0, size: 512, type: string }]
+
+  # Syscalls returning struct stat
+  - syscalls: [stat, lstat]
     enter:
       ptr_arg: 0
       reads: [{ arg: 0, size: 512, type: string }]
     exit:
-      reads: [{ arg: 1, size: 144, offset: 256, type: raw }] # struct stat
+      reads: [{ arg: 1, size: 144, offset: 1024, type: raw }]
+
   # FD-based fstat
   - syscalls: [fstat]
     exit:
-      reads: [{ arg: 1, size: 144, offset: 256, type: raw }]
+      reads: [{ arg: 1, size: 144, offset: 1024, type: raw }]
 
   # At-based syscalls (enter)
-  - syscalls: [newfstatat, openat, mkdirat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, readlinkat, linkat, symlinkat]
+  - syscalls: [openat, mkdirat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, readlinkat, linkat, symlinkat]
+    enter:
+      ptr_arg: 1
+      reads: [{ arg: 1, size: 512, type: string }]
+
+  - syscalls: [newfstatat]
     enter:
       ptr_arg: 1
       reads: [{ arg: 1, size: 512, type: string }]
     exit:
-      reads: [{ arg: 2, size: 144, offset: 256, type: raw }] # struct stat
+      reads: [{ arg: 2, size: 144, offset: 1024, type: raw }]
 
-  # Rename syscalls (special case)
-  - syscalls: [rename]
+  - syscalls: [readlink]
     enter:
-      reads: 
+      ptr_arg: 0
+      reads: [{ arg: 0, size: 512, type: string }]
+    exit:
+      reads: [{ arg: 1, size: 512, offset: 1024, type: raw }]
+
+  # Dual path syscalls
+  - syscalls: [rename, link, symlink]
+    enter:
+      ptr_arg: 0
+      reads:
         - { arg: 0, size: 512, offset: 0, type: string }
-        - { arg: 1, size: 512, offset: 1024, type: string }
+        - { arg: 1, size: 512, offset: 512, type: string }
 
-  - syscalls: [renameat, renameat2]
+  - syscalls: [renameat, renameat2, linkat]
     enter:
+      ptr_arg: 1
       reads:
         - { arg: 1, size: 512, offset: 0, type: string }
-        - { arg: 3, size: 512, offset: 1024, type: string }
+        - { arg: 3, size: 512, offset: 512, type: string }
 
-  # Network syscalls
-  - syscalls: [connect, bind]
-    enter:
-      ptr_arg: 1
-      reads: [{ arg: 1, size: 256, offset: 512, type: raw }]
-
-  - syscalls: [accept, accept4]
-    enter:
-      ptr_arg: 1
-      reads: [{ arg: 2, size: 4, offset: 768, type: raw }]
+  # Read/Write buffer capture (small prefix)
+  - syscalls: [read, pread64]
     exit:
-      reads:
-        - { arg: 1, size: 256, offset: 512, type: raw }
-        - { arg: 2, size: 4, offset: 772, type: raw }
+      ptr_arg: 1
+      reads: [{ arg: 1, size: 512, offset: 1024, type: raw }]
 
-  - syscalls: [getsockname, getpeername]
-    exit:
-      reads:
-        - { arg: 1, size: 256, offset: 512, type: raw }
-        - { arg: 2, size: 4, offset: 772, type: raw }
-
-  - syscalls: [sendto]
+  - syscalls: [write, pwrite64]
     enter:
       ptr_arg: 1
       reads: [{ arg: 1, size: 512, offset: 0, type: raw }]
 
-  - syscalls: [recvfrom]
-    exit:
-      reads:
-        - { arg: 1, size: 512, offset: 0, type: raw }
-        - { arg: 4, size: 256, offset: 512, type: raw }
-        - { arg: 5, size: 4, offset: 772, type: raw }
-
-  # I/O syscalls
-  - syscalls: [read]
-    enter: { ptr_arg: 1 }
-    exit:
-      reads: [{ arg: 1, size: 512, type: raw }]
-
-  - syscalls: [write]
+  # Network
+  - syscalls: [connect, bind, sendto]
     enter:
       ptr_arg: 1
-      reads: [{ arg: 1, size: 512, type: raw }]
+      reads: [{ arg: 1, size: 128, offset: 0, type: raw }] # sockaddr
 
-  # Event/Multiplexing
-  - syscalls: [poll, ppoll]
-    enter:
-      reads: [{ arg: 0, size: 512, type: raw }]
+  - syscalls: [accept, accept4, getsockname, getpeername]
     exit:
-      reads: [{ arg: 0, size: 512, type: raw }]
+      ptr_arg: 1
+      reads: [{ arg: 1, size: 128, offset: 1024, type: raw }] # sockaddr
 
-  - syscalls: [select, pselect6]
+  - syscalls: [mount]
     enter:
       reads:
-        - { arg: 1, size: 128, offset: 0, type: raw }
-        - { arg: 2, size: 128, offset: 128, type: raw }
-        - { arg: 3, size: 128, offset: 256, type: raw }
-    exit:
-      reads:
-        - { arg: 1, size: 128, offset: 0, type: raw }
-        - { arg: 2, size: 128, offset: 128, type: raw }
-        - { arg: 3, size: 128, offset: 256, type: raw }
+        - { arg: 0, size: 512, offset: 0, type: string }
+        - { arg: 1, size: 512, offset: 512, type: string }
+        - { arg: 2, size: 128, offset: 1024, type: string }
 
-  - syscalls: [epoll_ctl]
+  - syscalls: [umount2]
     enter:
-      reads: [{ arg: 3, size: 12, type: raw }]
+      ptr_arg: 0
+      reads: [{ arg: 0, size: 512, type: string }]
 
-  - syscalls: [epoll_wait, epoll_pwait]
-    exit:
-      reads: [{ arg: 1, size: 512, type: raw }]
-
-  # Misc
-  - syscalls: [ioctl]
+  - syscalls: [io_submit]
     enter:
-      reads: [{ arg: 2, size: 128, offset: 512, type: raw }]
-    exit:
-      reads: [{ arg: 2, size: 128, offset: 512, type: raw }]
+      reads: [{ arg: 2, size: 0, offset: 0, type: raw }]
+
+  - syscalls: [io_cancel]
+    enter:
+      reads: [{ arg: 1, size: 64, offset: 0, type: raw }]
 
   - syscalls: [adjtimex]
     enter:
-      reads: [{ arg: 0, size: 256, offset: 512, type: raw }]
+      reads: [{ arg: 0, size: 208, offset: 0, type: raw }]
     exit:
-      reads: [{ arg: 0, size: 256, offset: 512, type: raw }]
+      reads: [{ arg: 0, size: 208, offset: 1024, type: raw }]
 
-  - syscalls: [nanosleep]
+  - syscalls: [clock_adjtime]
     enter:
-      ptr_arg: 0
-      reads: [{ arg: 0, size: 16, type: raw }]
+      reads: [{ arg: 1, size: 208, offset: 0, type: raw }]
+    exit:
+      reads: [{ arg: 1, size: 208, offset: 1024, type: raw }]
+
+  - syscalls: [io_getevents, io_pgetevents]
+    enter:
+      ptr_arg: 4
+      reads: [{ arg: 4, size: 16, offset: 512, type: raw }]
+    exit:
+      reads: [{ arg: 3, size: 0, offset: 1024, type: raw }]
 
   - syscalls: [clock_nanosleep]
     enter:
-      ptr_arg: 2
-      reads: [{ arg: 2, size: 16, type: raw }]
-
-  - syscalls: [gettimeofday]
+      reads: [{ arg: 2, size: 16, offset: 0, type: raw }]
     exit:
-      ptr_arg: 0
-      reads: [{ arg: 0, size: 16, type: raw }]
+      reads: [{ arg: 3, size: 16, offset: 1024, type: raw }]
 
   - syscalls: [clock_gettime]
     exit:
       ptr_arg: 1
-      reads: [{ arg: 1, size: 16, type: raw }]
+      reads: [{ arg: 1, size: 16, offset: 1024, type: raw }]
 
-  - syscalls: [getdents64]
+  - syscalls: [gettimeofday]
     exit:
-      reads: [{ arg: 1, size: 512, type: raw }]
+      ptr_arg: 0
+      reads:
+        - { arg: 0, size: 16, offset: 1024, type: raw }
+        - { arg: 1, size: 8, offset: 1040, type: raw }
+
+  - syscalls: [poll]
+    enter:
+      reads: [{ arg: 0, size: 512, offset: 0, type: raw }]
+    exit:
+      reads: [{ arg: 0, size: 512, offset: 1024, type: raw }]
+
+  - syscalls: [select]
+    enter:
+      reads:
+        - { arg: 1, size: 128, offset: 0, type: raw }
+        - { arg: 2, size: 128, offset: 128, type: raw }
+        - { arg: 3, size: 128, offset: 256, type: raw }
+    exit:
+      reads:
+        - { arg: 1, size: 128, offset: 1024, type: raw }
+        - { arg: 2, size: 128, offset: 1152, type: raw }
+        - { arg: 3, size: 128, offset: 1280, type: raw }
+
+  - syscalls: [epoll_ctl]
+    enter:
+      reads: [{ arg: 3, size: 12, offset: 0, type: raw }]
+
+  - syscalls: [epoll_wait, epoll_pwait]
+    exit:
+      reads: [{ arg: 1, size: 512, offset: 1024, type: raw }]
 
   - syscalls: [rt_sigprocmask]
     enter:
-      reads: [{ arg: 1, size: 8, type: raw }]
+      reads: [{ arg: 1, size: 8, offset: 0, type: raw }]
+
+  # Keys
+  - syscalls: [add_key, request_key]
+    enter:
+      reads:
+        - { arg: 0, size: 64, offset: 0, type: string }
+        - { arg: 1, size: 128, offset: 64, type: string }
+        - { arg: 2, size: 256, offset: 256, type: raw }
+
+  # AIO
+  - syscalls: [io_setup]
+    exit:
+      ptr_arg: 1
+      reads: [{ arg: 1, size: 8, offset: 1024, type: raw }]
 
   - syscalls: [arch_prctl]
     enter: { ptr_arg: 1 }
     exit:
-      reads: [{ arg: 1, size: 8, offset: 512, type: raw }]
+      reads: [{ arg: 1, size: 8, offset: 1024, type: raw }]

@@ -14,10 +14,20 @@ syscalls:
   x86_xfeatures_table:
     # dummy for generation
     dummy: x86_xfeatures
+  x86_xfeature_bits_table:
+    dummy: x86_xfeature_bits
+  add_key:
+    ringid: key_spec
+  request_key:
+    destringid: key_spec
   accept4:
     flags: sock_type_flags
   bpf:
-    cmd: bpf_commands
+    arg0: bpf_commands
+  bpf_map_types_table:
+    dummy: bpf_map_types
+  bpf_map_flags_table:
+    dummy: bpf_map_flags
   clock_adjtime:
     which_clock: clocknames
   clock_nanosleep:
@@ -57,6 +67,8 @@ syscalls:
     mountflags: mount_flags
   rt_sigprocmask:
     how: sigprocmaskcmds
+  modetypes_table:
+    dummy: modetypes
 
 # Custom mapping logic can be added later if needed.
 # Note: open_mode_flags doesn't include access modes (O_RDONLY etc), 

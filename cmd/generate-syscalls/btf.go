@@ -8,8 +8,6 @@ import (
 )
 
 // loadBTFSyscalls extracts syscall signatures from kernel BTF.
-// It searches __do_sys_* and ksys_* functions, returning a map
-// of syscall name → SyscallMeta with parameter names and types.
 func loadBTFSyscalls() (map[string]SyscallMeta, error) {
 	spec, err := btf.LoadKernelSpec()
 	if err != nil {
@@ -17,6 +15,8 @@ func loadBTFSyscalls() (map[string]SyscallMeta, error) {
 	}
 
 	result := make(map[string]SyscallMeta)
+	// Keep track of the source function name to handle priorities
+	sources := make(map[string]string)
 
 	for typ, err := range spec.All() {
 		if err != nil {
@@ -28,7 +28,9 @@ func loadBTFSyscalls() (map[string]SyscallMeta, error) {
 		}
 
 		var syscallName string
-		if strings.HasPrefix(fn.Name, "__do_sys_") {
+		if strings.HasPrefix(fn.Name, "__x64_sys_") {
+			syscallName = strings.TrimPrefix(fn.Name, "__x64_sys_")
+		} else if strings.HasPrefix(fn.Name, "__do_sys_") {
 			syscallName = strings.TrimPrefix(fn.Name, "__do_sys_")
 		} else if strings.HasPrefix(fn.Name, "ksys_") {
 			syscallName = strings.TrimPrefix(fn.Name, "ksys_")
@@ -41,19 +43,28 @@ func loadBTFSyscalls() (map[string]SyscallMeta, error) {
 			continue
 		}
 
-		// Skip functions with only pt_regs param (no real arg info)
-		if len(proto.Params) == 1 && proto.Params[0].Name == "__unused" {
+		// Skip functions with only pt_regs or __unused param
+		if len(proto.Params) == 1 && (proto.Params[0].Name == "regs" || proto.Params[0].Name == "__unused" || proto.Params[0].Name == "unused") {
 			continue
 		}
 
-		// Skip internal helpers (e.g. ksys_sync_helper)
+		// Skip internal helpers
 		if strings.Contains(syscallName, "_helper") {
 			continue
 		}
 
-		// __do_sys_ takes priority over ksys_
-		if _, exists := result[syscallName]; exists && strings.HasPrefix(fn.Name, "ksys_") {
-			continue
+		// __do_sys_ usually has the best info, then __x64_sys_, then ksys_
+		// Actually, let's just pick the one with the most parameters if names are the same
+		if oldMeta, exists := result[syscallName]; exists {
+			if len(proto.Params) < len(oldMeta.Args) {
+				continue
+			}
+			// If same number of params, prioritize __do_sys_ over others
+			if len(proto.Params) == len(oldMeta.Args) {
+				if !strings.HasPrefix(fn.Name, "__do_sys_") {
+					continue
+				}
+			}
 		}
 
 		args := make([]string, 0, len(proto.Params))
@@ -68,6 +79,7 @@ func loadBTFSyscalls() (map[string]SyscallMeta, error) {
 			Args:     args,
 			ArgTypes: argTypes,
 		}
+		sources[syscallName] = fn.Name
 	}
 
 	return result, nil
@@ -108,6 +120,6 @@ func resolveType(t btf.Type) string {
 	case *btf.Array:
 		return resolveType(v.Type) + "[]"
 	default:
-		return fmt.Sprintf("%#x", 0)
+		return "unsigned long"
 	}
 }

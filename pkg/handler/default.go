@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"encoding/binary"
 	"fmt"
+	"os"
 	"strings"
 
 	"strace-go/pkg/format"
@@ -13,29 +13,42 @@ func init() {
 	SetDefault(&DefaultHandler{})
 }
 
-// DefaultHandler implements standard formatting for most syscall arguments.
+// DefaultHandler handles all syscalls by default using metadata.
 type DefaultHandler struct{}
 
 func (h *DefaultHandler) Handle(ctx *Context) Result {
-	var res Result
-	for i := 0; i < len(ctx.ScMeta.Args); i++ {
-		argName, argTyp, val := ctx.ScMeta.Args[i], ctx.ScMeta.ArgTypes[i], ctx.Args[i]
-
-		if ctx.ScMeta.Name == "brk" && i == 0 && val == 0 {
+	res := Result{}
+	
+	if ctx.ScMeta.Name == "brk" {
+		if ctx.Args[0] == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
-			continue
+		} else {
+			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[0]))
 		}
+		return res
+	}
 
-		if argName == "mode" && (ctx.ScMeta.Name == "open" || ctx.ScMeta.Name == "openat" || ctx.ScMeta.Name == "openat2") {
-			fIdx := 1
-			if ctx.ScMeta.Name == "openat" || ctx.ScMeta.Name == "openat2" { fIdx = 2 }
-			fl := ctx.Args[fIdx]
-			if (fl & 64) == 0 && (fl & 4194304) == 0 { continue }
+	argCount := len(ctx.ScMeta.ArgTypes)
+	if ctx.ScMeta.Name == "open" || ctx.ScMeta.Name == "openat" {
+		flags := uint32(ctx.Args[1])
+		if ctx.ScMeta.Name == "openat" { flags = uint32(ctx.Args[2]) }
+		hasMode := (flags&0100 != 0) || (flags&020000000 != 0) // O_CREAT or O_TMPFILE
+		if !hasMode {
+			if ctx.ScMeta.Name == "open" { argCount = 2 } else { argCount = 3 }
 		}
+	}
 
-		if (ctx.ScMeta.Name == "stat" || ctx.ScMeta.Name == "fstat" || ctx.ScMeta.Name == "lstat" || ctx.ScMeta.Name == "newfstatat") && (argName == "statbuf" || argName == "ubuf") && ctx.Ret >= 0 {
-			res.ArgParts = append(res.ArgParts, format.Stat(ctx.StrArgBuf[256:]))
-			continue
+	for i := 0; i < argCount; i++ {
+		argTyp := ctx.ScMeta.ArgTypes[i]
+		argName := ctx.ScMeta.Args[i]
+		val := ctx.Args[i]
+
+		// Handle XLATs
+		if syscallMap, ok := meta.SyscallArgXlatMap[ctx.ScMeta.Name]; ok {
+			if xlatName, ok := syscallMap[argName]; ok {
+				res.ArgParts = append(res.ArgParts, meta.DecodeFlags(val, xlatName))
+				continue
+			}
 		}
 
 		if strings.Contains(argTyp, "*") {
@@ -43,43 +56,46 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 				res.ArgParts = append(res.ArgParts, "NULL")
 				continue
 			}
-			if ctx.Ret < 0 && ctx.Ret >= -4095 && (argName != "filename" && argName != "pathname" && argName != "path" && argName != "oldname" && argName != "newname") {
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
+
+			// Priority decoding for well-known structs
+			if strings.Contains(argTyp, "struct timespec *") || strings.Contains(argTyp, "struct __kernel_timespec *") {
+				off := 0
+				data := ctx.StrArgBuf[off : off+16]
+				if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 || ctx.ScMeta.Name == "nanosleep" || ctx.ScMeta.Name == "clock_nanosleep" {
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 16, false); err == nil { data = d }
+				}
+				res.ArgParts = append(res.ArgParts, format.Timespec(data))
 				continue
 			}
 
-			if strings.Contains(argTyp, "char *") || strings.Contains(argTyp, "void *") {
-				isRen := ctx.ScMeta.Name == "rename" || ctx.ScMeta.Name == "renameat" || ctx.ScMeta.Name == "renameat2" || ctx.ScMeta.Name == "link" || ctx.ScMeta.Name == "linkat" || ctx.ScMeta.Name == "symlink" || ctx.ScMeta.Name == "symlinkat"
-				fd := int32(-1)
-				if strings.Contains(ctx.ScMeta.Name, "read") || strings.Contains(ctx.ScMeta.Name, "write") { fd = int32(ctx.Args[0]) }
-
-				if (ctx.ScMeta.Name == "read" && ctx.Ret > 0 && ctx.Opts.TraceReadFDs[fd]) || (ctx.ScMeta.Name == "write" && ctx.Opts.TraceWriteFDs[fd] && ctx.Ret >= 0) {
-					szH := ctx.Args[2]
-					if ctx.ScMeta.Name == "read" { szH = uint64(ctx.Ret) }
-					full, _ := ctx.MemReader.ReadRobust(ctx.Tid, val, int(szH), true)
-					if full == nil {
-						capLen := int(szH)
-						if capLen > 512 { capLen = 512 }
-						if capLen < 0 { capLen = 0 }
-						res.ArgParts = append(res.ArgParts, format.Buffer(ctx.StrArgBuf[:capLen], ctx.Opts.StringLimit, int(szH)))
-					} else {
-						res.HexDumpStr = format.Hexdump(full)
-						res.ArgParts = append(res.ArgParts, format.Buffer(full, ctx.Opts.StringLimit, int(szH)))
-					}
-				} else if isRen {
-					p1 := ctx.Decoder.DecodeString(ctx.Tid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, ctx.ScMeta.Name, 0)
-					p2 := ctx.Decoder.DecodeString(ctx.Tid, ctx.Args[1], ctx.StrArgBuf[1024:1536], ctx.ProbeRetEnter, ctx.ScMeta.Name, 0)
-					if ctx.ScMeta.Name != "rename" {
-						p1 = ctx.Decoder.DecodeString(ctx.Tid, ctx.Args[1], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, ctx.ScMeta.Name, 0)
-						p2 = ctx.Decoder.DecodeString(ctx.Tid, ctx.Args[3], ctx.StrArgBuf[1024:1536], ctx.ProbeRetEnter, ctx.ScMeta.Name, 0)
-					}
-					res.ArgParts = append(res.ArgParts, format.Buffer([]byte(p1), ctx.Opts.StringLimit, 0))
-					if val != ctx.Args[0] && (ctx.ScMeta.Name == "rename" || val != ctx.Args[1]) {
-						res.ArgParts[len(res.ArgParts)-1] = format.Buffer([]byte(p2), ctx.Opts.StringLimit, 0)
-					}
-				} else {
-					res.ArgParts = append(res.ArgParts, format.Buffer([]byte(ctx.RawStrArg), ctx.Opts.StringLimit, 0))
+			if strings.Contains(argTyp, "struct timeval *") {
+				data := ctx.StrArgBuf[1024 : 1024+16]
+				if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 {
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 16, false); err == nil { data = d }
 				}
+				res.ArgParts = append(res.ArgParts, format.Timeval(data))
+				continue
+			}
+
+			if strings.Contains(argTyp, "struct timex *") || strings.Contains(argTyp, "struct __kernel_timex *") {
+				data := ctx.StrArgBuf[1024 : 1024+208]
+				if ctx.Ret >= 0 || ctx.ProbeRetExit < 0 {
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 208, true); err == nil { data = d }
+				}
+				res.ArgParts = append(res.ArgParts, format.Timex(data))
+				continue
+			}
+
+			if strings.Contains(argTyp, "struct stat *") || strings.Contains(argTyp, "struct stat64 *") || strings.Contains(argTyp, "struct new_stat *") || strings.Contains(argTyp, "struct __old_kernel_stat *") {
+				if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
+					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
+					continue
+				}
+				data := ctx.StrArgBuf[1024 : 1024+144]
+				if ctx.Ret >= 0 || ctx.ProbeRetExit < 0 {
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 144, true); err == nil { data = d }
+				}
+				res.ArgParts = append(res.ArgParts, format.Stat(data))
 				continue
 			}
 
@@ -104,34 +120,78 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 				}
 				count := int(ctx.Ret)
 				if count < 0 { count = 0 }
-				res.ArgParts = append(res.ArgParts, format.EpollEvents(ctx.StrArgBuf[:512], count))
+				res.ArgParts = append(res.ArgParts, format.EpollEvents(ctx.StrArgBuf[1024:1536], count))
 				continue
 			}
 
-			if strings.Contains(argTyp, "struct timespec *") || strings.Contains(argTyp, "struct __kernel_timespec *") {
-				data := ctx.StrArgBuf[:16]
-				if ctx.Ret >= 0 || ctx.ProbeRetExit > 0 {
-					if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 16, true); err == nil { data = d }
+			// Fallback to strings or hex pointers
+			if ctx.Ret < 0 && ctx.Ret >= -4095 {
+				isStr := strings.Contains(argTyp, "char *")
+				isPath := argName == "filename" || argName == "pathname" || argName == "path" || argName == "oldname" || argName == "newname"
+				if !isPath && !isStr && !strings.Contains(argName, "type") && !strings.Contains(argName, "description") {
+					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
+					continue
 				}
-				res.ArgParts = append(res.ArgParts, format.Timespec(data))
-				continue
 			}
 
-			if strings.Contains(argTyp, "struct timeval *") {
-				data := ctx.StrArgBuf[:16]
-				if ctx.Ret >= 0 || ctx.ProbeRetExit > 0 {
-					if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 16, true); err == nil { data = d }
+			if strings.Contains(argTyp, "char *") || strings.Contains(argTyp, "void *") {
+				isRen := ctx.ScMeta.Name == "rename" || ctx.ScMeta.Name == "renameat" || ctx.ScMeta.Name == "renameat2" || ctx.ScMeta.Name == "link" || ctx.ScMeta.Name == "linkat" || ctx.ScMeta.Name == "symlink" || ctx.ScMeta.Name == "symlinkat"
+				
+				if scName := ctx.ScMeta.Name; (scName == "add_key" || scName == "request_key") && (strings.Contains(argName, "type") || strings.Contains(argName, "description")) {
+					off := 0
+					if strings.Contains(argName, "description") { off = 64 }
+					p := ctx.Decoder.DecodeString(ctx.Tid, val, ctx.StrArgBuf[off:off+128], ctx.ProbeRetEnter, scName, 0)
+					if p == "NULL" { res.ArgParts = append(res.ArgParts, "NULL") } else { res.ArgParts = append(res.ArgParts, format.Buffer([]byte(p), ctx.Opts.StringLimit, 0)) }
+					continue
 				}
-				res.ArgParts = append(res.ArgParts, format.Timeval(data))
-				continue
-			}
+				if scName := ctx.ScMeta.Name; (scName == "add_key" || scName == "request_key") && strings.Contains(argName, "payload") {
+					if int(ctx.Args[3]) == 0 { res.ArgParts = append(res.ArgParts, "\"\""); continue }
+					if ctx.Ret < 0 { res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val)); continue }
+					data := ctx.StrArgBuf[256:512]
+					if ctx.ProbeRetEnter < 0 {
+						if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 256, false); err == nil { data = d }
+					}
+					sz := int(ctx.Args[3])
+					if sz < 0 { sz = 0 }
+					res.ArgParts = append(res.ArgParts, format.Buffer(data, ctx.Opts.StringLimit, sz))
+					continue
+				}
 
-			if scName := ctx.ScMeta.Name; scName == "adjtimex" && argName == "txc_p" && ctx.Ret >= 0 {
-				sdata := ctx.StrArgBuf[512:768]
-				if ctx.ProbeRetExit < 0 || (binary.LittleEndian.Uint32(sdata[40:44]) == 0 && binary.LittleEndian.Uint64(sdata[8:16]) == 0) {
-					if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 208, true); err == nil { sdata = d }
+				fd := int32(-1)
+				if strings.Contains(ctx.ScMeta.Name, "read") || strings.Contains(ctx.ScMeta.Name, "write") { fd = int32(ctx.Args[0]) }
+
+				if (ctx.ScMeta.Name == "read" || ctx.ScMeta.Name == "pread64") && ctx.Ret > 0 && ctx.Opts.TraceReadFDs[fd] {
+					szH := uint64(ctx.Ret)
+					data := ctx.StrArgBuf[1024 : 1024+512]
+					if ctx.ProbeRetExit < 0 {
+						if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, int(szH), true); err == nil { data = d }
+					}
+					res.HexDumpStr = format.Hexdump(data)
+					res.ArgParts = append(res.ArgParts, format.Buffer(data, ctx.Opts.StringLimit, int(szH)))
+				} else if (ctx.ScMeta.Name == "write" || ctx.ScMeta.Name == "pwrite64") && ctx.Opts.TraceWriteFDs[fd] {
+					szH := ctx.Args[2]
+					data := ctx.StrArgBuf[0:512]
+					if ctx.ProbeRetEnter < 0 {
+						if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, int(szH), true); err == nil { data = d }
+					}
+					res.HexDumpStr = format.Hexdump(data)
+					res.ArgParts = append(res.ArgParts, format.Buffer(data, ctx.Opts.StringLimit, int(szH)))
+				} else if isRen {
+					p1 := ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, ctx.ScMeta.Name, 0)
+					p2 := ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, ctx.ScMeta.Name, 0)
+					if ctx.ScMeta.Name == "renameat" || ctx.ScMeta.Name == "renameat2" || ctx.ScMeta.Name == "linkat" {
+						p1 = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, ctx.ScMeta.Name, 0)
+						p2 = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[3], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, ctx.ScMeta.Name, 0)
+					}
+					if p1 == "NULL" { res.ArgParts = append(res.ArgParts, "NULL") } else { res.ArgParts = append(res.ArgParts, format.Buffer([]byte(p1), ctx.Opts.StringLimit, 0)) }
+					if val != ctx.Args[0] && (ctx.ScMeta.Name == "rename" || val != ctx.Args[1]) {
+						p := p2; if p2 == "NULL" { res.ArgParts[len(res.ArgParts)-1] = "NULL" } else { res.ArgParts[len(res.ArgParts)-1] = format.Buffer([]byte(p), ctx.Opts.StringLimit, 0) }
+					}
+				} else if strings.Contains(argTyp, "char *") {
+					res.ArgParts = append(res.ArgParts, format.Buffer([]byte(ctx.RawStrArg), ctx.Opts.StringLimit, 0))
+				} else {
+					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
 				}
-				res.ArgParts = append(res.ArgParts, format.Timex(sdata))
 				continue
 			}
 
@@ -141,32 +201,36 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 
 		if argName == "fd" || argName == "dfd" || strings.Contains(argName, "dfd") {
 			if int32(val) == -100 {
-				res.ArgParts = append(res.ArgParts, "AT_FDCWD")
+				s := "AT_FDCWD"
+				if ctx.Opts.ShowPaths {
+					if l, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", ctx.Pid)); err == nil {
+						s += "<" + l + ">"
+					}
+				}
+				res.ArgParts = append(res.ArgParts, s)
 			} else {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int32(val)))
 			}
 		} else if argName == "whence" {
 			res.ArgParts = append(res.ArgParts, format.Whence(val))
-		} else if xlatName, ok := meta.SyscallArgXlatMap[ctx.ScMeta.Name][argName]; ok {
-			res.ArgParts = append(res.ArgParts, meta.DecodeFlags(val, xlatName))
-		} else if argName == "mode" || argName == "offset" {
-			if argName == "mode" {
-				s := fmt.Sprintf("%o", uint16(val))
-				if len(s) < 3 { s = strings.Repeat("0", 3-len(s)) + s }
-				if s[0] != '0' { s = "0" + s }
-				res.ArgParts = append(res.ArgParts, s)
-			} else {
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int64(val)))
-			}
-		} else if strings.Contains(argTyp, "int") || strings.Contains(argTyp, "size_t") || strings.Contains(argTyp, "long") {
-			if strings.Contains(argTyp, "unsigned") {
-				if strings.Contains(argTyp, "int") && !strings.Contains(argTyp, "long") {
+		} else if strings.HasPrefix(argTyp, "mode_t") || strings.HasPrefix(argTyp, "umode_t") {
+			m := uint32(val)
+			if strings.HasPrefix(argTyp, "umode_t") { m = uint32(uint16(val)) }
+			s := fmt.Sprintf("%o", m)
+			if len(s) < 3 { s = strings.Repeat("0", 3-len(s)) + s }
+			if s[0] != '0' { s = "0" + s }
+			res.ArgParts = append(res.ArgParts, s)
+		} else if strings.Contains(argTyp, "int") || strings.Contains(argTyp, "size_t") || strings.Contains(argTyp, "long") || strings.Contains(argTyp, "aio_context_t") || strings.Contains(argTyp, "key_serial_t") {
+			if strings.Contains(argTyp, "unsigned") || strings.Contains(argTyp, "size_t") || strings.Contains(argTyp, "aio_context_t") {
+				if (strings.Contains(argTyp, "int") && !strings.Contains(argTyp, "long")) || argTyp == "unsigned" {
 					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", uint32(val)))
+				} else if strings.Contains(argTyp, "aio_context_t") {
+					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
 				} else {
-					if val > 0xffff {
-						res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
-					} else {
+					if val > 0xffffffff {
 						res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", val))
+					} else {
+						res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", uint32(val)))
 					}
 				}
 			} else {

@@ -17,6 +17,8 @@ type Options struct {
 	TracePaths    map[string]bool
 	TraceReadFDs  map[int32]bool
 	TraceWriteFDs map[int32]bool
+	ShowPaths     bool
+	Verbose       bool
 }
 
 // ParseArgs parses strace-go command-line arguments and returns Options.
@@ -29,9 +31,26 @@ func ParseArgs(args []string) *Options {
 		TracePaths:    make(map[string]bool),
 		TraceReadFDs:  make(map[int32]bool),
 		TraceWriteFDs: make(map[int32]bool),
+		ShowPaths:     false,
+		Verbose:       false,
 	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]; val := ""; hasVal := false
+		if arg == "-y" {
+			opts.ShowPaths = true
+			continue
+		}
+		if arg == "-v" {
+			opts.Verbose = true
+			continue
+		}
+		if strings.HasPrefix(arg, "--trace=") {
+			val = strings.TrimPrefix(arg, "--trace=")
+			for _, s := range strings.Split(val, ",") {
+				opts.TraceSyscalls[s] = true
+			}
+			continue
+		}
 		if strings.HasPrefix(arg, "-o") {
 			if len(arg) > 2 { val = arg[2:]; hasVal = true } else if i+1 < len(args) { val = args[i+1]; i++; hasVal = true }
 			if hasVal { opts.OutFile = val }

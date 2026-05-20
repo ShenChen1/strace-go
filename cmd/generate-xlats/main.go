@@ -14,56 +14,75 @@ type ArgXlatMap struct {
 }
 
 func main() {
-	xlatDir := "/opt/strace-go/strace-upstream/src/xlat"
-	argXlatPath := "../generate-xlats/arg_xlat_map.yaml"
-	if _, err := os.Stat(argXlatPath); err != nil {
-		argXlatPath = "arg_xlat_map.yaml"
+	xlatDir := "../../strace-upstream/src/xlat"
+	data, err := os.ReadFile("arg_xlat_map.yaml")
+	if err != nil {
+		data, _ = os.ReadFile("../generate-xlats/arg_xlat_map.yaml")
 	}
-	argXlatData, _ := os.ReadFile(argXlatPath)
 	var argXlat ArgXlatMap
-	yaml.Unmarshal(argXlatData, &argXlat)
+	yaml.Unmarshal(data, &argXlat)
 
 	out, _ := os.Create("../../pkg/meta/xlat_auto.go")
 	fmt.Fprintln(out, "package meta")
 	fmt.Fprintln(out, "type XlatVal struct { Val uint64; Str string }")
-	fmt.Fprintln(out, "type XlatTable struct { Entries []XlatVal; Prefix string }")
+	fmt.Fprintln(out, "type XlatTable struct { Prefix string; Entries []XlatVal }")
 	fmt.Fprintln(out, "var XlatTables = map[string]XlatTable{")
 
 	allowedXlats := make(map[string]bool)
 	for _, m := range argXlat.Syscalls {
-		for _, xlatName := range m {
-			allowedXlats[xlatName] = true
-		}
+		for _, xlat := range m { allowedXlats[xlat] = true }
 	}
 	// Manual additions
 	allowedXlats["open_access_modes"] = true
 	allowedXlats["addrfams"] = true
 	allowedXlats["whence"] = true
 	allowedXlats["adjtimex_status"] = true
+	allowedXlats["x86_xfeature_bits"] = true
+	allowedXlats["bpf_commands"] = true
+	allowedXlats["bpf_map_types"] = true
+	allowedXlats["bpf_map_flags"] = true
 
 	files, _ := os.ReadDir(xlatDir)
 	for _, f := range files {
 		if !strings.HasSuffix(f.Name(), ".in") { continue }
 		name := strings.TrimSuffix(f.Name(), ".in")
 		if !allowedXlats[name] { continue }
+
 		content, _ := os.ReadFile(filepath.Join(xlatDir, f.Name()))
 		prefix := ""
 		keys := []string{}
+		entries := make(map[string]string)
+		
+		cProg := strings.Builder{}
+		cProg.WriteString("#define _GNU_SOURCE\n#include <stdio.h>\n#include <fcntl.h>\n#include <sys/types.h>\n#include <sys/socket.h>\n#include <sys/un.h>\n#include <linux/prctl.h>\n#include <asm/prctl.h>\n#include <linux/stat.h>\n#include <linux/fs.h>\n#include <linux/timex.h>\n#include <poll.h>\n#include <sys/epoll.h>\n#include <linux/bpf.h>\n#include <time.h>\n#include <asm/termios.h>\n#include <sys/mman.h>\n#include <sched.h>\n#include <linux/futex.h>\n#include <sys/wait.h>\n#include <sys/mount.h>\n#include <linux/keyctl.h>\n")
+		cProg.WriteString("#ifndef ARCH_GET_CPUID\n#define ARCH_GET_CPUID 0x1011\n#endif\n#ifndef ARCH_SET_CPUID\n#define ARCH_SET_CPUID 0x1012\n#endif\n")
+		cProg.WriteString("int main() {\n")
+
 		for _, line := range strings.Split(string(content), "\n") {
 			line = strings.TrimSpace(line)
 			if strings.HasPrefix(line, "#Prefix ") { prefix = strings.TrimSpace(strings.TrimPrefix(line, "#Prefix ")) }
 			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "/") { continue }
 			parts := strings.Fields(line)
-			if len(parts) >= 1 { keys = append(keys, parts[0]) }
+			if len(parts) >= 1 { 
+				k := parts[0]
+				keys = append(keys, k)
+				if len(parts) >= 2 {
+					v := parts[1]
+					if !strings.Contains(v, "(") && !strings.Contains(v, "<<") {
+						v = strings.TrimSuffix(v, "ULL")
+						v = strings.TrimSuffix(v, "UL")
+						v = strings.TrimSuffix(v, "U")
+						v = strings.TrimSuffix(v, "ull")
+						v = strings.TrimSuffix(v, "ul")
+						v = strings.TrimSuffix(v, "u")
+						entries[k] = v
+					}
+				}
+				cProg.WriteString(fmt.Sprintf("\t#if defined(%s)\n\tprintf(\"%%s %%lu\\n\", %q, (unsigned long)%s);\n\t#endif\n", k, k, k))
+			}
 		}
-		fmt.Fprintf(out, "\t%q: {\n\t\tPrefix: %q,\n\t\tEntries: []XlatVal{\n", name, prefix)
-		cProg := strings.Builder{}
-		cProg.WriteString("#define _GNU_SOURCE\n#include <stdio.h>\n#include <fcntl.h>\n#include <sys/types.h>\n#include <sys/socket.h>\n#include <sys/un.h>\n#include <linux/prctl.h>\n#include <asm/prctl.h>\n#include <linux/stat.h>\n#include <linux/fs.h>\n#include <linux/timex.h>\n#include <poll.h>\n#include <sys/epoll.h>\n#include <linux/bpf.h>\n#include <time.h>\n#include <asm/termios.h>\n#include <sys/mman.h>\n#include <sched.h>\n#include <linux/futex.h>\n#include <sys/wait.h>\n#include <sys/mount.h>\n")
-		cProg.WriteString("#ifndef ARCH_GET_CPUID\n#define ARCH_GET_CPUID 0x1011\n#endif\n#ifndef ARCH_SET_CPUID\n#define ARCH_SET_CPUID 0x1012\n#endif\n")
-		cProg.WriteString("#ifndef XFEATURE_FP\n#define XFEATURE_FP 0\n#endif\n#ifndef XFEATURE_SSE\n#define XFEATURE_SSE 1\n#endif\n#ifndef XFEATURE_YMM\n#define XFEATURE_YMM 2\n#endif\n#ifndef XFEATURE_PT_UNIMPLEMENTED_SO_FAR\n#define XFEATURE_PT_UNIMPLEMENTED_SO_FAR 8\n#endif\n")
-		cProg.WriteString("int main() {\n")
-		for _, k := range keys { cProg.WriteString(fmt.Sprintf("\t#ifdef %s\n\tprintf(\"%s %%lu\\n\", (unsigned long)%s);\n\t#endif\n", k, k, k)) }
 		cProg.WriteString("\treturn 0;\n}\n")
+
 		cmd := exec.Command("gcc", "-x", "c", "-o", "gen_xlat_tmp", "-")
 		cmd.Stdin = strings.NewReader(cProg.String())
 		if err := cmd.Run(); err == nil {
@@ -74,12 +93,20 @@ func main() {
 				parts := strings.Fields(resLine)
 				if len(parts) == 2 {
 					str := parts[0]; v := parts[1]
-					if v == "0" && str != "O_RDONLY" && str != "F_OK" && str != "AF_UNSPEC" && str != "SEEK_SET" && str != "XFEATURE_FP" && str != "BPF_MAP_CREATE" && str != "CLOCK_REALTIME" && str != "PROT_NONE" && str != "FUTEX_WAIT" && str != "MADV_NORMAL" && str != "SIG_BLOCK" { continue }
-					fmt.Fprintf(out, "\t\t\t{Val: %s, Str: %q},\n", v, str)
+					entries[str] = v
 				}
 			}
 			os.Remove("gen_xlat_tmp")
 		}
+
+		fmt.Fprintf(out, "\t%q: {\n\t\tPrefix: %q,\n\t\tEntries: []XlatVal{\n", name, prefix)
+		for _, k := range keys {
+			if v, ok := entries[k]; ok {
+				if v == "0" && k != "O_RDONLY" && k != "F_OK" && k != "AF_UNSPEC" && k != "SEEK_SET" && k != "XFEATURE_FP" && k != "BPF_MAP_CREATE" && k != "CLOCK_REALTIME" && k != "PROT_NONE" && k != "FUTEX_WAIT" && k != "MADV_NORMAL" && k != "SIG_BLOCK" && k != "CLONE_VM" && k != "BPF_MAP_TYPE_UNSPEC" { continue }
+				fmt.Fprintf(out, "\t\t\t{Val: %s, Str: %q},\n", v, k)
+			}
+		}
+
 		if name == "open_mode_flags" {
 			fmt.Fprintf(out, "\t\t\t{Val: 16384, Str: \"O_DIRECT\"},\n")
 			fmt.Fprintf(out, "\t\t\t{Val: 4259840, Str: \"O_TMPFILE\"},\n")
