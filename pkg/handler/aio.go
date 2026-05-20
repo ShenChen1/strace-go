@@ -22,7 +22,7 @@ func (h *AioHandler) Handle(ctx *Context) Result {
 	res := Result{}
 	switch ctx.SysName {
 	case "io_setup":
-		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%u", uint32(ctx.Args[0])))
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", uint32(ctx.Args[0])))
 		if ctx.Args[1] == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else if ctx.Ret >= 0 {
@@ -42,21 +42,23 @@ func (h *AioHandler) Handle(ctx *Context) Result {
 		count := int(ctx.Args[1])
 		if ctx.Args[2] == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
-		} else if ctx.Ret < 0 && ctx.ProbeRetEnter < 0 {
-			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
 		} else if count > 0 {
 			limit := 16
 			pdata := ctx.StrArgBuf[0:512]
-			if ctx.ProbeRetEnter < 0 {
-				d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[2], count*8, true)
-				if err == nil {
+			readSuccess := ctx.ProbeRetEnter >= 0
+			if !readSuccess {
+				d, _ := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[2], count*8, true)
+				if len(d) > 0 {
 					pdata = d
-				} else {
-					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
-					return res
+					readSuccess = true
 				}
 			}
 			
+			if !readSuccess {
+				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
+				return res
+			}
+
 			var parts []string
 			for i := 0; i < count && i < limit; i++ {
 				if len(pdata) < (i+1)*8 { break }
@@ -71,7 +73,7 @@ func (h *AioHandler) Handle(ctx *Context) Result {
 				}
 				
 				if idata == nil {
-					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, p, 64, true); err == nil { idata = d }
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, p, 64, true); err == nil && len(d) == 64 { idata = d }
 				}
 				
 				if idata != nil {
@@ -82,9 +84,7 @@ func (h *AioHandler) Handle(ctx *Context) Result {
 			}
 			if count > limit {
 				parts = append(parts, "...")
-				// Strace also shows the end pointer in a comment sometimes?
-				// The test says ... /* 0x71e9d3da8000 */
-				parts[len(parts)-1] += fmt.Sprintf(" /* %#x */", ctx.Args[2])
+				parts[len(parts)-1] += fmt.Sprintf(" /* %#x */", ctx.Args[2] + uint64(limit*8))
 			}
 			res.ArgParts = append(res.ArgParts, "["+strings.Join(parts, ", ")+"]")
 		} else if count == 0 {
@@ -98,12 +98,24 @@ func (h *AioHandler) Handle(ctx *Context) Result {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
 			data := ctx.StrArgBuf[0:64]
-			if ctx.ProbeRetEnter < 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[1], 64, true); err == nil { data = d }
+			readSuccess := ctx.ProbeRetEnter >= 0
+			if !readSuccess {
+				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[1], 64, true); err == nil && len(d) == 64 { 
+					data = d
+					readSuccess = true
+				}
 			}
-			res.ArgParts = append(res.ArgParts, format.Iocb(data, ctx.Opts.Verbose))
+			if readSuccess {
+				res.ArgParts = append(res.ArgParts, format.Iocb(data, ctx.Opts.Verbose))
+			} else {
+				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[1]))
+			}
 		}
-		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
+		if ctx.Args[2] == 0 {
+			res.ArgParts = append(res.ArgParts, "NULL")
+		} else {
+			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
+		}
 	case "io_getevents":
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[0]))
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int64(ctx.Args[1])))

@@ -111,6 +111,69 @@ var XlatTables = map[string]XlatTable{
 			{Val: 20485, Str: "ARCH_SHSTK_STATUS"},
 		},
 	},
+	"bpf_attach_type": {
+		Prefix: "BPF_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "BPF_CGROUP_INET_EGRESS"},
+			{Val: 2, Str: "BPF_CGROUP_INET_SOCK_CREATE"},
+			{Val: 3, Str: "BPF_CGROUP_SOCK_OPS"},
+			{Val: 4, Str: "BPF_SK_SKB_STREAM_PARSER"},
+			{Val: 5, Str: "BPF_SK_SKB_STREAM_VERDICT"},
+			{Val: 6, Str: "BPF_CGROUP_DEVICE"},
+			{Val: 7, Str: "BPF_SK_MSG_VERDICT"},
+			{Val: 8, Str: "BPF_CGROUP_INET4_BIND"},
+			{Val: 9, Str: "BPF_CGROUP_INET6_BIND"},
+			{Val: 10, Str: "BPF_CGROUP_INET4_CONNECT"},
+			{Val: 11, Str: "BPF_CGROUP_INET6_CONNECT"},
+			{Val: 12, Str: "BPF_CGROUP_INET4_POST_BIND"},
+			{Val: 13, Str: "BPF_CGROUP_INET6_POST_BIND"},
+			{Val: 14, Str: "BPF_CGROUP_UDP4_SENDMSG"},
+			{Val: 15, Str: "BPF_CGROUP_UDP6_SENDMSG"},
+			{Val: 16, Str: "BPF_LIRC_MODE2"},
+			{Val: 17, Str: "BPF_FLOW_DISSECTOR"},
+			{Val: 18, Str: "BPF_CGROUP_SYSCTL"},
+			{Val: 19, Str: "BPF_CGROUP_UDP4_RECVMSG"},
+			{Val: 20, Str: "BPF_CGROUP_UDP6_RECVMSG"},
+			{Val: 21, Str: "BPF_CGROUP_GETSOCKOPT"},
+			{Val: 22, Str: "BPF_CGROUP_SETSOCKOPT"},
+			{Val: 23, Str: "BPF_TRACE_RAW_TP"},
+			{Val: 24, Str: "BPF_TRACE_FENTRY"},
+			{Val: 25, Str: "BPF_TRACE_FEXIT"},
+			{Val: 26, Str: "BPF_MODIFY_RETURN"},
+			{Val: 27, Str: "BPF_LSM_MAC"},
+			{Val: 28, Str: "BPF_TRACE_ITER"},
+			{Val: 29, Str: "BPF_CGROUP_INET4_GETPEERNAME"},
+			{Val: 30, Str: "BPF_CGROUP_INET6_GETPEERNAME"},
+			{Val: 31, Str: "BPF_CGROUP_INET4_GETSOCKNAME"},
+			{Val: 32, Str: "BPF_CGROUP_INET6_GETSOCKNAME"},
+			{Val: 33, Str: "BPF_XDP_DEVMAP"},
+			{Val: 34, Str: "BPF_CGROUP_INET_SOCK_RELEASE"},
+			{Val: 35, Str: "BPF_XDP_CPUMAP"},
+			{Val: 36, Str: "BPF_SK_LOOKUP"},
+			{Val: 37, Str: "BPF_XDP"},
+			{Val: 38, Str: "BPF_SK_SKB_VERDICT"},
+			{Val: 39, Str: "BPF_SK_REUSEPORT_SELECT"},
+			{Val: 40, Str: "BPF_SK_REUSEPORT_SELECT_OR_MIGRATE"},
+			{Val: 41, Str: "BPF_PERF_EVENT"},
+			{Val: 42, Str: "BPF_TRACE_KPROBE_MULTI"},
+			{Val: 43, Str: "BPF_LSM_CGROUP"},
+			{Val: 44, Str: "BPF_STRUCT_OPS"},
+			{Val: 45, Str: "BPF_NETFILTER"},
+			{Val: 46, Str: "BPF_TCX_INGRESS"},
+			{Val: 47, Str: "BPF_TCX_EGRESS"},
+			{Val: 48, Str: "BPF_TRACE_UPROBE_MULTI"},
+			{Val: 49, Str: "BPF_CGROUP_UNIX_CONNECT"},
+			{Val: 50, Str: "BPF_CGROUP_UNIX_SENDMSG"},
+			{Val: 51, Str: "BPF_CGROUP_UNIX_RECVMSG"},
+			{Val: 52, Str: "BPF_CGROUP_UNIX_GETPEERNAME"},
+			{Val: 53, Str: "BPF_CGROUP_UNIX_GETSOCKNAME"},
+			{Val: 54, Str: "BPF_NETKIT_PRIMARY"},
+			{Val: 55, Str: "BPF_NETKIT_PEER"},
+			{Val: 56, Str: "BPF_TRACE_KPROBE_SESSION"},
+			{Val: 57, Str: "BPF_TRACE_UPROBE_SESSION"},
+			{Val: 58, Str: "BPF_TRACE_FSESSION"},
+		},
+	},
 	"bpf_commands": {
 		Prefix: "BPF_",
 		Entries: []XlatVal{
@@ -159,6 +222,18 @@ var XlatTables = map[string]XlatTable{
 		Prefix: "BPF_F_",
 		Entries: []XlatVal{
 			{Val: 1, Str: "BPF_F_NO_PREALLOC"},
+			{Val: 2, Str: "BPF_F_NO_COMMON_LRU"},
+			{Val: 4, Str: "BPF_F_NUMA_NODE"},
+			{Val: 8, Str: "BPF_F_RDONLY"},
+			{Val: 16, Str: "BPF_F_WRONLY"},
+			{Val: 32, Str: "BPF_F_STACK_BUILD_ID"},
+			{Val: 64, Str: "BPF_F_ZERO_SEED"},
+			{Val: 128, Str: "BPF_F_RDONLY_PROG"},
+			{Val: 256, Str: "BPF_F_WRONLY_PROG"},
+			{Val: 512, Str: "BPF_F_CLONE"},
+			{Val: 1024, Str: "BPF_F_MMAPABLE"},
+			{Val: 2048, Str: "BPF_F_PRESERVE_ELEMS"},
+			{Val: 4096, Str: "BPF_F_INNER_MAP"},
 			{Val: 8192, Str: "BPF_F_LINK"},
 		},
 	},
@@ -202,21 +277,54 @@ var XlatTables = map[string]XlatTable{
 			{Val: 34, Str: "BPF_MAP_TYPE_INSN_ARRAY"},
 		},
 	},
-	"clocknames": {
-		Prefix: "CLOCK_",
+	"bpf_prog_flags": {
+		Prefix: "BPF_F_",
 		Entries: []XlatVal{
-			{Val: 0, Str: "CLOCK_REALTIME"},
-			{Val: 1, Str: "CLOCK_MONOTONIC"},
-			{Val: 2, Str: "CLOCK_PROCESS_CPUTIME_ID"},
-			{Val: 3, Str: "CLOCK_THREAD_CPUTIME_ID"},
-			{Val: 4, Str: "CLOCK_MONOTONIC_RAW"},
-			{Val: 5, Str: "CLOCK_REALTIME_COARSE"},
-			{Val: 6, Str: "CLOCK_MONOTONIC_COARSE"},
-			{Val: 7, Str: "CLOCK_BOOTTIME"},
-			{Val: 8, Str: "CLOCK_REALTIME_ALARM"},
-			{Val: 9, Str: "CLOCK_BOOTTIME_ALARM"},
-			{Val: 10, Str: "CLOCK_SGI_CYCLE"},
-			{Val: 11, Str: "CLOCK_TAI"},
+			{Val: 1, Str: "BPF_F_STRICT_ALIGNMENT"},
+			{Val: 2, Str: "BPF_F_ANY_ALIGNMENT"},
+			{Val: 4, Str: "BPF_F_TEST_RND_HI32"},
+			{Val: 8, Str: "BPF_F_TEST_STATE_FREQ"},
+			{Val: 16, Str: "BPF_F_SLEEPABLE"},
+			{Val: 32, Str: "BPF_F_XDP_HAS_FRAGS"},
+			{Val: 64, Str: "BPF_F_XDP_DEV_BOUND_ONLY"},
+			{Val: 128, Str: "BPF_F_TEST_REG_INVARIANTS"},
+		},
+	},
+	"bpf_prog_types": {
+		Prefix: "BPF_PROG_TYPE_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "BPF_PROG_TYPE_SOCKET_FILTER"},
+			{Val: 2, Str: "BPF_PROG_TYPE_KPROBE"},
+			{Val: 3, Str: "BPF_PROG_TYPE_SCHED_CLS"},
+			{Val: 4, Str: "BPF_PROG_TYPE_SCHED_ACT"},
+			{Val: 5, Str: "BPF_PROG_TYPE_TRACEPOINT"},
+			{Val: 6, Str: "BPF_PROG_TYPE_XDP"},
+			{Val: 7, Str: "BPF_PROG_TYPE_PERF_EVENT"},
+			{Val: 8, Str: "BPF_PROG_TYPE_CGROUP_SKB"},
+			{Val: 9, Str: "BPF_PROG_TYPE_CGROUP_SOCK"},
+			{Val: 10, Str: "BPF_PROG_TYPE_LWT_IN"},
+			{Val: 11, Str: "BPF_PROG_TYPE_LWT_OUT"},
+			{Val: 12, Str: "BPF_PROG_TYPE_LWT_XMIT"},
+			{Val: 13, Str: "BPF_PROG_TYPE_SOCK_OPS"},
+			{Val: 14, Str: "BPF_PROG_TYPE_SK_SKB"},
+			{Val: 15, Str: "BPF_PROG_TYPE_CGROUP_DEVICE"},
+			{Val: 16, Str: "BPF_PROG_TYPE_SK_MSG"},
+			{Val: 17, Str: "BPF_PROG_TYPE_RAW_TRACEPOINT"},
+			{Val: 18, Str: "BPF_PROG_TYPE_CGROUP_SOCK_ADDR"},
+			{Val: 19, Str: "BPF_PROG_TYPE_LWT_SEG6LOCAL"},
+			{Val: 20, Str: "BPF_PROG_TYPE_LIRC_MODE2"},
+			{Val: 21, Str: "BPF_PROG_TYPE_SK_REUSEPORT"},
+			{Val: 22, Str: "BPF_PROG_TYPE_FLOW_DISSECTOR"},
+			{Val: 23, Str: "BPF_PROG_TYPE_CGROUP_SYSCTL"},
+			{Val: 24, Str: "BPF_PROG_TYPE_RAW_TRACEPOINT_WRITABLE"},
+			{Val: 25, Str: "BPF_PROG_TYPE_CGROUP_SOCKOPT"},
+			{Val: 26, Str: "BPF_PROG_TYPE_TRACING"},
+			{Val: 27, Str: "BPF_PROG_TYPE_STRUCT_OPS"},
+			{Val: 28, Str: "BPF_PROG_TYPE_EXT"},
+			{Val: 29, Str: "BPF_PROG_TYPE_LSM"},
+			{Val: 30, Str: "BPF_PROG_TYPE_SK_LOOKUP"},
+			{Val: 31, Str: "BPF_PROG_TYPE_SYSCALL"},
+			{Val: 32, Str: "BPF_PROG_TYPE_NETFILTER"},
 		},
 	},
 	"clone3_flags": {
@@ -269,7 +377,7 @@ var XlatTables = map[string]XlatTable{
 			{Val: 4, Str: "EPOLLOUT"},
 			{Val: 8, Str: "EPOLLERR"},
 			{Val: 16, Str: "EPOLLHUP"},
-			{Val: 0x00000020, Str: "EPOLLNVAL"},
+			{Val: 32, Str: "EPOLLNVAL"},
 			{Val: 64, Str: "EPOLLRDNORM"},
 			{Val: 128, Str: "EPOLLRDBAND"},
 			{Val: 256, Str: "EPOLLWRNORM"},
@@ -402,7 +510,7 @@ var XlatTables = map[string]XlatTable{
 			{Val: 262144, Str: "MAP_HUGETLB"},
 			{Val: 262144, Str: "MAP_HUGETLB"},
 			{Val: 524288, Str: "MAP_SYNC"},
-			{Val: 0x4000000, Str: "MAP_UNINITIALIZED"},
+			{Val: 67108864, Str: "MAP_UNINITIALIZED"},
 			{Val: 1048576, Str: "MAP_FIXED_NOREPLACE"},
 			{Val: 1048576, Str: "MAP_FIXED_NOREPLACE"},
 			{Val: 0x40, Str: "MAP_AUTOGROW"},
@@ -540,7 +648,7 @@ var XlatTables = map[string]XlatTable{
 			{Val: 4096, Str: "POLLREMOVE"},
 			{Val: 8192, Str: "POLLRDHUP"},
 			{Val: 8192, Str: "POLLRDHUP"},
-			{Val: 0x8000, Str: "POLL_BUSY_LOOP"},
+			{Val: 32768, Str: "POLL_BUSY_LOOP"},
 		},
 	},
 	"sigprocmaskcmds": {
@@ -614,52 +722,79 @@ var XlatTables = map[string]XlatTable{
 			{Val: 18, Str: "XFEATURE_XTILE_DATA"},
 		},
 	},
+	"clocknames": {
+		Prefix: "CLOCK_",
+		Entries: []XlatVal{
+			{Val: 3, Str: "CLOCK_THREAD_CPUTIME_ID"},
+			{Val: 0, Str: "CLOCK_REALTIME"},
+			{Val: 1, Str: "CLOCK_MONOTONIC"},
+			{Val: 2, Str: "CLOCK_PROCESS_CPUTIME_ID"},
+			{Val: 4, Str: "CLOCK_MONOTONIC_RAW"},
+			{Val: 5, Str: "CLOCK_REALTIME_COARSE"},
+			{Val: 6, Str: "CLOCK_MONOTONIC_COARSE"},
+			{Val: 7, Str: "CLOCK_BOOTTIME"},
+			{Val: 8, Str: "CLOCK_REALTIME_ALARM"},
+			{Val: 9, Str: "CLOCK_BOOTTIME_ALARM"},
+			{Val: 11, Str: "CLOCK_TAI"},
+		},
+	},
 	"x86_xfeatures": {
 		Prefix: "XFEATURE_MASK_",
 		Entries: []XlatVal{
+			{Val: 0x3, Str: "XFEATURE_MASK_FPSSE"},
+			{Val: 0xe0, Str: "XFEATURE_MASK_AVX512"},
+			{Val: 0x60000, Str: "XFEATURE_MASK_XTILE"},
+			{Val: 0x1, Str: "XFEATURE_MASK_FP"},
+			{Val: 0x2, Str: "XFEATURE_MASK_SSE"},
+			{Val: 0x4, Str: "XFEATURE_MASK_YMM"},
+			{Val: 0x8, Str: "XFEATURE_MASK_BNDREGS"},
+			{Val: 0x10, Str: "XFEATURE_MASK_BNDCSR"},
+			{Val: 0x20, Str: "XFEATURE_MASK_OPMASK"},
+			{Val: 0x40, Str: "XFEATURE_MASK_ZMM_Hi256"},
+			{Val: 0x80, Str: "XFEATURE_MASK_Hi16_ZMM"},
+			{Val: 0x100, Str: "XFEATURE_MASK_PT"},
+			{Val: 0x200, Str: "XFEATURE_MASK_PKRU"},
+			{Val: 0x400, Str: "XFEATURE_MASK_PASID"},
+			{Val: 0x8000, Str: "XFEATURE_MASK_LBR"},
+			{Val: 0x20000, Str: "XFEATURE_MASK_XTILE_CFG"},
+			{Val: 0x40000, Str: "XFEATURE_MASK_XTILE_DATA"},
 		},
 	},
 }
 var SyscallArgXlatMap = map[string]map[string]string{
-	"clone": {
-		"clone_flags": "clone_flags",
-	},
-	"mprotect": {
-		"prot": "mmap_prot",
-	},
-	"futex": {
-		"op": "futexops",
-	},
-	"lseek": {
-		"whence": "whence_codes",
-	},
-	"wait4": {
-		"options": "wait4_options",
-	},
-	"arch_prctl": {
-		"option": "archvals",
-	},
-	"accept4": {
-		"flags": "sock_type_flags",
-	},
 	"bpf": {
 		"arg0": "bpf_commands",
 	},
-	"umount2": {
-		"flags": "umount_flags",
-	},
-	"access": {
-		"mode": "access_modes",
-	},
-	"clock_adjtime": {
-		"which_clock": "clocknames",
-	},
-	"clock_nanosleep": {
-		"which_clock": "clocknames",
+	"epoll_create1": {
+		"flags": "epollflags",
 	},
 	"mmap": {
 		"prot": "mmap_prot",
 		"flags": "mmap_flags",
+	},
+	"futex": {
+		"op": "futexops",
+	},
+	"clone": {
+		"clone_flags": "clone_flags",
+	},
+	"access": {
+		"mode": "access_modes",
+	},
+	"add_key": {
+		"ringid": "key_spec",
+	},
+	"epoll_ctl": {
+		"op": "epollctls",
+	},
+	"umount2": {
+		"flags": "umount_flags",
+	},
+	"faccessat2": {
+		"mode": "access_modes",
+	},
+	"mremap": {
+		"flags": "mremap_flags",
 	},
 	"clone3": {
 		"flags": "clone3_flags",
@@ -667,40 +802,46 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"mount": {
 		"mountflags": "mount_flags",
 	},
-	"faccessat": {
-		"mode": "access_modes",
-	},
-	"faccessat2": {
-		"mode": "access_modes",
-	},
-	"epoll_create1": {
-		"flags": "epollflags",
-	},
-	"open": {
-		"flags": "open_mode_flags",
-	},
-	"clock_settime": {
-		"which_clock": "clocknames",
-	},
-	"epoll_ctl": {
-		"op": "epollctls",
-	},
-	"madvise": {
-		"behavior": "madvise_cmds",
-	},
-	"rt_sigprocmask": {
-		"how": "sigprocmaskcmds",
-	},
-	"openat": {
-		"flags": "open_mode_flags",
-	},
-	"add_key": {
-		"ringid": "key_spec",
+	"arch_prctl": {
+		"option": "archvals",
 	},
 	"request_key": {
 		"destringid": "key_spec",
 	},
-	"mremap": {
-		"flags": "mremap_flags",
+	"accept4": {
+		"flags": "sock_type_flags",
+	},
+	"mprotect": {
+		"prot": "mmap_prot",
+	},
+	"rt_sigprocmask": {
+		"how": "sigprocmaskcmds",
+	},
+	"open": {
+		"flags": "open_mode_flags",
+	},
+	"clock_adjtime": {
+		"which_clock": "clocknames",
+	},
+	"lseek": {
+		"whence": "whence_codes",
+	},
+	"faccessat": {
+		"mode": "access_modes",
+	},
+	"openat": {
+		"flags": "open_mode_flags",
+	},
+	"clock_nanosleep": {
+		"which_clock": "clocknames",
+	},
+	"clock_settime": {
+		"which_clock": "clocknames",
+	},
+	"madvise": {
+		"behavior": "madvise_cmds",
+	},
+	"wait4": {
+		"options": "wait4_options",
 	},
 }

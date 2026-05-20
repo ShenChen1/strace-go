@@ -118,7 +118,7 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 				}
 			}
 
-			if !readSuccess {
+			if ctx.Ret < 0 || !readSuccess {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
 				continue
 			}

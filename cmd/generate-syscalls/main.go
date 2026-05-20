@@ -164,6 +164,10 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 				if r.Arg == 2 {
 					sizeStr = "((e)->args[3] > 0 ? ((e)->args[3] > 256 ? 256 : (e)->args[3]) : 0)"
 				}
+			} else if scName == "bpf" {
+				if r.Arg == 1 {
+					sizeStr = "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
+				}
 			} else if suffix == "exit" {
 				sizeStr = "((e)->ret > 0 ? ((e)->ret * 32 > 512 ? 512 : (e)->ret * 32) : 0)"
 			} else {

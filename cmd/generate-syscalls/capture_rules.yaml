@@ -92,6 +92,10 @@ rules:
         - { arg: 4, size: 0, offset: 1024, type: raw } # sockaddr
         - { arg: 5, size: 4, offset: 772, type: raw } # addr_len out
 
+  - syscalls: [bpf]
+    enter:
+      reads: [{ arg: 1, size: 0, offset: 0, type: raw }] # attr
+
   - syscalls: [mount]
     enter:
       reads:
@@ -137,10 +141,14 @@ rules:
     exit:
       reads: [{ arg: 3, size: 16, offset: 1024, type: raw }]
 
-  - syscalls: [clock_gettime]
+  - syscalls: [clock_gettime, clock_getres]
     exit:
       ptr_arg: 1
       reads: [{ arg: 1, size: 16, offset: 1024, type: raw }]
+
+  - syscalls: [clock_settime]
+    enter:
+      reads: [{ arg: 1, size: 16, offset: 0, type: raw }]
 
   - syscalls: [gettimeofday]
     exit:

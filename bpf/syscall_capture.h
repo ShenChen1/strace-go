@@ -296,6 +296,12 @@
 				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
 			} \
 			break; \
+		case 227: /* clock_settime */ \
+			{ \
+				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 16, (void *)(e)->args[1]) : 0; \
+				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+			} \
+			break; \
 		case 230: /* clock_nanosleep */ \
 			{ \
 				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg, 16, (void *)(e)->args[2]) : 0; \
@@ -437,6 +443,12 @@
 			} \
 			{ \
 				long pr = (e)->args[3] ? bpf_probe_read_user_str((e)->str_arg + 512, 512, (void *)(e)->args[3]) : 0; \
+				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+			} \
+			break; \
+		case 321: /* bpf */ \
+			{ \
+				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, ((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0), (void *)(e)->args[1]) : 0; \
 				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
 			} \
 			break; \
@@ -609,6 +621,13 @@
 			} \
 			break; \
 		case 228: /* clock_gettime */ \
+			(e)->ptr = (e)->args[1]; \
+			{ \
+				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 16, (void *)(e)->args[1]) : 0; \
+				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+			} \
+			break; \
+		case 229: /* clock_getres */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 16, (void *)(e)->args[1]) : 0; \

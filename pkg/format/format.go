@@ -25,7 +25,7 @@ func Whence(val uint64) string {
 func Timespec(data []byte) string {
 	if len(data) < 16 { return "{...}" }
 	sec := int64(binary.LittleEndian.Uint64(data[0:8]))
-	nsec := int64(binary.LittleEndian.Uint64(data[8:16]))
+	nsec := binary.LittleEndian.Uint64(data[8:16])
 	return fmt.Sprintf("{tv_sec=%d, tv_nsec=%d}", sec, nsec)
 }
 
@@ -33,7 +33,7 @@ func Timespec(data []byte) string {
 func Timeval(data []byte) string {
 	if len(data) < 16 { return "{...}" }
 	sec := int64(binary.LittleEndian.Uint64(data[0:8]))
-	usec := int64(binary.LittleEndian.Uint64(data[8:16]))
+	usec := binary.LittleEndian.Uint64(data[8:16])
 	return fmt.Sprintf("{tv_sec=%d, tv_usec=%d}", sec, usec)
 }
 
@@ -185,7 +185,12 @@ func Sockaddr(data []byte, alen uint32, inLen uint32) string {
 		if len(data) <= 2 {
 			return "{sa_family=AF_UNIX}"
 		}
-		path := strings.TrimRight(string(data[2:]), "\x00")
+		pathBytes := data[2:]
+		if pathBytes[0] == 0 {
+			// Abstract socket
+			return fmt.Sprintf("{sa_family=AF_UNIX, sun_path=%s}", Buffer(pathBytes, 0, len(pathBytes)))
+		}
+		path := strings.TrimRight(string(pathBytes), "\x00")
 		return fmt.Sprintf("{sa_family=AF_UNIX, sun_path=%q}", path)
 	case 2: // AF_INET
 		if len(data) < 8 { return "{sa_family=AF_INET, ...}" }

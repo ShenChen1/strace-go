@@ -28,6 +28,12 @@ syscalls:
     dummy: bpf_map_types
   bpf_map_flags_table:
     dummy: bpf_map_flags
+  bpf_prog_types_table:
+    dummy: bpf_prog_types
+  bpf_attach_type_table:
+    dummy: bpf_attach_type
+  bpf_prog_flags_table:
+    dummy: bpf_prog_flags
   clock_adjtime:
     which_clock: clocknames
   clock_nanosleep:

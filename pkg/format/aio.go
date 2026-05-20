@@ -35,7 +35,7 @@ func Iocb(data []byte, verbose bool) string {
 
 	res := fmt.Sprintf("{aio_data=%#x", aio_data)
 	if aio_key != 0 {
-		res += fmt.Sprintf(", aio_key=%u", aio_key)
+		res += fmt.Sprintf(", aio_key=%d", aio_key)
 	}
 	res += fmt.Sprintf(", aio_lio_opcode=%s", opStr)
 
@@ -57,10 +57,8 @@ func Iocb(data []byte, verbose bool) string {
 	}
 	res += fmt.Sprintf(", aio_fildes=%d", aio_fildes)
 	
-	if !verbose && (aio_lio_opcode == 0 || aio_lio_opcode == 1 || aio_lio_opcode == 7 || aio_lio_opcode == 8) {
-		res += ", ..."
-	} else {
-		if aio_lio_opcode == 0 || aio_lio_opcode == 1 || aio_lio_opcode == 7 || aio_lio_opcode == 8 || aio_lio_opcode > 8 {
+	if aio_lio_opcode == 0 || aio_lio_opcode == 1 || aio_lio_opcode == 7 || aio_lio_opcode == 8 || aio_lio_opcode > 8 {
+		if verbose || aio_buf != 0 || aio_nbytes != 0 || aio_offset != 0 {
 			if aio_buf == 0 {
 				res += ", aio_buf=NULL"
 			} else {
@@ -68,12 +66,12 @@ func Iocb(data []byte, verbose bool) string {
 			}
 			res += fmt.Sprintf(", aio_nbytes=%d, aio_offset=%d", aio_nbytes, aio_offset)
 		}
-		
-		if aio_flags != 0 {
-			res += fmt.Sprintf(", aio_flags=%s", meta.DecodeFlags(uint64(aio_flags), "aio_iocb_flags"))
-			if aio_flags&1 != 0 { // IOCB_FLAG_RESFD
-				res += fmt.Sprintf(", aio_resfd=%d", aio_resfd)
-			}
+	}
+	
+	if aio_flags != 0 {
+		res += fmt.Sprintf(", aio_flags=%s", meta.DecodeFlags(uint64(aio_flags), "aio_iocb_flags"))
+		if aio_flags&1 != 0 { // IOCB_FLAG_RESFD
+			res += fmt.Sprintf(", aio_resfd=%d", aio_resfd)
 		}
 	}
 	res += "}"
