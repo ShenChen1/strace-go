@@ -128,7 +128,7 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 			if ctx.Ret < 0 && ctx.Ret >= -4095 {
 				isStr := strings.Contains(argTyp, "char *")
 				isPath := argName == "filename" || argName == "pathname" || argName == "path" || argName == "oldname" || argName == "newname"
-				if !isPath && !isStr && !strings.Contains(argName, "type") && !strings.Contains(argName, "description") {
+				if !isPath && !isStr && !strings.Contains(argName, "type") && !strings.Contains(argName, "description") && !strings.Contains(argName, "payload") {
 					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
 					continue
 				}
@@ -141,19 +141,42 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 					off := 0
 					if strings.Contains(argName, "description") { off = 64 }
 					p := ctx.Decoder.DecodeString(ctx.Tid, val, ctx.StrArgBuf[off:off+128], ctx.ProbeRetEnter, scName, 0)
-					if p == "NULL" { res.ArgParts = append(res.ArgParts, "NULL") } else { res.ArgParts = append(res.ArgParts, format.Buffer([]byte(p), ctx.Opts.StringLimit, 0)) }
+					if p == "NULL" { 
+						res.ArgParts = append(res.ArgParts, "NULL") 
+					} else if strings.HasPrefix(p, "0x") {
+						res.ArgParts = append(res.ArgParts, p)
+					} else { 
+						res.ArgParts = append(res.ArgParts, format.Buffer([]byte(p), ctx.Opts.StringLimit, 0)) 
+					}
 					continue
 				}
 				if scName := ctx.ScMeta.Name; (scName == "add_key" || scName == "request_key") && strings.Contains(argName, "payload") {
-					if int(ctx.Args[3]) == 0 { res.ArgParts = append(res.ArgParts, "\"\""); continue }
-					if ctx.Ret < 0 { res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val)); continue }
-					data := ctx.StrArgBuf[256:512]
-					if ctx.ProbeRetEnter < 0 {
-						if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 256, false); err == nil { data = d }
+					plen := int(ctx.Args[3])
+					if plen <= 0 { 
+						if plen == 0 { res.ArgParts = append(res.ArgParts, "\"\"") } else { res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val)) }
+						continue
 					}
-					sz := int(ctx.Args[3])
-					if sz < 0 { sz = 0 }
-					res.ArgParts = append(res.ArgParts, format.Buffer(data, ctx.Opts.StringLimit, sz))
+
+					capLen := plen
+					if capLen > 256 { capLen = 256 }
+
+					data := ctx.StrArgBuf[256 : 256+capLen]
+					readSuccess := ctx.ProbeRetEnter >= 0
+					if !readSuccess {
+						if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, capLen, false); err == nil && len(d) == capLen { 
+							data = d
+							readSuccess = true
+						} else if ctx.ScMeta.Name == "add_key" && capLen == 5 {
+							fmt.Printf("DEBUG: ReadRobust failed for plen 5! err=%v len(d)=%d\n", err, len(d))
+						}
+					}
+
+					if !readSuccess {
+						res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
+						continue
+					}
+
+					res.ArgParts = append(res.ArgParts, format.Buffer(data, ctx.Opts.StringLimit, plen))
 					continue
 				}
 

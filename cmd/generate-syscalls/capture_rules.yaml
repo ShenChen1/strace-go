@@ -75,9 +75,22 @@ rules:
       reads: [{ arg: 1, size: 128, offset: 0, type: raw }] # sockaddr
 
   - syscalls: [accept, accept4, getsockname, getpeername]
+    enter:
+      reads: [{ arg: 2, size: 4, offset: 768, type: raw }] # upeer_addrlen in
     exit:
       ptr_arg: 1
-      reads: [{ arg: 1, size: 128, offset: 1024, type: raw }] # sockaddr
+      reads:
+        - { arg: 1, size: 0, offset: 1024, type: raw } # sockaddr
+        - { arg: 2, size: 4, offset: 772, type: raw } # upeer_addrlen out
+
+  - syscalls: [recvfrom]
+    enter:
+      reads: [{ arg: 5, size: 4, offset: 768, type: raw }] # addr_len in
+    exit:
+      ptr_arg: 4
+      reads:
+        - { arg: 4, size: 0, offset: 1024, type: raw } # sockaddr
+        - { arg: 5, size: 4, offset: 772, type: raw } # addr_len out
 
   - syscalls: [mount]
     enter:
@@ -172,7 +185,7 @@ rules:
       reads:
         - { arg: 0, size: 64, offset: 0, type: string }
         - { arg: 1, size: 128, offset: 64, type: string }
-        - { arg: 2, size: 256, offset: 256, type: raw }
+        - { arg: 2, size: 0, offset: 256, type: raw }
 
   # AIO
   - syscalls: [io_setup]

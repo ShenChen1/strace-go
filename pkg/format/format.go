@@ -182,6 +182,9 @@ func Sockaddr(data []byte, alen uint32, inLen uint32) string {
 	family := binary.LittleEndian.Uint16(data[0:2])
 	switch family {
 	case 1: // AF_UNIX
+		if len(data) <= 2 {
+			return "{sa_family=AF_UNIX}"
+		}
 		path := strings.TrimRight(string(data[2:]), "\x00")
 		return fmt.Sprintf("{sa_family=AF_UNIX, sun_path=%q}", path)
 	case 2: // AF_INET
@@ -202,12 +205,35 @@ func Sockaddr(data []byte, alen uint32, inLen uint32) string {
 // Buffer formats a byte slice as a string, respecting a limit.
 func Buffer(data []byte, limit int, actualLen int) string {
 	if len(data) == 0 { return "\"\"" }
-	s := string(data)
-	if idx := strings.IndexByte(s, 0); idx != -1 { s = s[:idx] }
-	if len(s) > limit {
-		return fmt.Sprintf("%q...", s[:limit])
+	
+	printLimit := limit
+	if printLimit <= 0 { printLimit = 32 }
+	if printLimit > len(data) { printLimit = len(data) }
+	
+	var sb strings.Builder
+	sb.WriteByte('"')
+	
+	for i := 0; i < printLimit; i++ {
+		b := data[i]
+		switch b {
+		case '\n': sb.WriteString("\\n")
+		case '\r': sb.WriteString("\\r")
+		case '\t': sb.WriteString("\\t")
+		case '\v': sb.WriteString("\\v")
+		case '\\': sb.WriteString("\\\\")
+		case '"':  sb.WriteString("\\\"")
+		default:
+			if b >= 32 && b <= 126 {
+				sb.WriteByte(b)
+			} else {
+				sb.WriteString(fmt.Sprintf("\\%o", b))
+			}
+		}
 	}
-	return fmt.Sprintf("%q", s)
+	
+	sb.WriteByte('"')
+	if actualLen > printLimit || len(data) > printLimit { sb.WriteString("...") }
+	return sb.String()
 }
 
 // Hexdump returns a hexadecimal representation of the data.

@@ -156,13 +156,35 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 		}
 		sizeStr := fmt.Sprintf("%d", r.Size)
 		if r.Size == 0 {
-			if suffix == "exit" {
+			if scName == "accept" || scName == "accept4" || scName == "getsockname" || scName == "getpeername" || scName == "recvfrom" {
+				if r.Arg == 1 || r.Arg == 4 {
+					sizeStr = "addrlen"
+				}
+			} else if scName == "add_key" || scName == "request_key" {
+				if r.Arg == 2 {
+					sizeStr = "((e)->args[3] > 0 ? ((e)->args[3] > 256 ? 256 : (e)->args[3]) : 0)"
+				}
+			} else if suffix == "exit" {
 				sizeStr = "((e)->ret > 0 ? ((e)->ret * 32 > 512 ? 512 : (e)->ret * 32) : 0)"
 			} else {
 				sizeStr = "((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0)"
 			}
 		}
-		res += fmt.Sprintf("\t\t\te->probe_ret_%s = %s(%s, %s, (void *)(e)->args[%d]); \\\n", suffix, fn, buf, sizeStr, r.Arg)
+		res += fmt.Sprintf("\t\t\t{ \\\n")
+		if r.Size == 0 && (scName == "accept" || scName == "accept4" || scName == "getsockname" || scName == "getpeername" || scName == "recvfrom") {
+			if r.Arg == 1 || r.Arg == 4 {
+				lenArg := 2
+				if scName == "recvfrom" { lenArg = 5 }
+				res += fmt.Sprintf("\t\t\t\tu32 addrlen = 0; \\\n")
+				res += fmt.Sprintf("\t\t\t\tbpf_probe_read_user(&addrlen, 4, (void *)(e)->args[%d]); \\\n", lenArg)
+				res += fmt.Sprintf("\t\t\t\tu32 inlen = *(u32 *)((e)->str_arg + 768); \\\n")
+				res += fmt.Sprintf("\t\t\t\tif (inlen > 0 && inlen < addrlen) addrlen = inlen; \\\n")
+				res += fmt.Sprintf("\t\t\t\taddrlen = (addrlen > 128) ? 128 : addrlen; \\\n")
+			}
+		}
+		res += fmt.Sprintf("\t\t\t\tlong pr = (e)->args[%d] ? %s(%s, %s, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, sizeStr, r.Arg)
+		res += fmt.Sprintf("\t\t\t\te->probe_ret_%s = (pr < 0) ? pr : (e->probe_ret_%s == -1 ? 0 : e->probe_ret_%s); \\\n", suffix, suffix, suffix)
+		res += fmt.Sprintf("\t\t\t} \\\n")
 		
 		if scName == "io_submit" && suffix == "enter" && r.Arg == 2 {
 			res += "\t\t\tfor (int i = 0; i < 2; i++) { \\\n"

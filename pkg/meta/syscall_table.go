@@ -158,7 +158,7 @@ var SyscallTable = map[uint32]Syscall{
 	152: {Name: "munlockall", Args: []string{}, ArgTypes: []string{}},
 	153: {Name: "vhangup", Args: []string{}, ArgTypes: []string{}},
 	154: {Name: "modify_ldt", Args: []string{"arg0", "arg1", "arg2"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long"}},
-	155: {Name: "pivot_root", Args: []string{"new_root", "put_old"}, ArgTypes: []string{"const char *", "const char *"}},
+	155: {Name: "pivot_root", Args: []string{"arg0", "arg1"}, ArgTypes: []string{"unsigned long", "unsigned long"}},
 	156: {Name: "_sysctl", Args: []string{"arg0"}, ArgTypes: []string{"unsigned long"}},
 	157: {Name: "prctl", Args: []string{"option", "arg2", "arg3", "arg4", "arg5"}, ArgTypes: []string{"int", "long unsigned int", "long unsigned int", "long unsigned int", "long unsigned int"}},
 	158: {Name: "arch_prctl", Args: []string{"option", "arg2"}, ArgTypes: []string{"int", "unsigned long"}},
@@ -337,6 +337,6 @@ var SyscallTable = map[uint32]Syscall{
 	331: {Name: "pkey_free", Args: []string{"arg0"}, ArgTypes: []string{"unsigned long"}},
 	332: {Name: "statx", Args: []string{"arg0", "arg1", "arg2", "arg3", "arg4"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long", "unsigned long", "unsigned long"}},
 	333: {Name: "io_pgetevents", Args: []string{"arg0", "arg1", "arg2", "arg3", "arg4", "arg5"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long", "unsigned long", "unsigned long", "unsigned long"}},
-	334: {Name: "rseq", Args: []string{"arg0", "arg1", "arg2", "arg3"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long", "unsigned long"}},
+	334: {Name: "rseq", Args: []string{"rseq", "rseq_len", "flags", "sig"}, ArgTypes: []string{"struct rseq *", "u32", "int", "u32"}},
 	335: {Name: "uretprobe", Args: []string{}, ArgTypes: []string{}},
 }

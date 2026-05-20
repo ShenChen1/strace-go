@@ -621,38 +621,63 @@ var XlatTables = map[string]XlatTable{
 	},
 }
 var SyscallArgXlatMap = map[string]map[string]string{
-	"openat": {
-		"flags": "open_mode_flags",
-	},
-	"arch_prctl": {
-		"option": "archvals",
+	"clone": {
+		"clone_flags": "clone_flags",
 	},
 	"mprotect": {
 		"prot": "mmap_prot",
 	},
-	"madvise": {
-		"behavior": "madvise_cmds",
+	"futex": {
+		"op": "futexops",
 	},
 	"lseek": {
 		"whence": "whence_codes",
 	},
-	"mount": {
-		"mountflags": "mount_flags",
+	"wait4": {
+		"options": "wait4_options",
 	},
-	"access": {
-		"mode": "access_modes",
+	"arch_prctl": {
+		"option": "archvals",
 	},
-	"open": {
-		"flags": "open_mode_flags",
-	},
-	"faccessat2": {
-		"mode": "access_modes",
+	"accept4": {
+		"flags": "sock_type_flags",
 	},
 	"bpf": {
 		"arg0": "bpf_commands",
 	},
+	"umount2": {
+		"flags": "umount_flags",
+	},
+	"access": {
+		"mode": "access_modes",
+	},
 	"clock_adjtime": {
 		"which_clock": "clocknames",
+	},
+	"clock_nanosleep": {
+		"which_clock": "clocknames",
+	},
+	"mmap": {
+		"prot": "mmap_prot",
+		"flags": "mmap_flags",
+	},
+	"clone3": {
+		"flags": "clone3_flags",
+	},
+	"mount": {
+		"mountflags": "mount_flags",
+	},
+	"faccessat": {
+		"mode": "access_modes",
+	},
+	"faccessat2": {
+		"mode": "access_modes",
+	},
+	"epoll_create1": {
+		"flags": "epollflags",
+	},
+	"open": {
+		"flags": "open_mode_flags",
 	},
 	"clock_settime": {
 		"which_clock": "clocknames",
@@ -660,47 +685,22 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"epoll_ctl": {
 		"op": "epollctls",
 	},
+	"madvise": {
+		"behavior": "madvise_cmds",
+	},
 	"rt_sigprocmask": {
 		"how": "sigprocmaskcmds",
 	},
-	"clock_nanosleep": {
-		"which_clock": "clocknames",
-	},
-	"request_key": {
-		"destringid": "key_spec",
-	},
-	"epoll_create1": {
-		"flags": "epollflags",
-	},
-	"futex": {
-		"op": "futexops",
-	},
-	"umount2": {
-		"flags": "umount_flags",
-	},
-	"faccessat": {
-		"mode": "access_modes",
-	},
-	"mremap": {
-		"flags": "mremap_flags",
-	},
-	"clone3": {
-		"flags": "clone3_flags",
-	},
-	"mmap": {
-		"prot": "mmap_prot",
-		"flags": "mmap_flags",
-	},
-	"clone": {
-		"clone_flags": "clone_flags",
-	},
-	"wait4": {
-		"options": "wait4_options",
+	"openat": {
+		"flags": "open_mode_flags",
 	},
 	"add_key": {
 		"ringid": "key_spec",
 	},
-	"accept4": {
-		"flags": "sock_type_flags",
+	"request_key": {
+		"destringid": "key_spec",
+	},
+	"mremap": {
+		"flags": "mremap_flags",
 	},
 }

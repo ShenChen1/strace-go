@@ -184,7 +184,6 @@ func handleEvent(eventRaw *bpfEvent, targetPid int, opts *cli.Options, decoder *
 	}
 
 	h := handler.Get(scMeta.Name)
-	log.Printf("DEBUG: sysName=%s handler=%T", scMeta.Name, h)
 	res := h.Handle(ctx)
 	
 	line := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
