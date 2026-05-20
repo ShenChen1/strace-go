@@ -36,3 +36,9 @@ go.work.sum
 .agent.md
 /strace-go
 /cmd/strace-go/strace-go
+
+# Scratch/test binaries and logs
+check_ptrace
+test/scratch/test_acct_only
+test/*.log
+*.log
