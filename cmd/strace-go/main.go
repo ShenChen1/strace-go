@@ -159,6 +159,15 @@ func handleEvent(eventRaw *bpfEvent, targetPid int, opts *cli.Options, decoder *
 			fdMap[fmt.Sprintf("%d:%d", targetPid, int32(ret))] = p
 		}
 	}
+	if (scMeta.Name == "socket" || scMeta.Name == "socketpair") && ret >= 0 {
+		domain := eventRaw.Args[0]
+		proto := eventRaw.Args[2]
+		info := meta.DecodeFlags(domain, "addrfams")
+		if domain == 16 { // AF_NETLINK
+			info += ":" + meta.DecodeFlags(proto, "netlink_protocols")
+		}
+		fdMap[fmt.Sprintf("%d:%d", targetPid, int32(ret))] = info
+	}
 	if scMeta.Name == "close" && ret == 0 { delete(fdMap, fmt.Sprintf("%d:%d", targetPid, int32(eventRaw.Args[0]))) }
 
 	if scMeta.Name == "arch_prctl" && eventRaw.Args[0] == 0x1002 { return }

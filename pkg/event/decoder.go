@@ -74,13 +74,15 @@ func MatchPath(pid int, fd int32, scName string, ptr uint64, rawStrArg string, t
 	if len(tracePaths) == 0 { return true }
 	
 	p := rawStrArg
+	if (p == "" || p == "NULL" || strings.HasPrefix(p, "0x")) && fd != -1 {
+		if path, ok := fdMap[fmt.Sprintf("%d:%d", pid, fd)]; ok { 
+			p = path 
+		}
+	}
+	
 	// Strip quotes if present
 	if len(p) >= 2 && p[0] == '"' && p[len(p)-1] == '"' {
 		p = p[1 : len(p)-1]
-	}
-	
-	if (p == "" || p == "NULL") && fd != -1 {
-		if path, ok := fdMap[fmt.Sprintf("%d:%d", pid, fd)]; ok { p = path }
 	}
 
 	if p == "" || p == "NULL" || strings.HasPrefix(p, "0x") { return false }

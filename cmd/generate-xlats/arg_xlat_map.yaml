@@ -34,8 +34,10 @@ syscalls:
   connect:
     addr: sockaddr
   sendto:
+    flags: msg_flags
     addr: sockaddr
   recvfrom:
+    flags: msg_flags
     addr: sockaddr
   getsockname:
     addr: sockaddr
@@ -75,6 +77,8 @@ syscalls:
     op: epollctls
   epoll_create1:
     flags: epollflags
+  ioctl:
+    cmd: ioctl_cmds
   mmap:
     prot: mmap_prot
     flags: mmap_flags

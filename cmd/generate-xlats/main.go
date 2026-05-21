@@ -52,7 +52,17 @@ func main() {
 	allowedXlats["futexops"] = true
 	allowedXlats["protocols"] = true
 	allowedXlats["sigact_flags"] = true
-	
+	allowedXlats["dm_flags"] = true
+	allowedXlats["netlink_protocols"] = true
+	allowedXlats["netlink_types"] = true
+	allowedXlats["netlink_flags"] = true
+	allowedXlats["netlink_get_flags"] = true
+	allowedXlats["netlink_new_flags"] = true
+	allowedXlats["netlink_ack_flags"] = true
+	allowedXlats["msg_flags"] = true
+	allowedXlats["sock_ip_options"] = true
+	allowedXlats["sock_tcp_options"] = true
+
 	delete(allowedXlats, "x86_xfeatures")
 	delete(allowedXlats, "clocknames")
 	delete(allowedXlats, "clone3_flags")
@@ -73,7 +83,7 @@ func main() {
 		entries := make(map[string]string)
 		
 		cProg := strings.Builder{}
-		cProg.WriteString("#define _GNU_SOURCE\n#include <stdio.h>\n#include <fcntl.h>\n#include <sys/types.h>\n#include <sys/socket.h>\n#include <sys/un.h>\n#include <linux/prctl.h>\n#include <asm/prctl.h>\n#include <linux/stat.h>\n#include <linux/fs.h>\n#include <linux/timex.h>\n#include <poll.h>\n#include <sys/epoll.h>\n#include <linux/bpf.h>\n#include <time.h>\n#include <asm/termios.h>\n#include <sys/mman.h>\n#include <linux/sched.h>\n#include <linux/futex.h>\n#include <sys/wait.h>\n#include <sys/mount.h>\n#include <linux/keyctl.h>\n")
+		cProg.WriteString("#define _GNU_SOURCE\n#include <stdio.h>\n#include <fcntl.h>\n#include <sys/types.h>\n#include <sys/socket.h>\n#include <sys/un.h>\n#include <linux/prctl.h>\n#include <asm/prctl.h>\n#include <linux/stat.h>\n#include <linux/fs.h>\n#include <linux/timex.h>\n#include <poll.h>\n#include <sys/epoll.h>\n#include <linux/bpf.h>\n#include <time.h>\n#include <asm/termios.h>\n#include <sys/mman.h>\n#include <linux/sched.h>\n#include <linux/futex.h>\n#include <sys/wait.h>\n#include <sys/mount.h>\n#include <linux/keyctl.h>\n#include <linux/dm-ioctl.h>\n#include <linux/netlink.h>\n#include <linux/rtnetlink.h>\n")
 		cProg.WriteString("#ifndef ARCH_GET_CPUID\n#define ARCH_GET_CPUID 0x1011\n#endif\n#ifndef ARCH_SET_CPUID\n#define ARCH_SET_CPUID 0x1012\n#endif\n")
 
 		// Also parse strace's generated .h file if it exists
@@ -187,6 +197,35 @@ func main() {
 			fmt.Fprintf(out, "\t\t\t{Val: 32768, Str: \"O_LARGEFILE\"},\n")
 		}
 		fmt.Fprintf(out, "\t\t},\n\t},\n")
+	}
+	if true {
+		fmt.Printf("Generating ioctl_cmds...\n")
+		ioctlInc, err := os.ReadFile("../../strace-upstream/src/linux/64/ioctls_inc.h")
+		if err == nil {
+			fmt.Fprintf(out, "\t%q: {\n\t\tPrefix: %q,\n\t\tEntries: []XlatVal{\n", "ioctl_cmds", "")
+			for _, line := range strings.Split(string(ioctlInc), "\n") {
+				line = strings.TrimSpace(line)
+				if !strings.HasPrefix(line, "{") { continue }
+				line = strings.Trim(line, "{} ")
+				parts := strings.Split(line, ",")
+				if len(parts) >= 5 {
+					name := strings.Trim(parts[1], " \"")
+					dirStr := strings.TrimSpace(parts[2])
+					typNrStr := strings.TrimSpace(parts[3])
+					sizeStr := strings.TrimSpace(parts[4])
+					
+					var dir, typNr, size uint64
+					if strings.Contains(dirStr, "READ") && strings.Contains(dirStr, "WRITE") { dir = 3 } else if strings.Contains(dirStr, "READ") { dir = 2 } else if strings.Contains(dirStr, "WRITE") { dir = 1 } else { dir = 0 }
+					
+					fmt.Sscanf(typNrStr, "%v", &typNr)
+					fmt.Sscanf(sizeStr, "%v", &size)
+					
+					val := (dir << 30) | (size << 16) | typNr
+					fmt.Fprintf(out, "\t\t\t{Val: %d, Str: %q}, // From %s\n", val, name, strings.Trim(parts[0], " \""))
+				}
+			}
+			fmt.Fprintf(out, "\t\t},\n\t},\n")
+		}
 	}
 	if true {
 		fmt.Fprintf(out, "\t%q: {\n\t\tPrefix: %q,\n\t\tEntries: []XlatVal{\n", "clocknames", "CLOCK_")

@@ -36,8 +36,9 @@ func (r *Reader) Read(pid int, addr uint64, size int) ([]byte, error) {
 	if size <= 0 { return nil, nil }
 	out := make([]byte, size)
 
-	// Try process_vm_readv first (fastest and works on running processes)
-	if n, err := r.readVM(pid, addr, out); err == nil && n > 0 { return out[:n], nil }
+	// Try process_vm_readv first
+	n, err := r.readVM(pid, addr, out)
+	if err == nil && n > 0 { return out[:n], nil }
 
 	// Fallback to /proc/<pid>/mem
 	f, ok := r.files[pid]

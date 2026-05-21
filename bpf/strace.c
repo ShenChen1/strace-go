@@ -63,11 +63,6 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     e->args[4] = ctx->args[4];
     e->args[5] = ctx->args[5];
 
-    #pragma unroll
-    for (int i = 0; i < 256; i++) {
-        ((volatile u64 *)e->str_arg)[i] = 0;
-    }
-
     CAPTURE_ARGS_ENTER(e->sys_id, e);
     bpf_map_update_elem(&events_map, &tid, e, BPF_ANY);
     return 0;

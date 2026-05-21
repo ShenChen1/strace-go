@@ -178,7 +178,11 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 						res.ArgParts[len(res.ArgParts)-1] = p2
 					}
 				} else if strings.Contains(argTyp, "char *") {
-					res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, val, nil, -1, ctx.ScMeta.Name, ctx.Opts.StringLimit))
+					if val == ctx.Ptr && ctx.RawStrArg != "" && !strings.HasPrefix(ctx.RawStrArg, "0x") {
+						res.ArgParts = append(res.ArgParts, ctx.RawStrArg)
+					} else {
+						res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, val, ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, ctx.ScMeta.Name, ctx.Opts.StringLimit))
+					}
 				} else {
 					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
 				}

@@ -172,6 +172,10 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 				if r.Arg == 0 {
 					sizeStr = "((e)->args[1] > 0 ? ((e)->args[1] > 256 ? 256 : (e)->args[1]) : 0)"
 				}
+			} else if scName == "ioctl" {
+				if r.Arg == 2 {
+					sizeStr = "iosz"
+				}
 			} else if suffix == "exit" {
 				sizeStr = "((e)->ret > 0 ? ((e)->ret * 32 > 512 ? 512 : (e)->ret * 32) : 0)"
 			} else {
@@ -189,6 +193,9 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 				res += fmt.Sprintf("\t\t\t\tif (inlen > 0 && inlen < addrlen) addrlen = inlen; \\\n")
 				res += fmt.Sprintf("\t\t\t\taddrlen = (addrlen > 128) ? 128 : addrlen; \\\n")
 			}
+		} else if r.Size == 0 && scName == "ioctl" && r.Arg == 2 {
+			res += fmt.Sprintf("\t\t\t\tu32 iosz = (((e)->args[1] >> 16) & 0x3fff); \\\n")
+			res += fmt.Sprintf("\t\t\t\tiosz = (iosz == 0) ? 128 : (iosz > 512 ? 512 : iosz); \\\n")
 		}
 		res += fmt.Sprintf("\t\t\t\tlong pr = (e)->args[%d] ? %s(%s, %s, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, sizeStr, r.Arg)
 		res += fmt.Sprintf("\t\t\t\te->probe_ret_%s = (pr < 0) ? pr : (e->probe_ret_%s == -1 ? 0 : e->probe_ret_%s); \\\n", suffix, suffix, suffix)

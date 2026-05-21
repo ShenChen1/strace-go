@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/binary"
 	"fmt"
+	"strings"
 
 	"strace-go/pkg/format"
 	"strace-go/pkg/meta"
@@ -39,6 +40,11 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 			continue
 		}
 
+		if (argName == "len" || argName == "size" || argName == "count") && ctx.ScMeta.Name != "socket" {
+			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", val))
+			continue
+		}
+
 		if (argName == "upeer_addrlen" || argName == "usockaddr_len" || argName == "addr_len") &&
 			(ctx.ScMeta.Name == "accept" || ctx.ScMeta.Name == "accept4" || ctx.ScMeta.Name == "getsockname" || ctx.ScMeta.Name == "getpeername" || ctx.ScMeta.Name == "recvfrom") {
 			if val == 0 {
@@ -68,84 +74,81 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 				if inLen != 0 {
 					res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d]", inLen))
 				} else {
-					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
+					res.ArgParts = append(res.ArgParts, "0")
 				}
 			}
 			continue
 		}
 
-		if argTyp == "struct sockaddr *" || argName == "addr" || argName == "usockaddr" {
+		if (ctx.ScMeta.Name == "sendto" || ctx.ScMeta.Name == "recvfrom") && i == 1 {
+			if val == 0 {
+				res.ArgParts = append(res.ArgParts, "NULL")
+				continue
+			}
+			fdInfo := ctx.FdMap[fmt.Sprintf("%d:%d", ctx.TargetPid, int32(ctx.Args[0]))]
+			if strings.Contains(fdInfo, "AF_NETLINK") {
+				sz := int(ctx.Args[2])
+				if sz > 512 { sz = 512 }
+				data := ctx.StrArgBuf[0:sz]
+				readSuccess := ctx.ProbeRetEnter >= 0
+				if ctx.ScMeta.Name == "recvfrom" { 
+					data = ctx.StrArgBuf[1024 : 1024+sz]
+					readSuccess = ctx.ProbeRetExit >= 0
+				}
+				
+				if !readSuccess || ctx.Ret >= 0 {
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, sz, ctx.ScMeta.Name == "recvfrom"); err == nil && len(d) >= sz {
+						data = d
+						readSuccess = true
+					}
+				}
+				
+				if readSuccess && len(data) >= 16 {
+					res.ArgParts = append(res.ArgParts, format.Netlink(data))
+					continue
+				}
+			}
+		}
+
+		if (argTyp == "struct sockaddr *" || argName == "addr" || argName == "usockaddr" || argName == "addr_user") && i != 1 {
 			if val == 0 {
 				res.ArgParts = append(res.ArgParts, "NULL")
 				continue
 			}
 
-			aidx := 2
-			if ctx.ScMeta.Name == "sendto" { aidx = 5 } else if ctx.ScMeta.Name == "recvfrom" { aidx = 5 }
-			if ctx.ScMeta.Name == "bind" || ctx.ScMeta.Name == "connect" { aidx = 2 }
-
-			outLen := binary.LittleEndian.Uint32(ctx.StrArgBuf[772:776])
-			inLen := binary.LittleEndian.Uint32(ctx.StrArgBuf[768:772])
-			
-			// For bind/connect/sendto, alen is arg 2 or 5
-			if ctx.ScMeta.Name == "bind" || ctx.ScMeta.Name == "connect" || ctx.ScMeta.Name == "sendto" {
-				alen := uint32(ctx.Args[aidx])
-				inLen = alen
-				outLen = alen
-			}
-
-			if (outLen == 0 && inLen == 0) || ctx.ProbeRetExit < 0 {
-				// Try to read addrlen from memory if it's a pointer
-				if ctx.ScMeta.Name == "accept" || ctx.ScMeta.Name == "accept4" || ctx.ScMeta.Name == "getsockname" || ctx.ScMeta.Name == "getpeername" || ctx.ScMeta.Name == "recvfrom" {
-					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[aidx], 4, true); err == nil && len(d) == 4 {
-						outLen = binary.LittleEndian.Uint32(d)
-					}
+			alen := uint32(0)
+			if ctx.ScMeta.Name == "bind" || ctx.ScMeta.Name == "connect" { alen = uint32(ctx.Args[2]) }
+			if ctx.ScMeta.Name == "sendto" { alen = uint32(ctx.Args[5]) }
+			if ctx.ScMeta.Name == "recvfrom" {
+				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[5], 4, true); err == nil && len(d) == 4 {
+					alen = binary.LittleEndian.Uint32(d)
 				}
 			}
-
-			capLen := outLen
-			if inLen > 0 && inLen < outLen {
-				capLen = inLen
-			}
-			if capLen == 0 { capLen = inLen }
-			if capLen > 256 { capLen = 256 }
-			if capLen == 0 { capLen = 16 }
 
 			offset := uint32(0)
 			if ctx.ScMeta.Name == "accept" || ctx.ScMeta.Name == "accept4" || ctx.ScMeta.Name == "getsockname" || ctx.ScMeta.Name == "getpeername" || ctx.ScMeta.Name == "recvfrom" {
 				offset = 1024
 			}
 
-			sdata := ctx.StrArgBuf[offset : offset+capLen]
-			fam := uint16(0)
-			if len(sdata) >= 2 { fam = binary.LittleEndian.Uint16(sdata) }
-
+			sdata := ctx.StrArgBuf[offset : offset+128]
 			readSuccess := ctx.ProbeRetExit >= 0
 			if ctx.ScMeta.Name == "bind" || ctx.ScMeta.Name == "connect" || ctx.ScMeta.Name == "sendto" {
 				readSuccess = ctx.ProbeRetEnter >= 0
 			}
 
-			if ctx.Ret >= 0 && (!readSuccess || (fam == 0 && capLen > 0)) {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, int(capLen), true); err == nil && len(d) == int(capLen) {
+			if !readSuccess || ctx.Ret >= 0 {
+				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 128, ctx.ScMeta.Name == "recvfrom"); err == nil && len(d) >= 2 {
 					sdata = d
 					readSuccess = true
 				}
 			}
 
-			if ctx.Ret < 0 || !readSuccess {
+			if !readSuccess {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
 				continue
 			}
 
-			validLen := outLen
-			if inLen > 0 && inLen < validLen {
-				validLen = inLen
-			}
-			if len(sdata) > int(validLen) {
-				sdata = sdata[:validLen]
-			}
-
-			res.ArgParts = append(res.ArgParts, format.Sockaddr(sdata, outLen, inLen))
+			res.ArgParts = append(res.ArgParts, format.Sockaddr(sdata, alen, alen))
 			continue
 		}
 
@@ -168,7 +171,19 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 			continue
 		}
 
-		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
+		if val == 0 && (strings.Contains(argTyp, "*") || (strings.Contains(argName, "addr") && !strings.Contains(argName, "len"))) {
+			if (ctx.ScMeta.Name == "sendto" || ctx.ScMeta.Name == "recvfrom") && i == 5 {
+				res.ArgParts = append(res.ArgParts, "0")
+			} else {
+				res.ArgParts = append(res.ArgParts, "NULL")
+			}
+		} else {
+			if strings.Contains(argName, "len") || strings.Contains(argName, "size") || strings.Contains(argName, "count") {
+				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", val))
+			} else {
+				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
+			}
+		}
 	}
 	return res
 }

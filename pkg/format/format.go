@@ -291,6 +291,33 @@ func FdSet(data []byte, nfds int) string {
 	return "[" + strings.Join(fds, " ") + "]"
 }
 
+// Ioc formats a generic ioctl command number.
+func Ioc(val uint64) string {
+	dir := (val >> 30) & 0x3
+	typ := (val >> 8) & 0xff
+	nr := val & 0xff
+	size := (val >> 16) & 0x3fff
+
+	dirStr := ""
+	switch dir {
+	case 0: dirStr = "_IOC_NONE"
+	case 1: dirStr = "_IOC_WRITE"
+	case 2: dirStr = "_IOC_READ"
+	case 3: dirStr = "_IOC_READ|_IOC_WRITE"
+	}
+	
+	if dir == 0 && typ == 0 && nr == 0 && size == 0 {
+		return "0"
+	}
+
+	fh := func(v uint64) string {
+		if v == 0 { return "0" }
+		return fmt.Sprintf("%#x", v)
+	}
+
+	return fmt.Sprintf("_IOC(%s, %s, %s, %s)", dirStr, fh(typ), fh(nr), fh(size))
+}
+
 // Hexdump returns a hexadecimal representation of the data.
 func Hexdump(data []byte) string {
 	var res []string
