@@ -42,10 +42,12 @@ func (h *SelectHandler) Handle(ctx *Context) Result {
 			sz := (nfds + 7) / 8
 			if sz > 128 { sz = 128 }
 			if sz > 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptr, sz, false); err == nil && len(d) == sz {
+				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptr, sz, false); err == nil && len(d) >= sz {
 					data = d
 					readSuccess = true
 				}
+			} else {
+				readSuccess = true // sz=0
 			}
 		}
 		if readSuccess {
@@ -93,7 +95,7 @@ func (h *SelectHandler) Handle(ctx *Context) Result {
 				sz := (nfds + 7) / 8
 				if sz > 128 { sz = 128 }
 				if sz > 0 {
-					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptr, sz, true); err == nil && len(d) == sz {
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptr, sz, true); err == nil && len(d) >= sz {
 						data = d
 						readSuccess = true
 					}
@@ -144,7 +146,7 @@ func (h *PollHandler) Handle(ctx *Context) Result {
 		data := ctx.StrArgBuf[0:capLen]
 		readSuccess := ctx.ProbeRetEnter >= 0
 		if !readSuccess {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptr, capLen, false); err == nil && len(d) == capLen {
+			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptr, capLen, false); err == nil && len(d) >= capLen {
 				data = d
 				readSuccess = true
 			}
@@ -188,23 +190,23 @@ func (h *PollHandler) Handle(ctx *Context) Result {
 	} else if ctx.Ret > 0 {
 		capLen := nfds * 8
 		if capLen > 512 { capLen = 512 }
-		data := ctx.StrArgBuf[1024 : 1024+capLen]
+		dataExit := ctx.StrArgBuf[1024 : 1024+capLen]
 		readSuccess := ctx.ProbeRetExit >= 0
 		if !readSuccess {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptr, capLen, true); err == nil && len(d) == capLen {
-				data = d
+			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptr, capLen, true); err == nil && len(d) >= capLen {
+				dataExit = d
 				readSuccess = true
 			}
 		}
 		if readSuccess {
-			res.ReturnDesc = formatPollfds(data, nfds, true)
+			res.ReturnDesc = formatPollfdsExit(dataExit, nfds)
 		}
 	}
 	
 	return res
 }
 
-func formatPollfds(data []byte, nfds int, onlyRevents bool) string {
+func formatPollfds(data []byte, nfds int, hasExitData bool) string {
 	parts := []string{}
 	limit := 16
 	for i := 0; i < nfds && i < limit; i++ {
@@ -212,26 +214,31 @@ func formatPollfds(data []byte, nfds int, onlyRevents bool) string {
 		if len(data) < off+8 { break }
 		fd := int32(binary.LittleEndian.Uint32(data[off : off+4]))
 		events := binary.LittleEndian.Uint16(data[off+4 : off+6])
-		revents := binary.LittleEndian.Uint16(data[off+6 : off+8])
 		
-		if onlyRevents {
-			if revents != 0 {
-				parts = append(parts, fmt.Sprintf("{fd=%d, revents=%s}", fd, meta.DecodeFlags(uint64(revents), "pollflags")))
-			}
-			continue
-		}
-
 		if fd < 0 {
 			parts = append(parts, fmt.Sprintf("{fd=%d}", fd))
 		} else {
 			s := fmt.Sprintf("{fd=%d, events=%s", fd, meta.DecodeFlags(uint64(events), "pollflags"))
-			if revents != 0 {
-				s += fmt.Sprintf(", revents=%s", meta.DecodeFlags(uint64(revents), "pollflags"))
-			}
+			// Explicitly ignore revents in input array
 			s += "}"
 			parts = append(parts, s)
 		}
 	}
 	if nfds > limit { parts = append(parts, "...") }
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+func formatPollfdsExit(dataExit []byte, nfds int) string {
+	parts := []string{}
+	for i := 0; i < nfds; i++ {
+		off := i * 8
+		if len(dataExit) < off+8 { break }
+		fd := int32(binary.LittleEndian.Uint32(dataExit[off : off+4]))
+		revents := binary.LittleEndian.Uint16(dataExit[off+6 : off+8])
+		if revents != 0 {
+			parts = append(parts, fmt.Sprintf("{fd=%d, revents=%s}", fd, meta.DecodeFlags(uint64(revents), "pollflags")))
+		}
+	}
+	if len(parts) == 0 { return "" }
 	return "[" + strings.Join(parts, ", ") + "]"
 }

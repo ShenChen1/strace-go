@@ -18,7 +18,7 @@ type DefaultHandler struct{}
 
 func (h *DefaultHandler) Handle(ctx *Context) Result {
 	res := Result{}
-	
+
 	if ctx.ScMeta.Name == "brk" {
 		if ctx.Args[0] == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
@@ -62,7 +62,7 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 				off := 0
 				data := ctx.StrArgBuf[off : off+16]
 				if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 || ctx.ScMeta.Name == "nanosleep" || ctx.ScMeta.Name == "clock_nanosleep" {
-					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 16, false); err == nil { data = d }
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 16, false); err == nil && len(d) == 16 { data = d }
 				}
 				res.ArgParts = append(res.ArgParts, format.Timespec(data))
 				continue
@@ -71,7 +71,7 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 			if strings.Contains(argTyp, "struct timeval *") {
 				data := ctx.StrArgBuf[1024 : 1024+16]
 				if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 {
-					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 16, false); err == nil { data = d }
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 16, false); err == nil && len(d) == 16 { data = d }
 				}
 				res.ArgParts = append(res.ArgParts, format.Timeval(data))
 				continue
@@ -80,7 +80,7 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 			if strings.Contains(argTyp, "struct timex *") || strings.Contains(argTyp, "struct __kernel_timex *") {
 				data := ctx.StrArgBuf[1024 : 1024+208]
 				if ctx.Ret >= 0 || ctx.ProbeRetExit < 0 {
-					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 208, true); err == nil { data = d }
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 208, true); err == nil && len(d) == 208 { data = d }
 				}
 				res.ArgParts = append(res.ArgParts, format.Timex(data))
 				continue
@@ -93,34 +93,9 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 				}
 				data := ctx.StrArgBuf[1024 : 1024+144]
 				if ctx.Ret >= 0 || ctx.ProbeRetExit < 0 {
-					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 144, true); err == nil { data = d }
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 144, true); err == nil && len(d) == 144 { data = d }
 				}
 				res.ArgParts = append(res.ArgParts, format.Stat(data))
-				continue
-			}
-
-			if strings.Contains(argTyp, "struct pollfd *") {
-				nfds := uint32(ctx.Args[1])
-				res.ArgParts = append(res.ArgParts, format.Pollfds(ctx.StrArgBuf[:512], nfds))
-				continue
-			}
-
-			if strings.Contains(argTyp, "fd_set *") {
-				n := int(ctx.Args[0])
-				off := 0
-				if argName == "outp" || i == 2 { off = 128 } else if argName == "exp" || i == 3 { off = 256 }
-				res.ArgParts = append(res.ArgParts, format.FdSet(ctx.StrArgBuf[off:off+128], n))
-				continue
-			}
-
-			if strings.Contains(argTyp, "struct epoll_event *") {
-				if ctx.ScMeta.Name == "epoll_ctl" {
-					res.ArgParts = append(res.ArgParts, format.EpollEvent(ctx.StrArgBuf[:12]))
-					continue
-				}
-				count := int(ctx.Ret)
-				if count < 0 { count = 0 }
-				res.ArgParts = append(res.ArgParts, format.EpollEvents(ctx.StrArgBuf[1024:1536], count))
 				continue
 			}
 
@@ -136,18 +111,12 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 
 			if strings.Contains(argTyp, "char *") || strings.Contains(argTyp, "void *") {
 				isRen := ctx.ScMeta.Name == "rename" || ctx.ScMeta.Name == "renameat" || ctx.ScMeta.Name == "renameat2" || ctx.ScMeta.Name == "link" || ctx.ScMeta.Name == "linkat" || ctx.ScMeta.Name == "symlink" || ctx.ScMeta.Name == "symlinkat"
-				
+
 				if scName := ctx.ScMeta.Name; (scName == "add_key" || scName == "request_key") && (strings.Contains(argName, "type") || strings.Contains(argName, "description")) {
 					off := 0
 					if strings.Contains(argName, "description") { off = 64 }
-					p := ctx.Decoder.DecodeString(ctx.Tid, val, ctx.StrArgBuf[off:off+128], ctx.ProbeRetEnter, scName, 0)
-					if p == "NULL" { 
-						res.ArgParts = append(res.ArgParts, "NULL") 
-					} else if strings.HasPrefix(p, "0x") {
-						res.ArgParts = append(res.ArgParts, p)
-					} else { 
-						res.ArgParts = append(res.ArgParts, format.Buffer([]byte(p), ctx.Opts.StringLimit, 0)) 
-					}
+					p := ctx.Decoder.DecodeString(ctx.Tid, val, ctx.StrArgBuf[off:off+128], ctx.ProbeRetEnter, scName, ctx.Opts.StringLimit)
+					res.ArgParts = append(res.ArgParts, p)
 					continue
 				}
 				if scName := ctx.ScMeta.Name; (scName == "add_key" || scName == "request_key") && strings.Contains(argName, "payload") {
@@ -166,8 +135,6 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 						if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, capLen, false); err == nil && len(d) == capLen { 
 							data = d
 							readSuccess = true
-						} else if ctx.ScMeta.Name == "add_key" && capLen == 5 {
-							fmt.Printf("DEBUG: ReadRobust failed for plen 5! err=%v len(d)=%d\n", err, len(d))
 						}
 					}
 
@@ -200,18 +167,18 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 					res.HexDumpStr = format.Hexdump(data)
 					res.ArgParts = append(res.ArgParts, format.Buffer(data, ctx.Opts.StringLimit, int(szH)))
 				} else if isRen {
-					p1 := ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, ctx.ScMeta.Name, 0)
-					p2 := ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, ctx.ScMeta.Name, 0)
+					p1 := ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, ctx.ScMeta.Name, ctx.Opts.StringLimit)
+					p2 := ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, ctx.ScMeta.Name, ctx.Opts.StringLimit)
 					if ctx.ScMeta.Name == "renameat" || ctx.ScMeta.Name == "renameat2" || ctx.ScMeta.Name == "linkat" {
-						p1 = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, ctx.ScMeta.Name, 0)
-						p2 = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[3], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, ctx.ScMeta.Name, 0)
+						p1 = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, ctx.ScMeta.Name, ctx.Opts.StringLimit)
+						p2 = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[3], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, ctx.ScMeta.Name, ctx.Opts.StringLimit)
 					}
-					if p1 == "NULL" { res.ArgParts = append(res.ArgParts, "NULL") } else { res.ArgParts = append(res.ArgParts, format.Buffer([]byte(p1), ctx.Opts.StringLimit, 0)) }
+					res.ArgParts = append(res.ArgParts, p1)
 					if val != ctx.Args[0] && (ctx.ScMeta.Name == "rename" || val != ctx.Args[1]) {
-						p := p2; if p2 == "NULL" { res.ArgParts[len(res.ArgParts)-1] = "NULL" } else { res.ArgParts[len(res.ArgParts)-1] = format.Buffer([]byte(p), ctx.Opts.StringLimit, 0) }
+						res.ArgParts[len(res.ArgParts)-1] = p2
 					}
 				} else if strings.Contains(argTyp, "char *") {
-					res.ArgParts = append(res.ArgParts, format.Buffer([]byte(ctx.RawStrArg), ctx.Opts.StringLimit, 0))
+					res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, val, nil, -1, ctx.ScMeta.Name, ctx.Opts.StringLimit))
 				} else {
 					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
 				}

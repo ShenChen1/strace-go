@@ -45,11 +45,21 @@ func main() {
 	allowedXlats["clone3_flags"] = true
 	allowedXlats["pollflags"] = true
 	allowedXlats["signalnames"] = true
+	allowedXlats["socketlayers"] = true
+	allowedXlats["sock_type_flags"] = true
+	allowedXlats["sock_options"] = true
+	allowedXlats["prctl_options"] = true
+	allowedXlats["futexops"] = true
+	allowedXlats["protocols"] = true
+	allowedXlats["sigact_flags"] = true
 	
 	delete(allowedXlats, "x86_xfeatures")
 	delete(allowedXlats, "clocknames")
 	delete(allowedXlats, "clone3_flags")
 	delete(allowedXlats, "signalnames")
+	delete(allowedXlats, "mount_flags")
+	delete(allowedXlats, "protocols")
+	delete(allowedXlats, "sigact_flags")
 
 	files, _ := os.ReadDir(xlatDir)
 	for _, f := range files {
@@ -191,6 +201,66 @@ func main() {
 		fmt.Fprintf(out, "\t\t\t{Val: 8, Str: \"CLOCK_REALTIME_ALARM\"},\n")
 		fmt.Fprintf(out, "\t\t\t{Val: 9, Str: \"CLOCK_BOOTTIME_ALARM\"},\n")
 		fmt.Fprintf(out, "\t\t\t{Val: 11, Str: \"CLOCK_TAI\"},\n")
+		fmt.Fprintf(out, "\t\t},\n\t},\n")
+	}
+	if true {
+		fmt.Fprintf(out, "\t%q: {\n\t\tPrefix: %q,\n\t\tEntries: []XlatVal{\n", "sigact_flags", "SA_")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x04000000, Str: \"SA_RESTORER\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 1, Str: \"SA_NOCLDSTOP\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 2, Str: \"SA_NOCLDWAIT\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 4, Str: \"SA_SIGINFO\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x08000000, Str: \"SA_ONSTACK\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x10000000, Str: \"SA_RESTART\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x20000000, Str: \"SA_NODEFER\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x40000000, Str: \"SA_RESETHAND\"},\n")
+		fmt.Fprintf(out, "\t\t},\n\t},\n")
+	}
+	if true {
+		fmt.Fprintf(out, "\t%q: {\n\t\tPrefix: %q,\n\t\tEntries: []XlatVal{\n", "mount_flags", "MS_")
+		fmt.Fprintf(out, "\t\t\t{Val: 0xc0ed0000, Str: \"MS_MGC_VAL\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 1, Str: \"MS_RDONLY\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 2, Str: \"MS_NOSUID\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 4, Str: \"MS_NODEV\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 8, Str: \"MS_NOEXEC\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 16, Str: \"MS_SYNCHRONOUS\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 32, Str: \"MS_REMOUNT\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 64, Str: \"MS_MANDLOCK\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 128, Str: \"MS_DIRSYNC\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 256, Str: \"MS_NOSYMFOLLOW\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 1024, Str: \"MS_NOATIME\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 2048, Str: \"MS_NODIRATIME\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 4096, Str: \"MS_BIND\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 8192, Str: \"MS_MOVE\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 16384, Str: \"MS_REC\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 32768, Str: \"MS_SILENT\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 65536, Str: \"MS_POSIXACL\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 131072, Str: \"MS_UNBINDABLE\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 262144, Str: \"MS_PRIVATE\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 524288, Str: \"MS_SLAVE\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 1048576, Str: \"MS_SHARED\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 2097152, Str: \"MS_RELATIME\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 4194304, Str: \"MS_KERNMOUNT\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 8388608, Str: \"MS_I_VERSION\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 16777216, Str: \"MS_STRICTATIME\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 33554432, Str: \"MS_LAZYTIME\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x10000000, Str: \"MS_NOREMOTELOCK\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x20000000, Str: \"MS_NOSEC\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x40000000, Str: \"MS_BORN\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x80000000, Str: \"MS_ACTIVE\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x4000000, Str: \"MS_SUBMOUNT\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x2000000, Str: \"MS_NOUSER\"},\n")
+		fmt.Fprintf(out, "\t\t},\n\t},\n")
+	}
+	if true {
+		fmt.Fprintf(out, "\t%q: {\n\t\tPrefix: %q,\n\t\tEntries: []XlatVal{\n", "protocols", "IPPROTO_")
+		fmt.Fprintf(out, "\t\t\t{Val: 0, Str: \"IPPROTO_IP\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 1, Str: \"IPPROTO_ICMP\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 2, Str: \"IPPROTO_IGMP\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 6, Str: \"IPPROTO_TCP\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 17, Str: \"IPPROTO_UDP\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 41, Str: \"IPPROTO_IPV6\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 58, Str: \"IPPROTO_ICMPV6\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 255, Str: \"IPPROTO_RAW\"},\n")
 		fmt.Fprintf(out, "\t\t},\n\t},\n")
 	}
 	if true {

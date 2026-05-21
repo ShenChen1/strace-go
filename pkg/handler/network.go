@@ -18,9 +18,12 @@ func init() {
 	Register("sendto", h)
 	Register("connect", h)
 	Register("bind", h)
+	Register("socket", h)
+	Register("setsockopt", h)
+	Register("getsockopt", h)
 }
 
-// NetworkHandler handles sockaddr-related syscalls.
+// NetworkHandler handles sockaddr and socket-related syscalls.
 type NetworkHandler struct {
 	DefaultHandler
 }
@@ -44,13 +47,13 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 			}
 			inLen := binary.LittleEndian.Uint32(ctx.StrArgBuf[768:772])
 			if inLen == 0 || ctx.ProbeRetEnter < 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 4, false); err == nil {
+				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 4, false); err == nil && len(d) == 4 {
 					inLen = binary.LittleEndian.Uint32(d)
 				}
 			}
 			outLen := binary.LittleEndian.Uint32(ctx.StrArgBuf[772:776])
 			if outLen == 0 || ctx.ProbeRetExit < 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 4, true); err == nil {
+				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 4, true); err == nil && len(d) == 4 {
 					outLen = binary.LittleEndian.Uint32(d)
 				}
 			}
@@ -71,7 +74,7 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 			continue
 		}
 
-		if argTyp == "struct sockaddr *" {
+		if argTyp == "struct sockaddr *" || argName == "addr" || argName == "usockaddr" {
 			if val == 0 {
 				res.ArgParts = append(res.ArgParts, "NULL")
 				continue
@@ -79,17 +82,24 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 
 			aidx := 2
 			if ctx.ScMeta.Name == "sendto" { aidx = 5 } else if ctx.ScMeta.Name == "recvfrom" { aidx = 5 }
+			if ctx.ScMeta.Name == "bind" || ctx.ScMeta.Name == "connect" { aidx = 2 }
 
 			outLen := binary.LittleEndian.Uint32(ctx.StrArgBuf[772:776])
-			if outLen == 0 || ctx.ProbeRetExit < 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[aidx], 4, true); err == nil {
-					outLen = binary.LittleEndian.Uint32(d)
-				}
-			}
 			inLen := binary.LittleEndian.Uint32(ctx.StrArgBuf[768:772])
-			if inLen == 0 || ctx.ProbeRetEnter < 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[aidx], 4, false); err == nil {
-					inLen = binary.LittleEndian.Uint32(d)
+			
+			// For bind/connect/sendto, alen is arg 2 or 5
+			if ctx.ScMeta.Name == "bind" || ctx.ScMeta.Name == "connect" || ctx.ScMeta.Name == "sendto" {
+				alen := uint32(ctx.Args[aidx])
+				inLen = alen
+				outLen = alen
+			}
+
+			if (outLen == 0 && inLen == 0) || ctx.ProbeRetExit < 0 {
+				// Try to read addrlen from memory if it's a pointer
+				if ctx.ScMeta.Name == "accept" || ctx.ScMeta.Name == "accept4" || ctx.ScMeta.Name == "getsockname" || ctx.ScMeta.Name == "getpeername" || ctx.ScMeta.Name == "recvfrom" {
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[aidx], 4, true); err == nil && len(d) == 4 {
+						outLen = binary.LittleEndian.Uint32(d)
+					}
 				}
 			}
 
@@ -111,8 +121,12 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 			if len(sdata) >= 2 { fam = binary.LittleEndian.Uint16(sdata) }
 
 			readSuccess := ctx.ProbeRetExit >= 0
+			if ctx.ScMeta.Name == "bind" || ctx.ScMeta.Name == "connect" || ctx.ScMeta.Name == "sendto" {
+				readSuccess = ctx.ProbeRetEnter >= 0
+			}
+
 			if ctx.Ret >= 0 && (!readSuccess || (fam == 0 && capLen > 0)) {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, int(capLen), true); err == nil {
+				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, int(capLen), true); err == nil && len(d) == int(capLen) {
 					sdata = d
 					readSuccess = true
 				}
@@ -123,7 +137,6 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 				continue
 			}
 
-			// The kernel only writes up to inLen bytes, so we shouldn't decode beyond that
 			validLen := outLen
 			if inLen > 0 && inLen < validLen {
 				validLen = inLen
@@ -136,24 +149,26 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 			continue
 		}
 
+		if (ctx.ScMeta.Name == "setsockopt" || ctx.ScMeta.Name == "getsockopt") && argName == "optname" {
+			level := ctx.Args[1]
+			xlat := "sock_options"
+			if level == 1 { // SOL_SOCKET
+				xlat = "sock_options"
+			} else if level == 0 { // IPPROTO_IP
+				xlat = "sock_ip_options"
+			} else if level == 6 { // IPPROTO_TCP
+				xlat = "sock_tcp_options"
+			}
+			res.ArgParts = append(res.ArgParts, meta.DecodeFlags(val, xlat))
+			continue
+		}
+
 		if xlatName, ok := meta.SyscallArgXlatMap[ctx.ScMeta.Name][argName]; ok {
 			res.ArgParts = append(res.ArgParts, meta.DecodeFlags(val, xlatName))
 			continue
 		}
 
-		// Use default handler for remaining args (like void* buff, size_t len, int flags)
-		if argName == "buff" || argName == "ubuf" || argName == "len" || argName == "size" {
-			// A trick to reuse default logic for specific argument
-			ctxCopy := *ctx
-			ctxCopy.ScMeta.Args = []string{argName}
-			ctxCopy.ScMeta.ArgTypes = []string{argTyp}
-			ctxCopy.Args[0] = val
-			defRes := h.DefaultHandler.Handle(&ctxCopy)
-			res.ArgParts = append(res.ArgParts, defRes.ArgParts...)
-			if defRes.HexDumpStr != "" { res.HexDumpStr = defRes.HexDumpStr }
-		} else {
-			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
-		}
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
 	}
 	return res
 }

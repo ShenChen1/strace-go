@@ -34,12 +34,26 @@ func ParseArgs(args []string) *Options {
 		ShowPaths:     false,
 		Verbose:       false,
 	}
+
+	addT := func(s string) {
+		opts.TraceSyscalls[s] = true
+		if s == "access" { opts.TraceSyscalls["faccessat"] = true; opts.TraceSyscalls["faccessat2"] = true }
+		if s == "stat" { opts.TraceSyscalls["newfstatat"] = true }
+		if s == "lstat" { opts.TraceSyscalls["newfstatat"] = true }
+		if s == "chmod" { opts.TraceSyscalls["chmodat"] = true }
+		if s == "mkdir" { opts.TraceSyscalls["mkdirat"] = true }
+		if s == "rename" { opts.TraceSyscalls["renameat"] = true; opts.TraceSyscalls["renameat2"] = true }
+		if s == "chdir" { opts.TraceSyscalls["fchdir"] = true }
+		if s == "chown" { opts.TraceSyscalls["fchown"] = true; opts.TraceSyscalls["lchown"] = true; opts.TraceSyscalls["fchownat"] = true }
+	}
+
 	for i := 0; i < len(args); i++ {
-		arg := args[i]; val := ""; hasVal := false
-		if strings.HasPrefix(arg, "-v") && len(arg) > 2 {
-			opts.Verbose = true
-			arg = "-" + arg[2:]
+		arg := args[i]
+		if !strings.HasPrefix(arg, "-") {
+			opts.CmdArgs = args[i:]
+			break
 		}
+
 		if arg == "-y" {
 			opts.ShowPaths = true
 			continue
@@ -48,41 +62,58 @@ func ParseArgs(args []string) *Options {
 			opts.Verbose = true
 			continue
 		}
+		if strings.HasPrefix(arg, "-v") && len(arg) > 2 {
+			opts.Verbose = true
+			arg = "-" + arg[2:]
+		}
+
 		if strings.HasPrefix(arg, "--trace=") {
-			val = strings.TrimPrefix(arg, "--trace=")
-			for _, s := range strings.Split(val, ",") {
-				opts.TraceSyscalls[s] = true
-			}
+			val := strings.TrimPrefix(arg, "--trace=")
+			for _, s := range strings.Split(val, ",") { addT(s) }
 			continue
 		}
-		if strings.HasPrefix(arg, "-o") {
-			if len(arg) > 2 { val = arg[2:]; hasVal = true } else if i+1 < len(args) { val = args[i+1]; i++; hasVal = true }
-			if hasVal { opts.OutFile = val }
+		if strings.HasPrefix(arg, "--trace-path=") {
+			opts.TracePaths[strings.TrimPrefix(arg, "--trace-path=")] = true
+			continue
+		}
+
+		// Handle flags with values
+		var val string
+		foundVal := false
+		flag := ""
+
+		if strings.HasPrefix(arg, "-e") {
+			flag = "-e"
+			if len(arg) > 2 { val = arg[2:]; foundVal = true }
+		} else if strings.HasPrefix(arg, "-o") {
+			flag = "-o"
+			if len(arg) > 2 { val = arg[2:]; foundVal = true }
 		} else if strings.HasPrefix(arg, "-a") {
-			if len(arg) > 2 { val = arg[2:]; hasVal = true } else if i+1 < len(args) { val = args[i+1]; i++; hasVal = true }
-			if hasVal { fmt.Sscanf(val, "%d", &opts.AlignCol) }
+			flag = "-a"
+			if len(arg) > 2 { val = arg[2:]; foundVal = true }
 		} else if strings.HasPrefix(arg, "-s") {
-			if len(arg) > 2 { val = arg[2:]; hasVal = true } else if i+1 < len(args) { val = args[i+1]; i++; hasVal = true }
-			if hasVal { fmt.Sscanf(val, "%d", &opts.StringLimit) }
+			flag = "-s"
+			if len(arg) > 2 { val = arg[2:]; foundVal = true }
 		} else if strings.HasPrefix(arg, "-P") {
-			if len(arg) > 2 { val = arg[2:]; hasVal = true } else if i+1 < len(args) { val = args[i+1]; i++; hasVal = true }
-			if hasVal { opts.TracePaths[val] = true }
-		} else if strings.HasPrefix(arg, "--trace-path=") { opts.TracePaths[strings.TrimPrefix(arg, "--trace-path=")] = true
-		} else if arg == "--trace-path" { if i+1 < len(args) { opts.TracePaths[args[i+1]] = true; i++ }
-		} else if strings.HasPrefix(arg, "-e") {
-			if len(arg) > 2 { val = arg[2:]; hasVal = true } else if i+1 < len(args) { val = args[i+1]; i++; hasVal = true }
-			if hasVal {
-				addT := func(s string) {
-					opts.TraceSyscalls[s] = true
-					if s == "access" { opts.TraceSyscalls["faccessat"] = true; opts.TraceSyscalls["faccessat2"] = true }
-					if s == "stat" { opts.TraceSyscalls["newfstatat"] = true }
-					if s == "lstat" { opts.TraceSyscalls["newfstatat"] = true }
-					if s == "chmod" { opts.TraceSyscalls["chmodat"] = true }
-					if s == "mkdir" { opts.TraceSyscalls["mkdirat"] = true }
-					if s == "rename" { opts.TraceSyscalls["renameat"] = true; opts.TraceSyscalls["renameat2"] = true }
-					if s == "chdir" { opts.TraceSyscalls["fchdir"] = true }
-					if s == "chown" { opts.TraceSyscalls["fchown"] = true; opts.TraceSyscalls["lchown"] = true; opts.TraceSyscalls["fchownat"] = true }
-				}
+			flag = "-P"
+			if len(arg) > 2 { val = arg[2:]; foundVal = true }
+		}
+
+		if flag != "" && !foundVal {
+			if i+1 < len(args) {
+				val = args[i+1]
+				i++
+				foundVal = true
+			}
+		}
+
+		if foundVal {
+			switch flag {
+			case "-o": opts.OutFile = val
+			case "-a": fmt.Sscanf(val, "%d", &opts.AlignCol)
+			case "-s": fmt.Sscanf(val, "%d", &opts.StringLimit)
+			case "-P": opts.TracePaths[val] = true
+			case "-e":
 				if strings.HasPrefix(val, "trace=") {
 					for _, s := range strings.Split(strings.TrimPrefix(val, "trace="), ",") { addT(s) }
 				} else if strings.HasPrefix(val, "read=") {
@@ -93,7 +124,7 @@ func ParseArgs(args []string) *Options {
 					for _, s := range strings.Split(val, ",") { addT(s) }
 				}
 			}
-		} else if !strings.HasPrefix(arg, "-") { opts.CmdArgs = args[i:]; break }
+		}
 	}
 	return opts
 }

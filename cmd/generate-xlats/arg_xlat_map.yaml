@@ -22,6 +22,25 @@ syscalls:
     destringid: key_spec
   accept4:
     flags: sock_type_flags
+  socket:
+    domain: addrfams
+    type: sock_type_flags
+  getsockopt:
+    level: socketlayers
+  setsockopt:
+    level: socketlayers
+  bind:
+    addr: sockaddr
+  connect:
+    addr: sockaddr
+  sendto:
+    addr: sockaddr
+  recvfrom:
+    addr: sockaddr
+  getsockname:
+    addr: sockaddr
+  getpeername:
+    addr: sockaddr
   bpf:
     arg0: bpf_commands
   bpf_map_types_table:
@@ -69,6 +88,8 @@ syscalls:
     flags: clone3_flags
   futex:
     op: futexops
+  prctl:
+    option: prctl_options
   madvise:
     behavior: madvise_cmds
   lseek:
@@ -78,7 +99,7 @@ syscalls:
   umount2:
     flags: umount_flags
   mount:
-    mountflags: mount_flags
+    flags: mount_flags
   rt_sigprocmask:
     how: sigprocmaskcmds
   modetypes_table:

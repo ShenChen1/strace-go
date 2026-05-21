@@ -167,8 +167,49 @@ func Termios(data []byte) string { return "{...}" }
 // Winsize formats a struct winsize.
 func Winsize(data []byte) string { return "{...}" }
 
-// Sigset formats a sigset_t.
-func Sigset(data []byte) string { return "{...}" }
+// Sigset formats a sigset_t bitmask into a list of signals.
+func Sigset(data []byte) string {
+	if len(data) < 8 { return "[]" }
+	mask := binary.LittleEndian.Uint64(data[0:8])
+	if mask == 0 { return "[]" }
+	if mask == ^uint64(0) { return "~[]" }
+
+	names := []string{
+		"HUP", "INT", "QUIT", "ILL", "TRAP", "ABRT", "BUS", "FPE",
+		"KILL", "USR1", "SEGV", "USR2", "PIPE", "ALRM", "TERM", "STKFLT",
+		"CHLD", "CONT", "STOP", "TSTP", "TTIN", "TTOU", "URG", "XCPU",
+		"XFSZ", "VTALRM", "PROF", "WINCH", "IO", "PWR", "SYS",
+	}
+
+	// Determine if we should show it normally or inverted
+	count := 0
+	for i := 0; i < 64; i++ {
+		if (mask & (1 << uint(i))) != 0 { count++ }
+	}
+
+	useInverted := count > 32
+	displayMask := mask
+	prefix := ""
+	if useInverted {
+		displayMask = ^mask
+		prefix = "~"
+	}
+
+	var res []string
+	for i, name := range names {
+		if (displayMask & (1 << uint(i))) != 0 {
+			res = append(res, name)
+		}
+	}
+	for i := 32; i < 64; i++ {
+		if (displayMask & (1 << uint(i-1))) != 0 {
+			res = append(res, fmt.Sprintf("%d", i))
+		}
+	}
+
+	if len(res) == 0 && prefix == "" { return "[]" }
+	return prefix + "[" + strings.Join(res, " ") + "]"
+}
 
 // Dirents formats an array of dirents.
 func Dirents(data []byte, count int) string { return "{...}" }

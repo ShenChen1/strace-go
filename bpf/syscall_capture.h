@@ -38,6 +38,12 @@
 				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
 			} \
 			break; \
+		case 13: /* rt_sigaction */ \
+			{ \
+				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 32, (void *)(e)->args[1]) : 0; \
+				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+			} \
+			break; \
 		case 14: /* rt_sigprocmask */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 8, (void *)(e)->args[1]) : 0; \
@@ -224,6 +230,12 @@
 				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
 			} \
 			break; \
+		case 157: /* prctl */ \
+			{ \
+				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 16, (void *)(e)->args[1]) : 0; \
+				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+			} \
+			break; \
 		case 158: /* arch_prctl */ \
 			(e)->ptr = (e)->args[1]; \
 			break; \
@@ -251,6 +263,10 @@
 			} \
 			{ \
 				long pr = (e)->args[2] ? bpf_probe_read_user_str((e)->str_arg + 1024, 128, (void *)(e)->args[2]) : 0; \
+				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+			} \
+			{ \
+				long pr = (e)->args[4] ? bpf_probe_read_user_str((e)->str_arg + 1152, 512, (void *)(e)->args[4]) : 0; \
 				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
 			} \
 			break; \
@@ -520,6 +536,12 @@
 				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
 			} \
 			break; \
+		case 13: /* rt_sigaction */ \
+			{ \
+				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 1024, 32, (void *)(e)->args[2]) : 0; \
+				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+			} \
+			break; \
 		case 17: /* pread64 */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
@@ -623,6 +645,12 @@
 			} \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1040, 8, (void *)(e)->args[1]) : 0; \
+				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+			} \
+			break; \
+		case 157: /* prctl */ \
+			{ \
+				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg + 1024, 16, (void *)(e)->args[1]) : 0; \
 				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
 			} \
 			break; \

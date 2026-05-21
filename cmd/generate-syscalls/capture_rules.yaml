@@ -102,11 +102,28 @@ rules:
         - { arg: 0, size: 512, offset: 0, type: string }
         - { arg: 1, size: 512, offset: 512, type: string }
         - { arg: 2, size: 128, offset: 1024, type: string }
+        - { arg: 4, size: 512, offset: 1152, type: string } # data
 
   - syscalls: [umount2]
     enter:
       ptr_arg: 0
       reads: [{ arg: 0, size: 512, type: string }]
+
+  - syscalls: [epoll_ctl]
+    enter:
+      reads: [{ arg: 3, size: 12, offset: 0, type: raw }] # event
+
+  - syscalls: [rt_sigaction]
+    enter:
+      reads: [{ arg: 1, size: 32, offset: 0, type: raw }] # act
+    exit:
+      reads: [{ arg: 2, size: 32, offset: 1024, type: raw }] # oact
+
+  - syscalls: [prctl]
+    enter:
+      reads: [{ arg: 1, size: 16, offset: 0, type: string }]
+    exit:
+      reads: [{ arg: 1, size: 16, offset: 1024, type: string }]
 
   - syscalls: [clone3]
     enter:
