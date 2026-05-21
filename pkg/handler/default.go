@@ -108,8 +108,8 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 			if strings.Contains(argTyp, "fd_set *") {
 				n := int(ctx.Args[0])
 				off := 0
-				if argName == "outp" { off = 128 } else if argName == "exp" { off = 256 }
-				res.ArgParts = append(res.ArgParts, format.FdSet(n, ctx.StrArgBuf[off:off+128]))
+				if argName == "outp" || i == 2 { off = 128 } else if argName == "exp" || i == 3 { off = 256 }
+				res.ArgParts = append(res.ArgParts, format.FdSet(ctx.StrArgBuf[off:off+128], n))
 				continue
 			}
 

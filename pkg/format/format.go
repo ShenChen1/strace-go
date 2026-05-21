@@ -173,9 +173,6 @@ func Sigset(data []byte) string { return "{...}" }
 // Dirents formats an array of dirents.
 func Dirents(data []byte, count int) string { return "{...}" }
 
-// FdSet formats an fd_set.
-func FdSet(n int, data []byte) string { return "{...}" }
-
 // Sockaddr formats a sockaddr structure based on its address family.
 func Sockaddr(data []byte, alen uint32, inLen uint32) string {
 	if len(data) < 2 { return "{...}" }
@@ -239,6 +236,18 @@ func Buffer(data []byte, limit int, actualLen int) string {
 	sb.WriteByte('"')
 	if actualLen > printLimit || len(data) > printLimit { sb.WriteString("...") }
 	return sb.String()
+}
+
+// FdSet formats an fd_set bitmask into a list of file descriptors.
+func FdSet(data []byte, nfds int) string {
+	if len(data) == 0 { return "[]" }
+	var fds []string
+	for i := 0; i < nfds && i < len(data)*8; i++ {
+		if (data[i/8] & (1 << (uint(i) % 8))) != 0 {
+			fds = append(fds, fmt.Sprintf("%d", i))
+		}
+	}
+	return "[" + strings.Join(fds, " ") + "]"
 }
 
 // Hexdump returns a hexadecimal representation of the data.

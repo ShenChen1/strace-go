@@ -34,6 +34,7 @@ type Context struct {
 type Result struct {
 	ArgParts   []string
 	HexDumpStr string
+	ReturnDesc string
 }
 
 // Handler defines the interface for decoding specific syscalls.

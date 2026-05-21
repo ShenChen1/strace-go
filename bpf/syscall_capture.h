@@ -71,6 +71,10 @@
 				long pr = (e)->args[3] ? bpf_probe_read_user((e)->str_arg + 256, 128, (void *)(e)->args[3]) : 0; \
 				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
 			} \
+			{ \
+				long pr = (e)->args[4] ? bpf_probe_read_user((e)->str_arg + 384, 16, (void *)(e)->args[4]) : 0; \
+				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+			} \
 			break; \
 		case 42: /* connect */ \
 			(e)->ptr = (e)->args[1]; \
@@ -423,6 +427,16 @@
 				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
 			} \
 			break; \
+		case 271: /* ppoll */ \
+			{ \
+				long pr = (e)->args[0] ? bpf_probe_read_user((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
+				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+			} \
+			{ \
+				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 512, 16, (void *)(e)->args[2]) : 0; \
+				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+			} \
+			break; \
 		case 288: /* accept4 */ \
 			{ \
 				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 768, 4, (void *)(e)->args[2]) : 0; \
@@ -456,6 +470,19 @@
 			(e)->ptr = (e)->args[4]; \
 			{ \
 				long pr = (e)->args[4] ? bpf_probe_read_user((e)->str_arg + 512, 16, (void *)(e)->args[4]) : 0; \
+				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+			} \
+			break; \
+		case 435: /* clone3 */ \
+			{ \
+				long pr = (e)->args[0] ? bpf_probe_read_user((e)->str_arg, ((e)->args[1] > 0 ? ((e)->args[1] > 256 ? 256 : (e)->args[1]) : 0), (void *)(e)->args[0]) : 0; \
+				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+			} \
+			break; \
+		case 439: /* faccessat2 */ \
+			(e)->ptr = (e)->args[1]; \
+			{ \
+				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
 				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
 			} \
 			break; \
@@ -511,6 +538,10 @@
 			} \
 			{ \
 				long pr = (e)->args[3] ? bpf_probe_read_user((e)->str_arg + 1280, 128, (void *)(e)->args[3]) : 0; \
+				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+			} \
+			{ \
+				long pr = (e)->args[4] ? bpf_probe_read_user((e)->str_arg + 1408, 16, (void *)(e)->args[4]) : 0; \
 				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
 			} \
 			break; \
@@ -649,6 +680,12 @@
 		case 262: /* newfstatat */ \
 			{ \
 				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 1024, 144, (void *)(e)->args[2]) : 0; \
+				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+			} \
+			break; \
+		case 271: /* ppoll */ \
+			{ \
+				long pr = (e)->args[0] ? bpf_probe_read_user((e)->str_arg + 1024, 512, (void *)(e)->args[0]) : 0; \
 				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
 			} \
 			break; \

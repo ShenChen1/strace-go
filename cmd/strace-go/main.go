@@ -215,6 +215,10 @@ func handleEvent(eventRaw *bpfEvent, targetPid int, opts *cli.Options, decoder *
 		}
 	}
 
+	if res.ReturnDesc != "" {
+		retStr += " (" + res.ReturnDesc + ")"
+	}
+
 	padding := " "
 	if len(line) < opts.AlignCol { padding = strings.Repeat(" ", opts.AlignCol-len(line)) }
 	fmt.Fprintf(outWriter, "%s%s= %s\n", line, padding, retStr)

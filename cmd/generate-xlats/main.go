@@ -42,9 +42,12 @@ func main() {
 	allowedXlats["bpf_map_types"] = true
 	allowedXlats["bpf_map_flags"] = true
 	allowedXlats["clocknames"] = true
+	allowedXlats["clone3_flags"] = true
+	allowedXlats["pollflags"] = true
 	
 	delete(allowedXlats, "x86_xfeatures")
 	delete(allowedXlats, "clocknames")
+	delete(allowedXlats, "clone3_flags")
 
 	files, _ := os.ReadDir(xlatDir)
 	for _, f := range files {
@@ -58,7 +61,7 @@ func main() {
 		entries := make(map[string]string)
 		
 		cProg := strings.Builder{}
-		cProg.WriteString("#define _GNU_SOURCE\n#include <stdio.h>\n#include <fcntl.h>\n#include <sys/types.h>\n#include <sys/socket.h>\n#include <sys/un.h>\n#include <linux/prctl.h>\n#include <asm/prctl.h>\n#include <linux/stat.h>\n#include <linux/fs.h>\n#include <linux/timex.h>\n#include <poll.h>\n#include <sys/epoll.h>\n#include <linux/bpf.h>\n#include <time.h>\n#include <asm/termios.h>\n#include <sys/mman.h>\n#include <sched.h>\n#include <linux/futex.h>\n#include <sys/wait.h>\n#include <sys/mount.h>\n#include <linux/keyctl.h>\n")
+		cProg.WriteString("#define _GNU_SOURCE\n#include <stdio.h>\n#include <fcntl.h>\n#include <sys/types.h>\n#include <sys/socket.h>\n#include <sys/un.h>\n#include <linux/prctl.h>\n#include <asm/prctl.h>\n#include <linux/stat.h>\n#include <linux/fs.h>\n#include <linux/timex.h>\n#include <poll.h>\n#include <sys/epoll.h>\n#include <linux/bpf.h>\n#include <time.h>\n#include <asm/termios.h>\n#include <sys/mman.h>\n#include <linux/sched.h>\n#include <linux/futex.h>\n#include <sys/wait.h>\n#include <sys/mount.h>\n#include <linux/keyctl.h>\n")
 		cProg.WriteString("#ifndef ARCH_GET_CPUID\n#define ARCH_GET_CPUID 0x1011\n#endif\n#ifndef ARCH_SET_CPUID\n#define ARCH_SET_CPUID 0x1012\n#endif\n")
 
 		// Also parse strace's generated .h file if it exists
@@ -94,16 +97,37 @@ func main() {
 						v = strings.TrimSuffix(v, "ll")
 						v = strings.TrimSuffix(v, "l")
 					}
+					
 					if !strings.Contains(v, "(") && !strings.Contains(v, "<<") {
 						entries[k] = v
+					} else {
+						// Try to parse simple shifts like (1 << 32) or 1ULL << 32
+						cleanV := strings.ReplaceAll(v, "ULL", "")
+						cleanV = strings.ReplaceAll(cleanV, "UL", "")
+						cleanV = strings.ReplaceAll(cleanV, "U", "")
+						cleanV = strings.ReplaceAll(cleanV, "(", "")
+						cleanV = strings.ReplaceAll(cleanV, ")", "")
+						if strings.Contains(cleanV, "<<") {
+							sp := strings.Split(cleanV, "<<")
+							if len(sp) == 2 {
+								baseStr := strings.TrimSpace(sp[0])
+								shiftStr := strings.TrimSpace(sp[1])
+								var base, shift uint64
+								if _, err := fmt.Sscanf(baseStr, "%d", &base); err == nil {
+									if _, err := fmt.Sscanf(shiftStr, "%d", &shift); err == nil {
+										entries[k] = fmt.Sprintf("%d", base<<shift)
+									}
+								}
+							}
+						}
 					}
 				}
-				cProg.WriteString(fmt.Sprintf("\t#if defined(%s)\n\tprintf(\"%%s %%lu\\n\", %q, (unsigned long)%s);\n\t#endif\n", k, k, k))
+				cProg.WriteString(fmt.Sprintf("\t#if defined(%s)\n\tprintf(\"%%s %%llu\\n\", %q, (unsigned long long)%s);\n\t#endif\n", k, k, k))
 			}
 		}
 		cProg.WriteString("\treturn 0;\n}\n")
 
-		cmd := exec.Command("gcc", "-x", "c", "-I../../strace-upstream/src", "-I../../strace-upstream/src/xlat", "-o", "gen_xlat_tmp", "-")
+		cmd := exec.Command("gcc", "-x", "c", "-I../../strace-upstream/src", "-I../../strace-upstream/src/xlat", "-I../../strace-upstream/bundled/linux/include", "-o", "gen_xlat_tmp", "-")
 		cmd.Stdin = strings.NewReader(cProg.String())
 		if err := cmd.Run(); err != nil {
 			fmt.Printf("GCC failed for %s: %v\n", name, err)
@@ -165,6 +189,40 @@ func main() {
 		fmt.Fprintf(out, "\t\t\t{Val: 8, Str: \"CLOCK_REALTIME_ALARM\"},\n")
 		fmt.Fprintf(out, "\t\t\t{Val: 9, Str: \"CLOCK_BOOTTIME_ALARM\"},\n")
 		fmt.Fprintf(out, "\t\t\t{Val: 11, Str: \"CLOCK_TAI\"},\n")
+		fmt.Fprintf(out, "\t\t},\n\t},\n")
+	}
+	if true {
+		fmt.Fprintf(out, "\t%q: {\n\t\tPrefix: %q,\n\t\tEntries: []XlatVal{\n", "clone3_flags", "CLONE_")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x00000100, Str: \"CLONE_VM\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x00000200, Str: \"CLONE_FS\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x00000400, Str: \"CLONE_FILES\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x00000800, Str: \"CLONE_SIGHAND\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x00001000, Str: \"CLONE_PIDFD\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x00002000, Str: \"CLONE_PTRACE\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x00004000, Str: \"CLONE_VFORK\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x00008000, Str: \"CLONE_PARENT\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x00010000, Str: \"CLONE_THREAD\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x00020000, Str: \"CLONE_NEWNS\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x00040000, Str: \"CLONE_SYSVSEM\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x00080000, Str: \"CLONE_SETTLS\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x00100000, Str: \"CLONE_PARENT_SETTID\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x00200000, Str: \"CLONE_CHILD_CLEARTID\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x00800000, Str: \"CLONE_UNTRACED\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x01000000, Str: \"CLONE_CHILD_SETTID\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x02000000, Str: \"CLONE_NEWCGROUP\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x04000000, Str: \"CLONE_NEWUTS\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x08000000, Str: \"CLONE_NEWIPC\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x10000000, Str: \"CLONE_NEWUSER\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x20000000, Str: \"CLONE_NEWPID\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x40000000, Str: \"CLONE_NEWNET\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 0x80000000, Str: \"CLONE_IO\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 128, Str: \"CLONE_NEWTIME\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 4294967296, Str: \"CLONE_CLEAR_SIGHAND\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 8589934592, Str: \"CLONE_INTO_CGROUP\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 17179869184, Str: \"CLONE_AUTOREAP\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 34359738368, Str: \"CLONE_NNP\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 68719476736, Str: \"CLONE_PIDFD_AUTOKILL\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 137438953472, Str: \"CLONE_EMPTY_MNTNS\"},\n")
 		fmt.Fprintf(out, "\t\t},\n\t},\n")
 	}
 	if true {

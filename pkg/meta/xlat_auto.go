@@ -327,12 +327,6 @@ var XlatTables = map[string]XlatTable{
 			{Val: 32, Str: "BPF_PROG_TYPE_NETFILTER"},
 		},
 	},
-	"clone3_flags": {
-		Prefix: "CLONE_",
-		Entries: []XlatVal{
-			{Val: 128, Str: "CLONE_NEWTIME"},
-		},
-	},
 	"clone_flags": {
 		Prefix: "CLONE_",
 		Entries: []XlatVal{
@@ -738,6 +732,41 @@ var XlatTables = map[string]XlatTable{
 			{Val: 11, Str: "CLOCK_TAI"},
 		},
 	},
+	"clone3_flags": {
+		Prefix: "CLONE_",
+		Entries: []XlatVal{
+			{Val: 0x00000100, Str: "CLONE_VM"},
+			{Val: 0x00000200, Str: "CLONE_FS"},
+			{Val: 0x00000400, Str: "CLONE_FILES"},
+			{Val: 0x00000800, Str: "CLONE_SIGHAND"},
+			{Val: 0x00001000, Str: "CLONE_PIDFD"},
+			{Val: 0x00002000, Str: "CLONE_PTRACE"},
+			{Val: 0x00004000, Str: "CLONE_VFORK"},
+			{Val: 0x00008000, Str: "CLONE_PARENT"},
+			{Val: 0x00010000, Str: "CLONE_THREAD"},
+			{Val: 0x00020000, Str: "CLONE_NEWNS"},
+			{Val: 0x00040000, Str: "CLONE_SYSVSEM"},
+			{Val: 0x00080000, Str: "CLONE_SETTLS"},
+			{Val: 0x00100000, Str: "CLONE_PARENT_SETTID"},
+			{Val: 0x00200000, Str: "CLONE_CHILD_CLEARTID"},
+			{Val: 0x00800000, Str: "CLONE_UNTRACED"},
+			{Val: 0x01000000, Str: "CLONE_CHILD_SETTID"},
+			{Val: 0x02000000, Str: "CLONE_NEWCGROUP"},
+			{Val: 0x04000000, Str: "CLONE_NEWUTS"},
+			{Val: 0x08000000, Str: "CLONE_NEWIPC"},
+			{Val: 0x10000000, Str: "CLONE_NEWUSER"},
+			{Val: 0x20000000, Str: "CLONE_NEWPID"},
+			{Val: 0x40000000, Str: "CLONE_NEWNET"},
+			{Val: 0x80000000, Str: "CLONE_IO"},
+			{Val: 128, Str: "CLONE_NEWTIME"},
+			{Val: 4294967296, Str: "CLONE_CLEAR_SIGHAND"},
+			{Val: 8589934592, Str: "CLONE_INTO_CGROUP"},
+			{Val: 17179869184, Str: "CLONE_AUTOREAP"},
+			{Val: 34359738368, Str: "CLONE_NNP"},
+			{Val: 68719476736, Str: "CLONE_PIDFD_AUTOKILL"},
+			{Val: 137438953472, Str: "CLONE_EMPTY_MNTNS"},
+		},
+	},
 	"x86_xfeatures": {
 		Prefix: "XFEATURE_MASK_",
 		Entries: []XlatVal{
@@ -762,54 +791,59 @@ var XlatTables = map[string]XlatTable{
 	},
 }
 var SyscallArgXlatMap = map[string]map[string]string{
-	"bpf": {
-		"arg0": "bpf_commands",
+	"ppoll": {
+		"revents": "pollflags",
+		"events": "pollflags",
+	},
+	"clock_settime": {
+		"which_clock": "clocknames",
+	},
+	"wait4": {
+		"options": "wait4_options",
+	},
+	"mount": {
+		"mountflags": "mount_flags",
+	},
+	"request_key": {
+		"destringid": "key_spec",
+	},
+	"madvise": {
+		"behavior": "madvise_cmds",
+	},
+	"epoll_ctl": {
+		"op": "epollctls",
+	},
+	"clock_nanosleep": {
+		"which_clock": "clocknames",
 	},
 	"epoll_create1": {
 		"flags": "epollflags",
+	},
+	"clone3": {
+		"flags": "clone3_flags",
+	},
+	"futex": {
+		"op": "futexops",
+	},
+	"access": {
+		"mode": "access_modes",
 	},
 	"mmap": {
 		"prot": "mmap_prot",
 		"flags": "mmap_flags",
 	},
-	"futex": {
-		"op": "futexops",
-	},
 	"clone": {
 		"clone_flags": "clone_flags",
 	},
-	"access": {
-		"mode": "access_modes",
+	"lseek": {
+		"whence": "whence_codes",
 	},
 	"add_key": {
 		"ringid": "key_spec",
 	},
-	"epoll_ctl": {
-		"op": "epollctls",
-	},
-	"umount2": {
-		"flags": "umount_flags",
-	},
-	"faccessat2": {
-		"mode": "access_modes",
-	},
-	"mremap": {
-		"flags": "mremap_flags",
-	},
-	"clone3": {
-		"flags": "clone3_flags",
-	},
-	"mount": {
-		"mountflags": "mount_flags",
-	},
-	"arch_prctl": {
-		"option": "archvals",
-	},
-	"request_key": {
-		"destringid": "key_spec",
-	},
-	"accept4": {
-		"flags": "sock_type_flags",
+	"poll": {
+		"revents": "pollflags",
+		"events": "pollflags",
 	},
 	"mprotect": {
 		"prot": "mmap_prot",
@@ -820,28 +854,31 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"open": {
 		"flags": "open_mode_flags",
 	},
-	"clock_adjtime": {
-		"which_clock": "clocknames",
+	"openat": {
+		"flags": "open_mode_flags",
 	},
-	"lseek": {
-		"whence": "whence_codes",
+	"accept4": {
+		"flags": "sock_type_flags",
+	},
+	"bpf": {
+		"arg0": "bpf_commands",
+	},
+	"mremap": {
+		"flags": "mremap_flags",
+	},
+	"umount2": {
+		"flags": "umount_flags",
 	},
 	"faccessat": {
 		"mode": "access_modes",
 	},
-	"openat": {
-		"flags": "open_mode_flags",
+	"faccessat2": {
+		"mode": "access_modes",
 	},
-	"clock_nanosleep": {
+	"arch_prctl": {
+		"option": "archvals",
+	},
+	"clock_adjtime": {
 		"which_clock": "clocknames",
-	},
-	"clock_settime": {
-		"which_clock": "clocknames",
-	},
-	"madvise": {
-		"behavior": "madvise_cmds",
-	},
-	"wait4": {
-		"options": "wait4_options",
 	},
 }

@@ -36,6 +36,10 @@ func ParseArgs(args []string) *Options {
 	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]; val := ""; hasVal := false
+		if strings.HasPrefix(arg, "-v") && len(arg) > 2 {
+			opts.Verbose = true
+			arg = "-" + arg[2:]
+		}
 		if arg == "-y" {
 			opts.ShowPaths = true
 			continue

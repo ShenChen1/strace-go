@@ -108,6 +108,10 @@ rules:
       ptr_arg: 0
       reads: [{ arg: 0, size: 512, type: string }]
 
+  - syscalls: [clone3]
+    enter:
+      reads: [{ arg: 0, size: 0, offset: 0, type: raw }] # uargs with dynamic size arg 1
+
   - syscalls: [io_submit]
     enter:
       reads: [{ arg: 2, size: 0, offset: 0, type: raw }]
@@ -163,17 +167,28 @@ rules:
     exit:
       reads: [{ arg: 0, size: 512, offset: 1024, type: raw }]
 
-  - syscalls: [select]
+  - syscalls: [ppoll]
     enter:
       reads:
-        - { arg: 1, size: 128, offset: 0, type: raw }
-        - { arg: 2, size: 128, offset: 128, type: raw }
-        - { arg: 3, size: 128, offset: 256, type: raw }
+        - { arg: 0, size: 512, offset: 0, type: raw }
+        - { arg: 2, size: 16, offset: 512, type: raw } # timeout
     exit:
       reads:
-        - { arg: 1, size: 128, offset: 1024, type: raw }
-        - { arg: 2, size: 128, offset: 1152, type: raw }
-        - { arg: 3, size: 128, offset: 1280, type: raw }
+        - { arg: 0, size: 512, offset: 1024, type: raw }
+
+  - syscalls: [select, _newselect]
+    enter:
+      reads:
+        - { arg: 1, size: 128, offset: 0, type: raw } # readfds
+        - { arg: 2, size: 128, offset: 128, type: raw } # writefds
+        - { arg: 3, size: 128, offset: 256, type: raw } # exceptfds
+        - { arg: 4, size: 16, offset: 384, type: raw } # timeout
+    exit:
+      reads:
+        - { arg: 1, size: 128, offset: 1024, type: raw } # readfds out
+        - { arg: 2, size: 128, offset: 1152, type: raw } # writefds out
+        - { arg: 3, size: 128, offset: 1280, type: raw } # exceptfds out
+        - { arg: 4, size: 16, offset: 1408, type: raw } # timeout out (left)
 
   - syscalls: [epoll_ctl]
     enter:
