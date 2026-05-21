@@ -732,6 +732,42 @@ var XlatTables = map[string]XlatTable{
 			{Val: 11, Str: "CLOCK_TAI"},
 		},
 	},
+	"signalnames": {
+		Prefix: "SIG",
+		Entries: []XlatVal{
+			{Val: 1, Str: "SIGHUP"},
+			{Val: 2, Str: "SIGINT"},
+			{Val: 3, Str: "SIGQUIT"},
+			{Val: 4, Str: "SIGILL"},
+			{Val: 5, Str: "SIGTRAP"},
+			{Val: 6, Str: "SIGABRT"},
+			{Val: 7, Str: "SIGBUS"},
+			{Val: 8, Str: "SIGFPE"},
+			{Val: 9, Str: "SIGKILL"},
+			{Val: 10, Str: "SIGUSR1"},
+			{Val: 11, Str: "SIGSEGV"},
+			{Val: 12, Str: "SIGUSR2"},
+			{Val: 13, Str: "SIGPIPE"},
+			{Val: 14, Str: "SIGALRM"},
+			{Val: 15, Str: "SIGTERM"},
+			{Val: 16, Str: "SIGSTKFLT"},
+			{Val: 17, Str: "SIGCHLD"},
+			{Val: 18, Str: "SIGCONT"},
+			{Val: 19, Str: "SIGSTOP"},
+			{Val: 20, Str: "SIGTSTP"},
+			{Val: 21, Str: "SIGTTIN"},
+			{Val: 22, Str: "SIGTTOU"},
+			{Val: 23, Str: "SIGURG"},
+			{Val: 24, Str: "SIGXCPU"},
+			{Val: 25, Str: "SIGXFSZ"},
+			{Val: 26, Str: "SIGVTALRM"},
+			{Val: 27, Str: "SIGPROF"},
+			{Val: 28, Str: "SIGWINCH"},
+			{Val: 29, Str: "SIGIO"},
+			{Val: 30, Str: "SIGPWR"},
+			{Val: 31, Str: "SIGSYS"},
+		},
+	},
 	"clone3_flags": {
 		Prefix: "CLONE_",
 		Entries: []XlatVal{
@@ -791,77 +827,80 @@ var XlatTables = map[string]XlatTable{
 	},
 }
 var SyscallArgXlatMap = map[string]map[string]string{
-	"ppoll": {
-		"revents": "pollflags",
+	"poll": {
 		"events": "pollflags",
-	},
-	"clock_settime": {
-		"which_clock": "clocknames",
-	},
-	"wait4": {
-		"options": "wait4_options",
-	},
-	"mount": {
-		"mountflags": "mount_flags",
-	},
-	"request_key": {
-		"destringid": "key_spec",
-	},
-	"madvise": {
-		"behavior": "madvise_cmds",
-	},
-	"epoll_ctl": {
-		"op": "epollctls",
-	},
-	"clock_nanosleep": {
-		"which_clock": "clocknames",
+		"revents": "pollflags",
 	},
 	"epoll_create1": {
 		"flags": "epollflags",
 	},
-	"clone3": {
-		"flags": "clone3_flags",
+	"arch_prctl": {
+		"option": "archvals",
 	},
-	"futex": {
-		"op": "futexops",
+	"accept4": {
+		"flags": "sock_type_flags",
 	},
-	"access": {
-		"mode": "access_modes",
+	"clock_nanosleep": {
+		"which_clock": "clocknames",
+	},
+	"epoll_ctl": {
+		"op": "epollctls",
 	},
 	"mmap": {
 		"prot": "mmap_prot",
 		"flags": "mmap_flags",
 	},
-	"clone": {
-		"clone_flags": "clone_flags",
-	},
-	"lseek": {
-		"whence": "whence_codes",
-	},
-	"add_key": {
-		"ringid": "key_spec",
-	},
-	"poll": {
-		"revents": "pollflags",
-		"events": "pollflags",
-	},
-	"mprotect": {
-		"prot": "mmap_prot",
-	},
-	"rt_sigprocmask": {
-		"how": "sigprocmaskcmds",
-	},
-	"open": {
-		"flags": "open_mode_flags",
+	"wait4": {
+		"options": "wait4_options",
 	},
 	"openat": {
 		"flags": "open_mode_flags",
 	},
-	"accept4": {
-		"flags": "sock_type_flags",
+	"faccessat2": {
+		"mode": "access_modes",
 	},
-	"bpf": {
-		"arg0": "bpf_commands",
+	"request_key": {
+		"destringid": "key_spec",
+	},
+	"clock_settime": {
+		"which_clock": "clocknames",
+	},
+	"futex": {
+		"op": "futexops",
+	},
+	"rt_sigprocmask": {
+		"how": "sigprocmaskcmds",
+	},
+	"ppoll": {
+		"events": "pollflags",
+		"revents": "pollflags",
+	},
+	"open": {
+		"flags": "open_mode_flags",
+	},
+	"clock_adjtime": {
+		"which_clock": "clocknames",
+	},
+	"clone": {
+		"clone_flags": "clone_flags",
+	},
+	"clone3": {
+		"flags": "clone3_flags",
+	},
+	"madvise": {
+		"behavior": "madvise_cmds",
+	},
+	"lseek": {
+		"whence": "whence_codes",
+	},
+	"faccessat": {
+		"mode": "access_modes",
+	},
+	"add_key": {
+		"ringid": "key_spec",
+	},
+	"mprotect": {
+		"prot": "mmap_prot",
 	},
 	"mremap": {
 		"flags": "mremap_flags",
@@ -869,16 +908,13 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"umount2": {
 		"flags": "umount_flags",
 	},
-	"faccessat": {
+	"mount": {
+		"mountflags": "mount_flags",
+	},
+	"access": {
 		"mode": "access_modes",
 	},
-	"faccessat2": {
-		"mode": "access_modes",
-	},
-	"arch_prctl": {
-		"option": "archvals",
-	},
-	"clock_adjtime": {
-		"which_clock": "clocknames",
+	"bpf": {
+		"arg0": "bpf_commands",
 	},
 }

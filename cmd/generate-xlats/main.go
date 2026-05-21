@@ -44,10 +44,12 @@ func main() {
 	allowedXlats["clocknames"] = true
 	allowedXlats["clone3_flags"] = true
 	allowedXlats["pollflags"] = true
+	allowedXlats["signalnames"] = true
 	
 	delete(allowedXlats, "x86_xfeatures")
 	delete(allowedXlats, "clocknames")
 	delete(allowedXlats, "clone3_flags")
+	delete(allowedXlats, "signalnames")
 
 	files, _ := os.ReadDir(xlatDir)
 	for _, f := range files {
@@ -189,6 +191,41 @@ func main() {
 		fmt.Fprintf(out, "\t\t\t{Val: 8, Str: \"CLOCK_REALTIME_ALARM\"},\n")
 		fmt.Fprintf(out, "\t\t\t{Val: 9, Str: \"CLOCK_BOOTTIME_ALARM\"},\n")
 		fmt.Fprintf(out, "\t\t\t{Val: 11, Str: \"CLOCK_TAI\"},\n")
+		fmt.Fprintf(out, "\t\t},\n\t},\n")
+	}
+	if true {
+		fmt.Fprintf(out, "\t%q: {\n\t\tPrefix: %q,\n\t\tEntries: []XlatVal{\n", "signalnames", "SIG")
+		fmt.Fprintf(out, "\t\t\t{Val: 1, Str: \"SIGHUP\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 2, Str: \"SIGINT\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 3, Str: \"SIGQUIT\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 4, Str: \"SIGILL\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 5, Str: \"SIGTRAP\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 6, Str: \"SIGABRT\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 7, Str: \"SIGBUS\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 8, Str: \"SIGFPE\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 9, Str: \"SIGKILL\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 10, Str: \"SIGUSR1\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 11, Str: \"SIGSEGV\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 12, Str: \"SIGUSR2\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 13, Str: \"SIGPIPE\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 14, Str: \"SIGALRM\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 15, Str: \"SIGTERM\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 16, Str: \"SIGSTKFLT\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 17, Str: \"SIGCHLD\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 18, Str: \"SIGCONT\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 19, Str: \"SIGSTOP\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 20, Str: \"SIGTSTP\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 21, Str: \"SIGTTIN\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 22, Str: \"SIGTTOU\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 23, Str: \"SIGURG\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 24, Str: \"SIGXCPU\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 25, Str: \"SIGXFSZ\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 26, Str: \"SIGVTALRM\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 27, Str: \"SIGPROF\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 28, Str: \"SIGWINCH\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 29, Str: \"SIGIO\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 30, Str: \"SIGPWR\"},\n")
+		fmt.Fprintf(out, "\t\t\t{Val: 31, Str: \"SIGSYS\"},\n")
 		fmt.Fprintf(out, "\t\t},\n\t},\n")
 	}
 	if true {

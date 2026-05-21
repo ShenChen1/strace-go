@@ -32,7 +32,7 @@ func DecodeFlags(val uint64, xlatName string) string {
 	table, ok := XlatTables[xlatName]
 	if !ok { return fmt.Sprintf("%#x", val) }
 
-	isEnum := strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types"
+	isEnum := (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "futexops") && xlatName != "clone3_flags"
 
 	if isEnum {
 		for _, entry := range table.Entries {
@@ -45,24 +45,16 @@ func DecodeFlags(val uint64, xlatName string) string {
 				return entry.Str
 			}
 		}
-		// Special case for bitmask-enums
-		if xlatName != "adjtimex_status" && xlatName != "open_mode_flags" && xlatName != "key_spec" {
-			if val == 0 {
-				if table.Prefix != "" {
-					return fmt.Sprintf("0 /* %s??? */", table.Prefix)
-				}
-				return "0"
-			}
-			formatVal := fmt.Sprintf("%#x", val)
-			if xlatName == "x86_xfeature_bits" && val < 10 { formatVal = fmt.Sprintf("%d", val) }
-			if table.Prefix != "" {
-				return fmt.Sprintf("%s /* %s??? */", formatVal, table.Prefix)
-			}
-			return fmt.Sprintf("%s /* ??? */", formatVal)
-		}
-		if xlatName == "key_spec" {
+		// Fallback for enum
+		if xlatName == "signalnames" || xlatName == "key_spec" || val < 100 {
 			return fmt.Sprintf("%d", int32(val))
 		}
+		formatVal := fmt.Sprintf("%#x", val)
+		if xlatName == "x86_xfeature_bits" && val < 10 { formatVal = fmt.Sprintf("%d", val) }
+		if table.Prefix != "" {
+			return fmt.Sprintf("%s /* %s??? */", formatVal, table.Prefix)
+		}
+		return fmt.Sprintf("%s /* ??? */", formatVal)
 	}
 
 	var res []string
