@@ -395,7 +395,11 @@ func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val 
 		return fmt.Sprintf("%d", uVal)
 	}
 
-	if argName == "fd" || argName == "dfd" || strings.Contains(argName, "dfd") {
+	if argTyp == "pid_t" {
+		return fmt.Sprintf("%d", int32(val))
+	}
+
+	if strings.Contains(argName, "fd") || argName == "fildes" {
 		if int32(val) == -100 {
 			s := "AT_FDCWD"
 			if ctx.Opts.ShowPaths {

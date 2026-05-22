@@ -240,6 +240,17 @@ func handleEvent(eventRaw *bpfEvent, targetPid int, opts *cli.Options, decoder *
 	
 	line := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
 	retStr := fmt.Sprintf("%d", ret)
+	if ret >= 0 && scMeta.Name == "umask" {
+		m := uint32(ret)
+		s := fmt.Sprintf("%o", m)
+		if len(s) < 3 {
+			s = strings.Repeat("0", 3-len(s)) + s
+		}
+		if s[0] != '0' {
+			s = "0" + s
+		}
+		retStr = s
+	}
 	// IMPACT: Limits hexadecimal return formatting to address-returning calls.
 	// munmap and mprotect return 0 on success, while mremap returns new address.
 	if ret >= 0 && (scMeta.Name == "brk" || scMeta.Name == "mmap" || scMeta.Name == "mremap") {

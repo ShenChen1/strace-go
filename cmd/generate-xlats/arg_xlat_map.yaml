@@ -110,6 +110,8 @@ syscalls:
     dummy: modetypes
   unlinkat:
     flag: at_flags
+  dup3:
+    flags: dup3_flags
   fchownat:
     flag: at_flags
   utimensat:
@@ -120,6 +122,10 @@ syscalls:
     flags: mlockall_flags
   msync:
     flags: mctl_sync
+  kill:
+    sig: signalnames
+  tgkill:
+    sig: signalnames
 
 # Custom mapping logic can be added later if needed.
 # Note: open_mode_flags doesn't include access modes (O_RDONLY etc), 

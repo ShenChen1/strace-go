@@ -170,4 +170,5 @@ var manualOverrides = map[string]SyscallMeta{
 	"inotify_add_watch": {Name: "inotify_add_watch", Args: []string{"fd", "pathname", "mask"}, ArgTypes: []string{"int", "const char *", "u32"}},
 	"inotify_rm_watch":  {Name: "inotify_rm_watch", Args: []string{"fd", "wd"}, ArgTypes: []string{"int", "int"}},
 	"inotify_init1":     {Name: "inotify_init1", Args: []string{"flags"}, ArgTypes: []string{"int"}},
+	"umask":             {Name: "umask", Args: []string{"mask"}, ArgTypes: []string{"umode_t"}},
 }

@@ -14,7 +14,7 @@ failed=0
 total=0
 
 # List of tests to run (a small representative sample)
-tests="getpid.gen.test access.gen.test chmod.gen.test openat.gen.test brk.test stat.gen.test fstat.gen.test lstat.gen.test rename.gen.test mkdir.gen.test add_key.gen.test request_key.gen.test link.gen.test symlink.gen.test symlinkat.gen.test readlink.gen.test readlinkat.gen.test unlinkat.gen.test chown.gen.test fchown.gen.test lchown.gen.test fchownat.gen.test utimensat.gen.test mknodat.gen.test mknod.gen.test mlock.gen.test mlock2.gen.test mlockall.gen.test mmap.test"
+tests="getpid.gen.test access.gen.test chmod.gen.test openat.gen.test brk.test stat.gen.test fstat.gen.test lstat.gen.test rename.gen.test mkdir.gen.test add_key.gen.test request_key.gen.test link.gen.test symlink.gen.test symlinkat.gen.test readlink.gen.test readlinkat.gen.test unlinkat.gen.test chown.gen.test fchown.gen.test lchown.gen.test fchownat.gen.test utimensat.gen.test mknodat.gen.test mknod.gen.test mlock.gen.test mlock2.gen.test mlockall.gen.test mmap.test dup.gen.test dup2.gen.test dup3.gen.test mkdirat.gen.test rmdir.gen.test umask.gen.test kill.gen.test"
 
 for t in $tests; do
     bin_name=${t%.test}

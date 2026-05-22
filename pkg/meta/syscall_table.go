@@ -98,7 +98,7 @@ var SyscallTable = map[uint32]Syscall{
 	92: {Name: "chown", Args: []string{"filename", "user", "group"}, ArgTypes: []string{"const char *", "uid_t", "gid_t"}},
 	93: {Name: "fchown", Args: []string{"fd", "user", "group"}, ArgTypes: []string{"int", "uid_t", "gid_t"}},
 	94: {Name: "lchown", Args: []string{"filename", "user", "group"}, ArgTypes: []string{"const char *", "uid_t", "gid_t"}},
-	95: {Name: "umask", Args: []string{"arg0"}, ArgTypes: []string{"unsigned long"}},
+	95: {Name: "umask", Args: []string{"mask"}, ArgTypes: []string{"umode_t"}},
 	96: {Name: "gettimeofday", Args: []string{"tv", "tz"}, ArgTypes: []string{"struct timeval *", "struct timezone *"}},
 	97: {Name: "getrlimit", Args: []string{"arg0", "arg1"}, ArgTypes: []string{"unsigned long", "unsigned long"}},
 	98: {Name: "getrusage", Args: []string{"who", "ru"}, ArgTypes: []string{"int", "struct rusage *"}},
