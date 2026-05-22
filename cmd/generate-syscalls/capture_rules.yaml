@@ -4,7 +4,7 @@
 
 rules:
   # Path-based syscalls (enter)
-  - syscalls: [open, creat, access, chdir, chmod, chown, lchown, mkdir, rmdir, unlink, execve, swapon, swapoff, acct]
+  - syscalls: [open, creat, access, chdir, chmod, chown, lchown, mkdir, mknod, rmdir, unlink, execve, swapon, swapoff, acct]
     enter:
       ptr_arg: 0
       reads: [{ arg: 0, size: 512, type: string }]
@@ -23,7 +23,7 @@ rules:
       reads: [{ arg: 1, size: 144, offset: 1024, type: raw }]
 
   # At-based syscalls (enter)
-  - syscalls: [openat, mkdirat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, linkat]
+  - syscalls: [openat, mkdirat, mknodat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, linkat]
     enter:
       ptr_arg: 1
       reads: [{ arg: 1, size: 512, type: string }]

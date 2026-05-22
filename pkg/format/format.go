@@ -126,18 +126,8 @@ func Stat(data []byte) string {
 		modeStr += fmt.Sprintf("|%#03o", st_mode&07777)
 	}
 
-	formatDev := func(dev uint64) string {
-		maj := uint32((dev >> 8) & 0xfff)
-		min := uint32(dev & 0xff)
-		maj |= uint32((dev >> 32) & 0xfffff000)
-		min |= uint32((dev >> 12) & 0xffffff00)
-		resMaj := fmt.Sprintf("%#x", maj); if maj == 0 { resMaj = "0" }
-		resMin := fmt.Sprintf("%#x", min); if min == 0 { resMin = "0" }
-		return fmt.Sprintf("makedev(%s, %s)", resMaj, resMin)
-	}
-
-	res := fmt.Sprintf("{st_dev=%s, st_ino=%d, st_mode=%s, st_nlink=%d, st_uid=%d, st_gid=%d, st_blksize=%d, st_blocks=%d", formatDev(st_dev), st_ino, modeStr, st_nlink, st_uid, st_gid, st_blksize, st_blocks)
-	if (st_mode&0170000) != 0020000 && (st_mode&0170000) != 0060000 { res += fmt.Sprintf(", st_size=%d", st_size) } else { res += fmt.Sprintf(", st_rdev=%s", formatDev(st_rdev)) }
+	res := fmt.Sprintf("{st_dev=%s, st_ino=%d, st_mode=%s, st_nlink=%d, st_uid=%d, st_gid=%d, st_blksize=%d, st_blocks=%d", Dev(st_dev), st_ino, modeStr, st_nlink, st_uid, st_gid, st_blksize, st_blocks)
+	if (st_mode&0170000) != 0020000 && (st_mode&0170000) != 0060000 { res += fmt.Sprintf(", st_size=%d", st_size) } else { res += fmt.Sprintf(", st_rdev=%s", Dev(st_rdev)) }
 	res += fmt.Sprintf(", st_atime=%d /* %s */, st_atime_nsec=%d, st_mtime=%d /* %s */, st_mtime_nsec=%d, st_ctime=%d /* %s */, st_ctime_nsec=%d}", st_atime, time.Unix(st_atime, 0).UTC().Format("2006-01-02T15:04:05")+"."+fmt.Sprintf("%09d", st_atime_nsec)+"+0000", st_atime_nsec, st_mtime, time.Unix(st_mtime, 0).UTC().Format("2006-01-02T15:04:05")+"."+fmt.Sprintf("%09d", st_mtime_nsec)+"+0000", st_mtime_nsec, st_ctime, time.Unix(st_ctime, 0).UTC().Format("2006-01-02T15:04:05")+"."+fmt.Sprintf("%09d", st_ctime_nsec)+"+0000", st_ctime_nsec)
 	return res
 }
@@ -376,4 +366,81 @@ func Hexdump(data []byte) string {
 		res = append(res, strings.Join(hex, " "))
 	}
 	return strings.Join(res, "\n") + "\n"
+}
+
+// Dev formats a dev_t major/minor pair in the form makedev(major, minor).
+func Dev(dev uint64) string {
+	dev32 := uint32(dev)
+	maj := uint32((dev32 >> 8) & 0xfff)
+	min := uint32(dev32 & 0xff)
+	maj |= uint32((dev32 >> 32) & 0xfffff000)
+	min |= uint32((dev32 >> 12) & 0xffffff00)
+	resMaj := fmt.Sprintf("%#x", maj)
+	if maj == 0 {
+		resMaj = "0"
+	}
+	resMin := fmt.Sprintf("%#x", min)
+	if min == 0 {
+		resMin = "0"
+	}
+	return fmt.Sprintf("makedev(%s, %s)", resMaj, resMin)
+}
+
+// formatPerms formats the permission bits (low 12 bits) of a mode.
+func formatPerms(mode uint32) string {
+	var parts []string
+	if mode&04000 != 0 {
+		parts = append(parts, "S_ISUID")
+	}
+	if mode&02000 != 0 {
+		parts = append(parts, "S_ISGID")
+	}
+	if mode&01000 != 0 {
+		parts = append(parts, "S_ISVTX")
+	}
+	permVal := mode & 0777
+	if len(parts) > 0 || permVal != 0 || mode == 0 {
+		if permVal == 0 {
+			parts = append(parts, "000")
+		} else {
+			parts = append(parts, fmt.Sprintf("%#03o", permVal))
+		}
+	}
+	return strings.Join(parts, "|")
+}
+
+func getFileTypeStr(typeVal uint32) (string, bool) {
+	switch typeVal {
+	case 0140000:
+		return "S_IFSOCK", true
+	case 0120000:
+		return "S_IFLNK", true
+	case 0100000:
+		return "S_IFREG", true
+	case 0060000:
+		return "S_IFBLK", true
+	case 0040000:
+		return "S_IFDIR", true
+	case 0020000:
+		return "S_IFCHR", true
+	case 0010000:
+		return "S_IFIFO", true
+	default:
+		return "", false
+	}
+}
+
+// MknodMode formats a mode parameter for mknod/mknodat.
+func MknodMode(val uint16) string {
+	mode := uint32(val)
+	typeVal := mode & 0170000
+	if typeVal == 0 {
+		return formatPerms(mode)
+	}
+	typeStr, ok := getFileTypeStr(typeVal)
+	if !ok {
+		return fmt.Sprintf("%#o", mode)
+	}
+	perms := formatPerms(mode & 07777)
+	return typeStr + "|" + perms
 }

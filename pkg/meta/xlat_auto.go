@@ -4880,26 +4880,71 @@ var XlatTables = map[string]XlatTable{
 	},
 }
 var SyscallArgXlatMap = map[string]map[string]string{
-	"utimensat": {
-		"flags": "at_flags",
+	"arch_prctl": {
+		"option": "archvals",
+	},
+	"madvise": {
+		"behavior": "madvise_cmds",
+	},
+	"mount": {
+		"flags": "mount_flags",
+	},
+	"fchownat": {
+		"flag": "at_flags",
 	},
 	"open": {
 		"flags": "open_mode_flags",
 	},
-	"ioctl": {
-		"cmd": "ioctl_cmds",
+	"add_key": {
+		"ringid": "key_spec",
 	},
-	"futex": {
-		"op": "futexops",
+	"umount2": {
+		"flags": "umount_flags",
 	},
-	"wait4": {
-		"options": "wait4_options",
+	"rt_sigprocmask": {
+		"how": "sigprocmaskcmds",
 	},
-	"arch_prctl": {
-		"option": "archvals",
+	"unlinkat": {
+		"flag": "at_flags",
+	},
+	"utimensat": {
+		"flags": "at_flags",
+	},
+	"openat": {
+		"flags": "open_mode_flags",
+	},
+	"request_key": {
+		"destringid": "key_spec",
+	},
+	"socket": {
+		"domain": "addrfams",
+		"type": "sock_type_flags",
+	},
+	"access": {
+		"mode": "access_modes",
 	},
 	"accept4": {
 		"flags": "sock_type_flags",
+	},
+	"setsockopt": {
+		"level": "socketlayers",
+	},
+	"getpeername": {
+		"addr": "sockaddr",
+	},
+	"ppoll": {
+		"events": "pollflags",
+		"revents": "pollflags",
+	},
+	"clock_settime": {
+		"which_clock": "clocknames",
+	},
+	"faccessat2": {
+		"mode": "access_modes",
+	},
+	"sendto": {
+		"flags": "msg_flags",
+		"addr": "sockaddr",
 	},
 	"getsockname": {
 		"addr": "sockaddr",
@@ -4907,14 +4952,50 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"epoll_ctl": {
 		"op": "epollctls",
 	},
-	"request_key": {
-		"destringid": "key_spec",
+	"ioctl": {
+		"cmd": "ioctl_cmds",
+	},
+	"mremap": {
+		"flags": "mremap_flags",
+	},
+	"futex": {
+		"op": "futexops",
+	},
+	"faccessat": {
+		"mode": "access_modes",
+	},
+	"getsockopt": {
+		"level": "socketlayers",
+	},
+	"bpf": {
+		"arg0": "bpf_commands",
+	},
+	"clock_nanosleep": {
+		"which_clock": "clocknames",
+	},
+	"mmap": {
+		"prot": "mmap_prot",
+		"flags": "mmap_flags",
+	},
+	"clone": {
+		"clone_flags": "clone_flags",
+	},
+	"clone3": {
+		"flags": "clone3_flags",
 	},
 	"bind": {
 		"addr": "sockaddr",
 	},
-	"connect": {
+	"recvfrom": {
+		"flags": "msg_flags",
 		"addr": "sockaddr",
+	},
+	"poll": {
+		"revents": "pollflags",
+		"events": "pollflags",
+	},
+	"clock_adjtime": {
+		"which_clock": "clocknames",
 	},
 	"epoll_create1": {
 		"flags": "epollflags",
@@ -4922,97 +5003,16 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"mprotect": {
 		"prot": "mmap_prot",
 	},
-	"mremap": {
-		"flags": "mremap_flags",
-	},
-	"clone": {
-		"clone_flags": "clone_flags",
-	},
-	"umount2": {
-		"flags": "umount_flags",
-	},
-	"faccessat2": {
-		"mode": "access_modes",
-	},
-	"add_key": {
-		"ringid": "key_spec",
-	},
-	"getsockopt": {
-		"level": "socketlayers",
-	},
-	"sendto": {
+	"connect": {
 		"addr": "sockaddr",
-		"flags": "msg_flags",
-	},
-	"mmap": {
-		"flags": "mmap_flags",
-		"prot": "mmap_prot",
-	},
-	"madvise": {
-		"behavior": "madvise_cmds",
-	},
-	"rt_sigprocmask": {
-		"how": "sigprocmaskcmds",
-	},
-	"openat": {
-		"flags": "open_mode_flags",
-	},
-	"recvfrom": {
-		"flags": "msg_flags",
-		"addr": "sockaddr",
-	},
-	"getpeername": {
-		"addr": "sockaddr",
-	},
-	"bpf": {
-		"arg0": "bpf_commands",
-	},
-	"ppoll": {
-		"events": "pollflags",
-		"revents": "pollflags",
-	},
-	"setsockopt": {
-		"level": "socketlayers",
-	},
-	"poll": {
-		"events": "pollflags",
-		"revents": "pollflags",
-	},
-	"clock_settime": {
-		"which_clock": "clocknames",
 	},
 	"prctl": {
 		"option": "prctl_options",
 	},
-	"unlinkat": {
-		"flag": "at_flags",
-	},
-	"faccessat": {
-		"mode": "access_modes",
-	},
-	"clock_adjtime": {
-		"which_clock": "clocknames",
-	},
-	"clock_nanosleep": {
-		"which_clock": "clocknames",
-	},
-	"clone3": {
-		"flags": "clone3_flags",
-	},
 	"lseek": {
 		"whence": "whence_codes",
 	},
-	"mount": {
-		"flags": "mount_flags",
-	},
-	"access": {
-		"mode": "access_modes",
-	},
-	"socket": {
-		"domain": "addrfams",
-		"type": "sock_type_flags",
-	},
-	"fchownat": {
-		"flag": "at_flags",
+	"wait4": {
+		"options": "wait4_options",
 	},
 }

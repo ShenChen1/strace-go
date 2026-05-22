@@ -471,6 +471,19 @@
 				} \
 			} \
 			break; \
+		case 133: /* mknod */ \
+			(e)->ptr = (e)->args[0]; \
+			{ \
+				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
+			} \
+			break; \
 		case 157: /* prctl */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 16, (void *)(e)->args[1]) : 0; \
@@ -749,6 +762,19 @@
 			} \
 			break; \
 		case 258: /* mkdirat */ \
+			(e)->ptr = (e)->args[1]; \
+			{ \
+				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
+			} \
+			break; \
+		case 259: /* mknodat */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \

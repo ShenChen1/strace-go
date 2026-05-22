@@ -48,6 +48,22 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 		}
 	}
 
+	if ctx.ScMeta.Name == "mknod" || ctx.ScMeta.Name == "mknodat" {
+		modeIdx := 1
+		if ctx.ScMeta.Name == "mknodat" {
+			modeIdx = 2
+		}
+		mode := uint16(ctx.Args[modeIdx])
+		typeVal := mode & 0170000
+		if typeVal != 0020000 && typeVal != 0060000 {
+			if ctx.ScMeta.Name == "mknod" {
+				argCount = 2
+			} else {
+				argCount = 3
+			}
+		}
+	}
+
 	for i := 0; i < argCount; i++ {
 		argTyp := ctx.ScMeta.ArgTypes[i]
 		argName := ctx.ScMeta.Args[i]
@@ -355,6 +371,14 @@ func (h *DefaultHandler) decodePointer(ctx *Context, i int, argTyp, argName stri
 }
 
 func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val uint64) string {
+	if argTyp == "dev_t" {
+		return format.Dev(val)
+	}
+
+	if (ctx.ScMeta.Name == "mknod" || ctx.ScMeta.Name == "mknodat") && strings.HasPrefix(argTyp, "umode_t") {
+		return format.MknodMode(uint16(val))
+	}
+
 	// Decode uid_t/gid_t as 32-bit decimal, with 0xffffffff mapping to -1.
 	if argTyp == "uid_t" || argTyp == "gid_t" {
 		uVal := uint32(val)

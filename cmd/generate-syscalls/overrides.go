@@ -99,6 +99,7 @@ var manualOverrides = map[string]SyscallMeta{
 	"chdir":      {Name: "chdir", Args: []string{"filename"}, ArgTypes: []string{"const char *"}},
 	"fchdir":     {Name: "fchdir", Args: []string{"fd"}, ArgTypes: []string{"int"}},
 	"mkdir":      {Name: "mkdir", Args: []string{"pathname", "mode"}, ArgTypes: []string{"const char *", "umode_t"}},
+	"mknod":      {Name: "mknod", Args: []string{"filename", "mode", "dev"}, ArgTypes: []string{"const char *", "umode_t", "dev_t"}},
 	"rmdir":      {Name: "rmdir", Args: []string{"pathname"}, ArgTypes: []string{"const char *"}},
 	"unlink":     {Name: "unlink", Args: []string{"pathname"}, ArgTypes: []string{"const char *"}},
 	"rename":     {Name: "rename", Args: []string{"oldname", "newname"}, ArgTypes: []string{"const char *", "const char *"}},
@@ -117,6 +118,7 @@ var manualOverrides = map[string]SyscallMeta{
 	// *at variants
 	"openat":     {Name: "openat", Args: []string{"dfd", "filename", "flags", "mode"}, ArgTypes: []string{"int", "const char *", "int", "umode_t"}},
 	"mkdirat":    {Name: "mkdirat", Args: []string{"dfd", "pathname", "mode"}, ArgTypes: []string{"int", "const char *", "umode_t"}},
+	"mknodat":    {Name: "mknodat", Args: []string{"dfd", "filename", "mode", "dev"}, ArgTypes: []string{"int", "const char *", "umode_t", "dev_t"}},
 	"unlinkat":   {Name: "unlinkat", Args: []string{"dfd", "pathname", "flag"}, ArgTypes: []string{"int", "const char *", "int"}},
 	"renameat":   {Name: "renameat", Args: []string{"olddfd", "oldname", "newdfd", "newname"}, ArgTypes: []string{"int", "const char *", "int", "const char *"}},
 	"renameat2":  {Name: "renameat2", Args: []string{"olddfd", "oldname", "newdfd", "newname", "flags"}, ArgTypes: []string{"int", "const char *", "int", "const char *", "unsigned int"}},
