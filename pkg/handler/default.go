@@ -110,6 +110,27 @@ func (h *DefaultHandler) Handle(ctx *Context) Result {
 }
 
 func (h *DefaultHandler) decodeXlat(ctx *Context, argName string, val uint64) (string, bool) {
+	if ctx.ScMeta.Name == "pipe2" && argName == "flags" {
+		uVal := uint32(val)
+		if uVal == 0 {
+			return "0", true
+		}
+		var parts []string
+		if uVal&0x80000 != 0 {
+			parts = append(parts, "O_CLOEXEC")
+		}
+		if uVal&2048 != 0 {
+			parts = append(parts, "O_NONBLOCK")
+		}
+		if uVal&16384 != 0 {
+			parts = append(parts, "O_DIRECT")
+		}
+		if len(parts) == 0 {
+			return fmt.Sprintf("%#x", uVal), true
+		}
+		return strings.Join(parts, "|"), true
+	}
+
 	if syscallMap, ok := meta.SyscallArgXlatMap[ctx.ScMeta.Name]; ok {
 		if xlatName, ok := syscallMap[argName]; ok {
 			return meta.DecodeFlags(val, xlatName), true
@@ -289,10 +310,28 @@ func (h *DefaultHandler) decodeRenArg(ctx *Context, i int, val uint64) (string, 
 }
 
 // decodePointer formats pointer arguments, falling back to raw hex if needed.
-// Impact: Specifically decodes output buffers (like readlink/readlinkat)
+// Impact: Specifically decodes output buffers (like readlink/readlinkat, pipe/pipe2 fd arrays)
 // or standard char* / void* strings. Modifying this impacts string output formats.
 func (h *DefaultHandler) decodePointer(ctx *Context, i int, argTyp, argName string, val uint64, res *Result) (string, bool) {
 	scName := ctx.ScMeta.Name
+	if (scName == "pipe" || scName == "pipe2") && strings.Contains(argTyp, "int *") {
+		if ctx.Ret >= 0 {
+			if ctx.ProbeRetExit >= 0 {
+				data := ctx.StrArgBuf[1024 : 1024+8]
+				fd1 := int32(uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24)
+				fd2 := int32(uint32(data[4]) | uint32(data[5])<<8 | uint32(data[6])<<16 | uint32(data[7])<<24)
+				return fmt.Sprintf("[%d, %d]", fd1, fd2), true
+			}
+			data, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 8, false)
+			if err == nil && len(data) == 8 {
+				fd1 := int32(uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24)
+				fd2 := int32(uint32(data[4]) | uint32(data[5])<<8 | uint32(data[6])<<16 | uint32(data[7])<<24)
+				return fmt.Sprintf("[%d, %d]", fd1, fd2), true
+			}
+		}
+		return fmt.Sprintf("%#x", val), true
+	}
+
 	if scName == "readlink" || scName == "readlinkat" {
 		bufIdx := 1
 		if scName == "readlinkat" {

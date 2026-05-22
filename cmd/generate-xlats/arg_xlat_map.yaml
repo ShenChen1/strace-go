@@ -7,6 +7,8 @@ syscalls:
     flags: open_mode_flags
   openat:
     flags: open_mode_flags
+  pipe2:
+    flags: open_mode_flags
   faccessat2:
     mode: access_modes
   arch_prctl:

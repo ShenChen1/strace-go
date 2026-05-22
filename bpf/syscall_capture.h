@@ -1169,6 +1169,18 @@
 				} \
 			} \
 			break; \
+		case 22: /* pipe */ \
+			{ \
+				long pr = (e)->args[0] ? bpf_probe_read_user((e)->str_arg + 1024, 8, (void *)(e)->args[0]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
+			} \
+			break; \
 		case 23: /* select */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 128, (void *)(e)->args[1]) : 0; \
@@ -1545,6 +1557,18 @@
 					s32 curr = (e)->probe_ret_exit; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
 					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
+			} \
+			break; \
+		case 293: /* pipe2 */ \
+			{ \
+				long pr = (e)->args[0] ? bpf_probe_read_user((e)->str_arg + 1024, 8, (void *)(e)->args[0]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 0)) + 1); \
 				} else if ((e)->probe_ret_exit == -1) { \
 					(e)->probe_ret_exit = 0; \
 				} \
