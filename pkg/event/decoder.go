@@ -49,7 +49,11 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 	}
 
 	if found {
-		return format.BufferEscape(raw, limit, 0, d.HexEscapeMode)
+		printLimit := limit
+		if printLimit <= 0 {
+			printLimit = 10000
+		}
+		return format.BufferEscape(raw, printLimit, 0, d.HexEscapeMode)
 	}
 
 	return fmt.Sprintf("%#x", ptr)

@@ -229,21 +229,21 @@ func (h *DefaultHandler) decodeRenArg(ctx *Context, i int, val uint64) (string, 
 	switch scName {
 	case "rename", "link", "symlink":
 		if i == 0 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, scName, ctx.Opts.StringLimit)
+			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, scName, 0)
 		} else if i == 1 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, scName, ctx.Opts.StringLimit)
+			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, scName, 0)
 		}
 	case "renameat", "renameat2", "linkat":
 		if i == 1 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, scName, ctx.Opts.StringLimit)
+			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, scName, 0)
 		} else if i == 3 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[3], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, scName, ctx.Opts.StringLimit)
+			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[3], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, scName, 0)
 		}
 	case "symlinkat":
 		if i == 0 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, scName, ctx.Opts.StringLimit)
+			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, scName, 0)
 		} else if i == 2 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[2], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, scName, ctx.Opts.StringLimit)
+			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[2], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, scName, 0)
 		}
 	}
 	return p, true
@@ -324,7 +324,12 @@ func (h *DefaultHandler) decodePointer(ctx *Context, i int, argTyp, argName stri
 			if val == ctx.Ptr && ctx.RawStrArg != "" && !strings.HasPrefix(ctx.RawStrArg, "0x") {
 				return ctx.RawStrArg, true
 			}
-			return ctx.Decoder.DecodeString(ctx.Pid, val, ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, scName, ctx.Opts.StringLimit), true
+			limit := ctx.Opts.StringLimit
+			isPath := argName == "filename" || argName == "pathname" || argName == "path" || argName == "oldname" || argName == "newname"
+			if isPath {
+				limit = 0
+			}
+			return ctx.Decoder.DecodeString(ctx.Pid, val, ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, scName, limit), true
 		}
 
 		return fmt.Sprintf("%#x", val), true
@@ -334,6 +339,15 @@ func (h *DefaultHandler) decodePointer(ctx *Context, i int, argTyp, argName stri
 }
 
 func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val uint64) string {
+	// Decode uid_t/gid_t as 32-bit decimal, with 0xffffffff mapping to -1.
+	if argTyp == "uid_t" || argTyp == "gid_t" {
+		uVal := uint32(val)
+		if uVal == 0xffffffff {
+			return "-1"
+		}
+		return fmt.Sprintf("%d", uVal)
+	}
+
 	if argName == "fd" || argName == "dfd" || strings.Contains(argName, "dfd") {
 		if int32(val) == -100 {
 			s := "AT_FDCWD"
