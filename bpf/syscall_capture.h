@@ -920,6 +920,29 @@
 				} \
 			} \
 			break; \
+		case 280: /* utimensat */ \
+			(e)->ptr = (e)->args[1]; \
+			{ \
+				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
+			} \
+			{ \
+				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 512, 32, (void *)(e)->args[2]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
+			} \
+			break; \
 		case 288: /* accept4 */ \
 			{ \
 				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 768, 4, (void *)(e)->args[2]) : 0; \

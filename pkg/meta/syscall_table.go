@@ -283,7 +283,7 @@ var SyscallTable = map[uint32]Syscall{
 	277: {Name: "sync_file_range", Args: []string{"fd", "offset", "nbytes", "flags"}, ArgTypes: []string{"int", "loff_t", "loff_t", "unsigned int"}},
 	278: {Name: "vmsplice", Args: []string{"fd", "uiov", "nr_segs", "flags"}, ArgTypes: []string{"int", "const struct iovec *", "long unsigned int", "unsigned int"}},
 	279: {Name: "move_pages", Args: []string{"arg0", "arg1", "arg2", "arg3", "arg4", "arg5"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long", "unsigned long", "unsigned long", "unsigned long"}},
-	280: {Name: "utimensat", Args: []string{"arg0", "arg1", "arg2", "arg3"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long", "unsigned long"}},
+	280: {Name: "utimensat", Args: []string{"dfd", "filename", "utimes", "flags"}, ArgTypes: []string{"int", "const char *", "const struct timespec *", "int"}},
 	281: {Name: "epoll_pwait", Args: []string{"epfd", "events", "maxevents", "timeout", "sigmask", "sigsetsize"}, ArgTypes: []string{"int", "struct epoll_event *", "int", "int", "const sigset_t *", "size_t"}},
 	282: {Name: "signalfd", Args: []string{"arg0", "arg1", "arg2"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long"}},
 	283: {Name: "timerfd_create", Args: []string{"clockid", "flags"}, ArgTypes: []string{"int", "int"}},

@@ -229,7 +229,7 @@ func Utimes(data []byte) string {
 
 		timeStr := fmt.Sprintf("{tv_sec=%d, tv_nsec=%d}", sec, nsec)
 		// For positive or reasonable times, append UTC timestamp comment
-		if sec >= 0 && sec < 253402300799 && nsec < 1000000000 {
+		if sec > 0 && sec < 253402300799 && nsec < 1000000000 {
 			t := time.Unix(sec, 0).UTC()
 			comment := fmt.Sprintf(" /* %s.%09d+0000 */", t.Format("2006-01-02T15:04:05"), nsec)
 			return timeStr + comment

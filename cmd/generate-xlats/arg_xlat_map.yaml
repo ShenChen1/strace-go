@@ -112,6 +112,8 @@ syscalls:
     flag: at_flags
   fchownat:
     flag: at_flags
+  utimensat:
+    flags: at_flags
 
 # Custom mapping logic can be added later if needed.
 # Note: open_mode_flags doesn't include access modes (O_RDONLY etc), 

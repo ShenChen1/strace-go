@@ -95,7 +95,23 @@ func (h *DefaultHandler) decodeXlat(ctx *Context, argName string, val uint64) (s
 	return "", false
 }
 
+// Impact: Decodes structured pointer arguments such as timespec arrays or stats.
+// Adding support for utimensat structure decoding.
 func (h *DefaultHandler) decodeStruct(ctx *Context, argTyp string, val uint64) (string, bool) {
+	if ctx.ScMeta.Name == "utimensat" && strings.Contains(argTyp, "struct timespec *") {
+		data := ctx.StrArgBuf[512 : 512+32]
+		readSuccess := ctx.IsArgReadSuccess(1)
+		var err error
+		if !readSuccess || ctx.ProbeRetEnter < 0 {
+			data, err = ctx.MemReader.ReadRobust(ctx.Pid, val, 32, false)
+			readSuccess = (err == nil && len(data) == 32)
+		}
+		if !readSuccess {
+			return fmt.Sprintf("%#x", val), true
+		}
+		return format.Utimes(data), true
+	}
+
 	if strings.Contains(argTyp, "struct timespec *") || strings.Contains(argTyp, "struct __kernel_timespec *") {
 		off := 0
 		data := ctx.StrArgBuf[off : off+16]
