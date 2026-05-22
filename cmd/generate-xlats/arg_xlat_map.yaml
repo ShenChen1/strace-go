@@ -108,6 +108,8 @@ syscalls:
     how: sigprocmaskcmds
   modetypes_table:
     dummy: modetypes
+  unlinkat:
+    flag: at_flags
 
 # Custom mapping logic can be added later if needed.
 # Note: open_mode_flags doesn't include access modes (O_RDONLY etc), 

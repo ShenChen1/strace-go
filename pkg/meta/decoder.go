@@ -28,39 +28,34 @@ var ErrnoTable = map[int]string{
 	131: "ENOTRECOVERABLE", 132: "ERFKILL", 133: "EHWPOISON",
 }
 
-func DecodeFlags(val uint64, xlatName string) string {
-	table, ok := XlatTables[xlatName]
-	if !ok { return fmt.Sprintf("%#x", val) }
-
-	isEnum := (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "futexops" || xlatName == "ioctl_cmds") && xlatName != "clone3_flags"
-
-	if isEnum {
-		for _, entry := range table.Entries {
-			if entry.Val == val || (xlatName == "key_spec" && int32(entry.Val) == int32(val)) {
-				if xlatName == "x86_xfeature_bits" {
-					formatVal := fmt.Sprintf("%#x", val)
-					if val == 0 { formatVal = "0" }
-					return fmt.Sprintf("%s /* %s */", formatVal, entry.Str)
-				}
-				return entry.Str
+// decodeEnum formats enum xlat names.
+func decodeEnum(val uint64, xlatName string, table XlatTable) (string, bool) {
+	for _, entry := range table.Entries {
+		if entry.Val == val || (xlatName == "key_spec" && int32(entry.Val) == int32(val)) {
+			if xlatName == "x86_xfeature_bits" {
+				formatVal := fmt.Sprintf("%#x", val)
+				if val == 0 { formatVal = "0" }
+				return fmt.Sprintf("%s /* %s */", formatVal, entry.Str), true
 			}
+			return entry.Str, true
 		}
-		// Fallback for enum
-		if xlatName == "signalnames" || xlatName == "key_spec" || val < 100 {
-			return fmt.Sprintf("%d", int32(val))
-		}
-		formatVal := fmt.Sprintf("%#x", val)
-		if xlatName == "x86_xfeature_bits" && val < 10 { formatVal = fmt.Sprintf("%d", val) }
-		if table.Prefix != "" {
-			return fmt.Sprintf("%s /* %s??? */", formatVal, table.Prefix)
-		}
-		return fmt.Sprintf("%s /* ??? */", formatVal)
 	}
+	if xlatName == "signalnames" || xlatName == "key_spec" || val < 100 {
+		return fmt.Sprintf("%d", int32(val)), true
+	}
+	formatVal := fmt.Sprintf("%#x", val)
+	if xlatName == "x86_xfeature_bits" && val < 10 { formatVal = fmt.Sprintf("%d", val) }
+	if table.Prefix != "" {
+		return fmt.Sprintf("%s /* %s??? */", formatVal, table.Prefix), true
+	}
+	return fmt.Sprintf("%s /* ??? */", formatVal), true
+}
 
+// decodeBitFlags formats bitmask xlat flags.
+func decodeBitFlags(val uint64, xlatName string, table XlatTable) string {
 	var res []string
 	handled := uint64(0)
 
-	// For open flags, handle ACCMODE part first to match strace behavior
 	if strings.Contains(xlatName, "open_mode_flags") || xlatName == "open_access_modes" {
 		accMode := val & 3
 		switch accMode {
@@ -72,7 +67,6 @@ func DecodeFlags(val uint64, xlatName string) string {
 		handled |= accMode
 	}
 
-	// Use original table order to preserve strace canonical order
 	for _, entry := range table.Entries {
 		if entry.Val == 0 { continue }
 		if (val & entry.Val) == entry.Val {
@@ -101,12 +95,32 @@ func DecodeFlags(val uint64, xlatName string) string {
 	}
 
 	if handled != val && val != 0 {
-		// Only append hex if there's remaining unhandled bits
 		remaining := val & ^handled
 		if remaining != 0 {
 			res = append(res, fmt.Sprintf("%#x", remaining))
 		}
 	}
-
 	return strings.Join(res, "|")
+}
+
+// DecodeFlags translates numeric flag values into human-readable strings.
+// Impact: Core formatting helper for xlat flags. Used across default and specialized handlers.
+func DecodeFlags(val uint64, xlatName string) string {
+	table, ok := XlatTables[xlatName]
+	if !ok { return fmt.Sprintf("%#x", val) }
+
+	if xlatName != "clone3_flags" {
+		val = uint64(uint32(val))
+	}
+
+	isEnum := (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "futexops" || xlatName == "ioctl_cmds") && xlatName != "clone3_flags"
+
+	if isEnum {
+		if s, ok := decodeEnum(val, xlatName, table); ok {
+			return s
+		}
+	} else {
+		return decodeBitFlags(val, xlatName, table)
+	}
+	return fmt.Sprintf("%#x", val)
 }

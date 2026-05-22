@@ -36,6 +36,7 @@ func main() {
 	allowedXlats["open_access_modes"] = true
 	allowedXlats["addrfams"] = true
 	allowedXlats["whence"] = true
+	allowedXlats["at_flags"] = true
 	allowedXlats["adjtimex_status"] = true
 	allowedXlats["x86_xfeature_bits"] = true
 	allowedXlats["bpf_commands"] = true

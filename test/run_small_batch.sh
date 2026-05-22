@@ -2,7 +2,7 @@
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 export STRACE="$DIR/strace-sudo.sh"
 export SIZEOF_LONG=8
-cd ../strace-upstream || exit 1
+cd "$DIR/../strace-upstream" || exit 1
 if [ ! -f Makefile ]; then
     ./bootstrap
     ./configure --enable-mpers=no --disable-werror
@@ -14,7 +14,7 @@ failed=0
 total=0
 
 # List of tests to run (a small representative sample)
-tests="getpid.gen.test access.gen.test chmod.gen.test openat.gen.test brk.test stat.gen.test fstat.gen.test lstat.gen.test rename.gen.test mkdir.gen.test add_key.gen.test request_key.gen.test link.gen.test symlink.gen.test symlinkat.gen.test readlink.gen.test readlinkat.gen.test"
+tests="getpid.gen.test access.gen.test chmod.gen.test openat.gen.test brk.test stat.gen.test fstat.gen.test lstat.gen.test rename.gen.test mkdir.gen.test add_key.gen.test request_key.gen.test link.gen.test symlink.gen.test symlinkat.gen.test readlink.gen.test readlinkat.gen.test unlinkat.gen.test"
 
 for t in $tests; do
     bin_name=${t%.test}
