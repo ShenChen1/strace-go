@@ -133,6 +133,9 @@ func (h *DefaultHandler) decodeXlat(ctx *Context, argName string, val uint64) (s
 
 	if syscallMap, ok := meta.SyscallArgXlatMap[ctx.ScMeta.Name]; ok {
 		if xlatName, ok := syscallMap[argName]; ok {
+			if xlatName == "resources" {
+				val = uint64(uint32(val))
+			}
 			return meta.DecodeFlags(val, xlatName), true
 		}
 	}
@@ -332,6 +335,12 @@ func (h *DefaultHandler) decodePointer(ctx *Context, i int, argTyp, argName stri
 		return fmt.Sprintf("%#x", val), true
 	}
 
+	if strings.Contains(argTyp, "struct rlimit") {
+		if p, ok := h.decodeRlimitPointer(ctx, i, scName, val); ok {
+			return p, true
+		}
+	}
+
 	if scName == "readlink" || scName == "readlinkat" {
 		bufIdx := 1
 		if scName == "readlinkat" {
@@ -494,3 +503,78 @@ func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val 
 	}
 	return fmt.Sprintf("%#x", val)
 }
+
+func (h *DefaultHandler) decodeRlimitPointer(ctx *Context, i int, scName string, val uint64) (string, bool) {
+	if val == 0 {
+		return "NULL", true
+	}
+
+	var isOutput bool
+	var offset int
+	if scName == "getrlimit" {
+		isOutput = true
+		offset = 1024
+	} else if scName == "setrlimit" {
+		isOutput = false
+		offset = 0
+	} else if scName == "prlimit64" {
+		if i == 2 {
+			isOutput = false
+			offset = 0
+		} else if i == 3 {
+			isOutput = true
+			offset = 1024
+		} else {
+			return fmt.Sprintf("%#x", val), true
+		}
+	} else {
+		return fmt.Sprintf("%#x", val), true
+	}
+
+	if isOutput && ctx.Ret < 0 {
+		return fmt.Sprintf("%#x", val), true
+	}
+
+	var data []byte
+	var err error
+	readSuccess := false
+
+	if isOutput {
+		if ctx.ProbeRetExit >= 0 {
+			data = ctx.StrArgBuf[offset : offset+16]
+			readSuccess = true
+		}
+	} else {
+		if ctx.ProbeRetEnter >= 0 {
+			data = ctx.StrArgBuf[offset : offset+16]
+			readSuccess = true
+		}
+	}
+
+	if !readSuccess {
+		data, err = ctx.MemReader.ReadRobust(ctx.Pid, val, 16, false)
+		readSuccess = (err == nil && len(data) == 16)
+	}
+
+	if !readSuccess {
+		return fmt.Sprintf("%#x", val), true
+	}
+
+	cur := uint64(data[0]) | uint64(data[1])<<8 | uint64(data[2])<<16 | uint64(data[3])<<24 |
+		uint64(data[4])<<32 | uint64(data[5])<<40 | uint64(data[6])<<48 | uint64(data[7])<<56
+	max := uint64(data[8]) | uint64(data[9])<<8 | uint64(data[10])<<16 | uint64(data[11])<<24 |
+		uint64(data[12])<<32 | uint64(data[13])<<40 | uint64(data[14])<<48 | uint64(data[15])<<56
+
+	return fmt.Sprintf("{rlim_cur=%s, rlim_max=%s}", formatRlimitVal(cur), formatRlimitVal(max)), true
+}
+
+func formatRlimitVal(val uint64) string {
+	if val == 0xffffffffffffffff {
+		return "RLIM64_INFINITY"
+	}
+	if val > 1024 && val%1024 == 0 {
+		return fmt.Sprintf("%d*1024", val/1024)
+	}
+	return fmt.Sprintf("%d", val)
+}
+

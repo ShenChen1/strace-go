@@ -171,4 +171,7 @@ var manualOverrides = map[string]SyscallMeta{
 	"inotify_rm_watch":  {Name: "inotify_rm_watch", Args: []string{"fd", "wd"}, ArgTypes: []string{"int", "int"}},
 	"inotify_init1":     {Name: "inotify_init1", Args: []string{"flags"}, ArgTypes: []string{"int"}},
 	"umask":             {Name: "umask", Args: []string{"mask"}, ArgTypes: []string{"umode_t"}},
+	"getrlimit":         {Name: "getrlimit", Args: []string{"resource", "rlim"}, ArgTypes: []string{"unsigned int", "struct rlimit *"}},
+	"setrlimit":         {Name: "setrlimit", Args: []string{"resource", "rlim"}, ArgTypes: []string{"unsigned int", "const struct rlimit *"}},
+	"prlimit64":         {Name: "prlimit64", Args: []string{"pid", "resource", "new_rlimit", "old_rlimit"}, ArgTypes: []string{"pid_t", "unsigned int", "const struct rlimit64 *", "struct rlimit64 *"}},
 }

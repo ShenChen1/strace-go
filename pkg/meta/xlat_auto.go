@@ -463,6 +463,19 @@ var XlatTables = map[string]XlatTable{
 			{Val: 11, Str: "FUTEX_WAIT_REQUEUE_PI"},
 			{Val: 12, Str: "FUTEX_CMP_REQUEUE_PI"},
 			{Val: 13, Str: "FUTEX_LOCK_PI2"},
+			{Val: 128, Str: "FUTEX_WAIT_PRIVATE"},
+			{Val: 129, Str: "FUTEX_WAKE_PRIVATE"},
+			{Val: 131, Str: "FUTEX_REQUEUE_PRIVATE"},
+			{Val: 132, Str: "FUTEX_CMP_REQUEUE_PRIVATE"},
+			{Val: 133, Str: "FUTEX_WAKE_OP_PRIVATE"},
+			{Val: 134, Str: "FUTEX_LOCK_PI_PRIVATE"},
+			{Val: 135, Str: "FUTEX_UNLOCK_PI_PRIVATE"},
+			{Val: 136, Str: "FUTEX_TRYLOCK_PI_PRIVATE"},
+			{Val: 137, Str: "FUTEX_WAIT_BITSET_PRIVATE"},
+			{Val: 138, Str: "FUTEX_WAKE_BITSET_PRIVATE"},
+			{Val: 139, Str: "FUTEX_WAIT_REQUEUE_PI_PRIVATE"},
+			{Val: 140, Str: "FUTEX_CMP_REQUEUE_PI_PRIVATE"},
+			{Val: 141, Str: "FUTEX_LOCK_PI2_PRIVATE"},
 		},
 	},
 	"key_spec": {
@@ -633,31 +646,31 @@ var XlatTables = map[string]XlatTable{
 	"msg_flags": {
 		Prefix: "MSG_",
 		Entries: []XlatVal{
-			{Val: 0x1, Str: "MSG_OOB"},
-			{Val: 0x2, Str: "MSG_PEEK"},
-			{Val: 0x4, Str: "MSG_DONTROUTE"},
-			{Val: 0x8, Str: "MSG_CTRUNC"},
-			{Val: 0x10, Str: "MSG_PROBE"},
-			{Val: 0x20, Str: "MSG_TRUNC"},
-			{Val: 0x40, Str: "MSG_DONTWAIT"},
-			{Val: 0x80, Str: "MSG_EOR"},
-			{Val: 0x100, Str: "MSG_WAITALL"},
-			{Val: 0x200, Str: "MSG_FIN"},
-			{Val: 0x400, Str: "MSG_SYN"},
-			{Val: 0x800, Str: "MSG_CONFIRM"},
-			{Val: 0x1000, Str: "MSG_RST"},
-			{Val: 0x2000, Str: "MSG_ERRQUEUE"},
-			{Val: 0x4000, Str: "MSG_NOSIGNAL"},
-			{Val: 0x8000, Str: "MSG_MORE"},
-			{Val: 0x10000, Str: "MSG_WAITFORONE"},
-			{Val: 0x20000, Str: "MSG_SENDPAGE_NOTLAST"},
-			{Val: 0x40000, Str: "MSG_BATCH"},
-			{Val: 0x80000, Str: "MSG_NO_SHARED_FRAGS"},
-			{Val: 0x2000000, Str: "MSG_SOCK_DEVMEM"},
-			{Val: 0x4000000, Str: "MSG_ZEROCOPY"},
-			{Val: 0x20000000, Str: "MSG_FASTOPEN"},
-			{Val: 0x40000000, Str: "MSG_CMSG_CLOEXEC"},
-			{Val: 0x80000000, Str: "MSG_CMSG_COMPAT"},
+			{Val: 1, Str: "MSG_OOB"},
+			{Val: 2, Str: "MSG_PEEK"},
+			{Val: 4, Str: "MSG_DONTROUTE"},
+			{Val: 8, Str: "MSG_CTRUNC"},
+			{Val: 16, Str: "MSG_PROBE"},
+			{Val: 32, Str: "MSG_TRUNC"},
+			{Val: 64, Str: "MSG_DONTWAIT"},
+			{Val: 128, Str: "MSG_EOR"},
+			{Val: 256, Str: "MSG_WAITALL"},
+			{Val: 512, Str: "MSG_FIN"},
+			{Val: 1024, Str: "MSG_SYN"},
+			{Val: 2048, Str: "MSG_CONFIRM"},
+			{Val: 4096, Str: "MSG_RST"},
+			{Val: 8192, Str: "MSG_ERRQUEUE"},
+			{Val: 16384, Str: "MSG_NOSIGNAL"},
+			{Val: 32768, Str: "MSG_MORE"},
+			{Val: 65536, Str: "MSG_WAITFORONE"},
+			{Val: 131072, Str: "MSG_SENDPAGE_NOTLAST"},
+			{Val: 262144, Str: "MSG_BATCH"},
+			{Val: 524288, Str: "MSG_NO_SHARED_FRAGS"},
+			{Val: 33554432, Str: "MSG_SOCK_DEVMEM"},
+			{Val: 67108864, Str: "MSG_ZEROCOPY"},
+			{Val: 536870912, Str: "MSG_FASTOPEN"},
+			{Val: 1073741824, Str: "MSG_CMSG_CLOEXEC"},
+			{Val: 2147483648, Str: "MSG_CMSG_COMPAT"},
 		},
 	},
 	"netlink_ack_flags": {
@@ -875,6 +888,42 @@ var XlatTables = map[string]XlatTable{
 			{Val: 1096112214, Str: "PR_GET_AUXV"},
 			{Val: 1398164801, Str: "PR_SET_VMA"},
 			{Val: 1499557217, Str: "PR_SET_PTRACER"},
+		},
+	},
+	"resources": {
+		Prefix: "RLIMIT_",
+		Entries: []XlatVal{
+			{Val: 0, Str: "RLIMIT_CPU"},
+			{Val: 1, Str: "RLIMIT_FSIZE"},
+			{Val: 2, Str: "RLIMIT_DATA"},
+			{Val: 3, Str: "RLIMIT_STACK"},
+			{Val: 4, Str: "RLIMIT_CORE"},
+			{Val: 5, Str: "RLIMIT_RSS"},
+			{Val: 7, Str: "RLIMIT_NOFILE"},
+			{Val: 9, Str: "RLIMIT_AS"},
+			{Val: 6, Str: "RLIMIT_NPROC"},
+			{Val: 8, Str: "RLIMIT_MEMLOCK"},
+			{Val: 7, Str: "RLIMIT_NOFILE"},
+			{Val: 9, Str: "RLIMIT_AS"},
+			{Val: 5, Str: "RLIMIT_RSS"},
+			{Val: 6, Str: "RLIMIT_NPROC"},
+			{Val: 8, Str: "RLIMIT_MEMLOCK"},
+			{Val: 5, Str: "RLIMIT_RSS"},
+			{Val: 7, Str: "RLIMIT_NOFILE"},
+			{Val: 6, Str: "RLIMIT_NPROC"},
+			{Val: 8, Str: "RLIMIT_MEMLOCK"},
+			{Val: 9, Str: "RLIMIT_AS"},
+			{Val: 5, Str: "RLIMIT_RSS"},
+			{Val: 6, Str: "RLIMIT_NPROC"},
+			{Val: 7, Str: "RLIMIT_NOFILE"},
+			{Val: 8, Str: "RLIMIT_MEMLOCK"},
+			{Val: 9, Str: "RLIMIT_AS"},
+			{Val: 10, Str: "RLIMIT_LOCKS"},
+			{Val: 11, Str: "RLIMIT_SIGPENDING"},
+			{Val: 12, Str: "RLIMIT_MSGQUEUE"},
+			{Val: 13, Str: "RLIMIT_NICE"},
+			{Val: 14, Str: "RLIMIT_RTPRIO"},
+			{Val: 15, Str: "RLIMIT_RTTIME"},
 		},
 	},
 	"sigprocmaskcmds": {
@@ -4928,160 +4977,169 @@ var XlatTables = map[string]XlatTable{
 	},
 }
 var SyscallArgXlatMap = map[string]map[string]string{
-	"bind": {
-		"addr": "sockaddr",
-	},
-	"mmap": {
-		"prot": "mmap_prot",
-		"flags": "mmap_flags",
+	"faccessat": {
+		"mode": "access_modes",
 	},
 	"setsockopt": {
 		"level": "socketlayers",
 	},
-	"sendto": {
-		"flags": "msg_flags",
-		"addr": "sockaddr",
-	},
-	"recvfrom": {
-		"addr": "sockaddr",
-		"flags": "msg_flags",
-	},
-	"ppoll": {
-		"events": "pollflags",
-		"revents": "pollflags",
-	},
-	"getpeername": {
-		"addr": "sockaddr",
-	},
-	"bpf": {
-		"arg0": "bpf_commands",
-	},
-	"dup3": {
-		"flags": "dup3_flags",
-	},
-	"utimensat": {
-		"flags": "at_flags",
-	},
-	"mlockall": {
-		"flags": "mlockall_flags",
-	},
-	"request_key": {
-		"destringid": "key_spec",
-	},
-	"epoll_create1": {
-		"flags": "epollflags",
-	},
 	"clone3": {
 		"flags": "clone3_flags",
 	},
-	"rt_sigprocmask": {
-		"how": "sigprocmaskcmds",
-	},
-	"tgkill": {
-		"sig": "signalnames",
-	},
-	"faccessat": {
-		"mode": "access_modes",
-	},
-	"faccessat2": {
-		"mode": "access_modes",
-	},
-	"getsockname": {
-		"addr": "sockaddr",
-	},
-	"clone": {
-		"clone_flags": "clone_flags",
-	},
 	"madvise": {
 		"behavior": "madvise_cmds",
-	},
-	"msync": {
-		"flags": "mctl_sync",
-	},
-	"ioctl": {
-		"cmd": "ioctl_cmds",
-	},
-	"prctl": {
-		"option": "prctl_options",
-	},
-	"umount2": {
-		"flags": "umount_flags",
-	},
-	"connect": {
-		"addr": "sockaddr",
-	},
-	"mount": {
-		"flags": "mount_flags",
-	},
-	"getsockopt": {
-		"level": "socketlayers",
 	},
 	"poll": {
 		"events": "pollflags",
 		"revents": "pollflags",
 	},
-	"clock_adjtime": {
-		"which_clock": "clocknames",
+	"mmap": {
+		"prot": "mmap_prot",
+		"flags": "mmap_flags",
+	},
+	"fchownat": {
+		"flag": "at_flags",
+	},
+	"bind": {
+		"addr": "sockaddr",
+	},
+	"recvfrom": {
+		"flags": "msg_flags",
+		"addr": "sockaddr",
+	},
+	"getsockname": {
+		"addr": "sockaddr",
+	},
+	"ppoll": {
+		"events": "pollflags",
+		"revents": "pollflags",
+	},
+	"clone": {
+		"clone_flags": "clone_flags",
+	},
+	"rt_sigprocmask": {
+		"how": "sigprocmaskcmds",
+	},
+	"access": {
+		"mode": "access_modes",
 	},
 	"clock_nanosleep": {
 		"which_clock": "clocknames",
 	},
-	"kill": {
+	"unlinkat": {
+		"flag": "at_flags",
+	},
+	"openat": {
+		"flags": "open_mode_flags",
+	},
+	"arch_prctl": {
+		"option": "archvals",
+	},
+	"umount2": {
+		"flags": "umount_flags",
+	},
+	"tgkill": {
 		"sig": "signalnames",
 	},
-	"pipe2": {
-		"flags": "open_mode_flags",
+	"clock_settime": {
+		"which_clock": "clocknames",
 	},
 	"mremap": {
 		"flags": "mremap_flags",
 	},
-	"futex": {
-		"op": "futexops",
+	"open": {
+		"flags": "open_mode_flags",
 	},
-	"mlock2": {
-		"flags": "mlock_flags",
+	"connect": {
+		"addr": "sockaddr",
 	},
-	"openat": {
+	"ioctl": {
+		"cmd": "ioctl_cmds",
+	},
+	"mprotect": {
+		"prot": "mmap_prot",
+	},
+	"dup3": {
+		"flags": "dup3_flags",
+	},
+	"getrlimit": {
+		"resource": "resources",
+	},
+	"setrlimit": {
+		"resource": "resources",
+	},
+	"pipe2": {
 		"flags": "open_mode_flags",
 	},
 	"socket": {
 		"domain": "addrfams",
 		"type": "sock_type_flags",
 	},
-	"fchownat": {
-		"flag": "at_flags",
+	"msync": {
+		"flags": "mctl_sync",
 	},
-	"arch_prctl": {
-		"option": "archvals",
+	"kill": {
+		"sig": "signalnames",
 	},
-	"accept4": {
-		"flags": "sock_type_flags",
-	},
-	"clock_settime": {
-		"which_clock": "clocknames",
-	},
-	"mprotect": {
-		"prot": "mmap_prot",
-	},
-	"lseek": {
-		"whence": "whence_codes",
-	},
-	"access": {
+	"faccessat2": {
 		"mode": "access_modes",
 	},
-	"open": {
-		"flags": "open_mode_flags",
+	"epoll_create1": {
+		"flags": "epollflags",
 	},
-	"add_key": {
-		"ringid": "key_spec",
+	"mount": {
+		"flags": "mount_flags",
 	},
-	"epoll_ctl": {
-		"op": "epollctls",
+	"clock_adjtime": {
+		"which_clock": "clocknames",
 	},
 	"wait4": {
 		"options": "wait4_options",
 	},
-	"unlinkat": {
-		"flag": "at_flags",
+	"add_key": {
+		"ringid": "key_spec",
+	},
+	"lseek": {
+		"whence": "whence_codes",
+	},
+	"getsockopt": {
+		"level": "socketlayers",
+	},
+	"getpeername": {
+		"addr": "sockaddr",
+	},
+	"request_key": {
+		"destringid": "key_spec",
+	},
+	"sendto": {
+		"flags": "msg_flags",
+		"addr": "sockaddr",
+	},
+	"prctl": {
+		"option": "prctl_options",
+	},
+	"mlockall": {
+		"flags": "mlockall_flags",
+	},
+	"prlimit64": {
+		"resource": "resources",
+	},
+	"accept4": {
+		"flags": "sock_type_flags",
+	},
+	"bpf": {
+		"arg0": "bpf_commands",
+	},
+	"utimensat": {
+		"flags": "at_flags",
+	},
+	"epoll_ctl": {
+		"op": "epollctls",
+	},
+	"futex": {
+		"op": "futexops",
+	},
+	"mlock2": {
+		"flags": "mlock_flags",
 	},
 }

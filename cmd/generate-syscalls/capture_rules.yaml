@@ -285,3 +285,21 @@ rules:
     enter: { ptr_arg: 1 }
     exit:
       reads: [{ arg: 1, size: 8, offset: 1024, type: raw }]
+
+  # getrlimit
+  - syscalls: [getrlimit]
+    exit:
+      reads: [{ arg: 1, size: 16, offset: 1024, type: raw }]
+
+  # setrlimit
+  - syscalls: [setrlimit]
+    enter:
+      reads: [{ arg: 1, size: 16, offset: 0, type: raw }]
+
+  # prlimit64
+  - syscalls: [prlimit64]
+    enter:
+      reads: [{ arg: 2, size: 16, offset: 0, type: raw }]
+    exit:
+      reads: [{ arg: 3, size: 16, offset: 1024, type: raw }]
+

@@ -85,6 +85,9 @@ func main() {
 		
 		cProg := strings.Builder{}
 		cProg.WriteString("#define _GNU_SOURCE\n#include <stdio.h>\n#include <fcntl.h>\n#include <sys/types.h>\n#include <sys/socket.h>\n#include <sys/un.h>\n#include <linux/prctl.h>\n#include <asm/prctl.h>\n#include <linux/stat.h>\n#include <linux/fs.h>\n#include <linux/timex.h>\n#include <poll.h>\n#include <sys/epoll.h>\n#include <linux/bpf.h>\n#include <time.h>\n#include <asm/termios.h>\n#include <sys/mman.h>\n#include <linux/sched.h>\n#include <linux/futex.h>\n#include <sys/wait.h>\n#include <sys/mount.h>\n#include <linux/keyctl.h>\n#include <linux/dm-ioctl.h>\n#include <linux/netlink.h>\n#include <linux/rtnetlink.h>\n")
+		if name == "resources" {
+			cProg.WriteString("#include <sys/resource.h>\n")
+		}
 		cProg.WriteString("#ifndef ARCH_GET_CPUID\n#define ARCH_GET_CPUID 0x1011\n#endif\n#ifndef ARCH_SET_CPUID\n#define ARCH_SET_CPUID 0x1012\n#endif\n")
 
 		// Also parse strace's generated .h file if it exists
@@ -104,6 +107,7 @@ func main() {
 			parts := strings.Fields(line)
 			if len(parts) >= 1 { 
 				k := parts[0]
+				if !isCIdentifier(k) { continue }
 				keys = append(keys, k)
 				if len(parts) >= 2 {
 					v := parts[1]
@@ -152,8 +156,8 @@ func main() {
 
 		cmd := exec.Command("gcc", "-x", "c", "-I../../strace-upstream/src", "-I../../strace-upstream/src/xlat", "-I../../strace-upstream/bundled/linux/include", "-o", "gen_xlat_tmp", "-")
 		cmd.Stdin = strings.NewReader(cProg.String())
-		if err := cmd.Run(); err != nil {
-			fmt.Printf("GCC failed for %s: %v\n", name, err)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			fmt.Printf("GCC failed for %s: %v\nOutput: %s\n", name, err, string(output))
 			// Print first few lines of cProg
 			lines := strings.Split(cProg.String(), "\n")
 			for i := 0; i < 20 && i < len(lines); i++ { fmt.Println(lines[i]) }
@@ -183,7 +187,7 @@ func main() {
 				}
 				
 				if isNumeric {
-					if v == "0" && k != "O_RDONLY" && k != "F_OK" && k != "AF_UNSPEC" && k != "SEEK_SET" && k != "XFEATURE_FP" && k != "BPF_MAP_CREATE" && k != "CLOCK_REALTIME" && k != "PROT_NONE" && k != "FUTEX_WAIT" && k != "MADV_NORMAL" && k != "SIG_BLOCK" && k != "CLONE_VM" && k != "BPF_MAP_TYPE_UNSPEC" && k != "MAP_FILE" { continue }
+					if v == "0" && k != "O_RDONLY" && k != "F_OK" && k != "AF_UNSPEC" && k != "SEEK_SET" && k != "XFEATURE_FP" && k != "BPF_MAP_CREATE" && k != "CLOCK_REALTIME" && k != "PROT_NONE" && k != "FUTEX_WAIT" && k != "MADV_NORMAL" && k != "SIG_BLOCK" && k != "CLONE_VM" && k != "BPF_MAP_TYPE_UNSPEC" && k != "MAP_FILE" && k != "RLIMIT_CPU" { continue }
 					fmt.Fprintf(out, "\t\t\t{Val: %s, Str: %q},\n", v, k)
 				}
 			}
@@ -403,4 +407,22 @@ func main() {
 	}
 	fmt.Fprintln(out, "}")
 	out.Close()
+}
+
+func isCIdentifier(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for i, r := range s {
+		if i == 0 {
+			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_') {
+				return false
+			}
+		} else {
+			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_') {
+				return false
+			}
+		}
+	}
+	return true
 }

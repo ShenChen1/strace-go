@@ -40,7 +40,7 @@ func decodeEnum(val uint64, xlatName string, table XlatTable) (string, bool) {
 			return entry.Str, true
 		}
 	}
-	if xlatName == "signalnames" || xlatName == "key_spec" || val < 100 {
+	if (xlatName == "signalnames" || xlatName == "key_spec" || val < 100) && xlatName != "resources" {
 		return fmt.Sprintf("%d", int32(val)), true
 	}
 	formatVal := fmt.Sprintf("%#x", val)
@@ -113,7 +113,7 @@ func DecodeFlags(val uint64, xlatName string) string {
 		val = uint64(uint32(val))
 	}
 
-	isEnum := (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "futexops" || xlatName == "ioctl_cmds") && xlatName != "clone3_flags"
+	isEnum := (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources") && xlatName != "clone3_flags"
 
 	if isEnum {
 		if s, ok := decodeEnum(val, xlatName, table); ok {
