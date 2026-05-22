@@ -25,7 +25,7 @@ var manualOverrides = map[string]SyscallMeta{
 	"lstat": {Name: "lstat", Args: []string{"filename", "statbuf"}, ArgTypes: []string{"const char *", "struct stat *"}},
 
 	// mmap — BTF ksys_mmap_pgoff uses unsigned long for everything
-	"mmap": {Name: "mmap", Args: []string{"addr", "len", "prot", "flags", "fd", "off"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long", "unsigned long", "unsigned long", "unsigned long"}},
+	"mmap": {Name: "mmap", Args: []string{"addr", "len", "prot", "flags", "fd", "off"}, ArgTypes: []string{"const void *", "size_t", "unsigned long", "unsigned long", "int", "kernel_off_t"}},
 
 	// Network — not in __do_sys_ or ksys_
 	"connect":     {Name: "connect", Args: []string{"fd", "uservaddr", "addrlen"}, ArgTypes: []string{"int", "struct sockaddr *", "int"}},
@@ -68,14 +68,15 @@ var manualOverrides = map[string]SyscallMeta{
 	"truncate": {Name: "truncate", Args: []string{"path", "length"}, ArgTypes: []string{"const char *", "long"}},
 
 	// Memory management
-	"mprotect": {Name: "mprotect", Args: []string{"start", "len", "prot"}, ArgTypes: []string{"unsigned long", "size_t", "unsigned long"}},
-	"munmap":   {Name: "munmap", Args: []string{"addr", "len"}, ArgTypes: []string{"unsigned long", "size_t"}},
+	"mprotect": {Name: "mprotect", Args: []string{"start", "len", "prot"}, ArgTypes: []string{"const void *", "size_t", "unsigned long"}},
+	"munmap":   {Name: "munmap", Args: []string{"addr", "len"}, ArgTypes: []string{"const void *", "size_t"}},
 	"brk":      {Name: "brk", Args: []string{"brk"}, ArgTypes: []string{"unsigned long"}},
-	"madvise":  {Name: "madvise", Args: []string{"start", "len", "behavior"}, ArgTypes: []string{"unsigned long", "size_t", "int"}},
-	"mremap":   {Name: "mremap", Args: []string{"addr", "old_len", "new_len", "flags", "new_addr"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long", "unsigned long", "unsigned long"}},
+	"madvise":  {Name: "madvise", Args: []string{"start", "len", "behavior"}, ArgTypes: []string{"const void *", "size_t", "int"}},
+	"mremap":   {Name: "mremap", Args: []string{"addr", "old_len", "new_len", "flags", "new_addr"}, ArgTypes: []string{"const void *", "unsigned long", "unsigned long", "unsigned long", "const void *"}},
 	"mlock":    {Name: "mlock", Args: []string{"addr", "len"}, ArgTypes: []string{"const void *", "size_t"}},
 	"munlock":  {Name: "munlock", Args: []string{"addr", "len"}, ArgTypes: []string{"const void *", "size_t"}},
 	"mlock2":   {Name: "mlock2", Args: []string{"addr", "len", "flags"}, ArgTypes: []string{"const void *", "size_t", "int"}},
+	"msync":    {Name: "msync", Args: []string{"addr", "len", "flags"}, ArgTypes: []string{"const void *", "size_t", "int"}},
 
 	// Time
 	"nanosleep":      {Name: "nanosleep", Args: []string{"rqtp", "rmtp"}, ArgTypes: []string{"struct timespec *", "struct timespec *"}},

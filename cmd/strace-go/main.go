@@ -198,7 +198,9 @@ func handleEvent(eventRaw *bpfEvent, targetPid int, opts *cli.Options, decoder *
 	
 	line := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
 	retStr := fmt.Sprintf("%d", ret)
-	if ret >= 0 && (scMeta.Name == "brk" || scMeta.Name == "mmap" || scMeta.Name == "munmap" || scMeta.Name == "mprotect") {
+	// IMPACT: Limits hexadecimal return formatting to address-returning calls.
+	// munmap and mprotect return 0 on success, while mremap returns new address.
+	if ret >= 0 && (scMeta.Name == "brk" || scMeta.Name == "mmap" || scMeta.Name == "mremap") {
 		retStr = fmt.Sprintf("%#x", ret)
 	}
 	if ret >= 0 && (scMeta.Name == "adjtimex" || scMeta.Name == "clock_adjtime") {

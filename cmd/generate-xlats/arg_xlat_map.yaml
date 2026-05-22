@@ -118,6 +118,8 @@ syscalls:
     flags: mlock_flags
   mlockall:
     flags: mlockall_flags
+  msync:
+    flags: mctl_sync
 
 # Custom mapping logic can be added later if needed.
 # Note: open_mode_flags doesn't include access modes (O_RDONLY etc), 
