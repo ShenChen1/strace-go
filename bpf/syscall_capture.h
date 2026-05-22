@@ -8,46 +8,88 @@
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 2: /* open */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 4: /* stat */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 6: /* lstat */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 7: /* poll */ \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 13: /* rt_sigaction */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 32, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 14: /* rt_sigprocmask */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 8, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 16: /* ioctl */ \
@@ -56,179 +98,389 @@
 				u32 iosz = (((e)->args[1] >> 16) & 0x3fff); \
 				iosz = (iosz == 0) ? 128 : (iosz > 512 ? 512 : iosz); \
 				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 512, iosz, (void *)(e)->args[2]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 18: /* pwrite64 */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 21: /* access */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 23: /* select */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 128, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 128, 128, (void *)(e)->args[2]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[3] ? bpf_probe_read_user((e)->str_arg + 256, 128, (void *)(e)->args[3]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 3)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[4] ? bpf_probe_read_user((e)->str_arg + 384, 16, (void *)(e)->args[4]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 4)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 42: /* connect */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 128, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
+			} \
+			break; \
+		case 43: /* accept */ \
+			{ \
+				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 768, 4, (void *)(e)->args[2]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 44: /* sendto */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[4] ? bpf_probe_read_user((e)->str_arg + 512, 128, (void *)(e)->args[4]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 4)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 45: /* recvfrom */ \
 			{ \
 				long pr = (e)->args[5] ? bpf_probe_read_user((e)->str_arg + 768, 4, (void *)(e)->args[5]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 5)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 49: /* bind */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 128, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
+			} \
+			break; \
+		case 51: /* getsockname */ \
+			{ \
+				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 768, 4, (void *)(e)->args[2]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
+			} \
+			break; \
+		case 52: /* getpeername */ \
+			{ \
+				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 768, 4, (void *)(e)->args[2]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 59: /* execve */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 80: /* chdir */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 82: /* rename */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg + 512, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 83: /* mkdir */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 84: /* rmdir */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 85: /* creat */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 86: /* link */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg + 512, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 87: /* unlink */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 88: /* symlink */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg + 512, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 89: /* readlink */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 90: /* chmod */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 92: /* chown */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 94: /* lchown */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 157: /* prctl */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 16, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 158: /* arch_prctl */ \
@@ -237,66 +489,132 @@
 		case 159: /* adjtimex */ \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user((e)->str_arg, 208, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 163: /* acct */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 165: /* mount */ \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg + 512, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[2] ? bpf_probe_read_user_str((e)->str_arg + 1024, 128, (void *)(e)->args[2]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[4] ? bpf_probe_read_user_str((e)->str_arg + 1152, 512, (void *)(e)->args[4]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 4)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 166: /* umount2 */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 167: /* swapon */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 168: /* swapoff */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 208: /* io_getevents */ \
 			(e)->ptr = (e)->args[4]; \
 			{ \
 				long pr = (e)->args[4] ? bpf_probe_read_user((e)->str_arg + 512, 16, (void *)(e)->args[4]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 4)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 209: /* io_submit */ \
 			{ \
 				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg, ((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0), (void *)(e)->args[2]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			for (int i = 0; i < 2; i++) { \
 				u64 p; \
@@ -308,187 +626,395 @@
 		case 210: /* io_cancel */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 64, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 227: /* clock_settime */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 16, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 230: /* clock_nanosleep */ \
 			{ \
 				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg, 16, (void *)(e)->args[2]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 233: /* epoll_ctl */ \
 			{ \
 				long pr = (e)->args[3] ? bpf_probe_read_user((e)->str_arg, 12, (void *)(e)->args[3]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 3)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 248: /* add_key */ \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 64, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg + 64, 128, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 256, ((e)->args[3] > 0 ? ((e)->args[3] > 256 ? 256 : (e)->args[3]) : 0), (void *)(e)->args[2]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 249: /* request_key */ \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 64, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg + 64, 128, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
-				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 256, ((e)->args[3] > 0 ? ((e)->args[3] > 256 ? 256 : (e)->args[3]) : 0), (void *)(e)->args[2]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				long pr = (e)->args[2] ? bpf_probe_read_user_str((e)->str_arg + 256, 256, (void *)(e)->args[2]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 257: /* openat */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 258: /* mkdirat */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 260: /* fchownat */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 262: /* newfstatat */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 263: /* unlinkat */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 264: /* renameat */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[3] ? bpf_probe_read_user_str((e)->str_arg + 512, 512, (void *)(e)->args[3]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 3)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 265: /* linkat */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 266: /* symlinkat */ \
-			(e)->ptr = (e)->args[1]; \
+			(e)->ptr = (e)->args[0]; \
 			{ \
-				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
+			} \
+			{ \
+				long pr = (e)->args[2] ? bpf_probe_read_user_str((e)->str_arg + 512, 512, (void *)(e)->args[2]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 267: /* readlinkat */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 268: /* fchmodat */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 269: /* faccessat */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 271: /* ppoll */ \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 512, 16, (void *)(e)->args[2]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
+			} \
+			break; \
+		case 288: /* accept4 */ \
+			{ \
+				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 768, 4, (void *)(e)->args[2]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 305: /* clock_adjtime */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 208, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 316: /* renameat2 */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[3] ? bpf_probe_read_user_str((e)->str_arg + 512, 512, (void *)(e)->args[3]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 3)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 321: /* bpf */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, ((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0), (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 333: /* io_pgetevents */ \
 			(e)->ptr = (e)->args[4]; \
 			{ \
 				long pr = (e)->args[4] ? bpf_probe_read_user((e)->str_arg + 512, 16, (void *)(e)->args[4]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 4)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 435: /* clone3 */ \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user((e)->str_arg, ((e)->args[1] > 0 ? ((e)->args[1] > 256 ? 256 : (e)->args[1]) : 0), (void *)(e)->args[0]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 		case 439: /* faccessat2 */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_enter = (pr < 0) ? pr : (e->probe_ret_enter == -1 ? 0 : e->probe_ret_enter); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
 			} \
 			break; \
 	}
@@ -498,37 +1024,73 @@
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 4: /* stat */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 144, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 5: /* fstat */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 144, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 6: /* lstat */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 144, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 7: /* poll */ \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user((e)->str_arg + 1024, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 13: /* rt_sigaction */ \
 			{ \
 				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 1024, 32, (void *)(e)->args[2]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 16: /* ioctl */ \
@@ -536,151 +1098,431 @@
 				u32 iosz = (((e)->args[1] >> 16) & 0x3fff); \
 				iosz = (iosz == 0) ? 128 : (iosz > 512 ? 512 : iosz); \
 				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 1024, iosz, (void *)(e)->args[2]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 17: /* pread64 */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 23: /* select */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 128, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 1152, 128, (void *)(e)->args[2]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[3] ? bpf_probe_read_user((e)->str_arg + 1280, 128, (void *)(e)->args[3]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 3)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[4] ? bpf_probe_read_user((e)->str_arg + 1408, 16, (void *)(e)->args[4]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 4)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
+			} \
+			break; \
+		case 43: /* accept */ \
+			(e)->ptr = (e)->args[1]; \
+			{ \
+				u32 addrlen = 0; \
+				bpf_probe_read_user(&addrlen, 4, (void *)(e)->args[2]); \
+				u32 inlen = *(u32 *)((e)->str_arg + 768); \
+				if (inlen > 0 && inlen < addrlen) addrlen = inlen; \
+				addrlen = (addrlen > 128) ? 128 : addrlen; \
+				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, addrlen, (void *)(e)->args[1]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
+			} \
+			{ \
+				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 772, 4, (void *)(e)->args[2]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 45: /* recvfrom */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[4] ? bpf_probe_read_user((e)->str_arg + 1536, 128, (void *)(e)->args[4]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 4)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[5] ? bpf_probe_read_user((e)->str_arg + 772, 4, (void *)(e)->args[5]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 5)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
+			} \
+			break; \
+		case 51: /* getsockname */ \
+			(e)->ptr = (e)->args[1]; \
+			{ \
+				u32 addrlen = 0; \
+				bpf_probe_read_user(&addrlen, 4, (void *)(e)->args[2]); \
+				u32 inlen = *(u32 *)((e)->str_arg + 768); \
+				if (inlen > 0 && inlen < addrlen) addrlen = inlen; \
+				addrlen = (addrlen > 128) ? 128 : addrlen; \
+				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, addrlen, (void *)(e)->args[1]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
+			} \
+			{ \
+				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 772, 4, (void *)(e)->args[2]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
+			} \
+			break; \
+		case 52: /* getpeername */ \
+			(e)->ptr = (e)->args[1]; \
+			{ \
+				u32 addrlen = 0; \
+				bpf_probe_read_user(&addrlen, 4, (void *)(e)->args[2]); \
+				u32 inlen = *(u32 *)((e)->str_arg + 768); \
+				if (inlen > 0 && inlen < addrlen) addrlen = inlen; \
+				addrlen = (addrlen > 128) ? 128 : addrlen; \
+				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, addrlen, (void *)(e)->args[1]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
+			} \
+			{ \
+				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 772, 4, (void *)(e)->args[2]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 89: /* readlink */ \
 			{ \
-				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, ((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0), (void *)(e)->args[1]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 96: /* gettimeofday */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user((e)->str_arg + 1024, 16, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1040, 8, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 157: /* prctl */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg + 1024, 16, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 158: /* arch_prctl */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 8, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 159: /* adjtimex */ \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user((e)->str_arg + 1024, 208, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 206: /* io_setup */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 8, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 208: /* io_getevents */ \
 			{ \
 				long pr = (e)->args[3] ? bpf_probe_read_user((e)->str_arg + 1024, ((e)->ret > 0 ? ((e)->ret * 32 > 512 ? 512 : (e)->ret * 32) : 0), (void *)(e)->args[3]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 3)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 228: /* clock_gettime */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 16, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 229: /* clock_getres */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 16, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 230: /* clock_nanosleep */ \
 			{ \
 				long pr = (e)->args[3] ? bpf_probe_read_user((e)->str_arg + 1024, 16, (void *)(e)->args[3]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 3)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 232: /* epoll_wait */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 262: /* newfstatat */ \
 			{ \
 				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 1024, 144, (void *)(e)->args[2]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
+			} \
+			break; \
+		case 267: /* readlinkat */ \
+			{ \
+				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 1024, ((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0), (void *)(e)->args[2]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 271: /* ppoll */ \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user((e)->str_arg + 1024, 512, (void *)(e)->args[0]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 281: /* epoll_pwait */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 512, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
+			} \
+			break; \
+		case 288: /* accept4 */ \
+			(e)->ptr = (e)->args[1]; \
+			{ \
+				u32 addrlen = 0; \
+				bpf_probe_read_user(&addrlen, 4, (void *)(e)->args[2]); \
+				u32 inlen = *(u32 *)((e)->str_arg + 768); \
+				if (inlen > 0 && inlen < addrlen) addrlen = inlen; \
+				addrlen = (addrlen > 128) ? 128 : addrlen; \
+				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, addrlen, (void *)(e)->args[1]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
+			} \
+			{ \
+				long pr = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 772, 4, (void *)(e)->args[2]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 305: /* clock_adjtime */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 208, (void *)(e)->args[1]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 		case 333: /* io_pgetevents */ \
 			{ \
 				long pr = (e)->args[3] ? bpf_probe_read_user((e)->str_arg + 1024, ((e)->ret > 0 ? ((e)->ret * 32 > 512 ? 512 : (e)->ret * 32) : 0), (void *)(e)->args[3]) : 0; \
-				e->probe_ret_exit = (pr < 0) ? pr : (e->probe_ret_exit == -1 ? 0 : e->probe_ret_exit); \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 3)) + 1); \
+				} else if ((e)->probe_ret_exit == -1) { \
+					(e)->probe_ret_exit = 0; \
+				} \
 			} \
 			break; \
 	}

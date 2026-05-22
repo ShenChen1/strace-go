@@ -80,6 +80,7 @@ func main() {
 	memReader := procmem.NewReader(targetPid)
 	defer memReader.Close()
 	decoder := event.NewDecoder(memReader)
+	decoder.HexEscapeMode = opts.HexEscapeMode
 	
 	var outWriter io.Writer
 	var outFile *os.File

@@ -14,7 +14,7 @@ failed=0
 total=0
 
 # List of tests to run (a small representative sample)
-tests="getpid.gen.test access.gen.test chmod.gen.test openat.gen.test brk.test stat.gen.test fstat.gen.test lstat.gen.test rename.gen.test mkdir.gen.test"
+tests="getpid.gen.test access.gen.test chmod.gen.test openat.gen.test brk.test stat.gen.test fstat.gen.test lstat.gen.test rename.gen.test mkdir.gen.test add_key.gen.test request_key.gen.test link.gen.test symlink.gen.test symlinkat.gen.test readlink.gen.test readlinkat.gen.test"
 
 for t in $tests; do
     bin_name=${t%.test}

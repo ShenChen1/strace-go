@@ -245,8 +245,9 @@ func Sockaddr(data []byte, alen uint32, inLen uint32) string {
 	}
 }
 
-// Buffer formats a byte slice as a string, respecting a limit.
-func Buffer(data []byte, limit int, actualLen int) string {
+// BufferEscape formats a byte slice as a string, respecting a limit and escape mode.
+// escapeMode: 0 = default (octal for non-ascii), 1 = hex for non-ascii (-x), 2 = hex for all (-xx)
+func BufferEscape(data []byte, limit int, actualLen int, escapeMode int) string {
 	if len(data) == 0 { return "\"\"" }
 	
 	printLimit := limit
@@ -258,6 +259,11 @@ func Buffer(data []byte, limit int, actualLen int) string {
 	
 	for i := 0; i < printLimit; i++ {
 		b := data[i]
+		if escapeMode == 2 {
+			sb.WriteString(fmt.Sprintf("\\x%02x", b))
+			continue
+		}
+		
 		switch b {
 		case '\n': sb.WriteString("\\n")
 		case '\r': sb.WriteString("\\r")
@@ -269,7 +275,11 @@ func Buffer(data []byte, limit int, actualLen int) string {
 			if b >= 32 && b <= 126 {
 				sb.WriteByte(b)
 			} else {
-				sb.WriteString(fmt.Sprintf("\\%o", b))
+				if escapeMode == 1 {
+					sb.WriteString(fmt.Sprintf("\\x%02x", b))
+				} else {
+					sb.WriteString(fmt.Sprintf("\\%o", b))
+				}
 			}
 		}
 	}
@@ -277,6 +287,11 @@ func Buffer(data []byte, limit int, actualLen int) string {
 	sb.WriteByte('"')
 	if actualLen > printLimit || len(data) > printLimit { sb.WriteString("...") }
 	return sb.String()
+}
+
+// Buffer formats a byte slice as a string, respecting a limit.
+func Buffer(data []byte, limit int, actualLen int) string {
+	return BufferEscape(data, limit, actualLen, 0)
 }
 
 // FdSet formats an fd_set bitmask into a list of file descriptors.

@@ -23,7 +23,7 @@ rules:
       reads: [{ arg: 1, size: 144, offset: 1024, type: raw }]
 
   # At-based syscalls (enter)
-  - syscalls: [openat, mkdirat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, readlinkat, linkat, symlinkat]
+  - syscalls: [openat, mkdirat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, linkat]
     enter:
       ptr_arg: 1
       reads: [{ arg: 1, size: 512, type: string }]
@@ -40,7 +40,14 @@ rules:
       ptr_arg: 0
       reads: [{ arg: 0, size: 512, type: string }]
     exit:
-      reads: [{ arg: 1, size: 512, offset: 1024, type: raw }]
+      reads: [{ arg: 1, size: 0, offset: 1024, type: raw }]
+
+  - syscalls: [readlinkat]
+    enter:
+      ptr_arg: 1
+      reads: [{ arg: 1, size: 512, type: string }]
+    exit:
+      reads: [{ arg: 2, size: 0, offset: 1024, type: raw }]
 
   # Dual path syscalls
   - syscalls: [rename, link, symlink]
@@ -49,6 +56,13 @@ rules:
       reads:
         - { arg: 0, size: 512, offset: 0, type: string }
         - { arg: 1, size: 512, offset: 512, type: string }
+
+  - syscalls: [symlinkat]
+    enter:
+      ptr_arg: 0
+      reads:
+        - { arg: 0, size: 512, offset: 0, type: string }
+        - { arg: 2, size: 512, offset: 512, type: string }
 
   - syscalls: [renameat, renameat2, linkat]
     enter:
@@ -92,6 +106,13 @@ rules:
         - { arg: 5, size: 4, offset: 772, type: raw }   # addrlen out
 
   - syscalls: [accept, accept4, getsockname, getpeername]
+    enter:
+      reads: [{ arg: 2, size: 4, offset: 768, type: raw }] # addrlen in
+    exit:
+      ptr_arg: 1
+      reads:
+        - { arg: 1, size: 0, offset: 1024, type: raw } # addr out
+        - { arg: 2, size: 4, offset: 772, type: raw } # addrlen out
 
   - syscalls: [bpf]
     enter:
@@ -228,12 +249,19 @@ rules:
       reads: [{ arg: 1, size: 8, offset: 0, type: raw }]
 
   # Keys
-  - syscalls: [add_key, request_key]
+  - syscalls: [add_key]
     enter:
       reads:
         - { arg: 0, size: 64, offset: 0, type: string }
         - { arg: 1, size: 128, offset: 64, type: string }
         - { arg: 2, size: 0, offset: 256, type: raw }
+
+  - syscalls: [request_key]
+    enter:
+      reads:
+        - { arg: 0, size: 64, offset: 0, type: string }
+        - { arg: 1, size: 128, offset: 64, type: string }
+        - { arg: 2, size: 256, offset: 256, type: string }
 
   # AIO
   - syscalls: [io_setup]

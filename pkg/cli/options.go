@@ -13,6 +13,7 @@ type Options struct {
 	OutFile       string
 	AlignCol      int
 	StringLimit   int
+	HexEscapeMode int // 0 = default, 1 = hex non-ascii (-x), 2 = hex all (-xx)
 	TraceSyscalls map[string]bool
 	TracePaths    map[string]bool
 	TraceReadFDs  map[int32]bool
@@ -27,6 +28,7 @@ func ParseArgs(args []string) *Options {
 	opts := &Options{
 		AlignCol:      40,
 		StringLimit:   32,
+		HexEscapeMode: 0,
 		TraceSyscalls: make(map[string]bool),
 		TracePaths:    make(map[string]bool),
 		TraceReadFDs:  make(map[int32]bool),
@@ -56,6 +58,14 @@ func ParseArgs(args []string) *Options {
 
 		if arg == "-y" {
 			opts.ShowPaths = true
+			continue
+		}
+		if arg == "-x" {
+			opts.HexEscapeMode = 1
+			continue
+		}
+		if arg == "-xx" {
+			opts.HexEscapeMode = 2
 			continue
 		}
 		if arg == "-v" {

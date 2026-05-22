@@ -11,11 +11,12 @@ import (
 )
 
 type Decoder struct {
-	MemReader *procmem.Reader
+	MemReader     *procmem.Reader
+	HexEscapeMode int
 }
 
 func NewDecoder(mr *procmem.Reader) *Decoder {
-	return &Decoder{MemReader: mr}
+	return &Decoder{MemReader: mr, HexEscapeMode: 0}
 }
 
 // DecodeString decodes a string from BPF-captured data or process memory.
@@ -48,7 +49,7 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 	}
 
 	if found {
-		return format.Buffer(raw, limit, 0)
+		return format.BufferEscape(raw, limit, 0, d.HexEscapeMode)
 	}
 
 	return fmt.Sprintf("%#x", ptr)

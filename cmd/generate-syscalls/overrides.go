@@ -127,6 +127,8 @@ var manualOverrides = map[string]SyscallMeta{
 	"fchmodat":   {Name: "fchmodat", Args: []string{"dfd", "filename", "mode"}, ArgTypes: []string{"int", "const char *", "umode_t"}},
 	"newfstatat": {Name: "newfstatat", Args: []string{"dfd", "filename", "statbuf", "flag"}, ArgTypes: []string{"int", "const char *", "struct stat *", "int"}},
 	"linkat":     {Name: "linkat", Args: []string{"olddfd", "oldname", "newdfd", "newname", "flags"}, ArgTypes: []string{"int", "const char *", "int", "const char *", "int"}},
+	"link":       {Name: "link", Args: []string{"oldpath", "newpath"}, ArgTypes: []string{"const char *", "const char *"}},
+	"symlink":    {Name: "symlink", Args: []string{"oldname", "newname"}, ArgTypes: []string{"const char *", "const char *"}},
 	"symlinkat":  {Name: "symlinkat", Args: []string{"oldname", "newdfd", "newname"}, ArgTypes: []string{"const char *", "int", "const char *"}},
 
 	// AIO

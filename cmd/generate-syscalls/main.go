@@ -140,6 +140,41 @@ func bpfExitCapture(name string) string {
 	return ""
 }
 
+func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
+	switch scName {
+	case "accept", "accept4", "getsockname", "getpeername", "recvfrom":
+		if r.Arg == 1 || r.Arg == 4 {
+			return "addrlen"
+		}
+	case "add_key":
+		if r.Arg == 2 {
+			return "((e)->args[3] > 0 ? ((e)->args[3] > 256 ? 256 : (e)->args[3]) : 0)"
+		}
+	case "bpf":
+		if r.Arg == 1 {
+			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
+		}
+	case "clone3":
+		if r.Arg == 0 {
+			return "((e)->args[1] > 0 ? ((e)->args[1] > 256 ? 256 : (e)->args[1]) : 0)"
+		}
+	case "ioctl":
+		if r.Arg == 2 {
+			return "iosz"
+		}
+	case "readlink", "readlinkat":
+		return "((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0)"
+	}
+
+	if suffix == "exit" {
+		return "((e)->ret > 0 ? ((e)->ret * 32 > 512 ? 512 : (e)->ret * 32) : 0)"
+	}
+	return "((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0)"
+}
+
+// generateBPFCode generates eBPF C code to capture syscall arguments.
+// Impact: Called by bpfEnterCapture and bpfExitCapture to construct BPF switches.
+// Any changes here affect the compiled probe's argument capturing logic.
 func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 	res := ""
 	if p.PtrArg != nil {
@@ -156,31 +191,7 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 		}
 		sizeStr := fmt.Sprintf("%d", r.Size)
 		if r.Size == 0 {
-			if scName == "accept" || scName == "accept4" || scName == "getsockname" || scName == "getpeername" || scName == "recvfrom" {
-				if r.Arg == 1 || r.Arg == 4 {
-					sizeStr = "addrlen"
-				}
-			} else if scName == "add_key" || scName == "request_key" {
-				if r.Arg == 2 {
-					sizeStr = "((e)->args[3] > 0 ? ((e)->args[3] > 256 ? 256 : (e)->args[3]) : 0)"
-				}
-			} else if scName == "bpf" {
-				if r.Arg == 1 {
-					sizeStr = "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
-				}
-			} else if scName == "clone3" {
-				if r.Arg == 0 {
-					sizeStr = "((e)->args[1] > 0 ? ((e)->args[1] > 256 ? 256 : (e)->args[1]) : 0)"
-				}
-			} else if scName == "ioctl" {
-				if r.Arg == 2 {
-					sizeStr = "iosz"
-				}
-			} else if suffix == "exit" {
-				sizeStr = "((e)->ret > 0 ? ((e)->ret * 32 > 512 ? 512 : (e)->ret * 32) : 0)"
-			} else {
-				sizeStr = "((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0)"
-			}
+			sizeStr = dynamicSizeStr(scName, suffix, r)
 		}
 		res += fmt.Sprintf("\t\t\t{ \\\n")
 		if r.Size == 0 && (scName == "accept" || scName == "accept4" || scName == "getsockname" || scName == "getpeername" || scName == "recvfrom") {
@@ -198,7 +209,13 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 			res += fmt.Sprintf("\t\t\t\tiosz = (iosz == 0) ? 128 : (iosz > 512 ? 512 : iosz); \\\n")
 		}
 		res += fmt.Sprintf("\t\t\t\tlong pr = (e)->args[%d] ? %s(%s, %s, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, sizeStr, r.Arg)
-		res += fmt.Sprintf("\t\t\t\te->probe_ret_%s = (pr < 0) ? pr : (e->probe_ret_%s == -1 ? 0 : e->probe_ret_%s); \\\n", suffix, suffix, suffix)
+		res += fmt.Sprintf("\t\t\t\tif (pr < 0) { \\\n")
+		res += fmt.Sprintf("\t\t\t\t\ts32 curr = (e)->probe_ret_%s; \\\n", suffix)
+		res += fmt.Sprintf("\t\t\t\t\tu32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \\\n")
+		res += fmt.Sprintf("\t\t\t\t\t(e)->probe_ret_%s = -(s32)((mask | (1 << %d)) + 1); \\\n", suffix, r.Arg)
+		res += fmt.Sprintf("\t\t\t\t} else if ((e)->probe_ret_%s == -1) { \\\n", suffix)
+		res += fmt.Sprintf("\t\t\t\t\t(e)->probe_ret_%s = 0; \\\n", suffix)
+		res += fmt.Sprintf("\t\t\t\t} \\\n")
 		res += fmt.Sprintf("\t\t\t} \\\n")
 		
 		if scName == "io_submit" && suffix == "enter" && r.Arg == 2 {

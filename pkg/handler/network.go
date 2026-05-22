@@ -51,30 +51,38 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 				res.ArgParts = append(res.ArgParts, "NULL")
 				continue
 			}
+			readInSuccess := ctx.ProbeRetEnter >= 0
 			inLen := binary.LittleEndian.Uint32(ctx.StrArgBuf[768:772])
-			if inLen == 0 || ctx.ProbeRetEnter < 0 {
+			if !readInSuccess || inLen == 0 {
 				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 4, false); err == nil && len(d) == 4 {
 					inLen = binary.LittleEndian.Uint32(d)
+					readInSuccess = true
 				}
 			}
-			outLen := binary.LittleEndian.Uint32(ctx.StrArgBuf[772:776])
-			if outLen == 0 || ctx.ProbeRetExit < 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 4, true); err == nil && len(d) == 4 {
-					outLen = binary.LittleEndian.Uint32(d)
-				}
-			}
-
+			
 			if ctx.Ret >= 0 {
-				if inLen != outLen && inLen != 0 {
-					res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d => %d]", inLen, outLen))
+				readOutSuccess := ctx.ProbeRetExit >= 0
+				outLen := binary.LittleEndian.Uint32(ctx.StrArgBuf[772:776])
+				if !readOutSuccess || outLen == 0 {
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 4, true); err == nil && len(d) == 4 {
+						outLen = binary.LittleEndian.Uint32(d)
+						readOutSuccess = true
+					}
+				}
+				if !readOutSuccess {
+					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
 				} else {
-					res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d]", outLen))
+					if readInSuccess && inLen != outLen && inLen != 0 {
+						res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d => %d]", inLen, outLen))
+					} else {
+						res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d]", outLen))
+					}
 				}
 			} else {
-				if inLen != 0 {
-					res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d]", inLen))
+				if !readInSuccess {
+					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
 				} else {
-					res.ArgParts = append(res.ArgParts, "0")
+					res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d]", inLen))
 				}
 			}
 			continue
@@ -110,9 +118,15 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 			}
 		}
 
-		if (argTyp == "struct sockaddr *" || argName == "addr" || argName == "usockaddr" || argName == "addr_user") && i != 1 {
+		if (argTyp == "struct sockaddr *" || argName == "addr" || argName == "usockaddr" || argName == "addr_user") && (ctx.ScMeta.Name != "sendto" && ctx.ScMeta.Name != "recvfrom" || i != 1) {
 			if val == 0 {
 				res.ArgParts = append(res.ArgParts, "NULL")
+				continue
+			}
+
+			isOutSyscall := ctx.ScMeta.Name == "accept" || ctx.ScMeta.Name == "accept4" || ctx.ScMeta.Name == "getsockname" || ctx.ScMeta.Name == "getpeername" || ctx.ScMeta.Name == "recvfrom"
+			if isOutSyscall && ctx.Ret < 0 {
+				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
 				continue
 			}
 
@@ -124,20 +138,47 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 					alen = binary.LittleEndian.Uint32(d)
 				}
 			}
+			if ctx.ScMeta.Name == "accept" || ctx.ScMeta.Name == "accept4" || ctx.ScMeta.Name == "getsockname" || ctx.ScMeta.Name == "getpeername" {
+				addrlenPtr := ctx.Args[2]
+				if addrlenPtr != 0 {
+					alen = binary.LittleEndian.Uint32(ctx.StrArgBuf[772:776])
+					if alen == 0 || ctx.ProbeRetExit < 0 {
+						if d, err := ctx.MemReader.ReadRobust(ctx.Pid, addrlenPtr, 4, true); err == nil && len(d) == 4 {
+							alen = binary.LittleEndian.Uint32(d)
+						}
+					}
+				}
+			}
 
 			offset := uint32(0)
-			if ctx.ScMeta.Name == "accept" || ctx.ScMeta.Name == "accept4" || ctx.ScMeta.Name == "getsockname" || ctx.ScMeta.Name == "getpeername" || ctx.ScMeta.Name == "recvfrom" {
+			if isOutSyscall {
 				offset = 1024
 			}
 
-			sdata := ctx.StrArgBuf[offset : offset+128]
+			inLen := uint32(0)
+			if isOutSyscall {
+				inLen = binary.LittleEndian.Uint32(ctx.StrArgBuf[768:772])
+			}
+			effectiveLen := alen
+			if isOutSyscall && inLen > 0 && inLen < alen {
+				effectiveLen = inLen
+			}
+
+			readSize := 128
+			if effectiveLen > 0 {
+				readSize = int(effectiveLen)
+				if readSize < 2 { readSize = 2 }
+				if readSize > 128 { readSize = 128 }
+			}
+
+			sdata := ctx.StrArgBuf[offset : offset+uint32(readSize)]
 			readSuccess := ctx.ProbeRetExit >= 0
 			if ctx.ScMeta.Name == "bind" || ctx.ScMeta.Name == "connect" || ctx.ScMeta.Name == "sendto" {
 				readSuccess = ctx.ProbeRetEnter >= 0
 			}
 
 			if !readSuccess || ctx.Ret >= 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 128, ctx.ScMeta.Name == "recvfrom"); err == nil && len(d) >= 2 {
+				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, readSize, ctx.ScMeta.Name == "recvfrom"); err == nil && len(d) >= 2 {
 					sdata = d
 					readSuccess = true
 				}

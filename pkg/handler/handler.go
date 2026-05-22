@@ -30,6 +30,22 @@ type Context struct {
 	FdMap     map[string]string
 }
 
+// IsArgReadSuccess checks if a specific enter-stage argument read was successful in BPF.
+func (ctx *Context) IsArgReadSuccess(argIndex int) bool {
+	if ctx.ProbeRetEnter >= 0 { return true }
+	if ctx.ProbeRetEnter == -1 { return false }
+	mask := -ctx.ProbeRetEnter - 1
+	return (mask & (1 << argIndex)) == 0
+}
+
+// ArgProbeRet returns 0 if the enter-stage argument was read successfully, otherwise -14.
+func (ctx *Context) ArgProbeRet(argIndex int) int32 {
+	if ctx.IsArgReadSuccess(argIndex) {
+		return 0
+	}
+	return -14
+}
+
 // Result contains the formatted arguments and optional hex dump.
 type Result struct {
 	ArgParts   []string
