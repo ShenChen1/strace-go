@@ -27,28 +27,79 @@ import (
 //go:generate go run ../generate-xlats/main.go
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpf ../../bpf/strace.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
 
+// IMPACT: Refactored main to comply with function size limit (80 LOC), and integrated
+// HelpRequested check to print system strace-compatible help text and exit with 0.
 func main() {
 	opts := cli.ParseArgs(os.Args[1:])
+	if opts.HelpRequested {
+		fmt.Print(cli.HelpText)
+		os.Exit(0)
+	}
 	if len(opts.CmdArgs) == 0 {
 		fmt.Println("Usage: strace-go [options] <command> [args...]")
 		os.Exit(1)
 	}
 
-	if err := rlimit.RemoveMemlock(); err != nil { log.Fatalf("failed to remove memlock: %v", err) }
-
-	bpfObjs := bpfObjects{}
-	if err := loadBpfObjects(&bpfObjs, nil); err != nil { log.Fatalf("failed to load BPF objects: %v", err) }
+	bpfObjs, tpEnter, tpExit := setupBPF()
 	defer bpfObjs.Close()
-
-	tpEnter, err := link.Tracepoint("raw_syscalls", "sys_enter", bpfObjs.TraceSysEnter, nil)
-	if err != nil { log.Fatalf("failed to attach sys_enter tracepoint: %v", err) }
 	defer tpEnter.Close()
-
-	tpExit, err := link.Tracepoint("raw_syscalls", "sys_exit", bpfObjs.TraceSysExit, nil)
-	if err != nil { log.Fatalf("failed to attach sys_exit tracepoint: %v", err) }
 	defer tpExit.Close()
 
-	cmd := exec.Command(opts.CmdArgs[0], opts.CmdArgs[1:]...)
+	cmd, targetPid, fdMap := startAndTraceCmd(opts.CmdArgs, bpfObjs)
+
+	events, err := ringbuf.NewReader(bpfObjs.Events)
+	if err != nil { log.Fatalf("failed to create ringbuf reader: %v", err) }
+	defer events.Close()
+
+	memReader := procmem.NewReader(targetPid)
+	defer memReader.Close()
+	decoder := event.NewDecoder(memReader)
+	decoder.HexEscapeMode = opts.HexEscapeMode
+
+	outWriter, outFile := setupOutput(opts.OutFile)
+	if outFile != nil {
+		defer outFile.Close()
+	}
+
+	session := &traceSession{
+		cmd:       cmd,
+		events:    events,
+		targetPid: targetPid,
+		opts:      opts,
+		decoder:   decoder,
+		memReader: memReader,
+		fdMap:     fdMap,
+		outWriter: outWriter,
+		outFile:   outFile,
+	}
+	session.run()
+}
+
+type traceSession struct {
+	cmd       *exec.Cmd
+	events    *ringbuf.Reader
+	targetPid int
+	opts      *cli.Options
+	decoder   *event.Decoder
+	memReader *procmem.Reader
+	fdMap     map[string]string
+	outWriter io.Writer
+	outFile   *os.File
+}
+
+func setupBPF() (*bpfObjects, link.Link, link.Link) {
+	if err := rlimit.RemoveMemlock(); err != nil { log.Fatalf("failed to remove memlock: %v", err) }
+	bpfObjs := &bpfObjects{}
+	if err := loadBpfObjects(bpfObjs, nil); err != nil { log.Fatalf("failed to load BPF objects: %v", err) }
+	tpEnter, err := link.Tracepoint("raw_syscalls", "sys_enter", bpfObjs.TraceSysEnter, nil)
+	if err != nil { log.Fatalf("failed to attach sys_enter tracepoint: %v", err) }
+	tpExit, err := link.Tracepoint("raw_syscalls", "sys_exit", bpfObjs.TraceSysExit, nil)
+	if err != nil { log.Fatalf("failed to attach sys_exit tracepoint: %v", err) }
+	return bpfObjs, tpEnter, tpExit
+}
+
+func startAndTraceCmd(cmdArgs []string, bpfObjs *bpfObjects) (*exec.Cmd, int, map[string]string) {
+	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -72,30 +123,22 @@ func main() {
 	}
 
 	syscall.PtraceDetach(targetPid)
+	return cmd, targetPid, fdMap
+}
 
-	events, err := ringbuf.NewReader(bpfObjs.Events)
-	if err != nil { log.Fatalf("failed to create ringbuf reader: %v", err) }
-	defer events.Close()
-
-	memReader := procmem.NewReader(targetPid)
-	defer memReader.Close()
-	decoder := event.NewDecoder(memReader)
-	decoder.HexEscapeMode = opts.HexEscapeMode
-	
-	var outWriter io.Writer
-	var outFile *os.File
-	if opts.OutFile != "" {
-		var err error
-		outFile, err = os.Create(opts.OutFile)
-		if err != nil { log.Fatalf("failed to create output file: %v", err) }
-		outWriter = outFile
-	} else {
-		outWriter = os.Stderr
+func setupOutput(outFileOpt string) (io.Writer, *os.File) {
+	if outFileOpt == "" {
+		return os.Stderr, nil
 	}
+	outFile, err := os.Create(outFileOpt)
+	if err != nil { log.Fatalf("failed to create output file: %v", err) }
+	return outFile, outFile
+}
 
+func (s *traceSession) run() {
 	done := make(chan bool)
 	go func() {
-		cmd.Wait()
+		s.cmd.Wait()
 		close(done)
 	}()
 
@@ -105,7 +148,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 		for {
-			rec, err := events.Read()
+			rec, err := s.events.Read()
 			if err != nil { break }
 			eventRaw := (*bpfEvent)(unsafe.Pointer(&rec.RawSample[0]))
 			ev := *eventRaw
@@ -117,17 +160,16 @@ func main() {
 		select {
 		case <-done:
 			time.Sleep(200 * time.Millisecond)
-			events.Close()
+			s.events.Close()
 			wg.Wait()
 			close(eventChan)
 			for ev := range eventChan {
-				handleEvent(ev, targetPid, opts, decoder, memReader, fdMap, outWriter)
+				handleEvent(ev, s.targetPid, s.opts, s.decoder, s.memReader, s.fdMap, s.outWriter)
 			}
-			fmt.Fprintf(outWriter, "+++ exited with 0 +++\n")
-			if outFile != nil { outFile.Close() }
+			fmt.Fprintf(s.outWriter, "+++ exited with 0 +++\n")
 			return
 		case ev := <-eventChan:
-			handleEvent(ev, targetPid, opts, decoder, memReader, fdMap, outWriter)
+			handleEvent(ev, s.targetPid, s.opts, s.decoder, s.memReader, s.fdMap, s.outWriter)
 		}
 	}
 }

@@ -20,6 +20,7 @@ type Options struct {
 	TraceWriteFDs map[int32]bool
 	ShowPaths     bool
 	Verbose       bool
+	HelpRequested bool
 }
 
 // ParseArgs parses strace-go command-line arguments and returns Options.
@@ -54,6 +55,11 @@ func ParseArgs(args []string) *Options {
 		if !strings.HasPrefix(arg, "-") {
 			opts.CmdArgs = args[i:]
 			break
+		}
+
+		if arg == "-h" || arg == "--help" {
+			opts.HelpRequested = true
+			continue
 		}
 
 		if arg == "-y" {
