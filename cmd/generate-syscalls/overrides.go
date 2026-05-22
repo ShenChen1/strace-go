@@ -124,6 +124,7 @@ var manualOverrides = map[string]SyscallMeta{
 	"faccessat":  {Name: "faccessat", Args: []string{"dfd", "filename", "mode"}, ArgTypes: []string{"int", "const char *", "int"}},
 	"faccessat2": {Name: "faccessat2", Args: []string{"dfd", "filename", "mode", "flags"}, ArgTypes: []string{"int", "const char *", "int", "int"}},
 	"fchownat":   {Name: "fchownat", Args: []string{"dfd", "filename", "user", "group", "flag"}, ArgTypes: []string{"int", "const char *", "uid_t", "gid_t", "int"}},
+	"utimensat":  {Name: "utimensat", Args: []string{"dfd", "filename", "utimes", "flags"}, ArgTypes: []string{"int", "const char *", "const struct timespec *", "int"}},
 	"fchmodat":   {Name: "fchmodat", Args: []string{"dfd", "filename", "mode"}, ArgTypes: []string{"int", "const char *", "umode_t"}},
 	"newfstatat": {Name: "newfstatat", Args: []string{"dfd", "filename", "statbuf", "flag"}, ArgTypes: []string{"int", "const char *", "struct stat *", "int"}},
 	"linkat":     {Name: "linkat", Args: []string{"olddfd", "oldname", "newdfd", "newname", "flags"}, ArgTypes: []string{"int", "const char *", "int", "const char *", "int"}},

@@ -214,6 +214,37 @@ func Sigset(data []byte) string {
 // Dirents formats an array of dirents.
 func Dirents(data []byte, count int) string { return "{...}" }
 
+// Utimes formats an array of two struct timespec (used in utimensat).
+func Utimes(data []byte) string {
+	if len(data) < 32 {
+		return "[{...}, {...}]"
+	}
+	formatTimespec := func(sec int64, nsec uint64) string {
+		if nsec == 1073741823 {
+			return "UTIME_NOW"
+		}
+		if nsec == 1073741822 {
+			return "UTIME_OMIT"
+		}
+
+		timeStr := fmt.Sprintf("{tv_sec=%d, tv_nsec=%d}", sec, nsec)
+		// For positive or reasonable times, append UTC timestamp comment
+		if sec >= 0 && sec < 253402300799 && nsec < 1000000000 {
+			t := time.Unix(sec, 0).UTC()
+			comment := fmt.Sprintf(" /* %s.%09d+0000 */", t.Format("2006-01-02T15:04:05"), nsec)
+			return timeStr + comment
+		}
+		return timeStr
+	}
+
+	sec1 := int64(binary.LittleEndian.Uint64(data[0:8]))
+	nsec1 := binary.LittleEndian.Uint64(data[8:16])
+	sec2 := int64(binary.LittleEndian.Uint64(data[16:24]))
+	nsec2 := binary.LittleEndian.Uint64(data[24:32])
+
+	return "[" + formatTimespec(sec1, nsec1) + ", " + formatTimespec(sec2, nsec2) + "]"
+}
+
 // Sockaddr formats a sockaddr structure based on its address family.
 func Sockaddr(data []byte, alen uint32, inLen uint32) string {
 	if len(data) < 2 { return "{...}" }

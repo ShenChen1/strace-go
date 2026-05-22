@@ -28,6 +28,13 @@ rules:
       ptr_arg: 1
       reads: [{ arg: 1, size: 512, type: string }]
 
+  - syscalls: [utimensat]
+    enter:
+      ptr_arg: 1
+      reads:
+        - { arg: 1, size: 512, offset: 0, type: string }
+        - { arg: 2, size: 32, offset: 512, type: raw }
+
   - syscalls: [newfstatat]
     enter:
       ptr_arg: 1
