@@ -480,6 +480,23 @@ var XlatTables = map[string]XlatTable{
 			{Val: 103, Str: "MADV_GUARD_REMOVE"},
 		},
 	},
+	"mlock_flags": {
+		Prefix: "MLOCK_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "MLOCK_ONFAULT"},
+		},
+	},
+	"mlockall_flags": {
+		Prefix: "MCL_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "MCL_CURRENT"},
+			{Val: 2, Str: "MCL_FUTURE"},
+			{Val: 4, Str: "MCL_ONFAULT"},
+			{Val: 1, Str: "MCL_CURRENT"},
+			{Val: 2, Str: "MCL_FUTURE"},
+			{Val: 4, Str: "MCL_ONFAULT"},
+		},
+	},
 	"mmap_flags": {
 		Prefix: "",
 		Entries: []XlatVal{
@@ -4880,80 +4897,32 @@ var XlatTables = map[string]XlatTable{
 	},
 }
 var SyscallArgXlatMap = map[string]map[string]string{
-	"arch_prctl": {
-		"option": "archvals",
-	},
-	"madvise": {
-		"behavior": "madvise_cmds",
-	},
 	"mount": {
 		"flags": "mount_flags",
-	},
-	"fchownat": {
-		"flag": "at_flags",
-	},
-	"open": {
-		"flags": "open_mode_flags",
-	},
-	"add_key": {
-		"ringid": "key_spec",
-	},
-	"umount2": {
-		"flags": "umount_flags",
-	},
-	"rt_sigprocmask": {
-		"how": "sigprocmaskcmds",
-	},
-	"unlinkat": {
-		"flag": "at_flags",
 	},
 	"utimensat": {
 		"flags": "at_flags",
 	},
-	"openat": {
-		"flags": "open_mode_flags",
-	},
-	"request_key": {
-		"destringid": "key_spec",
-	},
-	"socket": {
-		"domain": "addrfams",
-		"type": "sock_type_flags",
-	},
-	"access": {
-		"mode": "access_modes",
-	},
-	"accept4": {
-		"flags": "sock_type_flags",
-	},
-	"setsockopt": {
-		"level": "socketlayers",
-	},
-	"getpeername": {
-		"addr": "sockaddr",
-	},
-	"ppoll": {
-		"events": "pollflags",
-		"revents": "pollflags",
-	},
-	"clock_settime": {
-		"which_clock": "clocknames",
-	},
-	"faccessat2": {
-		"mode": "access_modes",
-	},
-	"sendto": {
-		"flags": "msg_flags",
+	"bind": {
 		"addr": "sockaddr",
 	},
 	"getsockname": {
 		"addr": "sockaddr",
 	},
-	"epoll_ctl": {
-		"op": "epollctls",
+	"clone3": {
+		"flags": "clone3_flags",
 	},
-	"ioctl": {
-		"cmd": "ioctl_cmds",
+	"madvise": {
+		"behavior": "madvise_cmds",
+	},
+	"wait4": {
+		"options": "wait4_options",
+	},
+	"open": {
+		"flags": "open_mode_flags",
+	},
+	"openat": {
+		"flags": "open_mode_flags",
 	},
 	"mremap": {
 		"flags": "mremap_flags",
@@ -4961,58 +4930,112 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"futex": {
 		"op": "futexops",
 	},
-	"faccessat": {
+	"lseek": {
+		"whence": "whence_codes",
+	},
+	"unlinkat": {
+		"flag": "at_flags",
+	},
+	"mlock2": {
+		"flags": "mlock_flags",
+	},
+	"mlockall": {
+		"flags": "mlockall_flags",
+	},
+	"faccessat2": {
 		"mode": "access_modes",
 	},
-	"getsockopt": {
+	"setsockopt": {
 		"level": "socketlayers",
 	},
-	"bpf": {
-		"arg0": "bpf_commands",
+	"sendto": {
+		"flags": "msg_flags",
+		"addr": "sockaddr",
 	},
-	"clock_nanosleep": {
+	"umount2": {
+		"flags": "umount_flags",
+	},
+	"socket": {
+		"domain": "addrfams",
+		"type": "sock_type_flags",
+	},
+	"getpeername": {
+		"addr": "sockaddr",
+	},
+	"clock_settime": {
 		"which_clock": "clocknames",
+	},
+	"epoll_ctl": {
+		"op": "epollctls",
 	},
 	"mmap": {
 		"prot": "mmap_prot",
 		"flags": "mmap_flags",
 	},
+	"accept4": {
+		"flags": "sock_type_flags",
+	},
+	"connect": {
+		"addr": "sockaddr",
+	},
+	"ppoll": {
+		"revents": "pollflags",
+		"events": "pollflags",
+	},
+	"mprotect": {
+		"prot": "mmap_prot",
+	},
 	"clone": {
 		"clone_flags": "clone_flags",
 	},
-	"clone3": {
-		"flags": "clone3_flags",
+	"prctl": {
+		"option": "prctl_options",
 	},
-	"bind": {
-		"addr": "sockaddr",
+	"access": {
+		"mode": "access_modes",
+	},
+	"add_key": {
+		"ringid": "key_spec",
 	},
 	"recvfrom": {
 		"flags": "msg_flags",
 		"addr": "sockaddr",
 	},
+	"rt_sigprocmask": {
+		"how": "sigprocmaskcmds",
+	},
+	"fchownat": {
+		"flag": "at_flags",
+	},
 	"poll": {
-		"revents": "pollflags",
 		"events": "pollflags",
+		"revents": "pollflags",
+	},
+	"faccessat": {
+		"mode": "access_modes",
+	},
+	"request_key": {
+		"destringid": "key_spec",
+	},
+	"getsockopt": {
+		"level": "socketlayers",
 	},
 	"clock_adjtime": {
 		"which_clock": "clocknames",
 	},
+	"clock_nanosleep": {
+		"which_clock": "clocknames",
+	},
+	"arch_prctl": {
+		"option": "archvals",
+	},
+	"bpf": {
+		"arg0": "bpf_commands",
+	},
 	"epoll_create1": {
 		"flags": "epollflags",
 	},
-	"mprotect": {
-		"prot": "mmap_prot",
-	},
-	"connect": {
-		"addr": "sockaddr",
-	},
-	"prctl": {
-		"option": "prctl_options",
-	},
-	"lseek": {
-		"whence": "whence_codes",
-	},
-	"wait4": {
-		"options": "wait4_options",
+	"ioctl": {
+		"cmd": "ioctl_cmds",
 	},
 }

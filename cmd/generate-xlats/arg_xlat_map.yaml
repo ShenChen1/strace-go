@@ -114,6 +114,10 @@ syscalls:
     flag: at_flags
   utimensat:
     flags: at_flags
+  mlock2:
+    flags: mlock_flags
+  mlockall:
+    flags: mlockall_flags
 
 # Custom mapping logic can be added later if needed.
 # Note: open_mode_flags doesn't include access modes (O_RDONLY etc), 

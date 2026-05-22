@@ -73,6 +73,9 @@ var manualOverrides = map[string]SyscallMeta{
 	"brk":      {Name: "brk", Args: []string{"brk"}, ArgTypes: []string{"unsigned long"}},
 	"madvise":  {Name: "madvise", Args: []string{"start", "len", "behavior"}, ArgTypes: []string{"unsigned long", "size_t", "int"}},
 	"mremap":   {Name: "mremap", Args: []string{"addr", "old_len", "new_len", "flags", "new_addr"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long", "unsigned long", "unsigned long"}},
+	"mlock":    {Name: "mlock", Args: []string{"addr", "len"}, ArgTypes: []string{"const void *", "size_t"}},
+	"munlock":  {Name: "munlock", Args: []string{"addr", "len"}, ArgTypes: []string{"const void *", "size_t"}},
+	"mlock2":   {Name: "mlock2", Args: []string{"addr", "len", "flags"}, ArgTypes: []string{"const void *", "size_t", "int"}},
 
 	// Time
 	"nanosleep":      {Name: "nanosleep", Args: []string{"rqtp", "rmtp"}, ArgTypes: []string{"struct timespec *", "struct timespec *"}},
