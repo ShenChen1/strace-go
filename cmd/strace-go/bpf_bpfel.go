@@ -24,7 +24,7 @@ type bpfBpfEvent struct {
 	Args          [6]uint64
 	Ret           uint64
 	Ptr           uint64
-	StrArg        [2048]uint8
+	StrArg        [4104]uint8
 }
 
 // loadBpf returns the embedded CollectionSpec for bpf.

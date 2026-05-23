@@ -446,6 +446,173 @@ var XlatTables = map[string]XlatTable{
 			{Val: 524288, Str: "EPOLL_CLOEXEC"},
 		},
 	},
+	"fcntlcmds": {
+		Prefix: "F_",
+		Entries: []XlatVal{
+			{Val: 0, Str: "F_DUPFD"},
+			{Val: 1, Str: "F_GETFD"},
+			{Val: 2, Str: "F_SETFD"},
+			{Val: 3, Str: "F_GETFL"},
+			{Val: 4, Str: "F_SETFL"},
+			{Val: 5, Str: "F_GETLK"},
+			{Val: 6, Str: "F_SETLK"},
+			{Val: 7, Str: "F_SETLKW"},
+			{Val: 8, Str: "F_SETOWN"},
+			{Val: 9, Str: "F_GETOWN"},
+			{Val: 10, Str: "F_SETSIG"},
+			{Val: 11, Str: "F_GETSIG"},
+			{Val: 5, Str: "F_GETLK64"},
+			{Val: 6, Str: "F_SETLK64"},
+			{Val: 7, Str: "F_SETLKW64"},
+			{Val: 15, Str: "F_SETOWN_EX"},
+			{Val: 16, Str: "F_GETOWN_EX"},
+			{Val: 36, Str: "F_OFD_GETLK"},
+			{Val: 37, Str: "F_OFD_SETLK"},
+			{Val: 38, Str: "F_OFD_SETLKW"},
+			{Val: 1024, Str: "F_SETLEASE"},
+			{Val: 1025, Str: "F_GETLEASE"},
+			{Val: 1026, Str: "F_NOTIFY"},
+			{Val: 1027, Str: "F_DUPFD_QUERY"},
+			{Val: 1028, Str: "F_CREATED_QUERY"},
+			{Val: 1030, Str: "F_DUPFD_CLOEXEC"},
+			{Val: 1031, Str: "F_SETPIPE_SZ"},
+			{Val: 1032, Str: "F_GETPIPE_SZ"},
+			{Val: 1033, Str: "F_ADD_SEALS"},
+			{Val: 1034, Str: "F_GET_SEALS"},
+			{Val: 1035, Str: "F_GET_RW_HINT"},
+			{Val: 1036, Str: "F_SET_RW_HINT"},
+			{Val: 1037, Str: "F_GET_FILE_RW_HINT"},
+			{Val: 1038, Str: "F_SET_FILE_RW_HINT"},
+		},
+	},
+	"fdflags": {
+		Prefix: "FD_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "FD_CLOEXEC"},
+		},
+	},
+	"fsmagic": {
+		Prefix: "",
+		Entries: []XlatVal{
+			{Val: 47, Str: "QNX4_SUPER_MAGIC"},
+			{Val: 51, Str: "Z3FOLD_MAGIC"},
+			{Val: 391, Str: "AUTOFS_SUPER_MAGIC"},
+			{Val: 4979, Str: "DEVFS_SUPER_MAGIC"},
+			{Val: 4989, Str: "EXT_SUPER_MAGIC"},
+			{Val: 4991, Str: "MINIX_SUPER_MAGIC"},
+			{Val: 5007, Str: "MINIX_SUPER_MAGIC2"},
+			{Val: 7377, Str: "DEVPTS_SUPER_MAGIC"},
+			{Val: 9320, Str: "MINIX2_SUPER_MAGIC"},
+			{Val: 9336, Str: "MINIX2_SUPER_MAGIC2"},
+			{Val: 13364, Str: "NILFS_SUPER_MAGIC"},
+			{Val: 16964, Str: "HFS_SUPER_MAGIC"},
+			{Val: 18475, Str: "HFSPLUS_SUPER_MAGIC"},
+			{Val: 19780, Str: "MSDOS_SUPER_MAGIC"},
+			{Val: 19802, Str: "MINIX3_SUPER_MAGIC"},
+			{Val: 20859, Str: "SMB_SUPER_MAGIC"},
+			{Val: 22092, Str: "NCP_SUPER_MAGIC"},
+			{Val: 24053, Str: "EXOFS_SUPER_MAGIC"},
+			{Val: 26985, Str: "NFS_SUPER_MAGIC"},
+			{Val: 29301, Str: "ROMFS_MAGIC"},
+			{Val: 29366, Str: "JFFS2_SUPER_MAGIC"},
+			{Val: 38496, Str: "ISOFS_SUPER_MAGIC"},
+			{Val: 40864, Str: "PROC_SUPER_MAGIC"},
+			{Val: 40865, Str: "OPENPROM_SUPER_MAGIC"},
+			{Val: 40866, Str: "USBDEVICE_SUPER_MAGIC"},
+			{Val: 44533, Str: "ADFS_SUPER_MAGIC"},
+			{Val: 44543, Str: "AFFS_SUPER_MAGIC"},
+			{Val: 61265, Str: "EXT2_OLD_SUPER_MAGIC"},
+			{Val: 61267, Str: "EXT2_SUPER_MAGIC"},
+			{Val: 61791, Str: "ECRYPTFS_SUPER_MAGIC"},
+			{Val: 72020, Str: "UFS_MAGIC"},
+			{Val: 2613483, Str: "CGROUP_SUPER_MAGIC"},
+			{Val: 4278867, Str: "EFS_SUPER_MAGIC"},
+			{Val: 12648430, Str: "HOSTFS_SUPER_MAGIC"},
+			{Val: 12805120, Str: "CEPH_SUPER_MAGIC"},
+			{Val: 16914836, Str: "TMPFS_MAGIC"},
+			{Val: 16914839, Str: "V9FS_MAGIC"},
+			{Val: 18225520, Str: "GFS2_MAGIC"},
+			{Val: 19911021, Str: "XIAFS_SUPER_MAGIC"},
+			{Val: 19920820, Str: "XENIX_SUPER_MAGIC"},
+			{Val: 19920821, Str: "SYSV4_SUPER_MAGIC"},
+			{Val: 19920822, Str: "SYSV2_SUPER_MAGIC"},
+			{Val: 19920823, Str: "COH_SUPER_MAGIC"},
+			{Val: 33626516, Str: "SHMFS_SUPER_MAGIC"},
+			{Val: 151263540, Str: "ANON_INODE_FS_MAGIC"},
+			{Val: 195894762, Str: "FUTEXFS_SUPER_MAGIC"},
+			{Val: 198183888, Str: "LL_SUPER_MAGIC"},
+			{Val: 198183889, Str: "LUSTRE_SUPER_MAGIC"},
+			{Val: 288389204, Str: "MTD_INODE_FS_MAGIC"},
+			{Val: 325456742, Str: "BALLOON_KVM_MAGIC"},
+			{Val: 352400198, Str: "UDF_SUPER_MAGIC"},
+			{Val: 464386766, Str: "BFS_MAGIC"},
+			{Val: 538032816, Str: "EXFAT_SUPER_MAGIC"},
+			{Val: 604313861, Str: "UBIFS_SUPER_MAGIC"},
+			{Val: 684539205, Str: "CRAMFS_MAGIC"},
+			{Val: 801189825, Str: "ZFS_SUPER_MAGIC"},
+			{Val: 827541066, Str: "JFS_SUPER_MAGIC"},
+			{Val: 1111905073, Str: "BEFS_SUPER_MAGIC"},
+			{Val: 1112100429, Str: "BINFMTFS_MAGIC"},
+			{Val: 1128357203, Str: "SMACK_MAGIC"},
+			{Val: 1145913666, Str: "DMA_BUF_MAGIC"},
+			{Val: 1161678120, Str: "CRAMFS_MAGIC_WEND"},
+			{Val: 1162691661, Str: "DEVMEM_MAGIC"},
+			{Val: 1196246349, Str: "GUEST_MEMFD_MAGIC"},
+			{Val: 1196443219, Str: "GPFS_SUPER_MAGIC"},
+			{Val: 1314212940, Str: "NULL_FS_MAGIC"},
+			{Val: 1346978886, Str: "PID_FS_MAGIC"},
+			{Val: 1346981957, Str: "PIPEFS_MAGIC"},
+			{Val: 1382369651, Str: "REISERFS_SUPER_MAGIC"},
+			{Val: 1397048141, Str: "SECRETMEM_MAGIC"},
+			{Val: 1397113167, Str: "AFS_SUPER_MAGIC"},
+			{Val: 1397118030, Str: "NTFS_SB_MAGIC"},
+			{Val: 1397703499, Str: "SOCKFS_MAGIC"},
+			{Val: 1410924800, Str: "UFS_CIGAM"},
+			{Val: 1448756819, Str: "VZFS_SUPER_MAGIC"},
+			{Val: 1470918301, Str: "STACK_END_MAGIC"},
+			{Val: 1479104553, Str: "ZSMALLOC_MAGIC"},
+			{Val: 1481003842, Str: "XFS_SUPER_MAGIC"},
+			{Val: 1513908720, Str: "AAFS_MAGIC"},
+			{Val: 1515144787, Str: "ZONEFS_MAGIC"},
+			{Val: 1634035564, Str: "PSTOREFS_MAGIC"},
+			{Val: 1635083891, Str: "AUFS_SUPER_MAGIC"},
+			{Val: 1650746742, Str: "BDEVFS_MAGIC"},
+			{Val: 1650812272, Str: "CONFIGFS_MAGIC"},
+			{Val: 1650812274, Str: "SYSFS_MAGIC"},
+			{Val: 1667723888, Str: "CGROUP2_SUPER_MAGIC"},
+			{Val: 1684170528, Str: "DEBUGFS_MAGIC"},
+			{Val: 1684300152, Str: "DAXFS_MAGIC"},
+			{Val: 1702057283, Str: "FUSE_CTL_SUPER_MAGIC"},
+			{Val: 1702057286, Str: "FUSE_SUPER_MAGIC"},
+			{Val: 1746473250, Str: "QNX6_SUPER_MAGIC"},
+			{Val: 1799439955, Str: "AFS_FS_MAGIC"},
+			{Val: 1819242352, Str: "BINDERFS_SUPER_MAGIC"},
+			{Val: 1853056627, Str: "NSFS_MAGIC"},
+			{Val: 1935894131, Str: "SECURITYFS_MAGIC"},
+			{Val: 1936814952, Str: "SQUASHFS_MAGIC"},
+			{Val: 1936880249, Str: "BTRFS_TEST_MAGIC"},
+			{Val: 1937076805, Str: "CODA_SUPER_MAGIC"},
+			{Val: 1952539503, Str: "OCFS2_SUPER_MAGIC"},
+			{Val: 1953653091, Str: "TRACEFS_MAGIC"},
+			{Val: 2035054128, Str: "OVERLAYFS_SUPER_MAGIC"},
+			{Val: 2240043254, Str: "RAMFS_MAGIC"},
+			{Val: 2435016766, Str: "BTRFS_SUPER_MAGIC"},
+			{Val: 2508478710, Str: "HUGETLBFS_MAGIC"},
+			{Val: 2768370933, Str: "VXFS_SUPER_MAGIC"},
+			{Val: 2881100148, Str: "XENFS_SUPER_MAGIC"},
+			{Val: 3344373136, Str: "PPC_CMM_MAGIC"},
+			{Val: 3380511080, Str: "LOGFS_MAGIC"},
+			{Val: 3393526350, Str: "BCACHEFS_SUPER_MAGIC"},
+			{Val: 3405662737, Str: "BPF_FS_MAGIC"},
+			{Val: 3730735588, Str: "EFIVARFS_MAGIC"},
+			{Val: 3774210530, Str: "EROFS_SUPER_MAGIC_V1"},
+			{Val: 4076150800, Str: "F2FS_SUPER_MAGIC"},
+			{Val: 4185718668, Str: "SELINUX_MAGIC"},
+			{Val: 4187351113, Str: "HPFS_SUPER_MAGIC"},
+			{Val: 4266872130, Str: "SMB2_SUPER_MAGIC"},
+			{Val: 4283649346, Str: "CIFS_SUPER_MAGIC"},
+		},
+	},
 	"futexops": {
 		Prefix: "FUTEX_",
 		Entries: []XlatVal{
@@ -489,6 +656,16 @@ var XlatTables = map[string]XlatTable{
 			{Val: 18446744073709551610, Str: "KEY_SPEC_GROUP_KEYRING"},
 			{Val: 18446744073709551609, Str: "KEY_SPEC_REQKEY_AUTH_KEY"},
 			{Val: 18446744073709551608, Str: "KEY_SPEC_REQUESTOR_KEYRING"},
+		},
+	},
+	"lockfcmds": {
+		Prefix: "F_",
+		Entries: []XlatVal{
+			{Val: 0, Str: "F_RDLCK"},
+			{Val: 1, Str: "F_WRLCK"},
+			{Val: 2, Str: "F_UNLCK"},
+			{Val: 4, Str: "F_EXLCK"},
+			{Val: 8, Str: "F_SHLCK"},
 		},
 	},
 	"madvise_cmds": {
@@ -742,6 +919,18 @@ var XlatTables = map[string]XlatTable{
 			{Val: 2, Str: "NLMSG_ERROR"},
 			{Val: 3, Str: "NLMSG_DONE"},
 			{Val: 4, Str: "NLMSG_OVERRUN"},
+		},
+	},
+	"notifyflags": {
+		Prefix: "DN_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "DN_ACCESS"},
+			{Val: 2, Str: "DN_MODIFY"},
+			{Val: 4, Str: "DN_CREATE"},
+			{Val: 8, Str: "DN_DELETE"},
+			{Val: 16, Str: "DN_RENAME"},
+			{Val: 32, Str: "DN_ATTRIB"},
+			{Val: 2147483648, Str: "DN_MULTISHOT"},
 		},
 	},
 	"open_access_modes": {
@@ -1323,6 +1512,22 @@ var XlatTables = map[string]XlatTable{
 			{Val: 286, Str: "SOL_SMC"},
 			{Val: 287, Str: "SOL_VSOCK"},
 			{Val: 1, Str: "SOL_SOCKET"},
+		},
+	},
+	"statfs_flags": {
+		Prefix: "ST_",
+		Entries: []XlatVal{
+			{Val: 32, Str: "ST_VALID"},
+			{Val: 1, Str: "ST_RDONLY"},
+			{Val: 2, Str: "ST_NOSUID"},
+			{Val: 4, Str: "ST_NODEV"},
+			{Val: 8, Str: "ST_NOEXEC"},
+			{Val: 16, Str: "ST_SYNCHRONOUS"},
+			{Val: 64, Str: "ST_MANDLOCK"},
+			{Val: 1024, Str: "ST_NOATIME"},
+			{Val: 2048, Str: "ST_NODIRATIME"},
+			{Val: 4096, Str: "ST_RELATIME"},
+			{Val: 8192, Str: "ST_NOSYMFOLLOW"},
 		},
 	},
 	"umount_flags": {
@@ -4977,139 +5182,52 @@ var XlatTables = map[string]XlatTable{
 	},
 }
 var SyscallArgXlatMap = map[string]map[string]string{
-	"faccessat": {
-		"mode": "access_modes",
+	"clock_settime": {
+		"which_clock": "clocknames",
 	},
-	"setsockopt": {
-		"level": "socketlayers",
+	"newfstatat": {
+		"flag": "at_flags",
 	},
-	"clone3": {
-		"flags": "clone3_flags",
+	"tgkill": {
+		"sig": "signalnames",
 	},
-	"madvise": {
-		"behavior": "madvise_cmds",
-	},
-	"poll": {
-		"events": "pollflags",
-		"revents": "pollflags",
+	"add_key": {
+		"ringid": "key_spec",
 	},
 	"mmap": {
 		"prot": "mmap_prot",
 		"flags": "mmap_flags",
 	},
-	"fchownat": {
-		"flag": "at_flags",
-	},
-	"bind": {
-		"addr": "sockaddr",
-	},
-	"recvfrom": {
-		"flags": "msg_flags",
-		"addr": "sockaddr",
-	},
-	"getsockname": {
-		"addr": "sockaddr",
-	},
-	"ppoll": {
-		"events": "pollflags",
-		"revents": "pollflags",
-	},
-	"clone": {
-		"clone_flags": "clone_flags",
-	},
-	"rt_sigprocmask": {
-		"how": "sigprocmaskcmds",
-	},
-	"access": {
-		"mode": "access_modes",
-	},
-	"clock_nanosleep": {
-		"which_clock": "clocknames",
-	},
-	"unlinkat": {
-		"flag": "at_flags",
-	},
-	"openat": {
-		"flags": "open_mode_flags",
-	},
-	"arch_prctl": {
-		"option": "archvals",
-	},
-	"umount2": {
-		"flags": "umount_flags",
-	},
-	"tgkill": {
-		"sig": "signalnames",
-	},
-	"clock_settime": {
-		"which_clock": "clocknames",
-	},
 	"mremap": {
 		"flags": "mremap_flags",
 	},
-	"open": {
-		"flags": "open_mode_flags",
-	},
-	"connect": {
-		"addr": "sockaddr",
-	},
-	"ioctl": {
-		"cmd": "ioctl_cmds",
-	},
-	"mprotect": {
-		"prot": "mmap_prot",
-	},
-	"dup3": {
-		"flags": "dup3_flags",
-	},
-	"getrlimit": {
-		"resource": "resources",
+	"fchownat": {
+		"flag": "at_flags",
 	},
 	"setrlimit": {
 		"resource": "resources",
 	},
-	"pipe2": {
-		"flags": "open_mode_flags",
-	},
 	"socket": {
-		"domain": "addrfams",
 		"type": "sock_type_flags",
+		"domain": "addrfams",
 	},
-	"msync": {
-		"flags": "mctl_sync",
-	},
-	"kill": {
-		"sig": "signalnames",
-	},
-	"faccessat2": {
-		"mode": "access_modes",
-	},
-	"epoll_create1": {
-		"flags": "epollflags",
-	},
-	"mount": {
-		"flags": "mount_flags",
-	},
-	"clock_adjtime": {
-		"which_clock": "clocknames",
-	},
-	"wait4": {
-		"options": "wait4_options",
-	},
-	"add_key": {
-		"ringid": "key_spec",
+	"epoll_ctl": {
+		"op": "epollctls",
 	},
 	"lseek": {
 		"whence": "whence_codes",
 	},
-	"getsockopt": {
-		"level": "socketlayers",
+	"mlockall": {
+		"flags": "mlockall_flags",
 	},
-	"getpeername": {
-		"addr": "sockaddr",
+	"dup3": {
+		"flags": "dup3_flags",
 	},
 	"request_key": {
 		"destringid": "key_spec",
+	},
+	"accept4": {
+		"flags": "sock_type_flags",
 	},
 	"sendto": {
 		"flags": "msg_flags",
@@ -5118,28 +5236,122 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"prctl": {
 		"option": "prctl_options",
 	},
-	"mlockall": {
-		"flags": "mlockall_flags",
+	"open": {
+		"flags": "open_mode_flags",
 	},
-	"prlimit64": {
-		"resource": "resources",
+	"ioctl": {
+		"cmd": "ioctl_cmds",
 	},
-	"accept4": {
-		"flags": "sock_type_flags",
-	},
-	"bpf": {
-		"arg0": "bpf_commands",
-	},
-	"utimensat": {
-		"flags": "at_flags",
-	},
-	"epoll_ctl": {
-		"op": "epollctls",
+	"mprotect": {
+		"prot": "mmap_prot",
 	},
 	"futex": {
 		"op": "futexops",
 	},
+	"umount2": {
+		"flags": "umount_flags",
+	},
+	"mount": {
+		"flags": "mount_flags",
+	},
+	"bpf": {
+		"arg0": "bpf_commands",
+	},
+	"madvise": {
+		"behavior": "madvise_cmds",
+	},
+	"wait4": {
+		"options": "wait4_options",
+	},
+	"faccessat2": {
+		"mode": "access_modes",
+		"flags": "at_flags",
+	},
+	"connect": {
+		"addr": "sockaddr",
+	},
+	"clone": {
+		"clone_flags": "clone_flags",
+	},
+	"clone3": {
+		"flags": "clone3_flags",
+	},
 	"mlock2": {
 		"flags": "mlock_flags",
+	},
+	"access": {
+		"mode": "access_modes",
+	},
+	"getpeername": {
+		"addr": "sockaddr",
+	},
+	"unlinkat": {
+		"flag": "at_flags",
+	},
+	"utimensat": {
+		"flags": "at_flags",
+	},
+	"getrlimit": {
+		"resource": "resources",
+	},
+	"pipe2": {
+		"flags": "open_mode_flags",
+	},
+	"arch_prctl": {
+		"option": "archvals",
+	},
+	"recvfrom": {
+		"flags": "msg_flags",
+		"addr": "sockaddr",
+	},
+	"kill": {
+		"sig": "signalnames",
+	},
+	"faccessat": {
+		"mode": "access_modes",
+	},
+	"getsockname": {
+		"addr": "sockaddr",
+	},
+	"ppoll": {
+		"events": "pollflags",
+		"revents": "pollflags",
+	},
+	"getsockopt": {
+		"level": "socketlayers",
+	},
+	"poll": {
+		"revents": "pollflags",
+		"events": "pollflags",
+	},
+	"epoll_create1": {
+		"flags": "epollflags",
+	},
+	"openat": {
+		"flags": "open_mode_flags",
+	},
+	"setsockopt": {
+		"level": "socketlayers",
+	},
+	"bind": {
+		"addr": "sockaddr",
+	},
+	"clock_adjtime": {
+		"which_clock": "clocknames",
+	},
+	"clock_nanosleep": {
+		"which_clock": "clocknames",
+	},
+	"rt_sigprocmask": {
+		"how": "sigprocmaskcmds",
+	},
+	"prlimit64": {
+		"resource": "resources",
+	},
+	"msync": {
+		"flags": "mctl_sync",
+	},
+	"fcntl": {
+		"cmd": "fcntlcmds",
 	},
 }

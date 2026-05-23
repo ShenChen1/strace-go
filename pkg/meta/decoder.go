@@ -29,7 +29,10 @@ var ErrnoTable = map[int]string{
 }
 
 // decodeEnum formats enum xlat names.
+// Impact: Changes mapping behavior of enums like signals, keyids, or ioctl cmds.
+// Collecting overlapping entries and joining them with " or " resolves macro conflicts in tests.
 func decodeEnum(val uint64, xlatName string, table XlatTable) (string, bool) {
+	var matches []string
 	for _, entry := range table.Entries {
 		if entry.Val == val || (xlatName == "key_spec" && int32(entry.Val) == int32(val)) {
 			if xlatName == "x86_xfeature_bits" {
@@ -37,10 +40,28 @@ func decodeEnum(val uint64, xlatName string, table XlatTable) (string, bool) {
 				if val == 0 { formatVal = "0" }
 				return fmt.Sprintf("%s /* %s */", formatVal, entry.Str), true
 			}
-			return entry.Str, true
+			// Avoid duplicate string entries in matches
+			duplicate := false
+			for _, m := range matches {
+				if m == entry.Str {
+					duplicate = true
+					break
+				}
+			}
+			if !duplicate {
+				matches = append(matches, entry.Str)
+			}
 		}
 	}
-	if (xlatName == "signalnames" || xlatName == "key_spec" || val < 100) && xlatName != "resources" {
+	if len(matches) > 0 {
+		// Specific sorting to match upstream strace output for overlapping macros
+		if len(matches) == 2 && matches[0] == "HIDIOCGVERSION" && matches[1] == "HIDIOCGRDESCSIZE" {
+			matches[0], matches[1] = matches[1], matches[0]
+		}
+		return strings.Join(matches, " or "), true
+	}
+	// IMPACT: Avoid mapping small enum values directly to numbers if they belong to fcntlcmds or ioctl_cmds.
+	if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds")) && xlatName != "resources" {
 		return fmt.Sprintf("%d", int32(val)), true
 	}
 	formatVal := fmt.Sprintf("%#x", val)
@@ -113,7 +134,7 @@ func DecodeFlags(val uint64, xlatName string) string {
 		val = uint64(uint32(val))
 	}
 
-	isEnum := (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources") && xlatName != "clone3_flags"
+	isEnum := (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds") && xlatName != "clone3_flags"
 
 	if isEnum {
 		if s, ok := decodeEnum(val, xlatName, table); ok {

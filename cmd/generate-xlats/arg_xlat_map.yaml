@@ -11,6 +11,7 @@ syscalls:
     flags: open_mode_flags
   faccessat2:
     mode: access_modes
+    flags: at_flags
   arch_prctl:
     option: archvals
   x86_xfeatures_table:
@@ -118,6 +119,9 @@ syscalls:
     flag: at_flags
   utimensat:
     flags: at_flags
+  # IMPACT: Map flag/flags of newfstatat and faccessat2 to at_flags for symbolic printing.
+  newfstatat:
+    flag: at_flags
   mlock2:
     flags: mlock_flags
   mlockall:
@@ -134,6 +138,9 @@ syscalls:
     resource: resources
   prlimit64:
     resource: resources
+  fcntl:
+    cmd: fcntlcmds
+
 
 # Custom mapping logic can be added later if needed.
 # Note: open_mode_flags doesn't include access modes (O_RDONLY etc), 

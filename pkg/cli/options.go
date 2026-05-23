@@ -9,21 +9,27 @@ import (
 
 // Options holds all parsed command-line options.
 type Options struct {
-	CmdArgs       []string
-	OutFile       string
-	AlignCol      int
-	StringLimit   int
-	HexEscapeMode int // 0 = default, 1 = hex non-ascii (-x), 2 = hex all (-xx)
-	TraceSyscalls map[string]bool
-	TracePaths    map[string]bool
-	TraceReadFDs  map[int32]bool
-	TraceWriteFDs map[int32]bool
-	ShowPaths     bool
-	Verbose       bool
-	HelpRequested bool
+	CmdArgs         []string
+	OutFile         string
+	AlignCol        int
+	StringLimit     int
+	HexEscapeMode   int // 0 = default, 1 = hex non-ascii (-x), 2 = hex all (-xx)
+	TraceSyscalls   map[string]bool
+	TracePaths      map[string]bool
+	TraceReadFDs    map[int32]bool
+	TraceWriteFDs   map[int32]bool
+	ShowPaths       bool
+	Verbose         bool
+	HelpRequested    bool
+	VersionRequested bool
+	QuietExit        bool
+	QuietUnknownPid  bool
 }
 
-// ParseArgs parses strace-go command-line arguments and returns Options.
+// IMPACT: ParseArgs parses strace-go command-line arguments and returns Options.
+// It has been updated so that -q does not suppress exit status (QuietExit),
+// matching native strace where only -qq or --quiet=exit does.
+// It now also parses -V and --version flags to set VersionRequested.
 // args should be os.Args[1:].
 func ParseArgs(args []string) *Options {
 	opts := &Options{
@@ -57,8 +63,34 @@ func ParseArgs(args []string) *Options {
 			break
 		}
 
+		if arg == "-q" {
+			// -q suppresses attaching/detaching messages, but not exit status or unknown pids.
+			continue
+		}
+		if arg == "-qq" {
+			opts.QuietExit = true
+			opts.QuietUnknownPid = true
+			continue
+		}
+		if strings.HasPrefix(arg, "--quiet=") {
+			val := strings.TrimPrefix(arg, "--quiet=")
+			for _, item := range strings.Split(val, ",") {
+				if item == "exit" || item == "all" {
+					opts.QuietExit = true
+				}
+				if item == "all" {
+					opts.QuietUnknownPid = true
+				}
+			}
+			continue
+		}
+
 		if arg == "-h" || arg == "--help" {
 			opts.HelpRequested = true
+			continue
+		}
+		if arg == "-V" || arg == "--version" {
+			opts.VersionRequested = true
 			continue
 		}
 

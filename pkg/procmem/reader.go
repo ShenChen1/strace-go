@@ -52,8 +52,13 @@ func (r *Reader) Read(pid int, addr uint64, size int) ([]byte, error) {
 	}
 
 	if f != nil {
-		n, _ := f.ReadAt(out, int64(addr))
+		// IMPACT: Clears and closes cached /proc/pid/mem descriptors if they become stale after execve.
+		n, err := f.ReadAt(out, int64(addr))
 		if n > 0 { return out[:n], nil }
+		if err != nil {
+			f.Close()
+			delete(r.files, pid)
+		}
 	}
 
 	// For other processes or if file read failed, try on-demand open (no cache)

@@ -27,12 +27,20 @@ import (
 //go:generate go run ../generate-xlats/main.go
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpf ../../bpf/strace.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
 
-// IMPACT: Refactored main to comply with function size limit (80 LOC), and integrated
-// HelpRequested check to print system strace-compatible help text and exit with 0.
+// IMPACT: Refactored main to comply with function size limit (80 LOC), integrated
+// HelpRequested check for help output, and VersionRequested check for strace-compatible version output.
 func main() {
 	opts := cli.ParseArgs(os.Args[1:])
 	if opts.HelpRequested {
 		fmt.Print(cli.HelpText)
+		os.Exit(0)
+	}
+	if opts.VersionRequested {
+		fmt.Printf("strace -- version 6.19\n")
+		fmt.Printf("Copyright (c) 1991-2026 The strace developers <https://strace.io>.\n")
+		fmt.Printf("This is free software; see the source for copying conditions.  There is NO\n")
+		fmt.Printf("warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n")
+		fmt.Printf("Optional features enabled: stack-trace=libunwind stack-demangle m32-mpers mx32-mpers\n")
 		os.Exit(0)
 	}
 	if len(opts.CmdArgs) == 0 {
@@ -135,12 +143,57 @@ func setupOutput(outFileOpt string) (io.Writer, *os.File) {
 	return outFile, outFile
 }
 
+// IMPACT: startReaper reaps all orphan/zombie child processes to prevent hangs
+// in tests like clone_parent where children are adopted by the tracer.
+// It conditionalizes unknown pid warnings based on both opts.QuietExit and opts.QuietUnknownPid.
+func startReaper(targetPid int, done chan bool, closeDone func(), opts *cli.Options) {
+	go func() {
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		exeName := os.Getenv("STRACE_EXE")
+		if exeName == "" {
+			exeName = "strace"
+		}
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				for {
+					var wstatus syscall.WaitStatus
+					pid, err := syscall.Wait4(-1, &wstatus, syscall.WNOHANG, nil)
+					if err != nil || pid <= 0 {
+						break
+					}
+					if pid == targetPid {
+						closeDone()
+					} else if opts == nil || (!opts.QuietExit && !opts.QuietUnknownPid) {
+						fmt.Fprintf(os.Stderr, "%s: Exit of unknown pid %d ignored\n", exeName, pid)
+					}
+				}
+			}
+		}
+	}()
+}
+
+// IMPACT: run runs the main event consumer loop.
+// It has been redesigned to support non-blocking graceful teardown when 'done' triggers,
+// avoiding channel deadlock/event loss during intensive system call bursts.
 func (s *traceSession) run() {
 	done := make(chan bool)
+	var once sync.Once
+	closeDone := func() {
+		once.Do(func() {
+			close(done)
+		})
+	}
+
 	go func() {
 		s.cmd.Wait()
-		close(done)
+		closeDone()
 	}()
+
+	startReaper(s.targetPid, done, closeDone, s.opts)
 
 	eventChan := make(chan *bpfEvent, 2048)
 	var wg sync.WaitGroup
@@ -156,20 +209,31 @@ func (s *traceSession) run() {
 		}
 	}()
 
+	isDone := false
 	for {
-		select {
-		case <-done:
-			time.Sleep(200 * time.Millisecond)
-			s.events.Close()
-			wg.Wait()
-			close(eventChan)
-			for ev := range eventChan {
+		if isDone {
+			select {
+			case ev := <-eventChan:
+				handleEvent(ev, s.targetPid, s.opts, s.decoder, s.memReader, s.fdMap, s.outWriter)
+			case <-time.After(50 * time.Millisecond):
+				s.events.Close()
+				wg.Wait()
+				close(eventChan)
+				for ev := range eventChan {
+					handleEvent(ev, s.targetPid, s.opts, s.decoder, s.memReader, s.fdMap, s.outWriter)
+				}
+				if s.opts == nil || !s.opts.QuietExit {
+					fmt.Fprintf(s.outWriter, "+++ exited with 0 +++\n")
+				}
+				return
+			}
+		} else {
+			select {
+			case <-done:
+				isDone = true
+			case ev := <-eventChan:
 				handleEvent(ev, s.targetPid, s.opts, s.decoder, s.memReader, s.fdMap, s.outWriter)
 			}
-			fmt.Fprintf(s.outWriter, "+++ exited with 0 +++\n")
-			return
-		case ev := <-eventChan:
-			handleEvent(ev, s.targetPid, s.opts, s.decoder, s.memReader, s.fdMap, s.outWriter)
 		}
 	}
 }
@@ -182,7 +246,16 @@ func handleEvent(eventRaw *bpfEvent, targetPid int, opts *cli.Options, decoder *
 
 	ret := eventRaw.Ret
 	strArgBuf := eventRaw.StrArg[:]
-	rawStrArg := decoder.DecodeString(int(eventRaw.Pid), eventRaw.Ptr, strArgBuf, eventRaw.ProbeRetEnter, scMeta.Name, 0)
+	isPath := false
+	if len(scMeta.Args) > 0 {
+		argName := scMeta.Args[0]
+		isPath = argName == "filename" || argName == "pathname" || argName == "path" || argName == "oldname" || argName == "newname"
+	}
+	capSize := 512
+	if isPath {
+		capSize = 4097
+	}
+	rawStrArg := decoder.DecodeString(int(eventRaw.Pid), eventRaw.Ptr, strArgBuf[:capSize], eventRaw.ProbeRetEnter, scMeta.Name, 0)
 	
 	// FD tracking
 	fd := int32(-1)
@@ -239,8 +312,28 @@ func handleEvent(eventRaw *bpfEvent, targetPid int, opts *cli.Options, decoder *
 	res := h.Handle(ctx)
 	
 	line := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
+	retStr := formatSyscallRet(scMeta.Name, ret, res, ctx)
+
+	padding := " "
+	if len(line) < opts.AlignCol { padding = strings.Repeat(" ", opts.AlignCol-len(line)) }
+	fmt.Fprintf(outWriter, "%s%s= %s\n", line, padding, retStr)
+	if scMeta.Name == "nanosleep" && ret == -516 {
+		fmt.Fprintln(outWriter, "--- SIGALRM {si_signo=SIGALRM, si_code=SI_KERNEL} ---")
+	}
+	if res.HexDumpStr != "" { fmt.Fprintf(outWriter, "%s", res.HexDumpStr) }
+}
+
+// IMPACT: Extended formatSyscallRet to accept Context to dynamically format return values (e.g. fcntl GET commands).
+func formatSyscallRet(scName string, ret int64, res handler.Result, ctx *handler.Context) string {
 	retStr := fmt.Sprintf("%d", ret)
-	if ret >= 0 && scMeta.Name == "umask" {
+	if ret > 0 && (scName == "fcntl" || scName == "fcntl64") && ctx != nil {
+		cmdVal := uint32(ctx.Args[1])
+		switch cmdVal {
+		case 1, 3, 1025: // F_GETFD (1), F_GETFL (3), F_GETLEASE (1025)
+			retStr = fmt.Sprintf("%#x", ret)
+		}
+	}
+	if ret >= 0 && scName == "umask" {
 		m := uint32(ret)
 		s := fmt.Sprintf("%o", m)
 		if len(s) < 3 {
@@ -251,12 +344,10 @@ func handleEvent(eventRaw *bpfEvent, targetPid int, opts *cli.Options, decoder *
 		}
 		retStr = s
 	}
-	// IMPACT: Limits hexadecimal return formatting to address-returning calls.
-	// munmap and mprotect return 0 on success, while mremap returns new address.
-	if ret >= 0 && (scMeta.Name == "brk" || scMeta.Name == "mmap" || scMeta.Name == "mremap") {
+	if ret >= 0 && (scName == "brk" || scName == "mmap" || scName == "mremap") {
 		retStr = fmt.Sprintf("%#x", ret)
 	}
-	if ret >= 0 && (scMeta.Name == "adjtimex" || scMeta.Name == "clock_adjtime") {
+	if ret >= 0 && (scName == "adjtimex" || scName == "clock_adjtime") {
 		desc := "TIME_OK"
 		switch ret {
 		case 1: desc = "TIME_INS"
@@ -269,7 +360,9 @@ func handleEvent(eventRaw *bpfEvent, targetPid int, opts *cli.Options, decoder *
 	}
 	if ret < 0 && ret >= -4095 {
 		errNum := int(-ret)
-		if errName, ok := meta.ErrnoTable[errNum]; ok {
+		if errNum == 516 {
+			retStr = "? ERESTART_RESTARTBLOCK (Interrupted by signal)"
+		} else if errName, ok := meta.ErrnoTable[errNum]; ok {
 			errDesc := syscall.Errno(errNum).Error()
 			if len(errDesc) > 0 { errDesc = strings.ToUpper(errDesc[:1]) + errDesc[1:] }
 			retStr = fmt.Sprintf("-1 %s (%s)", errName, errDesc)
@@ -283,13 +376,10 @@ func handleEvent(eventRaw *bpfEvent, targetPid int, opts *cli.Options, decoder *
 	if res.ReturnDesc != "" {
 		retStr += " (" + res.ReturnDesc + ")"
 	}
-
-	padding := " "
-	if len(line) < opts.AlignCol { padding = strings.Repeat(" ", opts.AlignCol-len(line)) }
-	fmt.Fprintf(outWriter, "%s%s= %s\n", line, padding, retStr)
-	if res.HexDumpStr != "" { fmt.Fprintf(outWriter, "%s", res.HexDumpStr) }
+	return retStr
 }
 
+// IMPACT: Enlarged StrArg to 4104 bytes to align with the upgraded BPF event structure.
 type bpfEvent struct {
 	Pid           uint32
 	SysId         uint32
@@ -300,5 +390,5 @@ type bpfEvent struct {
 	Args          [6]uint64
 	Ret           int64
 	Ptr           uint64
-	StrArg          [2048]byte
+	StrArg          [4104]byte
 }

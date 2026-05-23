@@ -146,6 +146,10 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 		if r.Arg == 1 || r.Arg == 4 {
 			return "addrlen"
 		}
+	case "fcntl", "fcntl64":
+		if r.Arg == 2 {
+			return "fsz"
+		}
 	case "add_key":
 		if r.Arg == 2 {
 			return "((e)->args[3] > 0 ? ((e)->args[3] > 256 ? 256 : (e)->args[3]) : 0)"
@@ -204,11 +208,23 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 				res += fmt.Sprintf("\t\t\t\tif (inlen > 0 && inlen < addrlen) addrlen = inlen; \\\n")
 				res += fmt.Sprintf("\t\t\t\taddrlen = (addrlen > 128) ? 128 : addrlen; \\\n")
 			}
+		} else if r.Size == 0 && (scName == "fcntl" || scName == "fcntl64") && r.Arg == 2 {
+			res += fmt.Sprintf("\t\t\t\tu32 fcmd = (u32)(e)->args[1]; \\\n")
+			res += fmt.Sprintf("\t\t\t\tu32 fsz = 0; \\\n")
+			// IMPACT: Added glibc and native command codes for delegation, owner_ex, and RW hints to capture 8 bytes of memory.
+			res += fmt.Sprintf("\t\t\t\tif (fcmd == 15 || fcmd == 16 || fcmd == 1035 || fcmd == 1036 || fcmd == 1037 || fcmd == 1038 || fcmd == 1039 || fcmd == 1040 || fcmd == 1043 || fcmd == 1044 || fcmd == 19 || fcmd == 20 || fcmd == 21 || fcmd == 22 || fcmd == 23 || fcmd == 24) fsz = 8; \\\n")
+			res += fmt.Sprintf("\t\t\t\telse if (fcmd == 5 || fcmd == 6 || fcmd == 7 || fcmd == 12 || fcmd == 13 || fcmd == 14 || fcmd == 36 || fcmd == 37 || fcmd == 38) fsz = 32; \\\n")
 		} else if r.Size == 0 && scName == "ioctl" && r.Arg == 2 {
 			res += fmt.Sprintf("\t\t\t\tu32 iosz = (((e)->args[1] >> 16) & 0x3fff); \\\n")
 			res += fmt.Sprintf("\t\t\t\tiosz = (iosz == 0) ? 128 : (iosz > 512 ? 512 : iosz); \\\n")
 		}
-		res += fmt.Sprintf("\t\t\t\tlong pr = (e)->args[%d] ? %s(%s, %s, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, sizeStr, r.Arg)
+		
+		// IMPACT: Safe-guard fsz conditional read to prevent BPF errors when size is 0.
+		if sizeStr == "fsz" {
+			res += fmt.Sprintf("\t\t\t\tlong pr = (fsz > 0 && (e)->args[%d]) ? %s(%s, fsz, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, r.Arg)
+		} else {
+			res += fmt.Sprintf("\t\t\t\tlong pr = (e)->args[%d] ? %s(%s, %s, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, sizeStr, r.Arg)
+		}
 		res += fmt.Sprintf("\t\t\t\tif (pr < 0) { \\\n")
 		res += fmt.Sprintf("\t\t\t\t\ts32 curr = (e)->probe_ret_%s; \\\n", suffix)
 		res += fmt.Sprintf("\t\t\t\t\tu32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \\\n")

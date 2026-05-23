@@ -21,25 +21,35 @@ func (h *EpollHandler) Handle(ctx *Context) Result {
 	switch ctx.SysName {
 	case "epoll_ctl":
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int32(ctx.Args[0])))
-		op := ctx.Args[1]
-		res.ArgParts = append(res.ArgParts, meta.DecodeFlags(op, "epollctls"))
+		op := uint32(ctx.Args[1])
+		res.ArgParts = append(res.ArgParts, meta.DecodeFlags(uint64(op), "epollctls"))
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int32(ctx.Args[2])))
 		
-		if ctx.Args[3] == 0 {
-			res.ArgParts = append(res.ArgParts, "NULL")
-		} else {
-			data := ctx.StrArgBuf[0:12]
-			readSuccess := ctx.ProbeRetEnter >= 0
-			if !readSuccess {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[3], 12, false); err == nil && len(d) == 12 {
-					data = d
-					readSuccess = true
-				}
-			}
-			if readSuccess {
-				res.ArgParts = append(res.ArgParts, format.EpollEvent(data))
+		// IMPACT: Only decode struct epoll_event for ADD (1) and MOD (3) operations.
+		// DEL (2) doesn't read the structure in kernel.
+		if op == 2 {
+			if ctx.Args[3] == 0 {
+				res.ArgParts = append(res.ArgParts, "NULL")
 			} else {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[3]))
+			}
+		} else {
+			if ctx.Args[3] == 0 {
+				res.ArgParts = append(res.ArgParts, "NULL")
+			} else {
+				data := ctx.StrArgBuf[0:12]
+				readSuccess := ctx.ProbeRetEnter >= 0
+				if !readSuccess {
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[3], 12, false); err == nil && len(d) == 12 {
+						data = d
+						readSuccess = true
+					}
+				}
+				if readSuccess {
+					res.ArgParts = append(res.ArgParts, format.EpollEvent(data))
+				} else {
+					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[3]))
+				}
 			}
 		}
 	case "epoll_wait", "epoll_pwait":

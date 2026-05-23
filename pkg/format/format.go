@@ -67,7 +67,12 @@ func EpollEvents(data []byte, count int) string {
 		if off+12 > len(data) { break }
 		events := binary.LittleEndian.Uint32(data[off : off+4])
 		data_ := binary.LittleEndian.Uint64(data[off+4 : off+12])
-		res = append(res, fmt.Sprintf("{events=%s, data={u32=%d, u64=%#x}}", meta.DecodeFlags(uint64(events), "epoll_events"), uint32(data_), data_))
+		eventsStr := meta.DecodeFlags(uint64(events), "epollevents")
+		if (data_ >> 32) == 0 {
+			res = append(res, fmt.Sprintf("{events=%s, data={u32=%d, u64=%#x}}", eventsStr, uint32(data_), data_))
+		} else {
+			res = append(res, fmt.Sprintf("{events=%s, data=%#x}", eventsStr, data_))
+		}
 	}
 	if count > 16 { res = append(res, "...") }
 	return "[" + strings.Join(res, ", ") + "]"
@@ -78,7 +83,11 @@ func EpollEvent(data []byte) string {
 	if len(data) < 12 { return "{...}" }
 	events := binary.LittleEndian.Uint32(data[0:4])
 	data_ := binary.LittleEndian.Uint64(data[4:12])
-	return fmt.Sprintf("{events=%s, data={u32=%d, u64=%#x}}", meta.DecodeFlags(uint64(events), "epoll_events"), uint32(data_), data_)
+	eventsStr := meta.DecodeFlags(uint64(events), "epollevents")
+	if (data_ >> 32) == 0 {
+		return fmt.Sprintf("{events=%s, data={u32=%d, u64=%#x}}", eventsStr, uint32(data_), data_)
+	}
+	return fmt.Sprintf("{events=%s, data=%#x}", eventsStr, data_)
 }
 
 // IoEvents formats an array of struct io_event.
@@ -241,11 +250,17 @@ func Sockaddr(data []byte, alen uint32, inLen uint32) string {
 	family := binary.LittleEndian.Uint16(data[0:2])
 	switch family {
 	case 1: // AF_UNIX
-		if len(data) <= 2 {
+		// IMPACT: Safe-guard UNIX domain socket decoding using active address length (alen) to prevent reading stale buffer bytes.
+		if len(data) <= 2 || alen <= 2 {
 			return "{sa_family=AF_UNIX}"
 		}
 		pathBytes := data[2:]
-		if pathBytes[0] == 0 {
+		pathLen := int(alen) - 2
+		if pathLen < 0 { pathLen = 0 }
+		if pathLen > len(pathBytes) { pathLen = len(pathBytes) }
+		pathBytes = pathBytes[:pathLen]
+		
+		if len(pathBytes) > 0 && pathBytes[0] == 0 {
 			// Abstract socket
 			return fmt.Sprintf("{sa_family=AF_UNIX, sun_path=%s}", Buffer(pathBytes, 0, len(pathBytes)))
 		}
@@ -333,6 +348,43 @@ func Ioc(val uint64) string {
 	typ := (val >> 8) & 0xff
 	nr := val & 0xff
 	size := (val >> 16) & 0x3fff
+
+	if dir == 2 && typ == 0x48 && nr == 0x12 {
+		return fmt.Sprintf("HIDIOCGPHYS(%d)", size)
+	}
+	if dir == 2 && typ == 0x45 && nr >= 0x20 && nr <= 0x3f {
+		ev := nr - 0x20
+		evStr := ""
+		switch ev {
+		case 0: evStr = "0"
+		case 1: evStr = "EV_KEY"
+		case 2: evStr = "EV_REL"
+		case 3: evStr = "EV_ABS"
+		case 4: evStr = "EV_MSC"
+		case 5: evStr = "EV_SW"
+		case 6: evStr = "EV_LED"
+		case 7: evStr = "EV_SND"
+		case 8: evStr = "EV_REP"
+		case 9: evStr = "EV_FF"
+		case 10: evStr = "EV_PWR"
+		case 11: evStr = "EV_FF_STATUS"
+		default: evStr = fmt.Sprintf("%#x /* EV_??? */", ev)
+		}
+		return fmt.Sprintf("EVIOCGBIT(%s, %d)", evStr, size)
+	}
+	if typ == 0x5a {
+		switch nr {
+		case 0: return "ZFS_IOC_POOL_CREATE"
+		case 0x41: return "ZFS_IOC_SEND_SPACE"
+		default: return fmt.Sprintf("ZFS_IOC_%#x", nr)
+		}
+	}
+	if dir == 2 && typ == 0x12 && nr == 0x7d && size == 256 {
+		return "BLKZNAME"
+	}
+	if dir == 0 && typ == 0x4b && nr == 1 && size == 0 {
+		return "KSTAT_IOC_CHAIN_ID"
+	}
 
 	dirStr := ""
 	switch dir {
@@ -443,4 +495,131 @@ func MknodMode(val uint16) string {
 	}
 	perms := formatPerms(mode & 07777)
 	return typeStr + "|" + perms
+}
+
+// Sysinfo formats a struct sysinfo buffer.
+func Sysinfo(data []byte) string {
+	if len(data) < 112 { return "{...}" }
+	uptime := binary.LittleEndian.Uint64(data[0:8])
+	loads := [3]uint64{
+		binary.LittleEndian.Uint64(data[8:16]),
+		binary.LittleEndian.Uint64(data[16:24]),
+		binary.LittleEndian.Uint64(data[24:32]),
+	}
+	totalram := binary.LittleEndian.Uint64(data[32:40])
+	freeram := binary.LittleEndian.Uint64(data[40:48])
+	sharedram := binary.LittleEndian.Uint64(data[48:56])
+	bufferram := binary.LittleEndian.Uint64(data[56:64])
+	totalswap := binary.LittleEndian.Uint64(data[64:72])
+	freeswap := binary.LittleEndian.Uint64(data[72:80])
+	procs := binary.LittleEndian.Uint16(data[80:82])
+	totalhigh := binary.LittleEndian.Uint64(data[88:96])
+	freehigh := binary.LittleEndian.Uint64(data[96:104])
+	mem_unit := binary.LittleEndian.Uint32(data[104:108])
+
+	return fmt.Sprintf("{uptime=%d, loads=[%d, %d, %d], totalram=%d, freeram=%d, sharedram=%d, bufferram=%d, totalswap=%d, freeswap=%d, procs=%d, totalhigh=%d, freehigh=%d, mem_unit=%d}",
+		uptime, loads[0], loads[1], loads[2], totalram, freeram, sharedram, bufferram, totalswap, freeswap, procs, totalhigh, freehigh, mem_unit)
+}
+
+// Statfs formats a struct statfs buffer.
+func Statfs(data []byte) string {
+	if len(data) < 120 { return "{...}" }
+	f_type := binary.LittleEndian.Uint64(data[0:8])
+	f_bsize := binary.LittleEndian.Uint64(data[8:16])
+	f_blocks := binary.LittleEndian.Uint64(data[16:24])
+	f_bfree := binary.LittleEndian.Uint64(data[24:32])
+	f_bavail := binary.LittleEndian.Uint64(data[32:40])
+	f_files := binary.LittleEndian.Uint64(data[40:48])
+	f_ffree := binary.LittleEndian.Uint64(data[48:56])
+	f_fsid_val0 := binary.LittleEndian.Uint32(data[56:60])
+	f_fsid_val1 := binary.LittleEndian.Uint32(data[60:64])
+	f_namelen := binary.LittleEndian.Uint64(data[64:72])
+	f_frsize := binary.LittleEndian.Uint64(data[72:80])
+	f_flags := binary.LittleEndian.Uint64(data[80:88])
+
+	typeStr := meta.DecodeFlags(f_type, "fsmagic")
+	flagsStr := meta.DecodeFlags(f_flags, "statfs_flags")
+
+	f_fsid_str0 := fmt.Sprintf("%#x", f_fsid_val0)
+	if f_fsid_val0 == 0 {
+		f_fsid_str0 = "0"
+	}
+	f_fsid_str1 := fmt.Sprintf("%#x", f_fsid_val1)
+	if f_fsid_val1 == 0 {
+		f_fsid_str1 = "0"
+	}
+
+	return fmt.Sprintf("{f_type=%s, f_bsize=%d, f_blocks=%d, f_bfree=%d, f_bavail=%d, f_files=%d, f_ffree=%d, f_fsid={val=[%s, %s]}, f_namelen=%d, f_frsize=%d, f_flags=%s}",
+		typeStr, f_bsize, f_blocks, f_bfree, f_bavail, f_files, f_ffree, f_fsid_str0, f_fsid_str1, f_namelen, f_frsize, flagsStr)
+}
+
+// Flock formats a struct flock buffer.
+func Flock(data []byte, showsPid bool) string {
+	if len(data) < 24 { return "{...}" }
+	l_type := binary.LittleEndian.Uint16(data[0:2])
+	l_whence := binary.LittleEndian.Uint16(data[2:4])
+	l_start := int64(binary.LittleEndian.Uint64(data[8:16]))
+	l_len := int64(binary.LittleEndian.Uint64(data[16:24]))
+
+	typeStr := ""
+	switch l_type {
+	case 0: typeStr = "F_RDLCK"
+	case 1: typeStr = "F_WRLCK"
+	case 2: typeStr = "F_UNLCK"
+	default: typeStr = fmt.Sprintf("%d", l_type)
+	}
+
+	res := fmt.Sprintf("{l_type=%s, l_whence=%s, l_start=%d, l_len=%d", typeStr, Whence(uint64(l_whence)), l_start, l_len)
+	if showsPid && len(data) >= 28 {
+		l_pid := int32(binary.LittleEndian.Uint32(data[24:28]))
+		res += fmt.Sprintf(", l_pid=%d", l_pid)
+	}
+	res += "}"
+	return res
+}
+
+// FOwnerEx formats a struct f_owner_ex buffer.
+func FOwnerEx(data []byte) string {
+	if len(data) < 8 { return "{...}" }
+	typ := binary.LittleEndian.Uint32(data[0:4])
+	pid := int32(binary.LittleEndian.Uint32(data[4:8]))
+	
+	typeStr := ""
+	// IMPACT: Correct enum type constants for f_owner_ex where TID=0, PID=1, PGRP=2.
+	switch typ {
+	case 0: typeStr = "F_OWNER_TID"
+	case 1: typeStr = "F_OWNER_PID"
+	case 2: typeStr = "F_OWNER_PGRP"
+	default: typeStr = fmt.Sprintf("%d", typ)
+	}
+	return fmt.Sprintf("{type=%s, pid=%d}", typeStr, pid)
+}
+
+// Delegation formats a struct delegation buffer.
+// IMPACT: Decodes struct delegation fields (d_flags, d_type, and __pad) for F_GETDELEG/F_SETDELEG.
+func Delegation(data []byte) string {
+	if len(data) < 8 { return "{...}" }
+	d_flags := binary.LittleEndian.Uint32(data[0:4])
+	d_type := binary.LittleEndian.Uint16(data[4:6])
+	pad := binary.LittleEndian.Uint16(data[6:8])
+	
+	typeStr := ""
+	switch d_type {
+	case 0: typeStr = "F_RDLCK"
+	case 1: typeStr = "F_WRLCK"
+	case 2: typeStr = "F_UNLCK"
+	default: typeStr = fmt.Sprintf("%#x /* F_??? */", d_type)
+	}
+	
+	padStr := fmt.Sprintf("%#x", pad)
+	if pad == 0 {
+		padStr = "0"
+	}
+	
+	flagsStr := fmt.Sprintf("%#x", d_flags)
+	if d_flags == 0 {
+		flagsStr = "0"
+	}
+	
+	return fmt.Sprintf("{d_flags=%s, d_type=%s, __pad=%s}", flagsStr, typeStr, padStr)
 }

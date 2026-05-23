@@ -19,31 +19,53 @@ func NewDecoder(mr *procmem.Reader) *Decoder {
 	return &Decoder{MemReader: mr, HexEscapeMode: 0}
 }
 
-// DecodeString decodes a string from BPF-captured data or process memory.
+// IMPACT: Updated DecodeString to dynamically detect BPF buffer truncation using len(bpfData) instead of hardcoding 512 bytes.
 func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int32, scName string, limit int) string {
 	if ptr == 0 { return "NULL" }
 
 	var raw []byte
 	found := false
+	truncated := false
 
 	// Try BPF data first
+	var bpfRaw []byte
+	bpfFound := false
 	if len(bpfData) > 0 {
-		if idx := bytes.IndexByte(bpfData, 0); idx != -1 {
+		idx := bytes.IndexByte(bpfData, 0)
+		if idx != -1 {
 			if idx > 0 || probeRet >= 0 {
-				raw = bpfData[:idx]
-				found = true
+				bpfRaw = bpfData[:idx]
+				bpfFound = true
+				if idx < len(bpfData)-1 {
+					raw = bpfRaw
+					found = true
+				}
 			}
 		}
 	}
 
 	if !found {
-		// Fallback to process memory
-		if data, err := d.MemReader.ReadRobust(pid, ptr, 512, false); err == nil {
+		// Fallback to process memory with a 4096-byte (PATH_MAX) limit
+		data, err := d.MemReader.ReadRobust(pid, ptr, 4096, false)
+		if err == nil {
 			if idx := bytes.IndexByte(data, 0); idx != -1 {
 				raw = data[:idx]
 			} else {
 				raw = data
+				truncated = true
 			}
+			found = true
+		} else if bpfFound {
+			maxLen := len(bpfData) - 1
+			if len(bpfData) > 512 {
+				maxLen = len(bpfData) - 2
+			}
+			if len(bpfRaw) > maxLen {
+				raw = bpfRaw[:maxLen]
+			} else {
+				raw = bpfRaw
+			}
+			truncated = true
 			found = true
 		}
 	}
@@ -53,7 +75,11 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 		if printLimit <= 0 {
 			printLimit = 10000
 		}
-		return format.BufferEscape(raw, printLimit, 0, d.HexEscapeMode)
+		actualLen := 0
+		if truncated {
+			actualLen = printLimit + 1
+		}
+		return format.BufferEscape(raw, printLimit, actualLen, d.HexEscapeMode)
 	}
 
 	return fmt.Sprintf("%#x", ptr)

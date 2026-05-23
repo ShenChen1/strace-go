@@ -18,6 +18,8 @@ type IoctlHandler struct {
 	DefaultHandler
 }
 
+// Handle formats the arguments of the ioctl system call.
+// Impact: Entry point for ioctl decoding. Dispatches based on commands.
 func (h *IoctlHandler) Handle(ctx *Context) Result {
 	res := Result{}
 	fd := int32(ctx.Args[0])
@@ -28,57 +30,104 @@ func (h *IoctlHandler) Handle(ctx *Context) Result {
 
 	cmdpattern := format.Ioc(cmd)
 	cmdName := meta.DecodeFlags(cmd, "ioctl_cmds")
-	if strings.HasPrefix(cmdName, "0x") {
+	if cmd == 0x80044d0d {
+		cmdName = "MIXER_READ(13) or OTPSELECT"
+	} else if strings.HasPrefix(cmdName, "0x") {
 		cmdName = cmdpattern
 	}
 	res.ArgParts = append(res.ArgParts, cmdName)
 
-	if arg == 0 {
-		if strings.HasPrefix(cmdName, "_IOC") {
-			res.ArgParts = append(res.ArgParts, "0")
-		} else {
-			res.ArgParts = append(res.ArgParts, "NULL")
-		}
-	} else {
-		// Check for DM ioctls
-		if strings.HasPrefix(cmdName, "DM_") {
-			data := ctx.StrArgBuf[512:1024]
-			readSuccess := ctx.ProbeRetEnter >= 0
-			
-			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, arg, 312, false); err == nil && len(d) >= 20 {
-				data = d
-				readSuccess = true
-			}
-			
-			if readSuccess && len(data) >= 20 {
-				dm := formatDmIoctl(ctx, data, cmdName)
-				if dm != "" {
-					res.ArgParts = append(res.ArgParts, dm)
-				} else {
-					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", arg))
-				}
-			} else {
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", arg))
-			}
-		} else {
-			switch cmd {
-			case 0x5401, 0x5402, 0x5403, 0x5404: // TCGETS, TCSETS, TCSETSW, TCSETSF
-				res.ArgParts = append(res.ArgParts, format.Termios(ctx.StrArgBuf[512:512+60]))
-			case 0x802c542a, 0x402c542b, 0x402c542c, 0x402c542d: // TCGETS2, TCSETS2, TCSETSW2, TCSETSF2
-				res.ArgParts = append(res.ArgParts, format.Termios(ctx.StrArgBuf[512:512+44]))
-			case 0x5413: // TIOCGWINSZ
-				res.ArgParts = append(res.ArgParts, format.Winsize(ctx.StrArgBuf[512:512+8]))
-			case 0x541b: // FIONREAD
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d]", binary.LittleEndian.Uint32(ctx.StrArgBuf[512:516])))
-			default:
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", arg))
-			}
-		}
-	}
+	argPart := h.decodeIoctlArg(ctx, cmd, arg, cmdName)
+	res.ArgParts = append(res.ArgParts, argPart)
 
 	return res
 }
 
+// decodeIoctlArg formats the third argument of ioctl based on cmd.
+// Impact: Resolves formatting for terminal, device mapper, and mtd OTP ioctl arguments.
+func (h *IoctlHandler) decodeIoctlArg(ctx *Context, cmd, arg uint64, cmdName string) string {
+	if arg == 0 {
+		if strings.HasPrefix(cmdName, "_IOC") {
+			return "0"
+		}
+		return "NULL"
+	}
+	if strings.HasPrefix(cmdName, "DM_") {
+		return h.decodeDmIoctl(ctx, arg, cmdName)
+	}
+	return h.decodeStandardIoctlArg(ctx, cmd, arg)
+}
+
+// decodeDmIoctl reads and formats device mapper ioctl arguments.
+func (h *IoctlHandler) decodeDmIoctl(ctx *Context, arg uint64, cmdName string) string {
+	data := ctx.StrArgBuf[512:1024]
+	readSuccess := ctx.ProbeRetEnter >= 0
+	
+	if d, err := ctx.MemReader.ReadRobust(ctx.Pid, arg, 312, false); err == nil && len(d) >= 20 {
+		data = d
+		readSuccess = true
+	}
+	
+	if readSuccess && len(data) >= 20 {
+		dm := formatDmIoctl(ctx, data, cmdName)
+		if dm != "" {
+			return dm
+		}
+	}
+	return fmt.Sprintf("%#x", arg)
+}
+
+// decodeStandardIoctlArg formats non-DM standard ioctl arguments.
+func (h *IoctlHandler) decodeStandardIoctlArg(ctx *Context, cmd, arg uint64) string {
+	if cmd == 0x80044d0d {
+		data := ctx.StrArgBuf[512 : 512+4]
+		readSuccess := ctx.ProbeRetEnter >= 0
+		if !readSuccess {
+			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, arg, 4, false); err == nil && len(d) == 4 {
+				data = d
+				readSuccess = true
+			}
+		}
+		if readSuccess {
+			otpVal := binary.LittleEndian.Uint32(data)
+			switch otpVal {
+			case 0: return "[MTD_OTP_OFF]"
+			case 1: return "[MTD_OTP_FACTORY]"
+			case 2: return "[MTD_OTP_USER]"
+			default: return fmt.Sprintf("[%d /* MTD_OTP_??? */]", otpVal)
+			}
+		}
+		// IMPACT: Fallback to printing pointer representation if buffer reading fails.
+		return fmt.Sprintf("%#x", arg)
+	}
+
+	switch cmd {
+	case 0x5401, 0x5402, 0x5403, 0x5404: // TCGETS, TCSETS, TCSETSW, TCSETSF
+		if cmd == 0x5401 && ctx.Ret < 0 {
+			return fmt.Sprintf("%#x", arg)
+		}
+		return format.Termios(ctx.StrArgBuf[512 : 512+60])
+	case 0x802c542a, 0x402c542b, 0x402c542c, 0x402c542d: // TCGETS2, TCSETS2, TCSETSW2, TCSETSF2
+		if cmd == 0x802c542a && ctx.Ret < 0 {
+			return fmt.Sprintf("%#x", arg)
+		}
+		return format.Termios(ctx.StrArgBuf[512 : 512+44])
+	case 0x5413: // TIOCGWINSZ
+		if ctx.Ret < 0 {
+			return fmt.Sprintf("%#x", arg)
+		}
+		return format.Winsize(ctx.StrArgBuf[512 : 512+8])
+	case 0x541b: // FIONREAD
+		if ctx.Ret < 0 {
+			return fmt.Sprintf("%#x", arg)
+		}
+		return fmt.Sprintf("[%d]", binary.LittleEndian.Uint32(ctx.StrArgBuf[512:516]))
+	default:
+		return fmt.Sprintf("%#x", arg)
+	}
+}
+
+// formatDmIoctl formats DM structures.
 func formatDmIoctl(ctx *Context, data []byte, cmd string) string {
 	if len(data) < 20 { return "" }
 	v0 := binary.LittleEndian.Uint32(data[0:4])

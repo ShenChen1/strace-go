@@ -6,6 +6,7 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
+// IMPACT: Enlarged str_arg buffer to 4104 bytes to support capturing full PATH_MAX (4096) plus 1 null byte for boundary detection.
 struct bpf_event {
     u32 pid;
     u32 sys_id; u32 tid;
@@ -13,7 +14,7 @@ struct bpf_event {
     u64 args[6];
     u64 ret;
     u64 ptr; 
-    u8 str_arg[2048];
+    u8 str_arg[4104];
 };
 
 struct {

@@ -4,10 +4,10 @@
 
 rules:
   # Path-based syscalls (enter)
-  - syscalls: [open, creat, access, chdir, chmod, chown, lchown, mkdir, mknod, rmdir, unlink, execve, swapon, swapoff, acct]
+  - syscalls: [open, creat, access, chdir, chmod, chown, lchown, mkdir, mknod, rmdir, unlink, execve, swapon, swapoff, acct, truncate]
     enter:
       ptr_arg: 0
-      reads: [{ arg: 0, size: 512, type: string }]
+      reads: [{ arg: 0, size: 4097, type: string }]
 
   # Syscalls returning struct stat
   - syscalls: [stat, lstat]
@@ -28,10 +28,11 @@ rules:
       reads: [{ arg: 0, size: 8, offset: 1024, type: raw }]
 
   # At-based syscalls (enter)
-  - syscalls: [openat, mkdirat, mknodat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, linkat]
+  # IMPACT: Capture execveat along with other at-based syscalls for path resolution.
+  - syscalls: [openat, mkdirat, mknodat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, linkat, execveat]
     enter:
       ptr_arg: 1
-      reads: [{ arg: 1, size: 512, type: string }]
+      reads: [{ arg: 1, size: 4097, type: string }]
 
   - syscalls: [utimensat]
     enter:
@@ -114,7 +115,7 @@ rules:
       ptr_arg: 1
       reads:
         - { arg: 1, size: 512, offset: 1024, type: raw } # buf
-        - { arg: 4, size: 128, offset: 1536, type: raw } # addr
+        - { arg: 4, size: 0, offset: 1536, type: raw } # addr
         - { arg: 5, size: 4, offset: 772, type: raw }   # addrlen out
 
   - syscalls: [accept, accept4, getsockname, getpeername]
@@ -202,6 +203,13 @@ rules:
       reads: [{ arg: 2, size: 16, offset: 0, type: raw }]
     exit:
       reads: [{ arg: 3, size: 16, offset: 1024, type: raw }]
+
+  - syscalls: [nanosleep]
+    enter:
+      reads: [{ arg: 0, size: 16, offset: 0, type: raw }]
+    exit:
+      reads: [{ arg: 1, size: 16, offset: 1024, type: raw }]
+
 
   - syscalls: [clock_gettime, clock_getres]
     exit:
@@ -302,4 +310,28 @@ rules:
       reads: [{ arg: 2, size: 16, offset: 0, type: raw }]
     exit:
       reads: [{ arg: 3, size: 16, offset: 1024, type: raw }]
+
+  - syscalls: [sysinfo]
+    exit:
+      reads: [{ arg: 0, size: 112, offset: 1024, type: raw }]
+
+  - syscalls: [statfs]
+    enter:
+      ptr_arg: 0
+      reads: [{ arg: 0, size: 512, type: string }]
+    exit:
+      reads: [{ arg: 1, size: 120, offset: 1024, type: raw }]
+
+  - syscalls: [fstatfs]
+    exit:
+      reads: [{ arg: 1, size: 120, offset: 1024, type: raw }]
+
+  # IMPACT: Capture fcntl/fcntl64 lock structs (flock) on enter/exit.
+  - syscalls: [fcntl, fcntl64]
+    enter:
+      reads: [{ arg: 2, size: 0, offset: 0, type: raw }]
+    exit:
+      reads: [{ arg: 2, size: 0, offset: 1024, type: raw }]
+
+
 

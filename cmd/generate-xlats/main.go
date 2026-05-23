@@ -20,7 +20,9 @@ func main() {
 		data, _ = os.ReadFile("../generate-xlats/arg_xlat_map.yaml")
 	}
 	var argXlat ArgXlatMap
-	yaml.Unmarshal(data, &argXlat)
+	if err := yaml.Unmarshal(data, &argXlat); err != nil {
+		panic(fmt.Sprintf("Failed to unmarshal YAML: %v", err))
+	}
 
 	out, _ := os.Create("../../pkg/meta/xlat_auto.go")
 	fmt.Fprintln(out, "package meta")
@@ -32,7 +34,11 @@ func main() {
 	for _, m := range argXlat.Syscalls {
 		for _, xlat := range m { allowedXlats[xlat] = true }
 	}
-	// Manual additions
+	// IMPACT: Allows fcntlcmds, notifyflags, lockfcmds, and fdflags to be extracted from upstream xlat definitions.
+	allowedXlats["fcntlcmds"] = true
+	allowedXlats["notifyflags"] = true
+	allowedXlats["lockfcmds"] = true
+	allowedXlats["fdflags"] = true
 	allowedXlats["open_access_modes"] = true
 	allowedXlats["addrfams"] = true
 	allowedXlats["whence"] = true
@@ -63,6 +69,9 @@ func main() {
 	allowedXlats["msg_flags"] = true
 	allowedXlats["sock_ip_options"] = true
 	allowedXlats["sock_tcp_options"] = true
+	// IMPACT: Allowed fsmagic and statfs_flags for decoding filesystem type and mount flags.
+	allowedXlats["fsmagic"] = true
+	allowedXlats["statfs_flags"] = true
 
 	delete(allowedXlats, "x86_xfeatures")
 	delete(allowedXlats, "clocknames")
@@ -187,7 +196,8 @@ func main() {
 				}
 				
 				if isNumeric {
-					if v == "0" && k != "O_RDONLY" && k != "F_OK" && k != "AF_UNSPEC" && k != "SEEK_SET" && k != "XFEATURE_FP" && k != "BPF_MAP_CREATE" && k != "CLOCK_REALTIME" && k != "PROT_NONE" && k != "FUTEX_WAIT" && k != "MADV_NORMAL" && k != "SIG_BLOCK" && k != "CLONE_VM" && k != "BPF_MAP_TYPE_UNSPEC" && k != "MAP_FILE" && k != "RLIMIT_CPU" { continue }
+					// IMPACT: Exempt F_DUPFD and F_RDLCK from being skipped when value is 0, as they are crucial for fcntl.
+					if v == "0" && k != "O_RDONLY" && k != "F_OK" && k != "AF_UNSPEC" && k != "SEEK_SET" && k != "XFEATURE_FP" && k != "BPF_MAP_CREATE" && k != "CLOCK_REALTIME" && k != "PROT_NONE" && k != "FUTEX_WAIT" && k != "MADV_NORMAL" && k != "SIG_BLOCK" && k != "CLONE_VM" && k != "BPF_MAP_TYPE_UNSPEC" && k != "MAP_FILE" && k != "RLIMIT_CPU" && k != "F_DUPFD" && k != "F_RDLCK" { continue }
 					fmt.Fprintf(out, "\t\t\t{Val: %s, Str: %q},\n", v, k)
 				}
 			}

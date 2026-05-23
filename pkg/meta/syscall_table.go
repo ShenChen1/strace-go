@@ -80,7 +80,7 @@ var SyscallTable = map[uint32]Syscall{
 	74: {Name: "fsync", Args: []string{"arg0"}, ArgTypes: []string{"unsigned long"}},
 	75: {Name: "fdatasync", Args: []string{"arg0"}, ArgTypes: []string{"unsigned long"}},
 	76: {Name: "truncate", Args: []string{"path", "length"}, ArgTypes: []string{"const char *", "long"}},
-	77: {Name: "ftruncate", Args: []string{"arg0", "arg1"}, ArgTypes: []string{"unsigned long", "unsigned long"}},
+	77: {Name: "ftruncate", Args: []string{"fd", "length"}, ArgTypes: []string{"int", "long"}},
 	78: {Name: "getdents", Args: []string{"fd", "dirent", "count"}, ArgTypes: []string{"unsigned int", "struct linux_dirent *", "unsigned int"}},
 	79: {Name: "getcwd", Args: []string{"buf", "size"}, ArgTypes: []string{"char *", "unsigned long"}},
 	80: {Name: "chdir", Args: []string{"filename"}, ArgTypes: []string{"const char *"}},
