@@ -333,5 +333,9 @@ rules:
     exit:
       reads: [{ arg: 2, size: 0, offset: 1024, type: raw }]
 
+  - syscalls: [rt_sigsuspend]
+    enter:
+      reads: [{ arg: 0, size: 8, offset: 0, type: raw }]
+
 
 

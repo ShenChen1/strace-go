@@ -45,6 +45,7 @@ struct {
 
 SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
+    if (ctx->id == 15 || ctx->id == 173) return 0;
     u32 tid = (u32)bpf_get_current_pid_tgid();
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
     u32 key = 0;
@@ -66,11 +67,25 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
 
     CAPTURE_ARGS_ENTER(e->sys_id, e);
     bpf_map_update_elem(&events_map, &tid, e, BPF_ANY);
+
+#ifndef __NR_execve
+#define __NR_execve 59
+#endif
+#ifndef __NR_execveat
+#define __NR_execveat 322
+#endif
+
+    if (e->sys_id == __NR_execve || e->sys_id == __NR_execveat) {
+        if (tid != pid) {
+            bpf_map_update_elem(&events_map, &pid, e, BPF_ANY);
+        }
+    }
     return 0;
 }
 
 SEC("tracepoint/raw_syscalls/sys_exit")
 int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
+    if (ctx->id == 15 || ctx->id == 173) return 0;
     u32 tid = (u32)bpf_get_current_pid_tgid();
     struct bpf_event *e = bpf_map_lookup_elem(&events_map, &tid);
     if (!e) return 0;
@@ -84,5 +99,12 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     
     bpf_ringbuf_output(&events, e, sizeof(*e), 0);
     bpf_map_delete_elem(&events_map, &tid);
+
+    if (e->sys_id == 59 || e->sys_id == 322) {
+        if (e->tid != e->pid) {
+            u32 other_key = (tid == e->pid) ? e->tid : e->pid;
+            bpf_map_delete_elem(&events_map, &other_key);
+        }
+    }
     return 0;
 }

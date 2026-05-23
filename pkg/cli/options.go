@@ -24,12 +24,12 @@ type Options struct {
 	VersionRequested bool
 	QuietExit        bool
 	QuietUnknownPid  bool
+	FollowForks      bool
 }
 
 // IMPACT: ParseArgs parses strace-go command-line arguments and returns Options.
-// It has been updated so that -q does not suppress exit status (QuietExit),
-// matching native strace where only -qq or --quiet=exit does.
-// It now also parses -V and --version flags to set VersionRequested.
+// Added support for -f flag to set FollowForks. It also configures quiet/verbose
+// modes and ensures correct version/help flags parsing.
 // args should be os.Args[1:].
 func ParseArgs(args []string) *Options {
 	opts := &Options{
@@ -42,6 +42,7 @@ func ParseArgs(args []string) *Options {
 		TraceWriteFDs: make(map[int32]bool),
 		ShowPaths:     false,
 		Verbose:       false,
+		FollowForks:   false,
 	}
 
 	addT := func(s string) {
@@ -63,6 +64,10 @@ func ParseArgs(args []string) *Options {
 			break
 		}
 
+		if arg == "-f" {
+			opts.FollowForks = true
+			continue
+		}
 		if arg == "-q" {
 			// -q suppresses attaching/detaching messages, but not exit status or unknown pids.
 			continue

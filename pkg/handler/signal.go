@@ -21,10 +21,21 @@ type SignalHandler struct {
 	DefaultHandler
 }
 
+// IMPACT: Handle formats signal-related system calls.
+// Added specific parameter normalization mapping for rt_sigsuspend to utilize existing Sigset formatting logic.
 func (h *SignalHandler) Handle(ctx *Context) Result {
 	res := Result{}
 	for i := 0; i < len(ctx.ScMeta.Args); i++ {
 		argName, argTyp, val := ctx.ScMeta.Args[i], ctx.ScMeta.ArgTypes[i], ctx.Args[i]
+		if ctx.ScMeta.Name == "rt_sigsuspend" {
+			if i == 0 {
+				argName = "set"
+				argTyp = "sigset_t *"
+			} else if i == 1 {
+				argName = "sigsetsize"
+				argTyp = "size_t"
+			}
+		}
 
 		if argName == "sig" {
 			res.ArgParts = append(res.ArgParts, meta.DecodeFlags(val, "signalnames"))

@@ -512,6 +512,18 @@
 				} \
 			} \
 			break; \
+		case 130: /* rt_sigsuspend */ \
+			{ \
+				long pr = (e)->args[0] ? bpf_probe_read_user((e)->str_arg, 8, (void *)(e)->args[0]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else if ((e)->probe_ret_enter == -1) { \
+					(e)->probe_ret_enter = 0; \
+				} \
+			} \
+			break; \
 		case 133: /* mknod */ \
 			(e)->ptr = (e)->args[0]; \
 			{ \

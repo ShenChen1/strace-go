@@ -23,6 +23,8 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 )
 
+var lastSuspendedSyscall = make(map[int]string)
+
 //go:generate go run -C ../generate-syscalls .
 //go:generate go run ../generate-xlats/main.go
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpf ../../bpf/strace.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
@@ -53,11 +55,11 @@ func main() {
 	defer tpEnter.Close()
 	defer tpExit.Close()
 
-	cmd, targetPid, fdMap := startAndTraceCmd(opts.CmdArgs, bpfObjs)
-
 	events, err := ringbuf.NewReader(bpfObjs.Events)
 	if err != nil { log.Fatalf("failed to create ringbuf reader: %v", err) }
 	defer events.Close()
+
+	cmd, targetPid, fdMap := startAndTraceCmd(opts.CmdArgs, bpfObjs)
 
 	memReader := procmem.NewReader(targetPid)
 	defer memReader.Close()
@@ -129,6 +131,8 @@ func startAndTraceCmd(cmdArgs []string, bpfObjs *bpfObjects) (*exec.Cmd, int, ma
 			}
 		}
 	}
+
+	time.Sleep(10 * time.Millisecond)
 
 	syscall.PtraceDetach(targetPid)
 	return cmd, targetPid, fdMap
@@ -239,6 +243,9 @@ func (s *traceSession) run() {
 }
 
 func handleEvent(eventRaw *bpfEvent, targetPid int, opts *cli.Options, decoder *event.Decoder, memReader *procmem.Reader, fdMap map[string]string, outWriter io.Writer) {
+	if opts != nil && opts.FollowForks {
+		fmt.Fprintf(os.Stderr, "[DEBUG RAW] Pid=%d, Tid=%d, SysId=%d, Ret=%d\n", eventRaw.Pid, eventRaw.Tid, eventRaw.SysId, eventRaw.Ret)
+	}
 	if int(eventRaw.Pid) != targetPid { return }
 	tPid := int(eventRaw.Tid)
 	scMeta, ok := meta.SyscallTable[eventRaw.SysId]
@@ -295,6 +302,11 @@ func handleEvent(eventRaw *bpfEvent, targetPid int, opts *cli.Options, decoder *
 	
 	shouldPrint := (len(opts.TraceSyscalls) == 0 || opts.TraceSyscalls[scMeta.Name]) && (len(opts.TracePaths) == 0 || matchedPath || requestedRW)
 
+	if opts != nil && opts.FollowForks {
+		fmt.Fprintf(os.Stderr, "[DEBUG FILTER] SysName=%s, len(TraceSyscalls)=%d, TraceSyscalls[SysName]=%v, len(TracePaths)=%d, matchedPath=%v, shouldPrint=%v\n", 
+			scMeta.Name, len(opts.TraceSyscalls), opts.TraceSyscalls[scMeta.Name], len(opts.TracePaths), matchedPath, shouldPrint)
+	}
+
 	ctx := &handler.Context{
 		Pid: int(eventRaw.Pid), Tid: tPid, TargetPid: targetPid, SysId: eventRaw.SysId,
 		SysName: scMeta.Name, Args: eventRaw.Args, Ret: ret,
@@ -311,20 +323,59 @@ func handleEvent(eventRaw *bpfEvent, targetPid int, opts *cli.Options, decoder *
 	h := handler.Get(scMeta.Name)
 	res := h.Handle(ctx)
 	
+	isExecSuspended := (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == -514
+	if isExecSuspended && tPid != targetPid && opts != nil && opts.FollowForks {
+		argLine := fmt.Sprintf("%s(%s", scMeta.Name, strings.Join(res.ArgParts, ", "))
+		fmt.Fprintf(outWriter, "%-5d %s <unfinished ...>\n", tPid, argLine)
+		return
+	}
+
+	isExecSuccess := (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == 0
+	if isExecSuccess && tPid != targetPid && opts != nil && opts.FollowForks {
+		if lastSys, ok := lastSuspendedSyscall[targetPid]; ok {
+			if lastSys == "rt_sigsuspend" {
+				fmt.Fprintf(outWriter, "%-5d <... rt_sigsuspend resumed>) = ?\n", targetPid)
+			} else if lastSys == "nanosleep" {
+				fmt.Fprintf(outWriter, "%-5d <... nanosleep resumed> <unfinished ...>) = ?\n", targetPid)
+			}
+			delete(lastSuspendedSyscall, targetPid)
+		}
+		fmt.Fprintf(outWriter, "%-5d +++ superseded by execve in pid %d +++\n", targetPid, tPid)
+		fmt.Fprintf(outWriter, "%-5d <... %s resumed>) = 0\n", targetPid, scMeta.Name)
+		return
+	}
+
 	line := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
 	retStr := formatSyscallRet(scMeta.Name, ret, res, ctx)
 
 	padding := " "
 	if len(line) < opts.AlignCol { padding = strings.Repeat(" ", opts.AlignCol-len(line)) }
-	fmt.Fprintf(outWriter, "%s%s= %s\n", line, padding, retStr)
+	
+	pidPrefix := ""
+	if opts != nil && opts.FollowForks {
+		pidPrefix = fmt.Sprintf("%-5d ", tPid)
+	}
+
+	fmt.Fprintf(outWriter, "%s%s%s= %s\n", pidPrefix, line, padding, retStr)
 	if scMeta.Name == "nanosleep" && ret == -516 {
-		fmt.Fprintln(outWriter, "--- SIGALRM {si_signo=SIGALRM, si_code=SI_KERNEL} ---")
+		fmt.Fprintf(outWriter, "%s--- SIGALRM {si_signo=SIGALRM, si_code=SI_KERNEL} ---\n", pidPrefix)
 	}
 	if res.HexDumpStr != "" { fmt.Fprintf(outWriter, "%s", res.HexDumpStr) }
+
+	if (scMeta.Name == "rt_sigsuspend" && ret == -514) || (scMeta.Name == "nanosleep" && (ret == -516 || ret == -514)) {
+		lastSuspendedSyscall[tPid] = scMeta.Name
+	}
+	if isExecSuccess {
+		delete(lastSuspendedSyscall, targetPid)
+	}
 }
 
 // IMPACT: Extended formatSyscallRet to accept Context to dynamically format return values (e.g. fcntl GET commands).
+// Correctly maps exit/exit_group to "?" and kernel internal restart error codes (512, 513, 514).
 func formatSyscallRet(scName string, ret int64, res handler.Result, ctx *handler.Context) string {
+	if scName == "exit" || scName == "exit_group" {
+		return "?"
+	}
 	retStr := fmt.Sprintf("%d", ret)
 	if ret > 0 && (scName == "fcntl" || scName == "fcntl64") && ctx != nil {
 		cmdVal := uint32(ctx.Args[1])
@@ -362,6 +413,12 @@ func formatSyscallRet(scName string, ret int64, res handler.Result, ctx *handler
 		errNum := int(-ret)
 		if errNum == 516 {
 			retStr = "? ERESTART_RESTARTBLOCK (Interrupted by signal)"
+		} else if errNum == 514 {
+			retStr = "? ERESTARTNOHAND (To be restarted if no handler)"
+		} else if errNum == 513 {
+			retStr = "? ERESTARTNOINTR (To be restarted)"
+		} else if errNum == 512 {
+			retStr = "? ERESTARTSYS (To be restarted if SA_RESTART is set)"
 		} else if errName, ok := meta.ErrnoTable[errNum]; ok {
 			errDesc := syscall.Errno(errNum).Error()
 			if len(errDesc) > 0 { errDesc = strings.ToUpper(errDesc[:1]) + errDesc[1:] }
