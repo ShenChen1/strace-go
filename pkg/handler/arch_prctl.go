@@ -36,7 +36,11 @@ func (h *ArchPrctlHandler) Handle(ctx *Context) Result {
 
 			if val == 0 {
 				if opt == 0x1023 || opt == 0x1025 {
-					res.ArgParts = append(res.ArgParts, "0 /* XFEATURE_FP */")
+					if ctx.Opts != nil && ctx.Opts.XlatFormat == "raw" {
+						res.ArgParts = append(res.ArgParts, "0")
+					} else {
+						res.ArgParts = append(res.ArgParts, "0 /* XFEATURE_FP */")
+					}
 				} else if isGET {
 					res.ArgParts = append(res.ArgParts, "NULL")
 				} else {
@@ -58,7 +62,9 @@ func (h *ArchPrctlHandler) Handle(ctx *Context) Result {
 						} else {
 							if opt >= 0x1021 && opt <= 0x1024 {
 								decoded := meta.DecodeFlags(outV, "x86_xfeatures")
-								if strings.HasPrefix(decoded, "0x") && strings.Contains(decoded, "/*") {
+								if ctx.Opts != nil && ctx.Opts.XlatFormat == "raw" {
+									res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%s]", decoded))
+								} else if strings.HasPrefix(decoded, "0x") && strings.Contains(decoded, "/*") {
 									res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%s]", decoded))
 								} else {
 									res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%#x /* %s */]", outV, decoded))

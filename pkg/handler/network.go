@@ -31,6 +31,7 @@ type NetworkHandler struct {
 
 // Handle handles sockaddr and socket-related syscalls.
 // Impact: Decodes sockaddr structures and network buffer parameters. Uses Tid for robust process memory reading.
+// IMPACT: Fallback to ReadRobust only when BPF capture fails to avoid user space timing race.
 func (h *NetworkHandler) Handle(ctx *Context) Result {
 	var res Result
 
@@ -106,7 +107,7 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 					readSuccess = ctx.ProbeRetExit >= 0
 				}
 				
-				if !readSuccess || ctx.Ret >= 0 {
+				if !readSuccess {
 					if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, sz, ctx.ScMeta.Name == "recvfrom"); err == nil && len(d) >= sz {
 						data = d
 						readSuccess = true
@@ -137,7 +138,7 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 					readSuccess = ctx.ProbeRetExit >= 0
 				}
 				
-				if !readSuccess || ctx.Ret >= 0 {
+				if !readSuccess {
 					if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, sz, ctx.ScMeta.Name == "recvfrom"); err == nil && len(d) >= sz {
 						data = d
 						readSuccess = true
@@ -223,7 +224,7 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 				readSuccess = ctx.ProbeRetEnter >= 0
 			}
 
-			if !readSuccess || ctx.Ret >= 0 {
+			if !readSuccess {
 				if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, readSize, ctx.ScMeta.Name == "recvfrom"); err == nil && len(d) >= 2 {
 					sdata = d
 					readSuccess = true

@@ -60,11 +60,12 @@ func decodeEnum(val uint64, xlatName string, table XlatTable) (string, bool) {
 		}
 		return strings.Join(matches, " or "), true
 	}
-	// IMPACT: Avoid mapping small enum values directly to numbers if they belong to fcntlcmds or ioctl_cmds.
-	if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds")) && xlatName != "resources" {
+	// IMPACT: Avoid mapping small enum values directly to numbers if they belong to fcntlcmds, ioctl_cmds, archvals or x86_xfeature_bits.
+	if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits")) && xlatName != "resources" {
 		return fmt.Sprintf("%d", int32(val)), true
 	}
 	formatVal := fmt.Sprintf("%#x", val)
+	if val == 0 { formatVal = "0" }
 	if xlatName == "x86_xfeature_bits" && val < 10 { formatVal = fmt.Sprintf("%d", val) }
 	if table.Prefix != "" {
 		return fmt.Sprintf("%s /* %s??? */", formatVal, table.Prefix), true
@@ -136,7 +137,10 @@ func DecodeFlags(val uint64, xlatName string) string {
 			isEnum = (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds") && xlatName != "clone3_flags"
 		}
 		if isEnum {
-			if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds")) && xlatName != "resources" {
+			if val == 0 {
+				return "0"
+			}
+			if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits")) && xlatName != "resources" {
 				return fmt.Sprintf("%d", int32(val))
 			}
 			return fmt.Sprintf("%#x", val)
