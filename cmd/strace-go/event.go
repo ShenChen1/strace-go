@@ -260,6 +260,16 @@ func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, deco
 			}
 		}
 	}
+	// IMPACT: Keep tracee's tracked working directory state updated in fdMap to resolve AT_FDCWD correctly under fast timing races.
+	if scMeta.Name == "chdir" && ret == 0 {
+		p := rawStrArg
+		if p != "" && !strings.HasPrefix(p, "0x") && p != "NULL" {
+			handler.UpdateCwd(targetPid, p, fdMap, int(eventRaw.Pid))
+		}
+	}
+	if scMeta.Name == "fchdir" && ret == 0 {
+		handler.UpdateCwdByFd(targetPid, int32(eventRaw.Args[0]), fdMap)
+	}
 }
 
 // IMPACT: checkShouldPrint filters syscall events by syscall list, path and read/write descriptor filter options.

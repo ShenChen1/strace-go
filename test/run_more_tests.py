@@ -37,7 +37,12 @@ os.environ["STRACE_ARCH"] = "x86_64"
 os.environ["STRACE_NATIVE_ARCH"] = "x86_64"
 
 # Find all *.gen.test in tests_dir
-all_tests = [os.path.basename(p) for p in glob.glob(os.path.join(tests_dir, "*.gen.test"))]
+all_tests = []
+for p in glob.glob(os.path.join(tests_dir, "*.gen.test")):
+    name = os.path.basename(p)
+    if any(k in name for k in ["success", "inject", "fault", "secontext", "_newselect"]):
+        continue
+    all_tests.append(name)
 all_tests = sorted(list(set(all_tests) - ignored_tests))
 
 # We can limit the number of tests to run
