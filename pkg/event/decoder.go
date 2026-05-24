@@ -22,6 +22,9 @@ func NewDecoder(mr *procmem.Reader) *Decoder {
 // IMPACT: Updated DecodeString to dynamically detect BPF buffer truncation using len(bpfData) instead of hardcoding 512 bytes.
 func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int32, scName string, limit int) string {
 	if ptr == 0 { return "NULL" }
+	if probeRet == -2 {
+		return fmt.Sprintf("%#x", ptr)
+	}
 
 	var raw []byte
 	found := false
@@ -33,7 +36,7 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 	if len(bpfData) > 0 {
 		idx := bytes.IndexByte(bpfData, 0)
 		if idx != -1 {
-			if idx > 0 || probeRet >= 0 {
+			if probeRet >= 0 {
 				bpfRaw = bpfData[:idx]
 				bpfFound = true
 				if idx < len(bpfData)-1 {
@@ -88,6 +91,9 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 // DecodeStringRaw decodes a string without quoting it.
 func (d *Decoder) DecodeStringRaw(pid int, ptr uint64, bpfData []byte, probeRet int32) string {
 	if ptr == 0 { return "NULL" }
+	if probeRet == -2 {
+		return fmt.Sprintf("%#x", ptr)
+	}
 	if len(bpfData) > 0 {
 		if idx := bytes.IndexByte(bpfData, 0); idx != -1 {
 			if idx > 0 || probeRet >= 0 { return string(bpfData[:idx]) }

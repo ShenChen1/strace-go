@@ -124,9 +124,34 @@ func decodeBitFlags(val uint64, xlatName string, table XlatTable) string {
 	return strings.Join(res, "|")
 }
 
+var XlatFormat string = "abbrev"
+
 // DecodeFlags translates numeric flag values into human-readable strings.
 // Impact: Core formatting helper for xlat flags. Used across default and specialized handlers.
 func DecodeFlags(val uint64, xlatName string) string {
+	if XlatFormat == "raw" {
+		table, ok := XlatTables[xlatName]
+		isEnum := false
+		if ok {
+			isEnum = (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds") && xlatName != "clone3_flags"
+		}
+		if isEnum {
+			if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds")) && xlatName != "resources" {
+				return fmt.Sprintf("%d", int32(val))
+			}
+			return fmt.Sprintf("%#x", val)
+		}
+		if val == 0 {
+			if ok {
+				for _, entry := range table.Entries {
+					if entry.Val == 0 { return "0" }
+				}
+			}
+			return "0"
+		}
+		return fmt.Sprintf("%#x", val)
+	}
+
 	table, ok := XlatTables[xlatName]
 	if !ok { return fmt.Sprintf("%#x", val) }
 

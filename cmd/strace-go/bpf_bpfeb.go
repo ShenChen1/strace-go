@@ -77,10 +77,12 @@ type bpfProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfMapSpecs struct {
-	Events    *ebpf.MapSpec `ebpf:"events"`
-	EventsMap *ebpf.MapSpec `ebpf:"events_map"`
-	FilterMap *ebpf.MapSpec `ebpf:"filter_map"`
-	Heap      *ebpf.MapSpec `ebpf:"heap"`
+	Events         *ebpf.MapSpec `ebpf:"events"`
+	EventsMap      *ebpf.MapSpec `ebpf:"events_map"`
+	FilterMap      *ebpf.MapSpec `ebpf:"filter_map"`
+	Heap           *ebpf.MapSpec `ebpf:"heap"`
+	MainExitedMap  *ebpf.MapSpec `ebpf:"main_exited_map"`
+	PendingExecMap *ebpf.MapSpec `ebpf:"pending_exec_map"`
 }
 
 // bpfVariableSpecs contains global variables before they are loaded into the kernel.
@@ -109,10 +111,12 @@ func (o *bpfObjects) Close() error {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfMaps struct {
-	Events    *ebpf.Map `ebpf:"events"`
-	EventsMap *ebpf.Map `ebpf:"events_map"`
-	FilterMap *ebpf.Map `ebpf:"filter_map"`
-	Heap      *ebpf.Map `ebpf:"heap"`
+	Events         *ebpf.Map `ebpf:"events"`
+	EventsMap      *ebpf.Map `ebpf:"events_map"`
+	FilterMap      *ebpf.Map `ebpf:"filter_map"`
+	Heap           *ebpf.Map `ebpf:"heap"`
+	MainExitedMap  *ebpf.Map `ebpf:"main_exited_map"`
+	PendingExecMap *ebpf.Map `ebpf:"pending_exec_map"`
 }
 
 func (m *bpfMaps) Close() error {
@@ -121,6 +125,8 @@ func (m *bpfMaps) Close() error {
 		m.EventsMap,
 		m.FilterMap,
 		m.Heap,
+		m.MainExitedMap,
+		m.PendingExecMap,
 	)
 }
 

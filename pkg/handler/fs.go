@@ -23,11 +23,11 @@ func (h *FsHandler) Handle(ctx *Context) Result {
 	switch ctx.SysName {
 	case "mount":
 		// source
-		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, ctx.SysName, 0))
+		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ArgProbeRet(0), ctx.SysName, 0))
 		// target
-		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, ctx.SysName, 0))
+		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[512:1024], ctx.ArgProbeRet(1), ctx.SysName, 0))
 		// type
-		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[2], ctx.StrArgBuf[1024:1152], ctx.ProbeRetEnter, ctx.SysName, 0))
+		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[2], ctx.StrArgBuf[1024:1152], ctx.ArgProbeRet(2), ctx.SysName, 0))
 
 		// flags
 		flags := ctx.Args[3]
@@ -42,10 +42,10 @@ func (h *FsHandler) Handle(ctx *Context) Result {
 		}
 
 		// data
-		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[4], ctx.StrArgBuf[1152:1664], ctx.ProbeRetEnter, ctx.SysName, 0))
+		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[4], ctx.StrArgBuf[1152:1664], ctx.ArgProbeRet(4), ctx.SysName, 0))
 
 	case "umount2":
-		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, ctx.SysName, 0))
+		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ArgProbeRet(0), ctx.SysName, 0))
 		res.ArgParts = append(res.ArgParts, meta.DecodeFlags(ctx.Args[1], "umount_flags"))
 
 	case "getdents64":

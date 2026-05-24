@@ -52,6 +52,10 @@ func (h *SignalHandler) Handle(ctx *Context) Result {
 				res.ArgParts = append(res.ArgParts, "NULL")
 				continue
 			}
+			if ctx.ScMeta.Name == "rt_sigsuspend" && ctx.Args[1] != 8 {
+				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
+				continue
+			}
 			data := ctx.StrArgBuf[:8]
 			if (argName == "oldset" || argName == "oset") && ctx.Ret >= 0 {
 				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 8, true); err == nil && len(d) == 8 { data = d }

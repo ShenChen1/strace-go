@@ -4,57 +4,46 @@ package cli
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
 // Options holds all parsed command-line options.
 type Options struct {
-	CmdArgs         []string
-	OutFile         string
-	AlignCol        int
-	StringLimit     int
-	HexEscapeMode   int // 0 = default, 1 = hex non-ascii (-x), 2 = hex all (-xx)
-	TraceSyscalls   map[string]bool
-	TracePaths      map[string]bool
-	TraceReadFDs    map[int32]bool
-	TraceWriteFDs   map[int32]bool
-	ShowPaths       bool
-	Verbose         bool
-	HelpRequested    bool
-	VersionRequested bool
-	QuietExit        bool
-	QuietUnknownPid  bool
-	FollowForks      bool
+	CmdArgs             []string
+	OutFile             string
+	AlignCol            int
+	StringLimit         int
+	HexEscapeMode       int // 0 = default, 1 = hex non-ascii (-x), 2 = hex all (-xx)
+	TraceSyscalls       map[string]bool
+	TracePaths          map[string]bool
+	TraceReadFDs        map[int32]bool
+	TraceWriteFDs       map[int32]bool
+	ShowPaths           bool
+	ShowPathsMode       int // 0 = none, 1 = -y, 2 = -yy
+	Verbose             bool
+	HelpRequested       bool
+	VersionRequested    bool
+	QuietExit           bool
+	QuietUnknownPid     bool
+	QuietThreadExecve   bool
+	FollowForks         bool
+	XlatFormat          string // "raw", "abbrev", "verbose"
+	TraceSyscallRegexps []*regexp.Regexp
 }
 
 // IMPACT: ParseArgs parses strace-go command-line arguments and returns Options.
-// Added support for -f flag to set FollowForks. It also configures quiet/verbose
-// modes and ensures correct version/help flags parsing.
-// args should be os.Args[1:].
+// It initializes defaults and loops through args calling specialized sub-parsers.
 func ParseArgs(args []string) *Options {
 	opts := &Options{
 		AlignCol:      40,
 		StringLimit:   32,
 		HexEscapeMode: 0,
+		XlatFormat:    "abbrev",
 		TraceSyscalls: make(map[string]bool),
 		TracePaths:    make(map[string]bool),
 		TraceReadFDs:  make(map[int32]bool),
 		TraceWriteFDs: make(map[int32]bool),
-		ShowPaths:     false,
-		Verbose:       false,
-		FollowForks:   false,
-	}
-
-	addT := func(s string) {
-		opts.TraceSyscalls[s] = true
-		if s == "access" { opts.TraceSyscalls["faccessat"] = true; opts.TraceSyscalls["faccessat2"] = true }
-		if s == "stat" { opts.TraceSyscalls["newfstatat"] = true }
-		if s == "lstat" { opts.TraceSyscalls["newfstatat"] = true }
-		if s == "chmod" { opts.TraceSyscalls["chmodat"] = true }
-		if s == "mkdir" { opts.TraceSyscalls["mkdirat"] = true }
-		if s == "rename" { opts.TraceSyscalls["renameat"] = true; opts.TraceSyscalls["renameat2"] = true }
-		if s == "chdir" { opts.TraceSyscalls["fchdir"] = true }
-		if s == "chown" { opts.TraceSyscalls["fchown"] = true; opts.TraceSyscalls["lchown"] = true; opts.TraceSyscalls["fchownat"] = true }
 	}
 
 	for i := 0; i < len(args); i++ {
@@ -64,120 +53,208 @@ func ParseArgs(args []string) *Options {
 			break
 		}
 
-		if arg == "-f" {
-			opts.FollowForks = true
+		if parseQuiet(arg, opts) {
 			continue
 		}
-		if arg == "-q" {
-			// -q suppresses attaching/detaching messages, but not exit status or unknown pids.
+		if parseBasicFlags(arg, opts) {
 			continue
 		}
-		if arg == "-qq" {
-			opts.QuietExit = true
-			opts.QuietUnknownPid = true
+		if parseTraceFlags(arg, opts) {
 			continue
 		}
-		if strings.HasPrefix(arg, "--quiet=") {
-			val := strings.TrimPrefix(arg, "--quiet=")
-			for _, item := range strings.Split(val, ",") {
-				if item == "exit" || item == "all" {
-					opts.QuietExit = true
-				}
-				if item == "all" {
-					opts.QuietUnknownPid = true
-				}
-			}
+		if parseValueFlag(args, &i, opts) {
 			continue
-		}
-
-		if arg == "-h" || arg == "--help" {
-			opts.HelpRequested = true
-			continue
-		}
-		if arg == "-V" || arg == "--version" {
-			opts.VersionRequested = true
-			continue
-		}
-
-		if arg == "-y" {
-			opts.ShowPaths = true
-			continue
-		}
-		if arg == "-x" {
-			opts.HexEscapeMode = 1
-			continue
-		}
-		if arg == "-xx" {
-			opts.HexEscapeMode = 2
-			continue
-		}
-		if arg == "-v" {
-			opts.Verbose = true
-			continue
-		}
-		if strings.HasPrefix(arg, "-v") && len(arg) > 2 {
-			opts.Verbose = true
-			arg = "-" + arg[2:]
-		}
-
-		if strings.HasPrefix(arg, "--trace=") {
-			val := strings.TrimPrefix(arg, "--trace=")
-			for _, s := range strings.Split(val, ",") { addT(s) }
-			continue
-		}
-		if strings.HasPrefix(arg, "--trace-path=") {
-			opts.TracePaths[strings.TrimPrefix(arg, "--trace-path=")] = true
-			continue
-		}
-
-		// Handle flags with values
-		var val string
-		foundVal := false
-		flag := ""
-
-		if strings.HasPrefix(arg, "-e") {
-			flag = "-e"
-			if len(arg) > 2 { val = arg[2:]; foundVal = true }
-		} else if strings.HasPrefix(arg, "-o") {
-			flag = "-o"
-			if len(arg) > 2 { val = arg[2:]; foundVal = true }
-		} else if strings.HasPrefix(arg, "-a") {
-			flag = "-a"
-			if len(arg) > 2 { val = arg[2:]; foundVal = true }
-		} else if strings.HasPrefix(arg, "-s") {
-			flag = "-s"
-			if len(arg) > 2 { val = arg[2:]; foundVal = true }
-		} else if strings.HasPrefix(arg, "-P") {
-			flag = "-P"
-			if len(arg) > 2 { val = arg[2:]; foundVal = true }
-		}
-
-		if flag != "" && !foundVal {
-			if i+1 < len(args) {
-				val = args[i+1]
-				i++
-				foundVal = true
-			}
-		}
-
-		if foundVal {
-			switch flag {
-			case "-o": opts.OutFile = val
-			case "-a": fmt.Sscanf(val, "%d", &opts.AlignCol)
-			case "-s": fmt.Sscanf(val, "%d", &opts.StringLimit)
-			case "-P": opts.TracePaths[val] = true
-			case "-e":
-				if strings.HasPrefix(val, "trace=") {
-					for _, s := range strings.Split(strings.TrimPrefix(val, "trace="), ",") { addT(s) }
-				} else if strings.HasPrefix(val, "read=") {
-					for _, s := range strings.Split(strings.TrimPrefix(val, "read="), ",") { var fd int32; if n, _ := fmt.Sscanf(s, "%d", &fd); n == 1 { opts.TraceReadFDs[fd] = true } }
-				} else if strings.HasPrefix(val, "write=") {
-					for _, s := range strings.Split(strings.TrimPrefix(val, "write="), ",") { var fd int32; if n, _ := fmt.Sscanf(s, "%d", &fd); n == 1 { opts.TraceWriteFDs[fd] = true } }
-				} else {
-					for _, s := range strings.Split(val, ",") { addT(s) }
-				}
-			}
 		}
 	}
 	return opts
+}
+
+// IMPACT: addSyscallTrace adds a syscall to the trace set, mapping aliases to actual names.
+func addSyscallTrace(opts *Options, s string) {
+	if strings.HasPrefix(s, "/") {
+		pattern := strings.TrimPrefix(s, "/")
+		if r, err := regexp.Compile(pattern); err == nil {
+			opts.TraceSyscallRegexps = append(opts.TraceSyscallRegexps, r)
+		}
+		return
+	}
+	opts.TraceSyscalls[s] = true
+	switch s {
+	case "access":
+		opts.TraceSyscalls["faccessat"] = true
+		opts.TraceSyscalls["faccessat2"] = true
+	case "stat", "lstat":
+		opts.TraceSyscalls["newfstatat"] = true
+	case "chmod":
+		opts.TraceSyscalls["chmodat"] = true
+	case "mkdir":
+		opts.TraceSyscalls["mkdirat"] = true
+	case "rename":
+		opts.TraceSyscalls["renameat"] = true
+		opts.TraceSyscalls["renameat2"] = true
+	case "chdir":
+		opts.TraceSyscalls["fchdir"] = true
+	case "chown":
+		opts.TraceSyscalls["fchown"] = true
+		opts.TraceSyscalls["lchown"] = true
+		opts.TraceSyscalls["fchownat"] = true
+	}
+}
+
+// IMPACT: parseQuiet parses quiet flags like -q, -qq, -qqq, and --quiet.
+func parseQuiet(arg string, opts *Options) bool {
+	if arg == "-q" {
+		return true
+	}
+	if arg == "-qq" {
+		opts.QuietExit = true
+		opts.QuietUnknownPid = true
+		return true
+	}
+	if arg == "-qqq" {
+		opts.QuietExit = true
+		opts.QuietUnknownPid = true
+		opts.QuietThreadExecve = true
+		return true
+	}
+	if strings.HasPrefix(arg, "--quiet=") {
+		val := strings.TrimPrefix(arg, "--quiet=")
+		for _, item := range strings.Split(val, ",") {
+			if item == "exit" || item == "all" {
+				opts.QuietExit = true
+			}
+			if item == "all" {
+				opts.QuietUnknownPid = true
+			}
+			if item == "thread-execve" || item == "all" {
+				opts.QuietThreadExecve = true
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// IMPACT: parseBasicFlags parses boolean flags such as fork following, help, version and verbose.
+func parseBasicFlags(arg string, opts *Options) bool {
+	switch {
+	case arg == "-f":
+		opts.FollowForks = true
+	case arg == "-h" || arg == "--help":
+		opts.HelpRequested = true
+	case arg == "-V" || arg == "--version":
+		opts.VersionRequested = true
+	case arg == "-y":
+		opts.ShowPaths = true
+		opts.ShowPathsMode = 1
+	case arg == "-yy":
+		opts.ShowPaths = true
+		opts.ShowPathsMode = 2
+	case arg == "-x":
+		opts.HexEscapeMode = 1
+	case arg == "-xx":
+		opts.HexEscapeMode = 2
+	case arg == "-v":
+		opts.Verbose = true
+	case strings.HasPrefix(arg, "-v") && len(arg) > 2:
+		opts.Verbose = true
+	default:
+		return false
+	}
+	return true
+}
+
+// IMPACT: parseTraceFlags parses long trace flags: --trace and --trace-path.
+func parseTraceFlags(arg string, opts *Options) bool {
+	if strings.HasPrefix(arg, "--trace=") {
+		val := strings.TrimPrefix(arg, "--trace=")
+		for _, s := range strings.Split(val, ",") {
+			addSyscallTrace(opts, s)
+		}
+		return true
+	}
+	if strings.HasPrefix(arg, "--trace-path=") {
+		opts.TracePaths[strings.TrimPrefix(arg, "--trace-path=")] = true
+		return true
+	}
+	return false
+}
+
+// IMPACT: parseValueFlag parses flags that take additional arguments.
+func parseValueFlag(args []string, i *int, opts *Options) bool {
+	arg := args[*i]
+	var val string
+	foundVal := false
+	flag := ""
+
+	for _, f := range []string{"-e", "-o", "-a", "-s", "-P", "-X"} {
+		if strings.HasPrefix(arg, f) {
+			flag = f
+			if len(arg) > len(f) {
+				val = arg[len(f):]
+				foundVal = true
+			}
+			break
+		}
+	}
+
+	if flag == "" {
+		return false
+	}
+
+	if !foundVal && *i+1 < len(args) {
+		*i++
+		val = args[*i]
+		foundVal = true
+	}
+
+	if foundVal {
+		applyValueFlag(flag, val, opts)
+	}
+	return true
+}
+
+// IMPACT: applyValueFlag applies value-based flags to the configuration.
+func applyValueFlag(flag string, val string, opts *Options) {
+	switch flag {
+	case "-o":
+		opts.OutFile = val
+	case "-a":
+		fmt.Sscanf(val, "%d", &opts.AlignCol)
+	case "-s":
+		fmt.Sscanf(val, "%d", &opts.StringLimit)
+	case "-P":
+		opts.TracePaths[val] = true
+	case "-e":
+		parseEFlag(val, opts)
+	case "-X":
+		opts.XlatFormat = val
+	}
+}
+
+// IMPACT: parseEFlag parses the -e flag parameter values.
+func parseEFlag(val string, opts *Options) {
+	if strings.HasPrefix(val, "trace=") {
+		for _, s := range strings.Split(strings.TrimPrefix(val, "trace="), ",") {
+			addSyscallTrace(opts, s)
+		}
+	} else if strings.HasPrefix(val, "read=") {
+		for _, s := range strings.Split(strings.TrimPrefix(val, "read="), ",") {
+			var fd int32
+			if n, _ := fmt.Sscanf(s, "%d", &fd); n == 1 {
+				opts.TraceReadFDs[fd] = true
+			}
+		}
+	} else if strings.HasPrefix(val, "write=") {
+		for _, s := range strings.Split(strings.TrimPrefix(val, "write="), ",") {
+			var fd int32
+			if n, _ := fmt.Sscanf(s, "%d", &fd); n == 1 {
+				opts.TraceWriteFDs[fd] = true
+			}
+		}
+	} else {
+		for _, s := range strings.Split(val, ",") {
+			addSyscallTrace(opts, s)
+		}
+	}
 }

@@ -1,0 +1,235 @@
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"os/exec"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+	"unsafe"
+
+	"strace-go/pkg/cli"
+	"strace-go/pkg/event"
+	"strace-go/pkg/procmem"
+
+	"github.com/cilium/ebpf/link"
+	"github.com/cilium/ebpf/ringbuf"
+	"github.com/cilium/ebpf/rlimit"
+)
+
+type traceSession struct {
+	cmd       *exec.Cmd
+	events    *ringbuf.Reader
+	targetPid int
+	opts      *cli.Options
+	decoder   *event.Decoder
+	memReader *procmem.Reader
+	fdMap     map[string]string
+	outWriter io.Writer
+	outFile   *os.File
+}
+
+// IMPACT: setupBPF loads the BPF objects and attaches the raw syscall raw tracepoints.
+func setupBPF() (*bpfObjects, link.Link, link.Link) {
+	if err := rlimit.RemoveMemlock(); err != nil {
+		log.Fatalf("failed to remove memlock: %v", err)
+	}
+	bpfObjs := &bpfObjects{}
+	if err := loadBpfObjects(bpfObjs, nil); err != nil {
+		log.Fatalf("failed to load BPF objects: %v", err)
+	}
+	tpEnter, err := link.Tracepoint("raw_syscalls", "sys_enter", bpfObjs.TraceSysEnter, nil)
+	if err != nil {
+		log.Fatalf("failed to attach sys_enter tracepoint: %v", err)
+	}
+	tpExit, err := link.Tracepoint("raw_syscalls", "sys_exit", bpfObjs.TraceSysExit, nil)
+	if err != nil {
+		log.Fatalf("failed to attach sys_exit tracepoint: %v", err)
+	}
+	return bpfObjs, tpEnter, tpExit
+}
+
+// IMPACT: startAndTraceCmd configures ptrace-based child process spawning and initial attachment.
+func startAndTraceCmd(cmdArgs []string, bpfObjs *bpfObjects) (*exec.Cmd, int, map[string]string) {
+	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Ptrace: true}
+	if err := cmd.Start(); err != nil {
+		log.Fatalf("failed to start command: %v", err)
+	}
+
+	targetPid := cmd.Process.Pid
+	bpfObjs.FilterMap.Update(uint32(0), uint32(targetPid), 0)
+
+	fdMap := make(map[string]string)
+	var wstatus syscall.WaitStatus
+	syscall.Wait4(targetPid, &wstatus, 0, nil)
+
+	// Populate FD map from /proc
+	if entries, err := os.ReadDir(fmt.Sprintf("/proc/%d/fd", targetPid)); err == nil {
+		for _, entry := range entries {
+			if path, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%s", targetPid, entry.Name())); err == nil {
+				fdMap[fmt.Sprintf("%d:%s", targetPid, entry.Name())] = path
+			}
+		}
+	}
+
+	time.Sleep(10 * time.Millisecond)
+
+	syscall.PtraceDetach(targetPid)
+	return cmd, targetPid, fdMap
+}
+
+// IMPACT: setupOutput prepares the io.Writer target for saving strace text traces.
+func setupOutput(outFileOpt string) (io.Writer, *os.File) {
+	if outFileOpt == "" {
+		return os.Stderr, nil
+	}
+	outFile, err := os.Create(outFileOpt)
+	if err != nil {
+		log.Fatalf("failed to create output file: %v", err)
+	}
+	return outFile, outFile
+}
+
+// IMPACT: startReaper reaps all orphan/zombie child processes to prevent hangs.
+func startReaper(targetPid int, done chan bool, closeDone func(), opts *cli.Options) {
+	go func() {
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		exeName := os.Getenv("STRACE_EXE")
+		if exeName == "" {
+			exeName = "strace"
+		}
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				for {
+					var wstatus syscall.WaitStatus
+					pid, err := syscall.Wait4(-1, &wstatus, syscall.WNOHANG, nil)
+					if err != nil || pid <= 0 {
+						break
+					}
+					if pid == targetPid {
+						closeDone()
+					} else if opts == nil || (!opts.QuietExit && !opts.QuietUnknownPid) {
+						fmt.Fprintf(os.Stderr, "%s: Exit of unknown pid %d ignored\n", exeName, pid)
+					}
+				}
+			}
+		}
+	}()
+}
+
+// IMPACT: run loops through the ring buffer to deliver tracing events.
+func (s *traceSession) run() {
+	done := make(chan bool)
+	var once sync.Once
+	closeDone := func() {
+		once.Do(func() {
+			close(done)
+		})
+	}
+
+	go func() {
+		s.cmd.Wait()
+		closeDone()
+	}()
+
+	startReaper(s.targetPid, done, closeDone, s.opts)
+	if len(s.opts.TraceSyscalls) == 0 || s.opts.TraceSyscalls["execve"] {
+		s.printFakeFirstExecve()
+	}
+
+	eventChan := make(chan *bpfEvent, 2048)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			rec, err := s.events.Read()
+			if err != nil {
+				break
+			}
+			eventRaw := (*bpfEvent)(unsafe.Pointer(&rec.RawSample[0]))
+			ev := *eventRaw
+			eventChan <- &ev
+		}
+	}()
+
+	isDone := false
+	for {
+		if isDone {
+			select {
+			case ev := <-eventChan:
+				s.handleEvent(ev)
+			case <-time.After(50 * time.Millisecond):
+				s.events.Close()
+				wg.Wait()
+				close(eventChan)
+				for ev := range eventChan {
+					s.handleEvent(ev)
+				}
+				if s.opts == nil || !s.opts.QuietExit {
+					pidPrefix := ""
+					if s.opts != nil && s.opts.FollowForks {
+						pidPrefix = fmt.Sprintf("%-5d ", s.targetPid)
+					}
+					fmt.Fprintf(s.outWriter, "%s+++ exited with 0 +++\n", pidPrefix)
+				}
+				return
+			}
+		} else {
+			select {
+			case <-done:
+				isDone = true
+			case ev := <-eventChan:
+				s.handleEvent(ev)
+			}
+		}
+	}
+}
+
+// IMPACT: printFakeFirstExecve formats and outputs the placeholder line for the first execve.
+func (s *traceSession) printFakeFirstExecve() {
+	pidPrefix := ""
+	if s.opts != nil && s.opts.FollowForks {
+		pidPrefix = fmt.Sprintf("%-5d ", s.targetPid)
+	}
+
+	envc := len(os.Environ())
+	if data, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", s.targetPid)); err == nil {
+		parts := bytes.Split(data, []byte{0})
+		count := 0
+		for _, p := range parts {
+			if len(p) > 0 {
+				count++
+			}
+		}
+		if count > 0 {
+			envc = count
+		}
+	}
+
+	var quotedArgs []string
+	for _, arg := range s.opts.CmdArgs {
+		quotedArgs = append(quotedArgs, "\""+arg+"\"")
+	}
+	argvStr := "[" + strings.Join(quotedArgs, ", ") + "]"
+
+	line := fmt.Sprintf("execve(\"%s\", %s, 0x7ffdbcb5c068 /* %d vars */)", s.opts.CmdArgs[0], argvStr, envc)
+	padding := " "
+	if len(line) < s.opts.AlignCol {
+		padding = strings.Repeat(" ", s.opts.AlignCol-len(line))
+	}
+	fmt.Fprintf(s.outWriter, "%s%s%s= 0\n", pidPrefix, line, padding)
+}

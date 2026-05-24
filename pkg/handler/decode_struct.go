@@ -12,7 +12,7 @@ import (
 func (h *DefaultHandler) decodeStruct(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	if ctx.ScMeta.Name == "utimensat" && strings.Contains(argTyp, "struct timespec *") {
 		data := ctx.StrArgBuf[512 : 512+32]
-		readSuccess := ctx.IsArgReadSuccess(1)
+		readSuccess := ctx.IsArgReadSuccess(2)
 		var err error
 		if !readSuccess || ctx.ProbeRetEnter < 0 {
 			data, err = ctx.MemReader.ReadRobust(ctx.Pid, val, 32, false)
@@ -75,7 +75,7 @@ func (h *DefaultHandler) decodeStruct(ctx *Context, i int, argTyp string, val ui
 
 	if strings.Contains(argTyp, "struct timex *") || strings.Contains(argTyp, "struct __kernel_timex *") {
 		data := ctx.StrArgBuf[1024 : 1024+208]
-		if ctx.Ret >= 0 || ctx.ProbeRetExit < 0 {
+		if ctx.ProbeRetExit < 0 {
 			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 208, true); err == nil && len(d) == 208 {
 				data = d
 			}
@@ -88,7 +88,7 @@ func (h *DefaultHandler) decodeStruct(ctx *Context, i int, argTyp string, val ui
 			return fmt.Sprintf("%#x", val), true
 		}
 		data := ctx.StrArgBuf[1024 : 1024+144]
-		if ctx.Ret >= 0 || ctx.ProbeRetExit < 0 {
+		if ctx.ProbeRetExit < 0 {
 			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 144, true); err == nil && len(d) == 144 {
 				data = d
 			}
@@ -101,7 +101,7 @@ func (h *DefaultHandler) decodeStruct(ctx *Context, i int, argTyp string, val ui
 			return fmt.Sprintf("%#x", val), true
 		}
 		data := ctx.StrArgBuf[1024 : 1024+112]
-		if ctx.Ret >= 0 || ctx.ProbeRetExit < 0 {
+		if ctx.ProbeRetExit < 0 {
 			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 112, true); err == nil && len(d) == 112 {
 				data = d
 			}
@@ -114,7 +114,7 @@ func (h *DefaultHandler) decodeStruct(ctx *Context, i int, argTyp string, val ui
 			return fmt.Sprintf("%#x", val), true
 		}
 		data := ctx.StrArgBuf[1024 : 1024+120]
-		if ctx.Ret >= 0 || ctx.ProbeRetExit < 0 {
+		if ctx.ProbeRetExit < 0 {
 			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 120, true); err == nil && len(d) == 120 {
 				data = d
 			}

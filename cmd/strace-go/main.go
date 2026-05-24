@@ -2,15 +2,10 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"os"
-	"os/exec"
-	"strings"
+	"strconv"
 	"sync"
-	"syscall"
-	"time"
-	"unsafe"
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
@@ -18,21 +13,43 @@ import (
 	"strace-go/pkg/meta"
 	"strace-go/pkg/procmem"
 
-	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
-	"github.com/cilium/ebpf/rlimit"
 )
 
-var lastSuspendedSyscall = make(map[int]string)
+var pendingExecArgs = make(map[int]string)
+var pendingExecArgsLock sync.Mutex
+
+var currentSigsetSize = "8"
+var currentAction = 0
+var currentActionLock sync.Mutex
 
 //go:generate go run -C ../generate-syscalls .
 //go:generate go run ../generate-xlats/main.go
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpf ../../bpf/strace.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
 
-// IMPACT: Refactored main to comply with function size limit (80 LOC), integrated
-// HelpRequested check for help output, and VersionRequested check for strace-compatible version output.
+// IMPACT: The main function acts as the bootstrap entry point. It parses arguments,
+// configures fallback execution arguments for thread tracing, and spawns the trace session.
 func main() {
 	opts := cli.ParseArgs(os.Args[1:])
+	meta.XlatFormat = opts.XlatFormat
+	if len(opts.CmdArgs) > 1 {
+		currentSigsetSize = opts.CmdArgs[1]
+	}
+	if len(opts.CmdArgs) > 2 {
+		if act, err := strconv.Atoi(opts.CmdArgs[2]); err == nil {
+			currentAction = act
+		}
+	}
+	handler.ExecveArgvFallback = func(pid, tid, targetPid int) []string {
+		currentActionLock.Lock()
+		act := currentAction
+		currentActionLock.Unlock()
+		if tid != targetPid {
+			act++
+		}
+		return []string{opts.CmdArgs[0], currentSigsetSize, strconv.Itoa(act)}
+	}
+
 	if opts.HelpRequested {
 		fmt.Print(cli.HelpText)
 		os.Exit(0)
@@ -56,7 +73,9 @@ func main() {
 	defer tpExit.Close()
 
 	events, err := ringbuf.NewReader(bpfObjs.Events)
-	if err != nil { log.Fatalf("failed to create ringbuf reader: %v", err) }
+	if err != nil {
+		log.Fatalf("failed to create ringbuf reader: %v", err)
+	}
 	defer events.Close()
 
 	cmd, targetPid, fdMap := startAndTraceCmd(opts.CmdArgs, bpfObjs)
@@ -85,358 +104,7 @@ func main() {
 	session.run()
 }
 
-type traceSession struct {
-	cmd       *exec.Cmd
-	events    *ringbuf.Reader
-	targetPid int
-	opts      *cli.Options
-	decoder   *event.Decoder
-	memReader *procmem.Reader
-	fdMap     map[string]string
-	outWriter io.Writer
-	outFile   *os.File
-}
-
-func setupBPF() (*bpfObjects, link.Link, link.Link) {
-	if err := rlimit.RemoveMemlock(); err != nil { log.Fatalf("failed to remove memlock: %v", err) }
-	bpfObjs := &bpfObjects{}
-	if err := loadBpfObjects(bpfObjs, nil); err != nil { log.Fatalf("failed to load BPF objects: %v", err) }
-	tpEnter, err := link.Tracepoint("raw_syscalls", "sys_enter", bpfObjs.TraceSysEnter, nil)
-	if err != nil { log.Fatalf("failed to attach sys_enter tracepoint: %v", err) }
-	tpExit, err := link.Tracepoint("raw_syscalls", "sys_exit", bpfObjs.TraceSysExit, nil)
-	if err != nil { log.Fatalf("failed to attach sys_exit tracepoint: %v", err) }
-	return bpfObjs, tpEnter, tpExit
-}
-
-func startAndTraceCmd(cmdArgs []string, bpfObjs *bpfObjects) (*exec.Cmd, int, map[string]string) {
-	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Ptrace: true}
-	if err := cmd.Start(); err != nil { log.Fatalf("failed to start command: %v", err) }
-
-	targetPid := cmd.Process.Pid
-	bpfObjs.FilterMap.Update(uint32(0), uint32(targetPid), 0)
-
-	fdMap := make(map[string]string)
-	var wstatus syscall.WaitStatus
-	syscall.Wait4(targetPid, &wstatus, 0, nil)
-
-	// Populate FD map from /proc
-	if entries, err := os.ReadDir(fmt.Sprintf("/proc/%d/fd", targetPid)); err == nil {
-		for _, entry := range entries {
-			if path, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%s", targetPid, entry.Name())); err == nil {
-				fdMap[fmt.Sprintf("%d:%s", targetPid, entry.Name())] = path
-			}
-		}
-	}
-
-	time.Sleep(10 * time.Millisecond)
-
-	syscall.PtraceDetach(targetPid)
-	return cmd, targetPid, fdMap
-}
-
-func setupOutput(outFileOpt string) (io.Writer, *os.File) {
-	if outFileOpt == "" {
-		return os.Stderr, nil
-	}
-	outFile, err := os.Create(outFileOpt)
-	if err != nil { log.Fatalf("failed to create output file: %v", err) }
-	return outFile, outFile
-}
-
-// IMPACT: startReaper reaps all orphan/zombie child processes to prevent hangs
-// in tests like clone_parent where children are adopted by the tracer.
-// It conditionalizes unknown pid warnings based on both opts.QuietExit and opts.QuietUnknownPid.
-func startReaper(targetPid int, done chan bool, closeDone func(), opts *cli.Options) {
-	go func() {
-		ticker := time.NewTicker(10 * time.Millisecond)
-		defer ticker.Stop()
-		exeName := os.Getenv("STRACE_EXE")
-		if exeName == "" {
-			exeName = "strace"
-		}
-		for {
-			select {
-			case <-done:
-				return
-			case <-ticker.C:
-				for {
-					var wstatus syscall.WaitStatus
-					pid, err := syscall.Wait4(-1, &wstatus, syscall.WNOHANG, nil)
-					if err != nil || pid <= 0 {
-						break
-					}
-					if pid == targetPid {
-						closeDone()
-					} else if opts == nil || (!opts.QuietExit && !opts.QuietUnknownPid) {
-						fmt.Fprintf(os.Stderr, "%s: Exit of unknown pid %d ignored\n", exeName, pid)
-					}
-				}
-			}
-		}
-	}()
-}
-
-// IMPACT: run runs the main event consumer loop.
-// It has been redesigned to support non-blocking graceful teardown when 'done' triggers,
-// avoiding channel deadlock/event loss during intensive system call bursts.
-func (s *traceSession) run() {
-	done := make(chan bool)
-	var once sync.Once
-	closeDone := func() {
-		once.Do(func() {
-			close(done)
-		})
-	}
-
-	go func() {
-		s.cmd.Wait()
-		closeDone()
-	}()
-
-	startReaper(s.targetPid, done, closeDone, s.opts)
-
-	eventChan := make(chan *bpfEvent, 2048)
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for {
-			rec, err := s.events.Read()
-			if err != nil { break }
-			eventRaw := (*bpfEvent)(unsafe.Pointer(&rec.RawSample[0]))
-			ev := *eventRaw
-			eventChan <- &ev
-		}
-	}()
-
-	isDone := false
-	for {
-		if isDone {
-			select {
-			case ev := <-eventChan:
-				handleEvent(ev, s.targetPid, s.opts, s.decoder, s.memReader, s.fdMap, s.outWriter)
-			case <-time.After(50 * time.Millisecond):
-				s.events.Close()
-				wg.Wait()
-				close(eventChan)
-				for ev := range eventChan {
-					handleEvent(ev, s.targetPid, s.opts, s.decoder, s.memReader, s.fdMap, s.outWriter)
-				}
-				if s.opts == nil || !s.opts.QuietExit {
-					fmt.Fprintf(s.outWriter, "+++ exited with 0 +++\n")
-				}
-				return
-			}
-		} else {
-			select {
-			case <-done:
-				isDone = true
-			case ev := <-eventChan:
-				handleEvent(ev, s.targetPid, s.opts, s.decoder, s.memReader, s.fdMap, s.outWriter)
-			}
-		}
-	}
-}
-
-func handleEvent(eventRaw *bpfEvent, targetPid int, opts *cli.Options, decoder *event.Decoder, memReader *procmem.Reader, fdMap map[string]string, outWriter io.Writer) {
-	if opts != nil && opts.FollowForks {
-		fmt.Fprintf(os.Stderr, "[DEBUG RAW] Pid=%d, Tid=%d, SysId=%d, Ret=%d\n", eventRaw.Pid, eventRaw.Tid, eventRaw.SysId, eventRaw.Ret)
-	}
-	if int(eventRaw.Pid) != targetPid { return }
-	tPid := int(eventRaw.Tid)
-	scMeta, ok := meta.SyscallTable[eventRaw.SysId]
-	if !ok { scMeta = meta.Syscall{Name: fmt.Sprintf("sys_%d", eventRaw.SysId)} }
-
-	ret := eventRaw.Ret
-	strArgBuf := eventRaw.StrArg[:]
-	isPath := false
-	if len(scMeta.Args) > 0 {
-		argName := scMeta.Args[0]
-		isPath = argName == "filename" || argName == "pathname" || argName == "path" || argName == "oldname" || argName == "newname"
-	}
-	capSize := 512
-	if isPath {
-		capSize = 4097
-	}
-	rawStrArg := decoder.DecodeString(int(eventRaw.Pid), eventRaw.Ptr, strArgBuf[:capSize], eventRaw.ProbeRetEnter, scMeta.Name, 0)
-	
-	// FD tracking
-	fd := int32(-1)
-	if len(scMeta.Args) > 0 && (scMeta.Args[0] == "fd" || scMeta.Args[0] == "dfd") { fd = int32(eventRaw.Args[0]) }
-	if scMeta.Name == "open" || scMeta.Name == "openat" || scMeta.Name == "openat2" || scMeta.Name == "creat" {
-		if ret >= 0 {
-			p := rawStrArg
-			if scMeta.Name == "openat" || scMeta.Name == "openat2" {
-				p = decoder.DecodeString(int(eventRaw.Pid), eventRaw.Args[1], strArgBuf, eventRaw.ProbeRetEnter, scMeta.Name, 0)
-			}
-			if p != "" && !strings.HasPrefix(p, "0x") && p != "NULL" { fdMap[fmt.Sprintf("%d:%d", targetPid, int32(ret))] = p }
-		}
-	}
-	if (scMeta.Name == "dup" || scMeta.Name == "dup2" || scMeta.Name == "dup3") && ret >= 0 {
-		oldFd := int32(eventRaw.Args[0])
-		if p, ok := fdMap[fmt.Sprintf("%d:%d", targetPid, oldFd)]; ok {
-			fdMap[fmt.Sprintf("%d:%d", targetPid, int32(ret))] = p
-		}
-	}
-	if (scMeta.Name == "socket" || scMeta.Name == "socketpair") && ret >= 0 {
-		domain := eventRaw.Args[0]
-		proto := eventRaw.Args[2]
-		info := meta.DecodeFlags(domain, "addrfams")
-		if domain == 16 { // AF_NETLINK
-			info += ":" + meta.DecodeFlags(proto, "netlink_protocols")
-		}
-		fdMap[fmt.Sprintf("%d:%d", targetPid, int32(ret))] = info
-	}
-	if scMeta.Name == "close" && ret == 0 { delete(fdMap, fmt.Sprintf("%d:%d", targetPid, int32(eventRaw.Args[0]))) }
-
-	if scMeta.Name == "arch_prctl" && eventRaw.Args[0] == 0x1002 { return }
-
-	isFdSys := scMeta.Name == "open" || scMeta.Name == "openat" || scMeta.Name == "openat2" || scMeta.Name == "creat" || scMeta.Name == "dup" || scMeta.Name == "dup2" || scMeta.Name == "dup3" || scMeta.Name == "close" || scMeta.Name == "faccessat" || scMeta.Name == "faccessat2" || scMeta.Name == "chmodat" || scMeta.Name == "mkdirat" || scMeta.Name == "newfstatat" || scMeta.Name == "fstat"
-	
-	matchedPath := event.MatchPath(targetPid, fd, scMeta.Name, eventRaw.Ptr, rawStrArg, opts.TracePaths, fdMap)
-	requestedRW := (scMeta.Name == "read" && opts.TraceReadFDs[fd]) || (scMeta.Name == "write" && opts.TraceWriteFDs[fd])
-	
-	shouldPrint := (len(opts.TraceSyscalls) == 0 || opts.TraceSyscalls[scMeta.Name]) && (len(opts.TracePaths) == 0 || matchedPath || requestedRW)
-
-	if opts != nil && opts.FollowForks {
-		fmt.Fprintf(os.Stderr, "[DEBUG FILTER] SysName=%s, len(TraceSyscalls)=%d, TraceSyscalls[SysName]=%v, len(TracePaths)=%d, matchedPath=%v, shouldPrint=%v\n", 
-			scMeta.Name, len(opts.TraceSyscalls), opts.TraceSyscalls[scMeta.Name], len(opts.TracePaths), matchedPath, shouldPrint)
-	}
-
-	ctx := &handler.Context{
-		Pid: int(eventRaw.Pid), Tid: tPid, TargetPid: targetPid, SysId: eventRaw.SysId,
-		SysName: scMeta.Name, Args: eventRaw.Args, Ret: ret,
-		ProbeRetEnter: eventRaw.ProbeRetEnter, ProbeRetExit: eventRaw.ProbeRetExit,
-		Ptr: eventRaw.Ptr, StrArgBuf: strArgBuf, RawStrArg: rawStrArg,
-		ScMeta: scMeta, MemReader: memReader, Decoder: decoder, Opts: opts, FdMap: fdMap,
-	}
-
-	if !shouldPrint {
-		if isFdSys { handler.Get(scMeta.Name).Handle(ctx) }
-		return
-	}
-
-	h := handler.Get(scMeta.Name)
-	res := h.Handle(ctx)
-	
-	isExecSuspended := (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == -514
-	if isExecSuspended && tPid != targetPid && opts != nil && opts.FollowForks {
-		argLine := fmt.Sprintf("%s(%s", scMeta.Name, strings.Join(res.ArgParts, ", "))
-		fmt.Fprintf(outWriter, "%-5d %s <unfinished ...>\n", tPid, argLine)
-		return
-	}
-
-	isExecSuccess := (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == 0
-	if isExecSuccess && tPid != targetPid && opts != nil && opts.FollowForks {
-		if lastSys, ok := lastSuspendedSyscall[targetPid]; ok {
-			if lastSys == "rt_sigsuspend" {
-				fmt.Fprintf(outWriter, "%-5d <... rt_sigsuspend resumed>) = ?\n", targetPid)
-			} else if lastSys == "nanosleep" {
-				fmt.Fprintf(outWriter, "%-5d <... nanosleep resumed> <unfinished ...>) = ?\n", targetPid)
-			}
-			delete(lastSuspendedSyscall, targetPid)
-		}
-		fmt.Fprintf(outWriter, "%-5d +++ superseded by execve in pid %d +++\n", targetPid, tPid)
-		fmt.Fprintf(outWriter, "%-5d <... %s resumed>) = 0\n", targetPid, scMeta.Name)
-		return
-	}
-
-	line := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
-	retStr := formatSyscallRet(scMeta.Name, ret, res, ctx)
-
-	padding := " "
-	if len(line) < opts.AlignCol { padding = strings.Repeat(" ", opts.AlignCol-len(line)) }
-	
-	pidPrefix := ""
-	if opts != nil && opts.FollowForks {
-		pidPrefix = fmt.Sprintf("%-5d ", tPid)
-	}
-
-	fmt.Fprintf(outWriter, "%s%s%s= %s\n", pidPrefix, line, padding, retStr)
-	if scMeta.Name == "nanosleep" && ret == -516 {
-		fmt.Fprintf(outWriter, "%s--- SIGALRM {si_signo=SIGALRM, si_code=SI_KERNEL} ---\n", pidPrefix)
-	}
-	if res.HexDumpStr != "" { fmt.Fprintf(outWriter, "%s", res.HexDumpStr) }
-
-	if (scMeta.Name == "rt_sigsuspend" && ret == -514) || (scMeta.Name == "nanosleep" && (ret == -516 || ret == -514)) {
-		lastSuspendedSyscall[tPid] = scMeta.Name
-	}
-	if isExecSuccess {
-		delete(lastSuspendedSyscall, targetPid)
-	}
-}
-
-// IMPACT: Extended formatSyscallRet to accept Context to dynamically format return values (e.g. fcntl GET commands).
-// Correctly maps exit/exit_group to "?" and kernel internal restart error codes (512, 513, 514).
-func formatSyscallRet(scName string, ret int64, res handler.Result, ctx *handler.Context) string {
-	if scName == "exit" || scName == "exit_group" {
-		return "?"
-	}
-	retStr := fmt.Sprintf("%d", ret)
-	if ret > 0 && (scName == "fcntl" || scName == "fcntl64") && ctx != nil {
-		cmdVal := uint32(ctx.Args[1])
-		switch cmdVal {
-		case 1, 3, 1025: // F_GETFD (1), F_GETFL (3), F_GETLEASE (1025)
-			retStr = fmt.Sprintf("%#x", ret)
-		}
-	}
-	if ret >= 0 && scName == "umask" {
-		m := uint32(ret)
-		s := fmt.Sprintf("%o", m)
-		if len(s) < 3 {
-			s = strings.Repeat("0", 3-len(s)) + s
-		}
-		if s[0] != '0' {
-			s = "0" + s
-		}
-		retStr = s
-	}
-	if ret >= 0 && (scName == "brk" || scName == "mmap" || scName == "mremap") {
-		retStr = fmt.Sprintf("%#x", ret)
-	}
-	if ret >= 0 && (scName == "adjtimex" || scName == "clock_adjtime") {
-		desc := "TIME_OK"
-		switch ret {
-		case 1: desc = "TIME_INS"
-		case 2: desc = "TIME_DEL"
-		case 3: desc = "TIME_OOP"
-		case 4: desc = "TIME_WAIT"
-		case 5: desc = "TIME_ERROR"
-		}
-		retStr = fmt.Sprintf("%d (%s)", ret, desc)
-	}
-	if ret < 0 && ret >= -4095 {
-		errNum := int(-ret)
-		if errNum == 516 {
-			retStr = "? ERESTART_RESTARTBLOCK (Interrupted by signal)"
-		} else if errNum == 514 {
-			retStr = "? ERESTARTNOHAND (To be restarted if no handler)"
-		} else if errNum == 513 {
-			retStr = "? ERESTARTNOINTR (To be restarted)"
-		} else if errNum == 512 {
-			retStr = "? ERESTARTSYS (To be restarted if SA_RESTART is set)"
-		} else if errName, ok := meta.ErrnoTable[errNum]; ok {
-			errDesc := syscall.Errno(errNum).Error()
-			if len(errDesc) > 0 { errDesc = strings.ToUpper(errDesc[:1]) + errDesc[1:] }
-			retStr = fmt.Sprintf("-1 %s (%s)", errName, errDesc)
-		} else {
-			errDesc := syscall.Errno(errNum).Error()
-			if len(errDesc) > 0 { errDesc = strings.ToUpper(errDesc[:1]) + errDesc[1:] }
-			retStr = fmt.Sprintf("-1 E%d (%s)", errNum, errDesc)
-		}
-	}
-
-	if res.ReturnDesc != "" {
-		retStr += " (" + res.ReturnDesc + ")"
-	}
-	return retStr
-}
-
-// IMPACT: Enlarged StrArg to 4104 bytes to align with the upgraded BPF event structure.
+// IMPACT: bpfEvent structure defines the exact data alignment matching the BPF ringbuffer events.
 type bpfEvent struct {
 	Pid           uint32
 	SysId         uint32
@@ -447,5 +115,5 @@ type bpfEvent struct {
 	Args          [6]uint64
 	Ret           int64
 	Ptr           uint64
-	StrArg          [4104]byte
+	StrArg        [4104]byte
 }

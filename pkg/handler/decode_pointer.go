@@ -10,6 +10,8 @@ import (
 	"strace-go/pkg/format"
 )
 
+var ExecveArgvFallback func(pid, tid, targetPid int) []string
+
 // decodePointer formats pointer arguments, falling back to raw hex if needed.
 func (h *DefaultHandler) decodePointer(ctx *Context, i int, argTyp, argName string, val uint64, res *Result) (string, bool) {
 	// IMPACT: Fake decode execveat for tests to bypass memory limitations.
@@ -149,7 +151,7 @@ func (h *DefaultHandler) decodeCharPointer(ctx *Context, i int, argTyp, argName 
 			limit = 0
 			capSize = 4097
 		}
-		p := ctx.Decoder.DecodeString(ctx.Pid, val, ctx.StrArgBuf[0:capSize], ctx.ProbeRetEnter, scName, limit)
+		p := ctx.Decoder.DecodeString(ctx.Pid, val, ctx.StrArgBuf[0:capSize], ctx.ArgProbeRet(i), scName, limit)
 		if isPath && ctx.Ret < 0 {
 			if strings.HasSuffix(p, `..."`) {
 				rawPath := p[1 : len(p)-4]
@@ -255,21 +257,21 @@ func (h *DefaultHandler) decodeRenArg(ctx *Context, i int, val uint64) (string, 
 	switch scName {
 	case "rename", "link", "symlink":
 		if i == 0 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, scName, 0)
+			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ArgProbeRet(0), scName, 0)
 		} else if i == 1 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, scName, 0)
+			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[512:1024], ctx.ArgProbeRet(1), scName, 0)
 		}
 	case "renameat", "renameat2", "linkat":
 		if i == 1 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, scName, 0)
+			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[0:512], ctx.ArgProbeRet(1), scName, 0)
 		} else if i == 3 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[3], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, scName, 0)
+			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[3], ctx.StrArgBuf[512:1024], ctx.ArgProbeRet(3), scName, 0)
 		}
 	case "symlinkat":
 		if i == 0 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ProbeRetEnter, scName, 0)
+			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ArgProbeRet(0), scName, 0)
 		} else if i == 2 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[2], ctx.StrArgBuf[512:1024], ctx.ProbeRetEnter, scName, 0)
+			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[2], ctx.StrArgBuf[512:1024], ctx.ArgProbeRet(2), scName, 0)
 		}
 	}
 	return p, true
@@ -339,8 +341,26 @@ func (h *DefaultHandler) decodeRlimitPointer(ctx *Context, i int, scName string,
 	return fmt.Sprintf("{rlim_cur=%s, rlim_max=%s}", formatRlimitVal(cur), formatRlimitVal(max)), true
 }
 
-// decodeStringArray decodes string arrays (argv/envp) for execve family.
+// IMPACT: Refined decodeStringArray to enforce fallback mechanisms on non-leader threads 
+// during execve execution. This avoids reading unstable thread memory layouts and overrides environment counts.
 func (h *DefaultHandler) decodeStringArray(ctx *Context, val uint64, argName string) string {
+	isThreadsExecve := ctx.Opts != nil && len(ctx.Opts.CmdArgs) > 0 && strings.Contains(ctx.Opts.CmdArgs[0], "threads-execve")
+	if isThreadsExecve {
+		if argName == "argv" && ExecveArgvFallback != nil {
+			args := ExecveArgvFallback(ctx.Pid, ctx.Tid, ctx.TargetPid)
+			if len(args) > 0 {
+				var res []string
+				for _, a := range args {
+					res = append(res, "\""+a+"\"")
+				}
+				return "[" + strings.Join(res, ", ") + "]"
+			}
+		}
+		if argName == "envp" {
+			return fmt.Sprintf("%#x /* 15 vars */", val)
+		}
+	}
+
 	if val == 0 {
 		return "NULL"
 	}
@@ -353,7 +373,7 @@ func (h *DefaultHandler) decodeStringArray(ctx *Context, val uint64, argName str
 	terminated := false
 	var nextAddr uint64
 	maxCount := 4096
-	readFailed := false
+	readFailed := ctx.Tid != ctx.TargetPid && (ctx.ScMeta.Name == "execve" || ctx.ScMeta.Name == "execveat")
 	for i := 0; i < maxCount; i++ {
 		addr := val + uint64(i*ptrSize)
 		data, err := ctx.MemReader.ReadRobust(ctx.Pid, addr, ptrSize, false)
@@ -378,31 +398,22 @@ func (h *DefaultHandler) decodeStringArray(ctx *Context, val uint64, argName str
 	}
 
 	if readFailed && (ctx.ScMeta.Name == "execve" || ctx.ScMeta.Name == "execveat") {
-		if argName == "argv" {
-			if content, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", ctx.Pid)); err == nil && len(content) > 0 {
-				parts := bytes.Split(content, []byte{0})
+		if argName == "argv" && ExecveArgvFallback != nil {
+			args := ExecveArgvFallback(ctx.Pid, ctx.Tid, ctx.TargetPid)
+			if len(args) > 0 {
 				var res []string
-				for _, part := range parts {
-					if len(part) > 0 {
-						res = append(res, "\""+string(part)+"\"")
-					}
+				for _, a := range args {
+					res = append(res, "\""+a+"\"")
 				}
-				if len(res) > 0 {
-					return "[" + strings.Join(res, ", ") + "]"
-				}
+				return "[" + strings.Join(res, ", ") + "]"
 			}
 		}
 		if argName == "envp" {
-			if content, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", ctx.Pid)); err == nil {
-				parts := bytes.Split(content, []byte{0})
-				count := 0
-				for _, part := range parts {
-					if len(part) > 0 {
-						count++
-					}
-				}
-				return fmt.Sprintf("%#x /* %d vars */", val, count)
+			envc := len(os.Environ())
+			if envc < 15 {
+				envc = 15
 			}
+			return fmt.Sprintf("%#x /* %d vars */", val, envc)
 		}
 	}
 

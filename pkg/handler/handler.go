@@ -38,12 +38,19 @@ func (ctx *Context) IsArgReadSuccess(argIndex int) bool {
 	return (mask & (1 << argIndex)) == 0
 }
 
-// ArgProbeRet returns 0 if the enter-stage argument was read successfully, otherwise -14.
+// ArgProbeRet returns 0 if success, -1 if not probed, -2 if probed but failed.
 func (ctx *Context) ArgProbeRet(argIndex int) int32 {
-	if ctx.IsArgReadSuccess(argIndex) {
+	if ctx.ProbeRetEnter >= 0 {
 		return 0
 	}
-	return -14
+	if ctx.ProbeRetEnter == -1 {
+		return -1
+	}
+	mask := -ctx.ProbeRetEnter - 1
+	if (mask & (1 << argIndex)) != 0 {
+		return -2
+	}
+	return 0
 }
 
 // Result contains the formatted arguments and optional hex dump.

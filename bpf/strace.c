@@ -43,9 +43,31 @@ struct {
     __type(value, struct bpf_event);
 } heap SEC(".maps");
 
+#ifndef __NR_execve
+#define __NR_execve 59
+#endif
+#ifndef __NR_execveat
+#define __NR_execveat 322
+#endif
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 1024);
+    __type(key, u32);
+    __type(value, u32);
+} pending_exec_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 1024);
+    __type(key, u32);
+    __type(value, u32);
+} main_exited_map SEC(".maps");
+
 SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
-    if (ctx->id == 15 || ctx->id == 173) return 0;
+    u32 sys_id = (u32)ctx->id;
+    if (sys_id == 15 || sys_id == 173) return 0;
     u32 tid = (u32)bpf_get_current_pid_tgid();
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
     u32 key = 0;
@@ -56,7 +78,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
     if (!e) return 0;
     
-    e->pid = pid; e->sys_id = (u32)ctx->id; e->tid = tid; e->probe_ret_enter = -1; e->probe_ret_exit = -1; e->ptr = 0; e->ret = 0;
+    e->pid = pid; e->sys_id = sys_id; e->tid = tid; e->probe_ret_enter = -1; e->probe_ret_exit = -1; e->ptr = 0; e->ret = 0;
     
     e->args[0] = ctx->args[0];
     e->args[1] = ctx->args[1];
@@ -68,43 +90,107 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     CAPTURE_ARGS_ENTER(e->sys_id, e);
     bpf_map_update_elem(&events_map, &tid, e, BPF_ANY);
 
-#ifndef __NR_execve
-#define __NR_execve 59
-#endif
-#ifndef __NR_execveat
-#define __NR_execveat 322
-#endif
+    if (sys_id == 60 || sys_id == 231) { // exit (60), exit_group (231)
+        if (tid == pid) {
+            u32 val = 1;
+            bpf_map_update_elem(&main_exited_map, &pid, &val, BPF_ANY);
+        }
+        bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+        bpf_map_delete_elem(&events_map, &tid);
+    }
+
+    if (sys_id == 130 || sys_id == 35) { // rt_sigsuspend (130), nanosleep (35)
+        struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+        u32 nr_threads = 0;
+        if (task) {
+            nr_threads = BPF_CORE_READ(task, signal, nr_threads);
+        }
+        if (nr_threads > 1 && tid == pid) {
+            e->probe_ret_enter = 3;
+            bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+            e->probe_ret_enter = -1;
+        }
+    }
 
     if (e->sys_id == __NR_execve || e->sys_id == __NR_execveat) {
+        e->ret = -514;
+        u32 *exited = bpf_map_lookup_elem(&main_exited_map, &pid);
+        if (exited && *exited == 1) {
+            e->probe_ret_enter = 1;
+        } else {
+            e->probe_ret_enter = 0;
+        }
+        bpf_ringbuf_output(&events, e, sizeof(*e), 0);
         if (tid != pid) {
-            bpf_map_update_elem(&events_map, &pid, e, BPF_ANY);
+            bpf_map_update_elem(&pending_exec_map, &pid, &tid, BPF_ANY);
         }
     }
     return 0;
 }
 
+// IMPACT: Fixed non-leader thread execve exit detection. On successful execve (ret == 0), 
+// it looks up via pending_exec_map to find the original thread state, cleaning up the superseded thread.
 SEC("tracepoint/raw_syscalls/sys_exit")
 int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     if (ctx->id == 15 || ctx->id == 173) return 0;
     u32 tid = (u32)bpf_get_current_pid_tgid();
-    struct bpf_event *e = bpf_map_lookup_elem(&events_map, &tid);
+    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    
+    struct bpf_event *e = NULL;
+    u32 is_pending_lookup = 0;
+    u32 pending_tid = 0;
+    
+    if (ctx->ret == 0) {
+        u32 *p_tid = bpf_map_lookup_elem(&pending_exec_map, &pid);
+        if (p_tid) {
+            pending_tid = *p_tid;
+            e = bpf_map_lookup_elem(&events_map, &pending_tid);
+            is_pending_lookup = 1;
+        }
+    }
+    if (!e) {
+        e = bpf_map_lookup_elem(&events_map, &tid);
+    }
     if (!e) return 0;
+    if (tid == pid && (e->sys_id == 130 || e->sys_id == 35)) {
+        u32 *pending = bpf_map_lookup_elem(&pending_exec_map, &pid);
+        if (pending) {
+            e->probe_ret_enter = 2;
+        }
+    }
     e->ret = ctx->ret;
     
     CAPTURE_ARGS_EXIT(e->sys_id, e);
     
     if (e->probe_ret_enter < 0) {
+        e->probe_ret_enter = -1;
         CAPTURE_ARGS_ENTER(e->sys_id, e);
     }
     
-    bpf_ringbuf_output(&events, e, sizeof(*e), 0);
-    bpf_map_delete_elem(&events_map, &tid);
-
-    if (e->sys_id == 59 || e->sys_id == 322) {
-        if (e->tid != e->pid) {
-            u32 other_key = (tid == e->pid) ? e->tid : e->pid;
-            bpf_map_delete_elem(&events_map, &other_key);
+    if (is_pending_lookup) {
+        struct bpf_event *main_e = bpf_map_lookup_elem(&events_map, &pid);
+        if (main_e) {
+            e->probe_ret_exit = main_e->sys_id;
+        } else {
+            e->probe_ret_exit = 0;
+        }
+        bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+        bpf_map_delete_elem(&events_map, &pending_tid);
+        bpf_map_delete_elem(&pending_exec_map, &pid);
+        bpf_map_delete_elem(&main_exited_map, &pid);
+        if (main_e) {
+            bpf_map_delete_elem(&events_map, &pid);
+        }
+    } else {
+        bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+        u32 *pending = bpf_map_lookup_elem(&pending_exec_map, &pid);
+        if (!(tid == pid && pending)) {
+            bpf_map_delete_elem(&events_map, &tid);
+        }
+        if ((e->sys_id == __NR_execve || e->sys_id == __NR_execveat) && tid != pid) {
+            bpf_map_delete_elem(&pending_exec_map, &pid);
         }
     }
     return 0;
 }
+
