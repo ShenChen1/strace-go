@@ -59,7 +59,7 @@ func (h *DefaultHandler) getArgCount(ctx *Context) int {
 func (h *DefaultHandler) Handle(ctx *Context) Result {
 	res := Result{}
 
-	if ctx.ScMeta.Name == "execveat" {
+	if ctx.ScMeta.Name == "execveat" && ctx.Ret == -514 {
 		execveatCountLock.Lock()
 		execveatCallCount++
 		execveatCountLock.Unlock()
