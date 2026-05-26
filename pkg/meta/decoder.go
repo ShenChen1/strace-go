@@ -166,14 +166,39 @@ func DecodeFlags(val uint64, xlatName string) string {
 
 	isEnum := (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "bpf_fd_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds" || xlatName == "bpf_stats_type") && xlatName != "clone3_flags"
 
+	var decoded string
+	hasDecoded := false
 	if isEnum {
 		if s, ok := decodeEnum(val, xlatName, table); ok {
-			return s
+			decoded = s
+			hasDecoded = true
 		}
 	} else {
-		return decodeBitFlags(val, xlatName, table)
+		decoded = decodeBitFlags(val, xlatName, table)
+		hasDecoded = true
 	}
-	return fmt.Sprintf("%#x", val)
+
+	if !hasDecoded {
+		decoded = fmt.Sprintf("%#x", val)
+	}
+
+	if XlatFormat == "verbose" {
+		if strings.Contains(decoded, "/*") {
+			return decoded
+		}
+		rawValStr := fmt.Sprintf("%#x", val)
+		if val == 0 {
+			rawValStr = "0"
+		} else if (xlatName == "signalnames" || xlatName == "key_spec") || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "resources") {
+			rawValStr = fmt.Sprintf("%d", int32(val))
+		}
+		if decoded == rawValStr {
+			return decoded
+		}
+		return fmt.Sprintf("%s /* %s */", rawValStr, decoded)
+	}
+
+	return decoded
 }
 
 func checkRegisterBpfXlats() {

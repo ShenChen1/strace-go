@@ -32,8 +32,11 @@ func (h *IoctlHandler) Handle(ctx *Context) Result {
 	cmdName := meta.DecodeFlags(cmd, "ioctl_cmds")
 	if cmd == 0x80044d0d {
 		cmdName = "MIXER_READ(13) or OTPSELECT"
-	} else if strings.HasPrefix(cmdName, "0x") {
-		cmdName = cmdpattern
+	} else {
+		isFailed := strings.Contains(cmdName, "???") || (strings.HasPrefix(cmdName, "0x") && !strings.Contains(cmdName, "/*"))
+		if isFailed {
+			cmdName = cmdpattern
+		}
 	}
 	res.ArgParts = append(res.ArgParts, cmdName)
 
