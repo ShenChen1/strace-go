@@ -88,6 +88,10 @@ func (h *DefaultHandler) decodePointer(ctx *Context, i int, argTyp, argName stri
 	}
 
 	if ctx.Ret < 0 && ctx.Ret >= -4095 {
+		// IMPACT: getcwd returns raw pointer on failure.
+		if scName == "getcwd" {
+			return fmt.Sprintf("%#x", val), true
+		}
 		isStr := strings.Contains(argTyp, "char *")
 		isPath := argName == "filename" || argName == "pathname" || argName == "path" || argName == "oldname" || argName == "newname"
 		if !isPath && !isStr && !strings.Contains(argName, "type") && !strings.Contains(argName, "description") && !strings.Contains(argName, "payload") && !strings.Contains(argName, "callout_info") {
@@ -126,7 +130,8 @@ func (h *DefaultHandler) decodeCharPointer(ctx *Context, i int, argTyp, argName 
 	}
 
 	if strings.Contains(argTyp, "char *") {
-		isPath := argName == "filename" || argName == "pathname" || argName == "path" || argName == "oldname" || argName == "newname"
+		// IMPACT: Treat getcwd buf as path to avoid StringLimit truncation.
+		isPath := argName == "filename" || argName == "pathname" || argName == "path" || argName == "oldname" || argName == "newname" || (scName == "getcwd" && argName == "buf")
 		if val == ctx.Ptr && ctx.RawStrArg != "" && !strings.HasPrefix(ctx.RawStrArg, "0x") {
 			p := ctx.RawStrArg
 			if isPath && ctx.Ret < 0 {
@@ -151,7 +156,14 @@ func (h *DefaultHandler) decodeCharPointer(ctx *Context, i int, argTyp, argName 
 			limit = 0
 			capSize = 4097
 		}
-		p := ctx.Decoder.DecodeString(ctx.Pid, val, ctx.StrArgBuf[0:capSize], ctx.ArgProbeRet(i), scName, limit)
+		// IMPACT: Reset probeRet and pass nil bpfBuf for getcwd buf to allow reading process memory on exit.
+		probeRet := ctx.ArgProbeRet(i)
+		bpfBuf := ctx.StrArgBuf[0:capSize]
+		if scName == "getcwd" && i == 0 {
+			probeRet = 0
+			bpfBuf = nil
+		}
+		p := ctx.Decoder.DecodeString(ctx.Pid, val, bpfBuf, probeRet, scName, limit)
 		if isPath && ctx.Ret < 0 {
 			if strings.HasSuffix(p, `..."`) {
 				rawPath := p[1 : len(p)-4]

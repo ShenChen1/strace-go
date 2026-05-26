@@ -122,9 +122,23 @@ var XlatTables = map[string]XlatTable{
 			{Val: 32768, Str: "AT_RECURSIVE"},
 		},
 	},
+	"bpf_attach_flags": {
+		Prefix: "BPF_F_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "BPF_F_ALLOW_OVERRIDE"},
+			{Val: 2, Str: "BPF_F_ALLOW_MULTI"},
+			{Val: 4, Str: "BPF_F_REPLACE"},
+			{Val: 8, Str: "BPF_F_BEFORE"},
+			{Val: 16, Str: "BPF_F_AFTER"},
+			{Val: 32, Str: "BPF_F_ID"},
+			{Val: 64, Str: "BPF_F_PREORDER"},
+			{Val: 8192, Str: "BPF_F_LINK"},
+		},
+	},
 	"bpf_attach_type": {
 		Prefix: "BPF_",
 		Entries: []XlatVal{
+			{Val: 0, Str: "BPF_CGROUP_INET_INGRESS"},
 			{Val: 1, Str: "BPF_CGROUP_INET_EGRESS"},
 			{Val: 2, Str: "BPF_CGROUP_INET_SOCK_CREATE"},
 			{Val: 3, Str: "BPF_CGROUP_SOCK_OPS"},
@@ -304,6 +318,7 @@ var XlatTables = map[string]XlatTable{
 	"bpf_prog_types": {
 		Prefix: "BPF_PROG_TYPE_",
 		Entries: []XlatVal{
+			{Val: 0, Str: "BPF_PROG_TYPE_UNSPEC"},
 			{Val: 1, Str: "BPF_PROG_TYPE_SOCKET_FILTER"},
 			{Val: 2, Str: "BPF_PROG_TYPE_KPROBE"},
 			{Val: 3, Str: "BPF_PROG_TYPE_SCHED_CLS"},
@@ -5178,14 +5193,85 @@ var XlatTables = map[string]XlatTable{
 	},
 }
 var SyscallArgXlatMap = map[string]map[string]string{
-	"mlock2": {
-		"flags": "mlock_flags",
+	"clock_nanosleep": {
+		"which_clock": "clocknames",
+	},
+	"clone": {
+		"clone_flags": "clone_flags",
+	},
+	"open": {
+		"flags": "open_mode_flags",
+	},
+	"pipe2": {
+		"flags": "open_mode_flags",
+	},
+	"faccessat2": {
+		"mode": "access_modes",
+		"flags": "at_flags",
+	},
+	"connect": {
+		"addr": "sockaddr",
+	},
+	"msync": {
+		"flags": "mctl_sync",
+	},
+	"faccessat": {
+		"mode": "access_modes",
+	},
+	"accept4": {
+		"flags": "sock_type_flags",
+	},
+	"umount2": {
+		"flags": "umount_flags",
 	},
 	"fchownat": {
 		"flag": "at_flags",
 	},
-	"faccessat": {
-		"mode": "access_modes",
+	"tgkill": {
+		"sig": "signalnames",
+	},
+	"socket": {
+		"domain": "addrfams",
+		"type": "sock_type_flags",
+	},
+	"clone3": {
+		"flags": "clone3_flags",
+	},
+	"madvise": {
+		"behavior": "madvise_cmds",
+	},
+	"utimensat": {
+		"flags": "at_flags",
+	},
+	"newfstatat": {
+		"flag": "at_flags",
+	},
+	"prctl": {
+		"option": "prctl_options",
+	},
+	"lseek": {
+		"whence": "whence_codes",
+	},
+	"dup3": {
+		"flags": "dup3_flags",
+	},
+	"getpeername": {
+		"addr": "sockaddr",
+	},
+	"clock_adjtime": {
+		"which_clock": "clocknames",
+	},
+	"clock_settime": {
+		"which_clock": "clocknames",
+	},
+	"mlock2": {
+		"flags": "mlock_flags",
+	},
+	"mlockall": {
+		"flags": "mlockall_flags",
+	},
+	"request_key": {
+		"destringid": "key_spec",
 	},
 	"bpf": {
 		"arg0": "bpf_commands",
@@ -5194,160 +5280,89 @@ var SyscallArgXlatMap = map[string]map[string]string{
 		"events": "pollflags",
 		"revents": "pollflags",
 	},
-	"dup3": {
-		"flags": "dup3_flags",
-	},
-	"openat": {
-		"flags": "open_mode_flags",
-	},
-	"pipe2": {
-		"flags": "open_mode_flags",
-	},
-	"connect": {
-		"addr": "sockaddr",
-	},
-	"sendto": {
-		"flags": "msg_flags",
-		"addr": "sockaddr",
-	},
-	"getpeername": {
-		"addr": "sockaddr",
-	},
-	"kill": {
-		"sig": "signalnames",
-	},
 	"arch_prctl": {
 		"option": "archvals",
 	},
-	"ioctl": {
-		"cmd": "ioctl_cmds",
+	"wait4": {
+		"options": "wait4_options",
 	},
-	"setsockopt": {
+	"unlinkat": {
+		"flag": "at_flags",
+	},
+	"recvfrom": {
+		"addr": "sockaddr",
+		"flags": "msg_flags",
+	},
+	"getsockname": {
+		"addr": "sockaddr",
+	},
+	"mount": {
+		"flags": "mount_flags",
+	},
+	"getsockopt": {
 		"level": "socketlayers",
+	},
+	"getrlimit": {
+		"resource": "resources",
+	},
+	"rt_sigprocmask": {
+		"how": "sigprocmaskcmds",
+	},
+	"mremap": {
+		"flags": "mremap_flags",
 	},
 	"futex": {
 		"op": "futexops",
-	},
-	"setrlimit": {
-		"resource": "resources",
-	},
-	"access": {
-		"mode": "access_modes",
 	},
 	"poll": {
 		"events": "pollflags",
 		"revents": "pollflags",
 	},
-	"mprotect": {
-		"prot": "mmap_prot",
+	"access": {
+		"mode": "access_modes",
 	},
-	"getrlimit": {
-		"resource": "resources",
-	},
-	"prlimit64": {
-		"resource": "resources",
-	},
-	"accept4": {
-		"flags": "sock_type_flags",
-	},
-	"clock_settime": {
-		"which_clock": "clocknames",
-	},
-	"mremap": {
-		"flags": "mremap_flags",
-	},
-	"umount2": {
-		"flags": "umount_flags",
-	},
-	"socket": {
-		"domain": "addrfams",
-		"type": "sock_type_flags",
+	"epoll_create1": {
+		"flags": "epollflags",
 	},
 	"mmap": {
 		"prot": "mmap_prot",
 		"flags": "mmap_flags",
 	},
-	"bind": {
-		"addr": "sockaddr",
+	"kill": {
+		"sig": "signalnames",
 	},
-	"clone": {
-		"clone_flags": "clone_flags",
+	"prlimit64": {
+		"resource": "resources",
 	},
-	"madvise": {
-		"behavior": "madvise_cmds",
-	},
-	"open": {
+	"openat": {
 		"flags": "open_mode_flags",
 	},
-	"clock_adjtime": {
-		"which_clock": "clocknames",
+	"setsockopt": {
+		"level": "socketlayers",
 	},
-	"epoll_create1": {
-		"flags": "epollflags",
-	},
-	"lseek": {
-		"whence": "whence_codes",
-	},
-	"mlockall": {
-		"flags": "mlockall_flags",
-	},
-	"msync": {
-		"flags": "mctl_sync",
-	},
-	"faccessat2": {
-		"mode": "access_modes",
-		"flags": "at_flags",
-	},
-	"add_key": {
-		"ringid": "key_spec",
-	},
-	"request_key": {
-		"destringid": "key_spec",
-	},
-	"recvfrom": {
-		"flags": "msg_flags",
+	"bind": {
 		"addr": "sockaddr",
 	},
 	"epoll_ctl": {
 		"op": "epollctls",
 	},
-	"mount": {
-		"flags": "mount_flags",
+	"setrlimit": {
+		"resource": "resources",
 	},
-	"unlinkat": {
-		"flag": "at_flags",
+	"add_key": {
+		"ringid": "key_spec",
 	},
-	"newfstatat": {
-		"flag": "at_flags",
-	},
-	"tgkill": {
-		"sig": "signalnames",
-	},
-	"getsockopt": {
-		"level": "socketlayers",
-	},
-	"prctl": {
-		"option": "prctl_options",
-	},
-	"getsockname": {
+	"sendto": {
+		"flags": "msg_flags",
 		"addr": "sockaddr",
 	},
-	"utimensat": {
-		"flags": "at_flags",
+	"ioctl": {
+		"cmd": "ioctl_cmds",
+	},
+	"mprotect": {
+		"prot": "mmap_prot",
 	},
 	"fcntl": {
 		"cmd": "fcntlcmds",
-	},
-	"clock_nanosleep": {
-		"which_clock": "clocknames",
-	},
-	"clone3": {
-		"flags": "clone3_flags",
-	},
-	"wait4": {
-		"options": "wait4_options",
-	},
-	"rt_sigprocmask": {
-		"how": "sigprocmaskcmds",
 	},
 }

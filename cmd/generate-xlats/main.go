@@ -72,6 +72,7 @@ func main() {
 	// IMPACT: Allowed fsmagic and statfs_flags for decoding filesystem type and mount flags.
 	allowedXlats["fsmagic"] = true
 	allowedXlats["statfs_flags"] = true
+	allowedXlats["bpf_attach_flags"] = true
 
 	delete(allowedXlats, "x86_xfeatures")
 	delete(allowedXlats, "clocknames")
@@ -197,7 +198,8 @@ func main() {
 				
 				if isNumeric {
 					// IMPACT: Exempt F_DUPFD and F_RDLCK from being skipped when value is 0, as they are crucial for fcntl.
-					if v == "0" && k != "O_RDONLY" && k != "F_OK" && k != "AF_UNSPEC" && k != "SEEK_SET" && k != "XFEATURE_FP" && k != "BPF_MAP_CREATE" && k != "CLOCK_REALTIME" && k != "PROT_NONE" && k != "FUTEX_WAIT" && k != "MADV_NORMAL" && k != "SIG_BLOCK" && k != "CLONE_VM" && k != "BPF_MAP_TYPE_UNSPEC" && k != "MAP_FILE" && k != "RLIMIT_CPU" && k != "F_DUPFD" && k != "F_RDLCK" { continue }
+					// Also exempt BPF_PROG_TYPE_UNSPEC and BPF_CGROUP_INET_INGRESS to allow 0-value BPF constants.
+					if v == "0" && k != "O_RDONLY" && k != "F_OK" && k != "AF_UNSPEC" && k != "SEEK_SET" && k != "XFEATURE_FP" && k != "BPF_MAP_CREATE" && k != "CLOCK_REALTIME" && k != "PROT_NONE" && k != "FUTEX_WAIT" && k != "MADV_NORMAL" && k != "SIG_BLOCK" && k != "CLONE_VM" && k != "BPF_MAP_TYPE_UNSPEC" && k != "BPF_PROG_TYPE_UNSPEC" && k != "BPF_CGROUP_INET_INGRESS" && k != "MAP_FILE" && k != "RLIMIT_CPU" && k != "F_DUPFD" && k != "F_RDLCK" { continue }
 					fmt.Fprintf(out, "\t\t\t{Val: %s, Str: %q},\n", v, k)
 				}
 			}

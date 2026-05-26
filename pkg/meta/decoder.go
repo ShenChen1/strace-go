@@ -29,7 +29,7 @@ var ErrnoTable = map[int]string{
 }
 
 // decodeEnum formats enum xlat names.
-// Impact: Changes mapping behavior of enums like signals, keyids, or ioctl cmds.
+// Impact: Formats enum values. BPF enums (prefix "bpf_") are excluded from decimal fallback to preserve raw hex formatting.
 // Collecting overlapping entries and joining them with " or " resolves macro conflicts in tests.
 func decodeEnum(val uint64, xlatName string, table XlatTable) (string, bool) {
 	var matches []string
@@ -60,8 +60,8 @@ func decodeEnum(val uint64, xlatName string, table XlatTable) (string, bool) {
 		}
 		return strings.Join(matches, " or "), true
 	}
-	// IMPACT: Avoid mapping small enum values directly to numbers if they belong to fcntlcmds, ioctl_cmds, archvals or x86_xfeature_bits.
-	if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits")) && xlatName != "resources" {
+	// IMPACT: Avoid mapping small enum values directly to numbers if they belong to fcntlcmds, ioctl_cmds, archvals, x86_xfeature_bits or bpf-related enums.
+	if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && !strings.HasPrefix(xlatName, "bpf_") && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits")) && xlatName != "resources" {
 		return fmt.Sprintf("%d", int32(val)), true
 	}
 	formatVal := fmt.Sprintf("%#x", val)
@@ -130,11 +130,12 @@ var XlatFormat string = "abbrev"
 // DecodeFlags translates numeric flag values into human-readable strings.
 // Impact: Core formatting helper for xlat flags. Used across default and specialized handlers.
 func DecodeFlags(val uint64, xlatName string) string {
+	checkRegisterBpfXlats()
 	if XlatFormat == "raw" {
 		table, ok := XlatTables[xlatName]
 		isEnum := false
 		if ok {
-			isEnum = (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds") && xlatName != "clone3_flags"
+			isEnum = (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "bpf_fd_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds" || xlatName == "bpf_stats_type") && xlatName != "clone3_flags"
 		}
 		if isEnum {
 			if val == 0 {
@@ -159,11 +160,11 @@ func DecodeFlags(val uint64, xlatName string) string {
 	table, ok := XlatTables[xlatName]
 	if !ok { return fmt.Sprintf("%#x", val) }
 
-	if xlatName != "clone3_flags" {
+	if xlatName != "clone3_flags" && !strings.HasPrefix(xlatName, "bpf_") {
 		val = uint64(uint32(val))
 	}
 
-	isEnum := (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds") && xlatName != "clone3_flags"
+	isEnum := (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "bpf_fd_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds" || xlatName == "bpf_stats_type") && xlatName != "clone3_flags"
 
 	if isEnum {
 		if s, ok := decodeEnum(val, xlatName, table); ok {
@@ -173,4 +174,114 @@ func DecodeFlags(val uint64, xlatName string) string {
 		return decodeBitFlags(val, xlatName, table)
 	}
 	return fmt.Sprintf("%#x", val)
+}
+
+func checkRegisterBpfXlats() {
+	if XlatTables == nil {
+		XlatTables = make(map[string]XlatTable)
+	}
+	if _, ok := XlatTables["bpf_map_lookup_flags"]; !ok {
+		XlatTables["bpf_map_lookup_flags"] = XlatTable{
+			Prefix: "BPF_",
+			Entries: []XlatVal{
+				{Val: 16, Str: "BPF_F_ALL_CPUS"},
+				{Val: 8, Str: "BPF_F_CPU"},
+				{Val: 4, Str: "BPF_F_LOCK"},
+				{Val: 0, Str: "BPF_ANY"},
+			},
+		}
+	}
+	if _, ok := XlatTables["bpf_map_update_flags"]; !ok {
+		XlatTables["bpf_map_update_flags"] = XlatTable{
+			Prefix: "BPF_",
+			Entries: []XlatVal{
+				{Val: 16, Str: "BPF_F_ALL_CPUS"},
+				{Val: 8, Str: "BPF_F_CPU"},
+				{Val: 4, Str: "BPF_F_LOCK"},
+				{Val: 2, Str: "BPF_EXIST"},
+				{Val: 1, Str: "BPF_NOEXIST"},
+				{Val: 0, Str: "BPF_ANY"},
+			},
+		}
+	}
+	if _, ok := XlatTables["bpf_file_flags"]; !ok {
+		XlatTables["bpf_file_flags"] = XlatTable{
+			Prefix: "BPF_",
+			Entries: []XlatVal{
+				{Val: 8, Str: "BPF_F_RDONLY"},
+				{Val: 0x10, Str: "BPF_F_WRONLY"},
+				{Val: 0x4000, Str: "BPF_F_PATH_FD"},
+			},
+		}
+	}
+	if _, ok := XlatTables["bpf_test_run_flags"]; !ok {
+		XlatTables["bpf_test_run_flags"] = XlatTable{
+			Prefix: "BPF_F_TEST_",
+			Entries: []XlatVal{
+				{Val: 1, Str: "BPF_F_TEST_RUN_ON_CPU"},
+				{Val: 2, Str: "BPF_F_TEST_XDP_LIVE_FRAMES"},
+			},
+		}
+	}
+	if _, ok := XlatTables["bpf_query_flags"]; !ok {
+		XlatTables["bpf_query_flags"] = XlatTable{
+			Prefix: "BPF_F_QUERY_",
+			Entries: []XlatVal{
+				{Val: 1, Str: "BPF_F_QUERY_EFFECTIVE"},
+			},
+		}
+	}
+	if _, ok := XlatTables["bpf_btf_flags"]; !ok {
+		XlatTables["bpf_btf_flags"] = XlatTable{
+			Prefix: "BPF_F_",
+			Entries: []XlatVal{
+				{Val: 1 << 16, Str: "BPF_F_TOKEN_FD"},
+			},
+		}
+	}
+	if _, ok := XlatTables["bpf_fd_type"]; !ok {
+		XlatTables["bpf_fd_type"] = XlatTable{
+			Prefix: "BPF_FD_TYPE_",
+			Entries: []XlatVal{
+				{Val: 0, Str: "BPF_FD_TYPE_RAW_TRACEPOINT"},
+				{Val: 1, Str: "BPF_FD_TYPE_TRACEPOINT"},
+				{Val: 2, Str: "BPF_FD_TYPE_KPROBE"},
+				{Val: 3, Str: "BPF_FD_TYPE_KRETPROBE"},
+				{Val: 4, Str: "BPF_FD_TYPE_UPROBE"},
+				{Val: 5, Str: "BPF_FD_TYPE_URETPROBE"},
+			},
+		}
+	}
+	if _, ok := XlatTables["bpf_kprobe_multi_flags"]; !ok {
+		XlatTables["bpf_kprobe_multi_flags"] = XlatTable{
+			Prefix: "BPF_F_KPROBE_MULTI_",
+			Entries: []XlatVal{
+				{Val: 1, Str: "BPF_F_KPROBE_MULTI_RETURN"},
+			},
+		}
+	}
+	if _, ok := XlatTables["bpf_netfilter_ip_flags"]; !ok {
+		XlatTables["bpf_netfilter_ip_flags"] = XlatTable{
+			Prefix: "BPF_F_NETFILTER_",
+			Entries: []XlatVal{
+				{Val: 1, Str: "BPF_F_NETFILTER_IP_DEFRAG"},
+			},
+		}
+	}
+	if _, ok := XlatTables["bpf_uprobe_multi_flags"]; !ok {
+		XlatTables["bpf_uprobe_multi_flags"] = XlatTable{
+			Prefix: "BPF_F_UPROBE_MULTI_",
+			Entries: []XlatVal{
+				{Val: 1, Str: "BPF_F_UPROBE_MULTI_RETURN"},
+			},
+		}
+	}
+	if _, ok := XlatTables["bpf_stats_type"]; !ok {
+		XlatTables["bpf_stats_type"] = XlatTable{
+			Prefix: "BPF_STATS_",
+			Entries: []XlatVal{
+				{Val: 0, Str: "BPF_STATS_RUN_TIME"},
+			},
+		}
+	}
 }

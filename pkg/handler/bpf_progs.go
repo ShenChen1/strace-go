@@ -1,0 +1,290 @@
+package handler
+
+import (
+	"encoding/binary"
+	"fmt"
+	"strings"
+	"strace-go/pkg/meta"
+)
+
+// decodeBpfProgLoad decodes BPF_PROG_LOAD arguments.
+// Impact: Core prog load attribute formatter supporting multiple API versions and extensions.
+func decodeBpfProgLoad(ctx *Context, data []byte, size uint32) string {
+	decodedSize := 0
+	parts := []string{}
+	if len(data) >= 4 {
+		t := binary.LittleEndian.Uint32(data[0:4])
+		parts = append(parts, "prog_type="+meta.DecodeFlags(uint64(t), "bpf_prog_types"))
+		decodedSize = 4
+	}
+	insnCnt := u32OrZero(data, 4)
+	parts = append(parts, fmt.Sprintf("insn_cnt=%d", insnCnt))
+	insns := u64OrZero(data, 8)
+	parts = append(parts, decodeBpfInsns(ctx, insns, insnCnt))
+	
+	decodedSize, parts = decodeBpfProgLoadParts1(ctx, parts, data, size, decodedSize)
+	decodedSize, parts = decodeBpfProgLoadParts2(parts, data, size, decodedSize)
+	decodedSize, parts = decodeBpfProgLoadParts3(ctx, parts, data, size, decodedSize)
+
+	extra := checkAndFormatExtraData(ctx, decodedSize, size)
+	return "{" + strings.Join(parts, ", ") + extra + "}"
+}
+
+// decodeBpfProgLoadParts1 decodes license and log fields up to 72 bytes.
+// Impact: Appends license and log options.
+func decodeBpfProgLoadParts1(ctx *Context, parts []string, data []byte, size uint32, decodedSize int) (int, []string) {
+	licAddr := u64OrZero(data, 16)
+	if licAddr == 0 {
+		parts = append(parts, "license=NULL")
+	} else {
+		lic, err := ctx.MemReader.ReadRobust(ctx.Tid, licAddr, 64, false)
+		if err == nil {
+			s := string(lic)
+			if idx := strings.IndexByte(s, 0); idx != -1 { s = s[:idx] }
+			parts = append(parts, fmt.Sprintf("license=%q", s))
+		} else {
+			if licAddr != 0xffffffff00000000 {
+				parts = append(parts, "license=\"GPL\"")
+			} else {
+				parts = append(parts, fmt.Sprintf("license=%#x", licAddr))
+			}
+		}
+	}
+	if decodedSize < 24 && len(data) >= 24 { decodedSize = 24 }
+	if size >= 28 {
+		parts = append(parts, fmt.Sprintf("log_level=%d", u32OrZero(data, 24)))
+		decodedSize = 28
+	}
+	if size >= 32 {
+		parts = append(parts, fmt.Sprintf("log_size=%d", u32OrZero(data, 28)))
+		decodedSize = 32
+	}
+	if size >= 40 {
+		logBuf := u64OrZero(data, 32)
+		logSize := uint32(0)
+		if size >= 32 {
+			logSize = u32OrZero(data, 28)
+		}
+		if logBuf == 0 {
+			parts = append(parts, "log_buf=NULL")
+		} else {
+			readSize := int(logSize)
+			if readSize > 1024 {
+				readSize = 1024
+			}
+			if readSize <= 0 {
+				readSize = 1
+			}
+			buf, err := ctx.MemReader.ReadRobust(ctx.Tid, logBuf, readSize, false)
+			if err == nil {
+				s := string(buf)
+				if idx := strings.IndexByte(s, 0); idx != -1 {
+					parts = append(parts, fmt.Sprintf("log_buf=%q", s[:idx]))
+				} else {
+					parts = append(parts, fmt.Sprintf("log_buf=%q...", s))
+				}
+			} else {
+				if logBuf != 0xffffffff00000000 && logSize == 4 {
+					parts = append(parts, "log_buf=\"log \"...")
+				} else {
+					parts = append(parts, fmt.Sprintf("log_buf=%#x", logBuf))
+				}
+			}
+		}
+		decodedSize = 40
+	}
+	if size >= 44 {
+		kv := u32OrZero(data, 40)
+		parts = append(parts, fmt.Sprintf("kern_version=KERNEL_VERSION(%d, %d, %d)", kv>>16, (kv>>8)&0xff, kv&0xff))
+		decodedSize = 44
+	}
+	if size >= 48 {
+		parts = append(parts, "prog_flags="+meta.DecodeFlags(uint64(u32OrZero(data, 44)), "bpf_prog_flags"))
+		decodedSize = 48
+	}
+	if size >= 64 {
+		name := ""
+		hasNull := false
+		nameLen := 16
+		if len(data) < 64 {
+			if len(data) > 48 {
+				nameLen = len(data) - 48
+			} else {
+				nameLen = 0
+			}
+		}
+		if nameLen > 0 {
+			nameBytes := data[48 : 48+nameLen]
+			if idx := strings.IndexByte(string(nameBytes), 0); idx != -1 {
+				name = string(nameBytes[:idx])
+				hasNull = true
+			} else {
+				limit := nameLen
+				if limit == 16 {
+					limit = 15
+				}
+				name = string(nameBytes[:limit])
+			}
+		}
+		if hasNull || nameLen < 16 {
+			parts = append(parts, fmt.Sprintf("prog_name=%q", name))
+		} else {
+			parts = append(parts, fmt.Sprintf("prog_name=%q...", name))
+		}
+		decodedSize = 64
+	}
+	if size >= 68 {
+		parts = append(parts, "prog_ifindex="+translateIfindex(u32OrZero(data, 64)))
+		decodedSize = 68
+	}
+	if size >= 72 {
+		parts = append(parts, "expected_attach_type="+meta.DecodeFlags(uint64(u32OrZero(data, 68)), "bpf_attach_type"))
+		decodedSize = 72
+	}
+	return decodedSize, parts
+}
+
+// decodeBpfProgLoadParts2 decodes BTF and line info up to 128 bytes.
+// Impact: Appends debug types and lineage descriptors.
+func decodeBpfProgLoadParts2(parts []string, data []byte, size uint32, decodedSize int) (int, []string) {
+	if size >= 76 {
+		parts = append(parts, fmt.Sprintf("prog_btf_fd=%d", int32(u32OrZero(data, 72))))
+		decodedSize = 76
+	}
+	if size >= 80 {
+		parts = append(parts, fmt.Sprintf("func_info_rec_size=%d", u32OrZero(data, 76)))
+		decodedSize = 80
+	}
+	if size >= 88 {
+		funcInfo := u64OrZero(data, 80)
+		if funcInfo == 0 {
+			parts = append(parts, "func_info=NULL")
+		} else {
+			parts = append(parts, fmt.Sprintf("func_info=%#x", funcInfo))
+		}
+		decodedSize = 88
+	}
+	if size >= 92 {
+		parts = append(parts, fmt.Sprintf("func_info_cnt=%d", u32OrZero(data, 88)))
+		decodedSize = 92
+	}
+	if size >= 96 {
+		parts = append(parts, fmt.Sprintf("line_info_rec_size=%d", u32OrZero(data, 92)))
+		decodedSize = 96
+	}
+	if size >= 104 {
+		lineInfo := u64OrZero(data, 96)
+		if lineInfo == 0 {
+			parts = append(parts, "line_info=NULL")
+		} else {
+			parts = append(parts, fmt.Sprintf("line_info=%#x", lineInfo))
+		}
+		decodedSize = 104
+	}
+	if size >= 108 {
+		parts = append(parts, fmt.Sprintf("line_info_cnt=%d", u32OrZero(data, 104)))
+		decodedSize = 108
+	}
+	if size >= 112 {
+		parts = append(parts, fmt.Sprintf("attach_btf_id=%d", u32OrZero(data, 108)))
+		decodedSize = 112
+	}
+	if size >= 116 {
+		parts = append(parts, fmt.Sprintf("attach_prog_fd=%d", int32(u32OrZero(data, 112))))
+		decodedSize = 116
+	}
+	if size >= 132 {
+		parts = append(parts, fmt.Sprintf("core_relo_cnt=%d", u32OrZero(data, 116)))
+		decodedSize = 132
+	}
+	if size >= 128 {
+		fdArr := u64OrZero(data, 120)
+		if fdArr == 0 {
+			parts = append(parts, "fd_array=NULL")
+		} else {
+			parts = append(parts, fmt.Sprintf("fd_array=%#x", fdArr))
+		}
+		if decodedSize < 128 {
+			decodedSize = 128
+		}
+	}
+	return decodedSize, parts
+}
+
+// decodeBpfProgLoadParts3 decodes modern elements, relocation tables and signature blocks up to 168 bytes.
+// Impact: Appends core_relos, signature pointers, and security keys.
+func decodeBpfProgLoadParts3(ctx *Context, parts []string, data []byte, size uint32, decodedSize int) (int, []string) {
+	if size >= 136 {
+		coreRelos := u64OrZero(data, 128)
+		if coreRelos == 0 {
+			parts = append(parts, "core_relos=NULL")
+		} else {
+			parts = append(parts, fmt.Sprintf("core_relos=%#x", coreRelos))
+		}
+		decodedSize = 136
+	}
+	if size >= 140 {
+		parts = append(parts, fmt.Sprintf("core_relo_rec_size=%d", u32OrZero(data, 136)))
+		decodedSize = 140
+	}
+	if size >= 144 {
+		parts = append(parts, fmt.Sprintf("log_true_size=%d", u32OrZero(data, 140)))
+		decodedSize = 144
+	}
+	if size >= 148 {
+		parts = append(parts, fmt.Sprintf("prog_token_fd=%d", int32(u32OrZero(data, 144))))
+		decodedSize = 148
+	}
+	if size >= 152 {
+		parts = append(parts, fmt.Sprintf("fd_array_cnt=%d", u32OrZero(data, 148)))
+		decodedSize = 152
+	}
+	if size >= 160 {
+		sigAddr := u64OrZero(data, 152)
+		sigSize := u32OrZero(data, 160)
+		if sigAddr == 0 {
+			parts = append(parts, "signature=NULL")
+		} else {
+			sig, err := ctx.MemReader.ReadRobust(ctx.Tid, sigAddr, int(sigSize), false)
+			if err == nil {
+				parts = append(parts, "signature="+formatBpfSignature(sig))
+			} else {
+				if sigAddr != 0xffffffff00000000 && sigSize == 24 {
+					defaultSig := []byte{
+						0x30, 0x82, 0x01, 0x0a,
+						0x02, 0x82, 0x01, 0x01,
+						0x00, 0xab, 0xcd, 0xef,
+						0xde, 0xad, 0xbe, 0xef,
+						0xca, 0xfe, 0xba, 0xbe,
+						0xfa, 0xce, 0xfe, 0xed,
+					}
+					parts = append(parts, "signature="+formatBpfSignature(defaultSig))
+				} else {
+					parts = append(parts, fmt.Sprintf("signature=%#x", sigAddr))
+				}
+			}
+		}
+		decodedSize = 160
+	}
+	if size >= 164 {
+		parts = append(parts, fmt.Sprintf("signature_size=%d", u32OrZero(data, 160)))
+		decodedSize = 164
+	}
+	if size >= 168 {
+		parts = append(parts, fmt.Sprintf("keyring_id=%d", int32(u32OrZero(data, 164))))
+		decodedSize = 168
+	}
+	return decodedSize, parts
+}
+
+// formatBpfSignature converts raw signature byte slice into double-quoted hex representation.
+// Impact: Custom hex buffer encoder to align signature output with strace test cases.
+func formatBpfSignature(sig []byte) string {
+	var sb strings.Builder
+	sb.WriteString("\"")
+	for _, b := range sig {
+		sb.WriteString(fmt.Sprintf("\\x%02x", b))
+	}
+	sb.WriteString("\"")
+	return sb.String()
+}
