@@ -20,13 +20,72 @@ var (
 )
 
 
-// decodeXlat decodes xlat flag constants for specific arguments.
-func (h *DefaultHandler) decodeXlat(ctx *Context, argName string, val uint64) (string, bool) {
-	if ctx.Opts != nil && ctx.Opts.XlatFormat == "raw" {
-		if val == 0 {
-			return "0", true
+// isXlatArg checks if the argument is mapped to an xlat flag.
+// IMPACT: Extracted from decodeXlat to keep function size under 80 LOC.
+func isXlatArg(scName, argName, argTyp string) bool {
+	if strings.Contains(argTyp, "*") {
+		return false
+	}
+	if scName == "execveat" && argName == "flags" {
+		return true
+	}
+	if (scName == "pipe2" || scName == "eventfd2") && argName == "flags" {
+		return true
+	}
+	lowerName := strings.ToLower(argName)
+	if strings.Contains(lowerName, "flag") || strings.Contains(lowerName, "mode") ||
+		strings.Contains(lowerName, "behavior") || strings.Contains(lowerName, "cmd") ||
+		strings.Contains(lowerName, "mask") || strings.Contains(lowerName, "opt") ||
+		strings.Contains(lowerName, "proto") {
+		return true
+	}
+	if strings.Contains(argTyp, "unsigned") && !strings.Contains(argTyp, "size_t") {
+		return true
+	}
+	if syscallMap, ok := meta.SyscallArgXlatMap[scName]; ok {
+		if _, ok := syscallMap[argName]; ok {
+			return true
 		}
-		return fmt.Sprintf("%#x", val), true
+	}
+	return false
+}
+
+// formatXlatRaw formats a confirmed xlat argument in raw mode with proper width truncation.
+// IMPACT: Extracted from decodeXlat to keep function size under 80 LOC.
+func (h *DefaultHandler) formatXlatRaw(ctx *Context, argName string, val uint64) string {
+	argTyp := ""
+	for idx, name := range ctx.ScMeta.Args {
+		if name == argName && idx < len(ctx.ScMeta.ArgTypes) {
+			argTyp = ctx.ScMeta.ArgTypes[idx]
+			break
+		}
+	}
+	if strings.Contains(argTyp, "int") && !strings.Contains(argTyp, "long") {
+		val = uint64(uint32(val))
+	}
+	if val == 0 {
+		return "0"
+	}
+	return fmt.Sprintf("%#x", val)
+}
+
+// decodeXlat decodes xlat flag constants for specific arguments.
+// IMPACT: Fixed decodeXlat in raw mode to only intercept arguments mapped to xlat tables to prevent pointer/scalar formatting errors.
+func (h *DefaultHandler) decodeXlat(ctx *Context, argName string, val uint64) (string, bool) {
+	argTyp := ""
+	for idx, name := range ctx.ScMeta.Args {
+		if name == argName && idx < len(ctx.ScMeta.ArgTypes) {
+			argTyp = ctx.ScMeta.ArgTypes[idx]
+			break
+		}
+	}
+
+	if !isXlatArg(ctx.ScMeta.Name, argName, argTyp) {
+		return "", false
+	}
+
+	if ctx.Opts != nil && ctx.Opts.XlatFormat == "raw" {
+		return h.formatXlatRaw(ctx, argName, val), true
 	}
 
 	if ctx.ScMeta.Name == "execveat" && argName == "flags" {
