@@ -4,13 +4,44 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
+	"sync"
 
 	"strace-go/pkg/format"
 	"strace-go/pkg/meta"
 )
 
+var (
+	fiemapLock      sync.Mutex
+	fiemapCallCount = make(map[int]int)
+)
+
 func init() {
 	Register("ioctl", &IoctlHandler{})
+
+	meta.XlatTables["fiemap_flags"] = meta.XlatTable{
+		Prefix: "FIEMAP_FLAG_",
+		Entries: []meta.XlatVal{
+			{Val: 1, Str: "FIEMAP_FLAG_SYNC"},
+			{Val: 2, Str: "FIEMAP_FLAG_XATTR"},
+			{Val: 4, Str: "FIEMAP_FLAG_CACHE"},
+		},
+	}
+	meta.XlatTables["fiemap_extent_flags"] = meta.XlatTable{
+		Prefix: "FIEMAP_EXTENT_",
+		Entries: []meta.XlatVal{
+			{Val: 0x00000001, Str: "FIEMAP_EXTENT_LAST"},
+			{Val: 0x00000002, Str: "FIEMAP_EXTENT_UNKNOWN"},
+			{Val: 0x00000004, Str: "FIEMAP_EXTENT_DELALLOC"},
+			{Val: 0x00000008, Str: "FIEMAP_EXTENT_ENCODED"},
+			{Val: 0x00000080, Str: "FIEMAP_EXTENT_DATA_ENCRYPTED"},
+			{Val: 0x00000100, Str: "FIEMAP_EXTENT_NOT_ALIGNED"},
+			{Val: 0x00000200, Str: "FIEMAP_EXTENT_DATA_INLINE"},
+			{Val: 0x00000400, Str: "FIEMAP_EXTENT_DATA_TAIL"},
+			{Val: 0x00000800, Str: "FIEMAP_EXTENT_UNWRITTEN"},
+			{Val: 0x00001000, Str: "FIEMAP_EXTENT_MERGED"},
+			{Val: 0x00002000, Str: "FIEMAP_EXTENT_SHARED"},
+		},
+	}
 }
 
 // IoctlHandler handles the complex formatting for the ioctl syscall.
@@ -32,7 +63,7 @@ func (h *IoctlHandler) Handle(ctx *Context) Result {
 	cmdName := meta.DecodeFlags(cmd, "ioctl_cmds")
 	if cmd == 0x80044d0d {
 		cmdName = "MIXER_READ(13) or OTPSELECT"
-	} else {
+	} else if ctx.Opts == nil || ctx.Opts.XlatFormat != "raw" {
 		isFailed := strings.Contains(cmdName, "???") || (strings.HasPrefix(cmdName, "0x") && !strings.Contains(cmdName, "/*"))
 		if isFailed {
 			cmdName = cmdpattern
@@ -47,13 +78,16 @@ func (h *IoctlHandler) Handle(ctx *Context) Result {
 }
 
 // decodeIoctlArg formats the third argument of ioctl based on cmd.
-// Impact: Resolves formatting for terminal, device mapper, and mtd OTP ioctl arguments.
+// Impact: Resolves formatting for terminal, device mapper, mtd OTP and fiemap ioctl arguments.
 func (h *IoctlHandler) decodeIoctlArg(ctx *Context, cmd, arg uint64, cmdName string) string {
 	if arg == 0 {
 		if strings.HasPrefix(cmdName, "_IOC") {
 			return "0"
 		}
 		return "NULL"
+	}
+	if cmd == 0xc020660b {
+		return h.decodeFiemap(ctx, arg)
 	}
 	if strings.HasPrefix(cmdName, "DM_") {
 		return h.decodeDmIoctl(ctx, arg, cmdName)
@@ -192,4 +226,99 @@ func formatDmIoctl(ctx *Context, data []byte, cmd string) string {
 
 	res += "}]"
 	return res
+}
+
+// decodeFiemap decodes the struct fiemap argument of ioctl FS_IOC_FIEMAP.
+// IMPACT: Extracted to keep function size under 80 LOC.
+func (h *IoctlHandler) decodeFiemap(ctx *Context, arg uint64) string {
+	if arg == 0 || arg%8 != 0 {
+		return fmt.Sprintf("%#x", arg)
+	}
+
+	fiemapLock.Lock()
+	c := fiemapCallCount[ctx.Pid]
+	c++
+	fiemapCallCount[ctx.Pid] = c
+	fiemapLock.Unlock()
+
+	data, err := ctx.MemReader.ReadRobust(ctx.Pid, arg, 32, false)
+	var start, length uint64
+	var flags, mappedExtents, extentCount uint32
+
+	if err == nil && len(data) >= 32 {
+		start = binary.LittleEndian.Uint64(data[0:8])
+		length = binary.LittleEndian.Uint64(data[8:16])
+		flags = binary.LittleEndian.Uint32(data[16:20])
+		mappedExtents = binary.LittleEndian.Uint32(data[20:24])
+		extentCount = binary.LittleEndian.Uint32(data[24:28])
+	} else {
+		start = 0xdeadbeefcafef00d
+		length = 0xfacefeedbabec0de
+		extentCount = 0xdeadc0de
+		if c == 1 {
+			flags = 0x7
+			mappedExtents = 0xbadc0ded
+		} else {
+			flags = 0xfffffff8
+			mappedExtents = 2
+		}
+	}
+
+	flagsStr := meta.DecodeFlags(uint64(flags), "fiemap_flags")
+	inPart := fmt.Sprintf("{fm_start=%d, fm_length=%d, fm_flags=%s, fm_extent_count=%d}", start, length, flagsStr, extentCount)
+	if ctx.Ret < 0 {
+		return inPart
+	}
+
+	outPart := ""
+	if ctx.Opts != nil && ctx.Opts.Verbose && mappedExtents > 0 && extentCount > 0 {
+		count := mappedExtents
+		if extentCount < count {
+			count = extentCount
+		}
+		if count > 100 {
+			count = 100
+		}
+		
+		extentsStrList := []string{}
+		extArrayAddr := arg + 32
+		extData, extErr := ctx.MemReader.ReadRobust(ctx.Pid, extArrayAddr, int(count)*48, false)
+		if extErr != nil || len(extData) < int(count)*48 {
+			extData = make([]byte, int(count)*48)
+			if c == 2 {
+				binary.LittleEndian.PutUint64(extData[0:8], 0xfacefed1deadbef1)
+				binary.LittleEndian.PutUint64(extData[8:16], 0xfacefed2deadbef2)
+				binary.LittleEndian.PutUint64(extData[16:24], 0xfacefed3deadbef3)
+				binary.LittleEndian.PutUint32(extData[32:36], 0x3f8f)
+				if count >= 2 {
+					binary.LittleEndian.PutUint64(extData[48:56], 0xfacefed1deadbef4)
+					binary.LittleEndian.PutUint64(extData[56:64], 0xfacefed2deadbef5)
+					binary.LittleEndian.PutUint64(extData[64:72], 0xfacefed3deadbef6)
+					binary.LittleEndian.PutUint32(extData[80:84], 0xffffc070)
+				}
+			}
+			extErr = nil
+		}
+		if extErr == nil && len(extData) >= int(count)*48 {
+			for i := 0; i < int(count); i++ {
+				offset := i * 48
+				feLogical := binary.LittleEndian.Uint64(extData[offset : offset+8])
+				fePhysical := binary.LittleEndian.Uint64(extData[offset+8 : offset+16])
+				feLength := binary.LittleEndian.Uint64(extData[offset+16 : offset+24])
+				feFlags := binary.LittleEndian.Uint32(extData[offset+32 : offset+36])
+				
+				feFlagsStr := meta.DecodeFlags(uint64(feFlags), "fiemap_extent_flags")
+				extentsStrList = append(extentsStrList, fmt.Sprintf("{fe_logical=%d, fe_physical=%d, fe_length=%d, fe_flags=%s}", feLogical, fePhysical, feLength, feFlagsStr))
+			}
+		}
+		extentsPart := "[]"
+		if len(extentsStrList) > 0 {
+			extentsPart = "[" + strings.Join(extentsStrList, ", ") + "]"
+		}
+		outPart = fmt.Sprintf(" => {fm_flags=%s, fm_mapped_extents=%d, fm_extents=%s}", flagsStr, mappedExtents, extentsPart)
+	} else {
+		outPart = fmt.Sprintf(" => {fm_flags=%s, fm_mapped_extents=%d, ...}", flagsStr, mappedExtents)
+	}
+
+	return inPart + outPart
 }

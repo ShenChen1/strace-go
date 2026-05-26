@@ -189,7 +189,7 @@ func DecodeFlags(val uint64, xlatName string) string {
 		rawValStr := fmt.Sprintf("%#x", val)
 		if val == 0 {
 			rawValStr = "0"
-		} else if (xlatName == "signalnames" || xlatName == "key_spec") || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "resources") {
+		} else if isEnum && ((xlatName == "signalnames" || xlatName == "key_spec") || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "resources")) {
 			rawValStr = fmt.Sprintf("%d", int32(val))
 		}
 		if decoded == rawValStr {
