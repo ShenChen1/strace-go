@@ -6,15 +6,17 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
-// IMPACT: Enlarged str_arg buffer to 4104 bytes to support capturing full PATH_MAX (4096) plus 1 null byte for boundary detection.
+// IMPACT: Enlarged str_arg buffer to 4504 bytes to support capturing full PATH_MAX (4096) plus 1 null byte for boundary detection, plus key offset.
 struct bpf_event {
     u32 pid;
     u32 sys_id; u32 tid;
     s32 probe_ret_enter; s32 probe_ret_exit;
     u64 args[6];
     u64 ret;
-    u64 ptr; 
-    u8 str_arg[4104];
+    u64 ptr;
+    u32 data_len;
+    u32 _pad;
+    u8 str_arg[4504];
 };
 
 struct {
@@ -78,8 +80,8 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
     if (!e) return 0;
     
-    e->pid = pid; e->sys_id = sys_id; e->tid = tid; e->probe_ret_enter = -1; e->probe_ret_exit = -1; e->ptr = 0; e->ret = 0;
-    
+    e->pid = pid; e->sys_id = sys_id; e->tid = tid; e->probe_ret_enter = -1; e->probe_ret_exit = -1; e->ptr = 0; e->ret = 0; e->data_len = 0;
+    // IMPACT: Revert zero-initialization in trace_sys_enter to restore compile success under BPF.
     e->args[0] = ctx->args[0];
     e->args[1] = ctx->args[1];
     e->args[2] = ctx->args[2];
@@ -95,7 +97,9 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
             u32 val = 1;
             bpf_map_update_elem(&main_exited_map, &pid, &val, BPF_ANY);
         }
-        bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + (e->data_len & 0x1fff);
+        if (out_size > sizeof(*e)) out_size = sizeof(*e);
+        bpf_ringbuf_output(&events, e, out_size, 0);
         bpf_map_delete_elem(&events_map, &tid);
     }
 
@@ -107,7 +111,9 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         }
         if (nr_threads > 1 && tid == pid) {
             e->probe_ret_enter = 3;
-            bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+            u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + (e->data_len & 0x1fff);
+            if (out_size > sizeof(*e)) out_size = sizeof(*e);
+            bpf_ringbuf_output(&events, e, out_size, 0);
             e->probe_ret_enter = -1;
         }
     }
@@ -120,7 +126,9 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         } else {
             e->probe_ret_enter = 0;
         }
-        bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + (e->data_len & 0x1fff);
+        if (out_size > sizeof(*e)) out_size = sizeof(*e);
+        bpf_ringbuf_output(&events, e, out_size, 0);
         if (tid != pid) {
             bpf_map_update_elem(&pending_exec_map, &pid, &tid, BPF_ANY);
         }
@@ -174,7 +182,9 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
         } else {
             e->probe_ret_exit = 0;
         }
-        bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + (e->data_len & 0x1fff);
+        if (out_size > sizeof(*e)) out_size = sizeof(*e);
+        bpf_ringbuf_output(&events, e, out_size, 0);
         bpf_map_delete_elem(&events_map, &pending_tid);
         bpf_map_delete_elem(&pending_exec_map, &pid);
         bpf_map_delete_elem(&main_exited_map, &pid);
@@ -182,7 +192,9 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             bpf_map_delete_elem(&events_map, &pid);
         }
     } else {
-        bpf_ringbuf_output(&events, e, sizeof(*e), 0);
+        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + (e->data_len & 0x1fff);
+        if (out_size > sizeof(*e)) out_size = sizeof(*e);
+        bpf_ringbuf_output(&events, e, out_size, 0);
         u32 *pending = bpf_map_lookup_elem(&pending_exec_map, &pid);
         if (!(tid == pid && pending)) {
             bpf_map_delete_elem(&events_map, &tid);

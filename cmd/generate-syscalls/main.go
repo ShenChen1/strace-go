@@ -222,6 +222,22 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 		// IMPACT: Safe-guard fsz conditional read to prevent BPF errors when size is 0.
 		if sizeStr == "fsz" {
 			res += fmt.Sprintf("\t\t\t\tlong pr = (fsz > 0 && (e)->args[%d]) ? %s(%s, fsz, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, r.Arg)
+		} else if r.Type == "string" && r.Size > 2048 {
+			// IMPACT: Modified BPF multi-segment string read to overwrite the first phase's forced null terminator
+			// at index 2047. The second phase starts writing from offset 2047 and reads from user pointer + 2047,
+			// restoring the original character and ensuring continuous string parsing in Go's bytes.IndexByte.
+			res += fmt.Sprintf("\t\t\t\tlong pr = 0; \\\n")
+			res += fmt.Sprintf("\t\t\t\tif ((e)->args[%d]) { \\\n", r.Arg)
+			res += fmt.Sprintf("\t\t\t\t\t(%s)[0] = 0; \\\n", buf)
+			res += fmt.Sprintf("\t\t\t\t\tpr = bpf_probe_read_user_str(%s, 2048, (void *)(e)->args[%d]); \\\n", buf, r.Arg)
+			res += fmt.Sprintf("\t\t\t\t\tif (pr < 0) { (%s)[0] = 0; } \\\n", buf)
+			res += fmt.Sprintf("\t\t\t\t\telse if (pr >= 2048) { \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t\t(%s + 2047)[0] = 0; \\\n", buf)
+			remain := r.Size - 2047
+			res += fmt.Sprintf("\t\t\t\t\t\tlong pr2 = bpf_probe_read_user_str(%s + 2047, %d, (void *)((e)->args[%d] + 2047)); \\\n", buf, remain, r.Arg)
+			res += fmt.Sprintf("\t\t\t\t\t\tif (pr2 >= 0) { pr = 2047 + pr2; } else { pr = pr2; (%s + 2047)[0] = 0; } \\\n", buf)
+			res += fmt.Sprintf("\t\t\t\t\t} \\\n")
+			res += fmt.Sprintf("\t\t\t\t} \\\n")
 		} else {
 			res += fmt.Sprintf("\t\t\t\tlong pr = (e)->args[%d] ? %s(%s, %s, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, sizeStr, r.Arg)
 		}
@@ -229,8 +245,10 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 		res += fmt.Sprintf("\t\t\t\t\ts32 curr = (e)->probe_ret_%s; \\\n", suffix)
 		res += fmt.Sprintf("\t\t\t\t\tu32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \\\n")
 		res += fmt.Sprintf("\t\t\t\t\t(e)->probe_ret_%s = -(s32)((mask | (1 << %d)) + 1); \\\n", suffix, r.Arg)
-		res += fmt.Sprintf("\t\t\t\t} else if ((e)->probe_ret_%s == -1) { \\\n", suffix)
-		res += fmt.Sprintf("\t\t\t\t\t(e)->probe_ret_%s = 0; \\\n", suffix)
+		res += fmt.Sprintf("\t\t\t\t} else { \\\n")
+		res += fmt.Sprintf("\t\t\t\t\tif ((e)->probe_ret_%s == -1) (e)->probe_ret_%s = 0; \\\n", suffix, suffix)
+		res += fmt.Sprintf("\t\t\t\t\tu32 req_len = %d + pr; \\\n", r.Offset)
+		res += fmt.Sprintf("\t\t\t\t\tif ((e)->data_len < req_len) (e)->data_len = req_len; \\\n")
 		res += fmt.Sprintf("\t\t\t\t} \\\n")
 		res += fmt.Sprintf("\t\t\t} \\\n")
 		
@@ -239,6 +257,7 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 			res += "\t\t\t\tu64 p; \\\n"
 			res += "\t\t\t\tif (bpf_probe_read_user(&p, 8, (void *)(e->args[2] + i*8)) == 0 && p != 0) { \\\n"
 			res += "\t\t\t\t\tbpf_probe_read_user((e)->str_arg + 512 + i*64, 64, (void *)p); \\\n"
+			res += "\t\t\t\t\tif ((e)->data_len < 512 + i*64 + 64) (e)->data_len = 512 + i*64 + 64; \\\n"
 			res += "\t\t\t\t} \\\n"
 			res += "\t\t\t} \\\n"
 		}

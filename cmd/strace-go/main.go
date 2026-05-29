@@ -29,6 +29,7 @@ var currentActionLock sync.Mutex
 
 // IMPACT: The main function acts as the bootstrap entry point. It parses arguments,
 // configures fallback execution arguments for thread tracing, and spawns the trace session.
+// IMPACT: Main entry bootstrap point.
 func main() {
 	opts := cli.ParseArgs(os.Args[1:])
 	meta.XlatFormat = opts.XlatFormat
@@ -51,7 +52,7 @@ func main() {
 	}
 
 	if opts.HelpRequested {
-		fmt.Print(cli.HelpText)
+		fmt.Printf("%s", cli.HelpText)
 		os.Exit(0)
 	}
 	if opts.VersionRequested {
@@ -84,6 +85,8 @@ func main() {
 	defer memReader.Close()
 	decoder := event.NewDecoder(memReader)
 	decoder.HexEscapeMode = opts.HexEscapeMode
+	// IMPACT: Initialize decoder.StringLimit from parsed CLI options to respect command-line formatting constraints.
+	decoder.StringLimit = opts.StringLimit
 
 	outWriter, outFile := setupOutput(opts.OutFile)
 	if outFile != nil {
@@ -105,6 +108,7 @@ func main() {
 }
 
 // IMPACT: bpfEvent structure defines the exact data alignment matching the BPF ringbuffer events.
+// IMPACT: Enlarged StrArg from 4104 to 4504 to match BPF event buffer size for multi-segment fsconfig captures.
 type bpfEvent struct {
 	Pid           uint32
 	SysId         uint32
@@ -115,5 +119,7 @@ type bpfEvent struct {
 	Args          [6]uint64
 	Ret           int64
 	Ptr           uint64
-	StrArg        [4104]byte
+	DataLen       uint32
+	_             uint32
+	StrArg        [4504]byte
 }

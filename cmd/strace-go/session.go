@@ -160,8 +160,8 @@ func (s *traceSession) run() {
 			if err != nil {
 				break
 			}
-			eventRaw := (*bpfEvent)(unsafe.Pointer(&rec.RawSample[0]))
-			ev := *eventRaw
+			var ev bpfEvent
+			copy(unsafe.Slice((*byte)(unsafe.Pointer(&ev)), unsafe.Sizeof(ev)), rec.RawSample)
 			eventChan <- &ev
 		}
 	}()
