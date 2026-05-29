@@ -10,16 +10,47 @@ import (
 	"strace-go/pkg/procmem"
 )
 
+// IMPACT: Added StringLimit field to Decoder to allow DecodeString to apply command-line formatting limits independently from internal buffer size limits.
 type Decoder struct {
 	MemReader     *procmem.Reader
 	HexEscapeMode int
+	StringLimit   int
 }
 
 func NewDecoder(mr *procmem.Reader) *Decoder {
 	return &Decoder{MemReader: mr, HexEscapeMode: 0}
 }
 
-// IMPACT: Updated DecodeString to dynamically detect BPF buffer truncation using len(bpfData) instead of hardcoding 512 bytes.
+// IMPACT: Refined DecodeString to allow fallback memory reading even when probeRet is -2 (EFAULT),
+// ensuring partially valid strings (like those truncated at page boundaries) are correctly decoded.
+// parseBPFData extracts string raw data from BPF buffer.
+func parseBPFData(bpfData []byte, probeRet int32) (bpfRaw []byte, bpfFound bool, raw []byte, found bool) {
+	if len(bpfData) == 0 {
+		return nil, false, nil, false
+	}
+	idx := bytes.IndexByte(bpfData, 0)
+	if idx != -1 {
+		bpfRaw = bpfData[:idx]
+		bpfFound = true
+		// If null terminator is at the very last byte, it is likely BPF buffer boundary forced null.
+		// We do not treat it as a naturally terminating string so it falls back to MemReader if needed.
+		if probeRet >= 0 && idx < len(bpfData)-1 {
+			raw = bpfRaw
+			found = true
+		}
+	} else {
+		maxLen := len(bpfData)
+		if maxLen > 4096 {
+			maxLen = 4096
+		}
+		bpfRaw = bpfData[:maxLen]
+		bpfFound = true
+	}
+	return
+}
+
+// IMPACT: Robustly decodes strings. Uses BPF data when zero-terminator is found or limit reached. Otherwise falls back to process memory reading, handling ESRCH or page-boundary EFAULT.
+// IMPACT: Restrict DecodeString direct return and fallback decisions to probeRet >= 0 to prevent EFAULT and unprobed cases from reading dirty per-CPU buffer cache.
 func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int32, scName string, limit int) string {
 	if ptr == 0 { return "NULL" }
 	if probeRet == -2 {
@@ -27,65 +58,67 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 	}
 
 	var raw []byte
-	found := false
 	truncated := false
+	bpfRaw, bpfFound, _, found := parseBPFData(bpfData, probeRet)
 
-	// Try BPF data first
-	var bpfRaw []byte
-	bpfFound := false
-	if len(bpfData) > 0 {
-		idx := bytes.IndexByte(bpfData, 0)
-		if idx != -1 {
-			if probeRet >= 0 {
-				bpfRaw = bpfData[:idx]
-				bpfFound = true
-				if idx < len(bpfData)-1 {
+	if found {
+		raw = bpfRaw
+		if limit > 0 && len(raw) >= limit {
+			truncated = true
+		}
+	} else {
+		// BPF buffer did not contain '\0'
+		if probeRet >= 0 && bpfFound && limit > 0 && len(bpfRaw) >= limit {
+			raw = bpfRaw
+			truncated = true
+			found = true
+		} else {
+			readSize := 4096
+			if limit > 0 && limit < 4096 {
+				readSize = limit + 1
+			}
+			data, err := d.MemReader.ReadRobust(pid, ptr, readSize, false)
+			if err == nil {
+				if idx := bytes.IndexByte(data, 0); idx != -1 {
+					raw = data[:idx]
+					if limit > 0 && idx >= limit {
+						truncated = true
+					}
+				} else {
+					raw = data
+					truncated = true
+				}
+				found = true
+			} else {
+				// Fallback to BPF data if memory read failed (e.g. process exited)
+				if probeRet >= 0 && bpfFound && len(bpfRaw) > 0 {
 					raw = bpfRaw
+					truncated = true
 					found = true
 				}
 			}
 		}
 	}
 
-	if !found {
-		// Fallback to process memory with a 4096-byte (PATH_MAX) limit
-		data, err := d.MemReader.ReadRobust(pid, ptr, 4096, false)
-		if err == nil {
-			if idx := bytes.IndexByte(data, 0); idx != -1 {
-				raw = data[:idx]
-			} else {
-				raw = data
-				truncated = true
-			}
-			found = true
-		} else if bpfFound {
-			maxLen := len(bpfData) - 1
-			if len(bpfData) > 512 {
-				maxLen = len(bpfData) - 2
-			}
-			if len(bpfRaw) > maxLen {
-				raw = bpfRaw[:maxLen]
-			} else {
-				raw = bpfRaw
-			}
-			truncated = true
-			found = true
-		}
-	}
-
+	var finalRes string
 	if found {
+		// IMPACT: Uses StringLimit if set as the primary truncation threshold for string arguments (limit > 0), ensuring paths (limit <= 0) bypass truncation.
 		printLimit := limit
 		if printLimit <= 0 {
 			printLimit = 10000
+		} else if d.StringLimit > 0 && d.StringLimit < printLimit {
+			printLimit = d.StringLimit
 		}
 		actualLen := 0
 		if truncated {
 			actualLen = printLimit + 1
 		}
-		return format.BufferEscape(raw, printLimit, actualLen, d.HexEscapeMode)
+		finalRes = format.BufferEscape(raw, printLimit, actualLen, d.HexEscapeMode)
+	} else {
+		finalRes = fmt.Sprintf("%#x", ptr)
 	}
 
-	return fmt.Sprintf("%#x", ptr)
+	return finalRes
 }
 
 // DecodeStringRaw decodes a string without quoting it.
