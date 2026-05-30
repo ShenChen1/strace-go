@@ -60,8 +60,8 @@ func decodeEnum(val uint64, xlatName string, table XlatTable) (string, bool) {
 		}
 		return strings.Join(matches, " or "), true
 	}
-	// IMPACT: Avoid mapping small enum values directly to numbers if they belong to fcntlcmds, ioctl_cmds, archvals, x86_xfeature_bits or bpf-related enums.
-	if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && !strings.HasPrefix(xlatName, "bpf_") && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits")) && xlatName != "resources" {
+	// IMPACT: Avoid mapping small enum values directly to numbers if they belong to fcntlcmds, ioctl_cmds, archvals, x86_xfeature_bits, fsconfig_cmds or bpf-related enums.
+	if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && !strings.HasPrefix(xlatName, "bpf_") && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "fsconfig_cmds")) && xlatName != "resources" {
 		return fmt.Sprintf("%d", int32(val)), true
 	}
 	formatVal := fmt.Sprintf("%#x", val)
@@ -135,7 +135,8 @@ func DecodeFlags(val uint64, xlatName string) string {
 		table, ok := XlatTables[xlatName]
 		isEnum := false
 		if ok {
-			isEnum = (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "bpf_fd_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds" || xlatName == "bpf_stats_type") && xlatName != "clone3_flags"
+			// IMPACT: Added fsconfig_cmds to isEnum check so that it gets formatted as a single enum value rather than joined bitflags.
+			isEnum = (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "bpf_fd_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds" || xlatName == "bpf_stats_type" || xlatName == "fsconfig_cmds") && xlatName != "clone3_flags"
 		}
 		if isEnum {
 			if val == 0 {
@@ -164,7 +165,8 @@ func DecodeFlags(val uint64, xlatName string) string {
 		val = uint64(uint32(val))
 	}
 
-	isEnum := (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "bpf_fd_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds" || xlatName == "bpf_stats_type") && xlatName != "clone3_flags"
+	// IMPACT: Added fsconfig_cmds to isEnum check so that it gets formatted as a single enum value rather than joined bitflags.
+	isEnum := (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "bpf_fd_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds" || xlatName == "bpf_stats_type" || xlatName == "fsconfig_cmds") && xlatName != "clone3_flags"
 
 	var decoded string
 	hasDecoded := false

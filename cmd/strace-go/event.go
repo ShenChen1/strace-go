@@ -61,16 +61,19 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	ret := eventRaw.Ret
 	strArgBuf := eventRaw.StrArg[:]
 	isPath := false
-	if len(scMeta.Args) > 0 {
-		argName := scMeta.Args[0]
-		isPath = argName == "filename" || argName == "pathname" || argName == "path" || argName == "oldname" || argName == "newname"
+	for _, argName := range scMeta.Args {
+		if argName == "filename" || argName == "pathname" || argName == "path" || argName == "oldname" || argName == "newname" || argName == "fs_name" {
+			isPath = true
+			break
+		}
 	}
 	capSize := 512
 	if isPath {
 		capSize = 4097
 	}
 	ptrProbeRet := resolvePtrProbeRet(eventRaw)
-	rawStrArg := s.decoder.DecodeString(int(eventRaw.Pid), eventRaw.Ptr, strArgBuf[:capSize], ptrProbeRet, scMeta.Name, 0)
+	// IMPACT: Use Tid instead of Pid to guarantee process_vm_readv succeeds even if leader thread is zombie.
+	rawStrArg := s.decoder.DecodeString(int(eventRaw.Tid), eventRaw.Ptr, strArgBuf[:capSize], ptrProbeRet, scMeta.Name, 0)
 
 	updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, s.targetPid, s.fdMap)
 
@@ -224,7 +227,8 @@ func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, deco
 		if ret >= 0 {
 			p := rawStrArg
 			if scMeta.Name == "openat" || scMeta.Name == "openat2" {
-				p = decoder.DecodeString(int(eventRaw.Pid), eventRaw.Args[1], strArgBuf, eventRaw.ProbeRetEnter, scMeta.Name, 0)
+				// IMPACT: Use Tid instead of Pid to guarantee process_vm_readv succeeds even if leader thread is zombie.
+				p = decoder.DecodeString(int(eventRaw.Tid), eventRaw.Args[1], strArgBuf, eventRaw.ProbeRetEnter, scMeta.Name, 0)
 			}
 			if p != "" && !strings.HasPrefix(p, "0x") && p != "NULL" {
 				fdMap[fmt.Sprintf("%d:%d", targetPid, int32(ret))] = p

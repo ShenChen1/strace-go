@@ -174,7 +174,8 @@ func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val 
 	}
 
 	if strings.Contains(argName, "fd") || argName == "fildes" {
-		if int32(val) == -100 {
+		// IMPACT: Only translate -100 to AT_FDCWD if the argument represents a directory fd (contains "dfd" or "dirfd").
+		if int32(val) == -100 && (strings.Contains(argName, "dfd") || argName == "dirfd") {
 			s := "AT_FDCWD"
 			if ctx.Opts.ShowPaths {
 				isPathmaxTest := false
@@ -218,6 +219,11 @@ func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val 
 					}
 					if cwdPath == "" {
 						if l, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", ctx.Pid)); err == nil {
+							cwdPath = l
+						}
+					}
+					if cwdPath == "" {
+						if l, err := os.Getwd(); err == nil {
 							cwdPath = l
 						}
 					}
@@ -281,12 +287,16 @@ func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val 
 
 // IMPACT: FormatFdWithPath formats file descriptor with path information (-y/-yy).
 // It falls back to looking up path in FdMap if readlink of procfs fails due to timing.
+// IMPACT: Strip surrounding quotes from target path if retrieved from FdMap
+// to ensure consistent no-quote formatting inside fd paths.
 func FormatFdWithPath(ctx *Context, fd int32) string {
 	fdStr := fmt.Sprintf("%d", fd)
 	if ctx.Opts == nil || !ctx.Opts.ShowPaths {
 		return fdStr
 	}
-	linkPath := fmt.Sprintf("/proc/%d/fd/%d", ctx.Pid, fd)
+
+	// IMPACT: Use ctx.TargetPid instead of ctx.Pid to avoid reading from transient/exited thread descriptors.
+	linkPath := fmt.Sprintf("/proc/%d/fd/%d", ctx.TargetPid, fd)
 	target, err := os.Readlink(linkPath)
 	if err != nil {
 		if ctx.FdMap != nil {
@@ -298,6 +308,9 @@ func FormatFdWithPath(ctx *Context, fd int32) string {
 	}
 	if err != nil {
 		return fdStr
+	}
+	if len(target) >= 2 && target[0] == '"' && target[len(target)-1] == '"' {
+		target = target[1 : len(target)-1]
 	}
 	if ctx.Opts.ShowPathsMode == 2 {
 		return fdStr + "<" + formatDetailedPath(ctx, linkPath, target, fd) + ">"

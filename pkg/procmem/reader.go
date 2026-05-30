@@ -32,13 +32,27 @@ func (r *Reader) Close() {
 }
 
 // Read reads size bytes from the address space of pid at addr.
+// IMPACT: Added fallback retry with size=512 if full size readVM fails
+// to handle cross-page page boundary EFAULT truncation safely.
 func (r *Reader) Read(pid int, addr uint64, size int) ([]byte, error) {
 	if size <= 0 { return nil, nil }
 	out := make([]byte, size)
 
-	// Try process_vm_readv first
 	n, err := r.readVM(pid, addr, out)
 	if err == nil && n > 0 { return out[:n], nil }
+
+	// Fallback to page boundary size if vm readv failed on page boundaries.
+	// Since all memory within the same page share permissions, reading up to
+	// the page boundary is guaranteed not to EFAULT due to cross-page protection.
+	pageOffset := addr & 0xfff
+	bytesAvailable := int(4096 - pageOffset)
+	if size > bytesAvailable && bytesAvailable > 0 {
+		reducedOut := make([]byte, bytesAvailable)
+		n, err := r.readVM(pid, addr, reducedOut)
+		if err == nil && n > 0 {
+			return reducedOut[:n], nil
+		}
+	}
 
 	// Fallback to /proc/<pid>/mem
 	f, ok := r.files[pid]
@@ -118,6 +132,10 @@ func (r *Reader) ReadRobust(pid int, addr uint64, size int, waitOnZero bool) ([]
 			if !waitOnZero { return buf, nil }
 			allZeros := true; for _, x := range buf { if x != 0 { allZeros = false; break } }
 			if !allZeros { return buf, nil }
+		} else {
+			if err == syscall.EFAULT || err == syscall.ESRCH || err == syscall.EPERM {
+				return nil, err
+			}
 		}
 		time.Sleep(1 * time.Millisecond)
 	}

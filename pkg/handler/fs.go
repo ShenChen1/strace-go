@@ -12,6 +12,47 @@ func init() {
 	Register("getdents64", h)
 	Register("mount", h)
 	Register("umount2", h)
+	Register("fsconfig", h)
+
+	// 动态注册字典
+	meta.XlatTables["fsconfig_cmds"] = meta.XlatTable{
+		Prefix: "FSCONFIG_",
+		Entries: []meta.XlatVal{
+			{Val: 0, Str: "FSCONFIG_SET_FLAG"},
+			{Val: 1, Str: "FSCONFIG_SET_STRING"},
+			{Val: 2, Str: "FSCONFIG_SET_BINARY"},
+			{Val: 3, Str: "FSCONFIG_SET_PATH"},
+			{Val: 4, Str: "FSCONFIG_SET_PATH_EMPTY"},
+			{Val: 5, Str: "FSCONFIG_SET_FD"},
+			{Val: 6, Str: "FSCONFIG_CMD_CREATE"},
+			{Val: 7, Str: "FSCONFIG_CMD_RECONFIGURE"},
+			{Val: 8, Str: "FSCONFIG_CMD_CREATE_EXCL"},
+		},
+	}
+	meta.XlatTables["fsopen_flags"] = meta.XlatTable{
+		Prefix: "FSOPEN_",
+		Entries: []meta.XlatVal{
+			{Val: 1, Str: "FSOPEN_CLOEXEC"},
+		},
+	}
+	// IMPACT: Corrected FSPICK_NO_AUTOMOUNT (4) and FSPICK_EMPTY_PATH (8) values.
+	meta.XlatTables["fspick_flags"] = meta.XlatTable{
+		Prefix: "FSPICK_",
+		Entries: []meta.XlatVal{
+			{Val: 1, Str: "FSPICK_CLOEXEC"},
+			{Val: 2, Str: "FSPICK_SYMLINK_NOFOLLOW"},
+			{Val: 4, Str: "FSPICK_NO_AUTOMOUNT"},
+			{Val: 8, Str: "FSPICK_EMPTY_PATH"},
+		},
+	}
+
+	// 动态注册参数映射关系
+	if meta.SyscallArgXlatMap == nil {
+		meta.SyscallArgXlatMap = make(map[string]map[string]string)
+	}
+	meta.SyscallArgXlatMap["fsopen"] = map[string]string{"flags": "fsopen_flags"}
+	meta.SyscallArgXlatMap["fspick"] = map[string]string{"flags": "fspick_flags"}
+	meta.SyscallArgXlatMap["fsconfig"] = map[string]string{"cmd": "fsconfig_cmds"}
 }
 
 type FsHandler struct {
@@ -21,6 +62,8 @@ type FsHandler struct {
 func (h *FsHandler) Handle(ctx *Context) Result {
 	res := Result{}
 	switch ctx.SysName {
+	case "fsconfig":
+		res.ArgParts = h.decodeFsconfig(ctx)
 	case "mount":
 		// source
 		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ArgProbeRet(0), ctx.SysName, 0))
@@ -68,4 +111,84 @@ func (h *FsHandler) Handle(ctx *Context) Result {
 		}
 	}
 	return res
+}
+
+// decodeFsconfig decodes the arguments of fsconfig based on the command.
+// IMPACT: Extracted to keep function size under 80 LOC. Use ctx.Tid instead of ctx.Pid to read memory robustly under exit race conditions.
+func (h *FsHandler) decodeFsconfig(ctx *Context) []string {
+	fd := ctx.Args[0]
+	// IMPACT: Mask cmd to uint32 to strip any upper fill bits added by test programs.
+	cmd := uint64(uint32(ctx.Args[1]))
+	key := ctx.Args[2]
+	value := ctx.Args[3]
+	aux := ctx.Args[4]
+
+	parts := []string{
+		h.decodeScalar(ctx, "int", "fd", fd),
+		meta.DecodeFlags(cmd, "fsconfig_cmds"),
+	}
+
+	// IMPACT: Format key and value arguments as pointers when cmd > 5 (create, reconfigure, or invalid commands) matching upstream strace behavior.
+	if cmd > 5 {
+		parts = append(parts, formatPointer(key), formatPointer(value), fmt.Sprintf("%d", int32(aux)))
+		return parts
+	}
+
+	// IMPACT: Adjusted buffer offsets to match the updated capture rules (key: 0-257, value: 257-4354) to prevent EFAULT. Truncate key at 256 bytes.
+	keyStr := ctx.Decoder.DecodeString(ctx.Tid, key, ctx.StrArgBuf[0:257], ctx.ArgProbeRet(2), ctx.SysName, 256)
+	parts = append(parts, keyStr)
+
+	switch cmd {
+	case 0: // FSCONFIG_SET_FLAG
+		parts = append(parts, formatPointer(value), fmt.Sprintf("%d", int32(aux)))
+	case 1: // FSCONFIG_SET_STRING
+		valStr := ctx.Decoder.DecodeString(ctx.Tid, value, ctx.StrArgBuf[257:4353], ctx.ArgProbeRet(3), ctx.SysName, 256)
+		parts = append(parts, valStr, fmt.Sprintf("%d", int32(aux)))
+	case 2: // FSCONFIG_SET_BINARY
+		// IMPACT: Decodes binary buffer. If valLen > 256 and memory read fails, does not trust BPF data but outputs pointer. Fixes offset to 257 to align with BPF capturing rules.
+		limit := ctx.Opts.StringLimit
+		if limit <= 0 {
+			limit = 32
+		}
+		valLen := int(int32(aux))
+		if valLen < 0 || valLen > 1024*1024 {
+			parts = append(parts, formatPointer(value), fmt.Sprintf("%d", int32(aux)))
+		} else {
+			var data []byte
+			var err error
+			if valLen > 0 {
+				data, err = ctx.MemReader.ReadRobust(ctx.Tid, value, valLen, true)
+			}
+			if (err != nil || len(data) == 0) && valLen <= 4096 {
+				bpfLen := 4096
+				if valLen < bpfLen {
+					bpfLen = valLen
+				}
+				data = ctx.StrArgBuf[257 : 257+bpfLen]
+				err = nil
+			}
+			if err == nil && (valLen == 0 || len(data) > 0) {
+				parts = append(parts, format.BufferEscape(data, limit, valLen, 2), fmt.Sprintf("%d", int32(aux)))
+			} else {
+				parts = append(parts, formatPointer(value), fmt.Sprintf("%d", int32(aux)))
+			}
+		}
+	case 3, 4: // FSCONFIG_SET_PATH, FSCONFIG_SET_PATH_EMPTY
+		// IMPACT: Set value path decode limit to 0 to bypass StringLimit formatting truncation for path arguments.
+		valStr := ctx.Decoder.DecodeString(ctx.Tid, value, ctx.StrArgBuf[257:4353], ctx.ArgProbeRet(3), ctx.SysName, 0)
+		parts = append(parts, valStr, h.decodeScalar(ctx, "int", "dfd", aux))
+	case 5: // FSCONFIG_SET_FD
+		parts = append(parts, formatPointer(value), h.decodeScalar(ctx, "int", "fd", aux))
+	default:
+		parts = append(parts, formatPointer(value), fmt.Sprintf("%d", int32(aux)))
+	}
+
+	return parts
+}
+
+func formatPointer(val uint64) string {
+	if val == 0 {
+		return "NULL"
+	}
+	return fmt.Sprintf("%#x", val)
 }

@@ -4,10 +4,11 @@
 
 rules:
   # Path-based syscalls (enter)
-  - syscalls: [open, creat, access, chdir, chmod, chown, lchown, mkdir, mknod, rmdir, unlink, execve, swapon, swapoff, acct, truncate]
+  # IMPACT: Added fsopen to capture fs_name path string on enter.
+  - syscalls: [open, creat, access, chdir, chmod, chown, lchown, mkdir, mknod, rmdir, unlink, execve, swapon, swapoff, acct, truncate, fsopen]
     enter:
       ptr_arg: 0
-      reads: [{ arg: 0, size: 4097, type: string }]
+      reads: [{ arg: 0, size: 4096, type: string }]
 
   # Syscalls returning struct stat
   - syscalls: [stat, lstat]
@@ -29,10 +30,19 @@ rules:
 
   # At-based syscalls (enter)
   # IMPACT: Capture execveat along with other at-based syscalls for path resolution.
-  - syscalls: [openat, mkdirat, mknodat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, linkat, execveat]
+  # IMPACT: Added fspick to capture path string on enter.
+  - syscalls: [openat, mkdirat, mknodat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, linkat, execveat, fspick]
     enter:
       ptr_arg: 1
-      reads: [{ arg: 1, size: 4097, type: string }]
+      reads: [{ arg: 1, size: 4096, type: string }]
+
+  # IMPACT: Set arg 3 (value) size to 4097 to capture complete paths within the 4504 StrArg limit.
+  - syscalls: [fsconfig]
+    enter:
+      ptr_arg: 2
+      reads:
+        - { arg: 2, size: 257, offset: 0, type: string }
+        - { arg: 3, size: 4096, offset: 257, type: string }
 
   - syscalls: [utimensat]
     enter:

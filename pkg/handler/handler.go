@@ -53,6 +53,52 @@ func (ctx *Context) ArgProbeRet(argIndex int) int32 {
 	return 0
 }
 
+// FetchStructData safely retrieves memory for a struct pointer.
+// It prioritizes BPF-captured buffer if successful, otherwise falls back to reading from process memory.
+// It may return fewer bytes than requested if a page boundary fault occurs.
+func (ctx *Context) FetchStructData(ptr uint64, size int, isExit bool, bpfBuf []byte) ([]byte, bool) {
+	var data []byte
+	readSuccess := false
+
+	if isExit {
+		if ctx.ProbeRetExit >= 0 {
+			if len(bpfBuf) >= size {
+				data = bpfBuf[:size]
+			} else {
+				data = bpfBuf
+			}
+			readSuccess = true
+		}
+	} else {
+		if ctx.ProbeRetEnter >= 0 {
+			if len(bpfBuf) >= size {
+				data = bpfBuf[:size]
+			} else {
+				data = bpfBuf
+			}
+			readSuccess = true
+		}
+	}
+
+	if !readSuccess {
+		if d, err := ctx.MemReader.ReadRobust(ctx.Tid, ptr, size, false); err == nil && len(d) > 0 {
+			data = d
+			readSuccess = true
+		}
+	}
+
+	return data, readSuccess
+}
+
+// FetchStructDataExact is like FetchStructData but strictly requires the full requested size.
+func (ctx *Context) FetchStructDataExact(ptr uint64, size int, isExit bool, bpfBuf []byte) ([]byte, bool) {
+	data, ok := ctx.FetchStructData(ptr, size, isExit, bpfBuf)
+	if !ok || len(data) < size {
+		return nil, false
+	}
+	return data, true
+}
+
 // Result contains the formatted arguments and optional hex dump.
 type Result struct {
 	ArgParts   []string
