@@ -12,12 +12,22 @@ var btfNameToSyscallent = map[string]string{
 
 // manualOverrides provides hand-curated syscall metadata for syscalls
 // where BTF data is missing or inaccurate. These take highest priority.
+// IMPACT: Added fsopen and fspick overrides to generate correct argument names and types,
+// enabling correct string/flags parsing instead of fallback scalar parsing.
 var manualOverrides = map[string]SyscallMeta{
 	// Core I/O — BTF ksys_ uses unsigned int for fd, we want int
 	"read":  {Name: "read", Args: []string{"fd", "buf", "count"}, ArgTypes: []string{"int", "char *", "size_t"}},
 	"write": {Name: "write", Args: []string{"fd", "buf", "count"}, ArgTypes: []string{"int", "const char *", "size_t"}},
 	"open":  {Name: "open", Args: []string{"filename", "flags", "mode"}, ArgTypes: []string{"const char *", "int", "umode_t"}},
 	"close": {Name: "close", Args: []string{"fd"}, ArgTypes: []string{"int"}},
+	"readv": {Name: "readv", Args: []string{"fd", "vec", "vlen"}, ArgTypes: []string{"int", "const struct iovec *", "unsigned long"}},
+	"writev": {Name: "writev", Args: []string{"fd", "vec", "vlen"}, ArgTypes: []string{"int", "const struct iovec *", "unsigned long"}},
+	"preadv": {Name: "preadv", Args: []string{"fd", "vec", "vlen", "pos_l", "pos_h"}, ArgTypes: []string{"int", "const struct iovec *", "unsigned long", "unsigned long", "unsigned long"}},
+	"pwritev": {Name: "pwritev", Args: []string{"fd", "vec", "vlen", "pos_l", "pos_h"}, ArgTypes: []string{"int", "const struct iovec *", "unsigned long", "unsigned long", "unsigned long"}},
+	"preadv2": {Name: "preadv2", Args: []string{"fd", "vec", "vlen", "pos_l", "pos_h", "flags"}, ArgTypes: []string{"int", "const struct iovec *", "unsigned long", "unsigned long", "unsigned long", "int"}},
+	"pwritev2": {Name: "pwritev2", Args: []string{"fd", "vec", "vlen", "pos_l", "pos_h", "flags"}, ArgTypes: []string{"int", "const struct iovec *", "unsigned long", "unsigned long", "unsigned long", "int"}},
+	"process_vm_readv": {Name: "process_vm_readv", Args: []string{"pid", "local_iov", "liovcnt", "remote_iov", "riovcnt", "flags"}, ArgTypes: []string{"pid_t", "const struct iovec *", "unsigned long", "const struct iovec *", "unsigned long", "unsigned long"}},
+	"process_vm_writev": {Name: "process_vm_writev", Args: []string{"pid", "local_iov", "liovcnt", "remote_iov", "riovcnt", "flags"}, ArgTypes: []string{"pid_t", "const struct iovec *", "unsigned long", "const struct iovec *", "unsigned long", "unsigned long"}},
 
 	// stat family — BTF has __old_kernel_stat, we need struct stat
 	"stat":  {Name: "stat", Args: []string{"filename", "statbuf"}, ArgTypes: []string{"const char *", "struct stat *"}},
@@ -88,6 +98,8 @@ var manualOverrides = map[string]SyscallMeta{
 	"gettimeofday":   {Name: "gettimeofday", Args: []string{"tv", "tz"}, ArgTypes: []string{"struct timeval *", "struct timezone *"}},
 
 	// FS ops
+	"fsopen":          {Name: "fsopen", Args: []string{"fs_name", "flags"}, ArgTypes: []string{"const char *", "unsigned int"}},
+	"fspick":          {Name: "fspick", Args: []string{"dfd", "path", "flags"}, ArgTypes: []string{"int", "const char *", "unsigned int"}},
 	"select":  {Name: "select", Args: []string{"n", "inp", "outp", "exp", "tvp"}, ArgTypes: []string{"int", "fd_set *", "fd_set *", "fd_set *", "struct timeval *"}},
 	"poll":    {Name: "poll", Args: []string{"ufds", "nfds", "timeout"}, ArgTypes: []string{"struct pollfd *", "unsigned int", "int"}},
 	"epoll_create":  {Name: "epoll_create", Args: []string{"size"}, ArgTypes: []string{"int"}},

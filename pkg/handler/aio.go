@@ -73,7 +73,7 @@ func (h *AioHandler) Handle(ctx *Context) Result {
 				}
 				
 				if idata == nil {
-					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, p, 64, true); err == nil && len(d) == 64 { idata = d }
+					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, p, 64, true); err == nil && len(d) > 0 { idata = d }
 				}
 				
 				if idata != nil {
@@ -100,7 +100,7 @@ func (h *AioHandler) Handle(ctx *Context) Result {
 			data := ctx.StrArgBuf[0:64]
 			readSuccess := ctx.ProbeRetEnter >= 0
 			if !readSuccess {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[1], 64, true); err == nil && len(d) == 64 { 
+				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[1], 64, true); err == nil && len(d) > 0 { 
 					data = d
 					readSuccess = true
 				}
