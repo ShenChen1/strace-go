@@ -21,18 +21,8 @@ var (
 func decodeStringArray(ctx *Context, val uint64, argName string) string {
 	isThreadsExecve := ctx.Opts != nil && len(ctx.Opts.CmdArgs) > 0 && strings.Contains(ctx.Opts.CmdArgs[0], "threads-execve")
 	if isThreadsExecve {
-		if argName == "argv" && ExecveArgvFallback != nil {
-			args := ExecveArgvFallback(ctx.Pid, ctx.Tid, ctx.TargetPid)
-			if len(args) > 0 {
-				var res []string
-				for _, a := range args {
-					res = append(res, "\""+a+"\"")
-				}
-				return "[" + strings.Join(res, ", ") + "]"
-			}
-		}
-		if argName == "envp" {
-			return fmt.Sprintf("%#x /* 15 vars */", val)
+		if s, ok := handleExecveFallback(ctx, val, argName, true); ok {
+			return s
 		}
 	}
 
@@ -73,22 +63,8 @@ func decodeStringArray(ctx *Context, val uint64, argName string) string {
 	}
 
 	if readFailed && (ctx.ScMeta.Name == "execve" || ctx.ScMeta.Name == "execveat") {
-		if argName == "argv" && ExecveArgvFallback != nil {
-			args := ExecveArgvFallback(ctx.Pid, ctx.Tid, ctx.TargetPid)
-			if len(args) > 0 {
-				var res []string
-				for _, a := range args {
-					res = append(res, "\""+a+"\"")
-				}
-				return "[" + strings.Join(res, ", ") + "]"
-			}
-		}
-		if argName == "envp" {
-			envc := len(os.Environ())
-			if envc < 15 {
-				envc = 15
-			}
-			return fmt.Sprintf("%#x /* %d vars */", val, envc)
+		if s, ok := handleExecveFallback(ctx, val, argName, false); ok {
+			return s
 		}
 	}
 
@@ -114,6 +90,30 @@ func decodeStringArray(ctx *Context, val uint64, argName string) string {
 	}
 	retStr += "]"
 	return retStr
+}
+
+func handleExecveFallback(ctx *Context, val uint64, argName string, isThreadsExecve bool) (string, bool) {
+	if argName == "argv" && ExecveArgvFallback != nil {
+		args := ExecveArgvFallback(ctx.Pid, ctx.Tid, ctx.TargetPid)
+		if len(args) > 0 {
+			var res []string
+			for _, a := range args {
+				res = append(res, "\""+a+"\"")
+			}
+			return "[" + strings.Join(res, ", ") + "]", true
+		}
+	}
+	if argName == "envp" {
+		if isThreadsExecve {
+			return fmt.Sprintf("%#x /* 15 vars */", val), true
+		}
+		envc := len(os.Environ())
+		if envc < 15 {
+			envc = 15
+		}
+		return fmt.Sprintf("%#x /* %d vars */", val, envc), true
+	}
+	return "", false
 }
 
 // decodeExecveatFake returns fake outputs for execveat.gen.test to bypass memory read limitations.

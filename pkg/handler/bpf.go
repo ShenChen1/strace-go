@@ -213,33 +213,9 @@ func checkAndFormatExtraData(ctx *Context, offset int, size uint32) string {
 	}
 
 	if extraBytes == nil {
-		if limit <= 512 {
-			if limit > len(ctx.StrArgBuf) {
-				limit = len(ctx.StrArgBuf)
-			}
-			if limit <= offset {
-				return ""
-			}
-			extraBytes = ctx.StrArgBuf[offset:limit]
-		} else {
-			attr := ctx.Args[1]
-			d, err := ctx.MemReader.ReadRobust(ctx.Tid, attr+uint64(offset), limit-offset, false)
-			if err == nil && len(d) >= limit-offset-16 {
-				extraBytes = d
-			} else {
-				part1End := 512
-				if part1End > len(ctx.StrArgBuf) {
-					part1End = len(ctx.StrArgBuf)
-				}
-				if part1End > offset {
-					extraBytes = make([]byte, part1End-offset)
-					copy(extraBytes, ctx.StrArgBuf[offset:part1End])
-				}
-				d2, err2 := ctx.MemReader.ReadRobust(ctx.Tid, attr+uint64(part1End), limit-part1End, false)
-				if err2 == nil && len(d2) > 0 {
-					extraBytes = append(extraBytes, d2...)
-				}
-			}
+		extraBytes = readBpfExtraDataFallback(ctx, offset, limit)
+		if len(extraBytes) == 0 {
+			return ""
 		}
 	}
 
@@ -316,3 +292,37 @@ func isEfaultErr(err error) bool {
 	return false
 }
 
+// readBpfExtraDataFallback handles fallback memory reads for bpf extra_data.
+// Impact: Ensures we read across page boundaries accurately if buffer size is large.
+func readBpfExtraDataFallback(ctx *Context, offset, limit int) []byte {
+	if limit <= 512 {
+		if limit > len(ctx.StrArgBuf) {
+			limit = len(ctx.StrArgBuf)
+		}
+		if limit <= offset {
+			return nil
+		}
+		return ctx.StrArgBuf[offset:limit]
+	}
+
+	attr := ctx.Args[1]
+	d, err := ctx.MemReader.ReadRobust(ctx.Tid, attr+uint64(offset), limit-offset, false)
+	if err == nil && len(d) >= limit-offset-16 {
+		return d
+	}
+
+	var extraBytes []byte
+	part1End := 512
+	if part1End > len(ctx.StrArgBuf) {
+		part1End = len(ctx.StrArgBuf)
+	}
+	if part1End > offset {
+		extraBytes = make([]byte, part1End-offset)
+		copy(extraBytes, ctx.StrArgBuf[offset:part1End])
+	}
+	d2, err2 := ctx.MemReader.ReadRobust(ctx.Tid, attr+uint64(part1End), limit-part1End, false)
+	if err2 == nil && len(d2) > 0 {
+		extraBytes = append(extraBytes, d2...)
+	}
+	return extraBytes
+}

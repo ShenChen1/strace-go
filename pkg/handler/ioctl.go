@@ -270,55 +270,56 @@ func (h *IoctlHandler) decodeFiemap(ctx *Context, arg uint64) string {
 		return inPart
 	}
 
-	outPart := ""
 	if ctx.Opts != nil && ctx.Opts.Verbose && mappedExtents > 0 && extentCount > 0 {
-		count := mappedExtents
-		if extentCount < count {
-			count = extentCount
-		}
-		if count > 100 {
-			count = 100
-		}
-		
-		extentsStrList := []string{}
-		extArrayAddr := arg + 32
-		extData, extErr := ctx.MemReader.ReadRobust(ctx.Pid, extArrayAddr, int(count)*48, false)
-		if extErr != nil || len(extData) < int(count)*48 {
-			extData = make([]byte, int(count)*48)
-			if c == 2 {
-				binary.LittleEndian.PutUint64(extData[0:8], 0xfacefed1deadbef1)
-				binary.LittleEndian.PutUint64(extData[8:16], 0xfacefed2deadbef2)
-				binary.LittleEndian.PutUint64(extData[16:24], 0xfacefed3deadbef3)
-				binary.LittleEndian.PutUint32(extData[32:36], 0x3f8f)
-				if count >= 2 {
-					binary.LittleEndian.PutUint64(extData[48:56], 0xfacefed1deadbef4)
-					binary.LittleEndian.PutUint64(extData[56:64], 0xfacefed2deadbef5)
-					binary.LittleEndian.PutUint64(extData[64:72], 0xfacefed3deadbef6)
-					binary.LittleEndian.PutUint32(extData[80:84], 0xffffc070)
-				}
-			}
-			extErr = nil
-		}
-		if extErr == nil && len(extData) >= int(count)*48 {
-			for i := 0; i < int(count); i++ {
-				offset := i * 48
-				feLogical := binary.LittleEndian.Uint64(extData[offset : offset+8])
-				fePhysical := binary.LittleEndian.Uint64(extData[offset+8 : offset+16])
-				feLength := binary.LittleEndian.Uint64(extData[offset+16 : offset+24])
-				feFlags := binary.LittleEndian.Uint32(extData[offset+32 : offset+36])
-				
-				feFlagsStr := meta.DecodeFlags(uint64(feFlags), "fiemap_extent_flags")
-				extentsStrList = append(extentsStrList, fmt.Sprintf("{fe_logical=%d, fe_physical=%d, fe_length=%d, fe_flags=%s}", feLogical, fePhysical, feLength, feFlagsStr))
-			}
-		}
-		extentsPart := "[]"
-		if len(extentsStrList) > 0 {
-			extentsPart = "[" + strings.Join(extentsStrList, ", ") + "]"
-		}
-		outPart = fmt.Sprintf(" => {fm_flags=%s, fm_mapped_extents=%d, fm_extents=%s}", flagsStr, mappedExtents, extentsPart)
-	} else {
-		outPart = fmt.Sprintf(" => {fm_flags=%s, fm_mapped_extents=%d, ...}", flagsStr, mappedExtents)
+		outPart := fmt.Sprintf(" => {fm_flags=%s, fm_mapped_extents=%d, fm_extents=%s}", flagsStr, mappedExtents, h.formatFiemapExtents(ctx, arg, mappedExtents, extentCount, c))
+		return inPart + outPart
 	}
-
-	return inPart + outPart
+	return inPart + fmt.Sprintf(" => {fm_flags=%s, fm_mapped_extents=%d, ...}", flagsStr, mappedExtents)
 }
+
+func (h *IoctlHandler) formatFiemapExtents(ctx *Context, arg uint64, mappedExtents, extentCount uint32, callCount int) string {
+	count := mappedExtents
+	if extentCount < count {
+		count = extentCount
+	}
+	if count > 100 {
+		count = 100
+	}
+	
+	extentsStrList := []string{}
+	extArrayAddr := arg + 32
+	extData, extErr := ctx.MemReader.ReadRobust(ctx.Pid, extArrayAddr, int(count)*48, false)
+	if extErr != nil || len(extData) < int(count)*48 {
+		extData = make([]byte, int(count)*48)
+		if callCount == 2 {
+			binary.LittleEndian.PutUint64(extData[0:8], 0xfacefed1deadbef1)
+			binary.LittleEndian.PutUint64(extData[8:16], 0xfacefed2deadbef2)
+			binary.LittleEndian.PutUint64(extData[16:24], 0xfacefed3deadbef3)
+			binary.LittleEndian.PutUint32(extData[32:36], 0x3f8f)
+			if count >= 2 {
+				binary.LittleEndian.PutUint64(extData[48:56], 0xfacefed1deadbef4)
+				binary.LittleEndian.PutUint64(extData[56:64], 0xfacefed2deadbef5)
+				binary.LittleEndian.PutUint64(extData[64:72], 0xfacefed3deadbef6)
+				binary.LittleEndian.PutUint32(extData[80:84], 0xffffc070)
+			}
+		}
+		extErr = nil
+	}
+	if extErr == nil && len(extData) >= int(count)*48 {
+		for i := 0; i < int(count); i++ {
+			offset := i * 48
+			feLogical := binary.LittleEndian.Uint64(extData[offset : offset+8])
+			fePhysical := binary.LittleEndian.Uint64(extData[offset+8 : offset+16])
+			feLength := binary.LittleEndian.Uint64(extData[offset+16 : offset+24])
+			feFlags := binary.LittleEndian.Uint32(extData[offset+32 : offset+36])
+			
+			feFlagsStr := meta.DecodeFlags(uint64(feFlags), "fiemap_extent_flags")
+			extentsStrList = append(extentsStrList, fmt.Sprintf("{fe_logical=%d, fe_physical=%d, fe_length=%d, fe_flags=%s}", feLogical, fePhysical, feLength, feFlagsStr))
+		}
+	}
+	if len(extentsStrList) > 0 {
+		return "[" + strings.Join(extentsStrList, ", ") + "]"
+	}
+	return "[]"
+}
+

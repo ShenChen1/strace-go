@@ -48,49 +48,12 @@ func (h *SignalHandler) Handle(ctx *Context) Result {
 		}
 
 		if (argName == "set" || argName == "oldset" || argName == "nset" || argName == "oset" || argName == "unblock" || argName == "mask") && strings.Contains(argTyp, "sigset_t") {
-			if val == 0 {
-				res.ArgParts = append(res.ArgParts, "NULL")
-				continue
-			}
-			if ctx.ScMeta.Name == "rt_sigsuspend" && ctx.Args[1] != 8 {
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
-				continue
-			}
-			data := ctx.StrArgBuf[:8]
-			if (argName == "oldset" || argName == "oset") && ctx.Ret >= 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 8, true); err == nil && len(d) == 8 { data = d }
-			} else {
-				if ctx.ProbeRetEnter < 0 {
-					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 8, false); err == nil && len(d) == 8 { data = d }
-				}
-			}
-			res.ArgParts = append(res.ArgParts, format.Sigset(data))
+			res.ArgParts = append(res.ArgParts, h.formatSigsetArg(ctx, argName, val))
 			continue
 		}
 
 		if (argName == "act" || argName == "oact") && strings.Contains(argTyp, "sigaction") {
-			if val == 0 {
-				res.ArgParts = append(res.ArgParts, "NULL")
-				continue
-			}
-			data := ctx.StrArgBuf[0:32]
-			if argName == "oact" { data = ctx.StrArgBuf[1024:1056] }
-			
-			readSuccess := ctx.ProbeRetEnter >= 0
-			if argName == "oact" { readSuccess = ctx.ProbeRetExit >= 0 }
-			
-			if !readSuccess {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 32, argName == "oact"); err == nil && len(d) == 32 {
-					data = d
-					readSuccess = true
-				}
-			}
-			
-			if readSuccess {
-				res.ArgParts = append(res.ArgParts, formatSigaction(data))
-			} else {
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
-			}
+			res.ArgParts = append(res.ArgParts, h.formatSigactionArg(ctx, argName, val))
 			continue
 		}
 
@@ -108,17 +71,74 @@ func (h *SignalHandler) Handle(ctx *Context) Result {
 	return res
 }
 
+func (h *SignalHandler) formatSigsetArg(ctx *Context, argName string, val uint64) string {
+	if val == 0 {
+		return "NULL"
+	}
+	if ctx.ScMeta.Name == "rt_sigsuspend" && ctx.Args[1] != 8 {
+		return fmt.Sprintf("%#x", val)
+	}
+	data := ctx.StrArgBuf[:8]
+	if (argName == "oldset" || argName == "oset") && ctx.Ret >= 0 {
+		if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 8, true); err == nil && len(d) == 8 {
+			data = d
+		}
+	} else {
+		if ctx.ProbeRetEnter < 0 {
+			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 8, false); err == nil && len(d) == 8 {
+				data = d
+			}
+		}
+	}
+	return format.Sigset(data)
+}
+
+func (h *SignalHandler) formatSigactionArg(ctx *Context, argName string, val uint64) string {
+	if val == 0 {
+		return "NULL"
+	}
+	data := ctx.StrArgBuf[0:32]
+	if argName == "oact" {
+		data = ctx.StrArgBuf[1024:1056]
+	}
+
+	readSuccess := ctx.ProbeRetEnter >= 0
+	if argName == "oact" {
+		readSuccess = ctx.ProbeRetExit >= 0
+	}
+
+	if !readSuccess {
+		if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 32, argName == "oact"); err == nil && len(d) == 32 {
+			data = d
+			readSuccess = true
+		}
+	}
+
+	if readSuccess {
+		return formatSigaction(data)
+	}
+	return fmt.Sprintf("%#x", val)
+}
+
 func formatSigaction(data []byte) string {
-	if len(data) < 32 { return "{...}" }
+	if len(data) < 32 {
+		return "{...}"
+	}
 	handler := binary.LittleEndian.Uint64(data[0:8])
 	flags := binary.LittleEndian.Uint64(data[8:16])
 	restorer := binary.LittleEndian.Uint64(data[16:24])
-	
+
 	hStr := ""
-	if handler == 0 { hStr = "SIG_DFL" } else if handler == 1 { hStr = "SIG_IGN" } else { hStr = fmt.Sprintf("%#x", handler) }
-	
+	if handler == 0 {
+		hStr = "SIG_DFL"
+	} else if handler == 1 {
+		hStr = "SIG_IGN"
+	} else {
+		hStr = fmt.Sprintf("%#x", handler)
+	}
+
 	res := fmt.Sprintf("{sa_handler=%s, sa_mask=%s, sa_flags=%s", hStr, format.Sigset(data[24:32]), meta.DecodeFlags(flags, "sigact_flags"))
-	if flags & 0x04000000 != 0 { // SA_RESTORER
+	if flags&0x04000000 != 0 { // SA_RESTORER
 		res += fmt.Sprintf(", sa_restorer=%#x", restorer)
 	}
 	res += "}"

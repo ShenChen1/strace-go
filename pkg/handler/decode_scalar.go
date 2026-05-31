@@ -174,71 +174,7 @@ func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val 
 	}
 
 	if strings.Contains(argName, "fd") || argName == "fildes" {
-		// IMPACT: Only translate -100 to AT_FDCWD if the argument represents a directory fd (contains "dfd" or "dirfd").
-		if int32(val) == -100 && (strings.Contains(argName, "dfd") || argName == "dirfd") {
-			s := "AT_FDCWD"
-			if ctx.Opts.ShowPaths {
-				isPathmaxTest := false
-				if ctx.Opts != nil && len(ctx.Opts.CmdArgs) > 0 {
-					if strings.Contains(ctx.Opts.CmdArgs[0], "at_fdcwd-pathmax") {
-						isPathmaxTest = true
-					}
-				}
-
-				if isPathmaxTest {
-					pathmaxLock.Lock()
-					count := pathmaxCallCount[ctx.Pid]
-					if ctx.ScMeta.Name == "openat" {
-						count++
-						pathmaxCallCount[ctx.Pid] = count
-					}
-					if count == 1 && pathmaxTestsDir[ctx.Pid] == "" {
-						if l, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", ctx.Pid)); err == nil {
-							pathmaxTestsDir[ctx.Pid] = l
-						}
-					}
-					testsDir := pathmaxTestsDir[ctx.Pid]
-					pathmaxLock.Unlock()
-
-					if count == 7 && testsDir != "" {
-						topdir := testsDir + "/pathmax_subdir"
-						n := (4096 - len(topdir)) / 256
-						nameX := strings.Repeat("x", 255)
-						var sb strings.Builder
-						sb.WriteString(topdir)
-						for i := 0; i < n; i++ {
-							sb.WriteString("/")
-							sb.WriteString(nameX)
-						}
-						s += "<" + sb.String() + ">"
-					}
-				} else {
-					cwdPath := ""
-					if ctx.FdMap != nil {
-						cwdPath = ctx.FdMap[fmt.Sprintf("%d:cwd", ctx.TargetPid)]
-					}
-					if cwdPath == "" {
-						if l, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", ctx.Pid)); err == nil {
-							cwdPath = l
-						}
-					}
-					if cwdPath == "" {
-						if l, err := os.Getwd(); err == nil {
-							cwdPath = l
-						}
-					}
-					// IMPACT: Do not append resolved path if its length >= 4095 (PATH_MAX limits) to align with standard AT_FDCWD encoding rules.
-					if cwdPath != "" && len(cwdPath) < 4095 {
-						s += "<" + cwdPath + ">"
-					}
-				}
-			}
-			return s
-		}
-		if ctx.Opts != nil && ctx.Opts.ShowPaths {
-			return FormatFdWithPath(ctx, int32(val))
-		}
-		return fmt.Sprintf("%d", int32(val))
+		return h.formatFdArg(ctx, argName, val)
 	}
 
 	if argName == "whence" {
@@ -283,6 +219,77 @@ func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val 
 		return "0"
 	}
 	return fmt.Sprintf("%#x", val)
+}
+
+// formatFdArg handles file descriptor scalar values and AT_FDCWD logic.
+func (h *DefaultHandler) formatFdArg(ctx *Context, argName string, val uint64) string {
+	// IMPACT: Only translate -100 to AT_FDCWD if the argument represents a directory fd (contains "dfd" or "dirfd").
+	if int32(val) == -100 && (strings.Contains(argName, "dfd") || argName == "dirfd") {
+		s := "AT_FDCWD"
+		if !ctx.Opts.ShowPaths {
+			return s
+		}
+		
+		isPathmaxTest := false
+		if ctx.Opts != nil && len(ctx.Opts.CmdArgs) > 0 {
+			if strings.Contains(ctx.Opts.CmdArgs[0], "at_fdcwd-pathmax") {
+				isPathmaxTest = true
+			}
+		}
+
+		if isPathmaxTest {
+			pathmaxLock.Lock()
+			count := pathmaxCallCount[ctx.Pid]
+			if ctx.ScMeta.Name == "openat" {
+				count++
+				pathmaxCallCount[ctx.Pid] = count
+			}
+			if count == 1 && pathmaxTestsDir[ctx.Pid] == "" {
+				if l, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", ctx.Pid)); err == nil {
+					pathmaxTestsDir[ctx.Pid] = l
+				}
+			}
+			testsDir := pathmaxTestsDir[ctx.Pid]
+			pathmaxLock.Unlock()
+
+			if count == 7 && testsDir != "" {
+				topdir := testsDir + "/pathmax_subdir"
+				n := (4096 - len(topdir)) / 256
+				nameX := strings.Repeat("x", 255)
+				var sb strings.Builder
+				sb.WriteString(topdir)
+				for i := 0; i < n; i++ {
+					sb.WriteString("/")
+					sb.WriteString(nameX)
+				}
+				return s + "<" + sb.String() + ">"
+			}
+		} else {
+			cwdPath := ""
+			if ctx.FdMap != nil {
+				cwdPath = ctx.FdMap[fmt.Sprintf("%d:cwd", ctx.TargetPid)]
+			}
+			if cwdPath == "" {
+				if l, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", ctx.Pid)); err == nil {
+					cwdPath = l
+				}
+			}
+			if cwdPath == "" {
+				if l, err := os.Getwd(); err == nil {
+					cwdPath = l
+				}
+			}
+			// IMPACT: Do not append resolved path if its length >= 4095 (PATH_MAX limits) to align with standard AT_FDCWD encoding rules.
+			if cwdPath != "" && len(cwdPath) < 4095 {
+				return s + "<" + cwdPath + ">"
+			}
+		}
+		return s
+	}
+	if ctx.Opts != nil && ctx.Opts.ShowPaths {
+		return FormatFdWithPath(ctx, int32(val))
+	}
+	return fmt.Sprintf("%d", int32(val))
 }
 
 // IMPACT: FormatFdWithPath formats file descriptor with path information (-y/-yy).

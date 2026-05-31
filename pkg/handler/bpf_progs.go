@@ -60,37 +60,7 @@ func decodeBpfProgLoadParts1(ctx *Context, parts []string, data []byte, size uin
 		decodedSize = 32
 	}
 	if size >= 40 {
-		logBuf := u64OrZero(data, 32)
-		logSize := uint32(0)
-		if size >= 32 {
-			logSize = u32OrZero(data, 28)
-		}
-		if logBuf == 0 {
-			parts = append(parts, "log_buf=NULL")
-		} else {
-			readSize := int(logSize)
-			if readSize > 1024 {
-				readSize = 1024
-			}
-			if readSize <= 0 {
-				readSize = 1
-			}
-			buf, err := ctx.MemReader.ReadRobust(ctx.Tid, logBuf, readSize, false)
-			if err == nil {
-				s := string(buf)
-				if idx := strings.IndexByte(s, 0); idx != -1 {
-					parts = append(parts, fmt.Sprintf("log_buf=%q", s[:idx]))
-				} else {
-					parts = append(parts, fmt.Sprintf("log_buf=%q...", s))
-				}
-			} else {
-				if logBuf != 0xffffffff00000000 && logSize == 4 {
-					parts = append(parts, "log_buf=\"log \"...")
-				} else {
-					parts = append(parts, fmt.Sprintf("log_buf=%#x", logBuf))
-				}
-			}
-		}
+		parts = append(parts, formatBpfProgLoadLogBuf(ctx, data, size))
 		decodedSize = 40
 	}
 	if size >= 44 {
@@ -103,34 +73,7 @@ func decodeBpfProgLoadParts1(ctx *Context, parts []string, data []byte, size uin
 		decodedSize = 48
 	}
 	if size >= 64 {
-		name := ""
-		hasNull := false
-		nameLen := 16
-		if len(data) < 64 {
-			if len(data) > 48 {
-				nameLen = len(data) - 48
-			} else {
-				nameLen = 0
-			}
-		}
-		if nameLen > 0 {
-			nameBytes := data[48 : 48+nameLen]
-			if idx := strings.IndexByte(string(nameBytes), 0); idx != -1 {
-				name = string(nameBytes[:idx])
-				hasNull = true
-			} else {
-				limit := nameLen
-				if limit == 16 {
-					limit = 15
-				}
-				name = string(nameBytes[:limit])
-			}
-		}
-		if hasNull || nameLen < 16 {
-			parts = append(parts, fmt.Sprintf("prog_name=%q", name))
-		} else {
-			parts = append(parts, fmt.Sprintf("prog_name=%q...", name))
-		}
+		parts = append(parts, formatBpfProgLoadName(data))
 		decodedSize = 64
 	}
 	if size >= 68 {
@@ -142,6 +85,66 @@ func decodeBpfProgLoadParts1(ctx *Context, parts []string, data []byte, size uin
 		decodedSize = 72
 	}
 	return decodedSize, parts
+}
+
+func formatBpfProgLoadLogBuf(ctx *Context, data []byte, size uint32) string {
+	logBuf := u64OrZero(data, 32)
+	logSize := uint32(0)
+	if size >= 32 {
+		logSize = u32OrZero(data, 28)
+	}
+	if logBuf == 0 {
+		return "log_buf=NULL"
+	}
+	readSize := int(logSize)
+	if readSize > 1024 {
+		readSize = 1024
+	}
+	if readSize <= 0 {
+		readSize = 1
+	}
+	buf, err := ctx.MemReader.ReadRobust(ctx.Tid, logBuf, readSize, false)
+	if err == nil {
+		s := string(buf)
+		if idx := strings.IndexByte(s, 0); idx != -1 {
+			return fmt.Sprintf("log_buf=%q", s[:idx])
+		}
+		return fmt.Sprintf("log_buf=%q...", s)
+	}
+	if logBuf != 0xffffffff00000000 && logSize == 4 {
+		return "log_buf=\"log \"..."
+	}
+	return fmt.Sprintf("log_buf=%#x", logBuf)
+}
+
+func formatBpfProgLoadName(data []byte) string {
+	name := ""
+	hasNull := false
+	nameLen := 16
+	if len(data) < 64 {
+		if len(data) > 48 {
+			nameLen = len(data) - 48
+		} else {
+			nameLen = 0
+		}
+	}
+	if nameLen > 0 {
+		nameBytes := data[48 : 48+nameLen]
+		if idx := strings.IndexByte(string(nameBytes), 0); idx != -1 {
+			name = string(nameBytes[:idx])
+			hasNull = true
+		} else {
+			limit := nameLen
+			if limit == 16 {
+				limit = 15
+			}
+			name = string(nameBytes[:limit])
+		}
+	}
+	if hasNull || nameLen < 16 {
+		return fmt.Sprintf("prog_name=%q", name)
+	}
+	return fmt.Sprintf("prog_name=%q...", name)
 }
 
 // decodeBpfProgLoadParts2 decodes BTF and line info up to 128 bytes.

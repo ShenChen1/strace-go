@@ -26,127 +26,144 @@ func (h *ProcessHandler) Handle(ctx *Context) Result {
 		} else if size < 64 {
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", uargs))
 		} else {
-			capLen := int(size)
-			if capLen > 256 { capLen = 256 }
-			data := ctx.StrArgBuf[0:capLen]
-			readSuccess := ctx.ProbeRetEnter >= 0
-			if !readSuccess {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, uargs, capLen, false); err == nil && len(d) == capLen {
-					data = d
-					readSuccess = true
-				}
-			}
-
-			if !readSuccess {
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", uargs))
-			} else {
-				parts := []string{}
-				u64OrZero := func(off int) uint64 {
-					if len(data) >= off+8 { return binary.LittleEndian.Uint64(data[off : off+8]) }
-					return 0
-				}
-				
-				flags := u64OrZero(0)
-				if size >= 8 {
-					parts = append(parts, "flags="+meta.DecodeFlags(flags, "clone3_flags"))
-				}
-				if size >= 16 {
-					pfd := u64OrZero(8)
-					if pfd != 0 || (flags&0x00001000 != 0) { // CLONE_PIDFD
-						if pfd == 0 { parts = append(parts, "pidfd=NULL") } else { parts = append(parts, fmt.Sprintf("pidfd=%#x", pfd)) }
-					}
-				}
-				if size >= 24 {
-					ctid := u64OrZero(16)
-					if ctid != 0 || (flags&0x01000000 != 0) { // CLONE_CHILD_SETTID
-						if ctid == 0 { parts = append(parts, "child_tid=NULL") } else { parts = append(parts, fmt.Sprintf("child_tid=%#x", ctid)) }
-					}
-				}
-				if size >= 32 {
-					ptid := u64OrZero(24)
-					if ptid != 0 || (flags&0x00100000 != 0) { // CLONE_PARENT_SETTID
-						if ptid == 0 { parts = append(parts, "parent_tid=NULL") } else { parts = append(parts, fmt.Sprintf("parent_tid=%#x", ptid)) }
-					}
-				}
-				if size >= 40 {
-					sig := u64OrZero(32)
-					if sig == 0 {
-						parts = append(parts, "exit_signal=0")
-					} else {
-						parts = append(parts, fmt.Sprintf("exit_signal=%s", meta.DecodeFlags(sig, "signalnames")))
-					}
-				}
-				if size >= 48 {
-					stack := u64OrZero(40)
-					if stack == 0 { parts = append(parts, "stack=NULL") } else { parts = append(parts, fmt.Sprintf("stack=%#x", stack)) }
-				}
-				if size >= 56 {
-					ssz := u64OrZero(48)
-					if ssz == 0 {
-						parts = append(parts, "stack_size=0")
-					} else {
-						parts = append(parts, fmt.Sprintf("stack_size=%#x", ssz))
-					}
-				}
-				if size >= 64 {
-					tls := u64OrZero(56)
-					if tls != 0 || (flags&0x00080000 != 0) { // CLONE_SETTLS
-						if tls == 0 { parts = append(parts, "tls=NULL") } else { parts = append(parts, fmt.Sprintf("tls=%#x", tls)) }
-					}
-				}
-				
-				if size >= 80 {
-					set_tid_ptr := u64OrZero(64)
-					set_tid_size := u64OrZero(72)
-					if set_tid_ptr != 0 && set_tid_size > 0 {
-						count := int(set_tid_size)
-						if count > 32 { count = 32 }
-						d, _ := ctx.MemReader.ReadRobust(ctx.Pid, set_tid_ptr, count*4, false)
-						if len(d) > 0 {
-							var tids []string
-							for i := 0; i < len(d)/4; i++ {
-								tids = append(tids, fmt.Sprintf("%d", int32(binary.LittleEndian.Uint32(d[i*4:i*4+4]))))
-							}
-							parts = append(parts, fmt.Sprintf("set_tid=[%s], set_tid_size=%d", strings.Join(tids, ", "), set_tid_size))
-						} else {
-							parts = append(parts, fmt.Sprintf("set_tid=%#x, set_tid_size=%d", set_tid_ptr, set_tid_size))
-						}
-					} else if set_tid_ptr != 0 || set_tid_size != 0 {
-						if set_tid_ptr == 0 { parts = append(parts, "set_tid=NULL") } else { parts = append(parts, fmt.Sprintf("set_tid=%#x", set_tid_ptr)) }
-						parts = append(parts, fmt.Sprintf("set_tid_size=%d", set_tid_size))
-					}
-				}
-				if size >= 88 {
-					cg := u64OrZero(80)
-					if cg != 0 || (flags&0x200000000 != 0) { // CLONE_INTO_CGROUP
-						parts = append(parts, fmt.Sprintf("cgroup=%d", cg))
-					}
-				}
-				
-				structStr := "{"+strings.Join(parts, ", ")+"}"
-				
-				// Post-syscall decoding
-				if ctx.Ret > 0 {
-					postParts := []string{}
-					if size >= 32 && (flags&0x00100000 != 0) { // CLONE_PARENT_SETTID
-						ptidPtr := u64OrZero(24)
-						if ptidPtr != 0 {
-							if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptidPtr, 4, true); err == nil {
-								tid := binary.LittleEndian.Uint32(d)
-								postParts = append(postParts, fmt.Sprintf("parent_tid=[%d]", tid))
-							}
-						} else {
-							postParts = append(postParts, "parent_tid=NULL")
-						}
-					}
-					if len(postParts) > 0 {
-						structStr += " => {" + strings.Join(postParts, ", ") + "}"
-					}
-				}
-				res.ArgParts = append(res.ArgParts, structStr)
-			}
+			res.ArgParts = append(res.ArgParts, h.formatClone3(ctx, uargs, size))
 		}
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", size))
 	}
 	return res
+}
+
+func (h *ProcessHandler) formatClone3(ctx *Context, uargs, size uint64) string {
+	capLen := int(size)
+	if capLen > 256 {
+		capLen = 256
+	}
+	data := ctx.StrArgBuf[0:capLen]
+	readSuccess := ctx.ProbeRetEnter >= 0
+	if !readSuccess {
+		if d, err := ctx.MemReader.ReadRobust(ctx.Pid, uargs, capLen, false); err == nil && len(d) == capLen {
+			data = d
+			readSuccess = true
+		}
+	}
+
+	if !readSuccess {
+		return fmt.Sprintf("%#x", uargs)
+	}
+
+	parts := h.decodeCloneArgsCore(data, size)
+	
+	if size >= 80 {
+		parts = append(parts, h.decodeCloneArgsSetTid(ctx, data, size)...)
+	}
+	if size >= 88 {
+		cg := h.u64OrZero(data, 80)
+		flags := h.u64OrZero(data, 0)
+		if cg != 0 || (flags&0x200000000 != 0) { // CLONE_INTO_CGROUP
+			parts = append(parts, fmt.Sprintf("cgroup=%d", cg))
+		}
+	}
+
+	structStr := "{" + strings.Join(parts, ", ") + "}"
+	postStr := h.decodeCloneArgsPost(ctx, data, size)
+	if postStr != "" {
+		structStr += " => " + postStr
+	}
+	return structStr
+}
+
+func (h *ProcessHandler) u64OrZero(data []byte, off int) uint64 {
+	if len(data) >= off+8 {
+		return binary.LittleEndian.Uint64(data[off : off+8])
+	}
+	return 0
+}
+
+func (h *ProcessHandler) decodeCloneArgsCore(data []byte, size uint64) []string {
+	var parts []string
+	flags := h.u64OrZero(data, 0)
+	if size >= 8 {
+		parts = append(parts, "flags="+meta.DecodeFlags(flags, "clone3_flags"))
+	}
+	if size >= 16 {
+		pfd := h.u64OrZero(data, 8)
+		if pfd != 0 || (flags&0x00001000 != 0) { // CLONE_PIDFD
+			if pfd == 0 { parts = append(parts, "pidfd=NULL") } else { parts = append(parts, fmt.Sprintf("pidfd=%#x", pfd)) }
+		}
+	}
+	if size >= 24 {
+		ctid := h.u64OrZero(data, 16)
+		if ctid != 0 || (flags&0x01000000 != 0) { // CLONE_CHILD_SETTID
+			if ctid == 0 { parts = append(parts, "child_tid=NULL") } else { parts = append(parts, fmt.Sprintf("child_tid=%#x", ctid)) }
+		}
+	}
+	if size >= 32 {
+		ptid := h.u64OrZero(data, 24)
+		if ptid != 0 || (flags&0x00100000 != 0) { // CLONE_PARENT_SETTID
+			if ptid == 0 { parts = append(parts, "parent_tid=NULL") } else { parts = append(parts, fmt.Sprintf("parent_tid=%#x", ptid)) }
+		}
+	}
+	if size >= 40 {
+		sig := h.u64OrZero(data, 32)
+		if sig == 0 { parts = append(parts, "exit_signal=0") } else { parts = append(parts, fmt.Sprintf("exit_signal=%s", meta.DecodeFlags(sig, "signalnames"))) }
+	}
+	if size >= 48 {
+		stack := h.u64OrZero(data, 40)
+		if stack == 0 { parts = append(parts, "stack=NULL") } else { parts = append(parts, fmt.Sprintf("stack=%#x", stack)) }
+	}
+	if size >= 56 {
+		ssz := h.u64OrZero(data, 48)
+		if ssz == 0 { parts = append(parts, "stack_size=0") } else { parts = append(parts, fmt.Sprintf("stack_size=%#x", ssz)) }
+	}
+	if size >= 64 {
+		tls := h.u64OrZero(data, 56)
+		if tls != 0 || (flags&0x00080000 != 0) { // CLONE_SETTLS
+			if tls == 0 { parts = append(parts, "tls=NULL") } else { parts = append(parts, fmt.Sprintf("tls=%#x", tls)) }
+		}
+	}
+	return parts
+}
+
+func (h *ProcessHandler) decodeCloneArgsSetTid(ctx *Context, data []byte, size uint64) []string {
+	var parts []string
+	setTidPtr := h.u64OrZero(data, 64)
+	setTidSize := h.u64OrZero(data, 72)
+	
+	if setTidPtr != 0 && setTidSize > 0 {
+		count := int(setTidSize)
+		if count > 32 { count = 32 }
+		d, _ := ctx.MemReader.ReadRobust(ctx.Pid, setTidPtr, count*4, false)
+		if len(d) > 0 {
+			var tids []string
+			for i := 0; i < len(d)/4; i++ {
+				tids = append(tids, fmt.Sprintf("%d", int32(binary.LittleEndian.Uint32(d[i*4:i*4+4]))))
+			}
+			parts = append(parts, fmt.Sprintf("set_tid=[%s], set_tid_size=%d", strings.Join(tids, ", "), setTidSize))
+		} else {
+			parts = append(parts, fmt.Sprintf("set_tid=%#x, set_tid_size=%d", setTidPtr, setTidSize))
+		}
+	} else if setTidPtr != 0 || setTidSize != 0 {
+		if setTidPtr == 0 { parts = append(parts, "set_tid=NULL") } else { parts = append(parts, fmt.Sprintf("set_tid=%#x", setTidPtr)) }
+		parts = append(parts, fmt.Sprintf("set_tid_size=%d", setTidSize))
+	}
+	return parts
+}
+
+func (h *ProcessHandler) decodeCloneArgsPost(ctx *Context, data []byte, size uint64) string {
+	if ctx.Ret <= 0 {
+		return ""
+	}
+	flags := h.u64OrZero(data, 0)
+	if size >= 32 && (flags&0x00100000 != 0) { // CLONE_PARENT_SETTID
+		ptidPtr := h.u64OrZero(data, 24)
+		if ptidPtr != 0 {
+			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptidPtr, 4, true); err == nil {
+				tid := binary.LittleEndian.Uint32(d)
+				return fmt.Sprintf("{parent_tid=[%d]}", tid)
+			}
+		} else {
+			return "{parent_tid=NULL}"
+		}
+	}
+	return ""
 }
