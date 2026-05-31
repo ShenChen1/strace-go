@@ -145,7 +145,7 @@ func (h *FsHandler) decodeFsconfig(ctx *Context) []string {
 		valStr := ctx.Decoder.DecodeString(ctx.Tid, value, ctx.StrArgBuf[257:4353], ctx.ArgProbeRet(3), ctx.SysName, 256)
 		parts = append(parts, valStr, fmt.Sprintf("%d", int32(aux)))
 	case 2: // FSCONFIG_SET_BINARY
-		// IMPACT: Decodes binary buffer. If valLen > 256 and memory read fails, does not trust BPF data but outputs pointer. Fixes offset to 257 to align with BPF capturing rules.
+		// IMPACT: Uses MemReader for binary blobs because BPF variable-length reads at page boundaries can return zeros.
 		limit := ctx.Opts.StringLimit
 		if limit <= 0 {
 			limit = 32
@@ -159,15 +159,8 @@ func (h *FsHandler) decodeFsconfig(ctx *Context) []string {
 			if valLen > 0 {
 				data, err = ctx.MemReader.ReadRobust(ctx.Tid, value, valLen, true)
 			}
-			if (err != nil || len(data) == 0) && valLen <= 4096 {
-				bpfLen := 4096
-				if valLen < bpfLen {
-					bpfLen = valLen
-				}
-				data = ctx.StrArgBuf[257 : 257+bpfLen]
-				err = nil
-			}
-			if err == nil && (valLen == 0 || len(data) > 0) {
+			
+			if err == nil && len(data) > 0 {
 				parts = append(parts, format.BufferEscape(data, limit, valLen, 2), fmt.Sprintf("%d", int32(aux)))
 			} else {
 				parts = append(parts, formatPointer(value), fmt.Sprintf("%d", int32(aux)))

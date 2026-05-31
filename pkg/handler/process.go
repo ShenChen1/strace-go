@@ -50,17 +50,23 @@ func (h *ProcessHandler) Handle(ctx *Context) Result {
 				if size >= 8 {
 					parts = append(parts, "flags="+meta.DecodeFlags(flags, "clone3_flags"))
 				}
-				if size >= 16 && (flags&0x00001000 != 0) { // CLONE_PIDFD
+				if size >= 16 {
 					pfd := u64OrZero(8)
-					if pfd == 0 { parts = append(parts, "pidfd=NULL") } else { parts = append(parts, fmt.Sprintf("pidfd=%#x", pfd)) }
+					if pfd != 0 || (flags&0x00001000 != 0) { // CLONE_PIDFD
+						if pfd == 0 { parts = append(parts, "pidfd=NULL") } else { parts = append(parts, fmt.Sprintf("pidfd=%#x", pfd)) }
+					}
 				}
-				if size >= 24 && (flags&0x01000000 != 0) { // CLONE_CHILD_SETTID
+				if size >= 24 {
 					ctid := u64OrZero(16)
-					if ctid == 0 { parts = append(parts, "child_tid=NULL") } else { parts = append(parts, fmt.Sprintf("child_tid=%#x", ctid)) }
+					if ctid != 0 || (flags&0x01000000 != 0) { // CLONE_CHILD_SETTID
+						if ctid == 0 { parts = append(parts, "child_tid=NULL") } else { parts = append(parts, fmt.Sprintf("child_tid=%#x", ctid)) }
+					}
 				}
-				if size >= 32 && (flags&0x00100000 != 0) { // CLONE_PARENT_SETTID
+				if size >= 32 {
 					ptid := u64OrZero(24)
-					if ptid == 0 { parts = append(parts, "parent_tid=NULL") } else { parts = append(parts, fmt.Sprintf("parent_tid=%#x", ptid)) }
+					if ptid != 0 || (flags&0x00100000 != 0) { // CLONE_PARENT_SETTID
+						if ptid == 0 { parts = append(parts, "parent_tid=NULL") } else { parts = append(parts, fmt.Sprintf("parent_tid=%#x", ptid)) }
+					}
 				}
 				if size >= 40 {
 					sig := u64OrZero(32)
@@ -82,9 +88,11 @@ func (h *ProcessHandler) Handle(ctx *Context) Result {
 						parts = append(parts, fmt.Sprintf("stack_size=%#x", ssz))
 					}
 				}
-				if size >= 64 && (flags&0x00080000 != 0) { // CLONE_SETTLS
+				if size >= 64 {
 					tls := u64OrZero(56)
-					if tls == 0 { parts = append(parts, "tls=NULL") } else { parts = append(parts, fmt.Sprintf("tls=%#x", tls)) }
+					if tls != 0 || (flags&0x00080000 != 0) { // CLONE_SETTLS
+						if tls == 0 { parts = append(parts, "tls=NULL") } else { parts = append(parts, fmt.Sprintf("tls=%#x", tls)) }
+					}
 				}
 				
 				if size >= 80 {
@@ -108,9 +116,11 @@ func (h *ProcessHandler) Handle(ctx *Context) Result {
 						parts = append(parts, fmt.Sprintf("set_tid_size=%d", set_tid_size))
 					}
 				}
-				if size >= 88 && (flags&0x000000000200000000 != 0 || flags&0x200000000 != 0) { // CLONE_INTO_CGROUP
+				if size >= 88 {
 					cg := u64OrZero(80)
-					parts = append(parts, fmt.Sprintf("cgroup=%d", cg))
+					if cg != 0 || (flags&0x200000000 != 0) { // CLONE_INTO_CGROUP
+						parts = append(parts, fmt.Sprintf("cgroup=%d", cg))
+					}
 				}
 				
 				structStr := "{"+strings.Join(parts, ", ")+"}"

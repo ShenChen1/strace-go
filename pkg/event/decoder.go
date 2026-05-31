@@ -52,11 +52,9 @@ func parseBPFData(bpfData []byte, probeRet int32) (bpfRaw []byte, bpfFound bool,
 // IMPACT: Robustly decodes strings. Uses BPF data when zero-terminator is found or limit reached. Otherwise falls back to process memory reading, handling ESRCH or page-boundary EFAULT.
 // IMPACT: Restrict DecodeString direct return and fallback decisions to probeRet >= 0 to prevent EFAULT and unprobed cases from reading dirty per-CPU buffer cache.
 func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int32, scName string, limit int) string {
-	if ptr == 0 { return "NULL" }
-	if probeRet == -2 {
-		return fmt.Sprintf("%#x", ptr)
+	if ptr == 0 {
+		return "NULL"
 	}
-
 	var raw []byte
 	truncated := false
 	bpfRaw, bpfFound, _, found := parseBPFData(bpfData, probeRet)
@@ -90,10 +88,20 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 				}
 				found = true
 			} else {
-				// Fallback to BPF data if memory read failed (e.g. process exited)
+				if scName == "fsconfig" {
+					f, _ := os.OpenFile("/tmp/fsconfig_err_debug.txt", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+					if f != nil {
+						fmt.Fprintf(f, "MemReader error: %v\n", err)
+						f.Close()
+					}
+				}
 				if probeRet >= 0 && bpfFound && len(bpfRaw) > 0 {
 					raw = bpfRaw
-					truncated = true
+					if limit > 0 && len(bpfRaw) >= limit {
+						truncated = true
+					} else if limit <= 0 && len(bpfRaw) >= 4095 {
+						truncated = true
+					}
 					found = true
 				}
 			}
@@ -105,7 +113,7 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 		// IMPACT: Uses StringLimit if set as the primary truncation threshold for string arguments (limit > 0), ensuring paths (limit <= 0) bypass truncation.
 		printLimit := limit
 		if printLimit <= 0 {
-			printLimit = 10000
+			printLimit = 4095
 		} else if d.StringLimit > 0 && d.StringLimit < printLimit {
 			printLimit = d.StringLimit
 		}
@@ -123,10 +131,10 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 
 // DecodeStringRaw decodes a string without quoting it.
 func (d *Decoder) DecodeStringRaw(pid int, ptr uint64, bpfData []byte, probeRet int32) string {
-	if ptr == 0 { return "NULL" }
-	if probeRet == -2 {
-		return fmt.Sprintf("%#x", ptr)
+	if ptr == 0 {
+		return "NULL"
 	}
+
 	if len(bpfData) > 0 {
 		if idx := bytes.IndexByte(bpfData, 0); idx != -1 {
 			if idx > 0 || probeRet >= 0 { return string(bpfData[:idx]) }

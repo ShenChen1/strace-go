@@ -70,6 +70,7 @@ syscalls:
     which_clock: clocknames
   clock_nanosleep:
     which_clock: clocknames
+    flags: clockflags
   clock_settime:
     which_clock: clocknames
   poll_table:

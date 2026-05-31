@@ -166,6 +166,10 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 		if r.Arg == 2 {
 			return "iosz"
 		}
+	case "fsconfig":
+		if r.Arg == 3 {
+			return "fssz"
+		}
 	case "readlink", "readlinkat":
 		return "((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0)"
 	}
@@ -217,11 +221,28 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 		} else if r.Size == 0 && scName == "ioctl" && r.Arg == 2 {
 			res += fmt.Sprintf("\t\t\t\tu32 iosz = (((e)->args[1] >> 16) & 0x3fff); \\\n")
 			res += fmt.Sprintf("\t\t\t\tiosz = (iosz == 0) ? 128 : (iosz > 512 ? 512 : iosz); \\\n")
+		} else if r.Size == 0 && scName == "fsconfig" && r.Arg == 3 {
+			res += fmt.Sprintf("\t\t\t\tu32 fssz = 0; \\\n")
+			res += fmt.Sprintf("\t\t\t\tif ((e)->args[1] == 2) { \\\n") // FSCONFIG_SET_BINARY
+			res += fmt.Sprintf("\t\t\t\t\tfssz = (e)->args[4]; \\\n")
+			res += fmt.Sprintf("\t\t\t\t\tfssz &= 0x1fff; \\\n")
+			res += fmt.Sprintf("\t\t\t\t\tfssz = (fssz > 4096) ? 4096 : fssz; \\\n")
+			res += fmt.Sprintf("\t\t\t\t} \\\n")
 		}
 		
 		// IMPACT: Safe-guard fsz conditional read to prevent BPF errors when size is 0.
 		if sizeStr == "fsz" {
 			res += fmt.Sprintf("\t\t\t\tlong pr = (fsz > 0 && (e)->args[%d]) ? %s(%s, fsz, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, r.Arg)
+		} else if sizeStr == "fssz" {
+			res += fmt.Sprintf("\t\t\t\tlong pr = 0; \\\n")
+			res += fmt.Sprintf("\t\t\t\tif ((e)->args[1] == 2) { \\\n")
+			res += fmt.Sprintf("\t\t\t\t\tif (fssz > 0 && (e)->args[%d]) { \\\n", r.Arg)
+			res += fmt.Sprintf("\t\t\t\t\t\tint __err = bpf_probe_read_user(%s, fssz, (void *)(e)->args[%d]); \\\n", buf, r.Arg)
+			res += fmt.Sprintf("\t\t\t\t\t\tpr = (__err == 0) ? fssz : __err; \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t} \\\n")
+			res += fmt.Sprintf("\t\t\t\t} else if ((e)->args[%d]) { \\\n", r.Arg)
+			res += fmt.Sprintf("\t\t\t\t\tpr = bpf_probe_read_user_str(%s, 4096, (void *)(e)->args[%d]); \\\n", buf, r.Arg)
+			res += fmt.Sprintf("\t\t\t\t} \\\n")
 		} else if r.Type == "string" && r.Size > 2048 {
 			// IMPACT: Modified BPF multi-segment string read to overwrite the first phase's forced null terminator
 			// at index 2047. The second phase starts writing from offset 2047 and reads from user pointer + 2047,

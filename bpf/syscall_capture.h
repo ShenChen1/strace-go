@@ -1621,16 +1621,20 @@
 				} \
 			} \
 			{ \
+				u32 fssz = 0; \
+				if ((e)->args[1] == 2) { \
+					fssz = (e)->args[4]; \
+					fssz &= 0x1fff; \
+					fssz = (fssz > 4096) ? 4096 : fssz; \
+				} \
 				long pr = 0; \
-				if ((e)->args[3]) { \
-					((e)->str_arg + 257)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg + 257, 2048, (void *)(e)->args[3]); \
-					if (pr < 0) { ((e)->str_arg + 257)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 257 + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 257 + 2047, 2049, (void *)((e)->args[3] + 2047)); \
-						if (pr2 >= 0) { pr = 2047 + pr2; } else { pr = pr2; ((e)->str_arg + 257 + 2047)[0] = 0; } \
+				if ((e)->args[1] == 2) { \
+					if (fssz > 0 && (e)->args[3]) { \
+						int __err = bpf_probe_read_user((e)->str_arg + 257, fssz, (void *)(e)->args[3]); \
+						pr = (__err == 0) ? fssz : __err; \
 					} \
+				} else if ((e)->args[3]) { \
+					pr = bpf_probe_read_user_str((e)->str_arg + 257, 4096, (void *)(e)->args[3]); \
 				} \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_enter; \

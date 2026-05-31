@@ -42,7 +42,7 @@ rules:
       ptr_arg: 2
       reads:
         - { arg: 2, size: 257, offset: 0, type: string }
-        - { arg: 3, size: 4096, offset: 257, type: string }
+        - { arg: 3, size: 0, offset: 257, type: raw }
 
   - syscalls: [utimensat]
     enter:

@@ -133,3 +133,8 @@ func Get(name string) Handler {
 	}
 	return defaultHandler
 }
+
+// GetDefault returns the default handler.
+func GetDefault() Handler {
+	return defaultHandler
+}

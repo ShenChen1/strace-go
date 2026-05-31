@@ -353,6 +353,12 @@ var XlatTables = map[string]XlatTable{
 			{Val: 32, Str: "BPF_PROG_TYPE_NETFILTER"},
 		},
 	},
+	"clockflags": {
+		Prefix: "TIMER_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "TIMER_ABSTIME"},
+		},
+	},
 	"clone_flags": {
 		Prefix: "CLONE_",
 		Entries: []XlatVal{
@@ -5193,58 +5199,89 @@ var XlatTables = map[string]XlatTable{
 	},
 }
 var SyscallArgXlatMap = map[string]map[string]string{
-	"connect": {
-		"addr": "sockaddr",
+	"clone": {
+		"clone_flags": "clone_flags",
 	},
-	"recvfrom": {
-		"flags": "msg_flags",
-		"addr": "sockaddr",
+	"rt_sigprocmask": {
+		"how": "sigprocmaskcmds",
 	},
-	"epoll_create1": {
-		"flags": "epollflags",
-	},
-	"mmap": {
-		"prot": "mmap_prot",
-		"flags": "mmap_flags",
-	},
-	"dup3": {
-		"flags": "dup3_flags",
-	},
-	"setrlimit": {
-		"resource": "resources",
-	},
-	"umount2": {
-		"flags": "umount_flags",
-	},
-	"newfstatat": {
-		"flag": "at_flags",
-	},
-	"getpeername": {
-		"addr": "sockaddr",
+	"arch_prctl": {
+		"option": "archvals",
 	},
 	"clock_adjtime": {
 		"which_clock": "clocknames",
 	},
-	"openat": {
-		"flags": "open_mode_flags",
-	},
 	"madvise": {
 		"behavior": "madvise_cmds",
 	},
-	"lseek": {
-		"whence": "whence_codes",
+	"setrlimit": {
+		"resource": "resources",
 	},
-	"mlock2": {
-		"flags": "mlock_flags",
+	"bpf": {
+		"arg0": "bpf_commands",
 	},
-	"faccessat": {
-		"mode": "access_modes",
+	"request_key": {
+		"destringid": "key_spec",
 	},
-	"setsockopt": {
-		"level": "socketlayers",
+	"mremap": {
+		"flags": "mremap_flags",
+	},
+	"mlockall": {
+		"flags": "mlockall_flags",
+	},
+	"socket": {
+		"domain": "addrfams",
+		"type": "sock_type_flags",
+	},
+	"unlinkat": {
+		"flag": "at_flags",
+	},
+	"tgkill": {
+		"sig": "signalnames",
+	},
+	"add_key": {
+		"ringid": "key_spec",
+	},
+	"clock_nanosleep": {
+		"flags": "clockflags",
+		"which_clock": "clocknames",
+	},
+	"clock_settime": {
+		"which_clock": "clocknames",
+	},
+	"kill": {
+		"sig": "signalnames",
+	},
+	"connect": {
+		"addr": "sockaddr",
+	},
+	"fchownat": {
+		"flag": "at_flags",
 	},
 	"getrlimit": {
 		"resource": "resources",
+	},
+	"faccessat2": {
+		"mode": "access_modes",
+		"flags": "at_flags",
+	},
+	"ioctl": {
+		"cmd": "ioctl_cmds",
+	},
+	"clone3": {
+		"flags": "clone3_flags",
+	},
+	"prctl": {
+		"option": "prctl_options",
+	},
+	"getsockname": {
+		"addr": "sockaddr",
+	},
+	"open": {
+		"flags": "open_mode_flags",
+	},
+	"access": {
+		"mode": "access_modes",
 	},
 	"getsockopt": {
 		"level": "socketlayers",
@@ -5252,117 +5289,87 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"bind": {
 		"addr": "sockaddr",
 	},
-	"arch_prctl": {
-		"option": "archvals",
+	"wait4": {
+		"options": "wait4_options",
 	},
-	"clone": {
-		"clone_flags": "clone_flags",
+	"dup3": {
+		"flags": "dup3_flags",
 	},
-	"getsockname": {
-		"addr": "sockaddr",
+	"epoll_create1": {
+		"flags": "epollflags",
+	},
+	"mlock2": {
+		"flags": "mlock_flags",
+	},
+	"openat": {
+		"flags": "open_mode_flags",
 	},
 	"poll": {
 		"events": "pollflags",
 		"revents": "pollflags",
 	},
-	"clock_nanosleep": {
-		"which_clock": "clocknames",
-	},
-	"wait4": {
-		"options": "wait4_options",
+	"mmap": {
+		"prot": "mmap_prot",
+		"flags": "mmap_flags",
 	},
 	"msync": {
 		"flags": "mctl_sync",
-	},
-	"faccessat2": {
-		"mode": "access_modes",
-		"flags": "at_flags",
-	},
-	"mprotect": {
-		"prot": "mmap_prot",
-	},
-	"rt_sigprocmask": {
-		"how": "sigprocmaskcmds",
-	},
-	"unlinkat": {
-		"flag": "at_flags",
-	},
-	"mlockall": {
-		"flags": "mlockall_flags",
-	},
-	"fcntl": {
-		"cmd": "fcntlcmds",
-	},
-	"clock_settime": {
-		"which_clock": "clocknames",
-	},
-	"clone3": {
-		"flags": "clone3_flags",
-	},
-	"utimensat": {
-		"flags": "at_flags",
-	},
-	"open": {
-		"flags": "open_mode_flags",
-	},
-	"request_key": {
-		"destringid": "key_spec",
-	},
-	"socket": {
-		"domain": "addrfams",
-		"type": "sock_type_flags",
-	},
-	"access": {
-		"mode": "access_modes",
-	},
-	"accept4": {
-		"flags": "sock_type_flags",
 	},
 	"sendto": {
 		"flags": "msg_flags",
 		"addr": "sockaddr",
 	},
-	"ioctl": {
-		"cmd": "ioctl_cmds",
-	},
-	"kill": {
-		"sig": "signalnames",
-	},
-	"add_key": {
-		"ringid": "key_spec",
-	},
-	"mremap": {
-		"flags": "mremap_flags",
+	"epoll_ctl": {
+		"op": "epollctls",
 	},
 	"futex": {
 		"op": "futexops",
 	},
-	"prctl": {
-		"option": "prctl_options",
+	"setsockopt": {
+		"level": "socketlayers",
+	},
+	"lseek": {
+		"whence": "whence_codes",
 	},
 	"mount": {
 		"flags": "mount_flags",
 	},
-	"tgkill": {
-		"sig": "signalnames",
+	"utimensat": {
+		"flags": "at_flags",
+	},
+	"newfstatat": {
+		"flag": "at_flags",
 	},
 	"prlimit64": {
 		"resource": "resources",
-	},
-	"bpf": {
-		"arg0": "bpf_commands",
 	},
 	"ppoll": {
 		"events": "pollflags",
 		"revents": "pollflags",
 	},
+	"umount2": {
+		"flags": "umount_flags",
+	},
+	"recvfrom": {
+		"flags": "msg_flags",
+		"addr": "sockaddr",
+	},
+	"getpeername": {
+		"addr": "sockaddr",
+	},
+	"accept4": {
+		"flags": "sock_type_flags",
+	},
+	"faccessat": {
+		"mode": "access_modes",
+	},
+	"mprotect": {
+		"prot": "mmap_prot",
+	},
 	"pipe2": {
 		"flags": "open_mode_flags",
 	},
-	"epoll_ctl": {
-		"op": "epollctls",
-	},
-	"fchownat": {
-		"flag": "at_flags",
+	"fcntl": {
+		"cmd": "fcntlcmds",
 	},
 }

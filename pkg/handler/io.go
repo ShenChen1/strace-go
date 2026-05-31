@@ -29,7 +29,7 @@ func (h *IoHandler) Handle(ctx *Context) Result {
 	res := Result{}
 	
 	// Fallback to DefaultHandler for scalars, we only override iovec arrays
-	argCount := h.getArgCount(ctx)
+	argCount := len(ctx.ScMeta.ArgTypes)
 	for i := 0; i < argCount; i++ {
 		argTyp := ctx.ScMeta.ArgTypes[i]
 		argName := ctx.ScMeta.Args[i]
