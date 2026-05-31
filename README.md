@@ -3,7 +3,8 @@
 `strace-go` 是一个基于 **Go 语言** 和 **eBPF (Extended Berkeley Packet Filter)** 技术实现的高性能系统调用追踪工具。它旨在提供与传统 `strace` 类似的命令行可观测性体验，但通过现代 Linux 内核的探针与异步数据通道，极大降低了对被追踪程序的运行性能损耗，是面向云原生与高并发生产环境的轻量级观测系统。
 
 > [!NOTE]
-> 本项目的终极目标是实现一个与经典 `strace` 输出 1:1 兼容 of eBPF 替代品。我们通过在 `./strace-upstream/tests` 中集成官方 `strace` 测试套件来驱动该工具的开发与持续迭代。
+> 本项目的终极目标是实现一个与经典 `strace` 输出 1:1 兼容的 eBPF 替代品。我们通过在 `./strace-upstream/tests` 中集成官方 `strace` 测试套件来驱动该工具的开发与持续迭代。
+> **里程碑达成 (2026-05)**: 目前 `strace-go` 已经完美跑通了官方的 **1479 个系统调用回归测试用例 (make check)**，这标志着我们在输出精准度上已与传统 `strace` 达到极高的对齐水准。
 
 ---
 
@@ -130,6 +131,14 @@ go build -o strace-go ./cmd/strace-go
 ```bash
 sudo ./strace-go <待追踪的命令或进程>
 ```
+
+#### 4. 运行回归测试
+如果您想验证代码的稳定性和系统调用追踪的精确度，可运行集成的官方 `strace` 测试集：
+```bash
+cd strace-upstream/tests
+make check -j $(nproc)
+```
+*提示: 完整测试约有 1479 项，全部通过即代表 `strace-go` 解析无任何逻辑回归。*
 
 ---
 

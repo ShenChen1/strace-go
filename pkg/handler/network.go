@@ -148,7 +148,7 @@ func (h *NetworkHandler) formatNetlinkBuf(ctx *Context, val uint64) string {
 	data := ctx.StrArgBuf[0:sz]
 	readSuccess := ctx.ProbeRetEnter >= 0
 	if ctx.ScMeta.Name == "recvfrom" {
-		data = ctx.StrArgBuf[1024 : 1024+sz]
+		data = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+sz]
 		readSuccess = ctx.ProbeRetExit >= 0
 	}
 
@@ -183,7 +183,7 @@ func (h *NetworkHandler) formatStandardBuf(ctx *Context, val uint64) string {
 	data := ctx.StrArgBuf[0:sz]
 	readSuccess := ctx.ProbeRetEnter >= 0
 	if ctx.ScMeta.Name == "recvfrom" {
-		data = ctx.StrArgBuf[1024 : 1024+sz]
+		data = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+sz]
 		readSuccess = ctx.ProbeRetExit >= 0
 	}
 

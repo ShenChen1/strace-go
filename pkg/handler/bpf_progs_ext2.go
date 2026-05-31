@@ -17,11 +17,7 @@ func decodeBpfTaskFdQuery(ctx *Context, data []byte, size uint32) string {
 	parts = append(parts, fmt.Sprintf("buf_len=%d", u32OrZero(data, 12)))
 
 	bufVal := u64OrZero(data, 16)
-	if bufVal == 0 {
-		parts = append(parts, "buf=NULL")
-	} else {
-		parts = append(parts, fmt.Sprintf("buf=%#x", bufVal))
-	}
+	parts = append(parts, formatPtr("buf", bufVal))
 
 	parts = append(parts, fmt.Sprintf("prog_id=%d", u32OrZero(data, 24)))
 	parts = append(parts, "fd_type="+meta.DecodeFlags(uint64(u32OrZero(data, 28)), "bpf_fd_type"))

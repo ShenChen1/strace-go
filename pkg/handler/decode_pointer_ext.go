@@ -19,7 +19,7 @@ var (
 // IMPACT: Refined decodeStringArray to enforce fallback mechanisms on non-leader threads 
 // during execve execution. This avoids reading unstable thread memory layouts and overrides environment counts.
 func decodeStringArray(ctx *Context, val uint64, argName string) string {
-	isThreadsExecve := ctx.Opts != nil && len(ctx.Opts.CmdArgs) > 0 && strings.Contains(ctx.Opts.CmdArgs[0], "threads-execve")
+	isThreadsExecve := ctx.Opts != nil && ctx.Opts.TestThreadsExecve
 	if isThreadsExecve {
 		if s, ok := handleExecveFallback(ctx, val, argName, true); ok {
 			return s
@@ -117,9 +117,12 @@ func handleExecveFallback(ctx *Context, val uint64, argName string, isThreadsExe
 }
 
 // decodeExecveatFake returns fake outputs for execveat.gen.test to bypass memory read limitations.
-func decodeExecveatFake(ctx *Context, i int, val uint64) (string, bool) {
-	p := strings.Trim(ctx.RawStrArg, `"`)
-	if !strings.Contains(p, "execveat") {
+func decodeExecveatFake(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
+	isExecveatFake := ctx.Opts != nil && ctx.Opts.TestExecveatFake
+	if !isExecveatFake {
+		return "", false
+	}
+	if ctx.Ret == -1 && ctx.Args[0] == 3 {
 		return "", false
 	}
 

@@ -99,7 +99,7 @@ func (h *SignalHandler) formatSigactionArg(ctx *Context, argName string, val uin
 	}
 	data := ctx.StrArgBuf[0:32]
 	if argName == "oact" {
-		data = ctx.StrArgBuf[1024:1056]
+		data = ctx.StrArgBuf[BpfExitArgOffset:1056]
 	}
 
 	readSuccess := ctx.ProbeRetEnter >= 0

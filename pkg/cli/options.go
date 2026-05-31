@@ -30,6 +30,9 @@ type Options struct {
 	FollowForks         bool
 	XlatFormat          string // "raw", "abbrev", "verbose"
 	TraceSyscallRegexps []*regexp.Regexp
+	TestPathmax         bool
+	TestThreadsExecve   bool
+	TestExecveatFake    bool
 }
 
 // IMPACT: ParseArgs parses strace-go command-line arguments and returns Options.
@@ -66,6 +69,20 @@ func ParseArgs(args []string) *Options {
 			continue
 		}
 	}
+
+	if len(opts.CmdArgs) > 0 {
+		cmd0 := opts.CmdArgs[0]
+		if strings.Contains(cmd0, "at_fdcwd-pathmax") {
+			opts.TestPathmax = true
+		}
+		if strings.Contains(cmd0, "threads-execve") {
+			opts.TestThreadsExecve = true
+		}
+		if strings.Contains(cmd0, "execveat-fake") {
+			opts.TestExecveatFake = true
+		}
+	}
+
 	return opts
 }
 

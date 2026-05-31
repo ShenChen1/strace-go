@@ -26,7 +26,7 @@ func (h *PrctlHandler) Handle(ctx *Context) Result {
 		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[0:16], ctx.ArgProbeRet(1), "prctl", ctx.Opts.StringLimit))
 	case 16: // PR_GET_NAME
 		if ctx.Ret >= 0 {
-			res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[1024:1040], ctx.ProbeRetExit, "prctl", ctx.Opts.StringLimit))
+			res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[BpfExitArgOffset:1040], ctx.ProbeRetExit, "prctl", ctx.Opts.StringLimit))
 		} else {
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[1]))
 		}

@@ -68,9 +68,9 @@ func (h *FsHandler) Handle(ctx *Context) Result {
 		// source
 		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ArgProbeRet(0), ctx.SysName, 0))
 		// target
-		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[512:1024], ctx.ArgProbeRet(1), ctx.SysName, 0))
+		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[512:BpfExitArgOffset], ctx.ArgProbeRet(1), ctx.SysName, 0))
 		// type
-		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[2], ctx.StrArgBuf[1024:1152], ctx.ArgProbeRet(2), ctx.SysName, 0))
+		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[2], ctx.StrArgBuf[BpfExitArgOffset:1152], ctx.ArgProbeRet(2), ctx.SysName, 0))
 
 		// flags
 		flags := ctx.Args[3]

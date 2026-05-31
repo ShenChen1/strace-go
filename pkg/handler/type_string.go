@@ -21,7 +21,7 @@ func init() {
 
 func decodeStringArrayPointer(ctx *Context, i int, argTyp, argName string, val uint64, res *Result) (string, bool) {
 	if ctx.ScMeta.Name == "execveat" && (i == 2 || i == 3) {
-		if s, ok := decodeExecveatFake(ctx, i, val); ok {
+		if s, ok := decodeExecveatFake(ctx, i, argTyp, val); ok {
 			return s, true
 		}
 	}
@@ -52,7 +52,7 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 			if ctx.Ret < 0 {
 				return fmt.Sprintf("%#x", val), true
 			}
-			bpfBuf := ctx.StrArgBuf[1024 : 1024+512]
+			bpfBuf := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+512]
 			data, ok := ctx.FetchStructData(val, int(ctx.Ret), true, bpfBuf)
 			if ok {
 				sz := int(ctx.Ret)
@@ -105,7 +105,7 @@ func decodeIntPointer(ctx *Context, i int, argTyp, argName string, val uint64, r
 	scName := ctx.ScMeta.Name
 	if (scName == "pipe" || scName == "pipe2") {
 		if ctx.Ret >= 0 {
-			bpfBuf := ctx.StrArgBuf[1024 : 1024+8]
+			bpfBuf := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+8]
 			isExit := false
 			if ctx.ProbeRetExit >= 0 {
 				isExit = true
@@ -171,7 +171,7 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 
 	if (scName == "read" || scName == "pread64") && ctx.Ret > 0 && ctx.Opts.TraceReadFDs[fd] {
 		szH := uint64(ctx.Ret)
-		bpfBuf := ctx.StrArgBuf[1024 : 1024+512]
+		bpfBuf := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+512]
 		// Read exits always have data in exit buf if captured
 		data, ok := ctx.FetchStructData(val, int(szH), true, bpfBuf)
 		if ok {
@@ -202,19 +202,19 @@ func decodeRenArg(ctx *Context, i int, val uint64) (string, bool) {
 		if i == 0 {
 			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ArgProbeRet(0), scName, 0)
 		} else if i == 1 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[512:1024], ctx.ArgProbeRet(1), scName, 0)
+			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[512:BpfExitArgOffset], ctx.ArgProbeRet(1), scName, 0)
 		}
 	case "renameat", "renameat2", "linkat":
 		if i == 1 {
 			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[0:512], ctx.ArgProbeRet(1), scName, 0)
 		} else if i == 3 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[3], ctx.StrArgBuf[512:1024], ctx.ArgProbeRet(3), scName, 0)
+			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[3], ctx.StrArgBuf[512:BpfExitArgOffset], ctx.ArgProbeRet(3), scName, 0)
 		}
 	case "symlinkat":
 		if i == 0 {
 			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ArgProbeRet(0), scName, 0)
 		} else if i == 2 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[2], ctx.StrArgBuf[512:1024], ctx.ArgProbeRet(2), scName, 0)
+			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[2], ctx.StrArgBuf[512:BpfExitArgOffset], ctx.ArgProbeRet(2), scName, 0)
 		}
 	}
 	return p, true

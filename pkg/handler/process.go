@@ -88,19 +88,19 @@ func (h *ProcessHandler) decodeCloneArgsCore(data []byte, size uint64) []string 
 	if size >= 16 {
 		pfd := h.u64OrZero(data, 8)
 		if pfd != 0 || (flags&0x00001000 != 0) { // CLONE_PIDFD
-			if pfd == 0 { parts = append(parts, "pidfd=NULL") } else { parts = append(parts, fmt.Sprintf("pidfd=%#x", pfd)) }
+			parts = append(parts, formatPtr("pidfd", pfd))
 		}
 	}
 	if size >= 24 {
 		ctid := h.u64OrZero(data, 16)
 		if ctid != 0 || (flags&0x01000000 != 0) { // CLONE_CHILD_SETTID
-			if ctid == 0 { parts = append(parts, "child_tid=NULL") } else { parts = append(parts, fmt.Sprintf("child_tid=%#x", ctid)) }
+			parts = append(parts, formatPtr("child_tid", ctid))
 		}
 	}
 	if size >= 32 {
 		ptid := h.u64OrZero(data, 24)
 		if ptid != 0 || (flags&0x00100000 != 0) { // CLONE_PARENT_SETTID
-			if ptid == 0 { parts = append(parts, "parent_tid=NULL") } else { parts = append(parts, fmt.Sprintf("parent_tid=%#x", ptid)) }
+			parts = append(parts, formatPtr("parent_tid", ptid))
 		}
 	}
 	if size >= 40 {
@@ -109,7 +109,7 @@ func (h *ProcessHandler) decodeCloneArgsCore(data []byte, size uint64) []string 
 	}
 	if size >= 48 {
 		stack := h.u64OrZero(data, 40)
-		if stack == 0 { parts = append(parts, "stack=NULL") } else { parts = append(parts, fmt.Sprintf("stack=%#x", stack)) }
+		parts = append(parts, formatPtr("stack", stack))
 	}
 	if size >= 56 {
 		ssz := h.u64OrZero(data, 48)
@@ -118,7 +118,7 @@ func (h *ProcessHandler) decodeCloneArgsCore(data []byte, size uint64) []string 
 	if size >= 64 {
 		tls := h.u64OrZero(data, 56)
 		if tls != 0 || (flags&0x00080000 != 0) { // CLONE_SETTLS
-			if tls == 0 { parts = append(parts, "tls=NULL") } else { parts = append(parts, fmt.Sprintf("tls=%#x", tls)) }
+			parts = append(parts, formatPtr("tls", tls))
 		}
 	}
 	return parts
@@ -143,7 +143,7 @@ func (h *ProcessHandler) decodeCloneArgsSetTid(ctx *Context, data []byte, size u
 			parts = append(parts, fmt.Sprintf("set_tid=%#x, set_tid_size=%d", setTidPtr, setTidSize))
 		}
 	} else if setTidPtr != 0 || setTidSize != 0 {
-		if setTidPtr == 0 { parts = append(parts, "set_tid=NULL") } else { parts = append(parts, fmt.Sprintf("set_tid=%#x", setTidPtr)) }
+		parts = append(parts, formatPtr("set_tid", setTidPtr))
 		parts = append(parts, fmt.Sprintf("set_tid_size=%d", setTidSize))
 	}
 	return parts

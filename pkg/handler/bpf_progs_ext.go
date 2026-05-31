@@ -113,17 +113,9 @@ func decodeBpfProgTestRun(ctx *Context, data []byte, size uint32) string {
 	parts = append(parts, fmt.Sprintf("data_size_out=%d", u32OrZero(data, 12)))
 
 	din := u64OrZero(data, 16)
-	if din == 0 {
-		parts = append(parts, "data_in=NULL")
-	} else {
-		parts = append(parts, fmt.Sprintf("data_in=%#x", din))
-	}
+	parts = append(parts, formatPtr("data_in", din))
 	dout := u64OrZero(data, 24)
-	if dout == 0 {
-		parts = append(parts, "data_out=NULL")
-	} else {
-		parts = append(parts, fmt.Sprintf("data_out=%#x", dout))
-	}
+	parts = append(parts, formatPtr("data_out", dout))
 	parts = append(parts, fmt.Sprintf("repeat=%d", u32OrZero(data, 32)))
 	parts = append(parts, fmt.Sprintf("duration=%d", u32OrZero(data, 36)))
 	decodedSize = 40
@@ -138,17 +130,9 @@ func decodeBpfProgTestRun(ctx *Context, data []byte, size uint32) string {
 	}
 	if size >= 56 {
 		cin := u64OrZero(data, 48)
-		if cin == 0 {
-			parts = append(parts, "ctx_in=NULL")
-		} else {
-			parts = append(parts, fmt.Sprintf("ctx_in=%#x", cin))
-		}
+		parts = append(parts, formatPtr("ctx_in", cin))
 		cout := u64OrZero(data, 56)
-		if cout == 0 {
-			parts = append(parts, "ctx_out=NULL")
-		} else {
-			parts = append(parts, fmt.Sprintf("ctx_out=%#x", cout))
-		}
+		parts = append(parts, formatPtr("ctx_out", cout))
 		decodedSize = 64
 	}
 	if size >= 68 {
@@ -174,11 +158,7 @@ func decodeBpfObjGetInfoByFd(ctx *Context, data []byte, size uint32) string {
 	parts = append(parts, fmt.Sprintf("bpf_fd=%d", int32(u32OrZero(data, 0))))
 	parts = append(parts, fmt.Sprintf("info_len=%d", u32OrZero(data, 4)))
 	info := u64OrZero(data, 8)
-	if info == 0 {
-		parts = append(parts, "info=NULL")
-	} else {
-		parts = append(parts, fmt.Sprintf("info=%#x", info))
-	}
+	parts = append(parts, formatPtr("info", info))
 	decodedSize := 16
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
 	return "{info={" + strings.Join(parts, ", ") + "}" + extra + "}"
@@ -310,11 +290,7 @@ func decodeBpfProgQuery(ctx *Context, data []byte, size uint32) string {
 
 	if size >= 40 {
 		progAttachFlags := u64OrZero(data, 32)
-		if progAttachFlags == 0 {
-			parts = append(parts, "prog_attach_flags=NULL")
-		} else {
-			parts = append(parts, fmt.Sprintf("prog_attach_flags=%#x", progAttachFlags))
-		}
+		parts = append(parts, formatPtr("prog_attach_flags", progAttachFlags))
 		decodedSize = 40
 	}
 	if size >= 64 {
@@ -328,11 +304,7 @@ func decodeBpfProgQuery(ctx *Context, data []byte, size uint32) string {
 		}
 
 		linkAttachFlags := u64OrZero(data, 48)
-		if linkAttachFlags == 0 {
-			parts = append(parts, "link_attach_flags=NULL")
-		} else {
-			parts = append(parts, fmt.Sprintf("link_attach_flags=%#x", linkAttachFlags))
-		}
+		parts = append(parts, formatPtr("link_attach_flags", linkAttachFlags))
 
 		parts = append(parts, fmt.Sprintf("revision=%#x", u64OrZero(data, 56)))
 		decodedSize = 64
@@ -408,11 +380,7 @@ func decodeBpfBtfLoad(ctx *Context, data []byte, size uint32) string {
 	}
 
 	btfLogBuf := u64OrZero(data, 8)
-	if btfLogBuf == 0 {
-		parts = append(parts, "btf_log_buf=NULL")
-	} else {
-		parts = append(parts, fmt.Sprintf("btf_log_buf=%#x", btfLogBuf))
-	}
+	parts = append(parts, formatPtr("btf_log_buf", btfLogBuf))
 
 	parts = append(parts, fmt.Sprintf("btf_size=%d", btfSize))
 	parts = append(parts, fmt.Sprintf("btf_log_size=%d", u32OrZero(data, 20)))

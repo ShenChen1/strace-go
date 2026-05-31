@@ -16,11 +16,7 @@ func init() {
 
 func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	if ctx.ScMeta.Name == "utimensat" {
-		data, ok := ctx.FetchStructDataExact(val, 32, false, ctx.StrArgBuf[512:512+32])
-		if !ok {
-			return fmt.Sprintf("%#x", val), true
-		}
-		return format.Utimes(data), true
+		return ctx.DecodeStructWithFallback(val, 32, false, ctx.StrArgBuf[BpfMiscArgOffset:BpfMiscArgOffset+32], format.Utimes)
 	}
 
 	isNanosleep := ctx.ScMeta.Name == "nanosleep"
@@ -37,11 +33,7 @@ func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, boo
 			}
 			return format.Timespec(d), true
 		} else {
-			data, ok := ctx.FetchStructDataExact(val, 16, false, ctx.StrArgBuf[0:16])
-			if !ok {
-				return fmt.Sprintf("%#x", val), true
-			}
-			return format.Timespec(data), true
+			return ctx.DecodeStructWithFallback(val, 16, false, ctx.StrArgBuf[0:16], format.Timespec)
 		}
 	}
 
@@ -52,11 +44,7 @@ func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, boo
 		}
 	}
 	
-	data, ok := ctx.FetchStructDataExact(val, 16, false, ctx.StrArgBuf[0:16])
-	if !ok {
-		return fmt.Sprintf("%#x", val), true
-	}
-	return format.Timespec(data), true
+	return ctx.DecodeStructWithFallback(val, 16, false, ctx.StrArgBuf[0:16], format.Timespec)
 }
 
 func decodeTimeval(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
@@ -67,17 +55,9 @@ func decodeTimeval(ctx *Context, i int, argTyp string, val uint64) (string, bool
 		}
 	}
 	
-	data, ok := ctx.FetchStructDataExact(val, 16, false, ctx.StrArgBuf[1024:1024+16])
-	if !ok {
-		return fmt.Sprintf("%#x", val), true
-	}
-	return format.Timeval(data), true
+	return ctx.DecodeStructWithFallback(val, 16, false, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+16], format.Timeval)
 }
 
 func decodeTimex(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
-	data, ok := ctx.FetchStructDataExact(val, 208, true, ctx.StrArgBuf[1024:1024+208])
-	if !ok {
-		return fmt.Sprintf("%#x", val), true
-	}
-	return format.Timex(data), true
+	return ctx.DecodeStructWithFallback(val, 208, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+208], format.Timex)
 }

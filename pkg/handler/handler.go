@@ -2,10 +2,22 @@
 package handler
 
 import (
+	"fmt"
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 	"strace-go/pkg/meta"
 	"strace-go/pkg/procmem"
+)
+
+const (
+	// BpfEnterArgOffset is the starting offset for args collected on syscall enter.
+	BpfEnterArgOffset = 0
+	// BpfMiscArgOffset is the starting offset for misc/secondary args in BPF buffers.
+	BpfMiscArgOffset = 512
+	// BpfExitArgOffset is the starting offset for args collected on syscall exit.
+	BpfExitArgOffset = 1024
+	// AtFdcwd is the magic file descriptor value for AT_FDCWD.
+	AtFdcwd = -100
 )
 
 // Context encapsulates all data needed to decode a single syscall event.
@@ -93,10 +105,22 @@ func (ctx *Context) FetchStructData(ptr uint64, size int, isExit bool, bpfBuf []
 // FetchStructDataExact is like FetchStructData but strictly requires the full requested size.
 func (ctx *Context) FetchStructDataExact(ptr uint64, size int, isExit bool, bpfBuf []byte) ([]byte, bool) {
 	data, ok := ctx.FetchStructData(ptr, size, isExit, bpfBuf)
-	if !ok || len(data) < size {
-		return nil, false
+	if ok && len(data) == size {
+		return data, true
 	}
-	return data, true
+	return nil, false
+}
+
+// DecodeStructWithFallback handles NULL checks and fallback hex formatting for struct pointers.
+func (ctx *Context) DecodeStructWithFallback(val uint64, size int, isExit bool, bpfBuf []byte, decodeFn func([]byte) string) (string, bool) {
+	if val == 0 {
+		return "NULL", true
+	}
+	data, ok := ctx.FetchStructDataExact(val, size, isExit, bpfBuf)
+	if !ok {
+		return fmt.Sprintf("%#x", val), true
+	}
+	return decodeFn(data), true
 }
 
 // Result contains the formatted arguments and optional hex dump.

@@ -40,7 +40,7 @@ func (h *AioHandler) formatIoSetup(ctx *Context, res *Result) {
 	if ctx.Args[1] == 0 {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else if ctx.Ret >= 0 {
-		data := ctx.StrArgBuf[1024:1032]
+		data := ctx.StrArgBuf[BpfExitArgOffset:1032]
 		if ctx.ProbeRetExit < 0 {
 			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[1], 8, true); err == nil {
 				data = d
@@ -158,7 +158,7 @@ func (h *AioHandler) formatIoGetevents(ctx *Context, res *Result) {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else if ctx.Ret > 0 {
 		count := int(ctx.Ret)
-		data := ctx.StrArgBuf[1024 : 1024+512]
+		data := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+512]
 		if ctx.ProbeRetExit < 0 {
 			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[3], count*32, true); err == nil {
 				data = d

@@ -19,14 +19,14 @@ func init() {
 }
 
 func decodeSysinfo(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
+	if val == 0 {
+		return "NULL", true
+	}
 	if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
 		return fmt.Sprintf("%#x", val), true
 	}
-	data, ok := ctx.FetchStructDataExact(val, 112, true, ctx.StrArgBuf[1024:1024+112])
-	if !ok {
-		return fmt.Sprintf("%#x", val), true
-	}
-	return format.Sysinfo(data), true
+	return ctx.DecodeStructWithFallback(val, 112, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+112], format.Sysinfo)
+
 }
 
 func decodeFlock(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
@@ -38,7 +38,7 @@ func decodeFlock(ctx *Context, i int, argTyp string, val uint64) (string, bool) 
 	bpfBuf := ctx.StrArgBuf[0:32]
 	isExit := false
 	if ctx.ProbeRetExit >= 0 {
-		bpfBuf = ctx.StrArgBuf[1024 : 1024+32]
+		bpfBuf = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+32]
 		isExit = true
 	}
 	
@@ -60,7 +60,7 @@ func decodeFOwnerEx(ctx *Context, i int, argTyp string, val uint64) (string, boo
 	bpfBuf := ctx.StrArgBuf[0:8]
 	isExit := false
 	if ctx.ProbeRetExit >= 0 {
-		bpfBuf = ctx.StrArgBuf[1024 : 1024+8]
+		bpfBuf = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+8]
 		isExit = true
 	}
 	

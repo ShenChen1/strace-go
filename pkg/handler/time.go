@@ -29,7 +29,7 @@ func (h *TimeHandler) Handle(ctx *Context) Result {
 		if ptr == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
-			data := ctx.StrArgBuf[1024 : 1024+16]
+			data := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+16]
 			if ctx.SysName == "clock_settime" {
 				data = ctx.StrArgBuf[0:16]
 			}
@@ -62,7 +62,7 @@ func (h *TimeHandler) Handle(ctx *Context) Result {
 			return res
 		}
 
-		data := ctx.StrArgBuf[1024 : 1024+208]
+		data := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+208]
 		if ctx.SysName == "adjtimex" {
 			// adjtimex captures at 0 and 1024?
 			// Actually capture_rules says 0 and 1024.

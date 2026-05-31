@@ -139,17 +139,9 @@ func decodeBpfMapLookup(ctx *Context, data []byte, size uint32) string {
 		decodedSize = 4
 	}
 	k := u64OrZero(data, 8)
-	if k == 0 {
-		parts = append(parts, "key=NULL")
-	} else {
-		parts = append(parts, fmt.Sprintf("key=%#x", k))
-	}
+	parts = append(parts, formatPtr("key", k))
 	v := u64OrZero(data, 16)
-	if v == 0 {
-		parts = append(parts, "value=NULL")
-	} else {
-		parts = append(parts, fmt.Sprintf("value=%#x", v))
-	}
+	parts = append(parts, formatPtr("value", v))
 	decodedSize = 24
 
 	if size >= 32 {
@@ -170,17 +162,9 @@ func decodeBpfMapUpdate(ctx *Context, data []byte, size uint32) string {
 		decodedSize = 4
 	}
 	k := u64OrZero(data, 8)
-	if k == 0 {
-		parts = append(parts, "key=NULL")
-	} else {
-		parts = append(parts, fmt.Sprintf("key=%#x", k))
-	}
+	parts = append(parts, formatPtr("key", k))
 	v := u64OrZero(data, 16)
-	if v == 0 {
-		parts = append(parts, "value=NULL")
-	} else {
-		parts = append(parts, fmt.Sprintf("value=%#x", v))
-	}
+	parts = append(parts, formatPtr("value", v))
 	decodedSize = 24
 
 	flagsVal := u64OrZero(data, 24)
@@ -201,11 +185,7 @@ func decodeBpfMapDeleteElem(ctx *Context, data []byte, size uint32) string {
 		decodedSize = 4
 	}
 	k := u64OrZero(data, 8)
-	if k == 0 {
-		parts = append(parts, "key=NULL")
-	} else {
-		parts = append(parts, fmt.Sprintf("key=%#x", k))
-	}
+	parts = append(parts, formatPtr("key", k))
 	decodedSize = 16
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
 	return "{" + strings.Join(parts, ", ") + extra + "}"
@@ -221,17 +201,9 @@ func decodeBpfMapGetNextKey(ctx *Context, data []byte, size uint32) string {
 		decodedSize = 4
 	}
 	k := u64OrZero(data, 8)
-	if k == 0 {
-		parts = append(parts, "key=NULL")
-	} else {
-		parts = append(parts, fmt.Sprintf("key=%#x", k))
-	}
+	parts = append(parts, formatPtr("key", k))
 	nk := u64OrZero(data, 16)
-	if nk == 0 {
-		parts = append(parts, "next_key=NULL")
-	} else {
-		parts = append(parts, fmt.Sprintf("next_key=%#x", nk))
-	}
+	parts = append(parts, formatPtr("next_key", nk))
 	decodedSize = 24
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
 	return "{" + strings.Join(parts, ", ") + extra + "}"
@@ -246,35 +218,19 @@ func decodeBpfMapBatch(ctx *Context, data []byte, size uint32) string {
 	// 1. in_batch & out_batch (only for Lookup / Lookup & Delete)
 	if cmd == 24 || cmd == 25 {
 		inBatch := u64OrZero(data, 0)
-		if inBatch == 0 {
-			parts = append(parts, "in_batch=NULL")
-		} else {
-			parts = append(parts, fmt.Sprintf("in_batch=%#x", inBatch))
-		}
+		parts = append(parts, formatPtr("in_batch", inBatch))
 		outBatch := u64OrZero(data, 8)
-		if outBatch == 0 {
-			parts = append(parts, "out_batch=NULL")
-		} else {
-			parts = append(parts, fmt.Sprintf("out_batch=%#x", outBatch))
-		}
+		parts = append(parts, formatPtr("out_batch", outBatch))
 	}
 
 	// 2. keys (all batch commands)
 	keys := u64OrZero(data, 16)
-	if keys == 0 {
-		parts = append(parts, "keys=NULL")
-	} else {
-		parts = append(parts, fmt.Sprintf("keys=%#x", keys))
-	}
+	parts = append(parts, formatPtr("keys", keys))
 
 	// 3. values (Lookup, Lookup & Delete, Update; not for Delete)
 	if cmd != 27 {
 		values := u64OrZero(data, 24)
-		if values == 0 {
-			parts = append(parts, "values=NULL")
-		} else {
-			parts = append(parts, fmt.Sprintf("values=%#x", values))
-		}
+		parts = append(parts, formatPtr("values", values))
 	}
 
 	// 4. Common fields: count, map_fd, elem_flags, flags

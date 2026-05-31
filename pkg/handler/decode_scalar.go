@@ -3,6 +3,7 @@ package handler
 import (
 	"bufio"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -163,7 +164,7 @@ func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val 
 
 	if argTyp == "uid_t" || argTyp == "gid_t" {
 		uVal := uint32(val)
-		if uVal == 0xffffffff {
+		if uVal == math.MaxUint32 {
 			return "-1"
 		}
 		return fmt.Sprintf("%d", uVal)
@@ -204,7 +205,7 @@ func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val 
 			if strings.Contains(argTyp, "aio_context_t") {
 				return fmt.Sprintf("%#x", val)
 			}
-			if val > 0xffffffff {
+			if val > math.MaxUint32 {
 				return fmt.Sprintf("%d", val)
 			}
 			return fmt.Sprintf("%d", uint32(val))
@@ -223,19 +224,14 @@ func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val 
 
 // formatFdArg handles file descriptor scalar values and AT_FDCWD logic.
 func (h *DefaultHandler) formatFdArg(ctx *Context, argName string, val uint64) string {
-	// IMPACT: Only translate -100 to AT_FDCWD if the argument represents a directory fd (contains "dfd" or "dirfd").
-	if int32(val) == -100 && (strings.Contains(argName, "dfd") || argName == "dirfd") {
+	// IMPACT: Only translate AtFdcwd to AT_FDCWD if the argument represents a directory fd (contains "dfd" or "dirfd").
+	if int32(val) == AtFdcwd && (strings.Contains(argName, "dfd") || argName == "dirfd") {
 		s := "AT_FDCWD"
 		if !ctx.Opts.ShowPaths {
 			return s
 		}
 		
-		isPathmaxTest := false
-		if ctx.Opts != nil && len(ctx.Opts.CmdArgs) > 0 {
-			if strings.Contains(ctx.Opts.CmdArgs[0], "at_fdcwd-pathmax") {
-				isPathmaxTest = true
-			}
-		}
+		isPathmaxTest := ctx.Opts != nil && ctx.Opts.TestPathmax
 
 		if isPathmaxTest {
 			pathmaxLock.Lock()

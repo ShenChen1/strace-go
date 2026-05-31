@@ -65,7 +65,7 @@ func (h *EpollHandler) Handle(ctx *Context) Result {
 			count := int(ctx.Ret)
 			capLen := count * 12
 			if capLen > 512 { capLen = 512 }
-			data := ctx.StrArgBuf[1024 : 1024+capLen]
+			data := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+capLen]
 			readSuccess := ctx.ProbeRetExit >= 0
 			if !readSuccess {
 				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptr, capLen, true); err == nil && len(d) == capLen {

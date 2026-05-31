@@ -178,7 +178,7 @@ func (h *FcntlHandler) decodeFlock(ctx *Context, cmdStr string, arg uint64) stri
 	data := ctx.StrArgBuf[0:32]
 	readSuccess := ctx.ProbeRetEnter >= 0
 	if ctx.ProbeRetExit >= 0 {
-		data = ctx.StrArgBuf[1024 : 1024+32]
+		data = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+32]
 		readSuccess = true
 	}
 	if !readSuccess {
@@ -198,7 +198,7 @@ func (h *FcntlHandler) decodeFOwnerEx(ctx *Context, arg uint64) string {
 	data := ctx.StrArgBuf[0:8]
 	readSuccess := ctx.ProbeRetEnter >= 0
 	if ctx.ProbeRetExit >= 0 {
-		data = ctx.StrArgBuf[1024 : 1024+8]
+		data = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+8]
 		readSuccess = true
 	}
 	if !readSuccess {
@@ -222,7 +222,7 @@ func (h *FcntlHandler) decodeRwHint(ctx *Context, arg uint64) string {
 	data := ctx.StrArgBuf[0:8]
 	readSuccess := ctx.ProbeRetEnter >= 0
 	if ctx.ProbeRetExit >= 0 {
-		data = ctx.StrArgBuf[1024 : 1024+8]
+		data = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+8]
 		readSuccess = true
 	}
 	if !readSuccess {
@@ -252,7 +252,7 @@ func (h *FcntlHandler) decodeDelegation(ctx *Context, arg uint64) string {
 	data := ctx.StrArgBuf[0:8]
 	readSuccess := ctx.ProbeRetEnter >= 0
 	if ctx.ProbeRetExit >= 0 {
-		data = ctx.StrArgBuf[1024 : 1024+8]
+		data = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+8]
 		readSuccess = true
 	}
 	if !readSuccess {

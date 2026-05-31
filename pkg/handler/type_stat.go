@@ -15,23 +15,21 @@ func init() {
 }
 
 func decodeStat(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
+	if val == 0 {
+		return "NULL", true
+	}
 	if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
 		return fmt.Sprintf("%#x", val), true
 	}
-	data, ok := ctx.FetchStructDataExact(val, 144, true, ctx.StrArgBuf[1024:1024+144])
-	if !ok {
-		return fmt.Sprintf("%#x", val), true
-	}
-	return format.Stat(data), true
+	return ctx.DecodeStructWithFallback(val, 144, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+144], format.Stat)
 }
 
 func decodeStatfs(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
+	if val == 0 {
+		return "NULL", true
+	}
 	if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
 		return fmt.Sprintf("%#x", val), true
 	}
-	data, ok := ctx.FetchStructDataExact(val, 120, true, ctx.StrArgBuf[1024:1024+120])
-	if !ok {
-		return fmt.Sprintf("%#x", val), true
-	}
-	return format.Statfs(data), true
+	return ctx.DecodeStructWithFallback(val, 120, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+120], format.Statfs)
 }

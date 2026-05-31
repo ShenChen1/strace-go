@@ -160,11 +160,7 @@ func decodeBpfProgLoadParts2(parts []string, data []byte, size uint32, decodedSi
 	}
 	if size >= 88 {
 		funcInfo := u64OrZero(data, 80)
-		if funcInfo == 0 {
-			parts = append(parts, "func_info=NULL")
-		} else {
-			parts = append(parts, fmt.Sprintf("func_info=%#x", funcInfo))
-		}
+		parts = append(parts, formatPtr("func_info", funcInfo))
 		decodedSize = 88
 	}
 	if size >= 92 {
@@ -177,11 +173,7 @@ func decodeBpfProgLoadParts2(parts []string, data []byte, size uint32, decodedSi
 	}
 	if size >= 104 {
 		lineInfo := u64OrZero(data, 96)
-		if lineInfo == 0 {
-			parts = append(parts, "line_info=NULL")
-		} else {
-			parts = append(parts, fmt.Sprintf("line_info=%#x", lineInfo))
-		}
+		parts = append(parts, formatPtr("line_info", lineInfo))
 		decodedSize = 104
 	}
 	if size >= 108 {
@@ -202,11 +194,7 @@ func decodeBpfProgLoadParts2(parts []string, data []byte, size uint32, decodedSi
 	}
 	if size >= 128 {
 		fdArr := u64OrZero(data, 120)
-		if fdArr == 0 {
-			parts = append(parts, "fd_array=NULL")
-		} else {
-			parts = append(parts, fmt.Sprintf("fd_array=%#x", fdArr))
-		}
+		parts = append(parts, formatPtr("fd_array", fdArr))
 		if decodedSize < 128 {
 			decodedSize = 128
 		}
@@ -219,11 +207,7 @@ func decodeBpfProgLoadParts2(parts []string, data []byte, size uint32, decodedSi
 func decodeBpfProgLoadParts3(ctx *Context, parts []string, data []byte, size uint32, decodedSize int) (int, []string) {
 	if size >= 136 {
 		coreRelos := u64OrZero(data, 128)
-		if coreRelos == 0 {
-			parts = append(parts, "core_relos=NULL")
-		} else {
-			parts = append(parts, fmt.Sprintf("core_relos=%#x", coreRelos))
-		}
+		parts = append(parts, formatPtr("core_relos", coreRelos))
 		decodedSize = 136
 	}
 	if size >= 140 {

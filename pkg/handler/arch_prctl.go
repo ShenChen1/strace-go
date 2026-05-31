@@ -49,7 +49,7 @@ func (h *ArchPrctlHandler) Handle(ctx *Context) Result {
 			} else {
 				if isGET {
 					if ctx.Ret >= 0 {
-						sdata := ctx.StrArgBuf[1024:1032]
+						sdata := ctx.StrArgBuf[BpfExitArgOffset:1032]
 						outV := binary.LittleEndian.Uint64(sdata)
 						if ctx.ProbeRetExit < 0 || outV == 0 {
 							if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 8, true); err == nil {

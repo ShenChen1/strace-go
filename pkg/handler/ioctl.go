@@ -97,7 +97,7 @@ func (h *IoctlHandler) decodeIoctlArg(ctx *Context, cmd, arg uint64, cmdName str
 
 // decodeDmIoctl reads and formats device mapper ioctl arguments.
 func (h *IoctlHandler) decodeDmIoctl(ctx *Context, arg uint64, cmdName string) string {
-	data := ctx.StrArgBuf[512:1024]
+	data := ctx.StrArgBuf[512:BpfExitArgOffset]
 	readSuccess := ctx.ProbeRetEnter >= 0
 	
 	if d, err := ctx.MemReader.ReadRobust(ctx.Pid, arg, 312, false); err == nil && len(d) >= 20 {
