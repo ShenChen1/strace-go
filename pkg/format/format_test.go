@@ -47,3 +47,29 @@ func TestWhence(t *testing.T) {
 		}
 	}
 }
+
+func TestSigset(t *testing.T) {
+	tests := []struct {
+		name string
+		mask uint64
+		want string
+	}{
+		{"empty", 0, "[]"},
+		{"all", ^uint64(0), "~[]"},
+		{"sighup", 1, "[HUP]"},
+		{"sighup_sigint", 3, "[HUP INT]"},
+		{"rt_sig", 1 << 34, "[35]"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := make([]byte, 8)
+			for i := 0; i < 8; i++ {
+				data[i] = byte(tt.mask >> (i * 8))
+			}
+			if got := format.Sigset(data); got != tt.want {
+				t.Errorf("Sigset(%x) = %v, want %v", tt.mask, got, tt.want)
+			}
+		})
+	}
+}
