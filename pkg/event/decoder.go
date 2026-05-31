@@ -12,12 +12,12 @@ import (
 
 // IMPACT: Added StringLimit field to Decoder to allow DecodeString to apply command-line formatting limits independently from internal buffer size limits.
 type Decoder struct {
-	MemReader     *procmem.Reader
+	MemReader     procmem.MemoryReader
 	HexEscapeMode int
 	StringLimit   int
 }
 
-func NewDecoder(mr *procmem.Reader) *Decoder {
+func NewDecoder(mr procmem.MemoryReader) *Decoder {
 	return &Decoder{MemReader: mr, HexEscapeMode: 0}
 }
 
@@ -88,13 +88,6 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 				}
 				found = true
 			} else {
-				if scName == "fsconfig" {
-					f, _ := os.OpenFile("/tmp/fsconfig_err_debug.txt", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-					if f != nil {
-						fmt.Fprintf(f, "MemReader error: %v\n", err)
-						f.Close()
-					}
-				}
 				if probeRet >= 0 && bpfFound && len(bpfRaw) > 0 {
 					raw = bpfRaw
 					if limit > 0 && len(bpfRaw) >= limit {

@@ -24,7 +24,7 @@ type Context struct {
 	RawStrArg     string
 
 	ScMeta    meta.Syscall
-	MemReader *procmem.Reader
+	MemReader procmem.MemoryReader
 	Decoder   *event.Decoder
 	Opts      *cli.Options
 	FdMap     map[string]string

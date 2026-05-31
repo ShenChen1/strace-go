@@ -9,11 +9,16 @@ type PointerDecoder interface {
 	DecodePointer(ctx *Context, i int, argTyp, argName string, val uint64, res *Result) (string, bool)
 }
 
-var pointerDecoders = make(map[string]PointerDecoder)
+type pointerDecoderEntry struct {
+	pattern string
+	decoder PointerDecoder
+}
+
+var pointerDecoders []pointerDecoderEntry
 
 // RegisterPointerDecoder registers a PointerDecoder for a specific type pattern.
 func RegisterPointerDecoder(typPattern string, d PointerDecoder) {
-	pointerDecoders[typPattern] = d
+	pointerDecoders = append(pointerDecoders, pointerDecoderEntry{typPattern, d})
 }
 
 // PointerDecoderFunc is a convenience adapter.
@@ -25,9 +30,9 @@ func (f PointerDecoderFunc) DecodePointer(ctx *Context, i int, argTyp, argName s
 
 // FindPointerDecoder attempts to find a decoder that matches the argument type.
 func FindPointerDecoder(argTyp string) PointerDecoder {
-	for pattern, decoder := range pointerDecoders {
-		if strings.Contains(argTyp, pattern) {
-			return decoder
+	for _, entry := range pointerDecoders {
+		if strings.Contains(argTyp, entry.pattern) {
+			return entry.decoder
 		}
 	}
 	return nil

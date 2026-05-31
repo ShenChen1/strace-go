@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/binary"
 	"fmt"
 	"strings"
 
@@ -15,8 +16,6 @@ func init() {
 	RegisterStructDecoder("struct f_owner_ex *", StructDecoderFunc(decodeFOwnerEx))
 	RegisterStructDecoder("struct rlimit *", StructDecoderFunc(decodeRlimitPointer))
 	RegisterStructDecoder("struct rlimit64 *", StructDecoderFunc(decodeRlimitPointer))
-	RegisterStructDecoder("struct statfs *", StructDecoderFunc(decodeStatfs))
-	RegisterStructDecoder("struct statfs64 *", StructDecoderFunc(decodeStatfs))
 }
 
 func decodeSysinfo(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
@@ -123,10 +122,8 @@ func decodeRlimitPointer(ctx *Context, i int, argTyp string, val uint64) (string
 		return fmt.Sprintf("%#x", val), true
 	}
 
-	cur := uint64(data[0]) | uint64(data[1])<<8 | uint64(data[2])<<16 | uint64(data[3])<<24 |
-		uint64(data[4])<<32 | uint64(data[5])<<40 | uint64(data[6])<<48 | uint64(data[7])<<56
-	max := uint64(data[8]) | uint64(data[9])<<8 | uint64(data[10])<<16 | uint64(data[11])<<24 |
-		uint64(data[12])<<32 | uint64(data[13])<<40 | uint64(data[14])<<48 | uint64(data[15])<<56
+	cur := binary.LittleEndian.Uint64(data[0:8])
+	max := binary.LittleEndian.Uint64(data[8:16])
 
 	return fmt.Sprintf("{rlim_cur=%s, rlim_max=%s}", formatRlimitVal(cur), formatRlimitVal(max)), true
 }

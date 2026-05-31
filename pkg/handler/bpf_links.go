@@ -270,13 +270,6 @@ func isCgroupAttachType(t uint32) bool {
 	return false
 }
 
-// formatPtr formats a pointer field as NULL or hex.
-func formatPtr(name string, val uint64) string {
-	if val == 0 {
-		return name + "=NULL"
-	}
-	return fmt.Sprintf("%s=%#x", name, val)
-}
 
 // decodeTcxOrNetkitStruct decodes tcx or netkit union struct in BPF_LINK_CREATE.
 // Impact: Formats relative_fd/relative_id and expected_revision fields.

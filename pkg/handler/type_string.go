@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"strings"
 
@@ -111,8 +112,8 @@ func decodeIntPointer(ctx *Context, i int, argTyp, argName string, val uint64, r
 			}
 			data, ok := ctx.FetchStructDataExact(val, 8, isExit, bpfBuf)
 			if ok {
-				fd1 := int32(uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24)
-				fd2 := int32(uint32(data[4]) | uint32(data[5])<<8 | uint32(data[6])<<16 | uint32(data[7])<<24)
+				fd1 := int32(binary.LittleEndian.Uint32(data[0:4]))
+				fd2 := int32(binary.LittleEndian.Uint32(data[4:8]))
 				return fmt.Sprintf("[%d, %d]", fd1, fd2), true
 			}
 		}

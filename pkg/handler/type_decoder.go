@@ -7,13 +7,17 @@ type TypeDecoder interface {
 	Decode(ctx *Context, i int, argTyp string, val uint64) (string, bool)
 }
 
+type structDecoderEntry struct {
+	pattern string
+	decoder TypeDecoder
+}
+
 // structDecoders contains decoders for various struct types.
-// The key is a substring expected to be in argTyp (e.g., "struct timespec *").
-var structDecoders = make(map[string]TypeDecoder)
+var structDecoders []structDecoderEntry
 
 // RegisterStructDecoder registers a TypeDecoder for a specific type pattern.
 func RegisterStructDecoder(typPattern string, d TypeDecoder) {
-	structDecoders[typPattern] = d
+	structDecoders = append(structDecoders, structDecoderEntry{typPattern, d})
 }
 
 // StructDecoderFunc is a convenience adapter to allow using ordinary functions as TypeDecoders.
@@ -26,9 +30,9 @@ func (f StructDecoderFunc) Decode(ctx *Context, i int, argTyp string, val uint64
 
 // FindStructDecoder attempts to find a decoder that matches the argument type.
 func FindStructDecoder(argTyp string) TypeDecoder {
-	for pattern, decoder := range structDecoders {
-		if strings.Contains(argTyp, pattern) {
-			return decoder
+	for _, entry := range structDecoders {
+		if strings.Contains(argTyp, entry.pattern) {
+			return entry.decoder
 		}
 	}
 	return nil

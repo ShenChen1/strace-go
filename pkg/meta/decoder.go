@@ -3,6 +3,7 @@ package meta
 import (
 	"fmt"
 	"strings"
+	"sync"
 )
 
 type Syscall struct {
@@ -203,10 +204,13 @@ func DecodeFlags(val uint64, xlatName string) string {
 	return decoded
 }
 
+var bpfXlatOnce sync.Once
+
 func checkRegisterBpfXlats() {
-	if XlatTables == nil {
-		XlatTables = make(map[string]XlatTable)
-	}
+	bpfXlatOnce.Do(func() {
+		if XlatTables == nil {
+			XlatTables = make(map[string]XlatTable)
+		}
 	if _, ok := XlatTables["bpf_map_lookup_flags"]; !ok {
 		XlatTables["bpf_map_lookup_flags"] = XlatTable{
 			Prefix: "BPF_",
@@ -310,5 +314,6 @@ func checkRegisterBpfXlats() {
 				{Val: 0, Str: "BPF_STATS_RUN_TIME"},
 			},
 		}
-	}
+		}
+	})
 }

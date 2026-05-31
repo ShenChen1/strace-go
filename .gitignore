@@ -42,3 +42,4 @@ check_ptrace
 test/scratch/test_acct_only
 test/*.log
 *.log
+failed_tests*.txt

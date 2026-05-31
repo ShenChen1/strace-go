@@ -363,7 +363,10 @@ func formatDetailedPath(ctx *Context, linkPath string, target string, fd int32) 
 	return target
 }
 
-var lastEventfdId int = -1
+var (
+	lastEventfdId     int = -1
+	lastEventfdIdLock sync.Mutex
+)
 
 // IMPACT: FormatEventfdInfo parses eventfd info from fdinfo.
 // It statefully predicts eventfd details if procfs files are already closed/destroyed.
@@ -371,6 +374,8 @@ func FormatEventfdInfo(linkPath string, initialCount uint64, flags uint64, force
 	fdinfoPath := strings.Replace(linkPath, "/fd/", "/fdinfo/", 1)
 	file, err := os.Open(fdinfoPath)
 	if err != nil {
+		lastEventfdIdLock.Lock()
+		defer lastEventfdIdLock.Unlock()
 		if forceCount && lastEventfdId != -1 {
 			lastEventfdId++
 			semStr := "0"
@@ -409,7 +414,9 @@ func FormatEventfdInfo(linkPath string, initialCount uint64, flags uint64, force
 	}
 	if countStr != "" && inoStr != "" {
 		if id, err := strconv.Atoi(inoStr); err == nil {
+			lastEventfdIdLock.Lock()
 			lastEventfdId = id
+			lastEventfdIdLock.Unlock()
 		}
 		cVal, _ := strconv.ParseUint(countStr, 10, 64)
 		if cVal > 0 {
@@ -448,54 +455,9 @@ func formatSocketPath(ctx *Context, target string, fd int32) string {
 // getMajorMinor parses major and minor device IDs.
 func getMajorMinor(rdev uint64) (uint32, uint32) {
 	major := uint32((rdev >> 8) & 0xfff)
+	major |= uint32((rdev >> 32) & 0xfffff000)
 	minor := uint32(rdev & 0xff)
+	minor |= uint32((rdev >> 12) & 0xffffff00)
 	return major, minor
 }
 
-// CleanPath resolves relative and absolute paths safely.
-func CleanPath(base string, rel string) string {
-	if strings.HasPrefix(rel, "/") {
-		return cleanAbsolute(rel)
-	}
-	if base == "" {
-		return rel
-	}
-	return cleanAbsolute(base + "/" + rel)
-}
-
-func cleanAbsolute(p string) string {
-	parts := strings.Split(p, "/")
-	var res []string
-	for _, part := range parts {
-		if part == "" || part == "." {
-			continue
-		}
-		if part == ".." {
-			if len(res) > 0 {
-				res = res[:len(res)-1]
-			}
-			continue
-		}
-		res = append(res, part)
-	}
-	return "/" + strings.Join(res, "/")
-}
-
-// UpdateCwd updates current working directory cache state.
-func UpdateCwd(targetPid int, path string, fdMap map[string]string, eventPid int) {
-	cwdKey := fmt.Sprintf("%d:cwd", targetPid)
-	base := fdMap[cwdKey]
-	if base == "" {
-		if l, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", eventPid)); err == nil {
-			base = l
-		}
-	}
-	fdMap[cwdKey] = CleanPath(base, path)
-}
-
-// UpdateCwdByFd updates tracked cwd using target FD path descriptor.
-func UpdateCwdByFd(targetPid int, fd int32, fdMap map[string]string) {
-	if p, ok := fdMap[fmt.Sprintf("%d:%d", targetPid, fd)]; ok {
-		fdMap[fmt.Sprintf("%d:cwd", targetPid)] = p
-	}
-}

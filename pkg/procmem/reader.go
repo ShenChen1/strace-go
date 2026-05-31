@@ -10,6 +10,12 @@ import (
 	"unsafe"
 )
 
+// MemoryReader provides an interface for reading process memory.
+type MemoryReader interface {
+	Read(pid int, addr uint64, size int) ([]byte, error)
+	ReadRobust(pid int, addr uint64, size int, waitOnZero bool) ([]byte, error)
+}
+
 // Reader holds state for reading memory.
 type Reader struct {
 	TargetPid int
@@ -104,17 +110,17 @@ func (r *Reader) Read(pid int, addr uint64, size int) ([]byte, error) {
 // readVM uses process_vm_readv syscall to read memory.
 func (r *Reader) readVM(pid int, addr uint64, out []byte) (int, error) {
 	type iovec struct {
-		base unsafe.Pointer
+		base uintptr
 		len  uintptr
 	}
 
 	localIov := iovec{
-		base: unsafe.Pointer(&out[0]),
+		base: uintptr(unsafe.Pointer(&out[0])),
 		len:  uintptr(len(out)),
 	}
 
 	remoteIov := iovec{
-		base: unsafe.Pointer(uintptr(addr)),
+		base: uintptr(addr),
 		len:  uintptr(len(out)),
 	}
 
