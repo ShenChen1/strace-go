@@ -11,6 +11,7 @@ import (
 // Options holds all parsed command-line options.
 type Options struct {
 	CmdArgs             []string
+	AttachPid           int
 	OutFile             string
 	AlignCol            int
 	StringLimit         int
@@ -24,6 +25,8 @@ type Options struct {
 	Verbose             bool
 	HelpRequested       bool
 	VersionRequested    bool
+	SummaryOnly         bool
+	SummaryAndPrint     bool
 	QuietExit           bool
 	QuietUnknownPid     bool
 	QuietThreadExecve   bool
@@ -157,6 +160,12 @@ func parseBasicFlags(arg string, opts *Options) bool {
 	switch {
 	case arg == "-f":
 		opts.FollowForks = true
+	case arg == "-v":
+		opts.Verbose = true
+	case arg == "-c":
+		opts.SummaryOnly = true
+	case arg == "-C":
+		opts.SummaryAndPrint = true
 	case arg == "-h" || arg == "--help":
 		opts.HelpRequested = true
 	case arg == "-V" || arg == "--version":
@@ -171,8 +180,6 @@ func parseBasicFlags(arg string, opts *Options) bool {
 		opts.HexEscapeMode = 1
 	case arg == "-xx":
 		opts.HexEscapeMode = 2
-	case arg == "-v":
-		opts.Verbose = true
 	case strings.HasPrefix(arg, "-v") && len(arg) > 2:
 		opts.Verbose = true
 	default:
@@ -204,7 +211,7 @@ func parseValueFlag(args []string, i *int, opts *Options) bool {
 	foundVal := false
 	flag := ""
 
-	for _, f := range []string{"-e", "-o", "-a", "-s", "-P", "-X"} {
+	for _, f := range []string{"-e", "-o", "-a", "-s", "-P", "-X", "-p"} {
 		if strings.HasPrefix(arg, f) {
 			flag = f
 			if len(arg) > len(f) {
@@ -242,6 +249,8 @@ func applyValueFlag(flag string, val string, opts *Options) {
 		fmt.Sscanf(val, "%d", &opts.StringLimit)
 	case "-P":
 		opts.TracePaths[val] = true
+	case "-p":
+		fmt.Sscanf(val, "%d", &opts.AttachPid)
 	case "-e":
 		parseEFlag(val, opts)
 	case "-X":

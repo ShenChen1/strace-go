@@ -11,6 +11,8 @@ struct bpf_event {
     u32 pid;
     u32 sys_id; u32 tid;
     s32 probe_ret_enter; s32 probe_ret_exit;
+    u64 enter_time;
+    u64 duration;
     u64 args[6];
     u64 ret;
     u64 ptr;
@@ -81,6 +83,8 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     if (!e) return 0;
     
     e->pid = pid; e->sys_id = sys_id; e->tid = tid; e->probe_ret_enter = -1; e->probe_ret_exit = -1; e->ptr = 0; e->ret = 0; e->data_len = 0;
+    e->enter_time = bpf_ktime_get_ns();
+    e->duration = 0;
     // IMPACT: Revert zero-initialization in trace_sys_enter to restore compile success under BPF.
     e->args[0] = ctx->args[0];
     e->args[1] = ctx->args[1];
@@ -167,6 +171,12 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
         }
     }
     e->ret = ctx->ret;
+    if (e->enter_time > 0) {
+        u64 exit_time = bpf_ktime_get_ns();
+        if (exit_time > e->enter_time) {
+            e->duration = exit_time - e->enter_time;
+        }
+    }
     
     CAPTURE_ARGS_EXIT(e->sys_id, e);
     

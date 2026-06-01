@@ -87,17 +87,56 @@ func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, deco
 			fdMap[fmt.Sprintf("%d:%d", targetPid, int32(ret))] = p
 		}
 	}
-	if (scMeta.Name == "socket" || scMeta.Name == "socketpair") && ret >= 0 {
+	// Deletion for "close" is deferred to the end of handleEvent to ensure DecodeFd still has the state.
+	if (scMeta.Name == "pipe" || scMeta.Name == "pipe2") && ret == 0 {
+		if d, err := decoder.MemReader.ReadRobust(int(eventRaw.Tid), eventRaw.Args[0], 8, true); err == nil && len(d) >= 8 {
+			fd1 := int32(binary.LittleEndian.Uint32(d[0:4]))
+			fd2 := int32(binary.LittleEndian.Uint32(d[4:8]))
+			if target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, fd1)); err == nil {
+				fdMap[fmt.Sprintf("%d:%d", targetPid, fd1)] = target
+			}
+			if target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, fd2)); err == nil {
+				fdMap[fmt.Sprintf("%d:%d", targetPid, fd2)] = target
+			}
+		}
+	}
+	if scMeta.Name == "socketpair" && ret == 0 {
+		if d, err := decoder.MemReader.ReadRobust(int(eventRaw.Tid), eventRaw.Args[3], 8, true); err == nil && len(d) >= 8 {
+			fd1 := int32(binary.LittleEndian.Uint32(d[0:4]))
+			fd2 := int32(binary.LittleEndian.Uint32(d[4:8]))
+			domain := eventRaw.Args[0]
+			proto := eventRaw.Args[2]
+			info := meta.DecodeFlags(domain, "addrfams")
+			if domain == 16 {
+				info += ":" + meta.DecodeFlags(proto, "netlink_protocols")
+			}
+			
+			if target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, fd1)); err == nil {
+				fdMap[fmt.Sprintf("%d:%d", targetPid, fd1)] = target + "|" + info
+			} else {
+				fdMap[fmt.Sprintf("%d:%d", targetPid, fd1)] = "socket:[]|" + info
+			}
+			if target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, fd2)); err == nil {
+				fdMap[fmt.Sprintf("%d:%d", targetPid, fd2)] = target + "|" + info
+			} else {
+				fdMap[fmt.Sprintf("%d:%d", targetPid, fd2)] = "socket:[]|" + info
+			}
+		}
+	}
+	if (scMeta.Name == "socket") && ret >= 0 {
 		domain := eventRaw.Args[0]
 		proto := eventRaw.Args[2]
 		info := meta.DecodeFlags(domain, "addrfams")
 		if domain == 16 {
 			info += ":" + meta.DecodeFlags(proto, "netlink_protocols")
 		}
-		fdMap[fmt.Sprintf("%d:%d", targetPid, int32(ret))] = info
-	}
-	if scMeta.Name == "close" && ret == 0 {
-		delete(fdMap, fmt.Sprintf("%d:%d", targetPid, int32(eventRaw.Args[0])))
+		
+		key := fmt.Sprintf("%d:%d", targetPid, int32(ret))
+		target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, int32(ret)))
+		if err != nil {
+			target = "socket:[]"
+		}
+		fdMap[key] = target + "|" + info
 	}
 	if (scMeta.Name == "bind" || scMeta.Name == "getsockname") && ret == 0 {
 		fd := int32(eventRaw.Args[0])

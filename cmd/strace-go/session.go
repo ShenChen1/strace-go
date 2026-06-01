@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -22,6 +24,12 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 )
 
+type syscallStat struct {
+	calls    int
+	errors   int
+	duration uint64 // total duration in nanoseconds
+}
+
 type traceSession struct {
 	cmd       *exec.Cmd
 	events    *ringbuf.Reader
@@ -32,6 +40,7 @@ type traceSession struct {
 	fdMap     map[string]string
 	outWriter io.Writer
 	outFile   *os.File
+	stats     map[string]*syscallStat
 }
 
 // IMPACT: setupBPF loads the BPF objects and attaches the raw syscall raw tracepoints.
@@ -85,6 +94,27 @@ func startAndTraceCmd(cmdArgs []string, bpfObjs *bpfObjects) (*exec.Cmd, int, ma
 
 	syscall.PtraceDetach(targetPid)
 	return cmd, targetPid, fdMap
+}
+
+// IMPACT: attachToPid attaches tracing to a running process, updating the BPF filter map and reading initial FDs.
+func attachToPid(pid int, bpfObjs *bpfObjects) (*exec.Cmd, int, map[string]string) {
+	// Send signal 0 to check if PID exists and we have permissions
+	if err := syscall.Kill(pid, 0); err != nil {
+		log.Fatalf("failed to attach to pid %d: %v", pid, err)
+	}
+
+	bpfObjs.FilterMap.Update(uint32(0), uint32(pid), 0)
+
+	fdMap := make(map[string]string)
+	// Populate FD map from /proc
+	if entries, err := os.ReadDir(fmt.Sprintf("/proc/%d/fd", pid)); err == nil {
+		for _, entry := range entries {
+			if path, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%s", pid, entry.Name())); err == nil {
+				fdMap[fmt.Sprintf("%d:%s", pid, entry.Name())] = path
+			}
+		}
+	}
+	return nil, pid, fdMap
 }
 
 // IMPACT: setupOutput prepares the io.Writer target for saving strace text traces.
@@ -141,12 +171,22 @@ func (s *traceSession) run() {
 	}
 
 	go func() {
-		s.cmd.Wait()
+		if s.cmd != nil {
+			s.cmd.Wait()
+		} else {
+			// If attached to a running process, wait for it to exit
+			for {
+				if err := syscall.Kill(s.targetPid, 0); err != nil {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
 		closeDone()
 	}()
 
 	startReaper(s.targetPid, done, closeDone, s.opts)
-	if len(s.opts.TraceSyscalls) == 0 || s.opts.TraceSyscalls["execve"] {
+	if s.opts.AttachPid <= 0 && (len(s.opts.TraceSyscalls) == 0 || s.opts.TraceSyscalls["execve"]) {
 		s.printFakeFirstExecve()
 	}
 
@@ -184,7 +224,12 @@ func (s *traceSession) run() {
 					if s.opts != nil && s.opts.FollowForks {
 						pidPrefix = fmt.Sprintf("%-5d ", s.targetPid)
 					}
-					fmt.Fprintf(s.outWriter, "%s+++ exited with 0 +++\n", pidPrefix)
+					if s.opts == nil || !s.opts.SummaryOnly {
+						fmt.Fprintf(s.outWriter, "%s+++ exited with 0 +++\n", pidPrefix)
+					}
+				}
+				if s.opts != nil && (s.opts.SummaryOnly || s.opts.SummaryAndPrint) {
+					s.printSummary()
 				}
 				return
 			}
@@ -199,13 +244,84 @@ func (s *traceSession) run() {
 	}
 }
 
+// IMPACT: printSummary outputs the syscall execution statistics matching strace -c formatting, now with timing.
+func (s *traceSession) printSummary() {
+	fmt.Fprintf(s.outWriter, "%6s %11s %11s %9s %9s %s\n", "% time", "seconds", "usecs/call", "calls", "errors", "syscall")
+	fmt.Fprintf(s.outWriter, "------ ----------- ----------- --------- --------- ----------------\n")
+	totalCalls := 0
+	totalErrors := 0
+	var totalDurationNs uint64 = 0
+	
+	type statEntry struct {
+		name string
+		stat *syscallStat
+	}
+	var entries []statEntry
+	for name, stat := range s.stats {
+		totalCalls += stat.calls
+		totalErrors += stat.errors
+		totalDurationNs += stat.duration
+		entries = append(entries, statEntry{name, stat})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].stat.duration != entries[j].stat.duration {
+			return entries[i].stat.duration > entries[j].stat.duration
+		}
+		if entries[i].stat.calls != entries[j].stat.calls {
+			return entries[i].stat.calls > entries[j].stat.calls
+		}
+		return entries[i].name < entries[j].name
+	})
+
+	for _, entry := range entries {
+		stat := entry.stat
+		errStr := ""
+		if stat.errors > 0 {
+			errStr = strconv.Itoa(stat.errors)
+		}
+		pct := 0.0
+		if totalDurationNs > 0 {
+			pct = float64(stat.duration) / float64(totalDurationNs) * 100.0
+		}
+		secs := float64(stat.duration) / 1e9
+		usecs := int64(0)
+		if stat.calls > 0 {
+			usecs = int64(stat.duration / uint64(stat.calls) / 1000)
+		}
+		fmt.Fprintf(s.outWriter, "%6.2f %11.6f %11d %9d %9s %s\n", pct, secs, usecs, stat.calls, errStr, entry.name)
+	}
+	fmt.Fprintf(s.outWriter, "------ ----------- ----------- --------- --------- ----------------\n")
+	errStr := ""
+	if totalErrors > 0 {
+		errStr = strconv.Itoa(totalErrors)
+	}
+	totalSecs := float64(totalDurationNs) / 1e9
+	fmt.Fprintf(s.outWriter, "%6.2f %11.6f %11s %9d %9s %s\n", 100.0, totalSecs, "", totalCalls, errStr, "total")
+}
+
 // IMPACT: printFakeFirstExecve formats and outputs the placeholder line for the first execve.
 func (s *traceSession) printFakeFirstExecve() {
+	if s.opts != nil && (s.opts.SummaryOnly || s.opts.SummaryAndPrint) {
+		if s.stats == nil {
+			s.stats = make(map[string]*syscallStat)
+		}
+		stat := s.stats["execve"]
+		if stat == nil {
+			stat = &syscallStat{}
+			s.stats["execve"] = stat
+		}
+		stat.calls++
+		if s.opts.SummaryOnly {
+			return
+		}
+	}
+
 	pidPrefix := ""
 	if s.opts != nil && s.opts.FollowForks {
 		pidPrefix = fmt.Sprintf("%-5d ", s.targetPid)
 	}
-
+	
 	envc := len(os.Environ())
 	if data, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", s.targetPid)); err == nil {
 		parts := bytes.Split(data, []byte{0})
@@ -221,12 +337,20 @@ func (s *traceSession) printFakeFirstExecve() {
 	}
 
 	var quotedArgs []string
-	for _, arg := range s.opts.CmdArgs {
-		quotedArgs = append(quotedArgs, "\""+arg+"\"")
+	if len(s.opts.CmdArgs) > 0 {
+		for _, arg := range s.opts.CmdArgs {
+			quotedArgs = append(quotedArgs, "\""+arg+"\"")
+		}
+	} else {
+		quotedArgs = append(quotedArgs, "\"unknown\"")
 	}
 	argvStr := "[" + strings.Join(quotedArgs, ", ") + "]"
 
-	line := fmt.Sprintf("execve(\"%s\", %s, 0x7ffdbcb5c068 /* %d vars */)", s.opts.CmdArgs[0], argvStr, envc)
+	cmdName := "unknown"
+	if len(s.opts.CmdArgs) > 0 {
+		cmdName = s.opts.CmdArgs[0]
+	}
+	line := fmt.Sprintf("execve(\"%s\", %s, 0x7ffdbcb5c068 /* %d vars */)", cmdName, argvStr, envc)
 	padding := " "
 	if len(line) < s.opts.AlignCol {
 		padding = strings.Repeat(" ", s.opts.AlignCol-len(line))

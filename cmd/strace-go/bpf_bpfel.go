@@ -21,6 +21,8 @@ type bpfBpfEvent struct {
 	ProbeRetEnter int32
 	ProbeRetExit  int32
 	_             [4]byte
+	EnterTime     uint64
+	Duration      uint64
 	Args          [6]uint64
 	Ret           uint64
 	Ptr           uint64

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"strconv"
 	"sync"
 
@@ -63,7 +64,7 @@ func main() {
 		fmt.Printf("Optional features enabled: stack-trace=libunwind stack-demangle m32-mpers mx32-mpers\n")
 		os.Exit(0)
 	}
-	if len(opts.CmdArgs) == 0 {
+	if len(opts.CmdArgs) == 0 && opts.AttachPid == 0 {
 		fmt.Println("Usage: strace-go [options] <command> [args...]")
 		os.Exit(1)
 	}
@@ -79,7 +80,15 @@ func main() {
 	}
 	defer events.Close()
 
-	cmd, targetPid, fdMap := startAndTraceCmd(opts.CmdArgs, bpfObjs)
+	var cmd *exec.Cmd
+	var targetPid int
+	var fdMap map[string]string
+
+	if opts.AttachPid > 0 {
+		cmd, targetPid, fdMap = attachToPid(opts.AttachPid, bpfObjs)
+	} else {
+		cmd, targetPid, fdMap = startAndTraceCmd(opts.CmdArgs, bpfObjs)
+	}
 
 	memReader := procmem.NewReader(targetPid)
 	defer memReader.Close()
@@ -115,7 +124,8 @@ type bpfEvent struct {
 	Tid           uint32
 	ProbeRetEnter int32
 	ProbeRetExit  int32
-	_             uint32 // Padding for 8-byte alignment of u64 fields
+	EnterTime     uint64
+	Duration      uint64
 	Args          [6]uint64
 	Ret           int64
 	Ptr           uint64

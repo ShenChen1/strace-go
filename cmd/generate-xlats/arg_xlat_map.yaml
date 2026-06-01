@@ -26,16 +26,16 @@ syscalls:
   accept4:
     flags: sock_type_flags
   socket:
-    domain: addrfams
+    family: addrfams
     type: sock_type_flags
   getsockopt:
     level: socketlayers
   setsockopt:
     level: socketlayers
   bind:
-    addr: sockaddr
+    umyaddr: sockaddr
   connect:
-    addr: sockaddr
+    uservaddr: sockaddr
   sendto:
     flags: msg_flags
     addr: sockaddr
@@ -43,9 +43,9 @@ syscalls:
     flags: msg_flags
     addr: sockaddr
   getsockname:
-    addr: sockaddr
+    usockaddr: sockaddr
   getpeername:
-    addr: sockaddr
+    usockaddr: sockaddr
   bpf:
     arg0: bpf_commands
   bpf_map_types_table:

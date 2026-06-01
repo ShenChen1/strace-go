@@ -72,9 +72,33 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	rawStrArg := s.decoder.DecodeString(int(eventRaw.Tid), eventRaw.Ptr, strArgBuf[:capSize], ptrProbeRet, scMeta.Name, 0)
 
 	updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, s.targetPid, s.fdMap)
+	defer func() {
+		if scMeta.Name == "close" && ret == 0 {
+			delete(s.fdMap, fmt.Sprintf("%d:%d", s.targetPid, int32(eventRaw.Args[0])))
+		}
+	}()
 
 	if scMeta.Name == "arch_prctl" && eventRaw.Args[0] == 0x1002 {
 		return
+	}
+
+	if s.opts.SummaryOnly || s.opts.SummaryAndPrint {
+		if s.stats == nil {
+			s.stats = make(map[string]*syscallStat)
+		}
+		stat := s.stats[scMeta.Name]
+		if stat == nil {
+			stat = &syscallStat{}
+			s.stats[scMeta.Name] = stat
+		}
+		stat.calls++
+		stat.duration += eventRaw.Duration
+		if ret < 0 && ret >= -4095 { // -4095 is MAX_ERRNO
+			stat.errors++
+		}
+		if s.opts.SummaryOnly {
+			return
+		}
 	}
 
 	shouldPrint := checkShouldPrint(eventRaw, scMeta, rawStrArg, s.targetPid, s.opts, s.fdMap)

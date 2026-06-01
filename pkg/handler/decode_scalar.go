@@ -433,14 +433,45 @@ func formatSocketPath(ctx *Context, target string, fd int32) string {
 	if !ok {
 		return target
 	}
-	if strings.HasPrefix(info, "AF_NETLINK") {
+	
+	domainInfo := info
+	if parts := strings.Split(info, "|"); len(parts) > 1 {
+		domainInfo = parts[1]
+		if strings.HasPrefix(parts[0], "socket:[") {
+			inode = strings.TrimSuffix(strings.TrimPrefix(parts[0], "socket:["), "]")
+		}
+	}
+	
+	if strings.HasPrefix(domainInfo, "AF_NETLINK") {
 		return fmt.Sprintf("NETLINK:[%s]", inode)
 	}
-	if strings.HasPrefix(info, "AF_INET") {
-		return fmt.Sprintf("TCP:[%s]", inode)
-	}
-	if strings.HasPrefix(info, "AF_UNIX") {
-		return fmt.Sprintf("UNIX:[%s]", inode)
+	
+	if ctx.Opts != nil && ctx.Opts.ShowPathsMode == 2 {
+		if strings.HasPrefix(domainInfo, "AF_INET") {
+			val := getSocketInfo("tcp", inode)
+			if val != inode {
+				return fmt.Sprintf("TCP:[%s]", val)
+			}
+			val = getSocketInfo("udp", inode)
+			if val != inode {
+				return fmt.Sprintf("UDP:[%s]", val)
+			}
+			return fmt.Sprintf("TCP:[%s]", inode)
+		}
+		if strings.HasPrefix(domainInfo, "AF_UNIX") {
+			val := getSocketInfo("unix", inode)
+			if val != inode && val != "" {
+				return fmt.Sprintf("UNIX-STREAM:[%s,%s]", inode, val)
+			}
+			return fmt.Sprintf("UNIX-STREAM:[%s]", inode)
+		}
+	} else {
+		if strings.HasPrefix(domainInfo, "AF_INET") {
+			return fmt.Sprintf("TCP:[%s]", inode)
+		}
+		if strings.HasPrefix(domainInfo, "AF_UNIX") {
+			return fmt.Sprintf("UNIX:[%s]", inode)
+		}
 	}
 	if strings.Contains(info, ":[") {
 		return info
