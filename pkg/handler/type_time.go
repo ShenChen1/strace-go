@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"fmt"
-
 	"strace-go/pkg/format"
 )
 
@@ -27,18 +25,14 @@ func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, boo
 			if ctx.Ret != -516 && ctx.Ret != -4 {
 				return "", false
 			}
-			d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 16, true)
-			if err != nil || len(d) != 16 {
-				return fmt.Sprintf("%#x", val), true
-			}
-			return format.Timespec(d), true
+			return ctx.DecodeStructWithFallback(val, 16, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+16], format.Timespec)
 		} else {
 			return ctx.DecodeStructWithFallback(val, 16, false, ctx.StrArgBuf[0:16], format.Timespec)
 		}
 	}
 
 	if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 {
-		d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 16, false)
+		d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 16, false)
 		if err == nil && len(d) == 16 {
 			return format.Timespec(d), true
 		}

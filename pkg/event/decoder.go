@@ -82,11 +82,17 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 					if limit > 0 && idx >= limit {
 						truncated = true
 					}
+					found = true
 				} else {
-					raw = data
-					truncated = true
+					if len(data) == readSize {
+						raw = data
+						truncated = true
+						found = true
+					} else {
+						// Hit a memory fault before finding '\0'
+						found = false
+					}
 				}
-				found = true
 			} else {
 				if probeRet >= 0 && bpfFound && len(bpfRaw) > 0 {
 					raw = bpfRaw
@@ -135,7 +141,7 @@ func (d *Decoder) DecodeStringRaw(pid int, ptr uint64, bpfData []byte, probeRet 
 	}
 	if data, err := d.MemReader.ReadRobust(pid, ptr, 512, false); err == nil {
 		if idx := bytes.IndexByte(data, 0); idx != -1 { return string(data[:idx]) }
-		return string(data)
+		if len(data) == 512 { return string(data) }
 	}
 	return fmt.Sprintf("%#x", ptr)
 }

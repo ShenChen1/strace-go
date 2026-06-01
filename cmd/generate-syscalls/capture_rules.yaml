@@ -349,3 +349,65 @@ rules:
 
 
 
+
+  # Extended attributes (xattr)
+  - syscalls: [setxattr, lsetxattr]
+    enter:
+      ptr_arg: 0
+      reads:
+        - { arg: 0, size: 512, offset: 0, type: string }
+        - { arg: 1, size: 256, offset: 512, type: string }
+        - { arg: 2, size: 0, offset: 768, type: raw }
+
+  - syscalls: [fsetxattr]
+    enter:
+      ptr_arg: 1
+      reads:
+        - { arg: 1, size: 256, offset: 0, type: string }
+        - { arg: 2, size: 0, offset: 256, type: raw }
+
+  - syscalls: [getxattr, lgetxattr]
+    enter:
+      ptr_arg: 0
+      reads:
+        - { arg: 0, size: 512, offset: 0, type: string }
+        - { arg: 1, size: 256, offset: 512, type: string }
+    exit:
+      reads:
+        - { arg: 2, size: 0, offset: 768, type: raw }
+
+  - syscalls: [fgetxattr]
+    enter:
+      ptr_arg: 1
+      reads:
+        - { arg: 1, size: 256, offset: 0, type: string }
+    exit:
+      reads:
+        - { arg: 2, size: 0, offset: 256, type: raw }
+
+  - syscalls: [removexattr, lremovexattr]
+    enter:
+      ptr_arg: 0
+      reads:
+        - { arg: 0, size: 512, offset: 0, type: string }
+        - { arg: 1, size: 256, offset: 512, type: string }
+
+  - syscalls: [fremovexattr]
+    enter:
+      ptr_arg: 1
+      reads:
+        - { arg: 1, size: 256, offset: 0, type: string }
+
+  - syscalls: [listxattr, llistxattr]
+    enter:
+      ptr_arg: 0
+      reads:
+        - { arg: 0, size: 512, offset: 0, type: string }
+    exit:
+      reads:
+        - { arg: 1, size: 0, offset: 512, type: raw }
+
+  - syscalls: [flistxattr]
+    exit:
+      reads:
+        - { arg: 1, size: 0, offset: 0, type: raw }

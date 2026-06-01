@@ -78,6 +78,83 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 	}
 
 	limit := ctx.Opts.StringLimit
+	if argTyp == "void *" || argTyp == "const void *" || strings.HasSuffix(scName, "listxattr") {
+		isSetxattr := strings.HasSuffix(scName, "setxattr")
+		isGetxattr := strings.HasSuffix(scName, "getxattr")
+		isListxattr := strings.HasSuffix(scName, "listxattr")
+		
+		// Wait, strace-go generates only EXIT events for fast syscalls.
+		// If Ret is present, it's definitely the exit phase for getxattr.
+		isExit := isGetxattr || isListxattr // We only care about exit for getxattr and listxattr!
+		
+		if (isSetxattr || ((isGetxattr || isListxattr) && isExit)) && (argName == "value" || argName == "list") {
+			size := ctx.Args[3]
+			if isListxattr {
+				size = ctx.Args[2]
+			}
+			if isGetxattr || isListxattr {
+				// For getxattr/listxattr, if size is 0, just print the pointer.
+				if size == 0 {
+					return fmt.Sprintf("%#x", val), true
+				}
+				// For getxattr/listxattr, size is the returned length if successful
+				if ctx.Ret >= 0 {
+					size = uint64(ctx.Ret)
+				} else {
+					// If getxattr/listxattr failed, print the address
+					return fmt.Sprintf("%#x", val), true
+				}
+			}
+			
+			if val == 0 {
+				return "NULL", true
+			}
+			if size == 0 {
+				return `""`, true
+			}
+			if size > 65536 {
+				return fmt.Sprintf("%#x", val), true
+			}
+			fetchSize := int(size)
+			if limit > 0 && fetchSize > limit {
+				fetchSize = limit
+			}
+			var bpfBuf []byte
+			if scName == "fsetxattr" || scName == "fgetxattr" {
+				bpfBuf = ctx.StrArgBuf[256:]
+			} else if scName == "listxattr" || scName == "llistxattr" {
+				bpfBuf = ctx.StrArgBuf[512:]
+			} else if scName == "flistxattr" {
+				bpfBuf = ctx.StrArgBuf[0:]
+			} else {
+				bpfBuf = ctx.StrArgBuf[768:]
+			}
+			
+			// For setxattr, we must fetch from Enter probe.
+			// For getxattr, we fetch from Exit probe.
+			data, ok := ctx.FetchStructData(val, fetchSize, isGetxattr || isListxattr, bpfBuf)
+			if !ok || len(data) == 0 || len(data) < fetchSize {
+				return fmt.Sprintf("%#x", val), true
+			}
+			sz := int(size)
+			if sz > len(data) {
+				sz = len(data)
+			}
+			// Don't truncate trailing \0 for listxattr because it returns a series of \0 terminated strings.
+			if !isListxattr && sz == int(size) && sz > 0 && data[sz-1] == 0 {
+				sz--
+				size--
+			}
+			res := format.BufferEscape(data[:sz], limit, int(size), ctx.Decoder.HexEscapeMode)
+			if len(data) < int(size) && int(size) <= limit {
+				res += "..."
+			}
+			return res, true
+		}
+		if argTyp == "void *" || argTyp == "const void *" {
+			return fmt.Sprintf("%#x", val), true
+		}
+	}
 	capSize := 512
 	if isPath {
 		limit = 0
@@ -88,6 +165,11 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 	if scName == "getcwd" && i == 0 {
 		probeRet = 0
 		bpfBuf = nil
+	}
+	if strings.HasSuffix(scName, "setxattr") || strings.HasSuffix(scName, "getxattr") || strings.HasSuffix(scName, "removexattr") {
+		if !strings.HasPrefix(scName, "f") && argName == "name" {
+			bpfBuf = ctx.StrArgBuf[512:768]
+		}
 	}
 	p := ctx.Decoder.DecodeString(ctx.Pid, val, bpfBuf, probeRet, scName, limit)
 	if scName == "fspick" && ctx.Ret == -36 && strings.HasPrefix(p, "0x") {
@@ -151,9 +233,15 @@ func decodeKeyArg(ctx *Context, i int, argName string, val uint64) (string, bool
 		}
 
 		bpfBuf := ctx.StrArgBuf[256 : 256+capLen]
-		isExit := false
-		data, ok := ctx.FetchStructDataExact(val, capLen, isExit, bpfBuf)
-		if !ok {
+		var data []byte
+		ok := false
+		if ctx.IsArgReadSuccess(i) {
+			data = bpfBuf
+			ok = true
+		} else {
+			data, ok = ctx.FetchStructDataExact(val, capLen, false, bpfBuf)
+		}
+		if !ok || len(data) == 0 {
 			return fmt.Sprintf("%#x", val), true
 		}
 

@@ -72,6 +72,11 @@ func main() {
 	// IMPACT: Allowed fsmagic and statfs_flags for decoding filesystem type and mount flags.
 	allowedXlats["fsmagic"] = true
 	allowedXlats["statfs_flags"] = true
+	allowedXlats["waitid_options"] = true
+	allowedXlats["waitid_types"] = true
+	allowedXlats["itimer_which"] = true
+	allowedXlats["priorities"] = true
+	allowedXlats["xattrflags"] = true
 	allowedXlats["bpf_attach_flags"] = true
 
 	delete(allowedXlats, "x86_xfeatures")
@@ -94,7 +99,7 @@ func main() {
 		entries := make(map[string]string)
 		
 		cProg := strings.Builder{}
-		cProg.WriteString("#define _GNU_SOURCE\n#include <stdio.h>\n#include <fcntl.h>\n#include <sys/types.h>\n#include <sys/socket.h>\n#include <sys/un.h>\n#include <linux/prctl.h>\n#include <asm/prctl.h>\n#include <linux/stat.h>\n#include <linux/fs.h>\n#include <linux/timex.h>\n#include <poll.h>\n#include <sys/epoll.h>\n#include <linux/bpf.h>\n#include <time.h>\n#include <asm/termios.h>\n#include <sys/mman.h>\n#include <linux/sched.h>\n#include <linux/futex.h>\n#include <sys/wait.h>\n#include <sys/mount.h>\n#include <linux/keyctl.h>\n#include <linux/dm-ioctl.h>\n#include <linux/netlink.h>\n#include <linux/rtnetlink.h>\n")
+		cProg.WriteString("#define _GNU_SOURCE\n#include <stdio.h>\n#include <fcntl.h>\n#include <sys/types.h>\n#include <sys/socket.h>\n#include <sys/un.h>\n#include <linux/prctl.h>\n#include <asm/prctl.h>\n#include <linux/stat.h>\n#include <linux/fs.h>\n#include <linux/timex.h>\n#include <poll.h>\n#include <sys/epoll.h>\n#include <linux/bpf.h>\n#include <time.h>\n#include <asm/termios.h>\n#include <sys/mman.h>\n#include <linux/sched.h>\n#include <linux/futex.h>\n#include <linux/xattr.h>\n#include <sys/wait.h>\n#include <sys/mount.h>\n#include <linux/keyctl.h>\n#include <linux/dm-ioctl.h>\n#include <linux/netlink.h>\n#include <linux/rtnetlink.h>\n")
 		if name == "resources" {
 			cProg.WriteString("#include <sys/resource.h>\n")
 		}

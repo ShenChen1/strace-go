@@ -154,6 +154,18 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 		if r.Arg == 2 {
 			return "((e)->args[3] > 0 ? ((e)->args[3] > 256 ? 256 : (e)->args[3]) : 0)"
 		}
+	case "setxattr", "lsetxattr", "fsetxattr", "getxattr", "lgetxattr", "fgetxattr":
+		if r.Arg == 2 {
+			return "((e)->args[3] > 0 ? ((e)->args[3] > 256 ? 256 : (e)->args[3]) : 0)"
+		}
+	case "listxattr", "llistxattr", "flistxattr":
+		if r.Arg == 1 {
+			return "((e)->args[2] > 0 ? ((e)->args[2] > 256 ? 256 : (e)->args[2]) : 0)"
+		}
+	case "epoll_ctl":
+		if r.Arg == 1 {
+			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
+		}
 	case "bpf":
 		if r.Arg == 1 {
 			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
@@ -232,7 +244,8 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 		
 		// IMPACT: Safe-guard fsz conditional read to prevent BPF errors when size is 0.
 		if sizeStr == "fsz" {
-			res += fmt.Sprintf("\t\t\t\tlong pr = (fsz > 0 && (e)->args[%d]) ? %s(%s, fsz, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, r.Arg)
+			res += fmt.Sprintf("\t\t\t\tlong __err = (fsz > 0 && (e)->args[%d]) ? %s(%s, fsz, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, r.Arg)
+			res += fmt.Sprintf("\t\t\t\tlong pr = (__err == 0 && fsz > 0 && (e)->args[%d]) ? fsz : __err; \\\n", r.Arg)
 		} else if sizeStr == "fssz" {
 			res += fmt.Sprintf("\t\t\t\tlong pr = 0; \\\n")
 			res += fmt.Sprintf("\t\t\t\tif ((e)->args[1] == 2) { \\\n")
@@ -260,7 +273,12 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 			res += fmt.Sprintf("\t\t\t\t\t} \\\n")
 			res += fmt.Sprintf("\t\t\t\t} \\\n")
 		} else {
-			res += fmt.Sprintf("\t\t\t\tlong pr = (e)->args[%d] ? %s(%s, %s, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, sizeStr, r.Arg)
+			if r.Type == "string" {
+				res += fmt.Sprintf("\t\t\t\tlong pr = (e)->args[%d] ? %s(%s, %s, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, sizeStr, r.Arg)
+			} else {
+				res += fmt.Sprintf("\t\t\t\tlong __err = (e)->args[%d] ? %s(%s, %s, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, sizeStr, r.Arg)
+				res += fmt.Sprintf("\t\t\t\tlong pr = (__err == 0 && (e)->args[%d]) ? %s : __err; \\\n", r.Arg, sizeStr)
+			}
 		}
 		res += fmt.Sprintf("\t\t\t\tif (pr < 0) { \\\n")
 		res += fmt.Sprintf("\t\t\t\t\ts32 curr = (e)->probe_ret_%s; \\\n", suffix)

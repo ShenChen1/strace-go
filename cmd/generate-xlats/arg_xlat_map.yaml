@@ -146,3 +146,21 @@ syscalls:
 # Custom mapping logic can be added later if needed.
 # Note: open_mode_flags doesn't include access modes (O_RDONLY etc), 
 # so the decoder logic will handle it using open_access_modes implicitly.
+  waitid:
+    which: waitid_types
+    options: wait4_options
+  getitimer:
+    which: itimer_which
+  setitimer:
+    which: itimer_which
+  getpriority:
+    which: priorities
+  setpriority:
+    which: priorities
+
+  setxattr:
+    flags: xattrflags
+  lsetxattr:
+    flags: xattrflags
+  fsetxattr:
+    flags: xattrflags

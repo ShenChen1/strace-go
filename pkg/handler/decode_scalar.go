@@ -143,7 +143,7 @@ func (h *DefaultHandler) decodeXlat(ctx *Context, argName string, val uint64) (s
 
 	if syscallMap, ok := meta.SyscallArgXlatMap[ctx.ScMeta.Name]; ok {
 		if xlatName, ok := syscallMap[argName]; ok {
-			if xlatName == "resources" {
+			if xlatName == "resources" || (strings.Contains(argTyp, "int") && !strings.Contains(argTyp, "long")) {
 				val = uint64(uint32(val))
 			}
 			return meta.DecodeFlags(val, xlatName), true
@@ -155,6 +155,9 @@ func (h *DefaultHandler) decodeXlat(ctx *Context, argName string, val uint64) (s
 // decodeScalar decodes non-pointer scalar values based on type name.
 func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val uint64) string {
 	if argTyp == "dev_t" {
+		if ctx.ScMeta.Name == "mknod" || ctx.ScMeta.Name == "mknodat" {
+			val = uint64(uint32(val))
+		}
 		return format.Dev(val)
 	}
 

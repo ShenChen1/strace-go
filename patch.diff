@@ -1,0 +1,10 @@
+--- /opt/strace-go/pkg/handler/type_string.go
++++ /opt/strace-go/pkg/handler/type_string.go
+@@ -120,6 +120,7 @@
+ 			// For setxattr, we must fetch from Enter probe.
+ 			// For getxattr, we fetch from Exit probe.
+ 			data, ok := ctx.FetchStructData(val, fetchSize, isGetxattr, bpfBuf)
++			fmt.Printf("DEBUG: scName=%s val=%#x fetchSize=%d isGetxattr=%v ok=%v ProbeRetEnter=%d len(data)=%d\n", scName, val, fetchSize, isGetxattr, ok, ctx.ProbeRetEnter, len(data))
+ 			if !ok || len(data) == 0 {
+ 				return fmt.Sprintf("%#x", val), true
+ 			}

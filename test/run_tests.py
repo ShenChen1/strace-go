@@ -97,14 +97,33 @@ def run_test(t):
     bin_name = t.replace(".test", "").replace(".gen", "")
     subprocess.run(["make", bin_name], cwd=TESTS_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    res = subprocess.run([f"./{t}"], cwd=TESTS_DIR, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    return {
-        "test": t,
-        "success": res.returncode == 0,
-        "stdout": res.stdout.decode("utf-8", errors="ignore"),
-        "stderr": res.stderr.decode("utf-8", errors="ignore"),
-        "rc": res.returncode
-    }
+    import tempfile
+    out_fd, out_path = tempfile.mkstemp()
+    err_fd, err_path = tempfile.mkstemp()
+    
+    try:
+        with os.fdopen(out_fd, 'w') as out_f, os.fdopen(err_fd, 'w') as err_f:
+            try:
+                res = subprocess.run([f"./{t}"], cwd=TESTS_DIR, stdout=out_f, stderr=err_f, timeout=30)
+                rc = res.returncode
+            except subprocess.TimeoutExpired:
+                rc = 124
+                
+        with open(out_path, 'r', errors='ignore') as f:
+            stdout_str = f.read()
+        with open(err_path, 'r', errors='ignore') as f:
+            stderr_str = f.read()
+            
+        return {
+            "test": t,
+            "success": rc == 0,
+            "stdout": stdout_str,
+            "stderr": stderr_str,
+            "rc": rc
+        }
+    finally:
+        os.remove(out_path)
+        os.remove(err_path)
 
 def main():
     args = parse_args()
