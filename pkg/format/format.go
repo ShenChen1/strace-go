@@ -350,3 +350,24 @@ func Delegation(data []byte) string {
 	
 	return fmt.Sprintf("{d_flags=%s, d_type=%s, __pad=%s}", flagsStr, typeStr, padStr)
 }
+
+func Itimerval(d []byte) string {
+	if len(d) < 32 {
+		return ""
+	}
+	return fmt.Sprintf("{it_interval=%s, it_value=%s}", Timeval(d[0:16]), Timeval(d[16:32]))
+}
+
+func Itimerspec(d []byte) string {
+	if len(d) < 32 {
+		return ""
+	}
+	return fmt.Sprintf("{it_interval=%s, it_value=%s}", Timespec(d[0:16]), Timespec(d[16:32]))
+}
+
+func Timezone(d []byte) string {
+	if len(d) < 8 {
+		return ""
+	}
+	return fmt.Sprintf("{tz_minuteswest=%d, tz_dsttime=%d}", int32(binary.LittleEndian.Uint32(d[0:4])), int32(binary.LittleEndian.Uint32(d[4:8])))
+}
