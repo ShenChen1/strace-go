@@ -34,7 +34,11 @@ func parseBPFData(bpfData []byte, probeRet int32) (bpfRaw []byte, bpfFound bool,
 		bpfFound = true
 		// If null terminator is at the very last byte, it is likely BPF buffer boundary forced null.
 		// We do not treat it as a naturally terminating string so it falls back to MemReader if needed.
-		if probeRet >= 0 && idx < len(bpfData)-1 {
+		bound := len(bpfData)
+		if probeRet > 0 && int(probeRet) < bound {
+			bound = int(probeRet)
+		}
+		if probeRet >= 0 && idx < bound-1 {
 			raw = bpfRaw
 			found = true
 		}
@@ -63,14 +67,23 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 		raw = bpfRaw
 		if limit > 0 && len(raw) >= limit {
 			truncated = true
+		} else if limit <= 0 && len(raw) >= 4095 {
+			truncated = true
 		}
 	} else {
 		// BPF buffer did not contain '\0'
-		if probeRet >= 0 && bpfFound && limit > 0 && len(bpfRaw) >= limit {
-			raw = bpfRaw
-			truncated = true
-			found = true
-		} else {
+		if probeRet >= 0 && bpfFound {
+			if limit > 0 && len(bpfRaw) >= limit {
+				raw = bpfRaw
+				truncated = true
+				found = true
+			} else if limit <= 0 && len(bpfRaw) >= 4095 {
+				raw = bpfRaw
+				truncated = true
+				found = true
+			}
+		}
+		if !found {
 			readSize := 4096
 			if limit > 0 && limit < 4096 {
 				readSize = limit + 1
@@ -80,6 +93,8 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 				if idx := bytes.IndexByte(data, 0); idx != -1 {
 					raw = data[:idx]
 					if limit > 0 && idx >= limit {
+						truncated = true
+					} else if limit <= 0 && idx >= 4095 {
 						truncated = true
 					}
 					found = true
@@ -120,6 +135,7 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 		if truncated {
 			actualLen = printLimit + 1
 		}
+		
 		finalRes = format.BufferEscape(raw, printLimit, actualLen, d.HexEscapeMode)
 	} else {
 		finalRes = fmt.Sprintf("%#x", ptr)
