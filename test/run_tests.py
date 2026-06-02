@@ -41,6 +41,7 @@ def parse_args():
                         help="Limit the number of tests to run (0 for unlimited)")
     parser.add_argument("--parallel", type=int, default=1,
                         help="Number of parallel workers (default 1)")
+    parser.add_argument("--filter", type=str, default="", help="Filter specific test by exact name")
     parser.add_argument("--skip-build", action="store_true",
                         help="Skip building upstream strace tests")
     return parser.parse_args()
@@ -172,6 +173,9 @@ def main():
         build_upstream()
         
     tests_to_run = get_tests(args.suite)
+    if args.filter:
+        final_list = [t for t in tests_to_run if t == args.filter]
+        tests_to_run = final_list
     if args.limit > 0:
         tests_to_run = tests_to_run[:args.limit]
         

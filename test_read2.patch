@@ -1,0 +1,11 @@
+--- pkg/event/decoder.go
++++ pkg/event/decoder.go
+@@ -122,6 +122,8 @@
+ 		if truncated {
+ 			actualLen = printLimit + 1
+ 		}
++		
++		fmt.Printf("DEBUG: found=%v truncated=%v raw_len=%d actualLen=%d printLimit=%d limit=%d\n", found, truncated, len(raw), actualLen, printLimit, limit)
+ 		finalRes = format.BufferEscape(raw, printLimit, actualLen, d.HexEscapeMode)
+ 	} else {
+ 		// String decoding failed, fallback to treating it as a pointer

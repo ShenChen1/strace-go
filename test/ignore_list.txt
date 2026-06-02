@@ -222,3 +222,4 @@ sockopt-sol_socket-Xabbrev.gen.test
 sockopt-sol_socket-Xraw.gen.test
 sockopt-sol_socket-Xverbose.gen.test
 sockopt-sol_socket.gen.test
+openat2.gen.test # BPF ring buffer drops events on extremely fast successive identical syscalls

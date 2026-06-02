@@ -31,7 +31,7 @@ rules:
   # At-based syscalls (enter)
   # IMPACT: Capture execveat along with other at-based syscalls for path resolution.
   # IMPACT: Added fspick to capture path string on enter.
-  - syscalls: [openat, mkdirat, mknodat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, linkat, execveat, fspick]
+  - syscalls: [openat, openat2, mkdirat, mknodat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, linkat, execveat, fspick]
     enter:
       ptr_arg: 1
       reads: [{ arg: 1, size: 4096, type: string }]

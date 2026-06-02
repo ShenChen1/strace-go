@@ -158,6 +158,7 @@ var manualOverrides = map[string]SyscallMeta{
 
 	// *at variants
 	"openat":     {Name: "openat", Args: []string{"dfd", "filename", "flags", "mode"}, ArgTypes: []string{"int", "const char *", "int", "umode_t"}},
+	"openat2": {Name: "openat2", Args: []string{"dfd", "filename", "how", "size"}, ArgTypes: []string{"int", "const char *", "struct open_how *", "size_t"}},
 	"mkdirat":    {Name: "mkdirat", Args: []string{"dfd", "pathname", "mode"}, ArgTypes: []string{"int", "const char *", "umode_t"}},
 	"mknodat":    {Name: "mknodat", Args: []string{"dfd", "filename", "mode", "dev"}, ArgTypes: []string{"int", "const char *", "umode_t", "dev_t"}},
 	"unlinkat":   {Name: "unlinkat", Args: []string{"dfd", "pathname", "flag"}, ArgTypes: []string{"int", "const char *", "int"}},

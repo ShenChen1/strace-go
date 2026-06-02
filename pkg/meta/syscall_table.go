@@ -352,7 +352,7 @@ var SyscallTable = map[uint32]Syscall{
 	434: {Name: "pidfd_open", Args: []string{"arg0", "arg1"}, ArgTypes: []string{"unsigned long", "unsigned long"}},
 	435: {Name: "clone3", Args: []string{"uargs", "size"}, ArgTypes: []string{"struct clone_args *", "size_t"}},
 	436: {Name: "close_range", Args: []string{"arg0", "arg1", "arg2"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long"}},
-	437: {Name: "openat2", Args: []string{"arg0", "arg1", "arg2", "arg3"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long", "unsigned long"}},
+	437: {Name: "openat2", Args: []string{"dfd", "filename", "how", "size"}, ArgTypes: []string{"int", "const char *", "struct open_how *", "size_t"}},
 	438: {Name: "pidfd_getfd", Args: []string{"arg0", "arg1", "arg2"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long"}},
 	439: {Name: "faccessat2", Args: []string{"dfd", "filename", "mode", "flags"}, ArgTypes: []string{"int", "const char *", "int", "int"}},
 	440: {Name: "process_madvise", Args: []string{"pidfd", "vec", "vlen", "behavior", "flags"}, ArgTypes: []string{"int", "const struct iovec *", "size_t", "int", "unsigned int"}},
