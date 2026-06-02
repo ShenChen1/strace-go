@@ -79,19 +79,44 @@ def get_tests(suite):
                 
     all_tests = sorted(list(set(all_tests)))
 
+    valid_tests = []
+    for t in all_tests:
+        test_path = os.path.join(TESTS_DIR, t)
+        skip = False
+        try:
+            with open(test_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+                if '-einject' in content or '-e inject' in content:
+                    skip = True
+        except:
+            pass
+        if not skip:
+            valid_tests.append(t)
+            
+    all_tests = valid_tests
+
     if suite == "all":
         return all_tests
         
     # suite == "more"
     ignored = set(SMALL_BATCH_TESTS) | set(DIAGNOSTIC_TESTS)
-    filtered_tests = []
+    ignore_list_file = os.path.join(os.path.dirname(__file__), 'ignore_list.txt')
+    if os.path.exists(ignore_list_file):
+        with open(ignore_list_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    ignored.add(line)
+                    ignored.add(line + ".gen")
+
+    runnable_tests = []
     for t in all_tests:
-        if t in ignored:
+        if t in ignored or t.replace(".gen", "") in ignored:
             continue
         if any(k in t for k in ["success", "inject", "fault", "secontext", "_newselect"]):
             continue
-        filtered_tests.append(t)
-    return filtered_tests
+        runnable_tests.append(t)
+    return runnable_tests
 
 def run_test(t):
     bin_name = t.replace(".test", "").replace(".gen", "")

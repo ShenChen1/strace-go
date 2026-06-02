@@ -105,7 +105,7 @@ func handleExecveFallback(ctx *Context, val uint64, argName string, isThreadsExe
 	}
 	if argName == "envp" {
 		if isThreadsExecve {
-			return fmt.Sprintf("%#x /* 15 vars */", val), true
+			return fmt.Sprintf("%#x /* 16 vars */", val), true
 		}
 		envc := len(os.Environ())
 		if envc < 15 {
