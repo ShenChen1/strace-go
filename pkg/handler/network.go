@@ -60,6 +60,10 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 			res.ArgParts = append(res.ArgParts, part)
 			continue
 		}
+		if part, ok := h.formatSockoptValAndLen(ctx, i, argName, val); ok {
+			res.ArgParts = append(res.ArgParts, part)
+			continue
+		}
 
 		res.ArgParts = append(res.ArgParts, h.formatFallback(ctx, i, argName, argTyp, val))
 	}
@@ -307,6 +311,33 @@ func (h *NetworkHandler) formatSockopt(ctx *Context, argName string, val uint64)
 		xlat = "sock_tcp_options"
 	}
 	return meta.DecodeFlags(val, xlat), true
+}
+
+func (h *NetworkHandler) formatSockoptValAndLen(ctx *Context, i int, argName string, val uint64) (string, bool) {
+	if ctx.ScMeta.Name == "getsockopt" && i == 4 { // optlen (socklen_t *)
+		if val == 0 {
+			return "NULL", true
+		}
+		if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
+			return fmt.Sprintf("%#x", val), true
+		}
+		data, ok := ctx.FetchStructDataExact(val, 4, true, nil)
+		if !ok {
+			return fmt.Sprintf("%#x", val), true
+		}
+		return fmt.Sprintf("[%d]", binary.LittleEndian.Uint32(data)), true
+	}
+	if ctx.ScMeta.Name == "setsockopt" && i == 4 { // optlen (socklen_t)
+		return fmt.Sprintf("%d", val), true
+	}
+	// For optval (i == 3)
+	if (ctx.ScMeta.Name == "getsockopt" || ctx.ScMeta.Name == "setsockopt") && i == 3 {
+		if val == 0 {
+			return "NULL", true
+		}
+		return fmt.Sprintf("%#x", val), true
+	}
+	return "", false
 }
 
 func (h *NetworkHandler) formatFallback(ctx *Context, i int, argName, argTyp string, val uint64) string {
