@@ -14,6 +14,8 @@ func init() {
 	Register("io_submit", &AioHandler{})
 	Register("io_cancel", &AioHandler{})
 	Register("io_getevents", &AioHandler{})
+	Register("io_pgetevents", &AioHandler{})
+	Register("io_pgetevents_time64", &AioHandler{})
 }
 
 type AioHandler struct{}
@@ -29,7 +31,7 @@ func (h *AioHandler) Handle(ctx *Context) Result {
 		h.formatIoSubmit(ctx, &res)
 	case "io_cancel":
 		h.formatIoCancel(ctx, &res)
-	case "io_getevents":
+	case "io_getevents", "io_pgetevents", "io_pgetevents_time64":
 		h.formatIoGetevents(ctx, &res)
 	}
 	return res
@@ -112,7 +114,9 @@ func (h *AioHandler) formatIoSubmit(ctx *Context, res *Result) {
 		}
 
 		if idata != nil {
-			parts = append(parts, format.Iocb(idata, ctx.Opts.Verbose))
+			parts = append(parts, format.Iocb(idata, ctx.Opts.Verbose, func(opcode uint16, buf uint64, nbytes uint64) string {
+				return h.formatAioBuf(ctx, opcode, buf, nbytes)
+			}))
 		} else {
 			parts = append(parts, fmt.Sprintf("%#x", p))
 		}
@@ -122,6 +126,24 @@ func (h *AioHandler) formatIoSubmit(ctx *Context, res *Result) {
 		parts[len(parts)-1] += fmt.Sprintf(" /* %#x */", ctx.Args[2]+uint64(limit*8))
 	}
 	res.ArgParts = append(res.ArgParts, "["+strings.Join(parts, ", ")+"]")
+}
+
+func (h *AioHandler) formatAioBuf(ctx *Context, opcode uint16, buf uint64, nbytes uint64) string {
+	if buf == 0 {
+		if opcode == 7 || opcode == 8 {
+			return "NULL"
+		} else {
+			return "0"
+		}
+	}
+	if opcode != 7 && opcode != 8 {
+		return fmt.Sprintf("%#x", buf)
+	}
+	data, err := ctx.MemReader.ReadRobust(ctx.Pid, buf, int(nbytes)*16, false)
+	if err != nil || len(data) == 0 {
+		return fmt.Sprintf("%#x", buf)
+	}
+	return format.IovecArray(data, int(nbytes))
 }
 
 func (h *AioHandler) formatIoCancel(ctx *Context, res *Result) {
@@ -138,7 +160,9 @@ func (h *AioHandler) formatIoCancel(ctx *Context, res *Result) {
 			}
 		}
 		if readSuccess {
-			res.ArgParts = append(res.ArgParts, format.Iocb(data, ctx.Opts.Verbose))
+			res.ArgParts = append(res.ArgParts, format.Iocb(data, ctx.Opts.Verbose, func(opcode uint16, buf uint64, nbytes uint64) string {
+				return h.formatAioBuf(ctx, opcode, buf, nbytes)
+			}))
 		} else {
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[1]))
 		}
@@ -174,18 +198,60 @@ func (h *AioHandler) formatIoGetevents(ctx *Context, res *Result) {
 	} else {
 		data := ctx.StrArgBuf[512:528]
 		if ctx.ProbeRetEnter < 0 {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[4], 16, false); err == nil {
+			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[4], 16, false); err == nil && len(d) >= 16 {
 				data = d
 			}
 		}
-		allZeros := true
-		for _, x := range data {
-			if x != 0 { allZeros = false; break }
-		}
-		if allZeros && ctx.Ret < 0 {
-			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[4]))
+		if len(data) >= 16 {
+			allZeros := true
+			for _, x := range data {
+				if x != 0 { allZeros = false; break }
+			}
+			if allZeros && ctx.Ret < 0 {
+				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[4]))
+			} else {
+				res.ArgParts = append(res.ArgParts, format.Timespec(data))
+			}
 		} else {
-			res.ArgParts = append(res.ArgParts, format.Timespec(data))
+			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[4]))
+		}
+	}
+
+	name := ctx.SysName
+	if strings.Contains(name, "pgetevents") {
+		if ctx.Args[5] == 0 {
+			res.ArgParts = append(res.ArgParts, "NULL")
+		} else {
+			d := ctx.StrArgBuf[528:544]
+			if ctx.ProbeRetEnter < 0 {
+				if m, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[5], 16, false); err == nil && len(m) >= 16 {
+					d = m
+				}
+			}
+
+			if len(d) >= 16 {
+				allZerosSig := true
+				for _, x := range d {
+					if x != 0 { allZerosSig = false; break }
+				}
+				if allZerosSig && ctx.Ret < 0 {
+					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[5]))
+				} else {
+					sigmask := binary.LittleEndian.Uint64(d[0:8])
+					sigsetsize := binary.LittleEndian.Uint64(d[8:16])
+					sigsetStr := fmt.Sprintf("%#x", sigmask)
+					if sigsetsize <= 8 {
+						if maskData, err := ctx.MemReader.ReadRobust(ctx.Pid, sigmask, int(sigsetsize), false); err == nil {
+							if s := format.Sigset(maskData); s != "" {
+								sigsetStr = s
+							}
+						}
+					}
+					res.ArgParts = append(res.ArgParts, fmt.Sprintf("{sigmask=%s, sigsetsize=%d}", sigsetStr, sigsetsize))
+				}
+			} else {
+				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[5]))
+			}
 		}
 	}
 }
