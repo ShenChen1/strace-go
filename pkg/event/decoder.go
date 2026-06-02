@@ -67,17 +67,16 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 		raw = bpfRaw
 		if limit > 0 && len(raw) >= limit {
 			truncated = true
-		} else if limit <= 0 && len(raw) >= 4095 {
-			truncated = true
+		} else if limit <= 0 && len(raw) == 4095 {
+			// We hit the maximum capacity of the BPF buffer (4096 - 1 NUL).
+			// We cannot tell if it was truncated by bpf_probe_read_user_str or if it naturally ended at 4095.
+			// Fallback to MemReader to verify!
+			found = false
 		}
 	} else {
 		// BPF buffer did not contain '\0'
 		if probeRet >= 0 && bpfFound {
 			if limit > 0 && len(bpfRaw) >= limit {
-				raw = bpfRaw
-				truncated = true
-				found = true
-			} else if limit <= 0 && len(bpfRaw) >= 4095 {
 				raw = bpfRaw
 				truncated = true
 				found = true
@@ -94,8 +93,6 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 					raw = data[:idx]
 					if limit > 0 && idx >= limit {
 						truncated = true
-					} else if limit <= 0 && idx >= 4095 {
-						truncated = true
 					}
 					found = true
 				} else {
@@ -106,14 +103,13 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 					} else {
 						// Hit a memory fault before finding '\0'
 						found = false
+						fmt.Fprintf(os.Stderr, "DEBUG_STRACEGO: MemReader hit fault, len(data)=%d readSize=%d ptr=%x\n", len(data), readSize, ptr)
 					}
 				}
 			} else {
 				if probeRet >= 0 && bpfFound && len(bpfRaw) > 0 {
 					raw = bpfRaw
 					if limit > 0 && len(bpfRaw) >= limit {
-						truncated = true
-					} else if limit <= 0 && len(bpfRaw) >= 4095 {
 						truncated = true
 					}
 					found = true
@@ -135,7 +131,9 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 		if truncated {
 			actualLen = printLimit + 1
 		}
-		
+        msg := fmt.Sprintf("DEBUG_STRACEGO: ptr=%#x raw_len=%d truncated=%v printLimit=%d actualLen=%d found=%v limit=%v\n", ptr, len(raw), truncated, printLimit, actualLen, found, limit)
+        f, _ := os.OpenFile("/tmp/debug_all.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
+        if f != nil { f.Write([]byte(msg)); f.Close() }
 		finalRes = format.BufferEscape(raw, printLimit, actualLen, d.HexEscapeMode)
 	} else {
 		finalRes = fmt.Sprintf("%#x", ptr)
@@ -196,6 +194,7 @@ func MatchPath(pid int, fd int32, scName string, ptr uint64, rawStrArg string, t
 				absTP = cwd + "/" + tp
 			}
 		}
+
 
 		if absP == absTP || strings.HasPrefix(absP, absTP+"/") { return true }
 	}
