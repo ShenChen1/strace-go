@@ -237,6 +237,13 @@ rules:
         - { arg: 0, size: 16, offset: 1024, type: raw }
         - { arg: 1, size: 8, offset: 1040, type: raw }
 
+  - syscalls: [settimeofday]
+    enter:
+      ptr_arg: 0
+      reads:
+        - { arg: 0, size: 16, offset: 0, type: raw }
+        - { arg: 1, size: 8, offset: 16, type: raw }
+
   - syscalls: [poll]
     enter:
       reads: [{ arg: 0, size: 512, offset: 0, type: raw }]

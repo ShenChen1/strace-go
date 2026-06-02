@@ -100,8 +100,11 @@ func main() {
 		
 		cProg := strings.Builder{}
 		cProg.WriteString("#define _GNU_SOURCE\n#include <stdio.h>\n#include <fcntl.h>\n#include <sys/types.h>\n#include <sys/socket.h>\n#include <sys/un.h>\n#include <linux/prctl.h>\n#include <asm/prctl.h>\n#include <linux/stat.h>\n#include <linux/fs.h>\n#include <linux/timex.h>\n#include <poll.h>\n#include <sys/epoll.h>\n#include <linux/bpf.h>\n#include <time.h>\n#include <asm/termios.h>\n#include <sys/mman.h>\n#include <linux/sched.h>\n#include <linux/futex.h>\n#include <linux/xattr.h>\n#include <sys/wait.h>\n#include <sys/mount.h>\n#include <linux/keyctl.h>\n#include <linux/dm-ioctl.h>\n#include <linux/netlink.h>\n#include <linux/rtnetlink.h>\n")
-		if name == "resources" {
+		if name == "resources" || name == "priorities" {
 			cProg.WriteString("#include <sys/resource.h>\n")
+		}
+		if name == "itimer_which" {
+			cProg.WriteString("#include <sys/time.h>\n")
 		}
 		cProg.WriteString("#ifndef ARCH_GET_CPUID\n#define ARCH_GET_CPUID 0x1011\n#endif\n#ifndef ARCH_SET_CPUID\n#define ARCH_SET_CPUID 0x1012\n#endif\n")
 
@@ -204,7 +207,8 @@ func main() {
 				if isNumeric {
 					// IMPACT: Exempt F_DUPFD and F_RDLCK from being skipped when value is 0, as they are crucial for fcntl.
 					// Also exempt BPF_PROG_TYPE_UNSPEC and BPF_CGROUP_INET_INGRESS to allow 0-value BPF constants.
-					if v == "0" && k != "O_RDONLY" && k != "F_OK" && k != "AF_UNSPEC" && k != "SEEK_SET" && k != "XFEATURE_FP" && k != "BPF_MAP_CREATE" && k != "CLOCK_REALTIME" && k != "PROT_NONE" && k != "FUTEX_WAIT" && k != "MADV_NORMAL" && k != "SIG_BLOCK" && k != "CLONE_VM" && k != "BPF_MAP_TYPE_UNSPEC" && k != "BPF_PROG_TYPE_UNSPEC" && k != "BPF_CGROUP_INET_INGRESS" && k != "MAP_FILE" && k != "RLIMIT_CPU" && k != "F_DUPFD" && k != "F_RDLCK" { continue }
+					// Exempt PRIO_PROCESS and ITIMER_REAL for getpriority and setitimer tests.
+					if v == "0" && k != "O_RDONLY" && k != "F_OK" && k != "AF_UNSPEC" && k != "SEEK_SET" && k != "XFEATURE_FP" && k != "BPF_MAP_CREATE" && k != "CLOCK_REALTIME" && k != "PROT_NONE" && k != "FUTEX_WAIT" && k != "MADV_NORMAL" && k != "SIG_BLOCK" && k != "CLONE_VM" && k != "BPF_MAP_TYPE_UNSPEC" && k != "BPF_PROG_TYPE_UNSPEC" && k != "BPF_CGROUP_INET_INGRESS" && k != "MAP_FILE" && k != "RLIMIT_CPU" && k != "F_DUPFD" && k != "F_RDLCK" && k != "PRIO_PROCESS" && k != "ITIMER_REAL" { continue }
 					fmt.Fprintf(out, "\t\t\t{Val: %s, Str: %q},\n", v, k)
 				}
 			}

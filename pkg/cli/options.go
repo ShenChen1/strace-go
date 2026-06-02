@@ -172,12 +172,20 @@ func parseBasicFlags(arg string, opts *Options) bool {
 		opts.VersionRequested = true
 	case arg == "-y":
 		opts.ShowPaths = true
-		opts.ShowPathsMode = 1
+		if opts.ShowPathsMode == 1 {
+			opts.ShowPathsMode = 2
+		} else if opts.ShowPathsMode == 0 {
+			opts.ShowPathsMode = 1
+		}
 	case arg == "-yy":
 		opts.ShowPaths = true
 		opts.ShowPathsMode = 2
 	case arg == "-x":
-		opts.HexEscapeMode = 1
+		if opts.HexEscapeMode == 1 {
+			opts.HexEscapeMode = 2
+		} else if opts.HexEscapeMode == 0 {
+			opts.HexEscapeMode = 1
+		}
 	case arg == "-xx":
 		opts.HexEscapeMode = 2
 	case strings.HasPrefix(arg, "-v") && len(arg) > 2:
