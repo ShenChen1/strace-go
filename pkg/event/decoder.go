@@ -80,6 +80,10 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 				raw = bpfRaw
 				truncated = true
 				found = true
+			} else if limit <= 0 && len(bpfRaw) == 4096 {
+				raw = bpfRaw[:4095]
+				truncated = true
+				found = true
 			}
 		}
 		if !found {

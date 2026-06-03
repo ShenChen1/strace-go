@@ -269,7 +269,14 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 			res += fmt.Sprintf("\t\t\t\t\t\t(%s + 2047)[0] = 0; \\\n", buf)
 			remain := r.Size - 2047
 			res += fmt.Sprintf("\t\t\t\t\t\tlong pr2 = bpf_probe_read_user_str(%s + 2047, %d, (void *)((e)->args[%d] + 2047)); \\\n", buf, remain, r.Arg)
-			res += fmt.Sprintf("\t\t\t\t\t\tif (pr2 >= 0) { pr = 2047 + pr2; } else { pr = pr2; (%s + 2047)[0] = 0; } \\\n", buf)
+			res += fmt.Sprintf("\t\t\t\t\t\tif (pr2 >= 0) { \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t\t\tpr = 2047 + pr2; \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t\t\tif (pr == 4096) { \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t\t\t\tchar last_byte = 0; \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t\t\t\tbpf_probe_read_user(&last_byte, 1, (void *)((e)->args[%d] + 4095)); \\\n", r.Arg)
+			res += fmt.Sprintf("\t\t\t\t\t\t\t\t(%s + 4095)[0] = last_byte; \\\n", buf)
+			res += fmt.Sprintf("\t\t\t\t\t\t\t} \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t\t} else { pr = pr2; (%s + 2047)[0] = 0; } \\\n", buf)
 			res += fmt.Sprintf("\t\t\t\t\t} \\\n")
 			res += fmt.Sprintf("\t\t\t\t} \\\n")
 		} else {
