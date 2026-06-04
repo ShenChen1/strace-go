@@ -11,22 +11,21 @@ TESTS_DIR = "/opt/strace-go/strace-upstream/tests"
 UPSTREAM_DIR = "/opt/strace-go/strace-upstream"
 STRACE_WRAPPER = "/opt/strace-go/test/strace-sudo.sh"
 
-SMALL_BATCH_TESTS = [
-    "getpid.gen.test", "access.gen.test", "chmod.gen.test", "openat.gen.test", "brk.test",
-    "stat.gen.test", "fstat.gen.test", "lstat.gen.test", "rename.gen.test", "mkdir.gen.test",
-    "add_key.gen.test", "request_key.gen.test", "link.gen.test", "symlink.gen.test",
-    "symlinkat.gen.test", "readlink.gen.test", "readlinkat.gen.test", "unlinkat.gen.test",
-    "chown.gen.test", "fchown.gen.test", "lchown.gen.test", "fchownat.gen.test",
-    "utimensat.gen.test", "mknodat.gen.test", "mknod.gen.test", "mlock.gen.test",
-    "mlock2.gen.test", "mlockall.gen.test", "mmap.test", "dup.gen.test", "dup2.gen.test",
-    "dup3.gen.test", "mkdirat.gen.test", "rmdir.gen.test", "umask.gen.test", "kill.gen.test",
-    "pipe2.gen.test", "getrlimit.gen.test", "setrlimit.gen.test", "prlimit64.gen.test",
-    "nanosleep.gen.test", "truncate.gen.test", "ftruncate.gen.test", "clone_parent.gen.test",
-    "clone_parent-q.gen.test", "clone_parent-qq.gen.test", "clone_parent--quiet-exit.gen.test",
-    "newfstatat.gen.test", "sysinfo.gen.test", "statfs.gen.test", "fstatfs.gen.test",
-    "epoll_ctl.gen.test", "threads-execve.test", "threads-execve-q.gen.test",
-    "threads-execve-qq.gen.test", "threads-execve-qqq.gen.test",
-    "threads-execve--quiet-thread-execve.gen.test"
+SMOKE_TESTS = [
+    "chdir.gen.test",
+    "open.gen.test",
+    "openat.gen.test",
+    "read.gen.test",
+    "write.gen.test",
+    
+    "stat.gen.test",
+    "mmap.test"
+]
+
+# Tests for the next feature we are tackling
+# Add tests here when working on a new syscall or feature
+MORE_TESTS = [
+    # "accept.gen.test",
 ]
 
 DIAGNOSTIC_TESTS = [
@@ -65,73 +64,29 @@ def build_upstream():
     subprocess.run(["make", f"-j{cpus}"], cwd=UPSTREAM_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def get_tests(suite):
-    if suite == "small":
-        return SMALL_BATCH_TESTS
-        
-    all_tests = []
-    for p in glob.glob(os.path.join(TESTS_DIR, "*.gen.test")):
-        all_tests.append(os.path.basename(p))
-    
-    # Include non-gen tests that are part of SMALL_BATCH_TESTS if they exist
-    for t in SMALL_BATCH_TESTS:
-        if t.endswith(".test") and not t.endswith(".gen.test"):
-            if os.path.exists(os.path.join(TESTS_DIR, t)):
-                all_tests.append(t)
-                
-    all_tests = sorted(list(set(all_tests)))
-
     valid_tests = []
-    for t in all_tests:
-        test_path = os.path.join(TESTS_DIR, t)
-        skip = False
-        try:
-            with open(test_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-                if '-einject' in content or '-e inject' in content:
-                    skip = True
-        except:
-            pass
-        if not skip:
-            valid_tests.append(t)
-            
-    all_tests = valid_tests
-
-    if suite == "all":
-        ignored = set()
-        ignore_list_file = os.path.join(os.path.dirname(__file__), 'ignore_list.txt')
-        if os.path.exists(ignore_list_file):
-            with open(ignore_list_file, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#'):
-                        ignored.add(line)
-                        ignored.add(line + ".gen")
-        runnable_tests = []
-        for t in all_tests:
-            if t in ignored or t.replace(".gen", "") in ignored:
+    if not os.path.exists(TESTS_DIR):
+        print(f"Tests dir {TESTS_DIR} not found.")
+        return []
+    
+    for f in os.listdir(TESTS_DIR):
+        if f.endswith(".test") and not f.endswith(".sh"):
+            # Exclude tests that need special handling or are known to freeze
+            if f in ["strace-k.test", "strace-E.test"]:
                 continue
-            runnable_tests.append(t)
-        return runnable_tests
-        
-    # suite == "more"
-    ignored = set(SMALL_BATCH_TESTS) | set(DIAGNOSTIC_TESTS)
-    ignore_list_file = os.path.join(os.path.dirname(__file__), 'ignore_list.txt')
-    if os.path.exists(ignore_list_file):
-        with open(ignore_list_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    ignored.add(line)
-                    ignored.add(line + ".gen")
+            valid_tests.append(f)
+    valid_tests.sort()
+    
+    if suite == "small":
+        return [t for t in SMOKE_TESTS if t in valid_tests]
+    elif suite == "more":
+        return [t for t in MORE_TESTS if t in valid_tests]
+    elif suite == "all":
+        return valid_tests
+    else:
+        # Fallback to single test matching
+        return [t for t in valid_tests if suite in t]
 
-    runnable_tests = []
-    for t in all_tests:
-        if t in ignored or t.replace(".gen", "") in ignored:
-            continue
-        if any(k in t for k in ["success", "inject", "fault", "secontext", "_newselect"]):
-            continue
-        runnable_tests.append(t)
-    return runnable_tests
 
 def run_test(t):
     bin_name = t.replace(".test", "").replace(".gen", "")
@@ -144,7 +99,7 @@ def run_test(t):
     try:
         with os.fdopen(out_fd, 'w') as out_f, os.fdopen(err_fd, 'w') as err_f:
             try:
-                res = subprocess.run([f"./{t}"], cwd=TESTS_DIR, stdout=out_f, stderr=err_f, timeout=30)
+                res = subprocess.run([f"./{t}"], cwd=TESTS_DIR, stdin=subprocess.DEVNULL, stdout=out_f, stderr=err_f, timeout=30)
                 rc = res.returncode
             except subprocess.TimeoutExpired:
                 rc = 124
