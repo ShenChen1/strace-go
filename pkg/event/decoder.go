@@ -86,7 +86,8 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 				found = true
 			}
 		}
-		if !found {
+	}
+	if !found {
 			readSize := 4096
 			if limit > 0 && limit < 4096 {
 				readSize = limit + 1
@@ -120,7 +121,6 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 				}
 			}
 		}
-	}
 
 	var finalRes string
 	if found {
