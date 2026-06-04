@@ -43,10 +43,12 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 		}
 	}
 
-	if scName == "readlink" || scName == "readlinkat" {
+	if scName == "readlink" || scName == "readlinkat" || scName == "getcwd" {
 		bufIdx := 1
 		if scName == "readlinkat" {
 			bufIdx = 2
+		} else if scName == "getcwd" {
+			bufIdx = 0
 		}
 		if i == bufIdx {
 			if ctx.Ret < 0 {
@@ -59,7 +61,7 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 				if sz > len(data) { sz = len(data) }
 				if sz < 0 { sz = 0 }
 				if idx := bytes.IndexByte(data[:sz], 0); idx != -1 { sz = idx }
-				return format.BufferEscape(data[:sz], ctx.Opts.StringLimit, int(ctx.Ret), ctx.Decoder.HexEscapeMode), true
+				return format.BufferEscape(data[:sz], 0, sz, ctx.Decoder.HexEscapeMode), true
 			}
 			return fmt.Sprintf("%#x", val), true
 		}

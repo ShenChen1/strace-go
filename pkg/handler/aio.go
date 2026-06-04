@@ -243,7 +243,7 @@ func (h *AioHandler) formatIoGetevents(ctx *Context, res *Result) {
 						arg5Failed := false
 						if ctx.ProbeRetEnter < -1 {
 							mask := uint32(-ctx.ProbeRetEnter - 1)
-							if (mask & (1 << 5)) != 0 {
+							if (mask & (1 << 13)) != 0 {
 								arg5Failed = true
 							}
 						} else if ctx.ProbeRetEnter == -1 {

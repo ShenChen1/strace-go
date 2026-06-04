@@ -5,10 +5,14 @@
 rules:
   # Path-based syscalls (enter)
   # IMPACT: Added fsopen to capture fs_name path string on enter.
-  - syscalls: [open, creat, access, chdir, chmod, chown, lchown, mkdir, mknod, rmdir, unlink, execve, swapon, swapoff, acct, truncate, fsopen]
+  - syscalls: [open, creat, access, chdir, chroot, chmod, chown, lchown, mkdir, mknod, rmdir, unlink, execve, swapon, swapoff, acct, truncate, fsopen]
     enter:
       ptr_arg: 0
       reads: [{ arg: 0, size: 4096, type: string }]
+
+  - syscalls: [getcwd]
+    exit:
+      reads: [{ arg: 0, size: 0, offset: 1024, type: raw }]
 
   # Syscalls returning struct stat
   - syscalls: [stat, lstat]

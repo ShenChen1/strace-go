@@ -188,15 +188,28 @@ func decodeSymsArray(ctx *Context, addr uint64, count uint32) string {
 			nullIdx := bytes.IndexByte(strBuf, 0)
 			var s string
 			truncated := false
+			
+			limit := ctx.Opts.StringLimit
+			if limit <= 0 {
+				limit = 32
+			}
+			
 			if nullIdx != -1 {
-				s = string(strBuf[:nullIdx])
-			} else {
-				s = string(strBuf)
-				if len(strBuf) >= 36 {
-					s = s[:32]
+				if nullIdx > limit {
+					s = string(strBuf[:limit])
 					truncated = true
+				} else {
+					s = string(strBuf[:nullIdx])
+				}
+			} else {
+				if len(strBuf) > limit {
+					s = string(strBuf[:limit])
+					truncated = true
+				} else {
+					s = string(strBuf)
 				}
 			}
+			
 			if truncated {
 				elements = append(elements, fmt.Sprintf("%q...", s))
 			} else {

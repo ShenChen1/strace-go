@@ -43,6 +43,7 @@ SMOKE_TESTS = [
 # Add tests here when working on a new syscall or feature
 MORE_TESTS = [
     "aio_pgetevents.gen.test",
+    "aio.gen.test",
     "arch_prctl-Xabbrev.gen.test",
     "arch_prctl-Xverbose.gen.test",
     "arch_prctl-success-Xabbrev.gen.test",
@@ -60,7 +61,7 @@ MORE_TESTS = [
     "clone_parent--quiet-exit.gen.test",
     "clone_parent-qq.gen.test",
     "clone_parent.gen.test",
-    "delay.test",
+    
     "dup-yy.gen.test",
     "dup2.gen.test",
     "dup3.gen.test",

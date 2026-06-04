@@ -182,7 +182,7 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 		if r.Arg == 3 {
 			return "fssz"
 		}
-	case "readlink", "readlinkat":
+	case "readlink", "readlinkat", "getcwd":
 		return "((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0)"
 	}
 
@@ -292,10 +292,14 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 				res += fmt.Sprintf("\t\t\t\tlong pr = (__err == 0 && (e)->args[%d]) ? %s : __err; \\\n", r.Arg, sizeStr)
 			}
 		}
+		bitOffset := r.Arg
+		if r.Type == "double_ptr" {
+			bitOffset += 8
+		}
 		res += fmt.Sprintf("\t\t\t\tif (pr < 0) { \\\n")
 		res += fmt.Sprintf("\t\t\t\t\ts32 curr = (e)->probe_ret_%s; \\\n", suffix)
 		res += fmt.Sprintf("\t\t\t\t\tu32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \\\n")
-		res += fmt.Sprintf("\t\t\t\t\t(e)->probe_ret_%s = -(s32)((mask | (1 << %d)) + 1); \\\n", suffix, r.Arg)
+		res += fmt.Sprintf("\t\t\t\t\t(e)->probe_ret_%s = -(s32)((mask | (1 << %d)) + 1); \\\n", suffix, bitOffset)
 		res += fmt.Sprintf("\t\t\t\t} else { \\\n")
 		res += fmt.Sprintf("\t\t\t\t\tif ((e)->probe_ret_%s == -1) (e)->probe_ret_%s = 0; \\\n", suffix, suffix)
 		res += fmt.Sprintf("\t\t\t\t\tu32 req_len = %d + pr; \\\n", r.Offset)
