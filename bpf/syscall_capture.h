@@ -1435,6 +1435,21 @@
 					if ((e)->data_len < req_len) (e)->data_len = req_len; \
 				} \
 			} \
+			{ \
+				void *__ptr = NULL; \
+				long __err1 = (e)->args[5] ? bpf_probe_read_user(&__ptr, sizeof(void*), (void *)(e)->args[5]) : 0; \
+				long __err = (__err1 == 0 && __ptr) ? bpf_probe_read_user((e)->str_arg + 544, 8, __ptr) : __err1; \
+				long pr = (__err == 0 && __ptr) ? 8 : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 5)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 544 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
 			break; \
 		case 209: /* io_submit */ \
 			{ \
@@ -2137,6 +2152,21 @@
 					if ((e)->data_len < req_len) (e)->data_len = req_len; \
 				} \
 			} \
+			{ \
+				void *__ptr = NULL; \
+				long __err1 = (e)->args[5] ? bpf_probe_read_user(&__ptr, sizeof(void*), (void *)(e)->args[5]) : 0; \
+				long __err = (__err1 == 0 && __ptr) ? bpf_probe_read_user((e)->str_arg + 544, 8, __ptr) : __err1; \
+				long pr = (__err == 0 && __ptr) ? 8 : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 5)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 544 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
 			break; \
 		case 430: /* fsopen */ \
 			(e)->ptr = (e)->args[0]; \
@@ -2318,6 +2348,21 @@
 				} else { \
 					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
 					u32 req_len = 0 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
+		case 451: /* cachestat */ \
+			{ \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 512, 16, (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? 16 : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 512 + pr; \
 					if ((e)->data_len < req_len) (e)->data_len = req_len; \
 				} \
 			} \

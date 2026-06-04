@@ -366,7 +366,7 @@ var SyscallTable = map[uint32]Syscall{
 	448: {Name: "process_mrelease", Args: []string{"pidfd", "flags"}, ArgTypes: []string{"int", "unsigned int"}},
 	449: {Name: "futex_waitv", Args: []string{"waiters", "nr_futexes", "flags", "timeout", "clockid"}, ArgTypes: []string{"struct futex_waitv *", "unsigned int", "unsigned int", "struct __kernel_timespec *", "clockid_t"}},
 	450: {Name: "set_mempolicy_home_node", Args: []string{"start", "len", "home_node", "flags"}, ArgTypes: []string{"long unsigned int", "long unsigned int", "long unsigned int", "long unsigned int"}},
-	451: {Name: "cachestat", Args: []string{"arg0", "arg1", "arg2", "arg3"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long", "unsigned long"}},
+	451: {Name: "cachestat", Args: []string{"fd", "cstat_range", "cstat", "flags"}, ArgTypes: []string{"unsigned int", "struct cachestat_range *", "struct cachestat *", "unsigned int"}},
 	452: {Name: "fchmodat2", Args: []string{"arg0", "arg1", "arg2", "arg3"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long", "unsigned long"}},
 	453: {Name: "map_shadow_stack", Args: []string{"addr", "size", "flags"}, ArgTypes: []string{"long unsigned int", "long unsigned int", "unsigned int"}},
 	454: {Name: "futex_wake", Args: []string{"arg0", "arg1", "arg2", "arg3"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long", "unsigned long"}},

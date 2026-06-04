@@ -12,14 +12,31 @@ UPSTREAM_DIR = "/opt/strace-go/strace-upstream"
 STRACE_WRAPPER = "/opt/strace-go/test/strace-sudo.sh"
 
 SMOKE_TESTS = [
+    "accept.gen.test",
+    "accept4.gen.test",
+    "access.gen.test",
+    "acct.gen.test",
+    "add_key.gen.test",
+    "adjtimex.gen.test",
+    "alarm.gen.test",
+    "brk.test",
     "chdir.gen.test",
+    "chmod.gen.test",
+    "chown.gen.test",
+    "rename.gen.test",
+    "clock_adjtime.gen.test",
+    "creat.gen.test",
+    "fstat.gen.test",
+    "lstat.gen.test",
+    "mmap.test",
     "open.gen.test",
     "openat.gen.test",
     "read.gen.test",
-    "write.gen.test",
-    
     "stat.gen.test",
-    "mmap.test"
+    "statfs.gen.test",
+    "symlinkat.gen.test",
+    "sync.gen.test",
+    "write.gen.test"
 ]
 
 # Tests for the next feature we are tackling

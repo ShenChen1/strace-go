@@ -100,6 +100,16 @@ func decodeBitFlags(val uint64, xlatName string, table XlatTable) string {
 		}
 	}
 
+	if xlatName == "wait4_options" {
+		for i := 0; i < len(res); i++ {
+			for j := i + 1; j < len(res); j++ {
+				if res[i] == "WSTOPPED" && res[j] == "WEXITED" {
+					res[i], res[j] = res[j], res[i]
+				}
+			}
+		}
+	}
+
 	if len(res) == 0 {
 		if val == 0 {
 			for _, entry := range table.Entries {
@@ -137,7 +147,7 @@ func DecodeFlags(val uint64, xlatName string) string {
 		isEnum := false
 		if ok {
 			// IMPACT: Added fsconfig_cmds to isEnum check so that it gets formatted as a single enum value rather than joined bitflags.
-			isEnum = (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "bpf_fd_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds" || xlatName == "bpf_stats_type" || xlatName == "fsconfig_cmds") && xlatName != "clone3_flags" && xlatName != "wait4_options"
+			isEnum = (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "bpf_fd_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds" || xlatName == "bpf_stats_type" || xlatName == "fsconfig_cmds" || xlatName == "itimer_which" || xlatName == "waitid_types") && xlatName != "clone3_flags" && xlatName != "wait4_options"
 		}
 		if isEnum {
 			if val == 0 {
@@ -167,7 +177,7 @@ func DecodeFlags(val uint64, xlatName string) string {
 	}
 
 	// IMPACT: Added fsconfig_cmds to isEnum check so that it gets formatted as a single enum value rather than joined bitflags.
-	isEnum := (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "bpf_fd_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds" || xlatName == "bpf_stats_type" || xlatName == "fsconfig_cmds") && xlatName != "clone3_flags" && xlatName != "wait4_options"
+	isEnum := (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "bpf_fd_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds" || xlatName == "bpf_stats_type" || xlatName == "fsconfig_cmds" || xlatName == "itimer_which" || xlatName == "waitid_types") && xlatName != "clone3_flags" && xlatName != "wait4_options"
 
 	var decoded string
 	hasDecoded := false

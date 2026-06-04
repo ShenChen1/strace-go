@@ -15,15 +15,15 @@ func decodeBpfInsns(ctx *Context, insnsAddr uint64, cnt uint32) string {
 	if cnt == 0 {
 		return "insns=[]"
 	}
+	if ctx.Opts == nil || !ctx.Opts.Verbose {
+		return fmt.Sprintf("insns=%#x", insnsAddr)
+	}
 	readCount := cnt
 	if readCount > 16 {
 		readCount = 16
 	}
 	buf, err := ctx.MemReader.ReadRobust(ctx.Tid, insnsAddr, int(readCount)*8, false)
 	if err != nil || len(buf) < 8 {
-		if insnsAddr != 0 && insnsAddr != 0xffffffff00000000 && cnt == 1 {
-			return "insns=[{code=BPF_JMP|BPF_K|BPF_EXIT, dst_reg=BPF_REG_10, src_reg=0xb /* BPF_REG_??? */, off=-8531, imm=0xbadc0ded}]"
-		}
 		return fmt.Sprintf("insns=%#x", insnsAddr)
 	}
 	actualCount := len(buf) / 8
@@ -45,7 +45,7 @@ func decodeSingleInsn(data []byte) string {
 	dst := data[1] & 0x0f
 	src := data[1] >> 4
 	off := int16(binary.LittleEndian.Uint16(data[2:4]))
-	imm := int32(binary.LittleEndian.Uint32(data[4:8]))
+	imm := binary.LittleEndian.Uint32(data[4:8])
 	codeStr := decodeBpfInsnCode(code)
 	dstStr := decodeBpfReg(dst)
 	srcStr := decodeBpfReg(src)

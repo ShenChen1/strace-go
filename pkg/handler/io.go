@@ -55,7 +55,7 @@ func (h *IoHandler) Handle(ctx *Context) Result {
 				isWrite = false
 			}
 			
-			res.ArgParts = append(res.ArgParts, h.decodeIovecArray(ctx, val, countVal, isWrite, ctx.Ret))
+			res.ArgParts = append(res.ArgParts, DecodeIovecArray(ctx, val, countVal, isWrite, ctx.Ret))
 			continue
 		}
 		
@@ -88,7 +88,7 @@ func (h *IoHandler) Handle(ctx *Context) Result {
 	return res
 }
 
-func (h *IoHandler) decodeIovecArray(ctx *Context, addr uint64, count uint64, isWrite bool, ret int64) string {
+func DecodeIovecArray(ctx *Context, addr uint64, count uint64, isWrite bool, ret int64) string {
 	if addr == 0 { return "NULL" }
 	if count == 0 { return "[]" }
 	

@@ -240,8 +240,30 @@ func (h *AioHandler) formatIoGetevents(ctx *Context, res *Result) {
 					sigmask := binary.LittleEndian.Uint64(d[0:8])
 					sigsetsize := binary.LittleEndian.Uint64(d[8:16])
 					sigsetStr := fmt.Sprintf("%#x", sigmask)
-					if sigsetsize <= 8 {
-						if maskData, err := ctx.MemReader.ReadRobust(ctx.Pid, sigmask, int(sigsetsize), false); err == nil {
+					if sigsetsize <= 8 && sigsetsize > 0 {
+						var maskData []byte
+						// If BPF successfully captured arg 5 (bit 5 in ProbeRetEnter is not set)
+						arg5Failed := false
+						if ctx.ProbeRetEnter < -1 {
+							mask := uint32(-ctx.ProbeRetEnter - 1)
+							if (mask & (1 << 5)) != 0 {
+								arg5Failed = true
+							}
+						} else if ctx.ProbeRetEnter == -1 {
+							arg5Failed = true
+						}
+
+						if !arg5Failed && len(ctx.StrArgBuf) >= 544+int(sigsetsize) {
+							maskData = ctx.StrArgBuf[544 : 544+int(sigsetsize)]
+						}
+						
+						if arg5Failed || maskData == nil {
+							if m, err := ctx.MemReader.ReadRobust(ctx.Tid, sigmask, int(sigsetsize), false); err == nil {
+								maskData = m
+							}
+						}
+
+						if maskData != nil {
 							if s := format.Sigset(maskData); s != "" {
 								sigsetStr = s
 							}

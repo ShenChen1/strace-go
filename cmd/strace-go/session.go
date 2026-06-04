@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -198,10 +199,23 @@ func (s *traceSession) run() {
 		for {
 			rec, err := s.events.Read()
 			if err != nil {
-				break
+				if errors.Is(err, ringbuf.ErrClosed) {
+					break
+				}
+				continue
 			}
 			var ev bpfEvent
+			if len(rec.RawSample) < 112 {
+				continue
+			}
 			copy(unsafe.Slice((*byte)(unsafe.Pointer(&ev)), unsafe.Sizeof(ev)), rec.RawSample)
+			if ev.SysId == 16 || ev.SysId == 451 {
+				f, _ := os.OpenFile("/tmp/btrfs_debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				if f != nil {
+					f.WriteString(fmt.Sprintf("DEBUG: sys_id=%d, Ret=%d (%#x), DataLen=%d, RawSize=%d\n", ev.SysId, ev.Ret, ev.Ret, ev.DataLen, len(rec.RawSample)))
+					f.Close()
+				}
+			}
 			eventChan <- &ev
 		}
 	}()

@@ -213,5 +213,5 @@ var manualOverrides = map[string]SyscallMeta{
 	"setrlimit":         {Name: "setrlimit", Args: []string{"resource", "rlim"}, ArgTypes: []string{"unsigned int", "const struct rlimit *"}},
 	"prlimit64":         {Name: "prlimit64", Args: []string{"pid", "resource", "new_rlimit", "old_rlimit"}, ArgTypes: []string{"pid_t", "unsigned int", "const struct rlimit64 *", "struct rlimit64 *"}},
 	"ftruncate":         {Name: "ftruncate", Args: []string{"fd", "length"}, ArgTypes: []string{"int", "long"}},
+	"cachestat":         {Name: "cachestat", Args: []string{"fd", "cstat_range", "cstat", "flags"}, ArgTypes: []string{"unsigned int", "struct cachestat_range *", "struct cachestat *", "unsigned int"}},
 }
-

@@ -72,7 +72,9 @@ func (h *IoctlHandler) Handle(ctx *Context) Result {
 	res.ArgParts = append(res.ArgParts, cmdName)
 
 	argPart := h.decodeIoctlArg(ctx, cmd, arg, cmdName)
-	res.ArgParts = append(res.ArgParts, argPart)
+	if argPart != "" {
+		res.ArgParts = append(res.ArgParts, argPart)
+	}
 
 	return res
 }
@@ -80,6 +82,10 @@ func (h *IoctlHandler) Handle(ctx *Context) Result {
 // decodeIoctlArg formats the third argument of ioctl based on cmd.
 // Impact: Resolves formatting for terminal, device mapper, mtd OTP and fiemap ioctl arguments.
 func (h *IoctlHandler) decodeIoctlArg(ctx *Context, cmd, arg uint64, cmdName string) string {
+	switch cmdName {
+	case "BTRFS_IOC_TRANS_START", "BTRFS_IOC_TRANS_END", "BTRFS_IOC_SYNC", "BTRFS_IOC_SCRUB_CANCEL", "BTRFS_IOC_QUOTA_RESCAN_WAIT", "BTRFS_IOC_DEFRAG", "BTRFS_IOC_BALANCE":
+		return ""
+	}
 	if arg == 0 {
 		if strings.HasPrefix(cmdName, "_IOC") {
 			return "0"
@@ -91,6 +97,9 @@ func (h *IoctlHandler) decodeIoctlArg(ctx *Context, cmd, arg uint64, cmdName str
 	}
 	if strings.HasPrefix(cmdName, "DM_") {
 		return h.decodeDmIoctl(ctx, arg, cmdName)
+	}
+	if btrfsArg := h.decodeBtrfsIoctl(ctx, cmd, arg, cmdName); btrfsArg != "" {
+		return btrfsArg
 	}
 	return h.decodeStandardIoctlArg(ctx, cmd, arg)
 }

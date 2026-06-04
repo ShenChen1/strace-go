@@ -282,6 +282,11 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 		} else {
 			if r.Type == "string" {
 				res += fmt.Sprintf("\t\t\t\tlong pr = (e)->args[%d] ? %s(%s, %s, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, sizeStr, r.Arg)
+			} else if r.Type == "double_ptr" {
+				res += fmt.Sprintf("\t\t\t\tvoid *__ptr = NULL; \\\n")
+				res += fmt.Sprintf("\t\t\t\tlong __err1 = (e)->args[%d] ? bpf_probe_read_user(&__ptr, sizeof(void*), (void *)(e)->args[%d]) : 0; \\\n", r.Arg, r.Arg)
+				res += fmt.Sprintf("\t\t\t\tlong __err = (__err1 == 0 && __ptr) ? %s(%s, %s, __ptr) : __err1; \\\n", fn, buf, sizeStr)
+				res += fmt.Sprintf("\t\t\t\tlong pr = (__err == 0 && __ptr) ? %s : __err; \\\n", sizeStr)
 			} else {
 				res += fmt.Sprintf("\t\t\t\tlong __err = (e)->args[%d] ? %s(%s, %s, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, sizeStr, r.Arg)
 				res += fmt.Sprintf("\t\t\t\tlong pr = (__err == 0 && (e)->args[%d]) ? %s : __err; \\\n", r.Arg, sizeStr)

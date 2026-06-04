@@ -81,7 +81,7 @@ func BufferEscape(data []byte, limit int, actualLen int, escapeMode int) string 
 	if len(data) == 0 { return "\"\"" }
 	
 	printLimit := limit
-	if printLimit <= 0 { printLimit = 32 }
+	if printLimit <= 0 { printLimit = len(data) }
 	if printLimit > len(data) { printLimit = len(data) }
 	
 	var sb strings.Builder
@@ -115,7 +115,9 @@ func BufferEscape(data []byte, limit int, actualLen int, escapeMode int) string 
 	}
 	
 	sb.WriteByte('"')
-	if actualLen > printLimit || len(data) > printLimit { sb.WriteString("...") }
+	if actualLen > printLimit || len(data) > printLimit { 
+        sb.WriteString("...") 
+    }
 	return sb.String()
 }
 

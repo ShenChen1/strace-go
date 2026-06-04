@@ -131,5 +131,5 @@ type bpfEvent struct {
 	Ptr           uint64
 	DataLen       uint32
 	_             uint32
-	StrArg        [4504]byte
+	StrArg        [10000]byte
 }

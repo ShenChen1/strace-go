@@ -201,10 +201,16 @@ rules:
     exit:
       reads: [{ arg: 1, size: 208, offset: 1024, type: raw }]
 
+  - syscalls: [cachestat]
+    enter:
+      reads: [{ arg: 1, size: 16, offset: 512, type: struct }]
+
   - syscalls: [io_getevents, io_pgetevents]
     enter:
-      ptr_arg: 4
-      reads: [{ arg: 4, size: 16, offset: 512, type: raw }]
+      reads:
+        - { arg: 4, size: 16, offset: 512, type: raw }
+        - { arg: 5, size: 16, offset: 528, type: raw }
+        - { arg: 5, size: 8, offset: 544, type: double_ptr }
     exit:
       reads: [{ arg: 3, size: 0, offset: 1024, type: raw }]
 
@@ -418,3 +424,43 @@ rules:
     exit:
       reads:
         - { arg: 1, size: 0, offset: 0, type: raw }
+
+  # Missing capture rules for failing tests
+  - syscalls: [get_robust_list]
+    exit:
+      reads:
+        - { arg: 1, size: 8, offset: 1024, type: raw }
+        - { arg: 2, size: 8, offset: 1040, type: raw }
+
+  - syscalls: [waitid]
+    exit:
+      reads:
+        - { arg: 2, size: 128, offset: 1024, type: raw }
+        - { arg: 4, size: 144, offset: 1160, type: raw }
+
+  - syscalls: [setitimer]
+    enter:
+      reads:
+        - { arg: 1, size: 32, type: raw }
+    exit:
+      reads:
+        - { arg: 2, size: 32, offset: 1024, type: raw }
+
+  - syscalls: [getitimer]
+    exit:
+      reads:
+        - { arg: 1, size: 32, offset: 1024, type: raw }
+
+  - syscalls: [gettimeofday]
+    exit:
+      reads:
+        - { arg: 0, size: 16, offset: 1024, type: raw }
+        - { arg: 1, size: 8, offset: 1048, type: raw }
+
+
+  - syscalls: [settimeofday]
+    enter:
+      reads:
+        - { arg: 0, size: 16, type: raw }
+        - { arg: 1, size: 8, offset: 24, type: raw }
+

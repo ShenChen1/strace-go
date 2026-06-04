@@ -20,7 +20,7 @@ func (h *GetRobustListHandler) Handle(ctx *Context) Result {
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int32(ctx.Args[0])))
 
 	// struct robust_list_head **head_ptr
-	if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
+	if ctx.Ret < 0 && ctx.Ret >= -4095 {
 		if ctx.Args[1] == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
@@ -30,7 +30,7 @@ func (h *GetRobustListHandler) Handle(ctx *Context) Result {
 		if ctx.Args[1] == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
-			data, ok := ctx.FetchStructDataExact(ctx.Args[1], 8, true, nil)
+			data, ok := ctx.FetchStructDataExact(ctx.Args[1], 8, true, ctx.StrArgBuf[1024:1032])
 			if !ok {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[1]))
 			} else {
@@ -41,7 +41,7 @@ func (h *GetRobustListHandler) Handle(ctx *Context) Result {
 	}
 
 	// size_t *len_ptr
-	if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
+	if ctx.Ret < 0 && ctx.Ret >= -4095 {
 		if ctx.Args[2] == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
@@ -51,7 +51,7 @@ func (h *GetRobustListHandler) Handle(ctx *Context) Result {
 		if ctx.Args[2] == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
-			data, ok := ctx.FetchStructDataExact(ctx.Args[2], 8, true, nil)
+			data, ok := ctx.FetchStructDataExact(ctx.Args[2], 8, true, ctx.StrArgBuf[1040:1048])
 			if !ok {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
 			} else {

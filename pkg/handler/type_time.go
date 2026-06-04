@@ -53,10 +53,10 @@ func decodeTimeval(ctx *Context, i int, argTyp string, val uint64) (string, bool
 		}
 	}
 	if isOut {
-		if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 {
-			return ctx.DecodeStructWithFallback(val, 16, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+16], format.Timeval)
+		if ctx.Ret < 0 && ctx.Ret >= -4095 {
+			return "", false
 		}
-		return "", false
+		return ctx.DecodeStructWithFallback(val, 16, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+16], format.Timeval)
 	}
 	return ctx.DecodeStructWithFallback(val, 16, false, ctx.StrArgBuf[0:16], format.Timeval)
 }
@@ -74,10 +74,10 @@ func decodeItimerval(ctx *Context, i int, argTyp string, val uint64) (string, bo
 		}
 	}
 	if isOut {
-		if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 {
-			return ctx.DecodeStructWithFallback(val, 32, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+32], format.Itimerval)
+		if ctx.Ret < 0 && ctx.Ret >= -4095 {
+			return "", false
 		}
-		return "", false
+		return ctx.DecodeStructWithFallback(val, 32, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+32], format.Itimerval)
 	}
 	return ctx.DecodeStructWithFallback(val, 32, false, ctx.StrArgBuf[0:32], format.Itimerval)
 }
@@ -91,10 +91,10 @@ func decodeItimerspec(ctx *Context, i int, argTyp string, val uint64) (string, b
 		}
 	}
 	if isOut {
-		if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 {
-			return ctx.DecodeStructWithFallback(val, 32, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+32], format.Itimerspec)
+		if ctx.Ret < 0 && ctx.Ret >= -4095 {
+			return "", false
 		}
-		return "", false
+		return ctx.DecodeStructWithFallback(val, 32, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+32], format.Itimerspec)
 	}
 	return ctx.DecodeStructWithFallback(val, 32, false, ctx.StrArgBuf[0:32], format.Itimerspec)
 }
@@ -108,10 +108,10 @@ func decodeTimezone(ctx *Context, i int, argTyp string, val uint64) (string, boo
 		}
 	}
 	if isOut {
-		if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 {
-			return ctx.DecodeStructWithFallback(val, 8, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+8], format.Timezone)
+		if ctx.Ret < 0 && ctx.Ret >= -4095 {
+			return "", false
 		}
-		return "", false
+		return ctx.DecodeStructWithFallback(val, 8, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+8], format.Timezone)
 	}
 	return ctx.DecodeStructWithFallback(val, 8, false, ctx.StrArgBuf[0:8], format.Timezone)
 }
