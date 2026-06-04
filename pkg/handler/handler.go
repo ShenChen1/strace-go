@@ -111,7 +111,66 @@ func (ctx *Context) FetchStructDataExact(ptr uint64, size int, isExit bool, bpfB
 	return nil, false
 }
 
-// DecodeStructWithFallback handles NULL checks and fallback hex formatting for struct pointers.
+func (ctx *Context) FetchArgStructData(argIndex int, ptr uint64, size int, isExit bool, bpfBuf []byte) ([]byte, bool) {
+	var data []byte
+	readSuccess := false
+
+	if isExit {
+		if ctx.ProbeRetExit >= 0 {
+			if len(bpfBuf) >= size {
+				data = bpfBuf[:size]
+			} else {
+				data = bpfBuf
+			}
+			readSuccess = true
+		}
+	} else {
+		if argIndex >= 0 && ctx.ArgProbeRet(argIndex) == 0 {
+			if len(bpfBuf) >= size {
+				data = bpfBuf[:size]
+			} else {
+				data = bpfBuf
+			}
+			readSuccess = true
+		} else if argIndex < 0 && ctx.ProbeRetEnter >= 0 {
+			if len(bpfBuf) >= size {
+				data = bpfBuf[:size]
+			} else {
+				data = bpfBuf
+			}
+			readSuccess = true
+		}
+	}
+
+	if !readSuccess {
+		if d, err := ctx.MemReader.ReadRobust(ctx.Tid, ptr, size, false); err == nil && len(d) > 0 {
+			data = d
+			readSuccess = true
+		}
+	}
+
+	return data, readSuccess
+}
+
+func (ctx *Context) FetchArgStructDataExact(argIndex int, ptr uint64, size int, isExit bool, bpfBuf []byte) ([]byte, bool) {
+	data, ok := ctx.FetchArgStructData(argIndex, ptr, size, isExit, bpfBuf)
+	if ok && len(data) == size {
+		return data, true
+	}
+	return nil, false
+}
+
+func (ctx *Context) DecodeArgStructWithFallback(argIndex int, val uint64, size int, isExit bool, bpfBuf []byte, decodeFn func([]byte) string) (string, bool) {
+	if val == 0 {
+		return "NULL", true
+	}
+	data, ok := ctx.FetchArgStructDataExact(argIndex, val, size, isExit, bpfBuf)
+	if !ok {
+		return fmt.Sprintf("%#x", val), true
+	}
+	return decodeFn(data), true
+}
+
 func (ctx *Context) DecodeStructWithFallback(val uint64, size int, isExit bool, bpfBuf []byte, decodeFn func([]byte) string) (string, bool) {
 	if val == 0 {
 		return "NULL", true

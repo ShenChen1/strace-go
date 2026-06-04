@@ -17,7 +17,7 @@ func init() {
 
 func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	if ctx.ScMeta.Name == "utimensat" {
-		return ctx.DecodeStructWithFallback(val, 32, false, ctx.StrArgBuf[BpfMiscArgOffset:BpfMiscArgOffset+32], format.Utimes)
+		return ctx.DecodeArgStructWithFallback(i, val, 32, false, ctx.StrArgBuf[BpfMiscArgOffset:BpfMiscArgOffset+32], format.Utimes)
 	}
 
 	isNanosleep := ctx.ScMeta.Name == "nanosleep"
@@ -28,9 +28,9 @@ func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, boo
 			if ctx.Ret != -516 && ctx.Ret != -4 {
 				return "", false
 			}
-			return ctx.DecodeStructWithFallback(val, 16, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+16], format.Timespec)
+			return ctx.DecodeArgStructWithFallback(i, val, 16, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+16], format.Timespec)
 		} else {
-			return ctx.DecodeStructWithFallback(val, 16, false, ctx.StrArgBuf[0:16], format.Timespec)
+			return ctx.DecodeArgStructWithFallback(i, val, 16, false, ctx.StrArgBuf[0:16], format.Timespec)
 		}
 	}
 
@@ -41,7 +41,7 @@ func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, boo
 		}
 	}
 	
-	return ctx.DecodeStructWithFallback(val, 16, false, ctx.StrArgBuf[0:16], format.Timespec)
+	return ctx.DecodeArgStructWithFallback(i, val, 16, false, ctx.StrArgBuf[0:16], format.Timespec)
 }
 
 func decodeTimeval(ctx *Context, i int, argTyp string, val uint64) (string, bool) {

@@ -42,13 +42,12 @@ func (h *AioHandler) formatIoSetup(ctx *Context, res *Result) {
 	if ctx.Args[1] == 0 {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else if ctx.Ret >= 0 {
-		data := ctx.StrArgBuf[BpfExitArgOffset:1032]
-		if ctx.ProbeRetExit < 0 {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[1], 8, true); err == nil {
-				data = d
-			}
+		data, ok := ctx.FetchStructDataExact(ctx.Args[1], 8, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+8])
+		if ok {
+			res.ArgParts = append(res.ArgParts, "["+fmt.Sprintf("%#x", binary.LittleEndian.Uint64(data))+"]")
+		} else {
+			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[1]))
 		}
-		res.ArgParts = append(res.ArgParts, "["+fmt.Sprintf("%#x", binary.LittleEndian.Uint64(data))+"]")
 	} else {
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[1]))
 	}
@@ -92,7 +91,8 @@ func (h *AioHandler) formatIoSubmit(ctx *Context, res *Result) {
 	}
 
 	var parts []string
-	for i := 0; i < count && i < limit; i++ {
+	var i int
+	for i = 0; i < count && i < limit; i++ {
 		if len(pdata) < (i+1)*8 { break }
 		p := binary.LittleEndian.Uint64(pdata[i*8 : i*8+8])
 		if p == 0 { parts = append(parts, "NULL"); continue }
@@ -121,9 +121,9 @@ func (h *AioHandler) formatIoSubmit(ctx *Context, res *Result) {
 			parts = append(parts, fmt.Sprintf("%#x", p))
 		}
 	}
-	if count > limit {
+	if count > i {
 		parts = append(parts, "...")
-		parts[len(parts)-1] += fmt.Sprintf(" /* %#x */", ctx.Args[2]+uint64(limit*8))
+		parts[len(parts)-1] += fmt.Sprintf(" /* %#x */", ctx.Args[2]+uint64(i*8))
 	}
 	res.ArgParts = append(res.ArgParts, "["+strings.Join(parts, ", ")+"]")
 }
@@ -135,6 +135,14 @@ func (h *AioHandler) formatAioBuf(ctx *Context, opcode uint16, buf uint64, nbyte
 		} else {
 			return "0"
 		}
+	}
+	if opcode == 1 {
+		// IOCB_CMD_PWRITE: print string
+		data, err := ctx.MemReader.ReadRobust(ctx.Pid, buf, int(nbytes), false)
+		if err == nil && len(data) > 0 {
+			return format.Buffer(data, ctx.Opts.StringLimit, int(nbytes))
+		}
+		return fmt.Sprintf("%#x", buf)
 	}
 	if opcode != 7 && opcode != 8 {
 		return fmt.Sprintf("%#x", buf)
@@ -178,17 +186,17 @@ func (h *AioHandler) formatIoGetevents(ctx *Context, res *Result) {
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[0]))
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int64(ctx.Args[1])))
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int64(ctx.Args[2])))
+	
 	if ctx.Args[3] == 0 {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else if ctx.Ret > 0 {
 		count := int(ctx.Ret)
-		data := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+512]
-		if ctx.ProbeRetExit < 0 {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[3], count*32, true); err == nil {
-				data = d
-			}
+		data, ok := ctx.FetchStructData(ctx.Args[3], count*32, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+512])
+		if ok {
+			res.ArgParts = append(res.ArgParts, format.IoEvents(data, count))
+		} else {
+			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[3]))
 		}
-		res.ArgParts = append(res.ArgParts, format.IoEvents(data, count))
 	} else {
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[3]))
 	}
@@ -196,13 +204,8 @@ func (h *AioHandler) formatIoGetevents(ctx *Context, res *Result) {
 	if ctx.Args[4] == 0 {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else {
-		data := ctx.StrArgBuf[512:528]
-		if ctx.ProbeRetEnter < 0 {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[4], 16, false); err == nil && len(d) >= 16 {
-				data = d
-			}
-		}
-		if len(data) >= 16 {
+		data, ok := ctx.FetchArgStructDataExact(4, ctx.Args[4], 16, false, ctx.StrArgBuf[512:528])
+		if ok {
 			allZeros := true
 			for _, x := range data {
 				if x != 0 { allZeros = false; break }
@@ -222,14 +225,8 @@ func (h *AioHandler) formatIoGetevents(ctx *Context, res *Result) {
 		if ctx.Args[5] == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
-			d := ctx.StrArgBuf[528:544]
-			if ctx.ProbeRetEnter < 0 {
-				if m, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[5], 16, false); err == nil && len(m) >= 16 {
-					d = m
-				}
-			}
-
-			if len(d) >= 16 {
+			d, ok := ctx.FetchArgStructDataExact(5, ctx.Args[5], 16, false, ctx.StrArgBuf[528:544])
+			if ok {
 				allZerosSig := true
 				for _, x := range d {
 					if x != 0 { allZerosSig = false; break }
