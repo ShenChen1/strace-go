@@ -119,6 +119,7 @@ MORE_TESTS = [
     "strace-tt.test",
     "strace-ttt.test",
     "strace-T_upper.test",
+    "strace-x.gen.test",
     "strace-xx.gen.test",
 ]
 

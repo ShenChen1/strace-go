@@ -84,6 +84,24 @@ func BufferEscape(data []byte, limit int, actualLen int, escapeMode int) string 
 	if printLimit <= 0 { printLimit = len(data) }
 	if printLimit > len(data) { printLimit = len(data) }
 	
+	if escapeMode == 1 {
+		hasUnprintable := false
+		for i := 0; i < printLimit; i++ {
+			b := data[i]
+			if b == '\n' || b == '\r' || b == '\t' || b == '\v' || b == '\f' {
+				continue
+			}
+			if b >= 32 && b <= 126 {
+				continue
+			}
+			hasUnprintable = true
+			break
+		}
+		if hasUnprintable {
+			escapeMode = 2
+		}
+	}
+	
 	var sb strings.Builder
 	sb.WriteByte('"')
 	
