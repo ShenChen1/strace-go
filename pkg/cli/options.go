@@ -44,6 +44,7 @@ type Options struct {
 	SuccessfulOnly      bool // -z
 	FailedOnly          bool // -Z
 	EnvActions          []string // -E
+	WallTime            bool     // -w
 }
 
 // IMPACT: ParseArgs parses strace-go command-line arguments and returns Options.
@@ -175,6 +176,8 @@ func parseBasicFlags(arg string, opts *Options) bool {
 		opts.SummaryOnly = true
 	case arg == "-C":
 		opts.SummaryAndPrint = true
+	case arg == "-w" || arg == "--summary-wall-clock":
+		opts.WallTime = true
 	case arg == "-h" || arg == "--help":
 		opts.HelpRequested = true
 	case arg == "-V" || arg == "--version":
