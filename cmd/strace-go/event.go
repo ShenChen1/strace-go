@@ -70,7 +70,6 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	// IMPACT: Use Tid instead of Pid to guarantee process_vm_readv succeeds even if leader thread is zombie.
 	rawStrArg := s.decoder.DecodeString(int(eventRaw.Tid), eventRaw.Ptr, strArgBuf[:capSize], ptrProbeRet, scMeta.Name, 0)
 
-	updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, s.targetPid, s.fdMap)
 	defer func() {
 		if scMeta.Name == "close" && ret == 0 {
 			delete(s.fdMap, fmt.Sprintf("%d:%d", s.targetPid, int32(eventRaw.Args[0])))
@@ -100,7 +99,9 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		}
 	}
 
-	shouldPrint := checkShouldPrint(eventRaw, scMeta, rawStrArg, s.targetPid, s.opts, s.fdMap)
+	shouldPrint := checkShouldPrint(eventRaw, scMeta, rawStrArg, isPath, s.targetPid, s.opts, s.fdMap)
+
+	updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, s.targetPid, s.fdMap)
 
 	ctx := &handler.Context{
 		Pid: int(eventRaw.Pid), Tid: tPid, TargetPid: s.targetPid, SysId: eventRaw.SysId,
@@ -137,7 +138,8 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 
 	// For sys_enter (ProbeRetEnter == 3), ret is usually 0. We can't know if it will fail.
 	// For simplicity, if filtering is enabled, we skip printing unfinished to avoid dangling lines.
-	if s.opts != nil && (s.opts.SuccessfulOnly || s.opts.FailedOnly) && eventRaw.ProbeRetEnter == 3 {
+	hasStatusFilter := s.opts != nil && (s.opts.SuccessfulOnly || s.opts.FailedOnly || len(s.opts.TraceStatus) > 0)
+	if hasStatusFilter && eventRaw.ProbeRetEnter == 3 {
 		return
 	}
 
@@ -147,6 +149,12 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 		}
 		if s.opts != nil && s.opts.FailedOnly && !isFailed {
 			return
+		}
+		if s.opts != nil && len(s.opts.TraceStatus) > 0 {
+			statusMatch := false
+			if s.opts.TraceStatus["successful"] && !isFailed { statusMatch = true }
+			if s.opts.TraceStatus["failed"] && isFailed { statusMatch = true }
+			if !statusMatch { return }
 		}
 	}
 
@@ -232,7 +240,7 @@ func formatTimePrefix(enterTimeMonoNs uint64, s *traceSession) string {
 
 		sec := diff / 1e9
 		usec := (diff % 1e9) / 1000
-		return fmt.Sprintf("%5d.%06d ", sec, usec)
+		return fmt.Sprintf("%6d.%06d ", sec, usec)
 	}
 
 	realTimeNs := int64(enterTimeMonoNs) + s.bootTimeOffsetNs

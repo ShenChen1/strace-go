@@ -85,6 +85,9 @@ func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, deco
 		oldFd := int32(eventRaw.Args[0])
 		if p, ok := fdMap[fmt.Sprintf("%d:%d", targetPid, oldFd)]; ok {
 			fdMap[fmt.Sprintf("%d:%d", targetPid, int32(ret))] = p
+			fmt.Fprintf(os.Stderr, "DEBUG dup: pid %d oldFd %d newFd %d path %s\n", targetPid, oldFd, ret, p)
+		} else {
+			fmt.Fprintf(os.Stderr, "DEBUG dup FAIL: pid %d oldFd %d not found in fdMap!\n", targetPid, oldFd)
 		}
 	}
 	// Deletion for "close" is deferred to the end of handleEvent to ensure DecodeFd still has the state.
@@ -161,13 +164,24 @@ func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, deco
 	}
 }
 // IMPACT: checkShouldPrint filters syscall events by syscall list, path and read/write descriptor filter options.
-func checkShouldPrint(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, targetPid int, opts *cli.Options, fdMap map[string]string) bool {
-	fd := int32(-1)
-	if len(scMeta.Args) > 0 && (scMeta.Args[0] == "fd" || scMeta.Args[0] == "dfd") {
-		fd = int32(eventRaw.Args[0])
+func checkShouldPrint(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, isPath bool, targetPid int, opts *cli.Options, fdMap map[string]string) bool {
+	var fds []int32
+	for i, argName := range scMeta.Args {
+		if argName == "fd" || argName == "dfd" || argName == "fildes" || argName == "oldfd" || argName == "newfd" {
+			fds = append(fds, int32(eventRaw.Args[i]))
+		}
 	}
-	matchedPath := event.MatchPath(targetPid, fd, scMeta.Name, eventRaw.Ptr, rawStrArg, opts.TracePaths, fdMap)
-	requestedRW := (scMeta.Name == "read" && opts.TraceReadFDs[fd]) || (scMeta.Name == "write" && opts.TraceWriteFDs[fd])
+	if len(fds) == 0 {
+		fds = []int32{-1}
+	}
+	matchedPath := event.MatchPath(targetPid, fds, isPath, scMeta.Name, eventRaw.Ptr, rawStrArg, opts.TracePaths, fdMap)
+	requestedRW := false
+	for _, fd := range fds {
+		if (scMeta.Name == "read" && opts.TraceReadFDs[fd]) || (scMeta.Name == "write" && opts.TraceWriteFDs[fd]) {
+			requestedRW = true
+			break
+		}
+	}
 
 	matchedSyscall := len(opts.TraceSyscalls) == 0 && len(opts.TraceSyscallRegexps) == 0
 	if !matchedSyscall {

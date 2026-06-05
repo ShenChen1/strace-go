@@ -62,6 +62,9 @@ MORE_TESTS = [
     "clone_parent-qq.gen.test",
     "clone_parent.gen.test",
     
+    "dup-P.gen.test",
+    "dup2-P.gen.test",
+    "dup3-P.gen.test",
     "dup-yy.gen.test",
     "dup2.gen.test",
     "dup3.gen.test",
@@ -109,10 +112,11 @@ MORE_TESTS = [
     "status-failed.gen.test",
     "status-all.gen.test",
     "status-none.gen.test",
-]
-
-DIAGNOSTIC_TESTS = [
-    "execveat.gen.test", "recvfrom.gen.test", "fcntl.gen.test", "ioctl.test", "getgid.gen.test"
+    "strace-r.test",
+    "strace-t.test",
+    "strace-tt.test",
+    "strace-ttt.test",
+    "strace-T_upper.test",
 ]
 
 def parse_args():

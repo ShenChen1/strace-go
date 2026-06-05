@@ -165,42 +165,67 @@ func (d *Decoder) DecodeStringRaw(pid int, ptr uint64, bpfData []byte, probeRet 
 }
 
 // MatchPath checks if the syscall matches any of the paths in the filter list.
-func MatchPath(pid int, fd int32, scName string, ptr uint64, rawStrArg string, tracePaths map[string]bool, fdMap map[string]string) bool {
+func MatchPath(pid int, fds []int32, isPath bool, scName string, ptr uint64, rawStrArg string, tracePaths map[string]bool, fdMap map[string]string) bool {
 	if len(tracePaths) == 0 { return true }
 	
-	p := rawStrArg
-	if (p == "" || p == "NULL" || strings.HasPrefix(p, "0x")) && fd != -1 {
-		if path, ok := fdMap[fmt.Sprintf("%d:%d", pid, fd)]; ok { 
-			p = path 
-		}
-	}
-	
-	// Strip quotes if present
-	if len(p) >= 2 && p[0] == '"' && p[len(p)-1] == '"' {
-		p = p[1 : len(p)-1]
-	}
+	var candidatePaths []string
 
-	if p == "" || p == "NULL" || strings.HasPrefix(p, "0x") { return false }
-	
-	for tp := range tracePaths {
-		if p == tp || strings.HasPrefix(p, tp+"/") { return true }
-		
-		absP := p
-		if !strings.HasPrefix(p, "/") {
-			if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid)); err == nil {
-				absP = cwd + "/" + p
+	// 1. Path from FDs
+	baseFd := int32(-1)
+	for _, fd := range fds {
+		if fd != -1 {
+			if path, ok := fdMap[fmt.Sprintf("%d:%d", pid, fd)]; ok { 
+				candidatePaths = append(candidatePaths, path)
+			}
+			if baseFd == -1 {
+				baseFd = fd
 			}
 		}
+	}
+
+	// 2. Path from string argument
+	if isPath && rawStrArg != "" && rawStrArg != "NULL" && !strings.HasPrefix(rawStrArg, "0x") {
+		p := rawStrArg
+		if len(p) >= 2 && p[0] == '"' && p[len(p)-1] == '"' {
+			p = p[1 : len(p)-1]
+		}
 		
-		absTP := tp
-		if !strings.HasPrefix(tp, "/") {
-			if cwd, err := os.Getwd(); err == nil {
-				absTP = cwd + "/" + tp
+		if strings.HasPrefix(p, "/") {
+			candidatePaths = append(candidatePaths, p)
+		} else {
+			// resolve relative
+			base := ""
+			if baseFd != -1 && baseFd != -100 /* AT_FDCWD */ {
+				base = fdMap[fmt.Sprintf("%d:%d", pid, baseFd)]
+			} else if baseFd == -1 || baseFd == -100 {
+				if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid)); err == nil {
+					base = cwd
+				}
+			}
+			if base != "" {
+				candidatePaths = append(candidatePaths, base + "/" + p)
+			} else {
+				candidatePaths = append(candidatePaths, p)
 			}
 		}
+	}
 
-
-		if absP == absTP || strings.HasPrefix(absP, absTP+"/") { return true }
+	// Check all candidate paths
+	for _, p := range candidatePaths {
+		if len(p) >= 2 && p[0] == '"' && p[len(p)-1] == '"' {
+			p = p[1 : len(p)-1]
+		}
+		for tp := range tracePaths {
+			if p == tp || strings.HasPrefix(p, tp+"/") { return true }
+			
+			absTP := tp
+			if !strings.HasPrefix(tp, "/") {
+				if cwd, err := os.Getwd(); err == nil {
+					absTP = cwd + "/" + tp
+				}
+			}
+			if p == absTP || strings.HasPrefix(p, absTP+"/") { return true }
+		}
 	}
 	return false
 }

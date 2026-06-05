@@ -196,12 +196,31 @@ func Hexdump(data []byte) string {
 	var res []string
 	for i := 0; i < len(data); i += 16 {
 		end := i + 16
-		if end > len(data) { end = len(data) }
+		if end > len(data) {
+			end = len(data)
+		}
 		row := data[i:end]
-		var hex []string
-		for _, b := range row { hex = append(hex, fmt.Sprintf("%02x", b)) }
-		res = append(res, strings.Join(hex, " "))
+		
+		var hexStr string
+		var asciiStr string
+		
+		for j, b := range row {
+			if j == 8 {
+				hexStr += " "
+			}
+			hexStr += fmt.Sprintf("%02x ", b)
+			
+			if b >= 32 && b <= 126 {
+				asciiStr += string(b)
+			} else {
+				asciiStr += "."
+			}
+		}
+		
+		hexStr = strings.TrimSuffix(hexStr, " ")
+		res = append(res, fmt.Sprintf(" | %05x  %-48s  %-16s |", i, hexStr, asciiStr))
 	}
+	if len(res) == 0 { return "" }
 	return strings.Join(res, "\n") + "\n"
 }
 

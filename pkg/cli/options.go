@@ -20,6 +20,7 @@ type Options struct {
 	TracePaths          map[string]bool
 	TraceReadFDs        map[int32]bool
 	TraceWriteFDs       map[int32]bool
+	TraceStatus         map[string]bool
 	ShowPaths           bool
 	ShowPathsMode       int // 0 = none, 1 = -y, 2 = -yy
 	Verbose             bool
@@ -56,6 +57,7 @@ func ParseArgs(args []string) *Options {
 		TracePaths:    make(map[string]bool),
 		TraceReadFDs:  make(map[int32]bool),
 		TraceWriteFDs: make(map[int32]bool),
+		TraceStatus:   make(map[string]bool),
 	}
 
 	for i := 0; i < len(args); i++ {
@@ -307,6 +309,17 @@ func parseEFlag(val string, opts *Options) {
 			if n, _ := fmt.Sscanf(s, "%d", &fd); n == 1 {
 				opts.TraceWriteFDs[fd] = true
 			}
+		}
+	} else if strings.HasPrefix(val, "status=") {
+		for _, s := range strings.Split(strings.TrimPrefix(val, "status="), ",") {
+			opts.TraceStatus[s] = true
+		}
+	} else if strings.HasPrefix(val, "signal=") {
+		// parsed but not implemented yet
+	} else if strings.HasPrefix(val, "quiet=") {
+		for _, s := range strings.Split(strings.TrimPrefix(val, "quiet="), ",") {
+			if s == "exit" { opts.QuietExit = true }
+			if s == "all" { opts.QuietUnknownPid = true; opts.QuietThreadExecve = true }
 		}
 	} else {
 		for _, s := range strings.Split(val, ",") {

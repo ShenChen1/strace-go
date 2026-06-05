@@ -14,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 	"unsafe"
 
 	"strace-go/pkg/cli"
@@ -75,6 +77,35 @@ func startAndTraceCmd(cmdArgs []string, bpfObjs *bpfObjects) (*exec.Cmd, int, ma
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	
+	// IMPACT: Pass inherited FDs > 2 to the tracee to ensure test suites relying on external FDs (e.g. 9>>/dev/full) work.
+	if entries, err := os.ReadDir("/proc/self/fd"); err == nil {
+		var extraFiles []*os.File
+		maxFd := -1
+		// Find the highest FD to know how many ExtraFiles we need
+		for _, entry := range entries {
+			if fd, err := strconv.Atoi(entry.Name()); err == nil {
+				if fd > maxFd {
+					maxFd = fd
+				}
+			}
+		}
+		if maxFd > 2 {
+			extraFiles = make([]*os.File, maxFd-2)
+			for _, entry := range entries {
+				if fd, err := strconv.Atoi(entry.Name()); err == nil && fd > 2 {
+					// Don't pass epoll or bpf fds if possible, but we don't know which is which easily.
+					// We'll just pass everything inherited that is valid.
+					f := os.NewFile(uintptr(fd), entry.Name())
+					if f != nil {
+						extraFiles[fd-3] = f
+					}
+				}
+			}
+			cmd.ExtraFiles = extraFiles
+		}
+	}
+
 	cmd.SysProcAttr = &syscall.SysProcAttr{Ptrace: true}
 	if err := cmd.Start(); err != nil {
 		log.Fatalf("failed to start command: %v", err)
@@ -239,12 +270,17 @@ func (s *traceSession) run() {
 					s.handleEvent(ev)
 				}
 				if s.opts == nil || !s.opts.QuietExit {
+					var tsMono unix.Timespec
+					unix.ClockGettime(unix.CLOCK_MONOTONIC, &tsMono)
+					monoNs := uint64(tsMono.Sec)*1e9 + uint64(tsMono.Nsec)
+					timePrefix := formatTimePrefix(monoNs, s)
+
 					pidPrefix := ""
 					if s.opts != nil && s.opts.FollowForks {
 						pidPrefix = fmt.Sprintf("%-5d ", s.targetPid)
 					}
 					if s.opts == nil || !s.opts.SummaryOnly {
-						fmt.Fprintf(s.outWriter, "%s+++ exited with 0 +++\n", pidPrefix)
+						fmt.Fprintf(s.outWriter, "%s%s+++ exited with 0 +++\n", timePrefix, pidPrefix)
 					}
 				}
 				if s.opts != nil && (s.opts.SummaryOnly || s.opts.SummaryAndPrint) {
@@ -369,10 +405,20 @@ func (s *traceSession) printFakeFirstExecve() {
 	if len(s.opts.CmdArgs) > 0 {
 		cmdName = s.opts.CmdArgs[0]
 	}
+	var tsMono unix.Timespec
+	unix.ClockGettime(unix.CLOCK_MONOTONIC, &tsMono)
+	monoNs := uint64(tsMono.Sec)*1e9 + uint64(tsMono.Nsec)
+	timePrefix := formatTimePrefix(monoNs, s)
+
 	line := fmt.Sprintf("execve(\"%s\", %s, 0x7ffdbcb5c068 /* %d vars */)", cmdName, argvStr, envc)
 	padding := " "
-	if len(line) < s.opts.AlignCol {
-		padding = strings.Repeat(" ", s.opts.AlignCol-len(line))
+	totalLen := len(timePrefix) + len(pidPrefix) + len(line)
+	if totalLen < s.opts.AlignCol {
+		padding = strings.Repeat(" ", s.opts.AlignCol-totalLen)
 	}
-	fmt.Fprintf(s.outWriter, "%s%s%s= 0\n", pidPrefix, line, padding)
+	durationSuffix := ""
+	if s.opts != nil && s.opts.PrintSyscallTime {
+		durationSuffix = " <0.000000>"
+	}
+	fmt.Fprintf(s.outWriter, "%s%s%s%s= 0%s\n", timePrefix, pidPrefix, line, padding, durationSuffix)
 }
