@@ -17,7 +17,7 @@ struct bpf_event {
     u64 ret;
     u64 ptr;
     u32 data_len;
-    u32 _pad;
+    s32 stack_id;
     u8 str_arg[4504];
 };
 
@@ -39,6 +39,20 @@ struct {
     __type(key, u32);
     __type(value, u32);
 } filter_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, u32);
+} config_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_STACK_TRACE);
+    __uint(max_entries, 10240);
+    __type(key, u32);
+    __type(value, u64[127]);
+} stack_traces SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -82,9 +96,15 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
     if (!e) return 0;
     
-    e->pid = pid; e->sys_id = sys_id; e->tid = tid; e->probe_ret_enter = -1; e->probe_ret_exit = -1; e->ptr = 0; e->ret = 0; e->data_len = 0;
+    e->pid = pid; e->sys_id = sys_id; e->tid = tid; e->probe_ret_enter = -1; e->probe_ret_exit = -1; e->ptr = 0; e->ret = 0; e->data_len = 0; e->stack_id = -1;
     e->enter_time = bpf_ktime_get_ns();
     e->duration = 0;
+
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
+    if (cfg && *cfg & 1) {
+        e->stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
+    }
+
     // IMPACT: Revert zero-initialization in trace_sys_enter to restore compile success under BPF.
     e->args[0] = ctx->args[0];
     e->args[1] = ctx->args[1];

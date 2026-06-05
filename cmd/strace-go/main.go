@@ -15,6 +15,7 @@ import (
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 	"strace-go/pkg/procmem"
+	"strace-go/pkg/stacktrace"
 
 	"github.com/cilium/ebpf/ringbuf"
 )
@@ -82,6 +83,10 @@ func main() {
 	}
 	defer events.Close()
 
+	if opts.StackTrace {
+		bpfObjs.ConfigMap.Update(uint32(0), uint32(1), 0)
+	}
+
 	var cmd *exec.Cmd
 	var targetPid int
 	var fdMap map[string]string
@@ -104,6 +109,11 @@ func main() {
 		defer outFile.Close()
 	}
 
+	var resolver *stacktrace.Resolver
+	if opts.StackTrace {
+		resolver = stacktrace.NewResolver(targetPid)
+	}
+
 	session := &traceSession{
 		cmd:               cmd,
 		events:            events,
@@ -115,6 +125,8 @@ func main() {
 		outWriter:         outWriter,
 		outFile:           outFile,
 		bootTimeOffsetNs:  calculateTimeOffset(),
+		bpfObjs:           bpfObjs,
+		resolver:          resolver,
 	}
 	session.run()
 }
@@ -142,6 +154,6 @@ type bpfEvent struct {
 	Ret           int64
 	Ptr           uint64
 	DataLen       uint32
-	_             uint32
+	StackId       int32
 	StrArg        [10000]byte
 }

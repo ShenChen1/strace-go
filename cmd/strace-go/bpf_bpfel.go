@@ -27,7 +27,7 @@ type bpfBpfEvent struct {
 	Ret           uint64
 	Ptr           uint64
 	DataLen       uint32
-	Pad           uint32
+	StackId       int32
 	StrArg        [4504]uint8
 }
 
@@ -81,12 +81,14 @@ type bpfProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfMapSpecs struct {
+	ConfigMap      *ebpf.MapSpec `ebpf:"config_map"`
 	Events         *ebpf.MapSpec `ebpf:"events"`
 	EventsMap      *ebpf.MapSpec `ebpf:"events_map"`
 	FilterMap      *ebpf.MapSpec `ebpf:"filter_map"`
 	Heap           *ebpf.MapSpec `ebpf:"heap"`
 	MainExitedMap  *ebpf.MapSpec `ebpf:"main_exited_map"`
 	PendingExecMap *ebpf.MapSpec `ebpf:"pending_exec_map"`
+	StackTraces    *ebpf.MapSpec `ebpf:"stack_traces"`
 }
 
 // bpfVariableSpecs contains global variables before they are loaded into the kernel.
@@ -115,22 +117,26 @@ func (o *bpfObjects) Close() error {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfMaps struct {
+	ConfigMap      *ebpf.Map `ebpf:"config_map"`
 	Events         *ebpf.Map `ebpf:"events"`
 	EventsMap      *ebpf.Map `ebpf:"events_map"`
 	FilterMap      *ebpf.Map `ebpf:"filter_map"`
 	Heap           *ebpf.Map `ebpf:"heap"`
 	MainExitedMap  *ebpf.Map `ebpf:"main_exited_map"`
 	PendingExecMap *ebpf.Map `ebpf:"pending_exec_map"`
+	StackTraces    *ebpf.Map `ebpf:"stack_traces"`
 }
 
 func (m *bpfMaps) Close() error {
 	return _BpfClose(
+		m.ConfigMap,
 		m.Events,
 		m.EventsMap,
 		m.FilterMap,
 		m.Heap,
 		m.MainExitedMap,
 		m.PendingExecMap,
+		m.StackTraces,
 	)
 }
 

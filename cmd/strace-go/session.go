@@ -19,6 +19,7 @@ import (
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 	"strace-go/pkg/procmem"
+	"strace-go/pkg/stacktrace"
 
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
@@ -44,6 +45,8 @@ type traceSession struct {
 	stats             map[string]*syscallStat
 	bootTimeOffsetNs  int64
 	lastSyscallTimeNs uint64
+	bpfObjs           *bpfObjects
+	resolver          *stacktrace.Resolver
 }
 
 // IMPACT: setupBPF loads the BPF objects and attaches the raw syscall raw tracepoints.

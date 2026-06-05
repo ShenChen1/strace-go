@@ -349,6 +349,22 @@ func printSyscallOutput(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Res
 		fmt.Fprintf(outWriter, "%s%s--- SIGALRM {si_signo=SIGALRM, si_code=SI_KERNEL} ---\n", timePrefix, pidPrefix)
 	}
 
+	if opts != nil && opts.StackTrace && s.bpfObjs != nil && s.resolver != nil {
+		if eventRaw.StackId > 0 {
+			var ips [127]uint64
+			err := s.bpfObjs.StackTraces.Lookup(uint32(eventRaw.StackId), &ips)
+			if err == nil {
+				for _, ip := range ips {
+					if ip == 0 {
+						break
+					}
+					resolved := s.resolver.Resolve(ip)
+					fmt.Fprintf(outWriter, " > %s\n", resolved)
+				}
+			}
+		}
+	}
+
 	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret < 0 {
 		pendingExecArgsLock.Lock()
 		delete(pendingExecArgs, tPid)
