@@ -32,16 +32,18 @@ type syscallStat struct {
 }
 
 type traceSession struct {
-	cmd       *exec.Cmd
-	events    *ringbuf.Reader
-	targetPid int
-	opts      *cli.Options
-	decoder   *event.Decoder
-	memReader *procmem.Reader
-	fdMap     map[string]string
-	outWriter io.Writer
-	outFile   *os.File
-	stats     map[string]*syscallStat
+	cmd               *exec.Cmd
+	events            *ringbuf.Reader
+	targetPid         int
+	opts              *cli.Options
+	decoder           *event.Decoder
+	memReader         *procmem.Reader
+	fdMap             map[string]string
+	outWriter         io.Writer
+	outFile           *os.File
+	stats             map[string]*syscallStat
+	bootTimeOffsetNs  int64
+	lastSyscallTimeNs uint64
 }
 
 // IMPACT: setupBPF loads the BPF objects and attaches the raw syscall raw tracepoints.

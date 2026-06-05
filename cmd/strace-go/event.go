@@ -2,12 +2,11 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
-	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
@@ -167,33 +166,80 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 		delete(pendingExecArgs, tPid)
 		pendingExecArgsLock.Unlock()
 		if ok {
-			padding := " "
-			if len(argLine) < s.opts.AlignCol {
-				padding = strings.Repeat(" ", s.opts.AlignCol-len(argLine))
-			}
+			timePrefix := formatTimePrefix(eventRaw.EnterTime, s)
 			pidPrefix := ""
 			if s.opts != nil && s.opts.FollowForks {
 				pidPrefix = fmt.Sprintf("%-5d ", tPid)
 			}
-			fmt.Fprintf(s.outWriter, "%s%s%s= 0\n", pidPrefix, argLine, padding)
+			padding := " "
+			totalLen := len(timePrefix) + len(pidPrefix) + len(argLine)
+			if totalLen < s.opts.AlignCol {
+				padding = strings.Repeat(" ", s.opts.AlignCol-totalLen)
+			}
+			durationSuffix := ""
+			if s.opts != nil && s.opts.PrintSyscallTime {
+				sec := eventRaw.Duration / 1e9
+				usec := (eventRaw.Duration % 1e9) / 1000
+				durationSuffix = fmt.Sprintf(" <%d.%06d>", sec, usec)
+			}
+			fmt.Fprintf(s.outWriter, "%s%s%s%s= 0%s\n", timePrefix, pidPrefix, argLine, padding, durationSuffix)
 		}
 		return
 	}
 
-	if handleSuperseded(eventRaw, scMeta, res, s.targetPid, s.opts, s.outWriter) {
+	if handleSuperseded(eventRaw, scMeta, res, s) {
 		return
 	}
 
-	printSyscallOutput(eventRaw, scMeta, res, ctx, s.opts, s.outWriter)
+	printSyscallOutput(eventRaw, scMeta, res, ctx, s)
 }
 
+// IMPACT: formatTimePrefix computes the time prefix string based on parsed time options.
+func formatTimePrefix(enterTimeMonoNs uint64, s *traceSession) string {
+	if s.opts.PrintTimeMode == 0 && !s.opts.PrintRelativeTime {
+		return ""
+	}
 
+	if s.opts.PrintRelativeTime {
+		var diff uint64
+		if s.lastSyscallTimeNs == 0 {
+			diff = 0
+		} else {
+			diff = enterTimeMonoNs - s.lastSyscallTimeNs
+		}
+		s.lastSyscallTimeNs = enterTimeMonoNs
+
+		sec := diff / 1e9
+		usec := (diff % 1e9) / 1000
+		return fmt.Sprintf("%5d.%06d ", sec, usec)
+	}
+
+	realTimeNs := int64(enterTimeMonoNs) + s.bootTimeOffsetNs
+	t := time.Unix(0, realTimeNs)
+
+	if s.opts.PrintTimeMode == 3 {
+		sec := realTimeNs / 1e9
+		usec := (realTimeNs % 1e9) / 1000
+		return fmt.Sprintf("%d.%06d ", sec, usec)
+	}
+	if s.opts.PrintTimeMode == 2 {
+		return t.Format("15:04:05.000000") + " "
+	}
+	if s.opts.PrintTimeMode == 1 {
+		return t.Format("15:04:05") + " "
+	}
+	return ""
+}
 
 // IMPACT: handleSuperseded formats and prints superseded thread details when a non-leader thread executes execve.
 // It increments the currentAction iteration count to align test expectation for iteration index tracking.
-func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, targetPid int, opts *cli.Options, outWriter io.Writer) bool {
+func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, s *traceSession) bool {
 	ret := eventRaw.Ret
 	tPid := int(eventRaw.Tid)
+	opts := s.opts
+	targetPid := s.targetPid
+	outWriter := s.outWriter
+	timePrefix := formatTimePrefix(eventRaw.EnterTime, s)
 	isExecSuspended := (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == -514
 	if isExecSuspended && tPid != targetPid && opts != nil && opts.FollowForks {
 		exited := eventRaw.ProbeRetEnter == 1
@@ -210,9 +256,9 @@ func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Resul
 		}
 
 		if exited {
-			fmt.Fprintf(outWriter, "%-5d %s <pid changed to %d ...>\n", tPid, argLine, targetPid)
+			fmt.Fprintf(outWriter, "%s%-5d %s <pid changed to %d ...>\n", timePrefix, tPid, argLine, targetPid)
 		} else {
-			fmt.Fprintf(outWriter, "%-5d %s <unfinished ...>\n", tPid, argLine)
+			fmt.Fprintf(outWriter, "%s%-5d %s <unfinished ...>\n", timePrefix, tPid, argLine)
 		}
 		return true
 	}
@@ -239,25 +285,29 @@ func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Resul
 				lastSuspendedSyscallLock.Unlock()
 
 				if suspMeta.Name == "rt_sigsuspend" {
-					fmt.Fprintf(outWriter, "%-5d <... rt_sigsuspend resumed>) = ?\n", targetPid)
+					fmt.Fprintf(outWriter, "%s%-5d <... rt_sigsuspend resumed>) = ?\n", timePrefix, targetPid)
 				} else if suspMeta.Name == "nanosleep" {
-					fmt.Fprintf(outWriter, "%-5d <... nanosleep resumed> <unfinished ...>) = ?\n", targetPid)
+					fmt.Fprintf(outWriter, "%s%-5d <... nanosleep resumed> <unfinished ...>) = ?\n", timePrefix, targetPid)
 				}
 			}
 		}
 		if !opts.QuietThreadExecve {
-			fmt.Fprintf(outWriter, "%-5d +++ superseded by execve in pid %d +++\n", targetPid, tPid)
+			fmt.Fprintf(outWriter, "%s%-5d +++ superseded by execve in pid %d +++\n", timePrefix, targetPid, tPid)
 		}
-		fmt.Fprintf(outWriter, "%-5d <... %s resumed>) = 0\n", targetPid, scMeta.Name)
+		fmt.Fprintf(outWriter, "%s%-5d <... %s resumed>) = 0\n", timePrefix, targetPid, scMeta.Name)
 		return true
 	}
 	return false
 }
 
 // IMPACT: printSyscallOutput outputs formatted syscall trace lines and logs signal delivery if applicable.
-func printSyscallOutput(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, ctx *handler.Context, opts *cli.Options, outWriter io.Writer) {
+func printSyscallOutput(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, ctx *handler.Context, s *traceSession) {
 	tPid := int(eventRaw.Tid)
 	ret := eventRaw.Ret
+	opts := s.opts
+	outWriter := s.outWriter
+	timePrefix := formatTimePrefix(eventRaw.EnterTime, s)
+
 	pidPrefix := ""
 	if opts != nil && opts.FollowForks {
 		pidPrefix = fmt.Sprintf("%-5d ", tPid)
@@ -280,16 +330,23 @@ func printSyscallOutput(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Res
 	}
 	retStr := formatSyscallRet(scMeta.Name, ret, res, ctx)
 	padding := " "
-	totalLen := len(pidPrefix) + len(line)
+	totalLen := len(timePrefix) + len(pidPrefix) + len(line)
 	if totalLen < opts.AlignCol {
 		padding = strings.Repeat(" ", opts.AlignCol-totalLen)
 	}
-	fmt.Fprintf(outWriter, "%s%s%s= %s\n", pidPrefix, line, padding, retStr)
+	durationSuffix := ""
+	if opts != nil && opts.PrintSyscallTime {
+		sec := eventRaw.Duration / 1e9
+		usec := (eventRaw.Duration % 1e9) / 1000
+		durationSuffix = fmt.Sprintf(" <%d.%06d>", sec, usec)
+	}
+
+	fmt.Fprintf(outWriter, "%s%s%s%s= %s%s\n", timePrefix, pidPrefix, line, padding, retStr, durationSuffix)
 	if res.HexDumpStr != "" {
 		fmt.Fprintf(outWriter, "%s", res.HexDumpStr)
 	}
 	if scMeta.Name == "nanosleep" && ret == -516 {
-		fmt.Fprintf(outWriter, "%s--- SIGALRM {si_signo=SIGALRM, si_code=SI_KERNEL} ---\n", pidPrefix)
+		fmt.Fprintf(outWriter, "%s%s--- SIGALRM {si_signo=SIGALRM, si_code=SI_KERNEL} ---\n", timePrefix, pidPrefix)
 	}
 
 	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret < 0 {

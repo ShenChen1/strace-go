@@ -36,6 +36,9 @@ type Options struct {
 	TestPathmax         bool
 	TestThreadsExecve   bool
 	TestExecveatFake    bool
+	PrintTimeMode       int  // 0 = none, 1 = -t (HH:MM:SS), 2 = -tt (HH:MM:SS.UUUUUU), 3 = -ttt (UNIX.UUUUUU)
+	PrintRelativeTime   bool // -r
+	PrintSyscallTime    bool // -T
 }
 
 // IMPACT: ParseArgs parses strace-go command-line arguments and returns Options.
@@ -177,6 +180,16 @@ func parseBasicFlags(arg string, opts *Options) bool {
 		} else if opts.ShowPathsMode == 0 {
 			opts.ShowPathsMode = 1
 		}
+	case arg == "-t":
+		opts.PrintTimeMode = 1
+	case arg == "-tt":
+		opts.PrintTimeMode = 2
+	case arg == "-ttt":
+		opts.PrintTimeMode = 3
+	case arg == "-r":
+		opts.PrintRelativeTime = true
+	case arg == "-T":
+		opts.PrintSyscallTime = true
 	case arg == "-yy":
 		opts.ShowPaths = true
 		opts.ShowPathsMode = 2

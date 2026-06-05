@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"sync"
 
+	"golang.org/x/sys/unix"
+
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
@@ -103,17 +105,27 @@ func main() {
 	}
 
 	session := &traceSession{
-		cmd:       cmd,
-		events:    events,
-		targetPid: targetPid,
-		opts:      opts,
-		decoder:   decoder,
-		memReader: memReader,
-		fdMap:     fdMap,
-		outWriter: outWriter,
-		outFile:   outFile,
+		cmd:               cmd,
+		events:            events,
+		targetPid:         targetPid,
+		opts:              opts,
+		decoder:           decoder,
+		memReader:         memReader,
+		fdMap:             fdMap,
+		outWriter:         outWriter,
+		outFile:           outFile,
+		bootTimeOffsetNs:  calculateTimeOffset(),
 	}
 	session.run()
+}
+
+func calculateTimeOffset() int64 {
+	var tsMono, tsReal unix.Timespec
+	unix.ClockGettime(unix.CLOCK_MONOTONIC, &tsMono)
+	unix.ClockGettime(unix.CLOCK_REALTIME, &tsReal)
+	monoNs := int64(tsMono.Sec)*1e9 + int64(tsMono.Nsec)
+	realNs := int64(tsReal.Sec)*1e9 + int64(tsReal.Nsec)
+	return realNs - monoNs
 }
 
 // IMPACT: bpfEvent structure defines the exact data alignment matching the BPF ringbuffer events.
