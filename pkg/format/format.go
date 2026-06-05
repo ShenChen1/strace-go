@@ -99,6 +99,7 @@ func BufferEscape(data []byte, limit int, actualLen int, escapeMode int) string 
 		case '\r': sb.WriteString("\\r")
 		case '\t': sb.WriteString("\\t")
 		case '\v': sb.WriteString("\\v")
+		case '\f': sb.WriteString("\\f")
 		case '\\': sb.WriteString("\\\\")
 		case '"':  sb.WriteString("\\\"")
 		default:

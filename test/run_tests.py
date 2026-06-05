@@ -113,11 +113,13 @@ MORE_TESTS = [
     "status-all.gen.test",
     "status-none.gen.test",
     "strace-E.test",
+    "strace-E-override.test",
     "strace-r.test",
     "strace-t.test",
     "strace-tt.test",
     "strace-ttt.test",
     "strace-T_upper.test",
+    "strace-xx.gen.test",
 ]
 
 def parse_args():
