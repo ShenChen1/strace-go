@@ -105,6 +105,10 @@ MORE_TESTS = [
     "ioctl_fs_0x15-Xabbrev.gen.test",
     "ioctl_fs_0x15.gen.test",
     "arch_prctl-Xraw.gen.test",
+    "status-successful.gen.test",
+    "status-failed.gen.test",
+    "status-all.gen.test",
+    "status-none.gen.test",
 ]
 
 DIAGNOSTIC_TESTS = [
