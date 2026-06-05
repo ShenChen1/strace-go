@@ -112,6 +112,7 @@ MORE_TESTS = [
     "status-failed.gen.test",
     "status-all.gen.test",
     "status-none.gen.test",
+    "strace-E.test",
     "strace-r.test",
     "strace-t.test",
     "strace-tt.test",
@@ -159,7 +160,7 @@ def get_tests(suite):
     for f in os.listdir(TESTS_DIR):
         if f.endswith(".test") and not f.endswith(".sh"):
             # Exclude tests that need special handling or are known to freeze
-            if f in ["strace-k.test", "strace-E.test"]:
+            if f in ["strace-k.test"]:
                 continue
             valid_tests.append(f)
     valid_tests.sort()

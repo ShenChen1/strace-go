@@ -43,6 +43,7 @@ type Options struct {
 	StackTrace          bool // -k
 	SuccessfulOnly      bool // -z
 	FailedOnly          bool // -Z
+	EnvActions          []string // -E
 }
 
 // IMPACT: ParseArgs parses strace-go command-line arguments and returns Options.
@@ -168,7 +169,7 @@ func parseBasicFlags(arg string, opts *Options) bool {
 	switch {
 	case arg == "-f":
 		opts.FollowForks = true
-	case arg == "-v":
+	case arg == "-v" || arg == "--no-abbrev":
 		opts.Verbose = true
 	case arg == "-c":
 		opts.SummaryOnly = true
@@ -233,6 +234,10 @@ func parseTraceFlags(arg string, opts *Options) bool {
 		opts.TracePaths[strings.TrimPrefix(arg, "--trace-path=")] = true
 		return true
 	}
+	if strings.HasPrefix(arg, "--env=") {
+		opts.EnvActions = append(opts.EnvActions, strings.TrimPrefix(arg, "--env="))
+		return true
+	}
 	return false
 }
 
@@ -243,7 +248,7 @@ func parseValueFlag(args []string, i *int, opts *Options) bool {
 	foundVal := false
 	flag := ""
 
-	for _, f := range []string{"-e", "-o", "-a", "-s", "-P", "-X", "-p"} {
+	for _, f := range []string{"-e", "-o", "-a", "-s", "-P", "-X", "-p", "-E"} {
 		if strings.HasPrefix(arg, f) {
 			flag = f
 			if len(arg) > len(f) {
@@ -287,6 +292,8 @@ func applyValueFlag(flag string, val string, opts *Options) {
 		parseEFlag(val, opts)
 	case "-X":
 		opts.XlatFormat = val
+	case "-E":
+		opts.EnvActions = append(opts.EnvActions, val)
 	}
 }
 

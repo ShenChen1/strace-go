@@ -72,12 +72,30 @@ func setupBPF() (*bpfObjects, link.Link, link.Link) {
 }
 
 // IMPACT: startAndTraceCmd configures ptrace-based child process spawning and initial attachment.
-func startAndTraceCmd(cmdArgs []string, bpfObjs *bpfObjects) (*exec.Cmd, int, map[string]string) {
+func startAndTraceCmd(opts *cli.Options, bpfObjs *bpfObjects) (*exec.Cmd, int, map[string]string) {
+	cmdArgs := opts.CmdArgs
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	
+	envMap := make(map[string]string)
+	for _, e := range os.Environ() {
+		if idx := strings.Index(e, "="); idx >= 0 {
+			envMap[e[:idx]] = e[idx+1:]
+		}
+	}
+	for _, action := range opts.EnvActions {
+		if idx := strings.Index(action, "="); idx >= 0 {
+			envMap[action[:idx]] = action[idx+1:]
+		} else {
+			delete(envMap, action)
+		}
+	}
+	for k, v := range envMap {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
+
 	// IMPACT: Pass inherited FDs > 2 to the tracee to ensure test suites relying on external FDs (e.g. 9>>/dev/full) work.
 	if entries, err := os.ReadDir("/proc/self/fd"); err == nil {
 		var extraFiles []*os.File
@@ -401,6 +419,20 @@ func (s *traceSession) printFakeFirstExecve() {
 	}
 	argvStr := "[" + strings.Join(quotedArgs, ", ") + "]"
 
+	envpStr := fmt.Sprintf("0x7ffdbcb5c068 /* %d vars */", envc)
+	if s.opts.Verbose {
+		var envList []string
+		if envBytes, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", s.targetPid)); err == nil {
+			parts := strings.Split(string(envBytes), "\x00")
+			for _, p := range parts {
+				if p != "" {
+					envList = append(envList, fmt.Sprintf("%q", p))
+				}
+			}
+		}
+		envpStr = "[" + strings.Join(envList, ", ") + "]"
+	}
+
 	cmdName := "unknown"
 	if len(s.opts.CmdArgs) > 0 {
 		cmdName = s.opts.CmdArgs[0]
@@ -410,7 +442,7 @@ func (s *traceSession) printFakeFirstExecve() {
 	monoNs := uint64(tsMono.Sec)*1e9 + uint64(tsMono.Nsec)
 	timePrefix := formatTimePrefix(monoNs, s)
 
-	line := fmt.Sprintf("execve(\"%s\", %s, 0x7ffdbcb5c068 /* %d vars */)", cmdName, argvStr, envc)
+	line := fmt.Sprintf("execve(\"%s\", %s, %s)", cmdName, argvStr, envpStr)
 	padding := " "
 	totalLen := len(timePrefix) + len(pidPrefix) + len(line)
 	if totalLen < s.opts.AlignCol {
