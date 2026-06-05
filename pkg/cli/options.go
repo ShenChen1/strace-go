@@ -40,6 +40,8 @@ type Options struct {
 	PrintRelativeTime   bool // -r
 	PrintSyscallTime    bool // -T
 	StackTrace          bool // -k
+	SuccessfulOnly      bool // -z
+	FailedOnly          bool // -Z
 }
 
 // IMPACT: ParseArgs parses strace-go command-line arguments and returns Options.
@@ -193,6 +195,10 @@ func parseBasicFlags(arg string, opts *Options) bool {
 		opts.PrintSyscallTime = true
 	case arg == "-k":
 		opts.StackTrace = true
+	case arg == "-z":
+		opts.SuccessfulOnly = true
+	case arg == "-Z":
+		opts.FailedOnly = true
 	case arg == "-yy":
 		opts.ShowPaths = true
 		opts.ShowPathsMode = 2

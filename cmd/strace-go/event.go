@@ -129,6 +129,27 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 	tPid := int(eventRaw.Tid)
 	scMeta := ctx.ScMeta
 	ret := eventRaw.Ret
+
+	isFailed := ret < 0 && ret >= -4095
+	if scMeta.Name == "exit" || scMeta.Name == "exit_group" {
+		isFailed = false
+	}
+
+	// For sys_enter (ProbeRetEnter == 3), ret is usually 0. We can't know if it will fail.
+	// For simplicity, if filtering is enabled, we skip printing unfinished to avoid dangling lines.
+	if s.opts != nil && (s.opts.SuccessfulOnly || s.opts.FailedOnly) && eventRaw.ProbeRetEnter == 3 {
+		return
+	}
+
+	if eventRaw.ProbeRetEnter != 3 { // Evaluate success/fail on exit or normal complete
+		if s.opts != nil && s.opts.SuccessfulOnly && isFailed {
+			return
+		}
+		if s.opts != nil && s.opts.FailedOnly && !isFailed {
+			return
+		}
+	}
+
 	if eventRaw.ProbeRetEnter == 3 {
 		pidPrefix := ""
 		if s.opts != nil && s.opts.FollowForks {
