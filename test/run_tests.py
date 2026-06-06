@@ -45,6 +45,7 @@ MORE_TESTS = [
     "strace-A.test",
     "strace-p.test",
     "strace-C.test",
+    "strace-e-negation.test",
     "strace-x.gen.test",
     "strace-xx.gen.test",
     "aio_pgetevents.gen.test",
