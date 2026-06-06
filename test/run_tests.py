@@ -112,6 +112,8 @@ MORE_TESTS = [
     "status-failed.gen.test",
     "status-all.gen.test",
     "status-none.gen.test",
+    "fork-f.gen.test",
+    "vfork-f.gen.test",
     "strace-E.test",
     "strace-E-override.test",
     "strace-r.test",

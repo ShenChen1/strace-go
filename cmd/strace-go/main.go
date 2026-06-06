@@ -72,10 +72,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	bpfObjs, tpEnter, tpExit := setupBPF()
+	bpfObjs, tpLinks := setupBPF()
 	defer bpfObjs.Close()
-	defer tpEnter.Close()
-	defer tpExit.Close()
+	for _, l := range tpLinks {
+		defer l.Close()
+	}
 
 	events, err := ringbuf.NewReader(bpfObjs.Events)
 	if err != nil {
@@ -83,9 +84,14 @@ func main() {
 	}
 	defer events.Close()
 
+	var cfgVal uint32 = 0
 	if opts.StackTrace {
-		bpfObjs.ConfigMap.Update(uint32(0), uint32(1), 0)
+		cfgVal |= 1
 	}
+	if opts.FollowForks {
+		cfgVal |= 2
+	}
+	bpfObjs.ConfigMap.Update(uint32(0), cfgVal, 0)
 
 	var cmd *exec.Cmd
 	var targetPid int
@@ -94,7 +100,7 @@ func main() {
 	if opts.AttachPid > 0 {
 		cmd, targetPid, fdMap = attachToPid(opts.AttachPid, bpfObjs)
 	} else {
-		cmd, targetPid, fdMap = startAndTraceCmd(opts.CmdArgs, bpfObjs)
+		cmd, targetPid, fdMap = startAndTraceCmd(opts, bpfObjs)
 	}
 
 	memReader := procmem.NewReader(targetPid)

@@ -52,7 +52,7 @@ type traceSession struct {
 }
 
 // IMPACT: setupBPF loads the BPF objects and attaches the raw syscall raw tracepoints.
-func setupBPF() (*bpfObjects, link.Link, link.Link) {
+func setupBPF() (*bpfObjects, []link.Link) {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		log.Fatalf("failed to remove memlock: %v", err)
 	}
@@ -60,15 +60,22 @@ func setupBPF() (*bpfObjects, link.Link, link.Link) {
 	if err := loadBpfObjects(bpfObjs, nil); err != nil {
 		log.Fatalf("failed to load BPF objects: %v", err)
 	}
+	var links []link.Link
 	tpEnter, err := link.Tracepoint("raw_syscalls", "sys_enter", bpfObjs.TraceSysEnter, nil)
 	if err != nil {
 		log.Fatalf("failed to attach sys_enter tracepoint: %v", err)
 	}
+	links = append(links, tpEnter)
 	tpExit, err := link.Tracepoint("raw_syscalls", "sys_exit", bpfObjs.TraceSysExit, nil)
 	if err != nil {
 		log.Fatalf("failed to attach sys_exit tracepoint: %v", err)
 	}
-	return bpfObjs, tpEnter, tpExit
+	links = append(links, tpExit)
+	tpFork, err := link.Tracepoint("sched", "sched_process_fork", bpfObjs.TraceSchedProcessFork, nil)
+	if err == nil {
+		links = append(links, tpFork)
+	}
+	return bpfObjs, links
 }
 
 // IMPACT: startAndTraceCmd configures ptrace-based child process spawning and initial attachment.
@@ -130,7 +137,7 @@ func startAndTraceCmd(opts *cli.Options, bpfObjs *bpfObjects) (*exec.Cmd, int, m
 	}
 
 	targetPid := cmd.Process.Pid
-	bpfObjs.FilterMap.Update(uint32(0), uint32(targetPid), 0)
+	bpfObjs.FilterMap.Update(uint32(targetPid), uint32(1), 0)
 
 	fdMap := make(map[string]string)
 	var wstatus syscall.WaitStatus
@@ -158,7 +165,7 @@ func attachToPid(pid int, bpfObjs *bpfObjects) (*exec.Cmd, int, map[string]strin
 		log.Fatalf("failed to attach to pid %d: %v", pid, err)
 	}
 
-	bpfObjs.FilterMap.Update(uint32(0), uint32(pid), 0)
+	bpfObjs.FilterMap.Update(uint32(pid), uint32(1), 0)
 
 	fdMap := make(map[string]string)
 	// Populate FD map from /proc

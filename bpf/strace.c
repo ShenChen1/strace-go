@@ -34,8 +34,8 @@ struct {
 } events_map SEC(".maps");
 
 struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 1);
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16384);
     __type(key, u32);
     __type(value, u32);
 } filter_map SEC(".maps");
@@ -88,10 +88,11 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     if (sys_id == 15 || sys_id == 173) return 0;
     u32 tid = (u32)bpf_get_current_pid_tgid();
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
-    u32 key = 0;
     
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &key);
-    if (!filter_pid || *filter_pid != pid) return 0;
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+    if (!filter_pid) return 0;
+    
+    u32 key = 0;
     
     struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
     if (!e) return 0;
@@ -235,4 +236,22 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     }
     return 0;
 }
+
+SEC("tracepoint/sched/sched_process_fork")
+int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {
+    u32 parent_pid = ctx->parent_pid;
+    u32 child_pid = ctx->child_pid;
+    
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &parent_pid);
+    if (!filter_pid) return 0;
+    
+    u32 cfg_key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);
+    if (cfg && (*cfg & 2)) {
+        u32 val = 1;
+        bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY);
+    }
+    return 0;
+}
+
 

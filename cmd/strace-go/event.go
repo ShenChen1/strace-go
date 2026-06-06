@@ -45,7 +45,9 @@ func getArgProbeStatus(probeRetEnter int32, argIndex int) int32 {
 // IMPACT: handleEvent parses, decodes, and routes tracing events to print handlers or fd updates.
 func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	if int(eventRaw.Pid) != s.targetPid {
-		return
+		if s.opts == nil || !s.opts.FollowForks {
+			return
+		}
 	}
 	tPid := int(eventRaw.Tid)
 	scMeta, ok := meta.SyscallTable[eventRaw.SysId]

@@ -73,8 +73,9 @@ type bpfSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfProgramSpecs struct {
-	TraceSysEnter *ebpf.ProgramSpec `ebpf:"trace_sys_enter"`
-	TraceSysExit  *ebpf.ProgramSpec `ebpf:"trace_sys_exit"`
+	TraceSchedProcessFork *ebpf.ProgramSpec `ebpf:"trace_sched_process_fork"`
+	TraceSysEnter         *ebpf.ProgramSpec `ebpf:"trace_sys_enter"`
+	TraceSysExit          *ebpf.ProgramSpec `ebpf:"trace_sys_exit"`
 }
 
 // bpfMapSpecs contains maps before they are loaded into the kernel.
@@ -150,12 +151,14 @@ type bpfVariables struct {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfPrograms struct {
-	TraceSysEnter *ebpf.Program `ebpf:"trace_sys_enter"`
-	TraceSysExit  *ebpf.Program `ebpf:"trace_sys_exit"`
+	TraceSchedProcessFork *ebpf.Program `ebpf:"trace_sched_process_fork"`
+	TraceSysEnter         *ebpf.Program `ebpf:"trace_sys_enter"`
+	TraceSysExit          *ebpf.Program `ebpf:"trace_sys_exit"`
 }
 
 func (p *bpfPrograms) Close() error {
 	return _BpfClose(
+		p.TraceSchedProcessFork,
 		p.TraceSysEnter,
 		p.TraceSysExit,
 	)
