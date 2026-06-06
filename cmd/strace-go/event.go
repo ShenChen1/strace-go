@@ -94,26 +94,28 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		return
 	}
 
+	shouldPrint := checkShouldPrint(eventRaw, scMeta, rawStrArg, isPath, s.targetPid, s.opts, s.fdMap)
+
 	if s.opts.SummaryOnly || s.opts.SummaryAndPrint {
-		if s.stats == nil {
-			s.stats = make(map[string]*syscallStat)
-		}
-		stat := s.stats[scMeta.Name]
-		if stat == nil {
-			stat = &syscallStat{}
-			s.stats[scMeta.Name] = stat
-		}
-		stat.calls++
-		stat.duration += eventRaw.Duration
-		if ret < 0 && ret >= -4095 { // -4095 is MAX_ERRNO
-			stat.errors++
+		if shouldPrint {
+			if s.stats == nil {
+				s.stats = make(map[string]*syscallStat)
+			}
+			stat := s.stats[scMeta.Name]
+			if stat == nil {
+				stat = &syscallStat{}
+				s.stats[scMeta.Name] = stat
+			}
+			stat.calls++
+			stat.duration += eventRaw.Duration
+			if ret < 0 && ret >= -4095 { // -4095 is MAX_ERRNO
+				stat.errors++
+			}
 		}
 		if s.opts.SummaryOnly {
 			return
 		}
 	}
-
-	shouldPrint := checkShouldPrint(eventRaw, scMeta, rawStrArg, isPath, s.targetPid, s.opts, s.fdMap)
 
 	updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, s.targetPid, s.fdMap)
 

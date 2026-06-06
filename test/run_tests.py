@@ -44,6 +44,9 @@ SMOKE_TESTS = [
 MORE_TESTS = [
     "strace-A.test",
     "strace-p.test",
+    "strace-C.test",
+    "strace-x.gen.test",
+    "strace-xx.gen.test",
     "aio_pgetevents.gen.test",
     "aio.gen.test",
     "arch_prctl-Xabbrev.gen.test",
