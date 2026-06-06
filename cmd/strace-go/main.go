@@ -67,7 +67,7 @@ func main() {
 		fmt.Printf("Optional features enabled: stack-trace=libunwind stack-demangle m32-mpers mx32-mpers\n")
 		os.Exit(0)
 	}
-	if len(opts.CmdArgs) == 0 && opts.AttachPid == 0 {
+	if len(opts.CmdArgs) == 0 && len(opts.AttachPids) == 0 {
 		fmt.Println("Usage: strace-go [options] <command> [args...]")
 		os.Exit(1)
 	}
@@ -97,8 +97,8 @@ func main() {
 	var targetPid int
 	var fdMap map[string]string
 
-	if opts.AttachPid > 0 {
-		cmd, targetPid, fdMap = attachToPid(opts.AttachPid, bpfObjs)
+	if len(opts.AttachPids) > 0 {
+		cmd, targetPid, fdMap = attachToPids(opts.AttachPids, bpfObjs)
 	} else {
 		cmd, targetPid, fdMap = startAndTraceCmd(opts, bpfObjs)
 	}

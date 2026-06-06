@@ -4,14 +4,16 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 // Options holds all parsed command-line options.
 type Options struct {
 	CmdArgs             []string
-	AttachPid           int
+	AttachPids          []int
 	OutFile             string
 	AlignCol            int
 	StringLimit         int
@@ -244,6 +246,18 @@ func parseTraceFlags(arg string, opts *Options) bool {
 		opts.EnvActions = append(opts.EnvActions, strings.TrimPrefix(arg, "--env="))
 		return true
 	}
+	if strings.HasPrefix(arg, "--attach=") {
+		val := strings.TrimPrefix(arg, "--attach=")
+		for _, s := range strings.Split(val, ",") {
+			pid, err := strconv.Atoi(s)
+			if err != nil || pid <= 0 {
+				fmt.Fprintf(os.Stderr, "%s: Invalid process id: '%s'\n", os.Args[0], s)
+				os.Exit(1)
+			}
+			opts.AttachPids = append(opts.AttachPids, pid)
+		}
+		return true
+	}
 	return false
 }
 
@@ -254,7 +268,7 @@ func parseValueFlag(args []string, i *int, opts *Options) bool {
 	foundVal := false
 	flag := ""
 
-	for _, f := range []string{"-e", "-o", "-a", "-s", "-P", "-X", "-p", "-E"} {
+	for _, f := range []string{"-e", "-o", "-a", "-s", "-P", "-X", "-p", "-E", "-b", "--detach-on="} {
 		if strings.HasPrefix(arg, f) {
 			flag = f
 			if len(arg) > len(f) {
@@ -293,13 +307,25 @@ func applyValueFlag(flag string, val string, opts *Options) {
 	case "-P":
 		opts.TracePaths[val] = true
 	case "-p":
-		fmt.Sscanf(val, "%d", &opts.AttachPid)
+		for _, s := range strings.Split(val, ",") {
+			pid, err := strconv.Atoi(s)
+			if err != nil || pid <= 0 {
+				fmt.Fprintf(os.Stderr, "%s: Invalid process id: '%s'\n", os.Args[0], s)
+				os.Exit(1)
+			}
+			opts.AttachPids = append(opts.AttachPids, pid)
+		}
 	case "-e":
 		parseEFlag(val, opts)
 	case "-X":
 		opts.XlatFormat = val
 	case "-E":
 		opts.EnvActions = append(opts.EnvActions, val)
+	case "-b", "--detach-on=":
+		if val != "execve" {
+			fmt.Fprintf(os.Stderr, "%s: Syscall '%s' for -b isn't supported\n", os.Args[0], val)
+			os.Exit(1)
+		}
 	}
 }
 

@@ -158,25 +158,32 @@ func startAndTraceCmd(opts *cli.Options, bpfObjs *bpfObjects) (*exec.Cmd, int, m
 	return cmd, targetPid, fdMap
 }
 
-// IMPACT: attachToPid attaches tracing to a running process, updating the BPF filter map and reading initial FDs.
-func attachToPid(pid int, bpfObjs *bpfObjects) (*exec.Cmd, int, map[string]string) {
-	// Send signal 0 to check if PID exists and we have permissions
-	if err := syscall.Kill(pid, 0); err != nil {
-		log.Fatalf("failed to attach to pid %d: %v", pid, err)
-	}
-
-	bpfObjs.FilterMap.Update(uint32(pid), uint32(1), 0)
-
+// IMPACT: attachToPids attaches tracing to running processes, updating the BPF filter map and reading initial FDs.
+func attachToPids(pids []int, bpfObjs *bpfObjects) (*exec.Cmd, int, map[string]string) {
 	fdMap := make(map[string]string)
-	// Populate FD map from /proc
-	if entries, err := os.ReadDir(fmt.Sprintf("/proc/%d/fd", pid)); err == nil {
-		for _, entry := range entries {
-			if path, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%s", pid, entry.Name())); err == nil {
-				fdMap[fmt.Sprintf("%d:%s", pid, entry.Name())] = path
+	var firstPid int
+
+	for i, pid := range pids {
+		// Send signal 0 to check if PID exists and we have permissions
+		if err := syscall.Kill(pid, 0); err != nil {
+			log.Fatalf("failed to attach to pid %d: %v", pid, err)
+		}
+
+		if i == 0 {
+			firstPid = pid
+		}
+		bpfObjs.FilterMap.Update(uint32(pid), uint32(1), 0)
+
+		// Populate FD map from /proc
+		if entries, err := os.ReadDir(fmt.Sprintf("/proc/%d/fd", pid)); err == nil {
+			for _, entry := range entries {
+				if path, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%s", pid, entry.Name())); err == nil {
+					fdMap[fmt.Sprintf("%d:%s", pid, entry.Name())] = path
+				}
 			}
 		}
 	}
-	return nil, pid, fdMap
+	return nil, firstPid, fdMap
 }
 
 // IMPACT: setupOutput prepares the io.Writer target for saving strace text traces.
@@ -240,9 +247,16 @@ func (s *traceSession) run() {
 		if s.cmd != nil {
 			s.cmd.Wait()
 		} else {
-			// If attached to a running process, wait for it to exit
+			// If attached to running processes, wait for ALL of them to exit
 			for {
-				if err := syscall.Kill(s.targetPid, 0); err != nil {
+				anyAlive := false
+				for _, pid := range s.opts.AttachPids {
+					if err := syscall.Kill(pid, 0); err == nil {
+						anyAlive = true
+						break
+					}
+				}
+				if !anyAlive {
 					break
 				}
 				time.Sleep(100 * time.Millisecond)
@@ -252,7 +266,7 @@ func (s *traceSession) run() {
 	}()
 
 	startReaper(s.targetPid, done, closeDone, s.opts)
-	if s.opts.AttachPid <= 0 && (len(s.opts.TraceSyscalls) == 0 || s.opts.TraceSyscalls["execve"]) {
+	if len(s.opts.AttachPids) == 0 && (len(s.opts.TraceSyscalls) == 0 || s.opts.TraceSyscalls["execve"]) {
 		s.printFakeFirstExecve()
 	}
 

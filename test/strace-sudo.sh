@@ -21,14 +21,15 @@ STRACE_BIN="$(dirname "$(dirname "$(readlink -f "$0")")")/strace-go"
 
 if [ "$(id -u)" -eq 0 ]; then
   if [ -n "$redirects" ]; then
-    eval "$redirects exec \"$STRACE_BIN\" \"\$@\""
+    eval "$redirects exec -a \"\$0\" \"\$STRACE_BIN\" \"\$@\""
   else
-    exec "$STRACE_BIN" "$@"
+    exec -a "$0" "$STRACE_BIN" "$@"
   fi
 else
   if [ -n "$redirects" ]; then
     # Use sudo bash -c to re-open fds before exec-ing the actual binary
-    exec sudo bash -c "$redirects exec \"$STRACE_BIN\" \"\$@\"" -- "$@"
+    exec sudo bash -c "$redirects exec -a \"\$1\" \"\$2\" \"\${@:3}\"" -- "$0" "$STRACE_BIN" "$@"
+  else
+    exec sudo bash -c "exec -a \"\$1\" \"\$2\" \"\${@:3}\"" -- "$0" "$STRACE_BIN" "$@"
   fi
-  exec sudo "$STRACE_BIN" "$@"
 fi
