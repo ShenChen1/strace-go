@@ -43,6 +43,7 @@ SMOKE_TESTS = [
 # Add tests here when working on a new syscall or feature
 MORE_TESTS = [
     "strace-A.test",
+    "strace-p.test",
     "aio_pgetevents.gen.test",
     "aio.gen.test",
     "arch_prctl-Xabbrev.gen.test",
@@ -117,6 +118,8 @@ MORE_TESTS = [
     "vfork-f.gen.test",
     "strace-E.test",
     "strace-E-override.test",
+    "attach-p-cmd.test",
+    "attach-f-p.test",
     "strace-r.test",
     "strace-t.test",
     "strace-tt.test",
