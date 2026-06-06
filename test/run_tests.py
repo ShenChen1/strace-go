@@ -42,6 +42,7 @@ SMOKE_TESTS = [
 # Tests for the next feature we are tackling
 # Add tests here when working on a new syscall or feature
 MORE_TESTS = [
+    "strace-A.test",
     "aio_pgetevents.gen.test",
     "aio.gen.test",
     "arch_prctl-Xabbrev.gen.test",
