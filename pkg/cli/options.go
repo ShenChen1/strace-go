@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"strace-go/pkg/meta"
 )
 
 // Options holds all parsed command-line options.
@@ -20,6 +22,8 @@ type Options struct {
 	HexEscapeMode       int // 0 = default, 1 = hex non-ascii (-x), 2 = hex all (-xx)
 	TraceSyscalls       map[string]bool
 	TracePaths          map[string]bool
+	TraceSyscallRegexps []*regexp.Regexp
+	TraceSetIsNegated   bool
 	TraceReadFDs        map[int32]bool
 	TraceWriteFDs       map[int32]bool
 	TraceStatus         map[string]bool
@@ -35,7 +39,6 @@ type Options struct {
 	QuietThreadExecve   bool
 	FollowForks         bool
 	XlatFormat          string // "raw", "abbrev", "verbose"
-	TraceSyscallRegexps []*regexp.Regexp
 	TestPathmax         bool
 	TestThreadsExecve   bool
 	TestExecveatFake    bool
@@ -111,6 +114,34 @@ func addSyscallTrace(opts *Options, s string) {
 		}
 		return
 	}
+
+	var classFlag string
+	switch s {
+	case "file", "%file": classFlag = "TF"
+	case "process", "%process": classFlag = "TP"
+	case "network", "%network": classFlag = "TN"
+	case "signal", "%signal": classFlag = "TS"
+	case "ipc", "%ipc": classFlag = "TI"
+	case "desc", "%desc": classFlag = "TD"
+	case "memory", "%memory": classFlag = "TM"
+	case "creds", "%creds": classFlag = "TC"
+	case "stat", "%stat": classFlag = "TST"
+	case "lstat", "%lstat": classFlag = "TLST"
+	case "pure", "%pure": classFlag = "TPU"
+	}
+	if classFlag != "" {
+		for _, sc := range meta.SyscallTable {
+			flags := strings.Split(sc.Flags, "|")
+			for _, f := range flags {
+				if f == classFlag {
+					opts.TraceSyscalls[sc.Name] = true
+					break
+				}
+			}
+		}
+		return
+	}
+
 	opts.TraceSyscalls[s] = true
 	switch s {
 	case "access":
@@ -332,9 +363,7 @@ func applyValueFlag(flag string, val string, opts *Options) {
 // IMPACT: parseEFlag parses the -e flag parameter values.
 func parseEFlag(val string, opts *Options) {
 	if strings.HasPrefix(val, "trace=") {
-		for _, s := range strings.Split(strings.TrimPrefix(val, "trace="), ",") {
-			addSyscallTrace(opts, s)
-		}
+		val = strings.TrimPrefix(val, "trace=")
 	} else if strings.HasPrefix(val, "read=") {
 		for _, s := range strings.Split(strings.TrimPrefix(val, "read="), ",") {
 			var fd int32
@@ -342,6 +371,7 @@ func parseEFlag(val string, opts *Options) {
 				opts.TraceReadFDs[fd] = true
 			}
 		}
+		return
 	} else if strings.HasPrefix(val, "write=") {
 		for _, s := range strings.Split(strings.TrimPrefix(val, "write="), ",") {
 			var fd int32
@@ -349,20 +379,27 @@ func parseEFlag(val string, opts *Options) {
 				opts.TraceWriteFDs[fd] = true
 			}
 		}
+		return
 	} else if strings.HasPrefix(val, "status=") {
 		for _, s := range strings.Split(strings.TrimPrefix(val, "status="), ",") {
 			opts.TraceStatus[s] = true
 		}
+		return
 	} else if strings.HasPrefix(val, "signal=") {
 		// parsed but not implemented yet
+		return
 	} else if strings.HasPrefix(val, "quiet=") {
 		for _, s := range strings.Split(strings.TrimPrefix(val, "quiet="), ",") {
 			if s == "exit" { opts.QuietExit = true }
 			if s == "all" { opts.QuietUnknownPid = true; opts.QuietThreadExecve = true }
 		}
-	} else {
-		for _, s := range strings.Split(val, ",") {
-			addSyscallTrace(opts, s)
-		}
+		return
+	}
+	if strings.HasPrefix(val, "!") {
+		opts.TraceSetIsNegated = true
+		val = strings.TrimPrefix(val, "!")
+	}
+	for _, s := range strings.Split(val, ",") {
+		addSyscallTrace(opts, s)
 	}
 }

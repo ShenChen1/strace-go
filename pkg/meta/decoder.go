@@ -10,6 +10,7 @@ type Syscall struct {
 	Name     string
 	Args     []string
 	ArgTypes []string
+	Flags    string
 }
 
 var ErrnoTable = map[int]string{

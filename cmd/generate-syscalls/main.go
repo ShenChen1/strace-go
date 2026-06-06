@@ -15,6 +15,7 @@ type SyscallMeta struct {
 	Name     string
 	Args     []string
 	ArgTypes []string
+	Flags    string
 }
 
 type CaptureRule struct {
@@ -104,8 +105,8 @@ func main() {
 	fmt.Fprintln(gf, "var SyscallTable = map[uint32]Syscall{")
 	for _, id := range sortedKeys(syscalls) {
 		meta := syscalls[id]
-		fmt.Fprintf(gf, "\t%d: {Name: %q, Args: []string{%s}, ArgTypes: []string{%s}},\n",
-			id, meta.Name, formatStringSlice(meta.Args), formatStringSlice(meta.ArgTypes))
+		fmt.Fprintf(gf, "\t%d: {Name: %q, Args: []string{%s}, ArgTypes: []string{%s}, Flags: %q},\n",
+			id, meta.Name, formatStringSlice(meta.Args), formatStringSlice(meta.ArgTypes), meta.Flags)
 	}
 	fmt.Fprintln(gf, "}")
 }
@@ -340,11 +341,13 @@ func LoadSyscalls() (map[int]SyscallMeta, error) {
 	for _, ent := range entries {
 		// Priority 1: manual overrides
 		if m, ok := manualOverrides[ent.Name]; ok {
+			m.Flags = ent.Flags
 			res[ent.ID] = m
 			continue
 		}
 		// Priority 2: BTF
 		if meta, ok := btf[ent.Name]; ok {
+			meta.Flags = ent.Flags
 			res[ent.ID] = meta
 			continue
 		}
@@ -354,6 +357,7 @@ func LoadSyscalls() (map[int]SyscallMeta, error) {
 			if sentName == ent.Name {
 				if meta, ok := btf[btfName]; ok {
 					meta.Name = sentName
+					meta.Flags = ent.Flags
 					res[ent.ID] = meta
 					found = true
 					break
@@ -369,7 +373,7 @@ func LoadSyscalls() (map[int]SyscallMeta, error) {
 			dummyArgs[i] = fmt.Sprintf("arg%d", i)
 			dummyTypes[i] = "unsigned long"
 		}
-		res[ent.ID] = SyscallMeta{Name: ent.Name, Args: dummyArgs, ArgTypes: dummyTypes}
+		res[ent.ID] = SyscallMeta{Name: ent.Name, Args: dummyArgs, ArgTypes: dummyTypes, Flags: ent.Flags}
 	}
 	return res, nil
 }

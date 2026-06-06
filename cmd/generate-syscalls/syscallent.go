@@ -12,9 +12,10 @@ import (
 
 // syscallentEntry holds data parsed from one line of syscallent.h.
 type syscallentEntry struct {
-	ID   int
-	Name string
-	Argc int
+	ID    int
+	Name  string
+	Argc  int
+	Flags string
 }
 
 // parseSyscallent parses strace-upstream's syscallent.h file to extract
@@ -22,7 +23,7 @@ type syscallentEntry struct {
 // Format: [  0] = { 3,    TD,             SEN(read),   "read"   },
 // or: [BASE_NR + 424] = { 4,  TD|TS|TP,       SEN(pidfd_send_signal),         "pidfd_send_signal"     },
 var syscallentRe = regexp.MustCompile(
-	`\[\s*(?:BASE_NR\s*\+\s*)?(\d+)\]\s*=\s*\{\s*(\d+),\s*\S+,\s*SEN\(\w+\),\s*"(\w+)"`,
+	`\[\s*(?:BASE_NR\s*\+\s*)?(\d+)\]\s*=\s*\{\s*(\d+),\s*([A-Za-z0-9_|]+),\s*SEN\(\w+\),\s*"(\w+)"`,
 )
 
 func parseSyscallent(path string) ([]syscallentEntry, error) {
@@ -59,8 +60,12 @@ func parseSyscallent(path string) ([]syscallentEntry, error) {
 		}
 		id, _ := strconv.Atoi(m[1])
 		argc, _ := strconv.Atoi(m[2])
-		name := m[3]
-		entries = append(entries, syscallentEntry{ID: id, Name: name, Argc: argc})
+		entries = append(entries, syscallentEntry{
+			ID:    id,
+			Name:  m[4],
+			Argc:  argc,
+			Flags: m[3],
+		})
 	}
 	return entries, scanner.Err()
 }
