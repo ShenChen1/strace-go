@@ -259,25 +259,51 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 		fd = int32(ctx.Args[0])
 	}
 
-	if (scName == "read" || scName == "pread64") && ctx.Ret > 0 && ctx.Opts.TraceReadFDs[fd] {
+	if (scName == "read" || scName == "pread64") && ctx.Ret >= 0 {
 		szH := uint64(ctx.Ret)
-		bpfBuf := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+512]
-		// Read exits always have data in exit buf if captured
-		data, ok := ctx.FetchStructData(val, int(szH), true, bpfBuf)
-		if ok {
-			res.HexDumpStr = format.Hexdump(data)
-			return format.Buffer(data, ctx.Opts.StringLimit, int(szH)), true
+		if szH == 0 {
+			return `""`, true
+		}
+		if ctx.Opts.TraceReadFDs[fd] {
+			bpfBuf := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+512]
+			// Read exits always have data in exit buf if captured
+			data, ok := ctx.FetchStructData(val, int(szH), true, bpfBuf)
+			if ok {
+				res.HexDumpStr = format.Hexdump(data, int(szH))
+				if len(data) < int(szH) {
+					miss := int(szH) - len(data)
+					byteStr := "bytes"
+					if miss == 1 {
+						byteStr = "byte"
+					}
+					res.HexDumpStr += fmt.Sprintf(" | <Cannot fetch %d %s from pid %d @0x%x>\n", miss, byteStr, ctx.Tid, val+uint64(len(data)))
+				}
+				return format.Buffer(data, ctx.Opts.StringLimit, int(szH)), true
+			}
 		}
 	}
 
-	if (scName == "write" || scName == "pwrite64") && ctx.Opts.TraceWriteFDs[fd] {
+	if (scName == "write" || scName == "pwrite64") {
 		szH := ctx.Args[2]
-		bpfBuf := ctx.StrArgBuf[0:512]
-		// Write enter always has data in enter buf if captured
-		data, ok := ctx.FetchStructData(val, int(szH), false, bpfBuf)
-		if ok {
-			res.HexDumpStr = format.Hexdump(data)
-			return format.Buffer(data, ctx.Opts.StringLimit, int(szH)), true
+		if szH == 0 {
+			return `""`, true
+		}
+		if ctx.Opts.TraceWriteFDs[fd] {
+			bpfBuf := ctx.StrArgBuf[0:512]
+			// Write enter always has data in enter buf if captured
+			data, ok := ctx.FetchStructData(val, int(szH), false, bpfBuf)
+			if ok {
+				res.HexDumpStr = format.Hexdump(data, int(szH))
+				if len(data) < int(szH) {
+					miss := int(szH) - len(data)
+					byteStr := "bytes"
+					if miss == 1 {
+						byteStr = "byte"
+					}
+					res.HexDumpStr += fmt.Sprintf(" | <Cannot fetch %d %s from pid %d @0x%x>\n", miss, byteStr, ctx.Tid, val+uint64(len(data)))
+				}
+				return format.Buffer(data, ctx.Opts.StringLimit, int(szH)), true
+			}
 		}
 	}
 

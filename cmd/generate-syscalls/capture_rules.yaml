@@ -102,12 +102,12 @@ rules:
   - syscalls: [read, pread64]
     exit:
       ptr_arg: 1
-      reads: [{ arg: 1, size: 512, offset: 1024, type: raw }]
+      reads: [{ arg: 1, size: 0, offset: 1024, type: raw }]
 
   - syscalls: [write, pwrite64]
     enter:
       ptr_arg: 1
-      reads: [{ arg: 1, size: 512, offset: 0, type: raw }]
+      reads: [{ arg: 1, size: 0, offset: 0, type: raw }]
 
   # Network
   - syscalls: [connect, bind]

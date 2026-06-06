@@ -7,8 +7,8 @@
 		case 1: /* write */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
-				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				long pr = (__err == 0 && (e)->args[1]) ? 512 : __err; \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, ((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0) : __err; \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_enter; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -148,8 +148,8 @@
 		case 18: /* pwrite64 */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
-				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				long pr = (__err == 0 && (e)->args[1]) ? 512 : __err; \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, ((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0) : __err; \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_enter; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -2405,8 +2405,8 @@
 		case 0: /* read */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
-				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 512, (void *)(e)->args[1]) : 0; \
-				long pr = (__err == 0 && (e)->args[1]) ? 512 : __err; \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, ((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0) : __err; \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_exit; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -2513,8 +2513,8 @@
 		case 17: /* pread64 */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
-				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 512, (void *)(e)->args[1]) : 0; \
-				long pr = (__err == 0 && (e)->args[1]) ? 512 : __err; \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, ((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0) : __err; \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_exit; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \

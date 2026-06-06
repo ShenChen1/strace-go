@@ -183,6 +183,14 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 		if r.Arg == 3 {
 			return "fssz"
 		}
+	case "read", "pread64":
+		if r.Arg == 1 {
+			return "((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0)"
+		}
+	case "write", "pwrite64":
+		if r.Arg == 1 {
+			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
+		}
 	case "readlink", "readlinkat", "getcwd":
 		return "((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0)"
 	}
