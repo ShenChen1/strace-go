@@ -110,7 +110,7 @@ func main() {
 	// IMPACT: Initialize decoder.StringLimit from parsed CLI options to respect command-line formatting constraints.
 	decoder.StringLimit = opts.StringLimit
 
-	outWriter, outFile := setupOutput(opts.OutFile)
+	outWriter, outFile := setupOutput(opts.OutFile, opts.OutAppendMode)
 	if outFile != nil {
 		defer outFile.Close()
 	}

@@ -180,11 +180,15 @@ func attachToPid(pid int, bpfObjs *bpfObjects) (*exec.Cmd, int, map[string]strin
 }
 
 // IMPACT: setupOutput prepares the io.Writer target for saving strace text traces.
-func setupOutput(outFileOpt string) (io.Writer, *os.File) {
+func setupOutput(outFileOpt string, appendMode bool) (io.Writer, *os.File) {
 	if outFileOpt == "" {
 		return os.Stderr, nil
 	}
-	outFile, err := os.Create(outFileOpt)
+	flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+	if appendMode {
+		flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
+	}
+	outFile, err := os.OpenFile(outFileOpt, flags, 0666)
 	if err != nil {
 		log.Fatalf("failed to create output file: %v", err)
 	}

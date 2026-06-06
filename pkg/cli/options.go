@@ -44,6 +44,7 @@ type Options struct {
 	SuccessfulOnly      bool // -z
 	FailedOnly          bool // -Z
 	EnvActions          []string // -E
+	OutAppendMode       bool
 	WallTime            bool     // -w
 }
 
@@ -168,6 +169,8 @@ func parseQuiet(arg string, opts *Options) bool {
 // IMPACT: parseBasicFlags parses boolean flags such as fork following, help, version and verbose.
 func parseBasicFlags(arg string, opts *Options) bool {
 	switch {
+	case arg == "-A" || arg == "--output-append-mode":
+		opts.OutAppendMode = true
 	case arg == "-f":
 		opts.FollowForks = true
 	case arg == "-v" || arg == "--no-abbrev":
