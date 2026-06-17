@@ -42,6 +42,8 @@ type traceSession struct {
 	decoder           *event.Decoder
 	memReader         *procmem.Reader
 	fdMap             map[string]string
+	fdOffsets         map[string]int64
+	fdFiles           map[string]*os.File
 	outWriter         io.Writer
 	outFile           *os.File
 	outCmd            *exec.Cmd
@@ -389,6 +391,7 @@ func (s *traceSession) run() {
 				if s.opts != nil && (s.opts.SummaryOnly || s.opts.SummaryAndPrint) {
 					s.printSummary()
 				}
+				s.closeFDDataFiles()
 				if s.outPipe != nil {
 					s.outPipe.Close()
 					s.outCmd.Wait()

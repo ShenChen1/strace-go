@@ -3,6 +3,7 @@ package handler
 
 import (
 	"fmt"
+	"os"
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 	"strace-go/pkg/meta"
@@ -35,11 +36,15 @@ type Context struct {
 	StrArgBuf     []byte
 	RawStrArg     string
 
+	BufferFileOffset   int64
+	BufferFileOffsetOK bool
+
 	ScMeta    meta.Syscall
 	MemReader procmem.MemoryReader
 	Decoder   *event.Decoder
 	Opts      *cli.Options
 	FdMap     map[string]string
+	FdFiles   map[string]*os.File
 }
 
 // IsArgReadSuccess checks if a specific enter-stage argument read was successful in BPF.

@@ -112,6 +112,8 @@ func main() {
 		defer outFile.Close()
 	}
 
+	fdOffsets, fdFiles := initFDTracking(targetPid, fdMap)
+
 	var resolver *stacktrace.Resolver
 	if opts.StackTrace {
 		resolver = stacktrace.NewResolver(targetPid)
@@ -125,6 +127,8 @@ func main() {
 		decoder:          decoder,
 		memReader:        memReader,
 		fdMap:            fdMap,
+		fdOffsets:        fdOffsets,
+		fdFiles:          fdFiles,
 		outWriter:        outWriter,
 		outFile:          outFile,
 		outCmd:           outCmd,

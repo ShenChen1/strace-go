@@ -38,8 +38,7 @@ func (r *Reader) Close() {
 }
 
 // Read reads size bytes from the address space of pid at addr.
-// IMPACT: Added fallback retry with size=512 if full size readVM fails
-// to handle cross-page page boundary EFAULT truncation safely.
+// IMPACT: Continue after short process_vm_readv reads so large buffer dumps are not truncated to the first accessible segment.
 func (r *Reader) Read(pid int, addr uint64, size int) ([]byte, error) {
 	if size <= 0 {
 		return nil, nil
@@ -47,12 +46,15 @@ func (r *Reader) Read(pid int, addr uint64, size int) ([]byte, error) {
 	out := make([]byte, size)
 
 	n, err := r.readVM(pid, addr, out)
-	if err == nil && n > 0 {
+	if err == nil && n == size {
 		return out[:n], nil
+	}
+	totalRead := 0
+	if err == nil && n > 0 {
+		totalRead = n
 	}
 
 	// Fallback: read page by page to get as much data as possible before EFAULT
-	var totalRead int
 	for totalRead < size {
 		readSize := 4096 - int((addr+uint64(totalRead))&0xfff)
 		if totalRead+readSize > size {

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/binary"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -259,5 +260,99 @@ func TestDecodeExecSnapshotHonorsStringLimit40(t *testing.T) {
 	want := `["` + values[0] + `", "` + strings.Repeat("b", 40) + `"...]`
 	if !ok || got != want {
 		t.Fatalf("decode -s40 argv snapshot = %q, %v; want %q", got, ok, want)
+	}
+}
+
+func TestDecodeWriteDumpUsesTraceeMemoryBeyondBpfPrefix(t *testing.T) {
+	data := make([]byte, 0x300)
+	for i := range data {
+		data[i] = byte(i)
+	}
+	ctx := &Context{
+		Pid:       101,
+		Tid:       102,
+		TargetPid: 101,
+		Args:      [6]uint64{1, 0x1000, uint64(len(data))},
+		ScMeta: meta.Syscall{
+			Name:     "write",
+			Args:     []string{"fd", "buf", "count"},
+			ArgTypes: []string{"int", "const char *", "size_t"},
+		},
+		ProbeRetEnter: 0,
+		StrArgBuf:     make([]byte, 1536),
+		MemReader:     mapMemoryReader{0x1000: data},
+		Opts: &cli.Options{
+			StringLimit:   32,
+			TraceWriteFDs: map[int32]bool{1: true},
+		},
+	}
+	ctx.Decoder = event.NewDecoder(ctx.MemReader)
+
+	res := Result{}
+	got, ok := decodeBufferArg(ctx, 0x1000, &res)
+	if !ok {
+		t.Fatal("decodeBufferArg did not handle write buffer")
+	}
+	if !strings.HasSuffix(got, "...") {
+		t.Fatalf("write buffer summary = %q, want abbreviated string", got)
+	}
+	if !strings.Contains(res.HexDumpStr, "00200") {
+		t.Fatalf("hexdump did not include data beyond BPF prefix:\n%s", res.HexDumpStr)
+	}
+	if strings.Contains(res.HexDumpStr, "Cannot fetch") {
+		t.Fatalf("hexdump unexpectedly reported missing bytes:\n%s", res.HexDumpStr)
+	}
+}
+
+func TestDecodeWriteDumpExtendsFromWrittenFile(t *testing.T) {
+	data := make([]byte, 0x300)
+	for i := range data {
+		data[i] = byte(i)
+	}
+	tmp, err := os.CreateTemp(t.TempDir(), "write-data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tmp.Close()
+	if _, err := tmp.Write(make([]byte, 15)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := &Context{
+		Pid:       101,
+		Tid:       102,
+		TargetPid: 101,
+		Args:      [6]uint64{1, 0x1000, uint64(len(data))},
+		Ret:       int64(len(data)),
+		ScMeta: meta.Syscall{
+			Name:     "write",
+			Args:     []string{"fd", "buf", "count"},
+			ArgTypes: []string{"int", "const char *", "size_t"},
+		},
+		ProbeRetEnter:      0,
+		StrArgBuf:          make([]byte, 1536),
+		MemReader:          mapMemoryReader{},
+		BufferFileOffset:   15,
+		BufferFileOffsetOK: true,
+		FdFiles:            map[string]*os.File{"101:1": tmp},
+		Opts: &cli.Options{
+			StringLimit:   32,
+			TraceWriteFDs: map[int32]bool{1: true},
+		},
+	}
+	ctx.Decoder = event.NewDecoder(ctx.MemReader)
+
+	res := Result{}
+	if _, ok := decodeBufferArg(ctx, 0x1000, &res); !ok {
+		t.Fatal("decodeBufferArg did not handle write buffer")
+	}
+	if !strings.Contains(res.HexDumpStr, "00200") {
+		t.Fatalf("hexdump did not include data recovered from file:\n%s", res.HexDumpStr)
+	}
+	if strings.Contains(res.HexDumpStr, "Cannot fetch") {
+		t.Fatalf("hexdump unexpectedly reported missing bytes:\n%s", res.HexDumpStr)
 	}
 }

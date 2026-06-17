@@ -86,9 +86,16 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 
 	defer func() {
 		if scMeta.Name == "close" && ret == 0 {
-			delete(s.fdMap, fmt.Sprintf("%d:%d", s.targetPid, int32(eventRaw.Args[0])))
+			key := fmt.Sprintf("%d:%d", s.targetPid, int32(eventRaw.Args[0]))
+			delete(s.fdMap, key)
+			delete(s.fdOffsets, key)
+			if f := s.fdFiles[key]; f != nil {
+				f.Close()
+				delete(s.fdFiles, key)
+			}
 		}
 	}()
+	defer s.updateFDOffsets(eventRaw, scMeta)
 
 	if scMeta.Name == "arch_prctl" && eventRaw.Args[0] == 0x1002 {
 		return
@@ -117,6 +124,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		}
 	}
 
+	bufferFileOffset, bufferFileOffsetOK := s.bufferFileOffset(eventRaw, scMeta)
 	updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, s.targetPid, s.fdMap)
 
 	ctx := &handler.Context{
@@ -124,7 +132,9 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		SysName: scMeta.Name, Args: eventRaw.Args, Ret: ret,
 		ProbeRetEnter: eventRaw.ProbeRetEnter, ProbeRetExit: eventRaw.ProbeRetExit,
 		Ptr: eventRaw.Ptr, StrArgBuf: strArgBuf, RawStrArg: rawStrArg,
+		BufferFileOffset: bufferFileOffset, BufferFileOffsetOK: bufferFileOffsetOK,
 		ScMeta: scMeta, MemReader: s.memReader, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdMap,
+		FdFiles: s.fdFiles,
 	}
 
 	isFdSys := scMeta.Name == "open" || scMeta.Name == "openat" || scMeta.Name == "openat2" || scMeta.Name == "creat" || scMeta.Name == "dup" || scMeta.Name == "dup2" || scMeta.Name == "dup3" || scMeta.Name == "close" || scMeta.Name == "faccessat" || scMeta.Name == "faccessat2" || scMeta.Name == "chmodat" || scMeta.Name == "mkdirat" || scMeta.Name == "newfstatat" || scMeta.Name == "fstat" || scMeta.Name == "chdir" || scMeta.Name == "fchdir"
