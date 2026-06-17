@@ -77,6 +77,9 @@ func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, deco
 				p = decoder.DecodeString(int(eventRaw.Tid), eventRaw.Args[1], strArgBuf, eventRaw.ProbeRetEnter, scMeta.Name, 0)
 			}
 			if p != "" && !strings.HasPrefix(p, "0x") && p != "NULL" {
+				if strings.HasPrefix(p, `"`) && strings.HasSuffix(p, `"`) {
+					p = p[1 : len(p)-1]
+				}
 				fdMap[fmt.Sprintf("%d:%d", targetPid, int32(ret))] = p
 			}
 		}
@@ -85,9 +88,6 @@ func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, deco
 		oldFd := int32(eventRaw.Args[0])
 		if p, ok := fdMap[fmt.Sprintf("%d:%d", targetPid, oldFd)]; ok {
 			fdMap[fmt.Sprintf("%d:%d", targetPid, int32(ret))] = p
-			fmt.Fprintf(os.Stderr, "DEBUG dup: pid %d oldFd %d newFd %d path %s\n", targetPid, oldFd, ret, p)
-		} else {
-			fmt.Fprintf(os.Stderr, "DEBUG dup FAIL: pid %d oldFd %d not found in fdMap!\n", targetPid, oldFd)
 		}
 	}
 	// Deletion for "close" is deferred to the end of handleEvent to ensure DecodeFd still has the state.
@@ -113,7 +113,7 @@ func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, deco
 			if domain == 16 {
 				info += ":" + meta.DecodeFlags(proto, "netlink_protocols")
 			}
-			
+
 			if target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, fd1)); err == nil {
 				fdMap[fmt.Sprintf("%d:%d", targetPid, fd1)] = target + "|" + info
 			} else {
@@ -133,7 +133,7 @@ func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, deco
 		if domain == 16 {
 			info += ":" + meta.DecodeFlags(proto, "netlink_protocols")
 		}
-		
+
 		key := fmt.Sprintf("%d:%d", targetPid, int32(ret))
 		target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, int32(ret)))
 		if err != nil {
@@ -163,6 +163,7 @@ func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, deco
 		handler.UpdateCwdByFd(targetPid, int32(eventRaw.Args[0]), fdMap)
 	}
 }
+
 // IMPACT: checkShouldPrint filters syscall events by syscall list, path and read/write descriptor filter options.
 func checkShouldPrint(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, isPath bool, targetPid int, opts *cli.Options, fdMap map[string]string) bool {
 	var fds []int32
@@ -195,6 +196,9 @@ func checkShouldPrint(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string,
 				}
 			}
 		}
+	}
+	if opts.TraceSetIsNegated {
+		matchedSyscall = !matchedSyscall
 	}
 	return matchedSyscall && (len(opts.TracePaths) == 0 || matchedPath || requestedRW)
 }

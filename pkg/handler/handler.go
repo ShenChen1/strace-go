@@ -44,8 +44,12 @@ type Context struct {
 
 // IsArgReadSuccess checks if a specific enter-stage argument read was successful in BPF.
 func (ctx *Context) IsArgReadSuccess(argIndex int) bool {
-	if ctx.ProbeRetEnter >= 0 { return true }
-	if ctx.ProbeRetEnter == -1 { return false }
+	if ctx.ProbeRetEnter >= 0 {
+		return true
+	}
+	if ctx.ProbeRetEnter == -1 {
+		return false
+	}
 	mask := -ctx.ProbeRetEnter - 1
 	return (mask & (1 << argIndex)) == 0
 }
@@ -76,19 +80,15 @@ func (ctx *Context) FetchStructData(ptr uint64, size int, isExit bool, bpfBuf []
 		if ctx.ProbeRetExit >= 0 {
 			if len(bpfBuf) >= size {
 				data = bpfBuf[:size]
-			} else {
-				data = bpfBuf
+				readSuccess = true
 			}
-			readSuccess = true
 		}
 	} else {
 		if ctx.ProbeRetEnter >= 0 {
 			if len(bpfBuf) >= size {
 				data = bpfBuf[:size]
-			} else {
-				data = bpfBuf
+				readSuccess = true
 			}
-			readSuccess = true
 		}
 	}
 
@@ -96,6 +96,14 @@ func (ctx *Context) FetchStructData(ptr uint64, size int, isExit bool, bpfBuf []
 		if d, err := ctx.MemReader.ReadRobust(ctx.Tid, ptr, size, false); err == nil && len(d) > 0 {
 			data = d
 			readSuccess = true
+		} else {
+			if isExit && ctx.ProbeRetExit >= 0 {
+				data = bpfBuf
+				readSuccess = true
+			} else if !isExit && ctx.ProbeRetEnter >= 0 {
+				data = bpfBuf
+				readSuccess = true
+			}
 		}
 	}
 
@@ -119,26 +127,20 @@ func (ctx *Context) FetchArgStructData(argIndex int, ptr uint64, size int, isExi
 		if ctx.ProbeRetExit >= 0 {
 			if len(bpfBuf) >= size {
 				data = bpfBuf[:size]
-			} else {
-				data = bpfBuf
+				readSuccess = true
 			}
-			readSuccess = true
 		}
 	} else {
 		if argIndex >= 0 && ctx.ArgProbeRet(argIndex) == 0 {
 			if len(bpfBuf) >= size {
 				data = bpfBuf[:size]
-			} else {
-				data = bpfBuf
+				readSuccess = true
 			}
-			readSuccess = true
 		} else if argIndex < 0 && ctx.ProbeRetEnter >= 0 {
 			if len(bpfBuf) >= size {
 				data = bpfBuf[:size]
-			} else {
-				data = bpfBuf
+				readSuccess = true
 			}
-			readSuccess = true
 		}
 	}
 
@@ -146,6 +148,14 @@ func (ctx *Context) FetchArgStructData(argIndex int, ptr uint64, size int, isExi
 		if d, err := ctx.MemReader.ReadRobust(ctx.Tid, ptr, size, false); err == nil && len(d) > 0 {
 			data = d
 			readSuccess = true
+		} else {
+			if isExit && ctx.ProbeRetExit >= 0 {
+				data = bpfBuf
+				readSuccess = true
+			} else if !isExit && ((argIndex >= 0 && ctx.ArgProbeRet(argIndex) == 0) || (argIndex < 0 && ctx.ProbeRetEnter >= 0)) {
+				data = bpfBuf
+				readSuccess = true
+			}
 		}
 	}
 

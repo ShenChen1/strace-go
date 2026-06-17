@@ -1,31 +1,28 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"os"
 	"strings"
-	"sync"
+
+	"strace-go/pkg/format"
 )
 
-var (
-	pendingExecArgs   = make(map[int]string)
-	pendingExecArgsLock sync.Mutex
-	currentAction     int
-	currentActionLock sync.Mutex
-	ExecveArgvFallback func(pid, tid, targetPid int) []string
+const (
+	execSnapshotMagic      = 0x45584543
+	execSnapshotOffset     = 4096
+	execSnapshotHeaderSize = 32
+	execArgSnapshotSize    = 56
+	execArgDataOffset      = 12
+	execArgDataSize        = 42
+	execArgSnapshotCount   = 48
+	execArgDisplayCount    = 32
+	execEnvSnapshotCount   = 64
 )
 
-// IMPACT: Refined decodeStringArray to enforce fallback mechanisms on non-leader threads 
-// during execve execution. This avoids reading unstable thread memory layouts and overrides environment counts.
 func decodeStringArray(ctx *Context, val uint64, argName string) string {
-	isThreadsExecve := ctx.Opts != nil && ctx.Opts.TestThreadsExecve
-	if isThreadsExecve {
-		if s, ok := handleExecveFallback(ctx, val, argName, true); ok {
-			return s
-		}
-	}
-
 	if val == 0 {
 		return "NULL"
 	}
@@ -36,17 +33,17 @@ func decodeStringArray(ctx *Context, val uint64, argName string) string {
 
 	var ptrs []uint64
 	terminated := false
+	abbreviated := false
 	var nextAddr uint64
 	maxCount := 4096
-	readFailed := ctx.Tid != ctx.TargetPid && (ctx.ScMeta.Name == "execve" || ctx.ScMeta.Name == "execveat")
 	for i := 0; i < maxCount; i++ {
 		addr := val + uint64(i*ptrSize)
 		data, err := ctx.MemReader.ReadRobust(ctx.Pid, addr, ptrSize, false)
 		if err != nil || len(data) < ptrSize {
-			nextAddr = addr
 			if i == 0 {
-				readFailed = true
+				return fmt.Sprintf("%#x", val)
 			}
+			nextAddr = addr
 			break
 		}
 		var ptr uint64
@@ -59,20 +56,22 @@ func decodeStringArray(ctx *Context, val uint64, argName string) string {
 			terminated = true
 			break
 		}
+		if argName != "envp" && len(ptrs) == 32 {
+			abbreviated = true
+			break
+		}
 		ptrs = append(ptrs, ptr)
 	}
 
-	if readFailed && (ctx.ScMeta.Name == "execve" || ctx.ScMeta.Name == "execveat") {
-		if s, ok := handleExecveFallback(ctx, val, argName, false); ok {
-			return s
-		}
-	}
-
 	if argName == "envp" {
-		if !terminated {
-			return fmt.Sprintf("%#x /* %d+ vars */", val, len(ptrs))
+		noun := "vars"
+		if len(ptrs) == 1 {
+			noun = "var"
 		}
-		return fmt.Sprintf("%#x /* %d vars */", val, len(ptrs))
+		if !terminated {
+			return fmt.Sprintf("%#x /* %d %s, unterminated */", val, len(ptrs), noun)
+		}
+		return fmt.Sprintf("%#x /* %d %s */", val, len(ptrs), noun)
 	}
 
 	var res []string
@@ -86,94 +85,119 @@ func decodeStringArray(ctx *Context, val uint64, argName string) string {
 		if len(res) > 0 {
 			retStr += ", "
 		}
-		retStr += fmt.Sprintf("... /* %#x */", nextAddr)
+		if abbreviated {
+			retStr += "..."
+		} else {
+			retStr += fmt.Sprintf("... /* %#x */", nextAddr)
+		}
 	}
 	retStr += "]"
 	return retStr
 }
 
-func handleExecveFallback(ctx *Context, val uint64, argName string, isThreadsExecve bool) (string, bool) {
-	if argName == "argv" && ExecveArgvFallback != nil {
-		args := ExecveArgvFallback(ctx.Pid, ctx.Tid, ctx.TargetPid)
-		if len(args) > 0 {
-			var res []string
-			for _, a := range args {
-				res = append(res, "\""+a+"\"")
-			}
-			return "[" + strings.Join(res, ", ") + "]", true
-		}
+func decodeExecStringArraySnapshot(ctx *Context, val uint64, argName string) (string, bool) {
+	if val == 0 {
+		return "NULL", true
 	}
+	if len(ctx.StrArgBuf) < execSnapshotOffset+execSnapshotHeaderSize {
+		return "", false
+	}
+
+	header := ctx.StrArgBuf[execSnapshotOffset:]
+	if binary.LittleEndian.Uint32(header[0:4]) != execSnapshotMagic {
+		return "", false
+	}
+
+	argvCount := int(binary.LittleEndian.Uint16(header[4:6]))
+	envCount := int(binary.LittleEndian.Uint16(header[6:8]))
+	argvStatus := int32(binary.LittleEndian.Uint32(header[8:12]))
+	envStatus := int32(binary.LittleEndian.Uint32(header[12:16]))
+	argvNext := binary.LittleEndian.Uint64(header[16:24])
+	envNext := binary.LittleEndian.Uint64(header[24:32])
+
 	if argName == "envp" {
-		if isThreadsExecve {
-			return fmt.Sprintf("%#x /* 16 vars */", val), true
-		}
-		envc := len(os.Environ())
-		if envc < 15 {
-			envc = 15
-		}
-		return fmt.Sprintf("%#x /* %d vars */", val, envc), true
-	}
-	return "", false
-}
-
-// decodeExecveatFake returns fake outputs for execveat.gen.test to bypass memory read limitations.
-func decodeExecveatFake(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
-	isExecveatFake := ctx.Opts != nil && ctx.Opts.TestExecveatFake
-	if !isExecveatFake {
-		return "", false
-	}
-	if ctx.Ret == -1 && ctx.Args[0] == 3 {
-		return "", false
-	}
-
-	execveatCountLock.Lock()
-	count := execveatCallCount
-	execveatCountLock.Unlock()
-
-	if i == 2 { // argv
-		if val == 0 { return "NULL", true }
-		if count == 7 || count == 8 {
+		if envStatus == -1 && envCount == 0 {
 			return fmt.Sprintf("%#x", val), true
 		}
-		if count >= 9 {
-			return "[\"execveat_sample\"]", true
+		if ctx.Opts.Verbose {
+			envOffset := execSnapshotOffset + execSnapshotHeaderSize + execArgSnapshotCount*execArgSnapshotSize
+			return decodeExecSnapshotRecords(ctx, envOffset, envCount, envStatus, envNext, execEnvSnapshotCount)
 		}
-		switch count {
-		case 1:
-			return fmt.Sprintf("[\"test.execveat\\nfilename\", \"first\", \"second\", 0xffffffffffffffff, 0xfffffffffffffffe, 0xfffffffffffffffd, ... /* %#x */]", val+48), true
-		case 2:
-			return "[\"test.execveat\\nfilename\", \"first\", \"second\"]", true
-		case 3:
-			return "[\"second\"]", true
-		case 4:
-			return "[]", true
-		case 5:
-			return "[\"01234567890123456789012345678901\"..., \"12345678901234567890123456789012\", \"2345678901234567890123456789012\", \"345678901234567890123456789012\", \"45678901234567890123456789012\", \"5678901234567890123456789012\", \"678901234567890123456789012\", \"78901234567890123456789012\", \"8901234567890123456789012\", \"901234567890123456789012\", \"01234567890123456789012\", \"1234567890123456789012\", \"234567890123456789012\", \"34567890123456789012\", \"4567890123456789012\", \"567890123456789012\", \"67890123456789012\", \"7890123456789012\", \"890123456789012\", \"90123456789012\", \"0123456789012\", \"123456789012\", \"23456789012\", \"3456789012\", \"456789012\", \"56789012\", \"6789012\", \"789012\", \"89012\", \"9012\", \"012\", \"12\", ...]", true
-		case 6:
-			return "[\"12345678901234567890123456789012\", \"2345678901234567890123456789012\", \"345678901234567890123456789012\", \"45678901234567890123456789012\", \"5678901234567890123456789012\", \"678901234567890123456789012\", \"78901234567890123456789012\", \"8901234567890123456789012\", \"901234567890123456789012\", \"01234567890123456789012\", \"1234567890123456789012\", \"234567890123456789012\", \"34567890123456789012\", \"4567890123456789012\", \"567890123456789012\", \"67890123456789012\", \"7890123456789012\", \"890123456789012\", \"90123456789012\", \"0123456789012\", \"123456789012\", \"23456789012\", \"3456789012\", \"456789012\", \"56789012\", \"6789012\", \"789012\", \"89012\", \"9012\", \"012\", \"12\", \"2\"]", true
+		noun := "vars"
+		if envCount == 1 {
+			noun = "var"
 		}
-	}
-	if i == 3 { // envp
-		if val == 0 { return "NULL", true }
-		if count == 7 || count == 8 || count >= 9 {
-			return fmt.Sprintf("%#x", val), true
-		}
-		switch count {
-		case 1:
-			return fmt.Sprintf("%#x /* 5 vars, unterminated */", val), true
-		case 2:
-			return fmt.Sprintf("%#x /* 2 vars */", val), true
-		case 3:
-			return fmt.Sprintf("%#x /* 1 var */", val), true
-		case 4:
-			return fmt.Sprintf("%#x /* 0 vars */", val), true
-		case 5:
-			return fmt.Sprintf("%#x /* 33 vars */", val), true
-		case 6:
-			return fmt.Sprintf("%#x /* 32 vars */", val), true
+		switch envStatus {
+		case 0:
+			return fmt.Sprintf("%#x /* %d %s */", val, envCount, noun), true
+		case -1:
+			return fmt.Sprintf("%#x /* %d %s, unterminated */", val, envCount, noun), true
+		default:
+			return fmt.Sprintf("%#x /* %d+ %s */", val, envCount, noun), true
 		}
 	}
-	return "", false
+
+	if argvCount < 0 || argvCount > execArgSnapshotCount {
+		return "", false
+	}
+	if argvStatus == -1 && argvCount == 0 {
+		return fmt.Sprintf("%#x", val), true
+	}
+	if !ctx.Opts.Verbose && argvCount > execArgDisplayCount {
+		argvCount = execArgDisplayCount
+		argvStatus = 1
+	}
+	argvOffset := execSnapshotOffset + execSnapshotHeaderSize
+	return decodeExecSnapshotRecords(ctx, argvOffset, argvCount, argvStatus, argvNext, execArgSnapshotCount)
 }
 
+func decodeExecSnapshotRecords(ctx *Context, baseOffset, count int, status int32, next uint64, maxCount int) (string, bool) {
+	if count < 0 || count > maxCount {
+		return "", false
+	}
+	required := baseOffset + count*execArgSnapshotSize
+	if len(ctx.StrArgBuf) < required {
+		return "", false
+	}
 
+	limit := ctx.Opts.StringLimit
+	var parts []string
+	for i := 0; i < count; i++ {
+		offset := baseOffset + i*execArgSnapshotSize
+		record := ctx.StrArgBuf[offset : offset+execArgSnapshotSize]
+		ptr := binary.LittleEndian.Uint64(record[0:8])
+		readLen := int32(binary.LittleEndian.Uint32(record[8:12]))
+		if readLen <= 0 {
+			parts = append(parts, fmt.Sprintf("%#x", ptr))
+			continue
+		}
+
+		data := record[execArgDataOffset : execArgDataOffset+execArgDataSize]
+		rawLen := int(readLen)
+		if rawLen > len(data) {
+			rawLen = len(data)
+		}
+		raw := data[:rawLen]
+		if nul := bytes.IndexByte(raw, 0); nul >= 0 {
+			raw = raw[:nul]
+		}
+		actualLen := len(raw)
+		if int(readLen) == execArgDataSize && len(raw) == execArgDataSize-1 {
+			actualLen = execArgDataSize
+		}
+		parts = append(parts, format.BufferEscape(raw, limit, actualLen, ctx.Decoder.HexEscapeMode))
+	}
+
+	result := "[" + strings.Join(parts, ", ")
+	if status != 0 {
+		if len(parts) > 0 {
+			result += ", "
+		}
+		if status == 1 {
+			result += "..."
+		} else {
+			result += fmt.Sprintf("... /* %#x */", next)
+		}
+	}
+	return result + "]", true
+}

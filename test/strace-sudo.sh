@@ -26,10 +26,17 @@ if [ "$(id -u)" -eq 0 ]; then
     exec -a "$0" "$STRACE_BIN" "$@"
   fi
 else
+  # Pass caller's environment explicitly since sudo -E is ignored
+  ENV_VARS=()
+  while IFS='=' read -r -d '' name value; do
+    if [[ "$name" != "PATH" && "$name" != "TERM" && "$name" != "PWD" && "$name" != "SHLVL" && "$name" != "_" ]]; then
+      ENV_VARS+=("$name=$value")
+    fi
+  done < <(env -0)
+
   if [ -n "$redirects" ]; then
-    # Use sudo bash -c to re-open fds before exec-ing the actual binary
-    exec sudo bash -c "$redirects exec -a \"\$1\" \"\$2\" \"\${@:3}\"" -- "$0" "$STRACE_BIN" "$@"
+    exec sudo env "${ENV_VARS[@]}" bash -c "umask 022; $redirects exec -a \"\$1\" \"\$2\" \"\${@:3}\"" -- "$0" "$STRACE_BIN" "$@"
   else
-    exec sudo bash -c "exec -a \"\$1\" \"\$2\" \"\${@:3}\"" -- "$0" "$STRACE_BIN" "$@"
+    exec sudo env "${ENV_VARS[@]}" bash -c "umask 022; exec -a \"\$1\" \"\$2\" \"\${@:3}\"" -- "$0" "$STRACE_BIN" "$@"
   fi
 fi

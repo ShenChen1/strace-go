@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"os"
 	"strings"
 
 	"strace-go/pkg/format"
@@ -73,7 +72,9 @@ func (h *IoctlHandler) decodeBtrfsVolArgs(ctx *Context, arg uint64) string {
 	var data []byte
 	if ctx.IsArgReadSuccess(2) && len(ctx.StrArgBuf) >= 512+8 {
 		end := len(ctx.StrArgBuf)
-		if end > 512+4096 { end = 512+4096 }
+		if end > 512+4096 {
+			end = 512 + 4096
+		}
 		data = ctx.StrArgBuf[512:end]
 	} else {
 		data, _ = ctx.MemReader.ReadRobust(ctx.Tid, arg, 4096, true)
@@ -84,18 +85,6 @@ func (h *IoctlHandler) decodeBtrfsVolArgs(ctx *Context, arg uint64) string {
 	fd := int64(binary.LittleEndian.Uint64(data[0:8]))
 	nameBytes := data[8:]
 	nullIdx := bytes.IndexByte(nameBytes, 0)
-	
-	source := "BPF"
-	if !ctx.IsArgReadSuccess(2) || len(ctx.StrArgBuf) < 512+8 {
-		source = "MemReader"
-	}
-	iosz := (ctx.Args[1] >> 16) & 0x3fff
-	debugMsg := fmt.Sprintf("decodeBtrfsVolArgs: source=%s, data_len=%d, nullIdx=%d, name_len=%d, args[1]=%#x, iosz=%d\n", source, len(data), nullIdx, len(nameBytes), ctx.Args[1], iosz)
-	f, _ := os.OpenFile("/tmp/btrfs_debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if f != nil {
-		f.WriteString(debugMsg)
-		f.Close()
-	}
 
 	if nullIdx != -1 {
 		nameBytes = nameBytes[:nullIdx]
@@ -108,7 +97,9 @@ func (h *IoctlHandler) decodeBtrfsVolArgsV2(ctx *Context, arg uint64) string {
 	var data []byte
 	if ctx.IsArgReadSuccess(2) && len(ctx.StrArgBuf) >= 512+56 {
 		end := len(ctx.StrArgBuf)
-		if end > 512+4096 { end = 512+4096 }
+		if end > 512+4096 {
+			end = 512 + 4096
+		}
 		data = ctx.StrArgBuf[512:end]
 	} else {
 		data, _ = ctx.MemReader.ReadRobust(ctx.Tid, arg, 4096, true)
@@ -120,14 +111,14 @@ func (h *IoctlHandler) decodeBtrfsVolArgsV2(ctx *Context, arg uint64) string {
 	flags := binary.LittleEndian.Uint64(data[16:24])
 	size := binary.LittleEndian.Uint64(data[24:32])
 	qgroupPtr := binary.LittleEndian.Uint64(data[32:40])
-	
+
 	nameBytes := data[56:]
 	nullIdx := bytes.IndexByte(nameBytes, 0)
 	if nullIdx != -1 {
 		nameBytes = nameBytes[:nullIdx]
 	}
 	nameStr := format.BufferEscape(nameBytes, 0, len(nameBytes), 0)
-	
+
 	flagsStr := h.decodeBtrfsSubvolFlags(ctx, flags)
 	qgroupStr := "NULL"
 	if qgroupPtr != 0 {
@@ -137,7 +128,7 @@ func (h *IoctlHandler) decodeBtrfsVolArgsV2(ctx *Context, arg uint64) string {
 			qgroupStr = h.decodeBtrfsQgroupInherit(ctx, qgroupPtr)
 		}
 	}
-	
+
 	return fmt.Sprintf("{fd=%d, flags=%s, size=%d, qgroup_inherit=%s, name=%s}", fd, flagsStr, size, qgroupStr, nameStr)
 }
 
@@ -150,13 +141,13 @@ func (h *IoctlHandler) decodeBtrfsQgroupInherit(ctx *Context, arg uint64) string
 	numQgroups := binary.LittleEndian.Uint64(data[8:16])
 	numRefCopies := binary.LittleEndian.Uint64(data[16:24])
 	numExclCopies := binary.LittleEndian.Uint64(data[24:32])
-	
+
 	// lim is struct btrfs_qgroup_limit
 	limFlags := binary.LittleEndian.Uint64(data[32:40])
 	maxRfer := binary.LittleEndian.Uint64(data[40:48])
 	maxExcl := binary.LittleEndian.Uint64(data[48:56])
 	rsvRfer := binary.LittleEndian.Uint64(data[56:64])
-	
+
 	// For test match we also need rsv_excl which is at offset 64
 	data2, _ := ctx.MemReader.ReadRobust(ctx.Tid, arg+64, 8, false)
 	rsvExcl := uint64(0)
@@ -171,20 +162,40 @@ func (h *IoctlHandler) decodeBtrfsQgroupInherit(ctx *Context, arg uint64) string
 			flagsStr = "BTRFS_QGROUP_INHERIT_SET_LIMITS"
 		}
 	}
-	
+
 	var limParts []string
 	lf := limFlags
-	if lf&1 != 0 { limParts = append(limParts, "BTRFS_QGROUP_LIMIT_MAX_RFER"); lf &= ^uint64(1) }
-	if lf&2 != 0 { limParts = append(limParts, "BTRFS_QGROUP_LIMIT_MAX_EXCL"); lf &= ^uint64(2) }
-	if lf&4 != 0 { limParts = append(limParts, "BTRFS_QGROUP_LIMIT_RSV_RFER"); lf &= ^uint64(4) }
-	if lf&8 != 0 { limParts = append(limParts, "BTRFS_QGROUP_LIMIT_RSV_EXCL"); lf &= ^uint64(8) }
-	if lf&16 != 0 { limParts = append(limParts, "BTRFS_QGROUP_LIMIT_RFER_CMPR"); lf &= ^uint64(16) }
-	if lf&32 != 0 { limParts = append(limParts, "BTRFS_QGROUP_LIMIT_EXCL_CMPR"); lf &= ^uint64(32) }
-	if lf != 0 || len(limParts) == 0 { limParts = append(limParts, fmt.Sprintf("%#x", lf)) }
-	
+	if lf&1 != 0 {
+		limParts = append(limParts, "BTRFS_QGROUP_LIMIT_MAX_RFER")
+		lf &= ^uint64(1)
+	}
+	if lf&2 != 0 {
+		limParts = append(limParts, "BTRFS_QGROUP_LIMIT_MAX_EXCL")
+		lf &= ^uint64(2)
+	}
+	if lf&4 != 0 {
+		limParts = append(limParts, "BTRFS_QGROUP_LIMIT_RSV_RFER")
+		lf &= ^uint64(4)
+	}
+	if lf&8 != 0 {
+		limParts = append(limParts, "BTRFS_QGROUP_LIMIT_RSV_EXCL")
+		lf &= ^uint64(8)
+	}
+	if lf&16 != 0 {
+		limParts = append(limParts, "BTRFS_QGROUP_LIMIT_RFER_CMPR")
+		lf &= ^uint64(16)
+	}
+	if lf&32 != 0 {
+		limParts = append(limParts, "BTRFS_QGROUP_LIMIT_EXCL_CMPR")
+		lf &= ^uint64(32)
+	}
+	if lf != 0 || len(limParts) == 0 {
+		limParts = append(limParts, fmt.Sprintf("%#x", lf))
+	}
+
 	limFlagsStr := strings.Join(limParts, "|")
-	
+
 	limStr := fmt.Sprintf("{flags=%s, max_rfer=%d, max_excl=%d, rsv_rfer=%d, rsv_excl=%d}", limFlagsStr, maxRfer, maxExcl, rsvRfer, rsvExcl)
-	
+
 	return fmt.Sprintf("{flags=%s, num_qgroups=%d, num_ref_copies=%d, num_excl_copies=%d, lim=%s, ...}", flagsStr, numQgroups, numRefCopies, numExclCopies, limStr)
 }

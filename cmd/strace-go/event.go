@@ -127,7 +127,38 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		ScMeta: scMeta, MemReader: s.memReader, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdMap,
 	}
 
-	isFdSys := scMeta.Name == "open" || scMeta.Name == "openat" || scMeta.Name == "openat2" || scMeta.Name == "creat" || scMeta.Name == "dup" || scMeta.Name == "dup2" || scMeta.Name == "dup3" || scMeta.Name == "close" || scMeta.Name == "faccessat" || scMeta.Name == "faccessat2" || scMeta.Name == "chmodat" || scMeta.Name == "mkdirat" || scMeta.Name == "newfstatat" || scMeta.Name == "fstat"
+	isFdSys := scMeta.Name == "open" || scMeta.Name == "openat" || scMeta.Name == "openat2" || scMeta.Name == "creat" || scMeta.Name == "dup" || scMeta.Name == "dup2" || scMeta.Name == "dup3" || scMeta.Name == "close" || scMeta.Name == "faccessat" || scMeta.Name == "faccessat2" || scMeta.Name == "chmodat" || scMeta.Name == "mkdirat" || scMeta.Name == "newfstatat" || scMeta.Name == "fstat" || scMeta.Name == "chdir" || scMeta.Name == "fchdir"
+
+	if eventRaw.ProbeRetEnter == -1 && (scMeta.Name == "exit" || scMeta.Name == "exit_group") {
+		if s.opts == nil || !s.opts.SummaryOnly {
+			timePrefix := formatTimePrefix(eventRaw.EnterTime, s)
+			pidPrefix := ""
+			if s.opts != nil && s.opts.FollowForks {
+				pidPrefix = fmt.Sprintf("%-5d ", tPid)
+			}
+			if shouldPrint {
+				h := handler.Get(scMeta.Name)
+				res := h.Handle(ctx)
+				argLine := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
+				padding := " "
+				totalLen := len(timePrefix) + len(pidPrefix) + len(argLine)
+				if totalLen < s.opts.AlignCol {
+					padding = strings.Repeat(" ", s.opts.AlignCol-totalLen)
+				}
+				fmt.Fprintf(s.outWriter, "%s%s%s%s= ?\n", timePrefix, pidPrefix, argLine, padding)
+			}
+			if s.opts == nil || !s.opts.QuietExit {
+				exitLine := fmt.Sprintf("%s%s+++ exited with %d +++\n", timePrefix, pidPrefix, eventRaw.Args[0])
+				if s.shouldQueueExitStatus(int(eventRaw.Pid)) {
+					s.queueExitStatus(tPid, exitLine)
+				} else {
+					fmt.Fprint(s.outWriter, exitLine)
+				}
+			}
+		}
+		return
+	}
+
 	if !shouldPrint {
 		if isFdSys {
 			handler.Get(scMeta.Name).Handle(ctx)
@@ -168,9 +199,15 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 		}
 		if s.opts != nil && len(s.opts.TraceStatus) > 0 {
 			statusMatch := false
-			if s.opts.TraceStatus["successful"] && !isFailed { statusMatch = true }
-			if s.opts.TraceStatus["failed"] && isFailed { statusMatch = true }
-			if !statusMatch { return }
+			if s.opts.TraceStatus["successful"] && !isFailed {
+				statusMatch = true
+			}
+			if s.opts.TraceStatus["failed"] && isFailed {
+				statusMatch = true
+			}
+			if !statusMatch {
+				return
+			}
 		}
 	}
 
@@ -277,7 +314,6 @@ func formatTimePrefix(enterTimeMonoNs uint64, s *traceSession) string {
 }
 
 // IMPACT: handleSuperseded formats and prints superseded thread details when a non-leader thread executes execve.
-// It increments the currentAction iteration count to align test expectation for iteration index tracking.
 func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, s *traceSession) bool {
 	ret := eventRaw.Ret
 	tPid := int(eventRaw.Tid)
@@ -309,14 +345,11 @@ func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Resul
 	}
 	isExecSuccess := (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == 0
 	if isExecSuccess && tPid != targetPid && opts != nil && opts.FollowForks {
-		currentActionLock.Lock()
-		currentAction++
-		currentActionLock.Unlock()
-
 		exited := eventRaw.ProbeRetEnter == 1
 		pendingExecArgsLock.Lock()
 		delete(pendingExecArgs, tPid)
 		pendingExecArgsLock.Unlock()
+		s.discardExitStatus(targetPid)
 
 		if exited {
 			return true
@@ -343,6 +376,49 @@ func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Resul
 		return true
 	}
 	return false
+}
+
+func (s *traceSession) shouldQueueExitStatus(tgid int) bool {
+	if s.cmd == nil {
+		return false
+	}
+	if s.opts != nil {
+		for _, pid := range s.opts.AttachPids {
+			if pid == tgid {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func (s *traceSession) queueExitStatus(pid int, line string) {
+	if s.exitedTracees != nil && s.exitedTracees[pid] {
+		delete(s.exitedTracees, pid)
+		fmt.Fprint(s.outWriter, line)
+		return
+	}
+	if s.pendingExitStatus == nil {
+		s.pendingExitStatus = make(map[int]string)
+	}
+	s.pendingExitStatus[pid] = line
+}
+
+func (s *traceSession) markTraceeExited(pid int) {
+	if line, ok := s.pendingExitStatus[pid]; ok {
+		delete(s.pendingExitStatus, pid)
+		fmt.Fprint(s.outWriter, line)
+		return
+	}
+	if s.exitedTracees == nil {
+		s.exitedTracees = make(map[int]bool)
+	}
+	s.exitedTracees[pid] = true
+}
+
+func (s *traceSession) discardExitStatus(pid int) {
+	delete(s.pendingExitStatus, pid)
+	delete(s.exitedTracees, pid)
 }
 
 // IMPACT: printSyscallOutput outputs formatted syscall trace lines and logs signal delivery if applicable.
@@ -493,4 +569,3 @@ func formatSyscallRet(scName string, ret int64, res handler.Result, ctx *handler
 	}
 	return retStr
 }
-

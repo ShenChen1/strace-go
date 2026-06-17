@@ -210,9 +210,24 @@ func Ioc(val uint64) string {
 	return fmt.Sprintf("_IOC(%s, %s, %s, %s)", dirStr, fh(typ), fh(nr), fh(size))
 }
 
-// Hexdump returns a hexadecimal representation of the data.
-func Hexdump(data []byte) string {
+func Hexdump(data []byte, targetSize int) string {
 	var res []string
+	width := 5
+	maxOff := targetSize - 1
+	if len(data) == 0 {
+		maxOff = 0
+	}
+	if maxOff > 0xfffff {
+		width = 6
+	}
+	if maxOff > 0xffffff {
+		width = 7
+	}
+	if maxOff > 0xfffffff {
+		width = 8
+	}
+	formatStr := fmt.Sprintf(" | %%0%dx  %%-48s  %%-16s |", width)
+
 	for i := 0; i < len(data); i += 16 {
 		end := i + 16
 		if end > len(data) {
@@ -237,7 +252,7 @@ func Hexdump(data []byte) string {
 		}
 		
 		hexStr = strings.TrimSuffix(hexStr, " ")
-		res = append(res, fmt.Sprintf(" | %05x  %-48s  %-16s |", i, hexStr, asciiStr))
+		res = append(res, fmt.Sprintf(formatStr, i, hexStr, asciiStr))
 	}
 	if len(res) == 0 { return "" }
 	return strings.Join(res, "\n") + "\n"

@@ -41,23 +41,36 @@ func (r *Reader) Close() {
 // IMPACT: Added fallback retry with size=512 if full size readVM fails
 // to handle cross-page page boundary EFAULT truncation safely.
 func (r *Reader) Read(pid int, addr uint64, size int) ([]byte, error) {
-	if size <= 0 { return nil, nil }
+	if size <= 0 {
+		return nil, nil
+	}
 	out := make([]byte, size)
 
 	n, err := r.readVM(pid, addr, out)
-	if err == nil && n > 0 { return out[:n], nil }
+	if err == nil && n > 0 {
+		return out[:n], nil
+	}
 
-	// Fallback to page boundary size if vm readv failed on page boundaries.
-	// Since all memory within the same page share permissions, reading up to
-	// the page boundary is guaranteed not to EFAULT due to cross-page protection.
-	pageOffset := addr & 0xfff
-	bytesAvailable := int(4096 - pageOffset)
-	if size > bytesAvailable && bytesAvailable > 0 {
-		reducedOut := make([]byte, bytesAvailable)
-		n, err := r.readVM(pid, addr, reducedOut)
-		if err == nil && n > 0 {
-			return reducedOut[:n], nil
+	// Fallback: read page by page to get as much data as possible before EFAULT
+	var totalRead int
+	for totalRead < size {
+		readSize := 4096 - int((addr+uint64(totalRead))&0xfff)
+		if totalRead+readSize > size {
+			readSize = size - totalRead
 		}
+		chunk := make([]byte, readSize)
+		n, err := r.readVM(pid, addr+uint64(totalRead), chunk)
+		if err != nil || n == 0 {
+			break
+		}
+		copy(out[totalRead:], chunk[:n])
+		totalRead += n
+		if n < readSize {
+			break
+		}
+	}
+	if totalRead > 0 {
+		return out[:totalRead], nil
 	}
 
 	// Fallback to /proc/<pid>/mem
@@ -74,7 +87,9 @@ func (r *Reader) Read(pid int, addr uint64, size int) ([]byte, error) {
 	if f != nil {
 		// IMPACT: Clears and closes cached /proc/pid/mem descriptors if they become stale after execve.
 		n, err := f.ReadAt(out, int64(addr))
-		if n > 0 { return out[:n], nil }
+		if n > 0 {
+			return out[:n], nil
+		}
 		if err != nil {
 			f.Close()
 			delete(r.files, pid)
@@ -88,7 +103,9 @@ func (r *Reader) Read(pid int, addr uint64, size int) ([]byte, error) {
 		if err == nil {
 			defer f.Close()
 			n, _ := f.ReadAt(out, int64(addr))
-			if n > 0 { return out[:n], nil }
+			if n > 0 {
+				return out[:n], nil
+			}
 		}
 	}
 
@@ -98,12 +115,16 @@ func (r *Reader) Read(pid int, addr uint64, size int) ([]byte, error) {
 	for i := 0; i < size; i += 8 {
 		n, err := syscall.PtracePeekData(pid, uintptr(addr+uint64(i)), buf)
 		if err != nil || n == 0 {
-			if i > 0 { return data, nil }
+			if i > 0 {
+				return data, nil
+			}
 			return nil, err
 		}
 		data = append(data, buf[:n]...)
 	}
-	if len(data) > size { data = data[:size] }
+	if len(data) > size {
+		data = data[:size]
+	}
 	return data, nil
 }
 
@@ -126,7 +147,9 @@ func (r *Reader) readVM(pid int, addr uint64, out []byte) (int, error) {
 
 	// Syscall number 310 for process_vm_readv on x86_64
 	n, _, err := syscall.Syscall6(310, uintptr(pid), uintptr(unsafe.Pointer(&localIov)), 1, uintptr(unsafe.Pointer(&remoteIov)), 1, 0)
-	if err != 0 { return 0, err }
+	if err != 0 {
+		return 0, err
+	}
 	return int(n), nil
 }
 
@@ -135,9 +158,19 @@ func (r *Reader) ReadRobust(pid int, addr uint64, size int, waitOnZero bool) ([]
 	for i := 0; i < 20; i++ {
 		buf, err := r.Read(pid, addr, size)
 		if err == nil {
-			if !waitOnZero { return buf, nil }
-			allZeros := true; for _, x := range buf { if x != 0 { allZeros = false; break } }
-			if !allZeros { return buf, nil }
+			if !waitOnZero {
+				return buf, nil
+			}
+			allZeros := true
+			for _, x := range buf {
+				if x != 0 {
+					allZeros = false
+					break
+				}
+			}
+			if !allZeros {
+				return buf, nil
+			}
 		} else {
 			if err == syscall.EFAULT || err == syscall.ESRCH || err == syscall.EPERM {
 				return nil, err

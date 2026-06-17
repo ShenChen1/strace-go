@@ -38,7 +38,7 @@ func parseBPFData(bpfData []byte, probeRet int32) (bpfRaw []byte, bpfFound bool,
 		if probeRet > 0 && int(probeRet) < bound {
 			bound = int(probeRet)
 		}
-		if probeRet >= 0 && idx < bound-1 {
+		if probeRet >= 0 && idx <= bound-1 {
 			raw = bpfRaw
 			found = true
 		}
@@ -65,7 +65,7 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 
 	if found {
 		raw = bpfRaw
-		if limit > 0 && len(raw) >= limit {
+		if limit > 0 && len(raw) > limit {
 			truncated = true
 		} else if limit <= 0 && len(raw) == 4095 {
 			// We hit the maximum capacity of the BPF buffer (4096 - 1 NUL).
@@ -88,39 +88,38 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 		}
 	}
 	if !found {
-			readSize := 4096
-			if limit > 0 && limit < 4096 {
-				readSize = limit + 1
-			}
-			data, err := d.MemReader.ReadRobust(pid, ptr, readSize, false)
-			if err == nil {
-				if idx := bytes.IndexByte(data, 0); idx != -1 {
-					raw = data[:idx]
-					if limit > 0 && idx >= limit {
-						truncated = true
-					}
+		readSize := 4096
+		if limit > 0 && limit < 4096 {
+			readSize = limit + 1
+		}
+		data, err := d.MemReader.ReadRobust(pid, ptr, readSize, false)
+		if err == nil {
+			if idx := bytes.IndexByte(data, 0); idx != -1 {
+				raw = data[:idx]
+				if limit > 0 && idx > limit {
+					truncated = true
+				}
+				found = true
+			} else {
+				if len(data) == readSize {
+					raw = data
+					truncated = true
 					found = true
 				} else {
-					if len(data) == readSize {
-						raw = data
-						truncated = true
-						found = true
-					} else {
-						// Hit a memory fault before finding '\0'
-						found = false
-						fmt.Fprintf(os.Stderr, "DEBUG_STRACEGO: MemReader hit fault, len(data)=%d readSize=%d ptr=%x\n", len(data), readSize, ptr)
-					}
-				}
-			} else {
-				if probeRet >= 0 && bpfFound && len(bpfRaw) > 0 {
-					raw = bpfRaw
-					if limit > 0 && len(bpfRaw) >= limit {
-						truncated = true
-					}
-					found = true
+					// Hit a memory fault before finding '\0'
+					found = false
 				}
 			}
+		} else {
+			if probeRet >= 0 && bpfFound && len(bpfRaw) > 0 {
+				raw = bpfRaw
+				if limit > 0 && len(bpfRaw) > limit {
+					truncated = true
+				}
+				found = true
+			}
 		}
+	}
 
 	var finalRes string
 	if found {
@@ -135,9 +134,6 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 		if truncated {
 			actualLen = printLimit + 1
 		}
-        msg := fmt.Sprintf("DEBUG_STRACEGO: ptr=%#x raw_len=%d truncated=%v printLimit=%d actualLen=%d found=%v limit=%v\n", ptr, len(raw), truncated, printLimit, actualLen, found, limit)
-        f, _ := os.OpenFile("/tmp/debug_all.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
-        if f != nil { f.Write([]byte(msg)); f.Close() }
 		finalRes = format.BufferEscape(raw, printLimit, actualLen, d.HexEscapeMode)
 	} else {
 		finalRes = fmt.Sprintf("%#x", ptr)
@@ -154,27 +150,35 @@ func (d *Decoder) DecodeStringRaw(pid int, ptr uint64, bpfData []byte, probeRet 
 
 	if len(bpfData) > 0 {
 		if idx := bytes.IndexByte(bpfData, 0); idx != -1 {
-			if idx > 0 || probeRet >= 0 { return string(bpfData[:idx]) }
+			if idx > 0 || probeRet >= 0 {
+				return string(bpfData[:idx])
+			}
 		}
 	}
 	if data, err := d.MemReader.ReadRobust(pid, ptr, 512, false); err == nil {
-		if idx := bytes.IndexByte(data, 0); idx != -1 { return string(data[:idx]) }
-		if len(data) == 512 { return string(data) }
+		if idx := bytes.IndexByte(data, 0); idx != -1 {
+			return string(data[:idx])
+		}
+		if len(data) == 512 {
+			return string(data)
+		}
 	}
 	return fmt.Sprintf("%#x", ptr)
 }
 
 // MatchPath checks if the syscall matches any of the paths in the filter list.
 func MatchPath(pid int, fds []int32, isPath bool, scName string, ptr uint64, rawStrArg string, tracePaths map[string]bool, fdMap map[string]string) bool {
-	if len(tracePaths) == 0 { return true }
-	
+	if len(tracePaths) == 0 {
+		return true
+	}
+
 	var candidatePaths []string
 
 	// 1. Path from FDs
 	baseFd := int32(-1)
 	for _, fd := range fds {
 		if fd != -1 {
-			if path, ok := fdMap[fmt.Sprintf("%d:%d", pid, fd)]; ok { 
+			if path, ok := fdMap[fmt.Sprintf("%d:%d", pid, fd)]; ok {
 				candidatePaths = append(candidatePaths, path)
 			}
 			if baseFd == -1 {
@@ -189,10 +193,12 @@ func MatchPath(pid int, fds []int32, isPath bool, scName string, ptr uint64, raw
 		if len(p) >= 2 && p[0] == '"' && p[len(p)-1] == '"' {
 			p = p[1 : len(p)-1]
 		}
-		
+
 		if strings.HasPrefix(p, "/") {
 			candidatePaths = append(candidatePaths, p)
 		} else {
+			candidatePaths = append(candidatePaths, p)
+
 			// resolve relative
 			base := ""
 			if baseFd != -1 && baseFd != -100 /* AT_FDCWD */ {
@@ -203,7 +209,7 @@ func MatchPath(pid int, fds []int32, isPath bool, scName string, ptr uint64, raw
 				}
 			}
 			if base != "" {
-				candidatePaths = append(candidatePaths, base + "/" + p)
+				candidatePaths = append(candidatePaths, base+"/"+p)
 			} else {
 				candidatePaths = append(candidatePaths, p)
 			}
@@ -216,15 +222,19 @@ func MatchPath(pid int, fds []int32, isPath bool, scName string, ptr uint64, raw
 			p = p[1 : len(p)-1]
 		}
 		for tp := range tracePaths {
-			if p == tp || strings.HasPrefix(p, tp+"/") { return true }
-			
+			if p == tp || strings.HasPrefix(p, tp+"/") {
+				return true
+			}
+
 			absTP := tp
 			if !strings.HasPrefix(tp, "/") {
 				if cwd, err := os.Getwd(); err == nil {
 					absTP = cwd + "/" + tp
 				}
 			}
-			if p == absTP || strings.HasPrefix(p, absTP+"/") { return true }
+			if p == absTP || strings.HasPrefix(p, absTP+"/") {
+				return true
+			}
 		}
 	}
 	return false

@@ -125,6 +125,7 @@ MORE_TESTS = [
     "vfork-f.gen.test",
     "strace-E.test",
     "strace-E-override.test",
+    "strace-E-unset.test",
     "attach-p-cmd.test",
     "attach-f-p.test",
     "strace-r.test",
@@ -134,6 +135,9 @@ MORE_TESTS = [
     "strace-T_upper.test",
     "strace-x.gen.test",
     "strace-xx.gen.test",
+    "read-write.gen.test",
+    "pread64-pwrite64.gen.test",
+    "opipe.test",
 ]
 
 def parse_args():

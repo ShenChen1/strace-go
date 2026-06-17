@@ -20,9 +20,9 @@ func init() {
 }
 
 func decodeStringArrayPointer(ctx *Context, i int, argTyp, argName string, val uint64, res *Result) (string, bool) {
-	if ctx.ScMeta.Name == "execveat" && (i == 2 || i == 3) {
-		if s, ok := decodeExecveatFake(ctx, i, argTyp, val); ok {
-			return s, true
+	if ctx.ScMeta.Name == "execve" || ctx.ScMeta.Name == "execveat" {
+		if decoded, ok := decodeExecStringArraySnapshot(ctx, val, argName); ok {
+			return decoded, true
 		}
 	}
 	return decodeStringArray(ctx, val, argName), true
@@ -58,9 +58,15 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 			data, ok := ctx.FetchStructData(val, int(ctx.Ret), true, bpfBuf)
 			if ok {
 				sz := int(ctx.Ret)
-				if sz > len(data) { sz = len(data) }
-				if sz < 0 { sz = 0 }
-				if idx := bytes.IndexByte(data[:sz], 0); idx != -1 { sz = idx }
+				if sz > len(data) {
+					sz = len(data)
+				}
+				if sz < 0 {
+					sz = 0
+				}
+				if idx := bytes.IndexByte(data[:sz], 0); idx != -1 {
+					sz = idx
+				}
 				return format.BufferEscape(data[:sz], 0, sz, ctx.Decoder.HexEscapeMode), true
 			}
 			return fmt.Sprintf("%#x", val), true
@@ -84,11 +90,11 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 		isSetxattr := strings.HasSuffix(scName, "setxattr")
 		isGetxattr := strings.HasSuffix(scName, "getxattr")
 		isListxattr := strings.HasSuffix(scName, "listxattr")
-		
+
 		// Wait, strace-go generates only EXIT events for fast syscalls.
 		// If Ret is present, it's definitely the exit phase for getxattr.
 		isExit := isGetxattr || isListxattr // We only care about exit for getxattr and listxattr!
-		
+
 		if (isSetxattr || ((isGetxattr || isListxattr) && isExit)) && (argName == "value" || argName == "list") {
 			size := ctx.Args[3]
 			if isListxattr {
@@ -107,7 +113,7 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 					return fmt.Sprintf("%#x", val), true
 				}
 			}
-			
+
 			if val == 0 {
 				return "NULL", true
 			}
@@ -131,7 +137,7 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 			} else {
 				bpfBuf = ctx.StrArgBuf[768:]
 			}
-			
+
 			// For setxattr, we must fetch from Enter probe.
 			// For getxattr, we fetch from Exit probe.
 			data, ok := ctx.FetchStructData(val, fetchSize, isGetxattr || isListxattr, bpfBuf)
@@ -187,7 +193,7 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 
 func decodeIntPointer(ctx *Context, i int, argTyp, argName string, val uint64, res *Result) (string, bool) {
 	scName := ctx.ScMeta.Name
-	if (scName == "pipe" || scName == "pipe2") {
+	if scName == "pipe" || scName == "pipe2" {
 		if ctx.Ret >= 0 {
 			bpfBuf := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+8]
 			isExit := false
@@ -264,11 +270,10 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 		if szH == 0 {
 			return `""`, true
 		}
-		if ctx.Opts.TraceReadFDs[fd] {
-			bpfBuf := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+512]
-			// Read exits always have data in exit buf if captured
-			data, ok := ctx.FetchStructData(val, int(szH), true, bpfBuf)
-			if ok {
+		bpfBuf := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+512]
+		data, ok := ctx.FetchStructData(val, int(szH), true, bpfBuf)
+		if ok {
+			if ctx.Opts.TraceReadFDs[fd] {
 				res.HexDumpStr = format.Hexdump(data, int(szH))
 				if len(data) < int(szH) {
 					miss := int(szH) - len(data)
@@ -278,21 +283,20 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 					}
 					res.HexDumpStr += fmt.Sprintf(" | <Cannot fetch %d %s from pid %d @0x%x>\n", miss, byteStr, ctx.Tid, val+uint64(len(data)))
 				}
-				return format.Buffer(data, ctx.Opts.StringLimit, int(szH)), true
 			}
+			return format.Buffer(data, ctx.Opts.StringLimit, int(szH)), true
 		}
 	}
 
-	if (scName == "write" || scName == "pwrite64") {
+	if scName == "write" || scName == "pwrite64" {
 		szH := ctx.Args[2]
 		if szH == 0 {
 			return `""`, true
 		}
-		if ctx.Opts.TraceWriteFDs[fd] {
-			bpfBuf := ctx.StrArgBuf[0:512]
-			// Write enter always has data in enter buf if captured
-			data, ok := ctx.FetchStructData(val, int(szH), false, bpfBuf)
-			if ok {
+		bpfBuf := ctx.StrArgBuf[0:512]
+		data, ok := ctx.FetchStructData(val, int(szH), false, bpfBuf)
+		if ok {
+			if ctx.Opts.TraceWriteFDs[fd] {
 				res.HexDumpStr = format.Hexdump(data, int(szH))
 				if len(data) < int(szH) {
 					miss := int(szH) - len(data)
@@ -302,8 +306,8 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 					}
 					res.HexDumpStr += fmt.Sprintf(" | <Cannot fetch %d %s from pid %d @0x%x>\n", miss, byteStr, ctx.Tid, val+uint64(len(data)))
 				}
-				return format.Buffer(data, ctx.Opts.StringLimit, int(szH)), true
 			}
+			return format.Buffer(data, ctx.Opts.StringLimit, int(szH)), true
 		}
 	}
 

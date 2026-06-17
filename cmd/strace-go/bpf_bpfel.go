@@ -24,11 +24,11 @@ type bpfBpfEvent struct {
 	EnterTime     uint64
 	Duration      uint64
 	Args          [6]uint64
-	Ret           uint64
+	Ret           int64
 	Ptr           uint64
 	DataLen       uint32
 	StackId       int32
-	StrArg        [4504]uint8
+	StrArg        [10400]uint8
 }
 
 // loadBpf returns the embedded CollectionSpec for bpf.

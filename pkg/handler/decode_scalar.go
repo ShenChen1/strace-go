@@ -14,13 +14,6 @@ import (
 	"strace-go/pkg/meta"
 )
 
-var (
-	pathmaxLock      sync.Mutex
-	pathmaxCallCount = make(map[int]int)
-	pathmaxTestsDir  = make(map[int]string)
-)
-
-
 // isXlatArg checks if the argument is mapped to an xlat flag.
 // IMPACT: Extracted from decodeXlat to keep function size under 80 LOC.
 func isXlatArg(scName, argName, argTyp string) bool {
@@ -185,6 +178,13 @@ func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val 
 		return format.Whence(val)
 	}
 
+	if ctx.ScMeta.Name == "mmap" && argName == "off" && argTyp == "kernel_off_t" {
+		if val == 0 {
+			return "0"
+		}
+		return fmt.Sprintf("%#x", val)
+	}
+
 	if strings.HasPrefix(argTyp, "mode_t") || strings.HasPrefix(argTyp, "umode_t") {
 		m := uint32(val)
 		if strings.HasPrefix(argTyp, "umode_t") {
@@ -200,7 +200,7 @@ func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val 
 		return s
 	}
 
-	if strings.Contains(argTyp, "int") || strings.Contains(argTyp, "size_t") || strings.Contains(argTyp, "long") || strings.Contains(argTyp, "aio_context_t") || strings.Contains(argTyp, "key_serial_t") {
+	if strings.Contains(argTyp, "int") || strings.Contains(argTyp, "size_t") || strings.Contains(argTyp, "long") || strings.Contains(argTyp, "aio_context_t") || strings.Contains(argTyp, "key_serial_t") || strings.Contains(argTyp, "off_t") {
 		if strings.Contains(argTyp, "unsigned") || strings.Contains(argTyp, "size_t") || strings.Contains(argTyp, "aio_context_t") {
 			if (strings.Contains(argTyp, "int") && !strings.Contains(argTyp, "long")) || argTyp == "unsigned" {
 				return fmt.Sprintf("%d", uint32(val))
@@ -233,55 +233,22 @@ func (h *DefaultHandler) formatFdArg(ctx *Context, argName string, val uint64) s
 		if !ctx.Opts.ShowPaths {
 			return s
 		}
-		
-		isPathmaxTest := ctx.Opts != nil && ctx.Opts.TestPathmax
 
-		if isPathmaxTest {
-			pathmaxLock.Lock()
-			count := pathmaxCallCount[ctx.Pid]
-			if ctx.ScMeta.Name == "openat" {
-				count++
-				pathmaxCallCount[ctx.Pid] = count
-			}
-			if count == 1 && pathmaxTestsDir[ctx.Pid] == "" {
-				if l, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", ctx.Pid)); err == nil {
-					pathmaxTestsDir[ctx.Pid] = l
-				}
-			}
-			testsDir := pathmaxTestsDir[ctx.Pid]
-			pathmaxLock.Unlock()
-
-			if count == 7 && testsDir != "" {
-				topdir := testsDir + "/pathmax_subdir"
-				n := (4096 - len(topdir)) / 256
-				nameX := strings.Repeat("x", 255)
-				var sb strings.Builder
-				sb.WriteString(topdir)
-				for i := 0; i < n; i++ {
-					sb.WriteString("/")
-					sb.WriteString(nameX)
-				}
-				return s + "<" + sb.String() + ">"
-			}
-		} else {
-			cwdPath := ""
-			if ctx.FdMap != nil {
-				cwdPath = ctx.FdMap[fmt.Sprintf("%d:cwd", ctx.TargetPid)]
-			}
+		cwdPath := ""
+		if ctx.FdMap != nil {
+			cwdPath = ctx.FdMap[fmt.Sprintf("%d:cwd", ctx.TargetPid)]
 			if cwdPath == "" {
-				if l, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", ctx.Pid)); err == nil {
-					cwdPath = l
-				}
+				cwdPath = ctx.FdMap[fmt.Sprintf("%d:cwd", ctx.Pid)]
 			}
-			if cwdPath == "" {
-				if l, err := os.Getwd(); err == nil {
-					cwdPath = l
-				}
+		}
+		if cwdPath == "" {
+			if l, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", ctx.Pid)); err == nil {
+				cwdPath = l
 			}
-			// IMPACT: Do not append resolved path if its length >= 4095 (PATH_MAX limits) to align with standard AT_FDCWD encoding rules.
-			if cwdPath != "" && len(cwdPath) < 4095 {
-				return s + "<" + cwdPath + ">"
-			}
+		}
+		// IMPACT: Do not append resolved path if its length >= PATH_MAX (4096) to align with standard AT_FDCWD encoding rules.
+		if cwdPath != "" && len(cwdPath) < 4096 {
+			return s + "<" + cwdPath + ">"
 		}
 		return s
 	}
@@ -306,7 +273,7 @@ func FormatFdWithPath(ctx *Context, fd int32) string {
 	target, err := os.Readlink(linkPath)
 	if err != nil {
 		if ctx.FdMap != nil {
-			if t, ok := ctx.FdMap[fmt.Sprintf("%d:%d", ctx.TargetPid, fd)]; ok {
+			if t, ok := ctx.FdMap[fmt.Sprintf("%d:%d", ctx.Pid, fd)]; ok {
 				target = t
 				err = nil
 			}
@@ -436,7 +403,7 @@ func formatSocketPath(ctx *Context, target string, fd int32) string {
 	if !ok {
 		return target
 	}
-	
+
 	domainInfo := info
 	if parts := strings.Split(info, "|"); len(parts) > 1 {
 		domainInfo = parts[1]
@@ -444,11 +411,11 @@ func formatSocketPath(ctx *Context, target string, fd int32) string {
 			inode = strings.TrimSuffix(strings.TrimPrefix(parts[0], "socket:["), "]")
 		}
 	}
-	
+
 	if strings.HasPrefix(domainInfo, "AF_NETLINK") {
 		return fmt.Sprintf("NETLINK:[%s]", inode)
 	}
-	
+
 	if ctx.Opts != nil && ctx.Opts.ShowPathsMode == 2 {
 		if strings.HasPrefix(domainInfo, "AF_INET") {
 			val := getSocketInfo("tcp", inode)
@@ -490,4 +457,3 @@ func getMajorMinor(rdev uint64) (uint32, uint32) {
 	minor |= uint32((rdev >> 12) & 0xffffff00)
 	return major, minor
 }
-

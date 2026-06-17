@@ -44,6 +44,9 @@ func UpdateCwd(targetPid int, path string, fdMap map[string]string, eventPid int
 			base = l
 		}
 	}
+	if strings.HasPrefix(path, `"`) && strings.HasSuffix(path, `"`) {
+		path = path[1 : len(path)-1]
+	}
 	fdMap[cwdKey] = CleanPath(base, path)
 }
 

@@ -44,11 +44,15 @@ type traceSession struct {
 	fdMap             map[string]string
 	outWriter         io.Writer
 	outFile           *os.File
+	outCmd            *exec.Cmd
+	outPipe           io.WriteCloser
 	stats             map[string]*syscallStat
 	bootTimeOffsetNs  int64
 	lastSyscallTimeNs uint64
 	bpfObjs           *bpfObjects
 	resolver          *stacktrace.Resolver
+	pendingExitStatus map[int]string
+	exitedTracees     map[int]bool
 }
 
 // IMPACT: setupBPF loads the BPF objects and attaches the raw syscall raw tracepoints.
@@ -78,14 +82,68 @@ func setupBPF() (*bpfObjects, []link.Link) {
 	return bpfObjs, links
 }
 
+func collectInheritedFiles() []*os.File {
+	entries, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		return nil
+	}
+
+	maxFD := 2
+	for _, entry := range entries {
+		fd, err := strconv.Atoi(entry.Name())
+		if err == nil && fd > maxFD {
+			maxFD = fd
+		}
+	}
+	if maxFD <= 2 {
+		return nil
+	}
+
+	files := make([]*os.File, maxFD-2)
+	for _, entry := range entries {
+		fd, err := strconv.Atoi(entry.Name())
+		if err != nil || fd <= 2 {
+			continue
+		}
+		target, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd))
+		if err != nil || !isPassThroughFDTarget(target) {
+			continue
+		}
+		dupFD, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 3)
+		if err != nil {
+			continue
+		}
+		files[fd-3] = os.NewFile(uintptr(dupFD), target)
+	}
+	return files
+}
+
+func isPassThroughFDTarget(target string) bool {
+	if !strings.HasPrefix(target, "/") {
+		return false
+	}
+	return target != "/proc" &&
+		!strings.HasPrefix(target, "/proc/") &&
+		target != "/sys" &&
+		!strings.HasPrefix(target, "/sys/")
+}
+
+func closeFiles(files []*os.File) {
+	for _, file := range files {
+		if file != nil {
+			file.Close()
+		}
+	}
+}
+
 // IMPACT: startAndTraceCmd configures ptrace-based child process spawning and initial attachment.
-func startAndTraceCmd(opts *cli.Options, bpfObjs *bpfObjects) (*exec.Cmd, int, map[string]string) {
+func startAndTraceCmd(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles []*os.File) (*exec.Cmd, int, map[string]string) {
 	cmdArgs := opts.CmdArgs
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	
+
 	envMap := make(map[string]string)
 	for _, e := range os.Environ() {
 		if idx := strings.Index(e, "="); idx >= 0 {
@@ -103,33 +161,7 @@ func startAndTraceCmd(opts *cli.Options, bpfObjs *bpfObjects) (*exec.Cmd, int, m
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 
-	// IMPACT: Pass inherited FDs > 2 to the tracee to ensure test suites relying on external FDs (e.g. 9>>/dev/full) work.
-	if entries, err := os.ReadDir("/proc/self/fd"); err == nil {
-		var extraFiles []*os.File
-		maxFd := -1
-		// Find the highest FD to know how many ExtraFiles we need
-		for _, entry := range entries {
-			if fd, err := strconv.Atoi(entry.Name()); err == nil {
-				if fd > maxFd {
-					maxFd = fd
-				}
-			}
-		}
-		if maxFd > 2 {
-			extraFiles = make([]*os.File, maxFd-2)
-			for _, entry := range entries {
-				if fd, err := strconv.Atoi(entry.Name()); err == nil && fd > 2 {
-					// Don't pass epoll or bpf fds if possible, but we don't know which is which easily.
-					// We'll just pass everything inherited that is valid.
-					f := os.NewFile(uintptr(fd), entry.Name())
-					if f != nil {
-						extraFiles[fd-3] = f
-					}
-				}
-			}
-			cmd.ExtraFiles = extraFiles
-		}
-	}
+	cmd.ExtraFiles = inheritedFiles
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{Ptrace: true}
 	if err := cmd.Start(); err != nil {
@@ -151,10 +183,14 @@ func startAndTraceCmd(opts *cli.Options, bpfObjs *bpfObjects) (*exec.Cmd, int, m
 			}
 		}
 	}
+	if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", targetPid)); err == nil {
+		fdMap[fmt.Sprintf("%d:cwd", targetPid)] = cwd
+	}
 
 	time.Sleep(10 * time.Millisecond)
 
-	syscall.PtraceDetach(targetPid)
+	syscall.PtraceSetOptions(targetPid, syscall.PTRACE_O_TRACEEXIT|syscall.PTRACE_O_TRACECLONE|syscall.PTRACE_O_TRACEFORK|syscall.PTRACE_O_TRACEVFORK|syscall.PTRACE_O_TRACEEXEC)
+	syscall.PtraceCont(targetPid, 0)
 	return cmd, targetPid, fdMap
 }
 
@@ -181,16 +217,32 @@ func attachToPids(pids []int, bpfObjs *bpfObjects) (*exec.Cmd, int, map[string]s
 					fdMap[fmt.Sprintf("%d:%s", pid, entry.Name())] = path
 				}
 			}
+			if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid)); err == nil {
+				fdMap[fmt.Sprintf("%d:cwd", pid)] = cwd
+			}
 		}
 	}
 	return nil, firstPid, fdMap
 }
 
 // IMPACT: setupOutput prepares the io.Writer target for saving strace text traces.
-func setupOutput(outFileOpt string, appendMode bool) (io.Writer, *os.File) {
+func setupOutput(outFileOpt string, appendMode bool) (io.Writer, *os.File, *exec.Cmd, io.WriteCloser) {
 	if outFileOpt == "" {
-		return os.Stderr, nil
+		return os.Stderr, nil, nil, nil
 	}
+	if strings.HasPrefix(outFileOpt, "|") || strings.HasPrefix(outFileOpt, "!") {
+		cmdStr := outFileOpt[1:]
+		cmd := exec.Command("sh", "-c", cmdStr)
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			log.Fatalf("failed to create pipe for output: %v", err)
+		}
+		if err := cmd.Start(); err != nil {
+			log.Fatalf("failed to start output command: %v", err)
+		}
+		return stdin, nil, cmd, stdin
+	}
+
 	flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
 	if appendMode {
 		flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
@@ -199,55 +251,67 @@ func setupOutput(outFileOpt string, appendMode bool) (io.Writer, *os.File) {
 	if err != nil {
 		log.Fatalf("failed to create output file: %v", err)
 	}
-	return outFile, outFile
+	return outFile, outFile, nil, nil
 }
 
-// IMPACT: startReaper reaps all orphan/zombie child processes to prevent hangs.
-func startReaper(targetPid int, done chan bool, closeDone func(), opts *cli.Options) {
-	go func() {
-		ticker := time.NewTicker(10 * time.Millisecond)
-		defer ticker.Stop()
-		exeName := os.Getenv("STRACE_EXE")
-		if exeName == "" {
-			exeName = "strace"
+// IMPACT: reapTracees must run on the OS thread that started the ptraced command.
+func (s *traceSession) reapTracees() bool {
+	targetExited := false
+	exeName := os.Getenv("STRACE_EXE")
+	if exeName == "" {
+		exeName = "strace"
+	}
+
+	for {
+		var wstatus syscall.WaitStatus
+		pid, err := syscall.Wait4(-1, &wstatus, syscall.WNOHANG|syscall.WUNTRACED, nil)
+		if err != nil || pid <= 0 {
+			return targetExited
 		}
-		for {
-			select {
-			case <-done:
-				return
-			case <-ticker.C:
-				for {
-					var wstatus syscall.WaitStatus
-					pid, err := syscall.Wait4(-1, &wstatus, syscall.WNOHANG, nil)
-					if err != nil || pid <= 0 {
-						break
-					}
-					if pid == targetPid {
-						closeDone()
-					} else if opts == nil || (!opts.QuietExit && !opts.QuietUnknownPid) {
-						fmt.Fprintf(os.Stderr, "%s: Exit of unknown pid %d ignored\n", exeName, pid)
-					}
-				}
+		if wstatus.Stopped() {
+			signal := ptraceContinueSignal(wstatus.StopSignal())
+			if err := syscall.PtraceCont(pid, signal); err != nil && err != syscall.ESRCH {
+				log.Printf("failed to continue pid %d: %v", pid, err)
 			}
+			continue
 		}
-	}()
+		if !wstatus.Exited() && !wstatus.Signaled() {
+			continue
+		}
+		s.markTraceeExited(pid)
+		if pid == s.targetPid {
+			targetExited = true
+		} else if s.opts == nil || (!s.opts.QuietExit && !s.opts.QuietUnknownPid) {
+			fmt.Fprintf(os.Stderr, "%s: Exit of unknown pid %d ignored\n", exeName, pid)
+		}
+	}
+}
+
+func ptraceContinueSignal(stopSignal syscall.Signal) int {
+	if stopSignal == syscall.SIGTRAP || stopSignal == syscall.SIGSTOP {
+		return 0
+	}
+	return int(stopSignal)
 }
 
 // IMPACT: run loops through the ring buffer to deliver tracing events.
 func (s *traceSession) run() {
-	done := make(chan bool)
-	var once sync.Once
-	closeDone := func() {
-		once.Do(func() {
-			close(done)
-		})
+	commandExited := s.cmd == nil
+	var waitTicker *time.Ticker
+	var waitC <-chan time.Time
+	if !commandExited {
+		waitTicker = time.NewTicker(10 * time.Millisecond)
+		defer waitTicker.Stop()
+		waitC = waitTicker.C
 	}
 
-	go func() {
-		if s.cmd != nil {
-			s.cmd.Wait()
-		} else {
-			// If attached to running processes, wait for ALL of them to exit
+	attachExited := s.opts == nil || len(s.opts.AttachPids) == 0
+	var attachDone <-chan struct{}
+	if s.opts != nil && len(s.opts.AttachPids) > 0 {
+		ch := make(chan struct{})
+		attachDone = ch
+		go func() {
+			defer close(ch)
 			for {
 				anyAlive := false
 				for _, pid := range s.opts.AttachPids {
@@ -261,12 +325,26 @@ func (s *traceSession) run() {
 				}
 				time.Sleep(100 * time.Millisecond)
 			}
-		}
-		closeDone()
-	}()
+		}()
+	}
 
-	startReaper(s.targetPid, done, closeDone, s.opts)
-	if len(s.opts.AttachPids) == 0 && (len(s.opts.TraceSyscalls) == 0 || s.opts.TraceSyscalls["execve"]) {
+	printExecve := len(s.opts.TraceSyscalls) == 0 && len(s.opts.TraceSyscallRegexps) == 0
+	if !printExecve {
+		matched := s.opts.TraceSyscalls["execve"]
+		if !matched {
+			for _, r := range s.opts.TraceSyscallRegexps {
+				if r.MatchString("execve") {
+					matched = true
+					break
+				}
+			}
+		}
+		if s.opts.TraceSetIsNegated {
+			matched = !matched
+		}
+		printExecve = matched
+	}
+	if len(s.opts.AttachPids) == 0 && printExecve {
 		s.printFakeFirstExecve()
 	}
 
@@ -288,53 +366,45 @@ func (s *traceSession) run() {
 				continue
 			}
 			copy(unsafe.Slice((*byte)(unsafe.Pointer(&ev)), unsafe.Sizeof(ev)), rec.RawSample)
-			if ev.SysId == 16 || ev.SysId == 451 {
-				f, _ := os.OpenFile("/tmp/btrfs_debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-				if f != nil {
-					f.WriteString(fmt.Sprintf("DEBUG: sys_id=%d, Ret=%d (%#x), DataLen=%d, RawSize=%d\n", ev.SysId, ev.Ret, ev.Ret, ev.DataLen, len(rec.RawSample)))
-					f.Close()
-				}
-			}
 			eventChan <- &ev
 		}
 	}()
 
 	isDone := false
 	for {
+		if !isDone && commandExited && attachExited {
+			isDone = true
+		}
 		if isDone {
 			select {
 			case ev := <-eventChan:
 				s.handleEvent(ev)
-			case <-time.After(50 * time.Millisecond):
+			case <-time.After(250 * time.Millisecond):
 				s.events.Close()
 				wg.Wait()
 				close(eventChan)
 				for ev := range eventChan {
 					s.handleEvent(ev)
 				}
-				if s.opts == nil || !s.opts.QuietExit {
-					var tsMono unix.Timespec
-					unix.ClockGettime(unix.CLOCK_MONOTONIC, &tsMono)
-					monoNs := uint64(tsMono.Sec)*1e9 + uint64(tsMono.Nsec)
-					timePrefix := formatTimePrefix(monoNs, s)
-
-					pidPrefix := ""
-					if s.opts != nil && s.opts.FollowForks {
-						pidPrefix = fmt.Sprintf("%-5d ", s.targetPid)
-					}
-					if s.opts == nil || !s.opts.SummaryOnly {
-						fmt.Fprintf(s.outWriter, "%s%s+++ exited with 0 +++\n", timePrefix, pidPrefix)
-					}
-				}
 				if s.opts != nil && (s.opts.SummaryOnly || s.opts.SummaryAndPrint) {
 					s.printSummary()
+				}
+				if s.outPipe != nil {
+					s.outPipe.Close()
+					s.outCmd.Wait()
 				}
 				return
 			}
 		} else {
 			select {
-			case <-done:
-				isDone = true
+			case <-waitC:
+				if s.reapTracees() {
+					commandExited = true
+					waitC = nil
+				}
+			case <-attachDone:
+				attachExited = true
+				attachDone = nil
 			case ev := <-eventChan:
 				s.handleEvent(ev)
 			}
@@ -349,7 +419,7 @@ func (s *traceSession) printSummary() {
 	totalCalls := 0
 	totalErrors := 0
 	var totalDurationNs uint64 = 0
-	
+
 	type statEntry struct {
 		name string
 		stat *syscallStat
@@ -419,7 +489,7 @@ func (s *traceSession) printFakeFirstExecve() {
 	if s.opts != nil && s.opts.FollowForks {
 		pidPrefix = fmt.Sprintf("%-5d ", s.targetPid)
 	}
-	
+
 	envc := len(os.Environ())
 	if data, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", s.targetPid)); err == nil {
 		parts := bytes.Split(data, []byte{0})

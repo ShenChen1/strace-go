@@ -6,7 +6,35 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
-// IMPACT: Enlarged str_arg buffer to 4504 bytes to support capturing full PATH_MAX (4096) plus 1 null byte for boundary detection, plus key offset.
+#define EXEC_SNAPSHOT_MAGIC 0x45584543
+#define EXEC_SNAPSHOT_OFFSET 4096
+#define EXEC_ARG_MAX 48
+#define EXEC_ENV_MAX 64
+#define EXEC_ARG_DATA_SIZE 42
+
+struct exec_snapshot_header {
+    u32 magic;
+    u16 argv_count;
+    u16 env_count;
+    s32 argv_status;
+    s32 env_status;
+    u64 argv_next;
+    u64 env_next;
+};
+
+struct exec_arg_snapshot {
+    u64 ptr;
+    s32 len;
+    u8 data[EXEC_ARG_DATA_SIZE];
+    u8 pad[2];
+};
+
+struct exec_snapshot {
+    struct exec_snapshot_header header;
+    struct exec_arg_snapshot argv[EXEC_ARG_MAX];
+    struct exec_arg_snapshot env[EXEC_ENV_MAX];
+};
+
 struct bpf_event {
     u32 pid;
     u32 sys_id; u32 tid;
@@ -14,11 +42,11 @@ struct bpf_event {
     u64 enter_time;
     u64 duration;
     u64 args[6];
-    u64 ret;
+    s64 ret;
     u64 ptr;
     u32 data_len;
     s32 stack_id;
-    u8 str_arg[4504];
+    u8 str_arg[EXEC_SNAPSHOT_OFFSET + sizeof(struct exec_snapshot)];
 };
 
 struct {
@@ -82,6 +110,99 @@ struct {
     __type(value, u32);
 } main_exited_map SEC(".maps");
 
+static __always_inline void capture_exec_snapshot(struct bpf_event *e, u32 argv_index, u32 env_index)
+{
+    struct exec_snapshot *snapshot = (void *)(e->str_arg + EXEC_SNAPSHOT_OFFSET);
+    snapshot->header.magic = EXEC_SNAPSHOT_MAGIC;
+    snapshot->header.argv_count = 0;
+    snapshot->header.env_count = 0;
+    snapshot->header.argv_status = -1;
+    snapshot->header.env_status = -1;
+    snapshot->header.argv_next = e->args[argv_index];
+    snapshot->header.env_next = e->args[env_index];
+
+    u64 argv = e->args[argv_index];
+    if (!argv) {
+        snapshot->header.argv_status = 0;
+    } else {
+        for (u32 i = 0; i < EXEC_ARG_MAX; i++) {
+            u64 slot = argv + i * sizeof(u64);
+            u64 ptr = 0;
+            if (bpf_probe_read_user(&ptr, sizeof(ptr), (void *)slot) < 0) {
+                snapshot->header.argv_status = -1;
+                snapshot->header.argv_next = slot;
+                break;
+            }
+            if (!ptr) {
+                snapshot->header.argv_status = 0;
+                break;
+            }
+
+            struct exec_arg_snapshot *arg = &snapshot->argv[i];
+            arg->ptr = ptr;
+            arg->data[0] = 0;
+            arg->len = bpf_probe_read_user_str(arg->data, sizeof(arg->data), (void *)ptr);
+            snapshot->header.argv_count = i + 1;
+
+            if (i == EXEC_ARG_MAX - 1) {
+                u64 next_slot = argv + EXEC_ARG_MAX * sizeof(u64);
+                u64 next_ptr = 0;
+                if (bpf_probe_read_user(&next_ptr, sizeof(next_ptr), (void *)next_slot) < 0) {
+                    snapshot->header.argv_status = -1;
+                    snapshot->header.argv_next = next_slot;
+                } else if (!next_ptr) {
+                    snapshot->header.argv_status = 0;
+                } else {
+                    snapshot->header.argv_status = 1;
+                }
+            }
+        }
+    }
+
+    u64 envp = e->args[env_index];
+    if (!envp) {
+        snapshot->header.env_status = 0;
+    } else {
+        for (u32 i = 0; i < EXEC_ENV_MAX; i++) {
+            u64 slot = envp + i * sizeof(u64);
+            u64 ptr = 0;
+            if (bpf_probe_read_user(&ptr, sizeof(ptr), (void *)slot) < 0) {
+                snapshot->header.env_status = -1;
+                snapshot->header.env_next = slot;
+                break;
+            }
+            if (!ptr) {
+                snapshot->header.env_status = 0;
+                break;
+            }
+
+            struct exec_arg_snapshot *arg = &snapshot->env[i];
+            arg->ptr = ptr;
+            arg->data[0] = 0;
+            arg->len = bpf_probe_read_user_str(arg->data, sizeof(arg->data), (void *)ptr);
+            snapshot->header.env_count = i + 1;
+
+            if (i == EXEC_ENV_MAX - 1) {
+                u64 next_slot = envp + EXEC_ENV_MAX * sizeof(u64);
+                u64 next_ptr = 0;
+                if (bpf_probe_read_user(&next_ptr, sizeof(next_ptr), (void *)next_slot) < 0) {
+                    snapshot->header.env_status = -1;
+                    snapshot->header.env_next = next_slot;
+                } else if (!next_ptr) {
+                    snapshot->header.env_status = 0;
+                } else {
+                    snapshot->header.env_status = 1;
+                }
+            }
+        }
+    }
+
+    u32 snapshot_end = EXEC_SNAPSHOT_OFFSET + sizeof(*snapshot);
+    if (e->data_len < snapshot_end) {
+        e->data_len = snapshot_end;
+    }
+}
+
 SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     u32 sys_id = (u32)ctx->id;
@@ -115,6 +236,11 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     e->args[5] = ctx->args[5];
 
     CAPTURE_ARGS_ENTER(e->sys_id, e);
+    if (e->sys_id == __NR_execve) {
+        capture_exec_snapshot(e, 1, 2);
+    } else if (e->sys_id == __NR_execveat) {
+        capture_exec_snapshot(e, 2, 3);
+    }
     bpf_map_update_elem(&events_map, &tid, e, BPF_ANY);
 
     if (sys_id == 60 || sys_id == 231) { // exit (60), exit_group (231)
@@ -122,7 +248,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
             u32 val = 1;
             bpf_map_update_elem(&main_exited_map, &pid, &val, BPF_ANY);
         }
-        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + (e->data_len & 0x1fff);
+        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
         if (out_size > sizeof(*e)) out_size = sizeof(*e);
         bpf_ringbuf_output(&events, e, out_size, 0);
         bpf_map_delete_elem(&events_map, &tid);
@@ -136,7 +262,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         }
         if (nr_threads > 1 && tid == pid) {
             e->probe_ret_enter = 3;
-            u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + (e->data_len & 0x1fff);
+            u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
             if (out_size > sizeof(*e)) out_size = sizeof(*e);
             bpf_ringbuf_output(&events, e, out_size, 0);
             e->probe_ret_enter = -1;
@@ -151,7 +277,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         } else {
             e->probe_ret_enter = 0;
         }
-        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + (e->data_len & 0x1fff);
+        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
         if (out_size > sizeof(*e)) out_size = sizeof(*e);
         bpf_ringbuf_output(&events, e, out_size, 0);
         if (tid != pid) {
@@ -213,7 +339,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
         } else {
             e->probe_ret_exit = 0;
         }
-        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + (e->data_len & 0x1fff);
+        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
         if (out_size > sizeof(*e)) out_size = sizeof(*e);
         bpf_ringbuf_output(&events, e, out_size, 0);
         bpf_map_delete_elem(&events_map, &pending_tid);
@@ -223,7 +349,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             bpf_map_delete_elem(&events_map, &pid);
         }
     } else {
-        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + (e->data_len & 0x1fff);
+        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
         if (out_size > sizeof(*e)) out_size = sizeof(*e);
         bpf_ringbuf_output(&events, e, out_size, 0);
         u32 *pending = bpf_map_lookup_elem(&pending_exec_map, &pid);
@@ -253,5 +379,3 @@ int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {
     }
     return 0;
 }
-
-

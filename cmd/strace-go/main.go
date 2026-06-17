@@ -5,14 +5,13 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"strconv"
+	"runtime"
 	"sync"
 
 	"golang.org/x/sys/unix"
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 	"strace-go/pkg/procmem"
 	"strace-go/pkg/stacktrace"
@@ -22,10 +21,6 @@ import (
 
 var pendingExecArgs = make(map[int]string)
 var pendingExecArgsLock sync.Mutex
-
-var currentSigsetSize = "8"
-var currentAction = 0
-var currentActionLock sync.Mutex
 
 //go:generate go run -C ../generate-syscalls .
 //go:generate go run ../generate-xlats/main.go
@@ -37,23 +32,6 @@ var currentActionLock sync.Mutex
 func main() {
 	opts := cli.ParseArgs(os.Args[1:])
 	meta.XlatFormat = opts.XlatFormat
-	if len(opts.CmdArgs) > 1 {
-		currentSigsetSize = opts.CmdArgs[1]
-	}
-	if len(opts.CmdArgs) > 2 {
-		if act, err := strconv.Atoi(opts.CmdArgs[2]); err == nil {
-			currentAction = act
-		}
-	}
-	handler.ExecveArgvFallback = func(pid, tid, targetPid int) []string {
-		currentActionLock.Lock()
-		act := currentAction
-		currentActionLock.Unlock()
-		if tid != targetPid {
-			act++
-		}
-		return []string{opts.CmdArgs[0], currentSigsetSize, strconv.Itoa(act)}
-	}
 
 	if opts.HelpRequested {
 		fmt.Printf("%s", cli.HelpText)
@@ -71,6 +49,12 @@ func main() {
 		fmt.Println("Usage: strace-go [options] <command> [args...]")
 		os.Exit(1)
 	}
+
+	inheritedFiles := collectInheritedFiles()
+	defer closeFiles(inheritedFiles)
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 
 	bpfObjs, tpLinks := setupBPF()
 	defer bpfObjs.Close()
@@ -97,10 +81,23 @@ func main() {
 	var targetPid int
 	var fdMap map[string]string
 
+	if len(opts.CmdArgs) > 0 {
+		cmd, targetPid, fdMap = startAndTraceCmd(opts, bpfObjs, inheritedFiles)
+	}
 	if len(opts.AttachPids) > 0 {
-		cmd, targetPid, fdMap = attachToPids(opts.AttachPids, bpfObjs)
-	} else {
-		cmd, targetPid, fdMap = startAndTraceCmd(opts, bpfObjs)
+		_, firstPid, attachFdMap := attachToPids(opts.AttachPids, bpfObjs)
+		if targetPid == 0 {
+			targetPid = firstPid
+			fdMap = attachFdMap
+		} else {
+			opts.FollowForks = true // Tracing command + attached pids
+			for k, v := range attachFdMap {
+				fdMap[k] = v
+			}
+		}
+		if len(opts.AttachPids) > 1 {
+			opts.FollowForks = true // Tracing multiple attached pids
+		}
 	}
 
 	memReader := procmem.NewReader(targetPid)
@@ -110,7 +107,7 @@ func main() {
 	// IMPACT: Initialize decoder.StringLimit from parsed CLI options to respect command-line formatting constraints.
 	decoder.StringLimit = opts.StringLimit
 
-	outWriter, outFile := setupOutput(opts.OutFile, opts.OutAppendMode)
+	outWriter, outFile, outCmd, outPipe := setupOutput(opts.OutFile, opts.OutAppendMode)
 	if outFile != nil {
 		defer outFile.Close()
 	}
@@ -121,18 +118,20 @@ func main() {
 	}
 
 	session := &traceSession{
-		cmd:               cmd,
-		events:            events,
-		targetPid:         targetPid,
-		opts:              opts,
-		decoder:           decoder,
-		memReader:         memReader,
-		fdMap:             fdMap,
-		outWriter:         outWriter,
-		outFile:           outFile,
-		bootTimeOffsetNs:  calculateTimeOffset(),
-		bpfObjs:           bpfObjs,
-		resolver:          resolver,
+		cmd:              cmd,
+		events:           events,
+		targetPid:        targetPid,
+		opts:             opts,
+		decoder:          decoder,
+		memReader:        memReader,
+		fdMap:            fdMap,
+		outWriter:        outWriter,
+		outFile:          outFile,
+		outCmd:           outCmd,
+		outPipe:          outPipe,
+		bootTimeOffsetNs: calculateTimeOffset(),
+		bpfObjs:          bpfObjs,
+		resolver:         resolver,
 	}
 	session.run()
 }
@@ -146,20 +145,4 @@ func calculateTimeOffset() int64 {
 	return realNs - monoNs
 }
 
-// IMPACT: bpfEvent structure defines the exact data alignment matching the BPF ringbuffer events.
-// IMPACT: Enlarged StrArg from 4104 to 4504 to match BPF event buffer size for multi-segment fsconfig captures.
-type bpfEvent struct {
-	Pid           uint32
-	SysId         uint32
-	Tid           uint32
-	ProbeRetEnter int32
-	ProbeRetExit  int32
-	EnterTime     uint64
-	Duration      uint64
-	Args          [6]uint64
-	Ret           int64
-	Ptr           uint64
-	DataLen       uint32
-	StackId       int32
-	StrArg        [10000]byte
-}
+type bpfEvent = bpfBpfEvent

@@ -38,19 +38,16 @@ type Options struct {
 	QuietUnknownPid     bool
 	QuietThreadExecve   bool
 	FollowForks         bool
-	XlatFormat          string // "raw", "abbrev", "verbose"
-	TestPathmax         bool
-	TestThreadsExecve   bool
-	TestExecveatFake    bool
-	PrintTimeMode       int  // 0 = none, 1 = -t (HH:MM:SS), 2 = -tt (HH:MM:SS.UUUUUU), 3 = -ttt (UNIX.UUUUUU)
-	PrintRelativeTime   bool // -r
-	PrintSyscallTime    bool // -T
-	StackTrace          bool // -k
-	SuccessfulOnly      bool // -z
-	FailedOnly          bool // -Z
+	XlatFormat          string   // "raw", "abbrev", "verbose"
+	PrintTimeMode       int      // 0 = none, 1 = -t (HH:MM:SS), 2 = -tt (HH:MM:SS.UUUUUU), 3 = -ttt (UNIX.UUUUUU)
+	PrintRelativeTime   bool     // -r
+	PrintSyscallTime    bool     // -T
+	StackTrace          bool     // -k
+	SuccessfulOnly      bool     // -z
+	FailedOnly          bool     // -Z
 	EnvActions          []string // -E
 	OutAppendMode       bool
-	WallTime            bool     // -w
+	WallTime            bool // -w
 }
 
 // IMPACT: ParseArgs parses strace-go command-line arguments and returns Options.
@@ -89,19 +86,6 @@ func ParseArgs(args []string) *Options {
 		}
 	}
 
-	if len(opts.CmdArgs) > 0 {
-		cmd0 := opts.CmdArgs[0]
-		if strings.Contains(cmd0, "at_fdcwd-pathmax") {
-			opts.TestPathmax = true
-		}
-		if strings.Contains(cmd0, "threads-execve") {
-			opts.TestThreadsExecve = true
-		}
-		if strings.Contains(cmd0, "execveat-fake") {
-			opts.TestExecveatFake = true
-		}
-	}
-
 	return opts
 }
 
@@ -117,17 +101,28 @@ func addSyscallTrace(opts *Options, s string) {
 
 	var classFlag string
 	switch s {
-	case "file", "%file": classFlag = "TF"
-	case "process", "%process": classFlag = "TP"
-	case "network", "%network": classFlag = "TN"
-	case "signal", "%signal": classFlag = "TS"
-	case "ipc", "%ipc": classFlag = "TI"
-	case "desc", "%desc": classFlag = "TD"
-	case "memory", "%memory": classFlag = "TM"
-	case "creds", "%creds": classFlag = "TC"
-	case "stat", "%stat": classFlag = "TST"
-	case "lstat", "%lstat": classFlag = "TLST"
-	case "pure", "%pure": classFlag = "TPU"
+	case "file", "%file":
+		classFlag = "TF"
+	case "process", "%process":
+		classFlag = "TP"
+	case "network", "%network":
+		classFlag = "TN"
+	case "signal", "%signal":
+		classFlag = "TS"
+	case "ipc", "%ipc":
+		classFlag = "TI"
+	case "desc", "%desc":
+		classFlag = "TD"
+	case "memory", "%memory":
+		classFlag = "TM"
+	case "creds", "%creds":
+		classFlag = "TC"
+	case "stat", "%stat":
+		classFlag = "TST"
+	case "lstat", "%lstat":
+		classFlag = "TLST"
+	case "pure", "%pure":
+		classFlag = "TPU"
 	}
 	if classFlag != "" {
 		for _, sc := range meta.SyscallTable {
@@ -202,6 +197,9 @@ func parseQuiet(arg string, opts *Options) bool {
 // IMPACT: parseBasicFlags parses boolean flags such as fork following, help, version and verbose.
 func parseBasicFlags(arg string, opts *Options) bool {
 	switch {
+	case strings.HasPrefix(arg, "-ve") && len(arg) > 3:
+		opts.Verbose = true
+		parseEFlag(arg[3:], opts)
 	case arg == "-A" || arg == "--output-append-mode":
 		opts.OutAppendMode = true
 	case arg == "-f":
@@ -390,8 +388,13 @@ func parseEFlag(val string, opts *Options) {
 		return
 	} else if strings.HasPrefix(val, "quiet=") {
 		for _, s := range strings.Split(strings.TrimPrefix(val, "quiet="), ",") {
-			if s == "exit" { opts.QuietExit = true }
-			if s == "all" { opts.QuietUnknownPid = true; opts.QuietThreadExecve = true }
+			if s == "exit" {
+				opts.QuietExit = true
+			}
+			if s == "all" {
+				opts.QuietUnknownPid = true
+				opts.QuietThreadExecve = true
+			}
 		}
 		return
 	}
