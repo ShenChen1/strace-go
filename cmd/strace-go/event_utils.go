@@ -168,7 +168,7 @@ func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, deco
 func checkShouldPrint(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, isPath bool, targetPid int, opts *cli.Options, fdMap map[string]string) bool {
 	var fds []int32
 	for i, argName := range scMeta.Args {
-		if argName == "fd" || argName == "dfd" || argName == "fildes" || argName == "oldfd" || argName == "newfd" {
+		if isFdArgName(argName) {
 			fds = append(fds, int32(eventRaw.Args[i]))
 		}
 	}
@@ -176,6 +176,7 @@ func checkShouldPrint(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string,
 		fds = []int32{-1}
 	}
 	matchedPath := event.MatchPath(targetPid, fds, isPath, scMeta.Name, eventRaw.Ptr, rawStrArg, opts.TracePaths, fdMap)
+	matchedFD := matchTraceFDs(fds, opts)
 	requestedRW := false
 	for _, fd := range fds {
 		if (scMeta.Name == "read" && opts.TraceReadFDs[fd]) || (scMeta.Name == "write" && opts.TraceWriteFDs[fd]) {
@@ -200,7 +201,45 @@ func checkShouldPrint(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string,
 	if opts.TraceSetIsNegated {
 		matchedSyscall = !matchedSyscall
 	}
-	return matchedSyscall && (len(opts.TracePaths) == 0 || matchedPath || requestedRW)
+	return matchedSyscall && filtersMatch(matchedPath, matchedFD, requestedRW, opts)
+}
+
+func filtersMatch(matchedPath, matchedFD, requestedRW bool, opts *cli.Options) bool {
+	hasPathFilter := len(opts.TracePaths) > 0
+	hasFDFilter := len(opts.TraceFDs) > 0
+	if !hasPathFilter && !hasFDFilter {
+		return true
+	}
+	return (hasPathFilter && matchedPath) || (hasFDFilter && matchedFD) || requestedRW
+}
+
+func matchTraceFDs(fds []int32, opts *cli.Options) bool {
+	if len(opts.TraceFDs) == 0 {
+		return false
+	}
+	hasValidFD := false
+	matchesSet := false
+	for _, fd := range fds {
+		if fd < 0 {
+			continue
+		}
+		hasValidFD = true
+		if opts.TraceFDs[fd] {
+			matchesSet = true
+		}
+	}
+	if opts.TraceFDsNegated {
+		return hasValidFD && !matchesSet
+	}
+	return matchesSet
+}
+
+func isFdArgName(name string) bool {
+	switch name {
+	case "fd", "dfd", "fildes", "oldfd", "newfd":
+		return true
+	}
+	return strings.HasSuffix(name, "fd") || strings.HasSuffix(name, "_fd")
 }
 func isFdReturnSyscall(scName string) bool {
 	return strings.HasPrefix(scName, "open") ||

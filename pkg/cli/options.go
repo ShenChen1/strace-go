@@ -24,6 +24,8 @@ type Options struct {
 	TracePaths          map[string]bool
 	TraceSyscallRegexps []*regexp.Regexp
 	TraceSetIsNegated   bool
+	TraceFDs            map[int32]bool
+	TraceFDsNegated     bool
 	TraceReadFDs        map[int32]bool
 	TraceWriteFDs       map[int32]bool
 	TraceStatus         map[string]bool
@@ -60,6 +62,7 @@ func ParseArgs(args []string) *Options {
 		XlatFormat:    "abbrev",
 		TraceSyscalls: make(map[string]bool),
 		TracePaths:    make(map[string]bool),
+		TraceFDs:      make(map[int32]bool),
 		TraceReadFDs:  make(map[int32]bool),
 		TraceWriteFDs: make(map[int32]bool),
 		TraceStatus:   make(map[string]bool),
@@ -271,6 +274,14 @@ func parseTraceFlags(arg string, opts *Options) bool {
 		opts.TracePaths[strings.TrimPrefix(arg, "--trace-path=")] = true
 		return true
 	}
+	if strings.HasPrefix(arg, "--trace-fds=") {
+		parseTraceFDSet(strings.TrimPrefix(arg, "--trace-fds="), opts)
+		return true
+	}
+	if strings.HasPrefix(arg, "--trace-fd=") {
+		parseTraceFDSet(strings.TrimPrefix(arg, "--trace-fd="), opts)
+		return true
+	}
 	if strings.HasPrefix(arg, "--env=") {
 		opts.EnvActions = append(opts.EnvActions, strings.TrimPrefix(arg, "--env="))
 		return true
@@ -378,6 +389,12 @@ func parseEFlag(val string, opts *Options) {
 			}
 		}
 		return
+	} else if strings.HasPrefix(val, "trace-fds=") {
+		parseTraceFDSet(strings.TrimPrefix(val, "trace-fds="), opts)
+		return
+	} else if strings.HasPrefix(val, "trace-fd=") {
+		parseTraceFDSet(strings.TrimPrefix(val, "trace-fd="), opts)
+		return
 	} else if strings.HasPrefix(val, "status=") {
 		for _, s := range strings.Split(strings.TrimPrefix(val, "status="), ",") {
 			opts.TraceStatus[s] = true
@@ -404,5 +421,21 @@ func parseEFlag(val string, opts *Options) {
 	}
 	for _, s := range strings.Split(val, ",") {
 		addSyscallTrace(opts, s)
+	}
+}
+
+func parseTraceFDSet(val string, opts *Options) {
+	if strings.HasPrefix(val, "!") {
+		opts.TraceFDsNegated = true
+		val = strings.TrimPrefix(val, "!")
+	} else {
+		opts.TraceFDsNegated = false
+	}
+	opts.TraceFDs = make(map[int32]bool)
+	for _, s := range strings.Split(val, ",") {
+		var fd int32
+		if n, _ := fmt.Sscanf(s, "%d", &fd); n == 1 {
+			opts.TraceFDs[fd] = true
+		}
 	}
 }

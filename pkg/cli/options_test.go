@@ -15,3 +15,28 @@ func TestParseCombinedVerboseTraceFlag(t *testing.T) {
 		t.Fatalf("CmdArgs = %#v", opts.CmdArgs)
 	}
 }
+
+func TestParseTraceFDsLongFlag(t *testing.T) {
+	opts := ParseArgs([]string{"--trace-fds=0,9", "--trace=dup", "/bin/true"})
+
+	if opts.TraceFDsNegated {
+		t.Fatal("TraceFDsNegated = true, want false")
+	}
+	if !opts.TraceFDs[0] || !opts.TraceFDs[9] || len(opts.TraceFDs) != 2 {
+		t.Fatalf("TraceFDs = %#v, want {0, 9}", opts.TraceFDs)
+	}
+	if !opts.TraceSyscalls["dup"] {
+		t.Fatal("trace syscall was not parsed after --trace-fds")
+	}
+}
+
+func TestParseTraceFDNegationFromEFlag(t *testing.T) {
+	opts := ParseArgs([]string{"-e", "trace-fd=!9", "/bin/true"})
+
+	if !opts.TraceFDsNegated {
+		t.Fatal("TraceFDsNegated = false, want true")
+	}
+	if !opts.TraceFDs[9] || len(opts.TraceFDs) != 1 {
+		t.Fatalf("TraceFDs = %#v, want {9}", opts.TraceFDs)
+	}
+}
