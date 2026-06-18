@@ -203,6 +203,36 @@ static __always_inline void capture_exec_snapshot(struct bpf_event *e, u32 argv_
     }
 }
 
+static __always_inline void capture_capset_data(struct bpf_event *e)
+{
+    if (e->sys_id != 126 || !e->args[1]) { // capset
+        return;
+    }
+    if (e->data_len < 8) {
+        return;
+    }
+
+    u32 version = 0;
+    __builtin_memcpy(&version, e->str_arg, sizeof(version));
+
+    u32 size = 0;
+    if (version == 0x19980330) {
+        size = 12;
+    } else if (version == 0x20071026 || version == 0x20080522) {
+        size = 24;
+    } else {
+        return;
+    }
+
+    long err = bpf_probe_read_user(e->str_arg + 512, size, (void *) e->args[1]);
+    if (err == 0) {
+        u32 req_len = 512 + size;
+        if (e->data_len < req_len) {
+            e->data_len = req_len;
+        }
+    }
+}
+
 SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     u32 sys_id = (u32)ctx->id;
@@ -236,6 +266,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     e->args[5] = ctx->args[5];
 
     CAPTURE_ARGS_ENTER(e->sys_id, e);
+    capture_capset_data(e);
     if (e->sys_id == __NR_execve) {
         capture_exec_snapshot(e, 1, 2);
     } else if (e->sys_id == __NR_execveat) {

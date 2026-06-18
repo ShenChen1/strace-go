@@ -213,6 +213,16 @@ rules:
     enter:
       reads: [{ arg: 1, size: 16, offset: 512, type: struct }]
 
+  - syscalls: [capget]
+    enter:
+      reads: [{ arg: 0, size: 8, offset: 0, type: raw }]
+    exit:
+      reads: [{ arg: 1, size: 24, offset: 1024, type: raw }]
+
+  - syscalls: [capset]
+    enter:
+      reads: [{ arg: 0, size: 8, offset: 0, type: raw }]
+
   - syscalls: [io_getevents, io_pgetevents]
     enter:
       reads:

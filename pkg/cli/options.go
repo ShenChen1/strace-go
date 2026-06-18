@@ -29,6 +29,7 @@ type Options struct {
 	TraceReadFDs        map[int32]bool
 	TraceWriteFDs       map[int32]bool
 	TraceStatus         map[string]bool
+	VerboseDisabled     map[string]bool
 	ShowPaths           bool
 	ShowPathsMode       int // 0 = none, 1 = -y, 2 = -yy
 	Verbose             bool
@@ -56,16 +57,17 @@ type Options struct {
 // It initializes defaults and loops through args calling specialized sub-parsers.
 func ParseArgs(args []string) *Options {
 	opts := &Options{
-		AlignCol:      40,
-		StringLimit:   32,
-		HexEscapeMode: 0,
-		XlatFormat:    "abbrev",
-		TraceSyscalls: make(map[string]bool),
-		TracePaths:    make(map[string]bool),
-		TraceFDs:      make(map[int32]bool),
-		TraceReadFDs:  make(map[int32]bool),
-		TraceWriteFDs: make(map[int32]bool),
-		TraceStatus:   make(map[string]bool),
+		AlignCol:        40,
+		StringLimit:     32,
+		HexEscapeMode:   0,
+		XlatFormat:      "abbrev",
+		TraceSyscalls:   make(map[string]bool),
+		TracePaths:      make(map[string]bool),
+		TraceFDs:        make(map[int32]bool),
+		TraceReadFDs:    make(map[int32]bool),
+		TraceWriteFDs:   make(map[int32]bool),
+		TraceStatus:     make(map[string]bool),
+		VerboseDisabled: make(map[string]bool),
 	}
 
 	for i := 0; i < len(args); i++ {
@@ -400,6 +402,9 @@ func parseEFlag(val string, opts *Options) {
 			opts.TraceStatus[s] = true
 		}
 		return
+	} else if strings.HasPrefix(val, "verbose=") {
+		parseVerboseSet(strings.TrimPrefix(val, "verbose="), opts)
+		return
 	} else if strings.HasPrefix(val, "signal=") {
 		// parsed but not implemented yet
 		return
@@ -421,6 +426,20 @@ func parseEFlag(val string, opts *Options) {
 	}
 	for _, s := range strings.Split(val, ",") {
 		addSyscallTrace(opts, s)
+	}
+}
+
+func parseVerboseSet(val string, opts *Options) {
+	if strings.HasPrefix(val, "!") {
+		for _, s := range strings.Split(strings.TrimPrefix(val, "!"), ",") {
+			if s != "" {
+				opts.VerboseDisabled[s] = true
+			}
+		}
+		return
+	}
+	for _, s := range strings.Split(val, ",") {
+		delete(opts.VerboseDisabled, s)
 	}
 }
 

@@ -33,6 +33,7 @@ type Context struct {
 	ProbeRetEnter int32
 	ProbeRetExit  int32
 	Ptr           uint64
+	DataLen       uint32
 	StrArgBuf     []byte
 	RawStrArg     string
 

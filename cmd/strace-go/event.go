@@ -131,7 +131,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		Pid: int(eventRaw.Pid), Tid: tPid, TargetPid: s.targetPid, SysId: eventRaw.SysId,
 		SysName: scMeta.Name, Args: eventRaw.Args, Ret: ret,
 		ProbeRetEnter: eventRaw.ProbeRetEnter, ProbeRetExit: eventRaw.ProbeRetExit,
-		Ptr: eventRaw.Ptr, StrArgBuf: strArgBuf, RawStrArg: rawStrArg,
+		Ptr: eventRaw.Ptr, DataLen: eventRaw.DataLen, StrArgBuf: strArgBuf, RawStrArg: rawStrArg,
 		BufferFileOffset: bufferFileOffset, BufferFileOffsetOK: bufferFileOffsetOK,
 		ScMeta: scMeta, MemReader: s.memReader, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdMap,
 		FdFiles: s.fdFiles,

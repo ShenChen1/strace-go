@@ -40,3 +40,17 @@ func TestParseTraceFDNegationFromEFlag(t *testing.T) {
 		t.Fatalf("TraceFDs = %#v, want {9}", opts.TraceFDs)
 	}
 }
+
+func TestParseVerboseDisabledFromEFlag(t *testing.T) {
+	opts := ParseArgs([]string{"-e", "trace=capget,capset", "-e", "verbose=!capget,capset", "/bin/true"})
+
+	if !opts.TraceSyscalls["capget"] || !opts.TraceSyscalls["capset"] {
+		t.Fatalf("TraceSyscalls = %#v, want capget and capset", opts.TraceSyscalls)
+	}
+	if !opts.VerboseDisabled["capget"] || !opts.VerboseDisabled["capset"] {
+		t.Fatalf("VerboseDisabled = %#v, want capget and capset disabled", opts.VerboseDisabled)
+	}
+	if opts.TraceSyscalls["verbose=!capget"] {
+		t.Fatal("verbose qualifier was parsed as a syscall")
+	}
+}
