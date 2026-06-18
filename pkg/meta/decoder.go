@@ -143,6 +143,12 @@ var XlatFormat string = "abbrev"
 // Impact: Core formatting helper for xlat flags. Used across default and specialized handlers.
 func DecodeFlags(val uint64, xlatName string) string {
 	checkRegisterBpfXlats()
+	if xlatName == "hex_flags" {
+		if val == 0 {
+			return "0"
+		}
+		return fmt.Sprintf("%#x", val)
+	}
 	if XlatFormat == "raw" {
 		table, ok := XlatTables[xlatName]
 		isEnum := false

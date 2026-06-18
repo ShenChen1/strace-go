@@ -210,6 +210,8 @@ var manualOverrides = map[string]SyscallMeta{
 	"inotify_init1":     {Name: "inotify_init1", Args: []string{"flags"}, ArgTypes: []string{"int"}},
 	"userfaultfd":       {Name: "userfaultfd", Args: []string{"flags"}, ArgTypes: []string{"unsigned int"}},
 	"close_range":       {Name: "close_range", Args: []string{"first", "last", "flags"}, ArgTypes: []string{"unsigned int", "unsigned int", "unsigned int"}},
+	"pidfd_open":        {Name: "pidfd_open", Args: []string{"pid", "flags"}, ArgTypes: []string{"pid_t", "unsigned int"}},
+	"pidfd_getfd":       {Name: "pidfd_getfd", Args: []string{"pidfd", "targetfd", "flags"}, ArgTypes: []string{"int", "int", "unsigned int"}},
 	"umask":             {Name: "umask", Args: []string{"mask"}, ArgTypes: []string{"umode_t"}},
 	"getrlimit":         {Name: "getrlimit", Args: []string{"resource", "rlim"}, ArgTypes: []string{"unsigned int", "struct rlimit *"}},
 	"setrlimit":         {Name: "setrlimit", Args: []string{"resource", "rlim"}, ArgTypes: []string{"unsigned int", "const struct rlimit *"}},

@@ -148,6 +148,34 @@ func TestDefaultHandlerDecodesBasicFlagXlats(t *testing.T) {
 			argTypes: []string{"unsigned int", "unsigned int", "unsigned int"},
 			want:     []string{"4294967294", "4294967295", "CLOSE_RANGE_UNSHARE|CLOSE_RANGE_CLOEXEC"},
 		},
+		{
+			name:     "pidfd_open",
+			args:     [6]uint64{0xdefaced0ffffffff, 0xdefaced000000a80},
+			argNames: []string{"pid", "flags"},
+			argTypes: []string{"pid_t", "unsigned int"},
+			want:     []string{"-1", "PIDFD_NONBLOCK|PIDFD_THREAD|PIDFD_AUTOKILL"},
+		},
+		{
+			name:     "pidfd_getfd",
+			args:     [6]uint64{0xdefaced0ffffffff, 0xdefaced0ffffffff, 0xdefaced0badc0ded},
+			argNames: []string{"pidfd", "targetfd", "flags"},
+			argTypes: []string{"int", "int", "unsigned int"},
+			want:     []string{"-1", "-1", "0xbadc0ded"},
+		},
+		{
+			name:     "setns",
+			args:     [6]uint64{0xdefaced0deadc0de, 0xdefaced081fdff7f},
+			argNames: []string{"fd", "flags"},
+			argTypes: []string{"int", "int"},
+			want:     []string{"-559038242", "0x81fdff7f /* CLONE_NEW??? */"},
+		},
+		{
+			name:     "process_mrelease",
+			args:     [6]uint64{0xbadc0ded00000000, 0xbadc0dedfacefeed},
+			argNames: []string{"pidfd", "flags"},
+			argTypes: []string{"int", "unsigned int"},
+			want:     []string{"0", "0xfacefeed"},
+		},
 	}
 
 	for _, tt := range tests {

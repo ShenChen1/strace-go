@@ -143,6 +143,14 @@ syscalls:
     unshare_flags: unshare_flags
   close_range:
     flags: close_range_flags
+  setns:
+    flags: setns_types
+  pidfd_open:
+    flags: pidfd_open_flags
+  pidfd_getfd:
+    flags: hex_flags
+  process_mrelease:
+    flags: hex_flags
   kill:
     sig: signalnames
   tgkill:

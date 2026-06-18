@@ -547,6 +547,27 @@ var XlatTables = map[string]XlatTable{
 			{Val: 4, Str: "RENAME_WHITEOUT"},
 		},
 	},
+	"pidfd_open_flags": {
+		Prefix: "PIDFD_",
+		Entries: []XlatVal{
+			{Val: 2048, Str: "PIDFD_NONBLOCK"},
+			{Val: 128, Str: "PIDFD_THREAD"},
+			{Val: 512, Str: "PIDFD_AUTOKILL"},
+		},
+	},
+	"setns_types": {
+		Prefix: "CLONE_NEW",
+		Entries: []XlatVal{
+			{Val: 128, Str: "CLONE_NEWTIME"},
+			{Val: 131072, Str: "CLONE_NEWNS"},
+			{Val: 33554432, Str: "CLONE_NEWCGROUP"},
+			{Val: 67108864, Str: "CLONE_NEWUTS"},
+			{Val: 134217728, Str: "CLONE_NEWIPC"},
+			{Val: 268435456, Str: "CLONE_NEWUSER"},
+			{Val: 536870912, Str: "CLONE_NEWPID"},
+			{Val: 1073741824, Str: "CLONE_NEWNET"},
+		},
+	},
 	"uffd_flags": {
 		Prefix: "UFFD_",
 		Entries: []XlatVal{
@@ -5509,6 +5530,18 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	},
 	"close_range": {
 		"flags": "close_range_flags",
+	},
+	"setns": {
+		"flags": "setns_types",
+	},
+	"pidfd_open": {
+		"flags": "pidfd_open_flags",
+	},
+	"pidfd_getfd": {
+		"flags": "hex_flags",
+	},
+	"process_mrelease": {
+		"flags": "hex_flags",
 	},
 	"getrlimit": {
 		"resource": "resources",
