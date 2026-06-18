@@ -125,8 +125,6 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	}
 
 	bufferFileOffset, bufferFileOffsetOK := s.bufferFileOffset(eventRaw, scMeta)
-	updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, s.targetPid, s.fdMap)
-
 	ctx := &handler.Context{
 		Pid: int(eventRaw.Pid), Tid: tPid, TargetPid: s.targetPid, SysId: eventRaw.SysId,
 		SysName: scMeta.Name, Args: eventRaw.Args, Ret: ret,
@@ -173,11 +171,13 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		if isFdSys {
 			handler.Get(scMeta.Name).Handle(ctx)
 		}
+		updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, s.targetPid, s.fdMap)
 		return
 	}
 
 	h := handler.Get(scMeta.Name)
 	res := h.Handle(ctx)
+	updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, s.targetPid, s.fdMap)
 
 	s.handleEventOutput(ctx, eventRaw, res)
 }

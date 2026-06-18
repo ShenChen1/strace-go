@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"strace-go/pkg/cli"
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -107,5 +108,45 @@ func TestCheckShouldPrintTraceFDsOrPath(t *testing.T) {
 	}
 	if checkShouldPrint(&bpfEvent{Args: [6]uint64{3}}, sc, "", false, 101, opts, fdMap) {
 		t.Fatal("dup(3) should not match --trace-fds=0 or -P /dev/full")
+	}
+}
+
+func TestDup2FormatsArgsBeforeFDMapUpdateAndReturnAfter(t *testing.T) {
+	fdMap := map[string]string{
+		"101:3": "/dev/null",
+		"101:4": "/dev/full",
+	}
+	sc := meta.Syscall{
+		Name:     "dup2",
+		Args:     []string{"oldfd", "newfd"},
+		ArgTypes: []string{"unsigned int", "unsigned int"},
+	}
+	eventRaw := &bpfEvent{
+		Pid:  101,
+		Tid:  101,
+		Args: [6]uint64{3, 4},
+		Ret:  4,
+	}
+	ctx := &handler.Context{
+		Pid:       101,
+		TargetPid: 101,
+		Args:      eventRaw.Args,
+		Ret:       eventRaw.Ret,
+		ScMeta:    sc,
+		Opts: &cli.Options{
+			ShowPaths:     true,
+			ShowPathsMode: 1,
+		},
+		FdMap: fdMap,
+	}
+
+	res := handler.Get("dup2").Handle(ctx)
+	if got, want := res.ArgParts, []string{"3</dev/null>", "4</dev/full>"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("dup2 args = %#v, want %#v", got, want)
+	}
+
+	updateFDMap(eventRaw, sc, "", nil, 101, fdMap)
+	if got := formatSyscallRet("dup2", 4, res, ctx); got != "4</dev/null>" {
+		t.Fatalf("dup2 return = %q, want %q", got, "4</dev/null>")
 	}
 }

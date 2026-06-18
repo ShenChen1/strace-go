@@ -1,46 +1,59 @@
 package handler
 
 import (
-	"strings"
 	"testing"
 
 	"strace-go/pkg/cli"
-	"strace-go/pkg/meta"
 )
 
-func TestDecodeScalarFormatsMmapOffsetAsHex(t *testing.T) {
-	h := &DefaultHandler{}
+func TestFormatFdWithPathPrefersTrackedFDMap(t *testing.T) {
 	ctx := &Context{
-		ScMeta: meta.Syscall{Name: "mmap"},
-	}
-
-	if got := h.decodeScalar(ctx, "kernel_off_t", "off", 0xcafedeadbeef000); got != "0xcafedeadbeef000" {
-		t.Fatalf("mmap offset = %q", got)
-	}
-	if got := h.decodeScalar(ctx, "kernel_off_t", "off", 0); got != "0" {
-		t.Fatalf("zero mmap offset = %q", got)
-	}
-}
-
-func TestDecodeScalarFormatsAtFdcwdFromTrackedCwd(t *testing.T) {
-	h := &DefaultHandler{}
-	ctx := &Context{
-		Pid:       42,
-		TargetPid: 42,
-		ScMeta:    meta.Syscall{Name: "openat"},
-		Opts:      &cli.Options{ShowPaths: true},
+		Pid:       202,
+		TargetPid: 101,
+		Opts: &cli.Options{
+			ShowPaths:     true,
+			ShowPathsMode: 1,
+		},
 		FdMap: map[string]string{
-			"42:cwd": "/tmp/tracee-cwd",
+			"101:4": "/dev/full",
 		},
 	}
 
-	atFdcwd := ^uint64(99)
-	if got := h.decodeScalar(ctx, "int", "dfd", atFdcwd); got != "AT_FDCWD</tmp/tracee-cwd>" {
-		t.Fatalf("AT_FDCWD cwd = %q", got)
+	if got := FormatFdWithPath(ctx, 4); got != "4</dev/full>" {
+		t.Fatalf("FormatFdWithPath = %q, want %q", got, "4</dev/full>")
+	}
+}
+
+func TestFormatFdWithPathTreatsMissingTrackedFDAsClosed(t *testing.T) {
+	ctx := &Context{
+		Pid:       202,
+		TargetPid: 101,
+		Opts: &cli.Options{
+			ShowPaths:     true,
+			ShowPathsMode: 1,
+		},
+		FdMap: map[string]string{},
 	}
 
-	ctx.FdMap["42:cwd"] = "/" + strings.Repeat("x", 4095)
-	if got := h.decodeScalar(ctx, "int", "dfd", atFdcwd); got != "AT_FDCWD" {
-		t.Fatalf("PATH_MAX AT_FDCWD cwd = %q", got)
+	if got := FormatFdWithPath(ctx, 4); got != "4" {
+		t.Fatalf("FormatFdWithPath = %q, want %q", got, "4")
+	}
+}
+
+func TestFormatFdWithPathDetailsTrackedTarget(t *testing.T) {
+	ctx := &Context{
+		Pid:       202,
+		TargetPid: 101,
+		Opts: &cli.Options{
+			ShowPaths:     true,
+			ShowPathsMode: 2,
+		},
+		FdMap: map[string]string{
+			"101:0": "/dev/null",
+		},
+	}
+
+	if got := FormatFdWithPath(ctx, 0); got != "0</dev/null<char 1:3>>" {
+		t.Fatalf("FormatFdWithPath = %q, want %q", got, "0</dev/null<char 1:3>>")
 	}
 }

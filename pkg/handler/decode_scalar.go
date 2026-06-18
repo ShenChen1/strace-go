@@ -268,17 +268,22 @@ func FormatFdWithPath(ctx *Context, fd int32) string {
 		return fdStr
 	}
 
+	if ctx.FdMap != nil {
+		if target, ok := lookupTrackedFDPath(ctx, fd); ok {
+			if ctx.Opts.ShowPathsMode == 2 {
+				return fdStr + "<" + formatDetailedPath(ctx, "", target, fd) + ">"
+			}
+			if strings.HasPrefix(target, "socket:[") {
+				target = formatSocketPath(ctx, target, fd)
+			}
+			return fdStr + "<" + target + ">"
+		}
+		return fdStr
+	}
+
 	// IMPACT: Use ctx.TargetPid instead of ctx.Pid to avoid reading from transient/exited thread descriptors.
 	linkPath := fmt.Sprintf("/proc/%d/fd/%d", ctx.TargetPid, fd)
 	target, err := os.Readlink(linkPath)
-	if err != nil {
-		if ctx.FdMap != nil {
-			if t, ok := ctx.FdMap[fmt.Sprintf("%d:%d", ctx.Pid, fd)]; ok {
-				target = t
-				err = nil
-			}
-		}
-	}
 	if err != nil {
 		return fdStr
 	}
@@ -294,10 +299,25 @@ func FormatFdWithPath(ctx *Context, fd int32) string {
 	return fdStr + "<" + target + ">"
 }
 
+func lookupTrackedFDPath(ctx *Context, fd int32) (string, bool) {
+	if ctx.FdMap == nil {
+		return "", false
+	}
+	for _, pid := range []int{ctx.TargetPid, ctx.Pid} {
+		if target, ok := ctx.FdMap[fmt.Sprintf("%d:%d", pid, fd)]; ok {
+			if len(target) >= 2 && target[0] == '"' && target[len(target)-1] == '"' {
+				target = target[1 : len(target)-1]
+			}
+			return target, true
+		}
+	}
+	return "", false
+}
+
 // IMPACT: formatDetailedPath extracts device, inode or special fdinfo status for -yy.
 // It falls back to target path stat if procfs entry is missing.
 func formatDetailedPath(ctx *Context, linkPath string, target string, fd int32) string {
-	if strings.HasPrefix(target, "anon_inode:[eventfd]") {
+	if linkPath != "" && strings.HasPrefix(target, "anon_inode:[eventfd]") {
 		forceCount := (ctx.ScMeta.Name == "eventfd" || ctx.ScMeta.Name == "eventfd2")
 		flags := uint64(0)
 		if len(ctx.Args) > 1 {
@@ -311,7 +331,10 @@ func formatDetailedPath(ctx *Context, linkPath string, target string, fd int32) 
 		return formatSocketPath(ctx, target, fd)
 	}
 	var stat syscall.Stat_t
-	err := syscall.Stat(linkPath, &stat)
+	var err error = syscall.ENOENT
+	if linkPath != "" {
+		err = syscall.Stat(linkPath, &stat)
+	}
 	if err != nil && target != "" && !strings.HasPrefix(target, "socket:[") && !strings.HasPrefix(target, "anon_inode:") {
 		err = syscall.Stat(target, &stat)
 	}
