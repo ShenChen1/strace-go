@@ -133,6 +133,16 @@ syscalls:
     flags: sync_file_range_flags
   fallocate:
     mode: falloc_flags
+  renameat2:
+    flags: rename_flags
+  inotify_init1:
+    flags: inotify_init_flags
+  userfaultfd:
+    flags: uffd_flags
+  unshare:
+    unshare_flags: unshare_flags
+  close_range:
+    flags: close_range_flags
   kill:
     sig: signalnames
   tgkill:

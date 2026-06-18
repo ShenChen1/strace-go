@@ -525,6 +525,55 @@ var XlatTables = map[string]XlatTable{
 			{Val: 128, Str: "FALLOC_FL_WRITE_ZEROES"},
 		},
 	},
+	"close_range_flags": {
+		Prefix: "CLOSE_RANGE_",
+		Entries: []XlatVal{
+			{Val: 2, Str: "CLOSE_RANGE_UNSHARE"},
+			{Val: 4, Str: "CLOSE_RANGE_CLOEXEC"},
+		},
+	},
+	"inotify_init_flags": {
+		Prefix: "IN_",
+		Entries: []XlatVal{
+			{Val: 2048, Str: "IN_NONBLOCK"},
+			{Val: 524288, Str: "IN_CLOEXEC"},
+		},
+	},
+	"rename_flags": {
+		Prefix: "RENAME_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "RENAME_NOREPLACE"},
+			{Val: 2, Str: "RENAME_EXCHANGE"},
+			{Val: 4, Str: "RENAME_WHITEOUT"},
+		},
+	},
+	"uffd_flags": {
+		Prefix: "UFFD_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "UFFD_USER_MODE_ONLY"},
+			{Val: 2048, Str: "O_NONBLOCK"},
+			{Val: 524288, Str: "O_CLOEXEC"},
+		},
+	},
+	"unshare_flags": {
+		Prefix: "CLONE_",
+		Entries: []XlatVal{
+			{Val: 128, Str: "CLONE_NEWTIME"},
+			{Val: 256, Str: "CLONE_VM"},
+			{Val: 512, Str: "CLONE_FS"},
+			{Val: 1024, Str: "CLONE_FILES"},
+			{Val: 2048, Str: "CLONE_SIGHAND"},
+			{Val: 65536, Str: "CLONE_THREAD"},
+			{Val: 131072, Str: "CLONE_NEWNS"},
+			{Val: 262144, Str: "CLONE_SYSVSEM"},
+			{Val: 33554432, Str: "CLONE_NEWCGROUP"},
+			{Val: 67108864, Str: "CLONE_NEWUTS"},
+			{Val: 134217728, Str: "CLONE_NEWIPC"},
+			{Val: 268435456, Str: "CLONE_NEWUSER"},
+			{Val: 536870912, Str: "CLONE_NEWPID"},
+			{Val: 1073741824, Str: "CLONE_NEWNET"},
+		},
+	},
 	"fsmagic": {
 		Prefix: "",
 		Entries: []XlatVal{
@@ -5445,6 +5494,21 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	},
 	"fallocate": {
 		"mode": "falloc_flags",
+	},
+	"renameat2": {
+		"flags": "rename_flags",
+	},
+	"inotify_init1": {
+		"flags": "inotify_init_flags",
+	},
+	"userfaultfd": {
+		"flags": "uffd_flags",
+	},
+	"unshare": {
+		"unshare_flags": "unshare_flags",
+	},
+	"close_range": {
+		"flags": "close_range_flags",
 	},
 	"getrlimit": {
 		"resource": "resources",

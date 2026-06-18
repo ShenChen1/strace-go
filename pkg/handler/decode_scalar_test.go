@@ -104,3 +104,72 @@ func TestDefaultHandlerDecodesFallocateMode(t *testing.T) {
 		t.Fatalf("fallocate mode = %q, want %q", got[1], want)
 	}
 }
+
+func TestDefaultHandlerDecodesBasicFlagXlats(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     [6]uint64
+		argNames []string
+		argTypes []string
+		want     []string
+	}{
+		{
+			name:     "renameat2",
+			args:     [6]uint64{0, 0, 0, 0, 1},
+			argNames: []string{"olddfd", "oldname", "newdfd", "newname", "flags"},
+			argTypes: []string{"int", "const char *", "int", "const char *", "unsigned int"},
+			want:     []string{"0", "NULL", "0", "NULL", "RENAME_NOREPLACE"},
+		},
+		{
+			name:     "inotify_init1",
+			args:     [6]uint64{0xfacefeed00080800},
+			argNames: []string{"flags"},
+			argTypes: []string{"int"},
+			want:     []string{"IN_NONBLOCK|IN_CLOEXEC"},
+		},
+		{
+			name:     "userfaultfd",
+			args:     [6]uint64{0xdefaced000080801},
+			argNames: []string{"flags"},
+			argTypes: []string{"unsigned int"},
+			want:     []string{"UFFD_USER_MODE_ONLY|O_NONBLOCK|O_CLOEXEC"},
+		},
+		{
+			name:     "unshare",
+			args:     [6]uint64{0xbadc0ded0000000f},
+			argNames: []string{"unshare_flags"},
+			argTypes: []string{"long unsigned int"},
+			want:     []string{"0xbadc0ded0000000f /* CLONE_??? */"},
+		},
+		{
+			name:     "close_range",
+			args:     [6]uint64{0xdefaced0fffffffe, 0xdefaced0ffffffff, 0xdefaced000000006},
+			argNames: []string{"first", "last", "flags"},
+			argTypes: []string{"unsigned int", "unsigned int", "unsigned int"},
+			want:     []string{"4294967294", "4294967295", "CLOSE_RANGE_UNSHARE|CLOSE_RANGE_CLOEXEC"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := &Context{
+				Args: tt.args,
+				ScMeta: meta.Syscall{
+					Name:     tt.name,
+					Args:     tt.argNames,
+					ArgTypes: tt.argTypes,
+				},
+				Opts: &cli.Options{},
+			}
+			got := (&DefaultHandler{}).Handle(ctx).ArgParts
+			if len(got) != len(tt.want) {
+				t.Fatalf("%s args length = %d, want %d: %#v", tt.name, len(got), len(tt.want), got)
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Fatalf("%s arg %d = %q, want %q (all args %#v)", tt.name, i, got[i], tt.want[i], got)
+				}
+			}
+		})
+	}
+}

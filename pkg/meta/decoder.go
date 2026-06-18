@@ -173,7 +173,7 @@ func DecodeFlags(val uint64, xlatName string) string {
 	table, ok := XlatTables[xlatName]
 	if !ok { return fmt.Sprintf("%#x", val) }
 
-	if xlatName != "clone3_flags" && !strings.HasPrefix(xlatName, "bpf_") {
+	if xlatName != "clone3_flags" && xlatName != "unshare_flags" && !strings.HasPrefix(xlatName, "bpf_") {
 		val = uint64(uint32(val))
 	}
 
