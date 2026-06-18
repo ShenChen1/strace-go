@@ -2789,6 +2789,21 @@
 				} \
 			} \
 			break; \
+		case 63: /* uname */ \
+			{ \
+				long __err = (e)->args[0] ? bpf_probe_read_user((e)->str_arg + 1024, 390, (void *)(e)->args[0]) : 0; \
+				long pr = (__err == 0 && (e)->args[0]) ? 390 : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 0)) + 1); \
+				} else { \
+					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
+					u32 req_len = 1024 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
 		case 72: /* fcntl */ \
 			{ \
 				u32 fcmd = (u32)(e)->args[1]; \

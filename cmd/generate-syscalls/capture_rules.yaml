@@ -14,6 +14,10 @@ rules:
     exit:
       reads: [{ arg: 0, size: 0, offset: 1024, type: raw }]
 
+  - syscalls: [uname]
+    exit:
+      reads: [{ arg: 0, size: 390, offset: 1024, type: raw }]
+
   # Syscalls returning struct stat
   - syscalls: [stat, lstat]
     enter:
@@ -467,4 +471,3 @@ rules:
       reads:
         - { arg: 0, size: 16, type: raw }
         - { arg: 1, size: 8, offset: 24, type: raw }
-
