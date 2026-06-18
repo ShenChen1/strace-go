@@ -34,6 +34,7 @@ func TestMatchTraceFDs(t *testing.T) {
 		{name: "invalid fd excluded", fds: []int32{-1}, trace: map[int32]bool{9: true}, want: false},
 		{name: "negated excludes listed fd", fds: []int32{9}, trace: map[int32]bool{9: true}, negated: true, want: false},
 		{name: "negated includes other fd", fds: []int32{3}, trace: map[int32]bool{9: true}, negated: true, want: true},
+		{name: "negated includes syscall with other fd", fds: []int32{9, 4}, trace: map[int32]bool{9: true}, negated: true, want: true},
 		{name: "negated still excludes invalid fd", fds: []int32{-1}, trace: map[int32]bool{9: true}, negated: true, want: false},
 	}
 
@@ -81,6 +82,12 @@ func TestCheckShouldPrintTraceFDsNegated(t *testing.T) {
 	}
 	if checkShouldPrint(&bpfEvent{Args: [6]uint64{rawFD(-1)}}, sc, "", false, 101, opts, nil) {
 		t.Fatal("dup(-1) should be filtered by --trace-fds=!9")
+	}
+
+	sc = meta.Syscall{Name: "dup2", Args: []string{"oldfd", "newfd"}}
+	opts.TraceSyscalls["dup2"] = true
+	if !checkShouldPrint(&bpfEvent{Args: [6]uint64{9, 4}}, sc, "", false, 101, opts, nil) {
+		t.Fatal("dup2(9, 4) should match --trace-fds=!9 because fd 4 is not excluded")
 	}
 }
 

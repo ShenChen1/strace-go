@@ -219,6 +219,7 @@ func matchTraceFDs(fds []int32, opts *cli.Options) bool {
 	}
 	hasValidFD := false
 	matchesSet := false
+	matchesNegatedSet := false
 	for _, fd := range fds {
 		if fd < 0 {
 			continue
@@ -226,10 +227,12 @@ func matchTraceFDs(fds []int32, opts *cli.Options) bool {
 		hasValidFD = true
 		if opts.TraceFDs[fd] {
 			matchesSet = true
+		} else {
+			matchesNegatedSet = true
 		}
 	}
 	if opts.TraceFDsNegated {
-		return hasValidFD && !matchesSet
+		return hasValidFD && matchesNegatedSet
 	}
 	return matchesSet
 }

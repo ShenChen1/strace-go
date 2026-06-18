@@ -397,6 +397,9 @@ func parseEFlag(val string, opts *Options) {
 	} else if strings.HasPrefix(val, "trace-fd=") {
 		parseTraceFDSet(strings.TrimPrefix(val, "trace-fd="), opts)
 		return
+	} else if strings.HasPrefix(val, "fd=") {
+		parseTraceFDSet(strings.TrimPrefix(val, "fd="), opts)
+		return
 	} else if strings.HasPrefix(val, "status=") {
 		for _, s := range strings.Split(strings.TrimPrefix(val, "status="), ",") {
 			opts.TraceStatus[s] = true

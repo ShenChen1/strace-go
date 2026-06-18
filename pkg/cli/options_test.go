@@ -41,6 +41,20 @@ func TestParseTraceFDNegationFromEFlag(t *testing.T) {
 	}
 }
 
+func TestParseFDSetsFromEFlagAlias(t *testing.T) {
+	opts := ParseArgs([]string{"--trace=dup2", "-e", "fd=0,9", "/bin/true"})
+
+	if opts.TraceFDsNegated {
+		t.Fatal("TraceFDsNegated = true, want false")
+	}
+	if !opts.TraceFDs[0] || !opts.TraceFDs[9] || len(opts.TraceFDs) != 2 {
+		t.Fatalf("TraceFDs = %#v, want {0, 9}", opts.TraceFDs)
+	}
+	if !opts.TraceSyscalls["dup2"] {
+		t.Fatal("trace syscall was not preserved after -e fd")
+	}
+}
+
 func TestParseVerboseDisabledFromEFlag(t *testing.T) {
 	opts := ParseArgs([]string{"-e", "trace=capget,capset", "-e", "verbose=!capget,capset", "/bin/true"})
 
