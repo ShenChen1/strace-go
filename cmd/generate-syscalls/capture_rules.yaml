@@ -113,6 +113,12 @@ rules:
       ptr_arg: 1
       reads: [{ arg: 1, size: 0, offset: 0, type: raw }]
 
+  - syscalls: [sendfile]
+    enter:
+      reads: [{ arg: 2, size: 8, offset: 512, type: raw }]
+    exit:
+      reads: [{ arg: 2, size: 8, offset: 1024, type: raw }]
+
   - syscalls: [copy_file_range]
     enter:
       reads:
