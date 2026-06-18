@@ -1578,6 +1578,14 @@ var XlatTables = map[string]XlatTable{
 			{Val: 8192, Str: "ST_NOSYMFOLLOW"},
 		},
 	},
+	"sync_file_range_flags": {
+		Prefix: "SYNC_FILE_RANGE_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "SYNC_FILE_RANGE_WAIT_BEFORE"},
+			{Val: 2, Str: "SYNC_FILE_RANGE_WRITE"},
+			{Val: 4, Str: "SYNC_FILE_RANGE_WAIT_AFTER"},
+		},
+	},
 	"umount_flags": {
 		Prefix: "MNT_ UMOUNT_",
 		Entries: []XlatVal{
@@ -5418,6 +5426,9 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	},
 	"msync": {
 		"flags": "mctl_sync",
+	},
+	"sync_file_range": {
+		"flags": "sync_file_range_flags",
 	},
 	"getrlimit": {
 		"resource": "resources",

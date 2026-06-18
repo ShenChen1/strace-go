@@ -129,6 +129,8 @@ syscalls:
     flags: mlockall_flags
   msync:
     flags: mctl_sync
+  sync_file_range:
+    flags: sync_file_range_flags
   kill:
     sig: signalnames
   tgkill:
