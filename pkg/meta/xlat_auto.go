@@ -512,6 +512,19 @@ var XlatTables = map[string]XlatTable{
 			{Val: 1, Str: "FD_CLOEXEC"},
 		},
 	},
+	"falloc_flags": {
+		Prefix: "FALLOC_FL_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "FALLOC_FL_KEEP_SIZE"},
+			{Val: 2, Str: "FALLOC_FL_PUNCH_HOLE"},
+			{Val: 4, Str: "FALLOC_FL_NO_HIDE_STALE"},
+			{Val: 8, Str: "FALLOC_FL_COLLAPSE_RANGE"},
+			{Val: 16, Str: "FALLOC_FL_ZERO_RANGE"},
+			{Val: 32, Str: "FALLOC_FL_INSERT_RANGE"},
+			{Val: 64, Str: "FALLOC_FL_UNSHARE_RANGE"},
+			{Val: 128, Str: "FALLOC_FL_WRITE_ZEROES"},
+		},
+	},
 	"fsmagic": {
 		Prefix: "",
 		Entries: []XlatVal{
@@ -5429,6 +5442,9 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	},
 	"sync_file_range": {
 		"flags": "sync_file_range_flags",
+	},
+	"fallocate": {
+		"mode": "falloc_flags",
 	},
 	"getrlimit": {
 		"resource": "resources",

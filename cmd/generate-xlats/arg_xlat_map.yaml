@@ -131,6 +131,8 @@ syscalls:
     flags: mctl_sync
   sync_file_range:
     flags: sync_file_range_flags
+  fallocate:
+    mode: falloc_flags
   kill:
     sig: signalnames
   tgkill:

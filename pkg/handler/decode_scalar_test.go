@@ -81,3 +81,26 @@ func TestDefaultHandlerDecodesSyncFileRangeFlags(t *testing.T) {
 		t.Fatalf("sync_file_range flags = %q, want %q", got[3], want)
 	}
 }
+
+func TestDefaultHandlerDecodesFallocateMode(t *testing.T) {
+	ctx := &Context{
+		Args: [6]uint64{
+			0xffffffffbeefface,
+			0xffffffffdeadca75,
+			0xbadc0dedda7a1057,
+			0xbadfaceca7b0d1e5,
+		},
+		ScMeta: meta.Syscall{
+			Name:     "fallocate",
+			Args:     []string{"fd", "mode", "offset", "len"},
+			ArgTypes: []string{"int", "int", "loff_t", "loff_t"},
+		},
+		Opts: &cli.Options{},
+	}
+
+	got := (&DefaultHandler{}).Handle(ctx).ArgParts
+	want := "FALLOC_FL_KEEP_SIZE|FALLOC_FL_NO_HIDE_STALE|FALLOC_FL_ZERO_RANGE|FALLOC_FL_INSERT_RANGE|FALLOC_FL_UNSHARE_RANGE|0xdeadca00"
+	if got[1] != want {
+		t.Fatalf("fallocate mode = %q, want %q", got[1], want)
+	}
+}
