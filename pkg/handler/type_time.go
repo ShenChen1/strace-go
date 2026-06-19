@@ -18,7 +18,13 @@ func init() {
 
 func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	if ctx.ScMeta.Name == "utimensat" {
-		return ctx.DecodeArgStructWithFallback(i, val, 32, false, ctx.StrArgBuf[BpfMiscArgOffset:BpfMiscArgOffset+32], format.Utimes)
+		xlatFormat := "abbrev"
+		if ctx.Opts != nil {
+			xlatFormat = ctx.Opts.XlatFormat
+		}
+		return ctx.DecodeArgStructWithFallback(i, val, 32, false, ctx.StrArgBuf[BpfMiscArgOffset:BpfMiscArgOffset+32], func(data []byte) string {
+			return format.UtimesWithXlat(data, xlatFormat)
+		})
 	}
 	if ctx.ScMeta.Name == "futex_wait" {
 		if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 16, false); err == nil && len(d) == 16 {

@@ -232,8 +232,8 @@ func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val 
 func (h *DefaultHandler) formatFdArg(ctx *Context, argName string, val uint64) string {
 	// IMPACT: Only translate AtFdcwd to AT_FDCWD if the argument represents a directory fd (contains "dfd" or "dirfd").
 	if int32(val) == AtFdcwd && (strings.Contains(argName, "dfd") || argName == "dirfd") {
-		s := "AT_FDCWD"
-		if !ctx.Opts.ShowPaths {
+		s := formatAtFdcwd(ctx)
+		if ctx.Opts == nil || !ctx.Opts.ShowPaths {
 			return s
 		}
 
@@ -259,6 +259,18 @@ func (h *DefaultHandler) formatFdArg(ctx *Context, argName string, val uint64) s
 		return FormatFdWithPath(ctx, int32(val))
 	}
 	return fmt.Sprintf("%d", int32(val))
+}
+
+func formatAtFdcwd(ctx *Context) string {
+	if ctx.Opts != nil {
+		switch ctx.Opts.XlatFormat {
+		case "raw":
+			return fmt.Sprintf("%d", AtFdcwd)
+		case "verbose":
+			return fmt.Sprintf("%d /* AT_FDCWD */", AtFdcwd)
+		}
+	}
+	return "AT_FDCWD"
 }
 
 // IMPACT: FormatFdWithPath formats file descriptor with path information (-y/-yy).
