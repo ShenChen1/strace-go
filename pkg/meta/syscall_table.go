@@ -139,7 +139,7 @@ var SyscallTable = map[uint32]Syscall{
 	133: {Name: "mknod", Args: []string{"filename", "mode", "dev"}, ArgTypes: []string{"const char *", "umode_t", "dev_t"}, Flags: "TF"},
 	134: {Name: "uselib", Args: []string{"arg0"}, ArgTypes: []string{"unsigned long"}, Flags: "TF"},
 	135: {Name: "personality", Args: []string{"arg0"}, ArgTypes: []string{"unsigned long"}, Flags: "NF"},
-	136: {Name: "ustat", Args: []string{"dev", "ubuf"}, ArgTypes: []string{"unsigned int", "struct ustat *"}, Flags: "TSFA"},
+	136: {Name: "ustat", Args: []string{"dev", "ubuf"}, ArgTypes: []string{"dev_t", "struct ustat *"}, Flags: "TSFA"},
 	137: {Name: "statfs", Args: []string{"pathname", "buf"}, ArgTypes: []string{"const char *", "struct statfs *"}, Flags: "TF|TSF|TSFA"},
 	138: {Name: "fstatfs", Args: []string{"fd", "buf"}, ArgTypes: []string{"unsigned int", "struct statfs *"}, Flags: "TD|TFSF|TSFA"},
 	139: {Name: "sysfs", Args: []string{"arg0", "arg1", "arg2"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long"}, Flags: "0"},

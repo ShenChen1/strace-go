@@ -151,7 +151,7 @@ func (h *DefaultHandler) decodeXlat(ctx *Context, argName string, val uint64) (s
 // decodeScalar decodes non-pointer scalar values based on type name.
 func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val uint64) string {
 	if argTyp == "dev_t" {
-		if ctx.ScMeta.Name == "mknod" || ctx.ScMeta.Name == "mknodat" {
+		if ctx.ScMeta.Name == "mknod" || ctx.ScMeta.Name == "mknodat" || ctx.ScMeta.Name == "ustat" {
 			val = uint64(uint32(val))
 		}
 		return format.Dev(val)
