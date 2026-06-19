@@ -99,6 +99,8 @@ syscalls:
     flags: shadow_stack_flags
   mseal:
     flags: hex_flags
+  memfd_create:
+    flags: memfd_create_flags
   fanotify_init:
     flags: fan_init_flags
     event_f_flags: open_mode_flags

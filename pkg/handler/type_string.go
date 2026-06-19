@@ -172,6 +172,9 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 	if isPath {
 		limit = 0
 		capSize = 4097
+	} else if scName == "memfd_create" && i == 0 {
+		limit = 250
+		capSize = 250
 	}
 	probeRet := ctx.ArgProbeRet(i)
 	bpfBuf := ctx.StrArgBuf[0:capSize]

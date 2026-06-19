@@ -251,6 +251,33 @@ func decodeFutex2Flags(val uint64) string {
 	return decoded
 }
 
+func decodeMemfdCreateFlags(val uint64) string {
+	v := uint32(val)
+	raw := rawHexOrZero(uint64(v))
+	if v == 0 || XlatFormat == "raw" {
+		return raw
+	}
+
+	const hugeShift = 26
+	const hugeMask = uint32(0x3f << hugeShift)
+
+	baseFlags := v &^ hugeMask
+	hugeValue := (v & hugeMask) >> hugeShift
+	var parts []string
+	if table, ok := XlatTables["memfd_create_flags"]; ok && (baseFlags != 0 || hugeValue == 0) {
+		parts = append(parts, decodeBitFlags(uint64(baseFlags), "memfd_create_flags", table))
+	}
+	if hugeValue != 0 {
+		parts = append(parts, fmt.Sprintf("%d<<MFD_HUGE_SHIFT", hugeValue))
+	}
+
+	decoded := strings.Join(parts, "|")
+	if XlatFormat == "verbose" {
+		return fmt.Sprintf("%s /* %s */", raw, decoded)
+	}
+	return decoded
+}
+
 var XlatFormat string = "abbrev"
 
 // DecodeFlags translates numeric flag values into human-readable strings.
@@ -268,6 +295,9 @@ func DecodeFlags(val uint64, xlatName string) string {
 	}
 	if xlatName == "futex2_flags" {
 		return decodeFutex2Flags(val)
+	}
+	if xlatName == "memfd_create_flags" {
+		return decodeMemfdCreateFlags(val)
 	}
 	if XlatFormat == "raw" {
 		table, ok := XlatTables[xlatName]

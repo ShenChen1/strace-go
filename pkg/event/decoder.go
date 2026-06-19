@@ -105,6 +105,10 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 					raw = data
 					truncated = true
 					found = true
+				} else if limit > 0 && len(data) >= limit {
+					raw = data[:limit]
+					truncated = true
+					found = true
 				} else {
 					// Hit a memory fault before finding '\0'
 					found = false

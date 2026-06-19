@@ -533,6 +533,16 @@ var XlatTables = map[string]XlatTable{
 			{Val: 16384, Str: "FAN_REPORT_MNT"},
 		},
 	},
+	"memfd_create_flags": {
+		Prefix: "MFD_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "MFD_CLOEXEC"},
+			{Val: 2, Str: "MFD_ALLOW_SEALING"},
+			{Val: 4, Str: "MFD_HUGETLB"},
+			{Val: 8, Str: "MFD_NOEXEC_SEAL"},
+			{Val: 16, Str: "MFD_EXEC"},
+		},
+	},
 	"fchmodat_flags": {
 		Prefix: "AT_",
 		Entries: []XlatVal{
@@ -5468,6 +5478,9 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	},
 	"mseal": {
 		"flags": "hex_flags",
+	},
+	"memfd_create": {
+		"flags": "memfd_create_flags",
 	},
 	"fanotify_init": {
 		"flags":         "fan_init_flags",

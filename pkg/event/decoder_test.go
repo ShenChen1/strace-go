@@ -28,11 +28,15 @@ func TestDecodeStringLimitBoundary(t *testing.T) {
 	}{
 		{name: "exact limit", raw: "12345678901234567890123456789012", want: `"12345678901234567890123456789012"`},
 		{name: "over limit", raw: "123456789012345678901234567890123", want: `"12345678901234567890123456789012"...`},
+		{name: "fault after limit", raw: "12345678901234567890123456789012", want: `"12345678901234567890123456789012"...`},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			data := append([]byte(tt.raw), 0)
+			data := []byte(tt.raw)
+			if tt.name != "fault after limit" {
+				data = append(data, 0)
+			}
 			decoder := NewDecoder(fixedMemoryReader{data: data})
 			decoder.StringLimit = 32
 
