@@ -82,3 +82,29 @@ func TestDecodeMemfdCreateFlags(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeBpfEnumsUseHexRawValues(t *testing.T) {
+	old := meta.XlatFormat
+	defer func() { meta.XlatFormat = old }()
+
+	tests := []struct {
+		name string
+		mode string
+		val  uint64
+		xlat string
+		want string
+	}{
+		{name: "raw command", mode: "raw", val: 5, xlat: "bpf_commands", want: "0x5"},
+		{name: "raw prog type", mode: "raw", val: 0x21, xlat: "bpf_prog_types", want: "0x21"},
+		{name: "verbose command", mode: "verbose", val: 5, xlat: "bpf_commands", want: "0x5 /* BPF_PROG_LOAD */"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			meta.XlatFormat = tt.mode
+			if got := meta.DecodeFlags(tt.val, tt.xlat); got != tt.want {
+				t.Fatalf("DecodeFlags(%#x, %q) = %q, want %q", tt.val, tt.xlat, got, tt.want)
+			}
+		})
+	}
+}

@@ -3,8 +3,8 @@ package handler
 import (
 	"encoding/binary"
 	"fmt"
-	"strings"
 	"strace-go/pkg/meta"
+	"strings"
 )
 
 // decodeBpfProgLoad decodes BPF_PROG_LOAD arguments.
@@ -21,7 +21,7 @@ func decodeBpfProgLoad(ctx *Context, data []byte, size uint32) string {
 	parts = append(parts, fmt.Sprintf("insn_cnt=%d", insnCnt))
 	insns := u64OrZero(data, 8)
 	parts = append(parts, decodeBpfInsns(ctx, insns, insnCnt))
-	
+
 	decodedSize, parts = decodeBpfProgLoadParts1(ctx, parts, data, size, decodedSize)
 	decodedSize, parts = decodeBpfProgLoadParts2(parts, data, size, decodedSize)
 	decodedSize, parts = decodeBpfProgLoadParts3(ctx, parts, data, size, decodedSize)
@@ -40,7 +40,9 @@ func decodeBpfProgLoadParts1(ctx *Context, parts []string, data []byte, size uin
 		lic, err := ctx.MemReader.ReadRobust(ctx.Tid, licAddr, 64, false)
 		if err == nil {
 			s := string(lic)
-			if idx := strings.IndexByte(s, 0); idx != -1 { s = s[:idx] }
+			if idx := strings.IndexByte(s, 0); idx != -1 {
+				s = s[:idx]
+			}
 			parts = append(parts, fmt.Sprintf("license=%q", s))
 		} else {
 			if licAddr != 0xffffffff00000000 {
@@ -50,7 +52,9 @@ func decodeBpfProgLoadParts1(ctx *Context, parts []string, data []byte, size uin
 			}
 		}
 	}
-	if decodedSize < 24 && len(data) >= 24 { decodedSize = 24 }
+	if decodedSize < 24 && len(data) >= 24 {
+		decodedSize = 24
+	}
 	if size >= 28 {
 		parts = append(parts, fmt.Sprintf("log_level=%d", u32OrZero(data, 24)))
 		decodedSize = 28
@@ -65,7 +69,7 @@ func decodeBpfProgLoadParts1(ctx *Context, parts []string, data []byte, size uin
 	}
 	if size >= 44 {
 		kv := u32OrZero(data, 40)
-		parts = append(parts, fmt.Sprintf("kern_version=KERNEL_VERSION(%d, %d, %d)", kv>>16, (kv>>8)&0xff, kv&0xff))
+		parts = append(parts, "kern_version="+formatBpfKernelVersion(ctx, kv))
 		decodedSize = 44
 	}
 	if size >= 48 {
@@ -85,6 +89,22 @@ func decodeBpfProgLoadParts1(ctx *Context, parts []string, data []byte, size uin
 		decodedSize = 72
 	}
 	return decodedSize, parts
+}
+
+func formatBpfKernelVersion(ctx *Context, kv uint32) string {
+	decoded := fmt.Sprintf("KERNEL_VERSION(%d, %d, %d)", kv>>16, (kv>>8)&0xff, kv&0xff)
+	if ctx == nil || ctx.Opts == nil {
+		return decoded
+	}
+	raw := fmt.Sprintf("%#x", kv)
+	switch ctx.Opts.XlatFormat {
+	case "raw":
+		return raw
+	case "verbose":
+		return fmt.Sprintf("%s /* %s */", raw, decoded)
+	default:
+		return decoded
+	}
 }
 
 func formatBpfProgLoadLogBuf(ctx *Context, data []byte, size uint32) string {

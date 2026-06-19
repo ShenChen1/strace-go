@@ -310,7 +310,7 @@ func DecodeFlags(val uint64, xlatName string) string {
 			if val == 0 {
 				return "0"
 			}
-			if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "clocknames")) && xlatName != "resources" {
+			if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && !strings.HasPrefix(xlatName, "bpf_") && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "clocknames")) && xlatName != "resources" {
 				return fmt.Sprintf("%d", int32(val))
 			}
 			return fmt.Sprintf("%#x", val)
@@ -362,7 +362,7 @@ func DecodeFlags(val uint64, xlatName string) string {
 		rawValStr := fmt.Sprintf("%#x", val)
 		if val == 0 {
 			rawValStr = "0"
-		} else if isEnum && ((xlatName == "signalnames" || xlatName == "key_spec") || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "resources" && xlatName != "clocknames")) {
+		} else if isEnum && ((xlatName == "signalnames" || xlatName == "key_spec") || (val < 100 && !strings.HasPrefix(xlatName, "bpf_") && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "resources" && xlatName != "clocknames")) {
 			rawValStr = fmt.Sprintf("%d", int32(val))
 		}
 		if decoded == rawValStr {
