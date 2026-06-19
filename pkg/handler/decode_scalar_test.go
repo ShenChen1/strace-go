@@ -211,6 +211,13 @@ func TestDefaultHandlerDecodesBasicFlagXlats(t *testing.T) {
 			argTypes: []string{"int", "unsigned int", "unsigned int"},
 			want:     []string{"3", "FSMOUNT_CLOEXEC|FSMOUNT_NAMESPACE|0xfffffffc", "MOUNT_ATTR_RDONLY|MOUNT_ATTR_NOSUID|MOUNT_ATTR_NODEV|MOUNT_ATTR_NOEXEC|MOUNT_ATTR__ATIME|MOUNT_ATTR_NODIRATIME|MOUNT_ATTR_NOSYMFOLLOW|0xffdfff00"},
 		},
+		{
+			name:     "fchmodat2",
+			args:     [6]uint64{0xbadc0dedffffff9c, 0, 0xbadc0deddead01a4, 0xbadc0ded00001100},
+			argNames: []string{"dfd", "filename", "mode", "flags"},
+			argTypes: []string{"int", "const char *", "umode_t", "unsigned int"},
+			want:     []string{"AT_FDCWD", "NULL", "0644", "AT_SYMLINK_NOFOLLOW|AT_EMPTY_PATH"},
+		},
 	}
 
 	for _, tt := range tests {

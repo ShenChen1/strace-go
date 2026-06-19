@@ -12,6 +12,8 @@ syscalls:
   faccessat2:
     mode: access_modes
     flags: at_flags
+  fchmodat2:
+    flags: fchmodat_flags
   arch_prctl:
     option: archvals
   x86_xfeatures_table:

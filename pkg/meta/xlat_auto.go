@@ -533,6 +533,13 @@ var XlatTables = map[string]XlatTable{
 			{Val: 16384, Str: "FAN_REPORT_MNT"},
 		},
 	},
+	"fchmodat_flags": {
+		Prefix: "AT_",
+		Entries: []XlatVal{
+			{Val: 256, Str: "AT_SYMLINK_NOFOLLOW"},
+			{Val: 4096, Str: "AT_EMPTY_PATH"},
+		},
+	},
 	"falloc_flags": {
 		Prefix: "FALLOC_FL_",
 		Entries: []XlatVal{
@@ -5472,6 +5479,9 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"faccessat2": {
 		"mode": "access_modes",
 		"flags": "at_flags",
+	},
+	"fchmodat2": {
+		"flags": "fchmodat_flags",
 	},
 	"poll": {
 		"events": "pollflags",
