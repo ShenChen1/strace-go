@@ -25,6 +25,14 @@ func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, boo
 		}
 		return ctx.DecodeArgStructWithFallback(i, val, 16, false, ctx.StrArgBuf[0:16], format.Timespec)
 	}
+	if ctx.ScMeta.Name == "futex_waitv" {
+		start := futexWaitvTimeoutOffset
+		var bpfBuf []byte
+		if len(ctx.StrArgBuf) >= start+16 {
+			bpfBuf = ctx.StrArgBuf[start : start+16]
+		}
+		return ctx.DecodeArgStructWithFallback(i, val, 16, false, bpfBuf, format.Timespec)
+	}
 
 	isNanosleep := ctx.ScMeta.Name == "nanosleep"
 	isClockNanosleep := ctx.ScMeta.Name == "clock_nanosleep"
@@ -46,7 +54,7 @@ func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, boo
 			return format.Timespec(d), true
 		}
 	}
-	
+
 	return ctx.DecodeArgStructWithFallback(i, val, 16, false, ctx.StrArgBuf[0:16], format.Timespec)
 }
 

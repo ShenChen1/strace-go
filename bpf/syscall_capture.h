@@ -2457,6 +2457,52 @@
 				} \
 			} \
 			break; \
+		case 449: /* futex_waitv */ \
+			{ \
+				u32 futex_waitv_nr = (u32)(e)->args[1]; \
+				if (futex_waitv_nr > 128) futex_waitv_nr = 128; \
+				u32 futex_waitv_sz = futex_waitv_nr * 24; \
+				futex_waitv_sz &= 0xfff; \
+				long pr = 0; \
+				if (futex_waitv_sz > 0 && (e)->args[0]) { \
+					long __err = bpf_probe_read_user((e)->str_arg, 24, (void *)(e)->args[0]); \
+					if (__err < 0) { \
+						pr = __err; \
+					} else { \
+						pr = 24; \
+						u32 futex_waitv_rest = 0; \
+						if (futex_waitv_sz > 24) futex_waitv_rest = futex_waitv_sz - 24; \
+						futex_waitv_rest &= 0xfff; \
+						if (futex_waitv_rest > 0) { \
+							long __err2 = bpf_probe_read_user((e)->str_arg + 24, futex_waitv_rest, (void *)((e)->args[0] + 24)); \
+							if (__err2 == 0) pr = futex_waitv_sz; \
+						} \
+					} \
+				} \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 0 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			{ \
+				long __err = (e)->args[3] ? bpf_probe_read_user((e)->str_arg + 3072, 16, (void *)(e)->args[3]) : 0; \
+				long pr = (__err == 0 && (e)->args[3]) ? 16 : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 3)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 3072 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
 		case 451: /* cachestat */ \
 			{ \
 				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 512, 16, (void *)(e)->args[1]) : 0; \

@@ -183,6 +183,10 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 		if r.Arg == 3 {
 			return "fssz"
 		}
+	case "futex_waitv":
+		if r.Arg == 0 {
+			return "futex_waitv_sz"
+		}
 	case "read", "pread64":
 		if r.Arg == 1 {
 			return "((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0)"
@@ -226,7 +230,9 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 		if r.Size == 0 && (scName == "accept" || scName == "accept4" || scName == "getsockname" || scName == "getpeername" || scName == "recvfrom") {
 			if r.Arg == 1 || r.Arg == 4 {
 				lenArg := 2
-				if scName == "recvfrom" { lenArg = 5 }
+				if scName == "recvfrom" {
+					lenArg = 5
+				}
 				res += fmt.Sprintf("\t\t\t\tu32 addrlen = 0; \\\n")
 				res += fmt.Sprintf("\t\t\t\tbpf_probe_read_user(&addrlen, 4, (void *)(e)->args[%d]); \\\n", lenArg)
 				res += fmt.Sprintf("\t\t\t\tu32 inlen = *(u32 *)((e)->str_arg + 768); \\\n")
@@ -249,8 +255,13 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 			res += fmt.Sprintf("\t\t\t\t\tfssz &= 0x1fff; \\\n")
 			res += fmt.Sprintf("\t\t\t\t\tfssz = (fssz > 4096) ? 4096 : fssz; \\\n")
 			res += fmt.Sprintf("\t\t\t\t} \\\n")
+		} else if r.Size == 0 && scName == "futex_waitv" && r.Arg == 0 {
+			res += fmt.Sprintf("\t\t\t\tu32 futex_waitv_nr = (u32)(e)->args[1]; \\\n")
+			res += fmt.Sprintf("\t\t\t\tif (futex_waitv_nr > 128) futex_waitv_nr = 128; \\\n")
+			res += fmt.Sprintf("\t\t\t\tu32 futex_waitv_sz = futex_waitv_nr * 24; \\\n")
+			res += fmt.Sprintf("\t\t\t\tfutex_waitv_sz &= 0xfff; \\\n")
 		}
-		
+
 		// IMPACT: Safe-guard fsz conditional read to prevent BPF errors when size is 0.
 		if sizeStr == "fsz" {
 			res += fmt.Sprintf("\t\t\t\tlong __err = (fsz > 0 && (e)->args[%d]) ? %s(%s, fsz, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, r.Arg)
@@ -264,6 +275,23 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 			res += fmt.Sprintf("\t\t\t\t\t} \\\n")
 			res += fmt.Sprintf("\t\t\t\t} else if ((e)->args[%d]) { \\\n", r.Arg)
 			res += fmt.Sprintf("\t\t\t\t\tpr = bpf_probe_read_user_str(%s, 4096, (void *)(e)->args[%d]); \\\n", buf, r.Arg)
+			res += fmt.Sprintf("\t\t\t\t} \\\n")
+		} else if sizeStr == "futex_waitv_sz" {
+			res += fmt.Sprintf("\t\t\t\tlong pr = 0; \\\n")
+			res += fmt.Sprintf("\t\t\t\tif (futex_waitv_sz > 0 && (e)->args[%d]) { \\\n", r.Arg)
+			res += fmt.Sprintf("\t\t\t\t\tlong __err = bpf_probe_read_user(%s, 24, (void *)(e)->args[%d]); \\\n", buf, r.Arg)
+			res += fmt.Sprintf("\t\t\t\t\tif (__err < 0) { \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t\tpr = __err; \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t} else { \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t\tpr = 24; \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t\tu32 futex_waitv_rest = 0; \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t\tif (futex_waitv_sz > 24) futex_waitv_rest = futex_waitv_sz - 24; \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t\tfutex_waitv_rest &= 0xfff; \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t\tif (futex_waitv_rest > 0) { \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t\t\tlong __err2 = bpf_probe_read_user(%s + 24, futex_waitv_rest, (void *)((e)->args[%d] + 24)); \\\n", buf, r.Arg)
+			res += fmt.Sprintf("\t\t\t\t\t\t\tif (__err2 == 0) pr = futex_waitv_sz; \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t\t} \\\n")
+			res += fmt.Sprintf("\t\t\t\t\t} \\\n")
 			res += fmt.Sprintf("\t\t\t\t} \\\n")
 		} else if r.Type == "string" && r.Size > 2048 {
 			// IMPACT: Modified BPF multi-segment string read to overwrite the first phase's forced null terminator
@@ -315,7 +343,7 @@ func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 		res += fmt.Sprintf("\t\t\t\t\tif ((e)->data_len < req_len) (e)->data_len = req_len; \\\n")
 		res += fmt.Sprintf("\t\t\t\t} \\\n")
 		res += fmt.Sprintf("\t\t\t} \\\n")
-		
+
 		if scName == "io_submit" && suffix == "enter" && r.Arg == 2 {
 			res += "\t\t\tfor (int i = 0; i < 2; i++) { \\\n"
 			res += "\t\t\t\tu64 p; \\\n"
@@ -340,11 +368,15 @@ func sortedKeys(m map[int]SyscallMeta) []int {
 
 func LoadSyscalls() (map[int]SyscallMeta, error) {
 	btf, err := loadBTFSyscalls()
-	if err != nil { return nil, err }
-	
+	if err != nil {
+		return nil, err
+	}
+
 	entries, err := parseSyscallent("../../strace-upstream/src/linux/x86_64/syscallent.h")
-	if err != nil { return nil, err }
-	
+	if err != nil {
+		return nil, err
+	}
+
 	res := make(map[int]SyscallMeta)
 	for _, ent := range entries {
 		// Priority 1: manual overrides
@@ -372,7 +404,9 @@ func LoadSyscalls() (map[int]SyscallMeta, error) {
 				}
 			}
 		}
-		if found { continue }
+		if found {
+			continue
+		}
 
 		// Fallback: dummy
 		dummyArgs := make([]string, ent.Argc)
