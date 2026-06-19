@@ -19,6 +19,12 @@ func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, boo
 	if ctx.ScMeta.Name == "utimensat" {
 		return ctx.DecodeArgStructWithFallback(i, val, 32, false, ctx.StrArgBuf[BpfMiscArgOffset:BpfMiscArgOffset+32], format.Utimes)
 	}
+	if ctx.ScMeta.Name == "futex_wait" {
+		if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 16, false); err == nil && len(d) == 16 {
+			return format.Timespec(d), true
+		}
+		return ctx.DecodeArgStructWithFallback(i, val, 16, false, ctx.StrArgBuf[0:16], format.Timespec)
+	}
 
 	isNanosleep := ctx.ScMeta.Name == "nanosleep"
 	isClockNanosleep := ctx.ScMeta.Name == "clock_nanosleep"

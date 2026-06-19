@@ -2472,6 +2472,21 @@
 				} \
 			} \
 			break; \
+		case 455: /* futex_wait */ \
+			{ \
+				long __err = (e)->args[4] ? bpf_probe_read_user((e)->str_arg, 16, (void *)(e)->args[4]) : 0; \
+				long pr = (__err == 0 && (e)->args[4]) ? 16 : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 4)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 0 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
 	}
 #define CAPTURE_ARGS_EXIT(sys_id, e) \
 	switch (sys_id) { \

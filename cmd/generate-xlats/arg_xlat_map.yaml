@@ -122,6 +122,10 @@ syscalls:
   futex_wake:
     mask: futexbitset
     flags: futex2_flags
+  futex_wait:
+    mask: futexbitset
+    flags: futex2_flags
+    clockid: clocknames
   prctl:
     option: prctl_options
   madvise:

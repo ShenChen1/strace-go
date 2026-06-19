@@ -250,6 +250,10 @@ rules:
     exit:
       reads: [{ arg: 3, size: 16, offset: 1024, type: raw }]
 
+  - syscalls: [futex_wait]
+    enter:
+      reads: [{ arg: 4, size: 16, offset: 0, type: raw }]
+
   - syscalls: [nanosleep]
     enter:
       reads: [{ arg: 0, size: 16, offset: 0, type: raw }]

@@ -63,7 +63,7 @@ func decodeEnum(val uint64, xlatName string, table XlatTable) (string, bool) {
 		return strings.Join(matches, " or "), true
 	}
 	// IMPACT: Avoid mapping small enum values directly to numbers if they belong to fcntlcmds, ioctl_cmds, archvals, x86_xfeature_bits, fsconfig_cmds or bpf-related enums.
-	if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && !strings.HasPrefix(xlatName, "bpf_") && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "fsconfig_cmds")) && xlatName != "resources" {
+	if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && !strings.HasPrefix(xlatName, "bpf_") && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "fsconfig_cmds" && xlatName != "clocknames")) && xlatName != "resources" {
 		return fmt.Sprintf("%d", int32(val)), true
 	}
 	formatVal := fmt.Sprintf("%#x", val)
@@ -280,7 +280,7 @@ func DecodeFlags(val uint64, xlatName string) string {
 			if val == 0 {
 				return "0"
 			}
-			if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits")) && xlatName != "resources" {
+			if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "clocknames")) && xlatName != "resources" {
 				return fmt.Sprintf("%d", int32(val))
 			}
 			return fmt.Sprintf("%#x", val)
@@ -332,7 +332,7 @@ func DecodeFlags(val uint64, xlatName string) string {
 		rawValStr := fmt.Sprintf("%#x", val)
 		if val == 0 {
 			rawValStr = "0"
-		} else if isEnum && ((xlatName == "signalnames" || xlatName == "key_spec") || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "resources")) {
+		} else if isEnum && ((xlatName == "signalnames" || xlatName == "key_spec") || (val < 100 && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "resources" && xlatName != "clocknames")) {
 			rawValStr = fmt.Sprintf("%d", int32(val))
 		}
 		if decoded == rawValStr {

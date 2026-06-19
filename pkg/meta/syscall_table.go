@@ -370,7 +370,7 @@ var SyscallTable = map[uint32]Syscall{
 	452: {Name: "fchmodat2", Args: []string{"dfd", "filename", "mode", "flags"}, ArgTypes: []string{"int", "const char *", "umode_t", "unsigned int"}, Flags: "TD|TF"},
 	453: {Name: "map_shadow_stack", Args: []string{"addr", "size", "flags"}, ArgTypes: []string{"void *", "size_t", "unsigned int"}, Flags: "TM"},
 	454: {Name: "futex_wake", Args: []string{"uaddr", "mask", "nr", "flags"}, ArgTypes: []string{"void *", "unsigned long", "int", "unsigned int"}, Flags: "0"},
-	455: {Name: "futex_wait", Args: []string{"arg0", "arg1", "arg2", "arg3", "arg4", "arg5"}, ArgTypes: []string{"unsigned long", "unsigned long", "unsigned long", "unsigned long", "unsigned long", "unsigned long"}, Flags: "0"},
+	455: {Name: "futex_wait", Args: []string{"uaddr", "val", "mask", "flags", "timeout", "clockid"}, ArgTypes: []string{"void *", "unsigned long", "unsigned long", "unsigned int", "struct __kernel_timespec *", "clockid_t"}, Flags: "0"},
 	456: {Name: "futex_requeue", Args: []string{"waiters", "flags", "nr_wake", "nr_requeue"}, ArgTypes: []string{"struct futex_waitv *", "unsigned int", "int", "int"}, Flags: "0"},
 	457: {Name: "statmount", Args: []string{"req", "buf", "bufsize", "flags"}, ArgTypes: []string{"const struct mnt_id_req *", "struct statmount *", "size_t", "unsigned int"}, Flags: "0"},
 	458: {Name: "listmount", Args: []string{"req", "mnt_ids", "nr_mnt_ids", "flags"}, ArgTypes: []string{"const struct mnt_id_req *", "u64 *", "size_t", "unsigned int"}, Flags: "0"},

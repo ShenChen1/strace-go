@@ -5630,6 +5630,11 @@ var SyscallArgXlatMap = map[string]map[string]string{
 		"mask": "futexbitset",
 		"flags": "futex2_flags",
 	},
+	"futex_wait": {
+		"mask": "futexbitset",
+		"flags": "futex2_flags",
+		"clockid": "clocknames",
+	},
 	"dup3": {
 		"flags": "dup3_flags",
 	},

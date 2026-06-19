@@ -26,6 +26,9 @@ func isXlatArg(scName, argName, argTyp string) bool {
 	if (scName == "pipe2" || scName == "eventfd2") && argName == "flags" {
 		return true
 	}
+	if scName == "futex_wait" && argName == "val" {
+		return false
+	}
 	lowerName := strings.ToLower(argName)
 	if strings.Contains(lowerName, "flag") || strings.Contains(lowerName, "mode") ||
 		strings.Contains(lowerName, "behavior") || strings.Contains(lowerName, "cmd") ||
@@ -54,7 +57,7 @@ func (h *DefaultHandler) formatXlatRaw(ctx *Context, argName string, val uint64)
 			break
 		}
 	}
-	if strings.Contains(argTyp, "int") && !strings.Contains(argTyp, "long") {
+	if argTyp == "clockid_t" || strings.Contains(argTyp, "int") && !strings.Contains(argTyp, "long") {
 		val = uint64(uint32(val))
 	}
 	if val == 0 {
@@ -136,7 +139,7 @@ func (h *DefaultHandler) decodeXlat(ctx *Context, argName string, val uint64) (s
 
 	if syscallMap, ok := meta.SyscallArgXlatMap[ctx.ScMeta.Name]; ok {
 		if xlatName, ok := syscallMap[argName]; ok {
-			if xlatName == "resources" || (strings.Contains(argTyp, "int") && !strings.Contains(argTyp, "long")) {
+			if xlatName == "resources" || xlatName == "clocknames" || (strings.Contains(argTyp, "int") && !strings.Contains(argTyp, "long")) {
 				val = uint64(uint32(val))
 			}
 			return meta.DecodeFlags(val, xlatName), true
