@@ -108,3 +108,32 @@ func TestDecodeBpfEnumsUseHexRawValues(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeMadviseCmdsAsEnum(t *testing.T) {
+	old := meta.XlatFormat
+	defer func() { meta.XlatFormat = old }()
+
+	tests := []struct {
+		name string
+		mode string
+		val  uint64
+		want string
+	}{
+		{name: "abbrev known", mode: "abbrev", val: 1, want: "MADV_RANDOM"},
+		{name: "abbrev generic", mode: "abbrev", val: 12, want: "MADV_MERGEABLE"},
+		{name: "abbrev unknown", mode: "abbrev", val: 6, want: "0x6 /* MADV_??? */"},
+		{name: "raw known", mode: "raw", val: 1, want: "0x1"},
+		{name: "raw unknown", mode: "raw", val: 6, want: "0x6"},
+		{name: "verbose known", mode: "verbose", val: 1, want: "0x1 /* MADV_RANDOM */"},
+		{name: "verbose unknown", mode: "verbose", val: 6, want: "0x6 /* MADV_??? */"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			meta.XlatFormat = tt.mode
+			if got := meta.DecodeFlags(tt.val, "madvise_cmds"); got != tt.want {
+				t.Fatalf("DecodeFlags(%#x, madvise_cmds) = %q, want %q", tt.val, got, tt.want)
+			}
+		})
+	}
+}

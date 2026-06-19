@@ -95,6 +95,11 @@ func main() {
 		if !allowedXlats[name] { continue }
 
 		content, _ := os.ReadFile(filepath.Join(xlatDir, f.Name()))
+		if name == "madvise_cmds" {
+			if extra, err := os.ReadFile(filepath.Join(xlatDir, "madvise_hppa_generic_cmds.in")); err == nil {
+				content = append(append(content, '\n'), extra...)
+			}
+		}
 		prefix := ""
 		keys := []string{}
 		entries := make(map[string]string)
