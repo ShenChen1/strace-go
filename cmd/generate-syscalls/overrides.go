@@ -191,6 +191,7 @@ var manualOverrides = map[string]SyscallMeta{
 
 	// IPC
 	"futex": {Name: "futex", Args: []string{"uaddr", "op", "val", "utime", "uaddr2", "val3"}, ArgTypes: []string{"u32 *", "int", "u32", "const struct timespec *", "u32 *", "u32"}},
+	"futex_wake": {Name: "futex_wake", Args: []string{"uaddr", "mask", "nr", "flags"}, ArgTypes: []string{"void *", "unsigned long", "int", "unsigned int"}},
 
 	// Misc
 	"bpf":           {Name: "bpf", Args: []string{"cmd", "attr", "size"}, ArgTypes: []string{"int", "void *", "unsigned int"}},

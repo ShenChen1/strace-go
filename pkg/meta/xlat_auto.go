@@ -772,6 +772,29 @@ var XlatTables = map[string]XlatTable{
 			{Val: 2097152, Str: "MOUNT_ATTR_NOSYMFOLLOW"},
 		},
 	},
+	"futex2_flags": {
+		Prefix: "FUTEX2_",
+		Entries: []XlatVal{
+			{Val: 4, Str: "FUTEX2_NUMA"},
+			{Val: 8, Str: "FUTEX2_MPOL"},
+			{Val: 128, Str: "FUTEX2_PRIVATE"},
+		},
+	},
+	"futex2_sizes": {
+		Prefix: "FUTEX2_SIZE_",
+		Entries: []XlatVal{
+			{Val: 0, Str: "FUTEX2_SIZE_U8"},
+			{Val: 1, Str: "FUTEX2_SIZE_U16"},
+			{Val: 2, Str: "FUTEX2_SIZE_U32"},
+			{Val: 3, Str: "FUTEX2_SIZE_U64"},
+		},
+	},
+	"futexbitset": {
+		Prefix: "FUTEX_BITSET_",
+		Entries: []XlatVal{
+			{Val: 4294967295, Str: "FUTEX_BITSET_MATCH_ANY"},
+		},
+	},
 	"futexops": {
 		Prefix: "FUTEX_",
 		Entries: []XlatVal{
@@ -5602,6 +5625,10 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	},
 	"futex": {
 		"op": "futexops",
+	},
+	"futex_wake": {
+		"mask": "futexbitset",
+		"flags": "futex2_flags",
 	},
 	"dup3": {
 		"flags": "dup3_flags",

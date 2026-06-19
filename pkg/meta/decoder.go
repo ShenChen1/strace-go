@@ -180,6 +180,77 @@ func decodeFanInitFlags(val uint64) string {
 	return strings.Join(res, "|")
 }
 
+func xlatNameForValue(xlatName string, val uint64) (string, bool) {
+	table, ok := XlatTables[xlatName]
+	if !ok {
+		return "", false
+	}
+	for _, entry := range table.Entries {
+		if entry.Val == val {
+			return entry.Str, true
+		}
+	}
+	return "", false
+}
+
+func rawHexOrZero(val uint64) string {
+	if val == 0 {
+		return "0"
+	}
+	return fmt.Sprintf("%#x", val)
+}
+
+func decodeFutexBitset(val uint64) string {
+	raw := rawHexOrZero(val)
+	if XlatFormat == "raw" {
+		return raw
+	}
+	name, ok := xlatNameForValue("futexbitset", val)
+	if !ok {
+		return raw
+	}
+	if XlatFormat == "verbose" {
+		return fmt.Sprintf("%s /* %s */", raw, name)
+	}
+	return name
+}
+
+func decodeFutex2Flags(val uint64) string {
+	v := uint32(val)
+	raw := rawHexOrZero(uint64(v))
+	if XlatFormat == "raw" {
+		return raw
+	}
+
+	size := uint64(v & 3)
+	sizeName, ok := xlatNameForValue("futex2_sizes", size)
+	if !ok {
+		sizeName = rawHexOrZero(size)
+	}
+	res := []string{sizeName}
+	handled := uint32(3)
+
+	if table, ok := XlatTables["futex2_flags"]; ok {
+		for _, entry := range table.Entries {
+			bit := uint32(entry.Val)
+			if bit != 0 && (v&bit) == bit {
+				res = append(res, entry.Str)
+				handled |= bit
+			}
+		}
+	}
+
+	if remaining := v &^ handled; remaining != 0 {
+		res = append(res, fmt.Sprintf("%#x", remaining))
+	}
+
+	decoded := strings.Join(res, "|")
+	if XlatFormat == "verbose" {
+		return fmt.Sprintf("%s /* %s */", raw, decoded)
+	}
+	return decoded
+}
+
 var XlatFormat string = "abbrev"
 
 // DecodeFlags translates numeric flag values into human-readable strings.
@@ -191,6 +262,12 @@ func DecodeFlags(val uint64, xlatName string) string {
 			return "0"
 		}
 		return fmt.Sprintf("%#x", val)
+	}
+	if xlatName == "futexbitset" {
+		return decodeFutexBitset(val)
+	}
+	if xlatName == "futex2_flags" {
+		return decodeFutex2Flags(val)
 	}
 	if XlatFormat == "raw" {
 		table, ok := XlatTables[xlatName]

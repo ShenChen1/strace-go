@@ -113,6 +113,15 @@ syscalls:
     flags: clone3_flags
   futex:
     op: futexops
+  futex2_flags_table:
+    dummy: futex2_flags
+  futex2_sizes_table:
+    dummy: futex2_sizes
+  futexbitset_table:
+    dummy: futexbitset
+  futex_wake:
+    mask: futexbitset
+    flags: futex2_flags
   prctl:
     option: prctl_options
   madvise:
