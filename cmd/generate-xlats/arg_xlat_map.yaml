@@ -88,6 +88,11 @@ syscalls:
     flags: mmap_flags
   mprotect:
     prot: mmap_prot
+  pkey_mprotect:
+    prot: mmap_prot64
+  pkey_alloc:
+    flags: hex_flags
+    init_val: pkey_access_rights
   mremap:
     flags: mremap_flags
   clone:

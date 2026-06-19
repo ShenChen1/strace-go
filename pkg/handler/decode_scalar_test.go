@@ -176,6 +176,27 @@ func TestDefaultHandlerDecodesBasicFlagXlats(t *testing.T) {
 			argTypes: []string{"int", "unsigned int"},
 			want:     []string{"0", "0xfacefeed"},
 		},
+		{
+			name:     "pkey_alloc",
+			args:     [6]uint64{0xbadc0ded00000000, 0xbadc0ded00000002},
+			argNames: []string{"flags", "init_val"},
+			argTypes: []string{"long unsigned int", "long unsigned int"},
+			want:     []string{"0xbadc0ded00000000", "PKEY_DISABLE_WRITE|0xbadc0ded00000000"},
+		},
+		{
+			name:     "pkey_mprotect",
+			args:     [6]uint64{0, 0, 0xdeadfeed00ca7500, 0xbadc0ded00000001},
+			argNames: []string{"addr", "len", "prot", "pkey"},
+			argTypes: []string{"void *", "size_t", "long unsigned int", "int"},
+			want:     []string{"NULL", "0", "0xdeadfeed00ca7500 /* PROT_??? */", "1"},
+		},
+		{
+			name:     "pkey_free",
+			args:     [6]uint64{0xbadc0ded00000000},
+			argNames: []string{"pkey"},
+			argTypes: []string{"int"},
+			want:     []string{"0"},
+		},
 	}
 
 	for _, tt := range tests {

@@ -912,6 +912,26 @@ var XlatTables = map[string]XlatTable{
 			{Val: 33554432, Str: "PROT_GROWSUP"},
 		},
 	},
+	"mmap_prot64": {
+		Prefix: "PROT_",
+		Entries: []XlatVal{
+			{Val: 0, Str: "PROT_NONE"},
+			{Val: 1, Str: "PROT_READ"},
+			{Val: 2, Str: "PROT_WRITE"},
+			{Val: 4, Str: "PROT_EXEC"},
+			{Val: 16777216, Str: "PROT_GROWSDOWN"},
+			{Val: 33554432, Str: "PROT_GROWSUP"},
+		},
+	},
+	"pkey_access_rights": {
+		Prefix: "PKEY_",
+		Entries: []XlatVal{
+			{Val: 0, Str: "PKEY_UNRESTRICTED"},
+			{Val: 1, Str: "PKEY_DISABLE_ACCESS"},
+			{Val: 2, Str: "PKEY_DISABLE_WRITE"},
+			{Val: 4, Str: "PKEY_DISABLE_EXECUTE"},
+		},
+	},
 	"modetypes": {
 		Prefix: "S_",
 		Entries: []XlatVal{
@@ -5357,6 +5377,13 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"mmap": {
 		"prot": "mmap_prot",
 		"flags": "mmap_flags",
+	},
+	"pkey_mprotect": {
+		"prot": "mmap_prot64",
+	},
+	"pkey_alloc": {
+		"flags":    "hex_flags",
+		"init_val": "pkey_access_rights",
 	},
 	"lseek": {
 		"whence": "whence_codes",
