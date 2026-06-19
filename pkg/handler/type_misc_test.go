@@ -53,3 +53,28 @@ func TestDecodeUtsnameVerboseAndAbbrev(t *testing.T) {
 		t.Fatalf("decodeUtsname abbrev = %q, %v; want %q", got, ok, want)
 	}
 }
+
+func TestFormatRlimitValXlatModes(t *testing.T) {
+	tests := []struct {
+		name string
+		val  uint64
+		mode string
+		want string
+	}{
+		{name: "infinity abbrev", val: ^uint64(0), mode: "abbrev", want: "RLIM64_INFINITY"},
+		{name: "infinity raw", val: ^uint64(0), mode: "raw", want: "18446744073709551615"},
+		{name: "infinity verbose", val: ^uint64(0), mode: "verbose", want: "18446744073709551615 /* RLIM64_INFINITY */"},
+		{name: "kilobytes abbrev", val: 8192 * 1024, mode: "abbrev", want: "8192*1024"},
+		{name: "kilobytes raw", val: 8192 * 1024, mode: "raw", want: "8388608"},
+		{name: "kilobytes verbose", val: 8192 * 1024, mode: "verbose", want: "8388608 /* 8192*1024 */"},
+		{name: "plain value", val: 123838, mode: "verbose", want: "123838"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatRlimitVal(tt.val, tt.mode); got != tt.want {
+				t.Fatalf("formatRlimitVal(%d, %q) = %q, want %q", tt.val, tt.mode, got, tt.want)
+			}
+		})
+	}
+}

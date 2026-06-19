@@ -127,7 +127,11 @@ func decodeRlimitPointer(ctx *Context, i int, argTyp string, val uint64) (string
 	cur := binary.LittleEndian.Uint64(data[0:8])
 	max := binary.LittleEndian.Uint64(data[8:16])
 
-	return fmt.Sprintf("{rlim_cur=%s, rlim_max=%s}", formatRlimitVal(cur), formatRlimitVal(max)), true
+	xlatFormat := ""
+	if ctx.Opts != nil {
+		xlatFormat = ctx.Opts.XlatFormat
+	}
+	return fmt.Sprintf("{rlim_cur=%s, rlim_max=%s}", formatRlimitVal(cur, xlatFormat), formatRlimitVal(max, xlatFormat)), true
 }
 
 func decodeUtsname(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
@@ -173,12 +177,19 @@ func formatUtsField(data []byte) string {
 	return format.BufferEscape(data, 0, len(data), 0)
 }
 
-func formatRlimitVal(v uint64) string {
+func formatRlimitVal(v uint64, xlatFormat string) string {
+	raw := fmt.Sprintf("%d", v)
+	symbol := ""
 	if v == ^uint64(0) {
-		return "RLIM64_INFINITY"
+		symbol = "RLIM64_INFINITY"
+	} else if v > 1024 && v%1024 == 0 {
+		symbol = fmt.Sprintf("%d*1024", v/1024)
 	}
-	if v > 1024 && v%1024 == 0 {
-		return fmt.Sprintf("%d*1024", v/1024)
+	if symbol == "" || xlatFormat == "raw" {
+		return raw
 	}
-	return fmt.Sprintf("%d", v)
+	if xlatFormat == "verbose" {
+		return fmt.Sprintf("%s /* %s */", raw, symbol)
+	}
+	return symbol
 }
