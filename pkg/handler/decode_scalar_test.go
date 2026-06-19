@@ -197,6 +197,20 @@ func TestDefaultHandlerDecodesBasicFlagXlats(t *testing.T) {
 			argTypes: []string{"int"},
 			want:     []string{"0"},
 		},
+		{
+			name:     "fanotify_init",
+			args:     [6]uint64{0xffffffffffffffff, 0xdeadbeef80000001},
+			argNames: []string{"flags", "event_f_flags"},
+			argTypes: []string{"unsigned int", "unsigned int"},
+			want:     []string{"0xc /* FAN_CLASS_??? */|FAN_CLOEXEC|FAN_NONBLOCK|FAN_UNLIMITED_QUEUE|FAN_UNLIMITED_MARKS|FAN_ENABLE_AUDIT|FAN_REPORT_PIDFD|FAN_REPORT_TID|FAN_REPORT_FID|FAN_REPORT_DIR_FID|FAN_REPORT_NAME|FAN_REPORT_TARGET_FID|FAN_REPORT_FD_ERROR|FAN_REPORT_MNT|0xffff8000", "O_WRONLY|0x80000000"},
+		},
+		{
+			name:     "fsmount",
+			args:     [6]uint64{3, 0xdefaced0ffffffff, 0xdefaced0ffffffff},
+			argNames: []string{"fs_fd", "flags", "attr_flags"},
+			argTypes: []string{"int", "unsigned int", "unsigned int"},
+			want:     []string{"3", "FSMOUNT_CLOEXEC|FSMOUNT_NAMESPACE|0xfffffffc", "MOUNT_ATTR_RDONLY|MOUNT_ATTR_NOSUID|MOUNT_ATTR_NODEV|MOUNT_ATTR_NOEXEC|MOUNT_ATTR__ATIME|MOUNT_ATTR_NODIRATIME|MOUNT_ATTR_NOSYMFOLLOW|0xffdfff00"},
+		},
 	}
 
 	for _, tt := range tests {

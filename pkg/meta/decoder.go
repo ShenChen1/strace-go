@@ -137,6 +137,49 @@ func decodeBitFlags(val uint64, xlatName string, table XlatTable) string {
 	return strings.Join(res, "|")
 }
 
+func decodeFanInitFlags(val uint64) string {
+	v := uint32(val)
+	class := v & 0xc
+	handled := uint32(0)
+	hasInitFlag := false
+	var res []string
+
+	switch class {
+	case 0:
+		res = append(res, "FAN_CLASS_NOTIF")
+	case 4:
+		res = append(res, "FAN_CLASS_CONTENT")
+		handled |= class
+	case 8:
+		res = append(res, "FAN_CLASS_PRE_CONTENT")
+		handled |= class
+	default:
+		res = append(res, fmt.Sprintf("%#x /* FAN_CLASS_??? */", class))
+		handled |= class
+	}
+
+	for _, entry := range XlatTables["fan_init_flags"].Entries {
+		if entry.Val == 0 || entry.Val == 4 || entry.Val == 8 {
+			continue
+		}
+		bit := uint32(entry.Val)
+		if (v & bit) == bit {
+			res = append(res, entry.Str)
+			handled |= bit
+			hasInitFlag = true
+		}
+	}
+
+	if remaining := v & ^handled; remaining != 0 {
+		if hasInitFlag {
+			res = append(res, fmt.Sprintf("%#x", remaining))
+		} else {
+			res = append(res, fmt.Sprintf("%#x /* FAN_??? */", remaining))
+		}
+	}
+	return strings.Join(res, "|")
+}
+
 var XlatFormat string = "abbrev"
 
 // DecodeFlags translates numeric flag values into human-readable strings.
@@ -181,6 +224,9 @@ func DecodeFlags(val uint64, xlatName string) string {
 
 	if xlatName != "clone3_flags" && xlatName != "unshare_flags" && xlatName != "pkey_access_rights" && xlatName != "mmap_prot64" && !strings.HasPrefix(xlatName, "bpf_") {
 		val = uint64(uint32(val))
+	}
+	if xlatName == "fan_init_flags" {
+		return decodeFanInitFlags(val)
 	}
 
 	// IMPACT: Added fsconfig_cmds to isEnum check so that it gets formatted as a single enum value rather than joined bitflags.

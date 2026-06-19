@@ -93,6 +93,12 @@ syscalls:
   pkey_alloc:
     flags: hex_flags
     init_val: pkey_access_rights
+  fanotify_init:
+    flags: fan_init_flags
+    event_f_flags: open_mode_flags
+  fsmount:
+    flags: fsmount_flags
+    attr_flags: fsmount_attr_flags
   mremap:
     flags: mremap_flags
   clone:

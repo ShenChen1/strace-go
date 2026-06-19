@@ -512,6 +512,27 @@ var XlatTables = map[string]XlatTable{
 			{Val: 1, Str: "FD_CLOEXEC"},
 		},
 	},
+	"fan_init_flags": {
+		Prefix: "FAN_",
+		Entries: []XlatVal{
+			{Val: 0, Str: "FAN_CLASS_NOTIF"},
+			{Val: 4, Str: "FAN_CLASS_CONTENT"},
+			{Val: 8, Str: "FAN_CLASS_PRE_CONTENT"},
+			{Val: 1, Str: "FAN_CLOEXEC"},
+			{Val: 2, Str: "FAN_NONBLOCK"},
+			{Val: 16, Str: "FAN_UNLIMITED_QUEUE"},
+			{Val: 32, Str: "FAN_UNLIMITED_MARKS"},
+			{Val: 64, Str: "FAN_ENABLE_AUDIT"},
+			{Val: 128, Str: "FAN_REPORT_PIDFD"},
+			{Val: 256, Str: "FAN_REPORT_TID"},
+			{Val: 512, Str: "FAN_REPORT_FID"},
+			{Val: 1024, Str: "FAN_REPORT_DIR_FID"},
+			{Val: 2048, Str: "FAN_REPORT_NAME"},
+			{Val: 4096, Str: "FAN_REPORT_TARGET_FID"},
+			{Val: 8192, Str: "FAN_REPORT_FD_ERROR"},
+			{Val: 16384, Str: "FAN_REPORT_MNT"},
+		},
+	},
 	"falloc_flags": {
 		Prefix: "FALLOC_FL_",
 		Entries: []XlatVal{
@@ -715,6 +736,27 @@ var XlatTables = map[string]XlatTable{
 			{Val: 4187351113, Str: "HPFS_SUPER_MAGIC"},
 			{Val: 4266872130, Str: "SMB2_SUPER_MAGIC"},
 			{Val: 4283649346, Str: "CIFS_SUPER_MAGIC"},
+		},
+	},
+	"fsmount_flags": {
+		Prefix: "FSMOUNT_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "FSMOUNT_CLOEXEC"},
+			{Val: 2, Str: "FSMOUNT_NAMESPACE"},
+		},
+	},
+	"fsmount_attr_flags": {
+		Prefix: "MOUNT_ATTR_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "MOUNT_ATTR_RDONLY"},
+			{Val: 2, Str: "MOUNT_ATTR_NOSUID"},
+			{Val: 4, Str: "MOUNT_ATTR_NODEV"},
+			{Val: 8, Str: "MOUNT_ATTR_NOEXEC"},
+			{Val: 112, Str: "MOUNT_ATTR__ATIME"},
+			{Val: 16, Str: "MOUNT_ATTR_NOATIME"},
+			{Val: 32, Str: "MOUNT_ATTR_STRICTATIME"},
+			{Val: 128, Str: "MOUNT_ATTR_NODIRATIME"},
+			{Val: 2097152, Str: "MOUNT_ATTR_NOSYMFOLLOW"},
 		},
 	},
 	"futexops": {
@@ -5384,6 +5426,14 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"pkey_alloc": {
 		"flags":    "hex_flags",
 		"init_val": "pkey_access_rights",
+	},
+	"fanotify_init": {
+		"flags":         "fan_init_flags",
+		"event_f_flags": "open_mode_flags",
+	},
+	"fsmount": {
+		"flags":      "fsmount_flags",
+		"attr_flags": "fsmount_attr_flags",
 	},
 	"lseek": {
 		"whence": "whence_codes",
