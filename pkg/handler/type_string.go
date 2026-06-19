@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"syscall"
 
 	"strace-go/pkg/format"
 )
@@ -82,6 +83,9 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 	}
 
 	isPath := argName == "filename" || argName == "pathname" || argName == "path" || argName == "oldname" || argName == "newname" || argName == "oldpath" || argName == "newpath" || (scName == "getcwd" && argName == "buf")
+	if isPath && shouldShowFaultingTimePathPointer(ctx, val) {
+		return fmt.Sprintf("%#x", val), true
+	}
 	if isPath && val == ctx.Ptr && ctx.RawStrArg != "" && !strings.HasPrefix(ctx.RawStrArg, "0x") {
 		return ctx.RawStrArg, true
 	}
@@ -190,6 +194,33 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 		p = sb.String()[:4096] + `"...`
 	}
 	return p, true
+}
+
+func shouldShowFaultingTimePathPointer(ctx *Context, val uint64) bool {
+	if ctx.Ret != -int64(syscall.EFAULT) {
+		return false
+	}
+	switch ctx.ScMeta.Name {
+	case "utime":
+	case "utimes":
+		if ctx.Args[1] != 0 {
+			return false
+		}
+	case "utimensat", "futimesat":
+		if ctx.Args[2] != 0 {
+			return false
+		}
+	default:
+		return false
+	}
+	if val == 0 {
+		return false
+	}
+	pageSize := uint64(os.Getpagesize())
+	if val%pageSize < pageSize-64 {
+		return false
+	}
+	return true
 }
 
 func decodeIntPointer(ctx *Context, i int, argTyp, argName string, val uint64, res *Result) (string, bool) {

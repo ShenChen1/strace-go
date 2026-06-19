@@ -59,6 +59,27 @@ rules:
         - { arg: 1, size: 512, offset: 0, type: string }
         - { arg: 2, size: 32, offset: 512, type: raw }
 
+  - syscalls: [utime]
+    enter:
+      ptr_arg: 0
+      reads:
+        - { arg: 0, size: 512, offset: 0, type: string }
+        - { arg: 1, size: 16, offset: 512, type: raw }
+
+  - syscalls: [utimes]
+    enter:
+      ptr_arg: 0
+      reads:
+        - { arg: 0, size: 512, offset: 0, type: string }
+        - { arg: 1, size: 32, offset: 512, type: raw }
+
+  - syscalls: [futimesat]
+    enter:
+      ptr_arg: 1
+      reads:
+        - { arg: 1, size: 512, offset: 0, type: string }
+        - { arg: 2, size: 32, offset: 512, type: raw }
+
   - syscalls: [newfstatat]
     enter:
       ptr_arg: 1

@@ -8,6 +8,7 @@ func init() {
 	RegisterStructDecoder("struct timespec *", StructDecoderFunc(decodeTimespec))
 	RegisterStructDecoder("struct __kernel_timespec *", StructDecoderFunc(decodeTimespec))
 	RegisterStructDecoder("struct timeval *", StructDecoderFunc(decodeTimeval))
+	RegisterStructDecoder("struct utimbuf *", StructDecoderFunc(decodeUtimbuf))
 	RegisterStructDecoder("struct timex *", StructDecoderFunc(decodeTimex))
 	RegisterStructDecoder("struct __kernel_timex *", StructDecoderFunc(decodeTimex))
 	RegisterStructDecoder("struct itimerval *", StructDecoderFunc(decodeItimerval))
@@ -59,6 +60,10 @@ func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, boo
 }
 
 func decodeTimeval(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
+	if ctx.ScMeta.Name == "utimes" || ctx.ScMeta.Name == "futimesat" {
+		return ctx.DecodeArgStructWithFallback(i, val, 32, false, ctx.StrArgBuf[BpfMiscArgOffset:BpfMiscArgOffset+32], format.Timevals)
+	}
+
 	isOut := ctx.ScMeta.Name == "gettimeofday"
 	if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 {
 		d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 16, false)
@@ -73,6 +78,10 @@ func decodeTimeval(ctx *Context, i int, argTyp string, val uint64) (string, bool
 		return ctx.DecodeStructWithFallback(val, 16, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+16], format.Timeval)
 	}
 	return ctx.DecodeStructWithFallback(val, 16, false, ctx.StrArgBuf[0:16], format.Timeval)
+}
+
+func decodeUtimbuf(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
+	return ctx.DecodeArgStructWithFallback(i, val, 16, false, ctx.StrArgBuf[BpfMiscArgOffset:BpfMiscArgOffset+16], format.Utimbuf)
 }
 
 func decodeTimex(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
