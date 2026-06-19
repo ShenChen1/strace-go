@@ -215,6 +215,8 @@ var manualOverrides = map[string]SyscallMeta{
 	"pidfd_getfd":       {Name: "pidfd_getfd", Args: []string{"pidfd", "targetfd", "flags"}, ArgTypes: []string{"int", "int", "unsigned int"}},
 	"pkey_mprotect":     {Name: "pkey_mprotect", Args: []string{"addr", "len", "prot", "pkey"}, ArgTypes: []string{"void *", "size_t", "long unsigned int", "int"}},
 	"pkey_free":         {Name: "pkey_free", Args: []string{"pkey"}, ArgTypes: []string{"int"}},
+	"map_shadow_stack":  {Name: "map_shadow_stack", Args: []string{"addr", "size", "flags"}, ArgTypes: []string{"void *", "size_t", "unsigned int"}},
+	"mseal":             {Name: "mseal", Args: []string{"addr", "len", "flags"}, ArgTypes: []string{"void *", "size_t", "long unsigned int"}},
 	"umask":             {Name: "umask", Args: []string{"mask"}, ArgTypes: []string{"umode_t"}},
 	"getrlimit":         {Name: "getrlimit", Args: []string{"resource", "rlim"}, ArgTypes: []string{"unsigned int", "struct rlimit *"}},
 	"setrlimit":         {Name: "setrlimit", Args: []string{"resource", "rlim"}, ArgTypes: []string{"unsigned int", "const struct rlimit *"}},

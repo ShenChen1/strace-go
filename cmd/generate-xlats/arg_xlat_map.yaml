@@ -95,6 +95,10 @@ syscalls:
   pkey_alloc:
     flags: hex_flags
     init_val: pkey_access_rights
+  map_shadow_stack:
+    flags: shadow_stack_flags
+  mseal:
+    flags: hex_flags
   fanotify_init:
     flags: fan_init_flags
     event_f_flags: open_mode_flags

@@ -218,6 +218,20 @@ func TestDefaultHandlerDecodesBasicFlagXlats(t *testing.T) {
 			argTypes: []string{"int", "const char *", "umode_t", "unsigned int"},
 			want:     []string{"AT_FDCWD", "NULL", "0644", "AT_SYMLINK_NOFOLLOW|AT_EMPTY_PATH"},
 		},
+		{
+			name:     "map_shadow_stack",
+			args:     [6]uint64{0, 0, 0xdefaced0ffffffff},
+			argNames: []string{"addr", "size", "flags"},
+			argTypes: []string{"void *", "size_t", "unsigned int"},
+			want:     []string{"NULL", "0", "SHADOW_STACK_SET_TOKEN|0xfffffffe"},
+		},
+		{
+			name:     "mseal",
+			args:     [6]uint64{0xfacefeeddeadbeef, 0xcafef00dbadc0ded, 0xffffffffffffffff},
+			argNames: []string{"addr", "len", "flags"},
+			argTypes: []string{"void *", "size_t", "long unsigned int"},
+			want:     []string{"0xfacefeeddeadbeef", "14627392581506174445", "0xffffffffffffffff"},
+		},
 	}
 
 	for _, tt := range tests {

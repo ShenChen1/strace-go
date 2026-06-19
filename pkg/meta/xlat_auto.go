@@ -575,6 +575,12 @@ var XlatTables = map[string]XlatTable{
 			{Val: 4, Str: "RENAME_WHITEOUT"},
 		},
 	},
+	"shadow_stack_flags": {
+		Prefix: "SHADOW_STACK_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "SHADOW_STACK_SET_TOKEN"},
+		},
+	},
 	"pidfd_open_flags": {
 		Prefix: "PIDFD_",
 		Entries: []XlatVal{
@@ -5433,6 +5439,12 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"pkey_alloc": {
 		"flags":    "hex_flags",
 		"init_val": "pkey_access_rights",
+	},
+	"map_shadow_stack": {
+		"flags": "shadow_stack_flags",
+	},
+	"mseal": {
+		"flags": "hex_flags",
 	},
 	"fanotify_init": {
 		"flags":         "fan_init_flags",
