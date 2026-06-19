@@ -5635,6 +5635,13 @@ var SyscallArgXlatMap = map[string]map[string]string{
 		"flags": "futex2_flags",
 		"clockid": "clocknames",
 	},
+	"futex_waitv": {
+		"flags": "hex_flags",
+		"clockid": "clocknames",
+	},
+	"futex_requeue": {
+		"flags": "hex_flags",
+	},
 	"dup3": {
 		"flags": "dup3_flags",
 	},

@@ -126,6 +126,11 @@ syscalls:
     mask: futexbitset
     flags: futex2_flags
     clockid: clocknames
+  futex_waitv:
+    flags: hex_flags
+    clockid: clocknames
+  futex_requeue:
+    flags: hex_flags
   prctl:
     option: prctl_options
   madvise:
