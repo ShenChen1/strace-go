@@ -28,6 +28,7 @@ type CaptureRead struct {
 	LenFromArg   *int   `yaml:"-"`
 	LenFromRet   bool   `yaml:"-"`
 	CountFromArg *int   `yaml:"-"`
+	CountFromRet bool   `yaml:"-"`
 	ElemSize     int    `yaml:"-"`
 }
 
@@ -40,6 +41,7 @@ type CapturePayload struct {
 	LenFromArg   *int   `yaml:"len_from_arg"`
 	LenFromRet   bool   `yaml:"len_from_ret"`
 	CountFromArg *int   `yaml:"count_from_arg"`
+	CountFromRet bool   `yaml:"count_from_ret"`
 	ElemSize     int    `yaml:"elem_size"`
 	Size         int    `yaml:"size"`
 }
@@ -131,10 +133,16 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 	if p.CountFromArg != nil && (p.LenFromArg != nil || p.LenFromRet) {
 		return CaptureRead{}, fmt.Errorf("count_from_arg cannot be combined with len_from_arg or len_from_ret")
 	}
+	if p.CountFromRet && (p.LenFromArg != nil || p.LenFromRet || p.CountFromArg != nil) {
+		return CaptureRead{}, fmt.Errorf("count_from_ret cannot be combined with other dynamic length sources")
+	}
 	if p.CountFromArg != nil && p.ElemSize == 0 {
 		return CaptureRead{}, fmt.Errorf("count_from_arg requires elem_size")
 	}
-	if (p.LenFromArg != nil || p.LenFromRet || p.CountFromArg != nil) && p.Max == 0 {
+	if p.CountFromRet && p.ElemSize == 0 {
+		return CaptureRead{}, fmt.Errorf("count_from_ret requires elem_size")
+	}
+	if (p.LenFromArg != nil || p.LenFromRet || p.CountFromArg != nil || p.CountFromRet) && p.Max == 0 {
 		return CaptureRead{}, fmt.Errorf("dynamic payload length requires max")
 	}
 	if p.Direction != "" && p.Direction != "in" && p.Direction != "out" {
@@ -145,7 +153,7 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 		return CaptureRead{}, err
 	}
 	size := p.Size
-	if p.LenFromArg != nil || p.LenFromRet || p.CountFromArg != nil {
+	if p.LenFromArg != nil || p.LenFromRet || p.CountFromArg != nil || p.CountFromRet {
 		size = 0
 	} else if size == 0 {
 		size = p.Max
@@ -159,6 +167,7 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 		LenFromArg:   p.LenFromArg,
 		LenFromRet:   p.LenFromRet,
 		CountFromArg: p.CountFromArg,
+		CountFromRet: p.CountFromRet,
 		ElemSize:     p.ElemSize,
 	}, nil
 }

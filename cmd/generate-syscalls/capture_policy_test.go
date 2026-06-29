@@ -59,6 +59,10 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
     enter:
       payloads:
         - { arg: 1, kind: iovec, direction: in, count_from_arg: 2, elem_size: 16, max: 512 }
+  - syscalls: [epoll_wait]
+    exit:
+      payloads:
+        - { arg: 1, kind: struct, direction: out, count_from_ret: true, elem_size: 12, max: 512 }
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write test policy: %v", err)
@@ -84,6 +88,13 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
 	}
 	if iovecRead.CountFromArg == nil || *iovecRead.CountFromArg != 2 || iovecRead.ElemSize != 16 || iovecRead.Max != 512 {
 		t.Fatalf("iovec dynamic policy = %#v, want count_from_arg 2 elem_size 16 max 512", iovecRead)
+	}
+	epollRead := globalConfig.Rules[3].Exit.Reads[0]
+	if epollRead.Arg != 1 || epollRead.Size != 0 || epollRead.Type != "raw" {
+		t.Fatalf("epoll payload normalized to %#v, want arg 1 dynamic raw read", epollRead)
+	}
+	if !epollRead.CountFromRet || epollRead.ElemSize != 12 || epollRead.Max != 512 {
+		t.Fatalf("epoll dynamic policy = %#v, want count_from_ret elem_size 12 max 512", epollRead)
 	}
 }
 
@@ -183,6 +194,26 @@ func TestLoadCapturePolicyRequiresElementSizeForCount(t *testing.T) {
     enter:
       payloads:
         - { arg: 1, kind: iovec, direction: in, count_from_arg: 2, max: 512 }
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write test policy: %v", err)
+	}
+
+	if err := loadCapturePolicy(path); err == nil {
+		t.Fatalf("loadCapturePolicy() error = nil, want missing elem_size error")
+	}
+}
+
+func TestLoadCapturePolicyRequiresElementSizeForRetCount(t *testing.T) {
+	oldConfig := globalConfig
+	defer func() { globalConfig = oldConfig }()
+
+	path := filepath.Join(t.TempDir(), "capture_rules.yaml")
+	data := []byte(`rules:
+  - syscalls: [epoll_wait]
+    exit:
+      payloads:
+        - { arg: 1, kind: struct, direction: out, count_from_ret: true, max: 512 }
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write test policy: %v", err)

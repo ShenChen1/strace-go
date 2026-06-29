@@ -130,6 +130,9 @@ func policyDynamicSizeExpr(r CaptureRead) (string, bool) {
 		arg := *r.CountFromArg
 		return fmt.Sprintf("((e)->args[%d] > 0 ? ((e)->args[%d] * %d > %d ? %d : (e)->args[%d] * %d) : 0)", arg, arg, r.ElemSize, r.Max, r.Max, arg, r.ElemSize), true
 	}
+	if r.CountFromRet {
+		return fmt.Sprintf("((e)->ret > 0 ? ((e)->ret * %d > %d ? %d : (e)->ret * %d) : 0)", r.ElemSize, r.Max, r.Max, r.ElemSize), true
+	}
 	return "", false
 }
 
@@ -289,14 +292,6 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 	case "epoll_ctl":
 		if r.Arg == 1 {
 			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
-		}
-	case "epoll_wait", "epoll_pwait", "epoll_pwait2":
-		if suffix == "exit" && r.Arg == 1 {
-			return "((e)->ret > 0 ? ((e)->ret * 12 > 512 ? 512 : (e)->ret * 12) : 0)"
-		}
-	case "poll", "ppoll":
-		if suffix == "exit" && r.Arg == 0 {
-			return "((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0)"
 		}
 	case "bpf":
 		if r.Arg == 1 {

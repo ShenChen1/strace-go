@@ -358,18 +358,20 @@ rules:
 
   - syscalls: [poll]
     enter:
-      reads: [{ arg: 0, size: 0, offset: 0, type: raw }]
+      payloads:
+        - { arg: 0, kind: struct, direction: in, count_from_arg: 1, elem_size: 8, max: 512, offset: 0 }
     exit:
-      reads: [{ arg: 0, size: 0, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 0, kind: struct, direction: out, count_from_arg: 1, elem_size: 8, max: 512, offset: 1024 }
 
   - syscalls: [ppoll]
     enter:
-      reads:
-        - { arg: 0, size: 0, offset: 0, type: raw }
-        - { arg: 2, size: 16, offset: 512, type: raw } # timeout
+      payloads:
+        - { arg: 0, kind: struct, direction: in, count_from_arg: 1, elem_size: 8, max: 512, offset: 0 }
+        - { arg: 2, kind: struct, direction: in, size: 16, offset: 512 } # timeout
     exit:
-      reads:
-        - { arg: 0, size: 0, offset: 1024, type: raw }
+      payloads:
+        - { arg: 0, kind: struct, direction: out, count_from_arg: 1, elem_size: 8, max: 512, offset: 1024 }
 
   - syscalls: [select, _newselect]
     enter:
@@ -391,14 +393,17 @@ rules:
 
   - syscalls: [epoll_wait, epoll_pwait]
     exit:
-      reads: [{ arg: 1, size: 0, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: struct, direction: out, count_from_ret: true, elem_size: 12, max: 512, offset: 1024 }
 
   # IMPACT: Capture epoll_pwait2 timeout on enter and ready events on exit without user-space memory reads.
   - syscalls: [epoll_pwait2]
     enter:
-      reads: [{ arg: 3, size: 16, offset: 512, type: raw }]
+      payloads:
+        - { arg: 3, kind: struct, direction: in, size: 16, offset: 512 }
     exit:
-      reads: [{ arg: 1, size: 0, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: struct, direction: out, count_from_ret: true, elem_size: 12, max: 512, offset: 1024 }
 
   - syscalls: [rt_sigprocmask]
     enter:

@@ -2,31 +2,11 @@ package main
 
 import "testing"
 
-func TestDynamicSizeStrUsesEpollEventSize(t *testing.T) {
-	want := "((e)->ret > 0 ? ((e)->ret * 12 > 512 ? 512 : (e)->ret * 12) : 0)"
-	for _, syscall := range []string{"epoll_wait", "epoll_pwait", "epoll_pwait2"} {
-		got := dynamicSizeStr(syscall, "exit", CaptureRead{Arg: 1})
-		if got != want {
-			t.Fatalf("dynamicSizeStr(%q) = %q, want %q", syscall, got, want)
-		}
-	}
-}
-
 func TestDynamicSizeStrKeepsDefaultExitSize(t *testing.T) {
 	got := dynamicSizeStr("unknown", "exit", CaptureRead{Arg: 1})
 	want := "((e)->ret > 0 ? ((e)->ret * 32 > 512 ? 512 : (e)->ret * 32) : 0)"
 	if got != want {
 		t.Fatalf("dynamicSizeStr() = %q, want %q", got, want)
-	}
-}
-
-func TestDynamicSizeStrUsesPollNfds(t *testing.T) {
-	want := "((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0)"
-	for _, syscall := range []string{"poll", "ppoll"} {
-		got := dynamicSizeStr(syscall, "exit", CaptureRead{Arg: 0})
-		if got != want {
-			t.Fatalf("dynamicSizeStr(%q) = %q, want %q", syscall, got, want)
-		}
 	}
 }
 
@@ -54,6 +34,15 @@ func TestCaptureSizeExprUsesPayloadCountLength(t *testing.T) {
 	read := CaptureRead{Arg: 1, CountFromArg: &countArg, ElemSize: 16, Max: 512}
 	got := captureSizeExpr("readv", "enter", read)
 	want := "((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0)"
+	if got != want {
+		t.Fatalf("captureSizeExpr() = %q, want %q", got, want)
+	}
+}
+
+func TestCaptureSizeExprUsesPayloadRetCountLength(t *testing.T) {
+	read := CaptureRead{Arg: 1, CountFromRet: true, ElemSize: 12, Max: 512}
+	got := captureSizeExpr("epoll_wait", "exit", read)
+	want := "((e)->ret > 0 ? ((e)->ret * 12 > 512 ? 512 : (e)->ret * 12) : 0)"
 	if got != want {
 		t.Fatalf("captureSizeExpr() = %q, want %q", got, want)
 	}
