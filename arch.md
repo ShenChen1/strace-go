@@ -863,6 +863,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - 普通 path、at-based path、stat/readlink/newfstatat 和双 path syscall 的固定字符串捕获已迁移为 `payloads`，继续保持生成输出稳定。
 - 固定长度 raw/struct/string 捕获已批量迁移为 `payloads`；旧 `reads` 目前主要剩动态长度、double pointer 和 syscall 特殊 prelude。
 - socket 输出地址捕获已通过 `len_from_user_arg` 和 `clamp_u32_from_offset` 描述 addrlen 指针读取与 enter 输入长度 clamp；`dynamicSocketAddrSize` 特例已删除。
+- `ioctl` 的 `_IOC_SIZE` 捕获长度已通过 `len_from_arg_bits` 描述 bitfield 提取、0 长度默认值和最大截断；`dynamicSizeStr` 中对应特例已删除。
 - 后续继续把剩余 `reads` 规则迁移为 policy-only，并把 `dynamicSizeStr` 中的 syscall-name 特例逐步收缩成 policy 字段。
 
 ### Phase 8: 删除旧模式与收口文档

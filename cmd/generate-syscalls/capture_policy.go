@@ -29,27 +29,36 @@ type CaptureRead struct {
 	LenFromArg         *int   `yaml:"-"`
 	LenFromRet         bool   `yaml:"-"`
 	LenFromUserArg     *int   `yaml:"-"`
-	ClampU32FromOffset *int   `yaml:"-"`
-	CountFromArg       *int   `yaml:"-"`
-	CountFromRet       bool   `yaml:"-"`
-	ElemSize           int    `yaml:"-"`
+	LenFromArgBits     *ArgBitsLength
+	ClampU32FromOffset *int `yaml:"-"`
+	CountFromArg       *int `yaml:"-"`
+	CountFromRet       bool `yaml:"-"`
+	ElemSize           int  `yaml:"-"`
 }
 
 type CapturePayload struct {
-	Arg                int    `yaml:"arg"`
-	Kind               string `yaml:"kind"`
-	Direction          string `yaml:"direction"`
-	Offset             int    `yaml:"offset"`
-	Min                int    `yaml:"min"`
-	Max                int    `yaml:"max"`
-	LenFromArg         *int   `yaml:"len_from_arg"`
-	LenFromRet         bool   `yaml:"len_from_ret"`
-	LenFromUserArg     *int   `yaml:"len_from_user_arg"`
-	ClampU32FromOffset *int   `yaml:"clamp_u32_from_offset"`
-	CountFromArg       *int   `yaml:"count_from_arg"`
-	CountFromRet       bool   `yaml:"count_from_ret"`
-	ElemSize           int    `yaml:"elem_size"`
-	Size               int    `yaml:"size"`
+	Arg                int            `yaml:"arg"`
+	Kind               string         `yaml:"kind"`
+	Direction          string         `yaml:"direction"`
+	Offset             int            `yaml:"offset"`
+	Min                int            `yaml:"min"`
+	Max                int            `yaml:"max"`
+	LenFromArg         *int           `yaml:"len_from_arg"`
+	LenFromRet         bool           `yaml:"len_from_ret"`
+	LenFromUserArg     *int           `yaml:"len_from_user_arg"`
+	LenFromArgBits     *ArgBitsLength `yaml:"len_from_arg_bits"`
+	ClampU32FromOffset *int           `yaml:"clamp_u32_from_offset"`
+	CountFromArg       *int           `yaml:"count_from_arg"`
+	CountFromRet       bool           `yaml:"count_from_ret"`
+	ElemSize           int            `yaml:"elem_size"`
+	Size               int            `yaml:"size"`
+}
+
+type ArgBitsLength struct {
+	Arg     int `yaml:"arg"`
+	Shift   int `yaml:"shift"`
+	Mask    int `yaml:"mask"`
+	ZeroLen int `yaml:"zero_len"`
 }
 
 type Config struct {
@@ -139,6 +148,9 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 	if p.LenFromUserArg != nil && *p.LenFromUserArg < 0 {
 		return CaptureRead{}, fmt.Errorf("len_from_user_arg must be non-negative")
 	}
+	if err := p.LenFromArgBits.validate(); err != nil {
+		return CaptureRead{}, err
+	}
 	if p.ClampU32FromOffset != nil && *p.ClampU32FromOffset < 0 {
 		return CaptureRead{}, fmt.Errorf("clamp_u32_from_offset must be non-negative")
 	}
@@ -146,7 +158,7 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 		return CaptureRead{}, fmt.Errorf("count_from_arg must be non-negative")
 	}
 	dynamicSources := 0
-	for _, enabled := range []bool{p.LenFromArg != nil, p.LenFromRet, p.LenFromUserArg != nil, p.CountFromArg != nil, p.CountFromRet} {
+	for _, enabled := range []bool{p.LenFromArg != nil, p.LenFromRet, p.LenFromUserArg != nil, p.LenFromArgBits != nil, p.CountFromArg != nil, p.CountFromRet} {
 		if enabled {
 			dynamicSources++
 		}
@@ -189,11 +201,31 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 		LenFromArg:         p.LenFromArg,
 		LenFromRet:         p.LenFromRet,
 		LenFromUserArg:     p.LenFromUserArg,
+		LenFromArgBits:     p.LenFromArgBits,
 		ClampU32FromOffset: p.ClampU32FromOffset,
 		CountFromArg:       p.CountFromArg,
 		CountFromRet:       p.CountFromRet,
 		ElemSize:           p.ElemSize,
 	}, nil
+}
+
+func (p *ArgBitsLength) validate() error {
+	if p == nil {
+		return nil
+	}
+	if p.Arg < 0 {
+		return fmt.Errorf("len_from_arg_bits.arg must be non-negative")
+	}
+	if p.Shift < 0 {
+		return fmt.Errorf("len_from_arg_bits.shift must be non-negative")
+	}
+	if p.Mask <= 0 {
+		return fmt.Errorf("len_from_arg_bits.mask must be positive")
+	}
+	if p.ZeroLen < 0 {
+		return fmt.Errorf("len_from_arg_bits.zero_len must be non-negative")
+	}
+	return nil
 }
 
 func payloadReadType(kind string) (string, error) {

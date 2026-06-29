@@ -242,9 +242,11 @@ rules:
   - syscalls: [ioctl]
     enter:
       ptr_arg: 2
-      reads: [{ arg: 2, size: 0, offset: 512, type: raw }] # arg with dynamic size from cmd (arg 1)
+      payloads:
+        - { arg: 2, kind: raw, direction: in, len_from_arg_bits: { arg: 1, shift: 16, mask: 16383, zero_len: 128 }, max: 512, offset: 512 } # arg with dynamic size from cmd (arg 1)
     exit:
-      reads: [{ arg: 2, size: 0, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 2, kind: raw, direction: out, len_from_arg_bits: { arg: 1, shift: 16, mask: 16383, zero_len: 128 }, max: 512, offset: 1024 }
 
   - syscalls: [mount]
     enter:

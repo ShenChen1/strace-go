@@ -132,6 +132,9 @@ func policyDynamicSizeExpr(r CaptureRead) (string, bool) {
 	if r.LenFromUserArg != nil {
 		return "addrlen", true
 	}
+	if r.LenFromArgBits != nil {
+		return "iosz", true
+	}
 	if r.CountFromArg != nil {
 		arg := *r.CountFromArg
 		return fmt.Sprintf("((e)->args[%d] > 0 ? ((e)->args[%d] * %d > %d ? %d : (e)->args[%d] * %d) : 0)", arg, arg, r.ElemSize, r.Max, r.Max, arg, r.ElemSize), true
@@ -153,14 +156,15 @@ func dynamicPreludeCode(scName string, r CaptureRead) string {
 			res += fmt.Sprintf("\t\t\t\tif (inlen > 0 && inlen < addrlen) addrlen = inlen; \\\n")
 		}
 		res += fmt.Sprintf("\t\t\t\taddrlen = (addrlen > %d) ? %d : addrlen; \\\n", r.Max, r.Max)
+	} else if r.Size == 0 && r.LenFromArgBits != nil {
+		bits := r.LenFromArgBits
+		res += fmt.Sprintf("\t\t\t\tu32 iosz = (((e)->args[%d] >> %d) & %#x); \\\n", bits.Arg, bits.Shift, bits.Mask)
+		res += fmt.Sprintf("\t\t\t\tiosz = (iosz == 0) ? %d : (iosz > %d ? %d : iosz); \\\n", bits.ZeroLen, r.Max, r.Max)
 	} else if r.Size == 0 && (scName == "fcntl" || scName == "fcntl64") && r.Arg == 2 {
 		res += fmt.Sprintf("\t\t\t\tu32 fcmd = (u32)(e)->args[1]; \\\n")
 		res += fmt.Sprintf("\t\t\t\tu32 fsz = 0; \\\n")
 		res += fmt.Sprintf("\t\t\t\tif (fcmd == 15 || fcmd == 16 || fcmd == 1035 || fcmd == 1036 || fcmd == 1037 || fcmd == 1038 || fcmd == 1039 || fcmd == 1040 || fcmd == 1043 || fcmd == 1044 || fcmd == 19 || fcmd == 20 || fcmd == 21 || fcmd == 22 || fcmd == 23 || fcmd == 24) fsz = 8; \\\n")
 		res += fmt.Sprintf("\t\t\t\telse if (fcmd == 5 || fcmd == 6 || fcmd == 7 || fcmd == 12 || fcmd == 13 || fcmd == 14 || fcmd == 36 || fcmd == 37 || fcmd == 38) fsz = 32; \\\n")
-	} else if r.Size == 0 && scName == "ioctl" && r.Arg == 2 {
-		res += fmt.Sprintf("\t\t\t\tu32 iosz = (((e)->args[1] >> 16) & 0x3fff); \\\n")
-		res += fmt.Sprintf("\t\t\t\tiosz = (iosz == 0) ? 128 : (iosz > 512 ? 512 : iosz); \\\n")
 	} else if r.Size == 0 && scName == "fsconfig" && r.Arg == 3 {
 		res += fmt.Sprintf("\t\t\t\tu32 fssz = 0; \\\n")
 		res += fmt.Sprintf("\t\t\t\tif ((e)->args[1] == 2) { \\\n")
@@ -292,10 +296,6 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 	case "epoll_ctl":
 		if r.Arg == 1 {
 			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
-		}
-	case "ioctl":
-		if r.Arg == 2 {
-			return "iosz"
 		}
 	case "fsconfig":
 		if r.Arg == 3 {

@@ -49,6 +49,15 @@ func TestCaptureSizeExprUsesPayloadUserArgLength(t *testing.T) {
 	}
 }
 
+func TestCaptureSizeExprUsesPayloadArgBitsLength(t *testing.T) {
+	read := CaptureRead{Arg: 2, LenFromArgBits: &ArgBitsLength{Arg: 1, Shift: 16, Mask: 16383, ZeroLen: 128}, Max: 512}
+	got := captureSizeExpr("ioctl", "enter", read)
+	want := "iosz"
+	if got != want {
+		t.Fatalf("captureSizeExpr() = %q, want %q", got, want)
+	}
+}
+
 func TestCaptureSizeExprUsesPayloadCountLength(t *testing.T) {
 	countArg := 2
 	read := CaptureRead{Arg: 1, CountFromArg: &countArg, ElemSize: 16, Max: 512}
@@ -69,6 +78,16 @@ func TestDynamicPreludeUsesPayloadUserArgLength(t *testing.T) {
 		"\t\t\t\tu32 inlen = *(u32 *)((e)->str_arg + 768); \\\n" +
 		"\t\t\t\tif (inlen > 0 && inlen < addrlen) addrlen = inlen; \\\n" +
 		"\t\t\t\taddrlen = (addrlen > 128) ? 128 : addrlen; \\\n"
+	if got != want {
+		t.Fatalf("dynamicPreludeCode() = %q, want %q", got, want)
+	}
+}
+
+func TestDynamicPreludeUsesPayloadArgBitsLength(t *testing.T) {
+	read := CaptureRead{LenFromArgBits: &ArgBitsLength{Arg: 1, Shift: 16, Mask: 16383, ZeroLen: 128}, Max: 512}
+	got := dynamicPreludeCode("ioctl", read)
+	want := "\t\t\t\tu32 iosz = (((e)->args[1] >> 16) & 0x3fff); \\\n" +
+		"\t\t\t\tiosz = (iosz == 0) ? 128 : (iosz > 512 ? 512 : iosz); \\\n"
 	if got != want {
 		t.Fatalf("dynamicPreludeCode() = %q, want %q", got, want)
 	}

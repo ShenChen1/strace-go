@@ -71,6 +71,10 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
     exit:
       payloads:
         - { arg: 1, kind: struct, direction: out, len_from_user_arg: 2, clamp_u32_from_offset: 768, max: 128 }
+  - syscalls: [ioctl]
+    enter:
+      payloads:
+        - { arg: 2, kind: raw, direction: in, len_from_arg_bits: { arg: 1, shift: 16, mask: 16383, zero_len: 128 }, max: 512, offset: 512 }
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write test policy: %v", err)
@@ -114,6 +118,13 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
 	}
 	if acceptRead.LenFromUserArg == nil || *acceptRead.LenFromUserArg != 2 || acceptRead.ClampU32FromOffset == nil || *acceptRead.ClampU32FromOffset != 768 || acceptRead.Max != 128 {
 		t.Fatalf("accept dynamic policy = %#v, want len_from_user_arg 2 clamp offset 768 max 128", acceptRead)
+	}
+	ioctlRead := globalConfig.Rules[6].Enter.Reads[0]
+	if ioctlRead.Arg != 2 || ioctlRead.Size != 0 || ioctlRead.Type != "raw" || ioctlRead.Offset != 512 {
+		t.Fatalf("ioctl payload normalized to %#v, want arg 2 dynamic raw read at offset 512", ioctlRead)
+	}
+	if ioctlRead.LenFromArgBits == nil || ioctlRead.LenFromArgBits.Arg != 1 || ioctlRead.LenFromArgBits.Shift != 16 || ioctlRead.LenFromArgBits.Mask != 16383 || ioctlRead.LenFromArgBits.ZeroLen != 128 || ioctlRead.Max != 512 {
+		t.Fatalf("ioctl dynamic policy = %#v, want ioctl bitfield length policy", ioctlRead)
 	}
 }
 
@@ -260,6 +271,26 @@ func TestLoadCapturePolicyRequiresUserArgForClampOffset(t *testing.T) {
 
 	if err := loadCapturePolicy(path); err == nil {
 		t.Fatalf("loadCapturePolicy() error = nil, want clamp without len_from_user_arg error")
+	}
+}
+
+func TestLoadCapturePolicyRejectsInvalidArgBitsLength(t *testing.T) {
+	oldConfig := globalConfig
+	defer func() { globalConfig = oldConfig }()
+
+	path := filepath.Join(t.TempDir(), "capture_rules.yaml")
+	data := []byte(`rules:
+  - syscalls: [ioctl]
+    enter:
+      payloads:
+        - { arg: 2, kind: raw, direction: in, len_from_arg_bits: { arg: 1, shift: 16, mask: 0 }, max: 512 }
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write test policy: %v", err)
+	}
+
+	if err := loadCapturePolicy(path); err == nil {
+		t.Fatalf("loadCapturePolicy() error = nil, want invalid len_from_arg_bits error")
 	}
 }
 
