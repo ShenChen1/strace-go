@@ -58,10 +58,11 @@ func readProcFDOffset(pid int, fd int32) (int64, bool) {
 }
 
 func (s *traceSession) bufferFileOffset(eventRaw *bpfEvent, scMeta meta.Syscall) (int64, bool) {
+	statePID := s.eventStatePID(eventRaw)
 	switch scMeta.Name {
 	case "write":
 		fd := int32(eventRaw.Args[0])
-		key := fdStateKey(s.targetPid, fd)
+		key := fdStateKey(statePID, fd)
 		if off, ok := s.fdOffsets[key]; ok {
 			return off, true
 		}
@@ -91,17 +92,18 @@ func (s *traceSession) updateFDOffsets(eventRaw *bpfEvent, scMeta meta.Syscall) 
 	if ret < 0 {
 		return
 	}
+	statePID := s.eventStatePID(eventRaw)
 
 	switch scMeta.Name {
 	case "open", "openat", "openat2", "creat":
 		fd := int32(ret)
-		key := fdStateKey(s.targetPid, fd)
+		key := fdStateKey(statePID, fd)
 		s.fdOffsets[key] = 0
 		s.rememberFDDataFile(eventRaw, fd)
 	case "dup", "dup2", "dup3":
-		oldKey := fdStateKey(s.targetPid, int32(eventRaw.Args[0]))
+		oldKey := fdStateKey(statePID, int32(eventRaw.Args[0]))
 		newFD := int32(ret)
-		newKey := fdStateKey(s.targetPid, newFD)
+		newKey := fdStateKey(statePID, newFD)
 		if off, ok := s.fdOffsets[oldKey]; ok {
 			s.fdOffsets[newKey] = off
 		}
@@ -111,19 +113,19 @@ func (s *traceSession) updateFDOffsets(eventRaw *bpfEvent, scMeta meta.Syscall) 
 			return
 		}
 		fd := int32(eventRaw.Args[0])
-		key := fdStateKey(s.targetPid, fd)
+		key := fdStateKey(statePID, fd)
 		if off, ok := s.fdOffsets[key]; ok {
 			s.fdOffsets[key] = off + ret
 		} else if off, ok := readProcFDOffset(int(eventRaw.Tid), fd); ok {
 			s.fdOffsets[key] = off
 		}
 	case "lseek":
-		s.fdOffsets[fdStateKey(s.targetPid, int32(eventRaw.Args[0]))] = ret
+		s.fdOffsets[fdStateKey(statePID, int32(eventRaw.Args[0]))] = ret
 	}
 }
 
 func (s *traceSession) rememberFDDataFile(eventRaw *bpfEvent, fd int32) {
-	key := fdStateKey(s.targetPid, fd)
+	key := fdStateKey(s.eventStatePID(eventRaw), fd)
 	target := s.fdMap[key]
 	if !isFileBackedFDTarget(target) {
 		return

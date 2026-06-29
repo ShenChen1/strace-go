@@ -59,6 +59,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		}
 	}
 	tPid := int(eventRaw.Tid)
+	statePID := s.eventStatePID(eventRaw)
 
 	if isLifecycleEvent(eventRaw) {
 		s.handleLifecycleEvent(eventRaw)
@@ -74,7 +75,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	if isGenericEnterEvent(eventRaw) {
 		s.rememberEnterEvent(eventRaw)
 		if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON &&
-			(s.opts.DebugEvents || checkShouldPrint(eventRaw, scMeta, "", false, s.targetPid, s.opts, s.fdMap)) {
+			(s.opts.DebugEvents || checkShouldPrint(eventRaw, scMeta, "", false, statePID, s.opts, s.fdMap)) {
 			s.writeJSONRawEvent(eventRaw, scMeta)
 		}
 		return
@@ -100,7 +101,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 
 	defer func() {
 		if scMeta.Name == "close" && ret == 0 {
-			key := fmt.Sprintf("%d:%d", s.targetPid, int32(eventRaw.Args[0]))
+			key := fmt.Sprintf("%d:%d", statePID, int32(eventRaw.Args[0]))
 			delete(s.fdMap, key)
 			delete(s.fdOffsets, key)
 			if f := s.fdFiles[key]; f != nil {
@@ -120,7 +121,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		return
 	}
 
-	shouldPrint := checkShouldPrint(eventRaw, scMeta, rawStrArg, isPath, s.targetPid, s.opts, s.fdMap)
+	shouldPrint := checkShouldPrint(eventRaw, scMeta, rawStrArg, isPath, statePID, s.opts, s.fdMap)
 
 	if s.opts.SummaryOnly || s.opts.SummaryAndPrint {
 		if shouldPrint {
@@ -145,7 +146,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 
 	bufferFileOffset, bufferFileOffsetOK := s.bufferFileOffset(eventRaw, scMeta)
 	ctx := &handler.Context{
-		Pid: int(eventRaw.Pid), Tid: tPid, TargetPid: s.targetPid, SysId: eventRaw.SysId,
+		Pid: int(eventRaw.Pid), Tid: tPid, TargetPid: statePID, SysId: eventRaw.SysId,
 		SysName: scMeta.Name, Args: eventRaw.Args, Ret: ret,
 		ProbeRetEnter: eventRaw.ProbeRetEnter, ProbeRetExit: eventRaw.ProbeRetExit,
 		Ptr: eventRaw.Ptr, DataLen: eventRaw.DataLen, StrArgBuf: strArgBuf, RawStrArg: rawStrArg,
@@ -194,13 +195,13 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		if isFdSys {
 			handler.Get(scMeta.Name).Handle(ctx)
 		}
-		updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, s.targetPid, s.fdMap)
+		updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, statePID, s.fdMap)
 		return
 	}
 
 	h := handler.Get(scMeta.Name)
 	res := h.Handle(ctx)
-	updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, s.targetPid, s.fdMap)
+	updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, statePID, s.fdMap)
 
 	if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON {
 		status := successfulFailedOptions{
@@ -219,12 +220,16 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 
 func (s *traceSession) handleLifecycleEvent(eventRaw *bpfEvent) {
 	task := s.applyLifecycleEvent(eventRaw)
+	if eventRaw.EventFlags == lifecycleFork {
+		s.inheritProcessState(int(eventRaw.Args[0]), int(eventRaw.Args[1]))
+	}
 	tid := int(eventRaw.Tid)
 	switch eventRaw.EventFlags {
 	case lifecycleExit, lifecycleFree:
 		delete(s.pendingExecArgs, tid)
 		delete(s.suspendedSyscalls, tid)
 		delete(s.pendingSyscalls, uint32(eventRaw.Tid))
+		s.cleanupProcessState(tid)
 	}
 	if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON {
 		s.writeJSONLifecycleEvent(eventRaw, task)
