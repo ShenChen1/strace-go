@@ -861,6 +861,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `bpf`、`clone3`、`getcwd`、`readlink/readlinkat` 已迁移为 `payloads`，对应 `len_from_arg` / `len_from_ret` 特例已删除。
 - capture policy 已支持 `min` 下界；`openat2` 的 `open_how` 拷贝长度由 `len_from_arg: 3, min: 24, max: 64` 表达，`dynamicSizeStr` 中对应特例已删除。
 - 普通 path、at-based path、stat/readlink/newfstatat 和双 path syscall 的固定字符串捕获已迁移为 `payloads`，继续保持生成输出稳定。
+- 固定长度 raw/struct/string 捕获已批量迁移为 `payloads`；旧 `reads` 目前主要剩动态长度、double pointer 和 syscall 特殊 prelude。
 - 后续继续把剩余 `reads` 规则迁移为 policy-only，并把 `dynamicSizeStr` 中的 syscall-name 特例逐步收缩成 policy 字段。
 
 ### Phase 8: 删除旧模式与收口文档

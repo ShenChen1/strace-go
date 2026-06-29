@@ -18,7 +18,8 @@ rules:
 
   - syscalls: [uname]
     exit:
-      reads: [{ arg: 0, size: 390, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 0, kind: struct, direction: out, size: 390, offset: 1024 }
 
   # Syscalls returning struct stat
   - syscalls: [stat, lstat]
@@ -27,22 +28,26 @@ rules:
       payloads:
         - { arg: 0, kind: string, direction: in, max: 512 }
     exit:
-      reads: [{ arg: 1, size: 144, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: struct, direction: out, size: 144, offset: 1024 }
 
   # FD-based fstat
   - syscalls: [fstat]
     exit:
-      reads: [{ arg: 1, size: 144, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: struct, direction: out, size: 144, offset: 1024 }
 
   # pipe/pipe2
   - syscalls: [pipe, pipe2]
     exit:
-      reads: [{ arg: 0, size: 8, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 0, kind: raw, direction: out, size: 8, offset: 1024 }
 
   # IMPACT: Capture socketpair fd array on exit so fd tracking does not read tracee memory in user space.
   - syscalls: [socketpair]
     exit:
-      reads: [{ arg: 3, size: 8, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 3, kind: raw, direction: out, size: 8, offset: 1024 }
 
   # At-based syscalls (enter)
   # IMPACT: Capture execveat along with other at-based syscalls for path resolution.
@@ -71,35 +76,36 @@ rules:
   - syscalls: [utimensat]
     enter:
       ptr_arg: 1
-      reads:
-        - { arg: 1, size: 512, offset: 0, type: string }
-        - { arg: 2, size: 32, offset: 512, type: raw }
+      payloads:
+        - { arg: 1, kind: string, direction: in, size: 512, offset: 0 }
+        - { arg: 2, kind: struct, direction: in, size: 32, offset: 512 }
 
   - syscalls: [memfd_create]
     enter:
       ptr_arg: 0
-      reads: [{ arg: 0, size: 250, offset: 0, type: raw }]
+      payloads:
+        - { arg: 0, kind: raw, direction: in, size: 250, offset: 0 }
 
   - syscalls: [utime]
     enter:
       ptr_arg: 0
-      reads:
-        - { arg: 0, size: 512, offset: 0, type: string }
-        - { arg: 1, size: 16, offset: 512, type: raw }
+      payloads:
+        - { arg: 0, kind: string, direction: in, size: 512, offset: 0 }
+        - { arg: 1, kind: struct, direction: in, size: 16, offset: 512 }
 
   - syscalls: [utimes]
     enter:
       ptr_arg: 0
-      reads:
-        - { arg: 0, size: 512, offset: 0, type: string }
-        - { arg: 1, size: 32, offset: 512, type: raw }
+      payloads:
+        - { arg: 0, kind: string, direction: in, size: 512, offset: 0 }
+        - { arg: 1, kind: struct, direction: in, size: 32, offset: 512 }
 
   - syscalls: [futimesat]
     enter:
       ptr_arg: 1
-      reads:
-        - { arg: 1, size: 512, offset: 0, type: string }
-        - { arg: 2, size: 32, offset: 512, type: raw }
+      payloads:
+        - { arg: 1, kind: string, direction: in, size: 512, offset: 0 }
+        - { arg: 2, kind: struct, direction: in, size: 32, offset: 512 }
 
   - syscalls: [newfstatat]
     enter:
@@ -107,7 +113,8 @@ rules:
       payloads:
         - { arg: 1, kind: string, direction: in, max: 512 }
     exit:
-      reads: [{ arg: 2, size: 144, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 2, kind: struct, direction: out, size: 144, offset: 1024 }
 
   - syscalls: [readlink]
     enter:
@@ -180,32 +187,36 @@ rules:
 
   - syscalls: [sendfile]
     enter:
-      reads: [{ arg: 2, size: 8, offset: 512, type: raw }]
+      payloads:
+        - { arg: 2, kind: raw, direction: in, size: 8, offset: 512 }
     exit:
-      reads: [{ arg: 2, size: 8, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 2, kind: raw, direction: out, size: 8, offset: 1024 }
 
   - syscalls: [copy_file_range]
     enter:
-      reads:
-        - { arg: 1, size: 8, offset: 512, type: raw }
-        - { arg: 3, size: 8, offset: 520, type: raw }
+      payloads:
+        - { arg: 1, kind: raw, direction: in, size: 8, offset: 512 }
+        - { arg: 3, kind: raw, direction: in, size: 8, offset: 520 }
 
   # Network
   - syscalls: [connect, bind]
     enter:
       ptr_arg: 1
-      reads: [{ arg: 1, size: 128, offset: 0, type: raw }] # sockaddr
+      payloads:
+        - { arg: 1, kind: struct, direction: in, size: 128, offset: 0 } # sockaddr
 
   - syscalls: [sendto]
     enter:
       ptr_arg: 1
-      reads: 
-        - { arg: 1, size: 512, offset: 0, type: raw }    # buf
-        - { arg: 4, size: 128, offset: 512, type: raw }  # addr
+      payloads:
+        - { arg: 1, kind: raw, direction: in, size: 512, offset: 0 }    # buf
+        - { arg: 4, kind: struct, direction: in, size: 128, offset: 512 }  # addr
 
   - syscalls: [recvfrom]
     enter:
-      reads: [{ arg: 5, size: 4, offset: 768, type: raw }] # addrlen in
+      payloads:
+        - { arg: 5, kind: raw, direction: in, size: 4, offset: 768 } # addrlen in
     exit:
       ptr_arg: 1
       reads:
@@ -215,7 +226,8 @@ rules:
 
   - syscalls: [accept, accept4, getsockname, getpeername]
     enter:
-      reads: [{ arg: 2, size: 4, offset: 768, type: raw }] # addrlen in
+      payloads:
+        - { arg: 2, kind: raw, direction: in, size: 4, offset: 768 } # addrlen in
     exit:
       ptr_arg: 1
       reads:
@@ -236,32 +248,38 @@ rules:
 
   - syscalls: [mount]
     enter:
-      reads:
-        - { arg: 0, size: 512, offset: 0, type: string }
-        - { arg: 1, size: 512, offset: 512, type: string }
-        - { arg: 2, size: 128, offset: 1024, type: string }
-        - { arg: 4, size: 512, offset: 1152, type: string } # data
+      payloads:
+        - { arg: 0, kind: string, direction: in, size: 512, offset: 0 }
+        - { arg: 1, kind: string, direction: in, size: 512, offset: 512 }
+        - { arg: 2, kind: string, direction: in, size: 128, offset: 1024 }
+        - { arg: 4, kind: string, direction: in, size: 512, offset: 1152 } # data
 
   - syscalls: [umount2]
     enter:
       ptr_arg: 0
-      reads: [{ arg: 0, size: 512, type: string }]
+      payloads:
+        - { arg: 0, kind: string, direction: in, size: 512 }
 
   - syscalls: [epoll_ctl]
     enter:
-      reads: [{ arg: 3, size: 12, offset: 0, type: raw }] # event
+      payloads:
+        - { arg: 3, kind: struct, direction: in, size: 12, offset: 0 } # event
 
   - syscalls: [rt_sigaction]
     enter:
-      reads: [{ arg: 1, size: 32, offset: 0, type: raw }] # act
+      payloads:
+        - { arg: 1, kind: struct, direction: in, size: 32, offset: 0 } # act
     exit:
-      reads: [{ arg: 2, size: 32, offset: 1024, type: raw }] # oact
+      payloads:
+        - { arg: 2, kind: struct, direction: out, size: 32, offset: 1024 } # oact
 
   - syscalls: [prctl]
     enter:
-      reads: [{ arg: 1, size: 16, offset: 0, type: string }]
+      payloads:
+        - { arg: 1, kind: string, direction: in, size: 16, offset: 0 }
     exit:
-      reads: [{ arg: 1, size: 16, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: raw, direction: out, size: 16, offset: 1024 }
 
   - syscalls: [clone3]
     enter:
@@ -274,35 +292,45 @@ rules:
 
   - syscalls: [io_cancel]
     enter:
-      reads: [{ arg: 1, size: 64, offset: 0, type: raw }]
+      payloads:
+        - { arg: 1, kind: struct, direction: in, size: 64, offset: 0 }
 
   - syscalls: [adjtimex]
     enter:
-      reads: [{ arg: 0, size: 208, offset: 0, type: raw }]
+      payloads:
+        - { arg: 0, kind: struct, direction: in, size: 208, offset: 0 }
     exit:
-      reads: [{ arg: 0, size: 208, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 0, kind: struct, direction: out, size: 208, offset: 1024 }
 
   - syscalls: [clock_adjtime]
     enter:
-      reads: [{ arg: 1, size: 208, offset: 0, type: raw }]
+      payloads:
+        - { arg: 1, kind: struct, direction: in, size: 208, offset: 0 }
     exit:
-      reads: [{ arg: 1, size: 208, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: struct, direction: out, size: 208, offset: 1024 }
 
   - syscalls: [cachestat]
     enter:
-      reads: [{ arg: 1, size: 16, offset: 512, type: struct }]
+      payloads:
+        - { arg: 1, kind: struct, direction: in, size: 16, offset: 512 }
     exit:
-      reads: [{ arg: 2, size: 40, offset: 1024, type: struct }]
+      payloads:
+        - { arg: 2, kind: struct, direction: out, size: 40, offset: 1024 }
 
   - syscalls: [capget]
     enter:
-      reads: [{ arg: 0, size: 8, offset: 0, type: raw }]
+      payloads:
+        - { arg: 0, kind: struct, direction: in, size: 8, offset: 0 }
     exit:
-      reads: [{ arg: 1, size: 24, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: raw, direction: out, size: 24, offset: 1024 }
 
   - syscalls: [capset]
     enter:
-      reads: [{ arg: 0, size: 8, offset: 0, type: raw }]
+      payloads:
+        - { arg: 0, kind: struct, direction: in, size: 8, offset: 0 }
 
   - syscalls: [io_getevents, io_pgetevents]
     enter:
@@ -315,17 +343,21 @@ rules:
 
   - syscalls: [clock_nanosleep]
     enter:
-      reads: [{ arg: 2, size: 16, offset: 0, type: raw }]
+      payloads:
+        - { arg: 2, kind: struct, direction: in, size: 16, offset: 0 }
     exit:
-      reads: [{ arg: 3, size: 16, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 3, kind: struct, direction: out, size: 16, offset: 1024 }
 
   - syscalls: [futex]
     enter:
-      reads: [{ arg: 3, size: 16, offset: 0, type: raw }]
+      payloads:
+        - { arg: 3, kind: struct, direction: in, size: 16, offset: 0 }
 
   - syscalls: [futex_wait]
     enter:
-      reads: [{ arg: 4, size: 16, offset: 0, type: raw }]
+      payloads:
+        - { arg: 4, kind: struct, direction: in, size: 16, offset: 0 }
 
   - syscalls: [futex_waitv]
     enter:
@@ -335,37 +367,42 @@ rules:
 
   - syscalls: [futex_requeue]
     enter:
-      reads: [{ arg: 0, size: 48, offset: 0, type: raw }]
+      payloads:
+        - { arg: 0, kind: struct, direction: in, size: 48, offset: 0 }
 
   - syscalls: [nanosleep]
     enter:
-      reads: [{ arg: 0, size: 16, offset: 0, type: raw }]
+      payloads:
+        - { arg: 0, kind: struct, direction: in, size: 16, offset: 0 }
     exit:
-      reads: [{ arg: 1, size: 16, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: struct, direction: out, size: 16, offset: 1024 }
 
 
   - syscalls: [clock_gettime, clock_getres]
     exit:
       ptr_arg: 1
-      reads: [{ arg: 1, size: 16, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: struct, direction: out, size: 16, offset: 1024 }
 
   - syscalls: [clock_settime]
     enter:
-      reads: [{ arg: 1, size: 16, offset: 0, type: raw }]
+      payloads:
+        - { arg: 1, kind: struct, direction: in, size: 16, offset: 0 }
 
   - syscalls: [gettimeofday]
     exit:
       ptr_arg: 0
-      reads:
-        - { arg: 0, size: 16, offset: 1024, type: raw }
-        - { arg: 1, size: 8, offset: 1040, type: raw }
+      payloads:
+        - { arg: 0, kind: struct, direction: out, size: 16, offset: 1024 }
+        - { arg: 1, kind: struct, direction: out, size: 8, offset: 1040 }
 
   - syscalls: [settimeofday]
     enter:
       ptr_arg: 0
-      reads:
-        - { arg: 0, size: 16, offset: 0, type: raw }
-        - { arg: 1, size: 8, offset: 16, type: raw }
+      payloads:
+        - { arg: 0, kind: struct, direction: in, size: 16, offset: 0 }
+        - { arg: 1, kind: struct, direction: in, size: 8, offset: 16 }
 
   - syscalls: [poll]
     enter:
@@ -386,21 +423,22 @@ rules:
 
   - syscalls: [select, _newselect]
     enter:
-      reads:
-        - { arg: 1, size: 128, offset: 0, type: raw } # readfds
-        - { arg: 2, size: 128, offset: 128, type: raw } # writefds
-        - { arg: 3, size: 128, offset: 256, type: raw } # exceptfds
-        - { arg: 4, size: 16, offset: 384, type: raw } # timeout
+      payloads:
+        - { arg: 1, kind: raw, direction: in, size: 128, offset: 0 } # readfds
+        - { arg: 2, kind: raw, direction: in, size: 128, offset: 128 } # writefds
+        - { arg: 3, kind: raw, direction: in, size: 128, offset: 256 } # exceptfds
+        - { arg: 4, kind: struct, direction: in, size: 16, offset: 384 } # timeout
     exit:
-      reads:
-        - { arg: 1, size: 128, offset: 1024, type: raw } # readfds out
-        - { arg: 2, size: 128, offset: 1152, type: raw } # writefds out
-        - { arg: 3, size: 128, offset: 1280, type: raw } # exceptfds out
-        - { arg: 4, size: 16, offset: 1408, type: raw } # timeout out (left)
+      payloads:
+        - { arg: 1, kind: raw, direction: out, size: 128, offset: 1024 } # readfds out
+        - { arg: 2, kind: raw, direction: out, size: 128, offset: 1152 } # writefds out
+        - { arg: 3, kind: raw, direction: out, size: 128, offset: 1280 } # exceptfds out
+        - { arg: 4, kind: struct, direction: out, size: 16, offset: 1408 } # timeout out (left)
 
   - syscalls: [epoll_ctl]
     enter:
-      reads: [{ arg: 3, size: 12, offset: 0, type: raw }]
+      payloads:
+        - { arg: 3, kind: struct, direction: in, size: 12, offset: 0 }
 
   - syscalls: [epoll_wait, epoll_pwait]
     exit:
@@ -418,9 +456,11 @@ rules:
 
   - syscalls: [rt_sigprocmask]
     enter:
-      reads: [{ arg: 1, size: 8, offset: 0, type: raw }]
+      payloads:
+        - { arg: 1, kind: raw, direction: in, size: 8, offset: 0 }
     exit:
-      reads: [{ arg: 2, size: 8, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 2, kind: raw, direction: out, size: 8, offset: 1024 }
 
   # Keys
   - syscalls: [add_key]
@@ -432,53 +472,63 @@ rules:
 
   - syscalls: [request_key]
     enter:
-      reads:
-        - { arg: 0, size: 64, offset: 0, type: string }
-        - { arg: 1, size: 128, offset: 64, type: string }
-        - { arg: 2, size: 256, offset: 256, type: string }
+      payloads:
+        - { arg: 0, kind: string, direction: in, size: 64, offset: 0 }
+        - { arg: 1, kind: string, direction: in, size: 128, offset: 64 }
+        - { arg: 2, kind: string, direction: in, size: 256, offset: 256 }
 
   # AIO
   - syscalls: [io_setup]
     exit:
       ptr_arg: 1
-      reads: [{ arg: 1, size: 8, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: raw, direction: out, size: 8, offset: 1024 }
 
   - syscalls: [arch_prctl]
     enter: { ptr_arg: 1 }
     exit:
-      reads: [{ arg: 1, size: 8, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: raw, direction: out, size: 8, offset: 1024 }
 
   # getrlimit
   - syscalls: [getrlimit]
     exit:
-      reads: [{ arg: 1, size: 16, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: struct, direction: out, size: 16, offset: 1024 }
 
   # setrlimit
   - syscalls: [setrlimit]
     enter:
-      reads: [{ arg: 1, size: 16, offset: 0, type: raw }]
+      payloads:
+        - { arg: 1, kind: struct, direction: in, size: 16, offset: 0 }
 
   # prlimit64
   - syscalls: [prlimit64]
     enter:
-      reads: [{ arg: 2, size: 16, offset: 0, type: raw }]
+      payloads:
+        - { arg: 2, kind: struct, direction: in, size: 16, offset: 0 }
     exit:
-      reads: [{ arg: 3, size: 16, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 3, kind: struct, direction: out, size: 16, offset: 1024 }
 
   - syscalls: [sysinfo]
     exit:
-      reads: [{ arg: 0, size: 112, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 0, kind: struct, direction: out, size: 112, offset: 1024 }
 
   - syscalls: [statfs]
     enter:
       ptr_arg: 0
-      reads: [{ arg: 0, size: 512, type: string }]
+      payloads:
+        - { arg: 0, kind: string, direction: in, size: 512 }
     exit:
-      reads: [{ arg: 1, size: 120, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: struct, direction: out, size: 120, offset: 1024 }
 
   - syscalls: [fstatfs]
     exit:
-      reads: [{ arg: 1, size: 120, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: struct, direction: out, size: 120, offset: 1024 }
 
   # IMPACT: Capture fcntl/fcntl64 lock structs (flock) on enter/exit.
   - syscalls: [fcntl, fcntl64]
@@ -489,7 +539,8 @@ rules:
 
   - syscalls: [rt_sigsuspend]
     enter:
-      reads: [{ arg: 0, size: 8, offset: 0, type: raw }]
+      payloads:
+        - { arg: 0, kind: raw, direction: in, size: 8, offset: 0 }
 
 
 
@@ -559,38 +610,38 @@ rules:
   # Missing capture rules for failing tests
   - syscalls: [get_robust_list]
     exit:
-      reads:
-        - { arg: 1, size: 8, offset: 1024, type: raw }
-        - { arg: 2, size: 8, offset: 1040, type: raw }
+      payloads:
+        - { arg: 1, kind: raw, direction: out, size: 8, offset: 1024 }
+        - { arg: 2, kind: raw, direction: out, size: 8, offset: 1040 }
 
   - syscalls: [waitid]
     exit:
-      reads:
-        - { arg: 2, size: 128, offset: 1024, type: raw }
-        - { arg: 4, size: 144, offset: 1160, type: raw }
+      payloads:
+        - { arg: 2, kind: struct, direction: out, size: 128, offset: 1024 }
+        - { arg: 4, kind: struct, direction: out, size: 144, offset: 1160 }
 
   - syscalls: [setitimer]
     enter:
-      reads:
-        - { arg: 1, size: 32, type: raw }
+      payloads:
+        - { arg: 1, kind: struct, direction: in, size: 32 }
     exit:
-      reads:
-        - { arg: 2, size: 32, offset: 1024, type: raw }
+      payloads:
+        - { arg: 2, kind: struct, direction: out, size: 32, offset: 1024 }
 
   - syscalls: [getitimer]
     exit:
-      reads:
-        - { arg: 1, size: 32, offset: 1024, type: raw }
+      payloads:
+        - { arg: 1, kind: struct, direction: out, size: 32, offset: 1024 }
 
   - syscalls: [gettimeofday]
     exit:
-      reads:
-        - { arg: 0, size: 16, offset: 1024, type: raw }
-        - { arg: 1, size: 8, offset: 1048, type: raw }
+      payloads:
+        - { arg: 0, kind: struct, direction: out, size: 16, offset: 1024 }
+        - { arg: 1, kind: struct, direction: out, size: 8, offset: 1048 }
 
 
   - syscalls: [settimeofday]
     enter:
-      reads:
-        - { arg: 0, size: 16, type: raw }
-        - { arg: 1, size: 8, offset: 24, type: raw }
+      payloads:
+        - { arg: 0, kind: struct, direction: in, size: 16 }
+        - { arg: 1, kind: struct, direction: in, size: 8, offset: 24 }
