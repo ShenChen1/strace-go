@@ -58,6 +58,15 @@ func TestCaptureSizeExprUsesPayloadArgBitsLength(t *testing.T) {
 	}
 }
 
+func TestCaptureSizeExprUsesPayloadArgCasesLength(t *testing.T) {
+	read := CaptureRead{Arg: 2, LenFromArgCases: &ArgCasesLength{Arg: 1, Cases: []ArgLengthCase{{Size: 8, Values: []int{15}}}}, Max: 32}
+	got := captureSizeExpr("fcntl", "enter", read)
+	want := "fsz"
+	if got != want {
+		t.Fatalf("captureSizeExpr() = %q, want %q", got, want)
+	}
+}
+
 func TestCaptureSizeExprUsesPayloadCountLength(t *testing.T) {
 	countArg := 2
 	read := CaptureRead{Arg: 1, CountFromArg: &countArg, ElemSize: 16, Max: 512}
@@ -88,6 +97,24 @@ func TestDynamicPreludeUsesPayloadArgBitsLength(t *testing.T) {
 	got := dynamicPreludeCode("ioctl", read)
 	want := "\t\t\t\tu32 iosz = (((e)->args[1] >> 16) & 0x3fff); \\\n" +
 		"\t\t\t\tiosz = (iosz == 0) ? 128 : (iosz > 512 ? 512 : iosz); \\\n"
+	if got != want {
+		t.Fatalf("dynamicPreludeCode() = %q, want %q", got, want)
+	}
+}
+
+func TestDynamicPreludeUsesPayloadArgCasesLength(t *testing.T) {
+	read := CaptureRead{LenFromArgCases: &ArgCasesLength{
+		Arg: 1,
+		Cases: []ArgLengthCase{
+			{Size: 8, Values: []int{15, 16}},
+			{Size: 32, Values: []int{5, 6}},
+		},
+	}}
+	got := dynamicPreludeCode("fcntl", read)
+	want := "\t\t\t\tu32 fcmd = (u32)(e)->args[1]; \\\n" +
+		"\t\t\t\tu32 fsz = 0; \\\n" +
+		"\t\t\t\tif (fcmd == 15 || fcmd == 16) fsz = 8; \\\n" +
+		"\t\t\t\telse if (fcmd == 5 || fcmd == 6) fsz = 32; \\\n"
 	if got != want {
 		t.Fatalf("dynamicPreludeCode() = %q, want %q", got, want)
 	}

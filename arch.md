@@ -865,6 +865,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - socket 输出地址捕获已通过 `len_from_user_arg` 和 `clamp_u32_from_offset` 描述 addrlen 指针读取与 enter 输入长度 clamp；`dynamicSocketAddrSize` 特例已删除。
 - `ioctl` 的 `_IOC_SIZE` 捕获长度已通过 `len_from_arg_bits` 描述 bitfield 提取、0 长度默认值和最大截断；`dynamicSizeStr` 中对应特例已删除。
 - `io_submit` 与 `io_getevents/io_pgetevents` 已迁移为 `payloads`；AIO 数组长度分别由 `count_from_arg` 和 `count_from_ret` 描述，`dynamicSizeStr` 不再保留默认 enter/exit fallback。
+- `fcntl/fcntl64` 已通过 `len_from_arg_cases` 描述命令值到结构长度的映射，生成器不再按 syscall 名称硬编码 `F_GETLK/F_SETLK/F_OFD_*` 尺寸表。
 - 后续继续把剩余 `reads` 规则迁移为 policy-only，并把 `dynamicSizeStr` 中的 syscall-name 特例逐步收缩成 policy 字段。
 
 ### Phase 8: 删除旧模式与收口文档

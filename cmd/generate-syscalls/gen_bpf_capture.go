@@ -135,6 +135,9 @@ func policyDynamicSizeExpr(r CaptureRead) (string, bool) {
 	if r.LenFromArgBits != nil {
 		return "iosz", true
 	}
+	if r.LenFromArgCases != nil {
+		return "fsz", true
+	}
 	if r.CountFromArg != nil {
 		arg := *r.CountFromArg
 		return fmt.Sprintf("((e)->args[%d] > 0 ? ((e)->args[%d] * %d > %d ? %d : (e)->args[%d] * %d) : 0)", arg, arg, r.ElemSize, r.Max, r.Max, arg, r.ElemSize), true
@@ -160,11 +163,8 @@ func dynamicPreludeCode(scName string, r CaptureRead) string {
 		bits := r.LenFromArgBits
 		res += fmt.Sprintf("\t\t\t\tu32 iosz = (((e)->args[%d] >> %d) & %#x); \\\n", bits.Arg, bits.Shift, bits.Mask)
 		res += fmt.Sprintf("\t\t\t\tiosz = (iosz == 0) ? %d : (iosz > %d ? %d : iosz); \\\n", bits.ZeroLen, r.Max, r.Max)
-	} else if r.Size == 0 && (scName == "fcntl" || scName == "fcntl64") && r.Arg == 2 {
-		res += fmt.Sprintf("\t\t\t\tu32 fcmd = (u32)(e)->args[1]; \\\n")
-		res += fmt.Sprintf("\t\t\t\tu32 fsz = 0; \\\n")
-		res += fmt.Sprintf("\t\t\t\tif (fcmd == 15 || fcmd == 16 || fcmd == 1035 || fcmd == 1036 || fcmd == 1037 || fcmd == 1038 || fcmd == 1039 || fcmd == 1040 || fcmd == 1043 || fcmd == 1044 || fcmd == 19 || fcmd == 20 || fcmd == 21 || fcmd == 22 || fcmd == 23 || fcmd == 24) fsz = 8; \\\n")
-		res += fmt.Sprintf("\t\t\t\telse if (fcmd == 5 || fcmd == 6 || fcmd == 7 || fcmd == 12 || fcmd == 13 || fcmd == 14 || fcmd == 36 || fcmd == 37 || fcmd == 38) fsz = 32; \\\n")
+	} else if r.Size == 0 && r.LenFromArgCases != nil {
+		res += argCasesPreludeCode(r.LenFromArgCases)
 	} else if r.Size == 0 && scName == "fsconfig" && r.Arg == 3 {
 		res += fmt.Sprintf("\t\t\t\tu32 fssz = 0; \\\n")
 		res += fmt.Sprintf("\t\t\t\tif ((e)->args[1] == 2) { \\\n")
@@ -177,6 +177,30 @@ func dynamicPreludeCode(scName string, r CaptureRead) string {
 		res += fmt.Sprintf("\t\t\t\tif (futex_waitv_nr > 128) futex_waitv_nr = 128; \\\n")
 		res += fmt.Sprintf("\t\t\t\tu32 futex_waitv_sz = futex_waitv_nr * 24; \\\n")
 		res += fmt.Sprintf("\t\t\t\tfutex_waitv_sz &= 0xfff; \\\n")
+	}
+	return res
+}
+
+func argCasesPreludeCode(cases *ArgCasesLength) string {
+	res := fmt.Sprintf("\t\t\t\tu32 fcmd = (u32)(e)->args[%d]; \\\n", cases.Arg)
+	res += fmt.Sprintf("\t\t\t\tu32 fsz = 0; \\\n")
+	for i, c := range cases.Cases {
+		prefix := "if"
+		if i > 0 {
+			prefix = "else if"
+		}
+		res += fmt.Sprintf("\t\t\t\t%s (%s) fsz = %d; \\\n", prefix, argCaseCondition("fcmd", c.Values), c.Size)
+	}
+	return res
+}
+
+func argCaseCondition(name string, values []int) string {
+	res := ""
+	for i, value := range values {
+		if i > 0 {
+			res += " || "
+		}
+		res += fmt.Sprintf("%s == %d", name, value)
 	}
 	return res
 }
@@ -289,10 +313,6 @@ func ioSubmitExtraCode(scName string, suffix string, r CaptureRead) string {
 
 func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 	switch scName {
-	case "fcntl", "fcntl64":
-		if r.Arg == 2 {
-			return "fsz"
-		}
 	case "epoll_ctl":
 		if r.Arg == 1 {
 			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"

@@ -83,6 +83,10 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
     enter:
       payloads:
         - { arg: 5, kind: double_ptr, direction: in, size: 8, offset: 544 }
+  - syscalls: [fcntl]
+    enter:
+      payloads:
+        - { arg: 2, kind: raw, direction: in, len_from_arg_cases: { arg: 1, cases: [{ size: 8, values: [15, 16] }, { size: 32, values: [5, 6] }] }, max: 32 }
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write test policy: %v", err)
@@ -144,6 +148,16 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
 	ioGeteventsRead := globalConfig.Rules[8].Enter.Reads[0]
 	if ioGeteventsRead.Arg != 5 || ioGeteventsRead.Size != 8 || ioGeteventsRead.Offset != 544 || ioGeteventsRead.Type != "double_ptr" {
 		t.Fatalf("io_getevents payload normalized to %#v, want fixed double_ptr read", ioGeteventsRead)
+	}
+	fcntlRead := globalConfig.Rules[9].Enter.Reads[0]
+	if fcntlRead.Arg != 2 || fcntlRead.Size != 0 || fcntlRead.Type != "raw" {
+		t.Fatalf("fcntl payload normalized to %#v, want arg 2 dynamic raw read", fcntlRead)
+	}
+	if fcntlRead.LenFromArgCases == nil || fcntlRead.LenFromArgCases.Arg != 1 || fcntlRead.Max != 32 {
+		t.Fatalf("fcntl dynamic policy = %#v, want len_from_arg_cases arg 1 max 32", fcntlRead)
+	}
+	if got := len(fcntlRead.LenFromArgCases.Cases); got != 2 {
+		t.Fatalf("fcntl cases = %d, want 2", got)
 	}
 }
 
@@ -310,6 +324,26 @@ func TestLoadCapturePolicyRejectsInvalidArgBitsLength(t *testing.T) {
 
 	if err := loadCapturePolicy(path); err == nil {
 		t.Fatalf("loadCapturePolicy() error = nil, want invalid len_from_arg_bits error")
+	}
+}
+
+func TestLoadCapturePolicyRejectsInvalidArgCasesLength(t *testing.T) {
+	oldConfig := globalConfig
+	defer func() { globalConfig = oldConfig }()
+
+	path := filepath.Join(t.TempDir(), "capture_rules.yaml")
+	data := []byte(`rules:
+  - syscalls: [fcntl]
+    enter:
+      payloads:
+        - { arg: 2, kind: raw, direction: in, len_from_arg_cases: { arg: 1, cases: [{ size: 0, values: [15] }] }, max: 32 }
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write test policy: %v", err)
+	}
+
+	if err := loadCapturePolicy(path); err == nil {
+		t.Fatalf("loadCapturePolicy() error = nil, want invalid len_from_arg_cases error")
 	}
 }
 
