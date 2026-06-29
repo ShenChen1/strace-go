@@ -293,14 +293,6 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 		if r.Arg == 1 {
 			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
 		}
-	case "bpf":
-		if r.Arg == 1 {
-			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
-		}
-	case "clone3":
-		if r.Arg == 0 {
-			return "((e)->args[1] > 0 ? ((e)->args[1] > 256 ? 256 : (e)->args[1]) : 0)"
-		}
 	case "ioctl":
 		if r.Arg == 2 {
 			return "iosz"
@@ -313,35 +305,10 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 		if r.Arg == 0 {
 			return "futex_waitv_sz"
 		}
-	case "read", "pread64":
-		if r.Arg == 1 {
-			return "((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0)"
-		}
-	case "write", "pwrite64":
-		if r.Arg == 1 {
-			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
-		}
-	case "readv", "writev", "preadv", "pwritev", "preadv2", "pwritev2", "vmsplice":
-		if r.Arg == 1 {
-			return iovecDynamicSize(2)
-		}
-	case "process_vm_readv", "process_vm_writev":
-		if r.Arg == 1 {
-			return iovecDynamicSize(2)
-		}
-		if r.Arg == 3 {
-			return iovecDynamicSize(4)
-		}
-	case "process_madvise":
-		if r.Arg == 1 {
-			return iovecDynamicSize(2)
-		}
 	case "openat2":
 		if r.Arg == 2 {
 			return "((e)->args[3] >= 24 ? ((e)->args[3] > 64 ? 64 : (e)->args[3]) : 0)"
 		}
-	case "readlink", "readlinkat", "getcwd":
-		return "((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0)"
 	}
 
 	if suffix == "exit" {
@@ -358,8 +325,4 @@ func dynamicSocketAddrSize(scName string, r CaptureRead) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func iovecDynamicSize(countArg int) string {
-	return fmt.Sprintf("((e)->args[%d] > 0 ? ((e)->args[%d] * 16 > 512 ? 512 : (e)->args[%d] * 16) : 0)", countArg, countArg, countArg)
 }

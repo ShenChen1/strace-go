@@ -12,7 +12,8 @@ rules:
 
   - syscalls: [getcwd]
     exit:
-      reads: [{ arg: 0, size: 0, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 0, kind: bytes, direction: out, len_from_ret: true, max: 512, offset: 1024 }
 
   - syscalls: [uname]
     exit:
@@ -109,14 +110,16 @@ rules:
       ptr_arg: 0
       reads: [{ arg: 0, size: 512, type: string }]
     exit:
-      reads: [{ arg: 1, size: 0, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: bytes, direction: out, len_from_ret: true, max: 512, offset: 1024 }
 
   - syscalls: [readlinkat]
     enter:
       ptr_arg: 1
       reads: [{ arg: 1, size: 512, type: string }]
     exit:
-      reads: [{ arg: 2, size: 0, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 2, kind: bytes, direction: out, len_from_ret: true, max: 512, offset: 1024 }
 
   # Dual path syscalls
   - syscalls: [rename, link, symlink]
@@ -215,7 +218,8 @@ rules:
 
   - syscalls: [bpf]
     enter:
-      reads: [{ arg: 1, size: 0, offset: 0, type: raw }] # attr
+      payloads:
+        - { arg: 1, kind: bytes, direction: in, len_from_arg: 2, max: 512, offset: 0 } # attr
 
   - syscalls: [ioctl]
     enter:
@@ -255,7 +259,8 @@ rules:
 
   - syscalls: [clone3]
     enter:
-      reads: [{ arg: 0, size: 0, offset: 0, type: raw }] # uargs with dynamic size arg 1
+      payloads:
+        - { arg: 0, kind: struct, direction: in, len_from_arg: 1, max: 256, offset: 0 } # uargs
 
   - syscalls: [io_submit]
     enter:
