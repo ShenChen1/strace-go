@@ -821,7 +821,8 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - semantic suite 已断言 fixture 中存在 `fork`、`exec`、`exit/free` lifecycle event。
 - Go 侧已新增 per-session `TaskState`，由 syscall 事件和 lifecycle event 维护 `tid/tgid/parent/alive/execed`；JSON lifecycle 输出携带 task 状态快照，semantic suite 断言 fork child、execed、exit/free dead 状态。
 - fork lifecycle event 会把父进程的 fd/cwd、fd offset 和可 seek 数据文件状态继承到子进程；exit/free 会清理对应 pid 的 fd/cwd、offset 和数据文件状态。
-- exec filename 和非 leader execve 的最终文本策略仍待后续 Phase 6 小切片迁移。
+- exec lifecycle event 会从 `sched_process_exec` 的 tracepoint data 中拷贝 filename snapshot，JSON lifecycle 输出 `filename` 字段，semantic suite 断言 child exec filename。
+- 非 leader execve 的最终文本策略仍待后续 Phase 6 小切片迁移。
 
 ### Phase 7: BTF 生成器重构
 

@@ -324,7 +324,7 @@ static __always_inline int should_trace_syscall(u32 sys_id, u32 *cfg)
     return enabled ? 1 : 0;
 }
 
-static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64 arg0, u64 arg1)
+static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64 arg0, u64 arg1, const void *snapshot_str)
 {
     u32 key = 0;
     u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
@@ -357,8 +357,18 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
     e->ptr = 0;
     e->data_len = 0;
     e->stack_id = -1;
+    e->str_arg[0] = 0;
 
-    u32 out_size = __builtin_offsetof(struct bpf_event, str_arg);
+    if (snapshot_str) {
+        long n = bpf_probe_read_kernel_str(e->str_arg, 4096, snapshot_str);
+        if (n > 0) {
+            e->data_len = n;
+        }
+        e->probe_ret_enter = n;
+    }
+
+    u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
+    if (out_size > sizeof(*e)) out_size = sizeof(*e);
     bpf_ringbuf_output(&events, e, out_size, 0);
 }
 
@@ -566,7 +576,7 @@ int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {
         u32 val = 1;
         bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY);
     }
-    emit_lifecycle_event(LIFECYCLE_FORK, parent_pid, parent_pid, parent_pid, child_pid);
+    emit_lifecycle_event(LIFECYCLE_FORK, parent_pid, parent_pid, parent_pid, child_pid, 0);
     return 0;
 }
 
@@ -576,7 +586,12 @@ int trace_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx) {
     u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
     if (!filter_pid) return 0;
 
-    emit_lifecycle_event(LIFECYCLE_EXEC, pid, pid, ctx->old_pid, pid);
+    u32 filename_offset = ctx->__data_loc_filename & 0xffff;
+    void *filename = 0;
+    if (filename_offset > 0) {
+        filename = (void *)((char *)ctx + filename_offset);
+    }
+    emit_lifecycle_event(LIFECYCLE_EXEC, pid, pid, ctx->old_pid, pid, filename);
     return 0;
 }
 
@@ -589,7 +604,7 @@ int trace_sched_process_exit(struct trace_event_raw_sched_process_template *ctx)
     bpf_map_delete_elem(&pending_syscalls, &pid);
     bpf_map_delete_elem(&pending_exec_map, &pid);
     bpf_map_delete_elem(&main_exited_map, &pid);
-    emit_lifecycle_event(LIFECYCLE_EXIT, pid, pid, pid, 0);
+    emit_lifecycle_event(LIFECYCLE_EXIT, pid, pid, pid, 0, 0);
     return 0;
 }
 
@@ -603,6 +618,6 @@ int trace_sched_process_free(struct trace_event_raw_sched_process_template *ctx)
     bpf_map_delete_elem(&pending_exec_map, &pid);
     bpf_map_delete_elem(&main_exited_map, &pid);
     bpf_map_delete_elem(&filter_map, &pid);
-    emit_lifecycle_event(LIFECYCLE_FREE, pid, pid, pid, 0);
+    emit_lifecycle_event(LIFECYCLE_FREE, pid, pid, pid, 0, 0);
     return 0;
 }

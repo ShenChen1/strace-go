@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 
 	"strace-go/pkg/handler"
@@ -58,6 +59,7 @@ type jsonLifecycleEvent struct {
 	ParentTID    uint32 `json:"parent_tid,omitempty"`
 	Alive        bool   `json:"alive"`
 	Execed       bool   `json:"execed,omitempty"`
+	Filename     string `json:"filename,omitempty"`
 	Arg0         uint64 `json:"arg0,omitempty"`
 	Arg1         uint64 `json:"arg1,omitempty"`
 	TimeNS       uint64 `json:"time_ns"`
@@ -111,6 +113,9 @@ func (s *traceSession) writeJSONLifecycleEvent(eventRaw *bpfEvent, task *TaskSta
 		Arg1:         eventRaw.Args[1],
 		TimeNS:       eventRaw.EnterTime,
 	}
+	if eventRaw.EventFlags == lifecycleExec {
+		ev.Filename = lifecycleSnapshotString(eventRaw)
+	}
 	if task != nil {
 		ev.TaskTID = task.TID
 		ev.TaskTGID = task.TGID
@@ -119,6 +124,21 @@ func (s *traceSession) writeJSONLifecycleEvent(eventRaw *bpfEvent, task *TaskSta
 		ev.Execed = task.Execed
 	}
 	_ = json.NewEncoder(s.outWriter).Encode(ev)
+}
+
+func lifecycleSnapshotString(eventRaw *bpfEvent) string {
+	if eventRaw.DataLen == 0 {
+		return ""
+	}
+	n := int(eventRaw.DataLen)
+	if n > len(eventRaw.StrArg) {
+		n = len(eventRaw.StrArg)
+	}
+	data := eventRaw.StrArg[:n]
+	if idx := bytes.IndexByte(data, 0); idx >= 0 {
+		data = data[:idx]
+	}
+	return string(data)
 }
 
 func (s *traceSession) writeJSONEvent(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, ctx *handler.Context, pendingEnter *pendingSyscallState) {

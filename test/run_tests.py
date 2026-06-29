@@ -271,6 +271,8 @@ def run_ebpf_semantic(args):
             failures, "fork lifecycle task state missing child/parent/alive fields")
     require(any(ev.get("action") == "exec" and ev.get("execed") and ev.get("alive") for ev in lifecycle_events),
             failures, "exec lifecycle task state missing execed/alive fields")
+    require(any(ev.get("action") == "exec" and os.path.basename(ev.get("filename") or "") == "true" for ev in lifecycle_events),
+            failures, "exec lifecycle filename snapshot missing")
     require(any(ev.get("action") in ("exit", "free") and ev.get("alive") is False for ev in lifecycle_events),
             failures, "exit/free lifecycle task state did not mark task dead")
     filter_res = run_strace_go_json(["-e", "trace=write", fixture], debug=True)
