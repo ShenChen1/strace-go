@@ -149,7 +149,8 @@ rules:
   - syscalls: [write, pwrite64]
     enter:
       ptr_arg: 1
-      reads: [{ arg: 1, size: 0, offset: 0, type: raw }]
+      payloads:
+        - { arg: 1, kind: bytes, direction: in, len_from_arg: 2, max: 512, offset: 0 }
 
   - syscalls: [readv, writev, preadv, pwritev, preadv2, pwritev2, vmsplice]
     enter:

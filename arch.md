@@ -853,7 +853,8 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `cmd/generate-syscalls` 已开始按职责拆分：`capture_policy.go` 负责加载 capture policy，`gen_bpf_capture.go` 负责写出 BPF capture header，`gen_go_meta.go` 负责写出 Go syscall table。
 - 入口 `main.go` 收敛为编排加载 policy、加载 syscall metadata、写出 BPF/Go 生成物；本阶段保持生成输出稳定，不改变 `syscall_capture.h` 或 `syscall_table.go` 内容。
 - BPF capture 查找、`generateBPFCode`、per-read 代码生成和动态 size 逻辑已迁入 `gen_bpf_capture.go`；`generateBPFCode` 收敛为小编排函数，具体读逻辑拆到 helper。
-- capture policy 仍沿用旧 YAML schema；后续继续把 `capture_rules.yaml` 改成 policy-only，并收缩 signature override。
+- capture policy loader 已接受新的 `payloads` policy schema，并在加载时规范化成当前 BPF 生成器使用的 `reads` 结构；混用旧 `reads` 和新 `payloads` 会直接报错。
+- `write/pwrite64` 已迁移为 `payloads: [{kind: bytes, direction: in, len_from_arg: 2, max: 512}]`，生成输出保持稳定；后续继续把剩余 `reads` 规则迁移为 policy-only，并收缩 signature override。
 
 ### Phase 8: 删除旧模式与收口文档
 
