@@ -48,3 +48,13 @@ func TestCaptureSizeExprUsesPayloadRetLength(t *testing.T) {
 		t.Fatalf("captureSizeExpr() = %q, want %q", got, want)
 	}
 }
+
+func TestCaptureSizeExprUsesPayloadCountLength(t *testing.T) {
+	countArg := 2
+	read := CaptureRead{Arg: 1, CountFromArg: &countArg, ElemSize: 16, Max: 512}
+	got := captureSizeExpr("readv", "enter", read)
+	want := "((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0)"
+	if got != want {
+		t.Fatalf("captureSizeExpr() = %q, want %q", got, want)
+	}
+}

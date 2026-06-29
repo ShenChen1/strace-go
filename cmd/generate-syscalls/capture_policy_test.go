@@ -55,6 +55,10 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
     enter:
       payloads:
         - { arg: 1, kind: string, direction: in, max: 4096 }
+  - syscalls: [readv]
+    enter:
+      payloads:
+        - { arg: 1, kind: iovec, direction: in, count_from_arg: 2, elem_size: 16, max: 512 }
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write test policy: %v", err)
@@ -73,6 +77,13 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
 	openRead := globalConfig.Rules[1].Enter.Reads[0]
 	if openRead.Arg != 1 || openRead.Size != 4096 || openRead.Offset != 0 || openRead.Type != "string" {
 		t.Fatalf("string payload normalized to %#v, want fixed string read", openRead)
+	}
+	iovecRead := globalConfig.Rules[2].Enter.Reads[0]
+	if iovecRead.Arg != 1 || iovecRead.Size != 0 || iovecRead.Type != "raw" {
+		t.Fatalf("iovec payload normalized to %#v, want arg 1 dynamic raw read", iovecRead)
+	}
+	if iovecRead.CountFromArg == nil || *iovecRead.CountFromArg != 2 || iovecRead.ElemSize != 16 || iovecRead.Max != 512 {
+		t.Fatalf("iovec dynamic policy = %#v, want count_from_arg 2 elem_size 16 max 512", iovecRead)
 	}
 }
 
@@ -159,5 +170,25 @@ func TestLoadCapturePolicyRequiresDynamicMax(t *testing.T) {
 
 	if err := loadCapturePolicy(path); err == nil {
 		t.Fatalf("loadCapturePolicy() error = nil, want missing dynamic max error")
+	}
+}
+
+func TestLoadCapturePolicyRequiresElementSizeForCount(t *testing.T) {
+	oldConfig := globalConfig
+	defer func() { globalConfig = oldConfig }()
+
+	path := filepath.Join(t.TempDir(), "capture_rules.yaml")
+	data := []byte(`rules:
+  - syscalls: [readv]
+    enter:
+      payloads:
+        - { arg: 1, kind: iovec, direction: in, count_from_arg: 2, max: 512 }
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write test policy: %v", err)
+	}
+
+	if err := loadCapturePolicy(path); err == nil {
+		t.Fatalf("loadCapturePolicy() error = nil, want missing elem_size error")
 	}
 }

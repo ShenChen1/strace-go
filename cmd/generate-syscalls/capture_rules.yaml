@@ -155,17 +155,19 @@ rules:
 
   - syscalls: [readv, writev, preadv, pwritev, preadv2, pwritev2, vmsplice]
     enter:
-      reads: [{ arg: 1, size: 0, offset: 0, type: raw }]
+      payloads:
+        - { arg: 1, kind: iovec, direction: in, count_from_arg: 2, elem_size: 16, max: 512, offset: 0 }
 
   - syscalls: [process_vm_readv, process_vm_writev]
     enter:
-      reads:
-        - { arg: 1, size: 0, offset: 0, type: raw }
-        - { arg: 3, size: 0, offset: 512, type: raw }
+      payloads:
+        - { arg: 1, kind: iovec, direction: in, count_from_arg: 2, elem_size: 16, max: 512, offset: 0 }
+        - { arg: 3, kind: iovec, direction: in, count_from_arg: 4, elem_size: 16, max: 512, offset: 512 }
 
   - syscalls: [process_madvise]
     enter:
-      reads: [{ arg: 1, size: 0, offset: 0, type: raw }]
+      payloads:
+        - { arg: 1, kind: iovec, direction: in, count_from_arg: 2, elem_size: 16, max: 512, offset: 0 }
 
   - syscalls: [sendfile]
     enter:

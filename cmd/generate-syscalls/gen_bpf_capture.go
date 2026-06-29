@@ -126,6 +126,10 @@ func policyDynamicSizeExpr(r CaptureRead) (string, bool) {
 	if r.LenFromRet {
 		return fmt.Sprintf("((e)->ret > 0 ? ((e)->ret > %d ? %d : (e)->ret) : 0)", r.Max, r.Max), true
 	}
+	if r.CountFromArg != nil {
+		arg := *r.CountFromArg
+		return fmt.Sprintf("((e)->args[%d] > 0 ? ((e)->args[%d] * %d > %d ? %d : (e)->args[%d] * %d) : 0)", arg, arg, r.ElemSize, r.Max, r.Max, arg, r.ElemSize), true
+	}
 	return "", false
 }
 

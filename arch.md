@@ -855,6 +855,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - BPF capture 查找、`generateBPFCode`、per-read 代码生成和动态 size 逻辑已迁入 `gen_bpf_capture.go`；`generateBPFCode` 收敛为小编排函数，具体读逻辑拆到 helper。
 - capture policy loader 已接受新的 `payloads` policy schema，并在加载时规范化成当前 BPF 生成器使用的 `reads` 结构；混用旧 `reads` 和新 `payloads` 会直接报错。
 - `read/pread64` 和 `write/pwrite64` 已迁移为 `payloads`，并由 `len_from_ret` / `len_from_arg` + `max` 驱动 BPF 动态拷贝长度；生成输出保持稳定。
+- `readv/writev/preadv/pwritev/preadv2/pwritev2/vmsplice`、`process_vm_readv/process_vm_writev` 和 `process_madvise` 已迁移为 `payloads`，并由 `count_from_arg` + `elem_size` + `max` 描述 iovec 数组前缀拷贝长度。
 - 后续继续把剩余 `reads` 规则迁移为 policy-only，并把 `dynamicSizeStr` 中的 syscall-name 特例逐步收缩成 policy 字段。
 
 ### Phase 8: 删除旧模式与收口文档
