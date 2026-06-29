@@ -219,10 +219,10 @@ rules:
         - { arg: 5, kind: raw, direction: in, size: 4, offset: 768 } # addrlen in
     exit:
       ptr_arg: 1
-      reads:
-        - { arg: 1, size: 512, offset: 1024, type: raw } # buf
-        - { arg: 4, size: 0, offset: 1536, type: raw } # addr
-        - { arg: 5, size: 4, offset: 772, type: raw }   # addrlen out
+      payloads:
+        - { arg: 1, kind: raw, direction: out, size: 512, offset: 1024 } # buf
+        - { arg: 4, kind: struct, direction: out, len_from_user_arg: 5, clamp_u32_from_offset: 768, max: 128, offset: 1536 } # addr
+        - { arg: 5, kind: raw, direction: out, size: 4, offset: 772 }   # addrlen out
 
   - syscalls: [accept, accept4, getsockname, getpeername]
     enter:
@@ -230,9 +230,9 @@ rules:
         - { arg: 2, kind: raw, direction: in, size: 4, offset: 768 } # addrlen in
     exit:
       ptr_arg: 1
-      reads:
-        - { arg: 1, size: 0, offset: 1024, type: raw } # addr out
-        - { arg: 2, size: 4, offset: 772, type: raw } # addrlen out
+      payloads:
+        - { arg: 1, kind: struct, direction: out, len_from_user_arg: 2, clamp_u32_from_offset: 768, max: 128, offset: 1024 } # addr out
+        - { arg: 2, kind: raw, direction: out, size: 4, offset: 772 } # addrlen out
 
   - syscalls: [bpf]
     enter:

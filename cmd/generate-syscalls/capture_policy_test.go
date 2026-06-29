@@ -67,6 +67,10 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
     enter:
       payloads:
         - { arg: 2, kind: struct, direction: in, len_from_arg: 3, min: 24, max: 64 }
+  - syscalls: [accept]
+    exit:
+      payloads:
+        - { arg: 1, kind: struct, direction: out, len_from_user_arg: 2, clamp_u32_from_offset: 768, max: 128 }
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write test policy: %v", err)
@@ -103,6 +107,13 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
 	openat2Read := globalConfig.Rules[4].Enter.Reads[0]
 	if openat2Read.LenFromArg == nil || *openat2Read.LenFromArg != 3 || openat2Read.Min != 24 || openat2Read.Max != 64 {
 		t.Fatalf("openat2 dynamic policy = %#v, want len_from_arg 3 min 24 max 64", openat2Read)
+	}
+	acceptRead := globalConfig.Rules[5].Exit.Reads[0]
+	if acceptRead.Arg != 1 || acceptRead.Size != 0 || acceptRead.Type != "raw" {
+		t.Fatalf("accept payload normalized to %#v, want dynamic raw read", acceptRead)
+	}
+	if acceptRead.LenFromUserArg == nil || *acceptRead.LenFromUserArg != 2 || acceptRead.ClampU32FromOffset == nil || *acceptRead.ClampU32FromOffset != 768 || acceptRead.Max != 128 {
+		t.Fatalf("accept dynamic policy = %#v, want len_from_user_arg 2 clamp offset 768 max 128", acceptRead)
 	}
 }
 
@@ -229,6 +240,26 @@ func TestLoadCapturePolicyRequiresElementSizeForRetCount(t *testing.T) {
 
 	if err := loadCapturePolicy(path); err == nil {
 		t.Fatalf("loadCapturePolicy() error = nil, want missing elem_size error")
+	}
+}
+
+func TestLoadCapturePolicyRequiresUserArgForClampOffset(t *testing.T) {
+	oldConfig := globalConfig
+	defer func() { globalConfig = oldConfig }()
+
+	path := filepath.Join(t.TempDir(), "capture_rules.yaml")
+	data := []byte(`rules:
+  - syscalls: [accept]
+    exit:
+      payloads:
+        - { arg: 1, kind: struct, direction: out, clamp_u32_from_offset: 768, max: 128 }
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write test policy: %v", err)
+	}
+
+	if err := loadCapturePolicy(path); err == nil {
+		t.Fatalf("loadCapturePolicy() error = nil, want clamp without len_from_user_arg error")
 	}
 }
 

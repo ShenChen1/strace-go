@@ -39,6 +39,16 @@ func TestCaptureSizeExprUsesPayloadRetLength(t *testing.T) {
 	}
 }
 
+func TestCaptureSizeExprUsesPayloadUserArgLength(t *testing.T) {
+	lenArg := 2
+	read := CaptureRead{Arg: 1, LenFromUserArg: &lenArg, Max: 128}
+	got := captureSizeExpr("accept", "exit", read)
+	want := "addrlen"
+	if got != want {
+		t.Fatalf("captureSizeExpr() = %q, want %q", got, want)
+	}
+}
+
 func TestCaptureSizeExprUsesPayloadCountLength(t *testing.T) {
 	countArg := 2
 	read := CaptureRead{Arg: 1, CountFromArg: &countArg, ElemSize: 16, Max: 512}
@@ -46,6 +56,21 @@ func TestCaptureSizeExprUsesPayloadCountLength(t *testing.T) {
 	want := "((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0)"
 	if got != want {
 		t.Fatalf("captureSizeExpr() = %q, want %q", got, want)
+	}
+}
+
+func TestDynamicPreludeUsesPayloadUserArgLength(t *testing.T) {
+	lenArg := 2
+	clampOffset := 768
+	read := CaptureRead{LenFromUserArg: &lenArg, ClampU32FromOffset: &clampOffset, Max: 128}
+	got := dynamicPreludeCode("accept", read)
+	want := "\t\t\t\tu32 addrlen = 0; \\\n" +
+		"\t\t\t\tbpf_probe_read_user(&addrlen, 4, (void *)(e)->args[2]); \\\n" +
+		"\t\t\t\tu32 inlen = *(u32 *)((e)->str_arg + 768); \\\n" +
+		"\t\t\t\tif (inlen > 0 && inlen < addrlen) addrlen = inlen; \\\n" +
+		"\t\t\t\taddrlen = (addrlen > 128) ? 128 : addrlen; \\\n"
+	if got != want {
+		t.Fatalf("dynamicPreludeCode() = %q, want %q", got, want)
 	}
 }
 

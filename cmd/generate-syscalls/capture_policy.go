@@ -20,32 +20,36 @@ type CapturePoint struct {
 }
 
 type CaptureRead struct {
-	Arg          int    `yaml:"arg"`
-	Size         int    `yaml:"size"`
-	Offset       int    `yaml:"offset"`
-	Type         string `yaml:"type"`
-	Min          int    `yaml:"-"`
-	Max          int    `yaml:"-"`
-	LenFromArg   *int   `yaml:"-"`
-	LenFromRet   bool   `yaml:"-"`
-	CountFromArg *int   `yaml:"-"`
-	CountFromRet bool   `yaml:"-"`
-	ElemSize     int    `yaml:"-"`
+	Arg                int    `yaml:"arg"`
+	Size               int    `yaml:"size"`
+	Offset             int    `yaml:"offset"`
+	Type               string `yaml:"type"`
+	Min                int    `yaml:"-"`
+	Max                int    `yaml:"-"`
+	LenFromArg         *int   `yaml:"-"`
+	LenFromRet         bool   `yaml:"-"`
+	LenFromUserArg     *int   `yaml:"-"`
+	ClampU32FromOffset *int   `yaml:"-"`
+	CountFromArg       *int   `yaml:"-"`
+	CountFromRet       bool   `yaml:"-"`
+	ElemSize           int    `yaml:"-"`
 }
 
 type CapturePayload struct {
-	Arg          int    `yaml:"arg"`
-	Kind         string `yaml:"kind"`
-	Direction    string `yaml:"direction"`
-	Offset       int    `yaml:"offset"`
-	Min          int    `yaml:"min"`
-	Max          int    `yaml:"max"`
-	LenFromArg   *int   `yaml:"len_from_arg"`
-	LenFromRet   bool   `yaml:"len_from_ret"`
-	CountFromArg *int   `yaml:"count_from_arg"`
-	CountFromRet bool   `yaml:"count_from_ret"`
-	ElemSize     int    `yaml:"elem_size"`
-	Size         int    `yaml:"size"`
+	Arg                int    `yaml:"arg"`
+	Kind               string `yaml:"kind"`
+	Direction          string `yaml:"direction"`
+	Offset             int    `yaml:"offset"`
+	Min                int    `yaml:"min"`
+	Max                int    `yaml:"max"`
+	LenFromArg         *int   `yaml:"len_from_arg"`
+	LenFromRet         bool   `yaml:"len_from_ret"`
+	LenFromUserArg     *int   `yaml:"len_from_user_arg"`
+	ClampU32FromOffset *int   `yaml:"clamp_u32_from_offset"`
+	CountFromArg       *int   `yaml:"count_from_arg"`
+	CountFromRet       bool   `yaml:"count_from_ret"`
+	ElemSize           int    `yaml:"elem_size"`
+	Size               int    `yaml:"size"`
 }
 
 type Config struct {
@@ -132,17 +136,26 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 	if p.LenFromArg != nil && *p.LenFromArg < 0 {
 		return CaptureRead{}, fmt.Errorf("len_from_arg must be non-negative")
 	}
+	if p.LenFromUserArg != nil && *p.LenFromUserArg < 0 {
+		return CaptureRead{}, fmt.Errorf("len_from_user_arg must be non-negative")
+	}
+	if p.ClampU32FromOffset != nil && *p.ClampU32FromOffset < 0 {
+		return CaptureRead{}, fmt.Errorf("clamp_u32_from_offset must be non-negative")
+	}
 	if p.CountFromArg != nil && *p.CountFromArg < 0 {
 		return CaptureRead{}, fmt.Errorf("count_from_arg must be non-negative")
 	}
-	if p.LenFromArg != nil && p.LenFromRet {
-		return CaptureRead{}, fmt.Errorf("len_from_arg and len_from_ret are mutually exclusive")
+	dynamicSources := 0
+	for _, enabled := range []bool{p.LenFromArg != nil, p.LenFromRet, p.LenFromUserArg != nil, p.CountFromArg != nil, p.CountFromRet} {
+		if enabled {
+			dynamicSources++
+		}
 	}
-	if p.CountFromArg != nil && (p.LenFromArg != nil || p.LenFromRet) {
-		return CaptureRead{}, fmt.Errorf("count_from_arg cannot be combined with len_from_arg or len_from_ret")
+	if dynamicSources > 1 {
+		return CaptureRead{}, fmt.Errorf("dynamic payload length sources are mutually exclusive")
 	}
-	if p.CountFromRet && (p.LenFromArg != nil || p.LenFromRet || p.CountFromArg != nil) {
-		return CaptureRead{}, fmt.Errorf("count_from_ret cannot be combined with other dynamic length sources")
+	if p.ClampU32FromOffset != nil && p.LenFromUserArg == nil {
+		return CaptureRead{}, fmt.Errorf("clamp_u32_from_offset requires len_from_user_arg")
 	}
 	if p.CountFromArg != nil && p.ElemSize == 0 {
 		return CaptureRead{}, fmt.Errorf("count_from_arg requires elem_size")
@@ -150,7 +163,7 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 	if p.CountFromRet && p.ElemSize == 0 {
 		return CaptureRead{}, fmt.Errorf("count_from_ret requires elem_size")
 	}
-	if (p.LenFromArg != nil || p.LenFromRet || p.CountFromArg != nil || p.CountFromRet) && p.Max == 0 {
+	if dynamicSources > 0 && p.Max == 0 {
 		return CaptureRead{}, fmt.Errorf("dynamic payload length requires max")
 	}
 	if p.Direction != "" && p.Direction != "in" && p.Direction != "out" {
@@ -161,23 +174,25 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 		return CaptureRead{}, err
 	}
 	size := p.Size
-	if p.LenFromArg != nil || p.LenFromRet || p.CountFromArg != nil || p.CountFromRet {
+	if dynamicSources > 0 {
 		size = 0
 	} else if size == 0 {
 		size = p.Max
 	}
 	return CaptureRead{
-		Arg:          p.Arg,
-		Size:         size,
-		Offset:       p.Offset,
-		Type:         readType,
-		Min:          p.Min,
-		Max:          p.Max,
-		LenFromArg:   p.LenFromArg,
-		LenFromRet:   p.LenFromRet,
-		CountFromArg: p.CountFromArg,
-		CountFromRet: p.CountFromRet,
-		ElemSize:     p.ElemSize,
+		Arg:                p.Arg,
+		Size:               size,
+		Offset:             p.Offset,
+		Type:               readType,
+		Min:                p.Min,
+		Max:                p.Max,
+		LenFromArg:         p.LenFromArg,
+		LenFromRet:         p.LenFromRet,
+		LenFromUserArg:     p.LenFromUserArg,
+		ClampU32FromOffset: p.ClampU32FromOffset,
+		CountFromArg:       p.CountFromArg,
+		CountFromRet:       p.CountFromRet,
+		ElemSize:           p.ElemSize,
 	}, nil
 }
 

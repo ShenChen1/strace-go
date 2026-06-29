@@ -129,6 +129,9 @@ func policyDynamicSizeExpr(r CaptureRead) (string, bool) {
 	if r.LenFromRet {
 		return fmt.Sprintf("((e)->ret > 0 ? ((e)->ret > %d ? %d : (e)->ret) : 0)", r.Max, r.Max), true
 	}
+	if r.LenFromUserArg != nil {
+		return "addrlen", true
+	}
 	if r.CountFromArg != nil {
 		arg := *r.CountFromArg
 		return fmt.Sprintf("((e)->args[%d] > 0 ? ((e)->args[%d] * %d > %d ? %d : (e)->args[%d] * %d) : 0)", arg, arg, r.ElemSize, r.Max, r.Max, arg, r.ElemSize), true
@@ -141,18 +144,15 @@ func policyDynamicSizeExpr(r CaptureRead) (string, bool) {
 
 func dynamicPreludeCode(scName string, r CaptureRead) string {
 	res := ""
-	if r.Size == 0 && (scName == "accept" || scName == "accept4" || scName == "getsockname" || scName == "getpeername" || scName == "recvfrom") {
-		if r.Arg == 1 || r.Arg == 4 {
-			lenArg := 2
-			if scName == "recvfrom" {
-				lenArg = 5
-			}
-			res += fmt.Sprintf("\t\t\t\tu32 addrlen = 0; \\\n")
-			res += fmt.Sprintf("\t\t\t\tbpf_probe_read_user(&addrlen, 4, (void *)(e)->args[%d]); \\\n", lenArg)
-			res += fmt.Sprintf("\t\t\t\tu32 inlen = *(u32 *)((e)->str_arg + 768); \\\n")
+	if r.Size == 0 && r.LenFromUserArg != nil {
+		lenArg := *r.LenFromUserArg
+		res += fmt.Sprintf("\t\t\t\tu32 addrlen = 0; \\\n")
+		res += fmt.Sprintf("\t\t\t\tbpf_probe_read_user(&addrlen, 4, (void *)(e)->args[%d]); \\\n", lenArg)
+		if r.ClampU32FromOffset != nil {
+			res += fmt.Sprintf("\t\t\t\tu32 inlen = *(u32 *)((e)->str_arg + %d); \\\n", *r.ClampU32FromOffset)
 			res += fmt.Sprintf("\t\t\t\tif (inlen > 0 && inlen < addrlen) addrlen = inlen; \\\n")
-			res += fmt.Sprintf("\t\t\t\taddrlen = (addrlen > 128) ? 128 : addrlen; \\\n")
 		}
+		res += fmt.Sprintf("\t\t\t\taddrlen = (addrlen > %d) ? %d : addrlen; \\\n", r.Max, r.Max)
 	} else if r.Size == 0 && (scName == "fcntl" || scName == "fcntl64") && r.Arg == 2 {
 		res += fmt.Sprintf("\t\t\t\tu32 fcmd = (u32)(e)->args[1]; \\\n")
 		res += fmt.Sprintf("\t\t\t\tu32 fsz = 0; \\\n")
@@ -284,9 +284,6 @@ func ioSubmitExtraCode(scName string, suffix string, r CaptureRead) string {
 }
 
 func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
-	if size, ok := dynamicSocketAddrSize(scName, r); ok {
-		return size
-	}
 	switch scName {
 	case "fcntl", "fcntl64":
 		if r.Arg == 2 {
@@ -314,14 +311,4 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 		return "((e)->ret > 0 ? ((e)->ret * 32 > 512 ? 512 : (e)->ret * 32) : 0)"
 	}
 	return "((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0)"
-}
-
-func dynamicSocketAddrSize(scName string, r CaptureRead) (string, bool) {
-	switch scName {
-	case "accept", "accept4", "getsockname", "getpeername", "recvfrom":
-		if r.Arg == 1 || r.Arg == 4 {
-			return "addrlen", true
-		}
-	}
-	return "", false
 }
