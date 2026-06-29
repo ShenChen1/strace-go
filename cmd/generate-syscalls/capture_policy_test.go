@@ -63,6 +63,10 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
     exit:
       payloads:
         - { arg: 1, kind: struct, direction: out, count_from_ret: true, elem_size: 12, max: 512 }
+  - syscalls: [openat2]
+    enter:
+      payloads:
+        - { arg: 2, kind: struct, direction: in, len_from_arg: 3, min: 24, max: 64 }
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write test policy: %v", err)
@@ -95,6 +99,10 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
 	}
 	if !epollRead.CountFromRet || epollRead.ElemSize != 12 || epollRead.Max != 512 {
 		t.Fatalf("epoll dynamic policy = %#v, want count_from_ret elem_size 12 max 512", epollRead)
+	}
+	openat2Read := globalConfig.Rules[4].Enter.Reads[0]
+	if openat2Read.LenFromArg == nil || *openat2Read.LenFromArg != 3 || openat2Read.Min != 24 || openat2Read.Max != 64 {
+		t.Fatalf("openat2 dynamic policy = %#v, want len_from_arg 3 min 24 max 64", openat2Read)
 	}
 }
 
@@ -221,5 +229,25 @@ func TestLoadCapturePolicyRequiresElementSizeForRetCount(t *testing.T) {
 
 	if err := loadCapturePolicy(path); err == nil {
 		t.Fatalf("loadCapturePolicy() error = nil, want missing elem_size error")
+	}
+}
+
+func TestLoadCapturePolicyRejectsMinGreaterThanMax(t *testing.T) {
+	oldConfig := globalConfig
+	defer func() { globalConfig = oldConfig }()
+
+	path := filepath.Join(t.TempDir(), "capture_rules.yaml")
+	data := []byte(`rules:
+  - syscalls: [openat2]
+    enter:
+      payloads:
+        - { arg: 2, kind: struct, direction: in, len_from_arg: 3, min: 128, max: 64 }
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write test policy: %v", err)
+	}
+
+	if err := loadCapturePolicy(path); err == nil {
+		t.Fatalf("loadCapturePolicy() error = nil, want invalid min/max error")
 	}
 }

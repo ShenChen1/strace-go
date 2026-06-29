@@ -20,6 +20,16 @@ func TestCaptureSizeExprUsesPayloadArgLength(t *testing.T) {
 	}
 }
 
+func TestCaptureSizeExprUsesPayloadArgMinLength(t *testing.T) {
+	lenArg := 3
+	read := CaptureRead{Arg: 2, LenFromArg: &lenArg, Min: 24, Max: 64}
+	got := captureSizeExpr("openat2", "enter", read)
+	want := "((e)->args[3] >= 24 ? ((e)->args[3] > 64 ? 64 : (e)->args[3]) : 0)"
+	if got != want {
+		t.Fatalf("captureSizeExpr() = %q, want %q", got, want)
+	}
+}
+
 func TestCaptureSizeExprUsesPayloadRetLength(t *testing.T) {
 	read := CaptureRead{Arg: 1, LenFromRet: true, Max: 512}
 	got := captureSizeExpr("read", "exit", read)

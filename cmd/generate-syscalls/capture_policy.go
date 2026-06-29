@@ -24,6 +24,7 @@ type CaptureRead struct {
 	Size         int    `yaml:"size"`
 	Offset       int    `yaml:"offset"`
 	Type         string `yaml:"type"`
+	Min          int    `yaml:"-"`
 	Max          int    `yaml:"-"`
 	LenFromArg   *int   `yaml:"-"`
 	LenFromRet   bool   `yaml:"-"`
@@ -37,6 +38,7 @@ type CapturePayload struct {
 	Kind         string `yaml:"kind"`
 	Direction    string `yaml:"direction"`
 	Offset       int    `yaml:"offset"`
+	Min          int    `yaml:"min"`
 	Max          int    `yaml:"max"`
 	LenFromArg   *int   `yaml:"len_from_arg"`
 	LenFromRet   bool   `yaml:"len_from_ret"`
@@ -112,8 +114,14 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 	if p.Offset < 0 {
 		return CaptureRead{}, fmt.Errorf("offset must be non-negative")
 	}
+	if p.Min < 0 {
+		return CaptureRead{}, fmt.Errorf("min must be non-negative")
+	}
 	if p.Max < 0 {
 		return CaptureRead{}, fmt.Errorf("max must be non-negative")
+	}
+	if p.Max > 0 && p.Min > p.Max {
+		return CaptureRead{}, fmt.Errorf("min must not exceed max")
 	}
 	if p.Size < 0 {
 		return CaptureRead{}, fmt.Errorf("size must be non-negative")
@@ -163,6 +171,7 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 		Size:         size,
 		Offset:       p.Offset,
 		Type:         readType,
+		Min:          p.Min,
 		Max:          p.Max,
 		LenFromArg:   p.LenFromArg,
 		LenFromRet:   p.LenFromRet,

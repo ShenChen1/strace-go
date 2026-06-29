@@ -53,9 +53,9 @@ rules:
   - syscalls: [openat2]
     enter:
       ptr_arg: 1
-      reads:
-        - { arg: 1, size: 4096, type: string }
-        - { arg: 2, size: 0, offset: 4096, type: raw }
+      payloads:
+        - { arg: 1, kind: string, direction: in, max: 4096 }
+        - { arg: 2, kind: struct, direction: in, len_from_arg: 3, min: 24, max: 64, offset: 4096 }
 
   # IMPACT: Set arg 3 (value) size to 4097 to capture complete paths within the 4504 StrArg limit.
   - syscalls: [fsconfig]

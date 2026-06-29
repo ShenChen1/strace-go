@@ -121,6 +121,9 @@ func policyDynamicSizeExpr(r CaptureRead) (string, bool) {
 	}
 	if r.LenFromArg != nil {
 		arg := *r.LenFromArg
+		if r.Min > 0 {
+			return fmt.Sprintf("((e)->args[%d] >= %d ? ((e)->args[%d] > %d ? %d : (e)->args[%d]) : 0)", arg, r.Min, arg, r.Max, r.Max, arg), true
+		}
 		return fmt.Sprintf("((e)->args[%d] > 0 ? ((e)->args[%d] > %d ? %d : (e)->args[%d]) : 0)", arg, arg, r.Max, r.Max, arg), true
 	}
 	if r.LenFromRet {
@@ -304,10 +307,6 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 	case "futex_waitv":
 		if r.Arg == 0 {
 			return "futex_waitv_sz"
-		}
-	case "openat2":
-		if r.Arg == 2 {
-			return "((e)->args[3] >= 24 ? ((e)->args[3] > 64 ? 64 : (e)->args[3]) : 0)"
 		}
 	}
 
