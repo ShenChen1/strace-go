@@ -365,9 +365,9 @@ rules:
 
   - syscalls: [futex_waitv]
     enter:
-      reads:
-        - { arg: 0, size: 0, offset: 0, type: raw }
-        - { arg: 3, size: 16, offset: 3072, type: raw }
+      payloads:
+        - { arg: 0, kind: raw, direction: in, count_from_arg: 1, elem_size: 24, max: 3072, split_first: 24, offset: 0 }
+        - { arg: 3, kind: struct, direction: in, size: 16, offset: 3072 }
 
   - syscalls: [futex_requeue]
     enter:

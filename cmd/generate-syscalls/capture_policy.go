@@ -35,6 +35,7 @@ type CaptureRead struct {
 	CountFromArg       *int `yaml:"-"`
 	CountFromRet       bool `yaml:"-"`
 	ElemSize           int  `yaml:"-"`
+	SplitFirst         int  `yaml:"-"`
 }
 
 type CapturePayload struct {
@@ -53,6 +54,7 @@ type CapturePayload struct {
 	CountFromArg       *int            `yaml:"count_from_arg"`
 	CountFromRet       bool            `yaml:"count_from_ret"`
 	ElemSize           int             `yaml:"elem_size"`
+	SplitFirst         int             `yaml:"split_first"`
 	Size               int             `yaml:"size"`
 }
 
@@ -154,6 +156,9 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 	if p.ElemSize < 0 {
 		return CaptureRead{}, fmt.Errorf("elem_size must be non-negative")
 	}
+	if p.SplitFirst < 0 {
+		return CaptureRead{}, fmt.Errorf("split_first must be non-negative")
+	}
 	if p.LenFromArg != nil && *p.LenFromArg < 0 {
 		return CaptureRead{}, fmt.Errorf("len_from_arg must be non-negative")
 	}
@@ -186,6 +191,18 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 	}
 	if p.CountFromArg != nil && p.ElemSize == 0 {
 		return CaptureRead{}, fmt.Errorf("count_from_arg requires elem_size")
+	}
+	if p.SplitFirst > 0 && p.CountFromArg == nil {
+		return CaptureRead{}, fmt.Errorf("split_first requires count_from_arg")
+	}
+	if p.SplitFirst > 0 && p.ElemSize > 0 && p.SplitFirst > p.ElemSize {
+		return CaptureRead{}, fmt.Errorf("split_first must not exceed elem_size")
+	}
+	if p.SplitFirst > 0 && p.Max > 0 && p.ElemSize > 0 && p.Max < p.ElemSize {
+		return CaptureRead{}, fmt.Errorf("split_first requires max to cover at least one element")
+	}
+	if p.SplitFirst > 0 && p.Max > 0 && p.SplitFirst > p.Max {
+		return CaptureRead{}, fmt.Errorf("split_first must not exceed max")
 	}
 	if p.CountFromRet && p.ElemSize == 0 {
 		return CaptureRead{}, fmt.Errorf("count_from_ret requires elem_size")
@@ -222,6 +239,7 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 		CountFromArg:       p.CountFromArg,
 		CountFromRet:       p.CountFromRet,
 		ElemSize:           p.ElemSize,
+		SplitFirst:         p.SplitFirst,
 	}, nil
 }
 

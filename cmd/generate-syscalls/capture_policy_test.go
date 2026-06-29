@@ -87,6 +87,10 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
     enter:
       payloads:
         - { arg: 2, kind: raw, direction: in, len_from_arg_cases: { arg: 1, cases: [{ size: 8, values: [15, 16] }, { size: 32, values: [5, 6] }] }, max: 32 }
+  - syscalls: [futex_waitv]
+    enter:
+      payloads:
+        - { arg: 0, kind: raw, direction: in, count_from_arg: 1, elem_size: 24, max: 3072, split_first: 24 }
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write test policy: %v", err)
@@ -158,6 +162,13 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
 	}
 	if got := len(fcntlRead.LenFromArgCases.Cases); got != 2 {
 		t.Fatalf("fcntl cases = %d, want 2", got)
+	}
+	futexWaitvRead := globalConfig.Rules[10].Enter.Reads[0]
+	if futexWaitvRead.Arg != 0 || futexWaitvRead.Size != 0 || futexWaitvRead.Type != "raw" {
+		t.Fatalf("futex_waitv payload normalized to %#v, want dynamic raw read", futexWaitvRead)
+	}
+	if futexWaitvRead.CountFromArg == nil || *futexWaitvRead.CountFromArg != 1 || futexWaitvRead.ElemSize != 24 || futexWaitvRead.Max != 3072 || futexWaitvRead.SplitFirst != 24 {
+		t.Fatalf("futex_waitv dynamic policy = %#v, want count_from_arg split read", futexWaitvRead)
 	}
 }
 
@@ -264,6 +275,46 @@ func TestLoadCapturePolicyRequiresElementSizeForCount(t *testing.T) {
 
 	if err := loadCapturePolicy(path); err == nil {
 		t.Fatalf("loadCapturePolicy() error = nil, want missing elem_size error")
+	}
+}
+
+func TestLoadCapturePolicyRejectsInvalidSplitFirst(t *testing.T) {
+	oldConfig := globalConfig
+	defer func() { globalConfig = oldConfig }()
+
+	path := filepath.Join(t.TempDir(), "capture_rules.yaml")
+	data := []byte(`rules:
+  - syscalls: [futex_waitv]
+    enter:
+      payloads:
+        - { arg: 0, kind: raw, direction: in, len_from_arg: 1, max: 512, split_first: 24 }
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write test policy: %v", err)
+	}
+
+	if err := loadCapturePolicy(path); err == nil {
+		t.Fatalf("loadCapturePolicy() error = nil, want split_first without count_from_arg error")
+	}
+}
+
+func TestLoadCapturePolicyRejectsSplitFirstWithTooSmallMax(t *testing.T) {
+	oldConfig := globalConfig
+	defer func() { globalConfig = oldConfig }()
+
+	path := filepath.Join(t.TempDir(), "capture_rules.yaml")
+	data := []byte(`rules:
+  - syscalls: [futex_waitv]
+    enter:
+      payloads:
+        - { arg: 0, kind: raw, direction: in, count_from_arg: 1, elem_size: 24, max: 16, split_first: 16 }
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write test policy: %v", err)
+	}
+
+	if err := loadCapturePolicy(path); err == nil {
+		t.Fatalf("loadCapturePolicy() error = nil, want split_first max smaller than elem_size error")
 	}
 }
 

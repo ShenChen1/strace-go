@@ -2778,23 +2778,21 @@
 			break; \
 		case 449: /* futex_waitv */ \
 			{ \
-				u32 futex_waitv_nr = (u32)(e)->args[1]; \
-				if (futex_waitv_nr > 128) futex_waitv_nr = 128; \
-				u32 futex_waitv_sz = futex_waitv_nr * 24; \
-				futex_waitv_sz &= 0xfff; \
+				u32 count = (u32)(e)->args[1]; \
+				if (count > 128) count = 128; \
+				u32 countsz = count * 24; \
 				long pr = 0; \
-				if (futex_waitv_sz > 0 && (e)->args[0]) { \
+				if (countsz > 0 && (e)->args[0]) { \
 					long __err = bpf_probe_read_user((e)->str_arg, 24, (void *)(e)->args[0]); \
 					if (__err < 0) { \
 						pr = __err; \
 					} else { \
 						pr = 24; \
-						u32 futex_waitv_rest = 0; \
-						if (futex_waitv_sz > 24) futex_waitv_rest = futex_waitv_sz - 24; \
-						futex_waitv_rest &= 0xfff; \
-						if (futex_waitv_rest > 0) { \
-							long __err2 = bpf_probe_read_user((e)->str_arg + 24, futex_waitv_rest, (void *)((e)->args[0] + 24)); \
-							if (__err2 == 0) pr = futex_waitv_sz; \
+						u32 countsz_rest = 0; \
+						if (countsz > 24) countsz_rest = countsz - 24; \
+						if (countsz_rest > 0) { \
+							long __err2 = bpf_probe_read_user((e)->str_arg + 24, countsz_rest, (void *)((e)->args[0] + 24)); \
+							if (__err2 == 0) pr = countsz; \
 						} \
 					} \
 				} \

@@ -140,6 +140,9 @@ func policyDynamicSizeExpr(r CaptureRead) (string, bool) {
 	}
 	if r.CountFromArg != nil {
 		arg := *r.CountFromArg
+		if r.SplitFirst > 0 {
+			return "countsz", true
+		}
 		return fmt.Sprintf("((e)->args[%d] > 0 ? ((e)->args[%d] * %d > %d ? %d : (e)->args[%d] * %d) : 0)", arg, arg, r.ElemSize, r.Max, r.Max, arg, r.ElemSize), true
 	}
 	if r.CountFromRet {
@@ -165,6 +168,8 @@ func dynamicPreludeCode(scName string, r CaptureRead) string {
 		res += fmt.Sprintf("\t\t\t\tiosz = (iosz == 0) ? %d : (iosz > %d ? %d : iosz); \\\n", bits.ZeroLen, r.Max, r.Max)
 	} else if r.Size == 0 && r.LenFromArgCases != nil {
 		res += argCasesPreludeCode(r.LenFromArgCases)
+	} else if r.Size == 0 && r.CountFromArg != nil && r.SplitFirst > 0 {
+		res += countSplitPreludeCode(r)
 	} else if r.Size == 0 && scName == "fsconfig" && r.Arg == 3 {
 		res += fmt.Sprintf("\t\t\t\tu32 fssz = 0; \\\n")
 		res += fmt.Sprintf("\t\t\t\tif ((e)->args[1] == 2) { \\\n")
@@ -172,12 +177,16 @@ func dynamicPreludeCode(scName string, r CaptureRead) string {
 		res += fmt.Sprintf("\t\t\t\t\tfssz &= 0x1fff; \\\n")
 		res += fmt.Sprintf("\t\t\t\t\tfssz = (fssz > 4096) ? 4096 : fssz; \\\n")
 		res += fmt.Sprintf("\t\t\t\t} \\\n")
-	} else if r.Size == 0 && scName == "futex_waitv" && r.Arg == 0 {
-		res += fmt.Sprintf("\t\t\t\tu32 futex_waitv_nr = (u32)(e)->args[1]; \\\n")
-		res += fmt.Sprintf("\t\t\t\tif (futex_waitv_nr > 128) futex_waitv_nr = 128; \\\n")
-		res += fmt.Sprintf("\t\t\t\tu32 futex_waitv_sz = futex_waitv_nr * 24; \\\n")
-		res += fmt.Sprintf("\t\t\t\tfutex_waitv_sz &= 0xfff; \\\n")
 	}
+	return res
+}
+
+func countSplitPreludeCode(r CaptureRead) string {
+	arg := *r.CountFromArg
+	maxCount := r.Max / r.ElemSize
+	res := fmt.Sprintf("\t\t\t\tu32 count = (u32)(e)->args[%d]; \\\n", arg)
+	res += fmt.Sprintf("\t\t\t\tif (count > %d) count = %d; \\\n", maxCount, maxCount)
+	res += fmt.Sprintf("\t\t\t\tu32 countsz = count * %d; \\\n", r.ElemSize)
 	return res
 }
 
@@ -210,10 +219,10 @@ func readProbeCode(r CaptureRead, fn string, buf string, sizeStr string) string 
 	case sizeStr == "fsz":
 		return fmt.Sprintf("\t\t\t\tlong __err = (fsz > 0 && (e)->args[%d]) ? %s(%s, fsz, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, r.Arg) +
 			fmt.Sprintf("\t\t\t\tlong pr = (__err == 0 && fsz > 0 && (e)->args[%d]) ? fsz : __err; \\\n", r.Arg)
+	case r.SplitFirst > 0 && sizeStr == "countsz":
+		return splitCountReadProbeCode(r, buf, sizeStr)
 	case sizeStr == "fssz":
 		return fsconfigReadProbeCode(r, buf)
-	case sizeStr == "futex_waitv_sz":
-		return futexWaitvReadProbeCode(r, buf)
 	case r.Type == "string" && r.Size > 2048:
 		return splitStringReadProbeCode(r, buf)
 	case r.Type == "string":
@@ -241,20 +250,20 @@ func fsconfigReadProbeCode(r CaptureRead, buf string) string {
 		fmt.Sprintf("\t\t\t\t} \\\n")
 }
 
-func futexWaitvReadProbeCode(r CaptureRead, buf string) string {
+func splitCountReadProbeCode(r CaptureRead, buf string, sizeStr string) string {
+	restVar := sizeStr + "_rest"
 	return fmt.Sprintf("\t\t\t\tlong pr = 0; \\\n") +
-		fmt.Sprintf("\t\t\t\tif (futex_waitv_sz > 0 && (e)->args[%d]) { \\\n", r.Arg) +
-		fmt.Sprintf("\t\t\t\t\tlong __err = bpf_probe_read_user(%s, 24, (void *)(e)->args[%d]); \\\n", buf, r.Arg) +
+		fmt.Sprintf("\t\t\t\tif (%s > 0 && (e)->args[%d]) { \\\n", sizeStr, r.Arg) +
+		fmt.Sprintf("\t\t\t\t\tlong __err = bpf_probe_read_user(%s, %d, (void *)(e)->args[%d]); \\\n", buf, r.SplitFirst, r.Arg) +
 		fmt.Sprintf("\t\t\t\t\tif (__err < 0) { \\\n") +
 		fmt.Sprintf("\t\t\t\t\t\tpr = __err; \\\n") +
 		fmt.Sprintf("\t\t\t\t\t} else { \\\n") +
-		fmt.Sprintf("\t\t\t\t\t\tpr = 24; \\\n") +
-		fmt.Sprintf("\t\t\t\t\t\tu32 futex_waitv_rest = 0; \\\n") +
-		fmt.Sprintf("\t\t\t\t\t\tif (futex_waitv_sz > 24) futex_waitv_rest = futex_waitv_sz - 24; \\\n") +
-		fmt.Sprintf("\t\t\t\t\t\tfutex_waitv_rest &= 0xfff; \\\n") +
-		fmt.Sprintf("\t\t\t\t\t\tif (futex_waitv_rest > 0) { \\\n") +
-		fmt.Sprintf("\t\t\t\t\t\t\tlong __err2 = bpf_probe_read_user(%s + 24, futex_waitv_rest, (void *)((e)->args[%d] + 24)); \\\n", buf, r.Arg) +
-		fmt.Sprintf("\t\t\t\t\t\t\tif (__err2 == 0) pr = futex_waitv_sz; \\\n") +
+		fmt.Sprintf("\t\t\t\t\t\tpr = %d; \\\n", r.SplitFirst) +
+		fmt.Sprintf("\t\t\t\t\t\tu32 %s = 0; \\\n", restVar) +
+		fmt.Sprintf("\t\t\t\t\t\tif (%s > %d) %s = %s - %d; \\\n", sizeStr, r.SplitFirst, restVar, sizeStr, r.SplitFirst) +
+		fmt.Sprintf("\t\t\t\t\t\tif (%s > 0) { \\\n", restVar) +
+		fmt.Sprintf("\t\t\t\t\t\t\tlong __err2 = bpf_probe_read_user(%s + %d, %s, (void *)((e)->args[%d] + %d)); \\\n", buf, r.SplitFirst, restVar, r.Arg, r.SplitFirst) +
+		fmt.Sprintf("\t\t\t\t\t\t\tif (__err2 == 0) pr = %s; \\\n", sizeStr) +
 		fmt.Sprintf("\t\t\t\t\t\t} \\\n") +
 		fmt.Sprintf("\t\t\t\t\t} \\\n") +
 		fmt.Sprintf("\t\t\t\t} \\\n")
@@ -320,10 +329,6 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 	case "fsconfig":
 		if r.Arg == 3 {
 			return "fssz"
-		}
-	case "futex_waitv":
-		if r.Arg == 0 {
-			return "futex_waitv_sz"
 		}
 	}
 	return "0"
