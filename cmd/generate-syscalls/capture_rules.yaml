@@ -8,7 +8,8 @@ rules:
   - syscalls: [open, creat, access, chdir, chroot, chmod, chown, lchown, mkdir, mknod, rmdir, unlink, execve, swapon, swapoff, acct, truncate, fsopen]
     enter:
       ptr_arg: 0
-      reads: [{ arg: 0, size: 4096, type: string }]
+      payloads:
+        - { arg: 0, kind: string, direction: in, max: 4096 }
 
   - syscalls: [getcwd]
     exit:
@@ -23,7 +24,8 @@ rules:
   - syscalls: [stat, lstat]
     enter:
       ptr_arg: 0
-      reads: [{ arg: 0, size: 512, type: string }]
+      payloads:
+        - { arg: 0, kind: string, direction: in, max: 512 }
     exit:
       reads: [{ arg: 1, size: 144, offset: 1024, type: raw }]
 
@@ -48,7 +50,8 @@ rules:
   - syscalls: [openat, mkdirat, mknodat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, linkat, execveat, fspick]
     enter:
       ptr_arg: 1
-      reads: [{ arg: 1, size: 4096, type: string }]
+      payloads:
+        - { arg: 1, kind: string, direction: in, max: 4096 }
 
   - syscalls: [openat2]
     enter:
@@ -101,14 +104,16 @@ rules:
   - syscalls: [newfstatat]
     enter:
       ptr_arg: 1
-      reads: [{ arg: 1, size: 512, type: string }]
+      payloads:
+        - { arg: 1, kind: string, direction: in, max: 512 }
     exit:
       reads: [{ arg: 2, size: 144, offset: 1024, type: raw }]
 
   - syscalls: [readlink]
     enter:
       ptr_arg: 0
-      reads: [{ arg: 0, size: 512, type: string }]
+      payloads:
+        - { arg: 0, kind: string, direction: in, max: 512 }
     exit:
       payloads:
         - { arg: 1, kind: bytes, direction: out, len_from_ret: true, max: 512, offset: 1024 }
@@ -116,7 +121,8 @@ rules:
   - syscalls: [readlinkat]
     enter:
       ptr_arg: 1
-      reads: [{ arg: 1, size: 512, type: string }]
+      payloads:
+        - { arg: 1, kind: string, direction: in, max: 512 }
     exit:
       payloads:
         - { arg: 2, kind: bytes, direction: out, len_from_ret: true, max: 512, offset: 1024 }
@@ -125,23 +131,23 @@ rules:
   - syscalls: [rename, link, symlink]
     enter:
       ptr_arg: 0
-      reads:
-        - { arg: 0, size: 512, offset: 0, type: string }
-        - { arg: 1, size: 512, offset: 512, type: string }
+      payloads:
+        - { arg: 0, kind: string, direction: in, max: 512, offset: 0 }
+        - { arg: 1, kind: string, direction: in, max: 512, offset: 512 }
 
   - syscalls: [symlinkat]
     enter:
       ptr_arg: 0
-      reads:
-        - { arg: 0, size: 512, offset: 0, type: string }
-        - { arg: 2, size: 512, offset: 512, type: string }
+      payloads:
+        - { arg: 0, kind: string, direction: in, max: 512, offset: 0 }
+        - { arg: 2, kind: string, direction: in, max: 512, offset: 512 }
 
   - syscalls: [renameat, renameat2, linkat]
     enter:
       ptr_arg: 1
-      reads:
-        - { arg: 1, size: 512, offset: 0, type: string }
-        - { arg: 3, size: 512, offset: 512, type: string }
+      payloads:
+        - { arg: 1, kind: string, direction: in, max: 512, offset: 0 }
+        - { arg: 3, kind: string, direction: in, max: 512, offset: 512 }
 
   # Read/Write buffer capture (small prefix)
   - syscalls: [read, pread64]

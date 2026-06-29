@@ -860,6 +860,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `poll/ppoll` 与 `epoll_wait/epoll_pwait/epoll_pwait2` 已迁移为 `payloads`；poll fd 数组由 `count_from_arg` 描述，epoll ready event 数组由 `count_from_ret` 描述，对应 `dynamicSizeStr` 特例已删除。
 - `bpf`、`clone3`、`getcwd`、`readlink/readlinkat` 已迁移为 `payloads`，对应 `len_from_arg` / `len_from_ret` 特例已删除。
 - capture policy 已支持 `min` 下界；`openat2` 的 `open_how` 拷贝长度由 `len_from_arg: 3, min: 24, max: 64` 表达，`dynamicSizeStr` 中对应特例已删除。
+- 普通 path、at-based path、stat/readlink/newfstatat 和双 path syscall 的固定字符串捕获已迁移为 `payloads`，继续保持生成输出稳定。
 - 后续继续把剩余 `reads` 规则迁移为 policy-only，并把 `dynamicSizeStr` 中的 syscall-name 特例逐步收缩成 policy 字段。
 
 ### Phase 8: 删除旧模式与收口文档
