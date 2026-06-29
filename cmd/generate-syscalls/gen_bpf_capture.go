@@ -107,9 +107,26 @@ func captureBufferExpr(r CaptureRead) string {
 
 func captureSizeExpr(scName string, suffix string, r CaptureRead) string {
 	if r.Size == 0 {
+		if size, ok := policyDynamicSizeExpr(r); ok {
+			return size
+		}
 		return dynamicSizeStr(scName, suffix, r)
 	}
 	return fmt.Sprintf("%d", r.Size)
+}
+
+func policyDynamicSizeExpr(r CaptureRead) (string, bool) {
+	if r.Max <= 0 {
+		return "", false
+	}
+	if r.LenFromArg != nil {
+		arg := *r.LenFromArg
+		return fmt.Sprintf("((e)->args[%d] > 0 ? ((e)->args[%d] > %d ? %d : (e)->args[%d]) : 0)", arg, arg, r.Max, r.Max, arg), true
+	}
+	if r.LenFromRet {
+		return fmt.Sprintf("((e)->ret > 0 ? ((e)->ret > %d ? %d : (e)->ret) : 0)", r.Max, r.Max), true
+	}
+	return "", false
 }
 
 func dynamicPreludeCode(scName string, r CaptureRead) string {

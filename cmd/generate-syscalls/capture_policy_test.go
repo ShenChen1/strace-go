@@ -64,12 +64,15 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
 		t.Fatalf("loadCapturePolicy() error = %v", err)
 	}
 	writeRead := globalConfig.Rules[0].Enter.Reads[0]
-	if want := (CaptureRead{Arg: 1, Size: 0, Offset: 0, Type: "raw"}); writeRead != want {
-		t.Fatalf("write payload normalized to %#v, want %#v", writeRead, want)
+	if writeRead.Arg != 1 || writeRead.Size != 0 || writeRead.Offset != 0 || writeRead.Type != "raw" {
+		t.Fatalf("write payload normalized to %#v, want arg 1 dynamic raw read", writeRead)
+	}
+	if writeRead.LenFromArg == nil || *writeRead.LenFromArg != 2 || writeRead.Max != 512 {
+		t.Fatalf("write dynamic policy = %#v, want len_from_arg 2 max 512", writeRead)
 	}
 	openRead := globalConfig.Rules[1].Enter.Reads[0]
-	if want := (CaptureRead{Arg: 1, Size: 4096, Offset: 0, Type: "string"}); openRead != want {
-		t.Fatalf("string payload normalized to %#v, want %#v", openRead, want)
+	if openRead.Arg != 1 || openRead.Size != 4096 || openRead.Offset != 0 || openRead.Type != "string" {
+		t.Fatalf("string payload normalized to %#v, want fixed string read", openRead)
 	}
 }
 
@@ -116,5 +119,45 @@ func TestLoadCapturePolicyRejectsInvalidPayload(t *testing.T) {
 
 	if err := loadCapturePolicy(path); err == nil {
 		t.Fatalf("loadCapturePolicy() error = nil, want invalid kind error")
+	}
+}
+
+func TestLoadCapturePolicyRejectsInvalidDynamicLength(t *testing.T) {
+	oldConfig := globalConfig
+	defer func() { globalConfig = oldConfig }()
+
+	path := filepath.Join(t.TempDir(), "capture_rules.yaml")
+	data := []byte(`rules:
+  - syscalls: [read]
+    exit:
+      payloads:
+        - { arg: 1, kind: bytes, direction: out, len_from_arg: 2, len_from_ret: true, max: 512 }
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write test policy: %v", err)
+	}
+
+	if err := loadCapturePolicy(path); err == nil {
+		t.Fatalf("loadCapturePolicy() error = nil, want invalid dynamic length error")
+	}
+}
+
+func TestLoadCapturePolicyRequiresDynamicMax(t *testing.T) {
+	oldConfig := globalConfig
+	defer func() { globalConfig = oldConfig }()
+
+	path := filepath.Join(t.TempDir(), "capture_rules.yaml")
+	data := []byte(`rules:
+  - syscalls: [read]
+    exit:
+      payloads:
+        - { arg: 1, kind: bytes, direction: out, len_from_ret: true }
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write test policy: %v", err)
+	}
+
+	if err := loadCapturePolicy(path); err == nil {
+		t.Fatalf("loadCapturePolicy() error = nil, want missing dynamic max error")
 	}
 }

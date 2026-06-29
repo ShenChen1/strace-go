@@ -20,10 +20,13 @@ type CapturePoint struct {
 }
 
 type CaptureRead struct {
-	Arg    int    `yaml:"arg"`
-	Size   int    `yaml:"size"`
-	Offset int    `yaml:"offset"`
-	Type   string `yaml:"type"`
+	Arg        int    `yaml:"arg"`
+	Size       int    `yaml:"size"`
+	Offset     int    `yaml:"offset"`
+	Type       string `yaml:"type"`
+	Max        int    `yaml:"-"`
+	LenFromArg *int   `yaml:"-"`
+	LenFromRet bool   `yaml:"-"`
 }
 
 type CapturePayload struct {
@@ -109,6 +112,15 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 	if p.Size < 0 {
 		return CaptureRead{}, fmt.Errorf("size must be non-negative")
 	}
+	if p.LenFromArg != nil && *p.LenFromArg < 0 {
+		return CaptureRead{}, fmt.Errorf("len_from_arg must be non-negative")
+	}
+	if p.LenFromArg != nil && p.LenFromRet {
+		return CaptureRead{}, fmt.Errorf("len_from_arg and len_from_ret are mutually exclusive")
+	}
+	if (p.LenFromArg != nil || p.LenFromRet) && p.Max == 0 {
+		return CaptureRead{}, fmt.Errorf("dynamic payload length requires max")
+	}
 	if p.Direction != "" && p.Direction != "in" && p.Direction != "out" {
 		return CaptureRead{}, fmt.Errorf("unsupported direction %q", p.Direction)
 	}
@@ -122,7 +134,15 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 	} else if size == 0 {
 		size = p.Max
 	}
-	return CaptureRead{Arg: p.Arg, Size: size, Offset: p.Offset, Type: readType}, nil
+	return CaptureRead{
+		Arg:        p.Arg,
+		Size:       size,
+		Offset:     p.Offset,
+		Type:       readType,
+		Max:        p.Max,
+		LenFromArg: p.LenFromArg,
+		LenFromRet: p.LenFromRet,
+	}, nil
 }
 
 func payloadReadType(kind string) (string, error) {

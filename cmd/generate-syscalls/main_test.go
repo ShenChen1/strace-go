@@ -29,3 +29,22 @@ func TestDynamicSizeStrUsesPollNfds(t *testing.T) {
 		}
 	}
 }
+
+func TestCaptureSizeExprUsesPayloadArgLength(t *testing.T) {
+	lenArg := 2
+	read := CaptureRead{Arg: 1, LenFromArg: &lenArg, Max: 512}
+	got := captureSizeExpr("write", "enter", read)
+	want := "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
+	if got != want {
+		t.Fatalf("captureSizeExpr() = %q, want %q", got, want)
+	}
+}
+
+func TestCaptureSizeExprUsesPayloadRetLength(t *testing.T) {
+	read := CaptureRead{Arg: 1, LenFromRet: true, Max: 512}
+	got := captureSizeExpr("read", "exit", read)
+	want := "((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0)"
+	if got != want {
+		t.Fatalf("captureSizeExpr() = %q, want %q", got, want)
+	}
+}

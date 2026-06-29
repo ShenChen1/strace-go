@@ -144,7 +144,8 @@ rules:
   - syscalls: [read, pread64]
     exit:
       ptr_arg: 1
-      reads: [{ arg: 1, size: 0, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 1, kind: bytes, direction: out, len_from_ret: true, max: 512, offset: 1024 }
 
   - syscalls: [write, pwrite64]
     enter:
