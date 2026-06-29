@@ -275,12 +275,12 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 
 	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == -514 {
 		s.rememberPendingExecArgs(tPid, fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", ")))
-		if tPid == s.targetPid {
+		if tPid == int(eventRaw.Pid) {
 			return
 		}
 	}
 
-	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == 0 && tPid == s.targetPid {
+	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == 0 && tPid == int(eventRaw.Pid) {
 		argLine, ok := s.takePendingExecArgs(tPid)
 		if ok {
 			timePrefix := formatTimePrefix(eventRaw.EnterTime, s)
@@ -352,12 +352,12 @@ func formatTimePrefix(enterTimeMonoNs uint64, s *traceSession) string {
 func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, s *traceSession) bool {
 	ret := eventRaw.Ret
 	tPid := int(eventRaw.Tid)
+	tgid := int(eventRaw.Pid)
 	opts := s.opts
-	targetPid := s.targetPid
 	outWriter := s.outWriter
 	timePrefix := formatTimePrefix(eventRaw.EnterTime, s)
 	isExecSuspended := (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == -514
-	if isExecSuspended && tPid != targetPid && opts != nil && opts.FollowForks {
+	if isExecSuspended && tPid != tgid && opts != nil && opts.FollowForks {
 		exited := eventRaw.ProbeRetEnter == 1
 
 		argLine, ok := s.pendingExecArgsFor(tPid)
@@ -370,17 +370,17 @@ func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Resul
 		}
 
 		if exited {
-			fmt.Fprintf(outWriter, "%s%-5d %s <pid changed to %d ...>\n", timePrefix, tPid, argLine, targetPid)
+			fmt.Fprintf(outWriter, "%s%-5d %s <pid changed to %d ...>\n", timePrefix, tPid, argLine, tgid)
 		} else {
 			fmt.Fprintf(outWriter, "%s%-5d %s <unfinished ...>\n", timePrefix, tPid, argLine)
 		}
 		return true
 	}
 	isExecSuccess := (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == 0
-	if isExecSuccess && tPid != targetPid && opts != nil && opts.FollowForks {
+	if isExecSuccess && tPid != tgid && opts != nil && opts.FollowForks {
 		exited := eventRaw.ProbeRetEnter == 1
 		s.deletePendingExecArgs(tPid)
-		s.discardExitStatus(targetPid)
+		s.discardExitStatus(tgid)
 
 		if exited {
 			return true
@@ -389,19 +389,19 @@ func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Resul
 		if eventRaw.ProbeRetExit > 0 {
 			suspendedSysId := uint32(eventRaw.ProbeRetExit)
 			if suspMeta, ok := meta.SyscallTable[suspendedSysId]; ok {
-				s.deleteSuspendedSyscall(targetPid)
+				s.deleteSuspendedSyscall(tgid)
 
 				if suspMeta.Name == "rt_sigsuspend" {
-					fmt.Fprintf(outWriter, "%s%-5d <... rt_sigsuspend resumed>) = ?\n", timePrefix, targetPid)
+					fmt.Fprintf(outWriter, "%s%-5d <... rt_sigsuspend resumed>) = ?\n", timePrefix, tgid)
 				} else if suspMeta.Name == "nanosleep" {
-					fmt.Fprintf(outWriter, "%s%-5d <... nanosleep resumed> <unfinished ...>) = ?\n", timePrefix, targetPid)
+					fmt.Fprintf(outWriter, "%s%-5d <... nanosleep resumed> <unfinished ...>) = ?\n", timePrefix, tgid)
 				}
 			}
 		}
 		if !opts.QuietThreadExecve {
-			fmt.Fprintf(outWriter, "%s%-5d +++ superseded by execve in pid %d +++\n", timePrefix, targetPid, tPid)
+			fmt.Fprintf(outWriter, "%s%-5d +++ superseded by execve in pid %d +++\n", timePrefix, tgid, tPid)
 		}
-		fmt.Fprintf(outWriter, "%s%-5d <... %s resumed>) = 0\n", timePrefix, targetPid, scMeta.Name)
+		fmt.Fprintf(outWriter, "%s%-5d <... %s resumed>) = 0\n", timePrefix, tgid, scMeta.Name)
 		return true
 	}
 	return false
