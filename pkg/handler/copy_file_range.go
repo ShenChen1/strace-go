@@ -34,11 +34,7 @@ func formatLoffPointer(ctx *Context, argIndex, offset int, ptr uint64) string {
 		return "NULL"
 	}
 
-	var bpfBuf []byte
-	if len(ctx.StrArgBuf) >= offset+8 {
-		bpfBuf = ctx.StrArgBuf[offset : offset+8]
-	}
-	data, ok := ctx.FetchArgStructDataExact(argIndex, ptr, 8, false, bpfBuf)
+	data, ok := ctx.EnterArgSnapshot(argIndex, offset, 8)
 	if !ok {
 		return fmt.Sprintf("%#x", ptr)
 	}

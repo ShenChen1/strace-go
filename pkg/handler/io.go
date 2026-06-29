@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-
-	"strace-go/pkg/format"
 )
 
 func init() {
@@ -27,14 +25,14 @@ type IoHandler struct {
 
 func (h *IoHandler) Handle(ctx *Context) Result {
 	res := Result{}
-	
+
 	// Fallback to DefaultHandler for scalars, we only override iovec arrays
 	argCount := len(ctx.ScMeta.ArgTypes)
 	for i := 0; i < argCount; i++ {
 		argTyp := ctx.ScMeta.ArgTypes[i]
 		argName := ctx.ScMeta.Args[i]
 		val := ctx.Args[i]
-		
+
 		if strings.Contains(argTyp, "struct iovec *") {
 			// Find the corresponding count argument
 			// For readv/writev/preadv/pwritev/preadv2/pwritev2, count is the next argument (iovcnt)
@@ -44,27 +42,17 @@ func (h *IoHandler) Handle(ctx *Context) Result {
 			if i+1 < argCount {
 				countVal = ctx.Args[i+1]
 			}
-			
-			isWrite := strings.Contains(ctx.SysName, "writev") || ctx.SysName == "vmsplice"
-			
-			// For process_vm_writev, local_iov is read, remote_iov is write(remote memory not readable by us typically unless we read remote process, but we use Tid so we read current process)
-			// Actually process_vm_writev writes TO remote process FROM local_iov. So local_iov is isWrite=true.
-			// remote_iov is just pointers in remote process, we can't easily dereference without knowing remote pid.
-			// Let's just treat remote_iov as no-data read for now.
-			if argName == "remote_iov" {
-				isWrite = false
-			}
-			
-			res.ArgParts = append(res.ArgParts, DecodeIovecArray(ctx, val, countVal, isWrite, ctx.Ret))
+
+			res.ArgParts = append(res.ArgParts, DecodeIovecArray(ctx, i, val, countVal))
 			continue
 		}
-		
+
 		// If not iovec, use default logic
 		if part, ok := h.decodeXlat(ctx, argName, val); ok {
 			res.ArgParts = append(res.ArgParts, part)
 			continue
 		}
-		
+
 		if strings.Contains(argTyp, "*") {
 			if val == 0 {
 				res.ArgParts = append(res.ArgParts, "NULL")
@@ -81,65 +69,61 @@ func (h *IoHandler) Handle(ctx *Context) Result {
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
 			continue
 		}
-		
+
 		res.ArgParts = append(res.ArgParts, h.decodeScalar(ctx, argTyp, argName, val))
 	}
-	
+
 	return res
 }
 
-func DecodeIovecArray(ctx *Context, addr uint64, count uint64, isWrite bool, ret int64) string {
-	if addr == 0 { return "NULL" }
-	if count == 0 { return "[]" }
-	
-	limit := 16
+const (
+	iovecSize         = 16
+	iovecDisplayLimit = 16
+	iovecRemoteOffset = BpfMiscArgOffset
+)
+
+func DecodeIovecArray(ctx *Context, argIndex int, addr uint64, count uint64) string {
+	if addr == 0 {
+		return "NULL"
+	}
+	if count == 0 {
+		return "[]"
+	}
+
 	readCount := int(count)
-	if readCount > limit { readCount = limit }
-	
-	data, _ := ctx.MemReader.ReadRobust(ctx.Tid, addr, readCount*16, true)
-	if len(data) == 0 { return fmt.Sprintf("%#x", addr) }
-	
-	actualCount := len(data) / 16
+	if readCount > iovecDisplayLimit {
+		readCount = iovecDisplayLimit
+	}
+
+	readSize := readCount * iovecSize
+	offset := iovecSnapshotOffset(ctx.SysName, argIndex)
+	data, ok := ctx.EnterArgSnapshotPrefix(argIndex, offset, readSize)
+	if !ok || len(data) == 0 {
+		return fmt.Sprintf("%#x", addr)
+	}
+
+	actualCount := len(data) / iovecSize
 	var parts []string
-	
-	bytesRemaining := ret
-	if isWrite {
-		bytesRemaining = -1 // No limit based on return value for writes
-	}
-	
+
 	for i := 0; i < actualCount; i++ {
-		base := binary.LittleEndian.Uint64(data[i*16 : i*16+8])
-		length := binary.LittleEndian.Uint64(data[i*16+8 : i*16+16])
-		
-		shouldReadData := isWrite || (!isWrite && ret > 0 && ctx.ProbeRetExit >= 0)
-		
-		if shouldReadData {
-			printLen := int(length)
-			if !isWrite && bytesRemaining >= 0 {
-				if int64(printLen) > bytesRemaining {
-					printLen = int(bytesRemaining)
-				}
-				bytesRemaining -= int64(printLen)
-			}
-			
-			strLimit := ctx.Opts.StringLimit
-			if strLimit <= 0 { strLimit = 32 }
-			if printLen > strLimit { printLen = strLimit }
-			
-			buf, _ := ctx.MemReader.ReadRobust(ctx.Tid, base, printLen, true)
-			if len(buf) > 0 {
-				parts = append(parts, fmt.Sprintf("{iov_base=%s, iov_len=%d}", format.BufferEscape(buf, strLimit, int(length), 0), length))
-			} else {
-				parts = append(parts, fmt.Sprintf("{iov_base=%#x, iov_len=%d}", base, length))
-			}
-		} else {
-			parts = append(parts, fmt.Sprintf("{iov_base=%#x, iov_len=%d}", base, length))
-		}
+		base := binary.LittleEndian.Uint64(data[i*iovecSize : i*iovecSize+8])
+		length := binary.LittleEndian.Uint64(data[i*iovecSize+8 : i*iovecSize+iovecSize])
+		parts = append(parts, fmt.Sprintf("{iov_base=%#x, iov_len=%d}", base, length))
 	}
-	
+
 	res := "[" + strings.Join(parts, ", ") + "]"
-	if len(data) < readCount*16 || int(count) > limit {
+	if len(data) < readSize || int(count) > iovecDisplayLimit {
+		if len(parts) == 0 {
+			return fmt.Sprintf("%#x", addr)
+		}
 		res = strings.TrimSuffix(res, "]") + ", ...]"
 	}
 	return res
+}
+
+func iovecSnapshotOffset(scName string, argIndex int) int {
+	if (scName == "process_vm_readv" || scName == "process_vm_writev") && argIndex == 3 {
+		return iovecRemoteOffset
+	}
+	return BpfEnterArgOffset
 }

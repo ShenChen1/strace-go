@@ -3,16 +3,13 @@ package main
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
+	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
-
-var lastSuspendedSyscall = make(map[int]string)
-var lastSuspendedSyscallLock sync.Mutex
 
 // IMPACT: resolvePtrProbeRet returns the specific probe status for eventRaw.Ptr based on its argument index.
 func resolvePtrProbeRet(eventRaw *bpfEvent) int32 {
@@ -62,10 +59,26 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		}
 	}
 	tPid := int(eventRaw.Tid)
+
+	if isLifecycleEvent(eventRaw) {
+		s.handleLifecycleEvent(eventRaw)
+		return
+	}
+
 	scMeta, ok := meta.SyscallTable[eventRaw.SysId]
 	if !ok {
 		scMeta = meta.Syscall{Name: fmt.Sprintf("sys_%d", eventRaw.SysId)}
 	}
+
+	if isGenericEnterEvent(eventRaw) {
+		s.rememberEnterEvent(eventRaw)
+		if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON &&
+			(s.opts.DebugEvents || checkShouldPrint(eventRaw, scMeta, "", false, s.targetPid, s.opts, s.fdMap)) {
+			s.writeJSONRawEvent(eventRaw, scMeta)
+		}
+		return
+	}
+	pendingEnter := s.consumeEnterEvent(eventRaw)
 
 	ret := eventRaw.Ret
 	strArgBuf := eventRaw.StrArg[:]
@@ -81,7 +94,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		capSize = 4097
 	}
 	ptrProbeRet := resolvePtrProbeRet(eventRaw)
-	// IMPACT: Use Tid instead of Pid to guarantee process_vm_readv succeeds even if leader thread is zombie.
+	// Decode only the string snapshot copied by BPF for path filtering and display.
 	rawStrArg := s.decoder.DecodeString(int(eventRaw.Tid), eventRaw.Ptr, strArgBuf[:capSize], ptrProbeRet, scMeta.Name, 0)
 
 	defer func() {
@@ -96,6 +109,11 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		}
 	}()
 	defer s.updateFDOffsets(eventRaw, scMeta)
+
+	if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON && s.opts.DebugEvents {
+		s.writeJSONRawEvent(eventRaw, scMeta)
+		return
+	}
 
 	if scMeta.Name == "arch_prctl" && eventRaw.Args[0] == 0x1002 {
 		return
@@ -131,7 +149,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		ProbeRetEnter: eventRaw.ProbeRetEnter, ProbeRetExit: eventRaw.ProbeRetExit,
 		Ptr: eventRaw.Ptr, DataLen: eventRaw.DataLen, StrArgBuf: strArgBuf, RawStrArg: rawStrArg,
 		BufferFileOffset: bufferFileOffset, BufferFileOffsetOK: bufferFileOffsetOK,
-		ScMeta: scMeta, MemReader: s.memReader, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdMap,
+		ScMeta: scMeta, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdMap,
 		FdFiles: s.fdFiles,
 	}
 
@@ -147,6 +165,10 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 			if shouldPrint {
 				h := handler.Get(scMeta.Name)
 				res := h.Handle(ctx)
+				if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON {
+					s.writeJSONEvent(eventRaw, scMeta, res, ctx, pendingEnter)
+					return
+				}
 				argLine := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
 				padding := " "
 				totalLen := len(timePrefix) + len(pidPrefix) + len(argLine)
@@ -179,7 +201,32 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	res := h.Handle(ctx)
 	updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, s.targetPid, s.fdMap)
 
+	if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON {
+		status := successfulFailedOptions{
+			successfulOnly: s.opts.SuccessfulOnly,
+			failedOnly:     s.opts.FailedOnly,
+			traceStatus:    s.opts.TraceStatus,
+		}
+		if shouldEmitStatus(eventRaw, scMeta, status) {
+			s.writeJSONEvent(eventRaw, scMeta, res, ctx, pendingEnter)
+		}
+		return
+	}
+
 	s.handleEventOutput(ctx, eventRaw, res)
+}
+
+func (s *traceSession) handleLifecycleEvent(eventRaw *bpfEvent) {
+	tid := int(eventRaw.Tid)
+	switch eventRaw.EventFlags {
+	case lifecycleExit, lifecycleFree:
+		delete(s.pendingExecArgs, tid)
+		delete(s.suspendedSyscalls, tid)
+		delete(s.pendingSyscalls, uint32(eventRaw.Tid))
+	}
+	if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON {
+		s.writeJSONLifecycleEvent(eventRaw)
+	}
 }
 
 // IMPACT: handleEventOutput handles specific unfinished states and delegates trace printing.
@@ -188,36 +235,14 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 	scMeta := ctx.ScMeta
 	ret := eventRaw.Ret
 
-	isFailed := ret < 0 && ret >= -4095
-	if scMeta.Name == "exit" || scMeta.Name == "exit_group" {
-		isFailed = false
-	}
-
-	// For sys_enter (ProbeRetEnter == 3), ret is usually 0. We can't know if it will fail.
-	// For simplicity, if filtering is enabled, we skip printing unfinished to avoid dangling lines.
-	hasStatusFilter := s.opts != nil && (s.opts.SuccessfulOnly || s.opts.FailedOnly || len(s.opts.TraceStatus) > 0)
-	if hasStatusFilter && eventRaw.ProbeRetEnter == 3 {
-		return
-	}
-
-	if eventRaw.ProbeRetEnter != 3 { // Evaluate success/fail on exit or normal complete
-		if s.opts != nil && s.opts.SuccessfulOnly && isFailed {
-			return
+	if s.opts != nil {
+		status := successfulFailedOptions{
+			successfulOnly: s.opts.SuccessfulOnly,
+			failedOnly:     s.opts.FailedOnly,
+			traceStatus:    s.opts.TraceStatus,
 		}
-		if s.opts != nil && s.opts.FailedOnly && !isFailed {
+		if !shouldEmitStatus(eventRaw, scMeta, status) {
 			return
-		}
-		if s.opts != nil && len(s.opts.TraceStatus) > 0 {
-			statusMatch := false
-			if s.opts.TraceStatus["successful"] && !isFailed {
-				statusMatch = true
-			}
-			if s.opts.TraceStatus["failed"] && isFailed {
-				statusMatch = true
-			}
-			if !statusMatch {
-				return
-			}
 		}
 	}
 
@@ -233,9 +258,7 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 		line := fmt.Sprintf("%s(%s <unfinished ...>", scMeta.Name, args)
 		fmt.Fprintf(s.outWriter, "%s%s\n", pidPrefix, line)
 
-		lastSuspendedSyscallLock.Lock()
-		lastSuspendedSyscall[tPid] = scMeta.Name
-		lastSuspendedSyscallLock.Unlock()
+		s.rememberSuspendedSyscall(tPid, scMeta.Name)
 		return
 	}
 
@@ -244,19 +267,14 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 	}
 
 	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == -514 {
-		pendingExecArgsLock.Lock()
-		pendingExecArgs[tPid] = fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
-		pendingExecArgsLock.Unlock()
+		s.rememberPendingExecArgs(tPid, fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", ")))
 		if tPid == s.targetPid {
 			return
 		}
 	}
 
 	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == 0 && tPid == s.targetPid {
-		pendingExecArgsLock.Lock()
-		argLine, ok := pendingExecArgs[tPid]
-		delete(pendingExecArgs, tPid)
-		pendingExecArgsLock.Unlock()
+		argLine, ok := s.takePendingExecArgs(tPid)
 		if ok {
 			timePrefix := formatTimePrefix(eventRaw.EnterTime, s)
 			pidPrefix := ""
@@ -335,9 +353,7 @@ func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Resul
 	if isExecSuspended && tPid != targetPid && opts != nil && opts.FollowForks {
 		exited := eventRaw.ProbeRetEnter == 1
 
-		pendingExecArgsLock.Lock()
-		argLine, ok := pendingExecArgs[tPid]
-		pendingExecArgsLock.Unlock()
+		argLine, ok := s.pendingExecArgsFor(tPid)
 		if !ok {
 			argLine = fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
 		}
@@ -356,9 +372,7 @@ func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Resul
 	isExecSuccess := (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == 0
 	if isExecSuccess && tPid != targetPid && opts != nil && opts.FollowForks {
 		exited := eventRaw.ProbeRetEnter == 1
-		pendingExecArgsLock.Lock()
-		delete(pendingExecArgs, tPid)
-		pendingExecArgsLock.Unlock()
+		s.deletePendingExecArgs(tPid)
 		s.discardExitStatus(targetPid)
 
 		if exited {
@@ -368,9 +382,7 @@ func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Resul
 		if eventRaw.ProbeRetExit > 0 {
 			suspendedSysId := uint32(eventRaw.ProbeRetExit)
 			if suspMeta, ok := meta.SyscallTable[suspendedSysId]; ok {
-				lastSuspendedSyscallLock.Lock()
-				delete(lastSuspendedSyscall, targetPid)
-				lastSuspendedSyscallLock.Unlock()
+				s.deleteSuspendedSyscall(targetPid)
 
 				if suspMeta.Name == "rt_sigsuspend" {
 					fmt.Fprintf(outWriter, "%s%-5d <... rt_sigsuspend resumed>) = ?\n", timePrefix, targetPid)
@@ -445,12 +457,7 @@ func printSyscallOutput(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Res
 	}
 
 	line := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
-	lastSuspendedSyscallLock.Lock()
-	_, wasSuspended := lastSuspendedSyscall[tPid]
-	if wasSuspended {
-		delete(lastSuspendedSyscall, tPid)
-	}
-	lastSuspendedSyscallLock.Unlock()
+	wasSuspended := s.consumeSuspendedSyscall(tPid)
 
 	if wasSuspended {
 		if scMeta.Name == "nanosleep" {
@@ -497,9 +504,7 @@ func printSyscallOutput(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Res
 	}
 
 	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret < 0 {
-		pendingExecArgsLock.Lock()
-		delete(pendingExecArgs, tPid)
-		pendingExecArgsLock.Unlock()
+		s.deletePendingExecArgs(tPid)
 	}
 }
 

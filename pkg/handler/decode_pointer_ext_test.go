@@ -40,15 +40,14 @@ func stringArrayContext(reader mapMemoryReader) *Context {
 		ScMeta: meta.Syscall{
 			Name: "execveat",
 		},
-		MemReader: reader,
-		Decoder:   event.NewDecoder(reader),
+		Decoder: event.NewDecoder(),
 		Opts: &cli.Options{
 			StringLimit: 32,
 		},
 	}
 }
 
-func TestDecodeStringArrayUsesTraceeMemory(t *testing.T) {
+func TestDecodeStringArrayReturnsPointerWithoutSnapshot(t *testing.T) {
 	reader := mapMemoryReader{
 		0x1000: pointerBytes(0x2000),
 		0x1008: pointerBytes(0x3000),
@@ -58,23 +57,10 @@ func TestDecodeStringArrayUsesTraceeMemory(t *testing.T) {
 	}
 	ctx := stringArrayContext(reader)
 
-	if got := decodeStringArray(ctx, 0x1000, "argv"); got != `["alpha", "beta"]` {
+	if got := decodeStringArray(ctx, 0x1000, "argv"); got != "0x1000" {
 		t.Fatalf("decodeStringArray(argv) = %q", got)
 	}
-	if got := decodeStringArray(ctx, 0x1000, "envp"); got != "0x1000 /* 2 vars */" {
-		t.Fatalf("decodeStringArray(envp) = %q", got)
-	}
-}
-
-func TestDecodeStringArrayUsesSingularVar(t *testing.T) {
-	reader := mapMemoryReader{
-		0x1000: pointerBytes(0x2000),
-		0x1008: pointerBytes(0),
-		0x2000: append([]byte("VALUE=1"), 0),
-	}
-	ctx := stringArrayContext(reader)
-
-	if got := decodeStringArray(ctx, 0x1000, "envp"); got != "0x1000 /* 1 var */" {
+	if got := decodeStringArray(ctx, 0x1000, "envp"); got != "0x1000" {
 		t.Fatalf("decodeStringArray(envp) = %q", got)
 	}
 }
@@ -86,34 +72,6 @@ func TestDecodeStringArrayReportsUnreadablePointer(t *testing.T) {
 		t.Fatalf("decodeStringArray(argv) = %q", got)
 	}
 	if got := decodeStringArray(ctx, 0x1000, "envp"); got != "0x1000" {
-		t.Fatalf("decodeStringArray(envp) = %q", got)
-	}
-}
-
-func TestDecodeStringArrayAbbreviatesAfter32Elements(t *testing.T) {
-	reader := mapMemoryReader{
-		0x2000: append([]byte("x"), 0),
-	}
-	for i := 0; i < 33; i++ {
-		reader[0x1000+uint64(i*8)] = pointerBytes(0x2000)
-	}
-	reader[0x1000+33*8] = pointerBytes(0)
-	ctx := stringArrayContext(reader)
-
-	want := "[" + strings.TrimSuffix(strings.Repeat(`"x", `, 32), ", ") + ", ...]"
-	if got := decodeStringArray(ctx, 0x1000, "argv"); got != want {
-		t.Fatalf("decodeStringArray(argv) = %q, want %q", got, want)
-	}
-}
-
-func TestDecodeStringArrayMarksUnterminatedEnv(t *testing.T) {
-	reader := mapMemoryReader{
-		0x1000: pointerBytes(0x2000),
-		0x2000: append([]byte("VALUE=1"), 0),
-	}
-	ctx := stringArrayContext(reader)
-
-	if got := decodeStringArray(ctx, 0x1000, "envp"); got != "0x1000 /* 1 var, unterminated */" {
 		t.Fatalf("decodeStringArray(envp) = %q", got)
 	}
 }
@@ -263,7 +221,7 @@ func TestDecodeExecSnapshotHonorsStringLimit40(t *testing.T) {
 	}
 }
 
-func TestDecodeWriteDumpUsesTraceeMemoryBeyondBpfPrefix(t *testing.T) {
+func TestDecodeWriteDumpDoesNotUseTraceeMemoryBeyondBpfPrefix(t *testing.T) {
 	data := make([]byte, 0x300)
 	for i := range data {
 		data[i] = byte(i)
@@ -280,13 +238,14 @@ func TestDecodeWriteDumpUsesTraceeMemoryBeyondBpfPrefix(t *testing.T) {
 		},
 		ProbeRetEnter: 0,
 		StrArgBuf:     make([]byte, 1536),
-		MemReader:     mapMemoryReader{0x1000: data},
 		Opts: &cli.Options{
 			StringLimit:   32,
 			TraceWriteFDs: map[int32]bool{1: true},
 		},
 	}
-	ctx.Decoder = event.NewDecoder(ctx.MemReader)
+	copy(ctx.StrArgBuf[:512], data[:512])
+	ctx.DataLen = 512
+	ctx.Decoder = event.NewDecoder()
 
 	res := Result{}
 	got, ok := decodeBufferArg(ctx, 0x1000, &res)
@@ -296,11 +255,11 @@ func TestDecodeWriteDumpUsesTraceeMemoryBeyondBpfPrefix(t *testing.T) {
 	if !strings.HasSuffix(got, "...") {
 		t.Fatalf("write buffer summary = %q, want abbreviated string", got)
 	}
-	if !strings.Contains(res.HexDumpStr, "00200") {
-		t.Fatalf("hexdump did not include data beyond BPF prefix:\n%s", res.HexDumpStr)
+	if strings.Contains(res.HexDumpStr, "00200") {
+		t.Fatalf("hexdump unexpectedly included data beyond BPF prefix:\n%s", res.HexDumpStr)
 	}
-	if strings.Contains(res.HexDumpStr, "Cannot fetch") {
-		t.Fatalf("hexdump unexpectedly reported missing bytes:\n%s", res.HexDumpStr)
+	if !strings.Contains(res.HexDumpStr, "Cannot fetch 256 bytes") {
+		t.Fatalf("hexdump did not report missing bytes:\n%s", res.HexDumpStr)
 	}
 }
 
@@ -334,7 +293,6 @@ func TestDecodeWriteDumpExtendsFromWrittenFile(t *testing.T) {
 		},
 		ProbeRetEnter:      0,
 		StrArgBuf:          make([]byte, 1536),
-		MemReader:          mapMemoryReader{},
 		BufferFileOffset:   15,
 		BufferFileOffsetOK: true,
 		FdFiles:            map[string]*os.File{"101:1": tmp},
@@ -343,7 +301,9 @@ func TestDecodeWriteDumpExtendsFromWrittenFile(t *testing.T) {
 			TraceWriteFDs: map[int32]bool{1: true},
 		},
 	}
-	ctx.Decoder = event.NewDecoder(ctx.MemReader)
+	copy(ctx.StrArgBuf[:512], data[:512])
+	ctx.DataLen = 512
+	ctx.Decoder = event.NewDecoder()
 
 	res := Result{}
 	if _, ok := decodeBufferArg(ctx, 0x1000, &res); !ok {

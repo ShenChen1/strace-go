@@ -15,153 +15,214 @@ import (
 
 // IMPACT: updateFDMap dynamically tracks fd modifications inside open, dup, socket and close syscalls.
 func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, decoder *event.Decoder, targetPid int, fdMap map[string]string) {
-	ret := eventRaw.Ret
 	strArgBuf := eventRaw.StrArg[:]
-	if ret >= 0 && isFdReturnSyscall(scMeta.Name) {
-		linkPath := fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Pid, ret)
-		target, err := os.Readlink(linkPath)
-		if err == nil {
-			if strings.HasPrefix(target, "anon_inode:[eventfd]") {
-				forceCount := (scMeta.Name == "eventfd" || scMeta.Name == "eventfd2")
-				flags := uint64(0)
-				if len(eventRaw.Args) > 1 {
-					flags = eventRaw.Args[1]
-				}
-				if info := handler.FormatEventfdInfo(linkPath, uint64(uint32(eventRaw.Args[0])), flags, forceCount); info != "" {
-					target = info
-				}
-			}
-			fdMap[fmt.Sprintf("%d:%d", targetPid, int32(ret))] = target
-		} else if scMeta.Name == "eventfd" || scMeta.Name == "eventfd2" {
-			flags := uint64(0)
-			if len(eventRaw.Args) > 1 {
-				flags = eventRaw.Args[1]
-			}
-			if info := handler.FormatEventfdInfo(linkPath, uint64(uint32(eventRaw.Args[0])), flags, true); info != "" {
-				fdMap[fmt.Sprintf("%d:%d", targetPid, int32(ret))] = info
-			}
-		}
-	}
-	if scMeta.Name == "read" && ret == 8 {
-		fd := int32(eventRaw.Args[0])
-		key := fmt.Sprintf("%d:%d", targetPid, fd)
-		if target, ok := fdMap[key]; ok && strings.Contains(target, "eventfd-count=") {
-			isSem := strings.Contains(target, "eventfd-semaphore=1")
-			re := regexp.MustCompile(`eventfd-count=([^,]+)`)
-			m := re.FindStringSubmatch(target)
-			if len(m) == 2 {
-				oldValStr := m[1]
-				var oldVal uint64
-				if strings.HasPrefix(oldValStr, "0x") {
-					fmt.Sscanf(oldValStr, "0x%x", &oldVal)
-				} else {
-					fmt.Sscanf(oldValStr, "%d", &oldVal)
-				}
-				newVal := uint64(0)
-				if isSem && oldVal > 0 {
-					newVal = oldVal - 1
-				}
-				newValStr := fmt.Sprintf("0x%x", newVal)
-				if newVal == 0 {
-					newValStr = "0"
-				}
-				fdMap[key] = re.ReplaceAllString(target, "eventfd-count="+newValStr)
-			}
-		}
-	}
-	if scMeta.Name == "open" || scMeta.Name == "openat" || scMeta.Name == "openat2" || scMeta.Name == "creat" {
-		if ret >= 0 {
-			p := rawStrArg
-			if scMeta.Name == "openat" || scMeta.Name == "openat2" {
-				// IMPACT: Use Tid instead of Pid to guarantee process_vm_readv succeeds even if leader thread is zombie.
-				p = decoder.DecodeString(int(eventRaw.Tid), eventRaw.Args[1], strArgBuf, eventRaw.ProbeRetEnter, scMeta.Name, 0)
-			}
-			if p != "" && !strings.HasPrefix(p, "0x") && p != "NULL" {
-				if strings.HasPrefix(p, `"`) && strings.HasSuffix(p, `"`) {
-					p = p[1 : len(p)-1]
-				}
-				fdMap[fmt.Sprintf("%d:%d", targetPid, int32(ret))] = p
-			}
-		}
-	}
-	if (scMeta.Name == "dup" || scMeta.Name == "dup2" || scMeta.Name == "dup3") && ret >= 0 {
-		oldFd := int32(eventRaw.Args[0])
-		if p, ok := fdMap[fmt.Sprintf("%d:%d", targetPid, oldFd)]; ok {
-			fdMap[fmt.Sprintf("%d:%d", targetPid, int32(ret))] = p
-		}
-	}
-	// Deletion for "close" is deferred to the end of handleEvent to ensure DecodeFd still has the state.
-	if (scMeta.Name == "pipe" || scMeta.Name == "pipe2") && ret == 0 {
-		if d, err := decoder.MemReader.ReadRobust(int(eventRaw.Tid), eventRaw.Args[0], 8, true); err == nil && len(d) >= 8 {
-			fd1 := int32(binary.LittleEndian.Uint32(d[0:4]))
-			fd2 := int32(binary.LittleEndian.Uint32(d[4:8]))
-			if target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, fd1)); err == nil {
-				fdMap[fmt.Sprintf("%d:%d", targetPid, fd1)] = target
-			}
-			if target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, fd2)); err == nil {
-				fdMap[fmt.Sprintf("%d:%d", targetPid, fd2)] = target
-			}
-		}
-	}
-	if scMeta.Name == "socketpair" && ret == 0 {
-		if d, err := decoder.MemReader.ReadRobust(int(eventRaw.Tid), eventRaw.Args[3], 8, true); err == nil && len(d) >= 8 {
-			fd1 := int32(binary.LittleEndian.Uint32(d[0:4]))
-			fd2 := int32(binary.LittleEndian.Uint32(d[4:8]))
-			domain := eventRaw.Args[0]
-			proto := eventRaw.Args[2]
-			info := meta.DecodeFlags(domain, "addrfams")
-			if domain == 16 {
-				info += ":" + meta.DecodeFlags(proto, "netlink_protocols")
-			}
+	updateFdReturnMap(eventRaw, scMeta, targetPid, fdMap)
+	updateEventfdCount(eventRaw, scMeta, targetPid, fdMap)
+	updateOpenedPathFDMap(eventRaw, scMeta, rawStrArg, decoder, strArgBuf, targetPid, fdMap)
+	updateDupFDMap(eventRaw, scMeta, targetPid, fdMap)
+	updatePipeFDMapFromSnapshot(eventRaw, scMeta, targetPid, fdMap)
+	updateSocketpairFDMap(eventRaw, scMeta, targetPid, fdMap)
+	updateSocketFDMap(eventRaw, scMeta, targetPid, fdMap)
+	updateNetlinkFDMap(eventRaw, scMeta, targetPid, fdMap)
+	updateCwdFDMap(eventRaw, scMeta, rawStrArg, targetPid, fdMap)
+}
 
-			if target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, fd1)); err == nil {
-				fdMap[fmt.Sprintf("%d:%d", targetPid, fd1)] = target + "|" + info
-			} else {
-				fdMap[fmt.Sprintf("%d:%d", targetPid, fd1)] = "socket:[]|" + info
+func updateFdReturnMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	if eventRaw.Ret < 0 || !isFdReturnSyscall(scMeta.Name) {
+		return
+	}
+	linkPath := fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Pid, eventRaw.Ret)
+	target, err := os.Readlink(linkPath)
+	if err == nil {
+		if strings.HasPrefix(target, "anon_inode:[eventfd]") {
+			if info := formatEventfdTarget(linkPath, eventRaw, scMeta, false); info != "" {
+				target = info
 			}
-			if target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, fd2)); err == nil {
-				fdMap[fmt.Sprintf("%d:%d", targetPid, fd2)] = target + "|" + info
-			} else {
-				fdMap[fmt.Sprintf("%d:%d", targetPid, fd2)] = "socket:[]|" + info
-			}
+		}
+		fdMap[fmt.Sprintf("%d:%d", targetPid, int32(eventRaw.Ret))] = target
+		return
+	}
+	if scMeta.Name == "eventfd" || scMeta.Name == "eventfd2" {
+		if info := formatEventfdTarget(linkPath, eventRaw, scMeta, true); info != "" {
+			fdMap[fmt.Sprintf("%d:%d", targetPid, int32(eventRaw.Ret))] = info
 		}
 	}
-	if (scMeta.Name == "socket") && ret >= 0 {
-		domain := eventRaw.Args[0]
-		proto := eventRaw.Args[2]
-		info := meta.DecodeFlags(domain, "addrfams")
-		if domain == 16 {
-			info += ":" + meta.DecodeFlags(proto, "netlink_protocols")
-		}
+}
 
-		key := fmt.Sprintf("%d:%d", targetPid, int32(ret))
-		target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, int32(ret)))
-		if err != nil {
-			target = "socket:[]"
-		}
-		fdMap[key] = target + "|" + info
+func formatEventfdTarget(linkPath string, eventRaw *bpfEvent, scMeta meta.Syscall, force bool) string {
+	flags := uint64(0)
+	if len(eventRaw.Args) > 1 {
+		flags = eventRaw.Args[1]
 	}
-	if (scMeta.Name == "bind" || scMeta.Name == "getsockname") && ret == 0 {
-		fd := int32(eventRaw.Args[0])
-		ptr := eventRaw.Args[1]
-		if d, err := decoder.MemReader.ReadRobust(int(eventRaw.Pid), ptr, 12, true); err == nil && len(d) >= 8 {
-			family := binary.LittleEndian.Uint16(d[0:2])
-			if family == 16 { // AF_NETLINK
-				nlPid := binary.LittleEndian.Uint32(d[4:8])
-				fdMap[fmt.Sprintf("%d:%d", targetPid, fd)] = fmt.Sprintf("NETLINK:[SOCK_DIAG:%d]", nlPid)
-			}
-		}
+	forceCount := force || scMeta.Name == "eventfd" || scMeta.Name == "eventfd2"
+	return handler.FormatEventfdInfo(linkPath, uint64(uint32(eventRaw.Args[0])), flags, forceCount)
+}
+
+func updateEventfdCount(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	if scMeta.Name != "read" || eventRaw.Ret != 8 {
+		return
 	}
-	// IMPACT: Keep tracee's tracked working directory state updated in fdMap to resolve AT_FDCWD correctly under fast timing races.
-	if scMeta.Name == "chdir" && ret == 0 {
-		p := rawStrArg
-		if p != "" && !strings.HasPrefix(p, "0x") && p != "NULL" {
-			handler.UpdateCwd(targetPid, p, fdMap, int(eventRaw.Pid))
-		}
+	fd := int32(eventRaw.Args[0])
+	key := fmt.Sprintf("%d:%d", targetPid, fd)
+	target, ok := fdMap[key]
+	if !ok || !strings.Contains(target, "eventfd-count=") {
+		return
 	}
-	if scMeta.Name == "fchdir" && ret == 0 {
+	isSem := strings.Contains(target, "eventfd-semaphore=1")
+	re := regexp.MustCompile(`eventfd-count=([^,]+)`)
+	m := re.FindStringSubmatch(target)
+	if len(m) != 2 {
+		return
+	}
+	var oldVal uint64
+	if strings.HasPrefix(m[1], "0x") {
+		fmt.Sscanf(m[1], "0x%x", &oldVal)
+	} else {
+		fmt.Sscanf(m[1], "%d", &oldVal)
+	}
+	newVal := uint64(0)
+	if isSem && oldVal > 0 {
+		newVal = oldVal - 1
+	}
+	newValStr := fmt.Sprintf("0x%x", newVal)
+	if newVal == 0 {
+		newValStr = "0"
+	}
+	fdMap[key] = re.ReplaceAllString(target, "eventfd-count="+newValStr)
+}
+
+func updateOpenedPathFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, decoder *event.Decoder, strArgBuf []byte, targetPid int, fdMap map[string]string) {
+	if eventRaw.Ret < 0 || (scMeta.Name != "open" && scMeta.Name != "openat" && scMeta.Name != "openat2" && scMeta.Name != "creat") {
+		return
+	}
+	path := rawStrArg
+	if decoder != nil && (scMeta.Name == "openat" || scMeta.Name == "openat2") {
+		path = decoder.DecodeString(int(eventRaw.Tid), eventRaw.Args[1], strArgBuf, eventRaw.ProbeRetEnter, scMeta.Name, 0)
+	}
+	if path == "" || strings.HasPrefix(path, "0x") || path == "NULL" {
+		return
+	}
+	if strings.HasPrefix(path, `"`) && strings.HasSuffix(path, `"`) {
+		path = path[1 : len(path)-1]
+	}
+	fdMap[fmt.Sprintf("%d:%d", targetPid, int32(eventRaw.Ret))] = path
+}
+
+func updateDupFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	if eventRaw.Ret < 0 || (scMeta.Name != "dup" && scMeta.Name != "dup2" && scMeta.Name != "dup3") {
+		return
+	}
+	oldFd := int32(eventRaw.Args[0])
+	if path, ok := fdMap[fmt.Sprintf("%d:%d", targetPid, oldFd)]; ok {
+		fdMap[fmt.Sprintf("%d:%d", targetPid, int32(eventRaw.Ret))] = path
+	}
+}
+
+func updatePipeFDMapFromSnapshot(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	if eventRaw.Ret != 0 || (scMeta.Name != "pipe" && scMeta.Name != "pipe2") {
+		return
+	}
+	data, ok := eventExitSnapshot(eventRaw, handler.BpfExitArgOffset, 8)
+	if !ok {
+		return
+	}
+	fd1 := int32(binary.LittleEndian.Uint32(data[0:4]))
+	fd2 := int32(binary.LittleEndian.Uint32(data[4:8]))
+	rememberFDTargetFromProc(eventRaw, targetPid, fd1, "", fdMap)
+	rememberFDTargetFromProc(eventRaw, targetPid, fd2, "", fdMap)
+}
+
+func updateSocketpairFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	if scMeta.Name != "socketpair" || eventRaw.Ret != 0 {
+		return
+	}
+	data, ok := eventExitSnapshot(eventRaw, handler.BpfExitArgOffset, 8)
+	if !ok {
+		return
+	}
+	fd1 := int32(binary.LittleEndian.Uint32(data[0:4]))
+	fd2 := int32(binary.LittleEndian.Uint32(data[4:8]))
+	info := socketFDInfo(eventRaw)
+	rememberFDTargetFromProc(eventRaw, targetPid, fd1, "|"+info, fdMap)
+	rememberFDTargetFromProc(eventRaw, targetPid, fd2, "|"+info, fdMap)
+}
+
+func updateSocketFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	if scMeta.Name != "socket" || eventRaw.Ret < 0 {
+		return
+	}
+	fd := int32(eventRaw.Ret)
+	info := socketFDInfo(eventRaw)
+	key := fmt.Sprintf("%d:%d", targetPid, fd)
+	target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, fd))
+	if err != nil {
+		target = "socket:[]"
+	}
+	fdMap[key] = target + "|" + info
+}
+
+func socketFDInfo(eventRaw *bpfEvent) string {
+	info := meta.DecodeFlags(eventRaw.Args[0], "addrfams")
+	if eventRaw.Args[0] == 16 {
+		info += ":" + meta.DecodeFlags(eventRaw.Args[2], "netlink_protocols")
+	}
+	return info
+}
+
+func updateNetlinkFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	if eventRaw.Ret != 0 || (scMeta.Name != "bind" && scMeta.Name != "getsockname") {
+		return
+	}
+	fd := int32(eventRaw.Args[0])
+	data, ok := netlinkSockaddrSnapshot(eventRaw, scMeta.Name)
+	if !ok || len(data) < 8 || binary.LittleEndian.Uint16(data[0:2]) != 16 {
+		return
+	}
+	nlPid := binary.LittleEndian.Uint32(data[4:8])
+	fdMap[fmt.Sprintf("%d:%d", targetPid, fd)] = fmt.Sprintf("NETLINK:[SOCK_DIAG:%d]", nlPid)
+}
+
+func netlinkSockaddrSnapshot(eventRaw *bpfEvent, scName string) ([]byte, bool) {
+	if scName == "bind" {
+		return eventSnapshot(eventRaw, 0, 8, eventRaw.ProbeRetEnter)
+	}
+	return eventExitSnapshot(eventRaw, handler.BpfExitArgOffset, 8)
+}
+
+func updateCwdFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, targetPid int, fdMap map[string]string) {
+	if scMeta.Name == "chdir" && eventRaw.Ret == 0 && rawStrArg != "" && !strings.HasPrefix(rawStrArg, "0x") && rawStrArg != "NULL" {
+		handler.UpdateCwd(targetPid, rawStrArg, fdMap, int(eventRaw.Pid))
+	}
+	if scMeta.Name == "fchdir" && eventRaw.Ret == 0 {
 		handler.UpdateCwdByFd(targetPid, int32(eventRaw.Args[0]), fdMap)
 	}
+}
+
+func rememberFDTargetFromProc(eventRaw *bpfEvent, targetPid int, fd int32, suffix string, fdMap map[string]string) {
+	key := fmt.Sprintf("%d:%d", targetPid, fd)
+	target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, fd))
+	if err != nil {
+		if suffix == "" {
+			return
+		}
+		target = "socket:[]"
+	}
+	fdMap[key] = target + suffix
+}
+
+func eventExitSnapshot(eventRaw *bpfEvent, offset int, size int) ([]byte, bool) {
+	return eventSnapshot(eventRaw, offset, size, eventRaw.ProbeRetExit)
+}
+
+func eventSnapshot(eventRaw *bpfEvent, offset int, size int, probeRet int32) ([]byte, bool) {
+	if probeRet < 0 || offset < 0 || size <= 0 {
+		return nil, false
+	}
+	end := offset + size
+	if end < offset || end > len(eventRaw.StrArg) || uint32(end) > eventRaw.DataLen {
+		return nil, false
+	}
+	return eventRaw.StrArg[offset:end], true
 }
 
 // IMPACT: checkShouldPrint filters syscall events by syscall list, path and read/write descriptor filter options.
@@ -244,6 +305,7 @@ func isFdArgName(name string) bool {
 	}
 	return strings.HasSuffix(name, "fd") || strings.HasSuffix(name, "_fd")
 }
+
 func isFdReturnSyscall(scName string) bool {
 	return strings.HasPrefix(scName, "open") ||
 		strings.HasPrefix(scName, "dup") ||

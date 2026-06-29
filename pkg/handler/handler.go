@@ -7,7 +7,6 @@ import (
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 	"strace-go/pkg/meta"
-	"strace-go/pkg/procmem"
 )
 
 const (
@@ -40,12 +39,75 @@ type Context struct {
 	BufferFileOffset   int64
 	BufferFileOffsetOK bool
 
-	ScMeta    meta.Syscall
-	MemReader procmem.MemoryReader
-	Decoder   *event.Decoder
-	Opts      *cli.Options
-	FdMap     map[string]string
-	FdFiles   map[string]*os.File
+	ScMeta  meta.Syscall
+	Decoder *event.Decoder
+	Opts    *cli.Options
+	FdMap   map[string]string
+	FdFiles map[string]*os.File
+}
+
+// SnapshotReader exposes memory bytes copied by BPF at the syscall probe site.
+type SnapshotReader interface {
+	EnterArgSnapshot(argIndex int, offset int, size int) ([]byte, bool)
+	ExitSnapshot(offset int, size int) ([]byte, bool)
+}
+
+// EnterArgSnapshot returns an enter-stage BPF snapshot for a syscall argument.
+func (ctx *Context) EnterArgSnapshot(argIndex int, offset int, size int) ([]byte, bool) {
+	if argIndex >= 0 && ctx.ArgProbeRet(argIndex) != 0 {
+		return nil, false
+	}
+	return ctx.snapshotWindow(offset, size)
+}
+
+// EnterArgSnapshotPrefix returns the available prefix of an enter-stage BPF snapshot.
+func (ctx *Context) EnterArgSnapshotPrefix(argIndex int, offset int, maxSize int) ([]byte, bool) {
+	if argIndex >= 0 && ctx.ArgProbeRet(argIndex) != 0 {
+		return nil, false
+	}
+	return ctx.snapshotWindowPrefix(offset, maxSize)
+}
+
+// ExitSnapshot returns an exit-stage BPF snapshot.
+func (ctx *Context) ExitSnapshot(offset int, size int) ([]byte, bool) {
+	if ctx.ProbeRetExit < 0 {
+		return nil, false
+	}
+	return ctx.snapshotWindow(offset, size)
+}
+
+func (ctx *Context) snapshotWindow(offset int, size int) ([]byte, bool) {
+	if offset < 0 || size <= 0 {
+		return nil, false
+	}
+	end := offset + size
+	if end < offset || end > len(ctx.StrArgBuf) {
+		return nil, false
+	}
+	if uint64(end) > uint64(ctx.DataLen) {
+		return nil, false
+	}
+	return ctx.StrArgBuf[offset:end], true
+}
+
+func (ctx *Context) snapshotWindowPrefix(offset int, maxSize int) ([]byte, bool) {
+	if offset < 0 || maxSize <= 0 {
+		return nil, false
+	}
+	if offset >= len(ctx.StrArgBuf) || uint64(offset) >= uint64(ctx.DataLen) {
+		return nil, false
+	}
+	end := offset + maxSize
+	if end < offset || end > len(ctx.StrArgBuf) {
+		end = len(ctx.StrArgBuf)
+	}
+	if uint64(end) > uint64(ctx.DataLen) {
+		end = int(ctx.DataLen)
+	}
+	if end <= offset {
+		return nil, false
+	}
+	return ctx.StrArgBuf[offset:end], true
 }
 
 // IsArgReadSuccess checks if a specific enter-stage argument read was successful in BPF.
@@ -75,45 +137,18 @@ func (ctx *Context) ArgProbeRet(argIndex int) int32 {
 	return 0
 }
 
-// FetchStructData safely retrieves memory for a struct pointer.
-// It prioritizes BPF-captured buffer if successful, otherwise falls back to reading from process memory.
-// It may return fewer bytes than requested if a page boundary fault occurs.
-func (ctx *Context) FetchStructData(ptr uint64, size int, isExit bool, bpfBuf []byte) ([]byte, bool) {
-	var data []byte
-	readSuccess := false
-
+// FetchStructData returns BPF-captured struct bytes.
+func (ctx *Context) FetchStructData(_ uint64, size int, isExit bool, bpfBuf []byte) ([]byte, bool) {
 	if isExit {
 		if ctx.ProbeRetExit >= 0 {
-			if len(bpfBuf) >= size {
-				data = bpfBuf[:size]
-				readSuccess = true
-			}
+			return boundedBpfStructData(bpfBuf, size)
 		}
 	} else {
 		if ctx.ProbeRetEnter >= 0 {
-			if len(bpfBuf) >= size {
-				data = bpfBuf[:size]
-				readSuccess = true
-			}
+			return boundedBpfStructData(bpfBuf, size)
 		}
 	}
-
-	if !readSuccess {
-		if d, err := ctx.MemReader.ReadRobust(ctx.Tid, ptr, size, false); err == nil && len(d) > 0 {
-			data = d
-			readSuccess = true
-		} else {
-			if isExit && ctx.ProbeRetExit >= 0 {
-				data = bpfBuf
-				readSuccess = true
-			} else if !isExit && ctx.ProbeRetEnter >= 0 {
-				data = bpfBuf
-				readSuccess = true
-			}
-		}
-	}
-
-	return data, readSuccess
+	return nil, false
 }
 
 // FetchStructDataExact is like FetchStructData but strictly requires the full requested size.
@@ -125,47 +160,29 @@ func (ctx *Context) FetchStructDataExact(ptr uint64, size int, isExit bool, bpfB
 	return nil, false
 }
 
-func (ctx *Context) FetchArgStructData(argIndex int, ptr uint64, size int, isExit bool, bpfBuf []byte) ([]byte, bool) {
-	var data []byte
-	readSuccess := false
-
+func (ctx *Context) FetchArgStructData(argIndex int, _ uint64, size int, isExit bool, bpfBuf []byte) ([]byte, bool) {
 	if isExit {
 		if ctx.ProbeRetExit >= 0 {
-			if len(bpfBuf) >= size {
-				data = bpfBuf[:size]
-				readSuccess = true
-			}
+			return boundedBpfStructData(bpfBuf, size)
 		}
 	} else {
 		if argIndex >= 0 && ctx.ArgProbeRet(argIndex) == 0 {
-			if len(bpfBuf) >= size {
-				data = bpfBuf[:size]
-				readSuccess = true
-			}
+			return boundedBpfStructData(bpfBuf, size)
 		} else if argIndex < 0 && ctx.ProbeRetEnter >= 0 {
-			if len(bpfBuf) >= size {
-				data = bpfBuf[:size]
-				readSuccess = true
-			}
+			return boundedBpfStructData(bpfBuf, size)
 		}
 	}
+	return nil, false
+}
 
-	if !readSuccess {
-		if d, err := ctx.MemReader.ReadRobust(ctx.Tid, ptr, size, false); err == nil && len(d) > 0 {
-			data = d
-			readSuccess = true
-		} else {
-			if isExit && ctx.ProbeRetExit >= 0 {
-				data = bpfBuf
-				readSuccess = true
-			} else if !isExit && ((argIndex >= 0 && ctx.ArgProbeRet(argIndex) == 0) || (argIndex < 0 && ctx.ProbeRetEnter >= 0)) {
-				data = bpfBuf
-				readSuccess = true
-			}
-		}
+func boundedBpfStructData(bpfBuf []byte, size int) ([]byte, bool) {
+	if len(bpfBuf) == 0 || size <= 0 {
+		return nil, false
 	}
-
-	return data, readSuccess
+	if len(bpfBuf) >= size {
+		return bpfBuf[:size], true
+	}
+	return bpfBuf, true
 }
 
 func (ctx *Context) FetchArgStructDataExact(argIndex int, ptr uint64, size int, isExit bool, bpfBuf []byte) ([]byte, bool) {

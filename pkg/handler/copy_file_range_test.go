@@ -36,12 +36,15 @@ func TestCopyFileRangeHandlerDecodesEnterOffsets(t *testing.T) {
 			Args:     []string{"fd_in", "off_in", "fd_out", "off_out", "len", "flags"},
 			ArgTypes: []string{"int", "loff_t *", "int", "loff_t *", "size_t", "unsigned int"},
 		},
-		MemReader: mapMemoryReader{},
-		Opts:      &cli.Options{},
+		Opts: &cli.Options{},
 	}
-	ctx.Decoder = event.NewDecoder(ctx.MemReader)
-	binary.LittleEndian.PutUint64(ctx.StrArgBuf[copyFileRangeOffInOffset:], 0xdeadbef1facefed1)
-	binary.LittleEndian.PutUint64(ctx.StrArgBuf[copyFileRangeOffOutOffset:], 0xdeadbef2facefed2)
+	ctx.Decoder = event.NewDecoder()
+	offIn := make([]byte, 8)
+	offOut := make([]byte, 8)
+	binary.LittleEndian.PutUint64(offIn, 0xdeadbef1facefed1)
+	binary.LittleEndian.PutUint64(offOut, 0xdeadbef2facefed2)
+	putSmallSnapshot(ctx, copyFileRangeOffInOffset, offIn)
+	putSmallSnapshot(ctx, copyFileRangeOffOutOffset, offOut)
 
 	got := (&CopyFileRangeHandler{}).Handle(ctx).ArgParts
 	want := []string{
@@ -54,5 +57,38 @@ func TestCopyFileRangeHandlerDecodesEnterOffsets(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("copy_file_range args = %#v; want %#v", got, want)
+	}
+}
+
+func TestCopyFileRangeHandlerDoesNotReadMissingOffsetSnapshot(t *testing.T) {
+	const (
+		offInPtr  = 0x7de6fdd44ff8
+		offOutPtr = 0x7de6fdd35ff8
+	)
+	reader := &fetchPolicyMemoryReader{data: makeUint64Snapshot(7)}
+	decoder := event.NewDecoder()
+	ctx := &Context{
+		Pid:           101,
+		Tid:           101,
+		TargetPid:     101,
+		Args:          [6]uint64{4, offInPtr, 5, offOutPtr, 99, 0},
+		ProbeRetEnter: -1,
+		StrArgBuf:     make([]byte, copyFileRangeOffOutOffset+8),
+		ScMeta: meta.Syscall{
+			Name:     "copy_file_range",
+			Args:     []string{"fd_in", "off_in", "fd_out", "off_out", "len", "flags"},
+			ArgTypes: []string{"int", "loff_t *", "int", "loff_t *", "size_t", "unsigned int"},
+		},
+		Decoder: decoder,
+		Opts:    &cli.Options{},
+	}
+
+	got := (&CopyFileRangeHandler{}).Handle(ctx).ArgParts
+	want := []string{"4", "0x7de6fdd44ff8", "5", "0x7de6fdd35ff8", "99", "0"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("copy_file_range args = %#v; want %#v", got, want)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }

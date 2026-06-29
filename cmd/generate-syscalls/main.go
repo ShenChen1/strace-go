@@ -142,30 +142,28 @@ func bpfExitCapture(name string) string {
 }
 
 func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
+	if size, ok := dynamicSocketAddrSize(scName, r); ok {
+		return size
+	}
+	if size, ok := dynamicXattrOrKeySize(scName, r); ok {
+		return size
+	}
 	switch scName {
-	case "accept", "accept4", "getsockname", "getpeername", "recvfrom":
-		if r.Arg == 1 || r.Arg == 4 {
-			return "addrlen"
-		}
 	case "fcntl", "fcntl64":
 		if r.Arg == 2 {
 			return "fsz"
 		}
-	case "add_key":
-		if r.Arg == 2 {
-			return "((e)->args[3] > 0 ? ((e)->args[3] > 256 ? 256 : (e)->args[3]) : 0)"
-		}
-	case "setxattr", "lsetxattr", "fsetxattr", "getxattr", "lgetxattr", "fgetxattr":
-		if r.Arg == 2 {
-			return "((e)->args[3] > 0 ? ((e)->args[3] > 256 ? 256 : (e)->args[3]) : 0)"
-		}
-	case "listxattr", "llistxattr", "flistxattr":
-		if r.Arg == 1 {
-			return "((e)->args[2] > 0 ? ((e)->args[2] > 256 ? 256 : (e)->args[2]) : 0)"
-		}
 	case "epoll_ctl":
 		if r.Arg == 1 {
 			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
+		}
+	case "epoll_wait", "epoll_pwait", "epoll_pwait2":
+		if suffix == "exit" && r.Arg == 1 {
+			return "((e)->ret > 0 ? ((e)->ret * 12 > 512 ? 512 : (e)->ret * 12) : 0)"
+		}
+	case "poll", "ppoll":
+		if suffix == "exit" && r.Arg == 0 {
+			return "((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0)"
 		}
 	case "bpf":
 		if r.Arg == 1 {
@@ -195,6 +193,25 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 		if r.Arg == 1 {
 			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
 		}
+	case "readv", "writev", "preadv", "pwritev", "preadv2", "pwritev2", "vmsplice":
+		if r.Arg == 1 {
+			return iovecDynamicSize(2)
+		}
+	case "process_vm_readv", "process_vm_writev":
+		if r.Arg == 1 {
+			return iovecDynamicSize(2)
+		}
+		if r.Arg == 3 {
+			return iovecDynamicSize(4)
+		}
+	case "process_madvise":
+		if r.Arg == 1 {
+			return iovecDynamicSize(2)
+		}
+	case "openat2":
+		if r.Arg == 2 {
+			return "((e)->args[3] >= 24 ? ((e)->args[3] > 64 ? 64 : (e)->args[3]) : 0)"
+		}
 	case "readlink", "readlinkat", "getcwd":
 		return "((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0)"
 	}
@@ -203,6 +220,42 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 		return "((e)->ret > 0 ? ((e)->ret * 32 > 512 ? 512 : (e)->ret * 32) : 0)"
 	}
 	return "((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0)"
+}
+
+func dynamicSocketAddrSize(scName string, r CaptureRead) (string, bool) {
+	switch scName {
+	case "accept", "accept4", "getsockname", "getpeername", "recvfrom":
+		if r.Arg == 1 || r.Arg == 4 {
+			return "addrlen", true
+		}
+	}
+	return "", false
+}
+
+func dynamicXattrOrKeySize(scName string, r CaptureRead) (string, bool) {
+	switch scName {
+	case "add_key":
+		if r.Arg == 2 {
+			return cappedArgSize(3, 256), true
+		}
+	case "setxattr", "lsetxattr", "fsetxattr", "getxattr", "lgetxattr", "fgetxattr":
+		if r.Arg == 2 {
+			return cappedArgSize(3, 256), true
+		}
+	case "listxattr", "llistxattr", "flistxattr":
+		if r.Arg == 1 {
+			return cappedArgSize(2, 256), true
+		}
+	}
+	return "", false
+}
+
+func cappedArgSize(arg int, cap int) string {
+	return fmt.Sprintf("((e)->args[%d] > 0 ? ((e)->args[%d] > %d ? %d : (e)->args[%d]) : 0)", arg, arg, cap, cap, arg)
+}
+
+func iovecDynamicSize(countArg int) string {
+	return fmt.Sprintf("((e)->args[%d] > 0 ? ((e)->args[%d] * 16 > 512 ? 512 : (e)->args[%d] * 16) : 0)", countArg, countArg, countArg)
 }
 
 // generateBPFCode generates eBPF C code to capture syscall arguments.

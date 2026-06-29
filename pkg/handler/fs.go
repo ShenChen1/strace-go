@@ -78,7 +78,7 @@ func (h *FsHandler) Handle(ctx *Context) Result {
 			if (flags & 0x0000ffff) == 0 {
 				res.ArgParts = append(res.ArgParts, "MS_MGC_VAL")
 			} else {
-				res.ArgParts = append(res.ArgParts, "MS_MGC_VAL|"+meta.DecodeFlags(flags & 0xffff, "mount_flags"))
+				res.ArgParts = append(res.ArgParts, "MS_MGC_VAL|"+meta.DecodeFlags(flags&0xffff, "mount_flags"))
 			}
 		} else {
 			res.ArgParts = append(res.ArgParts, meta.DecodeFlags(flags, "mount_flags"))
@@ -100,9 +100,9 @@ func (h *FsHandler) Handle(ctx *Context) Result {
 			}
 			if argName == "dirent" && ctx.Ret > 0 {
 				count := int(ctx.Ret)
-				data := ctx.StrArgBuf[:512]
-				if ctx.ProbeRetExit <= 0 {
-					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 512, true); err == nil && len(d) == 512 { data = d }
+				data, ok := ctx.ExitSnapshot(BpfExitArgOffset, 512)
+				if !ok {
+					data = ctx.StrArgBuf[:512]
 				}
 				res.ArgParts = append(res.ArgParts, format.Dirents(data, count))
 				continue
@@ -145,7 +145,6 @@ func (h *FsHandler) decodeFsconfig(ctx *Context) []string {
 		valStr := ctx.Decoder.DecodeString(ctx.Tid, value, ctx.StrArgBuf[257:4353], ctx.ArgProbeRet(3), ctx.SysName, 256)
 		parts = append(parts, valStr, fmt.Sprintf("%d", int32(aux)))
 	case 2: // FSCONFIG_SET_BINARY
-		// IMPACT: Uses MemReader for binary blobs because BPF variable-length reads at page boundaries can return zeros.
 		limit := ctx.Opts.StringLimit
 		if limit <= 0 {
 			limit = 32
@@ -154,13 +153,8 @@ func (h *FsHandler) decodeFsconfig(ctx *Context) []string {
 		if valLen < 0 || valLen > 1024*1024 {
 			parts = append(parts, formatPointer(value), fmt.Sprintf("%d", int32(aux)))
 		} else {
-			var data []byte
-			var err error
-			if valLen > 0 {
-				data, err = ctx.MemReader.ReadRobust(ctx.Tid, value, valLen, true)
-			}
-			
-			if err == nil && len(data) > 0 {
+			data, ok := ctx.EnterArgSnapshotPrefix(3, 257, valLen)
+			if ok && len(data) > 0 {
 				parts = append(parts, format.BufferEscape(data, limit, valLen, 2), fmt.Sprintf("%d", int32(aux)))
 			} else {
 				parts = append(parts, formatPointer(value), fmt.Sprintf("%d", int32(aux)))

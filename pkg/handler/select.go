@@ -22,6 +22,19 @@ func init() {
 
 type SelectHandler struct{}
 
+const (
+	fdSetSnapshotSize     = 128
+	selectTimeoutOffset   = 384
+	selectExitOffset      = BpfExitArgOffset
+	selectExitTimeoutOff  = 1408
+	pollFdSize            = 8
+	pollSnapshotLimit     = 512
+	ppollTimeoutOffset    = BpfMiscArgOffset
+	selectFdSetArgBase    = 1
+	selectFdSetArgLast    = 3
+	selectFdSetArgSpacing = 128
+)
+
 func (h *SelectHandler) Handle(ctx *Context) Result {
 	res := Result{}
 	nfds := int(int32(ctx.Args[0]))
@@ -41,31 +54,14 @@ func (h *SelectHandler) Handle(ctx *Context) Result {
 }
 
 func (h *SelectHandler) formatSelectFdSets(ctx *Context, nfds int, res *Result) {
-	for i := 1; i <= 3; i++ {
+	for i := selectFdSetArgBase; i <= selectFdSetArgLast; i++ {
 		ptr := ctx.Args[i]
 		if ptr == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 			continue
 		}
 
-		off := (i - 1) * 128
-		data := ctx.StrArgBuf[off : off+128]
-		readSuccess := ctx.ProbeRetEnter >= 0
-		if !readSuccess {
-			sz := (nfds + 7) / 8
-			if sz > 128 {
-				sz = 128
-			}
-			if sz > 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptr, sz, false); err == nil && len(d) >= sz {
-					data = d
-					readSuccess = true
-				}
-			} else {
-				readSuccess = true // sz=0
-			}
-		}
-		if readSuccess {
+		if data, ok := selectEnterFdSetSnapshot(ctx, i, nfds); ok {
 			res.ArgParts = append(res.ArgParts, format.FdSet(data, nfds))
 		} else {
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ptr))
@@ -80,15 +76,7 @@ func (h *SelectHandler) formatSelectTimeout(ctx *Context, res *Result) {
 		return
 	}
 
-	data := ctx.StrArgBuf[384 : 384+16]
-	readSuccess := ctx.ProbeRetEnter >= 0
-	if !readSuccess {
-		if d, err := ctx.MemReader.ReadRobust(ctx.Pid, tptr, 16, false); err == nil && len(d) == 16 {
-			data = d
-			readSuccess = true
-		}
-	}
-	if readSuccess {
+	if data, ok := ctx.EnterArgSnapshot(4, selectTimeoutOffset, 16); ok {
 		res.ArgParts = append(res.ArgParts, format.Timeval(data))
 	} else {
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", tptr))
@@ -98,28 +86,13 @@ func (h *SelectHandler) formatSelectTimeout(ctx *Context, res *Result) {
 func (h *SelectHandler) formatSelectExit(ctx *Context, nfds int, res *Result) {
 	outParts := []string{}
 	setNames := []string{"in", "out", "exc"}
-	for i := 1; i <= 3; i++ {
+	for i := selectFdSetArgBase; i <= selectFdSetArgLast; i++ {
 		ptr := ctx.Args[i]
 		if ptr == 0 {
 			continue
 		}
 
-		off := 1024 + (i-1)*128
-		data := ctx.StrArgBuf[off : off+128]
-		readSuccess := ctx.ProbeRetExit >= 0
-		if !readSuccess {
-			sz := (nfds + 7) / 8
-			if sz > 128 {
-				sz = 128
-			}
-			if sz > 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptr, sz, true); err == nil && len(d) >= sz {
-					data = d
-					readSuccess = true
-				}
-			}
-		}
-		if readSuccess {
+		if data, ok := selectExitFdSetSnapshot(ctx, i, nfds); ok {
 			hasAny := false
 			for j := 0; j < (nfds+7)/8 && j < len(data); j++ {
 				if data[j] != 0 {
@@ -135,15 +108,7 @@ func (h *SelectHandler) formatSelectExit(ctx *Context, nfds int, res *Result) {
 
 	tptr := ctx.Args[4]
 	if tptr != 0 {
-		data := ctx.StrArgBuf[1408 : 1408+16]
-		readSuccess := ctx.ProbeRetExit >= 0
-		if !readSuccess {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, tptr, 16, true); err == nil && len(d) == 16 {
-				data = d
-				readSuccess = true
-			}
-		}
-		if readSuccess {
+		if data, ok := ctx.ExitSnapshot(selectExitTimeoutOff, 16); ok {
 			outParts = append(outParts, "left "+format.Timeval(data))
 		}
 	}
@@ -162,19 +127,7 @@ func (h *PollHandler) Handle(ctx *Context) Result {
 	if ptr == 0 {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else {
-		capLen := nfds * 8
-		if capLen > 512 {
-			capLen = 512
-		}
-		data := ctx.StrArgBuf[0:capLen]
-		readSuccess := ctx.ProbeRetEnter >= 0
-		if !readSuccess {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptr, capLen, false); err == nil && len(d) >= capLen {
-				data = d
-				readSuccess = true
-			}
-		}
-		if readSuccess {
+		if data, ok := pollEnterSnapshot(ctx, nfds); ok {
 			res.ArgParts = append(res.ArgParts, formatPollfds(data, nfds, false))
 		} else {
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ptr))
@@ -190,15 +143,7 @@ func (h *PollHandler) Handle(ctx *Context) Result {
 		if tptr == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
-			data := ctx.StrArgBuf[512 : 512+16]
-			readSuccess := ctx.ProbeRetEnter >= 0
-			if !readSuccess {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, tptr, 16, false); err == nil && len(d) == 16 {
-					data = d
-					readSuccess = true
-				}
-			}
-			if readSuccess {
+			if data, ok := ctx.EnterArgSnapshot(2, ppollTimeoutOffset, 16); ok {
 				res.ArgParts = append(res.ArgParts, format.Timespec(data))
 			} else {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", tptr))
@@ -211,24 +156,70 @@ func (h *PollHandler) Handle(ctx *Context) Result {
 	if ctx.Ret == 0 {
 		res.ReturnDesc = "Timeout"
 	} else if ctx.Ret > 0 {
-		capLen := nfds * 8
-		if capLen > 512 {
-			capLen = 512
-		}
-		dataExit := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+capLen]
-		readSuccess := ctx.ProbeRetExit >= 0
-		if !readSuccess {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptr, capLen, true); err == nil && len(d) >= capLen {
-				dataExit = d
-				readSuccess = true
-			}
-		}
-		if readSuccess {
+		if dataExit, ok := pollExitSnapshot(ctx, nfds); ok {
 			res.ReturnDesc = formatPollfdsExit(dataExit, nfds)
 		}
 	}
 
 	return res
+}
+
+func selectFdSetBytes(nfds int) int {
+	if nfds <= 0 {
+		return 0
+	}
+	size := (nfds + 7) / 8
+	if size > fdSetSnapshotSize {
+		return fdSetSnapshotSize
+	}
+	return size
+}
+
+func selectFdSetOffset(argIndex int) int {
+	return (argIndex - selectFdSetArgBase) * selectFdSetArgSpacing
+}
+
+func selectEnterFdSetSnapshot(ctx *Context, argIndex int, nfds int) ([]byte, bool) {
+	size := selectFdSetBytes(nfds)
+	if size == 0 {
+		return nil, true
+	}
+	return ctx.EnterArgSnapshot(argIndex, selectFdSetOffset(argIndex), size)
+}
+
+func selectExitFdSetSnapshot(ctx *Context, argIndex int, nfds int) ([]byte, bool) {
+	size := selectFdSetBytes(nfds)
+	if size == 0 {
+		return nil, true
+	}
+	offset := selectExitOffset + selectFdSetOffset(argIndex)
+	return ctx.ExitSnapshot(offset, size)
+}
+
+func pollSnapshotSize(nfds int) int {
+	if nfds <= 0 {
+		return 0
+	}
+	if nfds > pollSnapshotLimit/pollFdSize {
+		return pollSnapshotLimit
+	}
+	return nfds * pollFdSize
+}
+
+func pollEnterSnapshot(ctx *Context, nfds int) ([]byte, bool) {
+	size := pollSnapshotSize(nfds)
+	if size == 0 {
+		return nil, true
+	}
+	return ctx.EnterArgSnapshot(0, BpfEnterArgOffset, size)
+}
+
+func pollExitSnapshot(ctx *Context, nfds int) ([]byte, bool) {
+	size := pollSnapshotSize(nfds)
+	if size == 0 {
+		return nil, true
+	}
+	return ctx.ExitSnapshot(BpfExitArgOffset, size)
 }
 
 func formatPollfds(data []byte, nfds int, hasExitData bool) string {

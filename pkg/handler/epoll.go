@@ -17,6 +17,12 @@ func init() {
 
 type EpollHandler struct{}
 
+const (
+	epollEventSize          = 12
+	epollEventSnapshotLimit = 512
+	epollPwait2TimeoutOff   = BpfMiscArgOffset
+)
+
 func (h *EpollHandler) Handle(ctx *Context) Result {
 	res := Result{}
 	switch ctx.SysName {
@@ -25,7 +31,7 @@ func (h *EpollHandler) Handle(ctx *Context) Result {
 		op := uint32(ctx.Args[1])
 		res.ArgParts = append(res.ArgParts, meta.DecodeFlags(uint64(op), "epollctls"))
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int32(ctx.Args[2])))
-		
+
 		// IMPACT: Only decode struct epoll_event for ADD (1) and MOD (3) operations.
 		// DEL (2) doesn't read the structure in kernel.
 		if op == 2 {
@@ -38,15 +44,7 @@ func (h *EpollHandler) Handle(ctx *Context) Result {
 			if ctx.Args[3] == 0 {
 				res.ArgParts = append(res.ArgParts, "NULL")
 			} else {
-				data := ctx.StrArgBuf[0:12]
-				readSuccess := ctx.ProbeRetEnter >= 0
-				if !readSuccess {
-					if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[3], 12, false); err == nil && len(d) == 12 {
-						data = d
-						readSuccess = true
-					}
-				}
-				if readSuccess {
+				if data, ok := ctx.EnterArgSnapshot(3, BpfEnterArgOffset, epollEventSize); ok {
 					res.ArgParts = append(res.ArgParts, format.EpollEvent(data))
 				} else {
 					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[3]))
@@ -57,7 +55,7 @@ func (h *EpollHandler) Handle(ctx *Context) Result {
 		res.ArgParts = append(res.ArgParts, FormatFdWithPath(ctx, int32(ctx.Args[0])))
 		ptr := ctx.Args[1]
 		maxevents := int(int32(ctx.Args[2]))
-		
+
 		if ptr == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else if ctx.Ret <= 0 {
@@ -65,16 +63,10 @@ func (h *EpollHandler) Handle(ctx *Context) Result {
 		} else {
 			count := int(ctx.Ret)
 			capLen := count * 12
-			if capLen > 512 { capLen = 512 }
-			data := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+capLen]
-			readSuccess := ctx.ProbeRetExit >= 0
-			if !readSuccess {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptr, capLen, true); err == nil && len(d) == capLen {
-					data = d
-					readSuccess = true
-				}
+			if capLen > epollEventSnapshotLimit {
+				capLen = epollEventSnapshotLimit
 			}
-			if readSuccess {
+			if data, ok := ctx.ExitSnapshot(BpfExitArgOffset, capLen); ok {
 				res.ArgParts = append(res.ArgParts, format.EpollEvents(data, count))
 			} else {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ptr))
@@ -91,7 +83,7 @@ func (h *EpollHandler) Handle(ctx *Context) Result {
 			if ctx.Ret < 0 || ctx.Args[3] == 0 {
 				res.ArgParts = append(res.ArgParts, formatPointerEpoll(ctx.Args[3], ctx.Ret))
 			} else {
-				if d, ok := ctx.FetchArgStructData(3, ctx.Args[3], 16, false, nil); ok {
+				if d, ok := ctx.EnterArgSnapshot(3, epollPwait2TimeoutOff, 16); ok {
 					res.ArgParts = append(res.ArgParts, format.Timespec(d))
 				} else {
 					res.ArgParts = append(res.ArgParts, formatPointerEpoll(ctx.Args[3], ctx.Ret))

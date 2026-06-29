@@ -12,10 +12,17 @@ import (
 	"strace-go/pkg/meta"
 )
 
+const (
+	EventFormatText = "text"
+	EventFormatJSON = "json"
+)
+
 // Options holds all parsed command-line options.
 type Options struct {
 	CmdArgs             []string
 	AttachPids          []int
+	EventFormat         string
+	DebugEvents         bool
 	OutFile             string
 	AlignCol            int
 	StringLimit         int
@@ -60,6 +67,7 @@ func ParseArgs(args []string) *Options {
 		AlignCol:        40,
 		StringLimit:     32,
 		HexEscapeMode:   0,
+		EventFormat:     EventFormatText,
 		XlatFormat:      "abbrev",
 		TraceSyscalls:   make(map[string]bool),
 		TracePaths:      make(map[string]bool),
@@ -265,6 +273,21 @@ func parseBasicFlags(arg string, opts *Options) bool {
 
 // IMPACT: parseTraceFlags parses long trace flags: --trace and --trace-path.
 func parseTraceFlags(arg string, opts *Options) bool {
+	if arg == "--mode" || strings.HasPrefix(arg, "--mode=") {
+		fmt.Fprintf(os.Stderr, "%s: --mode has been removed; strace-go always uses pure eBPF tracing\n", os.Args[0])
+		os.Exit(1)
+		return true
+	}
+	if strings.HasPrefix(arg, "--event-format=") {
+		opts.EventFormat = strings.TrimPrefix(arg, "--event-format=")
+		validateEventFormat(opts.EventFormat)
+		return true
+	}
+	if arg == "--debug-events" {
+		opts.EventFormat = EventFormatJSON
+		opts.DebugEvents = true
+		return true
+	}
 	if strings.HasPrefix(arg, "--trace=") {
 		val := strings.TrimPrefix(arg, "--trace=")
 		for _, s := range strings.Split(val, ",") {
@@ -301,6 +324,16 @@ func parseTraceFlags(arg string, opts *Options) bool {
 		return true
 	}
 	return false
+}
+
+func validateEventFormat(format string) {
+	switch format {
+	case EventFormatText, EventFormatJSON:
+		return
+	default:
+		fmt.Fprintf(os.Stderr, "%s: unsupported --event-format value '%s'\n", os.Args[0], format)
+		os.Exit(1)
+	}
 }
 
 // IMPACT: parseValueFlag parses flags that take additional arguments.

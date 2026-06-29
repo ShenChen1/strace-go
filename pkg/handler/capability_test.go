@@ -36,7 +36,6 @@ func capabilityContext(syscall string, ret int64, header, capData []byte) *Conte
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 		StrArgBuf:     make([]byte, BpfExitArgOffset+2*capDataSize),
-		MemReader:     mapMemoryReader{},
 		Opts:          &cli.Options{VerboseDisabled: make(map[string]bool)},
 		ScMeta: meta.Syscall{
 			Name:     syscall,

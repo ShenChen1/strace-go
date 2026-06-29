@@ -17,6 +17,8 @@ type ArchPrctlHandler struct {
 	DefaultHandler
 }
 
+const archPrctlOutSize = 8
+
 func (h *ArchPrctlHandler) Handle(ctx *Context) Result {
 	var res Result
 
@@ -30,7 +32,9 @@ func (h *ArchPrctlHandler) Handle(ctx *Context) Result {
 
 		if i == 1 {
 			opt := ctx.Args[0]
-			if opt == 0x1011 { continue } // ARCH_GET_CPUID ignored here
+			if opt == 0x1011 {
+				continue
+			} // ARCH_GET_CPUID ignored here
 
 			isGET := (opt == 0x1003 || opt == 0x1004 || opt == 0x1011 || opt == 0x1021 || opt == 0x1022 || opt == 0x1024)
 
@@ -49,13 +53,9 @@ func (h *ArchPrctlHandler) Handle(ctx *Context) Result {
 			} else {
 				if isGET {
 					if ctx.Ret >= 0 {
-						sdata := ctx.StrArgBuf[BpfExitArgOffset:1032]
-						outV := binary.LittleEndian.Uint64(sdata)
-						if ctx.ProbeRetExit < 0 || outV == 0 {
-							if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 8, true); err == nil {
-								sdata = d
-								outV = binary.LittleEndian.Uint64(sdata)
-							}
+						outV := uint64(0)
+						if data, ok := ctx.ExitSnapshot(BpfExitArgOffset, archPrctlOutSize); ok {
+							outV = binary.LittleEndian.Uint64(data)
 						}
 						if outV == 0 {
 							res.ArgParts = append(res.ArgParts, "[NULL]")

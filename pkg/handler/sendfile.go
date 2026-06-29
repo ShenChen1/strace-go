@@ -47,11 +47,13 @@ func formatSendfileOffset(ctx *Context) string {
 }
 
 func fetchSendfileOffset(ctx *Context, isExit bool, offset int) (uint64, bool) {
-	var bpfBuf []byte
-	if len(ctx.StrArgBuf) >= offset+8 {
-		bpfBuf = ctx.StrArgBuf[offset : offset+8]
+	var data []byte
+	var ok bool
+	if isExit {
+		data, ok = ctx.ExitSnapshot(offset, 8)
+	} else {
+		data, ok = ctx.EnterArgSnapshot(2, offset, 8)
 	}
-	data, ok := ctx.FetchArgStructDataExact(2, ctx.Args[2], 8, isExit, bpfBuf)
 	if !ok {
 		return 0, false
 	}

@@ -11,6 +11,21 @@ char LICENSE[] SEC("license") = "GPL";
 #define EXEC_ARG_MAX 48
 #define EXEC_ENV_MAX 64
 #define EXEC_ARG_DATA_SIZE 42
+#define EVENT_VERSION 2
+#define EVENT_TYPE_ENTER 1
+#define EVENT_TYPE_EXIT 2
+#define EVENT_TYPE_LIFECYCLE 3
+#define EVENT_FLAG_GENERIC_ENTER 1
+#define LIFECYCLE_FORK 1
+#define LIFECYCLE_EXEC 2
+#define LIFECYCLE_EXIT 3
+#define LIFECYCLE_FREE 4
+#define CONFIG_CAPTURE_STACK 1
+#define CONFIG_FOLLOW_FORKS 2
+#define CONFIG_EMIT_ENTER 4
+#define CONFIG_SYSCALL_FILTER 8
+#define CONFIG_SYSCALL_FILTER_NEGATED 16
+#define CONFIG_EMIT_LIFECYCLE 32
 
 struct exec_snapshot_header {
     u32 magic;
@@ -37,7 +52,11 @@ struct exec_snapshot {
 
 struct bpf_event {
     u32 pid;
-    u32 sys_id; u32 tid;
+    u32 sys_id;
+    u32 tid;
+    u16 event_version;
+    u16 event_type;
+    u32 event_flags;
     s32 probe_ret_enter; s32 probe_ret_exit;
     u64 enter_time;
     u64 duration;
@@ -49,6 +68,15 @@ struct bpf_event {
     u8 str_arg[EXEC_SNAPSHOT_OFFSET + sizeof(struct exec_snapshot)];
 };
 
+struct pending_syscall {
+    u64 enter_time;
+    u64 args[6];
+    u32 pid;
+    u32 sys_id;
+    u32 tid;
+    s32 stack_id;
+};
+
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 1 << 26);
@@ -58,8 +86,8 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 8192);
     __type(key, u32);
-    __type(value, struct bpf_event);
-} events_map SEC(".maps");
+    __type(value, struct pending_syscall);
+} pending_syscalls SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -67,6 +95,13 @@ struct {
     __type(key, u32);
     __type(value, u32);
 } filter_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 2048);
+    __type(key, u32);
+    __type(value, u32);
+} syscall_filter_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
@@ -233,6 +268,100 @@ static __always_inline void capture_capset_data(struct bpf_event *e)
     }
 }
 
+static __always_inline void save_pending_syscall(u32 tid, struct bpf_event *e)
+{
+    struct pending_syscall p;
+
+    p.enter_time = e->enter_time;
+    p.args[0] = e->args[0];
+    p.args[1] = e->args[1];
+    p.args[2] = e->args[2];
+    p.args[3] = e->args[3];
+    p.args[4] = e->args[4];
+    p.args[5] = e->args[5];
+    p.pid = e->pid;
+    p.sys_id = e->sys_id;
+    p.tid = e->tid;
+    p.stack_id = e->stack_id;
+
+    bpf_map_update_elem(&pending_syscalls, &tid, &p, BPF_ANY);
+}
+
+static __always_inline void event_from_pending(struct bpf_event *e, struct pending_syscall *p)
+{
+    e->pid = p->pid;
+    e->sys_id = p->sys_id;
+    e->tid = p->tid;
+    e->event_version = EVENT_VERSION;
+    e->event_type = EVENT_TYPE_EXIT;
+    e->event_flags = 0;
+    e->probe_ret_enter = -1;
+    e->probe_ret_exit = -1;
+    e->enter_time = p->enter_time;
+    e->duration = 0;
+    e->args[0] = p->args[0];
+    e->args[1] = p->args[1];
+    e->args[2] = p->args[2];
+    e->args[3] = p->args[3];
+    e->args[4] = p->args[4];
+    e->args[5] = p->args[5];
+    e->ret = 0;
+    e->ptr = 0;
+    e->data_len = 0;
+    e->stack_id = p->stack_id;
+}
+
+static __always_inline int should_trace_syscall(u32 sys_id, u32 *cfg)
+{
+    if (!cfg || !(*cfg & CONFIG_SYSCALL_FILTER)) {
+        return 1;
+    }
+
+    u32 *enabled = bpf_map_lookup_elem(&syscall_filter_map, &sys_id);
+    if (*cfg & CONFIG_SYSCALL_FILTER_NEGATED) {
+        return enabled ? 0 : 1;
+    }
+    return enabled ? 1 : 0;
+}
+
+static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64 arg0, u64 arg1)
+{
+    u32 key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
+    if (!cfg || !(*cfg & CONFIG_EMIT_LIFECYCLE)) {
+        return;
+    }
+
+    struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
+    if (!e) {
+        return;
+    }
+
+    e->pid = pid;
+    e->sys_id = 0;
+    e->tid = tid;
+    e->event_version = EVENT_VERSION;
+    e->event_type = EVENT_TYPE_LIFECYCLE;
+    e->event_flags = kind;
+    e->probe_ret_enter = 0;
+    e->probe_ret_exit = 0;
+    e->enter_time = bpf_ktime_get_ns();
+    e->duration = 0;
+    e->args[0] = arg0;
+    e->args[1] = arg1;
+    e->args[2] = 0;
+    e->args[3] = 0;
+    e->args[4] = 0;
+    e->args[5] = 0;
+    e->ret = 0;
+    e->ptr = 0;
+    e->data_len = 0;
+    e->stack_id = -1;
+
+    u32 out_size = __builtin_offsetof(struct bpf_event, str_arg);
+    bpf_ringbuf_output(&events, e, out_size, 0);
+}
+
 SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     u32 sys_id = (u32)ctx->id;
@@ -244,6 +373,8 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     if (!filter_pid) return 0;
     
     u32 key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
+    if (!should_trace_syscall(sys_id, cfg)) return 0;
     
     struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
     if (!e) return 0;
@@ -252,10 +383,12 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     e->enter_time = bpf_ktime_get_ns();
     e->duration = 0;
 
-    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
-    if (cfg && *cfg & 1) {
+    if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
         e->stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
     }
+    e->event_version = EVENT_VERSION;
+    e->event_type = EVENT_TYPE_EXIT;
+    e->event_flags = 0;
 
     // IMPACT: Revert zero-initialization in trace_sys_enter to restore compile success under BPF.
     e->args[0] = ctx->args[0];
@@ -272,7 +405,18 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     } else if (e->sys_id == __NR_execveat) {
         capture_exec_snapshot(e, 2, 3);
     }
-    bpf_map_update_elem(&events_map, &tid, e, BPF_ANY);
+
+    if (cfg && (*cfg & CONFIG_EMIT_ENTER)) {
+        e->event_type = EVENT_TYPE_ENTER;
+        e->event_flags = EVENT_FLAG_GENERIC_ENTER;
+        u32 enter_out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
+        if (enter_out_size > sizeof(*e)) enter_out_size = sizeof(*e);
+        bpf_ringbuf_output(&events, e, enter_out_size, 0);
+        e->event_type = EVENT_TYPE_EXIT;
+        e->event_flags = 0;
+    }
+
+    save_pending_syscall(tid, e);
 
     if (sys_id == 60 || sys_id == 231) { // exit (60), exit_group (231)
         if (tid == pid) {
@@ -282,7 +426,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
         if (out_size > sizeof(*e)) out_size = sizeof(*e);
         bpf_ringbuf_output(&events, e, out_size, 0);
-        bpf_map_delete_elem(&events_map, &tid);
+        bpf_map_delete_elem(&pending_syscalls, &tid);
     }
 
     if (sys_id == 130 || sys_id == 35) { // rt_sigsuspend (130), nanosleep (35)
@@ -293,10 +437,12 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         }
         if (nr_threads > 1 && tid == pid) {
             e->probe_ret_enter = 3;
+            e->event_type = EVENT_TYPE_ENTER;
             u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
             if (out_size > sizeof(*e)) out_size = sizeof(*e);
             bpf_ringbuf_output(&events, e, out_size, 0);
             e->probe_ret_enter = -1;
+            e->event_type = EVENT_TYPE_EXIT;
         }
     }
 
@@ -308,9 +454,11 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         } else {
             e->probe_ret_enter = 0;
         }
+        e->event_type = EVENT_TYPE_ENTER;
         u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
         if (out_size > sizeof(*e)) out_size = sizeof(*e);
         bpf_ringbuf_output(&events, e, out_size, 0);
+        e->event_type = EVENT_TYPE_EXIT;
         if (tid != pid) {
             bpf_map_update_elem(&pending_exec_map, &pid, &tid, BPF_ANY);
         }
@@ -326,28 +474,27 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     u32 tid = (u32)bpf_get_current_pid_tgid();
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
     
-    struct bpf_event *e = NULL;
+    struct pending_syscall *p = NULL;
     u32 is_pending_lookup = 0;
     u32 pending_tid = 0;
+    u32 key = 0;
     
     if (ctx->ret == 0) {
         u32 *p_tid = bpf_map_lookup_elem(&pending_exec_map, &pid);
         if (p_tid) {
             pending_tid = *p_tid;
-            e = bpf_map_lookup_elem(&events_map, &pending_tid);
+            p = bpf_map_lookup_elem(&pending_syscalls, &pending_tid);
             is_pending_lookup = 1;
         }
     }
-    if (!e) {
-        e = bpf_map_lookup_elem(&events_map, &tid);
+    if (!p) {
+        p = bpf_map_lookup_elem(&pending_syscalls, &tid);
     }
+    if (!p) return 0;
+
+    struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
     if (!e) return 0;
-    if (tid == pid && (e->sys_id == 130 || e->sys_id == 35)) {
-        u32 *pending = bpf_map_lookup_elem(&pending_exec_map, &pid);
-        if (pending) {
-            e->probe_ret_enter = 2;
-        }
-    }
+    event_from_pending(e, p);
     e->ret = ctx->ret;
     if (e->enter_time > 0) {
         u64 exit_time = bpf_ktime_get_ns();
@@ -356,28 +503,39 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
         }
     }
     
+    CAPTURE_ARGS_ENTER(e->sys_id, e);
+    capture_capset_data(e);
+    if (e->ret != 0) {
+        if (e->sys_id == __NR_execve) {
+            capture_exec_snapshot(e, 1, 2);
+        } else if (e->sys_id == __NR_execveat) {
+            capture_exec_snapshot(e, 2, 3);
+        }
+    }
+
     CAPTURE_ARGS_EXIT(e->sys_id, e);
-    
-    if (e->probe_ret_enter < 0) {
-        e->probe_ret_enter = -1;
-        CAPTURE_ARGS_ENTER(e->sys_id, e);
+    if (tid == pid && (e->sys_id == 130 || e->sys_id == 35)) {
+        u32 *pending = bpf_map_lookup_elem(&pending_exec_map, &pid);
+        if (pending) {
+            e->probe_ret_enter = 2;
+        }
     }
     
     if (is_pending_lookup) {
-        struct bpf_event *main_e = bpf_map_lookup_elem(&events_map, &pid);
-        if (main_e) {
-            e->probe_ret_exit = main_e->sys_id;
+        struct pending_syscall *main_p = bpf_map_lookup_elem(&pending_syscalls, &pid);
+        if (main_p) {
+            e->probe_ret_exit = main_p->sys_id;
         } else {
             e->probe_ret_exit = 0;
         }
         u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
         if (out_size > sizeof(*e)) out_size = sizeof(*e);
         bpf_ringbuf_output(&events, e, out_size, 0);
-        bpf_map_delete_elem(&events_map, &pending_tid);
+        bpf_map_delete_elem(&pending_syscalls, &pending_tid);
         bpf_map_delete_elem(&pending_exec_map, &pid);
         bpf_map_delete_elem(&main_exited_map, &pid);
-        if (main_e) {
-            bpf_map_delete_elem(&events_map, &pid);
+        if (main_p) {
+            bpf_map_delete_elem(&pending_syscalls, &pid);
         }
     } else {
         u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
@@ -385,7 +543,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
         bpf_ringbuf_output(&events, e, out_size, 0);
         u32 *pending = bpf_map_lookup_elem(&pending_exec_map, &pid);
         if (!(tid == pid && pending)) {
-            bpf_map_delete_elem(&events_map, &tid);
+            bpf_map_delete_elem(&pending_syscalls, &tid);
         }
         if ((e->sys_id == __NR_execve || e->sys_id == __NR_execveat) && tid != pid) {
             bpf_map_delete_elem(&pending_exec_map, &pid);
@@ -404,9 +562,47 @@ int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {
     
     u32 cfg_key = 0;
     u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);
-    if (cfg && (*cfg & 2)) {
+    if (cfg && (*cfg & CONFIG_FOLLOW_FORKS)) {
         u32 val = 1;
         bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY);
     }
+    emit_lifecycle_event(LIFECYCLE_FORK, parent_pid, parent_pid, parent_pid, child_pid);
+    return 0;
+}
+
+SEC("tracepoint/sched/sched_process_exec")
+int trace_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx) {
+    u32 pid = ctx->pid;
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+    if (!filter_pid) return 0;
+
+    emit_lifecycle_event(LIFECYCLE_EXEC, pid, pid, ctx->old_pid, pid);
+    return 0;
+}
+
+SEC("tracepoint/sched/sched_process_exit")
+int trace_sched_process_exit(struct trace_event_raw_sched_process_template *ctx) {
+    u32 pid = ctx->pid;
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+    if (!filter_pid) return 0;
+
+    bpf_map_delete_elem(&pending_syscalls, &pid);
+    bpf_map_delete_elem(&pending_exec_map, &pid);
+    bpf_map_delete_elem(&main_exited_map, &pid);
+    emit_lifecycle_event(LIFECYCLE_EXIT, pid, pid, pid, 0);
+    return 0;
+}
+
+SEC("tracepoint/sched/sched_process_free")
+int trace_sched_process_free(struct trace_event_raw_sched_process_template *ctx) {
+    u32 pid = ctx->pid;
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+    if (!filter_pid) return 0;
+
+    bpf_map_delete_elem(&pending_syscalls, &pid);
+    bpf_map_delete_elem(&pending_exec_map, &pid);
+    bpf_map_delete_elem(&main_exited_map, &pid);
+    bpf_map_delete_elem(&filter_map, &pid);
+    emit_lifecycle_event(LIFECYCLE_FREE, pid, pid, pid, 0);
     return 0;
 }

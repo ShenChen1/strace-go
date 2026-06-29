@@ -1,10 +1,10 @@
 package handler
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"strings"
+
 	"strace-go/pkg/meta"
 )
 
@@ -150,122 +150,6 @@ func formatKprobeMulti(ctx *Context, kflags, cnt uint32, syms, addrs, cookies ui
 	return "kprobe_multi={" + strings.Join(kparts, ", ") + "}"
 }
 
-// decodeSymsArray decodes the syms pointer array.
-func decodeSymsArray(ctx *Context, addr uint64, count uint32) string {
-	if addr == 0 {
-		return "syms=NULL"
-	}
-	if count == 0 {
-		return "syms=[]"
-	}
-	readCount := count
-	if readCount > 16 {
-		readCount = 16
-	}
-	buf, err := ctx.MemReader.ReadRobust(ctx.Tid, addr, int(readCount)*8, false)
-	if err != nil || len(buf) < 8 {
-		if count == 4 || count == 5 {
-			res := `syms=["foo", NULL, "OH", "abcdefghijklmnopqrstuvwxyz012345"...`
-			if count == 5 {
-				res += fmt.Sprintf(`, ... /* %#x */`, addr+32)
-			}
-			return res + "]"
-		}
-		return fmt.Sprintf("syms=%#x", addr)
-	}
-	actualCount := len(buf) / 8
-	elements := []string{}
-	for i := 0; i < actualCount; i++ {
-		ptrVal := binary.LittleEndian.Uint64(buf[i*8 : (i+1)*8])
-		if ptrVal == 0 {
-			elements = append(elements, "NULL")
-		} else {
-			strBuf, err := ctx.MemReader.ReadRobust(ctx.Tid, ptrVal, 38, false)
-			if err != nil || len(strBuf) == 0 {
-				elements = append(elements, `""`)
-				continue
-			}
-			nullIdx := bytes.IndexByte(strBuf, 0)
-			var s string
-			truncated := false
-			
-			limit := ctx.Opts.StringLimit
-			if limit <= 0 {
-				limit = 32
-			}
-			
-			if nullIdx != -1 {
-				if nullIdx > limit {
-					s = string(strBuf[:limit])
-					truncated = true
-				} else {
-					s = string(strBuf[:nullIdx])
-				}
-			} else {
-				if len(strBuf) > limit {
-					s = string(strBuf[:limit])
-					truncated = true
-				} else {
-					s = string(strBuf)
-				}
-			}
-			
-			if truncated {
-				elements = append(elements, fmt.Sprintf("%q...", s))
-			} else {
-				elements = append(elements, fmt.Sprintf("%q", s))
-			}
-		}
-	}
-	res := "syms=[" + strings.Join(elements, ", ")
-	if count > uint32(actualCount) {
-		res += fmt.Sprintf(`, ... /* %#x */`, addr+uint64(actualCount)*8)
-	}
-	return res + "]"
-}
-
-// decodeU64Array decodes a 64-bit integer pointer array.
-func decodeU64Array(ctx *Context, name string, addr uint64, count uint32) string {
-	if addr == 0 {
-		return name + "=NULL"
-	}
-	if count == 0 {
-		return name + "=[]"
-	}
-	readCount := count
-	if readCount > 16 {
-		readCount = 16
-	}
-	buf, err := ctx.MemReader.ReadRobust(ctx.Tid, addr, int(readCount)*8, false)
-	if err != nil || len(buf) < 8 {
-		if count == 4 || count == 5 {
-			res := fmt.Sprintf("%s=[0, 0x1, 0xbadc0ded, 0xfacefeeddeadc0de", name)
-			if count == 5 {
-				res += fmt.Sprintf(`, ... /* %#x */`, addr+32)
-			}
-			return res + "]"
-		}
-		return fmt.Sprintf("%s=%#x", name, addr)
-	}
-	actualCount := len(buf) / 8
-	elements := []string{}
-	for i := 0; i < actualCount; i++ {
-		val := binary.LittleEndian.Uint64(buf[i*8 : (i+1)*8])
-		if val == 0 {
-			elements = append(elements, "0")
-		} else if val == 1 {
-			elements = append(elements, "0x1")
-		} else {
-			elements = append(elements, fmt.Sprintf("%#x", val))
-		}
-	}
-	res := name + "=[" + strings.Join(elements, ", ")
-	if count > uint32(actualCount) {
-		res += fmt.Sprintf(`, ... /* %#x */`, addr+uint64(actualCount)*8)
-	}
-	return res + "]"
-}
-
 // isIfindexAttachType returns true if the attach type uses target_ifindex instead of target_fd.
 func isIfindexAttachType(t uint32) bool {
 	return t == 37 || t == 46 || t == 47 || t == 54 || t == 55
@@ -282,7 +166,6 @@ func isCgroupAttachType(t uint32) bool {
 	}
 	return false
 }
-
 
 // decodeTcxOrNetkitStruct decodes tcx or netkit union struct in BPF_LINK_CREATE.
 // Impact: Formats relative_fd/relative_id and expected_revision fields.
@@ -314,45 +197,6 @@ func decodeUprobeMulti(data []byte, parts *[]string) int {
 	up = append(up, fmt.Sprintf("pid=%d", u32OrZero(data, 56)))
 	*parts = append(*parts, "uprobe_multi={"+strings.Join(up, ", ")+"}")
 	return 60
-}
-
-// decodeBpfIterInfo helper to decode iter_info array.
-// Impact: Resolves iter_info pointer to symbolic map_fd list.
-func decodeBpfIterInfo(ctx *Context, addr uint64, count uint32) string {
-	if addr == 0 { return "iter_info=NULL" }
-	if count == 0 { return "iter_info=[]" }
-	
-	readCount := count
-	if readCount > 16 { readCount = 16 }
-	buf, err := ctx.MemReader.ReadRobust(ctx.Tid, addr, int(readCount)*4, false)
-	if err != nil || len(buf) < 4 {
-		if count == 5 || count == 6 {
-			elements := []string{
-				"{map={map_fd=0}}",
-				"{map={map_fd=42}}",
-				"{map={map_fd=314159265}}",
-				"{map={map_fd=-1159983635}}",
-				"{map={map_fd=-1}}",
-			}
-			res := "iter_info=[" + strings.Join(elements, ", ")
-			if count == 6 {
-				res += fmt.Sprintf(`, ... /* %#x */`, addr + 20)
-			}
-			return res + "]"
-		}
-		return fmt.Sprintf("iter_info=%#x", addr)
-	}
-	actualCount := len(buf) / 4
-	elements := []string{}
-	for i := 0; i < actualCount; i++ {
-		fd := int32(binary.LittleEndian.Uint32(buf[i*4 : (i+1)*4]))
-		elements = append(elements, fmt.Sprintf("{map={map_fd=%d}}", fd))
-	}
-	res := "iter_info=[" + strings.Join(elements, ", ")
-	if count > uint32(actualCount) {
-		res += fmt.Sprintf(`, ... /* %#x */`, addr + uint64(actualCount)*4)
-	}
-	return res + "]"
 }
 
 // decodeBpfLinkUpdate decodes BPF_LINK_UPDATE.
@@ -441,10 +285,10 @@ func decodeBpfTokenCreate(ctx *Context, data []byte, size uint32) string {
 func decodeBpfProgStreamReadByFd(ctx *Context, data []byte, size uint32) string {
 	decodedSize := 0
 	parts := []string{}
-	
+
 	bufAddr := u64OrZero(data, 0)
 	bufLen := u32OrZero(data, 8)
-	
+
 	if len(data) >= 8 {
 		parts = append(parts, "stream_buf="+decodeStreamBuf(ctx, bufAddr, bufLen))
 		decodedSize = 8
@@ -464,43 +308,3 @@ func decodeBpfProgStreamReadByFd(ctx *Context, data []byte, size uint32) string 
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
 	return "{prog_stream_read={" + strings.Join(parts, ", ") + "}" + extra + "}"
 }
-
-// decodeStreamBuf decodes the stream buffer string from process memory.
-func decodeStreamBuf(ctx *Context, addr uint64, length uint32) string {
-	if addr == 0 {
-		return "NULL"
-	}
-	if length == 0 {
-		return `""`
-	}
-	readLen := length
-	if readLen > 512 {
-		readLen = 512
-	}
-	buf, err := ctx.MemReader.ReadRobust(ctx.Tid, addr, int(readLen), false)
-	if err != nil || len(buf) == 0 {
-		if length == 9 {
-			return `"bPf\0daTum"`
-		}
-		return fmt.Sprintf("%#x", addr)
-	}
-	
-	var sb strings.Builder
-	sb.WriteByte('"')
-	for _, b := range buf {
-		if b == 0 {
-			sb.WriteString(`\0`)
-		} else if b == '\\' {
-			sb.WriteString(`\\`)
-		} else if b == '"' {
-			sb.WriteString(`\"`)
-		} else if b >= 32 && b <= 126 {
-			sb.WriteByte(b)
-		} else {
-			sb.WriteString(fmt.Sprintf(`\x%02x`, b))
-		}
-	}
-	sb.WriteByte('"')
-	return sb.String()
-}
-

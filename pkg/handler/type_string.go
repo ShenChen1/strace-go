@@ -46,32 +46,8 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 	}
 
 	if scName == "readlink" || scName == "readlinkat" || scName == "getcwd" {
-		bufIdx := 1
-		if scName == "readlinkat" {
-			bufIdx = 2
-		} else if scName == "getcwd" {
-			bufIdx = 0
-		}
-		if i == bufIdx {
-			if ctx.Ret < 0 {
-				return fmt.Sprintf("%#x", val), true
-			}
-			bpfBuf := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+512]
-			data, ok := ctx.FetchStructData(val, int(ctx.Ret), true, bpfBuf)
-			if ok {
-				sz := int(ctx.Ret)
-				if sz > len(data) {
-					sz = len(data)
-				}
-				if sz < 0 {
-					sz = 0
-				}
-				if idx := bytes.IndexByte(data[:sz], 0); idx != -1 {
-					sz = idx
-				}
-				return format.BufferEscape(data[:sz], 0, sz, ctx.Decoder.HexEscapeMode), true
-			}
-			return fmt.Sprintf("%#x", val), true
+		if p, ok := decodeReadlinkBuffer(ctx, i, val); ok {
+			return p, true
 		}
 	}
 
@@ -91,82 +67,11 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 	}
 
 	limit := ctx.Opts.StringLimit
-	if argTyp == "void *" || argTyp == "const void *" || strings.HasSuffix(scName, "listxattr") {
-		isSetxattr := strings.HasSuffix(scName, "setxattr")
-		isGetxattr := strings.HasSuffix(scName, "getxattr")
-		isListxattr := strings.HasSuffix(scName, "listxattr")
-
-		// Wait, strace-go generates only EXIT events for fast syscalls.
-		// If Ret is present, it's definitely the exit phase for getxattr.
-		isExit := isGetxattr || isListxattr // We only care about exit for getxattr and listxattr!
-
-		if (isSetxattr || ((isGetxattr || isListxattr) && isExit)) && (argName == "value" || argName == "list") {
-			size := ctx.Args[3]
-			if isListxattr {
-				size = ctx.Args[2]
-			}
-			if isGetxattr || isListxattr {
-				// For getxattr/listxattr, if size is 0, just print the pointer.
-				if size == 0 {
-					return fmt.Sprintf("%#x", val), true
-				}
-				// For getxattr/listxattr, size is the returned length if successful
-				if ctx.Ret >= 0 {
-					size = uint64(ctx.Ret)
-				} else {
-					// If getxattr/listxattr failed, print the address
-					return fmt.Sprintf("%#x", val), true
-				}
-			}
-
-			if val == 0 {
-				return "NULL", true
-			}
-			if size == 0 {
-				return `""`, true
-			}
-			if size > 65536 {
-				return fmt.Sprintf("%#x", val), true
-			}
-			fetchSize := int(size)
-			if limit > 0 && fetchSize > limit {
-				fetchSize = limit
-			}
-			var bpfBuf []byte
-			if scName == "fsetxattr" || scName == "fgetxattr" {
-				bpfBuf = ctx.StrArgBuf[256:]
-			} else if scName == "listxattr" || scName == "llistxattr" {
-				bpfBuf = ctx.StrArgBuf[512:]
-			} else if scName == "flistxattr" {
-				bpfBuf = ctx.StrArgBuf[0:]
-			} else {
-				bpfBuf = ctx.StrArgBuf[768:]
-			}
-
-			// For setxattr, we must fetch from Enter probe.
-			// For getxattr, we fetch from Exit probe.
-			data, ok := ctx.FetchStructData(val, fetchSize, isGetxattr || isListxattr, bpfBuf)
-			if !ok || len(data) == 0 || len(data) < fetchSize {
-				return fmt.Sprintf("%#x", val), true
-			}
-			sz := int(size)
-			if sz > len(data) {
-				sz = len(data)
-			}
-			// Don't truncate trailing \0 for listxattr because it returns a series of \0 terminated strings.
-			if !isListxattr && sz == int(size) && sz > 0 && data[sz-1] == 0 {
-				sz--
-				size--
-			}
-			res := format.BufferEscape(data[:sz], limit, int(size), ctx.Decoder.HexEscapeMode)
-			if len(data) < int(size) && int(size) <= limit {
-				res += "..."
-			}
-			return res, true
-		}
-		if argTyp == "void *" || argTyp == "const void *" {
-			return fmt.Sprintf("%#x", val), true
-		}
+	if p, ok := decodeXattrValueArg(ctx, i, argTyp, argName, val, limit); ok {
+		return p, true
+	}
+	if argTyp == "void *" || argTyp == "const void *" {
+		return fmt.Sprintf("%#x", val), true
 	}
 	capSize := 512
 	if isPath {
@@ -197,6 +102,129 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 		p = sb.String()[:4096] + `"...`
 	}
 	return p, true
+}
+
+func decodeReadlinkBuffer(ctx *Context, i int, val uint64) (string, bool) {
+	bufIdx := 1
+	if ctx.ScMeta.Name == "readlinkat" {
+		bufIdx = 2
+	} else if ctx.ScMeta.Name == "getcwd" {
+		bufIdx = 0
+	}
+	if i != bufIdx {
+		return "", false
+	}
+	if ctx.Ret < 0 {
+		return fmt.Sprintf("%#x", val), true
+	}
+	readSize := boundedSnapshotSize(int(ctx.Ret), 512)
+	if readSize == 0 {
+		return `""`, true
+	}
+	data, ok := ctx.ExitSnapshot(BpfExitArgOffset, readSize)
+	if !ok {
+		return fmt.Sprintf("%#x", val), true
+	}
+	sz := int(ctx.Ret)
+	if sz > len(data) {
+		sz = len(data)
+	}
+	if sz < 0 {
+		sz = 0
+	}
+	if idx := bytes.IndexByte(data[:sz], 0); idx != -1 {
+		sz = idx
+	}
+	return format.BufferEscape(data[:sz], 0, sz, ctx.Decoder.HexEscapeMode), true
+}
+
+func decodeXattrValueArg(ctx *Context, i int, argTyp string, argName string, val uint64, limit int) (string, bool) {
+	scName := ctx.ScMeta.Name
+	if argTyp != "void *" && argTyp != "const void *" && !strings.HasSuffix(scName, "listxattr") {
+		return "", false
+	}
+	isSetxattr := strings.HasSuffix(scName, "setxattr")
+	isGetxattr := strings.HasSuffix(scName, "getxattr")
+	isListxattr := strings.HasSuffix(scName, "listxattr")
+	if !(isSetxattr || isGetxattr || isListxattr) || (argName != "value" && argName != "list") {
+		return "", false
+	}
+	size, ok := xattrValueSize(ctx, isGetxattr, isListxattr)
+	if !ok {
+		return fmt.Sprintf("%#x", val), true
+	}
+	if val == 0 {
+		return "NULL", true
+	}
+	if size == 0 {
+		return `""`, true
+	}
+	if size > 65536 {
+		return fmt.Sprintf("%#x", val), true
+	}
+	return formatXattrSnapshot(ctx, i, val, size, limit, isGetxattr, isListxattr), true
+}
+
+func xattrValueSize(ctx *Context, isGetxattr bool, isListxattr bool) (uint64, bool) {
+	size := ctx.Args[3]
+	if isListxattr {
+		size = ctx.Args[2]
+	}
+	if !isGetxattr && !isListxattr {
+		return size, true
+	}
+	if size == 0 {
+		return size, false
+	}
+	if ctx.Ret < 0 {
+		return 0, false
+	}
+	return uint64(ctx.Ret), true
+}
+
+func formatXattrSnapshot(ctx *Context, argIndex int, val uint64, size uint64, limit int, isGetxattr bool, isListxattr bool) string {
+	fetchSize := int(size)
+	if limit > 0 && fetchSize > limit {
+		fetchSize = limit
+	}
+	offset, captureArg := xattrSnapshotOffset(ctx.ScMeta.Name, argIndex)
+	readSize := boundedSnapshotSize(fetchSize, 256)
+	var data []byte
+	var ok bool
+	if isGetxattr || isListxattr {
+		data, ok = ctx.ExitSnapshot(offset, readSize)
+	} else {
+		data, ok = ctx.EnterArgSnapshot(captureArg, offset, readSize)
+	}
+	if !ok || len(data) == 0 || len(data) < fetchSize {
+		return fmt.Sprintf("%#x", val)
+	}
+	sz := int(size)
+	if sz > len(data) {
+		sz = len(data)
+	}
+	if !isListxattr && sz == int(size) && sz > 0 && data[sz-1] == 0 {
+		sz--
+		size--
+	}
+	res := format.BufferEscape(data[:sz], limit, int(size), ctx.Decoder.HexEscapeMode)
+	if len(data) < int(size) && int(size) <= limit {
+		res += "..."
+	}
+	return res
+}
+
+func xattrSnapshotOffset(scName string, fallbackArg int) (int, int) {
+	switch scName {
+	case "fsetxattr", "fgetxattr":
+		return 256, 2
+	case "listxattr", "llistxattr":
+		return 512, 1
+	case "flistxattr":
+		return 0, 1
+	default:
+		return 768, fallbackArg
+	}
 }
 
 func shouldShowFaultingTimePathPointer(ctx *Context, val uint64) bool {
@@ -230,12 +258,7 @@ func decodeIntPointer(ctx *Context, i int, argTyp, argName string, val uint64, r
 	scName := ctx.ScMeta.Name
 	if scName == "pipe" || scName == "pipe2" {
 		if ctx.Ret >= 0 {
-			bpfBuf := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+8]
-			isExit := false
-			if ctx.ProbeRetExit >= 0 {
-				isExit = true
-			}
-			data, ok := ctx.FetchStructDataExact(val, 8, isExit, bpfBuf)
+			data, ok := ctx.ExitSnapshot(BpfExitArgOffset, 8)
 			if ok {
 				fd1 := int32(binary.LittleEndian.Uint32(data[0:4]))
 				fd2 := int32(binary.LittleEndian.Uint32(data[4:8]))
@@ -275,15 +298,7 @@ func decodeKeyArg(ctx *Context, i int, argName string, val uint64) (string, bool
 			capLen = 256
 		}
 
-		bpfBuf := ctx.StrArgBuf[256 : 256+capLen]
-		var data []byte
-		ok := false
-		if ctx.IsArgReadSuccess(i) {
-			data = bpfBuf
-			ok = true
-		} else {
-			data, ok = ctx.FetchStructDataExact(val, capLen, false, bpfBuf)
-		}
+		data, ok := ctx.EnterArgSnapshot(i, 256, capLen)
 		if !ok || len(data) == 0 {
 			return fmt.Sprintf("%#x", val), true
 		}
@@ -305,8 +320,8 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 		if szH == 0 {
 			return `""`, true
 		}
-		bpfBuf := ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+512]
-		data, ok := ctx.FetchStructData(val, int(szH), true, bpfBuf)
+		readSize := boundedSnapshotSize(int(szH), 512)
+		data, ok := ctx.ExitSnapshot(BpfExitArgOffset, readSize)
 		if ok {
 			if ctx.Opts.TraceReadFDs[fd] {
 				res.HexDumpStr = format.Hexdump(data, int(szH))
@@ -328,8 +343,8 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 		if szH == 0 {
 			return `""`, true
 		}
-		bpfBuf := ctx.StrArgBuf[0:512]
-		data, ok := ctx.FetchStructData(val, int(szH), false, bpfBuf)
+		readSize := boundedSnapshotSize(int(szH), 512)
+		data, ok := ctx.EnterArgSnapshot(1, BpfEnterArgOffset, readSize)
 		if ok {
 			if ctx.Opts.TraceWriteFDs[fd] {
 				if fileData, fileOK := ctx.FetchWrittenFileData(fd, int(szH), data); fileOK {
@@ -350,6 +365,16 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 	}
 
 	return "", false
+}
+
+func boundedSnapshotSize(requested int, maxSize int) int {
+	if requested <= 0 || maxSize <= 0 {
+		return 0
+	}
+	if requested > maxSize {
+		return maxSize
+	}
+	return requested
 }
 
 func (ctx *Context) FetchWrittenFileData(fd int32, requestedSize int, current []byte) ([]byte, bool) {

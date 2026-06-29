@@ -32,15 +32,7 @@ func (h *FutexHandler) Handle(ctx *Context) Result {
 		if timeout == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
-			data := ctx.StrArgBuf[0:16]
-			readSuccess := ctx.ProbeRetEnter >= 0
-			if !readSuccess {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Pid, timeout, 16, false); err == nil && len(d) == 16 {
-					data = d
-					readSuccess = true
-				}
-			}
-			if readSuccess {
+			if data, ok := ctx.EnterArgSnapshot(3, BpfEnterArgOffset, 16); ok {
 				res.ArgParts = append(res.ArgParts, format.Timespec(data))
 			} else {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", timeout))

@@ -3,7 +3,6 @@ package handler
 import (
 	"encoding/binary"
 	"fmt"
-
 )
 
 func init() {
@@ -15,6 +14,13 @@ type CachestatHandler struct {
 	DefaultHandler
 }
 
+const (
+	cachestatRangeSize = 16
+	cachestatStatsSize = 40
+	cachestatRangeOff  = BpfMiscArgOffset
+	cachestatStatsOff  = BpfExitArgOffset
+)
+
 func (h *CachestatHandler) Handle(ctx *Context) Result {
 	res := Result{}
 	res.ArgParts = append(res.ArgParts, h.formatFdArg(ctx, "fd", ctx.Args[0])) // fd
@@ -23,15 +29,8 @@ func (h *CachestatHandler) Handle(ctx *Context) Result {
 	if ctx.Args[1] == 0 {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else {
-		var d []byte
-		if len(ctx.StrArgBuf) >= 512+16 {
-			d = ctx.StrArgBuf[512 : 512+16]
-		}
-		if len(d) != 16 || (ctx.ProbeRetEnter < 0 && d[0] == 0 && d[15] == 0) {
-			d, _ = ctx.MemReader.ReadRobust(ctx.Tid, ctx.Args[1], 16, false)
-		}
-		if len(d) == 16 {
-			res.ArgParts = append(res.ArgParts, fmt.Sprintf("{off=%#x, len=%d}", binary.LittleEndian.Uint64(d[0:8]), binary.LittleEndian.Uint64(d[8:16])))
+		if d, ok := ctx.EnterArgSnapshot(1, cachestatRangeOff, cachestatRangeSize); ok {
+			res.ArgParts = append(res.ArgParts, formatCachestatRange(d))
 		} else {
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[1]))
 		}
@@ -41,15 +40,9 @@ func (h *CachestatHandler) Handle(ctx *Context) Result {
 	if ctx.Args[2] == 0 {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else {
-		if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 {
-			d, err := ctx.MemReader.ReadRobust(ctx.Tid, ctx.Args[2], 40, true)
-			if err == nil && len(d) == 40 {
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("{nr_cache=%d, nr_dirty=%d, nr_writeback=%d, nr_evicted=%d, nr_recently_evicted=%d}",
-					binary.LittleEndian.Uint64(d[0:8]),
-					binary.LittleEndian.Uint64(d[8:16]),
-					binary.LittleEndian.Uint64(d[16:24]),
-					binary.LittleEndian.Uint64(d[24:32]),
-					binary.LittleEndian.Uint64(d[32:40])))
+		if ctx.Ret >= 0 {
+			if d, ok := ctx.ExitSnapshot(cachestatStatsOff, cachestatStatsSize); ok {
+				res.ArgParts = append(res.ArgParts, formatCachestatStats(d))
 			} else {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
 			}
@@ -65,4 +58,17 @@ func (h *CachestatHandler) Handle(ctx *Context) Result {
 	res.ArgParts = append(res.ArgParts, flagsStr) // flags
 
 	return res
+}
+
+func formatCachestatRange(d []byte) string {
+	return fmt.Sprintf("{off=%#x, len=%d}", binary.LittleEndian.Uint64(d[0:8]), binary.LittleEndian.Uint64(d[8:16]))
+}
+
+func formatCachestatStats(d []byte) string {
+	return fmt.Sprintf("{nr_cache=%d, nr_dirty=%d, nr_writeback=%d, nr_evicted=%d, nr_recently_evicted=%d}",
+		binary.LittleEndian.Uint64(d[0:8]),
+		binary.LittleEndian.Uint64(d[8:16]),
+		binary.LittleEndian.Uint64(d[16:24]),
+		binary.LittleEndian.Uint64(d[24:32]),
+		binary.LittleEndian.Uint64(d[32:40]))
 }

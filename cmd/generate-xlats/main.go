@@ -2,11 +2,11 @@ package main
 
 import (
 	"fmt"
+	"gopkg.in/yaml.v3"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"gopkg.in/yaml.v3"
 )
 
 type ArgXlatMap struct {
@@ -32,7 +32,9 @@ func main() {
 
 	allowedXlats := make(map[string]bool)
 	for _, m := range argXlat.Syscalls {
-		for _, xlat := range m { allowedXlats[xlat] = true }
+		for _, xlat := range m {
+			allowedXlats[xlat] = true
+		}
 	}
 	// IMPACT: Allows fcntlcmds, notifyflags, lockfcmds, and fdflags to be extracted from upstream xlat definitions.
 	allowedXlats["fcntlcmds"] = true
@@ -89,10 +91,15 @@ func main() {
 	delete(allowedXlats, "sigact_flags")
 
 	files, _ := os.ReadDir(xlatDir)
+	emittedXlats := make(map[string]bool)
 	for _, f := range files {
-		if !strings.HasSuffix(f.Name(), ".in") { continue }
+		if !strings.HasSuffix(f.Name(), ".in") {
+			continue
+		}
 		name := strings.TrimSuffix(f.Name(), ".in")
-		if !allowedXlats[name] { continue }
+		if !allowedXlats[name] {
+			continue
+		}
 
 		content, _ := os.ReadFile(filepath.Join(xlatDir, f.Name()))
 		if name == "madvise_cmds" {
@@ -103,7 +110,7 @@ func main() {
 		prefix := ""
 		keys := []string{}
 		entries := make(map[string]string)
-		
+
 		cProg := strings.Builder{}
 		cProg.WriteString("#define _GNU_SOURCE\n#include <stdio.h>\n#include <fcntl.h>\n#include <sys/types.h>\n#include <sys/socket.h>\n#include <sys/un.h>\n#include <linux/prctl.h>\n#include <asm/prctl.h>\n#include <linux/stat.h>\n#include <linux/fs.h>\n#include <linux/timex.h>\n#include <poll.h>\n#include <sys/epoll.h>\n#include <linux/bpf.h>\n#include <time.h>\n#include <asm/termios.h>\n#include <sys/mman.h>\n#include <linux/sched.h>\n#include <linux/futex.h>\n#include <linux/memfd.h>\n#include <linux/xattr.h>\n#include <sys/wait.h>\n#include <sys/mount.h>\n#include <linux/keyctl.h>\n#include <linux/dm-ioctl.h>\n#include <linux/netlink.h>\n#include <linux/rtnetlink.h>\n#include <linux/openat2.h>\n")
 		if name == "resources" || name == "priorities" {
@@ -126,12 +133,18 @@ func main() {
 
 		for _, line := range strings.Split(string(content), "\n") {
 			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "#Prefix ") { prefix = strings.TrimSpace(strings.TrimPrefix(line, "#Prefix ")) }
-			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "/") { continue }
+			if strings.HasPrefix(line, "#Prefix ") {
+				prefix = strings.TrimSpace(strings.TrimPrefix(line, "#Prefix "))
+			}
+			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "/") {
+				continue
+			}
 			parts := strings.Fields(line)
-			if len(parts) >= 1 { 
+			if len(parts) >= 1 {
 				k := parts[0]
-				if !isCIdentifier(k) { continue }
+				if !isCIdentifier(k) {
+					continue
+				}
 				keys = append(keys, k)
 				if len(parts) >= 2 {
 					v := parts[1]
@@ -148,7 +161,7 @@ func main() {
 						v = strings.TrimSuffix(v, "ll")
 						v = strings.TrimSuffix(v, "l")
 					}
-					
+
 					if !strings.Contains(v, "(") && !strings.Contains(v, "<<") {
 						entries[k] = v
 					} else {
@@ -188,20 +201,26 @@ func main() {
 			fmt.Printf("GCC failed for %s: %v\nOutput: %s\n", name, err, string(output))
 			// Print first few lines of cProg
 			lines := strings.Split(cProg.String(), "\n")
-			for i := 0; i < 20 && i < len(lines); i++ { fmt.Println(lines[i]) }
+			for i := 0; i < 20 && i < len(lines); i++ {
+				fmt.Println(lines[i])
+			}
 		} else {
 			val, _ := exec.Command("./gen_xlat_tmp").Output()
 			for _, resLine := range strings.Split(string(val), "\n") {
 				resLine = strings.TrimSpace(resLine)
-				if resLine == "" { continue }
+				if resLine == "" {
+					continue
+				}
 				parts := strings.Fields(resLine)
 				if len(parts) == 2 {
-					str := parts[0]; v := parts[1]
+					str := parts[0]
+					v := parts[1]
 					entries[str] = v
 				}
 			}
 			os.Remove("gen_xlat_tmp")
 		}
+		applyStableXlatFallbacks(name, &prefix, entries, &keys)
 
 		fmt.Fprintf(out, "\t%q: {\n\t\tPrefix: %q,\n\t\tEntries: []XlatVal{\n", name, prefix)
 		for _, k := range keys {
@@ -209,16 +228,28 @@ func main() {
 				// Only write if v is a numeric string (decimal or hex)
 				isNumeric := true
 				if strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
-					for _, r := range v[2:] { if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) { isNumeric = false; break } }
+					for _, r := range v[2:] {
+						if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+							isNumeric = false
+							break
+						}
+					}
 				} else {
-					for _, r := range v { if r < '0' || r > '9' { isNumeric = false; break } }
+					for _, r := range v {
+						if r < '0' || r > '9' {
+							isNumeric = false
+							break
+						}
+					}
 				}
-				
+
 				if isNumeric {
 					// IMPACT: Exempt F_DUPFD and F_RDLCK from being skipped when value is 0, as they are crucial for fcntl.
 					// Also exempt BPF_PROG_TYPE_UNSPEC and BPF_CGROUP_INET_INGRESS to allow 0-value BPF constants.
 					// Exempt PRIO_PROCESS and ITIMER_REAL for getpriority and setitimer tests.
-					if v == "0" && k != "O_RDONLY" && k != "F_OK" && k != "AF_UNSPEC" && k != "SEEK_SET" && k != "XFEATURE_FP" && k != "BPF_MAP_CREATE" && k != "CLOCK_REALTIME" && k != "PROT_NONE" && k != "FUTEX_WAIT" && k != "FUTEX2_SIZE_U8" && k != "MADV_NORMAL" && k != "SIG_BLOCK" && k != "CLONE_VM" && k != "BPF_MAP_TYPE_UNSPEC" && k != "BPF_PROG_TYPE_UNSPEC" && k != "BPF_CGROUP_INET_INGRESS" && k != "MAP_FILE" && k != "RLIMIT_CPU" && k != "F_DUPFD" && k != "F_RDLCK" && k != "PRIO_PROCESS" && k != "ITIMER_REAL" { continue }
+					if v == "0" && k != "O_RDONLY" && k != "F_OK" && k != "AF_UNSPEC" && k != "SEEK_SET" && k != "XFEATURE_FP" && k != "BPF_MAP_CREATE" && k != "CLOCK_REALTIME" && k != "PROT_NONE" && k != "FUTEX_WAIT" && k != "FUTEX2_SIZE_U8" && k != "MADV_NORMAL" && k != "SIG_BLOCK" && k != "CLONE_VM" && k != "BPF_MAP_TYPE_UNSPEC" && k != "BPF_PROG_TYPE_UNSPEC" && k != "BPF_CGROUP_INET_INGRESS" && k != "MAP_FILE" && k != "RLIMIT_CPU" && k != "F_DUPFD" && k != "F_RDLCK" && k != "PRIO_PROCESS" && k != "ITIMER_REAL" {
+						continue
+					}
 					fmt.Fprintf(out, "\t\t\t{Val: %s, Str: %q},\n", v, k)
 				}
 			}
@@ -233,7 +264,9 @@ func main() {
 			fmt.Fprintf(out, "\t\t\t{Val: 32768, Str: \"O_LARGEFILE\"},\n")
 		}
 		fmt.Fprintf(out, "\t\t},\n\t},\n")
+		emittedXlats[name] = true
 	}
+	writeAliasXlatTables(out, emittedXlats)
 	if true {
 		fmt.Printf("Generating ioctl_cmds...\n")
 		ioctlInc, err := os.ReadFile("../../strace-upstream/src/linux/64/ioctls_inc.h")
@@ -241,7 +274,9 @@ func main() {
 			fmt.Fprintf(out, "\t%q: {\n\t\tPrefix: %q,\n\t\tEntries: []XlatVal{\n", "ioctl_cmds", "")
 			for _, line := range strings.Split(string(ioctlInc), "\n") {
 				line = strings.TrimSpace(line)
-				if !strings.HasPrefix(line, "{") { continue }
+				if !strings.HasPrefix(line, "{") {
+					continue
+				}
 				line = strings.Trim(line, "{} ")
 				parts := strings.Split(line, ",")
 				if len(parts) >= 5 {
@@ -249,13 +284,21 @@ func main() {
 					dirStr := strings.TrimSpace(parts[2])
 					typNrStr := strings.TrimSpace(parts[3])
 					sizeStr := strings.TrimSpace(parts[4])
-					
+
 					var dir, typNr, size uint64
-					if strings.Contains(dirStr, "READ") && strings.Contains(dirStr, "WRITE") { dir = 3 } else if strings.Contains(dirStr, "READ") { dir = 2 } else if strings.Contains(dirStr, "WRITE") { dir = 1 } else { dir = 0 }
-					
+					if strings.Contains(dirStr, "READ") && strings.Contains(dirStr, "WRITE") {
+						dir = 3
+					} else if strings.Contains(dirStr, "READ") {
+						dir = 2
+					} else if strings.Contains(dirStr, "WRITE") {
+						dir = 1
+					} else {
+						dir = 0
+					}
+
 					fmt.Sscanf(typNrStr, "%v", &typNr)
 					fmt.Sscanf(sizeStr, "%v", &size)
-					
+
 					val := (dir << 30) | (size << 16) | typNr
 					fmt.Fprintf(out, "\t\t\t{Val: %d, Str: %q}, // From %s\n", val, name, strings.Trim(parts[0], " \""))
 				}
@@ -431,29 +474,15 @@ func main() {
 	fmt.Fprintln(out, "}")
 	fmt.Fprintln(out, "var SyscallArgXlatMap = map[string]map[string]string{")
 	for sc, m := range argXlat.Syscalls {
-		if strings.HasSuffix(sc, "_table") { continue }
+		if strings.HasSuffix(sc, "_table") {
+			continue
+		}
 		fmt.Fprintf(out, "\t%q: {\n", sc)
-		for arg, xlat := range m { fmt.Fprintf(out, "\t\t%q: %q,\n", arg, xlat) }
+		for arg, xlat := range m {
+			fmt.Fprintf(out, "\t\t%q: %q,\n", arg, xlat)
+		}
 		fmt.Fprintln(out, "\t},")
 	}
 	fmt.Fprintln(out, "}")
 	out.Close()
-}
-
-func isCIdentifier(s string) bool {
-	if len(s) == 0 {
-		return false
-	}
-	for i, r := range s {
-		if i == 0 {
-			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_') {
-				return false
-			}
-		} else {
-			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_') {
-				return false
-			}
-		}
-	}
-	return true
 }

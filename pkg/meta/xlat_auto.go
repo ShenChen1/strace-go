@@ -387,6 +387,13 @@ var XlatTables = map[string]XlatTable{
 			{Val: 2147483648, Str: "CLONE_IO"},
 		},
 	},
+	"close_range_flags": {
+		Prefix: "CLOSE_RANGE_",
+		Entries: []XlatVal{
+			{Val: 2, Str: "CLOSE_RANGE_UNSHARE"},
+			{Val: 4, Str: "CLOSE_RANGE_CLOEXEC"},
+		},
+	},
 	"dm_flags": {
 		Prefix: "DM_",
 		Entries: []XlatVal{
@@ -467,6 +474,44 @@ var XlatTables = map[string]XlatTable{
 			{Val: 524288, Str: "EPOLL_CLOEXEC"},
 		},
 	},
+	"falloc_flags": {
+		Prefix: "FALLOC_FL_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "FALLOC_FL_KEEP_SIZE"},
+			{Val: 2, Str: "FALLOC_FL_PUNCH_HOLE"},
+			{Val: 4, Str: "FALLOC_FL_NO_HIDE_STALE"},
+			{Val: 8, Str: "FALLOC_FL_COLLAPSE_RANGE"},
+			{Val: 16, Str: "FALLOC_FL_ZERO_RANGE"},
+			{Val: 32, Str: "FALLOC_FL_INSERT_RANGE"},
+			{Val: 64, Str: "FALLOC_FL_UNSHARE_RANGE"},
+			{Val: 128, Str: "FALLOC_FL_WRITE_ZEROES"},
+		},
+	},
+	"fan_init_flags": {
+		Prefix: "FAN_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "FAN_CLOEXEC"},
+			{Val: 2, Str: "FAN_NONBLOCK"},
+			{Val: 16, Str: "FAN_UNLIMITED_QUEUE"},
+			{Val: 32, Str: "FAN_UNLIMITED_MARKS"},
+			{Val: 64, Str: "FAN_ENABLE_AUDIT"},
+			{Val: 128, Str: "FAN_REPORT_PIDFD"},
+			{Val: 256, Str: "FAN_REPORT_TID"},
+			{Val: 512, Str: "FAN_REPORT_FID"},
+			{Val: 1024, Str: "FAN_REPORT_DIR_FID"},
+			{Val: 2048, Str: "FAN_REPORT_NAME"},
+			{Val: 4096, Str: "FAN_REPORT_TARGET_FID"},
+			{Val: 8192, Str: "FAN_REPORT_FD_ERROR"},
+			{Val: 16384, Str: "FAN_REPORT_MNT"},
+		},
+	},
+	"fchmodat_flags": {
+		Prefix: "AT_",
+		Entries: []XlatVal{
+			{Val: 256, Str: "AT_SYMLINK_NOFOLLOW"},
+			{Val: 4096, Str: "AT_EMPTY_PATH"},
+		},
+	},
 	"fcntlcmds": {
 		Prefix: "F_",
 		Entries: []XlatVal{
@@ -510,133 +555,6 @@ var XlatTables = map[string]XlatTable{
 		Prefix: "FD_",
 		Entries: []XlatVal{
 			{Val: 1, Str: "FD_CLOEXEC"},
-		},
-	},
-	"fan_init_flags": {
-		Prefix: "FAN_",
-		Entries: []XlatVal{
-			{Val: 0, Str: "FAN_CLASS_NOTIF"},
-			{Val: 4, Str: "FAN_CLASS_CONTENT"},
-			{Val: 8, Str: "FAN_CLASS_PRE_CONTENT"},
-			{Val: 1, Str: "FAN_CLOEXEC"},
-			{Val: 2, Str: "FAN_NONBLOCK"},
-			{Val: 16, Str: "FAN_UNLIMITED_QUEUE"},
-			{Val: 32, Str: "FAN_UNLIMITED_MARKS"},
-			{Val: 64, Str: "FAN_ENABLE_AUDIT"},
-			{Val: 128, Str: "FAN_REPORT_PIDFD"},
-			{Val: 256, Str: "FAN_REPORT_TID"},
-			{Val: 512, Str: "FAN_REPORT_FID"},
-			{Val: 1024, Str: "FAN_REPORT_DIR_FID"},
-			{Val: 2048, Str: "FAN_REPORT_NAME"},
-			{Val: 4096, Str: "FAN_REPORT_TARGET_FID"},
-			{Val: 8192, Str: "FAN_REPORT_FD_ERROR"},
-			{Val: 16384, Str: "FAN_REPORT_MNT"},
-		},
-	},
-	"memfd_create_flags": {
-		Prefix: "MFD_",
-		Entries: []XlatVal{
-			{Val: 1, Str: "MFD_CLOEXEC"},
-			{Val: 2, Str: "MFD_ALLOW_SEALING"},
-			{Val: 4, Str: "MFD_HUGETLB"},
-			{Val: 8, Str: "MFD_NOEXEC_SEAL"},
-			{Val: 16, Str: "MFD_EXEC"},
-		},
-	},
-	"fchmodat_flags": {
-		Prefix: "AT_",
-		Entries: []XlatVal{
-			{Val: 256, Str: "AT_SYMLINK_NOFOLLOW"},
-			{Val: 4096, Str: "AT_EMPTY_PATH"},
-		},
-	},
-	"falloc_flags": {
-		Prefix: "FALLOC_FL_",
-		Entries: []XlatVal{
-			{Val: 1, Str: "FALLOC_FL_KEEP_SIZE"},
-			{Val: 2, Str: "FALLOC_FL_PUNCH_HOLE"},
-			{Val: 4, Str: "FALLOC_FL_NO_HIDE_STALE"},
-			{Val: 8, Str: "FALLOC_FL_COLLAPSE_RANGE"},
-			{Val: 16, Str: "FALLOC_FL_ZERO_RANGE"},
-			{Val: 32, Str: "FALLOC_FL_INSERT_RANGE"},
-			{Val: 64, Str: "FALLOC_FL_UNSHARE_RANGE"},
-			{Val: 128, Str: "FALLOC_FL_WRITE_ZEROES"},
-		},
-	},
-	"close_range_flags": {
-		Prefix: "CLOSE_RANGE_",
-		Entries: []XlatVal{
-			{Val: 2, Str: "CLOSE_RANGE_UNSHARE"},
-			{Val: 4, Str: "CLOSE_RANGE_CLOEXEC"},
-		},
-	},
-	"inotify_init_flags": {
-		Prefix: "IN_",
-		Entries: []XlatVal{
-			{Val: 2048, Str: "IN_NONBLOCK"},
-			{Val: 524288, Str: "IN_CLOEXEC"},
-		},
-	},
-	"rename_flags": {
-		Prefix: "RENAME_",
-		Entries: []XlatVal{
-			{Val: 1, Str: "RENAME_NOREPLACE"},
-			{Val: 2, Str: "RENAME_EXCHANGE"},
-			{Val: 4, Str: "RENAME_WHITEOUT"},
-		},
-	},
-	"shadow_stack_flags": {
-		Prefix: "SHADOW_STACK_",
-		Entries: []XlatVal{
-			{Val: 1, Str: "SHADOW_STACK_SET_TOKEN"},
-		},
-	},
-	"pidfd_open_flags": {
-		Prefix: "PIDFD_",
-		Entries: []XlatVal{
-			{Val: 2048, Str: "PIDFD_NONBLOCK"},
-			{Val: 128, Str: "PIDFD_THREAD"},
-			{Val: 512, Str: "PIDFD_AUTOKILL"},
-		},
-	},
-	"setns_types": {
-		Prefix: "CLONE_NEW",
-		Entries: []XlatVal{
-			{Val: 128, Str: "CLONE_NEWTIME"},
-			{Val: 131072, Str: "CLONE_NEWNS"},
-			{Val: 33554432, Str: "CLONE_NEWCGROUP"},
-			{Val: 67108864, Str: "CLONE_NEWUTS"},
-			{Val: 134217728, Str: "CLONE_NEWIPC"},
-			{Val: 268435456, Str: "CLONE_NEWUSER"},
-			{Val: 536870912, Str: "CLONE_NEWPID"},
-			{Val: 1073741824, Str: "CLONE_NEWNET"},
-		},
-	},
-	"uffd_flags": {
-		Prefix: "UFFD_",
-		Entries: []XlatVal{
-			{Val: 1, Str: "UFFD_USER_MODE_ONLY"},
-			{Val: 2048, Str: "O_NONBLOCK"},
-			{Val: 524288, Str: "O_CLOEXEC"},
-		},
-	},
-	"unshare_flags": {
-		Prefix: "CLONE_",
-		Entries: []XlatVal{
-			{Val: 128, Str: "CLONE_NEWTIME"},
-			{Val: 256, Str: "CLONE_VM"},
-			{Val: 512, Str: "CLONE_FS"},
-			{Val: 1024, Str: "CLONE_FILES"},
-			{Val: 2048, Str: "CLONE_SIGHAND"},
-			{Val: 65536, Str: "CLONE_THREAD"},
-			{Val: 131072, Str: "CLONE_NEWNS"},
-			{Val: 262144, Str: "CLONE_SYSVSEM"},
-			{Val: 33554432, Str: "CLONE_NEWCGROUP"},
-			{Val: 67108864, Str: "CLONE_NEWUTS"},
-			{Val: 134217728, Str: "CLONE_NEWIPC"},
-			{Val: 268435456, Str: "CLONE_NEWUSER"},
-			{Val: 536870912, Str: "CLONE_NEWPID"},
-			{Val: 1073741824, Str: "CLONE_NEWNET"},
 		},
 	},
 	"fsmagic": {
@@ -761,13 +679,6 @@ var XlatTables = map[string]XlatTable{
 			{Val: 4283649346, Str: "CIFS_SUPER_MAGIC"},
 		},
 	},
-	"fsmount_flags": {
-		Prefix: "FSMOUNT_",
-		Entries: []XlatVal{
-			{Val: 1, Str: "FSMOUNT_CLOEXEC"},
-			{Val: 2, Str: "FSMOUNT_NAMESPACE"},
-		},
-	},
 	"fsmount_attr_flags": {
 		Prefix: "MOUNT_ATTR_",
 		Entries: []XlatVal{
@@ -780,6 +691,13 @@ var XlatTables = map[string]XlatTable{
 			{Val: 32, Str: "MOUNT_ATTR_STRICTATIME"},
 			{Val: 128, Str: "MOUNT_ATTR_NODIRATIME"},
 			{Val: 2097152, Str: "MOUNT_ATTR_NOSYMFOLLOW"},
+		},
+	},
+	"fsmount_flags": {
+		Prefix: "FSMOUNT_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "FSMOUNT_CLOEXEC"},
+			{Val: 2, Str: "FSMOUNT_NAMESPACE"},
 		},
 	},
 	"futex2_flags": {
@@ -837,6 +755,13 @@ var XlatTables = map[string]XlatTable{
 			{Val: 141, Str: "FUTEX_LOCK_PI2_PRIVATE"},
 		},
 	},
+	"inotify_init_flags": {
+		Prefix: "IN_",
+		Entries: []XlatVal{
+			{Val: 2048, Str: "IN_NONBLOCK"},
+			{Val: 524288, Str: "IN_CLOEXEC"},
+		},
+	},
 	"itimer_which": {
 		Prefix: "ITIMER_",
 		Entries: []XlatVal{
@@ -886,6 +811,10 @@ var XlatTables = map[string]XlatTable{
 			{Val: 22, Str: "MADV_POPULATE_READ"},
 			{Val: 23, Str: "MADV_POPULATE_WRITE"},
 			{Val: 24, Str: "MADV_DONTNEED_LOCKED"},
+			{Val: 100, Str: "MADV_HWPOISON"},
+			{Val: 101, Str: "MADV_SOFT_OFFLINE"},
+			{Val: 102, Str: "MADV_GUARD_INSTALL"},
+			{Val: 103, Str: "MADV_GUARD_REMOVE"},
 			{Val: 12, Str: "MADV_MERGEABLE"},
 			{Val: 13, Str: "MADV_UNMERGEABLE"},
 			{Val: 14, Str: "MADV_HUGEPAGE"},
@@ -895,10 +824,6 @@ var XlatTables = map[string]XlatTable{
 			{Val: 18, Str: "MADV_WIPEONFORK"},
 			{Val: 19, Str: "MADV_KEEPONFORK"},
 			{Val: 25, Str: "MADV_COLLAPSE"},
-			{Val: 100, Str: "MADV_HWPOISON"},
-			{Val: 101, Str: "MADV_SOFT_OFFLINE"},
-			{Val: 102, Str: "MADV_GUARD_INSTALL"},
-			{Val: 103, Str: "MADV_GUARD_REMOVE"},
 		},
 	},
 	"mctl_sync": {
@@ -907,6 +832,16 @@ var XlatTables = map[string]XlatTable{
 			{Val: 4, Str: "MS_SYNC"},
 			{Val: 1, Str: "MS_ASYNC"},
 			{Val: 2, Str: "MS_INVALIDATE"},
+		},
+	},
+	"memfd_create_flags": {
+		Prefix: "MFD_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "MFD_CLOEXEC"},
+			{Val: 2, Str: "MFD_ALLOW_SEALING"},
+			{Val: 4, Str: "MFD_HUGETLB"},
+			{Val: 8, Str: "MFD_NOEXEC_SEAL"},
+			{Val: 16, Str: "MFD_EXEC"},
 		},
 	},
 	"mlock_flags": {
@@ -1007,26 +942,6 @@ var XlatTables = map[string]XlatTable{
 			{Val: 4, Str: "PROT_EXEC"},
 			{Val: 16777216, Str: "PROT_GROWSDOWN"},
 			{Val: 33554432, Str: "PROT_GROWSUP"},
-		},
-	},
-	"mmap_prot64": {
-		Prefix: "PROT_",
-		Entries: []XlatVal{
-			{Val: 0, Str: "PROT_NONE"},
-			{Val: 1, Str: "PROT_READ"},
-			{Val: 2, Str: "PROT_WRITE"},
-			{Val: 4, Str: "PROT_EXEC"},
-			{Val: 16777216, Str: "PROT_GROWSDOWN"},
-			{Val: 33554432, Str: "PROT_GROWSUP"},
-		},
-	},
-	"pkey_access_rights": {
-		Prefix: "PKEY_",
-		Entries: []XlatVal{
-			{Val: 0, Str: "PKEY_UNRESTRICTED"},
-			{Val: 1, Str: "PKEY_DISABLE_ACCESS"},
-			{Val: 2, Str: "PKEY_DISABLE_WRITE"},
-			{Val: 4, Str: "PKEY_DISABLE_EXECUTE"},
 		},
 	},
 	"modetypes": {
@@ -1210,6 +1125,14 @@ var XlatTables = map[string]XlatTable{
 			{Val: 32, Str: "RESOLVE_CACHED"},
 		},
 	},
+	"pidfd_open_flags": {
+		Prefix: "PIDFD_",
+		Entries: []XlatVal{
+			{Val: 2048, Str: "PIDFD_NONBLOCK"},
+			{Val: 128, Str: "PIDFD_THREAD"},
+			{Val: 512, Str: "PIDFD_AUTOKILL"},
+		},
+	},
 	"pollflags": {
 		Prefix: "POLL",
 		Entries: []XlatVal{
@@ -1327,6 +1250,14 @@ var XlatTables = map[string]XlatTable{
 			{Val: 2, Str: "PRIO_USER"},
 		},
 	},
+	"rename_flags": {
+		Prefix: "RENAME_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "RENAME_NOREPLACE"},
+			{Val: 2, Str: "RENAME_EXCHANGE"},
+			{Val: 4, Str: "RENAME_WHITEOUT"},
+		},
+	},
 	"resources": {
 		Prefix: "RLIMIT_",
 		Entries: []XlatVal{
@@ -1361,6 +1292,25 @@ var XlatTables = map[string]XlatTable{
 			{Val: 13, Str: "RLIMIT_NICE"},
 			{Val: 14, Str: "RLIMIT_RTPRIO"},
 			{Val: 15, Str: "RLIMIT_RTTIME"},
+		},
+	},
+	"setns_types": {
+		Prefix: "CLONE_NEW",
+		Entries: []XlatVal{
+			{Val: 128, Str: "CLONE_NEWTIME"},
+			{Val: 131072, Str: "CLONE_NEWNS"},
+			{Val: 33554432, Str: "CLONE_NEWCGROUP"},
+			{Val: 67108864, Str: "CLONE_NEWUTS"},
+			{Val: 134217728, Str: "CLONE_NEWIPC"},
+			{Val: 268435456, Str: "CLONE_NEWUSER"},
+			{Val: 536870912, Str: "CLONE_NEWPID"},
+			{Val: 1073741824, Str: "CLONE_NEWNET"},
+		},
+	},
+	"shadow_stack_flags": {
+		Prefix: "SHADOW_STACK_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "SHADOW_STACK_SET_TOKEN"},
 		},
 	},
 	"sigprocmaskcmds": {
@@ -1786,6 +1736,14 @@ var XlatTables = map[string]XlatTable{
 			{Val: 4, Str: "SYNC_FILE_RANGE_WAIT_AFTER"},
 		},
 	},
+	"uffd_flags": {
+		Prefix: "O_ UFFD_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "UFFD_USER_MODE_ONLY"},
+			{Val: 2048, Str: "O_NONBLOCK"},
+			{Val: 524288, Str: "O_CLOEXEC"},
+		},
+	},
 	"umount_flags": {
 		Prefix: "MNT_ UMOUNT_",
 		Entries: []XlatVal{
@@ -1795,13 +1753,32 @@ var XlatTables = map[string]XlatTable{
 			{Val: 8, Str: "UMOUNT_NOFOLLOW"},
 		},
 	},
+	"unshare_flags": {
+		Prefix: "CLONE_",
+		Entries: []XlatVal{
+			{Val: 128, Str: "CLONE_NEWTIME"},
+			{Val: 256, Str: "CLONE_VM"},
+			{Val: 512, Str: "CLONE_FS"},
+			{Val: 1024, Str: "CLONE_FILES"},
+			{Val: 2048, Str: "CLONE_SIGHAND"},
+			{Val: 65536, Str: "CLONE_THREAD"},
+			{Val: 131072, Str: "CLONE_NEWNS"},
+			{Val: 262144, Str: "CLONE_SYSVSEM"},
+			{Val: 33554432, Str: "CLONE_NEWCGROUP"},
+			{Val: 67108864, Str: "CLONE_NEWUTS"},
+			{Val: 134217728, Str: "CLONE_NEWIPC"},
+			{Val: 268435456, Str: "CLONE_NEWUSER"},
+			{Val: 536870912, Str: "CLONE_NEWPID"},
+			{Val: 1073741824, Str: "CLONE_NEWNET"},
+		},
+	},
 	"wait4_options": {
 		Prefix: "W __W",
 		Entries: []XlatVal{
 			{Val: 1, Str: "WNOHANG"},
-			{Val: 2, Str: "WSTOPPED"},
-			{Val: 4, Str: "WEXITED"},
 			{Val: 2, Str: "WUNTRACED"},
+			{Val: 4, Str: "WEXITED"},
+			{Val: 2, Str: "WSTOPPED"},
 			{Val: 8, Str: "WCONTINUED"},
 			{Val: 16777216, Str: "WNOWAIT"},
 			{Val: 2147483648, Str: "__WCLONE"},
@@ -1851,6 +1828,26 @@ var XlatTables = map[string]XlatTable{
 		Entries: []XlatVal{
 			{Val: 1, Str: "XATTR_CREATE"},
 			{Val: 2, Str: "XATTR_REPLACE"},
+		},
+	},
+	"pkey_access_rights": {
+		Prefix: "PKEY_",
+		Entries: []XlatVal{
+			{Val: 0, Str: "PKEY_UNRESTRICTED"},
+			{Val: 0x1, Str: "PKEY_DISABLE_ACCESS"},
+			{Val: 0x2, Str: "PKEY_DISABLE_WRITE"},
+			{Val: 0x4, Str: "PKEY_DISABLE_EXECUTE"},
+		},
+	},
+	"mmap_prot64": {
+		Prefix: "PROT_",
+		Entries: []XlatVal{
+			{Val: 0, Str: "PROT_NONE"},
+			{Val: 1, Str: "PROT_READ"},
+			{Val: 2, Str: "PROT_WRITE"},
+			{Val: 4, Str: "PROT_EXEC"},
+			{Val: 16777216, Str: "PROT_GROWSDOWN"},
+			{Val: 33554432, Str: "PROT_GROWSUP"},
 		},
 	},
 	"ioctl_cmds": {
@@ -2220,6 +2217,7 @@ var XlatTables = map[string]XlatTable{
 			{Val: 3224396928, Str: "DRM_IOCTL_NOUVEAU_GEM_NEW"}, // From drm/nouveau_drm.h
 			{Val: 3225445505, Str: "DRM_IOCTL_NOUVEAU_GEM_PUSHBUF"}, // From drm/nouveau_drm.h
 			{Val: 3222299712, Str: "DRM_IOCTL_NOUVEAU_GETPARAM"}, // From drm/nouveau_drm.h
+			{Val: 2150655059, Str: "DRM_IOCTL_NOUVEAU_GET_ZCULL_INFO"}, // From drm/nouveau_drm.h
 			{Val: 3225445449, Str: "DRM_IOCTL_NOUVEAU_SVM_BIND"}, // From drm/nouveau_drm.h
 			{Val: 3222299720, Str: "DRM_IOCTL_NOUVEAU_SVM_INIT"}, // From drm/nouveau_drm.h
 			{Val: 3223872593, Str: "DRM_IOCTL_NOUVEAU_VM_BIND"}, // From drm/nouveau_drm.h
@@ -2400,6 +2398,7 @@ var XlatTables = map[string]XlatTable{
 			{Val: 1082680389, Str: "DRM_IOCTL_XE_VM_BIND"}, // From drm/xe_drm.h
 			{Val: 3223348291, Str: "DRM_IOCTL_XE_VM_CREATE"}, // From drm/xe_drm.h
 			{Val: 1075340356, Str: "DRM_IOCTL_XE_VM_DESTROY"}, // From drm/xe_drm.h
+			{Val: 3224921167, Str: "DRM_IOCTL_XE_VM_GET_PROPERTY"}, // From drm/xe_drm.h
 			{Val: 3225445453, Str: "DRM_IOCTL_XE_VM_QUERY_MEM_RANGE_ATTRS"}, // From drm/xe_drm.h
 			{Val: 3225969738, Str: "DRM_IOCTL_XE_WAIT_USER_FENCE"}, // From drm/xe_drm.h
 			{Val: 26882, Str: "DRM_XE_OBSERVATION_IOCTL_CONFIG"}, // From drm/xe_drm.h
@@ -2668,19 +2667,6 @@ var XlatTables = map[string]XlatTable{
 			{Val: 3228603409, Str: "BTRFS_IOC_TREE_SEARCH_V2"}, // From linux/btrfs.h
 			{Val: 1074304022, Str: "BTRFS_IOC_WAIT_SYNC"}, // From linux/btrfs.h
 			{Val: 1074042881, Str: "CACHEFILES_IOC_READ_COMPLETE"}, // From linux/cachefiles.h
-			{Val: 2147762981, Str: "CAPI_CLR_FLAGS"}, // From linux/capi.h
-			{Val: 2147631905, Str: "CAPI_GET_ERRCODE"}, // From linux/capi.h
-			{Val: 2147762979, Str: "CAPI_GET_FLAGS"}, // From linux/capi.h
-			{Val: 3221504774, Str: "CAPI_GET_MANUFACTURER"}, // From linux/capi.h
-			{Val: 3225436937, Str: "CAPI_GET_PROFILE"}, // From linux/capi.h
-			{Val: 3221504776, Str: "CAPI_GET_SERIAL"}, // From linux/capi.h
-			{Val: 3222291207, Str: "CAPI_GET_VERSION"}, // From linux/capi.h
-			{Val: 2147631906, Str: "CAPI_INSTALLED"}, // From linux/capi.h
-			{Val: 3222291232, Str: "CAPI_MANUFACTURER_CMD"}, // From linux/capi.h
-			{Val: 2147762983, Str: "CAPI_NCCI_GETUNIT"}, // From linux/capi.h
-			{Val: 2147762982, Str: "CAPI_NCCI_OPENCOUNT"}, // From linux/capi.h
-			{Val: 1074545409, Str: "CAPI_REGISTER"}, // From linux/capi.h
-			{Val: 2147762980, Str: "CAPI_SET_FLAGS"}, // From linux/capi.h
 			{Val: 3227533842, Str: "CCISS_BIG_PASSTHRU"}, // From linux/cciss_ioctl.h
 			{Val: 16908, Str: "CCISS_DEREGDISK"}, // From linux/cciss_ioctl.h
 			{Val: 2147762695, Str: "CCISS_GETBUSTYPES"}, // From linux/cciss_ioctl.h
@@ -3306,8 +3292,6 @@ var XlatTables = map[string]XlatTable{
 			{Val: 2147772801, Str: "I8K_MACHINE_ID"}, // From linux/i8k.h
 			{Val: 2148034946, Str: "I8K_POWER_STATUS"}, // From linux/i8k.h
 			{Val: 3221776775, Str: "I8K_SET_FAN"}, // From linux/i8k.h
-			{Val: 45313, Str: "PPPOEIOCDFWD"}, // From linux/if_pppox.h
-			{Val: 1074311424, Str: "PPPOEIOCSFWD"}, // From linux/if_pppox.h
 			{Val: 1074812117, Str: "TUNATTACHFILTER"}, // From linux/if_tun.h
 			{Val: 1074812118, Str: "TUNDETACHFILTER"}, // From linux/if_tun.h
 			{Val: 21731, Str: "TUNGETDEVNETNS"}, // From linux/if_tun.h
@@ -3562,15 +3546,6 @@ var XlatTables = map[string]XlatTable{
 			{Val: 19458, Str: "LOOP_SET_STATUS"}, // From linux/loop.h
 			{Val: 19460, Str: "LOOP_SET_STATUS64"}, // From linux/loop.h
 			{Val: 1074791951, Str: "LPSETTIMEOUT_NEW"}, // From linux/lp.h
-			{Val: 2147764544, Str: "IMADDTIMER"}, // From linux/mISDNif.h
-			{Val: 2147764550, Str: "IMCLEAR_L2"}, // From linux/mISDNif.h
-			{Val: 2147764549, Str: "IMCTRLREQ"}, // From linux/mISDNif.h
-			{Val: 2147764545, Str: "IMDELTIMER"}, // From linux/mISDNif.h
-			{Val: 2147764547, Str: "IMGETCOUNT"}, // From linux/mISDNif.h
-			{Val: 2147764548, Str: "IMGETDEVINFO"}, // From linux/mISDNif.h
-			{Val: 2147764546, Str: "IMGETVERSION"}, // From linux/mISDNif.h
-			{Val: 2147764552, Str: "IMHOLD_L1"}, // From linux/mISDNif.h
-			{Val: 2149075271, Str: "IMSETDEVNAME"}, // From linux/mISDNif.h
 			{Val: 3230163969, Str: "DMA_MAP_BENCHMARK"}, // From linux/map_benchmark.h
 			{Val: 2148036347, Str: "MATROXFB_GET_ALL_OUTPUTS"}, // From linux/matroxfb.h
 			{Val: 2148036345, Str: "MATROXFB_GET_AVAILABLE_OUTPUTS"}, // From linux/matroxfb.h
@@ -4044,22 +4019,27 @@ var XlatTables = map[string]XlatTable{
 			{Val: 1091596513, Str: "IOC_OPAL_ACTIVATE_USR"}, // From linux/sed-opal.h
 			{Val: 1092120804, Str: "IOC_OPAL_ADD_USR_TO_LR"}, // From linux/sed-opal.h
 			{Val: 1074819311, Str: "IOC_OPAL_DISCOVERY"}, // From linux/sed-opal.h
+			{Val: 1093169396, Str: "IOC_OPAL_ENABLE_DISABLE_LR"}, // From linux/sed-opal.h
 			{Val: 1091596517, Str: "IOC_OPAL_ENABLE_DISABLE_MBR"}, // From linux/sed-opal.h
 			{Val: 1091596518, Str: "IOC_OPAL_ERASE_LR"}, // From linux/sed-opal.h
 			{Val: 1094217963, Str: "IOC_OPAL_GENERIC_TABLE_RW"}, // From linux/sed-opal.h
 			{Val: 2149609710, Str: "IOC_OPAL_GET_GEOMETRY"}, // From linux/sed-opal.h
 			{Val: 1093693677, Str: "IOC_OPAL_GET_LR_STATUS"}, // From linux/sed-opal.h
 			{Val: 2148036844, Str: "IOC_OPAL_GET_STATUS"}, // From linux/sed-opal.h
+			{Val: 1092120821, Str: "IOC_OPAL_GET_SUM_STATUS"}, // From linux/sed-opal.h
 			{Val: 1092120797, Str: "IOC_OPAL_LOCK_UNLOCK"}, // From linux/sed-opal.h
 			{Val: 1093169379, Str: "IOC_OPAL_LR_SETUP"}, // From linux/sed-opal.h
+			{Val: 1093169395, Str: "IOC_OPAL_LR_SET_START_LEN"}, // From linux/sed-opal.h
 			{Val: 1091596521, Str: "IOC_OPAL_MBR_DONE"}, // From linux/sed-opal.h
 			{Val: 1091072232, Str: "IOC_OPAL_PSID_REVERT_TPR"}, // From linux/sed-opal.h
+			{Val: 1109422322, Str: "IOC_OPAL_REACTIVATE_LSP"}, // From linux/sed-opal.h
 			{Val: 1091596528, Str: "IOC_OPAL_REVERT_LSP"}, // From linux/sed-opal.h
 			{Val: 1091072226, Str: "IOC_OPAL_REVERT_TPR"}, // From linux/sed-opal.h
 			{Val: 1092120796, Str: "IOC_OPAL_SAVE"}, // From linux/sed-opal.h
 			{Val: 1091596519, Str: "IOC_OPAL_SECURE_ERASE_LR"}, // From linux/sed-opal.h
 			{Val: 1109422304, Str: "IOC_OPAL_SET_PW"}, // From linux/sed-opal.h
 			{Val: 1109422321, Str: "IOC_OPAL_SET_SID_PW"}, // From linux/sed-opal.h
+			{Val: 28918, Str: "IOC_OPAL_STACK_RESET"}, // From linux/sed-opal.h
 			{Val: 1091072222, Str: "IOC_OPAL_TAKE_OWNERSHIP"}, // From linux/sed-opal.h
 			{Val: 1092645098, Str: "IOC_OPAL_WRITE_SHADOW_MBR"}, // From linux/sed-opal.h
 			{Val: 1074295041, Str: "SPIOCSTYPE"}, // From linux/serio.h
@@ -4357,11 +4337,13 @@ var XlatTables = map[string]XlatTable{
 			{Val: 2149610761, Str: "UBLK_U_CMD_GET_PARAMS"}, // From linux/ublk_cmd.h
 			{Val: 2149610753, Str: "UBLK_U_CMD_GET_QUEUE_AFFINITY"}, // From linux/ublk_cmd.h
 			{Val: 3223352598, Str: "UBLK_U_CMD_QUIESCE_DEV"}, // From linux/ublk_cmd.h
+			{Val: 3223352600, Str: "UBLK_U_CMD_REG_BUF"}, // From linux/ublk_cmd.h
 			{Val: 3223352584, Str: "UBLK_U_CMD_SET_PARAMS"}, // From linux/ublk_cmd.h
 			{Val: 3223352582, Str: "UBLK_U_CMD_START_DEV"}, // From linux/ublk_cmd.h
 			{Val: 3223352592, Str: "UBLK_U_CMD_START_USER_RECOVERY"}, // From linux/ublk_cmd.h
 			{Val: 3223352583, Str: "UBLK_U_CMD_STOP_DEV"}, // From linux/ublk_cmd.h
 			{Val: 3223352599, Str: "UBLK_U_CMD_TRY_STOP_DEV"}, // From linux/ublk_cmd.h
+			{Val: 3223352601, Str: "UBLK_U_CMD_UNREG_BUF"}, // From linux/ublk_cmd.h
 			{Val: 3223352597, Str: "UBLK_U_CMD_UPDATE_SIZE"}, // From linux/ublk_cmd.h
 			{Val: 3222304033, Str: "UBLK_U_IO_COMMIT_AND_FETCH_REQ"}, // From linux/ublk_cmd.h
 			{Val: 3222304038, Str: "UBLK_U_IO_COMMIT_IO_CMDS"}, // From linux/ublk_cmd.h
@@ -5449,183 +5431,11 @@ var XlatTables = map[string]XlatTable{
 	},
 }
 var SyscallArgXlatMap = map[string]map[string]string{
-	"pipe2": {
-		"flags": "open_mode_flags",
-	},
-	"add_key": {
-		"ringid": "key_spec",
-	},
-	"clone3": {
-		"flags": "clone3_flags",
-	},
-	"prlimit64": {
-		"resource": "resources",
-	},
-	"waitid": {
-		"which": "waitid_types",
-		"options": "wait4_options",
-	},
-	"setpriority": {
-		"which": "priorities",
-	},
-	"setxattr": {
-		"flags": "xattrflags",
-	},
-	"mmap": {
-		"prot": "mmap_prot",
-		"flags": "mmap_flags",
-	},
-	"pkey_mprotect": {
-		"prot": "mmap_prot64",
-	},
-	"pkey_alloc": {
-		"flags":    "hex_flags",
-		"init_val": "pkey_access_rights",
-	},
-	"map_shadow_stack": {
-		"flags": "shadow_stack_flags",
-	},
-	"mseal": {
-		"flags": "hex_flags",
-	},
-	"memfd_create": {
-		"flags": "memfd_create_flags",
-	},
-	"fanotify_init": {
-		"flags":         "fan_init_flags",
-		"event_f_flags": "open_mode_flags",
-	},
-	"fsmount": {
-		"flags":      "fsmount_flags",
-		"attr_flags": "fsmount_attr_flags",
-	},
-	"lseek": {
-		"whence": "whence_codes",
-	},
-	"umount2": {
-		"flags": "umount_flags",
-	},
-	"fsetxattr": {
-		"flags": "xattrflags",
-	},
-	"arch_prctl": {
-		"option": "archvals",
-	},
-	"clock_settime": {
-		"which_clock": "clocknames",
-	},
-	"mlockall": {
-		"flags": "mlockall_flags",
-	},
-	"setrlimit": {
-		"resource": "resources",
-	},
 	"open": {
 		"flags": "open_mode_flags",
 	},
-	"request_key": {
-		"destringid": "key_spec",
-	},
-	"socket": {
-		"family": "addrfams",
-		"type": "sock_type_flags",
-	},
-	"utimensat": {
-		"flags": "at_flags",
-	},
-	"faccessat2": {
-		"mode": "access_modes",
-		"flags": "at_flags",
-	},
-	"fchmodat2": {
-		"flags": "fchmodat_flags",
-	},
-	"poll": {
-		"events": "pollflags",
-		"revents": "pollflags",
-	},
-	"wait4": {
-		"options": "wait4_options",
-	},
-	"fcntl": {
-		"cmd": "fcntlcmds",
-	},
-	"faccessat": {
-		"mode": "access_modes",
-	},
-	"accept4": {
-		"flags": "sock_type_flags",
-	},
-	"setsockopt": {
-		"level": "socketlayers",
-	},
-	"recvfrom": {
-		"addr": "sockaddr",
-		"flags": "msg_flags",
-	},
-	"unlinkat": {
-		"flag": "at_flags",
-	},
-	"getpriority": {
-		"which": "priorities",
-	},
-	"openat": {
-		"flags": "open_mode_flags",
-	},
-	"connect": {
-		"uservaddr": "sockaddr",
-	},
-	"bpf": {
-		"arg0": "bpf_commands",
-	},
-	"epoll_ctl": {
-		"op": "epollctls",
-	},
-	"mremap": {
-		"flags": "mremap_flags",
-	},
-	"mount": {
-		"flags": "mount_flags",
-	},
-	"rt_sigprocmask": {
-		"how": "sigprocmaskcmds",
-	},
-	"tgkill": {
-		"sig": "signalnames",
-	},
-	"getitimer": {
-		"which": "itimer_which",
-	},
-	"setitimer": {
-		"which": "itimer_which",
-	},
-	"sendto": {
-		"flags": "msg_flags",
-		"addr": "sockaddr",
-	},
-	"getsockname": {
-		"usockaddr": "sockaddr",
-	},
-	"lsetxattr": {
-		"flags": "xattrflags",
-	},
-	"madvise": {
-		"behavior": "madvise_cmds",
-	},
-	"fchownat": {
-		"flag": "at_flags",
-	},
-	"ioctl": {
-		"cmd": "ioctl_cmds",
-	},
-	"clone": {
-		"clone_flags": "clone_flags",
-	},
-	"access": {
-		"mode": "access_modes",
-	},
-	"getsockopt": {
-		"level": "socketlayers",
+	"clock_settime": {
+		"which_clock": "clocknames",
 	},
 	"prctl": {
 		"option": "prctl_options",
@@ -5636,14 +5446,105 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"mlock2": {
 		"flags": "mlock_flags",
 	},
+	"fsetxattr": {
+		"flags": "xattrflags",
+	},
+	"accept4": {
+		"flags": "sock_type_flags",
+	},
+	"socket": {
+		"family": "addrfams",
+		"type": "sock_type_flags",
+	},
+	"connect": {
+		"uservaddr": "sockaddr",
+	},
+	"mseal": {
+		"flags": "hex_flags",
+	},
+	"fsmount": {
+		"flags": "fsmount_flags",
+		"attr_flags": "fsmount_attr_flags",
+	},
+	"setrlimit": {
+		"resource": "resources",
+	},
+	"prlimit64": {
+		"resource": "resources",
+	},
+	"request_key": {
+		"destringid": "key_spec",
+	},
+	"faccessat2": {
+		"mode": "access_modes",
+		"flags": "at_flags",
+	},
+	"futex_requeue": {
+		"flags": "hex_flags",
+	},
+	"msync": {
+		"flags": "mctl_sync",
+	},
+	"setpriority": {
+		"which": "priorities",
+	},
+	"futex_waitv": {
+		"flags": "hex_flags",
+		"clockid": "clocknames",
+	},
+	"mount": {
+		"flags": "mount_flags",
+	},
+	"utimensat": {
+		"flags": "at_flags",
+	},
+	"access": {
+		"mode": "access_modes",
+	},
+	"bind": {
+		"umyaddr": "sockaddr",
+	},
 	"getpeername": {
 		"usockaddr": "sockaddr",
 	},
-	"clock_adjtime": {
-		"which_clock": "clocknames",
+	"ioctl": {
+		"cmd": "ioctl_cmds",
 	},
-	"mprotect": {
+	"memfd_create": {
+		"flags": "memfd_create_flags",
+	},
+	"mremap": {
+		"flags": "mremap_flags",
+	},
+	"setsockopt": {
+		"level": "socketlayers",
+	},
+	"sendto": {
+		"flags": "msg_flags",
+		"addr": "sockaddr",
+	},
+	"ppoll": {
+		"revents": "pollflags",
+		"events": "pollflags",
+	},
+	"epoll_create1": {
+		"flags": "epollflags",
+	},
+	"mmap": {
 		"prot": "mmap_prot",
+		"flags": "mmap_flags",
+	},
+	"sync_file_range": {
+		"flags": "sync_file_range_flags",
+	},
+	"pidfd_getfd": {
+		"flags": "hex_flags",
+	},
+	"faccessat": {
+		"mode": "access_modes",
+	},
+	"arch_prctl": {
+		"option": "archvals",
 	},
 	"futex": {
 		"op": "futexops",
@@ -5652,75 +5553,156 @@ var SyscallArgXlatMap = map[string]map[string]string{
 		"mask": "futexbitset",
 		"flags": "futex2_flags",
 	},
-	"futex_wait": {
-		"mask": "futexbitset",
-		"flags": "futex2_flags",
-		"clockid": "clocknames",
-	},
-	"futex_waitv": {
-		"flags": "hex_flags",
-		"clockid": "clocknames",
-	},
-	"futex_requeue": {
+	"process_mrelease": {
 		"flags": "hex_flags",
 	},
-	"dup3": {
-		"flags": "dup3_flags",
+	"fcntl": {
+		"cmd": "fcntlcmds",
 	},
-	"msync": {
-		"flags": "mctl_sync",
+	"openat": {
+		"flags": "open_mode_flags",
 	},
-	"sync_file_range": {
-		"flags": "sync_file_range_flags",
+	"pipe2": {
+		"flags": "open_mode_flags",
 	},
-	"fallocate": {
-		"mode": "falloc_flags",
+	"add_key": {
+		"ringid": "key_spec",
 	},
-	"renameat2": {
-		"flags": "rename_flags",
+	"clock_adjtime": {
+		"which_clock": "clocknames",
 	},
-	"inotify_init1": {
-		"flags": "inotify_init_flags",
+	"fanotify_init": {
+		"flags": "fan_init_flags",
+		"event_f_flags": "open_mode_flags",
+	},
+	"tgkill": {
+		"sig": "signalnames",
+	},
+	"clock_nanosleep": {
+		"flags": "clockflags",
+		"which_clock": "clocknames",
+	},
+	"pkey_alloc": {
+		"flags": "hex_flags",
+		"init_val": "pkey_access_rights",
+	},
+	"unlinkat": {
+		"flag": "at_flags",
 	},
 	"userfaultfd": {
 		"flags": "uffd_flags",
 	},
-	"unshare": {
-		"unshare_flags": "unshare_flags",
+	"kill": {
+		"sig": "signalnames",
+	},
+	"setitimer": {
+		"which": "itimer_which",
+	},
+	"lsetxattr": {
+		"flags": "xattrflags",
+	},
+	"map_shadow_stack": {
+		"flags": "shadow_stack_flags",
 	},
 	"close_range": {
 		"flags": "close_range_flags",
 	},
-	"setns": {
-		"flags": "setns_types",
+	"setxattr": {
+		"flags": "xattrflags",
 	},
-	"pidfd_open": {
-		"flags": "pidfd_open_flags",
+	"clone": {
+		"clone_flags": "clone_flags",
 	},
-	"pidfd_getfd": {
-		"flags": "hex_flags",
+	"clone3": {
+		"flags": "clone3_flags",
 	},
-	"process_mrelease": {
-		"flags": "hex_flags",
+	"fchmodat2": {
+		"flags": "fchmodat_flags",
+	},
+	"recvfrom": {
+		"flags": "msg_flags",
+		"addr": "sockaddr",
+	},
+	"bpf": {
+		"arg0": "bpf_commands",
+	},
+	"madvise": {
+		"behavior": "madvise_cmds",
+	},
+	"getsockname": {
+		"usockaddr": "sockaddr",
+	},
+	"fchownat": {
+		"flag": "at_flags",
 	},
 	"getrlimit": {
 		"resource": "resources",
 	},
-	"bind": {
-		"umyaddr": "sockaddr",
-	},
-	"ppoll": {
+	"poll": {
 		"events": "pollflags",
 		"revents": "pollflags",
 	},
-	"epoll_create1": {
-		"flags": "epollflags",
+	"futex_wait": {
+		"clockid": "clocknames",
+		"mask": "futexbitset",
+		"flags": "futex2_flags",
 	},
-	"kill": {
-		"sig": "signalnames",
+	"mlockall": {
+		"flags": "mlockall_flags",
 	},
-	"clock_nanosleep": {
-		"which_clock": "clocknames",
-		"flags": "clockflags",
+	"unshare": {
+		"unshare_flags": "unshare_flags",
+	},
+	"pidfd_open": {
+		"flags": "pidfd_open_flags",
+	},
+	"waitid": {
+		"which": "waitid_types",
+		"options": "wait4_options",
+	},
+	"getitimer": {
+		"which": "itimer_which",
+	},
+	"umount2": {
+		"flags": "umount_flags",
+	},
+	"renameat2": {
+		"flags": "rename_flags",
+	},
+	"getpriority": {
+		"which": "priorities",
+	},
+	"getsockopt": {
+		"level": "socketlayers",
+	},
+	"epoll_ctl": {
+		"op": "epollctls",
+	},
+	"lseek": {
+		"whence": "whence_codes",
+	},
+	"rt_sigprocmask": {
+		"how": "sigprocmaskcmds",
+	},
+	"inotify_init1": {
+		"flags": "inotify_init_flags",
+	},
+	"setns": {
+		"flags": "setns_types",
+	},
+	"mprotect": {
+		"prot": "mmap_prot",
+	},
+	"pkey_mprotect": {
+		"prot": "mmap_prot64",
+	},
+	"wait4": {
+		"options": "wait4_options",
+	},
+	"dup3": {
+		"flags": "dup3_flags",
+	},
+	"fallocate": {
+		"mode": "falloc_flags",
 	},
 }

@@ -14,6 +14,14 @@ func init() {
 
 type WaitidHandler struct{}
 
+const (
+	waitidSiginfoOffset = BpfExitArgOffset
+	waitidSiginfoSize   = 48
+	waitidRusageOffset  = BpfExitArgOffset + 136
+	waitidRusageBrief   = 32
+	waitidRusageFull    = 144
+)
+
 func (h *WaitidHandler) Handle(ctx *Context) Result {
 	res := Result{}
 
@@ -26,21 +34,11 @@ func (h *WaitidHandler) Handle(ctx *Context) Result {
 
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int32(ctx.Args[1])))
 
-	var bpfBuf2, bpfBuf4 []byte
-	if ctx.Ret >= 0 {
-		if len(ctx.StrArgBuf) >= 1152 {
-			bpfBuf2 = ctx.StrArgBuf[1024:1152]
-		}
-		if len(ctx.StrArgBuf) >= 1304 {
-			bpfBuf4 = ctx.StrArgBuf[1160:1304]
-		}
-	}
-
-	res.ArgParts = append(res.ArgParts, decodeSiginfo(ctx, ctx.Args[2], bpfBuf2))
+	res.ArgParts = append(res.ArgParts, decodeSiginfo(ctx, ctx.Args[2]))
 	res.ArgParts = append(res.ArgParts, meta.DecodeFlags(ctx.Args[3], "wait4_options"))
 
 	if ctx.Ret >= 0 && ctx.Args[4] != 0 {
-		res.ArgParts = append(res.ArgParts, decodeRusage(ctx, ctx.Args[4], bpfBuf4))
+		res.ArgParts = append(res.ArgParts, decodeRusage(ctx, ctx.Args[4]))
 	} else if ctx.Args[4] == 0 {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else {
@@ -52,21 +50,28 @@ func (h *WaitidHandler) Handle(ctx *Context) Result {
 
 func decodeSigchldCode(code int32) string {
 	switch code {
-	case 1: return "CLD_EXITED"
-	case 2: return "CLD_KILLED"
-	case 3: return "CLD_DUMPED"
-	case 4: return "CLD_TRAPPED"
-	case 5: return "CLD_STOPPED"
-	case 6: return "CLD_CONTINUED"
-	default: return fmt.Sprintf("%#x", code)
+	case 1:
+		return "CLD_EXITED"
+	case 2:
+		return "CLD_KILLED"
+	case 3:
+		return "CLD_DUMPED"
+	case 4:
+		return "CLD_TRAPPED"
+	case 5:
+		return "CLD_STOPPED"
+	case 6:
+		return "CLD_CONTINUED"
+	default:
+		return fmt.Sprintf("%#x", code)
 	}
 }
 
-func decodeSiginfo(ctx *Context, val uint64, bpfBuf []byte) string {
+func decodeSiginfo(ctx *Context, val uint64) string {
 	if val == 0 {
 		return "NULL"
 	}
-	data, ok := ctx.FetchStructDataExact(val, 48, true, bpfBuf)
+	data, ok := ctx.ExitSnapshot(waitidSiginfoOffset, waitidSiginfoSize)
 	if !ok {
 		return fmt.Sprintf("%#x", val)
 	}
@@ -85,7 +90,7 @@ func decodeSiginfo(ctx *Context, val uint64, bpfBuf []byte) string {
 
 	signoStr := meta.DecodeFlags(uint64(si_signo), "signalnames")
 	codeStr := decodeSigchldCode(si_code)
-	
+
 	statusStr := fmt.Sprintf("%d", si_status)
 	if si_code != 1 {
 		statusStr = meta.DecodeFlags(uint64(si_status), "signalnames")
@@ -95,15 +100,15 @@ func decodeSiginfo(ctx *Context, val uint64, bpfBuf []byte) string {
 		signoStr, codeStr, si_pid, si_uid, statusStr, si_utime, si_stime)
 }
 
-func decodeRusage(ctx *Context, val uint64, bpfBuf []byte) string {
+func decodeRusage(ctx *Context, val uint64) string {
 	if val == 0 {
 		return "NULL"
 	}
-	fetchSize := 32
-	if ctx.Opts.Verbose {
-		fetchSize = 144
+	fetchSize := waitidRusageBrief
+	if ctx.Opts != nil && ctx.Opts.Verbose {
+		fetchSize = waitidRusageFull
 	}
-	data, ok := ctx.FetchStructDataExact(val, fetchSize, true, bpfBuf)
+	data, ok := ctx.ExitSnapshot(waitidRusageOffset, fetchSize)
 	if !ok {
 		return fmt.Sprintf("%#x", val)
 	}
@@ -115,7 +120,7 @@ func decodeRusage(ctx *Context, val uint64, bpfBuf []byte) string {
 
 	res := fmt.Sprintf("{ru_utime={tv_sec=%d, tv_usec=%d}, ru_stime={tv_sec=%d, tv_usec=%d}", int64(u_sec), u_usec, int64(s_sec), s_usec)
 
-	if ctx.Opts.Verbose && len(data) >= 144 {
+	if ctx.Opts != nil && ctx.Opts.Verbose && len(data) >= waitidRusageFull {
 		fields := []string{
 			"ru_maxrss", "ru_ixrss", "ru_idrss", "ru_isrss",
 			"ru_minflt", "ru_majflt", "ru_nswap", "ru_inblock",

@@ -106,14 +106,7 @@ func (h *IoctlHandler) decodeIoctlArg(ctx *Context, cmd, arg uint64, cmdName str
 
 // decodeDmIoctl reads and formats device mapper ioctl arguments.
 func (h *IoctlHandler) decodeDmIoctl(ctx *Context, arg uint64, cmdName string) string {
-	data := ctx.StrArgBuf[512:BpfExitArgOffset]
-	readSuccess := ctx.ProbeRetEnter >= 0
-	
-	if d, err := ctx.MemReader.ReadRobust(ctx.Pid, arg, 312, false); err == nil && len(d) >= 20 {
-		data = d
-		readSuccess = true
-	}
-	
+	data, readSuccess := ctx.EnterArgSnapshotPrefix(2, 512, 312)
 	if readSuccess && len(data) >= 20 {
 		dm := formatDmIoctl(ctx, data, cmdName)
 		if dm != "" {
@@ -126,21 +119,18 @@ func (h *IoctlHandler) decodeDmIoctl(ctx *Context, arg uint64, cmdName string) s
 // decodeStandardIoctlArg formats non-DM standard ioctl arguments.
 func (h *IoctlHandler) decodeStandardIoctlArg(ctx *Context, cmd, arg uint64) string {
 	if cmd == 0x80044d0d {
-		data := ctx.StrArgBuf[512 : 512+4]
-		readSuccess := ctx.ProbeRetEnter >= 0
-		if !readSuccess {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, arg, 4, false); err == nil && len(d) == 4 {
-				data = d
-				readSuccess = true
-			}
-		}
+		data, readSuccess := ctx.EnterArgSnapshot(2, 512, 4)
 		if readSuccess {
 			otpVal := binary.LittleEndian.Uint32(data)
 			switch otpVal {
-			case 0: return "[MTD_OTP_OFF]"
-			case 1: return "[MTD_OTP_FACTORY]"
-			case 2: return "[MTD_OTP_USER]"
-			default: return fmt.Sprintf("[%d /* MTD_OTP_??? */]", otpVal)
+			case 0:
+				return "[MTD_OTP_OFF]"
+			case 1:
+				return "[MTD_OTP_FACTORY]"
+			case 2:
+				return "[MTD_OTP_USER]"
+			default:
+				return fmt.Sprintf("[%d /* MTD_OTP_??? */]", otpVal)
 			}
 		}
 		// IMPACT: Fallback to printing pointer representation if buffer reading fails.
@@ -175,19 +165,23 @@ func (h *IoctlHandler) decodeStandardIoctlArg(ctx *Context, cmd, arg uint64) str
 
 // formatDmIoctl formats DM structures.
 func formatDmIoctl(ctx *Context, data []byte, cmd string) string {
-	if len(data) < 20 { return "" }
+	if len(data) < 20 {
+		return ""
+	}
 	v0 := binary.LittleEndian.Uint32(data[0:4])
 	v1 := binary.LittleEndian.Uint32(data[4:8])
 	v2 := binary.LittleEndian.Uint32(data[8:12])
-	
-	if v0 == 0 && v1 == 0 && v2 == 0 && !strings.Contains(cmd, "VERSION") { return "" }
-	
+
+	if v0 == 0 && v1 == 0 && v2 == 0 && !strings.Contains(cmd, "VERSION") {
+		return ""
+	}
+
 	res := fmt.Sprintf("[{version=[%d, %d, %d]", v0, v1, v2)
 	if v0 != 4 && v0 != 0 {
 		res += " /* unsupported device mapper ABI version */}]"
 		return res
 	}
-	
+
 	dataSize := binary.LittleEndian.Uint32(data[12:16])
 	if dataSize < 312 && (cmd != "DM_VERSION" || dataSize < 16) && dataSize != 0 {
 		res += fmt.Sprintf(", data_size=%d /* data_size too small */", dataSize)
@@ -202,19 +196,23 @@ func formatDmIoctl(ctx *Context, data []byte, cmd string) string {
 			res += fmt.Sprintf(", data_start=%d", dataStart)
 		}
 	}
-	
+
 	if len(data) >= 312 {
 		dev := binary.LittleEndian.Uint64(data[20:28])
 		if dev != 0 || cmd != "DM_REMOVE_ALL" {
 			res += fmt.Sprintf(", dev=makedev(%#x, %#x)", uint32((dev>>8)&0xfff), uint32(dev&0xff)|uint32((dev>>12)&0xffffff00))
 		}
-		
+
 		name := data[32:160]
-		if idx := strings.IndexByte(string(name), 0); idx != -1 { name = name[:idx] }
+		if idx := strings.IndexByte(string(name), 0); idx != -1 {
+			name = name[:idx]
+		}
 		res += fmt.Sprintf(", name=%s", format.Buffer(name, ctx.Opts.StringLimit, len(name)))
-		
+
 		uuid := data[160:288]
-		if idx := strings.IndexByte(string(uuid), 0); idx != -1 { uuid = uuid[:idx] }
+		if idx := strings.IndexByte(string(uuid), 0); idx != -1 {
+			uuid = uuid[:idx]
+		}
 		res += fmt.Sprintf(", uuid=%s", format.Buffer(uuid, ctx.Opts.StringLimit, len(uuid)))
 
 		if cmd == "DM_DEV_REMOVE" || cmd == "DM_DEV_WAIT" || cmd == "DM_DEV_SUSPEND" || cmd == "DM_DEV_RENAME" {
@@ -250,11 +248,11 @@ func (h *IoctlHandler) decodeFiemap(ctx *Context, arg uint64) string {
 	fiemapCallCount[ctx.Pid] = c
 	fiemapLock.Unlock()
 
-	data, err := ctx.MemReader.ReadRobust(ctx.Pid, arg, 32, false)
+	data, ok := ctx.EnterArgSnapshot(2, 512, 32)
 	var start, length uint64
 	var flags, mappedExtents, extentCount uint32
 
-	if err == nil && len(data) >= 32 {
+	if ok && len(data) >= 32 {
 		start = binary.LittleEndian.Uint64(data[0:8])
 		length = binary.LittleEndian.Uint64(data[8:16])
 		flags = binary.LittleEndian.Uint32(data[16:20])
@@ -286,7 +284,7 @@ func (h *IoctlHandler) decodeFiemap(ctx *Context, arg uint64) string {
 	return inPart + fmt.Sprintf(" => {fm_flags=%s, fm_mapped_extents=%d, ...}", flagsStr, mappedExtents)
 }
 
-func (h *IoctlHandler) formatFiemapExtents(ctx *Context, arg uint64, mappedExtents, extentCount uint32, callCount int) string {
+func (h *IoctlHandler) formatFiemapExtents(ctx *Context, _ uint64, mappedExtents, extentCount uint32, _ int) string {
 	count := mappedExtents
 	if extentCount < count {
 		count = extentCount
@@ -294,34 +292,18 @@ func (h *IoctlHandler) formatFiemapExtents(ctx *Context, arg uint64, mappedExten
 	if count > 100 {
 		count = 100
 	}
-	
+
 	extentsStrList := []string{}
-	extArrayAddr := arg + 32
-	extData, extErr := ctx.MemReader.ReadRobust(ctx.Pid, extArrayAddr, int(count)*48, false)
-	if extErr != nil || len(extData) < int(count)*48 {
-		extData = make([]byte, int(count)*48)
-		if callCount == 2 {
-			binary.LittleEndian.PutUint64(extData[0:8], 0xfacefed1deadbef1)
-			binary.LittleEndian.PutUint64(extData[8:16], 0xfacefed2deadbef2)
-			binary.LittleEndian.PutUint64(extData[16:24], 0xfacefed3deadbef3)
-			binary.LittleEndian.PutUint32(extData[32:36], 0x3f8f)
-			if count >= 2 {
-				binary.LittleEndian.PutUint64(extData[48:56], 0xfacefed1deadbef4)
-				binary.LittleEndian.PutUint64(extData[56:64], 0xfacefed2deadbef5)
-				binary.LittleEndian.PutUint64(extData[64:72], 0xfacefed3deadbef6)
-				binary.LittleEndian.PutUint32(extData[80:84], 0xffffc070)
-			}
-		}
-		extErr = nil
-	}
-	if extErr == nil && len(extData) >= int(count)*48 {
+	extOffset := 512 + 32
+	extData, ok := ctx.EnterArgSnapshot(2, extOffset, int(count)*48)
+	if ok && len(extData) >= int(count)*48 {
 		for i := 0; i < int(count); i++ {
 			offset := i * 48
 			feLogical := binary.LittleEndian.Uint64(extData[offset : offset+8])
 			fePhysical := binary.LittleEndian.Uint64(extData[offset+8 : offset+16])
 			feLength := binary.LittleEndian.Uint64(extData[offset+16 : offset+24])
 			feFlags := binary.LittleEndian.Uint32(extData[offset+32 : offset+36])
-			
+
 			feFlagsStr := meta.DecodeFlags(uint64(feFlags), "fiemap_extent_flags")
 			extentsStrList = append(extentsStrList, fmt.Sprintf("{fe_logical=%d, fe_physical=%d, fe_length=%d, fe_flags=%s}", feLogical, fePhysical, feLength, feFlagsStr))
 		}
@@ -331,4 +313,3 @@ func (h *IoctlHandler) formatFiemapExtents(ctx *Context, arg uint64, mappedExten
 	}
 	return "[]"
 }
-

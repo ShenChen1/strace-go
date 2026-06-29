@@ -96,24 +96,10 @@ func (h *NetworkHandler) formatNetworkAddrLen(ctx *Context, argName string, val 
 	if val == 0 {
 		return "NULL", true
 	}
-	readInSuccess := ctx.ProbeRetEnter >= 0
-	inLen := binary.LittleEndian.Uint32(ctx.StrArgBuf[768:772])
-	if !readInSuccess || inLen == 0 {
-		if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 4, false); err == nil && len(d) == 4 {
-			inLen = binary.LittleEndian.Uint32(d)
-			readInSuccess = true
-		}
-	}
+	inLen, readInSuccess := h.getSockaddrLenSnapshot(ctx, false)
 
 	if ctx.Ret >= 0 {
-		readOutSuccess := ctx.ProbeRetExit >= 0
-		outLen := binary.LittleEndian.Uint32(ctx.StrArgBuf[772:776])
-		if !readOutSuccess || outLen == 0 {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 4, true); err == nil && len(d) == 4 {
-				outLen = binary.LittleEndian.Uint32(d)
-				readOutSuccess = true
-			}
-		}
+		outLen, readOutSuccess := h.getSockaddrLenSnapshot(ctx, true)
 		if !readOutSuccess {
 			return fmt.Sprintf("%#x", val), true
 		}
@@ -149,19 +135,7 @@ func (h *NetworkHandler) formatNetlinkBuf(ctx *Context, val uint64) string {
 	if sz > 512 {
 		sz = 512
 	}
-	data := ctx.StrArgBuf[0:sz]
-	readSuccess := ctx.ProbeRetEnter >= 0
-	if ctx.ScMeta.Name == "recvfrom" {
-		data = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+sz]
-		readSuccess = ctx.ProbeRetExit >= 0
-	}
-
-	if !readSuccess {
-		if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, sz, ctx.ScMeta.Name == "recvfrom"); err == nil && len(d) >= sz {
-			data = d
-			readSuccess = true
-		}
-	}
+	data, readSuccess := h.networkBufferSnapshot(ctx, sz)
 
 	if readSuccess && len(data) >= 16 {
 		return format.Netlink(data)
@@ -183,20 +157,11 @@ func (h *NetworkHandler) formatStandardBuf(ctx *Context, val uint64) string {
 	if sz < 0 {
 		sz = 0
 	}
-
-	data := ctx.StrArgBuf[0:sz]
-	readSuccess := ctx.ProbeRetEnter >= 0
-	if ctx.ScMeta.Name == "recvfrom" {
-		data = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+sz]
-		readSuccess = ctx.ProbeRetExit >= 0
+	if sz == 0 {
+		return format.Buffer(nil, ctx.Opts.StringLimit, 0)
 	}
 
-	if !readSuccess {
-		if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, sz, ctx.ScMeta.Name == "recvfrom"); err == nil && len(d) >= sz {
-			data = d
-			readSuccess = true
-		}
-	}
+	data, readSuccess := h.networkBufferSnapshot(ctx, sz)
 	if readSuccess {
 		actualLen := int(ctx.Args[2])
 		if ctx.ScMeta.Name == "recvfrom" {
@@ -232,7 +197,9 @@ func (h *NetworkHandler) formatSockaddr(ctx *Context, i int, argName, argTyp str
 		if ctx.ScMeta.Name == "recvfrom" {
 			offset = 1536
 		}
-		inLen = binary.LittleEndian.Uint32(ctx.StrArgBuf[768:772])
+		inLen, _ = h.getSockaddrLenSnapshot(ctx, false)
+	} else if ctx.ScMeta.Name == "sendto" {
+		offset = 512
 	}
 
 	effectiveLen := alen
@@ -243,23 +210,15 @@ func (h *NetworkHandler) formatSockaddr(ctx *Context, i int, argName, argTyp str
 	readSize := 128
 	if effectiveLen > 0 {
 		readSize = int(effectiveLen)
-		if readSize < 2 { readSize = 2 }
-		if readSize > 128 { readSize = 128 }
-	}
-
-	sdata := ctx.StrArgBuf[offset : offset+uint32(readSize)]
-	readSuccess := ctx.ProbeRetExit >= 0
-	if ctx.ScMeta.Name == "bind" || ctx.ScMeta.Name == "connect" || ctx.ScMeta.Name == "sendto" {
-		readSuccess = ctx.ProbeRetEnter >= 0
-	}
-
-	if !readSuccess {
-		if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, readSize, ctx.ScMeta.Name == "recvfrom"); err == nil && len(d) >= 2 {
-			sdata = d
-			readSuccess = true
+		if readSize < 2 {
+			readSize = 2
+		}
+		if readSize > 128 {
+			readSize = 128
 		}
 	}
 
+	sdata, readSuccess := h.sockaddrSnapshot(ctx, offset, readSize)
 	if !readSuccess {
 		return fmt.Sprintf("%#x", val), true
 	}
@@ -275,26 +234,58 @@ func (h *NetworkHandler) getSockaddrLen(ctx *Context) uint32 {
 		return uint32(ctx.Args[5])
 	}
 	if ctx.ScMeta.Name == "recvfrom" {
-		alen = binary.LittleEndian.Uint32(ctx.StrArgBuf[772:776])
-		if alen == 0 || ctx.ProbeRetExit < 0 {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Tid, ctx.Args[5], 4, true); err == nil && len(d) == 4 {
-				alen = binary.LittleEndian.Uint32(d)
-			}
+		if outLen, ok := h.getSockaddrLenSnapshot(ctx, true); ok {
+			return outLen
 		}
-		return alen
+		return 0
 	}
 	if ctx.ScMeta.Name == "accept" || ctx.ScMeta.Name == "accept4" || ctx.ScMeta.Name == "getsockname" || ctx.ScMeta.Name == "getpeername" {
-		addrlenPtr := ctx.Args[2]
-		if addrlenPtr != 0 {
-			alen = binary.LittleEndian.Uint32(ctx.StrArgBuf[772:776])
-			if alen == 0 || ctx.ProbeRetExit < 0 {
-				if d, err := ctx.MemReader.ReadRobust(ctx.Tid, addrlenPtr, 4, true); err == nil && len(d) == 4 {
-					alen = binary.LittleEndian.Uint32(d)
-				}
-			}
+		if ctx.Args[2] == 0 {
+			return 0
+		}
+		if outLen, ok := h.getSockaddrLenSnapshot(ctx, true); ok {
+			return outLen
 		}
 	}
 	return alen
+}
+
+func (h *NetworkHandler) getSockaddrLenSnapshot(ctx *Context, isExit bool) (uint32, bool) {
+	if isExit {
+		data, ok := ctx.ExitSnapshot(772, 4)
+		if !ok {
+			return 0, false
+		}
+		return binary.LittleEndian.Uint32(data), true
+	}
+	argIndex := 2
+	if ctx.ScMeta.Name == "recvfrom" {
+		argIndex = 5
+	}
+	data, ok := ctx.EnterArgSnapshot(argIndex, 768, 4)
+	if !ok {
+		return 0, false
+	}
+	return binary.LittleEndian.Uint32(data), true
+}
+
+func (h *NetworkHandler) networkBufferSnapshot(ctx *Context, size int) ([]byte, bool) {
+	if ctx.ScMeta.Name == "recvfrom" {
+		return ctx.ExitSnapshot(BpfExitArgOffset, size)
+	}
+	return ctx.EnterArgSnapshot(1, 0, size)
+}
+
+func (h *NetworkHandler) sockaddrSnapshot(ctx *Context, offset uint32, size int) ([]byte, bool) {
+	switch ctx.ScMeta.Name {
+	case "bind", "connect":
+		return ctx.EnterArgSnapshot(1, int(offset), size)
+	case "sendto":
+		return ctx.EnterArgSnapshot(4, int(offset), size)
+	case "recvfrom", "accept", "accept4", "getsockname", "getpeername":
+		return ctx.ExitSnapshot(int(offset), size)
+	}
+	return nil, false
 }
 
 func (h *NetworkHandler) formatSockopt(ctx *Context, argName string, val uint64) (string, bool) {
@@ -321,7 +312,7 @@ func (h *NetworkHandler) formatSockoptValAndLen(ctx *Context, i int, argName str
 		if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
 			return fmt.Sprintf("%#x", val), true
 		}
-		data, ok := ctx.FetchStructDataExact(val, 4, true, nil)
+		data, ok := ctx.ExitSnapshot(BpfExitArgOffset, 4)
 		if !ok {
 			return fmt.Sprintf("%#x", val), true
 		}

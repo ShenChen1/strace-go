@@ -1,0 +1,193 @@
+package main
+
+import (
+	"encoding/json"
+
+	"strace-go/pkg/handler"
+	"strace-go/pkg/meta"
+)
+
+const (
+	bpfEventTypeEnter        uint16 = 1
+	bpfEventTypeExit         uint16 = 2
+	bpfEventTypeLifecycle    uint16 = 3
+	bpfEventFlagGenericEnter uint32 = 1
+	lifecycleFork            uint32 = 1
+	lifecycleExec            uint32 = 2
+	lifecycleExit            uint32 = 3
+	lifecycleFree            uint32 = 4
+)
+
+type jsonSyscallEvent struct {
+	Type          string    `json:"type"`
+	EventVersion  uint16    `json:"event_version,omitempty"`
+	EventType     string    `json:"event_type"`
+	EventTypeID   uint16    `json:"event_type_id,omitempty"`
+	EventFlags    uint32    `json:"event_flags,omitempty"`
+	Pid           uint32    `json:"pid"`
+	Tid           uint32    `json:"tid"`
+	SysID         uint32    `json:"sys_id"`
+	Syscall       string    `json:"syscall"`
+	Args          [6]uint64 `json:"args"`
+	ArgText       []string  `json:"arg_text,omitempty"`
+	Ret           int64     `json:"ret"`
+	ReturnText    string    `json:"return_text,omitempty"`
+	Failed        bool      `json:"failed"`
+	Errno         int       `json:"errno,omitempty"`
+	DurationNS    uint64    `json:"duration_ns"`
+	EnterTimeNS   uint64    `json:"enter_time_ns"`
+	Ptr           uint64    `json:"ptr,omitempty"`
+	DataLen       uint32    `json:"data_len,omitempty"`
+	RawString     string    `json:"raw_string,omitempty"`
+	ProbeRetEnter int32     `json:"probe_ret_enter"`
+	ProbeRetExit  int32     `json:"probe_ret_exit"`
+	PairedEnter   bool      `json:"paired_enter,omitempty"`
+}
+
+type jsonLifecycleEvent struct {
+	Type         string `json:"type"`
+	EventVersion uint16 `json:"event_version,omitempty"`
+	EventType    string `json:"event_type"`
+	EventTypeID  uint16 `json:"event_type_id,omitempty"`
+	Action       string `json:"action"`
+	ActionID     uint32 `json:"action_id,omitempty"`
+	Pid          uint32 `json:"pid"`
+	Tid          uint32 `json:"tid"`
+	Arg0         uint64 `json:"arg0,omitempty"`
+	Arg1         uint64 `json:"arg1,omitempty"`
+	TimeNS       uint64 `json:"time_ns"`
+}
+
+func newJSONSyscallEvent(eventRaw *bpfEvent, scMeta meta.Syscall) jsonSyscallEvent {
+	failed := eventRaw.Ret < 0 && eventRaw.Ret >= -4095
+	errno := 0
+	if failed {
+		errno = int(-eventRaw.Ret)
+	}
+	return jsonSyscallEvent{
+		Type:          "syscall",
+		EventVersion:  eventRaw.EventVersion,
+		EventType:     bpfEventTypeName(eventRaw),
+		EventTypeID:   eventRaw.EventType,
+		EventFlags:    eventRaw.EventFlags,
+		Pid:           eventRaw.Pid,
+		Tid:           eventRaw.Tid,
+		SysID:         eventRaw.SysId,
+		Syscall:       scMeta.Name,
+		Args:          eventRaw.Args,
+		Ret:           eventRaw.Ret,
+		Failed:        failed,
+		Errno:         errno,
+		DurationNS:    eventRaw.Duration,
+		EnterTimeNS:   eventRaw.EnterTime,
+		Ptr:           eventRaw.Ptr,
+		DataLen:       eventRaw.DataLen,
+		ProbeRetEnter: eventRaw.ProbeRetEnter,
+		ProbeRetExit:  eventRaw.ProbeRetExit,
+	}
+}
+
+func (s *traceSession) writeJSONRawEvent(eventRaw *bpfEvent, scMeta meta.Syscall) {
+	ev := newJSONSyscallEvent(eventRaw, scMeta)
+	_ = json.NewEncoder(s.outWriter).Encode(ev)
+}
+
+func (s *traceSession) writeJSONLifecycleEvent(eventRaw *bpfEvent) {
+	ev := jsonLifecycleEvent{
+		Type:         "lifecycle",
+		EventVersion: eventRaw.EventVersion,
+		EventType:    bpfEventTypeName(eventRaw),
+		EventTypeID:  eventRaw.EventType,
+		Action:       lifecycleActionName(eventRaw.EventFlags),
+		ActionID:     eventRaw.EventFlags,
+		Pid:          eventRaw.Pid,
+		Tid:          eventRaw.Tid,
+		Arg0:         eventRaw.Args[0],
+		Arg1:         eventRaw.Args[1],
+		TimeNS:       eventRaw.EnterTime,
+	}
+	_ = json.NewEncoder(s.outWriter).Encode(ev)
+}
+
+func (s *traceSession) writeJSONEvent(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, ctx *handler.Context, pendingEnter *pendingSyscallState) {
+	ev := newJSONSyscallEvent(eventRaw, scMeta)
+	ev.ArgText = res.ArgParts
+	ev.ReturnText = formatSyscallRet(scMeta.Name, eventRaw.Ret, res, ctx)
+	ev.RawString = ctx.RawStrArg
+	ev.PairedEnter = pendingEnter != nil && pendingEnter.genericEnterRaw
+	_ = json.NewEncoder(s.outWriter).Encode(ev)
+}
+
+func bpfEventTypeName(eventRaw *bpfEvent) string {
+	switch eventRaw.EventType {
+	case bpfEventTypeEnter:
+		return "enter"
+	case bpfEventTypeExit, 0:
+		return "exit"
+	case bpfEventTypeLifecycle:
+		return "lifecycle"
+	default:
+		return "unknown"
+	}
+}
+
+func lifecycleActionName(action uint32) string {
+	switch action {
+	case lifecycleFork:
+		return "fork"
+	case lifecycleExec:
+		return "exec"
+	case lifecycleExit:
+		return "exit"
+	case lifecycleFree:
+		return "free"
+	default:
+		return "unknown"
+	}
+}
+
+func isLifecycleEvent(eventRaw *bpfEvent) bool {
+	return eventRaw.EventType == bpfEventTypeLifecycle
+}
+
+func isGenericEnterEvent(eventRaw *bpfEvent) bool {
+	return eventRaw.EventType == bpfEventTypeEnter && (eventRaw.EventFlags&bpfEventFlagGenericEnter) != 0
+}
+
+func shouldEmitStatus(eventRaw *bpfEvent, scMeta meta.Syscall, optsStatus successfulFailedOptions) bool {
+	if optsStatus.successfulOnly || optsStatus.failedOnly || len(optsStatus.traceStatus) > 0 {
+		if eventRaw.ProbeRetEnter == 3 {
+			return false
+		}
+	}
+	if eventRaw.ProbeRetEnter == 3 {
+		return true
+	}
+
+	isFailed := eventRaw.Ret < 0 && eventRaw.Ret >= -4095
+	if scMeta.Name == "exit" || scMeta.Name == "exit_group" {
+		isFailed = false
+	}
+	if optsStatus.successfulOnly && isFailed {
+		return false
+	}
+	if optsStatus.failedOnly && !isFailed {
+		return false
+	}
+	if len(optsStatus.traceStatus) > 0 {
+		if optsStatus.traceStatus["successful"] && !isFailed {
+			return true
+		}
+		if optsStatus.traceStatus["failed"] && isFailed {
+			return true
+		}
+		return false
+	}
+	return true
+}
+
+type successfulFailedOptions struct {
+	successfulOnly bool
+	failedOnly     bool
+	traceStatus    map[string]bool
+}

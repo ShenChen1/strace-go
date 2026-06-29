@@ -18,6 +18,9 @@ type bpfBpfEvent struct {
 	Pid           uint32
 	SysId         uint32
 	Tid           uint32
+	EventVersion  uint16
+	EventType     uint16
+	EventFlags    uint32
 	ProbeRetEnter int32
 	ProbeRetExit  int32
 	_             [4]byte
@@ -29,6 +32,16 @@ type bpfBpfEvent struct {
 	DataLen       uint32
 	StackId       int32
 	StrArg        [10400]uint8
+}
+
+type bpfPendingSyscall struct {
+	_         structs.HostLayout
+	EnterTime uint64
+	Args      [6]uint64
+	Pid       uint32
+	SysId     uint32
+	Tid       uint32
+	StackId   int32
 }
 
 // loadBpf returns the embedded CollectionSpec for bpf.
@@ -73,7 +86,10 @@ type bpfSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfProgramSpecs struct {
+	TraceSchedProcessExec *ebpf.ProgramSpec `ebpf:"trace_sched_process_exec"`
+	TraceSchedProcessExit *ebpf.ProgramSpec `ebpf:"trace_sched_process_exit"`
 	TraceSchedProcessFork *ebpf.ProgramSpec `ebpf:"trace_sched_process_fork"`
+	TraceSchedProcessFree *ebpf.ProgramSpec `ebpf:"trace_sched_process_free"`
 	TraceSysEnter         *ebpf.ProgramSpec `ebpf:"trace_sys_enter"`
 	TraceSysExit          *ebpf.ProgramSpec `ebpf:"trace_sys_exit"`
 }
@@ -82,14 +98,15 @@ type bpfProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfMapSpecs struct {
-	ConfigMap      *ebpf.MapSpec `ebpf:"config_map"`
-	Events         *ebpf.MapSpec `ebpf:"events"`
-	EventsMap      *ebpf.MapSpec `ebpf:"events_map"`
-	FilterMap      *ebpf.MapSpec `ebpf:"filter_map"`
-	Heap           *ebpf.MapSpec `ebpf:"heap"`
-	MainExitedMap  *ebpf.MapSpec `ebpf:"main_exited_map"`
-	PendingExecMap *ebpf.MapSpec `ebpf:"pending_exec_map"`
-	StackTraces    *ebpf.MapSpec `ebpf:"stack_traces"`
+	ConfigMap        *ebpf.MapSpec `ebpf:"config_map"`
+	Events           *ebpf.MapSpec `ebpf:"events"`
+	FilterMap        *ebpf.MapSpec `ebpf:"filter_map"`
+	Heap             *ebpf.MapSpec `ebpf:"heap"`
+	MainExitedMap    *ebpf.MapSpec `ebpf:"main_exited_map"`
+	PendingExecMap   *ebpf.MapSpec `ebpf:"pending_exec_map"`
+	PendingSyscalls  *ebpf.MapSpec `ebpf:"pending_syscalls"`
+	StackTraces      *ebpf.MapSpec `ebpf:"stack_traces"`
+	SyscallFilterMap *ebpf.MapSpec `ebpf:"syscall_filter_map"`
 }
 
 // bpfVariableSpecs contains global variables before they are loaded into the kernel.
@@ -118,26 +135,28 @@ func (o *bpfObjects) Close() error {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfMaps struct {
-	ConfigMap      *ebpf.Map `ebpf:"config_map"`
-	Events         *ebpf.Map `ebpf:"events"`
-	EventsMap      *ebpf.Map `ebpf:"events_map"`
-	FilterMap      *ebpf.Map `ebpf:"filter_map"`
-	Heap           *ebpf.Map `ebpf:"heap"`
-	MainExitedMap  *ebpf.Map `ebpf:"main_exited_map"`
-	PendingExecMap *ebpf.Map `ebpf:"pending_exec_map"`
-	StackTraces    *ebpf.Map `ebpf:"stack_traces"`
+	ConfigMap        *ebpf.Map `ebpf:"config_map"`
+	Events           *ebpf.Map `ebpf:"events"`
+	FilterMap        *ebpf.Map `ebpf:"filter_map"`
+	Heap             *ebpf.Map `ebpf:"heap"`
+	MainExitedMap    *ebpf.Map `ebpf:"main_exited_map"`
+	PendingExecMap   *ebpf.Map `ebpf:"pending_exec_map"`
+	PendingSyscalls  *ebpf.Map `ebpf:"pending_syscalls"`
+	StackTraces      *ebpf.Map `ebpf:"stack_traces"`
+	SyscallFilterMap *ebpf.Map `ebpf:"syscall_filter_map"`
 }
 
 func (m *bpfMaps) Close() error {
 	return _BpfClose(
 		m.ConfigMap,
 		m.Events,
-		m.EventsMap,
 		m.FilterMap,
 		m.Heap,
 		m.MainExitedMap,
 		m.PendingExecMap,
+		m.PendingSyscalls,
 		m.StackTraces,
+		m.SyscallFilterMap,
 	)
 }
 
@@ -151,14 +170,20 @@ type bpfVariables struct {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfPrograms struct {
+	TraceSchedProcessExec *ebpf.Program `ebpf:"trace_sched_process_exec"`
+	TraceSchedProcessExit *ebpf.Program `ebpf:"trace_sched_process_exit"`
 	TraceSchedProcessFork *ebpf.Program `ebpf:"trace_sched_process_fork"`
+	TraceSchedProcessFree *ebpf.Program `ebpf:"trace_sched_process_free"`
 	TraceSysEnter         *ebpf.Program `ebpf:"trace_sys_enter"`
 	TraceSysExit          *ebpf.Program `ebpf:"trace_sys_exit"`
 }
 
 func (p *bpfPrograms) Close() error {
 	return _BpfClose(
+		p.TraceSchedProcessExec,
+		p.TraceSchedProcessExit,
 		p.TraceSchedProcessFork,
+		p.TraceSchedProcessFree,
 		p.TraceSysEnter,
 		p.TraceSysExit,
 	)

@@ -18,20 +18,7 @@ func decodeBpfObjPin(ctx *Context, data []byte, size uint32) string {
 		if pathAddr == 0 {
 			parts = append(parts, "pathname=NULL")
 		} else {
-			p, err := ctx.MemReader.ReadRobust(ctx.Tid, pathAddr, 4096, false)
-			if err == nil {
-				s := string(p)
-				if idx := strings.IndexByte(s, 0); idx != -1 {
-					s = s[:idx]
-				}
-				parts = append(parts, fmt.Sprintf("pathname=%q", s))
-			} else {
-				if pathAddr != 0xffffffffffffffff {
-					parts = append(parts, `pathname="/sys/fs/bpf/foo/bar"`)
-				} else {
-					parts = append(parts, fmt.Sprintf("pathname=%#x", pathAddr))
-				}
-			}
+			parts = append(parts, fmt.Sprintf("pathname=%#x", pathAddr))
 		}
 		decodedSize = 8
 	}
@@ -322,24 +309,7 @@ func decodeBpfRawTracepointOpen(ctx *Context, data []byte, size uint32) string {
 	if nameAddr == 0 {
 		parts = append(parts, "name=NULL")
 	} else {
-		nameBytes, err := ctx.MemReader.ReadRobust(ctx.Pid, nameAddr, 32, false)
-		if err != nil {
-			nameBytes, err = ctx.MemReader.ReadRobust(ctx.Tid, nameAddr, 32, false)
-		}
-		if err == nil {
-			s := string(nameBytes)
-			if idx := strings.IndexByte(s, 0); idx != -1 {
-				parts = append(parts, fmt.Sprintf("name=%q", s[:idx]))
-			} else {
-				parts = append(parts, fmt.Sprintf("name=%q...", s))
-			}
-		} else {
-			if nameAddr != 0xffffffff00000000 {
-				parts = append(parts, `name="0123456789qwertyuiop0123456789qw"...`)
-			} else {
-				parts = append(parts, fmt.Sprintf("name=%#x", nameAddr))
-			}
-		}
+		parts = append(parts, fmt.Sprintf("name=%#x", nameAddr))
 	}
 
 	parts = append(parts, fmt.Sprintf("prog_fd=%d", int32(u32OrZero(data, 8))))
@@ -364,19 +334,7 @@ func decodeBpfBtfLoad(ctx *Context, data []byte, size uint32) string {
 	if btfAddr == 0 {
 		parts = append(parts, "btf=NULL")
 	} else {
-		btfBytes, err := ctx.MemReader.ReadRobust(ctx.Pid, btfAddr, int(btfSize), false)
-		if err != nil {
-			btfBytes, err = ctx.MemReader.ReadRobust(ctx.Tid, btfAddr, int(btfSize), false)
-		}
-		if err == nil {
-			parts = append(parts, "btf="+formatBtfData(btfBytes))
-		} else {
-			if btfSize == 9 {
-				parts = append(parts, `btf="bPf\0daTum"`)
-			} else {
-				parts = append(parts, fmt.Sprintf("btf=%#x", btfAddr))
-			}
-		}
+		parts = append(parts, fmt.Sprintf("btf=%#x", btfAddr))
 	}
 
 	btfLogBuf := u64OrZero(data, 8)
@@ -423,4 +381,3 @@ func formatBtfData(data []byte) string {
 	sb.WriteByte('"')
 	return sb.String()
 }
-

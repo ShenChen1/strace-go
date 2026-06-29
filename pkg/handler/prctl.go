@@ -14,6 +14,8 @@ func init() {
 
 type PrctlHandler struct{}
 
+const prctlNameSize = 16
+
 func (h *PrctlHandler) Handle(ctx *Context) Result {
 	res := Result{}
 	option := int32(ctx.Args[0])
@@ -21,18 +23,18 @@ func (h *PrctlHandler) Handle(ctx *Context) Result {
 
 	switch option {
 	case 15: // PR_SET_NAME
-		res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[0:16], ctx.ArgProbeRet(1), "prctl", ctx.Opts.StringLimit))
+		res.ArgParts = append(res.ArgParts, decodePrctlName(ctx, false))
 		return res
 	case 16: // PR_GET_NAME
 		if ctx.Ret >= 0 {
-			res.ArgParts = append(res.ArgParts, ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[BpfExitArgOffset:1040], ctx.ProbeRetExit, "prctl", ctx.Opts.StringLimit))
+			res.ArgParts = append(res.ArgParts, decodePrctlName(ctx, true))
 		} else {
 			res.ArgParts = append(res.ArgParts, formatPtrFallback(ctx.Args[1]))
 		}
 		return res
 	case 1: // PR_GET_PDEATHSIG
 		if ctx.Ret >= 0 && ctx.Args[1] != 0 {
-			data, ok := ctx.FetchStructDataExact(ctx.Args[1], 4, true, nil)
+			data, ok := ctx.ExitSnapshot(BpfExitArgOffset, 4)
 			if ok {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%s]", meta.DecodeFlags(uint64(binary.LittleEndian.Uint32(data)), "signalnames")))
 			} else {
@@ -46,9 +48,8 @@ func (h *PrctlHandler) Handle(ctx *Context) Result {
 		res.ArgParts = append(res.ArgParts, meta.DecodeFlags(ctx.Args[1], "signalnames"))
 		return res
 	case 9, 11, 19, 37, 5, 25: // PR_GET_FPEMU, PR_GET_FPEXC, PR_GET_ENDIAN, PR_GET_CHILD_SUBREAPER, PR_GET_UNALIGN, PR_GET_TSC
-		// These return a uint/int in the pointer provided in arg[1]
 		if ctx.Ret >= 0 && ctx.Args[1] != 0 {
-			data, ok := ctx.FetchStructDataExact(ctx.Args[1], 4, true, nil)
+			data, ok := ctx.ExitSnapshot(BpfExitArgOffset, 4)
 			if ok {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d]", int32(binary.LittleEndian.Uint32(data))))
 			} else {
@@ -85,6 +86,46 @@ func (h *PrctlHandler) Handle(ctx *Context) Result {
 	return res
 }
 
+func decodePrctlName(ctx *Context, isExit bool) string {
+	probeRet := ctx.ArgProbeRet(1)
+	offset := BpfEnterArgOffset
+	if isExit {
+		offset = BpfExitArgOffset
+		probeRet = ctx.ProbeRetExit
+	}
+	if probeRet != 0 {
+		return formatPtrFallback(ctx.Args[1])
+	}
+	data, ok := prctlSnapshot(ctx, offset)
+	if !ok {
+		return formatPtrFallback(ctx.Args[1])
+	}
+	limit := -1
+	if ctx.Opts != nil {
+		limit = ctx.Opts.StringLimit
+	}
+	return ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], data, probeRet, "prctl", limit)
+}
+
+func prctlSnapshot(ctx *Context, offset int) ([]byte, bool) {
+	if offset < 0 || offset >= len(ctx.StrArgBuf) {
+		return nil, false
+	}
+	if uint64(offset) >= uint64(ctx.DataLen) {
+		return nil, false
+	}
+	end := offset + prctlNameSize
+	if end > len(ctx.StrArgBuf) {
+		end = len(ctx.StrArgBuf)
+	}
+	if uint64(end) > uint64(ctx.DataLen) {
+		end = int(ctx.DataLen)
+	}
+	if end <= offset {
+		return nil, false
+	}
+	return ctx.StrArgBuf[offset:end], true
+}
 
 func formatPtrFallback(val uint64) string {
 	if val == 0 {

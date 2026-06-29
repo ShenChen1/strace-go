@@ -1,6 +1,10 @@
 package main
 
 import (
+	"encoding/binary"
+	"fmt"
+	"os"
+	"syscall"
 	"testing"
 
 	"strace-go/pkg/cli"
@@ -148,5 +152,120 @@ func TestDup2FormatsArgsBeforeFDMapUpdateAndReturnAfter(t *testing.T) {
 	updateFDMap(eventRaw, sc, "", nil, 101, fdMap)
 	if got := formatSyscallRet("dup2", 4, res, ctx); got != "4</dev/null>" {
 		t.Fatalf("dup2 return = %q, want %q", got, "4</dev/null>")
+	}
+}
+
+func TestUpdateFDMapUsesPipeExitSnapshot(t *testing.T) {
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() failed: %v", err)
+	}
+	defer readEnd.Close()
+	defer writeEnd.Close()
+
+	for _, name := range []string{"pipe", "pipe2"} {
+		t.Run(name, func(t *testing.T) {
+			eventRaw := &bpfEvent{
+				Pid:          uint32(os.Getpid()),
+				Tid:          uint32(os.Getpid()),
+				Ret:          0,
+				ProbeRetExit: 0,
+				DataLen:      uint32(handler.BpfExitArgOffset + 8),
+			}
+			binary.LittleEndian.PutUint32(eventRaw.StrArg[handler.BpfExitArgOffset:], uint32(readEnd.Fd()))
+			binary.LittleEndian.PutUint32(eventRaw.StrArg[handler.BpfExitArgOffset+4:], uint32(writeEnd.Fd()))
+
+			fdMap := make(map[string]string)
+			updateFDMap(eventRaw, meta.Syscall{Name: name}, "", nil, 101, fdMap)
+
+			readKey := fmt.Sprintf("101:%d", int32(readEnd.Fd()))
+			writeKey := fmt.Sprintf("101:%d", int32(writeEnd.Fd()))
+			if fdMap[readKey] == "" {
+				t.Fatalf("fdMap[%q] missing after %s snapshot update", readKey, name)
+			}
+			if fdMap[writeKey] == "" {
+				t.Fatalf("fdMap[%q] missing after %s snapshot update", writeKey, name)
+			}
+		})
+	}
+}
+
+func TestUpdateFDMapUsesSocketpairExitSnapshot(t *testing.T) {
+	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatalf("socketpair() failed: %v", err)
+	}
+	defer syscall.Close(fds[0])
+	defer syscall.Close(fds[1])
+
+	eventRaw := &bpfEvent{
+		Pid:          uint32(os.Getpid()),
+		Tid:          uint32(os.Getpid()),
+		Args:         [6]uint64{syscall.AF_UNIX, syscall.SOCK_STREAM, 0, 0x2000},
+		Ret:          0,
+		ProbeRetExit: 0,
+		DataLen:      uint32(handler.BpfExitArgOffset + 8),
+	}
+	binary.LittleEndian.PutUint32(eventRaw.StrArg[handler.BpfExitArgOffset:], uint32(fds[0]))
+	binary.LittleEndian.PutUint32(eventRaw.StrArg[handler.BpfExitArgOffset+4:], uint32(fds[1]))
+
+	fdMap := make(map[string]string)
+	updateFDMap(eventRaw, meta.Syscall{Name: "socketpair"}, "", nil, 101, fdMap)
+
+	for _, fd := range fds {
+		key := fmt.Sprintf("101:%d", int32(fd))
+		if got := fdMap[key]; got == "" {
+			t.Fatalf("fdMap[%q] missing after socketpair snapshot update", key)
+		}
+	}
+}
+
+func TestUpdateFDMapSkipsSocketpairWithoutExitSnapshot(t *testing.T) {
+	fdMap := make(map[string]string)
+	updateFDMap(&bpfEvent{
+		Pid:  1234,
+		Tid:  1234,
+		Args: [6]uint64{syscall.AF_UNIX, syscall.SOCK_STREAM, 0, 0x2000},
+		Ret:  0,
+	}, meta.Syscall{Name: "socketpair"}, "", nil, 101, fdMap)
+
+	if len(fdMap) != 0 {
+		t.Fatalf("fdMap entries = %d, want 0 without socketpair exit snapshot", len(fdMap))
+	}
+}
+
+func TestUpdateFDMapUsesNetlinkSockaddrSnapshots(t *testing.T) {
+	tests := []struct {
+		name     string
+		offset   int
+		enterRet int32
+		exitRet  int32
+		dataLen  uint32
+	}{
+		{name: "bind", offset: 0, enterRet: 0, exitRet: -1, dataLen: 8},
+		{name: "getsockname", offset: handler.BpfExitArgOffset, enterRet: -1, exitRet: 0, dataLen: uint32(handler.BpfExitArgOffset + 8)},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			eventRaw := &bpfEvent{
+				Pid:           1234,
+				Tid:           1234,
+				Args:          [6]uint64{7, 0x3000},
+				Ret:           0,
+				ProbeRetEnter: test.enterRet,
+				ProbeRetExit:  test.exitRet,
+				DataLen:       test.dataLen,
+			}
+			binary.LittleEndian.PutUint16(eventRaw.StrArg[test.offset:], 16)
+			binary.LittleEndian.PutUint32(eventRaw.StrArg[test.offset+4:], 42)
+
+			fdMap := make(map[string]string)
+			updateFDMap(eventRaw, meta.Syscall{Name: test.name}, "", nil, 101, fdMap)
+
+			if got := fdMap["101:7"]; got != "NETLINK:[SOCK_DIAG:42]" {
+				t.Fatalf("fdMap[101:7] = %q, want NETLINK socket", got)
+			}
+		})
 	}
 }

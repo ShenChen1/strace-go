@@ -22,23 +22,24 @@ func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, boo
 		if ctx.Opts != nil {
 			xlatFormat = ctx.Opts.XlatFormat
 		}
-		return ctx.DecodeArgStructWithFallback(i, val, 32, false, ctx.StrArgBuf[BpfMiscArgOffset:BpfMiscArgOffset+32], func(data []byte) string {
+		return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, BpfMiscArgOffset, 32), func(data []byte) string {
 			return format.UtimesWithXlat(data, xlatFormat)
 		})
 	}
 	if ctx.ScMeta.Name == "futex_wait" {
-		if d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 16, false); err == nil && len(d) == 16 {
-			return format.Timespec(d), true
-		}
-		return ctx.DecodeArgStructWithFallback(i, val, 16, false, ctx.StrArgBuf[0:16], format.Timespec)
+		return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, BpfEnterArgOffset, timespecSize), format.Timespec)
 	}
 	if ctx.ScMeta.Name == "futex_waitv" {
-		start := futexWaitvTimeoutOffset
-		var bpfBuf []byte
-		if len(ctx.StrArgBuf) >= start+16 {
-			bpfBuf = ctx.StrArgBuf[start : start+16]
+		return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, futexWaitvTimeoutOffset, timespecSize), format.Timespec)
+	}
+	if ctx.ScMeta.Name == "clock_gettime" || ctx.ScMeta.Name == "clock_getres" {
+		if ctx.Ret < 0 && ctx.Ret >= -4095 {
+			return "", false
 		}
-		return ctx.DecodeArgStructWithFallback(i, val, 16, false, bpfBuf, format.Timespec)
+		return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(BpfExitArgOffset, timespecSize), format.Timespec)
+	}
+	if ctx.ScMeta.Name == "clock_settime" {
+		return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, BpfEnterArgOffset, timespecSize), format.Timespec)
 	}
 
 	isNanosleep := ctx.ScMeta.Name == "nanosleep"
@@ -49,98 +50,107 @@ func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, boo
 			if ctx.Ret != -516 && ctx.Ret != -4 {
 				return "", false
 			}
-			return ctx.DecodeArgStructWithFallback(i, val, 16, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+16], format.Timespec)
-		} else {
-			return ctx.DecodeArgStructWithFallback(i, val, 16, false, ctx.StrArgBuf[0:16], format.Timespec)
+			return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(BpfExitArgOffset, timespecSize), format.Timespec)
 		}
+		return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, BpfEnterArgOffset, timespecSize), format.Timespec)
 	}
 
-	if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 {
-		d, err := ctx.MemReader.ReadRobust(ctx.Tid, val, 16, false)
-		if err == nil && len(d) == 16 {
-			return format.Timespec(d), true
-		}
-	}
-
-	return ctx.DecodeArgStructWithFallback(i, val, 16, false, ctx.StrArgBuf[0:16], format.Timespec)
+	return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, BpfEnterArgOffset, timespecSize), format.Timespec)
 }
 
 func decodeTimeval(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	if ctx.ScMeta.Name == "utimes" || ctx.ScMeta.Name == "futimesat" {
-		return ctx.DecodeArgStructWithFallback(i, val, 32, false, ctx.StrArgBuf[BpfMiscArgOffset:BpfMiscArgOffset+32], format.Timevals)
+		return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, BpfMiscArgOffset, 32), format.Timevals)
 	}
 
 	isOut := ctx.ScMeta.Name == "gettimeofday"
-	if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 {
-		d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 16, false)
-		if err == nil && len(d) == 16 {
-			return format.Timeval(d), true
-		}
-	}
 	if isOut {
 		if ctx.Ret < 0 && ctx.Ret >= -4095 {
 			return "", false
 		}
-		return ctx.DecodeStructWithFallback(val, 16, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+16], format.Timeval)
+		return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(BpfExitArgOffset, timespecSize), format.Timeval)
 	}
-	return ctx.DecodeStructWithFallback(val, 16, false, ctx.StrArgBuf[0:16], format.Timeval)
+	return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, BpfEnterArgOffset, timespecSize), format.Timeval)
 }
 
 func decodeUtimbuf(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
-	return ctx.DecodeArgStructWithFallback(i, val, 16, false, ctx.StrArgBuf[BpfMiscArgOffset:BpfMiscArgOffset+16], format.Utimbuf)
+	return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, BpfMiscArgOffset, timespecSize), format.Utimbuf)
 }
 
 func decodeTimex(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
-	return ctx.DecodeStructWithFallback(val, 208, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+208], format.Timex)
+	return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(BpfExitArgOffset, timexSize), format.Timex)
+}
+
+type timeSnapshot struct {
+	argIndex int
+	offset   int
+	size     int
+	exit     bool
+}
+
+func enterTimeSnapshot(argIndex int, offset int, size int) timeSnapshot {
+	return timeSnapshot{argIndex: argIndex, offset: offset, size: size}
+}
+
+func exitTimeSnapshot(offset int, size int) timeSnapshot {
+	return timeSnapshot{argIndex: -1, offset: offset, size: size, exit: true}
+}
+
+func decodeTimeSnapshot(ctx *Context, val uint64, snap timeSnapshot, decodeFn func([]byte) string) (string, bool) {
+	if val == 0 {
+		return "NULL", true
+	}
+	data, ok := snapshotTimeData(ctx, snap)
+	if ok {
+		return decodeFn(data), true
+	}
+	return pointerString(val), true
+}
+
+func snapshotTimeData(ctx *Context, snap timeSnapshot) ([]byte, bool) {
+	if snap.exit {
+		return ctx.ExitSnapshot(snap.offset, snap.size)
+	}
+	return ctx.EnterArgSnapshot(snap.argIndex, snap.offset, snap.size)
+}
+
+func pointerString(val uint64) string {
+	return formatPointer(val)
 }
 
 func decodeItimerval(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	isOut := ctx.ScMeta.Name == "getitimer" && i == 1 || ctx.ScMeta.Name == "setitimer" && i == 2
-	if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 {
-		d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 32, false)
-		if err == nil && len(d) >= 32 {
-			return format.Itimerval(d), true
-		}
-	}
 	if isOut {
 		if ctx.Ret < 0 && ctx.Ret >= -4095 {
 			return "", false
 		}
-		return ctx.DecodeStructWithFallback(val, 32, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+32], format.Itimerval)
+		return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(BpfExitArgOffset, 32), format.Itimerval)
 	}
-	return ctx.DecodeStructWithFallback(val, 32, false, ctx.StrArgBuf[0:32], format.Itimerval)
+	return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, BpfEnterArgOffset, 32), format.Itimerval)
 }
 
 func decodeItimerspec(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	isOut := (ctx.ScMeta.Name == "timerfd_gettime" && i == 1) || (ctx.ScMeta.Name == "timerfd_settime" && i == 3) || (ctx.ScMeta.Name == "timer_gettime" && i == 1) || (ctx.ScMeta.Name == "timer_settime" && i == 3)
-	if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 {
-		d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 32, false)
-		if err == nil && len(d) >= 32 {
-			return format.Itimerspec(d), true
-		}
-	}
 	if isOut {
 		if ctx.Ret < 0 && ctx.Ret >= -4095 {
 			return "", false
 		}
-		return ctx.DecodeStructWithFallback(val, 32, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+32], format.Itimerspec)
+		return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(BpfExitArgOffset, 32), format.Itimerspec)
 	}
-	return ctx.DecodeStructWithFallback(val, 32, false, ctx.StrArgBuf[0:32], format.Itimerspec)
+	return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, BpfEnterArgOffset, 32), format.Itimerspec)
 }
 
 func decodeTimezone(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	isOut := ctx.ScMeta.Name == "gettimeofday" && i == 1
-	if ctx.Ret >= 0 || ctx.ProbeRetExit >= 0 {
-		d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 8, false)
-		if err == nil && len(d) >= 8 {
-			return format.Timezone(d), true
-		}
-	}
 	if isOut {
 		if ctx.Ret < 0 && ctx.Ret >= -4095 {
 			return "", false
 		}
-		return ctx.DecodeStructWithFallback(val, 8, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+8], format.Timezone)
+		return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(BpfExitArgOffset+16, 8), format.Timezone)
 	}
-	return ctx.DecodeStructWithFallback(val, 8, false, ctx.StrArgBuf[0:8], format.Timezone)
+	offset := BpfEnterArgOffset
+	if ctx.ScMeta.Name == "settimeofday" && i == 1 {
+		offset = 16
+	}
+	return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, offset, 8), format.Timezone)
 }

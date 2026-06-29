@@ -13,6 +13,12 @@ func init() {
 
 type GetRobustListHandler struct{}
 
+const (
+	robustListWordSize   = 8
+	robustListHeadOffset = BpfExitArgOffset
+	robustListLenOffset  = BpfExitArgOffset + 16
+)
+
 func (h *GetRobustListHandler) Handle(ctx *Context) Result {
 	res := Result{}
 
@@ -30,12 +36,11 @@ func (h *GetRobustListHandler) Handle(ctx *Context) Result {
 		if ctx.Args[1] == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
-			data, ok := ctx.FetchStructDataExact(ctx.Args[1], 8, true, ctx.StrArgBuf[1024:1032])
+			headVal, ok := robustListExitWord(ctx, robustListHeadOffset)
 			if !ok {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[1]))
 			} else {
-				head_val := binary.LittleEndian.Uint64(data)
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%#x]", head_val))
+				res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%#x]", headVal))
 			}
 		}
 	}
@@ -51,17 +56,24 @@ func (h *GetRobustListHandler) Handle(ctx *Context) Result {
 		if ctx.Args[2] == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
-			data, ok := ctx.FetchStructDataExact(ctx.Args[2], 8, true, ctx.StrArgBuf[1040:1048])
+			lenVal, ok := robustListExitWord(ctx, robustListLenOffset)
 			if !ok {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
 			} else {
-				len_val := binary.LittleEndian.Uint64(data)
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d]", len_val))
+				res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d]", lenVal))
 			}
 		}
 	}
 
 	return res
+}
+
+func robustListExitWord(ctx *Context, offset int) (uint64, bool) {
+	data, ok := ctx.ExitSnapshot(offset, robustListWordSize)
+	if !ok {
+		return 0, false
+	}
+	return binary.LittleEndian.Uint64(data), true
 }
 
 type SetRobustListHandler struct{}

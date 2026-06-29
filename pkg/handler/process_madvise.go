@@ -36,23 +36,24 @@ func formatProcessMadviseIovec(ctx *Context, addr uint64, count uint64) string {
 
 	const limit = 16
 	readCount := int(count)
-	if readCount > limit {
-		readCount = limit
+	if readCount > iovecDisplayLimit {
+		readCount = iovecDisplayLimit
 	}
-	data, _ := ctx.MemReader.ReadRobust(ctx.Tid, addr, readCount*16, true)
-	if len(data) == 0 {
+	readSize := readCount * iovecSize
+	data, ok := ctx.EnterArgSnapshotPrefix(1, BpfEnterArgOffset, readSize)
+	if !ok || len(data) == 0 {
 		return fmt.Sprintf("%#x", addr)
 	}
 
-	actualCount := len(data) / 16
+	actualCount := len(data) / iovecSize
 	parts := make([]string, 0, actualCount+1)
 	for i := 0; i < actualCount; i++ {
-		base := binary.LittleEndian.Uint64(data[i*16 : i*16+8])
-		length := binary.LittleEndian.Uint64(data[i*16+8 : i*16+16])
+		base := binary.LittleEndian.Uint64(data[i*iovecSize : i*iovecSize+8])
+		length := binary.LittleEndian.Uint64(data[i*iovecSize+8 : i*iovecSize+iovecSize])
 		parts = append(parts, fmt.Sprintf("{iov_base=%#x, iov_len=%d}", base, length))
 	}
-	if len(data) < readCount*16 || int(count) > limit {
-		parts = append(parts, fmt.Sprintf("... /* %#x */", addr+uint64(actualCount*16)))
+	if len(data) < readSize || int(count) > iovecDisplayLimit {
+		parts = append(parts, fmt.Sprintf("... /* %#x */", addr+uint64(actualCount*iovecSize)))
 	}
 	return "[" + strings.Join(parts, ", ") + "]"
 }

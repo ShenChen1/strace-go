@@ -29,8 +29,8 @@ func (h *IoctlHandler) decodeBtrfsIoctl(ctx *Context, cmd, arg uint64, cmdName s
 }
 
 func (h *IoctlHandler) decodeBtrfsWaitSync(ctx *Context, arg uint64) string {
-	data, err := ctx.MemReader.ReadRobust(ctx.Tid, arg, 8, false)
-	if err != nil || len(data) < 8 {
+	data, ok := ctx.EnterArgSnapshot(2, 512, 8)
+	if !ok || len(data) < 8 {
 		return fmt.Sprintf("%#x", arg)
 	}
 	val := binary.LittleEndian.Uint64(data)
@@ -69,16 +69,7 @@ func (h *IoctlHandler) decodeBtrfsBalanceCtl(ctx *Context, arg uint64) string {
 }
 
 func (h *IoctlHandler) decodeBtrfsVolArgs(ctx *Context, arg uint64) string {
-	var data []byte
-	if ctx.IsArgReadSuccess(2) && len(ctx.StrArgBuf) >= 512+8 {
-		end := len(ctx.StrArgBuf)
-		if end > 512+4096 {
-			end = 512 + 4096
-		}
-		data = ctx.StrArgBuf[512:end]
-	} else {
-		data, _ = ctx.MemReader.ReadRobust(ctx.Tid, arg, 4096, true)
-	}
+	data, _ := ctx.EnterArgSnapshotPrefix(2, 512, 4096)
 	if len(data) < 8 {
 		return fmt.Sprintf("%#x", arg)
 	}
@@ -94,16 +85,7 @@ func (h *IoctlHandler) decodeBtrfsVolArgs(ctx *Context, arg uint64) string {
 }
 
 func (h *IoctlHandler) decodeBtrfsVolArgsV2(ctx *Context, arg uint64) string {
-	var data []byte
-	if ctx.IsArgReadSuccess(2) && len(ctx.StrArgBuf) >= 512+56 {
-		end := len(ctx.StrArgBuf)
-		if end > 512+4096 {
-			end = 512 + 4096
-		}
-		data = ctx.StrArgBuf[512:end]
-	} else {
-		data, _ = ctx.MemReader.ReadRobust(ctx.Tid, arg, 4096, true)
-	}
+	data, _ := ctx.EnterArgSnapshotPrefix(2, 512, 4096)
 	if len(data) < 56 {
 		return fmt.Sprintf("%#x", arg)
 	}
@@ -133,9 +115,12 @@ func (h *IoctlHandler) decodeBtrfsVolArgsV2(ctx *Context, arg uint64) string {
 }
 
 func (h *IoctlHandler) decodeBtrfsQgroupInherit(ctx *Context, arg uint64) string {
-	data, err := ctx.MemReader.ReadRobust(ctx.Tid, arg, 64, true)
-	if err != nil || len(data) < 64 {
-		return fmt.Sprintf("%#x", arg)
+	return fmt.Sprintf("%#x", arg)
+}
+
+func (h *IoctlHandler) decodeBtrfsQgroupInheritSnapshot(data []byte) string {
+	if len(data) < 64 {
+		return ""
 	}
 	flags := binary.LittleEndian.Uint64(data[0:8])
 	numQgroups := binary.LittleEndian.Uint64(data[8:16])
@@ -147,13 +132,7 @@ func (h *IoctlHandler) decodeBtrfsQgroupInherit(ctx *Context, arg uint64) string
 	maxRfer := binary.LittleEndian.Uint64(data[40:48])
 	maxExcl := binary.LittleEndian.Uint64(data[48:56])
 	rsvRfer := binary.LittleEndian.Uint64(data[56:64])
-
-	// For test match we also need rsv_excl which is at offset 64
-	data2, _ := ctx.MemReader.ReadRobust(ctx.Tid, arg+64, 8, false)
 	rsvExcl := uint64(0)
-	if len(data2) >= 8 {
-		rsvExcl = binary.LittleEndian.Uint64(data2)
-	}
 
 	flagsStr := fmt.Sprintf("%#x", flags)
 	if flags&2 != 0 {

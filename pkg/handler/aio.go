@@ -20,6 +20,24 @@ func init() {
 
 type AioHandler struct{}
 
+const (
+	aioIocbSize       = 64
+	aioSetupOutSize   = 8
+	aioEventsElemSize = 32
+	aioSnapshotLimit  = 512
+	aioSigsetOffset   = BpfMiscArgOffset + 16
+	aioSigmaskOffset  = BpfMiscArgOffset + 32
+)
+
+func aioAllBytesZero(data []byte) bool {
+	for _, x := range data {
+		if x != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func (h *AioHandler) Handle(ctx *Context) Result {
 	res := Result{}
 	switch ctx.SysName {
@@ -42,7 +60,7 @@ func (h *AioHandler) formatIoSetup(ctx *Context, res *Result) {
 	if ctx.Args[1] == 0 {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else if ctx.Ret >= 0 {
-		data, ok := ctx.FetchStructDataExact(ctx.Args[1], 8, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+8])
+		data, ok := ctx.ExitSnapshot(BpfExitArgOffset, aioSetupOutSize)
 		if ok {
 			res.ArgParts = append(res.ArgParts, "["+fmt.Sprintf("%#x", binary.LittleEndian.Uint64(data))+"]")
 		} else {
@@ -74,46 +92,27 @@ func (h *AioHandler) formatIoSubmit(ctx *Context, res *Result) {
 		return
 	}
 
-	limit := 16
-	pdata := ctx.StrArgBuf[0:512]
-	readSuccess := ctx.ProbeRetEnter >= 0
-	if !readSuccess {
-		d, _ := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[2], count*8, true)
-		if len(d) > 0 {
-			pdata = d
-			readSuccess = true
-		}
-	}
-
-	if !readSuccess {
+	readSize := aioBoundedSize(count, 8)
+	pdata, ok := ctx.EnterArgSnapshot(2, BpfEnterArgOffset, readSize)
+	if !ok {
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
 		return
 	}
 
 	var parts []string
 	var i int
+	limit := 16
 	for i = 0; i < count && i < limit; i++ {
-		if len(pdata) < (i+1)*8 { break }
+		if len(pdata) < (i+1)*8 {
+			break
+		}
 		p := binary.LittleEndian.Uint64(pdata[i*8 : i*8+8])
-		if p == 0 { parts = append(parts, "NULL"); continue }
-
-		var idata []byte
-		if i < 2 && ctx.ProbeRetEnter >= 0 {
-			idata = ctx.StrArgBuf[512+i*64 : 512+(i+1)*64]
-			allZeros := true
-			for _, x := range idata {
-				if x != 0 { allZeros = false; break }
-			}
-			if allZeros { idata = nil }
+		if p == 0 {
+			parts = append(parts, "NULL")
+			continue
 		}
 
-		if idata == nil {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, p, 64, true); err == nil && len(d) > 0 {
-				idata = d
-			}
-		}
-
-		if idata != nil {
+		if idata, ok := aioIocbSnapshot(ctx, i); ok {
 			parts = append(parts, format.Iocb(idata, ctx.Opts.Verbose, func(opcode uint16, buf uint64, nbytes uint64) string {
 				return h.formatAioBuf(ctx, opcode, buf, nbytes)
 			}))
@@ -128,6 +127,29 @@ func (h *AioHandler) formatIoSubmit(ctx *Context, res *Result) {
 	res.ArgParts = append(res.ArgParts, "["+strings.Join(parts, ", ")+"]")
 }
 
+func aioBoundedSize(count int, elemSize int) int {
+	if count <= 0 || elemSize <= 0 {
+		return 0
+	}
+	size := count * elemSize
+	if size < 0 || size > aioSnapshotLimit {
+		return aioSnapshotLimit
+	}
+	return size
+}
+
+func aioIocbSnapshot(ctx *Context, index int) ([]byte, bool) {
+	if index < 0 || index >= 2 {
+		return nil, false
+	}
+	offset := BpfMiscArgOffset + index*aioIocbSize
+	data, ok := ctx.snapshotWindow(offset, aioIocbSize)
+	if !ok || aioAllBytesZero(data) {
+		return nil, false
+	}
+	return data, true
+}
+
 func (h *AioHandler) formatAioBuf(ctx *Context, opcode uint16, buf uint64, nbytes uint64) string {
 	if buf == 0 {
 		if opcode == 7 || opcode == 8 {
@@ -136,22 +158,7 @@ func (h *AioHandler) formatAioBuf(ctx *Context, opcode uint16, buf uint64, nbyte
 			return "0"
 		}
 	}
-	if opcode == 1 {
-		// IOCB_CMD_PWRITE: print string
-		data, err := ctx.MemReader.ReadRobust(ctx.Pid, buf, int(nbytes), false)
-		if err == nil && len(data) > 0 {
-			return format.Buffer(data, ctx.Opts.StringLimit, int(nbytes))
-		}
-		return fmt.Sprintf("%#x", buf)
-	}
-	if opcode != 7 && opcode != 8 {
-		return fmt.Sprintf("%#x", buf)
-	}
-	data, err := ctx.MemReader.ReadRobust(ctx.Pid, buf, int(nbytes)*16, false)
-	if err != nil || len(data) == 0 {
-		return fmt.Sprintf("%#x", buf)
-	}
-	return format.IovecArray(data, int(nbytes))
+	return fmt.Sprintf("%#x", buf)
 }
 
 func (h *AioHandler) formatIoCancel(ctx *Context, res *Result) {
@@ -159,15 +166,7 @@ func (h *AioHandler) formatIoCancel(ctx *Context, res *Result) {
 	if ctx.Args[1] == 0 {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else {
-		data := ctx.StrArgBuf[0:64]
-		readSuccess := ctx.ProbeRetEnter >= 0
-		if !readSuccess {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ctx.Args[1], 64, true); err == nil && len(d) > 0 {
-				data = d
-				readSuccess = true
-			}
-		}
-		if readSuccess {
+		if data, ok := ctx.EnterArgSnapshot(1, BpfEnterArgOffset, aioIocbSize); ok {
 			res.ArgParts = append(res.ArgParts, format.Iocb(data, ctx.Opts.Verbose, func(opcode uint16, buf uint64, nbytes uint64) string {
 				return h.formatAioBuf(ctx, opcode, buf, nbytes)
 			}))
@@ -186,12 +185,21 @@ func (h *AioHandler) formatIoGetevents(ctx *Context, res *Result) {
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[0]))
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int64(ctx.Args[1])))
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int64(ctx.Args[2])))
-	
+
+	h.formatIoEventsArg(ctx, res)
+	h.formatIoGeteventsTimeout(ctx, res)
+	if strings.Contains(ctx.SysName, "pgetevents") {
+		h.formatIoPgeteventsSigset(ctx, res)
+	}
+}
+
+func (h *AioHandler) formatIoEventsArg(ctx *Context, res *Result) {
 	if ctx.Args[3] == 0 {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else if ctx.Ret > 0 {
 		count := int(ctx.Ret)
-		data, ok := ctx.FetchStructData(ctx.Args[3], count*32, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+512])
+		readSize := aioBoundedSize(count, aioEventsElemSize)
+		data, ok := ctx.ExitSnapshot(BpfExitArgOffset, readSize)
 		if ok {
 			res.ArgParts = append(res.ArgParts, format.IoEvents(data, count))
 		} else {
@@ -200,77 +208,66 @@ func (h *AioHandler) formatIoGetevents(ctx *Context, res *Result) {
 	} else {
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[3]))
 	}
+}
 
+func (h *AioHandler) formatIoGeteventsTimeout(ctx *Context, res *Result) {
 	if ctx.Args[4] == 0 {
 		res.ArgParts = append(res.ArgParts, "NULL")
-	} else {
-		data, ok := ctx.FetchArgStructDataExact(4, ctx.Args[4], 16, false, ctx.StrArgBuf[512:528])
-		if ok {
-			allZeros := true
-			for _, x := range data {
-				if x != 0 { allZeros = false; break }
-			}
-			if allZeros && ctx.Ret < 0 {
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[4]))
-			} else {
-				res.ArgParts = append(res.ArgParts, format.Timespec(data))
-			}
-		} else {
-			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[4]))
-		}
+		return
 	}
 
-	name := ctx.SysName
-	if strings.Contains(name, "pgetevents") {
-		if ctx.Args[5] == 0 {
-			res.ArgParts = append(res.ArgParts, "NULL")
-		} else {
-			d, ok := ctx.FetchArgStructDataExact(5, ctx.Args[5], 16, false, ctx.StrArgBuf[528:544])
-			if ok {
-				allZerosSig := true
-				for _, x := range d {
-					if x != 0 { allZerosSig = false; break }
-				}
-				if allZerosSig && ctx.Ret < 0 {
-					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[5]))
-				} else {
-					sigmask := binary.LittleEndian.Uint64(d[0:8])
-					sigsetsize := binary.LittleEndian.Uint64(d[8:16])
-					sigsetStr := fmt.Sprintf("%#x", sigmask)
-					if sigsetsize <= 8 && sigsetsize > 0 {
-						var maskData []byte
-						// If BPF successfully captured arg 5 (bit 5 in ProbeRetEnter is not set)
-						arg5Failed := false
-						if ctx.ProbeRetEnter < -1 {
-							mask := uint32(-ctx.ProbeRetEnter - 1)
-							if (mask & (1 << 13)) != 0 {
-								arg5Failed = true
-							}
-						} else if ctx.ProbeRetEnter == -1 {
-							arg5Failed = true
-						}
+	data, ok := ctx.EnterArgSnapshot(4, BpfMiscArgOffset, 16)
+	if !ok {
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[4]))
+		return
+	}
+	if aioAllBytesZero(data) && ctx.Ret < 0 {
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[4]))
+		return
+	}
+	res.ArgParts = append(res.ArgParts, format.Timespec(data))
+}
 
-						if !arg5Failed && len(ctx.StrArgBuf) >= 544+int(sigsetsize) {
-							maskData = ctx.StrArgBuf[544 : 544+int(sigsetsize)]
-						}
-						
-						if arg5Failed || maskData == nil {
-							if m, err := ctx.MemReader.ReadRobust(ctx.Tid, sigmask, int(sigsetsize), false); err == nil {
-								maskData = m
-							}
-						}
+func (h *AioHandler) formatIoPgeteventsSigset(ctx *Context, res *Result) {
+	if ctx.Args[5] == 0 {
+		res.ArgParts = append(res.ArgParts, "NULL")
+		return
+	}
 
-						if maskData != nil {
-							if s := format.Sigset(maskData); s != "" {
-								sigsetStr = s
-							}
-						}
-					}
-					res.ArgParts = append(res.ArgParts, fmt.Sprintf("{sigmask=%s, sigsetsize=%d}", sigsetStr, sigsetsize))
-				}
-			} else {
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[5]))
+	d, ok := ctx.EnterArgSnapshot(5, aioSigsetOffset, 16)
+	if !ok {
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[5]))
+		return
+	}
+	if aioAllBytesZero(d) && ctx.Ret < 0 {
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[5]))
+		return
+	}
+
+	sigmask := binary.LittleEndian.Uint64(d[0:8])
+	sigsetsize := binary.LittleEndian.Uint64(d[8:16])
+	sigsetStr := fmt.Sprintf("%#x", sigmask)
+	if sigsetsize <= 8 && sigsetsize > 0 {
+		var maskData []byte
+		// Arg 5's nested sigmask read is encoded at bit 13 by the generator.
+		arg5Failed := false
+		if ctx.ProbeRetEnter < -1 {
+			mask := uint32(-ctx.ProbeRetEnter - 1)
+			if (mask & (1 << 13)) != 0 {
+				arg5Failed = true
+			}
+		} else if ctx.ProbeRetEnter == -1 {
+			arg5Failed = true
+		}
+
+		if !arg5Failed {
+			maskData, _ = ctx.snapshotWindow(aioSigmaskOffset, int(sigsetsize))
+		}
+		if maskData != nil {
+			if s := format.Sigset(maskData); s != "" {
+				sigsetStr = s
 			}
 		}
 	}
+	res.ArgParts = append(res.ArgParts, fmt.Sprintf("{sigmask=%s, sigsetsize=%d}", sigsetStr, sigsetsize))
 }

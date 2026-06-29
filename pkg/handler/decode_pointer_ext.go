@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"os"
 	"strings"
 
 	"strace-go/pkg/format"
@@ -22,77 +21,11 @@ const (
 	execEnvSnapshotCount   = 64
 )
 
-func decodeStringArray(ctx *Context, val uint64, argName string) string {
+func decodeStringArray(_ *Context, val uint64, _ string) string {
 	if val == 0 {
 		return "NULL"
 	}
-	ptrSize := 8
-	if os.Getenv("SIZEOF_LONG") == "4" {
-		ptrSize = 4
-	}
-
-	var ptrs []uint64
-	terminated := false
-	abbreviated := false
-	var nextAddr uint64
-	maxCount := 4096
-	for i := 0; i < maxCount; i++ {
-		addr := val + uint64(i*ptrSize)
-		data, err := ctx.MemReader.ReadRobust(ctx.Pid, addr, ptrSize, false)
-		if err != nil || len(data) < ptrSize {
-			if i == 0 {
-				return fmt.Sprintf("%#x", val)
-			}
-			nextAddr = addr
-			break
-		}
-		var ptr uint64
-		if ptrSize == 4 {
-			ptr = uint64(binary.LittleEndian.Uint32(data))
-		} else {
-			ptr = binary.LittleEndian.Uint64(data)
-		}
-		if ptr == 0 {
-			terminated = true
-			break
-		}
-		if argName != "envp" && len(ptrs) == 32 {
-			abbreviated = true
-			break
-		}
-		ptrs = append(ptrs, ptr)
-	}
-
-	if argName == "envp" {
-		noun := "vars"
-		if len(ptrs) == 1 {
-			noun = "var"
-		}
-		if !terminated {
-			return fmt.Sprintf("%#x /* %d %s, unterminated */", val, len(ptrs), noun)
-		}
-		return fmt.Sprintf("%#x /* %d %s */", val, len(ptrs), noun)
-	}
-
-	var res []string
-	for _, ptr := range ptrs {
-		s := ctx.Decoder.DecodeString(ctx.Pid, ptr, nil, -1, ctx.ScMeta.Name, ctx.Opts.StringLimit)
-		res = append(res, s)
-	}
-
-	retStr := "[" + strings.Join(res, ", ")
-	if !terminated {
-		if len(res) > 0 {
-			retStr += ", "
-		}
-		if abbreviated {
-			retStr += "..."
-		} else {
-			retStr += fmt.Sprintf("... /* %#x */", nextAddr)
-		}
-	}
-	retStr += "]"
-	return retStr
+	return fmt.Sprintf("%#x", val)
 }
 
 func decodeExecStringArraySnapshot(ctx *Context, val uint64, argName string) (string, bool) {

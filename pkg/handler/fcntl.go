@@ -20,6 +20,11 @@ type FcntlHandler struct {
 	DefaultHandler
 }
 
+const (
+	fcntlFlockSize  = 32
+	fcntlStructSize = 8
+)
+
 // Handle formats the arguments of the fcntl system call.
 // IMPACT: Dispatches fcntl commands to structured flock, f_owner_ex, or flag decoders. Omits third arg for getter commands, translates return values.
 func (h *FcntlHandler) Handle(ctx *Context) Result {
@@ -88,21 +93,8 @@ func (h *FcntlHandler) decodeCmd(cmd uint64) string {
 }
 
 func (h *FcntlHandler) decodeArg(ctx *Context, cmdStr string, arg uint64) string {
-	if h.isLockCmd(cmdStr) {
-		if arg == 0 {
-			return "NULL"
-		}
-		if strings.Contains(cmdStr, "GET") && ctx.Ret < 0 {
-			return fmt.Sprintf("%#x", arg)
-		}
-		return h.decodeFlock(ctx, cmdStr, arg)
-	}
-
-	if cmdStr == "F_SETOWN_EX" || cmdStr == "F_GETOWN_EX" {
-		if arg == 0 {
-			return "NULL"
-		}
-		return h.decodeFOwnerEx(ctx, arg)
+	if argStr, ok := h.decodeStructuredArg(ctx, cmdStr, arg); ok {
+		return argStr
 	}
 
 	if cmdStr == "F_SETFL" {
@@ -130,42 +122,63 @@ func (h *FcntlHandler) decodeArg(ctx *Context, cmdStr string, arg uint64) string
 		return meta.DecodeFlags(arg, "signalnames")
 	}
 
+	// Default formatting for other integer arguments
+	return fmt.Sprintf("%d", int32(arg))
+}
+
+func (h *FcntlHandler) decodeStructuredArg(ctx *Context, cmdStr string, arg uint64) (string, bool) {
+	if h.isLockCmd(cmdStr) {
+		if arg == 0 {
+			return "NULL", true
+		}
+		if strings.Contains(cmdStr, "GET") && ctx.Ret < 0 {
+			return fmt.Sprintf("%#x", arg), true
+		}
+		return h.decodeFlock(ctx, cmdStr, arg), true
+	}
+
+	if cmdStr == "F_SETOWN_EX" || cmdStr == "F_GETOWN_EX" {
+		if arg == 0 {
+			return "NULL", true
+		}
+		return h.decodeFOwnerEx(ctx, arg, cmdStr == "F_GETOWN_EX"), true
+	}
+
 	if cmdStr == "F_SET_RW_HINT" || cmdStr == "F_SET_FILE_RW_HINT" {
 		if arg == 0 {
-			return "NULL"
+			return "NULL", true
 		}
-		return h.decodeRwHint(ctx, arg)
+		return h.decodeRwHint(ctx, arg, false), true
 	}
 
 	if cmdStr == "F_GET_RW_HINT" || cmdStr == "F_GET_FILE_RW_HINT" {
 		if arg == 0 {
-			return "NULL"
+			return "NULL", true
 		}
 		if ctx.Ret < 0 {
-			return fmt.Sprintf("%#x", arg)
+			return fmt.Sprintf("%#x", arg), true
 		}
-		return h.decodeRwHint(ctx, arg)
+		return h.decodeRwHint(ctx, arg, true), true
 	}
 
 	if cmdStr == "F_SETDELEG" {
 		if arg == 0 {
-			return "NULL"
+			return "NULL", true
 		}
-		return h.decodeDelegation(ctx, arg)
+		return h.decodeDelegation(ctx, arg, false), true
 	}
 
 	if cmdStr == "F_GETDELEG" {
 		if arg == 0 {
-			return "NULL"
+			return "NULL", true
 		}
 		if ctx.Ret < 0 {
-			return fmt.Sprintf("%#x", arg)
+			return fmt.Sprintf("%#x", arg), true
 		}
-		return h.decodeDelegation(ctx, arg)
+		return h.decodeDelegation(ctx, arg, true), true
 	}
 
-	// Default formatting for other integer arguments
-	return fmt.Sprintf("%d", int32(arg))
+	return "", false
 }
 
 func (h *FcntlHandler) isLockCmd(cmdStr string) bool {
@@ -175,39 +188,17 @@ func (h *FcntlHandler) isLockCmd(cmdStr string) bool {
 }
 
 func (h *FcntlHandler) decodeFlock(ctx *Context, cmdStr string, arg uint64) string {
-	data := ctx.StrArgBuf[0:32]
-	readSuccess := ctx.ProbeRetEnter >= 0
-	if ctx.ProbeRetExit >= 0 {
-		data = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+32]
-		readSuccess = true
-	}
-	if !readSuccess {
-		if d, err := ctx.MemReader.ReadRobust(ctx.Pid, arg, 32, false); err == nil && len(d) == 32 {
-			data = d
-			readSuccess = true
-		}
-	}
-	if !readSuccess {
+	isGet := strings.Contains(cmdStr, "GETLK")
+	data, ok := fcntlSnapshot(ctx, isGet, fcntlFlockSize)
+	if !ok {
 		return fmt.Sprintf("%#x", arg)
 	}
-	showsPid := strings.Contains(cmdStr, "GETLK")
-	return format.Flock(data, showsPid)
+	return format.Flock(data, isGet)
 }
 
-func (h *FcntlHandler) decodeFOwnerEx(ctx *Context, arg uint64) string {
-	data := ctx.StrArgBuf[0:8]
-	readSuccess := ctx.ProbeRetEnter >= 0
-	if ctx.ProbeRetExit >= 0 {
-		data = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+8]
-		readSuccess = true
-	}
-	if !readSuccess {
-		if d, err := ctx.MemReader.ReadRobust(ctx.Pid, arg, 8, false); err == nil && len(d) == 8 {
-			data = d
-			readSuccess = true
-		}
-	}
-	if !readSuccess {
+func (h *FcntlHandler) decodeFOwnerEx(ctx *Context, arg uint64, useExit bool) string {
+	data, ok := fcntlSnapshot(ctx, useExit, fcntlStructSize)
+	if !ok {
 		return fmt.Sprintf("%#x", arg)
 	}
 	return format.FOwnerEx(data)
@@ -218,51 +209,43 @@ func (h *FcntlHandler) isNoArgCmd(cmdStr string) bool {
 		cmdStr == "F_GETLEASE" || cmdStr == "F_GETSIG" || cmdStr == "F_GETPIPE_SZ"
 }
 
-func (h *FcntlHandler) decodeRwHint(ctx *Context, arg uint64) string {
-	data := ctx.StrArgBuf[0:8]
-	readSuccess := ctx.ProbeRetEnter >= 0
-	if ctx.ProbeRetExit >= 0 {
-		data = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+8]
-		readSuccess = true
-	}
-	if !readSuccess {
-		if d, err := ctx.MemReader.ReadRobust(ctx.Pid, arg, 8, false); err == nil && len(d) == 8 {
-			data = d
-			readSuccess = true
-		}
-	}
-	if !readSuccess {
+func (h *FcntlHandler) decodeRwHint(ctx *Context, arg uint64, useExit bool) string {
+	data, ok := fcntlSnapshot(ctx, useExit, fcntlStructSize)
+	if !ok {
 		return fmt.Sprintf("%#x", arg)
 	}
 	val := binary.LittleEndian.Uint64(data)
 	hintStr := ""
 	switch val {
-	case 0: hintStr = "RWH_WRITE_LIFE_NOT_SET"
-	case 1: hintStr = "RWH_WRITE_LIFE_NONE"
-	case 2: hintStr = "RWH_WRITE_LIFE_SHORT"
-	case 3: hintStr = "RWH_WRITE_LIFE_MEDIUM"
-	case 4: hintStr = "RWH_WRITE_LIFE_LONG"
-	case 5: hintStr = "RWH_WRITE_LIFE_EXTREME"
-	default: hintStr = fmt.Sprintf("%#x /* RWH_WRITE_LIFE_??? */", val)
+	case 0:
+		hintStr = "RWH_WRITE_LIFE_NOT_SET"
+	case 1:
+		hintStr = "RWH_WRITE_LIFE_NONE"
+	case 2:
+		hintStr = "RWH_WRITE_LIFE_SHORT"
+	case 3:
+		hintStr = "RWH_WRITE_LIFE_MEDIUM"
+	case 4:
+		hintStr = "RWH_WRITE_LIFE_LONG"
+	case 5:
+		hintStr = "RWH_WRITE_LIFE_EXTREME"
+	default:
+		hintStr = fmt.Sprintf("%#x /* RWH_WRITE_LIFE_??? */", val)
 	}
 	return "[" + hintStr + "]"
 }
 
-func (h *FcntlHandler) decodeDelegation(ctx *Context, arg uint64) string {
-	data := ctx.StrArgBuf[0:8]
-	readSuccess := ctx.ProbeRetEnter >= 0
-	if ctx.ProbeRetExit >= 0 {
-		data = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+8]
-		readSuccess = true
-	}
-	if !readSuccess {
-		if d, err := ctx.MemReader.ReadRobust(ctx.Pid, arg, 8, false); err == nil && len(d) == 8 {
-			data = d
-			readSuccess = true
-		}
-	}
-	if !readSuccess {
+func (h *FcntlHandler) decodeDelegation(ctx *Context, arg uint64, useExit bool) string {
+	data, ok := fcntlSnapshot(ctx, useExit, fcntlStructSize)
+	if !ok {
 		return fmt.Sprintf("%#x", arg)
 	}
 	return format.Delegation(data)
+}
+
+func fcntlSnapshot(ctx *Context, useExit bool, size int) ([]byte, bool) {
+	if useExit {
+		return ctx.ExitSnapshot(BpfExitArgOffset, size)
+	}
+	return ctx.EnterArgSnapshot(2, BpfEnterArgOffset, size)
 }

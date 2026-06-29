@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 func init() {
@@ -20,6 +19,12 @@ func init() {
 	RegisterStructDecoder("struct utsname *", StructDecoderFunc(decodeUtsname))
 }
 
+const (
+	sysinfoStructSize = 112
+	rlimitStructSize  = 16
+	utsnameStructSize = 65 * 6
+)
+
 func decodeSysinfo(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	if val == 0 {
 		return "NULL", true
@@ -27,50 +32,44 @@ func decodeSysinfo(ctx *Context, i int, argTyp string, val uint64) (string, bool
 	if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
 		return fmt.Sprintf("%#x", val), true
 	}
-	return ctx.DecodeStructWithFallback(val, 112, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+112], format.Sysinfo)
-
+	data, ok := ctx.ExitSnapshot(BpfExitArgOffset, sysinfoStructSize)
+	if !ok {
+		return fmt.Sprintf("%#x", val), true
+	}
+	return format.Sysinfo(data), true
 }
 
 func decodeFlock(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
 		return fmt.Sprintf("%#x", val), true
 	}
-	// For flock, we want exit data if it's F_GETLK, else enter data.
-	// Both could be useful, we just try to read exit, then fallback to enter logic.
-	bpfBuf := ctx.StrArgBuf[0:32]
-	isExit := false
-	if ctx.ProbeRetExit >= 0 {
-		bpfBuf = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+32]
-		isExit = true
-	}
 
-	data, ok := ctx.FetchStructDataExact(val, 32, isExit, bpfBuf)
+	cmdStr := (&FcntlHandler{}).decodeCmd(uint64(uint32(ctx.Args[1])))
+	isGet := strings.Contains(cmdStr, "GETLK")
+	data, ok := miscFcntlSnapshot(ctx, i, isGet, fcntlFlockSize)
 	if !ok {
 		return fmt.Sprintf("%#x", val), true
 	}
-
-	cmd := uint32(ctx.Args[1])
-	cmdStr := meta.DecodeFlags(uint64(cmd), "fcntl_cmds")
-	showsPid := strings.Contains(cmdStr, "GETLK")
-	return format.Flock(data, showsPid), true
+	return format.Flock(data, isGet), true
 }
 
 func decodeFOwnerEx(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
 		return fmt.Sprintf("%#x", val), true
 	}
-	bpfBuf := ctx.StrArgBuf[0:8]
-	isExit := false
-	if ctx.ProbeRetExit >= 0 {
-		bpfBuf = ctx.StrArgBuf[BpfExitArgOffset : BpfExitArgOffset+8]
-		isExit = true
-	}
-
-	data, ok := ctx.FetchStructDataExact(val, 8, isExit, bpfBuf)
+	cmdStr := (&FcntlHandler{}).decodeCmd(uint64(uint32(ctx.Args[1])))
+	data, ok := miscFcntlSnapshot(ctx, i, cmdStr == "F_GETOWN_EX", fcntlStructSize)
 	if !ok {
 		return fmt.Sprintf("%#x", val), true
 	}
 	return format.FOwnerEx(data), true
+}
+
+func miscFcntlSnapshot(ctx *Context, argIndex int, useExit bool, size int) ([]byte, bool) {
+	if useExit {
+		return ctx.ExitSnapshot(BpfExitArgOffset, size)
+	}
+	return ctx.EnterArgSnapshot(argIndex, BpfEnterArgOffset, size)
 }
 
 func decodeRlimitPointer(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
@@ -83,17 +82,17 @@ func decodeRlimitPointer(ctx *Context, i int, argTyp string, val uint64) (string
 	var offset int
 	if scName == "getrlimit" {
 		isOutput = true
-		offset = 1024
+		offset = BpfExitArgOffset
 	} else if scName == "setrlimit" {
 		isOutput = false
-		offset = 0
+		offset = BpfEnterArgOffset
 	} else if scName == "prlimit64" {
 		if i == 2 {
 			isOutput = false
-			offset = 0
+			offset = BpfEnterArgOffset
 		} else if i == 3 {
 			isOutput = true
-			offset = 1024
+			offset = BpfExitArgOffset
 		} else {
 			return fmt.Sprintf("%#x", val), true
 		}
@@ -105,25 +104,22 @@ func decodeRlimitPointer(ctx *Context, i int, argTyp string, val uint64) (string
 		return fmt.Sprintf("%#x", val), true
 	}
 
-	bpfBuf := ctx.StrArgBuf[offset : offset+16]
-	isExit := false
 	if isOutput {
-		if ctx.ProbeRetExit >= 0 {
-			isExit = true
-		} else {
-			// If we need output and don't have exit probe data, we shouldn't use enter data
-			// but FetchStructData might fallback to MemReader, which is correct since memory reflects exit state.
+		data, ok := ctx.ExitSnapshot(offset, rlimitStructSize)
+		if !ok {
+			return fmt.Sprintf("%#x", val), true
 		}
+		return formatRlimitData(ctx, data), true
 	} else {
-		// Not output, so we want enter data.
-		// If we don't have enter data, FetchStructData will still try to read memory.
+		data, ok := ctx.EnterArgSnapshot(i, offset, rlimitStructSize)
+		if !ok {
+			return fmt.Sprintf("%#x", val), true
+		}
+		return formatRlimitData(ctx, data), true
 	}
+}
 
-	data, ok := ctx.FetchStructDataExact(val, 16, isExit, bpfBuf)
-	if !ok {
-		return fmt.Sprintf("%#x", val), true
-	}
-
+func formatRlimitData(ctx *Context, data []byte) string {
 	cur := binary.LittleEndian.Uint64(data[0:8])
 	max := binary.LittleEndian.Uint64(data[8:16])
 
@@ -131,7 +127,7 @@ func decodeRlimitPointer(ctx *Context, i int, argTyp string, val uint64) (string
 	if ctx.Opts != nil {
 		xlatFormat = ctx.Opts.XlatFormat
 	}
-	return fmt.Sprintf("{rlim_cur=%s, rlim_max=%s}", formatRlimitVal(cur, xlatFormat), formatRlimitVal(max, xlatFormat)), true
+	return fmt.Sprintf("{rlim_cur=%s, rlim_max=%s}", formatRlimitVal(cur, xlatFormat), formatRlimitVal(max, xlatFormat))
 }
 
 func decodeUtsname(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
@@ -142,8 +138,7 @@ func decodeUtsname(ctx *Context, i int, argTyp string, val uint64) (string, bool
 		return fmt.Sprintf("%#x", val), true
 	}
 
-	const utsnameSize = 65 * 6
-	data, ok := ctx.FetchStructDataExact(val, utsnameSize, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+utsnameSize])
+	data, ok := ctx.ExitSnapshot(BpfExitArgOffset, utsnameStructSize)
 	if !ok {
 		return fmt.Sprintf("%#x", val), true
 	}

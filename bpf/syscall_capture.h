@@ -84,8 +84,8 @@
 			break; \
 		case 7: /* poll */ \
 			{ \
-				long __err = (e)->args[0] ? bpf_probe_read_user((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				long pr = (__err == 0 && (e)->args[0]) ? 512 : __err; \
+				long __err = (e)->args[0] ? bpf_probe_read_user((e)->str_arg, ((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0), (void *)(e)->args[0]) : 0; \
+				long pr = (__err == 0 && (e)->args[0]) ? ((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0) : __err; \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_enter; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -150,6 +150,36 @@
 			{ \
 				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, ((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0), (void *)(e)->args[1]) : 0; \
 				long pr = (__err == 0 && (e)->args[1]) ? ((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0) : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 0 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
+		case 19: /* readv */ \
+			{ \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0) : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 0 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
+		case 20: /* writev */ \
+			{ \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0) : __err; \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_enter; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -1513,6 +1543,21 @@
 				} \
 			} \
 			break; \
+		case 202: /* futex */ \
+			{ \
+				long __err = (e)->args[3] ? bpf_probe_read_user((e)->str_arg, 16, (void *)(e)->args[3]) : 0; \
+				long pr = (__err == 0 && (e)->args[3]) ? 16 : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 3)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 0 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
 		case 208: /* io_getevents */ \
 			{ \
 				long __err = (e)->args[4] ? bpf_probe_read_user((e)->str_arg + 512, 16, (void *)(e)->args[4]) : 0; \
@@ -2113,8 +2158,8 @@
 			break; \
 		case 271: /* ppoll */ \
 			{ \
-				long __err = (e)->args[0] ? bpf_probe_read_user((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				long pr = (__err == 0 && (e)->args[0]) ? 512 : __err; \
+				long __err = (e)->args[0] ? bpf_probe_read_user((e)->str_arg, ((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0), (void *)(e)->args[0]) : 0; \
+				long pr = (__err == 0 && (e)->args[0]) ? ((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0) : __err; \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_enter; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -2135,6 +2180,21 @@
 				} else { \
 					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
 					u32 req_len = 512 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
+		case 278: /* vmsplice */ \
+			{ \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0) : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 0 + pr; \
 					if ((e)->data_len < req_len) (e)->data_len = req_len; \
 				} \
 			} \
@@ -2182,6 +2242,36 @@
 				} \
 			} \
 			break; \
+		case 295: /* preadv */ \
+			{ \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0) : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 0 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
+		case 296: /* pwritev */ \
+			{ \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0) : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 0 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
 		case 302: /* prlimit64 */ \
 			{ \
 				long __err = (e)->args[2] ? bpf_probe_read_user((e)->str_arg, 16, (void *)(e)->args[2]) : 0; \
@@ -2208,6 +2298,62 @@
 				} else { \
 					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
 					u32 req_len = 0 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
+		case 310: /* process_vm_readv */ \
+			{ \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0) : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 0 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			{ \
+				long __err = (e)->args[3] ? bpf_probe_read_user((e)->str_arg + 512, ((e)->args[4] > 0 ? ((e)->args[4] * 16 > 512 ? 512 : (e)->args[4] * 16) : 0), (void *)(e)->args[3]) : 0; \
+				long pr = (__err == 0 && (e)->args[3]) ? ((e)->args[4] > 0 ? ((e)->args[4] * 16 > 512 ? 512 : (e)->args[4] * 16) : 0) : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 3)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 512 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
+		case 311: /* process_vm_writev */ \
+			{ \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0) : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 0 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			{ \
+				long __err = (e)->args[3] ? bpf_probe_read_user((e)->str_arg + 512, ((e)->args[4] > 0 ? ((e)->args[4] * 16 > 512 ? 512 : (e)->args[4] * 16) : 0), (void *)(e)->args[3]) : 0; \
+				long pr = (__err == 0 && (e)->args[3]) ? ((e)->args[4] > 0 ? ((e)->args[4] * 16 > 512 ? 512 : (e)->args[4] * 16) : 0) : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 3)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 512 + pr; \
 					if ((e)->data_len < req_len) (e)->data_len = req_len; \
 				} \
 			} \
@@ -2326,6 +2472,36 @@
 				} else { \
 					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
 					u32 req_len = 520 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
+		case 327: /* preadv2 */ \
+			{ \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0) : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 0 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
+		case 328: /* pwritev2 */ \
+			{ \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0) : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 0 + pr; \
 					if ((e)->data_len < req_len) (e)->data_len = req_len; \
 				} \
 			} \
@@ -2524,6 +2700,19 @@
 					if ((e)->data_len < req_len) (e)->data_len = req_len; \
 				} \
 			} \
+			{ \
+				long __err = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 4096, ((e)->args[3] >= 24 ? ((e)->args[3] > 64 ? 64 : (e)->args[3]) : 0), (void *)(e)->args[2]) : 0; \
+				long pr = (__err == 0 && (e)->args[2]) ? ((e)->args[3] >= 24 ? ((e)->args[3] > 64 ? 64 : (e)->args[3]) : 0) : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 4096 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
 			break; \
 		case 439: /* faccessat2 */ \
 			(e)->ptr = (e)->args[1]; \
@@ -2553,6 +2742,36 @@
 				} else { \
 					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
 					u32 req_len = 0 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
+		case 440: /* process_madvise */ \
+			{ \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->args[2] > 0 ? ((e)->args[2] * 16 > 512 ? 512 : (e)->args[2] * 16) : 0) : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 0 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
+		case 441: /* epoll_pwait2 */ \
+			{ \
+				long __err = (e)->args[3] ? bpf_probe_read_user((e)->str_arg + 512, 16, (void *)(e)->args[3]) : 0; \
+				long pr = (__err == 0 && (e)->args[3]) ? 16 : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 3)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 512 + pr; \
 					if ((e)->data_len < req_len) (e)->data_len = req_len; \
 				} \
 			} \
@@ -2714,8 +2933,8 @@
 			break; \
 		case 7: /* poll */ \
 			{ \
-				long __err = (e)->args[0] ? bpf_probe_read_user((e)->str_arg + 1024, 512, (void *)(e)->args[0]) : 0; \
-				long pr = (__err == 0 && (e)->args[0]) ? 512 : __err; \
+				long __err = (e)->args[0] ? bpf_probe_read_user((e)->str_arg + 1024, ((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0), (void *)(e)->args[0]) : 0; \
+				long pr = (__err == 0 && (e)->args[0]) ? ((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0) : __err; \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_exit; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -2731,6 +2950,21 @@
 			{ \
 				long __err = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 1024, 32, (void *)(e)->args[2]) : 0; \
 				long pr = (__err == 0 && (e)->args[2]) ? 32 : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
+				} else { \
+					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
+					u32 req_len = 1024 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
+		case 14: /* rt_sigprocmask */ \
+			{ \
+				long __err = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 1024, 8, (void *)(e)->args[2]) : 0; \
+				long pr = (__err == 0 && (e)->args[2]) ? 8 : __err; \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_exit; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -3053,6 +3287,21 @@
 				} \
 			} \
 			break; \
+		case 53: /* socketpair */ \
+			{ \
+				long __err = (e)->args[3] ? bpf_probe_read_user((e)->str_arg + 1024, 8, (void *)(e)->args[3]) : 0; \
+				long pr = (__err == 0 && (e)->args[3]) ? 8 : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 3)) + 1); \
+				} else { \
+					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
+					u32 req_len = 1024 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
 		case 63: /* uname */ \
 			{ \
 				long __err = (e)->args[0] ? bpf_probe_read_user((e)->str_arg + 1024, 390, (void *)(e)->args[0]) : 0; \
@@ -3223,7 +3472,8 @@
 			break; \
 		case 157: /* prctl */ \
 			{ \
-				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg + 1024, 16, (void *)(e)->args[1]) : 0; \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 16, (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? 16 : __err; \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_exit; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -3435,8 +3685,8 @@
 			break; \
 		case 232: /* epoll_wait */ \
 			{ \
-				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 512, (void *)(e)->args[1]) : 0; \
-				long pr = (__err == 0 && (e)->args[1]) ? 512 : __err; \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, ((e)->ret > 0 ? ((e)->ret * 12 > 512 ? 512 : (e)->ret * 12) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->ret > 0 ? ((e)->ret * 12 > 512 ? 512 : (e)->ret * 12) : 0) : __err; \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_exit; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -3508,8 +3758,8 @@
 			break; \
 		case 271: /* ppoll */ \
 			{ \
-				long __err = (e)->args[0] ? bpf_probe_read_user((e)->str_arg + 1024, 512, (void *)(e)->args[0]) : 0; \
-				long pr = (__err == 0 && (e)->args[0]) ? 512 : __err; \
+				long __err = (e)->args[0] ? bpf_probe_read_user((e)->str_arg + 1024, ((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0), (void *)(e)->args[0]) : 0; \
+				long pr = (__err == 0 && (e)->args[0]) ? ((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0) : __err; \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_exit; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -3551,8 +3801,8 @@
 			break; \
 		case 281: /* epoll_pwait */ \
 			{ \
-				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, 512, (void *)(e)->args[1]) : 0; \
-				long pr = (__err == 0 && (e)->args[1]) ? 512 : __err; \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, ((e)->ret > 0 ? ((e)->ret * 12 > 512 ? 512 : (e)->ret * 12) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->ret > 0 ? ((e)->ret * 12 > 512 ? 512 : (e)->ret * 12) : 0) : __err; \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_exit; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -3651,6 +3901,36 @@
 					s32 curr = (e)->probe_ret_exit; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
 					(e)->probe_ret_exit = -(s32)((mask | (1 << 3)) + 1); \
+				} else { \
+					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
+					u32 req_len = 1024 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
+		case 441: /* epoll_pwait2 */ \
+			{ \
+				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg + 1024, ((e)->ret > 0 ? ((e)->ret * 12 > 512 ? 512 : (e)->ret * 12) : 0), (void *)(e)->args[1]) : 0; \
+				long pr = (__err == 0 && (e)->args[1]) ? ((e)->ret > 0 ? ((e)->ret * 12 > 512 ? 512 : (e)->ret * 12) : 0) : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 1)) + 1); \
+				} else { \
+					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
+					u32 req_len = 1024 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			break; \
+		case 451: /* cachestat */ \
+			{ \
+				long __err = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 1024, 40, (void *)(e)->args[2]) : 0; \
+				long pr = (__err == 0 && (e)->args[2]) ? 40 : __err; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_exit; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
 				} else { \
 					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
 					u32 req_len = 1024 + pr; \

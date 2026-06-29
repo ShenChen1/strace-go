@@ -1,24 +1,6 @@
 package event
 
-import (
-	"errors"
-	"testing"
-)
-
-type fixedMemoryReader struct {
-	data []byte
-}
-
-func (r fixedMemoryReader) Read(_ int, _ uint64, _ int) ([]byte, error) {
-	if r.data == nil {
-		return nil, errors.New("unreadable address")
-	}
-	return append([]byte(nil), r.data...), nil
-}
-
-func (r fixedMemoryReader) ReadRobust(pid int, addr uint64, size int, _ bool) ([]byte, error) {
-	return r.Read(pid, addr, size)
-}
+import "testing"
 
 func TestDecodeStringLimitBoundary(t *testing.T) {
 	tests := []struct {
@@ -37,13 +19,27 @@ func TestDecodeStringLimitBoundary(t *testing.T) {
 			if tt.name != "fault after limit" {
 				data = append(data, 0)
 			}
-			decoder := NewDecoder(fixedMemoryReader{data: data})
+			decoder := NewDecoder()
 			decoder.StringLimit = 32
 
-			if got := decoder.DecodeString(1, 0x1000, nil, -1, "execveat", 32); got != tt.want {
+			if got := decoder.DecodeString(1, 0x1000, data, 0, "execveat", 32); got != tt.want {
 				t.Fatalf("DecodeString() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDecodeStringUsesOnlyBpfSnapshot(t *testing.T) {
+	decoder := NewDecoder()
+
+	got := decoder.DecodeString(1, 0x1000, nil, -1, "openat", 0)
+	if got != "0x1000" {
+		t.Fatalf("DecodeString without BPF snapshot = %q, want pointer", got)
+	}
+
+	got = decoder.DecodeString(1, 0x1000, append([]byte("from-bpf"), 0), 9, "openat", 0)
+	if got != `"from-bpf"` {
+		t.Fatalf("DecodeString BPF snapshot = %q, want BPF string", got)
 	}
 }
 

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+
 	"strace-go/pkg/format"
 )
 
@@ -14,6 +15,11 @@ func init() {
 	RegisterStructDecoder("struct statfs64 *", StructDecoderFunc(decodeStatfs))
 }
 
+const (
+	statStructSize   = 144
+	statfsStructSize = 120
+)
+
 func decodeStat(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	if val == 0 {
 		return "NULL", true
@@ -21,7 +27,11 @@ func decodeStat(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
 		return fmt.Sprintf("%#x", val), true
 	}
-	return ctx.DecodeStructWithFallback(val, 144, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+144], format.Stat)
+	data, ok := ctx.ExitSnapshot(BpfExitArgOffset, statStructSize)
+	if !ok {
+		return fmt.Sprintf("%#x", val), true
+	}
+	return format.Stat(data), true
 }
 
 func decodeStatfs(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
@@ -31,5 +41,9 @@ func decodeStatfs(ctx *Context, i int, argTyp string, val uint64) (string, bool)
 	if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
 		return fmt.Sprintf("%#x", val), true
 	}
-	return ctx.DecodeStructWithFallback(val, 120, true, ctx.StrArgBuf[BpfExitArgOffset:BpfExitArgOffset+120], format.Statfs)
+	data, ok := ctx.ExitSnapshot(BpfExitArgOffset, statfsStructSize)
+	if !ok {
+		return fmt.Sprintf("%#x", val), true
+	}
+	return format.Statfs(data), true
 }

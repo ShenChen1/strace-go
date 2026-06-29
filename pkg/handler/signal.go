@@ -21,6 +21,11 @@ type SignalHandler struct {
 	DefaultHandler
 }
 
+const (
+	signalSigsetSize    = 8
+	signalSigactionSize = 32
+)
+
 // IMPACT: Handle formats signal-related system calls.
 // Added specific parameter normalization mapping for rt_sigsuspend to utilize existing Sigset formatting logic.
 func (h *SignalHandler) Handle(ctx *Context) Result {
@@ -48,12 +53,12 @@ func (h *SignalHandler) Handle(ctx *Context) Result {
 		}
 
 		if (argName == "set" || argName == "oldset" || argName == "nset" || argName == "oset" || argName == "unblock" || argName == "mask") && strings.Contains(argTyp, "sigset_t") {
-			res.ArgParts = append(res.ArgParts, h.formatSigsetArg(ctx, argName, val))
+			res.ArgParts = append(res.ArgParts, h.formatSigsetArg(ctx, i, argName, val))
 			continue
 		}
 
 		if (argName == "act" || argName == "oact") && strings.Contains(argTyp, "sigaction") {
-			res.ArgParts = append(res.ArgParts, h.formatSigactionArg(ctx, argName, val))
+			res.ArgParts = append(res.ArgParts, h.formatSigactionArg(ctx, i, argName, val))
 			continue
 		}
 
@@ -71,50 +76,38 @@ func (h *SignalHandler) Handle(ctx *Context) Result {
 	return res
 }
 
-func (h *SignalHandler) formatSigsetArg(ctx *Context, argName string, val uint64) string {
+func (h *SignalHandler) formatSigsetArg(ctx *Context, argIndex int, argName string, val uint64) string {
 	if val == 0 {
 		return "NULL"
 	}
 	if ctx.ScMeta.Name == "rt_sigsuspend" && ctx.Args[1] != 8 {
 		return fmt.Sprintf("%#x", val)
 	}
-	data := ctx.StrArgBuf[:8]
 	if (argName == "oldset" || argName == "oset") && ctx.Ret >= 0 {
-		if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 8, true); err == nil && len(d) == 8 {
-			data = d
+		if data, ok := ctx.ExitSnapshot(BpfExitArgOffset, signalSigsetSize); ok {
+			return format.Sigset(data)
 		}
+		return fmt.Sprintf("%#x", val)
 	} else {
-		if ctx.ProbeRetEnter < 0 {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 8, false); err == nil && len(d) == 8 {
-				data = d
-			}
+		if data, ok := ctx.EnterArgSnapshot(argIndex, BpfEnterArgOffset, signalSigsetSize); ok {
+			return format.Sigset(data)
 		}
 	}
-	return format.Sigset(data)
+	return "[]"
 }
 
-func (h *SignalHandler) formatSigactionArg(ctx *Context, argName string, val uint64) string {
+func (h *SignalHandler) formatSigactionArg(ctx *Context, argIndex int, argName string, val uint64) string {
 	if val == 0 {
 		return "NULL"
 	}
-	data := ctx.StrArgBuf[0:32]
 	if argName == "oact" {
-		data = ctx.StrArgBuf[BpfExitArgOffset:1056]
-	}
-
-	readSuccess := ctx.ProbeRetEnter >= 0
-	if argName == "oact" {
-		readSuccess = ctx.ProbeRetExit >= 0
-	}
-
-	if !readSuccess {
-		if d, err := ctx.MemReader.ReadRobust(ctx.Pid, val, 32, argName == "oact"); err == nil && len(d) == 32 {
-			data = d
-			readSuccess = true
+		if data, ok := ctx.ExitSnapshot(BpfExitArgOffset, signalSigactionSize); ok {
+			return formatSigaction(data)
 		}
+		return fmt.Sprintf("%#x", val)
 	}
 
-	if readSuccess {
+	if data, ok := ctx.EnterArgSnapshot(argIndex, BpfEnterArgOffset, signalSigactionSize); ok {
 		return formatSigaction(data)
 	}
 	return fmt.Sprintf("%#x", val)

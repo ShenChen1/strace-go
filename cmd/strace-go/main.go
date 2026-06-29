@@ -5,25 +5,28 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"runtime"
-	"sync"
 
 	"golang.org/x/sys/unix"
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 	"strace-go/pkg/meta"
-	"strace-go/pkg/procmem"
 	"strace-go/pkg/stacktrace"
 
 	"github.com/cilium/ebpf/ringbuf"
 )
 
-var pendingExecArgs = make(map[int]string)
-var pendingExecArgsLock sync.Mutex
+const (
+	bpfConfigCaptureStack         = 1 << 0
+	bpfConfigFollowForks          = 1 << 1
+	bpfConfigEmitEnter            = 1 << 2
+	bpfConfigSyscallFilter        = 1 << 3
+	bpfConfigSyscallFilterNegated = 1 << 4
+	bpfConfigEmitLifecycle        = 1 << 5
+)
 
 //go:generate go run -C ../generate-syscalls .
-//go:generate go run ../generate-xlats/main.go
+//go:generate go run ../generate-xlats
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpf ../../bpf/strace.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
 
 // IMPACT: The main function acts as the bootstrap entry point. It parses arguments,
@@ -53,9 +56,6 @@ func main() {
 	inheritedFiles := collectInheritedFiles()
 	defer closeFiles(inheritedFiles)
 
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
 	bpfObjs, tpLinks := setupBPF()
 	defer bpfObjs.Close()
 	for _, l := range tpLinks {
@@ -70,11 +70,20 @@ func main() {
 
 	var cfgVal uint32 = 0
 	if opts.StackTrace {
-		cfgVal |= 1
+		cfgVal |= bpfConfigCaptureStack
 	}
 	if opts.FollowForks {
-		cfgVal |= 2
+		cfgVal |= bpfConfigFollowForks
 	}
+	if opts.EventFormat == cli.EventFormatJSON {
+		cfgVal |= bpfConfigEmitEnter
+		cfgVal |= bpfConfigEmitLifecycle
+	}
+	syscallFilterCfg, err := configureSyscallFilter(opts, bpfObjs)
+	if err != nil {
+		log.Fatalf("failed to configure syscall filter: %v", err)
+	}
+	cfgVal |= syscallFilterCfg
 	bpfObjs.ConfigMap.Update(uint32(0), cfgVal, 0)
 
 	var cmd *exec.Cmd
@@ -82,7 +91,7 @@ func main() {
 	var fdMap map[string]string
 
 	if len(opts.CmdArgs) > 0 {
-		cmd, targetPid, fdMap = startAndTraceCmd(opts, bpfObjs, inheritedFiles)
+		cmd, targetPid, fdMap = startTraceCmd(opts, bpfObjs, inheritedFiles)
 	}
 	if len(opts.AttachPids) > 0 {
 		_, firstPid, attachFdMap := attachToPids(opts.AttachPids, bpfObjs)
@@ -100,9 +109,7 @@ func main() {
 		}
 	}
 
-	memReader := procmem.NewReader(targetPid)
-	defer memReader.Close()
-	decoder := event.NewDecoder(memReader)
+	decoder := event.NewDecoder()
 	decoder.HexEscapeMode = opts.HexEscapeMode
 	// IMPACT: Initialize decoder.StringLimit from parsed CLI options to respect command-line formatting constraints.
 	decoder.StringLimit = opts.StringLimit
@@ -125,7 +132,6 @@ func main() {
 		targetPid:        targetPid,
 		opts:             opts,
 		decoder:          decoder,
-		memReader:        memReader,
 		fdMap:            fdMap,
 		fdOffsets:        fdOffsets,
 		fdFiles:          fdFiles,

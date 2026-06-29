@@ -9,7 +9,7 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func processMadviseContext(reader mapMemoryReader) *Context {
+func processMadviseContext() *Context {
 	return &Context{
 		Pid:       101,
 		Tid:       101,
@@ -20,8 +20,7 @@ func processMadviseContext(reader mapMemoryReader) *Context {
 			Args:     []string{"pidfd", "vec", "vlen", "behavior", "flags"},
 			ArgTypes: []string{"int", "const struct iovec *", "size_t", "int", "unsigned int"},
 		},
-		MemReader: reader,
-		Opts:      &cli.Options{},
+		Opts: &cli.Options{},
 	}
 }
 
@@ -40,13 +39,15 @@ func TestProcessMadviseHandlerDecodesArguments(t *testing.T) {
 	defer func() { meta.XlatFormat = old }()
 
 	const vec = 0x7000
-	ctx := processMadviseContext(mapMemoryReader{
-		vec: iovecBytes(
-			[2]uint64{0x8786858483828180, 10344361028892658056},
-			[2]uint64{0x9796959493929190, 11501803794301884824},
-		),
-	})
+	iovs := iovecBytes(
+		[2]uint64{0x8786858483828180, 10344361028892658056},
+		[2]uint64{0x9796959493929190, 11501803794301884824},
+	)
+	ctx := processMadviseContext()
 	ctx.Args = [6]uint64{0, vec, 2, 0, 0xffffffff}
+	ctx.ProbeRetEnter = 0
+	ctx.StrArgBuf = make([]byte, BpfEnterArgOffset+len(iovs))
+	putSmallSnapshot(ctx, BpfEnterArgOffset, iovs)
 
 	got := (&ProcessMadviseHandler{}).Handle(ctx).ArgParts
 	want := []string{
@@ -66,7 +67,7 @@ func TestProcessMadviseHandlerNullAndEmptyIov(t *testing.T) {
 	meta.XlatFormat = "abbrev"
 	defer func() { meta.XlatFormat = old }()
 
-	ctx := processMadviseContext(mapMemoryReader{})
+	ctx := processMadviseContext()
 	ctx.Args = [6]uint64{0xffffffff, 0, 0xdeadbeefdeadbeef, 20, 0}
 	got := (&ProcessMadviseHandler{}).Handle(ctx).ArgParts
 	want := []string{"-1", "NULL", "16045690984833335023", "MADV_COLD", "0"}
@@ -88,10 +89,12 @@ func TestProcessMadviseHandlerShortIovReadShowsNextAddress(t *testing.T) {
 	defer func() { meta.XlatFormat = old }()
 
 	const vec = 0x7fff0
-	ctx := processMadviseContext(mapMemoryReader{
-		vec: iovecBytes([2]uint64{0x9796959493929190, 11501803794301884824}),
-	})
+	iovs := iovecBytes([2]uint64{0x9796959493929190, 11501803794301884824})
+	ctx := processMadviseContext()
 	ctx.Args = [6]uint64{0xffffffff, vec, 2, 0xdeadc0de, 0}
+	ctx.ProbeRetEnter = 0
+	ctx.StrArgBuf = make([]byte, BpfEnterArgOffset+len(iovs))
+	putSmallSnapshot(ctx, BpfEnterArgOffset, iovs)
 
 	got := (&ProcessMadviseHandler{}).Handle(ctx).ArgParts
 	want := []string{

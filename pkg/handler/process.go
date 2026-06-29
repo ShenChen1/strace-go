@@ -38,21 +38,13 @@ func (h *ProcessHandler) formatClone3(ctx *Context, uargs, size uint64) string {
 	if capLen > 256 {
 		capLen = 256
 	}
-	data := ctx.StrArgBuf[0:capLen]
-	readSuccess := ctx.ProbeRetEnter >= 0
-	if !readSuccess {
-		if d, err := ctx.MemReader.ReadRobust(ctx.Pid, uargs, capLen, false); err == nil && len(d) == capLen {
-			data = d
-			readSuccess = true
-		}
-	}
-
-	if !readSuccess {
+	data, ok := ctx.EnterArgSnapshotPrefix(0, BpfEnterArgOffset, capLen)
+	if !ok || len(data) == 0 {
 		return fmt.Sprintf("%#x", uargs)
 	}
 
 	parts := h.decodeCloneArgsCore(data, size)
-	
+
 	if size >= 80 {
 		parts = append(parts, h.decodeCloneArgsSetTid(ctx, data, size)...)
 	}
@@ -105,7 +97,11 @@ func (h *ProcessHandler) decodeCloneArgsCore(data []byte, size uint64) []string 
 	}
 	if size >= 40 {
 		sig := h.u64OrZero(data, 32)
-		if sig == 0 { parts = append(parts, "exit_signal=0") } else { parts = append(parts, fmt.Sprintf("exit_signal=%s", meta.DecodeFlags(sig, "signalnames"))) }
+		if sig == 0 {
+			parts = append(parts, "exit_signal=0")
+		} else {
+			parts = append(parts, fmt.Sprintf("exit_signal=%s", meta.DecodeFlags(sig, "signalnames")))
+		}
 	}
 	if size >= 48 {
 		stack := h.u64OrZero(data, 40)
@@ -113,7 +109,11 @@ func (h *ProcessHandler) decodeCloneArgsCore(data []byte, size uint64) []string 
 	}
 	if size >= 56 {
 		ssz := h.u64OrZero(data, 48)
-		if ssz == 0 { parts = append(parts, "stack_size=0") } else { parts = append(parts, fmt.Sprintf("stack_size=%#x", ssz)) }
+		if ssz == 0 {
+			parts = append(parts, "stack_size=0")
+		} else {
+			parts = append(parts, fmt.Sprintf("stack_size=%#x", ssz))
+		}
 	}
 	if size >= 64 {
 		tls := h.u64OrZero(data, 56)
@@ -128,20 +128,9 @@ func (h *ProcessHandler) decodeCloneArgsSetTid(ctx *Context, data []byte, size u
 	var parts []string
 	setTidPtr := h.u64OrZero(data, 64)
 	setTidSize := h.u64OrZero(data, 72)
-	
+
 	if setTidPtr != 0 && setTidSize > 0 {
-		count := int(setTidSize)
-		if count > 32 { count = 32 }
-		d, _ := ctx.MemReader.ReadRobust(ctx.Pid, setTidPtr, count*4, false)
-		if len(d) > 0 {
-			var tids []string
-			for i := 0; i < len(d)/4; i++ {
-				tids = append(tids, fmt.Sprintf("%d", int32(binary.LittleEndian.Uint32(d[i*4:i*4+4]))))
-			}
-			parts = append(parts, fmt.Sprintf("set_tid=[%s], set_tid_size=%d", strings.Join(tids, ", "), setTidSize))
-		} else {
-			parts = append(parts, fmt.Sprintf("set_tid=%#x, set_tid_size=%d", setTidPtr, setTidSize))
-		}
+		parts = append(parts, fmt.Sprintf("set_tid=%#x, set_tid_size=%d", setTidPtr, setTidSize))
 	} else if setTidPtr != 0 || setTidSize != 0 {
 		parts = append(parts, formatPtr("set_tid", setTidPtr))
 		parts = append(parts, fmt.Sprintf("set_tid_size=%d", setTidSize))
@@ -157,10 +146,7 @@ func (h *ProcessHandler) decodeCloneArgsPost(ctx *Context, data []byte, size uin
 	if size >= 32 && (flags&0x00100000 != 0) { // CLONE_PARENT_SETTID
 		ptidPtr := h.u64OrZero(data, 24)
 		if ptidPtr != 0 {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Pid, ptidPtr, 4, true); err == nil {
-				tid := binary.LittleEndian.Uint32(d)
-				return fmt.Sprintf("{parent_tid=[%d]}", tid)
-			}
+			return ""
 		} else {
 			return "{parent_tid=NULL}"
 		}

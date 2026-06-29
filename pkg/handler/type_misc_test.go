@@ -34,11 +34,10 @@ func TestDecodeUtsnameVerboseAndAbbrev(t *testing.T) {
 		},
 		ProbeRetExit: 0,
 		StrArgBuf:    make([]byte, BpfExitArgOffset+65*6),
-		MemReader:    mapMemoryReader{},
 		Opts:         &cli.Options{Verbose: true},
 	}
-	copy(ctx.StrArgBuf[BpfExitArgOffset:], data)
-	ctx.Decoder = event.NewDecoder(ctx.MemReader)
+	putSmallSnapshot(ctx, BpfExitArgOffset, data)
+	ctx.Decoder = event.NewDecoder()
 
 	got, ok := decodeUtsname(ctx, 0, "struct utsname *", 0x1000)
 	want := `{sysname="Linux", nodename="penguin", release="7.0.0-22-generic", version="#22-Ubuntu SMP", machine="x86_64", domainname="(none)"}`

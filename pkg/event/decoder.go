@@ -7,18 +7,16 @@ import (
 	"strings"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/procmem"
 )
 
 // IMPACT: Added StringLimit field to Decoder to allow DecodeString to apply command-line formatting limits independently from internal buffer size limits.
 type Decoder struct {
-	MemReader     procmem.MemoryReader
 	HexEscapeMode int
 	StringLimit   int
 }
 
-func NewDecoder(mr procmem.MemoryReader) *Decoder {
-	return &Decoder{MemReader: mr, HexEscapeMode: 0}
+func NewDecoder() *Decoder {
+	return &Decoder{HexEscapeMode: 0}
 }
 
 // IMPACT: Refined DecodeString to allow fallback memory reading even when probeRet is -2 (EFAULT),
@@ -32,8 +30,7 @@ func parseBPFData(bpfData []byte, probeRet int32) (bpfRaw []byte, bpfFound bool,
 	if idx != -1 {
 		bpfRaw = bpfData[:idx]
 		bpfFound = true
-		// If null terminator is at the very last byte, it is likely BPF buffer boundary forced null.
-		// We do not treat it as a naturally terminating string so it falls back to MemReader if needed.
+		// If null terminator is at the very last byte, it may be a BPF buffer boundary marker.
 		bound := len(bpfData)
 		if probeRet > 0 && int(probeRet) < bound {
 			bound = int(probeRet)
@@ -53,9 +50,8 @@ func parseBPFData(bpfData []byte, probeRet int32) (bpfRaw []byte, bpfFound bool,
 	return
 }
 
-// IMPACT: Robustly decodes strings. Uses BPF data when zero-terminator is found or limit reached. Otherwise falls back to process memory reading, handling ESRCH or page-boundary EFAULT.
-// IMPACT: Restrict DecodeString direct return and fallback decisions to probeRet >= 0 to prevent EFAULT and unprobed cases from reading dirty per-CPU buffer cache.
-func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int32, scName string, limit int) string {
+// DecodeString decodes a string from BPF-captured bytes only.
+func (d *Decoder) DecodeString(_ int, ptr uint64, bpfData []byte, probeRet int32, _ string, limit int) string {
 	if ptr == 0 {
 		return "NULL"
 	}
@@ -68,10 +64,7 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 		if limit > 0 && len(raw) > limit {
 			truncated = true
 		} else if limit <= 0 && len(raw) == 4095 {
-			// We hit the maximum capacity of the BPF buffer (4096 - 1 NUL).
-			// We cannot tell if it was truncated by bpf_probe_read_user_str or if it naturally ended at 4095.
-			// Fallback to MemReader to verify!
-			found = false
+			truncated = true
 		}
 	} else {
 		// BPF buffer did not contain '\0'
@@ -83,43 +76,6 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 			} else if limit <= 0 && len(bpfRaw) == 4096 {
 				raw = bpfRaw[:4095]
 				truncated = true
-				found = true
-			}
-		}
-	}
-	if !found {
-		readSize := 4096
-		if limit > 0 && limit < 4096 {
-			readSize = limit + 1
-		}
-		data, err := d.MemReader.ReadRobust(pid, ptr, readSize, false)
-		if err == nil {
-			if idx := bytes.IndexByte(data, 0); idx != -1 {
-				raw = data[:idx]
-				if limit > 0 && idx > limit {
-					truncated = true
-				}
-				found = true
-			} else {
-				if len(data) == readSize {
-					raw = data
-					truncated = true
-					found = true
-				} else if limit > 0 && len(data) >= limit {
-					raw = data[:limit]
-					truncated = true
-					found = true
-				} else {
-					// Hit a memory fault before finding '\0'
-					found = false
-				}
-			}
-		} else {
-			if probeRet >= 0 && bpfFound && len(bpfRaw) > 0 {
-				raw = bpfRaw
-				if limit > 0 && len(bpfRaw) > limit {
-					truncated = true
-				}
 				found = true
 			}
 		}
@@ -147,7 +103,7 @@ func (d *Decoder) DecodeString(pid int, ptr uint64, bpfData []byte, probeRet int
 }
 
 // DecodeStringRaw decodes a string without quoting it.
-func (d *Decoder) DecodeStringRaw(pid int, ptr uint64, bpfData []byte, probeRet int32) string {
+func (d *Decoder) DecodeStringRaw(_ int, ptr uint64, bpfData []byte, probeRet int32) string {
 	if ptr == 0 {
 		return "NULL"
 	}
@@ -157,14 +113,6 @@ func (d *Decoder) DecodeStringRaw(pid int, ptr uint64, bpfData []byte, probeRet 
 			if idx > 0 || probeRet >= 0 {
 				return string(bpfData[:idx])
 			}
-		}
-	}
-	if data, err := d.MemReader.ReadRobust(pid, ptr, 512, false); err == nil {
-		if idx := bytes.IndexByte(data, 0); idx != -1 {
-			return string(data[:idx])
-		}
-		if len(data) == 512 {
-			return string(data)
 		}
 	}
 	return fmt.Sprintf("%#x", ptr)

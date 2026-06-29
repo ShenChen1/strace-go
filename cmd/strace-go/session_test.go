@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"os/exec"
-	"syscall"
 	"testing"
 
 	"strace-go/pkg/cli"
@@ -33,23 +32,28 @@ func TestIsPassThroughFDTarget(t *testing.T) {
 	}
 }
 
-func TestPtraceContinueSignal(t *testing.T) {
-	tests := []struct {
-		signal syscall.Signal
-		want   int
-	}{
-		{signal: syscall.SIGTRAP, want: 0},
-		{signal: syscall.SIGSTOP, want: 0},
-		{signal: syscall.SIGUSR1, want: int(syscall.SIGUSR1)},
-		{signal: syscall.SIGTERM, want: int(syscall.SIGTERM)},
+func TestNewTraceCommandDoesNotConfigurePtrace(t *testing.T) {
+	cmd := newTraceCommand(&cli.Options{CmdArgs: []string{"/bin/true"}}, nil)
+	if cmd.SysProcAttr != nil {
+		t.Fatalf("SysProcAttr = %#v, want nil so tracing stays eBPF-only", cmd.SysProcAttr)
+	}
+}
+
+func TestPendingSyscallsMapUsesCompactValue(t *testing.T) {
+	spec, err := loadBpf()
+	if err != nil {
+		t.Fatalf("loadBpf() failed: %v", err)
 	}
 
-	for _, test := range tests {
-		t.Run(test.signal.String(), func(t *testing.T) {
-			if got := ptraceContinueSignal(test.signal); got != test.want {
-				t.Fatalf("ptraceContinueSignal(%s) = %d, want %d", test.signal, got, test.want)
-			}
-		})
+	if _, ok := spec.Maps["events_map"]; ok {
+		t.Fatal("events_map should not remain as the syscall pending state map")
+	}
+	pending := spec.Maps["pending_syscalls"]
+	if pending == nil {
+		t.Fatal("pending_syscalls map missing from BPF object")
+	}
+	if pending.ValueSize > 128 {
+		t.Fatalf("pending_syscalls value size = %d, want <= 128 bytes", pending.ValueSize)
 	}
 }
 
@@ -99,10 +103,10 @@ func TestShouldQueueExitStatusSkipsExplicitAttachPid(t *testing.T) {
 	}
 
 	if session.shouldQueueExitStatus(202) {
-		t.Fatal("explicit attach pid exit status should not wait for ptrace wait4")
+		t.Fatal("explicit attach pid exit status should not wait for command exit")
 	}
 	if !session.shouldQueueExitStatus(303) {
-		t.Fatal("non-attached command tracee exit status should wait for ptrace wait4")
+		t.Fatal("non-attached command tracee exit status should wait for command exit")
 	}
 }
 

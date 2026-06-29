@@ -68,3 +68,33 @@ func TestParseVerboseDisabledFromEFlag(t *testing.T) {
 		t.Fatal("verbose qualifier was parsed as a syscall")
 	}
 }
+
+func TestParseEventFormat(t *testing.T) {
+	opts := ParseArgs([]string{"--event-format=json", "/bin/true"})
+
+	if opts.EventFormat != EventFormatJSON {
+		t.Fatalf("EventFormat = %q, want %q", opts.EventFormat, EventFormatJSON)
+	}
+	if opts.DebugEvents {
+		t.Fatal("DebugEvents = true, want false")
+	}
+}
+
+func TestParseDefaultsToTextEventFormat(t *testing.T) {
+	opts := ParseArgs([]string{"/bin/true"})
+
+	if opts.EventFormat != EventFormatText {
+		t.Fatalf("EventFormat = %q, want %q", opts.EventFormat, EventFormatText)
+	}
+}
+
+func TestParseDebugEventsAlias(t *testing.T) {
+	opts := ParseArgs([]string{"--debug-events", "/bin/true"})
+
+	if opts.EventFormat != EventFormatJSON {
+		t.Fatalf("EventFormat = %q, want %q", opts.EventFormat, EventFormatJSON)
+	}
+	if !opts.DebugEvents {
+		t.Fatal("DebugEvents = false, want true")
+	}
+}

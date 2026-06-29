@@ -44,53 +44,13 @@ func (h *BpfHandler) Handle(ctx *Context) Result {
 	var data []byte
 	var readSuccess bool
 
-	// IMPACT: Read BPF attribute from memory if pointer is valid and non-null.
-	// Allow EFAULT (-14) syscalls to decode partial structures if attribute address is readable.
 	if attr != 0 && size > 0 && size <= 4096 {
-		// IMPACT: BPF buffer in kernel is capped at 512 bytes. If size is larger,
-		// we must bypass ctx.StrArgBuf cache and fetch directly from tracee's memory.
-		if ctx.IsArgReadSuccess(1) && len(ctx.StrArgBuf) > 0 {
-			readLen := int(size)
-			if readLen > len(ctx.StrArgBuf) {
-				readLen = len(ctx.StrArgBuf)
-			}
-			if readLen > 512 {
-				readLen = 512
-			}
-			data = ctx.StrArgBuf[0:readLen]
-			readSuccess = true
-		} else {
-			// IMPACT: Relax ReadRobust size checks to support short reads near page boundary.
-			// Use ctx.Tid as it points to the stopped tracing thread, vital for ptrace_peek.
-			d, err := ctx.MemReader.ReadRobust(ctx.Tid, attr, int(size), false)
-			if err == nil && len(d) > 0 {
-				ctx.StrArgBuf = d
-				readLen := len(d)
-				if readLen > 512 {
-					readLen = 512
-				}
-				data = d[0:readLen]
-				readSuccess = true
-			}
+		data, readSuccess = ctx.EnterArgSnapshotPrefix(1, BpfEnterArgOffset, int(size))
+		if readSuccess && len(data) > 512 {
+			data = data[:512]
 		}
-
-		// IMPACT: Fall back to raw pointer output if the kernel returned EFAULT (-14)
-		// and we fail to read the complete attribute structure from process memory.
-		if ctx.Ret == -14 {
-			d, err := ctx.MemReader.Read(ctx.Tid, attr, int(size))
-			if err != nil {
-				if isEfaultErr(err) {
-					readSuccess = false
-				} else {
-					// For other errors (like process death), we check if the enter-phase
-					// buffer size was fully read up to size. If not, treat as EFAULT.
-					if len(ctx.StrArgBuf) < int(size) || size == 4096 {
-						readSuccess = false
-					}
-				}
-			} else if len(d) < int(size) || size == 4096 {
-				readSuccess = false
-			}
+		if len(data) == 0 {
+			readSuccess = false
 		}
 	}
 
@@ -295,34 +255,11 @@ func isEfaultErr(err error) bool {
 // readBpfExtraDataFallback handles fallback memory reads for bpf extra_data.
 // Impact: Ensures we read across page boundaries accurately if buffer size is large.
 func readBpfExtraDataFallback(ctx *Context, offset, limit int) []byte {
-	if limit <= 512 {
-		if limit > len(ctx.StrArgBuf) {
-			limit = len(ctx.StrArgBuf)
-		}
-		if limit <= offset {
-			return nil
-		}
-		return ctx.StrArgBuf[offset:limit]
+	if limit > len(ctx.StrArgBuf) {
+		limit = len(ctx.StrArgBuf)
 	}
-
-	attr := ctx.Args[1]
-	d, err := ctx.MemReader.ReadRobust(ctx.Tid, attr+uint64(offset), limit-offset, false)
-	if err == nil && len(d) >= limit-offset-16 {
-		return d
+	if limit <= offset {
+		return nil
 	}
-
-	var extraBytes []byte
-	part1End := 512
-	if part1End > len(ctx.StrArgBuf) {
-		part1End = len(ctx.StrArgBuf)
-	}
-	if part1End > offset {
-		extraBytes = make([]byte, part1End-offset)
-		copy(extraBytes, ctx.StrArgBuf[offset:part1End])
-	}
-	d2, err2 := ctx.MemReader.ReadRobust(ctx.Tid, attr+uint64(part1End), limit-part1End, false)
-	if err2 == nil && len(d2) > 0 {
-		extraBytes = append(extraBytes, d2...)
-	}
-	return extraBytes
+	return ctx.StrArgBuf[offset:limit]
 }

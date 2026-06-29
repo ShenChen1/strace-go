@@ -37,20 +37,7 @@ func decodeBpfProgLoadParts1(ctx *Context, parts []string, data []byte, size uin
 	if licAddr == 0 {
 		parts = append(parts, "license=NULL")
 	} else {
-		lic, err := ctx.MemReader.ReadRobust(ctx.Tid, licAddr, 64, false)
-		if err == nil {
-			s := string(lic)
-			if idx := strings.IndexByte(s, 0); idx != -1 {
-				s = s[:idx]
-			}
-			parts = append(parts, fmt.Sprintf("license=%q", s))
-		} else {
-			if licAddr != 0xffffffff00000000 {
-				parts = append(parts, "license=\"GPL\"")
-			} else {
-				parts = append(parts, fmt.Sprintf("license=%#x", licAddr))
-			}
-		}
+		parts = append(parts, fmt.Sprintf("license=%#x", licAddr))
 	}
 	if decodedSize < 24 && len(data) >= 24 {
 		decodedSize = 24
@@ -107,32 +94,10 @@ func formatBpfKernelVersion(ctx *Context, kv uint32) string {
 	}
 }
 
-func formatBpfProgLoadLogBuf(ctx *Context, data []byte, size uint32) string {
+func formatBpfProgLoadLogBuf(_ *Context, data []byte, _ uint32) string {
 	logBuf := u64OrZero(data, 32)
-	logSize := uint32(0)
-	if size >= 32 {
-		logSize = u32OrZero(data, 28)
-	}
 	if logBuf == 0 {
 		return "log_buf=NULL"
-	}
-	readSize := int(logSize)
-	if readSize > 1024 {
-		readSize = 1024
-	}
-	if readSize <= 0 {
-		readSize = 1
-	}
-	buf, err := ctx.MemReader.ReadRobust(ctx.Tid, logBuf, readSize, false)
-	if err == nil {
-		s := string(buf)
-		if idx := strings.IndexByte(s, 0); idx != -1 {
-			return fmt.Sprintf("log_buf=%q", s[:idx])
-		}
-		return fmt.Sprintf("log_buf=%q...", s)
-	}
-	if logBuf != 0xffffffff00000000 && logSize == 4 {
-		return "log_buf=\"log \"..."
 	}
 	return fmt.Sprintf("log_buf=%#x", logBuf)
 }
@@ -224,7 +189,7 @@ func decodeBpfProgLoadParts2(parts []string, data []byte, size uint32, decodedSi
 
 // decodeBpfProgLoadParts3 decodes modern elements, relocation tables and signature blocks up to 168 bytes.
 // Impact: Appends core_relos, signature pointers, and security keys.
-func decodeBpfProgLoadParts3(ctx *Context, parts []string, data []byte, size uint32, decodedSize int) (int, []string) {
+func decodeBpfProgLoadParts3(_ *Context, parts []string, data []byte, size uint32, decodedSize int) (int, []string) {
 	if size >= 136 {
 		coreRelos := u64OrZero(data, 128)
 		parts = append(parts, formatPtr("core_relos", coreRelos))
@@ -248,28 +213,10 @@ func decodeBpfProgLoadParts3(ctx *Context, parts []string, data []byte, size uin
 	}
 	if size >= 160 {
 		sigAddr := u64OrZero(data, 152)
-		sigSize := u32OrZero(data, 160)
 		if sigAddr == 0 {
 			parts = append(parts, "signature=NULL")
 		} else {
-			sig, err := ctx.MemReader.ReadRobust(ctx.Tid, sigAddr, int(sigSize), false)
-			if err == nil {
-				parts = append(parts, "signature="+formatBpfSignature(sig))
-			} else {
-				if sigAddr != 0xffffffff00000000 && sigSize == 24 {
-					defaultSig := []byte{
-						0x30, 0x82, 0x01, 0x0a,
-						0x02, 0x82, 0x01, 0x01,
-						0x00, 0xab, 0xcd, 0xef,
-						0xde, 0xad, 0xbe, 0xef,
-						0xca, 0xfe, 0xba, 0xbe,
-						0xfa, 0xce, 0xfe, 0xed,
-					}
-					parts = append(parts, "signature="+formatBpfSignature(defaultSig))
-				} else {
-					parts = append(parts, fmt.Sprintf("signature=%#x", sigAddr))
-				}
-			}
+			parts = append(parts, fmt.Sprintf("signature=%#x", sigAddr))
 		}
 		decodedSize = 160
 	}

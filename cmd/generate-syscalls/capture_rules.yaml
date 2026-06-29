@@ -36,13 +36,25 @@ rules:
     exit:
       reads: [{ arg: 0, size: 8, offset: 1024, type: raw }]
 
+  # IMPACT: Capture socketpair fd array on exit so fd tracking does not read tracee memory in user space.
+  - syscalls: [socketpair]
+    exit:
+      reads: [{ arg: 3, size: 8, offset: 1024, type: raw }]
+
   # At-based syscalls (enter)
   # IMPACT: Capture execveat along with other at-based syscalls for path resolution.
   # IMPACT: Added fspick to capture path string on enter.
-  - syscalls: [openat, openat2, mkdirat, mknodat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, linkat, execveat, fspick]
+  - syscalls: [openat, mkdirat, mknodat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, linkat, execveat, fspick]
     enter:
       ptr_arg: 1
       reads: [{ arg: 1, size: 4096, type: string }]
+
+  - syscalls: [openat2]
+    enter:
+      ptr_arg: 1
+      reads:
+        - { arg: 1, size: 4096, type: string }
+        - { arg: 2, size: 0, offset: 4096, type: raw }
 
   # IMPACT: Set arg 3 (value) size to 4097 to capture complete paths within the 4504 StrArg limit.
   - syscalls: [fsconfig]
@@ -139,6 +151,20 @@ rules:
       ptr_arg: 1
       reads: [{ arg: 1, size: 0, offset: 0, type: raw }]
 
+  - syscalls: [readv, writev, preadv, pwritev, preadv2, pwritev2, vmsplice]
+    enter:
+      reads: [{ arg: 1, size: 0, offset: 0, type: raw }]
+
+  - syscalls: [process_vm_readv, process_vm_writev]
+    enter:
+      reads:
+        - { arg: 1, size: 0, offset: 0, type: raw }
+        - { arg: 3, size: 0, offset: 512, type: raw }
+
+  - syscalls: [process_madvise]
+    enter:
+      reads: [{ arg: 1, size: 0, offset: 0, type: raw }]
+
   - syscalls: [sendfile]
     enter:
       reads: [{ arg: 2, size: 8, offset: 512, type: raw }]
@@ -221,7 +247,7 @@ rules:
     enter:
       reads: [{ arg: 1, size: 16, offset: 0, type: string }]
     exit:
-      reads: [{ arg: 1, size: 16, offset: 1024, type: string }]
+      reads: [{ arg: 1, size: 16, offset: 1024, type: raw }]
 
   - syscalls: [clone3]
     enter:
@@ -250,6 +276,8 @@ rules:
   - syscalls: [cachestat]
     enter:
       reads: [{ arg: 1, size: 16, offset: 512, type: struct }]
+    exit:
+      reads: [{ arg: 2, size: 40, offset: 1024, type: struct }]
 
   - syscalls: [capget]
     enter:
@@ -275,6 +303,10 @@ rules:
       reads: [{ arg: 2, size: 16, offset: 0, type: raw }]
     exit:
       reads: [{ arg: 3, size: 16, offset: 1024, type: raw }]
+
+  - syscalls: [futex]
+    enter:
+      reads: [{ arg: 3, size: 16, offset: 0, type: raw }]
 
   - syscalls: [futex_wait]
     enter:
@@ -322,18 +354,18 @@ rules:
 
   - syscalls: [poll]
     enter:
-      reads: [{ arg: 0, size: 512, offset: 0, type: raw }]
+      reads: [{ arg: 0, size: 0, offset: 0, type: raw }]
     exit:
-      reads: [{ arg: 0, size: 512, offset: 1024, type: raw }]
+      reads: [{ arg: 0, size: 0, offset: 1024, type: raw }]
 
   - syscalls: [ppoll]
     enter:
       reads:
-        - { arg: 0, size: 512, offset: 0, type: raw }
+        - { arg: 0, size: 0, offset: 0, type: raw }
         - { arg: 2, size: 16, offset: 512, type: raw } # timeout
     exit:
       reads:
-        - { arg: 0, size: 512, offset: 1024, type: raw }
+        - { arg: 0, size: 0, offset: 1024, type: raw }
 
   - syscalls: [select, _newselect]
     enter:
@@ -355,11 +387,20 @@ rules:
 
   - syscalls: [epoll_wait, epoll_pwait]
     exit:
-      reads: [{ arg: 1, size: 512, offset: 1024, type: raw }]
+      reads: [{ arg: 1, size: 0, offset: 1024, type: raw }]
+
+  # IMPACT: Capture epoll_pwait2 timeout on enter and ready events on exit without user-space memory reads.
+  - syscalls: [epoll_pwait2]
+    enter:
+      reads: [{ arg: 3, size: 16, offset: 512, type: raw }]
+    exit:
+      reads: [{ arg: 1, size: 0, offset: 1024, type: raw }]
 
   - syscalls: [rt_sigprocmask]
     enter:
       reads: [{ arg: 1, size: 8, offset: 0, type: raw }]
+    exit:
+      reads: [{ arg: 2, size: 8, offset: 1024, type: raw }]
 
   # Keys
   - syscalls: [add_key]

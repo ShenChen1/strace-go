@@ -47,11 +47,7 @@ func formatFutexWaitvArray(ctx *Context, argIndex int, ptr uint64, count uint32)
 		limit = futexWaitvMax
 	}
 	size := int(limit) * futexWaitvSize
-	bpfBuf := ctx.StrArgBuf
-	if len(bpfBuf) > size {
-		bpfBuf = bpfBuf[:size]
-	}
-	data, ok := ctx.fetchFutexWaitvData(argIndex, ptr, size, bpfBuf)
+	data, ok := ctx.fetchFutexWaitvData(argIndex, size)
 	if !ok || len(data) < futexWaitvSize {
 		return fmt.Sprintf("%#x", ptr)
 	}
@@ -72,7 +68,7 @@ func formatFutexWaitvArray(ctx *Context, argIndex int, ptr uint64, count uint32)
 	return "[" + strings.Join(parts, ", ") + "]"
 }
 
-func (ctx *Context) fetchFutexWaitvData(argIndex int, ptr uint64, size int, bpfBuf []byte) ([]byte, bool) {
+func (ctx *Context) fetchFutexWaitvData(argIndex int, size int) ([]byte, bool) {
 	if ctx.ArgProbeRet(argIndex) == 0 && ctx.DataLen > 0 {
 		n := int(ctx.DataLen)
 		if n > futexWaitvTimeoutOffset {
@@ -81,17 +77,14 @@ func (ctx *Context) fetchFutexWaitvData(argIndex int, ptr uint64, size int, bpfB
 		if n > size {
 			n = size
 		}
-		if n > len(bpfBuf) {
-			n = len(bpfBuf)
+		if n > len(ctx.StrArgBuf) {
+			n = len(ctx.StrArgBuf)
 		}
 		if n >= futexWaitvSize {
-			if d, err := ctx.MemReader.ReadRobust(ctx.Tid, ptr, size, false); err == nil && len(d) > 0 && len(d) < n {
-				n = len(d)
-			}
-			return bpfBuf[:n], true
+			return ctx.StrArgBuf[:n], true
 		}
 	}
-	return ctx.FetchArgStructData(argIndex, ptr, size, false, bpfBuf)
+	return nil, false
 }
 
 func formatFutexWaitv(data []byte) string {
