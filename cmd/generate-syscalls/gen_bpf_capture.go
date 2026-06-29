@@ -281,9 +281,6 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 	if size, ok := dynamicSocketAddrSize(scName, r); ok {
 		return size
 	}
-	if size, ok := dynamicXattrOrKeySize(scName, r); ok {
-		return size
-	}
 	switch scName {
 	case "fcntl", "fcntl64":
 		if r.Arg == 2 {
@@ -366,28 +363,6 @@ func dynamicSocketAddrSize(scName string, r CaptureRead) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func dynamicXattrOrKeySize(scName string, r CaptureRead) (string, bool) {
-	switch scName {
-	case "add_key":
-		if r.Arg == 2 {
-			return cappedArgSize(3, 256), true
-		}
-	case "setxattr", "lsetxattr", "fsetxattr", "getxattr", "lgetxattr", "fgetxattr":
-		if r.Arg == 2 {
-			return cappedArgSize(3, 256), true
-		}
-	case "listxattr", "llistxattr", "flistxattr":
-		if r.Arg == 1 {
-			return cappedArgSize(2, 256), true
-		}
-	}
-	return "", false
-}
-
-func cappedArgSize(arg int, cap int) string {
-	return fmt.Sprintf("((e)->args[%d] > 0 ? ((e)->args[%d] > %d ? %d : (e)->args[%d]) : 0)", arg, arg, cap, cap, arg)
 }
 
 func iovecDynamicSize(countArg int) string {

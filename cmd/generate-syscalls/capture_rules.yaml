@@ -409,10 +409,10 @@ rules:
   # Keys
   - syscalls: [add_key]
     enter:
-      reads:
-        - { arg: 0, size: 64, offset: 0, type: string }
-        - { arg: 1, size: 128, offset: 64, type: string }
-        - { arg: 2, size: 0, offset: 256, type: raw }
+      payloads:
+        - { arg: 0, kind: string, direction: in, max: 64, offset: 0 }
+        - { arg: 1, kind: string, direction: in, max: 128, offset: 64 }
+        - { arg: 2, kind: bytes, direction: in, len_from_arg: 3, max: 256, offset: 256 }
 
   - syscalls: [request_key]
     enter:
@@ -482,63 +482,63 @@ rules:
   - syscalls: [setxattr, lsetxattr]
     enter:
       ptr_arg: 0
-      reads:
-        - { arg: 0, size: 512, offset: 0, type: string }
-        - { arg: 1, size: 256, offset: 512, type: string }
-        - { arg: 2, size: 0, offset: 768, type: raw }
+      payloads:
+        - { arg: 0, kind: string, direction: in, max: 512, offset: 0 }
+        - { arg: 1, kind: string, direction: in, max: 256, offset: 512 }
+        - { arg: 2, kind: bytes, direction: in, len_from_arg: 3, max: 256, offset: 768 }
 
   - syscalls: [fsetxattr]
     enter:
       ptr_arg: 1
-      reads:
-        - { arg: 1, size: 256, offset: 0, type: string }
-        - { arg: 2, size: 0, offset: 256, type: raw }
+      payloads:
+        - { arg: 1, kind: string, direction: in, max: 256, offset: 0 }
+        - { arg: 2, kind: bytes, direction: in, len_from_arg: 3, max: 256, offset: 256 }
 
   - syscalls: [getxattr, lgetxattr]
     enter:
       ptr_arg: 0
-      reads:
-        - { arg: 0, size: 512, offset: 0, type: string }
-        - { arg: 1, size: 256, offset: 512, type: string }
+      payloads:
+        - { arg: 0, kind: string, direction: in, max: 512, offset: 0 }
+        - { arg: 1, kind: string, direction: in, max: 256, offset: 512 }
     exit:
-      reads:
-        - { arg: 2, size: 0, offset: 768, type: raw }
+      payloads:
+        - { arg: 2, kind: bytes, direction: out, len_from_arg: 3, max: 256, offset: 768 }
 
   - syscalls: [fgetxattr]
     enter:
       ptr_arg: 1
-      reads:
-        - { arg: 1, size: 256, offset: 0, type: string }
+      payloads:
+        - { arg: 1, kind: string, direction: in, max: 256, offset: 0 }
     exit:
-      reads:
-        - { arg: 2, size: 0, offset: 256, type: raw }
+      payloads:
+        - { arg: 2, kind: bytes, direction: out, len_from_arg: 3, max: 256, offset: 256 }
 
   - syscalls: [removexattr, lremovexattr]
     enter:
       ptr_arg: 0
-      reads:
-        - { arg: 0, size: 512, offset: 0, type: string }
-        - { arg: 1, size: 256, offset: 512, type: string }
+      payloads:
+        - { arg: 0, kind: string, direction: in, max: 512, offset: 0 }
+        - { arg: 1, kind: string, direction: in, max: 256, offset: 512 }
 
   - syscalls: [fremovexattr]
     enter:
       ptr_arg: 1
-      reads:
-        - { arg: 1, size: 256, offset: 0, type: string }
+      payloads:
+        - { arg: 1, kind: string, direction: in, max: 256, offset: 0 }
 
   - syscalls: [listxattr, llistxattr]
     enter:
       ptr_arg: 0
-      reads:
-        - { arg: 0, size: 512, offset: 0, type: string }
+      payloads:
+        - { arg: 0, kind: string, direction: in, max: 512, offset: 0 }
     exit:
-      reads:
-        - { arg: 1, size: 0, offset: 512, type: raw }
+      payloads:
+        - { arg: 1, kind: bytes, direction: out, len_from_arg: 2, max: 256, offset: 512 }
 
   - syscalls: [flistxattr]
     exit:
-      reads:
-        - { arg: 1, size: 0, offset: 0, type: raw }
+      payloads:
+        - { arg: 1, kind: bytes, direction: out, len_from_arg: 2, max: 256, offset: 0 }
 
   # Missing capture rules for failing tests
   - syscalls: [get_robust_list]
