@@ -41,3 +41,334 @@ func writeBPFCaptureHeader(path string, syscalls map[int]SyscallMeta) error {
 	fmt.Fprintln(f, "#endif")
 	return nil
 }
+
+func bpfEnterCapture(name string) string {
+	for _, rule := range globalConfig.Rules {
+		for _, sc := range rule.Syscalls {
+			if sc == name {
+				return generateBPFCode(rule.Enter, "enter", name)
+			}
+		}
+	}
+	return ""
+}
+
+func bpfExitCapture(name string) string {
+	for _, rule := range globalConfig.Rules {
+		for _, sc := range rule.Syscalls {
+			if sc == name {
+				return generateBPFCode(rule.Exit, "exit", name)
+			}
+		}
+	}
+	return ""
+}
+
+// generateBPFCode generates eBPF C code to capture syscall arguments.
+func generateBPFCode(p CapturePoint, suffix string, scName string) string {
+	res := ""
+	if p.PtrArg != nil {
+		res += fmt.Sprintf("\t\t\t(e)->ptr = (e)->args[%d]; \\\n", *p.PtrArg)
+	}
+	for _, r := range p.Reads {
+		res += generateCaptureReadCode(r, suffix, scName)
+	}
+	return res
+}
+
+func generateCaptureReadCode(r CaptureRead, suffix string, scName string) string {
+	fn := probeReadFunc(r)
+	buf := captureBufferExpr(r)
+	sizeStr := captureSizeExpr(scName, suffix, r)
+
+	res := "\t\t\t{ \\\n"
+	res += dynamicPreludeCode(scName, r)
+	res += readProbeCode(r, fn, buf, sizeStr)
+	res += probeAccountingCode(r, suffix)
+	res += "\t\t\t} \\\n"
+	res += ioSubmitExtraCode(scName, suffix, r)
+	return res
+}
+
+func probeReadFunc(r CaptureRead) string {
+	if r.Type == "string" {
+		return "bpf_probe_read_user_str"
+	}
+	return "bpf_probe_read_user"
+}
+
+func captureBufferExpr(r CaptureRead) string {
+	buf := "(e)->str_arg"
+	if r.Offset != 0 {
+		buf += fmt.Sprintf(" + %d", r.Offset)
+	}
+	return buf
+}
+
+func captureSizeExpr(scName string, suffix string, r CaptureRead) string {
+	if r.Size == 0 {
+		return dynamicSizeStr(scName, suffix, r)
+	}
+	return fmt.Sprintf("%d", r.Size)
+}
+
+func dynamicPreludeCode(scName string, r CaptureRead) string {
+	res := ""
+	if r.Size == 0 && (scName == "accept" || scName == "accept4" || scName == "getsockname" || scName == "getpeername" || scName == "recvfrom") {
+		if r.Arg == 1 || r.Arg == 4 {
+			lenArg := 2
+			if scName == "recvfrom" {
+				lenArg = 5
+			}
+			res += fmt.Sprintf("\t\t\t\tu32 addrlen = 0; \\\n")
+			res += fmt.Sprintf("\t\t\t\tbpf_probe_read_user(&addrlen, 4, (void *)(e)->args[%d]); \\\n", lenArg)
+			res += fmt.Sprintf("\t\t\t\tu32 inlen = *(u32 *)((e)->str_arg + 768); \\\n")
+			res += fmt.Sprintf("\t\t\t\tif (inlen > 0 && inlen < addrlen) addrlen = inlen; \\\n")
+			res += fmt.Sprintf("\t\t\t\taddrlen = (addrlen > 128) ? 128 : addrlen; \\\n")
+		}
+	} else if r.Size == 0 && (scName == "fcntl" || scName == "fcntl64") && r.Arg == 2 {
+		res += fmt.Sprintf("\t\t\t\tu32 fcmd = (u32)(e)->args[1]; \\\n")
+		res += fmt.Sprintf("\t\t\t\tu32 fsz = 0; \\\n")
+		res += fmt.Sprintf("\t\t\t\tif (fcmd == 15 || fcmd == 16 || fcmd == 1035 || fcmd == 1036 || fcmd == 1037 || fcmd == 1038 || fcmd == 1039 || fcmd == 1040 || fcmd == 1043 || fcmd == 1044 || fcmd == 19 || fcmd == 20 || fcmd == 21 || fcmd == 22 || fcmd == 23 || fcmd == 24) fsz = 8; \\\n")
+		res += fmt.Sprintf("\t\t\t\telse if (fcmd == 5 || fcmd == 6 || fcmd == 7 || fcmd == 12 || fcmd == 13 || fcmd == 14 || fcmd == 36 || fcmd == 37 || fcmd == 38) fsz = 32; \\\n")
+	} else if r.Size == 0 && scName == "ioctl" && r.Arg == 2 {
+		res += fmt.Sprintf("\t\t\t\tu32 iosz = (((e)->args[1] >> 16) & 0x3fff); \\\n")
+		res += fmt.Sprintf("\t\t\t\tiosz = (iosz == 0) ? 128 : (iosz > 512 ? 512 : iosz); \\\n")
+	} else if r.Size == 0 && scName == "fsconfig" && r.Arg == 3 {
+		res += fmt.Sprintf("\t\t\t\tu32 fssz = 0; \\\n")
+		res += fmt.Sprintf("\t\t\t\tif ((e)->args[1] == 2) { \\\n")
+		res += fmt.Sprintf("\t\t\t\t\tfssz = (e)->args[4]; \\\n")
+		res += fmt.Sprintf("\t\t\t\t\tfssz &= 0x1fff; \\\n")
+		res += fmt.Sprintf("\t\t\t\t\tfssz = (fssz > 4096) ? 4096 : fssz; \\\n")
+		res += fmt.Sprintf("\t\t\t\t} \\\n")
+	} else if r.Size == 0 && scName == "futex_waitv" && r.Arg == 0 {
+		res += fmt.Sprintf("\t\t\t\tu32 futex_waitv_nr = (u32)(e)->args[1]; \\\n")
+		res += fmt.Sprintf("\t\t\t\tif (futex_waitv_nr > 128) futex_waitv_nr = 128; \\\n")
+		res += fmt.Sprintf("\t\t\t\tu32 futex_waitv_sz = futex_waitv_nr * 24; \\\n")
+		res += fmt.Sprintf("\t\t\t\tfutex_waitv_sz &= 0xfff; \\\n")
+	}
+	return res
+}
+
+func readProbeCode(r CaptureRead, fn string, buf string, sizeStr string) string {
+	switch {
+	case sizeStr == "fsz":
+		return fmt.Sprintf("\t\t\t\tlong __err = (fsz > 0 && (e)->args[%d]) ? %s(%s, fsz, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, r.Arg) +
+			fmt.Sprintf("\t\t\t\tlong pr = (__err == 0 && fsz > 0 && (e)->args[%d]) ? fsz : __err; \\\n", r.Arg)
+	case sizeStr == "fssz":
+		return fsconfigReadProbeCode(r, buf)
+	case sizeStr == "futex_waitv_sz":
+		return futexWaitvReadProbeCode(r, buf)
+	case r.Type == "string" && r.Size > 2048:
+		return splitStringReadProbeCode(r, buf)
+	case r.Type == "string":
+		return fmt.Sprintf("\t\t\t\tlong pr = (e)->args[%d] ? %s(%s, %s, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, sizeStr, r.Arg)
+	case r.Type == "double_ptr":
+		return fmt.Sprintf("\t\t\t\tvoid *__ptr = NULL; \\\n") +
+			fmt.Sprintf("\t\t\t\tlong __err1 = (e)->args[%d] ? bpf_probe_read_user(&__ptr, sizeof(void*), (void *)(e)->args[%d]) : 0; \\\n", r.Arg, r.Arg) +
+			fmt.Sprintf("\t\t\t\tlong __err = (__err1 == 0 && __ptr) ? %s(%s, %s, __ptr) : __err1; \\\n", fn, buf, sizeStr) +
+			fmt.Sprintf("\t\t\t\tlong pr = (__err == 0 && __ptr) ? %s : __err; \\\n", sizeStr)
+	default:
+		return fmt.Sprintf("\t\t\t\tlong __err = (e)->args[%d] ? %s(%s, %s, (void *)(e)->args[%d]) : 0; \\\n", r.Arg, fn, buf, sizeStr, r.Arg) +
+			fmt.Sprintf("\t\t\t\tlong pr = (__err == 0 && (e)->args[%d]) ? %s : __err; \\\n", r.Arg, sizeStr)
+	}
+}
+
+func fsconfigReadProbeCode(r CaptureRead, buf string) string {
+	return fmt.Sprintf("\t\t\t\tlong pr = 0; \\\n") +
+		fmt.Sprintf("\t\t\t\tif ((e)->args[1] == 2) { \\\n") +
+		fmt.Sprintf("\t\t\t\t\tif (fssz > 0 && (e)->args[%d]) { \\\n", r.Arg) +
+		fmt.Sprintf("\t\t\t\t\t\tint __err = bpf_probe_read_user(%s, fssz, (void *)(e)->args[%d]); \\\n", buf, r.Arg) +
+		fmt.Sprintf("\t\t\t\t\t\tpr = (__err == 0) ? fssz : __err; \\\n") +
+		fmt.Sprintf("\t\t\t\t\t} \\\n") +
+		fmt.Sprintf("\t\t\t\t} else if ((e)->args[%d]) { \\\n", r.Arg) +
+		fmt.Sprintf("\t\t\t\t\tpr = bpf_probe_read_user_str(%s, 4096, (void *)(e)->args[%d]); \\\n", buf, r.Arg) +
+		fmt.Sprintf("\t\t\t\t} \\\n")
+}
+
+func futexWaitvReadProbeCode(r CaptureRead, buf string) string {
+	return fmt.Sprintf("\t\t\t\tlong pr = 0; \\\n") +
+		fmt.Sprintf("\t\t\t\tif (futex_waitv_sz > 0 && (e)->args[%d]) { \\\n", r.Arg) +
+		fmt.Sprintf("\t\t\t\t\tlong __err = bpf_probe_read_user(%s, 24, (void *)(e)->args[%d]); \\\n", buf, r.Arg) +
+		fmt.Sprintf("\t\t\t\t\tif (__err < 0) { \\\n") +
+		fmt.Sprintf("\t\t\t\t\t\tpr = __err; \\\n") +
+		fmt.Sprintf("\t\t\t\t\t} else { \\\n") +
+		fmt.Sprintf("\t\t\t\t\t\tpr = 24; \\\n") +
+		fmt.Sprintf("\t\t\t\t\t\tu32 futex_waitv_rest = 0; \\\n") +
+		fmt.Sprintf("\t\t\t\t\t\tif (futex_waitv_sz > 24) futex_waitv_rest = futex_waitv_sz - 24; \\\n") +
+		fmt.Sprintf("\t\t\t\t\t\tfutex_waitv_rest &= 0xfff; \\\n") +
+		fmt.Sprintf("\t\t\t\t\t\tif (futex_waitv_rest > 0) { \\\n") +
+		fmt.Sprintf("\t\t\t\t\t\t\tlong __err2 = bpf_probe_read_user(%s + 24, futex_waitv_rest, (void *)((e)->args[%d] + 24)); \\\n", buf, r.Arg) +
+		fmt.Sprintf("\t\t\t\t\t\t\tif (__err2 == 0) pr = futex_waitv_sz; \\\n") +
+		fmt.Sprintf("\t\t\t\t\t\t} \\\n") +
+		fmt.Sprintf("\t\t\t\t\t} \\\n") +
+		fmt.Sprintf("\t\t\t\t} \\\n")
+}
+
+func splitStringReadProbeCode(r CaptureRead, buf string) string {
+	remain := r.Size - 2047
+	return fmt.Sprintf("\t\t\t\tlong pr = 0; \\\n") +
+		fmt.Sprintf("\t\t\t\tif ((e)->args[%d]) { \\\n", r.Arg) +
+		fmt.Sprintf("\t\t\t\t\t(%s)[0] = 0; \\\n", buf) +
+		fmt.Sprintf("\t\t\t\t\tpr = bpf_probe_read_user_str(%s, 2048, (void *)(e)->args[%d]); \\\n", buf, r.Arg) +
+		fmt.Sprintf("\t\t\t\t\tif (pr < 0) { (%s)[0] = 0; } \\\n", buf) +
+		fmt.Sprintf("\t\t\t\t\telse if (pr >= 2048) { \\\n") +
+		fmt.Sprintf("\t\t\t\t\t\t(%s + 2047)[0] = 0; \\\n", buf) +
+		fmt.Sprintf("\t\t\t\t\t\tlong pr2 = bpf_probe_read_user_str(%s + 2047, %d, (void *)((e)->args[%d] + 2047)); \\\n", buf, remain, r.Arg) +
+		fmt.Sprintf("\t\t\t\t\t\tif (pr2 >= 0) { \\\n") +
+		fmt.Sprintf("\t\t\t\t\t\t\tpr = 2047 + pr2; \\\n") +
+		fmt.Sprintf("\t\t\t\t\t\t\tif (pr == 4096) { \\\n") +
+		fmt.Sprintf("\t\t\t\t\t\t\t\tchar last_byte = 0; \\\n") +
+		fmt.Sprintf("\t\t\t\t\t\t\t\tbpf_probe_read_user(&last_byte, 1, (void *)((e)->args[%d] + 4095)); \\\n", r.Arg) +
+		fmt.Sprintf("\t\t\t\t\t\t\t\t(%s + 4095)[0] = last_byte; \\\n", buf) +
+		fmt.Sprintf("\t\t\t\t\t\t\t} \\\n") +
+		fmt.Sprintf("\t\t\t\t\t\t} else { pr = pr2; (%s + 2047)[0] = 0; } \\\n", buf) +
+		fmt.Sprintf("\t\t\t\t\t} \\\n") +
+		fmt.Sprintf("\t\t\t\t} \\\n")
+}
+
+func probeAccountingCode(r CaptureRead, suffix string) string {
+	bitOffset := r.Arg
+	if r.Type == "double_ptr" {
+		bitOffset += 8
+	}
+	return fmt.Sprintf("\t\t\t\tif (pr < 0) { \\\n") +
+		fmt.Sprintf("\t\t\t\t\ts32 curr = (e)->probe_ret_%s; \\\n", suffix) +
+		fmt.Sprintf("\t\t\t\t\tu32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \\\n") +
+		fmt.Sprintf("\t\t\t\t\t(e)->probe_ret_%s = -(s32)((mask | (1 << %d)) + 1); \\\n", suffix, bitOffset) +
+		fmt.Sprintf("\t\t\t\t} else { \\\n") +
+		fmt.Sprintf("\t\t\t\t\tif ((e)->probe_ret_%s == -1) (e)->probe_ret_%s = 0; \\\n", suffix, suffix) +
+		fmt.Sprintf("\t\t\t\t\tu32 req_len = %d + pr; \\\n", r.Offset) +
+		fmt.Sprintf("\t\t\t\t\tif ((e)->data_len < req_len) (e)->data_len = req_len; \\\n") +
+		fmt.Sprintf("\t\t\t\t} \\\n")
+}
+
+func ioSubmitExtraCode(scName string, suffix string, r CaptureRead) string {
+	if scName != "io_submit" || suffix != "enter" || r.Arg != 2 {
+		return ""
+	}
+	return "\t\t\tfor (int i = 0; i < 2; i++) { \\\n" +
+		"\t\t\t\tu64 p; \\\n" +
+		"\t\t\t\tif (bpf_probe_read_user(&p, 8, (void *)(e->args[2] + i*8)) == 0 && p != 0) { \\\n" +
+		"\t\t\t\t\tbpf_probe_read_user((e)->str_arg + 512 + i*64, 64, (void *)p); \\\n" +
+		"\t\t\t\t\tif ((e)->data_len < 512 + i*64 + 64) (e)->data_len = 512 + i*64 + 64; \\\n" +
+		"\t\t\t\t} \\\n" +
+		"\t\t\t} \\\n"
+}
+
+func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
+	if size, ok := dynamicSocketAddrSize(scName, r); ok {
+		return size
+	}
+	if size, ok := dynamicXattrOrKeySize(scName, r); ok {
+		return size
+	}
+	switch scName {
+	case "fcntl", "fcntl64":
+		if r.Arg == 2 {
+			return "fsz"
+		}
+	case "epoll_ctl":
+		if r.Arg == 1 {
+			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
+		}
+	case "epoll_wait", "epoll_pwait", "epoll_pwait2":
+		if suffix == "exit" && r.Arg == 1 {
+			return "((e)->ret > 0 ? ((e)->ret * 12 > 512 ? 512 : (e)->ret * 12) : 0)"
+		}
+	case "poll", "ppoll":
+		if suffix == "exit" && r.Arg == 0 {
+			return "((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0)"
+		}
+	case "bpf":
+		if r.Arg == 1 {
+			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
+		}
+	case "clone3":
+		if r.Arg == 0 {
+			return "((e)->args[1] > 0 ? ((e)->args[1] > 256 ? 256 : (e)->args[1]) : 0)"
+		}
+	case "ioctl":
+		if r.Arg == 2 {
+			return "iosz"
+		}
+	case "fsconfig":
+		if r.Arg == 3 {
+			return "fssz"
+		}
+	case "futex_waitv":
+		if r.Arg == 0 {
+			return "futex_waitv_sz"
+		}
+	case "read", "pread64":
+		if r.Arg == 1 {
+			return "((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0)"
+		}
+	case "write", "pwrite64":
+		if r.Arg == 1 {
+			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
+		}
+	case "readv", "writev", "preadv", "pwritev", "preadv2", "pwritev2", "vmsplice":
+		if r.Arg == 1 {
+			return iovecDynamicSize(2)
+		}
+	case "process_vm_readv", "process_vm_writev":
+		if r.Arg == 1 {
+			return iovecDynamicSize(2)
+		}
+		if r.Arg == 3 {
+			return iovecDynamicSize(4)
+		}
+	case "process_madvise":
+		if r.Arg == 1 {
+			return iovecDynamicSize(2)
+		}
+	case "openat2":
+		if r.Arg == 2 {
+			return "((e)->args[3] >= 24 ? ((e)->args[3] > 64 ? 64 : (e)->args[3]) : 0)"
+		}
+	case "readlink", "readlinkat", "getcwd":
+		return "((e)->ret > 0 ? ((e)->ret > 512 ? 512 : (e)->ret) : 0)"
+	}
+
+	if suffix == "exit" {
+		return "((e)->ret > 0 ? ((e)->ret * 32 > 512 ? 512 : (e)->ret * 32) : 0)"
+	}
+	return "((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0)"
+}
+
+func dynamicSocketAddrSize(scName string, r CaptureRead) (string, bool) {
+	switch scName {
+	case "accept", "accept4", "getsockname", "getpeername", "recvfrom":
+		if r.Arg == 1 || r.Arg == 4 {
+			return "addrlen", true
+		}
+	}
+	return "", false
+}
+
+func dynamicXattrOrKeySize(scName string, r CaptureRead) (string, bool) {
+	switch scName {
+	case "add_key":
+		if r.Arg == 2 {
+			return cappedArgSize(3, 256), true
+		}
+	case "setxattr", "lsetxattr", "fsetxattr", "getxattr", "lgetxattr", "fgetxattr":
+		if r.Arg == 2 {
+			return cappedArgSize(3, 256), true
+		}
+	case "listxattr", "llistxattr", "flistxattr":
+		if r.Arg == 1 {
+			return cappedArgSize(2, 256), true
+		}
+	}
+	return "", false
+}
+
+func cappedArgSize(arg int, cap int) string {
+	return fmt.Sprintf("((e)->args[%d] > 0 ? ((e)->args[%d] > %d ? %d : (e)->args[%d]) : 0)", arg, arg, cap, cap, arg)
+}
+
+func iovecDynamicSize(countArg int) string {
+	return fmt.Sprintf("((e)->args[%d] > 0 ? ((e)->args[%d] * 16 > 512 ? 512 : (e)->args[%d] * 16) : 0)", countArg, countArg, countArg)
+}
