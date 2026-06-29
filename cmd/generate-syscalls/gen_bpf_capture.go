@@ -306,9 +306,5 @@ func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
 			return "futex_waitv_sz"
 		}
 	}
-
-	if suffix == "exit" {
-		return "((e)->ret > 0 ? ((e)->ret * 32 > 512 ? 512 : (e)->ret * 32) : 0)"
-	}
-	return "((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0)"
+	return "0"
 }

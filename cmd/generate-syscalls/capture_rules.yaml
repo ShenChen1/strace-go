@@ -290,7 +290,8 @@ rules:
 
   - syscalls: [io_submit]
     enter:
-      reads: [{ arg: 2, size: 0, offset: 0, type: raw }]
+      payloads:
+        - { arg: 2, kind: raw, direction: in, count_from_arg: 1, elem_size: 8, max: 512, offset: 0 }
 
   - syscalls: [io_cancel]
     enter:
@@ -336,12 +337,13 @@ rules:
 
   - syscalls: [io_getevents, io_pgetevents]
     enter:
-      reads:
-        - { arg: 4, size: 16, offset: 512, type: raw }
-        - { arg: 5, size: 16, offset: 528, type: raw }
-        - { arg: 5, size: 8, offset: 544, type: double_ptr }
+      payloads:
+        - { arg: 4, kind: struct, direction: in, size: 16, offset: 512 }
+        - { arg: 5, kind: struct, direction: in, size: 16, offset: 528 }
+        - { arg: 5, kind: double_ptr, direction: in, size: 8, offset: 544 }
     exit:
-      reads: [{ arg: 3, size: 0, offset: 1024, type: raw }]
+      payloads:
+        - { arg: 3, kind: struct, direction: out, count_from_ret: true, elem_size: 32, max: 512, offset: 1024 }
 
   - syscalls: [clock_nanosleep]
     enter:

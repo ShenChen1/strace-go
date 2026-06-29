@@ -2,9 +2,9 @@ package main
 
 import "testing"
 
-func TestDynamicSizeStrKeepsDefaultExitSize(t *testing.T) {
+func TestDynamicSizeStrDoesNotGuessUnknownSize(t *testing.T) {
 	got := dynamicSizeStr("unknown", "exit", CaptureRead{Arg: 1})
-	want := "((e)->ret > 0 ? ((e)->ret * 32 > 512 ? 512 : (e)->ret * 32) : 0)"
+	want := "0"
 	if got != want {
 		t.Fatalf("dynamicSizeStr() = %q, want %q", got, want)
 	}

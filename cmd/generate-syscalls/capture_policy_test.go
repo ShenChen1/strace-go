@@ -75,6 +75,14 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
     enter:
       payloads:
         - { arg: 2, kind: raw, direction: in, len_from_arg_bits: { arg: 1, shift: 16, mask: 16383, zero_len: 128 }, max: 512, offset: 512 }
+  - syscalls: [io_submit]
+    enter:
+      payloads:
+        - { arg: 2, kind: raw, direction: in, count_from_arg: 1, elem_size: 8, max: 512 }
+  - syscalls: [io_getevents]
+    enter:
+      payloads:
+        - { arg: 5, kind: double_ptr, direction: in, size: 8, offset: 544 }
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write test policy: %v", err)
@@ -125,6 +133,17 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
 	}
 	if ioctlRead.LenFromArgBits == nil || ioctlRead.LenFromArgBits.Arg != 1 || ioctlRead.LenFromArgBits.Shift != 16 || ioctlRead.LenFromArgBits.Mask != 16383 || ioctlRead.LenFromArgBits.ZeroLen != 128 || ioctlRead.Max != 512 {
 		t.Fatalf("ioctl dynamic policy = %#v, want ioctl bitfield length policy", ioctlRead)
+	}
+	ioSubmitRead := globalConfig.Rules[7].Enter.Reads[0]
+	if ioSubmitRead.Arg != 2 || ioSubmitRead.Size != 0 || ioSubmitRead.Type != "raw" {
+		t.Fatalf("io_submit payload normalized to %#v, want arg 2 dynamic raw read", ioSubmitRead)
+	}
+	if ioSubmitRead.CountFromArg == nil || *ioSubmitRead.CountFromArg != 1 || ioSubmitRead.ElemSize != 8 || ioSubmitRead.Max != 512 {
+		t.Fatalf("io_submit dynamic policy = %#v, want count_from_arg 1 elem_size 8 max 512", ioSubmitRead)
+	}
+	ioGeteventsRead := globalConfig.Rules[8].Enter.Reads[0]
+	if ioGeteventsRead.Arg != 5 || ioGeteventsRead.Size != 8 || ioGeteventsRead.Offset != 544 || ioGeteventsRead.Type != "double_ptr" {
+		t.Fatalf("io_getevents payload normalized to %#v, want fixed double_ptr read", ioGeteventsRead)
 	}
 }
 
