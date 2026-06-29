@@ -53,6 +53,11 @@ type jsonLifecycleEvent struct {
 	ActionID     uint32 `json:"action_id,omitempty"`
 	Pid          uint32 `json:"pid"`
 	Tid          uint32 `json:"tid"`
+	TaskTID      uint32 `json:"task_tid,omitempty"`
+	TaskTGID     uint32 `json:"task_tgid,omitempty"`
+	ParentTID    uint32 `json:"parent_tid,omitempty"`
+	Alive        bool   `json:"alive"`
+	Execed       bool   `json:"execed,omitempty"`
 	Arg0         uint64 `json:"arg0,omitempty"`
 	Arg1         uint64 `json:"arg1,omitempty"`
 	TimeNS       uint64 `json:"time_ns"`
@@ -92,7 +97,7 @@ func (s *traceSession) writeJSONRawEvent(eventRaw *bpfEvent, scMeta meta.Syscall
 	_ = json.NewEncoder(s.outWriter).Encode(ev)
 }
 
-func (s *traceSession) writeJSONLifecycleEvent(eventRaw *bpfEvent) {
+func (s *traceSession) writeJSONLifecycleEvent(eventRaw *bpfEvent, task *TaskState) {
 	ev := jsonLifecycleEvent{
 		Type:         "lifecycle",
 		EventVersion: eventRaw.EventVersion,
@@ -105,6 +110,13 @@ func (s *traceSession) writeJSONLifecycleEvent(eventRaw *bpfEvent) {
 		Arg0:         eventRaw.Args[0],
 		Arg1:         eventRaw.Args[1],
 		TimeNS:       eventRaw.EnterTime,
+	}
+	if task != nil {
+		ev.TaskTID = task.TID
+		ev.TaskTGID = task.TGID
+		ev.ParentTID = task.ParentTID
+		ev.Alive = task.Alive
+		ev.Execed = task.Execed
 	}
 	_ = json.NewEncoder(s.outWriter).Encode(ev)
 }

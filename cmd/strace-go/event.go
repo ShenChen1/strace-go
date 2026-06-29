@@ -64,6 +64,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		s.handleLifecycleEvent(eventRaw)
 		return
 	}
+	s.noteSyscallTask(eventRaw)
 
 	scMeta, ok := meta.SyscallTable[eventRaw.SysId]
 	if !ok {
@@ -217,6 +218,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 }
 
 func (s *traceSession) handleLifecycleEvent(eventRaw *bpfEvent) {
+	task := s.applyLifecycleEvent(eventRaw)
 	tid := int(eventRaw.Tid)
 	switch eventRaw.EventFlags {
 	case lifecycleExit, lifecycleFree:
@@ -225,7 +227,7 @@ func (s *traceSession) handleLifecycleEvent(eventRaw *bpfEvent) {
 		delete(s.pendingSyscalls, uint32(eventRaw.Tid))
 	}
 	if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON {
-		s.writeJSONLifecycleEvent(eventRaw)
+		s.writeJSONLifecycleEvent(eventRaw, task)
 	}
 }
 

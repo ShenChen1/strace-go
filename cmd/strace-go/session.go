@@ -51,6 +51,7 @@ type traceSession struct {
 	pendingSyscalls   map[uint32]*pendingSyscallState
 	pendingExecArgs   map[int]string
 	suspendedSyscalls map[int]string
+	tasks             map[uint32]*TaskState
 }
 
 // IMPACT: setupBPF loads the BPF objects and attaches the raw syscall raw tracepoints.

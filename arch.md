@@ -819,6 +819,8 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `sched_process_exit/free` 会清理 `pending_syscalls`、`pending_exec_map`、`main_exited_map`，`free` 还会清理 `filter_map`。
 - Go 主事件循环会早期识别 lifecycle event，清理 session 内 pending syscall/exec/suspended 状态，并在 JSON/debug 输出中暴露生命周期事件。
 - semantic suite 已断言 fixture 中存在 `fork`、`exec`、`exit/free` lifecycle event。
+- Go 侧已新增 per-session `TaskState`，由 syscall 事件和 lifecycle event 维护 `tid/tgid/parent/alive/execed`；JSON lifecycle 输出携带 task 状态快照，semantic suite 断言 fork child、execed、exit/free dead 状态。
+- exec filename、fd/cwd 继承和非 leader execve 的最终文本策略仍待后续 Phase 6 小切片迁移。
 
 ### Phase 7: BTF 生成器重构
 

@@ -267,6 +267,12 @@ def run_ebpf_semantic(args):
     require("fork" in lifecycle_actions, failures, "fork lifecycle event missing")
     require("exec" in lifecycle_actions, failures, "exec lifecycle event missing")
     require(("exit" in lifecycle_actions) or ("free" in lifecycle_actions), failures, "exit/free lifecycle event missing")
+    require(any(ev.get("action") == "fork" and ev.get("task_tid") == ev.get("arg1") and ev.get("parent_tid") == ev.get("arg0") and ev.get("alive") for ev in lifecycle_events),
+            failures, "fork lifecycle task state missing child/parent/alive fields")
+    require(any(ev.get("action") == "exec" and ev.get("execed") and ev.get("alive") for ev in lifecycle_events),
+            failures, "exec lifecycle task state missing execed/alive fields")
+    require(any(ev.get("action") in ("exit", "free") and ev.get("alive") is False for ev in lifecycle_events),
+            failures, "exit/free lifecycle task state did not mark task dead")
     filter_res = run_strace_go_json(["-e", "trace=write", fixture], debug=True)
     filter_events = parse_json_events(filter_res.stderr)
     require(filter_res.returncode == 0, failures, f"filter fixture rc={filter_res.returncode}")
