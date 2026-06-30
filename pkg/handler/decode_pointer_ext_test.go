@@ -263,6 +263,86 @@ func TestDecodeWriteDumpDoesNotUseTraceeMemoryBeyondBpfPrefix(t *testing.T) {
 	}
 }
 
+func TestDecodeReadBufferUsesPayloadSection(t *testing.T) {
+	ctx := &Context{
+		Pid: 101,
+		Tid: 102,
+		Args: [6]uint64{
+			3,
+			0x2000,
+			32,
+		},
+		Ret: 5,
+		ScMeta: meta.Syscall{
+			Name:     "read",
+			Args:     []string{"fd", "buf", "count"},
+			ArgTypes: []string{"int", "char *", "size_t"},
+		},
+		PayloadSections: []PayloadSection{
+			{
+				Kind:      PayloadKindBytes,
+				Direction: PayloadDirectionOut,
+				ArgIndex:  1,
+				UserPtr:   0x2000,
+				UserLen:   5,
+				CopiedLen: 5,
+				ProbeRet:  0,
+				Data:      []byte("hello"),
+			},
+		},
+		Opts: &cli.Options{
+			StringLimit: 32,
+		},
+		Decoder: event.NewDecoder(),
+	}
+
+	res := Result{}
+	got, ok := decodeBufferArg(ctx, 0x2000, &res)
+	if !ok || got != `"hello"` {
+		t.Fatalf("decodeBufferArg(read) = %q, %v; want payload section", got, ok)
+	}
+}
+
+func TestDecodeWriteBufferUsesPayloadSection(t *testing.T) {
+	ctx := &Context{
+		Pid:       101,
+		Tid:       102,
+		TargetPid: 101,
+		Args: [6]uint64{
+			1,
+			0x1000,
+			5,
+		},
+		ScMeta: meta.Syscall{
+			Name:     "write",
+			Args:     []string{"fd", "buf", "count"},
+			ArgTypes: []string{"int", "const char *", "size_t"},
+		},
+		PayloadSections: []PayloadSection{
+			{
+				Kind:      PayloadKindBytes,
+				Direction: PayloadDirectionIn,
+				ArgIndex:  1,
+				UserPtr:   0x1000,
+				UserLen:   5,
+				CopiedLen: 5,
+				ProbeRet:  0,
+				Data:      []byte("world"),
+			},
+		},
+		Opts: &cli.Options{
+			StringLimit: 32,
+		},
+		Decoder: event.NewDecoder(),
+	}
+
+	res := Result{}
+	got, ok := decodeBufferArg(ctx, 0x1000, &res)
+	if !ok || got != `"world"` {
+		t.Fatalf("decodeBufferArg(write) = %q, %v; want payload section", got, ok)
+	}
+}
+
 func TestDecodeWriteDumpExtendsFromWrittenFile(t *testing.T) {
 	data := make([]byte, 0x300)
 	for i := range data {

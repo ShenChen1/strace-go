@@ -321,7 +321,10 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 			return `""`, true
 		}
 		readSize := boundedSnapshotSize(int(szH), 512)
-		data, ok := ctx.ExitSnapshot(BpfExitArgOffset, readSize)
+		data, ok := ctx.PayloadBytes(1, PayloadDirectionOut)
+		if !ok {
+			data, ok = ctx.ExitSnapshot(BpfExitArgOffset, readSize)
+		}
 		if ok {
 			if ctx.Opts.TraceReadFDs[fd] {
 				res.HexDumpStr = format.Hexdump(data, int(szH))
@@ -344,7 +347,10 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 			return `""`, true
 		}
 		readSize := boundedSnapshotSize(int(szH), 512)
-		data, ok := ctx.EnterArgSnapshot(1, BpfEnterArgOffset, readSize)
+		data, ok := ctx.PayloadBytes(1, PayloadDirectionIn)
+		if !ok {
+			data, ok = ctx.EnterArgSnapshot(1, BpfEnterArgOffset, readSize)
+		}
 		if ok {
 			if ctx.Opts.TraceWriteFDs[fd] {
 				if fileData, fileOK := ctx.FetchWrittenFileData(fd, int(szH), data); fileOK {

@@ -768,6 +768,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `updateFDMap` 中少数直接使用 `decoder.MemReader` 的 fd 状态补读已受同一 memory policy 约束。
 - `TestJSONEventPathDoesNotReadTraceeMemory` 使用 spy reader 锁住 JSON path 不补读；文本 path 暂时保留旧 fallback，作为后续 handler snapshot 迁移期间的兼容边界。
 - JSON `payload_sections` 已迁入共享 `handler.PayloadSection` 模型，`handler.Context.Section(arg, kind)` 可以按参数和 payload 类型复用同一份 BPF 快照。
+- `read/pread64` 和 `write/pwrite64` 的 buffer formatter 已优先消费 `PayloadKindBytes` section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 
 ### Phase 5: filter 下推
 

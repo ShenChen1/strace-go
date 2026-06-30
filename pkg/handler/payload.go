@@ -32,3 +32,12 @@ type PayloadSection struct {
 	ProbeRet  int32
 	Data      []byte
 }
+
+// PayloadBytes returns successfully captured byte payload data for one argument.
+func (ctx *Context) PayloadBytes(argIndex int, direction PayloadDirection) ([]byte, bool) {
+	section, ok := ctx.Section(argIndex, PayloadKindBytes)
+	if !ok || section.Direction != direction || section.ProbeRet != 0 || len(section.Data) == 0 {
+		return nil, false
+	}
+	return section.Data, true
+}

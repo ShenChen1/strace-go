@@ -40,3 +40,19 @@ func TestContextSectionRejectsKindMismatch(t *testing.T) {
 		t.Fatalf("Section(1, bytes) = %+v, want no match", got)
 	}
 }
+
+func TestContextPayloadBytesRejectsFailedOrWrongDirectionSection(t *testing.T) {
+	ctx := &Context{
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: []byte("in")},
+			{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: -14, Data: []byte("out")},
+		},
+	}
+
+	if data, ok := ctx.PayloadBytes(1, PayloadDirectionOut); ok {
+		t.Fatalf("PayloadBytes wrong direction = %q, want no match", string(data))
+	}
+	if data, ok := ctx.PayloadBytes(2, PayloadDirectionOut); ok {
+		t.Fatalf("PayloadBytes failed probe = %q, want no match", string(data))
+	}
+}
