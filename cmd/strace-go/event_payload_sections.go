@@ -20,6 +20,7 @@ const (
 	timespecPayloadStructSize = 16
 	archPrctlPayloadOutSize   = 8
 	fdArrayPayloadSize        = 8
+	offsetPointerPayloadSize  = 8
 	robustListPayloadWordSize = 8
 	rlimitPayloadStructSize   = 16
 	sysinfoPayloadStructSize  = 112
@@ -95,6 +96,10 @@ func scalarPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]handler
 		return exitBytesPayloadSectionFromRet(eventRaw, 1), true
 	case "readlinkat":
 		return exitBytesPayloadSectionFromRet(eventRaw, 2), true
+	case "sendfile":
+		return sendfilePayloadSectionsForEvent(eventRaw), true
+	case "copy_file_range":
+		return copyFileRangePayloadSectionsForEvent(eventRaw), true
 	case "pipe", "pipe2":
 		return exitStructPayloadSection(eventRaw, 0, fdArrayPayloadSize), true
 	case "socketpair":
@@ -196,6 +201,19 @@ func waitidPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection 
 	}
 	sections := exitStructPayloadSectionAt(eventRaw, 2, handler.BpfExitArgOffset, waitidSiginfoPayloadSize)
 	return append(sections, exitStructPayloadSectionAt(eventRaw, 4, handler.BpfExitArgOffset+136, waitidRusagePayloadSize)...)
+}
+
+func sendfilePayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
+	sections := enterStructPayloadSection(eventRaw, 2, handler.BpfMiscArgOffset, offsetPointerPayloadSize)
+	if isExitEvent(eventRaw) && eventRaw.Ret >= 0 {
+		sections = append(sections, exitStructPayloadSection(eventRaw, 2, offsetPointerPayloadSize)...)
+	}
+	return sections
+}
+
+func copyFileRangePayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
+	sections := enterStructPayloadSection(eventRaw, 1, handler.BpfMiscArgOffset, offsetPointerPayloadSize)
+	return append(sections, enterStructPayloadSection(eventRaw, 3, handler.BpfMiscArgOffset+8, offsetPointerPayloadSize)...)
 }
 
 func stringPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int) []handler.PayloadSection {

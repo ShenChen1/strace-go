@@ -60,6 +60,20 @@ func TestSendfileHandlerDecodesUnchangedOffset(t *testing.T) {
 	}
 }
 
+func TestSendfileHandlerUsesPayloadStructSections(t *testing.T) {
+	ctx := sendfileContext(35499)
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 2, ProbeRet: 0, Data: sendfileOffsetData(10)},
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: 0, Data: sendfileOffsetData(20)},
+	}
+
+	got := (&SendfileHandler{}).Handle(ctx).ArgParts
+	want := []string{"4", "5", "[10] => [20]", "35499"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sendfile args = %#v; want %#v", got, want)
+	}
+}
+
 func TestSendfileHandlerDoesNotReadMissingOffsetSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeUint64Snapshot(7)}
 	decoder := event.NewDecoder()
@@ -77,4 +91,10 @@ func TestSendfileHandlerDoesNotReadMissingOffsetSnapshot(t *testing.T) {
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
+}
+
+func sendfileOffsetData(value uint64) []byte {
+	data := make([]byte, 8)
+	binary.LittleEndian.PutUint64(data, value)
+	return data
 }

@@ -50,12 +50,26 @@ func fetchSendfileOffset(ctx *Context, isExit bool, offset int) (uint64, bool) {
 	var data []byte
 	var ok bool
 	if isExit {
-		data, ok = ctx.ExitSnapshot(offset, 8)
+		data, ok = sendfileOffsetPayload(ctx, PayloadDirectionOut)
+		if !ok {
+			data, ok = ctx.ExitSnapshot(offset, 8)
+		}
 	} else {
-		data, ok = ctx.EnterArgSnapshot(2, offset, 8)
+		data, ok = sendfileOffsetPayload(ctx, PayloadDirectionIn)
+		if !ok {
+			data, ok = ctx.EnterArgSnapshot(2, offset, 8)
+		}
 	}
 	if !ok {
 		return 0, false
 	}
 	return binary.LittleEndian.Uint64(data), true
+}
+
+func sendfileOffsetPayload(ctx *Context, direction PayloadDirection) ([]byte, bool) {
+	data, ok := ctx.PayloadStruct(2, direction)
+	if !ok || len(data) < 8 {
+		return nil, false
+	}
+	return data[:8], true
 }

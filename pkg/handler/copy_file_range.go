@@ -34,9 +34,20 @@ func formatLoffPointer(ctx *Context, argIndex, offset int, ptr uint64) string {
 		return "NULL"
 	}
 
-	data, ok := ctx.EnterArgSnapshot(argIndex, offset, 8)
+	data, ok := copyFileRangeOffsetPayload(ctx, argIndex)
+	if !ok {
+		data, ok = ctx.EnterArgSnapshot(argIndex, offset, 8)
+	}
 	if !ok {
 		return fmt.Sprintf("%#x", ptr)
 	}
 	return fmt.Sprintf("[%d]", int64(binary.LittleEndian.Uint64(data)))
+}
+
+func copyFileRangeOffsetPayload(ctx *Context, argIndex int) ([]byte, bool) {
+	data, ok := ctx.PayloadStruct(argIndex, PayloadDirectionIn)
+	if !ok || len(data) < 8 {
+		return nil, false
+	}
+	return data[:8], true
 }
