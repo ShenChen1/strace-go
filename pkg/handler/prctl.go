@@ -34,7 +34,7 @@ func (h *PrctlHandler) Handle(ctx *Context) Result {
 		return res
 	case 1: // PR_GET_PDEATHSIG
 		if ctx.Ret >= 0 && ctx.Args[1] != 0 {
-			data, ok := ctx.ExitSnapshot(BpfExitArgOffset, 4)
+			data, ok := prctlUint32OutSnapshot(ctx)
 			if ok {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%s]", meta.DecodeFlags(uint64(binary.LittleEndian.Uint32(data)), "signalnames")))
 			} else {
@@ -49,7 +49,7 @@ func (h *PrctlHandler) Handle(ctx *Context) Result {
 		return res
 	case 9, 11, 19, 37, 5, 25: // PR_GET_FPEMU, PR_GET_FPEXC, PR_GET_ENDIAN, PR_GET_CHILD_SUBREAPER, PR_GET_UNALIGN, PR_GET_TSC
 		if ctx.Ret >= 0 && ctx.Args[1] != 0 {
-			data, ok := ctx.ExitSnapshot(BpfExitArgOffset, 4)
+			data, ok := prctlUint32OutSnapshot(ctx)
 			if ok {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d]", int32(binary.LittleEndian.Uint32(data))))
 			} else {
@@ -89,9 +89,18 @@ func (h *PrctlHandler) Handle(ctx *Context) Result {
 func decodePrctlName(ctx *Context, isExit bool) string {
 	probeRet := ctx.ArgProbeRet(1)
 	offset := BpfEnterArgOffset
+	direction := PayloadDirectionIn
 	if isExit {
 		offset = BpfExitArgOffset
 		probeRet = ctx.ProbeRetExit
+		direction = PayloadDirectionOut
+	}
+	limit := -1
+	if ctx.Opts != nil {
+		limit = ctx.Opts.StringLimit
+	}
+	if text, ok := ctx.PayloadString(1, direction, ctx.Args[1], limit); ok {
+		return text
 	}
 	if probeRet != 0 {
 		return formatPtrFallback(ctx.Args[1])
@@ -100,11 +109,14 @@ func decodePrctlName(ctx *Context, isExit bool) string {
 	if !ok {
 		return formatPtrFallback(ctx.Args[1])
 	}
-	limit := -1
-	if ctx.Opts != nil {
-		limit = ctx.Opts.StringLimit
-	}
 	return ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], data, probeRet, "prctl", limit)
+}
+
+func prctlUint32OutSnapshot(ctx *Context) ([]byte, bool) {
+	if data, ok := ctx.PayloadStruct(1, PayloadDirectionOut); ok && len(data) >= 4 {
+		return data[:4], true
+	}
+	return ctx.ExitSnapshot(BpfExitArgOffset, 4)
 }
 
 func prctlSnapshot(ctx *Context, offset int) ([]byte, bool) {
