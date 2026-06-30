@@ -69,6 +69,9 @@ func formatFutexWaitvArray(ctx *Context, argIndex int, ptr uint64, count uint32)
 }
 
 func (ctx *Context) fetchFutexWaitvData(argIndex int, size int) ([]byte, bool) {
+	if data, ok := ctx.PayloadStruct(argIndex, PayloadDirectionIn); ok {
+		return boundedBpfStructData(data, size)
+	}
 	if ctx.ArgProbeRet(argIndex) == 0 && ctx.DataLen > 0 {
 		n := int(ctx.DataLen)
 		if n > futexWaitvTimeoutOffset {

@@ -32,7 +32,7 @@ func (h *FutexHandler) Handle(ctx *Context) Result {
 		if timeout == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
-			if data, ok := ctx.EnterArgSnapshot(3, BpfEnterArgOffset, 16); ok {
+			if data, ok := futexTimeoutSnapshot(ctx); ok {
 				res.ArgParts = append(res.ArgParts, format.Timespec(data))
 			} else {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", timeout))
@@ -46,4 +46,11 @@ func (h *FutexHandler) Handle(ctx *Context) Result {
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val3))
 
 	return res
+}
+
+func futexTimeoutSnapshot(ctx *Context) ([]byte, bool) {
+	if data, ok := ctx.PayloadStruct(3, PayloadDirectionIn); ok {
+		return boundedBpfStructData(data, timespecSize)
+	}
+	return ctx.EnterArgSnapshot(3, BpfEnterArgOffset, timespecSize)
 }

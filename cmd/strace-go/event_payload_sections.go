@@ -94,6 +94,8 @@ func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.
 	case "clock_gettime", "clock_getres", "clock_settime", "adjtimex", "clock_adjtime",
 		"nanosleep", "clock_nanosleep", "gettimeofday", "settimeofday":
 		return timePayloadSectionsForEvent(eventRaw, scMeta.Name)
+	case "futex", "futex_wait", "futex_waitv", "futex_requeue":
+		return futexPayloadSectionsForEvent(eventRaw, scMeta.Name)
 	case "poll":
 		return pollPayloadSectionsForEvent(eventRaw, false)
 	case "ppoll":

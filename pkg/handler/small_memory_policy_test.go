@@ -79,6 +79,34 @@ func TestFutexTimeoutUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestFutexTimeoutUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(9, 10)}
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		SysName: "futex",
+		Args:    [6]uint64{0x2000, 0, 7, 0x1000},
+		Decoder: event.NewDecoder(),
+		PayloadSections: []PayloadSection{
+			{
+				Kind:      PayloadKindStruct,
+				Direction: PayloadDirectionIn,
+				ArgIndex:  3,
+				ProbeRet:  0,
+				Data:      makeTimeStruct(9, 10),
+			},
+		},
+	}
+
+	got := (&FutexHandler{}).Handle(ctx)
+	if got.ArgParts[3] != "{tv_sec=9, tv_nsec=10}" {
+		t.Fatalf("timeout = %q", got.ArgParts[3])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestFutexWaitvDoesNotProbeLengthWhenFallbackDisabled(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFutexWaitvData(1, 0x3000, 0)}
 	decoder := event.NewDecoder()
@@ -120,6 +148,92 @@ func TestFutexWaitvDoesNotUseLegacyLengthProbe(t *testing.T) {
 	got := formatFutexWaitvArray(ctx, 0, 0x1000, 2)
 	if !strings.Contains(got, "val=0x2") {
 		t.Fatalf("formatFutexWaitvArray() = %q, want BPF snapshot length only", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestFutexWaitvUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeFutexWaitvData(1, 0x3000, 0)}
+	buf := append(makeFutexWaitvData(1, 0x3000, 0), makeFutexWaitvData(2, 0x4000, 0)...)
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		Args:    [6]uint64{0x1000, 2},
+		Decoder: event.NewDecoder(),
+		ScMeta:  meta.Syscall{Name: "futex_waitv"},
+		PayloadSections: []PayloadSection{
+			{
+				Kind:      PayloadKindStruct,
+				Direction: PayloadDirectionIn,
+				ArgIndex:  0,
+				ProbeRet:  0,
+				Data:      buf,
+			},
+		},
+	}
+
+	got := formatFutexWaitvArray(ctx, 0, 0x1000, 2)
+	if !strings.Contains(got, "val=0x2") {
+		t.Fatalf("formatFutexWaitvArray() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestFutexWaitTimeoutUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(1, 2)}
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		Ret:     0,
+		Decoder: event.NewDecoder(),
+		ScMeta:  meta.Syscall{Name: "futex_wait"},
+		PayloadSections: []PayloadSection{
+			{
+				Kind:      PayloadKindStruct,
+				Direction: PayloadDirectionIn,
+				ArgIndex:  4,
+				ProbeRet:  0,
+				Data:      makeTimeStruct(1, 2),
+			},
+		},
+	}
+
+	got, ok := decodeTimespec(ctx, 4, "struct __kernel_timespec *", 0x3000)
+	if !ok || got != "{tv_sec=1, tv_nsec=2}" {
+		t.Fatalf("decodeTimespec() = %q, %v", got, ok)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestFutexWaitvTimeoutUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(3, 4)}
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		Ret:     0,
+		Args:    [6]uint64{0x1000, 1, 0, 0x4000},
+		Decoder: event.NewDecoder(),
+		ScMeta:  meta.Syscall{Name: "futex_waitv"},
+		PayloadSections: []PayloadSection{
+			{
+				Kind:      PayloadKindStruct,
+				Direction: PayloadDirectionIn,
+				ArgIndex:  3,
+				ProbeRet:  0,
+				Data:      makeTimeStruct(3, 4),
+			},
+		},
+	}
+
+	got, ok := decodeTimespec(ctx, 3, "struct __kernel_timespec *", 0x4000)
+	if !ok || got != "{tv_sec=3, tv_nsec=4}" {
+		t.Fatalf("decodeTimespec() = %q, %v", got, ok)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
