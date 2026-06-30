@@ -39,6 +39,12 @@ func readOpenHowSnapshot(ctx *Context, argIndex int, requested uint64) ([]byte, 
 	if requested < uint64(readSize) {
 		readSize = int(requested)
 	}
+	if data, ok := ctx.PayloadStruct(argIndex, PayloadDirectionIn); ok {
+		if len(data) > readSize {
+			return data[:readSize], true
+		}
+		return data, true
+	}
 	return ctx.EnterArgSnapshot(argIndex, openHowSnapshotOffset, readSize)
 }
 

@@ -784,6 +784,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `mount/umount2/fsconfig` 已暴露字符串和二进制 value 的 sections，fs handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `capget/capset` 已暴露 capability header/data sections，capset data capture policy 补齐为 enter snapshot，handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `cachestat` 已暴露 range/stats 的 `PayloadKindStruct` sections，handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
+- `openat2` 已暴露 `open_how` 的 `PayloadKindStruct` section，handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 
 ### Phase 5: filter 下推
 

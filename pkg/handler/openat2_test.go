@@ -42,6 +42,29 @@ func TestDecodeOpenHowUsesEnterSnapshot(t *testing.T) {
 	}
 }
 
+func TestDecodeOpenHowUsesPayloadStructSection(t *testing.T) {
+	reader := &openHowMemoryReader{data: openHowBytes(0, 0, 0)}
+	decoder := event.NewDecoder()
+
+	ctx := openHowContext(reader, decoder, nil, uint64(openHowMinSize))
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindStruct,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  2,
+			UserPtr:   0x2000,
+			Data:      openHowBytes(0, 0, 0),
+		},
+	}
+	got, ok := decodeOpenHow(ctx, 2, "struct open_how *", 0x2000)
+	if !ok || got != "{flags=O_RDONLY, resolve=0}" {
+		t.Fatalf("decodeOpenHow payload = %q, %v", got, ok)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestDecodeOpenHowWithoutSnapshotDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &openHowMemoryReader{data: openHowBytes(0, 0, 0)}
 	decoder := event.NewDecoder()

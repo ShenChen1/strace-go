@@ -105,8 +105,10 @@ func scalarPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]handler
 		return exitStructPayloadSection(eventRaw, 3, fdArrayPayloadSize), true
 	case "open", "creat":
 		return stringPayloadSectionFromWindow(eventRaw, 0), true
-	case "openat", "openat2":
+	case "openat":
 		return stringPayloadSectionFromWindow(eventRaw, 1), true
+	case "openat2":
+		return openat2PayloadSectionsForEvent(eventRaw), true
 	case "execve", "execveat":
 		return execPayloadSectionsForEvent(eventRaw, scName), true
 	case "rename", "link", "symlink":
