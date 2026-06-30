@@ -18,6 +18,8 @@ const (
 	lifecycleExec            uint32 = 2
 	lifecycleExit            uint32 = 3
 	lifecycleFree            uint32 = 4
+	iovecSectionElemSize            = 16
+	iovecSectionMaxBytes            = 512
 )
 
 type jsonSyscallEvent struct {
@@ -174,6 +176,11 @@ func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.
 			return nil
 		}
 		return payloadSectionFromWindow(eventRaw, handler.PayloadKindBytes, handler.PayloadDirectionOut, 1, handler.BpfExitArgOffset, uint32Clamped(uint64(eventRaw.Ret)), eventRaw.ProbeRetExit)
+	case "readv", "writev", "preadv", "pwritev", "preadv2", "pwritev2", "vmsplice":
+		return iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset)
+	case "process_vm_readv", "process_vm_writev":
+		sections := iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset)
+		return append(sections, iovecPayloadSectionFromWindow(eventRaw, 3, 4, handler.BpfMiscArgOffset)...)
 	case "getcwd":
 		return exitBytesPayloadSectionFromRet(eventRaw, 0)
 	case "readlink":
@@ -206,6 +213,33 @@ func exitBytesPayloadSectionFromRet(eventRaw *bpfEvent, argIndex int) []handler.
 		return nil
 	}
 	return payloadSectionFromWindow(eventRaw, handler.PayloadKindBytes, handler.PayloadDirectionOut, argIndex, handler.BpfExitArgOffset, uint32Clamped(uint64(eventRaw.Ret)), eventRaw.ProbeRetExit)
+}
+
+func iovecPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int, countIndex int, offset int) []handler.PayloadSection {
+	if countIndex < 0 || countIndex >= len(eventRaw.Args) {
+		return nil
+	}
+	userLen := iovecUserLen(eventRaw.Args[countIndex])
+	if userLen == 0 {
+		return nil
+	}
+	maxLen := int(userLen)
+	if maxLen > iovecSectionMaxBytes {
+		maxLen = iovecSectionMaxBytes
+	}
+	data, ok := eventPayloadWindow(eventRaw, offset, maxLen)
+	if !ok {
+		return nil
+	}
+	section := newPayloadSection(eventRaw, handler.PayloadKindIovec, handler.PayloadDirectionIn, argIndex, offset, userLen, getArgProbeStatus(eventRaw.ProbeRetEnter, argIndex), data)
+	return []handler.PayloadSection{section}
+}
+
+func iovecUserLen(count uint64) uint32 {
+	if count > uint64(^uint32(0))/iovecSectionElemSize {
+		return ^uint32(0)
+	}
+	return uint32(count * iovecSectionElemSize)
 }
 
 func payloadSectionFromWindow(eventRaw *bpfEvent, kind handler.PayloadKind, direction handler.PayloadDirection, argIndex int, offset int, userLen uint32, probeRet int32) []handler.PayloadSection {

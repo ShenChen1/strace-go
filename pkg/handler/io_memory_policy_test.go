@@ -49,6 +49,32 @@ func TestDecodeIovecArrayUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestDecodeIovecArrayUsesPayloadSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: iovecBytes([2]uint64{0x2000, 3})}
+	decoder := event.NewDecoder()
+	ctx := newIovecPolicyContext(reader, decoder)
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindIovec,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  1,
+			UserPtr:   0x1000,
+			UserLen:   iovecSize,
+			CopiedLen: iovecSize,
+			ProbeRet:  0,
+			Data:      iovecBytes([2]uint64{0x2000, 3}),
+		},
+	}
+
+	got := DecodeIovecArray(ctx, 1, 0x1000, 1)
+	if got != "[{iov_base=0x2000, iov_len=3}]" {
+		t.Fatalf("DecodeIovecArray() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestDecodeIovecArrayUsesPartialEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: iovecBytes([2]uint64{0x2000, 3})}
 	decoder := event.NewDecoder()

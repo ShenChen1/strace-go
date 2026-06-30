@@ -35,22 +35,29 @@ type PayloadSection struct {
 
 // PayloadBytes returns successfully captured byte payload data for one argument.
 func (ctx *Context) PayloadBytes(argIndex int, direction PayloadDirection) ([]byte, bool) {
+	return ctx.payloadData(argIndex, PayloadKindBytes, direction)
+}
+
+// PayloadString decodes a successfully captured string payload for one argument.
+func (ctx *Context) PayloadString(argIndex int, direction PayloadDirection, ptr uint64, limit int) (string, bool) {
+	data, ok := ctx.payloadData(argIndex, PayloadKindString, direction)
+	if !ok {
+		return "", false
+	}
+	return ctx.Decoder.DecodeString(ctx.Pid, ptr, data, 0, ctx.SysName, limit), true
+}
+
+// PayloadIovec returns a captured struct iovec array prefix for one argument.
+func (ctx *Context) PayloadIovec(argIndex int, direction PayloadDirection) ([]byte, bool) {
+	return ctx.payloadData(argIndex, PayloadKindIovec, direction)
+}
+
+func (ctx *Context) payloadData(argIndex int, kind PayloadKind, direction PayloadDirection) ([]byte, bool) {
 	for _, section := range ctx.PayloadSections {
-		if section.ArgIndex == argIndex && section.Kind == PayloadKindBytes &&
+		if section.ArgIndex == argIndex && section.Kind == kind &&
 			section.Direction == direction && section.ProbeRet == 0 && len(section.Data) > 0 {
 			return section.Data, true
 		}
 	}
 	return nil, false
-}
-
-// PayloadString decodes a successfully captured string payload for one argument.
-func (ctx *Context) PayloadString(argIndex int, direction PayloadDirection, ptr uint64, limit int) (string, bool) {
-	for _, section := range ctx.PayloadSections {
-		if section.ArgIndex == argIndex && section.Kind == PayloadKindString &&
-			section.Direction == direction && section.ProbeRet == 0 && len(section.Data) > 0 {
-			return ctx.Decoder.DecodeString(ctx.Pid, ptr, section.Data, section.ProbeRet, ctx.SysName, limit), true
-		}
-	}
-	return "", false
 }

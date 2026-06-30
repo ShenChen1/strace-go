@@ -146,6 +146,69 @@ func TestJSONSyscallEventIncludesOutBufferPayloadSections(t *testing.T) {
 	}
 }
 
+func TestJSONSyscallEventIncludesIovecPayloadSection(t *testing.T) {
+	eventRaw := &bpfEvent{
+		Pid:           101,
+		Tid:           101,
+		EventVersion:  2,
+		EventType:     bpfEventTypeEnter,
+		Args:          [6]uint64{3, 0x3000, 1},
+		DataLen:       16,
+		ProbeRetEnter: 0,
+	}
+	copy(eventRaw.StrArg[:], []byte("0123456789abcdef"))
+
+	scMeta := meta.Syscall{Name: "readv"}
+	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	if len(ev.PayloadSections) != 1 {
+		t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
+	}
+	section := ev.PayloadSections[0]
+	if section.Kind != "iovec" || section.Direction != "in" || section.ArgIndex != 1 || section.UserLen != 16 {
+		t.Fatalf("readv iovec section metadata = %+v", section)
+	}
+	if got := mustDecodeBase64(t, section.DataBase64); string(got) != "0123456789abcdef" {
+		t.Fatalf("readv iovec data = %q, want captured iovec bytes", string(got))
+	}
+}
+
+func TestJSONSyscallEventIncludesProcessVMIovecPayloadSections(t *testing.T) {
+	eventRaw := &bpfEvent{
+		Pid:           101,
+		Tid:           101,
+		EventVersion:  2,
+		EventType:     bpfEventTypeEnter,
+		Args:          [6]uint64{102, 0x3000, 1, 0x4000, 1, 0},
+		DataLen:       handler.BpfMiscArgOffset + 16,
+		ProbeRetEnter: 0,
+	}
+	copy(eventRaw.StrArg[:], []byte("local-iovec-0000"))
+	copy(eventRaw.StrArg[handler.BpfMiscArgOffset:], []byte("remote-iovec-000"))
+
+	scMeta := meta.Syscall{Name: "process_vm_readv"}
+	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	if len(ev.PayloadSections) != 2 {
+		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
+	}
+	local := ev.PayloadSections[0]
+	remote := ev.PayloadSections[1]
+	if local.Kind != "iovec" || local.ArgIndex != 1 || local.Offset != 0 || local.UserPtr != 0x3000 {
+		t.Fatalf("local iovec section = %+v", local)
+	}
+	if remote.Kind != "iovec" || remote.ArgIndex != 3 || remote.Offset != handler.BpfMiscArgOffset || remote.UserPtr != 0x4000 {
+		t.Fatalf("remote iovec section = %+v", remote)
+	}
+}
+
+func TestIovecUserLenClampsOverflow(t *testing.T) {
+	if got := iovecUserLen(2); got != 32 {
+		t.Fatalf("iovecUserLen(2) = %d, want 32", got)
+	}
+	if got := iovecUserLen(^uint64(0)); got != ^uint32(0) {
+		t.Fatalf("iovecUserLen(max) = %d, want uint32 max", got)
+	}
+}
+
 func mustDecodeBase64(t *testing.T, s string) []byte {
 	t.Helper()
 	data, err := base64.StdEncoding.DecodeString(s)

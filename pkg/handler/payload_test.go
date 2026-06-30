@@ -75,6 +75,20 @@ func TestContextPayloadBytesMatchesDirectionAfterEarlierSection(t *testing.T) {
 	}
 }
 
+func TestContextPayloadIovecMatchesDirection(t *testing.T) {
+	ctx := &Context{
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindIovec, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: []byte("out")},
+			{Kind: PayloadKindIovec, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: []byte("in")},
+		},
+	}
+
+	data, ok := ctx.PayloadIovec(1, PayloadDirectionIn)
+	if !ok || string(data) != "in" {
+		t.Fatalf("PayloadIovec in = %q, %v; want in section", string(data), ok)
+	}
+}
+
 func TestContextPayloadStringRejectsFailedOrWrongDirectionSection(t *testing.T) {
 	ctx := &Context{
 		PayloadSections: []PayloadSection{

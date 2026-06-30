@@ -97,7 +97,10 @@ func DecodeIovecArray(ctx *Context, argIndex int, addr uint64, count uint64) str
 
 	readSize := readCount * iovecSize
 	offset := iovecSnapshotOffset(ctx.SysName, argIndex)
-	data, ok := ctx.EnterArgSnapshotPrefix(argIndex, offset, readSize)
+	data, ok := ctx.PayloadIovec(argIndex, PayloadDirectionIn)
+	if !ok {
+		data, ok = ctx.EnterArgSnapshotPrefix(argIndex, offset, readSize)
+	}
 	if !ok || len(data) == 0 {
 		return fmt.Sprintf("%#x", addr)
 	}
