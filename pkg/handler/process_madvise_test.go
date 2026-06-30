@@ -62,6 +62,36 @@ func TestProcessMadviseHandlerDecodesArguments(t *testing.T) {
 	}
 }
 
+func TestProcessMadviseHandlerUsesPayloadIovecSection(t *testing.T) {
+	old := meta.XlatFormat
+	meta.XlatFormat = "abbrev"
+	defer func() { meta.XlatFormat = old }()
+
+	const vec = 0x7000
+	iovs := iovecBytes(
+		[2]uint64{0x8786858483828180, 10344361028892658056},
+		[2]uint64{0x9796959493929190, 11501803794301884824},
+	)
+	ctx := processMadviseContext()
+	ctx.Args = [6]uint64{0, vec, 1, 0, 0}
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindIovec, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: iovs},
+	}
+
+	got := (&ProcessMadviseHandler{}).Handle(ctx).ArgParts
+	want := []string{
+		"0",
+		"[{iov_base=0x8786858483828180, iov_len=10344361028892658056}]",
+		"1",
+		"MADV_NORMAL",
+		"0",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("process_madvise payload args = %#v; want %#v", got, want)
+	}
+}
+
 func TestProcessMadviseHandlerNullAndEmptyIov(t *testing.T) {
 	old := meta.XlatFormat
 	meta.XlatFormat = "abbrev"

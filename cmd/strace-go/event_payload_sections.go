@@ -89,6 +89,8 @@ func scalarPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]handler
 	case "process_vm_readv", "process_vm_writev":
 		sections := iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset)
 		return append(sections, iovecPayloadSectionFromWindow(eventRaw, 3, 4, handler.BpfMiscArgOffset)...), true
+	case "process_madvise":
+		return iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset), true
 	case "getcwd":
 		return exitBytesPayloadSectionFromRet(eventRaw, 0), true
 	case "readlink":

@@ -40,9 +40,15 @@ func formatProcessMadviseIovec(ctx *Context, addr uint64, count uint64) string {
 		readCount = iovecDisplayLimit
 	}
 	readSize := readCount * iovecSize
-	data, ok := ctx.EnterArgSnapshotPrefix(1, BpfEnterArgOffset, readSize)
+	data, ok := ctx.PayloadIovec(1, PayloadDirectionIn)
+	if !ok {
+		data, ok = ctx.EnterArgSnapshotPrefix(1, BpfEnterArgOffset, readSize)
+	}
 	if !ok || len(data) == 0 {
 		return fmt.Sprintf("%#x", addr)
+	}
+	if len(data) > readSize {
+		data = data[:readSize]
 	}
 
 	actualCount := len(data) / iovecSize

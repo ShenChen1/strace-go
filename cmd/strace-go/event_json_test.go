@@ -337,28 +337,40 @@ func TestJSONSyscallEventIncludesEpollStructPayloadSections(t *testing.T) {
 }
 
 func TestJSONSyscallEventIncludesIovecPayloadSection(t *testing.T) {
-	eventRaw := &bpfEvent{
-		Pid:           101,
-		Tid:           101,
-		EventVersion:  2,
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{3, 0x3000, 1},
-		DataLen:       16,
-		ProbeRetEnter: 0,
+	tests := []struct {
+		name string
+		args [6]uint64
+	}{
+		{name: "readv", args: [6]uint64{3, 0x3000, 1}},
+		{name: "process_madvise", args: [6]uint64{9, 0x3000, 1}},
 	}
-	copy(eventRaw.StrArg[:], []byte("0123456789abcdef"))
 
-	scMeta := meta.Syscall{Name: "readv"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
-	if len(ev.PayloadSections) != 1 {
-		t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
-	}
-	section := ev.PayloadSections[0]
-	if section.Kind != "iovec" || section.Direction != "in" || section.ArgIndex != 1 || section.UserLen != 16 {
-		t.Fatalf("readv iovec section metadata = %+v", section)
-	}
-	if got := mustDecodeBase64(t, section.DataBase64); string(got) != "0123456789abcdef" {
-		t.Fatalf("readv iovec data = %q, want captured iovec bytes", string(got))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventRaw := &bpfEvent{
+				Pid:           101,
+				Tid:           101,
+				EventVersion:  2,
+				EventType:     bpfEventTypeEnter,
+				Args:          tt.args,
+				DataLen:       16,
+				ProbeRetEnter: 0,
+			}
+			copy(eventRaw.StrArg[:], []byte("0123456789abcdef"))
+
+			scMeta := meta.Syscall{Name: tt.name}
+			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+			if len(ev.PayloadSections) != 1 {
+				t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
+			}
+			section := ev.PayloadSections[0]
+			if section.Kind != "iovec" || section.Direction != "in" || section.ArgIndex != 1 || section.UserLen != 16 {
+				t.Fatalf("%s iovec section metadata = %+v", tt.name, section)
+			}
+			if got := mustDecodeBase64(t, section.DataBase64); string(got) != "0123456789abcdef" {
+				t.Fatalf("%s iovec data = %q, want captured iovec bytes", tt.name, string(got))
+			}
+		})
 	}
 }
 
