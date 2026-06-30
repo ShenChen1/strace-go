@@ -289,3 +289,19 @@ func TestArchPrctlUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
+
+func TestArchPrctlUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeUint64Snapshot(0x1234)}
+	ctx := newArchPrctlPolicyContext(reader, event.NewDecoder())
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeUint64Snapshot(0x5678)},
+	}
+
+	got := (&ArchPrctlHandler{}).Handle(ctx)
+	if got.ArgParts[1] != "[0x5678]" {
+		t.Fatalf("arch_prctl arg = %q", got.ArgParts[1])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}

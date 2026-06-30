@@ -54,7 +54,7 @@ func (h *ArchPrctlHandler) Handle(ctx *Context) Result {
 				if isGET {
 					if ctx.Ret >= 0 {
 						outV := uint64(0)
-						if data, ok := ctx.ExitSnapshot(BpfExitArgOffset, archPrctlOutSize); ok {
+						if data, ok := archPrctlOutData(ctx); ok {
 							outV = binary.LittleEndian.Uint64(data)
 						}
 						if outV == 0 {
@@ -86,4 +86,11 @@ func (h *ArchPrctlHandler) Handle(ctx *Context) Result {
 		}
 	}
 	return res
+}
+
+func archPrctlOutData(ctx *Context) ([]byte, bool) {
+	if data, ok := ctx.PayloadStruct(1, PayloadDirectionOut); ok && len(data) >= archPrctlOutSize {
+		return data[:archPrctlOutSize], true
+	}
+	return ctx.ExitSnapshot(BpfExitArgOffset, archPrctlOutSize)
 }

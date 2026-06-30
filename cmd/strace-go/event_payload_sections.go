@@ -18,6 +18,7 @@ const (
 	epollPayloadEventSize     = 12
 	epollPayloadMaxBytes      = 512
 	timespecPayloadStructSize = 16
+	archPrctlPayloadOutSize   = 8
 	fdArrayPayloadSize        = 8
 	robustListPayloadWordSize = 8
 	rlimitPayloadStructSize   = 16
@@ -141,6 +142,8 @@ func structuredPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]han
 		return robustListPayloadSectionsForEvent(eventRaw), true
 	case "waitid":
 		return waitidPayloadSectionsForEvent(eventRaw), true
+	case "arch_prctl":
+		return exitStructPayloadSection(eventRaw, 1, archPrctlPayloadOutSize), true
 	case "clock_gettime", "clock_getres", "clock_settime", "adjtimex", "clock_adjtime",
 		"nanosleep", "clock_nanosleep", "gettimeofday", "settimeofday", "getitimer", "setitimer":
 		return timePayloadSectionsForEvent(eventRaw, scName), true
