@@ -74,6 +74,24 @@ func TestCachestatRangeUsesSnapshotWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
+func TestCachestatRangeUsesPayloadStructSection(t *testing.T) {
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		SysName: "cachestat",
+		Args:    [6]uint64{3, 0x1000, 0, 0},
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, UserPtr: 0x1000, Data: makeCachestatRange(7, 8)},
+		},
+		Decoder: event.NewDecoder(),
+	}
+
+	got := (&CachestatHandler{}).Handle(ctx)
+	if got.ArgParts[1] != "{off=0x7, len=8}" {
+		t.Fatalf("cstat_range = %q", got.ArgParts[1])
+	}
+}
+
 func TestCachestatStatsDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeCachestatStats(1, 2, 3, 4, 5)}
 	decoder := event.NewDecoder()
@@ -94,6 +112,25 @@ func TestCachestatStatsDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestCachestatStatsUsesPayloadStructSection(t *testing.T) {
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		SysName: "cachestat",
+		Args:    [6]uint64{3, 0, 0x2000, 0},
+		Ret:     0,
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 2, UserPtr: 0x2000, Data: makeCachestatStats(1, 2, 3, 4, 5)},
+		},
+		Decoder: event.NewDecoder(),
+	}
+
+	got := (&CachestatHandler{}).Handle(ctx)
+	if !strings.Contains(got.ArgParts[2], "nr_cache=1") {
+		t.Fatalf("cstat = %q", got.ArgParts[2])
 	}
 }
 
