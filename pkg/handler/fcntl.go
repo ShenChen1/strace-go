@@ -244,8 +244,21 @@ func (h *FcntlHandler) decodeDelegation(ctx *Context, arg uint64, useExit bool) 
 }
 
 func fcntlSnapshot(ctx *Context, useExit bool, size int) ([]byte, bool) {
+	return fcntlStructSnapshot(ctx, 2, useExit, size)
+}
+
+func fcntlStructSnapshot(ctx *Context, argIndex int, useExit bool, size int) ([]byte, bool) {
+	direction := PayloadDirectionIn
+	offset := BpfEnterArgOffset
 	if useExit {
-		return ctx.ExitSnapshot(BpfExitArgOffset, size)
+		direction = PayloadDirectionOut
+		offset = BpfExitArgOffset
 	}
-	return ctx.EnterArgSnapshot(2, BpfEnterArgOffset, size)
+	if data, ok := ctx.PayloadStruct(argIndex, direction); ok && len(data) >= size {
+		return data[:size], true
+	}
+	if useExit {
+		return ctx.ExitSnapshot(offset, size)
+	}
+	return ctx.EnterArgSnapshot(argIndex, offset, size)
 }

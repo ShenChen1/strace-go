@@ -88,12 +88,48 @@ func TestFcntlFlockUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestFcntlFlockUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeFlockData(2, 2, 3, 4)}
+	decoder := event.NewDecoder()
+	ctx := newFcntlPolicyContext(reader, decoder)
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 2, ProbeRet: 0, Data: makeFlockData(1, 2, 3, 4)},
+	}
+
+	got := (&FcntlHandler{}).decodeFlock(ctx, "F_SETLK", 0x1000)
+	if !strings.Contains(got, "l_type=F_WRLCK") {
+		t.Fatalf("decodeFlock() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestFcntlFlockUsesExitSnapshotWhenFallbackDisabled(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFlockData(1, 2, 3, 4)}
 	decoder := event.NewDecoder()
 	ctx := newFcntlPolicyContext(reader, decoder)
 	ctx.ProbeRetExit = 0
 	putFcntlSnapshot(ctx, BpfExitArgOffset, makeFlockData(2, 5, 6, 7))
+
+	got := (&FcntlHandler{}).decodeFlock(ctx, "F_GETLK", 0x1000)
+	if !strings.Contains(got, "l_type=F_UNLCK") || !strings.Contains(got, "l_pid=7") {
+		t.Fatalf("decodeFlock() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestFcntlFlockUsesExitPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeFlockData(1, 2, 3, 4)}
+	decoder := event.NewDecoder()
+	ctx := newFcntlPolicyContext(reader, decoder)
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: 0, Data: makeFlockData(2, 5, 6, 7)},
+	}
 
 	got := (&FcntlHandler{}).decodeFlock(ctx, "F_GETLK", 0x1000)
 	if !strings.Contains(got, "l_type=F_UNLCK") || !strings.Contains(got, "l_pid=7") {
@@ -118,6 +154,24 @@ func TestFcntlFOwnerExDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
+func TestFcntlFOwnerExUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeFOwnerExData(1, 42)}
+	decoder := event.NewDecoder()
+	ctx := newFcntlPolicyContext(reader, decoder)
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: 0, Data: makeFOwnerExData(1, 42)},
+	}
+
+	got := (&FcntlHandler{}).decodeFOwnerEx(ctx, 0x1000, true)
+	if got != "{type=F_OWNER_PID, pid=42}" {
+		t.Fatalf("decodeFOwnerEx() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestFcntlFOwnerExUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFOwnerExData(1, 42)}
 	decoder := event.NewDecoder()
@@ -128,6 +182,24 @@ func TestFcntlFOwnerExUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	got := (&FcntlHandler{}).decodeFOwnerEx(ctx, 0x1000, true)
 	if got != "{type=F_OWNER_PID, pid=42}" {
 		t.Fatalf("decodeFOwnerEx() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestFcntlRwHintUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeUint64Data(1)}
+	decoder := event.NewDecoder()
+	ctx := newFcntlPolicyContext(reader, decoder)
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 2, ProbeRet: 0, Data: makeUint64Data(3)},
+	}
+
+	got := (&FcntlHandler{}).decodeRwHint(ctx, 0x1000, false)
+	if got != "[RWH_WRITE_LIFE_MEDIUM]" {
+		t.Fatalf("decodeRwHint() = %q", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)

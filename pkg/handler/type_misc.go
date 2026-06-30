@@ -66,10 +66,7 @@ func decodeFOwnerEx(ctx *Context, i int, argTyp string, val uint64) (string, boo
 }
 
 func miscFcntlSnapshot(ctx *Context, argIndex int, useExit bool, size int) ([]byte, bool) {
-	if useExit {
-		return ctx.ExitSnapshot(BpfExitArgOffset, size)
-	}
-	return ctx.EnterArgSnapshot(argIndex, BpfEnterArgOffset, size)
+	return fcntlStructSnapshot(ctx, argIndex, useExit, size)
 }
 
 func decodeRlimitPointer(ctx *Context, i int, argTyp string, val uint64) (string, bool) {

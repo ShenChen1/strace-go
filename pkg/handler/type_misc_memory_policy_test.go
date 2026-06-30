@@ -184,6 +184,20 @@ func TestTypeMiscFlockUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestTypeMiscFlockUsesPayloadStructSection(t *testing.T) {
+	ctx := newTypeMiscPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.Args[1] = 6 // F_SETLK
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 2, ProbeRet: 0, Data: makeFlockData(1, 2, 3, 4)},
+	}
+
+	got, ok := decodeFlock(ctx, 2, "struct flock *", 0x1000)
+	if !ok || !strings.Contains(got, "l_type=F_WRLCK") {
+		t.Fatalf("decodeFlock() = %q, %v", got, ok)
+	}
+}
+
 func TestTypeMiscFlockUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFlockData(1, 2, 3, 4)}
 	decoder := event.NewDecoder()
@@ -198,6 +212,20 @@ func TestTypeMiscFlockUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestTypeMiscFOwnerExUsesPayloadStructSection(t *testing.T) {
+	ctx := newTypeMiscPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.Args[1] = 16 // F_GETOWN_EX
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: 0, Data: makeFOwnerExData(1, 44)},
+	}
+
+	got, ok := decodeFOwnerEx(ctx, 2, "struct f_owner_ex *", 0x1000)
+	if !ok || got != "{type=F_OWNER_PID, pid=44}" {
+		t.Fatalf("decodeFOwnerEx() = %q, %v", got, ok)
 	}
 }
 

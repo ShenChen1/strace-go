@@ -786,6 +786,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `cachestat` 已暴露 range/stats 的 `PayloadKindStruct` sections，handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `openat2` 已暴露 `open_how` 的 `PayloadKindStruct` section，handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `rt_sigaction/rt_sigprocmask/rt_sigsuspend` 已暴露 sigaction/sigset 的 `PayloadKindStruct` sections，signal handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
+- `fcntl/fcntl64` 已按 command 暴露 arg2 的 8/32 字节 `PayloadKindStruct` section，fcntl handler 和通用 flock/f_owner_ex decoder 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 
 ### Phase 5: filter 下推
 
