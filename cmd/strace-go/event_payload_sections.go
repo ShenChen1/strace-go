@@ -156,6 +156,8 @@ func structuredPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]han
 		return capabilityPayloadSectionsForEvent(eventRaw, scName), true
 	case "cachestat":
 		return cachestatPayloadSectionsForEvent(eventRaw), true
+	case "rt_sigaction", "rt_sigprocmask", "rt_sigsuspend":
+		return signalPayloadSectionsForEvent(eventRaw, scName), true
 	case "clock_gettime", "clock_getres", "clock_settime", "adjtimex", "clock_adjtime",
 		"nanosleep", "clock_nanosleep", "gettimeofday", "settimeofday", "getitimer", "setitimer":
 		return timePayloadSectionsForEvent(eventRaw, scName), true

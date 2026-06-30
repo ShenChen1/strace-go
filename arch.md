@@ -785,6 +785,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `capget/capset` 已暴露 capability header/data sections，capset data capture policy 补齐为 enter snapshot，handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `cachestat` 已暴露 range/stats 的 `PayloadKindStruct` sections，handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `openat2` 已暴露 `open_how` 的 `PayloadKindStruct` section，handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
+- `rt_sigaction/rt_sigprocmask/rt_sigsuspend` 已暴露 sigaction/sigset 的 `PayloadKindStruct` sections，signal handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 
 ### Phase 5: filter 下推
 
