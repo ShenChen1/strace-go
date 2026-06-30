@@ -96,6 +96,23 @@ func TestClone3UsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestClone3UsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeClone3Data(0)}
+	ctx := newClone3PolicyContext(reader, event.NewDecoder())
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 0, ProbeRet: 0, Data: makeClone3Data(0)},
+	}
+
+	got := (&ProcessHandler{}).Handle(ctx)
+	if !strings.Contains(got.ArgParts[0], "flags=0") {
+		t.Fatalf("clone3 args = %q", got.ArgParts[0])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestClone3SetTidDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeUint32Slice(11, 22)}
 	decoder := event.NewDecoder()

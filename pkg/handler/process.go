@@ -38,9 +38,15 @@ func (h *ProcessHandler) formatClone3(ctx *Context, uargs, size uint64) string {
 	if capLen > 256 {
 		capLen = 256
 	}
-	data, ok := ctx.EnterArgSnapshotPrefix(0, BpfEnterArgOffset, capLen)
+	data, ok := ctx.PayloadStruct(0, PayloadDirectionIn)
+	if !ok {
+		data, ok = ctx.EnterArgSnapshotPrefix(0, BpfEnterArgOffset, capLen)
+	}
 	if !ok || len(data) == 0 {
 		return fmt.Sprintf("%#x", uargs)
+	}
+	if len(data) > capLen {
+		data = data[:capLen]
 	}
 
 	parts := h.decodeCloneArgsCore(data, size)

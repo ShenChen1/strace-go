@@ -150,6 +150,8 @@ func structuredPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]han
 		return prlimitPayloadSectionsForEvent(eventRaw), true
 	case "get_robust_list":
 		return robustListPayloadSectionsForEvent(eventRaw), true
+	case "clone3":
+		return clone3PayloadSectionsForEvent(eventRaw), true
 	case "waitid":
 		return waitidPayloadSectionsForEvent(eventRaw), true
 	case "arch_prctl":
