@@ -135,7 +135,7 @@ func structuredPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]han
 	case "prlimit64":
 		return prlimitPayloadSectionsForEvent(eventRaw), true
 	case "clock_gettime", "clock_getres", "clock_settime", "adjtimex", "clock_adjtime",
-		"nanosleep", "clock_nanosleep", "gettimeofday", "settimeofday":
+		"nanosleep", "clock_nanosleep", "gettimeofday", "settimeofday", "getitimer", "setitimer":
 		return timePayloadSectionsForEvent(eventRaw, scName), true
 	case "futex", "futex_wait", "futex_waitv", "futex_requeue":
 		return futexPayloadSectionsForEvent(eventRaw, scName), true

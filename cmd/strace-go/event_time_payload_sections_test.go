@@ -157,6 +157,52 @@ func TestJSONSyscallEventIncludesSleepAndTimexPayloadSections(t *testing.T) {
 	}
 }
 
+func TestJSONSyscallEventIncludesItimerPayloadSections(t *testing.T) {
+	tests := []struct {
+		name     string
+		eventRaw bpfEvent
+		wants    []wantTimeJSONPayloadSection
+	}{
+		{
+			name: "getitimer",
+			eventRaw: bpfEvent{
+				EventType:    bpfEventTypeExit,
+				Args:         [6]uint64{0, 0x1000},
+				Ret:          0,
+				DataLen:      handler.BpfExitArgOffset + timePayloadItimervalSize,
+				ProbeRetExit: 0,
+			},
+			wants: []wantTimeJSONPayloadSection{
+				{"struct", "out", 1, 1024, 0x1000, 32, timeJSONItimerval(1, 2, 3, 4)},
+			},
+		},
+		{
+			name: "setitimer",
+			eventRaw: bpfEvent{
+				EventType:     bpfEventTypeExit,
+				Args:          [6]uint64{0, 0x2000, 0x3000},
+				Ret:           0,
+				DataLen:       handler.BpfExitArgOffset + timePayloadItimervalSize,
+				ProbeRetEnter: 0,
+				ProbeRetExit:  0,
+			},
+			wants: []wantTimeJSONPayloadSection{
+				{"struct", "in", 1, 0, 0x2000, 32, timeJSONItimerval(5, 6, 7, 8)},
+				{"struct", "out", 2, 1024, 0x3000, 32, timeJSONItimerval(9, 10, 11, 12)},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventRaw := tt.eventRaw
+			putTimeJSONPayloads(&eventRaw, tt.wants)
+			ev := timeJSONSyscallEvent(&eventRaw, tt.name)
+			assertTimeJSONPayloadSections(t, ev.PayloadSections, tt.wants)
+		})
+	}
+}
+
 func timeJSONSyscallEvent(eventRaw *bpfEvent, name string) jsonSyscallEvent {
 	scMeta := meta.Syscall{Name: name}
 	return newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -223,5 +269,12 @@ func timeJSONTimezone(west uint32, dst uint32) []byte {
 func timeJSONTimex(modes uint32) []byte {
 	data := make([]byte, timePayloadTimexSize)
 	binary.LittleEndian.PutUint32(data[0:4], modes)
+	return data
+}
+
+func timeJSONItimerval(aSec uint64, aSub uint64, bSec uint64, bSub uint64) []byte {
+	data := make([]byte, timePayloadItimervalSize)
+	copy(data[0:16], timeJSONStruct(aSec, aSub))
+	copy(data[16:32], timeJSONStruct(bSec, bSub))
 	return data
 }

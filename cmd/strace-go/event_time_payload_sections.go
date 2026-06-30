@@ -8,6 +8,7 @@ const (
 	timePayloadTimezoneSize   = 8
 	timePayloadTimezoneOffset = handler.BpfExitArgOffset + timespecPayloadStructSize
 	timePayloadTimexSize      = 208
+	timePayloadItimervalSize  = 32
 )
 
 func timePayloadSectionsForEvent(eventRaw *bpfEvent, scName string) []handler.PayloadSection {
@@ -28,6 +29,10 @@ func timePayloadSectionsForEvent(eventRaw *bpfEvent, scName string) []handler.Pa
 		return gettimeofdayPayloadSections(eventRaw)
 	case "settimeofday":
 		return settimeofdayPayloadSections(eventRaw)
+	case "getitimer":
+		return successfulTimeOutSection(eventRaw, 1, timePayloadExitOffset, timePayloadItimervalSize)
+	case "setitimer":
+		return setitimerPayloadSections(eventRaw)
 	default:
 		return nil
 	}
@@ -60,6 +65,14 @@ func gettimeofdayPayloadSections(eventRaw *bpfEvent) []handler.PayloadSection {
 func settimeofdayPayloadSections(eventRaw *bpfEvent) []handler.PayloadSection {
 	sections := timeStructPayloadSection(eventRaw, 0, handler.PayloadDirectionIn, timePayloadStructOffset, timespecPayloadStructSize)
 	return append(sections, timeStructPayloadSection(eventRaw, 1, handler.PayloadDirectionIn, timespecPayloadStructSize, timePayloadTimezoneSize)...)
+}
+
+func setitimerPayloadSections(eventRaw *bpfEvent) []handler.PayloadSection {
+	sections := timeStructPayloadSection(eventRaw, 1, handler.PayloadDirectionIn, timePayloadStructOffset, timePayloadItimervalSize)
+	if isExitEvent(eventRaw) && eventRaw.Ret >= 0 {
+		sections = append(sections, timeStructPayloadSection(eventRaw, 2, handler.PayloadDirectionOut, timePayloadExitOffset, timePayloadItimervalSize)...)
+	}
+	return sections
 }
 
 func successfulTimeOutSection(eventRaw *bpfEvent, argIndex int, offset int, size uint32) []handler.PayloadSection {

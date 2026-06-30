@@ -245,6 +245,32 @@ func TestDecodeItimervalUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestDecodeItimervalUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeDoubleTimeStruct(9, 10, 11, 12)}
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		Ret:     0,
+		Decoder: event.NewDecoder(),
+		ScMeta:  meta.Syscall{Name: "getitimer"},
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeDoubleTimeStruct(5, 6, 7, 8)},
+		},
+	}
+
+	got, ok := decodeItimerval(ctx, 1, "struct itimerval *", 0x1000)
+	if !ok {
+		t.Fatal("decodeItimerval returned ok=false")
+	}
+	want := "{it_interval={tv_sec=5, tv_usec=6}, it_value={tv_sec=7, tv_usec=8}}"
+	if got != want {
+		t.Fatalf("decodeItimerval() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestDecodeTimezoneUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimezoneData(9, 10)}
 	decoder := event.NewDecoder()

@@ -776,6 +776,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `pipe/pipe2/socketpair` 的 fd array 已暴露为 OUT `PayloadKindStruct` section，pipe formatter 优先消费 section，旧 exit snapshot 仅作为迁移期 fallback。
 - `readv/writev/preadv/pwritev/preadv2/pwritev2/vmsplice` 与 `process_vm_readv/writev` 已暴露 `PayloadKindIovec` section，iovec formatter 优先消费 section，旧 enter snapshot 仅作为迁移期 fallback。
 - `uname/sysinfo/getrlimit/setrlimit/prlimit64` 已暴露 `PayloadKindStruct` section，misc formatter 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
+- `getitimer/setitimer` 已暴露 `itimerval` 的 `PayloadKindStruct` section，time formatter 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 
 ### Phase 5: filter 下推
 
