@@ -41,3 +41,12 @@ func (ctx *Context) PayloadBytes(argIndex int, direction PayloadDirection) ([]by
 	}
 	return section.Data, true
 }
+
+// PayloadString decodes a successfully captured string payload for one argument.
+func (ctx *Context) PayloadString(argIndex int, direction PayloadDirection, ptr uint64, limit int) (string, bool) {
+	section, ok := ctx.Section(argIndex, PayloadKindString)
+	if !ok || section.Direction != direction || section.ProbeRet != 0 || len(section.Data) == 0 {
+		return "", false
+	}
+	return ctx.Decoder.DecodeString(ctx.Pid, ptr, section.Data, section.ProbeRet, ctx.SysName, limit), true
+}

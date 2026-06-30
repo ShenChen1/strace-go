@@ -343,6 +343,41 @@ func TestDecodeWriteBufferUsesPayloadSection(t *testing.T) {
 	}
 }
 
+func TestDecodePathUsesPayloadStringSection(t *testing.T) {
+	ctx := &Context{
+		Pid:       101,
+		Tid:       102,
+		TargetPid: 101,
+		ScMeta: meta.Syscall{
+			Name:     "openat",
+			Args:     []string{"dfd", "filename", "flags"},
+			ArgTypes: []string{"int", "const char *", "int"},
+		},
+		PayloadSections: []PayloadSection{
+			{
+				Kind:      PayloadKindString,
+				Direction: PayloadDirectionIn,
+				ArgIndex:  1,
+				UserPtr:   0x3000,
+				UserLen:   13,
+				CopiedLen: 13,
+				ProbeRet:  0,
+				Data:      []byte("/tmp/section\x00"),
+			},
+		},
+		Opts: &cli.Options{
+			StringLimit: 32,
+		},
+		Decoder: event.NewDecoder(),
+	}
+
+	res := Result{}
+	got, ok := decodeCharPointer(ctx, 1, "const char *", "filename", 0x3000, &res)
+	if !ok || got != `"/tmp/section"` {
+		t.Fatalf("decodeCharPointer(path) = %q, %v; want payload section", got, ok)
+	}
+}
+
 func TestDecodeWriteDumpExtendsFromWrittenFile(t *testing.T) {
 	data := make([]byte, 0x300)
 	for i := range data {

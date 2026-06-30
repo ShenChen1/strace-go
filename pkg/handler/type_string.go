@@ -62,6 +62,11 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 	if isPath && shouldShowFaultingTimePathPointer(ctx, val) {
 		return fmt.Sprintf("%#x", val), true
 	}
+	if isPath {
+		if p, ok := ctx.PayloadString(i, PayloadDirectionIn, val, 0); ok {
+			return p, true
+		}
+	}
 	if isPath && val == ctx.Ptr && ctx.RawStrArg != "" && !strings.HasPrefix(ctx.RawStrArg, "0x") {
 		return ctx.RawStrArg, true
 	}

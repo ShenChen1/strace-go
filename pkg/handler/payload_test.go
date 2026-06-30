@@ -56,3 +56,19 @@ func TestContextPayloadBytesRejectsFailedOrWrongDirectionSection(t *testing.T) {
 		t.Fatalf("PayloadBytes failed probe = %q, want no match", string(data))
 	}
 }
+
+func TestContextPayloadStringRejectsFailedOrWrongDirectionSection(t *testing.T) {
+	ctx := &Context{
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: []byte("in\x00")},
+			{Kind: PayloadKindString, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: -14, Data: []byte("out\x00")},
+		},
+	}
+
+	if data, ok := ctx.PayloadString(1, PayloadDirectionOut, 0x1000, 0); ok {
+		t.Fatalf("PayloadString wrong direction = %q, want no match", data)
+	}
+	if data, ok := ctx.PayloadString(2, PayloadDirectionOut, 0x2000, 0); ok {
+		t.Fatalf("PayloadString failed probe = %q, want no match", data)
+	}
+}
