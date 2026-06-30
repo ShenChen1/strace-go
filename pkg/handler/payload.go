@@ -57,6 +57,11 @@ func (ctx *Context) PayloadStruct(argIndex int, direction PayloadDirection) ([]b
 	return ctx.payloadData(argIndex, PayloadKindStruct, direction)
 }
 
+// PayloadExecArgs returns a captured exec argv/envp snapshot.
+func (ctx *Context) PayloadExecArgs(argIndex int) ([]byte, bool) {
+	return ctx.payloadData(argIndex, PayloadKindExecArgs, PayloadDirectionIn)
+}
+
 func (ctx *Context) payloadData(argIndex int, kind PayloadKind, direction PayloadDirection) ([]byte, bool) {
 	for _, section := range ctx.PayloadSections {
 		if section.ArgIndex == argIndex && section.Kind == kind &&

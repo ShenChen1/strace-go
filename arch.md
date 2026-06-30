@@ -770,6 +770,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - JSON `payload_sections` 已迁入共享 `handler.PayloadSection` 模型，`handler.Context.Section(arg, kind)` 可以按参数和 payload 类型复用同一份 BPF 快照。
 - `read/pread64` 和 `write/pwrite64` 的 buffer formatter 已优先消费 `PayloadKindBytes` section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - path/open 类参数 formatter 已优先消费 `PayloadKindString` section，旧 `RawStrArg` / fixed offset string buffer 仅作为迁移期 fallback。
+- `execve/execveat` 的 argv/envp snapshot 已暴露为 `PayloadKindExecArgs` section，exec argv/envp decoder 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `getcwd/readlink/readlinkat` 已暴露 OUT `PayloadKindBytes` section，formatter 优先消费 section，旧 exit snapshot 仅作为迁移期 fallback。
 - `readv/writev/preadv/pwritev/preadv2/pwritev2/vmsplice` 与 `process_vm_readv/writev` 已暴露 `PayloadKindIovec` section，iovec formatter 优先消费 section，旧 enter snapshot 仅作为迁移期 fallback。
 
@@ -904,6 +905,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - 单元测试会扫描主产品 Go 源码，禁止重新引入 ptrace runtime API、`pkg/procmem` 或用户态 `process_vm_readv` 补读入口。
 - Go 事件分类不再把 `event_type == 0` 当作 exit；旧 fixed event 协议样本会落到 `unknown`，不能消费 enter pending state。
 - JSON/debug syscall event 已开始暴露 `payload_sections`，先把现有 fixed snapshot 投影成 path/read/write/stat/statfs sections；semantic suite 已断言 write IN payload section。
+- `execve/execveat` 已暴露 argv/envp 的 `PayloadKindExecArgs` section，exec argv/envp decoder 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `stat/lstat/fstat/newfstatat` 与 `statfs/fstatfs` 已暴露 OUT `PayloadKindStruct` section，stat formatter 优先消费 section，旧 exit snapshot 仅作为迁移期 fallback。
 - `poll/ppoll` 与 `epoll_ctl/epoll_wait/epoll_pwait/epoll_pwait2` 已暴露结构数组/timeout 的 `PayloadKindStruct` sections，formatter 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。
 - `select/_newselect` 已暴露 enter/exit `fd_set` 的 `PayloadKindBytes` sections 和 timeout 的 `PayloadKindStruct` sections，select formatter 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。

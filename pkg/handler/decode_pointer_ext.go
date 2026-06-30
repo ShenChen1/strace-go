@@ -32,11 +32,12 @@ func decodeExecStringArraySnapshot(ctx *Context, val uint64, argName string) (st
 	if val == 0 {
 		return "NULL", true
 	}
-	if len(ctx.StrArgBuf) < execSnapshotOffset+execSnapshotHeaderSize {
+	snapshot, ok := execSnapshotData(ctx)
+	if !ok || len(snapshot) < execSnapshotHeaderSize {
 		return "", false
 	}
 
-	header := ctx.StrArgBuf[execSnapshotOffset:]
+	header := snapshot
 	if binary.LittleEndian.Uint32(header[0:4]) != execSnapshotMagic {
 		return "", false
 	}
@@ -53,8 +54,8 @@ func decodeExecStringArraySnapshot(ctx *Context, val uint64, argName string) (st
 			return fmt.Sprintf("%#x", val), true
 		}
 		if ctx.Opts.Verbose {
-			envOffset := execSnapshotOffset + execSnapshotHeaderSize + execArgSnapshotCount*execArgSnapshotSize
-			return decodeExecSnapshotRecords(ctx, envOffset, envCount, envStatus, envNext, execEnvSnapshotCount)
+			envOffset := execSnapshotHeaderSize + execArgSnapshotCount*execArgSnapshotSize
+			return decodeExecSnapshotRecords(ctx, snapshot, envOffset, envCount, envStatus, envNext, execEnvSnapshotCount)
 		}
 		noun := "vars"
 		if envCount == 1 {
@@ -80,16 +81,39 @@ func decodeExecStringArraySnapshot(ctx *Context, val uint64, argName string) (st
 		argvCount = execArgDisplayCount
 		argvStatus = 1
 	}
-	argvOffset := execSnapshotOffset + execSnapshotHeaderSize
-	return decodeExecSnapshotRecords(ctx, argvOffset, argvCount, argvStatus, argvNext, execArgSnapshotCount)
+	return decodeExecSnapshotRecords(ctx, snapshot, execSnapshotHeaderSize, argvCount, argvStatus, argvNext, execArgSnapshotCount)
 }
 
-func decodeExecSnapshotRecords(ctx *Context, baseOffset, count int, status int32, next uint64, maxCount int) (string, bool) {
+func execSnapshotData(ctx *Context) ([]byte, bool) {
+	argvIndex, ok := execSnapshotArgIndex(ctx)
+	if ok {
+		if data, ok := ctx.PayloadExecArgs(argvIndex); ok {
+			return data, true
+		}
+	}
+	if len(ctx.StrArgBuf) < execSnapshotOffset+execSnapshotHeaderSize {
+		return nil, false
+	}
+	return ctx.StrArgBuf[execSnapshotOffset:], true
+}
+
+func execSnapshotArgIndex(ctx *Context) (int, bool) {
+	switch ctx.ScMeta.Name {
+	case "execve":
+		return 1, true
+	case "execveat":
+		return 2, true
+	default:
+		return 0, false
+	}
+}
+
+func decodeExecSnapshotRecords(ctx *Context, snapshot []byte, baseOffset, count int, status int32, next uint64, maxCount int) (string, bool) {
 	if count < 0 || count > maxCount {
 		return "", false
 	}
 	required := baseOffset + count*execArgSnapshotSize
-	if len(ctx.StrArgBuf) < required {
+	if len(snapshot) < required {
 		return "", false
 	}
 
@@ -97,7 +121,7 @@ func decodeExecSnapshotRecords(ctx *Context, baseOffset, count int, status int32
 	var parts []string
 	for i := 0; i < count; i++ {
 		offset := baseOffset + i*execArgSnapshotSize
-		record := ctx.StrArgBuf[offset : offset+execArgSnapshotSize]
+		record := snapshot[offset : offset+execArgSnapshotSize]
 		ptr := binary.LittleEndian.Uint64(record[0:8])
 		readLen := int32(binary.LittleEndian.Uint32(record[8:12]))
 		if readLen <= 0 {
