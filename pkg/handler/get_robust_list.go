@@ -36,7 +36,7 @@ func (h *GetRobustListHandler) Handle(ctx *Context) Result {
 		if ctx.Args[1] == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
-			headVal, ok := robustListExitWord(ctx, robustListHeadOffset)
+			headVal, ok := robustListExitWord(ctx, 1, robustListHeadOffset)
 			if !ok {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[1]))
 			} else {
@@ -56,7 +56,7 @@ func (h *GetRobustListHandler) Handle(ctx *Context) Result {
 		if ctx.Args[2] == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
-			lenVal, ok := robustListExitWord(ctx, robustListLenOffset)
+			lenVal, ok := robustListExitWord(ctx, 2, robustListLenOffset)
 			if !ok {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
 			} else {
@@ -68,7 +68,10 @@ func (h *GetRobustListHandler) Handle(ctx *Context) Result {
 	return res
 }
 
-func robustListExitWord(ctx *Context, offset int) (uint64, bool) {
+func robustListExitWord(ctx *Context, argIndex int, offset int) (uint64, bool) {
+	if data, ok := ctx.PayloadStruct(argIndex, PayloadDirectionOut); ok && len(data) >= robustListWordSize {
+		return binary.LittleEndian.Uint64(data[:robustListWordSize]), true
+	}
 	data, ok := ctx.ExitSnapshot(offset, robustListWordSize)
 	if !ok {
 		return 0, false

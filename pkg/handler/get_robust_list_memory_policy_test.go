@@ -49,3 +49,20 @@ func TestGetRobustListUsesExitSnapshotsWithoutMemoryRead(t *testing.T) {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
+
+func TestGetRobustListUsesPayloadStructSections(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeUint64Snapshot(0)}
+	ctx := newGetRobustListPolicyContext(reader, event.NewDecoder())
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeUint64Snapshot(0xbeefcafe)},
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: 0, Data: makeUint64Snapshot(32)},
+	}
+
+	got := (&GetRobustListHandler{}).Handle(ctx)
+	if got.ArgParts[1] != "[0xbeefcafe]" || got.ArgParts[2] != "[32]" {
+		t.Fatalf("get_robust_list args = %v", got.ArgParts)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}

@@ -19,6 +19,7 @@ const (
 	epollPayloadMaxBytes      = 512
 	timespecPayloadStructSize = 16
 	fdArrayPayloadSize        = 8
+	robustListPayloadWordSize = 8
 	rlimitPayloadStructSize   = 16
 	sysinfoPayloadStructSize  = 112
 	utsnamePayloadStructSize  = 65 * 6
@@ -134,6 +135,8 @@ func structuredPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]han
 		return enterStructPayloadSection(eventRaw, 1, handler.BpfEnterArgOffset, rlimitPayloadStructSize), true
 	case "prlimit64":
 		return prlimitPayloadSectionsForEvent(eventRaw), true
+	case "get_robust_list":
+		return robustListPayloadSectionsForEvent(eventRaw), true
 	case "clock_gettime", "clock_getres", "clock_settime", "adjtimex", "clock_adjtime",
 		"nanosleep", "clock_nanosleep", "gettimeofday", "settimeofday", "getitimer", "setitimer":
 		return timePayloadSectionsForEvent(eventRaw, scName), true
@@ -172,6 +175,14 @@ func prlimitPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection
 	return sections
 }
 
+func robustListPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
+	if !isExitEvent(eventRaw) || eventRaw.Ret < 0 {
+		return nil
+	}
+	sections := exitStructPayloadSectionAt(eventRaw, 1, handler.BpfExitArgOffset, robustListPayloadWordSize)
+	return append(sections, exitStructPayloadSectionAt(eventRaw, 2, handler.BpfExitArgOffset+16, robustListPayloadWordSize)...)
+}
+
 func stringPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int) []handler.PayloadSection {
 	data, ok := eventPayloadWindow(eventRaw, 0, 4097)
 	if !ok {
@@ -207,6 +218,10 @@ func exitBytesPayloadSectionFromRet(eventRaw *bpfEvent, argIndex int) []handler.
 }
 
 func exitStructPayloadSection(eventRaw *bpfEvent, argIndex int, size uint32) []handler.PayloadSection {
+	return exitStructPayloadSectionAt(eventRaw, argIndex, handler.BpfExitArgOffset, size)
+}
+
+func exitStructPayloadSectionAt(eventRaw *bpfEvent, argIndex int, offset int, size uint32) []handler.PayloadSection {
 	if !isExitEvent(eventRaw) || eventRaw.Ret < 0 {
 		return nil
 	}
@@ -214,7 +229,7 @@ func exitStructPayloadSection(eventRaw *bpfEvent, argIndex int, size uint32) []h
 		kind:      handler.PayloadKindStruct,
 		direction: handler.PayloadDirectionOut,
 		argIndex:  argIndex,
-		offset:    handler.BpfExitArgOffset,
+		offset:    offset,
 		userLen:   size,
 		maxLen:    size,
 		probeRet:  eventRaw.ProbeRetExit,
