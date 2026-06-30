@@ -110,7 +110,7 @@ func captureSizeExpr(scName string, suffix string, r CaptureRead) string {
 		if size, ok := policyDynamicSizeExpr(r); ok {
 			return size
 		}
-		return dynamicSizeStr(scName, suffix, r)
+		return "0"
 	}
 	return fmt.Sprintf("%d", r.Size)
 }
@@ -137,6 +137,9 @@ func policyDynamicSizeExpr(r CaptureRead) (string, bool) {
 	}
 	if r.LenFromArgCases != nil {
 		return "fsz", true
+	}
+	if r.StringBytesSwitch != nil {
+		return "switchsz", true
 	}
 	if r.CountFromArg != nil {
 		arg := *r.CountFromArg
@@ -170,14 +173,22 @@ func dynamicPreludeCode(scName string, r CaptureRead) string {
 		res += argCasesPreludeCode(r.LenFromArgCases)
 	} else if r.Size == 0 && r.CountFromArg != nil && r.SplitFirst > 0 {
 		res += countSplitPreludeCode(r)
-	} else if r.Size == 0 && scName == "fsconfig" && r.Arg == 3 {
-		res += fmt.Sprintf("\t\t\t\tu32 fssz = 0; \\\n")
-		res += fmt.Sprintf("\t\t\t\tif ((e)->args[1] == 2) { \\\n")
-		res += fmt.Sprintf("\t\t\t\t\tfssz = (e)->args[4]; \\\n")
-		res += fmt.Sprintf("\t\t\t\t\tfssz &= 0x1fff; \\\n")
-		res += fmt.Sprintf("\t\t\t\t\tfssz = (fssz > 4096) ? 4096 : fssz; \\\n")
-		res += fmt.Sprintf("\t\t\t\t} \\\n")
+	} else if r.Size == 0 && r.StringBytesSwitch != nil {
+		res += stringBytesSwitchPreludeCode(r)
 	}
+	return res
+}
+
+func stringBytesSwitchPreludeCode(r CaptureRead) string {
+	sw := r.StringBytesSwitch
+	res := "\t\t\t\tu32 switchsz = 0; \\\n"
+	res += fmt.Sprintf("\t\t\t\tif ((e)->args[%d] == %d) { \\\n", sw.SelectorArg, sw.BytesValue)
+	res += fmt.Sprintf("\t\t\t\t\tswitchsz = (e)->args[%d]; \\\n", sw.LenFromArg)
+	if sw.LenMask > 0 {
+		res += fmt.Sprintf("\t\t\t\t\tswitchsz &= %#x; \\\n", sw.LenMask)
+	}
+	res += fmt.Sprintf("\t\t\t\t\tswitchsz = (switchsz > %d) ? %d : switchsz; \\\n", r.Max, r.Max)
+	res += "\t\t\t\t} \\\n"
 	return res
 }
 
@@ -221,8 +232,8 @@ func readProbeCode(r CaptureRead, fn string, buf string, sizeStr string) string 
 			fmt.Sprintf("\t\t\t\tlong pr = (__err == 0 && fsz > 0 && (e)->args[%d]) ? fsz : __err; \\\n", r.Arg)
 	case r.SplitFirst > 0 && sizeStr == "countsz":
 		return splitCountReadProbeCode(r, buf, sizeStr)
-	case sizeStr == "fssz":
-		return fsconfigReadProbeCode(r, buf)
+	case r.StringBytesSwitch != nil && sizeStr == "switchsz":
+		return stringBytesSwitchReadProbeCode(r, buf, sizeStr)
 	case r.Type == "string" && r.Size > 2048:
 		return splitStringReadProbeCode(r, buf)
 	case r.Type == "string":
@@ -238,15 +249,16 @@ func readProbeCode(r CaptureRead, fn string, buf string, sizeStr string) string 
 	}
 }
 
-func fsconfigReadProbeCode(r CaptureRead, buf string) string {
+func stringBytesSwitchReadProbeCode(r CaptureRead, buf string, sizeStr string) string {
+	sw := r.StringBytesSwitch
 	return fmt.Sprintf("\t\t\t\tlong pr = 0; \\\n") +
-		fmt.Sprintf("\t\t\t\tif ((e)->args[1] == 2) { \\\n") +
-		fmt.Sprintf("\t\t\t\t\tif (fssz > 0 && (e)->args[%d]) { \\\n", r.Arg) +
-		fmt.Sprintf("\t\t\t\t\t\tint __err = bpf_probe_read_user(%s, fssz, (void *)(e)->args[%d]); \\\n", buf, r.Arg) +
-		fmt.Sprintf("\t\t\t\t\t\tpr = (__err == 0) ? fssz : __err; \\\n") +
+		fmt.Sprintf("\t\t\t\tif ((e)->args[%d] == %d) { \\\n", sw.SelectorArg, sw.BytesValue) +
+		fmt.Sprintf("\t\t\t\t\tif (%s > 0 && (e)->args[%d]) { \\\n", sizeStr, r.Arg) +
+		fmt.Sprintf("\t\t\t\t\t\tint __err = bpf_probe_read_user(%s, %s, (void *)(e)->args[%d]); \\\n", buf, sizeStr, r.Arg) +
+		fmt.Sprintf("\t\t\t\t\t\tpr = (__err == 0) ? %s : __err; \\\n", sizeStr) +
 		fmt.Sprintf("\t\t\t\t\t} \\\n") +
 		fmt.Sprintf("\t\t\t\t} else if ((e)->args[%d]) { \\\n", r.Arg) +
-		fmt.Sprintf("\t\t\t\t\tpr = bpf_probe_read_user_str(%s, 4096, (void *)(e)->args[%d]); \\\n", buf, r.Arg) +
+		fmt.Sprintf("\t\t\t\t\tpr = bpf_probe_read_user_str(%s, %d, (void *)(e)->args[%d]); \\\n", buf, r.Max, r.Arg) +
 		fmt.Sprintf("\t\t\t\t} \\\n")
 }
 
@@ -318,18 +330,4 @@ func ioSubmitExtraCode(scName string, suffix string, r CaptureRead) string {
 		"\t\t\t\t\tif ((e)->data_len < 512 + i*64 + 64) (e)->data_len = 512 + i*64 + 64; \\\n" +
 		"\t\t\t\t} \\\n" +
 		"\t\t\t} \\\n"
-}
-
-func dynamicSizeStr(scName string, suffix string, r CaptureRead) string {
-	switch scName {
-	case "epoll_ctl":
-		if r.Arg == 1 {
-			return "((e)->args[2] > 0 ? ((e)->args[2] > 512 ? 512 : (e)->args[2]) : 0)"
-		}
-	case "fsconfig":
-		if r.Arg == 3 {
-			return "fssz"
-		}
-	}
-	return "0"
 }

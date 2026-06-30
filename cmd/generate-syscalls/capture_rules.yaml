@@ -69,9 +69,9 @@ rules:
   - syscalls: [fsconfig]
     enter:
       ptr_arg: 2
-      reads:
-        - { arg: 2, size: 257, offset: 0, type: string }
-        - { arg: 3, size: 0, offset: 257, type: raw }
+      payloads:
+        - { arg: 2, kind: string, direction: in, size: 257, offset: 0 }
+        - { arg: 3, kind: string_or_bytes, direction: in, string_bytes_switch: { selector_arg: 1, bytes_value: 2, len_from_arg: 4, len_mask: 8191 }, max: 4096, offset: 257 }
 
   - syscalls: [utimensat]
     enter:

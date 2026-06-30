@@ -861,13 +861,14 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `bpf`、`clone3`、`getcwd`、`readlink/readlinkat` 已迁移为 `payloads`，对应 `len_from_arg` / `len_from_ret` 特例已删除。
 - capture policy 已支持 `min` 下界；`openat2` 的 `open_how` 拷贝长度由 `len_from_arg: 3, min: 24, max: 64` 表达，`dynamicSizeStr` 中对应特例已删除。
 - 普通 path、at-based path、stat/readlink/newfstatat 和双 path syscall 的固定字符串捕获已迁移为 `payloads`，继续保持生成输出稳定。
-- 固定长度 raw/struct/string 捕获已批量迁移为 `payloads`；旧 `reads` 目前只剩少数 syscall 特殊 prelude。
+- 固定长度 raw/struct/string 捕获已批量迁移为 `payloads`；产品 `capture_rules.yaml` 已不再使用旧 `reads` schema。
 - socket 输出地址捕获已通过 `len_from_user_arg` 和 `clamp_u32_from_offset` 描述 addrlen 指针读取与 enter 输入长度 clamp；`dynamicSocketAddrSize` 特例已删除。
 - `ioctl` 的 `_IOC_SIZE` 捕获长度已通过 `len_from_arg_bits` 描述 bitfield 提取、0 长度默认值和最大截断；`dynamicSizeStr` 中对应特例已删除。
 - `io_submit` 与 `io_getevents/io_pgetevents` 已迁移为 `payloads`；AIO 数组长度分别由 `count_from_arg` 和 `count_from_ret` 描述，`dynamicSizeStr` 不再保留默认 enter/exit fallback。
 - `fcntl/fcntl64` 已通过 `len_from_arg_cases` 描述命令值到结构长度的映射，生成器不再按 syscall 名称硬编码 `F_GETLK/F_SETLK/F_OFD_*` 尺寸表。
 - `futex_waitv` 已通过 `count_from_arg`、`elem_size`、`max` 和 `split_first` 描述 waiters 数组的 bounded split read，生成器不再按 syscall 名称硬编码 `futex_waitv_sz`。
-- 后续继续把剩余 `reads` 规则迁移为 policy-only，并把 `dynamicSizeStr` 中的 syscall-name 特例逐步收缩成 policy 字段。
+- `fsconfig` 已通过 `string_bytes_switch` 描述 `FSCONFIG_SET_BINARY` 的 bytes 分支和其它命令的 string 分支，生成器不再按 syscall 名称硬编码 `fssz`。
+- `dynamicSizeStr` 已删除；动态 capture 长度只能来自显式 policy 字段，未知动态长度返回 0。
 
 ### Phase 8: 删除旧模式与收口文档
 

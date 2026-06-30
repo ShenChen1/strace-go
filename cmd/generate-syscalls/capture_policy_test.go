@@ -91,6 +91,10 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
     enter:
       payloads:
         - { arg: 0, kind: raw, direction: in, count_from_arg: 1, elem_size: 24, max: 3072, split_first: 24 }
+  - syscalls: [fsconfig]
+    enter:
+      payloads:
+        - { arg: 3, kind: string_or_bytes, direction: in, string_bytes_switch: { selector_arg: 1, bytes_value: 2, len_from_arg: 4, len_mask: 8191 }, max: 4096, offset: 257 }
 `)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatalf("write test policy: %v", err)
@@ -169,6 +173,13 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
 	}
 	if futexWaitvRead.CountFromArg == nil || *futexWaitvRead.CountFromArg != 1 || futexWaitvRead.ElemSize != 24 || futexWaitvRead.Max != 3072 || futexWaitvRead.SplitFirst != 24 {
 		t.Fatalf("futex_waitv dynamic policy = %#v, want count_from_arg split read", futexWaitvRead)
+	}
+	fsconfigRead := globalConfig.Rules[11].Enter.Reads[0]
+	if fsconfigRead.Arg != 3 || fsconfigRead.Size != 0 || fsconfigRead.Type != "raw" || fsconfigRead.Offset != 257 || fsconfigRead.Max != 4096 {
+		t.Fatalf("fsconfig payload normalized to %#v, want switched string/bytes read", fsconfigRead)
+	}
+	if fsconfigRead.StringBytesSwitch == nil || fsconfigRead.StringBytesSwitch.SelectorArg != 1 || fsconfigRead.StringBytesSwitch.BytesValue != 2 || fsconfigRead.StringBytesSwitch.LenFromArg != 4 || fsconfigRead.StringBytesSwitch.LenMask != 8191 {
+		t.Fatalf("fsconfig switch policy = %#v, want selector arg 1 bytes value 2 len arg 4 mask 8191", fsconfigRead.StringBytesSwitch)
 	}
 }
 
@@ -395,6 +406,26 @@ func TestLoadCapturePolicyRejectsInvalidArgCasesLength(t *testing.T) {
 
 	if err := loadCapturePolicy(path); err == nil {
 		t.Fatalf("loadCapturePolicy() error = nil, want invalid len_from_arg_cases error")
+	}
+}
+
+func TestLoadCapturePolicyRejectsInvalidStringBytesSwitch(t *testing.T) {
+	oldConfig := globalConfig
+	defer func() { globalConfig = oldConfig }()
+
+	path := filepath.Join(t.TempDir(), "capture_rules.yaml")
+	data := []byte(`rules:
+  - syscalls: [fsconfig]
+    enter:
+      payloads:
+        - { arg: 3, kind: string_or_bytes, direction: in, string_bytes_switch: { selector_arg: -1, bytes_value: 2, len_from_arg: 4 }, max: 4096 }
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write test policy: %v", err)
+	}
+
+	if err := loadCapturePolicy(path); err == nil {
+		t.Fatalf("loadCapturePolicy() error = nil, want invalid string_bytes_switch error")
 	}
 }
 

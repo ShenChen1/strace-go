@@ -31,6 +31,7 @@ type CaptureRead struct {
 	LenFromUserArg     *int   `yaml:"-"`
 	LenFromArgBits     *ArgBitsLength
 	LenFromArgCases    *ArgCasesLength
+	StringBytesSwitch  *StringBytesSwitch
 	ClampU32FromOffset *int `yaml:"-"`
 	CountFromArg       *int `yaml:"-"`
 	CountFromRet       bool `yaml:"-"`
@@ -39,23 +40,24 @@ type CaptureRead struct {
 }
 
 type CapturePayload struct {
-	Arg                int             `yaml:"arg"`
-	Kind               string          `yaml:"kind"`
-	Direction          string          `yaml:"direction"`
-	Offset             int             `yaml:"offset"`
-	Min                int             `yaml:"min"`
-	Max                int             `yaml:"max"`
-	LenFromArg         *int            `yaml:"len_from_arg"`
-	LenFromRet         bool            `yaml:"len_from_ret"`
-	LenFromUserArg     *int            `yaml:"len_from_user_arg"`
-	LenFromArgBits     *ArgBitsLength  `yaml:"len_from_arg_bits"`
-	LenFromArgCases    *ArgCasesLength `yaml:"len_from_arg_cases"`
-	ClampU32FromOffset *int            `yaml:"clamp_u32_from_offset"`
-	CountFromArg       *int            `yaml:"count_from_arg"`
-	CountFromRet       bool            `yaml:"count_from_ret"`
-	ElemSize           int             `yaml:"elem_size"`
-	SplitFirst         int             `yaml:"split_first"`
-	Size               int             `yaml:"size"`
+	Arg                int                `yaml:"arg"`
+	Kind               string             `yaml:"kind"`
+	Direction          string             `yaml:"direction"`
+	Offset             int                `yaml:"offset"`
+	Min                int                `yaml:"min"`
+	Max                int                `yaml:"max"`
+	LenFromArg         *int               `yaml:"len_from_arg"`
+	LenFromRet         bool               `yaml:"len_from_ret"`
+	LenFromUserArg     *int               `yaml:"len_from_user_arg"`
+	LenFromArgBits     *ArgBitsLength     `yaml:"len_from_arg_bits"`
+	LenFromArgCases    *ArgCasesLength    `yaml:"len_from_arg_cases"`
+	StringBytesSwitch  *StringBytesSwitch `yaml:"string_bytes_switch"`
+	ClampU32FromOffset *int               `yaml:"clamp_u32_from_offset"`
+	CountFromArg       *int               `yaml:"count_from_arg"`
+	CountFromRet       bool               `yaml:"count_from_ret"`
+	ElemSize           int                `yaml:"elem_size"`
+	SplitFirst         int                `yaml:"split_first"`
+	Size               int                `yaml:"size"`
 }
 
 type ArgBitsLength struct {
@@ -73,6 +75,13 @@ type ArgCasesLength struct {
 type ArgLengthCase struct {
 	Size   int   `yaml:"size"`
 	Values []int `yaml:"values"`
+}
+
+type StringBytesSwitch struct {
+	SelectorArg int `yaml:"selector_arg"`
+	BytesValue  int `yaml:"bytes_value"`
+	LenFromArg  int `yaml:"len_from_arg"`
+	LenMask     int `yaml:"len_mask"`
 }
 
 type Config struct {
@@ -171,6 +180,9 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 	if err := p.LenFromArgCases.validate(); err != nil {
 		return CaptureRead{}, err
 	}
+	if err := p.StringBytesSwitch.validate(); err != nil {
+		return CaptureRead{}, err
+	}
 	if p.ClampU32FromOffset != nil && *p.ClampU32FromOffset < 0 {
 		return CaptureRead{}, fmt.Errorf("clamp_u32_from_offset must be non-negative")
 	}
@@ -178,7 +190,7 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 		return CaptureRead{}, fmt.Errorf("count_from_arg must be non-negative")
 	}
 	dynamicSources := 0
-	for _, enabled := range []bool{p.LenFromArg != nil, p.LenFromRet, p.LenFromUserArg != nil, p.LenFromArgBits != nil, p.LenFromArgCases != nil, p.CountFromArg != nil, p.CountFromRet} {
+	for _, enabled := range []bool{p.LenFromArg != nil, p.LenFromRet, p.LenFromUserArg != nil, p.LenFromArgBits != nil, p.LenFromArgCases != nil, p.StringBytesSwitch != nil, p.CountFromArg != nil, p.CountFromRet} {
 		if enabled {
 			dynamicSources++
 		}
@@ -235,6 +247,7 @@ func (p CapturePayload) toCaptureRead() (CaptureRead, error) {
 		LenFromUserArg:     p.LenFromUserArg,
 		LenFromArgBits:     p.LenFromArgBits,
 		LenFromArgCases:    p.LenFromArgCases,
+		StringBytesSwitch:  p.StringBytesSwitch,
 		ClampU32FromOffset: p.ClampU32FromOffset,
 		CountFromArg:       p.CountFromArg,
 		CountFromRet:       p.CountFromRet,
@@ -288,11 +301,30 @@ func (p *ArgCasesLength) validate() error {
 	return nil
 }
 
+func (p *StringBytesSwitch) validate() error {
+	if p == nil {
+		return nil
+	}
+	if p.SelectorArg < 0 {
+		return fmt.Errorf("string_bytes_switch.selector_arg must be non-negative")
+	}
+	if p.BytesValue < 0 {
+		return fmt.Errorf("string_bytes_switch.bytes_value must be non-negative")
+	}
+	if p.LenFromArg < 0 {
+		return fmt.Errorf("string_bytes_switch.len_from_arg must be non-negative")
+	}
+	if p.LenMask < 0 {
+		return fmt.Errorf("string_bytes_switch.len_mask must be non-negative")
+	}
+	return nil
+}
+
 func payloadReadType(kind string) (string, error) {
 	switch kind {
 	case "string":
 		return "string", nil
-	case "bytes", "raw", "struct", "iovec":
+	case "bytes", "raw", "struct", "iovec", "string_or_bytes":
 		return "raw", nil
 	case "double_ptr":
 		return "double_ptr", nil

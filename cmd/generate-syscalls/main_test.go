@@ -2,11 +2,11 @@ package main
 
 import "testing"
 
-func TestDynamicSizeStrDoesNotGuessUnknownSize(t *testing.T) {
-	got := dynamicSizeStr("unknown", "exit", CaptureRead{Arg: 1})
+func TestCaptureSizeExprDoesNotGuessUnknownDynamicSize(t *testing.T) {
+	got := captureSizeExpr("unknown", "exit", CaptureRead{Arg: 1})
 	want := "0"
 	if got != want {
-		t.Fatalf("dynamicSizeStr() = %q, want %q", got, want)
+		t.Fatalf("captureSizeExpr() = %q, want %q", got, want)
 	}
 }
 
@@ -67,6 +67,15 @@ func TestCaptureSizeExprUsesPayloadArgCasesLength(t *testing.T) {
 	}
 }
 
+func TestCaptureSizeExprUsesPayloadStringBytesSwitch(t *testing.T) {
+	read := CaptureRead{Arg: 3, StringBytesSwitch: &StringBytesSwitch{SelectorArg: 1, BytesValue: 2, LenFromArg: 4, LenMask: 8191}, Max: 4096}
+	got := captureSizeExpr("fsconfig", "enter", read)
+	want := "switchsz"
+	if got != want {
+		t.Fatalf("captureSizeExpr() = %q, want %q", got, want)
+	}
+}
+
 func TestCaptureSizeExprUsesPayloadCountLength(t *testing.T) {
 	countArg := 2
 	read := CaptureRead{Arg: 1, CountFromArg: &countArg, ElemSize: 16, Max: 512}
@@ -84,6 +93,37 @@ func TestCaptureSizeExprUsesPayloadSplitCountLength(t *testing.T) {
 	want := "countsz"
 	if got != want {
 		t.Fatalf("captureSizeExpr() = %q, want %q", got, want)
+	}
+}
+
+func TestDynamicPreludeUsesPayloadStringBytesSwitch(t *testing.T) {
+	read := CaptureRead{StringBytesSwitch: &StringBytesSwitch{SelectorArg: 1, BytesValue: 2, LenFromArg: 4, LenMask: 8191}, Max: 4096}
+	got := dynamicPreludeCode("fsconfig", read)
+	want := "\t\t\t\tu32 switchsz = 0; \\\n" +
+		"\t\t\t\tif ((e)->args[1] == 2) { \\\n" +
+		"\t\t\t\t\tswitchsz = (e)->args[4]; \\\n" +
+		"\t\t\t\t\tswitchsz &= 0x1fff; \\\n" +
+		"\t\t\t\t\tswitchsz = (switchsz > 4096) ? 4096 : switchsz; \\\n" +
+		"\t\t\t\t} \\\n"
+	if got != want {
+		t.Fatalf("dynamicPreludeCode() = %q, want %q", got, want)
+	}
+}
+
+func TestReadProbeUsesPayloadStringBytesSwitch(t *testing.T) {
+	read := CaptureRead{Arg: 3, StringBytesSwitch: &StringBytesSwitch{SelectorArg: 1, BytesValue: 2, LenFromArg: 4, LenMask: 8191}, Max: 4096}
+	got := readProbeCode(read, "bpf_probe_read_user", "(e)->str_arg + 257", "switchsz")
+	want := "\t\t\t\tlong pr = 0; \\\n" +
+		"\t\t\t\tif ((e)->args[1] == 2) { \\\n" +
+		"\t\t\t\t\tif (switchsz > 0 && (e)->args[3]) { \\\n" +
+		"\t\t\t\t\t\tint __err = bpf_probe_read_user((e)->str_arg + 257, switchsz, (void *)(e)->args[3]); \\\n" +
+		"\t\t\t\t\t\tpr = (__err == 0) ? switchsz : __err; \\\n" +
+		"\t\t\t\t\t} \\\n" +
+		"\t\t\t\t} else if ((e)->args[3]) { \\\n" +
+		"\t\t\t\t\tpr = bpf_probe_read_user_str((e)->str_arg + 257, 4096, (void *)(e)->args[3]); \\\n" +
+		"\t\t\t\t} \\\n"
+	if got != want {
+		t.Fatalf("readProbeCode() = %q, want %q", got, want)
 	}
 }
 

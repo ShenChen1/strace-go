@@ -2596,17 +2596,17 @@
 				} \
 			} \
 			{ \
-				u32 fssz = 0; \
+				u32 switchsz = 0; \
 				if ((e)->args[1] == 2) { \
-					fssz = (e)->args[4]; \
-					fssz &= 0x1fff; \
-					fssz = (fssz > 4096) ? 4096 : fssz; \
+					switchsz = (e)->args[4]; \
+					switchsz &= 0x1fff; \
+					switchsz = (switchsz > 4096) ? 4096 : switchsz; \
 				} \
 				long pr = 0; \
 				if ((e)->args[1] == 2) { \
-					if (fssz > 0 && (e)->args[3]) { \
-						int __err = bpf_probe_read_user((e)->str_arg + 257, fssz, (void *)(e)->args[3]); \
-						pr = (__err == 0) ? fssz : __err; \
+					if (switchsz > 0 && (e)->args[3]) { \
+						int __err = bpf_probe_read_user((e)->str_arg + 257, switchsz, (void *)(e)->args[3]); \
+						pr = (__err == 0) ? switchsz : __err; \
 					} \
 				} else if ((e)->args[3]) { \
 					pr = bpf_probe_read_user_str((e)->str_arg + 257, 4096, (void *)(e)->args[3]); \
