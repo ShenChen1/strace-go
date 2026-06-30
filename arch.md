@@ -898,6 +898,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - 单元测试锁定 `newTraceCommand` 不配置 ptrace，并锁定 `--mode=compat` 被拒绝，防止产品入口重新长出 ptrace/compat 分支。
 - 单元测试会扫描主产品 Go 源码，禁止重新引入 ptrace runtime API、`pkg/procmem` 或用户态 `process_vm_readv` 补读入口。
 - Go 事件分类不再把 `event_type == 0` 当作 exit；旧 fixed event 协议样本会落到 `unknown`，不能消费 enter pending state。
+- JSON/debug syscall event 已开始暴露 `payload_sections`，先把现有 fixed snapshot 投影成 path/read/write sections；semantic suite 已断言 write IN payload section。
 
 ## 9. 第一条推荐实现链路
 

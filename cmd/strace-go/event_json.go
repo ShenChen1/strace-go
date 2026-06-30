@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 
 	"strace-go/pkg/handler"
@@ -20,29 +21,42 @@ const (
 )
 
 type jsonSyscallEvent struct {
-	Type          string    `json:"type"`
-	EventVersion  uint16    `json:"event_version,omitempty"`
-	EventType     string    `json:"event_type"`
-	EventTypeID   uint16    `json:"event_type_id,omitempty"`
-	EventFlags    uint32    `json:"event_flags,omitempty"`
-	Pid           uint32    `json:"pid"`
-	Tid           uint32    `json:"tid"`
-	SysID         uint32    `json:"sys_id"`
-	Syscall       string    `json:"syscall"`
-	Args          [6]uint64 `json:"args"`
-	ArgText       []string  `json:"arg_text,omitempty"`
-	Ret           int64     `json:"ret"`
-	ReturnText    string    `json:"return_text,omitempty"`
-	Failed        bool      `json:"failed"`
-	Errno         int       `json:"errno,omitempty"`
-	DurationNS    uint64    `json:"duration_ns"`
-	EnterTimeNS   uint64    `json:"enter_time_ns"`
-	Ptr           uint64    `json:"ptr,omitempty"`
-	DataLen       uint32    `json:"data_len,omitempty"`
-	RawString     string    `json:"raw_string,omitempty"`
-	ProbeRetEnter int32     `json:"probe_ret_enter"`
-	ProbeRetExit  int32     `json:"probe_ret_exit"`
-	PairedEnter   bool      `json:"paired_enter,omitempty"`
+	Type            string               `json:"type"`
+	EventVersion    uint16               `json:"event_version,omitempty"`
+	EventType       string               `json:"event_type"`
+	EventTypeID     uint16               `json:"event_type_id,omitempty"`
+	EventFlags      uint32               `json:"event_flags,omitempty"`
+	Pid             uint32               `json:"pid"`
+	Tid             uint32               `json:"tid"`
+	SysID           uint32               `json:"sys_id"`
+	Syscall         string               `json:"syscall"`
+	Args            [6]uint64            `json:"args"`
+	ArgText         []string             `json:"arg_text,omitempty"`
+	Ret             int64                `json:"ret"`
+	ReturnText      string               `json:"return_text,omitempty"`
+	Failed          bool                 `json:"failed"`
+	Errno           int                  `json:"errno,omitempty"`
+	DurationNS      uint64               `json:"duration_ns"`
+	EnterTimeNS     uint64               `json:"enter_time_ns"`
+	Ptr             uint64               `json:"ptr,omitempty"`
+	DataLen         uint32               `json:"data_len,omitempty"`
+	PayloadSections []jsonPayloadSection `json:"payload_sections,omitempty"`
+	RawString       string               `json:"raw_string,omitempty"`
+	ProbeRetEnter   int32                `json:"probe_ret_enter"`
+	ProbeRetExit    int32                `json:"probe_ret_exit"`
+	PairedEnter     bool                 `json:"paired_enter,omitempty"`
+}
+
+type jsonPayloadSection struct {
+	Kind       string `json:"kind"`
+	Direction  string `json:"direction"`
+	ArgIndex   int    `json:"arg_index"`
+	Offset     uint32 `json:"offset"`
+	UserPtr    uint64 `json:"user_ptr,omitempty"`
+	UserLen    uint32 `json:"user_len,omitempty"`
+	CopiedLen  uint32 `json:"copied_len"`
+	ProbeRet   int32  `json:"probe_ret"`
+	DataBase64 string `json:"data_base64,omitempty"`
 }
 
 type jsonLifecycleEvent struct {
@@ -72,25 +86,26 @@ func newJSONSyscallEvent(eventRaw *bpfEvent, scMeta meta.Syscall) jsonSyscallEve
 		errno = int(-eventRaw.Ret)
 	}
 	return jsonSyscallEvent{
-		Type:          "syscall",
-		EventVersion:  eventRaw.EventVersion,
-		EventType:     bpfEventTypeName(eventRaw),
-		EventTypeID:   eventRaw.EventType,
-		EventFlags:    eventRaw.EventFlags,
-		Pid:           eventRaw.Pid,
-		Tid:           eventRaw.Tid,
-		SysID:         eventRaw.SysId,
-		Syscall:       scMeta.Name,
-		Args:          eventRaw.Args,
-		Ret:           eventRaw.Ret,
-		Failed:        failed,
-		Errno:         errno,
-		DurationNS:    eventRaw.Duration,
-		EnterTimeNS:   eventRaw.EnterTime,
-		Ptr:           eventRaw.Ptr,
-		DataLen:       eventRaw.DataLen,
-		ProbeRetEnter: eventRaw.ProbeRetEnter,
-		ProbeRetExit:  eventRaw.ProbeRetExit,
+		Type:            "syscall",
+		EventVersion:    eventRaw.EventVersion,
+		EventType:       bpfEventTypeName(eventRaw),
+		EventTypeID:     eventRaw.EventType,
+		EventFlags:      eventRaw.EventFlags,
+		Pid:             eventRaw.Pid,
+		Tid:             eventRaw.Tid,
+		SysID:           eventRaw.SysId,
+		Syscall:         scMeta.Name,
+		Args:            eventRaw.Args,
+		Ret:             eventRaw.Ret,
+		Failed:          failed,
+		Errno:           errno,
+		DurationNS:      eventRaw.Duration,
+		EnterTimeNS:     eventRaw.EnterTime,
+		Ptr:             eventRaw.Ptr,
+		DataLen:         eventRaw.DataLen,
+		PayloadSections: payloadSectionsForEvent(eventRaw, scMeta),
+		ProbeRetEnter:   eventRaw.ProbeRetEnter,
+		ProbeRetExit:    eventRaw.ProbeRetExit,
 	}
 }
 
@@ -148,6 +163,87 @@ func (s *traceSession) writeJSONEvent(eventRaw *bpfEvent, scMeta meta.Syscall, r
 	ev.RawString = ctx.RawStrArg
 	ev.PairedEnter = pendingEnter != nil && pendingEnter.genericEnterRaw
 	_ = json.NewEncoder(s.outWriter).Encode(ev)
+}
+
+func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []jsonPayloadSection {
+	switch scMeta.Name {
+	case "write", "pwrite64":
+		return payloadSectionFromWindow(eventRaw, "bytes", "in", 1, 0, uint32Clamped(eventRaw.Args[2]), getArgProbeStatus(eventRaw.ProbeRetEnter, 1))
+	case "read", "pread64":
+		if !isExitEvent(eventRaw) || eventRaw.Ret <= 0 {
+			return nil
+		}
+		return payloadSectionFromWindow(eventRaw, "bytes", "out", 1, handler.BpfExitArgOffset, uint32Clamped(uint64(eventRaw.Ret)), eventRaw.ProbeRetExit)
+	case "open", "creat":
+		return stringPayloadSectionFromWindow(eventRaw, 0)
+	case "openat", "openat2":
+		return stringPayloadSectionFromWindow(eventRaw, 1)
+	default:
+		return nil
+	}
+}
+
+func stringPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int) []jsonPayloadSection {
+	data, ok := eventPayloadWindow(eventRaw, 0, 4097)
+	if !ok {
+		return nil
+	}
+	if nul := bytes.IndexByte(data, 0); nul >= 0 {
+		data = data[:nul+1]
+	}
+	return []jsonPayloadSection{newJSONPayloadSection(eventRaw, "string", "in", argIndex, 0, uint32(len(data)), getArgProbeStatus(eventRaw.ProbeRetEnter, argIndex), data)}
+}
+
+func payloadSectionFromWindow(eventRaw *bpfEvent, kind string, direction string, argIndex int, offset int, userLen uint32, probeRet int32) []jsonPayloadSection {
+	data, ok := eventPayloadWindow(eventRaw, offset, int(userLen))
+	if !ok {
+		return nil
+	}
+	return []jsonPayloadSection{newJSONPayloadSection(eventRaw, kind, direction, argIndex, offset, userLen, probeRet, data)}
+}
+
+func eventPayloadWindow(eventRaw *bpfEvent, offset int, maxLen int) ([]byte, bool) {
+	if offset < 0 || maxLen <= 0 || eventRaw.DataLen == 0 {
+		return nil, false
+	}
+	if uint32(offset) >= eventRaw.DataLen || offset >= len(eventRaw.StrArg) {
+		return nil, false
+	}
+	end := int(eventRaw.DataLen)
+	if end > len(eventRaw.StrArg) {
+		end = len(eventRaw.StrArg)
+	}
+	if limit := offset + maxLen; limit < end {
+		end = limit
+	}
+	if end <= offset {
+		return nil, false
+	}
+	return eventRaw.StrArg[offset:end], true
+}
+
+func newJSONPayloadSection(eventRaw *bpfEvent, kind string, direction string, argIndex int, offset int, userLen uint32, probeRet int32, data []byte) jsonPayloadSection {
+	section := jsonPayloadSection{
+		Kind:       kind,
+		Direction:  direction,
+		ArgIndex:   argIndex,
+		Offset:     uint32(offset),
+		UserLen:    userLen,
+		CopiedLen:  uint32(len(data)),
+		ProbeRet:   probeRet,
+		DataBase64: base64.StdEncoding.EncodeToString(data),
+	}
+	if argIndex >= 0 && argIndex < len(eventRaw.Args) {
+		section.UserPtr = eventRaw.Args[argIndex]
+	}
+	return section
+}
+
+func uint32Clamped(v uint64) uint32 {
+	if v > uint64(^uint32(0)) {
+		return ^uint32(0)
+	}
+	return uint32(v)
 }
 
 func bpfEventTypeName(eventRaw *bpfEvent) string {

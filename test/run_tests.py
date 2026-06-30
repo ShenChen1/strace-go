@@ -8,6 +8,7 @@ import multiprocessing
 import json
 import tempfile
 import time
+import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 TESTS_DIR = "/opt/strace-go/strace-upstream/tests"
@@ -226,6 +227,12 @@ def require(condition, failures, message):
     if not condition:
         failures.append(message)
 
+def payload_section_text(section):
+    try:
+        return base64.b64decode(section.get("data_base64") or "").decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
+
 def run_ebpf_semantic(args):
     if not args.skip_build:
         build_strace_go()
@@ -263,6 +270,13 @@ def run_ebpf_semantic(args):
     require(any(ev.get("failed") and ev.get("errno") == 2 for ev in events), failures, "ENOENT failed-open event missing")
     require(any(ev.get("syscall") == "write" and "ebpf-fixture-write" in " ".join(ev.get("arg_text") or []) for ev in events),
             failures, "write payload text missing from JSON arg_text")
+    require(any(ev.get("syscall") == "write" and any(
+                sec.get("kind") == "bytes" and
+                sec.get("direction") == "in" and
+                sec.get("arg_index") == 1 and
+                "ebpf-fixture-write" in payload_section_text(sec)
+            for sec in ev.get("payload_sections") or []) for ev in events),
+            failures, "write payload section missing from JSON event")
     require(len({ev.get("pid") for ev in events}) >= 2, failures, "forked child pid events missing")
     require("fork" in lifecycle_actions, failures, "fork lifecycle event missing")
     require("exec" in lifecycle_actions, failures, "exec lifecycle event missing")
