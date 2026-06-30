@@ -778,6 +778,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `uname/sysinfo/getrlimit/setrlimit/prlimit64` 已暴露 `PayloadKindStruct` section，misc formatter 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `getitimer/setitimer` 已暴露 `itimerval` 的 `PayloadKindStruct` section，time formatter 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `get_robust_list` 已暴露 head/len 两个 OUT word 的 `PayloadKindStruct` section，handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
+- `waitid` 已暴露 `siginfo_t` 和 `rusage` 的 OUT `PayloadKindStruct` sections，waitid handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 
 ### Phase 5: filter 下推
 

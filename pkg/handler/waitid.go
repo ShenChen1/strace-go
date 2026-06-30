@@ -71,7 +71,7 @@ func decodeSiginfo(ctx *Context, val uint64) string {
 	if val == 0 {
 		return "NULL"
 	}
-	data, ok := ctx.ExitSnapshot(waitidSiginfoOffset, waitidSiginfoSize)
+	data, ok := waitidStructData(ctx, 2, waitidSiginfoOffset, waitidSiginfoSize)
 	if !ok {
 		return fmt.Sprintf("%#x", val)
 	}
@@ -108,7 +108,7 @@ func decodeRusage(ctx *Context, val uint64) string {
 	if ctx.Opts != nil && ctx.Opts.Verbose {
 		fetchSize = waitidRusageFull
 	}
-	data, ok := ctx.ExitSnapshot(waitidRusageOffset, fetchSize)
+	data, ok := waitidStructData(ctx, 4, waitidRusageOffset, fetchSize)
 	if !ok {
 		return fmt.Sprintf("%#x", val)
 	}
@@ -136,4 +136,11 @@ func decodeRusage(ctx *Context, val uint64) string {
 		res += ", ...}"
 	}
 	return res
+}
+
+func waitidStructData(ctx *Context, argIndex int, offset int, size int) ([]byte, bool) {
+	if data, ok := ctx.PayloadStruct(argIndex, PayloadDirectionOut); ok && len(data) >= size {
+		return data[:size], true
+	}
+	return ctx.ExitSnapshot(offset, size)
 }

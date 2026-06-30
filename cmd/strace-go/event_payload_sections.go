@@ -23,6 +23,8 @@ const (
 	rlimitPayloadStructSize   = 16
 	sysinfoPayloadStructSize  = 112
 	utsnamePayloadStructSize  = 65 * 6
+	waitidSiginfoPayloadSize  = 128
+	waitidRusagePayloadSize   = 144
 )
 
 type payloadWindowSpec struct {
@@ -137,6 +139,8 @@ func structuredPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]han
 		return prlimitPayloadSectionsForEvent(eventRaw), true
 	case "get_robust_list":
 		return robustListPayloadSectionsForEvent(eventRaw), true
+	case "waitid":
+		return waitidPayloadSectionsForEvent(eventRaw), true
 	case "clock_gettime", "clock_getres", "clock_settime", "adjtimex", "clock_adjtime",
 		"nanosleep", "clock_nanosleep", "gettimeofday", "settimeofday", "getitimer", "setitimer":
 		return timePayloadSectionsForEvent(eventRaw, scName), true
@@ -181,6 +185,14 @@ func robustListPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSect
 	}
 	sections := exitStructPayloadSectionAt(eventRaw, 1, handler.BpfExitArgOffset, robustListPayloadWordSize)
 	return append(sections, exitStructPayloadSectionAt(eventRaw, 2, handler.BpfExitArgOffset+16, robustListPayloadWordSize)...)
+}
+
+func waitidPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
+	if !isExitEvent(eventRaw) || eventRaw.Ret < 0 {
+		return nil
+	}
+	sections := exitStructPayloadSectionAt(eventRaw, 2, handler.BpfExitArgOffset, waitidSiginfoPayloadSize)
+	return append(sections, exitStructPayloadSectionAt(eventRaw, 4, handler.BpfExitArgOffset+136, waitidRusagePayloadSize)...)
 }
 
 func stringPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int) []handler.PayloadSection {

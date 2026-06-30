@@ -73,6 +73,22 @@ func TestWaitidSiginfoUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestWaitidSiginfoUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeWaitidSiginfo(0, 0, 0, 0, 0)}
+	ctx := newWaitidPolicyContext(reader, event.NewDecoder())
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: 0, Data: makeWaitidSiginfo(17, 1, 51, 1000, 0)},
+	}
+
+	got := decodeSiginfo(ctx, 0x1000)
+	if !strings.Contains(got, "si_signo=SIGCHLD") || !strings.Contains(got, "si_pid=51") {
+		t.Fatalf("decodeSiginfo() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestWaitidRusageUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeWaitidRusage(1, 2)}
 	decoder := event.NewDecoder()
@@ -82,6 +98,22 @@ func TestWaitidRusageUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 
 	got := decodeRusage(ctx, 0x2000)
 	if !strings.Contains(got, "ru_utime={tv_sec=7") || !strings.Contains(got, "ru_stime={tv_sec=8") {
+		t.Fatalf("decodeRusage() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestWaitidRusageUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeWaitidRusage(1, 2)}
+	ctx := newWaitidPolicyContext(reader, event.NewDecoder())
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 4, ProbeRet: 0, Data: makeWaitidRusage(11, 12)},
+	}
+
+	got := decodeRusage(ctx, 0x2000)
+	if !strings.Contains(got, "ru_utime={tv_sec=11") || !strings.Contains(got, "ru_stime={tv_sec=12") {
 		t.Fatalf("decodeRusage() = %q", got)
 	}
 	if reader.reads != 0 {
