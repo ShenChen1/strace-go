@@ -104,6 +104,48 @@ func TestJSONSyscallEventIncludesReadPayloadSection(t *testing.T) {
 	}
 }
 
+func TestJSONSyscallEventIncludesOutBufferPayloadSections(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     [6]uint64
+		argIndex int
+	}{
+		{name: "getcwd", args: [6]uint64{0x3000, 32}, argIndex: 0},
+		{name: "readlink", args: [6]uint64{0x2000, 0x3000, 32}, argIndex: 1},
+		{name: "readlinkat", args: [6]uint64{^uint64(99), 0x2000, 0x3000, 32}, argIndex: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventRaw := &bpfEvent{
+				Pid:           101,
+				Tid:           101,
+				EventVersion:  2,
+				EventType:     bpfEventTypeExit,
+				Args:          tt.args,
+				Ret:           6,
+				DataLen:       handler.BpfExitArgOffset + 6,
+				ProbeRetEnter: -1,
+				ProbeRetExit:  0,
+			}
+			copy(eventRaw.StrArg[handler.BpfExitArgOffset:], []byte("target"))
+
+			scMeta := meta.Syscall{Name: tt.name}
+			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+			if len(ev.PayloadSections) != 1 {
+				t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
+			}
+			section := ev.PayloadSections[0]
+			if section.Kind != "bytes" || section.Direction != "out" || section.ArgIndex != tt.argIndex {
+				t.Fatalf("%s section metadata = %+v", tt.name, section)
+			}
+			if got := mustDecodeBase64(t, section.DataBase64); string(got) != "target" {
+				t.Fatalf("%s section data = %q, want target", tt.name, string(got))
+			}
+		})
+	}
+}
+
 func mustDecodeBase64(t *testing.T, s string) []byte {
 	t.Helper()
 	data, err := base64.StdEncoding.DecodeString(s)

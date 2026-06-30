@@ -174,6 +174,12 @@ func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.
 			return nil
 		}
 		return payloadSectionFromWindow(eventRaw, handler.PayloadKindBytes, handler.PayloadDirectionOut, 1, handler.BpfExitArgOffset, uint32Clamped(uint64(eventRaw.Ret)), eventRaw.ProbeRetExit)
+	case "getcwd":
+		return exitBytesPayloadSectionFromRet(eventRaw, 0)
+	case "readlink":
+		return exitBytesPayloadSectionFromRet(eventRaw, 1)
+	case "readlinkat":
+		return exitBytesPayloadSectionFromRet(eventRaw, 2)
 	case "open", "creat":
 		return stringPayloadSectionFromWindow(eventRaw, 0)
 	case "openat", "openat2":
@@ -193,6 +199,13 @@ func stringPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int) []handler.
 	}
 	section := newPayloadSection(eventRaw, handler.PayloadKindString, handler.PayloadDirectionIn, argIndex, 0, uint32(len(data)), getArgProbeStatus(eventRaw.ProbeRetEnter, argIndex), data)
 	return []handler.PayloadSection{section}
+}
+
+func exitBytesPayloadSectionFromRet(eventRaw *bpfEvent, argIndex int) []handler.PayloadSection {
+	if !isExitEvent(eventRaw) || eventRaw.Ret <= 0 {
+		return nil
+	}
+	return payloadSectionFromWindow(eventRaw, handler.PayloadKindBytes, handler.PayloadDirectionOut, argIndex, handler.BpfExitArgOffset, uint32Clamped(uint64(eventRaw.Ret)), eventRaw.ProbeRetExit)
 }
 
 func payloadSectionFromWindow(eventRaw *bpfEvent, kind handler.PayloadKind, direction handler.PayloadDirection, argIndex int, offset int, userLen uint32, probeRet int32) []handler.PayloadSection {

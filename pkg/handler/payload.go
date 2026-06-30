@@ -35,18 +35,22 @@ type PayloadSection struct {
 
 // PayloadBytes returns successfully captured byte payload data for one argument.
 func (ctx *Context) PayloadBytes(argIndex int, direction PayloadDirection) ([]byte, bool) {
-	section, ok := ctx.Section(argIndex, PayloadKindBytes)
-	if !ok || section.Direction != direction || section.ProbeRet != 0 || len(section.Data) == 0 {
-		return nil, false
+	for _, section := range ctx.PayloadSections {
+		if section.ArgIndex == argIndex && section.Kind == PayloadKindBytes &&
+			section.Direction == direction && section.ProbeRet == 0 && len(section.Data) > 0 {
+			return section.Data, true
+		}
 	}
-	return section.Data, true
+	return nil, false
 }
 
 // PayloadString decodes a successfully captured string payload for one argument.
 func (ctx *Context) PayloadString(argIndex int, direction PayloadDirection, ptr uint64, limit int) (string, bool) {
-	section, ok := ctx.Section(argIndex, PayloadKindString)
-	if !ok || section.Direction != direction || section.ProbeRet != 0 || len(section.Data) == 0 {
-		return "", false
+	for _, section := range ctx.PayloadSections {
+		if section.ArgIndex == argIndex && section.Kind == PayloadKindString &&
+			section.Direction == direction && section.ProbeRet == 0 && len(section.Data) > 0 {
+			return ctx.Decoder.DecodeString(ctx.Pid, ptr, section.Data, section.ProbeRet, ctx.SysName, limit), true
+		}
 	}
-	return ctx.Decoder.DecodeString(ctx.Pid, ptr, section.Data, section.ProbeRet, ctx.SysName, limit), true
+	return "", false
 }

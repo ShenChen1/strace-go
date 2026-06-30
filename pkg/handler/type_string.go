@@ -126,7 +126,10 @@ func decodeReadlinkBuffer(ctx *Context, i int, val uint64) (string, bool) {
 	if readSize == 0 {
 		return `""`, true
 	}
-	data, ok := ctx.ExitSnapshot(BpfExitArgOffset, readSize)
+	data, ok := ctx.PayloadBytes(bufIdx, PayloadDirectionOut)
+	if !ok {
+		data, ok = ctx.ExitSnapshot(BpfExitArgOffset, readSize)
+	}
 	if !ok {
 		return fmt.Sprintf("%#x", val), true
 	}

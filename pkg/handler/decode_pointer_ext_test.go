@@ -378,6 +378,39 @@ func TestDecodePathUsesPayloadStringSection(t *testing.T) {
 	}
 }
 
+func TestDecodeReadlinkBufferUsesPayloadSection(t *testing.T) {
+	ctx := &Context{
+		Pid:       101,
+		Tid:       102,
+		TargetPid: 101,
+		Ret:       6,
+		ScMeta: meta.Syscall{
+			Name:     "readlink",
+			Args:     []string{"path", "buf", "bufsiz"},
+			ArgTypes: []string{"const char *", "char *", "size_t"},
+		},
+		PayloadSections: []PayloadSection{
+			{
+				Kind:      PayloadKindBytes,
+				Direction: PayloadDirectionOut,
+				ArgIndex:  1,
+				UserPtr:   0x3000,
+				UserLen:   6,
+				CopiedLen: 6,
+				ProbeRet:  0,
+				Data:      []byte("target"),
+			},
+		},
+		Opts:    &cli.Options{StringLimit: 32},
+		Decoder: event.NewDecoder(),
+	}
+
+	got, ok := decodeReadlinkBuffer(ctx, 1, 0x3000)
+	if !ok || got != `"target"` {
+		t.Fatalf("decodeReadlinkBuffer() = %q, %v; want payload section", got, ok)
+	}
+}
+
 func TestDecodeWriteDumpExtendsFromWrittenFile(t *testing.T) {
 	data := make([]byte, 0x300)
 	for i := range data {
