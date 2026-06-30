@@ -781,6 +781,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `waitid` 已暴露 `siginfo_t` 和 `rusage` 的 OUT `PayloadKindStruct` sections，waitid handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `arch_prctl` 的 GET 类 OUT word 已暴露为 `PayloadKindStruct` section，handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `sendfile/copy_file_range` 的 offset pointer 已暴露为 `PayloadKindStruct` section，formatter 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
+- `mount/umount2/fsconfig` 已暴露字符串和二进制 value 的 sections，fs handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 
 ### Phase 5: filter 下推
 

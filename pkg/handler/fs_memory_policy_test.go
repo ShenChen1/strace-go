@@ -58,6 +58,77 @@ func TestFsconfigBinaryUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestFsconfigStringUsesPayloadStringSections(t *testing.T) {
+	ctx := newFsconfigBinaryContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.Args = [6]uint64{3, 1, 0x1000, 0x2000, 0}
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x1000, ProbeRet: 0, Data: []byte("key\x00")},
+		{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 3, UserPtr: 0x2000, ProbeRet: 0, Data: []byte("value\x00")},
+	}
+	ctx.StrArgBuf = nil
+
+	got := (&FsHandler{}).Handle(ctx)
+	if got.ArgParts[2] != `"key"` || got.ArgParts[3] != `"value"` {
+		t.Fatalf("fsconfig string args = %#v", got.ArgParts)
+	}
+}
+
+func TestFsconfigBinaryUsesPayloadBytesSection(t *testing.T) {
+	ctx := newFsconfigBinaryContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x1000, ProbeRet: 0, Data: []byte("blob\x00")},
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 3, UserPtr: 0x2000, ProbeRet: 0, Data: []byte{1, 2, 3}},
+	}
+	ctx.StrArgBuf = nil
+
+	got := (&FsHandler{}).Handle(ctx)
+	if got.ArgParts[2] != `"blob"` || got.ArgParts[3] == "0x2000" {
+		t.Fatalf("fsconfig binary args = %#v", got.ArgParts)
+	}
+}
+
+func TestMountUsesPayloadStringSections(t *testing.T) {
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		SysName: "mount",
+		Args:    [6]uint64{0x1000, 0x2000, 0x3000, 0, 0x4000},
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 0, UserPtr: 0x1000, ProbeRet: 0, Data: []byte("/dev/sda1\x00")},
+			{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 1, UserPtr: 0x2000, ProbeRet: 0, Data: []byte("/mnt\x00")},
+			{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x3000, ProbeRet: 0, Data: []byte("ext4\x00")},
+			{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 4, UserPtr: 0x4000, ProbeRet: 0, Data: []byte("rw\x00")},
+		},
+		Decoder: event.NewDecoder(),
+		Opts:    &cli.Options{StringLimit: 32},
+	}
+
+	got := (&FsHandler{}).Handle(ctx)
+	if got.ArgParts[0] != `"/dev/sda1"` || got.ArgParts[1] != `"/mnt"` ||
+		got.ArgParts[2] != `"ext4"` || got.ArgParts[4] != `"rw"` {
+		t.Fatalf("mount args = %#v", got.ArgParts)
+	}
+}
+
+func TestUmountUsesPayloadStringSection(t *testing.T) {
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		SysName: "umount2",
+		Args:    [6]uint64{0x1000, 0},
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 0, UserPtr: 0x1000, ProbeRet: 0, Data: []byte("/mnt\x00")},
+		},
+		Decoder: event.NewDecoder(),
+		Opts:    &cli.Options{StringLimit: 32},
+	}
+
+	got := (&FsHandler{}).Handle(ctx)
+	if got.ArgParts[0] != `"/mnt"` {
+		t.Fatalf("umount target = %#v", got.ArgParts)
+	}
+}
+
 func newGetdentsContext(reader *fetchPolicyMemoryReader, decoder *event.Decoder) *Context {
 	return &Context{
 		Pid:          1234,

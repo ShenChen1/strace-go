@@ -115,6 +115,8 @@ func scalarPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]handler
 		return dualPathPayloadSectionsForEvent(eventRaw, 0, 2), true
 	case "renameat", "renameat2", "linkat":
 		return dualPathPayloadSectionsForEvent(eventRaw, 1, 3), true
+	case "mount", "umount2", "fsconfig":
+		return fsPayloadSectionsForEvent(eventRaw, scName), true
 	default:
 		return nil, false
 	}
