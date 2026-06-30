@@ -334,6 +334,7 @@ rules:
     enter:
       payloads:
         - { arg: 0, kind: struct, direction: in, size: 8, offset: 0 }
+        - { arg: 1, kind: struct, direction: in, size: 24, offset: 512 }
 
   - syscalls: [io_getevents, io_pgetevents]
     enter:

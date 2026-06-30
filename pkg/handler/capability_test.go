@@ -94,6 +94,60 @@ func TestCapabilityHandlerUsesExitDataForCapget(t *testing.T) {
 	}
 }
 
+func TestCapabilityHandlerUsesPayloadStructSectionsForCapget(t *testing.T) {
+	ctx := capabilityContext("capget", 0, nil, nil)
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindStruct,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  0,
+			UserPtr:   0x1000,
+			Data:      capHeaderBytes(linuxCapabilityVersion3, 0),
+		},
+		{
+			Kind:      PayloadKindStruct,
+			Direction: PayloadDirectionOut,
+			ArgIndex:  1,
+			UserPtr:   0x2000,
+			Data:      capDataBytes([3]uint32{1, 0, 0}, [3]uint32{0, 0, 0}),
+		},
+	}
+
+	got := (&CapabilityHandler{}).Handle(ctx)
+	wantData := "{effective=1<<CAP_CHOWN, permitted=0, inheritable=0}"
+	if len(got.ArgParts) != 2 || got.ArgParts[1] != wantData {
+		t.Fatalf("capget payload data = %#v, want %q", got.ArgParts, wantData)
+	}
+}
+
+func TestCapabilityHandlerUsesPayloadStructSectionsForCapset(t *testing.T) {
+	ctx := capabilityContext("capset", -1, nil, nil)
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindStruct,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  0,
+			UserPtr:   0x1000,
+			Data:      capHeaderBytes(linuxCapabilityVersion3, 0),
+		},
+		{
+			Kind:      PayloadKindStruct,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  1,
+			UserPtr:   0x2000,
+			Data:      capDataBytes([3]uint32{2, 4, 0}, [3]uint32{8, 16, 0}),
+		},
+	}
+
+	got := (&CapabilityHandler{}).Handle(ctx)
+	wantData := "{effective=1<<CAP_DAC_OVERRIDE|1<<CAP_WAKE_ALARM, permitted=1<<CAP_DAC_READ_SEARCH|1<<CAP_BLOCK_SUSPEND, inheritable=0}"
+	if len(got.ArgParts) != 2 || got.ArgParts[1] != wantData {
+		t.Fatalf("capset payload data = %#v, want %q", got.ArgParts, wantData)
+	}
+}
+
 func TestCapabilityHandlerKeepsPointerWhenHeaderProbeFails(t *testing.T) {
 	ctx := capabilityContext("capget", -1,
 		capHeaderBytes(0, 0),

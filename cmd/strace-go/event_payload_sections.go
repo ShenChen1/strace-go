@@ -150,6 +150,8 @@ func structuredPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]han
 		return waitidPayloadSectionsForEvent(eventRaw), true
 	case "arch_prctl":
 		return exitStructPayloadSection(eventRaw, 1, archPrctlPayloadOutSize), true
+	case "capget", "capset":
+		return capabilityPayloadSectionsForEvent(eventRaw, scName), true
 	case "clock_gettime", "clock_getres", "clock_settime", "adjtimex", "clock_adjtime",
 		"nanosleep", "clock_nanosleep", "gettimeofday", "settimeofday", "getitimer", "setitimer":
 		return timePayloadSectionsForEvent(eventRaw, scName), true
