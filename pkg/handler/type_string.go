@@ -459,27 +459,40 @@ func (ctx *Context) fdDataPath(fd int32) (string, bool) {
 }
 
 func decodeRenArg(ctx *Context, i int, val uint64) (string, bool) {
+	if p, ok := ctx.PayloadString(i, PayloadDirectionIn, val, 0); ok {
+		return p, true
+	}
 	scName := ctx.ScMeta.Name
-	var p string
 	switch scName {
 	case "rename", "link", "symlink":
 		if i == 0 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ArgProbeRet(0), scName, 0)
-		} else if i == 1 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[512:BpfExitArgOffset], ctx.ArgProbeRet(1), scName, 0)
+			return decodeRenArgSnapshot(ctx, val, 0, 0)
+		}
+		if i == 1 {
+			return decodeRenArgSnapshot(ctx, val, 1, 512)
 		}
 	case "renameat", "renameat2", "linkat":
 		if i == 1 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], ctx.StrArgBuf[0:512], ctx.ArgProbeRet(1), scName, 0)
-		} else if i == 3 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[3], ctx.StrArgBuf[512:BpfExitArgOffset], ctx.ArgProbeRet(3), scName, 0)
+			return decodeRenArgSnapshot(ctx, val, 1, 0)
+		}
+		if i == 3 {
+			return decodeRenArgSnapshot(ctx, val, 3, 512)
 		}
 	case "symlinkat":
 		if i == 0 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[0], ctx.StrArgBuf[0:512], ctx.ArgProbeRet(0), scName, 0)
-		} else if i == 2 {
-			p = ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[2], ctx.StrArgBuf[512:BpfExitArgOffset], ctx.ArgProbeRet(2), scName, 0)
+			return decodeRenArgSnapshot(ctx, val, 0, 0)
+		}
+		if i == 2 {
+			return decodeRenArgSnapshot(ctx, val, 2, 512)
 		}
 	}
-	return p, true
+	return "", false
+}
+
+func decodeRenArgSnapshot(ctx *Context, val uint64, argIndex int, offset int) (string, bool) {
+	data, ok := ctx.EnterArgSnapshotPrefix(argIndex, offset, 512)
+	if !ok {
+		return fmt.Sprintf("%#x", val), true
+	}
+	return ctx.Decoder.DecodeString(ctx.Pid, val, data, ctx.ArgProbeRet(argIndex), ctx.ScMeta.Name, 0), true
 }

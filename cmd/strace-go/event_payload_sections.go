@@ -83,6 +83,12 @@ func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.
 		return stringPayloadSectionFromWindow(eventRaw, 1)
 	case "execve", "execveat":
 		return execPayloadSectionsForEvent(eventRaw, scMeta.Name)
+	case "rename", "link", "symlink":
+		return dualPathPayloadSectionsForEvent(eventRaw, 0, 1)
+	case "symlinkat":
+		return dualPathPayloadSectionsForEvent(eventRaw, 0, 2)
+	case "renameat", "renameat2", "linkat":
+		return dualPathPayloadSectionsForEvent(eventRaw, 1, 3)
 	case "stat", "lstat":
 		return exitStructPayloadSection(eventRaw, 1, statPayloadStructSize)
 	case "fstat":
