@@ -18,6 +18,7 @@ const (
 	epollPayloadEventSize     = 12
 	epollPayloadMaxBytes      = 512
 	timespecPayloadStructSize = 16
+	fdArrayPayloadSize        = 8
 )
 
 type payloadWindowSpec struct {
@@ -41,7 +42,17 @@ type structArrayPayloadSpec struct {
 }
 
 func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.PayloadSection {
-	switch scMeta.Name {
+	if sections, ok := scalarPayloadSectionsForEvent(eventRaw, scMeta.Name); ok {
+		return sections
+	}
+	if sections, ok := structuredPayloadSectionsForEvent(eventRaw, scMeta.Name); ok {
+		return sections
+	}
+	return nil
+}
+
+func scalarPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]handler.PayloadSection, bool) {
+	switch scName {
 	case "write", "pwrite64":
 		userLen := uint32Clamped(eventRaw.Args[2])
 		return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
@@ -51,10 +62,10 @@ func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.
 			userLen:   userLen,
 			maxLen:    userLen,
 			probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, 1),
-		})
+		}), true
 	case "read", "pread64":
 		if !isExitEvent(eventRaw) || eventRaw.Ret <= 0 {
-			return nil
+			return nil, true
 		}
 		userLen := uint32Clamped(uint64(eventRaw.Ret))
 		return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
@@ -65,67 +76,78 @@ func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.
 			userLen:   userLen,
 			maxLen:    userLen,
 			probeRet:  eventRaw.ProbeRetExit,
-		})
+		}), true
 	case "readv", "writev", "preadv", "pwritev", "preadv2", "pwritev2", "vmsplice":
-		return iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset)
+		return iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset), true
 	case "process_vm_readv", "process_vm_writev":
 		sections := iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset)
-		return append(sections, iovecPayloadSectionFromWindow(eventRaw, 3, 4, handler.BpfMiscArgOffset)...)
+		return append(sections, iovecPayloadSectionFromWindow(eventRaw, 3, 4, handler.BpfMiscArgOffset)...), true
 	case "getcwd":
-		return exitBytesPayloadSectionFromRet(eventRaw, 0)
+		return exitBytesPayloadSectionFromRet(eventRaw, 0), true
 	case "readlink":
-		return exitBytesPayloadSectionFromRet(eventRaw, 1)
+		return exitBytesPayloadSectionFromRet(eventRaw, 1), true
 	case "readlinkat":
-		return exitBytesPayloadSectionFromRet(eventRaw, 2)
+		return exitBytesPayloadSectionFromRet(eventRaw, 2), true
+	case "pipe", "pipe2":
+		return exitStructPayloadSection(eventRaw, 0, fdArrayPayloadSize), true
+	case "socketpair":
+		return exitStructPayloadSection(eventRaw, 3, fdArrayPayloadSize), true
 	case "open", "creat":
-		return stringPayloadSectionFromWindow(eventRaw, 0)
+		return stringPayloadSectionFromWindow(eventRaw, 0), true
 	case "openat", "openat2":
-		return stringPayloadSectionFromWindow(eventRaw, 1)
+		return stringPayloadSectionFromWindow(eventRaw, 1), true
 	case "execve", "execveat":
-		return execPayloadSectionsForEvent(eventRaw, scMeta.Name)
+		return execPayloadSectionsForEvent(eventRaw, scName), true
 	case "rename", "link", "symlink":
-		return dualPathPayloadSectionsForEvent(eventRaw, 0, 1)
+		return dualPathPayloadSectionsForEvent(eventRaw, 0, 1), true
 	case "symlinkat":
-		return dualPathPayloadSectionsForEvent(eventRaw, 0, 2)
+		return dualPathPayloadSectionsForEvent(eventRaw, 0, 2), true
 	case "renameat", "renameat2", "linkat":
-		return dualPathPayloadSectionsForEvent(eventRaw, 1, 3)
+		return dualPathPayloadSectionsForEvent(eventRaw, 1, 3), true
+	default:
+		return nil, false
+	}
+}
+
+func structuredPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]handler.PayloadSection, bool) {
+	switch scName {
 	case "stat", "lstat":
-		return exitStructPayloadSection(eventRaw, 1, statPayloadStructSize)
+		return exitStructPayloadSection(eventRaw, 1, statPayloadStructSize), true
 	case "fstat":
-		return exitStructPayloadSection(eventRaw, 1, statPayloadStructSize)
+		return exitStructPayloadSection(eventRaw, 1, statPayloadStructSize), true
 	case "newfstatat":
-		return exitStructPayloadSection(eventRaw, 2, statPayloadStructSize)
+		return exitStructPayloadSection(eventRaw, 2, statPayloadStructSize), true
 	case "statfs":
-		return exitStructPayloadSection(eventRaw, 1, statfsPayloadStructSize)
+		return exitStructPayloadSection(eventRaw, 1, statfsPayloadStructSize), true
 	case "fstatfs":
-		return exitStructPayloadSection(eventRaw, 1, statfsPayloadStructSize)
+		return exitStructPayloadSection(eventRaw, 1, statfsPayloadStructSize), true
 	case "clock_gettime", "clock_getres", "clock_settime", "adjtimex", "clock_adjtime",
 		"nanosleep", "clock_nanosleep", "gettimeofday", "settimeofday":
-		return timePayloadSectionsForEvent(eventRaw, scMeta.Name)
+		return timePayloadSectionsForEvent(eventRaw, scName), true
 	case "futex", "futex_wait", "futex_waitv", "futex_requeue":
-		return futexPayloadSectionsForEvent(eventRaw, scMeta.Name)
+		return futexPayloadSectionsForEvent(eventRaw, scName), true
 	case "poll":
-		return pollPayloadSectionsForEvent(eventRaw, false)
+		return pollPayloadSectionsForEvent(eventRaw, false), true
 	case "ppoll":
-		return pollPayloadSectionsForEvent(eventRaw, true)
+		return pollPayloadSectionsForEvent(eventRaw, true), true
 	case "select", "_newselect":
-		return selectPayloadSectionsForEvent(eventRaw)
+		return selectPayloadSectionsForEvent(eventRaw), true
 	case "epoll_ctl":
-		return enterStructPayloadSection(eventRaw, 3, handler.BpfEnterArgOffset, epollPayloadEventSize)
+		return enterStructPayloadSection(eventRaw, 3, handler.BpfEnterArgOffset, epollPayloadEventSize), true
 	case "epoll_wait", "epoll_pwait":
-		return exitStructArrayPayloadSectionFromRet(eventRaw, 1, epollPayloadEventSize, epollPayloadMaxBytes)
+		return exitStructArrayPayloadSectionFromRet(eventRaw, 1, epollPayloadEventSize, epollPayloadMaxBytes), true
 	case "epoll_pwait2":
-		return epollPwait2PayloadSectionsForEvent(eventRaw)
+		return epollPwait2PayloadSectionsForEvent(eventRaw), true
 	case "connect", "bind":
-		return networkSockaddrInPayloadSection(eventRaw, 1, 2, 0)
+		return networkSockaddrInPayloadSection(eventRaw, 1, 2, 0), true
 	case "sendto":
-		return sendtoPayloadSectionsForEvent(eventRaw)
+		return sendtoPayloadSectionsForEvent(eventRaw), true
 	case "recvfrom":
-		return recvfromPayloadSectionsForEvent(eventRaw)
+		return recvfromPayloadSectionsForEvent(eventRaw), true
 	case "accept", "accept4", "getsockname", "getpeername":
-		return acceptLikePayloadSectionsForEvent(eventRaw)
+		return acceptLikePayloadSectionsForEvent(eventRaw), true
 	default:
-		return nil
+		return nil, false
 	}
 }
 
