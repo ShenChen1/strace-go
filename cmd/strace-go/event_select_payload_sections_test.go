@@ -1,0 +1,86 @@
+package main
+
+import (
+	"encoding/binary"
+	"testing"
+
+	"strace-go/pkg/meta"
+)
+
+type wantSelectJSONPayloadSection struct {
+	kind      string
+	direction string
+	argIndex  int
+	offset    uint32
+	userPtr   uint64
+	userLen   uint32
+	data      []byte
+}
+
+func TestJSONSyscallEventIncludesSelectPayloadSections(t *testing.T) {
+	eventRaw := &bpfEvent{
+		EventType:     bpfEventTypeExit,
+		Args:          [6]uint64{8, 0x1000, 0x2000, 0, 0x3000},
+		Ret:           1,
+		DataLen:       selectPayloadExitTimeoutOff + selectPayloadTimeoutSize,
+		ProbeRetEnter: 0,
+		ProbeRetExit:  0,
+	}
+	copy(eventRaw.StrArg[selectPayloadFdSetOffset(1):], selectJSONFdSetData(3))
+	copy(eventRaw.StrArg[selectPayloadFdSetOffset(2):], selectJSONFdSetData(4))
+	copy(eventRaw.StrArg[selectPayloadTimeoutOffset:], selectJSONTimeval(9, 10))
+	copy(eventRaw.StrArg[selectPayloadExitFdSetOffset+selectPayloadFdSetOffset(1):], selectJSONFdSetData(5))
+	copy(eventRaw.StrArg[selectPayloadExitFdSetOffset+selectPayloadFdSetOffset(2):], selectJSONFdSetData(6))
+	copy(eventRaw.StrArg[selectPayloadExitTimeoutOff:], selectJSONTimeval(1, 2))
+
+	scMeta := meta.Syscall{Name: "select"}
+	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	want := []wantSelectJSONPayloadSection{
+		{"bytes", "in", 1, 0, 0x1000, 1, selectJSONFdSetData(3)[:1]},
+		{"bytes", "in", 2, 128, 0x2000, 1, selectJSONFdSetData(4)[:1]},
+		{"struct", "in", 4, 384, 0x3000, 16, selectJSONTimeval(9, 10)},
+		{"bytes", "out", 1, 1024, 0x1000, 1, selectJSONFdSetData(5)[:1]},
+		{"bytes", "out", 2, 1152, 0x2000, 1, selectJSONFdSetData(6)[:1]},
+		{"struct", "out", 4, 1408, 0x3000, 16, selectJSONTimeval(1, 2)},
+	}
+	if len(ev.PayloadSections) != len(want) {
+		t.Fatalf("PayloadSections = %d, want %d", len(ev.PayloadSections), len(want))
+	}
+	for i := range want {
+		assertSelectJSONPayloadSection(t, ev.PayloadSections[i], want[i])
+	}
+}
+
+func assertSelectJSONPayloadSection(
+	t *testing.T,
+	got jsonPayloadSection,
+	want wantSelectJSONPayloadSection,
+) {
+	t.Helper()
+	if got.Kind != want.kind || got.Direction != want.direction || got.ArgIndex != want.argIndex {
+		t.Fatalf("section metadata = %+v, want %+v", got, want)
+	}
+	if got.Offset != want.offset || got.UserPtr != want.userPtr || got.UserLen != want.userLen {
+		t.Fatalf("section bounds = %+v, want %+v", got, want)
+	}
+	if got.CopiedLen != uint32(len(want.data)) {
+		t.Fatalf("section copied_len = %d, want %d", got.CopiedLen, len(want.data))
+	}
+	gotData := mustDecodeBase64(t, got.DataBase64)
+	if string(gotData) != string(want.data) {
+		t.Fatalf("section data = %v, want %v", gotData, want.data)
+	}
+}
+
+func selectJSONFdSetData(fd int) []byte {
+	data := make([]byte, selectPayloadFdSetSize)
+	data[fd/8] = 1 << uint(fd%8)
+	return data
+}
+
+func selectJSONTimeval(sec uint64, usec uint64) []byte {
+	data := make([]byte, selectPayloadTimeoutSize)
+	binary.LittleEndian.PutUint64(data[0:8], sec)
+	binary.LittleEndian.PutUint64(data[8:16], usec)
+	return data
+}

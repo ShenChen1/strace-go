@@ -84,6 +84,24 @@ func TestSelectFdSetsUseEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestSelectFdSetsUsePayloadBytesSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeFdSetData(7)}
+	ctx := newSelectPolicyContext(reader, "select")
+	ctx.Args = [6]uint64{8, 0x1000, 0, 0, 0}
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeFdSetData(3)},
+	}
+
+	got := (&SelectHandler{}).Handle(ctx)
+	if got.ArgParts[1] != "[3]" {
+		t.Fatalf("select readfds = %q", got.ArgParts[1])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestSelectTimeoutFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSelectTime(9, 10)}
 	ctx := newSelectPolicyContext(reader, "select")
@@ -117,6 +135,24 @@ func TestSelectTimeoutUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestSelectTimeoutUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeSelectTime(99, 100)}
+	ctx := newSelectPolicyContext(reader, "select")
+	ctx.Args = [6]uint64{0, 0, 0, 0, 0x3000}
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 4, ProbeRet: 0, Data: makeSelectTime(9, 10)},
+	}
+
+	got := (&SelectHandler{}).Handle(ctx)
+	if got.ArgParts[4] != "{tv_sec=9, tv_usec=10}" {
+		t.Fatalf("select timeout = %q", got.ArgParts[4])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestSelectExitUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFdSetData(7)}
 	ctx := newSelectPolicyContext(reader, "select")
@@ -134,6 +170,26 @@ func TestSelectExitUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestSelectExitUsesPayloadBytesSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeFdSetData(7)}
+	ctx := newSelectPolicyContext(reader, "select")
+	ctx.Args = [6]uint64{8, 0x1000, 0, 0, 0}
+	ctx.Ret = 1
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeFdSetData(7)},
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeFdSetData(3)},
+	}
+
+	got := (&SelectHandler{}).Handle(ctx)
+	if got.ReturnDesc != "in [3]" {
+		t.Fatalf("ReturnDesc = %q", got.ReturnDesc)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestSelectExitTimeoutUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSelectTime(99, 100)}
 	ctx := newSelectPolicyContext(reader, "select")
@@ -141,6 +197,26 @@ func TestSelectExitTimeoutUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	ctx.Ret = 1
 	ctx.ProbeRetExit = 0
 	putSelectSnapshot(ctx, selectExitTimeoutOff, makeSelectTime(1, 2))
+
+	got := (&SelectHandler{}).Handle(ctx)
+	if got.ReturnDesc != "left {tv_sec=1, tv_usec=2}" {
+		t.Fatalf("ReturnDesc = %q", got.ReturnDesc)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestSelectExitTimeoutUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeSelectTime(99, 100)}
+	ctx := newSelectPolicyContext(reader, "select")
+	ctx.Args = [6]uint64{0, 0, 0, 0, 0x3000}
+	ctx.Ret = 1
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 4, ProbeRet: 0, Data: makeSelectTime(9, 10)},
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 4, ProbeRet: 0, Data: makeSelectTime(1, 2)},
+	}
 
 	got := (&SelectHandler{}).Handle(ctx)
 	if got.ReturnDesc != "left {tv_sec=1, tv_usec=2}" {

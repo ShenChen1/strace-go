@@ -76,7 +76,7 @@ func (h *SelectHandler) formatSelectTimeout(ctx *Context, res *Result) {
 		return
 	}
 
-	if data, ok := ctx.EnterArgSnapshot(4, selectTimeoutOffset, 16); ok {
+	if data, ok := selectTimeoutSnapshot(ctx); ok {
 		res.ArgParts = append(res.ArgParts, format.Timeval(data))
 	} else {
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", tptr))
@@ -108,7 +108,7 @@ func (h *SelectHandler) formatSelectExit(ctx *Context, nfds int, res *Result) {
 
 	tptr := ctx.Args[4]
 	if tptr != 0 {
-		if data, ok := ctx.ExitSnapshot(selectExitTimeoutOff, 16); ok {
+		if data, ok := selectExitTimeoutSnapshot(ctx); ok {
 			outParts = append(outParts, "left "+format.Timeval(data))
 		}
 	}
@@ -184,6 +184,9 @@ func selectEnterFdSetSnapshot(ctx *Context, argIndex int, nfds int) ([]byte, boo
 	if size == 0 {
 		return nil, true
 	}
+	if data, ok := ctx.PayloadBytes(argIndex, PayloadDirectionIn); ok {
+		return boundedBpfStructData(data, size)
+	}
 	return ctx.EnterArgSnapshot(argIndex, selectFdSetOffset(argIndex), size)
 }
 
@@ -192,8 +195,25 @@ func selectExitFdSetSnapshot(ctx *Context, argIndex int, nfds int) ([]byte, bool
 	if size == 0 {
 		return nil, true
 	}
+	if data, ok := ctx.PayloadBytes(argIndex, PayloadDirectionOut); ok {
+		return boundedBpfStructData(data, size)
+	}
 	offset := selectExitOffset + selectFdSetOffset(argIndex)
 	return ctx.ExitSnapshot(offset, size)
+}
+
+func selectTimeoutSnapshot(ctx *Context) ([]byte, bool) {
+	if data, ok := ctx.PayloadStruct(4, PayloadDirectionIn); ok {
+		return boundedBpfStructData(data, 16)
+	}
+	return ctx.EnterArgSnapshot(4, selectTimeoutOffset, 16)
+}
+
+func selectExitTimeoutSnapshot(ctx *Context) ([]byte, bool) {
+	if data, ok := ctx.PayloadStruct(4, PayloadDirectionOut); ok {
+		return boundedBpfStructData(data, 16)
+	}
+	return ctx.ExitSnapshot(selectExitTimeoutOff, 16)
 }
 
 func pollSnapshotSize(nfds int) int {

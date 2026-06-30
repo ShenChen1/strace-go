@@ -95,6 +95,8 @@ func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.
 		return pollPayloadSectionsForEvent(eventRaw, false)
 	case "ppoll":
 		return pollPayloadSectionsForEvent(eventRaw, true)
+	case "select", "_newselect":
+		return selectPayloadSectionsForEvent(eventRaw)
 	case "epoll_ctl":
 		return enterStructPayloadSection(eventRaw, 3, handler.BpfEnterArgOffset, epollPayloadEventSize)
 	case "epoll_wait", "epoll_pwait":
