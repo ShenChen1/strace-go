@@ -91,6 +91,9 @@ func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.
 		return exitStructPayloadSection(eventRaw, 1, statfsPayloadStructSize)
 	case "fstatfs":
 		return exitStructPayloadSection(eventRaw, 1, statfsPayloadStructSize)
+	case "clock_gettime", "clock_getres", "clock_settime", "adjtimex", "clock_adjtime",
+		"nanosleep", "clock_nanosleep", "gettimeofday", "settimeofday":
+		return timePayloadSectionsForEvent(eventRaw, scMeta.Name)
 	case "poll":
 		return pollPayloadSectionsForEvent(eventRaw, false)
 	case "ppoll":

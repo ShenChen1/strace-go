@@ -89,6 +89,56 @@ func TestDecodeTimespecUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestDecodeTimespecUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(99, 100)}
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		Ret:     0,
+		Decoder: event.NewDecoder(),
+		ScMeta:  meta.Syscall{Name: "clock_gettime"},
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeTimeStruct(9, 10)},
+		},
+	}
+
+	got, ok := decodeTimespec(ctx, 1, "struct timespec *", 0x1000)
+	if !ok {
+		t.Fatal("decodeTimespec returned ok=false")
+	}
+	if got != "{tv_sec=9, tv_nsec=10}" {
+		t.Fatalf("decodeTimespec() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestDecodeNanosleepRemainingUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(99, 100)}
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		Ret:     -4,
+		Decoder: event.NewDecoder(),
+		ScMeta:  meta.Syscall{Name: "nanosleep"},
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeTimeStruct(1, 2)},
+		},
+	}
+
+	got, ok := decodeTimespec(ctx, 1, "struct timespec *", 0x1000)
+	if !ok {
+		t.Fatal("decodeTimespec returned ok=false")
+	}
+	if got != "{tv_sec=1, tv_nsec=2}" {
+		t.Fatalf("decodeTimespec() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestDecodeTimevalUsesExitSnapshotWhenFallbackDisabled(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(99, 100)}
 	decoder := event.NewDecoder()
@@ -104,6 +154,31 @@ func TestDecodeTimevalUsesExitSnapshotWhenFallbackDisabled(t *testing.T) {
 		StrArgBuf:     buf,
 	}
 	putTypeTimeSnapshot(ctx, BpfExitArgOffset, makeTimeStruct(3, 4))
+
+	got, ok := decodeTimeval(ctx, 0, "struct timeval *", 0x1000)
+	if !ok {
+		t.Fatal("decodeTimeval returned ok=false")
+	}
+	if got != "{tv_sec=3, tv_usec=4}" {
+		t.Fatalf("decodeTimeval() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestDecodeTimevalUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(99, 100)}
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		Ret:     0,
+		Decoder: event.NewDecoder(),
+		ScMeta:  meta.Syscall{Name: "gettimeofday"},
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 0, ProbeRet: 0, Data: makeTimeStruct(3, 4)},
+		},
+	}
 
 	got, ok := decodeTimeval(ctx, 0, "struct timeval *", 0x1000)
 	if !ok {
@@ -183,6 +258,56 @@ func TestDecodeTimezoneUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 		StrArgBuf:    make([]byte, BpfExitArgOffset+24),
 	}
 	putTypeTimeSnapshot(ctx, BpfExitArgOffset+16, makeTimezoneData(1, 2))
+
+	got, ok := decodeTimezone(ctx, 1, "struct timezone *", 0x1000)
+	if !ok {
+		t.Fatal("decodeTimezone returned ok=false")
+	}
+	if got != "{tz_minuteswest=1, tz_dsttime=2}" {
+		t.Fatalf("decodeTimezone() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestDecodeTimezoneUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeTimezoneData(9, 10)}
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		Ret:     0,
+		Decoder: event.NewDecoder(),
+		ScMeta:  meta.Syscall{Name: "gettimeofday"},
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeTimezoneData(1, 2)},
+		},
+	}
+
+	got, ok := decodeTimezone(ctx, 1, "struct timezone *", 0x1000)
+	if !ok {
+		t.Fatal("decodeTimezone returned ok=false")
+	}
+	if got != "{tz_minuteswest=1, tz_dsttime=2}" {
+		t.Fatalf("decodeTimezone() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestDecodeSettimeofdayTimezoneUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeTimezoneData(9, 10)}
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		Ret:     0,
+		Decoder: event.NewDecoder(),
+		ScMeta:  meta.Syscall{Name: "settimeofday"},
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeTimezoneData(1, 2)},
+		},
+	}
 
 	got, ok := decodeTimezone(ctx, 1, "struct timezone *", 0x1000)
 	if !ok {

@@ -907,6 +907,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `stat/lstat/fstat/newfstatat` 与 `statfs/fstatfs` 已暴露 OUT `PayloadKindStruct` section，stat formatter 优先消费 section，旧 exit snapshot 仅作为迁移期 fallback。
 - `poll/ppoll` 与 `epoll_ctl/epoll_wait/epoll_pwait/epoll_pwait2` 已暴露结构数组/timeout 的 `PayloadKindStruct` sections，formatter 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。
 - `select/_newselect` 已暴露 enter/exit `fd_set` 的 `PayloadKindBytes` sections 和 timeout 的 `PayloadKindStruct` sections，select formatter 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。
+- `clock_gettime/clock_getres/clock_settime/adjtimex/clock_adjtime/nanosleep/clock_nanosleep/gettimeofday/settimeofday` 已暴露常用 time 结构的 `PayloadKindStruct` sections，time formatter 和通用 struct decoder 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。
 - `connect/bind/sendto/recvfrom/accept/accept4/getsockname/getpeername` 已暴露网络 buffer、sockaddr 和 addrlen sections，网络 formatter 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。
 
 ## 9. 第一条推荐实现链路

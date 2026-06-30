@@ -77,6 +77,52 @@ func TestTimeHandlerClockSettimeUsesEnterSnapshotWhenFallbackDisabled(t *testing
 	}
 }
 
+func TestTimeHandlerClockGettimeUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(99, 100)}
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		SysName: "clock_gettime",
+		Args:    [6]uint64{0, 0x1000},
+		Ret:     0,
+		Decoder: event.NewDecoder(),
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeTimeStruct(5, 6)},
+		},
+	}
+
+	got := (&TimeHandler{}).Handle(ctx)
+	if got.ArgParts[1] != "{tv_sec=5, tv_nsec=6}" {
+		t.Fatalf("clock_gettime timespec = %q", got.ArgParts[1])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestTimeHandlerClockSettimeUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(99, 100)}
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		SysName: "clock_settime",
+		Args:    [6]uint64{0, 0x1000},
+		Ret:     0,
+		Decoder: event.NewDecoder(),
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeTimeStruct(7, 8)},
+		},
+	}
+
+	got := (&TimeHandler{}).Handle(ctx)
+	if got.ArgParts[1] != "{tv_sec=7, tv_nsec=8}" {
+		t.Fatalf("clock_settime timespec = %q", got.ArgParts[1])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestTimeHandlerAdjtimexDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimexStruct(7)}
 	decoder := event.NewDecoder()
@@ -131,6 +177,29 @@ func TestTimeHandlerAdjtimexUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestTimeHandlerAdjtimexUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeTimexStruct(7)}
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		SysName: "adjtimex",
+		Args:    [6]uint64{0x1000},
+		Ret:     0,
+		Decoder: event.NewDecoder(),
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 0, ProbeRet: 0, Data: makeTimexStruct(7)},
+		},
+	}
+
+	got := (&TimeHandler{}).Handle(ctx)
+	if !strings.HasPrefix(got.ArgParts[0], "{modes=7,") {
+		t.Fatalf("adjtimex timex = %q", got.ArgParts[0])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestTimeHandlerClockAdjtimeUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimexStruct(9)}
 	decoder := event.NewDecoder()
@@ -150,6 +219,29 @@ func TestTimeHandlerClockAdjtimeUsesExitSnapshotWithoutMemoryRead(t *testing.T) 
 	if len(got.ArgParts) != 2 {
 		t.Fatalf("ArgParts len = %d, want 2", len(got.ArgParts))
 	}
+	if !strings.HasPrefix(got.ArgParts[1], "{modes=9,") {
+		t.Fatalf("clock_adjtime timex = %q", got.ArgParts[1])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestTimeHandlerClockAdjtimeUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeTimexStruct(9)}
+	ctx := &Context{
+		Pid:     1234,
+		Tid:     1234,
+		SysName: "clock_adjtime",
+		Args:    [6]uint64{0, 0x1000},
+		Ret:     0,
+		Decoder: event.NewDecoder(),
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeTimexStruct(9)},
+		},
+	}
+
+	got := (&TimeHandler{}).Handle(ctx)
 	if !strings.HasPrefix(got.ArgParts[1], "{modes=9,") {
 		t.Fatalf("clock_adjtime timex = %q", got.ArgParts[1])
 	}

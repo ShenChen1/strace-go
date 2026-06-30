@@ -36,7 +36,7 @@ func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, boo
 		if ctx.Ret < 0 && ctx.Ret >= -4095 {
 			return "", false
 		}
-		return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(BpfExitArgOffset, timespecSize), format.Timespec)
+		return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(i, BpfExitArgOffset, timespecSize), format.Timespec)
 	}
 	if ctx.ScMeta.Name == "clock_settime" {
 		return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, BpfEnterArgOffset, timespecSize), format.Timespec)
@@ -50,7 +50,7 @@ func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, boo
 			if ctx.Ret != -516 && ctx.Ret != -4 {
 				return "", false
 			}
-			return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(BpfExitArgOffset, timespecSize), format.Timespec)
+			return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(i, BpfExitArgOffset, timespecSize), format.Timespec)
 		}
 		return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, BpfEnterArgOffset, timespecSize), format.Timespec)
 	}
@@ -68,7 +68,7 @@ func decodeTimeval(ctx *Context, i int, argTyp string, val uint64) (string, bool
 		if ctx.Ret < 0 && ctx.Ret >= -4095 {
 			return "", false
 		}
-		return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(BpfExitArgOffset, timespecSize), format.Timeval)
+		return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(i, BpfExitArgOffset, timespecSize), format.Timeval)
 	}
 	return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, BpfEnterArgOffset, timespecSize), format.Timeval)
 }
@@ -78,22 +78,22 @@ func decodeUtimbuf(ctx *Context, i int, argTyp string, val uint64) (string, bool
 }
 
 func decodeTimex(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
-	return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(BpfExitArgOffset, timexSize), format.Timex)
+	return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(i, BpfExitArgOffset, timexSize), format.Timex)
 }
 
 type timeSnapshot struct {
-	argIndex int
-	offset   int
-	size     int
-	exit     bool
+	argIndex  int
+	offset    int
+	size      int
+	direction PayloadDirection
 }
 
 func enterTimeSnapshot(argIndex int, offset int, size int) timeSnapshot {
-	return timeSnapshot{argIndex: argIndex, offset: offset, size: size}
+	return timeSnapshot{argIndex: argIndex, offset: offset, size: size, direction: PayloadDirectionIn}
 }
 
-func exitTimeSnapshot(offset int, size int) timeSnapshot {
-	return timeSnapshot{argIndex: -1, offset: offset, size: size, exit: true}
+func exitTimeSnapshot(argIndex int, offset int, size int) timeSnapshot {
+	return timeSnapshot{argIndex: argIndex, offset: offset, size: size, direction: PayloadDirectionOut}
 }
 
 func decodeTimeSnapshot(ctx *Context, val uint64, snap timeSnapshot, decodeFn func([]byte) string) (string, bool) {
@@ -108,7 +108,10 @@ func decodeTimeSnapshot(ctx *Context, val uint64, snap timeSnapshot, decodeFn fu
 }
 
 func snapshotTimeData(ctx *Context, snap timeSnapshot) ([]byte, bool) {
-	if snap.exit {
+	if data, ok := ctx.PayloadStruct(snap.argIndex, snap.direction); ok {
+		return boundedBpfStructData(data, snap.size)
+	}
+	if snap.direction == PayloadDirectionOut {
 		return ctx.ExitSnapshot(snap.offset, snap.size)
 	}
 	return ctx.EnterArgSnapshot(snap.argIndex, snap.offset, snap.size)
@@ -124,7 +127,7 @@ func decodeItimerval(ctx *Context, i int, argTyp string, val uint64) (string, bo
 		if ctx.Ret < 0 && ctx.Ret >= -4095 {
 			return "", false
 		}
-		return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(BpfExitArgOffset, 32), format.Itimerval)
+		return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(i, BpfExitArgOffset, 32), format.Itimerval)
 	}
 	return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, BpfEnterArgOffset, 32), format.Itimerval)
 }
@@ -135,7 +138,7 @@ func decodeItimerspec(ctx *Context, i int, argTyp string, val uint64) (string, b
 		if ctx.Ret < 0 && ctx.Ret >= -4095 {
 			return "", false
 		}
-		return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(BpfExitArgOffset, 32), format.Itimerspec)
+		return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(i, BpfExitArgOffset, 32), format.Itimerspec)
 	}
 	return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, BpfEnterArgOffset, 32), format.Itimerspec)
 }
@@ -146,7 +149,7 @@ func decodeTimezone(ctx *Context, i int, argTyp string, val uint64) (string, boo
 		if ctx.Ret < 0 && ctx.Ret >= -4095 {
 			return "", false
 		}
-		return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(BpfExitArgOffset+16, 8), format.Timezone)
+		return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(i, BpfExitArgOffset+16, 8), format.Timezone)
 	}
 	offset := BpfEnterArgOffset
 	if ctx.ScMeta.Name == "settimeofday" && i == 1 {
