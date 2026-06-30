@@ -154,7 +154,7 @@ func bpfEventTypeName(eventRaw *bpfEvent) string {
 	switch eventRaw.EventType {
 	case bpfEventTypeEnter:
 		return "enter"
-	case bpfEventTypeExit, 0:
+	case bpfEventTypeExit:
 		return "exit"
 	case bpfEventTypeLifecycle:
 		return "lifecycle"

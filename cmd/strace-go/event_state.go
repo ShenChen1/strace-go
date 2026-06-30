@@ -42,7 +42,7 @@ func (s *traceSession) consumeEnterEvent(eventRaw *bpfEvent) *pendingSyscallStat
 }
 
 func isExitEvent(eventRaw *bpfEvent) bool {
-	return eventRaw.EventType == bpfEventTypeExit || eventRaw.EventType == 0
+	return eventRaw.EventType == bpfEventTypeExit
 }
 
 func (s *traceSession) rememberPendingExecArgs(tid int, argLine string) {

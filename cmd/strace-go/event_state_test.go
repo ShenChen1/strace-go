@@ -67,3 +67,14 @@ func TestJSONEventsArePairedByTIDState(t *testing.T) {
 		t.Fatalf("exit JSON = %+v, want event_type=exit paired_enter=true", exitEvent)
 	}
 }
+
+func TestZeroEventTypeIsNotExit(t *testing.T) {
+	eventRaw := &bpfEvent{EventVersion: 2}
+
+	if isExitEvent(eventRaw) {
+		t.Fatal("event_type=0 should not be treated as an explicit exit event")
+	}
+	if got := bpfEventTypeName(eventRaw); got != "unknown" {
+		t.Fatalf("bpfEventTypeName(event_type=0) = %q, want unknown", got)
+	}
+}
