@@ -146,6 +146,75 @@ func TestJSONSyscallEventIncludesOutBufferPayloadSections(t *testing.T) {
 	}
 }
 
+func TestJSONSyscallEventIncludesStructPayloadSections(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     [6]uint64
+		argIndex int
+		size     int
+		fill     byte
+	}{
+		{name: "stat", args: [6]uint64{0x1000, 0x2000}, argIndex: 1, size: statPayloadStructSize, fill: 0x11},
+		{name: "lstat", args: [6]uint64{0x1000, 0x2000}, argIndex: 1, size: statPayloadStructSize, fill: 0x22},
+		{name: "fstat", args: [6]uint64{3, 0x2000}, argIndex: 1, size: statPayloadStructSize, fill: 0x33},
+		{name: "newfstatat", args: [6]uint64{^uint64(99), 0x1000, 0x2000}, argIndex: 2, size: statPayloadStructSize, fill: 0x44},
+		{name: "statfs", args: [6]uint64{0x1000, 0x2000}, argIndex: 1, size: statfsPayloadStructSize, fill: 0x55},
+		{name: "fstatfs", args: [6]uint64{3, 0x2000}, argIndex: 1, size: statfsPayloadStructSize, fill: 0x66},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wantData := bytes.Repeat([]byte{tt.fill}, tt.size)
+			eventRaw := &bpfEvent{
+				Pid:           101,
+				Tid:           101,
+				EventVersion:  2,
+				EventType:     bpfEventTypeExit,
+				Args:          tt.args,
+				Ret:           0,
+				DataLen:       uint32(handler.BpfExitArgOffset + tt.size),
+				ProbeRetEnter: -1,
+				ProbeRetExit:  0,
+			}
+			copy(eventRaw.StrArg[handler.BpfExitArgOffset:], wantData)
+
+			scMeta := meta.Syscall{Name: tt.name}
+			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+			if len(ev.PayloadSections) != 1 {
+				t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
+			}
+			section := ev.PayloadSections[0]
+			if section.Kind != "struct" || section.Direction != "out" || section.ArgIndex != tt.argIndex {
+				t.Fatalf("%s section metadata = %+v", tt.name, section)
+			}
+			if section.Offset != handler.BpfExitArgOffset || section.UserLen != uint32(tt.size) || section.CopiedLen != uint32(tt.size) {
+				t.Fatalf("%s section bounds = %+v", tt.name, section)
+			}
+			if got := mustDecodeBase64(t, section.DataBase64); !bytes.Equal(got, wantData) {
+				t.Fatalf("%s section data length = %d, want %d", tt.name, len(got), len(wantData))
+			}
+		})
+	}
+}
+
+func TestJSONSyscallEventSkipsStructPayloadSectionOnFailedStat(t *testing.T) {
+	eventRaw := &bpfEvent{
+		EventType:     bpfEventTypeExit,
+		Args:          [6]uint64{3, 0x2000},
+		Ret:           -2,
+		DataLen:       handler.BpfExitArgOffset + statPayloadStructSize,
+		ProbeRetEnter: -1,
+		ProbeRetExit:  0,
+	}
+	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], bytes.Repeat([]byte{0x11}, statPayloadStructSize))
+
+	scMeta := meta.Syscall{Name: "fstat"}
+	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	if len(ev.PayloadSections) != 0 {
+		t.Fatalf("PayloadSections = %+v, want none for failed fstat", ev.PayloadSections)
+	}
+}
+
 func TestJSONSyscallEventIncludesIovecPayloadSection(t *testing.T) {
 	eventRaw := &bpfEvent{
 		Pid:           101,

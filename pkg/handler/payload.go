@@ -52,6 +52,11 @@ func (ctx *Context) PayloadIovec(argIndex int, direction PayloadDirection) ([]by
 	return ctx.payloadData(argIndex, PayloadKindIovec, direction)
 }
 
+// PayloadStruct returns a captured struct payload for one argument.
+func (ctx *Context) PayloadStruct(argIndex int, direction PayloadDirection) ([]byte, bool) {
+	return ctx.payloadData(argIndex, PayloadKindStruct, direction)
+}
+
 func (ctx *Context) payloadData(argIndex int, kind PayloadKind, direction PayloadDirection) ([]byte, bool) {
 	for _, section := range ctx.PayloadSections {
 		if section.ArgIndex == argIndex && section.Kind == kind &&

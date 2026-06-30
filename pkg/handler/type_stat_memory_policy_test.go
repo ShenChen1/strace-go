@@ -65,6 +65,30 @@ func TestDecodeStatUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestDecodeStatUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeStatSnapshot(1, 0100644)}
+	decoder := event.NewDecoder()
+	ctx := newTypeStatPolicyContext(reader, decoder)
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindStruct,
+			Direction: PayloadDirectionOut,
+			ArgIndex:  1,
+			ProbeRet:  0,
+			Data:      makeStatSnapshot(42, 0100644),
+		},
+	}
+
+	got, ok := decodeStat(ctx, 1, "struct stat *", 0x1000)
+	if !ok || !strings.Contains(got, "st_ino=42") {
+		t.Fatalf("decodeStat() = %q, %v", got, ok)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestDecodeStatfsUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeStatfsSnapshot(1024)}
 	decoder := event.NewDecoder()
@@ -72,6 +96,31 @@ func TestDecodeStatfsUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	ctx.SysName = "fstatfs"
 	ctx.ProbeRetExit = 0
 	putSmallSnapshot(ctx, BpfExitArgOffset, makeStatfsSnapshot(4096))
+
+	got, ok := decodeStatfs(ctx, 1, "struct statfs *", 0x1000)
+	if !ok || !strings.Contains(got, "f_bsize=4096") {
+		t.Fatalf("decodeStatfs() = %q, %v", got, ok)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestDecodeStatfsUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeStatfsSnapshot(1024)}
+	decoder := event.NewDecoder()
+	ctx := newTypeStatPolicyContext(reader, decoder)
+	ctx.SysName = "fstatfs"
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindStruct,
+			Direction: PayloadDirectionOut,
+			ArgIndex:  1,
+			ProbeRet:  0,
+			Data:      makeStatfsSnapshot(4096),
+		},
+	}
 
 	got, ok := decodeStatfs(ctx, 1, "struct statfs *", 0x1000)
 	if !ok || !strings.Contains(got, "f_bsize=4096") {

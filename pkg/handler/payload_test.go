@@ -89,6 +89,24 @@ func TestContextPayloadIovecMatchesDirection(t *testing.T) {
 	}
 }
 
+func TestContextPayloadStructMatchesDirection(t *testing.T) {
+	ctx := &Context{
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: []byte("in")},
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: []byte("out")},
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: -14, Data: []byte("bad")},
+		},
+	}
+
+	data, ok := ctx.PayloadStruct(1, PayloadDirectionOut)
+	if !ok || string(data) != "out" {
+		t.Fatalf("PayloadStruct out = %q, %v; want out section", string(data), ok)
+	}
+	if data, ok := ctx.PayloadStruct(2, PayloadDirectionOut); ok {
+		t.Fatalf("PayloadStruct failed probe = %q, want no match", string(data))
+	}
+}
+
 func TestContextPayloadStringRejectsFailedOrWrongDirectionSection(t *testing.T) {
 	ctx := &Context{
 		PayloadSections: []PayloadSection{

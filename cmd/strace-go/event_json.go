@@ -20,6 +20,8 @@ const (
 	lifecycleFree            uint32 = 4
 	iovecSectionElemSize            = 16
 	iovecSectionMaxBytes            = 512
+	statPayloadStructSize           = 144
+	statfsPayloadStructSize         = 120
 )
 
 type jsonSyscallEvent struct {
@@ -191,6 +193,16 @@ func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.
 		return stringPayloadSectionFromWindow(eventRaw, 0)
 	case "openat", "openat2":
 		return stringPayloadSectionFromWindow(eventRaw, 1)
+	case "stat", "lstat":
+		return exitStructPayloadSection(eventRaw, 1, statPayloadStructSize)
+	case "fstat":
+		return exitStructPayloadSection(eventRaw, 1, statPayloadStructSize)
+	case "newfstatat":
+		return exitStructPayloadSection(eventRaw, 2, statPayloadStructSize)
+	case "statfs":
+		return exitStructPayloadSection(eventRaw, 1, statfsPayloadStructSize)
+	case "fstatfs":
+		return exitStructPayloadSection(eventRaw, 1, statfsPayloadStructSize)
 	default:
 		return nil
 	}
@@ -213,6 +225,13 @@ func exitBytesPayloadSectionFromRet(eventRaw *bpfEvent, argIndex int) []handler.
 		return nil
 	}
 	return payloadSectionFromWindow(eventRaw, handler.PayloadKindBytes, handler.PayloadDirectionOut, argIndex, handler.BpfExitArgOffset, uint32Clamped(uint64(eventRaw.Ret)), eventRaw.ProbeRetExit)
+}
+
+func exitStructPayloadSection(eventRaw *bpfEvent, argIndex int, size uint32) []handler.PayloadSection {
+	if !isExitEvent(eventRaw) || eventRaw.Ret < 0 {
+		return nil
+	}
+	return payloadSectionFromWindow(eventRaw, handler.PayloadKindStruct, handler.PayloadDirectionOut, argIndex, handler.BpfExitArgOffset, size, eventRaw.ProbeRetExit)
 }
 
 func iovecPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int, countIndex int, offset int) []handler.PayloadSection {
