@@ -116,6 +116,24 @@ func TestNetworkBufferUsesSendtoSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestNetworkBufferUsesSendtoPayloadBytesSection(t *testing.T) {
+	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x2000: []byte("abc")}}
+	ctx := newNetworkPolicyContext(reader, "sendto")
+	ctx.Args = [6]uint64{3, 0x2000, 3}
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: []byte("abc")},
+	}
+
+	got, ok := (&NetworkHandler{}).formatNetworkBuffer(ctx, 1, 0x2000)
+	if !ok || got != `"abc"` {
+		t.Fatalf("formatNetworkBuffer() = %q, %v; want payload buffer", got, ok)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestNetworkBufferUsesRecvfromExitSnapshotWithoutMemoryRead(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x2000: []byte("abc")}}
 	ctx := newNetworkPolicyContext(reader, "recvfrom")
@@ -127,6 +145,25 @@ func TestNetworkBufferUsesRecvfromExitSnapshotWithoutMemoryRead(t *testing.T) {
 	got, ok := (&NetworkHandler{}).formatNetworkBuffer(ctx, 1, 0x2000)
 	if !ok || got != `"abc"` {
 		t.Fatalf("formatNetworkBuffer() = %q, %v; want exit BPF buffer", got, ok)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestNetworkBufferUsesRecvfromPayloadBytesSection(t *testing.T) {
+	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x2000: []byte("abc")}}
+	ctx := newNetworkPolicyContext(reader, "recvfrom")
+	ctx.Args = [6]uint64{3, 0x2000, 5}
+	ctx.Ret = 3
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: []byte("abc")},
+	}
+
+	got, ok := (&NetworkHandler{}).formatNetworkBuffer(ctx, 1, 0x2000)
+	if !ok || got != `"abc"` {
+		t.Fatalf("formatNetworkBuffer() = %q, %v; want payload buffer", got, ok)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -192,6 +229,25 @@ func TestNetworkSockaddrUsesConnectSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestNetworkSockaddrUsesConnectPayloadStructSection(t *testing.T) {
+	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x4000: sockaddrInet(80, [4]byte{127, 0, 0, 1})}}
+	ctx := newNetworkPolicyContext(reader, "connect")
+	ctx.Args = [6]uint64{3, 0x4000, 16}
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: sockaddrInet(80, [4]byte{127, 0, 0, 1})},
+	}
+
+	got, ok := (&NetworkHandler{}).formatSockaddr(ctx, 1, "uservaddr", "struct sockaddr *", 0x4000)
+	want := `{sa_family=AF_INET, sin_port=htons(80), sin_addr=inet_addr("127.0.0.1")}`
+	if !ok || got != want {
+		t.Fatalf("formatSockaddr() = %q, %v; want %q", got, ok, want)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestNetworkSockaddrUsesSendtoAddrSnapshotOffset(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x4000: sockaddrInet(80, [4]byte{127, 0, 0, 1})}}
 	ctx := newNetworkPolicyContext(reader, "sendto")
@@ -201,6 +257,50 @@ func TestNetworkSockaddrUsesSendtoAddrSnapshotOffset(t *testing.T) {
 	putNetworkSnapshot(ctx, BpfMiscArgOffset, sockaddrInet(80, [4]byte{127, 0, 0, 1}))
 
 	got, ok := (&NetworkHandler{}).formatSockaddr(ctx, 4, "addr", "struct sockaddr *", 0x4000)
+	want := `{sa_family=AF_INET, sin_port=htons(80), sin_addr=inet_addr("127.0.0.1")}`
+	if !ok || got != want {
+		t.Fatalf("formatSockaddr() = %q, %v; want %q", got, ok, want)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestNetworkSockaddrUsesRecvfromPayloadStructSection(t *testing.T) {
+	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x4000: sockaddrInet(80, [4]byte{127, 0, 0, 1})}}
+	ctx := newNetworkPolicyContext(reader, "recvfrom")
+	ctx.Args = [6]uint64{3, 0x2000, 3, 0, 0x4000, 0x5000}
+	ctx.Ret = 3
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 5, ProbeRet: 0, Data: uint32Bytes(16)},
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 5, ProbeRet: 0, Data: uint32Bytes(16)},
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 4, ProbeRet: 0, Data: sockaddrInet(80, [4]byte{127, 0, 0, 1})},
+	}
+
+	got, ok := (&NetworkHandler{}).formatSockaddr(ctx, 4, "addr", "struct sockaddr *", 0x4000)
+	want := `{sa_family=AF_INET, sin_port=htons(80), sin_addr=inet_addr("127.0.0.1")}`
+	if !ok || got != want {
+		t.Fatalf("formatSockaddr() = %q, %v; want %q", got, ok, want)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestNetworkSockaddrUsesAcceptPayloadStructSection(t *testing.T) {
+	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x4000: sockaddrInet(80, [4]byte{127, 0, 0, 1})}}
+	ctx := newNetworkPolicyContext(reader, "accept")
+	ctx.Args = [6]uint64{3, 0x4000, 0x5000}
+	ctx.Ret = 4
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, ProbeRet: 0, Data: uint32Bytes(16)},
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: 0, Data: uint32Bytes(16)},
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: sockaddrInet(80, [4]byte{127, 0, 0, 1})},
+	}
+
+	got, ok := (&NetworkHandler{}).formatSockaddr(ctx, 1, "upeer_sockaddr", "struct sockaddr *", 0x4000)
 	want := `{sa_family=AF_INET, sin_port=htons(80), sin_addr=inet_addr("127.0.0.1")}`
 	if !ok || got != want {
 		t.Fatalf("formatSockaddr() = %q, %v; want %q", got, ok, want)
@@ -234,6 +334,25 @@ func TestNetworkGetSockaddrLenUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	got := (&NetworkHandler{}).getSockaddrLen(ctx)
 	if got != 16 {
 		t.Fatalf("getSockaddrLen() = %d, want 16", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestNetworkAddrLenUsesPayloadBytesSections(t *testing.T) {
+	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x1000: uint32Bytes(16)}}
+	ctx := newNetworkPolicyContext(reader, "recvfrom")
+	ctx.Ret = 3
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 5, ProbeRet: 0, Data: uint32Bytes(16)},
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 5, ProbeRet: 0, Data: uint32Bytes(8)},
+	}
+
+	got, ok := (&NetworkHandler{}).formatNetworkAddrLen(ctx, "addr_len", 0x1000)
+	if !ok || got != "[16 => 8]" {
+		t.Fatalf("formatNetworkAddrLen() = %q, %v; want payload len transition", got, ok)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)

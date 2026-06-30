@@ -101,6 +101,14 @@ func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.
 		return exitStructArrayPayloadSectionFromRet(eventRaw, 1, epollPayloadEventSize, epollPayloadMaxBytes)
 	case "epoll_pwait2":
 		return epollPwait2PayloadSectionsForEvent(eventRaw)
+	case "connect", "bind":
+		return networkSockaddrInPayloadSection(eventRaw, 1, 2, 0)
+	case "sendto":
+		return sendtoPayloadSectionsForEvent(eventRaw)
+	case "recvfrom":
+		return recvfromPayloadSectionsForEvent(eventRaw)
+	case "accept", "accept4", "getsockname", "getpeername":
+		return acceptLikePayloadSectionsForEvent(eventRaw)
 	default:
 		return nil
 	}

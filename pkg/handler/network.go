@@ -251,16 +251,24 @@ func (h *NetworkHandler) getSockaddrLen(ctx *Context) uint32 {
 }
 
 func (h *NetworkHandler) getSockaddrLenSnapshot(ctx *Context, isExit bool) (uint32, bool) {
+	argIndex := 2
+	if ctx.ScMeta.Name == "recvfrom" {
+		argIndex = 5
+	}
+	direction := PayloadDirectionIn
+	if isExit {
+		direction = PayloadDirectionOut
+	}
+	if data, ok := ctx.PayloadBytes(argIndex, direction); ok && len(data) >= 4 {
+		return binary.LittleEndian.Uint32(data), true
+	}
+
 	if isExit {
 		data, ok := ctx.ExitSnapshot(772, 4)
 		if !ok {
 			return 0, false
 		}
 		return binary.LittleEndian.Uint32(data), true
-	}
-	argIndex := 2
-	if ctx.ScMeta.Name == "recvfrom" {
-		argIndex = 5
 	}
 	data, ok := ctx.EnterArgSnapshot(argIndex, 768, 4)
 	if !ok {
@@ -271,7 +279,13 @@ func (h *NetworkHandler) getSockaddrLenSnapshot(ctx *Context, isExit bool) (uint
 
 func (h *NetworkHandler) networkBufferSnapshot(ctx *Context, size int) ([]byte, bool) {
 	if ctx.ScMeta.Name == "recvfrom" {
+		if data, ok := ctx.PayloadBytes(1, PayloadDirectionOut); ok {
+			return boundedBpfStructData(data, size)
+		}
 		return ctx.ExitSnapshot(BpfExitArgOffset, size)
+	}
+	if data, ok := ctx.PayloadBytes(1, PayloadDirectionIn); ok {
+		return boundedBpfStructData(data, size)
 	}
 	return ctx.EnterArgSnapshot(1, 0, size)
 }
@@ -279,10 +293,23 @@ func (h *NetworkHandler) networkBufferSnapshot(ctx *Context, size int) ([]byte, 
 func (h *NetworkHandler) sockaddrSnapshot(ctx *Context, offset uint32, size int) ([]byte, bool) {
 	switch ctx.ScMeta.Name {
 	case "bind", "connect":
+		if data, ok := ctx.PayloadStruct(1, PayloadDirectionIn); ok {
+			return boundedBpfStructData(data, size)
+		}
 		return ctx.EnterArgSnapshot(1, int(offset), size)
 	case "sendto":
+		if data, ok := ctx.PayloadStruct(4, PayloadDirectionIn); ok {
+			return boundedBpfStructData(data, size)
+		}
 		return ctx.EnterArgSnapshot(4, int(offset), size)
 	case "recvfrom", "accept", "accept4", "getsockname", "getpeername":
+		argIndex := 1
+		if ctx.ScMeta.Name == "recvfrom" {
+			argIndex = 4
+		}
+		if data, ok := ctx.PayloadStruct(argIndex, PayloadDirectionOut); ok {
+			return boundedBpfStructData(data, size)
+		}
 		return ctx.ExitSnapshot(int(offset), size)
 	}
 	return nil, false
