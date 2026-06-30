@@ -1,6 +1,12 @@
 package cli
 
-import "testing"
+import (
+	"bytes"
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+)
 
 func TestParseCombinedVerboseTraceFlag(t *testing.T) {
 	opts := ParseArgs([]string{"-veexecve", "/bin/true"})
@@ -96,5 +102,27 @@ func TestParseDebugEventsAlias(t *testing.T) {
 	}
 	if !opts.DebugEvents {
 		t.Fatal("DebugEvents = false, want true")
+	}
+}
+
+func TestParseModeFlagRejected(t *testing.T) {
+	if os.Getenv("STRACE_GO_PARSE_MODE_EXIT") == "1" {
+		ParseArgs([]string{"--mode=compat", "/bin/true"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestParseModeFlagRejected")
+	cmd.Env = append(os.Environ(), "STRACE_GO_PARSE_MODE_EXIT=1")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok || exitErr.ExitCode() != 1 {
+		t.Fatalf("ParseArgs(--mode=compat) exit = %v, want status 1; stderr=%q", err, stderr.String())
+	}
+	msg := stderr.String()
+	if !strings.Contains(msg, "--mode has been removed") || !strings.Contains(msg, "pure eBPF") {
+		t.Fatalf("stderr = %q, want removed-mode pure-eBPF message", msg)
 	}
 }

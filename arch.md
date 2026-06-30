@@ -890,6 +890,13 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - upstream reference 子集作为非主门禁可运行。
 - 搜索主产品路径没有 `Ptrace*`、`procmem.Reader` 运行时依赖。
 
+当前落地：
+
+- 产品 CLI 已不再接受 `--mode=compat` / `--mode=ebpf-fast`；传入 `--mode` 会失败并提示 `strace-go` 始终使用纯 eBPF tracing。
+- `upstream-reference` 是唯一 upstream 参考套件命名，不再提供 `compat-upstream` suite。
+- `README` 已声明单一路径契约、纯 eBPF 语义限制和 upstream reference 的非主门禁定位。
+- 单元测试锁定 `newTraceCommand` 不配置 ptrace，并锁定 `--mode=compat` 被拒绝，防止产品入口重新长出 ptrace/compat 分支。
+
 ## 9. 第一条推荐实现链路
 
 不要一开始试图支持所有 syscall。第一条链路建议固定为：
