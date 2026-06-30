@@ -896,6 +896,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `upstream-reference` 是唯一 upstream 参考套件命名，不再提供 `compat-upstream` suite。
 - `README` 已声明单一路径契约、纯 eBPF 语义限制和 upstream reference 的非主门禁定位。
 - 单元测试锁定 `newTraceCommand` 不配置 ptrace，并锁定 `--mode=compat` 被拒绝，防止产品入口重新长出 ptrace/compat 分支。
+- 单元测试会扫描主产品 Go 源码，禁止重新引入 ptrace runtime API、`pkg/procmem` 或用户态 `process_vm_readv` 补读入口。
 
 ## 9. 第一条推荐实现链路
 

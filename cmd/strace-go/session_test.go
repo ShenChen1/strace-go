@@ -2,7 +2,11 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"strace-go/pkg/cli"
@@ -36,6 +40,35 @@ func TestNewTraceCommandDoesNotConfigurePtrace(t *testing.T) {
 	cmd := newTraceCommand(&cli.Options{CmdArgs: []string{"/bin/true"}}, nil)
 	if cmd.SysProcAttr != nil {
 		t.Fatalf("SysProcAttr = %#v, want nil so tracing stays eBPF-only", cmd.SysProcAttr)
+	}
+}
+
+func TestProductSourceHasNoRuntimePtraceOrProcmemDependency(t *testing.T) {
+	forbidden := []string{
+		"syscall.Ptrace",
+		"unix.Ptrace",
+		"PtracePeek",
+		"PtraceAttach",
+		"PtraceCont",
+		"PtraceSetOptions",
+		"PtraceSyscall",
+		"ProcessVMReadv",
+		"process_vm_readv(",
+		"\"strace-go/pkg/procmem\"",
+		"procmem.",
+		"/proc/%d/mem",
+	}
+	for _, path := range productGoFiles(t) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		src := string(data)
+		for _, token := range forbidden {
+			if strings.Contains(src, token) {
+				t.Fatalf("%s contains forbidden runtime memory dependency token %q", path, token)
+			}
+		}
 	}
 }
 
@@ -112,4 +145,44 @@ func TestShouldQueueExitStatusSkipsExplicitAttachPid(t *testing.T) {
 
 func fakeStartedCommand() *exec.Cmd {
 	return &exec.Cmd{}
+}
+
+func productGoFiles(t *testing.T) []string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "../.."))
+	dirs := []string{
+		filepath.Join(root, "cmd/strace-go"),
+		filepath.Join(root, "pkg/cli"),
+		filepath.Join(root, "pkg/event"),
+		filepath.Join(root, "pkg/format"),
+		filepath.Join(root, "pkg/handler"),
+		filepath.Join(root, "pkg/stacktrace"),
+	}
+	var files []string
+	for _, dir := range dirs {
+		err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			name := entry.Name()
+			if !strings.HasSuffix(name, ".go") ||
+				strings.HasSuffix(name, "_test.go") ||
+				strings.HasPrefix(name, "bpf_bpf") {
+				return nil
+			}
+			files = append(files, path)
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", dir, err)
+		}
+	}
+	return files
 }
