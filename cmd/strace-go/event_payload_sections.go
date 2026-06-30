@@ -19,6 +19,9 @@ const (
 	epollPayloadMaxBytes      = 512
 	timespecPayloadStructSize = 16
 	fdArrayPayloadSize        = 8
+	rlimitPayloadStructSize   = 16
+	sysinfoPayloadStructSize  = 112
+	utsnamePayloadStructSize  = 65 * 6
 )
 
 type payloadWindowSpec struct {
@@ -121,6 +124,16 @@ func structuredPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]han
 		return exitStructPayloadSection(eventRaw, 1, statfsPayloadStructSize), true
 	case "fstatfs":
 		return exitStructPayloadSection(eventRaw, 1, statfsPayloadStructSize), true
+	case "uname":
+		return exitStructPayloadSection(eventRaw, 0, utsnamePayloadStructSize), true
+	case "sysinfo":
+		return exitStructPayloadSection(eventRaw, 0, sysinfoPayloadStructSize), true
+	case "getrlimit":
+		return exitStructPayloadSection(eventRaw, 1, rlimitPayloadStructSize), true
+	case "setrlimit":
+		return enterStructPayloadSection(eventRaw, 1, handler.BpfEnterArgOffset, rlimitPayloadStructSize), true
+	case "prlimit64":
+		return prlimitPayloadSectionsForEvent(eventRaw), true
 	case "clock_gettime", "clock_getres", "clock_settime", "adjtimex", "clock_adjtime",
 		"nanosleep", "clock_nanosleep", "gettimeofday", "settimeofday":
 		return timePayloadSectionsForEvent(eventRaw, scName), true
@@ -149,6 +162,14 @@ func structuredPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]han
 	default:
 		return nil, false
 	}
+}
+
+func prlimitPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
+	sections := enterStructPayloadSection(eventRaw, 2, handler.BpfEnterArgOffset, rlimitPayloadStructSize)
+	if isExitEvent(eventRaw) && eventRaw.Ret >= 0 {
+		sections = append(sections, exitStructPayloadSection(eventRaw, 3, rlimitPayloadStructSize)...)
+	}
+	return sections
 }
 
 func stringPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int) []handler.PayloadSection {

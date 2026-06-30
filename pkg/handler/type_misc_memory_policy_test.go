@@ -22,6 +22,13 @@ func makeRlimitSnapshot(cur uint64, max uint64) []byte {
 	return data
 }
 
+func makeUtsnameSnapshot(sysname string, nodename string) []byte {
+	data := make([]byte, utsnameStructSize)
+	copy(data[0:65], []byte(sysname))
+	copy(data[65:130], []byte(nodename))
+	return data
+}
+
 func newTypeMiscPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Decoder) *Context {
 	return &Context{
 		Pid:           1234,
@@ -71,6 +78,18 @@ func TestDecodeSysinfoUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestDecodeSysinfoUsesPayloadStructSection(t *testing.T) {
+	ctx := newTypeMiscPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 0, ProbeRet: 0, Data: makeSysinfoSnapshot(321)},
+	}
+
+	got, ok := decodeSysinfo(ctx, 0, "struct sysinfo *", 0x1000)
+	if !ok || !strings.Contains(got, "uptime=321") {
+		t.Fatalf("decodeSysinfo() = %q, %v", got, ok)
+	}
+}
+
 func TestDecodeRlimitUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeRlimitSnapshot(1, 2)}
 	decoder := event.NewDecoder()
@@ -105,6 +124,19 @@ func TestDecodeRlimitUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestDecodeRlimitUsesPayloadStructSection(t *testing.T) {
+	ctx := newTypeMiscPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.ScMeta.Name = "setrlimit"
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeRlimitSnapshot(13, 14)},
+	}
+
+	got, ok := decodeRlimitPointer(ctx, 1, "struct rlimit *", 0x1000)
+	if !ok || got != "{rlim_cur=13, rlim_max=14}" {
+		t.Fatalf("decodeRlimitPointer() = %q, %v", got, ok)
+	}
+}
+
 func TestDecodePrlimitOldRlimitUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeRlimitSnapshot(1, 2)}
 	decoder := event.NewDecoder()
@@ -119,6 +151,19 @@ func TestDecodePrlimitOldRlimitUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestDecodeUtsnameUsesPayloadStructSection(t *testing.T) {
+	ctx := newTypeMiscPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.ScMeta.Name = "uname"
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 0, ProbeRet: 0, Data: makeUtsnameSnapshot("Linux", "node-a")},
+	}
+
+	got, ok := decodeUtsname(ctx, 0, "struct utsname *", 0x1000)
+	if !ok || !strings.Contains(got, `sysname="Linux"`) || !strings.Contains(got, `nodename="node-a"`) {
+		t.Fatalf("decodeUtsname() = %q, %v", got, ok)
 	}
 }
 
