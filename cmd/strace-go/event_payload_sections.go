@@ -154,6 +154,8 @@ func structuredPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]han
 		return exitStructPayloadSection(eventRaw, 1, archPrctlPayloadOutSize), true
 	case "capget", "capset":
 		return capabilityPayloadSectionsForEvent(eventRaw, scName), true
+	case "io_setup", "io_submit", "io_cancel", "io_getevents", "io_pgetevents", "io_pgetevents_time64":
+		return aioPayloadSectionsForEvent(eventRaw, scName), true
 	case "cachestat":
 		return cachestatPayloadSectionsForEvent(eventRaw), true
 	case "fcntl", "fcntl64":

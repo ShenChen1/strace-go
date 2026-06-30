@@ -21,12 +21,16 @@ func init() {
 type AioHandler struct{}
 
 const (
-	aioIocbSize       = 64
-	aioSetupOutSize   = 8
-	aioEventsElemSize = 32
-	aioSnapshotLimit  = 512
-	aioSigsetOffset   = BpfMiscArgOffset + 16
-	aioSigmaskOffset  = BpfMiscArgOffset + 32
+	// AioSubmitIocbPayloadArgBase identifies synthetic payload sections for io_submit iocb entries.
+	AioSubmitIocbPayloadArgBase = 20
+
+	aioIocbSize        = 64
+	aioSetupOutSize    = 8
+	aioEventsElemSize  = 32
+	aioSnapshotLimit   = 512
+	aioSigsetOffset    = BpfMiscArgOffset + 16
+	aioSigmaskOffset   = BpfMiscArgOffset + 32
+	aioSigmaskProbeBit = 13
 )
 
 func aioAllBytesZero(data []byte) bool {
@@ -60,7 +64,7 @@ func (h *AioHandler) formatIoSetup(ctx *Context, res *Result) {
 	if ctx.Args[1] == 0 {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else if ctx.Ret >= 0 {
-		data, ok := ctx.ExitSnapshot(BpfExitArgOffset, aioSetupOutSize)
+		data, ok := aioStructSnapshot(ctx, 1, PayloadDirectionOut, BpfExitArgOffset, aioSetupOutSize)
 		if ok {
 			res.ArgParts = append(res.ArgParts, "["+fmt.Sprintf("%#x", binary.LittleEndian.Uint64(data))+"]")
 		} else {
@@ -93,7 +97,7 @@ func (h *AioHandler) formatIoSubmit(ctx *Context, res *Result) {
 	}
 
 	readSize := aioBoundedSize(count, 8)
-	pdata, ok := ctx.EnterArgSnapshot(2, BpfEnterArgOffset, readSize)
+	pdata, ok := aioStructSnapshot(ctx, 2, PayloadDirectionIn, BpfEnterArgOffset, readSize)
 	if !ok {
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
 		return
@@ -142,6 +146,9 @@ func aioIocbSnapshot(ctx *Context, index int) ([]byte, bool) {
 	if index < 0 || index >= 2 {
 		return nil, false
 	}
+	if data, ok := ctx.PayloadStruct(AioSubmitIocbPayloadArgBase+index, PayloadDirectionIn); ok && !aioAllBytesZero(data) {
+		return data, true
+	}
 	offset := BpfMiscArgOffset + index*aioIocbSize
 	data, ok := ctx.snapshotWindow(offset, aioIocbSize)
 	if !ok || aioAllBytesZero(data) {
@@ -166,7 +173,7 @@ func (h *AioHandler) formatIoCancel(ctx *Context, res *Result) {
 	if ctx.Args[1] == 0 {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else {
-		if data, ok := ctx.EnterArgSnapshot(1, BpfEnterArgOffset, aioIocbSize); ok {
+		if data, ok := aioStructSnapshot(ctx, 1, PayloadDirectionIn, BpfEnterArgOffset, aioIocbSize); ok {
 			res.ArgParts = append(res.ArgParts, format.Iocb(data, ctx.Opts.Verbose, func(opcode uint16, buf uint64, nbytes uint64) string {
 				return h.formatAioBuf(ctx, opcode, buf, nbytes)
 			}))
@@ -199,7 +206,7 @@ func (h *AioHandler) formatIoEventsArg(ctx *Context, res *Result) {
 	} else if ctx.Ret > 0 {
 		count := int(ctx.Ret)
 		readSize := aioBoundedSize(count, aioEventsElemSize)
-		data, ok := ctx.ExitSnapshot(BpfExitArgOffset, readSize)
+		data, ok := aioStructSnapshot(ctx, 3, PayloadDirectionOut, BpfExitArgOffset, readSize)
 		if ok {
 			res.ArgParts = append(res.ArgParts, format.IoEvents(data, count))
 		} else {
@@ -216,7 +223,7 @@ func (h *AioHandler) formatIoGeteventsTimeout(ctx *Context, res *Result) {
 		return
 	}
 
-	data, ok := ctx.EnterArgSnapshot(4, BpfMiscArgOffset, 16)
+	data, ok := aioStructSnapshot(ctx, 4, PayloadDirectionIn, BpfMiscArgOffset, 16)
 	if !ok {
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[4]))
 		return
@@ -234,7 +241,7 @@ func (h *AioHandler) formatIoPgeteventsSigset(ctx *Context, res *Result) {
 		return
 	}
 
-	d, ok := ctx.EnterArgSnapshot(5, aioSigsetOffset, 16)
+	d, ok := aioStructSnapshot(ctx, 5, PayloadDirectionIn, aioSigsetOffset, 16)
 	if !ok {
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[5]))
 		return
@@ -248,26 +255,42 @@ func (h *AioHandler) formatIoPgeteventsSigset(ctx *Context, res *Result) {
 	sigsetsize := binary.LittleEndian.Uint64(d[8:16])
 	sigsetStr := fmt.Sprintf("%#x", sigmask)
 	if sigsetsize <= 8 && sigsetsize > 0 {
-		var maskData []byte
-		// Arg 5's nested sigmask read is encoded at bit 13 by the generator.
-		arg5Failed := false
-		if ctx.ProbeRetEnter < -1 {
-			mask := uint32(-ctx.ProbeRetEnter - 1)
-			if (mask & (1 << 13)) != 0 {
-				arg5Failed = true
-			}
-		} else if ctx.ProbeRetEnter == -1 {
-			arg5Failed = true
-		}
-
-		if !arg5Failed {
-			maskData, _ = ctx.snapshotWindow(aioSigmaskOffset, int(sigsetsize))
-		}
-		if maskData != nil {
+		if maskData, ok := aioSigmaskSnapshot(ctx, int(sigsetsize)); ok {
 			if s := format.Sigset(maskData); s != "" {
 				sigsetStr = s
 			}
 		}
 	}
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("{sigmask=%s, sigsetsize=%d}", sigsetStr, sigsetsize))
+}
+
+func aioStructSnapshot(ctx *Context, argIndex int, direction PayloadDirection, offset int, size int) ([]byte, bool) {
+	if data, ok := ctx.PayloadStruct(argIndex, direction); ok && len(data) >= size {
+		return data[:size], true
+	}
+	if direction == PayloadDirectionOut {
+		return ctx.ExitSnapshot(offset, size)
+	}
+	return ctx.EnterArgSnapshot(argIndex, offset, size)
+}
+
+func aioSigmaskSnapshot(ctx *Context, size int) ([]byte, bool) {
+	if data, ok := ctx.PayloadBytes(5, PayloadDirectionIn); ok && len(data) >= size {
+		return data[:size], true
+	}
+	if aioNestedProbeFailed(ctx.ProbeRetEnter, aioSigmaskProbeBit) {
+		return nil, false
+	}
+	return ctx.snapshotWindow(aioSigmaskOffset, size)
+}
+
+func aioNestedProbeFailed(probeRet int32, bit uint) bool {
+	if probeRet >= 0 {
+		return false
+	}
+	if probeRet == -1 {
+		return true
+	}
+	mask := uint32(-probeRet - 1)
+	return (mask & (uint32(1) << bit)) != 0
 }

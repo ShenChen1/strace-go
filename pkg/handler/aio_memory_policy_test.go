@@ -115,6 +115,27 @@ func TestAioSetupUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestAioSetupUsesPayloadStructSection(t *testing.T) {
+	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newAioPolicyContext(reader, event.NewDecoder())
+	ctx.SysName = "io_setup"
+	ctx.Args = [6]uint64{128, 0x1000}
+	ctx.Ret = 0
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: pointerBytes(0xabc)},
+	}
+
+	got := (&AioHandler{}).Handle(ctx).ArgParts
+	want := []string{"128", "[0xabc]"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("io_setup args = %#v; want %#v", got, want)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestAioSubmitDoesNotUseLegacyNestedBufferFallback(t *testing.T) {
 	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{
 		0x1000: pointerBytes(0x2000),
@@ -133,6 +154,26 @@ func TestAioSubmitDoesNotUseLegacyNestedBufferFallback(t *testing.T) {
 	got := (&AioHandler{}).Handle(ctx).ArgParts
 	if len(got) != 3 || !strings.Contains(got[2], `aio_buf=0x3000`) {
 		t.Fatalf("io_submit args = %#v, want pointer aio_buf", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestAioSubmitUsesPayloadSections(t *testing.T) {
+	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newAioPolicyContext(reader, event.NewDecoder())
+	ctx.SysName = "io_submit"
+	ctx.Args = [6]uint64{0xabc, 1, 0x1000}
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 2, ProbeRet: 0, Data: pointerBytes(0x2000)},
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: AioSubmitIocbPayloadArgBase, ProbeRet: 0, Data: makeIocbData(1, 0x3000, 3)},
+	}
+
+	got := (&AioHandler{}).Handle(ctx).ArgParts
+	if len(got) != 3 || !strings.Contains(got[2], `aio_buf=0x3000`) {
+		t.Fatalf("io_submit args = %#v, want payload aio_buf", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -171,6 +212,25 @@ func TestAioIovecDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
+func TestAioCancelUsesPayloadStructSection(t *testing.T) {
+	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newAioPolicyContext(reader, event.NewDecoder())
+	ctx.SysName = "io_cancel"
+	ctx.Args = [6]uint64{0xabc, 0x2000, 0}
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeIocbData(1, 0x3000, 3)},
+	}
+
+	got := (&AioHandler{}).Handle(ctx).ArgParts
+	if len(got) != 3 || !strings.Contains(got[1], `aio_buf=0x3000`) {
+		t.Fatalf("io_cancel args = %#v, want payload aio_buf", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestAioCancelDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{
 		0x2000: makeIocbData(1, 0x3000, 3),
@@ -184,6 +244,47 @@ func TestAioCancelDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	want := []string{"0xabc", "0x2000", "NULL"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("io_cancel args = %#v; want %#v", got, want)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestAioGeteventsUsesPayloadStructSection(t *testing.T) {
+	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newAioPolicyContext(reader, event.NewDecoder())
+	ctx.SysName = "io_getevents"
+	ctx.Args = [6]uint64{0xabc, 0, 1, 0x7000, 0}
+	ctx.Ret = 1
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 3, ProbeRet: 0, Data: makeAioIoEventData(0x11, 0x22, 3, 4)},
+	}
+
+	got := (&AioHandler{}).Handle(ctx).ArgParts
+	want := []string{"0xabc", "0", "1", "[{data=0x11, obj=0x22, res=3, res2=4}]", "NULL"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("io_getevents args = %#v; want %#v", got, want)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestAioGeteventsTimeoutUsesPayloadStructSection(t *testing.T) {
+	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newAioPolicyContext(reader, event.NewDecoder())
+	ctx.SysName = "io_getevents"
+	ctx.Args = [6]uint64{0xabc, 0, 0, 0, 0x4000}
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 4, ProbeRet: 0, Data: makeTimeStruct(5, 6)},
+	}
+
+	got := (&AioHandler{}).Handle(ctx).ArgParts
+	want := []string{"0xabc", "0", "0", "NULL", "{tv_sec=5, tv_nsec=6}"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("io_getevents args = %#v; want %#v", got, want)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -206,6 +307,27 @@ func TestAioPgeteventsSigmaskDoesNotReadWhenFallbackDisabled(t *testing.T) {
 
 	got := (&AioHandler{}).Handle(ctx).ArgParts
 	want := []string{"0xabc", "0", "0", "NULL", "NULL", "{sigmask=0x6000, sigsetsize=8}"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("io_pgetevents args = %#v; want %#v", got, want)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestAioPgeteventsSigsetUsesPayloadSections(t *testing.T) {
+	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newAioPolicyContext(reader, event.NewDecoder())
+	ctx.SysName = "io_pgetevents"
+	ctx.Args = [6]uint64{0xabc, 0, 0, 0, 0, 0x5000}
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 5, ProbeRet: 0, Data: append(pointerBytes(0x6000), pointerBytes(8)...)},
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 5, ProbeRet: 0, Data: makeSigsetData(1)},
+	}
+
+	got := (&AioHandler{}).Handle(ctx).ArgParts
+	want := []string{"0xabc", "0", "0", "NULL", "NULL", "{sigmask=[HUP], sigsetsize=8}"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("io_pgetevents args = %#v; want %#v", got, want)
 	}
@@ -237,6 +359,15 @@ func TestAioPgeteventsSigmaskUsesNestedSnapshotWithoutMemoryRead(t *testing.T) {
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
+}
+
+func makeAioIoEventData(dataValue uint64, obj uint64, res uint64, res2 uint64) []byte {
+	data := make([]byte, aioEventsElemSize)
+	binary.LittleEndian.PutUint64(data[0:8], dataValue)
+	binary.LittleEndian.PutUint64(data[8:16], obj)
+	binary.LittleEndian.PutUint64(data[16:24], res)
+	binary.LittleEndian.PutUint64(data[24:32], res2)
+	return data
 }
 
 func TestAioPgeteventsSigmaskDoesNotUseLegacyFallback(t *testing.T) {

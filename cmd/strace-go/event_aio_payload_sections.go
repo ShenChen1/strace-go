@@ -1,0 +1,182 @@
+package main
+
+import (
+	"encoding/binary"
+
+	"strace-go/pkg/handler"
+)
+
+const (
+	aioPayloadPointerSize    = 8
+	aioPayloadIocbSize       = 64
+	aioPayloadEventsElemSize = 32
+	aioPayloadMaxBytes       = 512
+	aioPayloadSigsetOffset   = handler.BpfMiscArgOffset + 16
+	aioPayloadSigmaskOffset  = handler.BpfMiscArgOffset + 32
+	aioPayloadSigmaskProbe   = 13
+)
+
+func aioPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) []handler.PayloadSection {
+	switch scName {
+	case "io_setup":
+		return aioSetupPayloadSections(eventRaw)
+	case "io_submit":
+		return aioSubmitPayloadSections(eventRaw)
+	case "io_cancel":
+		if eventRaw.Args[1] == 0 {
+			return nil
+		}
+		return enterStructPayloadSection(eventRaw, 1, handler.BpfEnterArgOffset, aioPayloadIocbSize)
+	case "io_getevents":
+		return aioGeteventsPayloadSections(eventRaw, false)
+	case "io_pgetevents", "io_pgetevents_time64":
+		return aioGeteventsPayloadSections(eventRaw, true)
+	default:
+		return nil
+	}
+}
+
+func aioSetupPayloadSections(eventRaw *bpfEvent) []handler.PayloadSection {
+	if !isExitEvent(eventRaw) || eventRaw.Ret < 0 || eventRaw.Args[1] == 0 {
+		return nil
+	}
+	return exitStructPayloadSection(eventRaw, 1, aioPayloadPointerSize)
+}
+
+func aioSubmitPayloadSections(eventRaw *bpfEvent) []handler.PayloadSection {
+	count := int64(eventRaw.Args[1])
+	if count <= 0 || eventRaw.Args[2] == 0 {
+		return nil
+	}
+	userLen := structArrayUserLen(uint64(count), aioPayloadPointerSize)
+	sections := payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+		kind:      handler.PayloadKindStruct,
+		direction: handler.PayloadDirectionIn,
+		argIndex:  2,
+		offset:    handler.BpfEnterArgOffset,
+		userLen:   userLen,
+		maxLen:    aioPayloadMaxBytes,
+		probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, 2),
+	})
+	return append(sections, aioSubmitIocbPayloadSections(eventRaw, count)...)
+}
+
+func aioSubmitIocbPayloadSections(eventRaw *bpfEvent, count int64) []handler.PayloadSection {
+	if getArgProbeStatus(eventRaw.ProbeRetEnter, 2) != 0 {
+		return nil
+	}
+	pointers, ok := eventPayloadWindow(eventRaw, handler.BpfEnterArgOffset, aioPayloadMaxBytes)
+	if !ok {
+		return nil
+	}
+
+	limit := int(count)
+	if limit > 2 {
+		limit = 2
+	}
+	sections := make([]handler.PayloadSection, 0, limit)
+	for i := 0; i < limit; i++ {
+		pointerOff := i * aioPayloadPointerSize
+		if len(pointers) < pointerOff+aioPayloadPointerSize {
+			break
+		}
+		userPtr := binary.LittleEndian.Uint64(pointers[pointerOff : pointerOff+aioPayloadPointerSize])
+		if userPtr == 0 {
+			continue
+		}
+		section := aioSubmitIocbPayloadSection(eventRaw, i, userPtr)
+		if section.CopiedLen > 0 {
+			sections = append(sections, section)
+		}
+	}
+	return sections
+}
+
+func aioSubmitIocbPayloadSection(eventRaw *bpfEvent, index int, userPtr uint64) handler.PayloadSection {
+	offset := handler.BpfMiscArgOffset + index*aioPayloadIocbSize
+	data, ok := eventPayloadWindow(eventRaw, offset, aioPayloadIocbSize)
+	if !ok || aioPayloadAllBytesZero(data) {
+		return handler.PayloadSection{}
+	}
+	section := newPayloadSection(eventRaw, payloadWindowSpec{
+		kind:      handler.PayloadKindStruct,
+		direction: handler.PayloadDirectionIn,
+		argIndex:  handler.AioSubmitIocbPayloadArgBase + index,
+		offset:    offset,
+		userLen:   aioPayloadIocbSize,
+		maxLen:    aioPayloadIocbSize,
+		probeRet:  0,
+	}, data)
+	section.UserPtr = userPtr
+	return section
+}
+
+func aioGeteventsPayloadSections(eventRaw *bpfEvent, includeSigset bool) []handler.PayloadSection {
+	var sections []handler.PayloadSection
+	if eventRaw.Args[4] != 0 {
+		sections = enterStructPayloadSection(eventRaw, 4, handler.BpfMiscArgOffset, timespecPayloadStructSize)
+	}
+	if includeSigset && eventRaw.Args[5] != 0 {
+		sections = append(sections, enterStructPayloadSection(eventRaw, 5, aioPayloadSigsetOffset, timespecPayloadStructSize)...)
+		sections = append(sections, aioPgeteventsSigmaskPayloadSection(eventRaw)...)
+	}
+	if isExitEvent(eventRaw) && eventRaw.Ret > 0 {
+		sections = append(sections, exitStructArrayPayloadSectionFromRet(
+			eventRaw,
+			3,
+			aioPayloadEventsElemSize,
+			aioPayloadMaxBytes,
+		)...)
+	}
+	return sections
+}
+
+func aioPgeteventsSigmaskPayloadSection(eventRaw *bpfEvent) []handler.PayloadSection {
+	if getArgProbeStatus(eventRaw.ProbeRetEnter, 5) != 0 || aioNestedProbeFailed(eventRaw.ProbeRetEnter, aioPayloadSigmaskProbe) {
+		return nil
+	}
+	sigsetData, ok := eventPayloadWindow(eventRaw, aioPayloadSigsetOffset, timespecPayloadStructSize)
+	if !ok {
+		return nil
+	}
+	sigmaskPtr := binary.LittleEndian.Uint64(sigsetData[0:8])
+	sigsetSize := binary.LittleEndian.Uint64(sigsetData[8:16])
+	if sigmaskPtr == 0 || sigsetSize == 0 || sigsetSize > 8 {
+		return nil
+	}
+	data, ok := eventPayloadWindow(eventRaw, aioPayloadSigmaskOffset, int(sigsetSize))
+	if !ok {
+		return nil
+	}
+	section := newPayloadSection(eventRaw, payloadWindowSpec{
+		kind:      handler.PayloadKindBytes,
+		direction: handler.PayloadDirectionIn,
+		argIndex:  5,
+		offset:    aioPayloadSigmaskOffset,
+		userLen:   uint32(sigsetSize),
+		maxLen:    uint32(sigsetSize),
+		probeRet:  0,
+	}, data)
+	section.UserPtr = sigmaskPtr
+	return []handler.PayloadSection{section}
+}
+
+func aioNestedProbeFailed(probeRet int32, bit int) bool {
+	if probeRet >= 0 {
+		return false
+	}
+	if probeRet == -1 {
+		return true
+	}
+	mask := uint32(-probeRet - 1)
+	return (mask & (uint32(1) << uint(bit))) != 0
+}
+
+func aioPayloadAllBytesZero(data []byte) bool {
+	for _, x := range data {
+		if x != 0 {
+			return false
+		}
+	}
+	return true
+}
