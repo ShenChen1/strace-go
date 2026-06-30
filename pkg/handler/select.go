@@ -143,7 +143,7 @@ func (h *PollHandler) Handle(ctx *Context) Result {
 		if tptr == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
-			if data, ok := ctx.EnterArgSnapshot(2, ppollTimeoutOffset, 16); ok {
+			if data, ok := ppollTimeoutSnapshot(ctx); ok {
 				res.ArgParts = append(res.ArgParts, format.Timespec(data))
 			} else {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", tptr))
@@ -211,6 +211,9 @@ func pollEnterSnapshot(ctx *Context, nfds int) ([]byte, bool) {
 	if size == 0 {
 		return nil, true
 	}
+	if data, ok := ctx.PayloadStruct(0, PayloadDirectionIn); ok {
+		return boundedBpfStructData(data, size)
+	}
 	return ctx.EnterArgSnapshot(0, BpfEnterArgOffset, size)
 }
 
@@ -219,7 +222,17 @@ func pollExitSnapshot(ctx *Context, nfds int) ([]byte, bool) {
 	if size == 0 {
 		return nil, true
 	}
+	if data, ok := ctx.PayloadStruct(0, PayloadDirectionOut); ok {
+		return boundedBpfStructData(data, size)
+	}
 	return ctx.ExitSnapshot(BpfExitArgOffset, size)
+}
+
+func ppollTimeoutSnapshot(ctx *Context) ([]byte, bool) {
+	if data, ok := ctx.PayloadStruct(2, PayloadDirectionIn); ok {
+		return boundedBpfStructData(data, 16)
+	}
+	return ctx.EnterArgSnapshot(2, ppollTimeoutOffset, 16)
 }
 
 func formatPollfds(data []byte, nfds int, hasExitData bool) string {

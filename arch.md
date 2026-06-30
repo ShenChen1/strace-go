@@ -905,6 +905,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - Go 事件分类不再把 `event_type == 0` 当作 exit；旧 fixed event 协议样本会落到 `unknown`，不能消费 enter pending state。
 - JSON/debug syscall event 已开始暴露 `payload_sections`，先把现有 fixed snapshot 投影成 path/read/write/stat/statfs sections；semantic suite 已断言 write IN payload section。
 - `stat/lstat/fstat/newfstatat` 与 `statfs/fstatfs` 已暴露 OUT `PayloadKindStruct` section，stat formatter 优先消费 section，旧 exit snapshot 仅作为迁移期 fallback。
+- `poll/ppoll` 与 `epoll_ctl/epoll_wait/epoll_pwait/epoll_pwait2` 已暴露结构数组/timeout 的 `PayloadKindStruct` sections，formatter 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。
 
 ## 9. 第一条推荐实现链路
 

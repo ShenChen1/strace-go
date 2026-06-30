@@ -44,7 +44,7 @@ func (h *EpollHandler) Handle(ctx *Context) Result {
 			if ctx.Args[3] == 0 {
 				res.ArgParts = append(res.ArgParts, "NULL")
 			} else {
-				if data, ok := ctx.EnterArgSnapshot(3, BpfEnterArgOffset, epollEventSize); ok {
+				if data, ok := epollCtlEventSnapshot(ctx); ok {
 					res.ArgParts = append(res.ArgParts, format.EpollEvent(data))
 				} else {
 					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[3]))
@@ -66,7 +66,7 @@ func (h *EpollHandler) Handle(ctx *Context) Result {
 			if capLen > epollEventSnapshotLimit {
 				capLen = epollEventSnapshotLimit
 			}
-			if data, ok := ctx.ExitSnapshot(BpfExitArgOffset, capLen); ok {
+			if data, ok := epollWaitEventsSnapshot(ctx, capLen); ok {
 				res.ArgParts = append(res.ArgParts, format.EpollEvents(data, count))
 			} else {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ptr))
@@ -83,7 +83,7 @@ func (h *EpollHandler) Handle(ctx *Context) Result {
 			if ctx.Ret < 0 || ctx.Args[3] == 0 {
 				res.ArgParts = append(res.ArgParts, formatPointerEpoll(ctx.Args[3], ctx.Ret))
 			} else {
-				if d, ok := ctx.EnterArgSnapshot(3, epollPwait2TimeoutOff, 16); ok {
+				if d, ok := epollPwait2TimeoutSnapshot(ctx); ok {
 					res.ArgParts = append(res.ArgParts, format.Timespec(d))
 				} else {
 					res.ArgParts = append(res.ArgParts, formatPointerEpoll(ctx.Args[3], ctx.Ret))
@@ -94,6 +94,27 @@ func (h *EpollHandler) Handle(ctx *Context) Result {
 		}
 	}
 	return res
+}
+
+func epollCtlEventSnapshot(ctx *Context) ([]byte, bool) {
+	if data, ok := ctx.PayloadStruct(3, PayloadDirectionIn); ok {
+		return boundedBpfStructData(data, epollEventSize)
+	}
+	return ctx.EnterArgSnapshot(3, BpfEnterArgOffset, epollEventSize)
+}
+
+func epollWaitEventsSnapshot(ctx *Context, size int) ([]byte, bool) {
+	if data, ok := ctx.PayloadStruct(1, PayloadDirectionOut); ok {
+		return boundedBpfStructData(data, size)
+	}
+	return ctx.ExitSnapshot(BpfExitArgOffset, size)
+}
+
+func epollPwait2TimeoutSnapshot(ctx *Context) ([]byte, bool) {
+	if data, ok := ctx.PayloadStruct(3, PayloadDirectionIn); ok {
+		return boundedBpfStructData(data, 16)
+	}
+	return ctx.EnterArgSnapshot(3, epollPwait2TimeoutOff, 16)
 }
 
 func formatPointerEpoll(ptr uint64, ret int64) string {

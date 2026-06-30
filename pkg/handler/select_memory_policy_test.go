@@ -184,6 +184,24 @@ func TestPollUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestPollUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makePollfdData(7, 1, 0)}
+	ctx := newSelectPolicyContext(reader, "poll")
+	ctx.Args = [6]uint64{0x2000, 1, 1000}
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 0, ProbeRet: 0, Data: makePollfdData(4, 1, 0)},
+	}
+
+	got := (&PollHandler{}).Handle(ctx)
+	if !strings.Contains(got.ArgParts[0], "{fd=4") {
+		t.Fatalf("poll fds = %q", got.ArgParts[0])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestPollExitUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePollfdData(4, 0, 0)}
 	ctx := newSelectPolicyContext(reader, "poll")
@@ -193,6 +211,29 @@ func TestPollExitUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	putSelectSnapshot(ctx, BpfExitArgOffset, makePollfdData(4, 0, 1))
 
 	got := (&PollHandler{}).Handle(ctx)
+	if !strings.Contains(got.ReturnDesc, "revents=") {
+		t.Fatalf("ReturnDesc = %q", got.ReturnDesc)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestPollExitUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makePollfdData(4, 0, 0)}
+	ctx := newSelectPolicyContext(reader, "poll")
+	ctx.Args = [6]uint64{0x2000, 1, 1000}
+	ctx.Ret = 1
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 0, ProbeRet: 0, Data: makePollfdData(4, 1, 0)},
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 0, ProbeRet: 0, Data: makePollfdData(4, 0, 1)},
+	}
+
+	got := (&PollHandler{}).Handle(ctx)
+	if !strings.Contains(got.ArgParts[0], "{fd=4") {
+		t.Fatalf("poll fds = %q", got.ArgParts[0])
+	}
 	if !strings.Contains(got.ReturnDesc, "revents=") {
 		t.Fatalf("ReturnDesc = %q", got.ReturnDesc)
 	}
@@ -212,6 +253,24 @@ func TestPpollTimeoutFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 	if got.ArgParts[2] != "0x3000" {
 		t.Fatalf("ppoll timeout = %q, want pointer fallback", got.ArgParts[2])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestPpollTimeoutUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeSelectTime(99, 100)}
+	ctx := newSelectPolicyContext(reader, "ppoll")
+	ctx.Args = [6]uint64{0, 0, 0x3000}
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 2, ProbeRet: 0, Data: makeSelectTime(9, 10)},
+	}
+
+	got := (&PollHandler{}).Handle(ctx)
+	if got.ArgParts[2] != "{tv_sec=9, tv_nsec=10}" {
+		t.Fatalf("ppoll timeout = %q", got.ArgParts[2])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)

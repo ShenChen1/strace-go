@@ -78,6 +78,27 @@ func TestEpollCtlUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestEpollCtlUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeEpollEvent(1, 9)}
+	ctx := newEpollPolicyContext(reader, "epoll_ctl")
+	ctx.Args = [6]uint64{3, 1, 4, 0x1000}
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 3, ProbeRet: 0, Data: makeEpollEvent(1, 7)},
+	}
+
+	got := (&EpollHandler{}).Handle(ctx)
+	if len(got.ArgParts) != 4 {
+		t.Fatalf("ArgParts len = %d, want 4", len(got.ArgParts))
+	}
+	if !strings.Contains(got.ArgParts[3], "data={u32=7, u64=0x7}") {
+		t.Fatalf("epoll_ctl event = %q", got.ArgParts[3])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestEpollCtlDeleteDoesNotReadEvent(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeEpollEvent(1, 7)}
 	ctx := newEpollPolicyContext(reader, "epoll_ctl")
@@ -130,6 +151,28 @@ func TestEpollWaitUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestEpollWaitUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeEpollEvent(2, 9)}
+	ctx := newEpollPolicyContext(reader, "epoll_wait")
+	ctx.Args = [6]uint64{5, 0x2000, 1, 1000}
+	ctx.Ret = 1
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeEpollEvent(1, 7)},
+	}
+
+	got := (&EpollHandler{}).Handle(ctx)
+	if len(got.ArgParts) != 4 {
+		t.Fatalf("ArgParts len = %d, want 4", len(got.ArgParts))
+	}
+	if !strings.Contains(got.ArgParts[1], "data={u32=7, u64=0x7}") {
+		t.Fatalf("epoll_wait events = %q", got.ArgParts[1])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestEpollPwait2TimeoutFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeEpollEvent(1, 7)}
 	ctx := newEpollPolicyContext(reader, "epoll_pwait2")
@@ -168,6 +211,28 @@ func TestEpollPwait2TimeoutUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestEpollPwait2TimeoutUsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeEpollTimespec(99, 100)}
+	ctx := newEpollPolicyContext(reader, "epoll_pwait2")
+	ctx.Args = [6]uint64{5, 0x2000, 1, 0x3000, 0x4000, 8}
+	ctx.Ret = 0
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 3, ProbeRet: 0, Data: makeEpollTimespec(9, 10)},
+	}
+
+	got := (&EpollHandler{}).Handle(ctx)
+	if len(got.ArgParts) != 6 {
+		t.Fatalf("ArgParts len = %d, want 6", len(got.ArgParts))
+	}
+	if got.ArgParts[3] != "{tv_sec=9, tv_nsec=10}" {
+		t.Fatalf("epoll_pwait2 timeout = %q", got.ArgParts[3])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestEpollPwait2UsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeEpollEvent(2, 9)}
 	ctx := newEpollPolicyContext(reader, "epoll_pwait2")
@@ -175,6 +240,28 @@ func TestEpollPwait2UsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	ctx.Ret = 1
 	ctx.ProbeRetExit = 0
 	putEpollSnapshot(ctx, BpfExitArgOffset, makeEpollEvent(1, 7))
+
+	got := (&EpollHandler{}).Handle(ctx)
+	if len(got.ArgParts) != 6 {
+		t.Fatalf("ArgParts len = %d, want 6", len(got.ArgParts))
+	}
+	if !strings.Contains(got.ArgParts[1], "data={u32=7, u64=0x7}") {
+		t.Fatalf("epoll_pwait2 events = %q", got.ArgParts[1])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestEpollPwait2UsesPayloadStructSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeEpollEvent(2, 9)}
+	ctx := newEpollPolicyContext(reader, "epoll_pwait2")
+	ctx.Args = [6]uint64{5, 0x2000, 1, 0, 0, 8}
+	ctx.Ret = 1
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeEpollEvent(1, 7)},
+	}
 
 	got := (&EpollHandler{}).Handle(ctx)
 	if len(got.ArgParts) != 6 {
