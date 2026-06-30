@@ -61,7 +61,8 @@ func TestJSONSyscallEventIncludesWritePayloadSection(t *testing.T) {
 	}
 	copy(eventRaw.StrArg[:], []byte("hello"))
 
-	ev := newJSONSyscallEvent(eventRaw, meta.Syscall{Name: "write"})
+	scMeta := meta.Syscall{Name: "write"}
+	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	if len(ev.PayloadSections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 	}
@@ -89,7 +90,8 @@ func TestJSONSyscallEventIncludesReadPayloadSection(t *testing.T) {
 	}
 	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], []byte("data"))
 
-	ev := newJSONSyscallEvent(eventRaw, meta.Syscall{Name: "read"})
+	scMeta := meta.Syscall{Name: "read"}
+	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	if len(ev.PayloadSections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 	}

@@ -22,19 +22,20 @@ const (
 
 // Context encapsulates all data needed to decode a single syscall event.
 type Context struct {
-	Pid           int
-	Tid           int
-	TargetPid     int
-	SysId         uint32
-	SysName       string
-	Args          [6]uint64
-	Ret           int64
-	ProbeRetEnter int32
-	ProbeRetExit  int32
-	Ptr           uint64
-	DataLen       uint32
-	StrArgBuf     []byte
-	RawStrArg     string
+	Pid             int
+	Tid             int
+	TargetPid       int
+	SysId           uint32
+	SysName         string
+	Args            [6]uint64
+	Ret             int64
+	ProbeRetEnter   int32
+	ProbeRetExit    int32
+	Ptr             uint64
+	DataLen         uint32
+	StrArgBuf       []byte
+	RawStrArg       string
+	PayloadSections []PayloadSection
 
 	BufferFileOffset   int64
 	BufferFileOffsetOK bool
@@ -48,8 +49,19 @@ type Context struct {
 
 // SnapshotReader exposes memory bytes copied by BPF at the syscall probe site.
 type SnapshotReader interface {
+	Section(argIndex int, kind PayloadKind) (PayloadSection, bool)
 	EnterArgSnapshot(argIndex int, offset int, size int) ([]byte, bool)
 	ExitSnapshot(offset int, size int) ([]byte, bool)
+}
+
+// Section returns the first semantic BPF payload captured for a syscall argument.
+func (ctx *Context) Section(argIndex int, kind PayloadKind) (PayloadSection, bool) {
+	for _, section := range ctx.PayloadSections {
+		if section.ArgIndex == argIndex && section.Kind == kind {
+			return section, true
+		}
+	}
+	return PayloadSection{}, false
 }
 
 // EnterArgSnapshot returns an enter-stage BPF snapshot for a syscall argument.

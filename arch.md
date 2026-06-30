@@ -767,6 +767,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - JSON/debug handler context 注入 forbidden memory reader；handler 若仍直接调用 `ctx.MemReader`，只能得到明确错误，不能读取 tracee 地址空间。
 - `updateFDMap` 中少数直接使用 `decoder.MemReader` 的 fd 状态补读已受同一 memory policy 约束。
 - `TestJSONEventPathDoesNotReadTraceeMemory` 使用 spy reader 锁住 JSON path 不补读；文本 path 暂时保留旧 fallback，作为后续 handler snapshot 迁移期间的兼容边界。
+- JSON `payload_sections` 已迁入共享 `handler.PayloadSection` 模型，`handler.Context.Section(arg, kind)` 可以按参数和 payload 类型复用同一份 BPF 快照。
 
 ### Phase 5: filter 下推
 

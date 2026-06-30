@@ -79,7 +79,7 @@ type jsonLifecycleEvent struct {
 	TimeNS       uint64 `json:"time_ns"`
 }
 
-func newJSONSyscallEvent(eventRaw *bpfEvent, scMeta meta.Syscall) jsonSyscallEvent {
+func newJSONSyscallEvent(eventRaw *bpfEvent, scMeta meta.Syscall, sections []handler.PayloadSection) jsonSyscallEvent {
 	failed := eventRaw.Ret < 0 && eventRaw.Ret >= -4095
 	errno := 0
 	if failed {
@@ -103,14 +103,14 @@ func newJSONSyscallEvent(eventRaw *bpfEvent, scMeta meta.Syscall) jsonSyscallEve
 		EnterTimeNS:     eventRaw.EnterTime,
 		Ptr:             eventRaw.Ptr,
 		DataLen:         eventRaw.DataLen,
-		PayloadSections: payloadSectionsForEvent(eventRaw, scMeta),
+		PayloadSections: jsonPayloadSections(sections),
 		ProbeRetEnter:   eventRaw.ProbeRetEnter,
 		ProbeRetExit:    eventRaw.ProbeRetExit,
 	}
 }
 
 func (s *traceSession) writeJSONRawEvent(eventRaw *bpfEvent, scMeta meta.Syscall) {
-	ev := newJSONSyscallEvent(eventRaw, scMeta)
+	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	_ = json.NewEncoder(s.outWriter).Encode(ev)
 }
 
@@ -157,7 +157,7 @@ func lifecycleSnapshotString(eventRaw *bpfEvent) string {
 }
 
 func (s *traceSession) writeJSONEvent(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, ctx *handler.Context, pendingEnter *pendingSyscallState) {
-	ev := newJSONSyscallEvent(eventRaw, scMeta)
+	ev := newJSONSyscallEvent(eventRaw, scMeta, ctx.PayloadSections)
 	ev.ArgText = res.ArgParts
 	ev.ReturnText = formatSyscallRet(scMeta.Name, eventRaw.Ret, res, ctx)
 	ev.RawString = ctx.RawStrArg
@@ -165,15 +165,15 @@ func (s *traceSession) writeJSONEvent(eventRaw *bpfEvent, scMeta meta.Syscall, r
 	_ = json.NewEncoder(s.outWriter).Encode(ev)
 }
 
-func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []jsonPayloadSection {
+func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.PayloadSection {
 	switch scMeta.Name {
 	case "write", "pwrite64":
-		return payloadSectionFromWindow(eventRaw, "bytes", "in", 1, 0, uint32Clamped(eventRaw.Args[2]), getArgProbeStatus(eventRaw.ProbeRetEnter, 1))
+		return payloadSectionFromWindow(eventRaw, handler.PayloadKindBytes, handler.PayloadDirectionIn, 1, 0, uint32Clamped(eventRaw.Args[2]), getArgProbeStatus(eventRaw.ProbeRetEnter, 1))
 	case "read", "pread64":
 		if !isExitEvent(eventRaw) || eventRaw.Ret <= 0 {
 			return nil
 		}
-		return payloadSectionFromWindow(eventRaw, "bytes", "out", 1, handler.BpfExitArgOffset, uint32Clamped(uint64(eventRaw.Ret)), eventRaw.ProbeRetExit)
+		return payloadSectionFromWindow(eventRaw, handler.PayloadKindBytes, handler.PayloadDirectionOut, 1, handler.BpfExitArgOffset, uint32Clamped(uint64(eventRaw.Ret)), eventRaw.ProbeRetExit)
 	case "open", "creat":
 		return stringPayloadSectionFromWindow(eventRaw, 0)
 	case "openat", "openat2":
@@ -183,7 +183,7 @@ func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []jsonPayl
 	}
 }
 
-func stringPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int) []jsonPayloadSection {
+func stringPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int) []handler.PayloadSection {
 	data, ok := eventPayloadWindow(eventRaw, 0, 4097)
 	if !ok {
 		return nil
@@ -191,15 +191,17 @@ func stringPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int) []jsonPayl
 	if nul := bytes.IndexByte(data, 0); nul >= 0 {
 		data = data[:nul+1]
 	}
-	return []jsonPayloadSection{newJSONPayloadSection(eventRaw, "string", "in", argIndex, 0, uint32(len(data)), getArgProbeStatus(eventRaw.ProbeRetEnter, argIndex), data)}
+	section := newPayloadSection(eventRaw, handler.PayloadKindString, handler.PayloadDirectionIn, argIndex, 0, uint32(len(data)), getArgProbeStatus(eventRaw.ProbeRetEnter, argIndex), data)
+	return []handler.PayloadSection{section}
 }
 
-func payloadSectionFromWindow(eventRaw *bpfEvent, kind string, direction string, argIndex int, offset int, userLen uint32, probeRet int32) []jsonPayloadSection {
+func payloadSectionFromWindow(eventRaw *bpfEvent, kind handler.PayloadKind, direction handler.PayloadDirection, argIndex int, offset int, userLen uint32, probeRet int32) []handler.PayloadSection {
 	data, ok := eventPayloadWindow(eventRaw, offset, int(userLen))
 	if !ok {
 		return nil
 	}
-	return []jsonPayloadSection{newJSONPayloadSection(eventRaw, kind, direction, argIndex, offset, userLen, probeRet, data)}
+	section := newPayloadSection(eventRaw, kind, direction, argIndex, offset, userLen, probeRet, data)
+	return []handler.PayloadSection{section}
 }
 
 func eventPayloadWindow(eventRaw *bpfEvent, offset int, maxLen int) ([]byte, bool) {
@@ -222,21 +224,42 @@ func eventPayloadWindow(eventRaw *bpfEvent, offset int, maxLen int) ([]byte, boo
 	return eventRaw.StrArg[offset:end], true
 }
 
-func newJSONPayloadSection(eventRaw *bpfEvent, kind string, direction string, argIndex int, offset int, userLen uint32, probeRet int32, data []byte) jsonPayloadSection {
-	section := jsonPayloadSection{
-		Kind:       kind,
-		Direction:  direction,
-		ArgIndex:   argIndex,
-		Offset:     uint32(offset),
-		UserLen:    userLen,
-		CopiedLen:  uint32(len(data)),
-		ProbeRet:   probeRet,
-		DataBase64: base64.StdEncoding.EncodeToString(data),
+func newPayloadSection(eventRaw *bpfEvent, kind handler.PayloadKind, direction handler.PayloadDirection, argIndex int, offset int, userLen uint32, probeRet int32, data []byte) handler.PayloadSection {
+	section := handler.PayloadSection{
+		Kind:      kind,
+		Direction: direction,
+		ArgIndex:  argIndex,
+		Offset:    uint32(offset),
+		UserLen:   userLen,
+		CopiedLen: uint32(len(data)),
+		ProbeRet:  probeRet,
+		Data:      data,
 	}
 	if argIndex >= 0 && argIndex < len(eventRaw.Args) {
 		section.UserPtr = eventRaw.Args[argIndex]
 	}
 	return section
+}
+
+func jsonPayloadSections(sections []handler.PayloadSection) []jsonPayloadSection {
+	if len(sections) == 0 {
+		return nil
+	}
+	out := make([]jsonPayloadSection, 0, len(sections))
+	for _, section := range sections {
+		out = append(out, jsonPayloadSection{
+			Kind:       string(section.Kind),
+			Direction:  string(section.Direction),
+			ArgIndex:   section.ArgIndex,
+			Offset:     section.Offset,
+			UserPtr:    section.UserPtr,
+			UserLen:    section.UserLen,
+			CopiedLen:  section.CopiedLen,
+			ProbeRet:   section.ProbeRet,
+			DataBase64: base64.StdEncoding.EncodeToString(section.Data),
+		})
+	}
+	return out
 }
 
 func uint32Clamped(v uint64) uint32 {

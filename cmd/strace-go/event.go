@@ -84,6 +84,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 
 	ret := eventRaw.Ret
 	strArgBuf := eventRaw.StrArg[:]
+	payloadSections := payloadSectionsForEvent(eventRaw, scMeta)
 	isPath := false
 	for _, argName := range scMeta.Args {
 		if argName == "filename" || argName == "pathname" || argName == "path" || argName == "oldname" || argName == "newname" || argName == "fs_name" {
@@ -150,6 +151,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		SysName: scMeta.Name, Args: eventRaw.Args, Ret: ret,
 		ProbeRetEnter: eventRaw.ProbeRetEnter, ProbeRetExit: eventRaw.ProbeRetExit,
 		Ptr: eventRaw.Ptr, DataLen: eventRaw.DataLen, StrArgBuf: strArgBuf, RawStrArg: rawStrArg,
+		PayloadSections:  payloadSections,
 		BufferFileOffset: bufferFileOffset, BufferFileOffsetOK: bufferFileOffsetOK,
 		ScMeta: scMeta, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdMap,
 		FdFiles: s.fdFiles,
