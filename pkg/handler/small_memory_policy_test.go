@@ -123,8 +123,8 @@ func TestFutexWaitvDoesNotProbeLengthWhenFallbackDisabled(t *testing.T) {
 	}
 
 	got := formatFutexWaitvArray(ctx, 0, 0x1000, 2)
-	if !strings.Contains(got, "val=0x2") {
-		t.Fatalf("formatFutexWaitvArray() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("formatFutexWaitvArray() = %q, want pointer without payload section", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -146,8 +146,8 @@ func TestFutexWaitvDoesNotUseLegacyLengthProbe(t *testing.T) {
 	}
 
 	got := formatFutexWaitvArray(ctx, 0, 0x1000, 2)
-	if !strings.Contains(got, "val=0x2") {
-		t.Fatalf("formatFutexWaitvArray() = %q, want BPF snapshot length only", got)
+	if got != "0x1000" {
+		t.Fatalf("formatFutexWaitvArray() = %q, want section-only pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)

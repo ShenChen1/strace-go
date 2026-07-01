@@ -72,21 +72,6 @@ func (ctx *Context) fetchFutexWaitvData(argIndex int, size int) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(argIndex, PayloadDirectionIn); ok {
 		return boundedBpfStructData(data, size)
 	}
-	if ctx.ArgProbeRet(argIndex) == 0 && ctx.DataLen > 0 {
-		n := int(ctx.DataLen)
-		if n > futexWaitvTimeoutOffset {
-			n = futexWaitvTimeoutOffset
-		}
-		if n > size {
-			n = size
-		}
-		if n > len(ctx.StrArgBuf) {
-			n = len(ctx.StrArgBuf)
-		}
-		if n >= futexWaitvSize {
-			return ctx.StrArgBuf[:n], true
-		}
-	}
 	return nil, false
 }
 
