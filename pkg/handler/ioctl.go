@@ -106,7 +106,7 @@ func (h *IoctlHandler) decodeIoctlArg(ctx *Context, cmd, arg uint64, cmdName str
 
 // decodeDmIoctl reads and formats device mapper ioctl arguments.
 func (h *IoctlHandler) decodeDmIoctl(ctx *Context, arg uint64, cmdName string) string {
-	data, readSuccess := ctx.EnterArgSnapshotPrefix(2, 512, 312)
+	data, readSuccess := ioctlEnterArgPrefix(ctx, 312)
 	if readSuccess && len(data) >= 20 {
 		dm := formatDmIoctl(ctx, data, cmdName)
 		if dm != "" {
@@ -119,7 +119,7 @@ func (h *IoctlHandler) decodeDmIoctl(ctx *Context, arg uint64, cmdName string) s
 // decodeStandardIoctlArg formats non-DM standard ioctl arguments.
 func (h *IoctlHandler) decodeStandardIoctlArg(ctx *Context, cmd, arg uint64) string {
 	if cmd == 0x80044d0d {
-		data, readSuccess := ctx.EnterArgSnapshot(2, 512, 4)
+		data, readSuccess := ioctlEnterArgSnapshot(ctx, 4)
 		if readSuccess {
 			otpVal := binary.LittleEndian.Uint32(data)
 			switch otpVal {
@@ -248,7 +248,7 @@ func (h *IoctlHandler) decodeFiemap(ctx *Context, arg uint64) string {
 	fiemapCallCount[ctx.Pid] = c
 	fiemapLock.Unlock()
 
-	data, ok := ctx.EnterArgSnapshot(2, 512, 32)
+	data, ok := ioctlEnterArgSnapshot(ctx, 32)
 	var start, length uint64
 	var flags, mappedExtents, extentCount uint32
 
@@ -294,8 +294,7 @@ func (h *IoctlHandler) formatFiemapExtents(ctx *Context, _ uint64, mappedExtents
 	}
 
 	extentsStrList := []string{}
-	extOffset := 512 + 32
-	extData, ok := ctx.EnterArgSnapshot(2, extOffset, int(count)*48)
+	extData, ok := ioctlEnterArgRange(ctx, 32, int(count)*48)
 	if ok && len(extData) >= int(count)*48 {
 		for i := 0; i < int(count); i++ {
 			offset := i * 48
@@ -312,4 +311,32 @@ func (h *IoctlHandler) formatFiemapExtents(ctx *Context, _ uint64, mappedExtents
 		return "[" + strings.Join(extentsStrList, ", ") + "]"
 	}
 	return "[]"
+}
+
+func ioctlEnterArgPrefix(ctx *Context, size int) ([]byte, bool) {
+	if data, ok := ctx.PayloadBytes(2, PayloadDirectionIn); ok {
+		return boundedBpfStructData(data, size)
+	}
+	return ctx.EnterArgSnapshotPrefix(2, BpfMiscArgOffset, size)
+}
+
+func ioctlEnterArgSnapshot(ctx *Context, size int) ([]byte, bool) {
+	if data, ok := ctx.PayloadBytes(2, PayloadDirectionIn); ok && len(data) >= size {
+		return data[:size], true
+	}
+	return ctx.EnterArgSnapshot(2, BpfMiscArgOffset, size)
+}
+
+func ioctlEnterArgRange(ctx *Context, relativeOffset int, size int) ([]byte, bool) {
+	if relativeOffset < 0 || size <= 0 {
+		return nil, false
+	}
+	if data, ok := ctx.PayloadBytes(2, PayloadDirectionIn); ok {
+		end := relativeOffset + size
+		if end < relativeOffset || end > len(data) {
+			return nil, false
+		}
+		return data[relativeOffset:end], true
+	}
+	return ctx.EnterArgSnapshot(2, BpfMiscArgOffset+relativeOffset, size)
 }

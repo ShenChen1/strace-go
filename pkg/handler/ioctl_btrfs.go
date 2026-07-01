@@ -29,7 +29,7 @@ func (h *IoctlHandler) decodeBtrfsIoctl(ctx *Context, cmd, arg uint64, cmdName s
 }
 
 func (h *IoctlHandler) decodeBtrfsWaitSync(ctx *Context, arg uint64) string {
-	data, ok := ctx.EnterArgSnapshot(2, 512, 8)
+	data, ok := ioctlEnterArgSnapshot(ctx, 8)
 	if !ok || len(data) < 8 {
 		return fmt.Sprintf("%#x", arg)
 	}
@@ -69,7 +69,7 @@ func (h *IoctlHandler) decodeBtrfsBalanceCtl(ctx *Context, arg uint64) string {
 }
 
 func (h *IoctlHandler) decodeBtrfsVolArgs(ctx *Context, arg uint64) string {
-	data, _ := ctx.EnterArgSnapshotPrefix(2, 512, 4096)
+	data, _ := ioctlEnterArgPrefix(ctx, 4096)
 	if len(data) < 8 {
 		return fmt.Sprintf("%#x", arg)
 	}
@@ -85,7 +85,7 @@ func (h *IoctlHandler) decodeBtrfsVolArgs(ctx *Context, arg uint64) string {
 }
 
 func (h *IoctlHandler) decodeBtrfsVolArgsV2(ctx *Context, arg uint64) string {
-	data, _ := ctx.EnterArgSnapshotPrefix(2, 512, 4096)
+	data, _ := ioctlEnterArgPrefix(ctx, 4096)
 	if len(data) < 56 {
 		return fmt.Sprintf("%#x", arg)
 	}

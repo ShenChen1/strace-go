@@ -80,6 +80,19 @@ func TestBtrfsWaitSyncUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestBtrfsWaitSyncUsesPayloadBytesSection(t *testing.T) {
+	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x1000, ProbeRet: 0, Data: makeBtrfsWaitSyncData(42)},
+	}
+
+	got := (&IoctlHandler{}).decodeBtrfsWaitSync(ctx, 0x1000)
+	if got != "[42]" {
+		t.Fatalf("decodeBtrfsWaitSync() = %q", got)
+	}
+}
+
 func TestBtrfsVolArgsUsesSnapshotWithoutMemoryFallback(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x2000: makeBtrfsVolArgs(9, "ignored"),
@@ -96,6 +109,19 @@ func TestBtrfsVolArgsUsesSnapshotWithoutMemoryFallback(t *testing.T) {
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestBtrfsVolArgsUsesPayloadBytesSection(t *testing.T) {
+	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x2000, ProbeRet: 0, Data: makeBtrfsVolArgs(7, "snap")},
+	}
+
+	got := (&IoctlHandler{}).decodeBtrfsVolArgs(ctx, 0x2000)
+	if !strings.Contains(got, "fd=7") || !strings.Contains(got, `name="snap"`) {
+		t.Fatalf("decodeBtrfsVolArgs() = %q", got)
 	}
 }
 
@@ -162,6 +188,19 @@ func TestBtrfsVolArgsV2UsesSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestBtrfsVolArgsV2UsesPayloadBytesSection(t *testing.T) {
+	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x3000, ProbeRet: 0, Data: makeBtrfsVolArgsV2(8, 2, 4096, 0, "subvol")},
+	}
+
+	got := (&IoctlHandler{}).decodeBtrfsVolArgsV2(ctx, 0x3000)
+	if !strings.Contains(got, "fd=8") || !strings.Contains(got, "flags=BTRFS_SUBVOL_RDONLY") || !strings.Contains(got, `name="subvol"`) {
+		t.Fatalf("decodeBtrfsVolArgsV2() = %q", got)
 	}
 }
 

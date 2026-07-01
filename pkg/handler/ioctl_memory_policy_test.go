@@ -103,6 +103,19 @@ func TestIoctlDmUsesSnapshotWithoutMemoryFallback(t *testing.T) {
 	}
 }
 
+func TestIoctlDmUsesPayloadBytesSection(t *testing.T) {
+	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x1000, ProbeRet: 0, Data: makeDmIoctlData()},
+	}
+
+	got := (&IoctlHandler{}).decodeDmIoctl(ctx, 0x1000, "DM_VERSION")
+	if !strings.Contains(got, "version=[4, 0, 0]") || !strings.Contains(got, `name="dm-test"`) {
+		t.Fatalf("decodeDmIoctl() = %q", got)
+	}
+}
+
 func TestIoctlDmDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x1000: makeDmIoctlData(),
@@ -168,6 +181,19 @@ func TestIoctlOtpUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestIoctlOtpUsesPayloadBytesSection(t *testing.T) {
+	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x2000, ProbeRet: 0, Data: makeIoctlUint32Data(1)},
+	}
+
+	got := (&IoctlHandler{}).decodeStandardIoctlArg(ctx, 0x80044d0d, 0x2000)
+	if got != "[MTD_OTP_FACTORY]" {
+		t.Fatalf("decodeStandardIoctlArg() = %q", got)
+	}
+}
+
 func TestIoctlFiemapHeaderDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x3000: makeFiemapData(1, 2, 1, 0, 0),
@@ -201,6 +227,20 @@ func TestIoctlFiemapHeaderUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
+func TestIoctlFiemapHeaderUsesPayloadBytesSection(t *testing.T) {
+	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x3000, ProbeRet: 0, Data: makeFiemapData(1, 2, 1, 0, 0)},
+	}
+	resetFiemapPolicyState(ctx.Pid)
+
+	got := (&IoctlHandler{}).decodeFiemap(ctx, 0x3000)
+	if !strings.Contains(got, "fm_start=1") || !strings.Contains(got, "fm_length=2") {
+		t.Fatalf("decodeFiemap() = %q", got)
+	}
+}
+
 func TestIoctlFiemapExtentsDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x3030: makeFiemapExtent(1, 2, 3, 1),
@@ -229,6 +269,20 @@ func TestIoctlFiemapExtentsUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestIoctlFiemapExtentsUsesPayloadBytesSection(t *testing.T) {
+	payload := append(makeFiemapData(1, 2, 1, 1, 1), makeFiemapExtent(1, 2, 3, 1)...)
+	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x3000, ProbeRet: 0, Data: payload},
+	}
+
+	got := (&IoctlHandler{}).formatFiemapExtents(ctx, 0x3010, 1, 1, 1)
+	if !strings.Contains(got, "fe_logical=1") || !strings.Contains(got, "fe_physical=2") {
+		t.Fatalf("formatFiemapExtents() = %q", got)
 	}
 }
 
