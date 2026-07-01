@@ -15,6 +15,7 @@ import (
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
+	"strace-go/pkg/meta"
 	"strace-go/pkg/stacktrace"
 
 	"github.com/cilium/ebpf/link"
@@ -59,10 +60,49 @@ func setupBPF() (*bpfObjects, []link.Link) {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		log.Fatalf("failed to remove memlock: %v", err)
 	}
-	bpfObjs := &bpfObjects{}
-	if err := loadBpfObjects(bpfObjs, nil); err != nil {
-		log.Fatalf("failed to load BPF objects: %v", err)
+
+	spec, err := loadBpf()
+	if err != nil {
+		log.Fatalf("failed to load BPF spec: %v", err)
 	}
+
+	sysNameToID := make(map[string]uint32)
+	for id, sc := range meta.SyscallTable {
+		sysNameToID[sc.Name] = id
+	}
+
+	getSysID := func(name string, fallback uint32) uint32 {
+		if id, ok := sysNameToID[name]; ok {
+			return id
+		}
+		return fallback
+	}
+
+	setVar := func(name string, val uint32) {
+		if v, ok := spec.Variables[name]; ok {
+			if err := v.Set(val); err != nil {
+				log.Fatalf("failed to set %s: %v", name, err)
+			}
+		} else {
+			log.Fatalf("variable %s not found in BPF spec", name)
+		}
+	}
+
+	setVar("SYS_RT_SIGRETURN", getSysID("rt_sigreturn", 15))
+	setVar("SYS_RT_SIGRETURN_COMPAT", getSysID("rt_sigreturn_compat", 173))
+	setVar("SYS_NANOSLEEP", getSysID("nanosleep", 35))
+	setVar("SYS_EXECVE", getSysID("execve", 59))
+	setVar("SYS_EXIT", getSysID("exit", 60))
+	setVar("SYS_CAPSET", getSysID("capset", 126))
+	setVar("SYS_RT_SIGSUSPEND", getSysID("rt_sigsuspend", 130))
+	setVar("SYS_EXIT_GROUP", getSysID("exit_group", 231))
+	setVar("SYS_EXECVEAT", getSysID("execveat", 322))
+
+	bpfObjs := &bpfObjects{}
+	if err := spec.LoadAndAssign(bpfObjs, nil); err != nil {
+		log.Fatalf("failed to load and assign BPF objects: %v", err)
+	}
+
 	var links []link.Link
 	tpEnter, err := link.Tracepoint("raw_syscalls", "sys_enter", bpfObjs.TraceSysEnter, nil)
 	if err != nil {

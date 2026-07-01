@@ -6,6 +6,16 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
+volatile const u32 SYS_RT_SIGRETURN = 15;
+volatile const u32 SYS_RT_SIGRETURN_COMPAT = 173;
+volatile const u32 SYS_NANOSLEEP = 35;
+volatile const u32 SYS_EXECVE = 59;
+volatile const u32 SYS_EXIT = 60;
+volatile const u32 SYS_CAPSET = 126;
+volatile const u32 SYS_RT_SIGSUSPEND = 130;
+volatile const u32 SYS_EXIT_GROUP = 231;
+volatile const u32 SYS_EXECVEAT = 322;
+
 #define EXEC_SNAPSHOT_MAGIC 0x45584543
 #define EXEC_SNAPSHOT_OFFSET 4096
 #define EXEC_ARG_MAX 48
@@ -136,13 +146,6 @@ struct {
     __type(value, struct bpf_stats);
 } stats_map SEC(".maps");
 
-#ifndef __NR_execve
-#define __NR_execve 59
-#endif
-#ifndef __NR_execveat
-#define __NR_execveat 322
-#endif
-
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 1024);
@@ -252,7 +255,7 @@ static __always_inline void capture_exec_snapshot(struct bpf_event *e, u32 argv_
 
 static __always_inline void capture_capset_data(struct bpf_event *e)
 {
-    if (e->sys_id != 126 || !e->args[1]) { // capset
+    if (e->sys_id != SYS_CAPSET || !e->args[1]) { // capset
         return;
     }
     if (e->data_len < 8) {
@@ -436,7 +439,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     u32 sys_id = (u32)ctx->id;
-    if (sys_id == 15 || sys_id == 173) return 0;
+    if (sys_id == SYS_RT_SIGRETURN || sys_id == SYS_RT_SIGRETURN_COMPAT) return 0;
     u32 tid = (u32)bpf_get_current_pid_tgid();
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
     
@@ -471,9 +474,9 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
 
     CAPTURE_ARGS_ENTER(e->sys_id, e);
     capture_capset_data(e);
-    if (e->sys_id == __NR_execve) {
+    if (e->sys_id == SYS_EXECVE) {
         capture_exec_snapshot(e, 1, 2);
-    } else if (e->sys_id == __NR_execveat) {
+    } else if (e->sys_id == SYS_EXECVEAT) {
         capture_exec_snapshot(e, 2, 3);
     }
 
@@ -487,7 +490,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
 
     save_pending_syscall(tid, e);
 
-    if (sys_id == 60 || sys_id == 231) { // exit (60), exit_group (231)
+    if (sys_id == SYS_EXIT || sys_id == SYS_EXIT_GROUP) { // exit (60), exit_group (231)
         if (tid == pid) {
             u32 val = 1;
             bpf_map_update_elem(&main_exited_map, &pid, &val, BPF_ANY);
@@ -496,7 +499,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         bpf_map_delete_elem(&pending_syscalls, &tid);
     }
 
-    if (sys_id == 130 || sys_id == 35) { // rt_sigsuspend (130), nanosleep (35)
+    if (sys_id == SYS_RT_SIGSUSPEND || sys_id == SYS_NANOSLEEP) { // rt_sigsuspend (130), nanosleep (35)
         struct task_struct *task = (struct task_struct *)bpf_get_current_task();
         u32 nr_threads = 0;
         if (task) {
@@ -511,7 +514,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         }
     }
 
-    if (e->sys_id == __NR_execve || e->sys_id == __NR_execveat) {
+    if (e->sys_id == SYS_EXECVE || e->sys_id == SYS_EXECVEAT) {
         e->ret = -514;
         u32 *exited = bpf_map_lookup_elem(&main_exited_map, &pid);
         if (exited && *exited == 1) {
@@ -533,7 +536,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
 // it looks up via pending_exec_map to find the original thread state, cleaning up the superseded thread.
 SEC("tracepoint/raw_syscalls/sys_exit")
 int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
-    if (ctx->id == 15 || ctx->id == 173) return 0;
+    if (ctx->id == SYS_RT_SIGRETURN || ctx->id == SYS_RT_SIGRETURN_COMPAT) return 0;
     u32 tid = (u32)bpf_get_current_pid_tgid();
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
     
@@ -569,15 +572,15 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     CAPTURE_ARGS_ENTER(e->sys_id, e);
     capture_capset_data(e);
     if (e->ret != 0) {
-        if (e->sys_id == __NR_execve) {
+        if (e->sys_id == SYS_EXECVE) {
             capture_exec_snapshot(e, 1, 2);
-        } else if (e->sys_id == __NR_execveat) {
+        } else if (e->sys_id == SYS_EXECVEAT) {
             capture_exec_snapshot(e, 2, 3);
         }
     }
 
     CAPTURE_ARGS_EXIT(e->sys_id, e);
-    if (tid == pid && (e->sys_id == 130 || e->sys_id == 35)) {
+    if (tid == pid && (e->sys_id == SYS_RT_SIGSUSPEND || e->sys_id == SYS_NANOSLEEP)) {
         u32 *pending = bpf_map_lookup_elem(&pending_exec_map, &pid);
         if (pending) {
             e->probe_ret_enter = 2;
@@ -604,7 +607,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
         if (!(tid == pid && pending)) {
             bpf_map_delete_elem(&pending_syscalls, &tid);
         }
-        if ((e->sys_id == __NR_execve || e->sys_id == __NR_execveat) && tid != pid) {
+        if ((e->sys_id == SYS_EXECVE || e->sys_id == SYS_EXECVEAT) && tid != pid) {
             bpf_map_delete_elem(&pending_exec_map, &pid);
         }
     }
