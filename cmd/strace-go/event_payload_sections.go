@@ -10,6 +10,7 @@ import (
 const (
 	iovecSectionElemSize      = 16
 	iovecSectionMaxBytes      = 512
+	memfdNamePayloadMaxBytes  = 250
 	statPayloadStructSize     = 144
 	statfsPayloadStructSize   = 120
 	pollPayloadFdSize         = 8
@@ -91,6 +92,11 @@ func scalarPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]handler
 		return append(sections, iovecPayloadSectionFromWindow(eventRaw, 3, 4, handler.BpfMiscArgOffset)...), true
 	case "process_madvise":
 		return iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset), true
+	case "memfd_create":
+		return stringPayloadSectionFromWindowSpec(eventRaw, stringPayloadWindowSpec{
+			argIndex: 0,
+			maxBytes: memfdNamePayloadMaxBytes,
+		}), true
 	case "bpf":
 		return bpfPayloadSectionsForEvent(eventRaw), true
 	case "getcwd":

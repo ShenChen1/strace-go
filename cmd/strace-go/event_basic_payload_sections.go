@@ -43,8 +43,21 @@ func copyFileRangePayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadS
 	return append(sections, enterStructPayloadSection(eventRaw, 3, handler.BpfMiscArgOffset+8, offsetPointerPayloadSize)...)
 }
 
+type stringPayloadWindowSpec struct {
+	argIndex int
+	offset   int
+	maxBytes int
+}
+
 func stringPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int) []handler.PayloadSection {
-	data, ok := eventPayloadWindow(eventRaw, 0, 4097)
+	return stringPayloadSectionFromWindowSpec(eventRaw, stringPayloadWindowSpec{
+		argIndex: argIndex,
+		maxBytes: 4097,
+	})
+}
+
+func stringPayloadSectionFromWindowSpec(eventRaw *bpfEvent, spec stringPayloadWindowSpec) []handler.PayloadSection {
+	data, ok := eventPayloadWindow(eventRaw, spec.offset, spec.maxBytes)
 	if !ok {
 		return nil
 	}
@@ -54,9 +67,10 @@ func stringPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int) []handler.
 	section := newPayloadSection(eventRaw, payloadWindowSpec{
 		kind:      handler.PayloadKindString,
 		direction: handler.PayloadDirectionIn,
-		argIndex:  argIndex,
+		argIndex:  spec.argIndex,
+		offset:    spec.offset,
 		userLen:   uint32(len(data)),
-		probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, argIndex),
+		probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, spec.argIndex),
 	}, data)
 	return []handler.PayloadSection{section}
 }

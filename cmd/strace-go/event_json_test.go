@@ -374,6 +374,56 @@ func TestJSONSyscallEventIncludesIovecPayloadSection(t *testing.T) {
 	}
 }
 
+func TestJSONSyscallEventIncludesMemfdNamePayloadSection(t *testing.T) {
+	eventRaw := &bpfEvent{
+		Pid:           101,
+		Tid:           101,
+		EventVersion:  2,
+		EventType:     bpfEventTypeEnter,
+		Args:          [6]uint64{0x2000, 0},
+		DataLen:       uint32(len("memfd-name\x00")),
+		ProbeRetEnter: 0,
+	}
+	copy(eventRaw.StrArg[:], []byte("memfd-name\x00"))
+
+	scMeta := meta.Syscall{Name: "memfd_create"}
+	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	if len(ev.PayloadSections) != 1 {
+		t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
+	}
+	section := ev.PayloadSections[0]
+	if section.Kind != "string" || section.Direction != "in" || section.ArgIndex != 0 || section.UserPtr != 0x2000 {
+		t.Fatalf("memfd_create section metadata = %+v", section)
+	}
+	if section.UserLen != uint32(len("memfd-name\x00")) || section.CopiedLen != uint32(len("memfd-name\x00")) {
+		t.Fatalf("memfd_create section bounds = %+v", section)
+	}
+	if got := mustDecodeBase64(t, section.DataBase64); string(got) != "memfd-name\x00" {
+		t.Fatalf("memfd_create section data = %q, want memfd-name", string(got))
+	}
+}
+
+func TestJSONSyscallEventClampsMemfdNamePayloadSection(t *testing.T) {
+	name := bytes.Repeat([]byte{'a'}, memfdNamePayloadMaxBytes+10)
+	eventRaw := &bpfEvent{
+		EventType:     bpfEventTypeEnter,
+		Args:          [6]uint64{0x2000, 0},
+		DataLen:       uint32(len(name)),
+		ProbeRetEnter: 0,
+	}
+	copy(eventRaw.StrArg[:], name)
+
+	scMeta := meta.Syscall{Name: "memfd_create"}
+	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	if len(ev.PayloadSections) != 1 {
+		t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
+	}
+	section := ev.PayloadSections[0]
+	if section.UserLen != memfdNamePayloadMaxBytes || section.CopiedLen != memfdNamePayloadMaxBytes {
+		t.Fatalf("memfd_create clamped bounds = %+v", section)
+	}
+}
+
 func TestJSONSyscallEventIncludesProcessVMIovecPayloadSections(t *testing.T) {
 	eventRaw := &bpfEvent{
 		Pid:           101,
