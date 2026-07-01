@@ -49,168 +49,235 @@ type structArrayPayloadSpec struct {
 	probeRet   int32
 }
 
+type payloadSectionRule func(eventRaw *bpfEvent, scName string) []handler.PayloadSection
+
+var payloadSectionRules = map[string]payloadSectionRule{
+	"write":    writePayloadSectionsForEvent,
+	"pwrite64": writePayloadSectionsForEvent,
+	"read":     readPayloadSectionsForEvent,
+	"pread64":  readPayloadSectionsForEvent,
+
+	"readv":    iovecArgPayloadSectionsForEvent,
+	"writev":   iovecArgPayloadSectionsForEvent,
+	"preadv":   iovecArgPayloadSectionsForEvent,
+	"pwritev":  iovecArgPayloadSectionsForEvent,
+	"preadv2":  iovecArgPayloadSectionsForEvent,
+	"pwritev2": iovecArgPayloadSectionsForEvent,
+	"vmsplice": iovecArgPayloadSectionsForEvent,
+
+	"process_vm_readv":  processVMPayloadSectionsForEvent,
+	"process_vm_writev": processVMPayloadSectionsForEvent,
+	"process_madvise":   processMadvisePayloadSectionsForEvent,
+	"memfd_create":      memfdCreatePayloadSectionsForEvent,
+	"bpf":               namedPayloadRule(bpfPayloadSectionsForEvent),
+	"getcwd":            exitBytesPayloadRule(0),
+	"readlink":          exitBytesPayloadRule(1),
+	"readlinkat":        exitBytesPayloadRule(2),
+	"sendfile":          namedPayloadRule(sendfilePayloadSectionsForEvent),
+	"copy_file_range":   namedPayloadRule(copyFileRangePayloadSectionsForEvent),
+	"pipe":              exitStructPayloadRule(0, fdArrayPayloadSize),
+	"pipe2":             exitStructPayloadRule(0, fdArrayPayloadSize),
+	"socketpair":        exitStructPayloadRule(3, fdArrayPayloadSize),
+	"openat2":           namedPayloadRule(openat2PayloadSectionsForEvent),
+	"execve":            execPayloadSectionsForEvent,
+	"execveat":          execPayloadSectionsForEvent,
+	"rename":            dualPathPayloadRule(0, 1),
+	"link":              dualPathPayloadRule(0, 1),
+	"symlink":           dualPathPayloadRule(0, 1),
+	"symlinkat":         dualPathPayloadRule(0, 2),
+	"renameat":          dualPathPayloadRule(1, 3),
+	"renameat2":         dualPathPayloadRule(1, 3),
+	"linkat":            dualPathPayloadRule(1, 3),
+	"mount":             fsPayloadSectionsForEvent,
+	"umount2":           fsPayloadSectionsForEvent,
+	"fsconfig":          fsPayloadSectionsForEvent,
+	"add_key":           keyPayloadSectionsForEvent,
+	"request_key":       keyPayloadSectionsForEvent,
+	"setxattr":          xattrPayloadSectionsForEvent,
+	"lsetxattr":         xattrPayloadSectionsForEvent,
+	"fsetxattr":         xattrPayloadSectionsForEvent,
+	"getxattr":          xattrPayloadSectionsForEvent,
+	"lgetxattr":         xattrPayloadSectionsForEvent,
+	"fgetxattr":         xattrPayloadSectionsForEvent,
+	"removexattr":       xattrPayloadSectionsForEvent,
+	"lremovexattr":      xattrPayloadSectionsForEvent,
+	"fremovexattr":      xattrPayloadSectionsForEvent,
+	"listxattr":         xattrPayloadSectionsForEvent,
+	"llistxattr":        xattrPayloadSectionsForEvent,
+	"flistxattr":        xattrPayloadSectionsForEvent,
+	"ioctl":             namedPayloadRule(ioctlPayloadSectionsForEvent),
+
+	"stat":                 exitStructPayloadRule(1, statPayloadStructSize),
+	"lstat":                exitStructPayloadRule(1, statPayloadStructSize),
+	"fstat":                exitStructPayloadRule(1, statPayloadStructSize),
+	"newfstatat":           exitStructPayloadRule(2, statPayloadStructSize),
+	"statfs":               exitStructPayloadRule(1, statfsPayloadStructSize),
+	"fstatfs":              exitStructPayloadRule(1, statfsPayloadStructSize),
+	"uname":                exitStructPayloadRule(0, utsnamePayloadStructSize),
+	"sysinfo":              exitStructPayloadRule(0, sysinfoPayloadStructSize),
+	"getrlimit":            exitStructPayloadRule(1, rlimitPayloadStructSize),
+	"setrlimit":            enterStructPayloadRule(1, handler.BpfEnterArgOffset, rlimitPayloadStructSize),
+	"prlimit64":            namedPayloadRule(prlimitPayloadSectionsForEvent),
+	"get_robust_list":      namedPayloadRule(robustListPayloadSectionsForEvent),
+	"clone3":               namedPayloadRule(clone3PayloadSectionsForEvent),
+	"waitid":               namedPayloadRule(waitidPayloadSectionsForEvent),
+	"arch_prctl":           exitStructPayloadRule(1, archPrctlPayloadOutSize),
+	"capget":               capabilityPayloadSectionsForEvent,
+	"capset":               capabilityPayloadSectionsForEvent,
+	"io_setup":             aioPayloadSectionsForEvent,
+	"io_submit":            aioPayloadSectionsForEvent,
+	"io_cancel":            aioPayloadSectionsForEvent,
+	"io_getevents":         aioPayloadSectionsForEvent,
+	"io_pgetevents":        aioPayloadSectionsForEvent,
+	"io_pgetevents_time64": aioPayloadSectionsForEvent,
+	"cachestat":            namedPayloadRule(cachestatPayloadSectionsForEvent),
+	"fcntl":                namedPayloadRule(fcntlPayloadSectionsForEvent),
+	"fcntl64":              namedPayloadRule(fcntlPayloadSectionsForEvent),
+	"prctl":                namedPayloadRule(prctlPayloadSectionsForEvent),
+	"rt_sigaction":         signalPayloadSectionsForEvent,
+	"rt_sigprocmask":       signalPayloadSectionsForEvent,
+	"rt_sigsuspend":        signalPayloadSectionsForEvent,
+	"clock_gettime":        timePayloadSectionsForEvent,
+	"clock_getres":         timePayloadSectionsForEvent,
+	"clock_settime":        timePayloadSectionsForEvent,
+	"adjtimex":             timePayloadSectionsForEvent,
+	"clock_adjtime":        timePayloadSectionsForEvent,
+	"nanosleep":            timePayloadSectionsForEvent,
+	"clock_nanosleep":      timePayloadSectionsForEvent,
+	"gettimeofday":         timePayloadSectionsForEvent,
+	"settimeofday":         timePayloadSectionsForEvent,
+	"getitimer":            timePayloadSectionsForEvent,
+	"setitimer":            timePayloadSectionsForEvent,
+	"utime":                timePayloadSectionsForEvent,
+	"utimes":               timePayloadSectionsForEvent,
+	"futimesat":            timePayloadSectionsForEvent,
+	"utimensat":            timePayloadSectionsForEvent,
+	"futex":                futexPayloadSectionsForEvent,
+	"futex_wait":           futexPayloadSectionsForEvent,
+	"futex_waitv":          futexPayloadSectionsForEvent,
+	"futex_requeue":        futexPayloadSectionsForEvent,
+	"poll":                 pollPayloadRule(false),
+	"ppoll":                pollPayloadRule(true),
+	"select":               namedPayloadRule(selectPayloadSectionsForEvent),
+	"_newselect":           namedPayloadRule(selectPayloadSectionsForEvent),
+	"epoll_ctl":            enterStructPayloadRule(3, handler.BpfEnterArgOffset, epollPayloadEventSize),
+	"epoll_wait":           exitStructArrayPayloadRule(1, epollPayloadEventSize, epollPayloadMaxBytes),
+	"epoll_pwait":          exitStructArrayPayloadRule(1, epollPayloadEventSize, epollPayloadMaxBytes),
+	"epoll_pwait2":         namedPayloadRule(epollPwait2PayloadSectionsForEvent),
+	"connect":              networkSockaddrInPayloadRule(1, 2, 0),
+	"bind":                 networkSockaddrInPayloadRule(1, 2, 0),
+	"sendto":               namedPayloadRule(sendtoPayloadSectionsForEvent),
+	"recvfrom":             namedPayloadRule(recvfromPayloadSectionsForEvent),
+	"accept":               namedPayloadRule(acceptLikePayloadSectionsForEvent),
+	"accept4":              namedPayloadRule(acceptLikePayloadSectionsForEvent),
+	"getsockname":          namedPayloadRule(acceptLikePayloadSectionsForEvent),
+	"getpeername":          namedPayloadRule(acceptLikePayloadSectionsForEvent),
+}
+
 func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.PayloadSection {
-	if sections, ok := scalarPayloadSectionsForEvent(eventRaw, scMeta.Name); ok {
-		return sections
+	if rule, ok := payloadSectionRules[scMeta.Name]; ok {
+		return rule(eventRaw, scMeta.Name)
 	}
-	if sections, ok := structuredPayloadSectionsForEvent(eventRaw, scMeta.Name); ok {
-		return sections
+	if argIndex, ok := simplePathPayloadArgIndex(scMeta.Name); ok {
+		return stringPayloadSectionFromWindow(eventRaw, argIndex)
 	}
 	return nil
 }
 
-func scalarPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]handler.PayloadSection, bool) {
-	switch scName {
-	case "write", "pwrite64":
-		userLen := uint32Clamped(eventRaw.Args[2])
-		return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
-			kind:      handler.PayloadKindBytes,
-			direction: handler.PayloadDirectionIn,
-			argIndex:  1,
-			userLen:   userLen,
-			maxLen:    userLen,
-			probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, 1),
-		}), true
-	case "read", "pread64":
-		if !isExitEvent(eventRaw) || eventRaw.Ret <= 0 {
-			return nil, true
-		}
-		userLen := uint32Clamped(uint64(eventRaw.Ret))
-		return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
-			kind:      handler.PayloadKindBytes,
-			direction: handler.PayloadDirectionOut,
-			argIndex:  1,
-			offset:    handler.BpfExitArgOffset,
-			userLen:   userLen,
-			maxLen:    userLen,
-			probeRet:  eventRaw.ProbeRetExit,
-		}), true
-	case "readv", "writev", "preadv", "pwritev", "preadv2", "pwritev2", "vmsplice":
-		return iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset), true
-	case "process_vm_readv", "process_vm_writev":
-		sections := iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset)
-		return append(sections, iovecPayloadSectionFromWindow(eventRaw, 3, 4, handler.BpfMiscArgOffset)...), true
-	case "process_madvise":
-		return iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset), true
-	case "memfd_create":
-		return stringPayloadSectionFromWindowSpec(eventRaw, stringPayloadWindowSpec{
-			argIndex: 0,
-			maxBytes: memfdNamePayloadMaxBytes,
-		}), true
-	case "bpf":
-		return bpfPayloadSectionsForEvent(eventRaw), true
-	case "getcwd":
-		return exitBytesPayloadSectionFromRet(eventRaw, 0), true
-	case "readlink":
-		return exitBytesPayloadSectionFromRet(eventRaw, 1), true
-	case "readlinkat":
-		return exitBytesPayloadSectionFromRet(eventRaw, 2), true
-	case "sendfile":
-		return sendfilePayloadSectionsForEvent(eventRaw), true
-	case "copy_file_range":
-		return copyFileRangePayloadSectionsForEvent(eventRaw), true
-	case "pipe", "pipe2":
-		return exitStructPayloadSection(eventRaw, 0, fdArrayPayloadSize), true
-	case "socketpair":
-		return exitStructPayloadSection(eventRaw, 3, fdArrayPayloadSize), true
-	case "openat2":
-		return openat2PayloadSectionsForEvent(eventRaw), true
-	case "execve", "execveat":
-		return execPayloadSectionsForEvent(eventRaw, scName), true
-	case "rename", "link", "symlink":
-		return dualPathPayloadSectionsForEvent(eventRaw, 0, 1), true
-	case "symlinkat":
-		return dualPathPayloadSectionsForEvent(eventRaw, 0, 2), true
-	case "renameat", "renameat2", "linkat":
-		return dualPathPayloadSectionsForEvent(eventRaw, 1, 3), true
-	case "mount", "umount2", "fsconfig":
-		return fsPayloadSectionsForEvent(eventRaw, scName), true
-	case "add_key", "request_key":
-		return keyPayloadSectionsForEvent(eventRaw, scName), true
-	case "setxattr", "lsetxattr", "fsetxattr", "getxattr", "lgetxattr", "fgetxattr",
-		"removexattr", "lremovexattr", "fremovexattr", "listxattr", "llistxattr", "flistxattr":
-		return xattrPayloadSectionsForEvent(eventRaw, scName), true
-	case "ioctl":
-		return ioctlPayloadSectionsForEvent(eventRaw), true
-	default:
-		if argIndex, ok := simplePathPayloadArgIndex(scName); ok {
-			return stringPayloadSectionFromWindow(eventRaw, argIndex), true
-		}
-		return nil, false
+func namedPayloadRule(fn func(*bpfEvent) []handler.PayloadSection) payloadSectionRule {
+	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
+		return fn(eventRaw)
 	}
 }
 
-func structuredPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]handler.PayloadSection, bool) {
-	switch scName {
-	case "stat", "lstat":
-		return exitStructPayloadSection(eventRaw, 1, statPayloadStructSize), true
-	case "fstat":
-		return exitStructPayloadSection(eventRaw, 1, statPayloadStructSize), true
-	case "newfstatat":
-		return exitStructPayloadSection(eventRaw, 2, statPayloadStructSize), true
-	case "statfs":
-		return exitStructPayloadSection(eventRaw, 1, statfsPayloadStructSize), true
-	case "fstatfs":
-		return exitStructPayloadSection(eventRaw, 1, statfsPayloadStructSize), true
-	case "uname":
-		return exitStructPayloadSection(eventRaw, 0, utsnamePayloadStructSize), true
-	case "sysinfo":
-		return exitStructPayloadSection(eventRaw, 0, sysinfoPayloadStructSize), true
-	case "getrlimit":
-		return exitStructPayloadSection(eventRaw, 1, rlimitPayloadStructSize), true
-	case "setrlimit":
-		return enterStructPayloadSection(eventRaw, 1, handler.BpfEnterArgOffset, rlimitPayloadStructSize), true
-	case "prlimit64":
-		return prlimitPayloadSectionsForEvent(eventRaw), true
-	case "get_robust_list":
-		return robustListPayloadSectionsForEvent(eventRaw), true
-	case "clone3":
-		return clone3PayloadSectionsForEvent(eventRaw), true
-	case "waitid":
-		return waitidPayloadSectionsForEvent(eventRaw), true
-	case "arch_prctl":
-		return exitStructPayloadSection(eventRaw, 1, archPrctlPayloadOutSize), true
-	case "capget", "capset":
-		return capabilityPayloadSectionsForEvent(eventRaw, scName), true
-	case "io_setup", "io_submit", "io_cancel", "io_getevents", "io_pgetevents", "io_pgetevents_time64":
-		return aioPayloadSectionsForEvent(eventRaw, scName), true
-	case "cachestat":
-		return cachestatPayloadSectionsForEvent(eventRaw), true
-	case "fcntl", "fcntl64":
-		return fcntlPayloadSectionsForEvent(eventRaw), true
-	case "prctl":
-		return prctlPayloadSectionsForEvent(eventRaw), true
-	case "rt_sigaction", "rt_sigprocmask", "rt_sigsuspend":
-		return signalPayloadSectionsForEvent(eventRaw, scName), true
-	case "clock_gettime", "clock_getres", "clock_settime", "adjtimex", "clock_adjtime",
-		"nanosleep", "clock_nanosleep", "gettimeofday", "settimeofday", "getitimer", "setitimer",
-		"utime", "utimes", "futimesat", "utimensat":
-		return timePayloadSectionsForEvent(eventRaw, scName), true
-	case "futex", "futex_wait", "futex_waitv", "futex_requeue":
-		return futexPayloadSectionsForEvent(eventRaw, scName), true
-	case "poll":
-		return pollPayloadSectionsForEvent(eventRaw, false), true
-	case "ppoll":
-		return pollPayloadSectionsForEvent(eventRaw, true), true
-	case "select", "_newselect":
-		return selectPayloadSectionsForEvent(eventRaw), true
-	case "epoll_ctl":
-		return enterStructPayloadSection(eventRaw, 3, handler.BpfEnterArgOffset, epollPayloadEventSize), true
-	case "epoll_wait", "epoll_pwait":
-		return exitStructArrayPayloadSectionFromRet(eventRaw, 1, epollPayloadEventSize, epollPayloadMaxBytes), true
-	case "epoll_pwait2":
-		return epollPwait2PayloadSectionsForEvent(eventRaw), true
-	case "connect", "bind":
-		return networkSockaddrInPayloadSection(eventRaw, 1, 2, 0), true
-	case "sendto":
-		return sendtoPayloadSectionsForEvent(eventRaw), true
-	case "recvfrom":
-		return recvfromPayloadSectionsForEvent(eventRaw), true
-	case "accept", "accept4", "getsockname", "getpeername":
-		return acceptLikePayloadSectionsForEvent(eventRaw), true
-	default:
-		return nil, false
+func exitBytesPayloadRule(argIndex int) payloadSectionRule {
+	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
+		return exitBytesPayloadSectionFromRet(eventRaw, argIndex)
 	}
+}
+
+func exitStructPayloadRule(argIndex int, size uint32) payloadSectionRule {
+	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
+		return exitStructPayloadSection(eventRaw, argIndex, size)
+	}
+}
+
+func enterStructPayloadRule(argIndex int, offset int, size uint32) payloadSectionRule {
+	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
+		return enterStructPayloadSection(eventRaw, argIndex, offset, size)
+	}
+}
+
+func exitStructArrayPayloadRule(argIndex int, elemSize int, maxBytes int) payloadSectionRule {
+	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
+		return exitStructArrayPayloadSectionFromRet(eventRaw, argIndex, elemSize, maxBytes)
+	}
+}
+
+func dualPathPayloadRule(firstArg int, secondArg int) payloadSectionRule {
+	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
+		return dualPathPayloadSectionsForEvent(eventRaw, firstArg, secondArg)
+	}
+}
+
+func pollPayloadRule(includeTimeout bool) payloadSectionRule {
+	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
+		return pollPayloadSectionsForEvent(eventRaw, includeTimeout)
+	}
+}
+
+func networkSockaddrInPayloadRule(argIndex int, lenIndex int, offset int) payloadSectionRule {
+	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
+		return networkSockaddrInPayloadSection(eventRaw, argIndex, lenIndex, offset)
+	}
+}
+
+func writePayloadSectionsForEvent(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
+	userLen := uint32Clamped(eventRaw.Args[2])
+	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+		kind:      handler.PayloadKindBytes,
+		direction: handler.PayloadDirectionIn,
+		argIndex:  1,
+		userLen:   userLen,
+		maxLen:    userLen,
+		probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, 1),
+	})
+}
+
+func readPayloadSectionsForEvent(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
+	if !isExitEvent(eventRaw) || eventRaw.Ret <= 0 {
+		return nil
+	}
+	userLen := uint32Clamped(uint64(eventRaw.Ret))
+	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+		kind:      handler.PayloadKindBytes,
+		direction: handler.PayloadDirectionOut,
+		argIndex:  1,
+		offset:    handler.BpfExitArgOffset,
+		userLen:   userLen,
+		maxLen:    userLen,
+		probeRet:  eventRaw.ProbeRetExit,
+	})
+}
+
+func iovecArgPayloadSectionsForEvent(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
+	return iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset)
+}
+
+func processVMPayloadSectionsForEvent(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
+	sections := iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset)
+	return append(sections, iovecPayloadSectionFromWindow(eventRaw, 3, 4, handler.BpfMiscArgOffset)...)
+}
+
+func processMadvisePayloadSectionsForEvent(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
+	return iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset)
+}
+
+func memfdCreatePayloadSectionsForEvent(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
+	return stringPayloadSectionFromWindowSpec(eventRaw, stringPayloadWindowSpec{
+		argIndex: 0,
+		maxBytes: memfdNamePayloadMaxBytes,
+	})
 }
 
 func pollPayloadSectionsForEvent(eventRaw *bpfEvent, includeTimeout bool) []handler.PayloadSection {
