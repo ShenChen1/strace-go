@@ -931,6 +931,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `process_madvise` 已暴露 `PayloadKindIovec` section，formatter 优先消费 section 并保留短读 next-address 文本，旧 enter snapshot prefix 仅作为迁移期 fallback。
 - `clone3` 已暴露 `struct clone_args` 的 `PayloadKindStruct` section，clone3 formatter 优先消费 section，旧 enter snapshot prefix 仅作为迁移期 fallback。
 - `bpf` 已暴露 `union bpf_attr` 的 `PayloadKindBytes` section，bpf formatter 与 extra_data formatter 优先消费 section，旧 enter snapshot prefix 仅作为迁移期 fallback。
+- `add_key/request_key` 已暴露 key type、description、payload/callout_info sections，key 参数 formatter 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。
 
 ## 9. 第一条推荐实现链路
 

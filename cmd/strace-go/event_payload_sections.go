@@ -123,6 +123,8 @@ func scalarPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]handler
 		return dualPathPayloadSectionsForEvent(eventRaw, 1, 3), true
 	case "mount", "umount2", "fsconfig":
 		return fsPayloadSectionsForEvent(eventRaw, scName), true
+	case "add_key", "request_key":
+		return keyPayloadSectionsForEvent(eventRaw, scName), true
 	default:
 		return nil, false
 	}
