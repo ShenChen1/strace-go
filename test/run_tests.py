@@ -11,11 +11,14 @@ import time
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-TESTS_DIR = "/opt/strace-go/strace-upstream/tests"
-UPSTREAM_DIR = "/opt/strace-go/strace-upstream"
-STRACE_WRAPPER = "/opt/strace-go/test/strace-sudo.sh"
-STRACE_GO_BIN = "/opt/strace-go/strace-go"
-FIXTURE_SRC = "/opt/strace-go/test/fixtures/ebpf_semantic_fixture.c"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+
+TESTS_DIR = os.path.join(PROJECT_ROOT, "strace-upstream", "tests")
+UPSTREAM_DIR = os.path.join(PROJECT_ROOT, "strace-upstream")
+STRACE_WRAPPER = os.path.join(SCRIPT_DIR, "strace-sudo.sh")
+STRACE_GO_BIN = os.path.join(PROJECT_ROOT, "strace-go")
+FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_semantic_fixture.c")
 
 SMOKE_TESTS = [
     "accept.gen.test",
@@ -179,8 +182,7 @@ def build_upstream():
 
 def build_strace_go():
     env = os.environ.copy()
-    env.setdefault("GOCACHE", "/tmp/strace-go-gocache")
-    subprocess.run(["go", "build", "-o", STRACE_GO_BIN, "./cmd/strace-go"], cwd="/opt/strace-go", env=env, check=True)
+    subprocess.run(["go", "build", "-o", STRACE_GO_BIN, "./cmd/strace-go"], cwd=PROJECT_ROOT, env=env, check=True)
 
 def build_ebpf_fixture():
     out = os.path.join(tempfile.gettempdir(), "strace-go-ebpf-semantic-fixture")
