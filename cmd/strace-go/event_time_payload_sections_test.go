@@ -203,6 +203,62 @@ func TestJSONSyscallEventIncludesItimerPayloadSections(t *testing.T) {
 	}
 }
 
+func TestJSONSyscallEventIncludesFileTimePayloadSections(t *testing.T) {
+	tests := []struct {
+		name     string
+		eventRaw bpfEvent
+		wants    []wantTimeJSONPayloadSection
+	}{
+		{
+			name: "utime",
+			eventRaw: bpfEvent{
+				EventType:     bpfEventTypeEnter,
+				Args:          [6]uint64{0x1000, 0x2000},
+				DataLen:       timePayloadValueOffset + timePayloadUtimbufSize,
+				ProbeRetEnter: 0,
+			},
+			wants: []wantTimeJSONPayloadSection{
+				{"string", "in", 0, 0, 0x1000, 7, []byte("file-a\x00")},
+				{"struct", "in", 1, 512, 0x2000, 16, timeJSONStruct(1, 2)},
+			},
+		},
+		{
+			name: "utimensat",
+			eventRaw: bpfEvent{
+				EventType:     bpfEventTypeEnter,
+				Args:          [6]uint64{^uint64(99), 0x3000, 0x4000},
+				DataLen:       timePayloadValueOffset + timePayloadItimervalSize,
+				ProbeRetEnter: 0,
+			},
+			wants: []wantTimeJSONPayloadSection{
+				{"string", "in", 1, 0, 0x3000, 7, []byte("file-b\x00")},
+				{"struct", "in", 2, 512, 0x4000, 32, timeJSONItimerval(3, 4, 5, 6)},
+			},
+		},
+		{
+			name: "utimes",
+			eventRaw: bpfEvent{
+				EventType:     bpfEventTypeEnter,
+				Args:          [6]uint64{0x5000, 0},
+				DataLen:       8,
+				ProbeRetEnter: 0,
+			},
+			wants: []wantTimeJSONPayloadSection{
+				{"string", "in", 0, 0, 0x5000, 8, []byte("no-time\x00")},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventRaw := tt.eventRaw
+			putTimeJSONPayloads(&eventRaw, tt.wants)
+			ev := timeJSONSyscallEvent(&eventRaw, tt.name)
+			assertTimeJSONPayloadSections(t, ev.PayloadSections, tt.wants)
+		})
+	}
+}
+
 func timeJSONSyscallEvent(eventRaw *bpfEvent, name string) jsonSyscallEvent {
 	scMeta := meta.Syscall{Name: name}
 	return newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))

@@ -5,10 +5,13 @@ import "strace-go/pkg/handler"
 const (
 	timePayloadStructOffset   = handler.BpfEnterArgOffset
 	timePayloadExitOffset     = handler.BpfExitArgOffset
+	timePayloadPathOffset     = handler.BpfEnterArgOffset
+	timePayloadValueOffset    = handler.BpfMiscArgOffset
 	timePayloadTimezoneSize   = 8
 	timePayloadTimezoneOffset = handler.BpfExitArgOffset + timespecPayloadStructSize
 	timePayloadTimexSize      = 208
 	timePayloadItimervalSize  = 32
+	timePayloadUtimbufSize    = 16
 )
 
 func timePayloadSectionsForEvent(eventRaw *bpfEvent, scName string) []handler.PayloadSection {
@@ -33,9 +36,23 @@ func timePayloadSectionsForEvent(eventRaw *bpfEvent, scName string) []handler.Pa
 		return successfulTimeOutSection(eventRaw, 1, timePayloadExitOffset, timePayloadItimervalSize)
 	case "setitimer":
 		return setitimerPayloadSections(eventRaw)
+	case "utime":
+		return fileTimePayloadSections(eventRaw, 0, 1, timePayloadUtimbufSize)
+	case "utimes":
+		return fileTimePayloadSections(eventRaw, 0, 1, timePayloadItimervalSize)
+	case "futimesat", "utimensat":
+		return fileTimePayloadSections(eventRaw, 1, 2, timePayloadItimervalSize)
 	default:
 		return nil
 	}
+}
+
+func fileTimePayloadSections(eventRaw *bpfEvent, pathArg int, timeArg int, timeSize uint32) []handler.PayloadSection {
+	sections := stringPayloadSectionFromWindowAt(eventRaw, pathPayloadSpec{
+		argIndex: pathArg,
+		offset:   timePayloadPathOffset,
+	})
+	return append(sections, timeStructPayloadSection(eventRaw, timeArg, handler.PayloadDirectionIn, timePayloadValueOffset, timeSize)...)
 }
 
 func timexPayloadSections(eventRaw *bpfEvent, argIndex int) []handler.PayloadSection {

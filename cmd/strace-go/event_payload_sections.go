@@ -177,7 +177,8 @@ func structuredPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]han
 	case "rt_sigaction", "rt_sigprocmask", "rt_sigsuspend":
 		return signalPayloadSectionsForEvent(eventRaw, scName), true
 	case "clock_gettime", "clock_getres", "clock_settime", "adjtimex", "clock_adjtime",
-		"nanosleep", "clock_nanosleep", "gettimeofday", "settimeofday", "getitimer", "setitimer":
+		"nanosleep", "clock_nanosleep", "gettimeofday", "settimeofday", "getitimer", "setitimer",
+		"utime", "utimes", "futimesat", "utimensat":
 		return timePayloadSectionsForEvent(eventRaw, scName), true
 	case "futex", "futex_wait", "futex_waitv", "futex_requeue":
 		return futexPayloadSectionsForEvent(eventRaw, scName), true
