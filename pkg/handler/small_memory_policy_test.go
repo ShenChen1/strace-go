@@ -240,7 +240,7 @@ func TestFutexWaitvTimeoutUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func newArchPrctlPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Decoder) *Context {
+func newArchPrctlPolicyContext(decoder *event.Decoder) *Context {
 	return &Context{
 		Pid:          1234,
 		Tid:          1234,
@@ -253,37 +253,37 @@ func newArchPrctlPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.D
 			Args:     []string{"option", "arg2"},
 			ArgTypes: []string{"int", "unsigned long"},
 		},
-		StrArgBuf: make([]byte, BpfExitArgOffset+8),
 	}
 }
 
 func TestArchPrctlDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeUint64Snapshot(0x1234)}
 	decoder := event.NewDecoder()
-	ctx := newArchPrctlPolicyContext(reader, decoder)
+	ctx := newArchPrctlPolicyContext(decoder)
 
 	got := (&ArchPrctlHandler{}).Handle(ctx)
 	if len(got.ArgParts) != 2 {
 		t.Fatalf("ArgParts len = %d, want 2", len(got.ArgParts))
 	}
 	if got.ArgParts[1] != "[NULL]" {
-		t.Fatalf("arch_prctl arg = %q, want NULL snapshot fallback", got.ArgParts[1])
+		t.Fatalf("arch_prctl arg = %q, want NULL without payload section", got.ArgParts[1])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
-func TestArchPrctlUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestArchPrctlIgnoresLegacyFixedSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeUint64Snapshot(0x1234)}
 	decoder := event.NewDecoder()
-	ctx := newArchPrctlPolicyContext(reader, decoder)
+	ctx := newArchPrctlPolicyContext(decoder)
 	ctx.ProbeRetExit = 0
+	ctx.StrArgBuf = make([]byte, BpfExitArgOffset+8)
 	putSmallSnapshot(ctx, BpfExitArgOffset, makeUint64Snapshot(0x1234))
 
 	got := (&ArchPrctlHandler{}).Handle(ctx)
-	if got.ArgParts[1] != "[0x1234]" {
-		t.Fatalf("arch_prctl arg = %q", got.ArgParts[1])
+	if got.ArgParts[1] != "[NULL]" {
+		t.Fatalf("arch_prctl arg = %q, want legacy snapshot ignored", got.ArgParts[1])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -292,7 +292,7 @@ func TestArchPrctlUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 
 func TestArchPrctlUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeUint64Snapshot(0x1234)}
-	ctx := newArchPrctlPolicyContext(reader, event.NewDecoder())
+	ctx := newArchPrctlPolicyContext(event.NewDecoder())
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeUint64Snapshot(0x5678)},
 	}

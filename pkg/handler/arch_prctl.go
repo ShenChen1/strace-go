@@ -92,5 +92,5 @@ func archPrctlOutData(ctx *Context) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(1, PayloadDirectionOut); ok && len(data) >= archPrctlOutSize {
 		return data[:archPrctlOutSize], true
 	}
-	return ctx.ExitSnapshot(BpfExitArgOffset, archPrctlOutSize)
+	return nil, false
 }
