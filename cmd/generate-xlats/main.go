@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"gopkg.in/yaml.v3"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -17,14 +19,20 @@ func main() {
 	xlatDir := "../../strace-upstream/src/xlat"
 	data, err := os.ReadFile("arg_xlat_map.yaml")
 	if err != nil {
-		data, _ = os.ReadFile("../generate-xlats/arg_xlat_map.yaml")
+		data, err = os.ReadFile("../generate-xlats/arg_xlat_map.yaml")
+		if err != nil {
+			panic(fmt.Sprintf("failed to read arg_xlat_map.yaml: %v", err))
+		}
 	}
 	var argXlat ArgXlatMap
 	if err := yaml.Unmarshal(data, &argXlat); err != nil {
 		panic(fmt.Sprintf("Failed to unmarshal YAML: %v", err))
 	}
 
-	out, _ := os.Create("../../pkg/meta/xlat_auto.go")
+	out, err := os.Create("../../pkg/meta/xlat_auto.go")
+	if err != nil {
+		panic(fmt.Sprintf("failed to create ../../pkg/meta/xlat_auto.go: %v", err))
+	}
 	fmt.Fprintln(out, "package meta")
 	fmt.Fprintln(out, "type XlatVal struct { Val uint64; Str string }")
 	fmt.Fprintln(out, "type XlatTable struct { Prefix string; Entries []XlatVal }")
@@ -90,7 +98,10 @@ func main() {
 	delete(allowedXlats, "protocols")
 	delete(allowedXlats, "sigact_flags")
 
-	files, _ := os.ReadDir(xlatDir)
+	files, err := os.ReadDir(xlatDir)
+	if err != nil {
+		panic(fmt.Sprintf("failed to read xlat dir %s: %v", xlatDir, err))
+	}
 	emittedXlats := make(map[string]bool)
 	for _, f := range files {
 		if !strings.HasSuffix(f.Name(), ".in") {
@@ -472,17 +483,34 @@ func main() {
 		fmt.Fprintf(out, "\t\t},\n\t},\n")
 	}
 	fmt.Fprintln(out, "}")
+	writeSyscallArgXlatMap(out, argXlat.Syscalls)
+	if err := out.Close(); err != nil {
+		panic(fmt.Sprintf("failed to close ../../pkg/meta/xlat_auto.go: %v", err))
+	}
+}
+
+func writeSyscallArgXlatMap(out io.Writer, syscalls map[string]map[string]string) {
 	fmt.Fprintln(out, "var SyscallArgXlatMap = map[string]map[string]string{")
-	for sc, m := range argXlat.Syscalls {
+	for _, sc := range sortedKeys(syscalls) {
 		if strings.HasSuffix(sc, "_table") {
 			continue
 		}
+		m := syscalls[sc]
 		fmt.Fprintf(out, "\t%q: {\n", sc)
-		for arg, xlat := range m {
+		for _, arg := range sortedKeys(m) {
+			xlat := m[arg]
 			fmt.Fprintf(out, "\t\t%q: %q,\n", arg, xlat)
 		}
 		fmt.Fprintln(out, "\t},")
 	}
 	fmt.Fprintln(out, "}")
-	out.Close()
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }

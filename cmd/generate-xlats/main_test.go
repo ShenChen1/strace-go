@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"bytes"
+	"reflect"
+	"testing"
+)
 
 func TestApplyStableXlatFallbacksAddsMissingEntries(t *testing.T) {
 	prefix := ""
@@ -20,5 +24,46 @@ func TestApplyStableXlatFallbacksAddsMissingEntries(t *testing.T) {
 	}
 	if len(keys) != 3 {
 		t.Fatalf("keys = %#v, want three stable entries", keys)
+	}
+}
+
+func TestSortedKeysReturnsLexicalOrder(t *testing.T) {
+	keys := sortedKeys(map[string]int{
+		"write": 1,
+		"open":  2,
+		"close": 3,
+	})
+	want := []string{"close", "open", "write"}
+	if !reflect.DeepEqual(keys, want) {
+		t.Fatalf("sortedKeys() = %#v, want %#v", keys, want)
+	}
+}
+
+func TestWriteSyscallArgXlatMapIsStable(t *testing.T) {
+	var out bytes.Buffer
+	writeSyscallArgXlatMap(&out, map[string]map[string]string{
+		"write": {
+			"z_arg": "last",
+			"a_arg": "first",
+		},
+		"access": {
+			"mode": "access_modes",
+		},
+		"dummy_table": {
+			"dummy": "ignored",
+		},
+	})
+
+	want := "var SyscallArgXlatMap = map[string]map[string]string{\n" +
+		"\t\"access\": {\n" +
+		"\t\t\"mode\": \"access_modes\",\n" +
+		"\t},\n" +
+		"\t\"write\": {\n" +
+		"\t\t\"a_arg\": \"first\",\n" +
+		"\t\t\"z_arg\": \"last\",\n" +
+		"\t},\n" +
+		"}\n"
+	if out.String() != want {
+		t.Fatalf("generated map:\n%s\nwant:\n%s", out.String(), want)
 	}
 }
