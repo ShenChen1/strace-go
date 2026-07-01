@@ -448,3 +448,21 @@ func TestLoadCapturePolicyRejectsMinGreaterThanMax(t *testing.T) {
 		t.Fatalf("loadCapturePolicy() error = nil, want invalid min/max error")
 	}
 }
+
+func TestProductCapturePolicyHasUniqueSyscalls(t *testing.T) {
+	oldConfig := globalConfig
+	defer func() { globalConfig = oldConfig }()
+
+	if err := loadCapturePolicy("capture_rules.yaml"); err != nil {
+		t.Fatalf("loadCapturePolicy(product) error = %v", err)
+	}
+	seen := make(map[string]int)
+	for ruleIndex, rule := range globalConfig.Rules {
+		for _, sc := range rule.Syscalls {
+			if firstRule, ok := seen[sc]; ok {
+				t.Fatalf("syscall %s appears in capture rules %d and %d", sc, firstRule, ruleIndex)
+			}
+			seen[sc] = ruleIndex
+		}
+	}
+}

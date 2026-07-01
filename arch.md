@@ -890,6 +890,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `futex_waitv` 已通过 `count_from_arg`、`elem_size`、`max` 和 `split_first` 描述 waiters 数组的 bounded split read，生成器不再按 syscall 名称硬编码 `futex_waitv_sz`。
 - `fsconfig` 已通过 `string_bytes_switch` 描述 `FSCONFIG_SET_BINARY` 的 bytes 分支和其它命令的 string 分支，生成器不再按 syscall 名称硬编码 `fssz`。
 - `dynamicSizeStr` 已删除；动态 capture 长度只能来自显式 policy 字段，未知动态长度返回 0。
+- 产品 `capture_rules.yaml` 已禁止重复 syscall 规则，避免生成器 first-match 语义静默遮蔽后续策略；`linkat` 已改为由双 path policy 生成 old/new path 捕获。
 
 ### Phase 8: 删除旧模式与收口文档
 

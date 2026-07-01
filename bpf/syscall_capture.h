@@ -2034,24 +2034,7 @@
 		case 265: /* linkat */ \
 			(e)->ptr = (e)->args[1]; \
 			{ \
-				long pr = 0; \
-				if ((e)->args[1]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[1]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[1] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[1] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
+				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_enter; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -2059,6 +2042,18 @@
 				} else { \
 					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
 					u32 req_len = 0 + pr; \
+					if ((e)->data_len < req_len) (e)->data_len = req_len; \
+				} \
+			} \
+			{ \
+				long pr = (e)->args[3] ? bpf_probe_read_user_str((e)->str_arg + 512, 512, (void *)(e)->args[3]) : 0; \
+				if (pr < 0) { \
+					s32 curr = (e)->probe_ret_enter; \
+					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
+					(e)->probe_ret_enter = -(s32)((mask | (1 << 3)) + 1); \
+				} else { \
+					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
+					u32 req_len = 512 + pr; \
 					if ((e)->data_len < req_len) (e)->data_len = req_len; \
 				} \
 			} \

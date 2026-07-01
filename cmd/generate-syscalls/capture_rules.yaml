@@ -52,7 +52,7 @@ rules:
   # At-based syscalls (enter)
   # IMPACT: Capture execveat along with other at-based syscalls for path resolution.
   # IMPACT: Added fspick to capture path string on enter.
-  - syscalls: [openat, mkdirat, mknodat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, linkat, execveat, fspick]
+  - syscalls: [openat, mkdirat, mknodat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, execveat, fspick]
     enter:
       ptr_arg: 1
       payloads:
@@ -440,11 +440,6 @@ rules:
         - { arg: 3, kind: raw, direction: out, size: 128, offset: 1280 } # exceptfds out
         - { arg: 4, kind: struct, direction: out, size: 16, offset: 1408 } # timeout out (left)
 
-  - syscalls: [epoll_ctl]
-    enter:
-      payloads:
-        - { arg: 3, kind: struct, direction: in, size: 12, offset: 0 }
-
   - syscalls: [epoll_wait, epoll_pwait]
     exit:
       payloads:
@@ -639,16 +634,3 @@ rules:
     exit:
       payloads:
         - { arg: 1, kind: struct, direction: out, size: 32, offset: 1024 }
-
-  - syscalls: [gettimeofday]
-    exit:
-      payloads:
-        - { arg: 0, kind: struct, direction: out, size: 16, offset: 1024 }
-        - { arg: 1, kind: struct, direction: out, size: 8, offset: 1048 }
-
-
-  - syscalls: [settimeofday]
-    enter:
-      payloads:
-        - { arg: 0, kind: struct, direction: in, size: 16 }
-        - { arg: 1, kind: struct, direction: in, size: 8, offset: 24 }
