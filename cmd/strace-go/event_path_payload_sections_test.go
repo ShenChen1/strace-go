@@ -13,6 +13,66 @@ type wantPathJSONPayloadSection struct {
 	data     string
 }
 
+func TestJSONSyscallEventIncludesSimplePathPayloadSection(t *testing.T) {
+	tests := []struct {
+		name string
+		args [6]uint64
+		want wantPathJSONPayloadSection
+	}{
+		{
+			name: "chdir",
+			args: [6]uint64{0x1000},
+			want: wantPathJSONPayloadSection{argIndex: 0, offset: 0, userPtr: 0x1000, data: "/tmp/a"},
+		},
+		{
+			name: "openat",
+			args: [6]uint64{^uint64(99), 0x2000},
+			want: wantPathJSONPayloadSection{argIndex: 1, offset: 0, userPtr: 0x2000, data: "relative"},
+		},
+		{
+			name: "faccessat2",
+			args: [6]uint64{^uint64(99), 0x3000},
+			want: wantPathJSONPayloadSection{argIndex: 1, offset: 0, userPtr: 0x3000, data: "check"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventRaw := &bpfEvent{
+				EventType:     bpfEventTypeEnter,
+				Args:          tt.args,
+				DataLen:       uint32(len(tt.want.data) + 1),
+				ProbeRetEnter: 0,
+			}
+			copy(eventRaw.StrArg[:], []byte(tt.want.data+"\x00"))
+
+			scMeta := meta.Syscall{Name: tt.name}
+			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+			if len(ev.PayloadSections) != 1 {
+				t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
+			}
+			assertPathJSONPayloadSection(t, ev.PayloadSections[0], tt.want)
+		})
+	}
+}
+
+func TestSimplePathPayloadDoesNotShadowStructuredStat(t *testing.T) {
+	eventRaw := &bpfEvent{
+		EventType:     bpfEventTypeExit,
+		Args:          [6]uint64{0x1000, 0x2000},
+		Ret:           0,
+		DataLen:       statPayloadStructSize + 1024,
+		ProbeRetEnter: 0,
+		ProbeRetExit:  0,
+	}
+
+	scMeta := meta.Syscall{Name: "stat"}
+	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	if len(ev.PayloadSections) != 1 || ev.PayloadSections[0].Kind != "struct" || ev.PayloadSections[0].ArgIndex != 1 {
+		t.Fatalf("stat PayloadSections = %+v, want only stat struct section", ev.PayloadSections)
+	}
+}
+
 func TestJSONSyscallEventIncludesDualPathPayloadSections(t *testing.T) {
 	tests := []struct {
 		name string

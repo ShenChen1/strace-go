@@ -769,7 +769,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `TestJSONEventPathDoesNotReadTraceeMemory` 使用 spy reader 锁住 JSON path 不补读；文本 path 暂时保留旧 fallback，作为后续 handler snapshot 迁移期间的兼容边界。
 - JSON `payload_sections` 已迁入共享 `handler.PayloadSection` 模型，`handler.Context.Section(arg, kind)` 可以按参数和 payload 类型复用同一份 BPF 快照。
 - `read/pread64` 和 `write/pwrite64` 的 buffer formatter 已优先消费 `PayloadKindBytes` section，旧 fixed offset snapshot 仅作为迁移期 fallback。
-- path/open 类参数 formatter 已优先消费 `PayloadKindString` section，旧 `RawStrArg` / fixed offset string buffer 仅作为迁移期 fallback。
+- path/open 类参数 formatter 已优先消费 `PayloadKindString` section，简单 arg0/arg1 path syscall 已补齐 JSON section 投影，旧 `RawStrArg` / fixed offset string buffer 仅作为迁移期 fallback。
 - `rename/link/symlink` 及其 `*at` 双 path syscall 已暴露两个 `PayloadKindString` sections，rename/link/symlink formatter 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `execve/execveat` 的 argv/envp snapshot 已暴露为 `PayloadKindExecArgs` section，exec argv/envp decoder 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `getcwd/readlink/readlinkat` 已暴露 OUT `PayloadKindBytes` section，formatter 优先消费 section，旧 exit snapshot 仅作为迁移期 fallback。

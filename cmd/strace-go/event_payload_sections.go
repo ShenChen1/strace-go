@@ -107,10 +107,6 @@ func scalarPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]handler
 		return exitStructPayloadSection(eventRaw, 0, fdArrayPayloadSize), true
 	case "socketpair":
 		return exitStructPayloadSection(eventRaw, 3, fdArrayPayloadSize), true
-	case "open", "creat":
-		return stringPayloadSectionFromWindow(eventRaw, 0), true
-	case "openat":
-		return stringPayloadSectionFromWindow(eventRaw, 1), true
 	case "openat2":
 		return openat2PayloadSectionsForEvent(eventRaw), true
 	case "execve", "execveat":
@@ -131,6 +127,9 @@ func scalarPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]handler
 	case "ioctl":
 		return ioctlPayloadSectionsForEvent(eventRaw), true
 	default:
+		if argIndex, ok := simplePathPayloadArgIndex(scName); ok {
+			return stringPayloadSectionFromWindow(eventRaw, argIndex), true
+		}
 		return nil, false
 	}
 }
