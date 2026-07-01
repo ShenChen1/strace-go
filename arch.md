@@ -763,10 +763,11 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 
 当前落地：
 
-- JSON/debug 事件通道已关闭 `event.Decoder` 的 tracee memory fallback。
-- JSON/debug handler context 注入 forbidden memory reader；handler 若仍直接调用 `ctx.MemReader`，只能得到明确错误，不能读取 tracee 地址空间。
-- `updateFDMap` 中少数直接使用 `decoder.MemReader` 的 fd 状态补读已受同一 memory policy 约束。
-- `TestJSONEventPathDoesNotReadTraceeMemory` 使用 spy reader 锁住 JSON path 不补读；文本 path 暂时保留旧 fallback，作为后续 handler snapshot 迁移期间的兼容边界。
+- `event.Decoder` 已收敛为 snapshot-only decoder；字符串解码在 BPF snapshot 不完整时只输出指针，不再补读 tracee 内存。
+- `handler.Context` 主路径只暴露 `SnapshotReader` / `PayloadSection`，不再提供 `MemReader` 或 `ReadRobust` 入口。
+- `updateFDMap` 只通过 BPF snapshot 解码路径参数，不再直接补读 tracee 地址空间。
+- `TestProductSourceHasNoRuntimePtraceOrProcmemDependency` 已扫描主产品源码，禁止重新引入 ptrace、`procmem`、`process_vm_readv`、`MemReader` 或 `ReadRobust` 运行时入口。
+- semantic fixture 已在 tracee 内检查 `TracerPid == 0`，作为运行期 no-ptrace gate。
 - JSON `payload_sections` 已迁入共享 `handler.PayloadSection` 模型，`handler.Context.Section(arg, kind)` 可以按参数和 payload 类型复用同一份 BPF 快照。
 - `read/pread64` 和 `write/pwrite64` 的 buffer formatter 已优先消费 `PayloadKindBytes` section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - path/open 类参数 formatter 已优先消费 `PayloadKindString` section，简单 arg0/arg1 path syscall 已补齐 JSON section 投影，旧 `RawStrArg` / fixed offset string buffer 仅作为迁移期 fallback。

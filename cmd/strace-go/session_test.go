@@ -54,6 +54,8 @@ func TestProductSourceHasNoRuntimePtraceOrProcmemDependency(t *testing.T) {
 		"PtraceSyscall",
 		"ProcessVMReadv",
 		"process_vm_readv(",
+		"MemReader",
+		"ReadRobust(",
 		"\"strace-go/pkg/procmem\"",
 		"procmem.",
 		"/proc/%d/mem",
