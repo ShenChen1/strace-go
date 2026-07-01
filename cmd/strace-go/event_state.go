@@ -12,11 +12,29 @@ type pendingSyscallState struct {
 	genericEnterRaw bool
 }
 
-func (s *traceSession) rememberEnterEvent(eventRaw *bpfEvent) {
-	if s.pendingSyscalls == nil {
-		s.pendingSyscalls = make(map[uint32]*pendingSyscallState)
+type TraceState struct {
+	pendingSyscalls   map[uint32]*pendingSyscallState
+	pendingExecArgs   map[int]string
+	suspendedSyscalls map[int]string
+	tasks             map[uint32]*TaskState
+}
+
+func newTraceState() *TraceState {
+	return &TraceState{}
+}
+
+func (s *traceSession) traceState() *TraceState {
+	if s.state == nil {
+		s.state = newTraceState()
 	}
-	s.pendingSyscalls[eventRaw.Tid] = &pendingSyscallState{
+	return s.state
+}
+
+func (st *TraceState) rememberEnterEvent(eventRaw *bpfEvent) {
+	if st.pendingSyscalls == nil {
+		st.pendingSyscalls = make(map[uint32]*pendingSyscallState)
+	}
+	st.pendingSyscalls[eventRaw.Tid] = &pendingSyscallState{
 		pid:             eventRaw.Pid,
 		tid:             eventRaw.Tid,
 		sysID:           eventRaw.SysId,
@@ -29,12 +47,12 @@ func (s *traceSession) rememberEnterEvent(eventRaw *bpfEvent) {
 	}
 }
 
-func (s *traceSession) consumeEnterEvent(eventRaw *bpfEvent) *pendingSyscallState {
-	if !isExitEvent(eventRaw) || s.pendingSyscalls == nil {
+func (st *TraceState) consumeEnterEvent(eventRaw *bpfEvent) *pendingSyscallState {
+	if !isExitEvent(eventRaw) || st.pendingSyscalls == nil {
 		return nil
 	}
-	pending := s.pendingSyscalls[eventRaw.Tid]
-	delete(s.pendingSyscalls, eventRaw.Tid)
+	pending := st.pendingSyscalls[eventRaw.Tid]
+	delete(st.pendingSyscalls, eventRaw.Tid)
 	if pending == nil || pending.sysID != eventRaw.SysId {
 		return nil
 	}
@@ -45,46 +63,52 @@ func isExitEvent(eventRaw *bpfEvent) bool {
 	return eventRaw.EventType == bpfEventTypeExit
 }
 
-func (s *traceSession) rememberPendingExecArgs(tid int, argLine string) {
-	if s.pendingExecArgs == nil {
-		s.pendingExecArgs = make(map[int]string)
+func (st *TraceState) rememberPendingExecArgs(tid int, argLine string) {
+	if st.pendingExecArgs == nil {
+		st.pendingExecArgs = make(map[int]string)
 	}
-	s.pendingExecArgs[tid] = argLine
+	st.pendingExecArgs[tid] = argLine
 }
 
-func (s *traceSession) takePendingExecArgs(tid int) (string, bool) {
-	argLine, ok := s.pendingExecArgs[tid]
-	delete(s.pendingExecArgs, tid)
+func (st *TraceState) takePendingExecArgs(tid int) (string, bool) {
+	argLine, ok := st.pendingExecArgs[tid]
+	delete(st.pendingExecArgs, tid)
 	return argLine, ok
 }
 
-func (s *traceSession) pendingExecArgsFor(tid int) (string, bool) {
-	argLine, ok := s.pendingExecArgs[tid]
+func (st *TraceState) pendingExecArgsFor(tid int) (string, bool) {
+	argLine, ok := st.pendingExecArgs[tid]
 	return argLine, ok
 }
 
-func (s *traceSession) deletePendingExecArgs(tid int) {
-	delete(s.pendingExecArgs, tid)
+func (st *TraceState) deletePendingExecArgs(tid int) {
+	delete(st.pendingExecArgs, tid)
 }
 
-func (s *traceSession) rememberSuspendedSyscall(tid int, name string) {
-	if s.suspendedSyscalls == nil {
-		s.suspendedSyscalls = make(map[int]string)
+func (st *TraceState) rememberSuspendedSyscall(tid int, name string) {
+	if st.suspendedSyscalls == nil {
+		st.suspendedSyscalls = make(map[int]string)
 	}
-	s.suspendedSyscalls[tid] = name
+	st.suspendedSyscalls[tid] = name
 }
 
-func (s *traceSession) deleteSuspendedSyscall(tid int) {
-	delete(s.suspendedSyscalls, tid)
+func (st *TraceState) deleteSuspendedSyscall(tid int) {
+	delete(st.suspendedSyscalls, tid)
 }
 
-func (s *traceSession) consumeSuspendedSyscall(tid int) bool {
-	if s.suspendedSyscalls == nil {
+func (st *TraceState) consumeSuspendedSyscall(tid int) bool {
+	if st.suspendedSyscalls == nil {
 		return false
 	}
-	_, ok := s.suspendedSyscalls[tid]
+	_, ok := st.suspendedSyscalls[tid]
 	if ok {
-		delete(s.suspendedSyscalls, tid)
+		delete(st.suspendedSyscalls, tid)
 	}
 	return ok
+}
+
+func (st *TraceState) clearTaskPending(tid uint32) {
+	delete(st.pendingExecArgs, int(tid))
+	delete(st.suspendedSyscalls, int(tid))
+	delete(st.pendingSyscalls, tid)
 }

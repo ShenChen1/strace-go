@@ -17,10 +17,10 @@ func execOutputTestState() (*traceSession, handler.Result, *handler.Context, *by
 	res := handler.Result{ArgParts: []string{`"/bin/true"`, `["true"]`, `0x1 /* 1 var */`}}
 	ctx := &handler.Context{ScMeta: scMeta, Opts: opts}
 	session := &traceSession{
-		targetPid:       100,
-		opts:            opts,
-		outWriter:       out,
-		pendingExecArgs: make(map[int]string),
+		targetPid: 100,
+		opts:      opts,
+		outWriter: out,
+		state:     newTraceState(),
 	}
 	return session, res, ctx, out
 }

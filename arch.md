@@ -729,6 +729,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - Go 侧新增 per-session `pendingSyscalls map[tid]pending`，generic enter 事件进入 pending，exit 事件按 TID 消费 pending。
 - JSON exit 事件带 `paired_enter=true`，semantic/perf 测试已把 read/write/getpid 的 enter/exit 配对作为门禁。
 - execve 暂存参数和 suspended syscall 状态已从全局 map+mutex 迁入 `traceSession`，事件处理路径不再依赖这些 mutex。
+- Go 侧已新增 `TraceState` 对象集中持有 pending syscall、exec 暂存、suspended syscall 和 task lifecycle map；`traceSession` 只组合状态对象，为后续 `TraceState.Handle(event)` 收口做准备。
 - 文本 formatter 仍消费 exit/full event；通用 `<unfinished ...>` / `<... resumed>` 泛化保持关闭，避免在 Phase 3 同时扩大文本兼容面。
 
 验收：

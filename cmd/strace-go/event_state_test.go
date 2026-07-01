@@ -44,12 +44,12 @@ func TestJSONEventsArePairedByTIDState(t *testing.T) {
 	}
 
 	session.handleEvent(enter)
-	if len(session.pendingSyscalls) != 1 {
-		t.Fatalf("pendingSyscalls after enter = %d, want 1", len(session.pendingSyscalls))
+	if got := len(session.traceState().pendingSyscalls); got != 1 {
+		t.Fatalf("pendingSyscalls after enter = %d, want 1", got)
 	}
 	session.handleEvent(exit)
-	if len(session.pendingSyscalls) != 0 {
-		t.Fatalf("pendingSyscalls after exit = %d, want 0", len(session.pendingSyscalls))
+	if got := len(session.traceState().pendingSyscalls); got != 0 {
+		t.Fatalf("pendingSyscalls after exit = %d, want 0", got)
 	}
 
 	lines := bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n"))

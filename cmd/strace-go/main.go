@@ -142,6 +142,7 @@ func main() {
 		bootTimeOffsetNs: calculateTimeOffset(),
 		bpfObjs:          bpfObjs,
 		resolver:         resolver,
+		state:            newTraceState(),
 	}
 	session.run()
 }
