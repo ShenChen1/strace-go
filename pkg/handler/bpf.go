@@ -45,13 +45,7 @@ func (h *BpfHandler) Handle(ctx *Context) Result {
 	var readSuccess bool
 
 	if attr != 0 && size > 0 && size <= 4096 {
-		data, readSuccess = ctx.EnterArgSnapshotPrefix(1, BpfEnterArgOffset, int(size))
-		if readSuccess && len(data) > 512 {
-			data = data[:512]
-		}
-		if len(data) == 0 {
-			readSuccess = false
-		}
+		data, readSuccess = bpfAttrData(ctx, int(size))
 	}
 
 	if !readSuccess {
@@ -165,10 +159,16 @@ func checkAndFormatExtraData(ctx *Context, offset int, size uint32) string {
 	}
 
 	var extraBytes []byte
-	if len(ctx.StrArgBuf) > offset {
-		testBuf, isTest := tryGenerateTestExtraData(offset, limit, ctx.StrArgBuf[offset:])
+	if attrBytes, ok := bpfAttrData(ctx, limit); ok && len(attrBytes) > offset {
+		testBuf, isTest := tryGenerateTestExtraData(offset, limit, attrBytes[offset:])
 		if isTest {
 			extraBytes = testBuf
+		} else {
+			end := limit
+			if end > len(attrBytes) {
+				end = len(attrBytes)
+			}
+			extraBytes = attrBytes[offset:end]
 		}
 	}
 
@@ -202,6 +202,27 @@ func checkAndFormatExtraData(ctx *Context, offset int, size uint32) string {
 		return sb.String()
 	}
 	return ", ..."
+}
+
+func bpfAttrData(ctx *Context, size int) ([]byte, bool) {
+	if size <= 0 {
+		return nil, false
+	}
+	limit := size
+	if limit > 512 {
+		limit = 512
+	}
+	if data, ok := ctx.PayloadBytes(1, PayloadDirectionIn); ok {
+		if len(data) > limit {
+			data = data[:limit]
+		}
+		return data, len(data) > 0
+	}
+	data, ok := ctx.EnterArgSnapshotPrefix(1, BpfEnterArgOffset, limit)
+	if !ok || len(data) == 0 {
+		return nil, false
+	}
+	return data, true
 }
 
 // tryGenerateTestExtraData detects cyclic test patterns and generates aligned buffer.
