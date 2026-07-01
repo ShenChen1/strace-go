@@ -921,6 +921,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - 单元测试会扫描主产品 Go 源码，禁止重新引入 ptrace runtime API、`pkg/procmem` 或用户态 `process_vm_readv` 补读入口。
 - Go 事件分类不再把 `event_type == 0` 当作 exit；旧 fixed event 协议样本会落到 `unknown`，不能消费 enter pending state。
 - JSON/debug syscall event 已开始暴露 `payload_sections`，先把现有 fixed snapshot 投影成 path/read/write/stat/statfs sections；semantic suite 已断言 write IN payload section。
+- BPF `stats_map` 已记录 `bpf_ringbuf_output` 失败次数，JSON/debug 结束时输出 `type=stats` 事件，semantic/perf suite 可把 ringbuf 丢事件作为显式 oracle。
 - `execve/execveat` 已暴露 argv/envp 的 `PayloadKindExecArgs` section，exec argv/envp decoder 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `stat/lstat/fstat/newfstatat` 与 `statfs/fstatfs` 已暴露 OUT `PayloadKindStruct` section，stat formatter 优先消费 section，旧 exit snapshot 仅作为迁移期 fallback。
 - `poll/ppoll` 与 `epoll_ctl/epoll_wait/epoll_pwait/epoll_pwait2` 已暴露结构数组/timeout 的 `PayloadKindStruct` sections，formatter 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。

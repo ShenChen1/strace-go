@@ -77,6 +77,10 @@ struct pending_syscall {
     s32 stack_id;
 };
 
+struct bpf_stats {
+    u64 ringbuf_output_fail;
+};
+
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 1 << 26);
@@ -123,6 +127,13 @@ struct {
     __type(key, u32);
     __type(value, struct bpf_event);
 } heap SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, struct bpf_stats);
+} stats_map SEC(".maps");
 
 #ifndef __NR_execve
 #define __NR_execve 59
@@ -324,6 +335,30 @@ static __always_inline int should_trace_syscall(u32 sys_id, u32 *cfg)
     return enabled ? 1 : 0;
 }
 
+static __always_inline void record_ringbuf_output_result(long ret)
+{
+    if (ret >= 0) {
+        return;
+    }
+
+    u32 key = 0;
+    struct bpf_stats *stats = bpf_map_lookup_elem(&stats_map, &key);
+    if (stats) {
+        stats->ringbuf_output_fail++;
+    }
+}
+
+static __always_inline void emit_event(struct bpf_event *e)
+{
+    u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
+    if (out_size > sizeof(*e)) {
+        out_size = sizeof(*e);
+    }
+
+    long ret = bpf_ringbuf_output(&events, e, out_size, 0);
+    record_ringbuf_output_result(ret);
+}
+
 static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64 arg0, u64 arg1, const void *snapshot_str)
 {
     u32 key = 0;
@@ -367,9 +402,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
         e->probe_ret_enter = n;
     }
 
-    u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
-    if (out_size > sizeof(*e)) out_size = sizeof(*e);
-    bpf_ringbuf_output(&events, e, out_size, 0);
+    emit_event(e);
 }
 
 SEC("tracepoint/raw_syscalls/sys_enter")
@@ -419,9 +452,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     if (cfg && (*cfg & CONFIG_EMIT_ENTER)) {
         e->event_type = EVENT_TYPE_ENTER;
         e->event_flags = EVENT_FLAG_GENERIC_ENTER;
-        u32 enter_out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
-        if (enter_out_size > sizeof(*e)) enter_out_size = sizeof(*e);
-        bpf_ringbuf_output(&events, e, enter_out_size, 0);
+        emit_event(e);
         e->event_type = EVENT_TYPE_EXIT;
         e->event_flags = 0;
     }
@@ -433,9 +464,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
             u32 val = 1;
             bpf_map_update_elem(&main_exited_map, &pid, &val, BPF_ANY);
         }
-        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
-        if (out_size > sizeof(*e)) out_size = sizeof(*e);
-        bpf_ringbuf_output(&events, e, out_size, 0);
+        emit_event(e);
         bpf_map_delete_elem(&pending_syscalls, &tid);
     }
 
@@ -448,9 +477,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         if (nr_threads > 1 && tid == pid) {
             e->probe_ret_enter = 3;
             e->event_type = EVENT_TYPE_ENTER;
-            u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
-            if (out_size > sizeof(*e)) out_size = sizeof(*e);
-            bpf_ringbuf_output(&events, e, out_size, 0);
+            emit_event(e);
             e->probe_ret_enter = -1;
             e->event_type = EVENT_TYPE_EXIT;
         }
@@ -465,9 +492,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
             e->probe_ret_enter = 0;
         }
         e->event_type = EVENT_TYPE_ENTER;
-        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
-        if (out_size > sizeof(*e)) out_size = sizeof(*e);
-        bpf_ringbuf_output(&events, e, out_size, 0);
+        emit_event(e);
         e->event_type = EVENT_TYPE_EXIT;
         if (tid != pid) {
             bpf_map_update_elem(&pending_exec_map, &pid, &tid, BPF_ANY);
@@ -538,9 +563,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
         } else {
             e->probe_ret_exit = 0;
         }
-        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
-        if (out_size > sizeof(*e)) out_size = sizeof(*e);
-        bpf_ringbuf_output(&events, e, out_size, 0);
+        emit_event(e);
         bpf_map_delete_elem(&pending_syscalls, &pending_tid);
         bpf_map_delete_elem(&pending_exec_map, &pid);
         bpf_map_delete_elem(&main_exited_map, &pid);
@@ -548,9 +571,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             bpf_map_delete_elem(&pending_syscalls, &pid);
         }
     } else {
-        u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
-        if (out_size > sizeof(*e)) out_size = sizeof(*e);
-        bpf_ringbuf_output(&events, e, out_size, 0);
+        emit_event(e);
         u32 *pending = bpf_map_lookup_elem(&pending_exec_map, &pid);
         if (!(tid == pid && pending)) {
             bpf_map_delete_elem(&pending_syscalls, &tid);

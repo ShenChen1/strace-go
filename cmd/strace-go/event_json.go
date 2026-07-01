@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 
+	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
@@ -78,6 +79,13 @@ type jsonLifecycleEvent struct {
 	TimeNS       uint64 `json:"time_ns"`
 }
 
+type jsonStatsEvent struct {
+	Type              string `json:"type"`
+	RingbufOutputFail uint64 `json:"ringbuf_output_fail"`
+	Available         bool   `json:"available"`
+	Error             string `json:"error,omitempty"`
+}
+
 func newJSONSyscallEvent(eventRaw *bpfEvent, scMeta meta.Syscall, sections []handler.PayloadSection) jsonSyscallEvent {
 	failed := eventRaw.Ret < 0 && eventRaw.Ret >= -4095
 	errno := 0
@@ -138,6 +146,26 @@ func (s *traceSession) writeJSONLifecycleEvent(eventRaw *bpfEvent, task *TaskSta
 		ev.Execed = task.Execed
 	}
 	_ = json.NewEncoder(s.outWriter).Encode(ev)
+}
+
+func newJSONStatsEvent(stats bpfRuntimeStats) jsonStatsEvent {
+	return jsonStatsEvent{
+		Type:              "stats",
+		RingbufOutputFail: stats.RingbufOutputFail,
+		Available:         stats.Available,
+		Error:             stats.Error,
+	}
+}
+
+func (s *traceSession) maybeWriteJSONStatsEvent() {
+	if s == nil || s.opts == nil || s.opts.EventFormat != cli.EventFormatJSON {
+		return
+	}
+	s.writeJSONStatsEvent(s.collectBPFStats())
+}
+
+func (s *traceSession) writeJSONStatsEvent(stats bpfRuntimeStats) {
+	_ = json.NewEncoder(s.outWriter).Encode(newJSONStatsEvent(stats))
 }
 
 func lifecycleSnapshotString(eventRaw *bpfEvent) string {

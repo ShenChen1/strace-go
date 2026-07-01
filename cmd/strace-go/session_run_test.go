@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"testing"
@@ -8,6 +10,8 @@ import (
 	"unsafe"
 
 	"github.com/cilium/ebpf/ringbuf"
+
+	"strace-go/pkg/cli"
 )
 
 func TestDecodeBPFEventRecordRejectsShortSample(t *testing.T) {
@@ -57,6 +61,29 @@ func TestTraceRunStateCollectMarksCommandExit(t *testing.T) {
 	}
 	if !session.exitedTracees[77] {
 		t.Fatalf("tracee exit was not marked: %+v", session.exitedTracees)
+	}
+}
+
+func TestFinishRunWritesJSONStatsEvent(t *testing.T) {
+	var output bytes.Buffer
+	session := &traceSession{
+		opts:      &cli.Options{EventFormat: cli.EventFormatJSON},
+		outWriter: &output,
+	}
+
+	session.finishRun()
+
+	var ev struct {
+		Type              string `json:"type"`
+		RingbufOutputFail uint64 `json:"ringbuf_output_fail"`
+		Available         bool   `json:"available"`
+		Error             string `json:"error"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &ev); err != nil {
+		t.Fatalf("decode stats JSON: %v", err)
+	}
+	if ev.Type != "stats" || ev.RingbufOutputFail != 0 || ev.Available || ev.Error == "" {
+		t.Fatalf("stats JSON event = %+v, want unavailable zero stats", ev)
 	}
 }
 

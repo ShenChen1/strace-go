@@ -171,6 +171,7 @@ func isTransientRingbufReadError(err error) bool {
 }
 
 func (s *traceSession) finishRun() {
+	s.maybeWriteJSONStatsEvent()
 	if s.opts != nil && (s.opts.SummaryOnly || s.opts.SummaryAndPrint) {
 		s.printSummary()
 	}

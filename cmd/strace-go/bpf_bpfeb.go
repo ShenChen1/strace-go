@@ -34,6 +34,11 @@ type bpfBpfEvent struct {
 	StrArg        [10400]uint8
 }
 
+type bpfBpfStats struct {
+	_                 structs.HostLayout
+	RingbufOutputFail uint64
+}
+
 type bpfPendingSyscall struct {
 	_         structs.HostLayout
 	EnterTime uint64
@@ -106,6 +111,7 @@ type bpfMapSpecs struct {
 	PendingExecMap   *ebpf.MapSpec `ebpf:"pending_exec_map"`
 	PendingSyscalls  *ebpf.MapSpec `ebpf:"pending_syscalls"`
 	StackTraces      *ebpf.MapSpec `ebpf:"stack_traces"`
+	StatsMap         *ebpf.MapSpec `ebpf:"stats_map"`
 	SyscallFilterMap *ebpf.MapSpec `ebpf:"syscall_filter_map"`
 }
 
@@ -143,6 +149,7 @@ type bpfMaps struct {
 	PendingExecMap   *ebpf.Map `ebpf:"pending_exec_map"`
 	PendingSyscalls  *ebpf.Map `ebpf:"pending_syscalls"`
 	StackTraces      *ebpf.Map `ebpf:"stack_traces"`
+	StatsMap         *ebpf.Map `ebpf:"stats_map"`
 	SyscallFilterMap *ebpf.Map `ebpf:"syscall_filter_map"`
 }
 
@@ -156,6 +163,7 @@ func (m *bpfMaps) Close() error {
 		m.PendingExecMap,
 		m.PendingSyscalls,
 		m.StackTraces,
+		m.StatsMap,
 		m.SyscallFilterMap,
 	)
 }

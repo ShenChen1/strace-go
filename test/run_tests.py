@@ -216,6 +216,20 @@ def parse_lifecycle_events(stderr):
             events.append(ev)
     return events
 
+def parse_stats_events(stderr):
+    events = []
+    for line in stderr.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if ev.get("type") == "stats":
+            events.append(ev)
+    return events
+
 def run_strace_go_json(args, timeout=30, debug=False):
     event_flag = "--debug-events" if debug else "--event-format=json"
     cmd = [STRACE_WRAPPER, event_flag] + args
@@ -244,6 +258,7 @@ def run_ebpf_semantic(args):
     res = run_strace_go_json(["-f", "-e", f"trace={trace_set}", fixture])
     events = parse_json_events(res.stderr)
     lifecycle_events = parse_lifecycle_events(res.stderr)
+    stats_events = parse_stats_events(res.stderr)
     names = {ev.get("syscall") for ev in events}
     lifecycle_actions = {ev.get("action") for ev in lifecycle_events}
     enter_events = [ev for ev in events if ev.get("event_type") == "enter"]
@@ -254,6 +269,10 @@ def run_ebpf_semantic(args):
     require(len(events) > 0, failures, "no JSON syscall events decoded")
     require(len(enter_events) > 0, failures, "no syscall enter JSON events decoded")
     require(len(exit_events) > 0, failures, "no syscall exit JSON events decoded")
+    require(len(stats_events) == 1, failures, "stats JSON event missing")
+    require(all(ev.get("available") is True for ev in stats_events), failures, "stats JSON event is unavailable")
+    require(all(isinstance(ev.get("ringbuf_output_fail"), int) and ev.get("ringbuf_output_fail") >= 0 for ev in stats_events),
+            failures, "stats JSON event has invalid ringbuf_output_fail")
     require("write" in names, failures, "write event missing")
     require(("openat" in names) or ("open" in names), failures, "open/openat event missing")
     require("read" in names, failures, "read event missing")
@@ -291,14 +310,18 @@ def run_ebpf_semantic(args):
             failures, "exit/free lifecycle task state did not mark task dead")
     filter_res = run_strace_go_json(["-e", "trace=write", fixture], debug=True)
     filter_events = parse_json_events(filter_res.stderr)
+    filter_stats_events = parse_stats_events(filter_res.stderr)
     require(filter_res.returncode == 0, failures, f"filter fixture rc={filter_res.returncode}")
     require(len(filter_events) > 0, failures, "write-only filter produced no events")
     require(all(ev.get("syscall") == "write" for ev in filter_events),
             failures, f"write-only filter leaked events: {sorted({ev.get('syscall') for ev in filter_events})}")
+    require(len(filter_stats_events) == 1 and filter_stats_events[0].get("available") is True,
+            failures, "write-only filter stats JSON event missing or unavailable")
 
     print(f"=> eBPF semantic events: {len(events)}")
     print(f"=> eBPF semantic enter/exit: {len(enter_events)}/{len(exit_events)}")
     print(f"=> eBPF lifecycle events: {len(lifecycle_events)}")
+    print(f"=> eBPF ringbuf output failures: {stats_events[0].get('ringbuf_output_fail') if stats_events else 'n/a'}")
     print(f"=> eBPF write-only events: {len(filter_events)}")
     if failures:
         print("\n=== EBPF SEMANTIC FAILURES ===")
@@ -319,6 +342,7 @@ def run_ebpf_perf(args):
     res = run_strace_go_json(["-e", "trace=getpid", fixture, "perf"], timeout=60)
     elapsed = time.monotonic() - start
     events = parse_json_events(res.stderr)
+    stats_events = parse_stats_events(res.stderr)
     getpid_events = [ev for ev in events if ev.get("syscall") == "getpid"]
     getpid_enter_events = [ev for ev in getpid_events if ev.get("event_type") == "enter"]
     getpid_exit_events = [ev for ev in getpid_events if ev.get("event_type") == "exit"]
@@ -330,10 +354,12 @@ def run_ebpf_perf(args):
     print(f"getpid_events: {len(getpid_events)}")
     print(f"getpid_enter_events: {len(getpid_enter_events)}")
     print(f"getpid_exit_events: {len(getpid_exit_events)}")
+    if stats_events:
+        print(f"ringbuf_output_fail: {stats_events[0].get('ringbuf_output_fail')}")
     if elapsed > 0:
         print(f"events_per_sec: {len(getpid_exit_events) / elapsed:.2f}")
 
-    if res.returncode != 0 or len(getpid_exit_events) < 1000 or len(getpid_enter_events) < 1000 or not all(ev.get("paired_enter") for ev in getpid_exit_events):
+    if res.returncode != 0 or len(stats_events) != 1 or stats_events[0].get("available") is not True or len(getpid_exit_events) < 1000 or len(getpid_enter_events) < 1000 or not all(ev.get("paired_enter") for ev in getpid_exit_events):
         print("\n=== EBPF PERF FAILURE ===")
         print("\n".join(res.stderr.splitlines()[-40:]))
         return 1

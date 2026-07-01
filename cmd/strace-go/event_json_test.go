@@ -47,6 +47,16 @@ func TestJSONLifecycleExecIncludesFilenameSnapshot(t *testing.T) {
 	}
 }
 
+func TestJSONStatsEventIncludesRingbufFailures(t *testing.T) {
+	ev := newJSONStatsEvent(bpfRuntimeStats{
+		RingbufOutputFail: 7,
+		Available:         true,
+	})
+	if ev.Type != "stats" || ev.RingbufOutputFail != 7 || !ev.Available || ev.Error != "" {
+		t.Fatalf("stats JSON event = %+v", ev)
+	}
+}
+
 func TestJSONSyscallEventIncludesWritePayloadSection(t *testing.T) {
 	eventRaw := &bpfEvent{
 		Pid:           101,
