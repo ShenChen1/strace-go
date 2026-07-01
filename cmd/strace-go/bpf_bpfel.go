@@ -120,6 +120,15 @@ type bpfMapSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfVariableSpecs struct {
+	SYS_CAPSET              *ebpf.VariableSpec `ebpf:"SYS_CAPSET"`
+	SYS_EXECVE              *ebpf.VariableSpec `ebpf:"SYS_EXECVE"`
+	SYS_EXECVEAT            *ebpf.VariableSpec `ebpf:"SYS_EXECVEAT"`
+	SYS_EXIT                *ebpf.VariableSpec `ebpf:"SYS_EXIT"`
+	SYS_EXIT_GROUP          *ebpf.VariableSpec `ebpf:"SYS_EXIT_GROUP"`
+	SYS_NANOSLEEP           *ebpf.VariableSpec `ebpf:"SYS_NANOSLEEP"`
+	SYS_RT_SIGRETURN        *ebpf.VariableSpec `ebpf:"SYS_RT_SIGRETURN"`
+	SYS_RT_SIGRETURN_COMPAT *ebpf.VariableSpec `ebpf:"SYS_RT_SIGRETURN_COMPAT"`
+	SYS_RT_SIGSUSPEND       *ebpf.VariableSpec `ebpf:"SYS_RT_SIGSUSPEND"`
 }
 
 // bpfObjects contains all objects after they have been loaded into the kernel.
@@ -173,6 +182,15 @@ func (m *bpfMaps) Close() error {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfVariables struct {
+	SYS_CAPSET              *ebpf.Variable `ebpf:"SYS_CAPSET"`
+	SYS_EXECVE              *ebpf.Variable `ebpf:"SYS_EXECVE"`
+	SYS_EXECVEAT            *ebpf.Variable `ebpf:"SYS_EXECVEAT"`
+	SYS_EXIT                *ebpf.Variable `ebpf:"SYS_EXIT"`
+	SYS_EXIT_GROUP          *ebpf.Variable `ebpf:"SYS_EXIT_GROUP"`
+	SYS_NANOSLEEP           *ebpf.Variable `ebpf:"SYS_NANOSLEEP"`
+	SYS_RT_SIGRETURN        *ebpf.Variable `ebpf:"SYS_RT_SIGRETURN"`
+	SYS_RT_SIGRETURN_COMPAT *ebpf.Variable `ebpf:"SYS_RT_SIGRETURN_COMPAT"`
+	SYS_RT_SIGSUSPEND       *ebpf.Variable `ebpf:"SYS_RT_SIGSUSPEND"`
 }
 
 // bpfPrograms contains all programs after they have been loaded into the kernel.
