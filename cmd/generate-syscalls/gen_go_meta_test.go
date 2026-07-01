@@ -28,3 +28,19 @@ func TestWriteGoSyscallTableDeterministic(t *testing.T) {
 		t.Fatalf("generated table order/content unexpected:\n%s", got)
 	}
 }
+
+func TestWriteGoSyscallTableReportsWriteError(t *testing.T) {
+	if _, err := os.Stat("/dev/full"); err != nil {
+		t.Skipf("/dev/full unavailable: %v", err)
+	}
+
+	err := writeGoSyscallTable("/dev/full", map[int]SyscallMeta{
+		1: {Name: "write", Args: []string{"fd"}, ArgTypes: []string{"int"}, Flags: "TD"},
+	})
+	if err == nil {
+		t.Fatal("writeGoSyscallTable(/dev/full) error = nil, want write error")
+	}
+	if !strings.Contains(err.Error(), "write /dev/full") {
+		t.Fatalf("writeGoSyscallTable(/dev/full) error = %v, want write context", err)
+	}
+}
