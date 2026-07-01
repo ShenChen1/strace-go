@@ -194,6 +194,73 @@ func TestIoctlOtpUsesPayloadBytesSection(t *testing.T) {
 	}
 }
 
+func TestIoctlFionreadUsesPayloadBytesSection(t *testing.T) {
+	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
+	ctx.StrArgBuf = nil
+	ctx.Ret = 0
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 2, UserPtr: 0x4000, ProbeRet: 0, Data: makeIoctlUint32Data(17)},
+	}
+
+	got := (&IoctlHandler{}).decodeStandardIoctlArg(ctx, 0x541b, 0x4000)
+	if got != "[17]" {
+		t.Fatalf("decodeStandardIoctlArg(FIONREAD) = %q", got)
+	}
+}
+
+func TestIoctlFionreadFallsBackToPointerWithoutSnapshot(t *testing.T) {
+	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
+	ctx.StrArgBuf = nil
+	ctx.Ret = 0
+
+	got := (&IoctlHandler{}).decodeStandardIoctlArg(ctx, 0x541b, 0x4000)
+	if got != "0x4000" {
+		t.Fatalf("decodeStandardIoctlArg(FIONREAD) = %q, want pointer fallback", got)
+	}
+}
+
+func TestIoctlTcgetsUsesPayloadBytesSection(t *testing.T) {
+	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
+	ctx.StrArgBuf = nil
+	ctx.Ret = 0
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 2, UserPtr: 0x5000, ProbeRet: 0, Data: make([]byte, 60)},
+	}
+
+	got := (&IoctlHandler{}).decodeStandardIoctlArg(ctx, 0x5401, 0x5000)
+	if got != "{...}" {
+		t.Fatalf("decodeStandardIoctlArg(TCGETS) = %q", got)
+	}
+}
+
+func TestIoctlTcsetsUsesInputPayloadBytesSection(t *testing.T) {
+	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
+	ctx.StrArgBuf = nil
+	ctx.Ret = 0
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x5000, ProbeRet: 0, Data: make([]byte, 60)},
+	}
+
+	got := (&IoctlHandler{}).decodeStandardIoctlArg(ctx, 0x5402, 0x5000)
+	if got != "{...}" {
+		t.Fatalf("decodeStandardIoctlArg(TCSETS) = %q", got)
+	}
+}
+
+func TestIoctlWinsizeUsesPayloadBytesSection(t *testing.T) {
+	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
+	ctx.StrArgBuf = nil
+	ctx.Ret = 0
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 2, UserPtr: 0x6000, ProbeRet: 0, Data: make([]byte, 8)},
+	}
+
+	got := (&IoctlHandler{}).decodeStandardIoctlArg(ctx, 0x5413, 0x6000)
+	if got != "{...}" {
+		t.Fatalf("decodeStandardIoctlArg(TIOCGWINSZ) = %q", got)
+	}
+}
+
 func TestIoctlFiemapHeaderDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x3000: makeFiemapData(1, 2, 1, 0, 0),

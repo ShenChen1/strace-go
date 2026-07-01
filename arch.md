@@ -933,7 +933,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `bpf` 已暴露 `union bpf_attr` 的 `PayloadKindBytes` section，bpf formatter 与 extra_data formatter 优先消费 section，旧 enter snapshot prefix 仅作为迁移期 fallback。
 - `add_key/request_key` 已暴露 key type、description、payload/callout_info sections，key 参数 formatter 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。
 - `setxattr/getxattr/listxattr` 及 f/l 变体已暴露 path/name/value/list sections，xattr formatter 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。
-- `ioctl` 已暴露 arg2 enter/exit raw bytes sections，DM/OTP/fiemap/BTRFS enter-side formatter 优先消费 IN section，旧固定 offset snapshot 仅作为迁移期 fallback。
+- `ioctl` 已暴露 arg2 enter/exit raw bytes sections，DM/OTP/fiemap/BTRFS enter-side formatter 和常见标准 OUT ioctl formatter 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。
 
 ## 9. 第一条推荐实现链路
 

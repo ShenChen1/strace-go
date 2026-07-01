@@ -142,25 +142,53 @@ func (h *IoctlHandler) decodeStandardIoctlArg(ctx *Context, cmd, arg uint64) str
 		if cmd == 0x5401 && ctx.Ret < 0 {
 			return fmt.Sprintf("%#x", arg)
 		}
-		return format.Termios(ctx.StrArgBuf[512 : 512+60])
+		direction := ioctlTermiosDirection(cmd)
+		if data, ok := ioctlArgSnapshot(ctx, direction, 60); ok {
+			return format.Termios(data)
+		}
+		return fmt.Sprintf("%#x", arg)
 	case 0x802c542a, 0x402c542b, 0x402c542c, 0x402c542d: // TCGETS2, TCSETS2, TCSETSW2, TCSETSF2
 		if cmd == 0x802c542a && ctx.Ret < 0 {
 			return fmt.Sprintf("%#x", arg)
 		}
-		return format.Termios(ctx.StrArgBuf[512 : 512+44])
+		direction := ioctlTermios2Direction(cmd)
+		if data, ok := ioctlArgSnapshot(ctx, direction, 44); ok {
+			return format.Termios(data)
+		}
+		return fmt.Sprintf("%#x", arg)
 	case 0x5413: // TIOCGWINSZ
 		if ctx.Ret < 0 {
 			return fmt.Sprintf("%#x", arg)
 		}
-		return format.Winsize(ctx.StrArgBuf[512 : 512+8])
+		if data, ok := ioctlArgSnapshot(ctx, PayloadDirectionOut, 8); ok {
+			return format.Winsize(data)
+		}
+		return fmt.Sprintf("%#x", arg)
 	case 0x541b: // FIONREAD
 		if ctx.Ret < 0 {
 			return fmt.Sprintf("%#x", arg)
 		}
-		return fmt.Sprintf("[%d]", binary.LittleEndian.Uint32(ctx.StrArgBuf[512:516]))
+		if data, ok := ioctlArgSnapshot(ctx, PayloadDirectionOut, 4); ok {
+			return fmt.Sprintf("[%d]", binary.LittleEndian.Uint32(data))
+		}
+		return fmt.Sprintf("%#x", arg)
 	default:
 		return fmt.Sprintf("%#x", arg)
 	}
+}
+
+func ioctlTermiosDirection(cmd uint64) PayloadDirection {
+	if cmd == 0x5401 {
+		return PayloadDirectionOut
+	}
+	return PayloadDirectionIn
+}
+
+func ioctlTermios2Direction(cmd uint64) PayloadDirection {
+	if cmd == 0x802c542a {
+		return PayloadDirectionOut
+	}
+	return PayloadDirectionIn
 }
 
 // formatDmIoctl formats DM structures.
@@ -321,8 +349,17 @@ func ioctlEnterArgPrefix(ctx *Context, size int) ([]byte, bool) {
 }
 
 func ioctlEnterArgSnapshot(ctx *Context, size int) ([]byte, bool) {
-	if data, ok := ctx.PayloadBytes(2, PayloadDirectionIn); ok && len(data) >= size {
+	return ioctlArgSnapshot(ctx, PayloadDirectionIn, size)
+}
+
+func ioctlArgSnapshot(ctx *Context, direction PayloadDirection, size int) ([]byte, bool) {
+	if data, ok := ctx.PayloadBytes(2, direction); ok && len(data) >= size {
 		return data[:size], true
+	}
+	if direction == PayloadDirectionOut {
+		if data, ok := ctx.ExitSnapshot(BpfExitArgOffset, size); ok {
+			return data, true
+		}
 	}
 	return ctx.EnterArgSnapshot(2, BpfMiscArgOffset, size)
 }
