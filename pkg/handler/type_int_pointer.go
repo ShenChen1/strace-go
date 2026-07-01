@@ -26,5 +26,5 @@ func pipeFdArrayData(ctx *Context, argIndex int) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(argIndex, PayloadDirectionOut); ok && len(data) >= fdArrayPayloadSize {
 		return data[:fdArrayPayloadSize], true
 	}
-	return ctx.ExitSnapshot(BpfExitArgOffset, fdArrayPayloadSize)
+	return nil, false
 }
