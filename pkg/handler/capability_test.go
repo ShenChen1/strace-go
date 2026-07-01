@@ -35,7 +35,6 @@ func capabilityContext(syscall string, ret int64, header, capData []byte) *Conte
 		Args:          [6]uint64{0x1000, 0x2000},
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
-		StrArgBuf:     make([]byte, BpfExitArgOffset+2*capDataSize),
 		Opts:          &cli.Options{VerboseDisabled: make(map[string]bool)},
 		ScMeta: meta.Syscall{
 			Name:     syscall,
@@ -43,16 +42,29 @@ func capabilityContext(syscall string, ret int64, header, capData []byte) *Conte
 			ArgTypes: []string{"cap_user_header_t", "cap_user_data_t"},
 		},
 	}
-	copy(ctx.StrArgBuf[0:], header)
-	if syscall == "capget" {
-		copy(ctx.StrArgBuf[BpfExitArgOffset:], capData)
-		ctx.DataLen = uint32(BpfExitArgOffset + len(capData))
-	} else {
-		copy(ctx.StrArgBuf[BpfMiscArgOffset:], capData)
-		ctx.DataLen = uint32(BpfMiscArgOffset + len(capData))
+	if len(header) > 0 {
+		ctx.PayloadSections = append(ctx.PayloadSections, PayloadSection{
+			Kind:      PayloadKindStruct,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  0,
+			UserPtr:   0x1000,
+			ProbeRet:  0,
+			Data:      header,
+		})
 	}
-	if ctx.DataLen < capHeaderSize {
-		ctx.DataLen = capHeaderSize
+	if len(capData) > 0 {
+		direction := PayloadDirectionIn
+		if syscall == "capget" {
+			direction = PayloadDirectionOut
+		}
+		ctx.PayloadSections = append(ctx.PayloadSections, PayloadSection{
+			Kind:      PayloadKindStruct,
+			Direction: direction,
+			ArgIndex:  1,
+			UserPtr:   0x2000,
+			ProbeRet:  0,
+			Data:      capData,
+		})
 	}
 	return ctx
 }
@@ -96,7 +108,6 @@ func TestCapabilityHandlerUsesExitDataForCapget(t *testing.T) {
 
 func TestCapabilityHandlerUsesPayloadStructSectionsForCapget(t *testing.T) {
 	ctx := capabilityContext("capget", 0, nil, nil)
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{
 			Kind:      PayloadKindStruct,
@@ -123,7 +134,6 @@ func TestCapabilityHandlerUsesPayloadStructSectionsForCapget(t *testing.T) {
 
 func TestCapabilityHandlerUsesPayloadStructSectionsForCapset(t *testing.T) {
 	ctx := capabilityContext("capset", -1, nil, nil)
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{
 			Kind:      PayloadKindStruct,
@@ -145,6 +155,21 @@ func TestCapabilityHandlerUsesPayloadStructSectionsForCapset(t *testing.T) {
 	wantData := "{effective=1<<CAP_DAC_OVERRIDE|1<<CAP_WAKE_ALARM, permitted=1<<CAP_DAC_READ_SEARCH|1<<CAP_BLOCK_SUSPEND, inheritable=0}"
 	if len(got.ArgParts) != 2 || got.ArgParts[1] != wantData {
 		t.Fatalf("capset payload data = %#v, want %q", got.ArgParts, wantData)
+	}
+}
+
+func TestCapabilityHandlerIgnoresLegacyFixedSnapshot(t *testing.T) {
+	header := capHeaderBytes(linuxCapabilityVersion3, 0)
+	capData := capDataBytes([3]uint32{2, 4, 0}, [3]uint32{8, 16, 0})
+	ctx := capabilityContext("capset", -1, nil, nil)
+	ctx.StrArgBuf = make([]byte, BpfMiscArgOffset+len(capData))
+	copy(ctx.StrArgBuf[:], header)
+	copy(ctx.StrArgBuf[BpfMiscArgOffset:], capData)
+	ctx.DataLen = uint32(len(ctx.StrArgBuf))
+
+	got := (&CapabilityHandler{}).Handle(ctx)
+	if len(got.ArgParts) != 2 || got.ArgParts[0] != "0x1000" || got.ArgParts[1] != "0x2000" {
+		t.Fatalf("legacy fixed snapshot args = %#v, want raw pointers", got.ArgParts)
 	}
 }
 

@@ -95,7 +95,7 @@ func (h *CapabilityHandler) decodeHeader(ctx *Context) (capHeader, string, bool)
 	if ctx.ArgProbeRet(0) != 0 {
 		return capHeader{}, fmt.Sprintf("%#x", ctx.Args[0]), false
 	}
-	data, ok := capBPFSegment(ctx, 0, PayloadDirectionIn, 0, capHeaderSize)
+	data, ok := capBPFSegment(ctx, 0, PayloadDirectionIn, capHeaderSize)
 	if !ok {
 		return capHeader{}, fmt.Sprintf("%#x", ctx.Args[0]), false
 	}
@@ -117,13 +117,11 @@ func (h *CapabilityHandler) decodeData(ctx *Context, header capHeader, headerOK 
 
 	isExit := ctx.ScMeta.Name == "capget"
 	direction := PayloadDirectionIn
-	offset := BpfMiscArgOffset
 	if isExit {
 		direction = PayloadDirectionOut
-		offset = BpfExitArgOffset
 	}
 	size := words * capDataSize
-	data, ok := capBPFSegment(ctx, 1, direction, offset, size)
+	data, ok := capBPFSegment(ctx, 1, direction, size)
 	if !ok {
 		return fmt.Sprintf("%#x", ctx.Args[1])
 	}
@@ -134,19 +132,12 @@ func capBPFSegment(
 	ctx *Context,
 	argIndex int,
 	direction PayloadDirection,
-	offset int,
 	size int,
 ) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(argIndex, direction); ok && len(data) >= size {
 		return data[:size], true
 	}
-	if size < 0 || offset < 0 || len(ctx.StrArgBuf) < offset+size {
-		return nil, false
-	}
-	if ctx.DataLen < uint32(offset+size) {
-		return nil, false
-	}
-	return ctx.StrArgBuf[offset : offset+size], true
+	return nil, false
 }
 
 func formatNullablePointer(ptr uint64) string {
