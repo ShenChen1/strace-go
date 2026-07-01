@@ -125,6 +125,9 @@ func scalarPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) ([]handler
 		return fsPayloadSectionsForEvent(eventRaw, scName), true
 	case "add_key", "request_key":
 		return keyPayloadSectionsForEvent(eventRaw, scName), true
+	case "setxattr", "lsetxattr", "fsetxattr", "getxattr", "lgetxattr", "fgetxattr",
+		"removexattr", "lremovexattr", "fremovexattr", "listxattr", "llistxattr", "flistxattr":
+		return xattrPayloadSectionsForEvent(eventRaw, scName), true
 	default:
 		return nil, false
 	}

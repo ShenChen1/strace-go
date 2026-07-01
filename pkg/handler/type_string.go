@@ -74,6 +74,11 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 	if p, ok := decodeXattrValueArg(ctx, i, argTyp, argName, val, limit); ok {
 		return p, true
 	}
+	if isXattrNameArg(scName, argName) {
+		if p, ok := ctx.PayloadString(i, PayloadDirectionIn, val, limit); ok {
+			return p, true
+		}
+	}
 	if argTyp == "void *" || argTyp == "const void *" {
 		return fmt.Sprintf("%#x", val), true
 	}
@@ -196,11 +201,10 @@ func formatXattrSnapshot(ctx *Context, argIndex int, val uint64, size uint64, li
 	}
 	offset, captureArg := xattrSnapshotOffset(ctx.ScMeta.Name, argIndex)
 	readSize := boundedSnapshotSize(fetchSize, 256)
-	var data []byte
-	var ok bool
-	if isGetxattr || isListxattr {
+	data, ok := xattrPayloadBytes(ctx, argIndex, isGetxattr, isListxattr)
+	if !ok && (isGetxattr || isListxattr) {
 		data, ok = ctx.ExitSnapshot(offset, readSize)
-	} else {
+	} else if !ok {
 		data, ok = ctx.EnterArgSnapshot(captureArg, offset, readSize)
 	}
 	if !ok || len(data) == 0 || len(data) < fetchSize {
@@ -219,6 +223,23 @@ func formatXattrSnapshot(ctx *Context, argIndex int, val uint64, size uint64, li
 		res += "..."
 	}
 	return res
+}
+
+func isXattrNameArg(scName string, argName string) bool {
+	if argName != "name" {
+		return false
+	}
+	return strings.HasSuffix(scName, "setxattr") ||
+		strings.HasSuffix(scName, "getxattr") ||
+		strings.HasSuffix(scName, "removexattr")
+}
+
+func xattrPayloadBytes(ctx *Context, argIndex int, isGetxattr bool, isListxattr bool) ([]byte, bool) {
+	direction := PayloadDirectionIn
+	if isGetxattr || isListxattr {
+		direction = PayloadDirectionOut
+	}
+	return ctx.PayloadBytes(argIndex, direction)
 }
 
 func xattrSnapshotOffset(scName string, fallbackArg int) (int, int) {
