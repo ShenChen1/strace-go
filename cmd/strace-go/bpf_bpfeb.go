@@ -35,8 +35,9 @@ type bpfBpfEvent struct {
 }
 
 type bpfBpfStats struct {
-	_                 structs.HostLayout
-	RingbufOutputFail uint64
+	_                  structs.HostLayout
+	RingbufReserveFail uint64
+	RingbufCopyFail    uint64
 }
 
 type bpfPendingSyscall struct {

@@ -49,10 +49,11 @@ func TestJSONLifecycleExecIncludesFilenameSnapshot(t *testing.T) {
 
 func TestJSONStatsEventIncludesRingbufFailures(t *testing.T) {
 	ev := newJSONStatsEvent(bpfRuntimeStats{
-		RingbufOutputFail: 7,
-		Available:         true,
+		RingbufReserveFail: 8,
+		RingbufCopyFail:    9,
+		Available:          true,
 	})
-	if ev.Type != "stats" || ev.RingbufOutputFail != 7 || !ev.Available || ev.Error != "" {
+	if ev.Type != "stats" || ev.RingbufReserveFail != 8 || ev.RingbufCopyFail != 9 || !ev.Available || ev.Error != "" {
 		t.Fatalf("stats JSON event = %+v", ev)
 	}
 }

@@ -74,15 +74,16 @@ func TestFinishRunWritesJSONStatsEvent(t *testing.T) {
 	session.finishRun()
 
 	var ev struct {
-		Type              string `json:"type"`
-		RingbufOutputFail uint64 `json:"ringbuf_output_fail"`
-		Available         bool   `json:"available"`
-		Error             string `json:"error"`
+		Type               string `json:"type"`
+		RingbufReserveFail uint64 `json:"ringbuf_reserve_fail"`
+		RingbufCopyFail    uint64 `json:"ringbuf_copy_fail"`
+		Available          bool   `json:"available"`
+		Error              string `json:"error"`
 	}
 	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &ev); err != nil {
 		t.Fatalf("decode stats JSON: %v", err)
 	}
-	if ev.Type != "stats" || ev.RingbufOutputFail != 0 || ev.Available || ev.Error == "" {
+	if ev.Type != "stats" || ev.RingbufReserveFail != 0 || ev.RingbufCopyFail != 0 || ev.Available || ev.Error == "" {
 		t.Fatalf("stats JSON event = %+v, want unavailable zero stats", ev)
 	}
 }

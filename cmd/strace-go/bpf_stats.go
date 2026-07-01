@@ -7,9 +7,10 @@ import (
 )
 
 type bpfRuntimeStats struct {
-	RingbufOutputFail uint64
-	Available         bool
-	Error             string
+	RingbufReserveFail uint64
+	RingbufCopyFail    uint64
+	Available          bool
+	Error              string
 }
 
 func (s *traceSession) collectBPFStats() bpfRuntimeStats {
@@ -31,7 +32,8 @@ func collectBPFStatsFromMap(statsMap *ebpf.Map) bpfRuntimeStats {
 
 	stats := bpfRuntimeStats{Available: true}
 	for _, value := range values {
-		stats.RingbufOutputFail += value.RingbufOutputFail
+		stats.RingbufReserveFail += value.RingbufReserveFail
+		stats.RingbufCopyFail += value.RingbufCopyFail
 	}
 	return stats
 }

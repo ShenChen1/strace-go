@@ -78,7 +78,8 @@ struct pending_syscall {
 };
 
 struct bpf_stats {
-    u64 ringbuf_output_fail;
+    u64 ringbuf_reserve_fail;
+    u64 ringbuf_copy_fail;
 };
 
 struct {
@@ -335,28 +336,55 @@ static __always_inline int should_trace_syscall(u32 sys_id, u32 *cfg)
     return enabled ? 1 : 0;
 }
 
-static __always_inline void record_ringbuf_output_result(long ret)
+static __always_inline struct bpf_stats *lookup_stats(void)
 {
-    if (ret >= 0) {
-        return;
-    }
-
     u32 key = 0;
-    struct bpf_stats *stats = bpf_map_lookup_elem(&stats_map, &key);
+    return bpf_map_lookup_elem(&stats_map, &key);
+}
+
+static __always_inline void record_ringbuf_reserve_fail(void)
+{
+    struct bpf_stats *stats = lookup_stats();
     if (stats) {
-        stats->ringbuf_output_fail++;
+        stats->ringbuf_reserve_fail++;
     }
+}
+
+static __always_inline void record_ringbuf_copy_fail(void)
+{
+    struct bpf_stats *stats = lookup_stats();
+    if (stats) {
+        stats->ringbuf_copy_fail++;
+    }
+}
+
+static __always_inline u32 event_output_size(struct bpf_event *e)
+{
+    u32 data_len = e->data_len;
+    if (data_len > sizeof(e->str_arg)) {
+        data_len = sizeof(e->str_arg);
+    }
+    return __builtin_offsetof(struct bpf_event, str_arg) + data_len;
 }
 
 static __always_inline void emit_event(struct bpf_event *e)
 {
-    u32 out_size = __builtin_offsetof(struct bpf_event, str_arg) + e->data_len;
-    if (out_size > sizeof(*e)) {
-        out_size = sizeof(*e);
+    u32 out_size = event_output_size(e);
+    struct bpf_dynptr ptr;
+    long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
+    if (ret < 0) {
+        record_ringbuf_reserve_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
     }
 
-    long ret = bpf_ringbuf_output(&events, e, out_size, 0);
-    record_ringbuf_output_result(ret);
+    ret = bpf_dynptr_write(&ptr, 0, e, out_size, 0);
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+    bpf_ringbuf_submit_dynptr(&ptr, 0);
 }
 
 static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64 arg0, u64 arg1, const void *snapshot_str)

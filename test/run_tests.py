@@ -241,6 +241,12 @@ def require(condition, failures, message):
     if not condition:
         failures.append(message)
 
+def valid_stats_event(ev):
+    return ev.get("available") is True and all(
+        isinstance(ev.get(key), int) and ev.get(key) >= 0
+        for key in ("ringbuf_reserve_fail", "ringbuf_copy_fail")
+    )
+
 def payload_section_text(section):
     try:
         return base64.b64decode(section.get("data_base64") or "").decode("utf-8", errors="ignore")
@@ -270,9 +276,7 @@ def run_ebpf_semantic(args):
     require(len(enter_events) > 0, failures, "no syscall enter JSON events decoded")
     require(len(exit_events) > 0, failures, "no syscall exit JSON events decoded")
     require(len(stats_events) == 1, failures, "stats JSON event missing")
-    require(all(ev.get("available") is True for ev in stats_events), failures, "stats JSON event is unavailable")
-    require(all(isinstance(ev.get("ringbuf_output_fail"), int) and ev.get("ringbuf_output_fail") >= 0 for ev in stats_events),
-            failures, "stats JSON event has invalid ringbuf_output_fail")
+    require(all(valid_stats_event(ev) for ev in stats_events), failures, "stats JSON event has invalid counters")
     require("write" in names, failures, "write event missing")
     require(("openat" in names) or ("open" in names), failures, "open/openat event missing")
     require("read" in names, failures, "read event missing")
@@ -315,13 +319,15 @@ def run_ebpf_semantic(args):
     require(len(filter_events) > 0, failures, "write-only filter produced no events")
     require(all(ev.get("syscall") == "write" for ev in filter_events),
             failures, f"write-only filter leaked events: {sorted({ev.get('syscall') for ev in filter_events})}")
-    require(len(filter_stats_events) == 1 and filter_stats_events[0].get("available") is True,
+    require(len(filter_stats_events) == 1 and valid_stats_event(filter_stats_events[0]),
             failures, "write-only filter stats JSON event missing or unavailable")
 
     print(f"=> eBPF semantic events: {len(events)}")
     print(f"=> eBPF semantic enter/exit: {len(enter_events)}/{len(exit_events)}")
     print(f"=> eBPF lifecycle events: {len(lifecycle_events)}")
-    print(f"=> eBPF ringbuf output failures: {stats_events[0].get('ringbuf_output_fail') if stats_events else 'n/a'}")
+    if stats_events:
+        print(f"=> eBPF ringbuf reserve failures: {stats_events[0].get('ringbuf_reserve_fail')}")
+        print(f"=> eBPF ringbuf copy failures: {stats_events[0].get('ringbuf_copy_fail')}")
     print(f"=> eBPF write-only events: {len(filter_events)}")
     if failures:
         print("\n=== EBPF SEMANTIC FAILURES ===")
@@ -355,11 +361,12 @@ def run_ebpf_perf(args):
     print(f"getpid_enter_events: {len(getpid_enter_events)}")
     print(f"getpid_exit_events: {len(getpid_exit_events)}")
     if stats_events:
-        print(f"ringbuf_output_fail: {stats_events[0].get('ringbuf_output_fail')}")
+        print(f"ringbuf_reserve_fail: {stats_events[0].get('ringbuf_reserve_fail')}")
+        print(f"ringbuf_copy_fail: {stats_events[0].get('ringbuf_copy_fail')}")
     if elapsed > 0:
         print(f"events_per_sec: {len(getpid_exit_events) / elapsed:.2f}")
 
-    if res.returncode != 0 or len(stats_events) != 1 or stats_events[0].get("available") is not True or len(getpid_exit_events) < 1000 or len(getpid_enter_events) < 1000 or not all(ev.get("paired_enter") for ev in getpid_exit_events):
+    if res.returncode != 0 or len(stats_events) != 1 or not valid_stats_event(stats_events[0]) or len(getpid_exit_events) < 1000 or len(getpid_enter_events) < 1000 or not all(ev.get("paired_enter") for ev in getpid_exit_events):
         print("\n=== EBPF PERF FAILURE ===")
         print("\n".join(res.stderr.splitlines()[-40:]))
         return 1
