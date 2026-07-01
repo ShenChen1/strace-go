@@ -29,7 +29,7 @@ func makeWaitidRusage(userSec uint64, sysSec uint64) []byte {
 	return data
 }
 
-func newWaitidPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Decoder) *Context {
+func newWaitidPolicyContext(decoder *event.Decoder) *Context {
 	return &Context{
 		Pid:          1234,
 		Tid:          1234,
@@ -39,14 +39,13 @@ func newWaitidPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Deco
 		ProbeRetExit: -1,
 		Decoder:      decoder,
 		Opts:         &cli.Options{},
-		StrArgBuf:    make([]byte, waitidRusageOffset+waitidRusageFull),
 	}
 }
 
 func TestWaitidSiginfoDoesNotReadWhenSnapshotMissing(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeWaitidSiginfo(17, 1, 42, 1000, 0)}
 	decoder := event.NewDecoder()
-	ctx := newWaitidPolicyContext(reader, decoder)
+	ctx := newWaitidPolicyContext(decoder)
 
 	got := decodeSiginfo(ctx, 0x1000)
 	if got != "0x1000" {
@@ -57,16 +56,17 @@ func TestWaitidSiginfoDoesNotReadWhenSnapshotMissing(t *testing.T) {
 	}
 }
 
-func TestWaitidSiginfoUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestWaitidSiginfoIgnoresLegacyFixedSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeWaitidSiginfo(0, 0, 0, 0, 0)}
 	decoder := event.NewDecoder()
-	ctx := newWaitidPolicyContext(reader, decoder)
+	ctx := newWaitidPolicyContext(decoder)
 	ctx.ProbeRetExit = 0
-	putSmallSnapshot(ctx, waitidSiginfoOffset, makeWaitidSiginfo(17, 1, 42, 1000, 0))
+	ctx.StrArgBuf = make([]byte, BpfExitArgOffset+waitidRusageFull)
+	putSmallSnapshot(ctx, BpfExitArgOffset, makeWaitidSiginfo(17, 1, 42, 1000, 0))
 
 	got := decodeSiginfo(ctx, 0x1000)
-	if !strings.Contains(got, "si_signo=SIGCHLD") || !strings.Contains(got, "si_pid=42") {
-		t.Fatalf("decodeSiginfo() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("decodeSiginfo() = %q, want legacy snapshot ignored", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -75,7 +75,7 @@ func TestWaitidSiginfoUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 
 func TestWaitidSiginfoUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeWaitidSiginfo(0, 0, 0, 0, 0)}
-	ctx := newWaitidPolicyContext(reader, event.NewDecoder())
+	ctx := newWaitidPolicyContext(event.NewDecoder())
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: 0, Data: makeWaitidSiginfo(17, 1, 51, 1000, 0)},
 	}
@@ -89,16 +89,17 @@ func TestWaitidSiginfoUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestWaitidRusageUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestWaitidRusageIgnoresLegacyFixedSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeWaitidRusage(1, 2)}
 	decoder := event.NewDecoder()
-	ctx := newWaitidPolicyContext(reader, decoder)
+	ctx := newWaitidPolicyContext(decoder)
 	ctx.ProbeRetExit = 0
-	putSmallSnapshot(ctx, waitidRusageOffset, makeWaitidRusage(7, 8))
+	ctx.StrArgBuf = make([]byte, BpfExitArgOffset+136+waitidRusageFull)
+	putSmallSnapshot(ctx, BpfExitArgOffset+136, makeWaitidRusage(7, 8))
 
 	got := decodeRusage(ctx, 0x2000)
-	if !strings.Contains(got, "ru_utime={tv_sec=7") || !strings.Contains(got, "ru_stime={tv_sec=8") {
-		t.Fatalf("decodeRusage() = %q", got)
+	if got != "0x2000" {
+		t.Fatalf("decodeRusage() = %q, want legacy snapshot ignored", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -107,7 +108,7 @@ func TestWaitidRusageUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 
 func TestWaitidRusageUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeWaitidRusage(1, 2)}
-	ctx := newWaitidPolicyContext(reader, event.NewDecoder())
+	ctx := newWaitidPolicyContext(event.NewDecoder())
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 4, ProbeRet: 0, Data: makeWaitidRusage(11, 12)},
 	}
@@ -121,13 +122,14 @@ func TestWaitidRusageUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestWaitidRusageVerboseUsesFullExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestWaitidRusageVerboseUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeWaitidRusage(1, 2)}
 	decoder := event.NewDecoder()
-	ctx := newWaitidPolicyContext(reader, decoder)
+	ctx := newWaitidPolicyContext(decoder)
 	ctx.Opts.Verbose = true
-	ctx.ProbeRetExit = 0
-	putSmallSnapshot(ctx, waitidRusageOffset, makeWaitidRusage(7, 8))
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 4, ProbeRet: 0, Data: makeWaitidRusage(7, 8)},
+	}
 
 	got := decodeRusage(ctx, 0x2000)
 	if !strings.Contains(got, "ru_maxrss=99") {

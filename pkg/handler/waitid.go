@@ -15,11 +15,9 @@ func init() {
 type WaitidHandler struct{}
 
 const (
-	waitidSiginfoOffset = BpfExitArgOffset
-	waitidSiginfoSize   = 48
-	waitidRusageOffset  = BpfExitArgOffset + 136
-	waitidRusageBrief   = 32
-	waitidRusageFull    = 144
+	waitidSiginfoSize = 48
+	waitidRusageBrief = 32
+	waitidRusageFull  = 144
 )
 
 func (h *WaitidHandler) Handle(ctx *Context) Result {
@@ -71,7 +69,7 @@ func decodeSiginfo(ctx *Context, val uint64) string {
 	if val == 0 {
 		return "NULL"
 	}
-	data, ok := waitidStructData(ctx, 2, waitidSiginfoOffset, waitidSiginfoSize)
+	data, ok := waitidStructData(ctx, 2, waitidSiginfoSize)
 	if !ok {
 		return fmt.Sprintf("%#x", val)
 	}
@@ -108,7 +106,7 @@ func decodeRusage(ctx *Context, val uint64) string {
 	if ctx.Opts != nil && ctx.Opts.Verbose {
 		fetchSize = waitidRusageFull
 	}
-	data, ok := waitidStructData(ctx, 4, waitidRusageOffset, fetchSize)
+	data, ok := waitidStructData(ctx, 4, fetchSize)
 	if !ok {
 		return fmt.Sprintf("%#x", val)
 	}
@@ -138,9 +136,9 @@ func decodeRusage(ctx *Context, val uint64) string {
 	return res
 }
 
-func waitidStructData(ctx *Context, argIndex int, offset int, size int) ([]byte, bool) {
+func waitidStructData(ctx *Context, argIndex int, size int) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(argIndex, PayloadDirectionOut); ok && len(data) >= size {
 		return data[:size], true
 	}
-	return ctx.ExitSnapshot(offset, size)
+	return nil, false
 }
