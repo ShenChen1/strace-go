@@ -112,7 +112,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		return
 	}
 
-	s.handleEventOutput(ctx, eventRaw, res)
+	s.syscallTextOutput().Handle(ctx, eventRaw, res)
 }
 
 func (s *traceSession) handleLifecycleEvent(eventRaw *bpfEvent, task *TaskState) {
@@ -126,32 +126,6 @@ func (s *traceSession) handleLifecycleEvent(eventRaw *bpfEvent, task *TaskState)
 	if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON {
 		s.writeJSONLifecycleEvent(eventRaw, task)
 	}
-}
-
-// IMPACT: handleEventOutput handles specific unfinished states and delegates trace printing.
-func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEvent, res handler.Result) {
-	scMeta := ctx.ScMeta
-
-	if s.opts != nil {
-		status := successfulFailedOptions{
-			successfulOnly: s.opts.SuccessfulOnly,
-			failedOnly:     s.opts.FailedOnly,
-			traceStatus:    s.opts.TraceStatus,
-		}
-		if !shouldEmitStatus(eventRaw, scMeta, status) {
-			return
-		}
-	}
-
-	if s.suspendedSyscallOutput().Handle(eventRaw, scMeta, res) {
-		return
-	}
-
-	if s.execSyscallOutput().Handle(eventRaw, scMeta, res) {
-		return
-	}
-
-	s.textRenderer().PrintSyscall(eventRaw, scMeta, res, ctx)
 }
 
 func (s *traceSession) shouldQueueExitStatus(tgid int) bool {

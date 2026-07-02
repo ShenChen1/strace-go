@@ -28,7 +28,7 @@ func execOutputTestState() (*traceSession, handler.Result, *handler.Context, *by
 func TestForkChildLeaderExecvePrintsNormalResume(t *testing.T) {
 	session, res, ctx, out := execOutputTestState()
 
-	session.handleEventOutput(ctx, &bpfEvent{
+	session.syscallTextOutput().Handle(ctx, &bpfEvent{
 		Pid: 200,
 		Tid: 200,
 		Ret: -514,
@@ -37,7 +37,7 @@ func TestForkChildLeaderExecvePrintsNormalResume(t *testing.T) {
 		t.Fatalf("leader execve enter output = %q, want no output before success", got)
 	}
 
-	session.handleEventOutput(ctx, &bpfEvent{
+	session.syscallTextOutput().Handle(ctx, &bpfEvent{
 		Pid: 200,
 		Tid: 200,
 		Ret: 0,
@@ -54,12 +54,12 @@ func TestForkChildLeaderExecvePrintsNormalResume(t *testing.T) {
 func TestNonLeaderExecvePrintsSupersededTGID(t *testing.T) {
 	session, res, ctx, out := execOutputTestState()
 
-	session.handleEventOutput(ctx, &bpfEvent{
+	session.syscallTextOutput().Handle(ctx, &bpfEvent{
 		Pid: 200,
 		Tid: 201,
 		Ret: -514,
 	}, res)
-	session.handleEventOutput(ctx, &bpfEvent{
+	session.syscallTextOutput().Handle(ctx, &bpfEvent{
 		Pid: 200,
 		Tid: 201,
 		Ret: 0,
