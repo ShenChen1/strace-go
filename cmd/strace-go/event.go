@@ -39,22 +39,8 @@ func getArgProbeStatus(probeRetEnter int32, argIndex int) int32 {
 
 // IMPACT: handleEvent parses, decodes, and routes tracing events to print handlers or fd updates.
 func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
-	isAttached := false
-	if s.opts != nil && len(s.opts.AttachPids) > 0 {
-		for _, pid := range s.opts.AttachPids {
-			if int(eventRaw.Pid) == pid {
-				isAttached = true
-				break
-			}
-		}
-	} else if int(eventRaw.Pid) == s.targetPid {
-		isAttached = true
-	}
-
-	if !isAttached {
-		if s.opts == nil || !s.opts.FollowForks {
-			return
-		}
+	if !s.traceScope().Allows(eventRaw) {
+		return
 	}
 	tPid := int(eventRaw.Tid)
 	statePID := s.eventStatePID(eventRaw)
