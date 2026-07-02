@@ -10,7 +10,7 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func TestCopyFileRangeHandlerDecodesEnterOffsets(t *testing.T) {
+func TestCopyFileRangeHandlerIgnoresLegacyOffsetSnapshots(t *testing.T) {
 	const (
 		offInPtr  = 0x7de6fdd44ff8
 		offOutPtr = 0x7de6fdd35ff8
@@ -30,7 +30,7 @@ func TestCopyFileRangeHandlerDecodesEnterOffsets(t *testing.T) {
 			0,
 		},
 		ProbeRetEnter: 0,
-		StrArgBuf:     make([]byte, copyFileRangeOffOutOffset+8),
+		StrArgBuf:     make([]byte, BpfMiscArgOffset+16),
 		ScMeta: meta.Syscall{
 			Name:     "copy_file_range",
 			Args:     []string{"fd_in", "off_in", "fd_out", "off_out", "len", "flags"},
@@ -43,15 +43,15 @@ func TestCopyFileRangeHandlerDecodesEnterOffsets(t *testing.T) {
 	offOut := make([]byte, 8)
 	binary.LittleEndian.PutUint64(offIn, 0xdeadbef1facefed1)
 	binary.LittleEndian.PutUint64(offOut, 0xdeadbef2facefed2)
-	putSmallSnapshot(ctx, copyFileRangeOffInOffset, offIn)
-	putSmallSnapshot(ctx, copyFileRangeOffOutOffset, offOut)
+	putSmallSnapshot(ctx, BpfMiscArgOffset, offIn)
+	putSmallSnapshot(ctx, BpfMiscArgOffset+8, offOut)
 
 	got := (&CopyFileRangeHandler{}).Handle(ctx).ArgParts
 	want := []string{
 		"-1",
-		"[-2401053079814340911]",
+		"0x7de6fdd44ff8",
 		"-2",
-		"[-2401053075519373614]",
+		"0x7de6fdd35ff8",
 		"16045691002485145299",
 		"0",
 	}
@@ -105,7 +105,7 @@ func TestCopyFileRangeHandlerDoesNotReadMissingOffsetSnapshot(t *testing.T) {
 		TargetPid:     101,
 		Args:          [6]uint64{4, offInPtr, 5, offOutPtr, 99, 0},
 		ProbeRetEnter: -1,
-		StrArgBuf:     make([]byte, copyFileRangeOffOutOffset+8),
+		StrArgBuf:     make([]byte, BpfMiscArgOffset+16),
 		ScMeta: meta.Syscall{
 			Name:     "copy_file_range",
 			Args:     []string{"fd_in", "off_in", "fd_out", "off_out", "len", "flags"},

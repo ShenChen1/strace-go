@@ -5,11 +5,6 @@ import (
 	"fmt"
 )
 
-const (
-	sendfileOffsetEnterOffset = BpfMiscArgOffset
-	sendfileOffsetExitOffset  = BpfExitArgOffset
-)
-
 func init() {
 	Register("sendfile", &SendfileHandler{})
 }
@@ -33,33 +28,21 @@ func formatSendfileOffset(ctx *Context) string {
 		return "NULL"
 	}
 
-	enter, ok := fetchSendfileOffset(ctx, false, sendfileOffsetEnterOffset)
+	enter, ok := fetchSendfileOffset(ctx, PayloadDirectionIn)
 	if !ok {
 		return fmt.Sprintf("%#x", ptr)
 	}
 
 	if ctx.Ret >= 0 {
-		if exit, ok := fetchSendfileOffset(ctx, true, sendfileOffsetExitOffset); ok && exit != enter {
+		if exit, ok := fetchSendfileOffset(ctx, PayloadDirectionOut); ok && exit != enter {
 			return fmt.Sprintf("[%d] => [%d]", enter, exit)
 		}
 	}
 	return fmt.Sprintf("[%d]", enter)
 }
 
-func fetchSendfileOffset(ctx *Context, isExit bool, offset int) (uint64, bool) {
-	var data []byte
-	var ok bool
-	if isExit {
-		data, ok = sendfileOffsetPayload(ctx, PayloadDirectionOut)
-		if !ok {
-			data, ok = ctx.ExitSnapshot(offset, 8)
-		}
-	} else {
-		data, ok = sendfileOffsetPayload(ctx, PayloadDirectionIn)
-		if !ok {
-			data, ok = ctx.EnterArgSnapshot(2, offset, 8)
-		}
-	}
+func fetchSendfileOffset(ctx *Context, direction PayloadDirection) (uint64, bool) {
+	data, ok := sendfileOffsetPayload(ctx, direction)
 	if !ok {
 		return 0, false
 	}
