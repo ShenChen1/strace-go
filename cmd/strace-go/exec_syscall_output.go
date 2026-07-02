@@ -33,11 +33,12 @@ func newExecSyscallOutput(deps ExecSyscallOutputDeps) *ExecSyscallOutput {
 }
 
 func (s *traceSession) execSyscallOutput() *ExecSyscallOutput {
+	exitStatus := s.exitStatusCoordinator()
 	return newExecSyscallOutput(ExecSyscallOutputDeps{
 		Opts:              s.opts,
 		State:             s.traceState(),
 		Renderer:          s.textRenderer(),
-		DiscardExitStatus: s.discardExitStatus,
+		DiscardExitStatus: exitStatus.Discard,
 	})
 }
 

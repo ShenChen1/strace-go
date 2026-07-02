@@ -32,6 +32,7 @@ func newSyscallTextOutput(deps SyscallTextOutputDeps) *SyscallTextOutput {
 func (s *traceSession) syscallTextOutput() *SyscallTextOutput {
 	renderer := s.textRenderer()
 	state := s.traceState()
+	exitStatus := s.exitStatusCoordinator()
 	return newSyscallTextOutput(SyscallTextOutputDeps{
 		Opts: s.opts,
 		Suspended: newSuspendedSyscallOutput(SuspendedSyscallOutputDeps{
@@ -42,7 +43,7 @@ func (s *traceSession) syscallTextOutput() *SyscallTextOutput {
 			Opts:              s.opts,
 			State:             state,
 			Renderer:          renderer,
-			DiscardExitStatus: s.discardExitStatus,
+			DiscardExitStatus: exitStatus.Discard,
 		}),
 		Renderer: renderer,
 	})

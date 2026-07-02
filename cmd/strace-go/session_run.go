@@ -74,7 +74,7 @@ func (st *traceRunState) collect(s *traceSession) {
 	if st.cmdDone != nil {
 		select {
 		case <-st.cmdDone:
-			s.markTraceeExited(s.targetPid)
+			s.exitStatusCoordinator().MarkExited(s.targetPid)
 			st.commandExited = true
 			st.cmdDone = nil
 		default:

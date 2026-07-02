@@ -1,9 +1,5 @@
 package main
 
-import (
-	"fmt"
-)
-
 // IMPACT: resolvePtrProbeRet returns the specific probe status for eventRaw.Ptr based on its argument index.
 func resolvePtrProbeRet(eventRaw *bpfEvent) int32 {
 	if eventRaw.Ptr == 0 {
@@ -54,36 +50,4 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	ev := newSyscallEventContext(s, eventRaw, statePID, stateUpdate.pendingEnter)
 
 	s.syscallExitPipeline().Handle(ev)
-}
-
-func (s *traceSession) shouldQueueExitStatus(tgid int) bool {
-	if s.cmd == nil {
-		return false
-	}
-	if s.opts != nil {
-		for _, pid := range s.opts.AttachPids {
-			if pid == tgid {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func (s *traceSession) queueExitStatus(pid int, line string) {
-	if line, ok := s.exitStatusQueue().Queue(pid, line); ok {
-		fmt.Fprint(s.outWriter, line)
-		return
-	}
-}
-
-func (s *traceSession) markTraceeExited(pid int) {
-	if line, ok := s.exitStatusQueue().MarkExited(pid); ok {
-		fmt.Fprint(s.outWriter, line)
-		return
-	}
-}
-
-func (s *traceSession) discardExitStatus(pid int) {
-	s.exitStatusQueue().Discard(pid)
 }

@@ -44,13 +44,16 @@ func TestExitStatusQueueDiscardDropsPendingAndExitedState(t *testing.T) {
 
 func TestTraceSessionExitStatusWritesQueuedLineAfterMark(t *testing.T) {
 	var output bytes.Buffer
-	session := &traceSession{outWriter: &output}
+	coordinator := newExitStatusCoordinator(ExitStatusCoordinatorDeps{
+		Queue: newExitStatusQueue(),
+		Out:   &output,
+	})
 
-	session.queueExitStatus(101, "exited\n")
+	coordinator.Queue(101, "exited\n")
 	if output.Len() != 0 {
 		t.Fatalf("exit status printed before wait exit: %q", output.String())
 	}
-	session.markTraceeExited(101)
+	coordinator.MarkExited(101)
 	if output.String() != "exited\n" {
 		t.Fatalf("exit status output = %q", output.String())
 	}

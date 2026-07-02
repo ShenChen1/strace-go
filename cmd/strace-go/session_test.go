@@ -96,11 +96,12 @@ func TestShouldQueueExitStatusSkipsExplicitAttachPid(t *testing.T) {
 		cmd:  fakeStartedCommand(),
 		opts: &cli.Options{AttachPids: []int{202}},
 	}
+	coordinator := session.exitStatusCoordinator()
 
-	if session.shouldQueueExitStatus(202) {
+	if coordinator.ShouldQueue(202) {
 		t.Fatal("explicit attach pid exit status should not wait for command exit")
 	}
-	if !session.shouldQueueExitStatus(303) {
+	if !coordinator.ShouldQueue(303) {
 		t.Fatal("non-attached command tracee exit status should wait for command exit")
 	}
 }

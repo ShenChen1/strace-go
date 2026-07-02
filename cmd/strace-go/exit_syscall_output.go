@@ -39,12 +39,13 @@ func newExitSyscallOutput(deps ExitSyscallOutputDeps) *ExitSyscallOutput {
 }
 
 func (s *traceSession) exitSyscallOutput() *ExitSyscallOutput {
+	exitStatus := s.exitStatusCoordinator()
 	return newExitSyscallOutput(ExitSyscallOutputDeps{
 		Opts:              s.opts,
 		Renderer:          s.textRenderer(),
 		Out:               s.outWriter,
-		ShouldQueueStatus: s.shouldQueueExitStatus,
-		QueueStatus:       s.queueExitStatus,
+		ShouldQueueStatus: exitStatus.ShouldQueue,
+		QueueStatus:       exitStatus.Queue,
 		WriteJSON:         s.writeJSONEvent,
 	})
 }
