@@ -87,12 +87,8 @@ func (h *PrctlHandler) Handle(ctx *Context) Result {
 }
 
 func decodePrctlName(ctx *Context, isExit bool) string {
-	probeRet := ctx.ArgProbeRet(1)
-	offset := BpfEnterArgOffset
 	direction := PayloadDirectionIn
 	if isExit {
-		offset = BpfExitArgOffset
-		probeRet = ctx.ProbeRetExit
 		direction = PayloadDirectionOut
 	}
 	limit := -1
@@ -102,41 +98,14 @@ func decodePrctlName(ctx *Context, isExit bool) string {
 	if text, ok := ctx.PayloadString(1, direction, ctx.Args[1], limit); ok {
 		return text
 	}
-	if probeRet != 0 {
-		return formatPtrFallback(ctx.Args[1])
-	}
-	data, ok := prctlSnapshot(ctx, offset)
-	if !ok {
-		return formatPtrFallback(ctx.Args[1])
-	}
-	return ctx.Decoder.DecodeString(ctx.Pid, ctx.Args[1], data, probeRet, "prctl", limit)
+	return formatPtrFallback(ctx.Args[1])
 }
 
 func prctlUint32OutSnapshot(ctx *Context) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(1, PayloadDirectionOut); ok && len(data) >= 4 {
 		return data[:4], true
 	}
-	return ctx.ExitSnapshot(BpfExitArgOffset, 4)
-}
-
-func prctlSnapshot(ctx *Context, offset int) ([]byte, bool) {
-	if offset < 0 || offset >= len(ctx.StrArgBuf) {
-		return nil, false
-	}
-	if uint64(offset) >= uint64(ctx.DataLen) {
-		return nil, false
-	}
-	end := offset + prctlNameSize
-	if end > len(ctx.StrArgBuf) {
-		end = len(ctx.StrArgBuf)
-	}
-	if uint64(end) > uint64(ctx.DataLen) {
-		end = int(ctx.DataLen)
-	}
-	if end <= offset {
-		return nil, false
-	}
-	return ctx.StrArgBuf[offset:end], true
+	return nil, false
 }
 
 func formatPtrFallback(val uint64) string {

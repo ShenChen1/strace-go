@@ -50,7 +50,7 @@ func TestPrctlPdeathsigDoesNotReadWhenSnapshotMissing(t *testing.T) {
 	}
 }
 
-func TestPrctlPdeathsigUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestPrctlPdeathsigIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePrctlUint32Snapshot(15)}
 	decoder := event.NewDecoder()
 	ctx := newPrctlPolicyContext(reader, decoder, 1)
@@ -58,8 +58,8 @@ func TestPrctlPdeathsigUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	putSmallSnapshot(ctx, BpfExitArgOffset, makePrctlUint32Snapshot(15))
 
 	got := (&PrctlHandler{}).Handle(ctx)
-	if !strings.Contains(got.ArgParts[1], "TERM") {
-		t.Fatalf("PR_GET_PDEATHSIG arg = %q, want SIGTERM-ish decode", got.ArgParts[1])
+	if got.ArgParts[1] != "0x1000" {
+		t.Fatalf("PR_GET_PDEATHSIG arg = %q, want pointer fallback", got.ArgParts[1])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -84,7 +84,7 @@ func TestPrctlPdeathsigUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestPrctlGetIntUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestPrctlGetIntIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePrctlUint32Snapshot(1)}
 	decoder := event.NewDecoder()
 	ctx := newPrctlPolicyContext(reader, decoder, 37)
@@ -92,8 +92,8 @@ func TestPrctlGetIntUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	putSmallSnapshot(ctx, BpfExitArgOffset, makePrctlUint32Snapshot(1))
 
 	got := (&PrctlHandler{}).Handle(ctx)
-	if got.ArgParts[1] != "[1]" {
-		t.Fatalf("PR_GET_CHILD_SUBREAPER arg = %q, want [1]", got.ArgParts[1])
+	if got.ArgParts[1] != "0x1000" {
+		t.Fatalf("PR_GET_CHILD_SUBREAPER arg = %q, want pointer fallback", got.ArgParts[1])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -118,7 +118,7 @@ func TestPrctlGetIntUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestPrctlGetNameUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestPrctlGetNameIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePrctlNameSnapshot("worker")}
 	decoder := event.NewDecoder()
 	ctx := newPrctlPolicyContext(reader, decoder, 16)
@@ -126,8 +126,8 @@ func TestPrctlGetNameUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	putSmallSnapshot(ctx, BpfExitArgOffset, makePrctlNameSnapshot("worker"))
 
 	got := (&PrctlHandler{}).Handle(ctx)
-	if got.ArgParts[1] != "\"worker\"" {
-		t.Fatalf("PR_GET_NAME arg = %q, want quoted worker", got.ArgParts[1])
+	if got.ArgParts[1] != "0x1000" {
+		t.Fatalf("PR_GET_NAME arg = %q, want pointer fallback", got.ArgParts[1])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -152,7 +152,7 @@ func TestPrctlGetNameUsesPayloadStringSection(t *testing.T) {
 	}
 }
 
-func TestPrctlSetNameUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestPrctlSetNameIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePrctlNameSnapshot("worker")}
 	decoder := event.NewDecoder()
 	ctx := newPrctlPolicyContext(reader, decoder, 15)
@@ -160,8 +160,8 @@ func TestPrctlSetNameUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	putSmallSnapshot(ctx, BpfEnterArgOffset, []byte("worker\x00"))
 
 	got := (&PrctlHandler{}).Handle(ctx)
-	if got.ArgParts[1] != "\"worker\"" {
-		t.Fatalf("PR_SET_NAME arg = %q, want quoted worker", got.ArgParts[1])
+	if got.ArgParts[1] != "0x1000" {
+		t.Fatalf("PR_SET_NAME arg = %q, want pointer fallback", got.ArgParts[1])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
