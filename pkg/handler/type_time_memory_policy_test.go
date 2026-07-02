@@ -62,7 +62,7 @@ func TestDecodeTimespecDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestDecodeTimespecUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestDecodeTimespecIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(9, 10)}
 	decoder := event.NewDecoder()
 	ctx := &Context{
@@ -81,8 +81,8 @@ func TestDecodeTimespecUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	if !ok {
 		t.Fatal("decodeTimespec returned ok=false")
 	}
-	if got != "{tv_sec=9, tv_nsec=10}" {
-		t.Fatalf("decodeTimespec() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("decodeTimespec() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -139,7 +139,7 @@ func TestDecodeNanosleepRemainingUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestDecodeTimevalUsesExitSnapshotWhenFallbackDisabled(t *testing.T) {
+func TestDecodeTimevalIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(99, 100)}
 	decoder := event.NewDecoder()
 	buf := make([]byte, BpfExitArgOffset+16)
@@ -159,8 +159,8 @@ func TestDecodeTimevalUsesExitSnapshotWhenFallbackDisabled(t *testing.T) {
 	if !ok {
 		t.Fatal("decodeTimeval returned ok=false")
 	}
-	if got != "{tv_sec=3, tv_usec=4}" {
-		t.Fatalf("decodeTimeval() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("decodeTimeval() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -218,7 +218,7 @@ func TestDecodeTimevalFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestDecodeItimervalUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestDecodeItimervalIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeDoubleTimeStruct(9, 10, 11, 12)}
 	decoder := event.NewDecoder()
 	ctx := &Context{
@@ -236,9 +236,8 @@ func TestDecodeItimervalUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	if !ok {
 		t.Fatal("decodeItimerval returned ok=false")
 	}
-	want := "{it_interval={tv_sec=1, tv_usec=2}, it_value={tv_sec=3, tv_usec=4}}"
-	if got != want {
-		t.Fatalf("decodeItimerval() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("decodeItimerval() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -271,7 +270,7 @@ func TestDecodeItimervalUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestDecodeTimezoneUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestDecodeTimezoneIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimezoneData(9, 10)}
 	decoder := event.NewDecoder()
 	ctx := &Context{
@@ -289,8 +288,8 @@ func TestDecodeTimezoneUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	if !ok {
 		t.Fatal("decodeTimezone returned ok=false")
 	}
-	if got != "{tz_minuteswest=1, tz_dsttime=2}" {
-		t.Fatalf("decodeTimezone() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("decodeTimezone() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)

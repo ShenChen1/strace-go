@@ -111,10 +111,7 @@ func snapshotTimeData(ctx *Context, snap timeSnapshot) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(snap.argIndex, snap.direction); ok {
 		return boundedBpfStructData(data, snap.size)
 	}
-	if snap.direction == PayloadDirectionOut {
-		return ctx.ExitSnapshot(snap.offset, snap.size)
-	}
-	return ctx.EnterArgSnapshot(snap.argIndex, snap.offset, snap.size)
+	return nil, false
 }
 
 func pointerString(val uint64) string {
