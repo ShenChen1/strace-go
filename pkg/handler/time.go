@@ -37,9 +37,9 @@ func (h *TimeHandler) Handle(ctx *Context) Result {
 			var data []byte
 			var ok bool
 			if ctx.SysName == "clock_settime" {
-				data, ok = timeHandlerStructSnapshot(ctx, 1, PayloadDirectionIn, BpfEnterArgOffset, timespecSize)
+				data, ok = timeHandlerStructSnapshot(ctx, 1, PayloadDirectionIn, timespecSize)
 			} else {
-				data, ok = timeHandlerStructSnapshot(ctx, 1, PayloadDirectionOut, BpfExitArgOffset, timespecSize)
+				data, ok = timeHandlerStructSnapshot(ctx, 1, PayloadDirectionOut, timespecSize)
 			}
 
 			if ok {
@@ -61,7 +61,7 @@ func (h *TimeHandler) Handle(ctx *Context) Result {
 			return res
 		}
 
-		data, ok := timeHandlerStructSnapshot(ctx, timeHandlerTimexArg(ctx), PayloadDirectionOut, BpfExitArgOffset, timexSize)
+		data, ok := timeHandlerStructSnapshot(ctx, timeHandlerTimexArg(ctx), PayloadDirectionOut, timexSize)
 		if ok {
 			res.ArgParts = append(res.ArgParts, format.Timex(data))
 		} else {
@@ -82,14 +82,10 @@ func timeHandlerStructSnapshot(
 	ctx *Context,
 	argIndex int,
 	direction PayloadDirection,
-	offset int,
 	size int,
 ) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(argIndex, direction); ok {
 		return boundedBpfStructData(data, size)
 	}
-	if direction == PayloadDirectionOut {
-		return ctx.ExitSnapshot(offset, size)
-	}
-	return ctx.EnterArgSnapshot(argIndex, offset, size)
+	return nil, false
 }

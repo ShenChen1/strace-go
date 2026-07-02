@@ -48,7 +48,7 @@ func TestTimeHandlerClockGettimeDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestTimeHandlerClockSettimeUsesEnterSnapshotWhenFallbackDisabled(t *testing.T) {
+func TestTimeHandlerClockSettimeIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(99, 100)}
 	decoder := event.NewDecoder()
 	buf := make([]byte, BpfExitArgOffset+208)
@@ -69,8 +69,8 @@ func TestTimeHandlerClockSettimeUsesEnterSnapshotWhenFallbackDisabled(t *testing
 	if len(got.ArgParts) != 2 {
 		t.Fatalf("ArgParts len = %d, want 2", len(got.ArgParts))
 	}
-	if got.ArgParts[1] != "{tv_sec=5, tv_nsec=6}" {
-		t.Fatalf("clock_settime timespec = %q", got.ArgParts[1])
+	if got.ArgParts[1] != "0x1000" {
+		t.Fatalf("clock_settime timespec = %q, want pointer fallback", got.ArgParts[1])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -149,7 +149,7 @@ func TestTimeHandlerAdjtimexDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestTimeHandlerAdjtimexUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestTimeHandlerAdjtimexIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimexStruct(7)}
 	decoder := event.NewDecoder()
 	buf := make([]byte, BpfExitArgOffset+208)
@@ -169,8 +169,8 @@ func TestTimeHandlerAdjtimexUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	if len(got.ArgParts) != 1 {
 		t.Fatalf("ArgParts len = %d, want 1", len(got.ArgParts))
 	}
-	if !strings.HasPrefix(got.ArgParts[0], "{modes=7,") {
-		t.Fatalf("adjtimex timex = %q", got.ArgParts[0])
+	if got.ArgParts[0] != "0x1000" {
+		t.Fatalf("adjtimex timex = %q, want pointer fallback", got.ArgParts[0])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -200,7 +200,7 @@ func TestTimeHandlerAdjtimexUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestTimeHandlerClockAdjtimeUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestTimeHandlerClockAdjtimeIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimexStruct(9)}
 	decoder := event.NewDecoder()
 	ctx := &Context{
@@ -219,8 +219,8 @@ func TestTimeHandlerClockAdjtimeUsesExitSnapshotWithoutMemoryRead(t *testing.T) 
 	if len(got.ArgParts) != 2 {
 		t.Fatalf("ArgParts len = %d, want 2", len(got.ArgParts))
 	}
-	if !strings.HasPrefix(got.ArgParts[1], "{modes=9,") {
-		t.Fatalf("clock_adjtime timex = %q", got.ArgParts[1])
+	if got.ArgParts[1] != "0x1000" {
+		t.Fatalf("clock_adjtime timex = %q, want pointer fallback", got.ArgParts[1])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
