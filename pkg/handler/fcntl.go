@@ -249,16 +249,11 @@ func fcntlSnapshot(ctx *Context, useExit bool, size int) ([]byte, bool) {
 
 func fcntlStructSnapshot(ctx *Context, argIndex int, useExit bool, size int) ([]byte, bool) {
 	direction := PayloadDirectionIn
-	offset := BpfEnterArgOffset
 	if useExit {
 		direction = PayloadDirectionOut
-		offset = BpfExitArgOffset
 	}
 	if data, ok := ctx.PayloadStruct(argIndex, direction); ok && len(data) >= size {
 		return data[:size], true
 	}
-	if useExit {
-		return ctx.ExitSnapshot(offset, size)
-	}
-	return ctx.EnterArgSnapshot(argIndex, offset, size)
+	return nil, false
 }

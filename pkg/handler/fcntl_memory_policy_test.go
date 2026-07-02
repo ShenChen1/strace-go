@@ -72,7 +72,7 @@ func TestFcntlFlockDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestFcntlFlockUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestFcntlFlockIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFlockData(1, 2, 3, 4)}
 	decoder := event.NewDecoder()
 	ctx := newFcntlPolicyContext(reader, decoder)
@@ -80,8 +80,8 @@ func TestFcntlFlockUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	putFcntlSnapshot(ctx, BpfEnterArgOffset, makeFlockData(1, 2, 3, 4))
 
 	got := (&FcntlHandler{}).decodeFlock(ctx, "F_SETLK", 0x1000)
-	if !strings.Contains(got, "l_type=F_WRLCK") {
-		t.Fatalf("decodeFlock() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("decodeFlock() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -106,7 +106,7 @@ func TestFcntlFlockUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestFcntlFlockUsesExitSnapshotWhenFallbackDisabled(t *testing.T) {
+func TestFcntlFlockIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFlockData(1, 2, 3, 4)}
 	decoder := event.NewDecoder()
 	ctx := newFcntlPolicyContext(reader, decoder)
@@ -114,8 +114,8 @@ func TestFcntlFlockUsesExitSnapshotWhenFallbackDisabled(t *testing.T) {
 	putFcntlSnapshot(ctx, BpfExitArgOffset, makeFlockData(2, 5, 6, 7))
 
 	got := (&FcntlHandler{}).decodeFlock(ctx, "F_GETLK", 0x1000)
-	if !strings.Contains(got, "l_type=F_UNLCK") || !strings.Contains(got, "l_pid=7") {
-		t.Fatalf("decodeFlock() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("decodeFlock() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -172,7 +172,7 @@ func TestFcntlFOwnerExUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestFcntlFOwnerExUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestFcntlFOwnerExIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFOwnerExData(1, 42)}
 	decoder := event.NewDecoder()
 	ctx := newFcntlPolicyContext(reader, decoder)
@@ -180,8 +180,8 @@ func TestFcntlFOwnerExUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	putFcntlSnapshot(ctx, BpfExitArgOffset, makeFOwnerExData(1, 42))
 
 	got := (&FcntlHandler{}).decodeFOwnerEx(ctx, 0x1000, true)
-	if got != "{type=F_OWNER_PID, pid=42}" {
-		t.Fatalf("decodeFOwnerEx() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("decodeFOwnerEx() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -220,7 +220,7 @@ func TestFcntlRwHintDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestFcntlRwHintUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestFcntlRwHintIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeUint64Data(3)}
 	decoder := event.NewDecoder()
 	ctx := newFcntlPolicyContext(reader, decoder)
@@ -228,8 +228,8 @@ func TestFcntlRwHintUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	putFcntlSnapshot(ctx, BpfEnterArgOffset, makeUint64Data(3))
 
 	got := (&FcntlHandler{}).decodeRwHint(ctx, 0x1000, false)
-	if got != "[RWH_WRITE_LIFE_MEDIUM]" {
-		t.Fatalf("decodeRwHint() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("decodeRwHint() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -250,7 +250,7 @@ func TestFcntlDelegationDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestFcntlDelegationUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestFcntlDelegationIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeDelegationData(1, 1)}
 	decoder := event.NewDecoder()
 	ctx := newFcntlPolicyContext(reader, decoder)
@@ -258,8 +258,8 @@ func TestFcntlDelegationUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	putFcntlSnapshot(ctx, BpfEnterArgOffset, makeDelegationData(1, 1))
 
 	got := (&FcntlHandler{}).decodeDelegation(ctx, 0x1000, false)
-	if !strings.Contains(got, "d_flags=0x1") || !strings.Contains(got, "d_type=F_WRLCK") {
-		t.Fatalf("decodeDelegation() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("decodeDelegation() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)

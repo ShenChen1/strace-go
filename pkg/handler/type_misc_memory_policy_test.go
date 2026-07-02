@@ -210,7 +210,7 @@ func TestDecodeUtsnameIgnoresLegacyExitSnapshot(t *testing.T) {
 	}
 }
 
-func TestTypeMiscFlockUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestTypeMiscFlockIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFlockData(1, 2, 3, 4)}
 	decoder := event.NewDecoder()
 	ctx := newTypeMiscPolicyContext(reader, decoder)
@@ -219,7 +219,7 @@ func TestTypeMiscFlockUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	putSmallSnapshot(ctx, BpfEnterArgOffset, makeFlockData(1, 2, 3, 4))
 
 	got, ok := decodeFlock(ctx, 2, "struct flock *", 0x1000)
-	if !ok || !strings.Contains(got, "l_type=F_WRLCK") {
+	if !ok || got != "0x1000" {
 		t.Fatalf("decodeFlock() = %q, %v", got, ok)
 	}
 	if reader.reads != 0 {
@@ -241,7 +241,7 @@ func TestTypeMiscFlockUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestTypeMiscFlockUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestTypeMiscFlockIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFlockData(1, 2, 3, 4)}
 	decoder := event.NewDecoder()
 	ctx := newTypeMiscPolicyContext(reader, decoder)
@@ -250,7 +250,7 @@ func TestTypeMiscFlockUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	putSmallSnapshot(ctx, BpfExitArgOffset, makeFlockData(2, 5, 6, 7))
 
 	got, ok := decodeFlock(ctx, 2, "struct flock *", 0x1000)
-	if !ok || !strings.Contains(got, "l_type=F_UNLCK") || !strings.Contains(got, "l_pid=7") {
+	if !ok || got != "0x1000" {
 		t.Fatalf("decodeFlock() = %q, %v", got, ok)
 	}
 	if reader.reads != 0 {
@@ -272,7 +272,7 @@ func TestTypeMiscFOwnerExUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestTypeMiscFOwnerExUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestTypeMiscFOwnerExIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFOwnerExData(1, 42)}
 	decoder := event.NewDecoder()
 	ctx := newTypeMiscPolicyContext(reader, decoder)
@@ -281,7 +281,7 @@ func TestTypeMiscFOwnerExUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	putSmallSnapshot(ctx, BpfEnterArgOffset, makeFOwnerExData(1, 42))
 
 	got, ok := decodeFOwnerEx(ctx, 2, "struct f_owner_ex *", 0x1000)
-	if !ok || got != "{type=F_OWNER_PID, pid=42}" {
+	if !ok || got != "0x1000" {
 		t.Fatalf("decodeFOwnerEx() = %q, %v", got, ok)
 	}
 	if reader.reads != 0 {
@@ -289,7 +289,7 @@ func TestTypeMiscFOwnerExUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	}
 }
 
-func TestTypeMiscFOwnerExUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestTypeMiscFOwnerExIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFOwnerExData(1, 42)}
 	decoder := event.NewDecoder()
 	ctx := newTypeMiscPolicyContext(reader, decoder)
@@ -298,7 +298,7 @@ func TestTypeMiscFOwnerExUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	putSmallSnapshot(ctx, BpfExitArgOffset, makeFOwnerExData(1, 43))
 
 	got, ok := decodeFOwnerEx(ctx, 2, "struct f_owner_ex *", 0x1000)
-	if !ok || got != "{type=F_OWNER_PID, pid=43}" {
+	if !ok || got != "0x1000" {
 		t.Fatalf("decodeFOwnerEx() = %q, %v", got, ok)
 	}
 	if reader.reads != 0 {
