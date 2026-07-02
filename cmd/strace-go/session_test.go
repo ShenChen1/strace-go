@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -89,45 +88,6 @@ func TestPendingSyscallsMapUsesCompactValue(t *testing.T) {
 	}
 	if pending.ValueSize > 128 {
 		t.Fatalf("pending_syscalls value size = %d, want <= 128 bytes", pending.ValueSize)
-	}
-}
-
-func TestExitStatusFollowsActualTraceeExit(t *testing.T) {
-	var output bytes.Buffer
-	session := &traceSession{outWriter: &output}
-
-	session.queueExitStatus(101, "exited\n")
-	if output.Len() != 0 {
-		t.Fatalf("exit status printed before wait exit: %q", output.String())
-	}
-	session.markTraceeExited(101)
-	if output.String() != "exited\n" {
-		t.Fatalf("exit status output = %q", output.String())
-	}
-}
-
-func TestExitStatusHandlesWaitBeforeRingEvent(t *testing.T) {
-	var output bytes.Buffer
-	session := &traceSession{outWriter: &output}
-
-	session.markTraceeExited(101)
-	session.queueExitStatus(101, "exited\n")
-	if output.String() != "exited\n" {
-		t.Fatalf("exit status output = %q", output.String())
-	}
-}
-
-func TestDiscardExitStatusForSupersededLeader(t *testing.T) {
-	var output bytes.Buffer
-	session := &traceSession{outWriter: &output}
-
-	session.queueExitStatus(101, "wrong exit\n")
-	session.markTraceeExited(102)
-	session.discardExitStatus(101)
-	session.discardExitStatus(102)
-	session.queueExitStatus(102, "final exit\n")
-	if output.Len() != 0 {
-		t.Fatalf("discarded exit status output = %q", output.String())
 	}
 }
 

@@ -363,32 +363,21 @@ func (s *traceSession) shouldQueueExitStatus(tgid int) bool {
 }
 
 func (s *traceSession) queueExitStatus(pid int, line string) {
-	if s.exitedTracees != nil && s.exitedTracees[pid] {
-		delete(s.exitedTracees, pid)
+	if line, ok := s.exitStatusQueue().Queue(pid, line); ok {
 		fmt.Fprint(s.outWriter, line)
 		return
 	}
-	if s.pendingExitStatus == nil {
-		s.pendingExitStatus = make(map[int]string)
-	}
-	s.pendingExitStatus[pid] = line
 }
 
 func (s *traceSession) markTraceeExited(pid int) {
-	if line, ok := s.pendingExitStatus[pid]; ok {
-		delete(s.pendingExitStatus, pid)
+	if line, ok := s.exitStatusQueue().MarkExited(pid); ok {
 		fmt.Fprint(s.outWriter, line)
 		return
 	}
-	if s.exitedTracees == nil {
-		s.exitedTracees = make(map[int]bool)
-	}
-	s.exitedTracees[pid] = true
 }
 
 func (s *traceSession) discardExitStatus(pid int) {
-	delete(s.pendingExitStatus, pid)
-	delete(s.exitedTracees, pid)
+	s.exitStatusQueue().Discard(pid)
 }
 
 // IMPACT: printSyscallOutput outputs formatted syscall trace lines and logs signal delivery if applicable.

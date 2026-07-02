@@ -59,8 +59,8 @@ func TestTraceRunStateCollectMarksCommandExit(t *testing.T) {
 	if !state.commandExited || state.cmdDone != nil {
 		t.Fatalf("state after collect = %+v, want command exited and cmdDone cleared", state)
 	}
-	if !session.exitedTracees[77] {
-		t.Fatalf("tracee exit was not marked: %+v", session.exitedTracees)
+	if !session.exitStatusQueue().HasExited(77) {
+		t.Fatalf("tracee exit was not marked: %+v", session.exitStatus)
 	}
 }
 

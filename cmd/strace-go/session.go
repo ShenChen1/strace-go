@@ -38,8 +38,7 @@ type traceSession struct {
 	lastSyscallTimeNs uint64
 	bpfObjs           *bpfObjects
 	resolver          *stacktrace.Resolver
-	pendingExitStatus map[int]string
-	exitedTracees     map[int]bool
+	exitStatus        *ExitStatusQueue
 	state             *TraceState
 }
 
