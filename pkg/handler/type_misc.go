@@ -32,7 +32,7 @@ func decodeSysinfo(ctx *Context, i int, argTyp string, val uint64) (string, bool
 	if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
 		return fmt.Sprintf("%#x", val), true
 	}
-	data, ok := miscStructSnapshot(ctx, i, PayloadDirectionOut, BpfExitArgOffset, sysinfoStructSize)
+	data, ok := miscStructSnapshot(ctx, i, PayloadDirectionOut, sysinfoStructSize)
 	if !ok {
 		return fmt.Sprintf("%#x", val), true
 	}
@@ -76,20 +76,15 @@ func decodeRlimitPointer(ctx *Context, i int, argTyp string, val uint64) (string
 
 	scName := ctx.ScMeta.Name
 	var isOutput bool
-	var offset int
 	if scName == "getrlimit" {
 		isOutput = true
-		offset = BpfExitArgOffset
 	} else if scName == "setrlimit" {
 		isOutput = false
-		offset = BpfEnterArgOffset
 	} else if scName == "prlimit64" {
 		if i == 2 {
 			isOutput = false
-			offset = BpfEnterArgOffset
 		} else if i == 3 {
 			isOutput = true
-			offset = BpfExitArgOffset
 		} else {
 			return fmt.Sprintf("%#x", val), true
 		}
@@ -102,13 +97,13 @@ func decodeRlimitPointer(ctx *Context, i int, argTyp string, val uint64) (string
 	}
 
 	if isOutput {
-		data, ok := miscStructSnapshot(ctx, i, PayloadDirectionOut, offset, rlimitStructSize)
+		data, ok := miscStructSnapshot(ctx, i, PayloadDirectionOut, rlimitStructSize)
 		if !ok {
 			return fmt.Sprintf("%#x", val), true
 		}
 		return formatRlimitData(ctx, data), true
 	} else {
-		data, ok := miscStructSnapshot(ctx, i, PayloadDirectionIn, offset, rlimitStructSize)
+		data, ok := miscStructSnapshot(ctx, i, PayloadDirectionIn, rlimitStructSize)
 		if !ok {
 			return fmt.Sprintf("%#x", val), true
 		}
@@ -135,7 +130,7 @@ func decodeUtsname(ctx *Context, i int, argTyp string, val uint64) (string, bool
 		return fmt.Sprintf("%#x", val), true
 	}
 
-	data, ok := miscStructSnapshot(ctx, i, PayloadDirectionOut, BpfExitArgOffset, utsnameStructSize)
+	data, ok := miscStructSnapshot(ctx, i, PayloadDirectionOut, utsnameStructSize)
 	if !ok {
 		return fmt.Sprintf("%#x", val), true
 	}
@@ -169,14 +164,11 @@ func formatUtsField(data []byte) string {
 	return format.BufferEscape(data, 0, len(data), 0)
 }
 
-func miscStructSnapshot(ctx *Context, argIndex int, direction PayloadDirection, offset int, size int) ([]byte, bool) {
+func miscStructSnapshot(ctx *Context, argIndex int, direction PayloadDirection, size int) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(argIndex, direction); ok && len(data) >= size {
 		return data[:size], true
 	}
-	if direction == PayloadDirectionOut {
-		return ctx.ExitSnapshot(offset, size)
-	}
-	return ctx.EnterArgSnapshot(argIndex, offset, size)
+	return nil, false
 }
 
 func formatRlimitVal(v uint64, xlatFormat string) string {

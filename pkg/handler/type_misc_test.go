@@ -33,10 +33,11 @@ func TestDecodeUtsnameVerboseAndAbbrev(t *testing.T) {
 			ArgTypes: []string{"struct utsname *"},
 		},
 		ProbeRetExit: 0,
-		StrArgBuf:    make([]byte, BpfExitArgOffset+65*6),
 		Opts:         &cli.Options{Verbose: true},
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 0, ProbeRet: 0, Data: data},
+		},
 	}
-	putSmallSnapshot(ctx, BpfExitArgOffset, data)
 	ctx.Decoder = event.NewDecoder()
 
 	got, ok := decodeUtsname(ctx, 0, "struct utsname *", 0x1000)
