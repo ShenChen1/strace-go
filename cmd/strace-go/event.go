@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"syscall"
-	"time"
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
@@ -105,7 +104,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 
 	if eventRaw.ProbeRetEnter == -1 && (scMeta.Name == "exit" || scMeta.Name == "exit_group") {
 		if s.opts == nil || !s.opts.SummaryOnly {
-			timePrefix := formatTimePrefix(eventRaw.EnterTime, s)
+			timePrefix := s.timePrefix(eventRaw.EnterTime)
 			pidPrefix := ""
 			if s.opts != nil && s.opts.FollowForks {
 				pidPrefix = fmt.Sprintf("%-5d ", tPid)
@@ -224,7 +223,7 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == 0 && tPid == int(eventRaw.Pid) {
 		argLine, ok := s.traceState().takePendingExecArgs(tPid)
 		if ok {
-			timePrefix := formatTimePrefix(eventRaw.EnterTime, s)
+			timePrefix := s.timePrefix(eventRaw.EnterTime)
 			pidPrefix := ""
 			if s.opts != nil && s.opts.FollowForks {
 				pidPrefix = fmt.Sprintf("%-5d ", tPid)
@@ -252,43 +251,6 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 	printSyscallOutput(eventRaw, scMeta, res, ctx, s)
 }
 
-// IMPACT: formatTimePrefix computes the time prefix string based on parsed time options.
-func formatTimePrefix(enterTimeMonoNs uint64, s *traceSession) string {
-	if s.opts.PrintTimeMode == 0 && !s.opts.PrintRelativeTime {
-		return ""
-	}
-
-	if s.opts.PrintRelativeTime {
-		var diff uint64
-		if s.lastSyscallTimeNs == 0 {
-			diff = 0
-		} else {
-			diff = enterTimeMonoNs - s.lastSyscallTimeNs
-		}
-		s.lastSyscallTimeNs = enterTimeMonoNs
-
-		sec := diff / 1e9
-		usec := (diff % 1e9) / 1000
-		return fmt.Sprintf("%6d.%06d ", sec, usec)
-	}
-
-	realTimeNs := int64(enterTimeMonoNs) + s.bootTimeOffsetNs
-	t := time.Unix(0, realTimeNs)
-
-	if s.opts.PrintTimeMode == 3 {
-		sec := realTimeNs / 1e9
-		usec := (realTimeNs % 1e9) / 1000
-		return fmt.Sprintf("%d.%06d ", sec, usec)
-	}
-	if s.opts.PrintTimeMode == 2 {
-		return t.Format("15:04:05.000000") + " "
-	}
-	if s.opts.PrintTimeMode == 1 {
-		return t.Format("15:04:05") + " "
-	}
-	return ""
-}
-
 // IMPACT: handleSuperseded formats and prints superseded thread details when a non-leader thread executes execve.
 func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, s *traceSession) bool {
 	ret := eventRaw.Ret
@@ -296,7 +258,7 @@ func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Resul
 	tgid := int(eventRaw.Pid)
 	opts := s.opts
 	outWriter := s.outWriter
-	timePrefix := formatTimePrefix(eventRaw.EnterTime, s)
+	timePrefix := s.timePrefix(eventRaw.EnterTime)
 	isExecSuspended := (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == -514
 	if isExecSuspended && tPid != tgid && opts != nil && opts.FollowForks {
 		exited := eventRaw.ProbeRetEnter == 1
@@ -386,7 +348,7 @@ func printSyscallOutput(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Res
 	ret := eventRaw.Ret
 	opts := s.opts
 	outWriter := s.outWriter
-	timePrefix := formatTimePrefix(eventRaw.EnterTime, s)
+	timePrefix := s.timePrefix(eventRaw.EnterTime)
 
 	pidPrefix := ""
 	if opts != nil && opts.FollowForks {

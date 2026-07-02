@@ -127,20 +127,20 @@ func main() {
 	}
 
 	session := &traceSession{
-		cmd:              cmd,
-		events:           events,
-		targetPid:        targetPid,
-		opts:             opts,
-		decoder:          decoder,
-		fdState:          fdState,
-		outWriter:        outWriter,
-		outFile:          outFile,
-		outCmd:           outCmd,
-		outPipe:          outPipe,
-		bootTimeOffsetNs: calculateTimeOffset(),
-		bpfObjs:          bpfObjs,
-		resolver:         resolver,
-		state:            newTraceState(),
+		cmd:           cmd,
+		events:        events,
+		targetPid:     targetPid,
+		opts:          opts,
+		decoder:       decoder,
+		fdState:       fdState,
+		outWriter:     outWriter,
+		outFile:       outFile,
+		outCmd:        outCmd,
+		outPipe:       outPipe,
+		timeFormatter: newTimeFormatter(calculateTimeOffset()),
+		bpfObjs:       bpfObjs,
+		resolver:      resolver,
+		state:         newTraceState(),
 	}
 	session.run()
 }

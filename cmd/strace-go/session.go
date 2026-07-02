@@ -23,23 +23,22 @@ import (
 )
 
 type traceSession struct {
-	cmd               *exec.Cmd
-	events            *ringbuf.Reader
-	targetPid         int
-	opts              *cli.Options
-	decoder           *event.Decoder
-	fdState           *FDStateStore
-	outWriter         io.Writer
-	outFile           *os.File
-	outCmd            *exec.Cmd
-	outPipe           io.WriteCloser
-	summary           *SummaryStats
-	bootTimeOffsetNs  int64
-	lastSyscallTimeNs uint64
-	bpfObjs           *bpfObjects
-	resolver          *stacktrace.Resolver
-	exitStatus        *ExitStatusQueue
-	state             *TraceState
+	cmd           *exec.Cmd
+	events        *ringbuf.Reader
+	targetPid     int
+	opts          *cli.Options
+	decoder       *event.Decoder
+	fdState       *FDStateStore
+	outWriter     io.Writer
+	outFile       *os.File
+	outCmd        *exec.Cmd
+	outPipe       io.WriteCloser
+	summary       *SummaryStats
+	timeFormatter *TimeFormatter
+	bpfObjs       *bpfObjects
+	resolver      *stacktrace.Resolver
+	exitStatus    *ExitStatusQueue
+	state         *TraceState
 }
 
 // IMPACT: setupBPF loads the BPF objects and attaches the raw syscall raw tracepoints.
