@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-
-	"strace-go/pkg/cli"
 )
 
 // IMPACT: resolvePtrProbeRet returns the specific probe status for eventRaw.Ptr based on its argument index.
@@ -43,7 +41,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	stateUpdate := s.traceState().Handle(eventRaw)
 
 	if stateUpdate.kind == traceStateLifecycle {
-		s.handleLifecycleEvent(eventRaw, stateUpdate.lifecycleTask)
+		s.lifecycleEventHandler().Handle(eventRaw, stateUpdate.lifecycleTask)
 		return
 	}
 
@@ -91,19 +89,6 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	}
 
 	s.syscallTextOutput().Handle(ev.handlerContext, eventRaw, res)
-}
-
-func (s *traceSession) handleLifecycleEvent(eventRaw *bpfEvent, task *TaskState) {
-	if eventRaw.EventFlags == lifecycleFork {
-		s.inheritProcessState(int(eventRaw.Args[0]), int(eventRaw.Args[1]))
-	}
-	switch eventRaw.EventFlags {
-	case lifecycleExit, lifecycleFree:
-		s.cleanupProcessState(int(eventRaw.Tid))
-	}
-	if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON {
-		s.writeJSONLifecycleEvent(eventRaw, task)
-	}
 }
 
 func (s *traceSession) shouldQueueExitStatus(tgid int) bool {
