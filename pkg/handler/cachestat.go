@@ -17,8 +17,6 @@ type CachestatHandler struct {
 const (
 	cachestatRangeSize = 16
 	cachestatStatsSize = 40
-	cachestatRangeOff  = BpfMiscArgOffset
-	cachestatStatsOff  = BpfExitArgOffset
 )
 
 func (h *CachestatHandler) Handle(ctx *Context) Result {
@@ -29,7 +27,7 @@ func (h *CachestatHandler) Handle(ctx *Context) Result {
 	if ctx.Args[1] == 0 {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else {
-		if d, ok := cachestatStructSnapshot(ctx, 1, PayloadDirectionIn, cachestatRangeOff, cachestatRangeSize); ok {
+		if d, ok := cachestatStructSnapshot(ctx, 1, PayloadDirectionIn, cachestatRangeSize); ok {
 			res.ArgParts = append(res.ArgParts, formatCachestatRange(d))
 		} else {
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[1]))
@@ -41,7 +39,7 @@ func (h *CachestatHandler) Handle(ctx *Context) Result {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else {
 		if ctx.Ret >= 0 {
-			if d, ok := cachestatStructSnapshot(ctx, 2, PayloadDirectionOut, cachestatStatsOff, cachestatStatsSize); ok {
+			if d, ok := cachestatStructSnapshot(ctx, 2, PayloadDirectionOut, cachestatStatsSize); ok {
 				res.ArgParts = append(res.ArgParts, formatCachestatStats(d))
 			} else {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
@@ -64,16 +62,12 @@ func cachestatStructSnapshot(
 	ctx *Context,
 	argIndex int,
 	direction PayloadDirection,
-	offset int,
 	size int,
 ) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(argIndex, direction); ok && len(data) >= size {
 		return data[:size], true
 	}
-	if direction == PayloadDirectionOut {
-		return ctx.ExitSnapshot(offset, size)
-	}
-	return ctx.EnterArgSnapshot(argIndex, offset, size)
+	return nil, false
 }
 
 func formatCachestatRange(d []byte) string {

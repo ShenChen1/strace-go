@@ -51,7 +51,7 @@ func TestCachestatRangeDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestCachestatRangeUsesSnapshotWhenFallbackDisabled(t *testing.T) {
+func TestCachestatRangeIgnoresLegacyFixedSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeCachestatRange(99, 100)}
 	decoder := event.NewDecoder()
 	ctx := &Context{
@@ -66,8 +66,8 @@ func TestCachestatRangeUsesSnapshotWhenFallbackDisabled(t *testing.T) {
 	putSmallSnapshot(ctx, BpfMiscArgOffset, makeCachestatRange(5, 6))
 
 	got := (&CachestatHandler{}).Handle(ctx)
-	if got.ArgParts[1] != "{off=0x5, len=6}" {
-		t.Fatalf("cstat_range = %q", got.ArgParts[1])
+	if got.ArgParts[1] != "0x1000" {
+		t.Fatalf("cstat_range = %q, want pointer fallback", got.ArgParts[1])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -134,7 +134,7 @@ func TestCachestatStatsUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestCachestatStatsUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestCachestatStatsIgnoresLegacyFixedSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeCachestatStats(1, 2, 3, 4, 5)}
 	decoder := event.NewDecoder()
 	ctx := &Context{
@@ -150,8 +150,8 @@ func TestCachestatStatsUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	putSmallSnapshot(ctx, BpfExitArgOffset, makeCachestatStats(1, 2, 3, 4, 5))
 
 	got := (&CachestatHandler{}).Handle(ctx)
-	if !strings.Contains(got.ArgParts[2], "nr_cache=1") {
-		t.Fatalf("cstat = %q", got.ArgParts[2])
+	if got.ArgParts[2] != "0x2000" {
+		t.Fatalf("cstat = %q, want pointer fallback", got.ArgParts[2])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
