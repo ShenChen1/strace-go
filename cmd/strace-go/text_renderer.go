@@ -1,0 +1,137 @@
+package main
+
+import (
+	"fmt"
+	"io"
+	"strings"
+
+	"strace-go/pkg/cli"
+	"strace-go/pkg/handler"
+	"strace-go/pkg/meta"
+	"strace-go/pkg/stacktrace"
+)
+
+type TextRenderer struct {
+	out           io.Writer
+	opts          *cli.Options
+	state         *TraceState
+	timeFormatter *TimeFormatter
+	bpfObjs       *bpfObjects
+	resolver      *stacktrace.Resolver
+}
+
+type TextRendererDeps struct {
+	Out           io.Writer
+	Opts          *cli.Options
+	State         *TraceState
+	TimeFormatter *TimeFormatter
+	BPFObjs       *bpfObjects
+	Resolver      *stacktrace.Resolver
+}
+
+func newTextRenderer(deps TextRendererDeps) *TextRenderer {
+	return &TextRenderer{
+		out:           deps.Out,
+		opts:          deps.Opts,
+		state:         deps.State,
+		timeFormatter: deps.TimeFormatter,
+		bpfObjs:       deps.BPFObjs,
+		resolver:      deps.Resolver,
+	}
+}
+
+func (s *traceSession) textRenderer() *TextRenderer {
+	return newTextRenderer(TextRendererDeps{
+		Out:           s.outWriter,
+		Opts:          s.opts,
+		State:         s.traceState(),
+		TimeFormatter: s.timeFormatterState(),
+		BPFObjs:       s.bpfObjs,
+		Resolver:      s.resolver,
+	})
+}
+
+// IMPACT: PrintSyscall outputs a formatted syscall trace line and related text-only side effects.
+func (r *TextRenderer) PrintSyscall(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, ctx *handler.Context) {
+	tid := int(eventRaw.Tid)
+	line := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
+	if r.consumeSuspended(tid) {
+		if scMeta.Name == "nanosleep" {
+			line = fmt.Sprintf("<... %s resumed> <unfinished ...>)", scMeta.Name)
+		} else {
+			line = fmt.Sprintf("<... %s resumed>)", scMeta.Name)
+		}
+	}
+
+	timePrefix := r.timePrefix(eventRaw.EnterTime)
+	pidPrefix := r.pidPrefix(tid)
+	retStr := formatSyscallRet(scMeta.Name, eventRaw.Ret, res, ctx)
+	fmt.Fprintf(r.out, "%s%s%s%s= %s%s\n",
+		timePrefix, pidPrefix, line, r.padding(timePrefix, pidPrefix, line), retStr, r.durationSuffix(eventRaw.Duration))
+	if res.HexDumpStr != "" {
+		fmt.Fprint(r.out, res.HexDumpStr)
+	}
+	if scMeta.Name == "nanosleep" && eventRaw.Ret == -516 {
+		fmt.Fprintf(r.out, "%s%s--- SIGALRM {si_signo=SIGALRM, si_code=SI_KERNEL} ---\n", timePrefix, pidPrefix)
+	}
+
+	r.printStackTrace(eventRaw.StackId)
+	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && eventRaw.Ret < 0 && r.state != nil {
+		r.state.deletePendingExecArgs(tid)
+	}
+}
+
+func (r *TextRenderer) consumeSuspended(tid int) bool {
+	return r.state != nil && r.state.consumeSuspendedSyscall(tid)
+}
+
+func (r *TextRenderer) timePrefix(enterTimeMonoNs uint64) string {
+	if r.timeFormatter == nil {
+		return ""
+	}
+	return r.timeFormatter.Prefix(enterTimeMonoNs, r.opts)
+}
+
+func (r *TextRenderer) pidPrefix(tid int) string {
+	if r.opts != nil && r.opts.FollowForks {
+		return fmt.Sprintf("%-5d ", tid)
+	}
+	return ""
+}
+
+func (r *TextRenderer) padding(timePrefix string, pidPrefix string, line string) string {
+	padding := " "
+	if r.opts == nil {
+		return padding
+	}
+	totalLen := len(timePrefix) + len(pidPrefix) + len(line)
+	if totalLen < r.opts.AlignCol {
+		padding = strings.Repeat(" ", r.opts.AlignCol-totalLen)
+	}
+	return padding
+}
+
+func (r *TextRenderer) durationSuffix(duration uint64) string {
+	if r.opts == nil || !r.opts.PrintSyscallTime {
+		return ""
+	}
+	sec := duration / 1e9
+	usec := (duration % 1e9) / 1000
+	return fmt.Sprintf(" <%d.%06d>", sec, usec)
+}
+
+func (r *TextRenderer) printStackTrace(stackID int32) {
+	if r.opts == nil || !r.opts.StackTrace || r.bpfObjs == nil || r.resolver == nil || stackID <= 0 {
+		return
+	}
+	var ips [127]uint64
+	if err := r.bpfObjs.StackTraces.Lookup(uint32(stackID), &ips); err != nil {
+		return
+	}
+	for _, ip := range ips {
+		if ip == 0 {
+			break
+		}
+		fmt.Fprintf(r.out, " > %s\n", r.resolver.Resolve(ip))
+	}
+}

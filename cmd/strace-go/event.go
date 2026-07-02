@@ -248,7 +248,7 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 		return
 	}
 
-	printSyscallOutput(eventRaw, scMeta, res, ctx, s)
+	s.textRenderer().PrintSyscall(eventRaw, scMeta, res, ctx)
 }
 
 // IMPACT: handleSuperseded formats and prints superseded thread details when a non-leader thread executes execve.
@@ -340,71 +340,6 @@ func (s *traceSession) markTraceeExited(pid int) {
 
 func (s *traceSession) discardExitStatus(pid int) {
 	s.exitStatusQueue().Discard(pid)
-}
-
-// IMPACT: printSyscallOutput outputs formatted syscall trace lines and logs signal delivery if applicable.
-func printSyscallOutput(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, ctx *handler.Context, s *traceSession) {
-	tPid := int(eventRaw.Tid)
-	ret := eventRaw.Ret
-	opts := s.opts
-	outWriter := s.outWriter
-	timePrefix := s.timePrefix(eventRaw.EnterTime)
-
-	pidPrefix := ""
-	if opts != nil && opts.FollowForks {
-		pidPrefix = fmt.Sprintf("%-5d ", tPid)
-	}
-
-	line := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
-	wasSuspended := s.traceState().consumeSuspendedSyscall(tPid)
-
-	if wasSuspended {
-		if scMeta.Name == "nanosleep" {
-			line = fmt.Sprintf("<... %s resumed> <unfinished ...>)", scMeta.Name)
-		} else {
-			line = fmt.Sprintf("<... %s resumed>)", scMeta.Name)
-		}
-	}
-	retStr := formatSyscallRet(scMeta.Name, ret, res, ctx)
-	padding := " "
-	totalLen := len(timePrefix) + len(pidPrefix) + len(line)
-	if totalLen < opts.AlignCol {
-		padding = strings.Repeat(" ", opts.AlignCol-totalLen)
-	}
-	durationSuffix := ""
-	if opts != nil && opts.PrintSyscallTime {
-		sec := eventRaw.Duration / 1e9
-		usec := (eventRaw.Duration % 1e9) / 1000
-		durationSuffix = fmt.Sprintf(" <%d.%06d>", sec, usec)
-	}
-
-	fmt.Fprintf(outWriter, "%s%s%s%s= %s%s\n", timePrefix, pidPrefix, line, padding, retStr, durationSuffix)
-	if res.HexDumpStr != "" {
-		fmt.Fprintf(outWriter, "%s", res.HexDumpStr)
-	}
-	if scMeta.Name == "nanosleep" && ret == -516 {
-		fmt.Fprintf(outWriter, "%s%s--- SIGALRM {si_signo=SIGALRM, si_code=SI_KERNEL} ---\n", timePrefix, pidPrefix)
-	}
-
-	if opts != nil && opts.StackTrace && s.bpfObjs != nil && s.resolver != nil {
-		if eventRaw.StackId > 0 {
-			var ips [127]uint64
-			err := s.bpfObjs.StackTraces.Lookup(uint32(eventRaw.StackId), &ips)
-			if err == nil {
-				for _, ip := range ips {
-					if ip == 0 {
-						break
-					}
-					resolved := s.resolver.Resolve(ip)
-					fmt.Fprintf(outWriter, " > %s\n", resolved)
-				}
-			}
-		}
-	}
-
-	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret < 0 {
-		s.traceState().deletePendingExecArgs(tPid)
-	}
 }
 
 // IMPACT: formatSyscallRet formats raw returns including negative error values or hex numbers for custom functions.
