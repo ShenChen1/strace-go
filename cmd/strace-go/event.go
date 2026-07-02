@@ -194,17 +194,7 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 	}
 
 	if eventRaw.ProbeRetEnter == 3 {
-		pidPrefix := ""
-		if s.opts != nil && s.opts.FollowForks {
-			pidPrefix = fmt.Sprintf("%-5d ", tPid)
-		}
-		args := strings.Join(res.ArgParts, ", ")
-		if scMeta.Name == "nanosleep" && len(res.ArgParts) > 0 {
-			args = res.ArgParts[0]
-		}
-		line := fmt.Sprintf("%s(%s <unfinished ...>", scMeta.Name, args)
-		fmt.Fprintf(s.outWriter, "%s%s\n", pidPrefix, line)
-
+		s.textRenderer().PrintUnfinished(eventRaw, scMeta, res)
 		s.traceState().rememberSuspendedSyscall(tPid, scMeta.Name)
 		return
 	}
@@ -223,23 +213,7 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == 0 && tPid == int(eventRaw.Pid) {
 		argLine, ok := s.traceState().takePendingExecArgs(tPid)
 		if ok {
-			timePrefix := s.timePrefix(eventRaw.EnterTime)
-			pidPrefix := ""
-			if s.opts != nil && s.opts.FollowForks {
-				pidPrefix = fmt.Sprintf("%-5d ", tPid)
-			}
-			padding := " "
-			totalLen := len(timePrefix) + len(pidPrefix) + len(argLine)
-			if totalLen < s.opts.AlignCol {
-				padding = strings.Repeat(" ", s.opts.AlignCol-totalLen)
-			}
-			durationSuffix := ""
-			if s.opts != nil && s.opts.PrintSyscallTime {
-				sec := eventRaw.Duration / 1e9
-				usec := (eventRaw.Duration % 1e9) / 1000
-				durationSuffix = fmt.Sprintf(" <%d.%06d>", sec, usec)
-			}
-			fmt.Fprintf(s.outWriter, "%s%s%s%s= 0%s\n", timePrefix, pidPrefix, argLine, padding, durationSuffix)
+			s.textRenderer().PrintExecResume(eventRaw, argLine)
 		}
 		return
 	}

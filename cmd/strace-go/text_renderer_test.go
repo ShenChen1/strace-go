@@ -22,6 +22,31 @@ func TestTextRendererPrintsBasicSyscallLine(t *testing.T) {
 	}
 }
 
+func TestTextRendererPrintsUnfinishedLine(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{FollowForks: true}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+
+	renderer.PrintUnfinished(&bpfEvent{Tid: 101}, meta.Syscall{Name: "nanosleep"}, handler.Result{ArgParts: []string{"{tv_sec=1}"}})
+
+	if got := output.String(); got != "101   nanosleep({tv_sec=1} <unfinished ...>\n" {
+		t.Fatalf("unfinished output = %q", got)
+	}
+}
+
+func TestTextRendererPrintsExecResumeWithDuration(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{FollowForks: true, PrintSyscallTime: true}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+
+	renderer.PrintExecResume(&bpfEvent{Tid: 101, Duration: 1_234_000}, `execve("/bin/true")`)
+
+	got := output.String()
+	if !strings.Contains(got, `101   execve("/bin/true")`) || !strings.Contains(got, "= 0 <0.001234>") {
+		t.Fatalf("exec resume output = %q", got)
+	}
+}
+
 func TestTextRendererConsumesSuspendedSyscall(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{}

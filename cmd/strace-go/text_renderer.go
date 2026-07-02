@@ -51,6 +51,22 @@ func (s *traceSession) textRenderer() *TextRenderer {
 	})
 }
 
+func (r *TextRenderer) PrintUnfinished(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result) {
+	args := strings.Join(res.ArgParts, ", ")
+	if scMeta.Name == "nanosleep" && len(res.ArgParts) > 0 {
+		args = res.ArgParts[0]
+	}
+	line := fmt.Sprintf("%s(%s <unfinished ...>", scMeta.Name, args)
+	fmt.Fprintf(r.out, "%s%s\n", r.pidPrefix(int(eventRaw.Tid)), line)
+}
+
+func (r *TextRenderer) PrintExecResume(eventRaw *bpfEvent, argLine string) {
+	timePrefix := r.timePrefix(eventRaw.EnterTime)
+	pidPrefix := r.pidPrefix(int(eventRaw.Tid))
+	fmt.Fprintf(r.out, "%s%s%s%s= 0%s\n",
+		timePrefix, pidPrefix, argLine, r.padding(timePrefix, pidPrefix, argLine), r.durationSuffix(eventRaw.Duration))
+}
+
 // IMPACT: PrintSyscall outputs a formatted syscall trace line and related text-only side effects.
 func (r *TextRenderer) PrintSyscall(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, ctx *handler.Context) {
 	tid := int(eventRaw.Tid)
