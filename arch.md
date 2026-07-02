@@ -946,7 +946,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - JSON/debug syscall event 已开始暴露 `payload_sections`，先把现有 fixed snapshot 投影成 path/read/write/stat/statfs sections；semantic suite 已断言 write IN payload section。
 - BPF 事件发送已由 `bpf_ringbuf_output` 收敛到显式 `bpf_ringbuf_reserve_dynptr` / `bpf_dynptr_write` / `bpf_ringbuf_submit_dynptr` helper；`stats_map` 已记录 reserve/copy 失败次数，JSON/debug 结束时输出 `type=stats` 事件，semantic/perf suite 可把 ringbuf 丢事件作为显式 oracle。
 - `execve/execveat` 已暴露 argv/envp 的 `PayloadKindExecArgs` section，exec argv/envp decoder 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
-- `stat/lstat/fstat/newfstatat` 与 `statfs/fstatfs` 已暴露 OUT `PayloadKindStruct` section，stat formatter 优先消费 section，旧 exit snapshot 仅作为迁移期 fallback。
+- `stat/lstat/fstat/newfstatat` 与 `statfs/fstatfs` 已暴露 OUT `PayloadKindStruct` section，stat formatter 只消费 semantic payload section，旧 exit snapshot 会被忽略并退回指针输出。
 - `poll/ppoll` 与 `epoll_ctl/epoll_wait/epoll_pwait/epoll_pwait2` 已暴露结构数组/timeout 的 `PayloadKindStruct` sections，formatter 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。
 - `select/_newselect` 已暴露 enter/exit `fd_set` 的 `PayloadKindBytes` sections 和 timeout 的 `PayloadKindStruct` sections，select formatter 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。
 - `clock_gettime/clock_getres/clock_settime/adjtimex/clock_adjtime/nanosleep/clock_nanosleep/gettimeofday/settimeofday` 已暴露常用 time 结构的 `PayloadKindStruct` sections，time formatter 和通用 struct decoder 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。

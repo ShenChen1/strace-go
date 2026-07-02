@@ -28,13 +28,10 @@ func decodeStat(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 		return fmt.Sprintf("%#x", val), true
 	}
 	data, ok := ctx.PayloadStruct(i, PayloadDirectionOut)
-	if !ok {
-		data, ok = ctx.ExitSnapshot(BpfExitArgOffset, statStructSize)
-	}
-	if !ok {
+	if !ok || len(data) < statStructSize {
 		return fmt.Sprintf("%#x", val), true
 	}
-	return format.Stat(data), true
+	return format.Stat(data[:statStructSize]), true
 }
 
 func decodeStatfs(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
@@ -45,11 +42,8 @@ func decodeStatfs(ctx *Context, i int, argTyp string, val uint64) (string, bool)
 		return fmt.Sprintf("%#x", val), true
 	}
 	data, ok := ctx.PayloadStruct(i, PayloadDirectionOut)
-	if !ok {
-		data, ok = ctx.ExitSnapshot(BpfExitArgOffset, statfsStructSize)
-	}
-	if !ok {
+	if !ok || len(data) < statfsStructSize {
 		return fmt.Sprintf("%#x", val), true
 	}
-	return format.Statfs(data), true
+	return format.Statfs(data[:statfsStructSize]), true
 }

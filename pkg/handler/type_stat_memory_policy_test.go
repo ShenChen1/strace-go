@@ -49,7 +49,7 @@ func TestDecodeStatDoesNotReadWhenSnapshotMissing(t *testing.T) {
 	}
 }
 
-func TestDecodeStatUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestDecodeStatIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeStatSnapshot(1, 0100644)}
 	decoder := event.NewDecoder()
 	ctx := newTypeStatPolicyContext(reader, decoder)
@@ -57,7 +57,7 @@ func TestDecodeStatUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	putSmallSnapshot(ctx, BpfExitArgOffset, makeStatSnapshot(42, 0100644))
 
 	got, ok := decodeStat(ctx, 1, "struct stat *", 0x1000)
-	if !ok || !strings.Contains(got, "st_ino=42") {
+	if !ok || got != "0x1000" {
 		t.Fatalf("decodeStat() = %q, %v", got, ok)
 	}
 	if reader.reads != 0 {
@@ -89,7 +89,7 @@ func TestDecodeStatUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestDecodeStatfsUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestDecodeStatfsIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeStatfsSnapshot(1024)}
 	decoder := event.NewDecoder()
 	ctx := newTypeStatPolicyContext(reader, decoder)
@@ -98,7 +98,7 @@ func TestDecodeStatfsUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	putSmallSnapshot(ctx, BpfExitArgOffset, makeStatfsSnapshot(4096))
 
 	got, ok := decodeStatfs(ctx, 1, "struct statfs *", 0x1000)
-	if !ok || !strings.Contains(got, "f_bsize=4096") {
+	if !ok || got != "0x1000" {
 		t.Fatalf("decodeStatfs() = %q, %v", got, ok)
 	}
 	if reader.reads != 0 {
