@@ -51,10 +51,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	scMeta := syscallMeta(eventRaw.SysId)
 
 	if stateUpdate.kind == traceStateSyscallEnter {
-		if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON &&
-			(s.opts.DebugEvents || checkShouldPrint(eventRaw, scMeta, "", false, statePID, s.opts, s.fdStateStore().PathMap())) {
-			s.writeJSONRawEvent(eventRaw, scMeta)
-		}
+		s.syscallJSONOutput().HandleEnter(eventRaw, scMeta, statePID)
 		return
 	}
 	ev := newSyscallEventContext(s, eventRaw, statePID, stateUpdate.pendingEnter)
@@ -66,8 +63,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	}()
 	defer s.updateFDOffsets(eventRaw, scMeta)
 
-	if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON && s.opts.DebugEvents {
-		s.writeJSONRawEvent(eventRaw, scMeta)
+	if s.syscallJSONOutput().HandleDebugRaw(eventRaw, scMeta) {
 		return
 	}
 
@@ -100,15 +96,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	res := h.Handle(ctx)
 	s.updateFDState(ev)
 
-	if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON {
-		status := successfulFailedOptions{
-			successfulOnly: s.opts.SuccessfulOnly,
-			failedOnly:     s.opts.FailedOnly,
-			traceStatus:    s.opts.TraceStatus,
-		}
-		if shouldEmitStatus(eventRaw, scMeta, status) {
-			s.writeJSONEvent(eventRaw, scMeta, res, ctx, ev.pendingEnter)
-		}
+	if s.syscallJSONOutput().HandleDecoded(ev, res) {
 		return
 	}
 
