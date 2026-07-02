@@ -130,7 +130,6 @@ func (s *traceSession) handleLifecycleEvent(eventRaw *bpfEvent, task *TaskState)
 
 // IMPACT: handleEventOutput handles specific unfinished states and delegates trace printing.
 func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEvent, res handler.Result) {
-	tPid := int(eventRaw.Tid)
 	scMeta := ctx.ScMeta
 
 	if s.opts != nil {
@@ -144,13 +143,7 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 		}
 	}
 
-	if eventRaw.ProbeRetEnter == 3 {
-		s.textRenderer().PrintUnfinished(eventRaw, scMeta, res)
-		s.traceState().rememberSuspendedSyscall(tPid, scMeta.Name)
-		return
-	}
-
-	if eventRaw.ProbeRetEnter == 2 {
+	if s.suspendedSyscallOutput().Handle(eventRaw, scMeta, res) {
 		return
 	}
 
