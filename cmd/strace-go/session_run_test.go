@@ -88,6 +88,27 @@ func TestFinishRunWritesJSONStatsEvent(t *testing.T) {
 	}
 }
 
+func TestExitDrainGraceOnlyAppliesToJSONOutput(t *testing.T) {
+	tests := []struct {
+		name string
+		opts *cli.Options
+		want time.Duration
+	}{
+		{name: "nil options", opts: nil, want: 0},
+		{name: "text", opts: &cli.Options{EventFormat: cli.EventFormatText}, want: 0},
+		{name: "json", opts: &cli.Options{EventFormat: cli.EventFormatJSON}, want: traceExitLifecycleDrainGrace},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			session := &traceSession{opts: tt.opts}
+			if got := session.exitDrainGrace(); got != tt.want {
+				t.Fatalf("exitDrainGrace() = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAnyAttachPidAliveDetectsCurrentProcess(t *testing.T) {
 	if !anyAttachPidAlive([]int{os.Getpid()}) {
 		t.Fatal("current process should be treated as an alive attached pid")

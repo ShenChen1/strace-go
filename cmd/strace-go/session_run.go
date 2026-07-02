@@ -8,9 +8,13 @@ import (
 	"unsafe"
 
 	"github.com/cilium/ebpf/ringbuf"
+
+	"strace-go/pkg/cli"
 )
 
 const traceEventPollInterval = 100 * time.Millisecond
+const traceExitLifecycleDrainGrace = 200 * time.Millisecond
+const traceExitDrainPollInterval = 10 * time.Millisecond
 
 type traceReadStatus uint8
 
@@ -36,7 +40,7 @@ func (s *traceSession) run() {
 	for {
 		state.collect(s)
 		if state.done() {
-			s.drainEventReader(&rec)
+			s.drainEventReaderAfterDone(&rec)
 			s.finishRun()
 			return
 		}
@@ -144,6 +148,28 @@ func (s *traceSession) drainEventReader(rec *ringbuf.Record) {
 		}
 		s.handleBPFRecord(rec)
 	}
+}
+
+func (s *traceSession) drainEventReaderAfterDone(rec *ringbuf.Record) {
+	grace := s.exitDrainGrace()
+	if grace <= 0 {
+		s.drainEventReader(rec)
+		return
+	}
+	deadline := time.Now().Add(grace)
+	for time.Now().Before(deadline) {
+		if s.readAndHandleEvent(rec, traceExitDrainPollInterval) == traceReadClosed {
+			return
+		}
+	}
+	s.drainEventReader(rec)
+}
+
+func (s *traceSession) exitDrainGrace() time.Duration {
+	if s == nil || s.opts == nil || s.opts.EventFormat != cli.EventFormatJSON {
+		return 0
+	}
+	return traceExitLifecycleDrainGrace
 }
 
 func (s *traceSession) handleBPFRecord(rec *ringbuf.Record) bool {
