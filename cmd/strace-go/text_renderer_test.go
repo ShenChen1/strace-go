@@ -47,6 +47,31 @@ func TestTextRendererPrintsExecResumeWithDuration(t *testing.T) {
 	}
 }
 
+func TestTextRendererPrintsSupersededExecMessages(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{FollowForks: true}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	eventRaw := &bpfEvent{Pid: 200, Tid: 201}
+
+	renderer.PrintExecPidChanged(eventRaw, `execve("/bin/true")`)
+	renderer.PrintExecSupersededUnfinished(eventRaw, `execve("/bin/true")`)
+	renderer.PrintSupersededSuspendedResume(&bpfEvent{Pid: 200, Tid: 201}, "rt_sigsuspend")
+	renderer.PrintThreadExecveSuperseded(eventRaw, "execve")
+
+	got := output.String()
+	for _, want := range []string{
+		`201   execve("/bin/true" <pid changed to 200 ...>`,
+		`201   execve("/bin/true" <unfinished ...>`,
+		`200   <... rt_sigsuspend resumed>) = ?`,
+		`200   +++ superseded by execve in pid 201 +++`,
+		`200   <... execve resumed>) = 0`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("superseded output missing %q in %q", want, got)
+		}
+	}
+}
+
 func TestTextRendererConsumesSuspendedSyscall(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{}

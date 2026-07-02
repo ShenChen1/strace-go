@@ -231,8 +231,7 @@ func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Resul
 	tPid := int(eventRaw.Tid)
 	tgid := int(eventRaw.Pid)
 	opts := s.opts
-	outWriter := s.outWriter
-	timePrefix := s.timePrefix(eventRaw.EnterTime)
+	renderer := s.textRenderer()
 	isExecSuspended := (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == -514
 	if isExecSuspended && tPid != tgid && opts != nil && opts.FollowForks {
 		exited := eventRaw.ProbeRetEnter == 1
@@ -242,14 +241,10 @@ func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Resul
 			argLine = fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
 		}
 
-		if len(argLine) > 0 && argLine[len(argLine)-1] == ')' {
-			argLine = argLine[:len(argLine)-1]
-		}
-
 		if exited {
-			fmt.Fprintf(outWriter, "%s%-5d %s <pid changed to %d ...>\n", timePrefix, tPid, argLine, tgid)
+			renderer.PrintExecPidChanged(eventRaw, argLine)
 		} else {
-			fmt.Fprintf(outWriter, "%s%-5d %s <unfinished ...>\n", timePrefix, tPid, argLine)
+			renderer.PrintExecSupersededUnfinished(eventRaw, argLine)
 		}
 		return true
 	}
@@ -268,17 +263,10 @@ func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Resul
 			if suspMeta, ok := meta.SyscallTable[suspendedSysId]; ok {
 				s.traceState().deleteSuspendedSyscall(tgid)
 
-				if suspMeta.Name == "rt_sigsuspend" {
-					fmt.Fprintf(outWriter, "%s%-5d <... rt_sigsuspend resumed>) = ?\n", timePrefix, tgid)
-				} else if suspMeta.Name == "nanosleep" {
-					fmt.Fprintf(outWriter, "%s%-5d <... nanosleep resumed> <unfinished ...>) = ?\n", timePrefix, tgid)
-				}
+				renderer.PrintSupersededSuspendedResume(eventRaw, suspMeta.Name)
 			}
 		}
-		if !opts.QuietThreadExecve {
-			fmt.Fprintf(outWriter, "%s%-5d +++ superseded by execve in pid %d +++\n", timePrefix, tgid, tPid)
-		}
-		fmt.Fprintf(outWriter, "%s%-5d <... %s resumed>) = 0\n", timePrefix, tgid, scMeta.Name)
+		renderer.PrintThreadExecveSuperseded(eventRaw, scMeta.Name)
 		return true
 	}
 	return false

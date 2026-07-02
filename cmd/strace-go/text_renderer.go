@@ -67,6 +67,38 @@ func (r *TextRenderer) PrintExecResume(eventRaw *bpfEvent, argLine string) {
 		timePrefix, pidPrefix, argLine, r.padding(timePrefix, pidPrefix, argLine), r.durationSuffix(eventRaw.Duration))
 }
 
+func (r *TextRenderer) PrintExecPidChanged(eventRaw *bpfEvent, argLine string) {
+	tid := int(eventRaw.Tid)
+	tgid := int(eventRaw.Pid)
+	fmt.Fprintf(r.out, "%s%-5d %s <pid changed to %d ...>\n", r.timePrefix(eventRaw.EnterTime), tid, trimTrailingParen(argLine), tgid)
+}
+
+func (r *TextRenderer) PrintExecSupersededUnfinished(eventRaw *bpfEvent, argLine string) {
+	tid := int(eventRaw.Tid)
+	fmt.Fprintf(r.out, "%s%-5d %s <unfinished ...>\n", r.timePrefix(eventRaw.EnterTime), tid, trimTrailingParen(argLine))
+}
+
+func (r *TextRenderer) PrintSupersededSuspendedResume(eventRaw *bpfEvent, syscallName string) {
+	timePrefix := r.timePrefix(eventRaw.EnterTime)
+	tgid := int(eventRaw.Pid)
+	switch syscallName {
+	case "rt_sigsuspend":
+		fmt.Fprintf(r.out, "%s%-5d <... rt_sigsuspend resumed>) = ?\n", timePrefix, tgid)
+	case "nanosleep":
+		fmt.Fprintf(r.out, "%s%-5d <... nanosleep resumed> <unfinished ...>) = ?\n", timePrefix, tgid)
+	}
+}
+
+func (r *TextRenderer) PrintThreadExecveSuperseded(eventRaw *bpfEvent, syscallName string) {
+	timePrefix := r.timePrefix(eventRaw.EnterTime)
+	tid := int(eventRaw.Tid)
+	tgid := int(eventRaw.Pid)
+	if r.opts == nil || !r.opts.QuietThreadExecve {
+		fmt.Fprintf(r.out, "%s%-5d +++ superseded by execve in pid %d +++\n", timePrefix, tgid, tid)
+	}
+	fmt.Fprintf(r.out, "%s%-5d <... %s resumed>) = 0\n", timePrefix, tgid, syscallName)
+}
+
 // IMPACT: PrintSyscall outputs a formatted syscall trace line and related text-only side effects.
 func (r *TextRenderer) PrintSyscall(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, ctx *handler.Context) {
 	tid := int(eventRaw.Tid)
@@ -95,6 +127,13 @@ func (r *TextRenderer) PrintSyscall(eventRaw *bpfEvent, scMeta meta.Syscall, res
 	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && eventRaw.Ret < 0 && r.state != nil {
 		r.state.deletePendingExecArgs(tid)
 	}
+}
+
+func trimTrailingParen(argLine string) string {
+	if len(argLine) > 0 && argLine[len(argLine)-1] == ')' {
+		return argLine[:len(argLine)-1]
+	}
+	return argLine
 }
 
 func (r *TextRenderer) consumeSuspended(tid int) bool {
