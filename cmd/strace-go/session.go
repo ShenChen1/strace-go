@@ -39,6 +39,15 @@ type traceSession struct {
 	resolver      *stacktrace.Resolver
 	exitStatus    *ExitStatusQueue
 	state         *TraceState
+
+	textRendererCache     *TextRenderer
+	syscallJSONCache      *SyscallJSONOutput
+	syscallTextCache      *SyscallTextOutput
+	exitSyscallCache      *ExitSyscallOutput
+	syscallRunnerCache    *SyscallHandlerRunner
+	syscallPipelineCache  *SyscallExitPipeline
+	lifecycleHandlerCache *LifecycleEventHandler
+	exitCoordinatorCache  *ExitStatusCoordinator
 }
 
 // IMPACT: setupBPF loads the BPF objects and attaches the raw syscall raw tracepoints.

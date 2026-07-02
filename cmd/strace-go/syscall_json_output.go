@@ -30,12 +30,15 @@ func newSyscallJSONOutput(deps SyscallJSONOutputDeps) *SyscallJSONOutput {
 }
 
 func (s *traceSession) syscallJSONOutput() *SyscallJSONOutput {
-	return newSyscallJSONOutput(SyscallJSONOutputDeps{
-		Opts:         s.opts,
-		PathMap:      s.fdStateStore().PathMap(),
-		WriteRaw:     s.writeJSONRawEvent,
-		WriteDecoded: s.writeJSONEvent,
-	})
+	if s.syscallJSONCache == nil {
+		s.syscallJSONCache = newSyscallJSONOutput(SyscallJSONOutputDeps{
+			Opts:         s.opts,
+			PathMap:      s.fdStateStore().PathMap(),
+			WriteRaw:     s.writeJSONRawEvent,
+			WriteDecoded: s.writeJSONEvent,
+		})
+	}
+	return s.syscallJSONCache
 }
 
 func (o *SyscallJSONOutput) HandleEnter(eventRaw *bpfEvent, scMeta meta.Syscall, statePID int) {

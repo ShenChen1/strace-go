@@ -45,16 +45,19 @@ func newExitStatusCoordinator(deps ExitStatusCoordinatorDeps) *ExitStatusCoordin
 }
 
 func (s *traceSession) exitStatusCoordinator() *ExitStatusCoordinator {
-	attachPids := []int(nil)
-	if s.opts != nil {
-		attachPids = s.opts.AttachPids
+	if s.exitCoordinatorCache == nil {
+		attachPids := []int(nil)
+		if s.opts != nil {
+			attachPids = s.opts.AttachPids
+		}
+		s.exitCoordinatorCache = newExitStatusCoordinator(ExitStatusCoordinatorDeps{
+			Queue:      s.exitStatusQueue(),
+			Out:        s.outWriter,
+			HasCommand: s.cmd != nil,
+			AttachPids: attachPids,
+		})
 	}
-	return newExitStatusCoordinator(ExitStatusCoordinatorDeps{
-		Queue:      s.exitStatusQueue(),
-		Out:        s.outWriter,
-		HasCommand: s.cmd != nil,
-		AttachPids: attachPids,
-	})
+	return s.exitCoordinatorCache
 }
 
 // IMPACT: Queue records an exit line until process wait confirms that tracee termination is visible.

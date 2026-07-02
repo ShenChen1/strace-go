@@ -41,14 +41,17 @@ func newTextRenderer(deps TextRendererDeps) *TextRenderer {
 }
 
 func (s *traceSession) textRenderer() *TextRenderer {
-	return newTextRenderer(TextRendererDeps{
-		Out:           s.outWriter,
-		Opts:          s.opts,
-		State:         s.traceState(),
-		TimeFormatter: s.timeFormatterState(),
-		BPFObjs:       s.bpfObjs,
-		Resolver:      s.resolver,
-	})
+	if s.textRendererCache == nil {
+		s.textRendererCache = newTextRenderer(TextRendererDeps{
+			Out:           s.outWriter,
+			Opts:          s.opts,
+			State:         s.traceState(),
+			TimeFormatter: s.timeFormatterState(),
+			BPFObjs:       s.bpfObjs,
+			Resolver:      s.resolver,
+		})
+	}
+	return s.textRendererCache
 }
 
 func (r *TextRenderer) PrintUnfinished(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result) {

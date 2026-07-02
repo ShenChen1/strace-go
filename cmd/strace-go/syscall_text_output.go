@@ -30,23 +30,26 @@ func newSyscallTextOutput(deps SyscallTextOutputDeps) *SyscallTextOutput {
 }
 
 func (s *traceSession) syscallTextOutput() *SyscallTextOutput {
-	renderer := s.textRenderer()
-	state := s.traceState()
-	exitStatus := s.exitStatusCoordinator()
-	return newSyscallTextOutput(SyscallTextOutputDeps{
-		Opts: s.opts,
-		Suspended: newSuspendedSyscallOutput(SuspendedSyscallOutputDeps{
-			State:    state,
+	if s.syscallTextCache == nil {
+		renderer := s.textRenderer()
+		state := s.traceState()
+		exitStatus := s.exitStatusCoordinator()
+		s.syscallTextCache = newSyscallTextOutput(SyscallTextOutputDeps{
+			Opts: s.opts,
+			Suspended: newSuspendedSyscallOutput(SuspendedSyscallOutputDeps{
+				State:    state,
+				Renderer: renderer,
+			}),
+			Exec: newExecSyscallOutput(ExecSyscallOutputDeps{
+				Opts:              s.opts,
+				State:             state,
+				Renderer:          renderer,
+				DiscardExitStatus: exitStatus.Discard,
+			}),
 			Renderer: renderer,
-		}),
-		Exec: newExecSyscallOutput(ExecSyscallOutputDeps{
-			Opts:              s.opts,
-			State:             state,
-			Renderer:          renderer,
-			DiscardExitStatus: exitStatus.Discard,
-		}),
-		Renderer: renderer,
-	})
+		})
+	}
+	return s.syscallTextCache
 }
 
 // IMPACT: Handle owns the text-mode syscall output chain after handler decoding.

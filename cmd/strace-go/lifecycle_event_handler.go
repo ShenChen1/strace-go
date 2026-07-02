@@ -26,12 +26,15 @@ func newLifecycleEventHandler(deps LifecycleEventHandlerDeps) *LifecycleEventHan
 }
 
 func (s *traceSession) lifecycleEventHandler() *LifecycleEventHandler {
-	return newLifecycleEventHandler(LifecycleEventHandlerDeps{
-		Opts:      s.opts,
-		Inherit:   s.inheritProcessState,
-		Cleanup:   s.cleanupProcessState,
-		WriteJSON: s.writeJSONLifecycleEvent,
-	})
+	if s.lifecycleHandlerCache == nil {
+		s.lifecycleHandlerCache = newLifecycleEventHandler(LifecycleEventHandlerDeps{
+			Opts:      s.opts,
+			Inherit:   s.inheritProcessState,
+			Cleanup:   s.cleanupProcessState,
+			WriteJSON: s.writeJSONLifecycleEvent,
+		})
+	}
+	return s.lifecycleHandlerCache
 }
 
 // IMPACT: Handle owns lifecycle side effects after TraceState has updated task state.

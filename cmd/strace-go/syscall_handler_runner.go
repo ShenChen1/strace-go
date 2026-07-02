@@ -20,10 +20,13 @@ func newSyscallHandlerRunner(deps SyscallHandlerRunnerDeps) *SyscallHandlerRunne
 }
 
 func (s *traceSession) syscallHandlerRunner() *SyscallHandlerRunner {
-	return newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
-		HandleSyscall: defaultHandleSyscall,
-		UpdateFDState: s.updateFDState,
-	})
+	if s.syscallRunnerCache == nil {
+		s.syscallRunnerCache = newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
+			HandleSyscall: defaultHandleSyscall,
+			UpdateFDState: s.updateFDState,
+		})
+	}
+	return s.syscallRunnerCache
 }
 
 // IMPACT: Handle owns handler decoding and FD state side effects for syscall exit events.
