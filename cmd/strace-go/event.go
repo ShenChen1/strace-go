@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"strings"
-	"syscall"
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
@@ -292,81 +291,4 @@ func (s *traceSession) markTraceeExited(pid int) {
 
 func (s *traceSession) discardExitStatus(pid int) {
 	s.exitStatusQueue().Discard(pid)
-}
-
-// IMPACT: formatSyscallRet formats raw returns including negative error values or hex numbers for custom functions.
-func formatSyscallRet(scName string, ret int64, res handler.Result, ctx *handler.Context) string {
-	if scName == "exit" || scName == "exit_group" {
-		return "?"
-	}
-	retStr := fmt.Sprintf("%d", ret)
-	if ret >= 0 && ctx != nil && ctx.Opts != nil && ctx.Opts.ShowPaths && isFdReturnSyscall(scName) {
-		retStr = handler.FormatFdWithPath(ctx, int32(ret))
-	}
-	if ret > 0 && (scName == "fcntl" || scName == "fcntl64") && ctx != nil {
-		cmdVal := uint32(ctx.Args[1])
-		switch cmdVal {
-		case 1, 3, 1025: // F_GETFD (1), F_GETFL (3), F_GETLEASE (1025)
-			retStr = fmt.Sprintf("%#x", ret)
-		}
-	}
-	if ret >= 0 && scName == "umask" {
-		m := uint32(ret)
-		s := fmt.Sprintf("%o", m)
-		if len(s) < 3 {
-			s = strings.Repeat("0", 3-len(s)) + s
-		}
-		if s[0] != '0' {
-			s = "0" + s
-		}
-		retStr = s
-	}
-	if ret >= 0 && (scName == "brk" || scName == "mmap" || scName == "mremap") {
-		retStr = fmt.Sprintf("%#x", ret)
-	}
-	if ret >= 0 && (scName == "adjtimex" || scName == "clock_adjtime") {
-		desc := "TIME_OK"
-		switch ret {
-		case 1:
-			desc = "TIME_INS"
-		case 2:
-			desc = "TIME_DEL"
-		case 3:
-			desc = "TIME_OOP"
-		case 4:
-			desc = "TIME_WAIT"
-		case 5:
-			desc = "TIME_ERROR"
-		}
-		retStr = fmt.Sprintf("%d (%s)", ret, desc)
-	}
-	if ret < 0 && ret >= -4095 {
-		errNum := int(-ret)
-		if errNum == 516 {
-			retStr = "? ERESTART_RESTARTBLOCK (Interrupted by signal)"
-		} else if errNum == 514 {
-			retStr = "? ERESTARTNOHAND (To be restarted if no handler)"
-		} else if errNum == 513 {
-			retStr = "? ERESTARTNOINTR (To be restarted)"
-		} else if errNum == 512 {
-			retStr = "? ERESTARTSYS (To be restarted if SA_RESTART is set)"
-		} else if errName, ok := meta.ErrnoTable[errNum]; ok {
-			errDesc := syscall.Errno(errNum).Error()
-			if len(errDesc) > 0 {
-				errDesc = strings.ToUpper(errDesc[:1]) + errDesc[1:]
-			}
-			retStr = fmt.Sprintf("-1 %s (%s)", errName, errDesc)
-		} else {
-			errDesc := syscall.Errno(errNum).Error()
-			if len(errDesc) > 0 {
-				errDesc = strings.ToUpper(errDesc[:1]) + errDesc[1:]
-			}
-			retStr = fmt.Sprintf("-1 E%d (%s)", errNum, errDesc)
-		}
-	}
-
-	if res.ReturnDesc != "" {
-		retStr += " (" + res.ReturnDesc + ")"
-	}
-	return retStr
 }
