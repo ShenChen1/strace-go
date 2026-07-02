@@ -40,7 +40,6 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	if !s.traceScope().Allows(eventRaw) {
 		return
 	}
-	tPid := int(eventRaw.Tid)
 	statePID := s.eventStatePID(eventRaw)
 	stateUpdate := s.traceState().Handle(eventRaw)
 
@@ -85,27 +84,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 
 	ctx := ev.handlerContext
 
-	if eventRaw.ProbeRetEnter == -1 && (scMeta.Name == "exit" || scMeta.Name == "exit_group") {
-		if s.opts == nil || !s.opts.SummaryOnly {
-			renderer := s.textRenderer()
-			if ev.shouldPrint {
-				h := handler.Get(scMeta.Name)
-				res := h.Handle(ctx)
-				if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON {
-					s.writeJSONEvent(eventRaw, scMeta, res, ctx, ev.pendingEnter)
-					return
-				}
-				renderer.PrintExitSyscall(eventRaw, scMeta, res)
-			}
-			if s.opts == nil || !s.opts.QuietExit {
-				exitLine := renderer.ExitStatusLine(eventRaw)
-				if s.shouldQueueExitStatus(int(eventRaw.Pid)) {
-					s.queueExitStatus(tPid, exitLine)
-				} else {
-					fmt.Fprint(s.outWriter, exitLine)
-				}
-			}
-		}
+	if s.exitSyscallOutput().Handle(ev) {
 		return
 	}
 
