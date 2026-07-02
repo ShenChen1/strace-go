@@ -35,48 +35,58 @@ func parseFDStateKey(key string) (int, int32, bool) {
 }
 
 func (s *traceSession) inheritProcessState(parentPID int, childPID int) {
+	s.fdStateStore().InheritProcessState(parentPID, childPID)
+}
+
+func (st *FDStateStore) InheritProcessState(parentPID int, childPID int) {
 	if parentPID <= 0 || childPID <= 0 || parentPID == childPID {
 		return
 	}
-	s.inheritFDMap(parentPID, childPID)
-	s.inheritFDOffsets(parentPID, childPID)
-	s.inheritFDDataFiles(parentPID, childPID)
+	st.InheritPaths(parentPID, childPID)
+	st.InheritOffsets(parentPID, childPID)
+	st.InheritDataFiles(parentPID, childPID)
 }
 
 func (s *traceSession) inheritFDMap(parentPID int, childPID int) {
-	if s.fdMap == nil {
-		return
-	}
+	s.fdStateStore().InheritPaths(parentPID, childPID)
+}
+
+func (st *FDStateStore) InheritPaths(parentPID int, childPID int) {
+	st.ensureMaps()
 	parentPrefix := fdMapPrefix(parentPID)
-	for key, target := range s.fdMap {
+	for key, target := range st.paths {
 		if !strings.HasPrefix(key, parentPrefix) {
 			continue
 		}
 		childKey := fmt.Sprintf("%d:%s", childPID, strings.TrimPrefix(key, parentPrefix))
-		s.fdMap[childKey] = target
+		st.paths[childKey] = target
 	}
 }
 
 func (s *traceSession) inheritFDOffsets(parentPID int, childPID int) {
-	if s.fdOffsets == nil {
-		return
-	}
+	s.fdStateStore().InheritOffsets(parentPID, childPID)
+}
+
+func (st *FDStateStore) InheritOffsets(parentPID int, childPID int) {
+	st.ensureMaps()
 	parentPrefix := fdMapPrefix(parentPID)
-	for key, offset := range s.fdOffsets {
+	for key, offset := range st.offsets {
 		if !strings.HasPrefix(key, parentPrefix) {
 			continue
 		}
 		childKey := fmt.Sprintf("%d:%s", childPID, strings.TrimPrefix(key, parentPrefix))
-		s.fdOffsets[childKey] = offset
+		st.offsets[childKey] = offset
 	}
 }
 
 func (s *traceSession) inheritFDDataFiles(parentPID int, childPID int) {
-	if s.fdFiles == nil || s.fdMap == nil {
-		return
-	}
+	s.fdStateStore().InheritDataFiles(parentPID, childPID)
+}
+
+func (st *FDStateStore) InheritDataFiles(parentPID int, childPID int) {
+	st.ensureMaps()
 	parentPrefix := fdMapPrefix(parentPID)
-	for key := range s.fdFiles {
+	for key := range st.files {
 		if !strings.HasPrefix(key, parentPrefix) {
 			continue
 		}
@@ -85,49 +95,68 @@ func (s *traceSession) inheritFDDataFiles(parentPID int, childPID int) {
 			continue
 		}
 		childKey := fdStateKey(childPID, fd)
-		target := s.fdMap[childKey]
+		target := st.paths[childKey]
 		if !isFileBackedFDTarget(target) {
 			continue
 		}
 		if f, err := os.Open(fmt.Sprintf("/proc/%d/fd/%d", childPID, fd)); err == nil {
-			s.fdFiles[childKey] = f
+			st.files[childKey] = f
 		}
 	}
 }
 
 func (s *traceSession) cleanupProcessState(pid int) {
-	s.cleanupFDMap(pid)
-	s.cleanupFDOffsets(pid)
-	s.cleanupFDDataFiles(pid)
+	s.fdStateStore().CleanupProcess(pid)
+}
+
+func (st *FDStateStore) CleanupProcess(pid int) {
+	st.CleanupPaths(pid)
+	st.CleanupOffsets(pid)
+	st.CleanupDataFiles(pid)
 }
 
 func (s *traceSession) cleanupFDMap(pid int) {
+	s.fdStateStore().CleanupPaths(pid)
+}
+
+func (st *FDStateStore) CleanupPaths(pid int) {
+	st.ensureMaps()
 	prefix := fdMapPrefix(pid)
-	for key := range s.fdMap {
+	for key := range st.paths {
 		if strings.HasPrefix(key, prefix) {
-			delete(s.fdMap, key)
+			delete(st.paths, key)
 		}
 	}
 }
 
 func (s *traceSession) cleanupFDOffsets(pid int) {
+	s.fdStateStore().CleanupOffsets(pid)
+}
+
+func (st *FDStateStore) CleanupOffsets(pid int) {
+	st.ensureMaps()
 	prefix := fdMapPrefix(pid)
-	for key := range s.fdOffsets {
+	for key := range st.offsets {
 		if strings.HasPrefix(key, prefix) {
-			delete(s.fdOffsets, key)
+			delete(st.offsets, key)
 		}
 	}
 }
 
 func (s *traceSession) cleanupFDDataFiles(pid int) {
+	s.fdStateStore().CleanupDataFiles(pid)
+}
+
+func (st *FDStateStore) CleanupDataFiles(pid int) {
+	st.ensureMaps()
 	prefix := fdMapPrefix(pid)
-	for key, f := range s.fdFiles {
+	for key, f := range st.files {
 		if !strings.HasPrefix(key, prefix) {
 			continue
 		}
 		if f != nil {
 			f.Close()
 		}
-		delete(s.fdFiles, key)
+		delete(st.files, key)
 	}
 }

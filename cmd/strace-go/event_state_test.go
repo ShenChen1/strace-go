@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"testing"
 
 	"strace-go/pkg/cli"
@@ -17,9 +16,7 @@ func TestJSONEventsArePairedByTIDState(t *testing.T) {
 		targetPid: 1234,
 		opts:      opts,
 		decoder:   event.NewDecoder(),
-		fdMap:     make(map[string]string),
-		fdOffsets: make(map[string]int64),
-		fdFiles:   make(map[string]*os.File),
+		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
 		outWriter: &output,
 	}
 

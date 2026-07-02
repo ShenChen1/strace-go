@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"testing"
 
 	"strace-go/pkg/cli"
@@ -15,9 +14,9 @@ func TestSyscallEventContextBuildsSnapshotHandlerContext(t *testing.T) {
 		targetPid: 101,
 		opts:      opts,
 		decoder:   event.NewDecoder(),
-		fdMap:     map[string]string{"101:cwd": "/tmp"},
-		fdOffsets: make(map[string]int64),
-		fdFiles:   make(map[string]*os.File),
+		fdState: newFDStateStoreFromMaps(map[string]string{
+			"101:cwd": "/tmp",
+		}, nil, nil),
 	}
 	path := []byte("input.txt\x00")
 	eventRaw := &bpfEvent{

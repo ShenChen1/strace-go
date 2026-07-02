@@ -32,7 +32,7 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 	rawStrArg := decodeRawStringArg(s, eventRaw, scMeta, isPath)
 	shouldPrint := true
 	if s.opts != nil {
-		shouldPrint = checkShouldPrint(eventRaw, scMeta, rawStrArg, isPath, statePID, s.opts, s.fdMap)
+		shouldPrint = checkShouldPrint(eventRaw, scMeta, rawStrArg, isPath, statePID, s.opts, s.fdStateStore().PathMap())
 	}
 	bufferFileOffset, bufferFileOffsetOK := s.bufferFileOffset(eventRaw, scMeta)
 	ev := syscallEventContext{
@@ -95,8 +95,8 @@ func (ev syscallEventContext) newHandlerContext(s *traceSession) *handler.Contex
 		Ptr: ev.raw.Ptr, DataLen: ev.raw.DataLen, StrArgBuf: ev.raw.StrArg[:], RawStrArg: ev.rawStrArg,
 		PayloadSections:  payloadSectionsForEvent(ev.raw, ev.meta),
 		BufferFileOffset: ev.bufferFileOffset, BufferFileOffsetOK: ev.bufferFileOffsetOK,
-		ScMeta: ev.meta, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdMap,
-		FdFiles: s.fdFiles,
+		ScMeta: ev.meta, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdStateStore().PathMap(),
+		FdFiles: s.fdStateStore().FileMap(),
 	}
 }
 
@@ -130,18 +130,9 @@ func (ev syscallEventContext) isFDStateSyscall() bool {
 }
 
 func (s *traceSession) updateFDState(ev syscallEventContext) {
-	updateFDMap(ev.raw, ev.meta, ev.rawStrArg, s.decoder, ev.statePID, s.fdMap)
+	s.fdStateStore().UpdateFromEvent(ev.raw, ev.meta, ev.rawStrArg, s.decoder, ev.statePID)
 }
 
 func (s *traceSession) cleanupClosedFD(ev syscallEventContext) {
-	if ev.meta.Name != "close" || ev.raw.Ret != 0 {
-		return
-	}
-	key := fdStateKey(ev.statePID, int32(ev.raw.Args[0]))
-	delete(s.fdMap, key)
-	delete(s.fdOffsets, key)
-	if f := s.fdFiles[key]; f != nil {
-		f.Close()
-		delete(s.fdFiles, key)
-	}
+	s.fdStateStore().CleanupClosedFD(ev.raw, ev.meta, ev.statePID)
 }

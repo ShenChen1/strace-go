@@ -21,8 +21,9 @@ func syscallIDByName(t *testing.T, name string) uint32 {
 func TestFDOffsetsExposeWriteStartAndAdvance(t *testing.T) {
 	session := &traceSession{
 		targetPid: 101,
-		fdOffsets: map[string]int64{"101:1": 15},
-		fdFiles:   make(map[string]*os.File),
+		fdState: newFDStateStoreFromMaps(nil, map[string]int64{
+			"101:1": 15,
+		}, make(map[string]*os.File)),
 	}
 	eventRaw := &bpfEvent{
 		SysId: syscallIDByName(t, "write"),
@@ -37,7 +38,7 @@ func TestFDOffsetsExposeWriteStartAndAdvance(t *testing.T) {
 		t.Fatalf("bufferFileOffset = %d, %v; want 15, true", off, ok)
 	}
 	session.updateFDOffsets(eventRaw, scMeta)
-	if got := session.fdOffsets["101:1"]; got != 19 {
+	if got := session.fdState.offsets["101:1"]; got != 19 {
 		t.Fatalf("fd offset after write = %d, want 19", got)
 	}
 }
@@ -45,11 +46,10 @@ func TestFDOffsetsExposeWriteStartAndAdvance(t *testing.T) {
 func TestFDOffsetsUseEventProcessID(t *testing.T) {
 	session := &traceSession{
 		targetPid: 100,
-		fdOffsets: map[string]int64{
+		fdState: newFDStateStoreFromMaps(nil, map[string]int64{
 			"100:1": 3,
 			"101:1": 15,
-		},
-		fdFiles: make(map[string]*os.File),
+		}, make(map[string]*os.File)),
 	}
 	eventRaw := &bpfEvent{
 		SysId: syscallIDByName(t, "write"),
@@ -65,10 +65,10 @@ func TestFDOffsetsUseEventProcessID(t *testing.T) {
 		t.Fatalf("child bufferFileOffset = %d, %v; want 15, true", off, ok)
 	}
 	session.updateFDOffsets(eventRaw, scMeta)
-	if got := session.fdOffsets["101:1"]; got != 19 {
+	if got := session.fdState.offsets["101:1"]; got != 19 {
 		t.Fatalf("child fd offset after write = %d, want 19", got)
 	}
-	if got := session.fdOffsets["100:1"]; got != 3 {
+	if got := session.fdState.offsets["100:1"]; got != 3 {
 		t.Fatalf("parent fd offset after child write = %d, want 3", got)
 	}
 }

@@ -71,7 +71,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 
 	if stateUpdate.kind == traceStateSyscallEnter {
 		if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON &&
-			(s.opts.DebugEvents || checkShouldPrint(eventRaw, scMeta, "", false, statePID, s.opts, s.fdMap)) {
+			(s.opts.DebugEvents || checkShouldPrint(eventRaw, scMeta, "", false, statePID, s.opts, s.fdStateStore().PathMap())) {
 			s.writeJSONRawEvent(eventRaw, scMeta)
 		}
 		return

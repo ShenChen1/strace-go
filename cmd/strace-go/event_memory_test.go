@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"os"
 	"testing"
 
 	"strace-go/pkg/cli"
@@ -21,9 +20,7 @@ func TestJSONEventPathDoesNotReadTraceeMemory(t *testing.T) {
 		targetPid: 1234,
 		opts:      opts,
 		decoder:   decoder,
-		fdMap:     make(map[string]string),
-		fdOffsets: make(map[string]int64),
-		fdFiles:   make(map[string]*os.File),
+		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
 		outWriter: &output,
 	}
 
@@ -54,9 +51,7 @@ func TestJSONHandlerContextDoesNotReadTraceeMemory(t *testing.T) {
 		targetPid: 1234,
 		opts:      opts,
 		decoder:   decoder,
-		fdMap:     make(map[string]string),
-		fdOffsets: make(map[string]int64),
-		fdFiles:   make(map[string]*os.File),
+		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
 		outWriter: &output,
 	}
 
@@ -88,9 +83,7 @@ func TestTextEventPathDoesNotReadTraceeMemory(t *testing.T) {
 		targetPid: 1234,
 		opts:      opts,
 		decoder:   decoder,
-		fdMap:     make(map[string]string),
-		fdOffsets: make(map[string]int64),
-		fdFiles:   make(map[string]*os.File),
+		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
 		outWriter: &output,
 	}
 

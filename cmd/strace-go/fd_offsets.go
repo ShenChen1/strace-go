@@ -58,12 +58,16 @@ func readProcFDOffset(pid int, fd int32) (int64, bool) {
 }
 
 func (s *traceSession) bufferFileOffset(eventRaw *bpfEvent, scMeta meta.Syscall) (int64, bool) {
-	statePID := s.eventStatePID(eventRaw)
+	return s.fdStateStore().BufferFileOffset(eventRaw, scMeta, s.eventStatePID(eventRaw))
+}
+
+func (st *FDStateStore) BufferFileOffset(eventRaw *bpfEvent, scMeta meta.Syscall, statePID int) (int64, bool) {
+	st.ensureMaps()
 	switch scMeta.Name {
 	case "write":
 		fd := int32(eventRaw.Args[0])
 		key := fdStateKey(statePID, fd)
-		if off, ok := s.fdOffsets[key]; ok {
+		if off, ok := st.offsets[key]; ok {
 			return off, true
 		}
 		if off, ok := readProcFDOffset(int(eventRaw.Tid), fd); ok {
@@ -79,72 +83,80 @@ func (s *traceSession) bufferFileOffset(eventRaw *bpfEvent, scMeta meta.Syscall)
 }
 
 func (s *traceSession) updateFDOffsets(eventRaw *bpfEvent, scMeta meta.Syscall) {
+	s.fdStateStore().UpdateOffsets(eventRaw, scMeta, s.eventStatePID(eventRaw))
+}
+
+func (st *FDStateStore) UpdateOffsets(eventRaw *bpfEvent, scMeta meta.Syscall, statePID int) {
 	if eventRaw.ProbeRetEnter == 3 {
 		return
 	}
-	if s.fdOffsets == nil {
-		s.fdOffsets = make(map[string]int64)
-	}
-	if s.fdFiles == nil {
-		s.fdFiles = make(map[string]*os.File)
-	}
+	st.ensureMaps()
 	ret := eventRaw.Ret
 	if ret < 0 {
 		return
 	}
-	statePID := s.eventStatePID(eventRaw)
 
 	switch scMeta.Name {
 	case "open", "openat", "openat2", "creat":
 		fd := int32(ret)
 		key := fdStateKey(statePID, fd)
-		s.fdOffsets[key] = 0
-		s.rememberFDDataFile(eventRaw, fd)
+		st.offsets[key] = 0
+		st.RememberDataFile(eventRaw, statePID, fd)
 	case "dup", "dup2", "dup3":
 		oldKey := fdStateKey(statePID, int32(eventRaw.Args[0]))
 		newFD := int32(ret)
 		newKey := fdStateKey(statePID, newFD)
-		if off, ok := s.fdOffsets[oldKey]; ok {
-			s.fdOffsets[newKey] = off
+		if off, ok := st.offsets[oldKey]; ok {
+			st.offsets[newKey] = off
 		}
-		s.rememberFDDataFile(eventRaw, newFD)
+		st.RememberDataFile(eventRaw, statePID, newFD)
 	case "read", "write":
 		if ret == 0 {
 			return
 		}
 		fd := int32(eventRaw.Args[0])
 		key := fdStateKey(statePID, fd)
-		if off, ok := s.fdOffsets[key]; ok {
-			s.fdOffsets[key] = off + ret
+		if off, ok := st.offsets[key]; ok {
+			st.offsets[key] = off + ret
 		} else if off, ok := readProcFDOffset(int(eventRaw.Tid), fd); ok {
-			s.fdOffsets[key] = off
+			st.offsets[key] = off
 		}
 	case "lseek":
-		s.fdOffsets[fdStateKey(statePID, int32(eventRaw.Args[0]))] = ret
+		st.offsets[fdStateKey(statePID, int32(eventRaw.Args[0]))] = ret
 	}
 }
 
 func (s *traceSession) rememberFDDataFile(eventRaw *bpfEvent, fd int32) {
-	key := fdStateKey(s.eventStatePID(eventRaw), fd)
-	target := s.fdMap[key]
+	s.fdStateStore().RememberDataFile(eventRaw, s.eventStatePID(eventRaw), fd)
+}
+
+func (st *FDStateStore) RememberDataFile(eventRaw *bpfEvent, statePID int, fd int32) {
+	st.ensureMaps()
+	key := fdStateKey(statePID, fd)
+	target := st.paths[key]
 	if !isFileBackedFDTarget(target) {
 		return
 	}
-	if old := s.fdFiles[key]; old != nil {
+	if old := st.files[key]; old != nil {
 		old.Close()
 	}
 	f, err := os.Open(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, fd))
 	if err == nil {
-		s.fdFiles[key] = f
+		st.files[key] = f
 	}
 }
 
 func (s *traceSession) closeFDDataFiles() {
-	for key, f := range s.fdFiles {
+	s.fdStateStore().CloseFiles()
+}
+
+func (st *FDStateStore) CloseFiles() {
+	st.ensureMaps()
+	for key, f := range st.files {
 		if f != nil {
 			f.Close()
 		}
-		delete(s.fdFiles, key)
+		delete(st.files, key)
 	}
 }
 

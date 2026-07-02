@@ -35,9 +35,7 @@ type traceSession struct {
 	targetPid         int
 	opts              *cli.Options
 	decoder           *event.Decoder
-	fdMap             map[string]string
-	fdOffsets         map[string]int64
-	fdFiles           map[string]*os.File
+	fdState           *FDStateStore
 	outWriter         io.Writer
 	outFile           *os.File
 	outCmd            *exec.Cmd
