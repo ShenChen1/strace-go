@@ -126,10 +126,7 @@ func signalStructSnapshot(
 	if data, ok := ctx.PayloadStruct(argIndex, direction); ok {
 		return boundedBpfStructData(data, size)
 	}
-	if direction == PayloadDirectionOut {
-		return ctx.ExitSnapshot(offset, size)
-	}
-	return ctx.EnterArgSnapshot(argIndex, offset, size)
+	return nil, false
 }
 
 func formatSigaction(data []byte) string {

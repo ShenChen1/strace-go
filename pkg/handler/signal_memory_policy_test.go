@@ -55,7 +55,7 @@ func TestSignalSigsetDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestSignalSigsetUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestSignalSigsetIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSigsetData(1)}
 	decoder := event.NewDecoder()
 	ctx := newSignalPolicyContext(reader, decoder)
@@ -63,8 +63,8 @@ func TestSignalSigsetUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	putSignalSnapshot(ctx, BpfEnterArgOffset, makeSigsetData(1))
 
 	got := (&SignalHandler{}).formatSigsetArg(ctx, 1, "nset", 0x1000)
-	if got != "[HUP]" {
-		t.Fatalf("formatSigsetArg() = %q", got)
+	if got != "[]" {
+		t.Fatalf("formatSigsetArg() = %q, want empty set fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -104,7 +104,7 @@ func TestSignalOldsetDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestSignalOldsetUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestSignalOldsetIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSigsetData(0)}
 	decoder := event.NewDecoder()
 	ctx := newSignalPolicyContext(reader, decoder)
@@ -113,8 +113,8 @@ func TestSignalOldsetUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	putSignalSnapshot(ctx, BpfExitArgOffset, makeSigsetData(1))
 
 	got := (&SignalHandler{}).formatSigsetArg(ctx, 2, "oset", 0x1000)
-	if got != "[HUP]" {
-		t.Fatalf("formatSigsetArg() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("formatSigsetArg() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -172,7 +172,7 @@ func TestSignalSigactionUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestSignalSigactionUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestSignalSigactionIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSigactionData(1, 1)}
 	decoder := event.NewDecoder()
 	ctx := newSignalPolicyContext(reader, decoder)
@@ -180,8 +180,8 @@ func TestSignalSigactionUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	putSignalSnapshot(ctx, BpfEnterArgOffset, makeSigactionData(1, 1))
 
 	got := (&SignalHandler{}).formatSigactionArg(ctx, 1, "act", 0x2000)
-	if !strings.Contains(got, "sa_handler=SIG_IGN") || !strings.Contains(got, "sa_mask=[HUP]") {
-		t.Fatalf("formatSigactionArg() = %q", got)
+	if got != "0x2000" {
+		t.Fatalf("formatSigactionArg() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -206,7 +206,7 @@ func TestSignalOldSigactionUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestSignalSigactionUsesExitSnapshotWhenFallbackDisabled(t *testing.T) {
+func TestSignalSigactionIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSigactionData(0, 0)}
 	decoder := event.NewDecoder()
 	ctx := newSignalPolicyContext(reader, decoder)
@@ -214,8 +214,8 @@ func TestSignalSigactionUsesExitSnapshotWhenFallbackDisabled(t *testing.T) {
 	putSignalSnapshot(ctx, BpfExitArgOffset, makeSigactionData(1, 1))
 
 	got := (&SignalHandler{}).formatSigactionArg(ctx, 2, "oact", 0x2000)
-	if !strings.Contains(got, "sa_handler=SIG_IGN") || !strings.Contains(got, "sa_mask=[HUP]") {
-		t.Fatalf("formatSigactionArg() = %q", got)
+	if got != "0x2000" {
+		t.Fatalf("formatSigactionArg() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
