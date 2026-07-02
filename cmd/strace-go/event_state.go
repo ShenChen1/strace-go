@@ -19,6 +19,20 @@ type TraceState struct {
 	tasks             map[uint32]*TaskState
 }
 
+type traceStateEventKind uint8
+
+const (
+	traceStateSyscallExit traceStateEventKind = iota
+	traceStateSyscallEnter
+	traceStateLifecycle
+)
+
+type TraceStateUpdate struct {
+	kind          traceStateEventKind
+	pendingEnter  *pendingSyscallState
+	lifecycleTask *TaskState
+}
+
 func newTraceState() *TraceState {
 	return &TraceState{}
 }
@@ -28,6 +42,26 @@ func (s *traceSession) traceState() *TraceState {
 		s.state = newTraceState()
 	}
 	return s.state
+}
+
+func (st *TraceState) Handle(eventRaw *bpfEvent) TraceStateUpdate {
+	if isLifecycleEvent(eventRaw) {
+		task := st.applyLifecycleEvent(eventRaw)
+		if eventRaw.EventFlags == lifecycleExit || eventRaw.EventFlags == lifecycleFree {
+			st.clearTaskPending(eventRaw.Tid)
+		}
+		return TraceStateUpdate{kind: traceStateLifecycle, lifecycleTask: task}
+	}
+
+	st.noteSyscallTask(eventRaw)
+	if isGenericEnterEvent(eventRaw) {
+		st.rememberEnterEvent(eventRaw)
+		return TraceStateUpdate{kind: traceStateSyscallEnter}
+	}
+	return TraceStateUpdate{
+		kind:         traceStateSyscallExit,
+		pendingEnter: st.consumeEnterEvent(eventRaw),
+	}
 }
 
 func (st *TraceState) rememberEnterEvent(eventRaw *bpfEvent) {

@@ -60,28 +60,26 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	}
 	tPid := int(eventRaw.Tid)
 	statePID := s.eventStatePID(eventRaw)
+	stateUpdate := s.traceState().Handle(eventRaw)
 
-	if isLifecycleEvent(eventRaw) {
-		s.handleLifecycleEvent(eventRaw)
+	if stateUpdate.kind == traceStateLifecycle {
+		s.handleLifecycleEvent(eventRaw, stateUpdate.lifecycleTask)
 		return
 	}
-	traceState := s.traceState()
-	traceState.noteSyscallTask(eventRaw)
 
 	scMeta, ok := meta.SyscallTable[eventRaw.SysId]
 	if !ok {
 		scMeta = meta.Syscall{Name: fmt.Sprintf("sys_%d", eventRaw.SysId)}
 	}
 
-	if isGenericEnterEvent(eventRaw) {
-		traceState.rememberEnterEvent(eventRaw)
+	if stateUpdate.kind == traceStateSyscallEnter {
 		if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON &&
 			(s.opts.DebugEvents || checkShouldPrint(eventRaw, scMeta, "", false, statePID, s.opts, s.fdMap)) {
 			s.writeJSONRawEvent(eventRaw, scMeta)
 		}
 		return
 	}
-	pendingEnter := traceState.consumeEnterEvent(eventRaw)
+	pendingEnter := stateUpdate.pendingEnter
 
 	ret := eventRaw.Ret
 	strArgBuf := eventRaw.StrArg[:]
@@ -221,15 +219,12 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	s.handleEventOutput(ctx, eventRaw, res)
 }
 
-func (s *traceSession) handleLifecycleEvent(eventRaw *bpfEvent) {
-	traceState := s.traceState()
-	task := traceState.applyLifecycleEvent(eventRaw)
+func (s *traceSession) handleLifecycleEvent(eventRaw *bpfEvent, task *TaskState) {
 	if eventRaw.EventFlags == lifecycleFork {
 		s.inheritProcessState(int(eventRaw.Args[0]), int(eventRaw.Args[1]))
 	}
 	switch eventRaw.EventFlags {
 	case lifecycleExit, lifecycleFree:
-		traceState.clearTaskPending(eventRaw.Tid)
 		s.cleanupProcessState(int(eventRaw.Tid))
 	}
 	if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON {

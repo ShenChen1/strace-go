@@ -68,6 +68,45 @@ func TestJSONEventsArePairedByTIDState(t *testing.T) {
 	}
 }
 
+func TestTraceStateHandlePairsEnterExitAndCleansLifecycle(t *testing.T) {
+	state := newTraceState()
+	enter := &bpfEvent{
+		Pid:        1234,
+		Tid:        1235,
+		SysId:      39,
+		EventType:  bpfEventTypeEnter,
+		EventFlags: bpfEventFlagGenericEnter,
+		EnterTime:  100,
+	}
+	exit := &bpfEvent{
+		Pid:       1234,
+		Tid:       1235,
+		SysId:     39,
+		EventType: bpfEventTypeExit,
+	}
+
+	enterUpdate := state.Handle(enter)
+	if enterUpdate.kind != traceStateSyscallEnter || len(state.pendingSyscalls) != 1 {
+		t.Fatalf("enter update = %+v pending=%d, want enter with one pending", enterUpdate, len(state.pendingSyscalls))
+	}
+	exitUpdate := state.Handle(exit)
+	if exitUpdate.kind != traceStateSyscallExit || exitUpdate.pendingEnter == nil || len(state.pendingSyscalls) != 0 {
+		t.Fatalf("exit update = %+v pending=%d, want paired exit with no pending", exitUpdate, len(state.pendingSyscalls))
+	}
+
+	state.rememberPendingExecArgs(1235, "execve(...)")
+	state.rememberSuspendedSyscall(1235, "nanosleep")
+	state.Handle(&bpfEvent{
+		Pid:        1234,
+		Tid:        1235,
+		EventType:  bpfEventTypeLifecycle,
+		EventFlags: lifecycleFree,
+	})
+	if len(state.pendingExecArgs) != 0 || len(state.suspendedSyscalls) != 0 || len(state.pendingSyscalls) != 0 {
+		t.Fatalf("lifecycle free did not clear pending state: %+v", state)
+	}
+}
+
 func TestZeroEventTypeIsNotExit(t *testing.T) {
 	eventRaw := &bpfEvent{EventVersion: 2}
 
