@@ -2,11 +2,9 @@ package main
 
 import (
 	"fmt"
-	"strings"
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
 )
 
 // IMPACT: resolvePtrProbeRet returns the specific probe status for eventRaw.Ptr based on its argument index.
@@ -155,7 +153,6 @@ func (s *traceSession) handleLifecycleEvent(eventRaw *bpfEvent, task *TaskState)
 func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEvent, res handler.Result) {
 	tPid := int(eventRaw.Tid)
 	scMeta := ctx.ScMeta
-	ret := eventRaw.Ret
 
 	if s.opts != nil {
 		status := successfulFailedOptions{
@@ -178,73 +175,11 @@ func (s *traceSession) handleEventOutput(ctx *handler.Context, eventRaw *bpfEven
 		return
 	}
 
-	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == -514 {
-		s.traceState().rememberPendingExecArgs(tPid, fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", ")))
-		if tPid == int(eventRaw.Pid) {
-			return
-		}
-	}
-
-	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == 0 && tPid == int(eventRaw.Pid) {
-		argLine, ok := s.traceState().takePendingExecArgs(tPid)
-		if ok {
-			s.textRenderer().PrintExecResume(eventRaw, argLine)
-		}
-		return
-	}
-
-	if handleSuperseded(eventRaw, scMeta, res, s) {
+	if s.execSyscallOutput().Handle(eventRaw, scMeta, res) {
 		return
 	}
 
 	s.textRenderer().PrintSyscall(eventRaw, scMeta, res, ctx)
-}
-
-// IMPACT: handleSuperseded formats and prints superseded thread details when a non-leader thread executes execve.
-func handleSuperseded(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, s *traceSession) bool {
-	ret := eventRaw.Ret
-	tPid := int(eventRaw.Tid)
-	tgid := int(eventRaw.Pid)
-	opts := s.opts
-	renderer := s.textRenderer()
-	isExecSuspended := (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == -514
-	if isExecSuspended && tPid != tgid && opts != nil && opts.FollowForks {
-		exited := eventRaw.ProbeRetEnter == 1
-
-		argLine, ok := s.traceState().pendingExecArgsFor(tPid)
-		if !ok {
-			argLine = fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
-		}
-
-		if exited {
-			renderer.PrintExecPidChanged(eventRaw, argLine)
-		} else {
-			renderer.PrintExecSupersededUnfinished(eventRaw, argLine)
-		}
-		return true
-	}
-	isExecSuccess := (scMeta.Name == "execve" || scMeta.Name == "execveat") && ret == 0
-	if isExecSuccess && tPid != tgid && opts != nil && opts.FollowForks {
-		exited := eventRaw.ProbeRetEnter == 1
-		s.traceState().deletePendingExecArgs(tPid)
-		s.discardExitStatus(tgid)
-
-		if exited {
-			return true
-		}
-
-		if eventRaw.ProbeRetExit > 0 {
-			suspendedSysId := uint32(eventRaw.ProbeRetExit)
-			if suspMeta, ok := meta.SyscallTable[suspendedSysId]; ok {
-				s.traceState().deleteSuspendedSyscall(tgid)
-
-				renderer.PrintSupersededSuspendedResume(eventRaw, suspMeta.Name)
-			}
-		}
-		renderer.PrintThreadExecveSuperseded(eventRaw, scMeta.Name)
-		return true
-	}
-	return false
 }
 
 func (s *traceSession) shouldQueueExitStatus(tgid int) bool {
