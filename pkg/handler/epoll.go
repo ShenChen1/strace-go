@@ -20,7 +20,6 @@ type EpollHandler struct{}
 const (
 	epollEventSize          = 12
 	epollEventSnapshotLimit = 512
-	epollPwait2TimeoutOff   = BpfMiscArgOffset
 )
 
 func (h *EpollHandler) Handle(ctx *Context) Result {
@@ -100,21 +99,21 @@ func epollCtlEventSnapshot(ctx *Context) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(3, PayloadDirectionIn); ok {
 		return boundedBpfStructData(data, epollEventSize)
 	}
-	return ctx.EnterArgSnapshot(3, BpfEnterArgOffset, epollEventSize)
+	return nil, false
 }
 
 func epollWaitEventsSnapshot(ctx *Context, size int) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(1, PayloadDirectionOut); ok {
 		return boundedBpfStructData(data, size)
 	}
-	return ctx.ExitSnapshot(BpfExitArgOffset, size)
+	return nil, false
 }
 
 func epollPwait2TimeoutSnapshot(ctx *Context) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(3, PayloadDirectionIn); ok {
 		return boundedBpfStructData(data, 16)
 	}
-	return ctx.EnterArgSnapshot(3, epollPwait2TimeoutOff, 16)
+	return nil, false
 }
 
 func formatPointerEpoll(ptr uint64, ret int64) string {

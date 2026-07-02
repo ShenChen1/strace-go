@@ -59,7 +59,7 @@ func TestEpollCtlFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestEpollCtlUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestEpollCtlIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeEpollEvent(1, 7)}
 	ctx := newEpollPolicyContext(reader, "epoll_ctl")
 	ctx.Args = [6]uint64{3, 1, 4, 0x1000}
@@ -70,8 +70,8 @@ func TestEpollCtlUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	if len(got.ArgParts) != 4 {
 		t.Fatalf("ArgParts len = %d, want 4", len(got.ArgParts))
 	}
-	if !strings.Contains(got.ArgParts[3], "data={u32=7, u64=0x7}") {
-		t.Fatalf("epoll_ctl event = %q", got.ArgParts[3])
+	if got.ArgParts[3] != "0x1000" {
+		t.Fatalf("epoll_ctl event = %q, want pointer fallback", got.ArgParts[3])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -131,7 +131,7 @@ func TestEpollWaitFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestEpollWaitUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestEpollWaitIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeEpollEvent(2, 9)}
 	ctx := newEpollPolicyContext(reader, "epoll_wait")
 	ctx.Args = [6]uint64{5, 0x2000, 1, 1000}
@@ -143,8 +143,8 @@ func TestEpollWaitUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	if len(got.ArgParts) != 4 {
 		t.Fatalf("ArgParts len = %d, want 4", len(got.ArgParts))
 	}
-	if !strings.Contains(got.ArgParts[1], "data={u32=7, u64=0x7}") {
-		t.Fatalf("epoll_wait events = %q", got.ArgParts[1])
+	if got.ArgParts[1] != "0x2000" {
+		t.Fatalf("epoll_wait events = %q, want pointer fallback", got.ArgParts[1])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -191,20 +191,20 @@ func TestEpollPwait2TimeoutFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestEpollPwait2TimeoutUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestEpollPwait2TimeoutIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeEpollTimespec(99, 100)}
 	ctx := newEpollPolicyContext(reader, "epoll_pwait2")
 	ctx.Args = [6]uint64{5, 0x2000, 1, 0x3000, 0x4000, 8}
 	ctx.Ret = 0
 	ctx.ProbeRetEnter = 0
-	putEpollSnapshot(ctx, epollPwait2TimeoutOff, makeEpollTimespec(9, 10))
+	putEpollSnapshot(ctx, BpfMiscArgOffset, makeEpollTimespec(9, 10))
 
 	got := (&EpollHandler{}).Handle(ctx)
 	if len(got.ArgParts) != 6 {
 		t.Fatalf("ArgParts len = %d, want 6", len(got.ArgParts))
 	}
-	if got.ArgParts[3] != "{tv_sec=9, tv_nsec=10}" {
-		t.Fatalf("epoll_pwait2 timeout = %q", got.ArgParts[3])
+	if got.ArgParts[3] != "0x3000" {
+		t.Fatalf("epoll_pwait2 timeout = %q, want pointer fallback", got.ArgParts[3])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -233,7 +233,7 @@ func TestEpollPwait2TimeoutUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestEpollPwait2UsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestEpollPwait2IgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeEpollEvent(2, 9)}
 	ctx := newEpollPolicyContext(reader, "epoll_pwait2")
 	ctx.Args = [6]uint64{5, 0x2000, 1, 0, 0, 8}
@@ -245,8 +245,8 @@ func TestEpollPwait2UsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	if len(got.ArgParts) != 6 {
 		t.Fatalf("ArgParts len = %d, want 6", len(got.ArgParts))
 	}
-	if !strings.Contains(got.ArgParts[1], "data={u32=7, u64=0x7}") {
-		t.Fatalf("epoll_pwait2 events = %q", got.ArgParts[1])
+	if got.ArgParts[1] != "0x2000" {
+		t.Fatalf("epoll_pwait2 events = %q, want pointer fallback", got.ArgParts[1])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
