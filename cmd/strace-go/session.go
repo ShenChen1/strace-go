@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -23,12 +22,6 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 )
 
-type syscallStat struct {
-	calls    int
-	errors   int
-	duration uint64 // total duration in nanoseconds
-}
-
 type traceSession struct {
 	cmd               *exec.Cmd
 	events            *ringbuf.Reader
@@ -40,7 +33,7 @@ type traceSession struct {
 	outFile           *os.File
 	outCmd            *exec.Cmd
 	outPipe           io.WriteCloser
-	stats             map[string]*syscallStat
+	summary           *SummaryStats
 	bootTimeOffsetNs  int64
 	lastSyscallTimeNs uint64
 	bpfObjs           *bpfObjects
@@ -296,60 +289,4 @@ func setupOutput(outFileOpt string, appendMode bool) (io.Writer, *os.File, *exec
 		log.Fatalf("failed to create output file: %v", err)
 	}
 	return outFile, outFile, nil, nil
-}
-
-// IMPACT: printSummary outputs the syscall execution statistics matching strace -c formatting, now with timing.
-func (s *traceSession) printSummary() {
-	fmt.Fprintf(s.outWriter, "%6s %11s %11s %9s %9s %s\n", "% time", "seconds", "usecs/call", "calls", "errors", "syscall")
-	fmt.Fprintf(s.outWriter, "------ ----------- ----------- --------- --------- ----------------\n")
-	totalCalls := 0
-	totalErrors := 0
-	var totalDurationNs uint64 = 0
-
-	type statEntry struct {
-		name string
-		stat *syscallStat
-	}
-	var entries []statEntry
-	for name, stat := range s.stats {
-		totalCalls += stat.calls
-		totalErrors += stat.errors
-		totalDurationNs += stat.duration
-		entries = append(entries, statEntry{name, stat})
-	}
-
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].stat.duration != entries[j].stat.duration {
-			return entries[i].stat.duration > entries[j].stat.duration
-		}
-		if entries[i].stat.calls != entries[j].stat.calls {
-			return entries[i].stat.calls > entries[j].stat.calls
-		}
-		return entries[i].name < entries[j].name
-	})
-
-	for _, entry := range entries {
-		stat := entry.stat
-		errStr := ""
-		if stat.errors > 0 {
-			errStr = strconv.Itoa(stat.errors)
-		}
-		pct := 0.0
-		if totalDurationNs > 0 {
-			pct = float64(stat.duration) / float64(totalDurationNs) * 100.0
-		}
-		secs := float64(stat.duration) / 1e9
-		usecs := int64(0)
-		if stat.calls > 0 {
-			usecs = int64(stat.duration / uint64(stat.calls) / 1000)
-		}
-		fmt.Fprintf(s.outWriter, "%6.2f %11.6f %11d %9d %9s %s\n", pct, secs, usecs, stat.calls, errStr, entry.name)
-	}
-	fmt.Fprintf(s.outWriter, "------ ----------- ----------- --------- --------- ----------------\n")
-	errStr := ""
-	if totalErrors > 0 {
-		errStr = strconv.Itoa(totalErrors)
-	}
-	totalSecs := float64(totalDurationNs) / 1e9
-	fmt.Fprintf(s.outWriter, "%6.2f %11.6f %11s %9d %9s %s\n", 100.0, totalSecs, "", totalCalls, errStr, "total")
 }

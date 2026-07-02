@@ -104,19 +104,7 @@ func (s *traceSession) updateSummaryStats(ev syscallEventContext) {
 	if s.opts == nil || (!s.opts.SummaryOnly && !s.opts.SummaryAndPrint) || !ev.shouldPrint {
 		return
 	}
-	if s.stats == nil {
-		s.stats = make(map[string]*syscallStat)
-	}
-	stat := s.stats[ev.meta.Name]
-	if stat == nil {
-		stat = &syscallStat{}
-		s.stats[ev.meta.Name] = stat
-	}
-	stat.calls++
-	stat.duration += ev.raw.Duration
-	if ev.raw.Ret < 0 && ev.raw.Ret >= -4095 {
-		stat.errors++
-	}
+	s.summaryStats().Record(ev.meta.Name, ev.raw.Duration, ev.raw.Ret)
 }
 
 func (ev syscallEventContext) isFDStateSyscall() bool {
