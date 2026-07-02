@@ -45,7 +45,7 @@ func readOpenHowSnapshot(ctx *Context, argIndex int, requested uint64) ([]byte, 
 		}
 		return data, true
 	}
-	return ctx.EnterArgSnapshot(argIndex, openHowSnapshotOffset, readSize)
+	return nil, false
 }
 
 func formatOpenHow(d []byte, requested uint64) string {

@@ -25,17 +25,14 @@ func (r *openHowMemoryReader) ReadRobust(pid int, addr uint64, size int, _ bool)
 	return r.Read(pid, addr, size)
 }
 
-func TestDecodeOpenHowUsesEnterSnapshot(t *testing.T) {
+func TestDecodeOpenHowIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &openHowMemoryReader{data: openHowBytes(0, 0, 0)}
 	decoder := event.NewDecoder()
 
 	ctx := openHowContext(reader, decoder, openHowBytes(0, 0, 0), uint64(openHowMinSize))
 	got, ok := decodeOpenHow(ctx, 2, "struct open_how *", 0x2000)
-	if !ok {
-		t.Fatal("decodeOpenHow did not use enter snapshot")
-	}
-	if got != "{flags=O_RDONLY, resolve=0}" {
-		t.Fatalf("decodeOpenHow() = %q", got)
+	if ok {
+		t.Fatalf("decodeOpenHow() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
