@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"strace-go/pkg/cli"
-	"strace-go/pkg/handler"
 )
 
 // IMPACT: resolvePtrProbeRet returns the specific probe status for eventRaw.Ptr based on its argument index.
@@ -78,29 +77,20 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		}
 	}
 
-	ctx := ev.handlerContext
-
 	if s.exitSyscallOutput().Handle(ev) {
 		return
 	}
 
-	if !ev.shouldPrint {
-		if ev.isFDStateSyscall() {
-			handler.Get(scMeta.Name).Handle(ctx)
-		}
-		s.updateFDState(ev)
+	res, shouldOutput := s.syscallHandlerRunner().Handle(ev)
+	if !shouldOutput {
 		return
 	}
-
-	h := handler.Get(scMeta.Name)
-	res := h.Handle(ctx)
-	s.updateFDState(ev)
 
 	if s.syscallJSONOutput().HandleDecoded(ev, res) {
 		return
 	}
 
-	s.syscallTextOutput().Handle(ctx, eventRaw, res)
+	s.syscallTextOutput().Handle(ev.handlerContext, eventRaw, res)
 }
 
 func (s *traceSession) handleLifecycleEvent(eventRaw *bpfEvent, task *TaskState) {
