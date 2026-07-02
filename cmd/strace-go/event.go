@@ -67,10 +67,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		return
 	}
 
-	scMeta, ok := meta.SyscallTable[eventRaw.SysId]
-	if !ok {
-		scMeta = meta.Syscall{Name: fmt.Sprintf("sys_%d", eventRaw.SysId)}
-	}
+	scMeta := syscallMeta(eventRaw.SysId)
 
 	if stateUpdate.kind == traceStateSyscallEnter {
 		if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON &&
@@ -79,36 +76,12 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		}
 		return
 	}
-	pendingEnter := stateUpdate.pendingEnter
+	ev := newSyscallEventContext(s, eventRaw, statePID, stateUpdate.pendingEnter)
 
-	ret := eventRaw.Ret
-	strArgBuf := eventRaw.StrArg[:]
-	payloadSections := payloadSectionsForEvent(eventRaw, scMeta)
-	isPath := false
-	for _, argName := range scMeta.Args {
-		if argName == "filename" || argName == "pathname" || argName == "path" || argName == "oldname" || argName == "newname" || argName == "fs_name" {
-			isPath = true
-			break
-		}
-	}
-	capSize := 512
-	if isPath {
-		capSize = 4097
-	}
-	ptrProbeRet := resolvePtrProbeRet(eventRaw)
-	// Decode only the string snapshot copied by BPF for path filtering and display.
-	rawStrArg := s.decoder.DecodeString(int(eventRaw.Tid), eventRaw.Ptr, strArgBuf[:capSize], ptrProbeRet, scMeta.Name, 0)
+	scMeta = ev.meta
 
 	defer func() {
-		if scMeta.Name == "close" && ret == 0 {
-			key := fmt.Sprintf("%d:%d", statePID, int32(eventRaw.Args[0]))
-			delete(s.fdMap, key)
-			delete(s.fdOffsets, key)
-			if f := s.fdFiles[key]; f != nil {
-				f.Close()
-				delete(s.fdFiles, key)
-			}
-		}
+		s.cleanupClosedFD(ev)
 	}()
 	defer s.updateFDOffsets(eventRaw, scMeta)
 
@@ -121,42 +94,14 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		return
 	}
 
-	shouldPrint := checkShouldPrint(eventRaw, scMeta, rawStrArg, isPath, statePID, s.opts, s.fdMap)
-
 	if s.opts.SummaryOnly || s.opts.SummaryAndPrint {
-		if shouldPrint {
-			if s.stats == nil {
-				s.stats = make(map[string]*syscallStat)
-			}
-			stat := s.stats[scMeta.Name]
-			if stat == nil {
-				stat = &syscallStat{}
-				s.stats[scMeta.Name] = stat
-			}
-			stat.calls++
-			stat.duration += eventRaw.Duration
-			if ret < 0 && ret >= -4095 { // -4095 is MAX_ERRNO
-				stat.errors++
-			}
-		}
+		s.updateSummaryStats(ev)
 		if s.opts.SummaryOnly {
 			return
 		}
 	}
 
-	bufferFileOffset, bufferFileOffsetOK := s.bufferFileOffset(eventRaw, scMeta)
-	ctx := &handler.Context{
-		Pid: int(eventRaw.Pid), Tid: tPid, TargetPid: statePID, SysId: eventRaw.SysId,
-		SysName: scMeta.Name, Args: eventRaw.Args, Ret: ret,
-		ProbeRetEnter: eventRaw.ProbeRetEnter, ProbeRetExit: eventRaw.ProbeRetExit,
-		Ptr: eventRaw.Ptr, DataLen: eventRaw.DataLen, StrArgBuf: strArgBuf, RawStrArg: rawStrArg,
-		PayloadSections:  payloadSections,
-		BufferFileOffset: bufferFileOffset, BufferFileOffsetOK: bufferFileOffsetOK,
-		ScMeta: scMeta, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdMap,
-		FdFiles: s.fdFiles,
-	}
-
-	isFdSys := scMeta.Name == "open" || scMeta.Name == "openat" || scMeta.Name == "openat2" || scMeta.Name == "creat" || scMeta.Name == "dup" || scMeta.Name == "dup2" || scMeta.Name == "dup3" || scMeta.Name == "close" || scMeta.Name == "faccessat" || scMeta.Name == "faccessat2" || scMeta.Name == "chmodat" || scMeta.Name == "mkdirat" || scMeta.Name == "newfstatat" || scMeta.Name == "fstat" || scMeta.Name == "chdir" || scMeta.Name == "fchdir"
+	ctx := ev.handlerContext
 
 	if eventRaw.ProbeRetEnter == -1 && (scMeta.Name == "exit" || scMeta.Name == "exit_group") {
 		if s.opts == nil || !s.opts.SummaryOnly {
@@ -165,11 +110,11 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 			if s.opts != nil && s.opts.FollowForks {
 				pidPrefix = fmt.Sprintf("%-5d ", tPid)
 			}
-			if shouldPrint {
+			if ev.shouldPrint {
 				h := handler.Get(scMeta.Name)
 				res := h.Handle(ctx)
 				if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON {
-					s.writeJSONEvent(eventRaw, scMeta, res, ctx, pendingEnter)
+					s.writeJSONEvent(eventRaw, scMeta, res, ctx, ev.pendingEnter)
 					return
 				}
 				argLine := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
@@ -192,17 +137,17 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		return
 	}
 
-	if !shouldPrint {
-		if isFdSys {
+	if !ev.shouldPrint {
+		if ev.isFDStateSyscall() {
 			handler.Get(scMeta.Name).Handle(ctx)
 		}
-		updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, statePID, s.fdMap)
+		s.updateFDState(ev)
 		return
 	}
 
 	h := handler.Get(scMeta.Name)
 	res := h.Handle(ctx)
-	updateFDMap(eventRaw, scMeta, rawStrArg, s.decoder, statePID, s.fdMap)
+	s.updateFDState(ev)
 
 	if s.opts != nil && s.opts.EventFormat == cli.EventFormatJSON {
 		status := successfulFailedOptions{
@@ -211,7 +156,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 			traceStatus:    s.opts.TraceStatus,
 		}
 		if shouldEmitStatus(eventRaw, scMeta, status) {
-			s.writeJSONEvent(eventRaw, scMeta, res, ctx, pendingEnter)
+			s.writeJSONEvent(eventRaw, scMeta, res, ctx, ev.pendingEnter)
 		}
 		return
 	}
