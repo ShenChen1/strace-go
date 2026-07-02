@@ -86,6 +86,10 @@ func (s *traceSession) updateFDOffsets(eventRaw *bpfEvent, scMeta meta.Syscall) 
 	s.fdStateStore().UpdateOffsets(eventRaw, scMeta, s.eventStatePID(eventRaw))
 }
 
+func (s *traceSession) updateSyscallFDOffsets(ev syscallEventContext) {
+	s.fdStateStore().UpdateOffsets(ev.raw, ev.meta, ev.statePID)
+}
+
 func (st *FDStateStore) UpdateOffsets(eventRaw *bpfEvent, scMeta meta.Syscall, statePID int) {
 	if eventRaw.ProbeRetEnter == 3 {
 		return

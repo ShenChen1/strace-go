@@ -53,42 +53,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	}
 	ev := newSyscallEventContext(s, eventRaw, statePID, stateUpdate.pendingEnter)
 
-	scMeta = ev.meta
-
-	defer func() {
-		s.cleanupClosedFD(ev)
-	}()
-	defer s.updateFDOffsets(eventRaw, scMeta)
-
-	if s.syscallJSONOutput().HandleDebugRaw(eventRaw, scMeta) {
-		return
-	}
-
-	if scMeta.Name == "arch_prctl" && eventRaw.Args[0] == 0x1002 {
-		return
-	}
-
-	if s.opts.SummaryOnly || s.opts.SummaryAndPrint {
-		s.updateSummaryStats(ev)
-		if s.opts.SummaryOnly {
-			return
-		}
-	}
-
-	if s.exitSyscallOutput().Handle(ev) {
-		return
-	}
-
-	res, shouldOutput := s.syscallHandlerRunner().Handle(ev)
-	if !shouldOutput {
-		return
-	}
-
-	if s.syscallJSONOutput().HandleDecoded(ev, res) {
-		return
-	}
-
-	s.syscallTextOutput().Handle(ev.handlerContext, eventRaw, res)
+	s.syscallExitPipeline().Handle(ev)
 }
 
 func (s *traceSession) shouldQueueExitStatus(tgid int) bool {
