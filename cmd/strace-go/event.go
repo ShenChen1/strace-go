@@ -104,11 +104,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 
 	if eventRaw.ProbeRetEnter == -1 && (scMeta.Name == "exit" || scMeta.Name == "exit_group") {
 		if s.opts == nil || !s.opts.SummaryOnly {
-			timePrefix := s.timePrefix(eventRaw.EnterTime)
-			pidPrefix := ""
-			if s.opts != nil && s.opts.FollowForks {
-				pidPrefix = fmt.Sprintf("%-5d ", tPid)
-			}
+			renderer := s.textRenderer()
 			if ev.shouldPrint {
 				h := handler.Get(scMeta.Name)
 				res := h.Handle(ctx)
@@ -116,16 +112,10 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 					s.writeJSONEvent(eventRaw, scMeta, res, ctx, ev.pendingEnter)
 					return
 				}
-				argLine := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
-				padding := " "
-				totalLen := len(timePrefix) + len(pidPrefix) + len(argLine)
-				if totalLen < s.opts.AlignCol {
-					padding = strings.Repeat(" ", s.opts.AlignCol-totalLen)
-				}
-				fmt.Fprintf(s.outWriter, "%s%s%s%s= ?\n", timePrefix, pidPrefix, argLine, padding)
+				renderer.PrintExitSyscall(eventRaw, scMeta, res)
 			}
 			if s.opts == nil || !s.opts.QuietExit {
-				exitLine := fmt.Sprintf("%s%s+++ exited with %d +++\n", timePrefix, pidPrefix, eventRaw.Args[0])
+				exitLine := renderer.ExitStatusLine(eventRaw)
 				if s.shouldQueueExitStatus(int(eventRaw.Pid)) {
 					s.queueExitStatus(tPid, exitLine)
 				} else {

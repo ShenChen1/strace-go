@@ -72,6 +72,21 @@ func TestTextRendererPrintsSupersededExecMessages(t *testing.T) {
 	}
 }
 
+func TestTextRendererPrintsExitLines(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{FollowForks: true}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	eventRaw := &bpfEvent{Tid: 101, Args: [6]uint64{7}}
+
+	renderer.PrintExitSyscall(eventRaw, meta.Syscall{Name: "exit_group"}, handler.Result{ArgParts: []string{"7"}})
+	if got := output.String(); got != "101   exit_group(7) = ?\n" {
+		t.Fatalf("exit syscall output = %q", got)
+	}
+	if got := renderer.ExitStatusLine(eventRaw); got != "101   +++ exited with 7 +++\n" {
+		t.Fatalf("exit status line = %q", got)
+	}
+}
+
 func TestTextRendererConsumesSuspendedSyscall(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{}

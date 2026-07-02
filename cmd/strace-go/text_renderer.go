@@ -99,6 +99,16 @@ func (r *TextRenderer) PrintThreadExecveSuperseded(eventRaw *bpfEvent, syscallNa
 	fmt.Fprintf(r.out, "%s%-5d <... %s resumed>) = 0\n", timePrefix, tgid, syscallName)
 }
 
+func (r *TextRenderer) PrintExitSyscall(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result) {
+	line := r.exitSyscallLine(eventRaw, scMeta, res)
+	fmt.Fprint(r.out, line)
+}
+
+func (r *TextRenderer) ExitStatusLine(eventRaw *bpfEvent) string {
+	return fmt.Sprintf("%s%s+++ exited with %d +++\n",
+		r.timePrefix(eventRaw.EnterTime), r.pidPrefix(int(eventRaw.Tid)), eventRaw.Args[0])
+}
+
 // IMPACT: PrintSyscall outputs a formatted syscall trace line and related text-only side effects.
 func (r *TextRenderer) PrintSyscall(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, ctx *handler.Context) {
 	tid := int(eventRaw.Tid)
@@ -127,6 +137,13 @@ func (r *TextRenderer) PrintSyscall(eventRaw *bpfEvent, scMeta meta.Syscall, res
 	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && eventRaw.Ret < 0 && r.state != nil {
 		r.state.deletePendingExecArgs(tid)
 	}
+}
+
+func (r *TextRenderer) exitSyscallLine(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result) string {
+	timePrefix := r.timePrefix(eventRaw.EnterTime)
+	pidPrefix := r.pidPrefix(int(eventRaw.Tid))
+	argLine := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
+	return fmt.Sprintf("%s%s%s%s= ?\n", timePrefix, pidPrefix, argLine, r.padding(timePrefix, pidPrefix, argLine))
 }
 
 func trimTrailingParen(argLine string) string {
