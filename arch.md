@@ -947,8 +947,8 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - BPF 事件发送已由 `bpf_ringbuf_output` 收敛到显式 `bpf_ringbuf_reserve_dynptr` / `bpf_dynptr_write` / `bpf_ringbuf_submit_dynptr` helper；`stats_map` 已记录 reserve/copy 失败次数，JSON/debug 结束时输出 `type=stats` 事件，semantic/perf suite 可把 ringbuf 丢事件作为显式 oracle。
 - `execve/execveat` 已暴露 argv/envp 的 `PayloadKindExecArgs` section，exec argv/envp decoder 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `stat/lstat/fstat/newfstatat` 与 `statfs/fstatfs` 已暴露 OUT `PayloadKindStruct` section，stat formatter 只消费 semantic payload section，旧 exit snapshot 会被忽略并退回指针输出。
-- `poll/ppoll` 已暴露结构数组/timeout 的 `PayloadKindStruct` sections，formatter 优先消费 section，旧固定 offset snapshot 仍作为迁移期 fallback；`epoll_ctl/epoll_wait/epoll_pwait/epoll_pwait2` 已只消费 semantic payload section，旧固定 offset snapshot 会被忽略并退回指针输出。
-- `select/_newselect` 已暴露 enter/exit `fd_set` 的 `PayloadKindBytes` sections 和 timeout 的 `PayloadKindStruct` sections，select formatter 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。
+- `poll/ppoll` 已暴露结构数组/timeout 的 `PayloadKindStruct` sections，formatter 只消费 semantic payload section，旧固定 offset snapshot 会被忽略并退回指针或空 revents 输出；`epoll_ctl/epoll_wait/epoll_pwait/epoll_pwait2` 已只消费 semantic payload section，旧固定 offset snapshot 会被忽略并退回指针输出。
+- `select/_newselect` 已暴露 enter/exit `fd_set` 的 `PayloadKindBytes` sections 和 timeout 的 `PayloadKindStruct` sections，select formatter 只消费 semantic payload section，旧固定 offset snapshot 会被忽略并退回指针或空 return-desc 输出。
 - `clock_gettime/clock_getres/clock_settime/adjtimex/clock_adjtime` 的 syscall-specific time formatter 只消费 semantic payload section，旧固定 offset snapshot 会被忽略并退回指针输出；`nanosleep/clock_nanosleep/gettimeofday/settimeofday` 的通用 time struct decoder 也只消费 semantic payload section。
 - `utime/utimes/futimesat/utimensat` 已暴露 path string 和时间结构 `PayloadKindStruct` sections，time formatter 复用 section snapshot，旧固定 offset snapshot 会被忽略并退回指针输出。
 - `futex/futex_wait/futex_waitv/futex_requeue` 已暴露 timeout/waiters 的 `PayloadKindStruct` sections，通用 timespec decoder、futex formatter 和 waitv decoder 都只消费 semantic payload section，旧固定 offset snapshot 会被忽略并退回指针输出。

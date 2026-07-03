@@ -23,16 +23,11 @@ func init() {
 type SelectHandler struct{}
 
 const (
-	fdSetSnapshotSize     = 128
-	selectTimeoutOffset   = 384
-	selectExitOffset      = BpfExitArgOffset
-	selectExitTimeoutOff  = 1408
-	pollFdSize            = 8
-	pollSnapshotLimit     = 512
-	ppollTimeoutOffset    = BpfMiscArgOffset
-	selectFdSetArgBase    = 1
-	selectFdSetArgLast    = 3
-	selectFdSetArgSpacing = 128
+	fdSetSnapshotSize  = 128
+	pollFdSize         = 8
+	pollSnapshotLimit  = 512
+	selectFdSetArgBase = 1
+	selectFdSetArgLast = 3
 )
 
 func (h *SelectHandler) Handle(ctx *Context) Result {
@@ -175,10 +170,6 @@ func selectFdSetBytes(nfds int) int {
 	return size
 }
 
-func selectFdSetOffset(argIndex int) int {
-	return (argIndex - selectFdSetArgBase) * selectFdSetArgSpacing
-}
-
 func selectEnterFdSetSnapshot(ctx *Context, argIndex int, nfds int) ([]byte, bool) {
 	size := selectFdSetBytes(nfds)
 	if size == 0 {
@@ -187,7 +178,7 @@ func selectEnterFdSetSnapshot(ctx *Context, argIndex int, nfds int) ([]byte, boo
 	if data, ok := ctx.PayloadBytes(argIndex, PayloadDirectionIn); ok {
 		return boundedBpfStructData(data, size)
 	}
-	return ctx.EnterArgSnapshot(argIndex, selectFdSetOffset(argIndex), size)
+	return nil, false
 }
 
 func selectExitFdSetSnapshot(ctx *Context, argIndex int, nfds int) ([]byte, bool) {
@@ -198,22 +189,21 @@ func selectExitFdSetSnapshot(ctx *Context, argIndex int, nfds int) ([]byte, bool
 	if data, ok := ctx.PayloadBytes(argIndex, PayloadDirectionOut); ok {
 		return boundedBpfStructData(data, size)
 	}
-	offset := selectExitOffset + selectFdSetOffset(argIndex)
-	return ctx.ExitSnapshot(offset, size)
+	return nil, false
 }
 
 func selectTimeoutSnapshot(ctx *Context) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(4, PayloadDirectionIn); ok {
 		return boundedBpfStructData(data, 16)
 	}
-	return ctx.EnterArgSnapshot(4, selectTimeoutOffset, 16)
+	return nil, false
 }
 
 func selectExitTimeoutSnapshot(ctx *Context) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(4, PayloadDirectionOut); ok {
 		return boundedBpfStructData(data, 16)
 	}
-	return ctx.ExitSnapshot(selectExitTimeoutOff, 16)
+	return nil, false
 }
 
 func pollSnapshotSize(nfds int) int {
@@ -234,7 +224,7 @@ func pollEnterSnapshot(ctx *Context, nfds int) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(0, PayloadDirectionIn); ok {
 		return boundedBpfStructData(data, size)
 	}
-	return ctx.EnterArgSnapshot(0, BpfEnterArgOffset, size)
+	return nil, false
 }
 
 func pollExitSnapshot(ctx *Context, nfds int) ([]byte, bool) {
@@ -245,14 +235,14 @@ func pollExitSnapshot(ctx *Context, nfds int) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(0, PayloadDirectionOut); ok {
 		return boundedBpfStructData(data, size)
 	}
-	return ctx.ExitSnapshot(BpfExitArgOffset, size)
+	return nil, false
 }
 
 func ppollTimeoutSnapshot(ctx *Context) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(2, PayloadDirectionIn); ok {
 		return boundedBpfStructData(data, 16)
 	}
-	return ctx.EnterArgSnapshot(2, ppollTimeoutOffset, 16)
+	return nil, false
 }
 
 func formatPollfds(data []byte, nfds int, hasExitData bool) string {

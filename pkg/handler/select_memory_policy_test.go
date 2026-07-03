@@ -10,6 +10,12 @@ import (
 
 const selectTestBufSize = BpfExitArgOffset + pollSnapshotLimit
 
+const (
+	legacySelectTimeoutOffset  = 384
+	legacySelectExitTimeoutOff = 1408
+	legacyPpollTimeoutOffset   = BpfMiscArgOffset
+)
+
 func makeFdSetData(fd int) []byte {
 	data := make([]byte, fdSetSnapshotSize)
 	data[fd/8] = 1 << uint(fd%8)
@@ -68,7 +74,7 @@ func TestSelectFdSetsFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestSelectFdSetsUseEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestSelectFdSetsIgnoreLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFdSetData(7)}
 	ctx := newSelectPolicyContext(reader, "select")
 	ctx.Args = [6]uint64{8, 0x1000, 0, 0, 0}
@@ -76,8 +82,8 @@ func TestSelectFdSetsUseEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	putSelectSnapshot(ctx, BpfEnterArgOffset, makeFdSetData(3))
 
 	got := (&SelectHandler{}).Handle(ctx)
-	if got.ArgParts[1] != "[3]" {
-		t.Fatalf("select readfds = %q", got.ArgParts[1])
+	if got.ArgParts[1] != "0x1000" {
+		t.Fatalf("select readfds = %q, want pointer fallback", got.ArgParts[1])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -119,16 +125,16 @@ func TestSelectTimeoutFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestSelectTimeoutUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestSelectTimeoutIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSelectTime(99, 100)}
 	ctx := newSelectPolicyContext(reader, "select")
 	ctx.Args = [6]uint64{0, 0, 0, 0, 0x3000}
 	ctx.ProbeRetEnter = 0
-	putSelectSnapshot(ctx, selectTimeoutOffset, makeSelectTime(9, 10))
+	putSelectSnapshot(ctx, legacySelectTimeoutOffset, makeSelectTime(9, 10))
 
 	got := (&SelectHandler{}).Handle(ctx)
-	if got.ArgParts[4] != "{tv_sec=9, tv_usec=10}" {
-		t.Fatalf("select timeout = %q", got.ArgParts[4])
+	if got.ArgParts[4] != "0x3000" {
+		t.Fatalf("select timeout = %q, want pointer fallback", got.ArgParts[4])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -153,7 +159,7 @@ func TestSelectTimeoutUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestSelectExitUsesSnapshotWithoutMemoryRead(t *testing.T) {
+func TestSelectExitIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFdSetData(7)}
 	ctx := newSelectPolicyContext(reader, "select")
 	ctx.Args = [6]uint64{8, 0x1000, 0, 0, 0}
@@ -162,8 +168,8 @@ func TestSelectExitUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	putSelectSnapshot(ctx, BpfExitArgOffset, makeFdSetData(3))
 
 	got := (&SelectHandler{}).Handle(ctx)
-	if got.ReturnDesc != "in [3]" {
-		t.Fatalf("ReturnDesc = %q", got.ReturnDesc)
+	if got.ReturnDesc != "" {
+		t.Fatalf("ReturnDesc = %q, want empty legacy fallback", got.ReturnDesc)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -190,17 +196,17 @@ func TestSelectExitUsesPayloadBytesSection(t *testing.T) {
 	}
 }
 
-func TestSelectExitTimeoutUsesSnapshotWithoutMemoryRead(t *testing.T) {
+func TestSelectExitTimeoutIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSelectTime(99, 100)}
 	ctx := newSelectPolicyContext(reader, "select")
 	ctx.Args = [6]uint64{0, 0, 0, 0, 0x3000}
 	ctx.Ret = 1
 	ctx.ProbeRetExit = 0
-	putSelectSnapshot(ctx, selectExitTimeoutOff, makeSelectTime(1, 2))
+	putSelectSnapshot(ctx, legacySelectExitTimeoutOff, makeSelectTime(1, 2))
 
 	got := (&SelectHandler{}).Handle(ctx)
-	if got.ReturnDesc != "left {tv_sec=1, tv_usec=2}" {
-		t.Fatalf("ReturnDesc = %q", got.ReturnDesc)
+	if got.ReturnDesc != "" {
+		t.Fatalf("ReturnDesc = %q, want empty legacy fallback", got.ReturnDesc)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -244,7 +250,7 @@ func TestPollFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestPollUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestPollIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePollfdData(7, 1, 0)}
 	ctx := newSelectPolicyContext(reader, "poll")
 	ctx.Args = [6]uint64{0x2000, 1, 1000}
@@ -252,8 +258,8 @@ func TestPollUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	putSelectSnapshot(ctx, BpfEnterArgOffset, makePollfdData(4, 1, 0))
 
 	got := (&PollHandler{}).Handle(ctx)
-	if !strings.Contains(got.ArgParts[0], "{fd=4") {
-		t.Fatalf("poll fds = %q", got.ArgParts[0])
+	if got.ArgParts[0] != "0x2000" {
+		t.Fatalf("poll fds = %q, want pointer fallback", got.ArgParts[0])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -278,7 +284,7 @@ func TestPollUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestPollExitUsesSnapshotWithoutMemoryRead(t *testing.T) {
+func TestPollExitIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePollfdData(4, 0, 0)}
 	ctx := newSelectPolicyContext(reader, "poll")
 	ctx.Args = [6]uint64{0x2000, 1, 1000}
@@ -287,8 +293,8 @@ func TestPollExitUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	putSelectSnapshot(ctx, BpfExitArgOffset, makePollfdData(4, 0, 1))
 
 	got := (&PollHandler{}).Handle(ctx)
-	if !strings.Contains(got.ReturnDesc, "revents=") {
-		t.Fatalf("ReturnDesc = %q", got.ReturnDesc)
+	if got.ReturnDesc != "" {
+		t.Fatalf("ReturnDesc = %q, want empty legacy fallback", got.ReturnDesc)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -353,16 +359,16 @@ func TestPpollTimeoutUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestPpollTimeoutUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestPpollTimeoutIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSelectTime(99, 100)}
 	ctx := newSelectPolicyContext(reader, "ppoll")
 	ctx.Args = [6]uint64{0, 0, 0x3000}
 	ctx.ProbeRetEnter = 0
-	putSelectSnapshot(ctx, ppollTimeoutOffset, makeSelectTime(9, 10))
+	putSelectSnapshot(ctx, legacyPpollTimeoutOffset, makeSelectTime(9, 10))
 
 	got := (&PollHandler{}).Handle(ctx)
-	if got.ArgParts[2] != "{tv_sec=9, tv_nsec=10}" {
-		t.Fatalf("ppoll timeout = %q", got.ArgParts[2])
+	if got.ArgParts[2] != "0x3000" {
+		t.Fatalf("ppoll timeout = %q, want pointer fallback", got.ArgParts[2])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
