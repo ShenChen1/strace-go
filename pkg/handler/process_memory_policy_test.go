@@ -79,7 +79,7 @@ func TestClone3DoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestClone3UsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestClone3IgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeClone3Data(0)}
 	ctx := newClone3PolicyContext(reader, event.NewDecoder())
 	data := makeClone3Data(0)
@@ -88,8 +88,8 @@ func TestClone3UsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	ctx.ProbeRetEnter = 0
 
 	got := (&ProcessHandler{}).Handle(ctx)
-	if !strings.Contains(got.ArgParts[0], "flags=0") {
-		t.Fatalf("clone3 args = %q", got.ArgParts[0])
+	if got.ArgParts[0] != "0x1000" {
+		t.Fatalf("clone3 args = %q, want pointer fallback", got.ArgParts[0])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)

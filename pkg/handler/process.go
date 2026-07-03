@@ -39,9 +39,6 @@ func (h *ProcessHandler) formatClone3(ctx *Context, uargs, size uint64) string {
 		capLen = 256
 	}
 	data, ok := ctx.PayloadStruct(0, PayloadDirectionIn)
-	if !ok {
-		data, ok = ctx.EnterArgSnapshotPrefix(0, BpfEnterArgOffset, capLen)
-	}
 	if !ok || len(data) == 0 {
 		return fmt.Sprintf("%#x", uargs)
 	}
