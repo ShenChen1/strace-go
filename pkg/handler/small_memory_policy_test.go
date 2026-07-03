@@ -56,7 +56,7 @@ func TestFutexTimeoutDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestFutexTimeoutUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestFutexTimeoutIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(9, 10)}
 	decoder := event.NewDecoder()
 	ctx := &Context{
@@ -71,8 +71,8 @@ func TestFutexTimeoutUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	putSmallSnapshot(ctx, BpfEnterArgOffset, makeTimeStruct(9, 10))
 
 	got := (&FutexHandler{}).Handle(ctx)
-	if got.ArgParts[3] != "{tv_sec=9, tv_nsec=10}" {
-		t.Fatalf("timeout = %q", got.ArgParts[3])
+	if got.ArgParts[3] != "0x1000" {
+		t.Fatalf("timeout = %q, want pointer fallback", got.ArgParts[3])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)

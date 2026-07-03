@@ -52,5 +52,5 @@ func futexTimeoutSnapshot(ctx *Context) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(3, PayloadDirectionIn); ok {
 		return boundedBpfStructData(data, timespecSize)
 	}
-	return ctx.EnterArgSnapshot(3, BpfEnterArgOffset, timespecSize)
+	return nil, false
 }
