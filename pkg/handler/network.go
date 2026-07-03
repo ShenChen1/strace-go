@@ -190,16 +190,9 @@ func (h *NetworkHandler) formatSockaddr(ctx *Context, i int, argName, argTyp str
 
 	alen := h.getSockaddrLen(ctx)
 	inLen := uint32(0)
-	offset := uint32(0)
 
 	if isOutSyscall {
-		offset = 1024
-		if ctx.ScMeta.Name == "recvfrom" {
-			offset = 1536
-		}
 		inLen, _ = h.getSockaddrLenSnapshot(ctx, false)
-	} else if ctx.ScMeta.Name == "sendto" {
-		offset = 512
 	}
 
 	effectiveLen := alen
@@ -218,7 +211,7 @@ func (h *NetworkHandler) formatSockaddr(ctx *Context, i int, argName, argTyp str
 		}
 	}
 
-	sdata, readSuccess := h.sockaddrSnapshot(ctx, offset, readSize)
+	sdata, readSuccess := h.sockaddrSnapshot(ctx, readSize)
 	if !readSuccess {
 		return fmt.Sprintf("%#x", val), true
 	}
@@ -262,19 +255,7 @@ func (h *NetworkHandler) getSockaddrLenSnapshot(ctx *Context, isExit bool) (uint
 	if data, ok := ctx.PayloadBytes(argIndex, direction); ok && len(data) >= 4 {
 		return binary.LittleEndian.Uint32(data), true
 	}
-
-	if isExit {
-		data, ok := ctx.ExitSnapshot(772, 4)
-		if !ok {
-			return 0, false
-		}
-		return binary.LittleEndian.Uint32(data), true
-	}
-	data, ok := ctx.EnterArgSnapshot(argIndex, 768, 4)
-	if !ok {
-		return 0, false
-	}
-	return binary.LittleEndian.Uint32(data), true
+	return 0, false
 }
 
 func (h *NetworkHandler) networkBufferSnapshot(ctx *Context, size int) ([]byte, bool) {
@@ -282,26 +263,24 @@ func (h *NetworkHandler) networkBufferSnapshot(ctx *Context, size int) ([]byte, 
 		if data, ok := ctx.PayloadBytes(1, PayloadDirectionOut); ok {
 			return boundedBpfStructData(data, size)
 		}
-		return ctx.ExitSnapshot(BpfExitArgOffset, size)
+		return nil, false
 	}
 	if data, ok := ctx.PayloadBytes(1, PayloadDirectionIn); ok {
 		return boundedBpfStructData(data, size)
 	}
-	return ctx.EnterArgSnapshot(1, 0, size)
+	return nil, false
 }
 
-func (h *NetworkHandler) sockaddrSnapshot(ctx *Context, offset uint32, size int) ([]byte, bool) {
+func (h *NetworkHandler) sockaddrSnapshot(ctx *Context, size int) ([]byte, bool) {
 	switch ctx.ScMeta.Name {
 	case "bind", "connect":
 		if data, ok := ctx.PayloadStruct(1, PayloadDirectionIn); ok {
 			return boundedBpfStructData(data, size)
 		}
-		return ctx.EnterArgSnapshot(1, int(offset), size)
 	case "sendto":
 		if data, ok := ctx.PayloadStruct(4, PayloadDirectionIn); ok {
 			return boundedBpfStructData(data, size)
 		}
-		return ctx.EnterArgSnapshot(4, int(offset), size)
 	case "recvfrom", "accept", "accept4", "getsockname", "getpeername":
 		argIndex := 1
 		if ctx.ScMeta.Name == "recvfrom" {
@@ -310,7 +289,6 @@ func (h *NetworkHandler) sockaddrSnapshot(ctx *Context, offset uint32, size int)
 		if data, ok := ctx.PayloadStruct(argIndex, PayloadDirectionOut); ok {
 			return boundedBpfStructData(data, size)
 		}
-		return ctx.ExitSnapshot(int(offset), size)
 	}
 	return nil, false
 }
@@ -339,11 +317,10 @@ func (h *NetworkHandler) formatSockoptValAndLen(ctx *Context, i int, argName str
 		if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
 			return fmt.Sprintf("%#x", val), true
 		}
-		data, ok := ctx.ExitSnapshot(BpfExitArgOffset, 4)
-		if !ok {
-			return fmt.Sprintf("%#x", val), true
+		if data, ok := ctx.PayloadBytes(4, PayloadDirectionOut); ok && len(data) >= 4 {
+			return fmt.Sprintf("[%d]", binary.LittleEndian.Uint32(data)), true
 		}
-		return fmt.Sprintf("[%d]", binary.LittleEndian.Uint32(data)), true
+		return fmt.Sprintf("%#x", val), true
 	}
 	if ctx.ScMeta.Name == "setsockopt" && i == 4 { // optlen (socklen_t)
 		return fmt.Sprintf("%d", val), true

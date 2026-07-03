@@ -15,6 +15,11 @@ type networkPolicyMemoryReader struct {
 	reads int
 }
 
+const (
+	legacySockaddrLenEnterOffset = 768
+	legacySockaddrLenExitOffset  = 772
+)
+
 func (r *networkPolicyMemoryReader) Read(_ int, addr uint64, size int) ([]byte, error) {
 	r.reads++
 	data, ok := r.data[addr]
@@ -68,18 +73,18 @@ func sockaddrInet(port uint16, ip [4]byte) []byte {
 	return data
 }
 
-func TestNetworkAddrLenUsesSnapshotsWithoutMemoryRead(t *testing.T) {
+func TestNetworkAddrLenIgnoresLegacySnapshots(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x1000: uint32Bytes(16)}}
 	ctx := newNetworkPolicyContext(reader, "recvfrom")
 	ctx.Ret = 3
 	ctx.ProbeRetEnter = 0
 	ctx.ProbeRetExit = 0
-	putNetworkSnapshot(ctx, 768, uint32Bytes(16))
-	putNetworkSnapshot(ctx, 772, uint32Bytes(8))
+	putNetworkSnapshot(ctx, legacySockaddrLenEnterOffset, uint32Bytes(16))
+	putNetworkSnapshot(ctx, legacySockaddrLenExitOffset, uint32Bytes(8))
 
 	got, ok := (&NetworkHandler{}).formatNetworkAddrLen(ctx, "addr_len", 0x1000)
-	if !ok || got != "[16 => 8]" {
-		t.Fatalf("formatNetworkAddrLen() = %q, %v; want snapshot len transition", got, ok)
+	if !ok || got != "0x1000" {
+		t.Fatalf("formatNetworkAddrLen() = %q, %v; want pointer fallback", got, ok)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -100,7 +105,7 @@ func TestNetworkAddrLenFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestNetworkBufferUsesSendtoSnapshotWithoutMemoryRead(t *testing.T) {
+func TestNetworkBufferIgnoresLegacySendtoSnapshot(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x2000: []byte("abc")}}
 	ctx := newNetworkPolicyContext(reader, "sendto")
 	ctx.Args = [6]uint64{3, 0x2000, 3}
@@ -108,8 +113,8 @@ func TestNetworkBufferUsesSendtoSnapshotWithoutMemoryRead(t *testing.T) {
 	putNetworkSnapshot(ctx, 0, []byte("abc"))
 
 	got, ok := (&NetworkHandler{}).formatNetworkBuffer(ctx, 1, 0x2000)
-	if !ok || got != `"abc"` {
-		t.Fatalf("formatNetworkBuffer() = %q, %v; want BPF buffer", got, ok)
+	if !ok || got != "0x2000" {
+		t.Fatalf("formatNetworkBuffer() = %q, %v; want pointer fallback", got, ok)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -134,7 +139,7 @@ func TestNetworkBufferUsesSendtoPayloadBytesSection(t *testing.T) {
 	}
 }
 
-func TestNetworkBufferUsesRecvfromExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestNetworkBufferIgnoresLegacyRecvfromExitSnapshot(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x2000: []byte("abc")}}
 	ctx := newNetworkPolicyContext(reader, "recvfrom")
 	ctx.Args = [6]uint64{3, 0x2000, 5}
@@ -143,8 +148,8 @@ func TestNetworkBufferUsesRecvfromExitSnapshotWithoutMemoryRead(t *testing.T) {
 	putNetworkSnapshot(ctx, BpfExitArgOffset, []byte("abc"))
 
 	got, ok := (&NetworkHandler{}).formatNetworkBuffer(ctx, 1, 0x2000)
-	if !ok || got != `"abc"` {
-		t.Fatalf("formatNetworkBuffer() = %q, %v; want exit BPF buffer", got, ok)
+	if !ok || got != "0x2000" {
+		t.Fatalf("formatNetworkBuffer() = %q, %v; want pointer fallback", got, ok)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -212,7 +217,7 @@ func TestNetworkSockaddrFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestNetworkSockaddrUsesConnectSnapshotWithoutMemoryRead(t *testing.T) {
+func TestNetworkSockaddrIgnoresLegacyConnectSnapshot(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x4000: sockaddrInet(80, [4]byte{127, 0, 0, 1})}}
 	ctx := newNetworkPolicyContext(reader, "connect")
 	ctx.Args = [6]uint64{3, 0x4000, 16}
@@ -220,9 +225,8 @@ func TestNetworkSockaddrUsesConnectSnapshotWithoutMemoryRead(t *testing.T) {
 	putNetworkSnapshot(ctx, 0, sockaddrInet(80, [4]byte{127, 0, 0, 1}))
 
 	got, ok := (&NetworkHandler{}).formatSockaddr(ctx, 1, "uservaddr", "struct sockaddr *", 0x4000)
-	want := `{sa_family=AF_INET, sin_port=htons(80), sin_addr=inet_addr("127.0.0.1")}`
-	if !ok || got != want {
-		t.Fatalf("formatSockaddr() = %q, %v; want %q", got, ok, want)
+	if !ok || got != "0x4000" {
+		t.Fatalf("formatSockaddr() = %q, %v; want pointer fallback", got, ok)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -248,13 +252,31 @@ func TestNetworkSockaddrUsesConnectPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestNetworkSockaddrUsesSendtoAddrSnapshotOffset(t *testing.T) {
+func TestNetworkSockaddrIgnoresLegacySendtoAddrSnapshot(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x4000: sockaddrInet(80, [4]byte{127, 0, 0, 1})}}
 	ctx := newNetworkPolicyContext(reader, "sendto")
 	ctx.Args = [6]uint64{3, 0x2000, 3, 0, 0x4000, 16}
 	ctx.ProbeRetEnter = 0
 	putNetworkSnapshot(ctx, 0, []byte("abc"))
 	putNetworkSnapshot(ctx, BpfMiscArgOffset, sockaddrInet(80, [4]byte{127, 0, 0, 1}))
+
+	got, ok := (&NetworkHandler{}).formatSockaddr(ctx, 4, "addr", "struct sockaddr *", 0x4000)
+	if !ok || got != "0x4000" {
+		t.Fatalf("formatSockaddr() = %q, %v; want pointer fallback", got, ok)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestNetworkSockaddrUsesSendtoPayloadStructSection(t *testing.T) {
+	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x4000: sockaddrInet(80, [4]byte{127, 0, 0, 1})}}
+	ctx := newNetworkPolicyContext(reader, "sendto")
+	ctx.Args = [6]uint64{3, 0x2000, 3, 0, 0x4000, 16}
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 4, ProbeRet: 0, Data: sockaddrInet(80, [4]byte{127, 0, 0, 1})},
+	}
 
 	got, ok := (&NetworkHandler{}).formatSockaddr(ctx, 4, "addr", "struct sockaddr *", 0x4000)
 	want := `{sa_family=AF_INET, sin_port=htons(80), sin_addr=inet_addr("127.0.0.1")}`
@@ -324,16 +346,16 @@ func TestNetworkGetSockaddrLenFallsBackToZeroWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestNetworkGetSockaddrLenUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestNetworkGetSockaddrLenIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x5000: uint32Bytes(16)}}
 	ctx := newNetworkPolicyContext(reader, "recvfrom")
 	ctx.Args = [6]uint64{3, 0, 0, 0, 0, 0x5000}
 	ctx.ProbeRetExit = 0
-	putNetworkSnapshot(ctx, 772, uint32Bytes(16))
+	putNetworkSnapshot(ctx, legacySockaddrLenExitOffset, uint32Bytes(16))
 
 	got := (&NetworkHandler{}).getSockaddrLen(ctx)
-	if got != 16 {
-		t.Fatalf("getSockaddrLen() = %d, want 16", got)
+	if got != 0 {
+		t.Fatalf("getSockaddrLen() = %d, want 0", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -373,7 +395,7 @@ func TestNetworkGetsockoptLenFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestNetworkGetsockoptLenUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
+func TestNetworkGetsockoptLenIgnoresLegacyExitSnapshot(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x6000: uint32Bytes(4)}}
 	ctx := newNetworkPolicyContext(reader, "getsockopt")
 	ctx.Ret = 0
@@ -381,8 +403,26 @@ func TestNetworkGetsockoptLenUsesExitSnapshotWithoutMemoryRead(t *testing.T) {
 	putNetworkSnapshot(ctx, BpfExitArgOffset, uint32Bytes(4))
 
 	got, ok := (&NetworkHandler{}).formatSockoptValAndLen(ctx, 4, "optlen", 0x6000)
+	if !ok || got != "0x6000" {
+		t.Fatalf("formatSockoptValAndLen() = %q, %v; want pointer fallback", got, ok)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestNetworkGetsockoptLenUsesPayloadBytesSection(t *testing.T) {
+	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x6000: uint32Bytes(4)}}
+	ctx := newNetworkPolicyContext(reader, "getsockopt")
+	ctx.Ret = 0
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 4, ProbeRet: 0, Data: uint32Bytes(4)},
+	}
+
+	got, ok := (&NetworkHandler{}).formatSockoptValAndLen(ctx, 4, "optlen", 0x6000)
 	if !ok || got != "[4]" {
-		t.Fatalf("formatSockoptValAndLen() = %q, %v; want snapshot optlen", got, ok)
+		t.Fatalf("formatSockoptValAndLen() = %q, %v; want payload optlen", got, ok)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
