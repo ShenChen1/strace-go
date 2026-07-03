@@ -79,7 +79,6 @@ func (h *IoHandler) Handle(ctx *Context) Result {
 const (
 	iovecSize         = 16
 	iovecDisplayLimit = 16
-	iovecRemoteOffset = BpfMiscArgOffset
 )
 
 func DecodeIovecArray(ctx *Context, argIndex int, addr uint64, count uint64) string {
@@ -96,11 +95,7 @@ func DecodeIovecArray(ctx *Context, argIndex int, addr uint64, count uint64) str
 	}
 
 	readSize := readCount * iovecSize
-	offset := iovecSnapshotOffset(ctx.SysName, argIndex)
 	data, ok := ctx.PayloadIovec(argIndex, PayloadDirectionIn)
-	if !ok {
-		data, ok = ctx.EnterArgSnapshotPrefix(argIndex, offset, readSize)
-	}
 	if !ok || len(data) == 0 {
 		return fmt.Sprintf("%#x", addr)
 	}
@@ -122,11 +117,4 @@ func DecodeIovecArray(ctx *Context, argIndex int, addr uint64, count uint64) str
 		res = strings.TrimSuffix(res, "]") + ", ...]"
 	}
 	return res
-}
-
-func iovecSnapshotOffset(scName string, argIndex int) int {
-	if (scName == "process_vm_readv" || scName == "process_vm_writev") && argIndex == 3 {
-		return iovecRemoteOffset
-	}
-	return BpfEnterArgOffset
 }

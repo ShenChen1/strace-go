@@ -32,7 +32,7 @@ func TestDecodeIovecArrayDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestDecodeIovecArrayUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestDecodeIovecArrayIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: iovecBytes([2]uint64{0x2000, 3})}
 	decoder := event.NewDecoder()
 	ctx := newIovecPolicyContext(reader, decoder)
@@ -41,8 +41,8 @@ func TestDecodeIovecArrayUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	putSmallSnapshot(ctx, BpfEnterArgOffset, iovecBytes([2]uint64{0x2000, 3}))
 
 	got := DecodeIovecArray(ctx, 1, 0x1000, 1)
-	if got != "[{iov_base=0x2000, iov_len=3}]" {
-		t.Fatalf("DecodeIovecArray() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("DecodeIovecArray() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -75,13 +75,49 @@ func TestDecodeIovecArrayUsesPayloadSection(t *testing.T) {
 	}
 }
 
-func TestDecodeIovecArrayUsesPartialEnterSnapshot(t *testing.T) {
+func TestDecodeIovecArrayUsesRemoteProcessVMPayloadSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: iovecBytes([2]uint64{0x4000, 7})}
+	decoder := event.NewDecoder()
+	ctx := newIovecPolicyContext(reader, decoder)
+	ctx.SysName = "process_vm_readv"
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindIovec,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  3,
+			UserPtr:   0x3000,
+			UserLen:   iovecSize,
+			CopiedLen: iovecSize,
+			ProbeRet:  0,
+			Data:      iovecBytes([2]uint64{0x4000, 7}),
+		},
+	}
+
+	got := DecodeIovecArray(ctx, 3, 0x3000, 1)
+	if got != "[{iov_base=0x4000, iov_len=7}]" {
+		t.Fatalf("DecodeIovecArray remote = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestDecodeIovecArrayUsesPartialPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: iovecBytes([2]uint64{0x2000, 3})}
 	decoder := event.NewDecoder()
 	ctx := newIovecPolicyContext(reader, decoder)
-	ctx.ProbeRetEnter = 0
-	ctx.StrArgBuf = make([]byte, iovecSize)
-	putSmallSnapshot(ctx, BpfEnterArgOffset, iovecBytes([2]uint64{0x2000, 3}))
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindIovec,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  1,
+			UserPtr:   0x1000,
+			UserLen:   iovecSize * 2,
+			CopiedLen: iovecSize,
+			ProbeRet:  0,
+			Data:      iovecBytes([2]uint64{0x2000, 3}),
+		},
+	}
 
 	got := DecodeIovecArray(ctx, 1, 0x1000, 2)
 	if got != "[{iov_base=0x2000, iov_len=3}, ...]" {
@@ -105,8 +141,8 @@ func TestDecodeIovecArrayDoesNotUseLegacyPayloadFallback(t *testing.T) {
 	putSmallSnapshot(ctx, BpfEnterArgOffset, iovecBytes([2]uint64{0x2000, 3}))
 
 	got := DecodeIovecArray(ctx, 1, 0x1000, 1)
-	if strings.Contains(got, `"abc"`) || !strings.Contains(got, `iov_base=0x2000`) {
-		t.Fatalf("DecodeIovecArray() = %q", got)
+	if got != "0x1000" || strings.Contains(got, `"abc"`) || strings.Contains(got, `iov_base=0x2000`) {
+		t.Fatalf("DecodeIovecArray() = %q, want pointer fallback", got)
 	}
 }
 
