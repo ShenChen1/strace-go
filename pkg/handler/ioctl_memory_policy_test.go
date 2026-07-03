@@ -84,7 +84,7 @@ func resetFiemapPolicyState(pid int) {
 	fiemapLock.Unlock()
 }
 
-func TestIoctlDmUsesSnapshotWithoutMemoryFallback(t *testing.T) {
+func TestIoctlDmIgnoresLegacySnapshot(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x1000: makeDmIoctlData(),
 	}}
@@ -95,8 +95,8 @@ func TestIoctlDmUsesSnapshotWithoutMemoryFallback(t *testing.T) {
 	ctx.DataLen = BpfExitArgOffset
 
 	got := (&IoctlHandler{}).decodeDmIoctl(ctx, 0x1000, "DM_VERSION")
-	if !strings.Contains(got, "version=[4, 0, 0]") || !strings.Contains(got, `name="dm-test"`) {
-		t.Fatalf("decodeDmIoctl() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("decodeDmIoctl() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -163,7 +163,7 @@ func TestIoctlOtpDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestIoctlOtpUsesSnapshotWithoutMemoryRead(t *testing.T) {
+func TestIoctlOtpIgnoresLegacySnapshot(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x2000: makeIoctlUint32Data(1),
 	}}
@@ -173,8 +173,8 @@ func TestIoctlOtpUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	ctx.DataLen = 516
 
 	got := (&IoctlHandler{}).decodeStandardIoctlArg(ctx, 0x80044d0d, 0x2000)
-	if got != "[MTD_OTP_FACTORY]" {
-		t.Fatalf("decodeStandardIoctlArg() = %q", got)
+	if got != "0x2000" {
+		t.Fatalf("decodeStandardIoctlArg() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -275,7 +275,7 @@ func TestIoctlFiemapHeaderDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestIoctlFiemapHeaderUsesSnapshotWithoutMemoryRead(t *testing.T) {
+func TestIoctlFiemapHeaderIgnoresLegacySnapshot(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x3000: makeFiemapData(1, 2, 1, 0, 0),
 	}}
@@ -286,8 +286,8 @@ func TestIoctlFiemapHeaderUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	resetFiemapPolicyState(ctx.Pid)
 
 	got := (&IoctlHandler{}).decodeFiemap(ctx, 0x3000)
-	if !strings.Contains(got, "fm_start=1") || !strings.Contains(got, "fm_length=2") {
-		t.Fatalf("decodeFiemap() = %q", got)
+	if strings.Contains(got, "fm_start=1,") || strings.Contains(got, "fm_length=2,") {
+		t.Fatalf("decodeFiemap() = %q, want synthetic fallback without legacy snapshot", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -321,7 +321,7 @@ func TestIoctlFiemapExtentsDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestIoctlFiemapExtentsUsesSnapshotWithoutMemoryRead(t *testing.T) {
+func TestIoctlFiemapExtentsIgnoresLegacySnapshot(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x3030: makeFiemapExtent(1, 2, 3, 1),
 	}}
@@ -331,8 +331,8 @@ func TestIoctlFiemapExtentsUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	ctx.DataLen = 592
 
 	got := (&IoctlHandler{}).formatFiemapExtents(ctx, 0x3010, 1, 1, 1)
-	if !strings.Contains(got, "fe_logical=1") || !strings.Contains(got, "fe_physical=2") {
-		t.Fatalf("formatFiemapExtents() = %q", got)
+	if got != "[]" {
+		t.Fatalf("formatFiemapExtents() = %q, want empty without payload section", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)

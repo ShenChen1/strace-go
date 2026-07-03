@@ -62,7 +62,7 @@ func TestBtrfsWaitSyncDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestBtrfsWaitSyncUsesSnapshotWithoutMemoryRead(t *testing.T) {
+func TestBtrfsWaitSyncIgnoresLegacySnapshot(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x1000: makeBtrfsWaitSyncData(42),
 	}}
@@ -72,8 +72,8 @@ func TestBtrfsWaitSyncUsesSnapshotWithoutMemoryRead(t *testing.T) {
 	ctx.DataLen = 520
 
 	got := (&IoctlHandler{}).decodeBtrfsWaitSync(ctx, 0x1000)
-	if got != "[42]" {
-		t.Fatalf("decodeBtrfsWaitSync() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("decodeBtrfsWaitSync() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -93,7 +93,7 @@ func TestBtrfsWaitSyncUsesPayloadBytesSection(t *testing.T) {
 	}
 }
 
-func TestBtrfsVolArgsUsesSnapshotWithoutMemoryFallback(t *testing.T) {
+func TestBtrfsVolArgsIgnoresLegacySnapshot(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x2000: makeBtrfsVolArgs(9, "ignored"),
 	}}
@@ -104,8 +104,8 @@ func TestBtrfsVolArgsUsesSnapshotWithoutMemoryFallback(t *testing.T) {
 	ctx.DataLen = uint32(512 + len(makeBtrfsVolArgs(7, "snap")))
 
 	got := (&IoctlHandler{}).decodeBtrfsVolArgs(ctx, 0x2000)
-	if !strings.Contains(got, "fd=7") || !strings.Contains(got, `name="snap"`) {
-		t.Fatalf("decodeBtrfsVolArgs() = %q", got)
+	if got != "0x2000" {
+		t.Fatalf("decodeBtrfsVolArgs() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -172,7 +172,7 @@ func TestBtrfsVolArgsV2DoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestBtrfsVolArgsV2UsesSnapshotWithoutMemoryRead(t *testing.T) {
+func TestBtrfsVolArgsV2IgnoresLegacySnapshot(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x3000: makeBtrfsVolArgsV2(8, 2, 4096, 0, "subvol"),
 	}}
@@ -183,8 +183,8 @@ func TestBtrfsVolArgsV2UsesSnapshotWithoutMemoryRead(t *testing.T) {
 	ctx.DataLen = uint32(512 + len(snap))
 
 	got := (&IoctlHandler{}).decodeBtrfsVolArgsV2(ctx, 0x3000)
-	if !strings.Contains(got, "fd=8") || !strings.Contains(got, "flags=BTRFS_SUBVOL_RDONLY") || !strings.Contains(got, `name="subvol"`) {
-		t.Fatalf("decodeBtrfsVolArgsV2() = %q", got)
+	if got != "0x3000" {
+		t.Fatalf("decodeBtrfsVolArgsV2() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)

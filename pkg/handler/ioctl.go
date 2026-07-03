@@ -345,7 +345,7 @@ func ioctlEnterArgPrefix(ctx *Context, size int) ([]byte, bool) {
 	if data, ok := ctx.PayloadBytes(2, PayloadDirectionIn); ok {
 		return boundedBpfStructData(data, size)
 	}
-	return ctx.EnterArgSnapshotPrefix(2, BpfMiscArgOffset, size)
+	return nil, false
 }
 
 func ioctlEnterArgSnapshot(ctx *Context, size int) ([]byte, bool) {
@@ -356,12 +356,7 @@ func ioctlArgSnapshot(ctx *Context, direction PayloadDirection, size int) ([]byt
 	if data, ok := ctx.PayloadBytes(2, direction); ok && len(data) >= size {
 		return data[:size], true
 	}
-	if direction == PayloadDirectionOut {
-		if data, ok := ctx.ExitSnapshot(BpfExitArgOffset, size); ok {
-			return data, true
-		}
-	}
-	return ctx.EnterArgSnapshot(2, BpfMiscArgOffset, size)
+	return nil, false
 }
 
 func ioctlEnterArgRange(ctx *Context, relativeOffset int, size int) ([]byte, bool) {
@@ -375,5 +370,5 @@ func ioctlEnterArgRange(ctx *Context, relativeOffset int, size int) ([]byte, boo
 		}
 		return data[relativeOffset:end], true
 	}
-	return ctx.EnterArgSnapshot(2, BpfMiscArgOffset+relativeOffset, size)
+	return nil, false
 }
