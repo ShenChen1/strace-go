@@ -54,7 +54,7 @@ func newBpfPolicyContext(reader *bpfPolicyMemoryReader, decoder *event.Decoder) 
 	}
 }
 
-func TestBpfHandlerUsesSnapshotWithoutMemoryFallback(t *testing.T) {
+func TestBpfHandlerIgnoresLegacyAttrSnapshot(t *testing.T) {
 	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{
 		0x1000: makeBpfMapCreateAttr(16),
 	}}
@@ -66,8 +66,8 @@ func TestBpfHandlerUsesSnapshotWithoutMemoryFallback(t *testing.T) {
 	ctx.DataLen = uint32(len(ctx.StrArgBuf))
 
 	got := (&BpfHandler{}).Handle(ctx)
-	if !strings.Contains(got.ArgParts[1], "key_size=4") || !strings.Contains(got.ArgParts[1], "max_entries=16") {
-		t.Fatalf("BpfHandler.Handle() arg = %q", got.ArgParts[1])
+	if got.ArgParts[1] != "0x1000" {
+		t.Fatalf("BpfHandler.Handle() arg = %q, want pointer fallback", got.ArgParts[1])
 	}
 	if reader.reads != 0 || reader.robustReads != 0 {
 		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
@@ -126,7 +126,7 @@ func TestBpfHandlerDoesNotUseLegacyAttrFallback(t *testing.T) {
 	}
 }
 
-func TestBpfHandlerEfaultDoesNotRawReadWhenFallbackDisabled(t *testing.T) {
+func TestBpfHandlerEfaultIgnoresLegacyAttrSnapshot(t *testing.T) {
 	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{
 		0x1000: makeBpfMapCreateAttr(16),
 	}}
@@ -139,8 +139,8 @@ func TestBpfHandlerEfaultDoesNotRawReadWhenFallbackDisabled(t *testing.T) {
 	ctx.DataLen = uint32(len(ctx.StrArgBuf))
 
 	got := (&BpfHandler{}).Handle(ctx)
-	if !strings.Contains(got.ArgParts[1], "key_size=4") {
-		t.Fatalf("BpfHandler.Handle() arg = %q", got.ArgParts[1])
+	if got.ArgParts[1] != "0x1000" {
+		t.Fatalf("BpfHandler.Handle() arg = %q, want pointer fallback", got.ArgParts[1])
 	}
 	if reader.reads != 0 || reader.robustReads != 0 {
 		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
@@ -159,15 +159,15 @@ func TestBpfHandlerEfaultDoesNotUseLegacyRawReadValidation(t *testing.T) {
 	ctx.DataLen = uint32(len(ctx.StrArgBuf))
 
 	got := (&BpfHandler{}).Handle(ctx)
-	if !strings.Contains(got.ArgParts[1], "key_size=4") {
-		t.Fatalf("BpfHandler.Handle() arg = %q", got.ArgParts[1])
+	if got.ArgParts[1] != "0x1000" {
+		t.Fatalf("BpfHandler.Handle() arg = %q, want pointer fallback", got.ArgParts[1])
 	}
 	if reader.reads != 0 || reader.robustReads != 0 {
 		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
 	}
 }
 
-func TestBpfExtraDataDoesNotReadWhenFallbackDisabled(t *testing.T) {
+func TestBpfExtraDataIgnoresLegacySnapshot(t *testing.T) {
 	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{
 		0x2010: []byte{1, 2, 3},
 	}}
@@ -180,8 +180,8 @@ func TestBpfExtraDataDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	ctx.StrArgBuf[20] = 0x7f
 
 	got := checkAndFormatExtraData(ctx, 16, 600)
-	if !strings.Contains(got, `\x7f`) {
-		t.Fatalf("checkAndFormatExtraData() = %q", got)
+	if got != "" {
+		t.Fatalf("checkAndFormatExtraData() = %q, want empty without payload section", got)
 	}
 	if reader.reads != 0 || reader.robustReads != 0 {
 		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)

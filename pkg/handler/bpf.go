@@ -4,9 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
-	"os"
 	"strings"
-	"syscall"
 
 	"strace-go/pkg/meta"
 )
@@ -173,10 +171,7 @@ func checkAndFormatExtraData(ctx *Context, offset int, size uint32) string {
 	}
 
 	if extraBytes == nil {
-		extraBytes = readBpfExtraDataFallback(ctx, offset, limit)
-		if len(extraBytes) == 0 {
-			return ""
-		}
+		return ""
 	}
 
 	lastNonZero := -1
@@ -218,11 +213,7 @@ func bpfAttrData(ctx *Context, size int) ([]byte, bool) {
 		}
 		return data, len(data) > 0
 	}
-	data, ok := ctx.EnterArgSnapshotPrefix(1, BpfEnterArgOffset, limit)
-	if !ok || len(data) == 0 {
-		return nil, false
-	}
-	return data, true
+	return nil, false
 }
 
 // tryGenerateTestExtraData detects cyclic test patterns and generates aligned buffer.
@@ -254,33 +245,4 @@ func tryGenerateTestExtraData(offset int, limit int, buf []byte) ([]byte, bool) 
 		}
 	}
 	return nil, false
-}
-
-// isEfaultErr checks if the given error represents a true EFAULT bad address error.
-// Impact: Ensures asynchronous process deaths or exits do not trigger false EFAULT paths.
-func isEfaultErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errno, ok := err.(syscall.Errno); ok {
-		return errno == syscall.EFAULT
-	}
-	if pathErr, ok := err.(*os.PathError); ok {
-		if errno, ok := pathErr.Err.(syscall.Errno); ok {
-			return errno == syscall.EFAULT
-		}
-	}
-	return false
-}
-
-// readBpfExtraDataFallback handles fallback memory reads for bpf extra_data.
-// Impact: Ensures we read across page boundaries accurately if buffer size is large.
-func readBpfExtraDataFallback(ctx *Context, offset, limit int) []byte {
-	if limit > len(ctx.StrArgBuf) {
-		limit = len(ctx.StrArgBuf)
-	}
-	if limit <= offset {
-		return nil
-	}
-	return ctx.StrArgBuf[offset:limit]
 }
