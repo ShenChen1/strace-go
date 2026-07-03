@@ -66,11 +66,11 @@ func (h *FsHandler) Handle(ctx *Context) Result {
 		res.ArgParts = h.decodeFsconfig(ctx)
 	case "mount":
 		// source
-		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 0, 0, 512, 0))
+		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 0, 0))
 		// target
-		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 1, 512, 512, 0))
+		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 1, 0))
 		// type
-		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 2, BpfExitArgOffset, 128, 0))
+		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 2, 0))
 
 		// flags
 		flags := ctx.Args[3]
@@ -85,10 +85,10 @@ func (h *FsHandler) Handle(ctx *Context) Result {
 		}
 
 		// data
-		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 4, 1152, 512, 0))
+		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 4, 0))
 
 	case "umount2":
-		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 0, 0, 512, 0))
+		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 0, 0))
 		res.ArgParts = append(res.ArgParts, meta.DecodeFlags(ctx.Args[1], "umount_flags"))
 
 	case "getdents64":
@@ -134,15 +134,15 @@ func (h *FsHandler) decodeFsconfig(ctx *Context) []string {
 		return parts
 	}
 
-	// IMPACT: Adjusted buffer offsets to match the updated capture rules (key: 0-257, value: 257-4354) to prevent EFAULT. Truncate key at 256 bytes.
-	keyStr := fsStringArg(ctx, 2, 0, 257, 256)
+	// IMPACT: Decode key/value only from semantic payload sections; missing sections fall back to pointers.
+	keyStr := fsStringArg(ctx, 2, 256)
 	parts = append(parts, keyStr)
 
 	switch cmd {
 	case 0: // FSCONFIG_SET_FLAG
 		parts = append(parts, formatPointer(value), fmt.Sprintf("%d", int32(aux)))
 	case 1: // FSCONFIG_SET_STRING
-		valStr := fsStringArg(ctx, 3, 257, 4096, 256)
+		valStr := fsStringArg(ctx, 3, 256)
 		parts = append(parts, valStr, fmt.Sprintf("%d", int32(aux)))
 	case 2: // FSCONFIG_SET_BINARY
 		limit := ctx.Opts.StringLimit
@@ -153,7 +153,7 @@ func (h *FsHandler) decodeFsconfig(ctx *Context) []string {
 		if valLen < 0 || valLen > 1024*1024 {
 			parts = append(parts, formatPointer(value), fmt.Sprintf("%d", int32(aux)))
 		} else {
-			data, ok := fsBytesArg(ctx, 3, 257, valLen)
+			data, ok := fsBytesArg(ctx, 3)
 			if ok && len(data) > 0 {
 				parts = append(parts, format.BufferEscape(data, limit, valLen, 2), fmt.Sprintf("%d", int32(aux)))
 			} else {
@@ -162,7 +162,7 @@ func (h *FsHandler) decodeFsconfig(ctx *Context) []string {
 		}
 	case 3, 4: // FSCONFIG_SET_PATH, FSCONFIG_SET_PATH_EMPTY
 		// IMPACT: Set value path decode limit to 0 to bypass StringLimit formatting truncation for path arguments.
-		valStr := fsStringArg(ctx, 3, 257, 4096, 0)
+		valStr := fsStringArg(ctx, 3, 0)
 		parts = append(parts, valStr, h.decodeScalar(ctx, "int", "dfd", aux))
 	case 5: // FSCONFIG_SET_FD
 		parts = append(parts, formatPointer(value), h.decodeScalar(ctx, "int", "fd", aux))
@@ -173,37 +173,19 @@ func (h *FsHandler) decodeFsconfig(ctx *Context) []string {
 	return parts
 }
 
-func fsStringArg(ctx *Context, argIndex int, offset int, size int, limit int) string {
+func fsStringArg(ctx *Context, argIndex int, limit int) string {
 	ptr := ctx.Args[argIndex]
 	if s, ok := ctx.PayloadString(argIndex, PayloadDirectionIn, ptr, limit); ok {
 		return s
 	}
-	return ctx.Decoder.DecodeString(fsStringDecodePID(ctx), ptr, fsWindow(ctx, offset, size), ctx.ArgProbeRet(argIndex), ctx.SysName, limit)
+	return formatPointer(ptr)
 }
 
-func fsBytesArg(ctx *Context, argIndex int, offset int, maxSize int) ([]byte, bool) {
+func fsBytesArg(ctx *Context, argIndex int) ([]byte, bool) {
 	if data, ok := ctx.PayloadBytes(argIndex, PayloadDirectionIn); ok {
 		return data, true
 	}
-	return ctx.EnterArgSnapshotPrefix(argIndex, offset, maxSize)
-}
-
-func fsWindow(ctx *Context, offset int, size int) []byte {
-	if offset < 0 || size <= 0 || offset >= len(ctx.StrArgBuf) {
-		return nil
-	}
-	end := offset + size
-	if end < offset || end > len(ctx.StrArgBuf) {
-		end = len(ctx.StrArgBuf)
-	}
-	return ctx.StrArgBuf[offset:end]
-}
-
-func fsStringDecodePID(ctx *Context) int {
-	if ctx.SysName == "fsconfig" && ctx.Tid != 0 {
-		return ctx.Tid
-	}
-	return ctx.Pid
+	return nil, false
 }
 
 func formatPointer(val uint64) string {

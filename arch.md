@@ -801,7 +801,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `waitid` 已暴露 `siginfo_t` 和 `rusage` 的 OUT `PayloadKindStruct` sections，waitid handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `arch_prctl` 的 GET 类 OUT word 已暴露为 `PayloadKindStruct` section，handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `sendfile/copy_file_range` 的 offset pointer 已暴露为 `PayloadKindStruct` section，formatter 只消费 semantic payload section，旧 fixed offset snapshot 会被忽略并退回指针输出。
-- `mount/umount2/fsconfig` 已暴露字符串和二进制 value 的 sections，fs handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
+- `mount/umount2/fsconfig` 已暴露字符串和二进制 value 的 sections，fs handler 只消费 semantic payload section，旧 fixed offset snapshot 会被忽略并退回指针输出。
 - `capget/capset` 已暴露 capability header/data sections，capset data capture policy 补齐为 enter snapshot，handler 优先消费 section，旧 fixed offset snapshot 仅作为迁移期 fallback。
 - `cachestat` 已暴露 range/stats 的 `PayloadKindStruct` sections，handler 只消费 semantic payload section，旧 fixed offset snapshot 会被忽略并退回指针输出。
 - `openat2` 已暴露 `open_how` 的 `PayloadKindStruct` section，handler 只消费 semantic payload section，旧 fixed offset snapshot 会被忽略并退回指针输出。

@@ -40,7 +40,7 @@ func TestFsconfigBinaryDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestFsconfigBinaryUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestFsconfigBinaryIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: []byte{1, 2, 3}}
 	ctx := newFsconfigBinaryContext(reader, event.NewDecoder())
 	copy(ctx.StrArgBuf[257:260], []byte{1, 2, 3})
@@ -50,8 +50,8 @@ func TestFsconfigBinaryUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	if len(got.ArgParts) != 5 {
 		t.Fatalf("ArgParts len = %d, want 5", len(got.ArgParts))
 	}
-	if got.ArgParts[3] == "0x2000" {
-		t.Fatalf("fsconfig value = %q, want decoded data", got.ArgParts[3])
+	if got.ArgParts[2] != "0x1000" || got.ArgParts[3] != "0x2000" {
+		t.Fatalf("fsconfig args = %#v, want pointer fallbacks", got.ArgParts)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
