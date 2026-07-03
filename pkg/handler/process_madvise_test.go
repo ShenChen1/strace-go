@@ -33,7 +33,7 @@ func iovecBytes(entries ...[2]uint64) []byte {
 	return data
 }
 
-func TestProcessMadviseHandlerDecodesArguments(t *testing.T) {
+func TestProcessMadviseHandlerIgnoresLegacyEnterSnapshot(t *testing.T) {
 	old := meta.XlatFormat
 	meta.XlatFormat = "abbrev"
 	defer func() { meta.XlatFormat = old }()
@@ -52,7 +52,7 @@ func TestProcessMadviseHandlerDecodesArguments(t *testing.T) {
 	got := (&ProcessMadviseHandler{}).Handle(ctx).ArgParts
 	want := []string{
 		"0",
-		"[{iov_base=0x8786858483828180, iov_len=10344361028892658056}, {iov_base=0x9796959493929190, iov_len=11501803794301884824}]",
+		"0x7000",
 		"2",
 		"MADV_NORMAL",
 		"0xffffffff",
@@ -122,9 +122,9 @@ func TestProcessMadviseHandlerShortIovReadShowsNextAddress(t *testing.T) {
 	iovs := iovecBytes([2]uint64{0x9796959493929190, 11501803794301884824})
 	ctx := processMadviseContext()
 	ctx.Args = [6]uint64{0xffffffff, vec, 2, 0xdeadc0de, 0}
-	ctx.ProbeRetEnter = 0
-	ctx.StrArgBuf = make([]byte, BpfEnterArgOffset+len(iovs))
-	putSmallSnapshot(ctx, BpfEnterArgOffset, iovs)
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindIovec, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: iovs},
+	}
 
 	got := (&ProcessMadviseHandler{}).Handle(ctx).ArgParts
 	want := []string{

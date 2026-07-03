@@ -128,7 +128,7 @@ func TestProcessMadviseIovecDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestProcessMadviseIovecUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
+func TestProcessMadviseIovecIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: iovecBytes([2]uint64{0x2000, 3})}
 	decoder := event.NewDecoder()
 	ctx := &Context{
@@ -141,8 +141,8 @@ func TestProcessMadviseIovecUsesEnterSnapshotWithoutMemoryRead(t *testing.T) {
 	putSmallSnapshot(ctx, BpfEnterArgOffset, iovecBytes([2]uint64{0x2000, 3}))
 
 	got := formatProcessMadviseIovec(ctx, 0x1000, 1)
-	if got != "[{iov_base=0x2000, iov_len=3}]" {
-		t.Fatalf("formatProcessMadviseIovec() = %q", got)
+	if got != "0x1000" {
+		t.Fatalf("formatProcessMadviseIovec() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)

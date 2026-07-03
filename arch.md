@@ -954,7 +954,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `futex/futex_wait/futex_waitv/futex_requeue` 已暴露 timeout/waiters 的 `PayloadKindStruct` sections，通用 timespec decoder、futex formatter 和 waitv decoder 都只消费 semantic payload section，旧固定 offset snapshot 会被忽略并退回指针输出。
 - `connect/bind/sendto/recvfrom/accept/accept4/getsockname/getpeername` 已暴露网络 buffer、sockaddr 和 addrlen sections，网络 formatter 优先消费 section，旧固定 offset snapshot 仅作为迁移期 fallback。
 - `io_setup/io_submit/io_cancel/io_getevents/io_pgetevents` 已暴露 AIO ctx、pointer array、嵌套 `iocb`、event 数组、timeout/sigset/sigmask sections，AIO formatter 只消费 semantic payload section，旧固定 offset snapshot 会被忽略并退回指针输出。
-- `process_madvise` 已暴露 `PayloadKindIovec` section，formatter 优先消费 section 并保留短读 next-address 文本，旧 enter snapshot prefix 仅作为迁移期 fallback。
+- `process_madvise` 已暴露 `PayloadKindIovec` section，formatter 只消费 semantic payload section，旧 enter snapshot prefix 会被忽略并退回指针输出；短 section 仍保留 next-address 文本。
 - `clone3` 已暴露 `struct clone_args` 的 `PayloadKindStruct` section，clone3 formatter 优先消费 section，旧 enter snapshot prefix 仅作为迁移期 fallback。
 - `bpf` 已暴露 `union bpf_attr` 的 `PayloadKindBytes` section，bpf formatter 与 extra_data formatter 优先消费 section，旧 enter snapshot prefix 仅作为迁移期 fallback。
 - `memfd_create` 已暴露 name 的 `PayloadKindString` section，string formatter 优先消费 section，旧固定 250 字节 snapshot 仅作为迁移期 fallback。
