@@ -446,6 +446,30 @@ func TestDecodeMemfdNameUsesPayloadStringSection(t *testing.T) {
 	}
 }
 
+func TestDecodeMemfdNameIgnoresLegacySnapshot(t *testing.T) {
+	ctx := &Context{
+		Pid:       101,
+		Tid:       102,
+		TargetPid: 101,
+		ScMeta: meta.Syscall{
+			Name:     "memfd_create",
+			Args:     []string{"uname", "flags"},
+			ArgTypes: []string{"const char *", "unsigned int"},
+		},
+		StrArgBuf: make([]byte, 250),
+		DataLen:   12,
+		Opts:      &cli.Options{StringLimit: 32},
+		Decoder:   event.NewDecoder(),
+	}
+	copy(ctx.StrArgBuf, []byte("legacy-name\x00"))
+
+	res := Result{}
+	got, ok := decodeCharPointer(ctx, 0, "const char *", "uname", 0x3000, &res)
+	if !ok || got != "0x3000" {
+		t.Fatalf("decodeCharPointer(memfd_create without section) = %q, %v; want pointer fallback", got, ok)
+	}
+}
+
 func TestDecodeReadlinkBufferUsesPayloadSection(t *testing.T) {
 	ctx := &Context{
 		Pid:       101,
