@@ -119,7 +119,7 @@ func (d *Decoder) DecodeStringRaw(_ int, ptr uint64, bpfData []byte, probeRet in
 }
 
 // MatchPath checks if the syscall matches any of the paths in the filter list.
-func MatchPath(pid int, fds []int32, isPath bool, scName string, ptr uint64, rawStrArg string, tracePaths map[string]bool, fdMap map[string]string) bool {
+func MatchPath(pid int, fds []int32, isPath bool, scName string, ptr uint64, pathText string, tracePaths map[string]bool, fdMap map[string]string) bool {
 	if len(tracePaths) == 0 {
 		return true
 	}
@@ -140,8 +140,8 @@ func MatchPath(pid int, fds []int32, isPath bool, scName string, ptr uint64, raw
 	}
 
 	// 2. Path from string argument
-	if isPath && rawStrArg != "" && rawStrArg != "NULL" && !strings.HasPrefix(rawStrArg, "0x") {
-		p := rawStrArg
+	if isPath && pathText != "" && pathText != "NULL" && !strings.HasPrefix(pathText, "0x") {
+		p := pathText
 		if len(p) >= 2 && p[0] == '"' && p[len(p)-1] == '"' {
 			p = p[1 : len(p)-1]
 		}

@@ -273,7 +273,7 @@ func TestUpdateFDMapSkipsSocketpairWithoutPayloadSection(t *testing.T) {
 	}
 }
 
-func TestUpdateFDMapUsesOpenatPayloadRawString(t *testing.T) {
+func TestUpdateFDMapUsesOpenatPayloadPathText(t *testing.T) {
 	fdMap := make(map[string]string)
 	eventRaw := &bpfEvent{
 		Pid: 1234,

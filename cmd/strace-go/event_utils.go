@@ -14,16 +14,16 @@ import (
 )
 
 // IMPACT: updateFDMap dynamically tracks fd modifications inside open, dup, socket and close syscalls.
-func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, targetPid int, fdMap map[string]string) {
+func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
 	updateFdReturnMap(eventRaw, scMeta, targetPid, fdMap)
 	updateEventfdCount(eventRaw, scMeta, targetPid, fdMap)
-	updateOpenedPathFDMap(eventRaw, scMeta, rawStrArg, targetPid, fdMap)
+	updateOpenedPathFDMap(eventRaw, scMeta, pathText, targetPid, fdMap)
 	updateDupFDMap(eventRaw, scMeta, targetPid, fdMap)
 	updatePipeFDMapFromPayload(eventRaw, scMeta, targetPid, fdMap)
 	updateSocketpairFDMap(eventRaw, scMeta, targetPid, fdMap)
 	updateSocketFDMap(eventRaw, scMeta, targetPid, fdMap)
 	updateNetlinkFDMap(eventRaw, scMeta, targetPid, fdMap)
-	updateCwdFDMap(eventRaw, scMeta, rawStrArg, targetPid, fdMap)
+	updateCwdFDMap(eventRaw, scMeta, pathText, targetPid, fdMap)
 }
 
 func updateFdReturnMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
@@ -90,11 +90,11 @@ func updateEventfdCount(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, 
 	fdMap[key] = re.ReplaceAllString(target, "eventfd-count="+newValStr)
 }
 
-func updateOpenedPathFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, targetPid int, fdMap map[string]string) {
+func updateOpenedPathFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
 	if eventRaw.Ret < 0 || (scMeta.Name != "open" && scMeta.Name != "openat" && scMeta.Name != "openat2" && scMeta.Name != "creat") {
 		return
 	}
-	path := rawStrArg
+	path := pathText
 	if path == "" || strings.HasPrefix(path, "0x") || path == "NULL" {
 		return
 	}
@@ -211,9 +211,9 @@ func netlinkSockaddrPayload(eventRaw *bpfEvent, scMeta meta.Syscall) ([]byte, bo
 	return nil, false
 }
 
-func updateCwdFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, targetPid int, fdMap map[string]string) {
-	if scMeta.Name == "chdir" && eventRaw.Ret == 0 && rawStrArg != "" && !strings.HasPrefix(rawStrArg, "0x") && rawStrArg != "NULL" {
-		handler.UpdateCwd(targetPid, rawStrArg, fdMap, int(eventRaw.Pid))
+func updateCwdFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
+	if scMeta.Name == "chdir" && eventRaw.Ret == 0 && pathText != "" && !strings.HasPrefix(pathText, "0x") && pathText != "NULL" {
+		handler.UpdateCwd(targetPid, pathText, fdMap, int(eventRaw.Pid))
 	}
 	if scMeta.Name == "fchdir" && eventRaw.Ret == 0 {
 		handler.UpdateCwdByFd(targetPid, int32(eventRaw.Args[0]), fdMap)
@@ -233,7 +233,7 @@ func rememberFDTargetFromProc(eventRaw *bpfEvent, targetPid int, fd int32, suffi
 }
 
 // IMPACT: checkShouldPrint filters syscall events by syscall list, path and read/write descriptor filter options.
-func checkShouldPrint(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, isPath bool, targetPid int, opts *cli.Options, fdMap map[string]string) bool {
+func checkShouldPrint(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, isPath bool, targetPid int, opts *cli.Options, fdMap map[string]string) bool {
 	var fds []int32
 	for i, argName := range scMeta.Args {
 		if isFdArgName(argName) {
@@ -243,7 +243,7 @@ func checkShouldPrint(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string,
 	if len(fds) == 0 {
 		fds = []int32{-1}
 	}
-	matchedPath := event.MatchPath(targetPid, fds, isPath, scMeta.Name, eventRaw.Ptr, rawStrArg, opts.TracePaths, fdMap)
+	matchedPath := event.MatchPath(targetPid, fds, isPath, scMeta.Name, eventRaw.Ptr, pathText, opts.TracePaths, fdMap)
 	matchedFD := matchTraceFDs(fds, opts)
 	requestedRW := false
 	for _, fd := range fds {

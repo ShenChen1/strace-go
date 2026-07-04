@@ -41,7 +41,6 @@ type jsonSyscallEvent struct {
 	Ptr             uint64               `json:"ptr,omitempty"`
 	DataLen         uint32               `json:"data_len,omitempty"`
 	PayloadSections []jsonPayloadSection `json:"payload_sections,omitempty"`
-	RawString       string               `json:"raw_string,omitempty"`
 	ProbeRetEnter   int32                `json:"probe_ret_enter"`
 	ProbeRetExit    int32                `json:"probe_ret_exit"`
 	PairedEnter     bool                 `json:"paired_enter,omitempty"`
@@ -189,7 +188,6 @@ func (s *traceSession) writeJSONEvent(eventRaw *bpfEvent, scMeta meta.Syscall, r
 	ev := newJSONSyscallEvent(eventRaw, scMeta, ctx.PayloadSections)
 	ev.ArgText = res.ArgParts
 	ev.ReturnText = formatSyscallRet(scMeta.Name, eventRaw.Ret, res, ctx)
-	ev.RawString = ctx.RawStrArg
 	ev.PairedEnter = pendingEnter != nil && pendingEnter.genericEnterRaw
 	_ = json.NewEncoder(s.outWriter).Encode(ev)
 }

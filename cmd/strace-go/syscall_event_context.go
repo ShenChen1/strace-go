@@ -7,17 +7,13 @@ import (
 	"strace-go/pkg/meta"
 )
 
-const (
-	defaultStringSnapshotCap = 512
-)
-
 type syscallEventContext struct {
 	raw                *bpfEvent
 	statePID           int
 	tid                int
 	meta               meta.Syscall
 	isPath             bool
-	rawStrArg          string
+	pathText           string
 	shouldPrint        bool
 	pendingEnter       *pendingSyscallState
 	handlerContext     *handler.Context
@@ -30,10 +26,10 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 	scMeta := syscallMeta(eventRaw.SysId)
 	isPath := syscallHasPathArg(scMeta)
 	payloadSections := payloadSectionsForEvent(eventRaw, scMeta)
-	rawStrArg := decodeRawStringArg(s, eventRaw, scMeta, isPath, payloadSections)
+	pathText := decodePathText(s, eventRaw, scMeta, isPath, payloadSections)
 	shouldPrint := true
 	if s.opts != nil {
-		shouldPrint = checkShouldPrint(eventRaw, scMeta, rawStrArg, isPath, statePID, s.opts, s.fdStateStore().PathMap())
+		shouldPrint = checkShouldPrint(eventRaw, scMeta, pathText, isPath, statePID, s.opts, s.fdStateStore().PathMap())
 	}
 	bufferFileOffset, bufferFileOffsetOK := s.bufferFileOffset(eventRaw, scMeta)
 	ev := syscallEventContext{
@@ -42,7 +38,7 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 		tid:                int(eventRaw.Tid),
 		meta:               scMeta,
 		isPath:             isPath,
-		rawStrArg:          rawStrArg,
+		pathText:           pathText,
 		shouldPrint:        shouldPrint,
 		pendingEnter:       pendingEnter,
 		payloadSections:    payloadSections,
@@ -74,28 +70,20 @@ func syscallHasPathArg(scMeta meta.Syscall) bool {
 	return false
 }
 
-func decodeRawStringArg(s *traceSession, eventRaw *bpfEvent, scMeta meta.Syscall, isPath bool, payloadSections []handler.PayloadSection) string {
-	if isPath {
-		if raw, ok := pathRawStringFromPayload(s, eventRaw, scMeta, payloadSections); ok {
-			return raw
-		}
-		return s.decoder.DecodeString(int(eventRaw.Tid), eventRaw.Ptr, nil, -1, scMeta.Name, 0)
+func decodePathText(s *traceSession, eventRaw *bpfEvent, scMeta meta.Syscall, isPath bool, payloadSections []handler.PayloadSection) string {
+	if !isPath {
+		return ""
 	}
-	capSize := defaultStringSnapshotCap
-	return s.decoder.DecodeString(
-		int(eventRaw.Tid),
-		eventRaw.Ptr,
-		eventRaw.StrArg[:capSize],
-		resolvePtrProbeRet(eventRaw),
-		scMeta.Name,
-		0,
-	)
+	if text, ok := pathTextFromPayload(s, eventRaw, scMeta, payloadSections); ok {
+		return text
+	}
+	return s.decoder.DecodeString(int(eventRaw.Tid), eventRaw.Ptr, nil, -1, scMeta.Name, 0)
 }
 
-func pathRawStringFromPayload(s *traceSession, eventRaw *bpfEvent, scMeta meta.Syscall, payloadSections []handler.PayloadSection) (string, bool) {
+func pathTextFromPayload(s *traceSession, eventRaw *bpfEvent, scMeta meta.Syscall, payloadSections []handler.PayloadSection) (string, bool) {
 	if argIndex, ok := simplePathPayloadArgIndex(scMeta.Name); ok {
-		if raw, ok := stringPayloadSectionText(s, eventRaw, scMeta, payloadSections, argIndex); ok {
-			return raw, true
+		if text, ok := stringPayloadSectionText(s, eventRaw, scMeta, payloadSections, argIndex); ok {
+			return text, true
 		}
 	}
 	for _, section := range payloadSections {
@@ -128,7 +116,7 @@ func (ev syscallEventContext) newHandlerContext(s *traceSession) *handler.Contex
 		Pid: int(ev.raw.Pid), Tid: ev.tid, TargetPid: ev.statePID, SysId: ev.raw.SysId,
 		SysName: ev.meta.Name, Args: ev.raw.Args, Ret: ev.raw.Ret,
 		ProbeRetEnter: ev.raw.ProbeRetEnter, ProbeRetExit: ev.raw.ProbeRetExit,
-		Ptr: ev.raw.Ptr, DataLen: ev.raw.DataLen, StrArgBuf: ev.raw.StrArg[:], RawStrArg: ev.rawStrArg,
+		Ptr: ev.raw.Ptr, DataLen: ev.raw.DataLen, StrArgBuf: ev.raw.StrArg[:],
 		PayloadSections:  ev.payloadSections,
 		BufferFileOffset: ev.bufferFileOffset, BufferFileOffsetOK: ev.bufferFileOffsetOK,
 		ScMeta: ev.meta, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdStateStore().PathMap(),
@@ -154,7 +142,7 @@ func (ev syscallEventContext) isFDStateSyscall() bool {
 }
 
 func (s *traceSession) updateFDState(ev syscallEventContext) {
-	s.fdStateStore().UpdateFromEvent(ev.raw, ev.meta, ev.rawStrArg, ev.statePID)
+	s.fdStateStore().UpdateFromEvent(ev.raw, ev.meta, ev.pathText, ev.statePID)
 }
 
 func (s *traceSession) cleanupClosedFD(ev syscallEventContext) {

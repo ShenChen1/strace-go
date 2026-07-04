@@ -8,7 +8,7 @@ import (
 	"strace-go/pkg/handler"
 )
 
-func TestSyscallEventContextBuildsSnapshotHandlerContext(t *testing.T) {
+func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"})
 	session := &traceSession{
 		targetPid: 101,
@@ -37,8 +37,8 @@ func TestSyscallEventContextBuildsSnapshotHandlerContext(t *testing.T) {
 	if ev.meta.Name != "openat" || !ev.isPath || !ev.shouldPrint {
 		t.Fatalf("event context metadata = name:%s isPath:%v shouldPrint:%v", ev.meta.Name, ev.isPath, ev.shouldPrint)
 	}
-	if ev.rawStrArg != `"input.txt"` {
-		t.Fatalf("rawStrArg = %q, want quoted path snapshot", ev.rawStrArg)
+	if ev.pathText != `"input.txt"` {
+		t.Fatalf("pathText = %q, want quoted path snapshot", ev.pathText)
 	}
 	section, ok := ev.handlerContext.Section(1, handler.PayloadKindString)
 	if !ok {
@@ -47,8 +47,8 @@ func TestSyscallEventContextBuildsSnapshotHandlerContext(t *testing.T) {
 	if section.UserPtr != 0x1000 || string(section.Data) != string(path) {
 		t.Fatalf("payload section = ptr:%#x data:%q", section.UserPtr, string(section.Data))
 	}
-	if ev.handlerContext.TargetPid != 101 || ev.handlerContext.RawStrArg != ev.rawStrArg {
-		t.Fatalf("handler context target/raw mismatch: %+v", ev.handlerContext)
+	if ev.handlerContext.TargetPid != 101 {
+		t.Fatalf("handler context target mismatch: %+v", ev.handlerContext)
 	}
 }
 
@@ -74,8 +74,8 @@ func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 	copy(eventRaw.StrArg[:], path)
 
 	ev := newSyscallEventContext(session, eventRaw, 101, nil)
-	if ev.rawStrArg != "0x1000" {
-		t.Fatalf("rawStrArg = %q, want pointer fallback", ev.rawStrArg)
+	if ev.pathText != "0x1000" {
+		t.Fatalf("pathText = %q, want pointer fallback", ev.pathText)
 	}
 	if _, ok := ev.handlerContext.Section(1, handler.PayloadKindString); ok {
 		t.Fatalf("handler context unexpectedly exposed legacy path string section")

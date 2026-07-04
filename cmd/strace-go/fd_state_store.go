@@ -55,9 +55,9 @@ func (s *traceSession) fdStateStore() *FDStateStore {
 	return s.fdState
 }
 
-func (st *FDStateStore) UpdateFromEvent(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, statePID int) {
+func (st *FDStateStore) UpdateFromEvent(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, statePID int) {
 	st.ensureMaps()
-	updateFDMap(eventRaw, scMeta, rawStrArg, statePID, st.paths)
+	updateFDMap(eventRaw, scMeta, pathText, statePID, st.paths)
 }
 
 func (st *FDStateStore) CleanupClosedFD(eventRaw *bpfEvent, scMeta meta.Syscall, statePID int) {

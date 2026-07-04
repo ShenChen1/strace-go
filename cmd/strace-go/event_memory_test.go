@@ -37,8 +37,11 @@ func TestJSONEventPathDoesNotReadTraceeMemory(t *testing.T) {
 		Ret:           3,
 	})
 
-	if !bytes.Contains(output.Bytes(), []byte(`"raw_string":"0x1000"`)) {
-		t.Fatalf("JSON output did not preserve pointer fallback: %s", output.String())
+	if bytes.Contains(output.Bytes(), []byte(`"raw_string"`)) {
+		t.Fatalf("JSON output still exposes raw_string: %s", output.String())
+	}
+	if !bytes.Contains(output.Bytes(), []byte(`"0x1000"`)) {
+		t.Fatalf("JSON output did not preserve pointer fallback in arg_text: %s", output.String())
 	}
 }
 

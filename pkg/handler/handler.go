@@ -34,7 +34,6 @@ type Context struct {
 	Ptr             uint64
 	DataLen         uint32
 	StrArgBuf       []byte
-	RawStrArg       string
 	PayloadSections []PayloadSection
 
 	BufferFileOffset   int64

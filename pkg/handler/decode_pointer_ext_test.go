@@ -444,7 +444,7 @@ func TestDecodePathUsesPayloadStringSection(t *testing.T) {
 	}
 }
 
-func TestDecodePathIgnoresLegacyRawStringAndSnapshot(t *testing.T) {
+func TestDecodePathIgnoresLegacyStringSnapshot(t *testing.T) {
 	ctx := &Context{
 		Pid:       101,
 		Tid:       102,
@@ -454,7 +454,6 @@ func TestDecodePathIgnoresLegacyRawStringAndSnapshot(t *testing.T) {
 			Args:     []string{"dfd", "filename", "flags"},
 			ArgTypes: []string{"int", "const char *", "int"},
 		},
-		RawStrArg: `"/tmp/raw"`,
 		StrArgBuf: make([]byte, 512),
 		DataLen:   uint32(len("/tmp/legacy") + 1),
 		Opts:      &cli.Options{StringLimit: 32},
