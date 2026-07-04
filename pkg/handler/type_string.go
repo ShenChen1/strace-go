@@ -89,23 +89,13 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 	if argTyp == "void *" || argTyp == "const void *" {
 		return fmt.Sprintf("%#x", val), true
 	}
-	capSize := 512
-	probeRet := ctx.ArgProbeRet(i)
-	bpfBuf := ctx.StrArgBuf[0:capSize]
-	if scName == "getcwd" && i == 0 {
-		probeRet = 0
-		bpfBuf = nil
+	if val == 0 {
+		return "NULL", true
 	}
-	p := ctx.Decoder.DecodeString(ctx.Pid, val, bpfBuf, probeRet, scName, limit)
-	if scName == "fspick" && ctx.Ret == -36 && strings.HasPrefix(p, "0x") {
-		var sb strings.Builder
-		sb.WriteByte('"')
-		for sb.Len() < 4096 {
-			sb.WriteString("0123456789")
-		}
-		p = sb.String()[:4096] + `"...`
+	if p, ok := ctx.PayloadString(i, PayloadDirectionIn, val, limit); ok {
+		return p, true
 	}
-	return p, true
+	return fmt.Sprintf("%#x", val), true
 }
 
 func decodeReadlinkBuffer(ctx *Context, i int, val uint64) (string, bool) {
