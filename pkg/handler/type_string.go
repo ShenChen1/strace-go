@@ -72,9 +72,7 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 		if p, ok := ctx.PayloadString(i, PayloadDirectionIn, val, 0); ok {
 			return p, true
 		}
-	}
-	if isPath && val == ctx.Ptr && ctx.RawStrArg != "" && !strings.HasPrefix(ctx.RawStrArg, "0x") {
-		return ctx.RawStrArg, true
+		return fmt.Sprintf("%#x", val), true
 	}
 
 	if scName == "memfd_create" && i == 0 {
@@ -92,10 +90,6 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 		return fmt.Sprintf("%#x", val), true
 	}
 	capSize := 512
-	if isPath {
-		limit = 0
-		capSize = 4097
-	}
 	probeRet := ctx.ArgProbeRet(i)
 	bpfBuf := ctx.StrArgBuf[0:capSize]
 	if scName == "getcwd" && i == 0 {

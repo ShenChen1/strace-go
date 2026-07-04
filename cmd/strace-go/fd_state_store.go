@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 
-	"strace-go/pkg/event"
 	"strace-go/pkg/meta"
 )
 
@@ -56,9 +55,9 @@ func (s *traceSession) fdStateStore() *FDStateStore {
 	return s.fdState
 }
 
-func (st *FDStateStore) UpdateFromEvent(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, decoder *event.Decoder, statePID int) {
+func (st *FDStateStore) UpdateFromEvent(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, statePID int) {
 	st.ensureMaps()
-	updateFDMap(eventRaw, scMeta, rawStrArg, decoder, statePID, st.paths)
+	updateFDMap(eventRaw, scMeta, rawStrArg, statePID, st.paths)
 }
 
 func (st *FDStateStore) CleanupClosedFD(eventRaw *bpfEvent, scMeta meta.Syscall, statePID int) {

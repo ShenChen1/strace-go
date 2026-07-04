@@ -57,6 +57,9 @@ func stringPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int) []handler.
 }
 
 func stringPayloadSectionFromWindowSpec(eventRaw *bpfEvent, spec stringPayloadWindowSpec) []handler.PayloadSection {
+	if eventRaw.EventType != bpfEventTypeEnter && eventRaw.EventType != bpfEventTypeExit {
+		return nil
+	}
 	data, ok := eventPayloadWindow(eventRaw, spec.offset, spec.maxBytes)
 	if !ok {
 		return nil

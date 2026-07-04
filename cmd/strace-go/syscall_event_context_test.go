@@ -51,3 +51,33 @@ func TestSyscallEventContextBuildsSnapshotHandlerContext(t *testing.T) {
 		t.Fatalf("handler context target/raw mismatch: %+v", ev.handlerContext)
 	}
 }
+
+func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
+	opts := cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"})
+	session := &traceSession{
+		targetPid: 101,
+		opts:      opts,
+		decoder:   event.NewDecoder(),
+		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
+	}
+	path := []byte("legacy.txt\x00")
+	eventRaw := &bpfEvent{
+		Pid:           101,
+		Tid:           101,
+		SysId:         syscallIDByName(t, "openat"),
+		Args:          [6]uint64{rawAtFdcwd, 0x1000, 0},
+		Ptr:           0x1000,
+		DataLen:       uint32(len(path)),
+		ProbeRetEnter: 0,
+		Ret:           3,
+	}
+	copy(eventRaw.StrArg[:], path)
+
+	ev := newSyscallEventContext(session, eventRaw, 101, nil)
+	if ev.rawStrArg != "0x1000" {
+		t.Fatalf("rawStrArg = %q, want pointer fallback", ev.rawStrArg)
+	}
+	if _, ok := ev.handlerContext.Section(1, handler.PayloadKindString); ok {
+		t.Fatalf("handler context unexpectedly exposed legacy path string section")
+	}
+}

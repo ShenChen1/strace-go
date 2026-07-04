@@ -14,11 +14,10 @@ import (
 )
 
 // IMPACT: updateFDMap dynamically tracks fd modifications inside open, dup, socket and close syscalls.
-func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, decoder *event.Decoder, targetPid int, fdMap map[string]string) {
-	strArgBuf := eventRaw.StrArg[:]
+func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, targetPid int, fdMap map[string]string) {
 	updateFdReturnMap(eventRaw, scMeta, targetPid, fdMap)
 	updateEventfdCount(eventRaw, scMeta, targetPid, fdMap)
-	updateOpenedPathFDMap(eventRaw, scMeta, rawStrArg, decoder, strArgBuf, targetPid, fdMap)
+	updateOpenedPathFDMap(eventRaw, scMeta, rawStrArg, targetPid, fdMap)
 	updateDupFDMap(eventRaw, scMeta, targetPid, fdMap)
 	updatePipeFDMapFromPayload(eventRaw, scMeta, targetPid, fdMap)
 	updateSocketpairFDMap(eventRaw, scMeta, targetPid, fdMap)
@@ -91,14 +90,11 @@ func updateEventfdCount(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, 
 	fdMap[key] = re.ReplaceAllString(target, "eventfd-count="+newValStr)
 }
 
-func updateOpenedPathFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, decoder *event.Decoder, strArgBuf []byte, targetPid int, fdMap map[string]string) {
+func updateOpenedPathFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, targetPid int, fdMap map[string]string) {
 	if eventRaw.Ret < 0 || (scMeta.Name != "open" && scMeta.Name != "openat" && scMeta.Name != "openat2" && scMeta.Name != "creat") {
 		return
 	}
 	path := rawStrArg
-	if decoder != nil && (scMeta.Name == "openat" || scMeta.Name == "openat2") {
-		path = decoder.DecodeString(int(eventRaw.Tid), eventRaw.Args[1], strArgBuf, eventRaw.ProbeRetEnter, scMeta.Name, 0)
-	}
 	if path == "" || strings.HasPrefix(path, "0x") || path == "NULL" {
 		return
 	}

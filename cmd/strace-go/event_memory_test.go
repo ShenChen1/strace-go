@@ -109,8 +109,6 @@ func TestTextEventPathDoesNotReadTraceeMemory(t *testing.T) {
 }
 
 func TestUpdateFDMapDoesNotReadTraceeMemoryWhenFallbackDisabled(t *testing.T) {
-	decoder := event.NewDecoder()
-
 	tests := []struct {
 		name     string
 		sc       meta.Syscall
@@ -150,7 +148,7 @@ func TestUpdateFDMapDoesNotReadTraceeMemoryWhenFallbackDisabled(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			updateFDMap(test.eventRaw, test.sc, "", decoder, 101, make(map[string]string))
+			updateFDMap(test.eventRaw, test.sc, "", 101, make(map[string]string))
 		})
 	}
 }

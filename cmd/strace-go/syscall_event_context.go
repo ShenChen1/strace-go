@@ -9,7 +9,6 @@ import (
 
 const (
 	defaultStringSnapshotCap = 512
-	pathStringSnapshotCap    = 4097
 )
 
 type syscallEventContext struct {
@@ -22,6 +21,7 @@ type syscallEventContext struct {
 	shouldPrint        bool
 	pendingEnter       *pendingSyscallState
 	handlerContext     *handler.Context
+	payloadSections    []handler.PayloadSection
 	bufferFileOffset   int64
 	bufferFileOffsetOK bool
 }
@@ -29,7 +29,8 @@ type syscallEventContext struct {
 func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, pendingEnter *pendingSyscallState) syscallEventContext {
 	scMeta := syscallMeta(eventRaw.SysId)
 	isPath := syscallHasPathArg(scMeta)
-	rawStrArg := decodeRawStringArg(s, eventRaw, scMeta, isPath)
+	payloadSections := payloadSectionsForEvent(eventRaw, scMeta)
+	rawStrArg := decodeRawStringArg(s, eventRaw, scMeta, isPath, payloadSections)
 	shouldPrint := true
 	if s.opts != nil {
 		shouldPrint = checkShouldPrint(eventRaw, scMeta, rawStrArg, isPath, statePID, s.opts, s.fdStateStore().PathMap())
@@ -44,6 +45,7 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 		rawStrArg:          rawStrArg,
 		shouldPrint:        shouldPrint,
 		pendingEnter:       pendingEnter,
+		payloadSections:    payloadSections,
 		bufferFileOffset:   bufferFileOffset,
 		bufferFileOffsetOK: bufferFileOffsetOK,
 	}
@@ -72,11 +74,14 @@ func syscallHasPathArg(scMeta meta.Syscall) bool {
 	return false
 }
 
-func decodeRawStringArg(s *traceSession, eventRaw *bpfEvent, scMeta meta.Syscall, isPath bool) string {
-	capSize := defaultStringSnapshotCap
+func decodeRawStringArg(s *traceSession, eventRaw *bpfEvent, scMeta meta.Syscall, isPath bool, payloadSections []handler.PayloadSection) string {
 	if isPath {
-		capSize = pathStringSnapshotCap
+		if raw, ok := pathRawStringFromPayload(s, eventRaw, scMeta, payloadSections); ok {
+			return raw
+		}
+		return s.decoder.DecodeString(int(eventRaw.Tid), eventRaw.Ptr, nil, -1, scMeta.Name, 0)
 	}
+	capSize := defaultStringSnapshotCap
 	return s.decoder.DecodeString(
 		int(eventRaw.Tid),
 		eventRaw.Ptr,
@@ -87,13 +92,44 @@ func decodeRawStringArg(s *traceSession, eventRaw *bpfEvent, scMeta meta.Syscall
 	)
 }
 
+func pathRawStringFromPayload(s *traceSession, eventRaw *bpfEvent, scMeta meta.Syscall, payloadSections []handler.PayloadSection) (string, bool) {
+	if argIndex, ok := simplePathPayloadArgIndex(scMeta.Name); ok {
+		if raw, ok := stringPayloadSectionText(s, eventRaw, scMeta, payloadSections, argIndex); ok {
+			return raw, true
+		}
+	}
+	for _, section := range payloadSections {
+		if section.Kind == handler.PayloadKindString && section.Direction == handler.PayloadDirectionIn &&
+			section.ProbeRet == 0 && len(section.Data) > 0 && section.UserPtr == eventRaw.Ptr {
+			return s.decoder.DecodeString(int(eventRaw.Tid), section.UserPtr, section.Data, section.ProbeRet, scMeta.Name, 0), true
+		}
+	}
+	return "", false
+}
+
+func stringPayloadSectionText(
+	s *traceSession,
+	eventRaw *bpfEvent,
+	scMeta meta.Syscall,
+	payloadSections []handler.PayloadSection,
+	argIndex int,
+) (string, bool) {
+	for _, section := range payloadSections {
+		if section.Kind == handler.PayloadKindString && section.Direction == handler.PayloadDirectionIn &&
+			section.ArgIndex == argIndex && section.ProbeRet == 0 && len(section.Data) > 0 {
+			return s.decoder.DecodeString(int(eventRaw.Tid), section.UserPtr, section.Data, section.ProbeRet, scMeta.Name, 0), true
+		}
+	}
+	return "", false
+}
+
 func (ev syscallEventContext) newHandlerContext(s *traceSession) *handler.Context {
 	return &handler.Context{
 		Pid: int(ev.raw.Pid), Tid: ev.tid, TargetPid: ev.statePID, SysId: ev.raw.SysId,
 		SysName: ev.meta.Name, Args: ev.raw.Args, Ret: ev.raw.Ret,
 		ProbeRetEnter: ev.raw.ProbeRetEnter, ProbeRetExit: ev.raw.ProbeRetExit,
 		Ptr: ev.raw.Ptr, DataLen: ev.raw.DataLen, StrArgBuf: ev.raw.StrArg[:], RawStrArg: ev.rawStrArg,
-		PayloadSections:  payloadSectionsForEvent(ev.raw, ev.meta),
+		PayloadSections:  ev.payloadSections,
 		BufferFileOffset: ev.bufferFileOffset, BufferFileOffsetOK: ev.bufferFileOffsetOK,
 		ScMeta: ev.meta, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdStateStore().PathMap(),
 		FdFiles: s.fdStateStore().FileMap(),
@@ -118,7 +154,7 @@ func (ev syscallEventContext) isFDStateSyscall() bool {
 }
 
 func (s *traceSession) updateFDState(ev syscallEventContext) {
-	s.fdStateStore().UpdateFromEvent(ev.raw, ev.meta, ev.rawStrArg, s.decoder, ev.statePID)
+	s.fdStateStore().UpdateFromEvent(ev.raw, ev.meta, ev.rawStrArg, ev.statePID)
 }
 
 func (s *traceSession) cleanupClosedFD(ev syscallEventContext) {
