@@ -12,9 +12,23 @@ func keyPolicyContext(name string) *Context {
 	return &Context{
 		Pid:     1234,
 		Tid:     1234,
+		SysName: name,
 		ScMeta:  meta.Syscall{Name: name},
 		Decoder: event.NewDecoder(),
 		Opts:    &cli.Options{StringLimit: 32},
+	}
+}
+
+func putKeyLegacySnapshot(ctx *Context, offset int, data []byte) {
+	end := offset + len(data)
+	if len(ctx.StrArgBuf) < end {
+		buf := make([]byte, end)
+		copy(buf, ctx.StrArgBuf)
+		ctx.StrArgBuf = buf
+	}
+	copy(ctx.StrArgBuf[offset:end], data)
+	if ctx.DataLen < uint32(end) {
+		ctx.DataLen = uint32(end)
 	}
 }
 
@@ -44,6 +58,30 @@ func TestRequestKeyArgsUsePayloadSections(t *testing.T) {
 	assertKeyArg(t, ctx, 0, "type", 0x1000, `"user"`)
 	assertKeyArg(t, ctx, 1, "description", 0x2000, `"desc"`)
 	assertKeyArg(t, ctx, 2, "callout_info", 0x3000, `"info"`)
+}
+
+func TestAddKeyArgsIgnoreLegacySnapshots(t *testing.T) {
+	ctx := keyPolicyContext("add_key")
+	ctx.Args = [6]uint64{0x1000, 0x2000, 0x3000, 3}
+	putKeyLegacySnapshot(ctx, 0, []byte("user\x00"))
+	putKeyLegacySnapshot(ctx, 64, []byte("desc\x00"))
+	putKeyLegacySnapshot(ctx, 256, []byte("abc"))
+
+	assertKeyArg(t, ctx, 0, "type", 0x1000, "0x1000")
+	assertKeyArg(t, ctx, 1, "description", 0x2000, "0x2000")
+	assertKeyArg(t, ctx, 2, "payload", 0x3000, "0x3000")
+}
+
+func TestRequestKeyArgsIgnoreLegacySnapshots(t *testing.T) {
+	ctx := keyPolicyContext("request_key")
+	ctx.Args = [6]uint64{0x1000, 0x2000, 0x3000}
+	putKeyLegacySnapshot(ctx, 0, []byte("user\x00"))
+	putKeyLegacySnapshot(ctx, 64, []byte("desc\x00"))
+	putKeyLegacySnapshot(ctx, 256, []byte("info\x00"))
+
+	assertKeyArg(t, ctx, 0, "type", 0x1000, "0x1000")
+	assertKeyArg(t, ctx, 1, "description", 0x2000, "0x2000")
+	assertKeyArg(t, ctx, 2, "callout_info", 0x3000, "0x3000")
 }
 
 func assertKeyArg(t *testing.T, ctx *Context, argIndex int, argName string, ptr uint64, want string) {

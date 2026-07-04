@@ -287,20 +287,14 @@ func shouldShowFaultingTimePathPointer(ctx *Context, val uint64) bool {
 }
 
 func decodeKeyArg(ctx *Context, i int, argName string, val uint64) (string, bool) {
-	scName := ctx.ScMeta.Name
 	if strings.Contains(argName, "type") || strings.Contains(argName, "description") || strings.Contains(argName, "callout_info") {
+		if val == 0 {
+			return "NULL", true
+		}
 		if text, ok := ctx.PayloadString(i, PayloadDirectionIn, val, ctx.Opts.StringLimit); ok {
 			return text, true
 		}
-		off := 0
-		bufLen := 128
-		if strings.Contains(argName, "description") {
-			off = 64
-		} else if strings.Contains(argName, "callout_info") {
-			off = 256
-			bufLen = 256
-		}
-		return ctx.Decoder.DecodeString(ctx.Tid, val, ctx.StrArgBuf[off:off+bufLen], ctx.ArgProbeRet(i), scName, ctx.Opts.StringLimit), true
+		return fmt.Sprintf("%#x", val), true
 	}
 
 	if strings.Contains(argName, "payload") {
@@ -320,9 +314,6 @@ func decodeKeyArg(ctx *Context, i int, argName string, val uint64) (string, bool
 		data, ok := ctx.PayloadBytes(i, PayloadDirectionIn)
 		if ok && len(data) > capLen {
 			data = data[:capLen]
-		}
-		if !ok {
-			data, ok = ctx.EnterArgSnapshot(i, 256, capLen)
 		}
 		if !ok || len(data) == 0 {
 			return fmt.Sprintf("%#x", val), true
