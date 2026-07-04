@@ -183,7 +183,7 @@ func updateNetlinkFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, 
 		return
 	}
 	fd := int32(eventRaw.Args[0])
-	data, ok := netlinkSockaddrSnapshot(eventRaw, scMeta.Name)
+	data, ok := netlinkSockaddrPayload(eventRaw, scMeta)
 	if !ok || len(data) < 8 || binary.LittleEndian.Uint16(data[0:2]) != 16 {
 		return
 	}
@@ -191,11 +191,24 @@ func updateNetlinkFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, 
 	fdMap[fmt.Sprintf("%d:%d", targetPid, fd)] = fmt.Sprintf("NETLINK:[SOCK_DIAG:%d]", nlPid)
 }
 
-func netlinkSockaddrSnapshot(eventRaw *bpfEvent, scName string) ([]byte, bool) {
-	if scName == "bind" {
-		return eventSnapshot(eventRaw, 0, 8, eventRaw.ProbeRetEnter)
+func netlinkSockaddrPayload(eventRaw *bpfEvent, scMeta meta.Syscall) ([]byte, bool) {
+	if eventRaw.EventType != bpfEventTypeEnter && eventRaw.EventType != bpfEventTypeExit {
+		return nil, false
 	}
-	return eventExitSnapshot(eventRaw, handler.BpfExitArgOffset, 8)
+	direction := handler.PayloadDirectionIn
+	if scMeta.Name == "getsockname" {
+		direction = handler.PayloadDirectionOut
+	}
+	for _, section := range payloadSectionsForEvent(eventRaw, scMeta) {
+		if section.Kind == handler.PayloadKindStruct &&
+			section.Direction == direction &&
+			section.ArgIndex == 1 &&
+			section.ProbeRet == 0 &&
+			len(section.Data) >= 8 {
+			return section.Data[:8], true
+		}
+	}
+	return nil, false
 }
 
 func updateCwdFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, targetPid int, fdMap map[string]string) {
@@ -217,21 +230,6 @@ func rememberFDTargetFromProc(eventRaw *bpfEvent, targetPid int, fd int32, suffi
 		target = "socket:[]"
 	}
 	fdMap[key] = target + suffix
-}
-
-func eventExitSnapshot(eventRaw *bpfEvent, offset int, size int) ([]byte, bool) {
-	return eventSnapshot(eventRaw, offset, size, eventRaw.ProbeRetExit)
-}
-
-func eventSnapshot(eventRaw *bpfEvent, offset int, size int, probeRet int32) ([]byte, bool) {
-	if probeRet < 0 || offset < 0 || size <= 0 {
-		return nil, false
-	}
-	end := offset + size
-	if end < offset || end > len(eventRaw.StrArg) || uint32(end) > eventRaw.DataLen {
-		return nil, false
-	}
-	return eventRaw.StrArg[offset:end], true
 }
 
 // IMPACT: checkShouldPrint filters syscall events by syscall list, path and read/write descriptor filter options.

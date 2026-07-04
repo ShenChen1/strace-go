@@ -305,16 +305,34 @@ func TestUpdateFDMapIgnoresLegacyOpenatStringSnapshot(t *testing.T) {
 	}
 }
 
-func TestUpdateFDMapUsesNetlinkSockaddrSnapshots(t *testing.T) {
+func TestUpdateFDMapUsesNetlinkSockaddrPayloadSection(t *testing.T) {
 	tests := []struct {
-		name     string
-		offset   int
-		enterRet int32
-		exitRet  int32
-		dataLen  uint32
+		name      string
+		eventType uint16
+		args      [6]uint64
+		offset    int
+		enterRet  int32
+		exitRet   int32
+		dataLen   uint32
 	}{
-		{name: "bind", offset: 0, enterRet: 0, exitRet: -1, dataLen: 8},
-		{name: "getsockname", offset: handler.BpfExitArgOffset, enterRet: -1, exitRet: 0, dataLen: uint32(handler.BpfExitArgOffset + 8)},
+		{
+			name:      "bind",
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{7, 0x3000, 8},
+			offset:    0,
+			enterRet:  0,
+			exitRet:   -1,
+			dataLen:   8,
+		},
+		{
+			name:      "getsockname",
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{7, 0x3000, 0x4000},
+			offset:    handler.BpfExitArgOffset,
+			enterRet:  -1,
+			exitRet:   0,
+			dataLen:   uint32(handler.BpfExitArgOffset + 8),
+		},
 	}
 
 	for _, test := range tests {
@@ -322,7 +340,8 @@ func TestUpdateFDMapUsesNetlinkSockaddrSnapshots(t *testing.T) {
 			eventRaw := &bpfEvent{
 				Pid:           1234,
 				Tid:           1234,
-				Args:          [6]uint64{7, 0x3000},
+				Args:          test.args,
+				EventType:     test.eventType,
 				Ret:           0,
 				ProbeRetEnter: test.enterRet,
 				ProbeRetExit:  test.exitRet,
@@ -336,6 +355,43 @@ func TestUpdateFDMapUsesNetlinkSockaddrSnapshots(t *testing.T) {
 
 			if got := fdMap["101:7"]; got != "NETLINK:[SOCK_DIAG:42]" {
 				t.Fatalf("fdMap[101:7] = %q, want NETLINK socket", got)
+			}
+		})
+	}
+}
+
+func TestUpdateFDMapIgnoresLegacyNetlinkSockaddrSnapshot(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     [6]uint64
+		offset   int
+		enterRet int32
+		exitRet  int32
+		dataLen  uint32
+	}{
+		{name: "bind", args: [6]uint64{7, 0x3000, 8}, offset: 0, enterRet: 0, exitRet: -1, dataLen: 8},
+		{name: "getsockname", args: [6]uint64{7, 0x3000, 0x4000}, offset: handler.BpfExitArgOffset, enterRet: -1, exitRet: 0, dataLen: uint32(handler.BpfExitArgOffset + 8)},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			eventRaw := &bpfEvent{
+				Pid:           1234,
+				Tid:           1234,
+				Args:          test.args,
+				Ret:           0,
+				ProbeRetEnter: test.enterRet,
+				ProbeRetExit:  test.exitRet,
+				DataLen:       test.dataLen,
+			}
+			binary.LittleEndian.PutUint16(eventRaw.StrArg[test.offset:], 16)
+			binary.LittleEndian.PutUint32(eventRaw.StrArg[test.offset+4:], 42)
+
+			fdMap := make(map[string]string)
+			updateFDMap(eventRaw, meta.Syscall{Name: test.name}, "", 101, fdMap)
+
+			if len(fdMap) != 0 {
+				t.Fatalf("fdMap entries = %d, want 0 without netlink sockaddr payload section", len(fdMap))
 			}
 		})
 	}
