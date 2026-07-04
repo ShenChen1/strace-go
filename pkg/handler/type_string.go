@@ -38,10 +38,11 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 		}
 	}
 
-	if strings.Contains(scName, "read") || strings.Contains(scName, "write") {
+	if isReadWriteBufferSyscall(scName) {
 		if p, ok := decodeBufferArg(ctx, val, res); ok {
 			return p, true
 		}
+		return fmt.Sprintf("%#x", val), true
 	}
 
 	if scName == "readlink" || scName == "readlinkat" || scName == "getcwd" {
@@ -132,14 +133,10 @@ func decodeReadlinkBuffer(ctx *Context, i int, val uint64) (string, bool) {
 	if ctx.Ret < 0 {
 		return fmt.Sprintf("%#x", val), true
 	}
-	readSize := boundedSnapshotSize(int(ctx.Ret), 512)
-	if readSize == 0 {
+	if ctx.Ret == 0 {
 		return `""`, true
 	}
 	data, ok := ctx.PayloadBytes(bufIdx, PayloadDirectionOut)
-	if !ok {
-		data, ok = ctx.ExitSnapshot(BpfExitArgOffset, readSize)
-	}
 	if !ok {
 		return fmt.Sprintf("%#x", val), true
 	}
@@ -347,11 +344,7 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 		if szH == 0 {
 			return `""`, true
 		}
-		readSize := boundedSnapshotSize(int(szH), 512)
 		data, ok := ctx.PayloadBytes(1, PayloadDirectionOut)
-		if !ok {
-			data, ok = ctx.ExitSnapshot(BpfExitArgOffset, readSize)
-		}
 		if ok {
 			if ctx.Opts.TraceReadFDs[fd] {
 				res.HexDumpStr = format.Hexdump(data, int(szH))
@@ -373,11 +366,7 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 		if szH == 0 {
 			return `""`, true
 		}
-		readSize := boundedSnapshotSize(int(szH), 512)
 		data, ok := ctx.PayloadBytes(1, PayloadDirectionIn)
-		if !ok {
-			data, ok = ctx.EnterArgSnapshot(1, BpfEnterArgOffset, readSize)
-		}
 		if ok {
 			if ctx.Opts.TraceWriteFDs[fd] {
 				if fileData, fileOK := ctx.FetchWrittenFileData(fd, int(szH), data); fileOK {
@@ -398,6 +387,15 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 	}
 
 	return "", false
+}
+
+func isReadWriteBufferSyscall(scName string) bool {
+	switch scName {
+	case "read", "pread64", "write", "pwrite64":
+		return true
+	default:
+		return false
+	}
 }
 
 func boundedSnapshotSize(requested int, maxSize int) int {

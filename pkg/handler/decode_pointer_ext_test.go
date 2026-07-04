@@ -221,7 +221,7 @@ func TestDecodeExecSnapshotHonorsStringLimit40(t *testing.T) {
 	}
 }
 
-func TestDecodeWriteDumpDoesNotUseTraceeMemoryBeyondBpfPrefix(t *testing.T) {
+func TestDecodeWriteDumpDoesNotUseTraceeMemoryBeyondPayloadPrefix(t *testing.T) {
 	data := make([]byte, 0x300)
 	for i := range data {
 		data[i] = byte(i)
@@ -237,14 +237,23 @@ func TestDecodeWriteDumpDoesNotUseTraceeMemoryBeyondBpfPrefix(t *testing.T) {
 			ArgTypes: []string{"int", "const char *", "size_t"},
 		},
 		ProbeRetEnter: 0,
-		StrArgBuf:     make([]byte, 1536),
+		PayloadSections: []PayloadSection{
+			{
+				Kind:      PayloadKindBytes,
+				Direction: PayloadDirectionIn,
+				ArgIndex:  1,
+				UserPtr:   0x1000,
+				UserLen:   uint32(len(data)),
+				CopiedLen: 512,
+				ProbeRet:  0,
+				Data:      data[:512],
+			},
+		},
 		Opts: &cli.Options{
 			StringLimit:   32,
 			TraceWriteFDs: map[int32]bool{1: true},
 		},
 	}
-	copy(ctx.StrArgBuf[:512], data[:512])
-	ctx.DataLen = 512
 	ctx.Decoder = event.NewDecoder()
 
 	res := Result{}
@@ -260,6 +269,32 @@ func TestDecodeWriteDumpDoesNotUseTraceeMemoryBeyondBpfPrefix(t *testing.T) {
 	}
 	if !strings.Contains(res.HexDumpStr, "Cannot fetch 256 bytes") {
 		t.Fatalf("hexdump did not report missing bytes:\n%s", res.HexDumpStr)
+	}
+}
+
+func TestDecodeWriteBufferIgnoresLegacyEnterSnapshot(t *testing.T) {
+	ctx := &Context{
+		Pid:       101,
+		Tid:       102,
+		TargetPid: 101,
+		Args:      [6]uint64{1, 0x1000, 3},
+		ScMeta: meta.Syscall{
+			Name:     "write",
+			Args:     []string{"fd", "buf", "count"},
+			ArgTypes: []string{"int", "const char *", "size_t"},
+		},
+		ProbeRetEnter: 0,
+		StrArgBuf:     make([]byte, 1536),
+		Opts:          &cli.Options{StringLimit: 32},
+		Decoder:       event.NewDecoder(),
+	}
+	copy(ctx.StrArgBuf[:3], []byte("old"))
+	ctx.DataLen = 3
+
+	res := Result{}
+	got, ok := decodeCharPointer(ctx, 1, "const char *", "buf", 0x1000, &res)
+	if !ok || got != "0x1000" {
+		t.Fatalf("decodeCharPointer(write) = %q, %v; want pointer fallback", got, ok)
 	}
 }
 
@@ -444,6 +479,30 @@ func TestDecodeReadlinkBufferUsesPayloadSection(t *testing.T) {
 	}
 }
 
+func TestDecodeReadlinkBufferIgnoresLegacyExitSnapshot(t *testing.T) {
+	ctx := &Context{
+		Pid:       101,
+		Tid:       102,
+		TargetPid: 101,
+		Ret:       6,
+		ScMeta: meta.Syscall{
+			Name:     "readlink",
+			Args:     []string{"path", "buf", "bufsiz"},
+			ArgTypes: []string{"const char *", "char *", "size_t"},
+		},
+		StrArgBuf: make([]byte, BpfExitArgOffset+6),
+		Opts:      &cli.Options{StringLimit: 32},
+		Decoder:   event.NewDecoder(),
+	}
+	copy(ctx.StrArgBuf[BpfExitArgOffset:], []byte("target"))
+	ctx.DataLen = BpfExitArgOffset + 6
+
+	got, ok := decodeReadlinkBuffer(ctx, 1, 0x3000)
+	if !ok || got != "0x3000" {
+		t.Fatalf("decodeReadlinkBuffer() = %q, %v; want pointer fallback", got, ok)
+	}
+}
+
 func TestDecodeWriteDumpExtendsFromWrittenFile(t *testing.T) {
 	data := make([]byte, 0x300)
 	for i := range data {
@@ -473,17 +532,26 @@ func TestDecodeWriteDumpExtendsFromWrittenFile(t *testing.T) {
 			ArgTypes: []string{"int", "const char *", "size_t"},
 		},
 		ProbeRetEnter:      0,
-		StrArgBuf:          make([]byte, 1536),
 		BufferFileOffset:   15,
 		BufferFileOffsetOK: true,
 		FdFiles:            map[string]*os.File{"101:1": tmp},
+		PayloadSections: []PayloadSection{
+			{
+				Kind:      PayloadKindBytes,
+				Direction: PayloadDirectionIn,
+				ArgIndex:  1,
+				UserPtr:   0x1000,
+				UserLen:   uint32(len(data)),
+				CopiedLen: 512,
+				ProbeRet:  0,
+				Data:      data[:512],
+			},
+		},
 		Opts: &cli.Options{
 			StringLimit:   32,
 			TraceWriteFDs: map[int32]bool{1: true},
 		},
 	}
-	copy(ctx.StrArgBuf[:512], data[:512])
-	ctx.DataLen = 512
 	ctx.Decoder = event.NewDecoder()
 
 	res := Result{}
