@@ -38,6 +38,12 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 		}
 	}
 
+	if isXattrSyscall(scName) {
+		if p, ok := decodeXattrArg(ctx, i, argTyp, argName, val); ok {
+			return p, true
+		}
+	}
+
 	if isReadWriteBufferSyscall(scName) {
 		if p, ok := decodeBufferArg(ctx, val, res); ok {
 			return p, true
@@ -78,14 +84,6 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 	}
 
 	limit := ctx.Opts.StringLimit
-	if p, ok := decodeXattrValueArg(ctx, i, argTyp, argName, val, limit); ok {
-		return p, true
-	}
-	if isXattrNameArg(scName, argName) {
-		if p, ok := ctx.PayloadString(i, PayloadDirectionIn, val, limit); ok {
-			return p, true
-		}
-	}
 	if argTyp == "void *" || argTyp == "const void *" {
 		return fmt.Sprintf("%#x", val), true
 	}
@@ -102,11 +100,6 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 	if scName == "getcwd" && i == 0 {
 		probeRet = 0
 		bpfBuf = nil
-	}
-	if strings.HasSuffix(scName, "setxattr") || strings.HasSuffix(scName, "getxattr") || strings.HasSuffix(scName, "removexattr") {
-		if !strings.HasPrefix(scName, "f") && argName == "name" {
-			bpfBuf = ctx.StrArgBuf[512:768]
-		}
 	}
 	p := ctx.Decoder.DecodeString(ctx.Pid, val, bpfBuf, probeRet, scName, limit)
 	if scName == "fspick" && ctx.Ret == -36 && strings.HasPrefix(p, "0x") {
@@ -151,6 +144,19 @@ func decodeReadlinkBuffer(ctx *Context, i int, val uint64) (string, bool) {
 		sz = idx
 	}
 	return format.BufferEscape(data[:sz], 0, sz, ctx.Decoder.HexEscapeMode), true
+}
+
+func decodeXattrArg(ctx *Context, i int, argTyp string, argName string, val uint64) (string, bool) {
+	if isXattrPathArg(ctx.ScMeta.Name, argName) || isXattrNameArg(ctx.ScMeta.Name, argName) {
+		if val == 0 {
+			return "NULL", true
+		}
+		if p, ok := ctx.PayloadString(i, PayloadDirectionIn, val, ctx.Opts.StringLimit); ok {
+			return p, true
+		}
+		return fmt.Sprintf("%#x", val), true
+	}
+	return decodeXattrValueArg(ctx, i, argTyp, argName, val, ctx.Opts.StringLimit)
 }
 
 func decodeXattrValueArg(ctx *Context, i int, argTyp string, argName string, val uint64, limit int) (string, bool) {
@@ -202,14 +208,7 @@ func formatXattrSnapshot(ctx *Context, argIndex int, val uint64, size uint64, li
 	if limit > 0 && fetchSize > limit {
 		fetchSize = limit
 	}
-	offset, captureArg := xattrSnapshotOffset(ctx.ScMeta.Name, argIndex)
-	readSize := boundedSnapshotSize(fetchSize, 256)
 	data, ok := xattrPayloadBytes(ctx, argIndex, isGetxattr, isListxattr)
-	if !ok && (isGetxattr || isListxattr) {
-		data, ok = ctx.ExitSnapshot(offset, readSize)
-	} else if !ok {
-		data, ok = ctx.EnterArgSnapshot(captureArg, offset, readSize)
-	}
 	if !ok || len(data) == 0 || len(data) < fetchSize {
 		return fmt.Sprintf("%#x", val)
 	}
@@ -228,6 +227,20 @@ func formatXattrSnapshot(ctx *Context, argIndex int, val uint64, size uint64, li
 	return res
 }
 
+func isXattrSyscall(scName string) bool {
+	return strings.HasSuffix(scName, "setxattr") ||
+		strings.HasSuffix(scName, "getxattr") ||
+		strings.HasSuffix(scName, "listxattr") ||
+		strings.HasSuffix(scName, "removexattr")
+}
+
+func isXattrPathArg(scName string, argName string) bool {
+	if strings.HasPrefix(scName, "f") {
+		return false
+	}
+	return argName == "path" || argName == "pathname" || argName == "filename"
+}
+
 func isXattrNameArg(scName string, argName string) bool {
 	if argName != "name" {
 		return false
@@ -243,19 +256,6 @@ func xattrPayloadBytes(ctx *Context, argIndex int, isGetxattr bool, isListxattr 
 		direction = PayloadDirectionOut
 	}
 	return ctx.PayloadBytes(argIndex, direction)
-}
-
-func xattrSnapshotOffset(scName string, fallbackArg int) (int, int) {
-	switch scName {
-	case "fsetxattr", "fgetxattr":
-		return 256, 2
-	case "listxattr", "llistxattr":
-		return 512, 1
-	case "flistxattr":
-		return 0, 1
-	default:
-		return 768, fallbackArg
-	}
 }
 
 func shouldShowFaultingTimePathPointer(ctx *Context, val uint64) bool {
@@ -396,16 +396,6 @@ func isReadWriteBufferSyscall(scName string) bool {
 	default:
 		return false
 	}
-}
-
-func boundedSnapshotSize(requested int, maxSize int) int {
-	if requested <= 0 || maxSize <= 0 {
-		return 0
-	}
-	if requested > maxSize {
-		return maxSize
-	}
-	return requested
 }
 
 func decodeRenArg(ctx *Context, i int, val uint64) (string, bool) {
