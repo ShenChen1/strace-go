@@ -20,7 +20,7 @@ func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, rawStrArg string, deco
 	updateEventfdCount(eventRaw, scMeta, targetPid, fdMap)
 	updateOpenedPathFDMap(eventRaw, scMeta, rawStrArg, decoder, strArgBuf, targetPid, fdMap)
 	updateDupFDMap(eventRaw, scMeta, targetPid, fdMap)
-	updatePipeFDMapFromSnapshot(eventRaw, scMeta, targetPid, fdMap)
+	updatePipeFDMapFromPayload(eventRaw, scMeta, targetPid, fdMap)
 	updateSocketpairFDMap(eventRaw, scMeta, targetPid, fdMap)
 	updateSocketFDMap(eventRaw, scMeta, targetPid, fdMap)
 	updateNetlinkFDMap(eventRaw, scMeta, targetPid, fdMap)
@@ -118,11 +118,11 @@ func updateDupFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMa
 	}
 }
 
-func updatePipeFDMapFromSnapshot(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+func updatePipeFDMapFromPayload(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
 	if eventRaw.Ret != 0 || (scMeta.Name != "pipe" && scMeta.Name != "pipe2") {
 		return
 	}
-	data, ok := eventExitSnapshot(eventRaw, handler.BpfExitArgOffset, 8)
+	data, ok := fdArrayPayloadData(eventRaw, scMeta, 0)
 	if !ok {
 		return
 	}
@@ -136,7 +136,7 @@ func updateSocketpairFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid in
 	if scMeta.Name != "socketpair" || eventRaw.Ret != 0 {
 		return
 	}
-	data, ok := eventExitSnapshot(eventRaw, handler.BpfExitArgOffset, 8)
+	data, ok := fdArrayPayloadData(eventRaw, scMeta, 3)
 	if !ok {
 		return
 	}
@@ -145,6 +145,19 @@ func updateSocketpairFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid in
 	info := socketFDInfo(eventRaw)
 	rememberFDTargetFromProc(eventRaw, targetPid, fd1, "|"+info, fdMap)
 	rememberFDTargetFromProc(eventRaw, targetPid, fd2, "|"+info, fdMap)
+}
+
+func fdArrayPayloadData(eventRaw *bpfEvent, scMeta meta.Syscall, argIndex int) ([]byte, bool) {
+	for _, section := range payloadSectionsForEvent(eventRaw, scMeta) {
+		if section.Kind == handler.PayloadKindStruct &&
+			section.Direction == handler.PayloadDirectionOut &&
+			section.ArgIndex == argIndex &&
+			section.ProbeRet == 0 &&
+			len(section.Data) >= fdArrayPayloadSize {
+			return section.Data[:fdArrayPayloadSize], true
+		}
+	}
+	return nil, false
 }
 
 func updateSocketFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
@@ -307,6 +320,9 @@ func isFdArgName(name string) bool {
 }
 
 func isFdReturnSyscall(scName string) bool {
+	if scName == "socketpair" {
+		return false
+	}
 	return strings.HasPrefix(scName, "open") ||
 		strings.HasPrefix(scName, "dup") ||
 		strings.HasPrefix(scName, "socket") ||

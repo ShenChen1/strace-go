@@ -155,7 +155,7 @@ func TestDup2FormatsArgsBeforeFDMapUpdateAndReturnAfter(t *testing.T) {
 	}
 }
 
-func TestUpdateFDMapUsesPipeExitSnapshot(t *testing.T) {
+func TestUpdateFDMapUsesPipePayloadSection(t *testing.T) {
 	readEnd, writeEnd, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("os.Pipe() failed: %v", err)
@@ -168,6 +168,7 @@ func TestUpdateFDMapUsesPipeExitSnapshot(t *testing.T) {
 			eventRaw := &bpfEvent{
 				Pid:          uint32(os.Getpid()),
 				Tid:          uint32(os.Getpid()),
+				EventType:    bpfEventTypeExit,
 				Ret:          0,
 				ProbeRetExit: 0,
 				DataLen:      uint32(handler.BpfExitArgOffset + 8),
@@ -181,16 +182,34 @@ func TestUpdateFDMapUsesPipeExitSnapshot(t *testing.T) {
 			readKey := fmt.Sprintf("101:%d", int32(readEnd.Fd()))
 			writeKey := fmt.Sprintf("101:%d", int32(writeEnd.Fd()))
 			if fdMap[readKey] == "" {
-				t.Fatalf("fdMap[%q] missing after %s snapshot update", readKey, name)
+				t.Fatalf("fdMap[%q] missing after %s payload update", readKey, name)
 			}
 			if fdMap[writeKey] == "" {
-				t.Fatalf("fdMap[%q] missing after %s snapshot update", writeKey, name)
+				t.Fatalf("fdMap[%q] missing after %s payload update", writeKey, name)
 			}
 		})
 	}
 }
 
-func TestUpdateFDMapUsesSocketpairExitSnapshot(t *testing.T) {
+func TestUpdateFDMapIgnoresLegacyPipeExitSnapshot(t *testing.T) {
+	eventRaw := &bpfEvent{
+		Pid:          uint32(os.Getpid()),
+		Tid:          uint32(os.Getpid()),
+		Ret:          0,
+		ProbeRetExit: 0,
+		DataLen:      uint32(handler.BpfExitArgOffset + 8),
+	}
+	binary.LittleEndian.PutUint32(eventRaw.StrArg[handler.BpfExitArgOffset:], 21)
+	binary.LittleEndian.PutUint32(eventRaw.StrArg[handler.BpfExitArgOffset+4:], 22)
+
+	fdMap := make(map[string]string)
+	updateFDMap(eventRaw, meta.Syscall{Name: "pipe"}, "", nil, 101, fdMap)
+	if len(fdMap) != 0 {
+		t.Fatalf("fdMap entries = %d, want 0 without fd array payload section", len(fdMap))
+	}
+}
+
+func TestUpdateFDMapUsesSocketpairPayloadSection(t *testing.T) {
 	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 	if err != nil {
 		t.Fatalf("socketpair() failed: %v", err)
@@ -202,6 +221,7 @@ func TestUpdateFDMapUsesSocketpairExitSnapshot(t *testing.T) {
 		Pid:          uint32(os.Getpid()),
 		Tid:          uint32(os.Getpid()),
 		Args:         [6]uint64{syscall.AF_UNIX, syscall.SOCK_STREAM, 0, 0x2000},
+		EventType:    bpfEventTypeExit,
 		Ret:          0,
 		ProbeRetExit: 0,
 		DataLen:      uint32(handler.BpfExitArgOffset + 8),
@@ -215,12 +235,31 @@ func TestUpdateFDMapUsesSocketpairExitSnapshot(t *testing.T) {
 	for _, fd := range fds {
 		key := fmt.Sprintf("101:%d", int32(fd))
 		if got := fdMap[key]; got == "" {
-			t.Fatalf("fdMap[%q] missing after socketpair snapshot update", key)
+			t.Fatalf("fdMap[%q] missing after socketpair payload update", key)
 		}
 	}
 }
 
-func TestUpdateFDMapSkipsSocketpairWithoutExitSnapshot(t *testing.T) {
+func TestUpdateFDMapIgnoresLegacySocketpairExitSnapshot(t *testing.T) {
+	eventRaw := &bpfEvent{
+		Pid:          uint32(os.Getpid()),
+		Tid:          uint32(os.Getpid()),
+		Args:         [6]uint64{syscall.AF_UNIX, syscall.SOCK_STREAM, 0, 0x2000},
+		Ret:          0,
+		ProbeRetExit: 0,
+		DataLen:      uint32(handler.BpfExitArgOffset + 8),
+	}
+	binary.LittleEndian.PutUint32(eventRaw.StrArg[handler.BpfExitArgOffset:], 21)
+	binary.LittleEndian.PutUint32(eventRaw.StrArg[handler.BpfExitArgOffset+4:], 22)
+
+	fdMap := make(map[string]string)
+	updateFDMap(eventRaw, meta.Syscall{Name: "socketpair"}, "", nil, 101, fdMap)
+	if len(fdMap) != 0 {
+		t.Fatalf("fdMap entries = %d, want 0 without fd array payload section", len(fdMap))
+	}
+}
+
+func TestUpdateFDMapSkipsSocketpairWithoutPayloadSection(t *testing.T) {
 	fdMap := make(map[string]string)
 	updateFDMap(&bpfEvent{
 		Pid:  1234,
