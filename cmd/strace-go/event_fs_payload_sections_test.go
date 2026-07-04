@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -21,10 +22,10 @@ func TestJSONSyscallEventIncludesMountPayloadSections(t *testing.T) {
 	scMeta := meta.Syscall{Name: "mount"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	want := []wantFsJSONPayloadSection{
-		{argIndex: 0, offset: mountSourceOffset, userPtr: 0x1000, kind: "string", data: "/dev/sda1\x00"},
-		{argIndex: 1, offset: mountTargetOffset, userPtr: 0x2000, kind: "string", data: "/mnt\x00"},
-		{argIndex: 2, offset: mountTypeOffset, userPtr: 0x3000, kind: "string", data: "ext4\x00"},
-		{argIndex: 4, offset: mountDataOffset, userPtr: 0x4000, kind: "string", data: "rw\x00"},
+		{argIndex: 0, offset: mountSourceOffset, userPtr: 0x1000, kind: "string", direction: "in", data: "/dev/sda1\x00"},
+		{argIndex: 1, offset: mountTargetOffset, userPtr: 0x2000, kind: "string", direction: "in", data: "/mnt\x00"},
+		{argIndex: 2, offset: mountTypeOffset, userPtr: 0x3000, kind: "string", direction: "in", data: "ext4\x00"},
+		{argIndex: 4, offset: mountDataOffset, userPtr: 0x4000, kind: "string", direction: "in", data: "rw\x00"},
 	}
 	assertFsJSONPayloadSections(t, ev.PayloadSections, want)
 }
@@ -41,8 +42,8 @@ func TestJSONSyscallEventIncludesFsconfigPayloadSections(t *testing.T) {
 			args: [6]uint64{3, 1, 0x1000, 0x2000, 0},
 			data: append(fsPayloadData("key\x00", fsconfigValueOffset), []byte("value\x00")...),
 			want: []wantFsJSONPayloadSection{
-				{argIndex: 2, offset: fsconfigKeyOffset, userPtr: 0x1000, kind: "string", data: "key\x00"},
-				{argIndex: 3, offset: fsconfigValueOffset, userPtr: 0x2000, kind: "string", data: "value\x00"},
+				{argIndex: 2, offset: fsconfigKeyOffset, userPtr: 0x1000, kind: "string", direction: "in", data: "key\x00"},
+				{argIndex: 3, offset: fsconfigValueOffset, userPtr: 0x2000, kind: "string", direction: "in", data: "value\x00"},
 			},
 		},
 		{
@@ -50,8 +51,8 @@ func TestJSONSyscallEventIncludesFsconfigPayloadSections(t *testing.T) {
 			args: [6]uint64{3, 2, 0x1000, 0x2000, 3},
 			data: append(fsPayloadData("blob\x00", fsconfigValueOffset), []byte{1, 2, 3}...),
 			want: []wantFsJSONPayloadSection{
-				{argIndex: 2, offset: fsconfigKeyOffset, userPtr: 0x1000, kind: "string", data: "blob\x00"},
-				{argIndex: 3, offset: fsconfigValueOffset, userPtr: 0x2000, kind: "bytes", data: string([]byte{1, 2, 3})},
+				{argIndex: 2, offset: fsconfigKeyOffset, userPtr: 0x1000, kind: "string", direction: "in", data: "blob\x00"},
+				{argIndex: 3, offset: fsconfigValueOffset, userPtr: 0x2000, kind: "bytes", direction: "in", data: string([]byte{1, 2, 3})},
 			},
 		},
 	}
@@ -85,17 +86,36 @@ func TestJSONSyscallEventIncludesUmountPayloadSection(t *testing.T) {
 	scMeta := meta.Syscall{Name: "umount2"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	want := []wantFsJSONPayloadSection{
-		{argIndex: 0, offset: 0, userPtr: 0x1000, kind: "string", data: "/mnt\x00"},
+		{argIndex: 0, offset: 0, userPtr: 0x1000, kind: "string", direction: "in", data: "/mnt\x00"},
+	}
+	assertFsJSONPayloadSections(t, ev.PayloadSections, want)
+}
+
+func TestJSONSyscallEventIncludesGetdentsPayloadSection(t *testing.T) {
+	eventRaw := &bpfEvent{
+		EventType:    bpfEventTypeExit,
+		Args:         [6]uint64{3, 0x3000, 512},
+		Ret:          16,
+		DataLen:      uint32(handler.BpfExitArgOffset + 16),
+		ProbeRetExit: 0,
+	}
+	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], []byte("dirent-section!!"))
+
+	scMeta := meta.Syscall{Name: "getdents64"}
+	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	want := []wantFsJSONPayloadSection{
+		{argIndex: 1, offset: handler.BpfExitArgOffset, userPtr: 0x3000, kind: "bytes", direction: "out", data: "dirent-section!!"},
 	}
 	assertFsJSONPayloadSections(t, ev.PayloadSections, want)
 }
 
 type wantFsJSONPayloadSection struct {
-	argIndex int
-	offset   uint32
-	userPtr  uint64
-	kind     string
-	data     string
+	argIndex  int
+	offset    uint32
+	userPtr   uint64
+	kind      string
+	direction string
+	data      string
 }
 
 func assertFsJSONPayloadSections(t *testing.T, got []jsonPayloadSection, want []wantFsJSONPayloadSection) {
@@ -110,7 +130,7 @@ func assertFsJSONPayloadSections(t *testing.T, got []jsonPayloadSection, want []
 
 func assertFsJSONPayloadSection(t *testing.T, got jsonPayloadSection, want wantFsJSONPayloadSection) {
 	t.Helper()
-	if got.Kind != want.kind || got.Direction != "in" || got.ArgIndex != want.argIndex {
+	if got.Kind != want.kind || got.Direction != want.direction || got.ArgIndex != want.argIndex {
 		t.Fatalf("fs section metadata = %+v, want %+v", got, want)
 	}
 	if got.Offset != want.offset || got.UserPtr != want.userPtr {

@@ -155,7 +155,7 @@ func TestGetdentsDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	if len(got.ArgParts) != 3 {
 		t.Fatalf("ArgParts len = %d, want 3", len(got.ArgParts))
 	}
-	if got.ArgParts[1] != "{...}" {
+	if got.ArgParts[1] != "0x3000" {
 		t.Fatalf("getdents dirent = %q", got.ArgParts[1])
 	}
 	if reader.reads != 0 {
@@ -166,9 +166,28 @@ func TestGetdentsDoesNotReadWhenFallbackDisabled(t *testing.T) {
 func TestGetdentsDoesNotUseLegacyMemoryFallback(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: make([]byte, 512)}
 	ctx := newGetdentsContext(reader, event.NewDecoder())
+	ctx.ProbeRetExit = 0
+	ctx.DataLen = 16
+	copy(ctx.StrArgBuf, []byte("legacy-dirents"))
 
-	(&FsHandler{}).Handle(ctx)
+	got := (&FsHandler{}).Handle(ctx)
+	if got.ArgParts[1] != "0x3000" {
+		t.Fatalf("getdents dirent = %q, want pointer fallback", got.ArgParts[1])
+	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestGetdentsUsesPayloadBytesSection(t *testing.T) {
+	ctx := newGetdentsContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.StrArgBuf = nil
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, UserPtr: 0x3000, ProbeRet: 0, Data: []byte("dirents")},
+	}
+
+	got := (&FsHandler{}).Handle(ctx)
+	if got.ArgParts[1] != "{...}" {
+		t.Fatalf("getdents dirent = %q, want formatted payload section", got.ArgParts[1])
 	}
 }

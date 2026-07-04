@@ -100,9 +100,10 @@ func (h *FsHandler) Handle(ctx *Context) Result {
 			}
 			if argName == "dirent" && ctx.Ret > 0 {
 				count := int(ctx.Ret)
-				data, ok := ctx.ExitSnapshot(BpfExitArgOffset, 512)
+				data, ok := ctx.PayloadBytes(i, PayloadDirectionOut)
 				if !ok {
-					data = ctx.StrArgBuf[:512]
+					res.ArgParts = append(res.ArgParts, formatPointer(val))
+					continue
 				}
 				res.ArgParts = append(res.ArgParts, format.Dirents(data, count))
 				continue

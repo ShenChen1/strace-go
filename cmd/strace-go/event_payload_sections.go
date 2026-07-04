@@ -71,6 +71,7 @@ var payloadSectionRules = map[string]payloadSectionRule{
 	"memfd_create":      memfdCreatePayloadSectionsForEvent,
 	"bpf":               namedPayloadRule(bpfPayloadSectionsForEvent),
 	"getcwd":            exitBytesPayloadRule(0),
+	"getdents64":        exitBytesPayloadRule(1),
 	"readlink":          exitBytesPayloadRule(1),
 	"readlinkat":        exitBytesPayloadRule(2),
 	"sendfile":          namedPayloadRule(sendfilePayloadSectionsForEvent),
