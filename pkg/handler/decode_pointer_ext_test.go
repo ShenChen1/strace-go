@@ -47,6 +47,20 @@ func stringArrayContext(reader mapMemoryReader) *Context {
 	}
 }
 
+func setExecPayloadSnapshot(ctx *Context, snapshot []byte) {
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindExecArgs,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  2,
+			UserLen:   uint32(len(snapshot)),
+			CopiedLen: uint32(len(snapshot)),
+			ProbeRet:  0,
+			Data:      snapshot,
+		},
+	}
+}
+
 func TestDecodeStringArrayReturnsPointerWithoutSnapshot(t *testing.T) {
 	reader := mapMemoryReader{
 		0x1000: pointerBytes(0x2000),
@@ -103,7 +117,7 @@ func TestDecodeExecStringArraySnapshot(t *testing.T) {
 	binary.LittleEndian.PutUint32(buf[offset+8:offset+12], uint32(readFault))
 
 	ctx := stringArrayContext(mapMemoryReader{})
-	ctx.StrArgBuf = buf
+	setExecPayloadSnapshot(ctx, buf[execSnapshotOffset:])
 
 	got, ok := decodeExecStringArraySnapshot(ctx, 0x1000, "argv")
 	if !ok || got != `["first", "second", 0xffffffffffffffff, ... /* 0x1238 */]` {
@@ -125,7 +139,7 @@ func TestDecodeExecSnapshotReportsUnreadableArrayAddress(t *testing.T) {
 	binary.LittleEndian.PutUint64(header[16:24], 0x1000)
 
 	ctx := stringArrayContext(mapMemoryReader{})
-	ctx.StrArgBuf = buf
+	setExecPayloadSnapshot(ctx, buf[execSnapshotOffset:])
 
 	for _, argName := range []string{"argv", "envp"} {
 		got, ok := decodeExecStringArraySnapshot(ctx, 0x1000, argName)
@@ -152,7 +166,7 @@ func TestDecodeExecVerboseEnvSnapshot(t *testing.T) {
 	}
 
 	ctx := stringArrayContext(mapMemoryReader{})
-	ctx.StrArgBuf = buf
+	setExecPayloadSnapshot(ctx, buf[execSnapshotOffset:])
 	ctx.Opts.Verbose = true
 
 	got, ok := decodeExecStringArraySnapshot(ctx, 0x2000, "envp")
@@ -178,7 +192,7 @@ func TestDecodeExecArgSnapshotDisplayLimit(t *testing.T) {
 	}
 
 	ctx := stringArrayContext(mapMemoryReader{})
-	ctx.StrArgBuf = buf
+	setExecPayloadSnapshot(ctx, buf[execSnapshotOffset:])
 
 	wantShort := "[" + strings.TrimSuffix(strings.Repeat(`"x", `, 32), ", ") + ", ...]"
 	got, ok := decodeExecStringArraySnapshot(ctx, 0x1000, "argv")
@@ -211,13 +225,30 @@ func TestDecodeExecSnapshotHonorsStringLimit40(t *testing.T) {
 	}
 
 	ctx := stringArrayContext(mapMemoryReader{})
-	ctx.StrArgBuf = buf
+	setExecPayloadSnapshot(ctx, buf[execSnapshotOffset:])
 	ctx.Opts.StringLimit = 40
 
 	got, ok := decodeExecStringArraySnapshot(ctx, 0x1000, "argv")
 	want := `["` + values[0] + `", "` + strings.Repeat("b", 40) + `"...]`
 	if !ok || got != want {
 		t.Fatalf("decode -s40 argv snapshot = %q, %v; want %q", got, ok, want)
+	}
+}
+
+func TestDecodeExecIgnoresLegacyStringSnapshot(t *testing.T) {
+	buf := make([]byte, execSnapshotOffset+execSnapshotHeaderSize)
+	header := buf[execSnapshotOffset:]
+	binary.LittleEndian.PutUint32(header[0:4], execSnapshotMagic)
+	binary.LittleEndian.PutUint16(header[4:6], 1)
+
+	ctx := stringArrayContext(mapMemoryReader{})
+	ctx.StrArgBuf = buf
+	ctx.DataLen = uint32(len(buf))
+
+	res := Result{}
+	got, ok := decodeStringArrayPointer(ctx, 2, "const char *const *", "argv", 0x1000, &res)
+	if !ok || got != "0x1000" {
+		t.Fatalf("decodeStringArrayPointer(exec without section) = %q, %v; want pointer fallback", got, ok)
 	}
 }
 

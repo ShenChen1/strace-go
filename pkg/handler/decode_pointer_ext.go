@@ -91,10 +91,7 @@ func execSnapshotData(ctx *Context) ([]byte, bool) {
 			return data, true
 		}
 	}
-	if len(ctx.StrArgBuf) < execSnapshotOffset+execSnapshotHeaderSize {
-		return nil, false
-	}
-	return ctx.StrArgBuf[execSnapshotOffset:], true
+	return nil, false
 }
 
 func execSnapshotArgIndex(ctx *Context) (int, bool) {
