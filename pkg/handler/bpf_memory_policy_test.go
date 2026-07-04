@@ -45,6 +45,14 @@ func makeBpfMapCreateAttr(size int) []byte {
 	return data
 }
 
+func makeBpfUint32Attr(values ...uint32) []byte {
+	data := make([]byte, len(values)*4)
+	for i, value := range values {
+		binary.LittleEndian.PutUint32(data[i*4:i*4+4], value)
+	}
+	return data
+}
+
 func newBpfPolicyContext(reader *bpfPolicyMemoryReader, decoder *event.Decoder) *Context {
 	return &Context{
 		Tid:           1234,
@@ -120,6 +128,69 @@ func TestBpfHandlerDoesNotUseLegacyAttrFallback(t *testing.T) {
 	got := (&BpfHandler{}).Handle(ctx)
 	if got.ArgParts[1] != "0x1000" {
 		t.Fatalf("BpfHandler.Handle() arg = %q, want pointer fallback", got.ArgParts[1])
+	}
+	if reader.reads != 0 || reader.robustReads != 0 {
+		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	}
+}
+
+func TestBpfGetNextIdUsesPayloadBytesSection(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.Args = [6]uint64{11, 0x1000, 8}
+	ctx.StrArgBuf = makeBpfUint32Attr(99, 100)
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeBpfUint32Attr(1, 2)},
+	}
+
+	got := (&BpfHandler{}).Handle(ctx)
+	if !strings.Contains(got.ArgParts[1], "start_id=1") || !strings.Contains(got.ArgParts[1], "next_id=2") {
+		t.Fatalf("BpfHandler.Handle() arg = %q, want payload next-id values", got.ArgParts[1])
+	}
+	if strings.Contains(got.ArgParts[1], "99") || strings.Contains(got.ArgParts[1], "100") {
+		t.Fatalf("BpfHandler.Handle() arg = %q, unexpectedly used legacy snapshot", got.ArgParts[1])
+	}
+	if reader.reads != 0 || reader.robustReads != 0 {
+		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	}
+}
+
+func TestBpfGetFdByIdUsesPayloadBytesSection(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.Args = [6]uint64{14, 0x1000, 12}
+	ctx.StrArgBuf = makeBpfUint32Attr(99, 0, 0xffffff27)
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeBpfUint32Attr(7, 0, 0)},
+	}
+
+	got := (&BpfHandler{}).Handle(ctx)
+	if !strings.Contains(got.ArgParts[1], "map_id=7") || !strings.Contains(got.ArgParts[1], "open_flags=0") {
+		t.Fatalf("BpfHandler.Handle() arg = %q, want payload fd-by-id values", got.ArgParts[1])
+	}
+	if strings.Contains(got.ArgParts[1], "map_id=99") || strings.Contains(got.ArgParts[1], "0xffffff27") {
+		t.Fatalf("BpfHandler.Handle() arg = %q, unexpectedly used legacy snapshot", got.ArgParts[1])
+	}
+	if reader.reads != 0 || reader.robustReads != 0 {
+		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	}
+}
+
+func TestBpfBtfGetFdByIdTokenUsesPayloadBytesSection(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.Args = [6]uint64{19, 0x1000, 16}
+	ctx.StrArgBuf = makeBpfUint32Attr(99, 0, 0, 77)
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeBpfUint32Attr(8, 0, 0, 5)},
+	}
+
+	got := (&BpfHandler{}).Handle(ctx)
+	if !strings.Contains(got.ArgParts[1], "btf_id=8") || !strings.Contains(got.ArgParts[1], "fd_by_id_token_fd=5") {
+		t.Fatalf("BpfHandler.Handle() arg = %q, want payload BTF fd-by-id values", got.ArgParts[1])
+	}
+	if strings.Contains(got.ArgParts[1], "btf_id=99") || strings.Contains(got.ArgParts[1], "fd_by_id_token_fd=77") {
+		t.Fatalf("BpfHandler.Handle() arg = %q, unexpectedly used legacy snapshot", got.ArgParts[1])
 	}
 	if reader.reads != 0 || reader.robustReads != 0 {
 		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)

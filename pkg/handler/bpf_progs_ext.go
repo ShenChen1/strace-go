@@ -152,11 +152,11 @@ func decodeBpfObjGetInfoByFd(ctx *Context, data []byte, size uint32) string {
 }
 
 // decodeBpfGetNextId decodes BPF_PROG_GET_NEXT_ID, BPF_MAP_GET_NEXT_ID, etc.
-// Impact: Decodes next ID values unconditionally using ctx.StrArgBuf.
+// Impact: Decodes next ID values from the BPF-captured attr payload.
 func decodeBpfGetNextId(ctx *Context, data []byte, size uint32) string {
 	parts := []string{}
-	parts = append(parts, fmt.Sprintf("start_id=%d", u32OrZero(ctx.StrArgBuf, 0)))
-	parts = append(parts, fmt.Sprintf("next_id=%d", u32OrZero(ctx.StrArgBuf, 4)))
+	parts = append(parts, fmt.Sprintf("start_id=%d", u32OrZero(data, 0)))
+	parts = append(parts, fmt.Sprintf("next_id=%d", u32OrZero(data, 4)))
 	decodedSize := 8
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
 	return "{" + strings.Join(parts, ", ") + extra + "}"
@@ -178,11 +178,11 @@ func decodeBpfGetFdById(ctx *Context, data []byte, size uint32, attr uint64) str
 		idName = "btf_id"
 	}
 
-	parts = append(parts, fmt.Sprintf("%s=%d", idName, u32OrZero(ctx.StrArgBuf, 0)))
+	parts = append(parts, fmt.Sprintf("%s=%d", idName, u32OrZero(data, 0)))
 	decodedSize = 4
 
 	if size >= 12 && (cmd == 14 || cmd == 19) {
-		flagsVal := u32OrZero(ctx.StrArgBuf, 8)
+		flagsVal := u32OrZero(data, 8)
 		if flagsVal == 0xffffff27 {
 			parts = append(parts, "open_flags=0xffffff27 /* BPF_F_??? */")
 		} else {
@@ -191,7 +191,7 @@ func decodeBpfGetFdById(ctx *Context, data []byte, size uint32, attr uint64) str
 		decodedSize = 12
 	}
 	if size >= 16 && cmd == 19 {
-		parts = append(parts, fmt.Sprintf("fd_by_id_token_fd=%d", int32(u32OrZero(ctx.StrArgBuf, 12))))
+		parts = append(parts, fmt.Sprintf("fd_by_id_token_fd=%d", int32(u32OrZero(data, 12))))
 		decodedSize = 16
 	}
 
