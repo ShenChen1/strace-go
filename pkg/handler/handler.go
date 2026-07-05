@@ -2,7 +2,6 @@
 package handler
 
 import (
-	"fmt"
 	"os"
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
@@ -49,8 +48,6 @@ type Context struct {
 // SnapshotReader exposes memory bytes copied by BPF at the syscall probe site.
 type SnapshotReader interface {
 	Section(argIndex int, kind PayloadKind) (PayloadSection, bool)
-	EnterArgSnapshot(argIndex int, offset int, size int) ([]byte, bool)
-	ExitSnapshot(offset int, size int) ([]byte, bool)
 }
 
 // Section returns the first semantic BPF payload captured for a syscall argument.
@@ -61,64 +58,6 @@ func (ctx *Context) Section(argIndex int, kind PayloadKind) (PayloadSection, boo
 		}
 	}
 	return PayloadSection{}, false
-}
-
-// EnterArgSnapshot returns an enter-stage BPF snapshot for a syscall argument.
-func (ctx *Context) EnterArgSnapshot(argIndex int, offset int, size int) ([]byte, bool) {
-	if argIndex >= 0 && ctx.ArgProbeRet(argIndex) != 0 {
-		return nil, false
-	}
-	return ctx.snapshotWindow(offset, size)
-}
-
-// EnterArgSnapshotPrefix returns the available prefix of an enter-stage BPF snapshot.
-func (ctx *Context) EnterArgSnapshotPrefix(argIndex int, offset int, maxSize int) ([]byte, bool) {
-	if argIndex >= 0 && ctx.ArgProbeRet(argIndex) != 0 {
-		return nil, false
-	}
-	return ctx.snapshotWindowPrefix(offset, maxSize)
-}
-
-// ExitSnapshot returns an exit-stage BPF snapshot.
-func (ctx *Context) ExitSnapshot(offset int, size int) ([]byte, bool) {
-	if ctx.ProbeRetExit < 0 {
-		return nil, false
-	}
-	return ctx.snapshotWindow(offset, size)
-}
-
-func (ctx *Context) snapshotWindow(offset int, size int) ([]byte, bool) {
-	if offset < 0 || size <= 0 {
-		return nil, false
-	}
-	end := offset + size
-	if end < offset || end > len(ctx.StrArgBuf) {
-		return nil, false
-	}
-	if uint64(end) > uint64(ctx.DataLen) {
-		return nil, false
-	}
-	return ctx.StrArgBuf[offset:end], true
-}
-
-func (ctx *Context) snapshotWindowPrefix(offset int, maxSize int) ([]byte, bool) {
-	if offset < 0 || maxSize <= 0 {
-		return nil, false
-	}
-	if offset >= len(ctx.StrArgBuf) || uint64(offset) >= uint64(ctx.DataLen) {
-		return nil, false
-	}
-	end := offset + maxSize
-	if end < offset || end > len(ctx.StrArgBuf) {
-		end = len(ctx.StrArgBuf)
-	}
-	if uint64(end) > uint64(ctx.DataLen) {
-		end = int(ctx.DataLen)
-	}
-	if end <= offset {
-		return nil, false
-	}
-	return ctx.StrArgBuf[offset:end], true
 }
 
 // IsArgReadSuccess checks if a specific enter-stage argument read was successful in BPF.
@@ -148,44 +87,6 @@ func (ctx *Context) ArgProbeRet(argIndex int) int32 {
 	return 0
 }
 
-// FetchStructData returns BPF-captured struct bytes.
-func (ctx *Context) FetchStructData(_ uint64, size int, isExit bool, bpfBuf []byte) ([]byte, bool) {
-	if isExit {
-		if ctx.ProbeRetExit >= 0 {
-			return boundedBpfStructData(bpfBuf, size)
-		}
-	} else {
-		if ctx.ProbeRetEnter >= 0 {
-			return boundedBpfStructData(bpfBuf, size)
-		}
-	}
-	return nil, false
-}
-
-// FetchStructDataExact is like FetchStructData but strictly requires the full requested size.
-func (ctx *Context) FetchStructDataExact(ptr uint64, size int, isExit bool, bpfBuf []byte) ([]byte, bool) {
-	data, ok := ctx.FetchStructData(ptr, size, isExit, bpfBuf)
-	if ok && len(data) == size {
-		return data, true
-	}
-	return nil, false
-}
-
-func (ctx *Context) FetchArgStructData(argIndex int, _ uint64, size int, isExit bool, bpfBuf []byte) ([]byte, bool) {
-	if isExit {
-		if ctx.ProbeRetExit >= 0 {
-			return boundedBpfStructData(bpfBuf, size)
-		}
-	} else {
-		if argIndex >= 0 && ctx.ArgProbeRet(argIndex) == 0 {
-			return boundedBpfStructData(bpfBuf, size)
-		} else if argIndex < 0 && ctx.ProbeRetEnter >= 0 {
-			return boundedBpfStructData(bpfBuf, size)
-		}
-	}
-	return nil, false
-}
-
 func boundedBpfStructData(bpfBuf []byte, size int) ([]byte, bool) {
 	if len(bpfBuf) == 0 || size <= 0 {
 		return nil, false
@@ -194,36 +95,6 @@ func boundedBpfStructData(bpfBuf []byte, size int) ([]byte, bool) {
 		return bpfBuf[:size], true
 	}
 	return bpfBuf, true
-}
-
-func (ctx *Context) FetchArgStructDataExact(argIndex int, ptr uint64, size int, isExit bool, bpfBuf []byte) ([]byte, bool) {
-	data, ok := ctx.FetchArgStructData(argIndex, ptr, size, isExit, bpfBuf)
-	if ok && len(data) == size {
-		return data, true
-	}
-	return nil, false
-}
-
-func (ctx *Context) DecodeArgStructWithFallback(argIndex int, val uint64, size int, isExit bool, bpfBuf []byte, decodeFn func([]byte) string) (string, bool) {
-	if val == 0 {
-		return "NULL", true
-	}
-	data, ok := ctx.FetchArgStructDataExact(argIndex, val, size, isExit, bpfBuf)
-	if !ok {
-		return fmt.Sprintf("%#x", val), true
-	}
-	return decodeFn(data), true
-}
-
-func (ctx *Context) DecodeStructWithFallback(val uint64, size int, isExit bool, bpfBuf []byte, decodeFn func([]byte) string) (string, bool) {
-	if val == 0 {
-		return "NULL", true
-	}
-	data, ok := ctx.FetchStructDataExact(val, size, isExit, bpfBuf)
-	if !ok {
-		return fmt.Sprintf("%#x", val), true
-	}
-	return decodeFn(data), true
 }
 
 // Result contains the formatted arguments and optional hex dump.
