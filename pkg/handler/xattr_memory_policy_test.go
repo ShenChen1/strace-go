@@ -19,19 +19,6 @@ func xattrPolicyContext(name string) *Context {
 	}
 }
 
-func putXattrLegacySnapshot(ctx *Context, offset int, data []byte) {
-	end := offset + len(data)
-	if len(ctx.StrArgBuf) < end {
-		buf := make([]byte, end)
-		copy(buf, ctx.StrArgBuf)
-		ctx.StrArgBuf = buf
-	}
-	copy(ctx.StrArgBuf[offset:end], data)
-	if ctx.DataLen < uint32(end) {
-		ctx.DataLen = uint32(end)
-	}
-}
-
 func TestXattrPathUsesPayloadStringSection(t *testing.T) {
 	ctx := xattrPolicyContext("setxattr")
 	ctx.PayloadSections = []PayloadSection{
@@ -101,7 +88,6 @@ func TestListxattrValueUsesPayloadBytesSection(t *testing.T) {
 
 func TestXattrPathIgnoresLegacyStringSnapshot(t *testing.T) {
 	ctx := xattrPolicyContext("setxattr")
-	putXattrLegacySnapshot(ctx, 0, []byte("/tmp/a\x00"))
 
 	res := Result{}
 	got, ok := decodeCharPointer(ctx, 0, "const char *", "path", 0x1000, &res)
@@ -112,7 +98,6 @@ func TestXattrPathIgnoresLegacyStringSnapshot(t *testing.T) {
 
 func TestXattrNameIgnoresLegacyStringSnapshot(t *testing.T) {
 	ctx := xattrPolicyContext("setxattr")
-	putXattrLegacySnapshot(ctx, 512, []byte("user.k\x00"))
 
 	res := Result{}
 	got, ok := decodeCharPointer(ctx, 1, "const char *", "name", 0x2000, &res)
@@ -124,7 +109,6 @@ func TestXattrNameIgnoresLegacyStringSnapshot(t *testing.T) {
 func TestSetxattrValueIgnoresLegacyEnterSnapshot(t *testing.T) {
 	ctx := xattrPolicyContext("setxattr")
 	ctx.Args = [6]uint64{0x1000, 0x2000, 0x3000, 3}
-	putXattrLegacySnapshot(ctx, 768, []byte("abc"))
 
 	got, ok := decodeXattrValueArg(ctx, 2, "const void *", "value", 0x3000, ctx.Opts.StringLimit)
 	if !ok || got != "0x3000" {
@@ -136,7 +120,6 @@ func TestGetxattrValueIgnoresLegacyExitSnapshot(t *testing.T) {
 	ctx := xattrPolicyContext("getxattr")
 	ctx.Args = [6]uint64{0x1000, 0x2000, 0x3000, 8}
 	ctx.Ret = 4
-	putXattrLegacySnapshot(ctx, 768, []byte("data"))
 
 	got, ok := decodeXattrValueArg(ctx, 2, "void *", "value", 0x3000, ctx.Opts.StringLimit)
 	if !ok || got != "0x3000" {
@@ -148,7 +131,6 @@ func TestListxattrValueIgnoresLegacyExitSnapshot(t *testing.T) {
 	ctx := xattrPolicyContext("listxattr")
 	ctx.Args = [6]uint64{0x1000, 0x3000, 6}
 	ctx.Ret = 6
-	putXattrLegacySnapshot(ctx, 512, []byte("names1"))
 
 	got, ok := decodeXattrValueArg(ctx, 1, "char *", "list", 0x3000, ctx.Opts.StringLimit)
 	if !ok || got != "0x3000" {

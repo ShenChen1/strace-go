@@ -9,8 +9,6 @@ import (
 )
 
 func newFsconfigBinaryContext(reader *fetchPolicyMemoryReader, decoder *event.Decoder) *Context {
-	buf := make([]byte, 4353)
-	copy(buf[0:257], []byte("blob\x00"))
 	return &Context{
 		Pid:           1234,
 		Tid:           1234,
@@ -19,7 +17,6 @@ func newFsconfigBinaryContext(reader *fetchPolicyMemoryReader, decoder *event.De
 		ProbeRetEnter: 0,
 		Decoder:       decoder,
 		Opts:          &cli.Options{StringLimit: 32},
-		StrArgBuf:     buf,
 	}
 }
 
@@ -43,8 +40,6 @@ func TestFsconfigBinaryDoesNotReadWhenFallbackDisabled(t *testing.T) {
 func TestFsconfigBinaryIgnoresLegacyEnterSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: []byte{1, 2, 3}}
 	ctx := newFsconfigBinaryContext(reader, event.NewDecoder())
-	copy(ctx.StrArgBuf[257:260], []byte{1, 2, 3})
-	ctx.DataLen = 260
 
 	got := (&FsHandler{}).Handle(ctx)
 	if len(got.ArgParts) != 5 {
@@ -65,7 +60,6 @@ func TestFsconfigStringUsesPayloadStringSections(t *testing.T) {
 		{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x1000, ProbeRet: 0, Data: []byte("key\x00")},
 		{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 3, UserPtr: 0x2000, ProbeRet: 0, Data: []byte("value\x00")},
 	}
-	ctx.StrArgBuf = nil
 
 	got := (&FsHandler{}).Handle(ctx)
 	if got.ArgParts[2] != `"key"` || got.ArgParts[3] != `"value"` {
@@ -79,7 +73,6 @@ func TestFsconfigBinaryUsesPayloadBytesSection(t *testing.T) {
 		{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x1000, ProbeRet: 0, Data: []byte("blob\x00")},
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 3, UserPtr: 0x2000, ProbeRet: 0, Data: []byte{1, 2, 3}},
 	}
-	ctx.StrArgBuf = nil
 
 	got := (&FsHandler{}).Handle(ctx)
 	if got.ArgParts[2] != `"blob"` || got.ArgParts[3] == "0x2000" {
@@ -142,7 +135,6 @@ func newGetdentsContext(reader *fetchPolicyMemoryReader, decoder *event.Decoder)
 			Args:     []string{"fd", "dirent", "count"},
 			ArgTypes: []string{"unsigned int", "struct linux_dirent64 *", "unsigned int"},
 		},
-		StrArgBuf: make([]byte, 512),
 	}
 }
 
@@ -167,8 +159,6 @@ func TestGetdentsDoesNotUseLegacyMemoryFallback(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: make([]byte, 512)}
 	ctx := newGetdentsContext(reader, event.NewDecoder())
 	ctx.ProbeRetExit = 0
-	ctx.DataLen = 16
-	copy(ctx.StrArgBuf, []byte("legacy-dirents"))
 
 	got := (&FsHandler{}).Handle(ctx)
 	if got.ArgParts[1] != "0x3000" {
@@ -181,7 +171,6 @@ func TestGetdentsDoesNotUseLegacyMemoryFallback(t *testing.T) {
 
 func TestGetdentsUsesPayloadBytesSection(t *testing.T) {
 	ctx := newGetdentsContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, UserPtr: 0x3000, ProbeRet: 0, Data: []byte("dirents")},
 	}
