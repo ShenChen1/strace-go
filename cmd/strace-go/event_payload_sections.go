@@ -80,10 +80,12 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 
 	"execve":   execPayloadSectionsFromSource,
 	"execveat": execPayloadSectionsFromSource,
+
+	"memfd_create": memfdCreatePayloadSectionsFromSource,
+	"openat2":      openat2PayloadSectionsFromSource,
 }
 
 var payloadSectionRules = map[string]payloadSectionRule{
-	"memfd_create":    memfdCreatePayloadSectionsForEvent,
 	"bpf":             namedPayloadRule(bpfPayloadSectionsForEvent),
 	"getcwd":          exitBytesPayloadRule(0),
 	"getdents64":      exitBytesPayloadRule(1),
@@ -94,7 +96,6 @@ var payloadSectionRules = map[string]payloadSectionRule{
 	"pipe":            exitStructPayloadRule(0, fdArrayPayloadSize),
 	"pipe2":           exitStructPayloadRule(0, fdArrayPayloadSize),
 	"socketpair":      exitStructPayloadRule(3, fdArrayPayloadSize),
-	"openat2":         namedPayloadRule(openat2PayloadSectionsForEvent),
 	"mount":           fsPayloadSectionsForEvent,
 	"umount2":         fsPayloadSectionsForEvent,
 	"fsconfig":        fsPayloadSectionsForEvent,
@@ -278,8 +279,8 @@ func readPayloadSectionsFromSource(event payloadEvent, _ string) []handler.Paylo
 	})
 }
 
-func memfdCreatePayloadSectionsForEvent(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
-	return stringPayloadSectionFromWindowSpec(eventRaw, stringPayloadWindowSpec{
+func memfdCreatePayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	return stringPayloadSectionFromSourceSpec(event, stringPayloadWindowSpec{
 		argIndex: 0,
 		maxBytes: memfdNamePayloadMaxBytes,
 	})

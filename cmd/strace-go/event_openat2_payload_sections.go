@@ -7,15 +7,12 @@ const (
 	openat2HowPayloadMax    = 64
 )
 
-func openat2PayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	sections := stringPayloadSectionFromWindow(eventRaw, 1)
-	return append(sections, payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
-		kind:      handler.PayloadKindStruct,
-		direction: handler.PayloadDirectionIn,
-		argIndex:  2,
-		offset:    openat2HowPayloadOffset,
-		userLen:   uint32Clamped(eventRaw.Args[3]),
-		maxLen:    openat2HowPayloadMax,
-		probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, 2),
-	})...)
+func openat2PayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	sections := stringPayloadSectionFromSource(event, 1)
+	return append(sections, enterStructPayloadSectionFromSource(
+		event,
+		2,
+		openat2HowPayloadOffset,
+		uint32Clamped(event.Arg(3)),
+	)...)
 }

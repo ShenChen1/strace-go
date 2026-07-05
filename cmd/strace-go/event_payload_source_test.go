@@ -231,3 +231,70 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareExecRule(t *testing.T) {
 		t.Fatalf("exec section data length = %d, want %d", len(section.Data), len(snapshot))
 	}
 }
+
+func TestPayloadSectionsForPayloadEventUsesSourceAwareMemfdRule(t *testing.T) {
+	raw := &bpfEvent{
+		EventType:     bpfEventTypeEnter,
+		Args:          [6]uint64{0x7000, 0},
+		ProbeRetEnter: 0,
+	}
+	event := payloadEvent{
+		raw: raw,
+		source: staticPayloadSource{
+			args: raw.Args,
+			data: []byte("memfd-source\x00ignored"),
+		},
+	}
+
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "memfd_create"})
+
+	if len(sections) != 1 {
+		t.Fatalf("sections = %d, want 1", len(sections))
+	}
+	section := sections[0]
+	if section.Kind != handler.PayloadKindString || section.ArgIndex != 0 || section.UserPtr != 0x7000 {
+		t.Fatalf("memfd section metadata = %+v, want string arg 0 ptr 0x7000", section)
+	}
+	if !bytes.Equal(section.Data, []byte("memfd-source\x00")) {
+		t.Fatalf("memfd data = %q", section.Data)
+	}
+}
+
+func TestPayloadSectionsForPayloadEventUsesSourceAwareOpenat2Rule(t *testing.T) {
+	raw := &bpfEvent{
+		EventType:     bpfEventTypeEnter,
+		Args:          [6]uint64{^uint64(99), 0x1000, 0x2000, openat2HowPayloadMax},
+		ProbeRetEnter: 0,
+	}
+	howData := bytes.Repeat([]byte{0x5a}, openat2HowPayloadMax)
+	data := make([]byte, openat2HowPayloadOffset+openat2HowPayloadMax)
+	copy(data[:], []byte("openat2-source\x00"))
+	copy(data[openat2HowPayloadOffset:], howData)
+	event := payloadEvent{
+		raw: raw,
+		source: staticPayloadSource{
+			args: raw.Args,
+			data: data,
+		},
+	}
+
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "openat2"})
+
+	if len(sections) != 2 {
+		t.Fatalf("sections = %d, want 2", len(sections))
+	}
+	path, how := sections[0], sections[1]
+	if path.Kind != handler.PayloadKindString || path.ArgIndex != 1 || path.UserPtr != 0x1000 {
+		t.Fatalf("openat2 path section = %+v, want string arg 1", path)
+	}
+	if how.Kind != handler.PayloadKindStruct || how.ArgIndex != 2 ||
+		how.UserPtr != 0x2000 || how.Offset != openat2HowPayloadOffset {
+		t.Fatalf("openat2 how section = %+v, want struct arg 2", how)
+	}
+	if !bytes.Equal(path.Data, []byte("openat2-source\x00")) {
+		t.Fatalf("openat2 path data = %q", path.Data)
+	}
+	if !bytes.Equal(how.Data, howData) {
+		t.Fatalf("openat2 how data length = %d, want %d", len(how.Data), len(howData))
+	}
+}

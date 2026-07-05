@@ -131,13 +131,17 @@ func exitStructPayloadSectionAt(eventRaw *bpfEvent, argIndex int, offset int, si
 }
 
 func enterStructPayloadSection(eventRaw *bpfEvent, argIndex int, offset int, size uint32) []handler.PayloadSection {
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	return enterStructPayloadSectionFromSource(newFixedPayloadEvent(eventRaw), argIndex, offset, size)
+}
+
+func enterStructPayloadSectionFromSource(event payloadEvent, argIndex int, offset int, size uint32) []handler.PayloadSection {
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindStruct,
 		direction: handler.PayloadDirectionIn,
 		argIndex:  argIndex,
 		offset:    offset,
 		userLen:   size,
 		maxLen:    size,
-		probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, argIndex),
+		probeRet:  event.ProbeRetEnterArg(argIndex),
 	})
 }
