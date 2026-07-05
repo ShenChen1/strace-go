@@ -34,7 +34,7 @@ func (h *PrctlHandler) Handle(ctx *Context) Result {
 		return res
 	case 1: // PR_GET_PDEATHSIG
 		if ctx.Ret >= 0 && ctx.Args[1] != 0 {
-			data, ok := prctlUint32OutSnapshot(ctx)
+			data, ok := prctlUint32OutPayload(ctx)
 			if ok {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%s]", meta.DecodeFlags(uint64(binary.LittleEndian.Uint32(data)), "signalnames")))
 			} else {
@@ -49,7 +49,7 @@ func (h *PrctlHandler) Handle(ctx *Context) Result {
 		return res
 	case 9, 11, 19, 37, 5, 25: // PR_GET_FPEMU, PR_GET_FPEXC, PR_GET_ENDIAN, PR_GET_CHILD_SUBREAPER, PR_GET_UNALIGN, PR_GET_TSC
 		if ctx.Ret >= 0 && ctx.Args[1] != 0 {
-			data, ok := prctlUint32OutSnapshot(ctx)
+			data, ok := prctlUint32OutPayload(ctx)
 			if ok {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%d]", int32(binary.LittleEndian.Uint32(data))))
 			} else {
@@ -101,7 +101,7 @@ func decodePrctlName(ctx *Context, isExit bool) string {
 	return formatPtrFallback(ctx.Args[1])
 }
 
-func prctlUint32OutSnapshot(ctx *Context) ([]byte, bool) {
+func prctlUint32OutPayload(ctx *Context) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(1, PayloadDirectionOut); ok && len(data) >= 4 {
 		return data[:4], true
 	}
