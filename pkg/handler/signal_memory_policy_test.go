@@ -21,7 +21,7 @@ func makeSigactionData(handler uint64, mask uint64) []byte {
 	return data
 }
 
-func newSignalPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Decoder) *Context {
+func newSignalPolicyContext(_ *fetchPolicyMemoryReader, decoder *event.Decoder) *Context {
 	return &Context{
 		Pid:           1234,
 		Tid:           1234,
@@ -29,15 +29,6 @@ func newSignalPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Deco
 		ProbeRetEnter: -1,
 		ProbeRetExit:  -1,
 		Decoder:       decoder,
-		StrArgBuf:     make([]byte, BpfExitArgOffset+32),
-	}
-}
-
-func putSignalSnapshot(ctx *Context, offset int, data []byte) {
-	copy(ctx.StrArgBuf[offset:], data)
-	end := uint32(offset + len(data))
-	if ctx.DataLen < end {
-		ctx.DataLen = end
 	}
 }
 
@@ -55,12 +46,11 @@ func TestSignalSigsetDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestSignalSigsetIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestSignalSigsetIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSigsetData(1)}
 	decoder := event.NewDecoder()
 	ctx := newSignalPolicyContext(reader, decoder)
 	ctx.ProbeRetEnter = 0
-	putSignalSnapshot(ctx, BpfEnterArgOffset, makeSigsetData(1))
 
 	got := (&SignalHandler{}).formatSigsetArg(ctx, 1, "nset", 0x1000)
 	if got != "[]" {
@@ -75,7 +65,6 @@ func TestSignalSigsetUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSigsetData(0)}
 	decoder := event.NewDecoder()
 	ctx := newSignalPolicyContext(reader, decoder)
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeSigsetData(1)},
 	}
@@ -104,13 +93,12 @@ func TestSignalOldsetDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestSignalOldsetIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestSignalOldsetIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSigsetData(0)}
 	decoder := event.NewDecoder()
 	ctx := newSignalPolicyContext(reader, decoder)
 	ctx.Ret = 0
 	ctx.ProbeRetExit = 0
-	putSignalSnapshot(ctx, BpfExitArgOffset, makeSigsetData(1))
 
 	got := (&SignalHandler{}).formatSigsetArg(ctx, 2, "oset", 0x1000)
 	if got != "0x1000" {
@@ -126,7 +114,6 @@ func TestSignalOldsetUsesPayloadStructSection(t *testing.T) {
 	decoder := event.NewDecoder()
 	ctx := newSignalPolicyContext(reader, decoder)
 	ctx.Ret = 0
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: 0, Data: makeSigsetData(1)},
 	}
@@ -158,7 +145,6 @@ func TestSignalSigactionUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSigactionData(0, 0)}
 	decoder := event.NewDecoder()
 	ctx := newSignalPolicyContext(reader, decoder)
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeSigactionData(1, 1)},
 	}
@@ -172,12 +158,11 @@ func TestSignalSigactionUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestSignalSigactionIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestSignalSigactionIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSigactionData(1, 1)}
 	decoder := event.NewDecoder()
 	ctx := newSignalPolicyContext(reader, decoder)
 	ctx.ProbeRetEnter = 0
-	putSignalSnapshot(ctx, BpfEnterArgOffset, makeSigactionData(1, 1))
 
 	got := (&SignalHandler{}).formatSigactionArg(ctx, 1, "act", 0x2000)
 	if got != "0x2000" {
@@ -192,7 +177,6 @@ func TestSignalOldSigactionUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSigactionData(0, 0)}
 	decoder := event.NewDecoder()
 	ctx := newSignalPolicyContext(reader, decoder)
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: 0, Data: makeSigactionData(1, 1)},
 	}
@@ -206,12 +190,11 @@ func TestSignalOldSigactionUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestSignalSigactionIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestSignalSigactionIgnoresProbeSuccessWithoutPayloadSectionOnExit(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSigactionData(0, 0)}
 	decoder := event.NewDecoder()
 	ctx := newSignalPolicyContext(reader, decoder)
 	ctx.ProbeRetExit = 0
-	putSignalSnapshot(ctx, BpfExitArgOffset, makeSigactionData(1, 1))
 
 	got := (&SignalHandler{}).formatSigactionArg(ctx, 2, "oact", 0x2000)
 	if got != "0x2000" {

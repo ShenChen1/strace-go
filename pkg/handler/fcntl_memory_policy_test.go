@@ -38,7 +38,7 @@ func makeDelegationData(flags uint32, lockType uint16) []byte {
 	return data
 }
 
-func newFcntlPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Decoder) *Context {
+func newFcntlPolicyContext(_ *fetchPolicyMemoryReader, decoder *event.Decoder) *Context {
 	return &Context{
 		Pid:           1234,
 		Tid:           1234,
@@ -46,15 +46,6 @@ func newFcntlPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Decod
 		ProbeRetEnter: -1,
 		ProbeRetExit:  -1,
 		Decoder:       decoder,
-		StrArgBuf:     make([]byte, BpfExitArgOffset+32),
-	}
-}
-
-func putFcntlSnapshot(ctx *Context, offset int, data []byte) {
-	copy(ctx.StrArgBuf[offset:], data)
-	end := uint32(offset + len(data))
-	if ctx.DataLen < end {
-		ctx.DataLen = end
 	}
 }
 
@@ -72,12 +63,11 @@ func TestFcntlFlockDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestFcntlFlockIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestFcntlFlockIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFlockData(1, 2, 3, 4)}
 	decoder := event.NewDecoder()
 	ctx := newFcntlPolicyContext(reader, decoder)
 	ctx.ProbeRetEnter = 0
-	putFcntlSnapshot(ctx, BpfEnterArgOffset, makeFlockData(1, 2, 3, 4))
 
 	got := (&FcntlHandler{}).decodeFlock(ctx, "F_SETLK", 0x1000)
 	if got != "0x1000" {
@@ -92,7 +82,6 @@ func TestFcntlFlockUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFlockData(2, 2, 3, 4)}
 	decoder := event.NewDecoder()
 	ctx := newFcntlPolicyContext(reader, decoder)
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 2, ProbeRet: 0, Data: makeFlockData(1, 2, 3, 4)},
 	}
@@ -106,12 +95,11 @@ func TestFcntlFlockUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestFcntlFlockIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestFcntlFlockIgnoresProbeSuccessWithoutPayloadSectionOnExit(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFlockData(1, 2, 3, 4)}
 	decoder := event.NewDecoder()
 	ctx := newFcntlPolicyContext(reader, decoder)
 	ctx.ProbeRetExit = 0
-	putFcntlSnapshot(ctx, BpfExitArgOffset, makeFlockData(2, 5, 6, 7))
 
 	got := (&FcntlHandler{}).decodeFlock(ctx, "F_GETLK", 0x1000)
 	if got != "0x1000" {
@@ -126,7 +114,6 @@ func TestFcntlFlockUsesExitPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFlockData(1, 2, 3, 4)}
 	decoder := event.NewDecoder()
 	ctx := newFcntlPolicyContext(reader, decoder)
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: 0, Data: makeFlockData(2, 5, 6, 7)},
 	}
@@ -158,7 +145,6 @@ func TestFcntlFOwnerExUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFOwnerExData(1, 42)}
 	decoder := event.NewDecoder()
 	ctx := newFcntlPolicyContext(reader, decoder)
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: 0, Data: makeFOwnerExData(1, 42)},
 	}
@@ -172,12 +158,11 @@ func TestFcntlFOwnerExUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestFcntlFOwnerExIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestFcntlFOwnerExIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFOwnerExData(1, 42)}
 	decoder := event.NewDecoder()
 	ctx := newFcntlPolicyContext(reader, decoder)
 	ctx.ProbeRetExit = 0
-	putFcntlSnapshot(ctx, BpfExitArgOffset, makeFOwnerExData(1, 42))
 
 	got := (&FcntlHandler{}).decodeFOwnerEx(ctx, 0x1000, true)
 	if got != "0x1000" {
@@ -192,7 +177,6 @@ func TestFcntlRwHintUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeUint64Data(1)}
 	decoder := event.NewDecoder()
 	ctx := newFcntlPolicyContext(reader, decoder)
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 2, ProbeRet: 0, Data: makeUint64Data(3)},
 	}
@@ -220,12 +204,11 @@ func TestFcntlRwHintDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestFcntlRwHintIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestFcntlRwHintIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeUint64Data(3)}
 	decoder := event.NewDecoder()
 	ctx := newFcntlPolicyContext(reader, decoder)
 	ctx.ProbeRetEnter = 0
-	putFcntlSnapshot(ctx, BpfEnterArgOffset, makeUint64Data(3))
 
 	got := (&FcntlHandler{}).decodeRwHint(ctx, 0x1000, false)
 	if got != "0x1000" {
@@ -250,12 +233,11 @@ func TestFcntlDelegationDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestFcntlDelegationIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestFcntlDelegationIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeDelegationData(1, 1)}
 	decoder := event.NewDecoder()
 	ctx := newFcntlPolicyContext(reader, decoder)
 	ctx.ProbeRetEnter = 0
-	putFcntlSnapshot(ctx, BpfEnterArgOffset, makeDelegationData(1, 1))
 
 	got := (&FcntlHandler{}).decodeDelegation(ctx, 0x1000, false)
 	if got != "0x1000" {
