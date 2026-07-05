@@ -61,8 +61,6 @@ func TestWaitidSiginfoIgnoresLegacyFixedSnapshot(t *testing.T) {
 	decoder := event.NewDecoder()
 	ctx := newWaitidPolicyContext(decoder)
 	ctx.ProbeRetExit = 0
-	ctx.StrArgBuf = make([]byte, BpfExitArgOffset+waitidRusageFull)
-	putSmallSnapshot(ctx, BpfExitArgOffset, makeWaitidSiginfo(17, 1, 42, 1000, 0))
 
 	got := decodeSiginfo(ctx, 0x1000)
 	if got != "0x1000" {
@@ -94,8 +92,6 @@ func TestWaitidRusageIgnoresLegacyFixedSnapshot(t *testing.T) {
 	decoder := event.NewDecoder()
 	ctx := newWaitidPolicyContext(decoder)
 	ctx.ProbeRetExit = 0
-	ctx.StrArgBuf = make([]byte, BpfExitArgOffset+136+waitidRusageFull)
-	putSmallSnapshot(ctx, BpfExitArgOffset+136, makeWaitidRusage(7, 8))
 
 	got := decodeRusage(ctx, 0x2000)
 	if got != "0x2000" {

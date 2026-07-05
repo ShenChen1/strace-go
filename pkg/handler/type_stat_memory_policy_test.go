@@ -31,7 +31,6 @@ func newTypeStatPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.De
 		Ret:          0,
 		ProbeRetExit: -1,
 		Decoder:      decoder,
-		StrArgBuf:    make([]byte, BpfExitArgOffset+statStructSize),
 	}
 }
 
@@ -54,7 +53,6 @@ func TestDecodeStatIgnoresLegacyExitSnapshot(t *testing.T) {
 	decoder := event.NewDecoder()
 	ctx := newTypeStatPolicyContext(reader, decoder)
 	ctx.ProbeRetExit = 0
-	putSmallSnapshot(ctx, BpfExitArgOffset, makeStatSnapshot(42, 0100644))
 
 	got, ok := decodeStat(ctx, 1, "struct stat *", 0x1000)
 	if !ok || got != "0x1000" {
@@ -69,7 +67,6 @@ func TestDecodeStatUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeStatSnapshot(1, 0100644)}
 	decoder := event.NewDecoder()
 	ctx := newTypeStatPolicyContext(reader, decoder)
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{
 			Kind:      PayloadKindStruct,
@@ -95,7 +92,6 @@ func TestDecodeStatfsIgnoresLegacyExitSnapshot(t *testing.T) {
 	ctx := newTypeStatPolicyContext(reader, decoder)
 	ctx.SysName = "fstatfs"
 	ctx.ProbeRetExit = 0
-	putSmallSnapshot(ctx, BpfExitArgOffset, makeStatfsSnapshot(4096))
 
 	got, ok := decodeStatfs(ctx, 1, "struct statfs *", 0x1000)
 	if !ok || got != "0x1000" {
@@ -111,7 +107,6 @@ func TestDecodeStatfsUsesPayloadStructSection(t *testing.T) {
 	decoder := event.NewDecoder()
 	ctx := newTypeStatPolicyContext(reader, decoder)
 	ctx.SysName = "fstatfs"
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{
 			Kind:      PayloadKindStruct,

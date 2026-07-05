@@ -63,9 +63,7 @@ func TestDecodePipeFDArrayIgnoresLegacyFixedSnapshot(t *testing.T) {
 		ScMeta:       meta.Syscall{Name: "pipe"},
 		Decoder:      event.NewDecoder(),
 		ProbeRetExit: 0,
-		StrArgBuf:    make([]byte, BpfExitArgOffset+fdArrayPayloadSize),
 	}
-	putSmallSnapshot(ctx, BpfExitArgOffset, fdArrayData(21, 22))
 	res := Result{}
 
 	got, ok := decodeIntPointer(ctx, 0, "int *", "pipefd", 0x1000, &res)

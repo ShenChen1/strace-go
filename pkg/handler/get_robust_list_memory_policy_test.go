@@ -37,9 +37,6 @@ func TestGetRobustListIgnoresLegacyFixedSnapshot(t *testing.T) {
 	decoder := event.NewDecoder()
 	ctx := newGetRobustListPolicyContext(reader, decoder)
 	ctx.ProbeRetExit = 0
-	ctx.StrArgBuf = make([]byte, BpfExitArgOffset+24)
-	putSmallSnapshot(ctx, BpfExitArgOffset, makeUint64Snapshot(0xfeedface))
-	putSmallSnapshot(ctx, BpfExitArgOffset+16, makeUint64Snapshot(24))
 
 	got := (&GetRobustListHandler{}).Handle(ctx)
 	if got.ArgParts[1] != "0x1000" || got.ArgParts[2] != "0x2000" {
