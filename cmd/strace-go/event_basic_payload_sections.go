@@ -30,17 +30,17 @@ func waitidPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection 
 	return append(sections, exitStructPayloadSectionAt(eventRaw, 4, handler.BpfExitArgOffset+136, waitidRusagePayloadSize)...)
 }
 
-func sendfilePayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	sections := enterStructPayloadSection(eventRaw, 2, handler.BpfMiscArgOffset, offsetPointerPayloadSize)
-	if isExitEvent(eventRaw) && eventRaw.Ret >= 0 {
-		sections = append(sections, exitStructPayloadSection(eventRaw, 2, offsetPointerPayloadSize)...)
+func sendfilePayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	sections := enterStructPayloadSectionFromSource(event, 2, handler.BpfMiscArgOffset, offsetPointerPayloadSize)
+	if event.IsExit() && event.Ret() >= 0 {
+		sections = append(sections, exitStructPayloadSectionFromSource(event, 2, offsetPointerPayloadSize)...)
 	}
 	return sections
 }
 
-func copyFileRangePayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	sections := enterStructPayloadSection(eventRaw, 1, handler.BpfMiscArgOffset, offsetPointerPayloadSize)
-	return append(sections, enterStructPayloadSection(eventRaw, 3, handler.BpfMiscArgOffset+8, offsetPointerPayloadSize)...)
+func copyFileRangePayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	sections := enterStructPayloadSectionFromSource(event, 1, handler.BpfMiscArgOffset, offsetPointerPayloadSize)
+	return append(sections, enterStructPayloadSectionFromSource(event, 3, handler.BpfMiscArgOffset+8, offsetPointerPayloadSize)...)
 }
 
 type stringPayloadWindowSpec struct {
@@ -135,17 +135,21 @@ func exitStructPayloadSectionFromSource(event payloadEvent, argIndex int, size u
 }
 
 func exitStructPayloadSectionAt(eventRaw *bpfEvent, argIndex int, offset int, size uint32) []handler.PayloadSection {
-	if !isExitEvent(eventRaw) || eventRaw.Ret < 0 {
+	return exitStructPayloadSectionAtFromSource(newFixedPayloadEvent(eventRaw), argIndex, offset, size)
+}
+
+func exitStructPayloadSectionAtFromSource(event payloadEvent, argIndex int, offset int, size uint32) []handler.PayloadSection {
+	if !event.IsExit() || event.Ret() < 0 {
 		return nil
 	}
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindStruct,
 		direction: handler.PayloadDirectionOut,
 		argIndex:  argIndex,
 		offset:    offset,
 		userLen:   size,
 		maxLen:    size,
-		probeRet:  eventRaw.ProbeRetExit,
+		probeRet:  event.ProbeRetExit(),
 	})
 }
 
