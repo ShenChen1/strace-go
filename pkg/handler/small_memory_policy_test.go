@@ -41,7 +41,6 @@ func TestFutexTimeoutDoesNotReadWhenFallbackDisabled(t *testing.T) {
 		Args:          [6]uint64{0x2000, 0, 7, 0x1000},
 		ProbeRetEnter: -1,
 		Decoder:       decoder,
-		StrArgBuf:     make([]byte, 16),
 	}
 
 	got := (&FutexHandler{}).Handle(ctx)
@@ -56,7 +55,7 @@ func TestFutexTimeoutDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestFutexTimeoutIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestFutexTimeoutIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(9, 10)}
 	decoder := event.NewDecoder()
 	ctx := &Context{
@@ -66,9 +65,7 @@ func TestFutexTimeoutIgnoresLegacyEnterSnapshot(t *testing.T) {
 		Args:          [6]uint64{0x2000, 0, 7, 0x1000},
 		ProbeRetEnter: 0,
 		Decoder:       decoder,
-		StrArgBuf:     make([]byte, 16),
 	}
-	putSmallSnapshot(ctx, BpfEnterArgOffset, makeTimeStruct(9, 10))
 
 	got := (&FutexHandler{}).Handle(ctx)
 	if got.ArgParts[3] != "0x1000" {
@@ -110,16 +107,13 @@ func TestFutexTimeoutUsesPayloadStructSection(t *testing.T) {
 func TestFutexWaitvDoesNotProbeLengthWhenFallbackDisabled(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFutexWaitvData(1, 0x3000, 0)}
 	decoder := event.NewDecoder()
-	buf := append(makeFutexWaitvData(1, 0x3000, 0), makeFutexWaitvData(2, 0x4000, 0)...)
 	ctx := &Context{
 		Pid:           1234,
 		Tid:           1234,
 		Args:          [6]uint64{0x1000, 2},
 		ProbeRetEnter: 0,
-		DataLen:       uint32(len(buf)),
 		Decoder:       decoder,
 		ScMeta:        meta.Syscall{Name: "futex_waitv"},
-		StrArgBuf:     buf,
 	}
 
 	got := formatFutexWaitvArray(ctx, 0, 0x1000, 2)
@@ -131,18 +125,15 @@ func TestFutexWaitvDoesNotProbeLengthWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestFutexWaitvDoesNotUseLegacyLengthProbe(t *testing.T) {
+func TestFutexWaitvIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFutexWaitvData(1, 0x3000, 0)}
-	buf := append(makeFutexWaitvData(1, 0x3000, 0), makeFutexWaitvData(2, 0x4000, 0)...)
 	ctx := &Context{
 		Pid:           1234,
 		Tid:           1234,
 		Args:          [6]uint64{0x1000, 2},
 		ProbeRetEnter: 0,
-		DataLen:       uint32(len(buf)),
 		Decoder:       event.NewDecoder(),
 		ScMeta:        meta.Syscall{Name: "futex_waitv"},
-		StrArgBuf:     buf,
 	}
 
 	got := formatFutexWaitvArray(ctx, 0, 0x1000, 2)
@@ -273,17 +264,15 @@ func TestArchPrctlDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestArchPrctlIgnoresLegacyFixedSnapshot(t *testing.T) {
+func TestArchPrctlIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeUint64Snapshot(0x1234)}
 	decoder := event.NewDecoder()
 	ctx := newArchPrctlPolicyContext(decoder)
 	ctx.ProbeRetExit = 0
-	ctx.StrArgBuf = make([]byte, BpfExitArgOffset+8)
-	putSmallSnapshot(ctx, BpfExitArgOffset, makeUint64Snapshot(0x1234))
 
 	got := (&ArchPrctlHandler{}).Handle(ctx)
 	if got.ArgParts[1] != "[NULL]" {
-		t.Fatalf("arch_prctl arg = %q, want legacy snapshot ignored", got.ArgParts[1])
+		t.Fatalf("arch_prctl arg = %q, want payload-section fallback", got.ArgParts[1])
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
