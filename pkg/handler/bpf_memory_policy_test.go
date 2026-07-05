@@ -70,8 +70,6 @@ func TestBpfHandlerIgnoresLegacyAttrSnapshot(t *testing.T) {
 	ctx := newBpfPolicyContext(reader, decoder)
 	ctx.Args = [6]uint64{0, 0x1000, 16}
 	ctx.ProbeRetEnter = 0
-	ctx.StrArgBuf = makeBpfMapCreateAttr(16)
-	ctx.DataLen = uint32(len(ctx.StrArgBuf))
 
 	got := (&BpfHandler{}).Handle(ctx)
 	if got.ArgParts[1] != "0x1000" {
@@ -138,7 +136,6 @@ func TestBpfGetNextIdUsesPayloadBytesSection(t *testing.T) {
 	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
 	ctx := newBpfPolicyContext(reader, event.NewDecoder())
 	ctx.Args = [6]uint64{11, 0x1000, 8}
-	ctx.StrArgBuf = makeBpfUint32Attr(99, 100)
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeBpfUint32Attr(1, 2)},
 	}
@@ -146,9 +143,6 @@ func TestBpfGetNextIdUsesPayloadBytesSection(t *testing.T) {
 	got := (&BpfHandler{}).Handle(ctx)
 	if !strings.Contains(got.ArgParts[1], "start_id=1") || !strings.Contains(got.ArgParts[1], "next_id=2") {
 		t.Fatalf("BpfHandler.Handle() arg = %q, want payload next-id values", got.ArgParts[1])
-	}
-	if strings.Contains(got.ArgParts[1], "99") || strings.Contains(got.ArgParts[1], "100") {
-		t.Fatalf("BpfHandler.Handle() arg = %q, unexpectedly used legacy snapshot", got.ArgParts[1])
 	}
 	if reader.reads != 0 || reader.robustReads != 0 {
 		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
@@ -159,7 +153,6 @@ func TestBpfGetFdByIdUsesPayloadBytesSection(t *testing.T) {
 	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
 	ctx := newBpfPolicyContext(reader, event.NewDecoder())
 	ctx.Args = [6]uint64{14, 0x1000, 12}
-	ctx.StrArgBuf = makeBpfUint32Attr(99, 0, 0xffffff27)
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeBpfUint32Attr(7, 0, 0)},
 	}
@@ -167,9 +160,6 @@ func TestBpfGetFdByIdUsesPayloadBytesSection(t *testing.T) {
 	got := (&BpfHandler{}).Handle(ctx)
 	if !strings.Contains(got.ArgParts[1], "map_id=7") || !strings.Contains(got.ArgParts[1], "open_flags=0") {
 		t.Fatalf("BpfHandler.Handle() arg = %q, want payload fd-by-id values", got.ArgParts[1])
-	}
-	if strings.Contains(got.ArgParts[1], "map_id=99") || strings.Contains(got.ArgParts[1], "0xffffff27") {
-		t.Fatalf("BpfHandler.Handle() arg = %q, unexpectedly used legacy snapshot", got.ArgParts[1])
 	}
 	if reader.reads != 0 || reader.robustReads != 0 {
 		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
@@ -180,7 +170,6 @@ func TestBpfBtfGetFdByIdTokenUsesPayloadBytesSection(t *testing.T) {
 	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
 	ctx := newBpfPolicyContext(reader, event.NewDecoder())
 	ctx.Args = [6]uint64{19, 0x1000, 16}
-	ctx.StrArgBuf = makeBpfUint32Attr(99, 0, 0, 77)
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeBpfUint32Attr(8, 0, 0, 5)},
 	}
@@ -188,9 +177,6 @@ func TestBpfBtfGetFdByIdTokenUsesPayloadBytesSection(t *testing.T) {
 	got := (&BpfHandler{}).Handle(ctx)
 	if !strings.Contains(got.ArgParts[1], "btf_id=8") || !strings.Contains(got.ArgParts[1], "fd_by_id_token_fd=5") {
 		t.Fatalf("BpfHandler.Handle() arg = %q, want payload BTF fd-by-id values", got.ArgParts[1])
-	}
-	if strings.Contains(got.ArgParts[1], "btf_id=99") || strings.Contains(got.ArgParts[1], "fd_by_id_token_fd=77") {
-		t.Fatalf("BpfHandler.Handle() arg = %q, unexpectedly used legacy snapshot", got.ArgParts[1])
 	}
 	if reader.reads != 0 || reader.robustReads != 0 {
 		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
@@ -206,8 +192,6 @@ func TestBpfHandlerEfaultIgnoresLegacyAttrSnapshot(t *testing.T) {
 	ctx.Args = [6]uint64{0, 0x1000, 16}
 	ctx.ProbeRetEnter = 0
 	ctx.Ret = -14
-	ctx.StrArgBuf = makeBpfMapCreateAttr(16)
-	ctx.DataLen = uint32(len(ctx.StrArgBuf))
 
 	got := (&BpfHandler{}).Handle(ctx)
 	if got.ArgParts[1] != "0x1000" {
@@ -226,8 +210,6 @@ func TestBpfHandlerEfaultDoesNotUseLegacyRawReadValidation(t *testing.T) {
 	ctx.Args = [6]uint64{0, 0x1000, 16}
 	ctx.ProbeRetEnter = 0
 	ctx.Ret = -14
-	ctx.StrArgBuf = makeBpfMapCreateAttr(16)
-	ctx.DataLen = uint32(len(ctx.StrArgBuf))
 
 	got := (&BpfHandler{}).Handle(ctx)
 	if got.ArgParts[1] != "0x1000" {
@@ -247,8 +229,6 @@ func TestBpfExtraDataIgnoresLegacySnapshot(t *testing.T) {
 	ctx.Args = [6]uint64{0, 0x2000, 600}
 	ctx.Ret = -7
 	ctx.Opts.Verbose = true
-	ctx.StrArgBuf = make([]byte, 512)
-	ctx.StrArgBuf[20] = 0x7f
 
 	got := checkAndFormatExtraData(ctx, 16, 600)
 	if got != "" {
@@ -292,7 +272,6 @@ func TestBpfExtraDataDoesNotUseLegacyLargeFallback(t *testing.T) {
 	ctx.Args = [6]uint64{0, 0x2000, 600}
 	ctx.Ret = -7
 	ctx.Opts.Verbose = true
-	ctx.StrArgBuf = make([]byte, 512)
 
 	got := checkAndFormatExtraData(ctx, 16, 600)
 	if got != "" {
