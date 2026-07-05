@@ -22,7 +22,7 @@ func makeEpollTimespec(sec int64, nsec uint64) []byte {
 	return buf
 }
 
-func newEpollPolicyContext(reader *fetchPolicyMemoryReader, name string) *Context {
+func newEpollPolicyContext(_ *fetchPolicyMemoryReader, name string) *Context {
 	return &Context{
 		Pid:           1234,
 		Tid:           1234,
@@ -30,15 +30,6 @@ func newEpollPolicyContext(reader *fetchPolicyMemoryReader, name string) *Contex
 		ProbeRetEnter: -1,
 		ProbeRetExit:  -1,
 		Decoder:       event.NewDecoder(),
-		StrArgBuf:     make([]byte, BpfExitArgOffset+epollEventSnapshotLimit),
-	}
-}
-
-func putEpollSnapshot(ctx *Context, offset int, data []byte) {
-	copy(ctx.StrArgBuf[offset:], data)
-	end := uint32(offset + len(data))
-	if ctx.DataLen < end {
-		ctx.DataLen = end
 	}
 }
 
@@ -59,12 +50,11 @@ func TestEpollCtlFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestEpollCtlIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestEpollCtlIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeEpollEvent(1, 7)}
 	ctx := newEpollPolicyContext(reader, "epoll_ctl")
 	ctx.Args = [6]uint64{3, 1, 4, 0x1000}
 	ctx.ProbeRetEnter = 0
-	putEpollSnapshot(ctx, BpfEnterArgOffset, makeEpollEvent(1, 7))
 
 	got := (&EpollHandler{}).Handle(ctx)
 	if len(got.ArgParts) != 4 {
@@ -82,7 +72,6 @@ func TestEpollCtlUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeEpollEvent(1, 9)}
 	ctx := newEpollPolicyContext(reader, "epoll_ctl")
 	ctx.Args = [6]uint64{3, 1, 4, 0x1000}
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 3, ProbeRet: 0, Data: makeEpollEvent(1, 7)},
 	}
@@ -131,13 +120,12 @@ func TestEpollWaitFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestEpollWaitIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestEpollWaitIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeEpollEvent(2, 9)}
 	ctx := newEpollPolicyContext(reader, "epoll_wait")
 	ctx.Args = [6]uint64{5, 0x2000, 1, 1000}
 	ctx.Ret = 1
 	ctx.ProbeRetExit = 0
-	putEpollSnapshot(ctx, BpfExitArgOffset, makeEpollEvent(1, 7))
 
 	got := (&EpollHandler{}).Handle(ctx)
 	if len(got.ArgParts) != 4 {
@@ -156,7 +144,6 @@ func TestEpollWaitUsesPayloadStructSection(t *testing.T) {
 	ctx := newEpollPolicyContext(reader, "epoll_wait")
 	ctx.Args = [6]uint64{5, 0x2000, 1, 1000}
 	ctx.Ret = 1
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeEpollEvent(1, 7)},
 	}
@@ -191,13 +178,12 @@ func TestEpollPwait2TimeoutFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestEpollPwait2TimeoutIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestEpollPwait2TimeoutIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeEpollTimespec(99, 100)}
 	ctx := newEpollPolicyContext(reader, "epoll_pwait2")
 	ctx.Args = [6]uint64{5, 0x2000, 1, 0x3000, 0x4000, 8}
 	ctx.Ret = 0
 	ctx.ProbeRetEnter = 0
-	putEpollSnapshot(ctx, BpfMiscArgOffset, makeEpollTimespec(9, 10))
 
 	got := (&EpollHandler{}).Handle(ctx)
 	if len(got.ArgParts) != 6 {
@@ -216,7 +202,6 @@ func TestEpollPwait2TimeoutUsesPayloadStructSection(t *testing.T) {
 	ctx := newEpollPolicyContext(reader, "epoll_pwait2")
 	ctx.Args = [6]uint64{5, 0x2000, 1, 0x3000, 0x4000, 8}
 	ctx.Ret = 0
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 3, ProbeRet: 0, Data: makeEpollTimespec(9, 10)},
 	}
@@ -233,13 +218,12 @@ func TestEpollPwait2TimeoutUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestEpollPwait2IgnoresLegacyExitSnapshot(t *testing.T) {
+func TestEpollPwait2IgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeEpollEvent(2, 9)}
 	ctx := newEpollPolicyContext(reader, "epoll_pwait2")
 	ctx.Args = [6]uint64{5, 0x2000, 1, 0, 0, 8}
 	ctx.Ret = 1
 	ctx.ProbeRetExit = 0
-	putEpollSnapshot(ctx, BpfExitArgOffset, makeEpollEvent(1, 7))
 
 	got := (&EpollHandler{}).Handle(ctx)
 	if len(got.ArgParts) != 6 {
@@ -258,7 +242,6 @@ func TestEpollPwait2UsesPayloadStructSection(t *testing.T) {
 	ctx := newEpollPolicyContext(reader, "epoll_pwait2")
 	ctx.Args = [6]uint64{5, 0x2000, 1, 0, 0, 8}
 	ctx.Ret = 1
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeEpollEvent(1, 7)},
 	}

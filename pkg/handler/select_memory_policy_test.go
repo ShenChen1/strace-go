@@ -8,14 +8,6 @@ import (
 	"strace-go/pkg/event"
 )
 
-const selectTestBufSize = BpfExitArgOffset + pollPayloadLimit
-
-const (
-	legacySelectTimeoutOffset  = 384
-	legacySelectExitTimeoutOff = 1408
-	legacyPpollTimeoutOffset   = BpfMiscArgOffset
-)
-
 func makeFdSetData(fd int) []byte {
 	data := make([]byte, fdSetPayloadSize)
 	data[fd/8] = 1 << uint(fd%8)
@@ -37,7 +29,7 @@ func makeSelectTime(sec int64, nsec uint64) []byte {
 	return data
 }
 
-func newSelectPolicyContext(reader *fetchPolicyMemoryReader, name string) *Context {
+func newSelectPolicyContext(_ *fetchPolicyMemoryReader, name string) *Context {
 	return &Context{
 		Pid:           1234,
 		Tid:           1234,
@@ -45,15 +37,6 @@ func newSelectPolicyContext(reader *fetchPolicyMemoryReader, name string) *Conte
 		ProbeRetEnter: -1,
 		ProbeRetExit:  -1,
 		Decoder:       event.NewDecoder(),
-		StrArgBuf:     make([]byte, selectTestBufSize),
-	}
-}
-
-func putSelectSnapshot(ctx *Context, offset int, data []byte) {
-	copy(ctx.StrArgBuf[offset:], data)
-	end := uint32(offset + len(data))
-	if ctx.DataLen < end {
-		ctx.DataLen = end
 	}
 }
 
@@ -74,12 +57,11 @@ func TestSelectFdSetsFallsBackToPointerWithoutPayloadSection(t *testing.T) {
 	}
 }
 
-func TestSelectFdSetsIgnoreLegacyEnterSnapshot(t *testing.T) {
+func TestSelectFdSetsIgnoreProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFdSetData(7)}
 	ctx := newSelectPolicyContext(reader, "select")
 	ctx.Args = [6]uint64{8, 0x1000, 0, 0, 0}
 	ctx.ProbeRetEnter = 0
-	putSelectSnapshot(ctx, BpfEnterArgOffset, makeFdSetData(3))
 
 	got := (&SelectHandler{}).Handle(ctx)
 	if got.ArgParts[1] != "0x1000" {
@@ -94,7 +76,6 @@ func TestSelectFdSetsUsePayloadBytesSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFdSetData(7)}
 	ctx := newSelectPolicyContext(reader, "select")
 	ctx.Args = [6]uint64{8, 0x1000, 0, 0, 0}
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeFdSetData(3)},
 	}
@@ -125,12 +106,11 @@ func TestSelectTimeoutFallsBackToPointerWithoutPayloadSection(t *testing.T) {
 	}
 }
 
-func TestSelectTimeoutIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestSelectTimeoutIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSelectTime(99, 100)}
 	ctx := newSelectPolicyContext(reader, "select")
 	ctx.Args = [6]uint64{0, 0, 0, 0, 0x3000}
 	ctx.ProbeRetEnter = 0
-	putSelectSnapshot(ctx, legacySelectTimeoutOffset, makeSelectTime(9, 10))
 
 	got := (&SelectHandler{}).Handle(ctx)
 	if got.ArgParts[4] != "0x3000" {
@@ -145,7 +125,6 @@ func TestSelectTimeoutUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSelectTime(99, 100)}
 	ctx := newSelectPolicyContext(reader, "select")
 	ctx.Args = [6]uint64{0, 0, 0, 0, 0x3000}
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 4, ProbeRet: 0, Data: makeSelectTime(9, 10)},
 	}
@@ -159,17 +138,16 @@ func TestSelectTimeoutUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestSelectExitIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestSelectExitIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFdSetData(7)}
 	ctx := newSelectPolicyContext(reader, "select")
 	ctx.Args = [6]uint64{8, 0x1000, 0, 0, 0}
 	ctx.Ret = 1
 	ctx.ProbeRetExit = 0
-	putSelectSnapshot(ctx, BpfExitArgOffset, makeFdSetData(3))
 
 	got := (&SelectHandler{}).Handle(ctx)
 	if got.ReturnDesc != "" {
-		t.Fatalf("ReturnDesc = %q, want empty legacy fallback", got.ReturnDesc)
+		t.Fatalf("ReturnDesc = %q, want empty fallback", got.ReturnDesc)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -181,7 +159,6 @@ func TestSelectExitUsesPayloadBytesSection(t *testing.T) {
 	ctx := newSelectPolicyContext(reader, "select")
 	ctx.Args = [6]uint64{8, 0x1000, 0, 0, 0}
 	ctx.Ret = 1
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeFdSetData(7)},
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeFdSetData(3)},
@@ -196,17 +173,16 @@ func TestSelectExitUsesPayloadBytesSection(t *testing.T) {
 	}
 }
 
-func TestSelectExitTimeoutIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestSelectExitTimeoutIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSelectTime(99, 100)}
 	ctx := newSelectPolicyContext(reader, "select")
 	ctx.Args = [6]uint64{0, 0, 0, 0, 0x3000}
 	ctx.Ret = 1
 	ctx.ProbeRetExit = 0
-	putSelectSnapshot(ctx, legacySelectExitTimeoutOff, makeSelectTime(1, 2))
 
 	got := (&SelectHandler{}).Handle(ctx)
 	if got.ReturnDesc != "" {
-		t.Fatalf("ReturnDesc = %q, want empty legacy fallback", got.ReturnDesc)
+		t.Fatalf("ReturnDesc = %q, want empty fallback", got.ReturnDesc)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -218,7 +194,6 @@ func TestSelectExitTimeoutUsesPayloadStructSection(t *testing.T) {
 	ctx := newSelectPolicyContext(reader, "select")
 	ctx.Args = [6]uint64{0, 0, 0, 0, 0x3000}
 	ctx.Ret = 1
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 4, ProbeRet: 0, Data: makeSelectTime(9, 10)},
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 4, ProbeRet: 0, Data: makeSelectTime(1, 2)},
@@ -250,12 +225,11 @@ func TestPollFallsBackToPointerWithoutPayloadSection(t *testing.T) {
 	}
 }
 
-func TestPollIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestPollIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePollfdData(7, 1, 0)}
 	ctx := newSelectPolicyContext(reader, "poll")
 	ctx.Args = [6]uint64{0x2000, 1, 1000}
 	ctx.ProbeRetEnter = 0
-	putSelectSnapshot(ctx, BpfEnterArgOffset, makePollfdData(4, 1, 0))
 
 	got := (&PollHandler{}).Handle(ctx)
 	if got.ArgParts[0] != "0x2000" {
@@ -270,7 +244,6 @@ func TestPollUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePollfdData(7, 1, 0)}
 	ctx := newSelectPolicyContext(reader, "poll")
 	ctx.Args = [6]uint64{0x2000, 1, 1000}
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 0, ProbeRet: 0, Data: makePollfdData(4, 1, 0)},
 	}
@@ -284,17 +257,16 @@ func TestPollUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestPollExitIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestPollExitIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePollfdData(4, 0, 0)}
 	ctx := newSelectPolicyContext(reader, "poll")
 	ctx.Args = [6]uint64{0x2000, 1, 1000}
 	ctx.Ret = 1
 	ctx.ProbeRetExit = 0
-	putSelectSnapshot(ctx, BpfExitArgOffset, makePollfdData(4, 0, 1))
 
 	got := (&PollHandler{}).Handle(ctx)
 	if got.ReturnDesc != "" {
-		t.Fatalf("ReturnDesc = %q, want empty legacy fallback", got.ReturnDesc)
+		t.Fatalf("ReturnDesc = %q, want empty fallback", got.ReturnDesc)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -306,7 +278,6 @@ func TestPollExitUsesPayloadStructSection(t *testing.T) {
 	ctx := newSelectPolicyContext(reader, "poll")
 	ctx.Args = [6]uint64{0x2000, 1, 1000}
 	ctx.Ret = 1
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 0, ProbeRet: 0, Data: makePollfdData(4, 1, 0)},
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 0, ProbeRet: 0, Data: makePollfdData(4, 0, 1)},
@@ -345,7 +316,6 @@ func TestPpollTimeoutUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSelectTime(99, 100)}
 	ctx := newSelectPolicyContext(reader, "ppoll")
 	ctx.Args = [6]uint64{0, 0, 0x3000}
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 2, ProbeRet: 0, Data: makeSelectTime(9, 10)},
 	}
@@ -359,12 +329,11 @@ func TestPpollTimeoutUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestPpollTimeoutIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestPpollTimeoutIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSelectTime(99, 100)}
 	ctx := newSelectPolicyContext(reader, "ppoll")
 	ctx.Args = [6]uint64{0, 0, 0x3000}
 	ctx.ProbeRetEnter = 0
-	putSelectSnapshot(ctx, legacyPpollTimeoutOffset, makeSelectTime(9, 10))
 
 	got := (&PollHandler{}).Handle(ctx)
 	if got.ArgParts[2] != "0x3000" {
