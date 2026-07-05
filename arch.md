@@ -810,7 +810,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `fcntl/fcntl64` 已按 command 暴露 arg2 的 8/32 字节 `PayloadKindStruct` section，fcntl handler 和通用 flock/f_owner_ex decoder 只消费 semantic payload section，旧 fixed offset snapshot 会被忽略并退回指针输出。
 - `prctl` 已按 option 暴露 name 的 `PayloadKindString` section 和 GET 类 uint32 OUT `PayloadKindStruct` section，handler 只消费 semantic payload section，旧 fixed offset snapshot 会被忽略并退回指针输出。
 - `SnapshotReader` 接口已收敛为只暴露 `PayloadSection` 查询；`handler.Context` 上旧的 `EnterArgSnapshot`、`ExitSnapshot`、`FetchStructData*` 和 decode fallback 方法已删除，防止新 handler 继续依赖固定 offset snapshot API。
-- `handler.Context.Ptr` 已删除；产品路径构造 `handler.Context` 时已不再注入 `DataLen` 或 `StrArgBuf` fixed buffer，这两个字段只剩测试过渡用途，生产 handler 只能通过 payload sections 获取 BPF 快照。
+- `handler.Context.Ptr`、`DataLen` 和 `StrArgBuf` 已删除；生产 handler 只能通过 payload sections 获取 BPF 快照。
 
 ### Phase 5: filter 下推
 

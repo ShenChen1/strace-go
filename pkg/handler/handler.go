@@ -30,8 +30,6 @@ type Context struct {
 	Ret             int64
 	ProbeRetEnter   int32
 	ProbeRetExit    int32
-	DataLen         uint32
-	StrArgBuf       []byte
 	PayloadSections []PayloadSection
 
 	BufferFileOffset   int64
