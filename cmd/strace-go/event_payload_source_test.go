@@ -298,3 +298,101 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareOpenat2Rule(t *testing.T) 
 		t.Fatalf("openat2 how data length = %d, want %d", len(how.Data), len(howData))
 	}
 }
+
+func TestPayloadSectionsForPayloadEventUsesSourceAwareExitBytesRule(t *testing.T) {
+	raw := &bpfEvent{
+		EventType:    bpfEventTypeExit,
+		Args:         [6]uint64{0x8000, 32},
+		Ret:          6,
+		ProbeRetExit: 0,
+	}
+	data := make([]byte, handler.BpfExitArgOffset+6)
+	copy(data[handler.BpfExitArgOffset:], []byte("target"))
+	event := payloadEvent{
+		raw: raw,
+		source: staticPayloadSource{
+			args: raw.Args,
+			data: data,
+		},
+	}
+
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "getcwd"})
+
+	if len(sections) != 1 {
+		t.Fatalf("sections = %d, want 1", len(sections))
+	}
+	section := sections[0]
+	if section.Kind != handler.PayloadKindBytes || section.Direction != handler.PayloadDirectionOut ||
+		section.ArgIndex != 0 || section.UserPtr != 0x8000 {
+		t.Fatalf("getcwd section metadata = %+v, want bytes out arg 0", section)
+	}
+	if !bytes.Equal(section.Data, []byte("target")) {
+		t.Fatalf("getcwd data = %q", section.Data)
+	}
+}
+
+func TestPayloadSectionsForPayloadEventUsesSourceAwareExitStructRule(t *testing.T) {
+	raw := &bpfEvent{
+		EventType:    bpfEventTypeExit,
+		Args:         [6]uint64{0x1000, 0x9000},
+		Ret:          0,
+		ProbeRetExit: 0,
+	}
+	wantData := bytes.Repeat([]byte{0x41}, statPayloadStructSize)
+	data := make([]byte, handler.BpfExitArgOffset+statPayloadStructSize)
+	copy(data[handler.BpfExitArgOffset:], wantData)
+	event := payloadEvent{
+		raw: raw,
+		source: staticPayloadSource{
+			args: raw.Args,
+			data: data,
+		},
+	}
+
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "stat"})
+
+	if len(sections) != 1 {
+		t.Fatalf("sections = %d, want 1", len(sections))
+	}
+	section := sections[0]
+	if section.Kind != handler.PayloadKindStruct || section.Direction != handler.PayloadDirectionOut ||
+		section.ArgIndex != 1 || section.UserPtr != 0x9000 {
+		t.Fatalf("stat section metadata = %+v, want struct out arg 1", section)
+	}
+	if !bytes.Equal(section.Data, wantData) {
+		t.Fatalf("stat data length = %d, want %d", len(section.Data), len(wantData))
+	}
+}
+
+func TestPayloadSectionsForPayloadEventUsesSourceAwareFDArrayRule(t *testing.T) {
+	raw := &bpfEvent{
+		EventType:    bpfEventTypeExit,
+		Args:         [6]uint64{0xa000},
+		Ret:          0,
+		ProbeRetExit: 0,
+	}
+	wantData := fdArrayJSONData(11, 12)
+	data := make([]byte, handler.BpfExitArgOffset+fdArrayPayloadSize)
+	copy(data[handler.BpfExitArgOffset:], wantData)
+	event := payloadEvent{
+		raw: raw,
+		source: staticPayloadSource{
+			args: raw.Args,
+			data: data,
+		},
+	}
+
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "pipe"})
+
+	if len(sections) != 1 {
+		t.Fatalf("sections = %d, want 1", len(sections))
+	}
+	section := sections[0]
+	if section.Kind != handler.PayloadKindStruct || section.Direction != handler.PayloadDirectionOut ||
+		section.ArgIndex != 0 || section.UserPtr != 0xa000 {
+		t.Fatalf("pipe section metadata = %+v, want struct out arg 0", section)
+	}
+	if !bytes.Equal(section.Data, wantData) {
+		t.Fatalf("pipe fd array data = %v, want %v", section.Data, wantData)
+	}
+}

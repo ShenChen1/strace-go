@@ -9,8 +9,8 @@ import (
 )
 
 func TestPayloadSectionRegistryPrefersExplicitStructuredRules(t *testing.T) {
-	if _, ok := payloadSectionRules["stat"]; !ok {
-		t.Fatal("stat payload rule is not explicitly registered")
+	if _, ok := payloadSourceSectionRules["stat"]; !ok {
+		t.Fatal("stat payload rule is not explicitly registered in the source-aware registry")
 	}
 
 	wantData := bytes.Repeat([]byte{0x42}, statPayloadStructSize)

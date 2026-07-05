@@ -83,19 +83,31 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 
 	"memfd_create": memfdCreatePayloadSectionsFromSource,
 	"openat2":      openat2PayloadSectionsFromSource,
+
+	"getcwd":     exitBytesPayloadSourceRule(0),
+	"getdents64": exitBytesPayloadSourceRule(1),
+	"readlink":   exitBytesPayloadSourceRule(1),
+	"readlinkat": exitBytesPayloadSourceRule(2),
+	"pipe":       exitStructPayloadSourceRule(0, fdArrayPayloadSize),
+	"pipe2":      exitStructPayloadSourceRule(0, fdArrayPayloadSize),
+	"socketpair": exitStructPayloadSourceRule(3, fdArrayPayloadSize),
+
+	"stat":       exitStructPayloadSourceRule(1, statPayloadStructSize),
+	"lstat":      exitStructPayloadSourceRule(1, statPayloadStructSize),
+	"fstat":      exitStructPayloadSourceRule(1, statPayloadStructSize),
+	"newfstatat": exitStructPayloadSourceRule(2, statPayloadStructSize),
+	"statfs":     exitStructPayloadSourceRule(1, statfsPayloadStructSize),
+	"fstatfs":    exitStructPayloadSourceRule(1, statfsPayloadStructSize),
+	"uname":      exitStructPayloadSourceRule(0, utsnamePayloadStructSize),
+	"sysinfo":    exitStructPayloadSourceRule(0, sysinfoPayloadStructSize),
+	"getrlimit":  exitStructPayloadSourceRule(1, rlimitPayloadStructSize),
+	"arch_prctl": exitStructPayloadSourceRule(1, archPrctlPayloadOutSize),
 }
 
 var payloadSectionRules = map[string]payloadSectionRule{
 	"bpf":             namedPayloadRule(bpfPayloadSectionsForEvent),
-	"getcwd":          exitBytesPayloadRule(0),
-	"getdents64":      exitBytesPayloadRule(1),
-	"readlink":        exitBytesPayloadRule(1),
-	"readlinkat":      exitBytesPayloadRule(2),
 	"sendfile":        namedPayloadRule(sendfilePayloadSectionsForEvent),
 	"copy_file_range": namedPayloadRule(copyFileRangePayloadSectionsForEvent),
-	"pipe":            exitStructPayloadRule(0, fdArrayPayloadSize),
-	"pipe2":           exitStructPayloadRule(0, fdArrayPayloadSize),
-	"socketpair":      exitStructPayloadRule(3, fdArrayPayloadSize),
 	"mount":           fsPayloadSectionsForEvent,
 	"umount2":         fsPayloadSectionsForEvent,
 	"fsconfig":        fsPayloadSectionsForEvent,
@@ -115,21 +127,11 @@ var payloadSectionRules = map[string]payloadSectionRule{
 	"flistxattr":      xattrPayloadSectionsForEvent,
 	"ioctl":           namedPayloadRule(ioctlPayloadSectionsForEvent),
 
-	"stat":                 exitStructPayloadRule(1, statPayloadStructSize),
-	"lstat":                exitStructPayloadRule(1, statPayloadStructSize),
-	"fstat":                exitStructPayloadRule(1, statPayloadStructSize),
-	"newfstatat":           exitStructPayloadRule(2, statPayloadStructSize),
-	"statfs":               exitStructPayloadRule(1, statfsPayloadStructSize),
-	"fstatfs":              exitStructPayloadRule(1, statfsPayloadStructSize),
-	"uname":                exitStructPayloadRule(0, utsnamePayloadStructSize),
-	"sysinfo":              exitStructPayloadRule(0, sysinfoPayloadStructSize),
-	"getrlimit":            exitStructPayloadRule(1, rlimitPayloadStructSize),
 	"setrlimit":            enterStructPayloadRule(1, handler.BpfEnterArgOffset, rlimitPayloadStructSize),
 	"prlimit64":            namedPayloadRule(prlimitPayloadSectionsForEvent),
 	"get_robust_list":      namedPayloadRule(robustListPayloadSectionsForEvent),
 	"clone3":               namedPayloadRule(clone3PayloadSectionsForEvent),
 	"waitid":               namedPayloadRule(waitidPayloadSectionsForEvent),
-	"arch_prctl":           exitStructPayloadRule(1, archPrctlPayloadOutSize),
 	"capget":               capabilityPayloadSectionsForEvent,
 	"capset":               capabilityPayloadSectionsForEvent,
 	"io_setup":             aioPayloadSectionsForEvent,
@@ -215,9 +217,21 @@ func exitBytesPayloadRule(argIndex int) payloadSectionRule {
 	}
 }
 
+func exitBytesPayloadSourceRule(argIndex int) payloadSourceSectionRule {
+	return func(event payloadEvent, _ string) []handler.PayloadSection {
+		return exitBytesPayloadSectionFromSourceRet(event, argIndex)
+	}
+}
+
 func exitStructPayloadRule(argIndex int, size uint32) payloadSectionRule {
 	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
 		return exitStructPayloadSection(eventRaw, argIndex, size)
+	}
+}
+
+func exitStructPayloadSourceRule(argIndex int, size uint32) payloadSourceSectionRule {
+	return func(event payloadEvent, _ string) []handler.PayloadSection {
+		return exitStructPayloadSectionFromSource(event, argIndex, size)
 	}
 }
 

@@ -96,23 +96,42 @@ func stringPayloadSectionFromSourceSpec(event payloadEvent, spec stringPayloadWi
 }
 
 func exitBytesPayloadSectionFromRet(eventRaw *bpfEvent, argIndex int) []handler.PayloadSection {
-	if !isExitEvent(eventRaw) || eventRaw.Ret <= 0 {
+	return exitBytesPayloadSectionFromSourceRet(newFixedPayloadEvent(eventRaw), argIndex)
+}
+
+func exitBytesPayloadSectionFromSourceRet(event payloadEvent, argIndex int) []handler.PayloadSection {
+	if !event.IsExit() || event.Ret() <= 0 {
 		return nil
 	}
-	userLen := uint32Clamped(uint64(eventRaw.Ret))
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	userLen := uint32Clamped(uint64(event.Ret()))
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindBytes,
 		direction: handler.PayloadDirectionOut,
 		argIndex:  argIndex,
 		offset:    handler.BpfExitArgOffset,
 		userLen:   userLen,
 		maxLen:    userLen,
-		probeRet:  eventRaw.ProbeRetExit,
+		probeRet:  event.ProbeRetExit(),
 	})
 }
 
 func exitStructPayloadSection(eventRaw *bpfEvent, argIndex int, size uint32) []handler.PayloadSection {
-	return exitStructPayloadSectionAt(eventRaw, argIndex, handler.BpfExitArgOffset, size)
+	return exitStructPayloadSectionFromSource(newFixedPayloadEvent(eventRaw), argIndex, size)
+}
+
+func exitStructPayloadSectionFromSource(event payloadEvent, argIndex int, size uint32) []handler.PayloadSection {
+	if !event.IsExit() || event.Ret() < 0 {
+		return nil
+	}
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
+		kind:      handler.PayloadKindStruct,
+		direction: handler.PayloadDirectionOut,
+		argIndex:  argIndex,
+		offset:    handler.BpfExitArgOffset,
+		userLen:   size,
+		maxLen:    size,
+		probeRet:  event.ProbeRetExit(),
+	})
 }
 
 func exitStructPayloadSectionAt(eventRaw *bpfEvent, argIndex int, offset int, size uint32) []handler.PayloadSection {
