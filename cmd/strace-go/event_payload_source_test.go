@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"strace-go/pkg/handler"
+	"strace-go/pkg/meta"
 )
 
 type staticPayloadSource struct {
@@ -62,5 +63,34 @@ func TestPayloadSectionFromSourceSpecUsesAbstractSource(t *testing.T) {
 	}
 	if !bytes.Equal(section.Data, []byte("payload")) {
 		t.Fatalf("section data = %q, want payload", section.Data)
+	}
+}
+
+func TestPayloadSectionsForPayloadEventUsesSourceAwareWriteRule(t *testing.T) {
+	raw := &bpfEvent{
+		EventType:     bpfEventTypeEnter,
+		Args:          [6]uint64{1, 0x2000, 7},
+		ProbeRetEnter: 0,
+	}
+	event := payloadEvent{
+		raw: raw,
+		source: staticPayloadSource{
+			args: raw.Args,
+			data: []byte("payload-from-source"),
+		},
+	}
+
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "write"})
+
+	if len(sections) != 1 {
+		t.Fatalf("sections = %d, want 1", len(sections))
+	}
+	section := sections[0]
+	if section.UserPtr != 0x2000 || section.UserLen != 7 || section.CopiedLen != 7 {
+		t.Fatalf("section metadata = ptr %#x user %d copied %d, want ptr 0x2000 user/copy 7",
+			section.UserPtr, section.UserLen, section.CopiedLen)
+	}
+	if !bytes.Equal(section.Data, []byte("payload")) {
+		t.Fatalf("section data = %q, want payload from source", section.Data)
 	}
 }

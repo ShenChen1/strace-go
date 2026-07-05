@@ -9,8 +9,55 @@ type fixedEventPayloadSource struct {
 	eventRaw *bpfEvent
 }
 
+type payloadEvent struct {
+	raw    *bpfEvent
+	source payloadSource
+}
+
 func newFixedEventPayloadSource(eventRaw *bpfEvent) fixedEventPayloadSource {
 	return fixedEventPayloadSource{eventRaw: eventRaw}
+}
+
+func newFixedPayloadEvent(eventRaw *bpfEvent) payloadEvent {
+	return payloadEvent{
+		raw:    eventRaw,
+		source: newFixedEventPayloadSource(eventRaw),
+	}
+}
+
+func (e payloadEvent) Arg(index int) uint64 {
+	if e.source == nil {
+		return 0
+	}
+	if value, ok := e.source.Arg(index); ok {
+		return value
+	}
+	return 0
+}
+
+func (e payloadEvent) Ret() int64 {
+	if e.raw == nil {
+		return 0
+	}
+	return e.raw.Ret
+}
+
+func (e payloadEvent) IsExit() bool {
+	return e.raw != nil && isExitEvent(e.raw)
+}
+
+func (e payloadEvent) ProbeRetEnterArg(index int) int32 {
+	if e.raw == nil {
+		return 0
+	}
+	return getArgProbeStatus(e.raw.ProbeRetEnter, index)
+}
+
+func (e payloadEvent) ProbeRetExit() int32 {
+	if e.raw == nil {
+		return 0
+	}
+	return e.raw.ProbeRetExit
 }
 
 func (s fixedEventPayloadSource) Arg(index int) (uint64, bool) {

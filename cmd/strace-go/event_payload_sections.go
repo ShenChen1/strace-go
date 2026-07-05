@@ -50,13 +50,16 @@ type structArrayPayloadSpec struct {
 }
 
 type payloadSectionRule func(eventRaw *bpfEvent, scName string) []handler.PayloadSection
+type payloadSourceSectionRule func(event payloadEvent, scName string) []handler.PayloadSection
+
+var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
+	"write":    writePayloadSectionsFromSource,
+	"pwrite64": writePayloadSectionsFromSource,
+	"read":     readPayloadSectionsFromSource,
+	"pread64":  readPayloadSectionsFromSource,
+}
 
 var payloadSectionRules = map[string]payloadSectionRule{
-	"write":    writePayloadSectionsForEvent,
-	"pwrite64": writePayloadSectionsForEvent,
-	"read":     readPayloadSectionsForEvent,
-	"pread64":  readPayloadSectionsForEvent,
-
 	"readv":    iovecArgPayloadSectionsForEvent,
 	"writev":   iovecArgPayloadSectionsForEvent,
 	"preadv":   iovecArgPayloadSectionsForEvent,
@@ -176,6 +179,17 @@ var payloadSectionRules = map[string]payloadSectionRule{
 }
 
 func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.PayloadSection {
+	return payloadSectionsForPayloadEvent(newFixedPayloadEvent(eventRaw), scMeta)
+}
+
+func payloadSectionsForPayloadEvent(event payloadEvent, scMeta meta.Syscall) []handler.PayloadSection {
+	if rule, ok := payloadSourceSectionRules[scMeta.Name]; ok {
+		return rule(event, scMeta.Name)
+	}
+	eventRaw := event.raw
+	if eventRaw == nil {
+		return nil
+	}
 	if rule, ok := payloadSectionRules[scMeta.Name]; ok {
 		return rule(eventRaw, scMeta.Name)
 	}
@@ -233,31 +247,31 @@ func networkSockaddrInPayloadRule(argIndex int, lenIndex int, offset int) payloa
 	}
 }
 
-func writePayloadSectionsForEvent(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
-	userLen := uint32Clamped(eventRaw.Args[2])
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+func writePayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	userLen := uint32Clamped(event.Arg(2))
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindBytes,
 		direction: handler.PayloadDirectionIn,
 		argIndex:  1,
 		userLen:   userLen,
 		maxLen:    userLen,
-		probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, 1),
+		probeRet:  event.ProbeRetEnterArg(1),
 	})
 }
 
-func readPayloadSectionsForEvent(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
-	if !isExitEvent(eventRaw) || eventRaw.Ret <= 0 {
+func readPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	if !event.IsExit() || event.Ret() <= 0 {
 		return nil
 	}
-	userLen := uint32Clamped(uint64(eventRaw.Ret))
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	userLen := uint32Clamped(uint64(event.Ret()))
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindBytes,
 		direction: handler.PayloadDirectionOut,
 		argIndex:  1,
 		offset:    handler.BpfExitArgOffset,
 		userLen:   userLen,
 		maxLen:    userLen,
-		probeRet:  eventRaw.ProbeRetExit,
+		probeRet:  event.ProbeRetExit(),
 	})
 }
 
@@ -397,7 +411,7 @@ func payloadSectionFromWindowSpec(eventRaw *bpfEvent, spec payloadWindowSpec) []
 }
 
 func payloadSectionFromSourceSpec(source payloadSource, spec payloadWindowSpec) []handler.PayloadSection {
-	if spec.userLen == 0 {
+	if source == nil || spec.userLen == 0 {
 		return nil
 	}
 	if spec.maxLen == 0 || spec.maxLen > spec.userLen {
