@@ -29,7 +29,7 @@ func (h *IoctlHandler) decodeBtrfsIoctl(ctx *Context, cmd, arg uint64, cmdName s
 }
 
 func (h *IoctlHandler) decodeBtrfsWaitSync(ctx *Context, arg uint64) string {
-	data, ok := ioctlEnterArgSnapshot(ctx, 8)
+	data, ok := ioctlEnterArgPayload(ctx, 8)
 	if !ok || len(data) < 8 {
 		return fmt.Sprintf("%#x", arg)
 	}
@@ -116,65 +116,4 @@ func (h *IoctlHandler) decodeBtrfsVolArgsV2(ctx *Context, arg uint64) string {
 
 func (h *IoctlHandler) decodeBtrfsQgroupInherit(ctx *Context, arg uint64) string {
 	return fmt.Sprintf("%#x", arg)
-}
-
-func (h *IoctlHandler) decodeBtrfsQgroupInheritSnapshot(data []byte) string {
-	if len(data) < 64 {
-		return ""
-	}
-	flags := binary.LittleEndian.Uint64(data[0:8])
-	numQgroups := binary.LittleEndian.Uint64(data[8:16])
-	numRefCopies := binary.LittleEndian.Uint64(data[16:24])
-	numExclCopies := binary.LittleEndian.Uint64(data[24:32])
-
-	// lim is struct btrfs_qgroup_limit
-	limFlags := binary.LittleEndian.Uint64(data[32:40])
-	maxRfer := binary.LittleEndian.Uint64(data[40:48])
-	maxExcl := binary.LittleEndian.Uint64(data[48:56])
-	rsvRfer := binary.LittleEndian.Uint64(data[56:64])
-	rsvExcl := uint64(0)
-
-	flagsStr := fmt.Sprintf("%#x", flags)
-	if flags&2 != 0 {
-		flagsStr = "BTRFS_QGROUP_INHERIT_SET_LIMITS|" + fmt.Sprintf("%#x", flags & ^uint64(2))
-		if flags & ^uint64(2) == 0 {
-			flagsStr = "BTRFS_QGROUP_INHERIT_SET_LIMITS"
-		}
-	}
-
-	var limParts []string
-	lf := limFlags
-	if lf&1 != 0 {
-		limParts = append(limParts, "BTRFS_QGROUP_LIMIT_MAX_RFER")
-		lf &= ^uint64(1)
-	}
-	if lf&2 != 0 {
-		limParts = append(limParts, "BTRFS_QGROUP_LIMIT_MAX_EXCL")
-		lf &= ^uint64(2)
-	}
-	if lf&4 != 0 {
-		limParts = append(limParts, "BTRFS_QGROUP_LIMIT_RSV_RFER")
-		lf &= ^uint64(4)
-	}
-	if lf&8 != 0 {
-		limParts = append(limParts, "BTRFS_QGROUP_LIMIT_RSV_EXCL")
-		lf &= ^uint64(8)
-	}
-	if lf&16 != 0 {
-		limParts = append(limParts, "BTRFS_QGROUP_LIMIT_RFER_CMPR")
-		lf &= ^uint64(16)
-	}
-	if lf&32 != 0 {
-		limParts = append(limParts, "BTRFS_QGROUP_LIMIT_EXCL_CMPR")
-		lf &= ^uint64(32)
-	}
-	if lf != 0 || len(limParts) == 0 {
-		limParts = append(limParts, fmt.Sprintf("%#x", lf))
-	}
-
-	limFlagsStr := strings.Join(limParts, "|")
-
-	limStr := fmt.Sprintf("{flags=%s, max_rfer=%d, max_excl=%d, rsv_rfer=%d, rsv_excl=%d}", limFlagsStr, maxRfer, maxExcl, rsvRfer, rsvExcl)
-
-	return fmt.Sprintf("{flags=%s, num_qgroups=%d, num_ref_copies=%d, num_excl_copies=%d, lim=%s, ...}", flagsStr, numQgroups, numRefCopies, numExclCopies, limStr)
 }

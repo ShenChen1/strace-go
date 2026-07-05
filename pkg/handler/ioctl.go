@@ -119,7 +119,7 @@ func (h *IoctlHandler) decodeDmIoctl(ctx *Context, arg uint64, cmdName string) s
 // decodeStandardIoctlArg formats non-DM standard ioctl arguments.
 func (h *IoctlHandler) decodeStandardIoctlArg(ctx *Context, cmd, arg uint64) string {
 	if cmd == 0x80044d0d {
-		data, readSuccess := ioctlEnterArgSnapshot(ctx, 4)
+		data, readSuccess := ioctlEnterArgPayload(ctx, 4)
 		if readSuccess {
 			otpVal := binary.LittleEndian.Uint32(data)
 			switch otpVal {
@@ -143,7 +143,7 @@ func (h *IoctlHandler) decodeStandardIoctlArg(ctx *Context, cmd, arg uint64) str
 			return fmt.Sprintf("%#x", arg)
 		}
 		direction := ioctlTermiosDirection(cmd)
-		if data, ok := ioctlArgSnapshot(ctx, direction, 60); ok {
+		if data, ok := ioctlArgPayload(ctx, direction, 60); ok {
 			return format.Termios(data)
 		}
 		return fmt.Sprintf("%#x", arg)
@@ -152,7 +152,7 @@ func (h *IoctlHandler) decodeStandardIoctlArg(ctx *Context, cmd, arg uint64) str
 			return fmt.Sprintf("%#x", arg)
 		}
 		direction := ioctlTermios2Direction(cmd)
-		if data, ok := ioctlArgSnapshot(ctx, direction, 44); ok {
+		if data, ok := ioctlArgPayload(ctx, direction, 44); ok {
 			return format.Termios(data)
 		}
 		return fmt.Sprintf("%#x", arg)
@@ -160,7 +160,7 @@ func (h *IoctlHandler) decodeStandardIoctlArg(ctx *Context, cmd, arg uint64) str
 		if ctx.Ret < 0 {
 			return fmt.Sprintf("%#x", arg)
 		}
-		if data, ok := ioctlArgSnapshot(ctx, PayloadDirectionOut, 8); ok {
+		if data, ok := ioctlArgPayload(ctx, PayloadDirectionOut, 8); ok {
 			return format.Winsize(data)
 		}
 		return fmt.Sprintf("%#x", arg)
@@ -168,7 +168,7 @@ func (h *IoctlHandler) decodeStandardIoctlArg(ctx *Context, cmd, arg uint64) str
 		if ctx.Ret < 0 {
 			return fmt.Sprintf("%#x", arg)
 		}
-		if data, ok := ioctlArgSnapshot(ctx, PayloadDirectionOut, 4); ok {
+		if data, ok := ioctlArgPayload(ctx, PayloadDirectionOut, 4); ok {
 			return fmt.Sprintf("[%d]", binary.LittleEndian.Uint32(data))
 		}
 		return fmt.Sprintf("%#x", arg)
@@ -276,7 +276,7 @@ func (h *IoctlHandler) decodeFiemap(ctx *Context, arg uint64) string {
 	fiemapCallCount[ctx.Pid] = c
 	fiemapLock.Unlock()
 
-	data, ok := ioctlEnterArgSnapshot(ctx, 32)
+	data, ok := ioctlEnterArgPayload(ctx, 32)
 	var start, length uint64
 	var flags, mappedExtents, extentCount uint32
 
@@ -348,11 +348,11 @@ func ioctlEnterArgPrefix(ctx *Context, size int) ([]byte, bool) {
 	return nil, false
 }
 
-func ioctlEnterArgSnapshot(ctx *Context, size int) ([]byte, bool) {
-	return ioctlArgSnapshot(ctx, PayloadDirectionIn, size)
+func ioctlEnterArgPayload(ctx *Context, size int) ([]byte, bool) {
+	return ioctlArgPayload(ctx, PayloadDirectionIn, size)
 }
 
-func ioctlArgSnapshot(ctx *Context, direction PayloadDirection, size int) ([]byte, bool) {
+func ioctlArgPayload(ctx *Context, direction PayloadDirection, size int) ([]byte, bool) {
 	if data, ok := ctx.PayloadBytes(2, direction); ok && len(data) >= size {
 		return data[:size], true
 	}
