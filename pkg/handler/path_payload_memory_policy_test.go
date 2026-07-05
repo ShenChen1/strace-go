@@ -76,17 +76,13 @@ func TestDecodeRenameArgFallsBackToPointerWithoutSnapshot(t *testing.T) {
 
 func TestDecodeRenameArgsIgnoreLegacyFixedSnapshots(t *testing.T) {
 	ctx := &Context{
-		Pid:       101,
-		Tid:       102,
-		Args:      [6]uint64{0x1000, 0x2000},
-		ScMeta:    meta.Syscall{Name: "rename"},
-		Opts:      &cli.Options{StringLimit: 32},
-		Decoder:   event.NewDecoder(),
-		StrArgBuf: make([]byte, 1024),
+		Pid:     101,
+		Tid:     102,
+		Args:    [6]uint64{0x1000, 0x2000},
+		ScMeta:  meta.Syscall{Name: "rename"},
+		Opts:    &cli.Options{StringLimit: 32},
+		Decoder: event.NewDecoder(),
 	}
-	copy(ctx.StrArgBuf[:], []byte("old\x00"))
-	copy(ctx.StrArgBuf[512:], []byte("new\x00"))
-	ctx.DataLen = 1024
 
 	got, ok := decodeRenArg(ctx, 0, 0x1000)
 	if !ok || got != "0x1000" {

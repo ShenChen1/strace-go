@@ -30,7 +30,6 @@ func TestCopyFileRangeHandlerIgnoresLegacyOffsetSnapshots(t *testing.T) {
 			0,
 		},
 		ProbeRetEnter: 0,
-		StrArgBuf:     make([]byte, BpfMiscArgOffset+16),
 		ScMeta: meta.Syscall{
 			Name:     "copy_file_range",
 			Args:     []string{"fd_in", "off_in", "fd_out", "off_out", "len", "flags"},
@@ -39,12 +38,6 @@ func TestCopyFileRangeHandlerIgnoresLegacyOffsetSnapshots(t *testing.T) {
 		Opts: &cli.Options{},
 	}
 	ctx.Decoder = event.NewDecoder()
-	offIn := make([]byte, 8)
-	offOut := make([]byte, 8)
-	binary.LittleEndian.PutUint64(offIn, 0xdeadbef1facefed1)
-	binary.LittleEndian.PutUint64(offOut, 0xdeadbef2facefed2)
-	putSmallSnapshot(ctx, BpfMiscArgOffset, offIn)
-	putSmallSnapshot(ctx, BpfMiscArgOffset+8, offOut)
 
 	got := (&CopyFileRangeHandler{}).Handle(ctx).ArgParts
 	want := []string{
@@ -105,7 +98,6 @@ func TestCopyFileRangeHandlerDoesNotReadMissingOffsetSnapshot(t *testing.T) {
 		TargetPid:     101,
 		Args:          [6]uint64{4, offInPtr, 5, offOutPtr, 99, 0},
 		ProbeRetEnter: -1,
-		StrArgBuf:     make([]byte, BpfMiscArgOffset+16),
 		ScMeta: meta.Syscall{
 			Name:     "copy_file_range",
 			Args:     []string{"fd_in", "off_in", "fd_out", "off_out", "len", "flags"},

@@ -159,13 +159,7 @@ func TestCapabilityHandlerUsesPayloadStructSectionsForCapset(t *testing.T) {
 }
 
 func TestCapabilityHandlerIgnoresLegacyFixedSnapshot(t *testing.T) {
-	header := capHeaderBytes(linuxCapabilityVersion3, 0)
-	capData := capDataBytes([3]uint32{2, 4, 0}, [3]uint32{8, 16, 0})
 	ctx := capabilityContext("capset", -1, nil, nil)
-	ctx.StrArgBuf = make([]byte, BpfMiscArgOffset+len(capData))
-	copy(ctx.StrArgBuf[:], header)
-	copy(ctx.StrArgBuf[BpfMiscArgOffset:], capData)
-	ctx.DataLen = uint32(len(ctx.StrArgBuf))
 
 	got := (&CapabilityHandler{}).Handle(ctx)
 	if len(got.ArgParts) != 2 || got.ArgParts[0] != "0x1000" || got.ArgParts[1] != "0x2000" {

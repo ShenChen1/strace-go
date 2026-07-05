@@ -24,7 +24,6 @@ func sendfileContext(ret int64) *Context {
 		},
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
-		StrArgBuf:     make([]byte, BpfExitArgOffset+8),
 		Opts:          &cli.Options{},
 	}
 	ctx.Decoder = event.NewDecoder()
@@ -61,8 +60,6 @@ func TestSendfileHandlerUsesPayloadStructEnterOnlyOnError(t *testing.T) {
 
 func TestSendfileHandlerIgnoresLegacyOffsetSnapshots(t *testing.T) {
 	ctx := sendfileContext(35499)
-	putSmallSnapshot(ctx, BpfMiscArgOffset, sendfileOffsetData(10))
-	putSmallSnapshot(ctx, BpfExitArgOffset, sendfileOffsetData(20))
 
 	got := (&SendfileHandler{}).Handle(ctx).ArgParts
 	want := []string{"4", "5", "0x7591c4437ff8", "35499"}
@@ -77,7 +74,6 @@ func TestSendfileHandlerDoesNotReadMissingOffsetSnapshot(t *testing.T) {
 	ctx := sendfileContext(1)
 	ctx.ProbeRetEnter = -1
 	ctx.ProbeRetExit = -1
-	ctx.DataLen = 0
 	ctx.Decoder = decoder
 
 	got := (&SendfileHandler{}).Handle(ctx).ArgParts
