@@ -62,14 +62,12 @@ func TestBtrfsWaitSyncDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestBtrfsWaitSyncIgnoresLegacySnapshot(t *testing.T) {
+func TestBtrfsWaitSyncIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x1000: makeBtrfsWaitSyncData(42),
 	}}
 	ctx := newIoctlPolicyContext(reader, event.NewDecoder())
 	ctx.ProbeRetEnter = 0
-	copy(ctx.StrArgBuf[512:520], makeBtrfsWaitSyncData(42))
-	ctx.DataLen = 520
 
 	got := (&IoctlHandler{}).decodeBtrfsWaitSync(ctx, 0x1000)
 	if got != "0x1000" {
@@ -82,7 +80,6 @@ func TestBtrfsWaitSyncIgnoresLegacySnapshot(t *testing.T) {
 
 func TestBtrfsWaitSyncUsesPayloadBytesSection(t *testing.T) {
 	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x1000, ProbeRet: 0, Data: makeBtrfsWaitSyncData(42)},
 	}
@@ -93,15 +90,13 @@ func TestBtrfsWaitSyncUsesPayloadBytesSection(t *testing.T) {
 	}
 }
 
-func TestBtrfsVolArgsIgnoresLegacySnapshot(t *testing.T) {
+func TestBtrfsVolArgsIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x2000: makeBtrfsVolArgs(9, "ignored"),
 	}}
 	decoder := event.NewDecoder()
 	ctx := newIoctlPolicyContext(reader, decoder)
 	ctx.ProbeRetEnter = 0
-	copy(ctx.StrArgBuf[512:], makeBtrfsVolArgs(7, "snap"))
-	ctx.DataLen = uint32(512 + len(makeBtrfsVolArgs(7, "snap")))
 
 	got := (&IoctlHandler{}).decodeBtrfsVolArgs(ctx, 0x2000)
 	if got != "0x2000" {
@@ -114,7 +109,6 @@ func TestBtrfsVolArgsIgnoresLegacySnapshot(t *testing.T) {
 
 func TestBtrfsVolArgsUsesPayloadBytesSection(t *testing.T) {
 	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x2000, ProbeRet: 0, Data: makeBtrfsVolArgs(7, "snap")},
 	}
@@ -141,7 +135,7 @@ func TestBtrfsVolArgsDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestBtrfsVolArgsDoesNotUseLegacyMemoryFallback(t *testing.T) {
+func TestBtrfsVolArgsDoesNotUseTraceeMemoryFallback(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x2000: makeBtrfsVolArgs(7, "snap"),
 	}}
@@ -172,15 +166,12 @@ func TestBtrfsVolArgsV2DoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestBtrfsVolArgsV2IgnoresLegacySnapshot(t *testing.T) {
+func TestBtrfsVolArgsV2IgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x3000: makeBtrfsVolArgsV2(8, 2, 4096, 0, "subvol"),
 	}}
 	ctx := newIoctlPolicyContext(reader, event.NewDecoder())
-	snap := makeBtrfsVolArgsV2(8, 2, 4096, 0, "subvol")
 	ctx.ProbeRetEnter = 0
-	copy(ctx.StrArgBuf[512:], snap)
-	ctx.DataLen = uint32(512 + len(snap))
 
 	got := (&IoctlHandler{}).decodeBtrfsVolArgsV2(ctx, 0x3000)
 	if got != "0x3000" {
@@ -193,7 +184,6 @@ func TestBtrfsVolArgsV2IgnoresLegacySnapshot(t *testing.T) {
 
 func TestBtrfsVolArgsV2UsesPayloadBytesSection(t *testing.T) {
 	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x3000, ProbeRet: 0, Data: makeBtrfsVolArgsV2(8, 2, 4096, 0, "subvol")},
 	}
@@ -222,7 +212,7 @@ func TestBtrfsQgroupInheritDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestBtrfsQgroupInheritDoesNotUseLegacyMemoryFallback(t *testing.T) {
+func TestBtrfsQgroupInheritDoesNotUseTraceeMemoryFallback(t *testing.T) {
 	qgroup, tail := makeBtrfsQgroupInheritData()
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x4000: qgroup,

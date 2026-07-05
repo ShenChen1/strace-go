@@ -38,7 +38,6 @@ func newIoctlPolicyContext(reader *ioctlPolicyMemoryReader, decoder *event.Decod
 		ProbeRetEnter: -1,
 		ProbeRetExit:  -1,
 		Ret:           -1,
-		StrArgBuf:     make([]byte, BpfExitArgOffset+512),
 		Decoder:       decoder,
 		Opts:          &cli.Options{StringLimit: 32},
 	}
@@ -84,15 +83,13 @@ func resetFiemapPolicyState(pid int) {
 	fiemapLock.Unlock()
 }
 
-func TestIoctlDmIgnoresLegacySnapshot(t *testing.T) {
+func TestIoctlDmIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x1000: makeDmIoctlData(),
 	}}
 	decoder := event.NewDecoder()
 	ctx := newIoctlPolicyContext(reader, decoder)
 	ctx.ProbeRetEnter = 0
-	copy(ctx.StrArgBuf[512:BpfExitArgOffset], makeDmIoctlData())
-	ctx.DataLen = BpfExitArgOffset
 
 	got := (&IoctlHandler{}).decodeDmIoctl(ctx, 0x1000, "DM_VERSION")
 	if got != "0x1000" {
@@ -105,7 +102,6 @@ func TestIoctlDmIgnoresLegacySnapshot(t *testing.T) {
 
 func TestIoctlDmUsesPayloadBytesSection(t *testing.T) {
 	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x1000, ProbeRet: 0, Data: makeDmIoctlData()},
 	}
@@ -132,7 +128,7 @@ func TestIoctlDmDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestIoctlDmDoesNotUseLegacyMemoryFallback(t *testing.T) {
+func TestIoctlDmDoesNotUseTraceeMemoryFallback(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x1000: makeDmIoctlData(),
 	}}
@@ -163,14 +159,12 @@ func TestIoctlOtpDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestIoctlOtpIgnoresLegacySnapshot(t *testing.T) {
+func TestIoctlOtpIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x2000: makeIoctlUint32Data(1),
 	}}
 	ctx := newIoctlPolicyContext(reader, event.NewDecoder())
 	ctx.ProbeRetEnter = 0
-	copy(ctx.StrArgBuf[512:516], makeIoctlUint32Data(1))
-	ctx.DataLen = 516
 
 	got := (&IoctlHandler{}).decodeStandardIoctlArg(ctx, 0x80044d0d, 0x2000)
 	if got != "0x2000" {
@@ -183,7 +177,6 @@ func TestIoctlOtpIgnoresLegacySnapshot(t *testing.T) {
 
 func TestIoctlOtpUsesPayloadBytesSection(t *testing.T) {
 	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x2000, ProbeRet: 0, Data: makeIoctlUint32Data(1)},
 	}
@@ -196,7 +189,6 @@ func TestIoctlOtpUsesPayloadBytesSection(t *testing.T) {
 
 func TestIoctlFionreadUsesPayloadBytesSection(t *testing.T) {
 	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
-	ctx.StrArgBuf = nil
 	ctx.Ret = 0
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 2, UserPtr: 0x4000, ProbeRet: 0, Data: makeIoctlUint32Data(17)},
@@ -210,7 +202,6 @@ func TestIoctlFionreadUsesPayloadBytesSection(t *testing.T) {
 
 func TestIoctlFionreadFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
-	ctx.StrArgBuf = nil
 	ctx.Ret = 0
 
 	got := (&IoctlHandler{}).decodeStandardIoctlArg(ctx, 0x541b, 0x4000)
@@ -221,7 +212,6 @@ func TestIoctlFionreadFallsBackToPointerWithoutSnapshot(t *testing.T) {
 
 func TestIoctlTcgetsUsesPayloadBytesSection(t *testing.T) {
 	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
-	ctx.StrArgBuf = nil
 	ctx.Ret = 0
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 2, UserPtr: 0x5000, ProbeRet: 0, Data: make([]byte, 60)},
@@ -235,7 +225,6 @@ func TestIoctlTcgetsUsesPayloadBytesSection(t *testing.T) {
 
 func TestIoctlTcsetsUsesInputPayloadBytesSection(t *testing.T) {
 	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
-	ctx.StrArgBuf = nil
 	ctx.Ret = 0
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x5000, ProbeRet: 0, Data: make([]byte, 60)},
@@ -249,7 +238,6 @@ func TestIoctlTcsetsUsesInputPayloadBytesSection(t *testing.T) {
 
 func TestIoctlWinsizeUsesPayloadBytesSection(t *testing.T) {
 	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
-	ctx.StrArgBuf = nil
 	ctx.Ret = 0
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 2, UserPtr: 0x6000, ProbeRet: 0, Data: make([]byte, 8)},
@@ -275,19 +263,17 @@ func TestIoctlFiemapHeaderDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestIoctlFiemapHeaderIgnoresLegacySnapshot(t *testing.T) {
+func TestIoctlFiemapHeaderIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x3000: makeFiemapData(1, 2, 1, 0, 0),
 	}}
 	ctx := newIoctlPolicyContext(reader, event.NewDecoder())
 	ctx.ProbeRetEnter = 0
-	copy(ctx.StrArgBuf[512:544], makeFiemapData(1, 2, 1, 0, 0))
-	ctx.DataLen = 544
 	resetFiemapPolicyState(ctx.Pid)
 
 	got := (&IoctlHandler{}).decodeFiemap(ctx, 0x3000)
 	if strings.Contains(got, "fm_start=1,") || strings.Contains(got, "fm_length=2,") {
-		t.Fatalf("decodeFiemap() = %q, want synthetic fallback without legacy snapshot", got)
+		t.Fatalf("decodeFiemap() = %q, want synthetic fallback without payload section", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -296,7 +282,6 @@ func TestIoctlFiemapHeaderIgnoresLegacySnapshot(t *testing.T) {
 
 func TestIoctlFiemapHeaderUsesPayloadBytesSection(t *testing.T) {
 	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x3000, ProbeRet: 0, Data: makeFiemapData(1, 2, 1, 0, 0)},
 	}
@@ -321,14 +306,12 @@ func TestIoctlFiemapExtentsDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestIoctlFiemapExtentsIgnoresLegacySnapshot(t *testing.T) {
+func TestIoctlFiemapExtentsIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x3030: makeFiemapExtent(1, 2, 3, 1),
 	}}
 	ctx := newIoctlPolicyContext(reader, event.NewDecoder())
 	ctx.ProbeRetEnter = 0
-	copy(ctx.StrArgBuf[544:592], makeFiemapExtent(1, 2, 3, 1))
-	ctx.DataLen = 592
 
 	got := (&IoctlHandler{}).formatFiemapExtents(ctx, 0x3010, 1, 1, 1)
 	if got != "[]" {
@@ -342,7 +325,6 @@ func TestIoctlFiemapExtentsIgnoresLegacySnapshot(t *testing.T) {
 func TestIoctlFiemapExtentsUsesPayloadBytesSection(t *testing.T) {
 	payload := append(makeFiemapData(1, 2, 1, 1, 1), makeFiemapExtent(1, 2, 3, 1)...)
 	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x3000, ProbeRet: 0, Data: payload},
 	}
@@ -353,7 +335,7 @@ func TestIoctlFiemapExtentsUsesPayloadBytesSection(t *testing.T) {
 	}
 }
 
-func TestIoctlFiemapExtentsDoesNotUseLegacyMemoryFallback(t *testing.T) {
+func TestIoctlFiemapExtentsDoesNotUseTraceeMemoryFallback(t *testing.T) {
 	reader := &ioctlPolicyMemoryReader{data: map[uint64][]byte{
 		0x3030: makeFiemapExtent(1, 2, 3, 1),
 	}}
