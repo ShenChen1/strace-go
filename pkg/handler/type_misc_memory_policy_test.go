@@ -29,7 +29,7 @@ func makeUtsnameSnapshot(sysname string, nodename string) []byte {
 	return data
 }
 
-func newTypeMiscPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Decoder) *Context {
+func newTypeMiscPolicyContext(_ *fetchPolicyMemoryReader, decoder *event.Decoder) *Context {
 	return &Context{
 		Pid:           1234,
 		Tid:           1234,
@@ -44,7 +44,6 @@ func newTypeMiscPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.De
 			Args:     []string{"info"},
 			ArgTypes: []string{"struct sysinfo *"},
 		},
-		StrArgBuf: make([]byte, BpfExitArgOffset+utsnameStructSize),
 	}
 }
 
@@ -62,12 +61,11 @@ func TestDecodeSysinfoDoesNotReadWhenSnapshotMissing(t *testing.T) {
 	}
 }
 
-func TestDecodeSysinfoIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestDecodeSysinfoIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSysinfoSnapshot(99)}
 	decoder := event.NewDecoder()
 	ctx := newTypeMiscPolicyContext(reader, decoder)
 	ctx.ProbeRetExit = 0
-	putSmallSnapshot(ctx, BpfExitArgOffset, makeSysinfoSnapshot(123))
 
 	got, ok := decodeSysinfo(ctx, 0, "struct sysinfo *", 0x1000)
 	if !ok || got != "0x1000" {
@@ -90,13 +88,12 @@ func TestDecodeSysinfoUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestDecodeRlimitIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestDecodeRlimitIgnoresProbeSuccessWithoutPayloadSectionOnEnter(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeRlimitSnapshot(1, 2)}
 	decoder := event.NewDecoder()
 	ctx := newTypeMiscPolicyContext(reader, decoder)
 	ctx.ScMeta.Name = "setrlimit"
 	ctx.ProbeRetEnter = 0
-	putSmallSnapshot(ctx, BpfEnterArgOffset, makeRlimitSnapshot(7, 8))
 
 	got, ok := decodeRlimitPointer(ctx, 1, "struct rlimit *", 0x1000)
 	if !ok || got != "0x1000" {
@@ -107,13 +104,12 @@ func TestDecodeRlimitIgnoresLegacyEnterSnapshot(t *testing.T) {
 	}
 }
 
-func TestDecodeRlimitIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestDecodeRlimitIgnoresProbeSuccessWithoutPayloadSectionOnExit(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeRlimitSnapshot(1, 2)}
 	decoder := event.NewDecoder()
 	ctx := newTypeMiscPolicyContext(reader, decoder)
 	ctx.ScMeta.Name = "getrlimit"
 	ctx.ProbeRetExit = 0
-	putSmallSnapshot(ctx, BpfExitArgOffset, makeRlimitSnapshot(9, 10))
 
 	got, ok := decodeRlimitPointer(ctx, 1, "struct rlimit *", 0x1000)
 	if !ok || got != "0x1000" {
@@ -150,13 +146,12 @@ func TestDecodeRlimitUsesOutputPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestDecodePrlimitOldRlimitIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestDecodePrlimitOldRlimitIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeRlimitSnapshot(1, 2)}
 	decoder := event.NewDecoder()
 	ctx := newTypeMiscPolicyContext(reader, decoder)
 	ctx.ScMeta.Name = "prlimit64"
 	ctx.ProbeRetExit = 0
-	putSmallSnapshot(ctx, BpfExitArgOffset, makeRlimitSnapshot(11, 12))
 
 	got, ok := decodeRlimitPointer(ctx, 3, "struct rlimit64 *", 0x2000)
 	if !ok || got != "0x2000" {
@@ -193,13 +188,12 @@ func TestDecodeUtsnameUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestDecodeUtsnameIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestDecodeUtsnameIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeUtsnameSnapshot("Linux", "node-a")}
 	decoder := event.NewDecoder()
 	ctx := newTypeMiscPolicyContext(reader, decoder)
 	ctx.ScMeta.Name = "uname"
 	ctx.ProbeRetExit = 0
-	putSmallSnapshot(ctx, BpfExitArgOffset, makeUtsnameSnapshot("Linux", "legacy"))
 
 	got, ok := decodeUtsname(ctx, 0, "struct utsname *", 0x1000)
 	if !ok || got != "0x1000" {
@@ -210,13 +204,12 @@ func TestDecodeUtsnameIgnoresLegacyExitSnapshot(t *testing.T) {
 	}
 }
 
-func TestTypeMiscFlockIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestTypeMiscFlockIgnoresProbeSuccessWithoutPayloadSectionOnEnter(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFlockData(1, 2, 3, 4)}
 	decoder := event.NewDecoder()
 	ctx := newTypeMiscPolicyContext(reader, decoder)
 	ctx.Args[1] = 6 // F_SETLK
 	ctx.ProbeRetEnter = 0
-	putSmallSnapshot(ctx, BpfEnterArgOffset, makeFlockData(1, 2, 3, 4))
 
 	got, ok := decodeFlock(ctx, 2, "struct flock *", 0x1000)
 	if !ok || got != "0x1000" {
@@ -230,7 +223,6 @@ func TestTypeMiscFlockIgnoresLegacyEnterSnapshot(t *testing.T) {
 func TestTypeMiscFlockUsesPayloadStructSection(t *testing.T) {
 	ctx := newTypeMiscPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
 	ctx.Args[1] = 6 // F_SETLK
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 2, ProbeRet: 0, Data: makeFlockData(1, 2, 3, 4)},
 	}
@@ -241,13 +233,12 @@ func TestTypeMiscFlockUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestTypeMiscFlockIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestTypeMiscFlockIgnoresProbeSuccessWithoutPayloadSectionOnExit(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFlockData(1, 2, 3, 4)}
 	decoder := event.NewDecoder()
 	ctx := newTypeMiscPolicyContext(reader, decoder)
 	ctx.Args[1] = 5 // F_GETLK
 	ctx.ProbeRetExit = 0
-	putSmallSnapshot(ctx, BpfExitArgOffset, makeFlockData(2, 5, 6, 7))
 
 	got, ok := decodeFlock(ctx, 2, "struct flock *", 0x1000)
 	if !ok || got != "0x1000" {
@@ -261,7 +252,6 @@ func TestTypeMiscFlockIgnoresLegacyExitSnapshot(t *testing.T) {
 func TestTypeMiscFOwnerExUsesPayloadStructSection(t *testing.T) {
 	ctx := newTypeMiscPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
 	ctx.Args[1] = 16 // F_GETOWN_EX
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: 0, Data: makeFOwnerExData(1, 44)},
 	}
@@ -272,13 +262,12 @@ func TestTypeMiscFOwnerExUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestTypeMiscFOwnerExIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestTypeMiscFOwnerExIgnoresProbeSuccessWithoutPayloadSectionOnEnter(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFOwnerExData(1, 42)}
 	decoder := event.NewDecoder()
 	ctx := newTypeMiscPolicyContext(reader, decoder)
 	ctx.Args[1] = 15 // F_SETOWN_EX
 	ctx.ProbeRetEnter = 0
-	putSmallSnapshot(ctx, BpfEnterArgOffset, makeFOwnerExData(1, 42))
 
 	got, ok := decodeFOwnerEx(ctx, 2, "struct f_owner_ex *", 0x1000)
 	if !ok || got != "0x1000" {
@@ -289,13 +278,12 @@ func TestTypeMiscFOwnerExIgnoresLegacyEnterSnapshot(t *testing.T) {
 	}
 }
 
-func TestTypeMiscFOwnerExIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestTypeMiscFOwnerExIgnoresProbeSuccessWithoutPayloadSectionOnExit(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFOwnerExData(1, 42)}
 	decoder := event.NewDecoder()
 	ctx := newTypeMiscPolicyContext(reader, decoder)
 	ctx.Args[1] = 16 // F_GETOWN_EX
 	ctx.ProbeRetExit = 0
-	putSmallSnapshot(ctx, BpfExitArgOffset, makeFOwnerExData(1, 43))
 
 	got, ok := decodeFOwnerEx(ctx, 2, "struct f_owner_ex *", 0x1000)
 	if !ok || got != "0x1000" {

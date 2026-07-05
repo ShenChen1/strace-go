@@ -36,7 +36,6 @@ func TestCachestatRangeDoesNotReadWhenFallbackDisabled(t *testing.T) {
 		Args:          [6]uint64{3, 0x1000, 0, 0},
 		ProbeRetEnter: -1,
 		Decoder:       decoder,
-		StrArgBuf:     make([]byte, BpfMiscArgOffset+16),
 	}
 
 	got := (&CachestatHandler{}).Handle(ctx)
@@ -51,7 +50,7 @@ func TestCachestatRangeDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestCachestatRangeIgnoresLegacyFixedSnapshot(t *testing.T) {
+func TestCachestatRangeIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeCachestatRange(99, 100)}
 	decoder := event.NewDecoder()
 	ctx := &Context{
@@ -61,9 +60,7 @@ func TestCachestatRangeIgnoresLegacyFixedSnapshot(t *testing.T) {
 		Args:          [6]uint64{3, 0x1000, 0, 0},
 		ProbeRetEnter: 0,
 		Decoder:       decoder,
-		StrArgBuf:     make([]byte, BpfMiscArgOffset+16),
 	}
-	putSmallSnapshot(ctx, BpfMiscArgOffset, makeCachestatRange(5, 6))
 
 	got := (&CachestatHandler{}).Handle(ctx)
 	if got.ArgParts[1] != "0x1000" {
@@ -103,7 +100,6 @@ func TestCachestatStatsDoesNotReadWhenFallbackDisabled(t *testing.T) {
 		Ret:          0,
 		ProbeRetExit: -1,
 		Decoder:      decoder,
-		StrArgBuf:    make([]byte, BpfMiscArgOffset+16),
 	}
 
 	got := (&CachestatHandler{}).Handle(ctx)
@@ -134,7 +130,7 @@ func TestCachestatStatsUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestCachestatStatsIgnoresLegacyFixedSnapshot(t *testing.T) {
+func TestCachestatStatsIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeCachestatStats(1, 2, 3, 4, 5)}
 	decoder := event.NewDecoder()
 	ctx := &Context{
@@ -145,9 +141,7 @@ func TestCachestatStatsIgnoresLegacyFixedSnapshot(t *testing.T) {
 		Ret:          0,
 		ProbeRetExit: 0,
 		Decoder:      decoder,
-		StrArgBuf:    make([]byte, BpfExitArgOffset+40),
 	}
-	putSmallSnapshot(ctx, BpfExitArgOffset, makeCachestatStats(1, 2, 3, 4, 5))
 
 	got := (&CachestatHandler{}).Handle(ctx)
 	if got.ArgParts[2] != "0x2000" {
