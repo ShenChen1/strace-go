@@ -32,7 +32,6 @@ func newPrctlPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Decod
 		ProbeRetExit:  -1,
 		Decoder:       decoder,
 		Opts:          &cli.Options{StringLimit: 32},
-		StrArgBuf:     make([]byte, BpfExitArgOffset+prctlNameSize),
 	}
 }
 
@@ -55,7 +54,6 @@ func TestPrctlPdeathsigIgnoresLegacyExitSnapshot(t *testing.T) {
 	decoder := event.NewDecoder()
 	ctx := newPrctlPolicyContext(reader, decoder, 1)
 	ctx.ProbeRetExit = 0
-	putSmallSnapshot(ctx, BpfExitArgOffset, makePrctlUint32Snapshot(15))
 
 	got := (&PrctlHandler{}).Handle(ctx)
 	if got.ArgParts[1] != "0x1000" {
@@ -70,7 +68,6 @@ func TestPrctlPdeathsigUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePrctlUint32Snapshot(1)}
 	decoder := event.NewDecoder()
 	ctx := newPrctlPolicyContext(reader, decoder, 1)
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makePrctlUint32Snapshot(15)},
 	}
@@ -89,7 +86,6 @@ func TestPrctlGetIntIgnoresLegacyExitSnapshot(t *testing.T) {
 	decoder := event.NewDecoder()
 	ctx := newPrctlPolicyContext(reader, decoder, 37)
 	ctx.ProbeRetExit = 0
-	putSmallSnapshot(ctx, BpfExitArgOffset, makePrctlUint32Snapshot(1))
 
 	got := (&PrctlHandler{}).Handle(ctx)
 	if got.ArgParts[1] != "0x1000" {
@@ -104,7 +100,6 @@ func TestPrctlGetIntUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePrctlUint32Snapshot(0)}
 	decoder := event.NewDecoder()
 	ctx := newPrctlPolicyContext(reader, decoder, 37)
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makePrctlUint32Snapshot(1)},
 	}
@@ -123,7 +118,6 @@ func TestPrctlGetNameIgnoresLegacyExitSnapshot(t *testing.T) {
 	decoder := event.NewDecoder()
 	ctx := newPrctlPolicyContext(reader, decoder, 16)
 	ctx.ProbeRetExit = 0
-	putSmallSnapshot(ctx, BpfExitArgOffset, makePrctlNameSnapshot("worker"))
 
 	got := (&PrctlHandler{}).Handle(ctx)
 	if got.ArgParts[1] != "0x1000" {
@@ -138,7 +132,6 @@ func TestPrctlGetNameUsesPayloadStringSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePrctlNameSnapshot("fallback")}
 	decoder := event.NewDecoder()
 	ctx := newPrctlPolicyContext(reader, decoder, 16)
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindString, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: []byte("worker\x00")},
 	}
@@ -157,7 +150,6 @@ func TestPrctlSetNameIgnoresLegacyEnterSnapshot(t *testing.T) {
 	decoder := event.NewDecoder()
 	ctx := newPrctlPolicyContext(reader, decoder, 15)
 	ctx.ProbeRetEnter = 0
-	putSmallSnapshot(ctx, BpfEnterArgOffset, []byte("worker\x00"))
 
 	got := (&PrctlHandler{}).Handle(ctx)
 	if got.ArgParts[1] != "0x1000" {
@@ -172,7 +164,6 @@ func TestPrctlSetNameUsesPayloadStringSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePrctlNameSnapshot("fallback")}
 	decoder := event.NewDecoder()
 	ctx := newPrctlPolicyContext(reader, decoder, 15)
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: []byte("worker\x00")},
 	}
