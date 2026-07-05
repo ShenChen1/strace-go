@@ -112,6 +112,8 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"copy_file_range": copyFileRangePayloadSectionsFromSource,
 	"clone3":          clone3PayloadSectionsFromSource,
 	"cachestat":       cachestatPayloadSectionsFromSource,
+	"capget":          capabilityPayloadSectionsFromSource,
+	"capset":          capabilityPayloadSectionsFromSource,
 }
 
 var payloadSectionRules = map[string]payloadSectionRule{
@@ -135,8 +137,6 @@ var payloadSectionRules = map[string]payloadSectionRule{
 	"flistxattr":   xattrPayloadSectionsForEvent,
 	"ioctl":        namedPayloadRule(ioctlPayloadSectionsForEvent),
 
-	"capget":               capabilityPayloadSectionsForEvent,
-	"capset":               capabilityPayloadSectionsForEvent,
 	"io_setup":             aioPayloadSectionsForEvent,
 	"io_submit":            aioPayloadSectionsForEvent,
 	"io_cancel":            aioPayloadSectionsForEvent,

@@ -7,13 +7,13 @@ const (
 	capabilityDataPayloadSize   = 24
 )
 
-func capabilityPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) []handler.PayloadSection {
-	sections := enterStructPayloadSection(eventRaw, 0, handler.BpfEnterArgOffset, capabilityHeaderPayloadSize)
+func capabilityPayloadSectionsFromSource(event payloadEvent, scName string) []handler.PayloadSection {
+	sections := enterStructPayloadSectionFromSource(event, 0, handler.BpfEnterArgOffset, capabilityHeaderPayloadSize)
 	switch scName {
 	case "capget":
-		return append(sections, exitStructPayloadSection(eventRaw, 1, capabilityDataPayloadSize)...)
+		return append(sections, exitStructPayloadSectionFromSource(event, 1, capabilityDataPayloadSize)...)
 	case "capset":
-		return append(sections, enterStructPayloadSection(eventRaw, 1, handler.BpfMiscArgOffset, capabilityDataPayloadSize)...)
+		return append(sections, enterStructPayloadSectionFromSource(event, 1, handler.BpfMiscArgOffset, capabilityDataPayloadSize)...)
 	default:
 		return sections
 	}
