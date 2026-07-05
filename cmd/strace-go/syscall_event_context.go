@@ -116,7 +116,6 @@ func (ev syscallEventContext) newHandlerContext(s *traceSession) *handler.Contex
 		Pid: int(ev.raw.Pid), Tid: ev.tid, TargetPid: ev.statePID, SysId: ev.raw.SysId,
 		SysName: ev.meta.Name, Args: ev.raw.Args, Ret: ev.raw.Ret,
 		ProbeRetEnter: ev.raw.ProbeRetEnter, ProbeRetExit: ev.raw.ProbeRetExit,
-		Ptr: ev.raw.Ptr, DataLen: ev.raw.DataLen, StrArgBuf: ev.raw.StrArg[:],
 		PayloadSections:  ev.payloadSections,
 		BufferFileOffset: ev.bufferFileOffset, BufferFileOffsetOK: ev.bufferFileOffsetOK,
 		ScMeta: ev.meta, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdStateStore().PathMap(),
