@@ -15,11 +15,6 @@ type networkPolicyMemoryReader struct {
 	reads int
 }
 
-const (
-	legacySockaddrLenEnterOffset = 768
-	legacySockaddrLenExitOffset  = 772
-)
-
 func (r *networkPolicyMemoryReader) Read(_ int, addr uint64, size int) ([]byte, error) {
 	r.reads++
 	data, ok := r.data[addr]
@@ -44,18 +39,9 @@ func newNetworkPolicyContext(reader *networkPolicyMemoryReader, name string) *Co
 		ScMeta:        meta.Syscall{Name: name},
 		ProbeRetEnter: -1,
 		ProbeRetExit:  -1,
-		StrArgBuf:     make([]byte, BpfExitArgOffset+1024),
 		Decoder:       event.NewDecoder(),
 		Opts:          &cli.Options{StringLimit: 32},
 		FdMap:         map[string]string{},
-	}
-}
-
-func putNetworkSnapshot(ctx *Context, offset int, data []byte) {
-	copy(ctx.StrArgBuf[offset:], data)
-	end := uint32(offset + len(data))
-	if ctx.DataLen < end {
-		ctx.DataLen = end
 	}
 }
 
@@ -73,14 +59,12 @@ func sockaddrInet(port uint16, ip [4]byte) []byte {
 	return data
 }
 
-func TestNetworkAddrLenIgnoresLegacySnapshots(t *testing.T) {
+func TestNetworkAddrLenIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x1000: uint32Bytes(16)}}
 	ctx := newNetworkPolicyContext(reader, "recvfrom")
 	ctx.Ret = 3
 	ctx.ProbeRetEnter = 0
 	ctx.ProbeRetExit = 0
-	putNetworkSnapshot(ctx, legacySockaddrLenEnterOffset, uint32Bytes(16))
-	putNetworkSnapshot(ctx, legacySockaddrLenExitOffset, uint32Bytes(8))
 
 	got, ok := (&NetworkHandler{}).formatNetworkAddrLen(ctx, "addr_len", 0x1000)
 	if !ok || got != "0x1000" {
@@ -105,12 +89,11 @@ func TestNetworkAddrLenFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestNetworkBufferIgnoresLegacySendtoSnapshot(t *testing.T) {
+func TestNetworkBufferIgnoresProbeSuccessWithoutPayloadSectionOnSendto(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x2000: []byte("abc")}}
 	ctx := newNetworkPolicyContext(reader, "sendto")
 	ctx.Args = [6]uint64{3, 0x2000, 3}
 	ctx.ProbeRetEnter = 0
-	putNetworkSnapshot(ctx, 0, []byte("abc"))
 
 	got, ok := (&NetworkHandler{}).formatNetworkBuffer(ctx, 1, 0x2000)
 	if !ok || got != "0x2000" {
@@ -125,7 +108,6 @@ func TestNetworkBufferUsesSendtoPayloadBytesSection(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x2000: []byte("abc")}}
 	ctx := newNetworkPolicyContext(reader, "sendto")
 	ctx.Args = [6]uint64{3, 0x2000, 3}
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: []byte("abc")},
 	}
@@ -139,13 +121,12 @@ func TestNetworkBufferUsesSendtoPayloadBytesSection(t *testing.T) {
 	}
 }
 
-func TestNetworkBufferIgnoresLegacyRecvfromExitSnapshot(t *testing.T) {
+func TestNetworkBufferIgnoresProbeSuccessWithoutPayloadSectionOnRecvfrom(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x2000: []byte("abc")}}
 	ctx := newNetworkPolicyContext(reader, "recvfrom")
 	ctx.Args = [6]uint64{3, 0x2000, 5}
 	ctx.Ret = 3
 	ctx.ProbeRetExit = 0
-	putNetworkSnapshot(ctx, BpfExitArgOffset, []byte("abc"))
 
 	got, ok := (&NetworkHandler{}).formatNetworkBuffer(ctx, 1, 0x2000)
 	if !ok || got != "0x2000" {
@@ -161,7 +142,6 @@ func TestNetworkBufferUsesRecvfromPayloadBytesSection(t *testing.T) {
 	ctx := newNetworkPolicyContext(reader, "recvfrom")
 	ctx.Args = [6]uint64{3, 0x2000, 5}
 	ctx.Ret = 3
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: []byte("abc")},
 	}
@@ -217,12 +197,11 @@ func TestNetworkSockaddrFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestNetworkSockaddrIgnoresLegacyConnectSnapshot(t *testing.T) {
+func TestNetworkSockaddrIgnoresProbeSuccessWithoutPayloadSectionOnConnect(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x4000: sockaddrInet(80, [4]byte{127, 0, 0, 1})}}
 	ctx := newNetworkPolicyContext(reader, "connect")
 	ctx.Args = [6]uint64{3, 0x4000, 16}
 	ctx.ProbeRetEnter = 0
-	putNetworkSnapshot(ctx, 0, sockaddrInet(80, [4]byte{127, 0, 0, 1}))
 
 	got, ok := (&NetworkHandler{}).formatSockaddr(ctx, 1, "uservaddr", "struct sockaddr *", 0x4000)
 	if !ok || got != "0x4000" {
@@ -237,7 +216,6 @@ func TestNetworkSockaddrUsesConnectPayloadStructSection(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x4000: sockaddrInet(80, [4]byte{127, 0, 0, 1})}}
 	ctx := newNetworkPolicyContext(reader, "connect")
 	ctx.Args = [6]uint64{3, 0x4000, 16}
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: sockaddrInet(80, [4]byte{127, 0, 0, 1})},
 	}
@@ -252,13 +230,11 @@ func TestNetworkSockaddrUsesConnectPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestNetworkSockaddrIgnoresLegacySendtoAddrSnapshot(t *testing.T) {
+func TestNetworkSockaddrIgnoresProbeSuccessWithoutPayloadSectionOnSendto(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x4000: sockaddrInet(80, [4]byte{127, 0, 0, 1})}}
 	ctx := newNetworkPolicyContext(reader, "sendto")
 	ctx.Args = [6]uint64{3, 0x2000, 3, 0, 0x4000, 16}
 	ctx.ProbeRetEnter = 0
-	putNetworkSnapshot(ctx, 0, []byte("abc"))
-	putNetworkSnapshot(ctx, BpfMiscArgOffset, sockaddrInet(80, [4]byte{127, 0, 0, 1}))
 
 	got, ok := (&NetworkHandler{}).formatSockaddr(ctx, 4, "addr", "struct sockaddr *", 0x4000)
 	if !ok || got != "0x4000" {
@@ -273,7 +249,6 @@ func TestNetworkSockaddrUsesSendtoPayloadStructSection(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x4000: sockaddrInet(80, [4]byte{127, 0, 0, 1})}}
 	ctx := newNetworkPolicyContext(reader, "sendto")
 	ctx.Args = [6]uint64{3, 0x2000, 3, 0, 0x4000, 16}
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 4, ProbeRet: 0, Data: sockaddrInet(80, [4]byte{127, 0, 0, 1})},
 	}
@@ -293,7 +268,6 @@ func TestNetworkSockaddrUsesRecvfromPayloadStructSection(t *testing.T) {
 	ctx := newNetworkPolicyContext(reader, "recvfrom")
 	ctx.Args = [6]uint64{3, 0x2000, 3, 0, 0x4000, 0x5000}
 	ctx.Ret = 3
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 5, ProbeRet: 0, Data: uint32Bytes(16)},
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 5, ProbeRet: 0, Data: uint32Bytes(16)},
@@ -315,7 +289,6 @@ func TestNetworkSockaddrUsesAcceptPayloadStructSection(t *testing.T) {
 	ctx := newNetworkPolicyContext(reader, "accept")
 	ctx.Args = [6]uint64{3, 0x4000, 0x5000}
 	ctx.Ret = 4
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, ProbeRet: 0, Data: uint32Bytes(16)},
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 2, ProbeRet: 0, Data: uint32Bytes(16)},
@@ -346,12 +319,11 @@ func TestNetworkGetSockaddrLenFallsBackToZeroWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestNetworkGetSockaddrLenIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestNetworkGetSockaddrLenIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x5000: uint32Bytes(16)}}
 	ctx := newNetworkPolicyContext(reader, "recvfrom")
 	ctx.Args = [6]uint64{3, 0, 0, 0, 0, 0x5000}
 	ctx.ProbeRetExit = 0
-	putNetworkSnapshot(ctx, legacySockaddrLenExitOffset, uint32Bytes(16))
 
 	got := (&NetworkHandler{}).getSockaddrLen(ctx)
 	if got != 0 {
@@ -366,7 +338,6 @@ func TestNetworkAddrLenUsesPayloadBytesSections(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x1000: uint32Bytes(16)}}
 	ctx := newNetworkPolicyContext(reader, "recvfrom")
 	ctx.Ret = 3
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 5, ProbeRet: 0, Data: uint32Bytes(16)},
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 5, ProbeRet: 0, Data: uint32Bytes(8)},
@@ -395,12 +366,11 @@ func TestNetworkGetsockoptLenFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestNetworkGetsockoptLenIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestNetworkGetsockoptLenIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x6000: uint32Bytes(4)}}
 	ctx := newNetworkPolicyContext(reader, "getsockopt")
 	ctx.Ret = 0
 	ctx.ProbeRetExit = 0
-	putNetworkSnapshot(ctx, BpfExitArgOffset, uint32Bytes(4))
 
 	got, ok := (&NetworkHandler{}).formatSockoptValAndLen(ctx, 4, "optlen", 0x6000)
 	if !ok || got != "0x6000" {
@@ -415,7 +385,6 @@ func TestNetworkGetsockoptLenUsesPayloadBytesSection(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x6000: uint32Bytes(4)}}
 	ctx := newNetworkPolicyContext(reader, "getsockopt")
 	ctx.Ret = 0
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 4, ProbeRet: 0, Data: uint32Bytes(4)},
 	}
