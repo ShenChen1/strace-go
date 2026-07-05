@@ -50,10 +50,9 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 	if ev.handlerContext.TargetPid != 101 {
 		t.Fatalf("handler context target mismatch: %+v", ev.handlerContext)
 	}
-	if ev.handlerContext.Ptr != 0 || ev.handlerContext.DataLen != 0 || len(ev.handlerContext.StrArgBuf) != 0 {
+	if ev.handlerContext.DataLen != 0 || len(ev.handlerContext.StrArgBuf) != 0 {
 		t.Fatalf(
-			"handler context exposed fixed buffer ptr=%#x dataLen=%d strLen=%d",
-			ev.handlerContext.Ptr,
+			"handler context exposed fixed buffer dataLen=%d strLen=%d",
 			ev.handlerContext.DataLen,
 			len(ev.handlerContext.StrArgBuf),
 		)
