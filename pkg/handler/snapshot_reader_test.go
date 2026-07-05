@@ -33,8 +33,6 @@ func TestSnapshotReaderExposesOnlyPayloadSections(t *testing.T) {
 
 func TestSnapshotReaderDoesNotMatchLegacyFixedBuffer(t *testing.T) {
 	ctx := &Context{
-		StrArgBuf: []byte{9, 9, 9, 9},
-		DataLen:   4,
 		PayloadSections: []PayloadSection{
 			{
 				Kind:      PayloadKindBytes,

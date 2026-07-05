@@ -39,15 +39,9 @@ func TestProcessMadviseHandlerIgnoresLegacyEnterSnapshot(t *testing.T) {
 	defer func() { meta.XlatFormat = old }()
 
 	const vec = 0x7000
-	iovs := iovecBytes(
-		[2]uint64{0x8786858483828180, 10344361028892658056},
-		[2]uint64{0x9796959493929190, 11501803794301884824},
-	)
 	ctx := processMadviseContext()
 	ctx.Args = [6]uint64{0, vec, 2, 0, 0xffffffff}
 	ctx.ProbeRetEnter = 0
-	ctx.StrArgBuf = make([]byte, BpfEnterArgOffset+len(iovs))
-	putSmallSnapshot(ctx, BpfEnterArgOffset, iovs)
 
 	got := (&ProcessMadviseHandler{}).Handle(ctx).ArgParts
 	want := []string{
@@ -74,7 +68,6 @@ func TestProcessMadviseHandlerUsesPayloadIovecSection(t *testing.T) {
 	)
 	ctx := processMadviseContext()
 	ctx.Args = [6]uint64{0, vec, 1, 0, 0}
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindIovec, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: iovs},
 	}

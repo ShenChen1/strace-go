@@ -32,10 +32,7 @@ func TestDecodeGenericCharPointerUsesPayloadStringSection(t *testing.T) {
 
 func TestDecodeGenericCharPointerIgnoresLegacyStringSnapshot(t *testing.T) {
 	ctx := genericStringContext()
-	ctx.StrArgBuf = make([]byte, 512)
-	ctx.DataLen = uint32(len("legacy") + 1)
 	ctx.ProbeRetEnter = 0
-	copy(ctx.StrArgBuf, []byte("legacy\x00"))
 
 	res := Result{}
 	got, ok := decodeCharPointer(ctx, 0, "const char *", "name", 0x1000, &res)
