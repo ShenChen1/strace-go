@@ -235,15 +235,9 @@ func TestDecodeExecSnapshotHonorsStringLimit40(t *testing.T) {
 	}
 }
 
-func TestDecodeExecIgnoresLegacyStringSnapshot(t *testing.T) {
-	buf := make([]byte, execSnapshotOffset+execSnapshotHeaderSize)
-	header := buf[execSnapshotOffset:]
-	binary.LittleEndian.PutUint32(header[0:4], execSnapshotMagic)
-	binary.LittleEndian.PutUint16(header[4:6], 1)
-
+func TestDecodeExecIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	ctx := stringArrayContext(mapMemoryReader{})
-	ctx.StrArgBuf = buf
-	ctx.DataLen = uint32(len(buf))
+	ctx.ProbeRetEnter = 0
 
 	res := Result{}
 	got, ok := decodeStringArrayPointer(ctx, 2, "const char *const *", "argv", 0x1000, &res)
@@ -303,7 +297,7 @@ func TestDecodeWriteDumpDoesNotUseTraceeMemoryBeyondPayloadPrefix(t *testing.T) 
 	}
 }
 
-func TestDecodeWriteBufferIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestDecodeWriteBufferIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	ctx := &Context{
 		Pid:       101,
 		Tid:       102,
@@ -315,12 +309,9 @@ func TestDecodeWriteBufferIgnoresLegacyEnterSnapshot(t *testing.T) {
 			ArgTypes: []string{"int", "const char *", "size_t"},
 		},
 		ProbeRetEnter: 0,
-		StrArgBuf:     make([]byte, 1536),
 		Opts:          &cli.Options{StringLimit: 32},
 		Decoder:       event.NewDecoder(),
 	}
-	copy(ctx.StrArgBuf[:3], []byte("old"))
-	ctx.DataLen = 3
 
 	res := Result{}
 	got, ok := decodeCharPointer(ctx, 1, "const char *", "buf", 0x1000, &res)
@@ -444,7 +435,7 @@ func TestDecodePathUsesPayloadStringSection(t *testing.T) {
 	}
 }
 
-func TestDecodePathIgnoresLegacyStringSnapshot(t *testing.T) {
+func TestDecodePathIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	ctx := &Context{
 		Pid:       101,
 		Tid:       102,
@@ -454,12 +445,10 @@ func TestDecodePathIgnoresLegacyStringSnapshot(t *testing.T) {
 			Args:     []string{"dfd", "filename", "flags"},
 			ArgTypes: []string{"int", "const char *", "int"},
 		},
-		StrArgBuf: make([]byte, 512),
-		DataLen:   uint32(len("/tmp/legacy") + 1),
-		Opts:      &cli.Options{StringLimit: 32},
-		Decoder:   event.NewDecoder(),
+		ProbeRetEnter: 0,
+		Opts:          &cli.Options{StringLimit: 32},
+		Decoder:       event.NewDecoder(),
 	}
-	copy(ctx.StrArgBuf, []byte("/tmp/legacy\x00"))
 
 	res := Result{}
 	got, ok := decodeCharPointer(ctx, 1, "const char *", "filename", 0x3000, &res)
@@ -501,7 +490,7 @@ func TestDecodeMemfdNameUsesPayloadStringSection(t *testing.T) {
 	}
 }
 
-func TestDecodeMemfdNameIgnoresLegacySnapshot(t *testing.T) {
+func TestDecodeMemfdNameIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	ctx := &Context{
 		Pid:       101,
 		Tid:       102,
@@ -511,12 +500,10 @@ func TestDecodeMemfdNameIgnoresLegacySnapshot(t *testing.T) {
 			Args:     []string{"uname", "flags"},
 			ArgTypes: []string{"const char *", "unsigned int"},
 		},
-		StrArgBuf: make([]byte, 250),
-		DataLen:   12,
-		Opts:      &cli.Options{StringLimit: 32},
-		Decoder:   event.NewDecoder(),
+		ProbeRetEnter: 0,
+		Opts:          &cli.Options{StringLimit: 32},
+		Decoder:       event.NewDecoder(),
 	}
-	copy(ctx.StrArgBuf, []byte("legacy-name\x00"))
 
 	res := Result{}
 	got, ok := decodeCharPointer(ctx, 0, "const char *", "uname", 0x3000, &res)
@@ -558,7 +545,7 @@ func TestDecodeReadlinkBufferUsesPayloadSection(t *testing.T) {
 	}
 }
 
-func TestDecodeReadlinkBufferIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestDecodeReadlinkBufferIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	ctx := &Context{
 		Pid:       101,
 		Tid:       102,
@@ -569,12 +556,10 @@ func TestDecodeReadlinkBufferIgnoresLegacyExitSnapshot(t *testing.T) {
 			Args:     []string{"path", "buf", "bufsiz"},
 			ArgTypes: []string{"const char *", "char *", "size_t"},
 		},
-		StrArgBuf: make([]byte, BpfExitArgOffset+6),
-		Opts:      &cli.Options{StringLimit: 32},
-		Decoder:   event.NewDecoder(),
+		ProbeRetExit: 0,
+		Opts:         &cli.Options{StringLimit: 32},
+		Decoder:      event.NewDecoder(),
 	}
-	copy(ctx.StrArgBuf[BpfExitArgOffset:], []byte("target"))
-	ctx.DataLen = BpfExitArgOffset + 6
 
 	got, ok := decodeReadlinkBuffer(ctx, 1, 0x3000)
 	if !ok || got != "0x3000" {
