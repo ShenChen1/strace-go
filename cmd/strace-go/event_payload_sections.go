@@ -69,6 +69,14 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"process_vm_readv":  processVMPayloadSectionsFromSource,
 	"process_vm_writev": processVMPayloadSectionsFromSource,
 	"process_madvise":   processMadvisePayloadSectionsFromSource,
+
+	"rename":    dualPathPayloadSourceRule(0, 1),
+	"link":      dualPathPayloadSourceRule(0, 1),
+	"symlink":   dualPathPayloadSourceRule(0, 1),
+	"symlinkat": dualPathPayloadSourceRule(0, 2),
+	"renameat":  dualPathPayloadSourceRule(1, 3),
+	"renameat2": dualPathPayloadSourceRule(1, 3),
+	"linkat":    dualPathPayloadSourceRule(1, 3),
 }
 
 var payloadSectionRules = map[string]payloadSectionRule{
@@ -86,13 +94,6 @@ var payloadSectionRules = map[string]payloadSectionRule{
 	"openat2":         namedPayloadRule(openat2PayloadSectionsForEvent),
 	"execve":          execPayloadSectionsForEvent,
 	"execveat":        execPayloadSectionsForEvent,
-	"rename":          dualPathPayloadRule(0, 1),
-	"link":            dualPathPayloadRule(0, 1),
-	"symlink":         dualPathPayloadRule(0, 1),
-	"symlinkat":       dualPathPayloadRule(0, 2),
-	"renameat":        dualPathPayloadRule(1, 3),
-	"renameat2":       dualPathPayloadRule(1, 3),
-	"linkat":          dualPathPayloadRule(1, 3),
 	"mount":           fsPayloadSectionsForEvent,
 	"umount2":         fsPayloadSectionsForEvent,
 	"fsconfig":        fsPayloadSectionsForEvent,
@@ -230,9 +231,9 @@ func exitStructArrayPayloadRule(argIndex int, elemSize int, maxBytes int) payloa
 	}
 }
 
-func dualPathPayloadRule(firstArg int, secondArg int) payloadSectionRule {
-	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
-		return dualPathPayloadSectionsForEvent(eventRaw, firstArg, secondArg)
+func dualPathPayloadSourceRule(firstArg int, secondArg int) payloadSourceSectionRule {
+	return func(event payloadEvent, _ string) []handler.PayloadSection {
+		return dualPathPayloadSectionsFromSource(event, firstArg, secondArg)
 	}
 }
 

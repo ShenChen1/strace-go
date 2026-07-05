@@ -26,21 +26,25 @@ func simplePathPayloadArgIndex(scName string) (int, bool) {
 	}
 }
 
-func dualPathPayloadSectionsForEvent(eventRaw *bpfEvent, firstArg int, secondArg int) []handler.PayloadSection {
-	sections := stringPayloadSectionFromWindowAt(eventRaw, pathPayloadSpec{
+func dualPathPayloadSectionsFromSource(event payloadEvent, firstArg int, secondArg int) []handler.PayloadSection {
+	sections := stringPayloadSectionFromSourceAt(event, pathPayloadSpec{
 		argIndex: firstArg,
 		offset:   pathPayloadPrimaryOffset,
 	})
-	return append(sections, stringPayloadSectionFromWindowAt(eventRaw, pathPayloadSpec{
+	return append(sections, stringPayloadSectionFromSourceAt(event, pathPayloadSpec{
 		argIndex: secondArg,
 		offset:   pathPayloadSecondaryOffset,
 	})...)
 }
 
-func stringPayloadSectionFromWindowAt(eventRaw *bpfEvent, spec pathPayloadSpec) []handler.PayloadSection {
-	return stringPayloadSectionFromWindowSpec(eventRaw, stringPayloadWindowSpec{
+func stringPayloadSectionFromSourceAt(event payloadEvent, spec pathPayloadSpec) []handler.PayloadSection {
+	return stringPayloadSectionFromSourceSpec(event, stringPayloadWindowSpec{
 		argIndex: spec.argIndex,
 		offset:   spec.offset,
 		maxBytes: pathPayloadMaxBytes,
 	})
+}
+
+func stringPayloadSectionFromWindowAt(eventRaw *bpfEvent, spec pathPayloadSpec) []handler.PayloadSection {
+	return stringPayloadSectionFromSourceAt(newFixedPayloadEvent(eventRaw), spec)
 }

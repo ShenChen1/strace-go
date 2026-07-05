@@ -160,3 +160,42 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareSimplePathFallback(t *test
 		t.Fatalf("path data = %q, want nul-terminated source path", section.Data)
 	}
 }
+
+func TestPayloadSectionsForPayloadEventUsesSourceAwareDualPathRule(t *testing.T) {
+	raw := &bpfEvent{
+		EventType:     bpfEventTypeEnter,
+		Args:          [6]uint64{^uint64(99), 0x5000, ^uint64(100), 0x6000},
+		ProbeRetEnter: 0,
+	}
+	data := make([]byte, pathPayloadSecondaryOffset+pathPayloadMaxBytes)
+	copy(data[:], []byte("old-from-source\x00"))
+	copy(data[pathPayloadSecondaryOffset:], []byte("new-from-source\x00"))
+	event := payloadEvent{
+		raw: raw,
+		source: staticPayloadSource{
+			args: raw.Args,
+			data: data,
+		},
+	}
+
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "linkat"})
+
+	if len(sections) != 2 {
+		t.Fatalf("sections = %d, want 2", len(sections))
+	}
+	oldPath, newPath := sections[0], sections[1]
+	if oldPath.Kind != handler.PayloadKindString || oldPath.ArgIndex != 1 ||
+		oldPath.UserPtr != 0x5000 || oldPath.Offset != pathPayloadPrimaryOffset {
+		t.Fatalf("old path section = %+v, want arg 1 primary path", oldPath)
+	}
+	if newPath.Kind != handler.PayloadKindString || newPath.ArgIndex != 3 ||
+		newPath.UserPtr != 0x6000 || newPath.Offset != pathPayloadSecondaryOffset {
+		t.Fatalf("new path section = %+v, want arg 3 secondary path", newPath)
+	}
+	if !bytes.Equal(oldPath.Data, []byte("old-from-source\x00")) {
+		t.Fatalf("old path data = %q", oldPath.Data)
+	}
+	if !bytes.Equal(newPath.Data, []byte("new-from-source\x00")) {
+		t.Fatalf("new path data = %q", newPath.Data)
+	}
+}
