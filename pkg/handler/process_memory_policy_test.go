@@ -38,7 +38,6 @@ func newClone3PolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Deco
 			Args:     []string{"uargs", "size"},
 			ArgTypes: []string{"struct clone_args *", "size_t"},
 		},
-		StrArgBuf: make([]byte, 256),
 	}
 }
 
@@ -79,12 +78,9 @@ func TestClone3DoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestClone3IgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestClone3IgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeClone3Data(0)}
 	ctx := newClone3PolicyContext(reader, event.NewDecoder())
-	data := makeClone3Data(0)
-	copy(ctx.StrArgBuf, data)
-	ctx.DataLen = uint32(len(data))
 	ctx.ProbeRetEnter = 0
 
 	got := (&ProcessHandler{}).Handle(ctx)
@@ -99,7 +95,6 @@ func TestClone3IgnoresLegacyEnterSnapshot(t *testing.T) {
 func TestClone3UsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeClone3Data(0)}
 	ctx := newClone3PolicyContext(reader, event.NewDecoder())
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 0, ProbeRet: 0, Data: makeClone3Data(0)},
 	}
