@@ -8,7 +8,7 @@ import (
 	"strace-go/pkg/event"
 )
 
-const selectTestBufSize = BpfExitArgOffset + pollSnapshotLimit
+const selectTestBufSize = BpfExitArgOffset + pollPayloadLimit
 
 const (
 	legacySelectTimeoutOffset  = 384
@@ -17,7 +17,7 @@ const (
 )
 
 func makeFdSetData(fd int) []byte {
-	data := make([]byte, fdSetSnapshotSize)
+	data := make([]byte, fdSetPayloadSize)
 	data[fd/8] = 1 << uint(fd%8)
 	return data
 }
@@ -57,7 +57,7 @@ func putSelectSnapshot(ctx *Context, offset int, data []byte) {
 	}
 }
 
-func TestSelectFdSetsFallsBackToPointerWithoutSnapshot(t *testing.T) {
+func TestSelectFdSetsFallsBackToPointerWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFdSetData(3)}
 	ctx := newSelectPolicyContext(reader, "select")
 	ctx.Args = [6]uint64{8, 0x1000, 0, 0, 0}
@@ -108,7 +108,7 @@ func TestSelectFdSetsUsePayloadBytesSection(t *testing.T) {
 	}
 }
 
-func TestSelectTimeoutFallsBackToPointerWithoutSnapshot(t *testing.T) {
+func TestSelectTimeoutFallsBackToPointerWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSelectTime(9, 10)}
 	ctx := newSelectPolicyContext(reader, "select")
 	ctx.Args = [6]uint64{0, 0, 0, 0, 0x3000}
@@ -233,7 +233,7 @@ func TestSelectExitTimeoutUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestPollFallsBackToPointerWithoutSnapshot(t *testing.T) {
+func TestPollFallsBackToPointerWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePollfdData(4, 1, 0)}
 	ctx := newSelectPolicyContext(reader, "poll")
 	ctx.Args = [6]uint64{0x2000, 1, 1000}
@@ -324,7 +324,7 @@ func TestPollExitUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestPpollTimeoutFallsBackToPointerWithoutSnapshot(t *testing.T) {
+func TestPpollTimeoutFallsBackToPointerWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSelectTime(9, 10)}
 	ctx := newSelectPolicyContext(reader, "ppoll")
 	ctx.Args = [6]uint64{0, 0, 0x3000}
