@@ -23,14 +23,6 @@ func makeUint64Snapshot(v uint64) []byte {
 	return data
 }
 
-func putSmallSnapshot(ctx *Context, offset int, data []byte) {
-	copy(ctx.StrArgBuf[offset:], data)
-	end := uint32(offset + len(data))
-	if ctx.DataLen < end {
-		ctx.DataLen = end
-	}
-}
-
 func TestFutexTimeoutDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(9, 10)}
 	decoder := event.NewDecoder()

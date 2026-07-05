@@ -38,7 +38,6 @@ func newAioPolicyContext(reader *aioPolicyMemoryReader, decoder *event.Decoder) 
 		Tid:           1234,
 		ProbeRetEnter: -1,
 		ProbeRetExit:  -1,
-		StrArgBuf:     make([]byte, BpfExitArgOffset+512),
 		Decoder:       decoder,
 		Opts:          &cli.Options{StringLimit: 32},
 	}
@@ -72,7 +71,7 @@ func TestAioSubmitPointerArrayDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestAioSubmitPointerArrayIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestAioSubmitPointerArrayIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{
 		0x2000: makeIocbData(1, 0x3000, 3),
 	}}
@@ -81,7 +80,6 @@ func TestAioSubmitPointerArrayIgnoresLegacyEnterSnapshot(t *testing.T) {
 	ctx.SysName = "io_submit"
 	ctx.ProbeRetEnter = 0
 	ctx.Args = [6]uint64{0xabc, 1, 0x1000}
-	putSmallSnapshot(ctx, BpfEnterArgOffset, pointerBytes(0x2000))
 
 	got := (&AioHandler{}).Handle(ctx).ArgParts
 	want := []string{"0xabc", "1", "0x1000"}
@@ -93,7 +91,7 @@ func TestAioSubmitPointerArrayIgnoresLegacyEnterSnapshot(t *testing.T) {
 	}
 }
 
-func TestAioSetupIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestAioSetupIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{
 		0x1000: pointerBytes(0xabc),
 	}}
@@ -103,7 +101,6 @@ func TestAioSetupIgnoresLegacyExitSnapshot(t *testing.T) {
 	ctx.Args = [6]uint64{128, 0x1000}
 	ctx.Ret = 0
 	ctx.ProbeRetExit = 0
-	putSmallSnapshot(ctx, BpfExitArgOffset, pointerBytes(0xabc))
 
 	got := (&AioHandler{}).Handle(ctx).ArgParts
 	want := []string{"128", "0x1000"}
@@ -121,7 +118,6 @@ func TestAioSetupUsesPayloadStructSection(t *testing.T) {
 	ctx.SysName = "io_setup"
 	ctx.Args = [6]uint64{128, 0x1000}
 	ctx.Ret = 0
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: pointerBytes(0xabc)},
 	}
@@ -136,7 +132,7 @@ func TestAioSetupUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestAioSubmitDoesNotUseLegacyNestedBufferFallback(t *testing.T) {
+func TestAioSubmitFallsBackToPointerWithoutIocbPayloadSection(t *testing.T) {
 	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{
 		0x1000: pointerBytes(0x2000),
 		0x2000: makeIocbData(1, 0x3000, 3),
@@ -149,8 +145,6 @@ func TestAioSubmitDoesNotUseLegacyNestedBufferFallback(t *testing.T) {
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 2, ProbeRet: 0, Data: pointerBytes(0x2000)},
 	}
-	copy(ctx.StrArgBuf[BpfMiscArgOffset:BpfMiscArgOffset+64], makeIocbData(1, 0x3000, 3))
-	ctx.DataLen = BpfMiscArgOffset + 64
 
 	got := (&AioHandler{}).Handle(ctx).ArgParts
 	want := []string{"0xabc", "1", "[0x2000]"}
@@ -167,7 +161,6 @@ func TestAioSubmitUsesPayloadSections(t *testing.T) {
 	ctx := newAioPolicyContext(reader, event.NewDecoder())
 	ctx.SysName = "io_submit"
 	ctx.Args = [6]uint64{0xabc, 1, 0x1000}
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 2, ProbeRet: 0, Data: pointerBytes(0x2000)},
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: AioSubmitIocbPayloadArgBase, ProbeRet: 0, Data: makeIocbData(1, 0x3000, 3)},
@@ -219,7 +212,6 @@ func TestAioCancelUsesPayloadStructSection(t *testing.T) {
 	ctx := newAioPolicyContext(reader, event.NewDecoder())
 	ctx.SysName = "io_cancel"
 	ctx.Args = [6]uint64{0xabc, 0x2000, 0}
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeIocbData(1, 0x3000, 3)},
 	}
@@ -258,7 +250,6 @@ func TestAioGeteventsUsesPayloadStructSection(t *testing.T) {
 	ctx.SysName = "io_getevents"
 	ctx.Args = [6]uint64{0xabc, 0, 1, 0x7000, 0}
 	ctx.Ret = 1
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 3, ProbeRet: 0, Data: makeAioIoEventData(0x11, 0x22, 3, 4)},
 	}
@@ -278,7 +269,6 @@ func TestAioGeteventsTimeoutUsesPayloadStructSection(t *testing.T) {
 	ctx := newAioPolicyContext(reader, event.NewDecoder())
 	ctx.SysName = "io_getevents"
 	ctx.Args = [6]uint64{0xabc, 0, 0, 0, 0x4000}
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 4, ProbeRet: 0, Data: makeTimeStruct(5, 6)},
 	}
@@ -293,7 +283,7 @@ func TestAioGeteventsTimeoutUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestAioPgeteventsSigsetIgnoresLegacySnapshot(t *testing.T) {
+func TestAioPgeteventsSigsetIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{
 		0x6000: makeSigsetData(1),
 	}}
@@ -301,11 +291,7 @@ func TestAioPgeteventsSigsetIgnoresLegacySnapshot(t *testing.T) {
 	ctx := newAioPolicyContext(reader, decoder)
 	ctx.SysName = "io_pgetevents"
 	ctx.ProbeRetEnter = 0
-	ctx.StrArgBuf = make([]byte, 544)
-	ctx.DataLen = 544
 	ctx.Args = [6]uint64{0xabc, 0, 0, 0, 0, 0x5000}
-	binary.LittleEndian.PutUint64(ctx.StrArgBuf[528:536], 0x6000)
-	binary.LittleEndian.PutUint64(ctx.StrArgBuf[536:544], 8)
 
 	got := (&AioHandler{}).Handle(ctx).ArgParts
 	want := []string{"0xabc", "0", "0", "NULL", "NULL", "0x5000"}
@@ -322,7 +308,6 @@ func TestAioPgeteventsSigsetUsesPayloadSections(t *testing.T) {
 	ctx := newAioPolicyContext(reader, event.NewDecoder())
 	ctx.SysName = "io_pgetevents"
 	ctx.Args = [6]uint64{0xabc, 0, 0, 0, 0, 0x5000}
-	ctx.StrArgBuf = nil
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 5, ProbeRet: 0, Data: append(pointerBytes(0x6000), pointerBytes(8)...)},
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 5, ProbeRet: 0, Data: makeSigsetData(1)},
@@ -338,7 +323,7 @@ func TestAioPgeteventsSigsetUsesPayloadSections(t *testing.T) {
 	}
 }
 
-func TestAioPgeteventsSigmaskIgnoresLegacyNestedSnapshot(t *testing.T) {
+func TestAioPgeteventsSigmaskFallsBackToPointerWithoutPayloadSection(t *testing.T) {
 	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{
 		0x6000: makeSigsetData(1),
 	}}
@@ -346,13 +331,10 @@ func TestAioPgeteventsSigmaskIgnoresLegacyNestedSnapshot(t *testing.T) {
 	ctx := newAioPolicyContext(reader, decoder)
 	ctx.SysName = "io_pgetevents"
 	ctx.ProbeRetEnter = 0
-	ctx.StrArgBuf = make([]byte, 552)
-	ctx.DataLen = 552
 	ctx.Args = [6]uint64{0xabc, 0, 0, 0, 0, 0x5000}
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 5, ProbeRet: 0, Data: append(pointerBytes(0x6000), pointerBytes(8)...)},
 	}
-	copy(ctx.StrArgBuf[544:552], makeSigsetData(1))
 
 	got := (&AioHandler{}).Handle(ctx).ArgParts
 	want := []string{"0xabc", "0", "0", "NULL", "NULL", "{sigmask=0x6000, sigsetsize=8}"}
@@ -371,27 +353,4 @@ func makeAioIoEventData(dataValue uint64, obj uint64, res uint64, res2 uint64) [
 	binary.LittleEndian.PutUint64(data[16:24], res)
 	binary.LittleEndian.PutUint64(data[24:32], res2)
 	return data
-}
-
-func TestAioPgeteventsSigmaskDoesNotUseLegacyFallback(t *testing.T) {
-	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{
-		0x6000: makeSigsetData(1),
-	}}
-	ctx := newAioPolicyContext(reader, event.NewDecoder())
-	ctx.SysName = "io_pgetevents"
-	ctx.ProbeRetEnter = 0
-	ctx.StrArgBuf = make([]byte, 544)
-	ctx.DataLen = 544
-	ctx.Args = [6]uint64{0xabc, 0, 0, 0, 0, 0x5000}
-	binary.LittleEndian.PutUint64(ctx.StrArgBuf[528:536], 0x6000)
-	binary.LittleEndian.PutUint64(ctx.StrArgBuf[536:544], 8)
-
-	got := (&AioHandler{}).Handle(ctx).ArgParts
-	want := []string{"0xabc", "0", "0", "NULL", "NULL", "0x5000"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("io_pgetevents args = %#v; want %#v", got, want)
-	}
-	if reader.reads != 0 {
-		t.Fatalf("memory reads = %d, want 0", reader.reads)
-	}
 }
