@@ -8,10 +8,10 @@ const (
 	cachestatStatsPayloadSize   = 40
 )
 
-func cachestatPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	sections := enterStructPayloadSection(eventRaw, 1, cachestatRangePayloadOffset, cachestatRangePayloadSize)
-	if isExitEvent(eventRaw) && eventRaw.Ret >= 0 {
-		sections = append(sections, exitStructPayloadSection(eventRaw, 2, cachestatStatsPayloadSize)...)
+func cachestatPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	sections := enterStructPayloadSectionFromSource(event, 1, cachestatRangePayloadOffset, cachestatRangePayloadSize)
+	if event.IsExit() && event.Ret() >= 0 {
+		sections = append(sections, exitStructPayloadSectionFromSource(event, 2, cachestatStatsPayloadSize)...)
 	}
 	return sections
 }

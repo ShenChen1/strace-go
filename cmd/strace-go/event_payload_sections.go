@@ -110,6 +110,8 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"waitid":          waitidPayloadSectionsFromSource,
 
 	"copy_file_range": copyFileRangePayloadSectionsFromSource,
+	"clone3":          clone3PayloadSectionsFromSource,
+	"cachestat":       cachestatPayloadSectionsFromSource,
 }
 
 var payloadSectionRules = map[string]payloadSectionRule{
@@ -133,7 +135,6 @@ var payloadSectionRules = map[string]payloadSectionRule{
 	"flistxattr":   xattrPayloadSectionsForEvent,
 	"ioctl":        namedPayloadRule(ioctlPayloadSectionsForEvent),
 
-	"clone3":               namedPayloadRule(clone3PayloadSectionsForEvent),
 	"capget":               capabilityPayloadSectionsForEvent,
 	"capset":               capabilityPayloadSectionsForEvent,
 	"io_setup":             aioPayloadSectionsForEvent,
@@ -142,7 +143,6 @@ var payloadSectionRules = map[string]payloadSectionRule{
 	"io_getevents":         aioPayloadSectionsForEvent,
 	"io_pgetevents":        aioPayloadSectionsForEvent,
 	"io_pgetevents_time64": aioPayloadSectionsForEvent,
-	"cachestat":            namedPayloadRule(cachestatPayloadSectionsForEvent),
 	"fcntl":                namedPayloadRule(fcntlPayloadSectionsForEvent),
 	"fcntl64":              namedPayloadRule(fcntlPayloadSectionsForEvent),
 	"prctl":                namedPayloadRule(prctlPayloadSectionsForEvent),
