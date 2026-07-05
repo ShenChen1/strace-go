@@ -102,7 +102,12 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"uname":      exitStructPayloadSourceRule(0, utsnamePayloadStructSize),
 	"sysinfo":    exitStructPayloadSourceRule(0, sysinfoPayloadStructSize),
 	"getrlimit":  exitStructPayloadSourceRule(1, rlimitPayloadStructSize),
+	"setrlimit":  enterStructPayloadSourceRule(1, handler.BpfEnterArgOffset, rlimitPayloadStructSize),
+	"prlimit64":  prlimitPayloadSectionsFromSource,
 	"arch_prctl": exitStructPayloadSourceRule(1, archPrctlPayloadOutSize),
+
+	"get_robust_list": robustListPayloadSectionsFromSource,
+	"waitid":          waitidPayloadSectionsFromSource,
 
 	"copy_file_range": copyFileRangePayloadSectionsFromSource,
 }
@@ -128,11 +133,7 @@ var payloadSectionRules = map[string]payloadSectionRule{
 	"flistxattr":   xattrPayloadSectionsForEvent,
 	"ioctl":        namedPayloadRule(ioctlPayloadSectionsForEvent),
 
-	"setrlimit":            enterStructPayloadRule(1, handler.BpfEnterArgOffset, rlimitPayloadStructSize),
-	"prlimit64":            namedPayloadRule(prlimitPayloadSectionsForEvent),
-	"get_robust_list":      namedPayloadRule(robustListPayloadSectionsForEvent),
 	"clone3":               namedPayloadRule(clone3PayloadSectionsForEvent),
-	"waitid":               namedPayloadRule(waitidPayloadSectionsForEvent),
 	"capget":               capabilityPayloadSectionsForEvent,
 	"capset":               capabilityPayloadSectionsForEvent,
 	"io_setup":             aioPayloadSectionsForEvent,
@@ -239,6 +240,12 @@ func exitStructPayloadSourceRule(argIndex int, size uint32) payloadSourceSection
 func enterStructPayloadRule(argIndex int, offset int, size uint32) payloadSectionRule {
 	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
 		return enterStructPayloadSection(eventRaw, argIndex, offset, size)
+	}
+}
+
+func enterStructPayloadSourceRule(argIndex int, offset int, size uint32) payloadSourceSectionRule {
+	return func(event payloadEvent, _ string) []handler.PayloadSection {
+		return enterStructPayloadSectionFromSource(event, argIndex, offset, size)
 	}
 }
 

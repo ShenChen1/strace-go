@@ -6,28 +6,28 @@ import (
 	"strace-go/pkg/handler"
 )
 
-func prlimitPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	sections := enterStructPayloadSection(eventRaw, 2, handler.BpfEnterArgOffset, rlimitPayloadStructSize)
-	if isExitEvent(eventRaw) && eventRaw.Ret >= 0 {
-		sections = append(sections, exitStructPayloadSection(eventRaw, 3, rlimitPayloadStructSize)...)
+func prlimitPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	sections := enterStructPayloadSectionFromSource(event, 2, handler.BpfEnterArgOffset, rlimitPayloadStructSize)
+	if event.IsExit() && event.Ret() >= 0 {
+		sections = append(sections, exitStructPayloadSectionFromSource(event, 3, rlimitPayloadStructSize)...)
 	}
 	return sections
 }
 
-func robustListPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	if !isExitEvent(eventRaw) || eventRaw.Ret < 0 {
+func robustListPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	if !event.IsExit() || event.Ret() < 0 {
 		return nil
 	}
-	sections := exitStructPayloadSectionAt(eventRaw, 1, handler.BpfExitArgOffset, robustListPayloadWordSize)
-	return append(sections, exitStructPayloadSectionAt(eventRaw, 2, handler.BpfExitArgOffset+16, robustListPayloadWordSize)...)
+	sections := exitStructPayloadSectionAtFromSource(event, 1, handler.BpfExitArgOffset, robustListPayloadWordSize)
+	return append(sections, exitStructPayloadSectionAtFromSource(event, 2, handler.BpfExitArgOffset+16, robustListPayloadWordSize)...)
 }
 
-func waitidPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	if !isExitEvent(eventRaw) || eventRaw.Ret < 0 {
+func waitidPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	if !event.IsExit() || event.Ret() < 0 {
 		return nil
 	}
-	sections := exitStructPayloadSectionAt(eventRaw, 2, handler.BpfExitArgOffset, waitidSiginfoPayloadSize)
-	return append(sections, exitStructPayloadSectionAt(eventRaw, 4, handler.BpfExitArgOffset+136, waitidRusagePayloadSize)...)
+	sections := exitStructPayloadSectionAtFromSource(event, 2, handler.BpfExitArgOffset, waitidSiginfoPayloadSize)
+	return append(sections, exitStructPayloadSectionAtFromSource(event, 4, handler.BpfExitArgOffset+136, waitidRusagePayloadSize)...)
 }
 
 func sendfilePayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
