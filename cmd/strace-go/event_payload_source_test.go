@@ -132,3 +132,31 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareProcessVMIovecRule(t *test
 		t.Fatalf("remote data = %q", remote.Data)
 	}
 }
+
+func TestPayloadSectionsForPayloadEventUsesSourceAwareSimplePathFallback(t *testing.T) {
+	raw := &bpfEvent{
+		EventType:     bpfEventTypeEnter,
+		Args:          [6]uint64{^uint64(99), 0x5000},
+		ProbeRetEnter: 0,
+	}
+	event := payloadEvent{
+		raw: raw,
+		source: staticPayloadSource{
+			args: raw.Args,
+			data: []byte("from-source\x00ignored"),
+		},
+	}
+
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "openat"})
+
+	if len(sections) != 1 {
+		t.Fatalf("sections = %d, want 1", len(sections))
+	}
+	section := sections[0]
+	if section.Kind != handler.PayloadKindString || section.ArgIndex != 1 || section.UserPtr != 0x5000 {
+		t.Fatalf("path section metadata = %+v, want string arg 1 ptr 0x5000", section)
+	}
+	if !bytes.Equal(section.Data, []byte("from-source\x00")) {
+		t.Fatalf("path data = %q, want nul-terminated source path", section.Data)
+	}
+}

@@ -56,24 +56,41 @@ func stringPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int) []handler.
 	})
 }
 
+func stringPayloadSectionFromSource(event payloadEvent, argIndex int) []handler.PayloadSection {
+	return stringPayloadSectionFromSourceSpec(event, stringPayloadWindowSpec{
+		argIndex: argIndex,
+		maxBytes: 4097,
+	})
+}
+
 func stringPayloadSectionFromWindowSpec(eventRaw *bpfEvent, spec stringPayloadWindowSpec) []handler.PayloadSection {
 	if eventRaw.EventType != bpfEventTypeEnter && eventRaw.EventType != bpfEventTypeExit {
 		return nil
 	}
-	data, ok := eventPayloadWindow(eventRaw, spec.offset, spec.maxBytes)
+	return stringPayloadSectionFromSourceSpec(newFixedPayloadEvent(eventRaw), spec)
+}
+
+func stringPayloadSectionFromSourceSpec(event payloadEvent, spec stringPayloadWindowSpec) []handler.PayloadSection {
+	if event.raw != nil && event.raw.EventType != bpfEventTypeEnter && event.raw.EventType != bpfEventTypeExit {
+		return nil
+	}
+	if event.source == nil {
+		return nil
+	}
+	data, ok := event.source.PayloadWindow(spec.offset, spec.maxBytes)
 	if !ok {
 		return nil
 	}
 	if nul := bytes.IndexByte(data, 0); nul >= 0 {
 		data = data[:nul+1]
 	}
-	section := newPayloadSection(eventRaw, payloadWindowSpec{
+	section := newPayloadSectionFromSource(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindString,
 		direction: handler.PayloadDirectionIn,
 		argIndex:  spec.argIndex,
 		offset:    spec.offset,
 		userLen:   uint32(len(data)),
-		probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, spec.argIndex),
+		probeRet:  event.ProbeRetEnterArg(spec.argIndex),
 	}, data)
 	return []handler.PayloadSection{section}
 }

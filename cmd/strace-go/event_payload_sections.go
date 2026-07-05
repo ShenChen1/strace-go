@@ -187,15 +187,15 @@ func payloadSectionsForPayloadEvent(event payloadEvent, scMeta meta.Syscall) []h
 	if rule, ok := payloadSourceSectionRules[scMeta.Name]; ok {
 		return rule(event, scMeta.Name)
 	}
+	if argIndex, ok := simplePathPayloadArgIndex(scMeta.Name); ok {
+		return stringPayloadSectionFromSource(event, argIndex)
+	}
 	eventRaw := event.raw
 	if eventRaw == nil {
 		return nil
 	}
 	if rule, ok := payloadSectionRules[scMeta.Name]; ok {
 		return rule(eventRaw, scMeta.Name)
-	}
-	if argIndex, ok := simplePathPayloadArgIndex(scMeta.Name); ok {
-		return stringPayloadSectionFromWindow(eventRaw, argIndex)
 	}
 	return nil
 }
