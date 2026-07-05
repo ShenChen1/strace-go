@@ -393,41 +393,33 @@ func iovecUserLen(count uint64) uint32 {
 }
 
 func payloadSectionFromWindowSpec(eventRaw *bpfEvent, spec payloadWindowSpec) []handler.PayloadSection {
+	return payloadSectionFromSourceSpec(newFixedEventPayloadSource(eventRaw), spec)
+}
+
+func payloadSectionFromSourceSpec(source payloadSource, spec payloadWindowSpec) []handler.PayloadSection {
 	if spec.userLen == 0 {
 		return nil
 	}
 	if spec.maxLen == 0 || spec.maxLen > spec.userLen {
 		spec.maxLen = spec.userLen
 	}
-	data, ok := eventPayloadWindow(eventRaw, spec.offset, int(spec.maxLen))
+	data, ok := source.PayloadWindow(spec.offset, int(spec.maxLen))
 	if !ok {
 		return nil
 	}
-	section := newPayloadSection(eventRaw, spec, data)
+	section := newPayloadSectionFromSource(source, spec, data)
 	return []handler.PayloadSection{section}
 }
 
 func eventPayloadWindow(eventRaw *bpfEvent, offset int, maxLen int) ([]byte, bool) {
-	if offset < 0 || maxLen <= 0 || eventRaw.DataLen == 0 {
-		return nil, false
-	}
-	if uint32(offset) >= eventRaw.DataLen || offset >= len(eventRaw.StrArg) {
-		return nil, false
-	}
-	end := int(eventRaw.DataLen)
-	if end > len(eventRaw.StrArg) {
-		end = len(eventRaw.StrArg)
-	}
-	if limit := offset + maxLen; limit < end {
-		end = limit
-	}
-	if end <= offset {
-		return nil, false
-	}
-	return eventRaw.StrArg[offset:end], true
+	return newFixedEventPayloadSource(eventRaw).PayloadWindow(offset, maxLen)
 }
 
 func newPayloadSection(eventRaw *bpfEvent, spec payloadWindowSpec, data []byte) handler.PayloadSection {
+	return newPayloadSectionFromSource(newFixedEventPayloadSource(eventRaw), spec, data)
+}
+
+func newPayloadSectionFromSource(source payloadSource, spec payloadWindowSpec, data []byte) handler.PayloadSection {
 	section := handler.PayloadSection{
 		Kind:      spec.kind,
 		Direction: spec.direction,
@@ -438,8 +430,8 @@ func newPayloadSection(eventRaw *bpfEvent, spec payloadWindowSpec, data []byte) 
 		ProbeRet:  spec.probeRet,
 		Data:      data,
 	}
-	if spec.argIndex >= 0 && spec.argIndex < len(eventRaw.Args) {
-		section.UserPtr = eventRaw.Args[spec.argIndex]
+	if userPtr, ok := source.Arg(spec.argIndex); ok {
+		section.UserPtr = userPtr
 	}
 	return section
 }
