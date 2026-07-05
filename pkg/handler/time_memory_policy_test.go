@@ -14,14 +14,6 @@ func makeTimexStruct(modes uint32) []byte {
 	return data
 }
 
-func putTimeSnapshot(ctx *Context, offset int, data []byte) {
-	copy(ctx.StrArgBuf[offset:], data)
-	end := uint32(offset + len(data))
-	if ctx.DataLen < end {
-		ctx.DataLen = end
-	}
-}
-
 func TestTimeHandlerClockGettimeDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(9, 10)}
 	decoder := event.NewDecoder()
@@ -33,7 +25,6 @@ func TestTimeHandlerClockGettimeDoesNotReadWhenFallbackDisabled(t *testing.T) {
 		Ret:          0,
 		ProbeRetExit: -1,
 		Decoder:      decoder,
-		StrArgBuf:    make([]byte, BpfExitArgOffset+208),
 	}
 
 	got := (&TimeHandler{}).Handle(ctx)
@@ -48,10 +39,9 @@ func TestTimeHandlerClockGettimeDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestTimeHandlerClockSettimeIgnoresLegacyEnterSnapshot(t *testing.T) {
+func TestTimeHandlerClockSettimeIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(99, 100)}
 	decoder := event.NewDecoder()
-	buf := make([]byte, BpfExitArgOffset+208)
 	ctx := &Context{
 		Pid:           1234,
 		Tid:           1234,
@@ -61,9 +51,7 @@ func TestTimeHandlerClockSettimeIgnoresLegacyEnterSnapshot(t *testing.T) {
 		ProbeRetEnter: 0,
 		ProbeRetExit:  -1,
 		Decoder:       decoder,
-		StrArgBuf:     buf,
 	}
-	putTimeSnapshot(ctx, BpfEnterArgOffset, makeTimeStruct(5, 6))
 
 	got := (&TimeHandler{}).Handle(ctx)
 	if len(got.ArgParts) != 2 {
@@ -134,7 +122,6 @@ func TestTimeHandlerAdjtimexDoesNotReadWhenFallbackDisabled(t *testing.T) {
 		Ret:          -1,
 		ProbeRetExit: -1,
 		Decoder:      decoder,
-		StrArgBuf:    make([]byte, BpfExitArgOffset+208),
 	}
 
 	got := (&TimeHandler{}).Handle(ctx)
@@ -149,10 +136,9 @@ func TestTimeHandlerAdjtimexDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestTimeHandlerAdjtimexIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestTimeHandlerAdjtimexIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimexStruct(7)}
 	decoder := event.NewDecoder()
-	buf := make([]byte, BpfExitArgOffset+208)
 	ctx := &Context{
 		Pid:          1234,
 		Tid:          1234,
@@ -161,9 +147,7 @@ func TestTimeHandlerAdjtimexIgnoresLegacyExitSnapshot(t *testing.T) {
 		Ret:          0,
 		ProbeRetExit: 0,
 		Decoder:      decoder,
-		StrArgBuf:    buf,
 	}
-	putTimeSnapshot(ctx, BpfExitArgOffset, makeTimexStruct(7))
 
 	got := (&TimeHandler{}).Handle(ctx)
 	if len(got.ArgParts) != 1 {
@@ -200,7 +184,7 @@ func TestTimeHandlerAdjtimexUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestTimeHandlerClockAdjtimeIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestTimeHandlerClockAdjtimeIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimexStruct(9)}
 	decoder := event.NewDecoder()
 	ctx := &Context{
@@ -211,9 +195,7 @@ func TestTimeHandlerClockAdjtimeIgnoresLegacyExitSnapshot(t *testing.T) {
 		Ret:          0,
 		ProbeRetExit: 0,
 		Decoder:      decoder,
-		StrArgBuf:    make([]byte, BpfExitArgOffset+208),
 	}
-	putTimeSnapshot(ctx, BpfExitArgOffset, makeTimexStruct(9))
 
 	got := (&TimeHandler{}).Handle(ctx)
 	if len(got.ArgParts) != 2 {

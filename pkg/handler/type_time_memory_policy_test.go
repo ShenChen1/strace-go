@@ -15,14 +15,6 @@ func makeTimeStruct(sec int64, subsec uint64) []byte {
 	return data
 }
 
-func putTypeTimeSnapshot(ctx *Context, offset int, data []byte) {
-	copy(ctx.StrArgBuf[offset:], data)
-	end := uint32(offset + len(data))
-	if ctx.DataLen < end {
-		ctx.DataLen = end
-	}
-}
-
 func makeDoubleTimeStruct(aSec int64, aSub uint64, bSec int64, bSub uint64) []byte {
 	data := make([]byte, 32)
 	copy(data[0:16], makeTimeStruct(aSec, aSub))
@@ -47,7 +39,6 @@ func TestDecodeTimespecDoesNotReadWhenFallbackDisabled(t *testing.T) {
 		ProbeRetEnter: -1,
 		Decoder:       decoder,
 		ScMeta:        meta.Syscall{Name: "clock_gettime"},
-		StrArgBuf:     make([]byte, BpfExitArgOffset+16),
 	}
 
 	got, ok := decodeTimespec(ctx, 1, "struct timespec *", 0x1000)
@@ -62,7 +53,7 @@ func TestDecodeTimespecDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
-func TestDecodeTimespecIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestDecodeTimespecIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(9, 10)}
 	decoder := event.NewDecoder()
 	ctx := &Context{
@@ -73,9 +64,7 @@ func TestDecodeTimespecIgnoresLegacyExitSnapshot(t *testing.T) {
 		ProbeRetExit:  0,
 		Decoder:       decoder,
 		ScMeta:        meta.Syscall{Name: "clock_gettime"},
-		StrArgBuf:     make([]byte, BpfExitArgOffset+16),
 	}
-	putTypeTimeSnapshot(ctx, BpfExitArgOffset, makeTimeStruct(9, 10))
 
 	got, ok := decodeTimespec(ctx, 1, "struct timespec *", 0x1000)
 	if !ok {
@@ -139,10 +128,9 @@ func TestDecodeNanosleepRemainingUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestDecodeTimevalIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestDecodeTimevalIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(99, 100)}
 	decoder := event.NewDecoder()
-	buf := make([]byte, BpfExitArgOffset+16)
 	ctx := &Context{
 		Pid:           1234,
 		Tid:           1234,
@@ -151,9 +139,7 @@ func TestDecodeTimevalIgnoresLegacyExitSnapshot(t *testing.T) {
 		ProbeRetExit:  0,
 		Decoder:       decoder,
 		ScMeta:        meta.Syscall{Name: "gettimeofday"},
-		StrArgBuf:     buf,
 	}
-	putTypeTimeSnapshot(ctx, BpfExitArgOffset, makeTimeStruct(3, 4))
 
 	got, ok := decodeTimeval(ctx, 0, "struct timeval *", 0x1000)
 	if !ok {
@@ -203,7 +189,6 @@ func TestDecodeTimevalFallsBackToPointerWithoutSnapshot(t *testing.T) {
 		ProbeRetExit:  -1,
 		Decoder:       decoder,
 		ScMeta:        meta.Syscall{Name: "gettimeofday"},
-		StrArgBuf:     make([]byte, BpfExitArgOffset+16),
 	}
 
 	got, ok := decodeTimeval(ctx, 0, "struct timeval *", 0x1000)
@@ -218,7 +203,7 @@ func TestDecodeTimevalFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	}
 }
 
-func TestDecodeItimervalIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestDecodeItimervalIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeDoubleTimeStruct(9, 10, 11, 12)}
 	decoder := event.NewDecoder()
 	ctx := &Context{
@@ -228,9 +213,7 @@ func TestDecodeItimervalIgnoresLegacyExitSnapshot(t *testing.T) {
 		ProbeRetExit: 0,
 		Decoder:      decoder,
 		ScMeta:       meta.Syscall{Name: "getitimer"},
-		StrArgBuf:    make([]byte, BpfExitArgOffset+32),
 	}
-	putTypeTimeSnapshot(ctx, BpfExitArgOffset, makeDoubleTimeStruct(1, 2, 3, 4))
 
 	got, ok := decodeItimerval(ctx, 1, "struct itimerval *", 0x1000)
 	if !ok {
@@ -270,7 +253,7 @@ func TestDecodeItimervalUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
-func TestDecodeTimezoneIgnoresLegacyExitSnapshot(t *testing.T) {
+func TestDecodeTimezoneIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimezoneData(9, 10)}
 	decoder := event.NewDecoder()
 	ctx := &Context{
@@ -280,9 +263,7 @@ func TestDecodeTimezoneIgnoresLegacyExitSnapshot(t *testing.T) {
 		ProbeRetExit: 0,
 		Decoder:      decoder,
 		ScMeta:       meta.Syscall{Name: "gettimeofday"},
-		StrArgBuf:    make([]byte, BpfExitArgOffset+24),
 	}
-	putTypeTimeSnapshot(ctx, BpfExitArgOffset+16, makeTimezoneData(1, 2))
 
 	got, ok := decodeTimezone(ctx, 1, "struct timezone *", 0x1000)
 	if !ok {
@@ -357,7 +338,6 @@ func TestDecodeItimerspecFallsBackToPointerWithoutSnapshot(t *testing.T) {
 		ProbeRetExit:  -1,
 		Decoder:       decoder,
 		ScMeta:        meta.Syscall{Name: "timerfd_gettime"},
-		StrArgBuf:     make([]byte, BpfExitArgOffset+32),
 	}
 
 	got, ok := decodeItimerspec(ctx, 1, "struct itimerspec *", 0x1000)
