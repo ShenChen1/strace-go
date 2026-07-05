@@ -77,6 +77,9 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"renameat":  dualPathPayloadSourceRule(1, 3),
 	"renameat2": dualPathPayloadSourceRule(1, 3),
 	"linkat":    dualPathPayloadSourceRule(1, 3),
+
+	"execve":   execPayloadSectionsFromSource,
+	"execveat": execPayloadSectionsFromSource,
 }
 
 var payloadSectionRules = map[string]payloadSectionRule{
@@ -92,8 +95,6 @@ var payloadSectionRules = map[string]payloadSectionRule{
 	"pipe2":           exitStructPayloadRule(0, fdArrayPayloadSize),
 	"socketpair":      exitStructPayloadRule(3, fdArrayPayloadSize),
 	"openat2":         namedPayloadRule(openat2PayloadSectionsForEvent),
-	"execve":          execPayloadSectionsForEvent,
-	"execveat":        execPayloadSectionsForEvent,
 	"mount":           fsPayloadSectionsForEvent,
 	"umount2":         fsPayloadSectionsForEvent,
 	"fsconfig":        fsPayloadSectionsForEvent,

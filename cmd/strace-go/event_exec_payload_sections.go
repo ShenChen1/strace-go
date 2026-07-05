@@ -18,19 +18,22 @@ const (
 		execPayloadEnvSnapshotCount*execPayloadArgSnapshotSize
 )
 
-func execPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) []handler.PayloadSection {
+func execPayloadSectionsFromSource(event payloadEvent, scName string) []handler.PayloadSection {
 	argvIndex, ok := execArgvIndex(scName)
 	if !ok {
 		return nil
 	}
-	data, ok := eventPayloadWindow(eventRaw, execPayloadSnapshotOffset, execPayloadSnapshotSize)
+	if event.source == nil {
+		return nil
+	}
+	data, ok := event.source.PayloadWindow(execPayloadSnapshotOffset, execPayloadSnapshotSize)
 	if !ok || len(data) < execPayloadSnapshotHeaderSize {
 		return nil
 	}
 	if binary.LittleEndian.Uint32(data[0:4]) != execPayloadSnapshotMagic {
 		return nil
 	}
-	section := newPayloadSection(eventRaw, payloadWindowSpec{
+	section := newPayloadSectionFromSource(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindExecArgs,
 		direction: handler.PayloadDirectionIn,
 		argIndex:  argvIndex,
