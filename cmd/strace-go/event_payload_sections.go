@@ -57,59 +57,60 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"pwrite64": writePayloadSectionsFromSource,
 	"read":     readPayloadSectionsFromSource,
 	"pread64":  readPayloadSectionsFromSource,
+
+	"readv":    iovecArgPayloadSectionsFromSource,
+	"writev":   iovecArgPayloadSectionsFromSource,
+	"preadv":   iovecArgPayloadSectionsFromSource,
+	"pwritev":  iovecArgPayloadSectionsFromSource,
+	"preadv2":  iovecArgPayloadSectionsFromSource,
+	"pwritev2": iovecArgPayloadSectionsFromSource,
+	"vmsplice": iovecArgPayloadSectionsFromSource,
+
+	"process_vm_readv":  processVMPayloadSectionsFromSource,
+	"process_vm_writev": processVMPayloadSectionsFromSource,
+	"process_madvise":   processMadvisePayloadSectionsFromSource,
 }
 
 var payloadSectionRules = map[string]payloadSectionRule{
-	"readv":    iovecArgPayloadSectionsForEvent,
-	"writev":   iovecArgPayloadSectionsForEvent,
-	"preadv":   iovecArgPayloadSectionsForEvent,
-	"pwritev":  iovecArgPayloadSectionsForEvent,
-	"preadv2":  iovecArgPayloadSectionsForEvent,
-	"pwritev2": iovecArgPayloadSectionsForEvent,
-	"vmsplice": iovecArgPayloadSectionsForEvent,
-
-	"process_vm_readv":  processVMPayloadSectionsForEvent,
-	"process_vm_writev": processVMPayloadSectionsForEvent,
-	"process_madvise":   processMadvisePayloadSectionsForEvent,
-	"memfd_create":      memfdCreatePayloadSectionsForEvent,
-	"bpf":               namedPayloadRule(bpfPayloadSectionsForEvent),
-	"getcwd":            exitBytesPayloadRule(0),
-	"getdents64":        exitBytesPayloadRule(1),
-	"readlink":          exitBytesPayloadRule(1),
-	"readlinkat":        exitBytesPayloadRule(2),
-	"sendfile":          namedPayloadRule(sendfilePayloadSectionsForEvent),
-	"copy_file_range":   namedPayloadRule(copyFileRangePayloadSectionsForEvent),
-	"pipe":              exitStructPayloadRule(0, fdArrayPayloadSize),
-	"pipe2":             exitStructPayloadRule(0, fdArrayPayloadSize),
-	"socketpair":        exitStructPayloadRule(3, fdArrayPayloadSize),
-	"openat2":           namedPayloadRule(openat2PayloadSectionsForEvent),
-	"execve":            execPayloadSectionsForEvent,
-	"execveat":          execPayloadSectionsForEvent,
-	"rename":            dualPathPayloadRule(0, 1),
-	"link":              dualPathPayloadRule(0, 1),
-	"symlink":           dualPathPayloadRule(0, 1),
-	"symlinkat":         dualPathPayloadRule(0, 2),
-	"renameat":          dualPathPayloadRule(1, 3),
-	"renameat2":         dualPathPayloadRule(1, 3),
-	"linkat":            dualPathPayloadRule(1, 3),
-	"mount":             fsPayloadSectionsForEvent,
-	"umount2":           fsPayloadSectionsForEvent,
-	"fsconfig":          fsPayloadSectionsForEvent,
-	"add_key":           keyPayloadSectionsForEvent,
-	"request_key":       keyPayloadSectionsForEvent,
-	"setxattr":          xattrPayloadSectionsForEvent,
-	"lsetxattr":         xattrPayloadSectionsForEvent,
-	"fsetxattr":         xattrPayloadSectionsForEvent,
-	"getxattr":          xattrPayloadSectionsForEvent,
-	"lgetxattr":         xattrPayloadSectionsForEvent,
-	"fgetxattr":         xattrPayloadSectionsForEvent,
-	"removexattr":       xattrPayloadSectionsForEvent,
-	"lremovexattr":      xattrPayloadSectionsForEvent,
-	"fremovexattr":      xattrPayloadSectionsForEvent,
-	"listxattr":         xattrPayloadSectionsForEvent,
-	"llistxattr":        xattrPayloadSectionsForEvent,
-	"flistxattr":        xattrPayloadSectionsForEvent,
-	"ioctl":             namedPayloadRule(ioctlPayloadSectionsForEvent),
+	"memfd_create":    memfdCreatePayloadSectionsForEvent,
+	"bpf":             namedPayloadRule(bpfPayloadSectionsForEvent),
+	"getcwd":          exitBytesPayloadRule(0),
+	"getdents64":      exitBytesPayloadRule(1),
+	"readlink":        exitBytesPayloadRule(1),
+	"readlinkat":      exitBytesPayloadRule(2),
+	"sendfile":        namedPayloadRule(sendfilePayloadSectionsForEvent),
+	"copy_file_range": namedPayloadRule(copyFileRangePayloadSectionsForEvent),
+	"pipe":            exitStructPayloadRule(0, fdArrayPayloadSize),
+	"pipe2":           exitStructPayloadRule(0, fdArrayPayloadSize),
+	"socketpair":      exitStructPayloadRule(3, fdArrayPayloadSize),
+	"openat2":         namedPayloadRule(openat2PayloadSectionsForEvent),
+	"execve":          execPayloadSectionsForEvent,
+	"execveat":        execPayloadSectionsForEvent,
+	"rename":          dualPathPayloadRule(0, 1),
+	"link":            dualPathPayloadRule(0, 1),
+	"symlink":         dualPathPayloadRule(0, 1),
+	"symlinkat":       dualPathPayloadRule(0, 2),
+	"renameat":        dualPathPayloadRule(1, 3),
+	"renameat2":       dualPathPayloadRule(1, 3),
+	"linkat":          dualPathPayloadRule(1, 3),
+	"mount":           fsPayloadSectionsForEvent,
+	"umount2":         fsPayloadSectionsForEvent,
+	"fsconfig":        fsPayloadSectionsForEvent,
+	"add_key":         keyPayloadSectionsForEvent,
+	"request_key":     keyPayloadSectionsForEvent,
+	"setxattr":        xattrPayloadSectionsForEvent,
+	"lsetxattr":       xattrPayloadSectionsForEvent,
+	"fsetxattr":       xattrPayloadSectionsForEvent,
+	"getxattr":        xattrPayloadSectionsForEvent,
+	"lgetxattr":       xattrPayloadSectionsForEvent,
+	"fgetxattr":       xattrPayloadSectionsForEvent,
+	"removexattr":     xattrPayloadSectionsForEvent,
+	"lremovexattr":    xattrPayloadSectionsForEvent,
+	"fremovexattr":    xattrPayloadSectionsForEvent,
+	"listxattr":       xattrPayloadSectionsForEvent,
+	"llistxattr":      xattrPayloadSectionsForEvent,
+	"flistxattr":      xattrPayloadSectionsForEvent,
+	"ioctl":           namedPayloadRule(ioctlPayloadSectionsForEvent),
 
 	"stat":                 exitStructPayloadRule(1, statPayloadStructSize),
 	"lstat":                exitStructPayloadRule(1, statPayloadStructSize),
@@ -275,19 +276,6 @@ func readPayloadSectionsFromSource(event payloadEvent, _ string) []handler.Paylo
 	})
 }
 
-func iovecArgPayloadSectionsForEvent(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
-	return iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset)
-}
-
-func processVMPayloadSectionsForEvent(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
-	sections := iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset)
-	return append(sections, iovecPayloadSectionFromWindow(eventRaw, 3, 4, handler.BpfMiscArgOffset)...)
-}
-
-func processMadvisePayloadSectionsForEvent(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
-	return iovecPayloadSectionFromWindow(eventRaw, 1, 2, handler.BpfEnterArgOffset)
-}
-
 func memfdCreatePayloadSectionsForEvent(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
 	return stringPayloadSectionFromWindowSpec(eventRaw, stringPayloadWindowSpec{
 		argIndex: 0,
@@ -370,33 +358,6 @@ func structArrayUserLen(count uint64, elemSize int) uint32 {
 		return ^uint32(0)
 	}
 	return uint32(count * uint64(elemSize))
-}
-
-func iovecPayloadSectionFromWindow(eventRaw *bpfEvent, argIndex int, countIndex int, offset int) []handler.PayloadSection {
-	if countIndex < 0 || countIndex >= len(eventRaw.Args) {
-		return nil
-	}
-	userLen := iovecUserLen(eventRaw.Args[countIndex])
-	if userLen == 0 {
-		return nil
-	}
-	maxLen := int(userLen)
-	if maxLen > iovecSectionMaxBytes {
-		maxLen = iovecSectionMaxBytes
-	}
-	data, ok := eventPayloadWindow(eventRaw, offset, maxLen)
-	if !ok {
-		return nil
-	}
-	section := newPayloadSection(eventRaw, payloadWindowSpec{
-		kind:      handler.PayloadKindIovec,
-		direction: handler.PayloadDirectionIn,
-		argIndex:  argIndex,
-		offset:    offset,
-		userLen:   userLen,
-		probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, argIndex),
-	}, data)
-	return []handler.PayloadSection{section}
 }
 
 func iovecUserLen(count uint64) uint32 {
