@@ -14,35 +14,35 @@ const (
 	selectPayloadExitTimeoutOff  = 1408
 )
 
-func selectPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
+func selectPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
 	sections := make([]handler.PayloadSection, 0, 8)
 	for argIndex := selectPayloadFdSetArgBase; argIndex <= selectPayloadFdSetArgLast; argIndex++ {
 		sections = append(sections, selectFdSetPayloadSection(
-			eventRaw,
+			event,
 			argIndex,
 			handler.PayloadDirectionIn,
 			selectPayloadFdSetOffset(argIndex),
 		)...)
 	}
 	sections = append(sections, selectTimeoutPayloadSection(
-		eventRaw,
+		event,
 		handler.PayloadDirectionIn,
 		selectPayloadTimeoutOffset,
 	)...)
 
-	if isExitEvent(eventRaw) && eventRaw.Ret > 0 {
+	if event.IsExit() && event.Ret() > 0 {
 		for argIndex := selectPayloadFdSetArgBase; argIndex <= selectPayloadFdSetArgLast; argIndex++ {
 			sections = append(sections, selectFdSetPayloadSection(
-				eventRaw,
+				event,
 				argIndex,
 				handler.PayloadDirectionOut,
 				selectPayloadExitFdSetOffset+selectPayloadFdSetOffset(argIndex),
 			)...)
 		}
 	}
-	if isExitEvent(eventRaw) && eventRaw.Ret >= 0 {
+	if event.IsExit() && event.Ret() >= 0 {
 		sections = append(sections, selectTimeoutPayloadSection(
-			eventRaw,
+			event,
 			handler.PayloadDirectionOut,
 			selectPayloadExitTimeoutOff,
 		)...)
@@ -51,53 +51,53 @@ func selectPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection 
 }
 
 func selectFdSetPayloadSection(
-	eventRaw *bpfEvent,
+	event payloadEvent,
 	argIndex int,
 	direction handler.PayloadDirection,
 	offset int,
 ) []handler.PayloadSection {
-	if eventRaw.Args[argIndex] == 0 {
+	if event.Arg(argIndex) == 0 {
 		return nil
 	}
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindBytes,
 		direction: direction,
 		argIndex:  argIndex,
 		offset:    offset,
-		userLen:   selectFdSetUserLen(eventRaw.Args[0]),
+		userLen:   selectFdSetUserLen(event.Arg(0)),
 		maxLen:    selectPayloadFdSetSize,
-		probeRet:  selectPayloadProbeRet(eventRaw, argIndex, direction),
+		probeRet:  selectPayloadProbeRet(event, argIndex, direction),
 	})
 }
 
 func selectTimeoutPayloadSection(
-	eventRaw *bpfEvent,
+	event payloadEvent,
 	direction handler.PayloadDirection,
 	offset int,
 ) []handler.PayloadSection {
-	if eventRaw.Args[selectPayloadTimeoutArg] == 0 {
+	if event.Arg(selectPayloadTimeoutArg) == 0 {
 		return nil
 	}
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindStruct,
 		direction: direction,
 		argIndex:  selectPayloadTimeoutArg,
 		offset:    offset,
 		userLen:   selectPayloadTimeoutSize,
 		maxLen:    selectPayloadTimeoutSize,
-		probeRet:  selectPayloadProbeRet(eventRaw, selectPayloadTimeoutArg, direction),
+		probeRet:  selectPayloadProbeRet(event, selectPayloadTimeoutArg, direction),
 	})
 }
 
 func selectPayloadProbeRet(
-	eventRaw *bpfEvent,
+	event payloadEvent,
 	argIndex int,
 	direction handler.PayloadDirection,
 ) int32 {
 	if direction == handler.PayloadDirectionOut {
-		return eventRaw.ProbeRetExit
+		return event.ProbeRetExit()
 	}
-	return getArgProbeStatus(eventRaw.ProbeRetEnter, argIndex)
+	return event.ProbeRetEnterArg(argIndex)
 }
 
 func selectFdSetUserLen(nfds uint64) uint32 {

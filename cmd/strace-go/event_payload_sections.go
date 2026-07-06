@@ -120,6 +120,14 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"rt_sigaction":    signalPayloadSectionsFromSource,
 	"rt_sigprocmask":  signalPayloadSectionsFromSource,
 	"rt_sigsuspend":   signalPayloadSectionsFromSource,
+	"poll":            pollPayloadSourceRule(false),
+	"ppoll":           pollPayloadSourceRule(true),
+	"select":          selectPayloadSectionsFromSource,
+	"_newselect":      selectPayloadSectionsFromSource,
+	"epoll_ctl":       enterStructPayloadSourceRule(3, handler.BpfEnterArgOffset, epollPayloadEventSize),
+	"epoll_wait":      exitStructArrayPayloadSourceRule(1, epollPayloadEventSize, epollPayloadMaxBytes),
+	"epoll_pwait":     exitStructArrayPayloadSourceRule(1, epollPayloadEventSize, epollPayloadMaxBytes),
+	"epoll_pwait2":    epollPwait2PayloadSectionsFromSource,
 }
 
 var payloadSectionRules = map[string]payloadSectionRule{
@@ -168,14 +176,6 @@ var payloadSectionRules = map[string]payloadSectionRule{
 	"futex_wait":           futexPayloadSectionsForEvent,
 	"futex_waitv":          futexPayloadSectionsForEvent,
 	"futex_requeue":        futexPayloadSectionsForEvent,
-	"poll":                 pollPayloadRule(false),
-	"ppoll":                pollPayloadRule(true),
-	"select":               namedPayloadRule(selectPayloadSectionsForEvent),
-	"_newselect":           namedPayloadRule(selectPayloadSectionsForEvent),
-	"epoll_ctl":            enterStructPayloadRule(3, handler.BpfEnterArgOffset, epollPayloadEventSize),
-	"epoll_wait":           exitStructArrayPayloadRule(1, epollPayloadEventSize, epollPayloadMaxBytes),
-	"epoll_pwait":          exitStructArrayPayloadRule(1, epollPayloadEventSize, epollPayloadMaxBytes),
-	"epoll_pwait2":         namedPayloadRule(epollPwait2PayloadSectionsForEvent),
 	"connect":              networkSockaddrInPayloadRule(1, 2, 0),
 	"bind":                 networkSockaddrInPayloadRule(1, 2, 0),
 	"sendto":               namedPayloadRule(sendtoPayloadSectionsForEvent),
@@ -213,21 +213,9 @@ func namedPayloadRule(fn func(*bpfEvent) []handler.PayloadSection) payloadSectio
 	}
 }
 
-func exitBytesPayloadRule(argIndex int) payloadSectionRule {
-	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
-		return exitBytesPayloadSectionFromRet(eventRaw, argIndex)
-	}
-}
-
 func exitBytesPayloadSourceRule(argIndex int) payloadSourceSectionRule {
 	return func(event payloadEvent, _ string) []handler.PayloadSection {
 		return exitBytesPayloadSectionFromSourceRet(event, argIndex)
-	}
-}
-
-func exitStructPayloadRule(argIndex int, size uint32) payloadSectionRule {
-	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
-		return exitStructPayloadSection(eventRaw, argIndex, size)
 	}
 }
 
@@ -237,21 +225,9 @@ func exitStructPayloadSourceRule(argIndex int, size uint32) payloadSourceSection
 	}
 }
 
-func enterStructPayloadRule(argIndex int, offset int, size uint32) payloadSectionRule {
-	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
-		return enterStructPayloadSection(eventRaw, argIndex, offset, size)
-	}
-}
-
 func enterStructPayloadSourceRule(argIndex int, offset int, size uint32) payloadSourceSectionRule {
 	return func(event payloadEvent, _ string) []handler.PayloadSection {
 		return enterStructPayloadSectionFromSource(event, argIndex, offset, size)
-	}
-}
-
-func exitStructArrayPayloadRule(argIndex int, elemSize int, maxBytes int) payloadSectionRule {
-	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
-		return exitStructArrayPayloadSectionFromRet(eventRaw, argIndex, elemSize, maxBytes)
 	}
 }
 
@@ -261,9 +237,15 @@ func dualPathPayloadSourceRule(firstArg int, secondArg int) payloadSourceSection
 	}
 }
 
-func pollPayloadRule(includeTimeout bool) payloadSectionRule {
-	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
-		return pollPayloadSectionsForEvent(eventRaw, includeTimeout)
+func exitStructArrayPayloadSourceRule(argIndex int, elemSize int, maxBytes int) payloadSourceSectionRule {
+	return func(event payloadEvent, _ string) []handler.PayloadSection {
+		return exitStructArrayPayloadSectionFromSourceRet(event, argIndex, elemSize, maxBytes)
+	}
+}
+
+func pollPayloadSourceRule(includeTimeout bool) payloadSourceSectionRule {
+	return func(event payloadEvent, _ string) []handler.PayloadSection {
+		return pollPayloadSectionsFromSource(event, includeTimeout)
 	}
 }
 
@@ -308,47 +290,48 @@ func memfdCreatePayloadSectionsFromSource(event payloadEvent, _ string) []handle
 	})
 }
 
-func pollPayloadSectionsForEvent(eventRaw *bpfEvent, includeTimeout bool) []handler.PayloadSection {
-	sections := structArrayPayloadSectionFromArg(eventRaw, structArrayPayloadSpec{
+func pollPayloadSectionsFromSource(event payloadEvent, includeTimeout bool) []handler.PayloadSection {
+	sections := structArrayPayloadSectionFromSourceArg(event, structArrayPayloadSpec{
 		direction:  handler.PayloadDirectionIn,
 		argIndex:   0,
 		countIndex: 1,
 		elemSize:   pollPayloadFdSize,
 		maxBytes:   pollPayloadMaxBytes,
 		offset:     handler.BpfEnterArgOffset,
-		probeRet:   getArgProbeStatus(eventRaw.ProbeRetEnter, 0),
+		probeRet:   event.ProbeRetEnterArg(0),
 	})
 	if includeTimeout {
-		sections = append(sections, enterStructPayloadSection(eventRaw, 2, handler.BpfMiscArgOffset, timespecPayloadStructSize)...)
+		sections = append(sections, enterStructPayloadSectionFromSource(event, 2, handler.BpfMiscArgOffset, timespecPayloadStructSize)...)
 	}
-	if isExitEvent(eventRaw) && eventRaw.Ret > 0 {
-		sections = append(sections, structArrayPayloadSectionFromArg(eventRaw, structArrayPayloadSpec{
+	if event.IsExit() && event.Ret() > 0 {
+		sections = append(sections, structArrayPayloadSectionFromSourceArg(event, structArrayPayloadSpec{
 			direction:  handler.PayloadDirectionOut,
 			argIndex:   0,
 			countIndex: 1,
 			elemSize:   pollPayloadFdSize,
 			maxBytes:   pollPayloadMaxBytes,
 			offset:     handler.BpfExitArgOffset,
-			probeRet:   eventRaw.ProbeRetExit,
+			probeRet:   event.ProbeRetExit(),
 		})...)
 	}
 	return sections
 }
 
-func epollPwait2PayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	sections := enterStructPayloadSection(eventRaw, 3, handler.BpfMiscArgOffset, timespecPayloadStructSize)
-	if isExitEvent(eventRaw) && eventRaw.Ret > 0 {
-		sections = append(sections, exitStructArrayPayloadSectionFromRet(eventRaw, 1, epollPayloadEventSize, epollPayloadMaxBytes)...)
+func epollPwait2PayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	sections := enterStructPayloadSectionFromSource(event, 3, handler.BpfMiscArgOffset, timespecPayloadStructSize)
+	if event.IsExit() && event.Ret() > 0 {
+		sections = append(sections, exitStructArrayPayloadSectionFromSourceRet(event, 1, epollPayloadEventSize, epollPayloadMaxBytes)...)
 	}
 	return sections
 }
 
-func structArrayPayloadSectionFromArg(eventRaw *bpfEvent, spec structArrayPayloadSpec) []handler.PayloadSection {
-	if spec.countIndex < 0 || spec.countIndex >= len(eventRaw.Args) {
+func structArrayPayloadSectionFromSourceArg(event payloadEvent, spec structArrayPayloadSpec) []handler.PayloadSection {
+	if spec.countIndex < 0 || spec.countIndex >= 6 {
 		return nil
 	}
-	userLen := structArrayUserLen(eventRaw.Args[spec.countIndex], spec.elemSize)
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	count := event.Arg(spec.countIndex)
+	userLen := structArrayUserLen(count, spec.elemSize)
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindStruct,
 		direction: spec.direction,
 		argIndex:  spec.argIndex,
@@ -360,18 +343,27 @@ func structArrayPayloadSectionFromArg(eventRaw *bpfEvent, spec structArrayPayloa
 }
 
 func exitStructArrayPayloadSectionFromRet(eventRaw *bpfEvent, argIndex int, elemSize int, maxBytes int) []handler.PayloadSection {
-	if !isExitEvent(eventRaw) || eventRaw.Ret <= 0 {
+	return exitStructArrayPayloadSectionFromSourceRet(newFixedPayloadEvent(eventRaw), argIndex, elemSize, maxBytes)
+}
+
+func exitStructArrayPayloadSectionFromSourceRet(
+	event payloadEvent,
+	argIndex int,
+	elemSize int,
+	maxBytes int,
+) []handler.PayloadSection {
+	if !event.IsExit() || event.Ret() <= 0 {
 		return nil
 	}
-	userLen := structArrayUserLen(uint64(eventRaw.Ret), elemSize)
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	userLen := structArrayUserLen(uint64(event.Ret()), elemSize)
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindStruct,
 		direction: handler.PayloadDirectionOut,
 		argIndex:  argIndex,
 		offset:    handler.BpfExitArgOffset,
 		userLen:   userLen,
 		maxLen:    uint32(maxBytes),
-		probeRet:  eventRaw.ProbeRetExit,
+		probeRet:  event.ProbeRetExit(),
 	})
 }
 
