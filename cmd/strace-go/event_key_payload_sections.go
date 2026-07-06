@@ -11,37 +11,41 @@ const (
 	keyDataPayloadMaxBytes      = 256
 )
 
-func keyPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) []handler.PayloadSection {
-	sections := keyStringPayloadSection(eventRaw, 0, keyTypePayloadOffset, keyTypePayloadMaxBytes)
-	sections = append(sections, keyStringPayloadSection(eventRaw, 1, keyDescriptionPayloadOffset, keyDescriptionPayloadMax)...)
+func keyPayloadSectionsFromSource(event payloadEvent, scName string) []handler.PayloadSection {
+	sections := keyStringPayloadSection(event, 0, keyTypePayloadOffset, keyTypePayloadMaxBytes)
+	sections = append(sections, keyStringPayloadSection(event, 1, keyDescriptionPayloadOffset, keyDescriptionPayloadMax)...)
 	switch scName {
 	case "add_key":
-		sections = append(sections, keyBytesPayloadSection(eventRaw, 2)...)
+		sections = append(sections, keyBytesPayloadSection(event, 2)...)
 	case "request_key":
-		sections = append(sections, keyStringPayloadSection(eventRaw, 2, keyDataPayloadOffset, keyDataPayloadMaxBytes)...)
+		sections = append(sections, keyStringPayloadSection(event, 2, keyDataPayloadOffset, keyDataPayloadMaxBytes)...)
 	}
 	return sections
 }
 
-func keyStringPayloadSection(eventRaw *bpfEvent, argIndex int, offset int, maxLen int) []handler.PayloadSection {
-	if eventRaw.Args[argIndex] == 0 {
+func keyStringPayloadSection(event payloadEvent, argIndex int, offset int, maxLen int) []handler.PayloadSection {
+	if event.Arg(argIndex) == 0 {
 		return nil
 	}
-	return fsStringPayloadSection(eventRaw, argIndex, offset, maxLen)
+	return stringPayloadSectionFromSourceSpec(event, stringPayloadWindowSpec{
+		argIndex: argIndex,
+		offset:   offset,
+		maxBytes: maxLen,
+	})
 }
 
-func keyBytesPayloadSection(eventRaw *bpfEvent, argIndex int) []handler.PayloadSection {
-	if eventRaw.Args[argIndex] == 0 || eventRaw.Args[3] == 0 {
+func keyBytesPayloadSection(event payloadEvent, argIndex int) []handler.PayloadSection {
+	if event.Arg(argIndex) == 0 || event.Arg(3) == 0 {
 		return nil
 	}
-	userLen := uint32Clamped(eventRaw.Args[3])
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	userLen := uint32Clamped(event.Arg(3))
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindBytes,
 		direction: handler.PayloadDirectionIn,
 		argIndex:  argIndex,
 		offset:    keyDataPayloadOffset,
 		userLen:   userLen,
 		maxLen:    keyDataPayloadMaxBytes,
-		probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, argIndex),
+		probeRet:  event.ProbeRetEnterArg(argIndex),
 	})
 }

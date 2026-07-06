@@ -16,78 +16,82 @@ const (
 	xattrListPayloadMaxBytes  = 256
 )
 
-func xattrPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) []handler.PayloadSection {
+func xattrPayloadSectionsFromSource(event payloadEvent, scName string) []handler.PayloadSection {
 	switch scName {
 	case "setxattr", "lsetxattr":
-		return xattrSetPayloadSections(eventRaw, xattrNamePayloadOffset, xattrValuePayloadOffset, true)
+		return xattrSetPayloadSections(event, xattrNamePayloadOffset, xattrValuePayloadOffset, true)
 	case "fsetxattr":
-		return xattrSetPayloadSections(eventRaw, xattrFNamePayloadOffset, xattrFValuePayloadOffset, false)
+		return xattrSetPayloadSections(event, xattrFNamePayloadOffset, xattrFValuePayloadOffset, false)
 	case "getxattr", "lgetxattr":
-		return xattrGetPayloadSections(eventRaw, xattrNamePayloadOffset, xattrValuePayloadOffset, true)
+		return xattrGetPayloadSections(event, xattrNamePayloadOffset, xattrValuePayloadOffset, true)
 	case "fgetxattr":
-		return xattrGetPayloadSections(eventRaw, xattrFNamePayloadOffset, xattrFValuePayloadOffset, false)
+		return xattrGetPayloadSections(event, xattrFNamePayloadOffset, xattrFValuePayloadOffset, false)
 	case "removexattr", "lremovexattr":
-		sections := xattrPathPayloadSection(eventRaw)
-		return append(sections, xattrNamePayloadSection(eventRaw, 1, xattrNamePayloadOffset)...)
+		sections := xattrPathPayloadSection(event)
+		return append(sections, xattrNamePayloadSection(event, 1, xattrNamePayloadOffset)...)
 	case "fremovexattr":
-		return xattrNamePayloadSection(eventRaw, 1, xattrFNamePayloadOffset)
+		return xattrNamePayloadSection(event, 1, xattrFNamePayloadOffset)
 	case "listxattr", "llistxattr":
-		sections := xattrPathPayloadSection(eventRaw)
-		return append(sections, xattrListPayloadSection(eventRaw, xattrListPayloadOffset)...)
+		sections := xattrPathPayloadSection(event)
+		return append(sections, xattrListPayloadSection(event, xattrListPayloadOffset)...)
 	case "flistxattr":
-		return xattrListPayloadSection(eventRaw, xattrFListPayloadOffset)
+		return xattrListPayloadSection(event, xattrFListPayloadOffset)
 	default:
 		return nil
 	}
 }
 
-func xattrSetPayloadSections(eventRaw *bpfEvent, nameOffset int, valueOffset int, includePath bool) []handler.PayloadSection {
+func xattrSetPayloadSections(event payloadEvent, nameOffset int, valueOffset int, includePath bool) []handler.PayloadSection {
 	var sections []handler.PayloadSection
 	if includePath {
-		sections = xattrPathPayloadSection(eventRaw)
+		sections = xattrPathPayloadSection(event)
 	}
-	sections = append(sections, xattrNamePayloadSection(eventRaw, 1, nameOffset)...)
-	return append(sections, xattrValuePayloadSection(eventRaw, valueOffset, handler.PayloadDirectionIn)...)
+	sections = append(sections, xattrNamePayloadSection(event, 1, nameOffset)...)
+	return append(sections, xattrValuePayloadSection(event, valueOffset, handler.PayloadDirectionIn)...)
 }
 
-func xattrGetPayloadSections(eventRaw *bpfEvent, nameOffset int, valueOffset int, includePath bool) []handler.PayloadSection {
+func xattrGetPayloadSections(event payloadEvent, nameOffset int, valueOffset int, includePath bool) []handler.PayloadSection {
 	var sections []handler.PayloadSection
 	if includePath {
-		sections = xattrPathPayloadSection(eventRaw)
+		sections = xattrPathPayloadSection(event)
 	}
-	sections = append(sections, xattrNamePayloadSection(eventRaw, 1, nameOffset)...)
-	return append(sections, xattrValuePayloadSection(eventRaw, valueOffset, handler.PayloadDirectionOut)...)
+	sections = append(sections, xattrNamePayloadSection(event, 1, nameOffset)...)
+	return append(sections, xattrValuePayloadSection(event, valueOffset, handler.PayloadDirectionOut)...)
 }
 
-func xattrPathPayloadSection(eventRaw *bpfEvent) []handler.PayloadSection {
-	return xattrStringPayloadSection(eventRaw, 0, xattrPathPayloadOffset, xattrPathPayloadMaxBytes)
+func xattrPathPayloadSection(event payloadEvent) []handler.PayloadSection {
+	return xattrStringPayloadSection(event, 0, xattrPathPayloadOffset, xattrPathPayloadMaxBytes)
 }
 
-func xattrNamePayloadSection(eventRaw *bpfEvent, argIndex int, offset int) []handler.PayloadSection {
-	return xattrStringPayloadSection(eventRaw, argIndex, offset, xattrNamePayloadMaxBytes)
+func xattrNamePayloadSection(event payloadEvent, argIndex int, offset int) []handler.PayloadSection {
+	return xattrStringPayloadSection(event, argIndex, offset, xattrNamePayloadMaxBytes)
 }
 
-func xattrStringPayloadSection(eventRaw *bpfEvent, argIndex int, offset int, maxLen int) []handler.PayloadSection {
-	if eventRaw.Args[argIndex] == 0 {
+func xattrStringPayloadSection(event payloadEvent, argIndex int, offset int, maxLen int) []handler.PayloadSection {
+	if event.Arg(argIndex) == 0 {
 		return nil
 	}
-	return fsStringPayloadSection(eventRaw, argIndex, offset, maxLen)
+	return stringPayloadSectionFromSourceSpec(event, stringPayloadWindowSpec{
+		argIndex: argIndex,
+		offset:   offset,
+		maxBytes: maxLen,
+	})
 }
 
-func xattrValuePayloadSection(eventRaw *bpfEvent, offset int, direction handler.PayloadDirection) []handler.PayloadSection {
-	if direction == handler.PayloadDirectionOut && (!isExitEvent(eventRaw) || eventRaw.Ret <= 0) {
+func xattrValuePayloadSection(event payloadEvent, offset int, direction handler.PayloadDirection) []handler.PayloadSection {
+	if direction == handler.PayloadDirectionOut && (!event.IsExit() || event.Ret() <= 0) {
 		return nil
 	}
-	if eventRaw.Args[2] == 0 || eventRaw.Args[3] == 0 {
+	if event.Arg(2) == 0 || event.Arg(3) == 0 {
 		return nil
 	}
-	userLen := uint32Clamped(eventRaw.Args[3])
-	probeRet := getArgProbeStatus(eventRaw.ProbeRetEnter, 2)
+	userLen := uint32Clamped(event.Arg(3))
+	probeRet := event.ProbeRetEnterArg(2)
 	if direction == handler.PayloadDirectionOut {
-		userLen = uint32Clamped(uint64(eventRaw.Ret))
-		probeRet = eventRaw.ProbeRetExit
+		userLen = uint32Clamped(uint64(event.Ret()))
+		probeRet = event.ProbeRetExit()
 	}
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindBytes,
 		direction: direction,
 		argIndex:  2,
@@ -98,17 +102,17 @@ func xattrValuePayloadSection(eventRaw *bpfEvent, offset int, direction handler.
 	})
 }
 
-func xattrListPayloadSection(eventRaw *bpfEvent, offset int) []handler.PayloadSection {
-	if !isExitEvent(eventRaw) || eventRaw.Ret <= 0 || eventRaw.Args[1] == 0 || eventRaw.Args[2] == 0 {
+func xattrListPayloadSection(event payloadEvent, offset int) []handler.PayloadSection {
+	if !event.IsExit() || event.Ret() <= 0 || event.Arg(1) == 0 || event.Arg(2) == 0 {
 		return nil
 	}
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindBytes,
 		direction: handler.PayloadDirectionOut,
 		argIndex:  1,
 		offset:    offset,
-		userLen:   uint32Clamped(uint64(eventRaw.Ret)),
+		userLen:   uint32Clamped(uint64(event.Ret())),
 		maxLen:    xattrListPayloadMaxBytes,
-		probeRet:  eventRaw.ProbeRetExit,
+		probeRet:  event.ProbeRetExit(),
 	})
 }
