@@ -117,6 +117,9 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"fcntl":           fcntlPayloadSectionsFromSource,
 	"fcntl64":         fcntlPayloadSectionsFromSource,
 	"prctl":           prctlPayloadSectionsFromSource,
+	"rt_sigaction":    signalPayloadSectionsFromSource,
+	"rt_sigprocmask":  signalPayloadSectionsFromSource,
+	"rt_sigsuspend":   signalPayloadSectionsFromSource,
 }
 
 var payloadSectionRules = map[string]payloadSectionRule{
@@ -146,9 +149,6 @@ var payloadSectionRules = map[string]payloadSectionRule{
 	"io_getevents":         aioPayloadSectionsForEvent,
 	"io_pgetevents":        aioPayloadSectionsForEvent,
 	"io_pgetevents_time64": aioPayloadSectionsForEvent,
-	"rt_sigaction":         signalPayloadSectionsForEvent,
-	"rt_sigprocmask":       signalPayloadSectionsForEvent,
-	"rt_sigsuspend":        signalPayloadSectionsForEvent,
 	"clock_gettime":        timePayloadSectionsForEvent,
 	"clock_getres":         timePayloadSectionsForEvent,
 	"clock_settime":        timePayloadSectionsForEvent,
