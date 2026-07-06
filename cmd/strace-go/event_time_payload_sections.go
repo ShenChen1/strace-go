@@ -14,121 +14,121 @@ const (
 	timePayloadUtimbufSize    = 16
 )
 
-func timePayloadSectionsForEvent(eventRaw *bpfEvent, scName string) []handler.PayloadSection {
+func timePayloadSectionsFromSource(event payloadEvent, scName string) []handler.PayloadSection {
 	switch scName {
 	case "clock_gettime", "clock_getres":
-		return successfulTimeOutSection(eventRaw, 1, timePayloadExitOffset, timespecPayloadStructSize)
+		return successfulTimeOutSection(event, 1, timePayloadExitOffset, timespecPayloadStructSize)
 	case "clock_settime":
-		return timeStructPayloadSection(eventRaw, 1, handler.PayloadDirectionIn, timePayloadStructOffset, timespecPayloadStructSize)
+		return timeStructPayloadSection(event, 1, handler.PayloadDirectionIn, timePayloadStructOffset, timespecPayloadStructSize)
 	case "adjtimex":
-		return timexPayloadSections(eventRaw, 0)
+		return timexPayloadSections(event, 0)
 	case "clock_adjtime":
-		return timexPayloadSections(eventRaw, 1)
+		return timexPayloadSections(event, 1)
 	case "nanosleep":
-		return nanosleepPayloadSections(eventRaw, 0, 1)
+		return nanosleepPayloadSections(event, 0, 1)
 	case "clock_nanosleep":
-		return nanosleepPayloadSections(eventRaw, 2, 3)
+		return nanosleepPayloadSections(event, 2, 3)
 	case "gettimeofday":
-		return gettimeofdayPayloadSections(eventRaw)
+		return gettimeofdayPayloadSections(event)
 	case "settimeofday":
-		return settimeofdayPayloadSections(eventRaw)
+		return settimeofdayPayloadSections(event)
 	case "getitimer":
-		return successfulTimeOutSection(eventRaw, 1, timePayloadExitOffset, timePayloadItimervalSize)
+		return successfulTimeOutSection(event, 1, timePayloadExitOffset, timePayloadItimervalSize)
 	case "setitimer":
-		return setitimerPayloadSections(eventRaw)
+		return setitimerPayloadSections(event)
 	case "utime":
-		return fileTimePayloadSections(eventRaw, 0, 1, timePayloadUtimbufSize)
+		return fileTimePayloadSections(event, 0, 1, timePayloadUtimbufSize)
 	case "utimes":
-		return fileTimePayloadSections(eventRaw, 0, 1, timePayloadItimervalSize)
+		return fileTimePayloadSections(event, 0, 1, timePayloadItimervalSize)
 	case "futimesat", "utimensat":
-		return fileTimePayloadSections(eventRaw, 1, 2, timePayloadItimervalSize)
+		return fileTimePayloadSections(event, 1, 2, timePayloadItimervalSize)
 	default:
 		return nil
 	}
 }
 
-func fileTimePayloadSections(eventRaw *bpfEvent, pathArg int, timeArg int, timeSize uint32) []handler.PayloadSection {
-	sections := stringPayloadSectionFromWindowAt(eventRaw, pathPayloadSpec{
+func fileTimePayloadSections(event payloadEvent, pathArg int, timeArg int, timeSize uint32) []handler.PayloadSection {
+	sections := stringPayloadSectionFromSourceAt(event, pathPayloadSpec{
 		argIndex: pathArg,
 		offset:   timePayloadPathOffset,
 	})
-	return append(sections, timeStructPayloadSection(eventRaw, timeArg, handler.PayloadDirectionIn, timePayloadValueOffset, timeSize)...)
+	return append(sections, timeStructPayloadSection(event, timeArg, handler.PayloadDirectionIn, timePayloadValueOffset, timeSize)...)
 }
 
-func timexPayloadSections(eventRaw *bpfEvent, argIndex int) []handler.PayloadSection {
-	sections := timeStructPayloadSection(eventRaw, argIndex, handler.PayloadDirectionIn, timePayloadStructOffset, timePayloadTimexSize)
-	if isExitEvent(eventRaw) && eventRaw.Ret >= 0 {
-		sections = append(sections, timeStructPayloadSection(eventRaw, argIndex, handler.PayloadDirectionOut, timePayloadExitOffset, timePayloadTimexSize)...)
+func timexPayloadSections(event payloadEvent, argIndex int) []handler.PayloadSection {
+	sections := timeStructPayloadSection(event, argIndex, handler.PayloadDirectionIn, timePayloadStructOffset, timePayloadTimexSize)
+	if event.IsExit() && event.Ret() >= 0 {
+		sections = append(sections, timeStructPayloadSection(event, argIndex, handler.PayloadDirectionOut, timePayloadExitOffset, timePayloadTimexSize)...)
 	}
 	return sections
 }
 
-func nanosleepPayloadSections(eventRaw *bpfEvent, inArg int, outArg int) []handler.PayloadSection {
-	sections := timeStructPayloadSection(eventRaw, inArg, handler.PayloadDirectionIn, timePayloadStructOffset, timespecPayloadStructSize)
-	if isExitEvent(eventRaw) && isInterruptedSleepRet(eventRaw.Ret) {
-		sections = append(sections, timeStructPayloadSection(eventRaw, outArg, handler.PayloadDirectionOut, timePayloadExitOffset, timespecPayloadStructSize)...)
+func nanosleepPayloadSections(event payloadEvent, inArg int, outArg int) []handler.PayloadSection {
+	sections := timeStructPayloadSection(event, inArg, handler.PayloadDirectionIn, timePayloadStructOffset, timespecPayloadStructSize)
+	if event.IsExit() && isInterruptedSleepRet(event.Ret()) {
+		sections = append(sections, timeStructPayloadSection(event, outArg, handler.PayloadDirectionOut, timePayloadExitOffset, timespecPayloadStructSize)...)
 	}
 	return sections
 }
 
-func gettimeofdayPayloadSections(eventRaw *bpfEvent) []handler.PayloadSection {
-	if !isExitEvent(eventRaw) || eventRaw.Ret < 0 {
+func gettimeofdayPayloadSections(event payloadEvent) []handler.PayloadSection {
+	if !event.IsExit() || event.Ret() < 0 {
 		return nil
 	}
-	sections := timeStructPayloadSection(eventRaw, 0, handler.PayloadDirectionOut, timePayloadExitOffset, timespecPayloadStructSize)
-	return append(sections, timeStructPayloadSection(eventRaw, 1, handler.PayloadDirectionOut, timePayloadTimezoneOffset, timePayloadTimezoneSize)...)
+	sections := timeStructPayloadSection(event, 0, handler.PayloadDirectionOut, timePayloadExitOffset, timespecPayloadStructSize)
+	return append(sections, timeStructPayloadSection(event, 1, handler.PayloadDirectionOut, timePayloadTimezoneOffset, timePayloadTimezoneSize)...)
 }
 
-func settimeofdayPayloadSections(eventRaw *bpfEvent) []handler.PayloadSection {
-	sections := timeStructPayloadSection(eventRaw, 0, handler.PayloadDirectionIn, timePayloadStructOffset, timespecPayloadStructSize)
-	return append(sections, timeStructPayloadSection(eventRaw, 1, handler.PayloadDirectionIn, timespecPayloadStructSize, timePayloadTimezoneSize)...)
+func settimeofdayPayloadSections(event payloadEvent) []handler.PayloadSection {
+	sections := timeStructPayloadSection(event, 0, handler.PayloadDirectionIn, timePayloadStructOffset, timespecPayloadStructSize)
+	return append(sections, timeStructPayloadSection(event, 1, handler.PayloadDirectionIn, timespecPayloadStructSize, timePayloadTimezoneSize)...)
 }
 
-func setitimerPayloadSections(eventRaw *bpfEvent) []handler.PayloadSection {
-	sections := timeStructPayloadSection(eventRaw, 1, handler.PayloadDirectionIn, timePayloadStructOffset, timePayloadItimervalSize)
-	if isExitEvent(eventRaw) && eventRaw.Ret >= 0 {
-		sections = append(sections, timeStructPayloadSection(eventRaw, 2, handler.PayloadDirectionOut, timePayloadExitOffset, timePayloadItimervalSize)...)
+func setitimerPayloadSections(event payloadEvent) []handler.PayloadSection {
+	sections := timeStructPayloadSection(event, 1, handler.PayloadDirectionIn, timePayloadStructOffset, timePayloadItimervalSize)
+	if event.IsExit() && event.Ret() >= 0 {
+		sections = append(sections, timeStructPayloadSection(event, 2, handler.PayloadDirectionOut, timePayloadExitOffset, timePayloadItimervalSize)...)
 	}
 	return sections
 }
 
-func successfulTimeOutSection(eventRaw *bpfEvent, argIndex int, offset int, size uint32) []handler.PayloadSection {
-	if !isExitEvent(eventRaw) || eventRaw.Ret < 0 {
+func successfulTimeOutSection(event payloadEvent, argIndex int, offset int, size uint32) []handler.PayloadSection {
+	if !event.IsExit() || event.Ret() < 0 {
 		return nil
 	}
-	return timeStructPayloadSection(eventRaw, argIndex, handler.PayloadDirectionOut, offset, size)
+	return timeStructPayloadSection(event, argIndex, handler.PayloadDirectionOut, offset, size)
 }
 
 func timeStructPayloadSection(
-	eventRaw *bpfEvent,
+	event payloadEvent,
 	argIndex int,
 	direction handler.PayloadDirection,
 	offset int,
 	size uint32,
 ) []handler.PayloadSection {
-	if argIndex < 0 || argIndex >= len(eventRaw.Args) || eventRaw.Args[argIndex] == 0 {
+	if argIndex < 0 || argIndex >= 6 || event.Arg(argIndex) == 0 {
 		return nil
 	}
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindStruct,
 		direction: direction,
 		argIndex:  argIndex,
 		offset:    offset,
 		userLen:   size,
 		maxLen:    size,
-		probeRet:  timePayloadProbeRet(eventRaw, argIndex, direction),
+		probeRet:  timePayloadProbeRet(event, argIndex, direction),
 	})
 }
 
 func timePayloadProbeRet(
-	eventRaw *bpfEvent,
+	event payloadEvent,
 	argIndex int,
 	direction handler.PayloadDirection,
 ) int32 {
 	if direction == handler.PayloadDirectionOut {
-		return getArgProbeStatus(eventRaw.ProbeRetExit, argIndex)
+		return event.ProbeRetExit()
 	}
-	return getArgProbeStatus(eventRaw.ProbeRetEnter, argIndex)
+	return event.ProbeRetEnterArg(argIndex)
 }
 
 func isInterruptedSleepRet(ret int64) bool {
