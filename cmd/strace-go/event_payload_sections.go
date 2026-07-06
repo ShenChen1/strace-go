@@ -128,6 +128,10 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"epoll_wait":      exitStructArrayPayloadSourceRule(1, epollPayloadEventSize, epollPayloadMaxBytes),
 	"epoll_pwait":     exitStructArrayPayloadSourceRule(1, epollPayloadEventSize, epollPayloadMaxBytes),
 	"epoll_pwait2":    epollPwait2PayloadSectionsFromSource,
+	"futex":           futexPayloadSectionsFromSource,
+	"futex_wait":      futexPayloadSectionsFromSource,
+	"futex_waitv":     futexPayloadSectionsFromSource,
+	"futex_requeue":   futexPayloadSectionsFromSource,
 }
 
 var payloadSectionRules = map[string]payloadSectionRule{
@@ -172,10 +176,6 @@ var payloadSectionRules = map[string]payloadSectionRule{
 	"utimes":               timePayloadSectionsForEvent,
 	"futimesat":            timePayloadSectionsForEvent,
 	"utimensat":            timePayloadSectionsForEvent,
-	"futex":                futexPayloadSectionsForEvent,
-	"futex_wait":           futexPayloadSectionsForEvent,
-	"futex_waitv":          futexPayloadSectionsForEvent,
-	"futex_requeue":        futexPayloadSectionsForEvent,
 	"connect":              networkSockaddrInPayloadRule(1, 2, 0),
 	"bind":                 networkSockaddrInPayloadRule(1, 2, 0),
 	"sendto":               namedPayloadRule(sendtoPayloadSectionsForEvent),

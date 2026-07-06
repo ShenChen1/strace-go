@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"testing"
 
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -93,6 +95,124 @@ func TestJSONSyscallEventIncludesFutexWaitvPayloadSections(t *testing.T) {
 	}
 }
 
+func TestPayloadSectionsForPayloadEventUsesSourceAwareFutexRules(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     bpfEvent
+		want    handler.PayloadSection
+		payload []byte
+	}{
+		{
+			name: "futex",
+			raw: bpfEvent{
+				EventType:     bpfEventTypeEnter,
+				Args:          [6]uint64{0x2000, 0, 7, 0x1000},
+				ProbeRetEnter: 0,
+			},
+			want: handler.PayloadSection{
+				Kind:      handler.PayloadKindStruct,
+				Direction: handler.PayloadDirectionIn,
+				ArgIndex:  3,
+				UserPtr:   0x1000,
+				UserLen:   timespecPayloadStructSize,
+			},
+			payload: futexJSONTimespec(1, 2),
+		},
+		{
+			name: "futex_wait",
+			raw: bpfEvent{
+				EventType:     bpfEventTypeEnter,
+				Args:          [6]uint64{0x2000, 7, 0xffffffff, 0, 0x3000},
+				ProbeRetEnter: 0,
+			},
+			want: handler.PayloadSection{
+				Kind:      handler.PayloadKindStruct,
+				Direction: handler.PayloadDirectionIn,
+				ArgIndex:  4,
+				UserPtr:   0x3000,
+				UserLen:   timespecPayloadStructSize,
+			},
+			payload: futexJSONTimespec(3, 4),
+		},
+		{
+			name: "futex_requeue",
+			raw: bpfEvent{
+				EventType:     bpfEventTypeEnter,
+				Args:          [6]uint64{0x4000},
+				ProbeRetEnter: 0,
+			},
+			want: handler.PayloadSection{
+				Kind:      handler.PayloadKindStruct,
+				Direction: handler.PayloadDirectionIn,
+				ArgIndex:  0,
+				UserPtr:   0x4000,
+				UserLen:   futexPayloadRequeueSize,
+			},
+			payload: futexJSONWaitvPair(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := payloadEvent{
+				raw: &tt.raw,
+				source: staticPayloadSource{
+					args: tt.raw.Args,
+					data: tt.payload,
+				},
+			}
+
+			sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: tt.name})
+
+			if len(sections) != 1 {
+				t.Fatalf("sections = %d, want 1", len(sections))
+			}
+			assertFutexPayloadSection(t, sections[0], tt.want, tt.payload)
+		})
+	}
+}
+
+func TestPayloadSectionsForPayloadEventUsesSourceAwareFutexWaitvRule(t *testing.T) {
+	waiters := futexJSONWaitvPair()
+	timeout := futexJSONTimespec(9, 10)
+	raw := &bpfEvent{
+		EventType:     bpfEventTypeEnter,
+		Args:          [6]uint64{0x1000, 2, 0, 0x4000},
+		ProbeRetEnter: 0,
+	}
+	data := make([]byte, futexPayloadWaitvTimeoutOffset+timespecPayloadStructSize)
+	copy(data[:], waiters)
+	copy(data[futexPayloadWaitvTimeoutOffset:], timeout)
+	event := payloadEvent{
+		raw: raw,
+		source: staticPayloadSource{
+			args: raw.Args,
+			data: data,
+		},
+	}
+
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "futex_waitv"})
+
+	if len(sections) != 2 {
+		t.Fatalf("sections = %d, want 2", len(sections))
+	}
+	assertFutexPayloadSection(t, sections[0], handler.PayloadSection{
+		Kind:      handler.PayloadKindStruct,
+		Direction: handler.PayloadDirectionIn,
+		ArgIndex:  0,
+		UserPtr:   0x1000,
+		UserLen:   uint32(len(waiters)),
+	}, waiters)
+	assertFutexPayloadSection(t, sections[1], handler.PayloadSection{
+		Kind:      handler.PayloadKindStruct,
+		Direction: handler.PayloadDirectionIn,
+		ArgIndex:  3,
+		Offset:    futexPayloadWaitvTimeoutOffset,
+		UserPtr:   0x4000,
+		UserLen:   timespecPayloadStructSize,
+	}, timeout)
+}
+
 func futexJSONSyscallEvent(eventRaw *bpfEvent, name string) jsonSyscallEvent {
 	scMeta := meta.Syscall{Name: name}
 	return newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -116,6 +236,27 @@ func assertFutexJSONPayloadSection(
 	gotData := mustDecodeBase64(t, got.DataBase64)
 	if string(gotData) != string(want.data) {
 		t.Fatalf("section data = %v, want %v", gotData, want.data)
+	}
+}
+
+func assertFutexPayloadSection(
+	t *testing.T,
+	got handler.PayloadSection,
+	want handler.PayloadSection,
+	wantData []byte,
+) {
+	t.Helper()
+	if got.Kind != want.Kind || got.Direction != want.Direction || got.ArgIndex != want.ArgIndex {
+		t.Fatalf("section metadata = %+v, want %+v", got, want)
+	}
+	if got.Offset != want.Offset || got.UserPtr != want.UserPtr || got.UserLen != want.UserLen {
+		t.Fatalf("section bounds = %+v, want %+v", got, want)
+	}
+	if got.CopiedLen != uint32(len(wantData)) {
+		t.Fatalf("section copied_len = %d, want %d", got.CopiedLen, len(wantData))
+	}
+	if !bytes.Equal(got.Data, wantData) {
+		t.Fatalf("section data = %v, want %v", got.Data, wantData)
 	}
 }
 

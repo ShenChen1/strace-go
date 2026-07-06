@@ -9,20 +9,20 @@ const (
 	futexPayloadRequeueSize        = 48
 )
 
-func futexPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) []handler.PayloadSection {
+func futexPayloadSectionsFromSource(event payloadEvent, scName string) []handler.PayloadSection {
 	switch scName {
 	case "futex":
-		if !futexHasTimeout(eventRaw.Args[1]) {
+		if !futexHasTimeout(event.Arg(1)) {
 			return nil
 		}
-		return futexStructPayloadSection(eventRaw, 3, handler.PayloadDirectionIn, handler.BpfEnterArgOffset, timespecPayloadStructSize)
+		return futexStructPayloadSection(event, 3, handler.PayloadDirectionIn, handler.BpfEnterArgOffset, timespecPayloadStructSize)
 	case "futex_wait":
-		return futexStructPayloadSection(eventRaw, 4, handler.PayloadDirectionIn, handler.BpfEnterArgOffset, timespecPayloadStructSize)
+		return futexStructPayloadSection(event, 4, handler.PayloadDirectionIn, handler.BpfEnterArgOffset, timespecPayloadStructSize)
 	case "futex_waitv":
-		sections := futexWaitvPayloadSection(eventRaw)
-		return append(sections, futexStructPayloadSection(eventRaw, 3, handler.PayloadDirectionIn, futexPayloadWaitvTimeoutOffset, timespecPayloadStructSize)...)
+		sections := futexWaitvPayloadSection(event)
+		return append(sections, futexStructPayloadSection(event, 3, handler.PayloadDirectionIn, futexPayloadWaitvTimeoutOffset, timespecPayloadStructSize)...)
 	case "futex_requeue":
-		return futexStructPayloadSection(eventRaw, 0, handler.PayloadDirectionIn, handler.BpfEnterArgOffset, futexPayloadRequeueSize)
+		return futexStructPayloadSection(event, 0, handler.PayloadDirectionIn, handler.BpfEnterArgOffset, futexPayloadRequeueSize)
 	default:
 		return nil
 	}
@@ -33,53 +33,53 @@ func futexHasTimeout(op uint64) bool {
 	return baseOp == 0 || baseOp == 11 || baseOp == 2
 }
 
-func futexWaitvPayloadSection(eventRaw *bpfEvent) []handler.PayloadSection {
-	if eventRaw.Args[0] == 0 {
+func futexWaitvPayloadSection(event payloadEvent) []handler.PayloadSection {
+	if event.Arg(0) == 0 {
 		return nil
 	}
-	probeRet := getArgProbeStatus(eventRaw.ProbeRetEnter, 0)
+	probeRet := event.ProbeRetEnterArg(0)
 	if probeRet != 0 {
 		return nil
 	}
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindStruct,
 		direction: handler.PayloadDirectionIn,
 		argIndex:  0,
 		offset:    handler.BpfEnterArgOffset,
-		userLen:   structArrayUserLen(eventRaw.Args[1], futexPayloadWaitvElemSize),
+		userLen:   structArrayUserLen(event.Arg(1), futexPayloadWaitvElemSize),
 		maxLen:    futexPayloadWaitvMaxBytes,
 		probeRet:  probeRet,
 	})
 }
 
 func futexStructPayloadSection(
-	eventRaw *bpfEvent,
+	event payloadEvent,
 	argIndex int,
 	direction handler.PayloadDirection,
 	offset int,
 	size uint32,
 ) []handler.PayloadSection {
-	if argIndex < 0 || argIndex >= len(eventRaw.Args) || eventRaw.Args[argIndex] == 0 {
+	if argIndex < 0 || argIndex >= 6 || event.Arg(argIndex) == 0 {
 		return nil
 	}
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindStruct,
 		direction: direction,
 		argIndex:  argIndex,
 		offset:    offset,
 		userLen:   size,
 		maxLen:    size,
-		probeRet:  futexPayloadProbeRet(eventRaw, argIndex, direction),
+		probeRet:  futexPayloadProbeRet(event, argIndex, direction),
 	})
 }
 
 func futexPayloadProbeRet(
-	eventRaw *bpfEvent,
+	event payloadEvent,
 	argIndex int,
 	direction handler.PayloadDirection,
 ) int32 {
 	if direction == handler.PayloadDirectionOut {
-		return getArgProbeStatus(eventRaw.ProbeRetExit, argIndex)
+		return event.ProbeRetExit()
 	}
-	return getArgProbeStatus(eventRaw.ProbeRetEnter, argIndex)
+	return event.ProbeRetEnterArg(argIndex)
 }
