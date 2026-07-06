@@ -2,15 +2,15 @@ package main
 
 import "strace-go/pkg/handler"
 
-func fcntlPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	size := fcntlPayloadSize(eventRaw.Args[1])
+func fcntlPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	size := fcntlPayloadSize(event.Arg(1))
 	if size == 0 {
 		return nil
 	}
 
-	sections := enterStructPayloadSection(eventRaw, 2, handler.BpfEnterArgOffset, size)
-	if isExitEvent(eventRaw) && eventRaw.Ret >= 0 {
-		sections = append(sections, exitStructPayloadSection(eventRaw, 2, size)...)
+	sections := enterStructPayloadSectionFromSource(event, 2, handler.BpfEnterArgOffset, size)
+	if event.IsExit() && event.Ret() >= 0 {
+		sections = append(sections, exitStructPayloadSectionFromSource(event, 2, size)...)
 	}
 	return sections
 }

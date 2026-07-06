@@ -114,6 +114,8 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"cachestat":       cachestatPayloadSectionsFromSource,
 	"capget":          capabilityPayloadSectionsFromSource,
 	"capset":          capabilityPayloadSectionsFromSource,
+	"fcntl":           fcntlPayloadSectionsFromSource,
+	"fcntl64":         fcntlPayloadSectionsFromSource,
 }
 
 var payloadSectionRules = map[string]payloadSectionRule{
@@ -143,8 +145,6 @@ var payloadSectionRules = map[string]payloadSectionRule{
 	"io_getevents":         aioPayloadSectionsForEvent,
 	"io_pgetevents":        aioPayloadSectionsForEvent,
 	"io_pgetevents_time64": aioPayloadSectionsForEvent,
-	"fcntl":                namedPayloadRule(fcntlPayloadSectionsForEvent),
-	"fcntl64":              namedPayloadRule(fcntlPayloadSectionsForEvent),
 	"prctl":                namedPayloadRule(prctlPayloadSectionsForEvent),
 	"rt_sigaction":         signalPayloadSectionsForEvent,
 	"rt_sigprocmask":       signalPayloadSectionsForEvent,
