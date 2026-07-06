@@ -11,37 +11,40 @@ const (
 	prctlUint32PayloadSize = 4
 )
 
-func prctlPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	option := uint32(eventRaw.Args[0])
+func prctlPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	option := uint32(event.Arg(0))
 	switch {
 	case option == 15:
-		return prctlStringPayloadSection(eventRaw, handler.PayloadDirectionIn, handler.BpfEnterArgOffset, eventRaw.ProbeRetEnter)
+		return prctlStringPayloadSectionFromSource(event, handler.PayloadDirectionIn, handler.BpfEnterArgOffset, event.ProbeRetEnterArg(1))
 	case option == 16:
-		if isExitEvent(eventRaw) && eventRaw.Ret >= 0 {
-			return prctlStringPayloadSection(eventRaw, handler.PayloadDirectionOut, handler.BpfExitArgOffset, eventRaw.ProbeRetExit)
+		if event.IsExit() && event.Ret() >= 0 {
+			return prctlStringPayloadSectionFromSource(event, handler.PayloadDirectionOut, handler.BpfExitArgOffset, event.ProbeRetExit())
 		}
 	case prctlHasUint32Out(option):
-		if isExitEvent(eventRaw) && eventRaw.Ret >= 0 {
-			return exitStructPayloadSection(eventRaw, 1, prctlUint32PayloadSize)
+		if event.IsExit() && event.Ret() >= 0 {
+			return exitStructPayloadSectionFromSource(event, 1, prctlUint32PayloadSize)
 		}
 	}
 	return nil
 }
 
-func prctlStringPayloadSection(
-	eventRaw *bpfEvent,
+func prctlStringPayloadSectionFromSource(
+	event payloadEvent,
 	direction handler.PayloadDirection,
 	offset int,
 	probeRet int32,
 ) []handler.PayloadSection {
-	data, ok := eventPayloadWindow(eventRaw, offset, prctlNamePayloadSize)
+	if event.source == nil {
+		return nil
+	}
+	data, ok := event.source.PayloadWindow(offset, prctlNamePayloadSize)
 	if !ok {
 		return nil
 	}
 	if nul := bytes.IndexByte(data, 0); nul >= 0 {
 		data = data[:nul+1]
 	}
-	return []handler.PayloadSection{newPayloadSection(eventRaw, payloadWindowSpec{
+	return []handler.PayloadSection{newPayloadSectionFromSource(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindString,
 		direction: direction,
 		argIndex:  1,
