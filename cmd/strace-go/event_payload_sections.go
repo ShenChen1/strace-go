@@ -146,14 +146,14 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"listxattr":       xattrPayloadSectionsFromSource,
 	"llistxattr":      xattrPayloadSectionsFromSource,
 	"flistxattr":      xattrPayloadSectionsFromSource,
+	"mount":           fsPayloadSectionsFromSource,
+	"umount2":         fsPayloadSectionsFromSource,
+	"fsconfig":        fsPayloadSectionsFromSource,
 }
 
 var payloadSectionRules = map[string]payloadSectionRule{
-	"bpf":      namedPayloadRule(bpfPayloadSectionsForEvent),
-	"mount":    fsPayloadSectionsForEvent,
-	"umount2":  fsPayloadSectionsForEvent,
-	"fsconfig": fsPayloadSectionsForEvent,
-	"ioctl":    namedPayloadRule(ioctlPayloadSectionsForEvent),
+	"bpf":   namedPayloadRule(bpfPayloadSectionsForEvent),
+	"ioctl": namedPayloadRule(ioctlPayloadSectionsForEvent),
 
 	"io_setup":             aioPayloadSectionsForEvent,
 	"io_submit":            aioPayloadSectionsForEvent,

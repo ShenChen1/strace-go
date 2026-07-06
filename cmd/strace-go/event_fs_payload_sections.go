@@ -1,10 +1,6 @@
 package main
 
-import (
-	"bytes"
-
-	"strace-go/pkg/handler"
-)
+import "strace-go/pkg/handler"
 
 const (
 	fsconfigKeyOffset     = 0
@@ -19,62 +15,54 @@ const (
 	mountStringMaxBytes   = 512
 )
 
-func fsPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) []handler.PayloadSection {
+func fsPayloadSectionsFromSource(event payloadEvent, scName string) []handler.PayloadSection {
 	switch scName {
 	case "mount":
-		return mountPayloadSectionsForEvent(eventRaw)
+		return mountPayloadSectionsFromSource(event)
 	case "umount2":
-		return fsStringPayloadSection(eventRaw, 0, mountSourceOffset, mountStringMaxBytes)
+		return fsStringPayloadSection(event, 0, mountSourceOffset, mountStringMaxBytes)
 	case "fsconfig":
-		return fsconfigPayloadSectionsForEvent(eventRaw)
+		return fsconfigPayloadSectionsFromSource(event)
 	default:
 		return nil
 	}
 }
 
-func mountPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	sections := fsStringPayloadSection(eventRaw, 0, mountSourceOffset, mountStringMaxBytes)
-	sections = append(sections, fsStringPayloadSection(eventRaw, 1, mountTargetOffset, mountStringMaxBytes)...)
-	sections = append(sections, fsStringPayloadSection(eventRaw, 2, mountTypeOffset, mountTypeMaxBytes)...)
-	return append(sections, fsStringPayloadSection(eventRaw, 4, mountDataOffset, mountStringMaxBytes)...)
+func mountPayloadSectionsFromSource(event payloadEvent) []handler.PayloadSection {
+	sections := fsStringPayloadSection(event, 0, mountSourceOffset, mountStringMaxBytes)
+	sections = append(sections, fsStringPayloadSection(event, 1, mountTargetOffset, mountStringMaxBytes)...)
+	sections = append(sections, fsStringPayloadSection(event, 2, mountTypeOffset, mountTypeMaxBytes)...)
+	return append(sections, fsStringPayloadSection(event, 4, mountDataOffset, mountStringMaxBytes)...)
 }
 
-func fsconfigPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	sections := fsStringPayloadSection(eventRaw, 2, fsconfigKeyOffset, fsconfigKeyMaxBytes)
-	if eventRaw.Args[1] == 2 {
-		return append(sections, fsconfigBytesPayloadSection(eventRaw)...)
+func fsconfigPayloadSectionsFromSource(event payloadEvent) []handler.PayloadSection {
+	sections := fsStringPayloadSection(event, 2, fsconfigKeyOffset, fsconfigKeyMaxBytes)
+	if event.Arg(1) == 2 {
+		return append(sections, fsconfigBytesPayloadSection(event)...)
 	}
-	return append(sections, fsStringPayloadSection(eventRaw, 3, fsconfigValueOffset, fsconfigValueMaxBytes)...)
+	return append(sections, fsStringPayloadSection(event, 3, fsconfigValueOffset, fsconfigValueMaxBytes)...)
 }
 
-func fsconfigBytesPayloadSection(eventRaw *bpfEvent) []handler.PayloadSection {
-	userLen := uint32Clamped(eventRaw.Args[4] & 0x1fff)
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+func fsconfigBytesPayloadSection(event payloadEvent) []handler.PayloadSection {
+	userLen := uint32Clamped(event.Arg(4) & 0x1fff)
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindBytes,
 		direction: handler.PayloadDirectionIn,
 		argIndex:  3,
 		offset:    fsconfigValueOffset,
 		userLen:   userLen,
 		maxLen:    fsconfigValueMaxBytes,
-		probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, 3),
+		probeRet:  event.ProbeRetEnterArg(3),
 	})
 }
 
-func fsStringPayloadSection(eventRaw *bpfEvent, argIndex int, offset int, maxLen int) []handler.PayloadSection {
-	data, ok := eventPayloadWindow(eventRaw, offset, maxLen)
-	if !ok {
+func fsStringPayloadSection(event payloadEvent, argIndex int, offset int, maxLen int) []handler.PayloadSection {
+	if event.Arg(argIndex) == 0 {
 		return nil
 	}
-	if nul := bytes.IndexByte(data, 0); nul >= 0 {
-		data = data[:nul+1]
-	}
-	section := newPayloadSection(eventRaw, payloadWindowSpec{
-		kind:      handler.PayloadKindString,
-		direction: handler.PayloadDirectionIn,
-		argIndex:  argIndex,
-		offset:    offset,
-		userLen:   uint32(len(data)),
-		probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, argIndex),
-	}, data)
-	return []handler.PayloadSection{section}
+	return stringPayloadSectionFromSourceSpec(event, stringPayloadWindowSpec{
+		argIndex: argIndex,
+		offset:   offset,
+		maxBytes: maxLen,
+	})
 }
