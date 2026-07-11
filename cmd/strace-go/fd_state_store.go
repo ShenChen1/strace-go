@@ -61,11 +61,15 @@ func (st *FDStateStore) UpdateFromEvent(eventRaw *bpfEvent, scMeta meta.Syscall,
 }
 
 func (st *FDStateStore) CleanupClosedFD(eventRaw *bpfEvent, scMeta meta.Syscall, statePID int) {
-	if scMeta.Name != "close" || eventRaw.Ret != 0 {
+	st.CleanupClosedFDFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, statePID)
+}
+
+func (st *FDStateStore) CleanupClosedFDFromView(view syscallEventView, scMeta meta.Syscall, statePID int) {
+	if !view.valid || scMeta.Name != "close" || view.ret != 0 {
 		return
 	}
 	st.ensureMaps()
-	key := fdStateKey(statePID, int32(eventRaw.Args[0]))
+	key := fdStateKey(statePID, int32(view.args[0]))
 	delete(st.paths, key)
 	delete(st.offsets, key)
 	if f := st.files[key]; f != nil {

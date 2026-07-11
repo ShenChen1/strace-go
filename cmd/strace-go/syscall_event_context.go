@@ -187,7 +187,7 @@ func (s *traceSession) updateFDState(ev syscallEventContext) {
 }
 
 func (s *traceSession) cleanupClosedFD(ev syscallEventContext) {
-	s.fdStateStore().CleanupClosedFD(ev.raw, ev.meta, ev.statePID)
+	s.fdStateStore().CleanupClosedFDFromView(ev.eventView(), ev.meta, ev.statePID)
 }
 
 func (ev syscallEventContext) shouldEmitStatus(optsStatus successfulFailedOptions) bool {
