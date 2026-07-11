@@ -10,29 +10,29 @@ const (
 	ioctlArgSizeMask        = 0x3fff
 )
 
-func ioctlPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	if eventRaw.Args[2] == 0 {
+func ioctlPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	if event.Arg(2) == 0 {
 		return nil
 	}
-	sections := ioctlArgPayloadSection(eventRaw, handler.PayloadDirectionIn, ioctlArgPayloadOffset, getArgProbeStatus(eventRaw.ProbeRetEnter, 2))
-	if isExitEvent(eventRaw) && eventRaw.Ret >= 0 {
-		sections = append(sections, ioctlArgPayloadSection(eventRaw, handler.PayloadDirectionOut, handler.BpfExitArgOffset, eventRaw.ProbeRetExit)...)
+	sections := ioctlArgPayloadSection(event, handler.PayloadDirectionIn, ioctlArgPayloadOffset, event.ProbeRetEnterArg(2))
+	if event.IsExit() && event.Ret() >= 0 {
+		sections = append(sections, ioctlArgPayloadSection(event, handler.PayloadDirectionOut, handler.BpfExitArgOffset, event.ProbeRetExit())...)
 	}
 	return sections
 }
 
 func ioctlArgPayloadSection(
-	eventRaw *bpfEvent,
+	event payloadEvent,
 	direction handler.PayloadDirection,
 	offset int,
 	probeRet int32,
 ) []handler.PayloadSection {
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindBytes,
 		direction: direction,
 		argIndex:  2,
 		offset:    offset,
-		userLen:   ioctlArgUserLen(eventRaw.Args[1]),
+		userLen:   ioctlArgUserLen(event.Arg(1)),
 		maxLen:    ioctlArgPayloadMaxBytes,
 		probeRet:  probeRet,
 	})

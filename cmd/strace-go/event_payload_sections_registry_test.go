@@ -37,7 +37,7 @@ func TestPayloadSectionRegistryPrefersExplicitStructuredRules(t *testing.T) {
 }
 
 func TestPayloadSectionRegistryFallsBackToSimplePathRules(t *testing.T) {
-	if _, ok := payloadSectionRules["chdir"]; ok {
+	if _, ok := payloadSourceSectionRules["chdir"]; ok {
 		t.Fatal("chdir should use the simple path fallback, not an explicit payload rule")
 	}
 

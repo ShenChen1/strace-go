@@ -49,7 +49,6 @@ type structArrayPayloadSpec struct {
 	probeRet   int32
 }
 
-type payloadSectionRule func(eventRaw *bpfEvent, scName string) []handler.PayloadSection
 type payloadSourceSectionRule func(event payloadEvent, scName string) []handler.PayloadSection
 
 var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
@@ -179,10 +178,7 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"io_getevents":         aioPayloadSectionsFromSource,
 	"io_pgetevents":        aioPayloadSectionsFromSource,
 	"io_pgetevents_time64": aioPayloadSectionsFromSource,
-}
-
-var payloadSectionRules = map[string]payloadSectionRule{
-	"ioctl": namedPayloadRule(ioctlPayloadSectionsForEvent),
+	"ioctl":                ioctlPayloadSectionsFromSource,
 }
 
 func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.PayloadSection {
@@ -196,20 +192,7 @@ func payloadSectionsForPayloadEvent(event payloadEvent, scMeta meta.Syscall) []h
 	if argIndex, ok := simplePathPayloadArgIndex(scMeta.Name); ok {
 		return stringPayloadSectionFromSource(event, argIndex)
 	}
-	eventRaw := event.raw
-	if eventRaw == nil {
-		return nil
-	}
-	if rule, ok := payloadSectionRules[scMeta.Name]; ok {
-		return rule(eventRaw, scMeta.Name)
-	}
 	return nil
-}
-
-func namedPayloadRule(fn func(*bpfEvent) []handler.PayloadSection) payloadSectionRule {
-	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
-		return fn(eventRaw)
-	}
 }
 
 func exitBytesPayloadSourceRule(argIndex int) payloadSourceSectionRule {
@@ -383,10 +366,6 @@ func iovecUserLen(count uint64) uint32 {
 	return uint32(count * iovecSectionElemSize)
 }
 
-func payloadSectionFromWindowSpec(eventRaw *bpfEvent, spec payloadWindowSpec) []handler.PayloadSection {
-	return payloadSectionFromSourceSpec(newFixedEventPayloadSource(eventRaw), spec)
-}
-
 func payloadSectionFromSourceSpec(source payloadSource, spec payloadWindowSpec) []handler.PayloadSection {
 	if source == nil || spec.userLen == 0 {
 		return nil
@@ -400,14 +379,6 @@ func payloadSectionFromSourceSpec(source payloadSource, spec payloadWindowSpec) 
 	}
 	section := newPayloadSectionFromSource(source, spec, data)
 	return []handler.PayloadSection{section}
-}
-
-func eventPayloadWindow(eventRaw *bpfEvent, offset int, maxLen int) ([]byte, bool) {
-	return newFixedEventPayloadSource(eventRaw).PayloadWindow(offset, maxLen)
-}
-
-func newPayloadSection(eventRaw *bpfEvent, spec payloadWindowSpec, data []byte) handler.PayloadSection {
-	return newPayloadSectionFromSource(newFixedEventPayloadSource(eventRaw), spec, data)
 }
 
 func newPayloadSectionFromSource(source payloadSource, spec payloadWindowSpec, data []byte) handler.PayloadSection {
