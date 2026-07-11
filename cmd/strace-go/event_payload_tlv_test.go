@@ -54,6 +54,37 @@ func TestPayloadSectionsForEventUsesTLVSections(t *testing.T) {
 	}
 }
 
+func TestPayloadSectionsForRawPayloadEventUsesTLVSections(t *testing.T) {
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindString,
+		arg:     1,
+		userPtr: 0x1000,
+		userLen: 9,
+		data:    []byte("tlv.txt\x00"),
+	})
+	raw := rawPayloadEvent{
+		valid:      true,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagPayloadTLV,
+		args:       [6]uint64{rawAtFdcwd, 0x1000, 0},
+		data:       payload,
+	}
+
+	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "openat"})
+
+	if len(sections) != 1 {
+		t.Fatalf("sections = %d, want 1", len(sections))
+	}
+	section := sections[0]
+	if section.Kind != handler.PayloadKindString || section.Direction != handler.PayloadDirectionIn ||
+		section.ArgIndex != 1 || section.UserPtr != 0x1000 || section.UserLen != 9 {
+		t.Fatalf("TLV section metadata = %+v", section)
+	}
+	if !bytes.Equal(section.Data, []byte("tlv.txt\x00")) {
+		t.Fatalf("TLV section data = %q", section.Data)
+	}
+}
+
 func TestPayloadSectionsForEventUsesExecTLVSections(t *testing.T) {
 	snapshot := execJSONSnapshot()
 	payload := payloadTLVBytes(t, payloadTLVTestSection{

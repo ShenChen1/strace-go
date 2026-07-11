@@ -174,10 +174,14 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 }
 
 func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.PayloadSection {
-	if sections, ok := payloadTLVSectionsForEvent(eventRaw); ok {
+	return payloadSectionsForRawPayloadEvent(newRawPayloadEventFromBPF(eventRaw), scMeta)
+}
+
+func payloadSectionsForRawPayloadEvent(raw rawPayloadEvent, scMeta meta.Syscall) []handler.PayloadSection {
+	if sections, ok := payloadTLVSectionsForRaw(raw); ok {
 		return sections
 	}
-	return payloadSectionsForPayloadEvent(newFixedPayloadEvent(eventRaw), scMeta)
+	return payloadSectionsForPayloadEvent(newFixedPayloadEventFromRaw(raw), scMeta)
 }
 
 func payloadSectionsForPayloadEvent(event payloadEvent, scMeta meta.Syscall) []handler.PayloadSection {

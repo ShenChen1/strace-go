@@ -17,26 +17,15 @@ const (
 	payloadTLVFlagDirectionOut = 1
 )
 
-func payloadTLVSectionsForEvent(eventRaw *bpfEvent) ([]handler.PayloadSection, bool) {
-	if eventRaw == nil || eventRaw.EventFlags&bpfEventFlagPayloadTLV == 0 {
+func payloadTLVSectionsForRaw(raw rawPayloadEvent) ([]handler.PayloadSection, bool) {
+	if !raw.valid || raw.eventFlags&bpfEventFlagPayloadTLV == 0 {
 		return nil, false
 	}
-	sections, ok := decodePayloadTLVSections(eventPayloadData(eventRaw))
+	sections, ok := decodePayloadTLVSections(raw.data)
 	if !ok {
 		return nil, true
 	}
 	return sections, true
-}
-
-func eventPayloadData(eventRaw *bpfEvent) []byte {
-	if eventRaw == nil || eventRaw.DataLen == 0 {
-		return nil
-	}
-	dataLen := int(eventRaw.DataLen)
-	if dataLen > len(eventRaw.StrArg) {
-		dataLen = len(eventRaw.StrArg)
-	}
-	return eventRaw.StrArg[:dataLen]
 }
 
 func decodePayloadTLVSections(data []byte) ([]handler.PayloadSection, bool) {

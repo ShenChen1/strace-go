@@ -5,6 +5,18 @@ type payloadSource interface {
 	PayloadWindow(offset int, maxLen int) ([]byte, bool)
 }
 
+// rawPayloadEvent is the narrow record view required by payload projection.
+type rawPayloadEvent struct {
+	valid         bool
+	args          [6]uint64
+	eventType     uint16
+	eventFlags    uint32
+	ret           int64
+	probeRetEnter int32
+	probeRetExit  int32
+	data          []byte
+}
+
 type windowPayloadSource struct {
 	args [6]uint64
 	data []byte
@@ -35,30 +47,63 @@ type payloadEvent struct {
 	meta   payloadEventMeta
 }
 
-func newFixedEventPayloadSource(eventRaw *bpfEvent) windowPayloadSource {
+func newRawPayloadEventFromBPF(eventRaw *bpfEvent) rawPayloadEvent {
 	if eventRaw == nil {
+		return rawPayloadEvent{}
+	}
+	return rawPayloadEvent{
+		valid:         true,
+		args:          eventRaw.Args,
+		eventType:     eventRaw.EventType,
+		eventFlags:    eventRaw.EventFlags,
+		ret:           eventRaw.Ret,
+		probeRetEnter: eventRaw.ProbeRetEnter,
+		probeRetExit:  eventRaw.ProbeRetExit,
+		data:          eventPayloadDataFromBPF(eventRaw),
+	}
+}
+
+func newFixedEventPayloadSource(eventRaw *bpfEvent) windowPayloadSource {
+	return newFixedPayloadSourceFromRaw(newRawPayloadEventFromBPF(eventRaw))
+}
+
+func newFixedPayloadSourceFromRaw(raw rawPayloadEvent) windowPayloadSource {
+	if !raw.valid {
 		return windowPayloadSource{}
+	}
+	return windowPayloadSource{
+		args: raw.args,
+		data: raw.data,
+	}
+}
+
+func eventPayloadDataFromBPF(eventRaw *bpfEvent) []byte {
+	if eventRaw == nil {
+		return nil
 	}
 	dataLen := int(eventRaw.DataLen)
 	if dataLen > len(eventRaw.StrArg) {
 		dataLen = len(eventRaw.StrArg)
 	}
-	return windowPayloadSource{
-		args: eventRaw.Args,
-		data: eventRaw.StrArg[:dataLen],
-	}
+	return eventRaw.StrArg[:dataLen]
 }
 
 func newFixedPayloadEvent(eventRaw *bpfEvent) payloadEvent {
+	return newFixedPayloadEventFromRaw(newRawPayloadEventFromBPF(eventRaw))
+}
+
+func newFixedPayloadEventFromRaw(raw rawPayloadEvent) payloadEvent {
+	if !raw.valid {
+		return payloadEvent{}
+	}
 	return payloadEvent{
-		raw:    eventRaw,
-		source: newFixedEventPayloadSource(eventRaw),
+		source: newFixedPayloadSourceFromRaw(raw),
 		meta: payloadEventMeta{
 			valid:         true,
-			eventType:     eventRaw.EventType,
-			ret:           eventRaw.Ret,
-			probeRetEnter: eventRaw.ProbeRetEnter,
-			probeRetExit:  eventRaw.ProbeRetExit,
+			eventType:     raw.eventType,
+			ret:           raw.ret,
+			probeRetEnter: raw.probeRetEnter,
+			probeRetExit:  raw.probeRetExit,
 		},
 	}
 }
