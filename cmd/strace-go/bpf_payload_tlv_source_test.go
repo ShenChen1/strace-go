@@ -32,6 +32,15 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if calls := strings.Count(straceSource, "capture_read_tlv(e);"); calls != 1 {
 		t.Fatalf("capture_read_tlv calls = %d, want exit path only", calls)
 	}
+	if calls := strings.Count(straceSource, "capture_exec_tlv(e, 0, 1, 2);"); calls != 2 {
+		t.Fatalf("execve capture_exec_tlv calls = %d, want enter and failed-exit paths", calls)
+	}
+	if calls := strings.Count(straceSource, "capture_exec_tlv(e, 1, 2, 3);"); calls != 2 {
+		t.Fatalf("execveat capture_exec_tlv calls = %d, want enter and failed-exit paths", calls)
+	}
+	if !strings.Contains(straceSource, "PAYLOAD_TLV_HEADER_SIZE + sizeof(*snapshot)") {
+		t.Fatal("exec TLV capture should append filename section after exec args snapshot")
+	}
 	if !strings.Contains(straceSource, "saved_flags | EVENT_FLAG_GENERIC_ENTER") {
 		t.Fatal("generic enter flag should preserve payload TLV flag")
 	}
@@ -42,6 +51,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(tlvHeader, "PAYLOAD_TLV_KIND_STRING") ||
 		!strings.Contains(tlvHeader, "PAYLOAD_TLV_KIND_BYTES") {
 		t.Fatal("payload TLV header missing string/bytes section kinds")
+	}
+	if !strings.Contains(tlvHeader, "PAYLOAD_TLV_KIND_EXEC_ARGS") {
+		t.Fatal("payload TLV header missing exec args section kind")
 	}
 	if !strings.Contains(tlvHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") {
 		t.Fatal("payload TLV header missing out direction flag")

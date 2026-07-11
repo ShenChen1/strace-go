@@ -8,6 +8,7 @@
 #define PAYLOAD_TLV_WRITE_MAX 512
 #define PAYLOAD_TLV_KIND_STRING 1
 #define PAYLOAD_TLV_KIND_BYTES 2
+#define PAYLOAD_TLV_KIND_EXEC_ARGS 6
 #define PAYLOAD_TLV_FLAG_DIRECTION_OUT 1
 
 struct payload_tlv_header {
@@ -38,6 +39,29 @@ static __always_inline u32 payload_tlv_copy_len(u64 value, u32 max)
     return (u32)value;
 }
 
+static __always_inline void payload_tlv_write_header_at(
+    struct bpf_event *e,
+    u32 offset,
+    u16 kind,
+    u16 arg_index,
+    u16 flags,
+    u32 user_len,
+    u32 copied_len,
+    s32 probe_ret,
+    u64 user_ptr)
+{
+    struct payload_tlv_header *header = (void *)(e->str_arg + offset);
+    header->kind = kind;
+    header->arg_index = arg_index;
+    header->flags = flags;
+    header->reserved = 0;
+    header->user_len = user_len;
+    header->copied_len = copied_len;
+    header->probe_ret = probe_ret;
+    header->reserved2 = 0;
+    header->user_ptr = user_ptr;
+}
+
 static __always_inline void payload_tlv_write_header(
     struct bpf_event *e,
     u16 kind,
@@ -48,16 +72,7 @@ static __always_inline void payload_tlv_write_header(
     s32 probe_ret,
     u64 user_ptr)
 {
-    struct payload_tlv_header *header = (void *)e->str_arg;
-    header->kind = kind;
-    header->arg_index = arg_index;
-    header->flags = flags;
-    header->reserved = 0;
-    header->user_len = user_len;
-    header->copied_len = copied_len;
-    header->probe_ret = probe_ret;
-    header->reserved2 = 0;
-    header->user_ptr = user_ptr;
+    payload_tlv_write_header_at(e, 0, kind, arg_index, flags, user_len, copied_len, probe_ret, user_ptr);
 }
 
 static __always_inline void capture_write_tlv(struct bpf_event *e)

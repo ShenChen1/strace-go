@@ -43,6 +43,47 @@ func TestPayloadSectionsForEventUsesTLVSections(t *testing.T) {
 	}
 }
 
+func TestPayloadSectionsForEventUsesExecTLVSections(t *testing.T) {
+	snapshot := execJSONSnapshot()
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindExecArgs,
+		arg:     1,
+		userPtr: 0x2000,
+		userLen: uint32(len(snapshot)),
+		data:    snapshot,
+	})
+	payload = append(payload, payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindString,
+		arg:     0,
+		userPtr: 0x1000,
+		userLen: 10,
+		data:    []byte("/bin/true\x00"),
+	})...)
+	eventRaw := &bpfEvent{
+		EventType:  bpfEventTypeEnter,
+		EventFlags: bpfEventFlagPayloadTLV,
+		Args:       [6]uint64{0x1000, 0x2000, 0x3000},
+		DataLen:    uint32(len(payload)),
+	}
+	copy(eventRaw.StrArg[:], payload)
+
+	sections := payloadSectionsForEvent(eventRaw, meta.Syscall{Name: "execve"})
+
+	if len(sections) != 2 {
+		t.Fatalf("sections = %d, want exec args and filename sections", len(sections))
+	}
+	execSection := sections[0]
+	if execSection.Kind != handler.PayloadKindExecArgs || execSection.ArgIndex != 1 ||
+		execSection.UserPtr != 0x2000 || !bytes.Equal(execSection.Data, snapshot) {
+		t.Fatalf("exec section = %+v, want argv snapshot", execSection)
+	}
+	pathSection := sections[1]
+	if pathSection.Kind != handler.PayloadKindString || pathSection.ArgIndex != 0 ||
+		pathSection.UserPtr != 0x1000 || !bytes.Equal(pathSection.Data, []byte("/bin/true\x00")) {
+		t.Fatalf("path section = %+v, want filename snapshot", pathSection)
+	}
+}
+
 func TestSyscallEventContextUsesTLVPathSection(t *testing.T) {
 	session := &traceSession{
 		targetPid: 101,

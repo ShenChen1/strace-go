@@ -17,6 +17,7 @@ volatile const u32 SYS_EXIT_GROUP = 231;
 volatile const u32 SYS_EXECVEAT = 322;
 
 #define EXEC_SNAPSHOT_MAGIC 0x45584543
+#define EXEC_PATH_SNAPSHOT_MAX 512
 #define EXEC_SNAPSHOT_OFFSET 4096
 #define EXEC_ARG_MAX 48
 #define EXEC_ENV_MAX 64
@@ -165,97 +166,130 @@ struct {
     __type(value, u32);
 } main_exited_map SEC(".maps");
 
-static __always_inline void capture_exec_snapshot(struct bpf_event *e, u32 argv_index, u32 env_index)
+static __always_inline void capture_exec_records(
+    struct exec_arg_snapshot *records,
+    u64 array,
+    u32 max_count,
+    u16 *count,
+    s32 *status,
+    u64 *next)
 {
-    struct exec_snapshot *snapshot = (void *)(e->str_arg + EXEC_SNAPSHOT_OFFSET);
+    *count = 0;
+    *status = -1;
+    *next = array;
+
+    if (!array) {
+        *status = 0;
+        return;
+    }
+
+    for (u32 i = 0; i < EXEC_ENV_MAX; i++) {
+        if (i >= max_count) {
+            break;
+        }
+
+        u64 slot = array + i * sizeof(u64);
+        u64 ptr = 0;
+        if (bpf_probe_read_user(&ptr, sizeof(ptr), (void *)slot) < 0) {
+            *status = -1;
+            *next = slot;
+            break;
+        }
+        if (!ptr) {
+            *status = 0;
+            break;
+        }
+
+        struct exec_arg_snapshot *arg = &records[i];
+        arg->ptr = ptr;
+        arg->data[0] = 0;
+        arg->len = bpf_probe_read_user_str(arg->data, sizeof(arg->data), (void *)ptr);
+        *count = i + 1;
+
+        if (i == max_count - 1) {
+            u64 next_slot = array + max_count * sizeof(u64);
+            u64 next_ptr = 0;
+            if (bpf_probe_read_user(&next_ptr, sizeof(next_ptr), (void *)next_slot) < 0) {
+                *status = -1;
+                *next = next_slot;
+            } else if (!next_ptr) {
+                *status = 0;
+            } else {
+                *status = 1;
+            }
+        }
+    }
+}
+
+static __always_inline void capture_exec_path_tlv(struct bpf_event *e, u32 path_index, u32 path_offset)
+{
+    u32 path_data_offset = path_offset + PAYLOAD_TLV_HEADER_SIZE;
+    u32 path_copied_len = 0;
+    s32 path_probe_ret = 0;
+
+    if (!e->args[path_index]) {
+        path_probe_ret = -1;
+    } else {
+        long n = bpf_probe_read_user_str(
+            e->str_arg + path_data_offset,
+            EXEC_PATH_SNAPSHOT_MAX,
+            (void *)e->args[path_index]);
+        if (n < 0) {
+            path_probe_ret = n;
+        } else if (n > EXEC_PATH_SNAPSHOT_MAX) {
+            path_copied_len = EXEC_PATH_SNAPSHOT_MAX;
+        } else {
+            path_copied_len = (u32)n;
+        }
+    }
+
+    payload_tlv_write_header_at(
+        e,
+        path_offset,
+        PAYLOAD_TLV_KIND_STRING,
+        path_index,
+        0,
+        path_copied_len,
+        path_copied_len,
+        path_probe_ret,
+        e->args[path_index]);
+
+    e->data_len = path_data_offset + path_copied_len;
+}
+
+static __always_inline void capture_exec_tlv(struct bpf_event *e, u32 path_index, u32 argv_index, u32 env_index)
+{
+    struct exec_snapshot *snapshot = (void *)(e->str_arg + PAYLOAD_TLV_HEADER_SIZE);
+    u32 path_offset = PAYLOAD_TLV_HEADER_SIZE + sizeof(*snapshot);
+
     snapshot->header.magic = EXEC_SNAPSHOT_MAGIC;
-    snapshot->header.argv_count = 0;
-    snapshot->header.env_count = 0;
-    snapshot->header.argv_status = -1;
-    snapshot->header.env_status = -1;
-    snapshot->header.argv_next = e->args[argv_index];
-    snapshot->header.env_next = e->args[env_index];
+    capture_exec_path_tlv(e, path_index, path_offset);
+    capture_exec_records(
+        snapshot->argv,
+        e->args[argv_index],
+        EXEC_ARG_MAX,
+        &snapshot->header.argv_count,
+        &snapshot->header.argv_status,
+        &snapshot->header.argv_next);
+    capture_exec_records(
+        snapshot->env,
+        e->args[env_index],
+        EXEC_ENV_MAX,
+        &snapshot->header.env_count,
+        &snapshot->header.env_status,
+        &snapshot->header.env_next);
 
-    u64 argv = e->args[argv_index];
-    if (!argv) {
-        snapshot->header.argv_status = 0;
-    } else {
-        for (u32 i = 0; i < EXEC_ARG_MAX; i++) {
-            u64 slot = argv + i * sizeof(u64);
-            u64 ptr = 0;
-            if (bpf_probe_read_user(&ptr, sizeof(ptr), (void *)slot) < 0) {
-                snapshot->header.argv_status = -1;
-                snapshot->header.argv_next = slot;
-                break;
-            }
-            if (!ptr) {
-                snapshot->header.argv_status = 0;
-                break;
-            }
+    payload_tlv_write_header(
+        e,
+        PAYLOAD_TLV_KIND_EXEC_ARGS,
+        argv_index,
+        0,
+        sizeof(*snapshot),
+        sizeof(*snapshot),
+        0,
+        e->args[argv_index]);
 
-            struct exec_arg_snapshot *arg = &snapshot->argv[i];
-            arg->ptr = ptr;
-            arg->data[0] = 0;
-            arg->len = bpf_probe_read_user_str(arg->data, sizeof(arg->data), (void *)ptr);
-            snapshot->header.argv_count = i + 1;
-
-            if (i == EXEC_ARG_MAX - 1) {
-                u64 next_slot = argv + EXEC_ARG_MAX * sizeof(u64);
-                u64 next_ptr = 0;
-                if (bpf_probe_read_user(&next_ptr, sizeof(next_ptr), (void *)next_slot) < 0) {
-                    snapshot->header.argv_status = -1;
-                    snapshot->header.argv_next = next_slot;
-                } else if (!next_ptr) {
-                    snapshot->header.argv_status = 0;
-                } else {
-                    snapshot->header.argv_status = 1;
-                }
-            }
-        }
-    }
-
-    u64 envp = e->args[env_index];
-    if (!envp) {
-        snapshot->header.env_status = 0;
-    } else {
-        for (u32 i = 0; i < EXEC_ENV_MAX; i++) {
-            u64 slot = envp + i * sizeof(u64);
-            u64 ptr = 0;
-            if (bpf_probe_read_user(&ptr, sizeof(ptr), (void *)slot) < 0) {
-                snapshot->header.env_status = -1;
-                snapshot->header.env_next = slot;
-                break;
-            }
-            if (!ptr) {
-                snapshot->header.env_status = 0;
-                break;
-            }
-
-            struct exec_arg_snapshot *arg = &snapshot->env[i];
-            arg->ptr = ptr;
-            arg->data[0] = 0;
-            arg->len = bpf_probe_read_user_str(arg->data, sizeof(arg->data), (void *)ptr);
-            snapshot->header.env_count = i + 1;
-
-            if (i == EXEC_ENV_MAX - 1) {
-                u64 next_slot = envp + EXEC_ENV_MAX * sizeof(u64);
-                u64 next_ptr = 0;
-                if (bpf_probe_read_user(&next_ptr, sizeof(next_ptr), (void *)next_slot) < 0) {
-                    snapshot->header.env_status = -1;
-                    snapshot->header.env_next = next_slot;
-                } else if (!next_ptr) {
-                    snapshot->header.env_status = 0;
-                } else {
-                    snapshot->header.env_status = 1;
-                }
-            }
-        }
-    }
-
-    u32 snapshot_end = EXEC_SNAPSHOT_OFFSET + sizeof(*snapshot);
-    if (e->data_len < snapshot_end) {
-        e->data_len = snapshot_end;
-    }
+    e->event_flags |= EVENT_FLAG_PAYLOAD_TLV;
 }
 
 static __always_inline void capture_capset_data(struct bpf_event *e)
@@ -482,9 +516,9 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     capture_write_tlv(e);
     capture_capset_data(e);
     if (e->sys_id == SYS_EXECVE) {
-        capture_exec_snapshot(e, 1, 2);
+        capture_exec_tlv(e, 0, 1, 2);
     } else if (e->sys_id == SYS_EXECVEAT) {
-        capture_exec_snapshot(e, 2, 3);
+        capture_exec_tlv(e, 1, 2, 3);
     }
 
     if (cfg && (*cfg & CONFIG_EMIT_ENTER)) {
@@ -582,9 +616,9 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     capture_capset_data(e);
     if (e->ret != 0) {
         if (e->sys_id == SYS_EXECVE) {
-            capture_exec_snapshot(e, 1, 2);
+            capture_exec_tlv(e, 0, 1, 2);
         } else if (e->sys_id == SYS_EXECVEAT) {
-            capture_exec_snapshot(e, 2, 3);
+            capture_exec_tlv(e, 1, 2, 3);
         }
     }
 
