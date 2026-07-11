@@ -6,7 +6,6 @@ import (
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
 )
 
 type ExitSyscallOutput struct {
@@ -15,7 +14,7 @@ type ExitSyscallOutput struct {
 	out               io.Writer
 	shouldQueueStatus func(int) bool
 	queueStatus       func(int, string)
-	writeJSON         func(*bpfEvent, meta.Syscall, handler.Result, *handler.Context, *pendingSyscallState)
+	writeJSON         func(syscallEventContext, handler.Result)
 }
 
 type ExitSyscallOutputDeps struct {
@@ -24,7 +23,7 @@ type ExitSyscallOutputDeps struct {
 	Out               io.Writer
 	ShouldQueueStatus func(int) bool
 	QueueStatus       func(int, string)
-	WriteJSON         func(*bpfEvent, meta.Syscall, handler.Result, *handler.Context, *pendingSyscallState)
+	WriteJSON         func(syscallEventContext, handler.Result)
 }
 
 func newExitSyscallOutput(deps ExitSyscallOutputDeps) *ExitSyscallOutput {
@@ -47,7 +46,7 @@ func (s *traceSession) exitSyscallOutput() *ExitSyscallOutput {
 			Out:               s.outWriter,
 			ShouldQueueStatus: exitStatus.ShouldQueue,
 			QueueStatus:       exitStatus.Queue,
-			WriteJSON:         s.writeJSONEvent,
+			WriteJSON:         s.writeJSONDecodedEvent,
 		})
 	}
 	return s.exitSyscallCache
@@ -66,7 +65,7 @@ func (o *ExitSyscallOutput) Handle(ev syscallEventContext) bool {
 		res := handler.Get(ev.meta.Name).Handle(ev.handlerContext)
 		if o.opts != nil && o.opts.EventFormat == cli.EventFormatJSON {
 			if o.writeJSON != nil {
-				o.writeJSON(ev.raw, ev.meta, res, ev.handlerContext, ev.pendingEnter)
+				o.writeJSON(ev, res)
 			}
 			return true
 		}

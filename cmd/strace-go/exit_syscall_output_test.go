@@ -16,6 +16,7 @@ type exitOutputTestState struct {
 	queuedPID   int
 	queuedLine  string
 	jsonCalled  bool
+	jsonEvent   syscallEventContext
 	shouldQueue bool
 }
 
@@ -39,8 +40,9 @@ func newExitOutputTestState(opts *cli.Options) *exitOutputTestState {
 			state.queuedPID = pid
 			state.queuedLine = line
 		},
-		WriteJSON: func(*bpfEvent, meta.Syscall, handler.Result, *handler.Context, *pendingSyscallState) {
+		WriteJSON: func(ev syscallEventContext, _ handler.Result) {
 			state.jsonCalled = true
+			state.jsonEvent = ev
 		},
 	})
 	return state
@@ -121,6 +123,22 @@ func TestExitSyscallOutputJSONReturnsBeforeStatusLine(t *testing.T) {
 	}
 	if state.out.Len() != 0 || state.queuedLine != "" {
 		t.Fatalf("JSON exit side effects: out=%q queued=%q", state.out.String(), state.queuedLine)
+	}
+}
+
+func TestExitSyscallOutputJSONUsesEventContext(t *testing.T) {
+	state := newExitOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON})
+	ev := exitEventContext(state.output.opts, "exit_group", true)
+	ev.raw.Ret = 123
+	ev.view = syscallEventView{valid: true, ret: -2}
+
+	state.output.Handle(ev)
+
+	if !state.jsonCalled {
+		t.Fatal("JSON exit event was not written")
+	}
+	if state.jsonEvent.eventView().ret != -2 {
+		t.Fatalf("json event ret = %d, want view ret -2", state.jsonEvent.eventView().ret)
 	}
 }
 

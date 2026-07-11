@@ -205,14 +205,6 @@ func lifecycleSnapshotString(eventRaw *bpfEvent) string {
 	return string(data)
 }
 
-func (s *traceSession) writeJSONEvent(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, ctx *handler.Context, pendingEnter *pendingSyscallState) {
-	ev := newJSONSyscallEvent(eventRaw, scMeta, ctx.PayloadSections)
-	ev.ArgText = res.ArgParts
-	ev.ReturnText = formatSyscallRet(scMeta.Name, eventRaw.Ret, res, ctx)
-	ev.PairedEnter = pendingEnter != nil && pendingEnter.genericEnterRaw
-	_ = json.NewEncoder(s.outWriter).Encode(ev)
-}
-
 func (s *traceSession) writeJSONDecodedEvent(syscallEvent syscallEventContext, res handler.Result) {
 	ctx := syscallEvent.handlerContext
 	var sections []handler.PayloadSection
