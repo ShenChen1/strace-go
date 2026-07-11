@@ -25,7 +25,7 @@ func TestJSONSyscallEventIncludesSimplePathPayloadSection(t *testing.T) {
 			want: wantPathJSONPayloadSection{argIndex: 0, offset: 0, userPtr: 0x1000, data: "/tmp/a"},
 		},
 		{
-			name: "openat",
+			name: "mkdirat",
 			args: [6]uint64{^uint64(99), 0x2000},
 			want: wantPathJSONPayloadSection{argIndex: 1, offset: 0, userPtr: 0x2000, data: "relative"},
 		},
@@ -53,6 +53,22 @@ func TestJSONSyscallEventIncludesSimplePathPayloadSection(t *testing.T) {
 			}
 			assertPathJSONPayloadSection(t, ev.PayloadSections[0], tt.want)
 		})
+	}
+}
+
+func TestJSONSyscallEventDoesNotUseFixedOpenatPathPayload(t *testing.T) {
+	eventRaw := &bpfEvent{
+		EventType:     bpfEventTypeEnter,
+		Args:          [6]uint64{^uint64(99), 0x2000},
+		DataLen:       uint32(len("legacy") + 1),
+		ProbeRetEnter: 0,
+	}
+	copy(eventRaw.StrArg[:], []byte("legacy\x00"))
+
+	scMeta := meta.Syscall{Name: "openat"}
+	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	if len(ev.PayloadSections) != 0 {
+		t.Fatalf("PayloadSections = %d, want no fixed openat path fallback", len(ev.PayloadSections))
 	}
 }
 

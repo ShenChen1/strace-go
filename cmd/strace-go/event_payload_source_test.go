@@ -156,7 +156,7 @@ func TestPayloadSectionsForPayloadEventUsesMetadataWithoutRawForPathRule(t *test
 		},
 	}
 
-	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "openat"})
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "mkdirat"})
 
 	if len(sections) != 1 {
 		t.Fatalf("sections = %d, want 1", len(sections))
@@ -222,7 +222,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareSimplePathFallback(t *test
 		},
 	}
 
-	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "openat"})
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "mkdirat"})
 
 	if len(sections) != 1 {
 		t.Fatalf("sections = %d, want 1", len(sections))

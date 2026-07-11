@@ -18,7 +18,7 @@ func simplePathPayloadArgIndex(scName string) (int, bool) {
 	case "open", "creat", "access", "chdir", "chroot", "chmod", "chown", "lchown",
 		"mkdir", "mknod", "rmdir", "unlink", "swapon", "swapoff", "acct", "truncate", "fsopen":
 		return 0, true
-	case "openat", "mkdirat", "mknodat", "chmodat", "fchmodat", "faccessat", "faccessat2",
+	case "mkdirat", "mknodat", "chmodat", "fchmodat", "faccessat", "faccessat2",
 		"unlinkat", "fchownat", "fspick":
 		return 1, true
 	default:

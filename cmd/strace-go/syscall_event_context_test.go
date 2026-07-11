@@ -19,18 +19,7 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 		}, nil, nil),
 	}
 	path := []byte("input.txt\x00")
-	eventRaw := &bpfEvent{
-		Pid:           101,
-		Tid:           101,
-		SysId:         syscallIDByName(t, "openat"),
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{rawAtFdcwd, 0x1000, 0},
-		Ptr:           0x1000,
-		DataLen:       uint32(len(path)),
-		ProbeRetEnter: 0,
-		Ret:           3,
-	}
-	copy(eventRaw.StrArg[:], path)
+	eventRaw := tlvOpenatEvent(t, path)
 
 	ev := newSyscallEventContext(session, eventRaw, 101, nil)
 
