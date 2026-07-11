@@ -52,9 +52,7 @@ type structArrayPayloadSpec struct {
 type payloadSourceSectionRule func(event payloadEvent, scName string) []handler.PayloadSection
 
 var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
-	"write":    writePayloadSectionsFromSource,
 	"pwrite64": writePayloadSectionsFromSource,
-	"read":     readPayloadSectionsFromSource,
 	"pread64":  readPayloadSectionsFromSource,
 
 	"readv":    iovecArgPayloadSectionsFromSource,

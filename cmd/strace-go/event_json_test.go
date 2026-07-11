@@ -59,18 +59,25 @@ func TestJSONStatsEventIncludesRingbufFailures(t *testing.T) {
 }
 
 func TestJSONSyscallEventIncludesWritePayloadSection(t *testing.T) {
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindBytes,
+		arg:     1,
+		userPtr: 0x2000,
+		userLen: 5,
+		data:    []byte("hello"),
+	})
 	eventRaw := &bpfEvent{
 		Pid:           101,
 		Tid:           101,
 		SysId:         1,
 		EventVersion:  2,
 		EventType:     bpfEventTypeEnter,
-		EventFlags:    bpfEventFlagGenericEnter,
+		EventFlags:    bpfEventFlagPayloadTLV | bpfEventFlagGenericEnter,
 		Args:          [6]uint64{1, 0x2000, 5},
-		DataLen:       5,
+		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: 0,
 	}
-	copy(eventRaw.StrArg[:], []byte("hello"))
+	copy(eventRaw.StrArg[:], payload)
 
 	scMeta := meta.Syscall{Name: "write"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -87,19 +94,28 @@ func TestJSONSyscallEventIncludesWritePayloadSection(t *testing.T) {
 }
 
 func TestJSONSyscallEventIncludesReadPayloadSection(t *testing.T) {
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindBytes,
+		arg:     1,
+		flags:   payloadTLVFlagDirectionOut,
+		userPtr: 0x3000,
+		userLen: 4,
+		data:    []byte("data"),
+	})
 	eventRaw := &bpfEvent{
 		Pid:           101,
 		Tid:           101,
 		SysId:         0,
 		EventVersion:  2,
 		EventType:     bpfEventTypeExit,
+		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{3, 0x3000, 16},
 		Ret:           4,
-		DataLen:       handler.BpfExitArgOffset + 4,
+		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: -1,
 		ProbeRetExit:  0,
 	}
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], []byte("data"))
+	copy(eventRaw.StrArg[:], payload)
 
 	scMeta := meta.Syscall{Name: "read"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -107,7 +123,7 @@ func TestJSONSyscallEventIncludesReadPayloadSection(t *testing.T) {
 		t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 	}
 	section := ev.PayloadSections[0]
-	if section.Kind != "bytes" || section.Direction != "out" || section.ArgIndex != 1 || section.Offset != handler.BpfExitArgOffset {
+	if section.Kind != "bytes" || section.Direction != "out" || section.ArgIndex != 1 || section.Offset != 0 {
 		t.Fatalf("read section metadata = %+v", section)
 	}
 	if got := mustDecodeBase64(t, section.DataBase64); string(got) != "data" {

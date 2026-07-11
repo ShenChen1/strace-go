@@ -70,24 +70,24 @@ func TestPayloadSectionsForPayloadEventUsesSectionPayloadSource(t *testing.T) {
 			probeRetExit: 0,
 		},
 		source: newSectionPayloadSource(
-			[6]uint64{3, 0x8000, 32},
+			[6]uint64{0x8000, 32},
 			[]payloadSourceWindow{
 				{offset: handler.BpfExitArgOffset, data: []byte("target")},
 			},
 		),
 	}
 
-	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "read"})
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "getcwd"})
 
 	if len(sections) != 1 {
 		t.Fatalf("sections = %d, want 1", len(sections))
 	}
 	section := sections[0]
 	if section.Kind != handler.PayloadKindBytes || section.Direction != handler.PayloadDirectionOut ||
-		section.ArgIndex != 1 || section.UserPtr != 0x8000 || section.CopiedLen != 6 {
-		t.Fatalf("read section metadata = %+v", section)
+		section.ArgIndex != 0 || section.UserPtr != 0x8000 || section.CopiedLen != 6 {
+		t.Fatalf("getcwd section metadata = %+v", section)
 	}
 	if !bytes.Equal(section.Data, []byte("target")) {
-		t.Fatalf("read data = %q, want target", section.Data)
+		t.Fatalf("getcwd data = %q, want target", section.Data)
 	}
 }

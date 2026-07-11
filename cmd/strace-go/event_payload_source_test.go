@@ -87,7 +87,7 @@ func TestFixedEventPayloadSourceSnapshotsArgsAndDataLen(t *testing.T) {
 	}
 }
 
-func TestPayloadSectionsForPayloadEventUsesSourceAwareWriteRule(t *testing.T) {
+func TestPayloadSectionsForPayloadEventUsesSourceAwarePwriteRule(t *testing.T) {
 	raw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
 		Args:          [6]uint64{1, 0x2000, 7},
@@ -101,7 +101,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareWriteRule(t *testing.T) {
 		},
 	}
 
-	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "write"})
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "pwrite64"})
 
 	if len(sections) != 1 {
 		t.Fatalf("sections = %d, want 1", len(sections))
@@ -116,7 +116,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareWriteRule(t *testing.T) {
 	}
 }
 
-func TestPayloadSectionsForPayloadEventUsesMetadataWithoutRawForReadRule(t *testing.T) {
+func TestPayloadSectionsForPayloadEventUsesMetadataWithoutRawForPreadRule(t *testing.T) {
 	data := make([]byte, handler.BpfExitArgOffset+6)
 	copy(data[handler.BpfExitArgOffset:], []byte("target"))
 	event := payloadEvent{
@@ -132,7 +132,7 @@ func TestPayloadSectionsForPayloadEventUsesMetadataWithoutRawForReadRule(t *test
 		},
 	}
 
-	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "read"})
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "pread64"})
 
 	if len(sections) != 1 {
 		t.Fatalf("sections = %d, want 1", len(sections))

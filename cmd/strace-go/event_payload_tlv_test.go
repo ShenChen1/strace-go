@@ -112,6 +112,43 @@ func TestPayloadSectionsForEventDoesNotUseFixedExecSnapshot(t *testing.T) {
 	}
 }
 
+func TestPayloadSectionsForEventDoesNotUseFixedReadWritePayload(t *testing.T) {
+	tests := []struct {
+		name     string
+		eventRaw bpfEvent
+	}{
+		{
+			name: "write",
+			eventRaw: bpfEvent{
+				EventType:     bpfEventTypeEnter,
+				Args:          [6]uint64{1, 0x2000, 5},
+				DataLen:       5,
+				ProbeRetEnter: 0,
+			},
+		},
+		{
+			name: "read",
+			eventRaw: bpfEvent{
+				EventType:    bpfEventTypeExit,
+				Args:         [6]uint64{3, 0x3000, 16},
+				Ret:          4,
+				DataLen:      4,
+				ProbeRetExit: 0,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			copy(tt.eventRaw.StrArg[:], []byte("data"))
+			sections := payloadSectionsForEvent(&tt.eventRaw, meta.Syscall{Name: tt.name})
+			if len(sections) != 0 {
+				t.Fatalf("sections = %d, want no fixed %s payload fallback", len(sections), tt.name)
+			}
+		})
+	}
+}
+
 func TestSyscallEventContextUsesTLVPathSection(t *testing.T) {
 	session := &traceSession{
 		targetPid: 101,
