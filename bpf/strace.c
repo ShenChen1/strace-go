@@ -22,6 +22,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define EXEC_ENV_MAX 64
 #define EXEC_ARG_DATA_SIZE 42
 #define EVENT_VERSION 2
+#define SYS_WRITE 1
 #define EVENT_TYPE_ENTER 1
 #define EVENT_TYPE_EXIT 2
 #define EVENT_TYPE_LIFECYCLE 3
@@ -77,6 +78,8 @@ struct bpf_event {
     s32 stack_id;
     u8 str_arg[EXEC_SNAPSHOT_OFFSET + sizeof(struct exec_snapshot)];
 };
+
+#include "payload_tlv.h"
 
 struct pending_syscall {
     u64 enter_time;
@@ -473,6 +476,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     e->args[5] = ctx->args[5];
 
     CAPTURE_ARGS_ENTER(e->sys_id, e);
+    capture_write_tlv(e);
     capture_capset_data(e);
     if (e->sys_id == SYS_EXECVE) {
         capture_exec_snapshot(e, 1, 2);
@@ -481,11 +485,12 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     }
 
     if (cfg && (*cfg & CONFIG_EMIT_ENTER)) {
+        u32 saved_flags = e->event_flags;
         e->event_type = EVENT_TYPE_ENTER;
-        e->event_flags = EVENT_FLAG_GENERIC_ENTER;
+        e->event_flags = saved_flags | EVENT_FLAG_GENERIC_ENTER;
         emit_event(e);
         e->event_type = EVENT_TYPE_EXIT;
-        e->event_flags = 0;
+        e->event_flags = saved_flags;
     }
 
     save_pending_syscall(tid, e);
@@ -570,6 +575,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     }
     
     CAPTURE_ARGS_ENTER(e->sys_id, e);
+    capture_write_tlv(e);
     capture_capset_data(e);
     if (e->ret != 0) {
         if (e->sys_id == SYS_EXECVE) {
