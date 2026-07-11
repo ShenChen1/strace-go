@@ -165,6 +165,14 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"utimes":          timePayloadSectionsFromSource,
 	"futimesat":       timePayloadSectionsFromSource,
 	"utimensat":       timePayloadSectionsFromSource,
+	"connect":         networkSockaddrInPayloadSourceRule(1, 2, 0),
+	"bind":            networkSockaddrInPayloadSourceRule(1, 2, 0),
+	"sendto":          sendtoPayloadSectionsFromSource,
+	"recvfrom":        recvfromPayloadSectionsFromSource,
+	"accept":          acceptLikePayloadSectionsFromSource,
+	"accept4":         acceptLikePayloadSectionsFromSource,
+	"getsockname":     acceptLikePayloadSectionsFromSource,
+	"getpeername":     acceptLikePayloadSectionsFromSource,
 }
 
 var payloadSectionRules = map[string]payloadSectionRule{
@@ -176,14 +184,6 @@ var payloadSectionRules = map[string]payloadSectionRule{
 	"io_getevents":         aioPayloadSectionsForEvent,
 	"io_pgetevents":        aioPayloadSectionsForEvent,
 	"io_pgetevents_time64": aioPayloadSectionsForEvent,
-	"connect":              networkSockaddrInPayloadRule(1, 2, 0),
-	"bind":                 networkSockaddrInPayloadRule(1, 2, 0),
-	"sendto":               namedPayloadRule(sendtoPayloadSectionsForEvent),
-	"recvfrom":             namedPayloadRule(recvfromPayloadSectionsForEvent),
-	"accept":               namedPayloadRule(acceptLikePayloadSectionsForEvent),
-	"accept4":              namedPayloadRule(acceptLikePayloadSectionsForEvent),
-	"getsockname":          namedPayloadRule(acceptLikePayloadSectionsForEvent),
-	"getpeername":          namedPayloadRule(acceptLikePayloadSectionsForEvent),
 }
 
 func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.PayloadSection {
@@ -249,9 +249,9 @@ func pollPayloadSourceRule(includeTimeout bool) payloadSourceSectionRule {
 	}
 }
 
-func networkSockaddrInPayloadRule(argIndex int, lenIndex int, offset int) payloadSectionRule {
-	return func(eventRaw *bpfEvent, _ string) []handler.PayloadSection {
-		return networkSockaddrInPayloadSection(eventRaw, argIndex, lenIndex, offset)
+func networkSockaddrInPayloadSourceRule(argIndex int, lenIndex int, offset int) payloadSourceSectionRule {
+	return func(event payloadEvent, _ string) []handler.PayloadSection {
+		return networkSockaddrInPayloadSection(event, argIndex, lenIndex, offset)
 	}
 }
 

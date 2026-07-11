@@ -19,99 +19,99 @@ const (
 	networkBufferExitOffset  = handler.BpfExitArgOffset
 )
 
-func sendtoPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	sections := networkBytesPayloadSectionFromArg(eventRaw, handler.PayloadDirectionIn, 1, 2, networkBufferEnterOffset)
-	sections = append(sections, networkSockaddrInPayloadSection(eventRaw, 4, 5, sendtoSockaddrOffset)...)
+func sendtoPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	sections := networkBytesPayloadSectionFromArg(event, handler.PayloadDirectionIn, 1, 2, networkBufferEnterOffset)
+	sections = append(sections, networkSockaddrInPayloadSection(event, 4, 5, sendtoSockaddrOffset)...)
 	return sections
 }
 
-func recvfromPayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	sections := socklenPayloadSection(eventRaw, handler.PayloadDirectionIn, 5, sockaddrLenEnterOffset, getArgProbeStatus(eventRaw.ProbeRetEnter, 5))
-	if !isExitEvent(eventRaw) {
+func recvfromPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	sections := socklenPayloadSection(event, handler.PayloadDirectionIn, 5, sockaddrLenEnterOffset, event.ProbeRetEnterArg(5))
+	if !event.IsExit() {
 		return sections
 	}
-	sections = append(sections, networkBytesPayloadSectionFromRet(eventRaw, 1, networkBufferExitOffset)...)
-	sections = append(sections, networkSockaddrOutPayloadSection(eventRaw, 4, recvfromSockaddrOffset)...)
-	sections = append(sections, socklenPayloadSection(eventRaw, handler.PayloadDirectionOut, 5, sockaddrLenExitOffset, eventRaw.ProbeRetExit)...)
+	sections = append(sections, networkBytesPayloadSectionFromRet(event, 1, networkBufferExitOffset)...)
+	sections = append(sections, networkSockaddrOutPayloadSection(event, 4, recvfromSockaddrOffset)...)
+	sections = append(sections, socklenPayloadSection(event, handler.PayloadDirectionOut, 5, sockaddrLenExitOffset, event.ProbeRetExit())...)
 	return sections
 }
 
-func acceptLikePayloadSectionsForEvent(eventRaw *bpfEvent) []handler.PayloadSection {
-	sections := socklenPayloadSection(eventRaw, handler.PayloadDirectionIn, 2, sockaddrLenEnterOffset, getArgProbeStatus(eventRaw.ProbeRetEnter, 2))
-	if !isExitEvent(eventRaw) || eventRaw.Ret < 0 {
+func acceptLikePayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
+	sections := socklenPayloadSection(event, handler.PayloadDirectionIn, 2, sockaddrLenEnterOffset, event.ProbeRetEnterArg(2))
+	if !event.IsExit() || event.Ret() < 0 {
 		return sections
 	}
-	sections = append(sections, networkSockaddrOutPayloadSection(eventRaw, 1, acceptSockaddrOutOffset)...)
-	sections = append(sections, socklenPayloadSection(eventRaw, handler.PayloadDirectionOut, 2, sockaddrLenExitOffset, eventRaw.ProbeRetExit)...)
+	sections = append(sections, networkSockaddrOutPayloadSection(event, 1, acceptSockaddrOutOffset)...)
+	sections = append(sections, socklenPayloadSection(event, handler.PayloadDirectionOut, 2, sockaddrLenExitOffset, event.ProbeRetExit())...)
 	return sections
 }
 
-func networkBytesPayloadSectionFromArg(eventRaw *bpfEvent, direction handler.PayloadDirection, argIndex int, lenIndex int, offset int) []handler.PayloadSection {
-	if lenIndex < 0 || lenIndex >= len(eventRaw.Args) {
+func networkBytesPayloadSectionFromArg(event payloadEvent, direction handler.PayloadDirection, argIndex int, lenIndex int, offset int) []handler.PayloadSection {
+	if lenIndex < 0 || lenIndex >= 6 {
 		return nil
 	}
-	userLen := uint32Clamped(eventRaw.Args[lenIndex])
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	userLen := uint32Clamped(event.Arg(lenIndex))
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindBytes,
 		direction: direction,
 		argIndex:  argIndex,
 		offset:    offset,
 		userLen:   userLen,
 		maxLen:    networkPayloadMaxBytes,
-		probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, argIndex),
+		probeRet:  event.ProbeRetEnterArg(argIndex),
 	})
 }
 
-func networkBytesPayloadSectionFromRet(eventRaw *bpfEvent, argIndex int, offset int) []handler.PayloadSection {
-	if !isExitEvent(eventRaw) || eventRaw.Ret <= 0 {
+func networkBytesPayloadSectionFromRet(event payloadEvent, argIndex int, offset int) []handler.PayloadSection {
+	if !event.IsExit() || event.Ret() <= 0 {
 		return nil
 	}
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindBytes,
 		direction: handler.PayloadDirectionOut,
 		argIndex:  argIndex,
 		offset:    offset,
-		userLen:   uint32Clamped(uint64(eventRaw.Ret)),
+		userLen:   uint32Clamped(uint64(event.Ret())),
 		maxLen:    networkPayloadMaxBytes,
-		probeRet:  eventRaw.ProbeRetExit,
+		probeRet:  event.ProbeRetExit(),
 	})
 }
 
-func networkSockaddrInPayloadSection(eventRaw *bpfEvent, argIndex int, lenIndex int, offset int) []handler.PayloadSection {
-	if lenIndex < 0 || lenIndex >= len(eventRaw.Args) {
+func networkSockaddrInPayloadSection(event payloadEvent, argIndex int, lenIndex int, offset int) []handler.PayloadSection {
+	if lenIndex < 0 || lenIndex >= 6 {
 		return nil
 	}
-	userLen := uint32Clamped(eventRaw.Args[lenIndex])
-	return sockaddrPayloadSection(eventRaw, payloadWindowSpec{
+	userLen := uint32Clamped(event.Arg(lenIndex))
+	return sockaddrPayloadSection(event, payloadWindowSpec{
 		direction: handler.PayloadDirectionIn,
 		argIndex:  argIndex,
 		offset:    offset,
 		userLen:   userLen,
-		probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, argIndex),
+		probeRet:  event.ProbeRetEnterArg(argIndex),
 	})
 }
 
-func networkSockaddrOutPayloadSection(eventRaw *bpfEvent, argIndex int, offset int) []handler.PayloadSection {
-	if !isExitEvent(eventRaw) || eventRaw.Ret < 0 {
+func networkSockaddrOutPayloadSection(event payloadEvent, argIndex int, offset int) []handler.PayloadSection {
+	if !event.IsExit() || event.Ret() < 0 {
 		return nil
 	}
-	userLen := networkSockaddrOutLen(eventRaw)
+	userLen := networkSockaddrOutLen(event)
 	if userLen == 0 {
 		userLen = sockaddrPayloadMaxBytes
 	}
-	return sockaddrPayloadSection(eventRaw, payloadWindowSpec{
+	return sockaddrPayloadSection(event, payloadWindowSpec{
 		direction: handler.PayloadDirectionOut,
 		argIndex:  argIndex,
 		offset:    offset,
 		userLen:   userLen,
-		probeRet:  eventRaw.ProbeRetExit,
+		probeRet:  event.ProbeRetExit(),
 	})
 }
 
-func sockaddrPayloadSection(eventRaw *bpfEvent, spec payloadWindowSpec) []handler.PayloadSection {
+func sockaddrPayloadSection(event payloadEvent, spec payloadWindowSpec) []handler.PayloadSection {
 	spec.kind = handler.PayloadKindStruct
 	spec.maxLen = sockaddrPayloadMaxBytes
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      spec.kind,
 		direction: spec.direction,
 		argIndex:  spec.argIndex,
@@ -122,8 +122,8 @@ func sockaddrPayloadSection(eventRaw *bpfEvent, spec payloadWindowSpec) []handle
 	})
 }
 
-func socklenPayloadSection(eventRaw *bpfEvent, direction handler.PayloadDirection, argIndex int, offset int, probeRet int32) []handler.PayloadSection {
-	return payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+func socklenPayloadSection(event payloadEvent, direction handler.PayloadDirection, argIndex int, offset int, probeRet int32) []handler.PayloadSection {
+	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindBytes,
 		direction: direction,
 		argIndex:  argIndex,
@@ -134,9 +134,9 @@ func socklenPayloadSection(eventRaw *bpfEvent, direction handler.PayloadDirectio
 	})
 }
 
-func networkSockaddrOutLen(eventRaw *bpfEvent) uint32 {
-	outLen, outOK := socklenFromEventPayload(eventRaw, sockaddrLenExitOffset)
-	inLen, inOK := socklenFromEventPayload(eventRaw, sockaddrLenEnterOffset)
+func networkSockaddrOutLen(event payloadEvent) uint32 {
+	outLen, outOK := socklenFromPayloadSource(event.source, sockaddrLenExitOffset)
+	inLen, inOK := socklenFromPayloadSource(event.source, sockaddrLenEnterOffset)
 	if outOK && inOK && inLen > 0 && inLen < outLen {
 		return inLen
 	}
@@ -149,8 +149,11 @@ func networkSockaddrOutLen(eventRaw *bpfEvent) uint32 {
 	return 0
 }
 
-func socklenFromEventPayload(eventRaw *bpfEvent, offset int) (uint32, bool) {
-	data, ok := eventPayloadWindow(eventRaw, offset, socklenPayloadSize)
+func socklenFromPayloadSource(source payloadSource, offset int) (uint32, bool) {
+	if source == nil {
+		return 0, false
+	}
+	data, ok := source.PayloadWindow(offset, socklenPayloadSize)
 	if !ok || len(data) < socklenPayloadSize {
 		return 0, false
 	}
