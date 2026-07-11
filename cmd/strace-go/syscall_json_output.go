@@ -67,7 +67,7 @@ func (o *SyscallJSONOutput) HandleDecoded(ev syscallEventContext, res handler.Re
 		failedOnly:     o.opts.FailedOnly,
 		traceStatus:    o.opts.TraceStatus,
 	}
-	if shouldEmitStatus(ev.raw, ev.meta, status) {
+	if ev.shouldEmitStatus(status) {
 		o.writeDecodedEvent(ev, res)
 	}
 	return true

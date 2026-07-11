@@ -73,3 +73,27 @@ func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 		t.Fatalf("handler context unexpectedly exposed legacy path string section")
 	}
 }
+
+func TestSyscallEventContextHandlerContextUsesEventView(t *testing.T) {
+	session := &traceSession{
+		targetPid: 101,
+		opts:      cli.ParseArgs([]string{"/bin/true"}),
+		decoder:   event.NewDecoder(),
+		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
+	}
+	ev := syscallEventContext{
+		raw:      &bpfEvent{Pid: 1, Tid: 1, SysId: 999, Args: [6]uint64{1}, Ret: 1},
+		view:     syscallEventView{valid: true, pid: 101, tid: 102, sysID: 39, args: [6]uint64{7}, ret: -2, probeRetEnter: -1, probeRetExit: 0},
+		statePID: 101,
+		meta:     syscallMeta(39),
+	}
+
+	ctx := ev.newHandlerContext(session)
+
+	if ctx.Pid != 101 || ctx.Tid != 102 || ctx.SysId != 39 {
+		t.Fatalf("handler context identity = pid:%d tid:%d sys:%d, want 101/102/39", ctx.Pid, ctx.Tid, ctx.SysId)
+	}
+	if ctx.Args[0] != 7 || ctx.Ret != -2 || ctx.ProbeRetEnter != -1 {
+		t.Fatalf("handler context syscall fields = args:%v ret:%d probe:%d", ctx.Args, ctx.Ret, ctx.ProbeRetEnter)
+	}
+}

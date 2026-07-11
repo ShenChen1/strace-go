@@ -9,6 +9,7 @@ import (
 
 type syscallEventContext struct {
 	raw                *bpfEvent
+	view               syscallEventView
 	statePID           int
 	tid                int
 	meta               meta.Syscall
@@ -20,6 +21,19 @@ type syscallEventContext struct {
 	payloadSections    []handler.PayloadSection
 	bufferFileOffset   int64
 	bufferFileOffsetOK bool
+}
+
+// syscallEventView is the stable syscall field set used after context construction.
+type syscallEventView struct {
+	valid         bool
+	pid           uint32
+	tid           uint32
+	sysID         uint32
+	args          [6]uint64
+	ret           int64
+	duration      uint64
+	probeRetEnter int32
+	probeRetExit  int32
 }
 
 func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, pendingEnter *pendingSyscallState) syscallEventContext {
@@ -34,6 +48,7 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 	bufferFileOffset, bufferFileOffsetOK := s.bufferFileOffset(eventRaw, scMeta)
 	ev := syscallEventContext{
 		raw:                eventRaw,
+		view:               newSyscallEventViewFromBPF(eventRaw),
 		statePID:           statePID,
 		tid:                int(eventRaw.Tid),
 		meta:               scMeta,
@@ -47,6 +62,30 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 	}
 	ev.handlerContext = ev.newHandlerContext(s)
 	return ev
+}
+
+func newSyscallEventViewFromBPF(eventRaw *bpfEvent) syscallEventView {
+	if eventRaw == nil {
+		return syscallEventView{}
+	}
+	return syscallEventView{
+		valid:         true,
+		pid:           eventRaw.Pid,
+		tid:           eventRaw.Tid,
+		sysID:         eventRaw.SysId,
+		args:          eventRaw.Args,
+		ret:           eventRaw.Ret,
+		duration:      eventRaw.Duration,
+		probeRetEnter: eventRaw.ProbeRetEnter,
+		probeRetExit:  eventRaw.ProbeRetExit,
+	}
+}
+
+func (ev syscallEventContext) eventView() syscallEventView {
+	if ev.view.valid {
+		return ev.view
+	}
+	return newSyscallEventViewFromBPF(ev.raw)
 }
 
 func syscallMeta(sysID uint32) meta.Syscall {
@@ -112,10 +151,11 @@ func stringPayloadSectionText(
 }
 
 func (ev syscallEventContext) newHandlerContext(s *traceSession) *handler.Context {
+	view := ev.eventView()
 	return &handler.Context{
-		Pid: int(ev.raw.Pid), Tid: ev.tid, TargetPid: ev.statePID, SysId: ev.raw.SysId,
-		SysName: ev.meta.Name, Args: ev.raw.Args, Ret: ev.raw.Ret,
-		ProbeRetEnter: ev.raw.ProbeRetEnter, ProbeRetExit: ev.raw.ProbeRetExit,
+		Pid: int(view.pid), Tid: int(view.tid), TargetPid: ev.statePID, SysId: view.sysID,
+		SysName: ev.meta.Name, Args: view.args, Ret: view.ret,
+		ProbeRetEnter: view.probeRetEnter, ProbeRetExit: view.probeRetExit,
 		PayloadSections:  ev.payloadSections,
 		BufferFileOffset: ev.bufferFileOffset, BufferFileOffsetOK: ev.bufferFileOffsetOK,
 		ScMeta: ev.meta, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdStateStore().PathMap(),
@@ -127,7 +167,8 @@ func (s *traceSession) updateSummaryStats(ev syscallEventContext) {
 	if s.opts == nil || (!s.opts.SummaryOnly && !s.opts.SummaryAndPrint) || !ev.shouldPrint {
 		return
 	}
-	s.summaryStats().Record(ev.meta.Name, ev.raw.Duration, ev.raw.Ret)
+	view := ev.eventView()
+	s.summaryStats().Record(ev.meta.Name, view.duration, view.ret)
 }
 
 func (ev syscallEventContext) isFDStateSyscall() bool {
@@ -146,4 +187,40 @@ func (s *traceSession) updateFDState(ev syscallEventContext) {
 
 func (s *traceSession) cleanupClosedFD(ev syscallEventContext) {
 	s.fdStateStore().CleanupClosedFD(ev.raw, ev.meta, ev.statePID)
+}
+
+func (ev syscallEventContext) shouldEmitStatus(optsStatus successfulFailedOptions) bool {
+	return ev.eventView().shouldEmitStatus(ev.meta.Name, optsStatus)
+}
+
+func (view syscallEventView) shouldEmitStatus(syscallName string, optsStatus successfulFailedOptions) bool {
+	if optsStatus.successfulOnly || optsStatus.failedOnly || len(optsStatus.traceStatus) > 0 {
+		if view.probeRetEnter == 3 {
+			return false
+		}
+	}
+	if view.probeRetEnter == 3 {
+		return true
+	}
+
+	isFailed := view.ret < 0 && view.ret >= -4095
+	if syscallName == "exit" || syscallName == "exit_group" {
+		isFailed = false
+	}
+	if optsStatus.successfulOnly && isFailed {
+		return false
+	}
+	if optsStatus.failedOnly && !isFailed {
+		return false
+	}
+	if len(optsStatus.traceStatus) > 0 {
+		if optsStatus.traceStatus["successful"] && !isFailed {
+			return true
+		}
+		if optsStatus.traceStatus["failed"] && isFailed {
+			return true
+		}
+		return false
+	}
+	return true
 }

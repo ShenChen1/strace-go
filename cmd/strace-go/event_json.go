@@ -230,35 +230,7 @@ func isGenericEnterEvent(eventRaw *bpfEvent) bool {
 }
 
 func shouldEmitStatus(eventRaw *bpfEvent, scMeta meta.Syscall, optsStatus successfulFailedOptions) bool {
-	if optsStatus.successfulOnly || optsStatus.failedOnly || len(optsStatus.traceStatus) > 0 {
-		if eventRaw.ProbeRetEnter == 3 {
-			return false
-		}
-	}
-	if eventRaw.ProbeRetEnter == 3 {
-		return true
-	}
-
-	isFailed := eventRaw.Ret < 0 && eventRaw.Ret >= -4095
-	if scMeta.Name == "exit" || scMeta.Name == "exit_group" {
-		isFailed = false
-	}
-	if optsStatus.successfulOnly && isFailed {
-		return false
-	}
-	if optsStatus.failedOnly && !isFailed {
-		return false
-	}
-	if len(optsStatus.traceStatus) > 0 {
-		if optsStatus.traceStatus["successful"] && !isFailed {
-			return true
-		}
-		if optsStatus.traceStatus["failed"] && isFailed {
-			return true
-		}
-		return false
-	}
-	return true
+	return newSyscallEventViewFromBPF(eventRaw).shouldEmitStatus(scMeta.Name, optsStatus)
 }
 
 type successfulFailedOptions struct {

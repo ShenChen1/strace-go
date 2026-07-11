@@ -95,6 +95,23 @@ func TestSyscallExitPipelineSuppressesArchPrctlSetFSText(t *testing.T) {
 	wantCalls(t, state.calls, []string{"offset", "cleanup"})
 }
 
+func TestSyscallExitPipelineSuppressesArchPrctlFromEventView(t *testing.T) {
+	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
+		HandleSyscall: func(string, *handler.Context) handler.Result {
+			t.Fatal("handler should not run for suppressed arch_prctl")
+			return handler.Result{}
+		},
+	})
+	state := newExitPipelineTestState(nil, runner, nil)
+	ev := exitPipelineEvent("arch_prctl")
+	ev.raw.Args[0] = 0
+	ev.view = syscallEventView{valid: true, args: [6]uint64{0x1002}}
+
+	state.pipeline.Handle(ev)
+
+	wantCalls(t, state.calls, []string{"offset", "cleanup"})
+}
+
 func TestSyscallExitPipelineRunsHandlerForPrintableEvent(t *testing.T) {
 	var calls []string
 	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
