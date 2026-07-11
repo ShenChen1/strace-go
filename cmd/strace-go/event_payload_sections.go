@@ -77,9 +77,6 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"renameat2": dualPathPayloadSourceRule(1, 3),
 	"linkat":    dualPathPayloadSourceRule(1, 3),
 
-	"execve":   execPayloadSectionsFromSource,
-	"execveat": execPayloadSectionsFromSource,
-
 	"memfd_create": memfdCreatePayloadSectionsFromSource,
 	"openat2":      openat2PayloadSectionsFromSource,
 	"sendfile":     sendfilePayloadSectionsFromSource,

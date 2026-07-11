@@ -275,38 +275,6 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareDualPathRule(t *testing.T)
 	}
 }
 
-func TestPayloadSectionsForPayloadEventUsesSourceAwareExecRule(t *testing.T) {
-	raw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{0x1000, 0x2000, 0x3000},
-		ProbeRetEnter: 0,
-	}
-	snapshot := execJSONSnapshot()
-	data := make([]byte, execPayloadSnapshotOffset+len(snapshot))
-	copy(data[execPayloadSnapshotOffset:], snapshot)
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
-
-	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "execve"})
-
-	if len(sections) != 1 {
-		t.Fatalf("sections = %d, want 1", len(sections))
-	}
-	section := sections[0]
-	if section.Kind != handler.PayloadKindExecArgs || section.ArgIndex != 1 ||
-		section.UserPtr != 0x2000 || section.Offset != execPayloadSnapshotOffset {
-		t.Fatalf("exec section metadata = %+v, want exec args arg 1", section)
-	}
-	if !bytes.Equal(section.Data, snapshot) {
-		t.Fatalf("exec section data length = %d, want %d", len(section.Data), len(snapshot))
-	}
-}
-
 func TestPayloadSectionsForPayloadEventUsesSourceAwareMemfdRule(t *testing.T) {
 	raw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,

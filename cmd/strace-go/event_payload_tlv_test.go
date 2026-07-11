@@ -11,6 +11,17 @@ import (
 	"strace-go/pkg/meta"
 )
 
+const (
+	execPayloadSnapshotMagic      = 0x45584543
+	execPayloadSnapshotHeaderSize = 32
+	execPayloadArgSnapshotSize    = 56
+	execPayloadArgSnapshotCount   = 48
+	execPayloadEnvSnapshotCount   = 64
+	execPayloadSnapshotSize       = execPayloadSnapshotHeaderSize +
+		execPayloadArgSnapshotCount*execPayloadArgSnapshotSize +
+		execPayloadEnvSnapshotCount*execPayloadArgSnapshotSize
+)
+
 func TestPayloadSectionsForEventUsesTLVSections(t *testing.T) {
 	eventRaw := &bpfEvent{
 		EventType:  bpfEventTypeEnter,
@@ -81,6 +92,23 @@ func TestPayloadSectionsForEventUsesExecTLVSections(t *testing.T) {
 	if pathSection.Kind != handler.PayloadKindString || pathSection.ArgIndex != 0 ||
 		pathSection.UserPtr != 0x1000 || !bytes.Equal(pathSection.Data, []byte("/bin/true\x00")) {
 		t.Fatalf("path section = %+v, want filename snapshot", pathSection)
+	}
+}
+
+func TestPayloadSectionsForEventDoesNotUseFixedExecSnapshot(t *testing.T) {
+	snapshot := execJSONSnapshot()
+	eventRaw := &bpfEvent{
+		EventType:     bpfEventTypeEnter,
+		Args:          [6]uint64{0x1000, 0x2000, 0x3000},
+		DataLen:       uint32(len(snapshot)),
+		ProbeRetEnter: 0,
+	}
+	copy(eventRaw.StrArg[:], snapshot)
+
+	sections := payloadSectionsForEvent(eventRaw, meta.Syscall{Name: "execve"})
+
+	if len(sections) != 0 {
+		t.Fatalf("sections = %d, want no fixed exec snapshot fallback", len(sections))
 	}
 }
 
@@ -166,4 +194,12 @@ func payloadTLVBytes(t *testing.T, section payloadTLVTestSection) []byte {
 	binary.LittleEndian.PutUint64(buf[24:32], section.userPtr)
 	copy(buf[payloadTLVHeaderSize:], section.data)
 	return buf
+}
+
+func execJSONSnapshot() []byte {
+	data := make([]byte, execPayloadSnapshotSize)
+	binary.LittleEndian.PutUint32(data[0:4], execPayloadSnapshotMagic)
+	binary.LittleEndian.PutUint16(data[4:6], 1)
+	binary.LittleEndian.PutUint16(data[6:8], 1)
+	return data
 }
