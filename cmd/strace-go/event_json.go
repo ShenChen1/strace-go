@@ -14,6 +14,7 @@ const (
 	bpfEventTypeExit         uint16 = 2
 	bpfEventTypeLifecycle    uint16 = 3
 	bpfEventFlagGenericEnter uint32 = 1
+	bpfEventFlagPayloadTLV   uint32 = 2
 	lifecycleFork            uint32 = 1
 	lifecycleExec            uint32 = 2
 	lifecycleExit            uint32 = 3
