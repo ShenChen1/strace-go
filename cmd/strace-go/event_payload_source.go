@@ -5,8 +5,9 @@ type payloadSource interface {
 	PayloadWindow(offset int, maxLen int) ([]byte, bool)
 }
 
-type fixedEventPayloadSource struct {
-	eventRaw *bpfEvent
+type windowPayloadSource struct {
+	args [6]uint64
+	data []byte
 }
 
 // payloadEventMeta is the event header subset payload rules need.
@@ -24,8 +25,18 @@ type payloadEvent struct {
 	meta   payloadEventMeta
 }
 
-func newFixedEventPayloadSource(eventRaw *bpfEvent) fixedEventPayloadSource {
-	return fixedEventPayloadSource{eventRaw: eventRaw}
+func newFixedEventPayloadSource(eventRaw *bpfEvent) windowPayloadSource {
+	if eventRaw == nil {
+		return windowPayloadSource{}
+	}
+	dataLen := int(eventRaw.DataLen)
+	if dataLen > len(eventRaw.StrArg) {
+		dataLen = len(eventRaw.StrArg)
+	}
+	return windowPayloadSource{
+		args: eventRaw.Args,
+		data: eventRaw.StrArg[:dataLen],
+	}
 }
 
 func newFixedPayloadEvent(eventRaw *bpfEvent) payloadEvent {
@@ -97,29 +108,26 @@ func (e payloadEvent) IsSyscallEvent() bool {
 	return e.meta.eventType == bpfEventTypeEnter || e.meta.eventType == bpfEventTypeExit
 }
 
-func (s fixedEventPayloadSource) Arg(index int) (uint64, bool) {
-	if s.eventRaw == nil || index < 0 || index >= len(s.eventRaw.Args) {
+func (s windowPayloadSource) Arg(index int) (uint64, bool) {
+	if index < 0 || index >= len(s.args) {
 		return 0, false
 	}
-	return s.eventRaw.Args[index], true
+	return s.args[index], true
 }
 
-func (s fixedEventPayloadSource) PayloadWindow(offset int, maxLen int) ([]byte, bool) {
-	if s.eventRaw == nil || offset < 0 || maxLen <= 0 || s.eventRaw.DataLen == 0 {
+func (s windowPayloadSource) PayloadWindow(offset int, maxLen int) ([]byte, bool) {
+	if offset < 0 || maxLen <= 0 || len(s.data) == 0 {
 		return nil, false
 	}
-	if uint32(offset) >= s.eventRaw.DataLen || offset >= len(s.eventRaw.StrArg) {
+	if offset >= len(s.data) {
 		return nil, false
 	}
-	end := int(s.eventRaw.DataLen)
-	if end > len(s.eventRaw.StrArg) {
-		end = len(s.eventRaw.StrArg)
-	}
+	end := len(s.data)
 	if limit := offset + maxLen; limit < end {
 		end = limit
 	}
 	if end <= offset {
 		return nil, false
 	}
-	return s.eventRaw.StrArg[offset:end], true
+	return s.data[offset:end], true
 }

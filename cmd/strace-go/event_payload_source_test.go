@@ -66,6 +66,27 @@ func TestPayloadSectionFromSourceSpecUsesAbstractSource(t *testing.T) {
 	}
 }
 
+func TestFixedEventPayloadSourceSnapshotsArgsAndDataLen(t *testing.T) {
+	raw := &bpfEvent{
+		Args:    [6]uint64{0x1000, 0x2000},
+		DataLen: 7,
+	}
+	copy(raw.StrArg[:], []byte("payload-suffix"))
+
+	source := newFixedEventPayloadSource(raw)
+	raw.Args[1] = 0xdead
+	raw.DataLen = 0
+
+	gotArg, ok := source.Arg(1)
+	if !ok || gotArg != 0x2000 {
+		t.Fatalf("source arg = %#x, %v; want snapshotted arg 0x2000", gotArg, ok)
+	}
+	data, ok := source.PayloadWindow(0, 16)
+	if !ok || !bytes.Equal(data, []byte("payload")) {
+		t.Fatalf("source payload = %q, %v; want snapshotted DataLen payload", data, ok)
+	}
+}
+
 func TestPayloadSectionsForPayloadEventUsesSourceAwareWriteRule(t *testing.T) {
 	raw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
