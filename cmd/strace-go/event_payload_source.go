@@ -9,9 +9,19 @@ type fixedEventPayloadSource struct {
 	eventRaw *bpfEvent
 }
 
+// payloadEventMeta is the event header subset payload rules need.
+type payloadEventMeta struct {
+	valid         bool
+	eventType     uint16
+	ret           int64
+	probeRetEnter int32
+	probeRetExit  int32
+}
+
 type payloadEvent struct {
 	raw    *bpfEvent
 	source payloadSource
+	meta   payloadEventMeta
 }
 
 func newFixedEventPayloadSource(eventRaw *bpfEvent) fixedEventPayloadSource {
@@ -22,6 +32,13 @@ func newFixedPayloadEvent(eventRaw *bpfEvent) payloadEvent {
 	return payloadEvent{
 		raw:    eventRaw,
 		source: newFixedEventPayloadSource(eventRaw),
+		meta: payloadEventMeta{
+			valid:         true,
+			eventType:     eventRaw.EventType,
+			ret:           eventRaw.Ret,
+			probeRetEnter: eventRaw.ProbeRetEnter,
+			probeRetExit:  eventRaw.ProbeRetExit,
+		},
 	}
 }
 
@@ -36,35 +53,48 @@ func (e payloadEvent) Arg(index int) uint64 {
 }
 
 func (e payloadEvent) Ret() int64 {
-	if e.raw == nil {
-		return 0
+	if !e.meta.valid && e.raw != nil {
+		return e.raw.Ret
 	}
-	return e.raw.Ret
+	return e.meta.ret
 }
 
 func (e payloadEvent) IsExit() bool {
-	return e.raw != nil && isExitEvent(e.raw)
+	if !e.meta.valid && e.raw != nil {
+		return isExitEvent(e.raw)
+	}
+	return e.meta.eventType == bpfEventTypeExit
 }
 
 func (e payloadEvent) ProbeRetEnterArg(index int) int32 {
-	if e.raw == nil {
-		return 0
+	if !e.meta.valid && e.raw != nil {
+		return getArgProbeStatus(e.raw.ProbeRetEnter, index)
 	}
-	return getArgProbeStatus(e.raw.ProbeRetEnter, index)
+	return getArgProbeStatus(e.meta.probeRetEnter, index)
 }
 
 func (e payloadEvent) ProbeRetEnter() int32 {
-	if e.raw == nil {
-		return 0
+	if !e.meta.valid && e.raw != nil {
+		return e.raw.ProbeRetEnter
 	}
-	return e.raw.ProbeRetEnter
+	return e.meta.probeRetEnter
 }
 
 func (e payloadEvent) ProbeRetExit() int32 {
-	if e.raw == nil {
-		return 0
+	if !e.meta.valid && e.raw != nil {
+		return e.raw.ProbeRetExit
 	}
-	return e.raw.ProbeRetExit
+	return e.meta.probeRetExit
+}
+
+func (e payloadEvent) IsSyscallEvent() bool {
+	if !e.meta.valid && e.raw != nil {
+		return e.raw.EventType == bpfEventTypeEnter || e.raw.EventType == bpfEventTypeExit
+	}
+	if !e.meta.valid {
+		return true
+	}
+	return e.meta.eventType == bpfEventTypeEnter || e.meta.eventType == bpfEventTypeExit
 }
 
 func (s fixedEventPayloadSource) Arg(index int) (uint64, bool) {

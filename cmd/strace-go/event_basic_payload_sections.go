@@ -71,7 +71,7 @@ func stringPayloadSectionFromWindowSpec(eventRaw *bpfEvent, spec stringPayloadWi
 }
 
 func stringPayloadSectionFromSourceSpec(event payloadEvent, spec stringPayloadWindowSpec) []handler.PayloadSection {
-	if event.raw != nil && event.raw.EventType != bpfEventTypeEnter && event.raw.EventType != bpfEventTypeExit {
+	if !event.IsSyscallEvent() {
 		return nil
 	}
 	if event.source == nil {

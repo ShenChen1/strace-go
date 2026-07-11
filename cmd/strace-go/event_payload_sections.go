@@ -324,10 +324,6 @@ func structArrayPayloadSectionFromSourceArg(event payloadEvent, spec structArray
 	})
 }
 
-func exitStructArrayPayloadSectionFromRet(eventRaw *bpfEvent, argIndex int, elemSize int, maxBytes int) []handler.PayloadSection {
-	return exitStructArrayPayloadSectionFromSourceRet(newFixedPayloadEvent(eventRaw), argIndex, elemSize, maxBytes)
-}
-
 func exitStructArrayPayloadSectionFromSourceRet(
 	event payloadEvent,
 	argIndex int,

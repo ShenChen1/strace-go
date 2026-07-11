@@ -95,6 +95,60 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareWriteRule(t *testing.T) {
 	}
 }
 
+func TestPayloadSectionsForPayloadEventUsesMetadataWithoutRawForReadRule(t *testing.T) {
+	data := make([]byte, handler.BpfExitArgOffset+6)
+	copy(data[handler.BpfExitArgOffset:], []byte("target"))
+	event := payloadEvent{
+		meta: payloadEventMeta{
+			valid:        true,
+			eventType:    bpfEventTypeExit,
+			ret:          6,
+			probeRetExit: 0,
+		},
+		source: staticPayloadSource{
+			args: [6]uint64{3, 0x8000, 32},
+			data: data,
+		},
+	}
+
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "read"})
+
+	if len(sections) != 1 {
+		t.Fatalf("sections = %d, want 1", len(sections))
+	}
+	section := sections[0]
+	if section.Kind != handler.PayloadKindBytes || section.Direction != handler.PayloadDirectionOut ||
+		section.ArgIndex != 1 || section.UserPtr != 0x8000 || section.ProbeRet != 0 {
+		t.Fatalf("read section metadata = %+v", section)
+	}
+	if !bytes.Equal(section.Data, []byte("target")) {
+		t.Fatalf("read data = %q, want target", section.Data)
+	}
+}
+
+func TestPayloadSectionsForPayloadEventUsesMetadataWithoutRawForPathRule(t *testing.T) {
+	event := payloadEvent{
+		meta: payloadEventMeta{valid: true, eventType: bpfEventTypeEnter},
+		source: staticPayloadSource{
+			args: [6]uint64{^uint64(99), 0x5000},
+			data: []byte("from-metadata\x00ignored"),
+		},
+	}
+
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "openat"})
+
+	if len(sections) != 1 {
+		t.Fatalf("sections = %d, want 1", len(sections))
+	}
+	section := sections[0]
+	if section.Kind != handler.PayloadKindString || section.ArgIndex != 1 || section.UserPtr != 0x5000 {
+		t.Fatalf("path section metadata = %+v, want string arg 1 ptr 0x5000", section)
+	}
+	if !bytes.Equal(section.Data, []byte("from-metadata\x00")) {
+		t.Fatalf("path data = %q, want nul-terminated source path", section.Data)
+	}
+}
+
 func TestPayloadSectionsForPayloadEventUsesSourceAwareProcessVMIovecRule(t *testing.T) {
 	raw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
