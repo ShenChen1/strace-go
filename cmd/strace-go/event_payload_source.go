@@ -53,6 +53,13 @@ func (e payloadEvent) ProbeRetEnterArg(index int) int32 {
 	return getArgProbeStatus(e.raw.ProbeRetEnter, index)
 }
 
+func (e payloadEvent) ProbeRetEnter() int32 {
+	if e.raw == nil {
+		return 0
+	}
+	return e.raw.ProbeRetEnter
+}
+
 func (e payloadEvent) ProbeRetExit() int32 {
 	if e.raw == nil {
 		return 0

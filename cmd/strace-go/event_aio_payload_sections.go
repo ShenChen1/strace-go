@@ -16,56 +16,56 @@ const (
 	aioPayloadSigmaskProbe   = 13
 )
 
-func aioPayloadSectionsForEvent(eventRaw *bpfEvent, scName string) []handler.PayloadSection {
+func aioPayloadSectionsFromSource(event payloadEvent, scName string) []handler.PayloadSection {
 	switch scName {
 	case "io_setup":
-		return aioSetupPayloadSections(eventRaw)
+		return aioSetupPayloadSections(event)
 	case "io_submit":
-		return aioSubmitPayloadSections(eventRaw)
+		return aioSubmitPayloadSections(event)
 	case "io_cancel":
-		if eventRaw.Args[1] == 0 {
+		if event.Arg(1) == 0 {
 			return nil
 		}
-		return enterStructPayloadSection(eventRaw, 1, handler.BpfEnterArgOffset, aioPayloadIocbSize)
+		return enterStructPayloadSectionFromSource(event, 1, handler.BpfEnterArgOffset, aioPayloadIocbSize)
 	case "io_getevents":
-		return aioGeteventsPayloadSections(eventRaw, false)
+		return aioGeteventsPayloadSections(event, false)
 	case "io_pgetevents", "io_pgetevents_time64":
-		return aioGeteventsPayloadSections(eventRaw, true)
+		return aioGeteventsPayloadSections(event, true)
 	default:
 		return nil
 	}
 }
 
-func aioSetupPayloadSections(eventRaw *bpfEvent) []handler.PayloadSection {
-	if !isExitEvent(eventRaw) || eventRaw.Ret < 0 || eventRaw.Args[1] == 0 {
+func aioSetupPayloadSections(event payloadEvent) []handler.PayloadSection {
+	if !event.IsExit() || event.Ret() < 0 || event.Arg(1) == 0 {
 		return nil
 	}
-	return exitStructPayloadSection(eventRaw, 1, aioPayloadPointerSize)
+	return exitStructPayloadSectionFromSource(event, 1, aioPayloadPointerSize)
 }
 
-func aioSubmitPayloadSections(eventRaw *bpfEvent) []handler.PayloadSection {
-	count := int64(eventRaw.Args[1])
-	if count <= 0 || eventRaw.Args[2] == 0 {
+func aioSubmitPayloadSections(event payloadEvent) []handler.PayloadSection {
+	count := int64(event.Arg(1))
+	if count <= 0 || event.Arg(2) == 0 {
 		return nil
 	}
 	userLen := structArrayUserLen(uint64(count), aioPayloadPointerSize)
-	sections := payloadSectionFromWindowSpec(eventRaw, payloadWindowSpec{
+	sections := payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindStruct,
 		direction: handler.PayloadDirectionIn,
 		argIndex:  2,
 		offset:    handler.BpfEnterArgOffset,
 		userLen:   userLen,
 		maxLen:    aioPayloadMaxBytes,
-		probeRet:  getArgProbeStatus(eventRaw.ProbeRetEnter, 2),
+		probeRet:  event.ProbeRetEnterArg(2),
 	})
-	return append(sections, aioSubmitIocbPayloadSections(eventRaw, count)...)
+	return append(sections, aioSubmitIocbPayloadSections(event, count)...)
 }
 
-func aioSubmitIocbPayloadSections(eventRaw *bpfEvent, count int64) []handler.PayloadSection {
-	if getArgProbeStatus(eventRaw.ProbeRetEnter, 2) != 0 {
+func aioSubmitIocbPayloadSections(event payloadEvent, count int64) []handler.PayloadSection {
+	if event.ProbeRetEnterArg(2) != 0 || event.source == nil {
 		return nil
 	}
-	pointers, ok := eventPayloadWindow(eventRaw, handler.BpfEnterArgOffset, aioPayloadMaxBytes)
+	pointers, ok := event.source.PayloadWindow(handler.BpfEnterArgOffset, aioPayloadMaxBytes)
 	if !ok {
 		return nil
 	}
@@ -84,7 +84,7 @@ func aioSubmitIocbPayloadSections(eventRaw *bpfEvent, count int64) []handler.Pay
 		if userPtr == 0 {
 			continue
 		}
-		section := aioSubmitIocbPayloadSection(eventRaw, i, userPtr)
+		section := aioSubmitIocbPayloadSection(event, i, userPtr)
 		if section.CopiedLen > 0 {
 			sections = append(sections, section)
 		}
@@ -92,13 +92,16 @@ func aioSubmitIocbPayloadSections(eventRaw *bpfEvent, count int64) []handler.Pay
 	return sections
 }
 
-func aioSubmitIocbPayloadSection(eventRaw *bpfEvent, index int, userPtr uint64) handler.PayloadSection {
+func aioSubmitIocbPayloadSection(event payloadEvent, index int, userPtr uint64) handler.PayloadSection {
+	if event.source == nil {
+		return handler.PayloadSection{}
+	}
 	offset := handler.BpfMiscArgOffset + index*aioPayloadIocbSize
-	data, ok := eventPayloadWindow(eventRaw, offset, aioPayloadIocbSize)
+	data, ok := event.source.PayloadWindow(offset, aioPayloadIocbSize)
 	if !ok || aioPayloadAllBytesZero(data) {
 		return handler.PayloadSection{}
 	}
-	section := newPayloadSection(eventRaw, payloadWindowSpec{
+	section := newPayloadSectionFromSource(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindStruct,
 		direction: handler.PayloadDirectionIn,
 		argIndex:  handler.AioSubmitIocbPayloadArgBase + index,
@@ -111,18 +114,18 @@ func aioSubmitIocbPayloadSection(eventRaw *bpfEvent, index int, userPtr uint64) 
 	return section
 }
 
-func aioGeteventsPayloadSections(eventRaw *bpfEvent, includeSigset bool) []handler.PayloadSection {
+func aioGeteventsPayloadSections(event payloadEvent, includeSigset bool) []handler.PayloadSection {
 	var sections []handler.PayloadSection
-	if eventRaw.Args[4] != 0 {
-		sections = enterStructPayloadSection(eventRaw, 4, handler.BpfMiscArgOffset, timespecPayloadStructSize)
+	if event.Arg(4) != 0 {
+		sections = enterStructPayloadSectionFromSource(event, 4, handler.BpfMiscArgOffset, timespecPayloadStructSize)
 	}
-	if includeSigset && eventRaw.Args[5] != 0 {
-		sections = append(sections, enterStructPayloadSection(eventRaw, 5, aioPayloadSigsetOffset, timespecPayloadStructSize)...)
-		sections = append(sections, aioPgeteventsSigmaskPayloadSection(eventRaw)...)
+	if includeSigset && event.Arg(5) != 0 {
+		sections = append(sections, enterStructPayloadSectionFromSource(event, 5, aioPayloadSigsetOffset, timespecPayloadStructSize)...)
+		sections = append(sections, aioPgeteventsSigmaskPayloadSection(event)...)
 	}
-	if isExitEvent(eventRaw) && eventRaw.Ret > 0 {
-		sections = append(sections, exitStructArrayPayloadSectionFromRet(
-			eventRaw,
+	if event.IsExit() && event.Ret() > 0 {
+		sections = append(sections, exitStructArrayPayloadSectionFromSourceRet(
+			event,
 			3,
 			aioPayloadEventsElemSize,
 			aioPayloadMaxBytes,
@@ -131,11 +134,14 @@ func aioGeteventsPayloadSections(eventRaw *bpfEvent, includeSigset bool) []handl
 	return sections
 }
 
-func aioPgeteventsSigmaskPayloadSection(eventRaw *bpfEvent) []handler.PayloadSection {
-	if getArgProbeStatus(eventRaw.ProbeRetEnter, 5) != 0 || aioNestedProbeFailed(eventRaw.ProbeRetEnter, aioPayloadSigmaskProbe) {
+func aioPgeteventsSigmaskPayloadSection(event payloadEvent) []handler.PayloadSection {
+	if event.ProbeRetEnterArg(5) != 0 || aioNestedProbeFailed(event.ProbeRetEnter(), aioPayloadSigmaskProbe) {
 		return nil
 	}
-	sigsetData, ok := eventPayloadWindow(eventRaw, aioPayloadSigsetOffset, timespecPayloadStructSize)
+	if event.source == nil {
+		return nil
+	}
+	sigsetData, ok := event.source.PayloadWindow(aioPayloadSigsetOffset, timespecPayloadStructSize)
 	if !ok {
 		return nil
 	}
@@ -144,11 +150,11 @@ func aioPgeteventsSigmaskPayloadSection(eventRaw *bpfEvent) []handler.PayloadSec
 	if sigmaskPtr == 0 || sigsetSize == 0 || sigsetSize > 8 {
 		return nil
 	}
-	data, ok := eventPayloadWindow(eventRaw, aioPayloadSigmaskOffset, int(sigsetSize))
+	data, ok := event.source.PayloadWindow(aioPayloadSigmaskOffset, int(sigsetSize))
 	if !ok {
 		return nil
 	}
-	section := newPayloadSection(eventRaw, payloadWindowSpec{
+	section := newPayloadSectionFromSource(event.source, payloadWindowSpec{
 		kind:      handler.PayloadKindBytes,
 		direction: handler.PayloadDirectionIn,
 		argIndex:  5,
