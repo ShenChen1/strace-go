@@ -25,6 +25,8 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define EVENT_VERSION 2
 #define SYS_READ 0
 #define SYS_WRITE 1
+#define SYS_PREAD64 17
+#define SYS_PWRITE64 18
 #define SYS_OPENAT 257
 #define EVENT_TYPE_ENTER 1
 #define EVENT_TYPE_EXIT 2

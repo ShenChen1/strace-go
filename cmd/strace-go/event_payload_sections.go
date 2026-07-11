@@ -52,9 +52,6 @@ type structArrayPayloadSpec struct {
 type payloadSourceSectionRule func(event payloadEvent, scName string) []handler.PayloadSection
 
 var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
-	"pwrite64": writePayloadSectionsFromSource,
-	"pread64":  readPayloadSectionsFromSource,
-
 	"readv":    iovecArgPayloadSectionsFromSource,
 	"writev":   iovecArgPayloadSectionsFromSource,
 	"preadv":   iovecArgPayloadSectionsFromSource,
@@ -233,34 +230,6 @@ func networkSockaddrInPayloadSourceRule(argIndex int, lenIndex int, offset int) 
 	return func(event payloadEvent, _ string) []handler.PayloadSection {
 		return networkSockaddrInPayloadSection(event, argIndex, lenIndex, offset)
 	}
-}
-
-func writePayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
-	userLen := uint32Clamped(event.Arg(2))
-	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
-		kind:      handler.PayloadKindBytes,
-		direction: handler.PayloadDirectionIn,
-		argIndex:  1,
-		userLen:   userLen,
-		maxLen:    userLen,
-		probeRet:  event.ProbeRetEnterArg(1),
-	})
-}
-
-func readPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
-	if !event.IsExit() || event.Ret() <= 0 {
-		return nil
-	}
-	userLen := uint32Clamped(uint64(event.Ret()))
-	return payloadSectionFromSourceSpec(event.source, payloadWindowSpec{
-		kind:      handler.PayloadKindBytes,
-		direction: handler.PayloadDirectionOut,
-		argIndex:  1,
-		offset:    handler.BpfExitArgOffset,
-		userLen:   userLen,
-		maxLen:    userLen,
-		probeRet:  event.ProbeRetExit(),
-	})
 }
 
 func memfdCreatePayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {

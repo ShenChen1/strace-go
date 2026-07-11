@@ -262,7 +262,7 @@ def run_ebpf_semantic(args):
 
     failures = []
 
-    trace_set = "open,openat,read,write,close,execve,exit,exit_group"
+    trace_set = "open,openat,read,write,pread64,pwrite64,close,execve,exit,exit_group"
     res = run_strace_go_json(["-f", "-e", f"trace={trace_set}", fixture])
     events = parse_json_events(res.stderr)
     lifecycle_events = parse_lifecycle_events(res.stderr)
@@ -280,6 +280,8 @@ def run_ebpf_semantic(args):
     require(len(stats_events) == 1, failures, "stats JSON event missing")
     require(all(valid_stats_event(ev) for ev in stats_events), failures, "stats JSON event has invalid counters")
     require("write" in names, failures, "write event missing")
+    require("pwrite64" in names, failures, "pwrite64 event missing")
+    require("pread64" in names, failures, "pread64 event missing")
     require(("openat" in names) or ("open" in names), failures, "open/openat event missing")
     require("read" in names, failures, "read event missing")
     require("close" in names, failures, "close event missing")
@@ -292,6 +294,10 @@ def run_ebpf_semantic(args):
             failures, "write exit event was not paired with enter state")
     require(any(ev.get("syscall") == "read" and ev.get("paired_enter") for ev in exit_events),
             failures, "read exit event was not paired with enter state")
+    require(any(ev.get("syscall") == "pwrite64" and ev.get("paired_enter") for ev in exit_events),
+            failures, "pwrite64 exit event was not paired with enter state")
+    require(any(ev.get("syscall") == "pread64" and ev.get("paired_enter") for ev in exit_events),
+            failures, "pread64 exit event was not paired with enter state")
     require(any(ev.get("failed") and ev.get("errno") == 2 for ev in events), failures, "ENOENT failed-open event missing")
     require(any(ev.get("syscall") == "write" and "ebpf-fixture-write" in " ".join(ev.get("arg_text") or []) for ev in events),
             failures, "write payload text missing from JSON arg_text")
@@ -302,6 +308,20 @@ def run_ebpf_semantic(args):
                 "ebpf-fixture-write" in payload_section_text(sec)
             for sec in ev.get("payload_sections") or []) for ev in events),
             failures, "write payload section missing from JSON event")
+    require(any(ev.get("syscall") == "pwrite64" and any(
+                sec.get("kind") == "bytes" and
+                sec.get("direction") == "in" and
+                sec.get("arg_index") == 1 and
+                "ebpf-fixture-pwrite" in payload_section_text(sec)
+            for sec in ev.get("payload_sections") or []) for ev in events),
+            failures, "pwrite64 payload section missing from JSON event")
+    require(any(ev.get("syscall") == "pread64" and any(
+                sec.get("kind") == "bytes" and
+                sec.get("direction") == "out" and
+                sec.get("arg_index") == 1 and
+                "ebpf-fixture-pwrite" in payload_section_text(sec)
+            for sec in ev.get("payload_sections") or []) for ev in events),
+            failures, "pread64 payload section missing from JSON event")
     require(len({ev.get("pid") for ev in events}) >= 2, failures, "forked child pid events missing")
     require("fork" in lifecycle_actions, failures, "fork lifecycle event missing")
     require("exec" in lifecycle_actions, failures, "exec lifecycle event missing")

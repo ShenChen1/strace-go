@@ -77,7 +77,7 @@ static __always_inline void payload_tlv_write_header(
 
 static __always_inline void capture_write_tlv(struct bpf_event *e)
 {
-    if (e->sys_id != SYS_WRITE) {
+    if (e->sys_id != SYS_WRITE && e->sys_id != SYS_PWRITE64) {
         return;
     }
 
@@ -154,7 +154,7 @@ static __always_inline void capture_openat_tlv(struct bpf_event *e)
 
 static __always_inline void capture_read_tlv(struct bpf_event *e)
 {
-    if (e->sys_id != SYS_READ || e->ret <= 0) {
+    if ((e->sys_id != SYS_READ && e->sys_id != SYS_PREAD64) || e->ret <= 0) {
         return;
     }
 

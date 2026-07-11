@@ -20,8 +20,20 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "#define SYS_READ 0") {
 		t.Fatal("strace.c missing SYS_READ constant for read TLV capture")
 	}
+	if !strings.Contains(straceSource, "#define SYS_PREAD64 17") {
+		t.Fatal("strace.c missing SYS_PREAD64 constant for pread64 TLV capture")
+	}
+	if !strings.Contains(straceSource, "#define SYS_PWRITE64 18") {
+		t.Fatal("strace.c missing SYS_PWRITE64 constant for pwrite64 TLV capture")
+	}
 	if !strings.Contains(straceSource, "#define SYS_OPENAT 257") {
 		t.Fatal("strace.c missing SYS_OPENAT constant for openat TLV capture")
+	}
+	if !strings.Contains(tlvHeader, "e->sys_id != SYS_WRITE && e->sys_id != SYS_PWRITE64") {
+		t.Fatal("write TLV helper should cover write and pwrite64")
+	}
+	if !strings.Contains(tlvHeader, "e->sys_id != SYS_READ && e->sys_id != SYS_PREAD64") {
+		t.Fatal("read TLV helper should cover read and pread64")
 	}
 	if calls := strings.Count(straceSource, "capture_openat_tlv(e);"); calls != 1 {
 		t.Fatalf("capture_openat_tlv calls = %d, want enter path only", calls)

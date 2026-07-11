@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -27,7 +28,7 @@ static int current_tracer_pid(void)
 
 static int run_semantic_fixture(void)
 {
-	char buf[16];
+	char buf[32];
 
 	usleep(100000);
 
@@ -51,6 +52,15 @@ static int run_semantic_fixture(void)
 
 	ssize_t nwritten = write(STDOUT_FILENO, "ebpf-fixture-write\n", 19);
 	(void) nwritten;
+
+	char template[] = "/tmp/strace-go-ebpf-preadwrite-XXXXXX";
+	int rwfd = mkstemp(template);
+	if (rwfd >= 0) {
+		(void) unlink(template);
+		(void) syscall(SYS_pwrite64, rwfd, "ebpf-fixture-pwrite\n", 20, 0);
+		(void) syscall(SYS_pread64, rwfd, buf, sizeof(buf), 0);
+		(void) close(rwfd);
+	}
 
 	pid_t child = fork();
 	if (child == 0) {

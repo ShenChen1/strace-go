@@ -87,66 +87,6 @@ func TestFixedEventPayloadSourceSnapshotsArgsAndDataLen(t *testing.T) {
 	}
 }
 
-func TestPayloadSectionsForPayloadEventUsesSourceAwarePwriteRule(t *testing.T) {
-	raw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{1, 0x2000, 7},
-		ProbeRetEnter: 0,
-	}
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: []byte("payload-from-source"),
-		},
-	}
-
-	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "pwrite64"})
-
-	if len(sections) != 1 {
-		t.Fatalf("sections = %d, want 1", len(sections))
-	}
-	section := sections[0]
-	if section.UserPtr != 0x2000 || section.UserLen != 7 || section.CopiedLen != 7 {
-		t.Fatalf("section metadata = ptr %#x user %d copied %d, want ptr 0x2000 user/copy 7",
-			section.UserPtr, section.UserLen, section.CopiedLen)
-	}
-	if !bytes.Equal(section.Data, []byte("payload")) {
-		t.Fatalf("section data = %q, want payload from source", section.Data)
-	}
-}
-
-func TestPayloadSectionsForPayloadEventUsesMetadataWithoutRawForPreadRule(t *testing.T) {
-	data := make([]byte, handler.BpfExitArgOffset+6)
-	copy(data[handler.BpfExitArgOffset:], []byte("target"))
-	event := payloadEvent{
-		meta: payloadEventMeta{
-			valid:        true,
-			eventType:    bpfEventTypeExit,
-			ret:          6,
-			probeRetExit: 0,
-		},
-		source: staticPayloadSource{
-			args: [6]uint64{3, 0x8000, 32},
-			data: data,
-		},
-	}
-
-	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "pread64"})
-
-	if len(sections) != 1 {
-		t.Fatalf("sections = %d, want 1", len(sections))
-	}
-	section := sections[0]
-	if section.Kind != handler.PayloadKindBytes || section.Direction != handler.PayloadDirectionOut ||
-		section.ArgIndex != 1 || section.UserPtr != 0x8000 || section.ProbeRet != 0 {
-		t.Fatalf("read section metadata = %+v", section)
-	}
-	if !bytes.Equal(section.Data, []byte("target")) {
-		t.Fatalf("read data = %q, want target", section.Data)
-	}
-}
-
 func TestPayloadSectionsForPayloadEventUsesMetadataWithoutRawForPathRule(t *testing.T) {
 	event := payloadEvent{
 		meta: payloadEventMeta{valid: true, eventType: bpfEventTypeEnter},

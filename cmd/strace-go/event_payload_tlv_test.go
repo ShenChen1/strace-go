@@ -127,10 +127,29 @@ func TestPayloadSectionsForEventDoesNotUseFixedReadWritePayload(t *testing.T) {
 			},
 		},
 		{
+			name: "pwrite64",
+			eventRaw: bpfEvent{
+				EventType:     bpfEventTypeEnter,
+				Args:          [6]uint64{1, 0x2000, 5, 0},
+				DataLen:       5,
+				ProbeRetEnter: 0,
+			},
+		},
+		{
 			name: "read",
 			eventRaw: bpfEvent{
 				EventType:    bpfEventTypeExit,
 				Args:         [6]uint64{3, 0x3000, 16},
+				Ret:          4,
+				DataLen:      4,
+				ProbeRetExit: 0,
+			},
+		},
+		{
+			name: "pread64",
+			eventRaw: bpfEvent{
+				EventType:    bpfEventTypeExit,
+				Args:         [6]uint64{3, 0x3000, 16, 0},
 				Ret:          4,
 				DataLen:      4,
 				ProbeRetExit: 0,
