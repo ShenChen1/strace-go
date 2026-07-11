@@ -10,14 +10,14 @@ type SyscallJSONOutput struct {
 	opts         *cli.Options
 	pathMap      map[string]string
 	writeRaw     func(*bpfEvent, meta.Syscall)
-	writeDecoded func(*bpfEvent, meta.Syscall, handler.Result, *handler.Context, *pendingSyscallState)
+	writeDecoded func(syscallEventContext, handler.Result)
 }
 
 type SyscallJSONOutputDeps struct {
 	Opts         *cli.Options
 	PathMap      map[string]string
 	WriteRaw     func(*bpfEvent, meta.Syscall)
-	WriteDecoded func(*bpfEvent, meta.Syscall, handler.Result, *handler.Context, *pendingSyscallState)
+	WriteDecoded func(syscallEventContext, handler.Result)
 }
 
 func newSyscallJSONOutput(deps SyscallJSONOutputDeps) *SyscallJSONOutput {
@@ -35,7 +35,7 @@ func (s *traceSession) syscallJSONOutput() *SyscallJSONOutput {
 			Opts:         s.opts,
 			PathMap:      s.fdStateStore().PathMap(),
 			WriteRaw:     s.writeJSONRawEvent,
-			WriteDecoded: s.writeJSONEvent,
+			WriteDecoded: s.writeJSONDecodedEvent,
 		})
 	}
 	return s.syscallJSONCache
@@ -85,6 +85,6 @@ func (o *SyscallJSONOutput) writeRawEvent(eventRaw *bpfEvent, scMeta meta.Syscal
 
 func (o *SyscallJSONOutput) writeDecodedEvent(ev syscallEventContext, res handler.Result) {
 	if o.writeDecoded != nil {
-		o.writeDecoded(ev.raw, ev.meta, res, ev.handlerContext, ev.pendingEnter)
+		o.writeDecoded(ev, res)
 	}
 }

@@ -88,11 +88,7 @@ type jsonStatsEvent struct {
 }
 
 func newJSONSyscallEvent(eventRaw *bpfEvent, scMeta meta.Syscall, sections []handler.PayloadSection) jsonSyscallEvent {
-	failed := eventRaw.Ret < 0 && eventRaw.Ret >= -4095
-	errno := 0
-	if failed {
-		errno = int(-eventRaw.Ret)
-	}
+	failed, errno := syscallFailure(eventRaw.Ret)
 	return jsonSyscallEvent{
 		Type:            "syscall",
 		EventVersion:    eventRaw.EventVersion,
@@ -115,6 +111,30 @@ func newJSONSyscallEvent(eventRaw *bpfEvent, scMeta meta.Syscall, sections []han
 		ProbeRetEnter:   eventRaw.ProbeRetEnter,
 		ProbeRetExit:    eventRaw.ProbeRetExit,
 	}
+}
+
+func (ev *jsonSyscallEvent) applySyscallView(view syscallEventView) {
+	if !view.valid {
+		return
+	}
+	failed, errno := syscallFailure(view.ret)
+	ev.Pid = view.pid
+	ev.Tid = view.tid
+	ev.SysID = view.sysID
+	ev.Args = view.args
+	ev.Ret = view.ret
+	ev.Failed = failed
+	ev.Errno = errno
+	ev.DurationNS = view.duration
+	ev.ProbeRetEnter = view.probeRetEnter
+	ev.ProbeRetExit = view.probeRetExit
+}
+
+func syscallFailure(ret int64) (bool, int) {
+	if ret < 0 && ret >= -4095 {
+		return true, int(-ret)
+	}
+	return false, 0
 }
 
 func (s *traceSession) writeJSONRawEvent(eventRaw *bpfEvent, scMeta meta.Syscall) {
@@ -190,6 +210,20 @@ func (s *traceSession) writeJSONEvent(eventRaw *bpfEvent, scMeta meta.Syscall, r
 	ev.ArgText = res.ArgParts
 	ev.ReturnText = formatSyscallRet(scMeta.Name, eventRaw.Ret, res, ctx)
 	ev.PairedEnter = pendingEnter != nil && pendingEnter.genericEnterRaw
+	_ = json.NewEncoder(s.outWriter).Encode(ev)
+}
+
+func (s *traceSession) writeJSONDecodedEvent(syscallEvent syscallEventContext, res handler.Result) {
+	ctx := syscallEvent.handlerContext
+	var sections []handler.PayloadSection
+	if ctx != nil {
+		sections = ctx.PayloadSections
+	}
+	ev := newJSONSyscallEvent(syscallEvent.raw, syscallEvent.meta, sections)
+	ev.applySyscallView(syscallEvent.eventView())
+	ev.ArgText = res.ArgParts
+	ev.ReturnText = formatSyscallRet(syscallEvent.meta.Name, syscallEvent.eventView().ret, res, ctx)
+	ev.PairedEnter = syscallEvent.pendingEnter != nil && syscallEvent.pendingEnter.genericEnterRaw
 	_ = json.NewEncoder(s.outWriter).Encode(ev)
 }
 

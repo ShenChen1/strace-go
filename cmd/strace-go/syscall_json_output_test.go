@@ -12,6 +12,7 @@ type jsonOutputTestState struct {
 	output        *SyscallJSONOutput
 	rawWrites     int
 	decodedWrites int
+	decodedEvent  syscallEventContext
 }
 
 func newJSONOutputTestState(opts *cli.Options) *jsonOutputTestState {
@@ -21,8 +22,9 @@ func newJSONOutputTestState(opts *cli.Options) *jsonOutputTestState {
 		WriteRaw: func(*bpfEvent, meta.Syscall) {
 			state.rawWrites++
 		},
-		WriteDecoded: func(*bpfEvent, meta.Syscall, handler.Result, *handler.Context, *pendingSyscallState) {
+		WriteDecoded: func(ev syscallEventContext, _ handler.Result) {
 			state.decodedWrites++
+			state.decodedEvent = ev
 		},
 	})
 	return state
@@ -99,6 +101,9 @@ func TestSyscallJSONOutputDecodedStatusUsesEventView(t *testing.T) {
 	}
 	if state.decodedWrites != 1 {
 		t.Fatalf("decodedWrites = %d, want 1 from failed event view", state.decodedWrites)
+	}
+	if state.decodedEvent.eventView().ret != -2 {
+		t.Fatalf("decoded event ret = %d, want view ret -2", state.decodedEvent.eventView().ret)
 	}
 }
 
