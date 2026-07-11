@@ -3,8 +3,10 @@
 
 #define EVENT_FLAG_PAYLOAD_TLV 2
 #define PAYLOAD_TLV_HEADER_SIZE 32
+#define PAYLOAD_TLV_OPENAT_MAX 512
 #define PAYLOAD_TLV_READ_MAX 512
 #define PAYLOAD_TLV_WRITE_MAX 512
+#define PAYLOAD_TLV_KIND_STRING 1
 #define PAYLOAD_TLV_KIND_BYTES 2
 #define PAYLOAD_TLV_FLAG_DIRECTION_OUT 1
 
@@ -90,6 +92,44 @@ static __always_inline void capture_write_tlv(struct bpf_event *e)
         1,
         0,
         user_len,
+        copied_len,
+        probe_ret,
+        e->args[1]);
+    e->data_len = PAYLOAD_TLV_HEADER_SIZE + copied_len;
+    e->event_flags |= EVENT_FLAG_PAYLOAD_TLV;
+}
+
+static __always_inline void capture_openat_tlv(struct bpf_event *e)
+{
+    if (e->sys_id != SYS_OPENAT) {
+        return;
+    }
+
+    u32 copied_len = 0;
+    s32 probe_ret = 0;
+
+    if (!e->args[1]) {
+        probe_ret = -1;
+    } else {
+        long n = bpf_probe_read_user_str(
+            e->str_arg + PAYLOAD_TLV_HEADER_SIZE,
+            PAYLOAD_TLV_OPENAT_MAX,
+            (void *)e->args[1]);
+        if (n < 0) {
+            probe_ret = n;
+        } else if (n > PAYLOAD_TLV_OPENAT_MAX) {
+            copied_len = PAYLOAD_TLV_OPENAT_MAX;
+        } else {
+            copied_len = (u32)n;
+        }
+    }
+
+    payload_tlv_write_header(
+        e,
+        PAYLOAD_TLV_KIND_STRING,
+        1,
+        0,
+        copied_len,
         copied_len,
         probe_ret,
         e->args[1]);

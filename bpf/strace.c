@@ -24,6 +24,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define EVENT_VERSION 2
 #define SYS_READ 0
 #define SYS_WRITE 1
+#define SYS_OPENAT 257
 #define EVENT_TYPE_ENTER 1
 #define EVENT_TYPE_EXIT 2
 #define EVENT_TYPE_LIFECYCLE 3
@@ -477,6 +478,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     e->args[5] = ctx->args[5];
 
     CAPTURE_ARGS_ENTER(e->sys_id, e);
+    capture_openat_tlv(e);
     capture_write_tlv(e);
     capture_capset_data(e);
     if (e->sys_id == SYS_EXECVE) {
