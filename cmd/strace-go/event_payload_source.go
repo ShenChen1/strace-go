@@ -10,6 +10,16 @@ type windowPayloadSource struct {
 	data []byte
 }
 
+type payloadSourceWindow struct {
+	offset int
+	data   []byte
+}
+
+type sectionPayloadSource struct {
+	args    [6]uint64
+	windows []payloadSourceWindow
+}
+
 // payloadEventMeta is the event header subset payload rules need.
 type payloadEventMeta struct {
 	valid         bool
@@ -51,6 +61,20 @@ func newFixedPayloadEvent(eventRaw *bpfEvent) payloadEvent {
 			probeRetExit:  eventRaw.ProbeRetExit,
 		},
 	}
+}
+
+func newSectionPayloadSource(args [6]uint64, windows []payloadSourceWindow) sectionPayloadSource {
+	source := sectionPayloadSource{
+		args:    args,
+		windows: make([]payloadSourceWindow, 0, len(windows)),
+	}
+	for _, window := range windows {
+		if window.offset < 0 || len(window.data) == 0 {
+			continue
+		}
+		source.windows = append(source.windows, window)
+	}
+	return source
 }
 
 func (e payloadEvent) Arg(index int) uint64 {
@@ -130,4 +154,32 @@ func (s windowPayloadSource) PayloadWindow(offset int, maxLen int) ([]byte, bool
 		return nil, false
 	}
 	return s.data[offset:end], true
+}
+
+func (s sectionPayloadSource) Arg(index int) (uint64, bool) {
+	if index < 0 || index >= len(s.args) {
+		return 0, false
+	}
+	return s.args[index], true
+}
+
+func (s sectionPayloadSource) PayloadWindow(offset int, maxLen int) ([]byte, bool) {
+	if offset < 0 || maxLen <= 0 {
+		return nil, false
+	}
+	for _, window := range s.windows {
+		rel := offset - window.offset
+		if rel < 0 || rel >= len(window.data) {
+			continue
+		}
+		end := rel + maxLen
+		if end > len(window.data) {
+			end = len(window.data)
+		}
+		if end <= rel {
+			return nil, false
+		}
+		return window.data[rel:end], true
+	}
+	return nil, false
 }
