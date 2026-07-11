@@ -62,22 +62,29 @@ func (s *traceSession) bufferFileOffset(eventRaw *bpfEvent, scMeta meta.Syscall)
 }
 
 func (st *FDStateStore) BufferFileOffset(eventRaw *bpfEvent, scMeta meta.Syscall, statePID int) (int64, bool) {
+	return st.BufferFileOffsetFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, statePID)
+}
+
+func (st *FDStateStore) BufferFileOffsetFromView(view syscallEventView, scMeta meta.Syscall, statePID int) (int64, bool) {
+	if !view.valid {
+		return 0, false
+	}
 	st.ensureMaps()
 	switch scMeta.Name {
 	case "write":
-		fd := int32(eventRaw.Args[0])
+		fd := int32(view.args[0])
 		key := fdStateKey(statePID, fd)
 		if off, ok := st.offsets[key]; ok {
 			return off, true
 		}
-		if off, ok := readProcFDOffset(int(eventRaw.Tid), fd); ok {
-			if eventRaw.Ret > 0 {
-				off -= eventRaw.Ret
+		if off, ok := readProcFDOffset(int(view.tid), fd); ok {
+			if view.ret > 0 {
+				off -= view.ret
 			}
 			return off, true
 		}
 	case "pwrite64":
-		return int64(eventRaw.Args[3]), true
+		return int64(view.args[3]), true
 	}
 	return 0, false
 }
@@ -87,15 +94,19 @@ func (s *traceSession) updateFDOffsets(eventRaw *bpfEvent, scMeta meta.Syscall) 
 }
 
 func (s *traceSession) updateSyscallFDOffsets(ev syscallEventContext) {
-	s.fdStateStore().UpdateOffsets(ev.raw, ev.meta, ev.statePID)
+	s.fdStateStore().UpdateOffsetsFromView(ev.eventView(), ev.meta, ev.statePID)
 }
 
 func (st *FDStateStore) UpdateOffsets(eventRaw *bpfEvent, scMeta meta.Syscall, statePID int) {
-	if eventRaw.ProbeRetEnter == 3 {
+	st.UpdateOffsetsFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, statePID)
+}
+
+func (st *FDStateStore) UpdateOffsetsFromView(view syscallEventView, scMeta meta.Syscall, statePID int) {
+	if !view.valid || view.probeRetEnter == 3 {
 		return
 	}
 	st.ensureMaps()
-	ret := eventRaw.Ret
+	ret := view.ret
 	if ret < 0 {
 		return
 	}
@@ -105,28 +116,28 @@ func (st *FDStateStore) UpdateOffsets(eventRaw *bpfEvent, scMeta meta.Syscall, s
 		fd := int32(ret)
 		key := fdStateKey(statePID, fd)
 		st.offsets[key] = 0
-		st.RememberDataFile(eventRaw, statePID, fd)
+		st.RememberDataFileFromView(view, statePID, fd)
 	case "dup", "dup2", "dup3":
-		oldKey := fdStateKey(statePID, int32(eventRaw.Args[0]))
+		oldKey := fdStateKey(statePID, int32(view.args[0]))
 		newFD := int32(ret)
 		newKey := fdStateKey(statePID, newFD)
 		if off, ok := st.offsets[oldKey]; ok {
 			st.offsets[newKey] = off
 		}
-		st.RememberDataFile(eventRaw, statePID, newFD)
+		st.RememberDataFileFromView(view, statePID, newFD)
 	case "read", "write":
 		if ret == 0 {
 			return
 		}
-		fd := int32(eventRaw.Args[0])
+		fd := int32(view.args[0])
 		key := fdStateKey(statePID, fd)
 		if off, ok := st.offsets[key]; ok {
 			st.offsets[key] = off + ret
-		} else if off, ok := readProcFDOffset(int(eventRaw.Tid), fd); ok {
+		} else if off, ok := readProcFDOffset(int(view.tid), fd); ok {
 			st.offsets[key] = off
 		}
 	case "lseek":
-		st.offsets[fdStateKey(statePID, int32(eventRaw.Args[0]))] = ret
+		st.offsets[fdStateKey(statePID, int32(view.args[0]))] = ret
 	}
 }
 
@@ -135,6 +146,13 @@ func (s *traceSession) rememberFDDataFile(eventRaw *bpfEvent, fd int32) {
 }
 
 func (st *FDStateStore) RememberDataFile(eventRaw *bpfEvent, statePID int, fd int32) {
+	st.RememberDataFileFromView(newSyscallEventViewFromBPF(eventRaw), statePID, fd)
+}
+
+func (st *FDStateStore) RememberDataFileFromView(view syscallEventView, statePID int, fd int32) {
+	if !view.valid {
+		return
+	}
 	st.ensureMaps()
 	key := fdStateKey(statePID, fd)
 	target := st.paths[key]
@@ -144,7 +162,7 @@ func (st *FDStateStore) RememberDataFile(eventRaw *bpfEvent, statePID int, fd in
 	if old := st.files[key]; old != nil {
 		old.Close()
 	}
-	f, err := os.Open(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, fd))
+	f, err := os.Open(fmt.Sprintf("/proc/%d/fd/%d", view.tid, fd))
 	if err == nil {
 		st.files[key] = f
 	}

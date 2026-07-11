@@ -38,6 +38,7 @@ type syscallEventView struct {
 
 func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, pendingEnter *pendingSyscallState) syscallEventContext {
 	scMeta := syscallMeta(eventRaw.SysId)
+	view := newSyscallEventViewFromBPF(eventRaw)
 	isPath := syscallHasPathArg(scMeta)
 	payloadSections := payloadSectionsForEvent(eventRaw, scMeta)
 	pathText := decodePathText(s, eventRaw, scMeta, isPath, payloadSections)
@@ -45,10 +46,10 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 	if s.opts != nil {
 		shouldPrint = checkShouldPrint(eventRaw, scMeta, pathText, isPath, statePID, s.opts, s.fdStateStore().PathMap())
 	}
-	bufferFileOffset, bufferFileOffsetOK := s.bufferFileOffset(eventRaw, scMeta)
+	bufferFileOffset, bufferFileOffsetOK := s.fdStateStore().BufferFileOffsetFromView(view, scMeta, statePID)
 	ev := syscallEventContext{
 		raw:                eventRaw,
-		view:               newSyscallEventViewFromBPF(eventRaw),
+		view:               view,
 		statePID:           statePID,
 		tid:                int(eventRaw.Tid),
 		meta:               scMeta,
