@@ -22,6 +22,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define EXEC_ENV_MAX 64
 #define EXEC_ARG_DATA_SIZE 42
 #define EVENT_VERSION 2
+#define SYS_READ 0
 #define SYS_WRITE 1
 #define EVENT_TYPE_ENTER 1
 #define EVENT_TYPE_EXIT 2
@@ -586,6 +587,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     }
 
     CAPTURE_ARGS_EXIT(e->sys_id, e);
+    capture_read_tlv(e);
     if (tid == pid && (e->sys_id == SYS_RT_SIGSUSPEND || e->sys_id == SYS_NANOSLEEP)) {
         u32 *pending = bpf_map_lookup_elem(&pending_exec_map, &pid);
         if (pending) {

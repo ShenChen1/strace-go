@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestBPFWritePayloadUsesTLVFlag(t *testing.T) {
+func TestBPFReadWritePayloadsUseTLVFlag(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
 	tlvHeader := readTextFile(t, filepath.Join(root, "bpf/payload_tlv.h"))
@@ -17,8 +17,14 @@ func TestBPFWritePayloadUsesTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, `#include "payload_tlv.h"`) {
 		t.Fatal("strace.c does not include payload_tlv.h")
 	}
+	if !strings.Contains(straceSource, "#define SYS_READ 0") {
+		t.Fatal("strace.c missing SYS_READ constant for read TLV capture")
+	}
 	if calls := strings.Count(straceSource, "capture_write_tlv(e);"); calls != 2 {
 		t.Fatalf("capture_write_tlv calls = %d, want enter and exit paths", calls)
+	}
+	if calls := strings.Count(straceSource, "capture_read_tlv(e);"); calls != 1 {
+		t.Fatalf("capture_read_tlv calls = %d, want exit path only", calls)
 	}
 	if !strings.Contains(straceSource, "saved_flags | EVENT_FLAG_GENERIC_ENTER") {
 		t.Fatal("generic enter flag should preserve payload TLV flag")
@@ -29,6 +35,9 @@ func TestBPFWritePayloadUsesTLVFlag(t *testing.T) {
 	}
 	if !strings.Contains(tlvHeader, "PAYLOAD_TLV_KIND_BYTES") {
 		t.Fatal("payload TLV header missing bytes section kind")
+	}
+	if !strings.Contains(tlvHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") {
+		t.Fatal("payload TLV header missing out direction flag")
 	}
 }
 
