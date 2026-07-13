@@ -61,11 +61,6 @@ func (s *traceSession) traceState() *TraceState {
 	return s.state
 }
 
-func (st *TraceState) Handle(eventRaw *bpfEvent) TraceStateUpdate {
-	view := newTraceStateEventViewFromBPF(eventRaw)
-	return st.handleView(view)
-}
-
 func (st *TraceState) handleView(view traceStateEventView) TraceStateUpdate {
 	if view.isLifecycle() {
 		task := st.applyLifecycleEvent(view)

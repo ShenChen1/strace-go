@@ -82,23 +82,23 @@ func TestTraceStateHandlePairsEnterExitAndCleansLifecycle(t *testing.T) {
 		EventType: bpfEventTypeExit,
 	}
 
-	enterUpdate := state.Handle(enter)
+	enterUpdate := state.handleView(newTraceStateEventViewFromBPF(enter))
 	if enterUpdate.kind != traceStateSyscallEnter || len(state.pendingSyscalls) != 1 {
 		t.Fatalf("enter update = %+v pending=%d, want enter with one pending", enterUpdate, len(state.pendingSyscalls))
 	}
-	exitUpdate := state.Handle(exit)
+	exitUpdate := state.handleView(newTraceStateEventViewFromBPF(exit))
 	if exitUpdate.kind != traceStateSyscallExit || exitUpdate.pendingEnter == nil || len(state.pendingSyscalls) != 0 {
 		t.Fatalf("exit update = %+v pending=%d, want paired exit with no pending", exitUpdate, len(state.pendingSyscalls))
 	}
 
 	state.rememberPendingExecArgs(1235, "execve(...)")
 	state.rememberSuspendedSyscall(1235, "nanosleep")
-	state.Handle(&bpfEvent{
+	state.handleView(newTraceStateEventViewFromBPF(&bpfEvent{
 		Pid:        1234,
 		Tid:        1235,
 		EventType:  bpfEventTypeLifecycle,
 		EventFlags: lifecycleFree,
-	})
+	}))
 	if len(state.pendingExecArgs) != 0 || len(state.suspendedSyscalls) != 0 || len(state.pendingSyscalls) != 0 {
 		t.Fatalf("lifecycle free did not clear pending state: %+v", state)
 	}
