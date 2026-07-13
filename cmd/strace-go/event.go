@@ -30,12 +30,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	}
 
 	if stateUpdate.kind == traceStateSyscallEnter {
-		s.syscallJSONOutput().HandleEnter(syscallEventContext{
-			raw:      eventRaw,
-			view:     newSyscallEventViewFromBPF(eventRaw),
-			statePID: statePID,
-			meta:     syscallMeta(eventRaw.SysId),
-		})
+		s.syscallJSONOutput().HandleEnter(newSyscallEnterEventContext(eventRaw, statePID))
 		return
 	}
 	ev := newSyscallEventContext(s, eventRaw, statePID, stateUpdate.pendingEnter)

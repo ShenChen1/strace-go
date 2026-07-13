@@ -72,6 +72,15 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 	return ev
 }
 
+func newSyscallEnterEventContext(eventRaw *bpfEvent, statePID int) syscallEventContext {
+	return syscallEventContext{
+		raw:      eventRaw,
+		view:     newSyscallEventViewFromBPF(eventRaw),
+		statePID: statePID,
+		meta:     syscallMeta(eventRaw.SysId),
+	}
+}
+
 func newSyscallEventViewFromBPF(eventRaw *bpfEvent) syscallEventView {
 	if eventRaw == nil {
 		return syscallEventView{}

@@ -129,3 +129,26 @@ func TestSyscallEventContextHandlerContextUsesEventView(t *testing.T) {
 		t.Fatalf("handler context syscall fields = args:%v ret:%d probe:%d", ctx.Args, ctx.Ret, ctx.ProbeRetEnter)
 	}
 }
+
+func TestSyscallEnterEventContextUsesRawViewAndMetadata(t *testing.T) {
+	raw := &bpfEvent{
+		Pid:   101,
+		Tid:   102,
+		SysId: 39,
+		Args:  [6]uint64{7},
+		Ret:   -2,
+	}
+
+	ev := newSyscallEnterEventContext(raw, 201)
+
+	if ev.raw != raw || ev.statePID != 201 || ev.meta.Name != "getpid" {
+		t.Fatalf("enter context identity = raw:%p state:%d meta:%s", ev.raw, ev.statePID, ev.meta.Name)
+	}
+	if ev.handlerContext != nil || ev.payloadSections != nil {
+		t.Fatalf("enter context should not build handler/payload side effects: %+v", ev)
+	}
+	view := ev.eventView()
+	if view.pid != 101 || view.tid != 102 || view.sysID != 39 || view.args[0] != 7 || view.ret != -2 {
+		t.Fatalf("enter context view = %+v, want raw-derived syscall view", view)
+	}
+}
