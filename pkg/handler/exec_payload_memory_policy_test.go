@@ -7,7 +7,7 @@ import (
 
 func TestDecodeExecStringArrayUsesPayloadSection(t *testing.T) {
 	snapshot := makeExecPayloadSnapshot([]string{"first", "second"}, []string{"A=1"})
-	ctx := stringArrayContext(mapMemoryReader{})
+	ctx := stringArrayContext()
 	ctx.Opts.Verbose = true
 	ctx.PayloadSections = []PayloadSection{
 		{

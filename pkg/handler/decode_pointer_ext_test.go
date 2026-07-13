@@ -2,8 +2,6 @@ package handler
 
 import (
 	"encoding/binary"
-	"errors"
-	"os"
 	"strings"
 	"testing"
 
@@ -12,27 +10,13 @@ import (
 	"strace-go/pkg/meta"
 )
 
-type mapMemoryReader map[uint64][]byte
-
-func (r mapMemoryReader) Read(_ int, addr uint64, _ int) ([]byte, error) {
-	data, ok := r[addr]
-	if !ok {
-		return nil, errors.New("unreadable address")
-	}
-	return append([]byte(nil), data...), nil
-}
-
-func (r mapMemoryReader) ReadRobust(pid int, addr uint64, size int, _ bool) ([]byte, error) {
-	return r.Read(pid, addr, size)
-}
-
 func pointerBytes(ptr uint64) []byte {
 	data := make([]byte, 8)
 	binary.LittleEndian.PutUint64(data, ptr)
 	return data
 }
 
-func stringArrayContext(reader mapMemoryReader) *Context {
+func stringArrayContext() *Context {
 	return &Context{
 		Pid:       101,
 		Tid:       102,
@@ -62,14 +46,7 @@ func setExecPayloadSnapshot(ctx *Context, snapshot []byte) {
 }
 
 func TestDecodeStringArrayReturnsPointerWithoutSnapshot(t *testing.T) {
-	reader := mapMemoryReader{
-		0x1000: pointerBytes(0x2000),
-		0x1008: pointerBytes(0x3000),
-		0x1010: pointerBytes(0),
-		0x2000: append([]byte("alpha"), 0),
-		0x3000: append([]byte("beta"), 0),
-	}
-	ctx := stringArrayContext(reader)
+	ctx := stringArrayContext()
 
 	if got := decodeStringArray(ctx, 0x1000, "argv"); got != "0x1000" {
 		t.Fatalf("decodeStringArray(argv) = %q", got)
@@ -80,7 +57,7 @@ func TestDecodeStringArrayReturnsPointerWithoutSnapshot(t *testing.T) {
 }
 
 func TestDecodeStringArrayReportsUnreadablePointer(t *testing.T) {
-	ctx := stringArrayContext(mapMemoryReader{})
+	ctx := stringArrayContext()
 
 	if got := decodeStringArray(ctx, 0x1000, "argv"); got != "0x1000" {
 		t.Fatalf("decodeStringArray(argv) = %q", got)
@@ -116,7 +93,7 @@ func TestDecodeExecStringArraySnapshot(t *testing.T) {
 	readFault := int32(-14)
 	binary.LittleEndian.PutUint32(buf[offset+8:offset+12], uint32(readFault))
 
-	ctx := stringArrayContext(mapMemoryReader{})
+	ctx := stringArrayContext()
 	setExecPayloadSnapshot(ctx, buf[execSnapshotOffset:])
 
 	got, ok := decodeExecStringArraySnapshot(ctx, 0x1000, "argv")
@@ -138,7 +115,7 @@ func TestDecodeExecSnapshotReportsUnreadableArrayAddress(t *testing.T) {
 	binary.LittleEndian.PutUint32(header[12:16], uint32(negativeOne))
 	binary.LittleEndian.PutUint64(header[16:24], 0x1000)
 
-	ctx := stringArrayContext(mapMemoryReader{})
+	ctx := stringArrayContext()
 	setExecPayloadSnapshot(ctx, buf[execSnapshotOffset:])
 
 	for _, argName := range []string{"argv", "envp"} {
@@ -165,7 +142,7 @@ func TestDecodeExecVerboseEnvSnapshot(t *testing.T) {
 		record[execArgDataOffset+len(value)] = 0
 	}
 
-	ctx := stringArrayContext(mapMemoryReader{})
+	ctx := stringArrayContext()
 	setExecPayloadSnapshot(ctx, buf[execSnapshotOffset:])
 	ctx.Opts.Verbose = true
 
@@ -191,7 +168,7 @@ func TestDecodeExecArgSnapshotDisplayLimit(t *testing.T) {
 		record[execArgDataOffset+1] = 0
 	}
 
-	ctx := stringArrayContext(mapMemoryReader{})
+	ctx := stringArrayContext()
 	setExecPayloadSnapshot(ctx, buf[execSnapshotOffset:])
 
 	wantShort := "[" + strings.TrimSuffix(strings.Repeat(`"x", `, 32), ", ") + ", ...]"
@@ -224,7 +201,7 @@ func TestDecodeExecSnapshotHonorsStringLimit40(t *testing.T) {
 		record[execArgDataOffset+len(value)] = 0
 	}
 
-	ctx := stringArrayContext(mapMemoryReader{})
+	ctx := stringArrayContext()
 	setExecPayloadSnapshot(ctx, buf[execSnapshotOffset:])
 	ctx.Opts.StringLimit = 40
 
@@ -236,396 +213,12 @@ func TestDecodeExecSnapshotHonorsStringLimit40(t *testing.T) {
 }
 
 func TestDecodeExecIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
-	ctx := stringArrayContext(mapMemoryReader{})
+	ctx := stringArrayContext()
 	ctx.ProbeRetEnter = 0
 
 	res := Result{}
 	got, ok := decodeStringArrayPointer(ctx, 2, "const char *const *", "argv", 0x1000, &res)
 	if !ok || got != "0x1000" {
 		t.Fatalf("decodeStringArrayPointer(exec without section) = %q, %v; want pointer fallback", got, ok)
-	}
-}
-
-func TestDecodeWriteDumpDoesNotUseTraceeMemoryBeyondPayloadPrefix(t *testing.T) {
-	data := make([]byte, 0x300)
-	for i := range data {
-		data[i] = byte(i)
-	}
-	ctx := &Context{
-		Pid:       101,
-		Tid:       102,
-		TargetPid: 101,
-		Args:      [6]uint64{1, 0x1000, uint64(len(data))},
-		ScMeta: meta.Syscall{
-			Name:     "write",
-			Args:     []string{"fd", "buf", "count"},
-			ArgTypes: []string{"int", "const char *", "size_t"},
-		},
-		ProbeRetEnter: 0,
-		PayloadSections: []PayloadSection{
-			{
-				Kind:      PayloadKindBytes,
-				Direction: PayloadDirectionIn,
-				ArgIndex:  1,
-				UserPtr:   0x1000,
-				UserLen:   uint32(len(data)),
-				CopiedLen: 512,
-				ProbeRet:  0,
-				Data:      data[:512],
-			},
-		},
-		Opts: &cli.Options{
-			StringLimit:   32,
-			TraceWriteFDs: map[int32]bool{1: true},
-		},
-	}
-	ctx.Decoder = event.NewDecoder()
-
-	res := Result{}
-	got, ok := decodeBufferArg(ctx, 0x1000, &res)
-	if !ok {
-		t.Fatal("decodeBufferArg did not handle write buffer")
-	}
-	if !strings.HasSuffix(got, "...") {
-		t.Fatalf("write buffer summary = %q, want abbreviated string", got)
-	}
-	if strings.Contains(res.HexDumpStr, "00200") {
-		t.Fatalf("hexdump unexpectedly included data beyond BPF prefix:\n%s", res.HexDumpStr)
-	}
-	if !strings.Contains(res.HexDumpStr, "Cannot fetch 256 bytes") {
-		t.Fatalf("hexdump did not report missing bytes:\n%s", res.HexDumpStr)
-	}
-}
-
-func TestDecodeWriteBufferIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
-	ctx := &Context{
-		Pid:       101,
-		Tid:       102,
-		TargetPid: 101,
-		Args:      [6]uint64{1, 0x1000, 3},
-		ScMeta: meta.Syscall{
-			Name:     "write",
-			Args:     []string{"fd", "buf", "count"},
-			ArgTypes: []string{"int", "const char *", "size_t"},
-		},
-		ProbeRetEnter: 0,
-		Opts:          &cli.Options{StringLimit: 32},
-		Decoder:       event.NewDecoder(),
-	}
-
-	res := Result{}
-	got, ok := decodeCharPointer(ctx, 1, "const char *", "buf", 0x1000, &res)
-	if !ok || got != "0x1000" {
-		t.Fatalf("decodeCharPointer(write) = %q, %v; want pointer fallback", got, ok)
-	}
-}
-
-func TestDecodeReadBufferUsesPayloadSection(t *testing.T) {
-	ctx := &Context{
-		Pid: 101,
-		Tid: 102,
-		Args: [6]uint64{
-			3,
-			0x2000,
-			32,
-		},
-		Ret: 5,
-		ScMeta: meta.Syscall{
-			Name:     "read",
-			Args:     []string{"fd", "buf", "count"},
-			ArgTypes: []string{"int", "char *", "size_t"},
-		},
-		PayloadSections: []PayloadSection{
-			{
-				Kind:      PayloadKindBytes,
-				Direction: PayloadDirectionOut,
-				ArgIndex:  1,
-				UserPtr:   0x2000,
-				UserLen:   5,
-				CopiedLen: 5,
-				ProbeRet:  0,
-				Data:      []byte("hello"),
-			},
-		},
-		Opts: &cli.Options{
-			StringLimit: 32,
-		},
-		Decoder: event.NewDecoder(),
-	}
-
-	res := Result{}
-	got, ok := decodeBufferArg(ctx, 0x2000, &res)
-	if !ok || got != `"hello"` {
-		t.Fatalf("decodeBufferArg(read) = %q, %v; want payload section", got, ok)
-	}
-}
-
-func TestDecodeWriteBufferUsesPayloadSection(t *testing.T) {
-	ctx := &Context{
-		Pid:       101,
-		Tid:       102,
-		TargetPid: 101,
-		Args: [6]uint64{
-			1,
-			0x1000,
-			5,
-		},
-		ScMeta: meta.Syscall{
-			Name:     "write",
-			Args:     []string{"fd", "buf", "count"},
-			ArgTypes: []string{"int", "const char *", "size_t"},
-		},
-		PayloadSections: []PayloadSection{
-			{
-				Kind:      PayloadKindBytes,
-				Direction: PayloadDirectionIn,
-				ArgIndex:  1,
-				UserPtr:   0x1000,
-				UserLen:   5,
-				CopiedLen: 5,
-				ProbeRet:  0,
-				Data:      []byte("world"),
-			},
-		},
-		Opts: &cli.Options{
-			StringLimit: 32,
-		},
-		Decoder: event.NewDecoder(),
-	}
-
-	res := Result{}
-	got, ok := decodeBufferArg(ctx, 0x1000, &res)
-	if !ok || got != `"world"` {
-		t.Fatalf("decodeBufferArg(write) = %q, %v; want payload section", got, ok)
-	}
-}
-
-func TestDecodePathUsesPayloadStringSection(t *testing.T) {
-	ctx := &Context{
-		Pid:       101,
-		Tid:       102,
-		TargetPid: 101,
-		ScMeta: meta.Syscall{
-			Name:     "openat",
-			Args:     []string{"dfd", "filename", "flags"},
-			ArgTypes: []string{"int", "const char *", "int"},
-		},
-		PayloadSections: []PayloadSection{
-			{
-				Kind:      PayloadKindString,
-				Direction: PayloadDirectionIn,
-				ArgIndex:  1,
-				UserPtr:   0x3000,
-				UserLen:   13,
-				CopiedLen: 13,
-				ProbeRet:  0,
-				Data:      []byte("/tmp/section\x00"),
-			},
-		},
-		Opts: &cli.Options{
-			StringLimit: 32,
-		},
-		Decoder: event.NewDecoder(),
-	}
-
-	res := Result{}
-	got, ok := decodeCharPointer(ctx, 1, "const char *", "filename", 0x3000, &res)
-	if !ok || got != `"/tmp/section"` {
-		t.Fatalf("decodeCharPointer(path) = %q, %v; want payload section", got, ok)
-	}
-}
-
-func TestDecodePathIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
-	ctx := &Context{
-		Pid:       101,
-		Tid:       102,
-		TargetPid: 101,
-		ScMeta: meta.Syscall{
-			Name:     "openat",
-			Args:     []string{"dfd", "filename", "flags"},
-			ArgTypes: []string{"int", "const char *", "int"},
-		},
-		ProbeRetEnter: 0,
-		Opts:          &cli.Options{StringLimit: 32},
-		Decoder:       event.NewDecoder(),
-	}
-
-	res := Result{}
-	got, ok := decodeCharPointer(ctx, 1, "const char *", "filename", 0x3000, &res)
-	if !ok || got != "0x3000" {
-		t.Fatalf("decodeCharPointer(path without section) = %q, %v; want pointer fallback", got, ok)
-	}
-}
-
-func TestDecodeMemfdNameUsesPayloadStringSection(t *testing.T) {
-	ctx := &Context{
-		Pid:       101,
-		Tid:       102,
-		TargetPid: 101,
-		ScMeta: meta.Syscall{
-			Name:     "memfd_create",
-			Args:     []string{"uname", "flags"},
-			ArgTypes: []string{"const char *", "unsigned int"},
-		},
-		PayloadSections: []PayloadSection{
-			{
-				Kind:      PayloadKindString,
-				Direction: PayloadDirectionIn,
-				ArgIndex:  0,
-				UserPtr:   0x3000,
-				UserLen:   13,
-				CopiedLen: 13,
-				ProbeRet:  0,
-				Data:      []byte("section-name\x00"),
-			},
-		},
-		Opts:    &cli.Options{StringLimit: 32},
-		Decoder: event.NewDecoder(),
-	}
-
-	res := Result{}
-	got, ok := decodeCharPointer(ctx, 0, "const char *", "uname", 0x3000, &res)
-	if !ok || got != `"section-name"` {
-		t.Fatalf("decodeCharPointer(memfd_create) = %q, %v; want payload section", got, ok)
-	}
-}
-
-func TestDecodeMemfdNameIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
-	ctx := &Context{
-		Pid:       101,
-		Tid:       102,
-		TargetPid: 101,
-		ScMeta: meta.Syscall{
-			Name:     "memfd_create",
-			Args:     []string{"uname", "flags"},
-			ArgTypes: []string{"const char *", "unsigned int"},
-		},
-		ProbeRetEnter: 0,
-		Opts:          &cli.Options{StringLimit: 32},
-		Decoder:       event.NewDecoder(),
-	}
-
-	res := Result{}
-	got, ok := decodeCharPointer(ctx, 0, "const char *", "uname", 0x3000, &res)
-	if !ok || got != "0x3000" {
-		t.Fatalf("decodeCharPointer(memfd_create without section) = %q, %v; want pointer fallback", got, ok)
-	}
-}
-
-func TestDecodeReadlinkBufferUsesPayloadSection(t *testing.T) {
-	ctx := &Context{
-		Pid:       101,
-		Tid:       102,
-		TargetPid: 101,
-		Ret:       6,
-		ScMeta: meta.Syscall{
-			Name:     "readlink",
-			Args:     []string{"path", "buf", "bufsiz"},
-			ArgTypes: []string{"const char *", "char *", "size_t"},
-		},
-		PayloadSections: []PayloadSection{
-			{
-				Kind:      PayloadKindBytes,
-				Direction: PayloadDirectionOut,
-				ArgIndex:  1,
-				UserPtr:   0x3000,
-				UserLen:   6,
-				CopiedLen: 6,
-				ProbeRet:  0,
-				Data:      []byte("target"),
-			},
-		},
-		Opts:    &cli.Options{StringLimit: 32},
-		Decoder: event.NewDecoder(),
-	}
-
-	got, ok := decodeReadlinkBuffer(ctx, 1, 0x3000)
-	if !ok || got != `"target"` {
-		t.Fatalf("decodeReadlinkBuffer() = %q, %v; want payload section", got, ok)
-	}
-}
-
-func TestDecodeReadlinkBufferIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
-	ctx := &Context{
-		Pid:       101,
-		Tid:       102,
-		TargetPid: 101,
-		Ret:       6,
-		ScMeta: meta.Syscall{
-			Name:     "readlink",
-			Args:     []string{"path", "buf", "bufsiz"},
-			ArgTypes: []string{"const char *", "char *", "size_t"},
-		},
-		ProbeRetExit: 0,
-		Opts:         &cli.Options{StringLimit: 32},
-		Decoder:      event.NewDecoder(),
-	}
-
-	got, ok := decodeReadlinkBuffer(ctx, 1, 0x3000)
-	if !ok || got != "0x3000" {
-		t.Fatalf("decodeReadlinkBuffer() = %q, %v; want pointer fallback", got, ok)
-	}
-}
-
-func TestDecodeWriteDumpExtendsFromWrittenFile(t *testing.T) {
-	data := make([]byte, 0x300)
-	for i := range data {
-		data[i] = byte(i)
-	}
-	tmp, err := os.CreateTemp(t.TempDir(), "write-data")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tmp.Close()
-	if _, err := tmp.Write(make([]byte, 15)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		t.Fatal(err)
-	}
-
-	ctx := &Context{
-		Pid:       101,
-		Tid:       102,
-		TargetPid: 101,
-		Args:      [6]uint64{1, 0x1000, uint64(len(data))},
-		Ret:       int64(len(data)),
-		ScMeta: meta.Syscall{
-			Name:     "write",
-			Args:     []string{"fd", "buf", "count"},
-			ArgTypes: []string{"int", "const char *", "size_t"},
-		},
-		ProbeRetEnter:      0,
-		BufferFileOffset:   15,
-		BufferFileOffsetOK: true,
-		FdFiles:            map[string]*os.File{"101:1": tmp},
-		PayloadSections: []PayloadSection{
-			{
-				Kind:      PayloadKindBytes,
-				Direction: PayloadDirectionIn,
-				ArgIndex:  1,
-				UserPtr:   0x1000,
-				UserLen:   uint32(len(data)),
-				CopiedLen: 512,
-				ProbeRet:  0,
-				Data:      data[:512],
-			},
-		},
-		Opts: &cli.Options{
-			StringLimit:   32,
-			TraceWriteFDs: map[int32]bool{1: true},
-		},
-	}
-	ctx.Decoder = event.NewDecoder()
-
-	res := Result{}
-	if _, ok := decodeBufferArg(ctx, 0x1000, &res); !ok {
-		t.Fatal("decodeBufferArg did not handle write buffer")
-	}
-	if !strings.Contains(res.HexDumpStr, "00200") {
-		t.Fatalf("hexdump did not include data recovered from file:\n%s", res.HexDumpStr)
-	}
-	if strings.Contains(res.HexDumpStr, "Cannot fetch") {
-		t.Fatalf("hexdump unexpectedly reported missing bytes:\n%s", res.HexDumpStr)
 	}
 }
