@@ -2,7 +2,6 @@ package main
 
 import (
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
 )
 
 type SuspendedSyscallOutput struct {
@@ -27,16 +26,6 @@ func (s *traceSession) suspendedSyscallOutput() *SuspendedSyscallOutput {
 		State:    s.traceState(),
 		Renderer: s.textRenderer(),
 	})
-}
-
-// IMPACT: Handle owns synthetic unfinished syscall enter events from BPF probe state.
-func (o *SuspendedSyscallOutput) Handle(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result) bool {
-	ev := syscallEventContext{
-		raw:  eventRaw,
-		view: newSyscallEventViewFromBPF(eventRaw),
-		meta: scMeta,
-	}
-	return o.HandleEvent(ev, res)
 }
 
 // IMPACT: HandleEvent owns synthetic unfinished syscall enter events from the stable event context.

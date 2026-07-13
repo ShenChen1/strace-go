@@ -30,11 +30,10 @@ func newSuspendedOutputForTest() (*SuspendedSyscallOutput, *TraceState, *bytes.B
 func TestSuspendedSyscallOutputPrintsUnfinishedAndRemembersState(t *testing.T) {
 	output, state, out := newSuspendedOutputForTest()
 
-	handled := output.Handle(
-		&bpfEvent{Tid: 101, ProbeRetEnter: 3},
-		meta.Syscall{Name: "nanosleep"},
-		handler.Result{ArgParts: []string{"{tv_sec=1}", "0x0"}},
-	)
+	handled := output.HandleEvent(syscallEventContext{
+		view: syscallEventView{valid: true, tid: 101, probeRetEnter: 3},
+		meta: meta.Syscall{Name: "nanosleep"},
+	}, handler.Result{ArgParts: []string{"{tv_sec=1}", "0x0"}})
 
 	if !handled {
 		t.Fatal("probe_ret_enter=3 should be handled")
@@ -74,11 +73,10 @@ func TestSuspendedSyscallOutputUsesEventView(t *testing.T) {
 func TestSuspendedSyscallOutputConsumesSuppressedResumeProbe(t *testing.T) {
 	output, state, out := newSuspendedOutputForTest()
 
-	handled := output.Handle(
-		&bpfEvent{Tid: 101, ProbeRetEnter: 2},
-		meta.Syscall{Name: "nanosleep"},
-		handler.Result{ArgParts: []string{"0x1"}},
-	)
+	handled := output.HandleEvent(syscallEventContext{
+		view: syscallEventView{valid: true, tid: 101, probeRetEnter: 2},
+		meta: meta.Syscall{Name: "nanosleep"},
+	}, handler.Result{ArgParts: []string{"0x1"}})
 
 	if !handled {
 		t.Fatal("probe_ret_enter=2 should be consumed")
@@ -91,11 +89,10 @@ func TestSuspendedSyscallOutputConsumesSuppressedResumeProbe(t *testing.T) {
 func TestSuspendedSyscallOutputFallsThroughForNormalProbe(t *testing.T) {
 	output, _, out := newSuspendedOutputForTest()
 
-	handled := output.Handle(
-		&bpfEvent{Tid: 101, ProbeRetEnter: 0},
-		meta.Syscall{Name: "getpid"},
-		handler.Result{},
-	)
+	handled := output.HandleEvent(syscallEventContext{
+		view: syscallEventView{valid: true, tid: 101, probeRetEnter: 0},
+		meta: meta.Syscall{Name: "getpid"},
+	}, handler.Result{})
 
 	if handled {
 		t.Fatal("normal probe should fall through")
