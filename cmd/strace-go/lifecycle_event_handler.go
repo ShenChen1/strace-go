@@ -6,14 +6,14 @@ type LifecycleEventHandler struct {
 	opts      *cli.Options
 	inherit   func(parentPID int, childPID int)
 	cleanup   func(pid int)
-	writeJSON func(*bpfEvent, *TaskState)
+	writeJSON func(traceStateEventView, *TaskState)
 }
 
 type LifecycleEventHandlerDeps struct {
 	Opts      *cli.Options
 	Inherit   func(parentPID int, childPID int)
 	Cleanup   func(pid int)
-	WriteJSON func(*bpfEvent, *TaskState)
+	WriteJSON func(traceStateEventView, *TaskState)
 }
 
 func newLifecycleEventHandler(deps LifecycleEventHandlerDeps) *LifecycleEventHandler {
@@ -31,41 +31,41 @@ func (s *traceSession) lifecycleEventHandler() *LifecycleEventHandler {
 			Opts:      s.opts,
 			Inherit:   s.inheritProcessState,
 			Cleanup:   s.cleanupProcessState,
-			WriteJSON: s.writeJSONLifecycleEvent,
+			WriteJSON: s.writeJSONLifecycleEventView,
 		})
 	}
 	return s.lifecycleHandlerCache
 }
 
 // IMPACT: Handle owns lifecycle side effects after TraceState has updated task state.
-func (h *LifecycleEventHandler) Handle(eventRaw *bpfEvent, task *TaskState) {
-	if eventRaw.EventFlags == lifecycleFork {
-		h.inheritProcess(eventRaw)
+func (h *LifecycleEventHandler) Handle(view traceStateEventView, task *TaskState) {
+	if view.eventFlags == lifecycleFork {
+		h.inheritProcess(view)
 	}
-	switch eventRaw.EventFlags {
+	switch view.eventFlags {
 	case lifecycleExit, lifecycleFree:
-		h.cleanupProcess(eventRaw)
+		h.cleanupProcess(view)
 	}
 	if h.jsonMode() {
-		h.writeLifecycleJSON(eventRaw, task)
+		h.writeLifecycleJSON(view, task)
 	}
 }
 
-func (h *LifecycleEventHandler) inheritProcess(eventRaw *bpfEvent) {
+func (h *LifecycleEventHandler) inheritProcess(view traceStateEventView) {
 	if h.inherit != nil {
-		h.inherit(int(eventRaw.Args[0]), int(eventRaw.Args[1]))
+		h.inherit(int(view.args[0]), int(view.args[1]))
 	}
 }
 
-func (h *LifecycleEventHandler) cleanupProcess(eventRaw *bpfEvent) {
+func (h *LifecycleEventHandler) cleanupProcess(view traceStateEventView) {
 	if h.cleanup != nil {
-		h.cleanup(int(eventRaw.Tid))
+		h.cleanup(int(view.tid))
 	}
 }
 
-func (h *LifecycleEventHandler) writeLifecycleJSON(eventRaw *bpfEvent, task *TaskState) {
+func (h *LifecycleEventHandler) writeLifecycleJSON(view traceStateEventView, task *TaskState) {
 	if h.writeJSON != nil {
-		h.writeJSON(eventRaw, task)
+		h.writeJSON(view, task)
 	}
 }
 

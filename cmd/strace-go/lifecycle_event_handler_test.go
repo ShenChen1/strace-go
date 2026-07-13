@@ -24,7 +24,7 @@ func newLifecycleHandlerTestState(opts *cli.Options) *lifecycleHandlerTestState 
 		Cleanup: func(pid int) {
 			state.cleaned = append(state.cleaned, pid)
 		},
-		WriteJSON: func(_ *bpfEvent, task *TaskState) {
+		WriteJSON: func(_ traceStateEventView, task *TaskState) {
 			state.jsonEventSeen = true
 			state.jsonTaskSeen = task
 		},
@@ -37,9 +37,9 @@ func TestLifecycleEventHandlerHandlesForkAndJSON(t *testing.T) {
 	state := newLifecycleHandlerTestState(opts)
 	task := &TaskState{TID: 101}
 
-	state.handler.Handle(&bpfEvent{
-		EventFlags: lifecycleFork,
-		Args:       [6]uint64{100, 101},
+	state.handler.Handle(traceStateEventView{
+		eventFlags: lifecycleFork,
+		args:       [6]uint64{100, 101},
 	}, task)
 
 	if len(state.inherited) != 1 || state.inherited[0] != [2]int{100, 101} {
@@ -56,8 +56,8 @@ func TestLifecycleEventHandlerHandlesForkAndJSON(t *testing.T) {
 func TestLifecycleEventHandlerHandlesExitAndFreeCleanup(t *testing.T) {
 	state := newLifecycleHandlerTestState(nil)
 
-	state.handler.Handle(&bpfEvent{EventFlags: lifecycleExit, Tid: 101}, nil)
-	state.handler.Handle(&bpfEvent{EventFlags: lifecycleFree, Tid: 102}, nil)
+	state.handler.Handle(traceStateEventView{eventFlags: lifecycleExit, tid: 101}, nil)
+	state.handler.Handle(traceStateEventView{eventFlags: lifecycleFree, tid: 102}, nil)
 
 	if len(state.inherited) != 0 {
 		t.Fatalf("inherited = %v, want none", state.inherited)
@@ -74,7 +74,7 @@ func TestLifecycleEventHandlerSkipsJSONOutsideJSONMode(t *testing.T) {
 	opts := cli.ParseArgs([]string{"/bin/true"})
 	state := newLifecycleHandlerTestState(opts)
 
-	state.handler.Handle(&bpfEvent{EventFlags: lifecycleExec}, &TaskState{TID: 101})
+	state.handler.Handle(traceStateEventView{eventFlags: lifecycleExec}, &TaskState{TID: 101})
 
 	if state.jsonEventSeen {
 		t.Fatal("json should not be written for text mode")

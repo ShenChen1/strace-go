@@ -37,7 +37,7 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 	stateUpdate := s.traceState().Handle(eventRaw)
 
 	if stateUpdate.kind == traceStateLifecycle {
-		s.lifecycleEventHandler().Handle(eventRaw, stateUpdate.lifecycleTask)
+		s.lifecycleEventHandler().Handle(stateUpdate.view, stateUpdate.lifecycleTask)
 		return
 	}
 

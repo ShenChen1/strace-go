@@ -143,21 +143,25 @@ func (s *traceSession) writeJSONRawEvent(eventRaw *bpfEvent, scMeta meta.Syscall
 }
 
 func (s *traceSession) writeJSONLifecycleEvent(eventRaw *bpfEvent, task *TaskState) {
+	s.writeJSONLifecycleEventView(newTraceStateEventViewFromBPF(eventRaw), task)
+}
+
+func (s *traceSession) writeJSONLifecycleEventView(view traceStateEventView, task *TaskState) {
 	ev := jsonLifecycleEvent{
 		Type:         "lifecycle",
-		EventVersion: eventRaw.EventVersion,
-		EventType:    bpfEventTypeName(eventRaw),
-		EventTypeID:  eventRaw.EventType,
-		Action:       lifecycleActionName(eventRaw.EventFlags),
-		ActionID:     eventRaw.EventFlags,
-		Pid:          eventRaw.Pid,
-		Tid:          eventRaw.Tid,
-		Arg0:         eventRaw.Args[0],
-		Arg1:         eventRaw.Args[1],
-		TimeNS:       eventRaw.EnterTime,
+		EventVersion: view.eventVersion,
+		EventType:    bpfEventTypeNameFromID(view.eventType),
+		EventTypeID:  view.eventType,
+		Action:       lifecycleActionName(view.eventFlags),
+		ActionID:     view.eventFlags,
+		Pid:          view.pid,
+		Tid:          view.tid,
+		Arg0:         view.args[0],
+		Arg1:         view.args[1],
+		TimeNS:       view.enterTime,
 	}
-	if eventRaw.EventFlags == lifecycleExec {
-		ev.Filename = lifecycleSnapshotString(eventRaw)
+	if view.eventFlags == lifecycleExec {
+		ev.Filename = view.snapshotText
 	}
 	if task != nil {
 		ev.TaskTID = task.TID
@@ -220,7 +224,11 @@ func (s *traceSession) writeJSONDecodedEvent(syscallEvent syscallEventContext, r
 }
 
 func bpfEventTypeName(eventRaw *bpfEvent) string {
-	switch eventRaw.EventType {
+	return bpfEventTypeNameFromID(eventRaw.EventType)
+}
+
+func bpfEventTypeNameFromID(eventType uint16) string {
+	switch eventType {
 	case bpfEventTypeEnter:
 		return "enter"
 	case bpfEventTypeExit:

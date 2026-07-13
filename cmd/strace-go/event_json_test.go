@@ -47,6 +47,39 @@ func TestJSONLifecycleExecIncludesFilenameSnapshot(t *testing.T) {
 	}
 }
 
+func TestJSONLifecycleViewIncludesFilenameSnapshot(t *testing.T) {
+	var output bytes.Buffer
+	session := &traceSession{outWriter: &output}
+
+	session.writeJSONLifecycleEventView(traceStateEventView{
+		eventVersion: 2,
+		eventType:    bpfEventTypeLifecycle,
+		eventFlags:   lifecycleExec,
+		pid:          101,
+		tid:          101,
+		args:         [6]uint64{100, 101},
+		enterTime:    20,
+		snapshotText: "/bin/true",
+	}, &TaskState{
+		TID:    101,
+		TGID:   101,
+		Alive:  true,
+		Execed: true,
+	})
+
+	var ev struct {
+		Type     string `json:"type"`
+		Action   string `json:"action"`
+		Filename string `json:"filename"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &ev); err != nil {
+		t.Fatalf("decode lifecycle view JSON: %v", err)
+	}
+	if ev.Type != "lifecycle" || ev.Action != "exec" || ev.Filename != "/bin/true" {
+		t.Fatalf("lifecycle view JSON = %+v, want exec filename /bin/true", ev)
+	}
+}
+
 func TestJSONStatsEventIncludesRingbufFailures(t *testing.T) {
 	ev := newJSONStatsEvent(bpfRuntimeStats{
 		RingbufReserveFail: 8,

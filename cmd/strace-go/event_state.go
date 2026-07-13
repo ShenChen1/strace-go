@@ -14,6 +14,7 @@ type pendingSyscallState struct {
 
 type traceStateEventView struct {
 	valid         bool
+	eventVersion  uint16
 	pid           uint32
 	tid           uint32
 	sysID         uint32
@@ -24,6 +25,7 @@ type traceStateEventView struct {
 	ptr           uint64
 	dataLen       uint32
 	probeRetEnter int32
+	snapshotText  string
 }
 
 type TraceState struct {
@@ -43,6 +45,7 @@ const (
 
 type TraceStateUpdate struct {
 	kind          traceStateEventKind
+	view          traceStateEventView
 	pendingEnter  *pendingSyscallState
 	lifecycleTask *TaskState
 }
@@ -69,16 +72,17 @@ func (st *TraceState) handleView(view traceStateEventView) TraceStateUpdate {
 		if view.eventFlags == lifecycleExit || view.eventFlags == lifecycleFree {
 			st.clearTaskPending(view.tid)
 		}
-		return TraceStateUpdate{kind: traceStateLifecycle, lifecycleTask: task}
+		return TraceStateUpdate{kind: traceStateLifecycle, view: view, lifecycleTask: task}
 	}
 
 	st.noteSyscallTask(view)
 	if view.isGenericEnter() {
 		st.rememberEnterEvent(view)
-		return TraceStateUpdate{kind: traceStateSyscallEnter}
+		return TraceStateUpdate{kind: traceStateSyscallEnter, view: view}
 	}
 	return TraceStateUpdate{
 		kind:         traceStateSyscallExit,
+		view:         view,
 		pendingEnter: st.consumeEnterEvent(view),
 	}
 }
@@ -87,8 +91,13 @@ func newTraceStateEventViewFromBPF(eventRaw *bpfEvent) traceStateEventView {
 	if eventRaw == nil {
 		return traceStateEventView{}
 	}
+	snapshotText := ""
+	if eventRaw.EventType == bpfEventTypeLifecycle && eventRaw.EventFlags == lifecycleExec {
+		snapshotText = lifecycleSnapshotString(eventRaw)
+	}
 	return traceStateEventView{
 		valid:         true,
+		eventVersion:  eventRaw.EventVersion,
 		pid:           eventRaw.Pid,
 		tid:           eventRaw.Tid,
 		sysID:         eventRaw.SysId,
@@ -99,6 +108,7 @@ func newTraceStateEventViewFromBPF(eventRaw *bpfEvent) traceStateEventView {
 		ptr:           eventRaw.Ptr,
 		dataLen:       eventRaw.DataLen,
 		probeRetEnter: eventRaw.ProbeRetEnter,
+		snapshotText:  snapshotText,
 	}
 }
 
