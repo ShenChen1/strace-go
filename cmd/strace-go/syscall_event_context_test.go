@@ -352,13 +352,19 @@ func TestSyscallEventContextSuppressOutputUsesEffectiveMetadata(t *testing.T) {
 
 func TestSyscallEventContextRecordSummaryUsesEffectiveMetadata(t *testing.T) {
 	stats := &SummaryStats{}
-	ev := syscallEventContext{
-		view:        syscallEventView{valid: true, duration: 12, ret: -2},
-		shouldPrint: true,
-		handlerContext: &handler.Context{
-			ScMeta: meta.Syscall{Name: "getpid"},
-		},
+	raw := &bpfEvent{
+		Pid:      101,
+		Tid:      101,
+		SysId:    syscallIDByName(t, "getpid"),
+		Duration: 12,
+		Ret:      -2,
 	}
+	visibleSession := &traceSession{
+		opts:    cli.ParseArgs([]string{"-e", "trace=getpid", "/bin/true"}),
+		decoder: event.NewDecoder(),
+		fdState: newFDStateStoreFromMaps(nil, nil, nil),
+	}
+	ev := newSyscallEventContext(visibleSession, raw, 101, nil)
 
 	ev.recordSummary(stats)
 
@@ -370,8 +376,13 @@ func TestSyscallEventContextRecordSummaryUsesEffectiveMetadata(t *testing.T) {
 		t.Fatalf("summary entry = %+v, want count=1 time=12 errors=1", entry)
 	}
 
-	ev.shouldPrint = false
-	ev.recordSummary(stats)
+	hiddenSession := &traceSession{
+		opts:    cli.ParseArgs([]string{"-e", "trace=write", "/bin/true"}),
+		decoder: event.NewDecoder(),
+		fdState: newFDStateStoreFromMaps(nil, nil, nil),
+	}
+	hidden := newSyscallEventContext(hiddenSession, raw, 101, nil)
+	hidden.recordSummary(stats)
 	if stats.stats["getpid"].calls != 1 {
 		t.Fatalf("hidden event changed summary entry = %+v", stats.stats["getpid"])
 	}
