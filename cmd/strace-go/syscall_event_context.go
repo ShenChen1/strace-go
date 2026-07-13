@@ -167,6 +167,20 @@ func (ev syscallEventContext) recordSummary(stats *SummaryStats) {
 	stats.Record(ev.syscallName(), view.duration, view.ret)
 }
 
+func (ev syscallEventContext) updateFDOffsets(store *FDStateStore) {
+	if store == nil {
+		return
+	}
+	store.UpdateOffsetsFromView(ev.eventView(), ev.effectiveSyscallMeta(), ev.statePID)
+}
+
+func (ev syscallEventContext) cleanupClosedFD(store *FDStateStore) {
+	if store == nil {
+		return
+	}
+	store.CleanupClosedFDFromView(ev.eventView(), ev.effectiveSyscallMeta(), ev.statePID)
+}
+
 func syscallMeta(sysID uint32) meta.Syscall {
 	if scMeta, ok := meta.SyscallTable[sysID]; ok {
 		return scMeta
@@ -289,7 +303,7 @@ func (s *traceSession) updateFDState(ev syscallEventContext) {
 }
 
 func (s *traceSession) cleanupClosedFD(ev syscallEventContext) {
-	s.fdStateStore().CleanupClosedFDFromView(ev.eventView(), ev.meta, ev.statePID)
+	ev.cleanupClosedFD(s.fdStateStore())
 }
 
 func (ev syscallEventContext) shouldEmitStatus(optsStatus successfulFailedOptions) bool {

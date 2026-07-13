@@ -82,7 +82,7 @@ func (st *FDStateStore) BufferFileOffsetFromView(view syscallEventView, scMeta m
 }
 
 func (s *traceSession) updateSyscallFDOffsets(ev syscallEventContext) {
-	s.fdStateStore().UpdateOffsetsFromView(ev.eventView(), ev.meta, ev.statePID)
+	ev.updateFDOffsets(s.fdStateStore())
 }
 
 func (st *FDStateStore) UpdateOffsetsFromView(view syscallEventView, scMeta meta.Syscall, statePID int) {

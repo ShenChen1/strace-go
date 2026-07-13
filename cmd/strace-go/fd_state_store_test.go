@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -106,5 +107,29 @@ func TestTraceSessionCleanupClosedFDUsesEventView(t *testing.T) {
 	}
 	if got := store.offsets["101:4"]; got != 99 {
 		t.Fatalf("raw-selected fd offset = %d, want untouched 99", got)
+	}
+}
+
+func TestSyscallEventContextCleanupClosedFDUsesEffectiveMetadata(t *testing.T) {
+	store := newFDStateStoreFromMaps(
+		map[string]string{"101:3": "/tmp/remove"},
+		map[string]int64{"101:3": 12},
+		make(map[string]*os.File),
+	)
+	ev := syscallEventContext{
+		view:     syscallEventView{valid: true, args: [6]uint64{3}, ret: 0},
+		statePID: 101,
+		handlerContext: &handler.Context{
+			ScMeta: meta.Syscall{Name: "close"},
+		},
+	}
+
+	ev.cleanupClosedFD(store)
+
+	if _, ok := store.paths["101:3"]; ok {
+		t.Fatal("effective metadata close did not remove fd path")
+	}
+	if _, ok := store.offsets["101:3"]; ok {
+		t.Fatal("effective metadata close did not remove fd offset")
 	}
 }

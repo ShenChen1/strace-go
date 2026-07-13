@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -92,5 +93,22 @@ func TestFDOffsetsUseEventViewForSyscallContext(t *testing.T) {
 	}
 	if got := session.fdState.offsets["101:2"]; got != 30 {
 		t.Fatalf("raw fd offset after write = %d, want unchanged 30", got)
+	}
+}
+
+func TestFDOffsetsUpdateUsesEffectiveMetadata(t *testing.T) {
+	store := newFDStateStoreFromMaps(nil, map[string]int64{"101:1": 15}, make(map[string]*os.File))
+	ev := syscallEventContext{
+		view:     syscallEventView{valid: true, tid: 101, args: [6]uint64{1}, ret: 4},
+		statePID: 101,
+		handlerContext: &handler.Context{
+			ScMeta: meta.Syscall{Name: "write"},
+		},
+	}
+
+	ev.updateFDOffsets(store)
+
+	if got := store.offsets["101:1"]; got != 19 {
+		t.Fatalf("fd offset after effective metadata write = %d, want 19", got)
 	}
 }
