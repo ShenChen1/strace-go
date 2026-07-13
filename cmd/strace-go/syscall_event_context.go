@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
@@ -201,6 +202,16 @@ func (ev syscallEventContext) shouldOutput() bool {
 
 func (ev syscallEventContext) shouldRunHandler() bool {
 	return ev.shouldPrint || ev.isFDStateSyscall()
+}
+
+func (ev syscallEventContext) shouldEmitRawEnter(opts *cli.Options, pathMap map[string]string) bool {
+	if opts == nil {
+		return false
+	}
+	if opts.DebugEvents {
+		return true
+	}
+	return checkShouldPrintFromView(ev.eventView(), ev.meta, "", false, ev.statePID, opts, pathMap)
 }
 
 func (ev syscallEventContext) handleWith(handle func(string, *handler.Context) handler.Result) handler.Result {

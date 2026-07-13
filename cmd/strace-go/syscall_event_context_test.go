@@ -208,3 +208,28 @@ func TestSyscallEventContextHandleWithUsesMetadataAndHandlerContext(t *testing.T
 		t.Fatalf("nil handler result = %+v, want empty", got)
 	}
 }
+
+func TestSyscallEventContextRawEnterPolicy(t *testing.T) {
+	opts := testOptions()
+	opts.TraceSyscalls["dup"] = true
+	opts.TraceFDs[5] = true
+	ev := syscallEventContext{
+		raw:      &bpfEvent{Args: [6]uint64{3}},
+		view:     syscallEventView{valid: true, args: [6]uint64{5}},
+		meta:     meta.Syscall{Name: "dup", Args: []string{"fd"}},
+		statePID: 101,
+	}
+
+	if !ev.shouldEmitRawEnter(opts, nil) {
+		t.Fatal("raw enter policy should use event view for fd filter")
+	}
+	if ev.shouldEmitRawEnter(nil, nil) {
+		t.Fatal("raw enter policy should reject nil options")
+	}
+
+	opts.DebugEvents = true
+	opts.TraceFDs = map[int32]bool{}
+	if !ev.shouldEmitRawEnter(opts, nil) {
+		t.Fatal("debug raw enter policy should override filters")
+	}
+}

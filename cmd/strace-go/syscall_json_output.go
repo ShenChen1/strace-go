@@ -44,8 +44,7 @@ func (o *SyscallJSONOutput) HandleEnter(ev syscallEventContext) {
 	if !o.jsonMode() {
 		return
 	}
-	view := ev.eventView()
-	if o.opts.DebugEvents || checkShouldPrintFromView(view, ev.meta, "", false, ev.statePID, o.opts, o.pathMap) {
+	if ev.shouldEmitRawEnter(o.opts, o.pathMap) {
 		o.writeRawEvent(ev)
 	}
 }
