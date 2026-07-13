@@ -266,6 +266,25 @@ func TestSyscallEventContextEffectiveMetadataFallsBackToHandlerContext(t *testin
 	}
 }
 
+func TestSyscallEventContextEffectiveMetadataFallsBackToHandlerSysName(t *testing.T) {
+	ev := syscallEventContext{
+		handlerContext: &handler.Context{SysName: "getpid"},
+	}
+
+	if got := ev.effectiveSyscallMeta().Name; got != "getpid" {
+		t.Fatalf("effective metadata name = %q, want getpid", got)
+	}
+
+	var gotName string
+	ev.handleWith(func(name string, _ *handler.Context) handler.Result {
+		gotName = name
+		return handler.Result{}
+	})
+	if gotName != "getpid" {
+		t.Fatalf("handler syscall name = %q, want getpid", gotName)
+	}
+}
+
 func TestSyscallEventContextRawEnterPolicy(t *testing.T) {
 	opts := testOptions()
 	opts.TraceSyscalls["dup"] = true

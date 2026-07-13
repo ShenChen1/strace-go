@@ -126,7 +126,12 @@ func (ev syscallEventContext) effectiveSyscallMeta() meta.Syscall {
 		return ev.meta
 	}
 	if ev.handlerContext != nil {
-		return ev.handlerContext.ScMeta
+		if ev.handlerContext.ScMeta.Name != "" {
+			return ev.handlerContext.ScMeta
+		}
+		if ev.handlerContext.SysName != "" {
+			return meta.Syscall{Name: ev.handlerContext.SysName}
+		}
 	}
 	return ev.meta
 }
