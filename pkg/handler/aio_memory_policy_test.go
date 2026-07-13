@@ -28,10 +28,6 @@ func (r *aioPolicyMemoryReader) Read(_ int, addr uint64, size int) ([]byte, erro
 	return append([]byte(nil), data...), nil
 }
 
-func (r *aioPolicyMemoryReader) ReadRobust(pid int, addr uint64, size int, _ bool) ([]byte, error) {
-	return r.Read(pid, addr, size)
-}
-
 func newAioPolicyContext(reader *aioPolicyMemoryReader, decoder *event.Decoder) *Context {
 	return &Context{
 		Pid:           1234,

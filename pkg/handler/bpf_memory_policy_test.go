@@ -11,18 +11,12 @@ import (
 )
 
 type bpfPolicyMemoryReader struct {
-	data        map[uint64][]byte
-	reads       int
-	robustReads int
+	data  map[uint64][]byte
+	reads int
 }
 
 func (r *bpfPolicyMemoryReader) Read(_ int, addr uint64, size int) ([]byte, error) {
 	r.reads++
-	return r.readAt(addr, size)
-}
-
-func (r *bpfPolicyMemoryReader) ReadRobust(_ int, addr uint64, size int, _ bool) ([]byte, error) {
-	r.robustReads++
 	return r.readAt(addr, size)
 }
 
@@ -75,8 +69,8 @@ func TestBpfHandlerIgnoresLegacyAttrSnapshot(t *testing.T) {
 	if got.ArgParts[1] != "0x1000" {
 		t.Fatalf("BpfHandler.Handle() arg = %q, want pointer fallback", got.ArgParts[1])
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -94,8 +88,8 @@ func TestBpfHandlerUsesPayloadBytesSection(t *testing.T) {
 	if !strings.Contains(got.ArgParts[1], "key_size=4") || !strings.Contains(got.ArgParts[1], "max_entries=16") {
 		t.Fatalf("BpfHandler.Handle() arg = %q", got.ArgParts[1])
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -111,8 +105,8 @@ func TestBpfHandlerDoesNotReadAttrWhenFallbackDisabled(t *testing.T) {
 	if got.ArgParts[1] != "0x1000" {
 		t.Fatalf("BpfHandler.Handle() arg = %q, want pointer fallback", got.ArgParts[1])
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -127,8 +121,8 @@ func TestBpfHandlerDoesNotUseLegacyAttrFallback(t *testing.T) {
 	if got.ArgParts[1] != "0x1000" {
 		t.Fatalf("BpfHandler.Handle() arg = %q, want pointer fallback", got.ArgParts[1])
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -144,8 +138,8 @@ func TestBpfGetNextIdUsesPayloadBytesSection(t *testing.T) {
 	if !strings.Contains(got.ArgParts[1], "start_id=1") || !strings.Contains(got.ArgParts[1], "next_id=2") {
 		t.Fatalf("BpfHandler.Handle() arg = %q, want payload next-id values", got.ArgParts[1])
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -161,8 +155,8 @@ func TestBpfGetFdByIdUsesPayloadBytesSection(t *testing.T) {
 	if !strings.Contains(got.ArgParts[1], "map_id=7") || !strings.Contains(got.ArgParts[1], "open_flags=0") {
 		t.Fatalf("BpfHandler.Handle() arg = %q, want payload fd-by-id values", got.ArgParts[1])
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -178,8 +172,8 @@ func TestBpfBtfGetFdByIdTokenUsesPayloadBytesSection(t *testing.T) {
 	if !strings.Contains(got.ArgParts[1], "btf_id=8") || !strings.Contains(got.ArgParts[1], "fd_by_id_token_fd=5") {
 		t.Fatalf("BpfHandler.Handle() arg = %q, want payload BTF fd-by-id values", got.ArgParts[1])
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -197,8 +191,8 @@ func TestBpfHandlerEfaultIgnoresLegacyAttrSnapshot(t *testing.T) {
 	if got.ArgParts[1] != "0x1000" {
 		t.Fatalf("BpfHandler.Handle() arg = %q, want pointer fallback", got.ArgParts[1])
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -215,8 +209,8 @@ func TestBpfHandlerEfaultDoesNotUseLegacyRawReadValidation(t *testing.T) {
 	if got.ArgParts[1] != "0x1000" {
 		t.Fatalf("BpfHandler.Handle() arg = %q, want pointer fallback", got.ArgParts[1])
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -234,8 +228,8 @@ func TestBpfExtraDataIgnoresLegacySnapshot(t *testing.T) {
 	if got != "" {
 		t.Fatalf("checkAndFormatExtraData() = %q, want empty without payload section", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -257,8 +251,8 @@ func TestBpfExtraDataUsesPayloadBytesSection(t *testing.T) {
 	if !strings.Contains(got, `\x7f`) {
 		t.Fatalf("checkAndFormatExtraData() = %q", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -277,7 +271,7 @@ func TestBpfExtraDataDoesNotUseLegacyLargeFallback(t *testing.T) {
 	if got != "" {
 		t.Fatalf("checkAndFormatExtraData() = %q, want empty without snapshot bytes", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }

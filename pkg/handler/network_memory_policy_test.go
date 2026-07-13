@@ -27,10 +27,6 @@ func (r *networkPolicyMemoryReader) Read(_ int, addr uint64, size int) ([]byte, 
 	return append([]byte(nil), data...), nil
 }
 
-func (r *networkPolicyMemoryReader) ReadRobust(pid int, addr uint64, size int, _ bool) ([]byte, error) {
-	return r.Read(pid, addr, size)
-}
-
 func newNetworkPolicyContext(reader *networkPolicyMemoryReader, name string) *Context {
 	return &Context{
 		Pid:           1234,

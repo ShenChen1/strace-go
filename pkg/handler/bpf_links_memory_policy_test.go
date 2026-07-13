@@ -35,8 +35,8 @@ func TestBpfLinkSymsDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	if got != "syms=0x1000" {
 		t.Fatalf("decodeSymsArray() = %q, want pointer fallback", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -51,8 +51,8 @@ func TestBpfLinkSymsDoesNotUseLegacyMemoryFallback(t *testing.T) {
 	if got != "syms=0x1000" {
 		t.Fatalf("decodeSymsArray() = %q", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -67,8 +67,8 @@ func TestBpfLinkU64ArrayDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	if got != "addrs=0x3000" {
 		t.Fatalf("decodeU64Array() = %q, want pointer fallback", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -82,8 +82,8 @@ func TestBpfLinkU64ArrayDoesNotUseLegacyMemoryFallback(t *testing.T) {
 	if got != "addrs=0x3000" {
 		t.Fatalf("decodeU64Array() = %q", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -98,8 +98,8 @@ func TestBpfLinkIterInfoDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	if got != "iter_info=0x4000" {
 		t.Fatalf("decodeBpfIterInfo() = %q, want pointer fallback", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -113,8 +113,8 @@ func TestBpfLinkIterInfoDoesNotUseLegacyMemoryFallback(t *testing.T) {
 	if got != "iter_info=0x4000" {
 		t.Fatalf("decodeBpfIterInfo() = %q", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -129,8 +129,8 @@ func TestBpfLinkStreamBufDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	if got != "0x5000" {
 		t.Fatalf("decodeStreamBuf() = %q, want pointer fallback", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -144,7 +144,7 @@ func TestBpfLinkStreamBufDoesNotUseLegacyMemoryFallback(t *testing.T) {
 	if got != "0x5000" {
 		t.Fatalf("decodeStreamBuf() = %q, want pointer fallback", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }

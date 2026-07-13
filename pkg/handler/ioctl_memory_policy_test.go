@@ -27,10 +27,6 @@ func (r *ioctlPolicyMemoryReader) Read(_ int, addr uint64, size int) ([]byte, er
 	return append([]byte(nil), data...), nil
 }
 
-func (r *ioctlPolicyMemoryReader) ReadRobust(pid int, addr uint64, size int, _ bool) ([]byte, error) {
-	return r.Read(pid, addr, size)
-}
-
 func newIoctlPolicyContext(reader *ioctlPolicyMemoryReader, decoder *event.Decoder) *Context {
 	return &Context{
 		Pid:           1234,

@@ -38,8 +38,8 @@ func TestBpfObjPinDoesNotReadPathWhenFallbackDisabled(t *testing.T) {
 	if !strings.Contains(got, "pathname=0x3000") {
 		t.Fatalf("decodeBpfObjPin() = %q, want pointer fallback", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -53,8 +53,8 @@ func TestBpfObjPinDoesNotUseLegacyPathFallback(t *testing.T) {
 	if !strings.Contains(got, "pathname=0x3000") {
 		t.Fatalf("decodeBpfObjPin() = %q", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -69,8 +69,8 @@ func TestBpfRawTracepointDoesNotReadNameWhenFallbackDisabled(t *testing.T) {
 	if !strings.Contains(got, "name=0x4000") {
 		t.Fatalf("decodeBpfRawTracepointOpen() = %q, want pointer fallback", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -84,8 +84,8 @@ func TestBpfRawTracepointDoesNotUseLegacyNameFallback(t *testing.T) {
 	if !strings.Contains(got, "name=0x4000") {
 		t.Fatalf("decodeBpfRawTracepointOpen() = %q", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -100,8 +100,8 @@ func TestBpfBtfLoadDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	if !strings.Contains(got, "btf=0x5000") {
 		t.Fatalf("decodeBpfBtfLoad() = %q, want pointer fallback", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
 
@@ -115,7 +115,7 @@ func TestBpfBtfLoadDoesNotUseLegacyMemoryFallback(t *testing.T) {
 	if !strings.Contains(got, "btf=0x5000") {
 		t.Fatalf("decodeBpfBtfLoad() = %q", got)
 	}
-	if reader.reads != 0 || reader.robustReads != 0 {
-		t.Fatalf("memory reads = raw:%d robust:%d, want 0", reader.reads, reader.robustReads)
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }

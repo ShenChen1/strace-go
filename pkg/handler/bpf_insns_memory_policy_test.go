@@ -25,10 +25,6 @@ func (r *bpfInsnsPolicyMemoryReader) Read(_ int, addr uint64, size int) ([]byte,
 	return append([]byte(nil), data...), nil
 }
 
-func (r *bpfInsnsPolicyMemoryReader) ReadRobust(pid int, addr uint64, size int, _ bool) ([]byte, error) {
-	return r.Read(pid, addr, size)
-}
-
 func newBpfInsnsPolicyContext(reader *bpfInsnsPolicyMemoryReader, decoder *event.Decoder, verbose bool) *Context {
 	return &Context{
 		Tid:     1234,
