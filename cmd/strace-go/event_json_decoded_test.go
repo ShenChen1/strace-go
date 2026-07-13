@@ -43,3 +43,83 @@ func TestWriteJSONDecodedEventUsesSyscallEventView(t *testing.T) {
 		t.Fatalf("decoded JSON timing/probe = duration:%d probe:%d", got.DurationNS, got.ProbeRetEnter)
 	}
 }
+
+func TestWriteJSONDecodedEventUsesHandlerPayloadSections(t *testing.T) {
+	var output bytes.Buffer
+	session := &traceSession{outWriter: &output}
+	ev := syscallEventContext{
+		view: syscallEventView{
+			valid:     true,
+			pid:       101,
+			tid:       102,
+			sysID:     1,
+			eventType: bpfEventTypeExit,
+		},
+		meta: meta.Syscall{Name: "write"},
+		payloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindBytes,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  2,
+			UserPtr:   0x1000,
+			UserLen:   3,
+			CopiedLen: 3,
+			Data:      []byte("raw"),
+		}},
+		handlerContext: &handler.Context{
+			PayloadSections: []handler.PayloadSection{{
+				Kind:      handler.PayloadKindBytes,
+				Direction: handler.PayloadDirectionIn,
+				ArgIndex:  1,
+				UserPtr:   0x2000,
+				UserLen:   7,
+				CopiedLen: 7,
+				Data:      []byte("decoded"),
+			}},
+		},
+	}
+
+	session.writeJSONDecodedEvent(ev, handler.Result{})
+
+	var got jsonSyscallEvent
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &got); err != nil {
+		t.Fatalf("decode syscall JSON: %v", err)
+	}
+	if len(got.PayloadSections) != 1 {
+		t.Fatalf("decoded payload sections = %d, want 1", len(got.PayloadSections))
+	}
+	section := got.PayloadSections[0]
+	if section.ArgIndex != 1 || section.UserPtr != 0x2000 || section.DataBase64 != "ZGVjb2RlZA==" {
+		t.Fatalf("decoded payload section = %+v, want handler context section", section)
+	}
+}
+
+func TestWriteJSONDecodedEventOmitsPayloadWithoutHandlerContext(t *testing.T) {
+	var output bytes.Buffer
+	session := &traceSession{outWriter: &output}
+	ev := syscallEventContext{
+		view: syscallEventView{
+			valid:     true,
+			pid:       101,
+			tid:       102,
+			sysID:     1,
+			eventType: bpfEventTypeExit,
+		},
+		meta: meta.Syscall{Name: "write"},
+		payloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindBytes,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  2,
+			Data:      []byte("raw"),
+		}},
+	}
+
+	session.writeJSONDecodedEvent(ev, handler.Result{})
+
+	var got jsonSyscallEvent
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &got); err != nil {
+		t.Fatalf("decode syscall JSON: %v", err)
+	}
+	if len(got.PayloadSections) != 0 {
+		t.Fatalf("decoded payload sections = %+v, want none without handler context", got.PayloadSections)
+	}
+}

@@ -120,7 +120,7 @@ func syscallFailure(ret int64) (bool, int) {
 }
 
 func (s *traceSession) writeJSONRawEvent(ev syscallEventContext) {
-	jsonEvent := newJSONSyscallEventFromView(ev.eventView(), ev.meta, ev.outputPayloadSections())
+	jsonEvent := ev.newJSONRawSyscallEvent()
 	_ = json.NewEncoder(s.outWriter).Encode(jsonEvent)
 }
 
@@ -173,16 +173,32 @@ func (s *traceSession) writeJSONStatsEvent(stats bpfRuntimeStats) {
 }
 
 func (s *traceSession) writeJSONDecodedEvent(syscallEvent syscallEventContext, res handler.Result) {
-	ctx := syscallEvent.handlerContext
-	var sections []handler.PayloadSection
-	if ctx != nil {
-		sections = ctx.PayloadSections
-	}
-	ev := newJSONSyscallEventFromView(syscallEvent.eventView(), syscallEvent.meta, sections)
-	ev.ArgText = res.ArgParts
-	ev.ReturnText = formatSyscallRet(syscallEvent.meta.Name, syscallEvent.eventView().ret, res, ctx)
-	ev.PairedEnter = syscallEvent.pendingEnter != nil && syscallEvent.pendingEnter.genericEnterRaw
+	ev := syscallEvent.newJSONDecodedSyscallEvent(res)
 	_ = json.NewEncoder(s.outWriter).Encode(ev)
+}
+
+func (ev syscallEventContext) newJSONRawSyscallEvent() jsonSyscallEvent {
+	return ev.newJSONSyscallEvent(ev.outputPayloadSections())
+}
+
+func (ev syscallEventContext) newJSONDecodedSyscallEvent(res handler.Result) jsonSyscallEvent {
+	ctx := ev.handlerContext
+	jsonEvent := ev.newJSONSyscallEvent(ev.decodedPayloadSections())
+	jsonEvent.ArgText = res.ArgParts
+	jsonEvent.ReturnText = formatSyscallRet(ev.meta.Name, ev.eventView().ret, res, ctx)
+	jsonEvent.PairedEnter = ev.pendingEnter != nil && ev.pendingEnter.genericEnterRaw
+	return jsonEvent
+}
+
+func (ev syscallEventContext) newJSONSyscallEvent(sections []handler.PayloadSection) jsonSyscallEvent {
+	return newJSONSyscallEventFromView(ev.eventView(), ev.meta, sections)
+}
+
+func (ev syscallEventContext) decodedPayloadSections() []handler.PayloadSection {
+	if ev.handlerContext == nil {
+		return nil
+	}
+	return ev.handlerContext.PayloadSections
 }
 
 func bpfEventTypeNameFromID(eventType uint16) string {
