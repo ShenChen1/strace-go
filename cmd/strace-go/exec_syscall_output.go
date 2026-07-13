@@ -42,16 +42,6 @@ func (s *traceSession) execSyscallOutput() *ExecSyscallOutput {
 	})
 }
 
-// IMPACT: Handle owns execve/execveat restart and superseded-thread text state.
-func (o *ExecSyscallOutput) Handle(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result) bool {
-	ev := syscallEventContext{
-		raw:  eventRaw,
-		view: newSyscallEventViewFromBPF(eventRaw),
-		meta: scMeta,
-	}
-	return o.HandleEvent(ev, res)
-}
-
 // IMPACT: HandleEvent owns execve/execveat restart and superseded-thread text state from event context.
 func (o *ExecSyscallOutput) HandleEvent(ev syscallEventContext, res handler.Result) bool {
 	scMeta := ev.meta

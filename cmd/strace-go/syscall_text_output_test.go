@@ -44,14 +44,19 @@ func syscallTextContext(name string) *handler.Context {
 	}
 }
 
+func syscallTextEvent(name string, pid uint32, tid uint32, ret int64, probeRetEnter int32) syscallEventContext {
+	ctx := syscallTextContext(name)
+	return syscallEventContext{
+		view:           syscallEventView{valid: true, pid: pid, tid: tid, ret: ret, probeRetEnter: probeRetEnter},
+		meta:           ctx.ScMeta,
+		handlerContext: ctx,
+	}
+}
+
 func TestSyscallTextOutputPrintsNormalSyscall(t *testing.T) {
 	output, _, out := newSyscallTextOutputForTest(&cli.Options{})
 
-	output.Handle(
-		syscallTextContext("getpid"),
-		&bpfEvent{Tid: 101, Ret: 101},
-		handler.Result{},
-	)
+	output.HandleEvent(syscallTextEvent("getpid", 101, 101, 101, -1), handler.Result{})
 
 	if got := out.String(); got != "getpid() = 101\n" {
 		t.Fatalf("normal syscall output = %q", got)
@@ -78,11 +83,7 @@ func TestSyscallTextOutputPrintsNormalSyscallFromEventView(t *testing.T) {
 func TestSyscallTextOutputAppliesStatusFilterBeforePrinting(t *testing.T) {
 	output, _, out := newSyscallTextOutputForTest(&cli.Options{FailedOnly: true})
 
-	output.Handle(
-		syscallTextContext("getpid"),
-		&bpfEvent{Tid: 101, Ret: 101},
-		handler.Result{},
-	)
+	output.HandleEvent(syscallTextEvent("getpid", 101, 101, 101, -1), handler.Result{})
 
 	if out.Len() != 0 {
 		t.Fatalf("status-filtered output = %q, want no output", out.String())
@@ -109,11 +110,7 @@ func TestSyscallTextOutputAppliesStatusFilterFromEventView(t *testing.T) {
 func TestSyscallTextOutputDelegatesSuspendedBeforeNormalPrint(t *testing.T) {
 	output, state, out := newSyscallTextOutputForTest(&cli.Options{FollowForks: true})
 
-	output.Handle(
-		syscallTextContext("nanosleep"),
-		&bpfEvent{Tid: 101, ProbeRetEnter: 3},
-		handler.Result{ArgParts: []string{"{tv_sec=1}", "0x0"}},
-	)
+	output.HandleEvent(syscallTextEvent("nanosleep", 101, 101, 0, 3), handler.Result{ArgParts: []string{"{tv_sec=1}", "0x0"}})
 
 	if got := out.String(); !strings.Contains(got, "101   nanosleep({tv_sec=1} <unfinished ...>") {
 		t.Fatalf("suspended output = %q", got)
@@ -129,7 +126,11 @@ func TestSyscallTextOutputDelegatesExecBeforeNormalPrint(t *testing.T) {
 	ctx := &handler.Context{ScMeta: scMeta, SysName: "execve"}
 	res := handler.Result{ArgParts: []string{`"/bin/true"`}}
 
-	output.Handle(ctx, &bpfEvent{Pid: 200, Tid: 200, Ret: -514}, res)
+	output.HandleEvent(syscallEventContext{
+		view:           syscallEventView{valid: true, pid: 200, tid: 200, ret: -514},
+		meta:           scMeta,
+		handlerContext: ctx,
+	}, res)
 
 	if out.Len() != 0 {
 		t.Fatalf("exec restart output = %q, want no normal syscall line", out.String())

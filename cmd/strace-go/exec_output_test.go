@@ -27,20 +27,21 @@ func execOutputTestState() (*traceSession, handler.Result, *handler.Context, *by
 
 func TestForkChildLeaderExecvePrintsNormalResume(t *testing.T) {
 	session, res, ctx, out := execOutputTestState()
+	scMeta := ctx.ScMeta
 
-	session.syscallTextOutput().Handle(ctx, &bpfEvent{
-		Pid: 200,
-		Tid: 200,
-		Ret: -514,
+	session.syscallTextOutput().HandleEvent(syscallEventContext{
+		view:           syscallEventView{valid: true, pid: 200, tid: 200, ret: -514},
+		meta:           scMeta,
+		handlerContext: ctx,
 	}, res)
 	if got := out.String(); got != "" {
 		t.Fatalf("leader execve enter output = %q, want no output before success", got)
 	}
 
-	session.syscallTextOutput().Handle(ctx, &bpfEvent{
-		Pid: 200,
-		Tid: 200,
-		Ret: 0,
+	session.syscallTextOutput().HandleEvent(syscallEventContext{
+		view:           syscallEventView{valid: true, pid: 200, tid: 200, ret: 0},
+		meta:           scMeta,
+		handlerContext: ctx,
 	}, res)
 	got := out.String()
 	if strings.Contains(got, "superseded by execve") {
@@ -53,16 +54,17 @@ func TestForkChildLeaderExecvePrintsNormalResume(t *testing.T) {
 
 func TestNonLeaderExecvePrintsSupersededTGID(t *testing.T) {
 	session, res, ctx, out := execOutputTestState()
+	scMeta := ctx.ScMeta
 
-	session.syscallTextOutput().Handle(ctx, &bpfEvent{
-		Pid: 200,
-		Tid: 201,
-		Ret: -514,
+	session.syscallTextOutput().HandleEvent(syscallEventContext{
+		view:           syscallEventView{valid: true, pid: 200, tid: 201, ret: -514},
+		meta:           scMeta,
+		handlerContext: ctx,
 	}, res)
-	session.syscallTextOutput().Handle(ctx, &bpfEvent{
-		Pid: 200,
-		Tid: 201,
-		Ret: 0,
+	session.syscallTextOutput().HandleEvent(syscallEventContext{
+		view:           syscallEventView{valid: true, pid: 200, tid: 201, ret: 0},
+		meta:           scMeta,
+		handlerContext: ctx,
 	}, res)
 
 	got := out.String()

@@ -31,10 +31,17 @@ func newExecSyscallOutputForTest(opts *cli.Options) (*ExecSyscallOutput, *TraceS
 	return output, state, out, &discarded
 }
 
+func execOutputEvent(scMeta meta.Syscall, pid uint32, tid uint32, ret int64) syscallEventContext {
+	return syscallEventContext{
+		view: syscallEventView{valid: true, pid: pid, tid: tid, ret: ret},
+		meta: scMeta,
+	}
+}
+
 func TestExecSyscallOutputFallsThroughForNonExec(t *testing.T) {
 	output, _, out, _ := newExecSyscallOutputForTest(&cli.Options{FollowForks: true})
 
-	handled := output.Handle(&bpfEvent{Pid: 200, Tid: 200, Ret: 0}, meta.Syscall{Name: "openat"}, handler.Result{})
+	handled := output.HandleEvent(execOutputEvent(meta.Syscall{Name: "openat"}, 200, 200, 0), handler.Result{})
 
 	if handled {
 		t.Fatal("non-exec syscall should fall through")
@@ -49,7 +56,7 @@ func TestExecSyscallOutputLeaderRestartAndResume(t *testing.T) {
 	scMeta := meta.Syscall{Name: "execve"}
 	res := handler.Result{ArgParts: []string{`"/bin/true"`, `["true"]`, `0x1 /* 1 var */`}}
 
-	if !output.Handle(&bpfEvent{Pid: 200, Tid: 200, Ret: -514}, scMeta, res) {
+	if !output.HandleEvent(execOutputEvent(scMeta, 200, 200, -514), res) {
 		t.Fatal("leader exec restart should be handled")
 	}
 	if out.Len() != 0 {
@@ -59,7 +66,7 @@ func TestExecSyscallOutputLeaderRestartAndResume(t *testing.T) {
 		t.Fatal("leader exec restart did not remember args")
 	}
 
-	if !output.Handle(&bpfEvent{Pid: 200, Tid: 200, Ret: 0}, scMeta, res) {
+	if !output.HandleEvent(execOutputEvent(scMeta, 200, 200, 0), res) {
 		t.Fatal("leader exec success should be handled")
 	}
 	got := out.String()
@@ -110,13 +117,13 @@ func TestExecSyscallOutputNonLeaderSuperseded(t *testing.T) {
 	scMeta := meta.Syscall{Name: "execve"}
 	res := handler.Result{ArgParts: []string{`"/bin/true"`, `["true"]`, `0x1 /* 1 var */`}}
 
-	if !output.Handle(&bpfEvent{Pid: 200, Tid: 201, Ret: -514}, scMeta, res) {
+	if !output.HandleEvent(execOutputEvent(scMeta, 200, 201, -514), res) {
 		t.Fatal("non-leader exec restart should be handled")
 	}
 	if _, ok := state.pendingExecArgsFor(201); !ok {
 		t.Fatal("non-leader exec restart did not remember args")
 	}
-	if !output.Handle(&bpfEvent{Pid: 200, Tid: 201, Ret: 0}, scMeta, res) {
+	if !output.HandleEvent(execOutputEvent(scMeta, 200, 201, 0), res) {
 		t.Fatal("non-leader exec success should be handled")
 	}
 
@@ -183,7 +190,7 @@ func TestExecSyscallOutputNonLeaderWithoutFollowForksFallsThroughAfterRememberin
 	scMeta := meta.Syscall{Name: "execveat"}
 	res := handler.Result{ArgParts: []string{`AT_FDCWD`, `"/bin/true"`}}
 
-	handled := output.Handle(&bpfEvent{Pid: 200, Tid: 201, Ret: -514}, scMeta, res)
+	handled := output.HandleEvent(execOutputEvent(scMeta, 200, 201, -514), res)
 
 	if handled {
 		t.Fatal("non-leader exec without -f should fall through to normal syscall printing")

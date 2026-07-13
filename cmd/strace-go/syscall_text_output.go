@@ -51,17 +51,6 @@ func (s *traceSession) syscallTextOutput() *SyscallTextOutput {
 	return s.syscallTextCache
 }
 
-// IMPACT: Handle owns the text-mode syscall output chain after handler decoding.
-func (o *SyscallTextOutput) Handle(ctx *handler.Context, eventRaw *bpfEvent, res handler.Result) {
-	ev := syscallEventContext{
-		raw:            eventRaw,
-		view:           newSyscallEventViewFromBPF(eventRaw),
-		meta:           ctx.ScMeta,
-		handlerContext: ctx,
-	}
-	o.HandleEvent(ev, res)
-}
-
 // IMPACT: HandleEvent owns text-mode syscall output from the stable syscall event context.
 func (o *SyscallTextOutput) HandleEvent(ev syscallEventContext, res handler.Result) {
 	scMeta := ev.meta
