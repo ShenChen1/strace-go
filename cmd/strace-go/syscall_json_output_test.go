@@ -130,8 +130,12 @@ func TestSyscallJSONOutputDecodedAppliesStatusFilterButConsumesJSON(t *testing.T
 		t.Fatalf("decodedWrites = %d, want 0 for status-filtered success", state.decodedWrites)
 	}
 
-	ev.raw.Ret = -2
-	state.output.HandleDecoded(ev, handler.Result{})
+	failed := syscallEventContext{
+		raw:            &bpfEvent{Ret: -2},
+		meta:           meta.Syscall{Name: "getpid"},
+		handlerContext: &handler.Context{},
+	}
+	state.output.HandleDecoded(failed, handler.Result{})
 	if state.decodedWrites != 1 {
 		t.Fatalf("decodedWrites = %d, want 1 for failed syscall", state.decodedWrites)
 	}
