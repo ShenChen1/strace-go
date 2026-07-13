@@ -17,11 +17,12 @@ func getArgProbeStatus(probeRetEnter int32, argIndex int) int32 {
 
 // IMPACT: handleEvent parses, decodes, and routes tracing events to print handlers or fd updates.
 func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
-	if !s.traceScope().Allows(eventRaw) {
+	stateView := newTraceStateEventViewFromBPF(eventRaw)
+	if !s.traceScope().AllowsPID(stateView.pid) {
 		return
 	}
-	statePID := s.eventStatePID(eventRaw)
-	stateUpdate := s.traceState().Handle(eventRaw)
+	statePID := s.eventStatePID(stateView)
+	stateUpdate := s.traceState().handleView(stateView)
 
 	if stateUpdate.kind == traceStateLifecycle {
 		s.lifecycleEventHandler().Handle(stateUpdate.view, stateUpdate.lifecycleTask)

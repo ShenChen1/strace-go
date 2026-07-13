@@ -21,11 +21,11 @@ func (s *traceSession) traceScope() TraceScope {
 	return newTraceScope(s.targetPid, s.opts)
 }
 
-func (scope TraceScope) Allows(eventRaw *bpfEvent) bool {
-	if eventRaw == nil {
+func (scope TraceScope) AllowsPID(pid uint32) bool {
+	if pid == 0 {
 		return false
 	}
-	if scope.directlyMatches(int(eventRaw.Pid)) {
+	if scope.directlyMatches(int(pid)) {
 		return true
 	}
 	return scope.followFork

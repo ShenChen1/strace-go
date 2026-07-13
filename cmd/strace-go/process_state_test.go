@@ -5,6 +5,20 @@ import (
 	"testing"
 )
 
+func TestEventStatePIDUsesViewPIDOrTargetFallback(t *testing.T) {
+	session := &traceSession{targetPid: 101}
+
+	if got := session.eventStatePID(traceStateEventView{valid: true, pid: 202}); got != 202 {
+		t.Fatalf("eventStatePID(view pid) = %d, want 202", got)
+	}
+	if got := session.eventStatePID(traceStateEventView{valid: true}); got != 101 {
+		t.Fatalf("eventStatePID(zero pid) = %d, want target pid 101", got)
+	}
+	if got := session.eventStatePID(traceStateEventView{}); got != 101 {
+		t.Fatalf("eventStatePID(invalid view) = %d, want target pid 101", got)
+	}
+}
+
 func TestInheritProcessStateCopiesFDAndCWD(t *testing.T) {
 	session := &traceSession{
 		fdState: newFDStateStoreFromMaps(map[string]string{

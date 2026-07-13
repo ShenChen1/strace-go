@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-func (s *traceSession) eventStatePID(eventRaw *bpfEvent) int {
-	if eventRaw != nil && eventRaw.Pid != 0 {
-		return int(eventRaw.Pid)
+func (s *traceSession) eventStatePID(view traceStateEventView) int {
+	if view.valid && view.pid != 0 {
+		return int(view.pid)
 	}
 	return s.targetPid
 }
