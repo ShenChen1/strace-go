@@ -53,7 +53,7 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 	if s.opts != nil {
 		shouldPrint = checkShouldPrintFromView(view, scMeta, pathText, isPath, statePID, s.opts, s.fdStateStore().PathMap())
 	}
-	bufferFileOffset, bufferFileOffsetOK := s.fdStateStore().BufferFileOffsetFromView(view, scMeta, statePID)
+	bufferFileOffset, bufferFileOffsetOK := s.fdStateStore().bufferFileOffsetFromView(view, scMeta, statePID)
 	ev := syscallEventContext{
 		raw:                eventRaw,
 		view:               view,
@@ -176,14 +176,14 @@ func (ev syscallEventContext) updateFDOffsets(store *FDStateStore) {
 	if store == nil {
 		return
 	}
-	store.UpdateOffsetsFromView(ev.eventView(), ev.effectiveSyscallMeta(), ev.statePID)
+	store.updateOffsetsFromView(ev.eventView(), ev.effectiveSyscallMeta(), ev.statePID)
 }
 
 func (ev syscallEventContext) cleanupClosedFD(store *FDStateStore) {
 	if store == nil {
 		return
 	}
-	store.CleanupClosedFDFromView(ev.eventView(), ev.effectiveSyscallMeta(), ev.statePID)
+	store.cleanupClosedFDFromView(ev.eventView(), ev.effectiveSyscallMeta(), ev.statePID)
 }
 
 func (ev syscallEventContext) updateFDState(store *FDStateStore) {

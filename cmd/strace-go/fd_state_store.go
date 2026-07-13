@@ -79,7 +79,7 @@ func updateFDMapFromSource(src fdStateSource, scMeta meta.Syscall, pathText stri
 	updateCwdFDMapFromView(src.view, scMeta, pathText, targetPID, fdMap)
 }
 
-func (st *FDStateStore) CleanupClosedFDFromView(view syscallEventView, scMeta meta.Syscall, statePID int) {
+func (st *FDStateStore) cleanupClosedFDFromView(view syscallEventView, scMeta meta.Syscall, statePID int) {
 	if !view.valid || scMeta.Name != "close" || view.ret != 0 {
 		return
 	}

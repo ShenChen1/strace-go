@@ -31,11 +31,11 @@ func TestFDOffsetsExposeWriteStartAndAdvanceFromView(t *testing.T) {
 	}
 	scMeta := meta.Syscall{Name: "write"}
 
-	off, ok := store.BufferFileOffsetFromView(view, scMeta, 101)
+	off, ok := store.bufferFileOffsetFromView(view, scMeta, 101)
 	if !ok || off != 15 {
 		t.Fatalf("bufferFileOffset = %d, %v; want 15, true", off, ok)
 	}
-	store.UpdateOffsetsFromView(view, scMeta, 101)
+	store.updateOffsetsFromView(view, scMeta, 101)
 	if got := store.offsets["101:1"]; got != 19 {
 		t.Fatalf("fd offset after write = %d, want 19", got)
 	}
@@ -54,11 +54,11 @@ func TestFDOffsetsUseStatePIDFromView(t *testing.T) {
 	}
 	scMeta := meta.Syscall{Name: "write"}
 
-	off, ok := store.BufferFileOffsetFromView(view, scMeta, 101)
+	off, ok := store.bufferFileOffsetFromView(view, scMeta, 101)
 	if !ok || off != 15 {
 		t.Fatalf("child bufferFileOffset = %d, %v; want 15, true", off, ok)
 	}
-	store.UpdateOffsetsFromView(view, scMeta, 101)
+	store.updateOffsetsFromView(view, scMeta, 101)
 	if got := store.offsets["101:1"]; got != 19 {
 		t.Fatalf("child fd offset after write = %d, want 19", got)
 	}
@@ -83,7 +83,7 @@ func TestFDOffsetsUseEventViewForSyscallContext(t *testing.T) {
 		meta:     scMeta,
 	}
 
-	off, ok := session.fdState.BufferFileOffsetFromView(ev.eventView(), scMeta, ev.statePID)
+	off, ok := session.fdState.bufferFileOffsetFromView(ev.eventView(), scMeta, ev.statePID)
 	if !ok || off != 15 {
 		t.Fatalf("view buffer offset = %d, %v; want 15, true", off, ok)
 	}

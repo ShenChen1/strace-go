@@ -57,7 +57,7 @@ func readProcFDOffset(pid int, fd int32) (int64, bool) {
 	return 0, false
 }
 
-func (st *FDStateStore) BufferFileOffsetFromView(view syscallEventView, scMeta meta.Syscall, statePID int) (int64, bool) {
+func (st *FDStateStore) bufferFileOffsetFromView(view syscallEventView, scMeta meta.Syscall, statePID int) (int64, bool) {
 	if !view.valid {
 		return 0, false
 	}
@@ -85,7 +85,7 @@ func (s *traceSession) updateSyscallFDOffsets(ev syscallEventContext) {
 	ev.updateFDOffsets(s.fdStateStore())
 }
 
-func (st *FDStateStore) UpdateOffsetsFromView(view syscallEventView, scMeta meta.Syscall, statePID int) {
+func (st *FDStateStore) updateOffsetsFromView(view syscallEventView, scMeta meta.Syscall, statePID int) {
 	if !view.valid || view.probeRetEnter == 3 {
 		return
 	}
@@ -100,7 +100,7 @@ func (st *FDStateStore) UpdateOffsetsFromView(view syscallEventView, scMeta meta
 		fd := int32(ret)
 		key := fdStateKey(statePID, fd)
 		st.offsets[key] = 0
-		st.RememberDataFileFromView(view, statePID, fd)
+		st.rememberDataFileFromView(view, statePID, fd)
 	case "dup", "dup2", "dup3":
 		oldKey := fdStateKey(statePID, int32(view.args[0]))
 		newFD := int32(ret)
@@ -108,7 +108,7 @@ func (st *FDStateStore) UpdateOffsetsFromView(view syscallEventView, scMeta meta
 		if off, ok := st.offsets[oldKey]; ok {
 			st.offsets[newKey] = off
 		}
-		st.RememberDataFileFromView(view, statePID, newFD)
+		st.rememberDataFileFromView(view, statePID, newFD)
 	case "read", "write":
 		if ret == 0 {
 			return
@@ -125,7 +125,7 @@ func (st *FDStateStore) UpdateOffsetsFromView(view syscallEventView, scMeta meta
 	}
 }
 
-func (st *FDStateStore) RememberDataFileFromView(view syscallEventView, statePID int, fd int32) {
+func (st *FDStateStore) rememberDataFileFromView(view syscallEventView, statePID int, fd int32) {
 	if !view.valid {
 		return
 	}

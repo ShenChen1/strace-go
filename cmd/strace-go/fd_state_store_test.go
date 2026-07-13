@@ -22,7 +22,7 @@ func TestFDStateStoreCleanupClosedFDRemovesOwnedState(t *testing.T) {
 		map[string]*os.File{"101:3": tmp},
 	)
 
-	store.CleanupClosedFDFromView(syscallEventView{
+	store.cleanupClosedFDFromView(syscallEventView{
 		valid: true,
 		args:  [6]uint64{3},
 		ret:   0,
