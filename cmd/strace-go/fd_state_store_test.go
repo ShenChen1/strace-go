@@ -20,9 +20,10 @@ func TestFDStateStoreCleanupClosedFDRemovesOwnedState(t *testing.T) {
 		map[string]*os.File{"101:3": tmp},
 	)
 
-	store.CleanupClosedFD(&bpfEvent{
-		Args: [6]uint64{3},
-		Ret:  0,
+	store.CleanupClosedFDFromView(syscallEventView{
+		valid: true,
+		args:  [6]uint64{3},
+		ret:   0,
 	}, meta.Syscall{Name: "close"}, 101)
 
 	if _, ok := store.paths["101:3"]; ok {

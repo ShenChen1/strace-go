@@ -60,10 +60,6 @@ func (st *FDStateStore) UpdateFromEvent(eventRaw *bpfEvent, scMeta meta.Syscall,
 	updateFDMap(eventRaw, scMeta, pathText, statePID, st.paths)
 }
 
-func (st *FDStateStore) CleanupClosedFD(eventRaw *bpfEvent, scMeta meta.Syscall, statePID int) {
-	st.CleanupClosedFDFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, statePID)
-}
-
 func (st *FDStateStore) CleanupClosedFDFromView(view syscallEventView, scMeta meta.Syscall, statePID int) {
 	if !view.valid || scMeta.Name != "close" || view.ret != 0 {
 		return
