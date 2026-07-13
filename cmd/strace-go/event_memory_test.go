@@ -151,7 +151,7 @@ func TestUpdateFDMapDoesNotReadTraceeMemoryWhenFallbackDisabled(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			updateFDMap(test.eventRaw, test.sc, "", 101, make(map[string]string))
+			updateFDMapForTest(test.eventRaw, test.sc, "", 101, make(map[string]string))
 		})
 	}
 }

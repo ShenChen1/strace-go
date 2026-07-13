@@ -13,16 +13,6 @@ import (
 	"strace-go/pkg/meta"
 )
 
-// IMPACT: updateFDMap dynamically tracks fd modifications inside open, dup, socket and close syscalls.
-func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
-	view := newSyscallEventViewFromBPF(eventRaw)
-	updateFDMapFromSource(fdStateSource{
-		view:            view,
-		payloadSections: payloadSectionsForEvent(eventRaw, scMeta),
-		procTid:         view.tid,
-	}, scMeta, pathText, targetPid, fdMap)
-}
-
 func updateFdReturnMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
 	if !view.valid || view.ret < 0 || !isFdReturnSyscall(scMeta.Name) {
 		return

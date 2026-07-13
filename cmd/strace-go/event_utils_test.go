@@ -13,6 +13,17 @@ import (
 	"strace-go/pkg/meta"
 )
 
+func updateFDMapForTest(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
+	updateFDMapFromSyscall(syscallEventContext{
+		raw:             eventRaw,
+		view:            newSyscallEventViewFromBPF(eventRaw),
+		statePID:        targetPid,
+		meta:            scMeta,
+		pathText:        pathText,
+		payloadSections: payloadSectionsForEvent(eventRaw, scMeta),
+	}, fdMap)
+}
+
 func TestDup2FormatsArgsBeforeFDMapUpdateAndReturnAfter(t *testing.T) {
 	fdMap := map[string]string{
 		"101:3": "/dev/null",
@@ -47,7 +58,7 @@ func TestDup2FormatsArgsBeforeFDMapUpdateAndReturnAfter(t *testing.T) {
 		t.Fatalf("dup2 args = %#v, want %#v", got, want)
 	}
 
-	updateFDMap(eventRaw, sc, "", 101, fdMap)
+	updateFDMapForTest(eventRaw, sc, "", 101, fdMap)
 	if got := formatSyscallRet("dup2", 4, res, ctx); got != "4</dev/null>" {
 		t.Fatalf("dup2 return = %q, want %q", got, "4</dev/null>")
 	}
@@ -75,7 +86,7 @@ func TestUpdateFDMapUsesPipePayloadSection(t *testing.T) {
 			binary.LittleEndian.PutUint32(eventRaw.StrArg[handler.BpfExitArgOffset+4:], uint32(writeEnd.Fd()))
 
 			fdMap := make(map[string]string)
-			updateFDMap(eventRaw, meta.Syscall{Name: name}, "", 101, fdMap)
+			updateFDMapForTest(eventRaw, meta.Syscall{Name: name}, "", 101, fdMap)
 
 			readKey := fmt.Sprintf("101:%d", int32(readEnd.Fd()))
 			writeKey := fmt.Sprintf("101:%d", int32(writeEnd.Fd()))
@@ -101,7 +112,7 @@ func TestUpdateFDMapIgnoresLegacyPipeExitSnapshot(t *testing.T) {
 	binary.LittleEndian.PutUint32(eventRaw.StrArg[handler.BpfExitArgOffset+4:], 22)
 
 	fdMap := make(map[string]string)
-	updateFDMap(eventRaw, meta.Syscall{Name: "pipe"}, "", 101, fdMap)
+	updateFDMapForTest(eventRaw, meta.Syscall{Name: "pipe"}, "", 101, fdMap)
 	if len(fdMap) != 0 {
 		t.Fatalf("fdMap entries = %d, want 0 without fd array payload section", len(fdMap))
 	}
@@ -128,7 +139,7 @@ func TestUpdateFDMapUsesSocketpairPayloadSection(t *testing.T) {
 	binary.LittleEndian.PutUint32(eventRaw.StrArg[handler.BpfExitArgOffset+4:], uint32(fds[1]))
 
 	fdMap := make(map[string]string)
-	updateFDMap(eventRaw, meta.Syscall{Name: "socketpair"}, "", 101, fdMap)
+	updateFDMapForTest(eventRaw, meta.Syscall{Name: "socketpair"}, "", 101, fdMap)
 
 	for _, fd := range fds {
 		key := fmt.Sprintf("101:%d", int32(fd))
@@ -203,7 +214,7 @@ func TestUpdateFDMapIgnoresLegacySocketpairExitSnapshot(t *testing.T) {
 	binary.LittleEndian.PutUint32(eventRaw.StrArg[handler.BpfExitArgOffset+4:], 22)
 
 	fdMap := make(map[string]string)
-	updateFDMap(eventRaw, meta.Syscall{Name: "socketpair"}, "", 101, fdMap)
+	updateFDMapForTest(eventRaw, meta.Syscall{Name: "socketpair"}, "", 101, fdMap)
 	if len(fdMap) != 0 {
 		t.Fatalf("fdMap entries = %d, want 0 without fd array payload section", len(fdMap))
 	}
@@ -211,7 +222,7 @@ func TestUpdateFDMapIgnoresLegacySocketpairExitSnapshot(t *testing.T) {
 
 func TestUpdateFDMapSkipsSocketpairWithoutPayloadSection(t *testing.T) {
 	fdMap := make(map[string]string)
-	updateFDMap(&bpfEvent{
+	updateFDMapForTest(&bpfEvent{
 		Pid:  1234,
 		Tid:  1234,
 		Args: [6]uint64{syscall.AF_UNIX, syscall.SOCK_STREAM, 0, 0x2000},
@@ -231,7 +242,7 @@ func TestUpdateFDMapUsesOpenatPayloadPathText(t *testing.T) {
 		Ret: 7,
 	}
 
-	updateFDMap(eventRaw, meta.Syscall{Name: "openat"}, `"/tmp/section"`, 101, fdMap)
+	updateFDMapForTest(eventRaw, meta.Syscall{Name: "openat"}, `"/tmp/section"`, 101, fdMap)
 	if got := fdMap["101:7"]; got != "/tmp/section" {
 		t.Fatalf("fdMap[101:7] = %q, want payload raw path", got)
 	}
@@ -249,7 +260,7 @@ func TestUpdateFDMapIgnoresLegacyOpenatStringSnapshot(t *testing.T) {
 	}
 	copy(eventRaw.StrArg[:], []byte("/tmp/legacy\x00"))
 
-	updateFDMap(eventRaw, meta.Syscall{Name: "openat"}, "0x1000", 101, fdMap)
+	updateFDMapForTest(eventRaw, meta.Syscall{Name: "openat"}, "0x1000", 101, fdMap)
 	if len(fdMap) != 0 {
 		t.Fatalf("fdMap entries = %d, want 0 without path payload section", len(fdMap))
 	}
@@ -301,7 +312,7 @@ func TestUpdateFDMapUsesNetlinkSockaddrPayloadSection(t *testing.T) {
 			binary.LittleEndian.PutUint32(eventRaw.StrArg[test.offset+4:], 42)
 
 			fdMap := make(map[string]string)
-			updateFDMap(eventRaw, meta.Syscall{Name: test.name}, "", 101, fdMap)
+			updateFDMapForTest(eventRaw, meta.Syscall{Name: test.name}, "", 101, fdMap)
 
 			if got := fdMap["101:7"]; got != "NETLINK:[SOCK_DIAG:42]" {
 				t.Fatalf("fdMap[101:7] = %q, want NETLINK socket", got)
@@ -372,7 +383,7 @@ func TestUpdateFDMapIgnoresLegacyNetlinkSockaddrSnapshot(t *testing.T) {
 			binary.LittleEndian.PutUint32(eventRaw.StrArg[test.offset+4:], 42)
 
 			fdMap := make(map[string]string)
-			updateFDMap(eventRaw, meta.Syscall{Name: test.name}, "", 101, fdMap)
+			updateFDMapForTest(eventRaw, meta.Syscall{Name: test.name}, "", 101, fdMap)
 
 			if len(fdMap) != 0 {
 				t.Fatalf("fdMap entries = %d, want 0 without netlink sockaddr payload section", len(fdMap))
