@@ -124,10 +124,6 @@ func syscallFailure(ret int64) (bool, int) {
 	return false, 0
 }
 
-func (s *traceSession) writeJSONRawEvent(eventRaw *bpfEvent, scMeta meta.Syscall) {
-	s.writeJSONRawEventView(eventRaw, newSyscallEventViewFromBPF(eventRaw), scMeta)
-}
-
 func (s *traceSession) writeJSONRawEventView(eventRaw *bpfEvent, view syscallEventView, scMeta meta.Syscall) {
 	ev := newJSONSyscallEventFromView(view, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	_ = json.NewEncoder(s.outWriter).Encode(ev)
@@ -213,10 +209,6 @@ func (s *traceSession) writeJSONDecodedEvent(syscallEvent syscallEventContext, r
 	_ = json.NewEncoder(s.outWriter).Encode(ev)
 }
 
-func bpfEventTypeName(eventRaw *bpfEvent) string {
-	return bpfEventTypeNameFromID(eventRaw.EventType)
-}
-
 func bpfEventTypeNameFromID(eventType uint16) string {
 	switch eventType {
 	case bpfEventTypeEnter:
@@ -243,14 +235,6 @@ func lifecycleActionName(action uint32) string {
 	default:
 		return "unknown"
 	}
-}
-
-func isLifecycleEvent(eventRaw *bpfEvent) bool {
-	return eventRaw.EventType == bpfEventTypeLifecycle
-}
-
-func isGenericEnterEvent(eventRaw *bpfEvent) bool {
-	return eventRaw.EventType == bpfEventTypeEnter && (eventRaw.EventFlags&bpfEventFlagGenericEnter) != 0
 }
 
 type successfulFailedOptions struct {

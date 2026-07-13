@@ -150,7 +150,7 @@ func TestZeroEventTypeIsNotExit(t *testing.T) {
 	if isExitEvent(eventRaw) {
 		t.Fatal("event_type=0 should not be treated as an explicit exit event")
 	}
-	if got := bpfEventTypeName(eventRaw); got != "unknown" {
-		t.Fatalf("bpfEventTypeName(event_type=0) = %q, want unknown", got)
+	if got := bpfEventTypeNameFromID(eventRaw.EventType); got != "unknown" {
+		t.Fatalf("bpfEventTypeNameFromID(event_type=0) = %q, want unknown", got)
 	}
 }
