@@ -87,10 +87,6 @@ type jsonStatsEvent struct {
 	Error              string `json:"error,omitempty"`
 }
 
-func newJSONSyscallEvent(eventRaw *bpfEvent, scMeta meta.Syscall, sections []handler.PayloadSection) jsonSyscallEvent {
-	return newJSONSyscallEventFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, sections)
-}
-
 func newJSONSyscallEventFromView(view syscallEventView, scMeta meta.Syscall, sections []handler.PayloadSection) jsonSyscallEvent {
 	failed, errno := syscallFailure(view.ret)
 	return jsonSyscallEvent{
