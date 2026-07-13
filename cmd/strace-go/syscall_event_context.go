@@ -190,15 +190,20 @@ func (ev syscallEventContext) updateFDState(store *FDStateStore) {
 	if store == nil {
 		return
 	}
-	store.updateFromSource(ev.fdStateSource(), ev.effectiveSyscallMeta(), ev.pathText, ev.statePID)
+	store.update(ev.fdStateUpdate())
 }
 
-func (ev syscallEventContext) fdStateSource() fdStateSource {
+func (ev syscallEventContext) fdStateUpdate() fdStateUpdate {
 	view := ev.eventView()
-	return fdStateSource{
-		view:            view,
-		payloadSections: ev.outputPayloadSections(),
-		procTid:         view.tid,
+	return fdStateUpdate{
+		source: fdStateSource{
+			view:            view,
+			payloadSections: ev.outputPayloadSections(),
+			procTid:         view.tid,
+		},
+		meta:      ev.effectiveSyscallMeta(),
+		pathText:  ev.pathText,
+		targetPID: ev.statePID,
 	}
 }
 

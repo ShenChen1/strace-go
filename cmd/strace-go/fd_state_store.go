@@ -19,6 +19,13 @@ type fdStateSource struct {
 	procTid         uint32
 }
 
+type fdStateUpdate struct {
+	source    fdStateSource
+	meta      meta.Syscall
+	pathText  string
+	targetPID int
+}
+
 func newFDStateStore(targetPid int, paths map[string]string) *FDStateStore {
 	if paths == nil {
 		paths = make(map[string]string)
@@ -62,9 +69,9 @@ func (s *traceSession) fdStateStore() *FDStateStore {
 	return s.fdState
 }
 
-func (st *FDStateStore) updateFromSource(src fdStateSource, scMeta meta.Syscall, pathText string, targetPID int) {
+func (st *FDStateStore) update(update fdStateUpdate) {
 	st.ensureMaps()
-	updateFDMapFromSource(src, scMeta, pathText, targetPID, st.paths)
+	updateFDMapFromSource(update.source, update.meta, update.pathText, update.targetPID, st.paths)
 }
 
 func updateFDMapFromSource(src fdStateSource, scMeta meta.Syscall, pathText string, targetPID int, fdMap map[string]string) {
