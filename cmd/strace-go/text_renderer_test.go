@@ -82,6 +82,31 @@ func TestTextRendererPrintsExecResumeWithDuration(t *testing.T) {
 	}
 }
 
+func TestTextRendererPrintsExecMessagesFromEventView(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{FollowForks: true}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	view := syscallEventView{valid: true, pid: 200, tid: 201}
+
+	renderer.PrintExecPidChangedFromView(view, `execve("/bin/true")`)
+	renderer.PrintExecSupersededUnfinishedFromView(view, `execve("/bin/true")`)
+	renderer.PrintSupersededSuspendedResumeFromView(view, "rt_sigsuspend")
+	renderer.PrintThreadExecveSupersededFromView(view, "execve")
+
+	got := output.String()
+	for _, want := range []string{
+		`201   execve("/bin/true" <pid changed to 200 ...>`,
+		`201   execve("/bin/true" <unfinished ...>`,
+		`200   <... rt_sigsuspend resumed>) = ?`,
+		`200   +++ superseded by execve in pid 201 +++`,
+		`200   <... execve resumed>) = 0`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("view exec output missing %q in %q", want, got)
+		}
+	}
+}
+
 func TestTextRendererPrintsSupersededExecMessages(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{FollowForks: true}

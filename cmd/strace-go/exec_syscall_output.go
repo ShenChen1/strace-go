@@ -44,74 +44,88 @@ func (s *traceSession) execSyscallOutput() *ExecSyscallOutput {
 
 // IMPACT: Handle owns execve/execveat restart and superseded-thread text state.
 func (o *ExecSyscallOutput) Handle(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result) bool {
+	ev := syscallEventContext{
+		raw:  eventRaw,
+		view: newSyscallEventViewFromBPF(eventRaw),
+		meta: scMeta,
+	}
+	return o.HandleEvent(ev, res)
+}
+
+// IMPACT: HandleEvent owns execve/execveat restart and superseded-thread text state from event context.
+func (o *ExecSyscallOutput) HandleEvent(ev syscallEventContext, res handler.Result) bool {
+	scMeta := ev.meta
 	if !isExecSyscall(scMeta.Name) {
 		return false
 	}
-	tid := int(eventRaw.Tid)
-	tgid := int(eventRaw.Pid)
+	view := ev.eventView()
+	tid := int(view.tid)
+	tgid := int(view.pid)
 
-	switch eventRaw.Ret {
+	switch view.ret {
 	case -514:
 		o.rememberPendingArgs(tid, scMeta, res)
 		if tid == tgid {
 			return true
 		}
-		return o.handleNonLeaderRestart(eventRaw, tid, scMeta, res)
+		return o.handleNonLeaderRestart(ev, tid, scMeta, res)
 	case 0:
 		if tid == tgid {
-			return o.handleLeaderSuccess(eventRaw, tid)
+			return o.handleLeaderSuccess(view, tid)
 		}
-		return o.handleNonLeaderSuccess(eventRaw, tid, tgid, scMeta)
+		return o.handleNonLeaderSuccess(ev, tid, tgid, scMeta)
 	default:
 		return false
 	}
 }
 
-func (o *ExecSyscallOutput) handleLeaderSuccess(eventRaw *bpfEvent, tid int) bool {
+func (o *ExecSyscallOutput) handleLeaderSuccess(view syscallEventView, tid int) bool {
 	if o.state == nil {
 		return true
 	}
 	argLine, ok := o.state.takePendingExecArgs(tid)
 	if ok && o.renderer != nil {
-		o.renderer.PrintExecResume(eventRaw, argLine)
+		o.renderer.PrintExecResumeFromView(view, argLine)
 	}
 	return true
 }
 
-func (o *ExecSyscallOutput) handleNonLeaderRestart(eventRaw *bpfEvent, tid int, scMeta meta.Syscall, res handler.Result) bool {
+func (o *ExecSyscallOutput) handleNonLeaderRestart(ev syscallEventContext, tid int, scMeta meta.Syscall, res handler.Result) bool {
 	if !o.followForks() {
 		return false
 	}
+	view := ev.eventView()
 	argLine := o.pendingArgLine(tid, scMeta, res)
-	if eventRaw.ProbeRetEnter == 1 {
-		o.renderer.PrintExecPidChanged(eventRaw, argLine)
+	if view.probeRetEnter == 1 {
+		o.renderer.PrintExecPidChangedFromView(view, argLine)
 		return true
 	}
-	o.renderer.PrintExecSupersededUnfinished(eventRaw, argLine)
+	o.renderer.PrintExecSupersededUnfinishedFromView(view, argLine)
 	return true
 }
 
-func (o *ExecSyscallOutput) handleNonLeaderSuccess(eventRaw *bpfEvent, tid int, tgid int, scMeta meta.Syscall) bool {
+func (o *ExecSyscallOutput) handleNonLeaderSuccess(ev syscallEventContext, tid int, tgid int, scMeta meta.Syscall) bool {
 	if !o.followForks() {
 		return false
 	}
+	view := ev.eventView()
 	if o.state != nil {
 		o.state.deletePendingExecArgs(tid)
 	}
 	if o.discardExitStatus != nil {
 		o.discardExitStatus(tgid)
 	}
-	if eventRaw.ProbeRetEnter == 1 {
+	if view.probeRetEnter == 1 {
 		return true
 	}
-	if eventRaw.ProbeRetExit > 0 && o.state != nil {
-		suspendedSysID := uint32(eventRaw.ProbeRetExit)
+	if view.probeRetExit > 0 && o.state != nil {
+		suspendedSysID := uint32(view.probeRetExit)
 		if suspMeta, ok := meta.SyscallTable[suspendedSysID]; ok {
 			o.state.deleteSuspendedSyscall(tgid)
-			o.renderer.PrintSupersededSuspendedResume(eventRaw, suspMeta.Name)
+			o.renderer.PrintSupersededSuspendedResumeFromView(view, suspMeta.Name)
 		}
 	}
-	o.renderer.PrintThreadExecveSuperseded(eventRaw, scMeta.Name)
+	o.renderer.PrintThreadExecveSupersededFromView(view, scMeta.Name)
 	return true
 }
 

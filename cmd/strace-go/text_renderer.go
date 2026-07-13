@@ -75,26 +75,42 @@ func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.
 }
 
 func (r *TextRenderer) PrintExecResume(eventRaw *bpfEvent, argLine string) {
-	timePrefix := r.timePrefix(eventRaw.EnterTime)
-	pidPrefix := r.pidPrefix(int(eventRaw.Tid))
+	r.PrintExecResumeFromView(newSyscallEventViewFromBPF(eventRaw), argLine)
+}
+
+func (r *TextRenderer) PrintExecResumeFromView(view syscallEventView, argLine string) {
+	timePrefix := r.timePrefix(view.enterTime)
+	pidPrefix := r.pidPrefix(int(view.tid))
 	fmt.Fprintf(r.out, "%s%s%s%s= 0%s\n",
-		timePrefix, pidPrefix, argLine, r.padding(timePrefix, pidPrefix, argLine), r.durationSuffix(eventRaw.Duration))
+		timePrefix, pidPrefix, argLine, r.padding(timePrefix, pidPrefix, argLine), r.durationSuffix(view.duration))
 }
 
 func (r *TextRenderer) PrintExecPidChanged(eventRaw *bpfEvent, argLine string) {
-	tid := int(eventRaw.Tid)
-	tgid := int(eventRaw.Pid)
-	fmt.Fprintf(r.out, "%s%-5d %s <pid changed to %d ...>\n", r.timePrefix(eventRaw.EnterTime), tid, trimTrailingParen(argLine), tgid)
+	r.PrintExecPidChangedFromView(newSyscallEventViewFromBPF(eventRaw), argLine)
+}
+
+func (r *TextRenderer) PrintExecPidChangedFromView(view syscallEventView, argLine string) {
+	tid := int(view.tid)
+	tgid := int(view.pid)
+	fmt.Fprintf(r.out, "%s%-5d %s <pid changed to %d ...>\n", r.timePrefix(view.enterTime), tid, trimTrailingParen(argLine), tgid)
 }
 
 func (r *TextRenderer) PrintExecSupersededUnfinished(eventRaw *bpfEvent, argLine string) {
-	tid := int(eventRaw.Tid)
-	fmt.Fprintf(r.out, "%s%-5d %s <unfinished ...>\n", r.timePrefix(eventRaw.EnterTime), tid, trimTrailingParen(argLine))
+	r.PrintExecSupersededUnfinishedFromView(newSyscallEventViewFromBPF(eventRaw), argLine)
+}
+
+func (r *TextRenderer) PrintExecSupersededUnfinishedFromView(view syscallEventView, argLine string) {
+	tid := int(view.tid)
+	fmt.Fprintf(r.out, "%s%-5d %s <unfinished ...>\n", r.timePrefix(view.enterTime), tid, trimTrailingParen(argLine))
 }
 
 func (r *TextRenderer) PrintSupersededSuspendedResume(eventRaw *bpfEvent, syscallName string) {
-	timePrefix := r.timePrefix(eventRaw.EnterTime)
-	tgid := int(eventRaw.Pid)
+	r.PrintSupersededSuspendedResumeFromView(newSyscallEventViewFromBPF(eventRaw), syscallName)
+}
+
+func (r *TextRenderer) PrintSupersededSuspendedResumeFromView(view syscallEventView, syscallName string) {
+	timePrefix := r.timePrefix(view.enterTime)
+	tgid := int(view.pid)
 	switch syscallName {
 	case "rt_sigsuspend":
 		fmt.Fprintf(r.out, "%s%-5d <... rt_sigsuspend resumed>) = ?\n", timePrefix, tgid)
@@ -104,9 +120,13 @@ func (r *TextRenderer) PrintSupersededSuspendedResume(eventRaw *bpfEvent, syscal
 }
 
 func (r *TextRenderer) PrintThreadExecveSuperseded(eventRaw *bpfEvent, syscallName string) {
-	timePrefix := r.timePrefix(eventRaw.EnterTime)
-	tid := int(eventRaw.Tid)
-	tgid := int(eventRaw.Pid)
+	r.PrintThreadExecveSupersededFromView(newSyscallEventViewFromBPF(eventRaw), syscallName)
+}
+
+func (r *TextRenderer) PrintThreadExecveSupersededFromView(view syscallEventView, syscallName string) {
+	timePrefix := r.timePrefix(view.enterTime)
+	tid := int(view.tid)
+	tgid := int(view.pid)
 	if r.opts == nil || !r.opts.QuietThreadExecve {
 		fmt.Fprintf(r.out, "%s%-5d +++ superseded by execve in pid %d +++\n", timePrefix, tgid, tid)
 	}

@@ -75,7 +75,7 @@ func (o *SyscallTextOutput) HandleEvent(ev syscallEventContext, res handler.Resu
 	if o.suspended != nil && o.suspended.HandleEvent(ev, res) {
 		return
 	}
-	if ev.raw != nil && o.exec != nil && o.exec.Handle(ev.raw, scMeta, res) {
+	if o.exec != nil && o.exec.HandleEvent(ev, res) {
 		return
 	}
 	if o.renderer != nil {

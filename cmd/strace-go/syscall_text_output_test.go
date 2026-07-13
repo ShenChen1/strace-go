@@ -138,3 +138,24 @@ func TestSyscallTextOutputDelegatesExecBeforeNormalPrint(t *testing.T) {
 		t.Fatal("exec restart did not remember pending args")
 	}
 }
+
+func TestSyscallTextOutputDelegatesExecFromEventView(t *testing.T) {
+	output, state, out := newSyscallTextOutputForTest(&cli.Options{FollowForks: true})
+	scMeta := meta.Syscall{Name: "execve"}
+	ctx := &handler.Context{ScMeta: scMeta, SysName: "execve"}
+	ev := syscallEventContext{
+		raw:            &bpfEvent{Pid: 1, Tid: 1, Ret: 0},
+		view:           syscallEventView{valid: true, pid: 200, tid: 200, ret: -514},
+		meta:           scMeta,
+		handlerContext: ctx,
+	}
+
+	output.HandleEvent(ev, handler.Result{ArgParts: []string{`"/bin/true"`}})
+
+	if out.Len() != 0 {
+		t.Fatalf("exec restart output = %q, want no normal syscall line", out.String())
+	}
+	if _, ok := state.pendingExecArgsFor(200); !ok {
+		t.Fatal("exec restart did not remember view tid")
+	}
+}

@@ -71,6 +71,40 @@ func TestExecSyscallOutputLeaderRestartAndResume(t *testing.T) {
 	}
 }
 
+func TestExecSyscallOutputLeaderRestartAndResumeFromEventView(t *testing.T) {
+	output, state, out, _ := newExecSyscallOutputForTest(&cli.Options{FollowForks: true})
+	scMeta := meta.Syscall{Name: "execve"}
+	res := handler.Result{ArgParts: []string{`"/bin/true"`, `["true"]`, `0x1 /* 1 var */`}}
+	restart := syscallEventContext{
+		raw:  &bpfEvent{Pid: 1, Tid: 1, Ret: 0},
+		view: syscallEventView{valid: true, pid: 200, tid: 200, ret: -514},
+		meta: scMeta,
+	}
+	success := restart
+	success.view.ret = 0
+
+	if !output.HandleEvent(restart, res) {
+		t.Fatal("leader exec restart should be handled from event view")
+	}
+	if _, ok := state.pendingExecArgsFor(200); !ok {
+		t.Fatal("leader exec restart did not remember view tid")
+	}
+	if _, ok := state.pendingExecArgsFor(1); ok {
+		t.Fatal("leader exec restart used raw tid")
+	}
+
+	if !output.HandleEvent(success, res) {
+		t.Fatal("leader exec success should be handled from event view")
+	}
+	got := out.String()
+	if !strings.Contains(got, `200   execve("/bin/true", ["true"], 0x1 /* 1 var */)`) || !strings.Contains(got, "= 0") {
+		t.Fatalf("leader exec success output = %q", got)
+	}
+	if _, ok := state.pendingExecArgsFor(200); ok {
+		t.Fatal("leader exec args were not consumed from view tid")
+	}
+}
+
 func TestExecSyscallOutputNonLeaderSuperseded(t *testing.T) {
 	output, state, out, discarded := newExecSyscallOutputForTest(&cli.Options{FollowForks: true})
 	scMeta := meta.Syscall{Name: "execve"}
@@ -101,6 +135,46 @@ func TestExecSyscallOutputNonLeaderSuperseded(t *testing.T) {
 	}
 	if len(*discarded) != 1 || (*discarded)[0] != 200 {
 		t.Fatalf("discarded exit statuses = %v, want [200]", *discarded)
+	}
+}
+
+func TestExecSyscallOutputNonLeaderSupersededFromEventView(t *testing.T) {
+	output, state, out, discarded := newExecSyscallOutputForTest(&cli.Options{FollowForks: true})
+	scMeta := meta.Syscall{Name: "execve"}
+	res := handler.Result{ArgParts: []string{`"/bin/true"`, `["true"]`, `0x1 /* 1 var */`}}
+	restart := syscallEventContext{
+		raw:  &bpfEvent{Pid: 1, Tid: 1, Ret: 0},
+		view: syscallEventView{valid: true, pid: 200, tid: 201, ret: -514},
+		meta: scMeta,
+	}
+	success := restart
+	success.view.ret = 0
+
+	if !output.HandleEvent(restart, res) {
+		t.Fatal("non-leader exec restart should be handled from event view")
+	}
+	if _, ok := state.pendingExecArgsFor(201); !ok {
+		t.Fatal("non-leader exec restart did not remember view tid")
+	}
+	if !output.HandleEvent(success, res) {
+		t.Fatal("non-leader exec success should be handled from event view")
+	}
+
+	got := out.String()
+	for _, want := range []string{
+		`201   execve("/bin/true", ["true"], 0x1 /* 1 var */ <unfinished ...>`,
+		`200   +++ superseded by execve in pid 201 +++`,
+		`200   <... execve resumed>) = 0`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("non-leader exec view output missing %q in %q", want, got)
+		}
+	}
+	if _, ok := state.pendingExecArgsFor(201); ok {
+		t.Fatal("non-leader exec args were not deleted from view tid")
+	}
+	if len(*discarded) != 1 || (*discarded)[0] != 200 {
+		t.Fatalf("discarded exit statuses = %v, want view tgid [200]", *discarded)
 	}
 }
 
