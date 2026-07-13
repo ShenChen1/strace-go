@@ -153,10 +153,6 @@ func (st *TraceState) consumeEnterEvent(view traceStateEventView) *pendingSyscal
 	return pending
 }
 
-func isExitEvent(eventRaw *bpfEvent) bool {
-	return eventRaw.EventType == bpfEventTypeExit
-}
-
 func (st *TraceState) rememberPendingExecArgs(tid int, argLine string) {
 	if st.pendingExecArgs == nil {
 		st.pendingExecArgs = make(map[int]string)

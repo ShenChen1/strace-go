@@ -141,7 +141,7 @@ func (e payloadEvent) Ret() int64 {
 
 func (e payloadEvent) IsExit() bool {
 	if !e.meta.valid && e.raw != nil {
-		return isExitEvent(e.raw)
+		return e.raw.EventType == bpfEventTypeExit
 	}
 	return e.meta.eventType == bpfEventTypeExit
 }

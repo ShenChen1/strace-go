@@ -147,7 +147,7 @@ func TestTraceStateHandleViewUsesEventViewForPendingPair(t *testing.T) {
 func TestZeroEventTypeIsNotExit(t *testing.T) {
 	eventRaw := &bpfEvent{EventVersion: 2}
 
-	if isExitEvent(eventRaw) {
+	if newTraceStateEventViewFromBPF(eventRaw).isExit() {
 		t.Fatal("event_type=0 should not be treated as an explicit exit event")
 	}
 	if got := bpfEventTypeNameFromID(eventRaw.EventType); got != "unknown" {
