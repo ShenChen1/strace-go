@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -13,19 +12,19 @@ func TestJSONSyscallEventIncludesRobustListPayloadSections(t *testing.T) {
 		EventType:    bpfEventTypeExit,
 		Args:         [6]uint64{0, 0x1000, 0x2000},
 		Ret:          0,
-		DataLen:      handler.BpfExitArgOffset + 24,
+		DataLen:      payloadExitArgOffset + 24,
 		ProbeRetExit: 0,
 	}
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], robustListJSONWord(0xfeedface))
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset+16:], robustListJSONWord(24))
+	copy(eventRaw.StrArg[payloadExitArgOffset:], robustListJSONWord(0xfeedface))
+	copy(eventRaw.StrArg[payloadExitArgOffset+16:], robustListJSONWord(24))
 
 	scMeta := meta.Syscall{Name: "get_robust_list"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}
-	assertRobustListSection(t, ev.PayloadSections[0], 1, handler.BpfExitArgOffset, 0x1000, robustListJSONWord(0xfeedface))
-	assertRobustListSection(t, ev.PayloadSections[1], 2, handler.BpfExitArgOffset+16, 0x2000, robustListJSONWord(24))
+	assertRobustListSection(t, ev.PayloadSections[0], 1, payloadExitArgOffset, 0x1000, robustListJSONWord(0xfeedface))
+	assertRobustListSection(t, ev.PayloadSections[1], 2, payloadExitArgOffset+16, 0x2000, robustListJSONWord(24))
 }
 
 func assertRobustListSection(

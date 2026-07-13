@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -13,39 +12,39 @@ func TestJSONSyscallEventIncludesSendfileOffsetPayloadSections(t *testing.T) {
 		EventType:     bpfEventTypeExit,
 		Args:          [6]uint64{4, 5, 0x1000, 99},
 		Ret:           99,
-		DataLen:       handler.BpfExitArgOffset + offsetPointerPayloadSize,
+		DataLen:       payloadExitArgOffset + offsetPointerPayloadSize,
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
-	copy(eventRaw.StrArg[handler.BpfMiscArgOffset:], offsetJSONWord(10))
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], offsetJSONWord(20))
+	copy(eventRaw.StrArg[payloadMiscArgOffset:], offsetJSONWord(10))
+	copy(eventRaw.StrArg[payloadExitArgOffset:], offsetJSONWord(20))
 
 	scMeta := meta.Syscall{Name: "sendfile"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}
-	assertOffsetSection(t, ev.PayloadSections[0], 2, "in", handler.BpfMiscArgOffset, 0x1000, offsetJSONWord(10))
-	assertOffsetSection(t, ev.PayloadSections[1], 2, "out", handler.BpfExitArgOffset, 0x1000, offsetJSONWord(20))
+	assertOffsetSection(t, ev.PayloadSections[0], 2, "in", payloadMiscArgOffset, 0x1000, offsetJSONWord(10))
+	assertOffsetSection(t, ev.PayloadSections[1], 2, "out", payloadExitArgOffset, 0x1000, offsetJSONWord(20))
 }
 
 func TestJSONSyscallEventIncludesCopyFileRangeOffsetPayloadSections(t *testing.T) {
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
 		Args:          [6]uint64{4, 0x1000, 5, 0x2000, 99, 0},
-		DataLen:       handler.BpfMiscArgOffset + offsetPointerPayloadSize*2,
+		DataLen:       payloadMiscArgOffset + offsetPointerPayloadSize*2,
 		ProbeRetEnter: 0,
 	}
-	copy(eventRaw.StrArg[handler.BpfMiscArgOffset:], offsetJSONWord(11))
-	copy(eventRaw.StrArg[handler.BpfMiscArgOffset+8:], offsetJSONWord(22))
+	copy(eventRaw.StrArg[payloadMiscArgOffset:], offsetJSONWord(11))
+	copy(eventRaw.StrArg[payloadMiscArgOffset+8:], offsetJSONWord(22))
 
 	scMeta := meta.Syscall{Name: "copy_file_range"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}
-	assertOffsetSection(t, ev.PayloadSections[0], 1, "in", handler.BpfMiscArgOffset, 0x1000, offsetJSONWord(11))
-	assertOffsetSection(t, ev.PayloadSections[1], 3, "in", handler.BpfMiscArgOffset+8, 0x2000, offsetJSONWord(22))
+	assertOffsetSection(t, ev.PayloadSections[0], 1, "in", payloadMiscArgOffset, 0x1000, offsetJSONWord(11))
+	assertOffsetSection(t, ev.PayloadSections[1], 3, "in", payloadMiscArgOffset+8, 0x2000, offsetJSONWord(22))
 }
 
 func assertOffsetSection(

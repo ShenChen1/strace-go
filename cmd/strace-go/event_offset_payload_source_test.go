@@ -15,9 +15,9 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareSendfileRule(t *testing.T)
 		Ret:          99,
 		ProbeRetExit: 0,
 	}
-	data := make([]byte, handler.BpfExitArgOffset+offsetPointerPayloadSize)
-	copy(data[handler.BpfMiscArgOffset:], offsetJSONWord(10))
-	copy(data[handler.BpfExitArgOffset:], offsetJSONWord(20))
+	data := make([]byte, payloadExitArgOffset+offsetPointerPayloadSize)
+	copy(data[payloadMiscArgOffset:], offsetJSONWord(10))
+	copy(data[payloadExitArgOffset:], offsetJSONWord(20))
 	event := payloadEvent{
 		raw: raw,
 		source: staticPayloadSource{
@@ -31,8 +31,8 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareSendfileRule(t *testing.T)
 	if len(sections) != 2 {
 		t.Fatalf("sections = %d, want 2", len(sections))
 	}
-	assertOffsetPayloadSourceSection(t, sections[0], 2, handler.PayloadDirectionIn, handler.BpfMiscArgOffset, 0x1000, offsetJSONWord(10))
-	assertOffsetPayloadSourceSection(t, sections[1], 2, handler.PayloadDirectionOut, handler.BpfExitArgOffset, 0x1000, offsetJSONWord(20))
+	assertOffsetPayloadSourceSection(t, sections[0], 2, handler.PayloadDirectionIn, payloadMiscArgOffset, 0x1000, offsetJSONWord(10))
+	assertOffsetPayloadSourceSection(t, sections[1], 2, handler.PayloadDirectionOut, payloadExitArgOffset, 0x1000, offsetJSONWord(20))
 }
 
 func TestPayloadSectionsForPayloadEventUsesSourceAwareCopyFileRangeRule(t *testing.T) {
@@ -41,9 +41,9 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareCopyFileRangeRule(t *testi
 		Args:          [6]uint64{4, 0x1000, 5, 0x2000, 99, 0},
 		ProbeRetEnter: 0,
 	}
-	data := make([]byte, handler.BpfMiscArgOffset+offsetPointerPayloadSize*2)
-	copy(data[handler.BpfMiscArgOffset:], offsetJSONWord(11))
-	copy(data[handler.BpfMiscArgOffset+8:], offsetJSONWord(22))
+	data := make([]byte, payloadMiscArgOffset+offsetPointerPayloadSize*2)
+	copy(data[payloadMiscArgOffset:], offsetJSONWord(11))
+	copy(data[payloadMiscArgOffset+8:], offsetJSONWord(22))
 	event := payloadEvent{
 		raw: raw,
 		source: staticPayloadSource{
@@ -57,8 +57,8 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareCopyFileRangeRule(t *testi
 	if len(sections) != 2 {
 		t.Fatalf("sections = %d, want 2", len(sections))
 	}
-	assertOffsetPayloadSourceSection(t, sections[0], 1, handler.PayloadDirectionIn, handler.BpfMiscArgOffset, 0x1000, offsetJSONWord(11))
-	assertOffsetPayloadSourceSection(t, sections[1], 3, handler.PayloadDirectionIn, handler.BpfMiscArgOffset+8, 0x2000, offsetJSONWord(22))
+	assertOffsetPayloadSourceSection(t, sections[0], 1, handler.PayloadDirectionIn, payloadMiscArgOffset, 0x1000, offsetJSONWord(11))
+	assertOffsetPayloadSourceSection(t, sections[1], 3, handler.PayloadDirectionIn, payloadMiscArgOffset+8, 0x2000, offsetJSONWord(22))
 }
 
 func assertOffsetPayloadSourceSection(

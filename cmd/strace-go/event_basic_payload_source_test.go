@@ -18,9 +18,9 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwarePrlimitRule(t *testing.T) 
 	}
 	oldLimit := bytes.Repeat([]byte{0x11}, rlimitPayloadStructSize)
 	newLimit := bytes.Repeat([]byte{0x22}, rlimitPayloadStructSize)
-	data := make([]byte, handler.BpfExitArgOffset+rlimitPayloadStructSize)
-	copy(data[handler.BpfEnterArgOffset:], oldLimit)
-	copy(data[handler.BpfExitArgOffset:], newLimit)
+	data := make([]byte, payloadExitArgOffset+rlimitPayloadStructSize)
+	copy(data[payloadEnterArgOffset:], oldLimit)
+	copy(data[payloadExitArgOffset:], newLimit)
 	event := payloadEvent{
 		raw: raw,
 		source: staticPayloadSource{
@@ -34,8 +34,8 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwarePrlimitRule(t *testing.T) 
 	if len(sections) != 2 {
 		t.Fatalf("sections = %d, want 2", len(sections))
 	}
-	assertBasicStructPayloadSourceSection(t, sections[0], 2, handler.PayloadDirectionIn, handler.BpfEnterArgOffset, 0x3000, oldLimit)
-	assertBasicStructPayloadSourceSection(t, sections[1], 3, handler.PayloadDirectionOut, handler.BpfExitArgOffset, 0x4000, newLimit)
+	assertBasicStructPayloadSourceSection(t, sections[0], 2, handler.PayloadDirectionIn, payloadEnterArgOffset, 0x3000, oldLimit)
+	assertBasicStructPayloadSourceSection(t, sections[1], 3, handler.PayloadDirectionOut, payloadExitArgOffset, 0x4000, newLimit)
 }
 
 func TestPayloadSectionsForPayloadEventUsesSourceAwareSetrlimitRule(t *testing.T) {
@@ -58,7 +58,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareSetrlimitRule(t *testing.T
 	if len(sections) != 1 {
 		t.Fatalf("sections = %d, want 1", len(sections))
 	}
-	assertBasicStructPayloadSourceSection(t, sections[0], 1, handler.PayloadDirectionIn, handler.BpfEnterArgOffset, 0x4000, limit)
+	assertBasicStructPayloadSourceSection(t, sections[0], 1, handler.PayloadDirectionIn, payloadEnterArgOffset, 0x4000, limit)
 }
 
 func TestPayloadSectionsForPayloadEventUsesSourceAwareRobustListRule(t *testing.T) {
@@ -68,9 +68,9 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareRobustListRule(t *testing.
 		Ret:          0,
 		ProbeRetExit: 0,
 	}
-	data := make([]byte, handler.BpfExitArgOffset+24)
-	copy(data[handler.BpfExitArgOffset:], robustListJSONWord(0xfeedface))
-	copy(data[handler.BpfExitArgOffset+16:], robustListJSONWord(24))
+	data := make([]byte, payloadExitArgOffset+24)
+	copy(data[payloadExitArgOffset:], robustListJSONWord(0xfeedface))
+	copy(data[payloadExitArgOffset+16:], robustListJSONWord(24))
 	event := payloadEvent{
 		raw: raw,
 		source: staticPayloadSource{
@@ -84,8 +84,8 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareRobustListRule(t *testing.
 	if len(sections) != 2 {
 		t.Fatalf("sections = %d, want 2", len(sections))
 	}
-	assertBasicStructPayloadSourceSection(t, sections[0], 1, handler.PayloadDirectionOut, handler.BpfExitArgOffset, 0x1000, robustListJSONWord(0xfeedface))
-	assertBasicStructPayloadSourceSection(t, sections[1], 2, handler.PayloadDirectionOut, handler.BpfExitArgOffset+16, 0x2000, robustListJSONWord(24))
+	assertBasicStructPayloadSourceSection(t, sections[0], 1, handler.PayloadDirectionOut, payloadExitArgOffset, 0x1000, robustListJSONWord(0xfeedface))
+	assertBasicStructPayloadSourceSection(t, sections[1], 2, handler.PayloadDirectionOut, payloadExitArgOffset+16, 0x2000, robustListJSONWord(24))
 }
 
 func TestPayloadSectionsForPayloadEventUsesSourceAwareWaitidRule(t *testing.T) {
@@ -97,9 +97,9 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareWaitidRule(t *testing.T) {
 	}
 	siginfo := bytes.Repeat([]byte{0x11}, waitidSiginfoPayloadSize)
 	rusage := bytes.Repeat([]byte{0x22}, waitidRusagePayloadSize)
-	data := make([]byte, handler.BpfExitArgOffset+136+waitidRusagePayloadSize)
-	copy(data[handler.BpfExitArgOffset:], siginfo)
-	copy(data[handler.BpfExitArgOffset+136:], rusage)
+	data := make([]byte, payloadExitArgOffset+136+waitidRusagePayloadSize)
+	copy(data[payloadExitArgOffset:], siginfo)
+	copy(data[payloadExitArgOffset+136:], rusage)
 	event := payloadEvent{
 		raw: raw,
 		source: staticPayloadSource{
@@ -113,8 +113,8 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareWaitidRule(t *testing.T) {
 	if len(sections) != 2 {
 		t.Fatalf("sections = %d, want 2", len(sections))
 	}
-	assertBasicStructPayloadSourceSection(t, sections[0], 2, handler.PayloadDirectionOut, handler.BpfExitArgOffset, 0x1000, siginfo)
-	assertBasicStructPayloadSourceSection(t, sections[1], 4, handler.PayloadDirectionOut, handler.BpfExitArgOffset+136, 0x2000, rusage)
+	assertBasicStructPayloadSourceSection(t, sections[0], 2, handler.PayloadDirectionOut, payloadExitArgOffset, 0x1000, siginfo)
+	assertBasicStructPayloadSourceSection(t, sections[1], 4, handler.PayloadDirectionOut, payloadExitArgOffset+136, 0x2000, rusage)
 }
 
 func assertBasicStructPayloadSourceSection(

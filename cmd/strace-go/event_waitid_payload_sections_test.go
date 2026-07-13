@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -13,21 +12,21 @@ func TestJSONSyscallEventIncludesWaitidPayloadSections(t *testing.T) {
 		EventType:    bpfEventTypeExit,
 		Args:         [6]uint64{0, 0, 0x1000, 0, 0x2000},
 		Ret:          0,
-		DataLen:      handler.BpfExitArgOffset + 136 + waitidRusagePayloadSize,
+		DataLen:      payloadExitArgOffset + 136 + waitidRusagePayloadSize,
 		ProbeRetExit: 0,
 	}
 	siginfo := bytes.Repeat([]byte{0x11}, waitidSiginfoPayloadSize)
 	rusage := bytes.Repeat([]byte{0x22}, waitidRusagePayloadSize)
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], siginfo)
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset+136:], rusage)
+	copy(eventRaw.StrArg[payloadExitArgOffset:], siginfo)
+	copy(eventRaw.StrArg[payloadExitArgOffset+136:], rusage)
 
 	scMeta := meta.Syscall{Name: "waitid"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}
-	assertWaitidSection(t, ev.PayloadSections[0], 2, handler.BpfExitArgOffset, 0x1000, waitidSiginfoPayloadSize, siginfo)
-	assertWaitidSection(t, ev.PayloadSections[1], 4, handler.BpfExitArgOffset+136, 0x2000, waitidRusagePayloadSize, rusage)
+	assertWaitidSection(t, ev.PayloadSections[0], 2, payloadExitArgOffset, 0x1000, waitidSiginfoPayloadSize, siginfo)
+	assertWaitidSection(t, ev.PayloadSections[1], 4, payloadExitArgOffset+136, 0x2000, waitidRusagePayloadSize, rusage)
 }
 
 func assertWaitidSection(

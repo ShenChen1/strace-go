@@ -7,7 +7,7 @@ import (
 )
 
 func prlimitPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
-	sections := enterStructPayloadSectionFromSource(event, 2, handler.BpfEnterArgOffset, rlimitPayloadStructSize)
+	sections := enterStructPayloadSectionFromSource(event, 2, payloadEnterArgOffset, rlimitPayloadStructSize)
 	if event.IsExit() && event.Ret() >= 0 {
 		sections = append(sections, exitStructPayloadSectionFromSource(event, 3, rlimitPayloadStructSize)...)
 	}
@@ -18,20 +18,20 @@ func robustListPayloadSectionsFromSource(event payloadEvent, _ string) []handler
 	if !event.IsExit() || event.Ret() < 0 {
 		return nil
 	}
-	sections := exitStructPayloadSectionAtFromSource(event, 1, handler.BpfExitArgOffset, robustListPayloadWordSize)
-	return append(sections, exitStructPayloadSectionAtFromSource(event, 2, handler.BpfExitArgOffset+16, robustListPayloadWordSize)...)
+	sections := exitStructPayloadSectionAtFromSource(event, 1, payloadExitArgOffset, robustListPayloadWordSize)
+	return append(sections, exitStructPayloadSectionAtFromSource(event, 2, payloadExitArgOffset+16, robustListPayloadWordSize)...)
 }
 
 func waitidPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
 	if !event.IsExit() || event.Ret() < 0 {
 		return nil
 	}
-	sections := exitStructPayloadSectionAtFromSource(event, 2, handler.BpfExitArgOffset, waitidSiginfoPayloadSize)
-	return append(sections, exitStructPayloadSectionAtFromSource(event, 4, handler.BpfExitArgOffset+136, waitidRusagePayloadSize)...)
+	sections := exitStructPayloadSectionAtFromSource(event, 2, payloadExitArgOffset, waitidSiginfoPayloadSize)
+	return append(sections, exitStructPayloadSectionAtFromSource(event, 4, payloadExitArgOffset+136, waitidRusagePayloadSize)...)
 }
 
 func sendfilePayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
-	sections := enterStructPayloadSectionFromSource(event, 2, handler.BpfMiscArgOffset, offsetPointerPayloadSize)
+	sections := enterStructPayloadSectionFromSource(event, 2, payloadMiscArgOffset, offsetPointerPayloadSize)
 	if event.IsExit() && event.Ret() >= 0 {
 		sections = append(sections, exitStructPayloadSectionFromSource(event, 2, offsetPointerPayloadSize)...)
 	}
@@ -39,8 +39,8 @@ func sendfilePayloadSectionsFromSource(event payloadEvent, _ string) []handler.P
 }
 
 func copyFileRangePayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
-	sections := enterStructPayloadSectionFromSource(event, 1, handler.BpfMiscArgOffset, offsetPointerPayloadSize)
-	return append(sections, enterStructPayloadSectionFromSource(event, 3, handler.BpfMiscArgOffset+8, offsetPointerPayloadSize)...)
+	sections := enterStructPayloadSectionFromSource(event, 1, payloadMiscArgOffset, offsetPointerPayloadSize)
+	return append(sections, enterStructPayloadSectionFromSource(event, 3, payloadMiscArgOffset+8, offsetPointerPayloadSize)...)
 }
 
 type stringPayloadWindowSpec struct {
@@ -90,7 +90,7 @@ func exitBytesPayloadSectionFromSourceRet(event payloadEvent, argIndex int) []ha
 		kind:      handler.PayloadKindBytes,
 		direction: handler.PayloadDirectionOut,
 		argIndex:  argIndex,
-		offset:    handler.BpfExitArgOffset,
+		offset:    payloadExitArgOffset,
 		userLen:   userLen,
 		maxLen:    userLen,
 		probeRet:  event.ProbeRetExit(),
@@ -105,7 +105,7 @@ func exitStructPayloadSectionFromSource(event payloadEvent, argIndex int, size u
 		kind:      handler.PayloadKindStruct,
 		direction: handler.PayloadDirectionOut,
 		argIndex:  argIndex,
-		offset:    handler.BpfExitArgOffset,
+		offset:    payloadExitArgOffset,
 		userLen:   size,
 		maxLen:    size,
 		probeRet:  event.ProbeRetExit(),
