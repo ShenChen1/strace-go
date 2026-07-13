@@ -63,10 +63,6 @@ func newRawPayloadEventFromBPF(eventRaw *bpfEvent) rawPayloadEvent {
 	}
 }
 
-func newFixedEventPayloadSource(eventRaw *bpfEvent) windowPayloadSource {
-	return newFixedPayloadSourceFromRaw(newRawPayloadEventFromBPF(eventRaw))
-}
-
 func newFixedPayloadSourceFromRaw(raw rawPayloadEvent) windowPayloadSource {
 	if !raw.valid {
 		return windowPayloadSource{}

@@ -73,7 +73,7 @@ func TestFixedEventPayloadSourceSnapshotsArgsAndDataLen(t *testing.T) {
 	}
 	copy(raw.StrArg[:], []byte("payload-suffix"))
 
-	source := newFixedEventPayloadSource(raw)
+	source := newFixedPayloadSourceFromRaw(newRawPayloadEventFromBPF(raw))
 	raw.Args[1] = 0xdead
 	raw.DataLen = 0
 
