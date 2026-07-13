@@ -255,10 +255,6 @@ func isGenericEnterEvent(eventRaw *bpfEvent) bool {
 	return eventRaw.EventType == bpfEventTypeEnter && (eventRaw.EventFlags&bpfEventFlagGenericEnter) != 0
 }
 
-func shouldEmitStatus(eventRaw *bpfEvent, scMeta meta.Syscall, optsStatus successfulFailedOptions) bool {
-	return newSyscallEventViewFromBPF(eventRaw).shouldEmitStatus(scMeta.Name, optsStatus)
-}
-
 type successfulFailedOptions struct {
 	successfulOnly bool
 	failedOnly     bool
