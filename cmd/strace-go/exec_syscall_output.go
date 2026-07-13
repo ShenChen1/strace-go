@@ -44,7 +44,7 @@ func (s *traceSession) execSyscallOutput() *ExecSyscallOutput {
 
 // IMPACT: HandleEvent owns execve/execveat restart and superseded-thread text state from event context.
 func (o *ExecSyscallOutput) HandleEvent(ev syscallEventContext, res handler.Result) bool {
-	scMeta := ev.meta
+	scMeta := ev.effectiveSyscallMeta()
 	if !isExecSyscall(scMeta.Name) {
 		return false
 	}

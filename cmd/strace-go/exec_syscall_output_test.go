@@ -112,6 +112,27 @@ func TestExecSyscallOutputLeaderRestartAndResumeFromEventView(t *testing.T) {
 	}
 }
 
+func TestExecSyscallOutputUsesEffectiveMetadata(t *testing.T) {
+	output, state, out, _ := newExecSyscallOutputForTest(&cli.Options{FollowForks: true})
+	scMeta := meta.Syscall{Name: "execve"}
+	res := handler.Result{ArgParts: []string{`"/bin/true"`}}
+
+	handled := output.HandleEvent(syscallEventContext{
+		view:           syscallEventView{valid: true, pid: 200, tid: 200, ret: -514},
+		handlerContext: &handler.Context{ScMeta: scMeta, SysName: "execve"},
+	}, res)
+
+	if !handled {
+		t.Fatal("leader exec restart should use effective metadata")
+	}
+	if out.Len() != 0 {
+		t.Fatalf("leader exec restart output = %q, want no output", out.String())
+	}
+	if got, ok := state.pendingExecArgsFor(200); !ok || got != `execve("/bin/true")` {
+		t.Fatalf("pending exec args = %q ok=%v, want effective execve args", got, ok)
+	}
+}
+
 func TestExecSyscallOutputNonLeaderSuperseded(t *testing.T) {
 	output, state, out, discarded := newExecSyscallOutputForTest(&cli.Options{FollowForks: true})
 	scMeta := meta.Syscall{Name: "execve"}
