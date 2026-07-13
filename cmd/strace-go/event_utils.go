@@ -23,10 +23,6 @@ func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targe
 	}, scMeta, pathText, targetPid, fdMap)
 }
 
-func updateFdReturnMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
-	updateFdReturnMapFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, targetPid, fdMap)
-}
-
 func updateFdReturnMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
 	if !view.valid || view.ret < 0 || !isFdReturnSyscall(scMeta.Name) {
 		return
@@ -49,19 +45,11 @@ func updateFdReturnMapFromView(view syscallEventView, scMeta meta.Syscall, targe
 	}
 }
 
-func formatEventfdTarget(linkPath string, eventRaw *bpfEvent, scMeta meta.Syscall, force bool) string {
-	return formatEventfdTargetFromView(linkPath, newSyscallEventViewFromBPF(eventRaw), scMeta, force)
-}
-
 func formatEventfdTargetFromView(linkPath string, view syscallEventView, scMeta meta.Syscall, force bool) string {
 	flags := uint64(0)
 	flags = view.args[1]
 	forceCount := force || scMeta.Name == "eventfd" || scMeta.Name == "eventfd2"
 	return handler.FormatEventfdInfo(linkPath, uint64(uint32(view.args[0])), flags, forceCount)
-}
-
-func updateEventfdCount(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
-	updateEventfdCountFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, targetPid, fdMap)
 }
 
 func updateEventfdCountFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
@@ -97,10 +85,6 @@ func updateEventfdCountFromView(view syscallEventView, scMeta meta.Syscall, targ
 	fdMap[key] = re.ReplaceAllString(target, "eventfd-count="+newValStr)
 }
 
-func updateOpenedPathFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
-	updateOpenedPathFDMapFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, pathText, targetPid, fdMap)
-}
-
 func updateOpenedPathFDMapFromView(view syscallEventView, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
 	if !view.valid || view.ret < 0 || (scMeta.Name != "open" && scMeta.Name != "openat" && scMeta.Name != "openat2" && scMeta.Name != "creat") {
 		return
@@ -113,10 +97,6 @@ func updateOpenedPathFDMapFromView(view syscallEventView, scMeta meta.Syscall, p
 		path = path[1 : len(path)-1]
 	}
 	fdMap[fmt.Sprintf("%d:%d", targetPid, int32(view.ret))] = path
-}
-
-func updateDupFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
-	updateDupFDMapFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, targetPid, fdMap)
 }
 
 func updateDupFDMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
@@ -171,10 +151,6 @@ func fdArrayPayloadData(sections []handler.PayloadSection, argIndex int) ([]byte
 	return nil, false
 }
 
-func updateSocketFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
-	updateSocketFDMapFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, targetPid, fdMap)
-}
-
 func updateSocketFDMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
 	if !view.valid || scMeta.Name != "socket" || view.ret < 0 {
 		return
@@ -187,10 +163,6 @@ func updateSocketFDMapFromView(view syscallEventView, scMeta meta.Syscall, targe
 		target = "socket:[]"
 	}
 	fdMap[key] = target + "|" + info
-}
-
-func socketFDInfo(eventRaw *bpfEvent) string {
-	return socketFDInfoFromView(newSyscallEventViewFromBPF(eventRaw))
 }
 
 func socketFDInfoFromView(view syscallEventView) string {
@@ -232,10 +204,6 @@ func netlinkSockaddrPayload(src fdStateSource, scMeta meta.Syscall) ([]byte, boo
 		}
 	}
 	return nil, false
-}
-
-func updateCwdFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
-	updateCwdFDMapFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, pathText, targetPid, fdMap)
 }
 
 func updateCwdFDMapFromView(view syscallEventView, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
