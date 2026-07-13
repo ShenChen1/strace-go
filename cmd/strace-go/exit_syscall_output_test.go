@@ -210,6 +210,29 @@ func TestExitSyscallOutputDetectsExitFromEventView(t *testing.T) {
 	}
 }
 
+func TestExitSyscallOutputDetectsExitFromHandlerMetadata(t *testing.T) {
+	state := newExitOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON})
+	scMeta := meta.Syscall{Name: "exit_group", Args: []string{"error_code"}, ArgTypes: []string{"int"}}
+	ev := syscallEventContext{
+		raw:         &bpfEvent{Pid: 101, Tid: 101, Args: [6]uint64{7}},
+		view:        syscallEventView{valid: true, tid: 101, probeRetEnter: -1, args: [6]uint64{7}},
+		shouldPrint: true,
+		handlerContext: &handler.Context{
+			ScMeta:  scMeta,
+			SysName: "exit_group",
+			Args:    [6]uint64{7},
+			Opts:    state.output.opts,
+		},
+	}
+
+	if !state.output.Handle(ev) {
+		t.Fatal("exit_group should be detected from handler metadata")
+	}
+	if !state.jsonCalled {
+		t.Fatal("JSON exit event was not written")
+	}
+}
+
 func TestExitSyscallOutputQuietExitSuppressesStatusOnly(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{FollowForks: true, QuietExit: true})
 

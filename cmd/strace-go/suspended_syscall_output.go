@@ -37,7 +37,7 @@ func (o *SuspendedSyscallOutput) HandleEvent(ev syscallEventContext, res handler
 			o.renderer.PrintUnfinishedEvent(ev, res)
 		}
 		if o.state != nil {
-			o.state.rememberSuspendedSyscall(int(view.tid), ev.meta.Name)
+			o.state.rememberSuspendedSyscall(int(view.tid), ev.syscallName())
 		}
 		return true
 	case 2:

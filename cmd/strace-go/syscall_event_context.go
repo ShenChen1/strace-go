@@ -131,6 +131,10 @@ func (ev syscallEventContext) effectiveSyscallMeta() meta.Syscall {
 	return ev.meta
 }
 
+func (ev syscallEventContext) syscallName() string {
+	return ev.effectiveSyscallMeta().Name
+}
+
 func (ev syscallEventContext) handlerContextForFormatting() *handler.Context {
 	return ev.handlerContext
 }
@@ -232,7 +236,7 @@ func (ev syscallEventContext) handleWith(handle func(string, *handler.Context) h
 	if handle == nil {
 		return handler.Result{}
 	}
-	return handle(ev.effectiveSyscallMeta().Name, ev.handlerContext)
+	return handle(ev.syscallName(), ev.handlerContext)
 }
 
 func (s *traceSession) updateSummaryStats(ev syscallEventContext) {
@@ -244,7 +248,7 @@ func (s *traceSession) updateSummaryStats(ev syscallEventContext) {
 }
 
 func (ev syscallEventContext) isFDStateSyscall() bool {
-	switch ev.effectiveSyscallMeta().Name {
+	switch ev.syscallName() {
 	case "open", "openat", "openat2", "creat", "dup", "dup2", "dup3", "close",
 		"faccessat", "faccessat2", "chmodat", "mkdirat", "newfstatat", "fstat", "chdir", "fchdir":
 		return true
@@ -262,7 +266,7 @@ func (s *traceSession) cleanupClosedFD(ev syscallEventContext) {
 }
 
 func (ev syscallEventContext) shouldEmitStatus(optsStatus successfulFailedOptions) bool {
-	return ev.eventView().shouldEmitStatus(ev.effectiveSyscallMeta().Name, optsStatus)
+	return ev.eventView().shouldEmitStatus(ev.syscallName(), optsStatus)
 }
 
 func (view syscallEventView) shouldEmitStatus(syscallName string, optsStatus successfulFailedOptions) bool {

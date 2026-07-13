@@ -70,6 +70,28 @@ func TestSuspendedSyscallOutputUsesEventView(t *testing.T) {
 	}
 }
 
+func TestSuspendedSyscallOutputRemembersHandlerMetadataName(t *testing.T) {
+	output, state, out := newSuspendedOutputForTest()
+	ev := syscallEventContext{
+		view: syscallEventView{valid: true, tid: 101, probeRetEnter: 3},
+		handlerContext: &handler.Context{
+			ScMeta: meta.Syscall{Name: "nanosleep"},
+		},
+	}
+
+	handled := output.HandleEvent(ev, handler.Result{ArgParts: []string{"{tv_sec=1}", "0x0"}})
+
+	if !handled {
+		t.Fatal("probe_ret_enter=3 should be handled")
+	}
+	if got := out.String(); got != "101   nanosleep({tv_sec=1} <unfinished ...>\n" {
+		t.Fatalf("unfinished output = %q", got)
+	}
+	if got := state.suspendedSyscalls[101]; got != "nanosleep" {
+		t.Fatalf("suspended syscall name = %q, want nanosleep", got)
+	}
+}
+
 func TestSuspendedSyscallOutputConsumesSuppressedResumeProbe(t *testing.T) {
 	output, state, out := newSuspendedOutputForTest()
 
