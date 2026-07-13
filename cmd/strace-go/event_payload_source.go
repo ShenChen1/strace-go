@@ -84,10 +84,6 @@ func eventPayloadDataFromBPF(eventRaw *bpfEvent) []byte {
 	return eventRaw.StrArg[:dataLen]
 }
 
-func newFixedPayloadEvent(eventRaw *bpfEvent) payloadEvent {
-	return newFixedPayloadEventFromRaw(newRawPayloadEventFromBPF(eventRaw))
-}
-
 func newFixedPayloadEventFromRaw(raw rawPayloadEvent) payloadEvent {
 	if !raw.valid {
 		return payloadEvent{}

@@ -44,7 +44,3 @@ func stringPayloadSectionFromSourceAt(event payloadEvent, spec pathPayloadSpec) 
 		maxBytes: pathPayloadMaxBytes,
 	})
 }
-
-func stringPayloadSectionFromWindowAt(eventRaw *bpfEvent, spec pathPayloadSpec) []handler.PayloadSection {
-	return stringPayloadSectionFromSourceAt(newFixedPayloadEvent(eventRaw), spec)
-}
