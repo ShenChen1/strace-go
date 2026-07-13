@@ -261,13 +261,14 @@ func stringPayloadSectionText(
 
 func (ev syscallEventContext) newHandlerContext(s *traceSession) *handler.Context {
 	view := ev.eventView()
+	scMeta := ev.effectiveSyscallMeta()
 	return &handler.Context{
 		Pid: int(view.pid), Tid: int(view.tid), TargetPid: ev.statePID, SysId: view.sysID,
-		SysName: ev.meta.Name, Args: view.args, Ret: view.ret,
+		SysName: scMeta.Name, Args: view.args, Ret: view.ret,
 		ProbeRetEnter: view.probeRetEnter, ProbeRetExit: view.probeRetExit,
-		PayloadSections:  ev.payloadSections,
+		PayloadSections:  ev.outputPayloadSections(),
 		BufferFileOffset: ev.bufferFileOffset, BufferFileOffsetOK: ev.bufferFileOffsetOK,
-		ScMeta: ev.meta, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdStateStore().PathMap(),
+		ScMeta: scMeta, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdStateStore().PathMap(),
 		FdFiles: s.fdStateStore().FileMap(),
 	}
 }
@@ -287,7 +288,7 @@ func (ev syscallEventContext) shouldEmitRawEnter(opts *cli.Options, pathMap map[
 	if opts.DebugEvents {
 		return true
 	}
-	return checkShouldPrintFromView(ev.eventView(), ev.meta, "", false, ev.statePID, opts, pathMap)
+	return checkShouldPrintFromView(ev.eventView(), ev.effectiveSyscallMeta(), "", false, ev.statePID, opts, pathMap)
 }
 
 func (ev syscallEventContext) handleWith(handle func(string, *handler.Context) handler.Result) handler.Result {

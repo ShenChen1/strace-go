@@ -130,6 +130,39 @@ func TestSyscallEventContextHandlerContextUsesEventView(t *testing.T) {
 	}
 }
 
+func TestSyscallEventContextHandlerContextUsesEffectiveMetadata(t *testing.T) {
+	session := &traceSession{
+		targetPid: 101,
+		opts:      cli.ParseArgs([]string{"/bin/true"}),
+		decoder:   event.NewDecoder(),
+		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
+	}
+	scMeta := meta.Syscall{Name: "pipe"}
+	raw := &bpfEvent{
+		Pid:          101,
+		Tid:          101,
+		EventType:    bpfEventTypeExit,
+		Ret:          0,
+		ProbeRetExit: 0,
+		DataLen:      uint32(handler.BpfExitArgOffset + 8),
+	}
+	ev := syscallEventContext{
+		raw:            raw,
+		view:           newSyscallEventViewFromBPF(raw),
+		statePID:       101,
+		handlerContext: &handler.Context{ScMeta: scMeta},
+	}
+
+	ctx := ev.newHandlerContext(session)
+
+	if ctx.SysName != "pipe" || ctx.ScMeta.Name != "pipe" {
+		t.Fatalf("handler metadata = sys:%q sc:%q, want pipe/pipe", ctx.SysName, ctx.ScMeta.Name)
+	}
+	if len(ctx.PayloadSections) != 1 {
+		t.Fatalf("handler payload sections = %d, want effective pipe payload", len(ctx.PayloadSections))
+	}
+}
+
 func TestSyscallEnterEventContextUsesRawViewAndMetadata(t *testing.T) {
 	raw := &bpfEvent{
 		Pid:   101,
@@ -255,6 +288,23 @@ func TestSyscallEventContextRawEnterPolicy(t *testing.T) {
 	opts.TraceFDs = map[int32]bool{}
 	if !ev.shouldEmitRawEnter(opts, nil) {
 		t.Fatal("debug raw enter policy should override filters")
+	}
+}
+
+func TestSyscallEventContextRawEnterPolicyUsesEffectiveMetadata(t *testing.T) {
+	opts := testOptions()
+	opts.TraceSyscalls["dup"] = true
+	opts.TraceFDs[5] = true
+	ev := syscallEventContext{
+		view:     syscallEventView{valid: true, args: [6]uint64{5}},
+		statePID: 101,
+		handlerContext: &handler.Context{
+			ScMeta: meta.Syscall{Name: "dup", Args: []string{"fd"}},
+		},
+	}
+
+	if !ev.shouldEmitRawEnter(opts, nil) {
+		t.Fatal("raw enter policy should use effective metadata for fd filter")
 	}
 }
 
