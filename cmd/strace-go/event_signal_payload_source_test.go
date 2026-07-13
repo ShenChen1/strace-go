@@ -24,8 +24,8 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareSignalRules(t *testing.T) 
 				ProbeRetExit:  0,
 			},
 			wants: []wantSignalSourcePayloadSection{
-				{direction: handler.PayloadDirectionIn, argIndex: 1, offset: handler.BpfEnterArgOffset, userPtr: 0x1000, data: bytes.Repeat([]byte{0x11}, signalSigsetPayloadSize)},
-				{direction: handler.PayloadDirectionOut, argIndex: 2, offset: handler.BpfExitArgOffset, userPtr: 0x2000, data: bytes.Repeat([]byte{0x22}, signalSigsetPayloadSize)},
+				{direction: handler.PayloadDirectionIn, argIndex: 1, offset: payloadEnterArgOffset, userPtr: 0x1000, data: bytes.Repeat([]byte{0x11}, signalSigsetPayloadSize)},
+				{direction: handler.PayloadDirectionOut, argIndex: 2, offset: payloadExitArgOffset, userPtr: 0x2000, data: bytes.Repeat([]byte{0x22}, signalSigsetPayloadSize)},
 			},
 		},
 		{
@@ -38,8 +38,8 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareSignalRules(t *testing.T) 
 				ProbeRetExit:  0,
 			},
 			wants: []wantSignalSourcePayloadSection{
-				{direction: handler.PayloadDirectionIn, argIndex: 1, offset: handler.BpfEnterArgOffset, userPtr: 0x3000, data: bytes.Repeat([]byte{0x33}, signalSigactionPayloadSize)},
-				{direction: handler.PayloadDirectionOut, argIndex: 2, offset: handler.BpfExitArgOffset, userPtr: 0x4000, data: bytes.Repeat([]byte{0x44}, signalSigactionPayloadSize)},
+				{direction: handler.PayloadDirectionIn, argIndex: 1, offset: payloadEnterArgOffset, userPtr: 0x3000, data: bytes.Repeat([]byte{0x33}, signalSigactionPayloadSize)},
+				{direction: handler.PayloadDirectionOut, argIndex: 2, offset: payloadExitArgOffset, userPtr: 0x4000, data: bytes.Repeat([]byte{0x44}, signalSigactionPayloadSize)},
 			},
 		},
 		{
@@ -50,7 +50,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareSignalRules(t *testing.T) 
 				ProbeRetEnter: 0,
 			},
 			wants: []wantSignalSourcePayloadSection{
-				{direction: handler.PayloadDirectionIn, argIndex: 0, offset: handler.BpfEnterArgOffset, userPtr: 0x5000, data: bytes.Repeat([]byte{0x55}, signalSigsetPayloadSize)},
+				{direction: handler.PayloadDirectionIn, argIndex: 0, offset: payloadEnterArgOffset, userPtr: 0x5000, data: bytes.Repeat([]byte{0x55}, signalSigsetPayloadSize)},
 			},
 		},
 	}
@@ -58,7 +58,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareSignalRules(t *testing.T) 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			raw := tt.raw
-			data := make([]byte, handler.BpfExitArgOffset+signalSigactionPayloadSize)
+			data := make([]byte, payloadExitArgOffset+signalSigactionPayloadSize)
 			putSignalSourcePayloads(data, tt.wants)
 			event := payloadEvent{
 				raw: &raw,

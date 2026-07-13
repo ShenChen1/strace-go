@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -20,13 +19,13 @@ func TestJSONSyscallEventIncludesSignalPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{0, 0x1000, 0x2000, 8},
 				Ret:           0,
-				DataLen:       handler.BpfExitArgOffset + signalSigsetPayloadSize,
+				DataLen:       payloadExitArgOffset + signalSigsetPayloadSize,
 				ProbeRetEnter: 0,
 				ProbeRetExit:  0,
 			},
 			wants: []wantSignalJSONPayloadSection{
 				{"struct", "in", 1, 0, 0x1000, signalSigsetPayloadSize, bytes.Repeat([]byte{0x11}, signalSigsetPayloadSize)},
-				{"struct", "out", 2, handler.BpfExitArgOffset, 0x2000, signalSigsetPayloadSize, bytes.Repeat([]byte{0x22}, signalSigsetPayloadSize)},
+				{"struct", "out", 2, payloadExitArgOffset, 0x2000, signalSigsetPayloadSize, bytes.Repeat([]byte{0x22}, signalSigsetPayloadSize)},
 			},
 		},
 		{
@@ -35,13 +34,13 @@ func TestJSONSyscallEventIncludesSignalPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{2, 0x3000, 0x4000, 8},
 				Ret:           0,
-				DataLen:       handler.BpfExitArgOffset + signalSigactionPayloadSize,
+				DataLen:       payloadExitArgOffset + signalSigactionPayloadSize,
 				ProbeRetEnter: 0,
 				ProbeRetExit:  0,
 			},
 			wants: []wantSignalJSONPayloadSection{
 				{"struct", "in", 1, 0, 0x3000, signalSigactionPayloadSize, bytes.Repeat([]byte{0x33}, signalSigactionPayloadSize)},
-				{"struct", "out", 2, handler.BpfExitArgOffset, 0x4000, signalSigactionPayloadSize, bytes.Repeat([]byte{0x44}, signalSigactionPayloadSize)},
+				{"struct", "out", 2, payloadExitArgOffset, 0x4000, signalSigactionPayloadSize, bytes.Repeat([]byte{0x44}, signalSigactionPayloadSize)},
 			},
 		},
 		{
