@@ -26,15 +26,18 @@ type syscallEventContext struct {
 // syscallEventView is the stable syscall field set used after context construction.
 type syscallEventView struct {
 	valid         bool
+	eventVersion  uint16
 	pid           uint32
 	tid           uint32
 	sysID         uint32
 	eventType     uint16
+	eventFlags    uint32
 	args          [6]uint64
 	ret           int64
 	duration      uint64
 	enterTime     uint64
 	ptr           uint64
+	dataLen       uint32
 	stackID       int32
 	probeRetEnter int32
 	probeRetExit  int32
@@ -75,15 +78,18 @@ func newSyscallEventViewFromBPF(eventRaw *bpfEvent) syscallEventView {
 	}
 	return syscallEventView{
 		valid:         true,
+		eventVersion:  eventRaw.EventVersion,
 		pid:           eventRaw.Pid,
 		tid:           eventRaw.Tid,
 		sysID:         eventRaw.SysId,
 		eventType:     eventRaw.EventType,
+		eventFlags:    eventRaw.EventFlags,
 		args:          eventRaw.Args,
 		ret:           eventRaw.Ret,
 		duration:      eventRaw.Duration,
 		enterTime:     eventRaw.EnterTime,
 		ptr:           eventRaw.Ptr,
+		dataLen:       eventRaw.DataLen,
 		stackID:       eventRaw.StackId,
 		probeRetEnter: eventRaw.ProbeRetEnter,
 		probeRetExit:  eventRaw.ProbeRetExit,

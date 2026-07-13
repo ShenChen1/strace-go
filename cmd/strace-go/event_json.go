@@ -118,6 +118,10 @@ func (ev *jsonSyscallEvent) applySyscallView(view syscallEventView) {
 		return
 	}
 	failed, errno := syscallFailure(view.ret)
+	ev.EventVersion = view.eventVersion
+	ev.EventType = bpfEventTypeNameFromID(view.eventType)
+	ev.EventTypeID = view.eventType
+	ev.EventFlags = view.eventFlags
 	ev.Pid = view.pid
 	ev.Tid = view.tid
 	ev.SysID = view.sysID
@@ -126,6 +130,9 @@ func (ev *jsonSyscallEvent) applySyscallView(view syscallEventView) {
 	ev.Failed = failed
 	ev.Errno = errno
 	ev.DurationNS = view.duration
+	ev.EnterTimeNS = view.enterTime
+	ev.Ptr = view.ptr
+	ev.DataLen = view.dataLen
 	ev.ProbeRetEnter = view.probeRetEnter
 	ev.ProbeRetExit = view.probeRetExit
 }
@@ -138,7 +145,12 @@ func syscallFailure(ret int64) (bool, int) {
 }
 
 func (s *traceSession) writeJSONRawEvent(eventRaw *bpfEvent, scMeta meta.Syscall) {
+	s.writeJSONRawEventView(eventRaw, newSyscallEventViewFromBPF(eventRaw), scMeta)
+}
+
+func (s *traceSession) writeJSONRawEventView(eventRaw *bpfEvent, view syscallEventView, scMeta meta.Syscall) {
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev.applySyscallView(view)
 	_ = json.NewEncoder(s.outWriter).Encode(ev)
 }
 

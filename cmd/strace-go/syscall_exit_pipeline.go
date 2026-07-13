@@ -61,7 +61,7 @@ func (p *SyscallExitPipeline) Handle(ev syscallEventContext) {
 	defer p.cleanup(ev)
 	defer p.updateOffsets(ev)
 
-	if p.json != nil && p.json.HandleDebugRaw(ev.raw, ev.meta) {
+	if p.json != nil && p.json.HandleDebugRaw(ev) {
 		return
 	}
 	if suppressSyscallOutput(ev) {

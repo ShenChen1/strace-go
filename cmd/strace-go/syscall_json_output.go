@@ -9,14 +9,14 @@ import (
 type SyscallJSONOutput struct {
 	opts         *cli.Options
 	pathMap      map[string]string
-	writeRaw     func(*bpfEvent, meta.Syscall)
+	writeRaw     func(*bpfEvent, syscallEventView, meta.Syscall)
 	writeDecoded func(syscallEventContext, handler.Result)
 }
 
 type SyscallJSONOutputDeps struct {
 	Opts         *cli.Options
 	PathMap      map[string]string
-	WriteRaw     func(*bpfEvent, meta.Syscall)
+	WriteRaw     func(*bpfEvent, syscallEventView, meta.Syscall)
 	WriteDecoded func(syscallEventContext, handler.Result)
 }
 
@@ -34,7 +34,7 @@ func (s *traceSession) syscallJSONOutput() *SyscallJSONOutput {
 		s.syscallJSONCache = newSyscallJSONOutput(SyscallJSONOutputDeps{
 			Opts:         s.opts,
 			PathMap:      s.fdStateStore().PathMap(),
-			WriteRaw:     s.writeJSONRawEvent,
+			WriteRaw:     s.writeJSONRawEventView,
 			WriteDecoded: s.writeJSONDecodedEvent,
 		})
 	}
@@ -46,15 +46,15 @@ func (o *SyscallJSONOutput) HandleEnter(eventRaw *bpfEvent, view syscallEventVie
 		return
 	}
 	if o.opts.DebugEvents || checkShouldPrintFromView(view, scMeta, "", false, statePID, o.opts, o.pathMap) {
-		o.writeRawEvent(eventRaw, scMeta)
+		o.writeRawEvent(eventRaw, view, scMeta)
 	}
 }
 
-func (o *SyscallJSONOutput) HandleDebugRaw(eventRaw *bpfEvent, scMeta meta.Syscall) bool {
+func (o *SyscallJSONOutput) HandleDebugRaw(ev syscallEventContext) bool {
 	if !o.jsonMode() || !o.opts.DebugEvents {
 		return false
 	}
-	o.writeRawEvent(eventRaw, scMeta)
+	o.writeRawEvent(ev.raw, ev.eventView(), ev.meta)
 	return true
 }
 
@@ -77,9 +77,9 @@ func (o *SyscallJSONOutput) jsonMode() bool {
 	return o.opts != nil && o.opts.EventFormat == cli.EventFormatJSON
 }
 
-func (o *SyscallJSONOutput) writeRawEvent(eventRaw *bpfEvent, scMeta meta.Syscall) {
+func (o *SyscallJSONOutput) writeRawEvent(eventRaw *bpfEvent, view syscallEventView, scMeta meta.Syscall) {
 	if o.writeRaw != nil {
-		o.writeRaw(eventRaw, scMeta)
+		o.writeRaw(eventRaw, view, scMeta)
 	}
 }
 

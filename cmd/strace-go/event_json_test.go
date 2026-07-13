@@ -91,6 +91,52 @@ func TestJSONStatsEventIncludesRingbufFailures(t *testing.T) {
 	}
 }
 
+func TestJSONRawEventViewOverridesRawScalars(t *testing.T) {
+	var output bytes.Buffer
+	session := &traceSession{outWriter: &output}
+	raw := &bpfEvent{
+		Pid:       1,
+		Tid:       1,
+		SysId:     39,
+		EventType: bpfEventTypeExit,
+		Args:      [6]uint64{3},
+		Ret:       0,
+	}
+	view := syscallEventView{
+		valid:         true,
+		eventVersion:  2,
+		pid:           200,
+		tid:           201,
+		sysID:         60,
+		eventType:     bpfEventTypeExit,
+		eventFlags:    bpfEventFlagGenericEnter,
+		args:          [6]uint64{5},
+		ret:           -2,
+		duration:      55,
+		enterTime:     77,
+		ptr:           0x1234,
+		dataLen:       8,
+		probeRetEnter: -1,
+		probeRetExit:  0,
+	}
+
+	session.writeJSONRawEventView(raw, view, meta.Syscall{Name: "exit"})
+
+	var ev jsonSyscallEvent
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &ev); err != nil {
+		t.Fatalf("decode raw JSON: %v", err)
+	}
+	if ev.Pid != 200 || ev.Tid != 201 || ev.SysID != 60 || ev.Args[0] != 5 || ev.Ret != -2 {
+		t.Fatalf("raw JSON scalars = %+v, want view pid/tid/sysid/args/ret", ev)
+	}
+	if ev.EventVersion != 2 || ev.EventFlags != bpfEventFlagGenericEnter || ev.DurationNS != 55 || ev.EnterTimeNS != 77 {
+		t.Fatalf("raw JSON timing/header = %+v, want view header/timing", ev)
+	}
+	if !ev.Failed || ev.Errno != 2 || ev.Ptr != 0x1234 || ev.DataLen != 8 {
+		t.Fatalf("raw JSON failure/payload fields = %+v, want view-derived fields", ev)
+	}
+}
+
 func TestJSONSyscallEventIncludesWritePayloadSection(t *testing.T) {
 	payload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindBytes,

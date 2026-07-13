@@ -11,6 +11,7 @@ import (
 type jsonOutputTestState struct {
 	output        *SyscallJSONOutput
 	rawWrites     int
+	rawView       syscallEventView
 	decodedWrites int
 	decodedEvent  syscallEventContext
 }
@@ -19,8 +20,9 @@ func newJSONOutputTestState(opts *cli.Options) *jsonOutputTestState {
 	state := &jsonOutputTestState{}
 	state.output = newSyscallJSONOutput(SyscallJSONOutputDeps{
 		Opts: opts,
-		WriteRaw: func(*bpfEvent, meta.Syscall) {
+		WriteRaw: func(_ *bpfEvent, view syscallEventView, _ meta.Syscall) {
 			state.rawWrites++
+			state.rawView = view
 		},
 		WriteDecoded: func(ev syscallEventContext, _ handler.Result) {
 			state.decodedWrites++
@@ -55,6 +57,9 @@ func TestSyscallJSONOutputEnterFilterUsesEventView(t *testing.T) {
 	if state.rawWrites != 1 {
 		t.Fatalf("rawWrites = %d, want 1 from fd in event view", state.rawWrites)
 	}
+	if state.rawView.args[0] != 5 {
+		t.Fatalf("raw view arg0 = %d, want 5 from event view", state.rawView.args[0])
+	}
 }
 
 func TestSyscallJSONOutputDebugRawConsumesOnlyDebugJSON(t *testing.T) {
@@ -71,7 +76,10 @@ func TestSyscallJSONOutputDebugRawConsumesOnlyDebugJSON(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			state := newJSONOutputTestState(tt.opts)
-			got := state.output.HandleDebugRaw(&bpfEvent{}, meta.Syscall{Name: "getpid"})
+			got := state.output.HandleDebugRaw(syscallEventContext{
+				raw:  &bpfEvent{},
+				meta: meta.Syscall{Name: "getpid"},
+			})
 			if got != tt.want {
 				t.Fatalf("HandleDebugRaw() = %v, want %v", got, tt.want)
 			}
@@ -79,6 +87,22 @@ func TestSyscallJSONOutputDebugRawConsumesOnlyDebugJSON(t *testing.T) {
 				t.Fatalf("rawWrites = %d, want %d", state.rawWrites, boolInt(tt.want))
 			}
 		})
+	}
+}
+
+func TestSyscallJSONOutputDebugRawUsesEventView(t *testing.T) {
+	state := newJSONOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON, DebugEvents: true})
+	ev := syscallEventContext{
+		raw:  &bpfEvent{Ret: 0},
+		view: syscallEventView{valid: true, ret: -2, args: [6]uint64{7}},
+		meta: meta.Syscall{Name: "getpid"},
+	}
+
+	if !state.output.HandleDebugRaw(ev) {
+		t.Fatal("debug raw JSON should be consumed")
+	}
+	if state.rawView.ret != -2 || state.rawView.args[0] != 7 {
+		t.Fatalf("raw view = %+v, want ret=-2 arg0=7", state.rawView)
 	}
 }
 
