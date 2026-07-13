@@ -195,6 +195,21 @@ func (ev syscallEventContext) newHandlerContext(s *traceSession) *handler.Contex
 	}
 }
 
+func (ev syscallEventContext) shouldOutput() bool {
+	return ev.shouldPrint
+}
+
+func (ev syscallEventContext) shouldRunHandler() bool {
+	return ev.shouldPrint || ev.isFDStateSyscall()
+}
+
+func (ev syscallEventContext) handleWith(handle func(string, *handler.Context) handler.Result) handler.Result {
+	if handle == nil {
+		return handler.Result{}
+	}
+	return handle(ev.meta.Name, ev.handlerContext)
+}
+
 func (s *traceSession) updateSummaryStats(ev syscallEventContext) {
 	if s.opts == nil || (!s.opts.SummaryOnly && !s.opts.SummaryAndPrint) || !ev.shouldPrint {
 		return

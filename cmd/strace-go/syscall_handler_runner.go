@@ -31,23 +31,13 @@ func (s *traceSession) syscallHandlerRunner() *SyscallHandlerRunner {
 
 // IMPACT: Handle owns handler decoding and FD state side effects for syscall exit events.
 func (r *SyscallHandlerRunner) Handle(ev syscallEventContext) (handler.Result, bool) {
-	if !ev.shouldPrint {
-		if ev.isFDStateSyscall() {
-			r.handle(ev)
-		}
+	if !ev.shouldRunHandler() {
 		r.update(ev)
 		return handler.Result{}, false
 	}
-	res := r.handle(ev)
+	res := ev.handleWith(r.handleSyscall)
 	r.update(ev)
-	return res, true
-}
-
-func (r *SyscallHandlerRunner) handle(ev syscallEventContext) handler.Result {
-	if r.handleSyscall == nil {
-		return handler.Result{}
-	}
-	return r.handleSyscall(ev.meta.Name, ev.handlerContext)
+	return res, ev.shouldOutput()
 }
 
 func (r *SyscallHandlerRunner) update(ev syscallEventContext) {

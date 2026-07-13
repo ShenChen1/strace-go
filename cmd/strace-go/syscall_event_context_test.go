@@ -152,3 +152,59 @@ func TestSyscallEnterEventContextUsesRawViewAndMetadata(t *testing.T) {
 		t.Fatalf("enter context view = %+v, want raw-derived syscall view", view)
 	}
 }
+
+func TestSyscallEventContextHandlerPolicy(t *testing.T) {
+	tests := []struct {
+		name       string
+		syscall    string
+		shouldOut  bool
+		wantRun    bool
+		wantOutput bool
+	}{
+		{name: "printed regular syscall", syscall: "getpid", shouldOut: true, wantRun: true, wantOutput: true},
+		{name: "hidden fd state syscall", syscall: "openat", shouldOut: false, wantRun: true, wantOutput: false},
+		{name: "hidden regular syscall", syscall: "getpid", shouldOut: false, wantRun: false, wantOutput: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ev := syscallEventContext{
+				meta:        meta.Syscall{Name: tt.syscall},
+				shouldPrint: tt.shouldOut,
+			}
+
+			if got := ev.shouldRunHandler(); got != tt.wantRun {
+				t.Fatalf("shouldRunHandler() = %v, want %v", got, tt.wantRun)
+			}
+			if got := ev.shouldOutput(); got != tt.wantOutput {
+				t.Fatalf("shouldOutput() = %v, want %v", got, tt.wantOutput)
+			}
+		})
+	}
+}
+
+func TestSyscallEventContextHandleWithUsesMetadataAndHandlerContext(t *testing.T) {
+	ctx := &handler.Context{SysName: "getpid"}
+	ev := syscallEventContext{
+		meta:           meta.Syscall{Name: "getpid"},
+		handlerContext: ctx,
+	}
+
+	var gotName string
+	var gotCtx *handler.Context
+	res := ev.handleWith(func(name string, handlerCtx *handler.Context) handler.Result {
+		gotName = name
+		gotCtx = handlerCtx
+		return handler.Result{ArgParts: []string{"ok"}}
+	})
+
+	if gotName != "getpid" || gotCtx != ctx {
+		t.Fatalf("handler input = name:%s ctx:%p, want getpid/%p", gotName, gotCtx, ctx)
+	}
+	if len(res.ArgParts) != 1 || res.ArgParts[0] != "ok" {
+		t.Fatalf("handler result = %+v, want ok arg", res)
+	}
+	if got := ev.handleWith(nil); len(got.ArgParts) != 0 {
+		t.Fatalf("nil handler result = %+v, want empty", got)
+	}
+}
