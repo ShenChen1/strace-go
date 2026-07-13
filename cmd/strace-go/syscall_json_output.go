@@ -3,20 +3,19 @@ package main
 import (
 	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
 )
 
 type SyscallJSONOutput struct {
 	opts         *cli.Options
 	pathMap      map[string]string
-	writeRaw     func(*bpfEvent, syscallEventView, meta.Syscall)
+	writeRaw     func(syscallEventContext)
 	writeDecoded func(syscallEventContext, handler.Result)
 }
 
 type SyscallJSONOutputDeps struct {
 	Opts         *cli.Options
 	PathMap      map[string]string
-	WriteRaw     func(*bpfEvent, syscallEventView, meta.Syscall)
+	WriteRaw     func(syscallEventContext)
 	WriteDecoded func(syscallEventContext, handler.Result)
 }
 
@@ -34,7 +33,7 @@ func (s *traceSession) syscallJSONOutput() *SyscallJSONOutput {
 		s.syscallJSONCache = newSyscallJSONOutput(SyscallJSONOutputDeps{
 			Opts:         s.opts,
 			PathMap:      s.fdStateStore().PathMap(),
-			WriteRaw:     s.writeJSONRawEventView,
+			WriteRaw:     s.writeJSONRawEvent,
 			WriteDecoded: s.writeJSONDecodedEvent,
 		})
 	}
@@ -47,7 +46,7 @@ func (o *SyscallJSONOutput) HandleEnter(ev syscallEventContext) {
 	}
 	view := ev.eventView()
 	if o.opts.DebugEvents || checkShouldPrintFromView(view, ev.meta, "", false, ev.statePID, o.opts, o.pathMap) {
-		o.writeRawEvent(ev.raw, view, ev.meta)
+		o.writeRawEvent(ev)
 	}
 }
 
@@ -55,7 +54,7 @@ func (o *SyscallJSONOutput) HandleDebugRaw(ev syscallEventContext) bool {
 	if !o.jsonMode() || !o.opts.DebugEvents {
 		return false
 	}
-	o.writeRawEvent(ev.raw, ev.eventView(), ev.meta)
+	o.writeRawEvent(ev)
 	return true
 }
 
@@ -78,9 +77,9 @@ func (o *SyscallJSONOutput) jsonMode() bool {
 	return o.opts != nil && o.opts.EventFormat == cli.EventFormatJSON
 }
 
-func (o *SyscallJSONOutput) writeRawEvent(eventRaw *bpfEvent, view syscallEventView, scMeta meta.Syscall) {
+func (o *SyscallJSONOutput) writeRawEvent(ev syscallEventContext) {
 	if o.writeRaw != nil {
-		o.writeRaw(eventRaw, view, scMeta)
+		o.writeRaw(ev)
 	}
 }
 

@@ -118,7 +118,11 @@ func TestJSONRawEventViewOverridesRawScalars(t *testing.T) {
 		probeRetExit:  0,
 	}
 
-	session.writeJSONRawEventView(raw, view, meta.Syscall{Name: "exit"})
+	session.writeJSONRawEvent(syscallEventContext{
+		raw:  raw,
+		view: view,
+		meta: meta.Syscall{Name: "exit"},
+	})
 
 	var ev jsonSyscallEvent
 	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &ev); err != nil {

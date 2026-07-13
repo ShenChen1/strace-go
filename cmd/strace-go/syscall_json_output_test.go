@@ -20,9 +20,9 @@ func newJSONOutputTestState(opts *cli.Options) *jsonOutputTestState {
 	state := &jsonOutputTestState{}
 	state.output = newSyscallJSONOutput(SyscallJSONOutputDeps{
 		Opts: opts,
-		WriteRaw: func(_ *bpfEvent, view syscallEventView, _ meta.Syscall) {
+		WriteRaw: func(ev syscallEventContext) {
 			state.rawWrites++
-			state.rawView = view
+			state.rawView = ev.eventView()
 		},
 		WriteDecoded: func(ev syscallEventContext, _ handler.Result) {
 			state.decodedWrites++
