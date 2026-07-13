@@ -55,12 +55,23 @@ func (s *traceSession) textRenderer() *TextRenderer {
 }
 
 func (r *TextRenderer) PrintUnfinished(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result) {
+	ev := syscallEventContext{
+		raw:  eventRaw,
+		view: newSyscallEventViewFromBPF(eventRaw),
+		meta: scMeta,
+	}
+	r.PrintUnfinishedEvent(ev, res)
+}
+
+func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.Result) {
+	view := ev.eventView()
+	scMeta := ev.meta
 	args := strings.Join(res.ArgParts, ", ")
 	if scMeta.Name == "nanosleep" && len(res.ArgParts) > 0 {
 		args = res.ArgParts[0]
 	}
 	line := fmt.Sprintf("%s(%s <unfinished ...>", scMeta.Name, args)
-	fmt.Fprintf(r.out, "%s%s\n", r.pidPrefix(int(eventRaw.Tid)), line)
+	fmt.Fprintf(r.out, "%s%s\n", r.pidPrefix(int(view.tid)), line)
 }
 
 func (r *TextRenderer) PrintExecResume(eventRaw *bpfEvent, argLine string) {

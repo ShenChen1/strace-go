@@ -47,6 +47,30 @@ func TestSuspendedSyscallOutputPrintsUnfinishedAndRemembersState(t *testing.T) {
 	}
 }
 
+func TestSuspendedSyscallOutputUsesEventView(t *testing.T) {
+	output, state, out := newSuspendedOutputForTest()
+	ev := syscallEventContext{
+		raw:  &bpfEvent{Tid: 1, ProbeRetEnter: 0},
+		view: syscallEventView{valid: true, tid: 202, probeRetEnter: 3},
+		meta: meta.Syscall{Name: "nanosleep"},
+	}
+
+	handled := output.HandleEvent(ev, handler.Result{ArgParts: []string{"{tv_sec=1}", "0x0"}})
+
+	if !handled {
+		t.Fatal("view probe_ret_enter=3 should be handled")
+	}
+	if got := out.String(); got != "202   nanosleep({tv_sec=1} <unfinished ...>\n" {
+		t.Fatalf("unfinished output = %q", got)
+	}
+	if _, ok := state.suspendedSyscalls[202]; !ok {
+		t.Fatal("suspended syscall state was not remembered from view tid")
+	}
+	if _, ok := state.suspendedSyscalls[1]; ok {
+		t.Fatal("suspended syscall state used raw tid")
+	}
+}
+
 func TestSuspendedSyscallOutputConsumesSuppressedResumeProbe(t *testing.T) {
 	output, state, out := newSuspendedOutputForTest()
 

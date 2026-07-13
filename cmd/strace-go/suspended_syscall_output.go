@@ -31,13 +31,24 @@ func (s *traceSession) suspendedSyscallOutput() *SuspendedSyscallOutput {
 
 // IMPACT: Handle owns synthetic unfinished syscall enter events from BPF probe state.
 func (o *SuspendedSyscallOutput) Handle(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result) bool {
-	switch eventRaw.ProbeRetEnter {
+	ev := syscallEventContext{
+		raw:  eventRaw,
+		view: newSyscallEventViewFromBPF(eventRaw),
+		meta: scMeta,
+	}
+	return o.HandleEvent(ev, res)
+}
+
+// IMPACT: HandleEvent owns synthetic unfinished syscall enter events from the stable event context.
+func (o *SuspendedSyscallOutput) HandleEvent(ev syscallEventContext, res handler.Result) bool {
+	view := ev.eventView()
+	switch view.probeRetEnter {
 	case 3:
 		if o.renderer != nil {
-			o.renderer.PrintUnfinished(eventRaw, scMeta, res)
+			o.renderer.PrintUnfinishedEvent(ev, res)
 		}
 		if o.state != nil {
-			o.state.rememberSuspendedSyscall(int(eventRaw.Tid), scMeta.Name)
+			o.state.rememberSuspendedSyscall(int(view.tid), ev.meta.Name)
 		}
 		return true
 	case 2:

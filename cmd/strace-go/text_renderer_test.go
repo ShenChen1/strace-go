@@ -52,6 +52,23 @@ func TestTextRendererPrintsUnfinishedLine(t *testing.T) {
 	}
 }
 
+func TestTextRendererPrintsUnfinishedFromEventView(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{FollowForks: true}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	ev := syscallEventContext{
+		raw:  &bpfEvent{Tid: 1},
+		view: syscallEventView{valid: true, tid: 101},
+		meta: meta.Syscall{Name: "nanosleep"},
+	}
+
+	renderer.PrintUnfinishedEvent(ev, handler.Result{ArgParts: []string{"{tv_sec=1}", "0x0"}})
+
+	if got := output.String(); got != "101   nanosleep({tv_sec=1} <unfinished ...>\n" {
+		t.Fatalf("unfinished output = %q", got)
+	}
+}
+
 func TestTextRendererPrintsExecResumeWithDuration(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{FollowForks: true, PrintSyscallTime: true}
