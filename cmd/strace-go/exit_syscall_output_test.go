@@ -97,6 +97,22 @@ func TestExitSyscallOutputPrintsTextAndStatus(t *testing.T) {
 	}
 }
 
+func TestExitSyscallOutputHiddenExitPrintsStatusOnly(t *testing.T) {
+	state := newExitOutputTestState(&cli.Options{FollowForks: true})
+
+	if !state.output.Handle(exitEventContext(state.output.opts, "exit_group", false)) {
+		t.Fatal("hidden exit_group should still be handled")
+	}
+
+	got := state.out.String()
+	if strings.Contains(got, "exit_group(7) = ?") {
+		t.Fatalf("hidden exit output = %q, want no syscall line", got)
+	}
+	if !strings.Contains(got, "101   +++ exited with 7 +++") {
+		t.Fatalf("hidden exit output = %q, want status line", got)
+	}
+}
+
 func TestExitSyscallOutputPrintsExitTextFromEventView(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{FollowForks: true})
 	ev := exitEventContext(state.output.opts, "exit_group", true)

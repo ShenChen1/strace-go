@@ -61,8 +61,8 @@ func (o *ExitSyscallOutput) Handle(ev syscallEventContext) bool {
 		return true
 	}
 
-	if ev.shouldPrint {
-		res := handler.Get(ev.meta.Name).Handle(ev.handlerContext)
+	if ev.shouldOutput() {
+		res := ev.handleWith(defaultHandleSyscall)
 		if o.opts != nil && o.opts.EventFormat == cli.EventFormatJSON {
 			if o.writeJSON != nil {
 				o.writeJSON(ev, res)
