@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"os"
 	"testing"
 
@@ -77,6 +78,64 @@ func TestFDStateStoreUpdateFromSyscallUsesEventViewForDup(t *testing.T) {
 	}
 	if got := store.paths["101:4"]; got != "" {
 		t.Fatalf("raw dup path = %q, want empty", got)
+	}
+}
+
+func TestFDStateStoreUpdateFromSyscallUsesEffectiveMetadata(t *testing.T) {
+	store := newFDStateStoreFromMaps(make(map[string]string), nil, nil)
+	ev := syscallEventContext{
+		view:     syscallEventView{valid: true, pid: 201, tid: 201, ret: 7},
+		statePID: 101,
+		pathText: `"/tmp/effective-path"`,
+		handlerContext: &handler.Context{
+			ScMeta: meta.Syscall{Name: "openat"},
+		},
+	}
+
+	store.UpdateFromSyscall(ev)
+
+	if got := store.paths["101:7"]; got != "/tmp/effective-path" {
+		t.Fatalf("effective metadata fd path = %q, want /tmp/effective-path", got)
+	}
+}
+
+func TestFDStateStoreUpdateFromSyscallBuildsPayloadWithEffectiveMetadata(t *testing.T) {
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() failed: %v", err)
+	}
+	defer readEnd.Close()
+	defer writeEnd.Close()
+
+	raw := &bpfEvent{
+		Pid:          uint32(os.Getpid()),
+		Tid:          uint32(os.Getpid()),
+		EventType:    bpfEventTypeExit,
+		Ret:          0,
+		ProbeRetExit: 0,
+		DataLen:      uint32(handler.BpfExitArgOffset + 8),
+	}
+	binary.LittleEndian.PutUint32(raw.StrArg[handler.BpfExitArgOffset:], uint32(readEnd.Fd()))
+	binary.LittleEndian.PutUint32(raw.StrArg[handler.BpfExitArgOffset+4:], uint32(writeEnd.Fd()))
+	store := newFDStateStoreFromMaps(make(map[string]string), nil, nil)
+	ev := syscallEventContext{
+		raw:      raw,
+		view:     newSyscallEventViewFromBPF(raw),
+		statePID: 101,
+		handlerContext: &handler.Context{
+			ScMeta: meta.Syscall{Name: "pipe"},
+		},
+	}
+
+	store.UpdateFromSyscall(ev)
+
+	readKey := fdStateKey(101, int32(readEnd.Fd()))
+	writeKey := fdStateKey(101, int32(writeEnd.Fd()))
+	if store.paths[readKey] == "" {
+		t.Fatalf("fd path %q missing after effective metadata payload update", readKey)
+	}
+	if store.paths[writeKey] == "" {
+		t.Fatalf("fd path %q missing after effective metadata payload update", writeKey)
 	}
 }
 

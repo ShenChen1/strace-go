@@ -63,13 +63,7 @@ func (s *traceSession) fdStateStore() *FDStateStore {
 }
 
 func (st *FDStateStore) UpdateFromSyscall(ev syscallEventContext) {
-	st.ensureMaps()
-	view := ev.eventView()
-	st.updateFromSource(fdStateSource{
-		view:            view,
-		payloadSections: ev.payloadSections,
-		procTid:         view.tid,
-	}, ev.meta, ev.pathText, ev.statePID)
+	ev.updateFDState(st)
 }
 
 func (st *FDStateStore) updateFromSource(src fdStateSource, scMeta meta.Syscall, pathText string, targetPID int) {

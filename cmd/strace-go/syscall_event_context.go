@@ -118,7 +118,7 @@ func (ev syscallEventContext) outputPayloadSections() []handler.PayloadSection {
 	if ev.raw == nil {
 		return nil
 	}
-	return payloadSectionsForEvent(ev.raw, ev.meta)
+	return payloadSectionsForEvent(ev.raw, ev.effectiveSyscallMeta())
 }
 
 func (ev syscallEventContext) effectiveSyscallMeta() meta.Syscall {
@@ -179,6 +179,22 @@ func (ev syscallEventContext) cleanupClosedFD(store *FDStateStore) {
 		return
 	}
 	store.CleanupClosedFDFromView(ev.eventView(), ev.effectiveSyscallMeta(), ev.statePID)
+}
+
+func (ev syscallEventContext) updateFDState(store *FDStateStore) {
+	if store == nil {
+		return
+	}
+	store.updateFromSource(ev.fdStateSource(), ev.effectiveSyscallMeta(), ev.pathText, ev.statePID)
+}
+
+func (ev syscallEventContext) fdStateSource() fdStateSource {
+	view := ev.eventView()
+	return fdStateSource{
+		view:            view,
+		payloadSections: ev.outputPayloadSections(),
+		procTid:         view.tid,
+	}
 }
 
 func syscallMeta(sysID uint32) meta.Syscall {
@@ -299,7 +315,7 @@ func (ev syscallEventContext) isFDStateSyscall() bool {
 }
 
 func (s *traceSession) updateFDState(ev syscallEventContext) {
-	s.fdStateStore().UpdateFromSyscall(ev)
+	ev.updateFDState(s.fdStateStore())
 }
 
 func (s *traceSession) cleanupClosedFD(ev syscallEventContext) {
