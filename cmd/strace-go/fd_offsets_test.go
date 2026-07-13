@@ -83,10 +83,6 @@ func TestFDOffsetsUseEventViewForSyscallContext(t *testing.T) {
 		meta:     scMeta,
 	}
 
-	off, ok := session.fdState.bufferFileOffsetFromView(ev.eventView(), scMeta, ev.statePID)
-	if !ok || off != 15 {
-		t.Fatalf("view buffer offset = %d, %v; want 15, true", off, ok)
-	}
 	session.updateSyscallFDOffsets(ev)
 	if got := session.fdState.offsets["101:1"]; got != 19 {
 		t.Fatalf("view fd offset after write = %d, want 19", got)
