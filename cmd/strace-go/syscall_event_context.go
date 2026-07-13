@@ -11,7 +11,6 @@ type syscallEventContext struct {
 	raw                *bpfEvent
 	view               syscallEventView
 	statePID           int
-	tid                int
 	meta               meta.Syscall
 	isPath             bool
 	pathText           string
@@ -58,7 +57,6 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 		raw:                eventRaw,
 		view:               view,
 		statePID:           statePID,
-		tid:                int(eventRaw.Tid),
 		meta:               scMeta,
 		isPath:             isPath,
 		pathText:           pathText,
