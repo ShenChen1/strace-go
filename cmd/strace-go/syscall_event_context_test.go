@@ -24,11 +24,8 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 
 	ev := newSyscallEventContext(session, eventRaw, 101, nil)
 
-	if ev.meta.Name != "openat" || !ev.isPath || !ev.shouldPrint {
-		t.Fatalf("event context metadata = name:%s isPath:%v shouldPrint:%v", ev.meta.Name, ev.isPath, ev.shouldPrint)
-	}
-	if ev.pathText != `"input.txt"` {
-		t.Fatalf("pathText = %q, want quoted path snapshot", ev.pathText)
+	if ev.syscallName() != "openat" || !ev.shouldOutput() {
+		t.Fatalf("event context behavior = name:%s output:%v, want openat/true", ev.syscallName(), ev.shouldOutput())
 	}
 	section, ok := ev.handlerContext.Section(1, handler.PayloadKindString)
 	if !ok {
@@ -42,6 +39,10 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 	}
 	if len(ev.handlerContext.PayloadSections) != 1 {
 		t.Fatalf("handler context payload sections = %d, want 1", len(ev.handlerContext.PayloadSections))
+	}
+	ev.updateFDState(session.fdStateStore())
+	if got := session.fdStateStore().PathMap()["101:3"]; got != "input.txt" {
+		t.Fatalf("fd path = %q, want input.txt from path snapshot", got)
 	}
 }
 
@@ -67,11 +68,12 @@ func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 	copy(eventRaw.StrArg[:], path)
 
 	ev := newSyscallEventContext(session, eventRaw, 101, nil)
-	if ev.pathText != "0x1000" {
-		t.Fatalf("pathText = %q, want pointer fallback", ev.pathText)
-	}
 	if _, ok := ev.handlerContext.Section(1, handler.PayloadKindString); ok {
 		t.Fatalf("handler context unexpectedly exposed legacy path string section")
+	}
+	ev.updateFDState(session.fdStateStore())
+	if got := session.fdStateStore().PathMap()["101:3"]; got != "" {
+		t.Fatalf("fd path = %q, want no update from legacy string buffer", got)
 	}
 }
 

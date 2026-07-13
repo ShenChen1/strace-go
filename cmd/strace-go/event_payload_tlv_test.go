@@ -210,12 +210,13 @@ func TestSyscallEventContextUsesTLVPathSection(t *testing.T) {
 
 	ev := newSyscallEventContext(session, eventRaw, 101, nil)
 
-	if ev.pathText != `"from-tlv"` {
-		t.Fatalf("pathText = %q, want TLV snapshot path", ev.pathText)
-	}
 	section, ok := ev.handlerContext.Section(1, handler.PayloadKindString)
 	if !ok || !bytes.Equal(section.Data, []byte("from-tlv\x00")) {
 		t.Fatalf("handler section = %+v, %v; want TLV path section", section, ok)
+	}
+	ev.updateFDState(session.fdStateStore())
+	if got := session.fdStateStore().PathMap()["101:3"]; got != "from-tlv" {
+		t.Fatalf("fd path = %q, want TLV snapshot path", got)
 	}
 }
 
