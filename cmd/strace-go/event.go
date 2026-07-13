@@ -1,18 +1,5 @@
 package main
 
-// IMPACT: resolvePtrProbeRet returns the specific probe status for eventRaw.Ptr based on its argument index.
-func resolvePtrProbeRet(eventRaw *bpfEvent) int32 {
-	if eventRaw.Ptr == 0 {
-		return 0
-	}
-	for i, val := range eventRaw.Args {
-		if val == eventRaw.Ptr {
-			return getArgProbeStatus(eventRaw.ProbeRetEnter, i)
-		}
-	}
-	return eventRaw.ProbeRetEnter
-}
-
 // IMPACT: getArgProbeStatus decodes the bitmask for entry argument success flag.
 func getArgProbeStatus(probeRetEnter int32, argIndex int) int32 {
 	if probeRetEnter >= 0 {
