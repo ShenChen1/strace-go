@@ -209,6 +209,30 @@ func TestSyscallEventContextHandleWithUsesMetadataAndHandlerContext(t *testing.T
 	}
 }
 
+func TestSyscallEventContextEffectiveMetadataFallsBackToHandlerContext(t *testing.T) {
+	ctx := &handler.Context{ScMeta: meta.Syscall{Name: "exit_group"}}
+	ev := syscallEventContext{
+		view:           syscallEventView{valid: true, ret: -2},
+		handlerContext: ctx,
+	}
+
+	if got := ev.effectiveSyscallMeta().Name; got != "exit_group" {
+		t.Fatalf("effective metadata name = %q, want exit_group", got)
+	}
+
+	var gotName string
+	ev.handleWith(func(name string, _ *handler.Context) handler.Result {
+		gotName = name
+		return handler.Result{}
+	})
+	if gotName != "exit_group" {
+		t.Fatalf("handler syscall name = %q, want exit_group", gotName)
+	}
+	if ev.shouldEmitStatus(successfulFailedOptions{failedOnly: true}) {
+		t.Fatal("exit_group should not be treated as failed when metadata comes from handler context")
+	}
+}
+
 func TestSyscallEventContextRawEnterPolicy(t *testing.T) {
 	opts := testOptions()
 	opts.TraceSyscalls["dup"] = true

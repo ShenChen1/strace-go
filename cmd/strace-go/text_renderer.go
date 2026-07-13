@@ -7,7 +7,6 @@ import (
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
 	"strace-go/pkg/stacktrace"
 )
 
@@ -56,7 +55,7 @@ func (s *traceSession) textRenderer() *TextRenderer {
 
 func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.Result) {
 	view := ev.eventView()
-	scMeta := ev.meta
+	scMeta := ev.effectiveSyscallMeta()
 	args := strings.Join(res.ArgParts, ", ")
 	if scMeta.Name == "nanosleep" && len(res.ArgParts) > 0 {
 		args = res.ArgParts[0]
@@ -105,7 +104,7 @@ func (r *TextRenderer) PrintThreadExecveSupersededFromView(view syscallEventView
 }
 
 func (r *TextRenderer) PrintExitSyscallEvent(ev syscallEventContext, res handler.Result) {
-	line := r.exitSyscallLine(ev.eventView(), ev.meta, res)
+	line := r.exitSyscallLine(ev.eventView(), ev.effectiveSyscallMeta().Name, res)
 	fmt.Fprint(r.out, line)
 }
 
@@ -117,11 +116,8 @@ func (r *TextRenderer) ExitStatusLineFromView(view syscallEventView) string {
 // IMPACT: PrintSyscallEvent renders a decoded syscall from the stable event context view.
 func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Result) {
 	view := ev.eventView()
-	scMeta := ev.meta
-	ctx := ev.handlerContext
-	if scMeta.Name == "" && ctx != nil {
-		scMeta = ctx.ScMeta
-	}
+	scMeta := ev.effectiveSyscallMeta()
+	ctx := ev.handlerContextForFormatting()
 	tid := int(view.tid)
 	line := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
 	if r.consumeSuspended(tid) {
@@ -150,10 +146,10 @@ func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Res
 	}
 }
 
-func (r *TextRenderer) exitSyscallLine(view syscallEventView, scMeta meta.Syscall, res handler.Result) string {
+func (r *TextRenderer) exitSyscallLine(view syscallEventView, syscallName string, res handler.Result) string {
 	timePrefix := r.timePrefix(view.enterTime)
 	pidPrefix := r.pidPrefix(int(view.tid))
-	argLine := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
+	argLine := fmt.Sprintf("%s(%s)", syscallName, strings.Join(res.ArgParts, ", "))
 	return fmt.Sprintf("%s%s%s%s= ?\n", timePrefix, pidPrefix, argLine, r.padding(timePrefix, pidPrefix, argLine))
 }
 

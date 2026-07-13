@@ -44,6 +44,24 @@ func TestTextRendererPrintsSyscallFromEventView(t *testing.T) {
 	}
 }
 
+func TestTextRendererPrintsSyscallFromHandlerMetadata(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+
+	renderer.PrintSyscallEvent(syscallEventContext{
+		view: syscallEventView{valid: true, tid: 101, ret: 101},
+		handlerContext: &handler.Context{
+			ScMeta: meta.Syscall{Name: "getpid"},
+			Opts:   opts,
+		},
+	}, handler.Result{})
+
+	if got := output.String(); got != "getpid() = 101\n" {
+		t.Fatalf("syscall output = %q", got)
+	}
+}
+
 func TestTextRendererPrintsUnfinishedLine(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{FollowForks: true}

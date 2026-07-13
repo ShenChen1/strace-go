@@ -53,11 +53,6 @@ func (s *traceSession) syscallTextOutput() *SyscallTextOutput {
 
 // IMPACT: HandleEvent owns text-mode syscall output from the stable syscall event context.
 func (o *SyscallTextOutput) HandleEvent(ev syscallEventContext, res handler.Result) {
-	scMeta := ev.meta
-	if scMeta.Name == "" && ev.handlerContext != nil {
-		scMeta = ev.handlerContext.ScMeta
-		ev.meta = scMeta
-	}
 	if !o.shouldEmitEvent(ev) {
 		return
 	}
