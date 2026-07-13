@@ -29,6 +29,7 @@ type syscallEventView struct {
 	pid           uint32
 	tid           uint32
 	sysID         uint32
+	eventType     uint16
 	args          [6]uint64
 	ret           int64
 	duration      uint64
@@ -77,6 +78,7 @@ func newSyscallEventViewFromBPF(eventRaw *bpfEvent) syscallEventView {
 		pid:           eventRaw.Pid,
 		tid:           eventRaw.Tid,
 		sysID:         eventRaw.SysId,
+		eventType:     eventRaw.EventType,
 		args:          eventRaw.Args,
 		ret:           eventRaw.Ret,
 		duration:      eventRaw.Duration,

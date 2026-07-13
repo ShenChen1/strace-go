@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -255,6 +256,58 @@ func TestUpdateFDMapUsesSocketpairPayloadSection(t *testing.T) {
 	}
 }
 
+func TestUpdateFDMapFromSyscallUsesViewForSocketpairInfo(t *testing.T) {
+	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatalf("socketpair() failed: %v", err)
+	}
+	defer syscall.Close(fds[0])
+	defer syscall.Close(fds[1])
+
+	fdData := make([]byte, fdArrayPayloadSize)
+	binary.LittleEndian.PutUint32(fdData, uint32(fds[0]))
+	binary.LittleEndian.PutUint32(fdData[4:], uint32(fds[1]))
+	rawView := newSyscallEventViewFromBPF(&bpfEvent{Args: [6]uint64{syscall.AF_NETLINK, syscall.SOCK_DGRAM, 4}})
+	view := syscallEventView{
+		valid:     true,
+		tid:       uint32(os.Getpid()),
+		args:      [6]uint64{syscall.AF_UNIX, syscall.SOCK_STREAM, 0, 0x2000},
+		ret:       0,
+		eventType: bpfEventTypeExit,
+	}
+	ev := syscallEventContext{
+		raw:      &bpfEvent{Tid: uint32(os.Getpid()), Args: rawView.args, Ret: 0},
+		view:     view,
+		statePID: 101,
+		meta:     meta.Syscall{Name: "socketpair"},
+		payloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindStruct,
+			Direction: handler.PayloadDirectionOut,
+			ArgIndex:  3,
+			ProbeRet:  0,
+			Data:      fdData,
+		}},
+	}
+
+	fdMap := make(map[string]string)
+	updateFDMapFromSyscall(ev, fdMap)
+
+	wantSuffix := "|" + socketFDInfoFromView(view)
+	rawSuffix := "|" + socketFDInfoFromView(rawView)
+	if wantSuffix == rawSuffix {
+		t.Fatal("test setup produced identical view and raw socket info")
+	}
+	for _, fd := range fds {
+		got := fdMap[fmt.Sprintf("101:%d", int32(fd))]
+		if !strings.HasSuffix(got, wantSuffix) {
+			t.Fatalf("socketpair fd target = %q, want suffix %q", got, wantSuffix)
+		}
+		if strings.HasSuffix(got, rawSuffix) {
+			t.Fatalf("socketpair fd target = %q, unexpectedly used raw suffix %q", got, rawSuffix)
+		}
+	}
+}
+
 func TestUpdateFDMapIgnoresLegacySocketpairExitSnapshot(t *testing.T) {
 	eventRaw := &bpfEvent{
 		Pid:          uint32(os.Getpid()),
@@ -372,6 +425,40 @@ func TestUpdateFDMapUsesNetlinkSockaddrPayloadSection(t *testing.T) {
 				t.Fatalf("fdMap[101:7] = %q, want NETLINK socket", got)
 			}
 		})
+	}
+}
+
+func TestUpdateFDMapFromSyscallUsesViewForNetlinkFD(t *testing.T) {
+	data := make([]byte, 8)
+	binary.LittleEndian.PutUint16(data, 16)
+	binary.LittleEndian.PutUint32(data[4:], 42)
+	ev := syscallEventContext{
+		raw: &bpfEvent{Args: [6]uint64{7, 0x3000, 8}, Ret: 0},
+		view: syscallEventView{
+			valid:     true,
+			args:      [6]uint64{5, 0x3000, 8},
+			ret:       0,
+			eventType: bpfEventTypeExit,
+		},
+		statePID: 101,
+		meta:     meta.Syscall{Name: "bind"},
+		payloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindStruct,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  1,
+			ProbeRet:  0,
+			Data:      data,
+		}},
+	}
+
+	fdMap := make(map[string]string)
+	updateFDMapFromSyscall(ev, fdMap)
+
+	if got := fdMap["101:5"]; got != "NETLINK:[SOCK_DIAG:42]" {
+		t.Fatalf("fdMap[101:5] = %q, want NETLINK socket from view fd", got)
+	}
+	if got := fdMap["101:7"]; got != "" {
+		t.Fatalf("raw fd entry = %q, want empty", got)
 	}
 }
 

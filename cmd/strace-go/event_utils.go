@@ -15,16 +15,27 @@ import (
 
 // IMPACT: updateFDMap dynamically tracks fd modifications inside open, dup, socket and close syscalls.
 func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
-	updateFDMapFromSource(fdStateSource{view: newSyscallEventViewFromBPF(eventRaw), raw: eventRaw}, scMeta, pathText, targetPid, fdMap)
+	view := newSyscallEventViewFromBPF(eventRaw)
+	updateFDMapFromSource(fdStateSource{
+		view:            view,
+		payloadSections: payloadSectionsForEvent(eventRaw, scMeta),
+		procTid:         view.tid,
+	}, scMeta, pathText, targetPid, fdMap)
 }
 
 func updateFDMapFromSyscall(ev syscallEventContext, fdMap map[string]string) {
-	updateFDMapFromSource(fdStateSource{view: ev.eventView(), raw: ev.raw}, ev.meta, ev.pathText, ev.statePID, fdMap)
+	view := ev.eventView()
+	updateFDMapFromSource(fdStateSource{
+		view:            view,
+		payloadSections: ev.payloadSections,
+		procTid:         view.tid,
+	}, ev.meta, ev.pathText, ev.statePID, fdMap)
 }
 
 type fdStateSource struct {
-	view syscallEventView
-	raw  *bpfEvent
+	view            syscallEventView
+	payloadSections []handler.PayloadSection
+	procTid         uint32
 }
 
 func updateFDMapFromSource(src fdStateSource, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
@@ -32,15 +43,9 @@ func updateFDMapFromSource(src fdStateSource, scMeta meta.Syscall, pathText stri
 	updateEventfdCountFromView(src.view, scMeta, targetPid, fdMap)
 	updateOpenedPathFDMapFromView(src.view, scMeta, pathText, targetPid, fdMap)
 	updateDupFDMapFromView(src.view, scMeta, targetPid, fdMap)
-	if src.raw == nil {
-		updateSocketFDMapFromView(src.view, scMeta, targetPid, fdMap)
-		updateCwdFDMapFromView(src.view, scMeta, pathText, targetPid, fdMap)
-		return
-	}
-	eventRaw := src.raw
-	updatePipeFDMapFromPayload(eventRaw, scMeta, targetPid, fdMap)
-	updateSocketpairFDMap(eventRaw, scMeta, targetPid, fdMap)
-	updateNetlinkFDMap(eventRaw, scMeta, targetPid, fdMap)
+	updatePipeFDMapFromPayload(src, scMeta, targetPid, fdMap)
+	updateSocketpairFDMap(src, scMeta, targetPid, fdMap)
+	updateNetlinkFDMap(src, scMeta, targetPid, fdMap)
 	updateSocketFDMapFromView(src.view, scMeta, targetPid, fdMap)
 	updateCwdFDMapFromView(src.view, scMeta, pathText, targetPid, fdMap)
 }
@@ -151,37 +156,37 @@ func updateDupFDMapFromView(view syscallEventView, scMeta meta.Syscall, targetPi
 	}
 }
 
-func updatePipeFDMapFromPayload(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
-	if eventRaw.Ret != 0 || (scMeta.Name != "pipe" && scMeta.Name != "pipe2") {
+func updatePipeFDMapFromPayload(src fdStateSource, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	if !src.view.valid || src.view.ret != 0 || (scMeta.Name != "pipe" && scMeta.Name != "pipe2") {
 		return
 	}
-	data, ok := fdArrayPayloadData(eventRaw, scMeta, 0)
+	data, ok := fdArrayPayloadData(src.payloadSections, 0)
 	if !ok {
 		return
 	}
 	fd1 := int32(binary.LittleEndian.Uint32(data[0:4]))
 	fd2 := int32(binary.LittleEndian.Uint32(data[4:8]))
-	rememberFDTargetFromProc(eventRaw, targetPid, fd1, "", fdMap)
-	rememberFDTargetFromProc(eventRaw, targetPid, fd2, "", fdMap)
+	rememberFDTargetFromProc(src.procTid, targetPid, fd1, "", fdMap)
+	rememberFDTargetFromProc(src.procTid, targetPid, fd2, "", fdMap)
 }
 
-func updateSocketpairFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
-	if scMeta.Name != "socketpair" || eventRaw.Ret != 0 {
+func updateSocketpairFDMap(src fdStateSource, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	if !src.view.valid || scMeta.Name != "socketpair" || src.view.ret != 0 {
 		return
 	}
-	data, ok := fdArrayPayloadData(eventRaw, scMeta, 3)
+	data, ok := fdArrayPayloadData(src.payloadSections, 3)
 	if !ok {
 		return
 	}
 	fd1 := int32(binary.LittleEndian.Uint32(data[0:4]))
 	fd2 := int32(binary.LittleEndian.Uint32(data[4:8]))
-	info := socketFDInfo(eventRaw)
-	rememberFDTargetFromProc(eventRaw, targetPid, fd1, "|"+info, fdMap)
-	rememberFDTargetFromProc(eventRaw, targetPid, fd2, "|"+info, fdMap)
+	info := socketFDInfoFromView(src.view)
+	rememberFDTargetFromProc(src.procTid, targetPid, fd1, "|"+info, fdMap)
+	rememberFDTargetFromProc(src.procTid, targetPid, fd2, "|"+info, fdMap)
 }
 
-func fdArrayPayloadData(eventRaw *bpfEvent, scMeta meta.Syscall, argIndex int) ([]byte, bool) {
-	for _, section := range payloadSectionsForEvent(eventRaw, scMeta) {
+func fdArrayPayloadData(sections []handler.PayloadSection, argIndex int) ([]byte, bool) {
+	for _, section := range sections {
 		if section.Kind == handler.PayloadKindStruct &&
 			section.Direction == handler.PayloadDirectionOut &&
 			section.ArgIndex == argIndex &&
@@ -223,12 +228,12 @@ func socketFDInfoFromView(view syscallEventView) string {
 	return info
 }
 
-func updateNetlinkFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
-	if eventRaw.Ret != 0 || (scMeta.Name != "bind" && scMeta.Name != "getsockname") {
+func updateNetlinkFDMap(src fdStateSource, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	if !src.view.valid || src.view.ret != 0 || (scMeta.Name != "bind" && scMeta.Name != "getsockname") {
 		return
 	}
-	fd := int32(eventRaw.Args[0])
-	data, ok := netlinkSockaddrPayload(eventRaw, scMeta)
+	fd := int32(src.view.args[0])
+	data, ok := netlinkSockaddrPayload(src, scMeta)
 	if !ok || len(data) < 8 || binary.LittleEndian.Uint16(data[0:2]) != 16 {
 		return
 	}
@@ -236,15 +241,15 @@ func updateNetlinkFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, 
 	fdMap[fmt.Sprintf("%d:%d", targetPid, fd)] = fmt.Sprintf("NETLINK:[SOCK_DIAG:%d]", nlPid)
 }
 
-func netlinkSockaddrPayload(eventRaw *bpfEvent, scMeta meta.Syscall) ([]byte, bool) {
-	if eventRaw.EventType != bpfEventTypeEnter && eventRaw.EventType != bpfEventTypeExit {
+func netlinkSockaddrPayload(src fdStateSource, scMeta meta.Syscall) ([]byte, bool) {
+	if src.view.eventType != bpfEventTypeEnter && src.view.eventType != bpfEventTypeExit {
 		return nil, false
 	}
 	direction := handler.PayloadDirectionIn
 	if scMeta.Name == "getsockname" {
 		direction = handler.PayloadDirectionOut
 	}
-	for _, section := range payloadSectionsForEvent(eventRaw, scMeta) {
+	for _, section := range src.payloadSections {
 		if section.Kind == handler.PayloadKindStruct &&
 			section.Direction == direction &&
 			section.ArgIndex == 1 &&
@@ -272,9 +277,9 @@ func updateCwdFDMapFromView(view syscallEventView, scMeta meta.Syscall, pathText
 	}
 }
 
-func rememberFDTargetFromProc(eventRaw *bpfEvent, targetPid int, fd int32, suffix string, fdMap map[string]string) {
+func rememberFDTargetFromProc(procTid uint32, targetPid int, fd int32, suffix string, fdMap map[string]string) {
 	key := fmt.Sprintf("%d:%d", targetPid, fd)
-	target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, fd))
+	target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", procTid, fd))
 	if err != nil {
 		if suffix == "" {
 			return
