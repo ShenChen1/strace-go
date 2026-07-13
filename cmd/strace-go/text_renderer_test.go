@@ -87,6 +87,23 @@ func TestTextRendererPrintsExitLines(t *testing.T) {
 	}
 }
 
+func TestTextRendererPrintsExitSyscallFromEventView(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{FollowForks: true}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	ev := syscallEventContext{
+		raw:  &bpfEvent{Tid: 1},
+		view: syscallEventView{valid: true, tid: 101},
+		meta: meta.Syscall{Name: "exit_group"},
+	}
+
+	renderer.PrintExitSyscallEvent(ev, handler.Result{ArgParts: []string{"7"}})
+
+	if got := output.String(); got != "101   exit_group(7) = ?\n" {
+		t.Fatalf("exit syscall output = %q", got)
+	}
+}
+
 func TestTextRendererConsumesSuspendedSyscall(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{}

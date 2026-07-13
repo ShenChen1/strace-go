@@ -103,7 +103,12 @@ func (r *TextRenderer) PrintThreadExecveSuperseded(eventRaw *bpfEvent, syscallNa
 }
 
 func (r *TextRenderer) PrintExitSyscall(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result) {
-	line := r.exitSyscallLine(eventRaw, scMeta, res)
+	line := r.exitSyscallLine(newSyscallEventViewFromBPF(eventRaw), scMeta, res)
+	fmt.Fprint(r.out, line)
+}
+
+func (r *TextRenderer) PrintExitSyscallEvent(ev syscallEventContext, res handler.Result) {
+	line := r.exitSyscallLine(ev.eventView(), ev.meta, res)
 	fmt.Fprint(r.out, line)
 }
 
@@ -142,9 +147,9 @@ func (r *TextRenderer) PrintSyscall(eventRaw *bpfEvent, scMeta meta.Syscall, res
 	}
 }
 
-func (r *TextRenderer) exitSyscallLine(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result) string {
-	timePrefix := r.timePrefix(eventRaw.EnterTime)
-	pidPrefix := r.pidPrefix(int(eventRaw.Tid))
+func (r *TextRenderer) exitSyscallLine(view syscallEventView, scMeta meta.Syscall, res handler.Result) string {
+	timePrefix := r.timePrefix(view.enterTime)
+	pidPrefix := r.pidPrefix(int(view.tid))
 	argLine := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
 	return fmt.Sprintf("%s%s%s%s= ?\n", timePrefix, pidPrefix, argLine, r.padding(timePrefix, pidPrefix, argLine))
 }

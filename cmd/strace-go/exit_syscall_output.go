@@ -70,7 +70,7 @@ func (o *ExitSyscallOutput) Handle(ev syscallEventContext) bool {
 			return true
 		}
 		if o.renderer != nil {
-			o.renderer.PrintExitSyscall(ev.raw, ev.meta, res)
+			o.renderer.PrintExitSyscallEvent(ev, res)
 		}
 	}
 	o.printExitStatus(ev.raw)

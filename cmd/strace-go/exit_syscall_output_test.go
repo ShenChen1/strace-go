@@ -95,6 +95,20 @@ func TestExitSyscallOutputPrintsTextAndStatus(t *testing.T) {
 	}
 }
 
+func TestExitSyscallOutputPrintsExitTextFromEventView(t *testing.T) {
+	state := newExitOutputTestState(&cli.Options{FollowForks: true})
+	ev := exitEventContext(state.output.opts, "exit_group", true)
+	ev.raw.Tid = 1
+	ev.view = syscallEventView{valid: true, tid: 101, probeRetEnter: -1}
+
+	if !state.output.Handle(ev) {
+		t.Fatal("exit_group should be handled")
+	}
+	if got := state.out.String(); !strings.Contains(got, "101   exit_group(7) = ?") {
+		t.Fatalf("exit output = %q, want view tid in syscall line", got)
+	}
+}
+
 func TestExitSyscallOutputQueuesStatusWhenRequested(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{FollowForks: true})
 	state.shouldQueue = true
