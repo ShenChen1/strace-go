@@ -125,10 +125,6 @@ func (s *traceSession) writeJSONRawEventView(eventRaw *bpfEvent, view syscallEve
 	_ = json.NewEncoder(s.outWriter).Encode(ev)
 }
 
-func (s *traceSession) writeJSONLifecycleEvent(eventRaw *bpfEvent, task *TaskState) {
-	s.writeJSONLifecycleEventView(newTraceStateEventViewFromBPF(eventRaw), task)
-}
-
 func (s *traceSession) writeJSONLifecycleEventView(view traceStateEventView, task *TaskState) {
 	ev := jsonLifecycleEvent{
 		Type:         "lifecycle",
