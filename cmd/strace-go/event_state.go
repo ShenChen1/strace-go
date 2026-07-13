@@ -1,5 +1,7 @@
 package main
 
+import "bytes"
+
 type pendingSyscallState struct {
 	pid             uint32
 	tid             uint32
@@ -105,6 +107,21 @@ func newTraceStateEventViewFromBPF(eventRaw *bpfEvent) traceStateEventView {
 		probeRetEnter: eventRaw.ProbeRetEnter,
 		snapshotText:  snapshotText,
 	}
+}
+
+func lifecycleSnapshotString(eventRaw *bpfEvent) string {
+	if eventRaw.DataLen == 0 {
+		return ""
+	}
+	n := int(eventRaw.DataLen)
+	if n > len(eventRaw.StrArg) {
+		n = len(eventRaw.StrArg)
+	}
+	data := eventRaw.StrArg[:n]
+	if idx := bytes.IndexByte(data, 0); idx >= 0 {
+		data = data[:idx]
+	}
+	return string(data)
 }
 
 func (view traceStateEventView) isLifecycle() bool {

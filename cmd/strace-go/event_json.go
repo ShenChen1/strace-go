@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 
 	"strace-go/pkg/cli"
@@ -171,21 +170,6 @@ func (s *traceSession) maybeWriteJSONStatsEvent() {
 
 func (s *traceSession) writeJSONStatsEvent(stats bpfRuntimeStats) {
 	_ = json.NewEncoder(s.outWriter).Encode(newJSONStatsEvent(stats))
-}
-
-func lifecycleSnapshotString(eventRaw *bpfEvent) string {
-	if eventRaw.DataLen == 0 {
-		return ""
-	}
-	n := int(eventRaw.DataLen)
-	if n > len(eventRaw.StrArg) {
-		n = len(eventRaw.StrArg)
-	}
-	data := eventRaw.StrArg[:n]
-	if idx := bytes.IndexByte(data, 0); idx >= 0 {
-		data = data[:idx]
-	}
-	return string(data)
 }
 
 func (s *traceSession) writeJSONDecodedEvent(syscallEvent syscallEventContext, res handler.Result) {
