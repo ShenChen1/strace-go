@@ -15,53 +15,82 @@ import (
 
 // IMPACT: updateFDMap dynamically tracks fd modifications inside open, dup, socket and close syscalls.
 func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
-	updateFdReturnMap(eventRaw, scMeta, targetPid, fdMap)
-	updateEventfdCount(eventRaw, scMeta, targetPid, fdMap)
-	updateOpenedPathFDMap(eventRaw, scMeta, pathText, targetPid, fdMap)
-	updateDupFDMap(eventRaw, scMeta, targetPid, fdMap)
+	updateFDMapFromSource(fdStateSource{view: newSyscallEventViewFromBPF(eventRaw), raw: eventRaw}, scMeta, pathText, targetPid, fdMap)
+}
+
+func updateFDMapFromSyscall(ev syscallEventContext, fdMap map[string]string) {
+	updateFDMapFromSource(fdStateSource{view: ev.eventView(), raw: ev.raw}, ev.meta, ev.pathText, ev.statePID, fdMap)
+}
+
+type fdStateSource struct {
+	view syscallEventView
+	raw  *bpfEvent
+}
+
+func updateFDMapFromSource(src fdStateSource, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
+	updateFdReturnMapFromView(src.view, scMeta, targetPid, fdMap)
+	updateEventfdCountFromView(src.view, scMeta, targetPid, fdMap)
+	updateOpenedPathFDMapFromView(src.view, scMeta, pathText, targetPid, fdMap)
+	updateDupFDMapFromView(src.view, scMeta, targetPid, fdMap)
+	if src.raw == nil {
+		updateSocketFDMapFromView(src.view, scMeta, targetPid, fdMap)
+		updateCwdFDMapFromView(src.view, scMeta, pathText, targetPid, fdMap)
+		return
+	}
+	eventRaw := src.raw
 	updatePipeFDMapFromPayload(eventRaw, scMeta, targetPid, fdMap)
 	updateSocketpairFDMap(eventRaw, scMeta, targetPid, fdMap)
-	updateSocketFDMap(eventRaw, scMeta, targetPid, fdMap)
 	updateNetlinkFDMap(eventRaw, scMeta, targetPid, fdMap)
-	updateCwdFDMap(eventRaw, scMeta, pathText, targetPid, fdMap)
+	updateSocketFDMapFromView(src.view, scMeta, targetPid, fdMap)
+	updateCwdFDMapFromView(src.view, scMeta, pathText, targetPid, fdMap)
 }
 
 func updateFdReturnMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
-	if eventRaw.Ret < 0 || !isFdReturnSyscall(scMeta.Name) {
+	updateFdReturnMapFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, targetPid, fdMap)
+}
+
+func updateFdReturnMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	if !view.valid || view.ret < 0 || !isFdReturnSyscall(scMeta.Name) {
 		return
 	}
-	linkPath := fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Pid, eventRaw.Ret)
+	linkPath := fmt.Sprintf("/proc/%d/fd/%d", view.pid, view.ret)
 	target, err := os.Readlink(linkPath)
 	if err == nil {
 		if strings.HasPrefix(target, "anon_inode:[eventfd]") {
-			if info := formatEventfdTarget(linkPath, eventRaw, scMeta, false); info != "" {
+			if info := formatEventfdTargetFromView(linkPath, view, scMeta, false); info != "" {
 				target = info
 			}
 		}
-		fdMap[fmt.Sprintf("%d:%d", targetPid, int32(eventRaw.Ret))] = target
+		fdMap[fmt.Sprintf("%d:%d", targetPid, int32(view.ret))] = target
 		return
 	}
 	if scMeta.Name == "eventfd" || scMeta.Name == "eventfd2" {
-		if info := formatEventfdTarget(linkPath, eventRaw, scMeta, true); info != "" {
-			fdMap[fmt.Sprintf("%d:%d", targetPid, int32(eventRaw.Ret))] = info
+		if info := formatEventfdTargetFromView(linkPath, view, scMeta, true); info != "" {
+			fdMap[fmt.Sprintf("%d:%d", targetPid, int32(view.ret))] = info
 		}
 	}
 }
 
 func formatEventfdTarget(linkPath string, eventRaw *bpfEvent, scMeta meta.Syscall, force bool) string {
+	return formatEventfdTargetFromView(linkPath, newSyscallEventViewFromBPF(eventRaw), scMeta, force)
+}
+
+func formatEventfdTargetFromView(linkPath string, view syscallEventView, scMeta meta.Syscall, force bool) string {
 	flags := uint64(0)
-	if len(eventRaw.Args) > 1 {
-		flags = eventRaw.Args[1]
-	}
+	flags = view.args[1]
 	forceCount := force || scMeta.Name == "eventfd" || scMeta.Name == "eventfd2"
-	return handler.FormatEventfdInfo(linkPath, uint64(uint32(eventRaw.Args[0])), flags, forceCount)
+	return handler.FormatEventfdInfo(linkPath, uint64(uint32(view.args[0])), flags, forceCount)
 }
 
 func updateEventfdCount(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
-	if scMeta.Name != "read" || eventRaw.Ret != 8 {
+	updateEventfdCountFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, targetPid, fdMap)
+}
+
+func updateEventfdCountFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	if !view.valid || scMeta.Name != "read" || view.ret != 8 {
 		return
 	}
-	fd := int32(eventRaw.Args[0])
+	fd := int32(view.args[0])
 	key := fmt.Sprintf("%d:%d", targetPid, fd)
 	target, ok := fdMap[key]
 	if !ok || !strings.Contains(target, "eventfd-count=") {
@@ -91,7 +120,11 @@ func updateEventfdCount(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, 
 }
 
 func updateOpenedPathFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
-	if eventRaw.Ret < 0 || (scMeta.Name != "open" && scMeta.Name != "openat" && scMeta.Name != "openat2" && scMeta.Name != "creat") {
+	updateOpenedPathFDMapFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, pathText, targetPid, fdMap)
+}
+
+func updateOpenedPathFDMapFromView(view syscallEventView, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
+	if !view.valid || view.ret < 0 || (scMeta.Name != "open" && scMeta.Name != "openat" && scMeta.Name != "openat2" && scMeta.Name != "creat") {
 		return
 	}
 	path := pathText
@@ -101,16 +134,20 @@ func updateOpenedPathFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, pathText str
 	if strings.HasPrefix(path, `"`) && strings.HasSuffix(path, `"`) {
 		path = path[1 : len(path)-1]
 	}
-	fdMap[fmt.Sprintf("%d:%d", targetPid, int32(eventRaw.Ret))] = path
+	fdMap[fmt.Sprintf("%d:%d", targetPid, int32(view.ret))] = path
 }
 
 func updateDupFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
-	if eventRaw.Ret < 0 || (scMeta.Name != "dup" && scMeta.Name != "dup2" && scMeta.Name != "dup3") {
+	updateDupFDMapFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, targetPid, fdMap)
+}
+
+func updateDupFDMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	if !view.valid || view.ret < 0 || (scMeta.Name != "dup" && scMeta.Name != "dup2" && scMeta.Name != "dup3") {
 		return
 	}
-	oldFd := int32(eventRaw.Args[0])
+	oldFd := int32(view.args[0])
 	if path, ok := fdMap[fmt.Sprintf("%d:%d", targetPid, oldFd)]; ok {
-		fdMap[fmt.Sprintf("%d:%d", targetPid, int32(eventRaw.Ret))] = path
+		fdMap[fmt.Sprintf("%d:%d", targetPid, int32(view.ret))] = path
 	}
 }
 
@@ -157,13 +194,17 @@ func fdArrayPayloadData(eventRaw *bpfEvent, scMeta meta.Syscall, argIndex int) (
 }
 
 func updateSocketFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
-	if scMeta.Name != "socket" || eventRaw.Ret < 0 {
+	updateSocketFDMapFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, targetPid, fdMap)
+}
+
+func updateSocketFDMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	if !view.valid || scMeta.Name != "socket" || view.ret < 0 {
 		return
 	}
-	fd := int32(eventRaw.Ret)
-	info := socketFDInfo(eventRaw)
+	fd := int32(view.ret)
+	info := socketFDInfoFromView(view)
 	key := fmt.Sprintf("%d:%d", targetPid, fd)
-	target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", eventRaw.Tid, fd))
+	target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", view.tid, fd))
 	if err != nil {
 		target = "socket:[]"
 	}
@@ -171,9 +212,13 @@ func updateSocketFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, f
 }
 
 func socketFDInfo(eventRaw *bpfEvent) string {
-	info := meta.DecodeFlags(eventRaw.Args[0], "addrfams")
-	if eventRaw.Args[0] == 16 {
-		info += ":" + meta.DecodeFlags(eventRaw.Args[2], "netlink_protocols")
+	return socketFDInfoFromView(newSyscallEventViewFromBPF(eventRaw))
+}
+
+func socketFDInfoFromView(view syscallEventView) string {
+	info := meta.DecodeFlags(view.args[0], "addrfams")
+	if view.args[0] == 16 {
+		info += ":" + meta.DecodeFlags(view.args[2], "netlink_protocols")
 	}
 	return info
 }
@@ -212,11 +257,18 @@ func netlinkSockaddrPayload(eventRaw *bpfEvent, scMeta meta.Syscall) ([]byte, bo
 }
 
 func updateCwdFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
-	if scMeta.Name == "chdir" && eventRaw.Ret == 0 && pathText != "" && !strings.HasPrefix(pathText, "0x") && pathText != "NULL" {
-		handler.UpdateCwd(targetPid, pathText, fdMap, int(eventRaw.Pid))
+	updateCwdFDMapFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, pathText, targetPid, fdMap)
+}
+
+func updateCwdFDMapFromView(view syscallEventView, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
+	if !view.valid {
+		return
 	}
-	if scMeta.Name == "fchdir" && eventRaw.Ret == 0 {
-		handler.UpdateCwdByFd(targetPid, int32(eventRaw.Args[0]), fdMap)
+	if scMeta.Name == "chdir" && view.ret == 0 && pathText != "" && !strings.HasPrefix(pathText, "0x") && pathText != "NULL" {
+		handler.UpdateCwd(targetPid, pathText, fdMap, int(view.pid))
+	}
+	if scMeta.Name == "fchdir" && view.ret == 0 {
+		handler.UpdateCwdByFd(targetPid, int32(view.args[0]), fdMap)
 	}
 }
 

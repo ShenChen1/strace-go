@@ -40,6 +40,45 @@ func TestFDStateStoreCleanupClosedFDRemovesOwnedState(t *testing.T) {
 	}
 }
 
+func TestFDStateStoreUpdateFromSyscallUsesEventViewForOpenedPath(t *testing.T) {
+	store := newFDStateStoreFromMaps(make(map[string]string), nil, nil)
+	ev := syscallEventContext{
+		raw:      &bpfEvent{Pid: 1, Tid: 1, Ret: 4},
+		view:     syscallEventView{valid: true, pid: 201, tid: 201, ret: 7},
+		statePID: 101,
+		meta:     meta.Syscall{Name: "openat"},
+		pathText: `"/tmp/view-path"`,
+	}
+
+	store.UpdateFromSyscall(ev)
+
+	if got := store.paths["101:7"]; got != "/tmp/view-path" {
+		t.Fatalf("view fd path = %q, want /tmp/view-path", got)
+	}
+	if got := store.paths["101:4"]; got != "" {
+		t.Fatalf("raw fd path = %q, want empty", got)
+	}
+}
+
+func TestFDStateStoreUpdateFromSyscallUsesEventViewForDup(t *testing.T) {
+	store := newFDStateStoreFromMaps(map[string]string{"101:5": "/tmp/source"}, nil, nil)
+	ev := syscallEventContext{
+		raw:      &bpfEvent{Pid: 1, Tid: 1, Args: [6]uint64{3}, Ret: 4},
+		view:     syscallEventView{valid: true, pid: 201, tid: 201, args: [6]uint64{5}, ret: 6},
+		statePID: 101,
+		meta:     meta.Syscall{Name: "dup"},
+	}
+
+	store.UpdateFromSyscall(ev)
+
+	if got := store.paths["101:6"]; got != "/tmp/source" {
+		t.Fatalf("view dup path = %q, want /tmp/source", got)
+	}
+	if got := store.paths["101:4"]; got != "" {
+		t.Fatalf("raw dup path = %q, want empty", got)
+	}
+}
+
 func TestTraceSessionCleanupClosedFDUsesEventView(t *testing.T) {
 	store := newFDStateStoreFromMaps(
 		map[string]string{"101:3": "/tmp/remove", "101:4": "/tmp/keep"},

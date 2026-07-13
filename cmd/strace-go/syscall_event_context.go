@@ -187,7 +187,7 @@ func (ev syscallEventContext) isFDStateSyscall() bool {
 }
 
 func (s *traceSession) updateFDState(ev syscallEventContext) {
-	s.fdStateStore().UpdateFromEvent(ev.raw, ev.meta, ev.pathText, ev.statePID)
+	s.fdStateStore().UpdateFromSyscall(ev)
 }
 
 func (s *traceSession) cleanupClosedFD(ev syscallEventContext) {
