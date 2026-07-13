@@ -54,15 +54,6 @@ func (s *traceSession) textRenderer() *TextRenderer {
 	return s.textRendererCache
 }
 
-func (r *TextRenderer) PrintUnfinished(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result) {
-	ev := syscallEventContext{
-		raw:  eventRaw,
-		view: newSyscallEventViewFromBPF(eventRaw),
-		meta: scMeta,
-	}
-	r.PrintUnfinishedEvent(ev, res)
-}
-
 func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.Result) {
 	view := ev.eventView()
 	scMeta := ev.meta
@@ -74,19 +65,11 @@ func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.
 	fmt.Fprintf(r.out, "%s%s\n", r.pidPrefix(int(view.tid)), line)
 }
 
-func (r *TextRenderer) PrintExecResume(eventRaw *bpfEvent, argLine string) {
-	r.PrintExecResumeFromView(newSyscallEventViewFromBPF(eventRaw), argLine)
-}
-
 func (r *TextRenderer) PrintExecResumeFromView(view syscallEventView, argLine string) {
 	timePrefix := r.timePrefix(view.enterTime)
 	pidPrefix := r.pidPrefix(int(view.tid))
 	fmt.Fprintf(r.out, "%s%s%s%s= 0%s\n",
 		timePrefix, pidPrefix, argLine, r.padding(timePrefix, pidPrefix, argLine), r.durationSuffix(view.duration))
-}
-
-func (r *TextRenderer) PrintExecPidChanged(eventRaw *bpfEvent, argLine string) {
-	r.PrintExecPidChangedFromView(newSyscallEventViewFromBPF(eventRaw), argLine)
 }
 
 func (r *TextRenderer) PrintExecPidChangedFromView(view syscallEventView, argLine string) {
@@ -95,17 +78,9 @@ func (r *TextRenderer) PrintExecPidChangedFromView(view syscallEventView, argLin
 	fmt.Fprintf(r.out, "%s%-5d %s <pid changed to %d ...>\n", r.timePrefix(view.enterTime), tid, trimTrailingParen(argLine), tgid)
 }
 
-func (r *TextRenderer) PrintExecSupersededUnfinished(eventRaw *bpfEvent, argLine string) {
-	r.PrintExecSupersededUnfinishedFromView(newSyscallEventViewFromBPF(eventRaw), argLine)
-}
-
 func (r *TextRenderer) PrintExecSupersededUnfinishedFromView(view syscallEventView, argLine string) {
 	tid := int(view.tid)
 	fmt.Fprintf(r.out, "%s%-5d %s <unfinished ...>\n", r.timePrefix(view.enterTime), tid, trimTrailingParen(argLine))
-}
-
-func (r *TextRenderer) PrintSupersededSuspendedResume(eventRaw *bpfEvent, syscallName string) {
-	r.PrintSupersededSuspendedResumeFromView(newSyscallEventViewFromBPF(eventRaw), syscallName)
 }
 
 func (r *TextRenderer) PrintSupersededSuspendedResumeFromView(view syscallEventView, syscallName string) {
@@ -119,10 +94,6 @@ func (r *TextRenderer) PrintSupersededSuspendedResumeFromView(view syscallEventV
 	}
 }
 
-func (r *TextRenderer) PrintThreadExecveSuperseded(eventRaw *bpfEvent, syscallName string) {
-	r.PrintThreadExecveSupersededFromView(newSyscallEventViewFromBPF(eventRaw), syscallName)
-}
-
 func (r *TextRenderer) PrintThreadExecveSupersededFromView(view syscallEventView, syscallName string) {
 	timePrefix := r.timePrefix(view.enterTime)
 	tid := int(view.tid)
@@ -133,34 +104,14 @@ func (r *TextRenderer) PrintThreadExecveSupersededFromView(view syscallEventView
 	fmt.Fprintf(r.out, "%s%-5d <... %s resumed>) = 0\n", timePrefix, tgid, syscallName)
 }
 
-func (r *TextRenderer) PrintExitSyscall(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result) {
-	line := r.exitSyscallLine(newSyscallEventViewFromBPF(eventRaw), scMeta, res)
-	fmt.Fprint(r.out, line)
-}
-
 func (r *TextRenderer) PrintExitSyscallEvent(ev syscallEventContext, res handler.Result) {
 	line := r.exitSyscallLine(ev.eventView(), ev.meta, res)
 	fmt.Fprint(r.out, line)
 }
 
-func (r *TextRenderer) ExitStatusLine(eventRaw *bpfEvent) string {
-	return r.ExitStatusLineFromView(newSyscallEventViewFromBPF(eventRaw))
-}
-
 func (r *TextRenderer) ExitStatusLineFromView(view syscallEventView) string {
 	return fmt.Sprintf("%s%s+++ exited with %d +++\n",
 		r.timePrefix(view.enterTime), r.pidPrefix(int(view.tid)), view.args[0])
-}
-
-// IMPACT: PrintSyscall outputs a formatted syscall trace line and related text-only side effects.
-func (r *TextRenderer) PrintSyscall(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, ctx *handler.Context) {
-	ev := syscallEventContext{
-		raw:            eventRaw,
-		view:           newSyscallEventViewFromBPF(eventRaw),
-		meta:           scMeta,
-		handlerContext: ctx,
-	}
-	r.PrintSyscallEvent(ev, res)
 }
 
 // IMPACT: PrintSyscallEvent renders a decoded syscall from the stable event context view.
