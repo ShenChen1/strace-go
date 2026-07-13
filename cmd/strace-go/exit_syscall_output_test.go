@@ -11,13 +11,14 @@ import (
 )
 
 type exitOutputTestState struct {
-	output      *ExitSyscallOutput
-	out         *bytes.Buffer
-	queuedPID   int
-	queuedLine  string
-	jsonCalled  bool
-	jsonEvent   syscallEventContext
-	shouldQueue bool
+	output         *ExitSyscallOutput
+	out            *bytes.Buffer
+	queuedPID      int
+	queuedLine     string
+	shouldQueuePID int
+	jsonCalled     bool
+	jsonEvent      syscallEventContext
+	shouldQueue    bool
 }
 
 func newExitOutputTestState(opts *cli.Options) *exitOutputTestState {
@@ -33,7 +34,8 @@ func newExitOutputTestState(opts *cli.Options) *exitOutputTestState {
 		Opts:     opts,
 		Renderer: renderer,
 		Out:      out,
-		ShouldQueueStatus: func(int) bool {
+		ShouldQueueStatus: func(pid int) bool {
+			state.shouldQueuePID = pid
 			return state.shouldQueue
 		},
 		QueueStatus: func(pid int, line string) {
@@ -124,6 +126,28 @@ func TestExitSyscallOutputQueuesStatusWhenRequested(t *testing.T) {
 	}
 	if strings.Contains(got, "+++ exited") {
 		t.Fatalf("queued exit status was printed immediately: %q", got)
+	}
+}
+
+func TestExitSyscallOutputQueuesStatusFromEventView(t *testing.T) {
+	state := newExitOutputTestState(&cli.Options{FollowForks: true})
+	state.shouldQueue = true
+	ev := exitEventContext(state.output.opts, "exit", true)
+	ev.raw.Pid = 1
+	ev.raw.Tid = 1
+	ev.raw.Args[0] = 1
+	ev.view = syscallEventView{valid: true, pid: 201, tid: 202, args: [6]uint64{9}, probeRetEnter: -1}
+
+	state.output.Handle(ev)
+
+	if state.shouldQueuePID != 201 {
+		t.Fatalf("shouldQueue pid = %d, want view tgid 201", state.shouldQueuePID)
+	}
+	if state.queuedPID != 202 || !strings.Contains(state.queuedLine, "202   +++ exited with 9 +++") {
+		t.Fatalf("queued status = pid %d line %q, want view pid 202 exit 9", state.queuedPID, state.queuedLine)
+	}
+	if strings.Contains(state.out.String(), "+++ exited") {
+		t.Fatalf("queued exit status was printed immediately: %q", state.out.String())
 	}
 }
 

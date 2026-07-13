@@ -113,8 +113,12 @@ func (r *TextRenderer) PrintExitSyscallEvent(ev syscallEventContext, res handler
 }
 
 func (r *TextRenderer) ExitStatusLine(eventRaw *bpfEvent) string {
+	return r.ExitStatusLineFromView(newSyscallEventViewFromBPF(eventRaw))
+}
+
+func (r *TextRenderer) ExitStatusLineFromView(view syscallEventView) string {
 	return fmt.Sprintf("%s%s+++ exited with %d +++\n",
-		r.timePrefix(eventRaw.EnterTime), r.pidPrefix(int(eventRaw.Tid)), eventRaw.Args[0])
+		r.timePrefix(view.enterTime), r.pidPrefix(int(view.tid)), view.args[0])
 }
 
 // IMPACT: PrintSyscall outputs a formatted syscall trace line and related text-only side effects.

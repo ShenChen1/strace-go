@@ -73,21 +73,22 @@ func (o *ExitSyscallOutput) Handle(ev syscallEventContext) bool {
 			o.renderer.PrintExitSyscallEvent(ev, res)
 		}
 	}
-	o.printExitStatus(ev.raw)
+	o.printExitStatus(ev)
 	return true
 }
 
-func (o *ExitSyscallOutput) printExitStatus(eventRaw *bpfEvent) {
+func (o *ExitSyscallOutput) printExitStatus(ev syscallEventContext) {
 	if o.opts != nil && o.opts.QuietExit {
 		return
 	}
 	if o.renderer == nil {
 		return
 	}
-	exitLine := o.renderer.ExitStatusLine(eventRaw)
-	if o.shouldQueueStatus != nil && o.shouldQueueStatus(int(eventRaw.Pid)) {
+	view := ev.eventView()
+	exitLine := o.renderer.ExitStatusLineFromView(view)
+	if o.shouldQueueStatus != nil && o.shouldQueueStatus(int(view.pid)) {
 		if o.queueStatus != nil {
-			o.queueStatus(int(eventRaw.Tid), exitLine)
+			o.queueStatus(int(view.tid), exitLine)
 		}
 		return
 	}

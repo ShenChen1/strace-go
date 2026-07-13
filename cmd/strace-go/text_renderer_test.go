@@ -87,6 +87,17 @@ func TestTextRendererPrintsExitLines(t *testing.T) {
 	}
 }
 
+func TestTextRendererPrintsExitStatusFromEventView(t *testing.T) {
+	opts := &cli.Options{FollowForks: true}
+	renderer := newTextRenderer(TextRendererDeps{Out: &bytes.Buffer{}, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+
+	got := renderer.ExitStatusLineFromView(syscallEventView{valid: true, tid: 101, args: [6]uint64{7}})
+
+	if got != "101   +++ exited with 7 +++\n" {
+		t.Fatalf("exit status line = %q", got)
+	}
+}
+
 func TestTextRendererPrintsExitSyscallFromEventView(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{FollowForks: true}
