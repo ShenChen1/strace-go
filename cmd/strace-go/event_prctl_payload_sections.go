@@ -15,10 +15,10 @@ func prctlPayloadSectionsFromSource(event payloadEvent, _ string) []handler.Payl
 	option := uint32(event.Arg(0))
 	switch {
 	case option == 15:
-		return prctlStringPayloadSectionFromSource(event, handler.PayloadDirectionIn, handler.BpfEnterArgOffset, event.ProbeRetEnterArg(1))
+		return prctlStringPayloadSectionFromSource(event, handler.PayloadDirectionIn, payloadEnterArgOffset, event.ProbeRetEnterArg(1))
 	case option == 16:
 		if event.IsExit() && event.Ret() >= 0 {
-			return prctlStringPayloadSectionFromSource(event, handler.PayloadDirectionOut, handler.BpfExitArgOffset, event.ProbeRetExit())
+			return prctlStringPayloadSectionFromSource(event, handler.PayloadDirectionOut, payloadExitArgOffset, event.ProbeRetExit())
 		}
 	case prctlHasUint32Out(option):
 		if event.IsExit() && event.Ret() >= 0 {

@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -33,11 +32,11 @@ func TestJSONSyscallEventIncludesPrctlPayloadSections(t *testing.T) {
 				EventType:    bpfEventTypeExit,
 				Args:         [6]uint64{16, 0x2000},
 				Ret:          0,
-				DataLen:      handler.BpfExitArgOffset + prctlNamePayloadSize,
+				DataLen:      payloadExitArgOffset + prctlNamePayloadSize,
 				ProbeRetExit: 0,
 			},
 			wants: []wantPrctlJSONPayloadSection{
-				{"string", "out", handler.BpfExitArgOffset, 0x2000, []byte("worker\x00")},
+				{"string", "out", payloadExitArgOffset, 0x2000, []byte("worker\x00")},
 			},
 		},
 		{
@@ -46,11 +45,11 @@ func TestJSONSyscallEventIncludesPrctlPayloadSections(t *testing.T) {
 				EventType:    bpfEventTypeExit,
 				Args:         [6]uint64{37, 0x3000},
 				Ret:          0,
-				DataLen:      handler.BpfExitArgOffset + prctlUint32PayloadSize,
+				DataLen:      payloadExitArgOffset + prctlUint32PayloadSize,
 				ProbeRetExit: 0,
 			},
 			wants: []wantPrctlJSONPayloadSection{
-				{"struct", "out", handler.BpfExitArgOffset, 0x3000, prctlJSONUint32(1)},
+				{"struct", "out", payloadExitArgOffset, 0x3000, prctlJSONUint32(1)},
 			},
 		},
 		{

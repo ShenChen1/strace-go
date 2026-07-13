@@ -22,7 +22,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwarePrctlRule(t *testing.T) {
 				ProbeRetEnter: 0,
 			},
 			wants: []wantPrctlSourcePayloadSection{
-				{kind: handler.PayloadKindString, direction: handler.PayloadDirectionIn, offset: handler.BpfEnterArgOffset, userPtr: 0x1000, data: []byte("worker\x00")},
+				{kind: handler.PayloadKindString, direction: handler.PayloadDirectionIn, offset: payloadEnterArgOffset, userPtr: 0x1000, data: []byte("worker\x00")},
 			},
 		},
 		{
@@ -34,7 +34,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwarePrctlRule(t *testing.T) {
 				ProbeRetExit: 0,
 			},
 			wants: []wantPrctlSourcePayloadSection{
-				{kind: handler.PayloadKindString, direction: handler.PayloadDirectionOut, offset: handler.BpfExitArgOffset, userPtr: 0x2000, data: []byte("worker\x00")},
+				{kind: handler.PayloadKindString, direction: handler.PayloadDirectionOut, offset: payloadExitArgOffset, userPtr: 0x2000, data: []byte("worker\x00")},
 			},
 		},
 		{
@@ -46,7 +46,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwarePrctlRule(t *testing.T) {
 				ProbeRetExit: 0,
 			},
 			wants: []wantPrctlSourcePayloadSection{
-				{kind: handler.PayloadKindStruct, direction: handler.PayloadDirectionOut, offset: handler.BpfExitArgOffset, userPtr: 0x3000, data: prctlJSONUint32(1)},
+				{kind: handler.PayloadKindStruct, direction: handler.PayloadDirectionOut, offset: payloadExitArgOffset, userPtr: 0x3000, data: prctlJSONUint32(1)},
 			},
 		},
 		{
@@ -62,7 +62,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwarePrctlRule(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			raw := tt.raw
-			data := make([]byte, handler.BpfExitArgOffset+prctlNamePayloadSize)
+			data := make([]byte, payloadExitArgOffset+prctlNamePayloadSize)
 			putPrctlSourcePayloads(data, tt.wants)
 			event := payloadEvent{
 				raw: &raw,
