@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -10,6 +11,12 @@ type FDStateStore struct {
 	paths   map[string]string
 	offsets map[string]int64
 	files   map[string]*os.File
+}
+
+type fdStateSource struct {
+	view            syscallEventView
+	payloadSections []handler.PayloadSection
+	procTid         uint32
 }
 
 func newFDStateStore(targetPid int, paths map[string]string) *FDStateStore {
@@ -57,7 +64,38 @@ func (s *traceSession) fdStateStore() *FDStateStore {
 
 func (st *FDStateStore) UpdateFromSyscall(ev syscallEventContext) {
 	st.ensureMaps()
-	updateFDMapFromSyscall(ev, st.paths)
+	view := ev.eventView()
+	st.updateFromSource(fdStateSource{
+		view:            view,
+		payloadSections: ev.payloadSections,
+		procTid:         view.tid,
+	}, ev.meta, ev.pathText, ev.statePID)
+}
+
+func updateFDMapFromSyscall(ev syscallEventContext, fdMap map[string]string) {
+	view := ev.eventView()
+	updateFDMapFromSource(fdStateSource{
+		view:            view,
+		payloadSections: ev.payloadSections,
+		procTid:         view.tid,
+	}, ev.meta, ev.pathText, ev.statePID, fdMap)
+}
+
+func (st *FDStateStore) updateFromSource(src fdStateSource, scMeta meta.Syscall, pathText string, targetPID int) {
+	st.ensureMaps()
+	updateFDMapFromSource(src, scMeta, pathText, targetPID, st.paths)
+}
+
+func updateFDMapFromSource(src fdStateSource, scMeta meta.Syscall, pathText string, targetPID int, fdMap map[string]string) {
+	updateFdReturnMapFromView(src.view, scMeta, targetPID, fdMap)
+	updateEventfdCountFromView(src.view, scMeta, targetPID, fdMap)
+	updateOpenedPathFDMapFromView(src.view, scMeta, pathText, targetPID, fdMap)
+	updateDupFDMapFromView(src.view, scMeta, targetPID, fdMap)
+	updatePipeFDMapFromPayload(src, scMeta, targetPID, fdMap)
+	updateSocketpairFDMap(src, scMeta, targetPID, fdMap)
+	updateNetlinkFDMap(src, scMeta, targetPID, fdMap)
+	updateSocketFDMapFromView(src.view, scMeta, targetPID, fdMap)
+	updateCwdFDMapFromView(src.view, scMeta, pathText, targetPID, fdMap)
 }
 
 func (st *FDStateStore) CleanupClosedFDFromView(view syscallEventView, scMeta meta.Syscall, statePID int) {

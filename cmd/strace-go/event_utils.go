@@ -23,33 +23,6 @@ func updateFDMap(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targe
 	}, scMeta, pathText, targetPid, fdMap)
 }
 
-func updateFDMapFromSyscall(ev syscallEventContext, fdMap map[string]string) {
-	view := ev.eventView()
-	updateFDMapFromSource(fdStateSource{
-		view:            view,
-		payloadSections: ev.payloadSections,
-		procTid:         view.tid,
-	}, ev.meta, ev.pathText, ev.statePID, fdMap)
-}
-
-type fdStateSource struct {
-	view            syscallEventView
-	payloadSections []handler.PayloadSection
-	procTid         uint32
-}
-
-func updateFDMapFromSource(src fdStateSource, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
-	updateFdReturnMapFromView(src.view, scMeta, targetPid, fdMap)
-	updateEventfdCountFromView(src.view, scMeta, targetPid, fdMap)
-	updateOpenedPathFDMapFromView(src.view, scMeta, pathText, targetPid, fdMap)
-	updateDupFDMapFromView(src.view, scMeta, targetPid, fdMap)
-	updatePipeFDMapFromPayload(src, scMeta, targetPid, fdMap)
-	updateSocketpairFDMap(src, scMeta, targetPid, fdMap)
-	updateNetlinkFDMap(src, scMeta, targetPid, fdMap)
-	updateSocketFDMapFromView(src.view, scMeta, targetPid, fdMap)
-	updateCwdFDMapFromView(src.view, scMeta, pathText, targetPid, fdMap)
-}
-
 func updateFdReturnMap(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
 	updateFdReturnMapFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, targetPid, fdMap)
 }
