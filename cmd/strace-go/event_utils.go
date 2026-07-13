@@ -286,16 +286,20 @@ func rememberFDTargetFromProc(eventRaw *bpfEvent, targetPid int, fd int32, suffi
 
 // IMPACT: checkShouldPrint filters syscall events by syscall list, path and read/write descriptor filter options.
 func checkShouldPrint(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, isPath bool, targetPid int, opts *cli.Options, fdMap map[string]string) bool {
+	return checkShouldPrintFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, pathText, isPath, targetPid, opts, fdMap)
+}
+
+func checkShouldPrintFromView(view syscallEventView, scMeta meta.Syscall, pathText string, isPath bool, targetPid int, opts *cli.Options, fdMap map[string]string) bool {
 	var fds []int32
 	for i, argName := range scMeta.Args {
 		if isFdArgName(argName) {
-			fds = append(fds, int32(eventRaw.Args[i]))
+			fds = append(fds, int32(view.args[i]))
 		}
 	}
 	if len(fds) == 0 {
 		fds = []int32{-1}
 	}
-	matchedPath := event.MatchPath(targetPid, fds, isPath, scMeta.Name, eventRaw.Ptr, pathText, opts.TracePaths, fdMap)
+	matchedPath := event.MatchPath(targetPid, fds, isPath, scMeta.Name, view.ptr, pathText, opts.TracePaths, fdMap)
 	matchedFD := matchTraceFDs(fds, opts)
 	requestedRW := false
 	for _, fd := range fds {

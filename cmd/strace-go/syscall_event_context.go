@@ -33,6 +33,7 @@ type syscallEventView struct {
 	ret           int64
 	duration      uint64
 	enterTime     uint64
+	ptr           uint64
 	stackID       int32
 	probeRetEnter int32
 	probeRetExit  int32
@@ -46,7 +47,7 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 	pathText := decodePathText(s, eventRaw, scMeta, isPath, payloadSections)
 	shouldPrint := true
 	if s.opts != nil {
-		shouldPrint = checkShouldPrint(eventRaw, scMeta, pathText, isPath, statePID, s.opts, s.fdStateStore().PathMap())
+		shouldPrint = checkShouldPrintFromView(view, scMeta, pathText, isPath, statePID, s.opts, s.fdStateStore().PathMap())
 	}
 	bufferFileOffset, bufferFileOffsetOK := s.fdStateStore().BufferFileOffsetFromView(view, scMeta, statePID)
 	ev := syscallEventContext{
@@ -80,6 +81,7 @@ func newSyscallEventViewFromBPF(eventRaw *bpfEvent) syscallEventView {
 		ret:           eventRaw.Ret,
 		duration:      eventRaw.Duration,
 		enterTime:     eventRaw.EnterTime,
+		ptr:           eventRaw.Ptr,
 		stackID:       eventRaw.StackId,
 		probeRetEnter: eventRaw.ProbeRetEnter,
 		probeRetExit:  eventRaw.ProbeRetExit,

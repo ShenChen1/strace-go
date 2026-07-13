@@ -41,11 +41,11 @@ func (s *traceSession) syscallJSONOutput() *SyscallJSONOutput {
 	return s.syscallJSONCache
 }
 
-func (o *SyscallJSONOutput) HandleEnter(eventRaw *bpfEvent, scMeta meta.Syscall, statePID int) {
+func (o *SyscallJSONOutput) HandleEnter(eventRaw *bpfEvent, view syscallEventView, scMeta meta.Syscall, statePID int) {
 	if !o.jsonMode() {
 		return
 	}
-	if o.opts.DebugEvents || checkShouldPrint(eventRaw, scMeta, "", false, statePID, o.opts, o.pathMap) {
+	if o.opts.DebugEvents || checkShouldPrintFromView(view, scMeta, "", false, statePID, o.opts, o.pathMap) {
 		o.writeRawEvent(eventRaw, scMeta)
 	}
 }
