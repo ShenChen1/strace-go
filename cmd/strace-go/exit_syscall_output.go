@@ -54,7 +54,7 @@ func (s *traceSession) exitSyscallOutput() *ExitSyscallOutput {
 
 // IMPACT: Handle owns exit/exit_group text, JSON, and exit-status queue output.
 func (o *ExitSyscallOutput) Handle(ev syscallEventContext) bool {
-	if !isExitSyscallEvent(ev.raw, ev.meta.Name) {
+	if !ev.isExitSyscallEvent() {
 		return false
 	}
 	if o.opts != nil && o.opts.SummaryOnly {
@@ -96,6 +96,6 @@ func (o *ExitSyscallOutput) printExitStatus(eventRaw *bpfEvent) {
 	}
 }
 
-func isExitSyscallEvent(eventRaw *bpfEvent, syscallName string) bool {
-	return eventRaw.ProbeRetEnter == -1 && (syscallName == "exit" || syscallName == "exit_group")
+func (ev syscallEventContext) isExitSyscallEvent() bool {
+	return ev.eventView().probeRetEnter == -1 && (ev.meta.Name == "exit" || ev.meta.Name == "exit_group")
 }

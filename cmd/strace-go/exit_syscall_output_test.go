@@ -130,7 +130,7 @@ func TestExitSyscallOutputJSONUsesEventContext(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON})
 	ev := exitEventContext(state.output.opts, "exit_group", true)
 	ev.raw.Ret = 123
-	ev.view = syscallEventView{valid: true, ret: -2}
+	ev.view = syscallEventView{valid: true, ret: -2, probeRetEnter: -1}
 
 	state.output.Handle(ev)
 
@@ -139,6 +139,20 @@ func TestExitSyscallOutputJSONUsesEventContext(t *testing.T) {
 	}
 	if state.jsonEvent.eventView().ret != -2 {
 		t.Fatalf("json event ret = %d, want view ret -2", state.jsonEvent.eventView().ret)
+	}
+}
+
+func TestExitSyscallOutputDetectsExitFromEventView(t *testing.T) {
+	state := newExitOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON})
+	ev := exitEventContext(state.output.opts, "exit_group", true)
+	ev.raw.ProbeRetEnter = 0
+	ev.view = syscallEventView{valid: true, probeRetEnter: -1}
+
+	if !state.output.Handle(ev) {
+		t.Fatal("exit_group should be handled from event view")
+	}
+	if !state.jsonCalled {
+		t.Fatal("JSON exit event was not written")
 	}
 }
 
