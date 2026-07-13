@@ -42,7 +42,7 @@ func TestFDStateStoreCleanupClosedFDRemovesOwnedState(t *testing.T) {
 	}
 }
 
-func TestFDStateStoreUpdateFromSyscallUsesEventViewForOpenedPath(t *testing.T) {
+func TestSyscallEventContextUpdateFDStateUsesEventViewForOpenedPath(t *testing.T) {
 	store := newFDStateStoreFromMaps(make(map[string]string), nil, nil)
 	ev := syscallEventContext{
 		raw:      &bpfEvent{Pid: 1, Tid: 1, Ret: 4},
@@ -52,7 +52,7 @@ func TestFDStateStoreUpdateFromSyscallUsesEventViewForOpenedPath(t *testing.T) {
 		pathText: `"/tmp/view-path"`,
 	}
 
-	store.UpdateFromSyscall(ev)
+	ev.updateFDState(store)
 
 	if got := store.paths["101:7"]; got != "/tmp/view-path" {
 		t.Fatalf("view fd path = %q, want /tmp/view-path", got)
@@ -62,7 +62,7 @@ func TestFDStateStoreUpdateFromSyscallUsesEventViewForOpenedPath(t *testing.T) {
 	}
 }
 
-func TestFDStateStoreUpdateFromSyscallUsesEventViewForDup(t *testing.T) {
+func TestSyscallEventContextUpdateFDStateUsesEventViewForDup(t *testing.T) {
 	store := newFDStateStoreFromMaps(map[string]string{"101:5": "/tmp/source"}, nil, nil)
 	ev := syscallEventContext{
 		raw:      &bpfEvent{Pid: 1, Tid: 1, Args: [6]uint64{3}, Ret: 4},
@@ -71,7 +71,7 @@ func TestFDStateStoreUpdateFromSyscallUsesEventViewForDup(t *testing.T) {
 		meta:     meta.Syscall{Name: "dup"},
 	}
 
-	store.UpdateFromSyscall(ev)
+	ev.updateFDState(store)
 
 	if got := store.paths["101:6"]; got != "/tmp/source" {
 		t.Fatalf("view dup path = %q, want /tmp/source", got)
@@ -81,7 +81,7 @@ func TestFDStateStoreUpdateFromSyscallUsesEventViewForDup(t *testing.T) {
 	}
 }
 
-func TestFDStateStoreUpdateFromSyscallUsesEffectiveMetadata(t *testing.T) {
+func TestSyscallEventContextUpdateFDStateUsesEffectiveMetadata(t *testing.T) {
 	store := newFDStateStoreFromMaps(make(map[string]string), nil, nil)
 	ev := syscallEventContext{
 		view:     syscallEventView{valid: true, pid: 201, tid: 201, ret: 7},
@@ -92,14 +92,14 @@ func TestFDStateStoreUpdateFromSyscallUsesEffectiveMetadata(t *testing.T) {
 		},
 	}
 
-	store.UpdateFromSyscall(ev)
+	ev.updateFDState(store)
 
 	if got := store.paths["101:7"]; got != "/tmp/effective-path" {
 		t.Fatalf("effective metadata fd path = %q, want /tmp/effective-path", got)
 	}
 }
 
-func TestFDStateStoreUpdateFromSyscallBuildsPayloadWithEffectiveMetadata(t *testing.T) {
+func TestSyscallEventContextUpdateFDStateBuildsPayloadWithEffectiveMetadata(t *testing.T) {
 	readEnd, writeEnd, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("os.Pipe() failed: %v", err)
@@ -127,7 +127,7 @@ func TestFDStateStoreUpdateFromSyscallBuildsPayloadWithEffectiveMetadata(t *test
 		},
 	}
 
-	store.UpdateFromSyscall(ev)
+	ev.updateFDState(store)
 
 	readKey := fdStateKey(101, int32(readEnd.Fd()))
 	writeKey := fdStateKey(101, int32(writeEnd.Fd()))

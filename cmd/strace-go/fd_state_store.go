@@ -62,10 +62,6 @@ func (s *traceSession) fdStateStore() *FDStateStore {
 	return s.fdState
 }
 
-func (st *FDStateStore) UpdateFromSyscall(ev syscallEventContext) {
-	ev.updateFDState(st)
-}
-
 func (st *FDStateStore) updateFromSource(src fdStateSource, scMeta meta.Syscall, pathText string, targetPID int) {
 	st.ensureMaps()
 	updateFDMapFromSource(src, scMeta, pathText, targetPID, st.paths)
