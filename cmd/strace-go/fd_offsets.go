@@ -57,14 +57,6 @@ func readProcFDOffset(pid int, fd int32) (int64, bool) {
 	return 0, false
 }
 
-func (s *traceSession) bufferFileOffset(eventRaw *bpfEvent, scMeta meta.Syscall) (int64, bool) {
-	return s.fdStateStore().BufferFileOffset(eventRaw, scMeta, s.eventStatePID(eventRaw))
-}
-
-func (st *FDStateStore) BufferFileOffset(eventRaw *bpfEvent, scMeta meta.Syscall, statePID int) (int64, bool) {
-	return st.BufferFileOffsetFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, statePID)
-}
-
 func (st *FDStateStore) BufferFileOffsetFromView(view syscallEventView, scMeta meta.Syscall, statePID int) (int64, bool) {
 	if !view.valid {
 		return 0, false
@@ -89,16 +81,8 @@ func (st *FDStateStore) BufferFileOffsetFromView(view syscallEventView, scMeta m
 	return 0, false
 }
 
-func (s *traceSession) updateFDOffsets(eventRaw *bpfEvent, scMeta meta.Syscall) {
-	s.fdStateStore().UpdateOffsets(eventRaw, scMeta, s.eventStatePID(eventRaw))
-}
-
 func (s *traceSession) updateSyscallFDOffsets(ev syscallEventContext) {
 	s.fdStateStore().UpdateOffsetsFromView(ev.eventView(), ev.meta, ev.statePID)
-}
-
-func (st *FDStateStore) UpdateOffsets(eventRaw *bpfEvent, scMeta meta.Syscall, statePID int) {
-	st.UpdateOffsetsFromView(newSyscallEventViewFromBPF(eventRaw), scMeta, statePID)
 }
 
 func (st *FDStateStore) UpdateOffsetsFromView(view syscallEventView, scMeta meta.Syscall, statePID int) {
@@ -139,14 +123,6 @@ func (st *FDStateStore) UpdateOffsetsFromView(view syscallEventView, scMeta meta
 	case "lseek":
 		st.offsets[fdStateKey(statePID, int32(view.args[0]))] = ret
 	}
-}
-
-func (s *traceSession) rememberFDDataFile(eventRaw *bpfEvent, fd int32) {
-	s.fdStateStore().RememberDataFile(eventRaw, s.eventStatePID(eventRaw), fd)
-}
-
-func (st *FDStateStore) RememberDataFile(eventRaw *bpfEvent, statePID int, fd int32) {
-	st.RememberDataFileFromView(newSyscallEventViewFromBPF(eventRaw), statePID, fd)
 }
 
 func (st *FDStateStore) RememberDataFileFromView(view syscallEventView, statePID int, fd int32) {
