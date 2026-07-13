@@ -182,23 +182,15 @@ func (ev syscallEventContext) newJSONRawSyscallEvent() jsonSyscallEvent {
 }
 
 func (ev syscallEventContext) newJSONDecodedSyscallEvent(res handler.Result) jsonSyscallEvent {
-	ctx := ev.handlerContext
 	jsonEvent := ev.newJSONSyscallEvent(ev.decodedPayloadSections())
 	jsonEvent.ArgText = res.ArgParts
-	jsonEvent.ReturnText = formatSyscallRet(ev.meta.Name, ev.eventView().ret, res, ctx)
-	jsonEvent.PairedEnter = ev.pendingEnter != nil && ev.pendingEnter.genericEnterRaw
+	jsonEvent.ReturnText = ev.returnText(res)
+	jsonEvent.PairedEnter = ev.pairedGenericEnter()
 	return jsonEvent
 }
 
 func (ev syscallEventContext) newJSONSyscallEvent(sections []handler.PayloadSection) jsonSyscallEvent {
-	return newJSONSyscallEventFromView(ev.eventView(), ev.meta, sections)
-}
-
-func (ev syscallEventContext) decodedPayloadSections() []handler.PayloadSection {
-	if ev.handlerContext == nil {
-		return nil
-	}
-	return ev.handlerContext.PayloadSections
+	return newJSONSyscallEventFromView(ev.eventView(), ev.effectiveSyscallMeta(), sections)
 }
 
 func bpfEventTypeNameFromID(eventType uint16) string {

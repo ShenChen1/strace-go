@@ -139,6 +139,22 @@ func (ev syscallEventContext) handlerContextForFormatting() *handler.Context {
 	return ev.handlerContext
 }
 
+func (ev syscallEventContext) decodedPayloadSections() []handler.PayloadSection {
+	if ev.handlerContext == nil {
+		return nil
+	}
+	return ev.handlerContext.PayloadSections
+}
+
+func (ev syscallEventContext) returnText(res handler.Result) string {
+	view := ev.eventView()
+	return formatSyscallRet(ev.syscallName(), view.ret, res, ev.handlerContextForFormatting())
+}
+
+func (ev syscallEventContext) pairedGenericEnter() bool {
+	return ev.pendingEnter != nil && ev.pendingEnter.genericEnterRaw
+}
+
 func syscallMeta(sysID uint32) meta.Syscall {
 	if scMeta, ok := meta.SyscallTable[sysID]; ok {
 		return scMeta

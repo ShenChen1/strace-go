@@ -93,6 +93,36 @@ func TestWriteJSONDecodedEventUsesHandlerPayloadSections(t *testing.T) {
 	}
 }
 
+func TestWriteJSONDecodedEventReturnTextUsesHandlerMetadata(t *testing.T) {
+	var output bytes.Buffer
+	session := &traceSession{outWriter: &output}
+	ev := syscallEventContext{
+		view: syscallEventView{
+			valid: true,
+			pid:   101,
+			tid:   102,
+			sysID: 60,
+			ret:   -2,
+		},
+		handlerContext: &handler.Context{
+			ScMeta: meta.Syscall{Name: "getpid"},
+		},
+	}
+
+	session.writeJSONDecodedEvent(ev, handler.Result{})
+
+	var got jsonSyscallEvent
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &got); err != nil {
+		t.Fatalf("decode syscall JSON: %v", err)
+	}
+	if got.Syscall != "getpid" {
+		t.Fatalf("syscall = %q, want handler metadata syscall", got.Syscall)
+	}
+	if got.ReturnText != "-1 ENOENT (No such file or directory)" {
+		t.Fatalf("return_text = %q, want errno text from handler metadata", got.ReturnText)
+	}
+}
+
 func TestWriteJSONDecodedEventOmitsPayloadWithoutHandlerContext(t *testing.T) {
 	var output bytes.Buffer
 	session := &traceSession{outWriter: &output}
