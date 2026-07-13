@@ -103,6 +103,16 @@ func (ev syscallEventContext) eventView() syscallEventView {
 	return newSyscallEventViewFromBPF(ev.raw)
 }
 
+func (ev syscallEventContext) outputPayloadSections() []handler.PayloadSection {
+	if ev.payloadSections != nil {
+		return ev.payloadSections
+	}
+	if ev.raw == nil {
+		return nil
+	}
+	return payloadSectionsForEvent(ev.raw, ev.meta)
+}
+
 func syscallMeta(sysID uint32) meta.Syscall {
 	if scMeta, ok := meta.SyscallTable[sysID]; ok {
 		return scMeta

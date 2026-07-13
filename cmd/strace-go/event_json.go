@@ -120,7 +120,7 @@ func syscallFailure(ret int64) (bool, int) {
 }
 
 func (s *traceSession) writeJSONRawEvent(ev syscallEventContext) {
-	jsonEvent := newJSONSyscallEventFromView(ev.eventView(), ev.meta, payloadSectionsForEvent(ev.raw, ev.meta))
+	jsonEvent := newJSONSyscallEventFromView(ev.eventView(), ev.meta, ev.outputPayloadSections())
 	_ = json.NewEncoder(s.outWriter).Encode(jsonEvent)
 }
 

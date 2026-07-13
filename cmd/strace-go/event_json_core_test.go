@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -122,6 +123,15 @@ func TestJSONRawEventViewOverridesRawScalars(t *testing.T) {
 		raw:  raw,
 		view: view,
 		meta: meta.Syscall{Name: "exit"},
+		payloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindBytes,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  2,
+			UserPtr:   0xfeed,
+			UserLen:   3,
+			CopiedLen: 3,
+			Data:      []byte("hit"),
+		}},
 	})
 
 	var ev jsonSyscallEvent
@@ -136,5 +146,8 @@ func TestJSONRawEventViewOverridesRawScalars(t *testing.T) {
 	}
 	if !ev.Failed || ev.Errno != 2 || ev.Ptr != 0x1234 || ev.DataLen != 8 {
 		t.Fatalf("raw JSON failure/payload fields = %+v, want view-derived fields", ev)
+	}
+	if len(ev.PayloadSections) != 1 || ev.PayloadSections[0].ArgIndex != 2 || ev.PayloadSections[0].DataBase64 != "aGl0" {
+		t.Fatalf("raw JSON payload sections = %+v, want cached payload section", ev.PayloadSections)
 	}
 }
