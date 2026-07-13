@@ -27,58 +27,58 @@ func (st *TraceState) ensureTaskState(tid uint32, tgid uint32) *TaskState {
 	return task
 }
 
-func (st *TraceState) noteSyscallTask(eventRaw *bpfEvent) {
-	if eventRaw.Tid == 0 {
+func (st *TraceState) noteSyscallTask(view traceStateEventView) {
+	if view.tid == 0 {
 		return
 	}
-	task := st.ensureTaskState(eventRaw.Tid, eventRaw.Pid)
+	task := st.ensureTaskState(view.tid, view.pid)
 	task.Alive = true
-	task.LastSeenNS = eventRaw.EnterTime
+	task.LastSeenNS = view.enterTime
 }
 
-func (st *TraceState) applyLifecycleEvent(eventRaw *bpfEvent) *TaskState {
-	switch eventRaw.EventFlags {
+func (st *TraceState) applyLifecycleEvent(view traceStateEventView) *TaskState {
+	switch view.eventFlags {
 	case lifecycleFork:
-		parentTID := uint32(eventRaw.Args[0])
-		childTID := uint32(eventRaw.Args[1])
-		parent := st.ensureTaskState(parentTID, eventRaw.Pid)
+		parentTID := uint32(view.args[0])
+		childTID := uint32(view.args[1])
+		parent := st.ensureTaskState(parentTID, view.pid)
 		parent.Alive = true
 		parent.LastAction = "fork"
-		parent.LastSeenNS = eventRaw.EnterTime
+		parent.LastSeenNS = view.enterTime
 
 		child := st.ensureTaskState(childTID, childTID)
 		child.ParentTID = parentTID
 		child.Alive = true
 		child.LastAction = "fork"
-		child.LastSeenNS = eventRaw.EnterTime
+		child.LastSeenNS = view.enterTime
 		return child
 	case lifecycleExec:
-		tid := uint32(eventRaw.Args[1])
+		tid := uint32(view.args[1])
 		if tid == 0 {
-			tid = eventRaw.Tid
+			tid = view.tid
 		}
-		task := st.ensureTaskState(tid, eventRaw.Pid)
+		task := st.ensureTaskState(tid, view.pid)
 		task.Execed = true
 		task.Alive = true
 		task.LastAction = "exec"
-		task.LastSeenNS = eventRaw.EnterTime
+		task.LastSeenNS = view.enterTime
 		return task
 	case lifecycleExit:
-		task := st.ensureTaskState(eventRaw.Tid, eventRaw.Pid)
+		task := st.ensureTaskState(view.tid, view.pid)
 		task.Alive = false
 		task.LastAction = "exit"
-		task.LastSeenNS = eventRaw.EnterTime
+		task.LastSeenNS = view.enterTime
 		return task
 	case lifecycleFree:
-		task := st.ensureTaskState(eventRaw.Tid, eventRaw.Pid)
+		task := st.ensureTaskState(view.tid, view.pid)
 		task.Alive = false
 		task.LastAction = "free"
-		task.LastSeenNS = eventRaw.EnterTime
+		task.LastSeenNS = view.enterTime
 		return task
 	default:
-		task := st.ensureTaskState(eventRaw.Tid, eventRaw.Pid)
+		task := st.ensureTaskState(view.tid, view.pid)
 		task.LastAction = "unknown"
-		task.LastSeenNS = eventRaw.EnterTime
+		task.LastSeenNS = view.enterTime
 		return task
 	}
 }

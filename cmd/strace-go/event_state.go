@@ -12,6 +12,20 @@ type pendingSyscallState struct {
 	genericEnterRaw bool
 }
 
+type traceStateEventView struct {
+	valid         bool
+	pid           uint32
+	tid           uint32
+	sysID         uint32
+	eventType     uint16
+	eventFlags    uint32
+	enterTime     uint64
+	args          [6]uint64
+	ptr           uint64
+	dataLen       uint32
+	probeRetEnter int32
+}
+
 type TraceState struct {
 	pendingSyscalls   map[uint32]*pendingSyscallState
 	pendingExecArgs   map[int]string
@@ -45,49 +59,85 @@ func (s *traceSession) traceState() *TraceState {
 }
 
 func (st *TraceState) Handle(eventRaw *bpfEvent) TraceStateUpdate {
-	if isLifecycleEvent(eventRaw) {
-		task := st.applyLifecycleEvent(eventRaw)
-		if eventRaw.EventFlags == lifecycleExit || eventRaw.EventFlags == lifecycleFree {
-			st.clearTaskPending(eventRaw.Tid)
+	view := newTraceStateEventViewFromBPF(eventRaw)
+	return st.handleView(view)
+}
+
+func (st *TraceState) handleView(view traceStateEventView) TraceStateUpdate {
+	if view.isLifecycle() {
+		task := st.applyLifecycleEvent(view)
+		if view.eventFlags == lifecycleExit || view.eventFlags == lifecycleFree {
+			st.clearTaskPending(view.tid)
 		}
 		return TraceStateUpdate{kind: traceStateLifecycle, lifecycleTask: task}
 	}
 
-	st.noteSyscallTask(eventRaw)
-	if isGenericEnterEvent(eventRaw) {
-		st.rememberEnterEvent(eventRaw)
+	st.noteSyscallTask(view)
+	if view.isGenericEnter() {
+		st.rememberEnterEvent(view)
 		return TraceStateUpdate{kind: traceStateSyscallEnter}
 	}
 	return TraceStateUpdate{
 		kind:         traceStateSyscallExit,
-		pendingEnter: st.consumeEnterEvent(eventRaw),
+		pendingEnter: st.consumeEnterEvent(view),
 	}
 }
 
-func (st *TraceState) rememberEnterEvent(eventRaw *bpfEvent) {
+func newTraceStateEventViewFromBPF(eventRaw *bpfEvent) traceStateEventView {
+	if eventRaw == nil {
+		return traceStateEventView{}
+	}
+	return traceStateEventView{
+		valid:         true,
+		pid:           eventRaw.Pid,
+		tid:           eventRaw.Tid,
+		sysID:         eventRaw.SysId,
+		eventType:     eventRaw.EventType,
+		eventFlags:    eventRaw.EventFlags,
+		enterTime:     eventRaw.EnterTime,
+		args:          eventRaw.Args,
+		ptr:           eventRaw.Ptr,
+		dataLen:       eventRaw.DataLen,
+		probeRetEnter: eventRaw.ProbeRetEnter,
+	}
+}
+
+func (view traceStateEventView) isLifecycle() bool {
+	return view.eventType == bpfEventTypeLifecycle
+}
+
+func (view traceStateEventView) isGenericEnter() bool {
+	return view.eventType == bpfEventTypeEnter && (view.eventFlags&bpfEventFlagGenericEnter) != 0
+}
+
+func (view traceStateEventView) isExit() bool {
+	return view.eventType == bpfEventTypeExit
+}
+
+func (st *TraceState) rememberEnterEvent(view traceStateEventView) {
 	if st.pendingSyscalls == nil {
 		st.pendingSyscalls = make(map[uint32]*pendingSyscallState)
 	}
-	st.pendingSyscalls[eventRaw.Tid] = &pendingSyscallState{
-		pid:             eventRaw.Pid,
-		tid:             eventRaw.Tid,
-		sysID:           eventRaw.SysId,
-		enterTime:       eventRaw.EnterTime,
-		args:            eventRaw.Args,
-		ptr:             eventRaw.Ptr,
-		dataLen:         eventRaw.DataLen,
-		probeRetEnter:   eventRaw.ProbeRetEnter,
-		genericEnterRaw: isGenericEnterEvent(eventRaw),
+	st.pendingSyscalls[view.tid] = &pendingSyscallState{
+		pid:             view.pid,
+		tid:             view.tid,
+		sysID:           view.sysID,
+		enterTime:       view.enterTime,
+		args:            view.args,
+		ptr:             view.ptr,
+		dataLen:         view.dataLen,
+		probeRetEnter:   view.probeRetEnter,
+		genericEnterRaw: view.isGenericEnter(),
 	}
 }
 
-func (st *TraceState) consumeEnterEvent(eventRaw *bpfEvent) *pendingSyscallState {
-	if !isExitEvent(eventRaw) || st.pendingSyscalls == nil {
+func (st *TraceState) consumeEnterEvent(view traceStateEventView) *pendingSyscallState {
+	if !view.isExit() || st.pendingSyscalls == nil {
 		return nil
 	}
-	pending := st.pendingSyscalls[eventRaw.Tid]
-	delete(st.pendingSyscalls, eventRaw.Tid)
-	if pending == nil || pending.sysID != eventRaw.SysId {
+	pending := st.pendingSyscalls[view.tid]
+	delete(st.pendingSyscalls, view.tid)
+	if pending == nil || pending.sysID != view.sysID {
 		return nil
 	}
 	return pending

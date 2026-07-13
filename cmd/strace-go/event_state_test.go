@@ -104,6 +104,46 @@ func TestTraceStateHandlePairsEnterExitAndCleansLifecycle(t *testing.T) {
 	}
 }
 
+func TestTraceStateHandleViewUsesEventViewForPendingPair(t *testing.T) {
+	state := newTraceState()
+	rawLike := traceStateEventView{
+		valid:      true,
+		pid:        1,
+		tid:        1,
+		sysID:      39,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+		enterTime:  100,
+	}
+	viewEnter := rawLike
+	viewEnter.pid = 200
+	viewEnter.tid = 201
+	viewEnter.sysID = 60
+	viewEnter.args = [6]uint64{7}
+
+	enterUpdate := state.handleView(viewEnter)
+	if enterUpdate.kind != traceStateSyscallEnter {
+		t.Fatalf("enter update = %+v, want syscall enter", enterUpdate)
+	}
+	if _, ok := state.pendingSyscalls[201]; !ok {
+		t.Fatal("pending syscall missing under view tid 201")
+	}
+	if _, ok := state.pendingSyscalls[1]; ok {
+		t.Fatal("pending syscall unexpectedly stored under raw-like tid 1")
+	}
+
+	viewExit := rawLike
+	viewExit.pid = 200
+	viewExit.tid = 201
+	viewExit.sysID = 60
+	viewExit.eventType = bpfEventTypeExit
+
+	exitUpdate := state.handleView(viewExit)
+	if exitUpdate.pendingEnter == nil || exitUpdate.pendingEnter.pid != 200 || exitUpdate.pendingEnter.sysID != 60 {
+		t.Fatalf("paired enter = %+v, want view pid/sysid", exitUpdate.pendingEnter)
+	}
+}
+
 func TestZeroEventTypeIsNotExit(t *testing.T) {
 	eventRaw := &bpfEvent{EventVersion: 2}
 
