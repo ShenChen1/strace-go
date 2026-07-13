@@ -6,6 +6,7 @@ import (
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
+	"strace-go/pkg/meta"
 )
 
 func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
@@ -71,6 +72,37 @@ func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 	}
 	if _, ok := ev.handlerContext.Section(1, handler.PayloadKindString); ok {
 		t.Fatalf("handler context unexpectedly exposed legacy path string section")
+	}
+}
+
+func TestDecodePathTextUsesEventViewPointerFallback(t *testing.T) {
+	session := &traceSession{decoder: event.NewDecoder()}
+	sc := meta.Syscall{Name: "custom_path_syscall", Args: []string{"path"}}
+	view := syscallEventView{valid: true, tid: 101, ptr: 0x2000}
+
+	got := decodePathText(session, view, sc, true, nil)
+
+	if got != "0x2000" {
+		t.Fatalf("pathText = %q, want pointer from event view", got)
+	}
+}
+
+func TestDecodePathTextMatchesPayloadWithEventViewPointer(t *testing.T) {
+	session := &traceSession{decoder: event.NewDecoder()}
+	sc := meta.Syscall{Name: "custom_path_syscall", Args: []string{"path"}}
+	view := syscallEventView{valid: true, tid: 101, ptr: 0x2000}
+	sections := []handler.PayloadSection{{
+		Kind:      handler.PayloadKindString,
+		Direction: handler.PayloadDirectionIn,
+		UserPtr:   0x2000,
+		ProbeRet:  0,
+		Data:      []byte("view.txt\x00"),
+	}}
+
+	got := decodePathText(session, view, sc, true, sections)
+
+	if got != `"view.txt"` {
+		t.Fatalf("pathText = %q, want payload matched by event view pointer", got)
 	}
 }
 

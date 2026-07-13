@@ -44,7 +44,7 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 	view := newSyscallEventViewFromBPF(eventRaw)
 	isPath := syscallHasPathArg(scMeta)
 	payloadSections := payloadSectionsForEvent(eventRaw, scMeta)
-	pathText := decodePathText(s, eventRaw, scMeta, isPath, payloadSections)
+	pathText := decodePathText(s, view, scMeta, isPath, payloadSections)
 	shouldPrint := true
 	if s.opts != nil {
 		shouldPrint = checkShouldPrintFromView(view, scMeta, pathText, isPath, statePID, s.opts, s.fdStateStore().PathMap())
@@ -116,26 +116,26 @@ func syscallHasPathArg(scMeta meta.Syscall) bool {
 	return false
 }
 
-func decodePathText(s *traceSession, eventRaw *bpfEvent, scMeta meta.Syscall, isPath bool, payloadSections []handler.PayloadSection) string {
+func decodePathText(s *traceSession, view syscallEventView, scMeta meta.Syscall, isPath bool, payloadSections []handler.PayloadSection) string {
 	if !isPath {
 		return ""
 	}
-	if text, ok := pathTextFromPayload(s, eventRaw, scMeta, payloadSections); ok {
+	if text, ok := pathTextFromPayload(s, view, scMeta, payloadSections); ok {
 		return text
 	}
-	return s.decoder.DecodeString(int(eventRaw.Tid), eventRaw.Ptr, nil, -1, scMeta.Name, 0)
+	return s.decoder.DecodeString(int(view.tid), view.ptr, nil, -1, scMeta.Name, 0)
 }
 
-func pathTextFromPayload(s *traceSession, eventRaw *bpfEvent, scMeta meta.Syscall, payloadSections []handler.PayloadSection) (string, bool) {
+func pathTextFromPayload(s *traceSession, view syscallEventView, scMeta meta.Syscall, payloadSections []handler.PayloadSection) (string, bool) {
 	if argIndex, ok := simplePathPayloadArgIndex(scMeta.Name); ok {
-		if text, ok := stringPayloadSectionText(s, eventRaw, scMeta, payloadSections, argIndex); ok {
+		if text, ok := stringPayloadSectionText(s, view, scMeta, payloadSections, argIndex); ok {
 			return text, true
 		}
 	}
 	for _, section := range payloadSections {
 		if section.Kind == handler.PayloadKindString && section.Direction == handler.PayloadDirectionIn &&
-			section.ProbeRet == 0 && len(section.Data) > 0 && section.UserPtr == eventRaw.Ptr {
-			return s.decoder.DecodeString(int(eventRaw.Tid), section.UserPtr, section.Data, section.ProbeRet, scMeta.Name, 0), true
+			section.ProbeRet == 0 && len(section.Data) > 0 && section.UserPtr == view.ptr {
+			return s.decoder.DecodeString(int(view.tid), section.UserPtr, section.Data, section.ProbeRet, scMeta.Name, 0), true
 		}
 	}
 	return "", false
@@ -143,7 +143,7 @@ func pathTextFromPayload(s *traceSession, eventRaw *bpfEvent, scMeta meta.Syscal
 
 func stringPayloadSectionText(
 	s *traceSession,
-	eventRaw *bpfEvent,
+	view syscallEventView,
 	scMeta meta.Syscall,
 	payloadSections []handler.PayloadSection,
 	argIndex int,
@@ -151,7 +151,7 @@ func stringPayloadSectionText(
 	for _, section := range payloadSections {
 		if section.Kind == handler.PayloadKindString && section.Direction == handler.PayloadDirectionIn &&
 			section.ArgIndex == argIndex && section.ProbeRet == 0 && len(section.Data) > 0 {
-			return s.decoder.DecodeString(int(eventRaw.Tid), section.UserPtr, section.Data, section.ProbeRet, scMeta.Name, 0), true
+			return s.decoder.DecodeString(int(view.tid), section.UserPtr, section.Data, section.ProbeRet, scMeta.Name, 0), true
 		}
 	}
 	return "", false
