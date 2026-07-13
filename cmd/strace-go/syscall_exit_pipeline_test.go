@@ -33,8 +33,13 @@ func newExitPipelineTestState(opts *cli.Options, runner *SyscallHandlerRunner, j
 }
 
 func exitPipelineEvent(name string) syscallEventContext {
+	return exitPipelineEventWithRawAndView(name, &bpfEvent{}, syscallEventView{})
+}
+
+func exitPipelineEventWithRawAndView(name string, raw *bpfEvent, view syscallEventView) syscallEventContext {
 	return syscallEventContext{
-		raw:            &bpfEvent{},
+		raw:            raw,
+		view:           view,
 		meta:           meta.Syscall{Name: name},
 		shouldPrint:    true,
 		handlerContext: &handler.Context{SysName: name, ScMeta: meta.Syscall{Name: name}},
@@ -87,8 +92,7 @@ func TestSyscallExitPipelineSuppressesArchPrctlSetFSText(t *testing.T) {
 		},
 	})
 	state := newExitPipelineTestState(nil, runner, nil)
-	ev := exitPipelineEvent("arch_prctl")
-	ev.raw.Args[0] = 0x1002
+	ev := exitPipelineEventWithRawAndView("arch_prctl", &bpfEvent{Args: [6]uint64{0x1002}}, syscallEventView{})
 
 	state.pipeline.Handle(ev)
 
@@ -103,9 +107,11 @@ func TestSyscallExitPipelineSuppressesArchPrctlFromEventView(t *testing.T) {
 		},
 	})
 	state := newExitPipelineTestState(nil, runner, nil)
-	ev := exitPipelineEvent("arch_prctl")
-	ev.raw.Args[0] = 0
-	ev.view = syscallEventView{valid: true, args: [6]uint64{0x1002}}
+	ev := exitPipelineEventWithRawAndView(
+		"arch_prctl",
+		&bpfEvent{Args: [6]uint64{0}},
+		syscallEventView{valid: true, args: [6]uint64{0x1002}},
+	)
 
 	state.pipeline.Handle(ev)
 
