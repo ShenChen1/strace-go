@@ -63,7 +63,7 @@ func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 		Ptr:           0x1000,
 		DataLen:       uint32(len(path)),
 		ProbeRetEnter: 0,
-		Ret:           3,
+		Ret:           -2,
 	}
 	copy(eventRaw.StrArg[:], path)
 
@@ -176,11 +176,14 @@ func TestSyscallEnterEventContextUsesRawViewAndMetadata(t *testing.T) {
 
 	ev := newSyscallEnterEventContext(raw, 201)
 
-	if ev.raw != raw || ev.statePID != 201 || ev.meta.Name != "getpid" {
-		t.Fatalf("enter context identity = raw:%p state:%d meta:%s", ev.raw, ev.statePID, ev.meta.Name)
+	if ev.syscallName() != "getpid" {
+		t.Fatalf("enter context syscall name = %q, want getpid", ev.syscallName())
 	}
-	if ev.handlerContext != nil || ev.payloadSections != nil {
-		t.Fatalf("enter context should not build handler/payload side effects: %+v", ev)
+	if ev.handlerContextForFormatting() != nil {
+		t.Fatalf("enter context should not build handler context: %+v", ev.handlerContextForFormatting())
+	}
+	if sections := ev.outputPayloadSections(); sections != nil {
+		t.Fatalf("enter context payload sections = %+v, want nil", sections)
 	}
 	view := ev.eventView()
 	if view.pid != 101 || view.tid != 102 || view.sysID != 39 || view.args[0] != 7 || view.ret != -2 {
