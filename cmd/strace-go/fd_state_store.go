@@ -72,15 +72,6 @@ func (st *FDStateStore) UpdateFromSyscall(ev syscallEventContext) {
 	}, ev.meta, ev.pathText, ev.statePID)
 }
 
-func updateFDMapFromSyscall(ev syscallEventContext, fdMap map[string]string) {
-	view := ev.eventView()
-	updateFDMapFromSource(fdStateSource{
-		view:            view,
-		payloadSections: ev.payloadSections,
-		procTid:         view.tid,
-	}, ev.meta, ev.pathText, ev.statePID, fdMap)
-}
-
 func (st *FDStateStore) updateFromSource(src fdStateSource, scMeta meta.Syscall, pathText string, targetPID int) {
 	st.ensureMaps()
 	updateFDMapFromSource(src, scMeta, pathText, targetPID, st.paths)

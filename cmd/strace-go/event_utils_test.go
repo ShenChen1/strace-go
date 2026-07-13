@@ -14,14 +14,15 @@ import (
 )
 
 func updateFDMapForTest(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
-	updateFDMapFromSyscall(syscallEventContext{
+	store := newFDStateStoreFromMaps(fdMap, nil, nil)
+	store.UpdateFromSyscall(syscallEventContext{
 		raw:             eventRaw,
 		view:            newSyscallEventViewFromBPF(eventRaw),
 		statePID:        targetPid,
 		meta:            scMeta,
 		pathText:        pathText,
 		payloadSections: payloadSectionsForEvent(eventRaw, scMeta),
-	}, fdMap)
+	})
 }
 
 func TestDup2FormatsArgsBeforeFDMapUpdateAndReturnAfter(t *testing.T) {
@@ -149,7 +150,7 @@ func TestUpdateFDMapUsesSocketpairPayloadSection(t *testing.T) {
 	}
 }
 
-func TestUpdateFDMapFromSyscallUsesViewForSocketpairInfo(t *testing.T) {
+func TestFDStateStoreUpdateFromSyscallUsesViewForSocketpairInfo(t *testing.T) {
 	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 	if err != nil {
 		t.Fatalf("socketpair() failed: %v", err)
@@ -183,7 +184,8 @@ func TestUpdateFDMapFromSyscallUsesViewForSocketpairInfo(t *testing.T) {
 	}
 
 	fdMap := make(map[string]string)
-	updateFDMapFromSyscall(ev, fdMap)
+	store := newFDStateStoreFromMaps(fdMap, nil, nil)
+	store.UpdateFromSyscall(ev)
 
 	wantSuffix := "|" + socketFDInfoFromView(view)
 	rawSuffix := "|" + socketFDInfoFromView(rawView)
@@ -321,7 +323,7 @@ func TestUpdateFDMapUsesNetlinkSockaddrPayloadSection(t *testing.T) {
 	}
 }
 
-func TestUpdateFDMapFromSyscallUsesViewForNetlinkFD(t *testing.T) {
+func TestFDStateStoreUpdateFromSyscallUsesViewForNetlinkFD(t *testing.T) {
 	data := make([]byte, 8)
 	binary.LittleEndian.PutUint16(data, 16)
 	binary.LittleEndian.PutUint32(data[4:], 42)
@@ -345,7 +347,8 @@ func TestUpdateFDMapFromSyscallUsesViewForNetlinkFD(t *testing.T) {
 	}
 
 	fdMap := make(map[string]string)
-	updateFDMapFromSyscall(ev, fdMap)
+	store := newFDStateStoreFromMaps(fdMap, nil, nil)
+	store.UpdateFromSyscall(ev)
 
 	if got := fdMap["101:5"]; got != "NETLINK:[SOCK_DIAG:42]" {
 		t.Fatalf("fdMap[101:5] = %q, want NETLINK socket from view fd", got)
