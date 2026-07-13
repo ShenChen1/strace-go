@@ -257,3 +257,48 @@ func TestSyscallEventContextRawEnterPolicy(t *testing.T) {
 		t.Fatal("debug raw enter policy should override filters")
 	}
 }
+
+func TestSyscallEventContextSuppressOutputUsesEffectiveMetadata(t *testing.T) {
+	ev := syscallEventContext{
+		view: syscallEventView{valid: true, args: [6]uint64{0x1002}},
+		handlerContext: &handler.Context{
+			ScMeta: meta.Syscall{Name: "arch_prctl"},
+		},
+	}
+
+	if !ev.shouldSuppressOutput() {
+		t.Fatal("arch_prctl ARCH_SET_FS should be suppressed from effective metadata")
+	}
+
+	ev.view.args[0] = 0
+	if ev.shouldSuppressOutput() {
+		t.Fatal("arch_prctl with non-ARCH_SET_FS arg should not be suppressed")
+	}
+}
+
+func TestSyscallEventContextRecordSummaryUsesEffectiveMetadata(t *testing.T) {
+	stats := &SummaryStats{}
+	ev := syscallEventContext{
+		view:        syscallEventView{valid: true, duration: 12, ret: -2},
+		shouldPrint: true,
+		handlerContext: &handler.Context{
+			ScMeta: meta.Syscall{Name: "getpid"},
+		},
+	}
+
+	ev.recordSummary(stats)
+
+	entry, ok := stats.stats["getpid"]
+	if !ok {
+		t.Fatalf("summary entries = %+v, want getpid", stats.stats)
+	}
+	if entry.calls != 1 || entry.duration != 12 || entry.errors != 1 {
+		t.Fatalf("summary entry = %+v, want count=1 time=12 errors=1", entry)
+	}
+
+	ev.shouldPrint = false
+	ev.recordSummary(stats)
+	if stats.stats["getpid"].calls != 1 {
+		t.Fatalf("hidden event changed summary entry = %+v", stats.stats["getpid"])
+	}
+}

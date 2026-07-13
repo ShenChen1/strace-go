@@ -116,5 +116,5 @@ func (p *SyscallExitPipeline) updateOffsets(ev syscallEventContext) {
 }
 
 func suppressSyscallOutput(ev syscallEventContext) bool {
-	return ev.meta.Name == "arch_prctl" && ev.eventView().args[0] == 0x1002
+	return ev.shouldSuppressOutput()
 }

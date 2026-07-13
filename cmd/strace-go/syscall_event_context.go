@@ -155,6 +155,18 @@ func (ev syscallEventContext) pairedGenericEnter() bool {
 	return ev.pendingEnter != nil && ev.pendingEnter.genericEnterRaw
 }
 
+func (ev syscallEventContext) shouldSuppressOutput() bool {
+	return ev.syscallName() == "arch_prctl" && ev.eventView().args[0] == 0x1002
+}
+
+func (ev syscallEventContext) recordSummary(stats *SummaryStats) {
+	if stats == nil || !ev.shouldOutput() {
+		return
+	}
+	view := ev.eventView()
+	stats.Record(ev.syscallName(), view.duration, view.ret)
+}
+
 func syscallMeta(sysID uint32) meta.Syscall {
 	if scMeta, ok := meta.SyscallTable[sysID]; ok {
 		return scMeta
@@ -256,11 +268,10 @@ func (ev syscallEventContext) handleWith(handle func(string, *handler.Context) h
 }
 
 func (s *traceSession) updateSummaryStats(ev syscallEventContext) {
-	if s.opts == nil || (!s.opts.SummaryOnly && !s.opts.SummaryAndPrint) || !ev.shouldPrint {
+	if s.opts == nil || (!s.opts.SummaryOnly && !s.opts.SummaryAndPrint) {
 		return
 	}
-	view := ev.eventView()
-	s.summaryStats().Record(ev.meta.Name, view.duration, view.ret)
+	ev.recordSummary(s.summaryStats())
 }
 
 func (ev syscallEventContext) isFDStateSyscall() bool {
