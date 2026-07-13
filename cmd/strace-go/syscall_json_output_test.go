@@ -35,7 +35,11 @@ func newJSONOutputTestState(opts *cli.Options) *jsonOutputTestState {
 func TestSyscallJSONOutputEnterWritesRawInDebugMode(t *testing.T) {
 	state := newJSONOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON, DebugEvents: true})
 
-	state.output.HandleEnter(&bpfEvent{}, syscallEventView{}, meta.Syscall{Name: "getpid"}, 101)
+	state.output.HandleEnter(syscallEventContext{
+		raw:      &bpfEvent{},
+		meta:     meta.Syscall{Name: "getpid"},
+		statePID: 101,
+	})
 
 	if state.rawWrites != 1 {
 		t.Fatalf("rawWrites = %d, want 1", state.rawWrites)
@@ -52,7 +56,12 @@ func TestSyscallJSONOutputEnterFilterUsesEventView(t *testing.T) {
 	raw := &bpfEvent{Args: [6]uint64{3}}
 	view := newSyscallEventViewFromBPF(raw)
 	view.args[0] = 5
-	state.output.HandleEnter(raw, view, meta.Syscall{Name: "dup", Args: []string{"fd"}}, 101)
+	state.output.HandleEnter(syscallEventContext{
+		raw:      raw,
+		view:     view,
+		meta:     meta.Syscall{Name: "dup", Args: []string{"fd"}},
+		statePID: 101,
+	})
 
 	if state.rawWrites != 1 {
 		t.Fatalf("rawWrites = %d, want 1 from fd in event view", state.rawWrites)
