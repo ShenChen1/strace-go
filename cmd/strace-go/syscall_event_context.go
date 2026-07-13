@@ -33,6 +33,7 @@ type syscallEventView struct {
 	ret           int64
 	duration      uint64
 	enterTime     uint64
+	stackID       int32
 	probeRetEnter int32
 	probeRetExit  int32
 }
@@ -79,6 +80,7 @@ func newSyscallEventViewFromBPF(eventRaw *bpfEvent) syscallEventView {
 		ret:           eventRaw.Ret,
 		duration:      eventRaw.Duration,
 		enterTime:     eventRaw.EnterTime,
+		stackID:       eventRaw.StackId,
 		probeRetEnter: eventRaw.ProbeRetEnter,
 		probeRetExit:  eventRaw.ProbeRetExit,
 	}

@@ -82,7 +82,7 @@ func (p *SyscallExitPipeline) Handle(ev syscallEventContext) {
 		return
 	}
 	if p.text != nil {
-		p.text.Handle(ev.handlerContext, ev.raw, res)
+		p.text.HandleEvent(ev, res)
 	}
 }
 

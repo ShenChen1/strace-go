@@ -123,7 +123,24 @@ func (r *TextRenderer) ExitStatusLineFromView(view syscallEventView) string {
 
 // IMPACT: PrintSyscall outputs a formatted syscall trace line and related text-only side effects.
 func (r *TextRenderer) PrintSyscall(eventRaw *bpfEvent, scMeta meta.Syscall, res handler.Result, ctx *handler.Context) {
-	tid := int(eventRaw.Tid)
+	ev := syscallEventContext{
+		raw:            eventRaw,
+		view:           newSyscallEventViewFromBPF(eventRaw),
+		meta:           scMeta,
+		handlerContext: ctx,
+	}
+	r.PrintSyscallEvent(ev, res)
+}
+
+// IMPACT: PrintSyscallEvent renders a decoded syscall from the stable event context view.
+func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Result) {
+	view := ev.eventView()
+	scMeta := ev.meta
+	ctx := ev.handlerContext
+	if scMeta.Name == "" && ctx != nil {
+		scMeta = ctx.ScMeta
+	}
+	tid := int(view.tid)
 	line := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
 	if r.consumeSuspended(tid) {
 		if scMeta.Name == "nanosleep" {
@@ -133,20 +150,20 @@ func (r *TextRenderer) PrintSyscall(eventRaw *bpfEvent, scMeta meta.Syscall, res
 		}
 	}
 
-	timePrefix := r.timePrefix(eventRaw.EnterTime)
+	timePrefix := r.timePrefix(view.enterTime)
 	pidPrefix := r.pidPrefix(tid)
-	retStr := formatSyscallRet(scMeta.Name, eventRaw.Ret, res, ctx)
+	retStr := formatSyscallRet(scMeta.Name, view.ret, res, ctx)
 	fmt.Fprintf(r.out, "%s%s%s%s= %s%s\n",
-		timePrefix, pidPrefix, line, r.padding(timePrefix, pidPrefix, line), retStr, r.durationSuffix(eventRaw.Duration))
+		timePrefix, pidPrefix, line, r.padding(timePrefix, pidPrefix, line), retStr, r.durationSuffix(view.duration))
 	if res.HexDumpStr != "" {
 		fmt.Fprint(r.out, res.HexDumpStr)
 	}
-	if scMeta.Name == "nanosleep" && eventRaw.Ret == -516 {
+	if scMeta.Name == "nanosleep" && view.ret == -516 {
 		fmt.Fprintf(r.out, "%s%s--- SIGALRM {si_signo=SIGALRM, si_code=SI_KERNEL} ---\n", timePrefix, pidPrefix)
 	}
 
-	r.printStackTrace(eventRaw.StackId)
-	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && eventRaw.Ret < 0 && r.state != nil {
+	r.printStackTrace(view.stackID)
+	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && view.ret < 0 && r.state != nil {
 		r.state.deletePendingExecArgs(tid)
 	}
 }

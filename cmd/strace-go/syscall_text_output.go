@@ -3,7 +3,6 @@ package main
 import (
 	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
 )
 
 type SyscallTextOutput struct {
@@ -54,22 +53,37 @@ func (s *traceSession) syscallTextOutput() *SyscallTextOutput {
 
 // IMPACT: Handle owns the text-mode syscall output chain after handler decoding.
 func (o *SyscallTextOutput) Handle(ctx *handler.Context, eventRaw *bpfEvent, res handler.Result) {
-	scMeta := ctx.ScMeta
-	if !o.shouldEmit(eventRaw, scMeta) {
+	ev := syscallEventContext{
+		raw:            eventRaw,
+		view:           newSyscallEventViewFromBPF(eventRaw),
+		meta:           ctx.ScMeta,
+		handlerContext: ctx,
+	}
+	o.HandleEvent(ev, res)
+}
+
+// IMPACT: HandleEvent owns text-mode syscall output from the stable syscall event context.
+func (o *SyscallTextOutput) HandleEvent(ev syscallEventContext, res handler.Result) {
+	scMeta := ev.meta
+	if scMeta.Name == "" && ev.handlerContext != nil {
+		scMeta = ev.handlerContext.ScMeta
+		ev.meta = scMeta
+	}
+	if !o.shouldEmitEvent(ev) {
 		return
 	}
-	if o.suspended != nil && o.suspended.Handle(eventRaw, scMeta, res) {
+	if ev.raw != nil && o.suspended != nil && o.suspended.Handle(ev.raw, scMeta, res) {
 		return
 	}
-	if o.exec != nil && o.exec.Handle(eventRaw, scMeta, res) {
+	if ev.raw != nil && o.exec != nil && o.exec.Handle(ev.raw, scMeta, res) {
 		return
 	}
 	if o.renderer != nil {
-		o.renderer.PrintSyscall(eventRaw, scMeta, res, ctx)
+		o.renderer.PrintSyscallEvent(ev, res)
 	}
 }
 
-func (o *SyscallTextOutput) shouldEmit(eventRaw *bpfEvent, scMeta meta.Syscall) bool {
+func (o *SyscallTextOutput) shouldEmitEvent(ev syscallEventContext) bool {
 	if o.opts == nil {
 		return true
 	}
@@ -78,5 +92,5 @@ func (o *SyscallTextOutput) shouldEmit(eventRaw *bpfEvent, scMeta meta.Syscall) 
 		failedOnly:     o.opts.FailedOnly,
 		traceStatus:    o.opts.TraceStatus,
 	}
-	return shouldEmitStatus(eventRaw, scMeta, status)
+	return ev.shouldEmitStatus(status)
 }

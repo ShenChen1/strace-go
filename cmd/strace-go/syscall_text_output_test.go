@@ -58,6 +58,23 @@ func TestSyscallTextOutputPrintsNormalSyscall(t *testing.T) {
 	}
 }
 
+func TestSyscallTextOutputPrintsNormalSyscallFromEventView(t *testing.T) {
+	output, _, out := newSyscallTextOutputForTest(&cli.Options{FollowForks: true})
+	ctx := syscallTextContext("getpid")
+	ev := syscallEventContext{
+		raw:            &bpfEvent{Tid: 1, Ret: 1},
+		view:           syscallEventView{valid: true, tid: 101, ret: 202, probeRetEnter: -1},
+		meta:           ctx.ScMeta,
+		handlerContext: ctx,
+	}
+
+	output.HandleEvent(ev, handler.Result{})
+
+	if got := out.String(); got != "101   getpid() = 202\n" {
+		t.Fatalf("normal syscall output = %q", got)
+	}
+}
+
 func TestSyscallTextOutputAppliesStatusFilterBeforePrinting(t *testing.T) {
 	output, _, out := newSyscallTextOutputForTest(&cli.Options{FailedOnly: true})
 
@@ -69,6 +86,23 @@ func TestSyscallTextOutputAppliesStatusFilterBeforePrinting(t *testing.T) {
 
 	if out.Len() != 0 {
 		t.Fatalf("status-filtered output = %q, want no output", out.String())
+	}
+}
+
+func TestSyscallTextOutputAppliesStatusFilterFromEventView(t *testing.T) {
+	output, _, out := newSyscallTextOutputForTest(&cli.Options{FailedOnly: true})
+	ctx := syscallTextContext("getpid")
+	ev := syscallEventContext{
+		raw:            &bpfEvent{Tid: 101, Ret: 101},
+		view:           syscallEventView{valid: true, tid: 101, ret: -2, probeRetEnter: -1},
+		meta:           ctx.ScMeta,
+		handlerContext: ctx,
+	}
+
+	output.HandleEvent(ev, handler.Result{})
+
+	if got := out.String(); !strings.Contains(got, "ENOENT") {
+		t.Fatalf("status-filtered output = %q, want failed view ret to print", got)
 	}
 }
 
