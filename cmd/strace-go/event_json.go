@@ -39,7 +39,7 @@ type jsonSyscallEvent struct {
 	DurationNS      uint64               `json:"duration_ns"`
 	EnterTimeNS     uint64               `json:"enter_time_ns"`
 	Ptr             uint64               `json:"ptr,omitempty"`
-	DataLen         uint32               `json:"data_len,omitempty"`
+	DataLen         uint32               `json:"-"`
 	PayloadSections []jsonPayloadSection `json:"payload_sections,omitempty"`
 	ProbeRetEnter   int32                `json:"probe_ret_enter"`
 	ProbeRetExit    int32                `json:"probe_ret_exit"`

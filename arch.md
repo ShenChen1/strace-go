@@ -967,7 +967,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `handler` 包已不再导出 BPF fixed-window layout offset；`BpfEnterArgOffset`、`BpfMiscArgOffset`、`BpfExitArgOffset` 已删除，固定窗口布局只保留在 `cmd/strace-go/event_payload_layout.go` 作为迁移期投影边界。
 - time/signal 等生产 handler 已移除旧 offset snapshot hint，handler 只能通过 `PayloadSection` 的 arg/direction/kind 语义读取 BPF 快照。
 - payload projection 会先拒绝 lifecycle/unknown 等非 syscall event，再从 fixed window 投影 semantic sections；旧 `event_type == 0` 或 lifecycle 样本不能再伪装成 syscall payload。
-- JSON/debug `payload_sections` 不再输出 fixed-window `offset` 字段；外部测试 oracle 只看 kind/direction/arg/user_ptr/user_len/copied_len/probe_ret/data，避免把旧窗口布局固化成机器输出契约。
+- JSON/debug `payload_sections` 不再输出 fixed-window `offset` 字段，syscall event 也不再输出旧 raw carrier 的 `data_len`；外部测试 oracle 只看 kind/direction/arg/user_ptr/user_len/copied_len/probe_ret/data，避免把旧窗口布局固化成机器输出契约。
 - 迁移期固定窗口源已统一命名为 `windowPayloadSource`，不再把它称为 fixed payload source，强调它只是旧 BPF fixed-window 到 semantic section 的兼容投影层。
 - upstream 原生测试卷已作为 `upstream-reference` smoke 跑通入口；最近一次参考运行暴露的主要是 strict text diff、退出行和 ptrace 顺序语义差异，不作为 eBPF 主门禁失败处理。
 
