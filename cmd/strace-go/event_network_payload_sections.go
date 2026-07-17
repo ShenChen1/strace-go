@@ -13,10 +13,10 @@ const (
 	sockaddrLenEnterOffset   = 768
 	sockaddrLenExitOffset    = 772
 	recvfromSockaddrOffset   = 1536
-	sendtoSockaddrOffset     = handler.BpfMiscArgOffset
-	acceptSockaddrOutOffset  = handler.BpfExitArgOffset
-	networkBufferEnterOffset = handler.BpfEnterArgOffset
-	networkBufferExitOffset  = handler.BpfExitArgOffset
+	sendtoSockaddrOffset     = payloadMiscArgOffset
+	acceptSockaddrOutOffset  = payloadExitArgOffset
+	networkBufferEnterOffset = payloadEnterArgOffset
+	networkBufferExitOffset  = payloadExitArgOffset
 )
 
 func sendtoPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {

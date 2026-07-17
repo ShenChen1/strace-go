@@ -129,16 +129,16 @@ func networkSourceEvent(raw *bpfEvent, data []byte) payloadEvent {
 }
 
 func sendtoSourcePayload() []byte {
-	data := make([]byte, handler.BpfMiscArgOffset+16)
+	data := make([]byte, payloadMiscArgOffset+16)
 	copy(data[:], []byte("abc"))
-	copy(data[handler.BpfMiscArgOffset:], jsonSockaddrInet(80, [4]byte{127, 0, 0, 1}))
+	copy(data[payloadMiscArgOffset:], jsonSockaddrInet(80, [4]byte{127, 0, 0, 1}))
 	return data
 }
 
 func recvfromSourcePayload() []byte {
 	data := make([]byte, recvfromSockaddrOffset+16)
 	putSourceSocklen(data, sockaddrLenEnterOffset, 16)
-	copy(data[handler.BpfExitArgOffset:], []byte("abc"))
+	copy(data[payloadExitArgOffset:], []byte("abc"))
 	putSourceSocklen(data, sockaddrLenExitOffset, 16)
 	copy(data[recvfromSockaddrOffset:], jsonSockaddrInet(80, [4]byte{127, 0, 0, 1}))
 	return data
@@ -152,7 +152,7 @@ func acceptSourcePayload() []byte {
 	data := make([]byte, dataLen)
 	putSourceSocklen(data, sockaddrLenEnterOffset, 16)
 	putSourceSocklen(data, sockaddrLenExitOffset, 16)
-	copy(data[handler.BpfExitArgOffset:], jsonSockaddrInet(80, [4]byte{127, 0, 0, 1}))
+	copy(data[payloadExitArgOffset:], jsonSockaddrInet(80, [4]byte{127, 0, 0, 1}))
 	return data
 }
 

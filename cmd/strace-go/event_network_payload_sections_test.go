@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -48,11 +47,11 @@ func TestJSONSyscallEventIncludesSendtoBufferAndSockaddrSections(t *testing.T) {
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
 		Args:          [6]uint64{3, 0x2000, 3, 0, 0x4000, 16},
-		DataLen:       handler.BpfMiscArgOffset + 16,
+		DataLen:       payloadMiscArgOffset + 16,
 		ProbeRetEnter: 0,
 	}
 	copy(eventRaw.StrArg[:], []byte("abc"))
-	copy(eventRaw.StrArg[handler.BpfMiscArgOffset:], jsonSockaddrInet(80, [4]byte{127, 0, 0, 1}))
+	copy(eventRaw.StrArg[payloadMiscArgOffset:], jsonSockaddrInet(80, [4]byte{127, 0, 0, 1}))
 
 	scMeta := meta.Syscall{Name: "sendto"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -68,7 +67,7 @@ func TestJSONSyscallEventIncludesSendtoBufferAndSockaddrSections(t *testing.T) {
 		t.Fatalf("sendto buffer data = %q, want abc", string(got))
 	}
 	if addr.Kind != "struct" || addr.Direction != "in" || addr.ArgIndex != 4 ||
-		addr.Offset != handler.BpfMiscArgOffset || addr.UserPtr != 0x4000 || addr.UserLen != 16 {
+		addr.Offset != payloadMiscArgOffset || addr.UserPtr != 0x4000 || addr.UserLen != 16 {
 		t.Fatalf("sendto sockaddr section = %+v", addr)
 	}
 }
@@ -83,7 +82,7 @@ func TestJSONSyscallEventIncludesRecvfromBufferSockaddrAndLenSections(t *testing
 		ProbeRetExit:  0,
 	}
 	putJSONSocklen(eventRaw, sockaddrLenEnterOffset, 16)
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], []byte("abc"))
+	copy(eventRaw.StrArg[payloadExitArgOffset:], []byte("abc"))
 	putJSONSocklen(eventRaw, sockaddrLenExitOffset, 16)
 	copy(eventRaw.StrArg[recvfromSockaddrOffset:], jsonSockaddrInet(80, [4]byte{127, 0, 0, 1}))
 
@@ -116,13 +115,13 @@ func TestJSONSyscallEventIncludesAcceptSockaddrAndLenSections(t *testing.T) {
 		EventType:     bpfEventTypeExit,
 		Args:          [6]uint64{3, 0x4000, 0x5000},
 		Ret:           4,
-		DataLen:       handler.BpfExitArgOffset + 16,
+		DataLen:       payloadExitArgOffset + 16,
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
 	putJSONSocklen(eventRaw, sockaddrLenEnterOffset, 16)
 	putJSONSocklen(eventRaw, sockaddrLenExitOffset, 16)
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], jsonSockaddrInet(80, [4]byte{127, 0, 0, 1}))
+	copy(eventRaw.StrArg[payloadExitArgOffset:], jsonSockaddrInet(80, [4]byte{127, 0, 0, 1}))
 
 	scMeta := meta.Syscall{Name: "accept"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -136,7 +135,7 @@ func TestJSONSyscallEventIncludesAcceptSockaddrAndLenSections(t *testing.T) {
 		t.Fatalf("accept in addrlen section = %+v", inLen)
 	}
 	if addr.Kind != "struct" || addr.Direction != "out" || addr.ArgIndex != 1 ||
-		addr.Offset != handler.BpfExitArgOffset || addr.UserPtr != 0x4000 || addr.UserLen != 16 {
+		addr.Offset != payloadExitArgOffset || addr.UserPtr != 0x4000 || addr.UserLen != 16 {
 		t.Fatalf("accept sockaddr section = %+v", addr)
 	}
 	if outLen.Kind != "bytes" || outLen.Direction != "out" || outLen.ArgIndex != 2 || outLen.Offset != sockaddrLenExitOffset {
