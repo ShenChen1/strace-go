@@ -9,7 +9,7 @@ func clone3PayloadSectionsFromSource(event payloadEvent, _ string) []handler.Pay
 		kind:      handler.PayloadKindStruct,
 		direction: handler.PayloadDirectionIn,
 		argIndex:  0,
-		offset:    handler.BpfEnterArgOffset,
+		offset:    payloadEnterArgOffset,
 		userLen:   uint32Clamped(event.Arg(1)),
 		maxLen:    clone3PayloadMaxBytes,
 		probeRet:  event.ProbeRetEnterArg(0),

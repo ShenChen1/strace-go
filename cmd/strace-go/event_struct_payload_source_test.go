@@ -28,7 +28,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareClone3Rule(t *testing.T) {
 	if len(sections) != 1 {
 		t.Fatalf("sections = %d, want 1", len(sections))
 	}
-	assertStructPayloadSourceSection(t, sections[0], 0, handler.PayloadDirectionIn, handler.BpfEnterArgOffset, 0x1000, wantData)
+	assertStructPayloadSourceSection(t, sections[0], 0, handler.PayloadDirectionIn, payloadEnterArgOffset, 0x1000, wantData)
 }
 
 func TestPayloadSectionsForPayloadEventUsesSourceAwareCachestatRule(t *testing.T) {
