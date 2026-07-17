@@ -8,7 +8,7 @@ func fcntlPayloadSectionsFromSource(event payloadEvent, _ string) []handler.Payl
 		return nil
 	}
 
-	sections := enterStructPayloadSectionFromSource(event, 2, handler.BpfEnterArgOffset, size)
+	sections := enterStructPayloadSectionFromSource(event, 2, payloadEnterArgOffset, size)
 	if event.IsExit() && event.Ret() >= 0 {
 		sections = append(sections, exitStructPayloadSectionFromSource(event, 2, size)...)
 	}

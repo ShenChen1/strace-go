@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -32,13 +31,13 @@ func TestJSONSyscallEventIncludesFcntlPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{3, 5, 0x2000},
 				Ret:           0,
-				DataLen:       handler.BpfExitArgOffset + fcntlFlockPayloadSize,
+				DataLen:       payloadExitArgOffset + fcntlFlockPayloadSize,
 				ProbeRetEnter: 0,
 				ProbeRetExit:  0,
 			},
 			wants: []wantFcntlJSONPayloadSection{
 				{"in", 0, fcntlFlockPayloadSize, bytes.Repeat([]byte{0x22}, fcntlFlockPayloadSize)},
-				{"out", handler.BpfExitArgOffset, fcntlFlockPayloadSize, bytes.Repeat([]byte{0x33}, fcntlFlockPayloadSize)},
+				{"out", payloadExitArgOffset, fcntlFlockPayloadSize, bytes.Repeat([]byte{0x33}, fcntlFlockPayloadSize)},
 			},
 		},
 		{
@@ -47,13 +46,13 @@ func TestJSONSyscallEventIncludesFcntlPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{3, 16, 0x3000},
 				Ret:           0,
-				DataLen:       handler.BpfExitArgOffset + fcntlSmallPayloadSize,
+				DataLen:       payloadExitArgOffset + fcntlSmallPayloadSize,
 				ProbeRetEnter: 0,
 				ProbeRetExit:  0,
 			},
 			wants: []wantFcntlJSONPayloadSection{
 				{"in", 0, fcntlSmallPayloadSize, bytes.Repeat([]byte{0x44}, fcntlSmallPayloadSize)},
-				{"out", handler.BpfExitArgOffset, fcntlSmallPayloadSize, bytes.Repeat([]byte{0x55}, fcntlSmallPayloadSize)},
+				{"out", payloadExitArgOffset, fcntlSmallPayloadSize, bytes.Repeat([]byte{0x55}, fcntlSmallPayloadSize)},
 			},
 		},
 		{
@@ -62,7 +61,7 @@ func TestJSONSyscallEventIncludesFcntlPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{3, 1, 0},
 				Ret:           1,
-				DataLen:       handler.BpfExitArgOffset + fcntlSmallPayloadSize,
+				DataLen:       payloadExitArgOffset + fcntlSmallPayloadSize,
 				ProbeRetEnter: 0,
 				ProbeRetExit:  0,
 			},

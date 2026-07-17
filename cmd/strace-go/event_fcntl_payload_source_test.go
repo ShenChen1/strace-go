@@ -22,7 +22,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareFcntlRule(t *testing.T) {
 				ProbeRetEnter: 0,
 			},
 			wants: []wantFcntlSourcePayloadSection{
-				{direction: handler.PayloadDirectionIn, offset: handler.BpfEnterArgOffset, data: bytes.Repeat([]byte{0x11}, fcntlFlockPayloadSize)},
+				{direction: handler.PayloadDirectionIn, offset: payloadEnterArgOffset, data: bytes.Repeat([]byte{0x11}, fcntlFlockPayloadSize)},
 			},
 		},
 		{
@@ -35,8 +35,8 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareFcntlRule(t *testing.T) {
 				ProbeRetExit:  0,
 			},
 			wants: []wantFcntlSourcePayloadSection{
-				{direction: handler.PayloadDirectionIn, offset: handler.BpfEnterArgOffset, data: bytes.Repeat([]byte{0x22}, fcntlFlockPayloadSize)},
-				{direction: handler.PayloadDirectionOut, offset: handler.BpfExitArgOffset, data: bytes.Repeat([]byte{0x33}, fcntlFlockPayloadSize)},
+				{direction: handler.PayloadDirectionIn, offset: payloadEnterArgOffset, data: bytes.Repeat([]byte{0x22}, fcntlFlockPayloadSize)},
+				{direction: handler.PayloadDirectionOut, offset: payloadExitArgOffset, data: bytes.Repeat([]byte{0x33}, fcntlFlockPayloadSize)},
 			},
 		},
 		{
@@ -49,8 +49,8 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareFcntlRule(t *testing.T) {
 				ProbeRetExit:  0,
 			},
 			wants: []wantFcntlSourcePayloadSection{
-				{direction: handler.PayloadDirectionIn, offset: handler.BpfEnterArgOffset, data: bytes.Repeat([]byte{0x44}, fcntlSmallPayloadSize)},
-				{direction: handler.PayloadDirectionOut, offset: handler.BpfExitArgOffset, data: bytes.Repeat([]byte{0x55}, fcntlSmallPayloadSize)},
+				{direction: handler.PayloadDirectionIn, offset: payloadEnterArgOffset, data: bytes.Repeat([]byte{0x44}, fcntlSmallPayloadSize)},
+				{direction: handler.PayloadDirectionOut, offset: payloadExitArgOffset, data: bytes.Repeat([]byte{0x55}, fcntlSmallPayloadSize)},
 			},
 		},
 		{
@@ -68,7 +68,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareFcntlRule(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			raw := tt.raw
-			data := make([]byte, handler.BpfExitArgOffset+fcntlFlockPayloadSize)
+			data := make([]byte, payloadExitArgOffset+fcntlFlockPayloadSize)
 			putFcntlSourcePayloads(data, tt.wants)
 			event := payloadEvent{
 				raw: &raw,
