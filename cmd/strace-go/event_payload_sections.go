@@ -93,7 +93,7 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"uname":      exitStructPayloadSourceRule(0, utsnamePayloadStructSize),
 	"sysinfo":    exitStructPayloadSourceRule(0, sysinfoPayloadStructSize),
 	"getrlimit":  exitStructPayloadSourceRule(1, rlimitPayloadStructSize),
-	"setrlimit":  enterStructPayloadSourceRule(1, handler.BpfEnterArgOffset, rlimitPayloadStructSize),
+	"setrlimit":  enterStructPayloadSourceRule(1, payloadEnterArgOffset, rlimitPayloadStructSize),
 	"prlimit64":  prlimitPayloadSectionsFromSource,
 	"arch_prctl": exitStructPayloadSourceRule(1, archPrctlPayloadOutSize),
 

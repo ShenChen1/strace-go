@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -18,10 +17,10 @@ func TestJSONSyscallEventIncludesMiscStructPayloadSections(t *testing.T) {
 		offset    int
 		size      int
 	}{
-		{name: "uname", eventType: bpfEventTypeExit, args: [6]uint64{0x1000}, argIndex: 0, direction: "out", offset: handler.BpfExitArgOffset, size: utsnamePayloadStructSize},
-		{name: "sysinfo", eventType: bpfEventTypeExit, args: [6]uint64{0x2000}, argIndex: 0, direction: "out", offset: handler.BpfExitArgOffset, size: sysinfoPayloadStructSize},
-		{name: "getrlimit", eventType: bpfEventTypeExit, args: [6]uint64{7, 0x3000}, argIndex: 1, direction: "out", offset: handler.BpfExitArgOffset, size: rlimitPayloadStructSize},
-		{name: "setrlimit", eventType: bpfEventTypeEnter, args: [6]uint64{7, 0x4000}, argIndex: 1, direction: "in", offset: handler.BpfEnterArgOffset, size: rlimitPayloadStructSize},
+		{name: "uname", eventType: bpfEventTypeExit, args: [6]uint64{0x1000}, argIndex: 0, direction: "out", offset: payloadExitArgOffset, size: utsnamePayloadStructSize},
+		{name: "sysinfo", eventType: bpfEventTypeExit, args: [6]uint64{0x2000}, argIndex: 0, direction: "out", offset: payloadExitArgOffset, size: sysinfoPayloadStructSize},
+		{name: "getrlimit", eventType: bpfEventTypeExit, args: [6]uint64{7, 0x3000}, argIndex: 1, direction: "out", offset: payloadExitArgOffset, size: rlimitPayloadStructSize},
+		{name: "setrlimit", eventType: bpfEventTypeEnter, args: [6]uint64{7, 0x4000}, argIndex: 1, direction: "in", offset: payloadEnterArgOffset, size: rlimitPayloadStructSize},
 	}
 
 	for _, tt := range tests {
@@ -52,20 +51,20 @@ func TestJSONSyscallEventIncludesPrlimitPayloadSections(t *testing.T) {
 		EventType:     bpfEventTypeExit,
 		Args:          [6]uint64{101, 7, 0x3000, 0x4000},
 		Ret:           0,
-		DataLen:       handler.BpfExitArgOffset + rlimitPayloadStructSize,
+		DataLen:       payloadExitArgOffset + rlimitPayloadStructSize,
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
 	copy(eventRaw.StrArg[:], bytes.Repeat([]byte{0x11}, rlimitPayloadStructSize))
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], bytes.Repeat([]byte{0x22}, rlimitPayloadStructSize))
+	copy(eventRaw.StrArg[payloadExitArgOffset:], bytes.Repeat([]byte{0x22}, rlimitPayloadStructSize))
 
 	scMeta := meta.Syscall{Name: "prlimit64"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}
-	assertMiscStructSection(t, ev.PayloadSections[0], 2, "in", handler.BpfEnterArgOffset, rlimitPayloadStructSize, bytes.Repeat([]byte{0x11}, rlimitPayloadStructSize))
-	assertMiscStructSection(t, ev.PayloadSections[1], 3, "out", handler.BpfExitArgOffset, rlimitPayloadStructSize, bytes.Repeat([]byte{0x22}, rlimitPayloadStructSize))
+	assertMiscStructSection(t, ev.PayloadSections[0], 2, "in", payloadEnterArgOffset, rlimitPayloadStructSize, bytes.Repeat([]byte{0x11}, rlimitPayloadStructSize))
+	assertMiscStructSection(t, ev.PayloadSections[1], 3, "out", payloadExitArgOffset, rlimitPayloadStructSize, bytes.Repeat([]byte{0x22}, rlimitPayloadStructSize))
 }
 
 func assertMiscStructSection(
