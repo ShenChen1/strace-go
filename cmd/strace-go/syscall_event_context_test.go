@@ -24,6 +24,9 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 
 	ev := newSyscallEventContext(session, eventRaw, 101, nil)
 
+	if ev.raw != nil {
+		t.Fatalf("event context retained raw event on production constructor")
+	}
 	if ev.syscallName() != "openat" || !ev.shouldOutput() {
 		t.Fatalf("event context behavior = name:%s output:%v, want openat/true", ev.syscallName(), ev.shouldOutput())
 	}
@@ -176,6 +179,9 @@ func TestSyscallEnterEventContextUsesRawViewAndMetadata(t *testing.T) {
 
 	ev := newSyscallEnterEventContext(raw, 201)
 
+	if ev.raw != nil {
+		t.Fatalf("enter context retained raw event on production constructor")
+	}
 	if ev.syscallName() != "getpid" {
 		t.Fatalf("enter context syscall name = %q, want getpid", ev.syscallName())
 	}
@@ -188,6 +194,26 @@ func TestSyscallEnterEventContextUsesRawViewAndMetadata(t *testing.T) {
 	view := ev.eventView()
 	if view.pid != 101 || view.tid != 102 || view.sysID != 39 || view.args[0] != 7 || view.ret != -2 {
 		t.Fatalf("enter context view = %+v, want raw-derived syscall view", view)
+	}
+}
+
+func TestSyscallEnterEventContextCachesPayloadSections(t *testing.T) {
+	raw := tlvOpenatEvent(t, []byte("enter-path\x00"))
+	raw.EventType = bpfEventTypeEnter
+	raw.Ret = 0
+
+	ev := newSyscallEnterEventContext(raw, 201)
+
+	if ev.raw != nil {
+		t.Fatalf("enter context retained raw event on production constructor")
+	}
+	sections := ev.outputPayloadSections()
+	if len(sections) != 1 {
+		t.Fatalf("enter context payload sections = %d, want 1 cached section", len(sections))
+	}
+	section := sections[0]
+	if section.Kind != handler.PayloadKindString || section.ArgIndex != 1 || string(section.Data) != "enter-path\x00" {
+		t.Fatalf("enter context section = %+v, want cached TLV path section", section)
 	}
 }
 

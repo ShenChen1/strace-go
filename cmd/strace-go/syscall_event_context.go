@@ -54,7 +54,6 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 	}
 	bufferFileOffset, bufferFileOffsetOK := s.fdStateStore().bufferFileOffsetFromView(view, scMeta, statePID)
 	ev := syscallEventContext{
-		raw:                eventRaw,
 		view:               view,
 		statePID:           statePID,
 		meta:               scMeta,
@@ -71,11 +70,12 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 }
 
 func newSyscallEnterEventContext(eventRaw *bpfEvent, statePID int) syscallEventContext {
+	scMeta := syscallMeta(eventRaw.SysId)
 	return syscallEventContext{
-		raw:      eventRaw,
-		view:     newSyscallEventViewFromBPF(eventRaw),
-		statePID: statePID,
-		meta:     syscallMeta(eventRaw.SysId),
+		view:            newSyscallEventViewFromBPF(eventRaw),
+		statePID:        statePID,
+		meta:            scMeta,
+		payloadSections: payloadSectionsForEvent(eventRaw, scMeta),
 	}
 }
 
