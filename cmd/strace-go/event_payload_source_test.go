@@ -66,14 +66,14 @@ func TestPayloadSectionFromSourceSpecUsesAbstractSource(t *testing.T) {
 	}
 }
 
-func TestFixedEventPayloadSourceSnapshotsArgsAndDataLen(t *testing.T) {
+func TestWindowPayloadSourceSnapshotsArgsAndDataLen(t *testing.T) {
 	raw := &bpfEvent{
 		Args:    [6]uint64{0x1000, 0x2000},
 		DataLen: 7,
 	}
 	copy(raw.StrArg[:], []byte("payload-suffix"))
 
-	source := newFixedPayloadSourceFromRaw(newRawPayloadEventFromBPF(raw))
+	source := newWindowPayloadSourceFromRaw(newRawPayloadEventFromBPF(raw))
 	raw.Args[1] = 0xdead
 	raw.DataLen = 0
 

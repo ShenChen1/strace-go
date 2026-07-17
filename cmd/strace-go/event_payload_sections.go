@@ -181,7 +181,7 @@ func payloadSectionsForRawPayloadEvent(raw rawPayloadEvent, scMeta meta.Syscall)
 	if sections, ok := payloadTLVSectionsForRaw(raw); ok {
 		return sections
 	}
-	return payloadSectionsForPayloadEvent(newFixedPayloadEventFromRaw(raw), scMeta)
+	return payloadSectionsForPayloadEvent(newWindowPayloadEventFromRaw(raw), scMeta)
 }
 
 func payloadSectionsForPayloadEvent(event payloadEvent, scMeta meta.Syscall) []handler.PayloadSection {

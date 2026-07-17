@@ -63,7 +63,7 @@ func newRawPayloadEventFromBPF(eventRaw *bpfEvent) rawPayloadEvent {
 	}
 }
 
-func newFixedPayloadSourceFromRaw(raw rawPayloadEvent) windowPayloadSource {
+func newWindowPayloadSourceFromRaw(raw rawPayloadEvent) windowPayloadSource {
 	if !raw.valid {
 		return windowPayloadSource{}
 	}
@@ -84,12 +84,12 @@ func eventPayloadDataFromBPF(eventRaw *bpfEvent) []byte {
 	return eventRaw.StrArg[:dataLen]
 }
 
-func newFixedPayloadEventFromRaw(raw rawPayloadEvent) payloadEvent {
+func newWindowPayloadEventFromRaw(raw rawPayloadEvent) payloadEvent {
 	if !raw.valid {
 		return payloadEvent{}
 	}
 	return payloadEvent{
-		source: newFixedPayloadSourceFromRaw(raw),
+		source: newWindowPayloadSourceFromRaw(raw),
 		meta: payloadEventMeta{
 			valid:         true,
 			eventType:     raw.eventType,
