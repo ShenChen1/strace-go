@@ -15,14 +15,14 @@ func futexPayloadSectionsFromSource(event payloadEvent, scName string) []handler
 		if !futexHasTimeout(event.Arg(1)) {
 			return nil
 		}
-		return futexStructPayloadSection(event, 3, handler.PayloadDirectionIn, handler.BpfEnterArgOffset, timespecPayloadStructSize)
+		return futexStructPayloadSection(event, 3, handler.PayloadDirectionIn, payloadEnterArgOffset, timespecPayloadStructSize)
 	case "futex_wait":
-		return futexStructPayloadSection(event, 4, handler.PayloadDirectionIn, handler.BpfEnterArgOffset, timespecPayloadStructSize)
+		return futexStructPayloadSection(event, 4, handler.PayloadDirectionIn, payloadEnterArgOffset, timespecPayloadStructSize)
 	case "futex_waitv":
 		sections := futexWaitvPayloadSection(event)
 		return append(sections, futexStructPayloadSection(event, 3, handler.PayloadDirectionIn, futexPayloadWaitvTimeoutOffset, timespecPayloadStructSize)...)
 	case "futex_requeue":
-		return futexStructPayloadSection(event, 0, handler.PayloadDirectionIn, handler.BpfEnterArgOffset, futexPayloadRequeueSize)
+		return futexStructPayloadSection(event, 0, handler.PayloadDirectionIn, payloadEnterArgOffset, futexPayloadRequeueSize)
 	default:
 		return nil
 	}
@@ -45,7 +45,7 @@ func futexWaitvPayloadSection(event payloadEvent) []handler.PayloadSection {
 		kind:      handler.PayloadKindStruct,
 		direction: handler.PayloadDirectionIn,
 		argIndex:  0,
-		offset:    handler.BpfEnterArgOffset,
+		offset:    payloadEnterArgOffset,
 		userLen:   structArrayUserLen(event.Arg(1), futexPayloadWaitvElemSize),
 		maxLen:    futexPayloadWaitvMaxBytes,
 		probeRet:  probeRet,
