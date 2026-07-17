@@ -12,7 +12,7 @@ func bpfPayloadSectionsFromSource(event payloadEvent, _ string) []handler.Payloa
 		kind:      handler.PayloadKindBytes,
 		direction: handler.PayloadDirectionIn,
 		argIndex:  1,
-		offset:    handler.BpfEnterArgOffset,
+		offset:    payloadEnterArgOffset,
 		userLen:   uint32Clamped(event.Arg(2)),
 		maxLen:    bpfAttrPayloadMaxBytes,
 		probeRet:  event.ProbeRetEnterArg(1),
