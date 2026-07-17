@@ -36,7 +36,7 @@ func TestSyscallJSONOutputEnterWritesRawInDebugMode(t *testing.T) {
 	state := newJSONOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON, DebugEvents: true})
 
 	state.output.HandleEnter(syscallEventContext{
-		raw:      &bpfEvent{},
+		view:     newSyscallEventViewFromBPF(&bpfEvent{}),
 		meta:     meta.Syscall{Name: "getpid"},
 		statePID: 101,
 	})
@@ -57,7 +57,6 @@ func TestSyscallJSONOutputEnterFilterUsesEventView(t *testing.T) {
 	view := newSyscallEventViewFromBPF(raw)
 	view.args[0] = 5
 	state.output.HandleEnter(syscallEventContext{
-		raw:      raw,
 		view:     view,
 		meta:     meta.Syscall{Name: "dup", Args: []string{"fd"}},
 		statePID: 101,
@@ -86,7 +85,7 @@ func TestSyscallJSONOutputDebugRawConsumesOnlyDebugJSON(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			state := newJSONOutputTestState(tt.opts)
 			got := state.output.HandleDebugRaw(syscallEventContext{
-				raw:  &bpfEvent{},
+				view: newSyscallEventViewFromBPF(&bpfEvent{}),
 				meta: meta.Syscall{Name: "getpid"},
 			})
 			if got != tt.want {
@@ -102,7 +101,6 @@ func TestSyscallJSONOutputDebugRawConsumesOnlyDebugJSON(t *testing.T) {
 func TestSyscallJSONOutputDebugRawUsesEventView(t *testing.T) {
 	state := newJSONOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON, DebugEvents: true})
 	ev := syscallEventContext{
-		raw:  &bpfEvent{Ret: 0},
 		view: syscallEventView{valid: true, ret: -2, args: [6]uint64{7}},
 		meta: meta.Syscall{Name: "getpid"},
 	}
@@ -118,7 +116,7 @@ func TestSyscallJSONOutputDebugRawUsesEventView(t *testing.T) {
 func TestSyscallJSONOutputDecodedAppliesStatusFilterButConsumesJSON(t *testing.T) {
 	state := newJSONOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON, FailedOnly: true})
 	ev := syscallEventContext{
-		raw:            &bpfEvent{Ret: 101},
+		view:           newSyscallEventViewFromBPF(&bpfEvent{Ret: 101}),
 		meta:           meta.Syscall{Name: "getpid"},
 		handlerContext: &handler.Context{},
 	}
@@ -131,7 +129,7 @@ func TestSyscallJSONOutputDecodedAppliesStatusFilterButConsumesJSON(t *testing.T
 	}
 
 	failed := syscallEventContext{
-		raw:            &bpfEvent{Ret: -2},
+		view:           newSyscallEventViewFromBPF(&bpfEvent{Ret: -2}),
 		meta:           meta.Syscall{Name: "getpid"},
 		handlerContext: &handler.Context{},
 	}
@@ -144,7 +142,6 @@ func TestSyscallJSONOutputDecodedAppliesStatusFilterButConsumesJSON(t *testing.T
 func TestSyscallJSONOutputDecodedStatusUsesEventView(t *testing.T) {
 	state := newJSONOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON, FailedOnly: true})
 	ev := syscallEventContext{
-		raw:            &bpfEvent{Ret: 101},
 		view:           syscallEventView{valid: true, ret: -2},
 		meta:           meta.Syscall{Name: "getpid"},
 		handlerContext: &handler.Context{},

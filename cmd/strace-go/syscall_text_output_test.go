@@ -67,7 +67,6 @@ func TestSyscallTextOutputPrintsNormalSyscallFromEventView(t *testing.T) {
 	output, _, out := newSyscallTextOutputForTest(&cli.Options{FollowForks: true})
 	ctx := syscallTextContext("getpid")
 	ev := syscallEventContext{
-		raw:            &bpfEvent{Tid: 1, Ret: 1},
 		view:           syscallEventView{valid: true, tid: 101, ret: 202, probeRetEnter: -1},
 		meta:           ctx.ScMeta,
 		handlerContext: ctx,
@@ -94,7 +93,6 @@ func TestSyscallTextOutputAppliesStatusFilterFromEventView(t *testing.T) {
 	output, _, out := newSyscallTextOutputForTest(&cli.Options{FailedOnly: true})
 	ctx := syscallTextContext("getpid")
 	ev := syscallEventContext{
-		raw:            &bpfEvent{Tid: 101, Ret: 101},
 		view:           syscallEventView{valid: true, tid: 101, ret: -2, probeRetEnter: -1},
 		meta:           ctx.ScMeta,
 		handlerContext: ctx,
@@ -145,7 +143,6 @@ func TestSyscallTextOutputDelegatesExecFromEventView(t *testing.T) {
 	scMeta := meta.Syscall{Name: "execve"}
 	ctx := &handler.Context{ScMeta: scMeta, SysName: "execve"}
 	ev := syscallEventContext{
-		raw:            &bpfEvent{Pid: 1, Tid: 1, Ret: 0},
 		view:           syscallEventView{valid: true, pid: 200, tid: 200, ret: -514},
 		meta:           scMeta,
 		handlerContext: ctx,

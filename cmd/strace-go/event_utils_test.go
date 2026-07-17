@@ -15,15 +15,18 @@ import (
 
 func updateFDMapForTest(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
 	store := newFDStateStoreFromMaps(fdMap, nil, nil)
-	ev := syscallEventContext{
-		raw:             eventRaw,
+	ev := syscallEventContextFromRawForTest(eventRaw, scMeta, targetPid)
+	ev.pathText = pathText
+	ev.updateFDState(store)
+}
+
+func syscallEventContextFromRawForTest(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int) syscallEventContext {
+	return syscallEventContext{
 		view:            newSyscallEventViewFromBPF(eventRaw),
 		statePID:        targetPid,
 		meta:            scMeta,
-		pathText:        pathText,
 		payloadSections: payloadSectionsForEvent(eventRaw, scMeta),
 	}
-	ev.updateFDState(store)
 }
 
 func TestDup2FormatsArgsBeforeFDMapUpdateAndReturnAfter(t *testing.T) {
@@ -171,7 +174,6 @@ func TestSyscallEventContextUpdateFDStateUsesViewForSocketpairInfo(t *testing.T)
 		eventType: bpfEventTypeExit,
 	}
 	ev := syscallEventContext{
-		raw:      &bpfEvent{Tid: uint32(os.Getpid()), Args: rawView.args, Ret: 0},
 		view:     view,
 		statePID: 101,
 		meta:     meta.Syscall{Name: "socketpair"},
@@ -329,7 +331,6 @@ func TestSyscallEventContextUpdateFDStateUsesViewForNetlinkFD(t *testing.T) {
 	binary.LittleEndian.PutUint16(data, 16)
 	binary.LittleEndian.PutUint32(data[4:], 42)
 	ev := syscallEventContext{
-		raw: &bpfEvent{Args: [6]uint64{7, 0x3000, 8}, Ret: 0},
 		view: syscallEventView{
 			valid:     true,
 			args:      [6]uint64{5, 0x3000, 8},
