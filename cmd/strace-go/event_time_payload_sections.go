@@ -3,12 +3,12 @@ package main
 import "strace-go/pkg/handler"
 
 const (
-	timePayloadStructOffset   = handler.BpfEnterArgOffset
-	timePayloadExitOffset     = handler.BpfExitArgOffset
-	timePayloadPathOffset     = handler.BpfEnterArgOffset
-	timePayloadValueOffset    = handler.BpfMiscArgOffset
+	timePayloadStructOffset   = payloadEnterArgOffset
+	timePayloadExitOffset     = payloadExitArgOffset
+	timePayloadPathOffset     = payloadEnterArgOffset
+	timePayloadValueOffset    = payloadMiscArgOffset
 	timePayloadTimezoneSize   = 8
-	timePayloadTimezoneOffset = handler.BpfExitArgOffset + timespecPayloadStructSize
+	timePayloadTimezoneOffset = payloadExitArgOffset + timespecPayloadStructSize
 	timePayloadTimexSize      = 208
 	timePayloadItimervalSize  = 32
 	timePayloadUtimbufSize    = 16

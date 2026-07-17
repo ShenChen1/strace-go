@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -43,10 +42,10 @@ func TestJSONSyscallEventIncludesClockTimePayloadSections(t *testing.T) {
 				EventType:    bpfEventTypeExit,
 				Args:         [6]uint64{0, 0x2000},
 				Ret:          0,
-				DataLen:      handler.BpfExitArgOffset + timespecPayloadStructSize,
+				DataLen:      payloadExitArgOffset + timespecPayloadStructSize,
 				ProbeRetExit: 0,
 			},
-			offset: handler.BpfExitArgOffset,
+			offset: payloadExitArgOffset,
 			want:   wantTimeJSONPayloadSection{"struct", "out", 1, 1024, 0x2000, 16, timeJSONStruct(1, 2)},
 		},
 	}
@@ -76,7 +75,7 @@ func TestJSONSyscallEventIncludesGetSettimeofdayPayloadSections(t *testing.T) {
 				EventType:    bpfEventTypeExit,
 				Args:         [6]uint64{0x1000, 0x2000},
 				Ret:          0,
-				DataLen:      handler.BpfExitArgOffset + 24,
+				DataLen:      payloadExitArgOffset + 24,
 				ProbeRetExit: 0,
 			},
 			wants: []wantTimeJSONPayloadSection{
@@ -121,7 +120,7 @@ func TestJSONSyscallEventIncludesSleepAndTimexPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{0x1000, 0x2000},
 				Ret:           -4,
-				DataLen:       handler.BpfExitArgOffset + timespecPayloadStructSize,
+				DataLen:       payloadExitArgOffset + timespecPayloadStructSize,
 				ProbeRetEnter: 0,
 				ProbeRetExit:  0,
 			},
@@ -136,7 +135,7 @@ func TestJSONSyscallEventIncludesSleepAndTimexPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{0x3000},
 				Ret:           0,
-				DataLen:       handler.BpfExitArgOffset + timePayloadTimexSize,
+				DataLen:       payloadExitArgOffset + timePayloadTimexSize,
 				ProbeRetEnter: 0,
 				ProbeRetExit:  0,
 			},
@@ -169,7 +168,7 @@ func TestJSONSyscallEventIncludesItimerPayloadSections(t *testing.T) {
 				EventType:    bpfEventTypeExit,
 				Args:         [6]uint64{0, 0x1000},
 				Ret:          0,
-				DataLen:      handler.BpfExitArgOffset + timePayloadItimervalSize,
+				DataLen:      payloadExitArgOffset + timePayloadItimervalSize,
 				ProbeRetExit: 0,
 			},
 			wants: []wantTimeJSONPayloadSection{
@@ -182,7 +181,7 @@ func TestJSONSyscallEventIncludesItimerPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{0, 0x2000, 0x3000},
 				Ret:           0,
-				DataLen:       handler.BpfExitArgOffset + timePayloadItimervalSize,
+				DataLen:       payloadExitArgOffset + timePayloadItimervalSize,
 				ProbeRetEnter: 0,
 				ProbeRetExit:  0,
 			},
