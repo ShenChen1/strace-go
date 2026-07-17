@@ -113,10 +113,10 @@ func TestSyscallEventContextUpdateFDStateBuildsPayloadWithEffectiveMetadata(t *t
 		EventType:    bpfEventTypeExit,
 		Ret:          0,
 		ProbeRetExit: 0,
-		DataLen:      uint32(handler.BpfExitArgOffset + 8),
+		DataLen:      uint32(payloadExitArgOffset + 8),
 	}
-	binary.LittleEndian.PutUint32(raw.StrArg[handler.BpfExitArgOffset:], uint32(readEnd.Fd()))
-	binary.LittleEndian.PutUint32(raw.StrArg[handler.BpfExitArgOffset+4:], uint32(writeEnd.Fd()))
+	binary.LittleEndian.PutUint32(raw.StrArg[payloadExitArgOffset:], uint32(readEnd.Fd()))
+	binary.LittleEndian.PutUint32(raw.StrArg[payloadExitArgOffset+4:], uint32(writeEnd.Fd()))
 	store := newFDStateStoreFromMaps(make(map[string]string), nil, nil)
 	ev := syscallEventContext{
 		raw:      raw,

@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -27,10 +26,10 @@ func TestJSONSyscallEventIncludesFDArrayPayloadSections(t *testing.T) {
 				EventType:    bpfEventTypeExit,
 				Args:         tt.args,
 				Ret:          0,
-				DataLen:      handler.BpfExitArgOffset + fdArrayPayloadSize,
+				DataLen:      payloadExitArgOffset + fdArrayPayloadSize,
 				ProbeRetExit: 0,
 			}
-			copy(eventRaw.StrArg[handler.BpfExitArgOffset:], wantData)
+			copy(eventRaw.StrArg[payloadExitArgOffset:], wantData)
 
 			scMeta := meta.Syscall{Name: tt.name}
 			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -41,7 +40,7 @@ func TestJSONSyscallEventIncludesFDArrayPayloadSections(t *testing.T) {
 			if section.Kind != "struct" || section.Direction != "out" || section.ArgIndex != tt.argIndex {
 				t.Fatalf("fd array section metadata = %+v", section)
 			}
-			if section.Offset != handler.BpfExitArgOffset || section.UserPtr != tt.userPtr {
+			if section.Offset != payloadExitArgOffset || section.UserPtr != tt.userPtr {
 				t.Fatalf("fd array section bounds = %+v", section)
 			}
 			if section.UserLen != fdArrayPayloadSize || section.CopiedLen != fdArrayPayloadSize {

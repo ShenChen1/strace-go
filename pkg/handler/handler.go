@@ -9,12 +9,6 @@ import (
 )
 
 const (
-	// BpfEnterArgOffset is the starting offset for args collected on syscall enter.
-	BpfEnterArgOffset = 0
-	// BpfMiscArgOffset is the starting offset for misc/secondary args in BPF buffers.
-	BpfMiscArgOffset = 512
-	// BpfExitArgOffset is the starting offset for args collected on syscall exit.
-	BpfExitArgOffset = 1024
 	// AtFdcwd is the magic file descriptor value for AT_FDCWD.
 	AtFdcwd = -100
 )

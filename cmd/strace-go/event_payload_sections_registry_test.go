@@ -18,10 +18,10 @@ func TestPayloadSectionRegistryPrefersExplicitStructuredRules(t *testing.T) {
 		EventType:    bpfEventTypeExit,
 		Args:         [6]uint64{0x1000, 0x2000},
 		Ret:          0,
-		DataLen:      uint32(handler.BpfExitArgOffset + statPayloadStructSize),
+		DataLen:      uint32(payloadExitArgOffset + statPayloadStructSize),
 		ProbeRetExit: 0,
 	}
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], wantData)
+	copy(eventRaw.StrArg[payloadExitArgOffset:], wantData)
 
 	sections := payloadSectionsForEvent(eventRaw, meta.Syscall{Name: "stat"})
 	if len(sections) != 1 {

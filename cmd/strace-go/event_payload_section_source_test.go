@@ -13,7 +13,7 @@ func TestSectionPayloadSourceServesWindowsByOffset(t *testing.T) {
 		[6]uint64{0x1000, 0x2000},
 		[]payloadSourceWindow{
 			{offset: 0, data: []byte("enter-payload")},
-			{offset: handler.BpfMiscArgOffset, data: []byte("misc-payload")},
+			{offset: payloadMiscArgOffset, data: []byte("misc-payload")},
 		},
 	)
 
@@ -21,7 +21,7 @@ func TestSectionPayloadSourceServesWindowsByOffset(t *testing.T) {
 	if !ok || arg != 0x2000 {
 		t.Fatalf("Arg(1) = %#x, %v; want 0x2000, true", arg, ok)
 	}
-	data, ok := source.PayloadWindow(handler.BpfMiscArgOffset+5, 4)
+	data, ok := source.PayloadWindow(payloadMiscArgOffset+5, 4)
 	if !ok || !bytes.Equal(data, []byte("payl")) {
 		t.Fatalf("PayloadWindow = %q, %v; want payl, true", data, ok)
 	}
@@ -72,7 +72,7 @@ func TestPayloadSectionsForPayloadEventUsesSectionPayloadSource(t *testing.T) {
 		source: newSectionPayloadSource(
 			[6]uint64{0x8000, 32},
 			[]payloadSourceWindow{
-				{offset: handler.BpfExitArgOffset, data: []byte("target")},
+				{offset: payloadExitArgOffset, data: []byte("target")},
 			},
 		),
 	}

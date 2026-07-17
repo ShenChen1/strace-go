@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -102,11 +101,11 @@ func TestJSONSyscallEventIncludesOutBufferPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          tt.args,
 				Ret:           6,
-				DataLen:       handler.BpfExitArgOffset + 6,
+				DataLen:       payloadExitArgOffset + 6,
 				ProbeRetEnter: -1,
 				ProbeRetExit:  0,
 			}
-			copy(eventRaw.StrArg[handler.BpfExitArgOffset:], []byte("target"))
+			copy(eventRaw.StrArg[payloadExitArgOffset:], []byte("target"))
 
 			scMeta := meta.Syscall{Name: tt.name}
 			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -150,11 +149,11 @@ func TestJSONSyscallEventIncludesStructPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          tt.args,
 				Ret:           0,
-				DataLen:       uint32(handler.BpfExitArgOffset + tt.size),
+				DataLen:       uint32(payloadExitArgOffset + tt.size),
 				ProbeRetEnter: -1,
 				ProbeRetExit:  0,
 			}
-			copy(eventRaw.StrArg[handler.BpfExitArgOffset:], wantData)
+			copy(eventRaw.StrArg[payloadExitArgOffset:], wantData)
 
 			scMeta := meta.Syscall{Name: tt.name}
 			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -165,7 +164,7 @@ func TestJSONSyscallEventIncludesStructPayloadSections(t *testing.T) {
 			if section.Kind != "struct" || section.Direction != "out" || section.ArgIndex != tt.argIndex {
 				t.Fatalf("%s section metadata = %+v", tt.name, section)
 			}
-			if section.Offset != handler.BpfExitArgOffset || section.UserLen != uint32(tt.size) || section.CopiedLen != uint32(tt.size) {
+			if section.Offset != payloadExitArgOffset || section.UserLen != uint32(tt.size) || section.CopiedLen != uint32(tt.size) {
 				t.Fatalf("%s section bounds = %+v", tt.name, section)
 			}
 			if got := mustDecodeBase64(t, section.DataBase64); !bytes.Equal(got, wantData) {
@@ -180,11 +179,11 @@ func TestJSONSyscallEventSkipsStructPayloadSectionOnFailedStat(t *testing.T) {
 		EventType:     bpfEventTypeExit,
 		Args:          [6]uint64{3, 0x2000},
 		Ret:           -2,
-		DataLen:       handler.BpfExitArgOffset + statPayloadStructSize,
+		DataLen:       payloadExitArgOffset + statPayloadStructSize,
 		ProbeRetEnter: -1,
 		ProbeRetExit:  0,
 	}
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], bytes.Repeat([]byte{0x11}, statPayloadStructSize))
+	copy(eventRaw.StrArg[payloadExitArgOffset:], bytes.Repeat([]byte{0x11}, statPayloadStructSize))
 
 	scMeta := meta.Syscall{Name: "fstat"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))

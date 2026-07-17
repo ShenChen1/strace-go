@@ -312,8 +312,8 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareExitBytesRule(t *testing.T
 		Ret:          6,
 		ProbeRetExit: 0,
 	}
-	data := make([]byte, handler.BpfExitArgOffset+6)
-	copy(data[handler.BpfExitArgOffset:], []byte("target"))
+	data := make([]byte, payloadExitArgOffset+6)
+	copy(data[payloadExitArgOffset:], []byte("target"))
 	event := payloadEvent{
 		raw: raw,
 		source: staticPayloadSource{
@@ -345,8 +345,8 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareExitStructRule(t *testing.
 		ProbeRetExit: 0,
 	}
 	wantData := bytes.Repeat([]byte{0x41}, statPayloadStructSize)
-	data := make([]byte, handler.BpfExitArgOffset+statPayloadStructSize)
-	copy(data[handler.BpfExitArgOffset:], wantData)
+	data := make([]byte, payloadExitArgOffset+statPayloadStructSize)
+	copy(data[payloadExitArgOffset:], wantData)
 	event := payloadEvent{
 		raw: raw,
 		source: staticPayloadSource{
@@ -378,8 +378,8 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareFDArrayRule(t *testing.T) 
 		ProbeRetExit: 0,
 	}
 	wantData := fdArrayJSONData(11, 12)
-	data := make([]byte, handler.BpfExitArgOffset+fdArrayPayloadSize)
-	copy(data[handler.BpfExitArgOffset:], wantData)
+	data := make([]byte, payloadExitArgOffset+fdArrayPayloadSize)
+	copy(data[payloadExitArgOffset:], wantData)
 	event := payloadEvent{
 		raw: raw,
 		source: staticPayloadSource{
