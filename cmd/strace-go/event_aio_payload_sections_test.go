@@ -14,17 +14,17 @@ func TestJSONSyscallEventIncludesAioSetupPayloadSection(t *testing.T) {
 		EventType:     bpfEventTypeExit,
 		Args:          [6]uint64{128, 0x1000},
 		Ret:           0,
-		DataLen:       handler.BpfExitArgOffset + aioPayloadPointerSize,
+		DataLen:       payloadExitArgOffset + aioPayloadPointerSize,
 		ProbeRetExit:  0,
 		ProbeRetEnter: -1,
 	}
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], aioTestPointerBytes(0xabc))
+	copy(eventRaw.StrArg[payloadExitArgOffset:], aioTestPointerBytes(0xabc))
 
 	sections := aioJSONPayloadSections(t, eventRaw, "io_setup")
 	if len(sections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(sections))
 	}
-	assertAioJSONSection(t, sections[0], "struct", "out", 1, handler.BpfExitArgOffset, 0x1000, aioTestPointerBytes(0xabc))
+	assertAioJSONSection(t, sections[0], "struct", "out", 1, payloadExitArgOffset, 0x1000, aioTestPointerBytes(0xabc))
 }
 
 func TestJSONSyscallEventIncludesAioSubmitPayloadSections(t *testing.T) {
@@ -33,21 +33,21 @@ func TestJSONSyscallEventIncludesAioSubmitPayloadSections(t *testing.T) {
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
 		Args:          [6]uint64{0xabc, 2, 0x1000},
-		DataLen:       handler.BpfMiscArgOffset + 2*aioPayloadIocbSize,
+		DataLen:       payloadMiscArgOffset + 2*aioPayloadIocbSize,
 		ProbeRetEnter: 0,
 	}
 	pointers := append(aioTestPointerBytes(0x2000), aioTestPointerBytes(0x3000)...)
 	copy(eventRaw.StrArg[:], pointers)
-	copy(eventRaw.StrArg[handler.BpfMiscArgOffset:], iocb0)
-	copy(eventRaw.StrArg[handler.BpfMiscArgOffset+aioPayloadIocbSize:], iocb1)
+	copy(eventRaw.StrArg[payloadMiscArgOffset:], iocb0)
+	copy(eventRaw.StrArg[payloadMiscArgOffset+aioPayloadIocbSize:], iocb1)
 
 	sections := aioJSONPayloadSections(t, eventRaw, "io_submit")
 	if len(sections) != 3 {
 		t.Fatalf("PayloadSections = %d, want 3", len(sections))
 	}
-	assertAioJSONSection(t, sections[0], "struct", "in", 2, handler.BpfEnterArgOffset, 0x1000, pointers)
-	assertAioJSONSection(t, sections[1], "struct", "in", handler.AioSubmitIocbPayloadArgBase, handler.BpfMiscArgOffset, 0x2000, iocb0)
-	assertAioJSONSection(t, sections[2], "struct", "in", handler.AioSubmitIocbPayloadArgBase+1, handler.BpfMiscArgOffset+aioPayloadIocbSize, 0x3000, iocb1)
+	assertAioJSONSection(t, sections[0], "struct", "in", 2, payloadEnterArgOffset, 0x1000, pointers)
+	assertAioJSONSection(t, sections[1], "struct", "in", handler.AioSubmitIocbPayloadArgBase, payloadMiscArgOffset, 0x2000, iocb0)
+	assertAioJSONSection(t, sections[2], "struct", "in", handler.AioSubmitIocbPayloadArgBase+1, payloadMiscArgOffset+aioPayloadIocbSize, 0x3000, iocb1)
 }
 
 func TestJSONSyscallEventIncludesAioGeteventsPayloadSection(t *testing.T) {
@@ -56,17 +56,17 @@ func TestJSONSyscallEventIncludesAioGeteventsPayloadSection(t *testing.T) {
 		EventType:     bpfEventTypeExit,
 		Args:          [6]uint64{0xabc, 0, 1, 0x7000},
 		Ret:           1,
-		DataLen:       handler.BpfExitArgOffset + aioPayloadEventsElemSize,
+		DataLen:       payloadExitArgOffset + aioPayloadEventsElemSize,
 		ProbeRetExit:  0,
 		ProbeRetEnter: -1,
 	}
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], events)
+	copy(eventRaw.StrArg[payloadExitArgOffset:], events)
 
 	sections := aioJSONPayloadSections(t, eventRaw, "io_getevents")
 	if len(sections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(sections))
 	}
-	assertAioJSONSection(t, sections[0], "struct", "out", 3, handler.BpfExitArgOffset, 0x7000, events)
+	assertAioJSONSection(t, sections[0], "struct", "out", 3, payloadExitArgOffset, 0x7000, events)
 }
 
 func TestJSONSyscallEventIncludesAioPgeteventsPayloadSections(t *testing.T) {
@@ -79,7 +79,7 @@ func TestJSONSyscallEventIncludesAioPgeteventsPayloadSections(t *testing.T) {
 		DataLen:       aioPayloadSigmaskOffset + uint32(len(mask)),
 		ProbeRetEnter: 0,
 	}
-	copy(eventRaw.StrArg[handler.BpfMiscArgOffset:], timeout)
+	copy(eventRaw.StrArg[payloadMiscArgOffset:], timeout)
 	copy(eventRaw.StrArg[aioPayloadSigsetOffset:], sigset)
 	copy(eventRaw.StrArg[aioPayloadSigmaskOffset:], mask)
 
@@ -87,7 +87,7 @@ func TestJSONSyscallEventIncludesAioPgeteventsPayloadSections(t *testing.T) {
 	if len(sections) != 3 {
 		t.Fatalf("PayloadSections = %d, want 3", len(sections))
 	}
-	assertAioJSONSection(t, sections[0], "struct", "in", 4, handler.BpfMiscArgOffset, 0x4000, timeout)
+	assertAioJSONSection(t, sections[0], "struct", "in", 4, payloadMiscArgOffset, 0x4000, timeout)
 	assertAioJSONSection(t, sections[1], "struct", "in", 5, aioPayloadSigsetOffset, 0x5000, sigset)
 	assertAioJSONSection(t, sections[2], "bytes", "in", 5, aioPayloadSigmaskOffset, 0x6000, mask)
 }

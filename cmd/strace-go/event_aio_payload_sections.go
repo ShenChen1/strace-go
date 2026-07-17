@@ -11,8 +11,8 @@ const (
 	aioPayloadIocbSize       = 64
 	aioPayloadEventsElemSize = 32
 	aioPayloadMaxBytes       = 512
-	aioPayloadSigsetOffset   = handler.BpfMiscArgOffset + 16
-	aioPayloadSigmaskOffset  = handler.BpfMiscArgOffset + 32
+	aioPayloadSigsetOffset   = payloadMiscArgOffset + 16
+	aioPayloadSigmaskOffset  = payloadMiscArgOffset + 32
 	aioPayloadSigmaskProbe   = 13
 )
 
@@ -26,7 +26,7 @@ func aioPayloadSectionsFromSource(event payloadEvent, scName string) []handler.P
 		if event.Arg(1) == 0 {
 			return nil
 		}
-		return enterStructPayloadSectionFromSource(event, 1, handler.BpfEnterArgOffset, aioPayloadIocbSize)
+		return enterStructPayloadSectionFromSource(event, 1, payloadEnterArgOffset, aioPayloadIocbSize)
 	case "io_getevents":
 		return aioGeteventsPayloadSections(event, false)
 	case "io_pgetevents", "io_pgetevents_time64":
@@ -53,7 +53,7 @@ func aioSubmitPayloadSections(event payloadEvent) []handler.PayloadSection {
 		kind:      handler.PayloadKindStruct,
 		direction: handler.PayloadDirectionIn,
 		argIndex:  2,
-		offset:    handler.BpfEnterArgOffset,
+		offset:    payloadEnterArgOffset,
 		userLen:   userLen,
 		maxLen:    aioPayloadMaxBytes,
 		probeRet:  event.ProbeRetEnterArg(2),
@@ -65,7 +65,7 @@ func aioSubmitIocbPayloadSections(event payloadEvent, count int64) []handler.Pay
 	if event.ProbeRetEnterArg(2) != 0 || event.source == nil {
 		return nil
 	}
-	pointers, ok := event.source.PayloadWindow(handler.BpfEnterArgOffset, aioPayloadMaxBytes)
+	pointers, ok := event.source.PayloadWindow(payloadEnterArgOffset, aioPayloadMaxBytes)
 	if !ok {
 		return nil
 	}
@@ -96,7 +96,7 @@ func aioSubmitIocbPayloadSection(event payloadEvent, index int, userPtr uint64) 
 	if event.source == nil {
 		return handler.PayloadSection{}
 	}
-	offset := handler.BpfMiscArgOffset + index*aioPayloadIocbSize
+	offset := payloadMiscArgOffset + index*aioPayloadIocbSize
 	data, ok := event.source.PayloadWindow(offset, aioPayloadIocbSize)
 	if !ok || aioPayloadAllBytesZero(data) {
 		return handler.PayloadSection{}
@@ -117,7 +117,7 @@ func aioSubmitIocbPayloadSection(event payloadEvent, index int, userPtr uint64) 
 func aioGeteventsPayloadSections(event payloadEvent, includeSigset bool) []handler.PayloadSection {
 	var sections []handler.PayloadSection
 	if event.Arg(4) != 0 {
-		sections = enterStructPayloadSectionFromSource(event, 4, handler.BpfMiscArgOffset, timespecPayloadStructSize)
+		sections = enterStructPayloadSectionFromSource(event, 4, payloadMiscArgOffset, timespecPayloadStructSize)
 	}
 	if includeSigset && event.Arg(5) != 0 {
 		sections = append(sections, enterStructPayloadSectionFromSource(event, 5, aioPayloadSigsetOffset, timespecPayloadStructSize)...)

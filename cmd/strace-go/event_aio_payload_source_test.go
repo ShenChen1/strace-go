@@ -25,13 +25,13 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareAioSetupRule(t *testing.T)
 		Ret:          0,
 		ProbeRetExit: 0,
 	}
-	data := make([]byte, handler.BpfExitArgOffset+aioPayloadPointerSize)
-	copy(data[handler.BpfExitArgOffset:], aioTestPointerBytes(0xabc))
+	data := make([]byte, payloadExitArgOffset+aioPayloadPointerSize)
+	copy(data[payloadExitArgOffset:], aioTestPointerBytes(0xabc))
 
 	sections := aioSourceSections(raw, "io_setup", data)
 	requireAioSection(t, sections, expectedAioSection{
 		index: 0, kind: handler.PayloadKindStruct, direction: handler.PayloadDirectionOut,
-		argIndex: 1, offset: handler.BpfExitArgOffset, userPtr: 0x1000,
+		argIndex: 1, offset: payloadExitArgOffset, userPtr: 0x1000,
 		data: aioTestPointerBytes(0xabc),
 	})
 }
@@ -50,18 +50,18 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareAioSubmitRule(t *testing.T
 	}
 	requireAioSection(t, sections, expectedAioSection{
 		index: 0, kind: handler.PayloadKindStruct, direction: handler.PayloadDirectionIn,
-		argIndex: 2, offset: handler.BpfEnterArgOffset, userPtr: 0x1000,
+		argIndex: 2, offset: payloadEnterArgOffset, userPtr: 0x1000,
 		data: append(aioTestPointerBytes(0x2000), aioTestPointerBytes(0x3000)...),
 	})
 	requireAioSection(t, sections, expectedAioSection{
 		index: 1, kind: handler.PayloadKindStruct, direction: handler.PayloadDirectionIn,
-		argIndex: handler.AioSubmitIocbPayloadArgBase, offset: handler.BpfMiscArgOffset,
+		argIndex: handler.AioSubmitIocbPayloadArgBase, offset: payloadMiscArgOffset,
 		userPtr: 0x2000, data: iocb0,
 	})
 	requireAioSection(t, sections, expectedAioSection{
 		index: 2, kind: handler.PayloadKindStruct, direction: handler.PayloadDirectionIn,
 		argIndex: handler.AioSubmitIocbPayloadArgBase + 1,
-		offset:   handler.BpfMiscArgOffset + aioPayloadIocbSize,
+		offset:   payloadMiscArgOffset + aioPayloadIocbSize,
 		userPtr:  0x3000, data: iocb1,
 	})
 }
@@ -73,13 +73,13 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareAioCancelRule(t *testing.T
 		ProbeRetEnter: 0,
 	}
 	iocb := aioTestIocbData(1, 0x4000, 3)
-	data := make([]byte, handler.BpfEnterArgOffset+aioPayloadIocbSize)
-	copy(data[handler.BpfEnterArgOffset:], iocb)
+	data := make([]byte, payloadEnterArgOffset+aioPayloadIocbSize)
+	copy(data[payloadEnterArgOffset:], iocb)
 
 	sections := aioSourceSections(raw, "io_cancel", data)
 	requireAioSection(t, sections, expectedAioSection{
 		index: 0, kind: handler.PayloadKindStruct, direction: handler.PayloadDirectionIn,
-		argIndex: 1, offset: handler.BpfEnterArgOffset, userPtr: 0x2000, data: iocb,
+		argIndex: 1, offset: payloadEnterArgOffset, userPtr: 0x2000, data: iocb,
 	})
 }
 
@@ -91,13 +91,13 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareAioGeteventsRule(t *testin
 		ProbeRetExit: 0,
 	}
 	events := aioTestIoEventData(0x11, 0x22, 3, 4)
-	data := make([]byte, handler.BpfExitArgOffset+aioPayloadEventsElemSize)
-	copy(data[handler.BpfExitArgOffset:], events)
+	data := make([]byte, payloadExitArgOffset+aioPayloadEventsElemSize)
+	copy(data[payloadExitArgOffset:], events)
 
 	sections := aioSourceSections(raw, "io_getevents", data)
 	requireAioSection(t, sections, expectedAioSection{
 		index: 0, kind: handler.PayloadKindStruct, direction: handler.PayloadDirectionOut,
-		argIndex: 3, offset: handler.BpfExitArgOffset, userPtr: 0x7000, data: events,
+		argIndex: 3, offset: payloadExitArgOffset, userPtr: 0x7000, data: events,
 	})
 }
 
@@ -117,7 +117,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareAioPgeteventsRule(t *testi
 	}
 	requireAioSection(t, sections, expectedAioSection{
 		index: 0, kind: handler.PayloadKindStruct, direction: handler.PayloadDirectionIn,
-		argIndex: 4, offset: handler.BpfMiscArgOffset, userPtr: 0x4000, data: timeout,
+		argIndex: 4, offset: payloadMiscArgOffset, userPtr: 0x4000, data: timeout,
 	})
 	requireAioSection(t, sections, expectedAioSection{
 		index: 1, kind: handler.PayloadKindStruct, direction: handler.PayloadDirectionIn,
@@ -141,16 +141,16 @@ func aioSourceSections(raw *bpfEvent, syscall string, data []byte) []handler.Pay
 }
 
 func aioSubmitSourcePayload(iocb0 []byte, iocb1 []byte) []byte {
-	data := make([]byte, handler.BpfMiscArgOffset+2*aioPayloadIocbSize)
-	copy(data[handler.BpfEnterArgOffset:], append(aioTestPointerBytes(0x2000), aioTestPointerBytes(0x3000)...))
-	copy(data[handler.BpfMiscArgOffset:], iocb0)
-	copy(data[handler.BpfMiscArgOffset+aioPayloadIocbSize:], iocb1)
+	data := make([]byte, payloadMiscArgOffset+2*aioPayloadIocbSize)
+	copy(data[payloadEnterArgOffset:], append(aioTestPointerBytes(0x2000), aioTestPointerBytes(0x3000)...))
+	copy(data[payloadMiscArgOffset:], iocb0)
+	copy(data[payloadMiscArgOffset+aioPayloadIocbSize:], iocb1)
 	return data
 }
 
 func aioPgeteventsSourcePayload(timeout []byte, sigset []byte, mask []byte) []byte {
 	data := make([]byte, aioPayloadSigmaskOffset+len(mask))
-	copy(data[handler.BpfMiscArgOffset:], timeout)
+	copy(data[payloadMiscArgOffset:], timeout)
 	copy(data[aioPayloadSigsetOffset:], sigset)
 	copy(data[aioPayloadSigmaskOffset:], mask)
 	return data
