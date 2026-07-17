@@ -45,7 +45,6 @@ func TestFDStateStoreCleanupClosedFDRemovesOwnedState(t *testing.T) {
 func TestSyscallEventContextUpdateFDStateUsesEventViewForOpenedPath(t *testing.T) {
 	store := newFDStateStoreFromMaps(make(map[string]string), nil, nil)
 	ev := syscallEventContext{
-		raw:      &bpfEvent{Pid: 1, Tid: 1, Ret: 4},
 		view:     syscallEventView{valid: true, pid: 201, tid: 201, ret: 7},
 		statePID: 101,
 		meta:     meta.Syscall{Name: "openat"},
@@ -65,7 +64,6 @@ func TestSyscallEventContextUpdateFDStateUsesEventViewForOpenedPath(t *testing.T
 func TestSyscallEventContextUpdateFDStateUsesEventViewForDup(t *testing.T) {
 	store := newFDStateStoreFromMaps(map[string]string{"101:5": "/tmp/source"}, nil, nil)
 	ev := syscallEventContext{
-		raw:      &bpfEvent{Pid: 1, Tid: 1, Args: [6]uint64{3}, Ret: 4},
 		view:     syscallEventView{valid: true, pid: 201, tid: 201, args: [6]uint64{5}, ret: 6},
 		statePID: 101,
 		meta:     meta.Syscall{Name: "dup"},
@@ -118,13 +116,9 @@ func TestSyscallEventContextUpdateFDStateBuildsPayloadWithEffectiveMetadata(t *t
 	binary.LittleEndian.PutUint32(raw.StrArg[payloadExitArgOffset:], uint32(readEnd.Fd()))
 	binary.LittleEndian.PutUint32(raw.StrArg[payloadExitArgOffset+4:], uint32(writeEnd.Fd()))
 	store := newFDStateStoreFromMaps(make(map[string]string), nil, nil)
-	ev := syscallEventContext{
-		raw:      raw,
-		view:     newSyscallEventViewFromBPF(raw),
-		statePID: 101,
-		handlerContext: &handler.Context{
-			ScMeta: meta.Syscall{Name: "pipe"},
-		},
+	ev := syscallEventContextFromRawForTest(raw, meta.Syscall{Name: "pipe"}, 101)
+	ev.handlerContext = &handler.Context{
+		ScMeta: meta.Syscall{Name: "pipe"},
 	}
 
 	ev.updateFDState(store)
@@ -147,7 +141,6 @@ func TestTraceSessionCleanupClosedFDUsesEventView(t *testing.T) {
 	)
 	session := &traceSession{fdState: store}
 	ev := syscallEventContext{
-		raw:      &bpfEvent{Args: [6]uint64{4}, Ret: 0},
 		view:     syscallEventView{valid: true, args: [6]uint64{3}, ret: 0},
 		statePID: 101,
 		meta:     meta.Syscall{Name: "close"},

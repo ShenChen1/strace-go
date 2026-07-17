@@ -93,14 +93,6 @@ func TestJSONStatsEventIncludesRingbufFailures(t *testing.T) {
 func TestJSONRawEventViewOverridesRawScalars(t *testing.T) {
 	var output bytes.Buffer
 	session := &traceSession{outWriter: &output}
-	raw := &bpfEvent{
-		Pid:       1,
-		Tid:       1,
-		SysId:     39,
-		EventType: bpfEventTypeExit,
-		Args:      [6]uint64{3},
-		Ret:       0,
-	}
 	view := syscallEventView{
 		valid:         true,
 		eventVersion:  2,
@@ -119,7 +111,6 @@ func TestJSONRawEventViewOverridesRawScalars(t *testing.T) {
 	}
 
 	session.writeJSONRawEvent(syscallEventContext{
-		raw:  raw,
 		view: view,
 		meta: meta.Syscall{Name: "exit"},
 		payloadSections: []handler.PayloadSection{{

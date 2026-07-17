@@ -24,9 +24,6 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 
 	ev := newSyscallEventContext(session, eventRaw, 101, nil)
 
-	if ev.raw != nil {
-		t.Fatalf("event context retained raw event on production constructor")
-	}
 	if ev.syscallName() != "openat" || !ev.shouldOutput() {
 		t.Fatalf("event context behavior = name:%s output:%v, want openat/true", ev.syscallName(), ev.shouldOutput())
 	}
@@ -119,7 +116,6 @@ func TestSyscallEventContextHandlerContextUsesEventView(t *testing.T) {
 		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
 	}
 	ev := syscallEventContext{
-		raw:      &bpfEvent{Pid: 1, Tid: 1, SysId: 999, Args: [6]uint64{1}, Ret: 1},
 		view:     syscallEventView{valid: true, pid: 101, tid: 102, sysID: 39, args: [6]uint64{7}, ret: -2, probeRetEnter: -1, probeRetExit: 0},
 		statePID: 101,
 		meta:     syscallMeta(39),
@@ -151,12 +147,8 @@ func TestSyscallEventContextHandlerContextUsesEffectiveMetadata(t *testing.T) {
 		ProbeRetExit: 0,
 		DataLen:      uint32(payloadExitArgOffset + 8),
 	}
-	ev := syscallEventContext{
-		raw:            raw,
-		view:           newSyscallEventViewFromBPF(raw),
-		statePID:       101,
-		handlerContext: &handler.Context{ScMeta: scMeta},
-	}
+	ev := syscallEventContextFromRawForTest(raw, scMeta, 101)
+	ev.handlerContext = &handler.Context{ScMeta: scMeta}
 
 	ctx := ev.newHandlerContext(session)
 
@@ -179,9 +171,6 @@ func TestSyscallEnterEventContextUsesRawViewAndMetadata(t *testing.T) {
 
 	ev := newSyscallEnterEventContext(raw, 201)
 
-	if ev.raw != nil {
-		t.Fatalf("enter context retained raw event on production constructor")
-	}
 	if ev.syscallName() != "getpid" {
 		t.Fatalf("enter context syscall name = %q, want getpid", ev.syscallName())
 	}
@@ -204,9 +193,6 @@ func TestSyscallEnterEventContextCachesPayloadSections(t *testing.T) {
 
 	ev := newSyscallEnterEventContext(raw, 201)
 
-	if ev.raw != nil {
-		t.Fatalf("enter context retained raw event on production constructor")
-	}
 	sections := ev.outputPayloadSections()
 	if len(sections) != 1 {
 		t.Fatalf("enter context payload sections = %d, want 1 cached section", len(sections))
@@ -321,7 +307,6 @@ func TestSyscallEventContextRawEnterPolicy(t *testing.T) {
 	opts.TraceSyscalls["dup"] = true
 	opts.TraceFDs[5] = true
 	ev := syscallEventContext{
-		raw:      &bpfEvent{Args: [6]uint64{3}},
 		view:     syscallEventView{valid: true, args: [6]uint64{5}},
 		meta:     meta.Syscall{Name: "dup", Args: []string{"fd"}},
 		statePID: 101,

@@ -77,7 +77,6 @@ func TestFDOffsetsUseEventViewForSyscallContext(t *testing.T) {
 	}
 	scMeta := meta.Syscall{Name: "write"}
 	ev := syscallEventContext{
-		raw:      &bpfEvent{Tid: 101, Args: [6]uint64{2}, Ret: 1},
 		view:     syscallEventView{valid: true, tid: 101, args: [6]uint64{1}, ret: 4},
 		statePID: 101,
 		meta:     scMeta,

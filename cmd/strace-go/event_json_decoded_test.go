@@ -13,15 +13,6 @@ func TestWriteJSONDecodedEventUsesSyscallEventView(t *testing.T) {
 	var output bytes.Buffer
 	session := &traceSession{outWriter: &output}
 	ev := syscallEventContext{
-		raw: &bpfEvent{
-			Pid:          1,
-			Tid:          1,
-			SysId:        999,
-			EventVersion: 2,
-			EventType:    bpfEventTypeExit,
-			Args:         [6]uint64{1},
-			Ret:          123,
-		},
 		view:           syscallEventView{valid: true, pid: 101, tid: 102, sysID: 39, args: [6]uint64{7}, ret: -2, duration: 55, probeRetEnter: -1},
 		meta:           meta.Syscall{Name: "getpid"},
 		handlerContext: &handler.Context{},

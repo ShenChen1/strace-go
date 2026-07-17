@@ -9,7 +9,6 @@ import (
 )
 
 type syscallEventContext struct {
-	raw                *bpfEvent
 	view               syscallEventView
 	statePID           int
 	meta               meta.Syscall
@@ -103,20 +102,11 @@ func newSyscallEventViewFromBPF(eventRaw *bpfEvent) syscallEventView {
 }
 
 func (ev syscallEventContext) eventView() syscallEventView {
-	if ev.view.valid {
-		return ev.view
-	}
-	return newSyscallEventViewFromBPF(ev.raw)
+	return ev.view
 }
 
 func (ev syscallEventContext) outputPayloadSections() []handler.PayloadSection {
-	if ev.payloadSections != nil {
-		return ev.payloadSections
-	}
-	if ev.raw == nil {
-		return nil
-	}
-	return payloadSectionsForEvent(ev.raw, ev.effectiveSyscallMeta())
+	return ev.payloadSections
 }
 
 func (ev syscallEventContext) effectiveSyscallMeta() meta.Syscall {
