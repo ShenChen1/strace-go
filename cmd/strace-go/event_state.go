@@ -8,8 +8,6 @@ type pendingSyscallState struct {
 	sysID           uint32
 	enterTime       uint64
 	args            [6]uint64
-	ptr             uint64
-	dataLen         uint32
 	probeRetEnter   int32
 	genericEnterRaw bool
 }
@@ -24,8 +22,6 @@ type traceStateEventView struct {
 	eventFlags    uint32
 	enterTime     uint64
 	args          [6]uint64
-	ptr           uint64
-	dataLen       uint32
 	probeRetEnter int32
 	snapshotText  string
 }
@@ -102,8 +98,6 @@ func newTraceStateEventViewFromBPF(eventRaw *bpfEvent) traceStateEventView {
 		eventFlags:    eventRaw.EventFlags,
 		enterTime:     eventRaw.EnterTime,
 		args:          eventRaw.Args,
-		ptr:           eventRaw.Ptr,
-		dataLen:       eventRaw.DataLen,
 		probeRetEnter: eventRaw.ProbeRetEnter,
 		snapshotText:  snapshotText,
 	}
@@ -146,8 +140,6 @@ func (st *TraceState) rememberEnterEvent(view traceStateEventView) {
 		sysID:           view.sysID,
 		enterTime:       view.enterTime,
 		args:            view.args,
-		ptr:             view.ptr,
-		dataLen:         view.dataLen,
 		probeRetEnter:   view.probeRetEnter,
 		genericEnterRaw: view.isGenericEnter(),
 	}

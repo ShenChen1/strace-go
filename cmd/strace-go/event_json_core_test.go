@@ -114,7 +114,6 @@ func TestJSONRawEventViewOverridesRawScalars(t *testing.T) {
 		duration:      55,
 		enterTime:     77,
 		ptr:           0x1234,
-		dataLen:       8,
 		probeRetEnter: -1,
 		probeRetExit:  0,
 	}
