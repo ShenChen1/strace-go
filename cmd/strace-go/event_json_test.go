@@ -409,11 +409,11 @@ func TestJSONSyscallEventIncludesProcessVMIovecPayloadSections(t *testing.T) {
 		EventVersion:  2,
 		EventType:     bpfEventTypeEnter,
 		Args:          [6]uint64{102, 0x3000, 1, 0x4000, 1, 0},
-		DataLen:       handler.BpfMiscArgOffset + 16,
+		DataLen:       payloadMiscArgOffset + 16,
 		ProbeRetEnter: 0,
 	}
 	copy(eventRaw.StrArg[:], []byte("local-iovec-0000"))
-	copy(eventRaw.StrArg[handler.BpfMiscArgOffset:], []byte("remote-iovec-000"))
+	copy(eventRaw.StrArg[payloadMiscArgOffset:], []byte("remote-iovec-000"))
 
 	scMeta := meta.Syscall{Name: "process_vm_readv"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -425,7 +425,7 @@ func TestJSONSyscallEventIncludesProcessVMIovecPayloadSections(t *testing.T) {
 	if local.Kind != "iovec" || local.ArgIndex != 1 || local.Offset != 0 || local.UserPtr != 0x3000 {
 		t.Fatalf("local iovec section = %+v", local)
 	}
-	if remote.Kind != "iovec" || remote.ArgIndex != 3 || remote.Offset != handler.BpfMiscArgOffset || remote.UserPtr != 0x4000 {
+	if remote.Kind != "iovec" || remote.ArgIndex != 3 || remote.Offset != payloadMiscArgOffset || remote.UserPtr != 0x4000 {
 		t.Fatalf("remote iovec section = %+v", remote)
 	}
 }

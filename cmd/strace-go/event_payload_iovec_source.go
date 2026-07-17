@@ -5,16 +5,16 @@ import (
 )
 
 func iovecArgPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
-	return iovecPayloadSectionFromSource(event, 1, 2, handler.BpfEnterArgOffset)
+	return iovecPayloadSectionFromSource(event, 1, 2, payloadEnterArgOffset)
 }
 
 func processVMPayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
-	sections := iovecPayloadSectionFromSource(event, 1, 2, handler.BpfEnterArgOffset)
-	return append(sections, iovecPayloadSectionFromSource(event, 3, 4, handler.BpfMiscArgOffset)...)
+	sections := iovecPayloadSectionFromSource(event, 1, 2, payloadEnterArgOffset)
+	return append(sections, iovecPayloadSectionFromSource(event, 3, 4, payloadMiscArgOffset)...)
 }
 
 func processMadvisePayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
-	return iovecPayloadSectionFromSource(event, 1, 2, handler.BpfEnterArgOffset)
+	return iovecPayloadSectionFromSource(event, 1, 2, payloadEnterArgOffset)
 }
 
 func iovecPayloadSectionFromSource(event payloadEvent, argIndex int, countIndex int, offset int) []handler.PayloadSection {

@@ -139,9 +139,9 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareProcessVMIovecRule(t *test
 		Args:          [6]uint64{123, 0x3000, 1, 0x4000, 1, 0},
 		ProbeRetEnter: 0,
 	}
-	data := make([]byte, handler.BpfMiscArgOffset+16)
+	data := make([]byte, payloadMiscArgOffset+16)
 	copy(data[:16], []byte("local-iovec-0000"))
-	copy(data[handler.BpfMiscArgOffset:], []byte("remote-iovec-000"))
+	copy(data[payloadMiscArgOffset:], []byte("remote-iovec-000"))
 	event := payloadEvent{
 		raw: raw,
 		source: staticPayloadSource{
@@ -160,7 +160,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareProcessVMIovecRule(t *test
 		t.Fatalf("local section = %+v, want arg 1 iovec at offset 0", local)
 	}
 	if remote.Kind != handler.PayloadKindIovec || remote.ArgIndex != 3 ||
-		remote.UserPtr != 0x4000 || remote.Offset != uint32(handler.BpfMiscArgOffset) {
+		remote.UserPtr != 0x4000 || remote.Offset != uint32(payloadMiscArgOffset) {
 		t.Fatalf("remote section = %+v, want arg 3 iovec at misc offset", remote)
 	}
 	if !bytes.Equal(local.Data, []byte("local-iovec-0000")) {
