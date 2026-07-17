@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"testing"
 
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -35,7 +37,7 @@ func TestJSONSyscallEventIncludesWritePayloadSection(t *testing.T) {
 		t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 	}
 	section := ev.PayloadSections[0]
-	if section.Kind != "bytes" || section.Direction != "in" || section.ArgIndex != 1 || section.Offset != 0 {
+	if section.Kind != "bytes" || section.Direction != "in" || section.ArgIndex != 1 {
 		t.Fatalf("write section metadata = %+v", section)
 	}
 	if got := mustDecodeBase64(t, section.DataBase64); string(got) != "hello" {
@@ -73,7 +75,7 @@ func TestJSONSyscallEventIncludesReadPayloadSection(t *testing.T) {
 		t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 	}
 	section := ev.PayloadSections[0]
-	if section.Kind != "bytes" || section.Direction != "out" || section.ArgIndex != 1 || section.Offset != 0 {
+	if section.Kind != "bytes" || section.Direction != "out" || section.ArgIndex != 1 {
 		t.Fatalf("read section metadata = %+v", section)
 	}
 	if got := mustDecodeBase64(t, section.DataBase64); string(got) != "data" {
@@ -164,7 +166,7 @@ func TestJSONSyscallEventIncludesStructPayloadSections(t *testing.T) {
 			if section.Kind != "struct" || section.Direction != "out" || section.ArgIndex != tt.argIndex {
 				t.Fatalf("%s section metadata = %+v", tt.name, section)
 			}
-			if section.Offset != payloadExitArgOffset || section.UserLen != uint32(tt.size) || section.CopiedLen != uint32(tt.size) {
+			if section.UserLen != uint32(tt.size) || section.CopiedLen != uint32(tt.size) {
 				t.Fatalf("%s section bounds = %+v", tt.name, section)
 			}
 			if got := mustDecodeBase64(t, section.DataBase64); !bytes.Equal(got, wantData) {
@@ -211,10 +213,10 @@ func TestJSONSyscallEventIncludesPollStructPayloadSections(t *testing.T) {
 	}
 	enter := ev.PayloadSections[0]
 	exit := ev.PayloadSections[1]
-	if enter.Kind != "struct" || enter.Direction != "in" || enter.ArgIndex != 0 || enter.Offset != 0 || enter.UserLen != 16 {
+	if enter.Kind != "struct" || enter.Direction != "in" || enter.ArgIndex != 0 || enter.UserLen != 16 {
 		t.Fatalf("poll enter section = %+v", enter)
 	}
-	if exit.Kind != "struct" || exit.Direction != "out" || exit.ArgIndex != 0 || exit.Offset != payloadExitArgOffset || exit.UserLen != 16 {
+	if exit.Kind != "struct" || exit.Direction != "out" || exit.ArgIndex != 0 || exit.UserLen != 16 {
 		t.Fatalf("poll exit section = %+v", exit)
 	}
 	if got := mustDecodeBase64(t, enter.DataBase64); string(got) != "pollfd-enter-000" {
@@ -245,7 +247,7 @@ func TestJSONSyscallEventIncludesPpollTimeoutPayloadSection(t *testing.T) {
 	if pollfds.Kind != "struct" || pollfds.Direction != "in" || pollfds.ArgIndex != 0 || pollfds.UserLen != 8 {
 		t.Fatalf("ppoll pollfds section = %+v", pollfds)
 	}
-	if timeout.Kind != "struct" || timeout.Direction != "in" || timeout.ArgIndex != 2 || timeout.Offset != payloadMiscArgOffset || timeout.UserLen != 16 {
+	if timeout.Kind != "struct" || timeout.Direction != "in" || timeout.ArgIndex != 2 || timeout.UserLen != 16 {
 		t.Fatalf("ppoll timeout section = %+v", timeout)
 	}
 }
@@ -421,11 +423,35 @@ func TestJSONSyscallEventIncludesProcessVMIovecPayloadSections(t *testing.T) {
 	}
 	local := ev.PayloadSections[0]
 	remote := ev.PayloadSections[1]
-	if local.Kind != "iovec" || local.ArgIndex != 1 || local.Offset != 0 || local.UserPtr != 0x3000 {
+	if local.Kind != "iovec" || local.ArgIndex != 1 || local.UserPtr != 0x3000 {
 		t.Fatalf("local iovec section = %+v", local)
 	}
-	if remote.Kind != "iovec" || remote.ArgIndex != 3 || remote.Offset != payloadMiscArgOffset || remote.UserPtr != 0x4000 {
+	if remote.Kind != "iovec" || remote.ArgIndex != 3 || remote.UserPtr != 0x4000 {
 		t.Fatalf("remote iovec section = %+v", remote)
+	}
+}
+
+func TestJSONPayloadSectionOmitsWindowOffset(t *testing.T) {
+	sections := jsonPayloadSections([]handler.PayloadSection{{
+		Kind:      handler.PayloadKindBytes,
+		Direction: handler.PayloadDirectionOut,
+		ArgIndex:  1,
+		Offset:    payloadExitArgOffset,
+		UserPtr:   0x3000,
+		UserLen:   1,
+		CopiedLen: 1,
+		ProbeRet:  0,
+		Data:      []byte("x"),
+	}})
+	if len(sections) != 1 {
+		t.Fatalf("jsonPayloadSections = %d, want 1", len(sections))
+	}
+	encoded, err := json.Marshal(sections[0])
+	if err != nil {
+		t.Fatalf("marshal json payload section: %v", err)
+	}
+	if bytes.Contains(encoded, []byte("offset")) {
+		t.Fatalf("json payload section leaks fixed-window offset: %s", encoded)
 	}
 }
 

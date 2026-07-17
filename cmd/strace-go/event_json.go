@@ -50,7 +50,7 @@ type jsonPayloadSection struct {
 	Kind       string `json:"kind"`
 	Direction  string `json:"direction"`
 	ArgIndex   int    `json:"arg_index"`
-	Offset     uint32 `json:"offset"`
+	Offset     uint32 `json:"-"`
 	UserPtr    uint64 `json:"user_ptr,omitempty"`
 	UserLen    uint32 `json:"user_len,omitempty"`
 	CopiedLen  uint32 `json:"copied_len"`
