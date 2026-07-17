@@ -83,7 +83,6 @@ func TestExecSyscallOutputLeaderRestartAndResumeFromEventView(t *testing.T) {
 	scMeta := meta.Syscall{Name: "execve"}
 	res := handler.Result{ArgParts: []string{`"/bin/true"`, `["true"]`, `0x1 /* 1 var */`}}
 	restart := syscallEventContext{
-		raw:  &bpfEvent{Pid: 1, Tid: 1, Ret: 0},
 		view: syscallEventView{valid: true, pid: 200, tid: 200, ret: -514},
 		meta: scMeta,
 	}
@@ -171,7 +170,6 @@ func TestExecSyscallOutputNonLeaderSupersededFromEventView(t *testing.T) {
 	scMeta := meta.Syscall{Name: "execve"}
 	res := handler.Result{ArgParts: []string{`"/bin/true"`, `["true"]`, `0x1 /* 1 var */`}}
 	restart := syscallEventContext{
-		raw:  &bpfEvent{Pid: 1, Tid: 1, Ret: 0},
 		view: syscallEventView{valid: true, pid: 200, tid: 201, ret: -514},
 		meta: scMeta,
 	}

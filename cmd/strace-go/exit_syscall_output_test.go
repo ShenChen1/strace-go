@@ -68,6 +68,9 @@ func exitEventContextWithRawAndView(
 	view syscallEventView,
 ) syscallEventContext {
 	scMeta := meta.Syscall{Name: name, Args: []string{"error_code"}, ArgTypes: []string{"int"}}
+	if !view.valid {
+		view = newSyscallEventViewFromBPF(eventRaw)
+	}
 	ctx := &handler.Context{
 		ScMeta:  scMeta,
 		SysName: name,
@@ -75,7 +78,6 @@ func exitEventContextWithRawAndView(
 		Opts:    opts,
 	}
 	return syscallEventContext{
-		raw:            eventRaw,
 		view:           view,
 		meta:           scMeta,
 		shouldPrint:    shouldPrint,
@@ -239,7 +241,6 @@ func TestExitSyscallOutputDetectsExitFromHandlerMetadata(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON})
 	scMeta := meta.Syscall{Name: "exit_group", Args: []string{"error_code"}, ArgTypes: []string{"int"}}
 	ev := syscallEventContext{
-		raw:         &bpfEvent{Pid: 101, Tid: 101, Args: [6]uint64{7}},
 		view:        syscallEventView{valid: true, tid: 101, probeRetEnter: -1, args: [6]uint64{7}},
 		shouldPrint: true,
 		handlerContext: &handler.Context{

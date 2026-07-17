@@ -49,7 +49,6 @@ func TestSuspendedSyscallOutputPrintsUnfinishedAndRemembersState(t *testing.T) {
 func TestSuspendedSyscallOutputUsesEventView(t *testing.T) {
 	output, state, out := newSuspendedOutputForTest()
 	ev := syscallEventContext{
-		raw:  &bpfEvent{Tid: 1, ProbeRetEnter: 0},
 		view: syscallEventView{valid: true, tid: 202, probeRetEnter: 3},
 		meta: meta.Syscall{Name: "nanosleep"},
 	}

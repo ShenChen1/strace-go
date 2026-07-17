@@ -31,7 +31,6 @@ func TestTextRendererPrintsSyscallFromEventView(t *testing.T) {
 	opts := &cli.Options{FollowForks: true}
 	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 	ev := syscallEventContext{
-		raw:            &bpfEvent{Tid: 1, Ret: 1},
 		view:           syscallEventView{valid: true, tid: 101, ret: 202},
 		meta:           meta.Syscall{Name: "getpid"},
 		handlerContext: &handler.Context{Opts: opts},
@@ -82,7 +81,6 @@ func TestTextRendererPrintsUnfinishedFromEventView(t *testing.T) {
 	opts := &cli.Options{FollowForks: true}
 	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 	ev := syscallEventContext{
-		raw:  &bpfEvent{Tid: 1},
 		view: syscallEventView{valid: true, tid: 101},
 		meta: meta.Syscall{Name: "nanosleep"},
 	}
@@ -191,7 +189,6 @@ func TestTextRendererPrintsExitSyscallFromEventView(t *testing.T) {
 	opts := &cli.Options{FollowForks: true}
 	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 	ev := syscallEventContext{
-		raw:  &bpfEvent{Tid: 1},
 		view: syscallEventView{valid: true, tid: 101},
 		meta: meta.Syscall{Name: "exit_group"},
 	}
