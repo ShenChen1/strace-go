@@ -144,7 +144,7 @@ func TestJSONRawEventViewOverridesRawScalars(t *testing.T) {
 	if ev.EventVersion != 2 || ev.EventFlags != bpfEventFlagGenericEnter || ev.DurationNS != 55 || ev.EnterTimeNS != 77 {
 		t.Fatalf("raw JSON timing/header = %+v, want view header/timing", ev)
 	}
-	if !ev.Failed || ev.Errno != 2 || ev.Ptr != 0x1234 {
+	if !ev.Failed || ev.Errno != 2 {
 		t.Fatalf("raw JSON failure/payload fields = %+v, want view-derived fields", ev)
 	}
 	if len(ev.PayloadSections) != 1 || ev.PayloadSections[0].ArgIndex != 2 || ev.PayloadSections[0].DataBase64 != "aGl0" {
@@ -156,5 +156,8 @@ func TestJSONRawEventViewOverridesRawScalars(t *testing.T) {
 	}
 	if _, ok := rawFields["data_len"]; ok {
 		t.Fatalf("raw JSON leaked fixed-window data_len field: %s", bytes.TrimSpace(output.Bytes()))
+	}
+	if _, ok := rawFields["ptr"]; ok {
+		t.Fatalf("raw JSON leaked raw pointer field: %s", bytes.TrimSpace(output.Bytes()))
 	}
 }
