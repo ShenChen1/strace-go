@@ -133,6 +133,38 @@ func TestPayloadSectionsForRawPayloadEventUsesFixedFallbackWithoutBPFEvent(t *te
 	}
 }
 
+func TestPayloadSectionsForEventRejectsNonSyscallEvent(t *testing.T) {
+	eventRaw := &bpfEvent{
+		EventType:     bpfEventTypeLifecycle,
+		Args:          [6]uint64{^uint64(99), 0x5000},
+		DataLen:       uint32(len("not-syscall\x00")),
+		ProbeRetEnter: 0,
+	}
+	copy(eventRaw.StrArg[:], []byte("not-syscall\x00"))
+
+	sections := payloadSectionsForEvent(eventRaw, meta.Syscall{Name: "mkdirat"})
+
+	if len(sections) != 0 {
+		t.Fatalf("sections = %d, want no payload projection for lifecycle event", len(sections))
+	}
+}
+
+func TestPayloadSectionsForPayloadEventRejectsUnknownEventType(t *testing.T) {
+	event := payloadEvent{
+		meta: payloadEventMeta{valid: true, eventType: 0},
+		source: staticPayloadSource{
+			args: [6]uint64{^uint64(99), 0x5000},
+			data: []byte("unknown-event\x00"),
+		},
+	}
+
+	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "mkdirat"})
+
+	if len(sections) != 0 {
+		t.Fatalf("sections = %d, want no payload projection for unknown event type", len(sections))
+	}
+}
+
 func TestPayloadSectionsForPayloadEventUsesSourceAwareProcessVMIovecRule(t *testing.T) {
 	raw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,

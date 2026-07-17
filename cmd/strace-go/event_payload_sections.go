@@ -185,6 +185,9 @@ func payloadSectionsForRawPayloadEvent(raw rawPayloadEvent, scMeta meta.Syscall)
 }
 
 func payloadSectionsForPayloadEvent(event payloadEvent, scMeta meta.Syscall) []handler.PayloadSection {
+	if !event.IsSyscallEvent() {
+		return nil
+	}
 	if rule, ok := payloadSourceSectionRules[scMeta.Name]; ok {
 		return rule(event, scMeta.Name)
 	}
