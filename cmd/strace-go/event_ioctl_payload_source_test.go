@@ -51,7 +51,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareIoctlExitRule(t *testing.T
 	})
 	requireIoctlSection(t, sections, expectedIoctlSection{
 		index: 1, direction: handler.PayloadDirectionOut,
-		offset: handler.BpfExitArgOffset, userLen: uint32(len(outData)), data: outData,
+		offset: payloadExitArgOffset, userLen: uint32(len(outData)), data: outData,
 	})
 }
 
@@ -89,12 +89,12 @@ func ioctlSourcePayload(offset int, data []byte) []byte {
 
 func ioctlExitSourcePayload(inData []byte, outData []byte) []byte {
 	dataLen := ioctlArgPayloadOffset + len(inData)
-	if minLen := handler.BpfExitArgOffset + len(outData); dataLen < minLen {
+	if minLen := payloadExitArgOffset + len(outData); dataLen < minLen {
 		dataLen = minLen
 	}
 	payload := make([]byte, dataLen)
 	copy(payload[ioctlArgPayloadOffset:], inData)
-	copy(payload[handler.BpfExitArgOffset:], outData)
+	copy(payload[payloadExitArgOffset:], outData)
 	return payload
 }
 

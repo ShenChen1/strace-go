@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -32,19 +31,19 @@ func TestJSONSyscallEventIncludesIoctlExitPayloadSection(t *testing.T) {
 		EventType:     bpfEventTypeExit,
 		Args:          [6]uint64{3, ioctlTestCmdSize(len(inData)), 0x1000},
 		Ret:           0,
-		DataLen:       handler.BpfExitArgOffset + uint32(len(outData)),
+		DataLen:       payloadExitArgOffset + uint32(len(outData)),
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
 	copy(eventRaw.StrArg[ioctlArgPayloadOffset:], inData)
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], outData)
+	copy(eventRaw.StrArg[payloadExitArgOffset:], outData)
 
 	sections := ioctlJSONPayloadSections(t, eventRaw)
 	if len(sections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(sections))
 	}
 	assertIoctlJSONSection(t, sections[0], "in", ioctlArgPayloadOffset, 0x1000, inData)
-	assertIoctlJSONSection(t, sections[1], "out", handler.BpfExitArgOffset, 0x1000, outData)
+	assertIoctlJSONSection(t, sections[1], "out", payloadExitArgOffset, 0x1000, outData)
 }
 
 func TestJSONSyscallEventIncludesIoctlZeroSizePayloadSection(t *testing.T) {

@@ -3,7 +3,7 @@ package main
 import "strace-go/pkg/handler"
 
 const (
-	ioctlArgPayloadOffset   = handler.BpfMiscArgOffset
+	ioctlArgPayloadOffset   = payloadMiscArgOffset
 	ioctlArgPayloadMaxBytes = 512
 	ioctlArgZeroPayloadLen  = 128
 	ioctlArgSizeShift       = 16
@@ -16,7 +16,7 @@ func ioctlPayloadSectionsFromSource(event payloadEvent, _ string) []handler.Payl
 	}
 	sections := ioctlArgPayloadSection(event, handler.PayloadDirectionIn, ioctlArgPayloadOffset, event.ProbeRetEnterArg(2))
 	if event.IsExit() && event.Ret() >= 0 {
-		sections = append(sections, ioctlArgPayloadSection(event, handler.PayloadDirectionOut, handler.BpfExitArgOffset, event.ProbeRetExit())...)
+		sections = append(sections, ioctlArgPayloadSection(event, handler.PayloadDirectionOut, payloadExitArgOffset, event.ProbeRetExit())...)
 	}
 	return sections
 }
