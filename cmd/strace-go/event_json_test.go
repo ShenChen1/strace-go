@@ -198,12 +198,12 @@ func TestJSONSyscallEventIncludesPollStructPayloadSections(t *testing.T) {
 		EventType:     bpfEventTypeExit,
 		Args:          [6]uint64{0x2000, 2, 1000},
 		Ret:           1,
-		DataLen:       handler.BpfExitArgOffset + 16,
+		DataLen:       payloadExitArgOffset + 16,
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
 	copy(eventRaw.StrArg[:], []byte("pollfd-enter-000"))
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], []byte("pollfd-exit--000"))
+	copy(eventRaw.StrArg[payloadExitArgOffset:], []byte("pollfd-exit--000"))
 
 	scMeta := meta.Syscall{Name: "poll"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -215,7 +215,7 @@ func TestJSONSyscallEventIncludesPollStructPayloadSections(t *testing.T) {
 	if enter.Kind != "struct" || enter.Direction != "in" || enter.ArgIndex != 0 || enter.Offset != 0 || enter.UserLen != 16 {
 		t.Fatalf("poll enter section = %+v", enter)
 	}
-	if exit.Kind != "struct" || exit.Direction != "out" || exit.ArgIndex != 0 || exit.Offset != handler.BpfExitArgOffset || exit.UserLen != 16 {
+	if exit.Kind != "struct" || exit.Direction != "out" || exit.ArgIndex != 0 || exit.Offset != payloadExitArgOffset || exit.UserLen != 16 {
 		t.Fatalf("poll exit section = %+v", exit)
 	}
 	if got := mustDecodeBase64(t, enter.DataBase64); string(got) != "pollfd-enter-000" {
@@ -230,11 +230,11 @@ func TestJSONSyscallEventIncludesPpollTimeoutPayloadSection(t *testing.T) {
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
 		Args:          [6]uint64{0x2000, 1, 0x3000},
-		DataLen:       handler.BpfMiscArgOffset + 16,
+		DataLen:       payloadMiscArgOffset + 16,
 		ProbeRetEnter: 0,
 	}
 	copy(eventRaw.StrArg[:], []byte("pollfd-in"))
-	copy(eventRaw.StrArg[handler.BpfMiscArgOffset:], []byte("ppoll-timeout--"))
+	copy(eventRaw.StrArg[payloadMiscArgOffset:], []byte("ppoll-timeout--"))
 
 	scMeta := meta.Syscall{Name: "ppoll"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -246,7 +246,7 @@ func TestJSONSyscallEventIncludesPpollTimeoutPayloadSection(t *testing.T) {
 	if pollfds.Kind != "struct" || pollfds.Direction != "in" || pollfds.ArgIndex != 0 || pollfds.UserLen != 8 {
 		t.Fatalf("ppoll pollfds section = %+v", pollfds)
 	}
-	if timeout.Kind != "struct" || timeout.Direction != "in" || timeout.ArgIndex != 2 || timeout.Offset != handler.BpfMiscArgOffset || timeout.UserLen != 16 {
+	if timeout.Kind != "struct" || timeout.Direction != "in" || timeout.ArgIndex != 2 || timeout.Offset != payloadMiscArgOffset || timeout.UserLen != 16 {
 		t.Fatalf("ppoll timeout section = %+v", timeout)
 	}
 }
@@ -273,7 +273,7 @@ func TestJSONSyscallEventIncludesEpollStructPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{5, 0x2000, 2, 1000},
 				Ret:           2,
-				DataLen:       handler.BpfExitArgOffset + 24,
+				DataLen:       payloadExitArgOffset + 24,
 				ProbeRetEnter: -1,
 				ProbeRetExit:  0,
 			},
@@ -285,7 +285,7 @@ func TestJSONSyscallEventIncludesEpollStructPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{5, 0x2000, 2, 0x3000, 0, 8},
 				Ret:           2,
-				DataLen:       handler.BpfExitArgOffset + 24,
+				DataLen:       payloadExitArgOffset + 24,
 				ProbeRetEnter: 0,
 				ProbeRetExit:  0,
 			},
@@ -297,8 +297,8 @@ func TestJSONSyscallEventIncludesEpollStructPayloadSections(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			eventRaw := tt.eventRaw
 			copy(eventRaw.StrArg[:], bytes.Repeat([]byte{0x11}, epollPayloadEventSize))
-			copy(eventRaw.StrArg[handler.BpfMiscArgOffset:], bytes.Repeat([]byte{0x22}, timespecPayloadStructSize))
-			copy(eventRaw.StrArg[handler.BpfExitArgOffset:], bytes.Repeat([]byte{0x33}, 24))
+			copy(eventRaw.StrArg[payloadMiscArgOffset:], bytes.Repeat([]byte{0x22}, timespecPayloadStructSize))
+			copy(eventRaw.StrArg[payloadExitArgOffset:], bytes.Repeat([]byte{0x33}, 24))
 
 			scMeta := meta.Syscall{Name: tt.name}
 			ev := newJSONSyscallEvent(&eventRaw, scMeta, payloadSectionsForEvent(&eventRaw, scMeta))

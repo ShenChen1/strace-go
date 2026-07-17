@@ -16,13 +16,13 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwarePollRules(t *testing.T) {
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
-	data := make([]byte, handler.BpfExitArgOffset+16)
+	data := make([]byte, payloadExitArgOffset+16)
 	pollEnter := bytes.Repeat([]byte{0x11}, 16)
 	ppollTimeout := bytes.Repeat([]byte{0x22}, timespecPayloadStructSize)
 	pollExit := bytes.Repeat([]byte{0x33}, 16)
 	copy(data[:], pollEnter)
-	copy(data[handler.BpfMiscArgOffset:], ppollTimeout)
-	copy(data[handler.BpfExitArgOffset:], pollExit)
+	copy(data[payloadMiscArgOffset:], ppollTimeout)
+	copy(data[payloadExitArgOffset:], pollExit)
 	event := payloadEvent{
 		raw: raw,
 		source: staticPayloadSource{
@@ -147,10 +147,10 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareEpollRules(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			data := make([]byte, handler.BpfExitArgOffset+24)
+			data := make([]byte, payloadExitArgOffset+24)
 			copy(data[:], bytes.Repeat([]byte{0x11}, epollPayloadEventSize))
-			copy(data[handler.BpfMiscArgOffset:], bytes.Repeat([]byte{0x22}, timespecPayloadStructSize))
-			copy(data[handler.BpfExitArgOffset:], bytes.Repeat([]byte{0x33}, 24))
+			copy(data[payloadMiscArgOffset:], bytes.Repeat([]byte{0x22}, timespecPayloadStructSize))
+			copy(data[payloadExitArgOffset:], bytes.Repeat([]byte{0x33}, 24))
 			event := payloadEvent{
 				raw: &tt.raw,
 				source: staticPayloadSource{

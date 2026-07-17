@@ -115,7 +115,7 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"ppoll":                pollPayloadSourceRule(true),
 	"select":               selectPayloadSectionsFromSource,
 	"_newselect":           selectPayloadSectionsFromSource,
-	"epoll_ctl":            enterStructPayloadSourceRule(3, handler.BpfEnterArgOffset, epollPayloadEventSize),
+	"epoll_ctl":            enterStructPayloadSourceRule(3, payloadEnterArgOffset, epollPayloadEventSize),
 	"epoll_wait":           exitStructArrayPayloadSourceRule(1, epollPayloadEventSize, epollPayloadMaxBytes),
 	"epoll_pwait":          exitStructArrayPayloadSourceRule(1, epollPayloadEventSize, epollPayloadMaxBytes),
 	"epoll_pwait2":         epollPwait2PayloadSectionsFromSource,
@@ -250,11 +250,11 @@ func pollPayloadSectionsFromSource(event payloadEvent, includeTimeout bool) []ha
 		countIndex: 1,
 		elemSize:   pollPayloadFdSize,
 		maxBytes:   pollPayloadMaxBytes,
-		offset:     handler.BpfEnterArgOffset,
+		offset:     payloadEnterArgOffset,
 		probeRet:   event.ProbeRetEnterArg(0),
 	})
 	if includeTimeout {
-		sections = append(sections, enterStructPayloadSectionFromSource(event, 2, handler.BpfMiscArgOffset, timespecPayloadStructSize)...)
+		sections = append(sections, enterStructPayloadSectionFromSource(event, 2, payloadMiscArgOffset, timespecPayloadStructSize)...)
 	}
 	if event.IsExit() && event.Ret() > 0 {
 		sections = append(sections, structArrayPayloadSectionFromSourceArg(event, structArrayPayloadSpec{
@@ -263,7 +263,7 @@ func pollPayloadSectionsFromSource(event payloadEvent, includeTimeout bool) []ha
 			countIndex: 1,
 			elemSize:   pollPayloadFdSize,
 			maxBytes:   pollPayloadMaxBytes,
-			offset:     handler.BpfExitArgOffset,
+			offset:     payloadExitArgOffset,
 			probeRet:   event.ProbeRetExit(),
 		})...)
 	}
@@ -271,7 +271,7 @@ func pollPayloadSectionsFromSource(event payloadEvent, includeTimeout bool) []ha
 }
 
 func epollPwait2PayloadSectionsFromSource(event payloadEvent, _ string) []handler.PayloadSection {
-	sections := enterStructPayloadSectionFromSource(event, 3, handler.BpfMiscArgOffset, timespecPayloadStructSize)
+	sections := enterStructPayloadSectionFromSource(event, 3, payloadMiscArgOffset, timespecPayloadStructSize)
 	if event.IsExit() && event.Ret() > 0 {
 		sections = append(sections, exitStructArrayPayloadSectionFromSourceRet(event, 1, epollPayloadEventSize, epollPayloadMaxBytes)...)
 	}
@@ -309,7 +309,7 @@ func exitStructArrayPayloadSectionFromSourceRet(
 		kind:      handler.PayloadKindStruct,
 		direction: handler.PayloadDirectionOut,
 		argIndex:  argIndex,
-		offset:    handler.BpfExitArgOffset,
+		offset:    payloadExitArgOffset,
 		userLen:   userLen,
 		maxLen:    uint32(maxBytes),
 		probeRet:  event.ProbeRetExit(),
