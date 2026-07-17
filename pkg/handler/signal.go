@@ -84,13 +84,13 @@ func (h *SignalHandler) formatSigsetArg(ctx *Context, argIndex int, argName stri
 		return fmt.Sprintf("%#x", val)
 	}
 	if (argName == "oldset" || argName == "oset") && ctx.Ret >= 0 {
-		data, ok := signalStructSnapshot(ctx, argIndex, PayloadDirectionOut, BpfExitArgOffset, signalSigsetSize)
+		data, ok := signalStructSnapshot(ctx, argIndex, PayloadDirectionOut, signalSigsetSize)
 		if ok {
 			return format.Sigset(data)
 		}
 		return fmt.Sprintf("%#x", val)
 	} else {
-		data, ok := signalStructSnapshot(ctx, argIndex, PayloadDirectionIn, BpfEnterArgOffset, signalSigsetSize)
+		data, ok := signalStructSnapshot(ctx, argIndex, PayloadDirectionIn, signalSigsetSize)
 		if ok {
 			return format.Sigset(data)
 		}
@@ -103,14 +103,14 @@ func (h *SignalHandler) formatSigactionArg(ctx *Context, argIndex int, argName s
 		return "NULL"
 	}
 	if argName == "oact" {
-		data, ok := signalStructSnapshot(ctx, argIndex, PayloadDirectionOut, BpfExitArgOffset, signalSigactionSize)
+		data, ok := signalStructSnapshot(ctx, argIndex, PayloadDirectionOut, signalSigactionSize)
 		if ok {
 			return formatSigaction(data)
 		}
 		return fmt.Sprintf("%#x", val)
 	}
 
-	if data, ok := signalStructSnapshot(ctx, argIndex, PayloadDirectionIn, BpfEnterArgOffset, signalSigactionSize); ok {
+	if data, ok := signalStructSnapshot(ctx, argIndex, PayloadDirectionIn, signalSigactionSize); ok {
 		return formatSigaction(data)
 	}
 	return fmt.Sprintf("%#x", val)
@@ -120,7 +120,6 @@ func signalStructSnapshot(
 	ctx *Context,
 	argIndex int,
 	direction PayloadDirection,
-	offset int,
 	size int,
 ) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(argIndex, direction); ok {
