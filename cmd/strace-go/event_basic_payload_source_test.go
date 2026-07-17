@@ -21,13 +21,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwarePrlimitRule(t *testing.T) 
 	data := make([]byte, payloadExitArgOffset+rlimitPayloadStructSize)
 	copy(data[payloadEnterArgOffset:], oldLimit)
 	copy(data[payloadExitArgOffset:], newLimit)
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "prlimit64"})
 
@@ -45,13 +39,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareSetrlimitRule(t *testing.T
 		ProbeRetEnter: 0,
 	}
 	limit := bytes.Repeat([]byte{0x33}, rlimitPayloadStructSize)
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: limit,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, limit)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "setrlimit"})
 
@@ -71,13 +59,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareRobustListRule(t *testing.
 	data := make([]byte, payloadExitArgOffset+24)
 	copy(data[payloadExitArgOffset:], robustListJSONWord(0xfeedface))
 	copy(data[payloadExitArgOffset+16:], robustListJSONWord(24))
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "get_robust_list"})
 
@@ -100,13 +82,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareWaitidRule(t *testing.T) {
 	data := make([]byte, payloadExitArgOffset+136+waitidRusagePayloadSize)
 	copy(data[payloadExitArgOffset:], siginfo)
 	copy(data[payloadExitArgOffset+136:], rusage)
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "waitid"})
 

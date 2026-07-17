@@ -13,6 +13,22 @@ type staticPayloadSource struct {
 	data []byte
 }
 
+func payloadEventFromRawForTest(raw *bpfEvent, data []byte) payloadEvent {
+	return payloadEvent{
+		source: staticPayloadSource{
+			args: raw.Args,
+			data: data,
+		},
+		meta: payloadEventMeta{
+			valid:         true,
+			eventType:     raw.EventType,
+			ret:           raw.Ret,
+			probeRetEnter: raw.ProbeRetEnter,
+			probeRetExit:  raw.ProbeRetExit,
+		},
+	}
+}
+
 func (s staticPayloadSource) Arg(index int) (uint64, bool) {
 	if index < 0 || index >= len(s.args) {
 		return 0, false
@@ -174,13 +190,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareProcessVMIovecRule(t *test
 	data := make([]byte, payloadMiscArgOffset+16)
 	copy(data[:16], []byte("local-iovec-0000"))
 	copy(data[payloadMiscArgOffset:], []byte("remote-iovec-000"))
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "process_vm_readv"})
 
@@ -209,13 +219,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareSimplePathFallback(t *test
 		Args:          [6]uint64{^uint64(99), 0x5000},
 		ProbeRetEnter: 0,
 	}
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: []byte("from-source\x00ignored"),
-		},
-	}
+	event := payloadEventFromRawForTest(raw, []byte("from-source\x00ignored"))
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "mkdirat"})
 
@@ -240,13 +244,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareDualPathRule(t *testing.T)
 	data := make([]byte, pathPayloadSecondaryOffset+pathPayloadMaxBytes)
 	copy(data[:], []byte("old-from-source\x00"))
 	copy(data[pathPayloadSecondaryOffset:], []byte("new-from-source\x00"))
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "linkat"})
 
@@ -276,13 +274,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareMemfdRule(t *testing.T) {
 		Args:          [6]uint64{0x7000, 0},
 		ProbeRetEnter: 0,
 	}
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: []byte("memfd-source\x00ignored"),
-		},
-	}
+	event := payloadEventFromRawForTest(raw, []byte("memfd-source\x00ignored"))
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "memfd_create"})
 
@@ -308,13 +300,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareOpenat2Rule(t *testing.T) 
 	data := make([]byte, openat2HowPayloadOffset+openat2HowPayloadMax)
 	copy(data[:], []byte("openat2-source\x00"))
 	copy(data[openat2HowPayloadOffset:], howData)
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "openat2"})
 
@@ -346,13 +332,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareExitBytesRule(t *testing.T
 	}
 	data := make([]byte, payloadExitArgOffset+6)
 	copy(data[payloadExitArgOffset:], []byte("target"))
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "getcwd"})
 
@@ -379,13 +359,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareExitStructRule(t *testing.
 	wantData := bytes.Repeat([]byte{0x41}, statPayloadStructSize)
 	data := make([]byte, payloadExitArgOffset+statPayloadStructSize)
 	copy(data[payloadExitArgOffset:], wantData)
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "stat"})
 
@@ -412,13 +386,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareFDArrayRule(t *testing.T) 
 	wantData := fdArrayJSONData(11, 12)
 	data := make([]byte, payloadExitArgOffset+fdArrayPayloadSize)
 	copy(data[payloadExitArgOffset:], wantData)
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "pipe"})
 

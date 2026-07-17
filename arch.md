@@ -972,6 +972,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `TraceState` pending enter 和 `syscallEventView` 已删除旧 raw carrier `dataLen` 字段；Go 状态机不再把 fixed-window payload 长度作为 enter/exit 配对状态保存。
 - 迁移期固定窗口源已统一命名为 `windowPayloadSource`，不再把它称为 fixed payload source，强调它只是旧 BPF fixed-window 到 semantic section 的兼容投影层。
 - `syscallEventContext` 已删除 `raw *bpfEvent` 字段和 raw fallback；JSON/handler/text pipeline 只能消费构造期缓存的 `syscallEventView` 与 `PayloadSection`，旧 BPF carrier 不再能从 syscall context 重新进入输出路径。
+- `payloadEvent` 已删除 `raw *bpfEvent` 字段和 meta fallback；fixed-window payload 投影只能通过 `rawPayloadEvent -> windowPayloadSource + payloadEventMeta` 的单向转换进入 section 规则。
 - upstream 原生测试卷已作为 `upstream-reference` smoke 跑通入口；最近一次参考运行暴露的主要是 strict text diff、退出行和 ptrace 顺序语义差异，不作为 eBPF 主门禁失败处理。
 
 仍需收口：

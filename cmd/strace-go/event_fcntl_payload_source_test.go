@@ -70,13 +70,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareFcntlRule(t *testing.T) {
 			raw := tt.raw
 			data := make([]byte, payloadExitArgOffset+fcntlFlockPayloadSize)
 			putFcntlSourcePayloads(data, tt.wants)
-			event := payloadEvent{
-				raw: &raw,
-				source: staticPayloadSource{
-					args: raw.Args,
-					data: data,
-				},
-			}
+			event := payloadEventFromRawForTest(&raw, data)
 
 			sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "fcntl"})
 

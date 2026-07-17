@@ -83,13 +83,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareKeyRules(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			raw := &bpfEvent{EventType: bpfEventTypeEnter, Args: tt.args, ProbeRetEnter: 0}
-			event := payloadEvent{
-				raw: raw,
-				source: staticPayloadSource{
-					args: tt.args,
-					data: tt.data,
-				},
-			}
+			event := payloadEventFromRawForTest(raw, tt.data)
 
 			sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: tt.name})
 

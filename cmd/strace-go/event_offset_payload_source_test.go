@@ -18,13 +18,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareSendfileRule(t *testing.T)
 	data := make([]byte, payloadExitArgOffset+offsetPointerPayloadSize)
 	copy(data[payloadMiscArgOffset:], offsetJSONWord(10))
 	copy(data[payloadExitArgOffset:], offsetJSONWord(20))
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "sendfile"})
 
@@ -44,13 +38,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareCopyFileRangeRule(t *testi
 	data := make([]byte, payloadMiscArgOffset+offsetPointerPayloadSize*2)
 	copy(data[payloadMiscArgOffset:], offsetJSONWord(11))
 	copy(data[payloadMiscArgOffset+8:], offsetJSONWord(22))
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "copy_file_range"})
 

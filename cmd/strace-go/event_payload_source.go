@@ -42,7 +42,6 @@ type payloadEventMeta struct {
 }
 
 type payloadEvent struct {
-	raw    *bpfEvent
 	source payloadSource
 	meta   payloadEventMeta
 }
@@ -125,44 +124,26 @@ func (e payloadEvent) Arg(index int) uint64 {
 }
 
 func (e payloadEvent) Ret() int64 {
-	if !e.meta.valid && e.raw != nil {
-		return e.raw.Ret
-	}
 	return e.meta.ret
 }
 
 func (e payloadEvent) IsExit() bool {
-	if !e.meta.valid && e.raw != nil {
-		return e.raw.EventType == bpfEventTypeExit
-	}
 	return e.meta.eventType == bpfEventTypeExit
 }
 
 func (e payloadEvent) ProbeRetEnterArg(index int) int32 {
-	if !e.meta.valid && e.raw != nil {
-		return getArgProbeStatus(e.raw.ProbeRetEnter, index)
-	}
 	return getArgProbeStatus(e.meta.probeRetEnter, index)
 }
 
 func (e payloadEvent) ProbeRetEnter() int32 {
-	if !e.meta.valid && e.raw != nil {
-		return e.raw.ProbeRetEnter
-	}
 	return e.meta.probeRetEnter
 }
 
 func (e payloadEvent) ProbeRetExit() int32 {
-	if !e.meta.valid && e.raw != nil {
-		return e.raw.ProbeRetExit
-	}
 	return e.meta.probeRetExit
 }
 
 func (e payloadEvent) IsSyscallEvent() bool {
-	if !e.meta.valid && e.raw != nil {
-		return e.raw.EventType == bpfEventTypeEnter || e.raw.EventType == bpfEventTypeExit
-	}
 	if !e.meta.valid {
 		return true
 	}

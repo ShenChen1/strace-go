@@ -45,13 +45,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareBpfRule(t *testing.T) {
 		Args:          [6]uint64{0, 0x1000, uint64(len(wantData))},
 		ProbeRetEnter: 0,
 	}
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: wantData,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, wantData)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "bpf"})
 

@@ -130,13 +130,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareAioPgeteventsRule(t *testi
 }
 
 func aioSourceSections(raw *bpfEvent, syscall string, data []byte) []handler.PayloadSection {
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 	return payloadSectionsForPayloadEvent(event, meta.Syscall{Name: syscall})
 }
 

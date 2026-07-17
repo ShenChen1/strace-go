@@ -75,13 +75,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareXattrSetRule(t *testing.T)
 		ProbeRetEnter: 0,
 	}
 	data := xattrSourcePayloadData([]byte("/tmp/a\x00"), []byte("user.k\x00"), []byte("abc"), 0)
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "setxattr"})
 
@@ -104,13 +98,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareXattrGetRule(t *testing.T)
 	data := make([]byte, xattrValuePayloadOffset+xattrValuePayloadMaxBytes)
 	copy(data[xattrFNamePayloadOffset:], []byte("user.k\x00"))
 	copy(data[xattrFValuePayloadOffset:], []byte("data"))
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "fgetxattr"})
 
@@ -130,13 +118,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareXattrListRule(t *testing.T
 		ProbeRetExit:  0,
 	}
 	data := xattrSourcePayloadData([]byte("/tmp/a\x00"), nil, []byte("user.a\x00user.b"), xattrListPayloadOffset)
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "listxattr"})
 
@@ -155,13 +137,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareXattrRemoveRule(t *testing
 	}
 	data := make([]byte, xattrNamePayloadMaxBytes)
 	copy(data[xattrFNamePayloadOffset:], []byte("user.k\x00"))
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "fremovexattr"})
 

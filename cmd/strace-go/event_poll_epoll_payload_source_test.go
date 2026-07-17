@@ -23,13 +23,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwarePollRules(t *testing.T) {
 	copy(data[:], pollEnter)
 	copy(data[payloadMiscArgOffset:], ppollTimeout)
 	copy(data[payloadExitArgOffset:], pollExit)
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "ppoll"})
 
@@ -63,13 +57,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareSelectRule(t *testing.T) {
 	copy(data[selectPayloadTimeoutOffset:], selectJSONTimeval(9, 10))
 	copy(data[selectPayloadExitFdSetOffset+selectPayloadFdSetOffset(1):], []byte{0x20})
 	copy(data[selectPayloadExitTimeoutOff:], selectJSONTimeval(1, 2))
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "select"})
 
@@ -151,13 +139,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareEpollRules(t *testing.T) {
 			copy(data[:], bytes.Repeat([]byte{0x11}, epollPayloadEventSize))
 			copy(data[payloadMiscArgOffset:], bytes.Repeat([]byte{0x22}, timespecPayloadStructSize))
 			copy(data[payloadExitArgOffset:], bytes.Repeat([]byte{0x33}, 24))
-			event := payloadEvent{
-				raw: &tt.raw,
-				source: staticPayloadSource{
-					args: tt.raw.Args,
-					data: data,
-				},
-			}
+			event := payloadEventFromRawForTest(&tt.raw, data)
 
 			sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: tt.name})
 

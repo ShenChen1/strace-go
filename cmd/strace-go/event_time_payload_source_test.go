@@ -108,13 +108,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareTimeRules(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			event := payloadEvent{
-				raw: &tt.raw,
-				source: staticPayloadSource{
-					args: tt.raw.Args,
-					data: timeSourcePayloadData(tt.wants),
-				},
-			}
+			event := payloadEventFromRawForTest(&tt.raw, timeSourcePayloadData(tt.wants))
 
 			sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: tt.name})
 

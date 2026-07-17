@@ -154,13 +154,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareFutexRules(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			event := payloadEvent{
-				raw: &tt.raw,
-				source: staticPayloadSource{
-					args: tt.raw.Args,
-					data: tt.payload,
-				},
-			}
+			event := payloadEventFromRawForTest(&tt.raw, tt.payload)
 
 			sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: tt.name})
 
@@ -183,13 +177,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareFutexWaitvRule(t *testing.
 	data := make([]byte, futexPayloadWaitvTimeoutOffset+timespecPayloadStructSize)
 	copy(data[:], waiters)
 	copy(data[futexPayloadWaitvTimeoutOffset:], timeout)
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "futex_waitv"})
 

@@ -119,13 +119,7 @@ func networkSourceSections(raw *bpfEvent, syscall string, data []byte) []handler
 }
 
 func networkSourceEvent(raw *bpfEvent, data []byte) payloadEvent {
-	return payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	return payloadEventFromRawForTest(raw, data)
 }
 
 func sendtoSourcePayload() []byte {

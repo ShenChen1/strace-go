@@ -15,13 +15,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareClone3Rule(t *testing.T) {
 		Args:          [6]uint64{0x1000, uint64(len(wantData))},
 		ProbeRetEnter: 0,
 	}
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: wantData,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, wantData)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "clone3"})
 
@@ -44,13 +38,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareCachestatRule(t *testing.T
 	data := make([]byte, payloadExitArgOffset+cachestatStatsPayloadSize)
 	copy(data[cachestatRangePayloadOffset:], rangeData)
 	copy(data[payloadExitArgOffset:], statsData)
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "cachestat"})
 

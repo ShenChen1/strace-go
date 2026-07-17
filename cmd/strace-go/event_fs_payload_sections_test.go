@@ -117,13 +117,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareMountRule(t *testing.T) {
 	copy(data[mountTargetOffset:], []byte("/mnt\x00"))
 	copy(data[mountTypeOffset:], []byte("ext4\x00"))
 	copy(data[mountDataOffset:], []byte("rw\x00"))
-	event := payloadEvent{
-		raw: &bpfEvent{EventType: bpfEventTypeEnter, Args: args, ProbeRetEnter: 0},
-		source: staticPayloadSource{
-			args: args,
-			data: data,
-		},
-	}
+	event := payloadEventFromRawForTest(&bpfEvent{EventType: bpfEventTypeEnter, Args: args, ProbeRetEnter: 0}, data)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "mount"})
 
@@ -165,13 +159,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareFsconfigRules(t *testing.T
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			event := payloadEvent{
-				raw: &bpfEvent{EventType: bpfEventTypeEnter, Args: tt.args, ProbeRetEnter: 0},
-				source: staticPayloadSource{
-					args: tt.args,
-					data: tt.data,
-				},
-			}
+			event := payloadEventFromRawForTest(&bpfEvent{EventType: bpfEventTypeEnter, Args: tt.args, ProbeRetEnter: 0}, tt.data)
 
 			sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "fsconfig"})
 
@@ -182,13 +170,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareFsconfigRules(t *testing.T
 
 func TestPayloadSectionsForPayloadEventUsesSourceAwareUmountRule(t *testing.T) {
 	args := [6]uint64{0x1000}
-	event := payloadEvent{
-		raw: &bpfEvent{EventType: bpfEventTypeEnter, Args: args, ProbeRetEnter: 0},
-		source: staticPayloadSource{
-			args: args,
-			data: []byte("/mnt\x00"),
-		},
-	}
+	event := payloadEventFromRawForTest(&bpfEvent{EventType: bpfEventTypeEnter, Args: args, ProbeRetEnter: 0}, []byte("/mnt\x00"))
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "umount2"})
 

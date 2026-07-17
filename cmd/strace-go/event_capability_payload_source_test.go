@@ -20,13 +20,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareCapgetRule(t *testing.T) {
 	snapshot := make([]byte, payloadExitArgOffset+capabilityDataPayloadSize)
 	copy(snapshot[payloadEnterArgOffset:], header)
 	copy(snapshot[payloadExitArgOffset:], data)
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: snapshot,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, snapshot)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "capget"})
 
@@ -47,13 +41,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareCapsetRule(t *testing.T) {
 	snapshot := make([]byte, payloadMiscArgOffset+capabilityDataPayloadSize)
 	copy(snapshot[payloadEnterArgOffset:], header)
 	copy(snapshot[payloadMiscArgOffset:], data)
-	event := payloadEvent{
-		raw: raw,
-		source: staticPayloadSource{
-			args: raw.Args,
-			data: snapshot,
-		},
-	}
+	event := payloadEventFromRawForTest(raw, snapshot)
 
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "capset"})
 
