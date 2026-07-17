@@ -188,11 +188,11 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareProcessVMIovecRule(t *test
 		t.Fatalf("sections = %d, want 2", len(sections))
 	}
 	local, remote := sections[0], sections[1]
-	if local.Kind != handler.PayloadKindIovec || local.ArgIndex != 1 || local.UserPtr != 0x3000 || local.Offset != 0 {
+	if local.Kind != handler.PayloadKindIovec || local.ArgIndex != 1 || local.UserPtr != 0x3000 {
 		t.Fatalf("local section = %+v, want arg 1 iovec at offset 0", local)
 	}
 	if remote.Kind != handler.PayloadKindIovec || remote.ArgIndex != 3 ||
-		remote.UserPtr != 0x4000 || remote.Offset != uint32(payloadMiscArgOffset) {
+		remote.UserPtr != 0x4000 {
 		t.Fatalf("remote section = %+v, want arg 3 iovec at misc offset", remote)
 	}
 	if !bytes.Equal(local.Data, []byte("local-iovec-0000")) {
@@ -255,11 +255,11 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareDualPathRule(t *testing.T)
 	}
 	oldPath, newPath := sections[0], sections[1]
 	if oldPath.Kind != handler.PayloadKindString || oldPath.ArgIndex != 1 ||
-		oldPath.UserPtr != 0x5000 || oldPath.Offset != pathPayloadPrimaryOffset {
+		oldPath.UserPtr != 0x5000 {
 		t.Fatalf("old path section = %+v, want arg 1 primary path", oldPath)
 	}
 	if newPath.Kind != handler.PayloadKindString || newPath.ArgIndex != 3 ||
-		newPath.UserPtr != 0x6000 || newPath.Offset != pathPayloadSecondaryOffset {
+		newPath.UserPtr != 0x6000 {
 		t.Fatalf("new path section = %+v, want arg 3 secondary path", newPath)
 	}
 	if !bytes.Equal(oldPath.Data, []byte("old-from-source\x00")) {
@@ -326,7 +326,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareOpenat2Rule(t *testing.T) 
 		t.Fatalf("openat2 path section = %+v, want string arg 1", path)
 	}
 	if how.Kind != handler.PayloadKindStruct || how.ArgIndex != 2 ||
-		how.UserPtr != 0x2000 || how.Offset != openat2HowPayloadOffset {
+		how.UserPtr != 0x2000 {
 		t.Fatalf("openat2 how section = %+v, want struct arg 2", how)
 	}
 	if !bytes.Equal(path.Data, []byte("openat2-source\x00")) {

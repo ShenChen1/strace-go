@@ -41,7 +41,7 @@ func assertOpenat2JSONSection(
 	if got.Kind != kind || got.Direction != "in" || got.ArgIndex != argIndex {
 		t.Fatalf("openat2 section metadata = %+v", got)
 	}
-	if got.Offset != uint32(offset) || got.UserPtr != userPtr {
+	if got.UserPtr != userPtr {
 		t.Fatalf("openat2 section bounds = %+v", got)
 	}
 	if got.UserLen != uint32(len(wantData)) || got.CopiedLen != uint32(len(wantData)) {

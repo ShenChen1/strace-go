@@ -79,7 +79,7 @@ func assertCapabilityJSONSection(
 	if got.Kind != "struct" || got.Direction != want.direction || got.ArgIndex != want.argIndex {
 		t.Fatalf("capability section metadata = %+v, want %+v", got, want)
 	}
-	if got.Offset != want.offset || got.UserPtr != want.userPtr {
+	if got.UserPtr != want.userPtr {
 		t.Fatalf("capability section bounds = %+v, want %+v", got, want)
 	}
 	if got.UserLen != uint32(len(want.data)) || got.CopiedLen != uint32(len(want.data)) {

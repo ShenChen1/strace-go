@@ -436,7 +436,6 @@ func TestJSONPayloadSectionOmitsWindowOffset(t *testing.T) {
 		Kind:      handler.PayloadKindBytes,
 		Direction: handler.PayloadDirectionOut,
 		ArgIndex:  1,
-		Offset:    payloadExitArgOffset,
 		UserPtr:   0x3000,
 		UserLen:   1,
 		CopiedLen: 1,

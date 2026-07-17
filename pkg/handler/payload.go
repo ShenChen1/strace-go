@@ -25,7 +25,6 @@ type PayloadSection struct {
 	Kind      PayloadKind
 	Direction PayloadDirection
 	ArgIndex  int
-	Offset    uint32
 	UserPtr   uint64
 	UserLen   uint32
 	CopiedLen uint32

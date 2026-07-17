@@ -74,7 +74,7 @@ func assertStructPayloadSourceSection(
 	if section.Kind != handler.PayloadKindStruct || section.Direction != direction || section.ArgIndex != argIndex {
 		t.Fatalf("section metadata = %+v", section)
 	}
-	if section.Offset != uint32(offset) || section.UserPtr != userPtr {
+	if section.UserPtr != userPtr {
 		t.Fatalf("section bounds = %+v", section)
 	}
 	if section.UserLen != uint32(len(wantData)) || section.CopiedLen != uint32(len(wantData)) {

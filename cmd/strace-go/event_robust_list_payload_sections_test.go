@@ -39,7 +39,7 @@ func assertRobustListSection(
 	if section.Kind != "struct" || section.Direction != "out" || section.ArgIndex != argIndex {
 		t.Fatalf("section metadata = %+v", section)
 	}
-	if section.Offset != uint32(offset) || section.UserPtr != userPtr {
+	if section.UserPtr != userPtr {
 		t.Fatalf("section bounds = %+v", section)
 	}
 	if section.UserLen != robustListPayloadWordSize || section.CopiedLen != robustListPayloadWordSize {

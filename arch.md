@@ -965,6 +965,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `setxattr/getxattr/listxattr` 及 f/l 变体已暴露 path/name/value/list sections，xattr formatter 只消费 semantic payload section，旧固定 offset snapshot 会被忽略并退回指针输出。
 - `ioctl` 已暴露 arg2 enter/exit raw bytes sections，DM/OTP/fiemap/BTRFS enter-side formatter 和常见标准 OUT ioctl formatter 只消费 semantic payload section，旧固定 offset snapshot 会被忽略并退回指针或空 extent 输出。
 - `handler` 包已不再导出 BPF fixed-window layout offset；`BpfEnterArgOffset`、`BpfMiscArgOffset`、`BpfExitArgOffset` 已删除，固定窗口布局只保留在 `cmd/strace-go/event_payload_layout.go` 作为迁移期投影边界。
+- 公共 `handler.PayloadSection` 已删除 `Offset` 字段，fixed-window offset 只作为 `cmd/strace-go` 投影函数读取旧 `str_arg` 窗口时的局部实现细节存在。
 - time/signal 等生产 handler 已移除旧 offset snapshot hint，handler 只能通过 `PayloadSection` 的 arg/direction/kind 语义读取 BPF 快照。
 - payload projection 会先拒绝 lifecycle/unknown 等非 syscall event，再从 fixed window 投影 semantic sections；旧 `event_type == 0` 或 lifecycle 样本不能再伪装成 syscall payload。
 - JSON/debug `payload_sections` 不再输出 fixed-window `offset` 字段，syscall event 也不再输出旧 raw carrier 的 `data_len`；外部测试 oracle 只看 kind/direction/arg/user_ptr/user_len/copied_len/probe_ret/data，避免把旧窗口布局固化成机器输出契约。

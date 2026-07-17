@@ -43,7 +43,7 @@ func assertCachestatJSONSection(
 	if got.Kind != "struct" || got.Direction != direction || got.ArgIndex != argIndex {
 		t.Fatalf("cachestat section metadata = %+v", got)
 	}
-	if got.Offset != uint32(offset) || got.UserPtr != userPtr {
+	if got.UserPtr != userPtr {
 		t.Fatalf("cachestat section bounds = %+v", got)
 	}
 	if got.UserLen != uint32(len(wantData)) || got.CopiedLen != uint32(len(wantData)) {

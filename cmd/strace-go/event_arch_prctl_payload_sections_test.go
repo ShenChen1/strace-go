@@ -27,7 +27,7 @@ func TestJSONSyscallEventIncludesArchPrctlPayloadSection(t *testing.T) {
 	if section.Kind != "struct" || section.Direction != "out" || section.ArgIndex != 1 {
 		t.Fatalf("section metadata = %+v", section)
 	}
-	if section.Offset != payloadExitArgOffset || section.UserPtr != 0x2000 {
+	if section.UserPtr != 0x2000 {
 		t.Fatalf("section bounds = %+v", section)
 	}
 	if section.UserLen != archPrctlPayloadOutSize || section.CopiedLen != archPrctlPayloadOutSize {

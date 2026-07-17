@@ -80,7 +80,7 @@ func assertMiscStructSection(
 	if section.Kind != "struct" || section.Direction != direction || section.ArgIndex != argIndex {
 		t.Fatalf("section metadata = %+v", section)
 	}
-	if section.Offset != uint32(offset) || section.UserLen != uint32(size) || section.CopiedLen != uint32(size) {
+	if section.UserLen != uint32(size) || section.CopiedLen != uint32(size) {
 		t.Fatalf("section bounds = %+v", section)
 	}
 	if got := mustDecodeBase64(t, section.DataBase64); !bytes.Equal(got, wantData) {

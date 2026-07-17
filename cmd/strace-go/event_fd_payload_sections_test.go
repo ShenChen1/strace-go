@@ -40,7 +40,7 @@ func TestJSONSyscallEventIncludesFDArrayPayloadSections(t *testing.T) {
 			if section.Kind != "struct" || section.Direction != "out" || section.ArgIndex != tt.argIndex {
 				t.Fatalf("fd array section metadata = %+v", section)
 			}
-			if section.Offset != payloadExitArgOffset || section.UserPtr != tt.userPtr {
+			if section.UserPtr != tt.userPtr {
 				t.Fatalf("fd array section bounds = %+v", section)
 			}
 			if section.UserLen != fdArrayPayloadSize || section.CopiedLen != fdArrayPayloadSize {

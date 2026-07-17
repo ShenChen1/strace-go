@@ -35,7 +35,7 @@ func TestJSONSyscallEventIncludesConnectSockaddrSection(t *testing.T) {
 	}
 	section := ev.PayloadSections[0]
 	if section.Kind != "struct" || section.Direction != "in" || section.ArgIndex != 1 ||
-		section.Offset != 0 || section.UserPtr != 0x4000 || section.UserLen != 16 {
+		section.UserPtr != 0x4000 || section.UserLen != 16 {
 		t.Fatalf("connect sockaddr section = %+v", section)
 	}
 	if got := mustDecodeBase64(t, section.DataBase64); len(got) != 16 {
@@ -67,7 +67,7 @@ func TestJSONSyscallEventIncludesSendtoBufferAndSockaddrSections(t *testing.T) {
 		t.Fatalf("sendto buffer data = %q, want abc", string(got))
 	}
 	if addr.Kind != "struct" || addr.Direction != "in" || addr.ArgIndex != 4 ||
-		addr.Offset != payloadMiscArgOffset || addr.UserPtr != 0x4000 || addr.UserLen != 16 {
+		addr.UserPtr != 0x4000 || addr.UserLen != 16 {
 		t.Fatalf("sendto sockaddr section = %+v", addr)
 	}
 }
@@ -95,17 +95,17 @@ func TestJSONSyscallEventIncludesRecvfromBufferSockaddrAndLenSections(t *testing
 	buf := ev.PayloadSections[1]
 	addr := ev.PayloadSections[2]
 	outLen := ev.PayloadSections[3]
-	if inLen.Kind != "bytes" || inLen.Direction != "in" || inLen.ArgIndex != 5 || inLen.Offset != sockaddrLenEnterOffset {
+	if inLen.Kind != "bytes" || inLen.Direction != "in" || inLen.ArgIndex != 5 {
 		t.Fatalf("recvfrom in addrlen section = %+v", inLen)
 	}
 	if buf.Kind != "bytes" || buf.Direction != "out" || buf.ArgIndex != 1 || buf.UserLen != 3 {
 		t.Fatalf("recvfrom buffer section = %+v", buf)
 	}
 	if addr.Kind != "struct" || addr.Direction != "out" || addr.ArgIndex != 4 ||
-		addr.Offset != recvfromSockaddrOffset || addr.UserLen != 16 {
+		addr.UserLen != 16 {
 		t.Fatalf("recvfrom sockaddr section = %+v", addr)
 	}
-	if outLen.Kind != "bytes" || outLen.Direction != "out" || outLen.ArgIndex != 5 || outLen.Offset != sockaddrLenExitOffset {
+	if outLen.Kind != "bytes" || outLen.Direction != "out" || outLen.ArgIndex != 5 {
 		t.Fatalf("recvfrom out addrlen section = %+v", outLen)
 	}
 }
@@ -131,14 +131,14 @@ func TestJSONSyscallEventIncludesAcceptSockaddrAndLenSections(t *testing.T) {
 	inLen := ev.PayloadSections[0]
 	addr := ev.PayloadSections[1]
 	outLen := ev.PayloadSections[2]
-	if inLen.Kind != "bytes" || inLen.Direction != "in" || inLen.ArgIndex != 2 || inLen.Offset != sockaddrLenEnterOffset {
+	if inLen.Kind != "bytes" || inLen.Direction != "in" || inLen.ArgIndex != 2 {
 		t.Fatalf("accept in addrlen section = %+v", inLen)
 	}
 	if addr.Kind != "struct" || addr.Direction != "out" || addr.ArgIndex != 1 ||
-		addr.Offset != payloadExitArgOffset || addr.UserPtr != 0x4000 || addr.UserLen != 16 {
+		addr.UserPtr != 0x4000 || addr.UserLen != 16 {
 		t.Fatalf("accept sockaddr section = %+v", addr)
 	}
-	if outLen.Kind != "bytes" || outLen.Direction != "out" || outLen.ArgIndex != 2 || outLen.Offset != sockaddrLenExitOffset {
+	if outLen.Kind != "bytes" || outLen.Direction != "out" || outLen.ArgIndex != 2 {
 		t.Fatalf("accept out addrlen section = %+v", outLen)
 	}
 }

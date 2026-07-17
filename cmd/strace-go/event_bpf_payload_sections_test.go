@@ -27,7 +27,7 @@ func TestJSONSyscallEventIncludesBpfAttrPayloadSection(t *testing.T) {
 	if section.Kind != "bytes" || section.Direction != "in" || section.ArgIndex != 1 {
 		t.Fatalf("bpf section metadata = %+v", section)
 	}
-	if section.Offset != payloadEnterArgOffset || section.UserPtr != 0x1000 {
+	if section.UserPtr != 0x1000 {
 		t.Fatalf("bpf section bounds = %+v", section)
 	}
 	if section.UserLen != uint32(len(wantData)) || section.CopiedLen != uint32(len(wantData)) {
@@ -62,9 +62,6 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareBpfRule(t *testing.T) {
 	if section.Kind != handler.PayloadKindBytes || section.Direction != handler.PayloadDirectionIn ||
 		section.ArgIndex != 1 || section.UserPtr != 0x1000 {
 		t.Fatalf("bpf section metadata = %+v", section)
-	}
-	if section.Offset != payloadEnterArgOffset {
-		t.Fatalf("bpf section offset = %d, want %d", section.Offset, payloadEnterArgOffset)
 	}
 	if section.UserLen != uint32(len(wantData)) || section.CopiedLen != uint32(len(wantData)) {
 		t.Fatalf("bpf section lengths = %+v", section)

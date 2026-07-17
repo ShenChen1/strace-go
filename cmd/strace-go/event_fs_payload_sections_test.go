@@ -222,7 +222,7 @@ func assertFsJSONPayloadSection(t *testing.T, got jsonPayloadSection, want wantF
 	if got.Kind != want.kind || got.Direction != want.direction || got.ArgIndex != want.argIndex {
 		t.Fatalf("fs section metadata = %+v, want %+v", got, want)
 	}
-	if got.Offset != want.offset || got.UserPtr != want.userPtr {
+	if got.UserPtr != want.userPtr {
 		t.Fatalf("fs section bounds = %+v, want %+v", got, want)
 	}
 	if got.UserLen != uint32(len(want.data)) || got.CopiedLen != uint32(len(want.data)) {
@@ -256,7 +256,7 @@ func assertFsPayloadSection(t *testing.T, got handler.PayloadSection, want wantF
 	if got.Kind != want.kind || got.Direction != handler.PayloadDirectionIn || got.ArgIndex != want.argIndex {
 		t.Fatalf("fs section metadata = %+v, want %+v", got, want)
 	}
-	if got.Offset != want.offset || got.UserPtr != want.userPtr {
+	if got.UserPtr != want.userPtr {
 		t.Fatalf("fs section bounds = %+v, want %+v", got, want)
 	}
 	if !bytes.Equal(got.Data, want.data) {

@@ -153,7 +153,7 @@ func assertPathJSONPayloadSection(
 	if got.Kind != "string" || got.Direction != "in" || got.ArgIndex != want.argIndex {
 		t.Fatalf("path section metadata = %+v, want %+v", got, want)
 	}
-	if got.Offset != want.offset || got.UserPtr != want.userPtr {
+	if got.UserPtr != want.userPtr {
 		t.Fatalf("path section bounds = %+v, want %+v", got, want)
 	}
 	wantData := want.data + "\x00"

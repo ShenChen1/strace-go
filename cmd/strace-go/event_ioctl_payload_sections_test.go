@@ -85,7 +85,7 @@ func assertIoctlJSONSection(
 	if got.Kind != "bytes" || got.Direction != direction || got.ArgIndex != 2 {
 		t.Fatalf("ioctl section metadata = %+v", got)
 	}
-	if got.Offset != uint32(offset) || got.UserPtr != userPtr {
+	if got.UserPtr != userPtr {
 		t.Fatalf("ioctl section bounds = %+v", got)
 	}
 	if got.CopiedLen != uint32(len(wantData)) {

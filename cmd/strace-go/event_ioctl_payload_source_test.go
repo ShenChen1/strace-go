@@ -107,7 +107,7 @@ func requireIoctlSection(t *testing.T, sections []handler.PayloadSection, want e
 	if got.Kind != handler.PayloadKindBytes || got.Direction != want.direction || got.ArgIndex != 2 {
 		t.Fatalf("ioctl section %d metadata = %+v", want.index, got)
 	}
-	if got.Offset != want.offset || got.UserPtr != 0x1000 || got.UserLen != want.userLen {
+	if got.UserPtr != 0x1000 || got.UserLen != want.userLen {
 		t.Fatalf("ioctl section %d bounds = %+v", want.index, got)
 	}
 	if got.CopiedLen != uint32(len(want.data)) || !bytes.Equal(got.Data, want.data) {

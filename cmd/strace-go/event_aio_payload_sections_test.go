@@ -113,7 +113,7 @@ func assertAioJSONSection(
 	if got.Kind != kind || got.Direction != direction || got.ArgIndex != argIndex {
 		t.Fatalf("aio section metadata = %+v", got)
 	}
-	if got.Offset != uint32(offset) || got.UserPtr != userPtr {
+	if got.UserPtr != userPtr {
 		t.Fatalf("aio section bounds = %+v", got)
 	}
 	if got.UserLen != uint32(len(wantData)) || got.CopiedLen != uint32(len(wantData)) {

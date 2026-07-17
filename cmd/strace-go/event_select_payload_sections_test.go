@@ -60,7 +60,7 @@ func assertSelectJSONPayloadSection(
 	if got.Kind != want.kind || got.Direction != want.direction || got.ArgIndex != want.argIndex {
 		t.Fatalf("section metadata = %+v, want %+v", got, want)
 	}
-	if got.Offset != want.offset || got.UserPtr != want.userPtr || got.UserLen != want.userLen {
+	if got.UserPtr != want.userPtr || got.UserLen != want.userLen {
 		t.Fatalf("section bounds = %+v, want %+v", got, want)
 	}
 	if got.CopiedLen != uint32(len(want.data)) {

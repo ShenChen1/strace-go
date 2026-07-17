@@ -26,7 +26,7 @@ func TestJSONSyscallEventIncludesClone3PayloadSection(t *testing.T) {
 	if section.Kind != "struct" || section.Direction != "in" || section.ArgIndex != 0 {
 		t.Fatalf("clone3 section metadata = %+v", section)
 	}
-	if section.Offset != payloadEnterArgOffset || section.UserPtr != 0x1000 {
+	if section.UserPtr != 0x1000 {
 		t.Fatalf("clone3 section bounds = %+v", section)
 	}
 	if section.UserLen != uint32(len(wantData)) || section.CopiedLen != uint32(len(wantData)) {

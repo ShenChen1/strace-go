@@ -166,7 +166,7 @@ func requireAioSection(t *testing.T, sections []handler.PayloadSection, want exp
 		t.Fatalf("section %d metadata = %+v, want %s/%s arg %d",
 			want.index, got, want.kind, want.direction, want.argIndex)
 	}
-	if got.Offset != want.offset || got.UserPtr != want.userPtr {
+	if got.UserPtr != want.userPtr {
 		t.Fatalf("section %d bounds = %+v, want offset %d ptr %#x",
 			want.index, got, want.offset, want.userPtr)
 	}

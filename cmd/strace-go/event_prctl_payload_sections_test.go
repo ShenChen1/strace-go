@@ -103,7 +103,7 @@ func assertPrctlJSONPayloadSection(t *testing.T, got jsonPayloadSection, want wa
 	if got.Kind != want.kind || got.Direction != want.direction || got.ArgIndex != 1 {
 		t.Fatalf("prctl section metadata = %+v, want %+v", got, want)
 	}
-	if got.Offset != uint32(want.offset) || got.UserPtr != want.userPtr {
+	if got.UserPtr != want.userPtr {
 		t.Fatalf("prctl section bounds = %+v, want %+v", got, want)
 	}
 	if got.UserLen != uint32(len(want.data)) || got.CopiedLen != uint32(len(want.data)) {
