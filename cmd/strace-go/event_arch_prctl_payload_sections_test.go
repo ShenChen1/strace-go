@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -13,11 +12,11 @@ func TestJSONSyscallEventIncludesArchPrctlPayloadSection(t *testing.T) {
 		EventType:    bpfEventTypeExit,
 		Args:         [6]uint64{0x1003, 0x2000},
 		Ret:          0,
-		DataLen:      handler.BpfExitArgOffset + archPrctlPayloadOutSize,
+		DataLen:      payloadExitArgOffset + archPrctlPayloadOutSize,
 		ProbeRetExit: 0,
 	}
 	wantData := archPrctlJSONWord(0x1234)
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], wantData)
+	copy(eventRaw.StrArg[payloadExitArgOffset:], wantData)
 
 	scMeta := meta.Syscall{Name: "arch_prctl"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -28,7 +27,7 @@ func TestJSONSyscallEventIncludesArchPrctlPayloadSection(t *testing.T) {
 	if section.Kind != "struct" || section.Direction != "out" || section.ArgIndex != 1 {
 		t.Fatalf("section metadata = %+v", section)
 	}
-	if section.Offset != handler.BpfExitArgOffset || section.UserPtr != 0x2000 {
+	if section.Offset != payloadExitArgOffset || section.UserPtr != 0x2000 {
 		t.Fatalf("section bounds = %+v", section)
 	}
 	if section.UserLen != archPrctlPayloadOutSize || section.CopiedLen != archPrctlPayloadOutSize {
