@@ -17,9 +17,9 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareCapgetRule(t *testing.T) {
 	}
 	header := capabilityJSONBytes(1, capabilityHeaderPayloadSize)
 	data := capabilityJSONBytes(2, capabilityDataPayloadSize)
-	snapshot := make([]byte, handler.BpfExitArgOffset+capabilityDataPayloadSize)
-	copy(snapshot[handler.BpfEnterArgOffset:], header)
-	copy(snapshot[handler.BpfExitArgOffset:], data)
+	snapshot := make([]byte, payloadExitArgOffset+capabilityDataPayloadSize)
+	copy(snapshot[payloadEnterArgOffset:], header)
+	copy(snapshot[payloadExitArgOffset:], data)
 	event := payloadEvent{
 		raw: raw,
 		source: staticPayloadSource{
@@ -31,8 +31,8 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareCapgetRule(t *testing.T) {
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "capget"})
 
 	assertCapabilitySourceSections(t, sections, []wantCapabilitySourceSection{
-		{argIndex: 0, direction: handler.PayloadDirectionIn, offset: handler.BpfEnterArgOffset, userPtr: 0x1000, data: header},
-		{argIndex: 1, direction: handler.PayloadDirectionOut, offset: handler.BpfExitArgOffset, userPtr: 0x2000, data: data},
+		{argIndex: 0, direction: handler.PayloadDirectionIn, offset: payloadEnterArgOffset, userPtr: 0x1000, data: header},
+		{argIndex: 1, direction: handler.PayloadDirectionOut, offset: payloadExitArgOffset, userPtr: 0x2000, data: data},
 	})
 }
 
@@ -44,9 +44,9 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareCapsetRule(t *testing.T) {
 	}
 	header := capabilityJSONBytes(3, capabilityHeaderPayloadSize)
 	data := capabilityJSONBytes(4, capabilityDataPayloadSize)
-	snapshot := make([]byte, handler.BpfMiscArgOffset+capabilityDataPayloadSize)
-	copy(snapshot[handler.BpfEnterArgOffset:], header)
-	copy(snapshot[handler.BpfMiscArgOffset:], data)
+	snapshot := make([]byte, payloadMiscArgOffset+capabilityDataPayloadSize)
+	copy(snapshot[payloadEnterArgOffset:], header)
+	copy(snapshot[payloadMiscArgOffset:], data)
 	event := payloadEvent{
 		raw: raw,
 		source: staticPayloadSource{
@@ -58,8 +58,8 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareCapsetRule(t *testing.T) {
 	sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: "capset"})
 
 	assertCapabilitySourceSections(t, sections, []wantCapabilitySourceSection{
-		{argIndex: 0, direction: handler.PayloadDirectionIn, offset: handler.BpfEnterArgOffset, userPtr: 0x1000, data: header},
-		{argIndex: 1, direction: handler.PayloadDirectionIn, offset: handler.BpfMiscArgOffset, userPtr: 0x2000, data: data},
+		{argIndex: 0, direction: handler.PayloadDirectionIn, offset: payloadEnterArgOffset, userPtr: 0x1000, data: header},
+		{argIndex: 1, direction: handler.PayloadDirectionIn, offset: payloadMiscArgOffset, userPtr: 0x2000, data: data},
 	})
 }
 

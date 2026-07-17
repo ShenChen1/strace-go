@@ -3,7 +3,6 @@ package main
 import (
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -12,20 +11,20 @@ func TestJSONSyscallEventIncludesCapgetPayloadSections(t *testing.T) {
 		EventType:     bpfEventTypeExit,
 		Args:          [6]uint64{0x1000, 0x2000},
 		Ret:           0,
-		DataLen:       handler.BpfExitArgOffset + capabilityDataPayloadSize,
+		DataLen:       payloadExitArgOffset + capabilityDataPayloadSize,
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
 	header := capabilityJSONBytes(1, capabilityHeaderPayloadSize)
 	data := capabilityJSONBytes(2, capabilityDataPayloadSize)
 	copy(eventRaw.StrArg[:], header)
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], data)
+	copy(eventRaw.StrArg[payloadExitArgOffset:], data)
 
 	scMeta := meta.Syscall{Name: "capget"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	assertCapabilityJSONSections(t, ev.PayloadSections, []wantCapabilityJSONSection{
 		{argIndex: 0, direction: "in", offset: 0, userPtr: 0x1000, data: header},
-		{argIndex: 1, direction: "out", offset: handler.BpfExitArgOffset, userPtr: 0x2000, data: data},
+		{argIndex: 1, direction: "out", offset: payloadExitArgOffset, userPtr: 0x2000, data: data},
 	})
 }
 
@@ -33,19 +32,19 @@ func TestJSONSyscallEventIncludesCapsetPayloadSections(t *testing.T) {
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
 		Args:          [6]uint64{0x1000, 0x2000},
-		DataLen:       handler.BpfMiscArgOffset + capabilityDataPayloadSize,
+		DataLen:       payloadMiscArgOffset + capabilityDataPayloadSize,
 		ProbeRetEnter: 0,
 	}
 	header := capabilityJSONBytes(3, capabilityHeaderPayloadSize)
 	data := capabilityJSONBytes(4, capabilityDataPayloadSize)
 	copy(eventRaw.StrArg[:], header)
-	copy(eventRaw.StrArg[handler.BpfMiscArgOffset:], data)
+	copy(eventRaw.StrArg[payloadMiscArgOffset:], data)
 
 	scMeta := meta.Syscall{Name: "capset"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	assertCapabilityJSONSections(t, ev.PayloadSections, []wantCapabilityJSONSection{
 		{argIndex: 0, direction: "in", offset: 0, userPtr: 0x1000, data: header},
-		{argIndex: 1, direction: "in", offset: handler.BpfMiscArgOffset, userPtr: 0x2000, data: data},
+		{argIndex: 1, direction: "in", offset: payloadMiscArgOffset, userPtr: 0x2000, data: data},
 	})
 }
 
