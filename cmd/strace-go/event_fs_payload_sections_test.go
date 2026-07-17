@@ -97,15 +97,15 @@ func TestJSONSyscallEventIncludesGetdentsPayloadSection(t *testing.T) {
 		EventType:    bpfEventTypeExit,
 		Args:         [6]uint64{3, 0x3000, 512},
 		Ret:          16,
-		DataLen:      uint32(handler.BpfExitArgOffset + 16),
+		DataLen:      uint32(payloadExitArgOffset + 16),
 		ProbeRetExit: 0,
 	}
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], []byte("dirent-section!!"))
+	copy(eventRaw.StrArg[payloadExitArgOffset:], []byte("dirent-section!!"))
 
 	scMeta := meta.Syscall{Name: "getdents64"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	want := []wantFsJSONPayloadSection{
-		{argIndex: 1, offset: handler.BpfExitArgOffset, userPtr: 0x3000, kind: "bytes", direction: "out", data: "dirent-section!!"},
+		{argIndex: 1, offset: payloadExitArgOffset, userPtr: 0x3000, kind: "bytes", direction: "out", data: "dirent-section!!"},
 	}
 	assertFsJSONPayloadSections(t, ev.PayloadSections, want)
 }

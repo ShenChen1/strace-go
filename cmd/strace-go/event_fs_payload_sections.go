@@ -9,7 +9,7 @@ const (
 	fsconfigValueMaxBytes = 4096
 	mountSourceOffset     = 0
 	mountTargetOffset     = 512
-	mountTypeOffset       = handler.BpfExitArgOffset
+	mountTypeOffset       = payloadExitArgOffset
 	mountTypeMaxBytes     = 128
 	mountDataOffset       = 1152
 	mountStringMaxBytes   = 512
