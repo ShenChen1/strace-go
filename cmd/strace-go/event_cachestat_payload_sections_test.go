@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -13,14 +12,14 @@ func TestJSONSyscallEventIncludesCachestatPayloadSections(t *testing.T) {
 		EventType:     bpfEventTypeExit,
 		Args:          [6]uint64{3, 0x1000, 0x2000, 0},
 		Ret:           0,
-		DataLen:       handler.BpfExitArgOffset + cachestatStatsPayloadSize,
+		DataLen:       payloadExitArgOffset + cachestatStatsPayloadSize,
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
 	rangeData := bytes.Repeat([]byte{0x11}, cachestatRangePayloadSize)
 	statsData := bytes.Repeat([]byte{0x22}, cachestatStatsPayloadSize)
 	copy(eventRaw.StrArg[cachestatRangePayloadOffset:], rangeData)
-	copy(eventRaw.StrArg[handler.BpfExitArgOffset:], statsData)
+	copy(eventRaw.StrArg[payloadExitArgOffset:], statsData)
 
 	scMeta := meta.Syscall{Name: "cachestat"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -28,7 +27,7 @@ func TestJSONSyscallEventIncludesCachestatPayloadSections(t *testing.T) {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}
 	assertCachestatJSONSection(t, ev.PayloadSections[0], 1, "in", cachestatRangePayloadOffset, 0x1000, rangeData)
-	assertCachestatJSONSection(t, ev.PayloadSections[1], 2, "out", handler.BpfExitArgOffset, 0x2000, statsData)
+	assertCachestatJSONSection(t, ev.PayloadSections[1], 2, "out", payloadExitArgOffset, 0x2000, statsData)
 }
 
 func assertCachestatJSONSection(

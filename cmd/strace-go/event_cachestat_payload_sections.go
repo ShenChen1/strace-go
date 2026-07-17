@@ -3,7 +3,7 @@ package main
 import "strace-go/pkg/handler"
 
 const (
-	cachestatRangePayloadOffset = handler.BpfMiscArgOffset
+	cachestatRangePayloadOffset = payloadMiscArgOffset
 	cachestatRangePayloadSize   = 16
 	cachestatStatsPayloadSize   = 40
 )

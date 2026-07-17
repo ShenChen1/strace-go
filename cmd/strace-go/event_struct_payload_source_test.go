@@ -41,9 +41,9 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareCachestatRule(t *testing.T
 	}
 	rangeData := bytes.Repeat([]byte{0x11}, cachestatRangePayloadSize)
 	statsData := bytes.Repeat([]byte{0x22}, cachestatStatsPayloadSize)
-	data := make([]byte, handler.BpfExitArgOffset+cachestatStatsPayloadSize)
+	data := make([]byte, payloadExitArgOffset+cachestatStatsPayloadSize)
 	copy(data[cachestatRangePayloadOffset:], rangeData)
-	copy(data[handler.BpfExitArgOffset:], statsData)
+	copy(data[payloadExitArgOffset:], statsData)
 	event := payloadEvent{
 		raw: raw,
 		source: staticPayloadSource{
@@ -58,7 +58,7 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareCachestatRule(t *testing.T
 		t.Fatalf("sections = %d, want 2", len(sections))
 	}
 	assertStructPayloadSourceSection(t, sections[0], 1, handler.PayloadDirectionIn, cachestatRangePayloadOffset, 0x1000, rangeData)
-	assertStructPayloadSourceSection(t, sections[1], 2, handler.PayloadDirectionOut, handler.BpfExitArgOffset, 0x2000, statsData)
+	assertStructPayloadSourceSection(t, sections[1], 2, handler.PayloadDirectionOut, payloadExitArgOffset, 0x2000, statsData)
 }
 
 func assertStructPayloadSourceSection(
