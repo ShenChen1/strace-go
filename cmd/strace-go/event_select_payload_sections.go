@@ -10,7 +10,7 @@ const (
 	selectPayloadTimeoutArg      = 4
 	selectPayloadTimeoutSize     = 16
 	selectPayloadTimeoutOffset   = 384
-	selectPayloadExitFdSetOffset = handler.BpfExitArgOffset
+	selectPayloadExitFdSetOffset = payloadExitArgOffset
 	selectPayloadExitTimeoutOff  = 1408
 )
 
