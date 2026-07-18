@@ -950,6 +950,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - BPF 事件发送已由 `bpf_ringbuf_output` 收敛到显式 `bpf_ringbuf_reserve_dynptr` / `bpf_dynptr_write` / `bpf_ringbuf_submit_dynptr` helper；`stats_map` 已记录 reserve/copy 失败次数和 truncated payload event 次数，JSON/debug 结束时输出 `type=stats` 事件，semantic/perf suite 可把 ringbuf 丢事件与截断作为显式 oracle。
 - lifecycle action 已从 `event_flags` 命名空间中拆出为独立 `lifecycle_action` 字段；`event_flags` 只承载真正的 event flags，避免 `LIFECYCLE_FREE=4` 与 `EVENT_FLAG_TRUNCATED=4` 这类值碰撞。
 - Go 侧 lifecycle 处理已引入专用 `lifecycleEventView`，`TaskState`、`LifecycleEventHandler` 和 JSON lifecycle 输出不再直接消费混合 syscall/lifecycle view。
+- Go 侧 TraceState 的 syscall pending/pairing/task 路径已改为消费 `syscallEventView`，混合 view 只作为 BPF raw event 到 typed syscall/lifecycle view 的迁移期入口。
 - `execve/execveat` 已暴露 argv/envp 的 `PayloadKindExecArgs` section，exec argv/envp decoder 只消费 semantic payload section，旧 fixed offset snapshot 会被忽略并退回指针输出。
 - `stat/lstat/fstat/newfstatat` 与 `statfs/fstatfs` 已暴露 OUT `PayloadKindStruct` section，stat formatter 只消费 semantic payload section，旧 exit snapshot 会被忽略并退回指针输出。
 - `poll/ppoll` 已暴露结构数组/timeout 的 `PayloadKindStruct` sections，formatter 只消费 semantic payload section，旧固定 offset snapshot 会被忽略并退回指针或空 revents 输出；`epoll_ctl/epoll_wait/epoll_pwait/epoll_pwait2` 已只消费 semantic payload section，旧固定 offset snapshot 会被忽略并退回指针输出。

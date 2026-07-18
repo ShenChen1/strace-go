@@ -53,7 +53,7 @@ func TestApplyLifecycleEventMaintainsTaskState(t *testing.T) {
 
 func TestSyscallEventEnsuresTaskState(t *testing.T) {
 	state := newTraceState()
-	state.noteSyscallTask(traceStateEventView{valid: true, pid: 200, tid: 201, enterTime: 40})
+	state.noteSyscallTask(syscallEventView{valid: true, pid: 200, tid: 201, enterTime: 40})
 
 	task := state.tasks[201]
 	if task == nil || task.TID != 201 || task.TGID != 200 || !task.Alive || task.LastSeenNS != 40 {

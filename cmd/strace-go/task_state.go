@@ -27,7 +27,7 @@ func (st *TraceState) ensureTaskState(tid uint32, tgid uint32) *TaskState {
 	return task
 }
 
-func (st *TraceState) noteSyscallTask(view traceStateEventView) {
+func (st *TraceState) noteSyscallTask(view syscallEventView) {
 	if view.tid == 0 {
 		return
 	}

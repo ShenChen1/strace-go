@@ -64,6 +64,7 @@ const (
 type TraceStateUpdate struct {
 	kind          traceStateEventKind
 	view          traceStateEventView
+	syscallView   syscallEventView
 	lifecycleView lifecycleEventView
 	pendingEnter  *pendingSyscallState
 	lifecycleTask *TaskState
@@ -95,15 +96,17 @@ func (st *TraceState) handleView(view traceStateEventView) TraceStateUpdate {
 		}
 	}
 
-	st.noteSyscallTask(view)
-	if view.isGenericEnter() {
-		st.rememberEnterEvent(view)
-		return TraceStateUpdate{kind: traceStateSyscallEnter, view: view}
+	syscallView := syscallEventViewFromTraceView(view)
+	st.noteSyscallTask(syscallView)
+	if syscallView.isGenericEnter() {
+		st.rememberEnterEvent(syscallView, view.payload)
+		return TraceStateUpdate{kind: traceStateSyscallEnter, view: view, syscallView: syscallView}
 	}
 	return TraceStateUpdate{
 		kind:         traceStateSyscallExit,
 		view:         view,
-		pendingEnter: st.consumeEnterEvent(view),
+		syscallView:  syscallView,
+		pendingEnter: st.consumeEnterEvent(syscallView),
 	}
 }
 
@@ -119,6 +122,21 @@ func lifecycleEventViewFromTraceView(view traceStateEventView) lifecycleEventVie
 		args:         view.args,
 		enterTime:    view.enterTime,
 		snapshotText: view.snapshotText,
+	}
+}
+
+func syscallEventViewFromTraceView(view traceStateEventView) syscallEventView {
+	return syscallEventView{
+		valid:         view.valid,
+		eventVersion:  view.eventVersion,
+		pid:           view.pid,
+		tid:           view.tid,
+		sysID:         view.sysID,
+		eventType:     view.eventType,
+		eventFlags:    view.eventFlags,
+		args:          view.args,
+		enterTime:     view.enterTime,
+		probeRetEnter: view.probeRetEnter,
 	}
 }
 
@@ -166,15 +184,19 @@ func (view traceStateEventView) isLifecycle() bool {
 	return view.eventType == bpfEventTypeLifecycle
 }
 
-func (view traceStateEventView) isGenericEnter() bool {
-	return view.eventType == bpfEventTypeEnter && (view.eventFlags&bpfEventFlagGenericEnter) != 0
-}
-
 func (view traceStateEventView) isExit() bool {
 	return view.eventType == bpfEventTypeExit
 }
 
-func (st *TraceState) rememberEnterEvent(view traceStateEventView) {
+func (view syscallEventView) isGenericEnter() bool {
+	return view.eventType == bpfEventTypeEnter && (view.eventFlags&bpfEventFlagGenericEnter) != 0
+}
+
+func (view syscallEventView) isExit() bool {
+	return view.eventType == bpfEventTypeExit
+}
+
+func (st *TraceState) rememberEnterEvent(view syscallEventView, payload []handler.PayloadSection) {
 	if st.pendingSyscalls == nil {
 		st.pendingSyscalls = make(map[uint32]*pendingSyscallState)
 	}
@@ -186,7 +208,7 @@ func (st *TraceState) rememberEnterEvent(view traceStateEventView) {
 		args:            view.args,
 		probeRetEnter:   view.probeRetEnter,
 		genericEnterRaw: view.isGenericEnter(),
-		payloadSections: copyPayloadSections(view.payload),
+		payloadSections: copyPayloadSections(payload),
 	}
 }
 
@@ -204,7 +226,7 @@ func copyPayloadSections(sections []handler.PayloadSection) []handler.PayloadSec
 	return out
 }
 
-func (st *TraceState) consumeEnterEvent(view traceStateEventView) *pendingSyscallState {
+func (st *TraceState) consumeEnterEvent(view syscallEventView) *pendingSyscallState {
 	if !view.isExit() || st.pendingSyscalls == nil {
 		return nil
 	}

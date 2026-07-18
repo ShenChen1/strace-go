@@ -128,6 +128,9 @@ func TestTraceStateHandleViewUsesEventViewForPendingPair(t *testing.T) {
 	if enterUpdate.kind != traceStateSyscallEnter {
 		t.Fatalf("enter update = %+v, want syscall enter", enterUpdate)
 	}
+	if enterUpdate.syscallView.tid != 201 || enterUpdate.syscallView.sysID != 60 || enterUpdate.syscallView.args[0] != 7 {
+		t.Fatalf("enter syscall view = %+v, want view tid/sysid/args", enterUpdate.syscallView)
+	}
 	if _, ok := state.pendingSyscalls[201]; !ok {
 		t.Fatal("pending syscall missing under view tid 201")
 	}
@@ -144,6 +147,9 @@ func TestTraceStateHandleViewUsesEventViewForPendingPair(t *testing.T) {
 	exitUpdate := state.handleView(viewExit)
 	if exitUpdate.pendingEnter == nil || exitUpdate.pendingEnter.pid != 200 || exitUpdate.pendingEnter.sysID != 60 {
 		t.Fatalf("paired enter = %+v, want view pid/sysid", exitUpdate.pendingEnter)
+	}
+	if exitUpdate.syscallView.tid != 201 || exitUpdate.syscallView.sysID != 60 {
+		t.Fatalf("exit syscall view = %+v, want paired view tid/sysid", exitUpdate.syscallView)
 	}
 }
 
