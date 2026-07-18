@@ -29,6 +29,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_PREAD64 17
 #define SYS_PWRITE64 18
 #define SYS_GETPID 39
+#define SYS_GETTIMEOFDAY 96
 #define SYS_CLOCK_GETTIME 228
 #define SYS_CLOCK_GETRES 229
 #define SYS_OPENAT 257
@@ -700,7 +701,9 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
         }
         if (is_exit_payload_direct_syscall(p->sys_id) && ret_value > 0) {
             emit_payload_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_time_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
+        } else if (is_gettimeofday_direct_syscall(p->sys_id) && ret_value >= 0) {
+            emit_gettimeofday_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_clock_time_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_time_struct_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
             emit_exec_exit_event_v2_direct(p, ret_value, duration);

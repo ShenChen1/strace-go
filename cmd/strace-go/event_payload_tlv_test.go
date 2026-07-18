@@ -117,6 +117,55 @@ func TestPayloadSectionsForRawPayloadEventUsesStructTLVSection(t *testing.T) {
 	}
 }
 
+func TestPayloadSectionsForRawPayloadEventUsesMultipleStructTLVSections(t *testing.T) {
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		flags:   payloadTLVFlagDirectionOut,
+		arg:     0,
+		userPtr: 0x1000,
+		userLen: 16,
+		data:    timeJSONStruct(3, 4),
+	})
+	payload = append(payload, payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		flags:   payloadTLVFlagDirectionOut,
+		arg:     1,
+		userPtr: 0x2000,
+		userLen: 8,
+		data:    timeJSONTimezone(5, 6),
+	})...)
+	raw := rawPayloadEvent{
+		valid:      true,
+		eventType:  bpfEventTypeExit,
+		eventFlags: bpfEventFlagPayloadTLV,
+		args:       [6]uint64{0x1000, 0x2000},
+		ret:        0,
+		data:       payload,
+	}
+
+	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "gettimeofday"})
+
+	if len(sections) != 2 {
+		t.Fatalf("sections = %d, want timeval and timezone TLV sections", len(sections))
+	}
+	timeval := sections[0]
+	if timeval.Kind != handler.PayloadKindStruct || timeval.Direction != handler.PayloadDirectionOut ||
+		timeval.ArgIndex != 0 || timeval.UserPtr != 0x1000 || timeval.UserLen != 16 {
+		t.Fatalf("timeval section metadata = %+v", timeval)
+	}
+	if !bytes.Equal(timeval.Data, timeJSONStruct(3, 4)) {
+		t.Fatalf("timeval section data = %v", timeval.Data)
+	}
+	timezone := sections[1]
+	if timezone.Kind != handler.PayloadKindStruct || timezone.Direction != handler.PayloadDirectionOut ||
+		timezone.ArgIndex != 1 || timezone.UserPtr != 0x2000 || timezone.UserLen != 8 {
+		t.Fatalf("timezone section metadata = %+v", timezone)
+	}
+	if !bytes.Equal(timezone.Data, timeJSONTimezone(5, 6)) {
+		t.Fatalf("timezone section data = %v", timezone.Data)
+	}
+}
+
 func TestPayloadSectionsForEventUsesExecTLVSections(t *testing.T) {
 	snapshot := execJSONSnapshot()
 	payload := payloadTLVBytes(t, payloadTLVTestSection{

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/syscall.h>
+#include <sys/time.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -72,6 +73,13 @@ static int run_semantic_fixture(void)
 	if (syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &ts) != 0) {
 		perror("clock_gettime");
 		return 71;
+	}
+
+	struct timeval tv;
+	struct timezone tz;
+	if (syscall(SYS_gettimeofday, &tv, &tz) != 0) {
+		perror("gettimeofday");
+		return 72;
 	}
 
 	char large[1024];

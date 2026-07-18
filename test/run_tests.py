@@ -199,6 +199,24 @@ def has_clock_payload_section(events):
             return sec.get("user_len") == 16 and sec.get("copied_len") == 16 and len(payload_section_bytes(sec)) == 16
     return False
 
+def has_gettimeofday_payload_sections(events):
+    for ev in events:
+        if ev.get("syscall") != "gettimeofday" or ev.get("event_type") != "exit":
+            continue
+        has_timeval = False
+        has_timezone = False
+        for sec in ev.get("payload_sections") or []:
+            if sec.get("kind") != "struct" or sec.get("direction") != "out":
+                continue
+            data_len = len(payload_section_bytes(sec))
+            if sec.get("arg_index") == 0:
+                has_timeval = sec.get("user_len") == 16 and sec.get("copied_len") == 16 and data_len == 16
+            if sec.get("arg_index") == 1:
+                has_timezone = sec.get("user_len") == 8 and sec.get("copied_len") == 8 and data_len == 8
+        if has_timeval and has_timezone:
+            return True
+    return False
+
 def check_write_only_filter(fixture, failures):
     filter_res = run_strace_go_json(["-e", "trace=write", fixture], debug=True)
     filter_events = parse_json_events(filter_res.stderr)
@@ -231,7 +249,7 @@ def finish_ebpf_semantic(res, failures, events, enter_events, exit_events, lifec
     return 0
 
 def collect_semantic_events(fixture):
-    trace_set = "open,openat,read,write,pread64,pwrite64,close,execve,exit,exit_group,clock_gettime"
+    trace_set = "open,openat,read,write,pread64,pwrite64,close,execve,exit,exit_group,clock_gettime,gettimeofday"
     res = run_strace_go_json(["-f", "-e", f"trace={trace_set}", fixture])
     events = parse_json_events(res.stderr)
     lifecycle_events = parse_lifecycle_events(res.stderr)
@@ -264,6 +282,7 @@ def run_ebpf_semantic(args):
     require("read" in names, failures, "read event missing")
     require("close" in names, failures, "close event missing")
     require("clock_gettime" in names, failures, "clock_gettime event missing")
+    require("gettimeofday" in names, failures, "gettimeofday event missing")
     require("execve" in names, failures, "child execve event missing; fork following may be broken")
     require(any(ev.get("syscall") in ("exit", "exit_group") and ev.get("event_type") == "exit" and ev.get("paired_enter") for ev in exit_events),
             failures, "exit/exit_group direct exit event was not paired with enter state")
@@ -271,6 +290,7 @@ def run_ebpf_semantic(args):
             failures, "openat path payload section missing from JSON event")
     require(has_exec_payload_sections(events), failures, "execve argv/envp and filename payload sections missing from JSON event")
     require(has_clock_payload_section(events), failures, "clock_gettime OUT timespec payload section missing from JSON event")
+    require(has_gettimeofday_payload_sections(events), failures, "gettimeofday OUT timeval/timezone payload sections missing from JSON event")
     require(any(ev.get("syscall") == "write" for ev in enter_events), failures, "write enter event missing")
     require(any(ev.get("syscall") == "write" for ev in exit_events), failures, "write exit event missing")
     require(any(ev.get("syscall") == "read" for ev in enter_events), failures, "read enter event missing")

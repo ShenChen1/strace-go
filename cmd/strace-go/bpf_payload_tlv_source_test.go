@@ -34,6 +34,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "#define SYS_GETPID 39") {
 		t.Fatal("strace.c missing SYS_GETPID constant for scalar direct event v2 path")
 	}
+	if !strings.Contains(straceSource, "#define SYS_GETTIMEOFDAY 96") {
+		t.Fatal("strace.c missing SYS_GETTIMEOFDAY constant for gettimeofday direct event v2 path")
+	}
 	if !strings.Contains(straceSource, "#define SYS_CLOCK_GETTIME 228") ||
 		!strings.Contains(straceSource, "#define SYS_CLOCK_GETRES 229") {
 		t.Fatal("strace.c missing clock direct event v2 constants")
@@ -145,12 +148,16 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, `#include "syscall_time_direct_event_v2.h"`) ||
 		!strings.Contains(timeDirectHeader, "is_time_struct_direct_syscall(") ||
 		!strings.Contains(timeDirectHeader, "return sys_id == SYS_CLOCK_GETTIME || sys_id == SYS_CLOCK_GETRES;") ||
+		!strings.Contains(timeDirectHeader, "return sys_id == SYS_GETTIMEOFDAY;") ||
 		!strings.Contains(timeDirectHeader, "PAYLOAD_TLV_KIND_STRUCT") ||
 		!strings.Contains(timeDirectHeader, "emit_time_struct_exit_event_v2_direct(") ||
+		!strings.Contains(timeDirectHeader, "emit_gettimeofday_exit_event_v2_direct(") ||
+		!strings.Contains(timeDirectHeader, "TIME_DIRECT_TIMEZONE_SIZE") ||
 		!strings.Contains(straceSource, "is_time_struct_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "is_sys_exit_direct_syscall(p->sys_id)") ||
-		!strings.Contains(straceSource, "emit_time_struct_exit_event_v2_direct(p, ret_value, duration);") {
-		t.Fatal("clock_gettime/clock_getres should emit direct struct TLV exit events without the bpf_event carrier")
+		!strings.Contains(straceSource, "emit_time_struct_exit_event_v2_direct(p, ret_value, duration);") ||
+		!strings.Contains(straceSource, "emit_gettimeofday_exit_event_v2_direct(p, ret_value, duration);") {
+		t.Fatal("clock/gettimeofday syscalls should emit direct struct TLV exit events without the bpf_event carrier")
 	}
 	if !strings.Contains(straceSource, "emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);") {
 		t.Fatal("lifecycle events should be emitted directly as event v2")
