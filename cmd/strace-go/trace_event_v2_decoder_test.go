@@ -7,6 +7,8 @@ import (
 
 	"github.com/cilium/ebpf/ringbuf"
 
+	"strace-go/pkg/cli"
+	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
 )
 
@@ -24,6 +26,7 @@ func TestDecodeTraceEventV2EnterEnvelope(t *testing.T) {
 		pid:     101,
 		tid:     102,
 		sysID:   sysID,
+		flags:   bpfEventFlagPayloadTLV,
 		tsNs:    900,
 		args:    args,
 		payload: payload,
@@ -61,6 +64,7 @@ func TestTraceRingbufRecordDecoderAcceptsTraceEventV2Sample(t *testing.T) {
 		pid:     101,
 		tid:     102,
 		sysID:   sysID,
+		flags:   bpfEventFlagPayloadTLV,
 		tsNs:    900,
 		args:    [6]uint64{rawAtFdcwd, 0x1000},
 		payload: payload,
@@ -71,6 +75,63 @@ func TestTraceRingbufRecordDecoderAcceptsTraceEventV2Sample(t *testing.T) {
 		t.Fatal("record decoder rejected a valid v2 sample")
 	}
 	assertTraceEventV2PathSection(t, envelope.payload)
+}
+
+func TestTraceEventV2OpenatExitMatchesPathFilter(t *testing.T) {
+	sysID := syscallIDByName(t, "openat")
+	args := [6]uint64{rawAtFdcwd, 0x1000, 0}
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindString,
+		arg:     1,
+		userPtr: 0x1000,
+		userLen: 9,
+		data:    []byte("v2.txt\x00"),
+	})
+	enterRaw := traceEventV2EnterSample(t, traceEventV2SampleSpec{
+		pid:     101,
+		tid:     101,
+		sysID:   sysID,
+		flags:   bpfEventFlagPayloadTLV,
+		tsNs:    900,
+		args:    args,
+		payload: payload,
+	})
+	exitRaw := traceEventV2ExitSample(t, traceEventV2SampleSpec{
+		pid:      101,
+		tid:      101,
+		sysID:    sysID,
+		tsNs:     950,
+		duration: 50,
+		ret:      -2,
+		args:     args,
+	})
+
+	state := newTraceState()
+	enterEnvelope, ok := decodeTraceEventV2Envelope(enterRaw)
+	if !ok {
+		t.Fatal("decodeTraceEventV2Envelope rejected enter")
+	}
+	state.handleEnvelope(enterEnvelope)
+	exitEnvelope, ok := decodeTraceEventV2Envelope(exitRaw)
+	if !ok {
+		t.Fatal("decodeTraceEventV2Envelope rejected exit")
+	}
+	update := state.handleEnvelope(exitEnvelope)
+	session := &traceSession{
+		targetPid: 101,
+		opts:      cli.ParseArgs([]string{"-e", "trace=openat", "-P", "v2.txt", "/bin/true"}),
+		decoder:   event.NewDecoder(),
+		fdState:   newFDStateStoreFromMaps(nil, nil),
+	}
+
+	ev := newSyscallEventContextFromView(session, update.syscallView, 101, update.pendingEnter, update.payloadSections)
+
+	if !ev.shouldOutput() {
+		t.Fatalf("v2 openat exit did not match -P from pending payload: view=%+v pending=%+v", update.syscallView, update.pendingEnter)
+	}
+	if ev.pathText != `"v2.txt"` {
+		t.Fatalf("pathText = %q, want quoted BPF snapshot", ev.pathText)
+	}
 }
 
 func TestDecodeTraceEventV2ExitEnvelope(t *testing.T) {
@@ -88,6 +149,7 @@ func TestDecodeTraceEventV2ExitEnvelope(t *testing.T) {
 		pid:      201,
 		tid:      202,
 		sysID:    sysID,
+		flags:    bpfEventFlagPayloadTLV,
 		tsNs:     1000,
 		duration: 55,
 		ret:      4,
@@ -105,6 +167,30 @@ func TestDecodeTraceEventV2ExitEnvelope(t *testing.T) {
 	if len(envelope.payload) != 1 || envelope.payload[0].Direction != handler.PayloadDirectionOut ||
 		!bytes.Equal(envelope.payload[0].Data, []byte("data")) {
 		t.Fatalf("exit payload = %+v, want OUT bytes section", envelope.payload)
+	}
+}
+
+func TestDecodeTraceEventV2FallsBackToWindowPayload(t *testing.T) {
+	sysID := syscallIDByName(t, "chdir")
+	raw := traceEventV2EnterSample(t, traceEventV2SampleSpec{
+		pid:     301,
+		tid:     302,
+		sysID:   sysID,
+		tsNs:    700,
+		args:    [6]uint64{0x3000},
+		payload: []byte("v2-fixed.txt\x00"),
+	})
+
+	envelope, ok := decodeTraceEventV2Envelope(raw)
+	if !ok {
+		t.Fatal("decodeTraceEventV2Envelope rejected a fixed-window payload sample")
+	}
+	if envelope.eventFlags&bpfEventFlagPayloadTLV != 0 {
+		t.Fatalf("event flags = %#x, want no inferred TLV flag", envelope.eventFlags)
+	}
+	if len(envelope.payload) != 1 || envelope.payload[0].ArgIndex != 0 ||
+		!bytes.Equal(envelope.payload[0].Data, []byte("v2-fixed.txt\x00")) {
+		t.Fatalf("window payload sections = %+v, want chdir path section", envelope.payload)
 	}
 }
 
@@ -143,6 +229,7 @@ type traceEventV2SampleSpec struct {
 	pid       uint32
 	tid       uint32
 	sysID     uint32
+	flags     uint32
 	tsNs      uint64
 	duration  uint64
 	ret       int64
@@ -180,6 +267,7 @@ func traceEventV2HeaderSample(spec traceEventV2SampleSpec, size int) []byte {
 	raw := make([]byte, size)
 	binary.LittleEndian.PutUint16(raw[0:2], traceEventV2Version)
 	binary.LittleEndian.PutUint16(raw[2:4], spec.eventType)
+	binary.LittleEndian.PutUint16(raw[4:6], uint16(spec.flags))
 	binary.LittleEndian.PutUint16(raw[6:8], traceEventV2HeaderLen)
 	binary.LittleEndian.PutUint32(raw[8:12], uint32(size))
 	binary.LittleEndian.PutUint32(raw[12:16], spec.pid)

@@ -42,6 +42,9 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define CONFIG_SYSCALL_FILTER 8
 #define CONFIG_SYSCALL_FILTER_NEGATED 16
 #define CONFIG_EMIT_LIFECYCLE 32
+#define EVENT_V2_HEADER_LEN 40
+#define EVENT_V2_ENTER_BODY_LEN 56
+#define EVENT_V2_EXIT_BODY_LEN 72
 
 struct exec_snapshot_header {
     u32 magic;
@@ -100,6 +103,33 @@ struct bpf_stats {
     u64 ringbuf_reserve_fail;
     u64 ringbuf_copy_fail;
     u64 payload_truncated_events;
+};
+
+struct event_v2_header {
+    u16 version;
+    u16 event_type;
+    u16 flags;
+    u16 header_len;
+    u32 size;
+    u32 pid;
+    u32 tid;
+    u32 sys_id;
+    u64 seq;
+    u64 ts_ns;
+};
+
+struct syscall_enter_event_v2 {
+    u64 args[6];
+    u32 capture_len;
+    u32 capture_flags;
+};
+
+struct syscall_exit_event_v2 {
+    s64 ret;
+    u64 duration_ns;
+    u64 args[6];
+    u32 capture_len;
+    u32 capture_flags;
 };
 
 struct {
@@ -422,14 +452,18 @@ static __always_inline u32 event_output_size(struct bpf_event *e)
     return __builtin_offsetof(struct bpf_event, str_arg) + data_len;
 }
 
-static __always_inline void emit_event(struct bpf_event *e)
+static __always_inline u32 event_payload_size(struct bpf_event *e)
+{
+    u32 data_len = e->data_len;
+    if (data_len > sizeof(e->str_arg)) {
+        data_len = sizeof(e->str_arg);
+    }
+    return data_len;
+}
+
+static __always_inline void emit_legacy_event(struct bpf_event *e)
 {
     u32 out_size = event_output_size(e);
-    if ((e->event_type == EVENT_TYPE_ENTER || e->event_type == EVENT_TYPE_EXIT) &&
-        (e->event_flags & EVENT_FLAG_TRUNCATED)) {
-        record_payload_truncated_event();
-    }
-
     struct bpf_dynptr ptr;
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
@@ -445,6 +479,114 @@ static __always_inline void emit_event(struct bpf_event *e)
         return;
     }
     bpf_ringbuf_submit_dynptr(&ptr, 0);
+}
+
+static __always_inline void init_event_v2_header(struct event_v2_header *header, struct bpf_event *e, u32 out_size)
+{
+    header->version = EVENT_VERSION;
+    header->event_type = e->event_type;
+    header->flags = (u16)e->event_flags;
+    header->header_len = EVENT_V2_HEADER_LEN;
+    header->size = out_size;
+    header->pid = e->pid;
+    header->tid = e->tid;
+    header->sys_id = e->sys_id;
+    header->seq = 0;
+    header->ts_ns = e->enter_time;
+    if (e->event_type == EVENT_TYPE_EXIT && e->duration > 0) {
+        header->ts_ns = e->enter_time + e->duration;
+    }
+}
+
+static __always_inline void init_syscall_enter_event_v2(struct syscall_enter_event_v2 *body, struct bpf_event *e, u32 payload_size)
+{
+    body->args[0] = e->args[0];
+    body->args[1] = e->args[1];
+    body->args[2] = e->args[2];
+    body->args[3] = e->args[3];
+    body->args[4] = e->args[4];
+    body->args[5] = e->args[5];
+    body->capture_len = payload_size;
+    body->capture_flags = 0;
+}
+
+static __always_inline void init_syscall_exit_event_v2(struct syscall_exit_event_v2 *body, struct bpf_event *e, u32 payload_size)
+{
+    body->ret = e->ret;
+    body->duration_ns = e->duration;
+    body->args[0] = e->args[0];
+    body->args[1] = e->args[1];
+    body->args[2] = e->args[2];
+    body->args[3] = e->args[3];
+    body->args[4] = e->args[4];
+    body->args[5] = e->args[5];
+    body->capture_len = payload_size;
+    body->capture_flags = 0;
+}
+
+static __always_inline void emit_syscall_event_v2(struct bpf_event *e)
+{
+    u32 payload_size = event_payload_size(e);
+    u32 body_size = EVENT_V2_ENTER_BODY_LEN;
+    if (e->event_type == EVENT_TYPE_EXIT) {
+        body_size = EVENT_V2_EXIT_BODY_LEN;
+    }
+    u32 out_size = EVENT_V2_HEADER_LEN + body_size + payload_size;
+
+    struct bpf_dynptr ptr;
+    long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
+    if (ret < 0) {
+        record_ringbuf_reserve_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    struct event_v2_header header = {};
+    init_event_v2_header(&header, e, out_size);
+    ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    if (e->event_type == EVENT_TYPE_EXIT) {
+        struct syscall_exit_event_v2 body = {};
+        init_syscall_exit_event_v2(&body, e, payload_size);
+        ret = bpf_dynptr_write(&ptr, EVENT_V2_HEADER_LEN, &body, sizeof(body), 0);
+    } else {
+        struct syscall_enter_event_v2 body = {};
+        init_syscall_enter_event_v2(&body, e, payload_size);
+        ret = bpf_dynptr_write(&ptr, EVENT_V2_HEADER_LEN, &body, sizeof(body), 0);
+    }
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    if (payload_size > 0) {
+        ret = bpf_dynptr_write(&ptr, EVENT_V2_HEADER_LEN + body_size, e->str_arg, payload_size, 0);
+        if (ret < 0) {
+            record_ringbuf_copy_fail();
+            bpf_ringbuf_discard_dynptr(&ptr, 0);
+            return;
+        }
+    }
+    bpf_ringbuf_submit_dynptr(&ptr, 0);
+}
+
+static __always_inline void emit_event(struct bpf_event *e)
+{
+    if ((e->event_type == EVENT_TYPE_ENTER || e->event_type == EVENT_TYPE_EXIT) &&
+        (e->event_flags & EVENT_FLAG_TRUNCATED)) {
+        record_payload_truncated_event();
+    }
+    if (e->event_type == EVENT_TYPE_ENTER || e->event_type == EVENT_TYPE_EXIT) {
+        emit_syscall_event_v2(e);
+        return;
+    }
+    emit_legacy_event(e);
 }
 
 static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64 arg0, u64 arg1, const void *snapshot_str)

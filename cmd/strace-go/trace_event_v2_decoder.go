@@ -88,6 +88,8 @@ func decodeTraceEventV2EnterEnvelope(header traceEventV2Header, body []byte) (tr
 		eventFlags: eventFlags,
 		data:       payload,
 	}
+	scMeta := syscallMeta(header.sysID)
+	sections := copyPayloadSections(payloadSectionsForRawPayloadEvent(raw, scMeta))
 	return traceEventEnvelope{
 		valid:        true,
 		eventVersion: header.version,
@@ -98,7 +100,8 @@ func decodeTraceEventV2EnterEnvelope(header traceEventV2Header, body []byte) (tr
 		eventFlags:   eventFlags,
 		enterTime:    header.tsNs,
 		args:         args,
-		payload:      copyPayloadSections(payloadSectionsForRawPayloadEvent(raw, syscallMeta(header.sysID))),
+		ptr:          primarySyscallPointer(scMeta, args, sections),
+		payload:      sections,
 	}, true
 }
 
@@ -123,6 +126,8 @@ func decodeTraceEventV2ExitEnvelope(header traceEventV2Header, body []byte) (tra
 		ret:        ret,
 		data:       payload,
 	}
+	scMeta := syscallMeta(header.sysID)
+	sections := copyPayloadSections(payloadSectionsForRawPayloadEvent(raw, scMeta))
 	return traceEventEnvelope{
 		valid:        true,
 		eventVersion: header.version,
@@ -135,7 +140,8 @@ func decodeTraceEventV2ExitEnvelope(header traceEventV2Header, body []byte) (tra
 		args:         args,
 		ret:          ret,
 		duration:     duration,
-		payload:      copyPayloadSections(payloadSectionsForRawPayloadEvent(raw, syscallMeta(header.sysID))),
+		ptr:          primarySyscallPointer(scMeta, args, sections),
+		payload:      sections,
 	}, true
 }
 
@@ -158,11 +164,7 @@ func traceEventV2Payload(body []byte, offset int, captureLen uint32) ([]byte, bo
 }
 
 func traceEventV2EventFlags(header traceEventV2Header, payload []byte) uint32 {
-	flags := uint32(header.flags)
-	if len(payload) > 0 {
-		flags |= bpfEventFlagPayloadTLV
-	}
-	return flags
+	return uint32(header.flags)
 }
 
 func traceEventV2EnterTime(tsNs uint64, duration uint64) uint64 {

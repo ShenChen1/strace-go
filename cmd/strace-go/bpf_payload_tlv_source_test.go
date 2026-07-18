@@ -63,6 +63,15 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "e->event_type == EVENT_TYPE_ENTER || e->event_type == EVENT_TYPE_EXIT") {
 		t.Fatal("truncated stats should ignore lifecycle action ids sharing event_flags")
 	}
+	if !strings.Contains(straceSource, "emit_syscall_event_v2(e);") {
+		t.Fatal("syscall events should be emitted through event v2")
+	}
+	if !strings.Contains(straceSource, "emit_legacy_event(e);") {
+		t.Fatal("non-syscall events should retain legacy fallback until lifecycle v2 lands")
+	}
+	if !strings.Contains(straceSource, "EVENT_V2_HEADER_LEN + body_size + payload_size") {
+		t.Fatal("event v2 output size should be header plus syscall body plus TLV payload")
+	}
 	wantFlag := "#define EVENT_FLAG_PAYLOAD_TLV " + strconv.Itoa(int(bpfEventFlagPayloadTLV))
 	if !strings.Contains(tlvHeader, wantFlag) {
 		t.Fatalf("payload TLV header missing %q", wantFlag)
