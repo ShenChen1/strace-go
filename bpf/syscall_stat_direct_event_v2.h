@@ -6,7 +6,8 @@
 
 static __always_inline int is_stat_struct_direct_syscall(u32 sys_id)
 {
-    return sys_id == SYS_FSTAT || sys_id == SYS_STATFS || sys_id == SYS_FSTATFS;
+    return sys_id == SYS_STAT || sys_id == SYS_LSTAT || sys_id == SYS_FSTAT ||
+        sys_id == SYS_NEWFSTATAT || sys_id == SYS_STATFS || sys_id == SYS_FSTATFS;
 }
 
 static __always_inline u32 stat_direct_struct_size(u32 sys_id)
@@ -17,12 +18,29 @@ static __always_inline u32 stat_direct_struct_size(u32 sys_id)
     return STAT_DIRECT_STRUCT_SIZE;
 }
 
+static __always_inline u16 stat_direct_struct_arg_index(u32 sys_id)
+{
+    if (sys_id == SYS_NEWFSTATAT) {
+        return 2;
+    }
+    return 1;
+}
+
+static __always_inline u64 stat_direct_struct_user_ptr(struct pending_syscall *p)
+{
+    if (p->sys_id == SYS_NEWFSTATAT) {
+        return p->args[2];
+    }
+    return p->args[1];
+}
+
 static __always_inline u32 capture_stat_struct_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,
     struct pending_syscall *p)
 {
-    u64 user_ptr = p->args[1];
+    u16 arg_index = stat_direct_struct_arg_index(p->sys_id);
+    u64 user_ptr = stat_direct_struct_user_ptr(p);
     if (!user_ptr) {
         return 0;
     }
@@ -54,7 +72,7 @@ static __always_inline u32 capture_stat_struct_tlv_direct(
             ptr,
             payload_offset,
             PAYLOAD_TLV_KIND_STRUCT,
-            1,
+            arg_index,
             PAYLOAD_TLV_FLAG_DIRECTION_OUT,
             struct_size,
             copied_len,

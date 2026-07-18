@@ -99,6 +99,19 @@ static int run_semantic_fixture(void)
 		perror("statfs");
 		return 75;
 	}
+	struct stat path_st;
+	if (syscall(SYS_stat, "/proc/self", &path_st) != 0) {
+		perror("stat");
+		return 76;
+	}
+	if (syscall(SYS_lstat, "/proc/self", &path_st) != 0) {
+		perror("lstat");
+		return 77;
+	}
+	if (syscall(SYS_newfstatat, AT_FDCWD, "/proc/self", &path_st, 0) != 0) {
+		perror("newfstatat");
+		return 78;
+	}
 
 	char large[1024];
 	fill_large_write_payload(large, sizeof(large));

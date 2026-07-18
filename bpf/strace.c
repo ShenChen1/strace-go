@@ -26,16 +26,19 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_READ 0
 #define SYS_WRITE 1
 #define SYS_CLOSE 3
+#define SYS_STAT 4
 #define SYS_FSTAT 5
-#define SYS_STATFS 137
+#define SYS_LSTAT 6
 #define SYS_PREAD64 17
 #define SYS_PWRITE64 18
 #define SYS_GETPID 39
 #define SYS_GETTIMEOFDAY 96
+#define SYS_STATFS 137
 #define SYS_FSTATFS 138
 #define SYS_CLOCK_GETTIME 228
 #define SYS_CLOCK_GETRES 229
 #define SYS_OPENAT 257
+#define SYS_NEWFSTATAT 262
 #define EVENT_TYPE_ENTER 1
 #define EVENT_TYPE_EXIT 2
 #define EVENT_TYPE_LIFECYCLE 3
@@ -553,8 +556,8 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 }
 
 #include "syscall_direct_event_v2.h"
+#include "syscall_path_stat_direct_event_v2.h"
 #include "syscall_stat_direct_event_v2.h"
-#include "syscall_statfs_direct_event_v2.h"
 #include "syscall_time_direct_event_v2.h"
 
 SEC("tracepoint/raw_syscalls/sys_enter")
@@ -603,9 +606,9 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
-    // IMPACT: statfs carries an IN path snapshot on enter and an OUT statfs struct on exit without the bpf_event carrier.
-    if (is_path_statfs_direct_syscall(sys_id)) {
-        emit_statfs_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+    // IMPACT: path stat syscalls carry an IN path snapshot on enter and an OUT struct on exit without the bpf_event carrier.
+    if (is_path_stat_direct_syscall(sys_id)) {
+        emit_path_stat_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }

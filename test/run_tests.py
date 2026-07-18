@@ -220,41 +220,29 @@ def has_gettimeofday_payload_sections(events):
             return True
     return False
 
-def has_fstat_payload_section(events):
+def has_struct_payload_section(events, syscall, arg_index, user_len):
     for ev in events:
-        if ev.get("syscall") != "fstat" or ev.get("event_type") != "exit":
+        if ev.get("syscall") != syscall or ev.get("event_type") != "exit":
             continue
         for sec in ev.get("payload_sections") or []:
             if sec.get("kind") != "struct" or sec.get("direction") != "out":
                 continue
-            if sec.get("arg_index") != 1:
+            if sec.get("arg_index") != arg_index:
                 continue
-            return sec.get("user_len") == 144 and sec.get("copied_len") == 144 and len(payload_section_bytes(sec)) == 144
+            return sec.get("user_len") == user_len and sec.get("copied_len") == user_len and len(payload_section_bytes(sec)) == user_len
     return False
+
+def has_fstat_payload_section(events):
+    return has_struct_payload_section(events, "fstat", 1, 144)
+
+def has_stat_payload_section(events, syscall, arg_index):
+    return has_struct_payload_section(events, syscall, arg_index, 144)
 
 def has_fstatfs_payload_section(events):
-    for ev in events:
-        if ev.get("syscall") != "fstatfs" or ev.get("event_type") != "exit":
-            continue
-        for sec in ev.get("payload_sections") or []:
-            if sec.get("kind") != "struct" or sec.get("direction") != "out":
-                continue
-            if sec.get("arg_index") != 1:
-                continue
-            return sec.get("user_len") == 120 and sec.get("copied_len") == 120 and len(payload_section_bytes(sec)) == 120
-    return False
+    return has_struct_payload_section(events, "fstatfs", 1, 120)
 
 def has_statfs_payload_section(events):
-    for ev in events:
-        if ev.get("syscall") != "statfs" or ev.get("event_type") != "exit":
-            continue
-        for sec in ev.get("payload_sections") or []:
-            if sec.get("kind") != "struct" or sec.get("direction") != "out":
-                continue
-            if sec.get("arg_index") != 1:
-                continue
-            return sec.get("user_len") == 120 and sec.get("copied_len") == 120 and len(payload_section_bytes(sec)) == 120
-    return False
+    return has_struct_payload_section(events, "statfs", 1, 120)
 
 def check_write_only_filter(fixture, failures):
     filter_res = run_strace_go_json(["-e", "trace=write", fixture], debug=True)
@@ -288,7 +276,7 @@ def finish_ebpf_semantic(res, failures, events, enter_events, exit_events, lifec
     return 0
 
 def collect_semantic_events(fixture):
-    trace_set = "open,openat,read,write,pread64,pwrite64,close,fstat,statfs,fstatfs,execve,exit,exit_group,clock_gettime,gettimeofday"
+    trace_set = "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,newfstatat,statfs,fstatfs,execve,exit,exit_group,clock_gettime,gettimeofday"
     res = run_strace_go_json(["-f", "-e", f"trace={trace_set}", fixture])
     events = parse_json_events(res.stderr)
     lifecycle_events = parse_lifecycle_events(res.stderr)
@@ -320,7 +308,10 @@ def run_ebpf_semantic(args):
     require(("openat" in names) or ("open" in names), failures, "open/openat event missing")
     require("read" in names, failures, "read event missing")
     require("close" in names, failures, "close event missing")
+    require("stat" in names, failures, "stat event missing")
+    require("lstat" in names, failures, "lstat event missing")
     require("fstat" in names, failures, "fstat event missing")
+    require("newfstatat" in names, failures, "newfstatat event missing")
     require("statfs" in names, failures, "statfs event missing")
     require("fstatfs" in names, failures, "fstatfs event missing")
     require("clock_gettime" in names, failures, "clock_gettime event missing")
@@ -332,10 +323,19 @@ def run_ebpf_semantic(args):
             failures, "openat path payload section missing from JSON event")
     require(has_path_section(events, "statfs", 0, "/proc/self"),
             failures, "statfs path payload section missing from JSON event")
+    require(has_path_section(events, "stat", 0, "/proc/self"),
+            failures, "stat path payload section missing from JSON event")
+    require(has_path_section(events, "lstat", 0, "/proc/self"),
+            failures, "lstat path payload section missing from JSON event")
+    require(has_path_section(events, "newfstatat", 1, "/proc/self"),
+            failures, "newfstatat path payload section missing from JSON event")
     require(has_exec_payload_sections(events), failures, "execve argv/envp and filename payload sections missing from JSON event")
     require(has_clock_payload_section(events), failures, "clock_gettime OUT timespec payload section missing from JSON event")
     require(has_gettimeofday_payload_sections(events), failures, "gettimeofday OUT timeval/timezone payload sections missing from JSON event")
     require(has_fstat_payload_section(events), failures, "fstat OUT stat payload section missing from JSON event")
+    require(has_stat_payload_section(events, "stat", 1), failures, "stat OUT stat payload section missing from JSON event")
+    require(has_stat_payload_section(events, "lstat", 1), failures, "lstat OUT stat payload section missing from JSON event")
+    require(has_stat_payload_section(events, "newfstatat", 2), failures, "newfstatat OUT stat payload section missing from JSON event")
     require(has_statfs_payload_section(events), failures, "statfs OUT statfs payload section missing from JSON event")
     require(has_fstatfs_payload_section(events), failures, "fstatfs OUT statfs payload section missing from JSON event")
     require(any(ev.get("syscall") == "write" for ev in enter_events), failures, "write enter event missing")

@@ -15,7 +15,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	tlvHeader := readTextFile(t, filepath.Join(root, "bpf/payload_tlv.h"))
 	directHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h"))
 	statDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_stat_direct_event_v2.h"))
-	statfsDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_statfs_direct_event_v2.h"))
+	pathStatDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_stat_direct_event_v2.h"))
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 
 	if !strings.Contains(straceSource, `#include "payload_tlv.h"`) {
@@ -27,8 +27,14 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "#define SYS_CLOSE 3") {
 		t.Fatal("strace.c missing SYS_CLOSE constant for scalar direct event v2 path")
 	}
+	if !strings.Contains(straceSource, "#define SYS_STAT 4") {
+		t.Fatal("strace.c missing SYS_STAT constant for stat direct event v2 path")
+	}
 	if !strings.Contains(straceSource, "#define SYS_FSTAT 5") {
 		t.Fatal("strace.c missing SYS_FSTAT constant for fstat direct event v2 path")
+	}
+	if !strings.Contains(straceSource, "#define SYS_LSTAT 6") {
+		t.Fatal("strace.c missing SYS_LSTAT constant for lstat direct event v2 path")
 	}
 	if !strings.Contains(straceSource, "#define SYS_STATFS 137") {
 		t.Fatal("strace.c missing SYS_STATFS constant for statfs direct event v2 path")
@@ -54,6 +60,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 	if !strings.Contains(straceSource, "#define SYS_OPENAT 257") {
 		t.Fatal("strace.c missing SYS_OPENAT constant for openat TLV capture")
+	}
+	if !strings.Contains(straceSource, "#define SYS_NEWFSTATAT 262") {
+		t.Fatal("strace.c missing SYS_NEWFSTATAT constant for newfstatat direct event v2 path")
 	}
 	if !strings.Contains(straceSource, `#include "syscall_direct_event_v2.h"`) {
 		t.Fatal("strace.c should include scalar direct event v2 helpers")
@@ -171,21 +180,32 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		t.Fatal("clock/gettimeofday syscalls should emit direct struct TLV exit events without the bpf_event carrier")
 	}
 	if !strings.Contains(straceSource, `#include "syscall_stat_direct_event_v2.h"`) ||
-		!strings.Contains(straceSource, `#include "syscall_statfs_direct_event_v2.h"`) ||
+		!strings.Contains(straceSource, `#include "syscall_path_stat_direct_event_v2.h"`) ||
 		!strings.Contains(statDirectHeader, "is_stat_struct_direct_syscall(") ||
-		!strings.Contains(statDirectHeader, "return sys_id == SYS_FSTAT || sys_id == SYS_STATFS || sys_id == SYS_FSTATFS;") ||
+		!strings.Contains(statDirectHeader, "sys_id == SYS_STAT || sys_id == SYS_LSTAT || sys_id == SYS_FSTAT") ||
+		!strings.Contains(statDirectHeader, "sys_id == SYS_NEWFSTATAT || sys_id == SYS_STATFS || sys_id == SYS_FSTATFS;") ||
+		!strings.Contains(statDirectHeader, "stat_direct_struct_arg_index(") ||
+		!strings.Contains(statDirectHeader, "if (sys_id == SYS_NEWFSTATAT)") ||
+		!strings.Contains(statDirectHeader, "return p->args[2];") ||
 		!strings.Contains(statDirectHeader, "STAT_DIRECT_STRUCT_SIZE 144") ||
 		!strings.Contains(statDirectHeader, "STATFS_DIRECT_STRUCT_SIZE 120") ||
-		!strings.Contains(statfsDirectHeader, "return sys_id == SYS_STATFS;") ||
-		!strings.Contains(statfsDirectHeader, "emit_statfs_enter_event_v2_direct(") ||
-		!strings.Contains(statfsDirectHeader, "STATFS_DIRECT_PATH_MAX 512") ||
+		!strings.Contains(pathStatDirectHeader, "return sys_id == SYS_STAT || sys_id == SYS_LSTAT || sys_id == SYS_STATFS || sys_id == SYS_NEWFSTATAT;") ||
+		!strings.Contains(pathStatDirectHeader, "emit_path_stat_enter_event_v2_direct_with_path(") ||
+		!strings.Contains(pathStatDirectHeader, "ctx, ts_ns, 1, ctx->args[1]") ||
+		!strings.Contains(pathStatDirectHeader, "ctx, ts_ns, 0, ctx->args[0]") ||
+		!strings.Contains(pathStatDirectHeader, "emit_path_stat_enter_event_v2_direct(") ||
+		!strings.Contains(pathStatDirectHeader, "PATH_STAT_DIRECT_PATH_MAX 512") ||
 		!strings.Contains(statDirectHeader, "emit_stat_struct_exit_event_v2_direct(") ||
 		!strings.Contains(timeDirectHeader, "is_stat_struct_direct_syscall(sys_id)") ||
-		!strings.Contains(straceSource, "is_path_statfs_direct_syscall(sys_id)") ||
-		!strings.Contains(straceSource, "emit_statfs_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);") ||
+		!strings.Contains(straceSource, "is_path_stat_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "emit_path_stat_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);") ||
 		!strings.Contains(straceSource, "is_stat_struct_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "emit_stat_struct_exit_event_v2_direct(p, ret_value, duration);") {
-		t.Fatal("statfs/fstat/fstatfs should emit direct TLV events without the bpf_event carrier")
+		t.Fatal("stat/lstat/newfstatat/statfs/fstat/fstatfs should emit direct TLV events without the bpf_event carrier")
+	}
+	if strings.Contains(straceSource, `#include "syscall_statfs_direct_event_v2.h"`) ||
+		strings.Contains(straceSource, "is_path_statfs_direct_syscall(") {
+		t.Fatal("path stat direct capture should not keep the statfs-only helper")
 	}
 	if !strings.Contains(straceSource, "emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);") {
 		t.Fatal("lifecycle events should be emitted directly as event v2")

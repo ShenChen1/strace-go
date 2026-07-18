@@ -429,70 +429,95 @@ func TestSyscallEventContextMergesPendingEnterTLVPathForPathFilter(t *testing.T)
 	}
 }
 
-func TestSyscallEventContextMergesStatfsEnterPathAndExitStructSections(t *testing.T) {
+func TestSyscallEventContextMergesPathStatEnterPathAndExitStructSections(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       [6]uint64
+		pathArg    uint16
+		structArg  uint16
+		structSize int
+		fill       byte
+	}{
+		{name: "stat", args: [6]uint64{0x1000, 0x2000}, pathArg: 0, structArg: 1, structSize: statPayloadStructSize, fill: 0x11},
+		{name: "lstat", args: [6]uint64{0x1000, 0x2000}, pathArg: 0, structArg: 1, structSize: statPayloadStructSize, fill: 0x22},
+		{name: "newfstatat", args: [6]uint64{rawAtFdcwd, 0x1000, 0x2000}, pathArg: 1, structArg: 2, structSize: statPayloadStructSize, fill: 0x33},
+		{name: "statfs", args: [6]uint64{0x1000, 0x2000}, pathArg: 0, structArg: 1, structSize: statfsPayloadStructSize, fill: 0x44},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertPathStatSectionsMerged(t, tt.name, tt.args, tt.pathArg, tt.structArg, tt.structSize, tt.fill)
+		})
+	}
+}
+
+func assertPathStatSectionsMerged(
+	t *testing.T,
+	syscallName string,
+	args [6]uint64,
+	pathArg uint16,
+	structArg uint16,
+	structSize int,
+	fill byte,
+) {
+	t.Helper()
 	session := &traceSession{
 		targetPid: 101,
-		opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=statfs", "/bin/true"}),
+		opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + syscallName, "/bin/true"}),
 		decoder:   event.NewDecoder(),
 		fdState:   newFDStateStoreFromMaps(nil, nil),
 		state:     newTraceState(),
 	}
+	pathData := []byte("/proc/self\x00")
 	pathPayload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindString,
-		arg:     0,
-		userPtr: 0x1000,
-		userLen: 11,
-		data:    []byte("/proc/self\x00"),
+		arg:     pathArg,
+		userPtr: args[pathArg],
+		userLen: uint32(len(pathData)),
+		data:    pathData,
 	})
 	enterRaw := &bpfEvent{
 		Pid:        101,
 		Tid:        101,
-		SysId:      syscallIDByName(t, "statfs"),
+		SysId:      syscallIDByName(t, syscallName),
 		EventType:  bpfEventTypeEnter,
 		EventFlags: bpfEventFlagPayloadTLV | bpfEventFlagGenericEnter,
-		Args:       [6]uint64{0x1000, 0x2000},
+		Args:       args,
 		DataLen:    uint32(len(pathPayload)),
 	}
 	copy(enterRaw.StrArg[:], pathPayload)
 	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
 
-	statfsData := bytes.Repeat([]byte{0x55}, statfsPayloadStructSize)
+	structData := bytes.Repeat([]byte{fill}, structSize)
 	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindStruct,
 		flags:   payloadTLVFlagDirectionOut,
-		arg:     1,
-		userPtr: 0x2000,
-		userLen: statfsPayloadStructSize,
-		data:    statfsData,
+		arg:     structArg,
+		userPtr: args[structArg],
+		userLen: uint32(structSize),
+		data:    structData,
 	})
 	exitRaw := &bpfEvent{
 		Pid:        101,
 		Tid:        101,
-		SysId:      syscallIDByName(t, "statfs"),
+		SysId:      syscallIDByName(t, syscallName),
 		EventType:  bpfEventTypeExit,
 		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       [6]uint64{0x1000, 0x2000},
+		Args:       args,
 		Ret:        0,
 		DataLen:    uint32(len(exitPayload)),
 	}
 	copy(exitRaw.StrArg[:], exitPayload)
 
 	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
-	ev := newSyscallEventContextFromView(
-		session,
-		exitUpdate.syscallView,
-		101,
-		exitUpdate.pendingEnter,
-		exitUpdate.payloadSections,
-	)
-
-	pathSection, ok := ev.handlerContext.Section(0, handler.PayloadKindString)
-	if !ok || !bytes.Equal(pathSection.Data, []byte("/proc/self\x00")) {
-		t.Fatalf("statfs path section = %+v, %v; want pending enter path", pathSection, ok)
+	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
+	pathSection, ok := ev.handlerContext.Section(int(pathArg), handler.PayloadKindString)
+	if !ok || !bytes.Equal(pathSection.Data, pathData) {
+		t.Fatalf("%s path section = %+v, %v; want pending enter path", syscallName, pathSection, ok)
 	}
-	structSection, ok := ev.handlerContext.Section(1, handler.PayloadKindStruct)
-	if !ok || !bytes.Equal(structSection.Data, statfsData) {
-		t.Fatalf("statfs struct section = %+v, %v; want exit struct", structSection, ok)
+	structSection, ok := ev.handlerContext.Section(int(structArg), handler.PayloadKindStruct)
+	if !ok || !bytes.Equal(structSection.Data, structData) {
+		t.Fatalf("%s struct section = %+v, %v; want exit struct", syscallName, structSection, ok)
 	}
 }
 
