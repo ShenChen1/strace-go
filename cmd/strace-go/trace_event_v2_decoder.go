@@ -3,10 +3,11 @@ package main
 import "encoding/binary"
 
 const (
-	traceEventV2Version      = 2
-	traceEventV2HeaderLen    = 40
-	traceEventV2EnterBodyLen = 56
-	traceEventV2ExitBodyLen  = 72
+	traceEventV2Version          = 2
+	traceEventV2HeaderLen        = 40
+	traceEventV2EnterBodyLen     = 56
+	traceEventV2ExitBodyLen      = 72
+	traceEventV2LifecycleBodyLen = 56
 )
 
 type traceEventV2Header struct {
@@ -27,7 +28,8 @@ func isTraceEventV2Sample(rawSample []byte) bool {
 		return false
 	}
 	eventType := binary.LittleEndian.Uint16(rawSample[2:4])
-	if eventType != bpfEventTypeEnter && eventType != bpfEventTypeExit {
+	if eventType != bpfEventTypeEnter && eventType != bpfEventTypeExit &&
+		eventType != bpfEventTypeLifecycle {
 		return false
 	}
 	headerLen := binary.LittleEndian.Uint16(rawSample[6:8])
@@ -47,6 +49,8 @@ func decodeTraceEventV2Envelope(rawSample []byte) (traceEventEnvelope, bool) {
 		return decodeTraceEventV2EnterEnvelope(header, body)
 	case bpfEventTypeExit:
 		return decodeTraceEventV2ExitEnvelope(header, body)
+	case bpfEventTypeLifecycle:
+		return decodeTraceEventV2LifecycleEnvelope(header, body)
 	default:
 		return traceEventEnvelope{}, false
 	}
@@ -142,6 +146,31 @@ func decodeTraceEventV2ExitEnvelope(header traceEventV2Header, body []byte) (tra
 		duration:     duration,
 		ptr:          primarySyscallPointer(scMeta, args, sections),
 		payload:      sections,
+	}, true
+}
+
+func decodeTraceEventV2LifecycleEnvelope(header traceEventV2Header, body []byte) (traceEventEnvelope, bool) {
+	if len(body) < traceEventV2LifecycleBodyLen {
+		return traceEventEnvelope{}, false
+	}
+	action := binary.LittleEndian.Uint32(body[0:4])
+	captureLen := binary.LittleEndian.Uint32(body[4:8])
+	args := traceEventV2Args(body[8:56])
+	payload, ok := traceEventV2Payload(body, traceEventV2LifecycleBodyLen, captureLen)
+	if !ok {
+		return traceEventEnvelope{}, false
+	}
+	return traceEventEnvelope{
+		valid:           true,
+		eventVersion:    header.version,
+		pid:             header.pid,
+		tid:             header.tid,
+		eventType:       header.eventType,
+		eventFlags:      traceEventV2EventFlags(header, payload),
+		lifecycleAction: action,
+		enterTime:       header.tsNs,
+		args:            args,
+		snapshotText:    lifecycleSnapshotString(payload),
 	}, true
 }
 

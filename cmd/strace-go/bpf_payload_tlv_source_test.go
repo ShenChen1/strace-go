@@ -66,8 +66,11 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "emit_syscall_event_v2(e);") {
 		t.Fatal("syscall events should be emitted through event v2")
 	}
-	if !strings.Contains(straceSource, "emit_legacy_event(e);") {
-		t.Fatal("non-syscall events should retain legacy fallback until lifecycle v2 lands")
+	if !strings.Contains(straceSource, "emit_lifecycle_event_v2(e);") {
+		t.Fatal("lifecycle events should be emitted through event v2")
+	}
+	if !strings.Contains(straceSource, "EVENT_V2_HEADER_LEN + EVENT_V2_LIFECYCLE_BODY_LEN + payload_size") {
+		t.Fatal("lifecycle event v2 output size should include header, lifecycle body, and snapshot payload")
 	}
 	if !strings.Contains(straceSource, "EVENT_V2_HEADER_LEN + body_size + payload_size") {
 		t.Fatal("event v2 output size should be header plus syscall body plus TLV payload")

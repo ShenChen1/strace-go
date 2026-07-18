@@ -170,6 +170,33 @@ func TestDecodeTraceEventV2ExitEnvelope(t *testing.T) {
 	}
 }
 
+func TestDecodeTraceEventV2LifecycleEnvelope(t *testing.T) {
+	raw := traceEventV2LifecycleSample(t, traceEventV2SampleSpec{
+		pid:     401,
+		tid:     402,
+		tsNs:    1200,
+		action:  lifecycleExec,
+		args:    [6]uint64{400, 401},
+		payload: []byte("/bin/true\x00trailing"),
+	})
+
+	envelope, ok := decodeTraceEventV2Envelope(raw)
+	if !ok {
+		t.Fatal("decodeTraceEventV2Envelope rejected a lifecycle sample")
+	}
+	if !envelope.valid || envelope.eventVersion != traceEventV2Version ||
+		envelope.eventType != bpfEventTypeLifecycle || envelope.lifecycleAction != lifecycleExec {
+		t.Fatalf("lifecycle envelope = %+v, want valid exec lifecycle", envelope)
+	}
+	if envelope.pid != 401 || envelope.tid != 402 || envelope.args[0] != 400 ||
+		envelope.args[1] != 401 || envelope.enterTime != 1200 {
+		t.Fatalf("lifecycle identity = %+v", envelope)
+	}
+	if envelope.snapshotText != "/bin/true" {
+		t.Fatalf("lifecycle snapshot = %q, want /bin/true", envelope.snapshotText)
+	}
+}
+
 func TestDecodeTraceEventV2FallsBackToWindowPayload(t *testing.T) {
 	sysID := syscallIDByName(t, "chdir")
 	raw := traceEventV2EnterSample(t, traceEventV2SampleSpec{
@@ -231,6 +258,7 @@ type traceEventV2SampleSpec struct {
 	sysID     uint32
 	flags     uint32
 	tsNs      uint64
+	action    uint32
 	duration  uint64
 	ret       int64
 	args      [6]uint64
@@ -260,6 +288,20 @@ func traceEventV2ExitSample(t *testing.T, spec traceEventV2SampleSpec) []byte {
 	putTraceEventV2Args(raw[bodyOffset+16:bodyOffset+64], spec.args)
 	binary.LittleEndian.PutUint32(raw[bodyOffset+64:bodyOffset+68], uint32(len(spec.payload)))
 	copy(raw[bodyOffset+traceEventV2ExitBodyLen:], spec.payload)
+	return raw
+}
+
+func traceEventV2LifecycleSample(t *testing.T, spec traceEventV2SampleSpec) []byte {
+	t.Helper()
+	const lifecycleBodyLen = 56
+	size := traceEventV2HeaderLen + lifecycleBodyLen + len(spec.payload)
+	spec.eventType = bpfEventTypeLifecycle
+	raw := traceEventV2HeaderSample(spec, size)
+	bodyOffset := traceEventV2HeaderLen
+	binary.LittleEndian.PutUint32(raw[bodyOffset:bodyOffset+4], spec.action)
+	binary.LittleEndian.PutUint32(raw[bodyOffset+4:bodyOffset+8], uint32(len(spec.payload)))
+	putTraceEventV2Args(raw[bodyOffset+8:bodyOffset+56], spec.args)
+	copy(raw[bodyOffset+lifecycleBodyLen:], spec.payload)
 	return raw
 }
 
