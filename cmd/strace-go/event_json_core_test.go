@@ -25,7 +25,7 @@ func TestJSONLifecycleExecIncludesFilenameSnapshot(t *testing.T) {
 	}
 	copy(eventRaw.StrArg[:], []byte("/bin/true\x00trailing"))
 
-	session.writeJSONLifecycleEventView(newTraceStateEventViewFromBPF(eventRaw), &TaskState{
+	session.writeJSONLifecycleEventView(lifecycleEventViewFromTraceView(newTraceStateEventViewFromBPF(eventRaw)), &TaskState{
 		TID:        101,
 		TGID:       101,
 		Alive:      true,
@@ -54,16 +54,16 @@ func TestJSONLifecycleViewIncludesFilenameSnapshot(t *testing.T) {
 	var output bytes.Buffer
 	session := &traceSession{outWriter: &output}
 
-	session.writeJSONLifecycleEventView(traceStateEventView{
-		eventVersion:    2,
-		eventType:       bpfEventTypeLifecycle,
-		eventFlags:      bpfEventFlagTruncated,
-		lifecycleAction: lifecycleExec,
-		pid:             101,
-		tid:             101,
-		args:            [6]uint64{100, 101},
-		enterTime:       20,
-		snapshotText:    "/bin/true",
+	session.writeJSONLifecycleEventView(lifecycleEventView{
+		eventVersion: 2,
+		eventType:    bpfEventTypeLifecycle,
+		eventFlags:   bpfEventFlagTruncated,
+		action:       lifecycleExec,
+		pid:          101,
+		tid:          101,
+		args:         [6]uint64{100, 101},
+		enterTime:    20,
+		snapshotText: "/bin/true",
 	}, &TaskState{
 		TID:    101,
 		TGID:   101,

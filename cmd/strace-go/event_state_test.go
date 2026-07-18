@@ -93,12 +93,15 @@ func TestTraceStateHandlePairsEnterExitAndCleansLifecycle(t *testing.T) {
 
 	state.rememberPendingExecArgs(1235, "execve(...)")
 	state.rememberSuspendedSyscall(1235, "nanosleep")
-	state.handleView(newTraceStateEventViewFromBPF(&bpfEvent{
+	lifecycleUpdate := state.handleView(newTraceStateEventViewFromBPF(&bpfEvent{
 		Pid:             1234,
 		Tid:             1235,
 		EventType:       bpfEventTypeLifecycle,
 		LifecycleAction: lifecycleFree,
 	}))
+	if lifecycleUpdate.kind != traceStateLifecycle || lifecycleUpdate.lifecycleView.action != lifecycleFree {
+		t.Fatalf("lifecycle update = %+v, want lifecycle free view", lifecycleUpdate)
+	}
 	if len(state.pendingExecArgs) != 0 || len(state.suspendedSyscalls) != 0 || len(state.pendingSyscalls) != 0 {
 		t.Fatalf("lifecycle free did not clear pending state: %+v", state)
 	}

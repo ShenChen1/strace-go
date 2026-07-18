@@ -122,22 +122,22 @@ func (s *traceSession) writeJSONRawEvent(ev syscallEventContext) {
 	_ = json.NewEncoder(s.outWriter).Encode(jsonEvent)
 }
 
-func (s *traceSession) writeJSONLifecycleEventView(view traceStateEventView, task *TaskState) {
+func (s *traceSession) writeJSONLifecycleEventView(view lifecycleEventView, task *TaskState) {
 	ev := jsonLifecycleEvent{
 		Type:         "lifecycle",
 		EventVersion: view.eventVersion,
 		EventType:    bpfEventTypeNameFromID(view.eventType),
 		EventTypeID:  view.eventType,
 		EventFlags:   view.eventFlags,
-		Action:       lifecycleActionName(view.lifecycleAction),
-		ActionID:     view.lifecycleAction,
+		Action:       lifecycleActionName(view.action),
+		ActionID:     view.action,
 		Pid:          view.pid,
 		Tid:          view.tid,
 		Arg0:         view.args[0],
 		Arg1:         view.args[1],
 		TimeNS:       view.enterTime,
 	}
-	if view.lifecycleAction == lifecycleExec {
+	if view.action == lifecycleExec {
 		ev.Filename = view.snapshotText
 	}
 	if task != nil {

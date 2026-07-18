@@ -36,8 +36,8 @@ func (st *TraceState) noteSyscallTask(view traceStateEventView) {
 	task.LastSeenNS = view.enterTime
 }
 
-func (st *TraceState) applyLifecycleEvent(view traceStateEventView) *TaskState {
-	switch view.lifecycleAction {
+func (st *TraceState) applyLifecycleEvent(view lifecycleEventView) *TaskState {
+	switch view.action {
 	case lifecycleFork:
 		parentTID := uint32(view.args[0])
 		childTID := uint32(view.args[1])

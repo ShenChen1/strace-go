@@ -33,6 +33,19 @@ type traceStateEventView struct {
 	payload         []handler.PayloadSection
 }
 
+type lifecycleEventView struct {
+	valid        bool
+	eventVersion uint16
+	eventType    uint16
+	eventFlags   uint32
+	action       uint32
+	pid          uint32
+	tid          uint32
+	args         [6]uint64
+	enterTime    uint64
+	snapshotText string
+}
+
 type TraceState struct {
 	pendingSyscalls   map[uint32]*pendingSyscallState
 	pendingExecArgs   map[int]string
@@ -51,6 +64,7 @@ const (
 type TraceStateUpdate struct {
 	kind          traceStateEventKind
 	view          traceStateEventView
+	lifecycleView lifecycleEventView
 	pendingEnter  *pendingSyscallState
 	lifecycleTask *TaskState
 }
@@ -68,11 +82,17 @@ func (s *traceSession) traceState() *TraceState {
 
 func (st *TraceState) handleView(view traceStateEventView) TraceStateUpdate {
 	if view.isLifecycle() {
-		task := st.applyLifecycleEvent(view)
-		if view.lifecycleAction == lifecycleExit || view.lifecycleAction == lifecycleFree {
-			st.clearTaskPending(view.tid)
+		lifecycleView := lifecycleEventViewFromTraceView(view)
+		task := st.applyLifecycleEvent(lifecycleView)
+		if lifecycleView.action == lifecycleExit || lifecycleView.action == lifecycleFree {
+			st.clearTaskPending(lifecycleView.tid)
 		}
-		return TraceStateUpdate{kind: traceStateLifecycle, view: view, lifecycleTask: task}
+		return TraceStateUpdate{
+			kind:          traceStateLifecycle,
+			view:          view,
+			lifecycleView: lifecycleView,
+			lifecycleTask: task,
+		}
 	}
 
 	st.noteSyscallTask(view)
@@ -84,6 +104,21 @@ func (st *TraceState) handleView(view traceStateEventView) TraceStateUpdate {
 		kind:         traceStateSyscallExit,
 		view:         view,
 		pendingEnter: st.consumeEnterEvent(view),
+	}
+}
+
+func lifecycleEventViewFromTraceView(view traceStateEventView) lifecycleEventView {
+	return lifecycleEventView{
+		valid:        view.valid,
+		eventVersion: view.eventVersion,
+		eventType:    view.eventType,
+		eventFlags:   view.eventFlags,
+		action:       view.lifecycleAction,
+		pid:          view.pid,
+		tid:          view.tid,
+		args:         view.args,
+		enterTime:    view.enterTime,
+		snapshotText: view.snapshotText,
 	}
 }
 

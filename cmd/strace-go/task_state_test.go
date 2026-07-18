@@ -5,14 +5,14 @@ import "testing"
 func TestApplyLifecycleEventMaintainsTaskState(t *testing.T) {
 	state := newTraceState()
 
-	fork := traceStateEventView{
-		valid:           true,
-		pid:             100,
-		tid:             100,
-		eventType:       bpfEventTypeLifecycle,
-		lifecycleAction: lifecycleFork,
-		enterTime:       10,
-		args:            [6]uint64{100, 101},
+	fork := lifecycleEventView{
+		valid:     true,
+		pid:       100,
+		tid:       100,
+		eventType: bpfEventTypeLifecycle,
+		action:    lifecycleFork,
+		enterTime: 10,
+		args:      [6]uint64{100, 101},
 	}
 	child := state.applyLifecycleEvent(fork)
 	if child == nil || child.TID != 101 || child.TGID != 101 || child.ParentTID != 100 || !child.Alive {
@@ -22,28 +22,28 @@ func TestApplyLifecycleEventMaintainsTaskState(t *testing.T) {
 		t.Fatalf("parent task after fork = %+v", parent)
 	}
 
-	exec := traceStateEventView{
-		valid:           true,
-		pid:             101,
-		tid:             101,
-		eventType:       bpfEventTypeLifecycle,
-		lifecycleAction: lifecycleExec,
-		enterTime:       20,
-		args:            [6]uint64{101, 101},
+	exec := lifecycleEventView{
+		valid:     true,
+		pid:       101,
+		tid:       101,
+		eventType: bpfEventTypeLifecycle,
+		action:    lifecycleExec,
+		enterTime: 20,
+		args:      [6]uint64{101, 101},
 	}
 	execed := state.applyLifecycleEvent(exec)
 	if execed == nil || !execed.Execed || !execed.Alive || execed.LastAction != "exec" {
 		t.Fatalf("task after exec = %+v", execed)
 	}
 
-	free := traceStateEventView{
-		valid:           true,
-		pid:             101,
-		tid:             101,
-		eventType:       bpfEventTypeLifecycle,
-		lifecycleAction: lifecycleFree,
-		enterTime:       30,
-		args:            [6]uint64{101},
+	free := lifecycleEventView{
+		valid:     true,
+		pid:       101,
+		tid:       101,
+		eventType: bpfEventTypeLifecycle,
+		action:    lifecycleFree,
+		enterTime: 30,
+		args:      [6]uint64{101},
 	}
 	freed := state.applyLifecycleEvent(free)
 	if freed == nil || freed.Alive || freed.LastAction != "free" {

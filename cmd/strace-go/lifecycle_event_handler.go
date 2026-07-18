@@ -6,14 +6,14 @@ type LifecycleEventHandler struct {
 	opts      *cli.Options
 	inherit   func(parentPID int, childPID int)
 	cleanup   func(pid int)
-	writeJSON func(traceStateEventView, *TaskState)
+	writeJSON func(lifecycleEventView, *TaskState)
 }
 
 type LifecycleEventHandlerDeps struct {
 	Opts      *cli.Options
 	Inherit   func(parentPID int, childPID int)
 	Cleanup   func(pid int)
-	WriteJSON func(traceStateEventView, *TaskState)
+	WriteJSON func(lifecycleEventView, *TaskState)
 }
 
 func newLifecycleEventHandler(deps LifecycleEventHandlerDeps) *LifecycleEventHandler {
@@ -38,11 +38,11 @@ func (s *traceSession) lifecycleEventHandler() *LifecycleEventHandler {
 }
 
 // IMPACT: Handle owns lifecycle side effects after TraceState has updated task state.
-func (h *LifecycleEventHandler) Handle(view traceStateEventView, task *TaskState) {
-	if view.lifecycleAction == lifecycleFork {
+func (h *LifecycleEventHandler) Handle(view lifecycleEventView, task *TaskState) {
+	if view.action == lifecycleFork {
 		h.inheritProcess(view)
 	}
-	switch view.lifecycleAction {
+	switch view.action {
 	case lifecycleExit, lifecycleFree:
 		h.cleanupProcess(view)
 	}
@@ -51,19 +51,19 @@ func (h *LifecycleEventHandler) Handle(view traceStateEventView, task *TaskState
 	}
 }
 
-func (h *LifecycleEventHandler) inheritProcess(view traceStateEventView) {
+func (h *LifecycleEventHandler) inheritProcess(view lifecycleEventView) {
 	if h.inherit != nil {
 		h.inherit(int(view.args[0]), int(view.args[1]))
 	}
 }
 
-func (h *LifecycleEventHandler) cleanupProcess(view traceStateEventView) {
+func (h *LifecycleEventHandler) cleanupProcess(view lifecycleEventView) {
 	if h.cleanup != nil {
 		h.cleanup(int(view.tid))
 	}
 }
 
-func (h *LifecycleEventHandler) writeLifecycleJSON(view traceStateEventView, task *TaskState) {
+func (h *LifecycleEventHandler) writeLifecycleJSON(view lifecycleEventView, task *TaskState) {
 	if h.writeJSON != nil {
 		h.writeJSON(view, task)
 	}
