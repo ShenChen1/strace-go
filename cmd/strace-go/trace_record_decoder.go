@@ -14,7 +14,8 @@ type bpfEventProjector interface {
 	Project(eventRaw *bpfEvent) traceEventEnvelope
 }
 
-type fixedWindowRecordDecoder struct {
+// IMPACT: traceRingbufRecordDecoder detects event v2 samples before legacy fixed-window fallback.
+type traceRingbufRecordDecoder struct {
 	projector bpfEventProjector
 }
 
@@ -22,14 +23,17 @@ type traceEventProjector struct{}
 
 func (s *traceSession) traceRecordDecoder() traceRecordDecoder {
 	if s.recordDecoder == nil {
-		s.recordDecoder = fixedWindowRecordDecoder{projector: traceEventProjector{}}
+		s.recordDecoder = traceRingbufRecordDecoder{projector: traceEventProjector{}}
 	}
 	return s.recordDecoder
 }
 
-func (d fixedWindowRecordDecoder) Decode(rec *ringbuf.Record) (traceEventEnvelope, bool) {
+func (d traceRingbufRecordDecoder) Decode(rec *ringbuf.Record) (traceEventEnvelope, bool) {
 	if rec == nil {
 		return traceEventEnvelope{}, false
+	}
+	if isTraceEventV2Sample(rec.RawSample) {
+		return decodeTraceEventV2Envelope(rec.RawSample)
 	}
 	ev, ok := decodeFixedWindowBPFEvent(rec.RawSample)
 	if !ok {
@@ -46,7 +50,7 @@ func decodeFixedWindowTraceEventEnvelope(rawSample []byte) (traceEventEnvelope, 
 	return traceEventProjector{}.Project(&ev), true
 }
 
-func (d fixedWindowRecordDecoder) traceEventProjector() bpfEventProjector {
+func (d traceRingbufRecordDecoder) traceEventProjector() bpfEventProjector {
 	if d.projector != nil {
 		return d.projector
 	}

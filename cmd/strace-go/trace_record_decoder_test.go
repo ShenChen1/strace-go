@@ -71,7 +71,7 @@ func TestDecodeFixedWindowTraceEventEnvelopeProjectsEnvelope(t *testing.T) {
 	}
 }
 
-func TestFixedWindowRecordDecoderUsesProjector(t *testing.T) {
+func TestTraceRingbufRecordDecoderUsesProjectorForFixedWindowSample(t *testing.T) {
 	eventRaw := &bpfEvent{
 		Pid:          201,
 		Tid:          202,
@@ -84,11 +84,11 @@ func TestFixedWindowRecordDecoderUsesProjector(t *testing.T) {
 	projector := &fakeBPFEventProjector{
 		envelope: traceEventEnvelope{valid: true, pid: 999},
 	}
-	decoder := fixedWindowRecordDecoder{projector: projector}
+	decoder := traceRingbufRecordDecoder{projector: projector}
 
 	envelope, ok := decoder.Decode(&ringbuf.Record{RawSample: raw})
 	if !ok {
-		t.Fatal("fixedWindowRecordDecoder rejected a valid fixed-window sample")
+		t.Fatal("traceRingbufRecordDecoder rejected a valid fixed-window sample")
 	}
 	if projector.calls != 1 {
 		t.Fatalf("projector calls = %d, want 1", projector.calls)
@@ -102,7 +102,7 @@ func TestFixedWindowRecordDecoderUsesProjector(t *testing.T) {
 }
 
 func TestTraceRecordDecoderRejectsNilRecord(t *testing.T) {
-	decoder := fixedWindowRecordDecoder{}
+	decoder := traceRingbufRecordDecoder{}
 
 	if _, ok := decoder.Decode(nil); ok {
 		t.Fatal("traceRecordDecoder accepted a nil ringbuf record")
