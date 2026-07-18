@@ -27,6 +27,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_WRITE 1
 #define SYS_PREAD64 17
 #define SYS_PWRITE64 18
+#define SYS_GETPID 39
 #define SYS_OPENAT 257
 #define EVENT_TYPE_ENTER 1
 #define EVENT_TYPE_EXIT 2
@@ -664,6 +665,8 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
     emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);
 }
 
+#include "syscall_direct_event_v2.h"
+
 SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     u32 sys_id = (u32)ctx->id;
@@ -677,17 +680,35 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     u32 key = 0;
     u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
     if (!should_trace_syscall(sys_id, cfg)) return 0;
+
+    u64 enter_time = bpf_ktime_get_ns();
+    s32 stack_id = -1;
+    if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
+        stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
+    }
+
+    // IMPACT: getpid is scalar-only, so it proves syscall event v2 can bypass the large bpf_event carrier.
+    if (sys_id == SYS_GETPID) {
+        if (cfg && (*cfg & CONFIG_EMIT_ENTER)) {
+            emit_syscall_enter_event_v2_direct(
+                pid,
+                tid,
+                sys_id,
+                ctx,
+                EVENT_FLAG_GENERIC_ENTER,
+                enter_time);
+        }
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
     
     struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
     if (!e) return 0;
     
     e->pid = pid; e->sys_id = sys_id; e->tid = tid; e->probe_ret_enter = -1; e->probe_ret_exit = -1; e->ret = 0; e->data_len = 0; e->stack_id = -1;
-    e->enter_time = bpf_ktime_get_ns();
+    e->enter_time = enter_time;
     e->duration = 0;
-
-    if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
-        e->stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
-    }
+    e->stack_id = stack_id;
     e->event_version = EVENT_VERSION;
     e->event_type = EVENT_TYPE_EXIT;
     e->event_flags = 0;
@@ -788,6 +809,24 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
         p = bpf_map_lookup_elem(&pending_syscalls, &tid);
     }
     if (!p) return 0;
+
+    // IMPACT: getpid exit no longer rebuilds a bpf_event from pending metadata before ringbuf output.
+    if (p->sys_id == SYS_GETPID) {
+        u64 duration = 0;
+        if (p->enter_time > 0) {
+            u64 exit_time = bpf_ktime_get_ns();
+            if (exit_time > p->enter_time) {
+                duration = exit_time - p->enter_time;
+            }
+        }
+        emit_syscall_exit_event_v2_direct(p, ctx->ret, duration, 0);
+        u32 delete_tid = tid;
+        if (is_pending_lookup) {
+            delete_tid = pending_tid;
+        }
+        bpf_map_delete_elem(&pending_syscalls, &delete_tid);
+        return 0;
+    }
 
     struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
     if (!e) return 0;

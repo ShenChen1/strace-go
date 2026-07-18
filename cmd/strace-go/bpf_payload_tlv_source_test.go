@@ -26,8 +26,14 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "#define SYS_PWRITE64 18") {
 		t.Fatal("strace.c missing SYS_PWRITE64 constant for pwrite64 TLV capture")
 	}
+	if !strings.Contains(straceSource, "#define SYS_GETPID 39") {
+		t.Fatal("strace.c missing SYS_GETPID constant for scalar direct event v2 path")
+	}
 	if !strings.Contains(straceSource, "#define SYS_OPENAT 257") {
 		t.Fatal("strace.c missing SYS_OPENAT constant for openat TLV capture")
+	}
+	if !strings.Contains(straceSource, `#include "syscall_direct_event_v2.h"`) {
+		t.Fatal("strace.c should include scalar direct event v2 helpers")
 	}
 	if !strings.Contains(tlvHeader, "e->sys_id != SYS_WRITE && e->sys_id != SYS_PWRITE64") {
 		t.Fatal("write TLV helper should cover write and pwrite64")
@@ -71,6 +77,11 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 	if !strings.Contains(straceSource, "emit_syscall_event_v2(e);") {
 		t.Fatal("syscall events should be emitted through event v2")
+	}
+	if !strings.Contains(straceSource, "emit_syscall_enter_event_v2_direct(") ||
+		!strings.Contains(straceSource, "emit_syscall_exit_event_v2_direct(p, ctx->ret, duration, 0);") ||
+		!strings.Contains(straceSource, "save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);") {
+		t.Fatal("getpid should use direct scalar event v2 helpers instead of the bpf_event carrier")
 	}
 	if !strings.Contains(straceSource, "emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);") {
 		t.Fatal("lifecycle events should be emitted directly as event v2")
