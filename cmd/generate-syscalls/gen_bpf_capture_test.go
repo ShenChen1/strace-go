@@ -42,6 +42,15 @@ func TestWriteBPFCaptureHeaderDeterministic(t *testing.T) {
 	}
 }
 
+func TestGenerateBPFCodeIgnoresLegacyPtrArg(t *testing.T) {
+	ptrArg := 1
+	got := generateBPFCode(CapturePoint{PtrArg: &ptrArg}, "enter", "openat")
+
+	if strings.Contains(got, "->ptr") {
+		t.Fatalf("generateBPFCode emitted legacy ptr carrier write: %q", got)
+	}
+}
+
 func TestWriteBPFCaptureHeaderReportsWriteError(t *testing.T) {
 	if _, err := os.Stat("/dev/full"); err != nil {
 		t.Skipf("/dev/full unavailable: %v", err)

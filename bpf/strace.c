@@ -83,7 +83,6 @@ struct bpf_event {
     u64 duration;
     u64 args[6];
     s64 ret;
-    u64 ptr;
     u32 data_len;
     s32 stack_id;
     u8 str_arg[EXEC_SNAPSHOT_OFFSET + sizeof(struct exec_snapshot)];
@@ -401,7 +400,6 @@ static __always_inline void event_from_pending(struct bpf_event *e, struct pendi
     e->args[4] = p->args[4];
     e->args[5] = p->args[5];
     e->ret = 0;
-    e->ptr = 0;
     e->data_len = 0;
     e->stack_id = p->stack_id;
 }
@@ -683,7 +681,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
     if (!e) return 0;
     
-    e->pid = pid; e->sys_id = sys_id; e->tid = tid; e->probe_ret_enter = -1; e->probe_ret_exit = -1; e->ptr = 0; e->ret = 0; e->data_len = 0; e->stack_id = -1;
+    e->pid = pid; e->sys_id = sys_id; e->tid = tid; e->probe_ret_enter = -1; e->probe_ret_exit = -1; e->ret = 0; e->data_len = 0; e->stack_id = -1;
     e->enter_time = bpf_ktime_get_ns();
     e->duration = 0;
 

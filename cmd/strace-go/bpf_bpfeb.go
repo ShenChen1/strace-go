@@ -28,7 +28,6 @@ type bpfBpfEvent struct {
 	Duration      uint64
 	Args          [6]uint64
 	Ret           int64
-	Ptr           uint64
 	DataLen       uint32
 	StackId       int32
 	StrArg        [10400]uint8

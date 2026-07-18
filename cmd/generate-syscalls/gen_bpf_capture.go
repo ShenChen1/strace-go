@@ -67,9 +67,6 @@ func bpfExitCapture(name string) string {
 // generateBPFCode generates eBPF C code to capture syscall arguments.
 func generateBPFCode(p CapturePoint, suffix string, scName string) string {
 	res := ""
-	if p.PtrArg != nil {
-		res += fmt.Sprintf("\t\t\t(e)->ptr = (e)->args[%d]; \\\n", *p.PtrArg)
-	}
 	for _, r := range p.Reads {
 		res += generateCaptureReadCode(r, suffix, scName)
 	}

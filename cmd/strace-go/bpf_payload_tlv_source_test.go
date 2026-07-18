@@ -63,6 +63,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if strings.Contains(straceSource, "lifecycle_action") {
 		t.Fatal("bpf_event carrier should not retain lifecycle_action")
 	}
+	if strings.Contains(straceSource, "e->ptr") {
+		t.Fatal("bpf_event carrier should not retain raw pointer field")
+	}
 	if !strings.Contains(straceSource, "e->event_type == EVENT_TYPE_ENTER || e->event_type == EVENT_TYPE_EXIT") {
 		t.Fatal("truncated stats should ignore lifecycle action ids sharing event_flags")
 	}

@@ -27,7 +27,6 @@ func TestPayloadSectionsForEventUsesTLVSections(t *testing.T) {
 		EventType:  bpfEventTypeEnter,
 		EventFlags: bpfEventFlagPayloadTLV,
 		Args:       [6]uint64{rawAtFdcwd, 0x1000, 0},
-		Ptr:        0x1000,
 	}
 	payload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindString,
@@ -259,7 +258,6 @@ func TestSyscallEventContextMergesPendingEnterTLVPathForPathFilter(t *testing.T)
 		SysId:         syscallIDByName(t, "openat"),
 		EventType:     bpfEventTypeExit,
 		Args:          [6]uint64{rawAtFdcwd, 0x1000, 0},
-		Ptr:           0x1000,
 		ProbeRetEnter: 0,
 		Ret:           -9,
 	}
@@ -319,7 +317,6 @@ func tlvOpenatEvent(t *testing.T, path []byte) *bpfEvent {
 		EventType:     bpfEventTypeExit,
 		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{rawAtFdcwd, 0x1000, 0},
-		Ptr:           0x1000,
 		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: 0,
 		Ret:           3,

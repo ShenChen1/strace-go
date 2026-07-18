@@ -7,6 +7,8 @@ func newTraceEventEnvelopeFromBPF(eventRaw *bpfEvent) traceEventEnvelope {
 		return traceEventEnvelope{}
 	}
 	payloadEvent := newRawPayloadEventFromBPF(eventRaw)
+	scMeta := syscallMeta(eventRaw.SysId)
+	sections := copyPayloadSections(payloadSectionsForRawPayloadEvent(payloadEvent, scMeta))
 	return traceEventEnvelope{
 		valid:         true,
 		eventVersion:  eventRaw.EventVersion,
@@ -19,11 +21,11 @@ func newTraceEventEnvelopeFromBPF(eventRaw *bpfEvent) traceEventEnvelope {
 		args:          eventRaw.Args,
 		ret:           eventRaw.Ret,
 		duration:      eventRaw.Duration,
-		ptr:           eventRaw.Ptr,
+		ptr:           primarySyscallPointer(scMeta, eventRaw.Args, sections),
 		stackID:       eventRaw.StackId,
 		probeRetEnter: eventRaw.ProbeRetEnter,
 		probeRetExit:  eventRaw.ProbeRetExit,
-		payload:       copyPayloadSections(payloadSectionsForRawPayloadEvent(payloadEvent, syscallMeta(eventRaw.SysId))),
+		payload:       sections,
 	}
 }
 
