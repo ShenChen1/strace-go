@@ -83,18 +83,18 @@ func TestTraceStateHandlePairsEnterExitAndCleansLifecycle(t *testing.T) {
 		EventType: bpfEventTypeExit,
 	}
 
-	enterUpdate := state.handleEnvelope(newRawEventEnvelopeFromBPF(enter))
+	enterUpdate := state.handleEnvelope(newTraceEventEnvelopeFromBPF(enter))
 	if enterUpdate.kind != traceStateSyscallEnter || len(state.pendingSyscalls) != 1 {
 		t.Fatalf("enter update = %+v pending=%d, want enter with one pending", enterUpdate, len(state.pendingSyscalls))
 	}
-	exitUpdate := state.handleEnvelope(newRawEventEnvelopeFromBPF(exit))
+	exitUpdate := state.handleEnvelope(newTraceEventEnvelopeFromBPF(exit))
 	if exitUpdate.kind != traceStateSyscallExit || exitUpdate.pendingEnter == nil || len(state.pendingSyscalls) != 0 {
 		t.Fatalf("exit update = %+v pending=%d, want paired exit with no pending", exitUpdate, len(state.pendingSyscalls))
 	}
 
 	state.rememberPendingExecArgs(1235, "execve(...)")
 	state.rememberSuspendedSyscall(1235, "nanosleep")
-	lifecycleUpdate := state.handleEnvelope(newRawEventEnvelopeFromBPF(&bpfEvent{
+	lifecycleUpdate := state.handleEnvelope(newTraceEventEnvelopeFromBPF(&bpfEvent{
 		Pid:             1234,
 		Tid:             1235,
 		EventType:       bpfEventTypeLifecycle,
@@ -236,7 +236,7 @@ func TestTraceStateExitUpdateCarriesSyscallResultView(t *testing.T) {
 func TestZeroEventTypeIsNotExit(t *testing.T) {
 	eventRaw := &bpfEvent{EventVersion: 2}
 
-	if newRawEventEnvelopeFromBPF(eventRaw).isExit() {
+	if newTraceEventEnvelopeFromBPF(eventRaw).isExit() {
 		t.Fatal("event_type=0 should not be treated as an explicit exit event")
 	}
 	if got := bpfEventTypeNameFromID(eventRaw.EventType); got != "unknown" {

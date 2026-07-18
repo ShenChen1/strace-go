@@ -31,7 +31,7 @@ func decodeBPFEventEnvelopeRecord(rawSample []byte) (traceEventEnvelope, bool) {
 	if !ok {
 		return traceEventEnvelope{}, false
 	}
-	return newRawEventEnvelopeFromBPF(&ev), true
+	return newTraceEventEnvelopeFromBPF(&ev), true
 }
 
 func decodeBPFEventRecord(rawSample []byte) (bpfEvent, bool) {

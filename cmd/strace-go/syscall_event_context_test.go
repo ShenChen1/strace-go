@@ -192,7 +192,7 @@ func TestSyscallEnterEventContextCachesPayloadSections(t *testing.T) {
 	raw.EventType = bpfEventTypeEnter
 	raw.EventFlags |= bpfEventFlagGenericEnter
 	raw.Ret = 0
-	update := newTraceState().handleEnvelope(newRawEventEnvelopeFromBPF(raw))
+	update := newTraceState().handleEnvelope(newTraceEventEnvelopeFromBPF(raw))
 
 	ev := newSyscallEnterEventContext(update.syscallView, 201, update.payloadSections)
 

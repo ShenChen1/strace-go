@@ -2,7 +2,7 @@ package main
 
 import "bytes"
 
-func newRawEventEnvelopeFromBPF(eventRaw *bpfEvent) traceEventEnvelope {
+func newTraceEventEnvelopeFromBPF(eventRaw *bpfEvent) traceEventEnvelope {
 	if eventRaw == nil {
 		return traceEventEnvelope{}
 	}
