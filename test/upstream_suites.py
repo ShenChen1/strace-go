@@ -37,6 +37,10 @@ UPSTREAM_REFERENCE_TESTS = [
     "fork-f.gen.test",
 ]
 
+UPSTREAM_REFERENCE_EXPECTED_FAILURES = {
+    "read-write.gen.test": "bounded eBPF snapshot does not promise ptrace-sized read/write hexdump fetches",
+}
+
 # Tests for the next feature we are tackling.
 # Add tests here when working on a new syscall or feature.
 MORE_TESTS = [

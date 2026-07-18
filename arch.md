@@ -979,12 +979,13 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - upstream 原生测试卷已作为 `upstream-reference` smoke 跑通入口；最近一次参考运行剩余主要差异是 `read-write.gen.test` 的大 payload hexdump exact diff，不作为 eBPF 主门禁失败处理。
 - write hexdump 已删除 fd-backed file recovery，不再从 tracee fd 指向的文件或测试输出文件补读 BPF payload 前缀之后的数据；`-ewrite` 现在只消费 probe-site payload section，避免把已格式化 trace 输出重新读回成 syscall buffer。
 - `FDStateStore` 已删除 fd data file cache，只保留 fd path 与 offset 状态；生命周期继承/清理不再维护异步文件补读句柄。
+- `upstream-reference` runner 已支持 expected failure；`read-write.gen.test` 保留在原生测试卷里运行，但以 `XFAIL` 标记 bounded eBPF snapshot 与 ptrace 大块 hexdump fetch 的已知非契约差异，若未来意外通过会以 `XPASS` 失败提示维护者更新契约。
 
 仍需收口：
 
 - BPF 侧仍保留 `struct bpf_event` / `str_arg` fixed window 作为多条 capture path 的承载结构，尚未彻底切换为 header + TLV/section-first 的可变长事件协议。
 - `sys_exit` 仍会为部分文本 formatter 重建 exit/full event；最终形态应由 enter payload、exit payload 和 Go 单协程状态机合成输出。
-- `read-write.gen.test` 当前剩余差异主要是 512 字节 BPF snapshot 前缀之后的大 hexdump exact diff；这属于 bounded eBPF snapshot 与 ptrace 无限/大块 fetch 语义差异，需要继续作为 reference 限制记录或改成 relaxed/semantic oracle。
+- `read-write.gen.test` 当前剩余差异主要是 512 字节 BPF snapshot 前缀之后的大 hexdump exact diff；这属于 bounded eBPF snapshot 与 ptrace 无限/大块 fetch 语义差异，当前已作为 reference `XFAIL` 明确记录，后续应补充 JSON truncation/section copied_len 语义 oracle。
 - 原生 upstream 测试卷需要继续按 syscall/语义分类筛选 reference 子集，而不是扩大为纯 eBPF 主门禁。
 
 ## 9. 第一条推荐实现链路

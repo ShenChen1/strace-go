@@ -11,7 +11,7 @@ import time
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from upstream_suites import MORE_TESTS, SMOKE_TESTS, UPSTREAM_REFERENCE_TESTS
+from upstream_suites import MORE_TESTS, SMOKE_TESTS, UPSTREAM_REFERENCE_EXPECTED_FAILURES, UPSTREAM_REFERENCE_TESTS
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -128,6 +128,46 @@ def payload_section_text(section):
     except Exception:
         return ""
 
+def check_write_only_filter(fixture, failures):
+    filter_res = run_strace_go_json(["-e", "trace=write", fixture], debug=True)
+    filter_events = parse_json_events(filter_res.stderr)
+    filter_stats_events = parse_stats_events(filter_res.stderr)
+    require(filter_res.returncode == 0, failures, f"filter fixture rc={filter_res.returncode}")
+    require(len(filter_events) > 0, failures, "write-only filter produced no events")
+    require(all(ev.get("syscall") == "write" for ev in filter_events),
+            failures, f"write-only filter leaked events: {sorted({ev.get('syscall') for ev in filter_events})}")
+    require(len(filter_stats_events) == 1 and valid_stats_event(filter_stats_events[0]),
+            failures, "write-only filter stats JSON event missing or unavailable")
+    return len(filter_events)
+
+def finish_ebpf_semantic(res, failures, events, enter_events, exit_events, lifecycle_events, stats_events, filter_event_count):
+    print(f"=> eBPF semantic events: {len(events)}")
+    print(f"=> eBPF semantic enter/exit: {len(enter_events)}/{len(exit_events)}")
+    print(f"=> eBPF lifecycle events: {len(lifecycle_events)}")
+    if stats_events:
+        print(f"=> eBPF ringbuf reserve failures: {stats_events[0].get('ringbuf_reserve_fail')}")
+        print(f"=> eBPF ringbuf copy failures: {stats_events[0].get('ringbuf_copy_fail')}")
+    print(f"=> eBPF write-only events: {filter_event_count}")
+    if failures:
+        print("\n=== EBPF SEMANTIC FAILURES ===")
+        for failure in failures:
+            print(f"FAIL: {failure}")
+        print("\n--- stderr tail ---")
+        print("\n".join(res.stderr.splitlines()[-40:]))
+        return 1
+    print("PASS: ebpf-semantic")
+    return 0
+
+def collect_semantic_events(fixture):
+    trace_set = "open,openat,read,write,pread64,pwrite64,close,execve,exit,exit_group"
+    res = run_strace_go_json(["-f", "-e", f"trace={trace_set}", fixture])
+    events = parse_json_events(res.stderr)
+    lifecycle_events = parse_lifecycle_events(res.stderr)
+    stats_events = parse_stats_events(res.stderr)
+    enter_events = [ev for ev in events if ev.get("event_type") == "enter"]
+    exit_events = [ev for ev in events if ev.get("event_type") == "exit"]
+    return res, events, lifecycle_events, stats_events, enter_events, exit_events
+
 def run_ebpf_semantic(args):
     if not args.skip_build:
         build_strace_go()
@@ -135,15 +175,9 @@ def run_ebpf_semantic(args):
 
     failures = []
 
-    trace_set = "open,openat,read,write,pread64,pwrite64,close,execve,exit,exit_group"
-    res = run_strace_go_json(["-f", "-e", f"trace={trace_set}", fixture])
-    events = parse_json_events(res.stderr)
-    lifecycle_events = parse_lifecycle_events(res.stderr)
-    stats_events = parse_stats_events(res.stderr)
+    res, events, lifecycle_events, stats_events, enter_events, exit_events = collect_semantic_events(fixture)
     names = {ev.get("syscall") for ev in events}
     lifecycle_actions = {ev.get("action") for ev in lifecycle_events}
-    enter_events = [ev for ev in events if ev.get("event_type") == "enter"]
-    exit_events = [ev for ev in events if ev.get("event_type") == "exit"]
 
     require(res.returncode == 0, failures, f"semantic fixture rc={res.returncode}")
     require("ebpf-fixture-write" in res.stdout, failures, "fixture stdout marker missing")
@@ -207,32 +241,11 @@ def run_ebpf_semantic(args):
             failures, "exec lifecycle filename snapshot missing")
     require(any(ev.get("action") in ("exit", "free") and ev.get("alive") is False for ev in lifecycle_events),
             failures, "exit/free lifecycle task state did not mark task dead")
-    filter_res = run_strace_go_json(["-e", "trace=write", fixture], debug=True)
-    filter_events = parse_json_events(filter_res.stderr)
-    filter_stats_events = parse_stats_events(filter_res.stderr)
-    require(filter_res.returncode == 0, failures, f"filter fixture rc={filter_res.returncode}")
-    require(len(filter_events) > 0, failures, "write-only filter produced no events")
-    require(all(ev.get("syscall") == "write" for ev in filter_events),
-            failures, f"write-only filter leaked events: {sorted({ev.get('syscall') for ev in filter_events})}")
-    require(len(filter_stats_events) == 1 and valid_stats_event(filter_stats_events[0]),
-            failures, "write-only filter stats JSON event missing or unavailable")
+    filter_event_count = check_write_only_filter(fixture, failures)
 
-    print(f"=> eBPF semantic events: {len(events)}")
-    print(f"=> eBPF semantic enter/exit: {len(enter_events)}/{len(exit_events)}")
-    print(f"=> eBPF lifecycle events: {len(lifecycle_events)}")
-    if stats_events:
-        print(f"=> eBPF ringbuf reserve failures: {stats_events[0].get('ringbuf_reserve_fail')}")
-        print(f"=> eBPF ringbuf copy failures: {stats_events[0].get('ringbuf_copy_fail')}")
-    print(f"=> eBPF write-only events: {len(filter_events)}")
-    if failures:
-        print("\n=== EBPF SEMANTIC FAILURES ===")
-        for failure in failures:
-            print(f"FAIL: {failure}")
-        print("\n--- stderr tail ---")
-        print("\n".join(res.stderr.splitlines()[-40:]))
-        return 1
-    print("PASS: ebpf-semantic")
-    return 0
+    return finish_ebpf_semantic(
+        res, failures, events, enter_events, exit_events, lifecycle_events, stats_events, filter_event_count
+    )
 
 def run_ebpf_perf(args):
     if not args.skip_build:
@@ -326,6 +339,82 @@ def run_test(t):
         os.remove(out_path)
         os.remove(err_path)
 
+def expected_failures_for_suite(suite):
+    if suite == "upstream-reference":
+        return UPSTREAM_REFERENCE_EXPECTED_FAILURES
+    return {}
+
+def classify_test_result(result, expected_failures):
+    reason = expected_failures.get(result["test"], "")
+    if result["rc"] == 77:
+        return "skip", ""
+    if result["success"]:
+        if reason:
+            return "xpass", reason
+        return "pass", ""
+    if reason:
+        return "xfail", reason
+    return "fail", ""
+
+def outcome_label(outcome, reason):
+    if outcome == "pass":
+        return "PASS"
+    if outcome == "skip":
+        return "SKIP"
+    if outcome == "xfail":
+        return f"XFAIL ({reason})"
+    if outcome == "xpass":
+        return f"XPASS ({reason})"
+    return "FAIL"
+
+def new_result_counts():
+    return {"pass": 0, "fail": 0, "skip": 0, "xfail": 0, "xpass": 0}
+
+def record_test_result(result, expected_failures, counts, failed_list, xfailed_list, xpassed_list):
+    outcome, reason = classify_test_result(result, expected_failures)
+    counts[outcome] += 1
+    if outcome == "fail":
+        failed_list.append(result)
+    elif outcome == "xfail":
+        xfailed_list.append((result, reason))
+    elif outcome == "xpass":
+        xpassed_list.append((result, reason))
+    return outcome, reason
+
+def print_summary(counts):
+    total = sum(counts.values())
+    print("\n=== SUMMARY ===")
+    print(f"Passed:  {counts['pass']}")
+    print(f"Failed:  {counts['fail']}")
+    print(f"Skipped: {counts['skip']}")
+    print(f"XFailed: {counts['xfail']}")
+    print(f"XPassed: {counts['xpass']}")
+    print(f"Total:   {total}")
+
+def print_expected_outcomes(xfailed_list, xpassed_list):
+    if xfailed_list:
+        print("\n=== EXPECTED FAILURES ===")
+        for res, reason in xfailed_list:
+            print(f"{res['test']}: {reason}")
+    if xpassed_list:
+        print("\n=== UNEXPECTED PASSES ===")
+        for res, reason in xpassed_list:
+            print(f"{res['test']}: {reason}")
+
+def print_failure_details(failed_list):
+    if not failed_list:
+        return
+    print("\n=== FAIL DETAILS ===")
+    for res in failed_list:
+        print(f"\n--- {res['test']} ---")
+        if res["stdout"]:
+            print("STDOUT:")
+            lines = res["stdout"].split("\n")[:15]
+            print("\n".join(lines))
+        if res["stderr"]:
+            print("STDERR:")
+            print(res["stderr"])
+
 def main():
     args = parse_args()
     setup_env()
@@ -347,10 +436,11 @@ def main():
         
     print(f"=> Running {len(tests_to_run)} tests from '{args.suite}' suite...")
     
-    passed = 0
-    failed = 0
-    skipped = 0
+    counts = new_result_counts()
     failed_list = []
+    xfailed_list = []
+    xpassed_list = []
+    expected_failures = expected_failures_for_suite(args.suite)
     
     if args.parallel > 1:
         print(f"=> Using {args.parallel} parallel workers.")
@@ -359,52 +449,20 @@ def main():
             for future in as_completed(futures):
                 result = future.result()
                 t = result["test"]
-                if result["success"]:
-                    print(f"PASS: {t}")
-                    passed += 1
-                else:
-                    if result["rc"] == 77:
-                        print(f"SKIP: {t}")
-                        skipped += 1
-                        continue
-                    print(f"FAIL: {t}")
-                    failed += 1
-                    failed_list.append(result)
+                outcome, reason = record_test_result(result, expected_failures, counts, failed_list, xfailed_list, xpassed_list)
+                print(f"{outcome_label(outcome, reason)}: {t}")
     else:
         for t in tests_to_run:
             print(f"Running {t}... ", end="", flush=True)
             result = run_test(t)
-            if result["success"]:
-                print("PASS")
-                passed += 1
-            else:
-                if result["rc"] == 77:
-                    print("SKIP")
-                    skipped += 1
-                    continue
-                print("FAIL")
-                failed += 1
-                failed_list.append(result)
-                
-    print("\n=== SUMMARY ===")
-    print(f"Passed:  {passed}")
-    print(f"Failed:  {failed}")
-    print(f"Skipped: {skipped}")
-    print(f"Total:   {passed + failed + skipped}")
-    
-    if failed_list:
-        print("\n=== FAIL DETAILS ===")
-        for res in failed_list:
-            print(f"\n--- {res['test']} ---")
-            if res["stdout"]:
-                print("STDOUT:")
-                lines = res["stdout"].split("\n")[:15]
-                print("\n".join(lines))
-            if res["stderr"]:
-                print("STDERR:")
-                print(res["stderr"])
+            outcome, reason = record_test_result(result, expected_failures, counts, failed_list, xfailed_list, xpassed_list)
+            print(outcome_label(outcome, reason))
 
-    if failed > 0:
+    print_summary(counts)
+    print_expected_outcomes(xfailed_list, xpassed_list)
+    print_failure_details(failed_list)
+
+    if counts["fail"] > 0 or counts["xpass"] > 0:
         sys.exit(1)
 
 if __name__ == "__main__":

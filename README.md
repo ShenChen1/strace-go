@@ -137,6 +137,7 @@ python3 test/run_tests.py --suite ebpf-semantic --skip-build
 python3 test/run_tests.py --suite ebpf-perf --skip-build
 ```
 `upstream-reference` 仍使用 `strace-upstream/tests` 作为参考；`ebpf-semantic` 使用本仓库 fixture 和 JSON 事件做语义断言，不做字节级输出 diff。
+`upstream-reference` 中已知不属于纯 eBPF 契约的 upstream exact diff 会显示为 `XFAIL`，例如 `read-write.gen.test` 的大 payload hexdump；若这类测试意外通过会显示 `XPASS` 并使 runner 失败，提醒维护者更新 reference 契约。
 
 ---
 
