@@ -63,11 +63,12 @@ const (
 )
 
 type TraceStateUpdate struct {
-	kind          traceStateEventKind
-	syscallView   syscallEventView
-	lifecycleView lifecycleEventView
-	pendingEnter  *pendingSyscallState
-	lifecycleTask *TaskState
+	kind            traceStateEventKind
+	syscallView     syscallEventView
+	lifecycleView   lifecycleEventView
+	payloadSections []handler.PayloadSection
+	pendingEnter    *pendingSyscallState
+	lifecycleTask   *TaskState
 }
 
 func newTraceState() *TraceState {
@@ -99,7 +100,11 @@ func (st *TraceState) handleEnvelope(envelope rawEventEnvelope) TraceStateUpdate
 	st.noteSyscallTask(syscallView)
 	if syscallView.isGenericEnter() {
 		st.rememberEnterEvent(syscallView, envelope.payload)
-		return TraceStateUpdate{kind: traceStateSyscallEnter, syscallView: syscallView}
+		return TraceStateUpdate{
+			kind:            traceStateSyscallEnter,
+			syscallView:     syscallView,
+			payloadSections: envelope.payload,
+		}
 	}
 	return TraceStateUpdate{
 		kind:         traceStateSyscallExit,

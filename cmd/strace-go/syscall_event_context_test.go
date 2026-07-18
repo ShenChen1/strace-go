@@ -160,16 +160,17 @@ func TestSyscallEventContextHandlerContextUsesEffectiveMetadata(t *testing.T) {
 	}
 }
 
-func TestSyscallEnterEventContextUsesRawViewAndMetadata(t *testing.T) {
-	raw := &bpfEvent{
-		Pid:   101,
-		Tid:   102,
-		SysId: 39,
-		Args:  [6]uint64{7},
-		Ret:   -2,
+func TestSyscallEnterEventContextUsesEventViewAndMetadata(t *testing.T) {
+	view := syscallEventView{
+		valid: true,
+		pid:   101,
+		tid:   102,
+		sysID: 39,
+		args:  [6]uint64{7},
+		ret:   -2,
 	}
 
-	ev := newSyscallEnterEventContext(raw, 201)
+	ev := newSyscallEnterEventContext(view, 201, nil)
 
 	if ev.syscallName() != "getpid" {
 		t.Fatalf("enter context syscall name = %q, want getpid", ev.syscallName())
@@ -180,18 +181,20 @@ func TestSyscallEnterEventContextUsesRawViewAndMetadata(t *testing.T) {
 	if sections := ev.outputPayloadSections(); sections != nil {
 		t.Fatalf("enter context payload sections = %+v, want nil", sections)
 	}
-	view := ev.eventView()
-	if view.pid != 101 || view.tid != 102 || view.sysID != 39 || view.args[0] != 7 || view.ret != -2 {
-		t.Fatalf("enter context view = %+v, want raw-derived syscall view", view)
+	gotView := ev.eventView()
+	if gotView.pid != 101 || gotView.tid != 102 || gotView.sysID != 39 || gotView.args[0] != 7 || gotView.ret != -2 {
+		t.Fatalf("enter context view = %+v, want view-derived syscall fields", gotView)
 	}
 }
 
 func TestSyscallEnterEventContextCachesPayloadSections(t *testing.T) {
 	raw := tlvOpenatEvent(t, []byte("enter-path\x00"))
 	raw.EventType = bpfEventTypeEnter
+	raw.EventFlags |= bpfEventFlagGenericEnter
 	raw.Ret = 0
+	update := newTraceState().handleEnvelope(newRawEventEnvelopeFromBPF(raw))
 
-	ev := newSyscallEnterEventContext(raw, 201)
+	ev := newSyscallEnterEventContext(update.syscallView, 201, update.payloadSections)
 
 	sections := ev.outputPayloadSections()
 	if len(sections) != 1 {

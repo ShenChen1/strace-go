@@ -7,6 +7,7 @@ import (
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
+	"strace-go/pkg/handler"
 )
 
 func TestJSONEventsArePairedByTIDState(t *testing.T) {
@@ -150,6 +151,35 @@ func TestTraceStateHandleEnvelopeUsesSyscallViewForPendingPair(t *testing.T) {
 	}
 	if exitUpdate.syscallView.tid != 201 || exitUpdate.syscallView.sysID != 60 {
 		t.Fatalf("exit syscall view = %+v, want paired view tid/sysid", exitUpdate.syscallView)
+	}
+}
+
+func TestTraceStateEnterUpdateCarriesSemanticPayloadSections(t *testing.T) {
+	state := newTraceState()
+	envelope := rawEventEnvelope{
+		valid:      true,
+		pid:        101,
+		tid:        101,
+		sysID:      syscallIDByName(t, "openat"),
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+		payload: []handler.PayloadSection{{
+			Kind:     handler.PayloadKindString,
+			ArgIndex: 1,
+			Data:     []byte("typed.txt\x00"),
+		}},
+	}
+
+	update := state.handleEnvelope(envelope)
+
+	if update.kind != traceStateSyscallEnter {
+		t.Fatalf("update kind = %d, want enter", update.kind)
+	}
+	if len(update.payloadSections) != 1 || string(update.payloadSections[0].Data) != "typed.txt\x00" {
+		t.Fatalf("enter update payload sections = %+v, want semantic path section", update.payloadSections)
+	}
+	if len(state.pendingSyscalls[101].payloadSections) != 1 {
+		t.Fatalf("pending payload sections = %+v, want cached enter payload", state.pendingSyscalls[101].payloadSections)
 	}
 }
 

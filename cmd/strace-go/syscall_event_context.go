@@ -89,13 +89,13 @@ func hasEquivalentPayloadSection(sections []handler.PayloadSection, want handler
 	return false
 }
 
-func newSyscallEnterEventContext(eventRaw *bpfEvent, statePID int) syscallEventContext {
-	scMeta := syscallMeta(eventRaw.SysId)
+func newSyscallEnterEventContext(view syscallEventView, statePID int, payloadSections []handler.PayloadSection) syscallEventContext {
+	scMeta := syscallMeta(view.sysID)
 	return syscallEventContext{
-		view:            newSyscallEventViewFromBPF(eventRaw),
+		view:            view,
 		statePID:        statePID,
 		meta:            scMeta,
-		payloadSections: payloadSectionsForEvent(eventRaw, scMeta),
+		payloadSections: payloadSections,
 	}
 }
 
