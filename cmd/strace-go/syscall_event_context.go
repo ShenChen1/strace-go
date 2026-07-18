@@ -39,13 +39,6 @@ type syscallEventView struct {
 	probeRetExit  int32
 }
 
-// newSyscallEventContextFromBPF is a raw-carrier migration helper; production event routing uses newSyscallEventContextFromView.
-func newSyscallEventContextFromBPF(s *traceSession, eventRaw *bpfEvent, statePID int, pendingEnter *pendingSyscallState) syscallEventContext {
-	view := newSyscallEventViewFromBPF(eventRaw)
-	scMeta := syscallMeta(view.sysID)
-	return newSyscallEventContextFromView(s, view, statePID, pendingEnter, payloadSectionsForEvent(eventRaw, scMeta))
-}
-
 func newSyscallEventContextFromView(
 	s *traceSession,
 	view syscallEventView,
