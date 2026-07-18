@@ -39,10 +39,10 @@ func (s *traceSession) lifecycleEventHandler() *LifecycleEventHandler {
 
 // IMPACT: Handle owns lifecycle side effects after TraceState has updated task state.
 func (h *LifecycleEventHandler) Handle(view traceStateEventView, task *TaskState) {
-	if view.eventFlags == lifecycleFork {
+	if view.lifecycleAction == lifecycleFork {
 		h.inheritProcess(view)
 	}
-	switch view.eventFlags {
+	switch view.lifecycleAction {
 	case lifecycleExit, lifecycleFree:
 		h.cleanupProcess(view)
 	}

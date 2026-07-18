@@ -18,18 +18,19 @@ type pendingSyscallState struct {
 }
 
 type traceStateEventView struct {
-	valid         bool
-	eventVersion  uint16
-	pid           uint32
-	tid           uint32
-	sysID         uint32
-	eventType     uint16
-	eventFlags    uint32
-	enterTime     uint64
-	args          [6]uint64
-	probeRetEnter int32
-	snapshotText  string
-	payload       []handler.PayloadSection
+	valid           bool
+	eventVersion    uint16
+	pid             uint32
+	tid             uint32
+	sysID           uint32
+	eventType       uint16
+	eventFlags      uint32
+	lifecycleAction uint32
+	enterTime       uint64
+	args            [6]uint64
+	probeRetEnter   int32
+	snapshotText    string
+	payload         []handler.PayloadSection
 }
 
 type TraceState struct {
@@ -68,7 +69,7 @@ func (s *traceSession) traceState() *TraceState {
 func (st *TraceState) handleView(view traceStateEventView) TraceStateUpdate {
 	if view.isLifecycle() {
 		task := st.applyLifecycleEvent(view)
-		if view.eventFlags == lifecycleExit || view.eventFlags == lifecycleFree {
+		if view.lifecycleAction == lifecycleExit || view.lifecycleAction == lifecycleFree {
 			st.clearTaskPending(view.tid)
 		}
 		return TraceStateUpdate{kind: traceStateLifecycle, view: view, lifecycleTask: task}
@@ -91,22 +92,23 @@ func newTraceStateEventViewFromBPF(eventRaw *bpfEvent) traceStateEventView {
 		return traceStateEventView{}
 	}
 	snapshotText := ""
-	if eventRaw.EventType == bpfEventTypeLifecycle && eventRaw.EventFlags == lifecycleExec {
+	if eventRaw.EventType == bpfEventTypeLifecycle && eventRaw.LifecycleAction == lifecycleExec {
 		snapshotText = lifecycleSnapshotString(eventRaw)
 	}
 	return traceStateEventView{
-		valid:         true,
-		eventVersion:  eventRaw.EventVersion,
-		pid:           eventRaw.Pid,
-		tid:           eventRaw.Tid,
-		sysID:         eventRaw.SysId,
-		eventType:     eventRaw.EventType,
-		eventFlags:    eventRaw.EventFlags,
-		enterTime:     eventRaw.EnterTime,
-		args:          eventRaw.Args,
-		probeRetEnter: eventRaw.ProbeRetEnter,
-		snapshotText:  snapshotText,
-		payload:       copyPayloadSections(payloadSectionsForEvent(eventRaw, syscallMeta(eventRaw.SysId))),
+		valid:           true,
+		eventVersion:    eventRaw.EventVersion,
+		pid:             eventRaw.Pid,
+		tid:             eventRaw.Tid,
+		sysID:           eventRaw.SysId,
+		eventType:       eventRaw.EventType,
+		eventFlags:      eventRaw.EventFlags,
+		lifecycleAction: eventRaw.LifecycleAction,
+		enterTime:       eventRaw.EnterTime,
+		args:            eventRaw.Args,
+		probeRetEnter:   eventRaw.ProbeRetEnter,
+		snapshotText:    snapshotText,
+		payload:         copyPayloadSections(payloadSectionsForEvent(eventRaw, syscallMeta(eventRaw.SysId))),
 	}
 }
 

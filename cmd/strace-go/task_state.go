@@ -37,7 +37,7 @@ func (st *TraceState) noteSyscallTask(view traceStateEventView) {
 }
 
 func (st *TraceState) applyLifecycleEvent(view traceStateEventView) *TaskState {
-	switch view.eventFlags {
+	switch view.lifecycleAction {
 	case lifecycleFork:
 		parentTID := uint32(view.args[0])
 		childTID := uint32(view.args[1])

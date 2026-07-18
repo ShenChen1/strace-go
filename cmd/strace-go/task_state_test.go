@@ -6,13 +6,13 @@ func TestApplyLifecycleEventMaintainsTaskState(t *testing.T) {
 	state := newTraceState()
 
 	fork := traceStateEventView{
-		valid:      true,
-		pid:        100,
-		tid:        100,
-		eventType:  bpfEventTypeLifecycle,
-		eventFlags: lifecycleFork,
-		enterTime:  10,
-		args:       [6]uint64{100, 101},
+		valid:           true,
+		pid:             100,
+		tid:             100,
+		eventType:       bpfEventTypeLifecycle,
+		lifecycleAction: lifecycleFork,
+		enterTime:       10,
+		args:            [6]uint64{100, 101},
 	}
 	child := state.applyLifecycleEvent(fork)
 	if child == nil || child.TID != 101 || child.TGID != 101 || child.ParentTID != 100 || !child.Alive {
@@ -23,13 +23,13 @@ func TestApplyLifecycleEventMaintainsTaskState(t *testing.T) {
 	}
 
 	exec := traceStateEventView{
-		valid:      true,
-		pid:        101,
-		tid:        101,
-		eventType:  bpfEventTypeLifecycle,
-		eventFlags: lifecycleExec,
-		enterTime:  20,
-		args:       [6]uint64{101, 101},
+		valid:           true,
+		pid:             101,
+		tid:             101,
+		eventType:       bpfEventTypeLifecycle,
+		lifecycleAction: lifecycleExec,
+		enterTime:       20,
+		args:            [6]uint64{101, 101},
 	}
 	execed := state.applyLifecycleEvent(exec)
 	if execed == nil || !execed.Execed || !execed.Alive || execed.LastAction != "exec" {
@@ -37,13 +37,13 @@ func TestApplyLifecycleEventMaintainsTaskState(t *testing.T) {
 	}
 
 	free := traceStateEventView{
-		valid:      true,
-		pid:        101,
-		tid:        101,
-		eventType:  bpfEventTypeLifecycle,
-		eventFlags: lifecycleFree,
-		enterTime:  30,
-		args:       [6]uint64{101},
+		valid:           true,
+		pid:             101,
+		tid:             101,
+		eventType:       bpfEventTypeLifecycle,
+		lifecycleAction: lifecycleFree,
+		enterTime:       30,
+		args:            [6]uint64{101},
 	}
 	freed := state.applyLifecycleEvent(free)
 	if freed == nil || freed.Alive || freed.LastAction != "free" {

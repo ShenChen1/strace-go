@@ -61,6 +61,7 @@ type jsonLifecycleEvent struct {
 	EventVersion uint16 `json:"event_version,omitempty"`
 	EventType    string `json:"event_type"`
 	EventTypeID  uint16 `json:"event_type_id,omitempty"`
+	EventFlags   uint32 `json:"event_flags,omitempty"`
 	Action       string `json:"action"`
 	ActionID     uint32 `json:"action_id,omitempty"`
 	Pid          uint32 `json:"pid"`
@@ -127,15 +128,16 @@ func (s *traceSession) writeJSONLifecycleEventView(view traceStateEventView, tas
 		EventVersion: view.eventVersion,
 		EventType:    bpfEventTypeNameFromID(view.eventType),
 		EventTypeID:  view.eventType,
-		Action:       lifecycleActionName(view.eventFlags),
-		ActionID:     view.eventFlags,
+		EventFlags:   view.eventFlags,
+		Action:       lifecycleActionName(view.lifecycleAction),
+		ActionID:     view.lifecycleAction,
 		Pid:          view.pid,
 		Tid:          view.tid,
 		Arg0:         view.args[0],
 		Arg1:         view.args[1],
 		TimeNS:       view.enterTime,
 	}
-	if view.eventFlags == lifecycleExec {
+	if view.lifecycleAction == lifecycleExec {
 		ev.Filename = view.snapshotText
 	}
 	if task != nil {

@@ -13,14 +13,15 @@ func TestJSONLifecycleExecIncludesFilenameSnapshot(t *testing.T) {
 	var output bytes.Buffer
 	session := &traceSession{outWriter: &output}
 	eventRaw := &bpfEvent{
-		Pid:          101,
-		Tid:          101,
-		EventVersion: 2,
-		EventType:    bpfEventTypeLifecycle,
-		EventFlags:   lifecycleExec,
-		EnterTime:    20,
-		Args:         [6]uint64{100, 101},
-		DataLen:      uint32(len("/bin/true") + 1),
+		Pid:             101,
+		Tid:             101,
+		EventVersion:    2,
+		EventType:       bpfEventTypeLifecycle,
+		EventFlags:      bpfEventFlagTruncated,
+		LifecycleAction: lifecycleExec,
+		EnterTime:       20,
+		Args:            [6]uint64{100, 101},
+		DataLen:         uint32(len("/bin/true") + 1),
 	}
 	copy(eventRaw.StrArg[:], []byte("/bin/true\x00trailing"))
 
@@ -34,14 +35,17 @@ func TestJSONLifecycleExecIncludesFilenameSnapshot(t *testing.T) {
 	})
 
 	var ev struct {
-		Type     string `json:"type"`
-		Action   string `json:"action"`
-		Filename string `json:"filename"`
+		Type       string `json:"type"`
+		EventFlags uint32 `json:"event_flags"`
+		Action     string `json:"action"`
+		ActionID   uint32 `json:"action_id"`
+		Filename   string `json:"filename"`
 	}
 	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &ev); err != nil {
 		t.Fatalf("decode lifecycle JSON: %v", err)
 	}
-	if ev.Type != "lifecycle" || ev.Action != "exec" || ev.Filename != "/bin/true" {
+	if ev.Type != "lifecycle" || ev.EventFlags != bpfEventFlagTruncated ||
+		ev.Action != "exec" || ev.ActionID != lifecycleExec || ev.Filename != "/bin/true" {
 		t.Fatalf("lifecycle JSON = %+v, want exec filename /bin/true", ev)
 	}
 }
@@ -51,14 +55,15 @@ func TestJSONLifecycleViewIncludesFilenameSnapshot(t *testing.T) {
 	session := &traceSession{outWriter: &output}
 
 	session.writeJSONLifecycleEventView(traceStateEventView{
-		eventVersion: 2,
-		eventType:    bpfEventTypeLifecycle,
-		eventFlags:   lifecycleExec,
-		pid:          101,
-		tid:          101,
-		args:         [6]uint64{100, 101},
-		enterTime:    20,
-		snapshotText: "/bin/true",
+		eventVersion:    2,
+		eventType:       bpfEventTypeLifecycle,
+		eventFlags:      bpfEventFlagTruncated,
+		lifecycleAction: lifecycleExec,
+		pid:             101,
+		tid:             101,
+		args:            [6]uint64{100, 101},
+		enterTime:       20,
+		snapshotText:    "/bin/true",
 	}, &TaskState{
 		TID:    101,
 		TGID:   101,
@@ -67,14 +72,17 @@ func TestJSONLifecycleViewIncludesFilenameSnapshot(t *testing.T) {
 	})
 
 	var ev struct {
-		Type     string `json:"type"`
-		Action   string `json:"action"`
-		Filename string `json:"filename"`
+		Type       string `json:"type"`
+		EventFlags uint32 `json:"event_flags"`
+		Action     string `json:"action"`
+		ActionID   uint32 `json:"action_id"`
+		Filename   string `json:"filename"`
 	}
 	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &ev); err != nil {
 		t.Fatalf("decode lifecycle view JSON: %v", err)
 	}
-	if ev.Type != "lifecycle" || ev.Action != "exec" || ev.Filename != "/bin/true" {
+	if ev.Type != "lifecycle" || ev.EventFlags != bpfEventFlagTruncated ||
+		ev.Action != "exec" || ev.ActionID != lifecycleExec || ev.Filename != "/bin/true" {
 		t.Fatalf("lifecycle view JSON = %+v, want exec filename /bin/true", ev)
 	}
 }

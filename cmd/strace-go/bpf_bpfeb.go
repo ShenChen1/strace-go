@@ -14,24 +14,24 @@ import (
 )
 
 type bpfBpfEvent struct {
-	_             structs.HostLayout
-	Pid           uint32
-	SysId         uint32
-	Tid           uint32
-	EventVersion  uint16
-	EventType     uint16
-	EventFlags    uint32
-	ProbeRetEnter int32
-	ProbeRetExit  int32
-	_             [4]byte
-	EnterTime     uint64
-	Duration      uint64
-	Args          [6]uint64
-	Ret           int64
-	Ptr           uint64
-	DataLen       uint32
-	StackId       int32
-	StrArg        [10400]uint8
+	_               structs.HostLayout
+	Pid             uint32
+	SysId           uint32
+	Tid             uint32
+	EventVersion    uint16
+	EventType       uint16
+	EventFlags      uint32
+	LifecycleAction uint32
+	ProbeRetEnter   int32
+	ProbeRetExit    int32
+	EnterTime       uint64
+	Duration        uint64
+	Args            [6]uint64
+	Ret             int64
+	Ptr             uint64
+	DataLen         uint32
+	StackId         int32
+	StrArg          [10400]uint8
 }
 
 type bpfBpfStats struct {

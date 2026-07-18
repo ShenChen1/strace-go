@@ -56,6 +56,10 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "saved_flags | EVENT_FLAG_GENERIC_ENTER") {
 		t.Fatal("generic enter flag should preserve payload TLV flag")
 	}
+	if !strings.Contains(straceSource, "e->event_flags = 0;") ||
+		!strings.Contains(straceSource, "e->lifecycle_action = kind;") {
+		t.Fatal("lifecycle events should keep action separate from event flags")
+	}
 	if !strings.Contains(straceSource, "e->event_type == EVENT_TYPE_ENTER || e->event_type == EVENT_TYPE_EXIT") {
 		t.Fatal("truncated stats should ignore lifecycle action ids sharing event_flags")
 	}
