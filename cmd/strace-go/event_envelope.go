@@ -2,8 +2,8 @@ package main
 
 import "strace-go/pkg/handler"
 
-// rawEventEnvelope is the boundary object projected from the BPF carrier.
-type rawEventEnvelope struct {
+// traceEventEnvelope is the boundary object projected from the BPF carrier.
+type traceEventEnvelope struct {
 	valid           bool
 	eventVersion    uint16
 	pid             uint32
@@ -24,7 +24,7 @@ type rawEventEnvelope struct {
 	payload         []handler.PayloadSection
 }
 
-func (envelope rawEventEnvelope) lifecycleView() lifecycleEventView {
+func (envelope traceEventEnvelope) lifecycleView() lifecycleEventView {
 	return lifecycleEventView{
 		valid:        envelope.valid,
 		eventVersion: envelope.eventVersion,
@@ -39,7 +39,7 @@ func (envelope rawEventEnvelope) lifecycleView() lifecycleEventView {
 	}
 }
 
-func (envelope rawEventEnvelope) syscallView() syscallEventView {
+func (envelope traceEventEnvelope) syscallView() syscallEventView {
 	return syscallEventView{
 		valid:         envelope.valid,
 		eventVersion:  envelope.eventVersion,
@@ -59,10 +59,10 @@ func (envelope rawEventEnvelope) syscallView() syscallEventView {
 	}
 }
 
-func (envelope rawEventEnvelope) isLifecycle() bool {
+func (envelope traceEventEnvelope) isLifecycle() bool {
 	return envelope.eventType == bpfEventTypeLifecycle
 }
 
-func (envelope rawEventEnvelope) isExit() bool {
+func (envelope traceEventEnvelope) isExit() bool {
 	return envelope.eventType == bpfEventTypeExit
 }

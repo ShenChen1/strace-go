@@ -110,7 +110,7 @@ func TestTraceStateHandlePairsEnterExitAndCleansLifecycle(t *testing.T) {
 
 func TestTraceStateHandleEnvelopeUsesSyscallViewForPendingPair(t *testing.T) {
 	state := newTraceState()
-	rawLike := rawEventEnvelope{
+	envelopeBase := traceEventEnvelope{
 		valid:      true,
 		pid:        1,
 		tid:        1,
@@ -119,7 +119,7 @@ func TestTraceStateHandleEnvelopeUsesSyscallViewForPendingPair(t *testing.T) {
 		eventFlags: bpfEventFlagGenericEnter,
 		enterTime:  100,
 	}
-	viewEnter := rawLike
+	viewEnter := envelopeBase
 	viewEnter.pid = 200
 	viewEnter.tid = 201
 	viewEnter.sysID = 60
@@ -136,10 +136,10 @@ func TestTraceStateHandleEnvelopeUsesSyscallViewForPendingPair(t *testing.T) {
 		t.Fatal("pending syscall missing under view tid 201")
 	}
 	if _, ok := state.pendingSyscalls[1]; ok {
-		t.Fatal("pending syscall unexpectedly stored under raw-like tid 1")
+		t.Fatal("pending syscall unexpectedly stored under base envelope tid 1")
 	}
 
-	viewExit := rawLike
+	viewExit := envelopeBase
 	viewExit.pid = 200
 	viewExit.tid = 201
 	viewExit.sysID = 60
@@ -156,7 +156,7 @@ func TestTraceStateHandleEnvelopeUsesSyscallViewForPendingPair(t *testing.T) {
 
 func TestTraceStateEnterUpdateCarriesSemanticPayloadSections(t *testing.T) {
 	state := newTraceState()
-	envelope := rawEventEnvelope{
+	envelope := traceEventEnvelope{
 		valid:      true,
 		pid:        101,
 		tid:        101,
@@ -185,7 +185,7 @@ func TestTraceStateEnterUpdateCarriesSemanticPayloadSections(t *testing.T) {
 
 func TestTraceStateExitUpdateCarriesSemanticPayloadSections(t *testing.T) {
 	state := newTraceState()
-	envelope := rawEventEnvelope{
+	envelope := traceEventEnvelope{
 		valid:     true,
 		pid:       101,
 		tid:       101,
@@ -211,7 +211,7 @@ func TestTraceStateExitUpdateCarriesSemanticPayloadSections(t *testing.T) {
 
 func TestTraceStateExitUpdateCarriesSyscallResultView(t *testing.T) {
 	state := newTraceState()
-	envelope := rawEventEnvelope{
+	envelope := traceEventEnvelope{
 		valid:        true,
 		pid:          101,
 		tid:          102,

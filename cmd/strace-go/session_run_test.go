@@ -227,7 +227,7 @@ type fakeRecordDecoder struct {
 	calls int
 }
 
-func (d *fakeRecordDecoder) Decode(rec *ringbuf.Record) (rawEventEnvelope, bool) {
+func (d *fakeRecordDecoder) Decode(rec *ringbuf.Record) (traceEventEnvelope, bool) {
 	d.calls++
-	return rawEventEnvelope{}, false
+	return traceEventEnvelope{}, false
 }

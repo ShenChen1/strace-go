@@ -61,7 +61,7 @@ func (s *traceSession) traceState() *TraceState {
 	return s.state
 }
 
-func (st *TraceState) handleEnvelope(envelope rawEventEnvelope) TraceStateUpdate {
+func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpdate {
 	if envelope.isLifecycle() {
 		lifecycleView := envelope.lifecycleView()
 		task := st.applyLifecycleEvent(lifecycleView)

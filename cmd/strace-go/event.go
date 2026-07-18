@@ -16,7 +16,7 @@ func getArgProbeStatus(probeRetEnter int32, argIndex int) int32 {
 }
 
 // IMPACT: handleEnvelope routes projected tracing events to print handlers or fd updates.
-func (s *traceSession) handleEnvelope(envelope rawEventEnvelope) {
+func (s *traceSession) handleEnvelope(envelope traceEventEnvelope) {
 	if !s.traceScope().AllowsPID(envelope.pid) {
 		return
 	}

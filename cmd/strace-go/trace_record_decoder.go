@@ -7,7 +7,7 @@ import (
 )
 
 type traceRecordDecoder interface {
-	Decode(rec *ringbuf.Record) (rawEventEnvelope, bool)
+	Decode(rec *ringbuf.Record) (traceEventEnvelope, bool)
 }
 
 type fixedWindowRecordDecoder struct{}
@@ -19,17 +19,17 @@ func (s *traceSession) traceRecordDecoder() traceRecordDecoder {
 	return s.recordDecoder
 }
 
-func (d fixedWindowRecordDecoder) Decode(rec *ringbuf.Record) (rawEventEnvelope, bool) {
+func (d fixedWindowRecordDecoder) Decode(rec *ringbuf.Record) (traceEventEnvelope, bool) {
 	if rec == nil {
-		return rawEventEnvelope{}, false
+		return traceEventEnvelope{}, false
 	}
 	return decodeBPFEventEnvelopeRecord(rec.RawSample)
 }
 
-func decodeBPFEventEnvelopeRecord(rawSample []byte) (rawEventEnvelope, bool) {
+func decodeBPFEventEnvelopeRecord(rawSample []byte) (traceEventEnvelope, bool) {
 	ev, ok := decodeBPFEventRecord(rawSample)
 	if !ok {
-		return rawEventEnvelope{}, false
+		return traceEventEnvelope{}, false
 	}
 	return newRawEventEnvelopeFromBPF(&ev), true
 }

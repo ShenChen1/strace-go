@@ -2,16 +2,16 @@ package main
 
 import "bytes"
 
-func newRawEventEnvelopeFromBPF(eventRaw *bpfEvent) rawEventEnvelope {
+func newRawEventEnvelopeFromBPF(eventRaw *bpfEvent) traceEventEnvelope {
 	if eventRaw == nil {
-		return rawEventEnvelope{}
+		return traceEventEnvelope{}
 	}
 	payloadEvent := newRawPayloadEventFromBPF(eventRaw)
 	snapshotText := ""
 	if eventRaw.EventType == bpfEventTypeLifecycle && eventRaw.LifecycleAction == lifecycleExec {
 		snapshotText = lifecycleSnapshotString(payloadEvent.data)
 	}
-	return rawEventEnvelope{
+	return traceEventEnvelope{
 		valid:           true,
 		eventVersion:    eventRaw.EventVersion,
 		pid:             eventRaw.Pid,
