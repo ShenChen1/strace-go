@@ -204,12 +204,20 @@ func (s *traceSession) exitDrainGrace() time.Duration {
 }
 
 func (s *traceSession) handleBPFRecord(rec *ringbuf.Record) bool {
-	ev, ok := decodeBPFEventRecord(rec.RawSample)
+	envelope, ok := decodeBPFEventEnvelopeRecord(rec.RawSample)
 	if !ok {
 		return false
 	}
-	s.handleEnvelope(newRawEventEnvelopeFromBPF(&ev))
+	s.handleEnvelope(envelope)
 	return true
+}
+
+func decodeBPFEventEnvelopeRecord(rawSample []byte) (rawEventEnvelope, bool) {
+	ev, ok := decodeBPFEventRecord(rawSample)
+	if !ok {
+		return rawEventEnvelope{}, false
+	}
+	return newRawEventEnvelopeFromBPF(&ev), true
 }
 
 func decodeBPFEventRecord(rawSample []byte) (bpfEvent, bool) {

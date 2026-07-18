@@ -49,6 +49,35 @@ func TestDecodeBPFEventRecordAcceptsMinimumSample(t *testing.T) {
 	}
 }
 
+func TestDecodeBPFEventEnvelopeRecordProjectsEnvelope(t *testing.T) {
+	eventRaw := &bpfEvent{
+		Pid:          101,
+		Tid:          102,
+		SysId:        39,
+		EventVersion: 2,
+		EventType:    bpfEventTypeExit,
+		Ret:          101,
+		Duration:     77,
+		Args:         [6]uint64{1, 2, 3, 4, 5, 6},
+	}
+	minSize := int(unsafe.Offsetof(eventRaw.StrArg))
+	raw := rawBPFEventForTest(eventRaw, minSize)
+
+	envelope, ok := decodeBPFEventEnvelopeRecord(raw)
+	if !ok {
+		t.Fatal("decodeBPFEventEnvelopeRecord rejected a minimum-size fixed event")
+	}
+	if !envelope.valid || envelope.pid != eventRaw.Pid || envelope.tid != eventRaw.Tid {
+		t.Fatalf("decoded envelope = %+v, want valid pid/tid from source event", envelope)
+	}
+	if envelope.sysID != eventRaw.SysId || envelope.ret != eventRaw.Ret || envelope.duration != eventRaw.Duration {
+		t.Fatalf("decoded envelope = %+v, want syscall result fields from source event", envelope)
+	}
+	if envelope.args != eventRaw.Args {
+		t.Fatalf("decoded envelope args = %+v, want %+v", envelope.args, eventRaw.Args)
+	}
+}
+
 func TestTraceRunStateCollectMarksCommandExit(t *testing.T) {
 	done := make(chan traceCommandExitResult, 1)
 	done <- traceCommandExitResult{exited: true}
