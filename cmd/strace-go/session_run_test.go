@@ -79,10 +79,22 @@ func TestDecodeBPFEventEnvelopeRecordProjectsEnvelope(t *testing.T) {
 }
 
 func TestTraceRecordDecoderRejectsNilRecord(t *testing.T) {
-	decoder := &traceRecordDecoder{}
+	decoder := fixedWindowRecordDecoder{}
 
 	if _, ok := decoder.Decode(nil); ok {
 		t.Fatal("traceRecordDecoder accepted a nil ringbuf record")
+	}
+}
+
+func TestHandleBPFRecordUsesSessionRecordDecoder(t *testing.T) {
+	decoder := &fakeRecordDecoder{}
+	session := &traceSession{recordDecoder: decoder}
+
+	if session.handleBPFRecord(&ringbuf.Record{}) {
+		t.Fatal("handleBPFRecord should return false when decoder rejects the record")
+	}
+	if decoder.calls != 1 {
+		t.Fatalf("decoder calls = %d, want 1", decoder.calls)
 	}
 }
 
@@ -209,4 +221,13 @@ func TestTransientRingbufReadError(t *testing.T) {
 func rawBPFEventForTest(eventRaw *bpfEvent, size int) []byte {
 	all := unsafe.Slice((*byte)(unsafe.Pointer(eventRaw)), int(unsafe.Sizeof(*eventRaw)))
 	return append([]byte(nil), all[:size]...)
+}
+
+type fakeRecordDecoder struct {
+	calls int
+}
+
+func (d *fakeRecordDecoder) Decode(rec *ringbuf.Record) (rawEventEnvelope, bool) {
+	d.calls++
+	return rawEventEnvelope{}, false
 }

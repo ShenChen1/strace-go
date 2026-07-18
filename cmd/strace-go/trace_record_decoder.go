@@ -6,17 +6,21 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 )
 
-type traceRecordDecoder struct{}
+type traceRecordDecoder interface {
+	Decode(rec *ringbuf.Record) (rawEventEnvelope, bool)
+}
 
-func (s *traceSession) traceRecordDecoder() *traceRecordDecoder {
+type fixedWindowRecordDecoder struct{}
+
+func (s *traceSession) traceRecordDecoder() traceRecordDecoder {
 	if s.recordDecoder == nil {
-		s.recordDecoder = &traceRecordDecoder{}
+		s.recordDecoder = fixedWindowRecordDecoder{}
 	}
 	return s.recordDecoder
 }
 
-func (d *traceRecordDecoder) Decode(rec *ringbuf.Record) (rawEventEnvelope, bool) {
-	if d == nil || rec == nil {
+func (d fixedWindowRecordDecoder) Decode(rec *ringbuf.Record) (rawEventEnvelope, bool) {
+	if rec == nil {
 		return rawEventEnvelope{}, false
 	}
 	return decodeBPFEventEnvelopeRecord(rec.RawSample)
