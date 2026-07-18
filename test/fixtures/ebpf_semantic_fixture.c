@@ -21,14 +21,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#ifndef SYS_futex_wait
-# ifdef __NR_futex_wait
-#  define SYS_futex_wait __NR_futex_wait
-# else
-#  define SYS_futex_wait 455
-# endif
-#endif
-
 static int current_tracer_pid(void)
 {
 	FILE *f = fopen("/proc/self/status", "r");
@@ -316,6 +308,26 @@ static int run_futex_wait_fixture(void)
 	return 0;
 }
 
+static int run_futex_requeue_fixture(void)
+{
+	int futex_a = 0;
+	int futex_b = 0;
+	struct futex_waitv waiters[2];
+	memset(waiters, 0, sizeof(waiters));
+	waiters[0].uaddr = (unsigned long) &futex_a;
+	waiters[0].flags = FUTEX2_SIZE_U32;
+	waiters[1].uaddr = (unsigned long) &futex_b;
+	waiters[1].flags = FUTEX2_SIZE_U32;
+
+	errno = 0;
+	long rc = syscall(SYS_futex_requeue, waiters, FUTEX2_SIZE_U32, 0U, 0U);
+	if (rc < 0 && errno != EAGAIN && errno != EINVAL && errno != ENOSYS) {
+		fprintf(stderr, "unexpected futex_requeue rc=%ld errno=%d\n", rc, errno);
+		return 108;
+	}
+	return 0;
+}
+
 static int run_semantic_fixture(void)
 {
 	char buf[32];
@@ -427,6 +439,10 @@ static int run_semantic_fixture(void)
 	int futex_wait_status = run_futex_wait_fixture();
 	if (futex_wait_status != 0) {
 		return futex_wait_status;
+	}
+	int futex_requeue_status = run_futex_requeue_fixture();
+	if (futex_requeue_status != 0) {
+		return futex_requeue_status;
 	}
 
 	char large[1024];

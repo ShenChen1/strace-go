@@ -298,11 +298,6 @@ rules:
         - { arg: 0, kind: raw, direction: in, count_from_arg: 1, elem_size: 24, max: 3072, split_first: 24, offset: 0 }
         - { arg: 3, kind: struct, direction: in, size: 16, offset: 3072 }
 
-  - syscalls: [futex_requeue]
-    enter:
-      payloads:
-        - { arg: 0, kind: struct, direction: in, size: 48, offset: 0 }
-
   - syscalls: [clock_gettime, clock_getres]
     exit:
       payloads:

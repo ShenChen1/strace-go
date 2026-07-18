@@ -11,33 +11,43 @@ func TestSyscallEventContextUsesFutexTLVSection(t *testing.T) {
 	tests := []struct {
 		name       string
 		args       [6]uint64
-		timeoutArg int
+		payloadArg int
+		payloadLen int
 		ret        int64
 	}{
 		{
 			name:       "futex",
 			args:       [6]uint64{0x1000, 0, 0, 0x2000},
-			timeoutArg: 3,
+			payloadArg: 3,
+			payloadLen: timespecPayloadStructSize,
 			ret:        -110,
 		},
 		{
 			name:       "futex_wait",
 			args:       [6]uint64{0x1000, 1, 0xffffffff, 0, 0x3000, 1},
-			timeoutArg: 4,
+			payloadArg: 4,
+			payloadLen: timespecPayloadStructSize,
 			ret:        -11,
+		},
+		{
+			name:       "futex_requeue",
+			args:       [6]uint64{0x4000, 2, 0, 0},
+			payloadArg: 0,
+			payloadLen: futexPayloadRequeueSize,
+			ret:        0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			session := miscStructTLVSession(tt.name)
-			timeout := bytes.Repeat([]byte{0x44}, timespecPayloadStructSize)
+			payload := bytes.Repeat([]byte{0x44}, tt.payloadLen)
 			enterPayload := payloadTLVBytes(t, payloadTLVTestSection{
 				kind:    payloadTLVKindStruct,
-				arg:     uint16(tt.timeoutArg),
-				userPtr: tt.args[tt.timeoutArg],
-				userLen: timespecPayloadStructSize,
-				data:    timeout,
+				arg:     uint16(tt.payloadArg),
+				userPtr: tt.args[tt.payloadArg],
+				userLen: uint32(tt.payloadLen),
+				data:    payload,
 			})
 			enterRaw := miscStructTLVEvent(t, tt.name, bpfEventTypeEnter, tt.args, 0, enterPayload)
 			enterRaw.EventFlags |= bpfEventFlagGenericEnter
@@ -47,9 +57,9 @@ func TestSyscallEventContextUsesFutexTLVSection(t *testing.T) {
 			exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
 			ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 
-			section, ok := ev.handlerContext.PayloadStruct(tt.timeoutArg, handler.PayloadDirectionIn)
-			if !ok || !bytes.Equal(section, timeout) {
-				t.Fatalf("%s IN timeout section = %x, %v; want pending enter TLV struct", tt.name, section, ok)
+			section, ok := ev.handlerContext.PayloadStruct(tt.payloadArg, handler.PayloadDirectionIn)
+			if !ok || !bytes.Equal(section, payload) {
+				t.Fatalf("%s IN struct section = %x, %v; want pending enter TLV struct", tt.name, section, ok)
 			}
 		})
 	}
