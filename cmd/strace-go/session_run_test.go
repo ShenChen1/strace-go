@@ -14,17 +14,17 @@ import (
 	"strace-go/pkg/cli"
 )
 
-func TestDecodeBPFEventRecordRejectsShortSample(t *testing.T) {
+func TestDecodeFixedWindowBPFEventRejectsShortSample(t *testing.T) {
 	var ev bpfEvent
 	minSize := int(unsafe.Offsetof(ev.StrArg))
 
-	_, ok := decodeBPFEventRecord(make([]byte, minSize-1))
+	_, ok := decodeFixedWindowBPFEvent(make([]byte, minSize-1))
 	if ok {
-		t.Fatal("decodeBPFEventRecord accepted a sample shorter than the fixed event header")
+		t.Fatal("decodeFixedWindowBPFEvent accepted a sample shorter than the fixed event header")
 	}
 }
 
-func TestDecodeBPFEventRecordAcceptsMinimumSample(t *testing.T) {
+func TestDecodeFixedWindowBPFEventAcceptsMinimumSample(t *testing.T) {
 	eventRaw := &bpfEvent{
 		Pid:          101,
 		Tid:          102,
@@ -37,9 +37,9 @@ func TestDecodeBPFEventRecordAcceptsMinimumSample(t *testing.T) {
 	minSize := int(unsafe.Offsetof(eventRaw.StrArg))
 	raw := rawBPFEventForTest(eventRaw, minSize)
 
-	got, ok := decodeBPFEventRecord(raw)
+	got, ok := decodeFixedWindowBPFEvent(raw)
 	if !ok {
-		t.Fatal("decodeBPFEventRecord rejected a minimum-size fixed event")
+		t.Fatal("decodeFixedWindowBPFEvent rejected a minimum-size fixed event")
 	}
 	if got.Pid != eventRaw.Pid || got.Tid != eventRaw.Tid || got.SysId != eventRaw.SysId || got.Ret != eventRaw.Ret {
 		t.Fatalf("decoded event = %+v, want pid/tid/sysid/ret from source event", got)
@@ -49,7 +49,7 @@ func TestDecodeBPFEventRecordAcceptsMinimumSample(t *testing.T) {
 	}
 }
 
-func TestDecodeBPFEventEnvelopeRecordProjectsEnvelope(t *testing.T) {
+func TestDecodeFixedWindowTraceEventEnvelopeProjectsEnvelope(t *testing.T) {
 	eventRaw := &bpfEvent{
 		Pid:          101,
 		Tid:          102,
@@ -63,9 +63,9 @@ func TestDecodeBPFEventEnvelopeRecordProjectsEnvelope(t *testing.T) {
 	minSize := int(unsafe.Offsetof(eventRaw.StrArg))
 	raw := rawBPFEventForTest(eventRaw, minSize)
 
-	envelope, ok := decodeBPFEventEnvelopeRecord(raw)
+	envelope, ok := decodeFixedWindowTraceEventEnvelope(raw)
 	if !ok {
-		t.Fatal("decodeBPFEventEnvelopeRecord rejected a minimum-size fixed event")
+		t.Fatal("decodeFixedWindowTraceEventEnvelope rejected a minimum-size fixed event")
 	}
 	if !envelope.valid || envelope.pid != eventRaw.Pid || envelope.tid != eventRaw.Tid {
 		t.Fatalf("decoded envelope = %+v, want valid pid/tid from source event", envelope)

@@ -23,18 +23,18 @@ func (d fixedWindowRecordDecoder) Decode(rec *ringbuf.Record) (traceEventEnvelop
 	if rec == nil {
 		return traceEventEnvelope{}, false
 	}
-	return decodeBPFEventEnvelopeRecord(rec.RawSample)
+	return decodeFixedWindowTraceEventEnvelope(rec.RawSample)
 }
 
-func decodeBPFEventEnvelopeRecord(rawSample []byte) (traceEventEnvelope, bool) {
-	ev, ok := decodeBPFEventRecord(rawSample)
+func decodeFixedWindowTraceEventEnvelope(rawSample []byte) (traceEventEnvelope, bool) {
+	ev, ok := decodeFixedWindowBPFEvent(rawSample)
 	if !ok {
 		return traceEventEnvelope{}, false
 	}
 	return newTraceEventEnvelopeFromBPF(&ev), true
 }
 
-func decodeBPFEventRecord(rawSample []byte) (bpfEvent, bool) {
+func decodeFixedWindowBPFEvent(rawSample []byte) (bpfEvent, bool) {
 	var ev bpfEvent
 	minSize := int(unsafe.Offsetof(ev.StrArg))
 	if len(rawSample) < minSize {
