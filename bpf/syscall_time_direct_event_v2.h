@@ -59,7 +59,7 @@ static __always_inline int is_sleep_direct_syscall(u32 sys_id)
 
 static __always_inline int is_futex_direct_syscall(u32 sys_id)
 {
-    return sys_id == SYS_FUTEX;
+    return sys_id == SYS_FUTEX || sys_id == SYS_FUTEX_WAIT;
 }
 
 static __always_inline int is_time_struct_direct_syscall(u32 sys_id)

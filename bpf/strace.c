@@ -62,6 +62,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_PRLIMIT64 302
 #define SYS_CLOCK_ADJTIME 305
 #define SYS_COPY_FILE_RANGE 326
+#define SYS_FUTEX_WAIT 455
 #define EVENT_TYPE_ENTER 1
 #define EVENT_TYPE_EXIT 2
 #define EVENT_TYPE_LIFECYCLE 3
@@ -697,6 +698,11 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     // IMPACT: futex timeout snapshots are captured at enter as direct TLV sections, without the fixed-window carrier.
     if (sys_id == SYS_FUTEX) {
         emit_futex_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+    if (sys_id == SYS_FUTEX_WAIT) {
+        emit_futex_wait_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }

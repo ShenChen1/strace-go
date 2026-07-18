@@ -21,6 +21,14 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifndef SYS_futex_wait
+# ifdef __NR_futex_wait
+#  define SYS_futex_wait __NR_futex_wait
+# else
+#  define SYS_futex_wait 455
+# endif
+#endif
+
 static int current_tracer_pid(void)
 {
 	FILE *f = fopen("/proc/self/status", "r");
@@ -294,6 +302,20 @@ static int run_futex_fixture(void)
 	return 0;
 }
 
+static int run_futex_wait_fixture(void)
+{
+	int futex_word = 0;
+	struct timespec zero;
+	memset(&zero, 0, sizeof(zero));
+	errno = 0;
+	long rc = syscall(SYS_futex_wait, &futex_word, 1UL, 0xffffffffUL, FUTEX2_SIZE_U32, &zero, CLOCK_MONOTONIC);
+	if (rc != -1 || (errno != EAGAIN && errno != ENOSYS)) {
+		fprintf(stderr, "unexpected futex_wait rc=%ld errno=%d\n", rc, errno);
+		return 107;
+	}
+	return 0;
+}
+
 static int run_semantic_fixture(void)
 {
 	char buf[32];
@@ -401,6 +423,10 @@ static int run_semantic_fixture(void)
 	int futex_status = run_futex_fixture();
 	if (futex_status != 0) {
 		return futex_status;
+	}
+	int futex_wait_status = run_futex_wait_fixture();
+	if (futex_wait_status != 0) {
+		return futex_wait_status;
 	}
 
 	char large[1024];
