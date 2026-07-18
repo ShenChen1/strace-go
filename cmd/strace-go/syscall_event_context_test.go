@@ -17,7 +17,7 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 		decoder:   event.NewDecoder(),
 		fdState: newFDStateStoreFromMaps(map[string]string{
 			"101:cwd": "/tmp",
-		}, nil, nil),
+		}, nil),
 	}
 	path := []byte("input.txt\x00")
 	eventRaw := tlvOpenatEvent(t, path)
@@ -52,7 +52,7 @@ func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 		targetPid: 101,
 		opts:      opts,
 		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
+		fdState:   newFDStateStoreFromMaps(nil, nil),
 	}
 	path := []byte("legacy.txt\x00")
 	eventRaw := &bpfEvent{
@@ -113,7 +113,7 @@ func TestSyscallEventContextHandlerContextUsesEventView(t *testing.T) {
 		targetPid: 101,
 		opts:      cli.ParseArgs([]string{"/bin/true"}),
 		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
+		fdState:   newFDStateStoreFromMaps(nil, nil),
 	}
 	ev := syscallEventContext{
 		view:     syscallEventView{valid: true, pid: 101, tid: 102, sysID: 39, args: [6]uint64{7}, ret: -2, probeRetEnter: -1, probeRetExit: 0},
@@ -136,7 +136,7 @@ func TestSyscallEventContextHandlerContextUsesEffectiveMetadata(t *testing.T) {
 		targetPid: 101,
 		opts:      cli.ParseArgs([]string{"/bin/true"}),
 		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
+		fdState:   newFDStateStoreFromMaps(nil, nil),
 	}
 	scMeta := meta.Syscall{Name: "pipe"}
 	raw := &bpfEvent{
@@ -373,7 +373,7 @@ func TestSyscallEventContextRecordSummaryUsesEffectiveMetadata(t *testing.T) {
 	visibleSession := &traceSession{
 		opts:    cli.ParseArgs([]string{"-e", "trace=getpid", "/bin/true"}),
 		decoder: event.NewDecoder(),
-		fdState: newFDStateStoreFromMaps(nil, nil, nil),
+		fdState: newFDStateStoreFromMaps(nil, nil),
 	}
 	ev := newSyscallEventContext(visibleSession, raw, 101, nil)
 
@@ -390,7 +390,7 @@ func TestSyscallEventContextRecordSummaryUsesEffectiveMetadata(t *testing.T) {
 	hiddenSession := &traceSession{
 		opts:    cli.ParseArgs([]string{"-e", "trace=write", "/bin/true"}),
 		decoder: event.NewDecoder(),
-		fdState: newFDStateStoreFromMaps(nil, nil, nil),
+		fdState: newFDStateStoreFromMaps(nil, nil),
 	}
 	hidden := newSyscallEventContext(hiddenSession, raw, 101, nil)
 	hidden.recordSummary(stats)

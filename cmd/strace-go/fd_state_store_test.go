@@ -10,16 +10,9 @@ import (
 )
 
 func TestFDStateStoreCleanupClosedFDRemovesOwnedState(t *testing.T) {
-	tmp, err := os.CreateTemp(t.TempDir(), "fd-state-*")
-	if err != nil {
-		t.Fatalf("CreateTemp failed: %v", err)
-	}
-	defer tmp.Close()
-
 	store := newFDStateStoreFromMaps(
-		map[string]string{"101:3": tmp.Name(), "101:4": "/tmp/keep"},
+		map[string]string{"101:3": "/tmp/remove", "101:4": "/tmp/keep"},
 		map[string]int64{"101:3": 12, "101:4": 99},
-		map[string]*os.File{"101:3": tmp},
 	)
 
 	store.cleanupClosedFDFromView(syscallEventView{
@@ -34,16 +27,13 @@ func TestFDStateStoreCleanupClosedFDRemovesOwnedState(t *testing.T) {
 	if _, ok := store.offsets["101:3"]; ok {
 		t.Fatal("closed fd offset was not removed")
 	}
-	if _, ok := store.files["101:3"]; ok {
-		t.Fatal("closed fd file was not removed")
-	}
 	if got := store.paths["101:4"]; got != "/tmp/keep" {
 		t.Fatalf("unrelated fd path = %q, want /tmp/keep", got)
 	}
 }
 
 func TestSyscallEventContextUpdateFDStateUsesEventViewForOpenedPath(t *testing.T) {
-	store := newFDStateStoreFromMaps(make(map[string]string), nil, nil)
+	store := newFDStateStoreFromMaps(make(map[string]string), nil)
 	ev := syscallEventContext{
 		view:     syscallEventView{valid: true, pid: 201, tid: 201, ret: 7},
 		statePID: 101,
@@ -62,7 +52,7 @@ func TestSyscallEventContextUpdateFDStateUsesEventViewForOpenedPath(t *testing.T
 }
 
 func TestSyscallEventContextUpdateFDStateUsesEventViewForDup(t *testing.T) {
-	store := newFDStateStoreFromMaps(map[string]string{"101:5": "/tmp/source"}, nil, nil)
+	store := newFDStateStoreFromMaps(map[string]string{"101:5": "/tmp/source"}, nil)
 	ev := syscallEventContext{
 		view:     syscallEventView{valid: true, pid: 201, tid: 201, args: [6]uint64{5}, ret: 6},
 		statePID: 101,
@@ -80,7 +70,7 @@ func TestSyscallEventContextUpdateFDStateUsesEventViewForDup(t *testing.T) {
 }
 
 func TestSyscallEventContextUpdateFDStateUsesEffectiveMetadata(t *testing.T) {
-	store := newFDStateStoreFromMaps(make(map[string]string), nil, nil)
+	store := newFDStateStoreFromMaps(make(map[string]string), nil)
 	ev := syscallEventContext{
 		view:     syscallEventView{valid: true, pid: 201, tid: 201, ret: 7},
 		statePID: 101,
@@ -115,7 +105,7 @@ func TestSyscallEventContextUpdateFDStateBuildsPayloadWithEffectiveMetadata(t *t
 	}
 	binary.LittleEndian.PutUint32(raw.StrArg[payloadExitArgOffset:], uint32(readEnd.Fd()))
 	binary.LittleEndian.PutUint32(raw.StrArg[payloadExitArgOffset+4:], uint32(writeEnd.Fd()))
-	store := newFDStateStoreFromMaps(make(map[string]string), nil, nil)
+	store := newFDStateStoreFromMaps(make(map[string]string), nil)
 	ev := syscallEventContextFromRawForTest(raw, meta.Syscall{Name: "pipe"}, 101)
 	ev.handlerContext = &handler.Context{
 		ScMeta: meta.Syscall{Name: "pipe"},
@@ -137,7 +127,6 @@ func TestTraceSessionCleanupClosedFDUsesEventView(t *testing.T) {
 	store := newFDStateStoreFromMaps(
 		map[string]string{"101:3": "/tmp/remove", "101:4": "/tmp/keep"},
 		map[string]int64{"101:3": 12, "101:4": 99},
-		make(map[string]*os.File),
 	)
 	session := &traceSession{fdState: store}
 	ev := syscallEventContext{
@@ -166,7 +155,6 @@ func TestSyscallEventContextCleanupClosedFDUsesEffectiveMetadata(t *testing.T) {
 	store := newFDStateStoreFromMaps(
 		map[string]string{"101:3": "/tmp/remove"},
 		map[string]int64{"101:3": 12},
-		make(map[string]*os.File),
 	)
 	ev := syscallEventContext{
 		view:     syscallEventView{valid: true, args: [6]uint64{3}, ret: 0},

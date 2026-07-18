@@ -233,7 +233,6 @@ func (s *traceSession) finishRun() {
 	if s.opts != nil && (s.opts.SummaryOnly || s.opts.SummaryAndPrint) {
 		s.summaryStats().Print(s.outWriter)
 	}
-	s.closeFDDataFiles()
 	if s.outPipe != nil {
 		_ = s.outPipe.Close()
 		if s.outCmd != nil {

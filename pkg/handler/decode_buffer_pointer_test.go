@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -26,6 +25,7 @@ func TestDecodeWriteDumpDoesNotUseTraceeMemoryBeyondPayloadPrefix(t *testing.T) 
 			ArgTypes: []string{"int", "const char *", "size_t"},
 		},
 		ProbeRetEnter: 0,
+		Ret:           int64(len(data)),
 		PayloadSections: []PayloadSection{
 			{
 				Kind:      PayloadKindBytes,
@@ -161,68 +161,5 @@ func TestDecodeWriteBufferUsesPayloadSection(t *testing.T) {
 	got, ok := decodeBufferArg(ctx, 0x1000, &res)
 	if !ok || got != `"world"` {
 		t.Fatalf("decodeBufferArg(write) = %q, %v; want payload section", got, ok)
-	}
-}
-
-func TestDecodeWriteDumpExtendsFromWrittenFile(t *testing.T) {
-	data := make([]byte, 0x300)
-	for i := range data {
-		data[i] = byte(i)
-	}
-	tmp, err := os.CreateTemp(t.TempDir(), "write-data")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tmp.Close()
-	if _, err := tmp.Write(make([]byte, 15)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		t.Fatal(err)
-	}
-
-	ctx := &Context{
-		Pid:       101,
-		Tid:       102,
-		TargetPid: 101,
-		Args:      [6]uint64{1, 0x1000, uint64(len(data))},
-		Ret:       int64(len(data)),
-		ScMeta: meta.Syscall{
-			Name:     "write",
-			Args:     []string{"fd", "buf", "count"},
-			ArgTypes: []string{"int", "const char *", "size_t"},
-		},
-		ProbeRetEnter:      0,
-		BufferFileOffset:   15,
-		BufferFileOffsetOK: true,
-		FdFiles:            map[string]*os.File{"101:1": tmp},
-		PayloadSections: []PayloadSection{
-			{
-				Kind:      PayloadKindBytes,
-				Direction: PayloadDirectionIn,
-				ArgIndex:  1,
-				UserPtr:   0x1000,
-				UserLen:   uint32(len(data)),
-				CopiedLen: 512,
-				ProbeRet:  0,
-				Data:      data[:512],
-			},
-		},
-		Opts: &cli.Options{
-			StringLimit:   32,
-			TraceWriteFDs: map[int32]bool{1: true},
-		},
-	}
-	ctx.Decoder = event.NewDecoder()
-
-	res := Result{}
-	if _, ok := decodeBufferArg(ctx, 0x1000, &res); !ok {
-		t.Fatal("decodeBufferArg did not handle write buffer")
-	}
-	if !strings.Contains(res.HexDumpStr, "00200") {
-		t.Fatalf("hexdump did not include data recovered from file:\n%s", res.HexDumpStr)
-	}
-	if strings.Contains(res.HexDumpStr, "Cannot fetch") {
-		t.Fatalf("hexdump unexpectedly reported missing bytes:\n%s", res.HexDumpStr)
 	}
 }

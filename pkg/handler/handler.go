@@ -2,7 +2,6 @@
 package handler
 
 import (
-	"os"
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 	"strace-go/pkg/meta"
@@ -26,14 +25,10 @@ type Context struct {
 	ProbeRetExit    int32
 	PayloadSections []PayloadSection
 
-	BufferFileOffset   int64
-	BufferFileOffsetOK bool
-
 	ScMeta  meta.Syscall
 	Decoder *event.Decoder
 	Opts    *cli.Options
 	FdMap   map[string]string
-	FdFiles map[string]*os.File
 }
 
 // SnapshotReader exposes memory bytes copied by BPF at the syscall probe site.

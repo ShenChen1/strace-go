@@ -204,7 +204,7 @@ func TestSyscallEventContextUsesTLVPathSection(t *testing.T) {
 		targetPid: 101,
 		opts:      cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"}),
 		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
+		fdState:   newFDStateStoreFromMaps(nil, nil),
 	}
 	eventRaw := tlvOpenatEvent(t, []byte("from-tlv\x00"))
 
@@ -245,7 +245,7 @@ func TestSyscallEventContextMergesPendingEnterTLVPathForPathFilter(t *testing.T)
 		targetPid: 101,
 		opts:      cli.ParseArgs([]string{"-e", "trace=openat", "-P", "from-tlv", "/bin/true"}),
 		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
+		fdState:   newFDStateStoreFromMaps(nil, nil),
 		state:     newTraceState(),
 	}
 	enterRaw := tlvOpenatEvent(t, []byte("from-tlv\x00"))

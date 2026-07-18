@@ -14,7 +14,7 @@ import (
 )
 
 func updateFDMapForTest(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
-	store := newFDStateStoreFromMaps(fdMap, nil, nil)
+	store := newFDStateStoreFromMaps(fdMap, nil)
 	ev := syscallEventContextFromRawForTest(eventRaw, scMeta, targetPid)
 	ev.pathText = pathText
 	ev.updateFDState(store)
@@ -187,7 +187,7 @@ func TestSyscallEventContextUpdateFDStateUsesViewForSocketpairInfo(t *testing.T)
 	}
 
 	fdMap := make(map[string]string)
-	store := newFDStateStoreFromMaps(fdMap, nil, nil)
+	store := newFDStateStoreFromMaps(fdMap, nil)
 	ev.updateFDState(store)
 
 	wantSuffix := "|" + socketFDInfoFromView(view)
@@ -349,7 +349,7 @@ func TestSyscallEventContextUpdateFDStateUsesViewForNetlinkFD(t *testing.T) {
 	}
 
 	fdMap := make(map[string]string)
-	store := newFDStateStoreFromMaps(fdMap, nil, nil)
+	store := newFDStateStoreFromMaps(fdMap, nil)
 	ev.updateFDState(store)
 
 	if got := fdMap["101:5"]; got != "NETLINK:[SOCK_DIAG:42]" {

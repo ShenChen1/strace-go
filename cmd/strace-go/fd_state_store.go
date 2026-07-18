@@ -1,8 +1,6 @@
 package main
 
 import (
-	"os"
-
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
@@ -10,7 +8,6 @@ import (
 type FDStateStore struct {
 	paths   map[string]string
 	offsets map[string]int64
-	files   map[string]*os.File
 }
 
 type fdStateSource struct {
@@ -30,12 +27,12 @@ func newFDStateStore(targetPid int, paths map[string]string) *FDStateStore {
 	if paths == nil {
 		paths = make(map[string]string)
 	}
-	offsets, files := initFDTracking(targetPid, paths)
-	return newFDStateStoreFromMaps(paths, offsets, files)
+	offsets := initFDTracking(targetPid, paths)
+	return newFDStateStoreFromMaps(paths, offsets)
 }
 
-func newFDStateStoreFromMaps(paths map[string]string, offsets map[string]int64, files map[string]*os.File) *FDStateStore {
-	store := &FDStateStore{paths: paths, offsets: offsets, files: files}
+func newFDStateStoreFromMaps(paths map[string]string, offsets map[string]int64) *FDStateStore {
+	store := &FDStateStore{paths: paths, offsets: offsets}
 	store.ensureMaps()
 	return store
 }
@@ -47,9 +44,6 @@ func (st *FDStateStore) ensureMaps() {
 	if st.offsets == nil {
 		st.offsets = make(map[string]int64)
 	}
-	if st.files == nil {
-		st.files = make(map[string]*os.File)
-	}
 }
 
 func (st *FDStateStore) PathMap() map[string]string {
@@ -57,14 +51,9 @@ func (st *FDStateStore) PathMap() map[string]string {
 	return st.paths
 }
 
-func (st *FDStateStore) FileMap() map[string]*os.File {
-	st.ensureMaps()
-	return st.files
-}
-
 func (s *traceSession) fdStateStore() *FDStateStore {
 	if s.fdState == nil {
-		s.fdState = newFDStateStoreFromMaps(nil, nil, nil)
+		s.fdState = newFDStateStoreFromMaps(nil, nil)
 	}
 	return s.fdState
 }
@@ -94,8 +83,4 @@ func (st *FDStateStore) cleanupClosedFDFromView(view syscallEventView, scMeta me
 	key := fdStateKey(statePID, int32(view.args[0]))
 	delete(st.paths, key)
 	delete(st.offsets, key)
-	if f := st.files[key]; f != nil {
-		f.Close()
-		delete(st.files, key)
-	}
 }

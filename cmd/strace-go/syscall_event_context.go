@@ -9,17 +9,15 @@ import (
 )
 
 type syscallEventContext struct {
-	view               syscallEventView
-	statePID           int
-	meta               meta.Syscall
-	isPath             bool
-	pathText           string
-	shouldPrint        bool
-	pendingEnter       *pendingSyscallState
-	handlerContext     *handler.Context
-	payloadSections    []handler.PayloadSection
-	bufferFileOffset   int64
-	bufferFileOffsetOK bool
+	view            syscallEventView
+	statePID        int
+	meta            meta.Syscall
+	isPath          bool
+	pathText        string
+	shouldPrint     bool
+	pendingEnter    *pendingSyscallState
+	handlerContext  *handler.Context
+	payloadSections []handler.PayloadSection
 }
 
 // syscallEventView is the stable syscall field set used after context construction.
@@ -51,18 +49,15 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 	if s.opts != nil {
 		shouldPrint = checkShouldPrintFromView(view, scMeta, pathText, isPath, statePID, s.opts, s.fdStateStore().PathMap())
 	}
-	bufferFileOffset, bufferFileOffsetOK := s.fdStateStore().bufferFileOffsetFromView(view, scMeta, statePID)
 	ev := syscallEventContext{
-		view:               view,
-		statePID:           statePID,
-		meta:               scMeta,
-		isPath:             isPath,
-		pathText:           pathText,
-		shouldPrint:        shouldPrint,
-		pendingEnter:       pendingEnter,
-		payloadSections:    payloadSections,
-		bufferFileOffset:   bufferFileOffset,
-		bufferFileOffsetOK: bufferFileOffsetOK,
+		view:            view,
+		statePID:        statePID,
+		meta:            scMeta,
+		isPath:          isPath,
+		pathText:        pathText,
+		shouldPrint:     shouldPrint,
+		pendingEnter:    pendingEnter,
+		payloadSections: payloadSections,
 	}
 	ev.handlerContext = ev.newHandlerContext(s)
 	return ev
@@ -290,10 +285,8 @@ func (ev syscallEventContext) newHandlerContext(s *traceSession) *handler.Contex
 		Pid: int(view.pid), Tid: int(view.tid), TargetPid: ev.statePID, SysId: view.sysID,
 		SysName: scMeta.Name, Args: view.args, Ret: view.ret,
 		ProbeRetEnter: view.probeRetEnter, ProbeRetExit: view.probeRetExit,
-		PayloadSections:  ev.outputPayloadSections(),
-		BufferFileOffset: ev.bufferFileOffset, BufferFileOffsetOK: ev.bufferFileOffsetOK,
-		ScMeta: scMeta, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdStateStore().PathMap(),
-		FdFiles: s.fdStateStore().FileMap(),
+		PayloadSections: ev.outputPayloadSections(),
+		ScMeta:          scMeta, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdStateStore().PathMap(),
 	}
 }
 

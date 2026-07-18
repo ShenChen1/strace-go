@@ -16,7 +16,7 @@ func TestJSONEventsArePairedByTIDState(t *testing.T) {
 		targetPid: 1234,
 		opts:      opts,
 		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
+		fdState:   newFDStateStoreFromMaps(nil, nil),
 		outWriter: &output,
 	}
 

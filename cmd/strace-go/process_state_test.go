@@ -1,9 +1,6 @@
 package main
 
-import (
-	"os"
-	"testing"
-)
+import "testing"
 
 func TestEventStatePIDUsesViewPIDOrTargetFallback(t *testing.T) {
 	session := &traceSession{targetPid: 101}
@@ -28,7 +25,7 @@ func TestInheritProcessStateCopiesFDAndCWD(t *testing.T) {
 		}, map[string]int64{
 			"100:1": 42,
 			"200:1": 7,
-		}, make(map[string]*os.File)),
+		}),
 	}
 
 	session.inheritProcessState(100, 101)
@@ -56,7 +53,7 @@ func TestCleanupProcessStateRemovesFDState(t *testing.T) {
 		}, map[string]int64{
 			"100:1": 42,
 			"200:1": 7,
-		}, make(map[string]*os.File)),
+		}),
 	}
 
 	session.cleanupProcessState(100)

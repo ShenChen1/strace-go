@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"testing"
 
 	"strace-go/pkg/handler"
@@ -22,7 +21,7 @@ func syscallIDByName(t *testing.T, name string) uint32 {
 func TestFDOffsetsExposeWriteStartAndAdvanceFromView(t *testing.T) {
 	store := newFDStateStoreFromMaps(nil, map[string]int64{
 		"101:1": 15,
-	}, make(map[string]*os.File))
+	})
 	view := syscallEventView{
 		valid: true,
 		tid:   101,
@@ -45,7 +44,7 @@ func TestFDOffsetsUseStatePIDFromView(t *testing.T) {
 	store := newFDStateStoreFromMaps(nil, map[string]int64{
 		"100:1": 3,
 		"101:1": 15,
-	}, make(map[string]*os.File))
+	})
 	view := syscallEventView{
 		valid: true,
 		tid:   101,
@@ -73,7 +72,7 @@ func TestFDOffsetsUseEventViewForSyscallContext(t *testing.T) {
 		fdState: newFDStateStoreFromMaps(nil, map[string]int64{
 			"101:1": 15,
 			"101:2": 30,
-		}, make(map[string]*os.File)),
+		}),
 	}
 	scMeta := meta.Syscall{Name: "write"}
 	ev := syscallEventContext{
@@ -92,7 +91,7 @@ func TestFDOffsetsUseEventViewForSyscallContext(t *testing.T) {
 }
 
 func TestFDOffsetsUpdateUsesEffectiveMetadata(t *testing.T) {
-	store := newFDStateStoreFromMaps(nil, map[string]int64{"101:1": 15}, make(map[string]*os.File))
+	store := newFDStateStoreFromMaps(nil, map[string]int64{"101:1": 15})
 	ev := syscallEventContext{
 		view:     syscallEventView{valid: true, tid: 101, args: [6]uint64{1}, ret: 4},
 		statePID: 101,

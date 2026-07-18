@@ -20,7 +20,7 @@ func TestJSONEventPathDoesNotReadTraceeMemory(t *testing.T) {
 		targetPid: 1234,
 		opts:      opts,
 		decoder:   decoder,
-		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
+		fdState:   newFDStateStoreFromMaps(nil, nil),
 		outWriter: &output,
 	}
 
@@ -54,7 +54,7 @@ func TestJSONHandlerContextDoesNotReadTraceeMemory(t *testing.T) {
 		targetPid: 1234,
 		opts:      opts,
 		decoder:   decoder,
-		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
+		fdState:   newFDStateStoreFromMaps(nil, nil),
 		outWriter: &output,
 	}
 
@@ -86,7 +86,7 @@ func TestTextEventPathDoesNotReadTraceeMemory(t *testing.T) {
 		targetPid: 1234,
 		opts:      opts,
 		decoder:   decoder,
-		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
+		fdState:   newFDStateStoreFromMaps(nil, nil),
 		outWriter: &output,
 	}
 
