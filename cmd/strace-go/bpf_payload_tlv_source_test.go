@@ -14,6 +14,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
 	tlvHeader := readTextFile(t, filepath.Join(root, "bpf/payload_tlv.h"))
 	directHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h"))
+	statDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_stat_direct_event_v2.h"))
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 
 	if !strings.Contains(straceSource, `#include "payload_tlv.h"`) {
@@ -24,6 +25,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 	if !strings.Contains(straceSource, "#define SYS_CLOSE 3") {
 		t.Fatal("strace.c missing SYS_CLOSE constant for scalar direct event v2 path")
+	}
+	if !strings.Contains(straceSource, "#define SYS_FSTAT 5") {
+		t.Fatal("strace.c missing SYS_FSTAT constant for fstat direct event v2 path")
 	}
 	if !strings.Contains(straceSource, "#define SYS_PREAD64 17") {
 		t.Fatal("strace.c missing SYS_PREAD64 constant for pread64 TLV capture")
@@ -158,6 +162,16 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		!strings.Contains(straceSource, "emit_time_struct_exit_event_v2_direct(p, ret_value, duration);") ||
 		!strings.Contains(straceSource, "emit_gettimeofday_exit_event_v2_direct(p, ret_value, duration);") {
 		t.Fatal("clock/gettimeofday syscalls should emit direct struct TLV exit events without the bpf_event carrier")
+	}
+	if !strings.Contains(straceSource, `#include "syscall_stat_direct_event_v2.h"`) ||
+		!strings.Contains(statDirectHeader, "is_stat_struct_direct_syscall(") ||
+		!strings.Contains(statDirectHeader, "return sys_id == SYS_FSTAT;") ||
+		!strings.Contains(statDirectHeader, "STAT_DIRECT_STRUCT_SIZE 144") ||
+		!strings.Contains(statDirectHeader, "emit_stat_struct_exit_event_v2_direct(") ||
+		!strings.Contains(timeDirectHeader, "is_stat_struct_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "is_stat_struct_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "emit_stat_struct_exit_event_v2_direct(p, ret_value, duration);") {
+		t.Fatal("fstat should emit direct struct TLV exit events without the bpf_event carrier")
 	}
 	if !strings.Contains(straceSource, "emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);") {
 		t.Fatal("lifecycle events should be emitted directly as event v2")

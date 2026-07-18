@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
 #include <sys/wait.h>
@@ -58,6 +59,11 @@ static int run_semantic_fixture(void)
 	if (fd >= 0) {
 		ssize_t nread = read(fd, buf, sizeof(buf));
 		(void) nread;
+		struct stat st;
+		if (syscall(SYS_fstat, fd, &st) != 0) {
+			perror("fstat");
+			return 73;
+		}
 		(void) close(fd);
 	}
 
