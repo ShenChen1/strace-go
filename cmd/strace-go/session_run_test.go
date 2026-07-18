@@ -78,6 +78,14 @@ func TestDecodeBPFEventEnvelopeRecordProjectsEnvelope(t *testing.T) {
 	}
 }
 
+func TestTraceRecordDecoderRejectsNilRecord(t *testing.T) {
+	decoder := &traceRecordDecoder{}
+
+	if _, ok := decoder.Decode(nil); ok {
+		t.Fatal("traceRecordDecoder accepted a nil ringbuf record")
+	}
+}
+
 func TestTraceRunStateCollectMarksCommandExit(t *testing.T) {
 	done := make(chan traceCommandExitResult, 1)
 	done <- traceCommandExitResult{exited: true}

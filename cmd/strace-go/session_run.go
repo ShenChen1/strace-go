@@ -37,6 +37,8 @@ type traceCommandExitResult struct {
 	exitCode uint64
 }
 
+type traceRecordDecoder struct{}
+
 // IMPACT: run reads and handles ringbuf records in the same goroutine; only process waiting is asynchronous.
 func (s *traceSession) run() {
 	state := newTraceRunState(s)
@@ -204,12 +206,26 @@ func (s *traceSession) exitDrainGrace() time.Duration {
 }
 
 func (s *traceSession) handleBPFRecord(rec *ringbuf.Record) bool {
-	envelope, ok := decodeBPFEventEnvelopeRecord(rec.RawSample)
+	envelope, ok := s.traceRecordDecoder().Decode(rec)
 	if !ok {
 		return false
 	}
 	s.handleEnvelope(envelope)
 	return true
+}
+
+func (s *traceSession) traceRecordDecoder() *traceRecordDecoder {
+	if s.recordDecoder == nil {
+		s.recordDecoder = &traceRecordDecoder{}
+	}
+	return s.recordDecoder
+}
+
+func (d *traceRecordDecoder) Decode(rec *ringbuf.Record) (rawEventEnvelope, bool) {
+	if d == nil || rec == nil {
+		return rawEventEnvelope{}, false
+	}
+	return decodeBPFEventEnvelopeRecord(rec.RawSample)
 }
 
 func decodeBPFEventEnvelopeRecord(rawSample []byte) (rawEventEnvelope, bool) {

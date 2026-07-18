@@ -28,6 +28,7 @@ type traceSession struct {
 	targetPid     int
 	opts          *cli.Options
 	decoder       *event.Decoder
+	recordDecoder *traceRecordDecoder
 	fdState       *FDStateStore
 	outWriter     io.Writer
 	outFile       *os.File
