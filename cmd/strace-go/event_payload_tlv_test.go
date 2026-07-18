@@ -208,7 +208,7 @@ func TestSyscallEventContextUsesTLVPathSection(t *testing.T) {
 	}
 	eventRaw := tlvOpenatEvent(t, []byte("from-tlv\x00"))
 
-	ev := newSyscallEventContext(session, eventRaw, 101, nil)
+	ev := newSyscallEventContextFromBPF(session, eventRaw, 101, nil)
 
 	section, ok := ev.handlerContext.Section(1, handler.PayloadKindString)
 	if !ok || !bytes.Equal(section.Data, []byte("from-tlv\x00")) {

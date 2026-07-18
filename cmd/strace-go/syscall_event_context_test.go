@@ -22,7 +22,7 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 	path := []byte("input.txt\x00")
 	eventRaw := tlvOpenatEvent(t, path)
 
-	ev := newSyscallEventContext(session, eventRaw, 101, nil)
+	ev := newSyscallEventContextFromBPF(session, eventRaw, 101, nil)
 
 	if ev.syscallName() != "openat" || !ev.shouldOutput() {
 		t.Fatalf("event context behavior = name:%s output:%v, want openat/true", ev.syscallName(), ev.shouldOutput())
@@ -67,7 +67,7 @@ func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 	}
 	copy(eventRaw.StrArg[:], path)
 
-	ev := newSyscallEventContext(session, eventRaw, 101, nil)
+	ev := newSyscallEventContextFromBPF(session, eventRaw, 101, nil)
 	if _, ok := ev.handlerContext.Section(1, handler.PayloadKindString); ok {
 		t.Fatalf("handler context unexpectedly exposed legacy path string section")
 	}
@@ -378,7 +378,7 @@ func TestSyscallEventContextRecordSummaryUsesEffectiveMetadata(t *testing.T) {
 		decoder: event.NewDecoder(),
 		fdState: newFDStateStoreFromMaps(nil, nil),
 	}
-	ev := newSyscallEventContext(visibleSession, raw, 101, nil)
+	ev := newSyscallEventContextFromBPF(visibleSession, raw, 101, nil)
 
 	ev.recordSummary(stats)
 
@@ -395,7 +395,7 @@ func TestSyscallEventContextRecordSummaryUsesEffectiveMetadata(t *testing.T) {
 		decoder: event.NewDecoder(),
 		fdState: newFDStateStoreFromMaps(nil, nil),
 	}
-	hidden := newSyscallEventContext(hiddenSession, raw, 101, nil)
+	hidden := newSyscallEventContextFromBPF(hiddenSession, raw, 101, nil)
 	hidden.recordSummary(stats)
 	if stats.stats["getpid"].calls != 1 {
 		t.Fatalf("hidden event changed summary entry = %+v", stats.stats["getpid"])
