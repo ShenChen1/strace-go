@@ -14,7 +14,6 @@ type CaptureRule struct {
 }
 
 type CapturePoint struct {
-	PtrArg   *int             `yaml:"ptr_arg"`
 	Reads    []CaptureRead    `yaml:"reads"`
 	Payloads []CapturePayload `yaml:"payloads"`
 }

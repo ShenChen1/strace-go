@@ -14,7 +14,6 @@ func TestLoadCapturePolicy(t *testing.T) {
 	data := []byte(`rules:
   - syscalls: [openat]
     enter:
-      ptr_arg: 1
       reads:
         - { arg: 1, size: 4096, type: string }
 `)
@@ -32,9 +31,6 @@ func TestLoadCapturePolicy(t *testing.T) {
 	if len(rule.Syscalls) != 1 || rule.Syscalls[0] != "openat" {
 		t.Fatalf("syscalls = %#v, want [openat]", rule.Syscalls)
 	}
-	if rule.Enter.PtrArg == nil || *rule.Enter.PtrArg != 1 {
-		t.Fatalf("enter ptr_arg = %#v, want 1", rule.Enter.PtrArg)
-	}
 	if len(rule.Enter.Reads) != 1 || rule.Enter.Reads[0].Type != "string" {
 		t.Fatalf("enter reads = %#v, want one string read", rule.Enter.Reads)
 	}
@@ -48,7 +44,6 @@ func TestLoadCapturePolicyNormalizesPayloads(t *testing.T) {
 	data := []byte(`rules:
   - syscalls: [write]
     enter:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: bytes, direction: in, len_from_arg: 2, max: 512, offset: 0 }
   - syscalls: [openat]

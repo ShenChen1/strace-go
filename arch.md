@@ -979,6 +979,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - JSON/debug `payload_sections` 不再输出 fixed-window `offset` 字段，syscall event 也不再输出旧 raw carrier 的 `ptr` / `data_len`；外部测试 oracle 只看 kind/direction/arg/user_ptr/user_len/copied_len/probe_ret/data，避免把旧窗口布局固化成机器输出契约。
 - `TraceState` pending enter 和 `syscallEventView` 已删除旧 raw carrier `dataLen` 字段；Go 状态机不再把 fixed-window payload 长度作为 enter/exit 配对状态保存。
 - 旧 `struct bpf_event.ptr` carrier 字段已删除；Go 侧 syscall primary pointer 统一从 semantic payload sections 或 syscall args 推导，避免旧 raw pointer 重新进入输出契约。
+- capture policy 已删除旧 `ptr_arg` 字段；生成器只根据 payload/read policy 生成 BPF 拷贝逻辑，不再生成 raw pointer carrier 写入。
 - 迁移期固定窗口源已统一命名为 `windowPayloadSource`，不再把它称为 fixed payload source，强调它只是旧 BPF fixed-window 到 semantic section 的兼容投影层。
 - `syscallEventContext` 已删除 `raw *bpfEvent` 字段和 raw fallback；JSON/handler/text pipeline 只能消费构造期缓存的 `syscallEventView` 与 `PayloadSection`，旧 BPF carrier 不再能从 syscall context 重新进入输出路径。
 - `payloadEvent` 已删除 `raw *bpfEvent` 字段和 meta fallback；fixed-window payload 投影只能通过 `rawPayloadEvent -> windowPayloadSource + payloadEventMeta` 的单向转换进入 section 规则。

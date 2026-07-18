@@ -7,7 +7,6 @@ rules:
   # IMPACT: Added fsopen to capture fs_name path string on enter.
   - syscalls: [open, creat, access, chdir, chroot, chmod, chown, lchown, mkdir, mknod, rmdir, unlink, execve, swapon, swapoff, acct, truncate, fsopen]
     enter:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: string, direction: in, max: 4096 }
 
@@ -24,7 +23,6 @@ rules:
   # Syscalls returning struct stat
   - syscalls: [stat, lstat]
     enter:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: string, direction: in, max: 512 }
     exit:
@@ -54,13 +52,11 @@ rules:
   # IMPACT: Added fspick to capture path string on enter.
   - syscalls: [openat, mkdirat, mknodat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, execveat, fspick]
     enter:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: string, direction: in, max: 4096 }
 
   - syscalls: [openat2]
     enter:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: string, direction: in, max: 4096 }
         - { arg: 2, kind: struct, direction: in, len_from_arg: 3, min: 24, max: 64, offset: 4096 }
@@ -68,48 +64,41 @@ rules:
   # IMPACT: Set arg 3 (value) size to 4097 to capture complete paths within the 4504 StrArg limit.
   - syscalls: [fsconfig]
     enter:
-      ptr_arg: 2
       payloads:
         - { arg: 2, kind: string, direction: in, size: 257, offset: 0 }
         - { arg: 3, kind: string_or_bytes, direction: in, string_bytes_switch: { selector_arg: 1, bytes_value: 2, len_from_arg: 4, len_mask: 8191 }, max: 4096, offset: 257 }
 
   - syscalls: [utimensat]
     enter:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: string, direction: in, size: 512, offset: 0 }
         - { arg: 2, kind: struct, direction: in, size: 32, offset: 512 }
 
   - syscalls: [memfd_create]
     enter:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: raw, direction: in, size: 250, offset: 0 }
 
   - syscalls: [utime]
     enter:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: string, direction: in, size: 512, offset: 0 }
         - { arg: 1, kind: struct, direction: in, size: 16, offset: 512 }
 
   - syscalls: [utimes]
     enter:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: string, direction: in, size: 512, offset: 0 }
         - { arg: 1, kind: struct, direction: in, size: 32, offset: 512 }
 
   - syscalls: [futimesat]
     enter:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: string, direction: in, size: 512, offset: 0 }
         - { arg: 2, kind: struct, direction: in, size: 32, offset: 512 }
 
   - syscalls: [newfstatat]
     enter:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: string, direction: in, max: 512 }
     exit:
@@ -118,7 +107,6 @@ rules:
 
   - syscalls: [readlink]
     enter:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: string, direction: in, max: 512 }
     exit:
@@ -127,7 +115,6 @@ rules:
 
   - syscalls: [readlinkat]
     enter:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: string, direction: in, max: 512 }
     exit:
@@ -137,21 +124,18 @@ rules:
   # Dual path syscalls
   - syscalls: [rename, link, symlink]
     enter:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: string, direction: in, max: 512, offset: 0 }
         - { arg: 1, kind: string, direction: in, max: 512, offset: 512 }
 
   - syscalls: [symlinkat]
     enter:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: string, direction: in, max: 512, offset: 0 }
         - { arg: 2, kind: string, direction: in, max: 512, offset: 512 }
 
   - syscalls: [renameat, renameat2, linkat]
     enter:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: string, direction: in, max: 512, offset: 0 }
         - { arg: 3, kind: string, direction: in, max: 512, offset: 512 }
@@ -159,13 +143,11 @@ rules:
   # Read/Write buffer capture (small prefix)
   - syscalls: [read, pread64]
     exit:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: bytes, direction: out, len_from_ret: true, max: 512, offset: 1024 }
 
   - syscalls: [write, pwrite64]
     enter:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: bytes, direction: in, len_from_arg: 2, max: 512, offset: 0 }
 
@@ -202,13 +184,11 @@ rules:
   # Network
   - syscalls: [connect, bind]
     enter:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: struct, direction: in, size: 128, offset: 0 } # sockaddr
 
   - syscalls: [sendto]
     enter:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: raw, direction: in, size: 512, offset: 0 }    # buf
         - { arg: 4, kind: struct, direction: in, size: 128, offset: 512 }  # addr
@@ -218,7 +198,6 @@ rules:
       payloads:
         - { arg: 5, kind: raw, direction: in, size: 4, offset: 768 } # addrlen in
     exit:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: raw, direction: out, size: 512, offset: 1024 } # buf
         - { arg: 4, kind: struct, direction: out, len_from_user_arg: 5, clamp_u32_from_offset: 768, max: 128, offset: 1536 } # addr
@@ -229,7 +208,6 @@ rules:
       payloads:
         - { arg: 2, kind: raw, direction: in, size: 4, offset: 768 } # addrlen in
     exit:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: struct, direction: out, len_from_user_arg: 2, clamp_u32_from_offset: 768, max: 128, offset: 1024 } # addr out
         - { arg: 2, kind: raw, direction: out, size: 4, offset: 772 } # addrlen out
@@ -241,7 +219,6 @@ rules:
 
   - syscalls: [ioctl]
     enter:
-      ptr_arg: 2
       payloads:
         - { arg: 2, kind: raw, direction: in, len_from_arg_bits: { arg: 1, shift: 16, mask: 16383, zero_len: 128 }, max: 512, offset: 512 } # arg with dynamic size from cmd (arg 1)
     exit:
@@ -258,7 +235,6 @@ rules:
 
   - syscalls: [umount2]
     enter:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: string, direction: in, size: 512 }
 
@@ -386,7 +362,6 @@ rules:
 
   - syscalls: [clock_gettime, clock_getres]
     exit:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: struct, direction: out, size: 16, offset: 1024 }
 
@@ -397,14 +372,12 @@ rules:
 
   - syscalls: [gettimeofday]
     exit:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: struct, direction: out, size: 16, offset: 1024 }
         - { arg: 1, kind: struct, direction: out, size: 8, offset: 1040 }
 
   - syscalls: [settimeofday]
     enter:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: struct, direction: in, size: 16, offset: 0 }
         - { arg: 1, kind: struct, direction: in, size: 8, offset: 16 }
@@ -480,12 +453,10 @@ rules:
   # AIO
   - syscalls: [io_setup]
     exit:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: raw, direction: out, size: 8, offset: 1024 }
 
   - syscalls: [arch_prctl]
-    enter: { ptr_arg: 1 }
     exit:
       payloads:
         - { arg: 1, kind: raw, direction: out, size: 8, offset: 1024 }
@@ -518,7 +489,6 @@ rules:
 
   - syscalls: [statfs]
     enter:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: string, direction: in, size: 512 }
     exit:
@@ -550,7 +520,6 @@ rules:
   # Extended attributes (xattr)
   - syscalls: [setxattr, lsetxattr]
     enter:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: string, direction: in, max: 512, offset: 0 }
         - { arg: 1, kind: string, direction: in, max: 256, offset: 512 }
@@ -558,14 +527,12 @@ rules:
 
   - syscalls: [fsetxattr]
     enter:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: string, direction: in, max: 256, offset: 0 }
         - { arg: 2, kind: bytes, direction: in, len_from_arg: 3, max: 256, offset: 256 }
 
   - syscalls: [getxattr, lgetxattr]
     enter:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: string, direction: in, max: 512, offset: 0 }
         - { arg: 1, kind: string, direction: in, max: 256, offset: 512 }
@@ -575,7 +542,6 @@ rules:
 
   - syscalls: [fgetxattr]
     enter:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: string, direction: in, max: 256, offset: 0 }
     exit:
@@ -584,20 +550,17 @@ rules:
 
   - syscalls: [removexattr, lremovexattr]
     enter:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: string, direction: in, max: 512, offset: 0 }
         - { arg: 1, kind: string, direction: in, max: 256, offset: 512 }
 
   - syscalls: [fremovexattr]
     enter:
-      ptr_arg: 1
       payloads:
         - { arg: 1, kind: string, direction: in, max: 256, offset: 0 }
 
   - syscalls: [listxattr, llistxattr]
     enter:
-      ptr_arg: 0
       payloads:
         - { arg: 0, kind: string, direction: in, max: 512, offset: 0 }
     exit:

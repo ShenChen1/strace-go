@@ -42,9 +42,10 @@ func TestWriteBPFCaptureHeaderDeterministic(t *testing.T) {
 	}
 }
 
-func TestGenerateBPFCodeIgnoresLegacyPtrArg(t *testing.T) {
-	ptrArg := 1
-	got := generateBPFCode(CapturePoint{PtrArg: &ptrArg}, "enter", "openat")
+func TestGenerateBPFCodeDoesNotEmitLegacyPointerCarrier(t *testing.T) {
+	got := generateBPFCode(CapturePoint{Reads: []CaptureRead{
+		{Arg: 1, Size: 8, Type: "raw"},
+	}}, "enter", "openat")
 
 	if strings.Contains(got, "->ptr") {
 		t.Fatalf("generateBPFCode emitted legacy ptr carrier write: %q", got)
