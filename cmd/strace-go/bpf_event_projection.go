@@ -7,29 +7,23 @@ func newTraceEventEnvelopeFromBPF(eventRaw *bpfEvent) traceEventEnvelope {
 		return traceEventEnvelope{}
 	}
 	payloadEvent := newRawPayloadEventFromBPF(eventRaw)
-	snapshotText := ""
-	if eventRaw.EventType == bpfEventTypeLifecycle && eventRaw.LifecycleAction == lifecycleExec {
-		snapshotText = lifecycleSnapshotString(payloadEvent.data)
-	}
 	return traceEventEnvelope{
-		valid:           true,
-		eventVersion:    eventRaw.EventVersion,
-		pid:             eventRaw.Pid,
-		tid:             eventRaw.Tid,
-		sysID:           eventRaw.SysId,
-		eventType:       eventRaw.EventType,
-		eventFlags:      eventRaw.EventFlags,
-		lifecycleAction: eventRaw.LifecycleAction,
-		enterTime:       eventRaw.EnterTime,
-		args:            eventRaw.Args,
-		ret:             eventRaw.Ret,
-		duration:        eventRaw.Duration,
-		ptr:             eventRaw.Ptr,
-		stackID:         eventRaw.StackId,
-		probeRetEnter:   eventRaw.ProbeRetEnter,
-		probeRetExit:    eventRaw.ProbeRetExit,
-		snapshotText:    snapshotText,
-		payload:         copyPayloadSections(payloadSectionsForRawPayloadEvent(payloadEvent, syscallMeta(eventRaw.SysId))),
+		valid:         true,
+		eventVersion:  eventRaw.EventVersion,
+		pid:           eventRaw.Pid,
+		tid:           eventRaw.Tid,
+		sysID:         eventRaw.SysId,
+		eventType:     eventRaw.EventType,
+		eventFlags:    eventRaw.EventFlags,
+		enterTime:     eventRaw.EnterTime,
+		args:          eventRaw.Args,
+		ret:           eventRaw.Ret,
+		duration:      eventRaw.Duration,
+		ptr:           eventRaw.Ptr,
+		stackID:       eventRaw.StackId,
+		probeRetEnter: eventRaw.ProbeRetEnter,
+		probeRetExit:  eventRaw.ProbeRetExit,
+		payload:       copyPayloadSections(payloadSectionsForRawPayloadEvent(payloadEvent, syscallMeta(eventRaw.SysId))),
 	}
 }
 

@@ -12,20 +12,21 @@ import (
 func TestJSONLifecycleExecIncludesFilenameSnapshot(t *testing.T) {
 	var output bytes.Buffer
 	session := &traceSession{outWriter: &output}
-	eventRaw := &bpfEvent{
-		Pid:             101,
-		Tid:             101,
-		EventVersion:    2,
-		EventType:       bpfEventTypeLifecycle,
-		EventFlags:      bpfEventFlagTruncated,
-		LifecycleAction: lifecycleExec,
-		EnterTime:       20,
-		Args:            [6]uint64{100, 101},
-		DataLen:         uint32(len("/bin/true") + 1),
+	raw := traceEventV2LifecycleSample(t, traceEventV2SampleSpec{
+		pid:     101,
+		tid:     101,
+		flags:   bpfEventFlagTruncated,
+		tsNs:    20,
+		action:  lifecycleExec,
+		args:    [6]uint64{100, 101},
+		payload: []byte("/bin/true\x00trailing"),
+	})
+	envelope, ok := decodeTraceEventV2Envelope(raw)
+	if !ok {
+		t.Fatal("decodeTraceEventV2Envelope rejected lifecycle sample")
 	}
-	copy(eventRaw.StrArg[:], []byte("/bin/true\x00trailing"))
 
-	session.writeJSONLifecycleEventView(newTraceEventEnvelopeFromBPF(eventRaw).lifecycleView(), &TaskState{
+	session.writeJSONLifecycleEventView(envelope.lifecycleView(), &TaskState{
 		TID:        101,
 		TGID:       101,
 		Alive:      true,

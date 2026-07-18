@@ -78,7 +78,6 @@ struct bpf_event {
     u16 event_version;
     u16 event_type;
     u32 event_flags;
-    u32 lifecycle_action;
     s32 probe_ret_enter; s32 probe_ret_exit;
     u64 enter_time;
     u64 duration;
@@ -391,7 +390,6 @@ static __always_inline void event_from_pending(struct bpf_event *e, struct pendi
     e->event_version = EVENT_VERSION;
     e->event_type = EVENT_TYPE_EXIT;
     e->event_flags = 0;
-    e->lifecycle_action = 0;
     e->probe_ret_enter = -1;
     e->probe_ret_exit = -1;
     e->enter_time = p->enter_time;
@@ -695,7 +693,6 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     e->event_version = EVENT_VERSION;
     e->event_type = EVENT_TYPE_EXIT;
     e->event_flags = 0;
-    e->lifecycle_action = 0;
 
     // IMPACT: Revert zero-initialization in trace_sys_enter to restore compile success under BPF.
     e->args[0] = ctx->args[0];
