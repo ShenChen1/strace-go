@@ -989,6 +989,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `read/pread64` 已作为第一批 bytes OUT payload syscall 绕开旧 `capture_read_tlv` fixed-window helper；exit 阶段根据 ret 直接写 OUT bytes TLV section，read/write 核心 buffer 链路已不再依赖旧 fixed-window helper。
 - event v2 enter body 已显式携带 `ret`、`probe_ret_enter` 和 `probe_ret_exit`，为 `execve/execveat` direct TLV 迁移保留 `ret=-514` restart/resume 语义，避免 direct enter 退化成只有参数快照的半事件。
 - `execve/execveat` 已作为 argv/envp/path IN payload syscall 绕开旧 `capture_exec_tlv` fixed-window helper；enter 阶段直接写 `PayloadKindExecArgs` 和 filename TLV sections，失败 exit 在 exit probe 重新做 bounded eBPF 快照，成功 exit 只输出小 pending metadata 合成的 event v2 exit。
+- `exit/exit_group` 已在 sys_enter 阶段直接合成 event v2 enter/exit，终止 syscall 不再通过 `struct bpf_event` carrier 保存 pending 后再 emit。
 - 迁移期固定窗口源已统一命名为 `windowPayloadSource`，不再把它称为 fixed payload source，强调它只是旧 BPF fixed-window 到 semantic section 的兼容投影层。
 - `syscallEventContext` 已删除 `raw *bpfEvent` 字段和 raw fallback；JSON/handler/text pipeline 只能消费构造期缓存的 `syscallEventView` 与 `PayloadSection`，旧 BPF carrier 不再能从 syscall context 重新进入输出路径。
 - `payloadEvent` 已删除 `raw *bpfEvent` 字段和 meta fallback；fixed-window payload 投影只能通过 `rawPayloadEvent -> windowPayloadSource + payloadEventMeta` 的单向转换进入 section 规则。
@@ -1006,7 +1007,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 
 仍需收口：
 
-- BPF 侧仍保留 `struct bpf_event` / `str_arg` fixed window 作为多条 capture path 的承载结构；目前 `getpid/close` scalar-only syscall、`openat` path enter payload、`write/pwrite64` bytes enter payload、`read/pread64` bytes exit payload 和 `execve/execveat` argv/envp/path payload 已开始绕开旧 carrier，其余多 payload syscall 尚未彻底切换为 header + TLV/section-first 的可变长事件协议。
+- BPF 侧仍保留 `struct bpf_event` / `str_arg` fixed window 作为多条 capture path 的承载结构；目前 `getpid/close` scalar-only syscall、`openat` path enter payload、`write/pwrite64` bytes enter payload、`read/pread64` bytes exit payload、`execve/execveat` argv/envp/path payload 和 `exit/exit_group` terminating syscall 已开始绕开旧 carrier，其余多 payload syscall 尚未彻底切换为 header + TLV/section-first 的可变长事件协议。
 - `sys_exit` 仍会为部分文本 formatter 重建 exit/full event；最终形态应由 enter payload、exit payload 和 Go 单协程状态机合成输出。
 - `read-write.gen.test` 当前剩余差异主要是 512 字节 BPF snapshot 前缀之后的大 hexdump exact diff；这属于 bounded eBPF snapshot 与 ptrace 无限/大块 fetch 语义差异，当前已作为 reference `XFAIL` 明确记录，主门禁已通过 JSON `EVENT_FLAG_TRUNCATED` / section `copied_len < user_len` oracle 覆盖纯 eBPF 契约。
 - 原生 upstream 测试卷需要继续按 syscall/语义分类筛选 reference 子集，而不是扩大为纯 eBPF 主门禁。

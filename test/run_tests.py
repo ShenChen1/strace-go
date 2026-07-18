@@ -252,6 +252,8 @@ def run_ebpf_semantic(args):
     require("read" in names, failures, "read event missing")
     require("close" in names, failures, "close event missing")
     require("execve" in names, failures, "child execve event missing; fork following may be broken")
+    require(any(ev.get("syscall") in ("exit", "exit_group") and ev.get("event_type") == "exit" and ev.get("paired_enter") for ev in exit_events),
+            failures, "exit/exit_group direct exit event was not paired with enter state")
     require(has_openat_path_section(events, "/tmp/strace-go-ebpf-missing-file"),
             failures, "openat path payload section missing from JSON event")
     require(has_exec_payload_sections(events), failures, "execve argv/envp and filename payload sections missing from JSON event")

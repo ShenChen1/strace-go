@@ -54,6 +54,7 @@ func exitEventContext(opts *cli.Options, name string, shouldPrint bool) syscallE
 	eventRaw := &bpfEvent{
 		Pid:           101,
 		Tid:           101,
+		EventType:     bpfEventTypeExit,
 		ProbeRetEnter: -1,
 		Args:          [6]uint64{7},
 	}
@@ -97,6 +98,24 @@ func TestExitSyscallOutputFallsThroughForNonExit(t *testing.T) {
 	}
 }
 
+func TestExitSyscallOutputIgnoresExitEnterEvent(t *testing.T) {
+	state := newExitOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON})
+	ev := exitEventContextWithRawAndView(
+		state.output.opts,
+		"exit_group",
+		true,
+		&bpfEvent{Pid: 101, Tid: 101, EventType: bpfEventTypeEnter, Args: [6]uint64{7}},
+		syscallEventView{valid: true, eventType: bpfEventTypeEnter, tid: 101, args: [6]uint64{7}},
+	)
+
+	if state.output.Handle(ev) {
+		t.Fatal("exit_group enter event should fall through")
+	}
+	if state.out.Len() != 0 || state.jsonCalled || state.queuedLine != "" {
+		t.Fatalf("exit enter side effects: out=%q json=%v queued=%q", state.out.String(), state.jsonCalled, state.queuedLine)
+	}
+}
+
 func TestExitSyscallOutputPrintsTextAndStatus(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{FollowForks: true})
 
@@ -132,8 +151,8 @@ func TestExitSyscallOutputPrintsExitTextFromEventView(t *testing.T) {
 		state.output.opts,
 		"exit_group",
 		true,
-		&bpfEvent{Pid: 1, Tid: 1, ProbeRetEnter: -1, Args: [6]uint64{7}},
-		syscallEventView{valid: true, tid: 101, probeRetEnter: -1},
+		&bpfEvent{Pid: 1, Tid: 1, EventType: bpfEventTypeExit, ProbeRetEnter: -1, Args: [6]uint64{7}},
+		syscallEventView{valid: true, eventType: bpfEventTypeExit, tid: 101, probeRetEnter: -1},
 	)
 
 	if !state.output.Handle(ev) {
@@ -169,8 +188,8 @@ func TestExitSyscallOutputQueuesStatusFromEventView(t *testing.T) {
 		state.output.opts,
 		"exit",
 		true,
-		&bpfEvent{Pid: 1, Tid: 1, ProbeRetEnter: -1, Args: [6]uint64{1}},
-		syscallEventView{valid: true, pid: 201, tid: 202, args: [6]uint64{9}, probeRetEnter: -1},
+		&bpfEvent{Pid: 1, Tid: 1, EventType: bpfEventTypeExit, ProbeRetEnter: -1, Args: [6]uint64{1}},
+		syscallEventView{valid: true, eventType: bpfEventTypeExit, pid: 201, tid: 202, args: [6]uint64{9}, probeRetEnter: -1},
 	)
 
 	state.output.Handle(ev)
@@ -205,8 +224,8 @@ func TestExitSyscallOutputJSONUsesEventContext(t *testing.T) {
 		state.output.opts,
 		"exit_group",
 		true,
-		&bpfEvent{Pid: 101, Tid: 101, ProbeRetEnter: -1, Args: [6]uint64{7}, Ret: 123},
-		syscallEventView{valid: true, ret: -2, probeRetEnter: -1},
+		&bpfEvent{Pid: 101, Tid: 101, EventType: bpfEventTypeExit, ProbeRetEnter: -1, Args: [6]uint64{7}, Ret: 123},
+		syscallEventView{valid: true, eventType: bpfEventTypeExit, ret: -2, probeRetEnter: -1},
 	)
 
 	state.output.Handle(ev)
@@ -225,8 +244,8 @@ func TestExitSyscallOutputDetectsExitFromEventView(t *testing.T) {
 		state.output.opts,
 		"exit_group",
 		true,
-		&bpfEvent{Pid: 101, Tid: 101, ProbeRetEnter: 0, Args: [6]uint64{7}},
-		syscallEventView{valid: true, probeRetEnter: -1},
+		&bpfEvent{Pid: 101, Tid: 101, EventType: bpfEventTypeExit, ProbeRetEnter: 0, Args: [6]uint64{7}},
+		syscallEventView{valid: true, eventType: bpfEventTypeExit, probeRetEnter: -1},
 	)
 
 	if !state.output.Handle(ev) {
@@ -241,7 +260,7 @@ func TestExitSyscallOutputDetectsExitFromHandlerMetadata(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON})
 	scMeta := meta.Syscall{Name: "exit_group", Args: []string{"error_code"}, ArgTypes: []string{"int"}}
 	ev := syscallEventContext{
-		view:        syscallEventView{valid: true, tid: 101, probeRetEnter: -1, args: [6]uint64{7}},
+		view:        syscallEventView{valid: true, eventType: bpfEventTypeExit, tid: 101, probeRetEnter: -1, args: [6]uint64{7}},
 		shouldPrint: true,
 		handlerContext: &handler.Context{
 			ScMeta:  scMeta,

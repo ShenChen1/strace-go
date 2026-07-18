@@ -6,6 +6,11 @@ static __always_inline int is_scalar_direct_syscall(u32 sys_id)
     return sys_id == SYS_GETPID || sys_id == SYS_CLOSE;
 }
 
+static __always_inline int is_terminating_direct_syscall(u32 sys_id)
+{
+    return sys_id == SYS_EXIT || sys_id == SYS_EXIT_GROUP;
+}
+
 static __always_inline int is_payload_direct_syscall(u32 sys_id)
 {
     return sys_id == SYS_OPENAT || sys_id == SYS_WRITE || sys_id == SYS_PWRITE64 ||
@@ -121,6 +126,25 @@ static __always_inline void init_syscall_exit_event_v2_from_pending(
     body->capture_flags = 0;
 }
 
+static __always_inline void init_syscall_exit_event_v2_from_ctx(
+    struct syscall_exit_event_v2 *body,
+    struct trace_event_raw_sys_enter *ctx,
+    s64 ret_value,
+    u64 duration,
+    u32 payload_size)
+{
+    body->ret = ret_value;
+    body->duration_ns = duration;
+    body->args[0] = ctx->args[0];
+    body->args[1] = ctx->args[1];
+    body->args[2] = ctx->args[2];
+    body->args[3] = ctx->args[3];
+    body->args[4] = ctx->args[4];
+    body->args[5] = ctx->args[5];
+    body->capture_len = payload_size;
+    body->capture_flags = 0;
+}
+
 static __always_inline int payload_tlv_write_header_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,
@@ -204,6 +228,43 @@ static __always_inline void emit_no_payload_enter_event_v2_direct(
             EVENT_FLAG_GENERIC_ENTER,
             ts_ns);
     }
+}
+
+static __always_inline void emit_terminating_exit_event_v2_direct(
+    u32 pid,
+    u32 tid,
+    u32 sys_id,
+    struct trace_event_raw_sys_enter *ctx,
+    u64 ts_ns)
+{
+    u32 out_size = EVENT_V2_HEADER_LEN + EVENT_V2_EXIT_BODY_LEN;
+    struct bpf_dynptr ptr;
+    long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
+    if (ret < 0) {
+        record_ringbuf_reserve_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    struct event_v2_header header = {};
+    init_syscall_event_v2_header_direct(&header, EVENT_TYPE_EXIT, 0, pid, tid, sys_id, out_size, ts_ns);
+    ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    struct syscall_exit_event_v2 body = {};
+    init_syscall_exit_event_v2_from_ctx(&body, ctx, 0, 0, 0);
+    ret = bpf_dynptr_write(&ptr, EVENT_V2_HEADER_LEN, &body, sizeof(body), 0);
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    bpf_ringbuf_submit_dynptr(&ptr, 0);
 }
 
 static __always_inline u32 capture_openat_path_tlv_direct(

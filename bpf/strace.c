@@ -568,6 +568,17 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
     }
 
+    // IMPACT: terminating syscalls synthesize their exit event at enter time without touching the bpf_event carrier.
+    if (is_terminating_direct_syscall(sys_id)) {
+        if (tid == pid) {
+            u32 val = 1;
+            bpf_map_update_elem(&main_exited_map, &pid, &val, BPF_ANY);
+        }
+        emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
+        emit_terminating_exit_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        return 0;
+    }
+
     // IMPACT: exec direct events preserve restart/resume status while copying argv/envp/path straight into ringbuf TLV.
     if (is_exec_payload_direct_syscall(sys_id)) {
         s32 probe_ret_enter = 0;
@@ -629,15 +640,6 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     }
 
     save_pending_syscall(tid, e);
-
-    if (sys_id == SYS_EXIT || sys_id == SYS_EXIT_GROUP) { // exit (60), exit_group (231)
-        if (tid == pid) {
-            u32 val = 1;
-            bpf_map_update_elem(&main_exited_map, &pid, &val, BPF_ANY);
-        }
-        emit_event(e);
-        bpf_map_delete_elem(&pending_syscalls, &tid);
-    }
 
     if (sys_id == SYS_RT_SIGSUSPEND || sys_id == SYS_NANOSLEEP) { // rt_sigsuspend (130), nanosleep (35)
         struct task_struct *task = (struct task_struct *)bpf_get_current_task();

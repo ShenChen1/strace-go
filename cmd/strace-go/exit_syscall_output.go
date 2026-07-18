@@ -99,5 +99,5 @@ func (o *ExitSyscallOutput) printExitStatus(ev syscallEventContext) {
 
 func (ev syscallEventContext) isExitSyscallEvent() bool {
 	name := ev.syscallName()
-	return ev.eventView().probeRetEnter == -1 && (name == "exit" || name == "exit_group")
+	return ev.eventView().isExit() && (name == "exit" || name == "exit_group")
 }
