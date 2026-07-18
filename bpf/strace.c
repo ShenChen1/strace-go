@@ -98,6 +98,7 @@ struct pending_syscall {
 struct bpf_stats {
     u64 ringbuf_reserve_fail;
     u64 ringbuf_copy_fail;
+    u64 payload_truncated_events;
 };
 
 struct {
@@ -402,6 +403,14 @@ static __always_inline void record_ringbuf_copy_fail(void)
     }
 }
 
+static __always_inline void record_payload_truncated_event(void)
+{
+    struct bpf_stats *stats = lookup_stats();
+    if (stats) {
+        stats->payload_truncated_events++;
+    }
+}
+
 static __always_inline u32 event_output_size(struct bpf_event *e)
 {
     u32 data_len = e->data_len;
@@ -414,6 +423,11 @@ static __always_inline u32 event_output_size(struct bpf_event *e)
 static __always_inline void emit_event(struct bpf_event *e)
 {
     u32 out_size = event_output_size(e);
+    if ((e->event_type == EVENT_TYPE_ENTER || e->event_type == EVENT_TYPE_EXIT) &&
+        (e->event_flags & EVENT_FLAG_TRUNCATED)) {
+        record_payload_truncated_event();
+    }
+
     struct bpf_dynptr ptr;
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {

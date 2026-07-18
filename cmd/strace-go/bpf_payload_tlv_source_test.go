@@ -56,6 +56,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "saved_flags | EVENT_FLAG_GENERIC_ENTER") {
 		t.Fatal("generic enter flag should preserve payload TLV flag")
 	}
+	if !strings.Contains(straceSource, "e->event_type == EVENT_TYPE_ENTER || e->event_type == EVENT_TYPE_EXIT") {
+		t.Fatal("truncated stats should ignore lifecycle action ids sharing event_flags")
+	}
 	wantFlag := "#define EVENT_FLAG_PAYLOAD_TLV " + strconv.Itoa(int(bpfEventFlagPayloadTLV))
 	if !strings.Contains(tlvHeader, wantFlag) {
 		t.Fatalf("payload TLV header missing %q", wantFlag)

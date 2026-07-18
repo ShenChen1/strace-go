@@ -77,11 +77,12 @@ type jsonLifecycleEvent struct {
 }
 
 type jsonStatsEvent struct {
-	Type               string `json:"type"`
-	RingbufReserveFail uint64 `json:"ringbuf_reserve_fail"`
-	RingbufCopyFail    uint64 `json:"ringbuf_copy_fail"`
-	Available          bool   `json:"available"`
-	Error              string `json:"error,omitempty"`
+	Type                   string `json:"type"`
+	RingbufReserveFail     uint64 `json:"ringbuf_reserve_fail"`
+	RingbufCopyFail        uint64 `json:"ringbuf_copy_fail"`
+	PayloadTruncatedEvents uint64 `json:"payload_truncated_events"`
+	Available              bool   `json:"available"`
+	Error                  string `json:"error,omitempty"`
 }
 
 func newJSONSyscallEventFromView(view syscallEventView, scMeta meta.Syscall, sections []handler.PayloadSection) jsonSyscallEvent {
@@ -149,11 +150,12 @@ func (s *traceSession) writeJSONLifecycleEventView(view traceStateEventView, tas
 
 func newJSONStatsEvent(stats bpfRuntimeStats) jsonStatsEvent {
 	return jsonStatsEvent{
-		Type:               "stats",
-		RingbufReserveFail: stats.RingbufReserveFail,
-		RingbufCopyFail:    stats.RingbufCopyFail,
-		Available:          stats.Available,
-		Error:              stats.Error,
+		Type:                   "stats",
+		RingbufReserveFail:     stats.RingbufReserveFail,
+		RingbufCopyFail:        stats.RingbufCopyFail,
+		PayloadTruncatedEvents: stats.PayloadTruncatedEvents,
+		Available:              stats.Available,
+		Error:                  stats.Error,
 	}
 }
 
