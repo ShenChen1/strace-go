@@ -40,10 +40,21 @@ type syscallEventView struct {
 }
 
 func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, pendingEnter *pendingSyscallState) syscallEventContext {
-	scMeta := syscallMeta(eventRaw.SysId)
 	view := newSyscallEventViewFromBPF(eventRaw)
+	scMeta := syscallMeta(view.sysID)
+	return newSyscallEventContextFromView(s, view, statePID, pendingEnter, payloadSectionsForEvent(eventRaw, scMeta))
+}
+
+func newSyscallEventContextFromView(
+	s *traceSession,
+	view syscallEventView,
+	statePID int,
+	pendingEnter *pendingSyscallState,
+	currentPayload []handler.PayloadSection,
+) syscallEventContext {
+	scMeta := syscallMeta(view.sysID)
 	isPath := syscallHasPathArg(scMeta)
-	payloadSections := mergePendingPayloadSections(pendingEnter, payloadSectionsForEvent(eventRaw, scMeta))
+	payloadSections := mergePendingPayloadSections(pendingEnter, currentPayload)
 	pathText := decodePathText(s, view, scMeta, isPath, payloadSections)
 	shouldPrint := true
 	if s.opts != nil {

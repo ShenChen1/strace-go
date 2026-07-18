@@ -264,7 +264,13 @@ func TestSyscallEventContextMergesPendingEnterTLVPathForPathFilter(t *testing.T)
 		Ret:           -9,
 	}
 	exitUpdate := session.traceState().handleEnvelope(newRawEventEnvelopeFromBPF(exitRaw))
-	ev := newSyscallEventContext(session, exitRaw, 101, exitUpdate.pendingEnter)
+	ev := newSyscallEventContextFromView(
+		session,
+		exitUpdate.syscallView,
+		101,
+		exitUpdate.pendingEnter,
+		exitUpdate.payloadSections,
+	)
 
 	if !ev.shouldOutput() {
 		t.Fatal("openat exit should match -P from-tlv using pending enter TLV path")

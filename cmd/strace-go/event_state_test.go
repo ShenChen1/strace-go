@@ -183,6 +183,56 @@ func TestTraceStateEnterUpdateCarriesSemanticPayloadSections(t *testing.T) {
 	}
 }
 
+func TestTraceStateExitUpdateCarriesSemanticPayloadSections(t *testing.T) {
+	state := newTraceState()
+	envelope := rawEventEnvelope{
+		valid:     true,
+		pid:       101,
+		tid:       101,
+		sysID:     syscallIDByName(t, "read"),
+		eventType: bpfEventTypeExit,
+		payload: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindBytes,
+			Direction: handler.PayloadDirectionOut,
+			ArgIndex:  1,
+			Data:      []byte("typed"),
+		}},
+	}
+
+	update := state.handleEnvelope(envelope)
+
+	if update.kind != traceStateSyscallExit {
+		t.Fatalf("update kind = %d, want exit", update.kind)
+	}
+	if len(update.payloadSections) != 1 || string(update.payloadSections[0].Data) != "typed" {
+		t.Fatalf("exit update payload sections = %+v, want semantic bytes section", update.payloadSections)
+	}
+}
+
+func TestTraceStateExitUpdateCarriesSyscallResultView(t *testing.T) {
+	state := newTraceState()
+	envelope := rawEventEnvelope{
+		valid:        true,
+		pid:          101,
+		tid:          102,
+		sysID:        syscallIDByName(t, "openat"),
+		eventType:    bpfEventTypeExit,
+		ret:          -2,
+		duration:     55,
+		ptr:          0x1234,
+		stackID:      7,
+		probeRetExit: -1,
+	}
+
+	update := state.handleEnvelope(envelope)
+	view := update.syscallView
+
+	if view.ret != -2 || view.duration != 55 || view.ptr != 0x1234 ||
+		view.stackID != 7 || view.probeRetExit != -1 {
+		t.Fatalf("exit syscall view = %+v, want result fields from envelope", view)
+	}
+}
+
 func TestZeroEventTypeIsNotExit(t *testing.T) {
 	eventRaw := &bpfEvent{EventVersion: 2}
 

@@ -37,7 +37,13 @@ func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
 		))
 		return
 	}
-	ev := newSyscallEventContext(s, eventRaw, statePID, stateUpdate.pendingEnter)
+	ev := newSyscallEventContextFromView(
+		s,
+		stateUpdate.syscallView,
+		statePID,
+		stateUpdate.pendingEnter,
+		stateUpdate.payloadSections,
+	)
 
 	s.syscallExitPipeline().Handle(ev)
 }

@@ -29,7 +29,12 @@ type rawEventEnvelope struct {
 	lifecycleAction uint32
 	enterTime       uint64
 	args            [6]uint64
+	ret             int64
+	duration        uint64
+	ptr             uint64
+	stackID         int32
 	probeRetEnter   int32
+	probeRetExit    int32
 	snapshotText    string
 	payload         []handler.PayloadSection
 }
@@ -107,9 +112,10 @@ func (st *TraceState) handleEnvelope(envelope rawEventEnvelope) TraceStateUpdate
 		}
 	}
 	return TraceStateUpdate{
-		kind:         traceStateSyscallExit,
-		syscallView:  syscallView,
-		pendingEnter: st.consumeEnterEvent(syscallView),
+		kind:            traceStateSyscallExit,
+		syscallView:     syscallView,
+		payloadSections: envelope.payload,
+		pendingEnter:    st.consumeEnterEvent(syscallView),
 	}
 }
 
@@ -138,8 +144,13 @@ func (envelope rawEventEnvelope) syscallView() syscallEventView {
 		eventType:     envelope.eventType,
 		eventFlags:    envelope.eventFlags,
 		args:          envelope.args,
+		ret:           envelope.ret,
+		duration:      envelope.duration,
 		enterTime:     envelope.enterTime,
+		ptr:           envelope.ptr,
+		stackID:       envelope.stackID,
 		probeRetEnter: envelope.probeRetEnter,
+		probeRetExit:  envelope.probeRetExit,
 	}
 }
 
@@ -162,7 +173,12 @@ func newRawEventEnvelopeFromBPF(eventRaw *bpfEvent) rawEventEnvelope {
 		lifecycleAction: eventRaw.LifecycleAction,
 		enterTime:       eventRaw.EnterTime,
 		args:            eventRaw.Args,
+		ret:             eventRaw.Ret,
+		duration:        eventRaw.Duration,
+		ptr:             eventRaw.Ptr,
+		stackID:         eventRaw.StackId,
 		probeRetEnter:   eventRaw.ProbeRetEnter,
+		probeRetExit:    eventRaw.ProbeRetExit,
 		snapshotText:    snapshotText,
 		payload:         copyPayloadSections(payloadSectionsForEvent(eventRaw, syscallMeta(eventRaw.SysId))),
 	}
