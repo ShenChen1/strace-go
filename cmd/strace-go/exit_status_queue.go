@@ -6,8 +6,9 @@ import (
 )
 
 type ExitStatusQueue struct {
-	pending map[int]string
-	exited  map[int]bool
+	pending  map[int]string
+	exited   map[int]bool
+	fallback map[int]string
 }
 
 type ExitStatusCoordinator struct {
@@ -64,6 +65,7 @@ func (s *traceSession) exitStatusCoordinator() *ExitStatusCoordinator {
 func (q *ExitStatusQueue) Queue(pid int, line string) (string, bool) {
 	if q.exited != nil && q.exited[pid] {
 		delete(q.exited, pid)
+		delete(q.fallback, pid)
 		return line, true
 	}
 	if q.pending == nil {
@@ -75,9 +77,15 @@ func (q *ExitStatusQueue) Queue(pid int, line string) (string, bool) {
 
 // IMPACT: MarkExited records process wait completion or releases a previously queued exit line.
 func (q *ExitStatusQueue) MarkExited(pid int) (string, bool) {
+	return q.MarkExitedWithFallback(pid, "")
+}
+
+// IMPACT: MarkExitedWithFallback keeps a wait-derived exit line only until the ringbuf drain proves no real exit event arrived.
+func (q *ExitStatusQueue) MarkExitedWithFallback(pid int, fallback string) (string, bool) {
 	if q.pending != nil {
 		if line, ok := q.pending[pid]; ok {
 			delete(q.pending, pid)
+			delete(q.fallback, pid)
 			return line, true
 		}
 	}
@@ -85,16 +93,36 @@ func (q *ExitStatusQueue) MarkExited(pid int) (string, bool) {
 		q.exited = make(map[int]bool)
 	}
 	q.exited[pid] = true
+	if fallback != "" {
+		if q.fallback == nil {
+			q.fallback = make(map[int]string)
+		}
+		q.fallback[pid] = fallback
+	}
 	return "", false
 }
 
 func (q *ExitStatusQueue) Discard(pid int) {
 	delete(q.pending, pid)
 	delete(q.exited, pid)
+	delete(q.fallback, pid)
 }
 
 func (q *ExitStatusQueue) HasExited(pid int) bool {
 	return q.exited != nil && q.exited[pid]
+}
+
+func (q *ExitStatusQueue) FlushFallback(pid int) (string, bool) {
+	if q.exited == nil || !q.exited[pid] || q.fallback == nil {
+		return "", false
+	}
+	line, ok := q.fallback[pid]
+	delete(q.exited, pid)
+	delete(q.fallback, pid)
+	if !ok || line == "" {
+		return "", false
+	}
+	return line, true
 }
 
 func (c *ExitStatusCoordinator) ShouldQueue(tgid int) bool {
@@ -123,6 +151,24 @@ func (c *ExitStatusCoordinator) MarkExited(pid int) {
 		return
 	}
 	if line, ok := c.queue.MarkExited(pid); ok {
+		c.write(line)
+	}
+}
+
+func (c *ExitStatusCoordinator) MarkExitedWithFallback(pid int, fallback string) {
+	if c == nil || c.queue == nil {
+		return
+	}
+	if line, ok := c.queue.MarkExitedWithFallback(pid, fallback); ok {
+		c.write(line)
+	}
+}
+
+func (c *ExitStatusCoordinator) FlushFallback(pid int) {
+	if c == nil || c.queue == nil {
+		return
+	}
+	if line, ok := c.queue.FlushFallback(pid); ok {
 		c.write(line)
 	}
 }

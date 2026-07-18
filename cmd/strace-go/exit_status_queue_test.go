@@ -29,6 +29,34 @@ func TestExitStatusQueueHandlesWaitBeforeRingEvent(t *testing.T) {
 	}
 }
 
+func TestExitStatusQueueFlushesWaitFallback(t *testing.T) {
+	queue := newExitStatusQueue()
+
+	if line, ok := queue.MarkExitedWithFallback(101, "fallback\n"); ok || line != "" {
+		t.Fatalf("MarkExitedWithFallback = (%q, %v), want no immediate output", line, ok)
+	}
+	line, ok := queue.FlushFallback(101)
+	if !ok || line != "fallback\n" {
+		t.Fatalf("FlushFallback = (%q, %v), want fallback line", line, ok)
+	}
+	if line, ok := queue.FlushFallback(101); ok || line != "" {
+		t.Fatalf("second FlushFallback = (%q, %v), want no output", line, ok)
+	}
+}
+
+func TestExitStatusQueuePrefersRingEventOverWaitFallback(t *testing.T) {
+	queue := newExitStatusQueue()
+
+	queue.MarkExitedWithFallback(101, "fallback\n")
+	line, ok := queue.Queue(101, "ring\n")
+	if !ok || line != "ring\n" {
+		t.Fatalf("Queue after fallback = (%q, %v), want ring line", line, ok)
+	}
+	if line, ok := queue.FlushFallback(101); ok || line != "" {
+		t.Fatalf("FlushFallback after ring line = (%q, %v), want no fallback", line, ok)
+	}
+}
+
 func TestExitStatusQueueDiscardDropsPendingAndExitedState(t *testing.T) {
 	queue := newExitStatusQueue()
 
@@ -56,5 +84,22 @@ func TestTraceSessionExitStatusWritesQueuedLineAfterMark(t *testing.T) {
 	coordinator.MarkExited(101)
 	if output.String() != "exited\n" {
 		t.Fatalf("exit status output = %q", output.String())
+	}
+}
+
+func TestTraceSessionExitStatusWritesFallbackAfterFlush(t *testing.T) {
+	var output bytes.Buffer
+	coordinator := newExitStatusCoordinator(ExitStatusCoordinatorDeps{
+		Queue: newExitStatusQueue(),
+		Out:   &output,
+	})
+
+	coordinator.MarkExitedWithFallback(101, "fallback\n")
+	if output.Len() != 0 {
+		t.Fatalf("fallback printed before flush: %q", output.String())
+	}
+	coordinator.FlushFallback(101)
+	if output.String() != "fallback\n" {
+		t.Fatalf("fallback output = %q", output.String())
 	}
 }

@@ -50,8 +50,8 @@ func TestDecodeBPFEventRecordAcceptsMinimumSample(t *testing.T) {
 }
 
 func TestTraceRunStateCollectMarksCommandExit(t *testing.T) {
-	done := make(chan struct{})
-	close(done)
+	done := make(chan traceCommandExitResult, 1)
+	done <- traceCommandExitResult{exited: true}
 	session := &traceSession{targetPid: 77}
 	state := traceRunState{cmdDone: done}
 
@@ -61,6 +61,28 @@ func TestTraceRunStateCollectMarksCommandExit(t *testing.T) {
 	}
 	if !session.exitStatusQueue().HasExited(77) {
 		t.Fatalf("tracee exit was not marked: %+v", session.exitStatus)
+	}
+}
+
+func TestTraceRunStateCollectStoresCommandExitFallback(t *testing.T) {
+	done := make(chan traceCommandExitResult, 1)
+	done <- traceCommandExitResult{exited: true, exitCode: 3}
+	var output bytes.Buffer
+	session := &traceSession{
+		targetPid:  77,
+		opts:       &cli.Options{EventFormat: cli.EventFormatText},
+		outWriter:  &output,
+		exitStatus: newExitStatusQueue(),
+	}
+	state := traceRunState{cmdDone: done}
+
+	state.collect(session)
+	if output.Len() != 0 {
+		t.Fatalf("fallback printed before drain finished: %q", output.String())
+	}
+	session.exitStatusCoordinator().FlushFallback(77)
+	if output.String() != "+++ exited with 3 +++\n" {
+		t.Fatalf("fallback output = %q", output.String())
 	}
 }
 

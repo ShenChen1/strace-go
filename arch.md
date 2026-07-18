@@ -974,7 +974,8 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `syscallEventContext` 已删除 `raw *bpfEvent` 字段和 raw fallback；JSON/handler/text pipeline 只能消费构造期缓存的 `syscallEventView` 与 `PayloadSection`，旧 BPF carrier 不再能从 syscall context 重新进入输出路径。
 - `payloadEvent` 已删除 `raw *bpfEvent` 字段和 meta fallback；fixed-window payload 投影只能通过 `rawPayloadEvent -> windowPayloadSource + payloadEventMeta` 的单向转换进入 section 规则。
 - `upstream-reference` 已从 `small` suite 别名收敛为显式 curated reference 子集，优先覆盖 `getpid/openat/read-write/execve/fork` 第一链路测试卷。
-- upstream 原生测试卷已作为 `upstream-reference` smoke 跑通入口；最近一次参考运行暴露的主要是 strict text diff、退出行和 ptrace 顺序语义差异，不作为 eBPF 主门禁失败处理。
+- wait 路径已为被 BPF syscall filter 排除的 `exit/exit_group` 提供文本 exit status fallback；真实 ringbuf exit 事件优先，drain 后仍无真实事件才输出 fallback，`getpid.gen.test` 与 `execveat.gen.test` 已在 `upstream-reference` 中通过。
+- upstream 原生测试卷已作为 `upstream-reference` smoke 跑通入口；最近一次参考运行剩余主要差异是 `-P` path filter/失败 path 语义和大 payload hexdump exact diff，不作为 eBPF 主门禁失败处理。
 
 仍需收口：
 

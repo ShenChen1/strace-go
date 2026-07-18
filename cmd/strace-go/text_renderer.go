@@ -113,6 +113,14 @@ func (r *TextRenderer) ExitStatusLineFromView(view syscallEventView) string {
 		r.timePrefix(view.enterTime), r.pidPrefix(int(view.tid)), view.args[0])
 }
 
+func (r *TextRenderer) ExitStatusLine(tid int, status uint64) string {
+	return r.ExitStatusLineFromView(syscallEventView{
+		valid: true,
+		tid:   uint32(tid),
+		args:  [6]uint64{status},
+	})
+}
+
 // IMPACT: PrintSyscallEvent renders a decoded syscall from the stable event context view.
 func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Result) {
 	view := ev.eventView()

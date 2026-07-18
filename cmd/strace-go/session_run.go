@@ -26,10 +26,15 @@ const (
 
 type traceRunState struct {
 	commandExited  bool
-	cmdDone        <-chan struct{}
+	cmdDone        <-chan traceCommandExitResult
 	attachExited   bool
 	attachPids     []int
 	nextAttachPoll time.Time
+}
+
+type traceCommandExitResult struct {
+	exited   bool
+	exitCode uint64
 }
 
 // IMPACT: run reads and handles ringbuf records in the same goroutine; only process waiting is asynchronous.
@@ -57,11 +62,11 @@ func newTraceRunState(s *traceSession) traceRunState {
 		attachExited:  s.opts == nil || len(s.opts.AttachPids) == 0,
 	}
 	if !state.commandExited {
-		ch := make(chan struct{})
+		ch := make(chan traceCommandExitResult, 1)
 		state.cmdDone = ch
 		go func() {
-			_ = s.cmd.Wait()
-			close(ch)
+			err := s.cmd.Wait()
+			ch <- newTraceCommandExitResult(s.cmd.ProcessState, err)
 		}()
 	}
 	if !state.attachExited {
@@ -73,8 +78,8 @@ func newTraceRunState(s *traceSession) traceRunState {
 func (st *traceRunState) collect(s *traceSession) {
 	if st.cmdDone != nil {
 		select {
-		case <-st.cmdDone:
-			s.exitStatusCoordinator().MarkExited(s.targetPid)
+		case result := <-st.cmdDone:
+			s.exitStatusCoordinator().MarkExitedWithFallback(s.targetPid, s.commandExitFallbackLine(result))
 			st.commandExited = true
 			st.cmdDone = nil
 		default:
@@ -90,6 +95,32 @@ func (st *traceRunState) collect(s *traceSession) {
 
 func (st traceRunState) done() bool {
 	return st.commandExited && st.attachExited
+}
+
+func newTraceCommandExitResult(state *os.ProcessState, waitErr error) traceCommandExitResult {
+	if waitErr == nil {
+		return traceCommandExitResult{exited: true}
+	}
+	if state == nil {
+		return traceCommandExitResult{}
+	}
+	if status, ok := state.Sys().(syscall.WaitStatus); ok && status.Exited() {
+		return traceCommandExitResult{exited: true, exitCode: uint64(status.ExitStatus())}
+	}
+	if code := state.ExitCode(); code >= 0 {
+		return traceCommandExitResult{exited: true, exitCode: uint64(code)}
+	}
+	return traceCommandExitResult{}
+}
+
+func (s *traceSession) commandExitFallbackLine(result traceCommandExitResult) string {
+	if !result.exited || s == nil || s.opts == nil {
+		return ""
+	}
+	if s.opts.QuietExit || s.opts.SummaryOnly || s.opts.EventFormat == cli.EventFormatJSON {
+		return ""
+	}
+	return s.textRenderer().ExitStatusLine(s.targetPid, result.exitCode)
 }
 
 func (st *traceRunState) shouldPollAttach() bool {
@@ -197,6 +228,7 @@ func isTransientRingbufReadError(err error) bool {
 }
 
 func (s *traceSession) finishRun() {
+	s.exitStatusCoordinator().FlushFallback(s.targetPid)
 	s.maybeWriteJSONStatsEvent()
 	if s.opts != nil && (s.opts.SummaryOnly || s.opts.SummaryAndPrint) {
 		s.summaryStats().Print(s.outWriter)
