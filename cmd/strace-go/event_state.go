@@ -158,11 +158,11 @@ func newRawEventEnvelopeFromBPF(eventRaw *bpfEvent) rawEventEnvelope {
 	if eventRaw == nil {
 		return rawEventEnvelope{}
 	}
+	payloadEvent := newRawPayloadEventFromBPF(eventRaw)
 	snapshotText := ""
 	if eventRaw.EventType == bpfEventTypeLifecycle && eventRaw.LifecycleAction == lifecycleExec {
-		snapshotText = lifecycleSnapshotString(eventRaw)
+		snapshotText = lifecycleSnapshotString(payloadEvent.data)
 	}
-	payloadEvent := newRawPayloadEventFromBPF(eventRaw)
 	return rawEventEnvelope{
 		valid:           true,
 		eventVersion:    eventRaw.EventVersion,
@@ -212,15 +212,10 @@ func eventPayloadDataFromBPF(eventRaw *bpfEvent) []byte {
 	return eventRaw.StrArg[:dataLen]
 }
 
-func lifecycleSnapshotString(eventRaw *bpfEvent) string {
-	if eventRaw.DataLen == 0 {
+func lifecycleSnapshotString(data []byte) string {
+	if len(data) == 0 {
 		return ""
 	}
-	n := int(eventRaw.DataLen)
-	if n > len(eventRaw.StrArg) {
-		n = len(eventRaw.StrArg)
-	}
-	data := eventRaw.StrArg[:n]
 	if idx := bytes.IndexByte(data, 0); idx >= 0 {
 		data = data[:idx]
 	}
