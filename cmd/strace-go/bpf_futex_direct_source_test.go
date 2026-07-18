@@ -16,13 +16,16 @@ func TestBPFFutexPayloadUsesDirectTLV(t *testing.T) {
 
 	for _, snippet := range []string{
 		"#define SYS_FUTEX 202",
+		"#define SYS_FUTEX_WAITV 449",
 		"#define SYS_FUTEX_WAIT 455",
 		"#define SYS_FUTEX_REQUEUE 456",
 		`#include "syscall_futex_direct_event_v2.h"`,
 		"sys_id == SYS_FUTEX",
+		"sys_id == SYS_FUTEX_WAITV",
 		"sys_id == SYS_FUTEX_WAIT",
 		"sys_id == SYS_FUTEX_REQUEUE",
 		"emit_futex_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
+		"emit_futex_waitv_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"emit_futex_wait_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"emit_futex_requeue_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"is_futex_direct_syscall(sys_id)",
@@ -41,6 +44,10 @@ func TestBPFFutexPayloadUsesDirectTLV(t *testing.T) {
 		"ctx->args[4]",
 		"TIME_DIRECT_TIMESPEC_SIZE",
 		"emit_futex_wait_enter_event_v2_direct(",
+		"FUTEX_DIRECT_WAITV_MAX_BYTES 3072",
+		"capture_futex_waitv_waiters_tlv_direct(",
+		"(u32)ctx->args[1]",
+		"emit_futex_waitv_enter_event_v2_direct(",
 		"FUTEX_DIRECT_REQUEUE_WAITERS_SIZE 48",
 		"capture_futex_requeue_waiters_tlv_direct(",
 		"emit_futex_requeue_enter_event_v2_direct(",
@@ -57,9 +64,11 @@ func TestBPFFutexPayloadUsesDirectTLV(t *testing.T) {
 	for _, legacyRule := range []string{
 		"syscalls: [futex]",
 		"syscalls: [futex_wait]",
+		"syscalls: [futex_waitv]",
 		"syscalls: [futex_requeue]",
 		"case 202: /* futex */",
 		"case 455: /* futex_wait */",
+		"case 449: /* futex_waitv */",
 		"case 456: /* futex_requeue */",
 	} {
 		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {

@@ -292,12 +292,6 @@ rules:
       payloads:
         - { arg: 3, kind: struct, direction: out, count_from_ret: true, elem_size: 32, max: 512, offset: 1024 }
 
-  - syscalls: [futex_waitv]
-    enter:
-      payloads:
-        - { arg: 0, kind: raw, direction: in, count_from_arg: 1, elem_size: 24, max: 3072, split_first: 24, offset: 0 }
-        - { arg: 3, kind: struct, direction: in, size: 16, offset: 3072 }
-
   - syscalls: [clock_gettime, clock_getres]
     exit:
       payloads:

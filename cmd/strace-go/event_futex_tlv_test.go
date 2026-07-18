@@ -64,3 +64,41 @@ func TestSyscallEventContextUsesFutexTLVSection(t *testing.T) {
 		})
 	}
 }
+
+func TestSyscallEventContextUsesFutexWaitvTLVSections(t *testing.T) {
+	args := [6]uint64{0x1000, 2, 0, 0x4000}
+	waiters := bytes.Repeat([]byte{0x55}, futexPayloadRequeueSize)
+	timeout := bytes.Repeat([]byte{0x66}, timespecPayloadStructSize)
+	enterPayload := append(
+		payloadTLVBytes(t, payloadTLVTestSection{
+			kind:    payloadTLVKindStruct,
+			arg:     0,
+			userPtr: args[0],
+			userLen: uint32(len(waiters)),
+			data:    waiters,
+		}),
+		payloadTLVBytes(t, payloadTLVTestSection{
+			kind:    payloadTLVKindStruct,
+			arg:     3,
+			userPtr: args[3],
+			userLen: uint32(len(timeout)),
+			data:    timeout,
+		})...,
+	)
+
+	session := miscStructTLVSession("futex_waitv")
+	enterRaw := miscStructTLVEvent(t, "futex_waitv", bpfEventTypeEnter, args, 0, enterPayload)
+	enterRaw.EventFlags |= bpfEventFlagGenericEnter
+	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+
+	exitRaw := miscStructTLVEvent(t, "futex_waitv", bpfEventTypeExit, args, -11, nil)
+	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
+
+	if section, ok := ev.handlerContext.PayloadStruct(0, handler.PayloadDirectionIn); !ok || !bytes.Equal(section, waiters) {
+		t.Fatalf("futex_waitv waiters section = %x, %v; want pending enter TLV struct", section, ok)
+	}
+	if section, ok := ev.handlerContext.PayloadStruct(3, handler.PayloadDirectionIn); !ok || !bytes.Equal(section, timeout) {
+		t.Fatalf("futex_waitv timeout section = %x, %v; want pending enter TLV struct", section, ok)
+	}
+}

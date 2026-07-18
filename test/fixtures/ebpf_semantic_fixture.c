@@ -21,6 +21,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#define FIXTURE_SYS_FUTEX_WAITV 449
+
 static int current_tracer_pid(void)
 {
 	FILE *f = fopen("/proc/self/status", "r");
@@ -294,36 +296,41 @@ static int run_futex_fixture(void)
 	return 0;
 }
 
-static int run_futex_wait_fixture(void)
+static int run_futex2_fixture(void)
 {
-	int futex_word = 0;
+	int futex_a = 0;
+	int futex_b = 0;
 	struct timespec zero;
 	memset(&zero, 0, sizeof(zero));
+
 	errno = 0;
-	long rc = syscall(SYS_futex_wait, &futex_word, 1UL, 0xffffffffUL, FUTEX2_SIZE_U32, &zero, CLOCK_MONOTONIC);
+	long rc = syscall(SYS_futex_wait, &futex_a, 1UL, 0xffffffffUL, FUTEX2_SIZE_U32, &zero, CLOCK_MONOTONIC);
 	if (rc != -1 || (errno != EAGAIN && errno != ENOSYS)) {
 		fprintf(stderr, "unexpected futex_wait rc=%ld errno=%d\n", rc, errno);
 		return 107;
 	}
-	return 0;
-}
 
-static int run_futex_requeue_fixture(void)
-{
-	int futex_a = 0;
-	int futex_b = 0;
 	struct futex_waitv waiters[2];
 	memset(waiters, 0, sizeof(waiters));
+	waiters[0].val = 1;
 	waiters[0].uaddr = (unsigned long) &futex_a;
 	waiters[0].flags = FUTEX2_SIZE_U32;
+	waiters[1].val = 1;
 	waiters[1].uaddr = (unsigned long) &futex_b;
 	waiters[1].flags = FUTEX2_SIZE_U32;
 
 	errno = 0;
-	long rc = syscall(SYS_futex_requeue, waiters, FUTEX2_SIZE_U32, 0U, 0U);
+	rc = syscall(FIXTURE_SYS_FUTEX_WAITV, waiters, 2U, 0U, &zero, CLOCK_MONOTONIC);
+	if (rc < 0 && errno != EAGAIN && errno != ETIMEDOUT && errno != EINVAL && errno != ENOSYS) {
+		fprintf(stderr, "unexpected futex_waitv rc=%ld errno=%d\n", rc, errno);
+		return 108;
+	}
+
+	errno = 0;
+	rc = syscall(SYS_futex_requeue, waiters, FUTEX2_SIZE_U32, 0U, 0U);
 	if (rc < 0 && errno != EAGAIN && errno != EINVAL && errno != ENOSYS) {
 		fprintf(stderr, "unexpected futex_requeue rc=%ld errno=%d\n", rc, errno);
-		return 108;
+		return 109;
 	}
 	return 0;
 }
@@ -436,13 +443,9 @@ static int run_semantic_fixture(void)
 	if (futex_status != 0) {
 		return futex_status;
 	}
-	int futex_wait_status = run_futex_wait_fixture();
-	if (futex_wait_status != 0) {
-		return futex_wait_status;
-	}
-	int futex_requeue_status = run_futex_requeue_fixture();
-	if (futex_requeue_status != 0) {
-		return futex_requeue_status;
+	int futex2_status = run_futex2_fixture();
+	if (futex2_status != 0) {
+		return futex2_status;
 	}
 
 	char large[1024];
