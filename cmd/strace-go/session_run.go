@@ -208,7 +208,7 @@ func (s *traceSession) handleBPFRecord(rec *ringbuf.Record) bool {
 	if !ok {
 		return false
 	}
-	s.handleEvent(&ev)
+	s.handleEnvelope(newRawEventEnvelopeFromBPF(&ev))
 	return true
 }
 

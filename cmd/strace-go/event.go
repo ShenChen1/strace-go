@@ -15,9 +15,8 @@ func getArgProbeStatus(probeRetEnter int32, argIndex int) int32 {
 	return 0
 }
 
-// IMPACT: handleEvent parses, decodes, and routes tracing events to print handlers or fd updates.
-func (s *traceSession) handleEvent(eventRaw *bpfEvent) {
-	envelope := newRawEventEnvelopeFromBPF(eventRaw)
+// IMPACT: handleEnvelope routes projected tracing events to print handlers or fd updates.
+func (s *traceSession) handleEnvelope(envelope rawEventEnvelope) {
 	if !s.traceScope().AllowsPID(envelope.pid) {
 		return
 	}
