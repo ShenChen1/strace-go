@@ -13,12 +13,16 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
 	tlvHeader := readTextFile(t, filepath.Join(root, "bpf/payload_tlv.h"))
+	directHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h"))
 
 	if !strings.Contains(straceSource, `#include "payload_tlv.h"`) {
 		t.Fatal("strace.c does not include payload_tlv.h")
 	}
 	if !strings.Contains(straceSource, "#define SYS_READ 0") {
 		t.Fatal("strace.c missing SYS_READ constant for read TLV capture")
+	}
+	if !strings.Contains(straceSource, "#define SYS_CLOSE 3") {
+		t.Fatal("strace.c missing SYS_CLOSE constant for scalar direct event v2 path")
 	}
 	if !strings.Contains(straceSource, "#define SYS_PREAD64 17") {
 		t.Fatal("strace.c missing SYS_PREAD64 constant for pread64 TLV capture")
@@ -80,8 +84,13 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 	if !strings.Contains(straceSource, "emit_syscall_enter_event_v2_direct(") ||
 		!strings.Contains(straceSource, "emit_syscall_exit_event_v2_direct(p, ctx->ret, duration, 0);") ||
-		!strings.Contains(straceSource, "save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);") {
-		t.Fatal("getpid should use direct scalar event v2 helpers instead of the bpf_event carrier")
+		!strings.Contains(straceSource, "save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);") ||
+		!strings.Contains(straceSource, "is_scalar_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "is_scalar_direct_syscall(p->sys_id)") {
+		t.Fatal("scalar syscalls should use direct event v2 helpers instead of the bpf_event carrier")
+	}
+	if !strings.Contains(directHeader, "return sys_id == SYS_GETPID || sys_id == SYS_CLOSE;") {
+		t.Fatal("scalar direct syscall policy should include getpid and close")
 	}
 	if !strings.Contains(straceSource, "emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);") {
 		t.Fatal("lifecycle events should be emitted directly as event v2")

@@ -25,6 +25,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define EVENT_VERSION 2
 #define SYS_READ 0
 #define SYS_WRITE 1
+#define SYS_CLOSE 3
 #define SYS_PREAD64 17
 #define SYS_PWRITE64 18
 #define SYS_GETPID 39
@@ -687,8 +688,8 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
     }
 
-    // IMPACT: getpid is scalar-only, so it proves syscall event v2 can bypass the large bpf_event carrier.
-    if (sys_id == SYS_GETPID) {
+    // IMPACT: scalar direct syscalls bypass the large bpf_event carrier while preserving args/ret pairing.
+    if (is_scalar_direct_syscall(sys_id)) {
         if (cfg && (*cfg & CONFIG_EMIT_ENTER)) {
             emit_syscall_enter_event_v2_direct(
                 pid,
@@ -810,8 +811,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     }
     if (!p) return 0;
 
-    // IMPACT: getpid exit no longer rebuilds a bpf_event from pending metadata before ringbuf output.
-    if (p->sys_id == SYS_GETPID) {
+    // IMPACT: scalar direct exits no longer rebuild a bpf_event from pending metadata before ringbuf output.
+    if (is_scalar_direct_syscall(p->sys_id)) {
         u64 duration = 0;
         if (p->enter_time > 0) {
             u64 exit_time = bpf_ktime_get_ns();

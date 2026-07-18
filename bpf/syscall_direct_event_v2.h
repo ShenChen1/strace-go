@@ -1,6 +1,11 @@
 #ifndef STRACE_GO_SYSCALL_DIRECT_EVENT_V2_H
 #define STRACE_GO_SYSCALL_DIRECT_EVENT_V2_H
 
+static __always_inline int is_scalar_direct_syscall(u32 sys_id)
+{
+    return sys_id == SYS_GETPID || sys_id == SYS_CLOSE;
+}
+
 static __always_inline void save_pending_syscall_args(
     u32 tid,
     u32 pid,
