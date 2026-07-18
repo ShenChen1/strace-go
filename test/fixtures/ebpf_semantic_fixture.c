@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
+#include <sys/vfs.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -63,6 +64,11 @@ static int run_semantic_fixture(void)
 		if (syscall(SYS_fstat, fd, &st) != 0) {
 			perror("fstat");
 			return 73;
+		}
+		struct statfs sfs;
+		if (syscall(SYS_fstatfs, fd, &sfs) != 0) {
+			perror("fstatfs");
+			return 74;
 		}
 		(void) close(fd);
 	}

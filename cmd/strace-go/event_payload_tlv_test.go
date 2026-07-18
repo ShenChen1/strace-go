@@ -151,6 +151,40 @@ func TestPayloadSectionsForRawPayloadEventUsesStatTLVSection(t *testing.T) {
 	}
 }
 
+func TestPayloadSectionsForRawPayloadEventUsesStatfsTLVSection(t *testing.T) {
+	statfsData := bytes.Repeat([]byte{0x24}, statfsPayloadStructSize)
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		flags:   payloadTLVFlagDirectionOut,
+		arg:     1,
+		userPtr: 0x2000,
+		userLen: statfsPayloadStructSize,
+		data:    statfsData,
+	})
+	raw := rawPayloadEvent{
+		valid:      true,
+		eventType:  bpfEventTypeExit,
+		eventFlags: bpfEventFlagPayloadTLV,
+		args:       [6]uint64{3, 0x2000},
+		ret:        0,
+		data:       payload,
+	}
+
+	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "fstatfs"})
+
+	if len(sections) != 1 {
+		t.Fatalf("sections = %d, want 1", len(sections))
+	}
+	section := sections[0]
+	if section.Kind != handler.PayloadKindStruct || section.Direction != handler.PayloadDirectionOut ||
+		section.ArgIndex != 1 || section.UserPtr != 0x2000 || section.UserLen != statfsPayloadStructSize {
+		t.Fatalf("statfs section metadata = %+v", section)
+	}
+	if !bytes.Equal(section.Data, statfsData) {
+		t.Fatalf("statfs section data = %v", section.Data)
+	}
+}
+
 func TestPayloadSectionsForRawPayloadEventUsesMultipleStructTLVSections(t *testing.T) {
 	payload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindStruct,

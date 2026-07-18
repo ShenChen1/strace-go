@@ -2,10 +2,19 @@
 #define STRACE_GO_SYSCALL_STAT_DIRECT_EVENT_V2_H
 
 #define STAT_DIRECT_STRUCT_SIZE 144
+#define STATFS_DIRECT_STRUCT_SIZE 120
 
 static __always_inline int is_stat_struct_direct_syscall(u32 sys_id)
 {
-    return sys_id == SYS_FSTAT;
+    return sys_id == SYS_FSTAT || sys_id == SYS_FSTATFS;
+}
+
+static __always_inline u32 stat_direct_struct_size(u32 sys_id)
+{
+    if (sys_id == SYS_FSTATFS) {
+        return STATFS_DIRECT_STRUCT_SIZE;
+    }
+    return STAT_DIRECT_STRUCT_SIZE;
 }
 
 static __always_inline u32 capture_stat_struct_tlv_direct(
@@ -18,7 +27,8 @@ static __always_inline u32 capture_stat_struct_tlv_direct(
         return 0;
     }
 
-    u32 copied_len = STAT_DIRECT_STRUCT_SIZE;
+    u32 struct_size = stat_direct_struct_size(p->sys_id);
+    u32 copied_len = struct_size;
     s32 probe_ret = 0;
     u32 data_offset = payload_offset + PAYLOAD_TLV_HEADER_SIZE;
     void *payload_data = bpf_dynptr_data(ptr, data_offset, STAT_DIRECT_STRUCT_SIZE);
@@ -26,6 +36,12 @@ static __always_inline u32 capture_stat_struct_tlv_direct(
         record_ringbuf_copy_fail();
         probe_ret = -1;
         copied_len = 0;
+    } else if (p->sys_id == SYS_FSTATFS) {
+        long err = bpf_probe_read_user(payload_data, STATFS_DIRECT_STRUCT_SIZE, (void *)user_ptr);
+        if (err < 0) {
+            probe_ret = err;
+            copied_len = 0;
+        }
     } else {
         long err = bpf_probe_read_user(payload_data, STAT_DIRECT_STRUCT_SIZE, (void *)user_ptr);
         if (err < 0) {
@@ -40,7 +56,7 @@ static __always_inline u32 capture_stat_struct_tlv_direct(
             PAYLOAD_TLV_KIND_STRUCT,
             1,
             PAYLOAD_TLV_FLAG_DIRECTION_OUT,
-            STAT_DIRECT_STRUCT_SIZE,
+            struct_size,
             copied_len,
             probe_ret,
             user_ptr)) {
