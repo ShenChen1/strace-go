@@ -52,6 +52,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_CLOCK_SETTIME 227
 #define SYS_CLOCK_GETTIME 228
 #define SYS_CLOCK_GETRES 229
+#define SYS_CLOCK_NANOSLEEP 230
 #define SYS_OPENAT 257
 #define SYS_NEWFSTATAT 262
 #define SYS_READLINKAT 267
@@ -585,6 +586,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_small_struct_direct_event_v2.h"
 #include "syscall_stat_direct_event_v2.h"
 #include "syscall_time_direct_event_v2.h"
+#include "syscall_sleep_direct_event_v2.h"
 #include "syscall_timex_direct_event_v2.h"
 
 SEC("tracepoint/raw_syscalls/sys_enter")
@@ -675,6 +677,21 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
+    // IMPACT: sleep syscalls snapshot request timespecs at enter and remaining timespecs on interrupted exit.
+    if (sys_id == SYS_NANOSLEEP) {
+        emit_sleep_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time, 0, ctx->args[0], -1);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        if (should_emit_nanosleep_suspended_marker(tid, pid)) {
+            emit_sleep_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time, 0, ctx->args[0], 3);
+        }
+        return 0;
+    }
+    if (sys_id == SYS_CLOCK_NANOSLEEP) {
+        emit_sleep_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time, 2, ctx->args[2], -1);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
     // IMPACT: no-payload direct syscalls bypass the large bpf_event carrier while preserving args/ret pairing.
     if (is_scalar_direct_syscall(sys_id) || is_exit_payload_direct_syscall(sys_id) ||
         is_fd_array_direct_syscall(sys_id) ||
@@ -726,7 +743,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
 
     save_pending_syscall(tid, e);
 
-    if (sys_id == SYS_RT_SIGSUSPEND || sys_id == SYS_NANOSLEEP) { // rt_sigsuspend (130), nanosleep (35)
+    if (sys_id == SYS_RT_SIGSUSPEND) {
         struct task_struct *task = (struct task_struct *)bpf_get_current_task();
         u32 nr_threads = 0;
         if (task) {
@@ -790,6 +807,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_itimer_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_timex_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_timex_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_sleep_direct_syscall(p->sys_id)) {
+            emit_sleep_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_stat_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_stat_struct_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_getcwd_direct_syscall(p->sys_id) && ret_value > 0) {
@@ -838,7 +857,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     capture_capset_data(e);
 
     CAPTURE_ARGS_EXIT(e->sys_id, e);
-    if (tid == pid && (e->sys_id == SYS_RT_SIGSUSPEND || e->sys_id == SYS_NANOSLEEP)) {
+    if (tid == pid && e->sys_id == SYS_RT_SIGSUSPEND) {
         u32 *pending = bpf_map_lookup_elem(&pending_exec_map, &pid);
         if (pending) {
             e->probe_ret_enter = 2;

@@ -292,14 +292,6 @@ rules:
       payloads:
         - { arg: 3, kind: struct, direction: out, count_from_ret: true, elem_size: 32, max: 512, offset: 1024 }
 
-  - syscalls: [clock_nanosleep]
-    enter:
-      payloads:
-        - { arg: 2, kind: struct, direction: in, size: 16, offset: 0 }
-    exit:
-      payloads:
-        - { arg: 3, kind: struct, direction: out, size: 16, offset: 1024 }
-
   - syscalls: [futex]
     enter:
       payloads:
@@ -320,15 +312,6 @@ rules:
     enter:
       payloads:
         - { arg: 0, kind: struct, direction: in, size: 48, offset: 0 }
-
-  - syscalls: [nanosleep]
-    enter:
-      payloads:
-        - { arg: 0, kind: struct, direction: in, size: 16, offset: 0 }
-    exit:
-      payloads:
-        - { arg: 1, kind: struct, direction: out, size: 16, offset: 1024 }
-
 
   - syscalls: [clock_gettime, clock_getres]
     exit:

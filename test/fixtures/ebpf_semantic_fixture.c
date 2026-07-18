@@ -264,6 +264,21 @@ static int run_timex_fixture(void)
 	return 0;
 }
 
+static int run_sleep_fixture(void)
+{
+	struct timespec zero;
+	memset(&zero, 0, sizeof(zero));
+	if (syscall(SYS_nanosleep, &zero, NULL) != 0) {
+		perror("nanosleep");
+		return 104;
+	}
+	if (syscall(SYS_clock_nanosleep, CLOCK_MONOTONIC, 0, &zero, NULL) != 0) {
+		perror("clock_nanosleep");
+		return 105;
+	}
+	return 0;
+}
+
 static int run_semantic_fixture(void)
 {
 	char buf[32];
@@ -363,6 +378,10 @@ static int run_semantic_fixture(void)
 	int timex_status = run_timex_fixture();
 	if (timex_status != 0) {
 		return timex_status;
+	}
+	int sleep_status = run_sleep_fixture();
+	if (sleep_status != 0) {
+		return sleep_status;
 	}
 
 	char large[1024];
