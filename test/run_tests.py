@@ -11,6 +11,8 @@ import time
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from upstream_suites import MORE_TESTS, SMOKE_TESTS, UPSTREAM_REFERENCE_TESTS
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 
@@ -19,135 +21,6 @@ UPSTREAM_DIR = os.path.join(PROJECT_ROOT, "strace-upstream")
 STRACE_WRAPPER = os.path.join(SCRIPT_DIR, "strace-sudo.sh")
 STRACE_GO_BIN = os.path.join(PROJECT_ROOT, "strace-go")
 FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_semantic_fixture.c")
-
-SMOKE_TESTS = [
-    "accept.gen.test",
-    "accept4.gen.test",
-    "access.gen.test",
-    "acct.gen.test",
-    "add_key.gen.test",
-    "adjtimex.gen.test",
-    "alarm.gen.test",
-    "brk.test",
-    "chdir.gen.test",
-    "chmod.gen.test",
-    "chown.gen.test",
-    "rename.gen.test",
-    "clock_adjtime.gen.test",
-    "creat.gen.test",
-    "fstat.gen.test",
-    "lstat.gen.test",
-    "mmap.test",
-    "open.gen.test",
-    "openat.gen.test",
-    "read.gen.test",
-    "stat.gen.test",
-    "statfs.gen.test",
-    "symlinkat.gen.test",
-    "sync.gen.test",
-    "write.gen.test"
-]
-
-# Tests for the next feature we are tackling
-# Add tests here when working on a new syscall or feature
-MORE_TESTS = [
-    "strace-A.test",
-    "strace-p.test",
-    "strace-C.test",
-    "strace-e-negation.test",
-    "strace-e-class.test",
-    "strace-e-class2.test",
-    "strace-E.test",
-    "strace-x.gen.test",
-    "strace-xx.gen.test",
-    "aio_pgetevents.gen.test",
-    "aio.gen.test",
-    "arch_prctl-Xabbrev.gen.test",
-    "arch_prctl-Xverbose.gen.test",
-    "arch_prctl-success-Xabbrev.gen.test",
-    "arch_prctl-success-Xraw.gen.test",
-    "arch_prctl-success-Xverbose.gen.test",
-    "arch_prctl-success.gen.test",
-    "arch_prctl.gen.test",
-    "at_fdcwd-pathmax.gen.test",
-    "bpf-v.gen.test",
-    "bpf.gen.test",
-    "cachestat-P.gen.test",
-    "cachestat.gen.test",
-    "chroot.gen.test",
-    "clock_xettime.gen.test",
-    "clone_parent--quiet-exit.gen.test",
-    "clone_parent-qq.gen.test",
-    "clone_parent.gen.test",
-    
-    "dup-P.gen.test",
-    "dup2-P.gen.test",
-    "dup3-P.gen.test",
-    "dup-yy.gen.test",
-    "dup2.gen.test",
-    "dup3.gen.test",
-    "epoll_create.gen.test",
-    "epoll_create1.gen.test",
-    "epoll_ctl.gen.test",
-    "epoll_pwait2-y.gen.test",
-    "epoll_pwait2.gen.test",
-    "epoll_wait.gen.test",
-    "erestartsys.gen.test",
-    "eventfd.test",
-    "fchmod.gen.test",
-    "fchmodat.gen.test",
-    "fchown.gen.test",
-    "fchownat.gen.test",
-    "fcntl.gen.test",
-    "filter-unavailable.test",
-    "filter_seccomp-flag.gen.test",
-    "fspick.gen.test",
-    "fstat-Xabbrev.gen.test",
-    "fstatfs.gen.test",
-    "ftruncate.gen.test",
-    "getcwd.gen.test",
-    "getegid.gen.test",
-    "geteuid.gen.test",
-    "getgid.gen.test",
-    "getpgrp.gen.test",
-    "getpid.gen.test",
-    "getppid.gen.test",
-    "getrlimit.gen.test",
-    "getsid.gen.test",
-    "getsockname.gen.test",
-    "gettid.gen.test",
-    "getuid.test",
-    "inotify_init.gen.test",
-    "ioctl.test",
-    "ioctl_fiemap-Xabbrev.gen.test",
-    "ioctl_fiemap-Xraw.gen.test",
-    "ioctl_fiemap-Xverbose.gen.test",
-    "ioctl_fiemap.gen.test",
-    "ioctl_fs_0x15-Xabbrev.gen.test",
-    "ioctl_fs_0x15.gen.test",
-    "arch_prctl-Xraw.gen.test",
-    "status-successful.gen.test",
-    "status-failed.gen.test",
-    "status-all.gen.test",
-    "status-none.gen.test",
-    "fork-f.gen.test",
-    "vfork-f.gen.test",
-    "strace-E.test",
-    "strace-E-override.test",
-    "strace-E-unset.test",
-    "attach-p-cmd.test",
-    "attach-f-p.test",
-    "strace-r.test",
-    "strace-t.test",
-    "strace-tt.test",
-    "strace-ttt.test",
-    "strace-T_upper.test",
-    "strace-x.gen.test",
-    "strace-xx.gen.test",
-    "read-write.gen.test",
-    "pread64-pwrite64.gen.test",
-    "opipe.test",
-]
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Unified test framework for strace-go")
@@ -412,6 +285,8 @@ def get_tests(suite):
         return [t for t in SMOKE_TESTS if t in valid_tests]
     elif suite == "more":
         return [t for t in MORE_TESTS if t in valid_tests]
+    elif suite == "upstream-reference":
+        return [t for t in UPSTREAM_REFERENCE_TESTS if t in valid_tests]
     elif suite == "all":
         return valid_tests
     else:
@@ -460,14 +335,10 @@ def main():
     if args.suite == "ebpf-perf":
         sys.exit(run_ebpf_perf(args))
     
-    upstream_suite = args.suite
-    if upstream_suite == "upstream-reference":
-        upstream_suite = "small"
-
     if not args.skip_build:
         build_upstream()
         
-    tests_to_run = get_tests(upstream_suite)
+    tests_to_run = get_tests(args.suite)
     if args.filter:
         final_list = [t for t in tests_to_run if t == args.filter]
         tests_to_run = final_list
