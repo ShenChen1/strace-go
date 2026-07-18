@@ -74,6 +74,16 @@ static int run_readlink_fixture(void)
 	return 0;
 }
 
+static int run_getcwd_fixture(void)
+{
+	char cwd_buf[512];
+	if (syscall(SYS_getcwd, cwd_buf, sizeof(cwd_buf)) < 0) {
+		perror("getcwd");
+		return 83;
+	}
+	return 0;
+}
+
 static int run_semantic_fixture(void)
 {
 	char buf[32];
@@ -145,6 +155,10 @@ static int run_semantic_fixture(void)
 	int readlink_status = run_readlink_fixture();
 	if (readlink_status != 0) {
 		return readlink_status;
+	}
+	int getcwd_status = run_getcwd_fixture();
+	if (getcwd_status != 0) {
+		return getcwd_status;
 	}
 
 	char large[1024];

@@ -288,7 +288,7 @@ def finish_ebpf_semantic(res, failures, events, enter_events, exit_events, lifec
     return 0
 
 def collect_semantic_events(fixture):
-    trace_set = "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,newfstatat,statfs,fstatfs,readlink,readlinkat,execve,exit,exit_group,clock_gettime,gettimeofday"
+    trace_set = "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,newfstatat,statfs,fstatfs,getcwd,readlink,readlinkat,execve,exit,exit_group,clock_gettime,gettimeofday"
     res = run_strace_go_json(["-f", "-e", f"trace={trace_set}", fixture])
     events = parse_json_events(res.stderr)
     lifecycle_events = parse_lifecycle_events(res.stderr)
@@ -326,6 +326,7 @@ def run_ebpf_semantic(args):
     require("newfstatat" in names, failures, "newfstatat event missing")
     require("statfs" in names, failures, "statfs event missing")
     require("fstatfs" in names, failures, "fstatfs event missing")
+    require("getcwd" in names, failures, "getcwd event missing")
     require("readlink" in names, failures, "readlink event missing")
     require("readlinkat" in names, failures, "readlinkat event missing")
     require("clock_gettime" in names, failures, "clock_gettime event missing")
@@ -356,6 +357,8 @@ def run_ebpf_semantic(args):
     require(has_stat_payload_section(events, "newfstatat", 2), failures, "newfstatat OUT stat payload section missing from JSON event")
     require(has_statfs_payload_section(events), failures, "statfs OUT statfs payload section missing from JSON event")
     require(has_fstatfs_payload_section(events), failures, "fstatfs OUT statfs payload section missing from JSON event")
+    require(has_bytes_payload_section(events, "getcwd", 0, "strace-go"),
+            failures, "getcwd OUT cwd payload section missing from JSON event")
     require(has_bytes_payload_section(events, "readlink", 1, "/proc/self"),
             failures, "readlink OUT target payload section missing from JSON event")
     require(has_bytes_payload_section(events, "readlinkat", 2, "/proc/self"),

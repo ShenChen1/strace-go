@@ -32,6 +32,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_PREAD64 17
 #define SYS_PWRITE64 18
 #define SYS_GETPID 39
+#define SYS_GETCWD 79
 #define SYS_READLINK 89
 #define SYS_GETTIMEOFDAY 96
 #define SYS_STATFS 137
@@ -558,6 +559,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 }
 
 #include "syscall_direct_event_v2.h"
+#include "syscall_getcwd_direct_event_v2.h"
 #include "syscall_path_stat_direct_event_v2.h"
 #include "syscall_readlink_direct_event_v2.h"
 #include "syscall_stat_direct_event_v2.h"
@@ -625,6 +627,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
 
     // IMPACT: no-payload direct syscalls bypass the large bpf_event carrier while preserving args/ret pairing.
     if (is_scalar_direct_syscall(sys_id) || is_exit_payload_direct_syscall(sys_id) ||
+        is_getcwd_direct_syscall(sys_id) ||
         is_time_struct_direct_syscall(sys_id) || is_stat_struct_direct_syscall(sys_id)) {
         emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
@@ -733,6 +736,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_time_struct_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_stat_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_stat_struct_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_getcwd_direct_syscall(p->sys_id) && ret_value > 0) {
+            emit_getcwd_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_readlink_direct_syscall(p->sys_id) && ret_value > 0) {
             emit_readlink_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {

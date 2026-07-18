@@ -544,6 +544,43 @@ func TestSyscallEventContextMergesReadlinkEnterPathAndExitBytesSections(t *testi
 	}
 }
 
+func TestSyscallEventContextUsesGetcwdExitBytesSection(t *testing.T) {
+	session := &traceSession{
+		targetPid: 101,
+		opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=getcwd", "/bin/true"}),
+		decoder:   event.NewDecoder(),
+		fdState:   newFDStateStoreFromMaps(nil, nil),
+		state:     newTraceState(),
+	}
+	cwdData := []byte("/opt/strace-go\x00")
+	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindBytes,
+		flags:   payloadTLVFlagDirectionOut,
+		arg:     0,
+		userPtr: 0x1000,
+		userLen: uint32(len(cwdData)),
+		data:    cwdData,
+	})
+	exitRaw := &bpfEvent{
+		Pid:        101,
+		Tid:        101,
+		SysId:      syscallIDByName(t, "getcwd"),
+		EventType:  bpfEventTypeExit,
+		EventFlags: bpfEventFlagPayloadTLV,
+		Args:       [6]uint64{0x1000, 128},
+		Ret:        int64(len(cwdData)),
+		DataLen:    uint32(len(exitPayload)),
+	}
+	copy(exitRaw.StrArg[:], exitPayload)
+
+	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
+	section, ok := ev.handlerContext.Section(0, handler.PayloadKindBytes)
+	if !ok || !bytes.Equal(section.Data, cwdData) {
+		t.Fatalf("getcwd bytes section = %+v, %v; want exit cwd bytes", section, ok)
+	}
+}
+
 type readlinkTLVCase struct {
 	name    string
 	args    [6]uint64

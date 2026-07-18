@@ -14,6 +14,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
 	tlvHeader := readTextFile(t, filepath.Join(root, "bpf/payload_tlv.h"))
 	directHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h"))
+	getcwdDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_getcwd_direct_event_v2.h"))
 	statDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_stat_direct_event_v2.h"))
 	pathStatDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_stat_direct_event_v2.h"))
 	readlinkDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_direct_event_v2.h"))
@@ -51,6 +52,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 	if !strings.Contains(straceSource, "#define SYS_GETPID 39") {
 		t.Fatal("strace.c missing SYS_GETPID constant for scalar direct event v2 path")
+	}
+	if !strings.Contains(straceSource, "#define SYS_GETCWD 79") {
+		t.Fatal("strace.c missing SYS_GETCWD constant for getcwd direct event v2 path")
 	}
 	if !strings.Contains(straceSource, "#define SYS_READLINK 89") {
 		t.Fatal("strace.c missing SYS_READLINK constant for readlink direct event v2 path")
@@ -213,6 +217,18 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if strings.Contains(straceSource, `#include "syscall_statfs_direct_event_v2.h"`) ||
 		strings.Contains(straceSource, "is_path_statfs_direct_syscall(") {
 		t.Fatal("path stat direct capture should not keep the statfs-only helper")
+	}
+	if !strings.Contains(straceSource, `#include "syscall_getcwd_direct_event_v2.h"`) ||
+		!strings.Contains(getcwdDirectHeader, "is_getcwd_direct_syscall(") ||
+		!strings.Contains(getcwdDirectHeader, "return sys_id == SYS_GETCWD;") ||
+		!strings.Contains(getcwdDirectHeader, "GETCWD_DIRECT_BYTES_MAX 512") ||
+		!strings.Contains(getcwdDirectHeader, "emit_getcwd_exit_event_v2_direct(") ||
+		!strings.Contains(getcwdDirectHeader, "PAYLOAD_TLV_KIND_BYTES") ||
+		!strings.Contains(getcwdDirectHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") ||
+		!strings.Contains(straceSource, "is_getcwd_direct_syscall(sys_id)") ||
+		!strings.Contains(timeDirectHeader, "is_getcwd_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "emit_getcwd_exit_event_v2_direct(p, ret_value, duration);") {
+		t.Fatal("getcwd should emit direct TLV events without the bpf_event carrier")
 	}
 	if !strings.Contains(straceSource, `#include "syscall_readlink_direct_event_v2.h"`) ||
 		!strings.Contains(readlinkDirectHeader, "is_readlink_direct_syscall(") ||
