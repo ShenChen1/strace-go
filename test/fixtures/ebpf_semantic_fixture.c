@@ -12,6 +12,7 @@
 #include <sys/syscall.h>
 #include <sys/sysinfo.h>
 #include <sys/time.h>
+#include <sys/timex.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
 #include <sys/vfs.h>
@@ -252,6 +253,17 @@ static int run_time_setter_fixture(void)
 	return 0;
 }
 
+static int run_timex_fixture(void)
+{
+	struct timex tx;
+	memset(&tx, 0, sizeof(tx));
+	if (syscall(SYS_adjtimex, &tx) < 0) {
+		perror("adjtimex");
+		return 103;
+	}
+	return 0;
+}
+
 static int run_semantic_fixture(void)
 {
 	char buf[32];
@@ -347,6 +359,10 @@ static int run_semantic_fixture(void)
 	int time_setter_status = run_time_setter_fixture();
 	if (time_setter_status != 0) {
 		return time_setter_status;
+	}
+	int timex_status = run_timex_fixture();
+	if (timex_status != 0) {
+		return timex_status;
 	}
 
 	char large[1024];

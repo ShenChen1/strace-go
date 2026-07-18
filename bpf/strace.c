@@ -46,6 +46,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_STATFS 137
 #define SYS_FSTATFS 138
 #define SYS_ARCH_PRCTL 158
+#define SYS_ADJTIMEX 159
 #define SYS_SETRLIMIT 160
 #define SYS_SETTIMEOFDAY 164
 #define SYS_CLOCK_SETTIME 227
@@ -57,6 +58,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_GET_ROBUST_LIST 274
 #define SYS_PIPE2 293
 #define SYS_PRLIMIT64 302
+#define SYS_CLOCK_ADJTIME 305
 #define SYS_COPY_FILE_RANGE 326
 #define EVENT_TYPE_ENTER 1
 #define EVENT_TYPE_EXIT 2
@@ -583,6 +585,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_small_struct_direct_event_v2.h"
 #include "syscall_stat_direct_event_v2.h"
 #include "syscall_time_direct_event_v2.h"
+#include "syscall_timex_direct_event_v2.h"
 
 SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
@@ -785,6 +788,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_time_struct_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_itimer_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_itimer_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_timex_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
+            emit_timex_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_stat_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_stat_struct_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_getcwd_direct_syscall(p->sys_id) && ret_value > 0) {

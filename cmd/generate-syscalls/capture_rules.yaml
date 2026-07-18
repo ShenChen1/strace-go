@@ -260,22 +260,6 @@ rules:
       payloads:
         - { arg: 1, kind: struct, direction: in, size: 64, offset: 0 }
 
-  - syscalls: [adjtimex]
-    enter:
-      payloads:
-        - { arg: 0, kind: struct, direction: in, size: 208, offset: 0 }
-    exit:
-      payloads:
-        - { arg: 0, kind: struct, direction: out, size: 208, offset: 1024 }
-
-  - syscalls: [clock_adjtime]
-    enter:
-      payloads:
-        - { arg: 1, kind: struct, direction: in, size: 208, offset: 0 }
-    exit:
-      payloads:
-        - { arg: 1, kind: struct, direction: out, size: 208, offset: 1024 }
-
   - syscalls: [cachestat]
     enter:
       payloads:

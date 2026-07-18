@@ -4,6 +4,7 @@
 #define TIME_DIRECT_TIMESPEC_SIZE 16
 #define TIME_DIRECT_TIMEZONE_SIZE 8
 #define TIME_DIRECT_ITIMERVAL_SIZE 32
+#define TIME_DIRECT_TIMEX_SIZE 208
 
 static __always_inline int is_clock_time_struct_direct_syscall(u32 sys_id)
 {
@@ -46,12 +47,18 @@ static __always_inline int is_itimer_exit_direct_syscall(u32 sys_id)
     return sys_id == SYS_GETITIMER || sys_id == SYS_SETITIMER;
 }
 
+static __always_inline int is_timex_exit_direct_syscall(u32 sys_id)
+{
+    return sys_id == SYS_ADJTIMEX || sys_id == SYS_CLOCK_ADJTIME;
+}
+
 static __always_inline int is_time_struct_direct_syscall(u32 sys_id)
 {
     return is_clock_time_struct_direct_syscall(sys_id) ||
         is_gettimeofday_direct_syscall(sys_id) ||
         is_time_struct_enter_direct_syscall(sys_id) ||
-        is_itimer_direct_syscall(sys_id);
+        is_itimer_direct_syscall(sys_id) ||
+        is_timex_exit_direct_syscall(sys_id);
 }
 
 static __always_inline int is_sys_exit_direct_syscall(u32 sys_id)
@@ -90,6 +97,8 @@ static __always_inline u32 capture_time_struct_tlv_direct_from_ptr(
         payload_data = bpf_dynptr_data(ptr, data_offset, TIME_DIRECT_TIMEZONE_SIZE);
     } else if (struct_size == TIME_DIRECT_ITIMERVAL_SIZE) {
         payload_data = bpf_dynptr_data(ptr, data_offset, TIME_DIRECT_ITIMERVAL_SIZE);
+    } else if (struct_size == TIME_DIRECT_TIMEX_SIZE) {
+        payload_data = bpf_dynptr_data(ptr, data_offset, TIME_DIRECT_TIMEX_SIZE);
     } else {
         payload_data = bpf_dynptr_data(ptr, data_offset, TIME_DIRECT_TIMESPEC_SIZE);
     }
