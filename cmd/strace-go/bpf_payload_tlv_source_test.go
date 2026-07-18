@@ -39,6 +39,13 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, `#include "syscall_direct_event_v2.h"`) {
 		t.Fatal("strace.c should include scalar direct event v2 helpers")
 	}
+	if !strings.Contains(straceSource, "#define EVENT_V2_ENTER_BODY_LEN 72") ||
+		!strings.Contains(straceSource, "s64 ret;") ||
+		!strings.Contains(straceSource, "s32 probe_ret_enter;") ||
+		!strings.Contains(straceSource, "body->ret = e->ret;") ||
+		!strings.Contains(directHeader, "body->probe_ret_enter = probe_ret_enter;") {
+		t.Fatal("event v2 enter body should carry ret and probe status for exec-style enter states")
+	}
 	if strings.Contains(straceSource, "capture_openat_tlv(e);") || strings.Contains(tlvHeader, "capture_openat_tlv") {
 		t.Fatal("openat TLV capture should not use the bpf_event fixed-window helper")
 	}

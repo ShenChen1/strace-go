@@ -5,7 +5,7 @@ import "encoding/binary"
 const (
 	traceEventV2Version          = 2
 	traceEventV2HeaderLen        = 40
-	traceEventV2EnterBodyLen     = 56
+	traceEventV2EnterBodyLen     = 72
 	traceEventV2ExitBodyLen      = 72
 	traceEventV2LifecycleBodyLen = 56
 )
@@ -78,34 +78,43 @@ func decodeTraceEventV2EnterEnvelope(header traceEventV2Header, body []byte) (tr
 	if len(body) < traceEventV2EnterBodyLen {
 		return traceEventEnvelope{}, false
 	}
-	args := traceEventV2Args(body[0:48])
-	captureLen := binary.LittleEndian.Uint32(body[48:52])
+	ret := int64(binary.LittleEndian.Uint64(body[0:8]))
+	probeRetEnter := int32(binary.LittleEndian.Uint32(body[8:12]))
+	probeRetExit := int32(binary.LittleEndian.Uint32(body[12:16]))
+	args := traceEventV2Args(body[16:64])
+	captureLen := binary.LittleEndian.Uint32(body[64:68])
 	payload, ok := traceEventV2Payload(body, traceEventV2EnterBodyLen, captureLen)
 	if !ok {
 		return traceEventEnvelope{}, false
 	}
 	eventFlags := traceEventV2EventFlags(header, payload) | bpfEventFlagGenericEnter
 	raw := rawPayloadEvent{
-		valid:      true,
-		args:       args,
-		eventType:  header.eventType,
-		eventFlags: eventFlags,
-		data:       payload,
+		valid:         true,
+		args:          args,
+		eventType:     header.eventType,
+		eventFlags:    eventFlags,
+		ret:           ret,
+		probeRetEnter: probeRetEnter,
+		probeRetExit:  probeRetExit,
+		data:          payload,
 	}
 	scMeta := syscallMeta(header.sysID)
 	sections := copyPayloadSections(payloadSectionsForRawPayloadEvent(raw, scMeta))
 	return traceEventEnvelope{
-		valid:        true,
-		eventVersion: header.version,
-		pid:          header.pid,
-		tid:          header.tid,
-		sysID:        header.sysID,
-		eventType:    header.eventType,
-		eventFlags:   eventFlags,
-		enterTime:    header.tsNs,
-		args:         args,
-		ptr:          primarySyscallPointer(scMeta, args, sections),
-		payload:      sections,
+		valid:         true,
+		eventVersion:  header.version,
+		pid:           header.pid,
+		tid:           header.tid,
+		sysID:         header.sysID,
+		eventType:     header.eventType,
+		eventFlags:    eventFlags,
+		enterTime:     header.tsNs,
+		args:          args,
+		ret:           ret,
+		ptr:           primarySyscallPointer(scMeta, args, sections),
+		probeRetEnter: probeRetEnter,
+		probeRetExit:  probeRetExit,
+		payload:       sections,
 	}, true
 }
 

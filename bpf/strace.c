@@ -45,7 +45,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define CONFIG_SYSCALL_FILTER_NEGATED 16
 #define CONFIG_EMIT_LIFECYCLE 32
 #define EVENT_V2_HEADER_LEN 40
-#define EVENT_V2_ENTER_BODY_LEN 56
+#define EVENT_V2_ENTER_BODY_LEN 72
 #define EVENT_V2_EXIT_BODY_LEN 72
 #define EVENT_V2_LIFECYCLE_BODY_LEN 56
 #define LIFECYCLE_SNAPSHOT_MAX 4096
@@ -121,6 +121,9 @@ struct event_v2_header {
 };
 
 struct syscall_enter_event_v2 {
+    s64 ret;
+    s32 probe_ret_enter;
+    s32 probe_ret_exit;
     u64 args[6];
     u32 capture_len;
     u32 capture_flags;
@@ -496,6 +499,9 @@ static __always_inline void init_lifecycle_event_v2_header(
 
 static __always_inline void init_syscall_enter_event_v2(struct syscall_enter_event_v2 *body, struct bpf_event *e, u32 payload_size)
 {
+    body->ret = e->ret;
+    body->probe_ret_enter = e->probe_ret_enter;
+    body->probe_ret_exit = e->probe_ret_exit;
     body->args[0] = e->args[0];
     body->args[1] = e->args[1];
     body->args[2] = e->args[2];

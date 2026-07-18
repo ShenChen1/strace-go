@@ -227,6 +227,9 @@ syscall enter event：
 ```c
 struct syscall_enter_event {
     struct event_header h;
+    __s64 ret;
+    __s32 probe_ret_enter;
+    __s32 probe_ret_exit;
     __u64 args[6];
     __u32 capture_len;
     __u32 capture_flags;
@@ -984,6 +987,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `openat` 已作为第一条 path IN payload syscall 绕开旧 `capture_openat_tlv` fixed-window helper；enter 阶段直接 reserve ringbuf TLV 容量并用 dynptr 写入 path section，exit 阶段复用小 pending 元数据直接输出 event v2。
 - `write/pwrite64` 已作为第一批 bytes IN payload syscall 绕开旧 `capture_write_tlv` fixed-window helper；enter 阶段直接写 bytes TLV section，并在 direct path 中记录 payload truncated stats。
 - `read/pread64` 已作为第一批 bytes OUT payload syscall 绕开旧 `capture_read_tlv` fixed-window helper；exit 阶段根据 ret 直接写 OUT bytes TLV section，read/write 核心 buffer 链路已不再依赖旧 fixed-window helper。
+- event v2 enter body 已显式携带 `ret`、`probe_ret_enter` 和 `probe_ret_exit`，为 `execve/execveat` direct TLV 迁移保留 `ret=-514` restart/resume 语义，避免 direct enter 退化成只有参数快照的半事件。
 - 迁移期固定窗口源已统一命名为 `windowPayloadSource`，不再把它称为 fixed payload source，强调它只是旧 BPF fixed-window 到 semantic section 的兼容投影层。
 - `syscallEventContext` 已删除 `raw *bpfEvent` 字段和 raw fallback；JSON/handler/text pipeline 只能消费构造期缓存的 `syscallEventView` 与 `PayloadSection`，旧 BPF carrier 不再能从 syscall context 重新进入输出路径。
 - `payloadEvent` 已删除 `raw *bpfEvent` 字段和 meta fallback；fixed-window payload 投影只能通过 `rawPayloadEvent -> windowPayloadSource + payloadEventMeta` 的单向转换进入 section 规则。

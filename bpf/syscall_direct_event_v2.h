@@ -78,8 +78,14 @@ static __always_inline void init_syscall_event_v2_header_direct(
 static __always_inline void init_syscall_enter_event_v2_from_ctx(
     struct syscall_enter_event_v2 *body,
     struct trace_event_raw_sys_enter *ctx,
-    u32 payload_size)
+    u32 payload_size,
+    s64 ret_value,
+    s32 probe_ret_enter,
+    s32 probe_ret_exit)
 {
+    body->ret = ret_value;
+    body->probe_ret_enter = probe_ret_enter;
+    body->probe_ret_exit = probe_ret_exit;
     body->args[0] = ctx->args[0];
     body->args[1] = ctx->args[1];
     body->args[2] = ctx->args[2];
@@ -136,7 +142,7 @@ static __always_inline void emit_syscall_enter_event_v2_direct(
     }
 
     struct syscall_enter_event_v2 body = {};
-    init_syscall_enter_event_v2_from_ctx(&body, ctx, 0);
+    init_syscall_enter_event_v2_from_ctx(&body, ctx, 0, 0, -1, -1);
     ret = bpf_dynptr_write(&ptr, EVENT_V2_HEADER_LEN, &body, sizeof(body), 0);
     if (ret < 0) {
         record_ringbuf_copy_fail();
@@ -317,7 +323,7 @@ static __always_inline void emit_payload_enter_event_v2_direct(
     }
 
     struct syscall_enter_event_v2 body = {};
-    init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size);
+    init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);
     ret = bpf_dynptr_write(&ptr, body_offset, &body, sizeof(body), 0);
     if (ret < 0) {
         record_ringbuf_copy_fail();
