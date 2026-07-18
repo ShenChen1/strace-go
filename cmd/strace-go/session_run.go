@@ -5,7 +5,6 @@ import (
 	"os"
 	"syscall"
 	"time"
-	"unsafe"
 
 	"github.com/cilium/ebpf/ringbuf"
 
@@ -36,8 +35,6 @@ type traceCommandExitResult struct {
 	exited   bool
 	exitCode uint64
 }
-
-type traceRecordDecoder struct{}
 
 // IMPACT: run reads and handles ringbuf records in the same goroutine; only process waiting is asynchronous.
 func (s *traceSession) run() {
@@ -212,39 +209,6 @@ func (s *traceSession) handleBPFRecord(rec *ringbuf.Record) bool {
 	}
 	s.handleEnvelope(envelope)
 	return true
-}
-
-func (s *traceSession) traceRecordDecoder() *traceRecordDecoder {
-	if s.recordDecoder == nil {
-		s.recordDecoder = &traceRecordDecoder{}
-	}
-	return s.recordDecoder
-}
-
-func (d *traceRecordDecoder) Decode(rec *ringbuf.Record) (rawEventEnvelope, bool) {
-	if d == nil || rec == nil {
-		return rawEventEnvelope{}, false
-	}
-	return decodeBPFEventEnvelopeRecord(rec.RawSample)
-}
-
-func decodeBPFEventEnvelopeRecord(rawSample []byte) (rawEventEnvelope, bool) {
-	ev, ok := decodeBPFEventRecord(rawSample)
-	if !ok {
-		return rawEventEnvelope{}, false
-	}
-	return newRawEventEnvelopeFromBPF(&ev), true
-}
-
-func decodeBPFEventRecord(rawSample []byte) (bpfEvent, bool) {
-	var ev bpfEvent
-	minSize := int(unsafe.Offsetof(ev.StrArg))
-	if len(rawSample) < minSize {
-		return ev, false
-	}
-	eventBytes := unsafe.Slice((*byte)(unsafe.Pointer(&ev)), int(unsafe.Sizeof(ev)))
-	copy(eventBytes, rawSample)
-	return ev, true
 }
 
 func isTransientRingbufReadError(err error) bool {

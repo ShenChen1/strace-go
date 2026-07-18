@@ -38,6 +38,9 @@ func TestTraceSessionCachesEventPipelineComponents(t *testing.T) {
 	if session.syscallExitPipeline() != session.syscallExitPipeline() {
 		t.Fatal("syscallExitPipeline should be cached per session")
 	}
+	if session.traceRecordDecoder() != session.traceRecordDecoder() {
+		t.Fatal("traceRecordDecoder should be cached per session")
+	}
 }
 
 func TestTraceSessionPipelineUsesCachedDependencies(t *testing.T) {
