@@ -2,6 +2,7 @@
 #define STRACE_GO_PAYLOAD_TLV_H
 
 #define EVENT_FLAG_PAYLOAD_TLV 2
+#define EVENT_FLAG_TRUNCATED 4
 #define PAYLOAD_TLV_HEADER_SIZE 32
 #define PAYLOAD_TLV_OPENAT_MAX 512
 #define PAYLOAD_TLV_READ_MAX 512
@@ -75,6 +76,13 @@ static __always_inline void payload_tlv_write_header(
     payload_tlv_write_header_at(e, 0, kind, arg_index, flags, user_len, copied_len, probe_ret, user_ptr);
 }
 
+static __always_inline void payload_tlv_mark_truncated(struct bpf_event *e, u32 user_len, u32 copied_len, s32 probe_ret)
+{
+    if (probe_ret == 0 && copied_len > 0 && copied_len < user_len) {
+        e->event_flags |= EVENT_FLAG_TRUNCATED;
+    }
+}
+
 static __always_inline void capture_write_tlv(struct bpf_event *e)
 {
     if (e->sys_id != SYS_WRITE && e->sys_id != SYS_PWRITE64) {
@@ -112,6 +120,7 @@ static __always_inline void capture_write_tlv(struct bpf_event *e)
         e->args[1]);
     e->data_len = PAYLOAD_TLV_HEADER_SIZE + copied_len;
     e->event_flags |= EVENT_FLAG_PAYLOAD_TLV;
+    payload_tlv_mark_truncated(e, user_len, copied_len, probe_ret);
 }
 
 static __always_inline void capture_openat_tlv(struct bpf_event *e)
@@ -187,6 +196,7 @@ static __always_inline void capture_read_tlv(struct bpf_event *e)
         e->args[1]);
     e->data_len = PAYLOAD_TLV_HEADER_SIZE + copied_len;
     e->event_flags |= EVENT_FLAG_PAYLOAD_TLV;
+    payload_tlv_mark_truncated(e, user_len, copied_len, probe_ret);
 }
 
 #endif

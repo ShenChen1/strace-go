@@ -60,6 +60,13 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(tlvHeader, wantFlag) {
 		t.Fatalf("payload TLV header missing %q", wantFlag)
 	}
+	wantTruncatedFlag := "#define EVENT_FLAG_TRUNCATED " + strconv.Itoa(int(bpfEventFlagTruncated))
+	if !strings.Contains(tlvHeader, wantTruncatedFlag) {
+		t.Fatalf("payload TLV header missing %q", wantTruncatedFlag)
+	}
+	if !strings.Contains(tlvHeader, "payload_tlv_mark_truncated(e, user_len, copied_len, probe_ret)") {
+		t.Fatal("read/write TLV helpers should mark truncated payload events")
+	}
 	if !strings.Contains(tlvHeader, "PAYLOAD_TLV_KIND_STRING") ||
 		!strings.Contains(tlvHeader, "PAYLOAD_TLV_KIND_BYTES") {
 		t.Fatal("payload TLV header missing string/bytes section kinds")

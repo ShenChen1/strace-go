@@ -21,6 +21,7 @@ UPSTREAM_DIR = os.path.join(PROJECT_ROOT, "strace-upstream")
 STRACE_WRAPPER = os.path.join(SCRIPT_DIR, "strace-sudo.sh")
 STRACE_GO_BIN = os.path.join(PROJECT_ROOT, "strace-go")
 FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_semantic_fixture.c")
+EVENT_FLAG_TRUNCATED = 4
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Unified test framework for strace-go")
@@ -141,7 +142,8 @@ def has_large_write_truncation(events):
                 continue
             copied_len = sec.get("copied_len", 0)
             user_len = sec.get("user_len", 0)
-            return copied_len > 0 and copied_len < user_len
+            has_flag = (ev.get("event_flags", 0) & EVENT_FLAG_TRUNCATED) != 0
+            return has_flag and copied_len > 0 and copied_len < user_len
     return False
 
 def check_write_only_filter(fixture, failures):
