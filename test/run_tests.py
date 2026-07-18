@@ -291,7 +291,7 @@ def finish_ebpf_semantic(res, failures, events, enter_events, exit_events, lifec
     return 0
 
 def collect_semantic_events(fixture):
-    trace_set = "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,newfstatat,statfs,fstatfs,getcwd,readlink,readlinkat,pipe,pipe2,socketpair,uname,sysinfo,getrlimit,setrlimit,prlimit64,arch_prctl,get_robust_list,sendfile,copy_file_range,getitimer,setitimer,clock_settime,settimeofday,adjtimex,nanosleep,clock_nanosleep,execve,exit,exit_group,clock_gettime,gettimeofday"
+    trace_set = "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,newfstatat,statfs,fstatfs,getcwd,readlink,readlinkat,pipe,pipe2,socketpair,uname,sysinfo,getrlimit,setrlimit,prlimit64,arch_prctl,get_robust_list,sendfile,copy_file_range,getitimer,setitimer,clock_settime,settimeofday,adjtimex,nanosleep,clock_nanosleep,futex,execve,exit,exit_group,clock_gettime,gettimeofday"
     res = run_strace_go_json(["-f", "-e", f"trace={trace_set}", fixture])
     events = parse_json_events(res.stderr)
     lifecycle_events = parse_lifecycle_events(res.stderr)
@@ -351,6 +351,7 @@ def run_ebpf_semantic(args):
     require("adjtimex" in names, failures, "adjtimex event missing")
     require("nanosleep" in names, failures, "nanosleep event missing")
     require("clock_nanosleep" in names, failures, "clock_nanosleep event missing")
+    require("futex" in names, failures, "futex event missing")
     require("clock_gettime" in names, failures, "clock_gettime event missing")
     require("gettimeofday" in names, failures, "gettimeofday event missing")
     require("execve" in names, failures, "child execve event missing; fork following may be broken")
@@ -435,6 +436,8 @@ def run_ebpf_semantic(args):
             failures, "nanosleep IN timespec payload section missing from JSON event")
     require(has_struct_payload_section_with_direction(events, "clock_nanosleep", "enter", "in", 2, 16),
             failures, "clock_nanosleep IN timespec payload section missing from JSON event")
+    require(has_struct_payload_section_with_direction(events, "futex", "enter", "in", 3, 16),
+            failures, "futex IN timeout payload section missing from JSON event")
     require(any(ev.get("syscall") == "write" for ev in enter_events), failures, "write enter event missing")
     require(any(ev.get("syscall") == "write" for ev in exit_events), failures, "write exit event missing")
     require(any(ev.get("syscall") == "read" for ev in enter_events), failures, "read enter event missing")

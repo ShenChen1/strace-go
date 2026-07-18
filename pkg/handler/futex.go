@@ -7,6 +7,15 @@ import (
 	"strace-go/pkg/meta"
 )
 
+const (
+	futexCmdMask          = 0x7f
+	futexCmdWait          = 0
+	futexCmdLockPI        = 6
+	futexCmdWaitBitset    = 9
+	futexCmdWaitRequeuePI = 11
+	futexCmdLockPI2       = 13
+)
+
 func init() {
 	h := &FutexHandler{}
 	Register("futex", h)
@@ -27,8 +36,8 @@ func (h *FutexHandler) Handle(ctx *Context) Result {
 	res.ArgParts = append(res.ArgParts, meta.DecodeFlags(op, "futexops"))
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int32(val)))
 
-	baseOp := op & 0x7f
-	if baseOp == 0 || baseOp == 11 || baseOp == 2 { // WAIT, WAIT_BITSET, REQUEUE
+	baseOp := op & futexCmdMask
+	if futexOpHasTimeout(baseOp) {
 		if timeout == 0 {
 			res.ArgParts = append(res.ArgParts, "NULL")
 		} else {
@@ -46,6 +55,14 @@ func (h *FutexHandler) Handle(ctx *Context) Result {
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val3))
 
 	return res
+}
+
+func futexOpHasTimeout(baseOp uint64) bool {
+	return baseOp == futexCmdWait ||
+		baseOp == futexCmdLockPI ||
+		baseOp == futexCmdWaitBitset ||
+		baseOp == futexCmdWaitRequeuePI ||
+		baseOp == futexCmdLockPI2
 }
 
 func futexTimeoutSnapshot(ctx *Context) ([]byte, bool) {

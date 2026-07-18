@@ -49,6 +49,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_ADJTIMEX 159
 #define SYS_SETRLIMIT 160
 #define SYS_SETTIMEOFDAY 164
+#define SYS_FUTEX 202
 #define SYS_CLOCK_SETTIME 227
 #define SYS_CLOCK_GETTIME 228
 #define SYS_CLOCK_GETRES 229
@@ -586,6 +587,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_small_struct_direct_event_v2.h"
 #include "syscall_stat_direct_event_v2.h"
 #include "syscall_time_direct_event_v2.h"
+#include "syscall_futex_direct_event_v2.h"
 #include "syscall_sleep_direct_event_v2.h"
 #include "syscall_timex_direct_event_v2.h"
 
@@ -688,6 +690,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     }
     if (sys_id == SYS_CLOCK_NANOSLEEP) {
         emit_sleep_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time, 2, ctx->args[2], -1);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
+    // IMPACT: futex timeout snapshots are captured at enter as direct TLV sections, without the fixed-window carrier.
+    if (sys_id == SYS_FUTEX) {
+        emit_futex_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }

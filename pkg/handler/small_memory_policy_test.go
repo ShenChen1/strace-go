@@ -96,6 +96,44 @@ func TestFutexTimeoutUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
+func TestFutexTimeoutOpSelection(t *testing.T) {
+	tests := []struct {
+		name string
+		op   uint64
+		want string
+	}{
+		{name: "wait bitset", op: futexCmdWaitBitset, want: "{tv_sec=9, tv_nsec=10}"},
+		{name: "lock pi", op: futexCmdLockPI, want: "{tv_sec=9, tv_nsec=10}"},
+		{name: "futex fd", op: 2, want: "0x1000"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := &Context{
+				Pid:     1234,
+				Tid:     1234,
+				SysName: "futex",
+				Args:    [6]uint64{0x2000, tt.op, 7, 0x1000},
+				Decoder: event.NewDecoder(),
+				PayloadSections: []PayloadSection{
+					{
+						Kind:      PayloadKindStruct,
+						Direction: PayloadDirectionIn,
+						ArgIndex:  3,
+						ProbeRet:  0,
+						Data:      makeTimeStruct(9, 10),
+					},
+				},
+			}
+
+			got := (&FutexHandler{}).Handle(ctx)
+			if got.ArgParts[3] != tt.want {
+				t.Fatalf("timeout = %q, want %q", got.ArgParts[3], tt.want)
+			}
+		})
+	}
+}
+
 func TestFutexWaitvDoesNotProbeLengthWhenFallbackDisabled(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeFutexWaitvData(1, 0x3000, 0)}
 	decoder := event.NewDecoder()

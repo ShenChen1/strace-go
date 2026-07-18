@@ -57,6 +57,11 @@ static __always_inline int is_sleep_direct_syscall(u32 sys_id)
     return sys_id == SYS_NANOSLEEP || sys_id == SYS_CLOCK_NANOSLEEP;
 }
 
+static __always_inline int is_futex_direct_syscall(u32 sys_id)
+{
+    return sys_id == SYS_FUTEX;
+}
+
 static __always_inline int is_time_struct_direct_syscall(u32 sys_id)
 {
     return is_clock_time_struct_direct_syscall(sys_id) ||
@@ -76,7 +81,8 @@ static __always_inline int is_sys_exit_direct_syscall(u32 sys_id)
         is_readlink_direct_syscall(sys_id) ||
         is_fd_array_direct_syscall(sys_id) ||
         is_misc_struct_direct_syscall(sys_id) ||
-        is_small_struct_direct_syscall(sys_id);
+        is_small_struct_direct_syscall(sys_id) ||
+        is_futex_direct_syscall(sys_id);
 }
 
 static __always_inline u32 capture_time_struct_tlv_direct_from_ptr(

@@ -166,6 +166,31 @@ func TestPayloadSectionsForPayloadEventUsesSourceAwareFutexRules(t *testing.T) {
 	}
 }
 
+func TestFutexPayloadSectionsRecognizeTimeoutOps(t *testing.T) {
+	tests := []struct {
+		name string
+		op   uint64
+		want bool
+	}{
+		{name: "wait", op: 0, want: true},
+		{name: "wait private", op: 128, want: true},
+		{name: "wait bitset clock", op: 9 | 256, want: true},
+		{name: "lock pi", op: 6, want: true},
+		{name: "lock pi2 private", op: 13 | 128, want: true},
+		{name: "wait requeue pi", op: 11, want: true},
+		{name: "futex fd", op: 2, want: false},
+		{name: "wake", op: 1, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := futexHasTimeout(tt.op); got != tt.want {
+				t.Fatalf("futexHasTimeout(%#x) = %v, want %v", tt.op, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPayloadSectionsForPayloadEventUsesSourceAwareFutexWaitvRule(t *testing.T) {
 	waiters := futexJSONWaitvPair()
 	timeout := futexJSONTimespec(9, 10)

@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include <asm/prctl.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <linux/futex.h>
 #include <stdio.h>
@@ -279,6 +280,20 @@ static int run_sleep_fixture(void)
 	return 0;
 }
 
+static int run_futex_fixture(void)
+{
+	int futex_word = 0;
+	struct timespec zero;
+	memset(&zero, 0, sizeof(zero));
+	errno = 0;
+	long rc = syscall(SYS_futex, &futex_word, FUTEX_WAIT, 0, &zero, NULL, 0);
+	if (rc != -1 || errno != ETIMEDOUT) {
+		fprintf(stderr, "unexpected futex rc=%ld errno=%d\n", rc, errno);
+		return 106;
+	}
+	return 0;
+}
+
 static int run_semantic_fixture(void)
 {
 	char buf[32];
@@ -382,6 +397,10 @@ static int run_semantic_fixture(void)
 	int sleep_status = run_sleep_fixture();
 	if (sleep_status != 0) {
 		return sleep_status;
+	}
+	int futex_status = run_futex_fixture();
+	if (futex_status != 0) {
+		return futex_status;
 	}
 
 	char large[1024];

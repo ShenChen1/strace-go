@@ -292,11 +292,6 @@ rules:
       payloads:
         - { arg: 3, kind: struct, direction: out, count_from_ret: true, elem_size: 32, max: 512, offset: 1024 }
 
-  - syscalls: [futex]
-    enter:
-      payloads:
-        - { arg: 3, kind: struct, direction: in, size: 16, offset: 0 }
-
   - syscalls: [futex_wait]
     enter:
       payloads:
