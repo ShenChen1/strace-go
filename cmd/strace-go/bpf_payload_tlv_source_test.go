@@ -56,9 +56,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "saved_flags | EVENT_FLAG_GENERIC_ENTER") {
 		t.Fatal("generic enter flag should preserve payload TLV flag")
 	}
-	if !strings.Contains(straceSource, "e->event_flags = 0;") ||
-		!strings.Contains(straceSource, "e->lifecycle_action = kind;") {
-		t.Fatal("lifecycle events should keep action separate from event flags")
+	if !strings.Contains(straceSource, "header->event_type = EVENT_TYPE_LIFECYCLE;") ||
+		!strings.Contains(straceSource, "body->action = kind;") {
+		t.Fatal("lifecycle events should build event v2 fields without the bpf_event carrier")
 	}
 	if !strings.Contains(straceSource, "e->event_type == EVENT_TYPE_ENTER || e->event_type == EVENT_TYPE_EXIT") {
 		t.Fatal("truncated stats should ignore lifecycle action ids sharing event_flags")
@@ -66,14 +66,18 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "emit_syscall_event_v2(e);") {
 		t.Fatal("syscall events should be emitted through event v2")
 	}
-	if !strings.Contains(straceSource, "emit_lifecycle_event_v2(e);") {
-		t.Fatal("lifecycle events should be emitted through event v2")
+	if !strings.Contains(straceSource, "emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);") {
+		t.Fatal("lifecycle events should be emitted directly as event v2")
+	}
+	if strings.Contains(straceSource, "emit_lifecycle_event_v2(e);") {
+		t.Fatal("lifecycle events should not use the bpf_event carrier")
 	}
 	if strings.Contains(straceSource, "emit_legacy_event") {
 		t.Fatal("BPF runtime should not retain legacy fixed-window event output")
 	}
-	if !strings.Contains(straceSource, "EVENT_V2_HEADER_LEN + EVENT_V2_LIFECYCLE_BODY_LEN + payload_size") {
-		t.Fatal("lifecycle event v2 output size should include header, lifecycle body, and snapshot payload")
+	if !strings.Contains(straceSource, "EVENT_V2_HEADER_LEN + EVENT_V2_LIFECYCLE_BODY_LEN + payload_capacity") ||
+		!strings.Contains(straceSource, "bpf_dynptr_data(&ptr, payload_offset, LIFECYCLE_SNAPSHOT_MAX)") {
+		t.Fatal("lifecycle event v2 direct helper should reserve room for direct snapshot payload")
 	}
 	if !strings.Contains(straceSource, "EVENT_V2_HEADER_LEN + body_size + payload_size") {
 		t.Fatal("event v2 output size should be header plus syscall body plus TLV payload")

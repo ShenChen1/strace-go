@@ -46,6 +46,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define EVENT_V2_ENTER_BODY_LEN 56
 #define EVENT_V2_EXIT_BODY_LEN 72
 #define EVENT_V2_LIFECYCLE_BODY_LEN 56
+#define LIFECYCLE_SNAPSHOT_MAX 4096
 
 struct exec_snapshot_header {
     u32 magic;
@@ -476,6 +477,25 @@ static __always_inline void init_event_v2_header(struct event_v2_header *header,
     }
 }
 
+static __always_inline void init_lifecycle_event_v2_header(
+    struct event_v2_header *header,
+    u32 pid,
+    u32 tid,
+    u32 out_size,
+    u64 ts_ns)
+{
+    header->version = EVENT_VERSION;
+    header->event_type = EVENT_TYPE_LIFECYCLE;
+    header->flags = 0;
+    header->header_len = EVENT_V2_HEADER_LEN;
+    header->size = out_size;
+    header->pid = pid;
+    header->tid = tid;
+    header->sys_id = 0;
+    header->seq = 0;
+    header->ts_ns = ts_ns;
+}
+
 static __always_inline void init_syscall_enter_event_v2(struct syscall_enter_event_v2 *body, struct bpf_event *e, u32 payload_size)
 {
     body->args[0] = e->args[0];
@@ -502,16 +522,21 @@ static __always_inline void init_syscall_exit_event_v2(struct syscall_exit_event
     body->capture_flags = 0;
 }
 
-static __always_inline void init_lifecycle_event_v2(struct lifecycle_event_v2 *body, struct bpf_event *e, u32 payload_size)
+static __always_inline void init_lifecycle_event_v2_body(
+    struct lifecycle_event_v2 *body,
+    u32 kind,
+    u32 snapshot_len,
+    u64 arg0,
+    u64 arg1)
 {
-    body->action = e->lifecycle_action;
-    body->snapshot_len = payload_size;
-    body->args[0] = e->args[0];
-    body->args[1] = e->args[1];
-    body->args[2] = e->args[2];
-    body->args[3] = e->args[3];
-    body->args[4] = e->args[4];
-    body->args[5] = e->args[5];
+    body->action = kind;
+    body->snapshot_len = snapshot_len;
+    body->args[0] = arg0;
+    body->args[1] = arg1;
+    body->args[2] = 0;
+    body->args[3] = 0;
+    body->args[4] = 0;
+    body->args[5] = 0;
 }
 
 static __always_inline void emit_syscall_event_v2(struct bpf_event *e)
@@ -566,10 +591,18 @@ static __always_inline void emit_syscall_event_v2(struct bpf_event *e)
     bpf_ringbuf_submit_dynptr(&ptr, 0);
 }
 
-static __always_inline void emit_lifecycle_event_v2(struct bpf_event *e)
+static __always_inline void emit_lifecycle_event_v2_direct(
+    u32 kind,
+    u32 pid,
+    u32 tid,
+    u64 arg0,
+    u64 arg1,
+    const void *snapshot_str)
 {
-    u32 payload_size = event_payload_size(e);
-    u32 out_size = EVENT_V2_HEADER_LEN + EVENT_V2_LIFECYCLE_BODY_LEN + payload_size;
+    u32 payload_capacity = snapshot_str ? LIFECYCLE_SNAPSHOT_MAX : 0;
+    u32 payload_size = 0;
+    u32 out_size = EVENT_V2_HEADER_LEN + EVENT_V2_LIFECYCLE_BODY_LEN + payload_capacity;
+    u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_LIFECYCLE_BODY_LEN;
 
     struct bpf_dynptr ptr;
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
@@ -579,8 +612,20 @@ static __always_inline void emit_lifecycle_event_v2(struct bpf_event *e)
         return;
     }
 
+    if (snapshot_str) {
+        void *payload = bpf_dynptr_data(&ptr, payload_offset, LIFECYCLE_SNAPSHOT_MAX);
+        if (!payload) {
+            record_ringbuf_copy_fail();
+        } else {
+            long n = bpf_probe_read_kernel_str(payload, LIFECYCLE_SNAPSHOT_MAX, snapshot_str);
+            if (n > 0) {
+                payload_size = (u32)n;
+            }
+        }
+    }
+
     struct event_v2_header header = {};
-    init_event_v2_header(&header, e, out_size);
+    init_lifecycle_event_v2_header(&header, pid, tid, out_size, bpf_ktime_get_ns());
     ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
     if (ret < 0) {
         record_ringbuf_copy_fail();
@@ -589,7 +634,7 @@ static __always_inline void emit_lifecycle_event_v2(struct bpf_event *e)
     }
 
     struct lifecycle_event_v2 body = {};
-    init_lifecycle_event_v2(&body, e, payload_size);
+    init_lifecycle_event_v2_body(&body, kind, payload_size, arg0, arg1);
     ret = bpf_dynptr_write(&ptr, EVENT_V2_HEADER_LEN, &body, sizeof(body), 0);
     if (ret < 0) {
         record_ringbuf_copy_fail();
@@ -597,14 +642,6 @@ static __always_inline void emit_lifecycle_event_v2(struct bpf_event *e)
         return;
     }
 
-    if (payload_size > 0) {
-        ret = bpf_dynptr_write(&ptr, EVENT_V2_HEADER_LEN + EVENT_V2_LIFECYCLE_BODY_LEN, e->str_arg, payload_size, 0);
-        if (ret < 0) {
-            record_ringbuf_copy_fail();
-            bpf_ringbuf_discard_dynptr(&ptr, 0);
-            return;
-        }
-    }
     bpf_ringbuf_submit_dynptr(&ptr, 0);
 }
 
@@ -618,10 +655,6 @@ static __always_inline void emit_event(struct bpf_event *e)
         emit_syscall_event_v2(e);
         return;
     }
-    if (e->event_type == EVENT_TYPE_LIFECYCLE) {
-        emit_lifecycle_event_v2(e);
-        return;
-    }
 }
 
 static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64 arg0, u64 arg1, const void *snapshot_str)
@@ -632,43 +665,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
         return;
     }
 
-    struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
-    if (!e) {
-        return;
-    }
-
-    e->pid = pid;
-    e->sys_id = 0;
-    e->tid = tid;
-    e->event_version = EVENT_VERSION;
-    e->event_type = EVENT_TYPE_LIFECYCLE;
-    e->event_flags = 0;
-    e->lifecycle_action = kind;
-    e->probe_ret_enter = 0;
-    e->probe_ret_exit = 0;
-    e->enter_time = bpf_ktime_get_ns();
-    e->duration = 0;
-    e->args[0] = arg0;
-    e->args[1] = arg1;
-    e->args[2] = 0;
-    e->args[3] = 0;
-    e->args[4] = 0;
-    e->args[5] = 0;
-    e->ret = 0;
-    e->ptr = 0;
-    e->data_len = 0;
-    e->stack_id = -1;
-    e->str_arg[0] = 0;
-
-    if (snapshot_str) {
-        long n = bpf_probe_read_kernel_str(e->str_arg, 4096, snapshot_str);
-        if (n > 0) {
-            e->data_len = n;
-        }
-        e->probe_ret_enter = n;
-    }
-
-    emit_event(e);
+    emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);
 }
 
 SEC("tracepoint/raw_syscalls/sys_enter")
