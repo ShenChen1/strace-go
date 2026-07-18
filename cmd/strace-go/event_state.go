@@ -64,7 +64,6 @@ const (
 
 type TraceStateUpdate struct {
 	kind          traceStateEventKind
-	envelope      rawEventEnvelope
 	syscallView   syscallEventView
 	lifecycleView lifecycleEventView
 	pendingEnter  *pendingSyscallState
@@ -84,34 +83,32 @@ func (s *traceSession) traceState() *TraceState {
 
 func (st *TraceState) handleEnvelope(envelope rawEventEnvelope) TraceStateUpdate {
 	if envelope.isLifecycle() {
-		lifecycleView := lifecycleEventViewFromEnvelope(envelope)
+		lifecycleView := envelope.lifecycleView()
 		task := st.applyLifecycleEvent(lifecycleView)
 		if lifecycleView.action == lifecycleExit || lifecycleView.action == lifecycleFree {
 			st.clearTaskPending(lifecycleView.tid)
 		}
 		return TraceStateUpdate{
 			kind:          traceStateLifecycle,
-			envelope:      envelope,
 			lifecycleView: lifecycleView,
 			lifecycleTask: task,
 		}
 	}
 
-	syscallView := syscallEventViewFromEnvelope(envelope)
+	syscallView := envelope.syscallView()
 	st.noteSyscallTask(syscallView)
 	if syscallView.isGenericEnter() {
 		st.rememberEnterEvent(syscallView, envelope.payload)
-		return TraceStateUpdate{kind: traceStateSyscallEnter, envelope: envelope, syscallView: syscallView}
+		return TraceStateUpdate{kind: traceStateSyscallEnter, syscallView: syscallView}
 	}
 	return TraceStateUpdate{
 		kind:         traceStateSyscallExit,
-		envelope:     envelope,
 		syscallView:  syscallView,
 		pendingEnter: st.consumeEnterEvent(syscallView),
 	}
 }
 
-func lifecycleEventViewFromEnvelope(envelope rawEventEnvelope) lifecycleEventView {
+func (envelope rawEventEnvelope) lifecycleView() lifecycleEventView {
 	return lifecycleEventView{
 		valid:        envelope.valid,
 		eventVersion: envelope.eventVersion,
@@ -126,7 +123,7 @@ func lifecycleEventViewFromEnvelope(envelope rawEventEnvelope) lifecycleEventVie
 	}
 }
 
-func syscallEventViewFromEnvelope(envelope rawEventEnvelope) syscallEventView {
+func (envelope rawEventEnvelope) syscallView() syscallEventView {
 	return syscallEventView{
 		valid:         envelope.valid,
 		eventVersion:  envelope.eventVersion,
