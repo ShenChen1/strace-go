@@ -32,6 +32,8 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_PREAD64 17
 #define SYS_PWRITE64 18
 #define SYS_PIPE 22
+#define SYS_GETITIMER 36
+#define SYS_SETITIMER 38
 #define SYS_GETPID 39
 #define SYS_SENDFILE 40
 #define SYS_SOCKETPAIR 53
@@ -654,6 +656,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
+    // IMPACT: itimer set calls snapshot the new timer value at enter and merge old value snapshots at exit.
+    if (is_itimer_enter_direct_syscall(sys_id)) {
+        emit_itimer_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
     // IMPACT: no-payload direct syscalls bypass the large bpf_event carrier while preserving args/ret pairing.
     if (is_scalar_direct_syscall(sys_id) || is_exit_payload_direct_syscall(sys_id) ||
         is_fd_array_direct_syscall(sys_id) ||
@@ -765,6 +774,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_gettimeofday_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_clock_time_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_time_struct_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_itimer_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
+            emit_itimer_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_stat_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_stat_struct_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_getcwd_direct_syscall(p->sys_id) && ret_value > 0) {

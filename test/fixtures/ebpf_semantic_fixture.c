@@ -212,6 +212,24 @@ static int run_small_struct_fixture(void)
 	return 0;
 }
 
+static int run_itimer_fixture(void)
+{
+	struct itimerval current;
+	if (syscall(SYS_getitimer, ITIMER_REAL, &current) != 0) {
+		perror("getitimer");
+		return 99;
+	}
+
+	struct itimerval zero;
+	memset(&zero, 0, sizeof(zero));
+	struct itimerval old;
+	if (syscall(SYS_setitimer, ITIMER_REAL, &zero, &old) != 0) {
+		perror("setitimer");
+		return 100;
+	}
+	return 0;
+}
+
 static int run_semantic_fixture(void)
 {
 	char buf[32];
@@ -299,6 +317,10 @@ static int run_semantic_fixture(void)
 	int small_struct_status = run_small_struct_fixture();
 	if (small_struct_status != 0) {
 		return small_struct_status;
+	}
+	int itimer_status = run_itimer_fixture();
+	if (itimer_status != 0) {
+		return itimer_status;
 	}
 
 	char large[1024];

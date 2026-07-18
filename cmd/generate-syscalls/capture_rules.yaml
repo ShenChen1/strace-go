@@ -558,16 +558,3 @@ rules:
       payloads:
         - { arg: 2, kind: struct, direction: out, size: 128, offset: 1024 }
         - { arg: 4, kind: struct, direction: out, size: 144, offset: 1160 }
-
-  - syscalls: [setitimer]
-    enter:
-      payloads:
-        - { arg: 1, kind: struct, direction: in, size: 32 }
-    exit:
-      payloads:
-        - { arg: 2, kind: struct, direction: out, size: 32, offset: 1024 }
-
-  - syscalls: [getitimer]
-    exit:
-      payloads:
-        - { arg: 1, kind: struct, direction: out, size: 32, offset: 1024 }
