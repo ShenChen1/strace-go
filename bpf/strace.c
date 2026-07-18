@@ -450,15 +450,6 @@ static __always_inline void record_payload_truncated_event(void)
     }
 }
 
-static __always_inline u32 event_output_size(struct bpf_event *e)
-{
-    u32 data_len = e->data_len;
-    if (data_len > sizeof(e->str_arg)) {
-        data_len = sizeof(e->str_arg);
-    }
-    return __builtin_offsetof(struct bpf_event, str_arg) + data_len;
-}
-
 static __always_inline u32 event_payload_size(struct bpf_event *e)
 {
     u32 data_len = e->data_len;
@@ -466,26 +457,6 @@ static __always_inline u32 event_payload_size(struct bpf_event *e)
         data_len = sizeof(e->str_arg);
     }
     return data_len;
-}
-
-static __always_inline void emit_legacy_event(struct bpf_event *e)
-{
-    u32 out_size = event_output_size(e);
-    struct bpf_dynptr ptr;
-    long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
-    if (ret < 0) {
-        record_ringbuf_reserve_fail();
-        bpf_ringbuf_discard_dynptr(&ptr, 0);
-        return;
-    }
-
-    ret = bpf_dynptr_write(&ptr, 0, e, out_size, 0);
-    if (ret < 0) {
-        record_ringbuf_copy_fail();
-        bpf_ringbuf_discard_dynptr(&ptr, 0);
-        return;
-    }
-    bpf_ringbuf_submit_dynptr(&ptr, 0);
 }
 
 static __always_inline void init_event_v2_header(struct event_v2_header *header, struct bpf_event *e, u32 out_size)
@@ -651,7 +622,6 @@ static __always_inline void emit_event(struct bpf_event *e)
         emit_lifecycle_event_v2(e);
         return;
     }
-    emit_legacy_event(e);
 }
 
 static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64 arg0, u64 arg1, const void *snapshot_str)
