@@ -71,7 +71,7 @@ func TestDecodeFixedWindowTraceEventEnvelopeProjectsEnvelope(t *testing.T) {
 	}
 }
 
-func TestTraceRingbufRecordDecoderUsesProjectorForFixedWindowSample(t *testing.T) {
+func TestTraceRingbufRecordDecoderRejectsFixedWindowSample(t *testing.T) {
 	eventRaw := &bpfEvent{
 		Pid:          201,
 		Tid:          202,
@@ -81,23 +81,10 @@ func TestTraceRingbufRecordDecoderUsesProjectorForFixedWindowSample(t *testing.T
 	}
 	minSize := int(unsafe.Offsetof(eventRaw.StrArg))
 	raw := rawBPFEventForTest(eventRaw, minSize)
-	projector := &fakeBPFEventProjector{
-		envelope: traceEventEnvelope{valid: true, pid: 999},
-	}
-	decoder := traceRingbufRecordDecoder{projector: projector}
+	decoder := traceRingbufRecordDecoder{}
 
-	envelope, ok := decoder.Decode(&ringbuf.Record{RawSample: raw})
-	if !ok {
-		t.Fatal("traceRingbufRecordDecoder rejected a valid fixed-window sample")
-	}
-	if projector.calls != 1 {
-		t.Fatalf("projector calls = %d, want 1", projector.calls)
-	}
-	if projector.event.SysId != eventRaw.SysId || projector.event.Pid != eventRaw.Pid {
-		t.Fatalf("projected event = %+v, want source fixed-window event", projector.event)
-	}
-	if !envelope.valid || envelope.pid != 999 {
-		t.Fatalf("envelope = %+v, want projector result", envelope)
+	if _, ok := decoder.Decode(&ringbuf.Record{RawSample: raw}); ok {
+		t.Fatal("traceRingbufRecordDecoder accepted a fixed-window sample")
 	}
 }
 
@@ -112,18 +99,4 @@ func TestTraceRecordDecoderRejectsNilRecord(t *testing.T) {
 func rawBPFEventForTest(eventRaw *bpfEvent, size int) []byte {
 	all := unsafe.Slice((*byte)(unsafe.Pointer(eventRaw)), int(unsafe.Sizeof(*eventRaw)))
 	return append([]byte(nil), all[:size]...)
-}
-
-type fakeBPFEventProjector struct {
-	calls    int
-	event    bpfEvent
-	envelope traceEventEnvelope
-}
-
-func (p *fakeBPFEventProjector) Project(eventRaw *bpfEvent) traceEventEnvelope {
-	p.calls++
-	if eventRaw != nil {
-		p.event = *eventRaw
-	}
-	return p.envelope
 }

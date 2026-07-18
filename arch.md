@@ -985,6 +985,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - text path-filter 场景会打开 generic enter event，并把 enter TLV payload section 深拷贝到 `TraceState`；exit context 合并 enter/exit sections 后再执行 `-P` path filter，避免在 exit 阶段重新读取 IN path 指针，`openat.gen.test` 已在 `upstream-reference` 中通过。
 - lifecycle 输出已从 legacy fixed-window fallback 切到 event v2；legacy fixed-window decode 仅作为迁移期边界保留给尚未彻底删除的旧 carrier 测试/兼容投影。
 - BPF runtime 已删除 `emit_legacy_event` / `event_output_size`，产品输出路径只分发 syscall/lifecycle event v2；未知 event type 不再退回旧 fixed-window 协议。
+- Go 产品 ringbuf decoder 已删除 fixed-window fallback，只接受 event v2 sample；fixed-window decode helper 仅作为显式迁移期测试/投影边界保留。
 - upstream 原生测试卷已作为 `upstream-reference` smoke 跑通入口；最近一次参考运行剩余主要差异是 `read-write.gen.test` 的大 payload hexdump exact diff，不作为 eBPF 主门禁失败处理。
 - write hexdump 已删除 fd-backed file recovery，不再从 tracee fd 指向的文件或测试输出文件补读 BPF payload 前缀之后的数据；`-ewrite` 现在只消费 probe-site payload section，避免把已格式化 trace 输出重新读回成 syscall buffer。
 - `FDStateStore` 已删除 fd data file cache，只保留 fd path 与 offset 状态；生命周期继承/清理不再维护异步文件补读句柄。

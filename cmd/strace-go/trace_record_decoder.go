@@ -10,20 +10,12 @@ type traceRecordDecoder interface {
 	Decode(rec *ringbuf.Record) (traceEventEnvelope, bool)
 }
 
-type bpfEventProjector interface {
-	Project(eventRaw *bpfEvent) traceEventEnvelope
-}
-
-// IMPACT: traceRingbufRecordDecoder detects event v2 samples before legacy fixed-window fallback.
-type traceRingbufRecordDecoder struct {
-	projector bpfEventProjector
-}
-
-type traceEventProjector struct{}
+// IMPACT: traceRingbufRecordDecoder is the product ringbuf boundary and accepts event v2 samples only.
+type traceRingbufRecordDecoder struct{}
 
 func (s *traceSession) traceRecordDecoder() traceRecordDecoder {
 	if s.recordDecoder == nil {
-		s.recordDecoder = traceRingbufRecordDecoder{projector: traceEventProjector{}}
+		s.recordDecoder = traceRingbufRecordDecoder{}
 	}
 	return s.recordDecoder
 }
@@ -32,14 +24,7 @@ func (d traceRingbufRecordDecoder) Decode(rec *ringbuf.Record) (traceEventEnvelo
 	if rec == nil {
 		return traceEventEnvelope{}, false
 	}
-	if isTraceEventV2Sample(rec.RawSample) {
-		return decodeTraceEventV2Envelope(rec.RawSample)
-	}
-	ev, ok := decodeFixedWindowBPFEvent(rec.RawSample)
-	if !ok {
-		return traceEventEnvelope{}, false
-	}
-	return d.traceEventProjector().Project(&ev), true
+	return decodeTraceEventV2Envelope(rec.RawSample)
 }
 
 func decodeFixedWindowTraceEventEnvelope(rawSample []byte) (traceEventEnvelope, bool) {
@@ -47,19 +32,7 @@ func decodeFixedWindowTraceEventEnvelope(rawSample []byte) (traceEventEnvelope, 
 	if !ok {
 		return traceEventEnvelope{}, false
 	}
-	return traceEventProjector{}.Project(&ev), true
-}
-
-func (d traceRingbufRecordDecoder) traceEventProjector() bpfEventProjector {
-	if d.projector != nil {
-		return d.projector
-	}
-	return traceEventProjector{}
-}
-
-// IMPACT: Project is the fixed BPF carrier to traceEventEnvelope migration boundary.
-func (traceEventProjector) Project(eventRaw *bpfEvent) traceEventEnvelope {
-	return newTraceEventEnvelopeFromBPF(eventRaw)
+	return newTraceEventEnvelopeFromBPF(&ev), true
 }
 
 func decodeFixedWindowBPFEvent(rawSample []byte) (bpfEvent, bool) {
