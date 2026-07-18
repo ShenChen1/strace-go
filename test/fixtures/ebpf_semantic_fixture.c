@@ -44,6 +44,36 @@ static void fill_large_write_payload(char *buf, size_t len)
 	}
 }
 
+static int run_readlink_fixture(void)
+{
+	char link_template[] = "/tmp/strace-go-ebpf-readlink-XXXXXX";
+	int fd = mkstemp(link_template);
+	if (fd < 0) {
+		perror("mkstemp readlink");
+		return 79;
+	}
+	(void) close(fd);
+	(void) unlink(link_template);
+	if (symlink("/proc/self", link_template) != 0) {
+		perror("symlink");
+		return 80;
+	}
+
+	char link_buf[128];
+	if (syscall(SYS_readlink, link_template, link_buf, sizeof(link_buf)) < 0) {
+		perror("readlink");
+		(void) unlink(link_template);
+		return 81;
+	}
+	if (syscall(SYS_readlinkat, AT_FDCWD, link_template, link_buf, sizeof(link_buf)) < 0) {
+		perror("readlinkat");
+		(void) unlink(link_template);
+		return 82;
+	}
+	(void) unlink(link_template);
+	return 0;
+}
+
 static int run_semantic_fixture(void)
 {
 	char buf[32];
@@ -111,6 +141,10 @@ static int run_semantic_fixture(void)
 	if (syscall(SYS_newfstatat, AT_FDCWD, "/proc/self", &path_st, 0) != 0) {
 		perror("newfstatat");
 		return 78;
+	}
+	int readlink_status = run_readlink_fixture();
+	if (readlink_status != 0) {
+		return readlink_status;
 	}
 
 	char large[1024];

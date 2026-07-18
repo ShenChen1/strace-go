@@ -16,6 +16,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	directHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h"))
 	statDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_stat_direct_event_v2.h"))
 	pathStatDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_stat_direct_event_v2.h"))
+	readlinkDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_direct_event_v2.h"))
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 
 	if !strings.Contains(straceSource, `#include "payload_tlv.h"`) {
@@ -51,6 +52,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "#define SYS_GETPID 39") {
 		t.Fatal("strace.c missing SYS_GETPID constant for scalar direct event v2 path")
 	}
+	if !strings.Contains(straceSource, "#define SYS_READLINK 89") {
+		t.Fatal("strace.c missing SYS_READLINK constant for readlink direct event v2 path")
+	}
 	if !strings.Contains(straceSource, "#define SYS_GETTIMEOFDAY 96") {
 		t.Fatal("strace.c missing SYS_GETTIMEOFDAY constant for gettimeofday direct event v2 path")
 	}
@@ -63,6 +67,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 	if !strings.Contains(straceSource, "#define SYS_NEWFSTATAT 262") {
 		t.Fatal("strace.c missing SYS_NEWFSTATAT constant for newfstatat direct event v2 path")
+	}
+	if !strings.Contains(straceSource, "#define SYS_READLINKAT 267") {
+		t.Fatal("strace.c missing SYS_READLINKAT constant for readlinkat direct event v2 path")
 	}
 	if !strings.Contains(straceSource, `#include "syscall_direct_event_v2.h"`) {
 		t.Fatal("strace.c should include scalar direct event v2 helpers")
@@ -206,6 +213,24 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if strings.Contains(straceSource, `#include "syscall_statfs_direct_event_v2.h"`) ||
 		strings.Contains(straceSource, "is_path_statfs_direct_syscall(") {
 		t.Fatal("path stat direct capture should not keep the statfs-only helper")
+	}
+	if !strings.Contains(straceSource, `#include "syscall_readlink_direct_event_v2.h"`) ||
+		!strings.Contains(readlinkDirectHeader, "is_readlink_direct_syscall(") ||
+		!strings.Contains(readlinkDirectHeader, "return sys_id == SYS_READLINK || sys_id == SYS_READLINKAT;") ||
+		!strings.Contains(readlinkDirectHeader, "READLINK_DIRECT_PATH_MAX 512") ||
+		!strings.Contains(readlinkDirectHeader, "READLINK_DIRECT_BYTES_MAX 512") ||
+		!strings.Contains(readlinkDirectHeader, "emit_readlink_enter_event_v2_direct(") ||
+		!strings.Contains(readlinkDirectHeader, "emit_readlink_exit_event_v2_direct(") ||
+		!strings.Contains(readlinkDirectHeader, "ctx, ts_ns, 1, ctx->args[1]") ||
+		!strings.Contains(readlinkDirectHeader, "ctx, ts_ns, 0, ctx->args[0]") ||
+		!strings.Contains(readlinkDirectHeader, "return p->args[2];") ||
+		!strings.Contains(readlinkDirectHeader, "PAYLOAD_TLV_KIND_BYTES") ||
+		!strings.Contains(readlinkDirectHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") ||
+		!strings.Contains(timeDirectHeader, "is_readlink_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "is_readlink_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "emit_readlink_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);") ||
+		!strings.Contains(straceSource, "emit_readlink_exit_event_v2_direct(p, ret_value, duration);") {
+		t.Fatal("readlink/readlinkat should emit direct TLV events without the bpf_event carrier")
 	}
 	if !strings.Contains(straceSource, "emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);") {
 		t.Fatal("lifecycle events should be emitted directly as event v2")

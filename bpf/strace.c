@@ -32,6 +32,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_PREAD64 17
 #define SYS_PWRITE64 18
 #define SYS_GETPID 39
+#define SYS_READLINK 89
 #define SYS_GETTIMEOFDAY 96
 #define SYS_STATFS 137
 #define SYS_FSTATFS 138
@@ -39,6 +40,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_CLOCK_GETRES 229
 #define SYS_OPENAT 257
 #define SYS_NEWFSTATAT 262
+#define SYS_READLINKAT 267
 #define EVENT_TYPE_ENTER 1
 #define EVENT_TYPE_EXIT 2
 #define EVENT_TYPE_LIFECYCLE 3
@@ -557,6 +559,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 
 #include "syscall_direct_event_v2.h"
 #include "syscall_path_stat_direct_event_v2.h"
+#include "syscall_readlink_direct_event_v2.h"
 #include "syscall_stat_direct_event_v2.h"
 #include "syscall_time_direct_event_v2.h"
 
@@ -609,6 +612,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     // IMPACT: path stat syscalls carry an IN path snapshot on enter and an OUT struct on exit without the bpf_event carrier.
     if (is_path_stat_direct_syscall(sys_id)) {
         emit_path_stat_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
+    // IMPACT: readlink syscalls carry an IN path snapshot on enter and an OUT bytes snapshot on exit without the bpf_event carrier.
+    if (is_readlink_direct_syscall(sys_id)) {
+        emit_readlink_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }
@@ -723,6 +733,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_time_struct_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_stat_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_stat_struct_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_readlink_direct_syscall(p->sys_id) && ret_value > 0) {
+            emit_readlink_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
             emit_exec_exit_event_v2_direct(p, ret_value, duration);
         } else {

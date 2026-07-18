@@ -244,6 +244,18 @@ def has_fstatfs_payload_section(events):
 def has_statfs_payload_section(events):
     return has_struct_payload_section(events, "statfs", 1, 120)
 
+def has_bytes_payload_section(events, syscall, arg_index, text):
+    for ev in events:
+        if ev.get("syscall") != syscall or ev.get("event_type") != "exit":
+            continue
+        for sec in ev.get("payload_sections") or []:
+            if sec.get("kind") != "bytes" or sec.get("direction") != "out":
+                continue
+            if sec.get("arg_index") != arg_index:
+                continue
+            return text in payload_section_text(sec)
+    return False
+
 def check_write_only_filter(fixture, failures):
     filter_res = run_strace_go_json(["-e", "trace=write", fixture], debug=True)
     filter_events = parse_json_events(filter_res.stderr)
@@ -276,7 +288,7 @@ def finish_ebpf_semantic(res, failures, events, enter_events, exit_events, lifec
     return 0
 
 def collect_semantic_events(fixture):
-    trace_set = "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,newfstatat,statfs,fstatfs,execve,exit,exit_group,clock_gettime,gettimeofday"
+    trace_set = "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,newfstatat,statfs,fstatfs,readlink,readlinkat,execve,exit,exit_group,clock_gettime,gettimeofday"
     res = run_strace_go_json(["-f", "-e", f"trace={trace_set}", fixture])
     events = parse_json_events(res.stderr)
     lifecycle_events = parse_lifecycle_events(res.stderr)
@@ -314,6 +326,8 @@ def run_ebpf_semantic(args):
     require("newfstatat" in names, failures, "newfstatat event missing")
     require("statfs" in names, failures, "statfs event missing")
     require("fstatfs" in names, failures, "fstatfs event missing")
+    require("readlink" in names, failures, "readlink event missing")
+    require("readlinkat" in names, failures, "readlinkat event missing")
     require("clock_gettime" in names, failures, "clock_gettime event missing")
     require("gettimeofday" in names, failures, "gettimeofday event missing")
     require("execve" in names, failures, "child execve event missing; fork following may be broken")
@@ -329,6 +343,10 @@ def run_ebpf_semantic(args):
             failures, "lstat path payload section missing from JSON event")
     require(has_path_section(events, "newfstatat", 1, "/proc/self"),
             failures, "newfstatat path payload section missing from JSON event")
+    require(has_path_section(events, "readlink", 0, "/tmp/strace-go-ebpf-readlink-"),
+            failures, "readlink path payload section missing from JSON event")
+    require(has_path_section(events, "readlinkat", 1, "/tmp/strace-go-ebpf-readlink-"),
+            failures, "readlinkat path payload section missing from JSON event")
     require(has_exec_payload_sections(events), failures, "execve argv/envp and filename payload sections missing from JSON event")
     require(has_clock_payload_section(events), failures, "clock_gettime OUT timespec payload section missing from JSON event")
     require(has_gettimeofday_payload_sections(events), failures, "gettimeofday OUT timeval/timezone payload sections missing from JSON event")
@@ -338,6 +356,10 @@ def run_ebpf_semantic(args):
     require(has_stat_payload_section(events, "newfstatat", 2), failures, "newfstatat OUT stat payload section missing from JSON event")
     require(has_statfs_payload_section(events), failures, "statfs OUT statfs payload section missing from JSON event")
     require(has_fstatfs_payload_section(events), failures, "fstatfs OUT statfs payload section missing from JSON event")
+    require(has_bytes_payload_section(events, "readlink", 1, "/proc/self"),
+            failures, "readlink OUT target payload section missing from JSON event")
+    require(has_bytes_payload_section(events, "readlinkat", 2, "/proc/self"),
+            failures, "readlinkat OUT target payload section missing from JSON event")
     require(any(ev.get("syscall") == "write" for ev in enter_events), failures, "write enter event missing")
     require(any(ev.get("syscall") == "write" for ev in exit_events), failures, "write exit event missing")
     require(any(ev.get("syscall") == "read" for ev in enter_events), failures, "read enter event missing")

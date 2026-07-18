@@ -521,6 +521,98 @@ func assertPathStatSectionsMerged(
 	}
 }
 
+func TestSyscallEventContextMergesReadlinkEnterPathAndExitBytesSections(t *testing.T) {
+	tests := []readlinkTLVCase{
+		{
+			name:    "readlink",
+			args:    [6]uint64{0x1000, 0x2000, 64},
+			pathArg: 0,
+			bufArg:  1,
+		},
+		{
+			name:    "readlinkat",
+			args:    [6]uint64{rawAtFdcwd, 0x1000, 0x2000, 64},
+			pathArg: 1,
+			bufArg:  2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertReadlinkSectionsMerged(t, tt)
+		})
+	}
+}
+
+type readlinkTLVCase struct {
+	name    string
+	args    [6]uint64
+	pathArg uint16
+	bufArg  uint16
+}
+
+func assertReadlinkSectionsMerged(t *testing.T, tt readlinkTLVCase) {
+	t.Helper()
+	session := &traceSession{
+		targetPid: 101,
+		opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + tt.name, "/bin/true"}),
+		decoder:   event.NewDecoder(),
+		fdState:   newFDStateStoreFromMaps(nil, nil),
+		state:     newTraceState(),
+	}
+	pathData := []byte("/tmp/strace-go-ebpf-readlink\x00")
+	pathPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindString,
+		arg:     tt.pathArg,
+		userPtr: tt.args[tt.pathArg],
+		userLen: uint32(len(pathData)),
+		data:    pathData,
+	})
+	enterRaw := &bpfEvent{
+		Pid:        101,
+		Tid:        101,
+		SysId:      syscallIDByName(t, tt.name),
+		EventType:  bpfEventTypeEnter,
+		EventFlags: bpfEventFlagPayloadTLV | bpfEventFlagGenericEnter,
+		Args:       tt.args,
+		DataLen:    uint32(len(pathPayload)),
+	}
+	copy(enterRaw.StrArg[:], pathPayload)
+	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+
+	targetData := []byte("/proc/self")
+	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindBytes,
+		flags:   payloadTLVFlagDirectionOut,
+		arg:     tt.bufArg,
+		userPtr: tt.args[tt.bufArg],
+		userLen: uint32(len(targetData)),
+		data:    targetData,
+	})
+	exitRaw := &bpfEvent{
+		Pid:        101,
+		Tid:        101,
+		SysId:      syscallIDByName(t, tt.name),
+		EventType:  bpfEventTypeExit,
+		EventFlags: bpfEventFlagPayloadTLV,
+		Args:       tt.args,
+		Ret:        int64(len(targetData)),
+		DataLen:    uint32(len(exitPayload)),
+	}
+	copy(exitRaw.StrArg[:], exitPayload)
+
+	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
+	pathSection, ok := ev.handlerContext.Section(int(tt.pathArg), handler.PayloadKindString)
+	if !ok || !bytes.Equal(pathSection.Data, pathData) {
+		t.Fatalf("%s path section = %+v, %v; want pending enter path", tt.name, pathSection, ok)
+	}
+	bytesSection, ok := ev.handlerContext.Section(int(tt.bufArg), handler.PayloadKindBytes)
+	if !ok || !bytes.Equal(bytesSection.Data, targetData) {
+		t.Fatalf("%s bytes section = %+v, %v; want exit bytes", tt.name, bytesSection, ok)
+	}
+}
+
 func TestPayloadSectionsForEventDoesNotFallbackOnInvalidTLV(t *testing.T) {
 	eventRaw := tlvOpenatEvent(t, []byte("fixed.txt\x00"))
 	eventRaw.DataLen = 4

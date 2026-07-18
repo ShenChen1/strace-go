@@ -23,7 +23,8 @@ static __always_inline int is_sys_exit_direct_syscall(u32 sys_id)
 {
     return is_direct_syscall(sys_id) ||
         is_time_struct_direct_syscall(sys_id) ||
-        is_stat_struct_direct_syscall(sys_id);
+        is_stat_struct_direct_syscall(sys_id) ||
+        is_readlink_direct_syscall(sys_id);
 }
 
 static __always_inline u32 capture_time_struct_tlv_direct(
