@@ -4,10 +4,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/sysinfo.h>
 #include <sys/time.h>
+#include <sys/utsname.h>
 #include <sys/vfs.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -113,6 +116,38 @@ static int run_fd_array_fixture(void)
 	return 0;
 }
 
+static int run_misc_struct_fixture(void)
+{
+	struct utsname uts;
+	if (syscall(SYS_uname, &uts) != 0) {
+		perror("uname");
+		return 87;
+	}
+
+	struct sysinfo info;
+	if (syscall(SYS_sysinfo, &info) != 0) {
+		perror("sysinfo");
+		return 88;
+	}
+
+	struct rlimit limit;
+	if (syscall(SYS_getrlimit, RLIMIT_NOFILE, &limit) != 0) {
+		perror("getrlimit");
+		return 89;
+	}
+	if (syscall(SYS_setrlimit, RLIMIT_NOFILE, &limit) != 0) {
+		perror("setrlimit");
+		return 90;
+	}
+
+	struct rlimit old_limit;
+	if (syscall(SYS_prlimit64, 0, RLIMIT_NOFILE, &limit, &old_limit) != 0) {
+		perror("prlimit64");
+		return 91;
+	}
+	return 0;
+}
+
 static int run_semantic_fixture(void)
 {
 	char buf[32];
@@ -192,6 +227,10 @@ static int run_semantic_fixture(void)
 	int fd_array_status = run_fd_array_fixture();
 	if (fd_array_status != 0) {
 		return fd_array_status;
+	}
+	int misc_struct_status = run_misc_struct_fixture();
+	if (misc_struct_status != 0) {
+		return misc_struct_status;
 	}
 
 	char large[1024];

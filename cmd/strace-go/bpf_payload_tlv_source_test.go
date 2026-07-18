@@ -16,6 +16,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	directHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h"))
 	fdArrayDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_fd_array_direct_event_v2.h"))
 	getcwdDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_getcwd_direct_event_v2.h"))
+	miscDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_misc_struct_direct_event_v2.h"))
 	statDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_stat_direct_event_v2.h"))
 	pathStatDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_stat_direct_event_v2.h"))
 	readlinkDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_direct_event_v2.h"))
@@ -35,6 +36,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 	if !strings.Contains(straceSource, "#define SYS_SOCKETPAIR 53") {
 		t.Fatal("strace.c missing SYS_SOCKETPAIR constant for fd-array direct event v2 path")
+	}
+	if !strings.Contains(straceSource, "#define SYS_UNAME 63") {
+		t.Fatal("strace.c missing SYS_UNAME constant for misc struct direct event v2 path")
 	}
 	if !strings.Contains(straceSource, "#define SYS_STAT 4") {
 		t.Fatal("strace.c missing SYS_STAT constant for stat direct event v2 path")
@@ -68,6 +72,12 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 	if !strings.Contains(straceSource, "#define SYS_GETTIMEOFDAY 96") {
 		t.Fatal("strace.c missing SYS_GETTIMEOFDAY constant for gettimeofday direct event v2 path")
+	}
+	if !strings.Contains(straceSource, "#define SYS_GETRLIMIT 97") ||
+		!strings.Contains(straceSource, "#define SYS_SYSINFO 99") ||
+		!strings.Contains(straceSource, "#define SYS_SETRLIMIT 160") ||
+		!strings.Contains(straceSource, "#define SYS_PRLIMIT64 302") {
+		t.Fatal("strace.c missing misc struct direct event v2 constants")
 	}
 	if !strings.Contains(straceSource, "#define SYS_CLOCK_GETTIME 228") ||
 		!strings.Contains(straceSource, "#define SYS_CLOCK_GETRES 229") {
@@ -273,6 +283,31 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		!strings.Contains(straceSource, "is_fd_array_direct_syscall(p->sys_id) && ret_value == 0") ||
 		!strings.Contains(straceSource, "emit_fd_array_exit_event_v2_direct(p, ret_value, duration);") {
 		t.Fatal("pipe/pipe2/socketpair should emit direct fd-array struct TLV exit events without the bpf_event carrier")
+	}
+	if !strings.Contains(straceSource, `#include "syscall_misc_struct_direct_event_v2.h"`) ||
+		!strings.Contains(miscDirectHeader, "MISC_DIRECT_RLIMIT_SIZE 16") ||
+		!strings.Contains(miscDirectHeader, "MISC_DIRECT_SYSINFO_SIZE 112") ||
+		!strings.Contains(miscDirectHeader, "MISC_DIRECT_UTSNAME_SIZE 390") ||
+		!strings.Contains(miscDirectHeader, "is_misc_struct_direct_syscall(") ||
+		!strings.Contains(miscDirectHeader, "sys_id == SYS_UNAME || sys_id == SYS_SYSINFO ||") ||
+		!strings.Contains(miscDirectHeader, "sys_id == SYS_GETRLIMIT || sys_id == SYS_SETRLIMIT || sys_id == SYS_PRLIMIT64;") ||
+		!strings.Contains(miscDirectHeader, "is_misc_struct_enter_direct_syscall(") ||
+		!strings.Contains(miscDirectHeader, "return sys_id == SYS_SETRLIMIT || sys_id == SYS_PRLIMIT64;") ||
+		!strings.Contains(miscDirectHeader, "is_misc_struct_exit_direct_syscall(") ||
+		!strings.Contains(miscDirectHeader, "PAYLOAD_TLV_KIND_STRUCT") ||
+		!strings.Contains(miscDirectHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") ||
+		!strings.Contains(miscDirectHeader, "ctx, ts_ns, 2, ctx->args[2]") ||
+		!strings.Contains(miscDirectHeader, "ctx, ts_ns, 1, ctx->args[1]") ||
+		!strings.Contains(miscDirectHeader, "emit_misc_struct_enter_event_v2_direct(") ||
+		!strings.Contains(miscDirectHeader, "emit_misc_struct_exit_event_v2_direct(") ||
+		!strings.Contains(miscDirectHeader, "return p->args[3];") ||
+		!strings.Contains(miscDirectHeader, "return p->args[1];") ||
+		!strings.Contains(timeDirectHeader, "is_misc_struct_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "is_misc_struct_enter_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "emit_misc_struct_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);") ||
+		!strings.Contains(straceSource, "is_misc_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0") ||
+		!strings.Contains(straceSource, "emit_misc_struct_exit_event_v2_direct(p, ret_value, duration);") {
+		t.Fatal("uname/sysinfo/getrlimit/setrlimit/prlimit64 should emit direct misc struct TLV events without the bpf_event carrier")
 	}
 	if !strings.Contains(straceSource, "emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);") {
 		t.Fatal("lifecycle events should be emitted directly as event v2")

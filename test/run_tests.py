@@ -220,17 +220,20 @@ def has_gettimeofday_payload_sections(events):
             return True
     return False
 
-def has_struct_payload_section(events, syscall, arg_index, user_len):
+def has_struct_payload_section_with_direction(events, syscall, event_type, direction, arg_index, user_len):
     for ev in events:
-        if ev.get("syscall") != syscall or ev.get("event_type") != "exit":
+        if ev.get("syscall") != syscall or ev.get("event_type") != event_type:
             continue
         for sec in ev.get("payload_sections") or []:
-            if sec.get("kind") != "struct" or sec.get("direction") != "out":
+            if sec.get("kind") != "struct" or sec.get("direction") != direction:
                 continue
             if sec.get("arg_index") != arg_index:
                 continue
             return sec.get("user_len") == user_len and sec.get("copied_len") == user_len and len(payload_section_bytes(sec)) == user_len
     return False
+
+def has_struct_payload_section(events, syscall, arg_index, user_len):
+    return has_struct_payload_section_with_direction(events, syscall, "exit", "out", arg_index, user_len)
 
 def has_fstat_payload_section(events):
     return has_struct_payload_section(events, "fstat", 1, 144)
@@ -288,7 +291,7 @@ def finish_ebpf_semantic(res, failures, events, enter_events, exit_events, lifec
     return 0
 
 def collect_semantic_events(fixture):
-    trace_set = "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,newfstatat,statfs,fstatfs,getcwd,readlink,readlinkat,pipe,pipe2,socketpair,execve,exit,exit_group,clock_gettime,gettimeofday"
+    trace_set = "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,newfstatat,statfs,fstatfs,getcwd,readlink,readlinkat,pipe,pipe2,socketpair,uname,sysinfo,getrlimit,setrlimit,prlimit64,execve,exit,exit_group,clock_gettime,gettimeofday"
     res = run_strace_go_json(["-f", "-e", f"trace={trace_set}", fixture])
     events = parse_json_events(res.stderr)
     lifecycle_events = parse_lifecycle_events(res.stderr)
@@ -332,6 +335,11 @@ def run_ebpf_semantic(args):
     require("pipe" in names, failures, "pipe event missing")
     require("pipe2" in names, failures, "pipe2 event missing")
     require("socketpair" in names, failures, "socketpair event missing")
+    require("uname" in names, failures, "uname event missing")
+    require("sysinfo" in names, failures, "sysinfo event missing")
+    require("getrlimit" in names, failures, "getrlimit event missing")
+    require("setrlimit" in names, failures, "setrlimit event missing")
+    require("prlimit64" in names, failures, "prlimit64 event missing")
     require("clock_gettime" in names, failures, "clock_gettime event missing")
     require("gettimeofday" in names, failures, "gettimeofday event missing")
     require("execve" in names, failures, "child execve event missing; fork following may be broken")
@@ -372,6 +380,18 @@ def run_ebpf_semantic(args):
             failures, "pipe2 OUT fd-array payload section missing from JSON event")
     require(has_struct_payload_section(events, "socketpair", 3, 8),
             failures, "socketpair OUT fd-array payload section missing from JSON event")
+    require(has_struct_payload_section(events, "uname", 0, 390),
+            failures, "uname OUT utsname payload section missing from JSON event")
+    require(has_struct_payload_section(events, "sysinfo", 0, 112),
+            failures, "sysinfo OUT struct payload section missing from JSON event")
+    require(has_struct_payload_section(events, "getrlimit", 1, 16),
+            failures, "getrlimit OUT rlimit payload section missing from JSON event")
+    require(has_struct_payload_section_with_direction(events, "setrlimit", "enter", "in", 1, 16),
+            failures, "setrlimit IN rlimit payload section missing from JSON event")
+    require(has_struct_payload_section_with_direction(events, "prlimit64", "enter", "in", 2, 16),
+            failures, "prlimit64 IN new_rlimit payload section missing from JSON event")
+    require(has_struct_payload_section(events, "prlimit64", 3, 16),
+            failures, "prlimit64 OUT old_rlimit payload section missing from JSON event")
     require(any(ev.get("syscall") == "write" for ev in enter_events), failures, "write enter event missing")
     require(any(ev.get("syscall") == "write" for ev in exit_events), failures, "write exit event missing")
     require(any(ev.get("syscall") == "read" for ev in enter_events), failures, "read enter event missing")
