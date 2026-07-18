@@ -39,17 +39,14 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, `#include "syscall_direct_event_v2.h"`) {
 		t.Fatal("strace.c should include scalar direct event v2 helpers")
 	}
-	if !strings.Contains(tlvHeader, "e->sys_id != SYS_READ && e->sys_id != SYS_PREAD64") {
-		t.Fatal("read TLV helper should cover read and pread64")
-	}
 	if strings.Contains(straceSource, "capture_openat_tlv(e);") || strings.Contains(tlvHeader, "capture_openat_tlv") {
 		t.Fatal("openat TLV capture should not use the bpf_event fixed-window helper")
 	}
 	if strings.Contains(straceSource, "capture_write_tlv(e);") || strings.Contains(tlvHeader, "capture_write_tlv") {
 		t.Fatal("write TLV capture should not use the bpf_event fixed-window helper")
 	}
-	if calls := strings.Count(straceSource, "capture_read_tlv(e);"); calls != 1 {
-		t.Fatalf("capture_read_tlv calls = %d, want exit path only", calls)
+	if strings.Contains(straceSource, "capture_read_tlv(e);") || strings.Contains(tlvHeader, "capture_read_tlv") {
+		t.Fatal("read TLV capture should not use the bpf_event fixed-window helper")
 	}
 	if calls := strings.Count(straceSource, "capture_exec_tlv(e, 0, 1, 2);"); calls != 2 {
 		t.Fatalf("execve capture_exec_tlv calls = %d, want enter and failed-exit paths", calls)
@@ -79,7 +76,8 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "emit_syscall_event_v2(e);") {
 		t.Fatal("syscall events should be emitted through event v2")
 	}
-	if !strings.Contains(straceSource, "emit_syscall_enter_event_v2_direct(") ||
+	if !strings.Contains(directHeader, "emit_syscall_enter_event_v2_direct(") ||
+		!strings.Contains(straceSource, "emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);") ||
 		!strings.Contains(straceSource, "emit_syscall_exit_event_v2_direct(p, ctx->ret, duration, 0);") ||
 		!strings.Contains(straceSource, "save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);") ||
 		!strings.Contains(straceSource, "is_scalar_direct_syscall(sys_id)") ||
@@ -107,6 +105,16 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		!strings.Contains(directHeader, "record_payload_truncated_event();") {
 		t.Fatal("write direct helper should reserve TLV payload capacity, copy bytes, and record truncation")
 	}
+	if !strings.Contains(directHeader, "return sys_id == SYS_READ || sys_id == SYS_PREAD64;") ||
+		!strings.Contains(straceSource, "is_exit_payload_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "is_exit_payload_direct_syscall(p->sys_id)") ||
+		!strings.Contains(straceSource, "ctx->ret > 0") ||
+		!strings.Contains(directHeader, "capture_read_bytes_tlv_direct(") ||
+		!strings.Contains(directHeader, "emit_payload_exit_event_v2_direct(") ||
+		!strings.Contains(directHeader, "PAYLOAD_TLV_HEADER_SIZE + PAYLOAD_TLV_READ_MAX") ||
+		!strings.Contains(directHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") {
+		t.Fatal("read direct helper should reserve exit TLV payload capacity and copy bytes with out direction")
+	}
 	if !strings.Contains(straceSource, "emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);") {
 		t.Fatal("lifecycle events should be emitted directly as event v2")
 	}
@@ -130,9 +138,6 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	wantTruncatedFlag := "#define EVENT_FLAG_TRUNCATED " + strconv.Itoa(int(bpfEventFlagTruncated))
 	if !strings.Contains(tlvHeader, wantTruncatedFlag) {
 		t.Fatalf("payload TLV header missing %q", wantTruncatedFlag)
-	}
-	if !strings.Contains(tlvHeader, "payload_tlv_mark_truncated(e, user_len, copied_len, probe_ret)") {
-		t.Fatal("read TLV helper should mark truncated payload events")
 	}
 	if !strings.Contains(tlvHeader, "PAYLOAD_TLV_KIND_STRING") ||
 		!strings.Contains(tlvHeader, "PAYLOAD_TLV_KIND_BYTES") {

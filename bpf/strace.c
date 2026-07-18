@@ -688,17 +688,9 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
     }
 
-    // IMPACT: scalar direct syscalls bypass the large bpf_event carrier while preserving args/ret pairing.
-    if (is_scalar_direct_syscall(sys_id)) {
-        if (cfg && (*cfg & CONFIG_EMIT_ENTER)) {
-            emit_syscall_enter_event_v2_direct(
-                pid,
-                tid,
-                sys_id,
-                ctx,
-                EVENT_FLAG_GENERIC_ENTER,
-                enter_time);
-        }
+    // IMPACT: no-payload direct syscalls bypass the large bpf_event carrier while preserving args/ret pairing.
+    if (is_scalar_direct_syscall(sys_id) || is_exit_payload_direct_syscall(sys_id)) {
+        emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }
@@ -825,7 +817,11 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
                 duration = exit_time - p->enter_time;
             }
         }
-        emit_syscall_exit_event_v2_direct(p, ctx->ret, duration, 0);
+        if (is_exit_payload_direct_syscall(p->sys_id) && ctx->ret > 0) {
+            emit_payload_exit_event_v2_direct(p, ctx->ret, duration);
+        } else {
+            emit_syscall_exit_event_v2_direct(p, ctx->ret, duration, 0);
+        }
         u32 delete_tid = tid;
         if (is_pending_lookup) {
             delete_tid = pending_tid;
@@ -856,7 +852,6 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     }
 
     CAPTURE_ARGS_EXIT(e->sys_id, e);
-    capture_read_tlv(e);
     if (tid == pid && (e->sys_id == SYS_RT_SIGSUSPEND || e->sys_id == SYS_NANOSLEEP)) {
         u32 *pending = bpf_map_lookup_elem(&pending_exec_map, &pid);
         if (pending) {
