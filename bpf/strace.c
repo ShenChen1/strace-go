@@ -702,6 +702,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }
+
+    // IMPACT: openat path payload is copied directly into ringbuf TLV storage at syscall enter.
+    if (is_payload_direct_syscall(sys_id)) {
+        emit_openat_enter_event_v2_direct(pid, tid, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
     
     struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
     if (!e) return 0;
@@ -723,7 +730,6 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     e->args[5] = ctx->args[5];
 
     CAPTURE_ARGS_ENTER(e->sys_id, e);
-    capture_openat_tlv(e);
     capture_write_tlv(e);
     capture_capset_data(e);
     if (e->sys_id == SYS_EXECVE) {
@@ -811,8 +817,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     }
     if (!p) return 0;
 
-    // IMPACT: scalar direct exits no longer rebuild a bpf_event from pending metadata before ringbuf output.
-    if (is_scalar_direct_syscall(p->sys_id)) {
+    // IMPACT: direct exits no longer rebuild a bpf_event from pending metadata before ringbuf output.
+    if (is_direct_syscall(p->sys_id)) {
         u64 duration = 0;
         if (p->enter_time > 0) {
             u64 exit_time = bpf_ktime_get_ns();

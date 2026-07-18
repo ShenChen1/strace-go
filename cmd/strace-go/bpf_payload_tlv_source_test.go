@@ -45,8 +45,8 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(tlvHeader, "e->sys_id != SYS_READ && e->sys_id != SYS_PREAD64") {
 		t.Fatal("read TLV helper should cover read and pread64")
 	}
-	if calls := strings.Count(straceSource, "capture_openat_tlv(e);"); calls != 1 {
-		t.Fatalf("capture_openat_tlv calls = %d, want enter path only", calls)
+	if strings.Contains(straceSource, "capture_openat_tlv(e);") || strings.Contains(tlvHeader, "capture_openat_tlv") {
+		t.Fatal("openat TLV capture should not use the bpf_event fixed-window helper")
 	}
 	if calls := strings.Count(straceSource, "capture_write_tlv(e);"); calls != 2 {
 		t.Fatalf("capture_write_tlv calls = %d, want enter and exit paths", calls)
@@ -86,11 +86,22 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		!strings.Contains(straceSource, "emit_syscall_exit_event_v2_direct(p, ctx->ret, duration, 0);") ||
 		!strings.Contains(straceSource, "save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);") ||
 		!strings.Contains(straceSource, "is_scalar_direct_syscall(sys_id)") ||
-		!strings.Contains(straceSource, "is_scalar_direct_syscall(p->sys_id)") {
+		!strings.Contains(straceSource, "is_direct_syscall(p->sys_id)") {
 		t.Fatal("scalar syscalls should use direct event v2 helpers instead of the bpf_event carrier")
 	}
 	if !strings.Contains(directHeader, "return sys_id == SYS_GETPID || sys_id == SYS_CLOSE;") {
 		t.Fatal("scalar direct syscall policy should include getpid and close")
+	}
+	if !strings.Contains(directHeader, "return sys_id == SYS_OPENAT;") ||
+		!strings.Contains(straceSource, "is_payload_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "is_direct_syscall(p->sys_id)") ||
+		!strings.Contains(directHeader, "emit_openat_enter_event_v2_direct(") ||
+		!strings.Contains(directHeader, "capture_openat_path_tlv_direct(") {
+		t.Fatal("openat should use direct event v2 TLV helpers instead of the bpf_event carrier")
+	}
+	if !strings.Contains(directHeader, "PAYLOAD_TLV_HEADER_SIZE + PAYLOAD_TLV_OPENAT_MAX") ||
+		!strings.Contains(directHeader, "bpf_dynptr_data(ptr, data_offset, PAYLOAD_TLV_OPENAT_MAX)") {
+		t.Fatal("openat direct helper should reserve TLV payload capacity and copy path into dynptr data")
 	}
 	if !strings.Contains(straceSource, "emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);") {
 		t.Fatal("lifecycle events should be emitted directly as event v2")

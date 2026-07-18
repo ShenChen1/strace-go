@@ -152,6 +152,19 @@ def has_large_write_truncation(events):
             return has_flag and copied_len > 0 and copied_len < user_len
     return False
 
+def has_openat_path_section(events, path_text):
+    for ev in events:
+        if ev.get("syscall") != "openat":
+            continue
+        for sec in ev.get("payload_sections") or []:
+            if sec.get("kind") != "string" or sec.get("direction") != "in":
+                continue
+            if sec.get("arg_index") != 1:
+                continue
+            if path_text in payload_section_text(sec):
+                return True
+    return False
+
 def check_write_only_filter(fixture, failures):
     filter_res = run_strace_go_json(["-e", "trace=write", fixture], debug=True)
     filter_events = parse_json_events(filter_res.stderr)
@@ -217,6 +230,8 @@ def run_ebpf_semantic(args):
     require("read" in names, failures, "read event missing")
     require("close" in names, failures, "close event missing")
     require("execve" in names, failures, "child execve event missing; fork following may be broken")
+    require(has_openat_path_section(events, "/tmp/strace-go-ebpf-missing-file"),
+            failures, "openat path payload section missing from JSON event")
     require(any(ev.get("syscall") == "write" for ev in enter_events), failures, "write enter event missing")
     require(any(ev.get("syscall") == "write" for ev in exit_events), failures, "write exit event missing")
     require(any(ev.get("syscall") == "read" for ev in enter_events), failures, "read enter event missing")
