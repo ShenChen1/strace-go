@@ -46,22 +46,6 @@ type payloadEvent struct {
 	meta   payloadEventMeta
 }
 
-func newRawPayloadEventFromBPF(eventRaw *bpfEvent) rawPayloadEvent {
-	if eventRaw == nil {
-		return rawPayloadEvent{}
-	}
-	return rawPayloadEvent{
-		valid:         true,
-		args:          eventRaw.Args,
-		eventType:     eventRaw.EventType,
-		eventFlags:    eventRaw.EventFlags,
-		ret:           eventRaw.Ret,
-		probeRetEnter: eventRaw.ProbeRetEnter,
-		probeRetExit:  eventRaw.ProbeRetExit,
-		data:          eventPayloadDataFromBPF(eventRaw),
-	}
-}
-
 func newWindowPayloadSourceFromRaw(raw rawPayloadEvent) windowPayloadSource {
 	if !raw.valid {
 		return windowPayloadSource{}
@@ -70,17 +54,6 @@ func newWindowPayloadSourceFromRaw(raw rawPayloadEvent) windowPayloadSource {
 		args: raw.args,
 		data: raw.data,
 	}
-}
-
-func eventPayloadDataFromBPF(eventRaw *bpfEvent) []byte {
-	if eventRaw == nil {
-		return nil
-	}
-	dataLen := int(eventRaw.DataLen)
-	if dataLen > len(eventRaw.StrArg) {
-		dataLen = len(eventRaw.StrArg)
-	}
-	return eventRaw.StrArg[:dataLen]
 }
 
 func newWindowPayloadEventFromRaw(raw rawPayloadEvent) payloadEvent {
