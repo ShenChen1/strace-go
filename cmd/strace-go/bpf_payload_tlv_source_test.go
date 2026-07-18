@@ -14,6 +14,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
 	tlvHeader := readTextFile(t, filepath.Join(root, "bpf/payload_tlv.h"))
 	directHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h"))
+	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 
 	if !strings.Contains(straceSource, `#include "payload_tlv.h"`) {
 		t.Fatal("strace.c does not include payload_tlv.h")
@@ -32,6 +33,10 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 	if !strings.Contains(straceSource, "#define SYS_GETPID 39") {
 		t.Fatal("strace.c missing SYS_GETPID constant for scalar direct event v2 path")
+	}
+	if !strings.Contains(straceSource, "#define SYS_CLOCK_GETTIME 228") ||
+		!strings.Contains(straceSource, "#define SYS_CLOCK_GETRES 229") {
+		t.Fatal("strace.c missing clock direct event v2 constants")
 	}
 	if !strings.Contains(straceSource, "#define SYS_OPENAT 257") {
 		t.Fatal("strace.c missing SYS_OPENAT constant for openat TLV capture")
@@ -91,7 +96,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		!strings.Contains(straceSource, "emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);") ||
 		!strings.Contains(straceSource, "save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);") ||
 		!strings.Contains(straceSource, "is_scalar_direct_syscall(sys_id)") ||
-		!strings.Contains(straceSource, "is_direct_syscall(p->sys_id)") {
+		!strings.Contains(straceSource, "is_sys_exit_direct_syscall(p->sys_id)") {
 		t.Fatal("scalar syscalls should use direct event v2 helpers instead of the bpf_event carrier")
 	}
 	if !strings.Contains(directHeader, "return sys_id == SYS_GETPID || sys_id == SYS_CLOSE;") {
@@ -111,7 +116,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		!strings.Contains(directHeader, "sys_id == SYS_WRITE") ||
 		!strings.Contains(directHeader, "sys_id == SYS_PWRITE64") ||
 		!strings.Contains(straceSource, "is_payload_direct_syscall(sys_id)") ||
-		!strings.Contains(straceSource, "is_direct_syscall(p->sys_id)") ||
+		!strings.Contains(straceSource, "is_sys_exit_direct_syscall(p->sys_id)") ||
 		!strings.Contains(directHeader, "emit_payload_enter_event_v2_direct(") ||
 		!strings.Contains(directHeader, "capture_openat_path_tlv_direct(") {
 		t.Fatal("payload syscalls should use direct event v2 TLV helpers instead of the bpf_event carrier")
@@ -136,6 +141,16 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		!strings.Contains(directHeader, "PAYLOAD_TLV_HEADER_SIZE + PAYLOAD_TLV_READ_MAX") ||
 		!strings.Contains(directHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") {
 		t.Fatal("read direct helper should reserve exit TLV payload capacity and copy bytes with out direction")
+	}
+	if !strings.Contains(straceSource, `#include "syscall_time_direct_event_v2.h"`) ||
+		!strings.Contains(timeDirectHeader, "is_time_struct_direct_syscall(") ||
+		!strings.Contains(timeDirectHeader, "return sys_id == SYS_CLOCK_GETTIME || sys_id == SYS_CLOCK_GETRES;") ||
+		!strings.Contains(timeDirectHeader, "PAYLOAD_TLV_KIND_STRUCT") ||
+		!strings.Contains(timeDirectHeader, "emit_time_struct_exit_event_v2_direct(") ||
+		!strings.Contains(straceSource, "is_time_struct_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "is_sys_exit_direct_syscall(p->sys_id)") ||
+		!strings.Contains(straceSource, "emit_time_struct_exit_event_v2_direct(p, ret_value, duration);") {
+		t.Fatal("clock_gettime/clock_getres should emit direct struct TLV exit events without the bpf_event carrier")
 	}
 	if !strings.Contains(straceSource, "emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);") {
 		t.Fatal("lifecycle events should be emitted directly as event v2")
@@ -162,8 +177,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		t.Fatalf("payload TLV header missing %q", wantTruncatedFlag)
 	}
 	if !strings.Contains(tlvHeader, "PAYLOAD_TLV_KIND_STRING") ||
-		!strings.Contains(tlvHeader, "PAYLOAD_TLV_KIND_BYTES") {
-		t.Fatal("payload TLV header missing string/bytes section kinds")
+		!strings.Contains(tlvHeader, "PAYLOAD_TLV_KIND_BYTES") ||
+		!strings.Contains(tlvHeader, "PAYLOAD_TLV_KIND_STRUCT") {
+		t.Fatal("payload TLV header missing string/bytes/struct section kinds")
 	}
 	if !strings.Contains(tlvHeader, "PAYLOAD_TLV_KIND_EXEC_ARGS") {
 		t.Fatal("payload TLV header missing exec args section kind")

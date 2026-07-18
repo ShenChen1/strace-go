@@ -29,6 +29,8 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_PREAD64 17
 #define SYS_PWRITE64 18
 #define SYS_GETPID 39
+#define SYS_CLOCK_GETTIME 228
+#define SYS_CLOCK_GETRES 229
 #define SYS_OPENAT 257
 #define EVENT_TYPE_ENTER 1
 #define EVENT_TYPE_EXIT 2
@@ -547,6 +549,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 }
 
 #include "syscall_direct_event_v2.h"
+#include "syscall_time_direct_event_v2.h"
 
 SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
@@ -595,7 +598,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     }
 
     // IMPACT: no-payload direct syscalls bypass the large bpf_event carrier while preserving args/ret pairing.
-    if (is_scalar_direct_syscall(sys_id) || is_exit_payload_direct_syscall(sys_id)) {
+    if (is_scalar_direct_syscall(sys_id) || is_exit_payload_direct_syscall(sys_id) || is_time_struct_direct_syscall(sys_id)) {
         emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
@@ -687,7 +690,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     if (!p) return 0;
 
     // IMPACT: direct exits no longer rebuild a bpf_event from pending metadata before ringbuf output.
-    if (is_direct_syscall(p->sys_id)) {
+    if (is_sys_exit_direct_syscall(p->sys_id)) {
         u64 duration = 0;
         if (p->enter_time > 0) {
             u64 exit_time = bpf_ktime_get_ns();
@@ -697,6 +700,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
         }
         if (is_exit_payload_direct_syscall(p->sys_id) && ret_value > 0) {
             emit_payload_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_time_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
+            emit_time_struct_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
             emit_exec_exit_event_v2_direct(p, ret_value, duration);
         } else {

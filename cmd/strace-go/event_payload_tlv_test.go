@@ -84,6 +84,39 @@ func TestPayloadSectionsForRawPayloadEventUsesTLVSections(t *testing.T) {
 	}
 }
 
+func TestPayloadSectionsForRawPayloadEventUsesStructTLVSection(t *testing.T) {
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		flags:   payloadTLVFlagDirectionOut,
+		arg:     1,
+		userPtr: 0x2000,
+		userLen: 16,
+		data:    timeJSONStruct(9, 10),
+	})
+	raw := rawPayloadEvent{
+		valid:      true,
+		eventType:  bpfEventTypeExit,
+		eventFlags: bpfEventFlagPayloadTLV,
+		args:       [6]uint64{0, 0x2000},
+		ret:        0,
+		data:       payload,
+	}
+
+	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "clock_gettime"})
+
+	if len(sections) != 1 {
+		t.Fatalf("sections = %d, want 1", len(sections))
+	}
+	section := sections[0]
+	if section.Kind != handler.PayloadKindStruct || section.Direction != handler.PayloadDirectionOut ||
+		section.ArgIndex != 1 || section.UserPtr != 0x2000 || section.UserLen != 16 {
+		t.Fatalf("TLV struct section metadata = %+v", section)
+	}
+	if !bytes.Equal(section.Data, timeJSONStruct(9, 10)) {
+		t.Fatalf("TLV struct section data = %v", section.Data)
+	}
+}
+
 func TestPayloadSectionsForEventUsesExecTLVSections(t *testing.T) {
 	snapshot := execJSONSnapshot()
 	payload := payloadTLVBytes(t, payloadTLVTestSection{

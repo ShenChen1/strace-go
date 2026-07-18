@@ -6,6 +6,7 @@
 #include <string.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 static int current_tracer_pid(void)
@@ -66,6 +67,12 @@ static int run_semantic_fixture(void)
 
 	ssize_t nwritten = write(STDOUT_FILENO, "ebpf-fixture-write\n", 19);
 	(void) nwritten;
+
+	struct timespec ts;
+	if (syscall(SYS_clock_gettime, CLOCK_MONOTONIC, &ts) != 0) {
+		perror("clock_gettime");
+		return 71;
+	}
 
 	char large[1024];
 	fill_large_write_payload(large, sizeof(large));
