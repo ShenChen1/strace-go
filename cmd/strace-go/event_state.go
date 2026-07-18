@@ -162,6 +162,7 @@ func newRawEventEnvelopeFromBPF(eventRaw *bpfEvent) rawEventEnvelope {
 	if eventRaw.EventType == bpfEventTypeLifecycle && eventRaw.LifecycleAction == lifecycleExec {
 		snapshotText = lifecycleSnapshotString(eventRaw)
 	}
+	payloadEvent := newRawPayloadEventFromBPF(eventRaw)
 	return rawEventEnvelope{
 		valid:           true,
 		eventVersion:    eventRaw.EventVersion,
@@ -180,7 +181,7 @@ func newRawEventEnvelopeFromBPF(eventRaw *bpfEvent) rawEventEnvelope {
 		probeRetEnter:   eventRaw.ProbeRetEnter,
 		probeRetExit:    eventRaw.ProbeRetExit,
 		snapshotText:    snapshotText,
-		payload:         copyPayloadSections(payloadSectionsForEvent(eventRaw, syscallMeta(eventRaw.SysId))),
+		payload:         copyPayloadSections(payloadSectionsForRawPayloadEvent(payloadEvent, syscallMeta(eventRaw.SysId))),
 	}
 }
 
