@@ -581,6 +581,57 @@ func TestSyscallEventContextUsesGetcwdExitBytesSection(t *testing.T) {
 	}
 }
 
+func TestSyscallEventContextUsesFDArrayExitStructSection(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     [6]uint64
+		argIndex uint16
+	}{
+		{name: "pipe", args: [6]uint64{0x1000}, argIndex: 0},
+		{name: "pipe2", args: [6]uint64{0x2000, 0}, argIndex: 0},
+		{name: "socketpair", args: [6]uint64{1, 1, 0, 0x3000}, argIndex: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			session := &traceSession{
+				targetPid: 101,
+				opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + tt.name, "/bin/true"}),
+				decoder:   event.NewDecoder(),
+				fdState:   newFDStateStoreFromMaps(nil, nil),
+				state:     newTraceState(),
+			}
+			fdData := fdArrayJSONData(21, 22)
+			exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
+				kind:    payloadTLVKindStruct,
+				flags:   payloadTLVFlagDirectionOut,
+				arg:     tt.argIndex,
+				userPtr: tt.args[tt.argIndex],
+				userLen: fdArrayPayloadSize,
+				data:    fdData,
+			})
+			exitRaw := &bpfEvent{
+				Pid:        101,
+				Tid:        101,
+				SysId:      syscallIDByName(t, tt.name),
+				EventType:  bpfEventTypeExit,
+				EventFlags: bpfEventFlagPayloadTLV,
+				Args:       tt.args,
+				Ret:        0,
+				DataLen:    uint32(len(exitPayload)),
+			}
+			copy(exitRaw.StrArg[:], exitPayload)
+
+			exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+			ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
+			section, ok := ev.handlerContext.Section(int(tt.argIndex), handler.PayloadKindStruct)
+			if !ok || !bytes.Equal(section.Data, fdData) {
+				t.Fatalf("%s fd-array section = %+v, %v; want exit struct", tt.name, section, ok)
+			}
+		})
+	}
+}
+
 type readlinkTLVCase struct {
 	name    string
 	args    [6]uint64

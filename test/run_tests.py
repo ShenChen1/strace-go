@@ -288,7 +288,7 @@ def finish_ebpf_semantic(res, failures, events, enter_events, exit_events, lifec
     return 0
 
 def collect_semantic_events(fixture):
-    trace_set = "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,newfstatat,statfs,fstatfs,getcwd,readlink,readlinkat,execve,exit,exit_group,clock_gettime,gettimeofday"
+    trace_set = "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,newfstatat,statfs,fstatfs,getcwd,readlink,readlinkat,pipe,pipe2,socketpair,execve,exit,exit_group,clock_gettime,gettimeofday"
     res = run_strace_go_json(["-f", "-e", f"trace={trace_set}", fixture])
     events = parse_json_events(res.stderr)
     lifecycle_events = parse_lifecycle_events(res.stderr)
@@ -329,6 +329,9 @@ def run_ebpf_semantic(args):
     require("getcwd" in names, failures, "getcwd event missing")
     require("readlink" in names, failures, "readlink event missing")
     require("readlinkat" in names, failures, "readlinkat event missing")
+    require("pipe" in names, failures, "pipe event missing")
+    require("pipe2" in names, failures, "pipe2 event missing")
+    require("socketpair" in names, failures, "socketpair event missing")
     require("clock_gettime" in names, failures, "clock_gettime event missing")
     require("gettimeofday" in names, failures, "gettimeofday event missing")
     require("execve" in names, failures, "child execve event missing; fork following may be broken")
@@ -363,6 +366,12 @@ def run_ebpf_semantic(args):
             failures, "readlink OUT target payload section missing from JSON event")
     require(has_bytes_payload_section(events, "readlinkat", 2, "/proc/self"),
             failures, "readlinkat OUT target payload section missing from JSON event")
+    require(has_struct_payload_section(events, "pipe", 0, 8),
+            failures, "pipe OUT fd-array payload section missing from JSON event")
+    require(has_struct_payload_section(events, "pipe2", 0, 8),
+            failures, "pipe2 OUT fd-array payload section missing from JSON event")
+    require(has_struct_payload_section(events, "socketpair", 3, 8),
+            failures, "socketpair OUT fd-array payload section missing from JSON event")
     require(any(ev.get("syscall") == "write" for ev in enter_events), failures, "write enter event missing")
     require(any(ev.get("syscall") == "write" for ev in exit_events), failures, "write exit event missing")
     require(any(ev.get("syscall") == "read" for ev in enter_events), failures, "read enter event missing")

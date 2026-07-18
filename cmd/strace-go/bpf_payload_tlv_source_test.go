@@ -14,6 +14,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
 	tlvHeader := readTextFile(t, filepath.Join(root, "bpf/payload_tlv.h"))
 	directHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h"))
+	fdArrayDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_fd_array_direct_event_v2.h"))
 	getcwdDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_getcwd_direct_event_v2.h"))
 	statDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_stat_direct_event_v2.h"))
 	pathStatDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_stat_direct_event_v2.h"))
@@ -26,8 +27,14 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "#define SYS_READ 0") {
 		t.Fatal("strace.c missing SYS_READ constant for read TLV capture")
 	}
+	if !strings.Contains(straceSource, "#define SYS_PIPE 22") {
+		t.Fatal("strace.c missing SYS_PIPE constant for fd-array direct event v2 path")
+	}
 	if !strings.Contains(straceSource, "#define SYS_CLOSE 3") {
 		t.Fatal("strace.c missing SYS_CLOSE constant for scalar direct event v2 path")
+	}
+	if !strings.Contains(straceSource, "#define SYS_SOCKETPAIR 53") {
+		t.Fatal("strace.c missing SYS_SOCKETPAIR constant for fd-array direct event v2 path")
 	}
 	if !strings.Contains(straceSource, "#define SYS_STAT 4") {
 		t.Fatal("strace.c missing SYS_STAT constant for stat direct event v2 path")
@@ -74,6 +81,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 	if !strings.Contains(straceSource, "#define SYS_READLINKAT 267") {
 		t.Fatal("strace.c missing SYS_READLINKAT constant for readlinkat direct event v2 path")
+	}
+	if !strings.Contains(straceSource, "#define SYS_PIPE2 293") {
+		t.Fatal("strace.c missing SYS_PIPE2 constant for fd-array direct event v2 path")
 	}
 	if !strings.Contains(straceSource, `#include "syscall_direct_event_v2.h"`) {
 		t.Fatal("strace.c should include scalar direct event v2 helpers")
@@ -247,6 +257,22 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		!strings.Contains(straceSource, "emit_readlink_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);") ||
 		!strings.Contains(straceSource, "emit_readlink_exit_event_v2_direct(p, ret_value, duration);") {
 		t.Fatal("readlink/readlinkat should emit direct TLV events without the bpf_event carrier")
+	}
+	if !strings.Contains(straceSource, `#include "syscall_fd_array_direct_event_v2.h"`) ||
+		!strings.Contains(fdArrayDirectHeader, "FD_ARRAY_DIRECT_SIZE 8") ||
+		!strings.Contains(fdArrayDirectHeader, "is_fd_array_direct_syscall(") ||
+		!strings.Contains(fdArrayDirectHeader, "return sys_id == SYS_PIPE || sys_id == SYS_PIPE2 || sys_id == SYS_SOCKETPAIR;") ||
+		!strings.Contains(fdArrayDirectHeader, "fd_array_direct_arg_index(") ||
+		!strings.Contains(fdArrayDirectHeader, "return 3;") ||
+		!strings.Contains(fdArrayDirectHeader, "return p->args[3];") ||
+		!strings.Contains(fdArrayDirectHeader, "PAYLOAD_TLV_KIND_STRUCT") ||
+		!strings.Contains(fdArrayDirectHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") ||
+		!strings.Contains(fdArrayDirectHeader, "emit_fd_array_exit_event_v2_direct(") ||
+		!strings.Contains(timeDirectHeader, "is_fd_array_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "is_fd_array_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "is_fd_array_direct_syscall(p->sys_id) && ret_value == 0") ||
+		!strings.Contains(straceSource, "emit_fd_array_exit_event_v2_direct(p, ret_value, duration);") {
+		t.Fatal("pipe/pipe2/socketpair should emit direct fd-array struct TLV exit events without the bpf_event carrier")
 	}
 	if !strings.Contains(straceSource, "emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);") {
 		t.Fatal("lifecycle events should be emitted directly as event v2")

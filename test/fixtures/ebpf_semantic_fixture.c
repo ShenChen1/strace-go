@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
@@ -84,6 +85,34 @@ static int run_getcwd_fixture(void)
 	return 0;
 }
 
+static int run_fd_array_fixture(void)
+{
+	int pipe_fds[2] = {-1, -1};
+	if (syscall(SYS_pipe, pipe_fds) != 0) {
+		perror("pipe");
+		return 84;
+	}
+	(void) close(pipe_fds[0]);
+	(void) close(pipe_fds[1]);
+
+	int pipe2_fds[2] = {-1, -1};
+	if (syscall(SYS_pipe2, pipe2_fds, O_CLOEXEC) != 0) {
+		perror("pipe2");
+		return 85;
+	}
+	(void) close(pipe2_fds[0]);
+	(void) close(pipe2_fds[1]);
+
+	int socket_fds[2] = {-1, -1};
+	if (syscall(SYS_socketpair, AF_UNIX, SOCK_STREAM, 0, socket_fds) != 0) {
+		perror("socketpair");
+		return 86;
+	}
+	(void) close(socket_fds[0]);
+	(void) close(socket_fds[1]);
+	return 0;
+}
+
 static int run_semantic_fixture(void)
 {
 	char buf[32];
@@ -159,6 +188,10 @@ static int run_semantic_fixture(void)
 	int getcwd_status = run_getcwd_fixture();
 	if (getcwd_status != 0) {
 		return getcwd_status;
+	}
+	int fd_array_status = run_fd_array_fixture();
+	if (fd_array_status != 0) {
+		return fd_array_status;
 	}
 
 	char large[1024];
