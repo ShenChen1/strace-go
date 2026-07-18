@@ -25,7 +25,7 @@ func TestJSONLifecycleExecIncludesFilenameSnapshot(t *testing.T) {
 	}
 	copy(eventRaw.StrArg[:], []byte("/bin/true\x00trailing"))
 
-	session.writeJSONLifecycleEventView(lifecycleEventViewFromTraceView(newTraceStateEventViewFromBPF(eventRaw)), &TaskState{
+	session.writeJSONLifecycleEventView(lifecycleEventViewFromEnvelope(newRawEventEnvelopeFromBPF(eventRaw)), &TaskState{
 		TID:        101,
 		TGID:       101,
 		Alive:      true,

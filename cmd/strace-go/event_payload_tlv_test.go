@@ -251,7 +251,7 @@ func TestSyscallEventContextMergesPendingEnterTLVPathForPathFilter(t *testing.T)
 	enterRaw := tlvOpenatEvent(t, []byte("from-tlv\x00"))
 	enterRaw.EventType = bpfEventTypeEnter
 	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleView(newTraceStateEventViewFromBPF(enterRaw))
+	session.traceState().handleEnvelope(newRawEventEnvelopeFromBPF(enterRaw))
 
 	exitRaw := &bpfEvent{
 		Pid:           101,
@@ -263,7 +263,7 @@ func TestSyscallEventContextMergesPendingEnterTLVPathForPathFilter(t *testing.T)
 		ProbeRetEnter: 0,
 		Ret:           -9,
 	}
-	exitUpdate := session.traceState().handleView(newTraceStateEventViewFromBPF(exitRaw))
+	exitUpdate := session.traceState().handleEnvelope(newRawEventEnvelopeFromBPF(exitRaw))
 	ev := newSyscallEventContext(session, exitRaw, 101, exitUpdate.pendingEnter)
 
 	if !ev.shouldOutput() {

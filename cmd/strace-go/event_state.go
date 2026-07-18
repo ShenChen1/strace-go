@@ -17,7 +17,8 @@ type pendingSyscallState struct {
 	payloadSections []handler.PayloadSection
 }
 
-type traceStateEventView struct {
+// rawEventEnvelope is the boundary object projected from the BPF carrier.
+type rawEventEnvelope struct {
 	valid           bool
 	eventVersion    uint16
 	pid             uint32
@@ -63,7 +64,7 @@ const (
 
 type TraceStateUpdate struct {
 	kind          traceStateEventKind
-	view          traceStateEventView
+	envelope      rawEventEnvelope
 	syscallView   syscallEventView
 	lifecycleView lifecycleEventView
 	pendingEnter  *pendingSyscallState
@@ -81,74 +82,74 @@ func (s *traceSession) traceState() *TraceState {
 	return s.state
 }
 
-func (st *TraceState) handleView(view traceStateEventView) TraceStateUpdate {
-	if view.isLifecycle() {
-		lifecycleView := lifecycleEventViewFromTraceView(view)
+func (st *TraceState) handleEnvelope(envelope rawEventEnvelope) TraceStateUpdate {
+	if envelope.isLifecycle() {
+		lifecycleView := lifecycleEventViewFromEnvelope(envelope)
 		task := st.applyLifecycleEvent(lifecycleView)
 		if lifecycleView.action == lifecycleExit || lifecycleView.action == lifecycleFree {
 			st.clearTaskPending(lifecycleView.tid)
 		}
 		return TraceStateUpdate{
 			kind:          traceStateLifecycle,
-			view:          view,
+			envelope:      envelope,
 			lifecycleView: lifecycleView,
 			lifecycleTask: task,
 		}
 	}
 
-	syscallView := syscallEventViewFromTraceView(view)
+	syscallView := syscallEventViewFromEnvelope(envelope)
 	st.noteSyscallTask(syscallView)
 	if syscallView.isGenericEnter() {
-		st.rememberEnterEvent(syscallView, view.payload)
-		return TraceStateUpdate{kind: traceStateSyscallEnter, view: view, syscallView: syscallView}
+		st.rememberEnterEvent(syscallView, envelope.payload)
+		return TraceStateUpdate{kind: traceStateSyscallEnter, envelope: envelope, syscallView: syscallView}
 	}
 	return TraceStateUpdate{
 		kind:         traceStateSyscallExit,
-		view:         view,
+		envelope:     envelope,
 		syscallView:  syscallView,
 		pendingEnter: st.consumeEnterEvent(syscallView),
 	}
 }
 
-func lifecycleEventViewFromTraceView(view traceStateEventView) lifecycleEventView {
+func lifecycleEventViewFromEnvelope(envelope rawEventEnvelope) lifecycleEventView {
 	return lifecycleEventView{
-		valid:        view.valid,
-		eventVersion: view.eventVersion,
-		eventType:    view.eventType,
-		eventFlags:   view.eventFlags,
-		action:       view.lifecycleAction,
-		pid:          view.pid,
-		tid:          view.tid,
-		args:         view.args,
-		enterTime:    view.enterTime,
-		snapshotText: view.snapshotText,
+		valid:        envelope.valid,
+		eventVersion: envelope.eventVersion,
+		eventType:    envelope.eventType,
+		eventFlags:   envelope.eventFlags,
+		action:       envelope.lifecycleAction,
+		pid:          envelope.pid,
+		tid:          envelope.tid,
+		args:         envelope.args,
+		enterTime:    envelope.enterTime,
+		snapshotText: envelope.snapshotText,
 	}
 }
 
-func syscallEventViewFromTraceView(view traceStateEventView) syscallEventView {
+func syscallEventViewFromEnvelope(envelope rawEventEnvelope) syscallEventView {
 	return syscallEventView{
-		valid:         view.valid,
-		eventVersion:  view.eventVersion,
-		pid:           view.pid,
-		tid:           view.tid,
-		sysID:         view.sysID,
-		eventType:     view.eventType,
-		eventFlags:    view.eventFlags,
-		args:          view.args,
-		enterTime:     view.enterTime,
-		probeRetEnter: view.probeRetEnter,
+		valid:         envelope.valid,
+		eventVersion:  envelope.eventVersion,
+		pid:           envelope.pid,
+		tid:           envelope.tid,
+		sysID:         envelope.sysID,
+		eventType:     envelope.eventType,
+		eventFlags:    envelope.eventFlags,
+		args:          envelope.args,
+		enterTime:     envelope.enterTime,
+		probeRetEnter: envelope.probeRetEnter,
 	}
 }
 
-func newTraceStateEventViewFromBPF(eventRaw *bpfEvent) traceStateEventView {
+func newRawEventEnvelopeFromBPF(eventRaw *bpfEvent) rawEventEnvelope {
 	if eventRaw == nil {
-		return traceStateEventView{}
+		return rawEventEnvelope{}
 	}
 	snapshotText := ""
 	if eventRaw.EventType == bpfEventTypeLifecycle && eventRaw.LifecycleAction == lifecycleExec {
 		snapshotText = lifecycleSnapshotString(eventRaw)
 	}
-	return traceStateEventView{
+	return rawEventEnvelope{
 		valid:           true,
 		eventVersion:    eventRaw.EventVersion,
 		pid:             eventRaw.Pid,
@@ -180,12 +181,12 @@ func lifecycleSnapshotString(eventRaw *bpfEvent) string {
 	return string(data)
 }
 
-func (view traceStateEventView) isLifecycle() bool {
-	return view.eventType == bpfEventTypeLifecycle
+func (envelope rawEventEnvelope) isLifecycle() bool {
+	return envelope.eventType == bpfEventTypeLifecycle
 }
 
-func (view traceStateEventView) isExit() bool {
-	return view.eventType == bpfEventTypeExit
+func (envelope rawEventEnvelope) isExit() bool {
+	return envelope.eventType == bpfEventTypeExit
 }
 
 func (view syscallEventView) isGenericEnter() bool {

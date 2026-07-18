@@ -5,9 +5,9 @@ import (
 	"strings"
 )
 
-func (s *traceSession) eventStatePID(view traceStateEventView) int {
-	if view.valid && view.pid != 0 {
-		return int(view.pid)
+func (s *traceSession) eventStatePID(envelope rawEventEnvelope) int {
+	if envelope.valid && envelope.pid != 0 {
+		return int(envelope.pid)
 	}
 	return s.targetPid
 }
