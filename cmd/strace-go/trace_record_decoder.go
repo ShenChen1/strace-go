@@ -10,11 +10,19 @@ type traceRecordDecoder interface {
 	Decode(rec *ringbuf.Record) (traceEventEnvelope, bool)
 }
 
-type fixedWindowRecordDecoder struct{}
+type bpfEventProjector interface {
+	Project(eventRaw *bpfEvent) traceEventEnvelope
+}
+
+type fixedWindowRecordDecoder struct {
+	projector bpfEventProjector
+}
+
+type traceEventProjector struct{}
 
 func (s *traceSession) traceRecordDecoder() traceRecordDecoder {
 	if s.recordDecoder == nil {
-		s.recordDecoder = fixedWindowRecordDecoder{}
+		s.recordDecoder = fixedWindowRecordDecoder{projector: traceEventProjector{}}
 	}
 	return s.recordDecoder
 }
@@ -23,7 +31,11 @@ func (d fixedWindowRecordDecoder) Decode(rec *ringbuf.Record) (traceEventEnvelop
 	if rec == nil {
 		return traceEventEnvelope{}, false
 	}
-	return decodeFixedWindowTraceEventEnvelope(rec.RawSample)
+	ev, ok := decodeFixedWindowBPFEvent(rec.RawSample)
+	if !ok {
+		return traceEventEnvelope{}, false
+	}
+	return d.traceEventProjector().Project(&ev), true
 }
 
 func decodeFixedWindowTraceEventEnvelope(rawSample []byte) (traceEventEnvelope, bool) {
@@ -31,7 +43,19 @@ func decodeFixedWindowTraceEventEnvelope(rawSample []byte) (traceEventEnvelope, 
 	if !ok {
 		return traceEventEnvelope{}, false
 	}
-	return newTraceEventEnvelopeFromBPF(&ev), true
+	return traceEventProjector{}.Project(&ev), true
+}
+
+func (d fixedWindowRecordDecoder) traceEventProjector() bpfEventProjector {
+	if d.projector != nil {
+		return d.projector
+	}
+	return traceEventProjector{}
+}
+
+// IMPACT: Project is the fixed BPF carrier to traceEventEnvelope migration boundary.
+func (traceEventProjector) Project(eventRaw *bpfEvent) traceEventEnvelope {
+	return newTraceEventEnvelopeFromBPF(eventRaw)
 }
 
 func decodeFixedWindowBPFEvent(rawSample []byte) (bpfEvent, bool) {
