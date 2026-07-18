@@ -104,29 +104,6 @@ func newSyscallEnterEventContext(view syscallEventView, statePID int, payloadSec
 	}
 }
 
-func newSyscallEventViewFromBPF(eventRaw *bpfEvent) syscallEventView {
-	if eventRaw == nil {
-		return syscallEventView{}
-	}
-	return syscallEventView{
-		valid:         true,
-		eventVersion:  eventRaw.EventVersion,
-		pid:           eventRaw.Pid,
-		tid:           eventRaw.Tid,
-		sysID:         eventRaw.SysId,
-		eventType:     eventRaw.EventType,
-		eventFlags:    eventRaw.EventFlags,
-		args:          eventRaw.Args,
-		ret:           eventRaw.Ret,
-		duration:      eventRaw.Duration,
-		enterTime:     eventRaw.EnterTime,
-		ptr:           eventRaw.Ptr,
-		stackID:       eventRaw.StackId,
-		probeRetEnter: eventRaw.ProbeRetEnter,
-		probeRetExit:  eventRaw.ProbeRetExit,
-	}
-}
-
 func (ev syscallEventContext) eventView() syscallEventView {
 	return ev.view
 }
