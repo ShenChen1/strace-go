@@ -1,6 +1,10 @@
 package main
 
-import "bytes"
+import (
+	"bytes"
+
+	"strace-go/pkg/handler"
+)
 
 type pendingSyscallState struct {
 	pid             uint32
@@ -10,6 +14,7 @@ type pendingSyscallState struct {
 	args            [6]uint64
 	probeRetEnter   int32
 	genericEnterRaw bool
+	payloadSections []handler.PayloadSection
 }
 
 type traceStateEventView struct {
@@ -24,6 +29,7 @@ type traceStateEventView struct {
 	args          [6]uint64
 	probeRetEnter int32
 	snapshotText  string
+	payload       []handler.PayloadSection
 }
 
 type TraceState struct {
@@ -100,6 +106,7 @@ func newTraceStateEventViewFromBPF(eventRaw *bpfEvent) traceStateEventView {
 		args:          eventRaw.Args,
 		probeRetEnter: eventRaw.ProbeRetEnter,
 		snapshotText:  snapshotText,
+		payload:       copyPayloadSections(payloadSectionsForEvent(eventRaw, syscallMeta(eventRaw.SysId))),
 	}
 }
 
@@ -142,7 +149,22 @@ func (st *TraceState) rememberEnterEvent(view traceStateEventView) {
 		args:            view.args,
 		probeRetEnter:   view.probeRetEnter,
 		genericEnterRaw: view.isGenericEnter(),
+		payloadSections: copyPayloadSections(view.payload),
 	}
+}
+
+func copyPayloadSections(sections []handler.PayloadSection) []handler.PayloadSection {
+	if len(sections) == 0 {
+		return nil
+	}
+	out := make([]handler.PayloadSection, len(sections))
+	for i, section := range sections {
+		out[i] = section
+		if len(section.Data) > 0 {
+			out[i].Data = append([]byte(nil), section.Data...)
+		}
+	}
+	return out
 }
 
 func (st *TraceState) consumeEnterEvent(view traceStateEventView) *pendingSyscallState {

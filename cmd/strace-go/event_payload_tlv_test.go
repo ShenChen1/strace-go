@@ -220,6 +220,61 @@ func TestSyscallEventContextUsesTLVPathSection(t *testing.T) {
 	}
 }
 
+func TestShouldEmitGenericEnterForPathFilter(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "text without path filter", args: []string{"-e", "trace=openat", "/bin/true"}, want: false},
+		{name: "text with path filter", args: []string{"-e", "trace=openat", "-P", "from-tlv", "/bin/true"}, want: true},
+		{name: "json", args: []string{"--event-format=json", "-e", "trace=openat", "/bin/true"}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldEmitGenericEnter(cli.ParseArgs(tt.args)); got != tt.want {
+				t.Fatalf("shouldEmitGenericEnter() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSyscallEventContextMergesPendingEnterTLVPathForPathFilter(t *testing.T) {
+	session := &traceSession{
+		targetPid: 101,
+		opts:      cli.ParseArgs([]string{"-e", "trace=openat", "-P", "from-tlv", "/bin/true"}),
+		decoder:   event.NewDecoder(),
+		fdState:   newFDStateStoreFromMaps(nil, nil, nil),
+		state:     newTraceState(),
+	}
+	enterRaw := tlvOpenatEvent(t, []byte("from-tlv\x00"))
+	enterRaw.EventType = bpfEventTypeEnter
+	enterRaw.EventFlags |= bpfEventFlagGenericEnter
+	session.traceState().handleView(newTraceStateEventViewFromBPF(enterRaw))
+
+	exitRaw := &bpfEvent{
+		Pid:           101,
+		Tid:           101,
+		SysId:         syscallIDByName(t, "openat"),
+		EventType:     bpfEventTypeExit,
+		Args:          [6]uint64{rawAtFdcwd, 0x1000, 0},
+		Ptr:           0x1000,
+		ProbeRetEnter: 0,
+		Ret:           -9,
+	}
+	exitUpdate := session.traceState().handleView(newTraceStateEventViewFromBPF(exitRaw))
+	ev := newSyscallEventContext(session, exitRaw, 101, exitUpdate.pendingEnter)
+
+	if !ev.shouldOutput() {
+		t.Fatal("openat exit should match -P from-tlv using pending enter TLV path")
+	}
+	section, ok := ev.handlerContext.Section(1, handler.PayloadKindString)
+	if !ok || !bytes.Equal(section.Data, []byte("from-tlv\x00")) {
+		t.Fatalf("merged handler section = %+v, %v; want pending enter TLV path", section, ok)
+	}
+}
+
 func TestPayloadSectionsForEventDoesNotFallbackOnInvalidTLV(t *testing.T) {
 	eventRaw := tlvOpenatEvent(t, []byte("fixed.txt\x00"))
 	eventRaw.DataLen = 4

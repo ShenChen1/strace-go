@@ -75,8 +75,10 @@ func main() {
 	if opts.FollowForks {
 		cfgVal |= bpfConfigFollowForks
 	}
-	if opts.EventFormat == cli.EventFormatJSON {
+	if shouldEmitGenericEnter(opts) {
 		cfgVal |= bpfConfigEmitEnter
+	}
+	if opts.EventFormat == cli.EventFormatJSON {
 		cfgVal |= bpfConfigEmitLifecycle
 	}
 	syscallFilterCfg, err := configureSyscallFilter(opts, bpfObjs)
@@ -152,6 +154,13 @@ func calculateTimeOffset() int64 {
 	monoNs := int64(tsMono.Sec)*1e9 + int64(tsMono.Nsec)
 	realNs := int64(tsReal.Sec)*1e9 + int64(tsReal.Nsec)
 	return realNs - monoNs
+}
+
+func shouldEmitGenericEnter(opts *cli.Options) bool {
+	if opts == nil {
+		return false
+	}
+	return opts.EventFormat == cli.EventFormatJSON || len(opts.TracePaths) > 0
 }
 
 type bpfEvent = bpfBpfEvent

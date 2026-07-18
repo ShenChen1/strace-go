@@ -45,7 +45,7 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 	scMeta := syscallMeta(eventRaw.SysId)
 	view := newSyscallEventViewFromBPF(eventRaw)
 	isPath := syscallHasPathArg(scMeta)
-	payloadSections := payloadSectionsForEvent(eventRaw, scMeta)
+	payloadSections := mergePendingPayloadSections(pendingEnter, payloadSectionsForEvent(eventRaw, scMeta))
 	pathText := decodePathText(s, view, scMeta, isPath, payloadSections)
 	shouldPrint := true
 	if s.opts != nil {
@@ -66,6 +66,32 @@ func newSyscallEventContext(s *traceSession, eventRaw *bpfEvent, statePID int, p
 	}
 	ev.handlerContext = ev.newHandlerContext(s)
 	return ev
+}
+
+func mergePendingPayloadSections(pendingEnter *pendingSyscallState, current []handler.PayloadSection) []handler.PayloadSection {
+	if pendingEnter == nil || len(pendingEnter.payloadSections) == 0 {
+		return current
+	}
+	merged := make([]handler.PayloadSection, 0, len(pendingEnter.payloadSections)+len(current))
+	for _, section := range pendingEnter.payloadSections {
+		if hasEquivalentPayloadSection(current, section) {
+			continue
+		}
+		merged = append(merged, section)
+	}
+	return append(merged, current...)
+}
+
+func hasEquivalentPayloadSection(sections []handler.PayloadSection, want handler.PayloadSection) bool {
+	for _, section := range sections {
+		if section.Kind == want.Kind &&
+			section.Direction == want.Direction &&
+			section.ArgIndex == want.ArgIndex &&
+			section.UserPtr == want.UserPtr {
+			return true
+		}
+	}
+	return false
 }
 
 func newSyscallEnterEventContext(eventRaw *bpfEvent, statePID int) syscallEventContext {
