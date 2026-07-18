@@ -26,6 +26,20 @@ static int current_tracer_pid(void)
 	return -1;
 }
 
+static void fill_large_write_payload(char *buf, size_t len)
+{
+	const char prefix[] = "ebpf-large-write-";
+	size_t prefix_len = sizeof(prefix) - 1;
+
+	if (len < prefix_len) {
+		return;
+	}
+	memcpy(buf, prefix, prefix_len);
+	for (size_t i = prefix_len; i < len; i++) {
+		buf[i] = (char) ('A' + (i % 26));
+	}
+}
+
 static int run_semantic_fixture(void)
 {
 	char buf[32];
@@ -52,6 +66,15 @@ static int run_semantic_fixture(void)
 
 	ssize_t nwritten = write(STDOUT_FILENO, "ebpf-fixture-write\n", 19);
 	(void) nwritten;
+
+	char large[1024];
+	fill_large_write_payload(large, sizeof(large));
+	int null_out = open("/dev/null", O_WRONLY);
+	if (null_out >= 0) {
+		ssize_t nlarge = write(null_out, large, sizeof(large));
+		(void) nlarge;
+		(void) close(null_out);
+	}
 
 	char template[] = "/tmp/strace-go-ebpf-preadwrite-XXXXXX";
 	int rwfd = mkstemp(template);

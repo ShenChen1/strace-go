@@ -128,6 +128,22 @@ def payload_section_text(section):
     except Exception:
         return ""
 
+def has_large_write_truncation(events):
+    for ev in events:
+        if ev.get("syscall") != "write":
+            continue
+        for sec in ev.get("payload_sections") or []:
+            if sec.get("kind") != "bytes" or sec.get("direction") != "in":
+                continue
+            if sec.get("arg_index") != 1:
+                continue
+            if "ebpf-large-write-" not in payload_section_text(sec):
+                continue
+            copied_len = sec.get("copied_len", 0)
+            user_len = sec.get("user_len", 0)
+            return copied_len > 0 and copied_len < user_len
+    return False
+
 def check_write_only_filter(fixture, failures):
     filter_res = run_strace_go_json(["-e", "trace=write", fixture], debug=True)
     filter_events = parse_json_events(filter_res.stderr)
@@ -215,6 +231,7 @@ def run_ebpf_semantic(args):
                 "ebpf-fixture-write" in payload_section_text(sec)
             for sec in ev.get("payload_sections") or []) for ev in events),
             failures, "write payload section missing from JSON event")
+    require(has_large_write_truncation(events), failures, "large write payload truncation metadata missing")
     require(any(ev.get("syscall") == "pwrite64" and any(
                 sec.get("kind") == "bytes" and
                 sec.get("direction") == "in" and
