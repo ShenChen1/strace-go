@@ -429,6 +429,73 @@ func TestSyscallEventContextMergesPendingEnterTLVPathForPathFilter(t *testing.T)
 	}
 }
 
+func TestSyscallEventContextMergesStatfsEnterPathAndExitStructSections(t *testing.T) {
+	session := &traceSession{
+		targetPid: 101,
+		opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=statfs", "/bin/true"}),
+		decoder:   event.NewDecoder(),
+		fdState:   newFDStateStoreFromMaps(nil, nil),
+		state:     newTraceState(),
+	}
+	pathPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindString,
+		arg:     0,
+		userPtr: 0x1000,
+		userLen: 11,
+		data:    []byte("/proc/self\x00"),
+	})
+	enterRaw := &bpfEvent{
+		Pid:        101,
+		Tid:        101,
+		SysId:      syscallIDByName(t, "statfs"),
+		EventType:  bpfEventTypeEnter,
+		EventFlags: bpfEventFlagPayloadTLV | bpfEventFlagGenericEnter,
+		Args:       [6]uint64{0x1000, 0x2000},
+		DataLen:    uint32(len(pathPayload)),
+	}
+	copy(enterRaw.StrArg[:], pathPayload)
+	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+
+	statfsData := bytes.Repeat([]byte{0x55}, statfsPayloadStructSize)
+	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		flags:   payloadTLVFlagDirectionOut,
+		arg:     1,
+		userPtr: 0x2000,
+		userLen: statfsPayloadStructSize,
+		data:    statfsData,
+	})
+	exitRaw := &bpfEvent{
+		Pid:        101,
+		Tid:        101,
+		SysId:      syscallIDByName(t, "statfs"),
+		EventType:  bpfEventTypeExit,
+		EventFlags: bpfEventFlagPayloadTLV,
+		Args:       [6]uint64{0x1000, 0x2000},
+		Ret:        0,
+		DataLen:    uint32(len(exitPayload)),
+	}
+	copy(exitRaw.StrArg[:], exitPayload)
+
+	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	ev := newSyscallEventContextFromView(
+		session,
+		exitUpdate.syscallView,
+		101,
+		exitUpdate.pendingEnter,
+		exitUpdate.payloadSections,
+	)
+
+	pathSection, ok := ev.handlerContext.Section(0, handler.PayloadKindString)
+	if !ok || !bytes.Equal(pathSection.Data, []byte("/proc/self\x00")) {
+		t.Fatalf("statfs path section = %+v, %v; want pending enter path", pathSection, ok)
+	}
+	structSection, ok := ev.handlerContext.Section(1, handler.PayloadKindStruct)
+	if !ok || !bytes.Equal(structSection.Data, statfsData) {
+		t.Fatalf("statfs struct section = %+v, %v; want exit struct", structSection, ok)
+	}
+}
+
 func TestPayloadSectionsForEventDoesNotFallbackOnInvalidTLV(t *testing.T) {
 	eventRaw := tlvOpenatEvent(t, []byte("fixed.txt\x00"))
 	eventRaw.DataLen = 4

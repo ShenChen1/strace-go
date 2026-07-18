@@ -992,7 +992,8 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `exit/exit_group` 已在 sys_enter 阶段直接合成 event v2 enter/exit，终止 syscall 不再通过 `struct bpf_event` carrier 保存 pending 后再 emit。
 - `clock_gettime/clock_getres` 已作为第一批高频 OUT struct syscall 绕开旧 fixed-window capture；enter 阶段只保存小 pending metadata，exit 阶段直接写 `PayloadKindStruct` OUT TLV section。
 - `gettimeofday` 已作为第一条多 OUT struct syscall 绕开旧 fixed-window capture；exit 阶段直接写 timeval 与 timezone 两个 `PayloadKindStruct` OUT TLV sections，证明单个 direct exit event 可携带多个结构快照。
-- `fstat/fstatfs` 已作为第一批 stat 类 OUT struct syscall 绕开旧 fixed-window capture；enter 阶段只保存小 pending metadata，exit 成功时分别直接写 144 字节 `struct stat` 或 120 字节 `struct statfs` OUT TLV section。
+- `fstat/fstatfs` 已作为第一批 fd-based stat 类 OUT struct syscall 绕开旧 fixed-window capture；enter 阶段只保存小 pending metadata，exit 成功时分别直接写 144 字节 `struct stat` 或 120 字节 `struct statfs` OUT TLV section。
+- `statfs` 已作为第一条 path IN + OUT struct syscall 绕开旧 fixed-window capture；enter 阶段直接写 pathname string TLV，exit 成功时直接写 120 字节 `struct statfs` OUT TLV section，Go 状态机会合并 enter/exit sections 后交给 formatter。
 - 迁移期固定窗口源已统一命名为 `windowPayloadSource`，不再把它称为 fixed payload source，强调它只是旧 BPF fixed-window 到 semantic section 的兼容投影层。
 - `syscallEventContext` 已删除 `raw *bpfEvent` 字段和 raw fallback；JSON/handler/text pipeline 只能消费构造期缓存的 `syscallEventView` 与 `PayloadSection`，旧 BPF carrier 不再能从 syscall context 重新进入输出路径。
 - `payloadEvent` 已删除 `raw *bpfEvent` 字段和 meta fallback；fixed-window payload 投影只能通过 `rawPayloadEvent -> windowPayloadSource + payloadEventMeta` 的单向转换进入 section 规则。
@@ -1010,7 +1011,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 
 仍需收口：
 
-- BPF 侧仍保留 `struct bpf_event` / `str_arg` fixed window 作为多条 capture path 的承载结构；目前 `getpid/close` scalar-only syscall、`openat` path enter payload、`write/pwrite64` bytes enter payload、`read/pread64` bytes exit payload、`execve/execveat` argv/envp/path payload、`exit/exit_group` terminating syscall、`clock_gettime/clock_getres` OUT struct payload、`gettimeofday` 多 OUT struct payload 和 `fstat/fstatfs` stat OUT struct payload 已开始绕开旧 carrier，其余多 payload syscall 尚未彻底切换为 header + TLV/section-first 的可变长事件协议。
+- BPF 侧仍保留 `struct bpf_event` / `str_arg` fixed window 作为多条 capture path 的承载结构；目前 `getpid/close` scalar-only syscall、`openat` path enter payload、`write/pwrite64` bytes enter payload、`read/pread64` bytes exit payload、`execve/execveat` argv/envp/path payload、`exit/exit_group` terminating syscall、`clock_gettime/clock_getres` OUT struct payload、`gettimeofday` 多 OUT struct payload、`fstat/fstatfs` stat OUT struct payload 和 `statfs` path+statfs payload 已开始绕开旧 carrier，其余多 payload syscall 尚未彻底切换为 header + TLV/section-first 的可变长事件协议。
 - `sys_exit` 仍会为部分文本 formatter 重建 exit/full event；最终形态应由 enter payload、exit payload 和 Go 单协程状态机合成输出。
 - `read-write.gen.test` 当前剩余差异主要是 512 字节 BPF snapshot 前缀之后的大 hexdump exact diff；这属于 bounded eBPF snapshot 与 ptrace 无限/大块 fetch 语义差异，当前已作为 reference `XFAIL` 明确记录，主门禁已通过 JSON `EVENT_FLAG_TRUNCATED` / section `copied_len < user_len` oracle 覆盖纯 eBPF 契约。
 - 原生 upstream 测试卷需要继续按 syscall/语义分类筛选 reference 子集，而不是扩大为纯 eBPF 主门禁。

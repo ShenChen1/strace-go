@@ -6,12 +6,12 @@
 
 static __always_inline int is_stat_struct_direct_syscall(u32 sys_id)
 {
-    return sys_id == SYS_FSTAT || sys_id == SYS_FSTATFS;
+    return sys_id == SYS_FSTAT || sys_id == SYS_STATFS || sys_id == SYS_FSTATFS;
 }
 
 static __always_inline u32 stat_direct_struct_size(u32 sys_id)
 {
-    if (sys_id == SYS_FSTATFS) {
+    if (sys_id == SYS_STATFS || sys_id == SYS_FSTATFS) {
         return STATFS_DIRECT_STRUCT_SIZE;
     }
     return STAT_DIRECT_STRUCT_SIZE;
@@ -36,7 +36,7 @@ static __always_inline u32 capture_stat_struct_tlv_direct(
         record_ringbuf_copy_fail();
         probe_ret = -1;
         copied_len = 0;
-    } else if (p->sys_id == SYS_FSTATFS) {
+    } else if (p->sys_id == SYS_STATFS || p->sys_id == SYS_FSTATFS) {
         long err = bpf_probe_read_user(payload_data, STATFS_DIRECT_STRUCT_SIZE, (void *)user_ptr);
         if (err < 0) {
             probe_ret = err;

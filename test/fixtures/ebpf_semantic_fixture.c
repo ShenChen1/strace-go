@@ -94,6 +94,12 @@ static int run_semantic_fixture(void)
 		return 72;
 	}
 
+	struct statfs path_sfs;
+	if (syscall(SYS_statfs, "/proc/self", &path_sfs) != 0) {
+		perror("statfs");
+		return 75;
+	}
+
 	char large[1024];
 	fill_large_write_payload(large, sizeof(large));
 	int null_out = open("/dev/null", O_WRONLY);
