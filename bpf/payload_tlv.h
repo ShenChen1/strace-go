@@ -83,46 +83,6 @@ static __always_inline void payload_tlv_mark_truncated(struct bpf_event *e, u32 
     }
 }
 
-static __always_inline void capture_write_tlv(struct bpf_event *e)
-{
-    if (e->sys_id != SYS_WRITE && e->sys_id != SYS_PWRITE64) {
-        return;
-    }
-
-    u32 user_len = payload_tlv_clamp_u32(e->args[2]);
-    u32 copied_len = payload_tlv_copy_len(e->args[2], PAYLOAD_TLV_WRITE_MAX);
-    s32 probe_ret = 0;
-
-    if (copied_len > 0) {
-        if (!e->args[1]) {
-            probe_ret = -1;
-            copied_len = 0;
-        } else {
-            long err = bpf_probe_read_user(
-                e->str_arg + PAYLOAD_TLV_HEADER_SIZE,
-                copied_len,
-                (void *)e->args[1]);
-            if (err < 0) {
-                probe_ret = err;
-                copied_len = 0;
-            }
-        }
-    }
-
-    payload_tlv_write_header(
-        e,
-        PAYLOAD_TLV_KIND_BYTES,
-        1,
-        0,
-        user_len,
-        copied_len,
-        probe_ret,
-        e->args[1]);
-    e->data_len = PAYLOAD_TLV_HEADER_SIZE + copied_len;
-    e->event_flags |= EVENT_FLAG_PAYLOAD_TLV;
-    payload_tlv_mark_truncated(e, user_len, copied_len, probe_ret);
-}
-
 static __always_inline void capture_read_tlv(struct bpf_event *e)
 {
     if ((e->sys_id != SYS_READ && e->sys_id != SYS_PREAD64) || e->ret <= 0) {

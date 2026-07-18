@@ -8,7 +8,12 @@ static __always_inline int is_scalar_direct_syscall(u32 sys_id)
 
 static __always_inline int is_payload_direct_syscall(u32 sys_id)
 {
-    return sys_id == SYS_OPENAT;
+    return sys_id == SYS_OPENAT || sys_id == SYS_WRITE || sys_id == SYS_PWRITE64;
+}
+
+static __always_inline int is_write_payload_direct_syscall(u32 sys_id)
+{
+    return sys_id == SYS_WRITE || sys_id == SYS_PWRITE64;
 }
 
 static __always_inline int is_direct_syscall(u32 sys_id)
@@ -178,13 +183,86 @@ static __always_inline u32 capture_openat_path_tlv_direct(
     return PAYLOAD_TLV_HEADER_SIZE + copied_len;
 }
 
-static __always_inline void emit_openat_enter_event_v2_direct(
+static __always_inline u32 capture_write_bytes_tlv_direct(
+    struct bpf_dynptr *ptr,
+    u32 payload_offset,
+    struct trace_event_raw_sys_enter *ctx,
+    u16 *event_flags)
+{
+    u64 user_ptr = ctx->args[1];
+    u32 user_len = payload_tlv_clamp_u32(ctx->args[2]);
+    u32 copied_len = payload_tlv_copy_len(ctx->args[2], PAYLOAD_TLV_WRITE_MAX);
+    s32 probe_ret = 0;
+    u32 data_offset = payload_offset + PAYLOAD_TLV_HEADER_SIZE;
+
+    if (copied_len > 0) {
+        if (!user_ptr) {
+            probe_ret = -1;
+            copied_len = 0;
+        } else {
+            void *payload_data = bpf_dynptr_data(ptr, data_offset, PAYLOAD_TLV_WRITE_MAX);
+            if (!payload_data) {
+                record_ringbuf_copy_fail();
+                probe_ret = -1;
+                copied_len = 0;
+            } else {
+                long err = bpf_probe_read_user(payload_data, copied_len, (void *)user_ptr);
+                if (err < 0) {
+                    probe_ret = err;
+                    copied_len = 0;
+                }
+            }
+        }
+    }
+
+    if (probe_ret == 0 && copied_len > 0 && copied_len < user_len) {
+        *event_flags |= EVENT_FLAG_TRUNCATED;
+        record_payload_truncated_event();
+    }
+
+    struct payload_tlv_header tlv = {};
+    tlv.kind = PAYLOAD_TLV_KIND_BYTES;
+    tlv.arg_index = 1;
+    tlv.user_len = user_len;
+    tlv.copied_len = copied_len;
+    tlv.probe_ret = probe_ret;
+    tlv.user_ptr = user_ptr;
+
+    long ret = bpf_dynptr_write(ptr, payload_offset, &tlv, sizeof(tlv), 0);
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        return 0;
+    }
+    return PAYLOAD_TLV_HEADER_SIZE + copied_len;
+}
+
+static __always_inline u32 capture_payload_tlv_direct(
+    struct bpf_dynptr *ptr,
+    u32 payload_offset,
+    u32 sys_id,
+    struct trace_event_raw_sys_enter *ctx,
+    u16 *event_flags)
+{
+    if (sys_id == SYS_OPENAT) {
+        return capture_openat_path_tlv_direct(ptr, payload_offset, ctx->args[1]);
+    }
+    if (is_write_payload_direct_syscall(sys_id)) {
+        return capture_write_bytes_tlv_direct(ptr, payload_offset, ctx, event_flags);
+    }
+    return 0;
+}
+
+static __always_inline void emit_payload_enter_event_v2_direct(
     u32 pid,
     u32 tid,
+    u32 sys_id,
     struct trace_event_raw_sys_enter *ctx,
     u64 ts_ns)
 {
     u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + PAYLOAD_TLV_OPENAT_MAX;
+    if (is_write_payload_direct_syscall(sys_id)) {
+        payload_capacity = PAYLOAD_TLV_HEADER_SIZE + PAYLOAD_TLV_WRITE_MAX;
+    }
     u32 body_offset = EVENT_V2_HEADER_LEN;
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_ENTER_BODY_LEN;
     u32 out_size = payload_offset + payload_capacity;
@@ -196,11 +274,14 @@ static __always_inline void emit_openat_enter_event_v2_direct(
         return;
     }
 
-    u32 payload_size = capture_openat_path_tlv_direct(&ptr, payload_offset, ctx->args[1]);
-    u16 flags = EVENT_FLAG_GENERIC_ENTER | EVENT_FLAG_PAYLOAD_TLV;
+    u16 flags = EVENT_FLAG_GENERIC_ENTER;
+    u32 payload_size = capture_payload_tlv_direct(&ptr, payload_offset, sys_id, ctx, &flags);
+    if (payload_size > 0) {
+        flags |= EVENT_FLAG_PAYLOAD_TLV;
+    }
 
     struct event_v2_header header = {};
-    init_syscall_event_v2_header_direct(&header, EVENT_TYPE_ENTER, flags, pid, tid, SYS_OPENAT, out_size, ts_ns);
+    init_syscall_event_v2_header_direct(&header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
     ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
     if (ret < 0) {
         record_ringbuf_copy_fail();

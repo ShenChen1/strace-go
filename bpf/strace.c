@@ -703,9 +703,9 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
-    // IMPACT: openat path payload is copied directly into ringbuf TLV storage at syscall enter.
+    // IMPACT: payload direct syscalls copy IN sections directly into ringbuf TLV storage at syscall enter.
     if (is_payload_direct_syscall(sys_id)) {
-        emit_openat_enter_event_v2_direct(pid, tid, ctx, enter_time);
+        emit_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }
@@ -730,7 +730,6 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     e->args[5] = ctx->args[5];
 
     CAPTURE_ARGS_ENTER(e->sys_id, e);
-    capture_write_tlv(e);
     capture_capset_data(e);
     if (e->sys_id == SYS_EXECVE) {
         capture_exec_tlv(e, 0, 1, 2);
@@ -847,7 +846,6 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     }
     
     CAPTURE_ARGS_ENTER(e->sys_id, e);
-    capture_write_tlv(e);
     capture_capset_data(e);
     if (e->ret != 0) {
         if (e->sys_id == SYS_EXECVE) {

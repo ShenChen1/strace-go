@@ -982,6 +982,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - capture policy 已删除旧 `ptr_arg` 字段；生成器只根据 payload/read policy 生成 BPF 拷贝逻辑，不再生成 raw pointer carrier 写入。
 - `getpid/close` 已作为第一批 scalar-only syscall 绕开 `struct bpf_event` / `str_arg` carrier；BPF enter 直接保存小 pending 元数据，exit 直接 reserve/write event v2 header/body，不再经过 per-cpu `heap` 重建 output event；其中 `close` 覆盖 fd cleanup 副作用，证明 direct event 不只适用于无状态 syscall。
 - `openat` 已作为第一条 path IN payload syscall 绕开旧 `capture_openat_tlv` fixed-window helper；enter 阶段直接 reserve ringbuf TLV 容量并用 dynptr 写入 path section，exit 阶段复用小 pending 元数据直接输出 event v2。
+- `write/pwrite64` 已作为第一批 bytes IN payload syscall 绕开旧 `capture_write_tlv` fixed-window helper；enter 阶段直接写 bytes TLV section，并在 direct path 中记录 payload truncated stats。
 - 迁移期固定窗口源已统一命名为 `windowPayloadSource`，不再把它称为 fixed payload source，强调它只是旧 BPF fixed-window 到 semantic section 的兼容投影层。
 - `syscallEventContext` 已删除 `raw *bpfEvent` 字段和 raw fallback；JSON/handler/text pipeline 只能消费构造期缓存的 `syscallEventView` 与 `PayloadSection`，旧 BPF carrier 不再能从 syscall context 重新进入输出路径。
 - `payloadEvent` 已删除 `raw *bpfEvent` 字段和 meta fallback；fixed-window payload 投影只能通过 `rawPayloadEvent -> windowPayloadSource + payloadEventMeta` 的单向转换进入 section 规则。
@@ -999,7 +1000,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 
 仍需收口：
 
-- BPF 侧仍保留 `struct bpf_event` / `str_arg` fixed window 作为多条 capture path 的承载结构；目前 `getpid/close` scalar-only syscall 和 `openat` path enter payload 已开始绕开旧 carrier，其余多 payload syscall 尚未彻底切换为 header + TLV/section-first 的可变长事件协议。
+- BPF 侧仍保留 `struct bpf_event` / `str_arg` fixed window 作为多条 capture path 的承载结构；目前 `getpid/close` scalar-only syscall、`openat` path enter payload 和 `write/pwrite64` bytes enter payload 已开始绕开旧 carrier，其余多 payload syscall 尚未彻底切换为 header + TLV/section-first 的可变长事件协议。
 - `sys_exit` 仍会为部分文本 formatter 重建 exit/full event；最终形态应由 enter payload、exit payload 和 Go 单协程状态机合成输出。
 - `read-write.gen.test` 当前剩余差异主要是 512 字节 BPF snapshot 前缀之后的大 hexdump exact diff；这属于 bounded eBPF snapshot 与 ptrace 无限/大块 fetch 语义差异，当前已作为 reference `XFAIL` 明确记录，主门禁已通过 JSON `EVENT_FLAG_TRUNCATED` / section `copied_len < user_len` oracle 覆盖纯 eBPF 契约。
 - 原生 upstream 测试卷需要继续按 syscall/语义分类筛选 reference 子集，而不是扩大为纯 eBPF 主门禁。
