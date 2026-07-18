@@ -230,6 +230,28 @@ static int run_itimer_fixture(void)
 	return 0;
 }
 
+static int run_time_setter_fixture(void)
+{
+	struct timespec invalid_ts;
+	invalid_ts.tv_sec = 0;
+	invalid_ts.tv_nsec = 1000000000L;
+	if (syscall(SYS_clock_settime, CLOCK_REALTIME, &invalid_ts) == 0) {
+		fprintf(stderr, "unexpected clock_settime success\n");
+		return 101;
+	}
+
+	struct timeval invalid_tv;
+	invalid_tv.tv_sec = -1;
+	invalid_tv.tv_usec = 1000000;
+	struct timezone tz;
+	memset(&tz, 0, sizeof(tz));
+	if (syscall(SYS_settimeofday, &invalid_tv, &tz) == 0) {
+		fprintf(stderr, "unexpected settimeofday success\n");
+		return 102;
+	}
+	return 0;
+}
+
 static int run_semantic_fixture(void)
 {
 	char buf[32];
@@ -321,6 +343,10 @@ static int run_semantic_fixture(void)
 	int itimer_status = run_itimer_fixture();
 	if (itimer_status != 0) {
 		return itimer_status;
+	}
+	int time_setter_status = run_time_setter_fixture();
+	if (time_setter_status != 0) {
+		return time_setter_status;
 	}
 
 	char large[1024];

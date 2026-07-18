@@ -351,22 +351,11 @@ rules:
       payloads:
         - { arg: 1, kind: struct, direction: out, size: 16, offset: 1024 }
 
-  - syscalls: [clock_settime]
-    enter:
-      payloads:
-        - { arg: 1, kind: struct, direction: in, size: 16, offset: 0 }
-
   - syscalls: [gettimeofday]
     exit:
       payloads:
         - { arg: 0, kind: struct, direction: out, size: 16, offset: 1024 }
         - { arg: 1, kind: struct, direction: out, size: 8, offset: 1040 }
-
-  - syscalls: [settimeofday]
-    enter:
-      payloads:
-        - { arg: 0, kind: struct, direction: in, size: 16, offset: 0 }
-        - { arg: 1, kind: struct, direction: in, size: 8, offset: 16 }
 
   - syscalls: [poll]
     enter:

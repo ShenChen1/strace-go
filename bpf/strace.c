@@ -47,6 +47,8 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_FSTATFS 138
 #define SYS_ARCH_PRCTL 158
 #define SYS_SETRLIMIT 160
+#define SYS_SETTIMEOFDAY 164
+#define SYS_CLOCK_SETTIME 227
 #define SYS_CLOCK_GETTIME 228
 #define SYS_CLOCK_GETRES 229
 #define SYS_OPENAT 257
@@ -659,6 +661,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     // IMPACT: itimer set calls snapshot the new timer value at enter and merge old value snapshots at exit.
     if (is_itimer_enter_direct_syscall(sys_id)) {
         emit_itimer_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
+    // IMPACT: time setter syscalls snapshot IN time structs directly into TLV sections at enter.
+    if (is_time_struct_enter_direct_syscall(sys_id)) {
+        emit_time_struct_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }
