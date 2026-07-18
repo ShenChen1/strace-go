@@ -55,14 +55,17 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if strings.Contains(straceSource, "capture_read_tlv(e);") || strings.Contains(tlvHeader, "capture_read_tlv") {
 		t.Fatal("read TLV capture should not use the bpf_event fixed-window helper")
 	}
-	if calls := strings.Count(straceSource, "capture_exec_tlv(e, 0, 1, 2);"); calls != 2 {
-		t.Fatalf("execve capture_exec_tlv calls = %d, want enter and failed-exit paths", calls)
+	if strings.Contains(straceSource, "capture_exec_tlv(") ||
+		strings.Contains(straceSource, "capture_exec_path_tlv(") {
+		t.Fatal("exec TLV capture should not use the bpf_event fixed-window helper")
 	}
-	if calls := strings.Count(straceSource, "capture_exec_tlv(e, 1, 2, 3);"); calls != 2 {
-		t.Fatalf("execveat capture_exec_tlv calls = %d, want enter and failed-exit paths", calls)
-	}
-	if !strings.Contains(straceSource, "PAYLOAD_TLV_HEADER_SIZE + sizeof(*snapshot)") {
-		t.Fatal("exec TLV capture should append filename section after exec args snapshot")
+	if !strings.Contains(directHeader, "capture_exec_tlv_direct(") ||
+		!strings.Contains(directHeader, "emit_exec_enter_event_v2_direct(") ||
+		!strings.Contains(directHeader, "emit_exec_exit_event_v2_direct(") ||
+		!strings.Contains(straceSource, "is_exec_payload_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "emit_exec_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time, probe_ret_enter);") ||
+		!strings.Contains(straceSource, "emit_exec_exit_event_v2_direct(p, ret_value, duration);") {
+		t.Fatal("execve/execveat should use direct event v2 TLV helpers instead of the bpf_event carrier")
 	}
 	if !strings.Contains(straceSource, "saved_flags | EVENT_FLAG_GENERIC_ENTER") {
 		t.Fatal("generic enter flag should preserve payload TLV flag")
@@ -85,7 +88,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 	if !strings.Contains(directHeader, "emit_syscall_enter_event_v2_direct(") ||
 		!strings.Contains(straceSource, "emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);") ||
-		!strings.Contains(straceSource, "emit_syscall_exit_event_v2_direct(p, ctx->ret, duration, 0);") ||
+		!strings.Contains(straceSource, "emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);") ||
 		!strings.Contains(straceSource, "save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);") ||
 		!strings.Contains(straceSource, "is_scalar_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "is_direct_syscall(p->sys_id)") {
@@ -94,7 +97,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(directHeader, "return sys_id == SYS_GETPID || sys_id == SYS_CLOSE;") {
 		t.Fatal("scalar direct syscall policy should include getpid and close")
 	}
-	if !strings.Contains(directHeader, "return sys_id == SYS_OPENAT || sys_id == SYS_WRITE || sys_id == SYS_PWRITE64;") ||
+	if !strings.Contains(directHeader, "sys_id == SYS_OPENAT") ||
+		!strings.Contains(directHeader, "sys_id == SYS_WRITE") ||
+		!strings.Contains(directHeader, "sys_id == SYS_PWRITE64") ||
 		!strings.Contains(straceSource, "is_payload_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "is_direct_syscall(p->sys_id)") ||
 		!strings.Contains(directHeader, "emit_payload_enter_event_v2_direct(") ||
@@ -115,7 +120,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(directHeader, "return sys_id == SYS_READ || sys_id == SYS_PREAD64;") ||
 		!strings.Contains(straceSource, "is_exit_payload_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "is_exit_payload_direct_syscall(p->sys_id)") ||
-		!strings.Contains(straceSource, "ctx->ret > 0") ||
+		!strings.Contains(straceSource, "ret_value > 0") ||
 		!strings.Contains(directHeader, "capture_read_bytes_tlv_direct(") ||
 		!strings.Contains(directHeader, "emit_payload_exit_event_v2_direct(") ||
 		!strings.Contains(directHeader, "PAYLOAD_TLV_HEADER_SIZE + PAYLOAD_TLV_READ_MAX") ||

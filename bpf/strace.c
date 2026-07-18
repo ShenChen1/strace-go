@@ -211,132 +211,6 @@ struct {
     __type(value, u32);
 } main_exited_map SEC(".maps");
 
-static __always_inline void capture_exec_records(
-    struct exec_arg_snapshot *records,
-    u64 array,
-    u32 max_count,
-    u16 *count,
-    s32 *status,
-    u64 *next)
-{
-    *count = 0;
-    *status = -1;
-    *next = array;
-
-    if (!array) {
-        *status = 0;
-        return;
-    }
-
-    for (u32 i = 0; i < EXEC_ENV_MAX; i++) {
-        if (i >= max_count) {
-            break;
-        }
-
-        u64 slot = array + i * sizeof(u64);
-        u64 ptr = 0;
-        if (bpf_probe_read_user(&ptr, sizeof(ptr), (void *)slot) < 0) {
-            *status = -1;
-            *next = slot;
-            break;
-        }
-        if (!ptr) {
-            *status = 0;
-            break;
-        }
-
-        struct exec_arg_snapshot *arg = &records[i];
-        arg->ptr = ptr;
-        arg->data[0] = 0;
-        arg->len = bpf_probe_read_user_str(arg->data, sizeof(arg->data), (void *)ptr);
-        *count = i + 1;
-
-        if (i == max_count - 1) {
-            u64 next_slot = array + max_count * sizeof(u64);
-            u64 next_ptr = 0;
-            if (bpf_probe_read_user(&next_ptr, sizeof(next_ptr), (void *)next_slot) < 0) {
-                *status = -1;
-                *next = next_slot;
-            } else if (!next_ptr) {
-                *status = 0;
-            } else {
-                *status = 1;
-            }
-        }
-    }
-}
-
-static __always_inline void capture_exec_path_tlv(struct bpf_event *e, u32 path_index, u32 path_offset)
-{
-    u32 path_data_offset = path_offset + PAYLOAD_TLV_HEADER_SIZE;
-    u32 path_copied_len = 0;
-    s32 path_probe_ret = 0;
-
-    if (!e->args[path_index]) {
-        path_probe_ret = -1;
-    } else {
-        long n = bpf_probe_read_user_str(
-            e->str_arg + path_data_offset,
-            EXEC_PATH_SNAPSHOT_MAX,
-            (void *)e->args[path_index]);
-        if (n < 0) {
-            path_probe_ret = n;
-        } else if (n > EXEC_PATH_SNAPSHOT_MAX) {
-            path_copied_len = EXEC_PATH_SNAPSHOT_MAX;
-        } else {
-            path_copied_len = (u32)n;
-        }
-    }
-
-    payload_tlv_write_header_at(
-        e,
-        path_offset,
-        PAYLOAD_TLV_KIND_STRING,
-        path_index,
-        0,
-        path_copied_len,
-        path_copied_len,
-        path_probe_ret,
-        e->args[path_index]);
-
-    e->data_len = path_data_offset + path_copied_len;
-}
-
-static __always_inline void capture_exec_tlv(struct bpf_event *e, u32 path_index, u32 argv_index, u32 env_index)
-{
-    struct exec_snapshot *snapshot = (void *)(e->str_arg + PAYLOAD_TLV_HEADER_SIZE);
-    u32 path_offset = PAYLOAD_TLV_HEADER_SIZE + sizeof(*snapshot);
-
-    snapshot->header.magic = EXEC_SNAPSHOT_MAGIC;
-    capture_exec_path_tlv(e, path_index, path_offset);
-    capture_exec_records(
-        snapshot->argv,
-        e->args[argv_index],
-        EXEC_ARG_MAX,
-        &snapshot->header.argv_count,
-        &snapshot->header.argv_status,
-        &snapshot->header.argv_next);
-    capture_exec_records(
-        snapshot->env,
-        e->args[env_index],
-        EXEC_ENV_MAX,
-        &snapshot->header.env_count,
-        &snapshot->header.env_status,
-        &snapshot->header.env_next);
-
-    payload_tlv_write_header(
-        e,
-        PAYLOAD_TLV_KIND_EXEC_ARGS,
-        argv_index,
-        0,
-        sizeof(*snapshot),
-        sizeof(*snapshot),
-        0,
-        e->args[argv_index]);
-
-    e->event_flags |= EVENT_FLAG_PAYLOAD_TLV;
-}
-
 static __always_inline void capture_capset_data(struct bpf_event *e)
 {
     if (e->sys_id != SYS_CAPSET || !e->args[1]) { // capset
@@ -694,6 +568,21 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
     }
 
+    // IMPACT: exec direct events preserve restart/resume status while copying argv/envp/path straight into ringbuf TLV.
+    if (is_exec_payload_direct_syscall(sys_id)) {
+        s32 probe_ret_enter = 0;
+        u32 *exited = bpf_map_lookup_elem(&main_exited_map, &pid);
+        if (exited && *exited == 1) {
+            probe_ret_enter = 1;
+        }
+        emit_exec_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time, probe_ret_enter);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        if (tid != pid) {
+            bpf_map_update_elem(&pending_exec_map, &pid, &tid, BPF_ANY);
+        }
+        return 0;
+    }
+
     // IMPACT: no-payload direct syscalls bypass the large bpf_event carrier while preserving args/ret pairing.
     if (is_scalar_direct_syscall(sys_id) || is_exit_payload_direct_syscall(sys_id)) {
         emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
@@ -729,11 +618,6 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
 
     CAPTURE_ARGS_ENTER(e->sys_id, e);
     capture_capset_data(e);
-    if (e->sys_id == SYS_EXECVE) {
-        capture_exec_tlv(e, 0, 1, 2);
-    } else if (e->sys_id == SYS_EXECVEAT) {
-        capture_exec_tlv(e, 1, 2, 3);
-    }
 
     if (cfg && (*cfg & CONFIG_EMIT_ENTER)) {
         u32 saved_flags = e->event_flags;
@@ -770,21 +654,6 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         }
     }
 
-    if (e->sys_id == SYS_EXECVE || e->sys_id == SYS_EXECVEAT) {
-        e->ret = -514;
-        u32 *exited = bpf_map_lookup_elem(&main_exited_map, &pid);
-        if (exited && *exited == 1) {
-            e->probe_ret_enter = 1;
-        } else {
-            e->probe_ret_enter = 0;
-        }
-        e->event_type = EVENT_TYPE_ENTER;
-        emit_event(e);
-        e->event_type = EVENT_TYPE_EXIT;
-        if (tid != pid) {
-            bpf_map_update_elem(&pending_exec_map, &pid, &tid, BPF_ANY);
-        }
-    }
     return 0;
 }
 
@@ -793,6 +662,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
 SEC("tracepoint/raw_syscalls/sys_exit")
 int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     if (ctx->id == SYS_RT_SIGRETURN || ctx->id == SYS_RT_SIGRETURN_COMPAT) return 0;
+    s64 ret_value = ctx->ret;
     u32 tid = (u32)bpf_get_current_pid_tgid();
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
     
@@ -801,7 +671,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     u32 pending_tid = 0;
     u32 key = 0;
     
-    if (ctx->ret == 0) {
+    if (ret_value == 0) {
         u32 *p_tid = bpf_map_lookup_elem(&pending_exec_map, &pid);
         if (p_tid) {
             pending_tid = *p_tid;
@@ -823,23 +693,33 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
                 duration = exit_time - p->enter_time;
             }
         }
-        if (is_exit_payload_direct_syscall(p->sys_id) && ctx->ret > 0) {
-            emit_payload_exit_event_v2_direct(p, ctx->ret, duration);
+        if (is_exit_payload_direct_syscall(p->sys_id) && ret_value > 0) {
+            emit_payload_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
+            emit_exec_exit_event_v2_direct(p, ret_value, duration);
         } else {
-            emit_syscall_exit_event_v2_direct(p, ctx->ret, duration, 0);
+            emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
         }
         u32 delete_tid = tid;
         if (is_pending_lookup) {
             delete_tid = pending_tid;
         }
+        u32 cleanup_nonleader_exec = is_exec_payload_direct_syscall(p->sys_id) && p->tid != p->pid;
         bpf_map_delete_elem(&pending_syscalls, &delete_tid);
+        if (is_pending_lookup) {
+            bpf_map_delete_elem(&pending_exec_map, &pid);
+            bpf_map_delete_elem(&main_exited_map, &pid);
+            bpf_map_delete_elem(&pending_syscalls, &pid);
+        } else if (cleanup_nonleader_exec) {
+            bpf_map_delete_elem(&pending_exec_map, &pid);
+        }
         return 0;
     }
 
     struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
     if (!e) return 0;
     event_from_pending(e, p);
-    e->ret = ctx->ret;
+    e->ret = ret_value;
     if (e->enter_time > 0) {
         u64 exit_time = bpf_ktime_get_ns();
         if (exit_time > e->enter_time) {
@@ -849,13 +729,6 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     
     CAPTURE_ARGS_ENTER(e->sys_id, e);
     capture_capset_data(e);
-    if (e->ret != 0) {
-        if (e->sys_id == SYS_EXECVE) {
-            capture_exec_tlv(e, 0, 1, 2);
-        } else if (e->sys_id == SYS_EXECVEAT) {
-            capture_exec_tlv(e, 1, 2, 3);
-        }
-    }
 
     CAPTURE_ARGS_EXIT(e->sys_id, e);
     if (tid == pid && (e->sys_id == SYS_RT_SIGSUSPEND || e->sys_id == SYS_NANOSLEEP)) {

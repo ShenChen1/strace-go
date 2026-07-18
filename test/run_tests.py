@@ -135,6 +135,12 @@ def payload_section_text(section):
     except Exception:
         return ""
 
+def payload_section_bytes(section):
+    try:
+        return base64.b64decode(section.get("data_base64") or "")
+    except Exception:
+        return b""
+
 def has_large_write_truncation(events):
     for ev in events:
         if ev.get("syscall") != "write":
@@ -163,6 +169,22 @@ def has_openat_path_section(events, path_text):
                 continue
             if path_text in payload_section_text(sec):
                 return True
+    return False
+
+def has_exec_payload_sections(events):
+    for ev in events:
+        if ev.get("syscall") != "execve" or ev.get("event_type") != "enter":
+            continue
+        has_args = False
+        has_path = False
+        for sec in ev.get("payload_sections") or []:
+            if sec.get("kind") == "exec_args" and sec.get("direction") == "in" and sec.get("arg_index") == 1:
+                data = payload_section_bytes(sec)
+                has_args = len(data) >= 4 and data[0:4] == b"CEXE"
+            if sec.get("kind") == "string" and sec.get("direction") == "in" and sec.get("arg_index") == 0:
+                has_path = True
+        if has_args and has_path:
+            return True
     return False
 
 def check_write_only_filter(fixture, failures):
@@ -232,6 +254,7 @@ def run_ebpf_semantic(args):
     require("execve" in names, failures, "child execve event missing; fork following may be broken")
     require(has_openat_path_section(events, "/tmp/strace-go-ebpf-missing-file"),
             failures, "openat path payload section missing from JSON event")
+    require(has_exec_payload_sections(events), failures, "execve argv/envp and filename payload sections missing from JSON event")
     require(any(ev.get("syscall") == "write" for ev in enter_events), failures, "write enter event missing")
     require(any(ev.get("syscall") == "write" for ev in exit_events), failures, "write exit event missing")
     require(any(ev.get("syscall") == "read" for ev in enter_events), failures, "read enter event missing")
