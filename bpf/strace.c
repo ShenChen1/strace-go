@@ -33,6 +33,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_PWRITE64 18
 #define SYS_PIPE 22
 #define SYS_GETPID 39
+#define SYS_SENDFILE 40
 #define SYS_SOCKETPAIR 53
 #define SYS_UNAME 63
 #define SYS_GETCWD 79
@@ -42,14 +43,17 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_SYSINFO 99
 #define SYS_STATFS 137
 #define SYS_FSTATFS 138
+#define SYS_ARCH_PRCTL 158
 #define SYS_SETRLIMIT 160
 #define SYS_CLOCK_GETTIME 228
 #define SYS_CLOCK_GETRES 229
 #define SYS_OPENAT 257
 #define SYS_NEWFSTATAT 262
 #define SYS_READLINKAT 267
+#define SYS_GET_ROBUST_LIST 274
 #define SYS_PIPE2 293
 #define SYS_PRLIMIT64 302
+#define SYS_COPY_FILE_RANGE 326
 #define EVENT_TYPE_ENTER 1
 #define EVENT_TYPE_EXIT 2
 #define EVENT_TYPE_LIFECYCLE 3
@@ -572,6 +576,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_misc_struct_direct_event_v2.h"
 #include "syscall_path_stat_direct_event_v2.h"
 #include "syscall_readlink_direct_event_v2.h"
+#include "syscall_small_struct_direct_event_v2.h"
 #include "syscall_stat_direct_event_v2.h"
 #include "syscall_time_direct_event_v2.h"
 
@@ -642,12 +647,19 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
+    // IMPACT: small pointer/word syscalls snapshot offset words directly into TLV sections without the fixed str_arg window.
+    if (is_small_struct_enter_direct_syscall(sys_id)) {
+        emit_small_struct_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
     // IMPACT: no-payload direct syscalls bypass the large bpf_event carrier while preserving args/ret pairing.
     if (is_scalar_direct_syscall(sys_id) || is_exit_payload_direct_syscall(sys_id) ||
         is_fd_array_direct_syscall(sys_id) ||
         is_getcwd_direct_syscall(sys_id) ||
         is_time_struct_direct_syscall(sys_id) || is_stat_struct_direct_syscall(sys_id) ||
-        is_misc_struct_direct_syscall(sys_id)) {
+        is_misc_struct_direct_syscall(sys_id) || is_small_struct_direct_syscall(sys_id)) {
         emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
@@ -763,6 +775,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_fd_array_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_misc_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_misc_struct_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_small_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
+            emit_small_struct_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
             emit_exec_exit_event_v2_direct(p, ret_value, duration);
         } else {

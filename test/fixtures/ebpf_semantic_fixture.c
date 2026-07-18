@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 
+#include <asm/prctl.h>
 #include <fcntl.h>
+#include <linux/futex.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +12,7 @@
 #include <sys/syscall.h>
 #include <sys/sysinfo.h>
 #include <sys/time.h>
+#include <sys/types.h>
 #include <sys/utsname.h>
 #include <sys/vfs.h>
 #include <sys/wait.h>
@@ -148,6 +151,67 @@ static int run_misc_struct_fixture(void)
 	return 0;
 }
 
+static int run_small_struct_fixture(void)
+{
+	unsigned long fs_base = 0;
+	if (syscall(SYS_arch_prctl, ARCH_GET_FS, &fs_base) != 0) {
+		perror("arch_prctl");
+		return 92;
+	}
+
+	struct robust_list_head *head = NULL;
+	size_t robust_len = 0;
+	if (syscall(SYS_get_robust_list, 0, &head, &robust_len) != 0) {
+		perror("get_robust_list");
+		return 93;
+	}
+
+	char src_template[] = "/tmp/strace-go-ebpf-small-src-XXXXXX";
+	int src_fd = mkstemp(src_template);
+	if (src_fd < 0) {
+		perror("mkstemp small src");
+		return 94;
+	}
+	(void) unlink(src_template);
+	if (write(src_fd, "small-struct-fixture\n", 21) != 21) {
+		perror("write small src");
+		(void) close(src_fd);
+		return 95;
+	}
+	if (lseek(src_fd, 0, SEEK_SET) < 0) {
+		perror("lseek small src");
+		(void) close(src_fd);
+		return 96;
+	}
+
+	int null_fd = open("/dev/null", O_WRONLY);
+	if (null_fd < 0) {
+		perror("open /dev/null write");
+		(void) close(src_fd);
+		return 97;
+	}
+	off_t sendfile_offset = 0;
+	if (syscall(SYS_sendfile, null_fd, src_fd, &sendfile_offset, 4) < 0) {
+		perror("sendfile");
+		(void) close(null_fd);
+		(void) close(src_fd);
+		return 98;
+	}
+	(void) close(null_fd);
+
+	char dst_template[] = "/tmp/strace-go-ebpf-small-dst-XXXXXX";
+	int dst_fd = mkstemp(dst_template);
+	if (dst_fd >= 0) {
+		(void) unlink(dst_template);
+		long long off_in = 0;
+		long long off_out = 0;
+		(void) syscall(SYS_copy_file_range, src_fd, &off_in, dst_fd, &off_out, 4, 0);
+		(void) close(dst_fd);
+	}
+	(void) close(src_fd);
+	return 0;
+}
+
 static int run_semantic_fixture(void)
 {
 	char buf[32];
@@ -231,6 +295,10 @@ static int run_semantic_fixture(void)
 	int misc_struct_status = run_misc_struct_fixture();
 	if (misc_struct_status != 0) {
 		return misc_struct_status;
+	}
+	int small_struct_status = run_small_struct_fixture();
+	if (small_struct_status != 0) {
+		return small_struct_status;
 	}
 
 	char large[1024];

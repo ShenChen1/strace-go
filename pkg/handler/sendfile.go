@@ -35,7 +35,7 @@ func formatSendfileOffset(ctx *Context) string {
 
 	if ctx.Ret >= 0 {
 		if exit, ok := fetchSendfileOffset(ctx, PayloadDirectionOut); ok && exit != enter {
-			return fmt.Sprintf("[%d] => [%d]", enter, exit)
+			return fmt.Sprintf("[%d => %d]", enter, exit)
 		}
 	}
 	return fmt.Sprintf("[%d]", enter)

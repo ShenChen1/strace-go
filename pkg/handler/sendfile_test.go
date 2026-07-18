@@ -38,7 +38,7 @@ func TestSendfileHandlerUsesPayloadStructSections(t *testing.T) {
 	}
 
 	got := (&SendfileHandler{}).Handle(ctx).ArgParts
-	want := []string{"4", "5", "[10] => [20]", "35499"}
+	want := []string{"4", "5", "[10 => 20]", "35499"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("sendfile args = %#v; want %#v", got, want)
 	}

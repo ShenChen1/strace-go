@@ -291,7 +291,7 @@ def finish_ebpf_semantic(res, failures, events, enter_events, exit_events, lifec
     return 0
 
 def collect_semantic_events(fixture):
-    trace_set = "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,newfstatat,statfs,fstatfs,getcwd,readlink,readlinkat,pipe,pipe2,socketpair,uname,sysinfo,getrlimit,setrlimit,prlimit64,execve,exit,exit_group,clock_gettime,gettimeofday"
+    trace_set = "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,newfstatat,statfs,fstatfs,getcwd,readlink,readlinkat,pipe,pipe2,socketpair,uname,sysinfo,getrlimit,setrlimit,prlimit64,arch_prctl,get_robust_list,sendfile,copy_file_range,execve,exit,exit_group,clock_gettime,gettimeofday"
     res = run_strace_go_json(["-f", "-e", f"trace={trace_set}", fixture])
     events = parse_json_events(res.stderr)
     lifecycle_events = parse_lifecycle_events(res.stderr)
@@ -340,6 +340,10 @@ def run_ebpf_semantic(args):
     require("getrlimit" in names, failures, "getrlimit event missing")
     require("setrlimit" in names, failures, "setrlimit event missing")
     require("prlimit64" in names, failures, "prlimit64 event missing")
+    require("arch_prctl" in names, failures, "arch_prctl event missing")
+    require("get_robust_list" in names, failures, "get_robust_list event missing")
+    require("sendfile" in names, failures, "sendfile event missing")
+    require("copy_file_range" in names, failures, "copy_file_range event missing")
     require("clock_gettime" in names, failures, "clock_gettime event missing")
     require("gettimeofday" in names, failures, "gettimeofday event missing")
     require("execve" in names, failures, "child execve event missing; fork following may be broken")
@@ -392,6 +396,20 @@ def run_ebpf_semantic(args):
             failures, "prlimit64 IN new_rlimit payload section missing from JSON event")
     require(has_struct_payload_section(events, "prlimit64", 3, 16),
             failures, "prlimit64 OUT old_rlimit payload section missing from JSON event")
+    require(has_struct_payload_section(events, "arch_prctl", 1, 8),
+            failures, "arch_prctl OUT word payload section missing from JSON event")
+    require(has_struct_payload_section(events, "get_robust_list", 1, 8),
+            failures, "get_robust_list OUT head payload section missing from JSON event")
+    require(has_struct_payload_section(events, "get_robust_list", 2, 8),
+            failures, "get_robust_list OUT len payload section missing from JSON event")
+    require(has_struct_payload_section_with_direction(events, "sendfile", "enter", "in", 2, 8),
+            failures, "sendfile IN offset payload section missing from JSON event")
+    require(has_struct_payload_section(events, "sendfile", 2, 8),
+            failures, "sendfile OUT offset payload section missing from JSON event")
+    require(has_struct_payload_section_with_direction(events, "copy_file_range", "enter", "in", 1, 8),
+            failures, "copy_file_range IN off_in payload section missing from JSON event")
+    require(has_struct_payload_section_with_direction(events, "copy_file_range", "enter", "in", 3, 8),
+            failures, "copy_file_range IN off_out payload section missing from JSON event")
     require(any(ev.get("syscall") == "write" for ev in enter_events), failures, "write enter event missing")
     require(any(ev.get("syscall") == "write" for ev in exit_events), failures, "write exit event missing")
     require(any(ev.get("syscall") == "read" for ev in enter_events), failures, "read enter event missing")

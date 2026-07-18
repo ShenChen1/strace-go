@@ -167,20 +167,6 @@ rules:
       payloads:
         - { arg: 1, kind: iovec, direction: in, count_from_arg: 2, elem_size: 16, max: 512, offset: 0 }
 
-  - syscalls: [sendfile]
-    enter:
-      payloads:
-        - { arg: 2, kind: raw, direction: in, size: 8, offset: 512 }
-    exit:
-      payloads:
-        - { arg: 2, kind: raw, direction: out, size: 8, offset: 1024 }
-
-  - syscalls: [copy_file_range]
-    enter:
-      payloads:
-        - { arg: 1, kind: raw, direction: in, size: 8, offset: 512 }
-        - { arg: 3, kind: raw, direction: in, size: 8, offset: 520 }
-
   # Network
   - syscalls: [connect, bind]
     enter:
@@ -456,11 +442,6 @@ rules:
       payloads:
         - { arg: 1, kind: raw, direction: out, size: 8, offset: 1024 }
 
-  - syscalls: [arch_prctl]
-    exit:
-      payloads:
-        - { arg: 1, kind: raw, direction: out, size: 8, offset: 1024 }
-
   # getrlimit
   - syscalls: [getrlimit]
     exit:
@@ -571,13 +552,6 @@ rules:
     exit:
       payloads:
         - { arg: 1, kind: bytes, direction: out, len_from_arg: 2, max: 256, offset: 0 }
-
-  # Missing capture rules for failing tests
-  - syscalls: [get_robust_list]
-    exit:
-      payloads:
-        - { arg: 1, kind: raw, direction: out, size: 8, offset: 1024 }
-        - { arg: 2, kind: raw, direction: out, size: 8, offset: 1040 }
 
   - syscalls: [waitid]
     exit:
