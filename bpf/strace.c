@@ -66,6 +66,18 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_ACCT 163
 #define SYS_SWAPON 167
 #define SYS_SWAPOFF 168
+#define SYS_SETXATTR 188
+#define SYS_LSETXATTR 189
+#define SYS_FSETXATTR 190
+#define SYS_GETXATTR 191
+#define SYS_LGETXATTR 192
+#define SYS_FGETXATTR 193
+#define SYS_LISTXATTR 194
+#define SYS_LLISTXATTR 195
+#define SYS_FLISTXATTR 196
+#define SYS_REMOVEXATTR 197
+#define SYS_LREMOVEXATTR 198
+#define SYS_FREMOVEXATTR 199
 #define SYS_ARCH_PRCTL 158
 #define SYS_ADJTIMEX 159
 #define SYS_SETRLIMIT 160
@@ -615,6 +627,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_capability_direct_event_v2.h"
 #include "syscall_memfd_direct_event_v2.h"
 #include "syscall_key_direct_event_v2.h"
+#include "syscall_xattr_direct_event_v2.h"
 #include "syscall_aio_getevents_direct_event_v2.h"
 #include "syscall_aio_direct_event_v2.h"
 #include "syscall_poll_direct_event_v2.h"
@@ -800,6 +813,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
+    // IMPACT: xattr syscalls snapshot IN strings/bytes and merge positive OUT bytes through direct TLV sections.
+    if (is_xattr_direct_syscall(sys_id)) {
+        emit_xattr_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
     // IMPACT: AIO direct syscalls emit bounded TLV sections without the fixed-window carrier.
     if (is_aio_direct_syscall(sys_id)) {
         emit_aio_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
@@ -979,6 +999,10 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_epoll_wait_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
             emit_exec_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_xattr_get_direct_syscall(p->sys_id) && ret_value > 0) {
+            emit_xattr_get_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_xattr_list_direct_syscall(p->sys_id) && ret_value > 0) {
+            emit_xattr_list_exit_event_v2_direct(p, ret_value, duration);
         } else {
             emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
         }
