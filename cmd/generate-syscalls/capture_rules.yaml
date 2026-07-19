@@ -74,11 +74,6 @@ rules:
         - { arg: 1, kind: string, direction: in, size: 512, offset: 0 }
         - { arg: 2, kind: struct, direction: in, size: 32, offset: 512 }
 
-  - syscalls: [memfd_create]
-    enter:
-      payloads:
-        - { arg: 0, kind: raw, direction: in, size: 250, offset: 0 }
-
   - syscalls: [utime]
     enter:
       payloads:

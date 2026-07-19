@@ -62,6 +62,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_PIPE2 293
 #define SYS_PRLIMIT64 302
 #define SYS_CLOCK_ADJTIME 305
+#define SYS_MEMFD_CREATE 319
 #define SYS_COPY_FILE_RANGE 326
 #define SYS_FUTEX_WAITV 449
 #define SYS_CACHESTAT 451
@@ -563,6 +564,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_stat_direct_event_v2.h"
 #include "syscall_cachestat_direct_event_v2.h"
 #include "syscall_capability_direct_event_v2.h"
+#include "syscall_memfd_direct_event_v2.h"
 #include "syscall_time_direct_event_v2.h"
 #include "syscall_futex_direct_event_v2.h"
 #include "syscall_sleep_direct_event_v2.h"
@@ -703,6 +705,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     // IMPACT: capability syscalls snapshot header/data through direct TLV sections without the fixed-window carrier.
     if (is_capability_direct_syscall(sys_id)) {
         emit_capability_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
+    // IMPACT: memfd_create snapshots arg0 name as a direct string TLV without the fixed-window carrier.
+    if (is_memfd_create_direct_syscall(sys_id)) {
+        emit_memfd_create_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }
