@@ -28,3 +28,11 @@ func TestFormatSyscallRetFormatsCommonReturns(t *testing.T) {
 		})
 	}
 }
+
+func TestFormatSyscallRetFormatsExplicitEmptyReturnDescription(t *testing.T) {
+	res := handler.Result{ShowEmptyReturnDesc: true}
+
+	if got := formatSyscallRet("select", 1, res, nil); got != "1 ()" {
+		t.Fatalf("formatSyscallRet(select empty desc) = %q, want %q", got, "1 ()")
+	}
+}

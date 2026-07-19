@@ -85,9 +85,10 @@ func boundedBpfStructData(bpfBuf []byte, size int) ([]byte, bool) {
 
 // Result contains the formatted arguments and optional hex dump.
 type Result struct {
-	ArgParts   []string
-	HexDumpStr string
-	ReturnDesc string
+	ArgParts            []string
+	HexDumpStr          string
+	ReturnDesc          string
+	ShowEmptyReturnDesc bool
 }
 
 // Handler defines the interface for decoding specific syscalls.

@@ -51,6 +51,18 @@ func TestJSONSyscallEventIncludesSelectPayloadSections(t *testing.T) {
 	}
 }
 
+func TestSelectFdSetUserLenNormalizesSignExtendedNfds(t *testing.T) {
+	if got := selectFdSetUserLen(0xffffffff00000005); got != 1 {
+		t.Fatalf("selectFdSetUserLen(sign-extended 5) = %d, want 1", got)
+	}
+	if got := selectFdSetUserLen(0xffffffff00000401); got != selectPayloadFdSetSize {
+		t.Fatalf("selectFdSetUserLen(sign-extended 1025) = %d, want %d", got, selectPayloadFdSetSize)
+	}
+	if got := selectFdSetUserLen(0xffffffffffffffff); got != 0 {
+		t.Fatalf("selectFdSetUserLen(sign-extended -1) = %d, want 0", got)
+	}
+}
+
 func assertSelectJSONPayloadSection(
 	t *testing.T,
 	got jsonPayloadSection,

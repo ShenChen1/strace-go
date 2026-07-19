@@ -227,20 +227,6 @@ rules:
         - { arg: 0, kind: struct, direction: out, size: 16, offset: 1024 }
         - { arg: 1, kind: struct, direction: out, size: 8, offset: 1040 }
 
-  - syscalls: [select, _newselect]
-    enter:
-      payloads:
-        - { arg: 1, kind: raw, direction: in, size: 128, offset: 0 } # readfds
-        - { arg: 2, kind: raw, direction: in, size: 128, offset: 128 } # writefds
-        - { arg: 3, kind: raw, direction: in, size: 128, offset: 256 } # exceptfds
-        - { arg: 4, kind: struct, direction: in, size: 16, offset: 384 } # timeout
-    exit:
-      payloads:
-        - { arg: 1, kind: raw, direction: out, size: 128, offset: 1024 } # readfds out
-        - { arg: 2, kind: raw, direction: out, size: 128, offset: 1152 } # writefds out
-        - { arg: 3, kind: raw, direction: out, size: 128, offset: 1280 } # exceptfds out
-        - { arg: 4, kind: struct, direction: out, size: 16, offset: 1408 } # timeout out (left)
-
   - syscalls: [rt_sigprocmask]
     enter:
       payloads:

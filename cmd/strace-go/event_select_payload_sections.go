@@ -101,13 +101,14 @@ func selectPayloadProbeRet(
 }
 
 func selectFdSetUserLen(nfds uint64) uint32 {
-	if nfds == 0 {
+	nfds32 := int32(nfds)
+	if nfds32 <= 0 {
 		return 0
 	}
-	if nfds > uint64(selectPayloadFdSetSize*8) {
+	if nfds32 > int32(selectPayloadFdSetSize*8) {
 		return selectPayloadFdSetSize
 	}
-	userLen := (nfds + 7) / 8
+	userLen := (uint32(nfds32) + 7) / 8
 	return uint32(userLen)
 }
 

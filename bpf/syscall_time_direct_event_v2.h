@@ -89,6 +89,7 @@ static __always_inline int is_sys_exit_direct_syscall(u32 sys_id)
         is_memfd_create_direct_syscall(sys_id) ||
         is_aio_direct_syscall(sys_id) ||
         is_poll_direct_syscall(sys_id) ||
+        is_select_direct_syscall(sys_id) ||
         is_epoll_direct_syscall(sys_id) ||
         is_futex_direct_syscall(sys_id);
 }

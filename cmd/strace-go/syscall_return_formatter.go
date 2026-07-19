@@ -45,7 +45,7 @@ func formatSyscallRet(scName string, ret int64, res handler.Result, ctx *handler
 	if ret < 0 && ret >= -4095 {
 		retStr = formatErrnoReturn(int(-ret))
 	}
-	if res.ReturnDesc != "" {
+	if res.ReturnDesc != "" || res.ShowEmptyReturnDesc {
 		retStr += " (" + res.ReturnDesc + ")"
 	}
 	return retStr

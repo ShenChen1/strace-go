@@ -89,6 +89,23 @@ func TestSelectFdSetsUsePayloadBytesSection(t *testing.T) {
 	}
 }
 
+func TestSelectFdSetsKeepPointerForNegativeNfds(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeFdSetData(7)}
+	ctx := newSelectPolicyContext(reader, "select")
+	ctx.Args = [6]uint64{0xffffffffffffffff, 0x1000, 0, 0, 0}
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeFdSetData(3)},
+	}
+
+	got := (&SelectHandler{}).Handle(ctx)
+	if got.ArgParts[1] != "0x1000" {
+		t.Fatalf("select readfds = %q, want pointer fallback for negative nfds", got.ArgParts[1])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestSelectTimeoutFallsBackToPointerWithoutPayloadSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSelectTime(9, 10)}
 	ctx := newSelectPolicyContext(reader, "select")
@@ -167,6 +184,25 @@ func TestSelectExitUsesPayloadBytesSection(t *testing.T) {
 	got := (&SelectHandler{}).Handle(ctx)
 	if got.ReturnDesc != "in [3]" {
 		t.Fatalf("ReturnDesc = %q", got.ReturnDesc)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestSelectExitShowsEmptyDescWhenExitFdSetPayloadIsEmpty(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeFdSetData(7)}
+	ctx := newSelectPolicyContext(reader, "select")
+	ctx.Args = [6]uint64{8, 0x1000, 0, 0, 0}
+	ctx.Ret = 1
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeFdSetData(7)},
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: make([]byte, fdSetPayloadSize)},
+	}
+
+	got := (&SelectHandler{}).Handle(ctx)
+	if got.ReturnDesc != "" || !got.ShowEmptyReturnDesc {
+		t.Fatalf("select return desc = %q/%v, want explicit empty desc", got.ReturnDesc, got.ShowEmptyReturnDesc)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)

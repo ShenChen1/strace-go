@@ -81,6 +81,7 @@ func (h *SelectHandler) formatSelectTimeout(ctx *Context, res *Result) {
 func (h *SelectHandler) formatSelectExit(ctx *Context, nfds int, res *Result) {
 	outParts := []string{}
 	setNames := []string{"in", "out", "exc"}
+	hasExitFdSetPayload := false
 	for i := selectFdSetArgBase; i <= selectFdSetArgLast; i++ {
 		ptr := ctx.Args[i]
 		if ptr == 0 {
@@ -88,6 +89,7 @@ func (h *SelectHandler) formatSelectExit(ctx *Context, nfds int, res *Result) {
 		}
 
 		if data, ok := selectExitFdSetPayload(ctx, i, nfds); ok {
+			hasExitFdSetPayload = true
 			hasAny := false
 			for j := 0; j < (nfds+7)/8 && j < len(data); j++ {
 				if data[j] != 0 {
@@ -109,6 +111,8 @@ func (h *SelectHandler) formatSelectExit(ctx *Context, nfds int, res *Result) {
 	}
 	if len(outParts) > 0 {
 		res.ReturnDesc = strings.Join(outParts, ", ")
+	} else if hasExitFdSetPayload {
+		res.ShowEmptyReturnDesc = true
 	}
 }
 
@@ -194,6 +198,9 @@ func selectFdSetBytes(nfds int) int {
 }
 
 func selectEnterFdSetPayload(ctx *Context, argIndex int, nfds int) ([]byte, bool) {
+	if nfds < 0 {
+		return nil, false
+	}
 	size := selectFdSetBytes(nfds)
 	if size == 0 {
 		return nil, true
@@ -205,6 +212,9 @@ func selectEnterFdSetPayload(ctx *Context, argIndex int, nfds int) ([]byte, bool
 }
 
 func selectExitFdSetPayload(ctx *Context, argIndex int, nfds int) ([]byte, bool) {
+	if nfds < 0 {
+		return nil, false
+	}
 	size := selectFdSetBytes(nfds)
 	if size == 0 {
 		return nil, true
