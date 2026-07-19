@@ -101,15 +101,51 @@ func TestSyscallEventContextMergesAioSubmitDirectTLVSections(t *testing.T) {
 		101,
 		exitUpdate.pendingEnter,
 		exitUpdate.payloadSections)
-	requireAioDirectSection(t, ev, 2, pointers)
-	requireAioDirectSection(t, ev, handler.AioSubmitIocbPayloadArgBase, iocb0)
-	requireAioDirectSection(t, ev, handler.AioSubmitIocbPayloadArgBase+1, iocb1)
+	requireAioDirectSection(t, ev, 2, handler.PayloadDirectionIn, pointers)
+	requireAioDirectSection(t, ev, handler.AioSubmitIocbPayloadArgBase, handler.PayloadDirectionIn, iocb0)
+	requireAioDirectSection(t, ev, handler.AioSubmitIocbPayloadArgBase+1, handler.PayloadDirectionIn, iocb1)
 }
 
-func requireAioDirectSection(t *testing.T, ev syscallEventContext, argIndex int, want []byte) {
+func TestSyscallEventContextMergesAioGeteventsDirectTLVSections(t *testing.T) {
+	session := miscStructTLVSession("io_getevents")
+	args := [6]uint64{0xabc, 0, 1, 0x2000, 0x3000}
+	timeout := aioTestTimespecData(5, 6)
+	events := aioTestIoEventData(0x11, 0x22, 3, 4)
+	enterPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		arg:     4,
+		userPtr: args[4],
+		userLen: uint32(len(timeout)),
+		data:    timeout,
+	})
+	enterRaw := miscStructTLVEvent(t, "io_getevents", bpfEventTypeEnter, args, 0, enterPayload)
+	enterRaw.EventFlags |= bpfEventFlagGenericEnter
+	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+
+	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		flags:   payloadTLVFlagDirectionOut,
+		arg:     3,
+		userPtr: args[3],
+		userLen: uint32(len(events)),
+		data:    events,
+	})
+	exitRaw := miscStructTLVEvent(t, "io_getevents", bpfEventTypeExit, args, 1, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	ev := newSyscallEventContextFromView(
+		session,
+		exitUpdate.syscallView,
+		101,
+		exitUpdate.pendingEnter,
+		exitUpdate.payloadSections)
+	requireAioDirectSection(t, ev, 4, handler.PayloadDirectionIn, timeout)
+	requireAioDirectSection(t, ev, 3, handler.PayloadDirectionOut, events)
+}
+
+func requireAioDirectSection(t *testing.T, ev syscallEventContext, argIndex int, direction handler.PayloadDirection, want []byte) {
 	t.Helper()
 	section, ok := ev.handlerContext.Section(argIndex, handler.PayloadKindStruct)
-	if !ok || section.Direction != handler.PayloadDirectionIn || !bytes.Equal(section.Data, want) {
-		t.Fatalf("io_submit section arg %d = %+v, %v; want pending enter IN struct TLV", argIndex, section, ok)
+	if !ok || section.Direction != direction || !bytes.Equal(section.Data, want) {
+		t.Fatalf("AIO section arg %d = %+v, %v; want %s struct TLV", argIndex, section, ok, direction)
 	}
 }

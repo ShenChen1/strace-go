@@ -31,6 +31,7 @@ static __always_inline int is_aio_cancel_direct_syscall(u32 sys_id)
 static __always_inline int is_aio_direct_syscall(u32 sys_id)
 {
     return is_aio_setup_direct_syscall(sys_id) ||
+        is_aio_getevents_direct_syscall(sys_id) ||
         is_aio_submit_direct_syscall(sys_id) ||
         is_aio_cancel_direct_syscall(sys_id);
 }
@@ -365,6 +366,10 @@ static __always_inline void emit_aio_enter_event_v2_direct(
     u32 *cfg,
     u64 ts_ns)
 {
+    if (is_aio_getevents_direct_syscall(sys_id)) {
+        emit_aio_getevents_enter_event_v2_direct(pid, tid, sys_id, ctx, ts_ns);
+        return;
+    }
     if (is_aio_submit_direct_syscall(sys_id)) {
         emit_aio_submit_enter_event_v2_direct(pid, tid, sys_id, ctx, ts_ns);
         return;

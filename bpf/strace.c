@@ -52,6 +52,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_SETTIMEOFDAY 164
 #define SYS_FUTEX 202
 #define SYS_IO_SETUP 206
+#define SYS_IO_GETEVENTS 208
 #define SYS_IO_SUBMIT 209
 #define SYS_IO_CANCEL 210
 #define SYS_CLOCK_SETTIME 227
@@ -568,6 +569,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_cachestat_direct_event_v2.h"
 #include "syscall_capability_direct_event_v2.h"
 #include "syscall_memfd_direct_event_v2.h"
+#include "syscall_aio_getevents_direct_event_v2.h"
 #include "syscall_aio_direct_event_v2.h"
 #include "syscall_time_direct_event_v2.h"
 #include "syscall_futex_direct_event_v2.h"
@@ -859,6 +861,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_cachestat_exit_event_v2_direct(p, ret_value, duration);
         } else if (p->sys_id == SYS_CAPGET && ret_value >= 0) {
             emit_capability_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_aio_getevents_direct_syscall(p->sys_id) && ret_value > 0) {
+            emit_aio_getevents_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_aio_setup_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_aio_setup_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
