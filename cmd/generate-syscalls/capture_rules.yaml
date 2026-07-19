@@ -245,11 +245,6 @@ rules:
       payloads:
         - { arg: 0, kind: struct, direction: in, len_from_arg: 1, max: 256, offset: 0 } # uargs
 
-  - syscalls: [io_submit]
-    enter:
-      payloads:
-        - { arg: 2, kind: raw, direction: in, count_from_arg: 1, elem_size: 8, max: 512, offset: 0 }
-
   - syscalls: [io_getevents, io_pgetevents]
     enter:
       payloads:

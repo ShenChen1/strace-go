@@ -83,7 +83,6 @@ func generateCaptureReadCode(r CaptureRead, suffix string, scName string) string
 	res += readProbeCode(r, fn, buf, sizeStr)
 	res += probeAccountingCode(r, suffix)
 	res += "\t\t\t} \\\n"
-	res += ioSubmitExtraCode(scName, suffix, r)
 	return res
 }
 
@@ -314,17 +313,4 @@ func probeAccountingCode(r CaptureRead, suffix string) string {
 		fmt.Sprintf("\t\t\t\t\tu32 req_len = %d + pr; \\\n", r.Offset) +
 		fmt.Sprintf("\t\t\t\t\tif ((e)->data_len < req_len) (e)->data_len = req_len; \\\n") +
 		fmt.Sprintf("\t\t\t\t} \\\n")
-}
-
-func ioSubmitExtraCode(scName string, suffix string, r CaptureRead) string {
-	if scName != "io_submit" || suffix != "enter" || r.Arg != 2 {
-		return ""
-	}
-	return "\t\t\tfor (int i = 0; i < 2; i++) { \\\n" +
-		"\t\t\t\tu64 p; \\\n" +
-		"\t\t\t\tif (bpf_probe_read_user(&p, 8, (void *)(e->args[2] + i*8)) == 0 && p != 0) { \\\n" +
-		"\t\t\t\t\tbpf_probe_read_user((e)->str_arg + 512 + i*64, 64, (void *)p); \\\n" +
-		"\t\t\t\t\tif ((e)->data_len < 512 + i*64 + 64) (e)->data_len = 512 + i*64 + 64; \\\n" +
-		"\t\t\t\t} \\\n" +
-		"\t\t\t} \\\n"
 }

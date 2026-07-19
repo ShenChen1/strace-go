@@ -1421,28 +1421,6 @@
 				} \
 			} \
 			break; \
-		case 209: /* io_submit */ \
-			{ \
-				long __err = (e)->args[2] ? bpf_probe_read_user((e)->str_arg, ((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0), (void *)(e)->args[2]) : 0; \
-				long pr = (__err == 0 && (e)->args[2]) ? ((e)->args[1] > 0 ? ((e)->args[1] * 8 > 512 ? 512 : (e)->args[1] * 8) : 0) : __err; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			for (int i = 0; i < 2; i++) { \
-				u64 p; \
-				if (bpf_probe_read_user(&p, 8, (void *)(e->args[2] + i*8)) == 0 && p != 0) { \
-					bpf_probe_read_user((e)->str_arg + 512 + i*64, 64, (void *)p); \
-					if ((e)->data_len < 512 + i*64 + 64) (e)->data_len = 512 + i*64 + 64; \
-				} \
-			} \
-			break; \
 		case 233: /* epoll_ctl */ \
 			{ \
 				long __err = (e)->args[3] ? bpf_probe_read_user((e)->str_arg, 12, (void *)(e)->args[3]) : 0; \

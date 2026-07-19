@@ -171,6 +171,37 @@ func TestAioSubmitUsesPayloadSections(t *testing.T) {
 	}
 }
 
+func TestAioSubmitUsesTruncatedPointerArrayPayloadSections(t *testing.T) {
+	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newAioPolicyContext(reader, event.NewDecoder())
+	ctx.SysName = "io_submit"
+	ctx.Args = [6]uint64{0xabc, 65, 0x1000}
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindStruct,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  2,
+			ProbeRet:  0,
+			UserLen:   520,
+			CopiedLen: 16,
+			Data:      append(pointerBytes(0x2000), pointerBytes(0x3000)...),
+		},
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: AioSubmitIocbPayloadArgBase, ProbeRet: 0, Data: makeIocbData(1, 0x4000, 3)},
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: AioSubmitIocbPayloadArgBase + 1, ProbeRet: 0, Data: makeIocbData(1, 0x5000, 4)},
+	}
+
+	got := (&AioHandler{}).Handle(ctx).ArgParts
+	if len(got) != 3 ||
+		!strings.Contains(got[2], `aio_buf=0x4000`) ||
+		!strings.Contains(got[2], `aio_buf=0x5000`) ||
+		!strings.Contains(got[2], `... /* 0x1010 */`) {
+		t.Fatalf("io_submit args = %#v, want bounded payload prefix with truncation marker", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestAioBufferDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &aioPolicyMemoryReader{data: map[uint64][]byte{
 		0x3000: []byte("abc"),

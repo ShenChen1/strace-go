@@ -93,8 +93,7 @@ func (h *AioHandler) formatIoSubmit(ctx *Context, res *Result) {
 		return
 	}
 
-	readSize := aioBoundedSize(count, 8)
-	pdata, ok := aioStructSnapshot(ctx, 2, PayloadDirectionIn, readSize)
+	pdata, ok := aioSubmitPointerArraySnapshot(ctx, count)
 	if !ok {
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[2]))
 		return
@@ -137,6 +136,25 @@ func aioBoundedSize(count int, elemSize int) int {
 		return aioSnapshotLimit
 	}
 	return size
+}
+
+func aioSubmitPointerArraySnapshot(ctx *Context, count int) ([]byte, bool) {
+	readSize := aioBoundedSize(count, 8)
+	if readSize == 0 {
+		return nil, false
+	}
+	data, ok := ctx.PayloadStruct(2, PayloadDirectionIn)
+	if !ok {
+		return nil, false
+	}
+	if len(data) > readSize {
+		data = data[:readSize]
+	}
+	usableLen := len(data) - len(data)%8
+	if usableLen == 0 {
+		return nil, false
+	}
+	return data[:usableLen], true
 }
 
 func aioIocbSnapshot(ctx *Context, index int) ([]byte, bool) {
