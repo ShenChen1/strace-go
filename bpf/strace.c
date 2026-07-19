@@ -51,6 +51,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_SETRLIMIT 160
 #define SYS_SETTIMEOFDAY 164
 #define SYS_FUTEX 202
+#define SYS_IO_SETUP 206
 #define SYS_CLOCK_SETTIME 227
 #define SYS_CLOCK_GETTIME 228
 #define SYS_CLOCK_GETRES 229
@@ -565,6 +566,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_cachestat_direct_event_v2.h"
 #include "syscall_capability_direct_event_v2.h"
 #include "syscall_memfd_direct_event_v2.h"
+#include "syscall_aio_direct_event_v2.h"
 #include "syscall_time_direct_event_v2.h"
 #include "syscall_futex_direct_event_v2.h"
 #include "syscall_sleep_direct_event_v2.h"
@@ -716,6 +718,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
+    // IMPACT: io_setup saves only pending metadata at enter; successful exit emits the ctx OUT TLV directly.
+    if (is_aio_setup_direct_syscall(sys_id)) {
+        emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
     // IMPACT: no-payload direct syscalls bypass the large bpf_event carrier while preserving args/ret pairing.
     if (is_scalar_direct_syscall(sys_id) || is_exit_payload_direct_syscall(sys_id) ||
         is_fd_array_direct_syscall(sys_id) ||
@@ -848,6 +857,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_cachestat_exit_event_v2_direct(p, ret_value, duration);
         } else if (p->sys_id == SYS_CAPGET && ret_value >= 0) {
             emit_capability_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_aio_setup_direct_syscall(p->sys_id) && ret_value >= 0) {
+            emit_aio_setup_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
             emit_exec_exit_event_v2_direct(p, ret_value, duration);
         } else {

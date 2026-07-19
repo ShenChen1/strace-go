@@ -344,12 +344,6 @@ rules:
         - { arg: 1, kind: string, direction: in, size: 128, offset: 64 }
         - { arg: 2, kind: string, direction: in, size: 256, offset: 256 }
 
-  # AIO
-  - syscalls: [io_setup]
-    exit:
-      payloads:
-        - { arg: 1, kind: raw, direction: out, size: 8, offset: 1024 }
-
   # getrlimit
   - syscalls: [getrlimit]
     exit:
