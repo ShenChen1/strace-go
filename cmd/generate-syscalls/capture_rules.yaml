@@ -260,14 +260,6 @@ rules:
       payloads:
         - { arg: 1, kind: struct, direction: in, size: 64, offset: 0 }
 
-  - syscalls: [cachestat]
-    enter:
-      payloads:
-        - { arg: 1, kind: struct, direction: in, size: 16, offset: 512 }
-    exit:
-      payloads:
-        - { arg: 2, kind: struct, direction: out, size: 40, offset: 1024 }
-
   - syscalls: [capget]
     enter:
       payloads:

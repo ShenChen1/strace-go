@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -51,5 +52,43 @@ func assertCachestatJSONSection(
 	}
 	if data := mustDecodeBase64(t, got.DataBase64); !bytes.Equal(data, wantData) {
 		t.Fatalf("cachestat section data = %v, want %v", data, wantData)
+	}
+}
+
+func TestSyscallEventContextMergesCachestatDirectTLVSections(t *testing.T) {
+	session := miscStructTLVSession("cachestat")
+	args := [6]uint64{3, 0x1000, 0x2000, 0}
+	rangeData := bytes.Repeat([]byte{0x11}, cachestatRangePayloadSize)
+	enterPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		arg:     1,
+		userPtr: args[1],
+		userLen: cachestatRangePayloadSize,
+		data:    rangeData,
+	})
+	enterRaw := miscStructTLVEvent(t, "cachestat", bpfEventTypeEnter, args, 0, enterPayload)
+	enterRaw.EventFlags |= bpfEventFlagGenericEnter
+	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+
+	statsData := bytes.Repeat([]byte{0x22}, cachestatStatsPayloadSize)
+	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		flags:   payloadTLVFlagDirectionOut,
+		arg:     2,
+		userPtr: args[2],
+		userLen: cachestatStatsPayloadSize,
+		data:    statsData,
+	})
+	exitRaw := miscStructTLVEvent(t, "cachestat", bpfEventTypeExit, args, 0, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
+
+	rangeSection, rangeOK := ev.handlerContext.Section(1, handler.PayloadKindStruct)
+	if !rangeOK || rangeSection.Direction != handler.PayloadDirectionIn || !bytes.Equal(rangeSection.Data, rangeData) {
+		t.Fatalf("cachestat range section = %+v, %v; want pending enter IN struct", rangeSection, rangeOK)
+	}
+	statsSection, statsOK := ev.handlerContext.Section(2, handler.PayloadKindStruct)
+	if !statsOK || statsSection.Direction != handler.PayloadDirectionOut || !bytes.Equal(statsSection.Data, statsData) {
+		t.Fatalf("cachestat stats section = %+v, %v; want exit OUT struct", statsSection, statsOK)
 	}
 }

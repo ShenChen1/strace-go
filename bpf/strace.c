@@ -63,6 +63,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_CLOCK_ADJTIME 305
 #define SYS_COPY_FILE_RANGE 326
 #define SYS_FUTEX_WAITV 449
+#define SYS_CACHESTAT 451
 #define SYS_FUTEX_WAIT 455
 #define SYS_FUTEX_REQUEUE 456
 #define EVENT_TYPE_ENTER 1
@@ -589,6 +590,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_readlink_direct_event_v2.h"
 #include "syscall_small_struct_direct_event_v2.h"
 #include "syscall_stat_direct_event_v2.h"
+#include "syscall_cachestat_direct_event_v2.h"
 #include "syscall_time_direct_event_v2.h"
 #include "syscall_futex_direct_event_v2.h"
 #include "syscall_sleep_direct_event_v2.h"
@@ -715,6 +717,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     }
     if (sys_id == SYS_FUTEX_REQUEUE) {
         emit_futex_requeue_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
+    // IMPACT: cachestat snapshots range at enter and stats at successful exit through direct TLV sections.
+    if (sys_id == SYS_CACHESTAT) {
+        emit_cachestat_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }
@@ -848,6 +857,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_misc_struct_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_small_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_small_struct_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_cachestat_direct_syscall(p->sys_id) && ret_value >= 0) {
+            emit_cachestat_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
             emit_exec_exit_event_v2_direct(p, ret_value, duration);
         } else {
