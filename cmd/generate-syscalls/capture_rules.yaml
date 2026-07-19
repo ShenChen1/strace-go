@@ -256,23 +256,6 @@ rules:
         - { arg: 0, kind: struct, direction: out, size: 16, offset: 1024 }
         - { arg: 1, kind: struct, direction: out, size: 8, offset: 1040 }
 
-  - syscalls: [poll]
-    enter:
-      payloads:
-        - { arg: 0, kind: struct, direction: in, count_from_arg: 1, elem_size: 8, max: 512, offset: 0 }
-    exit:
-      payloads:
-        - { arg: 0, kind: struct, direction: out, count_from_arg: 1, elem_size: 8, max: 512, offset: 1024 }
-
-  - syscalls: [ppoll]
-    enter:
-      payloads:
-        - { arg: 0, kind: struct, direction: in, count_from_arg: 1, elem_size: 8, max: 512, offset: 0 }
-        - { arg: 2, kind: struct, direction: in, size: 16, offset: 512 } # timeout
-    exit:
-      payloads:
-        - { arg: 0, kind: struct, direction: out, count_from_arg: 1, elem_size: 8, max: 512, offset: 1024 }
-
   - syscalls: [select, _newselect]
     enter:
       payloads:

@@ -30,6 +30,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_STAT 4
 #define SYS_FSTAT 5
 #define SYS_LSTAT 6
+#define SYS_POLL 7
 #define SYS_PREAD64 17
 #define SYS_PWRITE64 18
 #define SYS_PIPE 22
@@ -63,6 +64,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_OPENAT 257
 #define SYS_NEWFSTATAT 262
 #define SYS_READLINKAT 267
+#define SYS_PPOLL 271
 #define SYS_GET_ROBUST_LIST 274
 #define SYS_EPOLL_PWAIT 281
 #define SYS_PIPE2 293
@@ -575,6 +577,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_memfd_direct_event_v2.h"
 #include "syscall_aio_getevents_direct_event_v2.h"
 #include "syscall_aio_direct_event_v2.h"
+#include "syscall_poll_direct_event_v2.h"
 #include "syscall_epoll_direct_event_v2.h"
 #include "syscall_time_direct_event_v2.h"
 #include "syscall_futex_direct_event_v2.h"
@@ -734,6 +737,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
+    // IMPACT: poll/ppoll snapshot pollfd arrays and ppoll timeout through direct TLV sections.
+    if (is_poll_direct_syscall(sys_id)) {
+        emit_poll_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
     // IMPACT: epoll_pwait2 snapshots its timeout at enter and ready events at exit through direct TLV sections.
     if (is_epoll_pwait2_direct_syscall(sys_id)) {
         emit_epoll_pwait2_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
@@ -877,6 +887,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_aio_getevents_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_aio_setup_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_aio_setup_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_poll_direct_syscall(p->sys_id) && ret_value > 0) {
+            emit_poll_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_epoll_direct_syscall(p->sys_id) && ret_value > 0) {
             emit_epoll_wait_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {

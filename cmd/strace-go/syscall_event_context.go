@@ -52,7 +52,7 @@ func newSyscallEventContextFromView(
 	pathText := decodePathText(s, view, scMeta, isPath, payloadSections)
 	shouldPrint := true
 	if s.opts != nil {
-		shouldPrint = checkShouldPrintFromView(view, scMeta, pathText, isPath, statePID, s.opts, s.fdStateStore().PathMap())
+		shouldPrint = checkShouldPrintFromViewWithPayload(view, scMeta, pathText, isPath, statePID, s.opts, s.fdStateStore().PathMap(), payloadSections)
 	}
 	ev := syscallEventContext{
 		view:            view,

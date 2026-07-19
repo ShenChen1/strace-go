@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"strace-go/pkg/cli"
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -23,6 +25,12 @@ func rawFD(fd int32) uint64 {
 
 func viewWithArgs(args [6]uint64) syscallEventView {
 	return syscallEventView{valid: true, args: args}
+}
+
+func filterTestPollfd(fd int32) []byte {
+	data := make([]byte, pollPayloadFdSize)
+	binary.LittleEndian.PutUint32(data[0:4], uint32(fd))
+	return data
 }
 
 func TestMatchTraceFDs(t *testing.T) {
@@ -126,5 +134,46 @@ func TestCheckShouldPrintTraceFDsOrPath(t *testing.T) {
 	}
 	if checkShouldPrintFromView(viewWithArgs([6]uint64{3}), sc, "", false, 101, opts, fdMap) {
 		t.Fatal("dup(3) should not match --trace-fds=0 or -P /dev/full")
+	}
+}
+
+func TestCheckShouldPrintTraceFDsUsesPollPayloadFDs(t *testing.T) {
+	opts := testOptions()
+	opts.TraceSyscalls["poll"] = true
+	opts.TraceFDs[9] = true
+	sc := meta.Syscall{Name: "poll", Args: []string{"ufds", "nfds", "timeout"}}
+	sections := []handler.PayloadSection{
+		{
+			Kind:      handler.PayloadKindStruct,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  0,
+			ProbeRet:  0,
+			Data:      append(filterTestPollfd(4), filterTestPollfd(9)...),
+		},
+	}
+
+	if !checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{0x1000, 2, 0}), sc, "", false, 101, opts, nil, sections) {
+		t.Fatal("poll payload fd 9 should match --trace-fds=9")
+	}
+}
+
+func TestCheckShouldPrintTracePathUsesPollPayloadFDs(t *testing.T) {
+	opts := testOptions()
+	opts.TraceSyscalls["ppoll"] = true
+	opts.TracePaths["/dev/full"] = true
+	sc := meta.Syscall{Name: "ppoll", Args: []string{"ufds", "nfds", "tsp", "sigmask", "sigsetsize"}}
+	fdMap := map[string]string{"101:9": "/dev/full"}
+	sections := []handler.PayloadSection{
+		{
+			Kind:      handler.PayloadKindStruct,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  0,
+			ProbeRet:  0,
+			Data:      append(filterTestPollfd(4), filterTestPollfd(9)...),
+		},
+	}
+
+	if !checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{0x1000, 2, 0, 0, 8}), sc, "", false, 101, opts, fdMap, sections) {
+		t.Fatal("ppoll payload fd 9 should match -P /dev/full")
 	}
 }

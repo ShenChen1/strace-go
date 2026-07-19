@@ -240,6 +240,20 @@ func TestPollIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	}
 }
 
+func TestPollFormatsEmptyArrayForZeroNfdsWithoutPayloadSection(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makePollfdData(7, 1, 0)}
+	ctx := newSelectPolicyContext(reader, "poll")
+	ctx.Args = [6]uint64{0x2000, 0, 42}
+
+	got := (&PollHandler{}).Handle(ctx)
+	if got.ArgParts[0] != "[]" {
+		t.Fatalf("poll fds = %q, want empty array", got.ArgParts[0])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestPollUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makePollfdData(7, 1, 0)}
 	ctx := newSelectPolicyContext(reader, "poll")
@@ -250,6 +264,32 @@ func TestPollUsesPayloadStructSection(t *testing.T) {
 
 	got := (&PollHandler{}).Handle(ctx)
 	if !strings.Contains(got.ArgParts[0], "{fd=4") {
+		t.Fatalf("poll fds = %q", got.ArgParts[0])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestPollUsesPartialPayloadStructSectionMarker(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makePollfdData(7, 1, 0)}
+	ctx := newSelectPolicyContext(reader, "poll")
+	ctx.Args = [6]uint64{0x1ff8, 2, 0}
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindStruct,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  0,
+			UserPtr:   0x1ff8,
+			UserLen:   16,
+			CopiedLen: 8,
+			ProbeRet:  0,
+			Data:      makePollfdData(-5, 0, 0),
+		},
+	}
+
+	got := (&PollHandler{}).Handle(ctx)
+	if got.ArgParts[0] != "[{fd=-5}, ... /* 0x2000 */]" {
 		t.Fatalf("poll fds = %q", got.ArgParts[0])
 	}
 	if reader.reads != 0 {

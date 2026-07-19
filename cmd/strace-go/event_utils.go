@@ -221,12 +221,26 @@ func rememberFDTargetFromProc(procTid uint32, targetPid int, fd int32, suffix st
 }
 
 func checkShouldPrintFromView(view syscallEventView, scMeta meta.Syscall, pathText string, isPath bool, targetPid int, opts *cli.Options, fdMap map[string]string) bool {
+	return checkShouldPrintFromViewWithPayload(view, scMeta, pathText, isPath, targetPid, opts, fdMap, nil)
+}
+
+func checkShouldPrintFromViewWithPayload(
+	view syscallEventView,
+	scMeta meta.Syscall,
+	pathText string,
+	isPath bool,
+	targetPid int,
+	opts *cli.Options,
+	fdMap map[string]string,
+	payloadSections []handler.PayloadSection,
+) bool {
 	var fds []int32
 	for i, argName := range scMeta.Args {
 		if isFdArgName(argName) {
 			fds = append(fds, int32(view.args[i]))
 		}
 	}
+	fds = append(fds, pollPayloadFDs(scMeta.Name, payloadSections)...)
 	if len(fds) == 0 {
 		fds = []int32{-1}
 	}
@@ -257,6 +271,33 @@ func checkShouldPrintFromView(view syscallEventView, scMeta meta.Syscall, pathTe
 		matchedSyscall = !matchedSyscall
 	}
 	return matchedSyscall && filtersMatch(matchedPath, matchedFD, requestedRW, opts)
+}
+
+func pollPayloadFDs(syscallName string, payloadSections []handler.PayloadSection) []int32 {
+	if syscallName != "poll" && syscallName != "ppoll" {
+		return nil
+	}
+	for _, section := range payloadSections {
+		if section.Kind != handler.PayloadKindStruct ||
+			section.Direction != handler.PayloadDirectionIn ||
+			section.ArgIndex != 0 ||
+			section.ProbeRet != 0 {
+			continue
+		}
+		return pollFDsFromData(section.Data)
+	}
+	return nil
+}
+
+func pollFDsFromData(data []byte) []int32 {
+	if len(data) < pollPayloadFdSize {
+		return nil
+	}
+	fds := make([]int32, 0, len(data)/pollPayloadFdSize)
+	for off := 0; off+pollPayloadFdSize <= len(data); off += pollPayloadFdSize {
+		fds = append(fds, int32(binary.LittleEndian.Uint32(data[off:off+4])))
+	}
+	return fds
 }
 
 func filtersMatch(matchedPath, matchedFD, requestedRW bool, opts *cli.Options) bool {
