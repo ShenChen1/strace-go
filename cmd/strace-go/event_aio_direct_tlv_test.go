@@ -142,10 +142,68 @@ func TestSyscallEventContextMergesAioGeteventsDirectTLVSections(t *testing.T) {
 	requireAioDirectSection(t, ev, 3, handler.PayloadDirectionOut, events)
 }
 
+func TestSyscallEventContextMergesAioPgeteventsDirectTLVSections(t *testing.T) {
+	session := miscStructTLVSession("io_pgetevents")
+	args := [6]uint64{0xabc, 0, 1, 0x2000, 0x3000, 0x4000}
+	timeout := aioTestTimespecData(5, 6)
+	sigset := append(aioTestPointerBytes(0x5000), aioTestPointerBytes(8)...)
+	mask := aioTestPointerBytes(1)
+	events := aioTestIoEventData(0x11, 0x22, 3, 4)
+	enterPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		arg:     4,
+		userPtr: args[4],
+		userLen: uint32(len(timeout)),
+		data:    timeout,
+	})
+	enterPayload = append(enterPayload, payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		arg:     5,
+		userPtr: args[5],
+		userLen: uint32(len(sigset)),
+		data:    sigset,
+	})...)
+	enterPayload = append(enterPayload, payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindBytes,
+		arg:     5,
+		userPtr: 0x5000,
+		userLen: uint32(len(mask)),
+		data:    mask,
+	})...)
+	enterRaw := miscStructTLVEvent(t, "io_pgetevents", bpfEventTypeEnter, args, 0, enterPayload)
+	enterRaw.EventFlags |= bpfEventFlagGenericEnter
+	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+
+	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		flags:   payloadTLVFlagDirectionOut,
+		arg:     3,
+		userPtr: args[3],
+		userLen: uint32(len(events)),
+		data:    events,
+	})
+	exitRaw := miscStructTLVEvent(t, "io_pgetevents", bpfEventTypeExit, args, 1, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	ev := newSyscallEventContextFromView(
+		session,
+		exitUpdate.syscallView,
+		101,
+		exitUpdate.pendingEnter,
+		exitUpdate.payloadSections)
+	requireAioDirectTypedSection(t, ev, 4, handler.PayloadKindStruct, handler.PayloadDirectionIn, timeout)
+	requireAioDirectTypedSection(t, ev, 5, handler.PayloadKindStruct, handler.PayloadDirectionIn, sigset)
+	requireAioDirectTypedSection(t, ev, 5, handler.PayloadKindBytes, handler.PayloadDirectionIn, mask)
+	requireAioDirectTypedSection(t, ev, 3, handler.PayloadKindStruct, handler.PayloadDirectionOut, events)
+}
+
 func requireAioDirectSection(t *testing.T, ev syscallEventContext, argIndex int, direction handler.PayloadDirection, want []byte) {
+	requireAioDirectTypedSection(t, ev, argIndex, handler.PayloadKindStruct, direction, want)
+}
+
+func requireAioDirectTypedSection(t *testing.T, ev syscallEventContext, argIndex int, kind handler.PayloadKind, direction handler.PayloadDirection, want []byte) {
 	t.Helper()
-	section, ok := ev.handlerContext.Section(argIndex, handler.PayloadKindStruct)
+	section, ok := ev.handlerContext.Section(argIndex, kind)
 	if !ok || section.Direction != direction || !bytes.Equal(section.Data, want) {
-		t.Fatalf("AIO section arg %d = %+v, %v; want %s struct TLV", argIndex, section, ok, direction)
+		t.Fatalf("AIO section arg %d = %+v, %v; want %s %s TLV", argIndex, section, ok, direction, kind)
 	}
 }

@@ -245,16 +245,6 @@ rules:
       payloads:
         - { arg: 0, kind: struct, direction: in, len_from_arg: 1, max: 256, offset: 0 } # uargs
 
-  - syscalls: [io_pgetevents]
-    enter:
-      payloads:
-        - { arg: 4, kind: struct, direction: in, size: 16, offset: 512 }
-        - { arg: 5, kind: struct, direction: in, size: 16, offset: 528 }
-        - { arg: 5, kind: double_ptr, direction: in, size: 8, offset: 544 }
-    exit:
-      payloads:
-        - { arg: 3, kind: struct, direction: out, count_from_ret: true, elem_size: 32, max: 512, offset: 1024 }
-
   - syscalls: [clock_gettime, clock_getres]
     exit:
       payloads:

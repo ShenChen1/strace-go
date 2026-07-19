@@ -5,10 +5,21 @@
 #define AIO_GETEVENTS_DIRECT_EVENT_SIZE 32
 #define AIO_GETEVENTS_DIRECT_EVENTS_MAX 512
 #define AIO_GETEVENTS_DIRECT_EVENT_SLOT_MAX 16
+#define AIO_PGETEVENTS_DIRECT_SIGSET_SIZE 16
+#define AIO_PGETEVENTS_DIRECT_SIGMASK_MAX 8
+#define AIO_PGETEVENTS_DIRECT_MAX_PAYLOAD \
+    (PAYLOAD_TLV_HEADER_SIZE + AIO_GETEVENTS_DIRECT_TIMEOUT_SIZE + \
+     PAYLOAD_TLV_HEADER_SIZE + AIO_PGETEVENTS_DIRECT_SIGSET_SIZE + \
+     PAYLOAD_TLV_HEADER_SIZE + AIO_PGETEVENTS_DIRECT_SIGMASK_MAX)
 
 static __always_inline int is_aio_getevents_direct_syscall(u32 sys_id)
 {
-    return sys_id == SYS_IO_GETEVENTS;
+    return sys_id == SYS_IO_GETEVENTS || sys_id == SYS_IO_PGETEVENTS;
+}
+
+static __always_inline int is_aio_pgetevents_direct_syscall(u32 sys_id)
+{
+    return sys_id == SYS_IO_PGETEVENTS;
 }
 
 static __always_inline u32 aio_getevents_user_len(s64 count)
@@ -136,6 +147,102 @@ static __always_inline u32 capture_aio_getevents_events_tlv_direct(
     return PAYLOAD_TLV_HEADER_SIZE + copied_len;
 }
 
+static __always_inline u32 capture_aio_pgetevents_sigset_tlv_direct(
+    struct bpf_dynptr *ptr,
+    u32 payload_offset,
+    u64 user_ptr,
+    u64 *sigmask_ptr,
+    u64 *sigset_size)
+{
+    if (!user_ptr) {
+        return 0;
+    }
+
+    u64 sigset_data[2] = {};
+    u32 copied_len = AIO_PGETEVENTS_DIRECT_SIGSET_SIZE;
+    s32 probe_ret = 0;
+    long err = bpf_probe_read_user(&sigset_data, AIO_PGETEVENTS_DIRECT_SIGSET_SIZE, (void *)user_ptr);
+    if (err < 0) {
+        probe_ret = err;
+        copied_len = 0;
+    } else {
+        err = bpf_dynptr_write(
+            ptr,
+            payload_offset + PAYLOAD_TLV_HEADER_SIZE,
+            &sigset_data,
+            AIO_PGETEVENTS_DIRECT_SIGSET_SIZE,
+            0);
+        if (err < 0) {
+            record_ringbuf_copy_fail();
+            probe_ret = err;
+            copied_len = 0;
+        } else {
+            *sigmask_ptr = sigset_data[0];
+            *sigset_size = sigset_data[1];
+        }
+    }
+
+    if (!payload_tlv_write_header_direct(
+            ptr,
+            payload_offset,
+            PAYLOAD_TLV_KIND_STRUCT,
+            5,
+            0,
+            AIO_PGETEVENTS_DIRECT_SIGSET_SIZE,
+            copied_len,
+            probe_ret,
+            user_ptr)) {
+        return 0;
+    }
+    return PAYLOAD_TLV_HEADER_SIZE + copied_len;
+}
+
+static __always_inline u32 capture_aio_pgetevents_sigmask_tlv_direct(
+    struct bpf_dynptr *ptr,
+    u32 payload_offset,
+    u64 user_ptr,
+    u64 user_len)
+{
+    if (!user_ptr || user_len == 0 || user_len > AIO_PGETEVENTS_DIRECT_SIGMASK_MAX) {
+        return 0;
+    }
+
+    u8 sigmask_data[AIO_PGETEVENTS_DIRECT_SIGMASK_MAX] = {};
+    u32 copied_len = (u32)user_len;
+    s32 probe_ret = 0;
+    long err = bpf_probe_read_user(&sigmask_data, copied_len, (void *)user_ptr);
+    if (err < 0) {
+        probe_ret = err;
+        copied_len = 0;
+    } else {
+        err = bpf_dynptr_write(
+            ptr,
+            payload_offset + PAYLOAD_TLV_HEADER_SIZE,
+            &sigmask_data,
+            copied_len,
+            0);
+        if (err < 0) {
+            record_ringbuf_copy_fail();
+            probe_ret = err;
+            copied_len = 0;
+        }
+    }
+
+    if (!payload_tlv_write_header_direct(
+            ptr,
+            payload_offset,
+            PAYLOAD_TLV_KIND_BYTES,
+            5,
+            0,
+            (u32)user_len,
+            copied_len,
+            probe_ret,
+            user_ptr)) {
+        return 0;
+    }
+    return PAYLOAD_TLV_HEADER_SIZE + copied_len;
+}
+
 static __always_inline void emit_aio_getevents_enter_event_v2_direct(
     u32 pid,
     u32 tid,
@@ -157,6 +264,64 @@ static __always_inline void emit_aio_getevents_enter_event_v2_direct(
 
     u16 flags = EVENT_FLAG_GENERIC_ENTER;
     u32 payload_size = capture_aio_getevents_timeout_tlv_direct(&ptr, payload_offset, ctx->args[4]);
+    if (payload_size > 0) {
+        flags |= EVENT_FLAG_PAYLOAD_TLV;
+    }
+
+    struct event_v2_header header = {};
+    init_syscall_event_v2_header_direct(&header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
+    ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    struct syscall_enter_event_v2 body = {};
+    init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);
+    ret = bpf_dynptr_write(&ptr, body_offset, &body, sizeof(body), 0);
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    bpf_ringbuf_submit_dynptr(&ptr, 0);
+}
+
+static __always_inline void emit_aio_pgetevents_enter_event_v2_direct(
+    u32 pid,
+    u32 tid,
+    u32 sys_id,
+    struct trace_event_raw_sys_enter *ctx,
+    u64 ts_ns)
+{
+    u32 body_offset = EVENT_V2_HEADER_LEN;
+    u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_ENTER_BODY_LEN;
+    u32 out_size = payload_offset + AIO_PGETEVENTS_DIRECT_MAX_PAYLOAD;
+    struct bpf_dynptr ptr;
+    long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
+    if (ret < 0) {
+        record_ringbuf_reserve_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    u16 flags = EVENT_FLAG_GENERIC_ENTER;
+    u32 payload_size = capture_aio_getevents_timeout_tlv_direct(&ptr, payload_offset, ctx->args[4]);
+    u64 sigmask_ptr = 0;
+    u64 sigset_size = 0;
+    payload_size += capture_aio_pgetevents_sigset_tlv_direct(
+        &ptr,
+        payload_offset + payload_size,
+        ctx->args[5],
+        &sigmask_ptr,
+        &sigset_size);
+    payload_size += capture_aio_pgetevents_sigmask_tlv_direct(
+        &ptr,
+        payload_offset + payload_size,
+        sigmask_ptr,
+        sigset_size);
     if (payload_size > 0) {
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }

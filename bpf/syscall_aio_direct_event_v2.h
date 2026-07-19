@@ -366,6 +366,10 @@ static __always_inline void emit_aio_enter_event_v2_direct(
     u32 *cfg,
     u64 ts_ns)
 {
+    if (is_aio_pgetevents_direct_syscall(sys_id)) {
+        emit_aio_pgetevents_enter_event_v2_direct(pid, tid, sys_id, ctx, ts_ns);
+        return;
+    }
     if (is_aio_getevents_direct_syscall(sys_id)) {
         emit_aio_getevents_enter_event_v2_direct(pid, tid, sys_id, ctx, ts_ns);
         return;
