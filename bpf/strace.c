@@ -45,9 +45,12 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_UNAME 63
 #define SYS_GETCWD 79
 #define SYS_CHDIR 80
+#define SYS_RENAME 82
 #define SYS_MKDIR 83
 #define SYS_RMDIR 84
+#define SYS_LINK 86
 #define SYS_UNLINK 87
+#define SYS_SYMLINK 88
 #define SYS_CHMOD 90
 #define SYS_CHOWN 92
 #define SYS_LCHOWN 94
@@ -86,6 +89,9 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_FUTIMESAT 261
 #define SYS_NEWFSTATAT 262
 #define SYS_UNLINKAT 263
+#define SYS_RENAMEAT 264
+#define SYS_LINKAT 265
+#define SYS_SYMLINKAT 266
 #define SYS_READLINKAT 267
 #define SYS_FCHMODAT 268
 #define SYS_FACCESSAT 269
@@ -96,6 +102,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_PIPE2 293
 #define SYS_PRLIMIT64 302
 #define SYS_CLOCK_ADJTIME 305
+#define SYS_RENAMEAT2 316
 #define SYS_MEMFD_CREATE 319
 #define SYS_COPY_FILE_RANGE 326
 #define SYS_IO_PGETEVENTS 333
@@ -672,6 +679,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     // IMPACT: simple path-only syscalls snapshot IN paths directly into TLV sections without the fixed-window carrier.
     if (is_path_only_direct_syscall(sys_id)) {
         emit_path_only_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
+    // IMPACT: dual path syscalls snapshot both IN paths directly into TLV sections without the fixed-window carrier.
+    if (is_dual_path_direct_syscall(sys_id)) {
+        emit_dual_path_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }

@@ -90,25 +90,6 @@ rules:
       payloads:
         - { arg: 2, kind: bytes, direction: out, len_from_ret: true, max: 512, offset: 1024 }
 
-  # Dual path syscalls
-  - syscalls: [rename, link, symlink]
-    enter:
-      payloads:
-        - { arg: 0, kind: string, direction: in, max: 512, offset: 0 }
-        - { arg: 1, kind: string, direction: in, max: 512, offset: 512 }
-
-  - syscalls: [symlinkat]
-    enter:
-      payloads:
-        - { arg: 0, kind: string, direction: in, max: 512, offset: 0 }
-        - { arg: 2, kind: string, direction: in, max: 512, offset: 512 }
-
-  - syscalls: [renameat, renameat2, linkat]
-    enter:
-      payloads:
-        - { arg: 1, kind: string, direction: in, max: 512, offset: 0 }
-        - { arg: 3, kind: string, direction: in, max: 512, offset: 512 }
-
   # Read/Write buffer capture (small prefix)
   - syscalls: [read, pread64]
     exit:
