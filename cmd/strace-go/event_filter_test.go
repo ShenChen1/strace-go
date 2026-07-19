@@ -33,6 +33,14 @@ func filterTestPollfd(fd int32) []byte {
 	return data
 }
 
+func filterTestFdSet(fds ...int) []byte {
+	data := make([]byte, selectPayloadFdSetSize)
+	for _, fd := range fds {
+		data[fd/8] |= 1 << uint(fd%8)
+	}
+	return data
+}
+
 func TestMatchTraceFDs(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -175,5 +183,66 @@ func TestCheckShouldPrintTracePathUsesPollPayloadFDs(t *testing.T) {
 
 	if !checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{0x1000, 2, 0, 0, 8}), sc, "", false, 101, opts, fdMap, sections) {
 		t.Fatal("ppoll payload fd 9 should match -P /dev/full")
+	}
+}
+
+func TestCheckShouldPrintTraceFDsUsesSelectPayloadFDs(t *testing.T) {
+	opts := testOptions()
+	opts.TraceSyscalls["select"] = true
+	opts.TraceFDs[9] = true
+	sc := meta.Syscall{Name: "select", Args: []string{"nfds", "readfds", "writefds", "exceptfds", "timeout"}}
+	sections := []handler.PayloadSection{
+		{
+			Kind:      handler.PayloadKindBytes,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  1,
+			ProbeRet:  0,
+			Data:      filterTestFdSet(4, 9),
+		},
+	}
+
+	if !checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{10, 0x1000, 0, 0, 0}), sc, "", false, 101, opts, nil, sections) {
+		t.Fatal("select payload fd 9 should match --trace-fds=9")
+	}
+}
+
+func TestCheckShouldPrintTracePathUsesSelectPayloadFDs(t *testing.T) {
+	opts := testOptions()
+	opts.TraceSyscalls["_newselect"] = true
+	opts.TracePaths["/dev/full"] = true
+	sc := meta.Syscall{Name: "_newselect", Args: []string{"nfds", "readfds", "writefds", "exceptfds", "timeout"}}
+	fdMap := map[string]string{"101:9": "/dev/full"}
+	sections := []handler.PayloadSection{
+		{
+			Kind:      handler.PayloadKindBytes,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  2,
+			ProbeRet:  0,
+			Data:      filterTestFdSet(9),
+		},
+	}
+
+	if !checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{10, 0, 0x2000, 0, 0}), sc, "", false, 101, opts, fdMap, sections) {
+		t.Fatal("_newselect payload fd 9 should match -P /dev/full")
+	}
+}
+
+func TestCheckShouldPrintSelectPayloadFDsIgnoresNegativeNfds(t *testing.T) {
+	opts := testOptions()
+	opts.TraceSyscalls["select"] = true
+	opts.TraceFDs[9] = true
+	sc := meta.Syscall{Name: "select", Args: []string{"nfds", "readfds", "writefds", "exceptfds", "timeout"}}
+	sections := []handler.PayloadSection{
+		{
+			Kind:      handler.PayloadKindBytes,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  1,
+			ProbeRet:  0,
+			Data:      filterTestFdSet(9),
+		},
+	}
+
+	if checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{0xffffffffffffffff, 0x1000, 0, 0, 0}), sc, "", false, 101, opts, nil, sections) {
+		t.Fatal("select(-1, ...) should not derive fd matches from fd_set payload")
 	}
 }

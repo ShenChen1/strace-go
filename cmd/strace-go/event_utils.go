@@ -240,7 +240,7 @@ func checkShouldPrintFromViewWithPayload(
 			fds = append(fds, int32(view.args[i]))
 		}
 	}
-	fds = append(fds, pollPayloadFDs(scMeta.Name, payloadSections)...)
+	fds = append(fds, payloadSectionFDs(scMeta.Name, view.args, payloadSections)...)
 	if len(fds) == 0 {
 		fds = []int32{-1}
 	}
@@ -273,6 +273,12 @@ func checkShouldPrintFromViewWithPayload(
 	return matchedSyscall && filtersMatch(matchedPath, matchedFD, requestedRW, opts)
 }
 
+func payloadSectionFDs(syscallName string, args [6]uint64, payloadSections []handler.PayloadSection) []int32 {
+	fds := pollPayloadFDs(syscallName, payloadSections)
+	fds = append(fds, selectPayloadFDs(syscallName, args, payloadSections)...)
+	return fds
+}
+
 func pollPayloadFDs(syscallName string, payloadSections []handler.PayloadSection) []int32 {
 	if syscallName != "poll" && syscallName != "ppoll" {
 		return nil
@@ -296,6 +302,49 @@ func pollFDsFromData(data []byte) []int32 {
 	fds := make([]int32, 0, len(data)/pollPayloadFdSize)
 	for off := 0; off+pollPayloadFdSize <= len(data); off += pollPayloadFdSize {
 		fds = append(fds, int32(binary.LittleEndian.Uint32(data[off:off+4])))
+	}
+	return fds
+}
+
+func selectPayloadFDs(syscallName string, args [6]uint64, payloadSections []handler.PayloadSection) []int32 {
+	if syscallName != "select" && syscallName != "_newselect" {
+		return nil
+	}
+	nfds := int(int32(args[0]))
+	if nfds <= 0 {
+		return nil
+	}
+	fds := []int32{}
+	for _, section := range payloadSections {
+		if !isSelectFdSetPayload(section) {
+			continue
+		}
+		fds = append(fds, selectFDsFromData(section.Data, nfds)...)
+	}
+	return fds
+}
+
+func isSelectFdSetPayload(section handler.PayloadSection) bool {
+	return section.Kind == handler.PayloadKindBytes &&
+		section.Direction == handler.PayloadDirectionIn &&
+		section.ArgIndex >= selectPayloadFdSetArgBase &&
+		section.ArgIndex <= selectPayloadFdSetArgLast &&
+		section.ProbeRet == 0
+}
+
+func selectFDsFromData(data []byte, nfds int) []int32 {
+	maxFD := nfds
+	if maxFD > len(data)*8 {
+		maxFD = len(data) * 8
+	}
+	if maxFD > selectPayloadFdSetSize*8 {
+		maxFD = selectPayloadFdSetSize * 8
+	}
+	fds := []int32{}
+	for fd := 0; fd < maxFD; fd++ {
+		if data[fd/8]&(1<<uint(fd%8)) != 0 {
+			fds = append(fds, int32(fd))
+		}
 	}
 	return fds
 }
