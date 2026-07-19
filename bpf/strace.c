@@ -71,6 +71,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_MEMFD_CREATE 319
 #define SYS_COPY_FILE_RANGE 326
 #define SYS_IO_PGETEVENTS 333
+#define SYS_EPOLL_PWAIT2 441
 #define SYS_FUTEX_WAITV 449
 #define SYS_CACHESTAT 451
 #define SYS_FUTEX_WAIT 455
@@ -733,6 +734,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
+    // IMPACT: epoll_pwait2 snapshots its timeout at enter and ready events at exit through direct TLV sections.
+    if (is_epoll_pwait2_direct_syscall(sys_id)) {
+        emit_epoll_pwait2_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
     // IMPACT: no-payload direct syscalls bypass the large bpf_event carrier while preserving args/ret pairing.
     if (is_scalar_direct_syscall(sys_id) || is_exit_payload_direct_syscall(sys_id) ||
         is_fd_array_direct_syscall(sys_id) ||
@@ -869,7 +877,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_aio_getevents_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_aio_setup_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_aio_setup_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_epoll_wait_direct_syscall(p->sys_id) && ret_value > 0) {
+        } else if (is_epoll_direct_syscall(p->sys_id) && ret_value > 0) {
             emit_epoll_wait_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
             emit_exec_exit_event_v2_direct(p, ret_value, duration);

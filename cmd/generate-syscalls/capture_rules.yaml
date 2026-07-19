@@ -287,15 +287,6 @@ rules:
         - { arg: 3, kind: raw, direction: out, size: 128, offset: 1280 } # exceptfds out
         - { arg: 4, kind: struct, direction: out, size: 16, offset: 1408 } # timeout out (left)
 
-  # IMPACT: Capture epoll_pwait2 timeout on enter and ready events on exit without user-space memory reads.
-  - syscalls: [epoll_pwait2]
-    enter:
-      payloads:
-        - { arg: 3, kind: struct, direction: in, size: 16, offset: 512 }
-    exit:
-      payloads:
-        - { arg: 1, kind: struct, direction: out, count_from_ret: true, elem_size: 12, max: 512, offset: 1024 }
-
   - syscalls: [rt_sigprocmask]
     enter:
       payloads:
