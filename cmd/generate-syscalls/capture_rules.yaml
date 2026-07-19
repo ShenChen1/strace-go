@@ -68,30 +68,6 @@ rules:
         - { arg: 2, kind: string, direction: in, size: 257, offset: 0 }
         - { arg: 3, kind: string_or_bytes, direction: in, string_bytes_switch: { selector_arg: 1, bytes_value: 2, len_from_arg: 4, len_mask: 8191 }, max: 4096, offset: 257 }
 
-  - syscalls: [utimensat]
-    enter:
-      payloads:
-        - { arg: 1, kind: string, direction: in, size: 512, offset: 0 }
-        - { arg: 2, kind: struct, direction: in, size: 32, offset: 512 }
-
-  - syscalls: [utime]
-    enter:
-      payloads:
-        - { arg: 0, kind: string, direction: in, size: 512, offset: 0 }
-        - { arg: 1, kind: struct, direction: in, size: 16, offset: 512 }
-
-  - syscalls: [utimes]
-    enter:
-      payloads:
-        - { arg: 0, kind: string, direction: in, size: 512, offset: 0 }
-        - { arg: 1, kind: struct, direction: in, size: 32, offset: 512 }
-
-  - syscalls: [futimesat]
-    enter:
-      payloads:
-        - { arg: 1, kind: string, direction: in, size: 512, offset: 0 }
-        - { arg: 2, kind: struct, direction: in, size: 32, offset: 512 }
-
   - syscalls: [newfstatat]
     enter:
       payloads:

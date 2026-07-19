@@ -45,6 +45,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_GETTIMEOFDAY 96
 #define SYS_GETRLIMIT 97
 #define SYS_SYSINFO 99
+#define SYS_UTIME 132
 #define SYS_STATFS 137
 #define SYS_FSTATFS 138
 #define SYS_ARCH_PRCTL 158
@@ -62,11 +63,14 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_CLOCK_NANOSLEEP 230
 #define SYS_EPOLL_WAIT 232
 #define SYS_EPOLL_CTL 233
+#define SYS_UTIMES 235
 #define SYS_OPENAT 257
+#define SYS_FUTIMESAT 261
 #define SYS_NEWFSTATAT 262
 #define SYS_READLINKAT 267
 #define SYS_PPOLL 271
 #define SYS_GET_ROBUST_LIST 274
+#define SYS_UTIMENSAT 280
 #define SYS_EPOLL_PWAIT 281
 #define SYS_PIPE2 293
 #define SYS_PRLIMIT64 302
@@ -580,6 +584,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_aio_direct_event_v2.h"
 #include "syscall_poll_direct_event_v2.h"
 #include "syscall_epoll_direct_event_v2.h"
+#include "syscall_file_time_direct_event_v2.h"
 #include "syscall_time_direct_event_v2.h"
 #include "syscall_futex_direct_event_v2.h"
 #include "syscall_sleep_direct_event_v2.h"
@@ -669,6 +674,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     // IMPACT: time setter syscalls snapshot IN time structs directly into TLV sections at enter.
     if (is_time_struct_enter_direct_syscall(sys_id)) {
         emit_time_struct_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
+    // IMPACT: file timestamp syscalls snapshot path and IN time arrays through direct TLV sections.
+    if (is_file_time_direct_syscall(sys_id)) {
+        emit_file_time_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }
