@@ -120,6 +120,7 @@ type bpfMapSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfVariableSpecs struct {
+	SYS_CAPGET              *ebpf.VariableSpec `ebpf:"SYS_CAPGET"`
 	SYS_CAPSET              *ebpf.VariableSpec `ebpf:"SYS_CAPSET"`
 	SYS_EXECVE              *ebpf.VariableSpec `ebpf:"SYS_EXECVE"`
 	SYS_EXECVEAT            *ebpf.VariableSpec `ebpf:"SYS_EXECVEAT"`
@@ -182,6 +183,7 @@ func (m *bpfMaps) Close() error {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfVariables struct {
+	SYS_CAPGET              *ebpf.Variable `ebpf:"SYS_CAPGET"`
 	SYS_CAPSET              *ebpf.Variable `ebpf:"SYS_CAPSET"`
 	SYS_EXECVE              *ebpf.Variable `ebpf:"SYS_EXECVE"`
 	SYS_EXECVEAT            *ebpf.Variable `ebpf:"SYS_EXECVEAT"`

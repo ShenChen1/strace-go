@@ -260,20 +260,6 @@ rules:
       payloads:
         - { arg: 1, kind: struct, direction: in, size: 64, offset: 0 }
 
-  - syscalls: [capget]
-    enter:
-      payloads:
-        - { arg: 0, kind: struct, direction: in, size: 8, offset: 0 }
-    exit:
-      payloads:
-        - { arg: 1, kind: raw, direction: out, size: 24, offset: 1024 }
-
-  - syscalls: [capset]
-    enter:
-      payloads:
-        - { arg: 0, kind: struct, direction: in, size: 8, offset: 0 }
-        - { arg: 1, kind: struct, direction: in, size: 24, offset: 512 }
-
   - syscalls: [io_getevents, io_pgetevents]
     enter:
       payloads:

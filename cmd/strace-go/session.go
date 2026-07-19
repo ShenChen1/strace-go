@@ -89,6 +89,7 @@ func setupBPF() (*bpfObjects, []link.Link) {
 	setVar("SYS_NANOSLEEP", getSysID("nanosleep", 35))
 	setVar("SYS_EXECVE", getSysID("execve", 59))
 	setVar("SYS_EXIT", getSysID("exit", 60))
+	setVar("SYS_CAPGET", getSysID("capget", 125))
 	setVar("SYS_CAPSET", getSysID("capset", 126))
 	setVar("SYS_RT_SIGSUSPEND", getSysID("rt_sigsuspend", 130))
 	setVar("SYS_EXIT_GROUP", getSysID("exit_group", 231))

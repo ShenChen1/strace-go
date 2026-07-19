@@ -11,6 +11,7 @@ volatile const u32 SYS_RT_SIGRETURN_COMPAT = 173;
 volatile const u32 SYS_NANOSLEEP = 35;
 volatile const u32 SYS_EXECVE = 59;
 volatile const u32 SYS_EXIT = 60;
+volatile const u32 SYS_CAPGET = 125;
 volatile const u32 SYS_CAPSET = 126;
 volatile const u32 SYS_RT_SIGSUSPEND = 130;
 volatile const u32 SYS_EXIT_GROUP = 231;
@@ -246,36 +247,6 @@ struct {
     __type(key, u32);
     __type(value, u32);
 } main_exited_map SEC(".maps");
-
-static __always_inline void capture_capset_data(struct bpf_event *e)
-{
-    if (e->sys_id != SYS_CAPSET || !e->args[1]) { // capset
-        return;
-    }
-    if (e->data_len < 8) {
-        return;
-    }
-
-    u32 version = 0;
-    __builtin_memcpy(&version, e->str_arg, sizeof(version));
-
-    u32 size = 0;
-    if (version == 0x19980330) {
-        size = 12;
-    } else if (version == 0x20071026 || version == 0x20080522) {
-        size = 24;
-    } else {
-        return;
-    }
-
-    long err = bpf_probe_read_user(e->str_arg + 512, size, (void *) e->args[1]);
-    if (err == 0) {
-        u32 req_len = 512 + size;
-        if (e->data_len < req_len) {
-            e->data_len = req_len;
-        }
-    }
-}
 
 static __always_inline void save_pending_syscall(u32 tid, struct bpf_event *e)
 {
@@ -591,6 +562,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_small_struct_direct_event_v2.h"
 #include "syscall_stat_direct_event_v2.h"
 #include "syscall_cachestat_direct_event_v2.h"
+#include "syscall_capability_direct_event_v2.h"
 #include "syscall_time_direct_event_v2.h"
 #include "syscall_futex_direct_event_v2.h"
 #include "syscall_sleep_direct_event_v2.h"
@@ -728,6 +700,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
+    // IMPACT: capability syscalls snapshot header/data through direct TLV sections without the fixed-window carrier.
+    if (is_capability_direct_syscall(sys_id)) {
+        emit_capability_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
     // IMPACT: no-payload direct syscalls bypass the large bpf_event carrier while preserving args/ret pairing.
     if (is_scalar_direct_syscall(sys_id) || is_exit_payload_direct_syscall(sys_id) ||
         is_fd_array_direct_syscall(sys_id) ||
@@ -766,7 +745,6 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     e->args[5] = ctx->args[5];
 
     CAPTURE_ARGS_ENTER(e->sys_id, e);
-    capture_capset_data(e);
 
     if (cfg && (*cfg & CONFIG_EMIT_ENTER)) {
         u32 saved_flags = e->event_flags;
@@ -859,6 +837,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_small_struct_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_cachestat_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_cachestat_exit_event_v2_direct(p, ret_value, duration);
+        } else if (p->sys_id == SYS_CAPGET && ret_value >= 0) {
+            emit_capability_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
             emit_exec_exit_event_v2_direct(p, ret_value, duration);
         } else {
@@ -892,7 +872,6 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     }
     
     CAPTURE_ARGS_ENTER(e->sys_id, e);
-    capture_capset_data(e);
 
     CAPTURE_ARGS_EXIT(e->sys_id, e);
     if (tid == pid && e->sys_id == SYS_RT_SIGSUSPEND) {
