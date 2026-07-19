@@ -52,6 +52,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_SETTIMEOFDAY 164
 #define SYS_FUTEX 202
 #define SYS_IO_SETUP 206
+#define SYS_IO_CANCEL 210
 #define SYS_CLOCK_SETTIME 227
 #define SYS_CLOCK_GETTIME 228
 #define SYS_CLOCK_GETRES 229
@@ -718,9 +719,9 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
-    // IMPACT: io_setup saves only pending metadata at enter; successful exit emits the ctx OUT TLV directly.
-    if (is_aio_setup_direct_syscall(sys_id)) {
-        emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
+    // IMPACT: AIO direct syscalls emit bounded TLV sections without the fixed-window carrier.
+    if (is_aio_direct_syscall(sys_id)) {
+        emit_aio_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }

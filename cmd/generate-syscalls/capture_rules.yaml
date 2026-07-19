@@ -250,11 +250,6 @@ rules:
       payloads:
         - { arg: 2, kind: raw, direction: in, count_from_arg: 1, elem_size: 8, max: 512, offset: 0 }
 
-  - syscalls: [io_cancel]
-    enter:
-      payloads:
-        - { arg: 1, kind: struct, direction: in, size: 64, offset: 0 }
-
   - syscalls: [io_getevents, io_pgetevents]
     enter:
       payloads:
