@@ -21,7 +21,7 @@ func TestBPFEpollWaitPayloadsUseDirectTLV(t *testing.T) {
 		`#include "syscall_epoll_direct_event_v2.h"`,
 		"is_epoll_pwait2_direct_syscall(sys_id)",
 		"emit_epoll_pwait2_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
-		"is_epoll_direct_syscall(p->sys_id) && ret_value > 0",
+		"is_epoll_wait_direct_syscall(p->sys_id) && ret_value > 0",
 		"emit_epoll_wait_exit_event_v2_direct(p, ret_value, duration);",
 	} {
 		if !strings.Contains(straceSource, snippet) && !strings.Contains(timeDirectHeader, snippet) {
@@ -35,6 +35,7 @@ func TestBPFEpollWaitPayloadsUseDirectTLV(t *testing.T) {
 		"EPOLL_DIRECT_EVENTS_MAX 504",
 		"EPOLL_DIRECT_EVENT_SLOT_MAX 42",
 		"is_epoll_direct_syscall(",
+		"is_epoll_wait_direct_syscall(",
 		"is_epoll_pwait2_direct_syscall(",
 		"capture_epoll_timeout_tlv_direct(",
 		"capture_epoll_events_tlv_direct(",
@@ -61,6 +62,47 @@ func TestBPFEpollWaitPayloadsUseDirectTLV(t *testing.T) {
 	} {
 		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
 			t.Fatalf("epoll wait syscall still uses old fixed-window rule %q", legacyRule)
+		}
+	}
+}
+
+func TestBPFEpollCtlPayloadUsesDirectTLV(t *testing.T) {
+	root := repoRootForTest(t)
+	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	epollDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_epoll_direct_event_v2.h"))
+	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
+	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
+
+	for _, snippet := range []string{
+		"#define SYS_EPOLL_CTL 233",
+		"is_epoll_ctl_direct_syscall(sys_id)",
+		"emit_epoll_ctl_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
+		"is_epoll_wait_direct_syscall(p->sys_id) && ret_value > 0",
+	} {
+		if !strings.Contains(straceSource, snippet) {
+			t.Fatalf("BPF source missing epoll_ctl direct snippet %q", snippet)
+		}
+	}
+
+	for _, snippet := range []string{
+		"is_epoll_ctl_direct_syscall(",
+		"capture_epoll_ctl_event_tlv_direct(",
+		"emit_epoll_ctl_enter_event_v2_direct(",
+		"PAYLOAD_TLV_KIND_STRUCT",
+		"bpf_probe_read_user(payload_data, EPOLL_DIRECT_EVENT_SIZE",
+		"init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);",
+	} {
+		if !strings.Contains(epollDirectHeader, snippet) {
+			t.Fatalf("epoll_ctl direct header missing snippet %q", snippet)
+		}
+	}
+
+	for _, legacyRule := range []string{
+		"syscalls: [epoll_ctl]",
+		"case 233: /* epoll_ctl */",
+	} {
+		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+			t.Fatalf("epoll_ctl still uses old fixed-window rule %q", legacyRule)
 		}
 	}
 }

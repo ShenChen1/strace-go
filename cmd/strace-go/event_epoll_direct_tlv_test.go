@@ -8,6 +8,33 @@ import (
 	"strace-go/pkg/handler"
 )
 
+func TestSyscallEventContextUsesEpollCtlDirectTLVSection(t *testing.T) {
+	session := miscStructTLVSession("epoll_ctl")
+	args := [6]uint64{5, 1, 6, 0x3000}
+	eventData := epollDirectTestEventData(1, 0x77)
+	enterPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		arg:     3,
+		userPtr: args[3],
+		userLen: uint32(len(eventData)),
+		data:    eventData,
+	})
+	enterRaw := miscStructTLVEvent(t, "epoll_ctl", bpfEventTypeEnter, args, 0, enterPayload)
+	enterRaw.EventFlags |= bpfEventFlagGenericEnter
+	enterUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	ev := newSyscallEventContextFromView(
+		session,
+		enterUpdate.syscallView,
+		101,
+		enterUpdate.pendingEnter,
+		enterUpdate.payloadSections)
+
+	section, ok := ev.handlerContext.Section(3, handler.PayloadKindStruct)
+	if !ok || section.Direction != handler.PayloadDirectionIn || !bytes.Equal(section.Data, eventData) {
+		t.Fatalf("epoll_ctl event section = %+v, %v; want direct IN struct TLV", section, ok)
+	}
+}
+
 func TestSyscallEventContextUsesEpollWaitDirectTLVSection(t *testing.T) {
 	tests := []string{"epoll_wait", "epoll_pwait"}
 	for _, syscallName := range tests {

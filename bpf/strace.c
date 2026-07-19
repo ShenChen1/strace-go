@@ -61,6 +61,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_CLOCK_GETRES 229
 #define SYS_CLOCK_NANOSLEEP 230
 #define SYS_EPOLL_WAIT 232
+#define SYS_EPOLL_CTL 233
 #define SYS_OPENAT 257
 #define SYS_NEWFSTATAT 262
 #define SYS_READLINKAT 267
@@ -744,6 +745,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
+    // IMPACT: epoll_ctl snapshots arg3 event at enter through direct TLV without the fixed-window carrier.
+    if (is_epoll_ctl_direct_syscall(sys_id)) {
+        emit_epoll_ctl_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
     // IMPACT: epoll_pwait2 snapshots its timeout at enter and ready events at exit through direct TLV sections.
     if (is_epoll_pwait2_direct_syscall(sys_id)) {
         emit_epoll_pwait2_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
@@ -889,7 +897,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_aio_setup_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_poll_direct_syscall(p->sys_id) && ret_value > 0) {
             emit_poll_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_epoll_direct_syscall(p->sys_id) && ret_value > 0) {
+        } else if (is_epoll_wait_direct_syscall(p->sys_id) && ret_value > 0) {
             emit_epoll_wait_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
             emit_exec_exit_event_v2_direct(p, ret_value, duration);

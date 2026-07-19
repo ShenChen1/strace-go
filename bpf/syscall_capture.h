@@ -1363,21 +1363,6 @@
 				} \
 			} \
 			break; \
-		case 233: /* epoll_ctl */ \
-			{ \
-				long __err = (e)->args[3] ? bpf_probe_read_user((e)->str_arg, 12, (void *)(e)->args[3]) : 0; \
-				long pr = (__err == 0 && (e)->args[3]) ? 12 : __err; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 3)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
 		case 235: /* utimes */ \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \

@@ -219,11 +219,6 @@ rules:
       payloads:
         - { arg: 0, kind: string, direction: in, size: 512 }
 
-  - syscalls: [epoll_ctl]
-    enter:
-      payloads:
-        - { arg: 3, kind: struct, direction: in, size: 12, offset: 0 } # event
-
   - syscalls: [rt_sigaction]
     enter:
       payloads:
