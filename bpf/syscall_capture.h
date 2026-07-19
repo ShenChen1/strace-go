@@ -170,37 +170,6 @@
 				} \
 			} \
 			break; \
-		case 21: /* access */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[0]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[0]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[0] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[0] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
 		case 42: /* connect */ \
 			{ \
 				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 128, (void *)(e)->args[1]) : 0; \
@@ -369,37 +338,6 @@
 				} \
 			} \
 			break; \
-		case 76: /* truncate */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[0]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[0]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[0] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[0] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
 		case 80: /* chdir */ \
 			{ \
 				long pr = 0; \
@@ -453,68 +391,6 @@
 				} else { \
 					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
 					u32 req_len = 512 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 83: /* mkdir */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[0]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[0]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[0] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[0] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 84: /* rmdir */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[0]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[0]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[0] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[0] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
 					if ((e)->data_len < req_len) (e)->data_len = req_len; \
 				} \
 			} \
@@ -576,37 +452,6 @@
 				} \
 			} \
 			break; \
-		case 87: /* unlink */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[0]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[0]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[0] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[0] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
 		case 88: /* symlink */ \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
@@ -647,134 +492,10 @@
 				} \
 			} \
 			break; \
-		case 90: /* chmod */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[0]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[0]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[0] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[0] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 92: /* chown */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[0]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[0]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[0] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[0] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 94: /* lchown */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[0]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[0]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[0] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[0] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
 		case 130: /* rt_sigsuspend */ \
 			{ \
 				long __err = (e)->args[0] ? bpf_probe_read_user((e)->str_arg, 8, (void *)(e)->args[0]) : 0; \
 				long pr = (__err == 0 && (e)->args[0]) ? 8 : __err; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 133: /* mknod */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[0]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[0]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[0] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[0] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_enter; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -822,68 +543,6 @@
 					s32 curr = (e)->probe_ret_enter; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
 					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 161: /* chroot */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[0]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[0]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[0] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[0] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 163: /* acct */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[0]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[0]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[0] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[0] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
 				} else { \
 					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
 					u32 req_len = 0 + pr; \
@@ -944,68 +603,6 @@
 		case 166: /* umount2 */ \
 			{ \
 				long pr = (e)->args[0] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[0]) : 0; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 167: /* swapon */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[0]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[0]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[0] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[0] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 168: /* swapoff */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[0]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[0]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[0] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[0] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_enter; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -1390,133 +987,9 @@
 				} \
 			} \
 			break; \
-		case 258: /* mkdirat */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[1]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[1]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[1] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[1] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 259: /* mknodat */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[1]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[1]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[1] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[1] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 260: /* fchownat */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[1]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[1]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[1] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[1] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
 		case 262: /* newfstatat */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 263: /* unlinkat */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[1]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[1]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[1] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[1] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_enter; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -1609,68 +1082,6 @@
 		case 267: /* readlinkat */ \
 			{ \
 				long pr = (e)->args[1] ? bpf_probe_read_user_str((e)->str_arg, 512, (void *)(e)->args[1]) : 0; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 268: /* fchmodat */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[1]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[1]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[1] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[1] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 269: /* faccessat */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[1]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[1]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[1] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[1] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
 				if (pr < 0) { \
 					s32 curr = (e)->probe_ret_enter; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
@@ -1915,37 +1326,6 @@
 				} \
 			} \
 			break; \
-		case 430: /* fsopen */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[0]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[0]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[0] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[0] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
 		case 431: /* fsconfig */ \
 			{ \
 				long pr = (e)->args[2] ? bpf_probe_read_user_str((e)->str_arg, 257, (void *)(e)->args[2]) : 0; \
@@ -1982,37 +1362,6 @@
 				} else { \
 					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
 					u32 req_len = 257 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 433: /* fspick */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[1]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[1]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[1] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[1] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
 					if ((e)->data_len < req_len) (e)->data_len = req_len; \
 				} \
 			} \
@@ -2072,37 +1421,6 @@
 				} else { \
 					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
 					u32 req_len = 4096 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 439: /* faccessat2 */ \
-			{ \
-				long pr = 0; \
-				if ((e)->args[1]) { \
-					((e)->str_arg)[0] = 0; \
-					pr = bpf_probe_read_user_str((e)->str_arg, 2048, (void *)(e)->args[1]); \
-					if (pr < 0) { ((e)->str_arg)[0] = 0; } \
-					else if (pr >= 2048) { \
-						((e)->str_arg + 2047)[0] = 0; \
-						long pr2 = bpf_probe_read_user_str((e)->str_arg + 2047, 2049, (void *)((e)->args[1] + 2047)); \
-						if (pr2 >= 0) { \
-							pr = 2047 + pr2; \
-							if (pr == 4096) { \
-								char last_byte = 0; \
-								bpf_probe_read_user(&last_byte, 1, (void *)((e)->args[1] + 4095)); \
-								((e)->str_arg + 4095)[0] = last_byte; \
-							} \
-						} else { pr = pr2; ((e)->str_arg + 2047)[0] = 0; } \
-					} \
-				} \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
 					if ((e)->data_len < req_len) (e)->data_len = req_len; \
 				} \
 			} \

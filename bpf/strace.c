@@ -31,10 +31,12 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_FSTAT 5
 #define SYS_LSTAT 6
 #define SYS_POLL 7
+#define SYS_ACCESS 21
 #define SYS_PREAD64 17
 #define SYS_PWRITE64 18
 #define SYS_PIPE 22
 #define SYS_SELECT 23
+#define SYS_TRUNCATE 76
 #define SYS_GETITIMER 36
 #define SYS_SETITIMER 38
 #define SYS_GETPID 39
@@ -42,13 +44,25 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_SOCKETPAIR 53
 #define SYS_UNAME 63
 #define SYS_GETCWD 79
+#define SYS_CHDIR 80
+#define SYS_MKDIR 83
+#define SYS_RMDIR 84
+#define SYS_UNLINK 87
+#define SYS_CHMOD 90
+#define SYS_CHOWN 92
+#define SYS_LCHOWN 94
 #define SYS_READLINK 89
 #define SYS_GETTIMEOFDAY 96
 #define SYS_GETRLIMIT 97
 #define SYS_SYSINFO 99
 #define SYS_UTIME 132
+#define SYS_MKNOD 133
 #define SYS_STATFS 137
 #define SYS_FSTATFS 138
+#define SYS_CHROOT 161
+#define SYS_ACCT 163
+#define SYS_SWAPON 167
+#define SYS_SWAPOFF 168
 #define SYS_ARCH_PRCTL 158
 #define SYS_ADJTIMEX 159
 #define SYS_SETRLIMIT 160
@@ -66,9 +80,15 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_EPOLL_CTL 233
 #define SYS_UTIMES 235
 #define SYS_OPENAT 257
+#define SYS_MKDIRAT 258
+#define SYS_MKNODAT 259
+#define SYS_FCHOWNAT 260
 #define SYS_FUTIMESAT 261
 #define SYS_NEWFSTATAT 262
+#define SYS_UNLINKAT 263
 #define SYS_READLINKAT 267
+#define SYS_FCHMODAT 268
+#define SYS_FACCESSAT 269
 #define SYS_PPOLL 271
 #define SYS_GET_ROBUST_LIST 274
 #define SYS_UTIMENSAT 280
@@ -79,6 +99,9 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_MEMFD_CREATE 319
 #define SYS_COPY_FILE_RANGE 326
 #define SYS_IO_PGETEVENTS 333
+#define SYS_FSOPEN 430
+#define SYS_FSPICK 433
+#define SYS_FACCESSAT2 439
 #define SYS_EPOLL_PWAIT2 441
 #define SYS_FUTEX_WAITV 449
 #define SYS_CACHESTAT 451
@@ -575,6 +598,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_getcwd_direct_event_v2.h"
 #include "syscall_misc_struct_direct_event_v2.h"
 #include "syscall_path_stat_direct_event_v2.h"
+#include "syscall_path_direct_event_v2.h"
 #include "syscall_readlink_direct_event_v2.h"
 #include "syscall_small_struct_direct_event_v2.h"
 #include "syscall_stat_direct_event_v2.h"
@@ -641,6 +665,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     // IMPACT: path stat syscalls carry an IN path snapshot on enter and an OUT struct on exit without the bpf_event carrier.
     if (is_path_stat_direct_syscall(sys_id)) {
         emit_path_stat_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
+    // IMPACT: simple path-only syscalls snapshot IN paths directly into TLV sections without the fixed-window carrier.
+    if (is_path_only_direct_syscall(sys_id)) {
+        emit_path_only_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }

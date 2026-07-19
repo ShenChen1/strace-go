@@ -4,8 +4,7 @@
 
 rules:
   # Path-based syscalls (enter)
-  # IMPACT: Added fsopen to capture fs_name path string on enter.
-  - syscalls: [open, creat, access, chdir, chroot, chmod, chown, lchown, mkdir, mknod, rmdir, unlink, execve, swapon, swapoff, acct, truncate, fsopen]
+  - syscalls: [open, creat, chdir, execve]
     enter:
       payloads:
         - { arg: 0, kind: string, direction: in, max: 4096 }
@@ -48,9 +47,8 @@ rules:
         - { arg: 3, kind: raw, direction: out, size: 8, offset: 1024 }
 
   # At-based syscalls (enter)
-  # IMPACT: Capture execveat along with other at-based syscalls for path resolution.
-  # IMPACT: Added fspick to capture path string on enter.
-  - syscalls: [openat, mkdirat, mknodat, chmodat, fchmodat, faccessat, faccessat2, unlinkat, fchownat, execveat, fspick]
+  # IMPACT: Capture execveat along with openat for path resolution.
+  - syscalls: [openat, execveat]
     enter:
       payloads:
         - { arg: 1, kind: string, direction: in, max: 4096 }
