@@ -26,6 +26,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define EVENT_VERSION 2
 #define SYS_READ 0
 #define SYS_WRITE 1
+#define SYS_OPEN 2
 #define SYS_CLOSE 3
 #define SYS_STAT 4
 #define SYS_FSTAT 5
@@ -48,6 +49,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_RENAME 82
 #define SYS_MKDIR 83
 #define SYS_RMDIR 84
+#define SYS_CREAT 85
 #define SYS_LINK 86
 #define SYS_UNLINK 87
 #define SYS_SYMLINK 88

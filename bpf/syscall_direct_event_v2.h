@@ -11,9 +11,14 @@ static __always_inline int is_terminating_direct_syscall(u32 sys_id)
     return sys_id == SYS_EXIT || sys_id == SYS_EXIT_GROUP;
 }
 
+static __always_inline int is_open_creat_path_direct_syscall(u32 sys_id)
+{
+    return sys_id == SYS_OPEN || sys_id == SYS_CREAT || sys_id == SYS_OPENAT;
+}
+
 static __always_inline int is_payload_direct_syscall(u32 sys_id)
 {
-    return sys_id == SYS_OPENAT || sys_id == SYS_WRITE || sys_id == SYS_PWRITE64 ||
+    return is_open_creat_path_direct_syscall(sys_id) || sys_id == SYS_WRITE || sys_id == SYS_PWRITE64 ||
         sys_id == SYS_EXECVE || sys_id == SYS_EXECVEAT;
 }
 
@@ -270,6 +275,7 @@ static __always_inline void emit_terminating_exit_event_v2_direct(
 static __always_inline u32 capture_openat_path_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,
+    u16 arg_index,
     u64 user_ptr)
 {
     u32 copied_len = 0;
@@ -299,7 +305,7 @@ static __always_inline u32 capture_openat_path_tlv_direct(
             ptr,
             payload_offset,
             PAYLOAD_TLV_KIND_STRING,
-            1,
+            arg_index,
             0,
             copied_len,
             copied_len,
@@ -585,8 +591,11 @@ static __always_inline u32 capture_payload_tlv_direct(
     struct trace_event_raw_sys_enter *ctx,
     u16 *event_flags)
 {
+    if (sys_id == SYS_OPEN || sys_id == SYS_CREAT) {
+        return capture_openat_path_tlv_direct(ptr, payload_offset, 0, ctx->args[0]);
+    }
     if (sys_id == SYS_OPENAT) {
-        return capture_openat_path_tlv_direct(ptr, payload_offset, ctx->args[1]);
+        return capture_openat_path_tlv_direct(ptr, payload_offset, 1, ctx->args[1]);
     }
     if (sys_id == SYS_EXECVE) {
         return capture_exec_tlv_direct(

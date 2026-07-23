@@ -1,0 +1,38 @@
+package main
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestBPFOpenCreatPayloadUsesDirectTLV(t *testing.T) {
+	root := repoRootForTest(t)
+	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	directHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h"))
+	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
+	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
+
+	for _, snippet := range []string{
+		"#define SYS_OPEN 2",
+		"#define SYS_CREAT 85",
+		"is_open_creat_path_direct_syscall(sys_id)",
+		"sys_id == SYS_OPEN || sys_id == SYS_CREAT || sys_id == SYS_OPENAT",
+		"capture_openat_path_tlv_direct(ptr, payload_offset, 0, ctx->args[0])",
+		"capture_openat_path_tlv_direct(ptr, payload_offset, 1, ctx->args[1])",
+	} {
+		if !strings.Contains(straceSource, snippet) && !strings.Contains(directHeader, snippet) {
+			t.Fatalf("BPF source missing open/creat direct snippet %q", snippet)
+		}
+	}
+
+	for _, legacyRule := range []string{
+		"syscalls: [open, creat",
+		"case 2: /* open */",
+		"case 85: /* creat */",
+	} {
+		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+			t.Fatalf("open/creat still uses old fixed-window rule %q", legacyRule)
+		}
+	}
+}

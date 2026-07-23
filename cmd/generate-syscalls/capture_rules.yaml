@@ -4,7 +4,7 @@
 
 rules:
   # Path-based syscalls (enter)
-  - syscalls: [open, creat, chdir, execve]
+  - syscalls: [chdir, execve]
     enter:
       payloads:
         - { arg: 0, kind: string, direction: in, max: 4096 }
