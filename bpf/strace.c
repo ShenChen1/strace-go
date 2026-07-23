@@ -64,6 +64,8 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_FSTATFS 138
 #define SYS_CHROOT 161
 #define SYS_ACCT 163
+#define SYS_MOUNT 165
+#define SYS_UMOUNT2 166
 #define SYS_SWAPON 167
 #define SYS_SWAPOFF 168
 #define SYS_SETXATTR 188
@@ -121,6 +123,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_COPY_FILE_RANGE 326
 #define SYS_IO_PGETEVENTS 333
 #define SYS_FSOPEN 430
+#define SYS_FSCONFIG 431
 #define SYS_FSPICK 433
 #define SYS_FACCESSAT2 439
 #define SYS_EPOLL_PWAIT2 441
@@ -628,6 +631,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_memfd_direct_event_v2.h"
 #include "syscall_key_direct_event_v2.h"
 #include "syscall_xattr_direct_event_v2.h"
+#include "syscall_fs_direct_event_v2.h"
 #include "syscall_aio_getevents_direct_event_v2.h"
 #include "syscall_aio_direct_event_v2.h"
 #include "syscall_poll_direct_event_v2.h"
@@ -816,6 +820,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     // IMPACT: xattr syscalls snapshot IN strings/bytes and merge positive OUT bytes through direct TLV sections.
     if (is_xattr_direct_syscall(sys_id)) {
         emit_xattr_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
+    // IMPACT: filesystem payload syscalls snapshot strings/bytes directly into TLV sections without the fixed-window carrier.
+    if (is_fs_direct_syscall(sys_id)) {
+        emit_fs_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }

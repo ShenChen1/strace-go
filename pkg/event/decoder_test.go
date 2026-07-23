@@ -1,6 +1,9 @@
 package event
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestDecodeStringLimitBoundary(t *testing.T) {
 	tests := []struct {
@@ -51,5 +54,20 @@ func TestMatchPathMatchesRawRelativeArgument(t *testing.T) {
 
 	if !MatchPath(123, []int32{-1}, true, "open", 0x1000, `"open.sample"`, tracePaths, fdMap) {
 		t.Fatal("relative trace path did not match raw relative syscall argument")
+	}
+}
+
+func TestMatchPathFallsBackToProcFdOnFDMapMiss(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "match-path")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	fd := int32(file.Fd())
+	fdMap := map[string]string{}
+	tracePaths := map[string]bool{file.Name(): true}
+	if !MatchPath(os.Getpid(), []int32{fd}, false, "fsconfig", 0, "", tracePaths, fdMap) {
+		t.Fatal("fd path did not match via procfs fallback")
 	}
 }

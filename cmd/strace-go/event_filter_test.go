@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"strace-go/pkg/cli"
+	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
@@ -224,6 +225,43 @@ func TestCheckShouldPrintTracePathUsesSelectPayloadFDs(t *testing.T) {
 
 	if !checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{10, 0, 0x2000, 0, 0}), sc, "", false, 101, opts, fdMap, sections) {
 		t.Fatal("_newselect payload fd 9 should match -P /dev/full")
+	}
+}
+
+func TestCheckShouldPrintTracePathUsesFsconfigAuxFD(t *testing.T) {
+	opts := testOptions()
+	opts.TraceSyscalls["fsconfig"] = true
+	opts.TracePaths["/dev/full"] = true
+	sc := meta.Syscall{Name: "fsconfig", Args: []string{"fd", "cmd", "key", "value", "aux"}}
+	fdMap := map[string]string{"101:3": "/dev/full"}
+
+	if !checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{rawFD(-100), 3, 0, 0, 3}), sc, "", false, 101, opts, fdMap, nil) {
+		t.Fatal("fsconfig aux fd 3 should match -P /dev/full")
+	}
+}
+
+func TestCheckShouldPrintTracePathIgnoresFsconfigContextFD(t *testing.T) {
+	opts := testOptions()
+	opts.TraceSyscalls["fsconfig"] = true
+	opts.TracePaths["/dev/full"] = true
+	sc := meta.Syscall{Name: "fsconfig", Args: []string{"fd", "cmd", "key", "value", "aux"}}
+	fdMap := map[string]string{"101:3": "/dev/full"}
+
+	if checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{3, 0, 0, 0, 0}), sc, "", false, 101, opts, fdMap, nil) {
+		t.Fatal("fsconfig context fd should not match -P /dev/full for SET_FLAG")
+	}
+}
+
+func TestFsconfigPathTextFromPayloadUsesValueSection(t *testing.T) {
+	session := &traceSession{decoder: event.NewDecoder()}
+	args := [6]uint64{rawFD(-1), 3, 0x1000, 0x2000, rawFD(-100)}
+	sections := []handler.PayloadSection{
+		{Kind: handler.PayloadKindString, Direction: handler.PayloadDirectionIn, ArgIndex: 3, UserPtr: 0x2000, ProbeRet: 0, Data: []byte("/dev/full\x00")},
+	}
+
+	text, ok := pathTextFromPayload(session, viewWithArgs(args), meta.Syscall{Name: "fsconfig"}, sections)
+	if !ok || text != `"/dev/full"` {
+		t.Fatalf("fsconfig path text = %q, %v; want value path", text, ok)
 	}
 }
 

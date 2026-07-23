@@ -236,6 +236,9 @@ func checkShouldPrintFromViewWithPayload(
 ) bool {
 	var fds []int32
 	for i, argName := range scMeta.Args {
+		if scMeta.Name == "fsconfig" && i == 0 {
+			continue
+		}
 		if isFdArgName(argName) {
 			fds = append(fds, int32(view.args[i]))
 		}
@@ -276,7 +279,20 @@ func checkShouldPrintFromViewWithPayload(
 func payloadSectionFDs(syscallName string, args [6]uint64, payloadSections []handler.PayloadSection) []int32 {
 	fds := pollPayloadFDs(syscallName, payloadSections)
 	fds = append(fds, selectPayloadFDs(syscallName, args, payloadSections)...)
+	fds = append(fds, fsconfigPayloadFDs(syscallName, args)...)
 	return fds
+}
+
+func fsconfigPayloadFDs(syscallName string, args [6]uint64) []int32 {
+	if syscallName != "fsconfig" {
+		return nil
+	}
+	switch uint32(args[1]) {
+	case 3, 4, 5:
+		return []int32{int32(args[4])}
+	default:
+		return nil
+	}
 }
 
 func pollPayloadFDs(syscallName string, payloadSections []handler.PayloadSection) []int32 {

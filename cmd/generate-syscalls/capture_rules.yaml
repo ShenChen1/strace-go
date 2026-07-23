@@ -59,13 +59,6 @@ rules:
         - { arg: 1, kind: string, direction: in, max: 4096 }
         - { arg: 2, kind: struct, direction: in, len_from_arg: 3, min: 24, max: 64, offset: 4096 }
 
-  # IMPACT: Set arg 3 (value) size to 4097 to capture complete paths within the 4504 StrArg limit.
-  - syscalls: [fsconfig]
-    enter:
-      payloads:
-        - { arg: 2, kind: string, direction: in, size: 257, offset: 0 }
-        - { arg: 3, kind: string_or_bytes, direction: in, string_bytes_switch: { selector_arg: 1, bytes_value: 2, len_from_arg: 4, len_mask: 8191 }, max: 4096, offset: 257 }
-
   - syscalls: [newfstatat]
     enter:
       payloads:
@@ -160,19 +153,6 @@ rules:
     exit:
       payloads:
         - { arg: 2, kind: raw, direction: out, len_from_arg_bits: { arg: 1, shift: 16, mask: 16383, zero_len: 128 }, max: 512, offset: 1024 }
-
-  - syscalls: [mount]
-    enter:
-      payloads:
-        - { arg: 0, kind: string, direction: in, size: 512, offset: 0 }
-        - { arg: 1, kind: string, direction: in, size: 512, offset: 512 }
-        - { arg: 2, kind: string, direction: in, size: 128, offset: 1024 }
-        - { arg: 4, kind: string, direction: in, size: 512, offset: 1152 } # data
-
-  - syscalls: [umount2]
-    enter:
-      payloads:
-        - { arg: 0, kind: string, direction: in, size: 512 }
 
   - syscalls: [rt_sigaction]
     enter:

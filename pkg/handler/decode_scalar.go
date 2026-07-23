@@ -293,7 +293,6 @@ func FormatFdWithPath(ctx *Context, fd int32) string {
 			}
 			return fdStr + "<" + target + ">"
 		}
-		return fdStr
 	}
 
 	// IMPACT: Use ctx.TargetPid instead of ctx.Pid to avoid reading from transient/exited thread descriptors.
@@ -304,6 +303,9 @@ func FormatFdWithPath(ctx *Context, fd int32) string {
 	}
 	if len(target) >= 2 && target[0] == '"' && target[len(target)-1] == '"' {
 		target = target[1 : len(target)-1]
+	}
+	if ctx.FdMap != nil {
+		ctx.FdMap[fmt.Sprintf("%d:%d", ctx.TargetPid, fd)] = target
 	}
 	if ctx.Opts.ShowPathsMode == 2 {
 		return fdStr + "<" + formatDetailedPath(ctx, linkPath, target, fd) + ">"

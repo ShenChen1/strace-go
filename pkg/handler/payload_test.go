@@ -137,3 +137,26 @@ func TestContextPayloadStringMatchesDirectionAfterEarlierSection(t *testing.T) {
 		t.Fatalf("PayloadString out = %q, %v; want later out section", data, ok)
 	}
 }
+
+func TestContextPayloadStringPreservesSectionTruncationMarker(t *testing.T) {
+	raw := append([]byte("abcdefghijklmnopqrstuvwxyz"), 0)
+	ctx := &Context{
+		PayloadSections: []PayloadSection{
+			{
+				Kind:      PayloadKindString,
+				Direction: PayloadDirectionIn,
+				ArgIndex:  1,
+				UserLen:   uint32(len(raw) + 1),
+				CopiedLen: uint32(len(raw)),
+				ProbeRet:  0,
+				Data:      raw,
+			},
+		},
+		Decoder: event.NewDecoder(),
+	}
+
+	data, ok := ctx.PayloadString(1, PayloadDirectionIn, 0x1000, 300)
+	if !ok || data != `"abcdefghijklmnopqrstuvwxyz"...` {
+		t.Fatalf("PayloadString truncated = %q, %v; want ellipsis", data, ok)
+	}
+}

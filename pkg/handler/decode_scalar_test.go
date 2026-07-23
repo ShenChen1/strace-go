@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"fmt"
+	"os"
 	"testing"
 
 	"strace-go/pkg/cli"
@@ -38,6 +40,34 @@ func TestFormatFdWithPathTreatsMissingTrackedFDAsClosed(t *testing.T) {
 
 	if got := FormatFdWithPath(ctx, 4); got != "4" {
 		t.Fatalf("FormatFdWithPath = %q, want %q", got, "4")
+	}
+}
+
+func TestFormatFdWithPathFallsBackToProcWhenTrackedMapMisses(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "fd-path")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	pid := os.Getpid()
+	fd := int32(file.Fd())
+	ctx := &Context{
+		Pid:       pid,
+		TargetPid: pid,
+		Opts: &cli.Options{
+			ShowPaths:     true,
+			ShowPathsMode: 1,
+		},
+		FdMap: map[string]string{},
+	}
+
+	want := fmt.Sprintf("%d<%s>", fd, file.Name())
+	if got := FormatFdWithPath(ctx, fd); got != want {
+		t.Fatalf("FormatFdWithPath = %q, want %q", got, want)
+	}
+	if got := ctx.FdMap[fmt.Sprintf("%d:%d", pid, fd)]; got != file.Name() {
+		t.Fatalf("cached fd path = %q, want %q", got, file.Name())
 	}
 }
 

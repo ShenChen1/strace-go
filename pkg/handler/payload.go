@@ -1,5 +1,7 @@
 package handler
 
+import "strings"
+
 // PayloadKind classifies a BPF-captured user memory payload.
 type PayloadKind string
 
@@ -39,11 +41,18 @@ func (ctx *Context) PayloadBytes(argIndex int, direction PayloadDirection) ([]by
 
 // PayloadString decodes a successfully captured string payload for one argument.
 func (ctx *Context) PayloadString(argIndex int, direction PayloadDirection, ptr uint64, limit int) (string, bool) {
-	data, ok := ctx.payloadData(argIndex, PayloadKindString, direction)
-	if !ok {
-		return "", false
+	for _, section := range ctx.PayloadSections {
+		if section.ArgIndex != argIndex || section.Kind != PayloadKindString ||
+			section.Direction != direction || section.ProbeRet != 0 || len(section.Data) == 0 {
+			continue
+		}
+		text := ctx.Decoder.DecodeString(ctx.Pid, ptr, section.Data, section.ProbeRet, ctx.SysName, limit)
+		if section.UserLen > section.CopiedLen && !strings.HasSuffix(text, "...") && !strings.HasPrefix(text, "0x") {
+			text += "..."
+		}
+		return text, true
 	}
-	return ctx.Decoder.DecodeString(ctx.Pid, ptr, data, 0, ctx.SysName, limit), true
+	return "", false
 }
 
 // PayloadIovec returns a captured struct iovec array prefix for one argument.

@@ -210,6 +210,9 @@ func unknownSyscallName(sysID uint32) string {
 }
 
 func syscallHasPathArg(scMeta meta.Syscall) bool {
+	if scMeta.Name == "fsconfig" {
+		return true
+	}
 	for _, argName := range scMeta.Args {
 		switch argName {
 		case "filename", "pathname", "path", "oldname", "newname", "fs_name":
@@ -230,6 +233,12 @@ func decodePathText(s *traceSession, view syscallEventView, scMeta meta.Syscall,
 }
 
 func pathTextFromPayload(s *traceSession, view syscallEventView, scMeta meta.Syscall, payloadSections []handler.PayloadSection) (string, bool) {
+	if scMeta.Name == "fsconfig" {
+		switch uint32(view.args[1]) {
+		case 3, 4:
+			return stringPayloadSectionText(s, view, scMeta, payloadSections, 3)
+		}
+	}
 	if argIndex, ok := simplePathPayloadArgIndex(scMeta.Name); ok {
 		if text, ok := stringPayloadSectionText(s, view, scMeta, payloadSections, argIndex); ok {
 			return text, true

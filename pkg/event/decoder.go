@@ -132,6 +132,11 @@ func MatchPath(pid int, fds []int32, isPath bool, scName string, ptr uint64, pat
 		if fd != -1 {
 			if path, ok := fdMap[fmt.Sprintf("%d:%d", pid, fd)]; ok {
 				candidatePaths = append(candidatePaths, path)
+			} else if path, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", pid, fd)); err == nil {
+				candidatePaths = append(candidatePaths, path)
+				if fdMap != nil {
+					fdMap[fmt.Sprintf("%d:%d", pid, fd)] = path
+				}
 			}
 			if baseFd == -1 {
 				baseFd = fd

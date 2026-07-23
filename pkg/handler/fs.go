@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"strings"
 
 	"strace-go/pkg/format"
 	"strace-go/pkg/meta"
@@ -59,34 +60,18 @@ type FsHandler struct {
 	DefaultHandler
 }
 
+const (
+	mountFlagRemount uint64 = 0x20
+	mountFlagBind    uint64 = 0x1000
+)
+
 func (h *FsHandler) Handle(ctx *Context) Result {
 	res := Result{}
 	switch ctx.SysName {
 	case "fsconfig":
 		res.ArgParts = h.decodeFsconfig(ctx)
 	case "mount":
-		// source
-		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 0, 0))
-		// target
-		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 1, 0))
-		// type
-		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 2, 0))
-
-		// flags
-		flags := ctx.Args[3]
-		if (flags & 0xffff0000) == 0xc0ed0000 {
-			if (flags & 0x0000ffff) == 0 {
-				res.ArgParts = append(res.ArgParts, "MS_MGC_VAL")
-			} else {
-				res.ArgParts = append(res.ArgParts, "MS_MGC_VAL|"+meta.DecodeFlags(flags&0xffff, "mount_flags"))
-			}
-		} else {
-			res.ArgParts = append(res.ArgParts, meta.DecodeFlags(flags, "mount_flags"))
-		}
-
-		// data
-		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 4, 0))
-
+		res.ArgParts = h.decodeMount(ctx)
 	case "umount2":
 		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 0, 0))
 		res.ArgParts = append(res.ArgParts, meta.DecodeFlags(ctx.Args[1], "umount_flags"))
@@ -112,6 +97,47 @@ func (h *FsHandler) Handle(ctx *Context) Result {
 		}
 	}
 	return res
+}
+
+func (h *FsHandler) decodeMount(ctx *Context) []string {
+	flags := ctx.Args[3]
+	return []string{
+		fsStringArg(ctx, 0, 0),
+		fsStringArg(ctx, 1, 0),
+		mountTypeArg(ctx, flags),
+		decodeMountFlags(flags),
+		mountDataArg(ctx, flags),
+	}
+}
+
+func mountTypeArg(ctx *Context, flags uint64) string {
+	if ctx.Args[2] == 0 {
+		return "NULL"
+	}
+	if flags&(mountFlagRemount|mountFlagBind) != 0 {
+		return formatPointer(ctx.Args[2])
+	}
+	return fsStringArg(ctx, 2, 0)
+}
+
+func mountDataArg(ctx *Context, flags uint64) string {
+	if ctx.Args[4] == 0 {
+		return "NULL"
+	}
+	if flags&mountFlagBind != 0 {
+		return formatPointer(ctx.Args[4])
+	}
+	return fsStringArg(ctx, 4, 0)
+}
+
+func decodeMountFlags(flags uint64) string {
+	if (flags & 0xffff0000) != 0xc0ed0000 {
+		return meta.DecodeFlags(flags, "mount_flags")
+	}
+	if (flags & 0x0000ffff) == 0 {
+		return "MS_MGC_VAL"
+	}
+	return "MS_MGC_VAL|" + meta.DecodeFlags(flags&0xffff, "mount_flags")
 }
 
 // decodeFsconfig decodes the arguments of fsconfig based on the command.
@@ -153,6 +179,8 @@ func (h *FsHandler) decodeFsconfig(ctx *Context) []string {
 		valLen := int(int32(aux))
 		if valLen < 0 || valLen > 1024*1024 {
 			parts = append(parts, formatPointer(value), fmt.Sprintf("%d", int32(aux)))
+		} else if valLen == 0 {
+			parts = append(parts, format.BufferEscape(nil, limit, 0, 2), fmt.Sprintf("%d", int32(aux)))
 		} else {
 			data, ok := fsBytesArg(ctx, 3)
 			if ok && len(data) > 0 {
@@ -164,6 +192,9 @@ func (h *FsHandler) decodeFsconfig(ctx *Context) []string {
 	case 3, 4: // FSCONFIG_SET_PATH, FSCONFIG_SET_PATH_EMPTY
 		// IMPACT: Set value path decode limit to 0 to bypass StringLimit formatting truncation for path arguments.
 		valStr := fsStringArg(ctx, 3, 0)
+		if int32(aux) < 0 && int32(aux) != AtFdcwd {
+			valStr = strings.TrimSuffix(valStr, "...")
+		}
 		parts = append(parts, valStr, h.decodeScalar(ctx, "int", "dfd", aux))
 	case 5: // FSCONFIG_SET_FD
 		parts = append(parts, formatPointer(value), h.decodeScalar(ctx, "int", "fd", aux))
@@ -177,6 +208,11 @@ func (h *FsHandler) decodeFsconfig(ctx *Context) []string {
 func fsStringArg(ctx *Context, argIndex int, limit int) string {
 	ptr := ctx.Args[argIndex]
 	if s, ok := ctx.PayloadString(argIndex, PayloadDirectionIn, ptr, limit); ok {
+		if limit > 0 && !strings.HasSuffix(s, "...") {
+			if section, sectionOK := ctx.Section(argIndex, PayloadKindString); sectionOK && section.CopiedLen > uint32(limit) {
+				s += "..."
+			}
+		}
 		return s
 	}
 	return formatPointer(ptr)
