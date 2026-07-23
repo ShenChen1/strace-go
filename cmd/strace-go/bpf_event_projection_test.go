@@ -1,7 +1,5 @@
 package main
 
-import "bytes"
-
 func newTraceEventEnvelopeFromBPF(eventRaw *bpfEvent) traceEventEnvelope {
 	if eventRaw == nil {
 		return traceEventEnvelope{}
@@ -54,14 +52,4 @@ func eventPayloadDataFromBPF(eventRaw *bpfEvent) []byte {
 		dataLen = len(eventRaw.StrArg)
 	}
 	return eventRaw.StrArg[:dataLen]
-}
-
-func lifecycleSnapshotString(data []byte) string {
-	if len(data) == 0 {
-		return ""
-	}
-	if idx := bytes.IndexByte(data, 0); idx >= 0 {
-		data = data[:idx]
-	}
-	return string(data)
 }
