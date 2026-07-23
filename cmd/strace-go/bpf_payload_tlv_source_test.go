@@ -137,6 +137,8 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 	for _, legacyRule := range []string{
 		"syscalls: [getcwd]",
+		"syscalls: [clock_gettime, clock_getres]",
+		"syscalls: [gettimeofday]",
 		"syscalls: [pipe, pipe2]",
 		"syscalls: [readlink]",
 		"syscalls: [readlinkat]",
@@ -154,6 +156,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		"case 53: /* socketpair */",
 		"case 79: /* getcwd */",
 		"case 89: /* readlink */",
+		"case 96: /* gettimeofday */",
+		"case 228: /* clock_gettime */",
+		"case 229: /* clock_getres */",
 		"case 257: /* openat */",
 		"case 267: /* readlinkat */",
 		"case 293: /* pipe2 */",

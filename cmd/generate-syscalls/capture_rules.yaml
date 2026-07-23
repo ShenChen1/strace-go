@@ -118,17 +118,6 @@ rules:
       payloads:
         - { arg: 0, kind: struct, direction: in, len_from_arg: 1, max: 256, offset: 0 } # uargs
 
-  - syscalls: [clock_gettime, clock_getres]
-    exit:
-      payloads:
-        - { arg: 1, kind: struct, direction: out, size: 16, offset: 1024 }
-
-  - syscalls: [gettimeofday]
-    exit:
-      payloads:
-        - { arg: 0, kind: struct, direction: out, size: 16, offset: 1024 }
-        - { arg: 1, kind: struct, direction: out, size: 8, offset: 1040 }
-
   - syscalls: [rt_sigprocmask]
     enter:
       payloads:
