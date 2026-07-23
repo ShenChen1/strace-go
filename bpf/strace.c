@@ -35,6 +35,8 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_RT_SIGACTION 13
 #define SYS_RT_SIGPROCMASK 14
 #define SYS_ACCESS 21
+#define SYS_READV 19
+#define SYS_WRITEV 20
 #define SYS_PREAD64 17
 #define SYS_PWRITE64 18
 #define SYS_PIPE 22
@@ -120,14 +122,21 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_PPOLL 271
 #define SYS_GET_ROBUST_LIST 274
 #define SYS_UTIMENSAT 280
+#define SYS_VMSPLICE 278
 #define SYS_EPOLL_PWAIT 281
 #define SYS_PIPE2 293
+#define SYS_PREADV 295
+#define SYS_PWRITEV 296
 #define SYS_PRLIMIT64 302
 #define SYS_CLOCK_ADJTIME 305
+#define SYS_PROCESS_VM_READV 310
+#define SYS_PROCESS_VM_WRITEV 311
 #define SYS_RENAMEAT2 316
 #define SYS_MEMFD_CREATE 319
 #define SYS_BPF 321
 #define SYS_COPY_FILE_RANGE 326
+#define SYS_PREADV2 327
+#define SYS_PWRITEV2 328
 #define SYS_IO_PGETEVENTS 333
 #define SYS_FSOPEN 430
 #define SYS_FSCONFIG 431
@@ -135,6 +144,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_CLONE3 435
 #define SYS_OPENAT2 437
 #define SYS_FACCESSAT2 439
+#define SYS_PROCESS_MADVISE 440
 #define SYS_EPOLL_PWAIT2 441
 #define SYS_FUTEX_WAITV 449
 #define SYS_CACHESTAT 451
@@ -644,6 +654,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_prctl_direct_event_v2.h"
 #include "syscall_clone3_direct_event_v2.h"
 #include "syscall_bpf_direct_event_v2.h"
+#include "syscall_iovec_direct_event_v2.h"
 #include "syscall_key_direct_event_v2.h"
 #include "syscall_xattr_direct_event_v2.h"
 #include "syscall_fs_direct_event_v2.h"
@@ -859,6 +870,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     // IMPACT: bpf attr bytes are captured through direct TLV sections without the fixed-window carrier.
     if (is_bpf_direct_syscall(sys_id)) {
         emit_bpf_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
+    // IMPACT: iovec arrays are captured through direct TLV sections without the fixed-window carrier.
+    if (is_iovec_direct_syscall(sys_id)) {
+        emit_iovec_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }

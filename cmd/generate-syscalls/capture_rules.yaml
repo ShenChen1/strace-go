@@ -3,22 +3,6 @@
 # type can be 'string' (bpf_probe_read_user_str) or 'raw' (bpf_probe_read_user).
 
 rules:
-  - syscalls: [readv, writev, preadv, pwritev, preadv2, pwritev2, vmsplice]
-    enter:
-      payloads:
-        - { arg: 1, kind: iovec, direction: in, count_from_arg: 2, elem_size: 16, max: 512, offset: 0 }
-
-  - syscalls: [process_vm_readv, process_vm_writev]
-    enter:
-      payloads:
-        - { arg: 1, kind: iovec, direction: in, count_from_arg: 2, elem_size: 16, max: 512, offset: 0 }
-        - { arg: 3, kind: iovec, direction: in, count_from_arg: 4, elem_size: 16, max: 512, offset: 512 }
-
-  - syscalls: [process_madvise]
-    enter:
-      payloads:
-        - { arg: 1, kind: iovec, direction: in, count_from_arg: 2, elem_size: 16, max: 512, offset: 0 }
-
   # Network
   - syscalls: [connect, bind]
     enter:
