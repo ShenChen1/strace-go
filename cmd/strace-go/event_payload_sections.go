@@ -173,11 +173,11 @@ var payloadSourceSectionRules = map[string]payloadSourceSectionRule{
 	"ioctl":                ioctlPayloadSectionsFromSource,
 }
 
-func payloadSectionsForRawPayloadEvent(raw rawPayloadEvent, scMeta meta.Syscall) []handler.PayloadSection {
+func payloadSectionsForRawPayloadEvent(raw rawPayloadEvent, _ meta.Syscall) []handler.PayloadSection {
 	if sections, ok := payloadTLVSectionsForRaw(raw); ok {
 		return sections
 	}
-	return payloadSectionsForPayloadEvent(newWindowPayloadEventFromRaw(raw), scMeta)
+	return nil
 }
 
 func payloadSectionsForPayloadEvent(event payloadEvent, scMeta meta.Syscall) []handler.PayloadSection {

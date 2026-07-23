@@ -6,5 +6,9 @@ import (
 )
 
 func payloadSectionsForEvent(eventRaw *bpfEvent, scMeta meta.Syscall) []handler.PayloadSection {
-	return payloadSectionsForRawPayloadEvent(newRawPayloadEventFromBPF(eventRaw), scMeta)
+	raw := newRawPayloadEventFromBPF(eventRaw)
+	if raw.eventFlags&bpfEventFlagPayloadTLV != 0 {
+		return payloadSectionsForRawPayloadEvent(raw, scMeta)
+	}
+	return payloadSectionsForPayloadEvent(newWindowPayloadEventFromRaw(raw), scMeta)
 }

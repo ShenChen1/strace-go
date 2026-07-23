@@ -126,7 +126,7 @@ func TestPayloadSectionsForPayloadEventUsesMetadataWithoutRawForPathRule(t *test
 	}
 }
 
-func TestPayloadSectionsForRawPayloadEventUsesFixedFallbackWithoutBPFEvent(t *testing.T) {
+func TestPayloadSectionsForRawPayloadEventRejectsNonTLVPayload(t *testing.T) {
 	raw := rawPayloadEvent{
 		valid:         true,
 		eventType:     bpfEventTypeEnter,
@@ -137,15 +137,8 @@ func TestPayloadSectionsForRawPayloadEventUsesFixedFallbackWithoutBPFEvent(t *te
 
 	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "mkdirat"})
 
-	if len(sections) != 1 {
-		t.Fatalf("sections = %d, want 1", len(sections))
-	}
-	section := sections[0]
-	if section.Kind != handler.PayloadKindString || section.ArgIndex != 1 || section.UserPtr != 0x5000 {
-		t.Fatalf("path section metadata = %+v, want string arg 1 ptr 0x5000", section)
-	}
-	if !bytes.Equal(section.Data, []byte("from-raw-envelope\x00")) {
-		t.Fatalf("path data = %q, want nul-terminated source path", section.Data)
+	if len(sections) != 0 {
+		t.Fatalf("sections = %d, want no fixed-window fallback for non-TLV raw payload", len(sections))
 	}
 }
 

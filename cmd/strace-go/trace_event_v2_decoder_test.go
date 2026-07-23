@@ -220,7 +220,7 @@ func TestDecodeTraceEventV2LifecycleEnvelope(t *testing.T) {
 	}
 }
 
-func TestDecodeTraceEventV2FallsBackToWindowPayload(t *testing.T) {
+func TestDecodeTraceEventV2RejectsWindowPayloadFallback(t *testing.T) {
 	sysID := syscallIDByName(t, "chdir")
 	raw := traceEventV2EnterSample(t, traceEventV2SampleSpec{
 		pid:     301,
@@ -233,14 +233,13 @@ func TestDecodeTraceEventV2FallsBackToWindowPayload(t *testing.T) {
 
 	envelope, ok := decodeTraceEventV2Envelope(raw)
 	if !ok {
-		t.Fatal("decodeTraceEventV2Envelope rejected a fixed-window payload sample")
+		t.Fatal("decodeTraceEventV2Envelope rejected a valid non-TLV event v2 sample")
 	}
 	if envelope.eventFlags&bpfEventFlagPayloadTLV != 0 {
 		t.Fatalf("event flags = %#x, want no inferred TLV flag", envelope.eventFlags)
 	}
-	if len(envelope.payload) != 1 || envelope.payload[0].ArgIndex != 0 ||
-		!bytes.Equal(envelope.payload[0].Data, []byte("v2-fixed.txt\x00")) {
-		t.Fatalf("window payload sections = %+v, want chdir path section", envelope.payload)
+	if len(envelope.payload) != 0 {
+		t.Fatalf("payload sections = %+v, want no fixed-window fallback", envelope.payload)
 	}
 }
 
