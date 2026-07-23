@@ -18,6 +18,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	getcwdDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_getcwd_direct_event_v2.h"))
 	miscDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_misc_struct_direct_event_v2.h"))
 	statDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_stat_direct_event_v2.h"))
+	waitidDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_waitid_direct_event_v2.h"))
 	pathStatDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_stat_direct_event_v2.h"))
 	readlinkDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_direct_event_v2.h"))
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
@@ -84,6 +85,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "#define SYS_CLOCK_GETTIME 228") ||
 		!strings.Contains(straceSource, "#define SYS_CLOCK_GETRES 229") {
 		t.Fatal("strace.c missing clock direct event v2 constants")
+	}
+	if !strings.Contains(straceSource, "#define SYS_WAITID 247") {
+		t.Fatal("strace.c missing SYS_WAITID constant for waitid direct event v2 path")
 	}
 	if !strings.Contains(straceSource, "#define SYS_OPENAT 257") {
 		t.Fatal("strace.c missing SYS_OPENAT constant for openat TLV capture")
@@ -155,6 +159,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		"syscalls: [uname]",
 		"syscalls: [read, pread64]",
 		"syscalls: [write, pwrite64]",
+		"syscalls: [waitid]",
 		"syscalls: [chdir, execve]",
 		"syscalls: [openat, execveat]",
 		"case 0: /* read */",
@@ -178,6 +183,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		"case 160: /* setrlimit */",
 		"case 228: /* clock_gettime */",
 		"case 229: /* clock_getres */",
+		"case 247: /* waitid */",
 		"case 257: /* openat */",
 		"case 262: /* newfstatat */",
 		"case 267: /* readlinkat */",
@@ -300,6 +306,21 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if strings.Contains(straceSource, `#include "syscall_statfs_direct_event_v2.h"`) ||
 		strings.Contains(straceSource, "is_path_statfs_direct_syscall(") {
 		t.Fatal("path stat direct capture should not keep the statfs-only helper")
+	}
+	if !strings.Contains(straceSource, `#include "syscall_waitid_direct_event_v2.h"`) ||
+		!strings.Contains(waitidDirectHeader, "WAITID_DIRECT_SIGINFO_SIZE 128") ||
+		!strings.Contains(waitidDirectHeader, "WAITID_DIRECT_RUSAGE_SIZE 144") ||
+		!strings.Contains(waitidDirectHeader, "is_waitid_direct_syscall(") ||
+		!strings.Contains(waitidDirectHeader, "return sys_id == SYS_WAITID;") ||
+		!strings.Contains(waitidDirectHeader, "capture_waitid_struct_tlv_direct(") ||
+		!strings.Contains(waitidDirectHeader, "PAYLOAD_TLV_KIND_STRUCT") ||
+		!strings.Contains(waitidDirectHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") ||
+		!strings.Contains(waitidDirectHeader, "emit_waitid_exit_event_v2_direct(") ||
+		!strings.Contains(waitidDirectHeader, "payload_size += capture_waitid_struct_tlv_direct(") ||
+		!strings.Contains(timeDirectHeader, "is_waitid_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "is_waitid_direct_syscall(p->sys_id) && ret_value >= 0") ||
+		!strings.Contains(straceSource, "emit_waitid_exit_event_v2_direct(p, ret_value, duration);") {
+		t.Fatal("waitid should emit direct siginfo/rusage TLV exit events without the bpf_event carrier")
 	}
 	if !strings.Contains(straceSource, `#include "syscall_getcwd_direct_event_v2.h"`) ||
 		!strings.Contains(getcwdDirectHeader, "is_getcwd_direct_syscall(") ||

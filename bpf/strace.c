@@ -98,6 +98,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_EPOLL_WAIT 232
 #define SYS_EPOLL_CTL 233
 #define SYS_UTIMES 235
+#define SYS_WAITID 247
 #define SYS_ADD_KEY 248
 #define SYS_REQUEST_KEY 249
 #define SYS_OPENAT 257
@@ -630,6 +631,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_readlink_direct_event_v2.h"
 #include "syscall_small_struct_direct_event_v2.h"
 #include "syscall_stat_direct_event_v2.h"
+#include "syscall_waitid_direct_event_v2.h"
 #include "syscall_cachestat_direct_event_v2.h"
 #include "syscall_capability_direct_event_v2.h"
 #include "syscall_memfd_direct_event_v2.h"
@@ -882,6 +884,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         is_fd_array_direct_syscall(sys_id) ||
         is_getcwd_direct_syscall(sys_id) ||
         is_time_struct_direct_syscall(sys_id) || is_stat_struct_direct_syscall(sys_id) ||
+        is_waitid_direct_syscall(sys_id) ||
         is_misc_struct_direct_syscall(sys_id) || is_small_struct_direct_syscall(sys_id)) {
         emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
@@ -995,6 +998,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_sleep_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_stat_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_stat_struct_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_waitid_direct_syscall(p->sys_id) && ret_value >= 0) {
+            emit_waitid_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_getcwd_direct_syscall(p->sys_id) && ret_value > 0) {
             emit_getcwd_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_readlink_direct_syscall(p->sys_id) && ret_value > 0) {

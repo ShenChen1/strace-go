@@ -105,8 +105,3 @@ rules:
     enter:
       payloads:
         - { arg: 0, kind: raw, direction: in, size: 8, offset: 0 }
-  - syscalls: [waitid]
-    exit:
-      payloads:
-        - { arg: 2, kind: struct, direction: out, size: 128, offset: 1024 }
-        - { arg: 4, kind: struct, direction: out, size: 144, offset: 1160 }

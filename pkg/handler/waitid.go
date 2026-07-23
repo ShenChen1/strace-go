@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/binary"
 	"fmt"
+	"strings"
 
 	"strace-go/pkg/meta"
 )
@@ -33,7 +34,7 @@ func (h *WaitidHandler) Handle(ctx *Context) Result {
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int32(ctx.Args[1])))
 
 	res.ArgParts = append(res.ArgParts, decodeSiginfo(ctx, ctx.Args[2]))
-	res.ArgParts = append(res.ArgParts, meta.DecodeFlags(ctx.Args[3], "wait4_options"))
+	res.ArgParts = append(res.ArgParts, decodeWaitidOptions(ctx.Args[3]))
 
 	if ctx.Ret >= 0 && ctx.Args[4] != 0 {
 		res.ArgParts = append(res.ArgParts, decodeRusage(ctx, ctx.Args[4]))
@@ -44,6 +45,11 @@ func (h *WaitidHandler) Handle(ctx *Context) Result {
 	}
 
 	return res
+}
+
+func decodeWaitidOptions(options uint64) string {
+	decoded := strings.ReplaceAll(meta.DecodeFlags(options, "wait4_options"), "WUNTRACED", "WSTOPPED")
+	return strings.ReplaceAll(decoded, "WSTOPPED|WEXITED", "WEXITED|WSTOPPED")
 }
 
 func decodeSigchldCode(code int32) string {

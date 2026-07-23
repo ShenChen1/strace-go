@@ -56,6 +56,19 @@ func TestWaitidSiginfoDoesNotReadWhenSnapshotMissing(t *testing.T) {
 	}
 }
 
+func TestWaitidOptionsPreferWStoppedAlias(t *testing.T) {
+	ctx := newWaitidPolicyContext(event.NewDecoder())
+	ctx.Args[2] = 0
+	ctx.Args[3] = 1 | 2 | 4
+	ctx.Args[4] = 0
+
+	got := (&WaitidHandler{}).Handle(ctx)
+
+	if len(got.ArgParts) < 4 || got.ArgParts[3] != "WNOHANG|WEXITED|WSTOPPED" {
+		t.Fatalf("options = %+v, want WNOHANG|WEXITED|WSTOPPED", got.ArgParts)
+	}
+}
+
 func TestWaitidSiginfoIgnoresLegacyFixedSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeWaitidSiginfo(0, 0, 0, 0, 0)}
 	decoder := event.NewDecoder()
