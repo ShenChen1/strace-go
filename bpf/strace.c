@@ -2,7 +2,6 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
-#include "syscall_capture.h"
 
 char LICENSE[] SEC("license") = "GPL";
 
@@ -203,23 +202,6 @@ struct exec_snapshot {
     struct exec_arg_snapshot env[EXEC_ENV_MAX];
 };
 
-struct bpf_event {
-    u32 pid;
-    u32 sys_id;
-    u32 tid;
-    u16 event_version;
-    u16 event_type;
-    u32 event_flags;
-    s32 probe_ret_enter; s32 probe_ret_exit;
-    u64 enter_time;
-    u64 duration;
-    u64 args[6];
-    s64 ret;
-    u32 data_len;
-    s32 stack_id;
-    u8 str_arg[EXEC_SNAPSHOT_OFFSET + sizeof(struct exec_snapshot)];
-};
-
 #include "payload_tlv.h"
 
 struct pending_syscall {
@@ -319,13 +301,6 @@ struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 1);
     __type(key, u32);
-    __type(value, struct bpf_event);
-} heap SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, u32);
     __type(value, struct bpf_stats);
 } stats_map SEC(".maps");
 
@@ -342,48 +317,6 @@ struct {
     __type(key, u32);
     __type(value, u32);
 } main_exited_map SEC(".maps");
-
-static __always_inline void save_pending_syscall(u32 tid, struct bpf_event *e)
-{
-    struct pending_syscall p = {};
-
-    p.enter_time = e->enter_time;
-    p.args[0] = e->args[0];
-    p.args[1] = e->args[1];
-    p.args[2] = e->args[2];
-    p.args[3] = e->args[3];
-    p.args[4] = e->args[4];
-    p.args[5] = e->args[5];
-    p.pid = e->pid;
-    p.sys_id = e->sys_id;
-    p.tid = e->tid;
-    p.stack_id = e->stack_id;
-
-    bpf_map_update_elem(&pending_syscalls, &tid, &p, BPF_ANY);
-}
-
-static __always_inline void event_from_pending(struct bpf_event *e, struct pending_syscall *p)
-{
-    e->pid = p->pid;
-    e->sys_id = p->sys_id;
-    e->tid = p->tid;
-    e->event_version = EVENT_VERSION;
-    e->event_type = EVENT_TYPE_EXIT;
-    e->event_flags = 0;
-    e->probe_ret_enter = -1;
-    e->probe_ret_exit = -1;
-    e->enter_time = p->enter_time;
-    e->duration = 0;
-    e->args[0] = p->args[0];
-    e->args[1] = p->args[1];
-    e->args[2] = p->args[2];
-    e->args[3] = p->args[3];
-    e->args[4] = p->args[4];
-    e->args[5] = p->args[5];
-    e->ret = 0;
-    e->data_len = 0;
-    e->stack_id = p->stack_id;
-}
 
 static __always_inline int should_trace_syscall(u32 sys_id, u32 *cfg)
 {
@@ -428,32 +361,6 @@ static __always_inline void record_payload_truncated_event(void)
     }
 }
 
-static __always_inline u32 event_payload_size(struct bpf_event *e)
-{
-    u32 data_len = e->data_len;
-    if (data_len > sizeof(e->str_arg)) {
-        data_len = sizeof(e->str_arg);
-    }
-    return data_len;
-}
-
-static __always_inline void init_event_v2_header(struct event_v2_header *header, struct bpf_event *e, u32 out_size)
-{
-    header->version = EVENT_VERSION;
-    header->event_type = e->event_type;
-    header->flags = (u16)e->event_flags;
-    header->header_len = EVENT_V2_HEADER_LEN;
-    header->size = out_size;
-    header->pid = e->pid;
-    header->tid = e->tid;
-    header->sys_id = e->sys_id;
-    header->seq = 0;
-    header->ts_ns = e->enter_time;
-    if (e->event_type == EVENT_TYPE_EXIT && e->duration > 0) {
-        header->ts_ns = e->enter_time + e->duration;
-    }
-}
-
 static __always_inline void init_lifecycle_event_v2_header(
     struct event_v2_header *header,
     u32 pid,
@@ -473,35 +380,6 @@ static __always_inline void init_lifecycle_event_v2_header(
     header->ts_ns = ts_ns;
 }
 
-static __always_inline void init_syscall_enter_event_v2(struct syscall_enter_event_v2 *body, struct bpf_event *e, u32 payload_size)
-{
-    body->ret = e->ret;
-    body->probe_ret_enter = e->probe_ret_enter;
-    body->probe_ret_exit = e->probe_ret_exit;
-    body->args[0] = e->args[0];
-    body->args[1] = e->args[1];
-    body->args[2] = e->args[2];
-    body->args[3] = e->args[3];
-    body->args[4] = e->args[4];
-    body->args[5] = e->args[5];
-    body->capture_len = payload_size;
-    body->capture_flags = 0;
-}
-
-static __always_inline void init_syscall_exit_event_v2(struct syscall_exit_event_v2 *body, struct bpf_event *e, u32 payload_size)
-{
-    body->ret = e->ret;
-    body->duration_ns = e->duration;
-    body->args[0] = e->args[0];
-    body->args[1] = e->args[1];
-    body->args[2] = e->args[2];
-    body->args[3] = e->args[3];
-    body->args[4] = e->args[4];
-    body->args[5] = e->args[5];
-    body->capture_len = payload_size;
-    body->capture_flags = 0;
-}
-
 static __always_inline void init_lifecycle_event_v2_body(
     struct lifecycle_event_v2 *body,
     u32 kind,
@@ -517,58 +395,6 @@ static __always_inline void init_lifecycle_event_v2_body(
     body->args[3] = 0;
     body->args[4] = 0;
     body->args[5] = 0;
-}
-
-static __always_inline void emit_syscall_event_v2(struct bpf_event *e)
-{
-    u32 payload_size = event_payload_size(e);
-    u32 body_size = EVENT_V2_ENTER_BODY_LEN;
-    if (e->event_type == EVENT_TYPE_EXIT) {
-        body_size = EVENT_V2_EXIT_BODY_LEN;
-    }
-    u32 out_size = EVENT_V2_HEADER_LEN + body_size + payload_size;
-
-    struct bpf_dynptr ptr;
-    long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
-    if (ret < 0) {
-        record_ringbuf_reserve_fail();
-        bpf_ringbuf_discard_dynptr(&ptr, 0);
-        return;
-    }
-
-    struct event_v2_header header = {};
-    init_event_v2_header(&header, e, out_size);
-    ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
-    if (ret < 0) {
-        record_ringbuf_copy_fail();
-        bpf_ringbuf_discard_dynptr(&ptr, 0);
-        return;
-    }
-
-    if (e->event_type == EVENT_TYPE_EXIT) {
-        struct syscall_exit_event_v2 body = {};
-        init_syscall_exit_event_v2(&body, e, payload_size);
-        ret = bpf_dynptr_write(&ptr, EVENT_V2_HEADER_LEN, &body, sizeof(body), 0);
-    } else {
-        struct syscall_enter_event_v2 body = {};
-        init_syscall_enter_event_v2(&body, e, payload_size);
-        ret = bpf_dynptr_write(&ptr, EVENT_V2_HEADER_LEN, &body, sizeof(body), 0);
-    }
-    if (ret < 0) {
-        record_ringbuf_copy_fail();
-        bpf_ringbuf_discard_dynptr(&ptr, 0);
-        return;
-    }
-
-    if (payload_size > 0) {
-        ret = bpf_dynptr_write(&ptr, EVENT_V2_HEADER_LEN + body_size, e->str_arg, payload_size, 0);
-        if (ret < 0) {
-            record_ringbuf_copy_fail();
-            bpf_ringbuf_discard_dynptr(&ptr, 0);
-            return;
-        }
-    }
-    bpf_ringbuf_submit_dynptr(&ptr, 0);
 }
 
 static __always_inline void emit_lifecycle_event_v2_direct(
@@ -623,18 +449,6 @@ static __always_inline void emit_lifecycle_event_v2_direct(
     }
 
     bpf_ringbuf_submit_dynptr(&ptr, 0);
-}
-
-static __always_inline void emit_event(struct bpf_event *e)
-{
-    if ((e->event_type == EVENT_TYPE_ENTER || e->event_type == EVENT_TYPE_EXIT) &&
-        (e->event_flags & EVENT_FLAG_TRUNCATED)) {
-        record_payload_truncated_event();
-    }
-    if (e->event_type == EVENT_TYPE_ENTER || e->event_type == EVENT_TYPE_EXIT) {
-        emit_syscall_event_v2(e);
-        return;
-    }
 }
 
 static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64 arg0, u64 arg1, const void *snapshot_str)
@@ -1000,37 +814,9 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
     
-    struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
-    if (!e) return 0;
-    
-    e->pid = pid; e->sys_id = sys_id; e->tid = tid; e->probe_ret_enter = -1; e->probe_ret_exit = -1; e->ret = 0; e->data_len = 0; e->stack_id = -1;
-    e->enter_time = enter_time;
-    e->duration = 0;
-    e->stack_id = stack_id;
-    e->event_version = EVENT_VERSION;
-    e->event_type = EVENT_TYPE_EXIT;
-    e->event_flags = 0;
-
-    // IMPACT: Revert zero-initialization in trace_sys_enter to restore compile success under BPF.
-    e->args[0] = ctx->args[0];
-    e->args[1] = ctx->args[1];
-    e->args[2] = ctx->args[2];
-    e->args[3] = ctx->args[3];
-    e->args[4] = ctx->args[4];
-    e->args[5] = ctx->args[5];
-
-    CAPTURE_ARGS_ENTER(e->sys_id, e);
-
-    if (cfg && (*cfg & CONFIG_EMIT_ENTER)) {
-        u32 saved_flags = e->event_flags;
-        e->event_type = EVENT_TYPE_ENTER;
-        e->event_flags = saved_flags | EVENT_FLAG_GENERIC_ENTER;
-        emit_event(e);
-        e->event_type = EVENT_TYPE_EXIT;
-        e->event_flags = saved_flags;
-    }
-
-    save_pending_syscall(tid, e);
+    // IMPACT: fallback syscalls now use event v2 no-payload enter and compact pending metadata, not the fixed-window carrier.
+    emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
+    save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
 
     return 0;
 }
@@ -1047,7 +833,6 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     struct pending_syscall *p = NULL;
     u32 is_pending_lookup = 0;
     u32 pending_tid = 0;
-    u32 key = 0;
     
     if (ret_value == 0) {
         u32 *p_tid = bpf_map_lookup_elem(&pending_exec_map, &pid);
@@ -1148,50 +933,26 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
         return 0;
     }
 
-    struct bpf_event *e = bpf_map_lookup_elem(&heap, &key);
-    if (!e) return 0;
-    event_from_pending(e, p);
-    e->ret = ret_value;
-    if (e->enter_time > 0) {
+    u64 duration = 0;
+    if (p->enter_time > 0) {
         u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > e->enter_time) {
-            e->duration = exit_time - e->enter_time;
+        if (exit_time > p->enter_time) {
+            duration = exit_time - p->enter_time;
         }
     }
-    
-    CAPTURE_ARGS_ENTER(e->sys_id, e);
 
-    CAPTURE_ARGS_EXIT(e->sys_id, e);
-    if (tid == pid && e->sys_id == SYS_RT_SIGSUSPEND) {
-        u32 *pending = bpf_map_lookup_elem(&pending_exec_map, &pid);
-        if (pending) {
-            e->probe_ret_enter = 2;
-        }
-    }
-    
+    // IMPACT: unclassified fallback syscalls now emit compact no-payload event v2 exits.
+    emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
+
+    u32 delete_tid = tid;
     if (is_pending_lookup) {
-        struct pending_syscall *main_p = bpf_map_lookup_elem(&pending_syscalls, &pid);
-        if (main_p) {
-            e->probe_ret_exit = main_p->sys_id;
-        } else {
-            e->probe_ret_exit = 0;
-        }
-        emit_event(e);
-        bpf_map_delete_elem(&pending_syscalls, &pending_tid);
+        delete_tid = pending_tid;
+    }
+    bpf_map_delete_elem(&pending_syscalls, &delete_tid);
+    if (is_pending_lookup) {
         bpf_map_delete_elem(&pending_exec_map, &pid);
         bpf_map_delete_elem(&main_exited_map, &pid);
-        if (main_p) {
-            bpf_map_delete_elem(&pending_syscalls, &pid);
-        }
-    } else {
-        emit_event(e);
-        u32 *pending = bpf_map_lookup_elem(&pending_exec_map, &pid);
-        if (!(tid == pid && pending)) {
-            bpf_map_delete_elem(&pending_syscalls, &tid);
-        }
-        if ((e->sys_id == SYS_EXECVE || e->sys_id == SYS_EXECVEAT) && tid != pid) {
-            bpf_map_delete_elem(&pending_exec_map, &pid);
-        }
+        bpf_map_delete_elem(&pending_syscalls, &pid);
     }
     return 0;
 }

@@ -113,7 +113,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "#define EVENT_V2_ENTER_BODY_LEN 72") ||
 		!strings.Contains(straceSource, "s64 ret;") ||
 		!strings.Contains(straceSource, "s32 probe_ret_enter;") ||
-		!strings.Contains(straceSource, "body->ret = e->ret;") ||
+		!strings.Contains(directHeader, "body->ret = ret_value;") ||
 		!strings.Contains(directHeader, "body->probe_ret_enter = probe_ret_enter;") {
 		t.Fatal("event v2 enter body should carry ret and probe status for exec-style enter states")
 	}
@@ -207,8 +207,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 			t.Fatalf("direct path/exec syscall still uses old fixed-window rule %q", legacyRule)
 		}
 	}
-	if !strings.Contains(straceSource, "saved_flags | EVENT_FLAG_GENERIC_ENTER") {
-		t.Fatal("generic enter flag should preserve payload TLV flag")
+	if !strings.Contains(directHeader, "flags |= EVENT_FLAG_PAYLOAD_TLV") ||
+		!strings.Contains(directHeader, "u16 flags = EVENT_FLAG_GENERIC_ENTER") {
+		t.Fatal("direct enter helpers should preserve generic enter and payload TLV flags")
 	}
 	if !strings.Contains(straceSource, "header->event_type = EVENT_TYPE_LIFECYCLE;") ||
 		!strings.Contains(straceSource, "body->action = kind;") {
@@ -220,11 +221,18 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if strings.Contains(straceSource, "e->ptr") {
 		t.Fatal("bpf_event carrier should not retain raw pointer field")
 	}
-	if !strings.Contains(straceSource, "e->event_type == EVENT_TYPE_ENTER || e->event_type == EVENT_TYPE_EXIT") {
-		t.Fatal("truncated stats should ignore lifecycle action ids sharing event_flags")
-	}
-	if !strings.Contains(straceSource, "emit_syscall_event_v2(e);") {
-		t.Fatal("syscall events should be emitted through event v2")
+	for _, legacyCarrier := range []string{
+		`#include "syscall_capture.h"`,
+		"struct bpf_event",
+		"} heap SEC(\".maps\")",
+		"emit_syscall_event_v2(",
+		"emit_event(",
+		"CAPTURE_ARGS_ENTER(",
+		"CAPTURE_ARGS_EXIT(",
+	} {
+		if strings.Contains(straceSource, legacyCarrier) {
+			t.Fatalf("BPF runtime should not retain fixed-window carrier artifact %q", legacyCarrier)
+		}
 	}
 	if !strings.Contains(directHeader, "emit_syscall_enter_event_v2_direct(") ||
 		!strings.Contains(straceSource, "emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);") ||
@@ -439,8 +447,8 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		!strings.Contains(straceSource, "bpf_dynptr_data(&ptr, payload_offset, LIFECYCLE_SNAPSHOT_MAX)") {
 		t.Fatal("lifecycle event v2 direct helper should reserve room for direct snapshot payload")
 	}
-	if !strings.Contains(straceSource, "EVENT_V2_HEADER_LEN + body_size + payload_size") {
-		t.Fatal("event v2 output size should be header plus syscall body plus TLV payload")
+	if !strings.Contains(directHeader, "u32 out_size = payload_offset + payload_capacity") {
+		t.Fatal("direct event v2 output size should reserve header plus syscall body plus TLV payload capacity")
 	}
 	wantFlag := "#define EVENT_FLAG_PAYLOAD_TLV " + strconv.Itoa(int(bpfEventFlagPayloadTLV))
 	if !strings.Contains(tlvHeader, wantFlag) {

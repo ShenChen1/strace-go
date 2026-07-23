@@ -13,26 +13,6 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-type bpfBpfEvent struct {
-	_             structs.HostLayout
-	Pid           uint32
-	SysId         uint32
-	Tid           uint32
-	EventVersion  uint16
-	EventType     uint16
-	EventFlags    uint32
-	ProbeRetEnter int32
-	ProbeRetExit  int32
-	_             [4]byte
-	EnterTime     uint64
-	Duration      uint64
-	Args          [6]uint64
-	Ret           int64
-	DataLen       uint32
-	StackId       int32
-	StrArg        [10400]uint8
-}
-
 type bpfBpfStats struct {
 	_                      structs.HostLayout
 	RingbufReserveFail     uint64
@@ -109,7 +89,6 @@ type bpfMapSpecs struct {
 	ConfigMap        *ebpf.MapSpec `ebpf:"config_map"`
 	Events           *ebpf.MapSpec `ebpf:"events"`
 	FilterMap        *ebpf.MapSpec `ebpf:"filter_map"`
-	Heap             *ebpf.MapSpec `ebpf:"heap"`
 	MainExitedMap    *ebpf.MapSpec `ebpf:"main_exited_map"`
 	PendingExecMap   *ebpf.MapSpec `ebpf:"pending_exec_map"`
 	PendingSyscalls  *ebpf.MapSpec `ebpf:"pending_syscalls"`
@@ -157,7 +136,6 @@ type bpfMaps struct {
 	ConfigMap        *ebpf.Map `ebpf:"config_map"`
 	Events           *ebpf.Map `ebpf:"events"`
 	FilterMap        *ebpf.Map `ebpf:"filter_map"`
-	Heap             *ebpf.Map `ebpf:"heap"`
 	MainExitedMap    *ebpf.Map `ebpf:"main_exited_map"`
 	PendingExecMap   *ebpf.Map `ebpf:"pending_exec_map"`
 	PendingSyscalls  *ebpf.Map `ebpf:"pending_syscalls"`
@@ -171,7 +149,6 @@ func (m *bpfMaps) Close() error {
 		m.ConfigMap,
 		m.Events,
 		m.FilterMap,
-		m.Heap,
 		m.MainExitedMap,
 		m.PendingExecMap,
 		m.PendingSyscalls,

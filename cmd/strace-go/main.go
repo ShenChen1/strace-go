@@ -162,5 +162,3 @@ func shouldEmitGenericEnter(opts *cli.Options) bool {
 	}
 	return opts.EventFormat == cli.EventFormatJSON || len(opts.TracePaths) > 0
 }
-
-type bpfEvent = bpfBpfEvent
