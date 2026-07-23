@@ -63,11 +63,6 @@ rules:
       payloads:
         - { arg: 2, kind: raw, direction: out, len_from_arg_bits: { arg: 1, shift: 16, mask: 16383, zero_len: 128 }, max: 512, offset: 1024 }
 
-  - syscalls: [clone3]
-    enter:
-      payloads:
-        - { arg: 0, kind: struct, direction: in, len_from_arg: 1, max: 256, offset: 0 } # uargs
-
   # IMPACT: Capture fcntl/fcntl64 lock structs (flock) on enter/exit.
   - syscalls: [fcntl, fcntl64]
     enter:

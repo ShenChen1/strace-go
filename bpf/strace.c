@@ -131,6 +131,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_FSOPEN 430
 #define SYS_FSCONFIG 431
 #define SYS_FSPICK 433
+#define SYS_CLONE3 435
 #define SYS_OPENAT2 437
 #define SYS_FACCESSAT2 439
 #define SYS_EPOLL_PWAIT2 441
@@ -640,6 +641,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_capability_direct_event_v2.h"
 #include "syscall_memfd_direct_event_v2.h"
 #include "syscall_prctl_direct_event_v2.h"
+#include "syscall_clone3_direct_event_v2.h"
 #include "syscall_key_direct_event_v2.h"
 #include "syscall_xattr_direct_event_v2.h"
 #include "syscall_fs_direct_event_v2.h"
@@ -841,6 +843,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     // IMPACT: prctl name/getter payloads are captured through option-aware direct TLV sections.
     if (is_prctl_direct_syscall(sys_id)) {
         emit_prctl_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
+    // IMPACT: clone3 snapshots struct clone_args directly into TLV sections without the fixed-window carrier.
+    if (is_clone3_direct_syscall(sys_id)) {
+        emit_clone3_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }
