@@ -136,8 +136,14 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		t.Fatal("execve/execveat direct snapshot should deep-copy envp records into the fixed env snapshot area")
 	}
 	for _, legacyRule := range []string{
+		"syscalls: [read, pread64]",
+		"syscalls: [write, pwrite64]",
 		"syscalls: [chdir, execve]",
 		"syscalls: [openat, execveat]",
+		"case 0: /* read */",
+		"case 1: /* write */",
+		"case 17: /* pread64 */",
+		"case 18: /* pwrite64 */",
 		"case 59: /* execve */",
 		"case 257: /* openat */",
 		"case 322: /* execveat */",

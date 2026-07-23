@@ -70,17 +70,6 @@ rules:
       payloads:
         - { arg: 2, kind: bytes, direction: out, len_from_ret: true, max: 512, offset: 1024 }
 
-  # Read/Write buffer capture (small prefix)
-  - syscalls: [read, pread64]
-    exit:
-      payloads:
-        - { arg: 1, kind: bytes, direction: out, len_from_ret: true, max: 512, offset: 1024 }
-
-  - syscalls: [write, pwrite64]
-    enter:
-      payloads:
-        - { arg: 1, kind: bytes, direction: in, len_from_arg: 2, max: 512, offset: 0 }
-
   - syscalls: [readv, writev, preadv, pwritev, preadv2, pwritev2, vmsplice]
     enter:
       payloads:
