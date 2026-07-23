@@ -137,8 +137,10 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 	for _, legacyRule := range []string{
 		"syscalls: [getcwd]",
+		"syscalls: [pipe, pipe2]",
 		"syscalls: [readlink]",
 		"syscalls: [readlinkat]",
+		"syscalls: [socketpair]",
 		"syscalls: [read, pread64]",
 		"syscalls: [write, pwrite64]",
 		"syscalls: [chdir, execve]",
@@ -147,11 +149,14 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		"case 1: /* write */",
 		"case 17: /* pread64 */",
 		"case 18: /* pwrite64 */",
+		"case 22: /* pipe */",
 		"case 59: /* execve */",
+		"case 53: /* socketpair */",
 		"case 79: /* getcwd */",
 		"case 89: /* readlink */",
 		"case 257: /* openat */",
 		"case 267: /* readlinkat */",
+		"case 293: /* pipe2 */",
 		"case 322: /* execveat */",
 	} {
 		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {

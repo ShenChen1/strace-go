@@ -650,21 +650,6 @@
 				} \
 			} \
 			break; \
-		case 22: /* pipe */ \
-			{ \
-				long __err = (e)->args[0] ? bpf_probe_read_user((e)->str_arg + 1024, 8, (void *)(e)->args[0]) : 0; \
-				long pr = (__err == 0 && (e)->args[0]) ? 8 : __err; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_exit; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_exit = -(s32)((mask | (1 << 0)) + 1); \
-				} else { \
-					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
-					u32 req_len = 1024 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
 		case 43: /* accept */ \
 			{ \
 				u32 addrlen = 0; \
@@ -806,21 +791,6 @@
 				} else { \
 					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
 					u32 req_len = 772 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 53: /* socketpair */ \
-			{ \
-				long __err = (e)->args[3] ? bpf_probe_read_user((e)->str_arg + 1024, 8, (void *)(e)->args[3]) : 0; \
-				long pr = (__err == 0 && (e)->args[3]) ? 8 : __err; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_exit; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_exit = -(s32)((mask | (1 << 3)) + 1); \
-				} else { \
-					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
-					u32 req_len = 1024 + pr; \
 					if ((e)->data_len < req_len) (e)->data_len = req_len; \
 				} \
 			} \
@@ -1064,21 +1034,6 @@
 				} else { \
 					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
 					u32 req_len = 772 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 293: /* pipe2 */ \
-			{ \
-				long __err = (e)->args[0] ? bpf_probe_read_user((e)->str_arg + 1024, 8, (void *)(e)->args[0]) : 0; \
-				long pr = (__err == 0 && (e)->args[0]) ? 8 : __err; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_exit; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_exit = -(s32)((mask | (1 << 0)) + 1); \
-				} else { \
-					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
-					u32 req_len = 1024 + pr; \
 					if ((e)->data_len < req_len) (e)->data_len = req_len; \
 				} \
 			} \

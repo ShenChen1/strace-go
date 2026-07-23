@@ -29,18 +29,6 @@ rules:
       payloads:
         - { arg: 1, kind: struct, direction: out, size: 144, offset: 1024 }
 
-  # pipe/pipe2
-  - syscalls: [pipe, pipe2]
-    exit:
-      payloads:
-        - { arg: 0, kind: raw, direction: out, size: 8, offset: 1024 }
-
-  # IMPACT: Capture socketpair fd array on exit so fd tracking does not read tracee memory in user space.
-  - syscalls: [socketpair]
-    exit:
-      payloads:
-        - { arg: 3, kind: raw, direction: out, size: 8, offset: 1024 }
-
   - syscalls: [newfstatat]
     enter:
       payloads:
