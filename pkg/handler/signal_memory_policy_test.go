@@ -26,6 +26,7 @@ func newSignalPolicyContext(_ *fetchPolicyMemoryReader, decoder *event.Decoder) 
 		Pid:           1234,
 		Tid:           1234,
 		SysName:       "rt_sigprocmask",
+		Args:          [6]uint64{0, 0, 0, 8},
 		ProbeRetEnter: -1,
 		ProbeRetExit:  -1,
 		Decoder:       decoder,
@@ -65,6 +66,7 @@ func TestSignalSigsetUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeSigsetData(0)}
 	decoder := event.NewDecoder()
 	ctx := newSignalPolicyContext(reader, decoder)
+	ctx.Args[3] = 8
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeSigsetData(1)},
 	}
@@ -72,6 +74,39 @@ func TestSignalSigsetUsesPayloadStructSection(t *testing.T) {
 	got := (&SignalHandler{}).formatSigsetArg(ctx, 1, "nset", 0x1000)
 	if got != "[HUP]" {
 		t.Fatalf("formatSigsetArg() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestSignalSigprocmaskInvalidSigsetSizePrintsPointer(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeSigsetData(1)}
+	decoder := event.NewDecoder()
+	ctx := newSignalPolicyContext(reader, decoder)
+	ctx.Args[3] = 16
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeSigsetData(1)},
+	}
+
+	got := (&SignalHandler{}).formatSigsetArg(ctx, 1, "nset", 0x1000)
+	if got != "0x1000" {
+		t.Fatalf("formatSigsetArg() = %q, want pointer fallback", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestSignalSigprocmaskFailedReadPrintsPointer(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makeSigsetData(1)}
+	decoder := event.NewDecoder()
+	ctx := newSignalPolicyContext(reader, decoder)
+	ctx.Ret = -14
+
+	got := (&SignalHandler{}).formatSigsetArg(ctx, 1, "nset", 0x1000)
+	if got != "0x1000" {
+		t.Fatalf("formatSigsetArg() = %q, want pointer fallback", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)

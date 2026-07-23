@@ -32,6 +32,8 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_FSTAT 5
 #define SYS_LSTAT 6
 #define SYS_POLL 7
+#define SYS_RT_SIGACTION 13
+#define SYS_RT_SIGPROCMASK 14
 #define SYS_ACCESS 21
 #define SYS_PREAD64 17
 #define SYS_PWRITE64 18
@@ -632,6 +634,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_small_struct_direct_event_v2.h"
 #include "syscall_stat_direct_event_v2.h"
 #include "syscall_waitid_direct_event_v2.h"
+#include "syscall_signal_direct_event_v2.h"
 #include "syscall_cachestat_direct_event_v2.h"
 #include "syscall_capability_direct_event_v2.h"
 #include "syscall_memfd_direct_event_v2.h"
@@ -755,6 +758,16 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     if (is_time_struct_enter_direct_syscall(sys_id)) {
         emit_time_struct_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
+    // IMPACT: signal syscalls snapshot sigset/sigaction structs through direct TLV sections and preserve sigsuspend markers.
+    if (is_signal_enter_direct_syscall(sys_id)) {
+        emit_signal_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time, -1);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        if (sys_id == SYS_RT_SIGSUSPEND && should_emit_signal_sigsuspend_marker(tid, pid)) {
+            emit_signal_sigsuspend_marker_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        }
         return 0;
     }
 
@@ -930,21 +943,6 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
 
     save_pending_syscall(tid, e);
 
-    if (sys_id == SYS_RT_SIGSUSPEND) {
-        struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-        u32 nr_threads = 0;
-        if (task) {
-            nr_threads = BPF_CORE_READ(task, signal, nr_threads);
-        }
-        if (nr_threads > 1 && tid == pid) {
-            e->probe_ret_enter = 3;
-            e->event_type = EVENT_TYPE_ENTER;
-            emit_event(e);
-            e->probe_ret_enter = -1;
-            e->event_type = EVENT_TYPE_EXIT;
-        }
-    }
-
     return 0;
 }
 
@@ -1000,6 +998,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_stat_struct_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_waitid_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_waitid_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_signal_direct_syscall(p->sys_id) && ret_value >= 0) {
+            emit_signal_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_getcwd_direct_syscall(p->sys_id) && ret_value > 0) {
             emit_getcwd_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_readlink_direct_syscall(p->sys_id) && ret_value > 0) {

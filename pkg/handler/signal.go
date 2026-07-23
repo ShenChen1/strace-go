@@ -30,9 +30,10 @@ const (
 // Added specific parameter normalization mapping for rt_sigsuspend to utilize existing Sigset formatting logic.
 func (h *SignalHandler) Handle(ctx *Context) Result {
 	res := Result{}
+	sysName := signalSyscallName(ctx)
 	for i := 0; i < len(ctx.ScMeta.Args); i++ {
 		argName, argTyp, val := ctx.ScMeta.Args[i], ctx.ScMeta.ArgTypes[i], ctx.Args[i]
-		if ctx.ScMeta.Name == "rt_sigsuspend" {
+		if sysName == "rt_sigsuspend" {
 			if i == 0 {
 				argName = "set"
 				argTyp = "sigset_t *"
@@ -80,7 +81,10 @@ func (h *SignalHandler) formatSigsetArg(ctx *Context, argIndex int, argName stri
 	if val == 0 {
 		return "NULL"
 	}
-	if ctx.ScMeta.Name == "rt_sigsuspend" && ctx.Args[1] != 8 {
+	if isRtSigprocmaskContext(ctx) && ctx.Args[3] != signalSigsetSize {
+		return fmt.Sprintf("%#x", val)
+	}
+	if signalSyscallName(ctx) == "rt_sigsuspend" && ctx.Args[1] != signalSigsetSize {
 		return fmt.Sprintf("%#x", val)
 	}
 	if (argName == "oldset" || argName == "oset") && ctx.Ret >= 0 {
@@ -95,7 +99,29 @@ func (h *SignalHandler) formatSigsetArg(ctx *Context, argIndex int, argName stri
 			return format.Sigset(data)
 		}
 	}
+	if isRtSigprocmaskContext(ctx) && ctx.Ret < 0 {
+		return fmt.Sprintf("%#x", val)
+	}
 	return "[]"
+}
+
+func signalSyscallName(ctx *Context) string {
+	if ctx.ScMeta.Name != "" {
+		return ctx.ScMeta.Name
+	}
+	return ctx.SysName
+}
+
+func isRtSigprocmaskContext(ctx *Context) bool {
+	if signalSyscallName(ctx) == "rt_sigprocmask" {
+		return true
+	}
+	if len(ctx.ScMeta.Args) < 4 {
+		return false
+	}
+	return ctx.ScMeta.Args[1] == "nset" &&
+		ctx.ScMeta.Args[2] == "oset" &&
+		ctx.ScMeta.Args[3] == "sigsetsize"
 }
 
 func (h *SignalHandler) formatSigactionArg(ctx *Context, argIndex int, argName string, val uint64) string {

@@ -4,36 +4,6 @@
 
 #define CAPTURE_ARGS_ENTER(sys_id, e) \
 	switch (sys_id) { \
-		case 13: /* rt_sigaction */ \
-			{ \
-				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 32, (void *)(e)->args[1]) : 0; \
-				long pr = (__err == 0 && (e)->args[1]) ? 32 : __err; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 14: /* rt_sigprocmask */ \
-			{ \
-				long __err = (e)->args[1] ? bpf_probe_read_user((e)->str_arg, 8, (void *)(e)->args[1]) : 0; \
-				long pr = (__err == 0 && (e)->args[1]) ? 8 : __err; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 1)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
 		case 16: /* ioctl */ \
 			{ \
 				u32 iosz = (((e)->args[1] >> 16) & 0x3fff); \
@@ -211,21 +181,6 @@
 					s32 curr = (e)->probe_ret_enter; \
 					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
 					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 130: /* rt_sigsuspend */ \
-			{ \
-				long __err = (e)->args[0] ? bpf_probe_read_user((e)->str_arg, 8, (void *)(e)->args[0]) : 0; \
-				long pr = (__err == 0 && (e)->args[0]) ? 8 : __err; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 0)) + 1); \
 				} else { \
 					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
 					u32 req_len = 0 + pr; \
@@ -441,36 +396,6 @@
 	}
 #define CAPTURE_ARGS_EXIT(sys_id, e) \
 	switch (sys_id) { \
-		case 13: /* rt_sigaction */ \
-			{ \
-				long __err = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 1024, 32, (void *)(e)->args[2]) : 0; \
-				long pr = (__err == 0 && (e)->args[2]) ? 32 : __err; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_exit; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
-				} else { \
-					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
-					u32 req_len = 1024 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 14: /* rt_sigprocmask */ \
-			{ \
-				long __err = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 1024, 8, (void *)(e)->args[2]) : 0; \
-				long pr = (__err == 0 && (e)->args[2]) ? 8 : __err; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_exit; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
-				} else { \
-					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
-					u32 req_len = 1024 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
 		case 16: /* ioctl */ \
 			{ \
 				u32 iosz = (((e)->args[1] >> 16) & 0x3fff); \

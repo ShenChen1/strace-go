@@ -19,6 +19,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	miscDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_misc_struct_direct_event_v2.h"))
 	statDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_stat_direct_event_v2.h"))
 	waitidDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_waitid_direct_event_v2.h"))
+	signalDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_signal_direct_event_v2.h"))
 	pathStatDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_stat_direct_event_v2.h"))
 	readlinkDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_direct_event_v2.h"))
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
@@ -88,6 +89,11 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 	if !strings.Contains(straceSource, "#define SYS_WAITID 247") {
 		t.Fatal("strace.c missing SYS_WAITID constant for waitid direct event v2 path")
+	}
+	if !strings.Contains(straceSource, "#define SYS_RT_SIGACTION 13") ||
+		!strings.Contains(straceSource, "#define SYS_RT_SIGPROCMASK 14") ||
+		!strings.Contains(straceSource, "volatile const u32 SYS_RT_SIGSUSPEND = 130;") {
+		t.Fatal("strace.c missing signal direct event v2 constants")
 	}
 	if !strings.Contains(straceSource, "#define SYS_OPENAT 257") {
 		t.Fatal("strace.c missing SYS_OPENAT constant for openat TLV capture")
@@ -160,6 +166,9 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		"syscalls: [read, pread64]",
 		"syscalls: [write, pwrite64]",
 		"syscalls: [waitid]",
+		"syscalls: [rt_sigaction]",
+		"syscalls: [rt_sigprocmask]",
+		"syscalls: [rt_sigsuspend]",
 		"syscalls: [chdir, execve]",
 		"syscalls: [openat, execveat]",
 		"case 0: /* read */",
@@ -167,6 +176,8 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		"case 4: /* stat */",
 		"case 5: /* fstat */",
 		"case 6: /* lstat */",
+		"case 13: /* rt_sigaction */",
+		"case 14: /* rt_sigprocmask */",
 		"case 17: /* pread64 */",
 		"case 18: /* pwrite64 */",
 		"case 22: /* pipe */",
@@ -178,6 +189,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		"case 96: /* gettimeofday */",
 		"case 97: /* getrlimit */",
 		"case 99: /* sysinfo */",
+		"case 130: /* rt_sigsuspend */",
 		"case 137: /* statfs */",
 		"case 138: /* fstatfs */",
 		"case 160: /* setrlimit */",
@@ -321,6 +333,27 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		!strings.Contains(straceSource, "is_waitid_direct_syscall(p->sys_id) && ret_value >= 0") ||
 		!strings.Contains(straceSource, "emit_waitid_exit_event_v2_direct(p, ret_value, duration);") {
 		t.Fatal("waitid should emit direct siginfo/rusage TLV exit events without the bpf_event carrier")
+	}
+	if !strings.Contains(straceSource, `#include "syscall_signal_direct_event_v2.h"`) ||
+		!strings.Contains(signalDirectHeader, "SIGNAL_DIRECT_SIGSET_SIZE 8") ||
+		!strings.Contains(signalDirectHeader, "SIGNAL_DIRECT_SIGACTION_SIZE 32") ||
+		!strings.Contains(signalDirectHeader, "is_signal_direct_syscall(") ||
+		!strings.Contains(signalDirectHeader, "is_signal_enter_direct_syscall(") ||
+		!strings.Contains(signalDirectHeader, "emit_signal_enter_event_v2_direct(") ||
+		!strings.Contains(signalDirectHeader, "emit_signal_exit_event_v2_direct(") ||
+		!strings.Contains(signalDirectHeader, "emit_signal_sigsuspend_marker_event_v2_direct(") ||
+		!strings.Contains(signalDirectHeader, "capture_signal_struct_tlv_direct(") ||
+		!strings.Contains(signalDirectHeader, "PAYLOAD_TLV_KIND_STRUCT") ||
+		!strings.Contains(signalDirectHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") ||
+		!strings.Contains(signalDirectHeader, "init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, probe_ret_enter, -1);") ||
+		!strings.Contains(timeDirectHeader, "is_signal_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "is_signal_enter_direct_syscall(sys_id)") ||
+		!strings.Contains(straceSource, "emit_signal_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time, -1);") ||
+		!strings.Contains(straceSource, "should_emit_signal_sigsuspend_marker(tid, pid)") ||
+		!strings.Contains(straceSource, "emit_signal_sigsuspend_marker_event_v2_direct(pid, tid, sys_id, ctx, enter_time);") ||
+		!strings.Contains(straceSource, "is_signal_direct_syscall(p->sys_id) && ret_value >= 0") ||
+		!strings.Contains(straceSource, "emit_signal_exit_event_v2_direct(p, ret_value, duration);") {
+		t.Fatal("rt_sigaction/rt_sigprocmask/rt_sigsuspend should emit direct signal TLV events without the bpf_event carrier")
 	}
 	if !strings.Contains(straceSource, `#include "syscall_getcwd_direct_event_v2.h"`) ||
 		!strings.Contains(getcwdDirectHeader, "is_getcwd_direct_syscall(") ||
