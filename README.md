@@ -11,7 +11,7 @@
 
 ```text
 strace-go/
-├── bpf/                   # eBPF C 源码及内核头文件 (strace.c, vmlinux.h, syscall_capture.h)
+├── bpf/                   # eBPF C 源码及内核头文件 (strace.c, vmlinux.h, direct event helpers)
 ├── cmd/
 │   ├── generate-syscalls/ # 系统调用字典生成器 (从内核动态提取 ID 与参数信息)
 │   ├── generate-xlats/    # 标志位常量翻译生成器 (从 strace-upstream 提取 flags 字典)
@@ -38,15 +38,14 @@ strace-go/
 graph TD
     subgraph 内核态 (eBPF Kernel Probe)
         tp_enter[sys_enter tracepoint] --> |1. 触发系统调用| filter{PID 过滤}
-        filter -->|匹配| heap_alloc[从 heap per-cpu map 借用 bpf_event]
-        heap_alloc -->|2. 内核态预读| capture[CAPTURE_ARGS_ENTER<br/>用户空间参数首部读取 2KB]
-        capture -->|3. 保存 exit 所需元数据| pending_map[(pending_syscalls HASH MAP<br/>Key: TID, compact metadata)]
-        capture -->|可选 JSON/debug enter| ring_buf[events BPF RING BUFFER]
+        filter -->|匹配| direct_enter[direct event v2 helper<br/>按 syscall 现场拷贝 IN payload]
+        direct_enter -->|2. 保存 exit 所需元数据| pending_map[(pending_syscalls HASH MAP<br/>Key: TID, compact metadata)]
+        direct_enter -->|可选 JSON/debug enter| ring_buf[events BPF RING BUFFER]
         
         tp_exit[sys_exit tracepoint] -->|4. 系统调用返回| lookup[从 pending_syscalls 查找对应 TID 缓存]
-        lookup -->|找到| exit_capture[CAPTURE_ARGS_EXIT<br/>捕获返回值与出口参数]
-        exit_capture -->|5. 发送 exit/full 事件| ring_buf
-        exit_capture -->|6. 清理缓存| delete_hash[从 pending_syscalls 物理删除 TID]
+        lookup -->|找到| direct_exit[direct event v2 helper<br/>按 syscall 现场拷贝 OUT payload]
+        direct_exit -->|5. 发送 exit event v2| ring_buf
+        direct_exit -->|6. 清理缓存| delete_hash[从 pending_syscalls 物理删除 TID]
     end
 
     subgraph 用户态 (Go User Space Controller)
@@ -72,9 +71,8 @@ graph TD
 1. **线程级安全的上下文跟踪 (pending_syscalls)**
    为了避免多线程程序在内核中并发执行系统调用时产生交错与数据覆盖，`strace-go` 在内核中引入了以线程 ID (`TID`) 为 Key 的 `pending_syscalls` (HASH MAP)。在 `sys_enter` 时只保存 exit 阶段需要的紧凑元数据，在 `sys_exit` 时补齐返回值和 OUT 参数后删除。
 
-2. **Per-CPU 辅助堆栈设计 (heap)**
-   由于 eBPF 内核栈仅有限制极严的 512 字节空间，直接在栈中分配一个含有 2048 字节大缓冲区的事件结构体 (`bpf_event`) 将无法通过内核 Verifier 的静态安全检查。
-   `strace-go` 的设计极其精妙地通过声明一个全局单元素的 `BPF_MAP_TYPE_PERCPU_ARRAY` (名为 `heap`)，在进入探针时，借助 `bpf_map_lookup_elem` 快速获取属于当前 CPU 核心的独占内存块。这不仅成功规避了 512B 栈限制，还保证了在超高并发下的零内存碎片和极高性能。
+2. **Direct event v2 + Ring Buffer**
+   eBPF 探针不再维护固定 `str_arg` 大窗口，也不再通过 per-CPU `heap` 重建旧事件。需要 payload 的 syscall 由专项 direct helper 预留 Ring Buffer 记录空间，在探针现场写入 event v2 header/body 和 TLV sections；未知或未专项 syscall 走 no-payload event v2，仍保留 args/ret/duration。
 
 3. **纯 eBPF snapshot 边界**
    由于 eBPF 运行在高度受限的安全沙箱中，内核态无法安全解引用任意深度的嵌套指针，也无法复制无限长度字符串。`strace-go` 的产品路径只消费探针现场已经复制进事件的 bytes：
@@ -108,7 +106,7 @@ cd cmd/strace-go
 sudo go generate ./...
 ```
 > [!TIP]
-> 运行成功后，会在 `pkg/meta/` 下自动生成 `syscall_table.go`，在 `bpf/` 下生成 `syscall_capture.h` 并在当前目录生成对应的 `bpf_bpfel.go` 和 `bpf_bpfel.o` 字节码。
+> 运行成功后，会在 `pkg/meta/` 下自动生成 `syscall_table.go`，并在当前目录生成对应的 `bpf_bpfel.go` 和 `bpf_bpfel.o` 字节码。
 
 #### 3. 编译与运行
 回到项目根目录并编译：

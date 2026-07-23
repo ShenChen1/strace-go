@@ -9,10 +9,9 @@ import (
 func TestBPFClone3PayloadUsesDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	clone3DirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_clone3_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_CLONE3 435",
@@ -47,7 +46,7 @@ func TestBPFClone3PayloadUsesDirectTLV(t *testing.T) {
 		"syscalls: [clone3]",
 		"case 435: /* clone3 */",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("clone3 still uses old fixed-window rule %q", legacyRule)
 		}
 	}

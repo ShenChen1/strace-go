@@ -9,10 +9,9 @@ import (
 func TestBPFMemfdCreatePayloadUsesDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	memfdDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_memfd_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_MEMFD_CREATE 319",
@@ -43,7 +42,7 @@ func TestBPFMemfdCreatePayloadUsesDirectTLV(t *testing.T) {
 		"syscalls: [memfd_create]",
 		"case 319: /* memfd_create */",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("memfd_create still uses old fixed-window rule %q", legacyRule)
 		}
 	}

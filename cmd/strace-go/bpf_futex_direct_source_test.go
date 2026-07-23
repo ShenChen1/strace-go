@@ -9,10 +9,9 @@ import (
 func TestBPFFutexPayloadUsesDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	futexDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_futex_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_FUTEX 202",
@@ -71,7 +70,7 @@ func TestBPFFutexPayloadUsesDirectTLV(t *testing.T) {
 		"case 449: /* futex_waitv */",
 		"case 456: /* futex_requeue */",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("futex still uses old fixed-window rule %q", legacyRule)
 		}
 	}

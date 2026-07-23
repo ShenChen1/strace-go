@@ -9,10 +9,9 @@ import (
 func TestBPFEpollWaitPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	epollDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_epoll_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_EPOLL_WAIT 232",
@@ -60,7 +59,7 @@ func TestBPFEpollWaitPayloadsUseDirectTLV(t *testing.T) {
 		"case 281: /* epoll_pwait */",
 		"case 441: /* epoll_pwait2 */",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("epoll wait syscall still uses old fixed-window rule %q", legacyRule)
 		}
 	}
@@ -69,9 +68,8 @@ func TestBPFEpollWaitPayloadsUseDirectTLV(t *testing.T) {
 func TestBPFEpollCtlPayloadUsesDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	epollDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_epoll_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_EPOLL_CTL 233",
@@ -101,7 +99,7 @@ func TestBPFEpollCtlPayloadUsesDirectTLV(t *testing.T) {
 		"syscalls: [epoll_ctl]",
 		"case 233: /* epoll_ctl */",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("epoll_ctl still uses old fixed-window rule %q", legacyRule)
 		}
 	}

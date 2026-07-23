@@ -9,10 +9,9 @@ import (
 func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	iovecDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_iovec_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_READV 19",
@@ -64,7 +63,7 @@ func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 		"case 328: /* pwritev2 */",
 		"case 440: /* process_madvise */",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("iovec syscall still uses old fixed-window rule %q", legacyRule)
 		}
 	}

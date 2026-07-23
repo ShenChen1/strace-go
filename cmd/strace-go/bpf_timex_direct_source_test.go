@@ -9,9 +9,9 @@ import (
 func TestBPFTimexPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	timexDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_timex_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
 
 	for _, constant := range []string{
 		"#define SYS_ADJTIMEX 159",
@@ -59,7 +59,7 @@ func TestBPFTimexPayloadsUseDirectTLV(t *testing.T) {
 		"syscalls: [adjtimex]",
 		"syscalls: [clock_adjtime]",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("capture policy still contains old fixed-window rule %q", legacyRule)
 		}
 	}

@@ -495,15 +495,14 @@ fd/path 状态不能依赖 ptrace，但可以：
 
 目标文件：
 
-- `pkg/meta/syscalls_generated.go`：syscall id/name/arg/type/flags。
-- `pkg/meta/capture_generated.go`：Go 侧 capture plan 元信息。
-- `bpf/syscall_capture.h`：BPF 侧 bounded capture switch。
+- `pkg/meta/syscall_table.go`：syscall id/name/arg/type/flags。
+- `cmd/strace-go/bpf_bpfel.go` / `cmd/strace-go/bpf_bpfeb.go`：由 bpf2go 生成的 BPF object 绑定。
 
 目标原则：
 
 - syscall 基础签名尽量由 BTF/系统头生成。
 - 不再维护大量手写 syscall signature override。
-- 保留少量 capture policy，用于描述 strace 语义。
+- syscall payload 捕获由 `bpf/syscall_*_direct_event_v2.h` 专项 direct TLV helper 表达，不再生成 fixed-window capture switch。
 - 生成器输出必须稳定，避免每次构建大面积无关 diff。
 
 ### 6.2 BTF 来源策略
@@ -518,45 +517,15 @@ fd/path 状态不能依赖 ptrace，但可以：
 
 不能假设所有 kernel 都有 per-syscall tracepoint BTF。生成器必须有 fallback。
 
-### 6.3 capture policy 不是 signature override
+### 6.3 payload capture 不再由旧 policy 生成
 
-保留 `capture_rules.yaml`，但语义要改变：
+旧 `capture_rules.yaml` / `syscall_capture.h` 链路已经删除。它曾把 strace-like payload 捕获规则翻译为针对 `bpf_event.str_arg` 的固定窗口拷贝代码，但这与 event v2/TLV 和 no fixed-window carrier 的最终架构冲突。
 
-旧规则容易混合“签名修正”和“捕获逻辑”。新规则只描述捕获策略：
+当前约束：
 
-```yaml
-syscalls:
-  write:
-    enter:
-      payloads:
-        - arg: 1
-          kind: bytes
-          direction: in
-          len_from_arg: 2
-          max: 512
-
-  read:
-    exit:
-      payloads:
-        - arg: 1
-          kind: bytes
-          direction: out
-          len_from_ret: true
-          max: 512
-
-  openat:
-    enter:
-      payloads:
-        - arg: 1
-          kind: string
-          direction: in
-          max: 4096
-```
-
-这样可以做到：
-
-- BTF/unistd 负责“它是什么 syscall、参数叫什么、类型是什么”。
-- policy 负责“为了 strace-like 输出，需要拷贝哪些内存”。
+- BTF/unistd 只负责“它是什么 syscall、参数叫什么、类型是什么”。
+- “为了 strace-like 输出，需要拷贝哪些内存”由 syscall-specific direct TLV helper 显式实现。
+- 构建流程不再生成 `syscall_capture.h`，源码门禁测试要求旧 `capture_rules.yaml`、`syscall_capture.h` 和 `gen_bpf_capture.go` 不存在。
 
 ## 7. 测试体系
 
@@ -700,8 +669,8 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 
 - BPF `events_map` 已替换为 `pending_syscalls`。
 - `pending_syscalls` value 只保存 `enter_time`、6 个原始参数、pid/tid/syscall id 和 stack id，不再保存 `str_arg` 大缓冲。
-- `sys_exit` 使用 per-cpu `heap` 从 pending metadata 临时重建 exit/full event。
-- 为保持现有文本 formatter 可用，exit/full event 会暂时重新执行 enter payload capture；真正使用 enter event payload 合并输出放到 Phase 3 单协程状态机。
+- `sys_exit` 不再使用 per-cpu `heap` 或 `struct bpf_event` 重建 exit/full event；fallback syscall 也直接从 compact pending metadata 合成 no-payload event v2。
+- 文本 formatter 现在消费 event v2 + semantic payload sections；未专项 payload 的 syscall 保留 args/ret/duration，不再重新执行 fixed-window capture。
 - `TestPendingSyscallsMapUsesCompactValue` 直接解析嵌入 BPF object，防止 pending map value 回退到大结构。
 
 验收：
@@ -889,11 +858,9 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `cmd/generate-syscalls` 拆成：
   - `btf_loader.go`
   - `sysnum_unix.go`
-  - `capture_policy.go`
-  - `gen_bpf_capture.go`
   - `gen_go_meta.go`
 - `manualOverrides` 缩小为 alias/bugfix，而不是大规模签名表。
-- `capture_rules.yaml` 改成 policy-only。
+- 删除旧 fixed-window capture policy/header 生成链。
 
 验收：
 
@@ -903,26 +870,11 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 
 当前落地：
 
-- `cmd/generate-syscalls` 已开始按职责拆分：`capture_policy.go` 负责加载 capture policy，`gen_bpf_capture.go` 负责写出 BPF capture header，`gen_go_meta.go` 负责写出 Go syscall table。
-- 入口 `main.go` 收敛为编排加载 policy、加载 syscall metadata、写出 BPF/Go 生成物；本阶段保持生成输出稳定，不改变 `syscall_capture.h` 或 `syscall_table.go` 内容。
-- BPF capture 查找、`generateBPFCode`、per-read 代码生成和动态 size 逻辑已迁入 `gen_bpf_capture.go`；`generateBPFCode` 收敛为小编排函数，具体读逻辑拆到 helper。
-- capture policy loader 已接受新的 `payloads` policy schema，并在加载时规范化成当前 BPF 生成器使用的 `reads` 结构；混用旧 `reads` 和新 `payloads` 会直接报错。
-- `read/pread64` 和 `write/pwrite64` 已迁移为 `payloads`，并由 `len_from_ret` / `len_from_arg` + `max` 驱动 BPF 动态拷贝长度；生成输出保持稳定。
-- `readv/writev/preadv/pwritev/preadv2/pwritev2/vmsplice`、`process_vm_readv/process_vm_writev` 和 `process_madvise` 已迁移为 `payloads`，并由 `count_from_arg` + `elem_size` + `max` 描述 iovec 数组前缀拷贝长度。
-- `add_key` 和 xattr/listxattr 系列已迁移为 `payloads`，动态 value/list buffer 由 `len_from_arg` + `max` 描述，`dynamicSizeStr` 中对应 syscall-name 特例已删除。
-- `poll/ppoll` 与 `epoll_wait/epoll_pwait/epoll_pwait2` 已迁移为 `payloads`；poll fd 数组由 `count_from_arg` 描述，epoll ready event 数组由 `count_from_ret` 描述，对应 `dynamicSizeStr` 特例已删除。
-- `bpf`、`clone3`、`getcwd`、`readlink/readlinkat` 已迁移为 `payloads`，对应 `len_from_arg` / `len_from_ret` 特例已删除。
-- capture policy 已支持 `min` 下界；`openat2` 的 `open_how` 拷贝长度由 `len_from_arg: 3, min: 24, max: 64` 表达，`dynamicSizeStr` 中对应特例已删除。
-- 普通 path、at-based path、stat/readlink/newfstatat 和双 path syscall 的固定字符串捕获已迁移为 `payloads`，继续保持生成输出稳定。
-- 固定长度 raw/struct/string 捕获已批量迁移为 `payloads`；产品 `capture_rules.yaml` 已不再使用旧 `reads` schema。
-- socket 输出地址捕获已通过 `len_from_user_arg` 和 `clamp_u32_from_offset` 描述 addrlen 指针读取与 enter 输入长度 clamp；`dynamicSocketAddrSize` 特例已删除。
-- `ioctl` 的 `_IOC_SIZE` 捕获长度已通过 `len_from_arg_bits` 描述 bitfield 提取、0 长度默认值和最大截断；`dynamicSizeStr` 中对应特例已删除。
-- `io_getevents/io_pgetevents` 已从 capture policy 迁出，由 AIO direct TLV helper 显式捕获 timeout、sigset/sigmask 和 events sections。`io_submit` 已从 capture policy 迁出，由 AIO direct TLV helper 显式捕获 pointer array 和前两个 `iocb`。
-- `fcntl/fcntl64` 迁移期曾通过 `len_from_arg_cases` 描述命令值到结构长度的映射；当前产品 capture policy 已移除该 fixed-window 规则，`fcntl` native syscall 改由 command-aware direct TLV helper 输出 8/32 字节 struct sections。
-- 动态数组 capture 仍通过 `count_from_arg`、`elem_size`、`max` 和 `split_first` 能力测试覆盖；产品 `futex_waitv` 已迁出旧 `capture_rules.yaml` fixed-window 规则，改由 direct TLV helper 输出 waiters/timeout sections。
-- `fsconfig` 已通过 `string_bytes_switch` 描述 `FSCONFIG_SET_BINARY` 的 bytes 分支和其它命令的 string 分支，生成器不再按 syscall 名称硬编码 `fssz`。
-- `dynamicSizeStr` 已删除；动态 capture 长度只能来自显式 policy 字段，未知动态长度返回 0。
-- 产品 `capture_rules.yaml` 已禁止重复 syscall 规则，避免生成器 first-match 语义静默遮蔽后续策略；`linkat` 已改为由双 path policy 生成 old/new path 捕获。
+- `cmd/generate-syscalls` 入口 `main.go` 只加载 syscall metadata 并写出 `pkg/meta/syscall_table.go`。
+- 旧 `capture_policy.go`、`gen_bpf_capture.go`、`capture_rules.yaml` 和生成物 `bpf/syscall_capture.h` 已删除；`build.sh` 不再清理或生成该 header。
+- 源码门禁测试锁定旧 capture artifact 不存在，并扫描 `bpf/strace.c` 防止重新 include `syscall_capture.h`、`CAPTURE_ARGS_*`、`struct bpf_event` 或 per-cpu `heap` carrier。
+- 历史上通过 `payloads`/`reads` 表达的 read/write、path、stat/time、iovec、network、AIO、poll/select/epoll、ioctl、fcntl、fsconfig 等捕获策略，已经迁入对应 direct TLV helper。
+- 生成器不再承载“该拷贝哪些用户态内存”的策略；这类 strace-like 语义显式写在 syscall-specific BPF helper 中，并由源码门禁和 semantic/upstream reference 测试保护。
 
 ### Phase 8: 删除旧模式与收口文档
 
@@ -989,33 +941,33 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `open/creat` 已复用 path IN payload direct helper 绕开旧 fixed-window capture；enter 阶段直接写 arg0 pathname TLV，exit 阶段只用小 pending metadata 合成 event v2，fd path 状态从 pending enter TLV 合并结果更新。
 - `write/pwrite64` 已作为第一批 bytes IN payload syscall 绕开旧 `capture_write_tlv` fixed-window helper；enter 阶段直接写 bytes TLV section，并在 direct path 中记录 payload truncated stats。
 - `read/pread64` 已作为第一批 bytes OUT payload syscall 绕开旧 `capture_read_tlv` fixed-window helper；exit 阶段根据 ret 直接写 OUT bytes TLV section，read/write 核心 buffer 链路已不再依赖旧 fixed-window helper。
-- `read/write/pread64/pwrite64` 的旧 capture policy 残留已删除，生成的 `syscall_capture.h` 不再包含 `case 0/1/17/18` fixed-window 分支；这些高频 buffer syscall 只能通过 direct TLV 主路径产出 payload。
+- `read/write/pread64/pwrite64` 的旧 capture policy 残留已删除，旧 capture 生成链已删除，不再存在 `case 0/1/17/18` fixed-window 分支；这些高频 buffer syscall 只能通过 direct TLV 主路径产出 payload。
 - event v2 enter body 已显式携带 `ret`、`probe_ret_enter` 和 `probe_ret_exit`，为 `execve/execveat` direct TLV 迁移保留 `ret=-514` restart/resume 语义，避免 direct enter 退化成只有参数快照的半事件。
 - `execve/execveat` 已作为 argv/envp/path IN payload syscall 绕开旧 `capture_exec_tlv` fixed-window helper；enter 阶段直接写 filename TLV section，以及包含 argv records 与 verbose envp records 的 `PayloadKindExecArgs` section，失败 exit 在 exit probe 重新做 bounded eBPF 快照，成功 exit 只输出小 pending metadata 合成的 event v2 exit。
-- `execve/openat/execveat` 的旧 capture policy 残留已删除，生成的 `syscall_capture.h` 不再包含 `case 59/257/322` fixed-window 分支；这些 syscall 只能通过 direct TLV 主路径产出 payload。
+- `execve/openat/execveat` 的旧 capture policy 残留已删除，旧 capture 生成链已删除，不再存在 `case 59/257/322` fixed-window 分支；这些 syscall 只能通过 direct TLV 主路径产出 payload。
 - `exit/exit_group` 已在 sys_enter 阶段直接合成 event v2 enter/exit，终止 syscall 不再通过 `struct bpf_event` carrier 保存 pending 后再 emit。
 - `clock_gettime/clock_getres` 已作为第一批高频 OUT struct syscall 绕开旧 fixed-window capture；enter 阶段只保存小 pending metadata，exit 阶段直接写 `PayloadKindStruct` OUT TLV section。
 - `gettimeofday` 已作为第一条多 OUT struct syscall 绕开旧 fixed-window capture；exit 阶段直接写 timeval 与 timezone 两个 `PayloadKindStruct` OUT TLV sections，证明单个 direct exit event 可携带多个结构快照。
-- `clock_gettime/clock_getres/gettimeofday` 的旧 capture policy 残留已删除，生成的 `syscall_capture.h` 不再包含 `case 96/228/229` fixed-window 分支；这些基础 time OUT struct syscall 只能通过 direct TLV 主路径产出 payload。
+- `clock_gettime/clock_getres/gettimeofday` 的旧 capture policy 残留已删除，旧 capture 生成链已删除，不再存在 `case 96/228/229` fixed-window 分支；这些基础 time OUT struct syscall 只能通过 direct TLV 主路径产出 payload。
 - `fstat/fstatfs` 已作为第一批 fd-based stat 类 OUT struct syscall 绕开旧 fixed-window capture；enter 阶段只保存小 pending metadata，exit 成功时分别直接写 144 字节 `struct stat` 或 120 字节 `struct statfs` OUT TLV section。
 - `stat/lstat/newfstatat/statfs` 已作为 path IN + OUT struct syscall 绕开旧 fixed-window capture；enter 阶段直接写 pathname string TLV，exit 成功时直接写 144 字节 `struct stat` 或 120 字节 `struct statfs` OUT TLV section，Go 状态机会合并 enter/exit sections 后交给 formatter；`newfstatat` 明确覆盖 arg1 path 与 arg2 statbuf 的非对称参数布局。
-- `stat/lstat/fstat/newfstatat/statfs/fstatfs` 的旧 capture policy 残留已删除，生成的 `syscall_capture.h` 不再包含 `case 4/5/6/137/138/262` fixed-window 分支；这些 stat/statfs syscall 只能通过 direct TLV 主路径产出 payload。
+- `stat/lstat/fstat/newfstatat/statfs/fstatfs` 的旧 capture policy 残留已删除，旧 capture 生成链已删除，不再存在 `case 4/5/6/137/138/262` fixed-window 分支；这些 stat/statfs syscall 只能通过 direct TLV 主路径产出 payload。
 - `readlink/readlinkat` 已作为 path IN + bytes OUT syscall 绕开旧 fixed-window capture；enter 阶段直接写 pathname string TLV，exit 成功时按 ret 直接写非 NUL 结尾的 target bytes TLV section，Go 状态机会合并 enter/exit sections 后交给 formatter；`readlinkat` 明确覆盖 arg1 path 与 arg2 buffer 的非对称参数布局。
 - `getcwd` 已作为 OUT bytes syscall 绕开旧 fixed-window capture；enter 阶段只保存小 pending metadata，exit 成功时按 ret 直接写 cwd bytes TLV section，formatter 只消费该 semantic payload。
-- `getcwd/readlink/readlinkat` 的旧 capture policy 残留已删除，生成的 `syscall_capture.h` 不再包含 `case 79/89/267` fixed-window 分支；这些 path/OUT bytes syscall 只能通过 direct TLV 主路径产出 payload。
+- `getcwd/readlink/readlinkat` 的旧 capture policy 残留已删除，旧 capture 生成链已删除，不再存在 `case 79/89/267` fixed-window 分支；这些 path/OUT bytes syscall 只能通过 direct TLV 主路径产出 payload。
 - `pipe/pipe2/socketpair` 已作为 fd-array OUT struct syscall 绕开旧 fixed-window capture；enter 阶段只保存小 pending metadata，exit 成功时直接写 8 字节 `PayloadKindStruct` OUT TLV section，`socketpair` 明确覆盖 arg3 fd array 的非对称参数布局。
-- `pipe/pipe2/socketpair` 的旧 capture policy 残留已删除，生成的 `syscall_capture.h` 不再包含 `case 22/53/293` fixed-window 分支；这些 fd-array syscall 只能通过 direct TLV 主路径产出 payload。
+- `pipe/pipe2/socketpair` 的旧 capture policy 残留已删除，旧 capture 生成链已删除，不再存在 `case 22/53/293` fixed-window 分支；这些 fd-array syscall 只能通过 direct TLV 主路径产出 payload。
 - `uname/sysinfo/getrlimit/setrlimit/prlimit64` 已作为 misc struct syscall 绕开旧 fixed-window capture；`setrlimit/prlimit64` 在 enter 阶段直接写 IN `struct rlimit` TLV，`uname/sysinfo/getrlimit/prlimit64` 在 exit 成功时直接写 OUT struct TLV，Go 状态机会合并 enter/exit sections 后交给 formatter。
-- `uname/sysinfo/getrlimit/setrlimit/prlimit64` 的旧 capture policy 残留已删除，生成的 `syscall_capture.h` 不再包含 `case 63/97/99/160/302` fixed-window 分支；这些 misc struct syscall 只能通过 direct TLV 主路径产出 payload。
+- `uname/sysinfo/getrlimit/setrlimit/prlimit64` 的旧 capture policy 残留已删除，旧 capture 生成链已删除，不再存在 `case 63/97/99/160/302` fixed-window 分支；这些 misc struct syscall 只能通过 direct TLV 主路径产出 payload。
 - `arch_prctl/get_robust_list/sendfile/copy_file_range` 已作为 small struct/word syscall 绕开旧 fixed-window capture；`sendfile/copy_file_range` 在 enter 阶段直接写 offset word IN TLV，`arch_prctl/get_robust_list/sendfile` 在 exit 成功时直接写 OUT word TLV，Go 状态机会合并 enter/exit sections 后交给 formatter。
-- `waitid` 已作为 siginfo/rusage OUT struct syscall 绕开旧 fixed-window capture；enter 阶段只保存小 pending metadata，exit 成功时直接写 arg2 `siginfo_t` 和 arg4 `rusage` 两个 OUT `PayloadKindStruct` TLV sections，生成的 `syscall_capture.h` 不再包含 `case 247` fixed-window 分支。
-- `rt_sigaction/rt_sigprocmask/rt_sigsuspend` 已作为 signal struct syscall 绕开旧 fixed-window capture；enter 阶段直接写 act/nset/mask 的 `PayloadKindStruct` IN TLV section，`rt_sigaction/rt_sigprocmask` 在 exit 成功时直接写 oact/oset OUT TLV section，`rt_sigsuspend` 继续通过 direct synthetic enter event 保留 `probe_ret_enter=3` suspended marker，生成的 `syscall_capture.h` 不再包含 `case 13/14/130` fixed-window 分支。
-- `prctl` 已作为 option-aware syscall 绕开旧 fixed-window capture；`PR_SET_NAME` 在 enter 阶段直接写 bounded name IN TLV 并保留 16 字节 task name 截断语义，`PR_GET_NAME` 和 GET 类 uint32 option 在 exit 成功时直接写 OUT TLV，生成的 `syscall_capture.h` 不再包含 `case 157` fixed-window 分支。
-- `clone3` 已作为 `struct clone_args` IN struct syscall 绕开旧 fixed-window capture；enter 阶段按 arg1 size clamp 到 256 字节并直接写 arg0 `PayloadKindStruct` TLV，超出 bounded snapshot 时设置 truncated stats，生成的 `syscall_capture.h` 不再包含 `case 435` fixed-window 分支。
-- `bpf` 已作为 `union bpf_attr` IN bytes syscall 绕开旧 fixed-window capture；enter 阶段按 arg2 size clamp 到 512 字节并直接写 arg1 `PayloadKindBytes` TLV，`EFAULT` 且只捕获到前缀时退回裸指针，生成的 `syscall_capture.h` 不再包含 `case 321` fixed-window 分支。
-- `readv/writev/preadv/pwritev/preadv2/pwritev2/vmsplice`、`process_vm_readv/process_vm_writev` 和 `process_madvise` 已作为 iovec array syscall 绕开旧 fixed-window capture；enter 阶段直接写 `PayloadKindIovec` TLV，普通 iovec syscall 捕获 arg1，process_vm syscall 捕获 arg1/arg3 两段，每段最多 16 个 iovec / 256 字节，生成的 `syscall_capture.h` 不再包含对应 fixed-window 分支。
-- `fcntl` 已作为 command-aware struct syscall 绕开旧 fixed-window capture；enter 阶段按 cmd 直接写 arg2 的 8 字节 owner/rw-hint/delegation struct 或 32 字节 flock struct IN TLV，exit 非负返回时写 OUT TLV，生成的 `syscall_capture.h` 不再包含 `case 72` fixed-window 分支，并通过 `fcntl.gen.test` upstream reference 验证。
-- `connect/bind/sendto/recvfrom/accept/accept4/getsockname/getpeername` 已作为 network sockaddr/buffer syscall 绕开旧 fixed-window capture；enter 阶段直接写 IN sockaddr、send buffer 或 addrlen TLV，exit 阶段根据 enter addrlen 与 exit addrlen 裁剪后写 OUT sockaddr、recv buffer 和 addrlen TLV，生成的 `syscall_capture.h` 不再包含对应 fixed-window 分支。
+- `waitid` 已作为 siginfo/rusage OUT struct syscall 绕开旧 fixed-window capture；enter 阶段只保存小 pending metadata，exit 成功时直接写 arg2 `siginfo_t` 和 arg4 `rusage` 两个 OUT `PayloadKindStruct` TLV sections，旧 capture 生成链已删除，不再存在 `case 247` fixed-window 分支。
+- `rt_sigaction/rt_sigprocmask/rt_sigsuspend` 已作为 signal struct syscall 绕开旧 fixed-window capture；enter 阶段直接写 act/nset/mask 的 `PayloadKindStruct` IN TLV section，`rt_sigaction/rt_sigprocmask` 在 exit 成功时直接写 oact/oset OUT TLV section，`rt_sigsuspend` 继续通过 direct synthetic enter event 保留 `probe_ret_enter=3` suspended marker，旧 capture 生成链已删除，不再存在 `case 13/14/130` fixed-window 分支。
+- `prctl` 已作为 option-aware syscall 绕开旧 fixed-window capture；`PR_SET_NAME` 在 enter 阶段直接写 bounded name IN TLV 并保留 16 字节 task name 截断语义，`PR_GET_NAME` 和 GET 类 uint32 option 在 exit 成功时直接写 OUT TLV，旧 capture 生成链已删除，不再存在 `case 157` fixed-window 分支。
+- `clone3` 已作为 `struct clone_args` IN struct syscall 绕开旧 fixed-window capture；enter 阶段按 arg1 size clamp 到 256 字节并直接写 arg0 `PayloadKindStruct` TLV，超出 bounded snapshot 时设置 truncated stats，旧 capture 生成链已删除，不再存在 `case 435` fixed-window 分支。
+- `bpf` 已作为 `union bpf_attr` IN bytes syscall 绕开旧 fixed-window capture；enter 阶段按 arg2 size clamp 到 512 字节并直接写 arg1 `PayloadKindBytes` TLV，`EFAULT` 且只捕获到前缀时退回裸指针，旧 capture 生成链已删除，不再存在 `case 321` fixed-window 分支。
+- `readv/writev/preadv/pwritev/preadv2/pwritev2/vmsplice`、`process_vm_readv/process_vm_writev` 和 `process_madvise` 已作为 iovec array syscall 绕开旧 fixed-window capture；enter 阶段直接写 `PayloadKindIovec` TLV，普通 iovec syscall 捕获 arg1，process_vm syscall 捕获 arg1/arg3 两段，每段最多 16 个 iovec / 256 字节，旧 capture 生成链已删除，不再存在对应 fixed-window 分支。
+- `fcntl` 已作为 command-aware struct syscall 绕开旧 fixed-window capture；enter 阶段按 cmd 直接写 arg2 的 8 字节 owner/rw-hint/delegation struct 或 32 字节 flock struct IN TLV，exit 非负返回时写 OUT TLV，旧 capture 生成链已删除，不再存在 `case 72` fixed-window 分支，并通过 `fcntl.gen.test` upstream reference 验证。
+- `connect/bind/sendto/recvfrom/accept/accept4/getsockname/getpeername` 已作为 network sockaddr/buffer syscall 绕开旧 fixed-window capture；enter 阶段直接写 IN sockaddr、send buffer 或 addrlen TLV，exit 阶段根据 enter addrlen 与 exit addrlen 裁剪后写 OUT sockaddr、recv buffer 和 addrlen TLV，旧 capture 生成链已删除，不再存在对应 fixed-window 分支。
 - `getitimer/setitimer` 已作为 itimer struct syscall 绕开旧 fixed-window capture；`setitimer` 在 enter 阶段直接写新 `struct itimerval` IN TLV，`getitimer/setitimer` 在 exit 成功时直接写旧 `struct itimerval` OUT TLV，Go 状态机会合并 enter/exit sections 后交给 formatter。
 - `clock_settime/settimeofday` 已作为 time setter struct syscall 绕开旧 fixed-window capture；enter 阶段分别直接写 `struct timespec` IN TLV，以及 `struct timeval`/`struct timezone` 两个 IN TLV，Go 状态机会合并 enter/exit sections 后交给 formatter。
 - `utime/utimes/futimesat/utimensat` 已作为 file timestamp syscall 绕开旧 fixed-window capture；enter 阶段直接写 pathname string TLV 与 IN time struct TLV，exit 阶段只用小 pending metadata 合成 event v2。
@@ -1040,7 +992,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `poll/ppoll` 已作为 pollfd array syscall 绕开旧 fixed-window capture；enter 阶段直接写 arg0 pollfd 数组的 bounded `PayloadKindStruct` IN TLV section，`ppoll` 额外写 arg2 timeout 和 arg3 sigmask IN TLV，exit 返回正数时直接写 arg0 pollfd 数组 OUT TLV，`ppoll` 额外写 arg2 timeout OUT TLV 以支持 `left` 输出，失败或 ret=0 走无 payload event v2。
 - `epoll_ctl` 已作为 event IN struct syscall 绕开旧 fixed-window capture；enter 阶段直接写 arg3 的 12 字节 `PayloadKindStruct` IN TLV section，exit 阶段只用小 pending metadata 合成 event v2，DEL 操作继续由 formatter 忽略 event snapshot 并输出指针/NULL。
 - `epoll_wait/epoll_pwait/epoll_pwait2` 已作为 ready events OUT array syscall 绕开旧 fixed-window capture；`epoll_pwait2` enter 阶段直接写 arg3 timeout 的 16 字节 `PayloadKindStruct` IN TLV section，exit 返回正数时按 ret 逐 12 字节 event slot 写 arg1 的 bounded `PayloadKindStruct` OUT TLV section，失败或 ret=0 走无 payload event v2。
-- 单 path、无 OUT payload 的 path-only syscall 已开始绕开旧 fixed-window capture；`access/chdir/chroot/chmod/chown/lchown/mkdir/mknod/rmdir/unlink/swapon/swapoff/acct/truncate/fsopen` 和 `mkdirat/mknodat/fchownat/unlinkat/fchmodat/faccessat/faccessat2/fspick` 在 enter 阶段直接写 `PayloadKindString` TLV，exit 阶段用小 pending metadata 合成 event v2，并附带一次 eBPF path retry TLV 以覆盖 fork child 首个 `chdir` enter probe 可能 `-EFAULT` 的场景。`chdir` 的旧 capture policy 残留已删除，生成的 `syscall_capture.h` 不再包含 `case 80` fixed-window 分支，cwd 更新只消费 enter/exit TLV 合并后的 semantic payload section。
+- 单 path、无 OUT payload 的 path-only syscall 已开始绕开旧 fixed-window capture；`access/chdir/chroot/chmod/chown/lchown/mkdir/mknod/rmdir/unlink/swapon/swapoff/acct/truncate/fsopen` 和 `mkdirat/mknodat/fchownat/unlinkat/fchmodat/faccessat/faccessat2/fspick` 在 enter 阶段直接写 `PayloadKindString` TLV，exit 阶段用小 pending metadata 合成 event v2，并附带一次 eBPF path retry TLV 以覆盖 fork child 首个 `chdir` enter probe 可能 `-EFAULT` 的场景。`chdir` 的旧 capture policy 残留已删除，旧 capture 生成链已删除，不再存在 `case 80` fixed-window 分支，cwd 更新只消费 enter/exit TLV 合并后的 semantic payload section。
 - 双 path syscall 已绕开旧 fixed-window capture；`rename/link/symlink/symlinkat/renameat/renameat2/linkat` 在 enter 阶段直接写两个 `PayloadKindString` TLV sections，exit 阶段只用小 pending metadata 合成 event v2，Go 状态机会合并 enter sections 后交给 formatter。
 - 迁移期固定窗口源已统一命名为 `windowPayloadSource`，不再把它称为 fixed payload source，强调它只是旧 BPF fixed-window 到 semantic section 的兼容投影层。
 - `syscallEventContext` 已删除 `raw *bpfEvent` 字段和 raw fallback；JSON/handler/text pipeline 只能消费构造期缓存的 `syscallEventView` 与 `PayloadSection`，旧 BPF carrier 不再能从 syscall context 重新进入输出路径。
@@ -1059,8 +1011,8 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 
 仍需收口：
 
-- BPF 侧仍保留 `struct bpf_event` / `str_arg` fixed window 作为多条 capture path 的承载结构；目前 `getpid/close` scalar-only syscall、`open/openat/creat` path enter payload、`openat2` path+open_how payload、`write/pwrite64` bytes enter payload、`read/pread64` bytes exit payload、`execve/execveat` argv/envp/path payload、`exit/exit_group` terminating syscall、`clock_gettime/clock_getres` OUT struct payload、`gettimeofday` 多 OUT struct payload、`clock_settime/settimeofday` time setter IN struct payload、`utime/utimes/futimesat/utimensat` file timestamp path/time payload、`adjtimex/clock_adjtime` timex OUT struct payload、`stat/lstat/fstat/newfstatat/fstatfs` stat OUT struct payload、`statfs` path+statfs payload、`readlink/readlinkat` path+bytes payload、`getcwd` OUT bytes payload、`pipe/pipe2/socketpair` fd-array OUT struct payload、`uname/sysinfo/getrlimit/setrlimit/prlimit64` misc struct payload、`arch_prctl/get_robust_list/sendfile/copy_file_range` small struct payload、`waitid` siginfo/rusage payload、`rt_sigaction/rt_sigprocmask/rt_sigsuspend` signal struct payload、`prctl` name/uint32 payload、`clone3` clone_args payload、`bpf` attr bytes payload、`readv/writev/preadv/pwritev/preadv2/pwritev2/vmsplice/process_vm_readv/process_vm_writev/process_madvise` iovec payload、`fcntl` command-aware payload、`connect/bind/sendto/recvfrom/accept/accept4/getsockname/getpeername` network payload、`getitimer/setitimer` itimer struct payload、`nanosleep/clock_nanosleep` sleep timespec payload、`futex` timeout payload、`futex_wait` timeout payload、`futex_waitv` waiters+timeout payload、`futex_requeue` waiters payload、`cachestat` range/stats payload、`capget/capset` capability payload、`memfd_create` name payload、`add_key/request_key` key string/bytes payload、`setxattr/getxattr/listxattr/removexattr` xattr string/bytes payload、`mount/umount2/fsconfig` filesystem string/bytes payload、`io_setup` AIO ctx payload、`io_getevents/io_pgetevents` AIO timeout/events/sigmask payload、`io_submit` AIO pointer array/iocb payload、`io_cancel` AIO iocb payload、`poll/ppoll` pollfd array/timeout/sigmask payload、`select/_newselect` fd_set/timeval payload、`epoll_ctl` event payload 和 `epoll_wait/epoll_pwait/epoll_pwait2` epoll ready events/timeout payload 已开始绕开旧 carrier，其余多 payload syscall 尚未彻底切换为 header + TLV/section-first 的可变长事件协议。
-- `sys_exit` 仍会为部分文本 formatter 重建 exit/full event；最终形态应由 enter payload、exit payload 和 Go 单协程状态机合成输出。
+- BPF 产品路径已经删除 `struct bpf_event` / `str_arg` fixed window / per-cpu `heap` carrier；Go 侧仍保留 `bpfEvent` legacy fixture 和 `windowPayloadSource`，仅用于历史 fixed-window 样本投影测试，后续可随测试重写逐步删除。
+- `sys_exit` fallback 已直接从 compact pending metadata 合成 no-payload event v2；后续重点不再是删除 carrier，而是补齐少数 nested payload 的 probe-site bounded 深拷贝。
 - `read-write.gen.test` 当前剩余差异主要是 512 字节 BPF snapshot 前缀之后的大 hexdump exact diff；这属于 bounded eBPF snapshot 与 ptrace 无限/大块 fetch 语义差异，当前已作为 reference `XFAIL` 明确记录，主门禁已通过 JSON `EVENT_FLAG_TRUNCATED` / section `copied_len < user_len` oracle 覆盖纯 eBPF 契约。
 - `bpf.gen.test` / `bpf-v.gen.test` 当前剩余差异主要是 `BPF_PROG_LOAD` 中 `insns`、`license`、`log_buf` 等 `union bpf_attr` 嵌套指针未做 probe-site bounded 深拷贝；这是后续 `bpf_attr nested payload` 专项，不应通过 Go 侧补读 tracee 内存修复。
 - `process_vm_readv.gen.test` / `process_vm_writev.gen.test` 当前剩余差异主要是 iovec array 中 `iov_base` 指向的远端/本地 buffer 未做 probe-site bounded 深拷贝；当前 direct iovec 只承诺捕获 iovec array 本体，后续若要接近 upstream 文本，需要新增独立的 nested iov_base payload policy，而不是 Go 侧补读。

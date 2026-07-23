@@ -12,6 +12,7 @@ import (
 func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	tlvHeader := readTextFile(t, filepath.Join(root, "bpf/payload_tlv.h"))
 	directHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h"))
 	fdArrayDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_fd_array_direct_event_v2.h"))
@@ -23,8 +24,6 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	pathStatDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_stat_direct_event_v2.h"))
 	readlinkDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_direct_event_v2.h"))
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 
 	if !strings.Contains(straceSource, `#include "payload_tlv.h"`) {
 		t.Fatal("strace.c does not include payload_tlv.h")
@@ -203,7 +202,7 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		"case 302: /* prlimit64 */",
 		"case 322: /* execveat */",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("direct path/exec syscall still uses old fixed-window rule %q", legacyRule)
 		}
 	}
@@ -487,4 +486,41 @@ func readTextFile(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(data)
+}
+
+func legacyCaptureArtifactsForTest(t *testing.T) string {
+	t.Helper()
+	root := repoRootForTest(t)
+	var out strings.Builder
+	for _, rel := range []string{
+		"cmd/generate-syscalls/capture_rules.yaml",
+		"bpf/syscall_capture.h",
+	} {
+		path := filepath.Join(root, rel)
+		data, err := os.ReadFile(path)
+		if err == nil {
+			out.Write(data)
+			out.WriteByte('\n')
+			continue
+		}
+		if !os.IsNotExist(err) {
+			t.Fatalf("read legacy capture artifact %s: %v", path, err)
+		}
+	}
+	return out.String()
+}
+
+func TestLegacyCaptureArtifactsAreRemoved(t *testing.T) {
+	root := repoRootForTest(t)
+	for _, rel := range []string{
+		"cmd/generate-syscalls/capture_rules.yaml",
+		"bpf/syscall_capture.h",
+	} {
+		path := filepath.Join(root, rel)
+		if _, err := os.Stat(path); err == nil {
+			t.Fatalf("legacy fixed-window capture artifact still exists: %s", rel)
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("stat %s: %v", path, err)
+		}
+	}
 }

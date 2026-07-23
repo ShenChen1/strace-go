@@ -9,10 +9,9 @@ import (
 func TestBPFXattrPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	xattrDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_xattr_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_SETXATTR 188",
@@ -63,7 +62,7 @@ func TestBPFXattrPayloadsUseDirectTLV(t *testing.T) {
 		"case 196: /* flistxattr */",
 		"case 199: /* fremovexattr */",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("xattr syscall still uses old fixed-window rule %q", legacyRule)
 		}
 	}

@@ -9,10 +9,9 @@ import (
 func TestBPFCapabilityPayloadUsesDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	capabilityDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_capability_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 	sessionSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/session.go"))
 
 	for _, snippet := range []string{
@@ -57,9 +56,7 @@ func TestBPFCapabilityPayloadUsesDirectTLV(t *testing.T) {
 		"case 126: /* capset */",
 		"capture_capset_data(",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) ||
-			strings.Contains(generatedCapture, legacyRule) ||
-			strings.Contains(straceSource, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) || strings.Contains(straceSource, legacyRule) {
 			t.Fatalf("capability still uses old fixed-window rule %q", legacyRule)
 		}
 	}

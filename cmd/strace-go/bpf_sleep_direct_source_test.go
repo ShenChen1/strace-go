@@ -9,10 +9,9 @@ import (
 func TestBPFSleepPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	sleepDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_sleep_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 
 	for _, constant := range []string{
 		"volatile const u32 SYS_NANOSLEEP = 35;",
@@ -75,7 +74,7 @@ func TestBPFSleepPayloadsUseDirectTLV(t *testing.T) {
 		"case 35: /* nanosleep */",
 		"case 230: /* clock_nanosleep */",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("sleep still uses old fixed-window rule %q", legacyRule)
 		}
 	}

@@ -1,5 +1,0 @@
-# Capture rules for strace-go BPF probes.
-# Product syscall payloads are emitted by syscall-specific direct TLV helpers.
-# Keep this file empty unless a transitional fixed-window policy is unavoidable.
-
-rules: []

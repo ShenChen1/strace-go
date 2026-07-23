@@ -9,10 +9,9 @@ import (
 func TestBPFSelectPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	selectDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_select_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_SELECT 23",
@@ -58,7 +57,7 @@ func TestBPFSelectPayloadsUseDirectTLV(t *testing.T) {
 		"syscalls: [select, _newselect]",
 		"case 23: /* select */",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("select syscall still uses old fixed-window rule %q", legacyRule)
 		}
 	}

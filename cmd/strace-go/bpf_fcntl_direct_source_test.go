@@ -9,10 +9,9 @@ import (
 func TestBPFFcntlPayloadUsesDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	fcntlDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_fcntl_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_FCNTL 72",
@@ -48,7 +47,7 @@ func TestBPFFcntlPayloadUsesDirectTLV(t *testing.T) {
 		"syscalls: [fcntl, fcntl64]",
 		"case 72: /* fcntl */",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("fcntl still uses old fixed-window rule %q", legacyRule)
 		}
 	}

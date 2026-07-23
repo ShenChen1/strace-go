@@ -14,18 +14,11 @@ type SyscallMeta struct {
 }
 
 func main() {
-	if err := loadCapturePolicy("capture_rules.yaml"); err != nil {
-		log.Fatalf("failed to load capture policy: %v", err)
-	}
-
 	syscalls, err := LoadSyscalls()
 	if err != nil {
 		log.Fatalf("failed to load syscalls: %v", err)
 	}
 
-	if err := writeBPFCaptureHeader("../../bpf/syscall_capture.h", syscalls); err != nil {
-		log.Fatalf("failed to write syscall_capture.h: %v", err)
-	}
 	if err := writeGoSyscallTable("../../pkg/meta/syscall_table.go", syscalls); err != nil {
 		log.Fatalf("failed to write syscall_table.go: %v", err)
 	}

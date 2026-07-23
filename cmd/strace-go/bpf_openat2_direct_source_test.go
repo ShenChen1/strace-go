@@ -9,10 +9,9 @@ import (
 func TestBPFOpenat2PayloadUsesDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	openat2DirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_openat2_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_OPENAT2 437",
@@ -49,7 +48,7 @@ func TestBPFOpenat2PayloadUsesDirectTLV(t *testing.T) {
 		"syscalls: [openat2]",
 		"case 437: /* openat2 */",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("openat2 still uses old fixed-window rule %q", legacyRule)
 		}
 	}

@@ -9,10 +9,9 @@ import (
 func TestBPFKeyPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	keyDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_key_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_ADD_KEY 248",
@@ -50,7 +49,7 @@ func TestBPFKeyPayloadsUseDirectTLV(t *testing.T) {
 		"case 248: /* add_key */",
 		"case 249: /* request_key */",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("key syscall still uses old fixed-window rule %q", legacyRule)
 		}
 	}

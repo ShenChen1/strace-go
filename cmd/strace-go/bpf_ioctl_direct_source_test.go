@@ -9,10 +9,9 @@ import (
 func TestBPFIoctlPayloadUsesDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	ioctlDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_ioctl_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_IOCTL 16",
@@ -52,7 +51,7 @@ func TestBPFIoctlPayloadUsesDirectTLV(t *testing.T) {
 		"syscalls: [ioctl]",
 		"case 16: /* ioctl */",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("ioctl still uses old fixed-window rule %q", legacyRule)
 		}
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,12 +10,10 @@ import (
 func TestBPFAioPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	aioDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_aio_direct_event_v2.h"))
 	aioGeteventsDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_aio_getevents_direct_event_v2.h"))
-	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
-	captureGenerator := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/gen_bpf_capture.go"))
-	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 	aioDirectSources := aioDirectHeader + aioGeteventsDirectHeader
 
 	for _, snippet := range []string{
@@ -92,12 +91,15 @@ func TestBPFAioPayloadsUseDirectTLV(t *testing.T) {
 		"syscalls: [io_cancel]",
 		"case 210: /* io_cancel */",
 	} {
-		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("AIO syscall still uses old fixed-window rule %q", legacyRule)
 		}
 	}
 
-	if strings.Contains(captureGenerator, "ioSubmitExtraCode") {
-		t.Fatal("io_submit still has a fixed-window generator special case")
+	captureGeneratorPath := filepath.Join(root, "cmd/generate-syscalls/gen_bpf_capture.go")
+	if _, err := os.Stat(captureGeneratorPath); err == nil {
+		t.Fatal("old fixed-window BPF capture generator still exists")
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat %s: %v", captureGeneratorPath, err)
 	}
 }
