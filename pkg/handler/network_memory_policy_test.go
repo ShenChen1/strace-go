@@ -151,6 +151,24 @@ func TestNetworkBufferUsesRecvfromPayloadBytesSection(t *testing.T) {
 	}
 }
 
+func TestNetworkBufferUsesRecvfromCountWhenMsgTruncRetExceedsCount(t *testing.T) {
+	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x2000: []byte("A")}}
+	ctx := newNetworkPolicyContext(reader, "recvfrom")
+	ctx.Args = [6]uint64{3, 0x2000, 1}
+	ctx.Ret = 2
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: []byte("A")},
+	}
+
+	got, ok := (&NetworkHandler{}).formatNetworkBuffer(ctx, 1, 0x2000)
+	if !ok || got != `"A"` {
+		t.Fatalf("formatNetworkBuffer() = %q, %v; want count-sized payload buffer", got, ok)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestNetworkZeroLengthBufferDoesNotRead(t *testing.T) {
 	reader := &networkPolicyMemoryReader{data: map[uint64][]byte{0x2000: []byte("abc")}}
 	ctx := newNetworkPolicyContext(reader, "sendto")

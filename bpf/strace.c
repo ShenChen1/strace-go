@@ -46,6 +46,13 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_SETITIMER 38
 #define SYS_GETPID 39
 #define SYS_SENDFILE 40
+#define SYS_CONNECT 42
+#define SYS_ACCEPT 43
+#define SYS_SENDTO 44
+#define SYS_RECVFROM 45
+#define SYS_BIND 49
+#define SYS_GETSOCKNAME 51
+#define SYS_GETPEERNAME 52
 #define SYS_SOCKETPAIR 53
 #define SYS_UNAME 63
 #define SYS_FCNTL 72
@@ -125,6 +132,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_UTIMENSAT 280
 #define SYS_VMSPLICE 278
 #define SYS_EPOLL_PWAIT 281
+#define SYS_ACCEPT4 288
 #define SYS_PIPE2 293
 #define SYS_PREADV 295
 #define SYS_PWRITEV 296
@@ -220,6 +228,8 @@ struct pending_syscall {
     u32 sys_id;
     u32 tid;
     s32 stack_id;
+    u32 aux0;
+    u32 aux1;
 };
 
 struct bpf_stats {
@@ -334,7 +344,7 @@ struct {
 
 static __always_inline void save_pending_syscall(u32 tid, struct bpf_event *e)
 {
-    struct pending_syscall p;
+    struct pending_syscall p = {};
 
     p.enter_time = e->enter_time;
     p.args[0] = e->args[0];
@@ -657,6 +667,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_bpf_direct_event_v2.h"
 #include "syscall_iovec_direct_event_v2.h"
 #include "syscall_fcntl_direct_event_v2.h"
+#include "syscall_network_direct_event_v2.h"
 #include "syscall_key_direct_event_v2.h"
 #include "syscall_xattr_direct_event_v2.h"
 #include "syscall_fs_direct_event_v2.h"
@@ -890,6 +901,21 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
+    // IMPACT: network buffer/sockaddr/addrlen snapshots are captured through direct TLV sections with enter addrlen kept in compact pending metadata.
+    if (is_network_direct_syscall(sys_id)) {
+        struct network_direct_args network_args = {};
+        network_args.args[0] = ctx->args[0];
+        network_args.args[1] = ctx->args[1];
+        network_args.args[2] = ctx->args[2];
+        network_args.args[3] = ctx->args[3];
+        network_args.args[4] = ctx->args[4];
+        network_args.args[5] = ctx->args[5];
+        u32 sockaddr_len = 0;
+        emit_network_enter_event_v2_direct(pid, tid, sys_id, &network_args, enter_time, &sockaddr_len);
+        save_pending_network_syscall_args(tid, pid, sys_id, &network_args, enter_time, stack_id, sockaddr_len);
+        return 0;
+    }
+
     // IMPACT: key syscalls snapshot IN strings/bytes directly into TLV sections without the fixed-window carrier.
     if (is_key_direct_syscall(sys_id)) {
         emit_key_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
@@ -1090,6 +1116,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_xattr_list_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_fcntl_direct_syscall(p->sys_id)) {
             emit_fcntl_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_network_direct_syscall(p->sys_id)) {
+            emit_network_exit_event_v2_direct(p, ret_value, duration);
         } else {
             emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
         }

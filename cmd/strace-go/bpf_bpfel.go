@@ -48,6 +48,8 @@ type bpfPendingSyscall struct {
 	SysId     uint32
 	Tid       uint32
 	StackId   int32
+	Aux0      uint32
+	Aux1      uint32
 }
 
 // loadBpf returns the embedded CollectionSpec for bpf.

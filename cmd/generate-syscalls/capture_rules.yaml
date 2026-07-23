@@ -3,37 +3,6 @@
 # type can be 'string' (bpf_probe_read_user_str) or 'raw' (bpf_probe_read_user).
 
 rules:
-  # Network
-  - syscalls: [connect, bind]
-    enter:
-      payloads:
-        - { arg: 1, kind: struct, direction: in, size: 128, offset: 0 } # sockaddr
-
-  - syscalls: [sendto]
-    enter:
-      payloads:
-        - { arg: 1, kind: raw, direction: in, size: 512, offset: 0 }    # buf
-        - { arg: 4, kind: struct, direction: in, size: 128, offset: 512 }  # addr
-
-  - syscalls: [recvfrom]
-    enter:
-      payloads:
-        - { arg: 5, kind: raw, direction: in, size: 4, offset: 768 } # addrlen in
-    exit:
-      payloads:
-        - { arg: 1, kind: raw, direction: out, size: 512, offset: 1024 } # buf
-        - { arg: 4, kind: struct, direction: out, len_from_user_arg: 5, clamp_u32_from_offset: 768, max: 128, offset: 1536 } # addr
-        - { arg: 5, kind: raw, direction: out, size: 4, offset: 772 }   # addrlen out
-
-  - syscalls: [accept, accept4, getsockname, getpeername]
-    enter:
-      payloads:
-        - { arg: 2, kind: raw, direction: in, size: 4, offset: 768 } # addrlen in
-    exit:
-      payloads:
-        - { arg: 1, kind: struct, direction: out, len_from_user_arg: 2, clamp_u32_from_offset: 768, max: 128, offset: 1024 } # addr out
-        - { arg: 2, kind: raw, direction: out, size: 4, offset: 772 } # addrlen out
-
   - syscalls: [ioctl]
     enter:
       payloads:

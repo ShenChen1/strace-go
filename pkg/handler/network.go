@@ -149,7 +149,7 @@ func (h *NetworkHandler) formatStandardBuf(ctx *Context, val uint64) string {
 		if ctx.Ret < 0 {
 			return fmt.Sprintf("%#x", val)
 		}
-		sz = int(ctx.Ret)
+		sz = recvfromBufferDisplayLen(ctx)
 	}
 	if sz > 512 {
 		sz = 512
@@ -165,11 +165,23 @@ func (h *NetworkHandler) formatStandardBuf(ctx *Context, val uint64) string {
 	if readSuccess {
 		actualLen := int(ctx.Args[2])
 		if ctx.ScMeta.Name == "recvfrom" {
-			actualLen = int(ctx.Ret)
+			actualLen = recvfromBufferDisplayLen(ctx)
 		}
 		return format.Buffer(data, ctx.Opts.StringLimit, actualLen)
 	}
 	return fmt.Sprintf("%#x", val)
+}
+
+func recvfromBufferDisplayLen(ctx *Context) int {
+	count := int(ctx.Args[2])
+	if count < 0 {
+		count = 0
+	}
+	ret := int(ctx.Ret)
+	if ret < count {
+		return ret
+	}
+	return count
 }
 
 func (h *NetworkHandler) formatSockaddr(ctx *Context, i int, argName, argTyp string, val uint64) (string, bool) {
