@@ -91,6 +91,7 @@ static __always_inline int is_sys_exit_direct_syscall(u32 sys_id)
         is_memfd_create_direct_syscall(sys_id) ||
         is_prctl_direct_syscall(sys_id) ||
         is_clone3_direct_syscall(sys_id) ||
+        is_bpf_direct_syscall(sys_id) ||
         is_key_direct_syscall(sys_id) ||
         is_xattr_direct_syscall(sys_id) ||
         is_fs_direct_syscall(sys_id) ||

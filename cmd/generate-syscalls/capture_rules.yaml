@@ -50,11 +50,6 @@ rules:
         - { arg: 1, kind: struct, direction: out, len_from_user_arg: 2, clamp_u32_from_offset: 768, max: 128, offset: 1024 } # addr out
         - { arg: 2, kind: raw, direction: out, size: 4, offset: 772 } # addrlen out
 
-  - syscalls: [bpf]
-    enter:
-      payloads:
-        - { arg: 1, kind: bytes, direction: in, len_from_arg: 2, max: 512, offset: 0 } # attr
-
   - syscalls: [ioctl]
     enter:
       payloads:

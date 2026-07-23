@@ -126,6 +126,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_CLOCK_ADJTIME 305
 #define SYS_RENAMEAT2 316
 #define SYS_MEMFD_CREATE 319
+#define SYS_BPF 321
 #define SYS_COPY_FILE_RANGE 326
 #define SYS_IO_PGETEVENTS 333
 #define SYS_FSOPEN 430
@@ -642,6 +643,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_memfd_direct_event_v2.h"
 #include "syscall_prctl_direct_event_v2.h"
 #include "syscall_clone3_direct_event_v2.h"
+#include "syscall_bpf_direct_event_v2.h"
 #include "syscall_key_direct_event_v2.h"
 #include "syscall_xattr_direct_event_v2.h"
 #include "syscall_fs_direct_event_v2.h"
@@ -850,6 +852,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     // IMPACT: clone3 snapshots struct clone_args directly into TLV sections without the fixed-window carrier.
     if (is_clone3_direct_syscall(sys_id)) {
         emit_clone3_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
+    // IMPACT: bpf attr bytes are captured through direct TLV sections without the fixed-window carrier.
+    if (is_bpf_direct_syscall(sys_id)) {
+        emit_bpf_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }

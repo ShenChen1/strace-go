@@ -30,6 +30,11 @@ func init() {
 // and appends extra_data block when buffer size exceeds the parsed struct size.
 type BpfHandler struct{}
 
+const (
+	bpfAttrSnapshotMaxBytes = 512
+	bpfErrFault             = -14
+)
+
 func (h *BpfHandler) Handle(ctx *Context) Result {
 	res := Result{}
 	cmd := ctx.Args[0]
@@ -204,16 +209,32 @@ func bpfAttrData(ctx *Context, size int) ([]byte, bool) {
 		return nil, false
 	}
 	limit := size
-	if limit > 512 {
-		limit = 512
+	if limit > bpfAttrSnapshotMaxBytes {
+		limit = bpfAttrSnapshotMaxBytes
 	}
-	if data, ok := ctx.PayloadBytes(1, PayloadDirectionIn); ok {
-		if len(data) > limit {
-			data = data[:limit]
+	section, ok := bpfAttrPayloadSection(ctx)
+	if !ok || bpfAttrPartialEfault(ctx, section) {
+		return nil, false
+	}
+	data := section.Data
+	if len(data) > limit {
+		data = data[:limit]
+	}
+	return data, len(data) > 0
+}
+
+func bpfAttrPayloadSection(ctx *Context) (PayloadSection, bool) {
+	for _, section := range ctx.PayloadSections {
+		if section.ArgIndex == 1 && section.Kind == PayloadKindBytes &&
+			section.Direction == PayloadDirectionIn && section.ProbeRet == 0 && len(section.Data) > 0 {
+			return section, true
 		}
-		return data, len(data) > 0
 	}
-	return nil, false
+	return PayloadSection{}, false
+}
+
+func bpfAttrPartialEfault(ctx *Context, section PayloadSection) bool {
+	return ctx.Ret == bpfErrFault && section.UserLen > section.CopiedLen
 }
 
 // tryGenerateTestExtraData detects cyclic test patterns and generates aligned buffer.

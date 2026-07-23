@@ -93,6 +93,58 @@ func TestBpfHandlerUsesPayloadBytesSection(t *testing.T) {
 	}
 }
 
+func TestBpfHandlerEfaultIgnoresPartialPayloadBytesSection(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.Args = [6]uint64{0, 0x1000, 4096}
+	ctx.Ret = -14
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindBytes,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  1,
+			UserLen:   4096,
+			CopiedLen: 512,
+			ProbeRet:  0,
+			Data:      makeBpfMapCreateAttr(512),
+		},
+	}
+
+	got := (&BpfHandler{}).Handle(ctx)
+	if got.ArgParts[1] != "0x1000" {
+		t.Fatalf("BpfHandler.Handle() arg = %q, want pointer fallback for partial EFAULT attr", got.ArgParts[1])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestBpfHandlerEfaultUsesCompletePayloadBytesSection(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.Args = [6]uint64{0, 0x1000, 16}
+	ctx.Ret = -14
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindBytes,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  1,
+			UserLen:   16,
+			CopiedLen: 16,
+			ProbeRet:  0,
+			Data:      makeBpfMapCreateAttr(16),
+		},
+	}
+
+	got := (&BpfHandler{}).Handle(ctx)
+	if !strings.Contains(got.ArgParts[1], "key_size=4") || !strings.Contains(got.ArgParts[1], "max_entries=16") {
+		t.Fatalf("BpfHandler.Handle() arg = %q, want complete payload attr values", got.ArgParts[1])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestBpfHandlerDoesNotReadAttrWhenFallbackDisabled(t *testing.T) {
 	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{
 		0x1000: makeBpfMapCreateAttr(16),
