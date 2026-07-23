@@ -412,55 +412,6 @@ static __always_inline u32 capture_exec_path_tlv_direct(
     return PAYLOAD_TLV_HEADER_SIZE + copied_len;
 }
 
-static __always_inline void count_exec_array_direct(
-    u64 array,
-    u32 max_count,
-    u16 *count,
-    s32 *status,
-    u64 *next)
-{
-    *count = 0;
-    *status = -1;
-    *next = array;
-
-    if (!array) {
-        *status = 0;
-        return;
-    }
-
-    for (u32 i = 0; i < EXEC_ENV_MAX; i++) {
-        if (i >= max_count) {
-            break;
-        }
-
-        u64 slot = array + i * sizeof(u64);
-        u64 user_ptr = 0;
-        if (bpf_probe_read_user(&user_ptr, sizeof(user_ptr), (void *)slot) < 0) {
-            *status = -1;
-            *next = slot;
-            break;
-        }
-        if (!user_ptr) {
-            *status = 0;
-            break;
-        }
-
-        *count = i + 1;
-        if (i == max_count - 1) {
-            u64 next_slot = array + max_count * sizeof(u64);
-            u64 next_ptr = 0;
-            if (bpf_probe_read_user(&next_ptr, sizeof(next_ptr), (void *)next_slot) < 0) {
-                *status = -1;
-                *next = next_slot;
-            } else if (!next_ptr) {
-                *status = 0;
-            } else {
-                *status = 1;
-            }
-        }
-    }
-}
-
 static __always_inline void capture_exec_argv_records_direct(
     struct bpf_dynptr *ptr,
     u32 records_offset,
@@ -517,6 +468,62 @@ static __always_inline void capture_exec_argv_records_direct(
     }
 }
 
+static __always_inline void capture_exec_env_records_direct(
+    struct bpf_dynptr *ptr,
+    u32 records_offset,
+    u64 array,
+    u16 *count,
+    s32 *status,
+    u64 *next)
+{
+    *count = 0;
+    *status = -1;
+    *next = array;
+
+    if (!array) {
+        *status = 0;
+        return;
+    }
+
+    for (u32 i = 0; i < EXEC_ENV_MAX; i++) {
+        struct exec_arg_snapshot arg = {};
+        u64 slot = array + i * sizeof(u64);
+        u64 user_ptr = 0;
+        if (bpf_probe_read_user(&user_ptr, sizeof(user_ptr), (void *)slot) < 0) {
+            *status = -1;
+            *next = slot;
+            break;
+        }
+        if (!user_ptr) {
+            *status = 0;
+            break;
+        }
+
+        arg.ptr = user_ptr;
+        arg.len = bpf_probe_read_user_str(arg.data, sizeof(arg.data), (void *)user_ptr);
+        long ret = bpf_dynptr_write(ptr, records_offset + i * sizeof(arg), &arg, sizeof(arg), 0);
+        if (ret < 0) {
+            record_ringbuf_copy_fail();
+            *status = -1;
+            break;
+        }
+        *count = i + 1;
+
+        if (i == EXEC_ENV_MAX - 1) {
+            u64 next_slot = array + EXEC_ENV_MAX * sizeof(u64);
+            u64 next_ptr = 0;
+            if (bpf_probe_read_user(&next_ptr, sizeof(next_ptr), (void *)next_slot) < 0) {
+                *status = -1;
+                *next = next_slot;
+            } else if (!next_ptr) {
+                *status = 0;
+            } else {
+                *status = 1;
+            }
+        }
+    }
+}
+
 static __always_inline int capture_exec_snapshot_direct(
     struct bpf_dynptr *ptr,
     u32 snapshot_offset,
@@ -526,16 +533,19 @@ static __always_inline int capture_exec_snapshot_direct(
     struct exec_snapshot_header header = {};
     header.magic = EXEC_SNAPSHOT_MAGIC;
 
+    u32 argv_records_offset = snapshot_offset + sizeof(header);
+    u32 env_records_offset = snapshot_offset + sizeof(header) + EXEC_ARG_MAX * sizeof(struct exec_arg_snapshot);
     capture_exec_argv_records_direct(
         ptr,
-        snapshot_offset + sizeof(header),
+        argv_records_offset,
         argv_ptr,
         &header.argv_count,
         &header.argv_status,
         &header.argv_next);
-    count_exec_array_direct(
+    capture_exec_env_records_direct(
+        ptr,
+        env_records_offset,
         env_ptr,
-        EXEC_ENV_MAX,
         &header.env_count,
         &header.env_status,
         &header.env_next);
@@ -545,7 +555,8 @@ static __always_inline int capture_exec_snapshot_direct(
         record_ringbuf_copy_fail();
         return 0;
     }
-    return sizeof(header) + header.argv_count * sizeof(struct exec_arg_snapshot);
+    return sizeof(header) + EXEC_ARG_MAX * sizeof(struct exec_arg_snapshot) +
+        header.env_count * sizeof(struct exec_arg_snapshot);
 }
 
 static __always_inline u32 capture_exec_tlv_direct(

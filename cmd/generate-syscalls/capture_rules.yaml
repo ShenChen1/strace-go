@@ -4,7 +4,7 @@
 
 rules:
   # Path-based syscalls (enter)
-  - syscalls: [chdir, execve]
+  - syscalls: [chdir]
     enter:
       payloads:
         - { arg: 0, kind: string, direction: in, max: 4096 }
@@ -45,13 +45,6 @@ rules:
     exit:
       payloads:
         - { arg: 3, kind: raw, direction: out, size: 8, offset: 1024 }
-
-  # At-based syscalls (enter)
-  # IMPACT: Capture execveat along with openat for path resolution.
-  - syscalls: [openat, execveat]
-    enter:
-      payloads:
-        - { arg: 1, kind: string, direction: in, max: 4096 }
 
   - syscalls: [newfstatat]
     enter:

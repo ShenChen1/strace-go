@@ -21,6 +21,8 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	pathStatDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_stat_direct_event_v2.h"))
 	readlinkDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_direct_event_v2.h"))
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
+	capturePolicy := readTextFile(t, filepath.Join(root, "cmd/generate-syscalls/capture_rules.yaml"))
+	generatedCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_capture.h"))
 
 	if !strings.Contains(straceSource, `#include "payload_tlv.h"`) {
 		t.Fatal("strace.c does not include payload_tlv.h")
@@ -125,6 +127,24 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		!strings.Contains(straceSource, "emit_exec_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time, probe_ret_enter);") ||
 		!strings.Contains(straceSource, "emit_exec_exit_event_v2_direct(p, ret_value, duration);") {
 		t.Fatal("execve/execveat should use direct event v2 TLV helpers instead of the bpf_event carrier")
+	}
+	if !strings.Contains(directHeader, "capture_exec_env_records_direct(") ||
+		!strings.Contains(directHeader, "snapshot_offset + sizeof(header) + EXEC_ARG_MAX * sizeof(struct exec_arg_snapshot)") ||
+		!strings.Contains(directHeader, "&header.env_count") ||
+		!strings.Contains(directHeader, "&header.env_status") ||
+		!strings.Contains(directHeader, "&header.env_next") {
+		t.Fatal("execve/execveat direct snapshot should deep-copy envp records into the fixed env snapshot area")
+	}
+	for _, legacyRule := range []string{
+		"syscalls: [chdir, execve]",
+		"syscalls: [openat, execveat]",
+		"case 59: /* execve */",
+		"case 257: /* openat */",
+		"case 322: /* execveat */",
+	} {
+		if strings.Contains(capturePolicy, legacyRule) || strings.Contains(generatedCapture, legacyRule) {
+			t.Fatalf("direct path/exec syscall still uses old fixed-window rule %q", legacyRule)
+		}
 	}
 	if !strings.Contains(straceSource, "saved_flags | EVENT_FLAG_GENERIC_ENTER") {
 		t.Fatal("generic enter flag should preserve payload TLV flag")
