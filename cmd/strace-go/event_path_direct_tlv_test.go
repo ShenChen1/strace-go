@@ -37,6 +37,42 @@ func TestSyscallEventContextMergesPathOnlyTLVSection(t *testing.T) {
 	}
 }
 
+func TestSyscallEventContextPrefersPathOnlyExitRetryTLVSection(t *testing.T) {
+	session := miscStructTLVSession("chdir")
+	args := [6]uint64{0x2000}
+	enterPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:     payloadTLVKindString,
+		arg:      0,
+		userPtr:  args[0],
+		probeRet: -14,
+	})
+	enterRaw := miscStructTLVEvent(t, "chdir", bpfEventTypeEnter, args, 0, enterPayload)
+	enterRaw.EventFlags |= bpfEventFlagGenericEnter
+	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+
+	exitData := []byte("fork-f.child\x00")
+	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindString,
+		arg:     0,
+		userPtr: args[0],
+		userLen: uint32(len(exitData)),
+		data:    exitData,
+	})
+	exitRaw := miscStructTLVEvent(t, "chdir", bpfEventTypeExit, args, -2, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	ev := newSyscallEventContextFromView(
+		session,
+		exitUpdate.syscallView,
+		101,
+		exitUpdate.pendingEnter,
+		exitUpdate.payloadSections)
+
+	section, ok := ev.handlerContext.Section(0, handler.PayloadKindString)
+	if !ok || section.ProbeRet != 0 || !bytes.Equal(section.Data, exitData) {
+		t.Fatalf("chdir retry path section = %+v, %v; want successful exit retry string TLV", section, ok)
+	}
+}
+
 func TestSyscallEventContextMergesDualPathTLVSections(t *testing.T) {
 	session := miscStructTLVSession("rename")
 	args := [6]uint64{0x2000, 0x3000}

@@ -2,11 +2,13 @@
 #define STRACE_GO_SYSCALL_PATH_DIRECT_EVENT_V2_H
 
 #define PATH_ONLY_DIRECT_PATH_MAX 4096
+#define PATH_ONLY_DIRECT_FIRST_CHUNK 2048
+#define PATH_ONLY_DIRECT_SECOND_CHUNK 2049
 #define DUAL_PATH_DIRECT_PATH_MAX 512
 
 static __always_inline int is_path_only_arg0_direct_syscall(u32 sys_id)
 {
-    return sys_id == SYS_ACCESS || sys_id == SYS_CHROOT ||
+    return sys_id == SYS_ACCESS || sys_id == SYS_CHDIR || sys_id == SYS_CHROOT ||
         sys_id == SYS_CHMOD || sys_id == SYS_CHOWN || sys_id == SYS_LCHOWN ||
         sys_id == SYS_MKDIR || sys_id == SYS_MKNOD || sys_id == SYS_RMDIR ||
         sys_id == SYS_UNLINK || sys_id == SYS_SWAPON || sys_id == SYS_SWAPOFF ||
@@ -66,11 +68,45 @@ static __always_inline u32 capture_path_only_tlv_direct(
             record_ringbuf_copy_fail();
             probe_ret = -1;
         } else {
-            long n = bpf_probe_read_user_str(payload_data, PATH_ONLY_DIRECT_PATH_MAX, (void *)user_ptr);
+            long n = bpf_probe_read_user_str(payload_data, PATH_ONLY_DIRECT_FIRST_CHUNK, (void *)user_ptr);
             if (n < 0) {
                 probe_ret = n;
-            } else if (n > PATH_ONLY_DIRECT_PATH_MAX) {
-                copied_len = PATH_ONLY_DIRECT_PATH_MAX;
+            } else if (n >= PATH_ONLY_DIRECT_FIRST_CHUNK) {
+                void *tail = bpf_dynptr_data(
+                    ptr,
+                    data_offset + PATH_ONLY_DIRECT_FIRST_CHUNK - 1,
+                    PATH_ONLY_DIRECT_SECOND_CHUNK);
+                if (!tail) {
+                    record_ringbuf_copy_fail();
+                    probe_ret = -1;
+                } else {
+                    long tail_len = bpf_probe_read_user_str(
+                        tail,
+                        PATH_ONLY_DIRECT_SECOND_CHUNK,
+                        (void *)(user_ptr + PATH_ONLY_DIRECT_FIRST_CHUNK - 1));
+                    if (tail_len < 0) {
+                        probe_ret = tail_len;
+                        copied_len = PATH_ONLY_DIRECT_FIRST_CHUNK - 1;
+                    } else {
+                        copied_len = PATH_ONLY_DIRECT_FIRST_CHUNK - 1 + (u32)tail_len;
+                        if (copied_len >= PATH_ONLY_DIRECT_PATH_MAX) {
+                            char last_byte = 0;
+                            bpf_probe_read_user(
+                                &last_byte,
+                                1,
+                                (void *)(user_ptr + PATH_ONLY_DIRECT_PATH_MAX - 1));
+                            void *last = bpf_dynptr_data(
+                                ptr,
+                                data_offset + PATH_ONLY_DIRECT_PATH_MAX - 1,
+                                1);
+                            if (last) {
+                                *(char *)last = last_byte;
+                            }
+                            copied_len = PATH_ONLY_DIRECT_PATH_MAX;
+                            record_payload_truncated_event();
+                        }
+                    }
+                }
             } else {
                 copied_len = (u32)n;
             }
@@ -154,6 +190,56 @@ static __always_inline void emit_path_only_enter_event_v2_direct(
         return;
     }
     emit_path_only_enter_event_v2_direct_with_path(pid, tid, sys_id, ctx, ts_ns, 0, ctx->args[0]);
+}
+
+static __always_inline void emit_path_only_exit_event_v2_direct(
+    struct pending_syscall *p,
+    s64 ret_value,
+    u64 duration)
+{
+    u16 path_arg = 0;
+    if (is_path_only_arg1_direct_syscall(p->sys_id)) {
+        path_arg = 1;
+    }
+
+    u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + PATH_ONLY_DIRECT_PATH_MAX;
+    u32 body_offset = EVENT_V2_HEADER_LEN;
+    u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_EXIT_BODY_LEN;
+    u32 out_size = payload_offset + payload_capacity;
+    u64 ts_ns = p->enter_time + duration;
+    struct bpf_dynptr ptr;
+    long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
+    if (ret < 0) {
+        record_ringbuf_reserve_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    u16 flags = 0;
+    u32 payload_size = capture_path_only_tlv_direct(&ptr, payload_offset, path_arg, p->args[path_arg]);
+    if (payload_size > 0) {
+        flags |= EVENT_FLAG_PAYLOAD_TLV;
+    }
+
+    struct event_v2_header header = {};
+    init_syscall_event_v2_header_direct(&header, EVENT_TYPE_EXIT, flags, p->pid, p->tid, p->sys_id, out_size, ts_ns);
+    ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    struct syscall_exit_event_v2 body = {};
+    init_syscall_exit_event_v2_from_pending(&body, p, ret_value, duration, payload_size);
+    ret = bpf_dynptr_write(&ptr, body_offset, &body, sizeof(body), 0);
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    bpf_ringbuf_submit_dynptr(&ptr, 0);
 }
 
 static __always_inline u32 capture_dual_path_tlv_direct(

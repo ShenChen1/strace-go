@@ -3,12 +3,6 @@
 # type can be 'string' (bpf_probe_read_user_str) or 'raw' (bpf_probe_read_user).
 
 rules:
-  # Path-based syscalls (enter)
-  - syscalls: [chdir]
-    enter:
-      payloads:
-        - { arg: 0, kind: string, direction: in, max: 4096 }
-
   # Syscalls returning struct stat
   - syscalls: [stat, lstat]
     enter:

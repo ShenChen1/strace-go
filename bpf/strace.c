@@ -1001,6 +1001,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_readlink_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_fd_array_direct_syscall(p->sys_id) && ret_value == 0) {
             emit_fd_array_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_path_only_direct_syscall(p->sys_id)) {
+            emit_path_only_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_misc_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_misc_struct_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_small_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
