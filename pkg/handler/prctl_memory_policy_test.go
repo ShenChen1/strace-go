@@ -176,3 +176,28 @@ func TestPrctlSetNameUsesPayloadStringSection(t *testing.T) {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
+
+func TestPrctlSetNameMarksFilledKernelNameSnapshotTruncated(t *testing.T) {
+	reader := &fetchPolicyMemoryReader{data: makePrctlNameSnapshot("fallback")}
+	decoder := event.NewDecoder()
+	ctx := newPrctlPolicyContext(reader, decoder, 15)
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindString,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  1,
+			UserLen:   prctlNameSize,
+			CopiedLen: prctlDisplayNameLimit,
+			ProbeRet:  0,
+			Data:      []byte("123456789abcdef"),
+		},
+	}
+
+	got := (&PrctlHandler{}).Handle(ctx)
+	if got.ArgParts[1] != "\"123456789abcdef\"..." {
+		t.Fatalf("PR_SET_NAME arg = %q, want truncated quoted name", got.ArgParts[1])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}

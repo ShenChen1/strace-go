@@ -63,14 +63,6 @@ rules:
       payloads:
         - { arg: 2, kind: raw, direction: out, len_from_arg_bits: { arg: 1, shift: 16, mask: 16383, zero_len: 128 }, max: 512, offset: 1024 }
 
-  - syscalls: [prctl]
-    enter:
-      payloads:
-        - { arg: 1, kind: string, direction: in, size: 16, offset: 0 }
-    exit:
-      payloads:
-        - { arg: 1, kind: raw, direction: out, size: 16, offset: 1024 }
-
   - syscalls: [clone3]
     enter:
       payloads:

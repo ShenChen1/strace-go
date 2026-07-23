@@ -14,7 +14,10 @@ func init() {
 
 type PrctlHandler struct{}
 
-const prctlNameSize = 16
+const (
+	prctlNameSize         = 16
+	prctlDisplayNameLimit = prctlNameSize - 1
+)
 
 func (h *PrctlHandler) Handle(ctx *Context) Result {
 	res := Result{}
@@ -94,6 +97,9 @@ func decodePrctlName(ctx *Context, isExit bool) string {
 	limit := -1
 	if ctx.Opts != nil {
 		limit = ctx.Opts.StringLimit
+	}
+	if limit <= 0 || limit > prctlDisplayNameLimit {
+		limit = prctlDisplayNameLimit
 	}
 	if text, ok := ctx.PayloadString(1, direction, ctx.Args[1], limit); ok {
 		return text

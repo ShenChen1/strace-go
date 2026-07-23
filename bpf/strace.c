@@ -66,6 +66,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_MKNOD 133
 #define SYS_STATFS 137
 #define SYS_FSTATFS 138
+#define SYS_PRCTL 157
 #define SYS_CHROOT 161
 #define SYS_ACCT 163
 #define SYS_MOUNT 165
@@ -638,6 +639,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_cachestat_direct_event_v2.h"
 #include "syscall_capability_direct_event_v2.h"
 #include "syscall_memfd_direct_event_v2.h"
+#include "syscall_prctl_direct_event_v2.h"
 #include "syscall_key_direct_event_v2.h"
 #include "syscall_xattr_direct_event_v2.h"
 #include "syscall_fs_direct_event_v2.h"
@@ -836,6 +838,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
+    // IMPACT: prctl name/getter payloads are captured through option-aware direct TLV sections.
+    if (is_prctl_direct_syscall(sys_id)) {
+        emit_prctl_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
     // IMPACT: key syscalls snapshot IN strings/bytes directly into TLV sections without the fixed-window carrier.
     if (is_key_direct_syscall(sys_id)) {
         emit_key_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
@@ -1016,6 +1025,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_cachestat_exit_event_v2_direct(p, ret_value, duration);
         } else if (p->sys_id == SYS_CAPGET && ret_value >= 0) {
             emit_capability_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_prctl_direct_syscall(p->sys_id) && ret_value >= 0) {
+            emit_prctl_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_aio_getevents_direct_syscall(p->sys_id) && ret_value > 0) {
             emit_aio_getevents_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_aio_setup_direct_syscall(p->sys_id) && ret_value >= 0) {
