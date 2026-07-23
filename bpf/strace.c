@@ -125,6 +125,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_FSOPEN 430
 #define SYS_FSCONFIG 431
 #define SYS_FSPICK 433
+#define SYS_OPENAT2 437
 #define SYS_FACCESSAT2 439
 #define SYS_EPOLL_PWAIT2 441
 #define SYS_FUTEX_WAITV 449
@@ -623,6 +624,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_misc_struct_direct_event_v2.h"
 #include "syscall_path_stat_direct_event_v2.h"
 #include "syscall_path_direct_event_v2.h"
+#include "syscall_openat2_direct_event_v2.h"
 #include "syscall_readlink_direct_event_v2.h"
 #include "syscall_small_struct_direct_event_v2.h"
 #include "syscall_stat_direct_event_v2.h"
@@ -706,6 +708,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     // IMPACT: dual path syscalls snapshot both IN paths directly into TLV sections without the fixed-window carrier.
     if (is_dual_path_direct_syscall(sys_id)) {
         emit_dual_path_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
+    // IMPACT: openat2 snapshots path and struct open_how as direct TLV sections without the fixed-window carrier.
+    if (is_openat2_direct_syscall(sys_id)) {
+        emit_openat2_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }

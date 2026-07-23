@@ -96,6 +96,7 @@ static __always_inline int is_sys_exit_direct_syscall(u32 sys_id)
         is_epoll_direct_syscall(sys_id) ||
         is_path_only_direct_syscall(sys_id) ||
         is_dual_path_direct_syscall(sys_id) ||
+        is_openat2_direct_syscall(sys_id) ||
         is_futex_direct_syscall(sys_id);
 }
 

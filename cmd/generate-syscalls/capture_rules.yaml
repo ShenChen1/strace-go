@@ -53,12 +53,6 @@ rules:
       payloads:
         - { arg: 1, kind: string, direction: in, max: 4096 }
 
-  - syscalls: [openat2]
-    enter:
-      payloads:
-        - { arg: 1, kind: string, direction: in, max: 4096 }
-        - { arg: 2, kind: struct, direction: in, len_from_arg: 3, min: 24, max: 64, offset: 4096 }
-
   - syscalls: [newfstatat]
     enter:
       payloads:
