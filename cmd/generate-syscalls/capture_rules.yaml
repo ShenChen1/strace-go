@@ -9,11 +9,6 @@ rules:
       payloads:
         - { arg: 0, kind: string, direction: in, max: 4096 }
 
-  - syscalls: [getcwd]
-    exit:
-      payloads:
-        - { arg: 0, kind: bytes, direction: out, len_from_ret: true, max: 512, offset: 1024 }
-
   - syscalls: [uname]
     exit:
       payloads:
@@ -53,22 +48,6 @@ rules:
     exit:
       payloads:
         - { arg: 2, kind: struct, direction: out, size: 144, offset: 1024 }
-
-  - syscalls: [readlink]
-    enter:
-      payloads:
-        - { arg: 0, kind: string, direction: in, max: 512 }
-    exit:
-      payloads:
-        - { arg: 1, kind: bytes, direction: out, len_from_ret: true, max: 512, offset: 1024 }
-
-  - syscalls: [readlinkat]
-    enter:
-      payloads:
-        - { arg: 1, kind: string, direction: in, max: 512 }
-    exit:
-      payloads:
-        - { arg: 2, kind: bytes, direction: out, len_from_ret: true, max: 512, offset: 1024 }
 
   - syscalls: [readv, writev, preadv, pwritev, preadv2, pwritev2, vmsplice]
     enter:
