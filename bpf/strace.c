@@ -34,6 +34,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_POLL 7
 #define SYS_RT_SIGACTION 13
 #define SYS_RT_SIGPROCMASK 14
+#define SYS_IOCTL 16
 #define SYS_ACCESS 21
 #define SYS_READV 19
 #define SYS_WRITEV 20
@@ -667,6 +668,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_bpf_direct_event_v2.h"
 #include "syscall_iovec_direct_event_v2.h"
 #include "syscall_fcntl_direct_event_v2.h"
+#include "syscall_ioctl_direct_event_v2.h"
 #include "syscall_network_direct_event_v2.h"
 #include "syscall_key_direct_event_v2.h"
 #include "syscall_xattr_direct_event_v2.h"
@@ -901,6 +903,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
+    // IMPACT: ioctl arg bytes are captured through _IOC_SIZE-aware direct TLV sections without the fixed-window carrier.
+    if (is_ioctl_direct_syscall(sys_id)) {
+        emit_ioctl_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
     // IMPACT: network buffer/sockaddr/addrlen snapshots are captured through direct TLV sections with enter addrlen kept in compact pending metadata.
     if (is_network_direct_syscall(sys_id)) {
         struct network_direct_args network_args = {};
@@ -1116,6 +1125,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_xattr_list_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_fcntl_direct_syscall(p->sys_id)) {
             emit_fcntl_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_ioctl_direct_syscall(p->sys_id)) {
+            emit_ioctl_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_network_direct_syscall(p->sys_id)) {
             emit_network_exit_event_v2_direct(p, ret_value, duration);
         } else {

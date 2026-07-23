@@ -4,42 +4,8 @@
 
 #define CAPTURE_ARGS_ENTER(sys_id, e) \
 	switch (sys_id) { \
-		case 16: /* ioctl */ \
-			{ \
-				u32 iosz = (((e)->args[1] >> 16) & 0x3fff); \
-				iosz = (iosz == 0) ? 128 : (iosz > 512 ? 512 : iosz); \
-				long __err = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 512, iosz, (void *)(e)->args[2]) : 0; \
-				long pr = (__err == 0 && (e)->args[2]) ? iosz : __err; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 512 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
 	}
 #define CAPTURE_ARGS_EXIT(sys_id, e) \
 	switch (sys_id) { \
-		case 16: /* ioctl */ \
-			{ \
-				u32 iosz = (((e)->args[1] >> 16) & 0x3fff); \
-				iosz = (iosz == 0) ? 128 : (iosz > 512 ? 512 : iosz); \
-				long __err = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 1024, iosz, (void *)(e)->args[2]) : 0; \
-				long pr = (__err == 0 && (e)->args[2]) ? iosz : __err; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_exit; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
-				} else { \
-					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
-					u32 req_len = 1024 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
 	}
 #endif

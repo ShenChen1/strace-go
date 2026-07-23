@@ -1,12 +1,5 @@
 # Capture rules for strace-go BPF probes.
-# offset is the offset within the str_arg[2048] buffer.
-# type can be 'string' (bpf_probe_read_user_str) or 'raw' (bpf_probe_read_user).
+# Product syscall payloads are emitted by syscall-specific direct TLV helpers.
+# Keep this file empty unless a transitional fixed-window policy is unavoidable.
 
-rules:
-  - syscalls: [ioctl]
-    enter:
-      payloads:
-        - { arg: 2, kind: raw, direction: in, len_from_arg_bits: { arg: 1, shift: 16, mask: 16383, zero_len: 128 }, max: 512, offset: 512 } # arg with dynamic size from cmd (arg 1)
-    exit:
-      payloads:
-        - { arg: 2, kind: raw, direction: out, len_from_arg_bits: { arg: 1, shift: 16, mask: 16383, zero_len: 128 }, max: 512, offset: 1024 }
+rules: []
