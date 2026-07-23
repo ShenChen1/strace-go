@@ -139,25 +139,6 @@
 				} \
 			} \
 			break; \
-		case 72: /* fcntl */ \
-			{ \
-				u32 fcmd = (u32)(e)->args[1]; \
-				u32 fsz = 0; \
-				if (fcmd == 15 || fcmd == 16 || fcmd == 1035 || fcmd == 1036 || fcmd == 1037 || fcmd == 1038 || fcmd == 1039 || fcmd == 1040 || fcmd == 1043 || fcmd == 1044 || fcmd == 19 || fcmd == 20 || fcmd == 21 || fcmd == 22 || fcmd == 23 || fcmd == 24) fsz = 8; \
-				else if (fcmd == 5 || fcmd == 6 || fcmd == 7 || fcmd == 12 || fcmd == 13 || fcmd == 14 || fcmd == 36 || fcmd == 37 || fcmd == 38) fsz = 32; \
-				long __err = (fsz > 0 && (e)->args[2]) ? bpf_probe_read_user((e)->str_arg, fsz, (void *)(e)->args[2]) : 0; \
-				long pr = (__err == 0 && fsz > 0 && (e)->args[2]) ? fsz : __err; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_enter; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_enter = -(s32)((mask | (1 << 2)) + 1); \
-				} else { \
-					if ((e)->probe_ret_enter == -1) (e)->probe_ret_enter = 0; \
-					u32 req_len = 0 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
 		case 288: /* accept4 */ \
 			{ \
 				long __err = (e)->args[2] ? bpf_probe_read_user((e)->str_arg + 768, 4, (void *)(e)->args[2]) : 0; \
@@ -334,25 +315,6 @@
 				} else { \
 					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
 					u32 req_len = 772 + pr; \
-					if ((e)->data_len < req_len) (e)->data_len = req_len; \
-				} \
-			} \
-			break; \
-		case 72: /* fcntl */ \
-			{ \
-				u32 fcmd = (u32)(e)->args[1]; \
-				u32 fsz = 0; \
-				if (fcmd == 15 || fcmd == 16 || fcmd == 1035 || fcmd == 1036 || fcmd == 1037 || fcmd == 1038 || fcmd == 1039 || fcmd == 1040 || fcmd == 1043 || fcmd == 1044 || fcmd == 19 || fcmd == 20 || fcmd == 21 || fcmd == 22 || fcmd == 23 || fcmd == 24) fsz = 8; \
-				else if (fcmd == 5 || fcmd == 6 || fcmd == 7 || fcmd == 12 || fcmd == 13 || fcmd == 14 || fcmd == 36 || fcmd == 37 || fcmd == 38) fsz = 32; \
-				long __err = (fsz > 0 && (e)->args[2]) ? bpf_probe_read_user((e)->str_arg + 1024, fsz, (void *)(e)->args[2]) : 0; \
-				long pr = (__err == 0 && fsz > 0 && (e)->args[2]) ? fsz : __err; \
-				if (pr < 0) { \
-					s32 curr = (e)->probe_ret_exit; \
-					u32 mask = (curr < -1) ? (u32)(-curr - 1) : 0; \
-					(e)->probe_ret_exit = -(s32)((mask | (1 << 2)) + 1); \
-				} else { \
-					if ((e)->probe_ret_exit == -1) (e)->probe_ret_exit = 0; \
-					u32 req_len = 1024 + pr; \
 					if ((e)->data_len < req_len) (e)->data_len = req_len; \
 				} \
 			} \

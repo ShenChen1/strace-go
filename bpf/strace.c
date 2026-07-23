@@ -48,6 +48,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_SENDFILE 40
 #define SYS_SOCKETPAIR 53
 #define SYS_UNAME 63
+#define SYS_FCNTL 72
 #define SYS_GETCWD 79
 #define SYS_CHDIR 80
 #define SYS_RENAME 82
@@ -655,6 +656,7 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_clone3_direct_event_v2.h"
 #include "syscall_bpf_direct_event_v2.h"
 #include "syscall_iovec_direct_event_v2.h"
+#include "syscall_fcntl_direct_event_v2.h"
 #include "syscall_key_direct_event_v2.h"
 #include "syscall_xattr_direct_event_v2.h"
 #include "syscall_fs_direct_event_v2.h"
@@ -881,6 +883,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
+    // IMPACT: fcntl lock/owner/rw-hint/delegation structs are captured through command-aware direct TLV sections.
+    if (is_fcntl_direct_syscall(sys_id)) {
+        emit_fcntl_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
     // IMPACT: key syscalls snapshot IN strings/bytes directly into TLV sections without the fixed-window carrier.
     if (is_key_direct_syscall(sys_id)) {
         emit_key_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
@@ -1079,6 +1088,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_xattr_get_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_xattr_list_direct_syscall(p->sys_id) && ret_value > 0) {
             emit_xattr_list_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_fcntl_direct_syscall(p->sys_id)) {
+            emit_fcntl_exit_event_v2_direct(p, ret_value, duration);
         } else {
             emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
         }

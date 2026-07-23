@@ -918,7 +918,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - socket 输出地址捕获已通过 `len_from_user_arg` 和 `clamp_u32_from_offset` 描述 addrlen 指针读取与 enter 输入长度 clamp；`dynamicSocketAddrSize` 特例已删除。
 - `ioctl` 的 `_IOC_SIZE` 捕获长度已通过 `len_from_arg_bits` 描述 bitfield 提取、0 长度默认值和最大截断；`dynamicSizeStr` 中对应特例已删除。
 - `io_getevents/io_pgetevents` 已从 capture policy 迁出，由 AIO direct TLV helper 显式捕获 timeout、sigset/sigmask 和 events sections。`io_submit` 已从 capture policy 迁出，由 AIO direct TLV helper 显式捕获 pointer array 和前两个 `iocb`。
-- `fcntl/fcntl64` 已通过 `len_from_arg_cases` 描述命令值到结构长度的映射，生成器不再按 syscall 名称硬编码 `F_GETLK/F_SETLK/F_OFD_*` 尺寸表。
+- `fcntl/fcntl64` 迁移期曾通过 `len_from_arg_cases` 描述命令值到结构长度的映射；当前产品 capture policy 已移除该 fixed-window 规则，`fcntl` native syscall 改由 command-aware direct TLV helper 输出 8/32 字节 struct sections。
 - 动态数组 capture 仍通过 `count_from_arg`、`elem_size`、`max` 和 `split_first` 能力测试覆盖；产品 `futex_waitv` 已迁出旧 `capture_rules.yaml` fixed-window 规则，改由 direct TLV helper 输出 waiters/timeout sections。
 - `fsconfig` 已通过 `string_bytes_switch` 描述 `FSCONFIG_SET_BINARY` 的 bytes 分支和其它命令的 string 分支，生成器不再按 syscall 名称硬编码 `fssz`。
 - `dynamicSizeStr` 已删除；动态 capture 长度只能来自显式 policy 字段，未知动态长度返回 0。
@@ -1014,6 +1014,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 - `clone3` 已作为 `struct clone_args` IN struct syscall 绕开旧 fixed-window capture；enter 阶段按 arg1 size clamp 到 256 字节并直接写 arg0 `PayloadKindStruct` TLV，超出 bounded snapshot 时设置 truncated stats，生成的 `syscall_capture.h` 不再包含 `case 435` fixed-window 分支。
 - `bpf` 已作为 `union bpf_attr` IN bytes syscall 绕开旧 fixed-window capture；enter 阶段按 arg2 size clamp 到 512 字节并直接写 arg1 `PayloadKindBytes` TLV，`EFAULT` 且只捕获到前缀时退回裸指针，生成的 `syscall_capture.h` 不再包含 `case 321` fixed-window 分支。
 - `readv/writev/preadv/pwritev/preadv2/pwritev2/vmsplice`、`process_vm_readv/process_vm_writev` 和 `process_madvise` 已作为 iovec array syscall 绕开旧 fixed-window capture；enter 阶段直接写 `PayloadKindIovec` TLV，普通 iovec syscall 捕获 arg1，process_vm syscall 捕获 arg1/arg3 两段，每段最多 16 个 iovec / 256 字节，生成的 `syscall_capture.h` 不再包含对应 fixed-window 分支。
+- `fcntl` 已作为 command-aware struct syscall 绕开旧 fixed-window capture；enter 阶段按 cmd 直接写 arg2 的 8 字节 owner/rw-hint/delegation struct 或 32 字节 flock struct IN TLV，exit 非负返回时写 OUT TLV，生成的 `syscall_capture.h` 不再包含 `case 72` fixed-window 分支，并通过 `fcntl.gen.test` upstream reference 验证。
 - `getitimer/setitimer` 已作为 itimer struct syscall 绕开旧 fixed-window capture；`setitimer` 在 enter 阶段直接写新 `struct itimerval` IN TLV，`getitimer/setitimer` 在 exit 成功时直接写旧 `struct itimerval` OUT TLV，Go 状态机会合并 enter/exit sections 后交给 formatter。
 - `clock_settime/settimeofday` 已作为 time setter struct syscall 绕开旧 fixed-window capture；enter 阶段分别直接写 `struct timespec` IN TLV，以及 `struct timeval`/`struct timezone` 两个 IN TLV，Go 状态机会合并 enter/exit sections 后交给 formatter。
 - `utime/utimes/futimesat/utimensat` 已作为 file timestamp syscall 绕开旧 fixed-window capture；enter 阶段直接写 pathname string TLV 与 IN time struct TLV，exit 阶段只用小 pending metadata 合成 event v2。
