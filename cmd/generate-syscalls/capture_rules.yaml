@@ -3,29 +3,6 @@
 # type can be 'string' (bpf_probe_read_user_str) or 'raw' (bpf_probe_read_user).
 
 rules:
-  # Syscalls returning struct stat
-  - syscalls: [stat, lstat]
-    enter:
-      payloads:
-        - { arg: 0, kind: string, direction: in, max: 512 }
-    exit:
-      payloads:
-        - { arg: 1, kind: struct, direction: out, size: 144, offset: 1024 }
-
-  # FD-based fstat
-  - syscalls: [fstat]
-    exit:
-      payloads:
-        - { arg: 1, kind: struct, direction: out, size: 144, offset: 1024 }
-
-  - syscalls: [newfstatat]
-    enter:
-      payloads:
-        - { arg: 1, kind: string, direction: in, max: 512 }
-    exit:
-      payloads:
-        - { arg: 2, kind: struct, direction: out, size: 144, offset: 1024 }
-
   - syscalls: [readv, writev, preadv, pwritev, preadv2, pwritev2, vmsplice]
     enter:
       payloads:
@@ -114,19 +91,6 @@ rules:
     exit:
       payloads:
         - { arg: 2, kind: raw, direction: out, size: 8, offset: 1024 }
-
-  - syscalls: [statfs]
-    enter:
-      payloads:
-        - { arg: 0, kind: string, direction: in, size: 512 }
-    exit:
-      payloads:
-        - { arg: 1, kind: struct, direction: out, size: 120, offset: 1024 }
-
-  - syscalls: [fstatfs]
-    exit:
-      payloads:
-        - { arg: 1, kind: struct, direction: out, size: 120, offset: 1024 }
 
   # IMPACT: Capture fcntl/fcntl64 lock structs (flock) on enter/exit.
   - syscalls: [fcntl, fcntl64]
