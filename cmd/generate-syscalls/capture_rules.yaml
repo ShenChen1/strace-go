@@ -9,11 +9,6 @@ rules:
       payloads:
         - { arg: 0, kind: string, direction: in, max: 4096 }
 
-  - syscalls: [uname]
-    exit:
-      payloads:
-        - { arg: 0, kind: struct, direction: out, size: 390, offset: 1024 }
-
   # Syscalls returning struct stat
   - syscalls: [stat, lstat]
     enter:
@@ -125,32 +120,6 @@ rules:
     exit:
       payloads:
         - { arg: 2, kind: raw, direction: out, size: 8, offset: 1024 }
-
-  # getrlimit
-  - syscalls: [getrlimit]
-    exit:
-      payloads:
-        - { arg: 1, kind: struct, direction: out, size: 16, offset: 1024 }
-
-  # setrlimit
-  - syscalls: [setrlimit]
-    enter:
-      payloads:
-        - { arg: 1, kind: struct, direction: in, size: 16, offset: 0 }
-
-  # prlimit64
-  - syscalls: [prlimit64]
-    enter:
-      payloads:
-        - { arg: 2, kind: struct, direction: in, size: 16, offset: 0 }
-    exit:
-      payloads:
-        - { arg: 3, kind: struct, direction: out, size: 16, offset: 1024 }
-
-  - syscalls: [sysinfo]
-    exit:
-      payloads:
-        - { arg: 0, kind: struct, direction: out, size: 112, offset: 1024 }
 
   - syscalls: [statfs]
     enter:
