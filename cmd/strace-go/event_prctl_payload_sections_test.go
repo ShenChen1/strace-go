@@ -80,29 +80,24 @@ type wantPrctlJSONPayloadSection struct {
 func putPrctlJSONPayloads(t *testing.T, eventRaw *bpfEvent, wants []wantPrctlJSONPayloadSection) {
 	t.Helper()
 	if len(wants) == 0 {
-		eventRaw.DataLen = 0
 		return
 	}
-	eventRaw.EventFlags |= bpfEventFlagPayloadTLV
-	payload := prctlJSONTLVPayload(t, wants)
-	eventRaw.DataLen = uint32(len(payload))
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw, prctlJSONTLVSections(wants)...)
 }
 
-func prctlJSONTLVPayload(t *testing.T, wants []wantPrctlJSONPayloadSection) []byte {
-	t.Helper()
-	var payload []byte
+func prctlJSONTLVSections(wants []wantPrctlJSONPayloadSection) []payloadTLVTestSection {
+	sections := make([]payloadTLVTestSection, 0, len(wants))
 	for _, want := range wants {
-		payload = append(payload, payloadTLVBytes(t, payloadTLVTestSection{
+		sections = append(sections, payloadTLVTestSection{
 			kind:    prctlJSONTLVKind(want.kind),
 			flags:   prctlJSONTLVFlags(want.direction),
 			arg:     1,
 			userPtr: want.userPtr,
 			userLen: uint32(len(want.data)),
 			data:    want.data,
-		})...)
+		})
 	}
-	return payload
+	return sections
 }
 
 func assertPrctlJSONPayloadSections(t *testing.T, got []jsonPayloadSection, want []wantPrctlJSONPayloadSection) {
