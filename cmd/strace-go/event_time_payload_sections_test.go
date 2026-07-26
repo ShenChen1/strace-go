@@ -1,10 +1,10 @@
 package main
 
 import (
-	"encoding/base64"
 	"encoding/binary"
 	"testing"
 
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -12,7 +12,6 @@ type wantTimeJSONPayloadSection struct {
 	kind      string
 	direction string
 	argIndex  int
-	offset    uint32
 	userPtr   uint64
 	userLen   uint32
 	data      []byte
@@ -22,7 +21,6 @@ func TestJSONSyscallEventIncludesClockTimePayloadSections(t *testing.T) {
 	tests := []struct {
 		name     string
 		eventRaw bpfEvent
-		offset   int
 		want     wantTimeJSONPayloadSection
 	}{
 		{
@@ -30,11 +28,9 @@ func TestJSONSyscallEventIncludesClockTimePayloadSections(t *testing.T) {
 			eventRaw: bpfEvent{
 				EventType:     bpfEventTypeEnter,
 				Args:          [6]uint64{0, 0x1000},
-				DataLen:       timespecPayloadStructSize,
 				ProbeRetEnter: 0,
 			},
-			offset: 0,
-			want:   wantTimeJSONPayloadSection{"struct", "in", 1, 0, 0x1000, 16, timeJSONStruct(1, 2)},
+			want: wantTimeJSONPayloadSection{"struct", "in", 1, 0x1000, 16, timeJSONStruct(1, 2)},
 		},
 		{
 			name: "clock_gettime",
@@ -42,18 +38,16 @@ func TestJSONSyscallEventIncludesClockTimePayloadSections(t *testing.T) {
 				EventType:    bpfEventTypeExit,
 				Args:         [6]uint64{0, 0x2000},
 				Ret:          0,
-				DataLen:      payloadExitArgOffset + timespecPayloadStructSize,
 				ProbeRetExit: 0,
 			},
-			offset: payloadExitArgOffset,
-			want:   wantTimeJSONPayloadSection{"struct", "out", 1, 1024, 0x2000, 16, timeJSONStruct(1, 2)},
+			want: wantTimeJSONPayloadSection{"struct", "out", 1, 0x2000, 16, timeJSONStruct(1, 2)},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			eventRaw := tt.eventRaw
-			copy(eventRaw.StrArg[tt.offset:], timeJSONStruct(1, 2))
+			putTimeJSONPayloads(t, &eventRaw, []wantTimeJSONPayloadSection{tt.want})
 			ev := timeJSONSyscallEvent(&eventRaw, tt.name)
 			if len(ev.PayloadSections) != 1 {
 				t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
@@ -75,12 +69,11 @@ func TestJSONSyscallEventIncludesGetSettimeofdayPayloadSections(t *testing.T) {
 				EventType:    bpfEventTypeExit,
 				Args:         [6]uint64{0x1000, 0x2000},
 				Ret:          0,
-				DataLen:      payloadExitArgOffset + 24,
 				ProbeRetExit: 0,
 			},
 			wants: []wantTimeJSONPayloadSection{
-				{"struct", "out", 0, 1024, 0x1000, 16, timeJSONStruct(3, 4)},
-				{"struct", "out", 1, 1040, 0x2000, 8, timeJSONTimezone(5, 6)},
+				{"struct", "out", 0, 0x1000, 16, timeJSONStruct(3, 4)},
+				{"struct", "out", 1, 0x2000, 8, timeJSONTimezone(5, 6)},
 			},
 		},
 		{
@@ -88,12 +81,11 @@ func TestJSONSyscallEventIncludesGetSettimeofdayPayloadSections(t *testing.T) {
 			eventRaw: bpfEvent{
 				EventType:     bpfEventTypeEnter,
 				Args:          [6]uint64{0x3000, 0x4000},
-				DataLen:       24,
 				ProbeRetEnter: 0,
 			},
 			wants: []wantTimeJSONPayloadSection{
-				{"struct", "in", 0, 0, 0x3000, 16, timeJSONStruct(3, 4)},
-				{"struct", "in", 1, 16, 0x4000, 8, timeJSONTimezone(5, 6)},
+				{"struct", "in", 0, 0x3000, 16, timeJSONStruct(3, 4)},
+				{"struct", "in", 1, 0x4000, 8, timeJSONTimezone(5, 6)},
 			},
 		},
 	}
@@ -101,7 +93,7 @@ func TestJSONSyscallEventIncludesGetSettimeofdayPayloadSections(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			eventRaw := tt.eventRaw
-			putTimeJSONPayloads(&eventRaw, tt.wants)
+			putTimeJSONPayloads(t, &eventRaw, tt.wants)
 			ev := timeJSONSyscallEvent(&eventRaw, tt.name)
 			assertTimeJSONPayloadSections(t, ev.PayloadSections, tt.wants)
 		})
@@ -120,13 +112,12 @@ func TestJSONSyscallEventIncludesSleepAndTimexPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{0x1000, 0x2000},
 				Ret:           -4,
-				DataLen:       payloadExitArgOffset + timespecPayloadStructSize,
 				ProbeRetEnter: 0,
 				ProbeRetExit:  0,
 			},
 			wants: []wantTimeJSONPayloadSection{
-				{"struct", "in", 0, 0, 0x1000, 16, timeJSONStruct(7, 8)},
-				{"struct", "out", 1, 1024, 0x2000, 16, timeJSONStruct(9, 10)},
+				{"struct", "in", 0, 0x1000, 16, timeJSONStruct(7, 8)},
+				{"struct", "out", 1, 0x2000, 16, timeJSONStruct(9, 10)},
 			},
 		},
 		{
@@ -135,13 +126,12 @@ func TestJSONSyscallEventIncludesSleepAndTimexPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{0x3000},
 				Ret:           0,
-				DataLen:       payloadExitArgOffset + timePayloadTimexSize,
 				ProbeRetEnter: 0,
 				ProbeRetExit:  0,
 			},
 			wants: []wantTimeJSONPayloadSection{
-				{"struct", "in", 0, 0, 0x3000, 208, timeJSONTimex(11)},
-				{"struct", "out", 0, 1024, 0x3000, 208, timeJSONTimex(12)},
+				{"struct", "in", 0, 0x3000, 208, timeJSONTimex(11)},
+				{"struct", "out", 0, 0x3000, 208, timeJSONTimex(12)},
 			},
 		},
 	}
@@ -149,7 +139,7 @@ func TestJSONSyscallEventIncludesSleepAndTimexPayloadSections(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			eventRaw := tt.eventRaw
-			putTimeJSONPayloads(&eventRaw, tt.wants)
+			putTimeJSONPayloads(t, &eventRaw, tt.wants)
 			ev := timeJSONSyscallEvent(&eventRaw, tt.name)
 			assertTimeJSONPayloadSections(t, ev.PayloadSections, tt.wants)
 		})
@@ -168,11 +158,10 @@ func TestJSONSyscallEventIncludesItimerPayloadSections(t *testing.T) {
 				EventType:    bpfEventTypeExit,
 				Args:         [6]uint64{0, 0x1000},
 				Ret:          0,
-				DataLen:      payloadExitArgOffset + timePayloadItimervalSize,
 				ProbeRetExit: 0,
 			},
 			wants: []wantTimeJSONPayloadSection{
-				{"struct", "out", 1, 1024, 0x1000, 32, timeJSONItimerval(1, 2, 3, 4)},
+				{"struct", "out", 1, 0x1000, 32, timeJSONItimerval(1, 2, 3, 4)},
 			},
 		},
 		{
@@ -181,13 +170,12 @@ func TestJSONSyscallEventIncludesItimerPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{0, 0x2000, 0x3000},
 				Ret:           0,
-				DataLen:       payloadExitArgOffset + timePayloadItimervalSize,
 				ProbeRetEnter: 0,
 				ProbeRetExit:  0,
 			},
 			wants: []wantTimeJSONPayloadSection{
-				{"struct", "in", 1, 0, 0x2000, 32, timeJSONItimerval(5, 6, 7, 8)},
-				{"struct", "out", 2, 1024, 0x3000, 32, timeJSONItimerval(9, 10, 11, 12)},
+				{"struct", "in", 1, 0x2000, 32, timeJSONItimerval(5, 6, 7, 8)},
+				{"struct", "out", 2, 0x3000, 32, timeJSONItimerval(9, 10, 11, 12)},
 			},
 		},
 	}
@@ -195,7 +183,7 @@ func TestJSONSyscallEventIncludesItimerPayloadSections(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			eventRaw := tt.eventRaw
-			putTimeJSONPayloads(&eventRaw, tt.wants)
+			putTimeJSONPayloads(t, &eventRaw, tt.wants)
 			ev := timeJSONSyscallEvent(&eventRaw, tt.name)
 			assertTimeJSONPayloadSections(t, ev.PayloadSections, tt.wants)
 		})
@@ -213,12 +201,11 @@ func TestJSONSyscallEventIncludesFileTimePayloadSections(t *testing.T) {
 			eventRaw: bpfEvent{
 				EventType:     bpfEventTypeEnter,
 				Args:          [6]uint64{0x1000, 0x2000},
-				DataLen:       timePayloadValueOffset + timePayloadUtimbufSize,
 				ProbeRetEnter: 0,
 			},
 			wants: []wantTimeJSONPayloadSection{
-				{"string", "in", 0, 0, 0x1000, 7, []byte("file-a\x00")},
-				{"struct", "in", 1, 512, 0x2000, 16, timeJSONStruct(1, 2)},
+				{"string", "in", 0, 0x1000, 7, []byte("file-a\x00")},
+				{"struct", "in", 1, 0x2000, 16, timeJSONStruct(1, 2)},
 			},
 		},
 		{
@@ -226,12 +213,11 @@ func TestJSONSyscallEventIncludesFileTimePayloadSections(t *testing.T) {
 			eventRaw: bpfEvent{
 				EventType:     bpfEventTypeEnter,
 				Args:          [6]uint64{^uint64(99), 0x3000, 0x4000},
-				DataLen:       timePayloadValueOffset + timePayloadItimervalSize,
 				ProbeRetEnter: 0,
 			},
 			wants: []wantTimeJSONPayloadSection{
-				{"string", "in", 1, 0, 0x3000, 7, []byte("file-b\x00")},
-				{"struct", "in", 2, 512, 0x4000, 32, timeJSONItimerval(3, 4, 5, 6)},
+				{"string", "in", 1, 0x3000, 7, []byte("file-b\x00")},
+				{"struct", "in", 2, 0x4000, 32, timeJSONItimerval(3, 4, 5, 6)},
 			},
 		},
 		{
@@ -239,11 +225,10 @@ func TestJSONSyscallEventIncludesFileTimePayloadSections(t *testing.T) {
 			eventRaw: bpfEvent{
 				EventType:     bpfEventTypeEnter,
 				Args:          [6]uint64{0x5000, 0},
-				DataLen:       8,
 				ProbeRetEnter: 0,
 			},
 			wants: []wantTimeJSONPayloadSection{
-				{"string", "in", 0, 0, 0x5000, 8, []byte("no-time\x00")},
+				{"string", "in", 0, 0x5000, 8, []byte("no-time\x00")},
 			},
 		},
 	}
@@ -251,7 +236,7 @@ func TestJSONSyscallEventIncludesFileTimePayloadSections(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			eventRaw := tt.eventRaw
-			putTimeJSONPayloads(&eventRaw, tt.wants)
+			putTimeJSONPayloads(t, &eventRaw, tt.wants)
 			ev := timeJSONSyscallEvent(&eventRaw, tt.name)
 			assertTimeJSONPayloadSections(t, ev.PayloadSections, tt.wants)
 		})
@@ -263,9 +248,53 @@ func timeJSONSyscallEvent(eventRaw *bpfEvent, name string) jsonSyscallEvent {
 	return newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 }
 
-func putTimeJSONPayloads(eventRaw *bpfEvent, wants []wantTimeJSONPayloadSection) {
+func putTimeJSONPayloads(t *testing.T, eventRaw *bpfEvent, wants []wantTimeJSONPayloadSection) {
+	t.Helper()
+	payload := timeJSONTLVPayload(t, wants)
+	eventRaw.EventFlags |= bpfEventFlagPayloadTLV
+	eventRaw.DataLen = uint32(len(payload))
+	copy(eventRaw.StrArg[:], payload)
+}
+
+func timeJSONTLVPayload(t *testing.T, wants []wantTimeJSONPayloadSection) []byte {
+	t.Helper()
+	var payload []byte
 	for _, want := range wants {
-		copy(eventRaw.StrArg[want.offset:], want.data)
+		payload = append(payload, payloadTLVBytes(t, payloadTLVTestSection{
+			kind:    timeJSONTLVKind(t, want.kind),
+			flags:   timeJSONTLVFlags(t, want.direction),
+			arg:     uint16(want.argIndex),
+			userPtr: want.userPtr,
+			userLen: want.userLen,
+			data:    want.data,
+		})...)
+	}
+	return payload
+}
+
+func timeJSONTLVKind(t *testing.T, kind string) uint16 {
+	t.Helper()
+	switch handler.PayloadKind(kind) {
+	case handler.PayloadKindString:
+		return payloadTLVKindString
+	case handler.PayloadKindStruct:
+		return payloadTLVKindStruct
+	default:
+		t.Fatalf("unsupported time payload kind %q", kind)
+		return 0
+	}
+}
+
+func timeJSONTLVFlags(t *testing.T, direction string) uint16 {
+	t.Helper()
+	switch handler.PayloadDirection(direction) {
+	case handler.PayloadDirectionIn:
+		return 0
+	case handler.PayloadDirectionOut:
+		return payloadTLVFlagDirectionOut
+	default:
+		t.Fatalf("unsupported time payload direction %q", direction)
+		return 0
 	}
 }
 
@@ -298,10 +327,7 @@ func assertTimeJSONPayloadSection(
 	if got.CopiedLen != uint32(len(want.data)) {
 		t.Fatalf("section copied_len = %d, want %d", got.CopiedLen, len(want.data))
 	}
-	gotData, err := base64.StdEncoding.DecodeString(got.DataBase64)
-	if err != nil {
-		t.Fatalf("decode section data: %v", err)
-	}
+	gotData := mustDecodeBase64(t, got.DataBase64)
 	if string(gotData) != string(want.data) {
 		t.Fatalf("section data = %v, want %v", gotData, want.data)
 	}

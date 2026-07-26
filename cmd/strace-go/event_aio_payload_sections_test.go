@@ -12,19 +12,30 @@ import (
 func TestJSONSyscallEventIncludesAioSetupPayloadSection(t *testing.T) {
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeExit,
+		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{128, 0x1000},
 		Ret:           0,
-		DataLen:       payloadExitArgOffset + aioPayloadPointerSize,
 		ProbeRetExit:  0,
 		ProbeRetEnter: -1,
 	}
-	copy(eventRaw.StrArg[payloadExitArgOffset:], aioTestPointerBytes(0xabc))
+	payload := aioJSONTLVPayload(t, []payloadTLVTestSection{
+		{
+			kind:    payloadTLVKindStruct,
+			flags:   payloadTLVFlagDirectionOut,
+			arg:     1,
+			userPtr: 0x1000,
+			userLen: aioPayloadPointerSize,
+			data:    aioTestPointerBytes(0xabc),
+		},
+	})
+	eventRaw.DataLen = uint32(len(payload))
+	copy(eventRaw.StrArg[:], payload)
 
 	sections := aioJSONPayloadSections(t, eventRaw, "io_setup")
 	if len(sections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(sections))
 	}
-	assertAioJSONSection(t, sections[0], "struct", "out", 1, payloadExitArgOffset, 0x1000, aioTestPointerBytes(0xabc))
+	assertAioJSONSection(t, sections[0], "struct", "out", 1, 0x1000, aioTestPointerBytes(0xabc))
 }
 
 func TestJSONSyscallEventIncludesAioSubmitPayloadSections(t *testing.T) {
@@ -32,41 +43,74 @@ func TestJSONSyscallEventIncludesAioSubmitPayloadSections(t *testing.T) {
 	iocb1 := aioTestIocbData(0, 0x5000, 4)
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
+		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{0xabc, 2, 0x1000},
-		DataLen:       payloadMiscArgOffset + 2*aioPayloadIocbSize,
 		ProbeRetEnter: 0,
 	}
 	pointers := append(aioTestPointerBytes(0x2000), aioTestPointerBytes(0x3000)...)
-	copy(eventRaw.StrArg[:], pointers)
-	copy(eventRaw.StrArg[payloadMiscArgOffset:], iocb0)
-	copy(eventRaw.StrArg[payloadMiscArgOffset+aioPayloadIocbSize:], iocb1)
+	payload := aioJSONTLVPayload(t, []payloadTLVTestSection{
+		{
+			kind:    payloadTLVKindStruct,
+			arg:     2,
+			userPtr: 0x1000,
+			userLen: uint32(len(pointers)),
+			data:    pointers,
+		},
+		{
+			kind:    payloadTLVKindStruct,
+			arg:     handler.AioSubmitIocbPayloadArgBase,
+			userPtr: 0x2000,
+			userLen: aioPayloadIocbSize,
+			data:    iocb0,
+		},
+		{
+			kind:    payloadTLVKindStruct,
+			arg:     handler.AioSubmitIocbPayloadArgBase + 1,
+			userPtr: 0x3000,
+			userLen: aioPayloadIocbSize,
+			data:    iocb1,
+		},
+	})
+	eventRaw.DataLen = uint32(len(payload))
+	copy(eventRaw.StrArg[:], payload)
 
 	sections := aioJSONPayloadSections(t, eventRaw, "io_submit")
 	if len(sections) != 3 {
 		t.Fatalf("PayloadSections = %d, want 3", len(sections))
 	}
-	assertAioJSONSection(t, sections[0], "struct", "in", 2, payloadEnterArgOffset, 0x1000, pointers)
-	assertAioJSONSection(t, sections[1], "struct", "in", handler.AioSubmitIocbPayloadArgBase, payloadMiscArgOffset, 0x2000, iocb0)
-	assertAioJSONSection(t, sections[2], "struct", "in", handler.AioSubmitIocbPayloadArgBase+1, payloadMiscArgOffset+aioPayloadIocbSize, 0x3000, iocb1)
+	assertAioJSONSection(t, sections[0], "struct", "in", 2, 0x1000, pointers)
+	assertAioJSONSection(t, sections[1], "struct", "in", handler.AioSubmitIocbPayloadArgBase, 0x2000, iocb0)
+	assertAioJSONSection(t, sections[2], "struct", "in", handler.AioSubmitIocbPayloadArgBase+1, 0x3000, iocb1)
 }
 
 func TestJSONSyscallEventIncludesAioGeteventsPayloadSection(t *testing.T) {
 	events := aioTestIoEventData(0x11, 0x22, 3, 4)
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeExit,
+		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{0xabc, 0, 1, 0x7000},
 		Ret:           1,
-		DataLen:       payloadExitArgOffset + aioPayloadEventsElemSize,
 		ProbeRetExit:  0,
 		ProbeRetEnter: -1,
 	}
-	copy(eventRaw.StrArg[payloadExitArgOffset:], events)
+	payload := aioJSONTLVPayload(t, []payloadTLVTestSection{
+		{
+			kind:    payloadTLVKindStruct,
+			flags:   payloadTLVFlagDirectionOut,
+			arg:     3,
+			userPtr: 0x7000,
+			userLen: uint32(len(events)),
+			data:    events,
+		},
+	})
+	eventRaw.DataLen = uint32(len(payload))
+	copy(eventRaw.StrArg[:], payload)
 
 	sections := aioJSONPayloadSections(t, eventRaw, "io_getevents")
 	if len(sections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(sections))
 	}
-	assertAioJSONSection(t, sections[0], "struct", "out", 3, payloadExitArgOffset, 0x7000, events)
+	assertAioJSONSection(t, sections[0], "struct", "out", 3, 0x7000, events)
 }
 
 func TestJSONSyscallEventIncludesAioPgeteventsPayloadSections(t *testing.T) {
@@ -75,21 +119,43 @@ func TestJSONSyscallEventIncludesAioPgeteventsPayloadSections(t *testing.T) {
 	mask := aioTestPointerBytes(1)
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
+		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{0xabc, 0, 0, 0, 0x4000, 0x5000},
-		DataLen:       aioPayloadSigmaskOffset + uint32(len(mask)),
 		ProbeRetEnter: 0,
 	}
-	copy(eventRaw.StrArg[payloadMiscArgOffset:], timeout)
-	copy(eventRaw.StrArg[aioPayloadSigsetOffset:], sigset)
-	copy(eventRaw.StrArg[aioPayloadSigmaskOffset:], mask)
+	payload := aioJSONTLVPayload(t, []payloadTLVTestSection{
+		{
+			kind:    payloadTLVKindStruct,
+			arg:     4,
+			userPtr: 0x4000,
+			userLen: uint32(len(timeout)),
+			data:    timeout,
+		},
+		{
+			kind:    payloadTLVKindStruct,
+			arg:     5,
+			userPtr: 0x5000,
+			userLen: uint32(len(sigset)),
+			data:    sigset,
+		},
+		{
+			kind:    payloadTLVKindBytes,
+			arg:     5,
+			userPtr: 0x6000,
+			userLen: uint32(len(mask)),
+			data:    mask,
+		},
+	})
+	eventRaw.DataLen = uint32(len(payload))
+	copy(eventRaw.StrArg[:], payload)
 
 	sections := aioJSONPayloadSections(t, eventRaw, "io_pgetevents")
 	if len(sections) != 3 {
 		t.Fatalf("PayloadSections = %d, want 3", len(sections))
 	}
-	assertAioJSONSection(t, sections[0], "struct", "in", 4, payloadMiscArgOffset, 0x4000, timeout)
-	assertAioJSONSection(t, sections[1], "struct", "in", 5, aioPayloadSigsetOffset, 0x5000, sigset)
-	assertAioJSONSection(t, sections[2], "bytes", "in", 5, aioPayloadSigmaskOffset, 0x6000, mask)
+	assertAioJSONSection(t, sections[0], "struct", "in", 4, 0x4000, timeout)
+	assertAioJSONSection(t, sections[1], "struct", "in", 5, 0x5000, sigset)
+	assertAioJSONSection(t, sections[2], "bytes", "in", 5, 0x6000, mask)
 }
 
 func aioJSONPayloadSections(t *testing.T, eventRaw *bpfEvent, name string) []jsonPayloadSection {
@@ -105,7 +171,6 @@ func assertAioJSONSection(
 	kind string,
 	direction string,
 	argIndex int,
-	offset int,
 	userPtr uint64,
 	wantData []byte,
 ) {
@@ -122,6 +187,15 @@ func assertAioJSONSection(
 	if data := mustDecodeBase64(t, got.DataBase64); !bytes.Equal(data, wantData) {
 		t.Fatalf("aio section data = %v, want %v", data, wantData)
 	}
+}
+
+func aioJSONTLVPayload(t *testing.T, sections []payloadTLVTestSection) []byte {
+	t.Helper()
+	var payload []byte
+	for _, section := range sections {
+		payload = append(payload, payloadTLVBytes(t, section)...)
+	}
+	return payload
 }
 
 func aioTestPointerBytes(ptr uint64) []byte {

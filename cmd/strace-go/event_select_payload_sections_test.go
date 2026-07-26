@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"testing"
 
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -11,43 +12,81 @@ type wantSelectJSONPayloadSection struct {
 	kind      string
 	direction string
 	argIndex  int
-	offset    uint32
 	userPtr   uint64
 	userLen   uint32
 	data      []byte
 }
 
 func TestJSONSyscallEventIncludesSelectPayloadSections(t *testing.T) {
+	want := []wantSelectJSONPayloadSection{
+		{"bytes", "in", 1, 0x1000, 1, selectJSONFdSetData(3)[:1]},
+		{"bytes", "in", 2, 0x2000, 1, selectJSONFdSetData(4)[:1]},
+		{"struct", "in", 4, 0x3000, 16, selectJSONTimeval(9, 10)},
+		{"bytes", "out", 1, 0x1000, 1, selectJSONFdSetData(5)[:1]},
+		{"bytes", "out", 2, 0x2000, 1, selectJSONFdSetData(6)[:1]},
+		{"struct", "out", 4, 0x3000, 16, selectJSONTimeval(1, 2)},
+	}
+	payload := selectJSONTLVPayload(t, want)
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeExit,
+		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{8, 0x1000, 0x2000, 0, 0x3000},
 		Ret:           1,
-		DataLen:       selectPayloadExitTimeoutOff + selectPayloadTimeoutSize,
+		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
-	copy(eventRaw.StrArg[selectPayloadFdSetOffset(1):], selectJSONFdSetData(3))
-	copy(eventRaw.StrArg[selectPayloadFdSetOffset(2):], selectJSONFdSetData(4))
-	copy(eventRaw.StrArg[selectPayloadTimeoutOffset:], selectJSONTimeval(9, 10))
-	copy(eventRaw.StrArg[selectPayloadExitFdSetOffset+selectPayloadFdSetOffset(1):], selectJSONFdSetData(5))
-	copy(eventRaw.StrArg[selectPayloadExitFdSetOffset+selectPayloadFdSetOffset(2):], selectJSONFdSetData(6))
-	copy(eventRaw.StrArg[selectPayloadExitTimeoutOff:], selectJSONTimeval(1, 2))
+	copy(eventRaw.StrArg[:], payload)
 
 	scMeta := meta.Syscall{Name: "select"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
-	want := []wantSelectJSONPayloadSection{
-		{"bytes", "in", 1, 0, 0x1000, 1, selectJSONFdSetData(3)[:1]},
-		{"bytes", "in", 2, 128, 0x2000, 1, selectJSONFdSetData(4)[:1]},
-		{"struct", "in", 4, 384, 0x3000, 16, selectJSONTimeval(9, 10)},
-		{"bytes", "out", 1, 1024, 0x1000, 1, selectJSONFdSetData(5)[:1]},
-		{"bytes", "out", 2, 1152, 0x2000, 1, selectJSONFdSetData(6)[:1]},
-		{"struct", "out", 4, 1408, 0x3000, 16, selectJSONTimeval(1, 2)},
-	}
 	if len(ev.PayloadSections) != len(want) {
 		t.Fatalf("PayloadSections = %d, want %d", len(ev.PayloadSections), len(want))
 	}
 	for i := range want {
 		assertSelectJSONPayloadSection(t, ev.PayloadSections[i], want[i])
+	}
+}
+
+func selectJSONTLVPayload(t *testing.T, wants []wantSelectJSONPayloadSection) []byte {
+	t.Helper()
+	var payload []byte
+	for _, want := range wants {
+		payload = append(payload, payloadTLVBytes(t, payloadTLVTestSection{
+			kind:    selectJSONTLVKind(t, want.kind),
+			flags:   selectJSONTLVFlags(t, want.direction),
+			arg:     uint16(want.argIndex),
+			userPtr: want.userPtr,
+			userLen: want.userLen,
+			data:    want.data,
+		})...)
+	}
+	return payload
+}
+
+func selectJSONTLVKind(t *testing.T, kind string) uint16 {
+	t.Helper()
+	switch handler.PayloadKind(kind) {
+	case handler.PayloadKindBytes:
+		return payloadTLVKindBytes
+	case handler.PayloadKindStruct:
+		return payloadTLVKindStruct
+	default:
+		t.Fatalf("unsupported select payload kind %q", kind)
+		return 0
+	}
+}
+
+func selectJSONTLVFlags(t *testing.T, direction string) uint16 {
+	t.Helper()
+	switch handler.PayloadDirection(direction) {
+	case handler.PayloadDirectionIn:
+		return 0
+	case handler.PayloadDirectionOut:
+		return payloadTLVFlagDirectionOut
+	default:
+		t.Fatalf("unsupported select payload direction %q", direction)
+		return 0
 	}
 }
 

@@ -8,20 +8,26 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func TestPayloadSectionRegistryPrefersExplicitStructuredRules(t *testing.T) {
-	if _, ok := payloadSourceSectionRules["stat"]; !ok {
-		t.Fatal("stat payload rule is not explicitly registered in the source-aware registry")
-	}
-
+func TestPayloadSectionsForEventUsesRawTLVStructSection(t *testing.T) {
 	wantData := bytes.Repeat([]byte{0x42}, statPayloadStructSize)
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		flags:   payloadTLVFlagDirectionOut,
+		arg:     1,
+		userPtr: 0x2000,
+		userLen: uint32(len(wantData)),
+		data:    wantData,
+	})
 	eventRaw := &bpfEvent{
-		EventType:    bpfEventTypeExit,
-		Args:         [6]uint64{0x1000, 0x2000},
-		Ret:          0,
-		DataLen:      uint32(payloadExitArgOffset + statPayloadStructSize),
-		ProbeRetExit: 0,
+		EventType:     bpfEventTypeExit,
+		EventFlags:    bpfEventFlagPayloadTLV,
+		Args:          [6]uint64{0x1000, 0x2000},
+		Ret:           0,
+		DataLen:       uint32(len(payload)),
+		ProbeRetExit:  0,
+		ProbeRetEnter: -1,
 	}
-	copy(eventRaw.StrArg[payloadExitArgOffset:], wantData)
+	copy(eventRaw.StrArg[:], payload)
 
 	sections := payloadSectionsForEvent(eventRaw, meta.Syscall{Name: "stat"})
 	if len(sections) != 1 {
@@ -36,18 +42,23 @@ func TestPayloadSectionRegistryPrefersExplicitStructuredRules(t *testing.T) {
 	}
 }
 
-func TestPayloadSectionRegistryFallsBackToSimplePathRules(t *testing.T) {
-	if _, ok := payloadSourceSectionRules["chdir"]; ok {
-		t.Fatal("chdir should use the simple path fallback, not an explicit payload rule")
-	}
-
+func TestPayloadSectionsForEventUsesRawTLVStringSection(t *testing.T) {
+	wantData := []byte("/tmp/a\x00")
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindString,
+		arg:     0,
+		userPtr: 0x1000,
+		userLen: uint32(len(wantData)),
+		data:    wantData,
+	})
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
+		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{0x1000},
-		DataLen:       uint32(len("/tmp/a") + 1),
+		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: 0,
 	}
-	copy(eventRaw.StrArg[:], []byte("/tmp/a\x00"))
+	copy(eventRaw.StrArg[:], payload)
 
 	sections := payloadSectionsForEvent(eventRaw, meta.Syscall{Name: "chdir"})
 	if len(sections) != 1 {

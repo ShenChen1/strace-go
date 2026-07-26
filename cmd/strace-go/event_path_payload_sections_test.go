@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"testing"
 
 	"strace-go/pkg/meta"
@@ -8,7 +9,6 @@ import (
 
 type wantPathJSONPayloadSection struct {
 	argIndex int
-	offset   uint32
 	userPtr  uint64
 	data     string
 }
@@ -22,29 +22,31 @@ func TestJSONSyscallEventIncludesSimplePathPayloadSection(t *testing.T) {
 		{
 			name: "chdir",
 			args: [6]uint64{0x1000},
-			want: wantPathJSONPayloadSection{argIndex: 0, offset: 0, userPtr: 0x1000, data: "/tmp/a"},
+			want: wantPathJSONPayloadSection{argIndex: 0, userPtr: 0x1000, data: "/tmp/a"},
 		},
 		{
 			name: "mkdirat",
 			args: [6]uint64{^uint64(99), 0x2000},
-			want: wantPathJSONPayloadSection{argIndex: 1, offset: 0, userPtr: 0x2000, data: "relative"},
+			want: wantPathJSONPayloadSection{argIndex: 1, userPtr: 0x2000, data: "relative"},
 		},
 		{
 			name: "faccessat2",
 			args: [6]uint64{^uint64(99), 0x3000},
-			want: wantPathJSONPayloadSection{argIndex: 1, offset: 0, userPtr: 0x3000, data: "check"},
+			want: wantPathJSONPayloadSection{argIndex: 1, userPtr: 0x3000, data: "check"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			payload := pathJSONTLVPayload(t, []wantPathJSONPayloadSection{tt.want})
 			eventRaw := &bpfEvent{
 				EventType:     bpfEventTypeEnter,
+				EventFlags:    bpfEventFlagPayloadTLV,
 				Args:          tt.args,
-				DataLen:       uint32(len(tt.want.data) + 1),
+				DataLen:       uint32(len(payload)),
 				ProbeRetEnter: 0,
 			}
-			copy(eventRaw.StrArg[:], []byte(tt.want.data+"\x00"))
+			copy(eventRaw.StrArg[:], payload)
 
 			scMeta := meta.Syscall{Name: tt.name}
 			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -72,15 +74,26 @@ func TestJSONSyscallEventDoesNotUseFixedOpenatPathPayload(t *testing.T) {
 	}
 }
 
-func TestSimplePathPayloadDoesNotShadowStructuredStat(t *testing.T) {
+func TestJSONSyscallEventIncludesStatStructPayloadSection(t *testing.T) {
+	wantData := bytes.Repeat([]byte{0x42}, statPayloadStructSize)
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		flags:   payloadTLVFlagDirectionOut,
+		arg:     1,
+		userPtr: 0x2000,
+		userLen: uint32(len(wantData)),
+		data:    wantData,
+	})
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeExit,
+		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{0x1000, 0x2000},
 		Ret:           0,
-		DataLen:       statPayloadStructSize + 1024,
+		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
+	copy(eventRaw.StrArg[:], payload)
 
 	scMeta := meta.Syscall{Name: "stat"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -99,38 +112,39 @@ func TestJSONSyscallEventIncludesDualPathPayloadSections(t *testing.T) {
 			name: "rename",
 			args: [6]uint64{0x1000, 0x2000},
 			want: []wantPathJSONPayloadSection{
-				{argIndex: 0, offset: 0, userPtr: 0x1000, data: "old"},
-				{argIndex: 1, offset: 512, userPtr: 0x2000, data: "new"},
+				{argIndex: 0, userPtr: 0x1000, data: "old"},
+				{argIndex: 1, userPtr: 0x2000, data: "new"},
 			},
 		},
 		{
 			name: "symlinkat",
 			args: [6]uint64{0x3000, ^uint64(99), 0x4000},
 			want: []wantPathJSONPayloadSection{
-				{argIndex: 0, offset: 0, userPtr: 0x3000, data: "target"},
-				{argIndex: 2, offset: 512, userPtr: 0x4000, data: "link"},
+				{argIndex: 0, userPtr: 0x3000, data: "target"},
+				{argIndex: 2, userPtr: 0x4000, data: "link"},
 			},
 		},
 		{
 			name: "linkat",
 			args: [6]uint64{^uint64(99), 0x5000, ^uint64(100), 0x6000},
 			want: []wantPathJSONPayloadSection{
-				{argIndex: 1, offset: 0, userPtr: 0x5000, data: "old-at"},
-				{argIndex: 3, offset: 512, userPtr: 0x6000, data: "new-at"},
+				{argIndex: 1, userPtr: 0x5000, data: "old-at"},
+				{argIndex: 3, userPtr: 0x6000, data: "new-at"},
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			payload := pathJSONTLVPayload(t, tt.want)
 			eventRaw := &bpfEvent{
 				EventType:     bpfEventTypeEnter,
+				EventFlags:    bpfEventFlagPayloadTLV,
 				Args:          tt.args,
-				DataLen:       pathPayloadSecondaryOffset + pathPayloadMaxBytes,
+				DataLen:       uint32(len(payload)),
 				ProbeRetEnter: 0,
 			}
-			copy(eventRaw.StrArg[:], []byte(tt.want[0].data+"\x00"))
-			copy(eventRaw.StrArg[pathPayloadSecondaryOffset:], []byte(tt.want[1].data+"\x00"))
+			copy(eventRaw.StrArg[:], payload)
 
 			scMeta := meta.Syscall{Name: tt.name}
 			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -142,6 +156,22 @@ func TestJSONSyscallEventIncludesDualPathPayloadSections(t *testing.T) {
 			}
 		})
 	}
+}
+
+func pathJSONTLVPayload(t *testing.T, wants []wantPathJSONPayloadSection) []byte {
+	t.Helper()
+	var payload []byte
+	for _, want := range wants {
+		data := []byte(want.data + "\x00")
+		payload = append(payload, payloadTLVBytes(t, payloadTLVTestSection{
+			kind:    payloadTLVKindString,
+			arg:     uint16(want.argIndex),
+			userPtr: want.userPtr,
+			userLen: uint32(len(data)),
+			data:    data,
+		})...)
+	}
+	return payload
 }
 
 func assertPathJSONPayloadSection(
