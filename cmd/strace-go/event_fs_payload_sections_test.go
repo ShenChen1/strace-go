@@ -12,19 +12,16 @@ func TestJSONSyscallEventIncludesMountPayloadSections(t *testing.T) {
 	targetData := []byte("/mnt\x00")
 	typeData := []byte("ext4\x00")
 	dataData := []byte("rw\x00")
-	payload := fsJSONTLVPayload(
-		fsDirectTLVString(t, 0, args[0], sourceData),
-		fsDirectTLVString(t, 1, args[1], targetData),
-		fsDirectTLVString(t, 2, args[2], typeData),
-		fsDirectTLVString(t, 4, args[4], dataData),
-	)
 	eventRaw := &bpfEvent{
-		EventType:  bpfEventTypeEnter,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       args,
-		DataLen:    uint32(len(payload)),
+		EventType: bpfEventTypeEnter,
+		Args:      args,
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw,
+		fsJSONTLVString(0, args[0], sourceData),
+		fsJSONTLVString(1, args[1], targetData),
+		fsJSONTLVString(2, args[2], typeData),
+		fsJSONTLVString(4, args[4], dataData),
+	)
 
 	scMeta := meta.Syscall{Name: "mount"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -39,18 +36,18 @@ func TestJSONSyscallEventIncludesMountPayloadSections(t *testing.T) {
 
 func TestJSONSyscallEventIncludesFsconfigPayloadSections(t *testing.T) {
 	tests := []struct {
-		name string
-		args [6]uint64
-		data []byte
-		want []wantFsJSONPayloadSection
+		name     string
+		args     [6]uint64
+		sections []payloadTLVTestSection
+		want     []wantFsJSONPayloadSection
 	}{
 		{
 			name: "string",
 			args: [6]uint64{3, 1, 0x1000, 0x2000, 0},
-			data: fsJSONTLVPayload(
-				fsDirectTLVString(t, 2, 0x1000, []byte("key\x00")),
-				fsDirectTLVString(t, 3, 0x2000, []byte("value\x00")),
-			),
+			sections: []payloadTLVTestSection{
+				fsJSONTLVString(2, 0x1000, []byte("key\x00")),
+				fsJSONTLVString(3, 0x2000, []byte("value\x00")),
+			},
 			want: []wantFsJSONPayloadSection{
 				{argIndex: 2, userPtr: 0x1000, kind: "string", direction: "in", data: "key\x00"},
 				{argIndex: 3, userPtr: 0x2000, kind: "string", direction: "in", data: "value\x00"},
@@ -59,10 +56,10 @@ func TestJSONSyscallEventIncludesFsconfigPayloadSections(t *testing.T) {
 		{
 			name: "binary",
 			args: [6]uint64{3, 2, 0x1000, 0x2000, 3},
-			data: fsJSONTLVPayload(
-				fsDirectTLVString(t, 2, 0x1000, []byte("blob\x00")),
-				fsDirectTLVBytes(t, 3, 0x2000, []byte{1, 2, 3}),
-			),
+			sections: []payloadTLVTestSection{
+				fsJSONTLVString(2, 0x1000, []byte("blob\x00")),
+				fsJSONTLVBytes(3, 0x2000, []byte{1, 2, 3}, 0),
+			},
 			want: []wantFsJSONPayloadSection{
 				{argIndex: 2, userPtr: 0x1000, kind: "string", direction: "in", data: "blob\x00"},
 				{argIndex: 3, userPtr: 0x2000, kind: "bytes", direction: "in", data: string([]byte{1, 2, 3})},
@@ -73,12 +70,10 @@ func TestJSONSyscallEventIncludesFsconfigPayloadSections(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			eventRaw := &bpfEvent{
-				EventType:  bpfEventTypeEnter,
-				EventFlags: bpfEventFlagPayloadTLV,
-				Args:       tt.args,
-				DataLen:    uint32(len(tt.data)),
+				EventType: bpfEventTypeEnter,
+				Args:      tt.args,
 			}
-			copy(eventRaw.StrArg[:], tt.data)
+			setJSONTestTLVPayload(t, eventRaw, tt.sections...)
 
 			scMeta := meta.Syscall{Name: "fsconfig"}
 			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -90,14 +85,11 @@ func TestJSONSyscallEventIncludesFsconfigPayloadSections(t *testing.T) {
 func TestJSONSyscallEventIncludesUmountPayloadSection(t *testing.T) {
 	args := [6]uint64{0x1000}
 	targetData := []byte("/mnt\x00")
-	payload := fsDirectTLVString(t, 0, args[0], targetData)
 	eventRaw := &bpfEvent{
-		EventType:  bpfEventTypeEnter,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       args,
-		DataLen:    uint32(len(payload)),
+		EventType: bpfEventTypeEnter,
+		Args:      args,
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw, fsJSONTLVString(0, args[0], targetData))
 
 	scMeta := meta.Syscall{Name: "umount2"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -109,15 +101,12 @@ func TestJSONSyscallEventIncludesUmountPayloadSection(t *testing.T) {
 
 func TestJSONSyscallEventIncludesGetdentsPayloadSection(t *testing.T) {
 	direntData := []byte("dirent-section!!")
-	payload := fsJSONTLVOutBytes(t, 1, 0x3000, direntData)
 	eventRaw := &bpfEvent{
-		EventType:  bpfEventTypeExit,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       [6]uint64{3, 0x3000, 512},
-		Ret:        int64(len(direntData)),
-		DataLen:    uint32(len(payload)),
+		EventType: bpfEventTypeExit,
+		Args:      [6]uint64{3, 0x3000, 512},
+		Ret:       int64(len(direntData)),
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw, fsJSONTLVBytes(1, 0x3000, direntData, payloadTLVFlagDirectionOut))
 
 	scMeta := meta.Syscall{Name: "getdents64"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -127,24 +116,25 @@ func TestJSONSyscallEventIncludesGetdentsPayloadSection(t *testing.T) {
 	assertFsJSONPayloadSections(t, ev.PayloadSections, want)
 }
 
-func fsJSONTLVPayload(sections ...[]byte) []byte {
-	var payload []byte
-	for _, section := range sections {
-		payload = append(payload, section...)
-	}
-	return payload
-}
-
-func fsJSONTLVOutBytes(t *testing.T, arg uint16, userPtr uint64, data []byte) []byte {
-	t.Helper()
-	return payloadTLVBytes(t, payloadTLVTestSection{
-		kind:    payloadTLVKindBytes,
-		flags:   payloadTLVFlagDirectionOut,
+func fsJSONTLVString(arg uint16, userPtr uint64, data []byte) payloadTLVTestSection {
+	return payloadTLVTestSection{
+		kind:    payloadTLVKindString,
 		arg:     arg,
 		userPtr: userPtr,
 		userLen: uint32(len(data)),
 		data:    data,
-	})
+	}
+}
+
+func fsJSONTLVBytes(arg uint16, userPtr uint64, data []byte, flags uint16) payloadTLVTestSection {
+	return payloadTLVTestSection{
+		kind:    payloadTLVKindBytes,
+		flags:   flags,
+		arg:     arg,
+		userPtr: userPtr,
+		userLen: uint32(len(data)),
+		data:    data,
+	}
 }
 
 type wantFsJSONPayloadSection struct {
