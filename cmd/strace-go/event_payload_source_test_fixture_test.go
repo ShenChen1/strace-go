@@ -34,6 +34,22 @@ type payloadEvent struct {
 	meta   payloadEventMeta
 }
 
+func payloadEventFromRawForTest(raw *bpfEvent, data []byte) payloadEvent {
+	return payloadEvent{
+		source: windowPayloadSource{
+			args: raw.Args,
+			data: data,
+		},
+		meta: payloadEventMeta{
+			valid:         true,
+			eventType:     raw.EventType,
+			ret:           raw.Ret,
+			probeRetEnter: raw.ProbeRetEnter,
+			probeRetExit:  raw.ProbeRetExit,
+		},
+	}
+}
+
 func newWindowPayloadSourceFromRaw(raw rawPayloadEvent) windowPayloadSource {
 	if !raw.valid {
 		return windowPayloadSource{}
