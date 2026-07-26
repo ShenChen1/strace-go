@@ -89,29 +89,24 @@ type wantFcntlJSONPayloadSection struct {
 func putFcntlJSONPayloads(t *testing.T, eventRaw *bpfEvent, wants []wantFcntlJSONPayloadSection) {
 	t.Helper()
 	if len(wants) == 0 {
-		eventRaw.DataLen = 0
 		return
 	}
-	eventRaw.EventFlags |= bpfEventFlagPayloadTLV
-	payload := fcntlJSONTLVPayload(t, eventRaw.Args[2], wants)
-	eventRaw.DataLen = uint32(len(payload))
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw, fcntlJSONTLVSections(eventRaw.Args[2], wants)...)
 }
 
-func fcntlJSONTLVPayload(t *testing.T, userPtr uint64, wants []wantFcntlJSONPayloadSection) []byte {
-	t.Helper()
-	var payload []byte
+func fcntlJSONTLVSections(userPtr uint64, wants []wantFcntlJSONPayloadSection) []payloadTLVTestSection {
+	sections := make([]payloadTLVTestSection, 0, len(wants))
 	for _, want := range wants {
-		payload = append(payload, payloadTLVBytes(t, payloadTLVTestSection{
+		sections = append(sections, payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			flags:   fcntlJSONTLVFlags(want.direction),
 			arg:     2,
 			userPtr: userPtr,
 			userLen: want.size,
 			data:    want.data,
-		})...)
+		})
 	}
-	return payload
+	return sections
 }
 
 func assertFcntlJSONPayloadSections(
