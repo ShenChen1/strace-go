@@ -11,15 +11,22 @@ import (
 func TestJSONSyscallEventIncludesCapgetPayloadSections(t *testing.T) {
 	header := capabilityJSONBytes(1, capabilityHeaderPayloadSize)
 	data := capabilityJSONBytes(2, capabilityDataPayloadSize)
-	payload := capabilityJSONTLVPayload(t, []payloadTLVTestSection{
-		{
+	eventRaw := &bpfEvent{
+		EventType:     bpfEventTypeExit,
+		Args:          [6]uint64{0x1000, 0x2000},
+		Ret:           0,
+		ProbeRetEnter: 0,
+		ProbeRetExit:  0,
+	}
+	setJSONTestTLVPayload(t, eventRaw,
+		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     0,
 			userPtr: 0x1000,
 			userLen: capabilityHeaderPayloadSize,
 			data:    header,
 		},
-		{
+		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			flags:   payloadTLVFlagDirectionOut,
 			arg:     1,
@@ -27,17 +34,7 @@ func TestJSONSyscallEventIncludesCapgetPayloadSections(t *testing.T) {
 			userLen: capabilityDataPayloadSize,
 			data:    data,
 		},
-	})
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeExit,
-		EventFlags:    bpfEventFlagPayloadTLV,
-		Args:          [6]uint64{0x1000, 0x2000},
-		Ret:           0,
-		DataLen:       uint32(len(payload)),
-		ProbeRetEnter: 0,
-		ProbeRetExit:  0,
-	}
-	copy(eventRaw.StrArg[:], payload)
+	)
 
 	scMeta := meta.Syscall{Name: "capget"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -50,30 +47,27 @@ func TestJSONSyscallEventIncludesCapgetPayloadSections(t *testing.T) {
 func TestJSONSyscallEventIncludesCapsetPayloadSections(t *testing.T) {
 	header := capabilityJSONBytes(3, capabilityHeaderPayloadSize)
 	data := capabilityJSONBytes(4, capabilityDataPayloadSize)
-	payload := capabilityJSONTLVPayload(t, []payloadTLVTestSection{
-		{
+	eventRaw := &bpfEvent{
+		EventType:     bpfEventTypeEnter,
+		Args:          [6]uint64{0x1000, 0x2000},
+		ProbeRetEnter: 0,
+	}
+	setJSONTestTLVPayload(t, eventRaw,
+		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     0,
 			userPtr: 0x1000,
 			userLen: capabilityHeaderPayloadSize,
 			data:    header,
 		},
-		{
+		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     1,
 			userPtr: 0x2000,
 			userLen: capabilityDataPayloadSize,
 			data:    data,
 		},
-	})
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		EventFlags:    bpfEventFlagPayloadTLV,
-		Args:          [6]uint64{0x1000, 0x2000},
-		DataLen:       uint32(len(payload)),
-		ProbeRetEnter: 0,
-	}
-	copy(eventRaw.StrArg[:], payload)
+	)
 
 	scMeta := meta.Syscall{Name: "capset"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -130,15 +124,6 @@ func capabilityJSONBytes(start byte, size int) []byte {
 		data[i] = start + byte(i)
 	}
 	return data
-}
-
-func capabilityJSONTLVPayload(t *testing.T, sections []payloadTLVTestSection) []byte {
-	t.Helper()
-	var payload []byte
-	for _, section := range sections {
-		payload = append(payload, payloadTLVBytes(t, section)...)
-	}
-	return payload
 }
 
 func TestSyscallEventContextMergesCapgetDirectTLVSections(t *testing.T) {
