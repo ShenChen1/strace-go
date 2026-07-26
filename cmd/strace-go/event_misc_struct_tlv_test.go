@@ -57,9 +57,9 @@ func assertMiscStructExitTLVSection(
 		userLen: uint32(structSize),
 		data:    structData,
 	})
-	exitRaw := miscStructTLVEvent(t, syscallName, bpfEventTypeExit, args, 0, exitPayload)
+	exitEnvelope := miscStructTLVEnvelope(t, syscallName, bpfEventTypeExit, args, 0, exitPayload)
 
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 	section, ok := ev.handlerContext.Section(int(argIndex), handler.PayloadKindStruct)
 	if !ok || section.Direction != handler.PayloadDirectionOut || !bytes.Equal(section.Data, structData) {
@@ -85,12 +85,11 @@ func assertMiscStructEnterTLVMergedOnExit(
 		userLen: uint32(structSize),
 		data:    structData,
 	})
-	enterRaw := miscStructTLVEvent(t, syscallName, bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := miscStructTLVEnvelope(t, syscallName, bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, syscallName, bpfEventTypeExit, args, 0, nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := miscStructTLVEnvelope(t, syscallName, bpfEventTypeExit, args, 0, nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 	section, ok := ev.handlerContext.Section(int(argIndex), handler.PayloadKindStruct)
 	if !ok || section.Direction != handler.PayloadDirectionIn || !bytes.Equal(section.Data, structData) {
@@ -109,9 +108,8 @@ func assertPrlimitStructTLVSectionsMerged(t *testing.T, args [6]uint64) {
 		userLen: rlimitPayloadStructSize,
 		data:    newLimit,
 	})
-	enterRaw := miscStructTLVEvent(t, "prlimit64", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := miscStructTLVEnvelope(t, "prlimit64", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	oldLimit := bytes.Repeat([]byte{0x66}, rlimitPayloadStructSize)
 	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
@@ -122,8 +120,8 @@ func assertPrlimitStructTLVSectionsMerged(t *testing.T, args [6]uint64) {
 		userLen: rlimitPayloadStructSize,
 		data:    oldLimit,
 	})
-	exitRaw := miscStructTLVEvent(t, "prlimit64", bpfEventTypeExit, args, 0, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := miscStructTLVEnvelope(t, "prlimit64", bpfEventTypeExit, args, 0, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 	newSection, newOK := ev.handlerContext.Section(2, handler.PayloadKindStruct)
 	oldSection, oldOK := ev.handlerContext.Section(3, handler.PayloadKindStruct)
@@ -143,6 +141,40 @@ func miscStructTLVSession(syscallName string) *traceSession {
 		fdState:   newFDStateStoreFromMaps(nil, nil),
 		state:     newTraceState(),
 	}
+}
+
+func miscStructTLVEnvelope(
+	t *testing.T,
+	syscallName string,
+	eventType uint16,
+	args [6]uint64,
+	ret int64,
+	payload []byte,
+) traceEventEnvelope {
+	t.Helper()
+	spec := traceEventV2SampleSpec{
+		pid:     101,
+		tid:     101,
+		sysID:   syscallIDByName(t, syscallName),
+		flags:   bpfEventFlagPayloadTLV,
+		args:    args,
+		ret:     ret,
+		payload: payload,
+	}
+	var raw []byte
+	switch eventType {
+	case bpfEventTypeEnter:
+		raw = traceEventV2EnterSample(t, spec)
+	case bpfEventTypeExit:
+		raw = traceEventV2ExitSample(t, spec)
+	default:
+		t.Fatalf("unsupported misc struct TLV event type %d", eventType)
+	}
+	envelope, ok := decodeTraceEventV2Envelope(raw)
+	if !ok {
+		t.Fatalf("decodeTraceEventV2Envelope rejected %s event type %d", syscallName, eventType)
+	}
+	return envelope
 }
 
 func miscStructTLVEvent(
