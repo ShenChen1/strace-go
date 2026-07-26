@@ -9,17 +9,15 @@ import (
 
 func TestJSONSyscallEventIncludesIoctlEnterPayloadSection(t *testing.T) {
 	wantData := bytes.Repeat([]byte{0x5a}, 32)
-	payload := ioctlJSONTLVPayload(t, 0x1000, []wantIoctlJSONPayloadSection{
+	payloadSections := ioctlJSONTLVSections(0x1000, []wantIoctlJSONPayloadSection{
 		{direction: "in", userLen: uint32(len(wantData)), data: wantData},
 	})
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
-		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{3, ioctlTestCmdSize(len(wantData)), 0x1000},
-		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: 0,
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw, payloadSections...)
 
 	sections := ioctlJSONPayloadSections(t, eventRaw)
 	if len(sections) != 1 {
@@ -31,20 +29,18 @@ func TestJSONSyscallEventIncludesIoctlEnterPayloadSection(t *testing.T) {
 func TestJSONSyscallEventIncludesIoctlExitPayloadSection(t *testing.T) {
 	inData := bytes.Repeat([]byte{0x11}, 8)
 	outData := bytes.Repeat([]byte{0x22}, 8)
-	payload := ioctlJSONTLVPayload(t, 0x1000, []wantIoctlJSONPayloadSection{
+	payloadSections := ioctlJSONTLVSections(0x1000, []wantIoctlJSONPayloadSection{
 		{direction: "in", userLen: uint32(len(inData)), data: inData},
 		{direction: "out", userLen: uint32(len(outData)), data: outData},
 	})
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeExit,
-		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{3, ioctlTestCmdSize(len(inData)), 0x1000},
 		Ret:           0,
-		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw, payloadSections...)
 
 	sections := ioctlJSONPayloadSections(t, eventRaw)
 	if len(sections) != 2 {
@@ -56,17 +52,15 @@ func TestJSONSyscallEventIncludesIoctlExitPayloadSection(t *testing.T) {
 
 func TestJSONSyscallEventIncludesIoctlZeroSizePayloadSection(t *testing.T) {
 	wantData := bytes.Repeat([]byte{0x7f}, ioctlArgZeroPayloadLen)
-	payload := ioctlJSONTLVPayload(t, 0x1000, []wantIoctlJSONPayloadSection{
+	payloadSections := ioctlJSONTLVSections(0x1000, []wantIoctlJSONPayloadSection{
 		{direction: "in", userLen: ioctlArgZeroPayloadLen, data: wantData},
 	})
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
-		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{3, 0, 0x1000},
-		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: 0,
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw, payloadSections...)
 
 	sections := ioctlJSONPayloadSections(t, eventRaw)
 	if len(sections) != 1 {
@@ -121,20 +115,19 @@ type wantIoctlJSONPayloadSection struct {
 	data      []byte
 }
 
-func ioctlJSONTLVPayload(t *testing.T, userPtr uint64, wants []wantIoctlJSONPayloadSection) []byte {
-	t.Helper()
-	var payload []byte
+func ioctlJSONTLVSections(userPtr uint64, wants []wantIoctlJSONPayloadSection) []payloadTLVTestSection {
+	sections := make([]payloadTLVTestSection, 0, len(wants))
 	for _, want := range wants {
-		payload = append(payload, payloadTLVBytes(t, payloadTLVTestSection{
+		sections = append(sections, payloadTLVTestSection{
 			kind:    payloadTLVKindBytes,
 			flags:   ioctlJSONTLVFlags(want.direction),
 			arg:     2,
 			userPtr: userPtr,
 			userLen: want.userLen,
 			data:    want.data,
-		})...)
+		})
 	}
-	return payload
+	return sections
 }
 
 func ioctlJSONTLVFlags(direction string) uint16 {
