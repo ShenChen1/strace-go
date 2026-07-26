@@ -250,26 +250,26 @@ func timeJSONSyscallEvent(eventRaw *bpfEvent, name string) jsonSyscallEvent {
 
 func putTimeJSONPayloads(t *testing.T, eventRaw *bpfEvent, wants []wantTimeJSONPayloadSection) {
 	t.Helper()
-	payload := timeJSONTLVPayload(t, wants)
-	eventRaw.EventFlags |= bpfEventFlagPayloadTLV
-	eventRaw.DataLen = uint32(len(payload))
-	copy(eventRaw.StrArg[:], payload)
+	if len(wants) == 0 {
+		return
+	}
+	setJSONTestTLVPayload(t, eventRaw, timeJSONTLVSections(t, wants)...)
 }
 
-func timeJSONTLVPayload(t *testing.T, wants []wantTimeJSONPayloadSection) []byte {
+func timeJSONTLVSections(t *testing.T, wants []wantTimeJSONPayloadSection) []payloadTLVTestSection {
 	t.Helper()
-	var payload []byte
+	sections := make([]payloadTLVTestSection, 0, len(wants))
 	for _, want := range wants {
-		payload = append(payload, payloadTLVBytes(t, payloadTLVTestSection{
+		sections = append(sections, payloadTLVTestSection{
 			kind:    timeJSONTLVKind(t, want.kind),
 			flags:   timeJSONTLVFlags(t, want.direction),
 			arg:     uint16(want.argIndex),
 			userPtr: want.userPtr,
 			userLen: want.userLen,
 			data:    want.data,
-		})...)
+		})
 	}
-	return payload
+	return sections
 }
 
 func timeJSONTLVKind(t *testing.T, kind string) uint16 {
