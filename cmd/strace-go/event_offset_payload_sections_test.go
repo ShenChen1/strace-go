@@ -10,16 +10,15 @@ import (
 func TestJSONSyscallEventIncludesSendfileOffsetPayloadSections(t *testing.T) {
 	enterData := offsetJSONWord(10)
 	exitData := offsetJSONWord(20)
-	payload := offsetJSONTLVStruct(t, 2, 0, 0x1000, enterData)
-	payload = append(payload, offsetJSONTLVStruct(t, 2, payloadTLVFlagDirectionOut, 0x1000, exitData)...)
 	eventRaw := &bpfEvent{
-		EventType:  bpfEventTypeExit,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       [6]uint64{4, 5, 0x1000, 99},
-		Ret:        99,
-		DataLen:    uint32(len(payload)),
+		EventType: bpfEventTypeExit,
+		Args:      [6]uint64{4, 5, 0x1000, 99},
+		Ret:       99,
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw,
+		offsetJSONTLVStruct(2, 0, 0x1000, enterData),
+		offsetJSONTLVStruct(2, payloadTLVFlagDirectionOut, 0x1000, exitData),
+	)
 
 	scMeta := meta.Syscall{Name: "sendfile"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -33,15 +32,14 @@ func TestJSONSyscallEventIncludesSendfileOffsetPayloadSections(t *testing.T) {
 func TestJSONSyscallEventIncludesCopyFileRangeOffsetPayloadSections(t *testing.T) {
 	inData := offsetJSONWord(11)
 	outData := offsetJSONWord(22)
-	payload := offsetJSONTLVStruct(t, 1, 0, 0x1000, inData)
-	payload = append(payload, offsetJSONTLVStruct(t, 3, 0, 0x2000, outData)...)
 	eventRaw := &bpfEvent{
-		EventType:  bpfEventTypeEnter,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       [6]uint64{4, 0x1000, 5, 0x2000, 99, 0},
-		DataLen:    uint32(len(payload)),
+		EventType: bpfEventTypeEnter,
+		Args:      [6]uint64{4, 0x1000, 5, 0x2000, 99, 0},
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw,
+		offsetJSONTLVStruct(1, 0, 0x1000, inData),
+		offsetJSONTLVStruct(3, 0, 0x2000, outData),
+	)
 
 	scMeta := meta.Syscall{Name: "copy_file_range"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -75,16 +73,15 @@ func assertOffsetSection(
 	}
 }
 
-func offsetJSONTLVStruct(t *testing.T, arg uint16, flags uint16, userPtr uint64, data []byte) []byte {
-	t.Helper()
-	return payloadTLVBytes(t, payloadTLVTestSection{
+func offsetJSONTLVStruct(arg uint16, flags uint16, userPtr uint64, data []byte) payloadTLVTestSection {
+	return payloadTLVTestSection{
 		kind:    payloadTLVKindStruct,
 		flags:   flags,
 		arg:     arg,
 		userPtr: userPtr,
 		userLen: uint32(len(data)),
 		data:    data,
-	})
+	}
 }
 
 func offsetJSONWord(value uint64) []byte {
