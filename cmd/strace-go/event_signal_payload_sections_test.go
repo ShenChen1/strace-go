@@ -77,29 +77,24 @@ type wantSignalJSONPayloadSection struct {
 func putSignalJSONPayloads(t *testing.T, eventRaw *bpfEvent, wants []wantSignalJSONPayloadSection) {
 	t.Helper()
 	if len(wants) == 0 {
-		eventRaw.DataLen = 0
 		return
 	}
-	eventRaw.EventFlags |= bpfEventFlagPayloadTLV
-	payload := signalJSONTLVPayload(t, wants)
-	eventRaw.DataLen = uint32(len(payload))
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw, signalJSONTLVSections(wants)...)
 }
 
-func signalJSONTLVPayload(t *testing.T, wants []wantSignalJSONPayloadSection) []byte {
-	t.Helper()
-	var payload []byte
+func signalJSONTLVSections(wants []wantSignalJSONPayloadSection) []payloadTLVTestSection {
+	sections := make([]payloadTLVTestSection, 0, len(wants))
 	for _, want := range wants {
-		payload = append(payload, payloadTLVBytes(t, payloadTLVTestSection{
+		sections = append(sections, payloadTLVTestSection{
 			kind:    signalJSONTLVKind(want.kind),
 			flags:   signalJSONTLVFlags(want.direction),
 			arg:     uint16(want.argIndex),
 			userPtr: want.userPtr,
 			userLen: want.userLen,
 			data:    want.data,
-		})...)
+		})
 	}
-	return payload
+	return sections
 }
 
 func assertSignalJSONPayloadSections(t *testing.T, got []jsonPayloadSection, want []wantSignalJSONPayloadSection) {
