@@ -22,15 +22,12 @@ func TestJSONSyscallEventIncludesFDArrayPayloadSections(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			wantData := fdArrayJSONData(11, 12)
-			payload := fdArrayJSONTLVStruct(t, uint16(tt.argIndex), tt.userPtr, wantData)
 			eventRaw := &bpfEvent{
-				EventType:  bpfEventTypeExit,
-				EventFlags: bpfEventFlagPayloadTLV,
-				Args:       tt.args,
-				Ret:        0,
-				DataLen:    uint32(len(payload)),
+				EventType: bpfEventTypeExit,
+				Args:      tt.args,
+				Ret:       0,
 			}
-			copy(eventRaw.StrArg[:], payload)
+			setFDArrayExitTLVPayload(t, eventRaw, uint16(tt.argIndex), tt.userPtr, 11, 12)
 
 			scMeta := meta.Syscall{Name: tt.name}
 			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -52,18 +49,6 @@ func TestJSONSyscallEventIncludesFDArrayPayloadSections(t *testing.T) {
 			}
 		})
 	}
-}
-
-func fdArrayJSONTLVStruct(t *testing.T, arg uint16, userPtr uint64, data []byte) []byte {
-	t.Helper()
-	return payloadTLVBytes(t, payloadTLVTestSection{
-		kind:    payloadTLVKindStruct,
-		flags:   payloadTLVFlagDirectionOut,
-		arg:     arg,
-		userPtr: userPtr,
-		userLen: uint32(len(data)),
-		data:    data,
-	})
 }
 
 func fdArrayJSONData(first uint32, second uint32) []byte {
