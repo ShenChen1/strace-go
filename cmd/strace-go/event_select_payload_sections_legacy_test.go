@@ -3,9 +3,6 @@ package main
 import "strace-go/pkg/handler"
 
 const (
-	selectPayloadFdSetSize       = 128
-	selectPayloadFdSetArgBase    = 1
-	selectPayloadFdSetArgLast    = 3
 	selectPayloadFdSetArgSpacing = 128
 	selectPayloadTimeoutArg      = 4
 	selectPayloadTimeoutSize     = 16

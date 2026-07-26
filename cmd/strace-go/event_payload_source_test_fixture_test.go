@@ -5,18 +5,6 @@ type payloadSource interface {
 	PayloadWindow(offset int, maxLen int) ([]byte, bool)
 }
 
-// rawPayloadEvent is the narrow record view required by payload projection.
-type rawPayloadEvent struct {
-	valid         bool
-	args          [6]uint64
-	eventType     uint16
-	eventFlags    uint32
-	ret           int64
-	probeRetEnter int32
-	probeRetExit  int32
-	data          []byte
-}
-
 type windowPayloadSource struct {
 	args [6]uint64
 	data []byte
