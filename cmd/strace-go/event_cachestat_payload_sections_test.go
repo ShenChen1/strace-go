@@ -9,26 +9,41 @@ import (
 )
 
 func TestJSONSyscallEventIncludesCachestatPayloadSections(t *testing.T) {
+	rangeData := bytes.Repeat([]byte{0x11}, cachestatRangePayloadSize)
+	statsData := bytes.Repeat([]byte{0x22}, cachestatStatsPayloadSize)
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		arg:     1,
+		userPtr: 0x1000,
+		userLen: cachestatRangePayloadSize,
+		data:    rangeData,
+	})
+	payload = append(payload, payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		flags:   payloadTLVFlagDirectionOut,
+		arg:     2,
+		userPtr: 0x2000,
+		userLen: cachestatStatsPayloadSize,
+		data:    statsData,
+	})...)
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeExit,
+		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{3, 0x1000, 0x2000, 0},
 		Ret:           0,
-		DataLen:       payloadExitArgOffset + cachestatStatsPayloadSize,
+		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
-	rangeData := bytes.Repeat([]byte{0x11}, cachestatRangePayloadSize)
-	statsData := bytes.Repeat([]byte{0x22}, cachestatStatsPayloadSize)
-	copy(eventRaw.StrArg[cachestatRangePayloadOffset:], rangeData)
-	copy(eventRaw.StrArg[payloadExitArgOffset:], statsData)
+	copy(eventRaw.StrArg[:], payload)
 
 	scMeta := meta.Syscall{Name: "cachestat"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}
-	assertCachestatJSONSection(t, ev.PayloadSections[0], 1, "in", cachestatRangePayloadOffset, 0x1000, rangeData)
-	assertCachestatJSONSection(t, ev.PayloadSections[1], 2, "out", payloadExitArgOffset, 0x2000, statsData)
+	assertCachestatJSONSection(t, ev.PayloadSections[0], 1, "in", 0x1000, rangeData)
+	assertCachestatJSONSection(t, ev.PayloadSections[1], 2, "out", 0x2000, statsData)
 }
 
 func assertCachestatJSONSection(
@@ -36,7 +51,6 @@ func assertCachestatJSONSection(
 	got jsonPayloadSection,
 	argIndex int,
 	direction string,
-	offset int,
 	userPtr uint64,
 	wantData []byte,
 ) {

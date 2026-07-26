@@ -9,51 +9,83 @@ import (
 )
 
 func TestJSONSyscallEventIncludesCapgetPayloadSections(t *testing.T) {
+	header := capabilityJSONBytes(1, capabilityHeaderPayloadSize)
+	data := capabilityJSONBytes(2, capabilityDataPayloadSize)
+	payload := capabilityJSONTLVPayload(t, []payloadTLVTestSection{
+		{
+			kind:    payloadTLVKindStruct,
+			arg:     0,
+			userPtr: 0x1000,
+			userLen: capabilityHeaderPayloadSize,
+			data:    header,
+		},
+		{
+			kind:    payloadTLVKindStruct,
+			flags:   payloadTLVFlagDirectionOut,
+			arg:     1,
+			userPtr: 0x2000,
+			userLen: capabilityDataPayloadSize,
+			data:    data,
+		},
+	})
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeExit,
+		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{0x1000, 0x2000},
 		Ret:           0,
-		DataLen:       payloadExitArgOffset + capabilityDataPayloadSize,
+		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
-	header := capabilityJSONBytes(1, capabilityHeaderPayloadSize)
-	data := capabilityJSONBytes(2, capabilityDataPayloadSize)
-	copy(eventRaw.StrArg[:], header)
-	copy(eventRaw.StrArg[payloadExitArgOffset:], data)
+	copy(eventRaw.StrArg[:], payload)
 
 	scMeta := meta.Syscall{Name: "capget"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	assertCapabilityJSONSections(t, ev.PayloadSections, []wantCapabilityJSONSection{
-		{argIndex: 0, direction: "in", offset: 0, userPtr: 0x1000, data: header},
-		{argIndex: 1, direction: "out", offset: payloadExitArgOffset, userPtr: 0x2000, data: data},
+		{argIndex: 0, direction: "in", userPtr: 0x1000, data: header},
+		{argIndex: 1, direction: "out", userPtr: 0x2000, data: data},
 	})
 }
 
 func TestJSONSyscallEventIncludesCapsetPayloadSections(t *testing.T) {
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{0x1000, 0x2000},
-		DataLen:       payloadMiscArgOffset + capabilityDataPayloadSize,
-		ProbeRetEnter: 0,
-	}
 	header := capabilityJSONBytes(3, capabilityHeaderPayloadSize)
 	data := capabilityJSONBytes(4, capabilityDataPayloadSize)
-	copy(eventRaw.StrArg[:], header)
-	copy(eventRaw.StrArg[payloadMiscArgOffset:], data)
+	payload := capabilityJSONTLVPayload(t, []payloadTLVTestSection{
+		{
+			kind:    payloadTLVKindStruct,
+			arg:     0,
+			userPtr: 0x1000,
+			userLen: capabilityHeaderPayloadSize,
+			data:    header,
+		},
+		{
+			kind:    payloadTLVKindStruct,
+			arg:     1,
+			userPtr: 0x2000,
+			userLen: capabilityDataPayloadSize,
+			data:    data,
+		},
+	})
+	eventRaw := &bpfEvent{
+		EventType:     bpfEventTypeEnter,
+		EventFlags:    bpfEventFlagPayloadTLV,
+		Args:          [6]uint64{0x1000, 0x2000},
+		DataLen:       uint32(len(payload)),
+		ProbeRetEnter: 0,
+	}
+	copy(eventRaw.StrArg[:], payload)
 
 	scMeta := meta.Syscall{Name: "capset"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	assertCapabilityJSONSections(t, ev.PayloadSections, []wantCapabilityJSONSection{
-		{argIndex: 0, direction: "in", offset: 0, userPtr: 0x1000, data: header},
-		{argIndex: 1, direction: "in", offset: payloadMiscArgOffset, userPtr: 0x2000, data: data},
+		{argIndex: 0, direction: "in", userPtr: 0x1000, data: header},
+		{argIndex: 1, direction: "in", userPtr: 0x2000, data: data},
 	})
 }
 
 type wantCapabilityJSONSection struct {
 	argIndex  int
 	direction string
-	offset    uint32
 	userPtr   uint64
 	data      []byte
 }
@@ -98,6 +130,15 @@ func capabilityJSONBytes(start byte, size int) []byte {
 		data[i] = start + byte(i)
 	}
 	return data
+}
+
+func capabilityJSONTLVPayload(t *testing.T, sections []payloadTLVTestSection) []byte {
+	t.Helper()
+	var payload []byte
+	for _, section := range sections {
+		payload = append(payload, payloadTLVBytes(t, section)...)
+	}
+	return payload
 }
 
 func TestSyscallEventContextMergesCapgetDirectTLVSections(t *testing.T) {

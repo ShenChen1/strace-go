@@ -8,15 +8,24 @@ import (
 )
 
 func TestJSONSyscallEventIncludesArchPrctlPayloadSection(t *testing.T) {
+	wantData := archPrctlJSONWord(0x1234)
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		flags:   payloadTLVFlagDirectionOut,
+		arg:     1,
+		userPtr: 0x2000,
+		userLen: archPrctlPayloadOutSize,
+		data:    wantData,
+	})
 	eventRaw := &bpfEvent{
 		EventType:    bpfEventTypeExit,
+		EventFlags:   bpfEventFlagPayloadTLV,
 		Args:         [6]uint64{0x1003, 0x2000},
 		Ret:          0,
-		DataLen:      payloadExitArgOffset + archPrctlPayloadOutSize,
+		DataLen:      uint32(len(payload)),
 		ProbeRetExit: 0,
 	}
-	wantData := archPrctlJSONWord(0x1234)
-	copy(eventRaw.StrArg[payloadExitArgOffset:], wantData)
+	copy(eventRaw.StrArg[:], payload)
 
 	scMeta := meta.Syscall{Name: "arch_prctl"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
