@@ -11,7 +11,6 @@ type wantFutexJSONPayloadSection struct {
 	kind      string
 	direction string
 	argIndex  int
-	offset    uint32
 	userPtr   uint64
 	userLen   uint32
 	data      []byte
@@ -26,39 +25,38 @@ func TestJSONSyscallEventIncludesFutexPayloadSections(t *testing.T) {
 		{
 			name: "futex",
 			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeEnter,
-				Args:          [6]uint64{0x2000, 0, 7, 0x1000},
-				DataLen:       timespecPayloadStructSize,
-				ProbeRetEnter: 0,
+				EventType:  bpfEventTypeEnter,
+				EventFlags: bpfEventFlagPayloadTLV,
+				Args:       [6]uint64{0x2000, 0, 7, 0x1000},
 			},
-			want: wantFutexJSONPayloadSection{"struct", "in", 3, 0, 0x1000, 16, futexJSONTimespec(1, 2)},
+			want: wantFutexJSONPayloadSection{"struct", "in", 3, 0x1000, 16, futexJSONTimespec(1, 2)},
 		},
 		{
 			name: "futex_wait",
 			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeEnter,
-				Args:          [6]uint64{0x2000, 7, 0xffffffff, 0, 0x3000},
-				DataLen:       timespecPayloadStructSize,
-				ProbeRetEnter: 0,
+				EventType:  bpfEventTypeEnter,
+				EventFlags: bpfEventFlagPayloadTLV,
+				Args:       [6]uint64{0x2000, 7, 0xffffffff, 0, 0x3000},
 			},
-			want: wantFutexJSONPayloadSection{"struct", "in", 4, 0, 0x3000, 16, futexJSONTimespec(3, 4)},
+			want: wantFutexJSONPayloadSection{"struct", "in", 4, 0x3000, 16, futexJSONTimespec(3, 4)},
 		},
 		{
 			name: "futex_requeue",
 			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeEnter,
-				Args:          [6]uint64{0x4000},
-				DataLen:       futexPayloadRequeueSize,
-				ProbeRetEnter: 0,
+				EventType:  bpfEventTypeEnter,
+				EventFlags: bpfEventFlagPayloadTLV,
+				Args:       [6]uint64{0x4000},
 			},
-			want: wantFutexJSONPayloadSection{"struct", "in", 0, 0, 0x4000, 48, futexJSONWaitvPair()},
+			want: wantFutexJSONPayloadSection{"struct", "in", 0, 0x4000, 48, futexJSONWaitvPair()},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			eventRaw := tt.eventRaw
-			copy(eventRaw.StrArg[tt.want.offset:], tt.want.data)
+			payload := futexJSONTLVStruct(t, uint16(tt.want.argIndex), tt.want.userPtr, tt.want.data)
+			eventRaw.DataLen = uint32(len(payload))
+			copy(eventRaw.StrArg[:], payload)
 			ev := futexJSONSyscallEvent(&eventRaw, tt.name)
 			if len(ev.PayloadSections) != 1 {
 				t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
@@ -71,19 +69,22 @@ func TestJSONSyscallEventIncludesFutexPayloadSections(t *testing.T) {
 func TestJSONSyscallEventIncludesFutexWaitvPayloadSections(t *testing.T) {
 	waiters := futexJSONWaitvPair()
 	timeout := futexJSONTimespec(9, 10)
+	payload := append(
+		futexJSONTLVStruct(t, 0, 0x1000, waiters),
+		futexJSONTLVStruct(t, 3, 0x4000, timeout)...,
+	)
 	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{0x1000, 2, 0, 0x4000},
-		DataLen:       futexPayloadWaitvTimeoutOffset + timespecPayloadStructSize,
-		ProbeRetEnter: 0,
+		EventType:  bpfEventTypeEnter,
+		EventFlags: bpfEventFlagPayloadTLV,
+		Args:       [6]uint64{0x1000, 2, 0, 0x4000},
+		DataLen:    uint32(len(payload)),
 	}
-	copy(eventRaw.StrArg[:], waiters)
-	copy(eventRaw.StrArg[futexPayloadWaitvTimeoutOffset:], timeout)
+	copy(eventRaw.StrArg[:], payload)
 
 	ev := futexJSONSyscallEvent(eventRaw, "futex_waitv")
 	want := []wantFutexJSONPayloadSection{
-		{"struct", "in", 0, 0, 0x1000, 48, waiters},
-		{"struct", "in", 3, futexPayloadWaitvTimeoutOffset, 0x4000, 16, timeout},
+		{"struct", "in", 0, 0x1000, 48, waiters},
+		{"struct", "in", 3, 0x4000, 16, timeout},
 	}
 	if len(ev.PayloadSections) != len(want) {
 		t.Fatalf("PayloadSections = %d, want %d", len(ev.PayloadSections), len(want))
@@ -91,6 +92,17 @@ func TestJSONSyscallEventIncludesFutexWaitvPayloadSections(t *testing.T) {
 	for i := range want {
 		assertFutexJSONPayloadSection(t, ev.PayloadSections[i], want[i])
 	}
+}
+
+func futexJSONTLVStruct(t *testing.T, arg uint16, userPtr uint64, data []byte) []byte {
+	t.Helper()
+	return payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		arg:     arg,
+		userPtr: userPtr,
+		userLen: uint32(len(data)),
+		data:    data,
+	})
 }
 
 func TestFutexPayloadSectionsRecognizeTimeoutOps(t *testing.T) {
