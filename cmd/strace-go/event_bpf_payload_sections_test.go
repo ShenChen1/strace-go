@@ -9,20 +9,17 @@ import (
 
 func TestJSONSyscallEventIncludesBpfAttrPayloadSection(t *testing.T) {
 	wantData := bytes.Repeat([]byte{0x5a}, 32)
-	payload := payloadTLVBytes(t, payloadTLVTestSection{
+	eventRaw := &bpfEvent{
+		EventType: bpfEventTypeEnter,
+		Args:      [6]uint64{0, 0x1000, uint64(len(wantData))},
+	}
+	setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
 		kind:    payloadTLVKindBytes,
 		arg:     1,
 		userPtr: 0x1000,
 		userLen: uint32(len(wantData)),
 		data:    wantData,
 	})
-	eventRaw := &bpfEvent{
-		EventType:  bpfEventTypeEnter,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       [6]uint64{0, 0x1000, uint64(len(wantData))},
-		DataLen:    uint32(len(payload)),
-	}
-	copy(eventRaw.StrArg[:], payload)
 
 	scMeta := meta.Syscall{Name: "bpf"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
