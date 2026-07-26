@@ -11,25 +11,23 @@ import (
 )
 
 func TestJSONSyscallEventIncludesWritePayloadSection(t *testing.T) {
-	payload := payloadTLVBytes(t, payloadTLVTestSection{
-		kind:    payloadTLVKindBytes,
-		arg:     1,
-		userPtr: 0x2000,
-		userLen: 5,
-		data:    []byte("hello"),
-	})
 	eventRaw := &bpfEvent{
 		Pid:           101,
 		Tid:           101,
 		SysId:         1,
 		EventVersion:  2,
 		EventType:     bpfEventTypeEnter,
-		EventFlags:    bpfEventFlagPayloadTLV | bpfEventFlagGenericEnter,
+		EventFlags:    bpfEventFlagGenericEnter,
 		Args:          [6]uint64{1, 0x2000, 5},
-		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: 0,
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
+		kind:    payloadTLVKindBytes,
+		arg:     1,
+		userPtr: 0x2000,
+		userLen: 5,
+		data:    []byte("hello"),
+	})
 
 	scMeta := meta.Syscall{Name: "write"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -46,7 +44,18 @@ func TestJSONSyscallEventIncludesWritePayloadSection(t *testing.T) {
 }
 
 func TestJSONSyscallEventIncludesReadPayloadSection(t *testing.T) {
-	payload := payloadTLVBytes(t, payloadTLVTestSection{
+	eventRaw := &bpfEvent{
+		Pid:           101,
+		Tid:           101,
+		SysId:         0,
+		EventVersion:  2,
+		EventType:     bpfEventTypeExit,
+		Args:          [6]uint64{3, 0x3000, 16},
+		Ret:           4,
+		ProbeRetEnter: -1,
+		ProbeRetExit:  0,
+	}
+	setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
 		kind:    payloadTLVKindBytes,
 		arg:     1,
 		flags:   payloadTLVFlagDirectionOut,
@@ -54,20 +63,6 @@ func TestJSONSyscallEventIncludesReadPayloadSection(t *testing.T) {
 		userLen: 4,
 		data:    []byte("data"),
 	})
-	eventRaw := &bpfEvent{
-		Pid:           101,
-		Tid:           101,
-		SysId:         0,
-		EventVersion:  2,
-		EventType:     bpfEventTypeExit,
-		EventFlags:    bpfEventFlagPayloadTLV,
-		Args:          [6]uint64{3, 0x3000, 16},
-		Ret:           4,
-		DataLen:       uint32(len(payload)),
-		ProbeRetEnter: -1,
-		ProbeRetExit:  0,
-	}
-	copy(eventRaw.StrArg[:], payload)
 
 	scMeta := meta.Syscall{Name: "read"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
