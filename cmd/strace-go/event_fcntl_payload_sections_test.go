@@ -18,11 +18,10 @@ func TestJSONSyscallEventIncludesFcntlPayloadSections(t *testing.T) {
 			eventRaw: bpfEvent{
 				EventType:     bpfEventTypeEnter,
 				Args:          [6]uint64{3, 6, 0x1000},
-				DataLen:       fcntlFlockPayloadSize,
 				ProbeRetEnter: 0,
 			},
 			wants: []wantFcntlJSONPayloadSection{
-				{"in", 0, fcntlFlockPayloadSize, bytes.Repeat([]byte{0x11}, fcntlFlockPayloadSize)},
+				{"in", fcntlFlockPayloadSize, bytes.Repeat([]byte{0x11}, fcntlFlockPayloadSize)},
 			},
 		},
 		{
@@ -31,13 +30,12 @@ func TestJSONSyscallEventIncludesFcntlPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{3, 5, 0x2000},
 				Ret:           0,
-				DataLen:       payloadExitArgOffset + fcntlFlockPayloadSize,
 				ProbeRetEnter: 0,
 				ProbeRetExit:  0,
 			},
 			wants: []wantFcntlJSONPayloadSection{
-				{"in", 0, fcntlFlockPayloadSize, bytes.Repeat([]byte{0x22}, fcntlFlockPayloadSize)},
-				{"out", payloadExitArgOffset, fcntlFlockPayloadSize, bytes.Repeat([]byte{0x33}, fcntlFlockPayloadSize)},
+				{"in", fcntlFlockPayloadSize, bytes.Repeat([]byte{0x22}, fcntlFlockPayloadSize)},
+				{"out", fcntlFlockPayloadSize, bytes.Repeat([]byte{0x33}, fcntlFlockPayloadSize)},
 			},
 		},
 		{
@@ -46,13 +44,12 @@ func TestJSONSyscallEventIncludesFcntlPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{3, 16, 0x3000},
 				Ret:           0,
-				DataLen:       payloadExitArgOffset + fcntlSmallPayloadSize,
 				ProbeRetEnter: 0,
 				ProbeRetExit:  0,
 			},
 			wants: []wantFcntlJSONPayloadSection{
-				{"in", 0, fcntlSmallPayloadSize, bytes.Repeat([]byte{0x44}, fcntlSmallPayloadSize)},
-				{"out", payloadExitArgOffset, fcntlSmallPayloadSize, bytes.Repeat([]byte{0x55}, fcntlSmallPayloadSize)},
+				{"in", fcntlSmallPayloadSize, bytes.Repeat([]byte{0x44}, fcntlSmallPayloadSize)},
+				{"out", fcntlSmallPayloadSize, bytes.Repeat([]byte{0x55}, fcntlSmallPayloadSize)},
 			},
 		},
 		{
@@ -61,7 +58,6 @@ func TestJSONSyscallEventIncludesFcntlPayloadSections(t *testing.T) {
 				EventType:     bpfEventTypeExit,
 				Args:          [6]uint64{3, 1, 0},
 				Ret:           1,
-				DataLen:       payloadExitArgOffset + fcntlSmallPayloadSize,
 				ProbeRetEnter: 0,
 				ProbeRetExit:  0,
 			},
@@ -71,7 +67,7 @@ func TestJSONSyscallEventIncludesFcntlPayloadSections(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			eventRaw := tt.eventRaw
-			putFcntlJSONPayloads(&eventRaw, tt.wants)
+			putFcntlJSONPayloads(t, &eventRaw, tt.wants)
 			scMeta := meta.Syscall{Name: "fcntl"}
 			ev := newJSONSyscallEvent(&eventRaw, scMeta, payloadSectionsForEvent(&eventRaw, scMeta))
 			assertFcntlJSONPayloadSections(t, ev.PayloadSections, tt.wants, eventRaw.Args[2])
@@ -86,15 +82,36 @@ const (
 
 type wantFcntlJSONPayloadSection struct {
 	direction string
-	offset    int
 	size      uint32
 	data      []byte
 }
 
-func putFcntlJSONPayloads(eventRaw *bpfEvent, wants []wantFcntlJSONPayloadSection) {
-	for _, want := range wants {
-		copy(eventRaw.StrArg[want.offset:], want.data)
+func putFcntlJSONPayloads(t *testing.T, eventRaw *bpfEvent, wants []wantFcntlJSONPayloadSection) {
+	t.Helper()
+	if len(wants) == 0 {
+		eventRaw.DataLen = 0
+		return
 	}
+	eventRaw.EventFlags |= bpfEventFlagPayloadTLV
+	payload := fcntlJSONTLVPayload(t, eventRaw.Args[2], wants)
+	eventRaw.DataLen = uint32(len(payload))
+	copy(eventRaw.StrArg[:], payload)
+}
+
+func fcntlJSONTLVPayload(t *testing.T, userPtr uint64, wants []wantFcntlJSONPayloadSection) []byte {
+	t.Helper()
+	var payload []byte
+	for _, want := range wants {
+		payload = append(payload, payloadTLVBytes(t, payloadTLVTestSection{
+			kind:    payloadTLVKindStruct,
+			flags:   fcntlJSONTLVFlags(want.direction),
+			arg:     2,
+			userPtr: userPtr,
+			userLen: want.size,
+			data:    want.data,
+		})...)
+	}
+	return payload
 }
 
 func assertFcntlJSONPayloadSections(
@@ -131,4 +148,11 @@ func assertFcntlJSONPayloadSection(
 	if data := mustDecodeBase64(t, got.DataBase64); !bytes.Equal(data, want.data) {
 		t.Fatalf("fcntl section data = %v, want %v", data, want.data)
 	}
+}
+
+func fcntlJSONTLVFlags(direction string) uint16 {
+	if direction == "out" {
+		return payloadTLVFlagDirectionOut
+	}
+	return 0
 }
