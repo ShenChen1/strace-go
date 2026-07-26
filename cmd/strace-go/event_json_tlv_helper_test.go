@@ -8,6 +8,11 @@ func setJSONTestTLVPayload(t *testing.T, eventRaw *bpfEvent, sections ...payload
 	for _, section := range sections {
 		payload = append(payload, payloadTLVBytes(t, section)...)
 	}
+	setTestTLVPayloadBytes(t, eventRaw, payload)
+}
+
+func setTestTLVPayloadBytes(t *testing.T, eventRaw *bpfEvent, payload []byte) {
+	t.Helper()
 	eventRaw.EventFlags |= bpfEventFlagPayloadTLV
 	eventRaw.DataLen = uint32(len(payload))
 	copy(eventRaw.StrArg[:], payload)

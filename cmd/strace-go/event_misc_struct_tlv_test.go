@@ -155,15 +155,13 @@ func miscStructTLVEvent(
 ) *bpfEvent {
 	t.Helper()
 	eventRaw := &bpfEvent{
-		Pid:        101,
-		Tid:        101,
-		SysId:      syscallIDByName(t, syscallName),
-		EventType:  eventType,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       args,
-		Ret:        ret,
-		DataLen:    uint32(len(payload)),
+		Pid:       101,
+		Tid:       101,
+		SysId:     syscallIDByName(t, syscallName),
+		EventType: eventType,
+		Args:      args,
+		Ret:       ret,
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setTestTLVPayloadBytes(t, eventRaw, payload)
 	return eventRaw
 }
