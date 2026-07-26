@@ -26,7 +26,14 @@ func TestJSONSyscallEventIncludesMiscStructPayloadSections(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			wantData := bytes.Repeat([]byte{0x5a}, tt.size)
-			payload := payloadTLVBytes(t, payloadTLVTestSection{
+			eventRaw := &bpfEvent{
+				EventType:     tt.eventType,
+				Args:          tt.args,
+				Ret:           0,
+				ProbeRetEnter: 0,
+				ProbeRetExit:  0,
+			}
+			setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
 				kind:    payloadTLVKindStruct,
 				flags:   tt.flags,
 				arg:     uint16(tt.argIndex),
@@ -34,16 +41,6 @@ func TestJSONSyscallEventIncludesMiscStructPayloadSections(t *testing.T) {
 				userLen: uint32(tt.size),
 				data:    wantData,
 			})
-			eventRaw := &bpfEvent{
-				EventType:     tt.eventType,
-				EventFlags:    bpfEventFlagPayloadTLV,
-				Args:          tt.args,
-				Ret:           0,
-				DataLen:       uint32(len(payload)),
-				ProbeRetEnter: 0,
-				ProbeRetExit:  0,
-			}
-			copy(eventRaw.StrArg[:], payload)
 
 			scMeta := meta.Syscall{Name: tt.name}
 			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -58,31 +55,30 @@ func TestJSONSyscallEventIncludesMiscStructPayloadSections(t *testing.T) {
 func TestJSONSyscallEventIncludesPrlimitPayloadSections(t *testing.T) {
 	newLimit := bytes.Repeat([]byte{0x11}, rlimitPayloadStructSize)
 	oldLimit := bytes.Repeat([]byte{0x22}, rlimitPayloadStructSize)
-	payload := payloadTLVBytes(t, payloadTLVTestSection{
-		kind:    payloadTLVKindStruct,
-		arg:     2,
-		userPtr: 0x3000,
-		userLen: rlimitPayloadStructSize,
-		data:    newLimit,
-	})
-	payload = append(payload, payloadTLVBytes(t, payloadTLVTestSection{
-		kind:    payloadTLVKindStruct,
-		flags:   payloadTLVFlagDirectionOut,
-		arg:     3,
-		userPtr: 0x4000,
-		userLen: rlimitPayloadStructSize,
-		data:    oldLimit,
-	})...)
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeExit,
-		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{101, 7, 0x3000, 0x4000},
 		Ret:           0,
-		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw,
+		payloadTLVTestSection{
+			kind:    payloadTLVKindStruct,
+			arg:     2,
+			userPtr: 0x3000,
+			userLen: rlimitPayloadStructSize,
+			data:    newLimit,
+		},
+		payloadTLVTestSection{
+			kind:    payloadTLVKindStruct,
+			flags:   payloadTLVFlagDirectionOut,
+			arg:     3,
+			userPtr: 0x4000,
+			userLen: rlimitPayloadStructSize,
+			data:    oldLimit,
+		},
+	)
 
 	scMeta := meta.Syscall{Name: "prlimit64"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
