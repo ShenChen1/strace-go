@@ -34,8 +34,8 @@ func TestSyscallEventContextUsesSmallStructTLVSections(t *testing.T) {
 			userLen: 8,
 			data:    lenData,
 		})...)
-		exitRaw := miscStructTLVEvent(t, "get_robust_list", bpfEventTypeExit, args, 0, payload)
-		exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+		exitEnvelope := testTLVSyscallEnvelope(t, "get_robust_list", bpfEventTypeExit, args, 0, payload)
+		exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 		ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 
 		headSection, headOK := ev.handlerContext.Section(1, handler.PayloadKindStruct)
@@ -59,9 +59,8 @@ func TestSyscallEventContextUsesSmallStructTLVSections(t *testing.T) {
 			userLen: 8,
 			data:    enterData,
 		})
-		enterRaw := miscStructTLVEvent(t, "sendfile", bpfEventTypeEnter, args, 0, enterPayload)
-		enterRaw.EventFlags |= bpfEventFlagGenericEnter
-		session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+		enterEnvelope := testTLVSyscallEnvelope(t, "sendfile", bpfEventTypeEnter, args, 0, enterPayload)
+		session.traceState().handleEnvelope(enterEnvelope)
 
 		exitData := bytes.Repeat([]byte{0xa2}, 8)
 		exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
@@ -72,8 +71,8 @@ func TestSyscallEventContextUsesSmallStructTLVSections(t *testing.T) {
 			userLen: 8,
 			data:    exitData,
 		})
-		exitRaw := miscStructTLVEvent(t, "sendfile", bpfEventTypeExit, args, 4, exitPayload)
-		exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+		exitEnvelope := testTLVSyscallEnvelope(t, "sendfile", bpfEventTypeExit, args, 4, exitPayload)
+		exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 		ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 		enterSection, enterOK := ev.handlerContext.PayloadStruct(2, handler.PayloadDirectionIn)
 		exitSection, exitOK := ev.handlerContext.PayloadStruct(2, handler.PayloadDirectionOut)
@@ -104,12 +103,11 @@ func TestSyscallEventContextUsesSmallStructTLVSections(t *testing.T) {
 			userLen: 8,
 			data:    outData,
 		})...)
-		enterRaw := miscStructTLVEvent(t, "copy_file_range", bpfEventTypeEnter, args, 0, enterPayload)
-		enterRaw.EventFlags |= bpfEventFlagGenericEnter
-		session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+		enterEnvelope := testTLVSyscallEnvelope(t, "copy_file_range", bpfEventTypeEnter, args, 0, enterPayload)
+		session.traceState().handleEnvelope(enterEnvelope)
 
-		exitRaw := miscStructTLVEvent(t, "copy_file_range", bpfEventTypeExit, args, 4, nil)
-		exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+		exitEnvelope := testTLVSyscallEnvelope(t, "copy_file_range", bpfEventTypeExit, args, 4, nil)
+		exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 		ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 		inSection, inOK := ev.handlerContext.PayloadStruct(1, handler.PayloadDirectionIn)
 		outSection, outOK := ev.handlerContext.PayloadStruct(3, handler.PayloadDirectionIn)
@@ -134,8 +132,8 @@ func assertSmallStructExitTLVSection(t *testing.T, syscallName string, args [6]u
 		userLen: 8,
 		data:    structData,
 	})
-	exitRaw := miscStructTLVEvent(t, syscallName, bpfEventTypeExit, args, 0, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, syscallName, bpfEventTypeExit, args, 0, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 	section, ok := ev.handlerContext.Section(int(argIndex), handler.PayloadKindStruct)
 	if !ok || section.Direction != handler.PayloadDirectionOut || !bytes.Equal(section.Data, structData) {
