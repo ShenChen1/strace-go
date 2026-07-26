@@ -73,6 +73,37 @@ func TestProductSourceHasNoRuntimePtraceOrProcmemDependency(t *testing.T) {
 	}
 }
 
+func TestProductSourceHasNoFixedWindowPayloadProjection(t *testing.T) {
+	forbidden := []string{
+		"payloadSectionsForPayloadEvent",
+		"payloadSourceSectionRules",
+		"type payloadEvent",
+		"type payloadEventMeta",
+		"type payloadSource interface",
+		"type windowPayloadSource",
+		"type sectionPayloadSource",
+		"type payloadWindowSpec",
+		"newWindowPayloadEventFromRaw",
+		"newWindowPayloadSourceFromRaw",
+		"payloadEnterArgOffset",
+		"payloadMiscArgOffset",
+		"payloadExitArgOffset",
+		"PayloadWindow(",
+	}
+	for _, path := range productGoFiles(t) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		src := string(data)
+		for _, token := range forbidden {
+			if strings.Contains(src, token) {
+				t.Fatalf("%s contains forbidden fixed-window payload projection token %q", path, token)
+			}
+		}
+	}
+}
+
 func TestPendingSyscallsMapUsesCompactValue(t *testing.T) {
 	spec, err := loadBpf()
 	if err != nil {
