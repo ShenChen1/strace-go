@@ -54,19 +54,18 @@ func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 		decoder:   event.NewDecoder(),
 		fdState:   newFDStateStoreFromMaps(nil, nil),
 	}
-	path := []byte("legacy.txt\x00")
-	eventRaw := &bpfEvent{
-		Pid:           101,
-		Tid:           101,
-		SysId:         syscallIDByName(t, "openat"),
-		Args:          [6]uint64{rawAtFdcwd, 0x1000, 0},
-		DataLen:       uint32(len(path)),
-		ProbeRetEnter: 0,
-		Ret:           -2,
+	view := syscallEventView{
+		valid:         true,
+		pid:           101,
+		tid:           101,
+		sysID:         syscallIDByName(t, "openat"),
+		args:          [6]uint64{rawAtFdcwd, 0x1000, 0},
+		ptr:           0x1000,
+		probeRetEnter: 0,
+		ret:           -2,
 	}
-	copy(eventRaw.StrArg[:], path)
 
-	ev := newSyscallEventContextFromBPF(session, eventRaw, 101, nil)
+	ev := newSyscallEventContextFromView(session, view, 101, nil, nil)
 	if _, ok := ev.handlerContext.Section(1, handler.PayloadKindString); ok {
 		t.Fatalf("handler context unexpectedly exposed legacy path string section")
 	}
