@@ -18,12 +18,11 @@ func TestSyscallEventContextMergesPathOnlyTLVSection(t *testing.T) {
 		userLen: uint32(len(pathData)),
 		data:    pathData,
 	})
-	enterRaw := miscStructTLVEvent(t, "mkdir", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "mkdir", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, "mkdir", bpfEventTypeExit, args, 0, nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "mkdir", bpfEventTypeExit, args, 0, nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
@@ -46,9 +45,8 @@ func TestSyscallEventContextPrefersPathOnlyExitRetryTLVSection(t *testing.T) {
 		userPtr:  args[0],
 		probeRet: -14,
 	})
-	enterRaw := miscStructTLVEvent(t, "chdir", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "chdir", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	exitData := []byte("fork-f.child\x00")
 	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
@@ -58,8 +56,8 @@ func TestSyscallEventContextPrefersPathOnlyExitRetryTLVSection(t *testing.T) {
 		userLen: uint32(len(exitData)),
 		data:    exitData,
 	})
-	exitRaw := miscStructTLVEvent(t, "chdir", bpfEventTypeExit, args, -2, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "chdir", bpfEventTypeExit, args, -2, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
@@ -92,12 +90,11 @@ func TestSyscallEventContextMergesDualPathTLVSections(t *testing.T) {
 		userLen: uint32(len(newData)),
 		data:    newData,
 	})...)
-	enterRaw := miscStructTLVEvent(t, "rename", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "rename", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, "rename", bpfEventTypeExit, args, 0, nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "rename", bpfEventTypeExit, args, 0, nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
