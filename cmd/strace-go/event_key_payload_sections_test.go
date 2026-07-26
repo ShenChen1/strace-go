@@ -12,7 +12,7 @@ func TestJSONSyscallEventIncludesAddKeyPayloadSections(t *testing.T) {
 	typeData := []byte("user\x00")
 	descData := []byte("desc\x00")
 	payloadData := []byte("abc")
-	payload := keyJSONTLVPayload(t, []payloadTLVTestSection{
+	payloadSections := []payloadTLVTestSection{
 		{
 			kind:    payloadTLVKindString,
 			arg:     0,
@@ -34,14 +34,12 @@ func TestJSONSyscallEventIncludesAddKeyPayloadSections(t *testing.T) {
 			userLen: uint32(len(payloadData)),
 			data:    payloadData,
 		},
-	})
-	eventRaw := &bpfEvent{
-		EventType:  bpfEventTypeEnter,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       args,
-		DataLen:    uint32(len(payload)),
 	}
-	copy(eventRaw.StrArg[:], payload)
+	eventRaw := &bpfEvent{
+		EventType: bpfEventTypeEnter,
+		Args:      args,
+	}
+	setJSONTestTLVPayload(t, eventRaw, payloadSections...)
 
 	sections := keyJSONPayloadSections(t, eventRaw, "add_key")
 	if len(sections) != 3 {
@@ -57,7 +55,7 @@ func TestJSONSyscallEventIncludesRequestKeyPayloadSections(t *testing.T) {
 	typeData := []byte("user\x00")
 	descData := []byte("desc\x00")
 	infoData := []byte("info\x00")
-	payload := keyJSONTLVPayload(t, []payloadTLVTestSection{
+	payloadSections := []payloadTLVTestSection{
 		{
 			kind:    payloadTLVKindString,
 			arg:     0,
@@ -79,14 +77,12 @@ func TestJSONSyscallEventIncludesRequestKeyPayloadSections(t *testing.T) {
 			userLen: uint32(len(infoData)),
 			data:    infoData,
 		},
-	})
-	eventRaw := &bpfEvent{
-		EventType:  bpfEventTypeEnter,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       args,
-		DataLen:    uint32(len(payload)),
 	}
-	copy(eventRaw.StrArg[:], payload)
+	eventRaw := &bpfEvent{
+		EventType: bpfEventTypeEnter,
+		Args:      args,
+	}
+	setJSONTestTLVPayload(t, eventRaw, payloadSections...)
 
 	sections := keyJSONPayloadSections(t, eventRaw, "request_key")
 	if len(sections) != 3 {
@@ -95,15 +91,6 @@ func TestJSONSyscallEventIncludesRequestKeyPayloadSections(t *testing.T) {
 	assertKeyJSONSection(t, sections[0], "string", 0, 0x1000, typeData)
 	assertKeyJSONSection(t, sections[1], "string", 1, 0x2000, descData)
 	assertKeyJSONSection(t, sections[2], "string", 2, 0x3000, infoData)
-}
-
-func keyJSONTLVPayload(t *testing.T, sections []payloadTLVTestSection) []byte {
-	t.Helper()
-	var payload []byte
-	for _, section := range sections {
-		payload = append(payload, payloadTLVBytes(t, section)...)
-	}
-	return payload
 }
 
 func keyJSONPayloadSections(t *testing.T, eventRaw *bpfEvent, name string) []jsonPayloadSection {
