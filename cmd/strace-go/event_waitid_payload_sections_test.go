@@ -10,16 +10,15 @@ import (
 func TestJSONSyscallEventIncludesWaitidPayloadSections(t *testing.T) {
 	siginfo := bytes.Repeat([]byte{0x11}, waitidSiginfoPayloadSize)
 	rusage := bytes.Repeat([]byte{0x22}, waitidRusagePayloadSize)
-	payload := waitidJSONTLVStruct(t, 2, 0x1000, siginfo)
-	payload = append(payload, waitidJSONTLVStruct(t, 4, 0x2000, rusage)...)
 	eventRaw := &bpfEvent{
-		EventType:  bpfEventTypeExit,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       [6]uint64{0, 0, 0x1000, 0, 0x2000},
-		Ret:        0,
-		DataLen:    uint32(len(payload)),
+		EventType: bpfEventTypeExit,
+		Args:      [6]uint64{0, 0, 0x1000, 0, 0x2000},
+		Ret:       0,
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw,
+		waitidJSONTLVStruct(2, 0x1000, siginfo),
+		waitidJSONTLVStruct(4, 0x2000, rusage),
+	)
 
 	scMeta := meta.Syscall{Name: "waitid"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -53,14 +52,13 @@ func assertWaitidSection(
 	}
 }
 
-func waitidJSONTLVStruct(t *testing.T, arg uint16, userPtr uint64, data []byte) []byte {
-	t.Helper()
-	return payloadTLVBytes(t, payloadTLVTestSection{
+func waitidJSONTLVStruct(arg uint16, userPtr uint64, data []byte) payloadTLVTestSection {
+	return payloadTLVTestSection{
 		kind:    payloadTLVKindStruct,
 		flags:   payloadTLVFlagDirectionOut,
 		arg:     arg,
 		userPtr: userPtr,
 		userLen: uint32(len(data)),
 		data:    data,
-	})
+	}
 }
