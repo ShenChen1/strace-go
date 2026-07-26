@@ -11,31 +11,30 @@ import (
 func TestJSONSyscallEventIncludesCachestatPayloadSections(t *testing.T) {
 	rangeData := bytes.Repeat([]byte{0x11}, cachestatRangePayloadSize)
 	statsData := bytes.Repeat([]byte{0x22}, cachestatStatsPayloadSize)
-	payload := payloadTLVBytes(t, payloadTLVTestSection{
-		kind:    payloadTLVKindStruct,
-		arg:     1,
-		userPtr: 0x1000,
-		userLen: cachestatRangePayloadSize,
-		data:    rangeData,
-	})
-	payload = append(payload, payloadTLVBytes(t, payloadTLVTestSection{
-		kind:    payloadTLVKindStruct,
-		flags:   payloadTLVFlagDirectionOut,
-		arg:     2,
-		userPtr: 0x2000,
-		userLen: cachestatStatsPayloadSize,
-		data:    statsData,
-	})...)
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeExit,
-		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{3, 0x1000, 0x2000, 0},
 		Ret:           0,
-		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw,
+		payloadTLVTestSection{
+			kind:    payloadTLVKindStruct,
+			arg:     1,
+			userPtr: 0x1000,
+			userLen: cachestatRangePayloadSize,
+			data:    rangeData,
+		},
+		payloadTLVTestSection{
+			kind:    payloadTLVKindStruct,
+			flags:   payloadTLVFlagDirectionOut,
+			arg:     2,
+			userPtr: 0x2000,
+			userLen: cachestatStatsPayloadSize,
+			data:    statsData,
+		},
+	)
 
 	scMeta := meta.Syscall{Name: "cachestat"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
