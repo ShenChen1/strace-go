@@ -12,14 +12,13 @@ import (
 func TestJSONSyscallEventIncludesAioSetupPayloadSection(t *testing.T) {
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeExit,
-		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{128, 0x1000},
 		Ret:           0,
 		ProbeRetExit:  0,
 		ProbeRetEnter: -1,
 	}
-	payload := aioJSONTLVPayload(t, []payloadTLVTestSection{
-		{
+	setJSONTestTLVPayload(t, eventRaw,
+		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			flags:   payloadTLVFlagDirectionOut,
 			arg:     1,
@@ -27,9 +26,7 @@ func TestJSONSyscallEventIncludesAioSetupPayloadSection(t *testing.T) {
 			userLen: aioPayloadPointerSize,
 			data:    aioTestPointerBytes(0xabc),
 		},
-	})
-	eventRaw.DataLen = uint32(len(payload))
-	copy(eventRaw.StrArg[:], payload)
+	)
 
 	sections := aioJSONPayloadSections(t, eventRaw, "io_setup")
 	if len(sections) != 1 {
@@ -43,36 +40,33 @@ func TestJSONSyscallEventIncludesAioSubmitPayloadSections(t *testing.T) {
 	iocb1 := aioTestIocbData(0, 0x5000, 4)
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
-		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{0xabc, 2, 0x1000},
 		ProbeRetEnter: 0,
 	}
 	pointers := append(aioTestPointerBytes(0x2000), aioTestPointerBytes(0x3000)...)
-	payload := aioJSONTLVPayload(t, []payloadTLVTestSection{
-		{
+	setJSONTestTLVPayload(t, eventRaw,
+		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     2,
 			userPtr: 0x1000,
 			userLen: uint32(len(pointers)),
 			data:    pointers,
 		},
-		{
+		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     handler.AioSubmitIocbPayloadArgBase,
 			userPtr: 0x2000,
 			userLen: aioPayloadIocbSize,
 			data:    iocb0,
 		},
-		{
+		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     handler.AioSubmitIocbPayloadArgBase + 1,
 			userPtr: 0x3000,
 			userLen: aioPayloadIocbSize,
 			data:    iocb1,
 		},
-	})
-	eventRaw.DataLen = uint32(len(payload))
-	copy(eventRaw.StrArg[:], payload)
+	)
 
 	sections := aioJSONPayloadSections(t, eventRaw, "io_submit")
 	if len(sections) != 3 {
@@ -87,14 +81,13 @@ func TestJSONSyscallEventIncludesAioGeteventsPayloadSection(t *testing.T) {
 	events := aioTestIoEventData(0x11, 0x22, 3, 4)
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeExit,
-		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{0xabc, 0, 1, 0x7000},
 		Ret:           1,
 		ProbeRetExit:  0,
 		ProbeRetEnter: -1,
 	}
-	payload := aioJSONTLVPayload(t, []payloadTLVTestSection{
-		{
+	setJSONTestTLVPayload(t, eventRaw,
+		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			flags:   payloadTLVFlagDirectionOut,
 			arg:     3,
@@ -102,9 +95,7 @@ func TestJSONSyscallEventIncludesAioGeteventsPayloadSection(t *testing.T) {
 			userLen: uint32(len(events)),
 			data:    events,
 		},
-	})
-	eventRaw.DataLen = uint32(len(payload))
-	copy(eventRaw.StrArg[:], payload)
+	)
 
 	sections := aioJSONPayloadSections(t, eventRaw, "io_getevents")
 	if len(sections) != 1 {
@@ -119,35 +110,32 @@ func TestJSONSyscallEventIncludesAioPgeteventsPayloadSections(t *testing.T) {
 	mask := aioTestPointerBytes(1)
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
-		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{0xabc, 0, 0, 0, 0x4000, 0x5000},
 		ProbeRetEnter: 0,
 	}
-	payload := aioJSONTLVPayload(t, []payloadTLVTestSection{
-		{
+	setJSONTestTLVPayload(t, eventRaw,
+		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     4,
 			userPtr: 0x4000,
 			userLen: uint32(len(timeout)),
 			data:    timeout,
 		},
-		{
+		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     5,
 			userPtr: 0x5000,
 			userLen: uint32(len(sigset)),
 			data:    sigset,
 		},
-		{
+		payloadTLVTestSection{
 			kind:    payloadTLVKindBytes,
 			arg:     5,
 			userPtr: 0x6000,
 			userLen: uint32(len(mask)),
 			data:    mask,
 		},
-	})
-	eventRaw.DataLen = uint32(len(payload))
-	copy(eventRaw.StrArg[:], payload)
+	)
 
 	sections := aioJSONPayloadSections(t, eventRaw, "io_pgetevents")
 	if len(sections) != 3 {
@@ -187,15 +175,6 @@ func assertAioJSONSection(
 	if data := mustDecodeBase64(t, got.DataBase64); !bytes.Equal(data, wantData) {
 		t.Fatalf("aio section data = %v, want %v", data, wantData)
 	}
-}
-
-func aioJSONTLVPayload(t *testing.T, sections []payloadTLVTestSection) []byte {
-	t.Helper()
-	var payload []byte
-	for _, section := range sections {
-		payload = append(payload, payloadTLVBytes(t, section)...)
-	}
-	return payload
 }
 
 func aioTestPointerBytes(ptr uint64) []byte {
