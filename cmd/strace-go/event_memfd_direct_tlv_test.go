@@ -18,12 +18,11 @@ func TestSyscallEventContextMergesMemfdNameTLVSection(t *testing.T) {
 		userLen: uint32(len(nameData)),
 		data:    nameData,
 	})
-	enterRaw := miscStructTLVEvent(t, "memfd_create", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "memfd_create", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, "memfd_create", bpfEventTypeExit, args, 3, nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "memfd_create", bpfEventTypeExit, args, 3, nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
