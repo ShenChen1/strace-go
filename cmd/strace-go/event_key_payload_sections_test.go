@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"testing"
 
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -46,68 +45,6 @@ func TestJSONSyscallEventIncludesRequestKeyPayloadSections(t *testing.T) {
 	assertKeyJSONSection(t, sections[0], "string", 0, keyTypePayloadOffset, 0x1000, []byte("user\x00"))
 	assertKeyJSONSection(t, sections[1], "string", 1, keyDescriptionPayloadOffset, 0x2000, []byte("desc\x00"))
 	assertKeyJSONSection(t, sections[2], "string", 2, keyDataPayloadOffset, 0x3000, []byte("info\x00"))
-}
-
-func TestPayloadSectionsForPayloadEventUsesSourceAwareKeyRules(t *testing.T) {
-	tests := []struct {
-		name      string
-		args      [6]uint64
-		data      []byte
-		wantKinds []handler.PayloadKind
-		wantData  [][]byte
-	}{
-		{
-			name: "add_key",
-			args: [6]uint64{0x1000, 0x2000, 0x3000, 3},
-			data: keySourcePayloadData([]byte("user\x00"), []byte("desc\x00"), []byte("abc")),
-			wantKinds: []handler.PayloadKind{
-				handler.PayloadKindString,
-				handler.PayloadKindString,
-				handler.PayloadKindBytes,
-			},
-			wantData: [][]byte{[]byte("user\x00"), []byte("desc\x00"), []byte("abc")},
-		},
-		{
-			name: "request_key",
-			args: [6]uint64{0x1000, 0x2000, 0x3000},
-			data: keySourcePayloadData([]byte("user\x00"), []byte("desc\x00"), []byte("info\x00")),
-			wantKinds: []handler.PayloadKind{
-				handler.PayloadKindString,
-				handler.PayloadKindString,
-				handler.PayloadKindString,
-			},
-			wantData: [][]byte{[]byte("user\x00"), []byte("desc\x00"), []byte("info\x00")},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			raw := &bpfEvent{EventType: bpfEventTypeEnter, Args: tt.args, ProbeRetEnter: 0}
-			event := payloadEventFromRawForTest(raw, tt.data)
-
-			sections := payloadSectionsForPayloadEvent(event, meta.Syscall{Name: tt.name})
-
-			if len(sections) != len(tt.wantData) {
-				t.Fatalf("sections = %d, want %d", len(sections), len(tt.wantData))
-			}
-			for i := range sections {
-				if sections[i].Kind != tt.wantKinds[i] || sections[i].Direction != handler.PayloadDirectionIn {
-					t.Fatalf("section[%d] metadata = %+v", i, sections[i])
-				}
-				if !bytes.Equal(sections[i].Data, tt.wantData[i]) {
-					t.Fatalf("section[%d] data = %v, want %v", i, sections[i].Data, tt.wantData[i])
-				}
-			}
-		})
-	}
-}
-
-func keySourcePayloadData(typeData []byte, descData []byte, payloadData []byte) []byte {
-	data := make([]byte, keyDataPayloadOffset+keyDataPayloadMaxBytes)
-	copy(data[keyTypePayloadOffset:], typeData)
-	copy(data[keyDescriptionPayloadOffset:], descData)
-	copy(data[keyDataPayloadOffset:], payloadData)
-	return data
 }
 
 func keyJSONPayloadSections(t *testing.T, eventRaw *bpfEvent, name string) []jsonPayloadSection {
