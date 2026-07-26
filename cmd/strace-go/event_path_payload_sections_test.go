@@ -55,19 +55,18 @@ func TestJSONSyscallEventIncludesSimplePathPayloadSection(t *testing.T) {
 	}
 }
 
-func TestJSONSyscallEventDoesNotUseFixedOpenatPathPayload(t *testing.T) {
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{^uint64(99), 0x2000},
-		DataLen:       uint32(len("legacy") + 1),
-		ProbeRetEnter: 0,
+func TestPayloadSectionsForRawPayloadEventDoesNotUseFixedOpenatPathPayload(t *testing.T) {
+	raw := rawPayloadEvent{
+		valid:         true,
+		eventType:     bpfEventTypeEnter,
+		args:          [6]uint64{^uint64(99), 0x2000},
+		probeRetEnter: 0,
+		data:          []byte("legacy\x00"),
 	}
-	copy(eventRaw.StrArg[:], []byte("legacy\x00"))
 
-	scMeta := meta.Syscall{Name: "openat"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
-	if len(ev.PayloadSections) != 0 {
-		t.Fatalf("PayloadSections = %d, want no fixed openat path fallback", len(ev.PayloadSections))
+	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "openat"})
+	if len(sections) != 0 {
+		t.Fatalf("PayloadSections = %d, want no fixed openat path fallback", len(sections))
 	}
 }
 
