@@ -10,7 +10,14 @@ import (
 
 func TestPayloadSectionsForEventUsesRawTLVStructSection(t *testing.T) {
 	wantData := bytes.Repeat([]byte{0x42}, statPayloadStructSize)
-	payload := payloadTLVBytes(t, payloadTLVTestSection{
+	eventRaw := &bpfEvent{
+		EventType:     bpfEventTypeExit,
+		Args:          [6]uint64{0x1000, 0x2000},
+		Ret:           0,
+		ProbeRetExit:  0,
+		ProbeRetEnter: -1,
+	}
+	setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
 		kind:    payloadTLVKindStruct,
 		flags:   payloadTLVFlagDirectionOut,
 		arg:     1,
@@ -18,16 +25,6 @@ func TestPayloadSectionsForEventUsesRawTLVStructSection(t *testing.T) {
 		userLen: uint32(len(wantData)),
 		data:    wantData,
 	})
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeExit,
-		EventFlags:    bpfEventFlagPayloadTLV,
-		Args:          [6]uint64{0x1000, 0x2000},
-		Ret:           0,
-		DataLen:       uint32(len(payload)),
-		ProbeRetExit:  0,
-		ProbeRetEnter: -1,
-	}
-	copy(eventRaw.StrArg[:], payload)
 
 	sections := payloadSectionsForEvent(eventRaw, meta.Syscall{Name: "stat"})
 	if len(sections) != 1 {
@@ -44,21 +41,18 @@ func TestPayloadSectionsForEventUsesRawTLVStructSection(t *testing.T) {
 
 func TestPayloadSectionsForEventUsesRawTLVStringSection(t *testing.T) {
 	wantData := []byte("/tmp/a\x00")
-	payload := payloadTLVBytes(t, payloadTLVTestSection{
+	eventRaw := &bpfEvent{
+		EventType:     bpfEventTypeEnter,
+		Args:          [6]uint64{0x1000},
+		ProbeRetEnter: 0,
+	}
+	setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
 		kind:    payloadTLVKindString,
 		arg:     0,
 		userPtr: 0x1000,
 		userLen: uint32(len(wantData)),
 		data:    wantData,
 	})
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		EventFlags:    bpfEventFlagPayloadTLV,
-		Args:          [6]uint64{0x1000},
-		DataLen:       uint32(len(payload)),
-		ProbeRetEnter: 0,
-	}
-	copy(eventRaw.StrArg[:], payload)
 
 	sections := payloadSectionsForEvent(eventRaw, meta.Syscall{Name: "chdir"})
 	if len(sections) != 1 {
