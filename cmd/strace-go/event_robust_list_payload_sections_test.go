@@ -10,16 +10,15 @@ import (
 func TestJSONSyscallEventIncludesRobustListPayloadSections(t *testing.T) {
 	headData := robustListJSONWord(0xfeedface)
 	lenData := robustListJSONWord(24)
-	payload := robustListJSONTLVStruct(t, 1, 0x1000, headData)
-	payload = append(payload, robustListJSONTLVStruct(t, 2, 0x2000, lenData)...)
 	eventRaw := &bpfEvent{
-		EventType:  bpfEventTypeExit,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       [6]uint64{0, 0x1000, 0x2000},
-		Ret:        0,
-		DataLen:    uint32(len(payload)),
+		EventType: bpfEventTypeExit,
+		Args:      [6]uint64{0, 0x1000, 0x2000},
+		Ret:       0,
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw,
+		robustListJSONTLVStruct(1, 0x1000, headData),
+		robustListJSONTLVStruct(2, 0x2000, lenData),
+	)
 
 	scMeta := meta.Syscall{Name: "get_robust_list"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -52,16 +51,15 @@ func assertRobustListSection(
 	}
 }
 
-func robustListJSONTLVStruct(t *testing.T, arg uint16, userPtr uint64, data []byte) []byte {
-	t.Helper()
-	return payloadTLVBytes(t, payloadTLVTestSection{
+func robustListJSONTLVStruct(arg uint16, userPtr uint64, data []byte) payloadTLVTestSection {
+	return payloadTLVTestSection{
 		kind:    payloadTLVKindStruct,
 		flags:   payloadTLVFlagDirectionOut,
 		arg:     arg,
 		userPtr: userPtr,
 		userLen: uint32(len(data)),
 		data:    data,
-	})
+	}
 }
 
 func robustListJSONWord(value uint64) []byte {
