@@ -144,8 +144,8 @@ func TestSyscallEventContextHandlerContextUsesEffectiveMetadata(t *testing.T) {
 		EventType:    bpfEventTypeExit,
 		Ret:          0,
 		ProbeRetExit: 0,
-		DataLen:      uint32(payloadExitArgOffset + 8),
 	}
+	setFDArrayExitTLVPayload(t, raw, 0, 0, 21, 22)
 	ev := syscallEventContextFromRawForTest(raw, scMeta, 101)
 	ev.handlerContext = &handler.Context{ScMeta: scMeta}
 

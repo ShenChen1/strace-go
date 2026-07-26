@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"os"
 	"testing"
 
@@ -101,10 +100,8 @@ func TestSyscallEventContextUpdateFDStateBuildsPayloadWithEffectiveMetadata(t *t
 		EventType:    bpfEventTypeExit,
 		Ret:          0,
 		ProbeRetExit: 0,
-		DataLen:      uint32(payloadExitArgOffset + 8),
 	}
-	binary.LittleEndian.PutUint32(raw.StrArg[payloadExitArgOffset:], uint32(readEnd.Fd()))
-	binary.LittleEndian.PutUint32(raw.StrArg[payloadExitArgOffset+4:], uint32(writeEnd.Fd()))
+	setFDArrayExitTLVPayload(t, raw, 0, 0, uint32(readEnd.Fd()), uint32(writeEnd.Fd()))
 	store := newFDStateStoreFromMaps(make(map[string]string), nil)
 	ev := syscallEventContextFromRawForTest(raw, meta.Syscall{Name: "pipe"}, 101)
 	ev.handlerContext = &handler.Context{
