@@ -9,13 +9,21 @@ import (
 
 func TestJSONSyscallEventIncludesClone3PayloadSection(t *testing.T) {
 	wantData := bytes.Repeat([]byte{0x44}, 88)
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		arg:     0,
+		userPtr: 0x1000,
+		userLen: uint32(len(wantData)),
+		data:    wantData,
+	})
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeEnter,
+		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{0x1000, uint64(len(wantData))},
-		DataLen:       uint32(len(wantData)),
+		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: 0,
 	}
-	copy(eventRaw.StrArg[:], wantData)
+	copy(eventRaw.StrArg[:], payload)
 
 	scMeta := meta.Syscall{Name: "clone3"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
