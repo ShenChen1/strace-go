@@ -26,17 +26,15 @@ func TestJSONSyscallEventIncludesSelectPayloadSections(t *testing.T) {
 		{"bytes", "out", 2, 0x2000, 1, selectJSONFdSetData(6)[:1]},
 		{"struct", "out", 4, 0x3000, 16, selectJSONTimeval(1, 2)},
 	}
-	payload := selectJSONTLVPayload(t, want)
+	payloadSections := selectJSONTLVSections(t, want)
 	eventRaw := &bpfEvent{
 		EventType:     bpfEventTypeExit,
-		EventFlags:    bpfEventFlagPayloadTLV,
 		Args:          [6]uint64{8, 0x1000, 0x2000, 0, 0x3000},
 		Ret:           1,
-		DataLen:       uint32(len(payload)),
 		ProbeRetEnter: 0,
 		ProbeRetExit:  0,
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw, payloadSections...)
 
 	scMeta := meta.Syscall{Name: "select"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
@@ -48,20 +46,20 @@ func TestJSONSyscallEventIncludesSelectPayloadSections(t *testing.T) {
 	}
 }
 
-func selectJSONTLVPayload(t *testing.T, wants []wantSelectJSONPayloadSection) []byte {
+func selectJSONTLVSections(t *testing.T, wants []wantSelectJSONPayloadSection) []payloadTLVTestSection {
 	t.Helper()
-	var payload []byte
+	sections := make([]payloadTLVTestSection, 0, len(wants))
 	for _, want := range wants {
-		payload = append(payload, payloadTLVBytes(t, payloadTLVTestSection{
+		sections = append(sections, payloadTLVTestSection{
 			kind:    selectJSONTLVKind(t, want.kind),
 			flags:   selectJSONTLVFlags(t, want.direction),
 			arg:     uint16(want.argIndex),
 			userPtr: want.userPtr,
 			userLen: want.userLen,
 			data:    want.data,
-		})...)
+		})
 	}
-	return payload
+	return sections
 }
 
 func selectJSONTLVKind(t *testing.T, kind string) uint16 {
