@@ -8,32 +8,32 @@ import (
 )
 
 func TestJSONSyscallEventIncludesWaitidPayloadSections(t *testing.T) {
-	eventRaw := &bpfEvent{
-		EventType:    bpfEventTypeExit,
-		Args:         [6]uint64{0, 0, 0x1000, 0, 0x2000},
-		Ret:          0,
-		DataLen:      payloadExitArgOffset + 136 + waitidRusagePayloadSize,
-		ProbeRetExit: 0,
-	}
 	siginfo := bytes.Repeat([]byte{0x11}, waitidSiginfoPayloadSize)
 	rusage := bytes.Repeat([]byte{0x22}, waitidRusagePayloadSize)
-	copy(eventRaw.StrArg[payloadExitArgOffset:], siginfo)
-	copy(eventRaw.StrArg[payloadExitArgOffset+136:], rusage)
+	payload := waitidJSONTLVStruct(t, 2, 0x1000, siginfo)
+	payload = append(payload, waitidJSONTLVStruct(t, 4, 0x2000, rusage)...)
+	eventRaw := &bpfEvent{
+		EventType:  bpfEventTypeExit,
+		EventFlags: bpfEventFlagPayloadTLV,
+		Args:       [6]uint64{0, 0, 0x1000, 0, 0x2000},
+		Ret:        0,
+		DataLen:    uint32(len(payload)),
+	}
+	copy(eventRaw.StrArg[:], payload)
 
 	scMeta := meta.Syscall{Name: "waitid"}
 	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}
-	assertWaitidSection(t, ev.PayloadSections[0], 2, payloadExitArgOffset, 0x1000, waitidSiginfoPayloadSize, siginfo)
-	assertWaitidSection(t, ev.PayloadSections[1], 4, payloadExitArgOffset+136, 0x2000, waitidRusagePayloadSize, rusage)
+	assertWaitidSection(t, ev.PayloadSections[0], 2, 0x1000, waitidSiginfoPayloadSize, siginfo)
+	assertWaitidSection(t, ev.PayloadSections[1], 4, 0x2000, waitidRusagePayloadSize, rusage)
 }
 
 func assertWaitidSection(
 	t *testing.T,
 	section jsonPayloadSection,
 	argIndex int,
-	offset int,
 	userPtr uint64,
 	size uint32,
 	wantData []byte,
@@ -51,4 +51,16 @@ func assertWaitidSection(
 	if got := mustDecodeBase64(t, section.DataBase64); !bytes.Equal(got, wantData) {
 		t.Fatalf("section data length = %d, want %d", len(got), len(wantData))
 	}
+}
+
+func waitidJSONTLVStruct(t *testing.T, arg uint16, userPtr uint64, data []byte) []byte {
+	t.Helper()
+	return payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		flags:   payloadTLVFlagDirectionOut,
+		arg:     arg,
+		userPtr: userPtr,
+		userLen: uint32(len(data)),
+		data:    data,
+	})
 }
