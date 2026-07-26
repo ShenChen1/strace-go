@@ -12,18 +12,15 @@ func TestJSONSyscallEventIncludesSetxattrPayloadSections(t *testing.T) {
 	pathData := []byte("/tmp/a\x00")
 	nameData := []byte("user.k\x00")
 	valueData := []byte("abc")
-	payload := xattrJSONTLVPayload(
-		xattrDirectTLVString(t, 0, args[0], pathData),
-		xattrDirectTLVString(t, 1, args[1], nameData),
-		xattrDirectTLVBytes(t, 2, 0, args[2], valueData),
-	)
 	eventRaw := &bpfEvent{
-		EventType:  bpfEventTypeEnter,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       args,
-		DataLen:    uint32(len(payload)),
+		EventType: bpfEventTypeEnter,
+		Args:      args,
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw,
+		xattrJSONTLVString(0, args[0], pathData),
+		xattrJSONTLVString(1, args[1], nameData),
+		xattrJSONTLVBytes(2, 0, args[2], valueData),
+	)
 
 	sections := xattrJSONPayloadSections(t, eventRaw, "setxattr")
 	if len(sections) != 3 {
@@ -38,18 +35,15 @@ func TestJSONSyscallEventIncludesFgetxattrPayloadSection(t *testing.T) {
 	args := [6]uint64{3, 0x2000, 0x3000, 4}
 	nameData := []byte("user.k\x00")
 	valueData := []byte("data")
-	payload := xattrJSONTLVPayload(
-		xattrDirectTLVString(t, 1, args[1], nameData),
-		xattrDirectTLVBytes(t, 2, payloadTLVFlagDirectionOut, args[2], valueData),
-	)
 	eventRaw := &bpfEvent{
-		EventType:  bpfEventTypeExit,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       args,
-		Ret:        int64(len(valueData)),
-		DataLen:    uint32(len(payload)),
+		EventType: bpfEventTypeExit,
+		Args:      args,
+		Ret:       int64(len(valueData)),
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw,
+		xattrJSONTLVString(1, args[1], nameData),
+		xattrJSONTLVBytes(2, payloadTLVFlagDirectionOut, args[2], valueData),
+	)
 
 	sections := xattrJSONPayloadSections(t, eventRaw, "fgetxattr")
 	if len(sections) != 2 {
@@ -63,18 +57,15 @@ func TestJSONSyscallEventIncludesListxattrPayloadSection(t *testing.T) {
 	args := [6]uint64{0x1000, 0x3000, 13}
 	pathData := []byte("/tmp/a\x00")
 	listData := []byte("user.a\x00user.b")
-	payload := xattrJSONTLVPayload(
-		xattrDirectTLVString(t, 0, args[0], pathData),
-		xattrDirectTLVBytes(t, 1, payloadTLVFlagDirectionOut, args[1], listData),
-	)
 	eventRaw := &bpfEvent{
-		EventType:  bpfEventTypeExit,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       args,
-		Ret:        int64(len(listData)),
-		DataLen:    uint32(len(payload)),
+		EventType: bpfEventTypeExit,
+		Args:      args,
+		Ret:       int64(len(listData)),
 	}
-	copy(eventRaw.StrArg[:], payload)
+	setJSONTestTLVPayload(t, eventRaw,
+		xattrJSONTLVString(0, args[0], pathData),
+		xattrJSONTLVBytes(1, payloadTLVFlagDirectionOut, args[1], listData),
+	)
 
 	sections := xattrJSONPayloadSections(t, eventRaw, "listxattr")
 	if len(sections) != 2 {
@@ -84,12 +75,25 @@ func TestJSONSyscallEventIncludesListxattrPayloadSection(t *testing.T) {
 	assertXattrJSONSection(t, sections[1], "bytes", "out", 1, 0x3000, listData)
 }
 
-func xattrJSONTLVPayload(sections ...[]byte) []byte {
-	var payload []byte
-	for _, section := range sections {
-		payload = append(payload, section...)
+func xattrJSONTLVString(arg uint16, userPtr uint64, data []byte) payloadTLVTestSection {
+	return payloadTLVTestSection{
+		kind:    payloadTLVKindString,
+		arg:     arg,
+		userPtr: userPtr,
+		userLen: uint32(len(data)),
+		data:    data,
 	}
-	return payload
+}
+
+func xattrJSONTLVBytes(arg uint16, flags uint16, userPtr uint64, data []byte) payloadTLVTestSection {
+	return payloadTLVTestSection{
+		kind:    payloadTLVKindBytes,
+		flags:   flags,
+		arg:     arg,
+		userPtr: userPtr,
+		userLen: uint32(len(data)),
+		data:    data,
+	}
 }
 
 func xattrJSONPayloadSections(t *testing.T, eventRaw *bpfEvent, name string) []jsonPayloadSection {
