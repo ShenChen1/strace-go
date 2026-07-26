@@ -34,12 +34,11 @@ func TestSyscallEventContextMergesAddKeyTLVSections(t *testing.T) {
 		userLen: uint32(len(payloadData)),
 		data:    payloadData,
 	})...)
-	enterRaw := miscStructTLVEvent(t, "add_key", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "add_key", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, "add_key", bpfEventTypeExit, args, 7, nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "add_key", bpfEventTypeExit, args, 7, nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
@@ -79,12 +78,11 @@ func TestSyscallEventContextMergesRequestKeyTLVSections(t *testing.T) {
 		userLen: uint32(len(infoData)),
 		data:    infoData,
 	})...)
-	enterRaw := miscStructTLVEvent(t, "request_key", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "request_key", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, "request_key", bpfEventTypeExit, args, -1, nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "request_key", bpfEventTypeExit, args, -1, nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
