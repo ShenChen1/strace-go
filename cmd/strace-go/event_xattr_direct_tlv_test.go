@@ -16,12 +16,11 @@ func TestSyscallEventContextMergesSetxattrTLVSections(t *testing.T) {
 	enterPayload := xattrDirectTLVString(t, 0, args[0], pathData)
 	enterPayload = append(enterPayload, xattrDirectTLVString(t, 1, args[1], nameData)...)
 	enterPayload = append(enterPayload, xattrDirectTLVBytes(t, 2, 0, args[2], valueData)...)
-	enterRaw := miscStructTLVEvent(t, "setxattr", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "setxattr", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, "setxattr", bpfEventTypeExit, args, -1, nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "setxattr", bpfEventTypeExit, args, -1, nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
@@ -40,13 +39,12 @@ func TestSyscallEventContextMergesFgetxattrTLVSections(t *testing.T) {
 	nameData := []byte("user.k\x00")
 	valueData := []byte("data")
 	enterPayload := xattrDirectTLVString(t, 1, args[1], nameData)
-	enterRaw := miscStructTLVEvent(t, "fgetxattr", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "fgetxattr", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	exitPayload := xattrDirectTLVBytes(t, 2, payloadTLVFlagDirectionOut, args[2], valueData)
-	exitRaw := miscStructTLVEvent(t, "fgetxattr", bpfEventTypeExit, args, 4, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "fgetxattr", bpfEventTypeExit, args, 4, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
@@ -64,13 +62,12 @@ func TestSyscallEventContextMergesListxattrTLVSections(t *testing.T) {
 	pathData := []byte("/tmp/a\x00")
 	listData := []byte("user.a\x00user.b")
 	enterPayload := xattrDirectTLVString(t, 0, args[0], pathData)
-	enterRaw := miscStructTLVEvent(t, "listxattr", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "listxattr", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	exitPayload := xattrDirectTLVBytes(t, 1, payloadTLVFlagDirectionOut, args[1], listData)
-	exitRaw := miscStructTLVEvent(t, "listxattr", bpfEventTypeExit, args, 13, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "listxattr", bpfEventTypeExit, args, 13, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
@@ -85,14 +82,13 @@ func TestSyscallEventContextMergesListxattrTLVSections(t *testing.T) {
 func TestSyscallEventContextMergesFlistxattrExitTLVSection(t *testing.T) {
 	session := miscStructTLVSession("flistxattr")
 	args := [6]uint64{3, 0x3000, 6}
-	enterRaw := miscStructTLVEvent(t, "flistxattr", bpfEventTypeEnter, args, 0, nil)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "flistxattr", bpfEventTypeEnter, args, 0, nil)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	listData := []byte("names1")
 	exitPayload := xattrDirectTLVBytes(t, 1, payloadTLVFlagDirectionOut, args[1], listData)
-	exitRaw := miscStructTLVEvent(t, "flistxattr", bpfEventTypeExit, args, 6, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "flistxattr", bpfEventTypeExit, args, 6, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
