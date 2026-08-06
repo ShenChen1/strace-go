@@ -3,7 +3,6 @@ package meta
 import (
 	"fmt"
 	"strings"
-	"sync"
 )
 
 type Syscall struct {
@@ -39,7 +38,9 @@ func decodeEnum(val uint64, xlatName string, table XlatTable) (string, bool) {
 		if entry.Val == val || (xlatName == "key_spec" && int32(entry.Val) == int32(val)) {
 			if xlatName == "x86_xfeature_bits" {
 				formatVal := fmt.Sprintf("%#x", val)
-				if val == 0 { formatVal = "0" }
+				if val == 0 {
+					formatVal = "0"
+				}
 				return fmt.Sprintf("%s /* %s */", formatVal, entry.Str), true
 			}
 			// Avoid duplicate string entries in matches
@@ -62,13 +63,16 @@ func decodeEnum(val uint64, xlatName string, table XlatTable) (string, bool) {
 		}
 		return strings.Join(matches, " or "), true
 	}
-	// IMPACT: Avoid mapping small enum values directly to numbers if they belong to fcntlcmds, ioctl_cmds, archvals, x86_xfeature_bits, fsconfig_cmds or bpf-related enums.
-	if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && !strings.HasPrefix(xlatName, "bpf_") && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "fsconfig_cmds" && xlatName != "clocknames" && xlatName != "madvise_cmds")) && xlatName != "resources" {
+	if useUnknownEnumDecimalFallback(xlatName, val) {
 		return fmt.Sprintf("%d", int32(val)), true
 	}
 	formatVal := fmt.Sprintf("%#x", val)
-	if val == 0 { formatVal = "0" }
-	if xlatName == "x86_xfeature_bits" && val < 10 { formatVal = fmt.Sprintf("%d", val) }
+	if val == 0 {
+		formatVal = "0"
+	}
+	if xlatName == "x86_xfeature_bits" && val < 10 {
+		formatVal = fmt.Sprintf("%d", val)
+	}
 	if table.Prefix != "" {
 		return fmt.Sprintf("%s /* %s??? */", formatVal, table.Prefix), true
 	}
@@ -83,16 +87,22 @@ func decodeBitFlags(val uint64, xlatName string, table XlatTable) string {
 	if strings.Contains(xlatName, "open_mode_flags") || xlatName == "open_access_modes" {
 		accMode := val & 3
 		switch accMode {
-		case 0: res = append(res, "O_RDONLY")
-		case 1: res = append(res, "O_WRONLY")
-		case 2: res = append(res, "O_RDWR")
-		case 3: res = append(res, "O_ACCMODE")
+		case 0:
+			res = append(res, "O_RDONLY")
+		case 1:
+			res = append(res, "O_WRONLY")
+		case 2:
+			res = append(res, "O_RDWR")
+		case 3:
+			res = append(res, "O_ACCMODE")
 		}
 		handled |= accMode
 	}
 
 	for _, entry := range table.Entries {
-		if entry.Val == 0 { continue }
+		if entry.Val == 0 {
+			continue
+		}
 		if (val & entry.Val) == entry.Val {
 			if (handled & entry.Val) != entry.Val {
 				res = append(res, entry.Str)
@@ -114,7 +124,9 @@ func decodeBitFlags(val uint64, xlatName string, table XlatTable) string {
 	if len(res) == 0 {
 		if val == 0 {
 			for _, entry := range table.Entries {
-				if entry.Val == 0 { return entry.Str }
+				if entry.Val == 0 {
+					return entry.Str
+				}
 			}
 			return "0"
 		}
@@ -284,206 +296,110 @@ var XlatFormat string = "abbrev"
 // Impact: Core formatting helper for xlat flags. Used across default and specialized handlers.
 func DecodeFlags(val uint64, xlatName string) string {
 	checkRegisterBpfXlats()
-	if xlatName == "hex_flags" {
-		if val == 0 {
-			return "0"
-		}
-		return fmt.Sprintf("%#x", val)
-	}
-	if xlatName == "futexbitset" {
-		return decodeFutexBitset(val)
-	}
-	if xlatName == "futex2_flags" {
-		return decodeFutex2Flags(val)
-	}
-	if xlatName == "memfd_create_flags" {
-		return decodeMemfdCreateFlags(val)
+	if decoded, ok := decodeSpecialXlat(val, xlatName); ok {
+		return decoded
 	}
 	if XlatFormat == "raw" {
-		table, ok := XlatTables[xlatName]
-		isEnum := false
-		if ok {
-			// IMPACT: Added fsconfig_cmds to isEnum check so that it gets formatted as a single enum value rather than joined bitflags.
-			isEnum = (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "bpf_fd_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds" || xlatName == "bpf_stats_type" || xlatName == "fsconfig_cmds" || xlatName == "itimer_which" || xlatName == "waitid_types" || xlatName == "madvise_cmds") && xlatName != "clone3_flags" && xlatName != "wait4_options"
-		}
-		if isEnum {
-			if val == 0 {
-				return "0"
-			}
-			if (xlatName == "signalnames" || xlatName == "key_spec" || (val < 100 && !strings.HasPrefix(xlatName, "bpf_") && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "clocknames" && xlatName != "madvise_cmds")) && xlatName != "resources" {
-				return fmt.Sprintf("%d", int32(val))
-			}
-			return fmt.Sprintf("%#x", val)
-		}
+		return decodeRawXlat(val, xlatName)
+	}
+	return decodeNamedXlat(val, xlatName)
+}
+
+func decodeSpecialXlat(val uint64, xlatName string) (string, bool) {
+	if xlatName == "hex_flags" {
 		if val == 0 {
-			if ok {
-				for _, entry := range table.Entries {
-					if entry.Val == 0 { return "0" }
-				}
-			}
-			return "0"
+			return "0", true
 		}
+		return fmt.Sprintf("%#x", val), true
+	}
+	if xlatName == "futexbitset" {
+		return decodeFutexBitset(val), true
+	}
+	if xlatName == "futex2_flags" {
+		return decodeFutex2Flags(val), true
+	}
+	if xlatName == "memfd_create_flags" {
+		return decodeMemfdCreateFlags(val), true
+	}
+	return "", false
+}
+
+func decodeRawXlat(val uint64, xlatName string) string {
+	table, ok := XlatTables[xlatName]
+	if ok && isEnumXlat(xlatName) {
+		return rawEnumValue(val, xlatName)
+	}
+	if val == 0 && tableHasZeroEntry(table, ok) {
+		return "0"
+	}
+	return rawHexOrZero(val)
+}
+
+func rawEnumValue(val uint64, xlatName string) string {
+	if val == 0 {
+		return "0"
+	}
+	if useRawEnumDecimalFormat(xlatName, val) {
+		return fmt.Sprintf("%d", int32(val))
+	}
+	return fmt.Sprintf("%#x", val)
+}
+
+func tableHasZeroEntry(table XlatTable, ok bool) bool {
+	if !ok {
+		return false
+	}
+	for _, entry := range table.Entries {
+		if entry.Val == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func decodeNamedXlat(val uint64, xlatName string) string {
+	table, ok := XlatTables[xlatName]
+	if !ok {
 		return fmt.Sprintf("%#x", val)
 	}
 
-	table, ok := XlatTables[xlatName]
-	if !ok { return fmt.Sprintf("%#x", val) }
-
-	if xlatName != "clone3_flags" && xlatName != "unshare_flags" && xlatName != "pkey_access_rights" && xlatName != "mmap_prot64" && !strings.HasPrefix(xlatName, "bpf_") {
+	if shouldTruncateXlatValueTo32(xlatName) {
 		val = uint64(uint32(val))
 	}
 	if xlatName == "fan_init_flags" {
 		return decodeFanInitFlags(val)
 	}
 
-	// IMPACT: Added fsconfig_cmds to isEnum check so that it gets formatted as a single enum value rather than joined bitflags.
-	isEnum := (strings.HasSuffix(xlatName, "vals") || strings.HasSuffix(xlatName, "options") || xlatName == "socktypes" || xlatName == "bpf_commands" || xlatName == "archvals" || xlatName == "addrfams" || xlatName == "open_access_modes" || xlatName == "whence" || xlatName == "x86_xfeature_bits" || xlatName == "epollctls" || xlatName == "term_cmds_overlapping" || xlatName == "key_spec" || xlatName == "bpf_map_types" || xlatName == "signalnames" || xlatName == "clocknames" || xlatName == "bpf_prog_types" || xlatName == "bpf_attach_type" || xlatName == "bpf_fd_type" || xlatName == "futexops" || xlatName == "ioctl_cmds" || xlatName == "resources" || xlatName == "fsmagic" || xlatName == "fcntlcmds" || xlatName == "bpf_stats_type" || xlatName == "fsconfig_cmds" || xlatName == "itimer_which" || xlatName == "waitid_types" || xlatName == "madvise_cmds") && xlatName != "clone3_flags" && xlatName != "wait4_options"
-
-	var decoded string
-	hasDecoded := false
-	if isEnum {
-		if s, ok := decodeEnum(val, xlatName, table); ok {
-			decoded = s
-			hasDecoded = true
-		}
-	} else {
-		decoded = decodeBitFlags(val, xlatName, table)
-		hasDecoded = true
-	}
-
-	if !hasDecoded {
-		decoded = fmt.Sprintf("%#x", val)
-	}
+	isEnum := isEnumXlat(xlatName)
+	decoded := decodeEnumOrFlags(val, xlatName, table, isEnum)
 
 	if XlatFormat == "verbose" {
-		if strings.Contains(decoded, "/*") {
-			return decoded
-		}
-		rawValStr := fmt.Sprintf("%#x", val)
-		if val == 0 {
-			rawValStr = "0"
-		} else if isEnum && ((xlatName == "signalnames" || xlatName == "key_spec") || (val < 100 && !strings.HasPrefix(xlatName, "bpf_") && xlatName != "fcntlcmds" && xlatName != "ioctl_cmds" && xlatName != "archvals" && xlatName != "x86_xfeature_bits" && xlatName != "resources" && xlatName != "clocknames" && xlatName != "madvise_cmds")) {
-			rawValStr = fmt.Sprintf("%d", int32(val))
-		}
-		if decoded == rawValStr {
-			return decoded
-		}
-		return fmt.Sprintf("%s /* %s */", rawValStr, decoded)
+		return verboseXlatValue(val, xlatName, decoded, isEnum)
 	}
 
 	return decoded
 }
 
-var bpfXlatOnce sync.Once
+func decodeEnumOrFlags(val uint64, xlatName string, table XlatTable, isEnum bool) string {
+	if isEnum {
+		if s, ok := decodeEnum(val, xlatName, table); ok {
+			return s
+		}
+		return fmt.Sprintf("%#x", val)
+	}
+	return decodeBitFlags(val, xlatName, table)
+}
 
-func checkRegisterBpfXlats() {
-	bpfXlatOnce.Do(func() {
-		if XlatTables == nil {
-			XlatTables = make(map[string]XlatTable)
-		}
-	if _, ok := XlatTables["bpf_map_lookup_flags"]; !ok {
-		XlatTables["bpf_map_lookup_flags"] = XlatTable{
-			Prefix: "BPF_",
-			Entries: []XlatVal{
-				{Val: 16, Str: "BPF_F_ALL_CPUS"},
-				{Val: 8, Str: "BPF_F_CPU"},
-				{Val: 4, Str: "BPF_F_LOCK"},
-				{Val: 0, Str: "BPF_ANY"},
-			},
-		}
+func verboseXlatValue(val uint64, xlatName, decoded string, isEnum bool) string {
+	if strings.Contains(decoded, "/*") {
+		return decoded
 	}
-	if _, ok := XlatTables["bpf_map_update_flags"]; !ok {
-		XlatTables["bpf_map_update_flags"] = XlatTable{
-			Prefix: "BPF_",
-			Entries: []XlatVal{
-				{Val: 16, Str: "BPF_F_ALL_CPUS"},
-				{Val: 8, Str: "BPF_F_CPU"},
-				{Val: 4, Str: "BPF_F_LOCK"},
-				{Val: 2, Str: "BPF_EXIST"},
-				{Val: 1, Str: "BPF_NOEXIST"},
-				{Val: 0, Str: "BPF_ANY"},
-			},
-		}
+	rawValStr := rawHexOrZero(val)
+	if val != 0 && isEnum && useRawEnumDecimalFormat(xlatName, val) {
+		rawValStr = fmt.Sprintf("%d", int32(val))
 	}
-	if _, ok := XlatTables["bpf_file_flags"]; !ok {
-		XlatTables["bpf_file_flags"] = XlatTable{
-			Prefix: "BPF_",
-			Entries: []XlatVal{
-				{Val: 8, Str: "BPF_F_RDONLY"},
-				{Val: 0x10, Str: "BPF_F_WRONLY"},
-				{Val: 0x4000, Str: "BPF_F_PATH_FD"},
-			},
-		}
+	if decoded == rawValStr {
+		return decoded
 	}
-	if _, ok := XlatTables["bpf_test_run_flags"]; !ok {
-		XlatTables["bpf_test_run_flags"] = XlatTable{
-			Prefix: "BPF_F_TEST_",
-			Entries: []XlatVal{
-				{Val: 1, Str: "BPF_F_TEST_RUN_ON_CPU"},
-				{Val: 2, Str: "BPF_F_TEST_XDP_LIVE_FRAMES"},
-			},
-		}
-	}
-	if _, ok := XlatTables["bpf_query_flags"]; !ok {
-		XlatTables["bpf_query_flags"] = XlatTable{
-			Prefix: "BPF_F_QUERY_",
-			Entries: []XlatVal{
-				{Val: 1, Str: "BPF_F_QUERY_EFFECTIVE"},
-			},
-		}
-	}
-	if _, ok := XlatTables["bpf_btf_flags"]; !ok {
-		XlatTables["bpf_btf_flags"] = XlatTable{
-			Prefix: "BPF_F_",
-			Entries: []XlatVal{
-				{Val: 1 << 16, Str: "BPF_F_TOKEN_FD"},
-			},
-		}
-	}
-	if _, ok := XlatTables["bpf_fd_type"]; !ok {
-		XlatTables["bpf_fd_type"] = XlatTable{
-			Prefix: "BPF_FD_TYPE_",
-			Entries: []XlatVal{
-				{Val: 0, Str: "BPF_FD_TYPE_RAW_TRACEPOINT"},
-				{Val: 1, Str: "BPF_FD_TYPE_TRACEPOINT"},
-				{Val: 2, Str: "BPF_FD_TYPE_KPROBE"},
-				{Val: 3, Str: "BPF_FD_TYPE_KRETPROBE"},
-				{Val: 4, Str: "BPF_FD_TYPE_UPROBE"},
-				{Val: 5, Str: "BPF_FD_TYPE_URETPROBE"},
-			},
-		}
-	}
-	if _, ok := XlatTables["bpf_kprobe_multi_flags"]; !ok {
-		XlatTables["bpf_kprobe_multi_flags"] = XlatTable{
-			Prefix: "BPF_F_KPROBE_MULTI_",
-			Entries: []XlatVal{
-				{Val: 1, Str: "BPF_F_KPROBE_MULTI_RETURN"},
-			},
-		}
-	}
-	if _, ok := XlatTables["bpf_netfilter_ip_flags"]; !ok {
-		XlatTables["bpf_netfilter_ip_flags"] = XlatTable{
-			Prefix: "BPF_F_NETFILTER_",
-			Entries: []XlatVal{
-				{Val: 1, Str: "BPF_F_NETFILTER_IP_DEFRAG"},
-			},
-		}
-	}
-	if _, ok := XlatTables["bpf_uprobe_multi_flags"]; !ok {
-		XlatTables["bpf_uprobe_multi_flags"] = XlatTable{
-			Prefix: "BPF_F_UPROBE_MULTI_",
-			Entries: []XlatVal{
-				{Val: 1, Str: "BPF_F_UPROBE_MULTI_RETURN"},
-			},
-		}
-	}
-	if _, ok := XlatTables["bpf_stats_type"]; !ok {
-		XlatTables["bpf_stats_type"] = XlatTable{
-			Prefix: "BPF_STATS_",
-			Entries: []XlatVal{
-				{Val: 0, Str: "BPF_STATS_RUN_TIME"},
-			},
-		}
-		}
-	})
+	return fmt.Sprintf("%s /* %s */", rawValStr, decoded)
 }

@@ -109,6 +109,87 @@ func TestDecodeBpfEnumsUseHexRawValues(t *testing.T) {
 	}
 }
 
+func TestDecodeRuntimeBpfXlatTables(t *testing.T) {
+	old := meta.XlatFormat
+	meta.XlatFormat = "abbrev"
+	defer func() { meta.XlatFormat = old }()
+
+	tests := []struct {
+		name string
+		val  uint64
+		xlat string
+		want string
+	}{
+		{name: "map update flags", val: 3, xlat: "bpf_map_update_flags", want: "BPF_EXIST|BPF_NOEXIST"},
+		{name: "fd type", val: 3, xlat: "bpf_fd_type", want: "BPF_FD_TYPE_KRETPROBE"},
+		{name: "stats type zero", val: 0, xlat: "bpf_stats_type", want: "BPF_STATS_RUN_TIME"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := meta.DecodeFlags(tt.val, tt.xlat); got != tt.want {
+				t.Fatalf("DecodeFlags(%#x, %q) = %q, want %q", tt.val, tt.xlat, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDecodeEnumRuleBoundaries(t *testing.T) {
+	old := meta.XlatFormat
+	defer func() { meta.XlatFormat = old }()
+
+	tests := []struct {
+		name string
+		mode string
+		val  uint64
+		xlat string
+		want string
+	}{
+		{name: "abbrev unknown signal decimal", mode: "abbrev", val: 64, xlat: "signalnames", want: "64"},
+		{name: "raw unknown signal decimal", mode: "raw", val: 64, xlat: "signalnames", want: "64"},
+		{name: "verbose unknown signal decimal", mode: "verbose", val: 64, xlat: "signalnames", want: "64"},
+		{name: "abbrev unknown clock prefix", mode: "abbrev", val: 10, xlat: "clocknames", want: "0xa /* CLOCK_??? */"},
+		{name: "raw unknown clock hex", mode: "raw", val: 10, xlat: "clocknames", want: "0xa"},
+		{name: "abbrev unknown resource prefix", mode: "abbrev", val: 99, xlat: "resources", want: "0x63 /* RLIMIT_??? */"},
+		{name: "raw unknown resource hex", mode: "raw", val: 99, xlat: "resources", want: "0x63"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			meta.XlatFormat = tt.mode
+			if got := meta.DecodeFlags(tt.val, tt.xlat); got != tt.want {
+				t.Fatalf("DecodeFlags(%#x, %q) in %s mode = %q, want %q", tt.val, tt.xlat, tt.mode, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDecodeRawFallbacks(t *testing.T) {
+	old := meta.XlatFormat
+	meta.XlatFormat = "raw"
+	defer func() { meta.XlatFormat = old }()
+
+	tests := []struct {
+		name string
+		val  uint64
+		xlat string
+		want string
+	}{
+		{name: "unknown table zero", val: 0, xlat: "missing_xlat_table", want: "0"},
+		{name: "unknown table hex", val: 0x2a, xlat: "missing_xlat_table", want: "0x2a"},
+		{name: "bitflag table zero", val: 0, xlat: "open_mode_flags", want: "0"},
+		{name: "bitflag table hex", val: 0x41, xlat: "open_mode_flags", want: "0x41"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := meta.DecodeFlags(tt.val, tt.xlat); got != tt.want {
+				t.Fatalf("DecodeFlags(%#x, %q) in raw mode = %q, want %q", tt.val, tt.xlat, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDecodeMadviseCmdsAsEnum(t *testing.T) {
 	old := meta.XlatFormat
 	defer func() { meta.XlatFormat = old }()

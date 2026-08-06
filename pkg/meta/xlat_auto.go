@@ -1294,6 +1294,20 @@ var XlatTables = map[string]XlatTable{
 			{Val: 15, Str: "RLIMIT_RTTIME"},
 		},
 	},
+	"rwf_flags": {
+		Prefix: "RWF_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "RWF_HIPRI"},
+			{Val: 2, Str: "RWF_DSYNC"},
+			{Val: 4, Str: "RWF_SYNC"},
+			{Val: 8, Str: "RWF_NOWAIT"},
+			{Val: 16, Str: "RWF_APPEND"},
+			{Val: 32, Str: "RWF_NOAPPEND"},
+			{Val: 64, Str: "RWF_ATOMIC"},
+			{Val: 128, Str: "RWF_DONTCACHE"},
+			{Val: 256, Str: "RWF_NOSIGNAL"},
+		},
+	},
 	"setns_types": {
 		Prefix: "CLONE_NEW",
 		Entries: []XlatVal{
@@ -1710,6 +1724,15 @@ var XlatTables = map[string]XlatTable{
 			{Val: 286, Str: "SOL_SMC"},
 			{Val: 287, Str: "SOL_VSOCK"},
 			{Val: 1, Str: "SOL_SOCKET"},
+		},
+	},
+	"splice_flags": {
+		Prefix: "SPLICE_F_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "SPLICE_F_MOVE"},
+			{Val: 2, Str: "SPLICE_F_NONBLOCK"},
+			{Val: 4, Str: "SPLICE_F_MORE"},
+			{Val: 8, Str: "SPLICE_F_GIFT"},
 		},
 	},
 	"statfs_flags": {
@@ -5632,11 +5655,17 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"prctl": {
 		"option": "prctl_options",
 	},
+	"preadv2": {
+		"flags": "rwf_flags",
+	},
 	"prlimit64": {
 		"resource": "resources",
 	},
 	"process_mrelease": {
 		"flags": "hex_flags",
+	},
+	"pwritev2": {
+		"flags": "rwf_flags",
 	},
 	"recvfrom": {
 		"addr": "sockaddr",
@@ -5697,6 +5726,9 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	},
 	"utimensat": {
 		"flags": "at_flags",
+	},
+	"vmsplice": {
+		"flags": "splice_flags",
 	},
 	"wait4": {
 		"options": "wait4_options",
