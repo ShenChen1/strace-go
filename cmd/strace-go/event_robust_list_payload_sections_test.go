@@ -3,25 +3,20 @@ package main
 import (
 	"encoding/binary"
 	"testing"
-
-	"strace-go/pkg/meta"
 )
+
+const robustListPayloadWordSize = 8
 
 func TestJSONSyscallEventIncludesRobustListPayloadSections(t *testing.T) {
 	headData := robustListJSONWord(0xfeedface)
 	lenData := robustListJSONWord(24)
-	eventRaw := &bpfEvent{
-		EventType: bpfEventTypeExit,
-		Args:      [6]uint64{0, 0x1000, 0x2000},
-		Ret:       0,
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	args := [6]uint64{0, 0x1000, 0x2000}
+	payload := payloadTLVBytesForTest(t,
 		robustListJSONTLVStruct(1, 0x1000, headData),
 		robustListJSONTLVStruct(2, 0x2000, lenData),
 	)
 
-	scMeta := meta.Syscall{Name: "get_robust_list"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "get_robust_list", bpfEventTypeExit, args, 0, payload)
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}

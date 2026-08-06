@@ -6,18 +6,17 @@ import (
 	"testing"
 
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
+)
+
+const (
+	aioPayloadPointerSize    = 8
+	aioPayloadIocbSize       = 64
+	aioPayloadEventsElemSize = 32
 )
 
 func TestJSONSyscallEventIncludesAioSetupPayloadSection(t *testing.T) {
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{128, 0x1000},
-		Ret:           0,
-		ProbeRetExit:  0,
-		ProbeRetEnter: -1,
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	args := [6]uint64{128, 0x1000}
+	payload := payloadTLVBytesForTest(t,
 		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			flags:   payloadTLVFlagDirectionOut,
@@ -28,7 +27,7 @@ func TestJSONSyscallEventIncludesAioSetupPayloadSection(t *testing.T) {
 		},
 	)
 
-	sections := aioJSONPayloadSections(t, eventRaw, "io_setup")
+	sections := aioJSONPayloadSections(t, "io_setup", bpfEventTypeExit, args, 0, payload)
 	if len(sections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(sections))
 	}
@@ -38,13 +37,9 @@ func TestJSONSyscallEventIncludesAioSetupPayloadSection(t *testing.T) {
 func TestJSONSyscallEventIncludesAioSubmitPayloadSections(t *testing.T) {
 	iocb0 := aioTestIocbData(1, 0x4000, 3)
 	iocb1 := aioTestIocbData(0, 0x5000, 4)
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{0xabc, 2, 0x1000},
-		ProbeRetEnter: 0,
-	}
+	args := [6]uint64{0xabc, 2, 0x1000}
 	pointers := append(aioTestPointerBytes(0x2000), aioTestPointerBytes(0x3000)...)
-	setJSONTestTLVPayload(t, eventRaw,
+	payload := payloadTLVBytesForTest(t,
 		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     2,
@@ -68,7 +63,7 @@ func TestJSONSyscallEventIncludesAioSubmitPayloadSections(t *testing.T) {
 		},
 	)
 
-	sections := aioJSONPayloadSections(t, eventRaw, "io_submit")
+	sections := aioJSONPayloadSections(t, "io_submit", bpfEventTypeEnter, args, 0, payload)
 	if len(sections) != 3 {
 		t.Fatalf("PayloadSections = %d, want 3", len(sections))
 	}
@@ -79,14 +74,8 @@ func TestJSONSyscallEventIncludesAioSubmitPayloadSections(t *testing.T) {
 
 func TestJSONSyscallEventIncludesAioGeteventsPayloadSection(t *testing.T) {
 	events := aioTestIoEventData(0x11, 0x22, 3, 4)
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{0xabc, 0, 1, 0x7000},
-		Ret:           1,
-		ProbeRetExit:  0,
-		ProbeRetEnter: -1,
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	args := [6]uint64{0xabc, 0, 1, 0x7000}
+	payload := payloadTLVBytesForTest(t,
 		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			flags:   payloadTLVFlagDirectionOut,
@@ -97,7 +86,7 @@ func TestJSONSyscallEventIncludesAioGeteventsPayloadSection(t *testing.T) {
 		},
 	)
 
-	sections := aioJSONPayloadSections(t, eventRaw, "io_getevents")
+	sections := aioJSONPayloadSections(t, "io_getevents", bpfEventTypeExit, args, 1, payload)
 	if len(sections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(sections))
 	}
@@ -108,12 +97,8 @@ func TestJSONSyscallEventIncludesAioPgeteventsPayloadSections(t *testing.T) {
 	timeout := aioTestTimespecData(5, 6)
 	sigset := append(aioTestPointerBytes(0x6000), aioTestPointerBytes(8)...)
 	mask := aioTestPointerBytes(1)
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{0xabc, 0, 0, 0, 0x4000, 0x5000},
-		ProbeRetEnter: 0,
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	args := [6]uint64{0xabc, 0, 0, 0, 0x4000, 0x5000}
+	payload := payloadTLVBytesForTest(t,
 		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     4,
@@ -137,7 +122,7 @@ func TestJSONSyscallEventIncludesAioPgeteventsPayloadSections(t *testing.T) {
 		},
 	)
 
-	sections := aioJSONPayloadSections(t, eventRaw, "io_pgetevents")
+	sections := aioJSONPayloadSections(t, "io_pgetevents", bpfEventTypeEnter, args, 0, payload)
 	if len(sections) != 3 {
 		t.Fatalf("PayloadSections = %d, want 3", len(sections))
 	}
@@ -146,10 +131,16 @@ func TestJSONSyscallEventIncludesAioPgeteventsPayloadSections(t *testing.T) {
 	assertAioJSONSection(t, sections[2], "bytes", "in", 5, 0x6000, mask)
 }
 
-func aioJSONPayloadSections(t *testing.T, eventRaw *bpfEvent, name string) []jsonPayloadSection {
+func aioJSONPayloadSections(
+	t *testing.T,
+	name string,
+	eventType uint16,
+	args [6]uint64,
+	ret int64,
+	payload []byte,
+) []jsonPayloadSection {
 	t.Helper()
-	scMeta := meta.Syscall{Name: name}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, name, eventType, args, ret, payload)
 	return ev.PayloadSections
 }
 

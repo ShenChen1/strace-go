@@ -3,8 +3,6 @@ package main
 import (
 	"encoding/binary"
 	"testing"
-
-	"strace-go/pkg/meta"
 )
 
 type wantFutexJSONPayloadSection struct {
@@ -18,45 +16,35 @@ type wantFutexJSONPayloadSection struct {
 
 func TestJSONSyscallEventIncludesFutexPayloadSections(t *testing.T) {
 	tests := []struct {
-		name     string
-		eventRaw bpfEvent
-		want     wantFutexJSONPayloadSection
+		name string
+		args [6]uint64
+		want wantFutexJSONPayloadSection
 	}{
 		{
 			name: "futex",
-			eventRaw: bpfEvent{
-				EventType: bpfEventTypeEnter,
-				Args:      [6]uint64{0x2000, 0, 7, 0x1000},
-			},
+			args: [6]uint64{0x2000, 0, 7, 0x1000},
 			want: wantFutexJSONPayloadSection{"struct", "in", 3, 0x1000, 16, futexJSONTimespec(1, 2)},
 		},
 		{
 			name: "futex_wait",
-			eventRaw: bpfEvent{
-				EventType: bpfEventTypeEnter,
-				Args:      [6]uint64{0x2000, 7, 0xffffffff, 0, 0x3000},
-			},
+			args: [6]uint64{0x2000, 7, 0xffffffff, 0, 0x3000},
 			want: wantFutexJSONPayloadSection{"struct", "in", 4, 0x3000, 16, futexJSONTimespec(3, 4)},
 		},
 		{
 			name: "futex_requeue",
-			eventRaw: bpfEvent{
-				EventType: bpfEventTypeEnter,
-				Args:      [6]uint64{0x4000},
-			},
+			args: [6]uint64{0x4000},
 			want: wantFutexJSONPayloadSection{"struct", "in", 0, 0x4000, 48, futexJSONWaitvPair()},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eventRaw := tt.eventRaw
-			setJSONTestTLVPayload(t, &eventRaw, futexJSONTLVStructSection(
+			payload := payloadTLVBytesForTest(t, futexJSONTLVStructSection(
 				uint16(tt.want.argIndex),
 				tt.want.userPtr,
 				tt.want.data,
 			))
-			ev := futexJSONSyscallEvent(&eventRaw, tt.name)
+			ev := futexJSONSyscallEvent(t, tt.name, tt.args, payload)
 			if len(ev.PayloadSections) != 1 {
 				t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 			}
@@ -68,16 +56,13 @@ func TestJSONSyscallEventIncludesFutexPayloadSections(t *testing.T) {
 func TestJSONSyscallEventIncludesFutexWaitvPayloadSections(t *testing.T) {
 	waiters := futexJSONWaitvPair()
 	timeout := futexJSONTimespec(9, 10)
-	eventRaw := &bpfEvent{
-		EventType: bpfEventTypeEnter,
-		Args:      [6]uint64{0x1000, 2, 0, 0x4000},
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	args := [6]uint64{0x1000, 2, 0, 0x4000}
+	payload := payloadTLVBytesForTest(t,
 		futexJSONTLVStructSection(0, 0x1000, waiters),
 		futexJSONTLVStructSection(3, 0x4000, timeout),
 	)
 
-	ev := futexJSONSyscallEvent(eventRaw, "futex_waitv")
+	ev := futexJSONSyscallEvent(t, "futex_waitv", args, payload)
 	want := []wantFutexJSONPayloadSection{
 		{"struct", "in", 0, 0x1000, 48, waiters},
 		{"struct", "in", 3, 0x4000, 16, timeout},
@@ -125,9 +110,9 @@ func TestFutexPayloadSectionsRecognizeTimeoutOps(t *testing.T) {
 	}
 }
 
-func futexJSONSyscallEvent(eventRaw *bpfEvent, name string) jsonSyscallEvent {
-	scMeta := meta.Syscall{Name: name}
-	return newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+func futexJSONSyscallEvent(t *testing.T, name string, args [6]uint64, payload []byte) jsonSyscallEvent {
+	t.Helper()
+	return newJSONSyscallEventFromTLVForTest(t, name, bpfEventTypeEnter, args, 0, payload)
 }
 
 func assertFutexJSONPayloadSection(

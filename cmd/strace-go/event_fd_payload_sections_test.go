@@ -3,8 +3,6 @@ package main
 import (
 	"encoding/binary"
 	"testing"
-
-	"strace-go/pkg/meta"
 )
 
 func TestJSONSyscallEventIncludesFDArrayPayloadSections(t *testing.T) {
@@ -22,15 +20,15 @@ func TestJSONSyscallEventIncludesFDArrayPayloadSections(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			wantData := fdArrayJSONData(11, 12)
-			eventRaw := &bpfEvent{
-				EventType: bpfEventTypeExit,
-				Args:      tt.args,
-				Ret:       0,
-			}
-			setFDArrayExitTLVPayload(t, eventRaw, uint16(tt.argIndex), tt.userPtr, 11, 12)
-
-			scMeta := meta.Syscall{Name: tt.name}
-			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+			payload := payloadTLVBytesForTest(t, payloadTLVTestSection{
+				kind:    payloadTLVKindStruct,
+				flags:   payloadTLVFlagDirectionOut,
+				arg:     uint16(tt.argIndex),
+				userPtr: tt.userPtr,
+				userLen: fdArrayPayloadSize,
+				data:    wantData,
+			})
+			ev := newJSONSyscallEventFromTLVForTest(t, tt.name, bpfEventTypeExit, tt.args, 0, payload)
 			if len(ev.PayloadSections) != 1 {
 				t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 			}

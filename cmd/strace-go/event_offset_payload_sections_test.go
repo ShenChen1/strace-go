@@ -3,25 +3,20 @@ package main
 import (
 	"encoding/binary"
 	"testing"
-
-	"strace-go/pkg/meta"
 )
+
+const offsetPointerPayloadSize = 8
 
 func TestJSONSyscallEventIncludesSendfileOffsetPayloadSections(t *testing.T) {
 	enterData := offsetJSONWord(10)
 	exitData := offsetJSONWord(20)
-	eventRaw := &bpfEvent{
-		EventType: bpfEventTypeExit,
-		Args:      [6]uint64{4, 5, 0x1000, 99},
-		Ret:       99,
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	args := [6]uint64{4, 5, 0x1000, 99}
+	payload := payloadTLVBytesForTest(t,
 		offsetJSONTLVStruct(2, 0, 0x1000, enterData),
 		offsetJSONTLVStruct(2, payloadTLVFlagDirectionOut, 0x1000, exitData),
 	)
 
-	scMeta := meta.Syscall{Name: "sendfile"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "sendfile", bpfEventTypeExit, args, 99, payload)
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}
@@ -32,17 +27,13 @@ func TestJSONSyscallEventIncludesSendfileOffsetPayloadSections(t *testing.T) {
 func TestJSONSyscallEventIncludesCopyFileRangeOffsetPayloadSections(t *testing.T) {
 	inData := offsetJSONWord(11)
 	outData := offsetJSONWord(22)
-	eventRaw := &bpfEvent{
-		EventType: bpfEventTypeEnter,
-		Args:      [6]uint64{4, 0x1000, 5, 0x2000, 99, 0},
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	args := [6]uint64{4, 0x1000, 5, 0x2000, 99, 0}
+	payload := payloadTLVBytesForTest(t,
 		offsetJSONTLVStruct(1, 0, 0x1000, inData),
 		offsetJSONTLVStruct(3, 0, 0x2000, outData),
 	)
 
-	scMeta := meta.Syscall{Name: "copy_file_range"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "copy_file_range", bpfEventTypeEnter, args, 0, payload)
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}

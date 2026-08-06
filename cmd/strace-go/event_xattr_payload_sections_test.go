@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"testing"
-
-	"strace-go/pkg/meta"
 )
 
 func TestJSONSyscallEventIncludesSetxattrPayloadSections(t *testing.T) {
@@ -12,17 +10,13 @@ func TestJSONSyscallEventIncludesSetxattrPayloadSections(t *testing.T) {
 	pathData := []byte("/tmp/a\x00")
 	nameData := []byte("user.k\x00")
 	valueData := []byte("abc")
-	eventRaw := &bpfEvent{
-		EventType: bpfEventTypeEnter,
-		Args:      args,
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	payload := payloadTLVBytesForTest(t,
 		xattrJSONTLVString(0, args[0], pathData),
 		xattrJSONTLVString(1, args[1], nameData),
 		xattrJSONTLVBytes(2, 0, args[2], valueData),
 	)
 
-	sections := xattrJSONPayloadSections(t, eventRaw, "setxattr")
+	sections := xattrJSONPayloadSections(t, "setxattr", bpfEventTypeEnter, args, 0, payload)
 	if len(sections) != 3 {
 		t.Fatalf("PayloadSections = %d, want 3", len(sections))
 	}
@@ -35,17 +29,12 @@ func TestJSONSyscallEventIncludesFgetxattrPayloadSection(t *testing.T) {
 	args := [6]uint64{3, 0x2000, 0x3000, 4}
 	nameData := []byte("user.k\x00")
 	valueData := []byte("data")
-	eventRaw := &bpfEvent{
-		EventType: bpfEventTypeExit,
-		Args:      args,
-		Ret:       int64(len(valueData)),
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	payload := payloadTLVBytesForTest(t,
 		xattrJSONTLVString(1, args[1], nameData),
 		xattrJSONTLVBytes(2, payloadTLVFlagDirectionOut, args[2], valueData),
 	)
 
-	sections := xattrJSONPayloadSections(t, eventRaw, "fgetxattr")
+	sections := xattrJSONPayloadSections(t, "fgetxattr", bpfEventTypeExit, args, int64(len(valueData)), payload)
 	if len(sections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(sections))
 	}
@@ -57,17 +46,12 @@ func TestJSONSyscallEventIncludesListxattrPayloadSection(t *testing.T) {
 	args := [6]uint64{0x1000, 0x3000, 13}
 	pathData := []byte("/tmp/a\x00")
 	listData := []byte("user.a\x00user.b")
-	eventRaw := &bpfEvent{
-		EventType: bpfEventTypeExit,
-		Args:      args,
-		Ret:       int64(len(listData)),
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	payload := payloadTLVBytesForTest(t,
 		xattrJSONTLVString(0, args[0], pathData),
 		xattrJSONTLVBytes(1, payloadTLVFlagDirectionOut, args[1], listData),
 	)
 
-	sections := xattrJSONPayloadSections(t, eventRaw, "listxattr")
+	sections := xattrJSONPayloadSections(t, "listxattr", bpfEventTypeExit, args, int64(len(listData)), payload)
 	if len(sections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(sections))
 	}
@@ -96,10 +80,16 @@ func xattrJSONTLVBytes(arg uint16, flags uint16, userPtr uint64, data []byte) pa
 	}
 }
 
-func xattrJSONPayloadSections(t *testing.T, eventRaw *bpfEvent, name string) []jsonPayloadSection {
+func xattrJSONPayloadSections(
+	t *testing.T,
+	name string,
+	eventType uint16,
+	args [6]uint64,
+	ret int64,
+	payload []byte,
+) []jsonPayloadSection {
 	t.Helper()
-	scMeta := meta.Syscall{Name: name}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, name, eventType, args, ret, payload)
 	return ev.PayloadSections
 }
 

@@ -5,20 +5,18 @@ import (
 	"testing"
 
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
+)
+
+const (
+	cachestatRangePayloadSize = 16
+	cachestatStatsPayloadSize = 40
 )
 
 func TestJSONSyscallEventIncludesCachestatPayloadSections(t *testing.T) {
 	rangeData := bytes.Repeat([]byte{0x11}, cachestatRangePayloadSize)
 	statsData := bytes.Repeat([]byte{0x22}, cachestatStatsPayloadSize)
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{3, 0x1000, 0x2000, 0},
-		Ret:           0,
-		ProbeRetEnter: 0,
-		ProbeRetExit:  0,
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	args := [6]uint64{3, 0x1000, 0x2000, 0}
+	payload := payloadTLVBytesForTest(t,
 		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     1,
@@ -36,8 +34,7 @@ func TestJSONSyscallEventIncludesCachestatPayloadSections(t *testing.T) {
 		},
 	)
 
-	scMeta := meta.Syscall{Name: "cachestat"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "cachestat", bpfEventTypeExit, args, 0, payload)
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}
@@ -79,9 +76,8 @@ func TestSyscallEventContextMergesCachestatDirectTLVSections(t *testing.T) {
 		userLen: cachestatRangePayloadSize,
 		data:    rangeData,
 	})
-	enterRaw := miscStructTLVEvent(t, "cachestat", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "cachestat", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	statsData := bytes.Repeat([]byte{0x22}, cachestatStatsPayloadSize)
 	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
@@ -92,8 +88,8 @@ func TestSyscallEventContextMergesCachestatDirectTLVSections(t *testing.T) {
 		userLen: cachestatStatsPayloadSize,
 		data:    statsData,
 	})
-	exitRaw := miscStructTLVEvent(t, "cachestat", bpfEventTypeExit, args, 0, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "cachestat", bpfEventTypeExit, args, 0, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 
 	rangeSection, rangeOK := ev.handlerContext.Section(1, handler.PayloadKindStruct)

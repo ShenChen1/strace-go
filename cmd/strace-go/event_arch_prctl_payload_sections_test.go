@@ -3,19 +3,14 @@ package main
 import (
 	"encoding/binary"
 	"testing"
-
-	"strace-go/pkg/meta"
 )
+
+const archPrctlPayloadOutSize = 8
 
 func TestJSONSyscallEventIncludesArchPrctlPayloadSection(t *testing.T) {
 	wantData := archPrctlJSONWord(0x1234)
-	eventRaw := &bpfEvent{
-		EventType:    bpfEventTypeExit,
-		Args:         [6]uint64{0x1003, 0x2000},
-		Ret:          0,
-		ProbeRetExit: 0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
+	args := [6]uint64{0x1003, 0x2000}
+	payload := payloadTLVBytesForTest(t, payloadTLVTestSection{
 		kind:    payloadTLVKindStruct,
 		flags:   payloadTLVFlagDirectionOut,
 		arg:     1,
@@ -24,8 +19,7 @@ func TestJSONSyscallEventIncludesArchPrctlPayloadSection(t *testing.T) {
 		data:    wantData,
 	})
 
-	scMeta := meta.Syscall{Name: "arch_prctl"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "arch_prctl", bpfEventTypeExit, args, 0, payload)
 	if len(ev.PayloadSections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 	}

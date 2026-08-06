@@ -5,20 +5,18 @@ import (
 	"testing"
 
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
+)
+
+const (
+	capabilityHeaderPayloadSize = 8
+	capabilityDataPayloadSize   = 24
 )
 
 func TestJSONSyscallEventIncludesCapgetPayloadSections(t *testing.T) {
 	header := capabilityJSONBytes(1, capabilityHeaderPayloadSize)
 	data := capabilityJSONBytes(2, capabilityDataPayloadSize)
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{0x1000, 0x2000},
-		Ret:           0,
-		ProbeRetEnter: 0,
-		ProbeRetExit:  0,
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	args := [6]uint64{0x1000, 0x2000}
+	payload := payloadTLVBytesForTest(t,
 		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     0,
@@ -36,8 +34,7 @@ func TestJSONSyscallEventIncludesCapgetPayloadSections(t *testing.T) {
 		},
 	)
 
-	scMeta := meta.Syscall{Name: "capget"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "capget", bpfEventTypeExit, args, 0, payload)
 	assertCapabilityJSONSections(t, ev.PayloadSections, []wantCapabilityJSONSection{
 		{argIndex: 0, direction: "in", userPtr: 0x1000, data: header},
 		{argIndex: 1, direction: "out", userPtr: 0x2000, data: data},
@@ -47,12 +44,8 @@ func TestJSONSyscallEventIncludesCapgetPayloadSections(t *testing.T) {
 func TestJSONSyscallEventIncludesCapsetPayloadSections(t *testing.T) {
 	header := capabilityJSONBytes(3, capabilityHeaderPayloadSize)
 	data := capabilityJSONBytes(4, capabilityDataPayloadSize)
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{0x1000, 0x2000},
-		ProbeRetEnter: 0,
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	args := [6]uint64{0x1000, 0x2000}
+	payload := payloadTLVBytesForTest(t,
 		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     0,
@@ -69,8 +62,7 @@ func TestJSONSyscallEventIncludesCapsetPayloadSections(t *testing.T) {
 		},
 	)
 
-	scMeta := meta.Syscall{Name: "capset"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "capset", bpfEventTypeEnter, args, 0, payload)
 	assertCapabilityJSONSections(t, ev.PayloadSections, []wantCapabilityJSONSection{
 		{argIndex: 0, direction: "in", userPtr: 0x1000, data: header},
 		{argIndex: 1, direction: "in", userPtr: 0x2000, data: data},
@@ -137,9 +129,8 @@ func TestSyscallEventContextMergesCapgetDirectTLVSections(t *testing.T) {
 		userLen: capabilityHeaderPayloadSize,
 		data:    header,
 	})
-	enterRaw := miscStructTLVEvent(t, "capget", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "capget", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	data := capabilityJSONBytes(2, capabilityDataPayloadSize)
 	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
@@ -150,8 +141,8 @@ func TestSyscallEventContextMergesCapgetDirectTLVSections(t *testing.T) {
 		userLen: capabilityDataPayloadSize,
 		data:    data,
 	})
-	exitRaw := miscStructTLVEvent(t, "capget", bpfEventTypeExit, args, 0, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "capget", bpfEventTypeExit, args, 0, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 
 	assertCapabilityHandlerSection(t, ev.handlerContext, 0, handler.PayloadDirectionIn, header)
@@ -177,12 +168,11 @@ func TestSyscallEventContextKeepsCapsetDirectV1DataSize(t *testing.T) {
 		userLen: uint32(len(data)),
 		data:    data,
 	})...)
-	enterRaw := miscStructTLVEvent(t, "capset", bpfEventTypeEnter, args, 0, payload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "capset", bpfEventTypeEnter, args, 0, payload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, "capset", bpfEventTypeExit, args, -1, nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "capset", bpfEventTypeExit, args, -1, nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 
 	assertCapabilityHandlerSection(t, ev.handlerContext, 0, handler.PayloadDirectionIn, header)

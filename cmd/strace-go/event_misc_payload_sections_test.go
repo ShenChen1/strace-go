@@ -3,8 +3,12 @@ package main
 import (
 	"bytes"
 	"testing"
+)
 
-	"strace-go/pkg/meta"
+const (
+	rlimitPayloadStructSize  = 16
+	sysinfoPayloadStructSize = 112
+	utsnamePayloadStructSize = 65 * 6
 )
 
 func TestJSONSyscallEventIncludesMiscStructPayloadSections(t *testing.T) {
@@ -26,14 +30,7 @@ func TestJSONSyscallEventIncludesMiscStructPayloadSections(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			wantData := bytes.Repeat([]byte{0x5a}, tt.size)
-			eventRaw := &bpfEvent{
-				EventType:     tt.eventType,
-				Args:          tt.args,
-				Ret:           0,
-				ProbeRetEnter: 0,
-				ProbeRetExit:  0,
-			}
-			setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
+			payload := payloadTLVBytesForTest(t, payloadTLVTestSection{
 				kind:    payloadTLVKindStruct,
 				flags:   tt.flags,
 				arg:     uint16(tt.argIndex),
@@ -42,8 +39,7 @@ func TestJSONSyscallEventIncludesMiscStructPayloadSections(t *testing.T) {
 				data:    wantData,
 			})
 
-			scMeta := meta.Syscall{Name: tt.name}
-			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+			ev := newJSONSyscallEventFromTLVForTest(t, tt.name, tt.eventType, tt.args, 0, payload)
 			if len(ev.PayloadSections) != 1 {
 				t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 			}
@@ -55,14 +51,8 @@ func TestJSONSyscallEventIncludesMiscStructPayloadSections(t *testing.T) {
 func TestJSONSyscallEventIncludesPrlimitPayloadSections(t *testing.T) {
 	newLimit := bytes.Repeat([]byte{0x11}, rlimitPayloadStructSize)
 	oldLimit := bytes.Repeat([]byte{0x22}, rlimitPayloadStructSize)
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{101, 7, 0x3000, 0x4000},
-		Ret:           0,
-		ProbeRetEnter: 0,
-		ProbeRetExit:  0,
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	args := [6]uint64{101, 7, 0x3000, 0x4000}
+	payload := payloadTLVBytesForTest(t,
 		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     2,
@@ -80,8 +70,7 @@ func TestJSONSyscallEventIncludesPrlimitPayloadSections(t *testing.T) {
 		},
 	)
 
-	scMeta := meta.Syscall{Name: "prlimit64"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "prlimit64", bpfEventTypeExit, args, 0, payload)
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}

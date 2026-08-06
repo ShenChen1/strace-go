@@ -2,32 +2,13 @@ package main
 
 import (
 	"bytes"
-	"encoding/binary"
 	"testing"
 
-	"strace-go/pkg/cli"
-	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
-const (
-	execPayloadSnapshotMagic      = 0x45584543
-	execPayloadSnapshotHeaderSize = 32
-	execPayloadArgSnapshotSize    = 56
-	execPayloadArgSnapshotCount   = 48
-	execPayloadEnvSnapshotCount   = 64
-	execPayloadSnapshotSize       = execPayloadSnapshotHeaderSize +
-		execPayloadArgSnapshotCount*execPayloadArgSnapshotSize +
-		execPayloadEnvSnapshotCount*execPayloadArgSnapshotSize
-)
-
 func TestPayloadSectionsForEventUsesTLVSections(t *testing.T) {
-	eventRaw := &bpfEvent{
-		EventType:  bpfEventTypeEnter,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       [6]uint64{rawAtFdcwd, 0x1000, 0},
-	}
 	payload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindString,
 		arg:     1,
@@ -35,10 +16,15 @@ func TestPayloadSectionsForEventUsesTLVSections(t *testing.T) {
 		userLen: 9,
 		data:    []byte("tlv.txt\x00"),
 	})
-	eventRaw.DataLen = uint32(len(payload))
-	copy(eventRaw.StrArg[:], payload)
+	raw := rawPayloadEvent{
+		valid:      true,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagPayloadTLV,
+		args:       [6]uint64{rawAtFdcwd, 0x1000, 0},
+		data:       payload,
+	}
 
-	sections := payloadSectionsForEvent(eventRaw, meta.Syscall{Name: "openat"})
+	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "openat"})
 
 	if len(sections) != 1 {
 		t.Fatalf("sections = %d, want 1", len(sections))
@@ -114,6 +100,37 @@ func TestPayloadSectionsForRawPayloadEventUsesStructTLVSection(t *testing.T) {
 	}
 	if !bytes.Equal(section.Data, timeJSONStruct(9, 10)) {
 		t.Fatalf("TLV struct section data = %v", section.Data)
+	}
+}
+
+func TestPayloadSectionsForRawPayloadEventUsesCmsgTLVSection(t *testing.T) {
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindCmsg,
+		arg:     1,
+		userPtr: 0x5000,
+		userLen: 24,
+		data:    bytes.Repeat([]byte{0xc3}, 24),
+	})
+	raw := rawPayloadEvent{
+		valid:      true,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagPayloadTLV,
+		args:       [6]uint64{3, 0x1000, 0},
+		data:       payload,
+	}
+
+	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "sendmsg"})
+
+	if len(sections) != 1 {
+		t.Fatalf("sections = %d, want 1", len(sections))
+	}
+	section := sections[0]
+	if section.Kind != handler.PayloadKindCmsg || section.Direction != handler.PayloadDirectionIn ||
+		section.ArgIndex != 1 || section.UserPtr != 0x5000 || section.UserLen != 24 {
+		t.Fatalf("CMSG section metadata = %+v", section)
+	}
+	if !bytes.Equal(section.Data, bytes.Repeat([]byte{0xc3}, 24)) {
+		t.Fatalf("CMSG section data = %v", section.Data)
 	}
 }
 
@@ -250,15 +267,15 @@ func TestPayloadSectionsForEventUsesExecTLVSections(t *testing.T) {
 		userLen: 10,
 		data:    []byte("/bin/true\x00"),
 	})...)
-	eventRaw := &bpfEvent{
-		EventType:  bpfEventTypeEnter,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       [6]uint64{0x1000, 0x2000, 0x3000},
-		DataLen:    uint32(len(payload)),
+	raw := rawPayloadEvent{
+		valid:      true,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagPayloadTLV,
+		args:       [6]uint64{0x1000, 0x2000, 0x3000},
+		data:       payload,
 	}
-	copy(eventRaw.StrArg[:], payload)
 
-	sections := payloadSectionsForEvent(eventRaw, meta.Syscall{Name: "execve"})
+	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "execve"})
 
 	if len(sections) != 2 {
 		t.Fatalf("sections = %d, want exec args and filename sections", len(sections))
@@ -277,15 +294,15 @@ func TestPayloadSectionsForEventUsesExecTLVSections(t *testing.T) {
 
 func TestPayloadSectionsForEventDoesNotUseFixedExecSnapshot(t *testing.T) {
 	snapshot := execJSONSnapshot()
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{0x1000, 0x2000, 0x3000},
-		DataLen:       uint32(len(snapshot)),
-		ProbeRetEnter: 0,
+	raw := rawPayloadEvent{
+		valid:         true,
+		eventType:     bpfEventTypeEnter,
+		args:          [6]uint64{0x1000, 0x2000, 0x3000},
+		probeRetEnter: 0,
+		data:          snapshot,
 	}
-	copy(eventRaw.StrArg[:], snapshot)
 
-	sections := payloadSectionsForEvent(eventRaw, meta.Syscall{Name: "execve"})
+	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "execve"})
 
 	if len(sections) != 0 {
 		t.Fatalf("sections = %d, want no fixed exec snapshot fallback", len(sections))
@@ -294,53 +311,56 @@ func TestPayloadSectionsForEventDoesNotUseFixedExecSnapshot(t *testing.T) {
 
 func TestPayloadSectionsForEventDoesNotUseFixedReadWritePayload(t *testing.T) {
 	tests := []struct {
-		name     string
-		eventRaw bpfEvent
+		name string
+		raw  rawPayloadEvent
 	}{
 		{
 			name: "write",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeEnter,
-				Args:          [6]uint64{1, 0x2000, 5},
-				DataLen:       5,
-				ProbeRetEnter: 0,
+			raw: rawPayloadEvent{
+				valid:         true,
+				eventType:     bpfEventTypeEnter,
+				args:          [6]uint64{1, 0x2000, 5},
+				probeRetEnter: 0,
+				data:          []byte("data"),
 			},
 		},
 		{
 			name: "pwrite64",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeEnter,
-				Args:          [6]uint64{1, 0x2000, 5, 0},
-				DataLen:       5,
-				ProbeRetEnter: 0,
+			raw: rawPayloadEvent{
+				valid:         true,
+				eventType:     bpfEventTypeEnter,
+				args:          [6]uint64{1, 0x2000, 5, 0},
+				probeRetEnter: 0,
+				data:          []byte("data"),
 			},
 		},
 		{
 			name: "read",
-			eventRaw: bpfEvent{
-				EventType:    bpfEventTypeExit,
-				Args:         [6]uint64{3, 0x3000, 16},
-				Ret:          4,
-				DataLen:      4,
-				ProbeRetExit: 0,
+			raw: rawPayloadEvent{
+				valid:        true,
+				eventType:    bpfEventTypeExit,
+				args:         [6]uint64{3, 0x3000, 16},
+				ret:          4,
+				probeRetExit: 0,
+				data:         []byte("data"),
 			},
 		},
 		{
 			name: "pread64",
-			eventRaw: bpfEvent{
-				EventType:    bpfEventTypeExit,
-				Args:         [6]uint64{3, 0x3000, 16, 0},
-				Ret:          4,
-				DataLen:      4,
-				ProbeRetExit: 0,
+			raw: rawPayloadEvent{
+				valid:        true,
+				eventType:    bpfEventTypeExit,
+				args:         [6]uint64{3, 0x3000, 16, 0},
+				ret:          4,
+				probeRetExit: 0,
+				data:         []byte("data"),
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			copy(tt.eventRaw.StrArg[:], []byte("data"))
-			sections := payloadSectionsForEvent(&tt.eventRaw, meta.Syscall{Name: tt.name})
+			sections := payloadSectionsForRawPayloadEvent(tt.raw, meta.Syscall{Name: tt.name})
 			if len(sections) != 0 {
 				t.Fatalf("sections = %d, want no fixed %s payload fallback", len(sections), tt.name)
 			}
@@ -348,426 +368,19 @@ func TestPayloadSectionsForEventDoesNotUseFixedReadWritePayload(t *testing.T) {
 	}
 }
 
-func TestSyscallEventContextUsesTLVPathSection(t *testing.T) {
-	session := &traceSession{
-		targetPid: 101,
-		opts:      cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"}),
-		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-	}
-	eventRaw := tlvOpenatEvent(t, []byte("from-tlv\x00"))
-
-	ev := newSyscallEventContextFromBPF(session, eventRaw, 101, nil)
-
-	section, ok := ev.handlerContext.Section(1, handler.PayloadKindString)
-	if !ok || !bytes.Equal(section.Data, []byte("from-tlv\x00")) {
-		t.Fatalf("handler section = %+v, %v; want TLV path section", section, ok)
-	}
-	ev.updateFDState(session.fdStateStore())
-	if got := session.fdStateStore().PathMap()["101:3"]; got != "from-tlv" {
-		t.Fatalf("fd path = %q, want TLV snapshot path", got)
-	}
-}
-
-func TestShouldEmitGenericEnterForPathFilter(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-		want bool
-	}{
-		{name: "text without path filter", args: []string{"-e", "trace=openat", "/bin/true"}, want: false},
-		{name: "text with path filter", args: []string{"-e", "trace=openat", "-P", "from-tlv", "/bin/true"}, want: true},
-		{name: "json", args: []string{"--event-format=json", "-e", "trace=openat", "/bin/true"}, want: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldEmitGenericEnter(cli.ParseArgs(tt.args)); got != tt.want {
-				t.Fatalf("shouldEmitGenericEnter() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestSyscallEventContextMergesPendingEnterTLVPathForPathFilter(t *testing.T) {
-	session := &traceSession{
-		targetPid: 101,
-		opts:      cli.ParseArgs([]string{"-e", "trace=openat", "-P", "from-tlv", "/bin/true"}),
-		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-		state:     newTraceState(),
-	}
-	enterRaw := tlvOpenatEvent(t, []byte("from-tlv\x00"))
-	enterRaw.EventType = bpfEventTypeEnter
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
-
-	exitRaw := &bpfEvent{
-		Pid:           101,
-		Tid:           101,
-		SysId:         syscallIDByName(t, "openat"),
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{rawAtFdcwd, 0x1000, 0},
-		ProbeRetEnter: 0,
-		Ret:           -9,
-	}
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
-	ev := newSyscallEventContextFromView(
-		session,
-		exitUpdate.syscallView,
-		101,
-		exitUpdate.pendingEnter,
-		exitUpdate.payloadSections,
-	)
-
-	if !ev.shouldOutput() {
-		t.Fatal("openat exit should match -P from-tlv using pending enter TLV path")
-	}
-	section, ok := ev.handlerContext.Section(1, handler.PayloadKindString)
-	if !ok || !bytes.Equal(section.Data, []byte("from-tlv\x00")) {
-		t.Fatalf("merged handler section = %+v, %v; want pending enter TLV path", section, ok)
-	}
-}
-
-func TestSyscallEventContextMergesPathStatEnterPathAndExitStructSections(t *testing.T) {
-	tests := []struct {
-		name       string
-		args       [6]uint64
-		pathArg    uint16
-		structArg  uint16
-		structSize int
-		fill       byte
-	}{
-		{name: "stat", args: [6]uint64{0x1000, 0x2000}, pathArg: 0, structArg: 1, structSize: statPayloadStructSize, fill: 0x11},
-		{name: "lstat", args: [6]uint64{0x1000, 0x2000}, pathArg: 0, structArg: 1, structSize: statPayloadStructSize, fill: 0x22},
-		{name: "newfstatat", args: [6]uint64{rawAtFdcwd, 0x1000, 0x2000}, pathArg: 1, structArg: 2, structSize: statPayloadStructSize, fill: 0x33},
-		{name: "statfs", args: [6]uint64{0x1000, 0x2000}, pathArg: 0, structArg: 1, structSize: statfsPayloadStructSize, fill: 0x44},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assertPathStatSectionsMerged(t, tt.name, tt.args, tt.pathArg, tt.structArg, tt.structSize, tt.fill)
-		})
-	}
-}
-
-func assertPathStatSectionsMerged(
-	t *testing.T,
-	syscallName string,
-	args [6]uint64,
-	pathArg uint16,
-	structArg uint16,
-	structSize int,
-	fill byte,
-) {
-	t.Helper()
-	session := &traceSession{
-		targetPid: 101,
-		opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + syscallName, "/bin/true"}),
-		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-		state:     newTraceState(),
-	}
-	pathData := []byte("/proc/self\x00")
-	pathPayload := payloadTLVBytes(t, payloadTLVTestSection{
-		kind:    payloadTLVKindString,
-		arg:     pathArg,
-		userPtr: args[pathArg],
-		userLen: uint32(len(pathData)),
-		data:    pathData,
-	})
-	enterRaw := &bpfEvent{
-		Pid:        101,
-		Tid:        101,
-		SysId:      syscallIDByName(t, syscallName),
-		EventType:  bpfEventTypeEnter,
-		EventFlags: bpfEventFlagPayloadTLV | bpfEventFlagGenericEnter,
-		Args:       args,
-		DataLen:    uint32(len(pathPayload)),
-	}
-	copy(enterRaw.StrArg[:], pathPayload)
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
-
-	structData := bytes.Repeat([]byte{fill}, structSize)
-	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
-		kind:    payloadTLVKindStruct,
-		flags:   payloadTLVFlagDirectionOut,
-		arg:     structArg,
-		userPtr: args[structArg],
-		userLen: uint32(structSize),
-		data:    structData,
-	})
-	exitRaw := &bpfEvent{
-		Pid:        101,
-		Tid:        101,
-		SysId:      syscallIDByName(t, syscallName),
-		EventType:  bpfEventTypeExit,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       args,
-		Ret:        0,
-		DataLen:    uint32(len(exitPayload)),
-	}
-	copy(exitRaw.StrArg[:], exitPayload)
-
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
-	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
-	pathSection, ok := ev.handlerContext.Section(int(pathArg), handler.PayloadKindString)
-	if !ok || !bytes.Equal(pathSection.Data, pathData) {
-		t.Fatalf("%s path section = %+v, %v; want pending enter path", syscallName, pathSection, ok)
-	}
-	structSection, ok := ev.handlerContext.Section(int(structArg), handler.PayloadKindStruct)
-	if !ok || !bytes.Equal(structSection.Data, structData) {
-		t.Fatalf("%s struct section = %+v, %v; want exit struct", syscallName, structSection, ok)
-	}
-}
-
-func TestSyscallEventContextMergesReadlinkEnterPathAndExitBytesSections(t *testing.T) {
-	tests := []readlinkTLVCase{
-		{
-			name:    "readlink",
-			args:    [6]uint64{0x1000, 0x2000, 64},
-			pathArg: 0,
-			bufArg:  1,
-		},
-		{
-			name:    "readlinkat",
-			args:    [6]uint64{rawAtFdcwd, 0x1000, 0x2000, 64},
-			pathArg: 1,
-			bufArg:  2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assertReadlinkSectionsMerged(t, tt)
-		})
-	}
-}
-
-func TestSyscallEventContextUsesGetcwdExitBytesSection(t *testing.T) {
-	session := &traceSession{
-		targetPid: 101,
-		opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=getcwd", "/bin/true"}),
-		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-		state:     newTraceState(),
-	}
-	cwdData := []byte("/opt/strace-go\x00")
-	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
-		kind:    payloadTLVKindBytes,
-		flags:   payloadTLVFlagDirectionOut,
-		arg:     0,
-		userPtr: 0x1000,
-		userLen: uint32(len(cwdData)),
-		data:    cwdData,
-	})
-	exitRaw := &bpfEvent{
-		Pid:        101,
-		Tid:        101,
-		SysId:      syscallIDByName(t, "getcwd"),
-		EventType:  bpfEventTypeExit,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       [6]uint64{0x1000, 128},
-		Ret:        int64(len(cwdData)),
-		DataLen:    uint32(len(exitPayload)),
-	}
-	copy(exitRaw.StrArg[:], exitPayload)
-
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
-	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
-	section, ok := ev.handlerContext.Section(0, handler.PayloadKindBytes)
-	if !ok || !bytes.Equal(section.Data, cwdData) {
-		t.Fatalf("getcwd bytes section = %+v, %v; want exit cwd bytes", section, ok)
-	}
-}
-
-func TestSyscallEventContextUsesFDArrayExitStructSection(t *testing.T) {
-	tests := []struct {
-		name     string
-		args     [6]uint64
-		argIndex uint16
-	}{
-		{name: "pipe", args: [6]uint64{0x1000}, argIndex: 0},
-		{name: "pipe2", args: [6]uint64{0x2000, 0}, argIndex: 0},
-		{name: "socketpair", args: [6]uint64{1, 1, 0, 0x3000}, argIndex: 3},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			session := &traceSession{
-				targetPid: 101,
-				opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + tt.name, "/bin/true"}),
-				decoder:   event.NewDecoder(),
-				fdState:   newFDStateStoreFromMaps(nil, nil),
-				state:     newTraceState(),
-			}
-			fdData := fdArrayJSONData(21, 22)
-			exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
-				kind:    payloadTLVKindStruct,
-				flags:   payloadTLVFlagDirectionOut,
-				arg:     tt.argIndex,
-				userPtr: tt.args[tt.argIndex],
-				userLen: fdArrayPayloadSize,
-				data:    fdData,
-			})
-			exitRaw := &bpfEvent{
-				Pid:        101,
-				Tid:        101,
-				SysId:      syscallIDByName(t, tt.name),
-				EventType:  bpfEventTypeExit,
-				EventFlags: bpfEventFlagPayloadTLV,
-				Args:       tt.args,
-				Ret:        0,
-				DataLen:    uint32(len(exitPayload)),
-			}
-			copy(exitRaw.StrArg[:], exitPayload)
-
-			exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
-			ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
-			section, ok := ev.handlerContext.Section(int(tt.argIndex), handler.PayloadKindStruct)
-			if !ok || !bytes.Equal(section.Data, fdData) {
-				t.Fatalf("%s fd-array section = %+v, %v; want exit struct", tt.name, section, ok)
-			}
-		})
-	}
-}
-
-type readlinkTLVCase struct {
-	name    string
-	args    [6]uint64
-	pathArg uint16
-	bufArg  uint16
-}
-
-func assertReadlinkSectionsMerged(t *testing.T, tt readlinkTLVCase) {
-	t.Helper()
-	session := &traceSession{
-		targetPid: 101,
-		opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + tt.name, "/bin/true"}),
-		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-		state:     newTraceState(),
-	}
-	pathData := []byte("/tmp/strace-go-ebpf-readlink\x00")
-	pathPayload := payloadTLVBytes(t, payloadTLVTestSection{
-		kind:    payloadTLVKindString,
-		arg:     tt.pathArg,
-		userPtr: tt.args[tt.pathArg],
-		userLen: uint32(len(pathData)),
-		data:    pathData,
-	})
-	enterRaw := &bpfEvent{
-		Pid:        101,
-		Tid:        101,
-		SysId:      syscallIDByName(t, tt.name),
-		EventType:  bpfEventTypeEnter,
-		EventFlags: bpfEventFlagPayloadTLV | bpfEventFlagGenericEnter,
-		Args:       tt.args,
-		DataLen:    uint32(len(pathPayload)),
-	}
-	copy(enterRaw.StrArg[:], pathPayload)
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
-
-	targetData := []byte("/proc/self")
-	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
-		kind:    payloadTLVKindBytes,
-		flags:   payloadTLVFlagDirectionOut,
-		arg:     tt.bufArg,
-		userPtr: tt.args[tt.bufArg],
-		userLen: uint32(len(targetData)),
-		data:    targetData,
-	})
-	exitRaw := &bpfEvent{
-		Pid:        101,
-		Tid:        101,
-		SysId:      syscallIDByName(t, tt.name),
-		EventType:  bpfEventTypeExit,
-		EventFlags: bpfEventFlagPayloadTLV,
-		Args:       tt.args,
-		Ret:        int64(len(targetData)),
-		DataLen:    uint32(len(exitPayload)),
-	}
-	copy(exitRaw.StrArg[:], exitPayload)
-
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
-	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
-	pathSection, ok := ev.handlerContext.Section(int(tt.pathArg), handler.PayloadKindString)
-	if !ok || !bytes.Equal(pathSection.Data, pathData) {
-		t.Fatalf("%s path section = %+v, %v; want pending enter path", tt.name, pathSection, ok)
-	}
-	bytesSection, ok := ev.handlerContext.Section(int(tt.bufArg), handler.PayloadKindBytes)
-	if !ok || !bytes.Equal(bytesSection.Data, targetData) {
-		t.Fatalf("%s bytes section = %+v, %v; want exit bytes", tt.name, bytesSection, ok)
-	}
-}
-
 func TestPayloadSectionsForEventDoesNotFallbackOnInvalidTLV(t *testing.T) {
-	eventRaw := tlvOpenatEvent(t, []byte("fixed.txt\x00"))
-	eventRaw.DataLen = 4
-	copy(eventRaw.StrArg[:], []byte{0xff, 0xff, 0, 0})
+	raw := rawPayloadEvent{
+		valid:      true,
+		eventType:  bpfEventTypeExit,
+		eventFlags: bpfEventFlagPayloadTLV,
+		args:       [6]uint64{rawAtFdcwd, 0x1000, 0},
+		ret:        3,
+		data:       []byte{0xff, 0xff, 0, 0},
+	}
 
-	sections := payloadSectionsForEvent(eventRaw, meta.Syscall{Name: "openat"})
+	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "openat"})
 
 	if len(sections) != 0 {
 		t.Fatalf("sections = %d, want no fixed fallback for invalid TLV", len(sections))
 	}
-}
-
-type payloadTLVTestSection struct {
-	kind     uint16
-	arg      uint16
-	flags    uint16
-	userPtr  uint64
-	userLen  uint32
-	probeRet int32
-	data     []byte
-}
-
-func tlvOpenatEvent(t *testing.T, path []byte) *bpfEvent {
-	t.Helper()
-	payload := payloadTLVBytes(t, payloadTLVTestSection{
-		kind:    payloadTLVKindString,
-		arg:     1,
-		userPtr: 0x1000,
-		userLen: uint32(len(path)),
-		data:    path,
-	})
-	eventRaw := &bpfEvent{
-		Pid:           101,
-		Tid:           101,
-		SysId:         syscallIDByName(t, "openat"),
-		EventType:     bpfEventTypeExit,
-		EventFlags:    bpfEventFlagPayloadTLV,
-		Args:          [6]uint64{rawAtFdcwd, 0x1000, 0},
-		DataLen:       uint32(len(payload)),
-		ProbeRetEnter: 0,
-		Ret:           3,
-	}
-	copy(eventRaw.StrArg[:], payload)
-	return eventRaw
-}
-
-func payloadTLVBytes(t *testing.T, section payloadTLVTestSection) []byte {
-	t.Helper()
-	if len(section.data) > len((&bpfEvent{}).StrArg)-payloadTLVHeaderSize {
-		t.Fatal("test TLV section too large")
-	}
-	buf := make([]byte, payloadTLVHeaderSize+len(section.data))
-	binary.LittleEndian.PutUint16(buf[0:2], section.kind)
-	binary.LittleEndian.PutUint16(buf[2:4], section.arg)
-	binary.LittleEndian.PutUint16(buf[4:6], section.flags)
-	binary.LittleEndian.PutUint32(buf[8:12], section.userLen)
-	binary.LittleEndian.PutUint32(buf[12:16], uint32(len(section.data)))
-	binary.LittleEndian.PutUint32(buf[16:20], uint32(section.probeRet))
-	binary.LittleEndian.PutUint64(buf[24:32], section.userPtr)
-	copy(buf[payloadTLVHeaderSize:], section.data)
-	return buf
-}
-
-func execJSONSnapshot() []byte {
-	data := make([]byte, execPayloadSnapshotSize)
-	binary.LittleEndian.PutUint32(data[0:4], execPayloadSnapshotMagic)
-	binary.LittleEndian.PutUint16(data[4:6], 1)
-	binary.LittleEndian.PutUint16(data[6:8], 1)
-	return data
 }

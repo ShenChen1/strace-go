@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"testing"
-
-	"strace-go/pkg/meta"
 )
 
 func TestJSONSyscallEventIncludesAddKeyPayloadSections(t *testing.T) {
@@ -35,13 +33,9 @@ func TestJSONSyscallEventIncludesAddKeyPayloadSections(t *testing.T) {
 			data:    payloadData,
 		},
 	}
-	eventRaw := &bpfEvent{
-		EventType: bpfEventTypeEnter,
-		Args:      args,
-	}
-	setJSONTestTLVPayload(t, eventRaw, payloadSections...)
+	payload := payloadTLVBytesForTest(t, payloadSections...)
 
-	sections := keyJSONPayloadSections(t, eventRaw, "add_key")
+	sections := keyJSONPayloadSections(t, "add_key", args, payload)
 	if len(sections) != 3 {
 		t.Fatalf("PayloadSections = %d, want 3", len(sections))
 	}
@@ -78,13 +72,9 @@ func TestJSONSyscallEventIncludesRequestKeyPayloadSections(t *testing.T) {
 			data:    infoData,
 		},
 	}
-	eventRaw := &bpfEvent{
-		EventType: bpfEventTypeEnter,
-		Args:      args,
-	}
-	setJSONTestTLVPayload(t, eventRaw, payloadSections...)
+	payload := payloadTLVBytesForTest(t, payloadSections...)
 
-	sections := keyJSONPayloadSections(t, eventRaw, "request_key")
+	sections := keyJSONPayloadSections(t, "request_key", args, payload)
 	if len(sections) != 3 {
 		t.Fatalf("PayloadSections = %d, want 3", len(sections))
 	}
@@ -93,10 +83,9 @@ func TestJSONSyscallEventIncludesRequestKeyPayloadSections(t *testing.T) {
 	assertKeyJSONSection(t, sections[2], "string", 2, 0x3000, infoData)
 }
 
-func keyJSONPayloadSections(t *testing.T, eventRaw *bpfEvent, name string) []jsonPayloadSection {
+func keyJSONPayloadSections(t *testing.T, name string, args [6]uint64, payload []byte) []jsonPayloadSection {
 	t.Helper()
-	scMeta := meta.Syscall{Name: name}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, name, bpfEventTypeEnter, args, 0, payload)
 	return ev.PayloadSections
 }
 

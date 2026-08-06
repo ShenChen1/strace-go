@@ -3,25 +3,23 @@ package main
 import (
 	"bytes"
 	"testing"
+)
 
-	"strace-go/pkg/meta"
+const (
+	waitidSiginfoPayloadSize = 128
+	waitidRusagePayloadSize  = 144
 )
 
 func TestJSONSyscallEventIncludesWaitidPayloadSections(t *testing.T) {
 	siginfo := bytes.Repeat([]byte{0x11}, waitidSiginfoPayloadSize)
 	rusage := bytes.Repeat([]byte{0x22}, waitidRusagePayloadSize)
-	eventRaw := &bpfEvent{
-		EventType: bpfEventTypeExit,
-		Args:      [6]uint64{0, 0, 0x1000, 0, 0x2000},
-		Ret:       0,
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	args := [6]uint64{0, 0, 0x1000, 0, 0x2000}
+	payload := payloadTLVBytesForTest(t,
 		waitidJSONTLVStruct(2, 0x1000, siginfo),
 		waitidJSONTLVStruct(4, 0x2000, rusage),
 	)
 
-	scMeta := meta.Syscall{Name: "waitid"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "waitid", bpfEventTypeExit, args, 0, payload)
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}

@@ -1,30 +1,17 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 )
 
 func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
-	root := repoRootForTest(t)
-	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
-	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
-	tlvHeader := readTextFile(t, filepath.Join(root, "bpf/payload_tlv.h"))
-	directHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h"))
-	fdArrayDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_fd_array_direct_event_v2.h"))
-	getcwdDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_getcwd_direct_event_v2.h"))
-	miscDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_misc_struct_direct_event_v2.h"))
-	statDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_stat_direct_event_v2.h"))
-	waitidDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_waitid_direct_event_v2.h"))
-	signalDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_signal_direct_event_v2.h"))
-	pathStatDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_stat_direct_event_v2.h"))
-	readlinkDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_direct_event_v2.h"))
-	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
-
+	src := loadBPFSources(t)
+	straceSource := src.straceSource
+	tlvHeader := src.tlvHeader
+	directHeader := src.directHeader
+	legacyCaptureArtifacts := src.legacyCaptureArtifacts
 	if !strings.Contains(straceSource, `#include "payload_tlv.h"`) {
 		t.Fatal("strace.c does not include payload_tlv.h")
 	}
@@ -254,6 +241,21 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if strings.Contains(straceSource, "if (sys_id == SYS_EXIT || sys_id == SYS_EXIT_GROUP)") {
 		t.Fatal("exit/exit_group should not retain the legacy bpf_event enter special case")
 	}
+}
+
+func TestBPFDirectPayloadHelpersUseTLV(t *testing.T) {
+	src := loadBPFSources(t)
+	straceSource := src.straceSource
+	directHeader := src.directHeader
+	fdArrayDirectHeader := src.fdArrayDirectHeader
+	getcwdDirectHeader := src.getcwdDirectHeader
+	miscDirectHeader := src.miscDirectHeader
+	statDirectHeader := src.statDirectHeader
+	waitidDirectHeader := src.waitidDirectHeader
+	signalDirectHeader := src.signalDirectHeader
+	pathStatDirectHeader := src.pathStatDirectHeader
+	readlinkDirectHeader := src.readlinkDirectHeader
+	timeDirectHeader := src.timeDirectHeader
 	if !strings.Contains(directHeader, "sys_id == SYS_OPENAT") ||
 		!strings.Contains(directHeader, "sys_id == SYS_WRITE") ||
 		!strings.Contains(directHeader, "sys_id == SYS_PWRITE64") ||
@@ -433,6 +435,37 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		!strings.Contains(straceSource, "emit_misc_struct_exit_event_v2_direct(p, ret_value, duration);") {
 		t.Fatal("uname/sysinfo/getrlimit/setrlimit/prlimit64 should emit direct misc struct TLV events without the bpf_event carrier")
 	}
+}
+
+func TestBPFFDStateTrackingGate(t *testing.T) {
+	src := loadBPFSources(t)
+	for _, snippet := range []string{
+		"#define CONFIG_FD_STATE 64",
+		"is_fd_state_direct_syscall(",
+		"is_fd_state_tracked(sys_id, cfg)",
+		"#define SYS_DUP 32",
+		"#define SYS_DUP2 33",
+		"#define SYS_DUP3 292",
+		"#define SYS_FCHDIR 81",
+		"case SYS_OPENAT2:",
+		"case SYS_FACCESSAT2:",
+		"case SYS_NEWFSTATAT:",
+	} {
+		if !strings.Contains(src.straceSource, snippet) {
+			t.Fatalf("BPF source missing fd-state tracking snippet %q", snippet)
+		}
+	}
+	if !strings.Contains(src.straceSource,
+		"!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)") {
+		t.Fatal("sys_enter filter must bypass fd-state syscalls when fd state tracking is on")
+	}
+}
+
+func TestBPFLifecycleEventsUseEventV2(t *testing.T) {
+	src := loadBPFSources(t)
+	straceSource := src.straceSource
+	tlvHeader := src.tlvHeader
+	directHeader := src.directHeader
 	if !strings.Contains(straceSource, "emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);") {
 		t.Fatal("lifecycle events should be emitted directly as event v2")
 	}
@@ -467,60 +500,5 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 	if !strings.Contains(tlvHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") {
 		t.Fatal("payload TLV header missing out direction flag")
-	}
-}
-
-func repoRootForTest(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "../.."))
-}
-
-func readTextFile(t *testing.T, path string) string {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	return string(data)
-}
-
-func legacyCaptureArtifactsForTest(t *testing.T) string {
-	t.Helper()
-	root := repoRootForTest(t)
-	var out strings.Builder
-	for _, rel := range []string{
-		"cmd/generate-syscalls/capture_rules.yaml",
-		"bpf/syscall_capture.h",
-	} {
-		path := filepath.Join(root, rel)
-		data, err := os.ReadFile(path)
-		if err == nil {
-			out.Write(data)
-			out.WriteByte('\n')
-			continue
-		}
-		if !os.IsNotExist(err) {
-			t.Fatalf("read legacy capture artifact %s: %v", path, err)
-		}
-	}
-	return out.String()
-}
-
-func TestLegacyCaptureArtifactsAreRemoved(t *testing.T) {
-	root := repoRootForTest(t)
-	for _, rel := range []string{
-		"cmd/generate-syscalls/capture_rules.yaml",
-		"bpf/syscall_capture.h",
-	} {
-		path := filepath.Join(root, rel)
-		if _, err := os.Stat(path); err == nil {
-			t.Fatalf("legacy fixed-window capture artifact still exists: %s", rel)
-		} else if !os.IsNotExist(err) {
-			t.Fatalf("stat %s: %v", path, err)
-		}
 	}
 }

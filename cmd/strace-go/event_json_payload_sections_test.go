@@ -7,6 +7,8 @@ import (
 	"strace-go/pkg/meta"
 )
 
+const memfdNamePayloadMaxBytes = 250
+
 func TestJSONSyscallEventIncludesOutBufferPayloadSections(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -21,17 +23,7 @@ func TestJSONSyscallEventIncludesOutBufferPayloadSections(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			wantData := []byte("target")
-			eventRaw := &bpfEvent{
-				Pid:           101,
-				Tid:           101,
-				EventVersion:  2,
-				EventType:     bpfEventTypeExit,
-				Args:          tt.args,
-				Ret:           6,
-				ProbeRetEnter: -1,
-				ProbeRetExit:  0,
-			}
-			setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
+			payload := payloadTLVBytes(t, payloadTLVTestSection{
 				kind:    payloadTLVKindBytes,
 				flags:   payloadTLVFlagDirectionOut,
 				arg:     uint16(tt.argIndex),
@@ -40,8 +32,7 @@ func TestJSONSyscallEventIncludesOutBufferPayloadSections(t *testing.T) {
 				data:    wantData,
 			})
 
-			scMeta := meta.Syscall{Name: tt.name}
-			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+			ev := newJSONSyscallEventFromTLVForTest(t, tt.name, bpfEventTypeExit, tt.args, 6, payload)
 			if len(ev.PayloadSections) != 1 {
 				t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 			}
@@ -75,17 +66,7 @@ func TestJSONSyscallEventIncludesStructPayloadSections(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			wantData := bytes.Repeat([]byte{tt.fill}, tt.size)
-			eventRaw := &bpfEvent{
-				Pid:           101,
-				Tid:           101,
-				EventVersion:  2,
-				EventType:     bpfEventTypeExit,
-				Args:          tt.args,
-				Ret:           0,
-				ProbeRetEnter: -1,
-				ProbeRetExit:  0,
-			}
-			setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
+			payload := payloadTLVBytes(t, payloadTLVTestSection{
 				kind:    payloadTLVKindStruct,
 				flags:   payloadTLVFlagDirectionOut,
 				arg:     uint16(tt.argIndex),
@@ -94,8 +75,7 @@ func TestJSONSyscallEventIncludesStructPayloadSections(t *testing.T) {
 				data:    wantData,
 			})
 
-			scMeta := meta.Syscall{Name: tt.name}
-			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+			ev := newJSONSyscallEventFromTLVForTest(t, tt.name, bpfEventTypeExit, tt.args, 0, payload)
 			if len(ev.PayloadSections) != 1 {
 				t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 			}
@@ -114,16 +94,15 @@ func TestJSONSyscallEventIncludesStructPayloadSections(t *testing.T) {
 }
 
 func TestJSONSyscallEventSkipsStructPayloadSectionOnFailedStat(t *testing.T) {
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{3, 0x2000},
-		Ret:           -2,
-		ProbeRetEnter: -1,
-		ProbeRetExit:  0,
-	}
-
 	scMeta := meta.Syscall{Name: "fstat"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromView(syscallEventView{
+		valid:         true,
+		eventType:     bpfEventTypeExit,
+		args:          [6]uint64{3, 0x2000},
+		ret:           -2,
+		probeRetEnter: -1,
+		probeRetExit:  0,
+	}, scMeta, nil)
 	if len(ev.PayloadSections) != 0 {
 		t.Fatalf("PayloadSections = %+v, want none for failed fstat", ev.PayloadSections)
 	}
@@ -132,33 +111,26 @@ func TestJSONSyscallEventSkipsStructPayloadSectionOnFailedStat(t *testing.T) {
 func TestJSONSyscallEventIncludesPollStructPayloadSections(t *testing.T) {
 	enterData := []byte("pollfd-enter-000")
 	exitData := []byte("pollfd-exit--000")
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{0x2000, 2, 1000},
-		Ret:           1,
-		ProbeRetEnter: 0,
-		ProbeRetExit:  0,
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	args := [6]uint64{0x2000, 2, 1000}
+	payload := payloadTLVBytes(t,
 		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     0,
-			userPtr: eventRaw.Args[0],
+			userPtr: args[0],
 			userLen: uint32(len(enterData)),
 			data:    enterData,
-		},
+		})
+	payload = append(payload, payloadTLVBytes(t,
 		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			flags:   payloadTLVFlagDirectionOut,
 			arg:     0,
-			userPtr: eventRaw.Args[0],
+			userPtr: args[0],
 			userLen: uint32(len(exitData)),
 			data:    exitData,
-		},
-	)
+		})...)
 
-	scMeta := meta.Syscall{Name: "poll"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "poll", bpfEventTypeExit, args, 1, payload)
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}
@@ -181,30 +153,25 @@ func TestJSONSyscallEventIncludesPollStructPayloadSections(t *testing.T) {
 func TestJSONSyscallEventIncludesPpollTimeoutPayloadSection(t *testing.T) {
 	pollfdsData := []byte("pollfd-i")
 	timeoutData := bytes.Repeat([]byte{0x22}, timespecPayloadStructSize)
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{0x2000, 1, 0x3000},
-		ProbeRetEnter: 0,
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	args := [6]uint64{0x2000, 1, 0x3000}
+	payload := payloadTLVBytes(t,
 		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     0,
-			userPtr: eventRaw.Args[0],
+			userPtr: args[0],
 			userLen: uint32(len(pollfdsData)),
 			data:    pollfdsData,
-		},
+		})
+	payload = append(payload, payloadTLVBytes(t,
 		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     2,
-			userPtr: eventRaw.Args[2],
+			userPtr: args[2],
 			userLen: uint32(len(timeoutData)),
 			data:    timeoutData,
-		},
-	)
+		})...)
 
-	scMeta := meta.Syscall{Name: "ppoll"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "ppoll", bpfEventTypeEnter, args, 0, payload)
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}
@@ -219,11 +186,7 @@ func TestJSONSyscallEventIncludesPpollTimeoutPayloadSection(t *testing.T) {
 }
 
 func TestJSONSyscallEventIncludesEpollCtlStructPayloadSection(t *testing.T) {
-	assertJSONEpollStructPayloadSections(t, "epoll_ctl", bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{5, 1, 6, 0x3000},
-		ProbeRetEnter: 0,
-	}, 1, payloadTLVTestSection{
+	assertJSONEpollStructPayloadSections(t, "epoll_ctl", bpfEventTypeEnter, [6]uint64{5, 1, 6, 0x3000}, 0, 1, payloadTLVTestSection{
 		kind:    payloadTLVKindStruct,
 		arg:     3,
 		userPtr: 0x3000,
@@ -233,13 +196,7 @@ func TestJSONSyscallEventIncludesEpollCtlStructPayloadSection(t *testing.T) {
 }
 
 func TestJSONSyscallEventIncludesEpollWaitStructPayloadSection(t *testing.T) {
-	assertJSONEpollStructPayloadSections(t, "epoll_wait", bpfEvent{
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{5, 0x2000, 2, 1000},
-		Ret:           2,
-		ProbeRetEnter: -1,
-		ProbeRetExit:  0,
-	}, 1, payloadTLVTestSection{
+	assertJSONEpollStructPayloadSections(t, "epoll_wait", bpfEventTypeExit, [6]uint64{5, 0x2000, 2, 1000}, 2, 1, payloadTLVTestSection{
 		kind:    payloadTLVKindStruct,
 		flags:   payloadTLVFlagDirectionOut,
 		arg:     1,
@@ -250,13 +207,7 @@ func TestJSONSyscallEventIncludesEpollWaitStructPayloadSection(t *testing.T) {
 }
 
 func TestJSONSyscallEventIncludesEpollPwait2StructPayloadSections(t *testing.T) {
-	assertJSONEpollStructPayloadSections(t, "epoll_pwait2", bpfEvent{
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{5, 0x2000, 2, 0x3000, 0, 8},
-		Ret:           2,
-		ProbeRetEnter: 0,
-		ProbeRetExit:  0,
-	}, 2,
+	assertJSONEpollStructPayloadSections(t, "epoll_pwait2", bpfEventTypeExit, [6]uint64{5, 0x2000, 2, 0x3000, 0, 8}, 2, 2,
 		payloadTLVTestSection{
 			kind:    payloadTLVKindStruct,
 			arg:     3,
@@ -278,14 +229,18 @@ func TestJSONSyscallEventIncludesEpollPwait2StructPayloadSections(t *testing.T) 
 func assertJSONEpollStructPayloadSections(
 	t *testing.T,
 	name string,
-	eventRaw bpfEvent,
+	eventType uint16,
+	args [6]uint64,
+	ret int64,
 	wantCount int,
 	sections ...payloadTLVTestSection,
 ) {
 	t.Helper()
-	setJSONTestTLVPayload(t, &eventRaw, sections...)
-	scMeta := meta.Syscall{Name: name}
-	ev := newJSONSyscallEvent(&eventRaw, scMeta, payloadSectionsForEvent(&eventRaw, scMeta))
+	var payload []byte
+	for _, section := range sections {
+		payload = append(payload, payloadTLVBytes(t, section)...)
+	}
+	ev := newJSONSyscallEventFromTLVForTest(t, name, eventType, args, ret, payload)
 	if len(ev.PayloadSections) != wantCount {
 		t.Fatalf("PayloadSections = %d, want %d", len(ev.PayloadSections), wantCount)
 	}
@@ -308,15 +263,7 @@ func TestJSONSyscallEventIncludesIovecPayloadSection(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			wantData := []byte("0123456789abcdef")
-			eventRaw := &bpfEvent{
-				Pid:           101,
-				Tid:           101,
-				EventVersion:  2,
-				EventType:     bpfEventTypeEnter,
-				Args:          tt.args,
-				ProbeRetEnter: 0,
-			}
-			setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
+			payload := payloadTLVBytes(t, payloadTLVTestSection{
 				kind:    payloadTLVKindIovec,
 				arg:     1,
 				userPtr: tt.args[1],
@@ -324,8 +271,7 @@ func TestJSONSyscallEventIncludesIovecPayloadSection(t *testing.T) {
 				data:    wantData,
 			})
 
-			scMeta := meta.Syscall{Name: tt.name}
-			ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+			ev := newJSONSyscallEventFromTLVForTest(t, tt.name, bpfEventTypeEnter, tt.args, 0, payload)
 			if len(ev.PayloadSections) != 1 {
 				t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 			}
@@ -342,24 +288,16 @@ func TestJSONSyscallEventIncludesIovecPayloadSection(t *testing.T) {
 
 func TestJSONSyscallEventIncludesMemfdNamePayloadSection(t *testing.T) {
 	nameData := []byte("memfd-name\x00")
-	eventRaw := &bpfEvent{
-		Pid:           101,
-		Tid:           101,
-		EventVersion:  2,
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{0x2000, 0},
-		ProbeRetEnter: 0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
+	args := [6]uint64{0x2000, 0}
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindString,
 		arg:     0,
-		userPtr: eventRaw.Args[0],
+		userPtr: args[0],
 		userLen: uint32(len(nameData)),
 		data:    nameData,
 	})
 
-	scMeta := meta.Syscall{Name: "memfd_create"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "memfd_create", bpfEventTypeEnter, args, 0, payload)
 	if len(ev.PayloadSections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 	}
@@ -378,21 +316,16 @@ func TestJSONSyscallEventIncludesMemfdNamePayloadSection(t *testing.T) {
 func TestJSONSyscallEventClampsMemfdNamePayloadSection(t *testing.T) {
 	name := bytes.Repeat([]byte{'a'}, memfdNamePayloadMaxBytes+10)
 	capturedName := name[:memfdNamePayloadMaxBytes]
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{0x2000, 0},
-		ProbeRetEnter: 0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
+	args := [6]uint64{0x2000, 0}
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindString,
 		arg:     0,
-		userPtr: eventRaw.Args[0],
+		userPtr: args[0],
 		userLen: uint32(len(capturedName)),
 		data:    capturedName,
 	})
 
-	scMeta := meta.Syscall{Name: "memfd_create"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "memfd_create", bpfEventTypeEnter, args, 0, payload)
 	if len(ev.PayloadSections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 	}
@@ -405,42 +338,50 @@ func TestJSONSyscallEventClampsMemfdNamePayloadSection(t *testing.T) {
 func TestJSONSyscallEventIncludesProcessVMIovecPayloadSections(t *testing.T) {
 	localData := []byte("local-iovec-0000")
 	remoteData := []byte("remote-iovec-000")
-	eventRaw := &bpfEvent{
-		Pid:           101,
-		Tid:           101,
-		EventVersion:  2,
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{102, 0x3000, 1, 0x4000, 1, 0},
-		ProbeRetEnter: 0,
-	}
-	setJSONTestTLVPayload(t, eventRaw,
+	baseData := []byte{0x80, 0x81, 0x82, 0x83, 0x84}
+	args := [6]uint64{102, 0x3000, 1, 0x4000, 1, 0}
+	payload := payloadTLVBytes(t,
 		payloadTLVTestSection{
 			kind:    payloadTLVKindIovec,
 			arg:     1,
-			userPtr: eventRaw.Args[1],
+			userPtr: args[1],
 			userLen: uint32(len(localData)),
 			data:    localData,
-		},
+		})
+	payload = append(payload, payloadTLVBytes(t,
 		payloadTLVTestSection{
 			kind:    payloadTLVKindIovec,
 			arg:     3,
-			userPtr: eventRaw.Args[3],
+			userPtr: args[3],
 			userLen: uint32(len(remoteData)),
 			data:    remoteData,
-		},
-	)
+		})...)
+	payload = append(payload, payloadTLVBytes(t,
+		payloadTLVTestSection{
+			kind:    payloadTLVKindBytes,
+			arg:     120,
+			userPtr: 0x5000,
+			userLen: 6,
+			data:    baseData,
+		})...)
 
-	scMeta := meta.Syscall{Name: "process_vm_readv"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
-	if len(ev.PayloadSections) != 2 {
-		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
+	ev := newJSONSyscallEventFromTLVForTest(t, "process_vm_writev", bpfEventTypeEnter, args, 0, payload)
+	if len(ev.PayloadSections) != 3 {
+		t.Fatalf("PayloadSections = %d, want 3", len(ev.PayloadSections))
 	}
 	local := ev.PayloadSections[0]
 	remote := ev.PayloadSections[1]
+	base := ev.PayloadSections[2]
 	if local.Kind != "iovec" || local.ArgIndex != 1 || local.UserPtr != 0x3000 {
 		t.Fatalf("local iovec section = %+v", local)
 	}
 	if remote.Kind != "iovec" || remote.ArgIndex != 3 || remote.UserPtr != 0x4000 {
 		t.Fatalf("remote iovec section = %+v", remote)
+	}
+	if base.Kind != "bytes" || base.ArgIndex != 120 || base.UserPtr != 0x5000 || base.UserLen != 6 {
+		t.Fatalf("local iov_base section = %+v", base)
+	}
+	if got := mustDecodeBase64(t, base.DataBase64); !bytes.Equal(got, baseData) {
+		t.Fatalf("local iov_base data = %v, want %v", got, baseData)
 	}
 }

@@ -3,18 +3,12 @@ package main
 import (
 	"bytes"
 	"testing"
-
-	"strace-go/pkg/meta"
 )
 
 func TestJSONSyscallEventIncludesClone3PayloadSection(t *testing.T) {
 	wantData := bytes.Repeat([]byte{0x44}, 88)
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{0x1000, uint64(len(wantData))},
-		ProbeRetEnter: 0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
+	args := [6]uint64{0x1000, uint64(len(wantData))}
+	payload := payloadTLVBytesForTest(t, payloadTLVTestSection{
 		kind:    payloadTLVKindStruct,
 		arg:     0,
 		userPtr: 0x1000,
@@ -22,8 +16,7 @@ func TestJSONSyscallEventIncludesClone3PayloadSection(t *testing.T) {
 		data:    wantData,
 	})
 
-	scMeta := meta.Syscall{Name: "clone3"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "clone3", bpfEventTypeEnter, args, 0, payload)
 	if len(ev.PayloadSections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 	}

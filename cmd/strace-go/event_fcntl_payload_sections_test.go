@@ -3,74 +3,55 @@ package main
 import (
 	"bytes"
 	"testing"
-
-	"strace-go/pkg/meta"
 )
 
 func TestJSONSyscallEventIncludesFcntlPayloadSections(t *testing.T) {
 	tests := []struct {
-		name     string
-		eventRaw bpfEvent
-		wants    []wantFcntlJSONPayloadSection
+		name      string
+		eventType uint16
+		args      [6]uint64
+		ret       int64
+		wants     []wantFcntlJSONPayloadSection
 	}{
 		{
-			name: "F_SETLK enter flock",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeEnter,
-				Args:          [6]uint64{3, 6, 0x1000},
-				ProbeRetEnter: 0,
-			},
+			name:      "F_SETLK enter flock",
+			eventType: bpfEventTypeEnter,
+			args:      [6]uint64{3, 6, 0x1000},
 			wants: []wantFcntlJSONPayloadSection{
 				{"in", fcntlFlockPayloadSize, bytes.Repeat([]byte{0x11}, fcntlFlockPayloadSize)},
 			},
 		},
 		{
-			name: "F_GETLK exit flock",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeExit,
-				Args:          [6]uint64{3, 5, 0x2000},
-				Ret:           0,
-				ProbeRetEnter: 0,
-				ProbeRetExit:  0,
-			},
+			name:      "F_GETLK exit flock",
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{3, 5, 0x2000},
 			wants: []wantFcntlJSONPayloadSection{
 				{"in", fcntlFlockPayloadSize, bytes.Repeat([]byte{0x22}, fcntlFlockPayloadSize)},
 				{"out", fcntlFlockPayloadSize, bytes.Repeat([]byte{0x33}, fcntlFlockPayloadSize)},
 			},
 		},
 		{
-			name: "F_GETOWN_EX exit owner",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeExit,
-				Args:          [6]uint64{3, 16, 0x3000},
-				Ret:           0,
-				ProbeRetEnter: 0,
-				ProbeRetExit:  0,
-			},
+			name:      "F_GETOWN_EX exit owner",
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{3, 16, 0x3000},
 			wants: []wantFcntlJSONPayloadSection{
 				{"in", fcntlSmallPayloadSize, bytes.Repeat([]byte{0x44}, fcntlSmallPayloadSize)},
 				{"out", fcntlSmallPayloadSize, bytes.Repeat([]byte{0x55}, fcntlSmallPayloadSize)},
 			},
 		},
 		{
-			name: "F_GETFD has no pointer payload",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeExit,
-				Args:          [6]uint64{3, 1, 0},
-				Ret:           1,
-				ProbeRetEnter: 0,
-				ProbeRetExit:  0,
-			},
+			name:      "F_GETFD has no pointer payload",
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{3, 1, 0},
+			ret:       1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eventRaw := tt.eventRaw
-			putFcntlJSONPayloads(t, &eventRaw, tt.wants)
-			scMeta := meta.Syscall{Name: "fcntl"}
-			ev := newJSONSyscallEvent(&eventRaw, scMeta, payloadSectionsForEvent(&eventRaw, scMeta))
-			assertFcntlJSONPayloadSections(t, ev.PayloadSections, tt.wants, eventRaw.Args[2])
+			payload := payloadTLVBytesForTest(t, fcntlJSONTLVSections(tt.args[2], tt.wants)...)
+			ev := newJSONSyscallEventFromTLVForTest(t, "fcntl", tt.eventType, tt.args, tt.ret, payload)
+			assertFcntlJSONPayloadSections(t, ev.PayloadSections, tt.wants, tt.args[2])
 		})
 	}
 }
@@ -84,14 +65,6 @@ type wantFcntlJSONPayloadSection struct {
 	direction string
 	size      uint32
 	data      []byte
-}
-
-func putFcntlJSONPayloads(t *testing.T, eventRaw *bpfEvent, wants []wantFcntlJSONPayloadSection) {
-	t.Helper()
-	if len(wants) == 0 {
-		return
-	}
-	setJSONTestTLVPayload(t, eventRaw, fcntlJSONTLVSections(eventRaw.Args[2], wants)...)
 }
 
 func fcntlJSONTLVSections(userPtr uint64, wants []wantFcntlJSONPayloadSection) []payloadTLVTestSection {

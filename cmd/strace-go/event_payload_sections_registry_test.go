@@ -10,14 +10,7 @@ import (
 
 func TestPayloadSectionsForEventUsesRawTLVStructSection(t *testing.T) {
 	wantData := bytes.Repeat([]byte{0x42}, statPayloadStructSize)
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{0x1000, 0x2000},
-		Ret:           0,
-		ProbeRetExit:  0,
-		ProbeRetEnter: -1,
-	}
-	setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindStruct,
 		flags:   payloadTLVFlagDirectionOut,
 		arg:     1,
@@ -25,8 +18,18 @@ func TestPayloadSectionsForEventUsesRawTLVStructSection(t *testing.T) {
 		userLen: uint32(len(wantData)),
 		data:    wantData,
 	})
+	raw := rawPayloadEvent{
+		valid:         true,
+		eventType:     bpfEventTypeExit,
+		eventFlags:    bpfEventFlagPayloadTLV,
+		args:          [6]uint64{0x1000, 0x2000},
+		ret:           0,
+		probeRetExit:  0,
+		probeRetEnter: -1,
+		data:          payload,
+	}
 
-	sections := payloadSectionsForEvent(eventRaw, meta.Syscall{Name: "stat"})
+	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "stat"})
 	if len(sections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(sections))
 	}
@@ -41,20 +44,23 @@ func TestPayloadSectionsForEventUsesRawTLVStructSection(t *testing.T) {
 
 func TestPayloadSectionsForEventUsesRawTLVStringSection(t *testing.T) {
 	wantData := []byte("/tmp/a\x00")
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{0x1000},
-		ProbeRetEnter: 0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindString,
 		arg:     0,
 		userPtr: 0x1000,
 		userLen: uint32(len(wantData)),
 		data:    wantData,
 	})
+	raw := rawPayloadEvent{
+		valid:         true,
+		eventType:     bpfEventTypeEnter,
+		eventFlags:    bpfEventFlagPayloadTLV,
+		args:          [6]uint64{0x1000},
+		probeRetEnter: 0,
+		data:          payload,
+	}
 
-	sections := payloadSectionsForEvent(eventRaw, meta.Syscall{Name: "chdir"})
+	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "chdir"})
 	if len(sections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(sections))
 	}

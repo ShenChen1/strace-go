@@ -3,22 +3,17 @@ package main
 import (
 	"bytes"
 	"testing"
-
-	"strace-go/pkg/meta"
 )
+
+const openat2HowPayloadMax = 64
 
 func TestJSONSyscallEventIncludesOpenat2PayloadSections(t *testing.T) {
 	pathData := []byte("file\x00")
 	howData := bytes.Repeat([]byte{0x7a}, openat2HowPayloadMax)
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{^uint64(99), 0x1000, 0x2000, openat2HowPayloadMax},
-		ProbeRetEnter: 0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, openat2JSONTLVSections(pathData, howData)...)
+	args := [6]uint64{^uint64(99), 0x1000, 0x2000, openat2HowPayloadMax}
+	payload := payloadTLVBytesForTest(t, openat2JSONTLVSections(pathData, howData)...)
 
-	scMeta := meta.Syscall{Name: "openat2"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "openat2", bpfEventTypeEnter, args, 0, payload)
 	if len(ev.PayloadSections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(ev.PayloadSections))
 	}

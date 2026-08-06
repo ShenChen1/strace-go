@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
 )
 
 type wantTimeJSONPayloadSection struct {
@@ -19,36 +18,30 @@ type wantTimeJSONPayloadSection struct {
 
 func TestJSONSyscallEventIncludesClockTimePayloadSections(t *testing.T) {
 	tests := []struct {
-		name     string
-		eventRaw bpfEvent
-		want     wantTimeJSONPayloadSection
+		name      string
+		eventType uint16
+		args      [6]uint64
+		ret       int64
+		want      wantTimeJSONPayloadSection
 	}{
 		{
-			name: "clock_settime",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeEnter,
-				Args:          [6]uint64{0, 0x1000},
-				ProbeRetEnter: 0,
-			},
-			want: wantTimeJSONPayloadSection{"struct", "in", 1, 0x1000, 16, timeJSONStruct(1, 2)},
+			name:      "clock_settime",
+			eventType: bpfEventTypeEnter,
+			args:      [6]uint64{0, 0x1000},
+			want:      wantTimeJSONPayloadSection{"struct", "in", 1, 0x1000, 16, timeJSONStruct(1, 2)},
 		},
 		{
-			name: "clock_gettime",
-			eventRaw: bpfEvent{
-				EventType:    bpfEventTypeExit,
-				Args:         [6]uint64{0, 0x2000},
-				Ret:          0,
-				ProbeRetExit: 0,
-			},
-			want: wantTimeJSONPayloadSection{"struct", "out", 1, 0x2000, 16, timeJSONStruct(1, 2)},
+			name:      "clock_gettime",
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{0, 0x2000},
+			want:      wantTimeJSONPayloadSection{"struct", "out", 1, 0x2000, 16, timeJSONStruct(1, 2)},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eventRaw := tt.eventRaw
-			putTimeJSONPayloads(t, &eventRaw, []wantTimeJSONPayloadSection{tt.want})
-			ev := timeJSONSyscallEvent(&eventRaw, tt.name)
+			payload := payloadTLVBytesForTest(t, timeJSONTLVSections(t, []wantTimeJSONPayloadSection{tt.want})...)
+			ev := timeJSONSyscallEvent(t, tt.name, tt.eventType, tt.args, tt.ret, payload)
 			if len(ev.PayloadSections) != 1 {
 				t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 			}
@@ -59,30 +52,25 @@ func TestJSONSyscallEventIncludesClockTimePayloadSections(t *testing.T) {
 
 func TestJSONSyscallEventIncludesGetSettimeofdayPayloadSections(t *testing.T) {
 	tests := []struct {
-		name     string
-		eventRaw bpfEvent
-		wants    []wantTimeJSONPayloadSection
+		name      string
+		eventType uint16
+		args      [6]uint64
+		ret       int64
+		wants     []wantTimeJSONPayloadSection
 	}{
 		{
-			name: "gettimeofday",
-			eventRaw: bpfEvent{
-				EventType:    bpfEventTypeExit,
-				Args:         [6]uint64{0x1000, 0x2000},
-				Ret:          0,
-				ProbeRetExit: 0,
-			},
+			name:      "gettimeofday",
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{0x1000, 0x2000},
 			wants: []wantTimeJSONPayloadSection{
 				{"struct", "out", 0, 0x1000, 16, timeJSONStruct(3, 4)},
 				{"struct", "out", 1, 0x2000, 8, timeJSONTimezone(5, 6)},
 			},
 		},
 		{
-			name: "settimeofday",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeEnter,
-				Args:          [6]uint64{0x3000, 0x4000},
-				ProbeRetEnter: 0,
-			},
+			name:      "settimeofday",
+			eventType: bpfEventTypeEnter,
+			args:      [6]uint64{0x3000, 0x4000},
 			wants: []wantTimeJSONPayloadSection{
 				{"struct", "in", 0, 0x3000, 16, timeJSONStruct(3, 4)},
 				{"struct", "in", 1, 0x4000, 8, timeJSONTimezone(5, 6)},
@@ -92,9 +80,8 @@ func TestJSONSyscallEventIncludesGetSettimeofdayPayloadSections(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eventRaw := tt.eventRaw
-			putTimeJSONPayloads(t, &eventRaw, tt.wants)
-			ev := timeJSONSyscallEvent(&eventRaw, tt.name)
+			payload := payloadTLVBytesForTest(t, timeJSONTLVSections(t, tt.wants)...)
+			ev := timeJSONSyscallEvent(t, tt.name, tt.eventType, tt.args, tt.ret, payload)
 			assertTimeJSONPayloadSections(t, ev.PayloadSections, tt.wants)
 		})
 	}
@@ -102,33 +89,26 @@ func TestJSONSyscallEventIncludesGetSettimeofdayPayloadSections(t *testing.T) {
 
 func TestJSONSyscallEventIncludesSleepAndTimexPayloadSections(t *testing.T) {
 	tests := []struct {
-		name     string
-		eventRaw bpfEvent
-		wants    []wantTimeJSONPayloadSection
+		name      string
+		eventType uint16
+		args      [6]uint64
+		ret       int64
+		wants     []wantTimeJSONPayloadSection
 	}{
 		{
-			name: "nanosleep",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeExit,
-				Args:          [6]uint64{0x1000, 0x2000},
-				Ret:           -4,
-				ProbeRetEnter: 0,
-				ProbeRetExit:  0,
-			},
+			name:      "nanosleep",
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{0x1000, 0x2000},
+			ret:       -4,
 			wants: []wantTimeJSONPayloadSection{
 				{"struct", "in", 0, 0x1000, 16, timeJSONStruct(7, 8)},
 				{"struct", "out", 1, 0x2000, 16, timeJSONStruct(9, 10)},
 			},
 		},
 		{
-			name: "adjtimex",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeExit,
-				Args:          [6]uint64{0x3000},
-				Ret:           0,
-				ProbeRetEnter: 0,
-				ProbeRetExit:  0,
-			},
+			name:      "adjtimex",
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{0x3000},
 			wants: []wantTimeJSONPayloadSection{
 				{"struct", "in", 0, 0x3000, 208, timeJSONTimex(11)},
 				{"struct", "out", 0, 0x3000, 208, timeJSONTimex(12)},
@@ -138,9 +118,8 @@ func TestJSONSyscallEventIncludesSleepAndTimexPayloadSections(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eventRaw := tt.eventRaw
-			putTimeJSONPayloads(t, &eventRaw, tt.wants)
-			ev := timeJSONSyscallEvent(&eventRaw, tt.name)
+			payload := payloadTLVBytesForTest(t, timeJSONTLVSections(t, tt.wants)...)
+			ev := timeJSONSyscallEvent(t, tt.name, tt.eventType, tt.args, tt.ret, payload)
 			assertTimeJSONPayloadSections(t, ev.PayloadSections, tt.wants)
 		})
 	}
@@ -148,31 +127,24 @@ func TestJSONSyscallEventIncludesSleepAndTimexPayloadSections(t *testing.T) {
 
 func TestJSONSyscallEventIncludesItimerPayloadSections(t *testing.T) {
 	tests := []struct {
-		name     string
-		eventRaw bpfEvent
-		wants    []wantTimeJSONPayloadSection
+		name      string
+		eventType uint16
+		args      [6]uint64
+		ret       int64
+		wants     []wantTimeJSONPayloadSection
 	}{
 		{
-			name: "getitimer",
-			eventRaw: bpfEvent{
-				EventType:    bpfEventTypeExit,
-				Args:         [6]uint64{0, 0x1000},
-				Ret:          0,
-				ProbeRetExit: 0,
-			},
+			name:      "getitimer",
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{0, 0x1000},
 			wants: []wantTimeJSONPayloadSection{
 				{"struct", "out", 1, 0x1000, 32, timeJSONItimerval(1, 2, 3, 4)},
 			},
 		},
 		{
-			name: "setitimer",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeExit,
-				Args:          [6]uint64{0, 0x2000, 0x3000},
-				Ret:           0,
-				ProbeRetEnter: 0,
-				ProbeRetExit:  0,
-			},
+			name:      "setitimer",
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{0, 0x2000, 0x3000},
 			wants: []wantTimeJSONPayloadSection{
 				{"struct", "in", 1, 0x2000, 32, timeJSONItimerval(5, 6, 7, 8)},
 				{"struct", "out", 2, 0x3000, 32, timeJSONItimerval(9, 10, 11, 12)},
@@ -182,9 +154,8 @@ func TestJSONSyscallEventIncludesItimerPayloadSections(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eventRaw := tt.eventRaw
-			putTimeJSONPayloads(t, &eventRaw, tt.wants)
-			ev := timeJSONSyscallEvent(&eventRaw, tt.name)
+			payload := payloadTLVBytesForTest(t, timeJSONTLVSections(t, tt.wants)...)
+			ev := timeJSONSyscallEvent(t, tt.name, tt.eventType, tt.args, tt.ret, payload)
 			assertTimeJSONPayloadSections(t, ev.PayloadSections, tt.wants)
 		})
 	}
@@ -192,41 +163,34 @@ func TestJSONSyscallEventIncludesItimerPayloadSections(t *testing.T) {
 
 func TestJSONSyscallEventIncludesFileTimePayloadSections(t *testing.T) {
 	tests := []struct {
-		name     string
-		eventRaw bpfEvent
-		wants    []wantTimeJSONPayloadSection
+		name      string
+		eventType uint16
+		args      [6]uint64
+		ret       int64
+		wants     []wantTimeJSONPayloadSection
 	}{
 		{
-			name: "utime",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeEnter,
-				Args:          [6]uint64{0x1000, 0x2000},
-				ProbeRetEnter: 0,
-			},
+			name:      "utime",
+			eventType: bpfEventTypeEnter,
+			args:      [6]uint64{0x1000, 0x2000},
 			wants: []wantTimeJSONPayloadSection{
 				{"string", "in", 0, 0x1000, 7, []byte("file-a\x00")},
 				{"struct", "in", 1, 0x2000, 16, timeJSONStruct(1, 2)},
 			},
 		},
 		{
-			name: "utimensat",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeEnter,
-				Args:          [6]uint64{^uint64(99), 0x3000, 0x4000},
-				ProbeRetEnter: 0,
-			},
+			name:      "utimensat",
+			eventType: bpfEventTypeEnter,
+			args:      [6]uint64{^uint64(99), 0x3000, 0x4000},
 			wants: []wantTimeJSONPayloadSection{
 				{"string", "in", 1, 0x3000, 7, []byte("file-b\x00")},
 				{"struct", "in", 2, 0x4000, 32, timeJSONItimerval(3, 4, 5, 6)},
 			},
 		},
 		{
-			name: "utimes",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeEnter,
-				Args:          [6]uint64{0x5000, 0},
-				ProbeRetEnter: 0,
-			},
+			name:      "utimes",
+			eventType: bpfEventTypeEnter,
+			args:      [6]uint64{0x5000, 0},
 			wants: []wantTimeJSONPayloadSection{
 				{"string", "in", 0, 0x5000, 8, []byte("no-time\x00")},
 			},
@@ -235,25 +199,23 @@ func TestJSONSyscallEventIncludesFileTimePayloadSections(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eventRaw := tt.eventRaw
-			putTimeJSONPayloads(t, &eventRaw, tt.wants)
-			ev := timeJSONSyscallEvent(&eventRaw, tt.name)
+			payload := payloadTLVBytesForTest(t, timeJSONTLVSections(t, tt.wants)...)
+			ev := timeJSONSyscallEvent(t, tt.name, tt.eventType, tt.args, tt.ret, payload)
 			assertTimeJSONPayloadSections(t, ev.PayloadSections, tt.wants)
 		})
 	}
 }
 
-func timeJSONSyscallEvent(eventRaw *bpfEvent, name string) jsonSyscallEvent {
-	scMeta := meta.Syscall{Name: name}
-	return newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
-}
-
-func putTimeJSONPayloads(t *testing.T, eventRaw *bpfEvent, wants []wantTimeJSONPayloadSection) {
+func timeJSONSyscallEvent(
+	t *testing.T,
+	name string,
+	eventType uint16,
+	args [6]uint64,
+	ret int64,
+	payload []byte,
+) jsonSyscallEvent {
 	t.Helper()
-	if len(wants) == 0 {
-		return
-	}
-	setJSONTestTLVPayload(t, eventRaw, timeJSONTLVSections(t, wants)...)
+	return newJSONSyscallEventFromTLVForTest(t, name, eventType, args, ret, payload)
 }
 
 func timeJSONTLVSections(t *testing.T, wants []wantTimeJSONPayloadSection) []payloadTLVTestSection {

@@ -4,67 +4,53 @@ import (
 	"bytes"
 	"encoding/binary"
 	"testing"
-
-	"strace-go/pkg/meta"
 )
+
+const prctlUint32PayloadSize = 4
 
 func TestJSONSyscallEventIncludesPrctlPayloadSections(t *testing.T) {
 	tests := []struct {
-		name     string
-		eventRaw bpfEvent
-		wants    []wantPrctlJSONPayloadSection
+		name      string
+		eventType uint16
+		args      [6]uint64
+		ret       int64
+		wants     []wantPrctlJSONPayloadSection
 	}{
 		{
-			name: "PR_SET_NAME",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeEnter,
-				Args:          [6]uint64{15, 0x1000},
-				ProbeRetEnter: 0,
-			},
+			name:      "PR_SET_NAME",
+			eventType: bpfEventTypeEnter,
+			args:      [6]uint64{15, 0x1000},
 			wants: []wantPrctlJSONPayloadSection{
 				{"string", "in", 0x1000, []byte("worker\x00")},
 			},
 		},
 		{
-			name: "PR_GET_NAME",
-			eventRaw: bpfEvent{
-				EventType:    bpfEventTypeExit,
-				Args:         [6]uint64{16, 0x2000},
-				Ret:          0,
-				ProbeRetExit: 0,
-			},
+			name:      "PR_GET_NAME",
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{16, 0x2000},
 			wants: []wantPrctlJSONPayloadSection{
 				{"string", "out", 0x2000, []byte("worker\x00")},
 			},
 		},
 		{
-			name: "PR_GET_CHILD_SUBREAPER",
-			eventRaw: bpfEvent{
-				EventType:    bpfEventTypeExit,
-				Args:         [6]uint64{37, 0x3000},
-				Ret:          0,
-				ProbeRetExit: 0,
-			},
+			name:      "PR_GET_CHILD_SUBREAPER",
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{37, 0x3000},
 			wants: []wantPrctlJSONPayloadSection{
 				{"struct", "out", 0x3000, prctlJSONUint32(1)},
 			},
 		},
 		{
-			name: "PR_SET_PDEATHSIG has no pointer payload",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeEnter,
-				Args:          [6]uint64{2, 15},
-				ProbeRetEnter: 0,
-			},
+			name:      "PR_SET_PDEATHSIG has no pointer payload",
+			eventType: bpfEventTypeEnter,
+			args:      [6]uint64{2, 15},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eventRaw := tt.eventRaw
-			putPrctlJSONPayloads(t, &eventRaw, tt.wants)
-			scMeta := meta.Syscall{Name: "prctl"}
-			ev := newJSONSyscallEvent(&eventRaw, scMeta, payloadSectionsForEvent(&eventRaw, scMeta))
+			payload := payloadTLVBytesForTest(t, prctlJSONTLVSections(tt.wants)...)
+			ev := newJSONSyscallEventFromTLVForTest(t, "prctl", tt.eventType, tt.args, tt.ret, payload)
 			assertPrctlJSONPayloadSections(t, ev.PayloadSections, tt.wants)
 		})
 	}
@@ -75,14 +61,6 @@ type wantPrctlJSONPayloadSection struct {
 	direction string
 	userPtr   uint64
 	data      []byte
-}
-
-func putPrctlJSONPayloads(t *testing.T, eventRaw *bpfEvent, wants []wantPrctlJSONPayloadSection) {
-	t.Helper()
-	if len(wants) == 0 {
-		return
-	}
-	setJSONTestTLVPayload(t, eventRaw, prctlJSONTLVSections(wants)...)
 }
 
 func prctlJSONTLVSections(wants []wantPrctlJSONPayloadSection) []payloadTLVTestSection {

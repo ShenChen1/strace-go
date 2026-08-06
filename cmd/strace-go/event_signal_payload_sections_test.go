@@ -3,51 +3,38 @@ package main
 import (
 	"bytes"
 	"testing"
-
-	"strace-go/pkg/meta"
 )
 
 func TestJSONSyscallEventIncludesSignalPayloadSections(t *testing.T) {
 	tests := []struct {
-		name     string
-		eventRaw bpfEvent
-		wants    []wantSignalJSONPayloadSection
+		name      string
+		eventType uint16
+		args      [6]uint64
+		ret       int64
+		wants     []wantSignalJSONPayloadSection
 	}{
 		{
-			name: "rt_sigprocmask",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeExit,
-				Args:          [6]uint64{0, 0x1000, 0x2000, 8},
-				Ret:           0,
-				ProbeRetEnter: 0,
-				ProbeRetExit:  0,
-			},
+			name:      "rt_sigprocmask",
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{0, 0x1000, 0x2000, 8},
 			wants: []wantSignalJSONPayloadSection{
 				{"struct", "in", 1, 0x1000, signalSigsetPayloadSize, bytes.Repeat([]byte{0x11}, signalSigsetPayloadSize)},
 				{"struct", "out", 2, 0x2000, signalSigsetPayloadSize, bytes.Repeat([]byte{0x22}, signalSigsetPayloadSize)},
 			},
 		},
 		{
-			name: "rt_sigaction",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeExit,
-				Args:          [6]uint64{2, 0x3000, 0x4000, 8},
-				Ret:           0,
-				ProbeRetEnter: 0,
-				ProbeRetExit:  0,
-			},
+			name:      "rt_sigaction",
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{2, 0x3000, 0x4000, 8},
 			wants: []wantSignalJSONPayloadSection{
 				{"struct", "in", 1, 0x3000, signalSigactionPayloadSize, bytes.Repeat([]byte{0x33}, signalSigactionPayloadSize)},
 				{"struct", "out", 2, 0x4000, signalSigactionPayloadSize, bytes.Repeat([]byte{0x44}, signalSigactionPayloadSize)},
 			},
 		},
 		{
-			name: "rt_sigsuspend",
-			eventRaw: bpfEvent{
-				EventType:     bpfEventTypeEnter,
-				Args:          [6]uint64{0x5000, 8},
-				ProbeRetEnter: 0,
-			},
+			name:      "rt_sigsuspend",
+			eventType: bpfEventTypeEnter,
+			args:      [6]uint64{0x5000, 8},
 			wants: []wantSignalJSONPayloadSection{
 				{"struct", "in", 0, 0x5000, signalSigsetPayloadSize, bytes.Repeat([]byte{0x55}, signalSigsetPayloadSize)},
 			},
@@ -56,10 +43,8 @@ func TestJSONSyscallEventIncludesSignalPayloadSections(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eventRaw := tt.eventRaw
-			putSignalJSONPayloads(t, &eventRaw, tt.wants)
-			scMeta := meta.Syscall{Name: tt.name}
-			ev := newJSONSyscallEvent(&eventRaw, scMeta, payloadSectionsForEvent(&eventRaw, scMeta))
+			payload := payloadTLVBytesForTest(t, signalJSONTLVSections(tt.wants)...)
+			ev := newJSONSyscallEventFromTLVForTest(t, tt.name, tt.eventType, tt.args, tt.ret, payload)
 			assertSignalJSONPayloadSections(t, ev.PayloadSections, tt.wants)
 		})
 	}
@@ -72,14 +57,6 @@ type wantSignalJSONPayloadSection struct {
 	userPtr   uint64
 	userLen   uint32
 	data      []byte
-}
-
-func putSignalJSONPayloads(t *testing.T, eventRaw *bpfEvent, wants []wantSignalJSONPayloadSection) {
-	t.Helper()
-	if len(wants) == 0 {
-		return
-	}
-	setJSONTestTLVPayload(t, eventRaw, signalJSONTLVSections(wants)...)
 }
 
 func signalJSONTLVSections(wants []wantSignalJSONPayloadSection) []payloadTLVTestSection {

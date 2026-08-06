@@ -5,8 +5,9 @@ import (
 	"testing"
 
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
 )
+
+const socklenPayloadSize = 4
 
 func jsonSockaddrInet(port uint16, ip [4]byte) []byte {
 	data := make([]byte, 16)
@@ -37,15 +38,10 @@ func TestJSONSyscallEventIncludesConnectSockaddrSection(t *testing.T) {
 			data:      sockaddr,
 		},
 	}
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{3, 0x4000, 16},
-		ProbeRetEnter: 0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, networkJSONTLVSections(t, want)...)
+	args := [6]uint64{3, 0x4000, 16}
+	payload := payloadTLVBytesForTest(t, networkJSONTLVSections(t, want)...)
 
-	scMeta := meta.Syscall{Name: "connect"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "connect", bpfEventTypeEnter, args, 0, payload)
 	assertNetworkJSONPayloadSections(t, ev.PayloadSections, want)
 }
 
@@ -69,15 +65,10 @@ func TestJSONSyscallEventIncludesSendtoBufferAndSockaddrSections(t *testing.T) {
 			data:      sockaddr,
 		},
 	}
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{3, 0x2000, 3, 0, 0x4000, 16},
-		ProbeRetEnter: 0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, networkJSONTLVSections(t, want)...)
+	args := [6]uint64{3, 0x2000, 3, 0, 0x4000, 16}
+	payload := payloadTLVBytesForTest(t, networkJSONTLVSections(t, want)...)
 
-	scMeta := meta.Syscall{Name: "sendto"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "sendto", bpfEventTypeEnter, args, 0, payload)
 	assertNetworkJSONPayloadSections(t, ev.PayloadSections, want)
 }
 
@@ -119,17 +110,10 @@ func TestJSONSyscallEventIncludesRecvfromBufferSockaddrAndLenSections(t *testing
 			data:      outLen,
 		},
 	}
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{3, 0x2000, 5, 0, 0x4000, 0x5000},
-		Ret:           3,
-		ProbeRetEnter: 0,
-		ProbeRetExit:  0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, networkJSONTLVSections(t, want)...)
+	args := [6]uint64{3, 0x2000, 5, 0, 0x4000, 0x5000}
+	payload := payloadTLVBytesForTest(t, networkJSONTLVSections(t, want)...)
 
-	scMeta := meta.Syscall{Name: "recvfrom"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "recvfrom", bpfEventTypeExit, args, 3, payload)
 	assertNetworkJSONPayloadSections(t, ev.PayloadSections, want)
 }
 
@@ -163,17 +147,10 @@ func TestJSONSyscallEventIncludesAcceptSockaddrAndLenSections(t *testing.T) {
 			data:      outLen,
 		},
 	}
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{3, 0x4000, 0x5000},
-		Ret:           4,
-		ProbeRetEnter: 0,
-		ProbeRetExit:  0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, networkJSONTLVSections(t, want)...)
+	args := [6]uint64{3, 0x4000, 0x5000}
+	payload := payloadTLVBytesForTest(t, networkJSONTLVSections(t, want)...)
 
-	scMeta := meta.Syscall{Name: "accept"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "accept", bpfEventTypeExit, args, 4, payload)
 	assertNetworkJSONPayloadSections(t, ev.PayloadSections, want)
 }
 

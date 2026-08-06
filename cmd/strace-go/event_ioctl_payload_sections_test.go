@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"testing"
-
-	"strace-go/pkg/meta"
 )
 
 func TestJSONSyscallEventIncludesIoctlEnterPayloadSection(t *testing.T) {
@@ -12,14 +10,9 @@ func TestJSONSyscallEventIncludesIoctlEnterPayloadSection(t *testing.T) {
 	payloadSections := ioctlJSONTLVSections(0x1000, []wantIoctlJSONPayloadSection{
 		{direction: "in", userLen: uint32(len(wantData)), data: wantData},
 	})
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{3, ioctlTestCmdSize(len(wantData)), 0x1000},
-		ProbeRetEnter: 0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, payloadSections...)
+	args := [6]uint64{3, ioctlTestCmdSize(len(wantData)), 0x1000}
 
-	sections := ioctlJSONPayloadSections(t, eventRaw)
+	sections := ioctlJSONPayloadSections(t, bpfEventTypeEnter, args, 0, payloadSections)
 	if len(sections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(sections))
 	}
@@ -33,16 +26,9 @@ func TestJSONSyscallEventIncludesIoctlExitPayloadSection(t *testing.T) {
 		{direction: "in", userLen: uint32(len(inData)), data: inData},
 		{direction: "out", userLen: uint32(len(outData)), data: outData},
 	})
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{3, ioctlTestCmdSize(len(inData)), 0x1000},
-		Ret:           0,
-		ProbeRetEnter: 0,
-		ProbeRetExit:  0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, payloadSections...)
+	args := [6]uint64{3, ioctlTestCmdSize(len(inData)), 0x1000}
 
-	sections := ioctlJSONPayloadSections(t, eventRaw)
+	sections := ioctlJSONPayloadSections(t, bpfEventTypeExit, args, 0, payloadSections)
 	if len(sections) != 2 {
 		t.Fatalf("PayloadSections = %d, want 2", len(sections))
 	}
@@ -55,14 +41,9 @@ func TestJSONSyscallEventIncludesIoctlZeroSizePayloadSection(t *testing.T) {
 	payloadSections := ioctlJSONTLVSections(0x1000, []wantIoctlJSONPayloadSection{
 		{direction: "in", userLen: ioctlArgZeroPayloadLen, data: wantData},
 	})
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeEnter,
-		Args:          [6]uint64{3, 0, 0x1000},
-		ProbeRetEnter: 0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, payloadSections...)
+	args := [6]uint64{3, 0, 0x1000}
 
-	sections := ioctlJSONPayloadSections(t, eventRaw)
+	sections := ioctlJSONPayloadSections(t, bpfEventTypeEnter, args, 0, payloadSections)
 	if len(sections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(sections))
 	}
@@ -72,10 +53,16 @@ func TestJSONSyscallEventIncludesIoctlZeroSizePayloadSection(t *testing.T) {
 	assertIoctlJSONSection(t, sections[0], "in", 0x1000, ioctlArgZeroPayloadLen, wantData)
 }
 
-func ioctlJSONPayloadSections(t *testing.T, eventRaw *bpfEvent) []jsonPayloadSection {
+func ioctlJSONPayloadSections(
+	t *testing.T,
+	eventType uint16,
+	args [6]uint64,
+	ret int64,
+	sections []payloadTLVTestSection,
+) []jsonPayloadSection {
 	t.Helper()
-	scMeta := meta.Syscall{Name: "ioctl"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	payload := payloadTLVBytesForTest(t, sections...)
+	ev := newJSONSyscallEventFromTLVForTest(t, "ioctl", eventType, args, ret, payload)
 	return ev.PayloadSections
 }
 

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
 )
 
 type wantSelectJSONPayloadSection struct {
@@ -26,18 +25,10 @@ func TestJSONSyscallEventIncludesSelectPayloadSections(t *testing.T) {
 		{"bytes", "out", 2, 0x2000, 1, selectJSONFdSetData(6)[:1]},
 		{"struct", "out", 4, 0x3000, 16, selectJSONTimeval(1, 2)},
 	}
-	payloadSections := selectJSONTLVSections(t, want)
-	eventRaw := &bpfEvent{
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{8, 0x1000, 0x2000, 0, 0x3000},
-		Ret:           1,
-		ProbeRetEnter: 0,
-		ProbeRetExit:  0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, payloadSections...)
+	args := [6]uint64{8, 0x1000, 0x2000, 0, 0x3000}
+	payload := payloadTLVBytesForTest(t, selectJSONTLVSections(t, want)...)
 
-	scMeta := meta.Syscall{Name: "select"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "select", bpfEventTypeExit, args, 1, payload)
 	if len(ev.PayloadSections) != len(want) {
 		t.Fatalf("PayloadSections = %d, want %d", len(ev.PayloadSections), len(want))
 	}
