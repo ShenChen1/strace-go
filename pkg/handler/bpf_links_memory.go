@@ -2,23 +2,34 @@ package handler
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"strings"
 )
 
 const (
-	bpfLinkArrayReadLimit  = 16
-	bpfLinkSymbolReadLimit = 38
-	bpfLinkStreamReadLimit = 512
+	bpfLinkArrayReadLimit          = 16
+	bpfLinkSymbolReadLimit         = 38
+	bpfLinkStreamReadLimit         = 512
+	bpfLinkIterInfoPayloadArg      = 107
+	bpfLinkKprobeSymsPayloadArg    = 108
+	bpfLinkKprobeAddrsPayloadArg   = 109
+	bpfLinkKprobeCookiesPayloadArg = 110
+	bpfLinkStreamBufPayloadArg     = 111
+	bpfLinkKprobeSymDataSize       = 40
+	bpfLinkKprobeSymRecordSize     = 8 + 4 + bpfLinkKprobeSymDataSize
 )
 
 // decodeSymsArray decodes the syms pointer array.
-func decodeSymsArray(_ *Context, addr uint64, count uint32) string {
+func decodeSymsArray(ctx *Context, addr uint64, count uint32) string {
 	if addr == 0 {
 		return "syms=NULL"
 	}
 	if count == 0 {
 		return "syms=[]"
+	}
+	if data, ok := bpfNestedBytesPayload(ctx, bpfLinkKprobeSymsPayloadArg, addr, saturatingU32Product(count, bpfLinkKprobeSymRecordSize)); ok {
+		return formatBpfKprobeSymsPayload(ctx, addr, count, data)
 	}
 	return fmt.Sprintf("syms=%#x", addr)
 }
@@ -59,12 +70,17 @@ func formatBpfSymbolString(ctx *Context, strBuf []byte) string {
 }
 
 // decodeU64Array decodes a 64-bit integer pointer array.
-func decodeU64Array(_ *Context, name string, addr uint64, count uint32) string {
+func decodeU64Array(ctx *Context, name string, addr uint64, count uint32) string {
 	if addr == 0 {
 		return name + "=NULL"
 	}
 	if count == 0 {
 		return name + "=[]"
+	}
+	if argIndex, ok := bpfLinkKprobeU64PayloadArg(name); ok {
+		if data, ok := bpfNestedBytesPayload(ctx, argIndex, addr, saturatingU32Product(count, 8)); ok {
+			return formatBpfKprobeU64ArrayPayload(name, addr, count, data)
+		}
 	}
 	return fmt.Sprintf("%s=%#x", name, addr)
 }
@@ -79,15 +95,98 @@ func formatBpfU64ArrayValue(val uint64) string {
 	return fmt.Sprintf("%#x", val)
 }
 
+func formatBpfKprobeSymsPayload(ctx *Context, addr uint64, count uint32, data []byte) string {
+	available := len(data) / bpfLinkKprobeSymRecordSize
+	if available > int(count) {
+		available = int(count)
+	}
+	elements := make([]string, 0, available+1)
+	for i := 0; i < available; i++ {
+		elements = append(elements, formatBpfKprobeSymRecord(ctx, data[i*bpfLinkKprobeSymRecordSize:]))
+	}
+	if count > uint32(available) {
+		elements = append(elements, fmt.Sprintf("... /* %#x */", addr+uint64(available*8)))
+	}
+	return "syms=[" + strings.Join(elements, ", ") + "]"
+}
+
+func formatBpfKprobeSymRecord(ctx *Context, record []byte) string {
+	ptr := binary.LittleEndian.Uint64(record[0:8])
+	if ptr == 0 {
+		return "NULL"
+	}
+	readLen := int32(binary.LittleEndian.Uint32(record[8:12]))
+	if readLen <= 0 {
+		return decodeBpfSymbolPtr(ctx, ptr)
+	}
+	data := record[12 : 12+bpfLinkKprobeSymDataSize]
+	if int(readLen) < len(data) {
+		data = data[:readLen]
+	}
+	return formatBpfSymbolString(ctx, data)
+}
+
+func bpfLinkKprobeU64PayloadArg(name string) (int, bool) {
+	switch name {
+	case "addrs":
+		return bpfLinkKprobeAddrsPayloadArg, true
+	case "cookies":
+		return bpfLinkKprobeCookiesPayloadArg, true
+	default:
+		return 0, false
+	}
+}
+
+func formatBpfKprobeU64ArrayPayload(name string, addr uint64, count uint32, data []byte) string {
+	available := len(data) / 8
+	if available > int(count) {
+		available = int(count)
+	}
+	elements := make([]string, 0, available+1)
+	for i := 0; i < available; i++ {
+		elements = append(elements, formatBpfU64ArrayValue(binary.LittleEndian.Uint64(data[i*8:i*8+8])))
+	}
+	if count > uint32(available) {
+		elements = append(elements, fmt.Sprintf("... /* %#x */", addr+uint64(available*8)))
+	}
+	return name + "=[" + strings.Join(elements, ", ") + "]"
+}
+
+func saturatingU32Product(count uint32, elemSize uint32) uint32 {
+	if elemSize != 0 && count > ^uint32(0)/elemSize {
+		return ^uint32(0)
+	}
+	return count * elemSize
+}
+
 // decodeBpfIterInfo resolves iter_info pointer to symbolic map_fd list.
-func decodeBpfIterInfo(_ *Context, addr uint64, count uint32) string {
+func decodeBpfIterInfo(ctx *Context, addr uint64, count uint32) string {
 	if addr == 0 {
 		return "iter_info=NULL"
 	}
 	if count == 0 {
 		return "iter_info=[]"
 	}
+	if data, ok := bpfNestedBytesPayload(ctx, bpfLinkIterInfoPayloadArg, addr, count*4); ok {
+		return formatBpfIterInfoPayload(addr, count, data)
+	}
 	return fmt.Sprintf("iter_info=%#x", addr)
+}
+
+func formatBpfIterInfoPayload(addr uint64, count uint32, data []byte) string {
+	available := len(data) / 4
+	if available > int(count) {
+		available = int(count)
+	}
+	elements := make([]string, 0, available+1)
+	for i := 0; i < available; i++ {
+		fd := int32(binary.LittleEndian.Uint32(data[i*4 : i*4+4]))
+		elements = append(elements, fmt.Sprintf("{map={map_fd=%d}}", fd))
+	}
+	if count > uint32(available) {
+		elements = append(elements, fmt.Sprintf("... /* %#x */", addr+uint64(available*4)))
+	}
+	return "iter_info=[" + strings.Join(elements, ", ") + "]"
 }
 
 func formatSyntheticBpfIterInfo(addr uint64, count uint32) string {
@@ -105,13 +204,16 @@ func formatSyntheticBpfIterInfo(addr uint64, count uint32) string {
 	return res + "]"
 }
 
-// decodeStreamBuf decodes the stream buffer string from process memory.
-func decodeStreamBuf(_ *Context, addr uint64, length uint32) string {
+// decodeStreamBuf decodes the stream buffer string from BPF payload sections.
+func decodeStreamBuf(ctx *Context, addr uint64, length uint32) string {
 	if addr == 0 {
 		return "NULL"
 	}
 	if length == 0 {
 		return `""`
+	}
+	if data, ok := bpfNestedBytesPayload(ctx, bpfLinkStreamBufPayloadArg, addr, length); ok {
+		return formatBpfStreamBuf(data)
 	}
 	return fmt.Sprintf("%#x", addr)
 }

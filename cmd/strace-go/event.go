@@ -36,6 +36,9 @@ func (s *traceSession) handleEnvelope(envelope traceEventEnvelope) {
 		))
 		return
 	}
+	if stateUpdate.kind == traceStateSyscallFragment {
+		return
+	}
 	ev := newSyscallEventContextFromView(
 		s,
 		stateUpdate.syscallView,

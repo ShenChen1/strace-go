@@ -18,12 +18,11 @@ func TestSyscallEventContextMergesMountTLVSections(t *testing.T) {
 	enterPayload = append(enterPayload, fsDirectTLVString(t, 1, args[1], targetData)...)
 	enterPayload = append(enterPayload, fsDirectTLVString(t, 2, args[2], typeData)...)
 	enterPayload = append(enterPayload, fsDirectTLVString(t, 4, args[4], dataData)...)
-	enterRaw := miscStructTLVEvent(t, "mount", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "mount", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, "mount", bpfEventTypeExit, args, -1, nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "mount", bpfEventTypeExit, args, -1, nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
@@ -42,12 +41,11 @@ func TestSyscallEventContextMergesUmountTLVSection(t *testing.T) {
 	args := [6]uint64{0x1000, 0}
 	targetData := []byte("/mnt\x00")
 	enterPayload := fsDirectTLVString(t, 0, args[0], targetData)
-	enterRaw := miscStructTLVEvent(t, "umount2", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "umount2", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, "umount2", bpfEventTypeExit, args, -1, nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "umount2", bpfEventTypeExit, args, -1, nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
@@ -65,12 +63,11 @@ func TestSyscallEventContextMergesFsconfigStringTLVSections(t *testing.T) {
 	valueData := []byte("value\x00")
 	enterPayload := fsDirectTLVString(t, 2, args[2], keyData)
 	enterPayload = append(enterPayload, fsDirectTLVString(t, 3, args[3], valueData)...)
-	enterRaw := miscStructTLVEvent(t, "fsconfig", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "fsconfig", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, "fsconfig", bpfEventTypeExit, args, -1, nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "fsconfig", bpfEventTypeExit, args, -1, nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
@@ -89,12 +86,11 @@ func TestSyscallEventContextMergesFsconfigBinaryTLVSections(t *testing.T) {
 	valueData := []byte{1, 2, 3}
 	enterPayload := fsDirectTLVString(t, 2, args[2], keyData)
 	enterPayload = append(enterPayload, fsDirectTLVBytes(t, 3, args[3], valueData)...)
-	enterRaw := miscStructTLVEvent(t, "fsconfig", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "fsconfig", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, "fsconfig", bpfEventTypeExit, args, -1, nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "fsconfig", bpfEventTypeExit, args, -1, nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,

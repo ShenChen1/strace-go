@@ -103,7 +103,12 @@ static __always_inline u32 capture_path_only_tlv_direct(
                                 *(char *)last = last_byte;
                             }
                             copied_len = PATH_ONLY_DIRECT_PATH_MAX;
-                            record_payload_truncated_event();
+                            // IMPACT: a NUL right at the PATH_MAX boundary means
+                            // the path is exactly PATH_MAX-1 chars and complete;
+                            // only a non-NUL boundary byte proves truncation.
+                            if (last_byte != 0) {
+                                record_payload_truncated_event();
+                            }
                         }
                     }
                 }

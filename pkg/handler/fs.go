@@ -83,14 +83,12 @@ func (h *FsHandler) Handle(ctx *Context) Result {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int32(val)))
 				continue
 			}
-			if argName == "dirent" && ctx.Ret > 0 {
-				count := int(ctx.Ret)
-				data, ok := ctx.PayloadBytes(i, PayloadDirectionOut)
-				if !ok {
-					res.ArgParts = append(res.ArgParts, formatPointer(val))
-					continue
-				}
-				res.ArgParts = append(res.ArgParts, format.Dirents(data, count))
+			if argName == "dirent" {
+				res.ArgParts = append(res.ArgParts, formatGetdents64Dirent(ctx, i, val))
+				continue
+			}
+			if argName == "count" {
+				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", uint32(val)))
 				continue
 			}
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
@@ -223,6 +221,24 @@ func fsBytesArg(ctx *Context, argIndex int) ([]byte, bool) {
 		return data, true
 	}
 	return nil, false
+}
+
+func formatGetdents64Dirent(ctx *Context, argIndex int, ptr uint64) string {
+	if ptr == 0 {
+		return "NULL"
+	}
+	if ctx.Ret == 0 {
+		return fmt.Sprintf("%#x /* 0 entries */", ptr)
+	}
+	if ctx.Ret < 0 {
+		return formatPointer(ptr)
+	}
+	data, ok := ctx.PayloadBytes(argIndex, PayloadDirectionOut)
+	if !ok {
+		return formatPointer(ptr)
+	}
+	entries := format.Dirent64Count(data, int(ctx.Ret))
+	return fmt.Sprintf("%#x /* %d entries */", ptr, entries)
 }
 
 func formatPointer(val uint64) string {

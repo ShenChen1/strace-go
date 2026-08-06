@@ -56,14 +56,19 @@ static __always_inline u32 capture_bpf_attr_tlv_direct(
     return PAYLOAD_TLV_HEADER_SIZE + copied_len;
 }
 
-static __always_inline void emit_bpf_enter_event_v2_direct(
+#include "syscall_bpf_nested_direct_event_v2.h"
+
+static __noinline void emit_bpf_enter_event_v2_direct(
     u32 pid,
     u32 tid,
     u32 sys_id,
     struct trace_event_raw_sys_enter *ctx,
     u64 ts_ns)
 {
-    u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + BPF_DIRECT_ATTR_MAX;
+    u64 cmd = ctx->args[0];
+    u64 attr_ptr = ctx->args[1];
+    u64 attr_size = ctx->args[2];
+    u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + BPF_DIRECT_ATTR_MAX + BPF_DIRECT_NESTED_CAPACITY;
     u32 body_offset = EVENT_V2_HEADER_LEN;
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_ENTER_BODY_LEN;
     u32 out_size = payload_offset + payload_capacity;
@@ -76,7 +81,14 @@ static __always_inline void emit_bpf_enter_event_v2_direct(
     }
 
     u16 flags = EVENT_FLAG_GENERIC_ENTER;
-    u32 payload_size = capture_bpf_attr_tlv_direct(&ptr, payload_offset, ctx->args[1], ctx->args[2], &flags);
+    u32 payload_size = capture_bpf_attr_tlv_direct(&ptr, payload_offset, attr_ptr, attr_size, &flags);
+    payload_size += capture_bpf_nested_tlv_direct(
+        &ptr,
+        payload_offset + payload_size,
+        cmd,
+        attr_ptr,
+        attr_size,
+        &flags);
     if (payload_size > 0) {
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }

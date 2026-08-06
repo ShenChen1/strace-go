@@ -142,24 +142,3 @@ func miscStructTLVSession(syscallName string) *traceSession {
 		state:     newTraceState(),
 	}
 }
-
-func miscStructTLVEvent(
-	t *testing.T,
-	syscallName string,
-	eventType uint16,
-	args [6]uint64,
-	ret int64,
-	payload []byte,
-) *bpfEvent {
-	t.Helper()
-	eventRaw := &bpfEvent{
-		Pid:       101,
-		Tid:       101,
-		SysId:     syscallIDByName(t, syscallName),
-		EventType: eventType,
-		Args:      args,
-		Ret:       ret,
-	}
-	setTestTLVPayloadBytes(t, eventRaw, payload)
-	return eventRaw
-}

@@ -15,17 +15,16 @@ func TestSyscallEventContextMergesSelectDirectTLVSections(t *testing.T) {
 	enterExcept := []byte{0x20, 0x00}
 	enterTimeout := selectJSONTimeval(9, 10)
 	enterPayload := selectDirectTLVPayload(t, args, handler.PayloadDirectionIn, enterRead, enterWrite, enterExcept, enterTimeout)
-	enterRaw := miscStructTLVEvent(t, "select", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "select", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	exitRead := []byte{0x00, 0x01}
 	exitWrite := []byte{0x00, 0x02}
 	exitExcept := []byte{0x00, 0x04}
 	exitTimeout := selectJSONTimeval(1, 2)
 	exitPayload := selectDirectTLVPayload(t, args, handler.PayloadDirectionOut, exitRead, exitWrite, exitExcept, exitTimeout)
-	exitRaw := miscStructTLVEvent(t, "select", bpfEventTypeExit, args, 2, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "select", bpfEventTypeExit, args, 2, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,

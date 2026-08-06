@@ -18,9 +18,8 @@ func TestSyscallEventContextMergesIoctlDirectTLVSections(t *testing.T) {
 		userLen: uint32(len(enterData)),
 		data:    enterData,
 	})
-	enterRaw := miscStructTLVEvent(t, "ioctl", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "ioctl", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	exitData := bytes.Repeat([]byte{0x22}, 32)
 	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
@@ -31,8 +30,8 @@ func TestSyscallEventContextMergesIoctlDirectTLVSections(t *testing.T) {
 		userLen: uint32(len(exitData)),
 		data:    exitData,
 	})
-	exitRaw := miscStructTLVEvent(t, "ioctl", bpfEventTypeExit, args, 0, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "ioctl", bpfEventTypeExit, args, 0, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,

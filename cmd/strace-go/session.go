@@ -17,6 +17,7 @@ import (
 	"strace-go/pkg/meta"
 	"strace-go/pkg/stacktrace"
 
+	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
@@ -51,7 +52,9 @@ type traceSession struct {
 	exitCoordinatorCache  *ExitStatusCoordinator
 }
 
-// IMPACT: setupBPF loads the BPF objects and attaches the raw syscall raw tracepoints.
+// IMPACT: setupBPF is the single eBPF runtime wiring entry used by main. It loads
+// the spec, resolves syscall id variables, and delegates all tracepoint/kretprobe
+// attachment to bpfAttacher so session.go stays a session orchestrator.
 func setupBPF() (*bpfObjects, []link.Link) {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		log.Fatalf("failed to remove memlock: %v", err)
@@ -61,73 +64,63 @@ func setupBPF() (*bpfObjects, []link.Link) {
 	if err != nil {
 		log.Fatalf("failed to load BPF spec: %v", err)
 	}
-
-	sysNameToID := make(map[string]uint32)
-	for id, sc := range meta.SyscallTable {
-		sysNameToID[sc.Name] = id
+	if err := setSyscallVariables(spec); err != nil {
+		log.Fatalf("failed to resolve BPF syscall variables: %v", err)
 	}
-
-	getSysID := func(name string, fallback uint32) uint32 {
-		if id, ok := sysNameToID[name]; ok {
-			return id
-		}
-		return fallback
-	}
-
-	setVar := func(name string, val uint32) {
-		if v, ok := spec.Variables[name]; ok {
-			if err := v.Set(val); err != nil {
-				log.Fatalf("failed to set %s: %v", name, err)
-			}
-		} else {
-			log.Fatalf("variable %s not found in BPF spec", name)
-		}
-	}
-
-	setVar("SYS_RT_SIGRETURN", getSysID("rt_sigreturn", 15))
-	setVar("SYS_RT_SIGRETURN_COMPAT", getSysID("rt_sigreturn_compat", 173))
-	setVar("SYS_NANOSLEEP", getSysID("nanosleep", 35))
-	setVar("SYS_EXECVE", getSysID("execve", 59))
-	setVar("SYS_EXIT", getSysID("exit", 60))
-	setVar("SYS_CAPGET", getSysID("capget", 125))
-	setVar("SYS_CAPSET", getSysID("capset", 126))
-	setVar("SYS_RT_SIGSUSPEND", getSysID("rt_sigsuspend", 130))
-	setVar("SYS_EXIT_GROUP", getSysID("exit_group", 231))
-	setVar("SYS_EXECVEAT", getSysID("execveat", 322))
 
 	bpfObjs := &bpfObjects{}
 	if err := spec.LoadAndAssign(bpfObjs, nil); err != nil {
 		log.Fatalf("failed to load and assign BPF objects: %v", err)
 	}
-
-	var links []link.Link
-	tpEnter, err := link.Tracepoint("raw_syscalls", "sys_enter", bpfObjs.TraceSysEnter, nil)
-	if err != nil {
-		log.Fatalf("failed to attach sys_enter tracepoint: %v", err)
-	}
-	links = append(links, tpEnter)
-	tpExit, err := link.Tracepoint("raw_syscalls", "sys_exit", bpfObjs.TraceSysExit, nil)
-	if err != nil {
-		log.Fatalf("failed to attach sys_exit tracepoint: %v", err)
-	}
-	links = append(links, tpExit)
-	tpFork, err := link.Tracepoint("sched", "sched_process_fork", bpfObjs.TraceSchedProcessFork, nil)
-	if err == nil {
-		links = append(links, tpFork)
-	}
-	tpExec, err := link.Tracepoint("sched", "sched_process_exec", bpfObjs.TraceSchedProcessExec, nil)
-	if err == nil {
-		links = append(links, tpExec)
-	}
-	tpSchedExit, err := link.Tracepoint("sched", "sched_process_exit", bpfObjs.TraceSchedProcessExit, nil)
-	if err == nil {
-		links = append(links, tpSchedExit)
-	}
-	tpFree, err := link.Tracepoint("sched", "sched_process_free", bpfObjs.TraceSchedProcessFree, nil)
-	if err == nil {
-		links = append(links, tpFree)
-	}
+	links := newBpfAttacher(bpfObjs).attachAll()
 	return bpfObjs, links
+}
+
+// IMPACT: setSyscallVariables resolves strace-facing syscall ids referenced by
+// BPF constants from the generated SyscallTable. It returns an error instead of
+// aborting so unit tests can verify every BPF constant against the live table.
+func setSyscallVariables(spec *ebpf.CollectionSpec) error {
+	sysNameToID := make(map[string]uint32)
+	for id, sc := range meta.SyscallTable {
+		sysNameToID[sc.Name] = id
+	}
+
+	setVar := func(name string, val uint32) error {
+		if v, ok := spec.Variables[name]; ok {
+			if err := v.Set(val); err != nil {
+				return fmt.Errorf("set %s: %w", name, err)
+			}
+			return nil
+		}
+		return fmt.Errorf("variable %s not found in BPF spec", name)
+	}
+
+	syscalls := []struct {
+		varName  string
+		scName   string
+		fallback uint32
+	}{
+		{"SYS_RT_SIGRETURN", "rt_sigreturn", 15},
+		{"SYS_RT_SIGRETURN_COMPAT", "rt_sigreturn_compat", 173},
+		{"SYS_NANOSLEEP", "nanosleep", 35},
+		{"SYS_EXECVE", "execve", 59},
+		{"SYS_EXIT", "exit", 60},
+		{"SYS_CAPGET", "capget", 125},
+		{"SYS_CAPSET", "capset", 126},
+		{"SYS_RT_SIGSUSPEND", "rt_sigsuspend", 130},
+		{"SYS_EXIT_GROUP", "exit_group", 231},
+		{"SYS_EXECVEAT", "execveat", 322},
+	}
+	for _, sc := range syscalls {
+		id, ok := sysNameToID[sc.scName]
+		if !ok {
+			id = sc.fallback
+		}
+		if err := setVar(sc.varName, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func collectInheritedFiles() []*os.File {

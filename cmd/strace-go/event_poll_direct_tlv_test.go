@@ -47,9 +47,8 @@ func TestSyscallEventContextMergesPollDirectTLVSections(t *testing.T) {
 					data:    sigmask,
 				})...)
 			}
-			enterRaw := miscStructTLVEvent(t, tt.name, bpfEventTypeEnter, tt.args, 0, enterPayload)
-			enterRaw.EventFlags |= bpfEventFlagGenericEnter
-			session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+			enterEnvelope := testTLVSyscallEnvelope(t, tt.name, bpfEventTypeEnter, tt.args, 0, enterPayload)
+			session.traceState().handleEnvelope(enterEnvelope)
 
 			exitFds := append(pollDirectTestPollfdData(4, 0, 1), pollDirectTestPollfdData(5, 0, 4)...)
 			exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
@@ -70,8 +69,8 @@ func TestSyscallEventContextMergesPollDirectTLVSections(t *testing.T) {
 					data:    timeout,
 				})...)
 			}
-			exitRaw := miscStructTLVEvent(t, tt.name, bpfEventTypeExit, tt.args, 2, exitPayload)
-			exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+			exitEnvelope := testTLVSyscallEnvelope(t, tt.name, bpfEventTypeExit, tt.args, 2, exitPayload)
+			exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 			ev := newSyscallEventContextFromView(
 				session,
 				exitUpdate.syscallView,

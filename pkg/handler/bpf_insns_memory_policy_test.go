@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/binary"
 	"errors"
 	"testing"
 
@@ -35,6 +36,13 @@ func newBpfInsnsPolicyContext(reader *bpfInsnsPolicyMemoryReader, decoder *event
 
 func makeBpfExitInsn() []byte {
 	return []byte{0x95, 0, 0, 0, 0, 0, 0, 0}
+}
+
+func makeBpfVerboseExitInsn() []byte {
+	data := []byte{0x95, 0xba, 0, 0, 0, 0, 0, 0}
+	binary.LittleEndian.PutUint16(data[2:4], 0xdead)
+	binary.LittleEndian.PutUint32(data[4:8], 0xbadc0ded)
+	return data
 }
 
 func TestBpfInsnsNonVerboseDoesNotReadMemory(t *testing.T) {
@@ -77,6 +85,32 @@ func TestBpfInsnsDoesNotUseLegacyMemoryFallback(t *testing.T) {
 	got := decodeBpfInsns(ctx, 0x1000, 1)
 	if got != "insns=0x1000" {
 		t.Fatalf("decodeBpfInsns() = %q, want pointer fallback", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestBpfInsnsVerboseUsesNestedPayloadSection(t *testing.T) {
+	reader := &bpfInsnsPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfInsnsPolicyContext(reader, event.NewDecoder(), true)
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindBytes,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  bpfProgLoadInsnsPayloadArg,
+			UserPtr:   0x1000,
+			UserLen:   8,
+			CopiedLen: 8,
+			ProbeRet:  0,
+			Data:      makeBpfVerboseExitInsn(),
+		},
+	}
+
+	got := decodeBpfInsns(ctx, 0x1000, 1)
+	want := "insns=[{code=BPF_JMP|BPF_K|BPF_EXIT, dst_reg=BPF_REG_10, src_reg=0xb /* BPF_REG_??? */, off=-8531, imm=0xbadc0ded}]"
+	if got != want {
+		t.Fatalf("decodeBpfInsns() = %q, want %q", got, want)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)

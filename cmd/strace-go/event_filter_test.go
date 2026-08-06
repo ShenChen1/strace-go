@@ -94,12 +94,10 @@ func TestCheckShouldPrintFromViewUsesEventViewFDs(t *testing.T) {
 	opts.TraceFDs[5] = true
 	sc := meta.Syscall{Name: "dup", Args: []string{"fd"}}
 
-	raw := &bpfEvent{Args: [6]uint64{3}}
-	view := newSyscallEventViewFromBPF(raw)
-	view.args[0] = 5
+	view := syscallEventView{valid: true, args: [6]uint64{5}}
 
 	if !checkShouldPrintFromView(view, sc, "", false, 101, opts, nil) {
-		t.Fatal("dup(5) view should match --trace-fds=5 even when raw had fd 3")
+		t.Fatal("dup(5) view should match --trace-fds=5")
 	}
 }
 

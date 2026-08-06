@@ -195,6 +195,23 @@ func TestBpfGetNextIdUsesPayloadBytesSection(t *testing.T) {
 	}
 }
 
+func TestBpfGetNextIdUsesPartialPayloadBytesSection(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.Args = [6]uint64{11, 0x1000, 1}
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: []byte{0xef}},
+	}
+
+	got := (&BpfHandler{}).Handle(ctx)
+	if !strings.Contains(got.ArgParts[1], "start_id=239") || !strings.Contains(got.ArgParts[1], "next_id=0") {
+		t.Fatalf("BpfHandler.Handle() arg = %q, want partial start_id", got.ArgParts[1])
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestBpfGetFdByIdUsesPayloadBytesSection(t *testing.T) {
 	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
 	ctx := newBpfPolicyContext(reader, event.NewDecoder())

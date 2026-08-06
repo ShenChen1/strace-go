@@ -26,12 +26,11 @@ func TestSyscallEventContextMergesOpenat2DirectTLVSections(t *testing.T) {
 		userLen: uint32(len(howData)),
 		data:    howData,
 	})...)
-	enterRaw := miscStructTLVEvent(t, "openat2", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "openat2", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, "openat2", bpfEventTypeExit, args, -1, nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "openat2", bpfEventTypeExit, args, -1, nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,

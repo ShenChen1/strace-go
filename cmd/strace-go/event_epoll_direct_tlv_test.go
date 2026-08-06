@@ -19,9 +19,8 @@ func TestSyscallEventContextUsesEpollCtlDirectTLVSection(t *testing.T) {
 		userLen: uint32(len(eventData)),
 		data:    eventData,
 	})
-	enterRaw := miscStructTLVEvent(t, "epoll_ctl", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	enterUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "epoll_ctl", bpfEventTypeEnter, args, 0, enterPayload)
+	enterUpdate := session.traceState().handleEnvelope(enterEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		enterUpdate.syscallView,
@@ -50,8 +49,8 @@ func TestSyscallEventContextUsesEpollWaitDirectTLVSection(t *testing.T) {
 				userLen: uint32(len(events)),
 				data:    events,
 			})
-			exitRaw := miscStructTLVEvent(t, syscallName, bpfEventTypeExit, args, 2, exitPayload)
-			exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+			exitEnvelope := testTLVSyscallEnvelope(t, syscallName, bpfEventTypeExit, args, 2, exitPayload)
+			exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 			ev := newSyscallEventContextFromView(
 				session,
 				exitUpdate.syscallView,
@@ -78,9 +77,8 @@ func TestSyscallEventContextMergesEpollPwait2DirectTLVSections(t *testing.T) {
 		userLen: uint32(len(timeout)),
 		data:    timeout,
 	})
-	enterRaw := miscStructTLVEvent(t, "epoll_pwait2", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "epoll_pwait2", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	events := append(epollDirectTestEventData(1, 0x11), epollDirectTestEventData(4, 0x22)...)
 	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
@@ -91,8 +89,8 @@ func TestSyscallEventContextMergesEpollPwait2DirectTLVSections(t *testing.T) {
 		userLen: uint32(len(events)),
 		data:    events,
 	})
-	exitRaw := miscStructTLVEvent(t, "epoll_pwait2", bpfEventTypeExit, args, 2, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "epoll_pwait2", bpfEventTypeExit, args, 2, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,

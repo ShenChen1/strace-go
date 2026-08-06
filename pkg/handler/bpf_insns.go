@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/binary"
 	"fmt"
+	"strings"
 )
 
 // decodeBpfInsns decodes eBPF instruction array into readable symbolic output list.
@@ -17,7 +18,25 @@ func decodeBpfInsns(ctx *Context, insnsAddr uint64, cnt uint32) string {
 	if ctx.Opts == nil || !ctx.Opts.Verbose {
 		return fmt.Sprintf("insns=%#x", insnsAddr)
 	}
+	if data, ok := bpfNestedBytesPayload(ctx, bpfProgLoadInsnsPayloadArg, insnsAddr, saturatingU32Product(cnt, 8)); ok {
+		return formatBpfInsnPayload(insnsAddr, cnt, data)
+	}
 	return fmt.Sprintf("insns=%#x", insnsAddr)
+}
+
+func formatBpfInsnPayload(addr uint64, count uint32, data []byte) string {
+	available := len(data) / 8
+	if available > int(count) {
+		available = int(count)
+	}
+	elements := make([]string, 0, available+1)
+	for i := 0; i < available; i++ {
+		elements = append(elements, decodeSingleInsn(data[i*8:i*8+8]))
+	}
+	if count > uint32(available) {
+		elements = append(elements, fmt.Sprintf("... /* %#x */", addr+uint64(available*8)))
+	}
+	return "insns=[" + strings.Join(elements, ", ") + "]"
 }
 
 // decodeSingleInsn helper to unpack and decode a single eBPF instruction struct.

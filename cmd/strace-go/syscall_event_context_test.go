@@ -20,9 +20,17 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 		}, nil),
 	}
 	path := []byte("input.txt\x00")
-	eventRaw := tlvOpenatEvent(t, path)
-
-	ev := newSyscallEventContextFromBPF(session, eventRaw, 101, nil)
+	pathPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindString,
+		arg:     1,
+		userPtr: 0x1000,
+		userLen: uint32(len(path)),
+		data:    path,
+	})
+	args := [6]uint64{rawAtFdcwd, 0x1000, 0}
+	session.traceState().handleEnvelope(testTLVSyscallEnvelope(t, "openat", bpfEventTypeEnter, args, 0, pathPayload))
+	exitUpdate := session.traceState().handleEnvelope(testTLVSyscallEnvelope(t, "openat", bpfEventTypeExit, args, 3, nil))
+	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 
 	if ev.syscallName() != "openat" || !ev.shouldOutput() {
 		t.Fatalf("event context behavior = name:%s output:%v, want openat/true", ev.syscallName(), ev.shouldOutput())
@@ -137,15 +145,28 @@ func TestSyscallEventContextHandlerContextUsesEffectiveMetadata(t *testing.T) {
 		fdState:   newFDStateStoreFromMaps(nil, nil),
 	}
 	scMeta := meta.Syscall{Name: "pipe"}
-	raw := &bpfEvent{
-		Pid:          101,
-		Tid:          101,
-		EventType:    bpfEventTypeExit,
-		Ret:          0,
-		ProbeRetExit: 0,
+	fdData := fdArrayJSONData(21, 22)
+	ev := syscallEventContext{
+		view: syscallEventView{
+			valid:        true,
+			pid:          101,
+			tid:          101,
+			eventType:    bpfEventTypeExit,
+			ret:          0,
+			probeRetExit: 0,
+		},
+		statePID: 101,
+		meta:     scMeta,
+		payloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindStruct,
+			Direction: handler.PayloadDirectionOut,
+			ArgIndex:  0,
+			UserLen:   uint32(len(fdData)),
+			CopiedLen: uint32(len(fdData)),
+			ProbeRet:  0,
+			Data:      fdData,
+		}},
 	}
-	setFDArrayExitTLVPayload(t, raw, 0, 0, 21, 22)
-	ev := syscallEventContextFromRawForTest(raw, scMeta, 101)
 	ev.handlerContext = &handler.Context{ScMeta: scMeta}
 
 	ctx := ev.newHandlerContext(session)
@@ -186,11 +207,21 @@ func TestSyscallEnterEventContextUsesEventViewAndMetadata(t *testing.T) {
 }
 
 func TestSyscallEnterEventContextCachesPayloadSections(t *testing.T) {
-	raw := tlvOpenatEvent(t, []byte("enter-path\x00"))
-	raw.EventType = bpfEventTypeEnter
-	raw.EventFlags |= bpfEventFlagGenericEnter
-	raw.Ret = 0
-	update := newTraceState().handleEnvelope(newTraceEventEnvelopeFromBPF(raw))
+	pathPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindString,
+		arg:     1,
+		userPtr: 0x1000,
+		userLen: uint32(len([]byte("enter-path\x00"))),
+		data:    []byte("enter-path\x00"),
+	})
+	update := newTraceState().handleEnvelope(testTLVSyscallEnvelope(
+		t,
+		"openat",
+		bpfEventTypeEnter,
+		[6]uint64{rawAtFdcwd, 0x1000, 0},
+		0,
+		pathPayload,
+	))
 
 	ev := newSyscallEnterEventContext(update.syscallView, 201, update.payloadSections)
 
@@ -364,19 +395,21 @@ func TestSyscallEventContextSuppressOutputUsesEffectiveMetadata(t *testing.T) {
 
 func TestSyscallEventContextRecordSummaryUsesEffectiveMetadata(t *testing.T) {
 	stats := &SummaryStats{}
-	raw := &bpfEvent{
-		Pid:      101,
-		Tid:      101,
-		SysId:    syscallIDByName(t, "getpid"),
-		Duration: 12,
-		Ret:      -2,
+	view := syscallEventView{
+		valid:     true,
+		pid:       101,
+		tid:       101,
+		sysID:     syscallIDByName(t, "getpid"),
+		duration:  12,
+		ret:       -2,
+		eventType: bpfEventTypeExit,
 	}
 	visibleSession := &traceSession{
 		opts:    cli.ParseArgs([]string{"-e", "trace=getpid", "/bin/true"}),
 		decoder: event.NewDecoder(),
 		fdState: newFDStateStoreFromMaps(nil, nil),
 	}
-	ev := newSyscallEventContextFromBPF(visibleSession, raw, 101, nil)
+	ev := newSyscallEventContextFromView(visibleSession, view, 101, nil, nil)
 
 	ev.recordSummary(stats)
 
@@ -393,7 +426,7 @@ func TestSyscallEventContextRecordSummaryUsesEffectiveMetadata(t *testing.T) {
 		decoder: event.NewDecoder(),
 		fdState: newFDStateStoreFromMaps(nil, nil),
 	}
-	hidden := newSyscallEventContextFromBPF(hiddenSession, raw, 101, nil)
+	hidden := newSyscallEventContextFromView(hiddenSession, view, 101, nil, nil)
 	hidden.recordSummary(stats)
 	if stats.stats["getpid"].calls != 1 {
 		t.Fatalf("hidden event changed summary entry = %+v", stats.stats["getpid"])

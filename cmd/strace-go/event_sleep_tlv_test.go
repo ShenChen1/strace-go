@@ -38,9 +38,8 @@ func assertSleepTLVSections(
 		userLen: timespecPayloadStructSize,
 		data:    inData,
 	})
-	enterRaw := miscStructTLVEvent(t, syscallName, bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, syscallName, bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	outData := bytes.Repeat([]byte{0x53}, timespecPayloadStructSize)
 	var exitPayload []byte
@@ -54,8 +53,8 @@ func assertSleepTLVSections(
 			data:    outData,
 		})
 	}
-	exitRaw := miscStructTLVEvent(t, syscallName, bpfEventTypeExit, args, ret, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, syscallName, bpfEventTypeExit, args, ret, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 
 	inSection, inOK := ev.handlerContext.PayloadStruct(int(inArg), handler.PayloadDirectionIn)

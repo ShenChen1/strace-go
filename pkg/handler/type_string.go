@@ -322,7 +322,7 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 		}
 		data, ok := ctx.PayloadBytes(1, PayloadDirectionOut)
 		if ok {
-			if ctx.Opts.TraceReadFDs[fd] {
+			if ctx.Opts.TraceReadFD(fd) {
 				res.HexDumpStr = format.Hexdump(data, int(szH))
 				if len(data) < int(szH) {
 					miss := int(szH) - len(data)
@@ -344,7 +344,7 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 		}
 		data, ok := ctx.PayloadBytes(1, PayloadDirectionIn)
 		if ok {
-			if ctx.Opts.TraceWriteFDs[fd] {
+			if ctx.Opts.TraceWriteFD(fd) {
 				res.HexDumpStr = format.Hexdump(data, int(szH))
 				if len(data) < int(szH) {
 					miss := int(szH) - len(data)

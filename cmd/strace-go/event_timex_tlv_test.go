@@ -22,9 +22,8 @@ func TestSyscallEventContextUsesTimexTLVSections(t *testing.T) {
 func assertTimexExitTLVSection(t *testing.T, syscallName string, args [6]uint64, argIndex uint16) {
 	t.Helper()
 	session := miscStructTLVSession(syscallName)
-	enterRaw := miscStructTLVEvent(t, syscallName, bpfEventTypeEnter, args, 0, nil)
-	enterRaw.EventFlags = bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, syscallName, bpfEventTypeEnter, args, 0, nil)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	timexData := bytes.Repeat([]byte{0x2a}, timePayloadTimexSize)
 	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
@@ -35,8 +34,8 @@ func assertTimexExitTLVSection(t *testing.T, syscallName string, args [6]uint64,
 		userLen: timePayloadTimexSize,
 		data:    timexData,
 	})
-	exitRaw := miscStructTLVEvent(t, syscallName, bpfEventTypeExit, args, 0, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, syscallName, bpfEventTypeExit, args, 0, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 	section, ok := ev.handlerContext.PayloadStruct(int(argIndex), handler.PayloadDirectionOut)
 	if !ok || !bytes.Equal(section, timexData) {

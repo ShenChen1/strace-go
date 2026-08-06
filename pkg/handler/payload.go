@@ -12,6 +12,7 @@ const (
 	PayloadKindIovec    PayloadKind = "iovec"
 	PayloadKindSockaddr PayloadKind = "sockaddr"
 	PayloadKindExecArgs PayloadKind = "exec_args"
+	PayloadKindCmsg     PayloadKind = "cmsg"
 )
 
 // PayloadDirection records whether a payload was captured on syscall enter or exit.
@@ -68,6 +69,11 @@ func (ctx *Context) PayloadStruct(argIndex int, direction PayloadDirection) ([]b
 // PayloadExecArgs returns a captured exec argv/envp snapshot.
 func (ctx *Context) PayloadExecArgs(argIndex int) ([]byte, bool) {
 	return ctx.payloadData(argIndex, PayloadKindExecArgs, PayloadDirectionIn)
+}
+
+// PayloadCmsg returns a captured msghdr ancillary data buffer for one argument.
+func (ctx *Context) PayloadCmsg(argIndex int, direction PayloadDirection) ([]byte, bool) {
+	return ctx.payloadData(argIndex, PayloadKindCmsg, direction)
 }
 
 func (ctx *Context) payloadData(argIndex int, kind PayloadKind, direction PayloadDirection) ([]byte, bool) {

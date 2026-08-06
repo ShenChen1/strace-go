@@ -19,9 +19,8 @@ func TestSyscallEventContextMergesRecvfromDirectTLVSections(t *testing.T) {
 		userLen: socklenPayloadSize,
 		data:    enterLen,
 	})
-	enterRaw := miscStructTLVEvent(t, "recvfrom", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "recvfrom", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	recvData := []byte("abc")
 	sockaddrData := jsonSockaddrInet(80, [4]byte{127, 0, 0, 1})
@@ -50,9 +49,9 @@ func TestSyscallEventContextMergesRecvfromDirectTLVSections(t *testing.T) {
 		userLen: socklenPayloadSize,
 		data:    exitLen,
 	})...)
-	exitRaw := miscStructTLVEvent(t, "recvfrom", bpfEventTypeExit, args, int64(len(recvData)), exitPayload)
+	exitEnvelope := testTLVSyscallEnvelope(t, "recvfrom", bpfEventTypeExit, args, int64(len(recvData)), exitPayload)
 
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
@@ -85,12 +84,11 @@ func TestSyscallEventContextMergesSendtoDirectTLVSections(t *testing.T) {
 		userLen: uint32(len(sockaddrData)),
 		data:    sockaddrData,
 	})...)
-	enterRaw := miscStructTLVEvent(t, "sendto", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "sendto", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, "sendto", bpfEventTypeExit, args, int64(len(sendData)), nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "sendto", bpfEventTypeExit, args, int64(len(sendData)), nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,

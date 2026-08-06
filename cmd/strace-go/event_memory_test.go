@@ -25,15 +25,17 @@ func TestJSONEventPathDoesNotReadTraceeMemory(t *testing.T) {
 	}
 
 	pathPtr := uint64(0x1000)
-	session.handleEvent(&bpfEvent{
-		Pid:           1234,
-		Tid:           1234,
-		SysId:         syscallIDByName(t, "openat"),
-		EventVersion:  2,
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{rawAtFdcwd, pathPtr, 0},
-		ProbeRetEnter: -3,
-		Ret:           3,
+	session.handleEnvelope(traceEventEnvelope{
+		valid:         true,
+		pid:           1234,
+		tid:           1234,
+		sysID:         syscallIDByName(t, "openat"),
+		eventVersion:  2,
+		eventType:     bpfEventTypeExit,
+		args:          [6]uint64{rawAtFdcwd, pathPtr, 0},
+		ptr:           pathPtr,
+		probeRetEnter: -3,
+		ret:           3,
 	})
 
 	if bytes.Contains(output.Bytes(), []byte(`"raw_string"`)) {
@@ -59,15 +61,17 @@ func TestJSONHandlerContextDoesNotReadTraceeMemory(t *testing.T) {
 
 	pathPtr := uint64(0x1000)
 	howPtr := uint64(0x2000)
-	session.handleEvent(&bpfEvent{
-		Pid:           1234,
-		Tid:           1234,
-		SysId:         syscallIDByName(t, "openat2"),
-		EventVersion:  2,
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{rawAtFdcwd, pathPtr, howPtr, 24},
-		ProbeRetEnter: -3,
-		Ret:           3,
+	session.handleEnvelope(traceEventEnvelope{
+		valid:         true,
+		pid:           1234,
+		tid:           1234,
+		sysID:         syscallIDByName(t, "openat2"),
+		eventVersion:  2,
+		eventType:     bpfEventTypeExit,
+		args:          [6]uint64{rawAtFdcwd, pathPtr, howPtr, 24},
+		ptr:           pathPtr,
+		probeRetEnter: -3,
+		ret:           3,
 	})
 
 	if !bytes.Contains(output.Bytes(), []byte(`"syscall":"openat2"`)) {
@@ -89,15 +93,17 @@ func TestTextEventPathDoesNotReadTraceeMemory(t *testing.T) {
 	}
 
 	pathPtr := uint64(0x1000)
-	session.handleEvent(&bpfEvent{
-		Pid:           1234,
-		Tid:           1234,
-		SysId:         syscallIDByName(t, "openat"),
-		EventVersion:  2,
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{rawAtFdcwd, pathPtr, 0},
-		ProbeRetEnter: -3,
-		Ret:           3,
+	session.handleEnvelope(traceEventEnvelope{
+		valid:         true,
+		pid:           1234,
+		tid:           1234,
+		sysID:         syscallIDByName(t, "openat"),
+		eventVersion:  2,
+		eventType:     bpfEventTypeExit,
+		args:          [6]uint64{rawAtFdcwd, pathPtr, 0},
+		ptr:           pathPtr,
+		probeRetEnter: -3,
+		ret:           3,
 	})
 
 	if bytes.Contains(output.Bytes(), []byte("from-memory")) {
@@ -110,45 +116,30 @@ func TestTextEventPathDoesNotReadTraceeMemory(t *testing.T) {
 
 func TestUpdateFDMapDoesNotReadTraceeMemoryWhenFallbackDisabled(t *testing.T) {
 	tests := []struct {
-		name     string
-		sc       meta.Syscall
-		eventRaw *bpfEvent
+		name string
+		sc   meta.Syscall
+		view syscallEventView
 	}{
 		{
 			name: "pipe",
 			sc:   meta.Syscall{Name: "pipe"},
-			eventRaw: &bpfEvent{
-				Pid:  1234,
-				Tid:  1234,
-				Args: [6]uint64{0x1000},
-				Ret:  0,
-			},
+			view: syscallEventView{valid: true, pid: 1234, tid: 1234, args: [6]uint64{0x1000}, ret: 0},
 		},
 		{
 			name: "socketpair",
 			sc:   meta.Syscall{Name: "socketpair"},
-			eventRaw: &bpfEvent{
-				Pid:  1234,
-				Tid:  1234,
-				Args: [6]uint64{1, 0, 0, 0x2000},
-				Ret:  0,
-			},
+			view: syscallEventView{valid: true, pid: 1234, tid: 1234, args: [6]uint64{1, 0, 0, 0x2000}, ret: 0},
 		},
 		{
 			name: "bind",
 			sc:   meta.Syscall{Name: "bind"},
-			eventRaw: &bpfEvent{
-				Pid:  1234,
-				Tid:  1234,
-				Args: [6]uint64{7, 0x3000},
-				Ret:  0,
-			},
+			view: syscallEventView{valid: true, pid: 1234, tid: 1234, args: [6]uint64{7, 0x3000}, ret: 0},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			updateFDMapForTest(test.eventRaw, test.sc, "", 101, make(map[string]string))
+			updateFDMapForTest(test.view, test.sc, nil, "", 101, make(map[string]string))
 		})
 	}
 }

@@ -9,9 +9,14 @@ import (
 func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	// IMPACT: raw syscall program attachment lives in bpf_attach.go; session.go
+	// delegates to the attacher. The gate scans both files for wiring snippets.
+	sessionSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/session.go")) +
+		"\n" + readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_attach.go"))
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	iovecDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_iovec_direct_event_v2.h"))
+	iovecBaseExitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_iovec_base_exit_direct_event_v2.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_READV 19",
@@ -19,12 +24,28 @@ func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 		"#define SYS_PROCESS_VM_READV 310",
 		"#define SYS_PROCESS_MADVISE 440",
 		`#include "syscall_iovec_direct_event_v2.h"`,
+		`#include "syscall_iovec_base_exit_direct_event_v2.h"`,
 		"is_iovec_direct_syscall(sys_id)",
 		"emit_iovec_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"is_iovec_direct_syscall(sys_id) ||",
+		"trace_sys_enter_iovec_base",
+		"is_iovec_base_enter_direct_syscall(sys_id)",
+		"emit_iovec_base_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
+		"trace_sys_exit_iovec_base",
+		"is_iovec_base_exit_direct_syscall(p->sys_id)",
+		"emit_iovec_base_exit_event_v2_direct(p, ret_value, duration);",
 	} {
 		if !strings.Contains(straceSource, snippet) && !strings.Contains(timeDirectHeader, snippet) {
 			t.Fatalf("BPF source missing iovec direct snippet %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
+		"TraceSysEnterIovecBase",
+		`label: "iovec base"`,
+		"TraceSysExitIovecBase",
+	} {
+		if !strings.Contains(sessionSource, snippet) {
+			t.Fatalf("session source missing process_vm_writev attach snippet %q", snippet)
 		}
 	}
 
@@ -32,9 +53,18 @@ func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 		"IOVEC_DIRECT_ELEM_SIZE 16",
 		"IOVEC_DIRECT_BYTES_MAX 256",
 		"IOVEC_DIRECT_SLOT_MAX 16",
+		"IOVEC_BASE_PAYLOAD_SLOT_MAX 7",
+		"IOVEC_BASE_PAYLOAD_BYTES_MAX 7",
+		"IOVEC_BASE_PAYLOAD_ARG1_BASE 120",
+		"IOVEC_BASE_PAYLOAD_CAPACITY",
 		"is_iovec_direct_syscall(",
 		"is_process_vm_iovec_direct_syscall(",
+		"is_iovec_base_enter_direct_syscall(",
+		"is_iovec_base_exit_direct_syscall(",
 		"capture_iovec_tlv_direct(",
+		"capture_iovec_base_payloads_tlv_direct(",
+		"emit_iovec_base_enter_event_v2_direct(",
+		"PAYLOAD_TLV_KIND_BYTES",
 		"iovec_direct_user_len(count)",
 		"iovec_direct_copy_len(count)",
 		"PAYLOAD_TLV_KIND_IOVEC",
@@ -45,6 +75,21 @@ func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 	} {
 		if !strings.Contains(iovecDirectHeader, snippet) {
 			t.Fatalf("iovec direct header missing snippet %q", snippet)
+		}
+	}
+
+	for _, snippet := range []string{
+		"IOVEC_BASE_EXIT_PAYLOAD_SLOT_MAX 5",
+		"IOVEC_BASE_EXIT_PAYLOAD_BYTES_MAX 8",
+		"IOVEC_BASE_EXIT_PAYLOAD_CAPACITY",
+		"capture_iovec_base_exit_payloads_tlv_direct(",
+		"emit_iovec_base_exit_event_v2_direct(",
+		"PAYLOAD_TLV_FLAG_DIRECTION_OUT",
+		"PAYLOAD_TLV_KIND_BYTES",
+		"EVENT_FLAG_TRUNCATED",
+	} {
+		if !strings.Contains(iovecBaseExitHeader, snippet) {
+			t.Fatalf("iovec base exit header missing snippet %q", snippet)
 		}
 	}
 

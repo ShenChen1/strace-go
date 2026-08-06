@@ -58,6 +58,31 @@ func TestBpfObjPinDoesNotUseLegacyPathFallback(t *testing.T) {
 	}
 }
 
+func TestBpfObjPinUsesNestedPathPayloadSection(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindString,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  104,
+			UserPtr:   0x3000,
+			UserLen:   17,
+			CopiedLen: 17,
+			ProbeRet:  0,
+			Data:      []byte("/sys/fs/bpf/test\x00"),
+		},
+	}
+
+	got := decodeBpfObjPin(ctx, makeBpfObjPinAttr(0x3000), 8)
+	if !strings.Contains(got, `pathname="/sys/fs/bpf/test"`) {
+		t.Fatalf("decodeBpfObjPin() = %q, want nested pathname snapshot", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestBpfRawTracepointDoesNotReadNameWhenFallbackDisabled(t *testing.T) {
 	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{
 		0x4000: []byte("sched_switch\x00"),
@@ -89,6 +114,33 @@ func TestBpfRawTracepointDoesNotUseLegacyNameFallback(t *testing.T) {
 	}
 }
 
+func TestBpfRawTracepointUsesNestedNamePayloadSection(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.Opts.StringLimit = 32
+	name := []byte("0123456789qwertyuiop0123456789qwerty\x00")
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindString,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  105,
+			UserPtr:   0x4000,
+			UserLen:   uint32(len(name)),
+			CopiedLen: uint32(len(name)),
+			ProbeRet:  0,
+			Data:      name,
+		},
+	}
+
+	got := decodeBpfRawTracepointOpen(ctx, makeBpfRawTracepointAttr(0x4000), 24)
+	if !strings.Contains(got, `name="0123456789qwertyuiop0123456789qw"...`) {
+		t.Fatalf("decodeBpfRawTracepointOpen() = %q, want nested name snapshot", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
 func TestBpfBtfLoadDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{
 		0x5000: []byte("bPf\x00daTum"),
@@ -114,6 +166,31 @@ func TestBpfBtfLoadDoesNotUseLegacyMemoryFallback(t *testing.T) {
 	got := decodeBpfBtfLoad(ctx, makeBpfBtfLoadAttr(0x5000, 9), 28)
 	if !strings.Contains(got, "btf=0x5000") {
 		t.Fatalf("decodeBpfBtfLoad() = %q", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestBpfBtfLoadUsesNestedBtfPayloadSection(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindBytes,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  106,
+			UserPtr:   0x5000,
+			UserLen:   9,
+			CopiedLen: 9,
+			ProbeRet:  0,
+			Data:      []byte("bPf\x00daTum"),
+		},
+	}
+
+	got := decodeBpfBtfLoad(ctx, makeBpfBtfLoadAttr(0x5000, 9), 28)
+	if !strings.Contains(got, `btf="bPf\0daTum"`) {
+		t.Fatalf("decodeBpfBtfLoad() = %q, want nested btf bytes snapshot", got)
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)

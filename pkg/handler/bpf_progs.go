@@ -3,8 +3,16 @@ package handler
 import (
 	"encoding/binary"
 	"fmt"
+	"strace-go/pkg/format"
 	"strace-go/pkg/meta"
 	"strings"
+)
+
+const (
+	bpfProgLoadInsnsPayloadArg     = 112
+	bpfProgLoadLicensePayloadArg   = 101
+	bpfProgLoadLogBufPayloadArg    = 102
+	bpfProgLoadSignaturePayloadArg = 103
 )
 
 // decodeBpfProgLoad decodes BPF_PROG_LOAD arguments.
@@ -36,6 +44,8 @@ func decodeBpfProgLoadParts1(ctx *Context, parts []string, data []byte, size uin
 	licAddr := u64OrZero(data, 16)
 	if licAddr == 0 {
 		parts = append(parts, "license=NULL")
+	} else if license, ok := bpfNestedStringPayload(ctx, bpfProgLoadLicensePayloadArg, licAddr, 0); ok {
+		parts = append(parts, "license="+license)
 	} else {
 		parts = append(parts, fmt.Sprintf("license=%#x", licAddr))
 	}
@@ -94,12 +104,81 @@ func formatBpfKernelVersion(ctx *Context, kv uint32) string {
 	}
 }
 
-func formatBpfProgLoadLogBuf(_ *Context, data []byte, _ uint32) string {
+func formatBpfProgLoadLogBuf(ctx *Context, data []byte, _ uint32) string {
 	logBuf := u64OrZero(data, 32)
 	if logBuf == 0 {
 		return "log_buf=NULL"
 	}
+	if text, ok := bpfNestedBytesStringPayload(ctx, bpfProgLoadLogBufPayloadArg, logBuf, u32OrZero(data, 28)); ok {
+		return "log_buf=" + text
+	}
 	return fmt.Sprintf("log_buf=%#x", logBuf)
+}
+
+func bpfNestedStringPayload(ctx *Context, argIndex int, ptr uint64, limit int) (string, bool) {
+	section, ok := bpfNestedPayloadSection(ctx, argIndex, PayloadKindString, ptr)
+	if !ok {
+		return "", false
+	}
+	return ctx.Decoder.DecodeString(ctx.Tid, ptr, section.Data, section.ProbeRet, ctx.SysName, limit), true
+}
+
+func bpfNestedBytesStringPayload(ctx *Context, argIndex int, ptr uint64, userLen uint32) (string, bool) {
+	section, ok := bpfNestedPayloadSection(ctx, argIndex, PayloadKindBytes, ptr)
+	if !ok {
+		return "", false
+	}
+	limit := int(userLen)
+	if limit <= 0 || limit > len(section.Data) {
+		limit = len(section.Data)
+	}
+	actualLen := int(section.UserLen)
+	if actualLen <= 0 {
+		actualLen = int(section.CopiedLen)
+	}
+	return format.BufferEscape(section.Data, limit, actualLen+1, ctx.Decoder.HexEscapeMode), true
+}
+
+func bpfNestedBytesPayload(ctx *Context, argIndex int, ptr uint64, userLen uint32) ([]byte, bool) {
+	section, ok := bpfNestedPayloadSection(ctx, argIndex, PayloadKindBytes, ptr)
+	if !ok {
+		return nil, false
+	}
+	limit := int(userLen)
+	if limit <= 0 || limit > len(section.Data) {
+		limit = len(section.Data)
+	}
+	return section.Data[:limit], true
+}
+
+func bpfNestedStringLimit(ctx *Context) int {
+	if ctx == nil || ctx.Opts == nil {
+		return 0
+	}
+	return ctx.Opts.StringLimit
+}
+
+func bpfProgLoadSignaturePayload(ctx *Context, ptr uint64, userLen uint32) ([]byte, bool) {
+	return bpfNestedBytesPayload(ctx, bpfProgLoadSignaturePayloadArg, ptr, userLen)
+}
+
+func bpfNestedPayloadSection(ctx *Context, argIndex int, kind PayloadKind, ptr uint64) (PayloadSection, bool) {
+	if ctx == nil || ctx.Decoder == nil {
+		return PayloadSection{}, false
+	}
+	for _, section := range ctx.PayloadSections {
+		if section.ArgIndex != argIndex || section.Kind != kind || section.Direction != PayloadDirectionIn {
+			continue
+		}
+		if section.ProbeRet != 0 || len(section.Data) == 0 {
+			continue
+		}
+		if ptr != 0 && section.UserPtr != 0 && section.UserPtr != ptr {
+			continue
+		}
+		return section, true
+	}
+	return PayloadSection{}, false
 }
 
 func formatBpfProgLoadName(data []byte) string {
@@ -189,7 +268,7 @@ func decodeBpfProgLoadParts2(parts []string, data []byte, size uint32, decodedSi
 
 // decodeBpfProgLoadParts3 decodes modern elements, relocation tables and signature blocks up to 168 bytes.
 // Impact: Appends core_relos, signature pointers, and security keys.
-func decodeBpfProgLoadParts3(_ *Context, parts []string, data []byte, size uint32, decodedSize int) (int, []string) {
+func decodeBpfProgLoadParts3(ctx *Context, parts []string, data []byte, size uint32, decodedSize int) (int, []string) {
 	if size >= 136 {
 		coreRelos := u64OrZero(data, 128)
 		parts = append(parts, formatPtr("core_relos", coreRelos))
@@ -215,6 +294,8 @@ func decodeBpfProgLoadParts3(_ *Context, parts []string, data []byte, size uint3
 		sigAddr := u64OrZero(data, 152)
 		if sigAddr == 0 {
 			parts = append(parts, "signature=NULL")
+		} else if sig, ok := bpfProgLoadSignaturePayload(ctx, sigAddr, u32OrZero(data, 160)); ok {
+			parts = append(parts, "signature="+formatBpfSignature(sig))
 		} else {
 			parts = append(parts, fmt.Sprintf("signature=%#x", sigAddr))
 		}

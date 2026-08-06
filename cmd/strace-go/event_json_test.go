@@ -7,21 +7,11 @@ import (
 	"testing"
 
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
 )
 
 func TestJSONSyscallEventIncludesWritePayloadSection(t *testing.T) {
-	eventRaw := &bpfEvent{
-		Pid:           101,
-		Tid:           101,
-		SysId:         1,
-		EventVersion:  2,
-		EventType:     bpfEventTypeEnter,
-		EventFlags:    bpfEventFlagGenericEnter,
-		Args:          [6]uint64{1, 0x2000, 5},
-		ProbeRetEnter: 0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
+	args := [6]uint64{1, 0x2000, 5}
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindBytes,
 		arg:     1,
 		userPtr: 0x2000,
@@ -29,8 +19,7 @@ func TestJSONSyscallEventIncludesWritePayloadSection(t *testing.T) {
 		data:    []byte("hello"),
 	})
 
-	scMeta := meta.Syscall{Name: "write"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "write", bpfEventTypeEnter, args, 0, payload)
 	if len(ev.PayloadSections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 	}
@@ -44,18 +33,8 @@ func TestJSONSyscallEventIncludesWritePayloadSection(t *testing.T) {
 }
 
 func TestJSONSyscallEventIncludesReadPayloadSection(t *testing.T) {
-	eventRaw := &bpfEvent{
-		Pid:           101,
-		Tid:           101,
-		SysId:         0,
-		EventVersion:  2,
-		EventType:     bpfEventTypeExit,
-		Args:          [6]uint64{3, 0x3000, 16},
-		Ret:           4,
-		ProbeRetEnter: -1,
-		ProbeRetExit:  0,
-	}
-	setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
+	args := [6]uint64{3, 0x3000, 16}
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindBytes,
 		arg:     1,
 		flags:   payloadTLVFlagDirectionOut,
@@ -64,8 +43,7 @@ func TestJSONSyscallEventIncludesReadPayloadSection(t *testing.T) {
 		data:    []byte("data"),
 	})
 
-	scMeta := meta.Syscall{Name: "read"}
-	ev := newJSONSyscallEvent(eventRaw, scMeta, payloadSectionsForEvent(eventRaw, scMeta))
+	ev := newJSONSyscallEventFromTLVForTest(t, "read", bpfEventTypeExit, args, 4, payload)
 	if len(ev.PayloadSections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(ev.PayloadSections))
 	}

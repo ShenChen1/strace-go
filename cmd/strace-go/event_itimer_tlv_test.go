@@ -20,8 +20,8 @@ func TestSyscallEventContextUsesItimerTLVSections(t *testing.T) {
 			userLen: timePayloadItimervalSize,
 			data:    outData,
 		})
-		exitRaw := miscStructTLVEvent(t, "getitimer", bpfEventTypeExit, args, 0, exitPayload)
-		exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+		exitEnvelope := testTLVSyscallEnvelope(t, "getitimer", bpfEventTypeExit, args, 0, exitPayload)
+		exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 		ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 
 		section, ok := ev.handlerContext.PayloadStruct(1, handler.PayloadDirectionOut)
@@ -41,9 +41,8 @@ func TestSyscallEventContextUsesItimerTLVSections(t *testing.T) {
 			userLen: timePayloadItimervalSize,
 			data:    inData,
 		})
-		enterRaw := miscStructTLVEvent(t, "setitimer", bpfEventTypeEnter, args, 0, enterPayload)
-		enterRaw.EventFlags |= bpfEventFlagGenericEnter
-		session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+		enterEnvelope := testTLVSyscallEnvelope(t, "setitimer", bpfEventTypeEnter, args, 0, enterPayload)
+		session.traceState().handleEnvelope(enterEnvelope)
 
 		outData := bytes.Repeat([]byte{0x39}, timePayloadItimervalSize)
 		exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
@@ -54,8 +53,8 @@ func TestSyscallEventContextUsesItimerTLVSections(t *testing.T) {
 			userLen: timePayloadItimervalSize,
 			data:    outData,
 		})
-		exitRaw := miscStructTLVEvent(t, "setitimer", bpfEventTypeExit, args, 0, exitPayload)
-		exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+		exitEnvelope := testTLVSyscallEnvelope(t, "setitimer", bpfEventTypeExit, args, 0, exitPayload)
+		exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 		ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
 
 		inSection, inOK := ev.handlerContext.PayloadStruct(1, handler.PayloadDirectionIn)

@@ -21,31 +21,33 @@ func TestJSONEventsArePairedByTIDState(t *testing.T) {
 		outWriter: &output,
 	}
 
-	enter := &bpfEvent{
-		Pid:          1234,
-		Tid:          1234,
-		SysId:        39, // getpid
-		EventVersion: 2,
-		EventType:    bpfEventTypeEnter,
-		EventFlags:   bpfEventFlagGenericEnter,
-		EnterTime:    100,
+	enter := traceEventEnvelope{
+		valid:        true,
+		pid:          1234,
+		tid:          1234,
+		sysID:        39, // getpid
+		eventVersion: 2,
+		eventType:    bpfEventTypeEnter,
+		eventFlags:   bpfEventFlagGenericEnter,
+		enterTime:    100,
 	}
-	exit := &bpfEvent{
-		Pid:          1234,
-		Tid:          1234,
-		SysId:        39, // getpid
-		EventVersion: 2,
-		EventType:    bpfEventTypeExit,
-		EnterTime:    100,
-		Duration:     20,
-		Ret:          1234,
+	exit := traceEventEnvelope{
+		valid:        true,
+		pid:          1234,
+		tid:          1234,
+		sysID:        39, // getpid
+		eventVersion: 2,
+		eventType:    bpfEventTypeExit,
+		enterTime:    100,
+		duration:     20,
+		ret:          1234,
 	}
 
-	session.handleEvent(enter)
+	session.handleEnvelope(enter)
 	if got := len(session.traceState().pendingSyscalls); got != 1 {
 		t.Fatalf("pendingSyscalls after enter = %d, want 1", got)
 	}
-	session.handleEvent(exit)
+	session.handleEnvelope(exit)
 	if got := len(session.traceState().pendingSyscalls); got != 0 {
 		t.Fatalf("pendingSyscalls after exit = %d, want 0", got)
 	}
@@ -68,26 +70,28 @@ func TestJSONEventsArePairedByTIDState(t *testing.T) {
 
 func TestTraceStateHandlePairsEnterExitAndCleansLifecycle(t *testing.T) {
 	state := newTraceState()
-	enter := &bpfEvent{
-		Pid:        1234,
-		Tid:        1235,
-		SysId:      39,
-		EventType:  bpfEventTypeEnter,
-		EventFlags: bpfEventFlagGenericEnter,
-		EnterTime:  100,
+	enter := traceEventEnvelope{
+		valid:      true,
+		pid:        1234,
+		tid:        1235,
+		sysID:      39,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+		enterTime:  100,
 	}
-	exit := &bpfEvent{
-		Pid:       1234,
-		Tid:       1235,
-		SysId:     39,
-		EventType: bpfEventTypeExit,
+	exit := traceEventEnvelope{
+		valid:     true,
+		pid:       1234,
+		tid:       1235,
+		sysID:     39,
+		eventType: bpfEventTypeExit,
 	}
 
-	enterUpdate := state.handleEnvelope(newTraceEventEnvelopeFromBPF(enter))
+	enterUpdate := state.handleEnvelope(enter)
 	if enterUpdate.kind != traceStateSyscallEnter || len(state.pendingSyscalls) != 1 {
 		t.Fatalf("enter update = %+v pending=%d, want enter with one pending", enterUpdate, len(state.pendingSyscalls))
 	}
-	exitUpdate := state.handleEnvelope(newTraceEventEnvelopeFromBPF(exit))
+	exitUpdate := state.handleEnvelope(exit)
 	if exitUpdate.kind != traceStateSyscallExit || exitUpdate.pendingEnter == nil || len(state.pendingSyscalls) != 0 {
 		t.Fatalf("exit update = %+v pending=%d, want paired exit with no pending", exitUpdate, len(state.pendingSyscalls))
 	}
@@ -184,6 +188,96 @@ func TestTraceStateEnterUpdateCarriesSemanticPayloadSections(t *testing.T) {
 	}
 }
 
+func TestTraceStateMergesMultipleEnterPayloadSections(t *testing.T) {
+	state := newTraceState()
+	sysID := syscallIDByName(t, "process_vm_writev")
+	first := traceEventEnvelope{
+		valid:      true,
+		pid:        101,
+		tid:        101,
+		sysID:      sysID,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+		payload: []handler.PayloadSection{{
+			Kind:     handler.PayloadKindIovec,
+			ArgIndex: 1,
+			Data:     []byte("iovec"),
+		}},
+	}
+	second := first
+	second.payload = []handler.PayloadSection{{
+		Kind:     handler.PayloadKindBytes,
+		ArgIndex: 120,
+		Data:     []byte("base"),
+	}}
+
+	state.handleEnvelope(first)
+	state.handleEnvelope(second)
+
+	pending := state.pendingSyscalls[101]
+	if pending == nil {
+		t.Fatal("pending syscall missing")
+	}
+	if len(pending.payloadSections) != 2 {
+		t.Fatalf("payload sections = %+v, want iovec and nested base", pending.payloadSections)
+	}
+	if string(pending.payloadSections[0].Data) != "iovec" || string(pending.payloadSections[1].Data) != "base" {
+		t.Fatalf("merged payload data = %+v", pending.payloadSections)
+	}
+}
+
+func TestTraceStateMergesExitFragmentPayloadSections(t *testing.T) {
+	state := newTraceState()
+	sysID := syscallIDByName(t, "recvmmsg")
+	enter := traceEventEnvelope{
+		valid:      true,
+		pid:        101,
+		tid:        101,
+		sysID:      sysID,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+		payload: []handler.PayloadSection{{
+			Kind:     handler.PayloadKindIovec,
+			ArgIndex: 1,
+			Data:     []byte("mmsg"),
+		}},
+	}
+	fragment := traceEventEnvelope{
+		valid:      true,
+		pid:        101,
+		tid:        101,
+		sysID:      sysID,
+		eventType:  bpfEventTypeExit,
+		eventFlags: bpfEventFlagExitFragment | bpfEventFlagPayloadTLV,
+		payload: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindBytes,
+			Direction: handler.PayloadDirectionOut,
+			ArgIndex:  120,
+			Data:      []byte("base"),
+		}},
+	}
+	exit := fragment
+	exit.eventFlags = 0
+	exit.payload = nil
+
+	state.handleEnvelope(enter)
+	fragmentUpdate := state.handleEnvelope(fragment)
+	if fragmentUpdate.kind != traceStateSyscallFragment {
+		t.Fatalf("fragment update kind = %d, want fragment", fragmentUpdate.kind)
+	}
+	pending := state.pendingSyscalls[101]
+	if pending == nil || len(pending.payloadSections) != 2 {
+		t.Fatalf("pending after fragment = %+v, want merged enter and exit payloads", pending)
+	}
+	exitUpdate := state.handleEnvelope(exit)
+	if exitUpdate.pendingEnter == nil || len(state.pendingSyscalls) != 0 {
+		t.Fatalf("exit update = %+v pending=%d, want final consume", exitUpdate, len(state.pendingSyscalls))
+	}
+	if len(exitUpdate.pendingEnter.payloadSections) != 2 {
+		t.Fatalf("paired payload sections = %+v, want merged fragment payload", exitUpdate.pendingEnter.payloadSections)
+	}
+}
+
 func TestTraceStateExitUpdateCarriesSemanticPayloadSections(t *testing.T) {
 	state := newTraceState()
 	envelope := traceEventEnvelope{
@@ -231,16 +325,5 @@ func TestTraceStateExitUpdateCarriesSyscallResultView(t *testing.T) {
 	if view.ret != -2 || view.duration != 55 || view.ptr != 0x1234 ||
 		view.stackID != 7 || view.probeRetExit != -1 {
 		t.Fatalf("exit syscall view = %+v, want result fields from envelope", view)
-	}
-}
-
-func TestZeroEventTypeIsNotExit(t *testing.T) {
-	eventRaw := &bpfEvent{EventVersion: 2}
-
-	if newTraceEventEnvelopeFromBPF(eventRaw).isExit() {
-		t.Fatal("event_type=0 should not be treated as an explicit exit event")
-	}
-	if got := bpfEventTypeNameFromID(eventRaw.EventType); got != "unknown" {
-		t.Fatalf("bpfEventTypeNameFromID(event_type=0) = %q, want unknown", got)
 	}
 }

@@ -18,9 +18,8 @@ func TestSyscallEventContextMergesFcntlDirectTLVSections(t *testing.T) {
 		userLen: fcntlFlockPayloadSize,
 		data:    enterData,
 	})
-	enterRaw := miscStructTLVEvent(t, "fcntl", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "fcntl", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	exitData := bytes.Repeat([]byte{0x22}, fcntlFlockPayloadSize)
 	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
@@ -31,8 +30,8 @@ func TestSyscallEventContextMergesFcntlDirectTLVSections(t *testing.T) {
 		userLen: fcntlFlockPayloadSize,
 		data:    exitData,
 	})
-	exitRaw := miscStructTLVEvent(t, "fcntl", bpfEventTypeExit, args, 0, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "fcntl", bpfEventTypeExit, args, 0, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,

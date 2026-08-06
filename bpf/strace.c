@@ -30,6 +30,8 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_STAT 4
 #define SYS_FSTAT 5
 #define SYS_LSTAT 6
+#define SYS_DUP 32
+#define SYS_DUP2 33
 #define SYS_POLL 7
 #define SYS_RT_SIGACTION 13
 #define SYS_RT_SIGPROCMASK 14
@@ -50,6 +52,8 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_ACCEPT 43
 #define SYS_SENDTO 44
 #define SYS_RECVFROM 45
+#define SYS_SENDMSG 46
+#define SYS_RECVMSG 47
 #define SYS_BIND 49
 #define SYS_GETSOCKNAME 51
 #define SYS_GETPEERNAME 52
@@ -58,6 +62,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_FCNTL 72
 #define SYS_GETCWD 79
 #define SYS_CHDIR 80
+#define SYS_FCHDIR 81
 #define SYS_RENAME 82
 #define SYS_MKDIR 83
 #define SYS_RMDIR 84
@@ -104,6 +109,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_IO_GETEVENTS 208
 #define SYS_IO_SUBMIT 209
 #define SYS_IO_CANCEL 210
+#define SYS_GETDENTS64 217
 #define SYS_CLOCK_SETTIME 227
 #define SYS_CLOCK_GETTIME 228
 #define SYS_CLOCK_GETRES 229
@@ -134,10 +140,13 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_EPOLL_PWAIT 281
 #define SYS_ACCEPT4 288
 #define SYS_PIPE2 293
+#define SYS_DUP3 292
 #define SYS_PREADV 295
 #define SYS_PWRITEV 296
+#define SYS_RECVMMSG 299
 #define SYS_PRLIMIT64 302
 #define SYS_CLOCK_ADJTIME 305
+#define SYS_SENDMMSG 307
 #define SYS_PROCESS_VM_READV 310
 #define SYS_PROCESS_VM_WRITEV 311
 #define SYS_RENAMEAT2 316
@@ -173,6 +182,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define CONFIG_SYSCALL_FILTER 8
 #define CONFIG_SYSCALL_FILTER_NEGATED 16
 #define CONFIG_EMIT_LIFECYCLE 32
+#define CONFIG_FD_STATE 64
 #define EVENT_V2_HEADER_LEN 40
 #define EVENT_V2_ENTER_BODY_LEN 72
 #define EVENT_V2_EXIT_BODY_LEN 72
@@ -331,6 +341,39 @@ static __always_inline int should_trace_syscall(u32 sys_id, u32 *cfg)
     return enabled ? 1 : 0;
 }
 
+static __always_inline int is_fd_state_direct_syscall(u32 sys_id)
+{
+    switch (sys_id) {
+    case SYS_OPEN:
+    case SYS_OPENAT:
+    case SYS_OPENAT2:
+    case SYS_CREAT:
+    case SYS_CLOSE:
+    case SYS_DUP:
+    case SYS_DUP2:
+    case SYS_DUP3:
+    case SYS_CHDIR:
+    case SYS_FCHDIR:
+    case SYS_FACCESSAT:
+    case SYS_FACCESSAT2:
+    case SYS_FCHMODAT:
+    case SYS_MKDIRAT:
+    case SYS_NEWFSTATAT:
+    case SYS_FSTAT:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+// IMPACT: when a -P path filter is active, fd-state syscalls must keep flowing
+// through the ringbuf even if excluded from the trace set, so the Go side can
+// maintain a deterministic fd -> path map instead of racy live /proc reads.
+static __always_inline int is_fd_state_tracked(u32 sys_id, u32 *cfg)
+{
+    return cfg && (*cfg & CONFIG_FD_STATE) && is_fd_state_direct_syscall(sys_id);
+}
+
 static __always_inline struct bpf_stats *lookup_stats(void)
 {
     u32 key = 0;
@@ -481,6 +524,8 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_clone3_direct_event_v2.h"
 #include "syscall_bpf_direct_event_v2.h"
 #include "syscall_iovec_direct_event_v2.h"
+#include "syscall_iovec_base_exit_direct_event_v2.h"
+#include "syscall_msg_direct_event_v2.h"
 #include "syscall_fcntl_direct_event_v2.h"
 #include "syscall_ioctl_direct_event_v2.h"
 #include "syscall_network_direct_event_v2.h"
@@ -510,7 +555,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     
     u32 key = 0;
     u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
-    if (!should_trace_syscall(sys_id, cfg)) return 0;
+    if (!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)) return 0;
 
     u64 enter_time = bpf_ktime_get_ns();
     s32 stack_id = -1;
@@ -698,8 +743,6 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
 
     // IMPACT: bpf attr bytes are captured through direct TLV sections without the fixed-window carrier.
     if (is_bpf_direct_syscall(sys_id)) {
-        emit_bpf_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }
 
@@ -707,6 +750,11 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     if (is_iovec_direct_syscall(sys_id)) {
         emit_iovec_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+        return 0;
+    }
+
+    // IMPACT: msg syscall enter capture is handled by trace_sys_enter_msg to keep this dispatcher within verifier limits.
+    if (is_msg_direct_syscall(sys_id)) {
         return 0;
     }
 
@@ -753,8 +801,8 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         return 0;
     }
 
-    // IMPACT: filesystem payload syscalls snapshot strings/bytes directly into TLV sections without the fixed-window carrier.
-    if (is_fs_direct_syscall(sys_id)) {
+    // IMPACT: filesystem enter payload syscalls snapshot strings/bytes directly into TLV sections without the fixed-window carrier.
+    if (is_fs_enter_direct_syscall(sys_id)) {
         emit_fs_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
@@ -821,6 +869,166 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     return 0;
 }
 
+// IMPACT: BPF syscall enter capture lives in its own tracepoint program to keep the generic dispatcher within verifier limits.
+SEC("tracepoint/raw_syscalls/sys_enter")
+int trace_sys_enter_bpf(struct trace_event_raw_sys_enter *ctx) {
+    u32 sys_id = (u32)ctx->id;
+    if (!is_bpf_direct_syscall(sys_id)) return 0;
+
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+    if (!filter_pid) return 0;
+
+    u32 key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
+    if (!should_trace_syscall(sys_id, cfg)) return 0;
+
+    u64 enter_time = bpf_ktime_get_ns();
+    s32 stack_id = -1;
+    if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
+        stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
+    }
+
+    emit_bpf_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+    save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+    return 0;
+}
+
+// IMPACT: write-side nested iov_base capture lives in its own tracepoint program to keep generic enter under verifier limits.
+SEC("tracepoint/raw_syscalls/sys_enter")
+int trace_sys_enter_iovec_base(struct trace_event_raw_sys_enter *ctx) {
+    u32 sys_id = (u32)ctx->id;
+    if (!is_iovec_base_enter_direct_syscall(sys_id)) return 0;
+
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+    if (!filter_pid) return 0;
+
+    u32 key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
+    if (!should_trace_syscall(sys_id, cfg)) return 0;
+
+    u64 enter_time = bpf_ktime_get_ns();
+    s32 stack_id = -1;
+    if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
+        stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
+    }
+
+    emit_iovec_base_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+    return 0;
+}
+
+// IMPACT: single msghdr enter capture lives in its own tracepoint program because nested iovec TLV copying is verifier-heavy.
+SEC("tracepoint/raw_syscalls/sys_enter")
+int trace_sys_enter_msg(struct trace_event_raw_sys_enter *ctx) {
+    u32 sys_id = (u32)ctx->id;
+    if (!is_single_msg_direct_syscall(sys_id)) return 0;
+
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+    if (!filter_pid) return 0;
+
+    u32 key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
+    if (!should_trace_syscall(sys_id, cfg)) return 0;
+
+    u64 enter_time = bpf_ktime_get_ns();
+    s32 stack_id = -1;
+    if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
+        stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
+    }
+
+    emit_msg_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+    save_pending_msg_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+    return 0;
+}
+
+// IMPACT: sendmsg IN iov_base payloads are split from msghdr metadata capture to reduce verifier complexity.
+SEC("tracepoint/raw_syscalls/sys_enter")
+int trace_sys_enter_sendmsg_base(struct trace_event_raw_sys_enter *ctx) {
+    u32 sys_id = (u32)ctx->id;
+    if (sys_id != SYS_SENDMSG) return 0;
+
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+    if (!filter_pid) return 0;
+
+    u32 key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
+    if (!should_trace_syscall(sys_id, cfg)) return 0;
+
+    emit_sendmsg_base_enter_event_v2_direct(pid, tid, sys_id, ctx, bpf_ktime_get_ns());
+    return 0;
+}
+
+// IMPACT: mmsg enter capture is split from single msghdr capture to keep each verifier program bounded.
+SEC("tracepoint/raw_syscalls/sys_enter")
+int trace_sys_enter_mmsg(struct trace_event_raw_sys_enter *ctx) {
+    u32 sys_id = (u32)ctx->id;
+    if (!is_mmsg_direct_syscall(sys_id)) return 0;
+
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+    if (!filter_pid) return 0;
+
+    u32 key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
+    if (!should_trace_syscall(sys_id, cfg)) return 0;
+
+    u64 enter_time = bpf_ktime_get_ns();
+    s32 stack_id = -1;
+    if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
+        stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
+    }
+
+    emit_mmsg_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+    save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+    return 0;
+}
+
+// IMPACT: sendmmsg first-slot IN iov_base payloads are split from mmsg metadata capture.
+SEC("tracepoint/raw_syscalls/sys_enter")
+int trace_sys_enter_sendmmsg_base0(struct trace_event_raw_sys_enter *ctx) {
+    u32 sys_id = (u32)ctx->id;
+    if (sys_id != SYS_SENDMMSG) return 0;
+
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+    if (!filter_pid) return 0;
+
+    u32 key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
+    if (!should_trace_syscall(sys_id, cfg)) return 0;
+
+    emit_sendmmsg_base0_enter_event_v2_direct(pid, tid, sys_id, ctx, bpf_ktime_get_ns());
+    return 0;
+}
+
+// IMPACT: sendmmsg second-slot IN iov_base payloads are isolated to keep each verifier program small.
+SEC("tracepoint/raw_syscalls/sys_enter")
+int trace_sys_enter_sendmmsg_base1(struct trace_event_raw_sys_enter *ctx) {
+    u32 sys_id = (u32)ctx->id;
+    if (sys_id != SYS_SENDMMSG) return 0;
+
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+    if (!filter_pid) return 0;
+
+    u32 key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
+    if (!should_trace_syscall(sys_id, cfg)) return 0;
+
+    emit_sendmmsg_base1_enter_event_v2_direct(pid, tid, sys_id, ctx, bpf_ktime_get_ns());
+    return 0;
+}
+
 // IMPACT: Fixed non-leader thread execve exit detection. On successful execve (ret == 0), 
 // it looks up via pending_exec_map to find the original thread state, cleaning up the superseded thread.
 SEC("tracepoint/raw_syscalls/sys_exit")
@@ -846,6 +1054,15 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
         p = bpf_map_lookup_elem(&pending_syscalls, &tid);
     }
     if (!p) return 0;
+
+    // IMPACT: read-side iov_base payload capture is split out to keep generic exit under verifier limits.
+    if (is_iovec_base_exit_direct_syscall(p->sys_id)) {
+        return 0;
+    }
+    // IMPACT: msg/mmsg OUT payload capture is split out to keep generic exit under verifier limits.
+    if (is_msg_direct_syscall(p->sys_id)) {
+        return 0;
+    }
 
     // IMPACT: direct exits no longer rebuild a bpf_event from pending metadata before ringbuf output.
     if (is_sys_exit_direct_syscall(p->sys_id)) {
@@ -902,6 +1119,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             emit_select_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_epoll_wait_direct_syscall(p->sys_id) && ret_value > 0) {
             emit_epoll_wait_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_getdents64_direct_syscall(p->sys_id) && ret_value > 0) {
+            emit_getdents64_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
             emit_exec_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_xattr_get_direct_syscall(p->sys_id) && ret_value > 0) {
@@ -954,6 +1173,172 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
         bpf_map_delete_elem(&main_exited_map, &pid);
         bpf_map_delete_elem(&pending_syscalls, &pid);
     }
+    return 0;
+}
+
+// IMPACT: read-side local OUT iov_base capture lives in its own exit tracepoint program.
+SEC("tracepoint/raw_syscalls/sys_exit")
+int trace_sys_exit_iovec_base(struct trace_event_raw_sys_exit *ctx) {
+    if (!is_iovec_base_exit_direct_syscall((u32)ctx->id)) return 0;
+    s64 ret_value = ctx->ret;
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+
+    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
+    if (!p) return 0;
+    if (!is_iovec_base_exit_direct_syscall(p->sys_id)) return 0;
+
+    u64 duration = 0;
+    if (p->enter_time > 0) {
+        u64 exit_time = bpf_ktime_get_ns();
+        if (exit_time > p->enter_time) {
+            duration = exit_time - p->enter_time;
+        }
+    }
+
+    if (ret_value > 0) {
+        emit_iovec_base_exit_event_v2_direct(p, ret_value, duration);
+    } else {
+        emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
+    }
+    bpf_map_delete_elem(&pending_syscalls, &tid);
+    return 0;
+}
+
+// IMPACT: msg/mmsg OUT payload capture lives in its own exit tracepoint program.
+SEC("tracepoint/raw_syscalls/sys_exit")
+int trace_sys_exit_msg(struct trace_event_raw_sys_exit *ctx) {
+    if (!is_single_msg_direct_syscall((u32)ctx->id)) return 0;
+    s64 ret_value = ctx->ret;
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+
+    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
+    if (!p) return 0;
+    if (!is_single_msg_direct_syscall(p->sys_id)) return 0;
+
+    u64 duration = 0;
+    if (p->enter_time > 0) {
+        u64 exit_time = bpf_ktime_get_ns();
+        if (exit_time > p->enter_time) {
+            duration = exit_time - p->enter_time;
+        }
+    }
+
+    emit_single_msg_exit_event_v2_direct(p, ret_value, duration);
+    bpf_map_delete_elem(&pending_syscalls, &tid);
+    return 0;
+}
+
+// IMPACT: recvmsg msg_name is copied from a kretprobe fragment so the nested OUT buffer is observed after __sys_recvmsg returns.
+SEC("kretprobe/__sys_recvmsg")
+int trace_kretprobe_recvmsg_name(struct pt_regs *ctx) {
+    s64 ret_value = (s64)BPF_CORE_READ(ctx, ax);
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+
+    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
+    if (!p) return 0;
+    if (p->sys_id != SYS_RECVMSG) return 0;
+
+    u64 duration = 0;
+    if (p->enter_time > 0) {
+        u64 exit_time = bpf_ktime_get_ns();
+        if (exit_time > p->enter_time) {
+            duration = exit_time - p->enter_time;
+        }
+    }
+
+    emit_recvmsg_name_exit_fragment_event_v2_direct(p, ret_value, duration);
+    return 0;
+}
+
+// IMPACT: recvmsg msg_control is copied from a separate kretprobe fragment to keep trace_sys_exit_msg under verifier limits.
+SEC("kretprobe/__sys_recvmsg")
+int trace_kretprobe_recvmsg_control(struct pt_regs *ctx) {
+    s64 ret_value = (s64)BPF_CORE_READ(ctx, ax);
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+
+    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
+    if (!p) return 0;
+    if (p->sys_id != SYS_RECVMSG) return 0;
+
+    u64 duration = 0;
+    if (p->enter_time > 0) {
+        u64 exit_time = bpf_ktime_get_ns();
+        if (exit_time > p->enter_time) {
+            duration = exit_time - p->enter_time;
+        }
+    }
+
+    emit_recvmsg_control_exit_fragment_event_v2_direct(p, ret_value, duration);
+    return 0;
+}
+
+// IMPACT: recvmmsg first-slot OUT iov_base payload is emitted as an exit fragment before final mmsg exit.
+SEC("tracepoint/raw_syscalls/sys_exit")
+int trace_sys_exit_recvmmsg_base0(struct trace_event_raw_sys_exit *ctx) {
+    if ((u32)ctx->id != SYS_RECVMMSG) return 0;
+    s64 ret_value = ctx->ret;
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+
+    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
+    if (!p) return 0;
+    if (p->sys_id != SYS_RECVMMSG) return 0;
+
+    u64 duration = 0;
+    if (p->enter_time > 0) {
+        u64 exit_time = bpf_ktime_get_ns();
+        if (exit_time > p->enter_time) {
+            duration = exit_time - p->enter_time;
+        }
+    }
+
+    emit_recvmmsg_base0_exit_fragment_event_v2_direct(p, ret_value, duration);
+    return 0;
+}
+
+// IMPACT: recvmmsg second-slot OUT iov_base payload is a separate fragment to keep verifier paths bounded.
+SEC("tracepoint/raw_syscalls/sys_exit")
+int trace_sys_exit_recvmmsg_base1(struct trace_event_raw_sys_exit *ctx) {
+    if ((u32)ctx->id != SYS_RECVMMSG) return 0;
+    s64 ret_value = ctx->ret;
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+
+    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
+    if (!p) return 0;
+    if (p->sys_id != SYS_RECVMMSG) return 0;
+
+    u64 duration = 0;
+    if (p->enter_time > 0) {
+        u64 exit_time = bpf_ktime_get_ns();
+        if (exit_time > p->enter_time) {
+            duration = exit_time - p->enter_time;
+        }
+    }
+
+    emit_recvmmsg_base1_exit_fragment_event_v2_direct(p, ret_value, duration);
+    return 0;
+}
+
+// IMPACT: mmsg final exit emits OUT mmsghdr metadata and consumes pending state after fragments.
+SEC("tracepoint/raw_syscalls/sys_exit")
+int trace_sys_exit_mmsg(struct trace_event_raw_sys_exit *ctx) {
+    if (!is_mmsg_direct_syscall((u32)ctx->id)) return 0;
+    s64 ret_value = ctx->ret;
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+
+    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
+    if (!p) return 0;
+    if (!is_mmsg_direct_syscall(p->sys_id)) return 0;
+
+    u64 duration = 0;
+    if (p->enter_time > 0) {
+        u64 exit_time = bpf_ktime_get_ns();
+        if (exit_time > p->enter_time) {
+            duration = exit_time - p->enter_time;
+        }
+    }
+
+    emit_mmsg_exit_event_v2_direct(p, ret_value, duration);
+    bpf_map_delete_elem(&pending_syscalls, &tid);
     return 0;
 }
 

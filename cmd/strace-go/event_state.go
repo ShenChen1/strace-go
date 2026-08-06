@@ -39,6 +39,7 @@ const (
 	traceStateSyscallExit traceStateEventKind = iota
 	traceStateSyscallEnter
 	traceStateLifecycle
+	traceStateSyscallFragment
 )
 
 type TraceStateUpdate struct {
@@ -85,6 +86,14 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 			payloadSections: envelope.payload,
 		}
 	}
+	if syscallView.isExitFragment() {
+		st.rememberExitFragment(syscallView, envelope.payload)
+		return TraceStateUpdate{
+			kind:            traceStateSyscallFragment,
+			syscallView:     syscallView,
+			payloadSections: envelope.payload,
+		}
+	}
 	return TraceStateUpdate{
 		kind:            traceStateSyscallExit,
 		syscallView:     syscallView,
@@ -101,9 +110,18 @@ func (view syscallEventView) isExit() bool {
 	return view.eventType == bpfEventTypeExit
 }
 
+func (view syscallEventView) isExitFragment() bool {
+	return view.isExit() && (view.eventFlags&bpfEventFlagExitFragment) != 0
+}
+
 func (st *TraceState) rememberEnterEvent(view syscallEventView, payload []handler.PayloadSection) {
 	if st.pendingSyscalls == nil {
 		st.pendingSyscalls = make(map[uint32]*pendingSyscallState)
+	}
+	if pending := st.pendingSyscalls[view.tid]; pending != nil && pending.sysID == view.sysID {
+		pending.genericEnterRaw = pending.genericEnterRaw || view.isGenericEnter()
+		pending.payloadSections = mergeEnterPayloadSections(pending.payloadSections, payload)
+		return
 	}
 	st.pendingSyscalls[view.tid] = &pendingSyscallState{
 		pid:             view.pid,
@@ -115,6 +133,32 @@ func (st *TraceState) rememberEnterEvent(view syscallEventView, payload []handle
 		genericEnterRaw: view.isGenericEnter(),
 		payloadSections: copyPayloadSections(payload),
 	}
+}
+
+func (st *TraceState) rememberExitFragment(view syscallEventView, payload []handler.PayloadSection) {
+	if st.pendingSyscalls == nil {
+		return
+	}
+	pending := st.pendingSyscalls[view.tid]
+	if pending == nil || pending.sysID != view.sysID {
+		return
+	}
+	pending.payloadSections = mergeEnterPayloadSections(pending.payloadSections, payload)
+}
+
+func mergeEnterPayloadSections(existing []handler.PayloadSection, next []handler.PayloadSection) []handler.PayloadSection {
+	merged := copyPayloadSections(existing)
+	for _, section := range next {
+		if hasEquivalentPayloadSection(merged, section) {
+			continue
+		}
+		copied := section
+		if len(section.Data) > 0 {
+			copied.Data = append([]byte(nil), section.Data...)
+		}
+		merged = append(merged, copied)
+	}
+	return merged
 }
 
 func copyPayloadSections(sections []handler.PayloadSection) []handler.PayloadSection {

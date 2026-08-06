@@ -94,16 +94,27 @@ func TestSyscallEventContextUpdateFDStateBuildsPayloadWithEffectiveMetadata(t *t
 	defer readEnd.Close()
 	defer writeEnd.Close()
 
-	raw := &bpfEvent{
-		Pid:          uint32(os.Getpid()),
-		Tid:          uint32(os.Getpid()),
-		EventType:    bpfEventTypeExit,
-		Ret:          0,
-		ProbeRetExit: 0,
-	}
-	setFDArrayExitTLVPayload(t, raw, 0, 0, uint32(readEnd.Fd()), uint32(writeEnd.Fd()))
+	fdData := fdArrayJSONData(uint32(readEnd.Fd()), uint32(writeEnd.Fd()))
 	store := newFDStateStoreFromMaps(make(map[string]string), nil)
-	ev := syscallEventContextFromRawForTest(raw, meta.Syscall{Name: "pipe"}, 101)
+	ev := syscallEventContext{
+		view: syscallEventView{
+			valid:        true,
+			tid:          uint32(os.Getpid()),
+			eventType:    bpfEventTypeExit,
+			ret:          0,
+			probeRetExit: 0,
+		},
+		statePID: 101,
+		payloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindStruct,
+			Direction: handler.PayloadDirectionOut,
+			ArgIndex:  0,
+			UserLen:   uint32(len(fdData)),
+			CopiedLen: uint32(len(fdData)),
+			ProbeRet:  0,
+			Data:      fdData,
+		}},
+	}
 	ev.handlerContext = &handler.Context{
 		ScMeta: meta.Syscall{Name: "pipe"},
 	}
@@ -117,6 +128,84 @@ func TestSyscallEventContextUpdateFDStateBuildsPayloadWithEffectiveMetadata(t *t
 	}
 	if store.paths[writeKey] == "" {
 		t.Fatalf("fd path %q missing after effective metadata payload update", writeKey)
+	}
+}
+
+func TestSyscallEventContextUpdateFDStateSkipsPipeWithoutPayload(t *testing.T) {
+	for _, name := range []string{"pipe", "pipe2"} {
+		t.Run(name, func(t *testing.T) {
+			store := newFDStateStoreFromMaps(make(map[string]string), nil)
+			ev := syscallEventContext{
+				view: syscallEventView{
+					valid:     true,
+					tid:       uint32(os.Getpid()),
+					eventType: bpfEventTypeExit,
+					ret:       0,
+				},
+				statePID: 101,
+				meta:     meta.Syscall{Name: name},
+			}
+
+			ev.updateFDState(store)
+
+			if len(store.paths) != 0 {
+				t.Fatalf("fd paths = %d, want 0 without fd array payload section", len(store.paths))
+			}
+		})
+	}
+}
+
+func TestSyscallEventContextUpdateFDStateSkipsPointerPathText(t *testing.T) {
+	store := newFDStateStoreFromMaps(make(map[string]string), nil)
+	ev := syscallEventContext{
+		view:     syscallEventView{valid: true, pid: 1234, tid: 1234, args: [6]uint64{rawAtFdcwd, 0x1000}, ret: 7},
+		statePID: 101,
+		meta:     meta.Syscall{Name: "openat"},
+		pathText: "0x1000",
+	}
+
+	ev.updateFDState(store)
+
+	if len(store.paths) != 0 {
+		t.Fatalf("fd paths = %d, want 0 without decoded path payload", len(store.paths))
+	}
+}
+
+func TestSyscallEventContextUpdateFDStateSkipsNetlinkWithoutPayload(t *testing.T) {
+	tests := []struct {
+		name          string
+		args          [6]uint64
+		probeRetEnter int32
+		probeRetExit  int32
+	}{
+		{name: "bind", args: [6]uint64{7, 0x3000, 8}, probeRetEnter: 0, probeRetExit: -1},
+		{name: "getsockname", args: [6]uint64{7, 0x3000, 0x4000}, probeRetEnter: -1, probeRetExit: 0},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := newFDStateStoreFromMaps(make(map[string]string), nil)
+			ev := syscallEventContext{
+				view: syscallEventView{
+					valid:         true,
+					pid:           1234,
+					tid:           1234,
+					args:          test.args,
+					eventType:     bpfEventTypeExit,
+					ret:           0,
+					probeRetEnter: test.probeRetEnter,
+					probeRetExit:  test.probeRetExit,
+				},
+				statePID: 101,
+				meta:     meta.Syscall{Name: test.name},
+			}
+
+			ev.updateFDState(store)
+
+			if len(store.paths) != 0 {
+				t.Fatalf("fd paths = %d, want 0 without netlink sockaddr payload section", len(store.paths))
+			}
+		})
 	}
 }
 

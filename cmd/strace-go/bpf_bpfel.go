@@ -74,12 +74,26 @@ type bpfSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfProgramSpecs struct {
-	TraceSchedProcessExec *ebpf.ProgramSpec `ebpf:"trace_sched_process_exec"`
-	TraceSchedProcessExit *ebpf.ProgramSpec `ebpf:"trace_sched_process_exit"`
-	TraceSchedProcessFork *ebpf.ProgramSpec `ebpf:"trace_sched_process_fork"`
-	TraceSchedProcessFree *ebpf.ProgramSpec `ebpf:"trace_sched_process_free"`
-	TraceSysEnter         *ebpf.ProgramSpec `ebpf:"trace_sys_enter"`
-	TraceSysExit          *ebpf.ProgramSpec `ebpf:"trace_sys_exit"`
+	TraceKretprobeRecvmsgControl *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_control"`
+	TraceKretprobeRecvmsgName    *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_name"`
+	TraceSchedProcessExec        *ebpf.ProgramSpec `ebpf:"trace_sched_process_exec"`
+	TraceSchedProcessExit        *ebpf.ProgramSpec `ebpf:"trace_sched_process_exit"`
+	TraceSchedProcessFork        *ebpf.ProgramSpec `ebpf:"trace_sched_process_fork"`
+	TraceSchedProcessFree        *ebpf.ProgramSpec `ebpf:"trace_sched_process_free"`
+	TraceSysEnter                *ebpf.ProgramSpec `ebpf:"trace_sys_enter"`
+	TraceSysEnterBpf             *ebpf.ProgramSpec `ebpf:"trace_sys_enter_bpf"`
+	TraceSysEnterIovecBase       *ebpf.ProgramSpec `ebpf:"trace_sys_enter_iovec_base"`
+	TraceSysEnterMmsg            *ebpf.ProgramSpec `ebpf:"trace_sys_enter_mmsg"`
+	TraceSysEnterMsg             *ebpf.ProgramSpec `ebpf:"trace_sys_enter_msg"`
+	TraceSysEnterSendmmsgBase0   *ebpf.ProgramSpec `ebpf:"trace_sys_enter_sendmmsg_base0"`
+	TraceSysEnterSendmmsgBase1   *ebpf.ProgramSpec `ebpf:"trace_sys_enter_sendmmsg_base1"`
+	TraceSysEnterSendmsgBase     *ebpf.ProgramSpec `ebpf:"trace_sys_enter_sendmsg_base"`
+	TraceSysExit                 *ebpf.ProgramSpec `ebpf:"trace_sys_exit"`
+	TraceSysExitIovecBase        *ebpf.ProgramSpec `ebpf:"trace_sys_exit_iovec_base"`
+	TraceSysExitMmsg             *ebpf.ProgramSpec `ebpf:"trace_sys_exit_mmsg"`
+	TraceSysExitMsg              *ebpf.ProgramSpec `ebpf:"trace_sys_exit_msg"`
+	TraceSysExitRecvmmsgBase0    *ebpf.ProgramSpec `ebpf:"trace_sys_exit_recvmmsg_base0"`
+	TraceSysExitRecvmmsgBase1    *ebpf.ProgramSpec `ebpf:"trace_sys_exit_recvmmsg_base1"`
 }
 
 // bpfMapSpecs contains maps before they are loaded into the kernel.
@@ -178,22 +192,50 @@ type bpfVariables struct {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfPrograms struct {
-	TraceSchedProcessExec *ebpf.Program `ebpf:"trace_sched_process_exec"`
-	TraceSchedProcessExit *ebpf.Program `ebpf:"trace_sched_process_exit"`
-	TraceSchedProcessFork *ebpf.Program `ebpf:"trace_sched_process_fork"`
-	TraceSchedProcessFree *ebpf.Program `ebpf:"trace_sched_process_free"`
-	TraceSysEnter         *ebpf.Program `ebpf:"trace_sys_enter"`
-	TraceSysExit          *ebpf.Program `ebpf:"trace_sys_exit"`
+	TraceKretprobeRecvmsgControl *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_control"`
+	TraceKretprobeRecvmsgName    *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_name"`
+	TraceSchedProcessExec        *ebpf.Program `ebpf:"trace_sched_process_exec"`
+	TraceSchedProcessExit        *ebpf.Program `ebpf:"trace_sched_process_exit"`
+	TraceSchedProcessFork        *ebpf.Program `ebpf:"trace_sched_process_fork"`
+	TraceSchedProcessFree        *ebpf.Program `ebpf:"trace_sched_process_free"`
+	TraceSysEnter                *ebpf.Program `ebpf:"trace_sys_enter"`
+	TraceSysEnterBpf             *ebpf.Program `ebpf:"trace_sys_enter_bpf"`
+	TraceSysEnterIovecBase       *ebpf.Program `ebpf:"trace_sys_enter_iovec_base"`
+	TraceSysEnterMmsg            *ebpf.Program `ebpf:"trace_sys_enter_mmsg"`
+	TraceSysEnterMsg             *ebpf.Program `ebpf:"trace_sys_enter_msg"`
+	TraceSysEnterSendmmsgBase0   *ebpf.Program `ebpf:"trace_sys_enter_sendmmsg_base0"`
+	TraceSysEnterSendmmsgBase1   *ebpf.Program `ebpf:"trace_sys_enter_sendmmsg_base1"`
+	TraceSysEnterSendmsgBase     *ebpf.Program `ebpf:"trace_sys_enter_sendmsg_base"`
+	TraceSysExit                 *ebpf.Program `ebpf:"trace_sys_exit"`
+	TraceSysExitIovecBase        *ebpf.Program `ebpf:"trace_sys_exit_iovec_base"`
+	TraceSysExitMmsg             *ebpf.Program `ebpf:"trace_sys_exit_mmsg"`
+	TraceSysExitMsg              *ebpf.Program `ebpf:"trace_sys_exit_msg"`
+	TraceSysExitRecvmmsgBase0    *ebpf.Program `ebpf:"trace_sys_exit_recvmmsg_base0"`
+	TraceSysExitRecvmmsgBase1    *ebpf.Program `ebpf:"trace_sys_exit_recvmmsg_base1"`
 }
 
 func (p *bpfPrograms) Close() error {
 	return _BpfClose(
+		p.TraceKretprobeRecvmsgControl,
+		p.TraceKretprobeRecvmsgName,
 		p.TraceSchedProcessExec,
 		p.TraceSchedProcessExit,
 		p.TraceSchedProcessFork,
 		p.TraceSchedProcessFree,
 		p.TraceSysEnter,
+		p.TraceSysEnterBpf,
+		p.TraceSysEnterIovecBase,
+		p.TraceSysEnterMmsg,
+		p.TraceSysEnterMsg,
+		p.TraceSysEnterSendmmsgBase0,
+		p.TraceSysEnterSendmmsgBase1,
+		p.TraceSysEnterSendmsgBase,
 		p.TraceSysExit,
+		p.TraceSysExitIovecBase,
+		p.TraceSysExitMmsg,
+		p.TraceSysExitMsg,
+		p.TraceSysExitRecvmmsgBase0,
+		p.TraceSysExitRecvmmsgBase1,
 	)
 }
 

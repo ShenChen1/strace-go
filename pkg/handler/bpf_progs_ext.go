@@ -8,6 +8,12 @@ import (
 	"strace-go/pkg/meta"
 )
 
+const (
+	bpfObjPathnamePayloadArg = 104
+	bpfRawTracepointNameArg  = 105
+	bpfBtfPayloadArg         = 106
+)
+
 // decodeBpfObjPin decodes BPF_OBJ_PIN / BPF_OBJ_GET.
 // Impact: Resolves pathname string and supports pathname fallback.
 func decodeBpfObjPin(ctx *Context, data []byte, size uint32) string {
@@ -17,6 +23,8 @@ func decodeBpfObjPin(ctx *Context, data []byte, size uint32) string {
 		pathAddr := u64OrZero(data, 0)
 		if pathAddr == 0 {
 			parts = append(parts, "pathname=NULL")
+		} else if path, ok := bpfNestedStringPayload(ctx, bpfObjPathnamePayloadArg, pathAddr, 0); ok {
+			parts = append(parts, "pathname="+path)
 		} else {
 			parts = append(parts, fmt.Sprintf("pathname=%#x", pathAddr))
 		}
@@ -155,11 +163,26 @@ func decodeBpfObjGetInfoByFd(ctx *Context, data []byte, size uint32) string {
 // Impact: Decodes next ID values from the BPF-captured attr payload.
 func decodeBpfGetNextId(ctx *Context, data []byte, size uint32) string {
 	parts := []string{}
-	parts = append(parts, fmt.Sprintf("start_id=%d", u32OrZero(data, 0)))
-	parts = append(parts, fmt.Sprintf("next_id=%d", u32OrZero(data, 4)))
+	parts = append(parts, fmt.Sprintf("start_id=%d", partialU32OrZero(data, 0)))
+	parts = append(parts, fmt.Sprintf("next_id=%d", partialU32OrZero(data, 4)))
 	decodedSize := 8
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
 	return "{" + strings.Join(parts, ", ") + extra + "}"
+}
+
+func partialU32OrZero(data []byte, off int) uint32 {
+	if len(data) <= off {
+		return 0
+	}
+	end := off + 4
+	if end > len(data) {
+		end = len(data)
+	}
+	var value uint32
+	for i, b := range data[off:end] {
+		value |= uint32(b) << (8 * uint(i))
+	}
+	return value
 }
 
 // decodeBpfGetFdById decodes BPF_PROG_GET_FD_BY_ID, etc.
@@ -308,6 +331,8 @@ func decodeBpfRawTracepointOpen(ctx *Context, data []byte, size uint32) string {
 	nameAddr := u64OrZero(data, 0)
 	if nameAddr == 0 {
 		parts = append(parts, "name=NULL")
+	} else if name, ok := bpfNestedStringPayload(ctx, bpfRawTracepointNameArg, nameAddr, bpfNestedStringLimit(ctx)); ok {
+		parts = append(parts, "name="+name)
 	} else {
 		parts = append(parts, fmt.Sprintf("name=%#x", nameAddr))
 	}
@@ -333,6 +358,8 @@ func decodeBpfBtfLoad(ctx *Context, data []byte, size uint32) string {
 	btfSize := u32OrZero(data, 16)
 	if btfAddr == 0 {
 		parts = append(parts, "btf=NULL")
+	} else if btf, ok := bpfNestedBytesPayload(ctx, bpfBtfPayloadArg, btfAddr, btfSize); ok {
+		parts = append(parts, "btf="+formatBtfData(btf))
 	} else {
 		parts = append(parts, fmt.Sprintf("btf=%#x", btfAddr))
 	}

@@ -19,8 +19,8 @@ func TestSyscallEventContextUsesAioSetupDirectTLVSection(t *testing.T) {
 		userLen: uint32(len(ctxData)),
 		data:    ctxData,
 	})
-	exitRaw := miscStructTLVEvent(t, "io_setup", bpfEventTypeExit, args, 0, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "io_setup", bpfEventTypeExit, args, 0, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
@@ -44,12 +44,11 @@ func TestSyscallEventContextMergesAioCancelDirectTLVSection(t *testing.T) {
 		userLen: uint32(len(iocbData)),
 		data:    iocbData,
 	})
-	enterRaw := miscStructTLVEvent(t, "io_cancel", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "io_cancel", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, "io_cancel", bpfEventTypeExit, args, -22, nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "io_cancel", bpfEventTypeExit, args, -22, nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
@@ -89,12 +88,11 @@ func TestSyscallEventContextMergesAioSubmitDirectTLVSections(t *testing.T) {
 		userLen: uint32(len(iocb1)),
 		data:    iocb1,
 	})...)
-	enterRaw := miscStructTLVEvent(t, "io_submit", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "io_submit", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
-	exitRaw := miscStructTLVEvent(t, "io_submit", bpfEventTypeExit, args, 2, nil)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "io_submit", bpfEventTypeExit, args, 2, nil)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
@@ -118,9 +116,8 @@ func TestSyscallEventContextMergesAioGeteventsDirectTLVSections(t *testing.T) {
 		userLen: uint32(len(timeout)),
 		data:    timeout,
 	})
-	enterRaw := miscStructTLVEvent(t, "io_getevents", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "io_getevents", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindStruct,
@@ -130,8 +127,8 @@ func TestSyscallEventContextMergesAioGeteventsDirectTLVSections(t *testing.T) {
 		userLen: uint32(len(events)),
 		data:    events,
 	})
-	exitRaw := miscStructTLVEvent(t, "io_getevents", bpfEventTypeExit, args, 1, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "io_getevents", bpfEventTypeExit, args, 1, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,
@@ -170,9 +167,8 @@ func TestSyscallEventContextMergesAioPgeteventsDirectTLVSections(t *testing.T) {
 		userLen: uint32(len(mask)),
 		data:    mask,
 	})...)
-	enterRaw := miscStructTLVEvent(t, "io_pgetevents", bpfEventTypeEnter, args, 0, enterPayload)
-	enterRaw.EventFlags |= bpfEventFlagGenericEnter
-	session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(enterRaw))
+	enterEnvelope := testTLVSyscallEnvelope(t, "io_pgetevents", bpfEventTypeEnter, args, 0, enterPayload)
+	session.traceState().handleEnvelope(enterEnvelope)
 
 	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindStruct,
@@ -182,8 +178,8 @@ func TestSyscallEventContextMergesAioPgeteventsDirectTLVSections(t *testing.T) {
 		userLen: uint32(len(events)),
 		data:    events,
 	})
-	exitRaw := miscStructTLVEvent(t, "io_pgetevents", bpfEventTypeExit, args, 1, exitPayload)
-	exitUpdate := session.traceState().handleEnvelope(newTraceEventEnvelopeFromBPF(exitRaw))
+	exitEnvelope := testTLVSyscallEnvelope(t, "io_pgetevents", bpfEventTypeExit, args, 1, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
 	ev := newSyscallEventContextFromView(
 		session,
 		exitUpdate.syscallView,

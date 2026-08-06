@@ -36,7 +36,7 @@ func TestSyscallJSONOutputEnterWritesRawInDebugMode(t *testing.T) {
 	state := newJSONOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON, DebugEvents: true})
 
 	state.output.HandleEnter(syscallEventContext{
-		view:     newSyscallEventViewFromBPF(&bpfEvent{}),
+		view:     syscallEventView{valid: true, eventType: bpfEventTypeEnter},
 		meta:     meta.Syscall{Name: "getpid"},
 		statePID: 101,
 	})
@@ -53,9 +53,7 @@ func TestSyscallJSONOutputEnterFilterUsesEventView(t *testing.T) {
 	opts.TraceFDs[5] = true
 	state := newJSONOutputTestState(opts)
 
-	raw := &bpfEvent{Args: [6]uint64{3}}
-	view := newSyscallEventViewFromBPF(raw)
-	view.args[0] = 5
+	view := syscallEventView{valid: true, eventType: bpfEventTypeEnter, args: [6]uint64{5}}
 	state.output.HandleEnter(syscallEventContext{
 		view:     view,
 		meta:     meta.Syscall{Name: "dup", Args: []string{"fd"}},
@@ -85,7 +83,7 @@ func TestSyscallJSONOutputDebugRawConsumesOnlyDebugJSON(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			state := newJSONOutputTestState(tt.opts)
 			got := state.output.HandleDebugRaw(syscallEventContext{
-				view: newSyscallEventViewFromBPF(&bpfEvent{}),
+				view: syscallEventView{valid: true, eventType: bpfEventTypeEnter},
 				meta: meta.Syscall{Name: "getpid"},
 			})
 			if got != tt.want {
@@ -116,7 +114,7 @@ func TestSyscallJSONOutputDebugRawUsesEventView(t *testing.T) {
 func TestSyscallJSONOutputDecodedAppliesStatusFilterButConsumesJSON(t *testing.T) {
 	state := newJSONOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON, FailedOnly: true})
 	ev := syscallEventContext{
-		view:           newSyscallEventViewFromBPF(&bpfEvent{Ret: 101}),
+		view:           syscallEventView{valid: true, eventType: bpfEventTypeExit, ret: 101},
 		meta:           meta.Syscall{Name: "getpid"},
 		handlerContext: &handler.Context{},
 	}
@@ -129,7 +127,7 @@ func TestSyscallJSONOutputDecodedAppliesStatusFilterButConsumesJSON(t *testing.T
 	}
 
 	failed := syscallEventContext{
-		view:           newSyscallEventViewFromBPF(&bpfEvent{Ret: -2}),
+		view:           syscallEventView{valid: true, eventType: bpfEventTypeExit, ret: -2},
 		meta:           meta.Syscall{Name: "getpid"},
 		handlerContext: &handler.Context{},
 	}

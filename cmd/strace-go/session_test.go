@@ -1,10 +1,14 @@
 package main
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -68,6 +72,32 @@ func TestProductSourceHasNoRuntimePtraceOrProcmemDependency(t *testing.T) {
 		for _, token := range forbidden {
 			if strings.Contains(src, token) {
 				t.Fatalf("%s contains forbidden runtime memory dependency token %q", path, token)
+			}
+		}
+	}
+}
+
+func TestProductProcfsReferencesStayMetadataOnly(t *testing.T) {
+	allowed := map[string]bool{
+		"/proc/":             true,
+		"/proc/%d/cwd":       true,
+		"/proc/%d/fd":        true,
+		"/proc/%d/fd/%d":     true,
+		"/proc/%d/fd/%s":     true,
+		"/proc/%d/fdinfo/%d": true,
+		"/proc/%d/maps":      true,
+		"/proc/net/tcp":      true,
+		"/proc/net/tcp6":     true,
+		"/proc/net/udp":      true,
+		"/proc/net/udp6":     true,
+		"/proc/net/unix":     true,
+		"/proc/self/fd":      true,
+		"/proc/self/fd/%d":   true,
+	}
+	for _, path := range productGoFiles(t) {
+		for _, ref := range procfsStringLiterals(t, path) {
+			if !allowed[ref] {
+				t.Fatalf("%s contains non-metadata procfs reference %q", path, ref)
 			}
 		}
 	}
@@ -179,4 +209,29 @@ func productGoFiles(t *testing.T) []string {
 		}
 	}
 	return files
+}
+
+func procfsStringLiterals(t *testing.T, path string) []string {
+	t.Helper()
+	fileSet := token.NewFileSet()
+	file, err := parser.ParseFile(fileSet, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	var refs []string
+	ast.Inspect(file, func(node ast.Node) bool {
+		lit, ok := node.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return true
+		}
+		value, err := strconv.Unquote(lit.Value)
+		if err != nil {
+			t.Fatalf("unquote %s literal %q: %v", path, lit.Value, err)
+		}
+		if strings.Contains(value, "/proc/") {
+			refs = append(refs, value)
+		}
+		return true
+	})
+	return refs
 }

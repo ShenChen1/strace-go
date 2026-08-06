@@ -30,7 +30,7 @@ func TestFormatFdWithPathPrefersTrackedFDMap(t *testing.T) {
 func TestFormatFdWithPathTreatsMissingTrackedFDAsClosed(t *testing.T) {
 	ctx := &Context{
 		Pid:       202,
-		TargetPid: 101,
+		TargetPid: 0,
 		Opts: &cli.Options{
 			ShowPaths:     true,
 			ShowPathsMode: 1,
@@ -132,6 +132,23 @@ func TestDefaultHandlerDecodesFallocateMode(t *testing.T) {
 	want := "FALLOC_FL_KEEP_SIZE|FALLOC_FL_NO_HIDE_STALE|FALLOC_FL_ZERO_RANGE|FALLOC_FL_INSERT_RANGE|FALLOC_FL_UNSHARE_RANGE|0xdeadca00"
 	if got[1] != want {
 		t.Fatalf("fallocate mode = %q, want %q", got[1], want)
+	}
+}
+
+func TestDefaultHandlerDoesNotTreatUnsignedFDAsXlatInRawMode(t *testing.T) {
+	ctx := &Context{
+		Args: [6]uint64{0xffffffff},
+		ScMeta: meta.Syscall{
+			Name:     "read",
+			Args:     []string{"fd"},
+			ArgTypes: []string{"unsigned int"},
+		},
+		Opts: &cli.Options{XlatFormat: "raw"},
+	}
+
+	got := (&DefaultHandler{}).Handle(ctx).ArgParts
+	if got[0] != "-1" {
+		t.Fatalf("unsigned fd in raw xlat mode = %q, want -1", got[0])
 	}
 }
 

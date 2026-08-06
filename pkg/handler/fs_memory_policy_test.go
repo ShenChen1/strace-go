@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"encoding/binary"
 	"strings"
 	"testing"
 
@@ -262,12 +263,44 @@ func TestGetdentsDoesNotUseLegacyMemoryFallback(t *testing.T) {
 
 func TestGetdentsUsesPayloadBytesSection(t *testing.T) {
 	ctx := newGetdentsContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.Ret = int64(len(makeGetdents64Dirents(24, 32)))
 	ctx.PayloadSections = []PayloadSection{
-		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, UserPtr: 0x3000, ProbeRet: 0, Data: []byte("dirents")},
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, UserPtr: 0x3000, ProbeRet: 0, Data: makeGetdents64Dirents(24, 32)},
 	}
 
 	got := (&FsHandler{}).Handle(ctx)
-	if got.ArgParts[1] != "{...}" {
-		t.Fatalf("getdents dirent = %q, want formatted payload section", got.ArgParts[1])
+	if got.ArgParts[1] != "0x3000 /* 2 entries */" {
+		t.Fatalf("getdents dirent = %q, want formatted payload section count", got.ArgParts[1])
 	}
+}
+
+func TestGetdentsFormatsZeroEntriesWithoutPayloadSection(t *testing.T) {
+	ctx := newGetdentsContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.Ret = 0
+
+	got := (&FsHandler{}).Handle(ctx)
+	if got.ArgParts[1] != "0x3000 /* 0 entries */" {
+		t.Fatalf("getdents zero dirent = %q, want zero-entry pointer comment", got.ArgParts[1])
+	}
+}
+
+func TestGetdentsFormatsCountAsUnsignedInt(t *testing.T) {
+	ctx := newGetdentsContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.Ret = -1
+	ctx.Args = [6]uint64{uint64(^uint32(0)), 0, 0xdefaceddeadbeef}
+
+	got := (&FsHandler{}).Handle(ctx)
+	if got.ArgParts[1] != "NULL" || got.ArgParts[2] != "3735928559" {
+		t.Fatalf("getdents args = %#v, want NULL and low 32-bit count", got.ArgParts)
+	}
+}
+
+func makeGetdents64Dirents(reclens ...uint16) []byte {
+	var data []byte
+	for _, reclen := range reclens {
+		record := make([]byte, reclen)
+		binary.LittleEndian.PutUint16(record[16:18], reclen)
+		data = append(data, record...)
+	}
+	return data
 }
