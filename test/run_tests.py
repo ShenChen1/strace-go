@@ -9,6 +9,7 @@ import json
 import tempfile
 import time
 import base64
+import signal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from upstream_suites import MORE_TESTS, SMOKE_TESTS, UPSTREAM_REFERENCE_EXPECTED_FAILURES, UPSTREAM_REFERENCE_TESTS
@@ -591,10 +592,24 @@ def run_test(t):
     
     try:
         with os.fdopen(out_fd, 'w') as out_f, os.fdopen(err_fd, 'w') as err_f:
+            proc = subprocess.Popen(
+                [f"./{t}"],
+                cwd=TESTS_DIR,
+                stdin=subprocess.DEVNULL,
+                stdout=out_f,
+                stderr=err_f,
+                start_new_session=True,
+            )
             try:
-                res = subprocess.run([f"./{t}"], cwd=TESTS_DIR, stdin=subprocess.DEVNULL, stdout=out_f, stderr=err_f, timeout=30)
-                rc = res.returncode
+                rc = proc.wait(timeout=30)
             except subprocess.TimeoutExpired:
+                # Kill the whole test session (shell + sudo + strace-go) so
+                # hung tests do not leave orphaned tracers running.
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                proc.wait(timeout=5)
                 rc = 124
                 
         with open(out_path, 'r', errors='ignore') as f:
