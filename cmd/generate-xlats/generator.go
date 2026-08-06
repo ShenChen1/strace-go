@@ -69,7 +69,7 @@ func buildXlatTable(xlatDir string, name string, fileName string) xlatTableData 
 	content := readXlatInput(xlatDir, name, fileName)
 	cProg := newXlatCProgram(xlatDir, name)
 	for _, line := range strings.Split(string(content), "\n") {
-		parseXlatInputLine(line, &table, &cProg)
+		parseXlatInputLine(line, &table, cProg)
 	}
 	cProg.WriteString("\treturn 0;\n}\n")
 	if name == "open_resolve_flags" {
@@ -90,8 +90,8 @@ func readXlatInput(xlatDir string, name string, fileName string) []byte {
 	return content
 }
 
-func newXlatCProgram(xlatDir string, name string) strings.Builder {
-	cProg := strings.Builder{}
+func newXlatCProgram(xlatDir string, name string) *strings.Builder {
+	cProg := &strings.Builder{}
 	cProg.WriteString(xlatCIncludes)
 	if name == "resources" || name == "priorities" {
 		cProg.WriteString("#include <sys/resource.h>\n")
