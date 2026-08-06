@@ -33,6 +33,12 @@ UPSTREAM_REFERENCE_TESTS = [
     "getpid.gen.test",
     "openat.gen.test",
     "read-write.gen.test",
+    "recvmsg.gen.test",
+    "scm_credentials.gen.test",
+    "msg_control.gen.test",
+    "msg_name.gen.test",
+    "mmsg.gen.test",
+    "recvmmsg-timeout.gen.test",
     "execveat.gen.test",
     "fork-f.gen.test",
 ]

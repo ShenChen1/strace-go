@@ -259,6 +259,19 @@ def has_bytes_payload_section(events, syscall, arg_index, text):
             return text in payload_section_text(sec)
     return False
 
+def has_sendmsg_cmsg_section(events):
+    for ev in events:
+        if ev.get("syscall") != "sendmsg" or ev.get("event_type") != "enter":
+            continue
+        for sec in ev.get("payload_sections") or []:
+            if sec.get("kind") != "cmsg" or sec.get("direction") != "in":
+                continue
+            if sec.get("arg_index") != 1:
+                continue
+            data = payload_section_bytes(sec)
+            return sec.get("user_len", 0) >= 16 and sec.get("copied_len", 0) >= 16 and len(data) >= 16
+    return False
+
 def check_write_only_filter(fixture, failures):
     filter_res = run_strace_go_json(["-e", "trace=write", fixture], debug=True)
     filter_events = parse_json_events(filter_res.stderr)
@@ -291,7 +304,7 @@ def finish_ebpf_semantic(res, failures, events, enter_events, exit_events, lifec
     return 0
 
 def collect_semantic_events(fixture):
-    trace_set = "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,newfstatat,statfs,fstatfs,getcwd,readlink,readlinkat,pipe,pipe2,socketpair,uname,sysinfo,getrlimit,setrlimit,prlimit64,arch_prctl,get_robust_list,sendfile,copy_file_range,getitimer,setitimer,clock_settime,settimeofday,adjtimex,nanosleep,clock_nanosleep,futex,futex_wait,futex_waitv,futex_requeue,execve,exit,exit_group,clock_gettime,gettimeofday"
+    trace_set = "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,newfstatat,statfs,fstatfs,getcwd,readlink,readlinkat,pipe,pipe2,socketpair,uname,sysinfo,getrlimit,setrlimit,prlimit64,arch_prctl,get_robust_list,sendfile,copy_file_range,getitimer,setitimer,clock_settime,settimeofday,adjtimex,nanosleep,clock_nanosleep,futex,futex_wait,futex_waitv,futex_requeue,sendmsg,execve,exit,exit_group,clock_gettime,gettimeofday"
     res = run_strace_go_json(["-f", "-e", f"trace={trace_set}", fixture])
     events = parse_json_events(res.stderr)
     lifecycle_events = parse_lifecycle_events(res.stderr)
@@ -355,6 +368,7 @@ def run_ebpf_semantic(args):
     require("futex_wait" in names, failures, "futex_wait event missing")
     require("futex_waitv" in names, failures, "futex_waitv event missing")
     require("futex_requeue" in names, failures, "futex_requeue event missing")
+    require("sendmsg" in names, failures, "sendmsg event missing")
     require("clock_gettime" in names, failures, "clock_gettime event missing")
     require("gettimeofday" in names, failures, "gettimeofday event missing")
     require("execve" in names, failures, "child execve event missing; fork following may be broken")
@@ -449,6 +463,8 @@ def run_ebpf_semantic(args):
             failures, "futex_waitv IN timeout payload section missing from JSON event")
     require(has_struct_payload_section_with_direction(events, "futex_requeue", "enter", "in", 0, 48),
             failures, "futex_requeue IN waiters payload section missing from JSON event")
+    require(has_sendmsg_cmsg_section(events),
+            failures, "sendmsg IN cmsg payload section missing from JSON event")
     require(any(ev.get("syscall") == "write" for ev in enter_events), failures, "write enter event missing")
     require(any(ev.get("syscall") == "write" for ev in exit_events), failures, "write exit event missing")
     require(any(ev.get("syscall") == "read" for ev in enter_events), failures, "read enter event missing")

@@ -335,6 +335,36 @@ static int run_futex2_fixture(void)
 	return 0;
 }
 
+static int run_msg_control_fixture(void)
+{
+	char control[CMSG_SPACE(sizeof(int))];
+	memset(control, 0, sizeof(control));
+
+	struct msghdr msg;
+	memset(&msg, 0, sizeof(msg));
+	msg.msg_control = control;
+	msg.msg_controllen = sizeof(control);
+
+	struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+	if (!cmsg) {
+		fprintf(stderr, "missing cmsghdr\n");
+		return 110;
+	}
+	cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+	cmsg->cmsg_level = SOL_SOCKET;
+	cmsg->cmsg_type = SCM_RIGHTS;
+	int fd = -1;
+	memcpy(CMSG_DATA(cmsg), &fd, sizeof(fd));
+
+	errno = 0;
+	long rc = syscall(SYS_sendmsg, -1, &msg, 0);
+	if (rc != -1 || errno != EBADF) {
+		fprintf(stderr, "unexpected sendmsg control rc=%ld errno=%d\n", rc, errno);
+		return 111;
+	}
+	return 0;
+}
+
 static int run_semantic_fixture(void)
 {
 	char buf[32];
@@ -446,6 +476,10 @@ static int run_semantic_fixture(void)
 	int futex2_status = run_futex2_fixture();
 	if (futex2_status != 0) {
 		return futex2_status;
+	}
+	int msg_control_status = run_msg_control_fixture();
+	if (msg_control_status != 0) {
+		return msg_control_status;
 	}
 
 	char large[1024];
