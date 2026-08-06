@@ -52,6 +52,9 @@ func rawSyscallTracepointSpecs(objs *bpfObjects) []tracepointSpec {
 	return []tracepointSpec{
 		{program: objs.TraceSysEnter, category: "raw_syscalls", name: "sys_enter"},
 		{program: objs.TraceSysEnterBpf, category: "raw_syscalls", name: "sys_enter", label: "bpf"},
+		{program: objs.TraceSysEnterAio, category: "raw_syscalls", name: "sys_enter", label: "aio"},
+		{program: objs.TraceSysEnterAioIovec, category: "raw_syscalls", name: "sys_enter", label: "aio iovec"},
+		{program: objs.TraceSysEnterAioBuf, category: "raw_syscalls", name: "sys_enter", label: "aio buf"},
 		{program: objs.TraceSysEnterIovecBase, category: "raw_syscalls", name: "sys_enter", label: "iovec base"},
 		{program: objs.TraceSysEnterMsg, category: "raw_syscalls", name: "sys_enter", label: "msg"},
 		{program: objs.TraceSysEnterSendmsgBase, category: "raw_syscalls", name: "sys_enter", label: "sendmsg base"},

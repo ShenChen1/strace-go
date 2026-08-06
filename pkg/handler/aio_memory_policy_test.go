@@ -209,7 +209,7 @@ func TestAioBufferDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	decoder := event.NewDecoder()
 	ctx := newAioPolicyContext(reader, decoder)
 
-	got := (&AioHandler{}).formatAioBuf(ctx, 1, 0x3000, 3)
+	got := (&AioHandler{}).formatAioBuf(ctx, -1, 1, 0x3000, 3)
 	if got != "0x3000" {
 		t.Fatalf("formatAioBuf() = %q, want pointer fallback", got)
 	}
@@ -225,7 +225,7 @@ func TestAioIovecDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	decoder := event.NewDecoder()
 	ctx := newAioPolicyContext(reader, decoder)
 
-	got := (&AioHandler{}).formatAioBuf(ctx, 7, 0x3000, 1)
+	got := (&AioHandler{}).formatAioBuf(ctx, -1, 7, 0x3000, 1)
 	if got != "0x3000" {
 		t.Fatalf("formatAioBuf() = %q, want pointer fallback", got)
 	}

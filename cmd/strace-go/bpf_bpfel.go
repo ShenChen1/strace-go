@@ -81,6 +81,9 @@ type bpfProgramSpecs struct {
 	TraceSchedProcessFork        *ebpf.ProgramSpec `ebpf:"trace_sched_process_fork"`
 	TraceSchedProcessFree        *ebpf.ProgramSpec `ebpf:"trace_sched_process_free"`
 	TraceSysEnter                *ebpf.ProgramSpec `ebpf:"trace_sys_enter"`
+	TraceSysEnterAio             *ebpf.ProgramSpec `ebpf:"trace_sys_enter_aio"`
+	TraceSysEnterAioBuf          *ebpf.ProgramSpec `ebpf:"trace_sys_enter_aio_buf"`
+	TraceSysEnterAioIovec        *ebpf.ProgramSpec `ebpf:"trace_sys_enter_aio_iovec"`
 	TraceSysEnterBpf             *ebpf.ProgramSpec `ebpf:"trace_sys_enter_bpf"`
 	TraceSysEnterIovecBase       *ebpf.ProgramSpec `ebpf:"trace_sys_enter_iovec_base"`
 	TraceSysEnterMmsg            *ebpf.ProgramSpec `ebpf:"trace_sys_enter_mmsg"`
@@ -202,6 +205,9 @@ type bpfPrograms struct {
 	TraceSchedProcessFork        *ebpf.Program `ebpf:"trace_sched_process_fork"`
 	TraceSchedProcessFree        *ebpf.Program `ebpf:"trace_sched_process_free"`
 	TraceSysEnter                *ebpf.Program `ebpf:"trace_sys_enter"`
+	TraceSysEnterAio             *ebpf.Program `ebpf:"trace_sys_enter_aio"`
+	TraceSysEnterAioBuf          *ebpf.Program `ebpf:"trace_sys_enter_aio_buf"`
+	TraceSysEnterAioIovec        *ebpf.Program `ebpf:"trace_sys_enter_aio_iovec"`
 	TraceSysEnterBpf             *ebpf.Program `ebpf:"trace_sys_enter_bpf"`
 	TraceSysEnterIovecBase       *ebpf.Program `ebpf:"trace_sys_enter_iovec_base"`
 	TraceSysEnterMmsg            *ebpf.Program `ebpf:"trace_sys_enter_mmsg"`
@@ -226,6 +232,9 @@ func (p *bpfPrograms) Close() error {
 		p.TraceSchedProcessFork,
 		p.TraceSchedProcessFree,
 		p.TraceSysEnter,
+		p.TraceSysEnterAio,
+		p.TraceSysEnterAioBuf,
+		p.TraceSysEnterAioIovec,
 		p.TraceSysEnterBpf,
 		p.TraceSysEnterIovecBase,
 		p.TraceSysEnterMmsg,

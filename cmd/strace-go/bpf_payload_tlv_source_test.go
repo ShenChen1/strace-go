@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -467,6 +468,25 @@ func TestBPFFDStateTrackingGate(t *testing.T) {
 	} {
 		if !strings.Contains(src.straceSource, snippet) {
 			t.Fatalf("BPF source missing next-fork arm snippet %q", snippet)
+		}
+	}
+}
+
+func TestBPFAioSubmitNestedCaptureGate(t *testing.T) {
+	src := loadBPFSources(t)
+	aioHeader := readTextFile(t, filepath.Join(repoRootForTest(t), "bpf/syscall_aio_direct_event_v2.h"))
+	for _, snippet := range []string{
+		"trace_sys_enter_aio",
+		"trace_sys_enter_aio_iovec",
+		"trace_sys_enter_aio_buf",
+		"AIO_SUBMIT_DIRECT_NESTED_IOCB_MAX",
+		"AIO_SUBMIT_DIRECT_BUF_ARG_BASE 60",
+		"capture_aio_submit_iocb_iovec_tlv_direct(",
+		"capture_aio_submit_iocb_buf_tlv_direct(",
+		"PAYLOAD_TLV_KIND_IOVEC",
+	} {
+		if !strings.Contains(src.straceSource, snippet) && !strings.Contains(aioHeader, snippet) {
+			t.Fatalf("AIO nested capture missing snippet %q", snippet)
 		}
 	}
 }

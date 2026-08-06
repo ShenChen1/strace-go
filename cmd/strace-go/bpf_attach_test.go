@@ -7,6 +7,9 @@ func TestRawSyscallTracepointSpecsAreRequired(t *testing.T) {
 	wantPairs := map[string]bool{
 		"sys_enter:trace_sys_enter":                true,
 		"sys_enter:trace_sys_enter_bpf":            true,
+		"sys_enter:trace_sys_enter_aio":            true,
+		"sys_enter:trace_sys_enter_aio_iovec":      true,
+		"sys_enter:trace_sys_enter_aio_buf":        true,
 		"sys_enter:trace_sys_enter_iovec_base":     true,
 		"sys_enter:trace_sys_enter_msg":            true,
 		"sys_enter:trace_sys_enter_sendmsg_base":   true,

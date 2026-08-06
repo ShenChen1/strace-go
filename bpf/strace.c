@@ -817,6 +817,11 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     }
 
     // IMPACT: AIO direct syscalls emit bounded TLV sections without the fixed-window carrier.
+    // IMPACT: io_submit's iocb/iovec capture lives in trace_sys_enter_aio to
+    // keep the generic dispatcher within verifier limits.
+    if (sys_id == SYS_IO_SUBMIT) {
+        return 0;
+    }
     if (is_aio_direct_syscall(sys_id)) {
         emit_aio_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
@@ -900,6 +905,83 @@ int trace_sys_enter_bpf(struct trace_event_raw_sys_enter *ctx) {
 
     emit_bpf_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+    return 0;
+}
+
+// IMPACT: io_submit iocb array and nested iovec capture lives in its own
+// tracepoint program to keep the generic dispatcher within verifier limits.
+SEC("tracepoint/raw_syscalls/sys_enter")
+int trace_sys_enter_aio(struct trace_event_raw_sys_enter *ctx) {
+    u32 sys_id = (u32)ctx->id;
+    if (sys_id != SYS_IO_SUBMIT) return 0;
+
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+    if (!filter_pid) return 0;
+
+    u32 key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
+    if (!should_trace_syscall(sys_id, cfg)) return 0;
+
+    u64 enter_time = bpf_ktime_get_ns();
+    s32 stack_id = -1;
+    if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
+        stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
+    }
+
+    emit_aio_submit_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+    save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+    return 0;
+}
+
+// IMPACT: PREADV/PWRITEV iocb nested iovec capture is split out so neither the
+// generic dispatcher nor the aio iocb program exceeds verifier limits.
+SEC("tracepoint/raw_syscalls/sys_enter")
+int trace_sys_enter_aio_iovec(struct trace_event_raw_sys_enter *ctx) {
+    u32 sys_id = (u32)ctx->id;
+    if (sys_id != SYS_IO_SUBMIT) return 0;
+
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+    if (!filter_pid) return 0;
+
+    u32 key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
+    if (!should_trace_syscall(sys_id, cfg)) return 0;
+
+    emit_aio_submit_iovec_enter_event_v2_direct(
+        pid,
+        tid,
+        sys_id,
+        ctx,
+        bpf_ktime_get_ns());
+    return 0;
+}
+
+// IMPACT: PWRITE iocb data buffer prefixes are captured by their own program
+// so neither the aio iocb capture nor the nested iovec capture exceeds limits.
+SEC("tracepoint/raw_syscalls/sys_enter")
+int trace_sys_enter_aio_buf(struct trace_event_raw_sys_enter *ctx) {
+    u32 sys_id = (u32)ctx->id;
+    if (sys_id != SYS_IO_SUBMIT) return 0;
+
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+    if (!filter_pid) return 0;
+
+    u32 key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
+    if (!should_trace_syscall(sys_id, cfg)) return 0;
+
+    emit_aio_submit_buf_enter_event_v2_direct(
+        pid,
+        tid,
+        sys_id,
+        ctx,
+        bpf_ktime_get_ns());
     return 0;
 }
 

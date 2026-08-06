@@ -23,6 +23,10 @@ type AioHandler struct{}
 const (
 	// AioSubmitIocbPayloadArgBase identifies synthetic payload sections for io_submit iocb entries.
 	AioSubmitIocbPayloadArgBase = 20
+	// AioSubmitIovecPayloadArgBase identifies synthetic iovec array sections for PREADV/PWRITEV iocbs.
+	AioSubmitIovecPayloadArgBase = 40
+	// AioSubmitBufPayloadArgBase identifies synthetic data buffer sections for PWRITE iocbs.
+	AioSubmitBufPayloadArgBase = 60
 
 	aioIocbSize       = 64
 	aioSetupOutSize   = 8
@@ -113,8 +117,9 @@ func (h *AioHandler) formatIoSubmit(ctx *Context, res *Result) {
 		}
 
 		if idata, ok := aioIocbSnapshot(ctx, i); ok {
+			index := i
 			parts = append(parts, format.Iocb(idata, ctx.Opts.Verbose, func(opcode uint16, buf uint64, nbytes uint64) string {
-				return h.formatAioBuf(ctx, opcode, buf, nbytes)
+				return h.formatAioBuf(ctx, index, opcode, buf, nbytes)
 			}))
 		} else {
 			parts = append(parts, fmt.Sprintf("%#x", p))
@@ -158,7 +163,7 @@ func aioSubmitPointerArraySnapshot(ctx *Context, count int) ([]byte, bool) {
 }
 
 func aioIocbSnapshot(ctx *Context, index int) ([]byte, bool) {
-	if index < 0 || index >= 2 {
+	if index < 0 || index >= 6 {
 		return nil, false
 	}
 	if data, ok := ctx.PayloadStruct(AioSubmitIocbPayloadArgBase+index, PayloadDirectionIn); ok && !aioAllBytesZero(data) {
@@ -167,12 +172,22 @@ func aioIocbSnapshot(ctx *Context, index int) ([]byte, bool) {
 	return nil, false
 }
 
-func (h *AioHandler) formatAioBuf(ctx *Context, opcode uint16, buf uint64, nbytes uint64) string {
+func (h *AioHandler) formatAioBuf(ctx *Context, iocbIndex int, opcode uint16, buf uint64, nbytes uint64) string {
 	if buf == 0 {
 		if opcode == 7 || opcode == 8 {
 			return "NULL"
 		} else {
 			return "0"
+		}
+	}
+	if opcode == 7 || opcode == 8 {
+		if data, ok := ctx.PayloadIovec(AioSubmitIovecPayloadArgBase+iocbIndex, PayloadDirectionIn); ok {
+			return format.IovecArray(data, int(nbytes))
+		}
+	}
+	if opcode == 1 && iocbIndex >= 0 {
+		if data, ok := ctx.PayloadBytes(AioSubmitBufPayloadArgBase+iocbIndex, PayloadDirectionIn); ok && len(data) > 0 {
+			return format.BufferEscape(data, len(data), int(nbytes)+1, ctx.Decoder.HexEscapeMode)
 		}
 	}
 	return fmt.Sprintf("%#x", buf)
@@ -185,7 +200,7 @@ func (h *AioHandler) formatIoCancel(ctx *Context, res *Result) {
 	} else {
 		if data, ok := aioStructSnapshot(ctx, 1, PayloadDirectionIn, aioIocbSize); ok {
 			res.ArgParts = append(res.ArgParts, format.Iocb(data, ctx.Opts.Verbose, func(opcode uint16, buf uint64, nbytes uint64) string {
-				return h.formatAioBuf(ctx, opcode, buf, nbytes)
+				return h.formatAioBuf(ctx, -1, opcode, buf, nbytes)
 			}))
 		} else {
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[1]))
