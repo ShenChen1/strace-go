@@ -3,8 +3,15 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 )
+
+type goSyscallTableWriter struct{}
+
+func (goSyscallTableWriter) Write(path string, syscalls map[int]SyscallMeta) error {
+	return writeGoSyscallTable(path, syscalls)
+}
 
 func writeGoSyscallTable(path string, syscalls map[int]SyscallMeta) error {
 	var out strings.Builder
@@ -24,6 +31,15 @@ func writeGoSyscallTable(path string, syscalls map[int]SyscallMeta) error {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
+}
+
+func sortedKeys(m map[int]SyscallMeta) []int {
+	ids := make([]int, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	return ids
 }
 
 func formatStringSlice(s []string) string {

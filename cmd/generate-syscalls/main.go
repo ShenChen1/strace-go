@@ -1,9 +1,11 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"io"
 	"log"
-	"sort"
+	"os"
 )
 
 type SyscallMeta struct {
@@ -13,76 +15,85 @@ type SyscallMeta struct {
 	Flags    string
 }
 
+type syscallMapLoader interface {
+	Load() (map[int]SyscallMeta, error)
+}
+
+type syscallTableWriter interface {
+	Write(path string, syscalls map[int]SyscallMeta) error
+}
+
+type generatorCommand struct {
+	loader            syscallMapLoader
+	writer            syscallTableWriter
+	auditSource       btfSyscallSource
+	overrides         map[string]SyscallMeta
+	aliases           map[string]string
+	defaultOutputPath string
+}
+
 func main() {
-	syscalls, err := LoadSyscalls()
-	if err != nil {
-		log.Fatalf("failed to load syscalls: %v", err)
-	}
-
-	if err := writeGoSyscallTable("../../pkg/meta/syscall_table.go", syscalls); err != nil {
-		log.Fatalf("failed to write syscall_table.go: %v", err)
+	if err := runGenerateSyscalls(os.Args[1:], os.Stdout); err != nil {
+		log.Fatal(err)
 	}
 }
 
-func sortedKeys(m map[int]SyscallMeta) []int {
-	ids := make([]int, 0, len(m))
-	for id := range m {
-		ids = append(ids, id)
-	}
-	sort.Ints(ids)
-	return ids
+func runGenerateSyscalls(args []string, stdout io.Writer) error {
+	return newGeneratorCommand().Run(args, stdout)
 }
 
-func LoadSyscalls() (map[int]SyscallMeta, error) {
-	btf, err := loadBTFSyscalls()
+func newGeneratorCommand() generatorCommand {
+	return generatorCommand{
+		loader:      defaultSyscallMetadataLoader{},
+		writer:      goSyscallTableWriter{},
+		auditSource: kernelBTFSource{},
+		overrides:   manualOverrides,
+		aliases:     btfNameToSyscallent,
+	}
+}
+
+func (c generatorCommand) Run(args []string, stdout io.Writer) error {
+	flags := flag.NewFlagSet("generate-syscalls", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	auditOverrides := flags.Bool("audit-overrides", false, "print manual overrides already covered by BTF")
+	auditOverrideDetails := flags.Bool("audit-overrides-detail", false, "print detailed manual override audit rows")
+	outputPath := flags.String("output", c.defaultOutputPath, "generated syscall table output path")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *auditOverrideDetails {
+		return writeOverrideAuditDetail(stdout, c.auditSource, c.overrides, c.aliases)
+	}
+	if *auditOverrides {
+		return writeOverrideAudit(stdout, c.auditSource, c.overrides, c.aliases)
+	}
+
+	syscalls, err := c.loader.Load()
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("load syscalls: %w", err)
 	}
 
-	entries, err := parseSyscallent("../../strace-upstream/src/linux/x86_64/syscallent.h")
+	resolvedOutputPath, err := c.outputPath(*outputPath)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("resolve output path: %w", err)
 	}
-
-	res := make(map[int]SyscallMeta)
-	for _, ent := range entries {
-		// Priority 1: manual overrides
-		if m, ok := manualOverrides[ent.Name]; ok {
-			m.Flags = ent.Flags
-			res[ent.ID] = m
-			continue
-		}
-		// Priority 2: BTF
-		if meta, ok := btf[ent.Name]; ok {
-			meta.Flags = ent.Flags
-			res[ent.ID] = meta
-			continue
-		}
-		// Priority 3: btfNameToSyscallent mapping
-		found := false
-		for btfName, sentName := range btfNameToSyscallent {
-			if sentName == ent.Name {
-				if meta, ok := btf[btfName]; ok {
-					meta.Name = sentName
-					meta.Flags = ent.Flags
-					res[ent.ID] = meta
-					found = true
-					break
-				}
-			}
-		}
-		if found {
-			continue
-		}
-
-		// Fallback: dummy
-		dummyArgs := make([]string, ent.Argc)
-		dummyTypes := make([]string, ent.Argc)
-		for i := 0; i < ent.Argc; i++ {
-			dummyArgs[i] = fmt.Sprintf("arg%d", i)
-			dummyTypes[i] = "unsigned long"
-		}
-		res[ent.ID] = SyscallMeta{Name: ent.Name, Args: dummyArgs, ArgTypes: dummyTypes, Flags: ent.Flags}
+	writer := c.syscallTableWriter()
+	if err := writer.Write(resolvedOutputPath, syscalls); err != nil {
+		return fmt.Errorf("write syscall table: %w", err)
 	}
-	return res, nil
+	return nil
+}
+
+func (c generatorCommand) outputPath(path string) (string, error) {
+	if path != "" {
+		return path, nil
+	}
+	return resolveRepoPath(defaultSyscallTableRelPath)
+}
+
+func (c generatorCommand) syscallTableWriter() syscallTableWriter {
+	if c.writer != nil {
+		return c.writer
+	}
+	return goSyscallTableWriter{}
 }

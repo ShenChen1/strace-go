@@ -9,32 +9,85 @@ import (
 
 // loadBTFSyscalls extracts syscall signatures from kernel BTF.
 func loadBTFSyscalls() (map[string]SyscallMeta, error) {
+	types, err := loadKernelBTFTypes()
+	if err != nil {
+		return nil, err
+	}
+	return collectBTFSyscalls(types), nil
+}
+
+func loadBTFSyscallDiagnostics() (map[string]btfSyscallDiagnostic, error) {
+	dataset, err := loadBTFSyscallDataset()
+	if err != nil {
+		return nil, err
+	}
+	return dataset.Diagnostics, nil
+}
+
+func loadBTFSyscallDataset() (btfSyscallDataset, error) {
+	types, err := loadKernelBTFTypes()
+	if err != nil {
+		return btfSyscallDataset{}, err
+	}
+	return collectBTFSyscallDataset(types), nil
+}
+
+func loadKernelBTFTypes() ([]btf.Type, error) {
 	spec, err := btf.LoadKernelSpec()
 	if err != nil {
 		return nil, fmt.Errorf("load kernel BTF: %w", err)
 	}
 
-	result := make(map[string]SyscallMeta)
-	// Keep track of the source function name to handle priorities
-	sources := make(map[string]string)
-
+	var types []btf.Type
 	for typ, err := range spec.All() {
 		if err != nil {
 			return nil, fmt.Errorf("iterate BTF: %w", err)
 		}
+		types = append(types, typ)
+	}
+	return types, nil
+}
+
+type btfSyscallDataset struct {
+	Syscalls    map[string]SyscallMeta
+	Diagnostics map[string]btfSyscallDiagnostic
+}
+
+func collectBTFSyscallDataset(types []btf.Type) btfSyscallDataset {
+	syscalls := collectBTFSyscalls(types)
+	return btfSyscallDataset{
+		Syscalls:    syscalls,
+		Diagnostics: collectBTFSyscallDiagnostics(types, syscalls),
+	}
+}
+
+func collectBTFSyscalls(types []btf.Type) map[string]SyscallMeta {
+	result := make(map[string]SyscallMeta)
+	tracepointNames := make(map[string]bool)
+	for _, typ := range types {
+		st, ok := typ.(*btf.Struct)
+		if !ok {
+			continue
+		}
+		meta, ok := syscallMetaFromTracepointStruct(st)
+		if !ok {
+			continue
+		}
+		result[meta.Name] = meta
+		tracepointNames[meta.Name] = true
+	}
+
+	for _, typ := range types {
 		fn, ok := typ.(*btf.Func)
 		if !ok {
 			continue
 		}
 
-		var syscallName string
-		if strings.HasPrefix(fn.Name, "__x64_sys_") {
-			syscallName = strings.TrimPrefix(fn.Name, "__x64_sys_")
-		} else if strings.HasPrefix(fn.Name, "__do_sys_") {
-			syscallName = strings.TrimPrefix(fn.Name, "__do_sys_")
-		} else if strings.HasPrefix(fn.Name, "ksys_") {
-			syscallName = strings.TrimPrefix(fn.Name, "ksys_")
-		} else {
+		syscallName, ok := syscallNameFromBTFFunc(fn.Name)
+		if !ok {
+			continue
+		}
+		if tracepointNames[syscallName] {
 			continue
 		}
 
@@ -43,8 +96,7 @@ func loadBTFSyscalls() (map[string]SyscallMeta, error) {
 			continue
 		}
 
-		// Skip functions with only pt_regs or __unused param
-		if len(proto.Params) == 1 && (proto.Params[0].Name == "regs" || proto.Params[0].Name == "__unused" || proto.Params[0].Name == "unused") {
+		if hasOnlyWrapperParam(proto.Params) {
 			continue
 		}
 
@@ -53,18 +105,8 @@ func loadBTFSyscalls() (map[string]SyscallMeta, error) {
 			continue
 		}
 
-		// __do_sys_ usually has the best info, then __x64_sys_, then ksys_
-		// Actually, let's just pick the one with the most parameters if names are the same
-		if oldMeta, exists := result[syscallName]; exists {
-			if len(proto.Params) < len(oldMeta.Args) {
-				continue
-			}
-			// If same number of params, prioritize __do_sys_ over others
-			if len(proto.Params) == len(oldMeta.Args) {
-				if !strings.HasPrefix(fn.Name, "__do_sys_") {
-					continue
-				}
-			}
+		if oldMeta, exists := result[syscallName]; exists && !shouldUseBTFCandidate(oldMeta, fn.Name, len(proto.Params)) {
+			continue
 		}
 
 		args := make([]string, 0, len(proto.Params))
@@ -79,10 +121,141 @@ func loadBTFSyscalls() (map[string]SyscallMeta, error) {
 			Args:     args,
 			ArgTypes: argTypes,
 		}
-		sources[syscallName] = fn.Name
 	}
 
-	return result, nil
+	return result
+}
+
+type btfSyscallDiagnostic struct {
+	Function string
+	Reason   string
+}
+
+const btfDiagnosticPTRegsWrapperOnly = "pt_regs_wrapper_only"
+
+func collectBTFSyscallDiagnostics(types []btf.Type, usable map[string]SyscallMeta) map[string]btfSyscallDiagnostic {
+	diagnostics := make(map[string]btfSyscallDiagnostic)
+	for _, typ := range types {
+		fn, ok := typ.(*btf.Func)
+		if !ok {
+			continue
+		}
+		syscallName, ok := syscallNameFromBTFFunc(fn.Name)
+		if !ok {
+			continue
+		}
+		if _, ok := usable[syscallName]; ok {
+			continue
+		}
+		proto, ok := fn.Type.(*btf.FuncProto)
+		if !ok || !hasOnlyWrapperParam(proto.Params) {
+			continue
+		}
+		diagnostics[syscallName] = btfSyscallDiagnostic{
+			Function: fn.Name,
+			Reason:   btfDiagnosticPTRegsWrapperOnly,
+		}
+	}
+	return diagnostics
+}
+
+func hasOnlyWrapperParam(params []btf.FuncParam) bool {
+	if len(params) != 1 {
+		return false
+	}
+	switch params[0].Name {
+	case "regs", "__unused", "unused":
+		return true
+	default:
+		return false
+	}
+}
+
+func syscallMetaFromTracepointStruct(st *btf.Struct) (SyscallMeta, bool) {
+	name, ok := syscallNameFromTracepointStruct(st.Name)
+	if !ok {
+		return SyscallMeta{}, false
+	}
+	args := make([]string, 0, len(st.Members))
+	argTypes := make([]string, 0, len(st.Members))
+	for _, member := range st.Members {
+		if isTracepointHeaderMember(member.Name) {
+			continue
+		}
+		args = append(args, member.Name)
+		argTypes = append(argTypes, resolveType(member.Type))
+	}
+	if len(args) == 0 {
+		return SyscallMeta{}, false
+	}
+	return SyscallMeta{Name: name, Args: args, ArgTypes: argTypes}, true
+}
+
+func syscallNameFromTracepointStruct(name string) (string, bool) {
+	const prefix = "trace_event_raw_sys_enter_"
+	if !strings.HasPrefix(name, prefix) {
+		return "", false
+	}
+	syscallName := strings.TrimPrefix(name, prefix)
+	return syscallName, syscallName != ""
+}
+
+func isTracepointHeaderMember(name string) bool {
+	switch {
+	case name == "ent", name == "__syscall_nr", name == "__data":
+		return true
+	case strings.HasPrefix(name, "common_"):
+		return true
+	default:
+		return false
+	}
+}
+
+func syscallNameFromBTFFunc(name string) (string, bool) {
+	switch {
+	case strings.HasPrefix(name, "__x64_sys_"):
+		return strings.TrimPrefix(name, "__x64_sys_"), true
+	case strings.HasPrefix(name, "__do_sys_"):
+		return strings.TrimPrefix(name, "__do_sys_"), true
+	case strings.HasPrefix(name, "__sys_"):
+		syscallName := strings.TrimPrefix(name, "__sys_")
+		if internalSyscallBTFFuncs[syscallName] {
+			return syscallName, true
+		}
+		return "", false
+	case strings.HasPrefix(name, "ksys_"):
+		return strings.TrimPrefix(name, "ksys_"), true
+	default:
+		return "", false
+	}
+}
+
+var internalSyscallBTFFuncs = map[string]bool{
+	"accept4":     true,
+	"bind":        true,
+	"bpf":         true,
+	"connect":     true,
+	"getsockname": true,
+	"getsockopt":  true,
+	"listen":      true,
+	"recvfrom":    true,
+	"recvmsg":     true,
+	"sendmsg":     true,
+	"sendto":      true,
+	"setsockopt":  true,
+	"shutdown":    true,
+	"socket":      true,
+	"socketpair":  true,
+}
+
+func shouldUseBTFCandidate(existing SyscallMeta, candidateFunc string, candidateArgc int) bool {
+	if candidateArgc < len(existing.Args) {
+		return false
+	}
+	if candidateArgc == len(existing.Args) {
+		return strings.HasPrefix(candidateFunc, "__do_sys_")
+	}
+	return true
 }
 
 // resolveType converts a BTF type to a C-like type string.

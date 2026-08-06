@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,31 +27,41 @@ var syscallentRe = regexp.MustCompile(
 	`\[\s*(?:BASE_NR\s*\+\s*)?(\d+)\]\s*=\s*\{\s*(\d+),\s*([A-Za-z0-9_|]+),\s*SEN\(\w+\),\s*"(\w+)"`,
 )
 
+type syscallentParser struct{}
+
 func parseSyscallent(path string) ([]syscallentEntry, error) {
+	return syscallentParser{}.ParseFile(path)
+}
+
+func (p syscallentParser) ParseFile(path string) ([]syscallentEntry, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open syscallent.h: %w", err)
 	}
 	defer f.Close()
 
-	dir := filepath.Dir(path)
+	entries, err := p.Parse(f, filepath.Dir(path))
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return entries, nil
+}
+
+func (p syscallentParser) Parse(r io.Reader, dir string) ([]syscallentEntry, error) {
 	var entries []syscallentEntry
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if strings.HasPrefix(line, "#include \"") {
-			incFile := strings.Trim(line[len("#include \""):], "\"")
-			// Try relative to current file
-			incPath := filepath.Join(dir, incFile)
-			if _, err := os.Stat(incPath); err != nil {
-				// Try generic directory as fallback for syscallent-common.h
-				incPath = filepath.Join(dir, "..", "generic", incFile)
+			incPath, err := p.resolveInclude(dir, line)
+			if err != nil {
+				return nil, err
 			}
-			
-			subEntries, err := parseSyscallent(incPath)
-			if err == nil {
-				entries = append(entries, subEntries...)
+			subEntries, err := p.ParseFile(incPath)
+			if err != nil {
+				return nil, err
 			}
+			entries = append(entries, subEntries...)
 			continue
 		}
 
@@ -68,4 +79,18 @@ func parseSyscallent(path string) ([]syscallentEntry, error) {
 		})
 	}
 	return entries, scanner.Err()
+}
+
+func (syscallentParser) resolveInclude(dir string, line string) (string, error) {
+	incFile := strings.Trim(line[len("#include \""):], "\"")
+	candidates := []string{
+		filepath.Join(dir, incFile),
+		filepath.Join(dir, "..", "generic", incFile),
+	}
+	for _, candidate := range candidates {
+		if isFile(candidate) {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("resolve include %q from %s", incFile, dir)
 }
