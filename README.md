@@ -21,7 +21,8 @@ strace-go/
 │   ├── event/             # eBPF 事件解析、缓存同步与路径过滤
 │   ├── format/            # 常用系统调用数据结构（如 stat, timespec 等）的格式化解析器
 │   ├── handler/           # 基于注册表的特定系统调用解码器 (如 ioctl, epoll, network 等)
-│   └── meta/              # 自动生成的系统调用元数据与标志翻译表 (syscall_table.go, xlat_auto.go)
+│   ├── meta/              # 自动生成的系统调用元数据与标志翻译表 (syscall_table.go, xlat_auto.go)
+│   └── stacktrace/        # 用户态栈回溯解析（--stack-trace）
 ├── test/                  # 测试框架与批量集成测试脚本
 ├── strace-upstream/       # 官方 strace 源代码仓库 (Submodule, 用作测试对照和数据源)
 ├── build.sh               # 一键生成与构建脚本
@@ -94,7 +95,7 @@ graph TD
 
 #### 1. 系统依赖
 在编译前，请确保您的系统安装了以下组件：
-- Go 1.21 或更高版本
+- Go 1.24 或更高版本（go.mod 声明 `go 1.24.2`）
 - `clang` & `llvm`（用于编译 eBPF C 源码）
 - Linux 内核头文件：`linux-headers-$(uname -r)`
 - 较新的 Linux 内核版本（建议 >= 5.8，需完整支持 BPF Ring Buffer 和 BTF 机制）
@@ -106,7 +107,7 @@ cd cmd/strace-go
 sudo go generate ./...
 ```
 > [!TIP]
-> 运行成功后，会在 `pkg/meta/` 下自动生成 `syscall_table.go`，并在当前目录生成对应的 `bpf_bpfel.go` 和 `bpf_bpfel.o` 字节码。
+> 运行成功后，会在 `pkg/meta/` 下自动生成 `syscall_table.go`，并在当前目录生成 `bpf_bpfel.go` / `bpf_bpfeb.go`（bpf2go 把编译后的 ELF 字节码内嵌进 Go 源文件；`.o` 只是中间产物，不进入版本库）。
 
 #### 3. 编译与运行
 回到项目根目录并编译：
@@ -130,12 +131,15 @@ sudo ./strace-go <待追踪的命令或进程>
 #### 4. 运行测试
 测试采用纯 eBPF 语义门禁；upstream 测试只作为参考集。
 ```bash
+python3 test/run_tests.py --suite small --skip-build
+python3 test/run_tests.py --suite more --skip-build
 python3 test/run_tests.py --suite upstream-reference --skip-build
 python3 test/run_tests.py --suite ebpf-semantic --skip-build
 python3 test/run_tests.py --suite ebpf-perf --skip-build
 ```
+可用的 suite 有 `small`、`more`、`all`、`upstream-reference`、`ebpf-semantic`、`ebpf-perf`，也支持 `--filter <test>` 只跑单个用例。
 `upstream-reference` 仍使用 `strace-upstream/tests` 作为参考；`ebpf-semantic` 使用本仓库 fixture 和 JSON 事件做语义断言，不做字节级输出 diff。
-`upstream-reference` 中已知不属于纯 eBPF 契约的 upstream exact diff 会显示为 `XFAIL`，例如 `read-write.gen.test` 的大 payload hexdump；若这类测试意外通过会显示 `XPASS` 并使 runner 失败，提醒维护者更新 reference 契约。
+`upstream-reference` 与 `more` 中已知不属于纯 eBPF 契约的 upstream exact diff 会显示为 `XFAIL`，例如 `read-write.gen.test` 的大 payload hexdump（bounded snapshot 与 ptrace 大块 fetch 的语义差异）和 `strace-C.test`（上游 `-c` 汇总按 per-syscall CPU 时间计，eBPF 只能观测 wall-clock 时长）；若这类测试意外通过会显示 `XPASS` 并使 runner 失败，提醒维护者更新契约。
 
 ---
 
