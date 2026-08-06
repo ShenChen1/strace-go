@@ -47,6 +47,12 @@ UPSTREAM_REFERENCE_EXPECTED_FAILURES = {
     "read-write.gen.test": "bounded eBPF snapshot does not promise ptrace-sized read/write hexdump fetches",
 }
 
+# Known non-contract differences for the growing compatibility list.
+MORE_EXPECTED_FAILURES = {
+    "strace-C.test": "upstream -c summary counts per-syscall CPU time; eBPF only observes wall-clock duration",
+    "read-write.gen.test": "bounded eBPF snapshot does not promise ptrace-sized read/write hexdump fetches",
+}
+
 # Tests for the next feature we are tackling.
 # Add tests here when working on a new syscall or feature.
 MORE_TESTS = [

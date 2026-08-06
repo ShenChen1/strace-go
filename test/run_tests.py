@@ -12,7 +12,13 @@ import base64
 import signal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from upstream_suites import MORE_TESTS, SMOKE_TESTS, UPSTREAM_REFERENCE_EXPECTED_FAILURES, UPSTREAM_REFERENCE_TESTS
+from upstream_suites import (
+    MORE_EXPECTED_FAILURES,
+    MORE_TESTS,
+    SMOKE_TESTS,
+    UPSTREAM_REFERENCE_EXPECTED_FAILURES,
+    UPSTREAM_REFERENCE_TESTS,
+)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -585,6 +591,21 @@ def get_tests(suite):
 def run_test(t):
     bin_name = t.replace(".test", "").replace(".gen", "")
     subprocess.run(["make", bin_name], cwd=TESTS_DIR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if bin_name == "sleep-timing":
+        # The generated tests Makefile builds this helper via the builtin .c
+        # rule without the src/libtests flags, so compile it explicitly.
+        subprocess.run(
+            [
+                "gcc", "-g", "-O2", "-Wno-error",
+                "-I../src", "-I.",
+                "-isystem", "./bundled/linux/arch/x86/include/uapi",
+                "-isystem", "./bundled/linux/include/uapi",
+                "sleep-timing.c", "libtests.a", "-o", "sleep-timing",
+            ],
+            cwd=TESTS_DIR,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     import tempfile
     out_fd, out_path = tempfile.mkstemp()
@@ -631,6 +652,8 @@ def run_test(t):
 def expected_failures_for_suite(suite):
     if suite == "upstream-reference":
         return UPSTREAM_REFERENCE_EXPECTED_FAILURES
+    if suite == "more":
+        return MORE_EXPECTED_FAILURES
     return {}
 
 def classify_test_result(result, expected_failures):

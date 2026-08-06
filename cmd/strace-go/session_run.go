@@ -14,6 +14,7 @@ import (
 const traceEventPollInterval = 100 * time.Millisecond
 const traceExitLifecycleDrainGrace = 200 * time.Millisecond
 const traceExitDrainPollInterval = 10 * time.Millisecond
+const traceExitFallbackGrace = 100 * time.Millisecond
 
 type traceReadStatus uint8
 
@@ -29,6 +30,7 @@ type traceRunState struct {
 	attachExited   bool
 	attachPids     []int
 	nextAttachPoll time.Time
+	fallbackFlush  time.Time
 }
 
 type traceCommandExitResult struct {
@@ -81,8 +83,17 @@ func (st *traceRunState) collect(s *traceSession) {
 			s.exitStatusCoordinator().MarkExitedWithFallback(s.targetPid, s.commandExitFallbackLine(result))
 			st.commandExited = true
 			st.cmdDone = nil
+			// IMPACT: print the wait-derived exit line shortly after wait
+			// completes (once any lagging ringbuf exit event has been
+			// processed) instead of waiting for the end-of-run drain, so
+			// exit lines keep event-stream ordering.
+			st.fallbackFlush = time.Now().Add(traceExitFallbackGrace)
 		default:
 		}
+	}
+	if st.commandExited && !st.fallbackFlush.IsZero() && time.Now().After(st.fallbackFlush) {
+		st.fallbackFlush = time.Time{}
+		s.exitStatusCoordinator().FlushFallback(s.targetPid)
 	}
 	if st.attachExited || !st.shouldPollAttach() {
 		return

@@ -132,9 +132,9 @@ func buildRuntimeConfig(opts *cli.Options, bpfObjs *bpfObjects) (uint32, error) 
 	if shouldEmitGenericEnter(opts) {
 		cfgVal |= bpfConfigEmitEnter
 	}
-	if opts.EventFormat == cli.EventFormatJSON {
-		cfgVal |= bpfConfigEmitLifecycle
-	}
+	// IMPACT: lifecycle events always flow so task/fd state and attach exit
+	// status work in text mode too; JSON rendering is gated separately.
+	cfgVal |= bpfConfigEmitLifecycle
 	if len(opts.TracePaths) > 0 {
 		// IMPACT: -P filtering needs a deterministic fd -> path map; the BPF
 		// runtime keeps fd-state syscalls flowing under CONFIG_FD_STATE.

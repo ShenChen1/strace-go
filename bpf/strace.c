@@ -1511,14 +1511,23 @@ int trace_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx) {
 
 SEC("tracepoint/sched/sched_process_exit")
 int trace_sched_process_exit(struct trace_event_raw_sched_process_template *ctx) {
-    u32 pid = ctx->pid;
+    // IMPACT: sched_process_exit fires in the exiting task's context; read the
+    // pid/tgid directly instead of relying on the tracepoint struct layout.
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = (u32)(pid_tgid >> 32);
+    u32 tid = (u32)pid_tgid;
     u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
     if (!filter_pid) return 0;
 
     bpf_map_delete_elem(&pending_syscalls, &pid);
     bpf_map_delete_elem(&pending_exec_map, &pid);
     bpf_map_delete_elem(&main_exited_map, &pid);
-    emit_lifecycle_event(LIFECYCLE_EXIT, pid, pid, pid, 0, 0);
+    int exit_code = 0;
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    if (task) {
+        bpf_probe_read_kernel(&exit_code, sizeof(exit_code), &task->exit_code);
+    }
+    emit_lifecycle_event(LIFECYCLE_EXIT, pid, tid, exit_code, 0, 0);
     return 0;
 }
 
