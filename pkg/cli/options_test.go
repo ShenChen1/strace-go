@@ -22,6 +22,17 @@ func TestParseCombinedVerboseTraceFlag(t *testing.T) {
 	}
 }
 
+func TestParseTraceClassAndAliases(t *testing.T) {
+	opts := ParseArgs([]string{"-e", "trace=%process,rename", "/bin/true"})
+
+	if !opts.TraceSyscalls["execve"] {
+		t.Fatalf("process trace class did not include execve: %#v", opts.TraceSyscalls)
+	}
+	if !opts.TraceSyscalls["rename"] || !opts.TraceSyscalls["renameat"] || !opts.TraceSyscalls["renameat2"] {
+		t.Fatalf("rename aliases missing from trace set: %#v", opts.TraceSyscalls)
+	}
+}
+
 func TestParseTraceFDsLongFlag(t *testing.T) {
 	opts := ParseArgs([]string{"--trace-fds=0,9", "--trace=dup", "/bin/true"})
 
@@ -58,6 +69,42 @@ func TestParseFDSetsFromEFlagAlias(t *testing.T) {
 	}
 	if !opts.TraceSyscalls["dup2"] {
 		t.Fatal("trace syscall was not preserved after -e fd")
+	}
+}
+
+func TestParseReadWriteAllFDsFromEFlag(t *testing.T) {
+	opts := ParseArgs([]string{"-eread=all", "-e", "write=!none", "/bin/true"})
+
+	if !opts.TraceReadFD(0) || !opts.TraceReadFD(65535) {
+		t.Fatalf("TraceReadFD did not match all fds: %#v", opts.TraceReadFDs)
+	}
+	if !opts.TraceWriteFD(1) || !opts.TraceWriteFD(65536) {
+		t.Fatalf("TraceWriteFD did not match all fds: %#v", opts.TraceWriteFDs)
+	}
+	if !opts.TraceReadFDs[TraceAllFDs] || !opts.TraceWriteFDs[TraceAllFDs] {
+		t.Fatalf("all-fd sentinel missing: read=%#v write=%#v", opts.TraceReadFDs, opts.TraceWriteFDs)
+	}
+}
+
+func TestParseReadWriteNumericFDsFromEFlag(t *testing.T) {
+	opts := ParseArgs([]string{"-e", "read=0,5", "-ewrite=1,4", "/bin/true"})
+
+	if !opts.TraceReadFD(0) || !opts.TraceReadFD(5) || opts.TraceReadFD(6) {
+		t.Fatalf("TraceReadFD numeric set mismatch: %#v", opts.TraceReadFDs)
+	}
+	if !opts.TraceWriteFD(1) || !opts.TraceWriteFD(4) || opts.TraceWriteFD(5) {
+		t.Fatalf("TraceWriteFD numeric set mismatch: %#v", opts.TraceWriteFDs)
+	}
+}
+
+func TestParseReadWriteNegatedFDsFromEFlag(t *testing.T) {
+	opts := ParseArgs([]string{"-eread=none", "-ewrite=!all", "-eread=!0,1,2", "-ewrite=!0,1,2", "/bin/true"})
+
+	if opts.TraceReadFD(0) || opts.TraceReadFD(1) || opts.TraceReadFD(2) || !opts.TraceReadFD(65535) {
+		t.Fatalf("TraceReadFD negated set mismatch: negated=%v set=%#v", opts.TraceReadFDsNegated, opts.TraceReadFDs)
+	}
+	if opts.TraceWriteFD(0) || opts.TraceWriteFD(1) || opts.TraceWriteFD(2) || !opts.TraceWriteFD(65536) {
+		t.Fatalf("TraceWriteFD negated set mismatch: negated=%v set=%#v", opts.TraceWriteFDsNegated, opts.TraceWriteFDs)
 	}
 }
 

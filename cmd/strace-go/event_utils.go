@@ -251,7 +251,7 @@ func checkShouldPrintFromViewWithPayload(
 	matchedFD := matchTraceFDs(fds, opts)
 	requestedRW := false
 	for _, fd := range fds {
-		if (scMeta.Name == "read" && opts.TraceReadFDs[fd]) || (scMeta.Name == "write" && opts.TraceWriteFDs[fd]) {
+		if (scMeta.Name == "read" && opts.TraceReadFD(fd)) || (scMeta.Name == "write" && opts.TraceWriteFD(fd)) {
 			requestedRW = true
 			break
 		}

@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -13,20 +14,23 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func updateFDMapForTest(eventRaw *bpfEvent, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
+func updateFDMapForTest(
+	view syscallEventView,
+	scMeta meta.Syscall,
+	payloadSections []handler.PayloadSection,
+	pathText string,
+	targetPid int,
+	fdMap map[string]string,
+) {
 	store := newFDStateStoreFromMaps(fdMap, nil)
-	ev := syscallEventContextFromRawForTest(eventRaw, scMeta, targetPid)
-	ev.pathText = pathText
-	ev.updateFDState(store)
-}
-
-func syscallEventContextFromRawForTest(eventRaw *bpfEvent, scMeta meta.Syscall, targetPid int) syscallEventContext {
-	return syscallEventContext{
-		view:            newSyscallEventViewFromBPF(eventRaw),
+	ev := syscallEventContext{
+		view:            view,
 		statePID:        targetPid,
 		meta:            scMeta,
-		payloadSections: payloadSectionsForEvent(eventRaw, scMeta),
+		pathText:        pathText,
+		payloadSections: payloadSections,
 	}
+	ev.updateFDState(store)
 }
 
 func TestDup2FormatsArgsBeforeFDMapUpdateAndReturnAfter(t *testing.T) {
@@ -39,17 +43,13 @@ func TestDup2FormatsArgsBeforeFDMapUpdateAndReturnAfter(t *testing.T) {
 		Args:     []string{"oldfd", "newfd"},
 		ArgTypes: []string{"unsigned int", "unsigned int"},
 	}
-	eventRaw := &bpfEvent{
-		Pid:  101,
-		Tid:  101,
-		Args: [6]uint64{3, 4},
-		Ret:  4,
-	}
+	args := [6]uint64{3, 4}
+	ret := int64(4)
 	ctx := &handler.Context{
 		Pid:       101,
 		TargetPid: 101,
-		Args:      eventRaw.Args,
-		Ret:       eventRaw.Ret,
+		Args:      args,
+		Ret:       ret,
 		ScMeta:    sc,
 		Opts: &cli.Options{
 			ShowPaths:     true,
@@ -63,7 +63,7 @@ func TestDup2FormatsArgsBeforeFDMapUpdateAndReturnAfter(t *testing.T) {
 		t.Fatalf("dup2 args = %#v, want %#v", got, want)
 	}
 
-	updateFDMapForTest(eventRaw, sc, "", 101, fdMap)
+	updateFDMapForTest(syscallEventView{valid: true, pid: 101, tid: 101, args: args, ret: ret}, sc, nil, "", 101, fdMap)
 	if got := formatSyscallRet("dup2", 4, res, ctx); got != "4</dev/null>" {
 		t.Fatalf("dup2 return = %q, want %q", got, "4</dev/null>")
 	}
@@ -79,17 +79,12 @@ func TestUpdateFDMapUsesPipePayloadSection(t *testing.T) {
 
 	for _, name := range []string{"pipe", "pipe2"} {
 		t.Run(name, func(t *testing.T) {
-			eventRaw := &bpfEvent{
-				Pid:          uint32(os.Getpid()),
-				Tid:          uint32(os.Getpid()),
-				EventType:    bpfEventTypeExit,
-				Ret:          0,
-				ProbeRetExit: 0,
-			}
-			setFDArrayExitTLVPayload(t, eventRaw, 0, 0, uint32(readEnd.Fd()), uint32(writeEnd.Fd()))
+			fdData := fdArrayJSONData(uint32(readEnd.Fd()), uint32(writeEnd.Fd()))
+			sections := fdArrayPayloadSectionsForTest(0, fdData)
+			view := syscallEventView{valid: true, tid: uint32(os.Getpid()), eventType: bpfEventTypeExit, ret: 0}
 
 			fdMap := make(map[string]string)
-			updateFDMapForTest(eventRaw, meta.Syscall{Name: name}, "", 101, fdMap)
+			updateFDMapForTest(view, meta.Syscall{Name: name}, sections, "", 101, fdMap)
 
 			readKey := fmt.Sprintf("101:%d", int32(readEnd.Fd()))
 			writeKey := fmt.Sprintf("101:%d", int32(writeEnd.Fd()))
@@ -111,18 +106,18 @@ func TestUpdateFDMapUsesSocketpairPayloadSection(t *testing.T) {
 	defer syscall.Close(fds[0])
 	defer syscall.Close(fds[1])
 
-	eventRaw := &bpfEvent{
-		Pid:          uint32(os.Getpid()),
-		Tid:          uint32(os.Getpid()),
-		Args:         [6]uint64{syscall.AF_UNIX, syscall.SOCK_STREAM, 0, 0x2000},
-		EventType:    bpfEventTypeExit,
-		Ret:          0,
-		ProbeRetExit: 0,
+	fdData := fdArrayJSONData(uint32(fds[0]), uint32(fds[1]))
+	sections := fdArrayPayloadSectionsForTest(3, fdData)
+	view := syscallEventView{
+		valid:     true,
+		tid:       uint32(os.Getpid()),
+		args:      [6]uint64{syscall.AF_UNIX, syscall.SOCK_STREAM, 0, 0x2000},
+		eventType: bpfEventTypeExit,
+		ret:       0,
 	}
-	setFDArrayExitTLVPayload(t, eventRaw, 3, 0x2000, uint32(fds[0]), uint32(fds[1]))
 
 	fdMap := make(map[string]string)
-	updateFDMapForTest(eventRaw, meta.Syscall{Name: "socketpair"}, "", 101, fdMap)
+	updateFDMapForTest(view, meta.Syscall{Name: "socketpair"}, sections, "", 101, fdMap)
 
 	for _, fd := range fds {
 		key := fmt.Sprintf("101:%d", int32(fd))
@@ -143,7 +138,7 @@ func TestSyscallEventContextUpdateFDStateUsesViewForSocketpairInfo(t *testing.T)
 	fdData := make([]byte, fdArrayPayloadSize)
 	binary.LittleEndian.PutUint32(fdData, uint32(fds[0]))
 	binary.LittleEndian.PutUint32(fdData[4:], uint32(fds[1]))
-	rawView := newSyscallEventViewFromBPF(&bpfEvent{Args: [6]uint64{syscall.AF_NETLINK, syscall.SOCK_DGRAM, 4}})
+	rawView := syscallEventView{valid: true, args: [6]uint64{syscall.AF_NETLINK, syscall.SOCK_DGRAM, 4}}
 	view := syscallEventView{
 		valid:     true,
 		tid:       uint32(os.Getpid()),
@@ -186,12 +181,14 @@ func TestSyscallEventContextUpdateFDStateUsesViewForSocketpairInfo(t *testing.T)
 
 func TestUpdateFDMapSkipsSocketpairWithoutPayloadSection(t *testing.T) {
 	fdMap := make(map[string]string)
-	updateFDMapForTest(&bpfEvent{
-		Pid:  1234,
-		Tid:  1234,
-		Args: [6]uint64{syscall.AF_UNIX, syscall.SOCK_STREAM, 0, 0x2000},
-		Ret:  0,
-	}, meta.Syscall{Name: "socketpair"}, "", 101, fdMap)
+	view := syscallEventView{
+		valid: true,
+		pid:   1234,
+		tid:   1234,
+		args:  [6]uint64{syscall.AF_UNIX, syscall.SOCK_STREAM, 0, 0x2000},
+		ret:   0,
+	}
+	updateFDMapForTest(view, meta.Syscall{Name: "socketpair"}, nil, "", 101, fdMap)
 
 	if len(fdMap) != 0 {
 		t.Fatalf("fdMap entries = %d, want 0 without socketpair exit snapshot", len(fdMap))
@@ -200,13 +197,9 @@ func TestUpdateFDMapSkipsSocketpairWithoutPayloadSection(t *testing.T) {
 
 func TestUpdateFDMapUsesOpenatPayloadPathText(t *testing.T) {
 	fdMap := make(map[string]string)
-	eventRaw := &bpfEvent{
-		Pid: 1234,
-		Tid: 1234,
-		Ret: 7,
-	}
+	view := syscallEventView{valid: true, pid: 1234, tid: 1234, ret: 7}
 
-	updateFDMapForTest(eventRaw, meta.Syscall{Name: "openat"}, `"/tmp/section"`, 101, fdMap)
+	updateFDMapForTest(view, meta.Syscall{Name: "openat"}, nil, `"/tmp/section"`, 101, fdMap)
 	if got := fdMap["101:7"]; got != "/tmp/section" {
 		t.Fatalf("fdMap[101:7] = %q, want payload raw path", got)
 	}
@@ -241,19 +234,20 @@ func TestUpdateFDMapUsesNetlinkSockaddrPayloadSection(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			eventRaw := &bpfEvent{
-				Pid:           1234,
-				Tid:           1234,
-				Args:          test.args,
-				EventType:     test.eventType,
-				Ret:           0,
-				ProbeRetEnter: test.enterRet,
-				ProbeRetExit:  test.exitRet,
+			view := syscallEventView{
+				valid:         true,
+				pid:           1234,
+				tid:           1234,
+				args:          test.args,
+				eventType:     test.eventType,
+				ret:           0,
+				probeRetEnter: test.enterRet,
+				probeRetExit:  test.exitRet,
 			}
-			setNetlinkSockaddrTLVPayload(t, eventRaw, test.direction, test.args[1], 42)
+			sections := []handler.PayloadSection{netlinkSockaddrPayloadSectionForTest(test.direction, test.args[1], 42)}
 
 			fdMap := make(map[string]string)
-			updateFDMapForTest(eventRaw, meta.Syscall{Name: test.name}, "", 101, fdMap)
+			updateFDMapForTest(view, meta.Syscall{Name: test.name}, sections, "", 101, fdMap)
 
 			if got := fdMap["101:7"]; got != "NETLINK:[SOCK_DIAG:42]" {
 				t.Fatalf("fdMap[101:7] = %q, want NETLINK socket", got)
@@ -262,29 +256,36 @@ func TestUpdateFDMapUsesNetlinkSockaddrPayloadSection(t *testing.T) {
 	}
 }
 
-func setNetlinkSockaddrTLVPayload(
-	t *testing.T,
-	eventRaw *bpfEvent,
+func fdArrayPayloadSectionsForTest(argIndex int, data []byte) []handler.PayloadSection {
+	return []handler.PayloadSection{{
+		Kind:      handler.PayloadKindStruct,
+		Direction: handler.PayloadDirectionOut,
+		ArgIndex:  argIndex,
+		UserLen:   uint32(len(data)),
+		CopiedLen: uint32(len(data)),
+		ProbeRet:  0,
+		Data:      data,
+	}}
+}
+
+func netlinkSockaddrPayloadSectionForTest(
 	direction handler.PayloadDirection,
 	userPtr uint64,
 	netlinkPID uint32,
-) {
-	t.Helper()
+) handler.PayloadSection {
 	data := make([]byte, 8)
 	binary.LittleEndian.PutUint16(data[0:2], 16)
 	binary.LittleEndian.PutUint32(data[4:8], netlinkPID)
-	flags := uint16(0)
-	if direction == handler.PayloadDirectionOut {
-		flags = payloadTLVFlagDirectionOut
+	return handler.PayloadSection{
+		Kind:      handler.PayloadKindStruct,
+		Direction: direction,
+		ArgIndex:  1,
+		UserPtr:   userPtr,
+		UserLen:   uint32(len(data)),
+		CopiedLen: uint32(len(data)),
+		ProbeRet:  0,
+		Data:      data,
 	}
-	setJSONTestTLVPayload(t, eventRaw, payloadTLVTestSection{
-		kind:    payloadTLVKindStruct,
-		flags:   flags,
-		arg:     1,
-		userPtr: userPtr,
-		userLen: uint32(len(data)),
-		data:    data,
-	})
 }
 
 func TestSyscallEventContextUpdateFDStateUsesViewForNetlinkFD(t *testing.T) {
@@ -318,5 +319,29 @@ func TestSyscallEventContextUpdateFDStateUsesViewForNetlinkFD(t *testing.T) {
 	}
 	if got := fdMap["101:7"]; got != "" {
 		t.Fatalf("raw fd entry = %q, want empty", got)
+	}
+}
+
+func TestExpandTracePathSetKeepsRawAndRealpathVariants(t *testing.T) {
+	dir := t.TempDir()
+	sample := filepath.Join(dir, "stat.sample")
+	if err := os.WriteFile(sample, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write sample: %v", err)
+	}
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer os.Chdir(origWD)
+
+	expanded := expandTracePathSet(map[string]bool{"stat.sample": true})
+	if !expanded["stat.sample"] {
+		t.Fatal("raw relative -P entry must be kept")
+	}
+	if !expanded[sample] {
+		t.Fatalf("expanded set missing absolute realpath %q: %v", sample, expanded)
 	}
 }

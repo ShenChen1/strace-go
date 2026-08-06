@@ -8,8 +8,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"strace-go/pkg/meta"
 )
 
 const (
@@ -19,45 +17,47 @@ const (
 
 // Options holds all parsed command-line options.
 type Options struct {
-	CmdArgs             []string
-	AttachPids          []int
-	EventFormat         string
-	DebugEvents         bool
-	OutFile             string
-	AlignCol            int
-	StringLimit         int
-	HexEscapeMode       int // 0 = default, 1 = hex non-ascii (-x), 2 = hex all (-xx)
-	TraceSyscalls       map[string]bool
-	TracePaths          map[string]bool
-	TraceSyscallRegexps []*regexp.Regexp
-	TraceSetIsNegated   bool
-	TraceFDs            map[int32]bool
-	TraceFDsNegated     bool
-	TraceReadFDs        map[int32]bool
-	TraceWriteFDs       map[int32]bool
-	TraceStatus         map[string]bool
-	VerboseDisabled     map[string]bool
-	ShowPaths           bool
-	ShowPathsMode       int // 0 = none, 1 = -y, 2 = -yy
-	Verbose             bool
-	HelpRequested       bool
-	VersionRequested    bool
-	SummaryOnly         bool
-	SummaryAndPrint     bool
-	QuietExit           bool
-	QuietUnknownPid     bool
-	QuietThreadExecve   bool
-	FollowForks         bool
-	XlatFormat          string   // "raw", "abbrev", "verbose"
-	PrintTimeMode       int      // 0 = none, 1 = -t (HH:MM:SS), 2 = -tt (HH:MM:SS.UUUUUU), 3 = -ttt (UNIX.UUUUUU)
-	PrintRelativeTime   bool     // -r
-	PrintSyscallTime    bool     // -T
-	StackTrace          bool     // -k
-	SuccessfulOnly      bool     // -z
-	FailedOnly          bool     // -Z
-	EnvActions          []string // -E
-	OutAppendMode       bool
-	WallTime            bool // -w
+	CmdArgs              []string
+	AttachPids           []int
+	EventFormat          string
+	DebugEvents          bool
+	OutFile              string
+	AlignCol             int
+	StringLimit          int
+	HexEscapeMode        int // 0 = default, 1 = hex non-ascii (-x), 2 = hex all (-xx)
+	TraceSyscalls        map[string]bool
+	TracePaths           map[string]bool
+	TraceSyscallRegexps  []*regexp.Regexp
+	TraceSetIsNegated    bool
+	TraceFDs             map[int32]bool
+	TraceFDsNegated      bool
+	TraceReadFDs         map[int32]bool
+	TraceReadFDsNegated  bool
+	TraceWriteFDs        map[int32]bool
+	TraceWriteFDsNegated bool
+	TraceStatus          map[string]bool
+	VerboseDisabled      map[string]bool
+	ShowPaths            bool
+	ShowPathsMode        int // 0 = none, 1 = -y, 2 = -yy
+	Verbose              bool
+	HelpRequested        bool
+	VersionRequested     bool
+	SummaryOnly          bool
+	SummaryAndPrint      bool
+	QuietExit            bool
+	QuietUnknownPid      bool
+	QuietThreadExecve    bool
+	FollowForks          bool
+	XlatFormat           string   // "raw", "abbrev", "verbose"
+	PrintTimeMode        int      // 0 = none, 1 = -t (HH:MM:SS), 2 = -tt (HH:MM:SS.UUUUUU), 3 = -ttt (UNIX.UUUUUU)
+	PrintRelativeTime    bool     // -r
+	PrintSyscallTime     bool     // -T
+	StackTrace           bool     // -k
+	SuccessfulOnly       bool     // -z
+	FailedOnly           bool     // -Z
+	EnvActions           []string // -E
+	OutAppendMode        bool
+	WallTime             bool // -w
 }
 
 // IMPACT: ParseArgs parses strace-go command-line arguments and returns Options.
@@ -100,77 +100,6 @@ func ParseArgs(args []string) *Options {
 	}
 
 	return opts
-}
-
-// IMPACT: addSyscallTrace adds a syscall to the trace set, mapping aliases to actual names.
-func addSyscallTrace(opts *Options, s string) {
-	if strings.HasPrefix(s, "/") {
-		pattern := strings.TrimPrefix(s, "/")
-		if r, err := regexp.Compile(pattern); err == nil {
-			opts.TraceSyscallRegexps = append(opts.TraceSyscallRegexps, r)
-		}
-		return
-	}
-
-	var classFlag string
-	switch s {
-	case "file", "%file":
-		classFlag = "TF"
-	case "process", "%process":
-		classFlag = "TP"
-	case "network", "%network":
-		classFlag = "TN"
-	case "signal", "%signal":
-		classFlag = "TS"
-	case "ipc", "%ipc":
-		classFlag = "TI"
-	case "desc", "%desc":
-		classFlag = "TD"
-	case "memory", "%memory":
-		classFlag = "TM"
-	case "creds", "%creds":
-		classFlag = "TC"
-	case "stat", "%stat":
-		classFlag = "TST"
-	case "lstat", "%lstat":
-		classFlag = "TLST"
-	case "pure", "%pure":
-		classFlag = "TPU"
-	}
-	if classFlag != "" {
-		for _, sc := range meta.SyscallTable {
-			flags := strings.Split(sc.Flags, "|")
-			for _, f := range flags {
-				if f == classFlag {
-					opts.TraceSyscalls[sc.Name] = true
-					break
-				}
-			}
-		}
-		return
-	}
-
-	opts.TraceSyscalls[s] = true
-	switch s {
-	case "access":
-		opts.TraceSyscalls["faccessat"] = true
-		opts.TraceSyscalls["faccessat2"] = true
-	case "stat", "lstat":
-		opts.TraceSyscalls["newfstatat"] = true
-	case "chmod":
-		opts.TraceSyscalls["chmodat"] = true
-	case "mkdir":
-		opts.TraceSyscalls["mkdirat"] = true
-	case "rename":
-		opts.TraceSyscalls["renameat"] = true
-		opts.TraceSyscalls["renameat2"] = true
-	case "chdir":
-		opts.TraceSyscalls["fchdir"] = true
-	case "chown":
-		opts.TraceSyscalls["fchown"] = true
-		opts.TraceSyscalls["lchown"] = true
-		opts.TraceSyscalls["fchownat"] = true
-	}
 }
 
 // IMPACT: parseQuiet parses quiet flags like -q, -qq, -qqq, and --quiet.
@@ -400,97 +329,6 @@ func applyValueFlag(flag string, val string, opts *Options) {
 		if val != "execve" {
 			fmt.Fprintf(os.Stderr, "%s: Syscall '%s' for -b isn't supported\n", os.Args[0], val)
 			os.Exit(1)
-		}
-	}
-}
-
-// IMPACT: parseEFlag parses the -e flag parameter values.
-func parseEFlag(val string, opts *Options) {
-	if strings.HasPrefix(val, "trace=") {
-		val = strings.TrimPrefix(val, "trace=")
-	} else if strings.HasPrefix(val, "read=") {
-		for _, s := range strings.Split(strings.TrimPrefix(val, "read="), ",") {
-			var fd int32
-			if n, _ := fmt.Sscanf(s, "%d", &fd); n == 1 {
-				opts.TraceReadFDs[fd] = true
-			}
-		}
-		return
-	} else if strings.HasPrefix(val, "write=") {
-		for _, s := range strings.Split(strings.TrimPrefix(val, "write="), ",") {
-			var fd int32
-			if n, _ := fmt.Sscanf(s, "%d", &fd); n == 1 {
-				opts.TraceWriteFDs[fd] = true
-			}
-		}
-		return
-	} else if strings.HasPrefix(val, "trace-fds=") {
-		parseTraceFDSet(strings.TrimPrefix(val, "trace-fds="), opts)
-		return
-	} else if strings.HasPrefix(val, "trace-fd=") {
-		parseTraceFDSet(strings.TrimPrefix(val, "trace-fd="), opts)
-		return
-	} else if strings.HasPrefix(val, "fd=") {
-		parseTraceFDSet(strings.TrimPrefix(val, "fd="), opts)
-		return
-	} else if strings.HasPrefix(val, "status=") {
-		for _, s := range strings.Split(strings.TrimPrefix(val, "status="), ",") {
-			opts.TraceStatus[s] = true
-		}
-		return
-	} else if strings.HasPrefix(val, "verbose=") {
-		parseVerboseSet(strings.TrimPrefix(val, "verbose="), opts)
-		return
-	} else if strings.HasPrefix(val, "signal=") {
-		// parsed but not implemented yet
-		return
-	} else if strings.HasPrefix(val, "quiet=") {
-		for _, s := range strings.Split(strings.TrimPrefix(val, "quiet="), ",") {
-			if s == "exit" {
-				opts.QuietExit = true
-			}
-			if s == "all" {
-				opts.QuietUnknownPid = true
-				opts.QuietThreadExecve = true
-			}
-		}
-		return
-	}
-	if strings.HasPrefix(val, "!") {
-		opts.TraceSetIsNegated = true
-		val = strings.TrimPrefix(val, "!")
-	}
-	for _, s := range strings.Split(val, ",") {
-		addSyscallTrace(opts, s)
-	}
-}
-
-func parseVerboseSet(val string, opts *Options) {
-	if strings.HasPrefix(val, "!") {
-		for _, s := range strings.Split(strings.TrimPrefix(val, "!"), ",") {
-			if s != "" {
-				opts.VerboseDisabled[s] = true
-			}
-		}
-		return
-	}
-	for _, s := range strings.Split(val, ",") {
-		delete(opts.VerboseDisabled, s)
-	}
-}
-
-func parseTraceFDSet(val string, opts *Options) {
-	if strings.HasPrefix(val, "!") {
-		opts.TraceFDsNegated = true
-		val = strings.TrimPrefix(val, "!")
-	} else {
-		opts.TraceFDsNegated = false
-	}
-	opts.TraceFDs = make(map[int32]bool)
-	for _, s := range strings.Split(val, ",") {
-		var fd int32
-		if n, _ := fmt.Sscanf(s, "%d", &fd); n == 1 {
-			opts.TraceFDs[fd] = true
 		}
 	}
 }
