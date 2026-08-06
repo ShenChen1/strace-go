@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -65,5 +68,53 @@ func TestWriteSyscallArgXlatMapIsStable(t *testing.T) {
 		"}\n"
 	if out.String() != want {
 		t.Fatalf("generated map:\n%s\nwant:\n%s", out.String(), want)
+	}
+}
+
+func TestWriteGeneratedStaticXlatTablesKeepsStableOrder(t *testing.T) {
+	var out bytes.Buffer
+	missingIoctlFile := filepath.Join(t.TempDir(), "missing_ioctls_inc.h")
+
+	writeGeneratedStaticXlatTables(&out, map[string]bool{}, missingIoctlFile)
+
+	got := out.String()
+	for _, want := range []string{
+		`"pkey_access_rights"`,
+		`"mmap_prot64"`,
+		`"clocknames"`,
+		`"signalnames"`,
+		`"clone3_flags"`,
+		`"x86_xfeatures"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("static xlat output missing %s:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `"ioctl_cmds"`) {
+		t.Fatalf("missing ioctl include emitted ioctl_cmds:\n%s", got)
+	}
+	if strings.Index(got, `"pkey_access_rights"`) > strings.Index(got, `"clocknames"`) {
+		t.Fatalf("alias tables should be emitted before static tables:\n%s", got)
+	}
+}
+
+func TestWriteIoctlXlatTableParsesDirectionAndValue(t *testing.T) {
+	ioctlFile := filepath.Join(t.TempDir(), "ioctls_inc.h")
+	content := []byte(`{ "linux/foo.h", "FOO_IOCTL", _IOC_READ|_IOC_WRITE, 4660, 4 },` + "\n")
+	if err := os.WriteFile(ioctlFile, content, 0o600); err != nil {
+		t.Fatalf("write temp ioctl include: %v", err)
+	}
+
+	var out bytes.Buffer
+	writeIoctlXlatTable(&out, ioctlFile)
+
+	got := out.String()
+	for _, want := range []string{
+		`"ioctl_cmds"`,
+		`{Val: 3221492276, Str: "FOO_IOCTL"}, // From linux/foo.h`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("ioctl output missing %s:\n%s", want, got)
+		}
 	}
 }

@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"os"
+	"io"
 )
 
 type stableXlatEntry struct {
@@ -49,7 +49,7 @@ func addStableXlatEntry(entries map[string]string, keys *[]string, entry stableX
 	*keys = append(*keys, entry.name)
 }
 
-func writeAliasXlatTables(out *os.File, emitted map[string]bool) {
+func writeAliasXlatTables(out io.Writer, emitted map[string]bool) {
 	if !emitted["pkey_access_rights"] {
 		writeStaticXlatTable(out, "pkey_access_rights", "PKEY_", []stableXlatEntry{
 			{"PKEY_UNRESTRICTED", "0"},
@@ -70,7 +70,7 @@ func writeAliasXlatTables(out *os.File, emitted map[string]bool) {
 	}
 }
 
-func writeStaticXlatTable(out *os.File, name string, prefix string, entries []stableXlatEntry) {
+func writeStaticXlatTable(out io.Writer, name string, prefix string, entries []stableXlatEntry) {
 	fmt.Fprintf(out, "\t%q: {\n\t\tPrefix: %q,\n\t\tEntries: []XlatVal{\n", name, prefix)
 	for _, entry := range entries {
 		fmt.Fprintf(out, "\t\t\t{Val: %s, Str: %q},\n", entry.value, entry.name)

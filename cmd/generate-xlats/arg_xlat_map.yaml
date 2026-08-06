@@ -92,6 +92,12 @@ syscalls:
     prot: mmap_prot
   pkey_mprotect:
     prot: mmap_prot64
+  preadv2:
+    flags: rwf_flags
+  pwritev2:
+    flags: rwf_flags
+  vmsplice:
+    flags: splice_flags
   pkey_alloc:
     flags: hex_flags
     init_val: pkey_access_rights
