@@ -110,6 +110,7 @@ type bpfMapSpecs struct {
 	MainExitedMap    *ebpf.MapSpec `ebpf:"main_exited_map"`
 	PendingExecMap   *ebpf.MapSpec `ebpf:"pending_exec_map"`
 	PendingSyscalls  *ebpf.MapSpec `ebpf:"pending_syscalls"`
+	PreExecMap       *ebpf.MapSpec `ebpf:"pre_exec_map"`
 	StackTraces      *ebpf.MapSpec `ebpf:"stack_traces"`
 	StatsMap         *ebpf.MapSpec `ebpf:"stats_map"`
 	SyscallFilterMap *ebpf.MapSpec `ebpf:"syscall_filter_map"`
@@ -158,6 +159,7 @@ type bpfMaps struct {
 	MainExitedMap    *ebpf.Map `ebpf:"main_exited_map"`
 	PendingExecMap   *ebpf.Map `ebpf:"pending_exec_map"`
 	PendingSyscalls  *ebpf.Map `ebpf:"pending_syscalls"`
+	PreExecMap       *ebpf.Map `ebpf:"pre_exec_map"`
 	StackTraces      *ebpf.Map `ebpf:"stack_traces"`
 	StatsMap         *ebpf.Map `ebpf:"stats_map"`
 	SyscallFilterMap *ebpf.Map `ebpf:"syscall_filter_map"`
@@ -172,6 +174,7 @@ func (m *bpfMaps) Close() error {
 		m.MainExitedMap,
 		m.PendingExecMap,
 		m.PendingSyscalls,
+		m.PreExecMap,
 		m.StackTraces,
 		m.StatsMap,
 		m.SyscallFilterMap,

@@ -301,6 +301,13 @@ struct {
 } arm_fork_map SEC(".maps");
 
 struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 1024);
+    __type(key, u32);
+    __type(value, u32);
+} pre_exec_map SEC(".maps");
+
+struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 1);
     __type(key, u32);
@@ -559,7 +566,13 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     
     u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
     if (!filter_pid) return 0;
-    
+
+    // IMPACT: armed tracee children run Go's os/exec fd setup before their
+    // first execve; suppress that internal noise but keep the exec itself.
+    u32 *pre_exec = bpf_map_lookup_elem(&pre_exec_map, &pid);
+    if (pre_exec && !is_exec_payload_direct_syscall(sys_id)) {
+        return 0;
+    }
     u32 key = 0;
     u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
     if (!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)) return 0;
@@ -1449,6 +1462,7 @@ int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {
     if (arm_parent && *arm_parent != 0 && *arm_parent == parent_pid) {
         u32 val = 1;
         bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY);
+        bpf_map_update_elem(&pre_exec_map, &child_pid, &val, BPF_ANY);
     }
     
     u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &parent_pid);
@@ -1472,15 +1486,18 @@ int trace_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx) {
     // governed by follow-forks instead.
     u32 arm_key = 0;
     u32 *arm_parent = bpf_map_lookup_elem(&arm_fork_map, &arm_key);
-    if (arm_parent && *arm_parent != 0) {
-        u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
-        if (filter_pid) {
+    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+    if (filter_pid) {
+        // IMPACT: always lift pre-exec suppression once a traced process execs;
+        // the arm may already be cleared by a racing path, so the suppression
+        // clear must not depend on it.
+        bpf_map_delete_elem(&pre_exec_map, &pid);
+        if (arm_parent && *arm_parent != 0) {
             u32 zero = 0;
             bpf_map_update_elem(&arm_fork_map, &arm_key, &zero, BPF_ANY);
         }
     }
 
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
     if (!filter_pid) return 0;
 
     u32 filename_offset = ctx->__data_loc_filename & 0xffff;
