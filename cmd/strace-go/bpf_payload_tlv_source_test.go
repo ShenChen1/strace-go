@@ -459,6 +459,16 @@ func TestBPFFDStateTrackingGate(t *testing.T) {
 		"!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)") {
 		t.Fatal("sys_enter filter must bypass fd-state syscalls when fd state tracking is on")
 	}
+	for _, snippet := range []string{
+		"} arm_fork_map SEC(\".maps\");",
+		"arm_parent && *arm_parent != 0 && *arm_parent == parent_pid",
+		"bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY);",
+		"u32 parent_pid = (u32)(bpf_get_current_pid_tgid() >> 32);",
+	} {
+		if !strings.Contains(src.straceSource, snippet) {
+			t.Fatalf("BPF source missing next-fork arm snippet %q", snippet)
+		}
+	}
 }
 
 func TestBPFLifecycleEventsUseEventV2(t *testing.T) {

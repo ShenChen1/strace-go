@@ -87,7 +87,10 @@ func decodeTraceEventV2EnterEnvelope(header traceEventV2Header, body []byte) (tr
 	if !ok {
 		return traceEventEnvelope{}, false
 	}
-	eventFlags := traceEventV2EventFlags(header, payload) | bpfEventFlagGenericEnter
+	// IMPACT: the generic-enter flag must come from the BPF header; a blanket OR
+	// here would misclassify the execve -514 restart marker as a generic enter
+	// and swallow it before the exec output state machine can consume it.
+	eventFlags := traceEventV2EventFlags(header, payload)
 	raw := rawPayloadEvent{
 		valid:         true,
 		args:          args,

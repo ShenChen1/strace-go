@@ -100,6 +100,7 @@ type bpfProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfMapSpecs struct {
+	ArmForkMap       *ebpf.MapSpec `ebpf:"arm_fork_map"`
 	ConfigMap        *ebpf.MapSpec `ebpf:"config_map"`
 	Events           *ebpf.MapSpec `ebpf:"events"`
 	FilterMap        *ebpf.MapSpec `ebpf:"filter_map"`
@@ -147,6 +148,7 @@ func (o *bpfObjects) Close() error {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfMaps struct {
+	ArmForkMap       *ebpf.Map `ebpf:"arm_fork_map"`
 	ConfigMap        *ebpf.Map `ebpf:"config_map"`
 	Events           *ebpf.Map `ebpf:"events"`
 	FilterMap        *ebpf.Map `ebpf:"filter_map"`
@@ -160,6 +162,7 @@ type bpfMaps struct {
 
 func (m *bpfMaps) Close() error {
 	return _BpfClose(
+		m.ArmForkMap,
 		m.ConfigMap,
 		m.Events,
 		m.FilterMap,

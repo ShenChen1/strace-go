@@ -1,7 +1,10 @@
 package main
 
 import (
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"strace-go/pkg/cli"
 )
@@ -35,5 +38,22 @@ func TestTimeFormatterReturnsEmptyWhenDisabled(t *testing.T) {
 	}
 	if got := formatter.Prefix(1_000_000_000, nil); got != "" {
 		t.Fatalf("nil opts prefix = %q", got)
+	}
+}
+
+func TestTimeFormatterNowMonoNsRoundTripsToWallClock(t *testing.T) {
+	formatter := newTimeFormatter(calculateTimeOffset())
+	now := time.Now()
+	prefix := formatter.Prefix(formatter.NowMonoNs(), &cli.Options{PrintTimeMode: 3})
+	// PrintTimeMode 3 renders <epoch-seconds>.<usec>; the round trip must be
+	// within a second of the wall clock.
+	parts := strings.Split(strings.TrimSpace(prefix), ".")
+	sec, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		t.Fatalf("parse epoch seconds %q: %v", parts[0], err)
+	}
+	got := time.Unix(sec, 0)
+	if diff := now.Sub(got); diff > time.Second || diff < -time.Second {
+		t.Fatalf("NowMonoNs round trip = %v, wall clock = %v (diff %v)", got, now, diff)
 	}
 }

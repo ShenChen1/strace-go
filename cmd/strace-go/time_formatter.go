@@ -64,3 +64,10 @@ func formatSecondsUsec(ns uint64) string {
 func (s *traceSession) timePrefix(enterTimeMonoNs uint64) string {
 	return s.timeFormatterState().Prefix(enterTimeMonoNs, s.opts)
 }
+
+// NowMonoNs returns the current CLOCK_MONOTONIC value in nanoseconds so
+// synthetic lines (e.g. the exit-status fallback) can be stamped with the
+// correct real time instead of a zero mono timestamp.
+func (tf *TimeFormatter) NowMonoNs() uint64 {
+	return uint64(time.Now().UnixNano() - tf.bootTimeOffsetNs)
+}

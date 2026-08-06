@@ -15,7 +15,7 @@ func testTLVSyscallEnvelope(
 		pid:     101,
 		tid:     101,
 		sysID:   syscallIDByName(t, syscallName),
-		flags:   bpfEventFlagPayloadTLV,
+		flags:   bpfEventFlagPayloadTLV | bpfEventFlagGenericEnter,
 		args:    args,
 		ret:     ret,
 		payload: payload,

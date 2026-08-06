@@ -114,10 +114,15 @@ func (r *TextRenderer) ExitStatusLineFromView(view syscallEventView) string {
 }
 
 func (r *TextRenderer) ExitStatusLine(tid int, status uint64) string {
+	enterTime := uint64(0)
+	if r.timeFormatter != nil {
+		enterTime = r.timeFormatter.NowMonoNs()
+	}
 	return r.ExitStatusLineFromView(syscallEventView{
-		valid: true,
-		tid:   uint32(tid),
-		args:  [6]uint64{status},
+		valid:     true,
+		tid:       uint32(tid),
+		enterTime: enterTime,
+		args:      [6]uint64{status},
 	})
 }
 

@@ -298,6 +298,13 @@ struct {
     __uint(max_entries, 1);
     __type(key, u32);
     __type(value, u32);
+} arm_fork_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, u32);
 } config_map SEC(".maps");
 
 struct {
@@ -576,6 +583,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
 
     // IMPACT: exec direct events preserve restart/resume status while copying argv/envp/path straight into ringbuf TLV.
     if (is_exec_payload_direct_syscall(sys_id)) {
+        bpf_printk("sgo exec enter pid=%u sys=%u", pid, sys_id);
         s32 probe_ret_enter = 0;
         u32 *exited = bpf_map_lookup_elem(&main_exited_map, &pid);
         if (exited && *exited == 1) {
@@ -1344,8 +1352,22 @@ int trace_sys_exit_mmsg(struct trace_event_raw_sys_exit *ctx) {
 
 SEC("tracepoint/sched/sched_process_fork")
 int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {
-    u32 parent_pid = ctx->parent_pid;
     u32 child_pid = ctx->child_pid;
+    // IMPACT: ctx->parent_pid is the forking THREAD's tid; os/exec may fork from
+    // any runtime thread, so compare against the parent process tgid instead.
+    u32 parent_pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+
+    // IMPACT: when strace-go arms the next fork, the tracee's pid filter is
+    // installed at fork time so its initial execve (which happens before
+    // cmd.Start() returns) is captured like upstream strace does. os/exec may
+    // fork several children from the armed parent, so keep the arm on the
+    // parent until one of its children execs.
+    u32 arm_key = 0;
+    u32 *arm_parent = bpf_map_lookup_elem(&arm_fork_map, &arm_key);
+    if (arm_parent && *arm_parent != 0 && *arm_parent == parent_pid) {
+        u32 val = 1;
+        bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY);
+    }
     
     u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &parent_pid);
     if (!filter_pid) return 0;
@@ -1363,6 +1385,19 @@ int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {
 SEC("tracepoint/sched/sched_process_exec")
 int trace_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx) {
     u32 pid = ctx->pid;
+
+    // IMPACT: once any armed child execs, stop arming so post-start forks are
+    // governed by follow-forks instead.
+    u32 arm_key = 0;
+    u32 *arm_parent = bpf_map_lookup_elem(&arm_fork_map, &arm_key);
+    if (arm_parent && *arm_parent != 0) {
+        u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
+        if (filter_pid) {
+            u32 zero = 0;
+            bpf_map_update_elem(&arm_fork_map, &arm_key, &zero, BPF_ANY);
+        }
+    }
+
     u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
     if (!filter_pid) return 0;
 

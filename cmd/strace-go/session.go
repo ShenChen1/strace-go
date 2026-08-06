@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -220,17 +221,44 @@ func populateFDMap(pid int, targetPid int) map[string]string {
 	return fdMap
 }
 
-// IMPACT: startTraceCmd starts a tracee without ptrace; syscall observation is purely eBPF based.
+// IMPACT: startTraceCmd starts a tracee without ptrace; syscall observation is
+// purely eBPF based. The next-fork arm installs the pid filter before the
+// tracee's initial execve so the exec syscall is observable like upstream.
 func startTraceCmd(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles []*os.File) (*exec.Cmd, int, map[string]string) {
+	armNextFork(bpfObjs)
 	cmd := newTraceCommand(opts, inheritedFiles)
 	if err := cmd.Start(); err != nil {
+		disarmNextFork(bpfObjs)
 		log.Fatalf("failed to start command: %v", err)
 	}
 
 	targetPid := cmd.Process.Pid
 	bpfObjs.FilterMap.Update(uint32(targetPid), uint32(1), 0)
+	if raw, err := bpfObjs.ArmForkMap.LookupBytes(uint32(0)); err == nil && len(raw) == 4 {
+		log.Printf("DEBUG arm after start = %d, tracee = %d", binary.LittleEndian.Uint32(raw), targetPid)
+	}
+	disarmNextFork(bpfObjs)
 	fdMap := populateFDMap(targetPid, targetPid)
 	return cmd, targetPid, fdMap
+}
+
+// armNextFork asks the BPF sched_process_fork program to add the next child of
+// this process to the trace filter before that child executes.
+func armNextFork(bpfObjs *bpfObjects) {
+	if bpfObjs == nil || bpfObjs.ArmForkMap == nil {
+		return
+	}
+	pid := uint32(os.Getpid())
+	bpfObjs.ArmForkMap.Update(uint32(0), pid, 0)
+}
+
+// disarmNextFork clears a pending fork arm after Start returns or on failure.
+func disarmNextFork(bpfObjs *bpfObjects) {
+	if bpfObjs == nil || bpfObjs.ArmForkMap == nil {
+		return
+	}
+	var zero uint32
+	bpfObjs.ArmForkMap.Update(uint32(0), zero, 0)
 }
 
 // IMPACT: attachToPids attaches tracing to running processes, updating the BPF filter map and reading initial FDs.
