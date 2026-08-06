@@ -19,8 +19,8 @@ func NewDecoder() *Decoder {
 	return &Decoder{HexEscapeMode: 0}
 }
 
-// IMPACT: Refined DecodeString to allow fallback memory reading even when probeRet is -2 (EFAULT),
-// ensuring partially valid strings (like those truncated at page boundaries) are correctly decoded.
+// IMPACT: DecodeString is snapshot-only; partial BPF bytes are decoded only when
+// the probe result proves the captured prefix is usable.
 // parseBPFData extracts string raw data from BPF buffer.
 func parseBPFData(bpfData []byte, probeRet int32) (bpfRaw []byte, bpfFound bool, raw []byte, found bool) {
 	if len(bpfData) == 0 {
@@ -62,8 +62,6 @@ func (d *Decoder) DecodeString(_ int, ptr uint64, bpfData []byte, probeRet int32
 	if found {
 		raw = bpfRaw
 		if limit > 0 && len(raw) > limit {
-			truncated = true
-		} else if limit <= 0 && len(raw) == 4095 {
 			truncated = true
 		}
 	} else {
@@ -129,18 +127,22 @@ func MatchPath(pid int, fds []int32, isPath bool, scName string, ptr uint64, pat
 	// 1. Path from FDs
 	baseFd := int32(-1)
 	for _, fd := range fds {
-		if fd != -1 {
-			if path, ok := fdMap[fmt.Sprintf("%d:%d", pid, fd)]; ok {
-				candidatePaths = append(candidatePaths, path)
-			} else if path, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", pid, fd)); err == nil {
-				candidatePaths = append(candidatePaths, path)
-				if fdMap != nil {
-					fdMap[fmt.Sprintf("%d:%d", pid, fd)] = path
-				}
+		if fd == -1 {
+			continue
+		}
+		// IMPACT: the event-driven fdMap is authoritative because fd-state
+		// syscalls flow through the BPF runtime even when filtered from output;
+		// /proc is only a fallback for fd mutations the tracker does not cover.
+		if path, ok := fdMap[fmt.Sprintf("%d:%d", pid, fd)]; ok {
+			candidatePaths = append(candidatePaths, path)
+		} else if path, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", pid, fd)); err == nil {
+			candidatePaths = append(candidatePaths, path)
+			if fdMap != nil {
+				fdMap[fmt.Sprintf("%d:%d", pid, fd)] = path
 			}
-			if baseFd == -1 {
-				baseFd = fd
-			}
+		}
+		if baseFd == -1 {
+			baseFd = fd
 		}
 	}
 
