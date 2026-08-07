@@ -1278,6 +1278,24 @@ attach 到已运行进程时：
 2. 对"非目标 syscall 早退路径"做一次 A/B 微优化（如 sys_id 检查前置），量化收益。
 3. 数据产出后写决策记录：是否值得做 A 或 C。
 
+决策记录（2026-08-07）：
+
+- 基线：现有 `ebpf-perf` 门禁为固定 5000 次 getpid 的端到端耗时（约 5.19s、962 events/s），只适合正确性门禁，无法分离内核侧探针扇出成本。
+- 独立测量：`/tmp/strace-go-perf-fanout/`（临时程序，不提交）在 `raw_syscalls/sys_enter` 挂 N 个空探针（每个做一次 filter_map lookup）、`sys_exit` 挂 M 个空探针，`taskset -c 2` 固定 CPU，每档 3 轮 × 3 秒 getpid 吞吐（ops/s）：
+
+| 挂载（enter+exit） | 均值 ops/s | 相对无探针 |
+| :--- | :--- | :--- |
+| 0+0 | 2,788,758 | 100% |
+| 1+1 | 2,544,524 | 91.2% |
+| 2+1 | 2,422,010 | 86.9% |
+| 5+3 | 1,994,891 | 71.5% |
+| 11+0 | 1,645,104 | 59.0% |
+| 11+6（当前） | 1,506,807 | 54.0% |
+
+- 结论：当前 17 个 raw syscall 程序让 getpid 吞吐下降约 46%（vs 无探针）、约 41%（vs 最小 1+1）；边际成本近似线性（每多挂一个程序约 2.5-3%）。空探针模型低估真实成本（`trace_sys_enter` 是大型 dispatcher，其余程序也有实际逻辑），但真实慢 syscall 上探针占比会缩小。
+- 微优化空间：代码已经先做 sys_id 比较再查 filter_map，"sys_id 检查前置"的收益有限；主要收益来自减少程序数量（方案 A）或避免全局触发（方案 C）。
+- 决策：架构级优化值得做。方案 A（单 dispatcher + tail call）预期可把 getpid 吞吐恢复到接近 1+1 水平（+40% 左右），风险是 verifier 指令上限（正是当初拆分的理由）；方案 C（kprobe_multi 精确挂载）收益更大但依赖符号可用性、工程量大。建议下一步做低风险前置动作：先合并同家族细碎程序（`sendmmsg_base0/base1`、`recvmmsg_base0/base1` 等小程序），把 17 个降到 13-15 个并复测吞吐，再评估 tail call spike。
+
 ### 13.5 非目标与已知限制（本阶段不动）
 
 - 生成器 138 个 `missing_btf` override 面（`pt_regs_wrapper_only`）。
