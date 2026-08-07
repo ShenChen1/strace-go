@@ -10,6 +10,7 @@ type bpfRuntimeStats struct {
 	RingbufReserveFail     uint64
 	RingbufCopyFail        uint64
 	PayloadTruncatedEvents uint64
+	PendingUpdateFail      uint64
 	Available              bool
 	Error                  string
 }
@@ -30,12 +31,16 @@ func collectBPFStatsFromMap(statsMap *ebpf.Map) bpfRuntimeStats {
 	if err := statsMap.Lookup(uint32(0), &values); err != nil {
 		return unavailableBPFStats(fmt.Sprintf("stats map lookup failed: %v", err))
 	}
+	return sumBPFStatsValues(values)
+}
 
+func sumBPFStatsValues(values []bpfBpfStats) bpfRuntimeStats {
 	stats := bpfRuntimeStats{Available: true}
 	for _, value := range values {
 		stats.RingbufReserveFail += value.RingbufReserveFail
 		stats.RingbufCopyFail += value.RingbufCopyFail
 		stats.PayloadTruncatedEvents += value.PayloadTruncatedEvents
+		stats.PendingUpdateFail += value.PendingUpdateFail
 	}
 	return stats
 }

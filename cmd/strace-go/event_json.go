@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 
-	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
@@ -83,6 +82,7 @@ type jsonStatsEvent struct {
 	RingbufReserveFail     uint64 `json:"ringbuf_reserve_fail"`
 	RingbufCopyFail        uint64 `json:"ringbuf_copy_fail"`
 	PayloadTruncatedEvents uint64 `json:"payload_truncated_events"`
+	PendingUpdateFail      uint64 `json:"pending_update_fail"`
 	Available              bool   `json:"available"`
 	Error                  string `json:"error,omitempty"`
 }
@@ -157,16 +157,10 @@ func newJSONStatsEvent(stats bpfRuntimeStats) jsonStatsEvent {
 		RingbufReserveFail:     stats.RingbufReserveFail,
 		RingbufCopyFail:        stats.RingbufCopyFail,
 		PayloadTruncatedEvents: stats.PayloadTruncatedEvents,
+		PendingUpdateFail:      stats.PendingUpdateFail,
 		Available:              stats.Available,
 		Error:                  stats.Error,
 	}
-}
-
-func (s *traceSession) maybeWriteJSONStatsEvent() {
-	if s == nil || s.opts == nil || s.opts.EventFormat != cli.EventFormatJSON {
-		return
-	}
-	s.writeJSONStatsEvent(s.collectBPFStats())
 }
 
 func (s *traceSession) writeJSONStatsEvent(stats bpfRuntimeStats) {

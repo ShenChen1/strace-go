@@ -239,7 +239,9 @@ static __always_inline void save_pending_network_syscall_args(
     p.stack_id = stack_id;
     p.aux0 = sockaddr_len;
 
-    bpf_map_update_elem(&pending_syscalls, &tid, &p, BPF_ANY);
+    if (bpf_map_update_elem(&pending_syscalls, &tid, &p, BPF_ANY) != 0) {
+        record_pending_update_fail();
+    }
 }
 
 static __always_inline u32 capture_network_enter_payloads_tlv_direct(

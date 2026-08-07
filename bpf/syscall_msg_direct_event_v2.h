@@ -330,7 +330,9 @@ static __always_inline void save_pending_msg_syscall_args(
         }
     }
 
-    bpf_map_update_elem(&pending_syscalls, &tid, &p, BPF_ANY);
+    if (bpf_map_update_elem(&pending_syscalls, &tid, &p, BPF_ANY) != 0) {
+        record_pending_update_fail();
+    }
 }
 
 static __always_inline u32 capture_mmsg_enter_payloads_tlv_direct(

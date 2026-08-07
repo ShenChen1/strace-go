@@ -66,7 +66,9 @@ static __always_inline void save_pending_syscall_args(
     p.tid = tid;
     p.stack_id = stack_id;
 
-    bpf_map_update_elem(&pending_syscalls, &tid, &p, BPF_ANY);
+    if (bpf_map_update_elem(&pending_syscalls, &tid, &p, BPF_ANY) != 0) {
+        record_pending_update_fail();
+    }
 }
 
 static __always_inline void init_syscall_event_v2_header_direct(

@@ -229,6 +229,7 @@ struct bpf_stats {
     u64 ringbuf_reserve_fail;
     u64 ringbuf_copy_fail;
     u64 payload_truncated_events;
+    u64 pending_update_fail;
 };
 
 struct event_v2_header {
@@ -415,6 +416,14 @@ static __always_inline void record_payload_truncated_event(void)
     struct bpf_stats *stats = lookup_stats();
     if (stats) {
         stats->payload_truncated_events++;
+    }
+}
+
+static __always_inline void record_pending_update_fail(void)
+{
+    struct bpf_stats *stats = lookup_stats();
+    if (stats) {
+        stats->pending_update_fail++;
     }
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"syscall"
 	"time"
@@ -228,7 +229,9 @@ func isTransientRingbufReadError(err error) bool {
 
 func (s *traceSession) finishRun() {
 	s.exitStatusCoordinator().FlushFallback(s.targetPid)
-	s.maybeWriteJSONStatsEvent()
+	stats := s.collectBPFStats()
+	s.maybeWriteJSONStatsEventWith(stats)
+	s.maybeWriteTextStatsDiagnostic(stats)
 	if s.opts != nil && (s.opts.SummaryOnly || s.opts.SummaryAndPrint) {
 		s.summaryStats().Print(s.outWriter)
 	}
@@ -238,4 +241,39 @@ func (s *traceSession) finishRun() {
 			_ = s.outCmd.Wait()
 		}
 	}
+}
+
+func (s *traceSession) maybeWriteJSONStatsEventWith(stats bpfRuntimeStats) {
+	if s == nil || s.opts == nil || s.opts.EventFormat != cli.EventFormatJSON {
+		return
+	}
+	s.writeJSONStatsEvent(stats)
+}
+
+func (s *traceSession) maybeWriteTextStatsDiagnostic(stats bpfRuntimeStats) {
+	if s == nil || s.opts == nil || s.opts.EventFormat == cli.EventFormatJSON {
+		return
+	}
+	line, ok := bpfStatsDiagnosticLine(stats)
+	if !ok {
+		return
+	}
+	fmt.Fprintln(os.Stderr, line)
+}
+
+func bpfStatsDiagnosticLine(stats bpfRuntimeStats) (string, bool) {
+	if !stats.Available || stats.Error != "" {
+		return "", false
+	}
+	// 只报告真正的丢事件；payload 截断是有界快照的正常结果，不算 dropped。
+	if stats.RingbufReserveFail == 0 && stats.RingbufCopyFail == 0 &&
+		stats.PendingUpdateFail == 0 {
+		return "", false
+	}
+	return fmt.Sprintf(
+		"strace-go: dropped events: ringbuf_reserve_fail=%d ringbuf_copy_fail=%d pending_update_fail=%d",
+		stats.RingbufReserveFail,
+		stats.RingbufCopyFail,
+		stats.PendingUpdateFail,
+	), true
 }
