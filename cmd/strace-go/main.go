@@ -135,9 +135,10 @@ func buildRuntimeConfig(opts *cli.Options, bpfObjs *bpfObjects) (uint32, error) 
 	// IMPACT: lifecycle events always flow so task/fd state and attach exit
 	// status work in text mode too; JSON rendering is gated separately.
 	cfgVal |= bpfConfigEmitLifecycle
-	if len(opts.TracePaths) > 0 {
-		// IMPACT: -P filtering needs a deterministic fd -> path map; the BPF
-		// runtime keeps fd-state syscalls flowing under CONFIG_FD_STATE.
+	if len(opts.TracePaths) > 0 || opts.ShowPaths {
+		// IMPACT: -P filtering and -y/-yy fd path rendering both need a
+		// deterministic fd -> path map; the BPF runtime keeps fd-state
+		// syscalls flowing under CONFIG_FD_STATE even when filtered out.
 		cfgVal |= bpfConfigFdState
 	}
 	syscallFilterCfg, err := configureSyscallFilter(opts, bpfObjs)
