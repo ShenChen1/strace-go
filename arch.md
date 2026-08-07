@@ -1319,3 +1319,159 @@ Tail call spike（2026-08-07）：
 4. P2 测量与决策记录。
 
 每个步骤独立提交，遵循现有 Conventional Commit 前缀；任何假设在提交说明或本文档中记录。
+
+## 14. Tail call 重构方案（待评审）
+
+### 14.1 目标与非目标
+
+目标：把 `raw_syscalls/sys_enter` 和 `raw_syscalls/sys_exit` 上的程序扇出从 11+6 收敛为各 1 个 dispatcher，其余 family 程序放入 `BPF_MAP_TYPE_PROG_ARRAY`，由 dispatcher 按 syscall id 分派。预期 getpid 吞吐从 157 万 ops/s 恢复到 260 万左右（+66%，spike 实测），所有真实 syscall 的执行程序数从 17 降到 2-4。
+
+非目标：
+
+- 不迁移 `sched_process_*` 生命周期程序（不参与 raw syscall 扇出）。
+- 不动 recvmsg 的两个 kretprobe（P0 竞态独立决策，本重构不扩大也不修复它）。
+- 不做 kprobe_multi 精确挂载（方案 C，本方案完成后再评估）。
+- 不改变事件 v2 / TLV / pending map 契约，Go 侧状态机零改动。
+
+### 14.2 现状梳理（重构输入）
+
+Enter 侧 11 个程序（全部挂 `raw_syscalls/sys_enter`）：
+
+| 程序 | 职责 | pending 写入 |
+| :--- | :--- | :--- |
+| `trace_sys_enter` | 主 dispatcher：filter/config 前置 + 约 30 个 family 分支 | 各分支内 save |
+| `trace_sys_enter_bpf` | bpf 家族（主 dispatcher 跳过） | save |
+| `trace_sys_enter_aio` | io_submit iocb 数组（主 dispatcher 跳过） | save |
+| `trace_sys_enter_aio_iovec` | io_submit 嵌套 iovec | 否（fragment） |
+| `trace_sys_enter_aio_buf` | io_submit 数据 buffer | 否（fragment） |
+| `trace_sys_enter_iovec_base` | writev 等本地 iov_base | 否（fragment） |
+| `trace_sys_enter_msg` | sendmsg/recvmsg msghdr（主 dispatcher 跳过） | save_pending_msg |
+| `trace_sys_enter_sendmsg_base` | sendmsg IN iov_base | 否（fragment） |
+| `trace_sys_enter_mmsg` | sendmmsg/recvmmsg mmsghdr（主 dispatcher 跳过） | save |
+| `trace_sys_enter_sendmmsg_base0/base1` | sendmmsg 两 slot IN iov_base | 否（fragment） |
+
+协作关系（enter）：io_submit 需 3 个程序（aio→iovec→buf）、sendmsg 需 2 个（msg→sendmsg_base）、sendmmsg 需 3 个（mmsg→base0→base1）、iovec 家族需 2 个（主 dispatcher iovec 分支→iovec_base）。
+
+Exit 侧 6 个程序 + 2 个 kretprobe：
+
+| 程序 | 职责 | 消费 pending |
+| :--- | :--- | :--- |
+| `trace_sys_exit` | 主 exit dispatcher：约 30 个 direct 分支 + fallback + exec 清理 | 是 |
+| `trace_sys_exit_iovec_base` | readv 等本地 OUT iov_base | 是（主 dispatcher 对 iovec 跳过） |
+| `trace_sys_exit_msg` | sendmsg/recvmsg OUT msghdr/iovec | 是（主 dispatcher 对 msg 跳过） |
+| `trace_sys_exit_recvmmsg_base0/base1` | recvmmsg OUT iov_base fragment | 否 |
+| `trace_sys_exit_mmsg` | sendmmsg/recvmmsg OUT mmsghdr | 是 |
+| `trace_kretprobe_recvmsg_name/control` | recvmsg OUT msg_name/msg_control fragment | 否 |
+
+Exit 关键语义：pending 由且仅由一个程序消费（iovec/msg/mmsg 程序消费后，主 dispatcher 因找不到 pending 自然跳过）；exec 清理（`pending_exec_map` / `main_exited_map`）随消费程序执行；kretprobe fragment 在 sys_exit 之前由 `__sys_recvmsg` 返回时触发，不经过 raw tracepoint。
+
+### 14.3 目标架构
+
+```text
+sys_enter tracepoint ──> enter_dispatcher
+                          ├─ filter/config/stack 前置（只做一次）
+                          ├─ sys_id -> index 映射（if 链，无 emit 逻辑）
+                          └─ bpf_tail_call(enter_progs, index)
+                               └─ family handler（emit + save）
+                                    └─（需要时）链式 tail call ──> fragment handler
+
+sys_exit tracepoint ──> exit_dispatcher
+                          ├─ pending lookup（含 pending_exec_map 路径）
+                          ├─ p->sys_id -> index 映射
+                          └─ bpf_tail_call(exit_progs, index)
+                               └─ exit handler（emit + 唯一消费 pending）
+                                    └─（recvmmsg）链式 tail call ──> base0 -> base1 -> final
+```
+
+设计原则：
+
+1. dispatcher 只做"过滤 + 算 index + tail call"，不内联任何 family 捕获逻辑；tail call 失败（index 越界/空 slot）时走 fallback（emit no-payload + save）。
+2. family handler 与现状一一对应：去掉重复的 filter/config 前置（dispatcher 已做），保留各自 emit + save。
+3. fragment handler（iovec_base/sendmsg_base/aio_iovec/aio_buf/sendmmsg_base0/1）作为链尾：主 family handler 先 emit + save，再 tail call 到 fragment handler 补 emit。tail call 后不返回，故 save 必须在链首完成。
+4. exit 消费唯一性由"dispatcher 只 tail call 一条链"保证，比现状多程序竞争更简单；exec 清理逻辑保留在消费 handler 内。
+
+### 14.4 sys_id -> index 映射（enter，草案）
+
+`enter_progs` 建议 max_entries = 40，草案分配：
+
+| index | family | 说明 |
+| :--- | :--- | :--- |
+| 0 | fallback | 无 family 匹配 |
+| 1 | terminating | exit/exit_group，enter 合成 exit，不 save |
+| 2 | exec | execve/execveat + pending_exec_map |
+| 3-7 | path_stat / path_only / dual_path / openat2 / readlink | |
+| 8-13 | misc_struct / small_struct / itimer / time_struct / signal / file_time | |
+| 14-15 | sleep / futex | nanosleep、clock_nanosleep；futex×4 |
+| 16-20 | cachestat / capability / memfd / prctl / clone3 | |
+| 21 | bpf | |
+| 22 | iovec | 链 → iovec_base |
+| 23 | msg | 链 → sendmsg_base |
+| 24-29 | fcntl / ioctl / network / key / xattr / fs | |
+| 30 | aio | io_submit 链 → aio_iovec → aio_buf；其余 aio |
+| 31-33 | poll / select / epoll | epoll_ctl + epoll_pwait2 |
+| 34 | no_payload_direct | scalar/exit_payload/fd_array/getcwd/time/stat/waitid/misc/small 组 |
+| 35 | payload_direct | open/creat/write/pwrite64 等 |
+
+dispatcher 的 index 计算是一条 if 链（`is_*_direct_syscall(sys_id)` 判真即赋 index 并 goto tail_call），spike 验证该形态 verifier 无压力。
+
+### 14.5 协作链设计（enter）
+
+- sendmsg：`dispatcher -> msg_handler(emit_msg + save_pending_msg) -> tail_call -> sendmsg_base_handler(emit iov_base)`。
+- sendmmsg：`dispatcher -> mmsg_handler(emit_mmsg + save) -> tail_call -> base0 -> tail_call -> base1`。
+- io_submit：`dispatcher -> aio_handler(emit_iocb + save) -> tail_call -> aio_iovec -> tail_call -> aio_buf`。
+- writev 家族：`dispatcher -> iovec_handler(emit_iovec + save) -> tail_call -> iovec_base`。
+- 单程序 family：`dispatcher -> handler(emit + save)`。
+- 无 family：dispatcher 直接 emit_no_payload + save（或 tail call 到 index 0）。
+
+链内每层 tail call 失败均静默跳过该 fragment（不重复 emit、不破坏 save 已完成的语义）。
+
+### 14.6 exit 侧设计
+
+`exit_progs`（max_entries = 8）：
+
+| index | handler | 说明 |
+| :--- | :--- | :--- |
+| 0 | generic_exit | 现主 dispatcher 全部 direct 分支 + fallback + exec 清理，消费 pending |
+| 1 | iovec_base_exit | readv 等 OUT iov_base，消费 |
+| 2 | msg_exit | sendmsg/recvmsg OUT，消费 |
+| 3 | mmsg_final | sendmmsg/recvmmsg OUT mmsghdr，消费；recvmmsg 由链尾到达 |
+| 4-5 | recvmmsg_base0/base1 | fragment，不消费；链：`exit_dispatcher -> base0 -> base1 -> mmsg_final`（recvmmsg），sendmmsg 直接 `exit_dispatcher -> mmsg_final` |
+
+语义保持：
+
+- 主 dispatcher 保留 `pending_exec_map` 查找（非 leader exec 的 `is_pending_lookup` 路径），把 `pending_tid` 语义随 tail call 传给消费 handler（handler 内重新 lookup 或由 dispatcher 传入 index 时附带——建议 handler 内按 dispatcher 已解析的 `pending_tid` 再 lookup，保持与现状一致）。
+- kretprobe name/control 不变，仍在 `__sys_recvmsg` 返回时发 fragment；Go 侧合并逻辑零改动。
+- iovec/msg/mmsg 家族在主 dispatcher 中不再需要"跳过"分支（dispatcher 直接 tail call 对应 handler）。
+
+### 14.7 Go 侧与测试变化
+
+- `cmd/strace-go/bpf_attach.go`：`rawSyscallTracepointSpecs` 从 17 个 spec 收敛为 2 个（enter/exit dispatcher）；新增 prog_array 填充（`LoadAndAssign` 后把 handler Program 写入 `enter_progs`/`exit_progs`）；kretprobe 与 sched spec 不变。
+- `bpf_bpfel.go`/`bpf_bpfeb.go`：bpf2go 重新生成，新增两个 prog_array map 与全部 handler 程序字段。
+- 源码门禁：新增/更新断言——raw tracepoint 只挂 dispatcher；`bpf_tail_call` 存在；prog_array 容量覆盖 index 表；每类 handler 保留 emit+save。
+- 回归验证：每个 family 迁移后跑对应 upstream reference / semantic 测试；全部完成后跑 `small`/`more`/`upstream-reference`/`ebpf-semantic`/`ebpf-perf`。
+
+### 14.8 分阶段落地（增量迁移，每步一个提交）
+
+1. 骨架：新增 enter/exit dispatcher + prog_array（空 slot），raw tracepoint 改挂 dispatcher；此提交仅迁移"无协作"的高频 family（如 bpf、path_stat、fallback），其余 family 先由 dispatcher 内联（过渡态 dispatcher 仍大但指令只减不增）。
+2. 逐个迁移主 dispatcher 内联 family（每 1-3 个 family 一个提交），直至 dispatcher 只剩 filter + index 计算。
+3. 协作链迁移（iovec_base、msg/sendmsg_base、mmsg/base0/base1、aio/iovec/buf），每个家族一个提交，验证对应 upstream reference。
+4. exit 侧迁移（generic/iovec_base/msg/mmsg/recvmmsg 链），验证 `readv`/`recvmsg`/`mmsg` 相关 reference。
+5. 收口：更新源码门禁、跑全量套件、复测 fanout 吞吐（预期 getpid 260 万左右）。
+
+### 14.9 风险与对策
+
+| 风险 | 对策 |
+| :--- | :--- |
+| dispatcher 或 handler verifier 超限 | family handler 与现状独立程序同规模，风险低；dispatcher 只含 index 计算，spike 已验证。若某链合并超限，保持独立 tail call 层。 |
+| 链式 tail call 顺序/失败语义 | tail call 失败即跳过 fragment（不重复 emit）；save 恒在链首完成；3 层以内远低于内核 33 层上限。 |
+| exit 消费唯一性被破坏 | 只保留一条消费链；测试断言每个 exit handler 恰好消费一次 pending（Go/BPF 语义测试）。 |
+| exec 清理路径回归 | `is_pending_lookup` 逻辑随 generic_exit handler 原样保留，用 `execveat.gen.test`/非 leader exec 用例锁住。 |
+| 生成物/门禁漂移 | 所有 handler 仍为 tracepoint SEC（bpf2go 可加载），raw spec 表与 source gate 同步更新。 |
+| 过渡期双轨混乱 | 过渡态 dispatcher 内联未迁移 family + tail call 已迁移 family，二者互斥（index 计算优先），每个迁移提交有测试。 |
+
+### 14.10 验收标准
+
+- `raw_syscalls/sys_enter`、`sys_exit` 各只挂 1 个 dispatcher（bpftool 可查）。
+- getpid 吞吐达到约 260 万 ops/s（spike 基线，`taskset -c 2` 同法复测）。
+- `go test ./cmd/... ./pkg/...`、`ebpf-semantic`、`ebpf-perf`、`upstream-reference`、`small`、`more` 全绿。
+- 事件 v2/JSON/文本输出与重构前字节级一致（reference diff 无新增差异）。
