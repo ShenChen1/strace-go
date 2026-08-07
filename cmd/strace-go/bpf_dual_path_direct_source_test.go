@@ -8,7 +8,7 @@ import (
 
 func TestBPFDualPathPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
-	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	pathDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_direct_event_v2.h"))
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))

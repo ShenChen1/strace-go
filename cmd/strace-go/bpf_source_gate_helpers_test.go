@@ -28,8 +28,14 @@ type bpfSourceGateSources struct {
 func loadBPFSources(t *testing.T) bpfSourceGateSources {
 	t.Helper()
 	root := repoRootForTest(t)
+	// Family capture logic moved out of strace.c into the tail call dispatch
+	// headers; source gates assert against the combined text so the "uses
+	// direct TLV" checks keep working after the dispatcher refactor.
+	combinedStraceSource := readCombinedBPFSources(t) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h"))
 	return bpfSourceGateSources{
-		straceSource:           readTextFile(t, filepath.Join(root, "bpf/strace.c")),
+		straceSource:           combinedStraceSource,
 		legacyCaptureArtifacts: legacyCaptureArtifactsForTest(t),
 		tlvHeader:              readTextFile(t, filepath.Join(root, "bpf/payload_tlv.h")),
 		directHeader:           readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h")),
@@ -52,6 +58,17 @@ func repoRootForTest(t *testing.T) string {
 		t.Fatal("runtime.Caller failed")
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "../.."))
+}
+
+// readCombinedBPFSources returns strace.c plus the tail call dispatch headers.
+// Family capture logic lives in the dispatch headers after the dispatcher
+// refactor, so source gates that assert "uses direct TLV" check all of them.
+func readCombinedBPFSources(t *testing.T) string {
+	t.Helper()
+	root := repoRootForTest(t)
+	return readTextFile(t, filepath.Join(root, "bpf/strace.c")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h"))
 }
 
 func readTextFile(t *testing.T, path string) string {

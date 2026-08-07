@@ -8,7 +8,7 @@ import (
 
 func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
-	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	straceSource := readCombinedBPFSources(t)
 	// IMPACT: raw syscall program attachment lives in bpf_attach.go; session.go
 	// delegates to the attacher. The gate scans both files for wiring snippets.
 	sessionSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/session.go")) +
@@ -26,23 +26,23 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		`#include "syscall_msg_direct_event_v2.h"`,
 		"is_msg_direct_syscall(sys_id)",
 		"is_single_msg_direct_syscall(sys_id)",
-		"trace_sys_enter_msg",
-		"trace_sys_enter_sendmsg_base",
-		"trace_sys_enter_mmsg",
-		"trace_sys_enter_sendmmsg_base0",
-		"trace_sys_enter_sendmmsg_base1",
-		"trace_sys_exit_msg",
-		"trace_sys_exit_recvmmsg_base0",
-		"trace_sys_exit_recvmmsg_base1",
+		"enter_msg",
+		"enter_sendmsg_base",
+		"enter_mmsg",
+		"enter_sendmmsg_base0",
+		"enter_sendmmsg_base1",
+		"exit_msg",
+		"exit_recvmmsg_base0",
+		"exit_recvmmsg_base1",
 		"trace_kretprobe_recvmsg_name",
 		"trace_kretprobe_recvmsg_control",
-		"trace_sys_exit_mmsg",
+		"exit_mmsg",
 		"emit_msg_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
-		"emit_sendmsg_base_enter_event_v2_direct(pid, tid, sys_id, ctx, bpf_ktime_get_ns());",
+		"emit_sendmsg_base_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"emit_mmsg_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"save_pending_msg_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);",
-		"emit_sendmmsg_base0_enter_event_v2_direct(pid, tid, sys_id, ctx, bpf_ktime_get_ns());",
-		"emit_sendmmsg_base1_enter_event_v2_direct(pid, tid, sys_id, ctx, bpf_ktime_get_ns());",
+		"emit_sendmmsg_base0_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
+		"emit_sendmmsg_base1_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"emit_single_msg_exit_event_v2_direct(p, ret_value, duration);",
 		"emit_recvmsg_name_exit_fragment_event_v2_direct(p, ret_value, duration);",
 		"emit_recvmsg_control_exit_fragment_event_v2_direct(p, ret_value, duration);",
@@ -56,26 +56,26 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 	}
 
 	for _, snippet := range []string{
-		"TraceSysEnterMsg",
-		`label: "msg"`,
-		"TraceSysEnterSendmsgBase",
-		`label: "sendmsg base"`,
-		"TraceSysEnterMmsg",
-		`label: "mmsg"`,
-		"TraceSysEnterSendmmsgBase0",
-		`label: "sendmmsg base0"`,
-		"TraceSysEnterSendmmsgBase1",
-		`label: "sendmmsg base1"`,
-		"TraceSysExitMsg",
+		"EnterMsg",
+		"objs.EnterMsg",
+		"EnterSendmsgBase",
+		"objs.EnterSendmsgBase",
+		"EnterMmsg",
+		"objs.EnterMmsg",
+		"EnterSendmmsgBase0",
+		"objs.EnterSendmmsgBase0",
+		"EnterSendmmsgBase1",
+		"objs.EnterSendmmsgBase1",
+		"ExitMsg",
 		"TraceKretprobeRecvmsgName",
 		"attachRecvmsgNameKretprobe",
 		"TraceKretprobeRecvmsgControl",
 		"attachRecvmsgControlKretprobe",
-		"TraceSysExitRecvmmsgBase0",
-		`label: "recvmmsg base0"`,
-		"TraceSysExitRecvmmsgBase1",
-		`label: "recvmmsg base1"`,
-		"TraceSysExitMmsg",
+		"ExitRecvmmsgBase0",
+		"objs.ExitRecvmmsgBase0",
+		"ExitRecvmmsgBase1",
+		"objs.ExitRecvmmsgBase1",
+		"ExitMmsg",
 	} {
 		if !strings.Contains(sessionSource, snippet) {
 			t.Fatalf("session source missing msg attach snippet %q", snippet)

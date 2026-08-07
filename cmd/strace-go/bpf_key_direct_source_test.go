@@ -8,7 +8,7 @@ import (
 
 func TestBPFKeyPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
-	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	keyDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_key_direct_event_v2.h"))

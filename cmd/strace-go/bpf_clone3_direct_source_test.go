@@ -8,7 +8,7 @@ import (
 
 func TestBPFClone3PayloadUsesDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
-	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	clone3DirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_clone3_direct_event_v2.h"))

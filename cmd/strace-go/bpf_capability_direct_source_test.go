@@ -8,7 +8,7 @@ import (
 
 func TestBPFCapabilityPayloadUsesDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
-	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	capabilityDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_capability_direct_event_v2.h"))

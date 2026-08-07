@@ -5,23 +5,8 @@ import "testing"
 func TestRawSyscallTracepointSpecsAreRequired(t *testing.T) {
 	specs := rawSyscallTracepointSpecs(&bpfObjects{})
 	wantPairs := map[string]bool{
-		"sys_enter:trace_sys_enter":                true,
-		"sys_enter:trace_sys_enter_bpf":            true,
-		"sys_enter:trace_sys_enter_aio":            true,
-		"sys_enter:trace_sys_enter_aio_iovec":      true,
-		"sys_enter:trace_sys_enter_aio_buf":        true,
-		"sys_enter:trace_sys_enter_iovec_base":     true,
-		"sys_enter:trace_sys_enter_msg":            true,
-		"sys_enter:trace_sys_enter_sendmsg_base":   true,
-		"sys_enter:trace_sys_enter_mmsg":           true,
-		"sys_enter:trace_sys_enter_sendmmsg_base0": true,
-		"sys_enter:trace_sys_enter_sendmmsg_base1": true,
-		"sys_exit:trace_sys_exit":                  true,
-		"sys_exit:trace_sys_exit_iovec_base":       true,
-		"sys_exit:trace_sys_exit_recvmmsg_base0":   true,
-		"sys_exit:trace_sys_exit_recvmmsg_base1":   true,
-		"sys_exit:trace_sys_exit_msg":              true,
-		"sys_exit:trace_sys_exit_mmsg":             true,
+		"sys_enter:trace_sys_enter": true,
+		"sys_exit:trace_sys_exit":   true,
 	}
 	if len(specs) != len(wantPairs) {
 		t.Fatalf("raw syscall specs = %d, want %d", len(specs), len(wantPairs))

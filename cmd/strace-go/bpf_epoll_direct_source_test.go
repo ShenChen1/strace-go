@@ -8,7 +8,7 @@ import (
 
 func TestBPFEpollWaitPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
-	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	epollDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_epoll_direct_event_v2.h"))
@@ -67,7 +67,7 @@ func TestBPFEpollWaitPayloadsUseDirectTLV(t *testing.T) {
 
 func TestBPFEpollCtlPayloadUsesDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
-	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	epollDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_epoll_direct_event_v2.h"))
 

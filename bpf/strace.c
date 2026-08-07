@@ -274,6 +274,20 @@ struct {
 } events SEC(".maps");
 
 struct {
+    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+    __uint(max_entries, 48);
+    __type(key, u32);
+    __type(value, u32);
+} enter_progs SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+    __uint(max_entries, 8);
+    __type(key, u32);
+    __type(value, u32);
+} exit_progs SEC(".maps");
+
+struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 8192);
     __type(key, u32);
@@ -565,6 +579,8 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
 #include "syscall_futex_direct_event_v2.h"
 #include "syscall_sleep_direct_event_v2.h"
 #include "syscall_timex_direct_event_v2.h"
+#include "enter_dispatch.h"
+#include "exit_dispatch.h"
 
 SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
@@ -572,12 +588,10 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     if (sys_id == SYS_RT_SIGRETURN || sys_id == SYS_RT_SIGRETURN_COMPAT) return 0;
     u32 tid = (u32)bpf_get_current_pid_tgid();
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
-    
+
     u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
     if (!filter_pid) return 0;
 
-    // IMPACT: armed tracee children run Go's os/exec fd setup before their
-    // first execve; suppress that internal noise but keep the exec itself.
     u32 *pre_exec = bpf_map_lookup_elem(&pre_exec_map, &pid);
     if (pre_exec && !is_exec_payload_direct_syscall(sys_id)) {
         return 0;
@@ -587,579 +601,108 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     if (!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)) return 0;
 
     u64 enter_time = bpf_ktime_get_ns();
+
+    u32 index = ENTER_PROG_NO_PAYLOAD_DIRECT;
+    if (is_terminating_direct_syscall(sys_id)) {
+        index = ENTER_PROG_TERMINATING;
+    } else if (is_exec_payload_direct_syscall(sys_id)) {
+        index = ENTER_PROG_EXEC;
+    } else if (is_path_stat_direct_syscall(sys_id)) {
+        index = ENTER_PROG_PATH_STAT;
+    } else if (is_path_only_direct_syscall(sys_id)) {
+        index = ENTER_PROG_PATH_ONLY;
+    } else if (is_dual_path_direct_syscall(sys_id)) {
+        index = ENTER_PROG_DUAL_PATH;
+    } else if (is_openat2_direct_syscall(sys_id)) {
+        index = ENTER_PROG_OPENAT2;
+    } else if (is_readlink_direct_syscall(sys_id)) {
+        index = ENTER_PROG_READLINK;
+    } else if (is_misc_struct_enter_direct_syscall(sys_id)) {
+        index = ENTER_PROG_MISC_STRUCT;
+    } else if (is_small_struct_enter_direct_syscall(sys_id)) {
+        index = ENTER_PROG_SMALL_STRUCT;
+    } else if (is_itimer_enter_direct_syscall(sys_id)) {
+        index = ENTER_PROG_ITIMER;
+    } else if (is_time_struct_enter_direct_syscall(sys_id)) {
+        index = ENTER_PROG_TIME_STRUCT;
+    } else if (is_signal_enter_direct_syscall(sys_id)) {
+        index = ENTER_PROG_SIGNAL;
+    } else if (is_file_time_direct_syscall(sys_id)) {
+        index = ENTER_PROG_FILE_TIME;
+    } else if (sys_id == SYS_NANOSLEEP || sys_id == SYS_CLOCK_NANOSLEEP) {
+        index = ENTER_PROG_SLEEP;
+    } else if (sys_id == SYS_FUTEX || sys_id == SYS_FUTEX_WAIT ||
+               sys_id == SYS_FUTEX_WAITV || sys_id == SYS_FUTEX_REQUEUE) {
+        index = ENTER_PROG_FUTEX;
+    } else if (sys_id == SYS_CACHESTAT) {
+        index = ENTER_PROG_CACHESTAT;
+    } else if (is_capability_direct_syscall(sys_id)) {
+        index = ENTER_PROG_CAPABILITY;
+    } else if (is_memfd_create_direct_syscall(sys_id)) {
+        index = ENTER_PROG_MEMFD;
+    } else if (is_prctl_direct_syscall(sys_id)) {
+        index = ENTER_PROG_PRCTL;
+    } else if (is_clone3_direct_syscall(sys_id)) {
+        index = ENTER_PROG_CLONE3;
+    } else if (is_bpf_direct_syscall(sys_id)) {
+        index = ENTER_PROG_BPF;
+    } else if (is_iovec_direct_syscall(sys_id)) {
+        index = ENTER_PROG_IOVEC;
+    } else if (is_msg_direct_syscall(sys_id)) {
+        index = is_single_msg_direct_syscall(sys_id) ? ENTER_PROG_MSG : ENTER_PROG_MMSG;
+    } else if (is_fcntl_direct_syscall(sys_id)) {
+        index = ENTER_PROG_FCNTL;
+    } else if (is_ioctl_direct_syscall(sys_id)) {
+        index = ENTER_PROG_IOCTL;
+    } else if (is_network_direct_syscall(sys_id)) {
+        index = ENTER_PROG_NETWORK;
+    } else if (is_key_direct_syscall(sys_id)) {
+        index = ENTER_PROG_KEY;
+    } else if (is_xattr_direct_syscall(sys_id)) {
+        index = ENTER_PROG_XATTR;
+    } else if (is_fs_enter_direct_syscall(sys_id)) {
+        index = ENTER_PROG_FS;
+    } else if (is_aio_direct_syscall(sys_id)) {
+        index = ENTER_PROG_AIO;
+    } else if (is_poll_direct_syscall(sys_id)) {
+        index = ENTER_PROG_POLL;
+    } else if (is_select_direct_syscall(sys_id)) {
+        index = ENTER_PROG_SELECT;
+    } else if (is_epoll_ctl_direct_syscall(sys_id) || is_epoll_pwait2_direct_syscall(sys_id)) {
+        index = ENTER_PROG_EPOLL;
+    } else if (is_scalar_direct_syscall(sys_id) || is_exit_payload_direct_syscall(sys_id) ||
+               is_fd_array_direct_syscall(sys_id) || is_getcwd_direct_syscall(sys_id) ||
+               is_time_struct_direct_syscall(sys_id) || is_stat_struct_direct_syscall(sys_id) ||
+               is_waitid_direct_syscall(sys_id) ||
+               is_misc_struct_direct_syscall(sys_id) || is_small_struct_direct_syscall(sys_id)) {
+        index = ENTER_PROG_NO_PAYLOAD_DIRECT;
+    } else if (is_payload_direct_syscall(sys_id)) {
+        index = ENTER_PROG_PAYLOAD_DIRECT;
+    }
+
+    bpf_tail_call(ctx, &enter_progs, index);
+
+    // tail call fallback: keep the syscall observable even if a handler slot is missing.
     s32 stack_id = -1;
     if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
         stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
     }
-
-    // IMPACT: terminating syscalls synthesize their exit event at enter time without touching the bpf_event carrier.
-    if (is_terminating_direct_syscall(sys_id)) {
-        if (tid == pid) {
-            u32 val = 1;
-            bpf_map_update_elem(&main_exited_map, &pid, &val, BPF_ANY);
-        }
-        emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
-        emit_terminating_exit_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        return 0;
-    }
-
-    // IMPACT: exec direct events preserve restart/resume status while copying argv/envp/path straight into ringbuf TLV.
-    if (is_exec_payload_direct_syscall(sys_id)) {
-        bpf_printk("sgo exec enter pid=%u sys=%u", pid, sys_id);
-        s32 probe_ret_enter = 0;
-        u32 *exited = bpf_map_lookup_elem(&main_exited_map, &pid);
-        if (exited && *exited == 1) {
-            probe_ret_enter = 1;
-        }
-        emit_exec_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time, probe_ret_enter);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        if (tid != pid) {
-            bpf_map_update_elem(&pending_exec_map, &pid, &tid, BPF_ANY);
-        }
-        return 0;
-    }
-
-    // IMPACT: path stat syscalls carry an IN path snapshot on enter and an OUT struct on exit without the bpf_event carrier.
-    if (is_path_stat_direct_syscall(sys_id)) {
-        emit_path_stat_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: simple path-only syscalls snapshot IN paths directly into TLV sections without the fixed-window carrier.
-    if (is_path_only_direct_syscall(sys_id)) {
-        emit_path_only_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: dual path syscalls snapshot both IN paths directly into TLV sections without the fixed-window carrier.
-    if (is_dual_path_direct_syscall(sys_id)) {
-        emit_dual_path_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: openat2 snapshots path and struct open_how as direct TLV sections without the fixed-window carrier.
-    if (is_openat2_direct_syscall(sys_id)) {
-        emit_openat2_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: readlink syscalls carry an IN path snapshot on enter and an OUT bytes snapshot on exit without the bpf_event carrier.
-    if (is_readlink_direct_syscall(sys_id)) {
-        emit_readlink_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: misc struct IN payloads are snapped at enter and later merged with exit-side OUT sections in Go.
-    if (is_misc_struct_enter_direct_syscall(sys_id)) {
-        emit_misc_struct_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: small pointer/word syscalls snapshot offset words directly into TLV sections without the fixed str_arg window.
-    if (is_small_struct_enter_direct_syscall(sys_id)) {
-        emit_small_struct_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: itimer set calls snapshot the new timer value at enter and merge old value snapshots at exit.
-    if (is_itimer_enter_direct_syscall(sys_id)) {
-        emit_itimer_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: time setter syscalls snapshot IN time structs directly into TLV sections at enter.
-    if (is_time_struct_enter_direct_syscall(sys_id)) {
-        emit_time_struct_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: signal syscalls snapshot sigset/sigaction structs through direct TLV sections and preserve sigsuspend markers.
-    if (is_signal_enter_direct_syscall(sys_id)) {
-        emit_signal_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time, -1);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        if (sys_id == SYS_RT_SIGSUSPEND && should_emit_signal_sigsuspend_marker(tid, pid)) {
-            emit_signal_sigsuspend_marker_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        }
-        return 0;
-    }
-
-    // IMPACT: file timestamp syscalls snapshot path and IN time arrays through direct TLV sections.
-    if (is_file_time_direct_syscall(sys_id)) {
-        emit_file_time_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: sleep syscalls snapshot request timespecs at enter and remaining timespecs on interrupted exit.
-    if (sys_id == SYS_NANOSLEEP) {
-        emit_sleep_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time, 0, ctx->args[0], -1);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        if (should_emit_nanosleep_suspended_marker(tid, pid)) {
-            emit_sleep_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time, 0, ctx->args[0], 3);
-        }
-        return 0;
-    }
-    if (sys_id == SYS_CLOCK_NANOSLEEP) {
-        emit_sleep_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time, 2, ctx->args[2], -1);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: futex timeout snapshots are captured at enter as direct TLV sections, without the fixed-window carrier.
-    if (sys_id == SYS_FUTEX) {
-        emit_futex_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-    if (sys_id == SYS_FUTEX_WAIT) {
-        emit_futex_wait_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-    if (sys_id == SYS_FUTEX_WAITV) {
-        emit_futex_waitv_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-    if (sys_id == SYS_FUTEX_REQUEUE) {
-        emit_futex_requeue_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: cachestat snapshots range at enter and stats at successful exit through direct TLV sections.
-    if (sys_id == SYS_CACHESTAT) {
-        emit_cachestat_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: capability syscalls snapshot header/data through direct TLV sections without the fixed-window carrier.
-    if (is_capability_direct_syscall(sys_id)) {
-        emit_capability_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: memfd_create snapshots arg0 name as a direct string TLV without the fixed-window carrier.
-    if (is_memfd_create_direct_syscall(sys_id)) {
-        emit_memfd_create_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: prctl name/getter payloads are captured through option-aware direct TLV sections.
-    if (is_prctl_direct_syscall(sys_id)) {
-        emit_prctl_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: clone3 snapshots struct clone_args directly into TLV sections without the fixed-window carrier.
-    if (is_clone3_direct_syscall(sys_id)) {
-        emit_clone3_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: bpf attr bytes are captured through direct TLV sections without the fixed-window carrier.
-    if (is_bpf_direct_syscall(sys_id)) {
-        return 0;
-    }
-
-    // IMPACT: iovec arrays are captured through direct TLV sections without the fixed-window carrier.
-    if (is_iovec_direct_syscall(sys_id)) {
-        emit_iovec_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: msg syscall enter capture is handled by trace_sys_enter_msg to keep this dispatcher within verifier limits.
-    if (is_msg_direct_syscall(sys_id)) {
-        return 0;
-    }
-
-    // IMPACT: fcntl lock/owner/rw-hint/delegation structs are captured through command-aware direct TLV sections.
-    if (is_fcntl_direct_syscall(sys_id)) {
-        emit_fcntl_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: ioctl arg bytes are captured through _IOC_SIZE-aware direct TLV sections without the fixed-window carrier.
-    if (is_ioctl_direct_syscall(sys_id)) {
-        emit_ioctl_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: network buffer/sockaddr/addrlen snapshots are captured through direct TLV sections with enter addrlen kept in compact pending metadata.
-    if (is_network_direct_syscall(sys_id)) {
-        struct network_direct_args network_args = {};
-        network_args.args[0] = ctx->args[0];
-        network_args.args[1] = ctx->args[1];
-        network_args.args[2] = ctx->args[2];
-        network_args.args[3] = ctx->args[3];
-        network_args.args[4] = ctx->args[4];
-        network_args.args[5] = ctx->args[5];
-        u32 sockaddr_len = 0;
-        emit_network_enter_event_v2_direct(pid, tid, sys_id, &network_args, enter_time, &sockaddr_len);
-        save_pending_network_syscall_args(tid, pid, sys_id, &network_args, enter_time, stack_id, sockaddr_len);
-        return 0;
-    }
-
-    // IMPACT: key syscalls snapshot IN strings/bytes directly into TLV sections without the fixed-window carrier.
-    if (is_key_direct_syscall(sys_id)) {
-        emit_key_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: xattr syscalls snapshot IN strings/bytes and merge positive OUT bytes through direct TLV sections.
-    if (is_xattr_direct_syscall(sys_id)) {
-        emit_xattr_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: filesystem enter payload syscalls snapshot strings/bytes directly into TLV sections without the fixed-window carrier.
-    if (is_fs_enter_direct_syscall(sys_id)) {
-        emit_fs_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: AIO direct syscalls emit bounded TLV sections without the fixed-window carrier.
-    // IMPACT: io_submit's iocb/iovec capture lives in trace_sys_enter_aio to
-    // keep the generic dispatcher within verifier limits.
-    if (sys_id == SYS_IO_SUBMIT) {
-        return 0;
-    }
-    if (is_aio_direct_syscall(sys_id)) {
-        emit_aio_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: poll/ppoll snapshot pollfd arrays and ppoll timeout through direct TLV sections.
-    if (is_poll_direct_syscall(sys_id)) {
-        emit_poll_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: select snapshots fd_set/timeval payloads through direct TLV sections without the fixed-window carrier.
-    if (is_select_direct_syscall(sys_id)) {
-        emit_select_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: epoll_ctl snapshots arg3 event at enter through direct TLV without the fixed-window carrier.
-    if (is_epoll_ctl_direct_syscall(sys_id)) {
-        emit_epoll_ctl_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: epoll_pwait2 snapshots its timeout at enter and ready events at exit through direct TLV sections.
-    if (is_epoll_pwait2_direct_syscall(sys_id)) {
-        emit_epoll_pwait2_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: no-payload direct syscalls bypass the large bpf_event carrier while preserving args/ret pairing.
-    if (is_scalar_direct_syscall(sys_id) || is_exit_payload_direct_syscall(sys_id) ||
-        is_fd_array_direct_syscall(sys_id) ||
-        is_getcwd_direct_syscall(sys_id) ||
-        is_time_struct_direct_syscall(sys_id) || is_stat_struct_direct_syscall(sys_id) ||
-        is_waitid_direct_syscall(sys_id) ||
-        is_misc_struct_direct_syscall(sys_id) || is_small_struct_direct_syscall(sys_id)) {
-        emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-
-    // IMPACT: payload direct syscalls copy IN sections directly into ringbuf TLV storage at syscall enter.
-    if (is_payload_direct_syscall(sys_id)) {
-        emit_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-        save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-        return 0;
-    }
-    
-    // IMPACT: fallback syscalls now use event v2 no-payload enter and compact pending metadata, not the fixed-window carrier.
     emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-
     return 0;
 }
 
-// IMPACT: BPF syscall enter capture lives in its own tracepoint program to keep the generic dispatcher within verifier limits.
-SEC("tracepoint/raw_syscalls/sys_enter")
-int trace_sys_enter_bpf(struct trace_event_raw_sys_enter *ctx) {
-    u32 sys_id = (u32)ctx->id;
-    if (!is_bpf_direct_syscall(sys_id)) return 0;
-
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
-    if (!filter_pid) return 0;
-
-    u32 key = 0;
-    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
-    if (!should_trace_syscall(sys_id, cfg)) return 0;
-
-    u64 enter_time = bpf_ktime_get_ns();
-    s32 stack_id = -1;
-    if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
-        stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
-    }
-
-    emit_bpf_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-    save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-    return 0;
-}
-
-// IMPACT: io_submit iocb array and nested iovec capture lives in its own
-// tracepoint program to keep the generic dispatcher within verifier limits.
-SEC("tracepoint/raw_syscalls/sys_enter")
-int trace_sys_enter_aio(struct trace_event_raw_sys_enter *ctx) {
-    u32 sys_id = (u32)ctx->id;
-    if (sys_id != SYS_IO_SUBMIT) return 0;
-
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
-    if (!filter_pid) return 0;
-
-    u32 key = 0;
-    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
-    if (!should_trace_syscall(sys_id, cfg)) return 0;
-
-    u64 enter_time = bpf_ktime_get_ns();
-    s32 stack_id = -1;
-    if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
-        stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
-    }
-
-    emit_aio_submit_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-    save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-    return 0;
-}
-
-// IMPACT: PREADV/PWRITEV iocb nested iovec capture is split out so neither the
-// generic dispatcher nor the aio iocb program exceeds verifier limits.
-SEC("tracepoint/raw_syscalls/sys_enter")
-int trace_sys_enter_aio_iovec(struct trace_event_raw_sys_enter *ctx) {
-    u32 sys_id = (u32)ctx->id;
-    if (sys_id != SYS_IO_SUBMIT) return 0;
-
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
-    if (!filter_pid) return 0;
-
-    u32 key = 0;
-    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
-    if (!should_trace_syscall(sys_id, cfg)) return 0;
-
-    emit_aio_submit_iovec_enter_event_v2_direct(
-        pid,
-        tid,
-        sys_id,
-        ctx,
-        bpf_ktime_get_ns());
-    return 0;
-}
-
-// IMPACT: PWRITE iocb data buffer prefixes are captured by their own program
-// so neither the aio iocb capture nor the nested iovec capture exceeds limits.
-SEC("tracepoint/raw_syscalls/sys_enter")
-int trace_sys_enter_aio_buf(struct trace_event_raw_sys_enter *ctx) {
-    u32 sys_id = (u32)ctx->id;
-    if (sys_id != SYS_IO_SUBMIT) return 0;
-
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
-    if (!filter_pid) return 0;
-
-    u32 key = 0;
-    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
-    if (!should_trace_syscall(sys_id, cfg)) return 0;
-
-    emit_aio_submit_buf_enter_event_v2_direct(
-        pid,
-        tid,
-        sys_id,
-        ctx,
-        bpf_ktime_get_ns());
-    return 0;
-}
-
-// IMPACT: write-side nested iov_base capture lives in its own tracepoint program to keep generic enter under verifier limits.
-SEC("tracepoint/raw_syscalls/sys_enter")
-int trace_sys_enter_iovec_base(struct trace_event_raw_sys_enter *ctx) {
-    u32 sys_id = (u32)ctx->id;
-    if (!is_iovec_base_enter_direct_syscall(sys_id)) return 0;
-
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
-    if (!filter_pid) return 0;
-
-    u32 key = 0;
-    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
-    if (!should_trace_syscall(sys_id, cfg)) return 0;
-
-    u64 enter_time = bpf_ktime_get_ns();
-    s32 stack_id = -1;
-    if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
-        stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
-    }
-
-    emit_iovec_base_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-    return 0;
-}
-
-// IMPACT: single msghdr enter capture lives in its own tracepoint program because nested iovec TLV copying is verifier-heavy.
-SEC("tracepoint/raw_syscalls/sys_enter")
-int trace_sys_enter_msg(struct trace_event_raw_sys_enter *ctx) {
-    u32 sys_id = (u32)ctx->id;
-    if (!is_single_msg_direct_syscall(sys_id)) return 0;
-
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
-    if (!filter_pid) return 0;
-
-    u32 key = 0;
-    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
-    if (!should_trace_syscall(sys_id, cfg)) return 0;
-
-    u64 enter_time = bpf_ktime_get_ns();
-    s32 stack_id = -1;
-    if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
-        stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
-    }
-
-    emit_msg_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-    save_pending_msg_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-    return 0;
-}
-
-// IMPACT: sendmsg IN iov_base payloads are split from msghdr metadata capture to reduce verifier complexity.
-SEC("tracepoint/raw_syscalls/sys_enter")
-int trace_sys_enter_sendmsg_base(struct trace_event_raw_sys_enter *ctx) {
-    u32 sys_id = (u32)ctx->id;
-    if (sys_id != SYS_SENDMSG) return 0;
-
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
-    if (!filter_pid) return 0;
-
-    u32 key = 0;
-    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
-    if (!should_trace_syscall(sys_id, cfg)) return 0;
-
-    emit_sendmsg_base_enter_event_v2_direct(pid, tid, sys_id, ctx, bpf_ktime_get_ns());
-    return 0;
-}
-
-// IMPACT: mmsg enter capture is split from single msghdr capture to keep each verifier program bounded.
-SEC("tracepoint/raw_syscalls/sys_enter")
-int trace_sys_enter_mmsg(struct trace_event_raw_sys_enter *ctx) {
-    u32 sys_id = (u32)ctx->id;
-    if (!is_mmsg_direct_syscall(sys_id)) return 0;
-
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
-    if (!filter_pid) return 0;
-
-    u32 key = 0;
-    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
-    if (!should_trace_syscall(sys_id, cfg)) return 0;
-
-    u64 enter_time = bpf_ktime_get_ns();
-    s32 stack_id = -1;
-    if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
-        stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
-    }
-
-    emit_mmsg_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-    save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-    return 0;
-}
-
-// IMPACT: sendmmsg first-slot IN iov_base payloads are split from mmsg metadata capture.
-SEC("tracepoint/raw_syscalls/sys_enter")
-int trace_sys_enter_sendmmsg_base0(struct trace_event_raw_sys_enter *ctx) {
-    u32 sys_id = (u32)ctx->id;
-    if (sys_id != SYS_SENDMMSG) return 0;
-
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
-    if (!filter_pid) return 0;
-
-    u32 key = 0;
-    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
-    if (!should_trace_syscall(sys_id, cfg)) return 0;
-
-    emit_sendmmsg_base0_enter_event_v2_direct(pid, tid, sys_id, ctx, bpf_ktime_get_ns());
-    return 0;
-}
-
-// IMPACT: sendmmsg second-slot IN iov_base payloads are isolated to keep each verifier program small.
-SEC("tracepoint/raw_syscalls/sys_enter")
-int trace_sys_enter_sendmmsg_base1(struct trace_event_raw_sys_enter *ctx) {
-    u32 sys_id = (u32)ctx->id;
-    if (sys_id != SYS_SENDMMSG) return 0;
-
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
-    if (!filter_pid) return 0;
-
-    u32 key = 0;
-    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
-    if (!should_trace_syscall(sys_id, cfg)) return 0;
-
-    emit_sendmmsg_base1_enter_event_v2_direct(pid, tid, sys_id, ctx, bpf_ktime_get_ns());
-    return 0;
-}
-
-// IMPACT: Fixed non-leader thread execve exit detection. On successful execve (ret == 0), 
-// it looks up via pending_exec_map to find the original thread state, cleaning up the superseded thread.
 SEC("tracepoint/raw_syscalls/sys_exit")
 int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     if (ctx->id == SYS_RT_SIGRETURN || ctx->id == SYS_RT_SIGRETURN_COMPAT) return 0;
-    s64 ret_value = ctx->ret;
     u32 tid = (u32)bpf_get_current_pid_tgid();
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
-    
+
     struct pending_syscall *p = NULL;
-    u32 is_pending_lookup = 0;
-    u32 pending_tid = 0;
-    
-    if (ret_value == 0) {
+    if (ctx->ret == 0) {
         u32 *p_tid = bpf_map_lookup_elem(&pending_exec_map, &pid);
         if (p_tid) {
-            pending_tid = *p_tid;
-            p = bpf_map_lookup_elem(&pending_syscalls, &pending_tid);
-            is_pending_lookup = 1;
+            p = bpf_map_lookup_elem(&pending_syscalls, p_tid);
         }
     }
     if (!p) {
@@ -1167,103 +710,17 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     }
     if (!p) return 0;
 
-    // IMPACT: read-side iov_base payload capture is split out to keep generic exit under verifier limits.
+    u32 index = EXIT_PROG_GENERIC;
     if (is_iovec_base_exit_direct_syscall(p->sys_id)) {
-        return 0;
+        index = EXIT_PROG_IOVEC_BASE;
+    } else if (is_single_msg_direct_syscall(p->sys_id)) {
+        index = EXIT_PROG_MSG;
+    } else if (is_mmsg_direct_syscall(p->sys_id)) {
+        index = (p->sys_id == SYS_RECVMMSG) ? EXIT_PROG_RECVMMSG_BASE0 : EXIT_PROG_MMSG_FINAL;
     }
-    // IMPACT: msg/mmsg OUT payload capture is split out to keep generic exit under verifier limits.
-    if (is_msg_direct_syscall(p->sys_id)) {
-        return 0;
-    }
+    bpf_tail_call(ctx, &exit_progs, index);
 
-    // IMPACT: direct exits no longer rebuild a bpf_event from pending metadata before ringbuf output.
-    if (is_sys_exit_direct_syscall(p->sys_id)) {
-        u64 duration = 0;
-        if (p->enter_time > 0) {
-            u64 exit_time = bpf_ktime_get_ns();
-            if (exit_time > p->enter_time) {
-                duration = exit_time - p->enter_time;
-            }
-        }
-        if (is_exit_payload_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_payload_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_gettimeofday_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_gettimeofday_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_clock_time_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_time_struct_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_itimer_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_itimer_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_timex_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_timex_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_sleep_direct_syscall(p->sys_id)) {
-            emit_sleep_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_stat_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_stat_struct_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_waitid_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_waitid_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_signal_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_signal_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_getcwd_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_getcwd_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_readlink_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_readlink_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_fd_array_direct_syscall(p->sys_id) && ret_value == 0) {
-            emit_fd_array_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_path_only_direct_syscall(p->sys_id)) {
-            emit_path_only_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_misc_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_misc_struct_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_small_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_small_struct_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_cachestat_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_cachestat_exit_event_v2_direct(p, ret_value, duration);
-        } else if (p->sys_id == SYS_CAPGET && ret_value >= 0) {
-            emit_capability_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_prctl_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_prctl_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_aio_getevents_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_aio_getevents_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_aio_setup_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_aio_setup_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_poll_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_poll_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_select_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_select_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_epoll_wait_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_epoll_wait_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_getdents64_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_getdents64_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
-            emit_exec_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_xattr_get_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_xattr_get_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_xattr_list_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_xattr_list_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_fcntl_direct_syscall(p->sys_id)) {
-            emit_fcntl_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_ioctl_direct_syscall(p->sys_id)) {
-            emit_ioctl_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_network_direct_syscall(p->sys_id)) {
-            emit_network_exit_event_v2_direct(p, ret_value, duration);
-        } else {
-            emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
-        }
-        u32 delete_tid = tid;
-        if (is_pending_lookup) {
-            delete_tid = pending_tid;
-        }
-        u32 cleanup_nonleader_exec = is_exec_payload_direct_syscall(p->sys_id) && p->tid != p->pid;
-        bpf_map_delete_elem(&pending_syscalls, &delete_tid);
-        if (is_pending_lookup) {
-            bpf_map_delete_elem(&pending_exec_map, &pid);
-            bpf_map_delete_elem(&main_exited_map, &pid);
-            bpf_map_delete_elem(&pending_syscalls, &pid);
-        } else if (cleanup_nonleader_exec) {
-            bpf_map_delete_elem(&pending_exec_map, &pid);
-        }
-        return 0;
-    }
-
+    // tail call fallback: emit a minimal no-payload exit and consume pending.
     u64 duration = 0;
     if (p->enter_time > 0) {
         u64 exit_time = bpf_ktime_get_ns();
@@ -1271,74 +728,11 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             duration = exit_time - p->enter_time;
         }
     }
-
-    // IMPACT: unclassified fallback syscalls now emit compact no-payload event v2 exits.
-    emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
-
-    u32 delete_tid = tid;
-    if (is_pending_lookup) {
-        delete_tid = pending_tid;
-    }
-    bpf_map_delete_elem(&pending_syscalls, &delete_tid);
-    if (is_pending_lookup) {
-        bpf_map_delete_elem(&pending_exec_map, &pid);
-        bpf_map_delete_elem(&main_exited_map, &pid);
-        bpf_map_delete_elem(&pending_syscalls, &pid);
-    }
-    return 0;
-}
-
-// IMPACT: read-side local OUT iov_base capture lives in its own exit tracepoint program.
-SEC("tracepoint/raw_syscalls/sys_exit")
-int trace_sys_exit_iovec_base(struct trace_event_raw_sys_exit *ctx) {
-    if (!is_iovec_base_exit_direct_syscall((u32)ctx->id)) return 0;
-    s64 ret_value = ctx->ret;
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-
-    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
-    if (!p) return 0;
-    if (!is_iovec_base_exit_direct_syscall(p->sys_id)) return 0;
-
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
-
-    if (ret_value > 0) {
-        emit_iovec_base_exit_event_v2_direct(p, ret_value, duration);
-    } else {
-        emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
-    }
+    emit_syscall_exit_event_v2_direct(p, ctx->ret, duration, 0);
     bpf_map_delete_elem(&pending_syscalls, &tid);
     return 0;
 }
 
-// IMPACT: msg/mmsg OUT payload capture lives in its own exit tracepoint program.
-SEC("tracepoint/raw_syscalls/sys_exit")
-int trace_sys_exit_msg(struct trace_event_raw_sys_exit *ctx) {
-    if (!is_single_msg_direct_syscall((u32)ctx->id)) return 0;
-    s64 ret_value = ctx->ret;
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-
-    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
-    if (!p) return 0;
-    if (!is_single_msg_direct_syscall(p->sys_id)) return 0;
-
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
-
-    emit_single_msg_exit_event_v2_direct(p, ret_value, duration);
-    bpf_map_delete_elem(&pending_syscalls, &tid);
-    return 0;
-}
 
 // IMPACT: recvmsg msg_name is copied from a kretprobe fragment so the nested OUT buffer is observed after __sys_recvmsg returns.
 SEC("kretprobe/__sys_recvmsg")
@@ -1384,75 +778,6 @@ int trace_kretprobe_recvmsg_control(struct pt_regs *ctx) {
     return 0;
 }
 
-// IMPACT: recvmmsg first-slot OUT iov_base payload is emitted as an exit fragment before final mmsg exit.
-SEC("tracepoint/raw_syscalls/sys_exit")
-int trace_sys_exit_recvmmsg_base0(struct trace_event_raw_sys_exit *ctx) {
-    if ((u32)ctx->id != SYS_RECVMMSG) return 0;
-    s64 ret_value = ctx->ret;
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-
-    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
-    if (!p) return 0;
-    if (p->sys_id != SYS_RECVMMSG) return 0;
-
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
-
-    emit_recvmmsg_base0_exit_fragment_event_v2_direct(p, ret_value, duration);
-    return 0;
-}
-
-// IMPACT: recvmmsg second-slot OUT iov_base payload is a separate fragment to keep verifier paths bounded.
-SEC("tracepoint/raw_syscalls/sys_exit")
-int trace_sys_exit_recvmmsg_base1(struct trace_event_raw_sys_exit *ctx) {
-    if ((u32)ctx->id != SYS_RECVMMSG) return 0;
-    s64 ret_value = ctx->ret;
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-
-    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
-    if (!p) return 0;
-    if (p->sys_id != SYS_RECVMMSG) return 0;
-
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
-
-    emit_recvmmsg_base1_exit_fragment_event_v2_direct(p, ret_value, duration);
-    return 0;
-}
-
-// IMPACT: mmsg final exit emits OUT mmsghdr metadata and consumes pending state after fragments.
-SEC("tracepoint/raw_syscalls/sys_exit")
-int trace_sys_exit_mmsg(struct trace_event_raw_sys_exit *ctx) {
-    if (!is_mmsg_direct_syscall((u32)ctx->id)) return 0;
-    s64 ret_value = ctx->ret;
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-
-    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
-    if (!p) return 0;
-    if (!is_mmsg_direct_syscall(p->sys_id)) return 0;
-
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
-
-    emit_mmsg_exit_event_v2_direct(p, ret_value, duration);
-    bpf_map_delete_elem(&pending_syscalls, &tid);
-    return 0;
-}
 
 SEC("tracepoint/sched/sched_process_fork")
 int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {

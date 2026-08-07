@@ -75,6 +75,54 @@ type bpfSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfProgramSpecs struct {
+	EnterAio                     *ebpf.ProgramSpec `ebpf:"enter_aio"`
+	EnterAioBuf                  *ebpf.ProgramSpec `ebpf:"enter_aio_buf"`
+	EnterAioIovec                *ebpf.ProgramSpec `ebpf:"enter_aio_iovec"`
+	EnterBpf                     *ebpf.ProgramSpec `ebpf:"enter_bpf"`
+	EnterCachestat               *ebpf.ProgramSpec `ebpf:"enter_cachestat"`
+	EnterCapability              *ebpf.ProgramSpec `ebpf:"enter_capability"`
+	EnterClone3                  *ebpf.ProgramSpec `ebpf:"enter_clone3"`
+	EnterDualPath                *ebpf.ProgramSpec `ebpf:"enter_dual_path"`
+	EnterEpoll                   *ebpf.ProgramSpec `ebpf:"enter_epoll"`
+	EnterExec                    *ebpf.ProgramSpec `ebpf:"enter_exec"`
+	EnterFcntl                   *ebpf.ProgramSpec `ebpf:"enter_fcntl"`
+	EnterFileTime                *ebpf.ProgramSpec `ebpf:"enter_file_time"`
+	EnterFs                      *ebpf.ProgramSpec `ebpf:"enter_fs"`
+	EnterFutex                   *ebpf.ProgramSpec `ebpf:"enter_futex"`
+	EnterIoctl                   *ebpf.ProgramSpec `ebpf:"enter_ioctl"`
+	EnterIovec                   *ebpf.ProgramSpec `ebpf:"enter_iovec"`
+	EnterIovecBase               *ebpf.ProgramSpec `ebpf:"enter_iovec_base"`
+	EnterItimer                  *ebpf.ProgramSpec `ebpf:"enter_itimer"`
+	EnterKey                     *ebpf.ProgramSpec `ebpf:"enter_key"`
+	EnterMemfd                   *ebpf.ProgramSpec `ebpf:"enter_memfd"`
+	EnterMiscStruct              *ebpf.ProgramSpec `ebpf:"enter_misc_struct"`
+	EnterMmsg                    *ebpf.ProgramSpec `ebpf:"enter_mmsg"`
+	EnterMsg                     *ebpf.ProgramSpec `ebpf:"enter_msg"`
+	EnterNetwork                 *ebpf.ProgramSpec `ebpf:"enter_network"`
+	EnterNoPayloadDirect         *ebpf.ProgramSpec `ebpf:"enter_no_payload_direct"`
+	EnterOpenat2                 *ebpf.ProgramSpec `ebpf:"enter_openat2"`
+	EnterPathOnly                *ebpf.ProgramSpec `ebpf:"enter_path_only"`
+	EnterPathStat                *ebpf.ProgramSpec `ebpf:"enter_path_stat"`
+	EnterPayloadDirect           *ebpf.ProgramSpec `ebpf:"enter_payload_direct"`
+	EnterPoll                    *ebpf.ProgramSpec `ebpf:"enter_poll"`
+	EnterPrctl                   *ebpf.ProgramSpec `ebpf:"enter_prctl"`
+	EnterReadlink                *ebpf.ProgramSpec `ebpf:"enter_readlink"`
+	EnterSelect                  *ebpf.ProgramSpec `ebpf:"enter_select"`
+	EnterSendmmsgBase0           *ebpf.ProgramSpec `ebpf:"enter_sendmmsg_base0"`
+	EnterSendmmsgBase1           *ebpf.ProgramSpec `ebpf:"enter_sendmmsg_base1"`
+	EnterSendmsgBase             *ebpf.ProgramSpec `ebpf:"enter_sendmsg_base"`
+	EnterSignal                  *ebpf.ProgramSpec `ebpf:"enter_signal"`
+	EnterSleep                   *ebpf.ProgramSpec `ebpf:"enter_sleep"`
+	EnterSmallStruct             *ebpf.ProgramSpec `ebpf:"enter_small_struct"`
+	EnterTerminating             *ebpf.ProgramSpec `ebpf:"enter_terminating"`
+	EnterTimeStruct              *ebpf.ProgramSpec `ebpf:"enter_time_struct"`
+	EnterXattr                   *ebpf.ProgramSpec `ebpf:"enter_xattr"`
+	ExitGeneric                  *ebpf.ProgramSpec `ebpf:"exit_generic"`
+	ExitIovecBase                *ebpf.ProgramSpec `ebpf:"exit_iovec_base"`
+	ExitMmsgFinal                *ebpf.ProgramSpec `ebpf:"exit_mmsg_final"`
+	ExitMsg                      *ebpf.ProgramSpec `ebpf:"exit_msg"`
+	ExitRecvmmsgBase0            *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base0"`
+	ExitRecvmmsgBase1            *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base1"`
 	TraceKretprobeRecvmsgControl *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_control"`
 	TraceKretprobeRecvmsgName    *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_name"`
 	TraceSchedProcessExec        *ebpf.ProgramSpec `ebpf:"trace_sched_process_exec"`
@@ -82,22 +130,7 @@ type bpfProgramSpecs struct {
 	TraceSchedProcessFork        *ebpf.ProgramSpec `ebpf:"trace_sched_process_fork"`
 	TraceSchedProcessFree        *ebpf.ProgramSpec `ebpf:"trace_sched_process_free"`
 	TraceSysEnter                *ebpf.ProgramSpec `ebpf:"trace_sys_enter"`
-	TraceSysEnterAio             *ebpf.ProgramSpec `ebpf:"trace_sys_enter_aio"`
-	TraceSysEnterAioBuf          *ebpf.ProgramSpec `ebpf:"trace_sys_enter_aio_buf"`
-	TraceSysEnterAioIovec        *ebpf.ProgramSpec `ebpf:"trace_sys_enter_aio_iovec"`
-	TraceSysEnterBpf             *ebpf.ProgramSpec `ebpf:"trace_sys_enter_bpf"`
-	TraceSysEnterIovecBase       *ebpf.ProgramSpec `ebpf:"trace_sys_enter_iovec_base"`
-	TraceSysEnterMmsg            *ebpf.ProgramSpec `ebpf:"trace_sys_enter_mmsg"`
-	TraceSysEnterMsg             *ebpf.ProgramSpec `ebpf:"trace_sys_enter_msg"`
-	TraceSysEnterSendmmsgBase0   *ebpf.ProgramSpec `ebpf:"trace_sys_enter_sendmmsg_base0"`
-	TraceSysEnterSendmmsgBase1   *ebpf.ProgramSpec `ebpf:"trace_sys_enter_sendmmsg_base1"`
-	TraceSysEnterSendmsgBase     *ebpf.ProgramSpec `ebpf:"trace_sys_enter_sendmsg_base"`
 	TraceSysExit                 *ebpf.ProgramSpec `ebpf:"trace_sys_exit"`
-	TraceSysExitIovecBase        *ebpf.ProgramSpec `ebpf:"trace_sys_exit_iovec_base"`
-	TraceSysExitMmsg             *ebpf.ProgramSpec `ebpf:"trace_sys_exit_mmsg"`
-	TraceSysExitMsg              *ebpf.ProgramSpec `ebpf:"trace_sys_exit_msg"`
-	TraceSysExitRecvmmsgBase0    *ebpf.ProgramSpec `ebpf:"trace_sys_exit_recvmmsg_base0"`
-	TraceSysExitRecvmmsgBase1    *ebpf.ProgramSpec `ebpf:"trace_sys_exit_recvmmsg_base1"`
 }
 
 // bpfMapSpecs contains maps before they are loaded into the kernel.
@@ -106,7 +139,9 @@ type bpfProgramSpecs struct {
 type bpfMapSpecs struct {
 	ArmForkMap       *ebpf.MapSpec `ebpf:"arm_fork_map"`
 	ConfigMap        *ebpf.MapSpec `ebpf:"config_map"`
+	EnterProgs       *ebpf.MapSpec `ebpf:"enter_progs"`
 	Events           *ebpf.MapSpec `ebpf:"events"`
+	ExitProgs        *ebpf.MapSpec `ebpf:"exit_progs"`
 	FilterMap        *ebpf.MapSpec `ebpf:"filter_map"`
 	MainExitedMap    *ebpf.MapSpec `ebpf:"main_exited_map"`
 	PendingExecMap   *ebpf.MapSpec `ebpf:"pending_exec_map"`
@@ -155,7 +190,9 @@ func (o *bpfObjects) Close() error {
 type bpfMaps struct {
 	ArmForkMap       *ebpf.Map `ebpf:"arm_fork_map"`
 	ConfigMap        *ebpf.Map `ebpf:"config_map"`
+	EnterProgs       *ebpf.Map `ebpf:"enter_progs"`
 	Events           *ebpf.Map `ebpf:"events"`
+	ExitProgs        *ebpf.Map `ebpf:"exit_progs"`
 	FilterMap        *ebpf.Map `ebpf:"filter_map"`
 	MainExitedMap    *ebpf.Map `ebpf:"main_exited_map"`
 	PendingExecMap   *ebpf.Map `ebpf:"pending_exec_map"`
@@ -170,7 +207,9 @@ func (m *bpfMaps) Close() error {
 	return _BpfClose(
 		m.ArmForkMap,
 		m.ConfigMap,
+		m.EnterProgs,
 		m.Events,
+		m.ExitProgs,
 		m.FilterMap,
 		m.MainExitedMap,
 		m.PendingExecMap,
@@ -202,6 +241,54 @@ type bpfVariables struct {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfPrograms struct {
+	EnterAio                     *ebpf.Program `ebpf:"enter_aio"`
+	EnterAioBuf                  *ebpf.Program `ebpf:"enter_aio_buf"`
+	EnterAioIovec                *ebpf.Program `ebpf:"enter_aio_iovec"`
+	EnterBpf                     *ebpf.Program `ebpf:"enter_bpf"`
+	EnterCachestat               *ebpf.Program `ebpf:"enter_cachestat"`
+	EnterCapability              *ebpf.Program `ebpf:"enter_capability"`
+	EnterClone3                  *ebpf.Program `ebpf:"enter_clone3"`
+	EnterDualPath                *ebpf.Program `ebpf:"enter_dual_path"`
+	EnterEpoll                   *ebpf.Program `ebpf:"enter_epoll"`
+	EnterExec                    *ebpf.Program `ebpf:"enter_exec"`
+	EnterFcntl                   *ebpf.Program `ebpf:"enter_fcntl"`
+	EnterFileTime                *ebpf.Program `ebpf:"enter_file_time"`
+	EnterFs                      *ebpf.Program `ebpf:"enter_fs"`
+	EnterFutex                   *ebpf.Program `ebpf:"enter_futex"`
+	EnterIoctl                   *ebpf.Program `ebpf:"enter_ioctl"`
+	EnterIovec                   *ebpf.Program `ebpf:"enter_iovec"`
+	EnterIovecBase               *ebpf.Program `ebpf:"enter_iovec_base"`
+	EnterItimer                  *ebpf.Program `ebpf:"enter_itimer"`
+	EnterKey                     *ebpf.Program `ebpf:"enter_key"`
+	EnterMemfd                   *ebpf.Program `ebpf:"enter_memfd"`
+	EnterMiscStruct              *ebpf.Program `ebpf:"enter_misc_struct"`
+	EnterMmsg                    *ebpf.Program `ebpf:"enter_mmsg"`
+	EnterMsg                     *ebpf.Program `ebpf:"enter_msg"`
+	EnterNetwork                 *ebpf.Program `ebpf:"enter_network"`
+	EnterNoPayloadDirect         *ebpf.Program `ebpf:"enter_no_payload_direct"`
+	EnterOpenat2                 *ebpf.Program `ebpf:"enter_openat2"`
+	EnterPathOnly                *ebpf.Program `ebpf:"enter_path_only"`
+	EnterPathStat                *ebpf.Program `ebpf:"enter_path_stat"`
+	EnterPayloadDirect           *ebpf.Program `ebpf:"enter_payload_direct"`
+	EnterPoll                    *ebpf.Program `ebpf:"enter_poll"`
+	EnterPrctl                   *ebpf.Program `ebpf:"enter_prctl"`
+	EnterReadlink                *ebpf.Program `ebpf:"enter_readlink"`
+	EnterSelect                  *ebpf.Program `ebpf:"enter_select"`
+	EnterSendmmsgBase0           *ebpf.Program `ebpf:"enter_sendmmsg_base0"`
+	EnterSendmmsgBase1           *ebpf.Program `ebpf:"enter_sendmmsg_base1"`
+	EnterSendmsgBase             *ebpf.Program `ebpf:"enter_sendmsg_base"`
+	EnterSignal                  *ebpf.Program `ebpf:"enter_signal"`
+	EnterSleep                   *ebpf.Program `ebpf:"enter_sleep"`
+	EnterSmallStruct             *ebpf.Program `ebpf:"enter_small_struct"`
+	EnterTerminating             *ebpf.Program `ebpf:"enter_terminating"`
+	EnterTimeStruct              *ebpf.Program `ebpf:"enter_time_struct"`
+	EnterXattr                   *ebpf.Program `ebpf:"enter_xattr"`
+	ExitGeneric                  *ebpf.Program `ebpf:"exit_generic"`
+	ExitIovecBase                *ebpf.Program `ebpf:"exit_iovec_base"`
+	ExitMmsgFinal                *ebpf.Program `ebpf:"exit_mmsg_final"`
+	ExitMsg                      *ebpf.Program `ebpf:"exit_msg"`
+	ExitRecvmmsgBase0            *ebpf.Program `ebpf:"exit_recvmmsg_base0"`
+	ExitRecvmmsgBase1            *ebpf.Program `ebpf:"exit_recvmmsg_base1"`
 	TraceKretprobeRecvmsgControl *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_control"`
 	TraceKretprobeRecvmsgName    *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_name"`
 	TraceSchedProcessExec        *ebpf.Program `ebpf:"trace_sched_process_exec"`
@@ -209,26 +296,59 @@ type bpfPrograms struct {
 	TraceSchedProcessFork        *ebpf.Program `ebpf:"trace_sched_process_fork"`
 	TraceSchedProcessFree        *ebpf.Program `ebpf:"trace_sched_process_free"`
 	TraceSysEnter                *ebpf.Program `ebpf:"trace_sys_enter"`
-	TraceSysEnterAio             *ebpf.Program `ebpf:"trace_sys_enter_aio"`
-	TraceSysEnterAioBuf          *ebpf.Program `ebpf:"trace_sys_enter_aio_buf"`
-	TraceSysEnterAioIovec        *ebpf.Program `ebpf:"trace_sys_enter_aio_iovec"`
-	TraceSysEnterBpf             *ebpf.Program `ebpf:"trace_sys_enter_bpf"`
-	TraceSysEnterIovecBase       *ebpf.Program `ebpf:"trace_sys_enter_iovec_base"`
-	TraceSysEnterMmsg            *ebpf.Program `ebpf:"trace_sys_enter_mmsg"`
-	TraceSysEnterMsg             *ebpf.Program `ebpf:"trace_sys_enter_msg"`
-	TraceSysEnterSendmmsgBase0   *ebpf.Program `ebpf:"trace_sys_enter_sendmmsg_base0"`
-	TraceSysEnterSendmmsgBase1   *ebpf.Program `ebpf:"trace_sys_enter_sendmmsg_base1"`
-	TraceSysEnterSendmsgBase     *ebpf.Program `ebpf:"trace_sys_enter_sendmsg_base"`
 	TraceSysExit                 *ebpf.Program `ebpf:"trace_sys_exit"`
-	TraceSysExitIovecBase        *ebpf.Program `ebpf:"trace_sys_exit_iovec_base"`
-	TraceSysExitMmsg             *ebpf.Program `ebpf:"trace_sys_exit_mmsg"`
-	TraceSysExitMsg              *ebpf.Program `ebpf:"trace_sys_exit_msg"`
-	TraceSysExitRecvmmsgBase0    *ebpf.Program `ebpf:"trace_sys_exit_recvmmsg_base0"`
-	TraceSysExitRecvmmsgBase1    *ebpf.Program `ebpf:"trace_sys_exit_recvmmsg_base1"`
 }
 
 func (p *bpfPrograms) Close() error {
 	return _BpfClose(
+		p.EnterAio,
+		p.EnterAioBuf,
+		p.EnterAioIovec,
+		p.EnterBpf,
+		p.EnterCachestat,
+		p.EnterCapability,
+		p.EnterClone3,
+		p.EnterDualPath,
+		p.EnterEpoll,
+		p.EnterExec,
+		p.EnterFcntl,
+		p.EnterFileTime,
+		p.EnterFs,
+		p.EnterFutex,
+		p.EnterIoctl,
+		p.EnterIovec,
+		p.EnterIovecBase,
+		p.EnterItimer,
+		p.EnterKey,
+		p.EnterMemfd,
+		p.EnterMiscStruct,
+		p.EnterMmsg,
+		p.EnterMsg,
+		p.EnterNetwork,
+		p.EnterNoPayloadDirect,
+		p.EnterOpenat2,
+		p.EnterPathOnly,
+		p.EnterPathStat,
+		p.EnterPayloadDirect,
+		p.EnterPoll,
+		p.EnterPrctl,
+		p.EnterReadlink,
+		p.EnterSelect,
+		p.EnterSendmmsgBase0,
+		p.EnterSendmmsgBase1,
+		p.EnterSendmsgBase,
+		p.EnterSignal,
+		p.EnterSleep,
+		p.EnterSmallStruct,
+		p.EnterTerminating,
+		p.EnterTimeStruct,
+		p.EnterXattr,
+		p.ExitGeneric,
+		p.ExitIovecBase,
+		p.ExitMmsgFinal,
+		p.ExitMsg,
+		p.ExitRecvmmsgBase0,
+		p.ExitRecvmmsgBase1,
 		p.TraceKretprobeRecvmsgControl,
 		p.TraceKretprobeRecvmsgName,
 		p.TraceSchedProcessExec,
@@ -236,22 +356,7 @@ func (p *bpfPrograms) Close() error {
 		p.TraceSchedProcessFork,
 		p.TraceSchedProcessFree,
 		p.TraceSysEnter,
-		p.TraceSysEnterAio,
-		p.TraceSysEnterAioBuf,
-		p.TraceSysEnterAioIovec,
-		p.TraceSysEnterBpf,
-		p.TraceSysEnterIovecBase,
-		p.TraceSysEnterMmsg,
-		p.TraceSysEnterMsg,
-		p.TraceSysEnterSendmmsgBase0,
-		p.TraceSysEnterSendmmsgBase1,
-		p.TraceSysEnterSendmsgBase,
 		p.TraceSysExit,
-		p.TraceSysExitIovecBase,
-		p.TraceSysExitMmsg,
-		p.TraceSysExitMsg,
-		p.TraceSysExitRecvmmsgBase0,
-		p.TraceSysExitRecvmmsgBase1,
 	)
 }
 

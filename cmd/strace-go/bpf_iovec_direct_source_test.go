@@ -8,7 +8,7 @@ import (
 
 func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
-	straceSource := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	straceSource := readCombinedBPFSources(t)
 	// IMPACT: raw syscall program attachment lives in bpf_attach.go; session.go
 	// delegates to the attacher. The gate scans both files for wiring snippets.
 	sessionSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/session.go")) +
@@ -28,10 +28,10 @@ func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 		"is_iovec_direct_syscall(sys_id)",
 		"emit_iovec_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"is_iovec_direct_syscall(sys_id) ||",
-		"trace_sys_enter_iovec_base",
+		"enter_iovec_base",
 		"is_iovec_base_enter_direct_syscall(sys_id)",
 		"emit_iovec_base_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
-		"trace_sys_exit_iovec_base",
+		"exit_iovec_base",
 		"is_iovec_base_exit_direct_syscall(p->sys_id)",
 		"emit_iovec_base_exit_event_v2_direct(p, ret_value, duration);",
 	} {
@@ -40,9 +40,9 @@ func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 		}
 	}
 	for _, snippet := range []string{
-		"TraceSysEnterIovecBase",
-		`label: "iovec base"`,
-		"TraceSysExitIovecBase",
+		"EnterIovecBase",
+		"objs.EnterIovecBase",
+		"ExitIovecBase",
 	} {
 		if !strings.Contains(sessionSource, snippet) {
 			t.Fatalf("session source missing process_vm_writev attach snippet %q", snippet)
