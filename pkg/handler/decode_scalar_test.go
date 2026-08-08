@@ -135,6 +135,57 @@ func TestDefaultHandlerDecodesFallocateMode(t *testing.T) {
 	}
 }
 
+func TestDefaultHandlerDecodesSpecialFlagXlats(t *testing.T) {
+	tests := []struct {
+		name     string
+		val      uint64
+		argNames []string
+		argTypes []string
+		want     string
+	}{
+		{
+			name:     "pipe2",
+			val:      0x80000 | 2048 | 16384,
+			argNames: []string{"pipefd", "flags"},
+			argTypes: []string{"int *", "int"},
+			want:     "O_CLOEXEC|O_NONBLOCK|O_DIRECT",
+		},
+		{
+			name:     "eventfd2",
+			val:      1 | 0x80000 | 2048,
+			argNames: []string{"initval", "flags"},
+			argTypes: []string{"unsigned int", "int"},
+			want:     "EFD_SEMAPHORE|EFD_CLOEXEC|EFD_NONBLOCK",
+		},
+		{
+			name:     "pipe2",
+			val:      0x40000000,
+			argNames: []string{"pipefd", "flags"},
+			argTypes: []string{"int *", "int"},
+			want:     "0x40000000",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := &Context{
+				Args: [6]uint64{0, tt.val},
+				ScMeta: meta.Syscall{
+					Name:     tt.name,
+					Args:     tt.argNames,
+					ArgTypes: tt.argTypes,
+				},
+				Opts: &cli.Options{},
+			}
+
+			got := (&DefaultHandler{}).Handle(ctx).ArgParts
+			if got[1] != tt.want {
+				t.Fatalf("%s flags = %q, want %q (all args %#v)", tt.name, got[1], tt.want, got)
+			}
+		})
+	}
+}
+
 func TestDefaultHandlerDoesNotTreatUnsignedFDAsXlatInRawMode(t *testing.T) {
 	ctx := &Context{
 		Args: [6]uint64{0xffffffff},
