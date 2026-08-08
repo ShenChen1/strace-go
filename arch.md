@@ -845,7 +845,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 
 - BPF 已新增 `sched_process_exec`、`sched_process_exit`、`sched_process_free` tracepoint，并把 `sched_process_fork` 从仅 filter 继承扩展为可观测 lifecycle event。
 - JSON/debug 模式会通过 `CONFIG_EMIT_LIFECYCLE` 输出 `type=lifecycle` 事件，包含 `fork/exec/exit/free` action。
-- `sched_process_exit/free` 会清理 `pending_syscalls`、`pending_exec_map`、`main_exited_map`，`free` 还会清理 `filter_map`。
+- `sched_process_exit/free` 现在从当前任务的 `(TGID,TID)` 解析身份：`pending_syscalls` 始终按 TID 清理，非 leader 只清理自己的 `pre_exec/filter` 条目，`pending_exec_map/main_exited_map` 等进程级状态由 leader 路径负责；Go `LifecycleEventHandler` 同样只在 leader 退出时清理进程级 fd/cwd/offset 状态。
 - Go 主事件循环会早期识别 lifecycle event，清理 session 内 pending syscall/exec/suspended 状态，并在 JSON/debug 输出中暴露生命周期事件。
 - semantic suite 已断言 fixture 中存在 `fork`、`exec`、`exit/free` lifecycle event。
 - Go 侧已新增 per-session `TaskState`，由 syscall 事件和 lifecycle event 维护 `tid/tgid/parent/alive/execed`；JSON lifecycle 输出携带 task 状态快照，semantic suite 断言 fork child、execed、exit/free dead 状态。
@@ -1316,7 +1316,7 @@ Tail call spike（2026-08-07）：
 - attach 前 in-flight syscall 的可见性（BPF 无 pending 时 exit 静默跳过，无 orphan 计数）。
 - 文本模式通用 `<unfinished ...>` / `<... resumed>` 泛化。
 - `strace-C` 的 CPU 时间测量语义差异（已 XFAIL）。
-- 线程生命周期 tid/tgid 语义收口（`sched_process_fork` 的 child_pid 是 TID，Go 侧暂按 TGID 建模；BPF 侧按 pid 清理 pending 可能残留非 leader 线程条目）：列为待评估项，需要专门场景与测试后再定方案。
+- 线程生命周期的 child TGID 仍未完全收口：`sched_process_fork` tracepoint 只提供 child TID，Go 侧在 child 首个 syscall 到达前只能暂按 child TID 建模；本轮已消除 BPF 按 TGID 清理 pending 与 Go 非 leader 线程误删进程状态的问题，后续仍需专门 clone-thread fixture 决定是否引入更强的 child identity attach。
 
 ### 13.6 执行顺序与提交粒度
 
