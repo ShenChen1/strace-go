@@ -38,7 +38,7 @@ func loadBPFSources(t *testing.T) bpfSourceGateSources {
 		straceSource:           combinedStraceSource,
 		legacyCaptureArtifacts: legacyCaptureArtifactsForTest(t),
 		tlvHeader:              readTextFile(t, filepath.Join(root, "bpf/payload_tlv.h")),
-		directHeader:           readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h")),
+		directHeader:           readDirectEventSources(t),
 		fdArrayDirectHeader:    readTextFile(t, filepath.Join(root, "bpf/syscall_fd_array_direct_event_v2.h")),
 		getcwdDirectHeader:     readTextFile(t, filepath.Join(root, "bpf/syscall_getcwd_direct_event_v2.h")),
 		miscDirectHeader:       readTextFile(t, filepath.Join(root, "bpf/syscall_misc_struct_direct_event_v2.h")),
@@ -49,6 +49,15 @@ func loadBPFSources(t *testing.T) bpfSourceGateSources {
 		readlinkDirectHeader:   readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_direct_event_v2.h")),
 		timeDirectHeader:       readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h")),
 	}
+}
+
+func readDirectEventSources(t *testing.T) string {
+	t.Helper()
+	root := repoRootForTest(t)
+	return readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_event_core_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_payload_capture_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_payload_emit_direct_event_v2.h"))
 }
 
 func repoRootForTest(t *testing.T) string {

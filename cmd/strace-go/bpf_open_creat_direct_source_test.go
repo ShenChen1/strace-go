@@ -1,16 +1,14 @@
 package main
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestBPFOpenCreatPayloadUsesDirectTLV(t *testing.T) {
-	root := repoRootForTest(t)
 	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
-	directHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h"))
+	directHeader := loadBPFSources(t).directHeader
 
 	for _, snippet := range []string{
 		"#define SYS_OPEN 2",
