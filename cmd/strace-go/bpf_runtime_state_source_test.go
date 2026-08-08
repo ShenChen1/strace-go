@@ -98,6 +98,32 @@ func TestBPFLifecycleCleanupIsTIDScoped(t *testing.T) {
 	}
 }
 
+func TestBPFPreExecSuppressionIsSymmetric(t *testing.T) {
+	src := loadBPFSources(t)
+	if !strings.Contains(src.straceSource, "static __always_inline int is_pre_exec_suppressed_syscall(") {
+		t.Fatal("strace.c missing shared pre-exec suppression helper")
+	}
+
+	enterBody, ok := bpfFunctionBody(src.straceSource, "trace_sys_enter")
+	if !ok {
+		t.Fatal("strace.c missing trace_sys_enter body")
+	}
+	if !strings.Contains(enterBody, "is_pre_exec_suppressed_syscall(pid, sys_id)") {
+		t.Fatal("trace_sys_enter must use the shared pre-exec suppression helper")
+	}
+	if strings.Contains(enterBody, "bpf_map_lookup_elem(&pre_exec_map, &pid)") {
+		t.Fatal("trace_sys_enter must not duplicate pre-exec map lookup logic")
+	}
+
+	exitBody, ok := bpfFunctionBody(src.straceSource, "trace_sys_exit")
+	if !ok {
+		t.Fatal("strace.c missing trace_sys_exit body")
+	}
+	if !strings.Contains(exitBody, "is_pre_exec_suppressed_syscall(pid, (u32)ctx->id)") {
+		t.Fatal("trace_sys_exit must use the shared pre-exec suppression helper")
+	}
+}
+
 func TestBPFAioSubmitNestedCaptureGate(t *testing.T) {
 	src := loadBPFSources(t)
 	aioHeader := readTextFile(t, filepath.Join(repoRootForTest(t), "bpf/syscall_aio_direct_event_v2.h"))

@@ -609,6 +609,14 @@ static __always_inline int is_lifecycle_task_tracked(u32 pid, u32 tid)
 #include "syscall_sleep_direct_event_v2.h"
 #include "syscall_timex_direct_event_v2.h"
 
+// IMPACT: pre-exec child syscalls are intentionally suppressed on both raw
+// syscall edges, so their exits cannot be mistaken for attach or map loss.
+static __always_inline int is_pre_exec_suppressed_syscall(u32 pid, u32 sys_id)
+{
+    u32 *pre_exec = bpf_map_lookup_elem(&pre_exec_map, &pid);
+    return pre_exec && !is_exec_payload_direct_syscall(sys_id);
+}
+
 // IMPACT: every exit handler shares this resolver so a stale process-level exec
 // mapping cannot silently turn a current TID lookup into a different pending.
 static __always_inline struct pending_syscall *lookup_pending_syscall_for_exit(
@@ -703,10 +711,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
     if (!filter_pid) return 0;
 
-    u32 *pre_exec = bpf_map_lookup_elem(&pre_exec_map, &pid);
-    if (pre_exec && !is_exec_payload_direct_syscall(sys_id)) {
-        return 0;
-    }
+    if (is_pre_exec_suppressed_syscall(pid, sys_id)) return 0;
     u32 key = 0;
     u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
     if (!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)) return 0;
@@ -808,6 +813,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     if (ctx->id == SYS_RT_SIGRETURN || ctx->id == SYS_RT_SIGRETURN_COMPAT) return 0;
     u32 tid = (u32)bpf_get_current_pid_tgid();
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    if (is_pre_exec_suppressed_syscall(pid, (u32)ctx->id)) return 0;
 
     u32 pending_tid = tid;
     u32 pending_exec_lookup = 0;

@@ -164,6 +164,8 @@ def check_semantic_stats(stats_events, failures):
             failures, "normal semantic fixture reported pending syscall mismatch")
     require(stats_events and stats_events[0].get("pending_update_fail", 0) == 0,
             failures, "normal semantic fixture reported pending map update failure")
+    require(stats_events and stats_events[0].get("orphan_exit", 0) == 0,
+            failures, "normal semantic fixture reported orphan exit")
 
 def payload_section_text(section):
     try:
