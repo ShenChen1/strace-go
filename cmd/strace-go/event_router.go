@@ -59,13 +59,20 @@ func (r *TraceEventRouter) Handle(envelope traceEventEnvelope) {
 
 	switch stateUpdate.kind {
 	case traceStateLifecycle:
+		r.handleDeferredExit(stateUpdate.deferredExit, statePID)
 		r.handleLifecycle(stateUpdate)
 	case traceStateSyscallEnter:
 		r.handleEnter(stateUpdate, statePID)
+		r.handleDeferredExit(stateUpdate.deferredExit, statePID)
 	case traceStateSyscallFragment:
 		return
-	default:
+	case traceStateSyscallExit:
+		if stateUpdate.deferred {
+			return
+		}
 		r.handleExit(stateUpdate, statePID)
+	default:
+		return
 	}
 }
 
@@ -134,6 +141,13 @@ func (r *TraceEventRouter) handleExit(update TraceStateUpdate, statePID int) {
 		update.payloadSections,
 	)
 	r.pipeline.Handle(ev)
+}
+
+func (r *TraceEventRouter) handleDeferredExit(update *TraceStateUpdate, statePID int) {
+	if update == nil {
+		return
+	}
+	r.handleExit(*update, statePID)
 }
 
 func eventStatePID(envelope traceEventEnvelope, targetPID int) int {

@@ -18,6 +18,11 @@ type pendingSyscallState struct {
 	payloadSections   []handler.PayloadSection
 }
 
+type pendingExitState struct {
+	view            syscallEventView
+	payloadSections []handler.PayloadSection
+}
+
 type lifecycleEventView struct {
 	valid        bool
 	eventVersion uint16
@@ -37,11 +42,13 @@ type processStateInheritance struct {
 }
 
 type TraceState struct {
-	pendingSyscalls   map[uint32]*pendingSyscallState
-	pendingExecArgs   map[int]string
-	suspendedSyscalls map[int]string
-	tasks             map[uint32]*TaskState
-	pendingForks      map[uint32]pendingForkState
+	deferUnmatchedExits bool
+	pendingSyscalls     map[uint32]*pendingSyscallState
+	pendingExits        map[uint32]pendingExitState
+	pendingExecArgs     map[int]string
+	suspendedSyscalls   map[int]string
+	tasks               map[uint32]*TaskState
+	pendingForks        map[uint32]pendingForkState
 }
 
 type traceStateEventKind uint8
@@ -55,6 +62,7 @@ const (
 
 type TraceStateUpdate struct {
 	kind            traceStateEventKind
+	deferred        bool
 	syscallView     syscallEventView
 	lifecycleView   lifecycleEventView
 	payloadSections []handler.PayloadSection
@@ -62,10 +70,15 @@ type TraceStateUpdate struct {
 	lifecycleTask   *TaskState
 	processInherit  *processStateInheritance
 	unfinished      []*pendingSyscallState
+	deferredExit    *TraceStateUpdate
 }
 
 func newTraceState() *TraceState {
 	return &TraceState{}
+}
+
+func newTraceStateWithDeferredExit(enabled bool) *TraceState {
+	return &TraceState{deferUnmatchedExits: enabled}
 }
 
 func (s *traceSession) traceState() *TraceState {
@@ -80,7 +93,15 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 	if envelope.isLifecycle() {
 		lifecycleView := envelope.lifecycleView()
 		task, processInherit := st.applyLifecycleEvent(lifecycleView)
+		var deferredExit *TraceStateUpdate
 		if lifecycleView.action == lifecycleExit || lifecycleView.action == lifecycleFree {
+			if pendingExit, ok := st.takePendingExitForTID(lifecycleView.tid); ok {
+				deferredExit = &TraceStateUpdate{
+					kind:            traceStateSyscallExit,
+					syscallView:     pendingExit.view,
+					payloadSections: pendingExit.payloadSections,
+				}
+			}
 			st.clearTaskPending(lifecycleView.tid)
 		}
 		return TraceStateUpdate{
@@ -89,6 +110,7 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 			lifecycleTask:  task,
 			processInherit: processInherit,
 			unfinished:     unfinished,
+			deferredExit:   deferredExit,
 		}
 	}
 
@@ -97,13 +119,25 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 	st.noteSyscallTask(syscallView)
 	if syscallView.isGenericEnter() {
 		st.rememberEnterEvent(syscallView, envelope.payload)
-		return TraceStateUpdate{
+		update := TraceStateUpdate{
 			kind:            traceStateSyscallEnter,
 			syscallView:     syscallView,
 			payloadSections: envelope.payload,
 			processInherit:  processInherit,
 			unfinished:      unfinished,
 		}
+		if pendingExit, ok := st.takePendingExit(syscallView); ok {
+			pendingEnter := st.consumeEnterEvent(pendingExit.view)
+			if pendingEnter != nil {
+				update.deferredExit = &TraceStateUpdate{
+					kind:            traceStateSyscallExit,
+					syscallView:     pendingExit.view,
+					payloadSections: pendingExit.payloadSections,
+					pendingEnter:    pendingEnter,
+				}
+			}
+		}
+		return update
 	}
 	if syscallView.isExitFragment() {
 		st.rememberExitFragment(syscallView, envelope.payload)
@@ -115,11 +149,23 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 			unfinished:      unfinished,
 		}
 	}
+	pendingEnter := st.consumeEnterEvent(syscallView)
+	if pendingEnter == nil && st.deferUnmatchedExits {
+		st.rememberPendingExit(syscallView, envelope.payload)
+		return TraceStateUpdate{
+			kind:            traceStateSyscallExit,
+			deferred:        true,
+			syscallView:     syscallView,
+			payloadSections: envelope.payload,
+			processInherit:  processInherit,
+			unfinished:      unfinished,
+		}
+	}
 	return TraceStateUpdate{
 		kind:            traceStateSyscallExit,
 		syscallView:     syscallView,
 		payloadSections: envelope.payload,
-		pendingEnter:    st.consumeEnterEvent(syscallView),
+		pendingEnter:    pendingEnter,
 		processInherit:  processInherit,
 		unfinished:      unfinished,
 	}
@@ -203,6 +249,33 @@ func (st *TraceState) rememberExitFragment(view syscallEventView, payload []hand
 		return
 	}
 	pending.payloadSections = mergeEnterPayloadSections(pending.payloadSections, payload)
+}
+
+func (st *TraceState) rememberPendingExit(view syscallEventView, payload []handler.PayloadSection) {
+	if st.pendingExits == nil {
+		st.pendingExits = make(map[uint32]pendingExitState)
+	}
+	st.pendingExits[view.tid] = pendingExitState{
+		view:            view,
+		payloadSections: copyPayloadSections(payload),
+	}
+}
+
+func (st *TraceState) takePendingExit(view syscallEventView) (pendingExitState, bool) {
+	pending, ok := st.takePendingExitForTID(view.tid)
+	if !ok || pending.view.sysID != view.sysID || pending.view.enterTime != view.enterTime {
+		return pendingExitState{}, false
+	}
+	return pending, true
+}
+
+func (st *TraceState) takePendingExitForTID(tid uint32) (pendingExitState, bool) {
+	if st.pendingExits == nil {
+		return pendingExitState{}, false
+	}
+	pending, ok := st.pendingExits[tid]
+	delete(st.pendingExits, tid)
+	return pending, ok
 }
 
 func mergeEnterPayloadSections(existing []handler.PayloadSection, next []handler.PayloadSection) []handler.PayloadSection {
@@ -294,5 +367,6 @@ func (st *TraceState) clearTaskPending(tid uint32) {
 	delete(st.pendingExecArgs, int(tid))
 	delete(st.suspendedSyscalls, int(tid))
 	delete(st.pendingSyscalls, tid)
+	delete(st.pendingExits, tid)
 	delete(st.pendingForks, tid)
 }

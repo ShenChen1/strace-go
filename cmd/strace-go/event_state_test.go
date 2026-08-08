@@ -113,6 +113,84 @@ func TestTraceStateHandlePairsEnterExitAndCleansLifecycle(t *testing.T) {
 	}
 }
 
+func TestTraceStateReordersExitObservedBeforeEnter(t *testing.T) {
+	state := newTraceStateWithDeferredExit(true)
+	sysID := syscallIDByName(t, "creat")
+	path := []byte("late-enter.txt\x00")
+	exit := traceEventEnvelope{
+		valid:     true,
+		pid:       101,
+		tid:       101,
+		sysID:     sysID,
+		eventType: bpfEventTypeExit,
+		enterTime: 100,
+		ret:       -21,
+	}
+	deferred := state.handleEnvelope(exit)
+	if !deferred.deferred || len(state.pendingExits) != 1 {
+		t.Fatalf("exit update = %+v pending exits = %d, want deferred exit", deferred, len(state.pendingExits))
+	}
+
+	enter := traceEventEnvelope{
+		valid:      true,
+		pid:        101,
+		tid:        101,
+		sysID:      sysID,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+		enterTime:  100,
+		args:       [6]uint64{0x1000, 0644},
+		payload: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindString,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  0,
+			UserPtr:   0x1000,
+			Data:      path,
+		}},
+	}
+	update := state.handleEnvelope(enter)
+	if update.deferredExit == nil || update.deferredExit.pendingEnter == nil {
+		t.Fatalf("enter update = %+v, want deferred exit paired with enter", update)
+	}
+	if len(update.deferredExit.pendingEnter.payloadSections) != 1 ||
+		string(update.deferredExit.pendingEnter.payloadSections[0].Data) != string(path) {
+		t.Fatalf("reordered payload = %+v, want path snapshot", update.deferredExit.pendingEnter.payloadSections)
+	}
+	if len(state.pendingSyscalls) != 0 || len(state.pendingExits) != 0 {
+		t.Fatalf("state after reordered pair = %+v, want no pending syscall or exit", state)
+	}
+}
+
+func TestTraceStateClearsDeferredExitOnLifecycleFree(t *testing.T) {
+	state := newTraceStateWithDeferredExit(true)
+	exit := traceEventEnvelope{
+		valid:     true,
+		pid:       101,
+		tid:       101,
+		sysID:     syscallIDByName(t, "creat"),
+		eventType: bpfEventTypeExit,
+		enterTime: 100,
+	}
+	state.handleEnvelope(exit)
+	if len(state.pendingExits) != 1 {
+		t.Fatalf("pending exits = %d, want one before lifecycle cleanup", len(state.pendingExits))
+	}
+
+	update := state.handleEnvelope(traceEventEnvelope{
+		valid:           true,
+		pid:             101,
+		tid:             101,
+		eventType:       bpfEventTypeLifecycle,
+		lifecycleAction: lifecycleFree,
+	})
+	if update.deferredExit == nil || update.deferredExit.syscallView.sysID != exit.sysID {
+		t.Fatalf("lifecycle update = %+v, want deferred unpaired exit", update)
+	}
+	if len(state.pendingExits) != 0 {
+		t.Fatalf("pending exits = %d, want zero after lifecycle free", len(state.pendingExits))
+	}
+}
+
 func TestTraceStateHandleEnvelopeUsesSyscallViewForPendingPair(t *testing.T) {
 	state := newTraceState()
 	envelopeBase := traceEventEnvelope{

@@ -94,7 +94,7 @@ func main() {
 		timeFormatter: newTimeFormatter(calculateTimeOffset()),
 		bpfObjs:       bpfObjs,
 		resolver:      resolver,
-		state:         newTraceState(),
+		state:         newTraceStateWithDeferredExit(shouldEmitGenericEnter(opts)),
 	}
 	session.run()
 }

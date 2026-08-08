@@ -1338,6 +1338,19 @@ Tail call spike（2026-08-07）：
 
 每个步骤独立提交，遵循现有 Conventional Commit 前缀；任何假设在提交说明或本文档中记录。
 
+### 13.7 同 TID enter/exit 观察顺序收口（2026-08-08）
+
+实机 reference 复跑发现，`creat.gen.test` 偶发出现首个 exit 事件先于对应 enter 事件被 Go 消费，导致该行缺少 enter 阶段的 path TLV 而退回裸指针；后续同 TID 的 enter 才到达。无论该窗口来自跨 CPU ringbuf 消费还是 probe 调度，纯 eBPF 主路径都不能把用户态观察顺序当成同 TID 的严格契约。
+
+当前 `TraceState` 已增加单 TID bounded unmatched-exit 槽位：
+
+- exit 找不到 pending enter 时先缓存，不立即渲染；
+- 后续 enter 只有在 `tid + sys_id + enter_time` 三元组一致时才补配对，并由 router 先处理 enter、再处理 deferred exit；
+- lifecycle free/exit 清理残留槽位，summary-only 模式仍保留即时 exit 路径；
+- 不使用定时器、锁、ptrace 或用户态 tracee 内存读取。
+
+`TestTraceStateReordersExitObservedBeforeEnter` 和 lifecycle cleanup regression 已覆盖确定性顺序；`creat.gen.test` 连续 5 次实机运行通过。该修复只解决完整 enter/exit 事件的观察乱序，`recvmsg` 的 fragment 顺序风险仍按 13.2 单独记录。
+
 ## 14. Tail call 重构方案（已落地，保留验收记录）
 
 ### 14.1 目标与非目标
