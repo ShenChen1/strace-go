@@ -232,6 +232,13 @@ type printFilterRequest struct {
 }
 
 func checkShouldPrintFromView(req printFilterRequest) bool {
+	fds := req.candidateFDs()
+	matchedPath := event.MatchPath(req.pathMatchRequest(fds))
+	matchedFD := matchTraceFDs(fds, req.opts)
+	return req.matchesSyscallSet() && filtersMatch(matchedPath, matchedFD, req.matchesReadWriteFD(fds), req.opts)
+}
+
+func (req printFilterRequest) candidateFDs() []int32 {
 	var fds []int32
 	for i, argName := range req.scMeta.Args {
 		if req.scMeta.Name == "fsconfig" && i == 0 {
@@ -245,23 +252,30 @@ func checkShouldPrintFromView(req printFilterRequest) bool {
 	if len(fds) == 0 {
 		fds = []int32{-1}
 	}
-	matchedPath := event.MatchPath(event.PathMatchRequest{
+	return fds
+}
+
+func (req printFilterRequest) pathMatchRequest(fds []int32) event.PathMatchRequest {
+	return event.PathMatchRequest{
 		Pid:        req.targetPid,
 		FDs:        fds,
 		IsPath:     req.isPath,
 		PathText:   req.pathText,
 		TracePaths: req.opts.TracePaths,
 		FDMap:      req.fdMap,
-	})
-	matchedFD := matchTraceFDs(fds, req.opts)
-	requestedRW := false
+	}
+}
+
+func (req printFilterRequest) matchesReadWriteFD(fds []int32) bool {
 	for _, fd := range fds {
 		if (req.scMeta.Name == "read" && req.opts.TraceReadFD(fd)) || (req.scMeta.Name == "write" && req.opts.TraceWriteFD(fd)) {
-			requestedRW = true
-			break
+			return true
 		}
 	}
+	return false
+}
 
+func (req printFilterRequest) matchesSyscallSet() bool {
 	matchedSyscall := len(req.opts.TraceSyscalls) == 0 && len(req.opts.TraceSyscallRegexps) == 0
 	if !matchedSyscall {
 		if req.opts.TraceSyscalls[req.scMeta.Name] {
@@ -276,9 +290,9 @@ func checkShouldPrintFromView(req printFilterRequest) bool {
 		}
 	}
 	if req.opts.TraceSetIsNegated {
-		matchedSyscall = !matchedSyscall
+		return !matchedSyscall
 	}
-	return matchedSyscall && filtersMatch(matchedPath, matchedFD, requestedRW, req.opts)
+	return matchedSyscall
 }
 
 func payloadSectionFDs(syscallName string, args [6]uint64, payloadSections []handler.PayloadSection) []int32 {
