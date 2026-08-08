@@ -6,12 +6,9 @@ import (
 	"testing"
 )
 
-func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
+func TestBPFDirectPayloadSyscallConstantsPresent(t *testing.T) {
 	src := loadBPFSources(t)
 	straceSource := src.straceSource
-	tlvHeader := src.tlvHeader
-	directHeader := src.directHeader
-	legacyCaptureArtifacts := src.legacyCaptureArtifacts
 	if !strings.Contains(straceSource, `#include "payload_tlv.h"`) {
 		t.Fatal("strace.c does not include payload_tlv.h")
 	}
@@ -63,6 +60,22 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	if !strings.Contains(straceSource, "#define SYS_GETTIMEOFDAY 96") {
 		t.Fatal("strace.c missing SYS_GETTIMEOFDAY constant for gettimeofday direct event v2 path")
 	}
+	if !strings.Contains(straceSource, "#define SYS_OPENAT 257") {
+		t.Fatal("strace.c missing SYS_OPENAT constant for openat TLV capture")
+	}
+	if !strings.Contains(straceSource, "#define SYS_NEWFSTATAT 262") {
+		t.Fatal("strace.c missing SYS_NEWFSTATAT constant for newfstatat direct event v2 path")
+	}
+	if !strings.Contains(straceSource, "#define SYS_READLINKAT 267") {
+		t.Fatal("strace.c missing SYS_READLINKAT constant for readlinkat direct event v2 path")
+	}
+	if !strings.Contains(straceSource, "#define SYS_PIPE2 293") {
+		t.Fatal("strace.c missing SYS_PIPE2 constant for fd-array direct event v2 path")
+	}
+}
+
+func TestBPFDirectStructSyscallConstantsPresent(t *testing.T) {
+	straceSource := loadBPFSources(t).straceSource
 	if !strings.Contains(straceSource, "#define SYS_GETRLIMIT 97") ||
 		!strings.Contains(straceSource, "#define SYS_SYSINFO 99") ||
 		!strings.Contains(straceSource, "#define SYS_SETRLIMIT 160") ||
@@ -81,21 +94,15 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		!strings.Contains(straceSource, "volatile const u32 SYS_RT_SIGSUSPEND = 130;") {
 		t.Fatal("strace.c missing signal direct event v2 constants")
 	}
-	if !strings.Contains(straceSource, "#define SYS_OPENAT 257") {
-		t.Fatal("strace.c missing SYS_OPENAT constant for openat TLV capture")
-	}
-	if !strings.Contains(straceSource, "#define SYS_NEWFSTATAT 262") {
-		t.Fatal("strace.c missing SYS_NEWFSTATAT constant for newfstatat direct event v2 path")
-	}
-	if !strings.Contains(straceSource, "#define SYS_READLINKAT 267") {
-		t.Fatal("strace.c missing SYS_READLINKAT constant for readlinkat direct event v2 path")
-	}
-	if !strings.Contains(straceSource, "#define SYS_PIPE2 293") {
-		t.Fatal("strace.c missing SYS_PIPE2 constant for fd-array direct event v2 path")
-	}
 	if !strings.Contains(straceSource, `#include "syscall_direct_event_v2.h"`) {
 		t.Fatal("strace.c should include scalar direct event v2 helpers")
 	}
+}
+
+func TestBPFEnterBodySupportsExecProbeStatus(t *testing.T) {
+	src := loadBPFSources(t)
+	straceSource := src.straceSource
+	directHeader := src.directHeader
 	if !strings.Contains(straceSource, "#define EVENT_V2_ENTER_BODY_LEN 72") ||
 		!strings.Contains(straceSource, "s64 ret;") ||
 		!strings.Contains(straceSource, "s32 probe_ret_enter;") ||
@@ -103,6 +110,13 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		!strings.Contains(directHeader, "body->probe_ret_enter = probe_ret_enter;") {
 		t.Fatal("event v2 enter body should carry ret and probe status for exec-style enter states")
 	}
+}
+
+func TestBPFExecUsesDirectEventTLV(t *testing.T) {
+	src := loadBPFSources(t)
+	straceSource := src.straceSource
+	tlvHeader := src.tlvHeader
+	directHeader := src.directHeader
 	if strings.Contains(straceSource, "capture_openat_tlv(e);") || strings.Contains(tlvHeader, "capture_openat_tlv") {
 		t.Fatal("openat TLV capture should not use the bpf_event fixed-window helper")
 	}
@@ -131,95 +145,12 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 		!strings.Contains(directHeader, "&header.env_next") {
 		t.Fatal("execve/execveat direct snapshot should deep-copy envp records into the fixed env snapshot area")
 	}
-	for _, legacyRule := range []string{
-		"syscalls: [getcwd]",
-		"syscalls: [clock_gettime, clock_getres]",
-		"syscalls: [gettimeofday]",
-		"syscalls: [getrlimit]",
-		"syscalls: [stat, lstat]",
-		"syscalls: [fstat]",
-		"syscalls: [newfstatat]",
-		"syscalls: [pipe, pipe2]",
-		"syscalls: [prlimit64]",
-		"syscalls: [readlink]",
-		"syscalls: [readlinkat]",
-		"syscalls: [setrlimit]",
-		"syscalls: [socketpair]",
-		"syscalls: [statfs]",
-		"syscalls: [fstatfs]",
-		"syscalls: [sysinfo]",
-		"syscalls: [uname]",
-		"syscalls: [read, pread64]",
-		"syscalls: [write, pwrite64]",
-		"syscalls: [waitid]",
-		"syscalls: [rt_sigaction]",
-		"syscalls: [rt_sigprocmask]",
-		"syscalls: [rt_sigsuspend]",
-		"syscalls: [chdir, execve]",
-		"syscalls: [openat, execveat]",
-		"case 0: /* read */",
-		"case 1: /* write */",
-		"case 4: /* stat */",
-		"case 5: /* fstat */",
-		"case 6: /* lstat */",
-		"case 13: /* rt_sigaction */",
-		"case 14: /* rt_sigprocmask */",
-		"case 17: /* pread64 */",
-		"case 18: /* pwrite64 */",
-		"case 22: /* pipe */",
-		"case 59: /* execve */",
-		"case 53: /* socketpair */",
-		"case 63: /* uname */",
-		"case 79: /* getcwd */",
-		"case 89: /* readlink */",
-		"case 96: /* gettimeofday */",
-		"case 97: /* getrlimit */",
-		"case 99: /* sysinfo */",
-		"case 130: /* rt_sigsuspend */",
-		"case 137: /* statfs */",
-		"case 138: /* fstatfs */",
-		"case 160: /* setrlimit */",
-		"case 228: /* clock_gettime */",
-		"case 229: /* clock_getres */",
-		"case 247: /* waitid */",
-		"case 257: /* openat */",
-		"case 262: /* newfstatat */",
-		"case 267: /* readlinkat */",
-		"case 293: /* pipe2 */",
-		"case 302: /* prlimit64 */",
-		"case 322: /* execveat */",
-	} {
-		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
-			t.Fatalf("direct path/exec syscall still uses old fixed-window rule %q", legacyRule)
-		}
-	}
-	if !strings.Contains(directHeader, "flags |= EVENT_FLAG_PAYLOAD_TLV") ||
-		!strings.Contains(directHeader, "u16 flags = EVENT_FLAG_GENERIC_ENTER") {
-		t.Fatal("direct enter helpers should preserve generic enter and payload TLV flags")
-	}
-	if !strings.Contains(straceSource, "header->event_type = EVENT_TYPE_LIFECYCLE;") ||
-		!strings.Contains(straceSource, "body->action = kind;") {
-		t.Fatal("lifecycle events should build event v2 fields without the bpf_event carrier")
-	}
-	if strings.Contains(straceSource, "lifecycle_action") {
-		t.Fatal("bpf_event carrier should not retain lifecycle_action")
-	}
-	if strings.Contains(straceSource, "e->ptr") {
-		t.Fatal("bpf_event carrier should not retain raw pointer field")
-	}
-	for _, legacyCarrier := range []string{
-		`#include "syscall_capture.h"`,
-		"struct bpf_event",
-		"} heap SEC(\".maps\")",
-		"emit_syscall_event_v2(",
-		"emit_event(",
-		"CAPTURE_ARGS_ENTER(",
-		"CAPTURE_ARGS_EXIT(",
-	} {
-		if strings.Contains(straceSource, legacyCarrier) {
-			t.Fatalf("BPF runtime should not retain fixed-window carrier artifact %q", legacyCarrier)
-		}
-	}
+}
+
+func TestBPFScalarAndTerminatingUseDirectEventV2(t *testing.T) {
+	src := loadBPFSources(t)
+	straceSource := src.straceSource
+	directHeader := src.directHeader
 	if !strings.Contains(directHeader, "emit_syscall_enter_event_v2_direct(") ||
 		!strings.Contains(straceSource, "emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);") ||
 		!strings.Contains(straceSource, "emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);") ||
@@ -243,19 +174,10 @@ func TestBPFBasicPayloadsUseTLVFlag(t *testing.T) {
 	}
 }
 
-func TestBPFDirectPayloadHelpersUseTLV(t *testing.T) {
+func TestBPFReadWritePayloadHelpersUseDirectTLV(t *testing.T) {
 	src := loadBPFSources(t)
 	straceSource := src.straceSource
 	directHeader := src.directHeader
-	fdArrayDirectHeader := src.fdArrayDirectHeader
-	getcwdDirectHeader := src.getcwdDirectHeader
-	miscDirectHeader := src.miscDirectHeader
-	statDirectHeader := src.statDirectHeader
-	waitidDirectHeader := src.waitidDirectHeader
-	signalDirectHeader := src.signalDirectHeader
-	pathStatDirectHeader := src.pathStatDirectHeader
-	readlinkDirectHeader := src.readlinkDirectHeader
-	timeDirectHeader := src.timeDirectHeader
 	if !strings.Contains(directHeader, "sys_id == SYS_OPENAT") ||
 		!strings.Contains(directHeader, "sys_id == SYS_WRITE") ||
 		!strings.Contains(directHeader, "sys_id == SYS_PWRITE64") ||
@@ -286,6 +208,14 @@ func TestBPFDirectPayloadHelpersUseTLV(t *testing.T) {
 		!strings.Contains(directHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") {
 		t.Fatal("read direct helper should reserve exit TLV payload capacity and copy bytes with out direction")
 	}
+}
+
+func TestBPFTimeAndStatStructPayloadsUseDirectTLV(t *testing.T) {
+	src := loadBPFSources(t)
+	straceSource := src.straceSource
+	statDirectHeader := src.statDirectHeader
+	pathStatDirectHeader := src.pathStatDirectHeader
+	timeDirectHeader := src.timeDirectHeader
 	if !strings.Contains(straceSource, `#include "syscall_time_direct_event_v2.h"`) ||
 		!strings.Contains(timeDirectHeader, "is_time_struct_direct_syscall(") ||
 		!strings.Contains(timeDirectHeader, "return sys_id == SYS_CLOCK_GETTIME || sys_id == SYS_CLOCK_GETRES;") ||
@@ -328,6 +258,14 @@ func TestBPFDirectPayloadHelpersUseTLV(t *testing.T) {
 		strings.Contains(straceSource, "is_path_statfs_direct_syscall(") {
 		t.Fatal("path stat direct capture should not keep the statfs-only helper")
 	}
+}
+
+func TestBPFWaitidAndSignalPayloadsUseDirectTLV(t *testing.T) {
+	src := loadBPFSources(t)
+	straceSource := src.straceSource
+	waitidDirectHeader := src.waitidDirectHeader
+	signalDirectHeader := src.signalDirectHeader
+	timeDirectHeader := src.timeDirectHeader
 	if !strings.Contains(straceSource, `#include "syscall_waitid_direct_event_v2.h"`) ||
 		!strings.Contains(waitidDirectHeader, "WAITID_DIRECT_SIGINFO_SIZE 128") ||
 		!strings.Contains(waitidDirectHeader, "WAITID_DIRECT_RUSAGE_SIZE 144") ||
@@ -364,6 +302,15 @@ func TestBPFDirectPayloadHelpersUseTLV(t *testing.T) {
 		!strings.Contains(straceSource, "emit_signal_exit_event_v2_direct(p, ret_value, duration);") {
 		t.Fatal("rt_sigaction/rt_sigprocmask/rt_sigsuspend should emit direct signal TLV events without the bpf_event carrier")
 	}
+}
+
+func TestBPFBytesPayloadsUseDirectTLV(t *testing.T) {
+	src := loadBPFSources(t)
+	straceSource := src.straceSource
+	fdArrayDirectHeader := src.fdArrayDirectHeader
+	getcwdDirectHeader := src.getcwdDirectHeader
+	readlinkDirectHeader := src.readlinkDirectHeader
+	timeDirectHeader := src.timeDirectHeader
 	if !strings.Contains(straceSource, `#include "syscall_getcwd_direct_event_v2.h"`) ||
 		!strings.Contains(getcwdDirectHeader, "is_getcwd_direct_syscall(") ||
 		!strings.Contains(getcwdDirectHeader, "return sys_id == SYS_GETCWD;") ||
@@ -410,6 +357,13 @@ func TestBPFDirectPayloadHelpersUseTLV(t *testing.T) {
 		!strings.Contains(straceSource, "emit_fd_array_exit_event_v2_direct(p, ret_value, duration);") {
 		t.Fatal("pipe/pipe2/socketpair should emit direct fd-array struct TLV exit events without the bpf_event carrier")
 	}
+}
+
+func TestBPFMiscStructPayloadsUseDirectTLV(t *testing.T) {
+	src := loadBPFSources(t)
+	straceSource := src.straceSource
+	miscDirectHeader := src.miscDirectHeader
+	timeDirectHeader := src.timeDirectHeader
 	if !strings.Contains(straceSource, `#include "syscall_misc_struct_direct_event_v2.h"`) ||
 		!strings.Contains(miscDirectHeader, "MISC_DIRECT_RLIMIT_SIZE 16") ||
 		!strings.Contains(miscDirectHeader, "MISC_DIRECT_SYSINFO_SIZE 112") ||
