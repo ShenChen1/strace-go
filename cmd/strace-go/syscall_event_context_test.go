@@ -54,6 +54,34 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 	}
 }
 
+func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
+	opts := cli.ParseArgs([]string{"-e", "trace=getpid", "/bin/true"})
+	decoder := event.NewDecoder()
+	fdState := newFDStateStoreFromMaps(map[string]string{"101:cwd": "/tmp"}, nil)
+	view := syscallEventView{
+		valid: true,
+		pid:   101,
+		tid:   102,
+		sysID: syscallIDByName(t, "getpid"),
+		ret:   102,
+	}
+
+	ev := newSyscallEventContextFromViewWithDeps(
+		syscallEventContextDeps{decoder: decoder, opts: opts, fdState: fdState},
+		view,
+		101,
+		nil,
+		nil,
+	)
+
+	if ev.handlerContext.Decoder != decoder || ev.handlerContext.Opts != opts {
+		t.Fatalf("handler context deps = decoder:%p opts:%p, want %p/%p", ev.handlerContext.Decoder, ev.handlerContext.Opts, decoder, opts)
+	}
+	if ev.handlerContext.FdMap["101:cwd"] != "/tmp" {
+		t.Fatalf("handler fd map = %+v, want session fd state path map", ev.handlerContext.FdMap)
+	}
+}
+
 func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"})
 	session := &traceSession{
@@ -88,7 +116,7 @@ func TestDecodePathTextUsesEventViewPointerFallback(t *testing.T) {
 	sc := meta.Syscall{Name: "custom_path_syscall", Args: []string{"path"}}
 	view := syscallEventView{valid: true, tid: 101, ptr: 0x2000}
 
-	got := decodePathText(session, view, sc, true, nil)
+	got := decodePathText(newSyscallEventContextDeps(session), view, sc, true, nil)
 
 	if got != "0x2000" {
 		t.Fatalf("pathText = %q, want pointer from event view", got)
@@ -107,7 +135,7 @@ func TestDecodePathTextMatchesPayloadWithEventViewPointer(t *testing.T) {
 		Data:      []byte("view.txt\x00"),
 	}}
 
-	got := decodePathText(session, view, sc, true, sections)
+	got := decodePathText(newSyscallEventContextDeps(session), view, sc, true, sections)
 
 	if got != `"view.txt"` {
 		t.Fatalf("pathText = %q, want payload matched by event view pointer", got)
@@ -127,7 +155,7 @@ func TestSyscallEventContextHandlerContextUsesEventView(t *testing.T) {
 		meta:     syscallMeta(39),
 	}
 
-	ctx := ev.newHandlerContext(session)
+	ctx := ev.newHandlerContext(newSyscallEventContextDeps(session))
 
 	if ctx.Pid != 101 || ctx.Tid != 102 || ctx.SysId != 39 {
 		t.Fatalf("handler context identity = pid:%d tid:%d sys:%d, want 101/102/39", ctx.Pid, ctx.Tid, ctx.SysId)
@@ -169,7 +197,7 @@ func TestSyscallEventContextHandlerContextUsesEffectiveMetadata(t *testing.T) {
 	}
 	ev.handlerContext = &handler.Context{ScMeta: scMeta}
 
-	ctx := ev.newHandlerContext(session)
+	ctx := ev.newHandlerContext(newSyscallEventContextDeps(session))
 
 	if ctx.SysName != "pipe" || ctx.ScMeta.Name != "pipe" {
 		t.Fatalf("handler metadata = sys:%q sc:%q, want pipe/pipe", ctx.SysName, ctx.ScMeta.Name)

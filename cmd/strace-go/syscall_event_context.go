@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"strace-go/pkg/cli"
+	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
@@ -39,8 +40,39 @@ type syscallEventView struct {
 	probeRetExit  int32
 }
 
+type syscallEventContextDeps struct {
+	decoder *event.Decoder
+	opts    *cli.Options
+	fdState *FDStateStore
+}
+
+func newSyscallEventContextDeps(s *traceSession) syscallEventContextDeps {
+	return syscallEventContextDeps{
+		decoder: s.decoder,
+		opts:    s.opts,
+		fdState: s.fdStateStore(),
+	}
+}
+
+func (deps syscallEventContextDeps) pathMap() map[string]string {
+	if deps.fdState == nil {
+		return nil
+	}
+	return deps.fdState.PathMap()
+}
+
 func newSyscallEventContextFromView(
 	s *traceSession,
+	view syscallEventView,
+	statePID int,
+	pendingEnter *pendingSyscallState,
+	currentPayload []handler.PayloadSection,
+) syscallEventContext {
+	return newSyscallEventContextFromViewWithDeps(newSyscallEventContextDeps(s), view, statePID, pendingEnter, currentPayload)
+}
+
+func newSyscallEventContextFromViewWithDeps(
+	deps syscallEventContextDeps,
 	view syscallEventView,
 	statePID int,
 	pendingEnter *pendingSyscallState,
@@ -49,17 +81,17 @@ func newSyscallEventContextFromView(
 	scMeta := syscallMeta(view.sysID)
 	isPath := syscallHasPathArg(scMeta)
 	payloadSections := mergePendingPayloadSections(pendingEnter, currentPayload)
-	pathText := decodePathText(s, view, scMeta, isPath, payloadSections)
+	pathText := decodePathText(deps, view, scMeta, isPath, payloadSections)
 	shouldPrint := true
-	if s.opts != nil {
+	if deps.opts != nil {
 		shouldPrint = checkShouldPrintFromView(printFilterRequest{
 			view:            view,
 			scMeta:          scMeta,
 			pathText:        pathText,
 			isPath:          isPath,
 			targetPid:       statePID,
-			opts:            s.opts,
-			fdMap:           s.fdStateStore().PathMap(),
+			opts:            deps.opts,
+			fdMap:           deps.pathMap(),
 			payloadSections: payloadSections,
 		})
 	}
@@ -73,7 +105,7 @@ func newSyscallEventContextFromView(
 		pendingEnter:    pendingEnter,
 		payloadSections: payloadSections,
 	}
-	ev.handlerContext = ev.newHandlerContext(s)
+	ev.handlerContext = ev.newHandlerContext(deps)
 	return ev
 }
 
@@ -231,39 +263,39 @@ func syscallHasPathArg(scMeta meta.Syscall) bool {
 	return false
 }
 
-func decodePathText(s *traceSession, view syscallEventView, scMeta meta.Syscall, isPath bool, payloadSections []handler.PayloadSection) string {
+func decodePathText(deps syscallEventContextDeps, view syscallEventView, scMeta meta.Syscall, isPath bool, payloadSections []handler.PayloadSection) string {
 	if !isPath {
 		return ""
 	}
-	if text, ok := pathTextFromPayload(s, view, scMeta, payloadSections); ok {
+	if text, ok := pathTextFromPayload(deps, view, scMeta, payloadSections); ok {
 		return text
 	}
-	return s.decoder.DecodeString(int(view.tid), view.ptr, nil, -1, scMeta.Name, 0)
+	return deps.decoder.DecodeString(int(view.tid), view.ptr, nil, -1, scMeta.Name, 0)
 }
 
-func pathTextFromPayload(s *traceSession, view syscallEventView, scMeta meta.Syscall, payloadSections []handler.PayloadSection) (string, bool) {
+func pathTextFromPayload(deps syscallEventContextDeps, view syscallEventView, scMeta meta.Syscall, payloadSections []handler.PayloadSection) (string, bool) {
 	if scMeta.Name == "fsconfig" {
 		switch uint32(view.args[1]) {
 		case 3, 4:
-			return stringPayloadSectionText(s, view, scMeta, payloadSections, 3)
+			return stringPayloadSectionText(deps, view, scMeta, payloadSections, 3)
 		}
 	}
 	if argIndex, ok := simplePathPayloadArgIndex(scMeta.Name); ok {
-		if text, ok := stringPayloadSectionText(s, view, scMeta, payloadSections, argIndex); ok {
+		if text, ok := stringPayloadSectionText(deps, view, scMeta, payloadSections, argIndex); ok {
 			return text, true
 		}
 	}
 	for _, section := range payloadSections {
 		if section.Kind == handler.PayloadKindString && section.Direction == handler.PayloadDirectionIn &&
 			section.ProbeRet == 0 && len(section.Data) > 0 && section.UserPtr == view.ptr {
-			return s.decoder.DecodeString(int(view.tid), section.UserPtr, section.Data, section.ProbeRet, scMeta.Name, 0), true
+			return deps.decoder.DecodeString(int(view.tid), section.UserPtr, section.Data, section.ProbeRet, scMeta.Name, 0), true
 		}
 	}
 	return "", false
 }
 
 func stringPayloadSectionText(
-	s *traceSession,
+	deps syscallEventContextDeps,
 	view syscallEventView,
 	scMeta meta.Syscall,
 	payloadSections []handler.PayloadSection,
@@ -272,13 +304,13 @@ func stringPayloadSectionText(
 	for _, section := range payloadSections {
 		if section.Kind == handler.PayloadKindString && section.Direction == handler.PayloadDirectionIn &&
 			section.ArgIndex == argIndex && section.ProbeRet == 0 && len(section.Data) > 0 {
-			return s.decoder.DecodeString(int(view.tid), section.UserPtr, section.Data, section.ProbeRet, scMeta.Name, 0), true
+			return deps.decoder.DecodeString(int(view.tid), section.UserPtr, section.Data, section.ProbeRet, scMeta.Name, 0), true
 		}
 	}
 	return "", false
 }
 
-func (ev syscallEventContext) newHandlerContext(s *traceSession) *handler.Context {
+func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *handler.Context {
 	view := ev.eventView()
 	scMeta := ev.effectiveSyscallMeta()
 	return &handler.Context{
@@ -286,7 +318,7 @@ func (ev syscallEventContext) newHandlerContext(s *traceSession) *handler.Contex
 		SysName: scMeta.Name, Args: view.args, Ret: view.ret,
 		ProbeRetEnter: view.probeRetEnter, ProbeRetExit: view.probeRetExit,
 		PayloadSections: ev.outputPayloadSections(),
-		ScMeta:          scMeta, Decoder: s.decoder, Opts: s.opts, FdMap: s.fdStateStore().PathMap(),
+		ScMeta:          scMeta, Decoder: deps.decoder, Opts: deps.opts, FdMap: deps.pathMap(),
 	}
 }
 

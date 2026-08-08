@@ -286,7 +286,7 @@ func TestFsconfigPathTextFromPayloadUsesValueSection(t *testing.T) {
 		{Kind: handler.PayloadKindString, Direction: handler.PayloadDirectionIn, ArgIndex: 3, UserPtr: 0x2000, ProbeRet: 0, Data: []byte("/dev/full\x00")},
 	}
 
-	text, ok := pathTextFromPayload(session, viewWithArgs(args), meta.Syscall{Name: "fsconfig"}, sections)
+	text, ok := pathTextFromPayload(newSyscallEventContextDeps(session), viewWithArgs(args), meta.Syscall{Name: "fsconfig"}, sections)
 	if !ok || text != `"/dev/full"` {
 		t.Fatalf("fsconfig path text = %q, %v; want value path", text, ok)
 	}
