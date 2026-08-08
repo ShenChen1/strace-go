@@ -230,6 +230,9 @@ int exit_recvmmsg_base0(struct trace_event_raw_sys_exit *ctx) {
 
     emit_recvmmsg_base0_exit_fragment_event_v2_direct(p, ret_value, duration);
     bpf_tail_call(ctx, &exit_progs, EXIT_PROG_RECVMMSG_BASE1);
+    // A failed chain call must still close the syscall and consume pending state.
+    emit_mmsg_exit_event_v2_direct(p, ret_value, duration);
+    bpf_map_delete_elem(&pending_syscalls, &tid);
     return 0;
 }
 
@@ -253,6 +256,9 @@ int exit_recvmmsg_base1(struct trace_event_raw_sys_exit *ctx) {
 
     emit_recvmmsg_base1_exit_fragment_event_v2_direct(p, ret_value, duration);
     bpf_tail_call(ctx, &exit_progs, EXIT_PROG_MMSG_FINAL);
+    // A failed final call must not leave the syscall pending forever.
+    emit_mmsg_exit_event_v2_direct(p, ret_value, duration);
+    bpf_map_delete_elem(&pending_syscalls, &tid);
     return 0;
 }
 

@@ -152,3 +152,35 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		}
 	}
 }
+
+func TestBPFRecvmmsgExitChainHasFinalFallback(t *testing.T) {
+	root := repoRootForTest(t)
+	source := readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h"))
+	for _, name := range []string{"exit_recvmmsg_base0", "exit_recvmmsg_base1"} {
+		body, ok := bpfFunctionBody(source, name)
+		if !ok {
+			t.Fatalf("exit_dispatch.h missing function body for %s", name)
+		}
+		if !strings.Contains(body, "emit_mmsg_exit_event_v2_direct(p, ret_value, duration);") {
+			t.Fatalf("%s lacks final mmsg fallback after tail-call failure", name)
+		}
+		if !strings.Contains(body, "bpf_map_delete_elem(&pending_syscalls, &tid);") {
+			t.Fatalf("%s lacks pending cleanup after final fallback", name)
+		}
+	}
+}
+
+func bpfFunctionBody(source string, name string) (string, bool) {
+	start := strings.Index(source, "int "+name+"(")
+	if start < 0 {
+		return "", false
+	}
+	end := strings.Index(source[start:], "\nSEC(")
+	if end < 0 {
+		end = strings.Index(source[start:], "\n#endif")
+		if end < 0 {
+			return "", false
+		}
+	}
+	return source[start : start+end], true
+}
