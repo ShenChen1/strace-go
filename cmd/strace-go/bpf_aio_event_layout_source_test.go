@@ -11,6 +11,7 @@ func TestBPFAioDirectModulesOwnResponsibilities(t *testing.T) {
 	read := func(name string) string {
 		return readTextFile(t, filepath.Join(root, "bpf", name))
 	}
+	strace := readTextFile(t, filepath.Join(root, "bpf", "strace.c"))
 
 	facade := read("syscall_aio_direct_event_v2.h")
 	core := read("syscall_aio_core_direct_event_v2.h")
@@ -36,6 +37,11 @@ func TestBPFAioDirectModulesOwnResponsibilities(t *testing.T) {
 		if !strings.Contains(facade, include) {
 			t.Fatalf("AIO facade missing %q", include)
 		}
+	}
+	geteventsInclude := strings.Index(strace, `#include "syscall_aio_getevents_direct_event_v2.h"`)
+	aioInclude := strings.Index(strace, `#include "syscall_aio_direct_event_v2.h"`)
+	if geteventsInclude < 0 || aioInclude < 0 || geteventsInclude >= aioInclude {
+		t.Fatal("strace.c must include AIO getevents helpers before the AIO facade")
 	}
 	for _, snippet := range []string{
 		"is_aio_setup_direct_syscall(",
