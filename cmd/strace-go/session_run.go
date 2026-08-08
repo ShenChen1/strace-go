@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"syscall"
 	"time"
 
@@ -33,6 +34,11 @@ type traceRunState struct {
 	fallbackFlush  time.Time
 }
 
+type traceRunStateDeps struct {
+	command    *exec.Cmd
+	attachPids []int
+}
+
 type traceCommandExitResult struct {
 	exited   bool
 	exitCode uint64
@@ -40,7 +46,14 @@ type traceCommandExitResult struct {
 
 // IMPACT: run reads and handles ringbuf records in the same goroutine; only process waiting is asynchronous.
 func (s *traceSession) run() {
-	state := newTraceRunState(s)
+	attachPids := []int(nil)
+	if s.opts != nil {
+		attachPids = s.opts.AttachPids
+	}
+	state := newTraceRunState(traceRunStateDeps{
+		command:    s.cmd,
+		attachPids: attachPids,
+	})
 	commandExit := s.commandExitHandler()
 	eventReader := s.traceEventReader()
 	var rec ringbuf.Record
@@ -59,22 +72,21 @@ func (s *traceSession) run() {
 	}
 }
 
-func newTraceRunState(s *traceSession) traceRunState {
+func newTraceRunState(deps traceRunStateDeps) traceRunState {
 	state := traceRunState{
-		commandExited: s.cmd == nil,
-		attachExited:  s.opts == nil || len(s.opts.AttachPids) == 0,
+		commandExited: deps.command == nil,
+		attachExited:  len(deps.attachPids) == 0,
 	}
 	if !state.commandExited {
 		ch := make(chan traceCommandExitResult, 1)
 		state.cmdDone = ch
+		command := deps.command
 		go func() {
-			err := s.cmd.Wait()
-			ch <- newTraceCommandExitResult(s.cmd.ProcessState, err)
+			err := command.Wait()
+			ch <- newTraceCommandExitResult(command.ProcessState, err)
 		}()
 	}
-	if !state.attachExited {
-		state.attachPids = append([]int(nil), s.opts.AttachPids...)
-	}
+	state.attachPids = append([]int(nil), deps.attachPids...)
 	return state
 }
 

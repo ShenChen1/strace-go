@@ -24,6 +24,19 @@ func TestHandleBPFRecordUsesSessionRecordDecoder(t *testing.T) {
 	}
 }
 
+func TestNewTraceRunStateCopiesAttachDependencies(t *testing.T) {
+	attachPids := []int{101, 202}
+	state := newTraceRunState(traceRunStateDeps{attachPids: attachPids})
+	attachPids[0] = 303
+
+	if state.commandExited != true || state.attachExited {
+		t.Fatalf("state = %+v, want no command and active attach set", state)
+	}
+	if len(state.attachPids) != 2 || state.attachPids[0] != 101 {
+		t.Fatalf("attach pids = %v, want copied [101 202]", state.attachPids)
+	}
+}
+
 func TestTraceRunStateCollectMarksCommandExit(t *testing.T) {
 	done := make(chan traceCommandExitResult, 1)
 	done <- traceCommandExitResult{exited: true}
