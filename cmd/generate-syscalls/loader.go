@@ -45,10 +45,12 @@ func (s syscallentFileSource) LoadSyscallEntries() ([]syscallentEntry, error) {
 }
 
 type syscallMetadataLoader struct {
-	btfSource   btfSyscallSource
-	entrySource syscallEntrySource
-	overrides   map[string]SyscallMeta
-	aliases     map[string]string
+	btfSource        btfSyscallSource
+	tracepointSource tracepointSyscallSource
+	entrySource      syscallEntrySource
+	overrides        map[string]SyscallMeta
+	aliases          map[string]string
+	tracepoint       map[string]SyscallMeta
 }
 
 func LoadSyscalls() (map[int]SyscallMeta, error) {
@@ -65,10 +67,11 @@ func newDefaultSyscallMetadataLoader() (syscallMetadataLoader, error) {
 		return syscallMetadataLoader{}, err
 	}
 	loader := syscallMetadataLoader{
-		btfSource:   kernelBTFSource{},
-		entrySource: syscallentFileSource(syscallentPath),
-		overrides:   manualOverrides,
-		aliases:     btfNameToSyscallent,
+		btfSource:        kernelBTFSource{},
+		tracepointSource: kernelTracepointFormatSource{},
+		entrySource:      syscallentFileSource(syscallentPath),
+		overrides:        manualOverrides,
+		aliases:          btfNameToSyscallent,
 	}
 	return loader, nil
 }
@@ -82,6 +85,19 @@ func (l syscallMetadataLoader) Load() (map[int]SyscallMeta, error) {
 	if err != nil {
 		return nil, err
 	}
+	tracepoint := map[string]SyscallMeta{}
+	if l.tracepointSource != nil {
+		names := make([]string, 0, len(entries))
+		for _, ent := range entries {
+			names = append(names, ent.Name)
+		}
+		names = tracepointLookupNames(names, l.aliases)
+		tracepoint, err = l.tracepointSource.LoadTracepointSyscalls(names)
+		if err != nil {
+			return nil, err
+		}
+	}
+	l.tracepoint = tracepoint
 	res := make(map[int]SyscallMeta, len(entries))
 	for _, ent := range entries {
 		res[ent.ID] = l.metaForEntry(ent, btf)
@@ -90,6 +106,8 @@ func (l syscallMetadataLoader) Load() (map[int]SyscallMeta, error) {
 }
 
 func (l syscallMetadataLoader) metaForEntry(ent syscallentEntry, btf map[string]SyscallMeta) SyscallMeta {
+	// Keep strace-facing overrides first, then prefer kernel BTF and its aliases;
+	// tracepoint format is only a signature fallback when BTF lacks the arity.
 	if meta, ok := l.overrides[ent.Name]; ok {
 		return withFlags(meta, ent.Flags)
 	}
@@ -100,7 +118,22 @@ func (l syscallMetadataLoader) metaForEntry(ent syscallentEntry, btf map[string]
 		meta.Name = ent.Name
 		return withFlags(meta, ent.Flags)
 	}
+	if meta, ok := l.tracepointMeta(ent.Name, ent.Argc); ok {
+		meta.Name = ent.Name
+		return withFlags(meta, ent.Flags)
+	}
 	return dummySyscallMeta(ent)
+}
+
+func (l syscallMetadataLoader) tracepointMeta(name string, argc int) (SyscallMeta, bool) {
+	candidates := append([]string{name}, tracepointAliasNames(name, l.aliases)...)
+	for _, candidate := range candidates {
+		meta, ok := l.tracepoint[candidate]
+		if ok && len(meta.Args) == argc {
+			return meta, true
+		}
+	}
+	return SyscallMeta{}, false
 }
 
 func (l syscallMetadataLoader) aliasedBTFMeta(name string, btf map[string]SyscallMeta) (SyscallMeta, bool) {

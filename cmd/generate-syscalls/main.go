@@ -27,6 +27,7 @@ type generatorCommand struct {
 	loader            syscallMapLoader
 	writer            syscallTableWriter
 	auditSource       btfSyscallSource
+	tracepointSource  tracepointSyscallSource
 	overrides         map[string]SyscallMeta
 	aliases           map[string]string
 	defaultOutputPath string
@@ -44,11 +45,12 @@ func runGenerateSyscalls(args []string, stdout io.Writer) error {
 
 func newGeneratorCommand() generatorCommand {
 	return generatorCommand{
-		loader:      defaultSyscallMetadataLoader{},
-		writer:      goSyscallTableWriter{},
-		auditSource: kernelBTFSource{},
-		overrides:   manualOverrides,
-		aliases:     btfNameToSyscallent,
+		loader:           defaultSyscallMetadataLoader{},
+		writer:           goSyscallTableWriter{},
+		auditSource:      kernelBTFSource{},
+		tracepointSource: kernelTracepointFormatSource{},
+		overrides:        manualOverrides,
+		aliases:          btfNameToSyscallent,
 	}
 }
 
@@ -57,6 +59,7 @@ func (c generatorCommand) Run(args []string, stdout io.Writer) error {
 	flags.SetOutput(io.Discard)
 	auditOverrides := flags.Bool("audit-overrides", false, "print manual overrides already covered by BTF")
 	auditOverrideDetails := flags.Bool("audit-overrides-detail", false, "print detailed manual override audit rows")
+	auditTracepointOverrides := flags.Bool("audit-tracepoint-overrides", false, "print manual override coverage from syscall tracepoint formats")
 	outputPath := flags.String("output", c.defaultOutputPath, "generated syscall table output path")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -66,6 +69,9 @@ func (c generatorCommand) Run(args []string, stdout io.Writer) error {
 	}
 	if *auditOverrides {
 		return writeOverrideAudit(stdout, c.auditSource, c.overrides, c.aliases)
+	}
+	if *auditTracepointOverrides {
+		return writeTracepointOverrideAudit(stdout, c.tracepointSource, c.overrides, c.aliases)
 	}
 
 	syscalls, err := c.loader.Load()

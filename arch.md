@@ -510,9 +510,9 @@ fd/path 状态不能依赖 ptrace，但可以：
 优先级建议：
 
 1. 如果内核 BTF 暴露 `trace_event_raw_sys_enter_*` / syscall tracepoint struct，则从 tracepoint struct 提取参数名和类型。
-2. 否则从 `__do_sys_*` 函数 BTF 提取。
-3. 再 fallback 到 `__x64_sys_*` / `ksys_*`。
-4. syscall number 来自本机 arch 的 `unix.SYS_*` 或系统 `unistd_*.h`。
+2. 否则从 `__do_sys_*` 函数 BTF 提取，再 fallback 到 `__x64_sys_*` / `ksys_*`。
+3. 如果函数 BTF 只有 `pt_regs` wrapper 或没有可用签名，则读取 syscall tracepoint 的 `format` 文件提取字段；这不是运行期数据源，只是生成阶段的内核元数据 fallback。
+4. 仍无法得到签名时才使用 dummy 参数；syscall number 来自本机 arch 的 `unix.SYS_*` 或系统 `unistd_*.h`。
 5. 对名称差异维护小型 alias 表，例如 `newfstatat`、`mmap_pgoff`、`newstat`。
 
 不能假设所有 kernel 都有 per-syscall tracepoint BTF。生成器必须有 fallback。
@@ -885,22 +885,23 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 当前落地：
 
 - `cmd/generate-syscalls` 入口 `main.go` 只加载 syscall metadata 并写出 `pkg/meta/syscall_table.go`。
-- 生成器 metadata 读取已拆成 `syscallMetadataLoader`，通过 `btfSyscallSource` 和 `syscallEntrySource` 隔离 kernel BTF / syscallent 文件 I/O；override、BTF exact、BTF alias、dummy fallback 的优先级已有 fake source 单元测试覆盖。
+- 生成器 metadata 读取已拆成 `syscallMetadataLoader`，通过 `btfSyscallSource`、`tracepointSyscallSource` 和 `syscallEntrySource` 隔离 kernel BTF、tracepoint format、syscallent 文件 I/O；override、BTF exact、BTF alias、tracepoint fallback、dummy fallback 的优先级已有 fake source 单元测试覆盖。
 - 生成器 command 已通过 `syscallMapLoader` / `syscallTableWriter` 分离 metadata 加载和生成物写入；`main.go` 只负责 CLI 编排、路径解析和错误上下文，`gen_go_meta.go` 负责稳定渲染与文件输出。
 - `syscallent.h` 解析已收敛到 `syscallentParser`，递归 include 解析和 generic fallback 有独立单元测试覆盖；include 缺失不再静默跳过，而是作为输入错误返回，避免生成不完整 syscall table。
 - `--audit-overrides-detail` 对 kernel BTF 已通过 `btfSyscallDatasetSource` 单次加载/遍历同时产出 metadata 与 diagnostics，避免为了 `pt_regs_wrapper_only` 诊断在 detail audit 中重复读取 BTF；旧 source fallback 仍保留单元测试覆盖。
 - 生成器默认 `syscallent.h` 输入和 `pkg/meta/syscall_table.go` 输出路径已改为从当前工作目录向上定位 repo root 后解析；`go run ./cmd/generate-syscalls` 可从仓库根执行，`go run .` 可从 `cmd/generate-syscalls` 子目录执行，两者生成输出一致。
 - BTF 函数名识别和同名候选优先级已从 kernel BTF 遍历循环抽成纯函数，单元测试锁定 `__do_sys_*`、`__x64_sys_*`、`ksys_*` 和小范围 socket/network `__sys_*` allowlist 的识别规则，以及“更多参数优先、同参数 `__do_sys_*` 优先”规则。
-- BTF source 已按 `trace_event_raw_sys_enter_*` struct 优先、函数 BTF fallback 的顺序加载 metadata；tracepoint struct 提取会跳过标准 trace header 字段，只保留 syscall 参数字段，并在当前内核没有 per-syscall tracepoint struct 时继续走原函数 BTF 路径。BTF type 收集策略已从 kernel spec I/O 中抽出，组合测试可直接用假 `btf.Type` 证明 tracepoint 优先和函数 fallback。
-- `manualOverrides` 已新增 `--audit-overrides` 审计入口，可用 BTF metadata 找出参数名和类型完全一致、理论上可删除的 override 候选；`getpriority`、`setpgid`、`swapoff`、`swapon`、`newfstatat` 和 `waitid` 已按审计结果移除且生成输出无变化，当前 `--audit-overrides` 输出为空。
+- BTF source 已按 `trace_event_raw_sys_enter_*` struct 优先、函数 BTF fallback 的顺序加载 metadata；tracepoint struct 提取会跳过标准 trace header 字段，只保留 syscall 参数字段。当前内核没有 per-syscall tracepoint struct 时，loader 会在 BTF direct/alias 都无法提供正确 arity 后读取 `/sys/kernel/tracing/events/syscalls/sys_enter_<name>/format`，并回退到 `/sys/kernel/debug/tracing/events/syscalls/...`；读取候选名时复用 `btfNameToSyscallent` alias（例如 `stat -> newstat`、`umount2 -> umount`），解析器跳过 common header、`__syscall_nr` 和 `__data_loc` 辅助字段，只接受 ASCII syscall 名称。BTF type 收集策略已从 kernel spec I/O 中抽出，组合测试可直接用假 `btf.Type` 证明 tracepoint struct 优先和函数 fallback，format source 也有 fake filesystem 单测。
+- `manualOverrides` 已新增 `--audit-overrides` 和 `--audit-tracepoint-overrides` 审计入口，可分别从函数 BTF 和 syscall tracepoint format 找出参数名/类型完全一致的候选。继前一轮按 BTF 删除 exact override 后，本阶段又删除了 70 条被 tracepoint format 证明冗余的手工签名；重新生成的表与删除前逐行一致，说明这些删除没有改变产物。`stat`、`lstat`、`getsockname`、`setsockopt` 四条虽然在 tracepoint audit 中显示 `redundant`，仍因 `override_semantics.go` 的 strace-facing 规格保留。
 - override detail audit 的流程逻辑和 strace-facing semantic override 规格数据已拆分；`override_audit.go` 保留分类、诊断和 TSV 输出，`override_semantics.go` 只记录必须精确匹配的语义白名单，且单元测试会用规格 BTF side 构造 fake metadata 验证每条 spec 都和 `manualOverrides` 同步，降低后续 review 规格变化时的噪声。
-- 生成器已新增 `--audit-overrides-detail` 全量审计入口，按稳定 TSV 输出每个 override 的 `redundant`、`missing_btf`、`normalized_match`、`semantic_override` 或 `signature_mismatch` 状态、原因以及 override/BTF 两侧签名；当前分类为 138 个 `missing_btf`、15 个 `semantic_override`、0 个未解释 `signature_mismatch`、0 个 `normalized_match`、0 个 `redundant`，其中 138 个 `missing_btf` 的原因均为 `pt_regs_wrapper_only`，不再存在普通 `no_btf_metadata`。审计路径已和 loader 共用 `btfNameToSyscallent` alias 语义，`mmap_pgoff -> mmap` 这类 loader 已可见的 BTF metadata 不再被误报为 `missing_btf`，而是作为 `strace_mmap_signature` 语义 override 精确记录；`umount -> umount2` 这类只有 `__x64_sys_*` wrapper 的 alias 也会在 diagnostics 中解释为 `pt_regs_wrapper_only`。socket/network `__sys_*` allowlist 已让 `accept4/bind/connect/getsockopt/listen/recvfrom/sendto/shutdown/socket/socketpair` 等 exact BTF 覆盖的 override 删除且生成表无变化；`getsockname/sendmsg/recvmsg/setsockopt` 这类带内核内部参数或内部类型名的签名保留为精确 `semantic_override`；`bpf` 通过 `__sys_bpf` 进入 BTF 可见范围，并以 `strace_bpf_attr_signature` 保留 `cmd, attr, size` 的 strace-facing 签名。`normalized_match` 覆盖的 BTF 参数名前导 `_` 和 `long unsigned int`/`unsigned long` 词序差异已通过删除 `add_key`、`request_key`、`brk`、`getcwd`、`keyctl` overrides 收口；`read`、`write`、`fchown` 的 fd signedness-only override 已在 handler 层显式排除 fd 参数 xlat 后删除。`semantic_override` 只对白名单 syscall 的 override/BTF 两侧完整签名做精确匹配，用来记录 `stat`/`socket`/`msghdr`/`utsname`/`timex`/`dev_t`/pointer formatting 这类必须保留的 strace-facing 语义差异；仍不把 pointer/scalar 或 old/new struct 类型视为通用等价。`prlimit64` 和 `setpriority` 的 override 已删除：两者只差非关键参数名，xlat 仍消费不变的 `resource` / `which`，rlimit formatter 按参数索引处理 IN/OUT payload。后续 Phase 7 应优先寻找 tracepoint struct、`__do_sys_*`、`ksys_*` 或小范围真实内部 helper；不能为了降低 138 个 `pt_regs_wrapper_only` 数字而把 wrapper 当成真实 syscall 签名。
+- 生成器已新增 `--audit-overrides-detail` 全量审计入口，按稳定 TSV 输出每个 override 的 `redundant`、`missing_btf`、`normalized_match`、`semantic_override` 或 `signature_mismatch` 状态、原因以及 override/BTF 两侧签名；当前函数 BTF 诊断仍有 138 个 `missing_btf`，原因均为 `pt_regs_wrapper_only`，这是 BTF 本身的诊断，不等于最终 loader 覆盖率。新的 tracepoint audit 当前分类为 1 个 `missing_btf`（`sendfile`）、76 个 `signature_mismatch`、1 个 `normalized_match`、1 个 `semantic_override` 和 4 个保留的 `redundant`（`stat`、`lstat`、`getsockname`、`setsockopt`）；这 4 条仍由 `override_semantics.go` 的 strace-facing 规格保护。审计路径已和 loader 共用 `btfNameToSyscallent` alias 语义，`mmap_pgoff -> mmap` 这类 loader 已可见的 BTF metadata 不再被误报为 `missing_btf`，而是作为 `strace_mmap_signature` 语义 override 精确记录；`umount -> umount2` 这类 alias 现在能读取 `sys_enter_umount`，但其内核字段名仍和 strace-facing `target` 不同，因此保留为 signature mismatch。socket/network `__sys_*` allowlist 已让 exact BTF 覆盖的 override 删除；`getsockname/sendmsg/recvmsg/setsockopt` 这类带内核内部参数或内部类型名的签名保留为精确 `semantic_override`；`bpf` 通过 `__sys_bpf` 进入 BTF 可见范围，并以 `strace_bpf_attr_signature` 保留 `cmd, attr, size` 的 strace-facing 签名。`normalized_match` 覆盖的 BTF 参数名前导 `_` 和 `long unsigned int`/`unsigned long` 词序差异已通过删除对应 overrides 收口；`read`、`write`、`fchown` 的 fd signedness-only override 已在 handler 层显式排除 fd 参数 xlat 后删除。`semantic_override` 只对白名单 syscall 的 override/BTF 两侧完整签名做精确匹配，用来记录 `stat`/`socket`/`msghdr`/`utsname`/`timex`/`dev_t`/pointer formatting 这类必须保留的 strace-facing 语义差异；仍不把 pointer/scalar 或 old/new struct 类型视为通用等价。`prlimit64` 和 `setpriority` 的 override 已删除：两者只差非关键参数名，xlat 仍消费不变的 `resource` / `which`，rlimit formatter 按参数索引处理 IN/OUT payload。后续 Phase 7 的 metadata 工作应优先处理剩余 1 个无 format 的 syscall 和真正的 semantic mismatch，不能为了降低 138 个 `pt_regs_wrapper_only` 数字而把 wrapper 当成真实 syscall 签名。
+- tracepoint format fallback 本次把生成表中 95 个此前仍使用 `arg0` dummy 参数的表项替换为内核字段名/类型；这些变化只发生在生成阶段，payload 捕获策略仍由 syscall-specific direct TLV helper 负责。
 - 旧 `capture_policy.go`、`gen_bpf_capture.go`、`capture_rules.yaml` 和生成物 `bpf/syscall_capture.h` 已删除；`build.sh` 不再清理或生成该 header。
 - 源码门禁测试锁定旧 capture artifact 不存在，并扫描 `bpf/strace.c` 防止重新 include `syscall_capture.h`、`CAPTURE_ARGS_*`、`struct bpf_event` 或 per-cpu `heap` carrier。
 - 历史上通过 `payloads`/`reads` 表达的 read/write、path、stat/time、iovec、network、AIO、poll/select/epoll、ioctl、fcntl、fsconfig 等捕获策略，已经迁入对应 direct TLV helper。
 - 生成器不再承载“该拷贝哪些用户态内存”的策略；这类 strace-like 语义显式写在 syscall-specific BPF helper 中，并由源码门禁和 semantic/upstream reference 测试保护。
 - `overrides_time.go` 的 `init()` 追加 override 副作用已删除，`utime/utimes/futimesat` 合并回显式 `manualOverrides` 字面量；源码门禁禁止非测试代码再用 `manualOverrides[...] =` 动态修改签名表，并检查每条 override 的 map key、`Name`、参数名和参数类型数量保持一致。
-- `cmd/generate-syscalls/overrides_legacy.go` 已删除，`ustat` 作为普通 bugfix override 合并回 `manualOverrides`；后续 Phase 7 剩余重点是继续把大块 syscall signature override 缩小为 alias/bugfix。
+- `cmd/generate-syscalls/overrides_legacy.go` 已删除，`ustat` 作为普通 bugfix override 合并回 `manualOverrides`；后续 Phase 7 剩余重点是处理剩余 1 个没有 tracepoint format 的 override、审查 76 个真实签名差异，并继续把大块 syscall signature override 缩小为 alias/bugfix。
 - `cmd/generate-xlats` 的入口已拆成配置读取、输出文件边界、upstream xlat 解析、C 常量求值、静态表渲染和 syscall-arg map 渲染几层；`main.go` 从 500 行级大函数收口为轻量编排入口，静态表和 0 值保留规则有独立 helper 与单元测试保护，避免后续 xlat 语义调整继续堆进生成器入口。
 
 ### Phase 8: 删除旧模式与收口文档
@@ -1324,7 +1325,7 @@ Tail call spike（2026-08-07）：
 
 ### 13.5 非目标与已知限制（本阶段剩余）
 
-- 生成器 138 个 `missing_btf` override 面（`pt_regs_wrapper_only`）。
+- BTF 诊断仍有 138 个 `pt_regs_wrapper_only` override 面，但最终 loader 已通过 tracepoint format/alias fallback 将其与实际 metadata 覆盖率分离；当前真正无 tracepoint format 的手工 override 只剩 `sendfile`。
 - 跨任务严格输出顺序（尤其 attach 命令与已附加进程的 exit 行）；纯 eBPF 不冻结 tracee，ringbuf/lifecycle/wait 的观察顺序不能承诺 ptrace exact order。
 - `strace-C` 的 CPU 时间测量语义差异（已 XFAIL）。
 

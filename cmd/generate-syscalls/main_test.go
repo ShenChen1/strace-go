@@ -128,6 +128,44 @@ func TestRunGenerateSyscallsAuditOverrideDetails(t *testing.T) {
 	}
 }
 
+func TestRunGenerateSyscallsAuditTracepointOverrides(t *testing.T) {
+	cmd := generatorCommand{
+		loader: fakeSyscallMapLoader{err: errors.New("loader should not run")},
+		tracepointSource: fakeTracepointSyscallSource{syscalls: map[string]SyscallMeta{
+			"close": {Args: []string{"fd"}, ArgTypes: []string{"unsigned int"}},
+		}},
+		overrides: map[string]SyscallMeta{
+			"close": {Args: []string{"fd"}, ArgTypes: []string{"unsigned int"}},
+		},
+	}
+	var out bytes.Buffer
+	if err := cmd.Run([]string{"--audit-tracepoint-overrides"}, &out); err != nil {
+		t.Fatalf("Run(--audit-tracepoint-overrides) error = %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "close\tredundant\texact_signature") {
+		t.Fatalf("Run(--audit-tracepoint-overrides) output = %q, want close detail row", got)
+	}
+}
+
+func TestRunGenerateSyscallsAuditTracepointOverridesUsesAliases(t *testing.T) {
+	cmd := generatorCommand{
+		tracepointSource: fakeTracepointSyscallSource{syscalls: map[string]SyscallMeta{
+			"newstat": {Args: []string{"filename", "statbuf"}, ArgTypes: []string{"const char *", "struct stat *"}},
+		}},
+		overrides: map[string]SyscallMeta{
+			"stat": {Args: []string{"filename", "statbuf"}, ArgTypes: []string{"const char *", "struct stat *"}},
+		},
+		aliases: map[string]string{"newstat": "stat"},
+	}
+	var out bytes.Buffer
+	if err := cmd.Run([]string{"--audit-tracepoint-overrides"}, &out); err != nil {
+		t.Fatalf("Run(--audit-tracepoint-overrides) error = %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "stat\tredundant\texact_signature") {
+		t.Fatalf("Run(--audit-tracepoint-overrides) output = %q, want aliased stat row", got)
+	}
+}
+
 func TestRunGenerateSyscallsRejectsUnknownFlag(t *testing.T) {
 	cmd := generatorCommand{loader: fakeSyscallMapLoader{}}
 	if err := cmd.Run([]string{"--unknown"}, &bytes.Buffer{}); err == nil {
