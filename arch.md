@@ -1351,6 +1351,17 @@ Tail call spike（2026-08-07）：
 
 `TestTraceStateReordersExitObservedBeforeEnter` 和 lifecycle cleanup regression 已覆盖确定性顺序；`creat.gen.test` 连续 5 次实机运行通过。该修复只解决完整 enter/exit 事件的观察乱序，`recvmsg` 的 fragment 顺序风险仍按 13.2 单独记录。
 
+### 13.8 execve restart marker 乱序收口（2026-08-08）
+
+实机运行 `strace-E`、`strace-E-unset`、`strace-t`、`strace-tt`、`strace-ttt` 时确认，`execve` 的 event v2 记录可能按以下顺序到达 Go：普通 generic enter、成功 exit、`ERESTARTNOHAND` restart marker enter。后两条记录来自同一个 TID，但跨 CPU ringbuf 观察不能假设 marker 一定先于 exit。
+
+`ExecSyscallOutput` 现在保留两条路径：
+
+- restart marker 已先到时，继续使用 pending exec 参数输出标准 resume 行；
+- 成功 exit 先到且 pending 参数尚未建立时，直接使用该 exit event 携带的 bounded payload snapshot 渲染完整 `execve` 行，迟到 marker 只更新状态，不重复输出。
+
+新增 `TestExecSyscallOutputLeaderSuccessUsesExitSnapshotWhenRestartIsLate` 回归覆盖该顺序；这不改变 BPF event v2、JSON raw event 或 ptrace 语义，也不引入定时器、锁、用户态内存补读。修复后 native `more` 为 `80 PASS / 0 FAIL / 3 XFAIL`，相关 5 个 exec/timestamp 测试均通过。
+
 ## 14. Tail call 重构方案（已落地，保留验收记录）
 
 ### 14.1 目标与非目标

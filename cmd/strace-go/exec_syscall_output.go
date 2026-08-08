@@ -61,7 +61,7 @@ func (o *ExecSyscallOutput) HandleEvent(ev syscallEventContext, res handler.Resu
 		return o.handleNonLeaderRestart(ev, tid, scMeta, res)
 	case 0:
 		if tid == tgid {
-			return o.handleLeaderSuccess(view, tid)
+			return o.handleLeaderSuccess(ev, tid, res)
 		}
 		return o.handleNonLeaderSuccess(ev, tid, tgid, scMeta)
 	default:
@@ -69,13 +69,22 @@ func (o *ExecSyscallOutput) HandleEvent(ev syscallEventContext, res handler.Resu
 	}
 }
 
-func (o *ExecSyscallOutput) handleLeaderSuccess(view syscallEventView, tid int) bool {
+func (o *ExecSyscallOutput) handleLeaderSuccess(ev syscallEventContext, tid int, res handler.Result) bool {
 	if o.state == nil {
+		if o.renderer != nil {
+			o.renderer.PrintSyscallEvent(ev, res)
+		}
 		return true
 	}
 	argLine, ok := o.state.takePendingExecArgs(tid)
 	if ok && o.renderer != nil {
-		o.renderer.PrintExecResumeFromView(view, argLine)
+		o.renderer.PrintExecResumeFromView(ev.eventView(), argLine)
+		return true
+	}
+	if !ok && o.renderer != nil {
+		// The restart marker can arrive after the successful exit on another CPU.
+		// The exit snapshot is already self-contained, so render it directly.
+		o.renderer.PrintSyscallEvent(ev, res)
 	}
 	return true
 }

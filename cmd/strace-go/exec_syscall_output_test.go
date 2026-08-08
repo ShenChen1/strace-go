@@ -111,6 +111,22 @@ func TestExecSyscallOutputLeaderRestartAndResumeFromEventView(t *testing.T) {
 	}
 }
 
+func TestExecSyscallOutputLeaderSuccessUsesExitSnapshotWhenRestartIsLate(t *testing.T) {
+	output, _, out, _ := newExecSyscallOutputForTest(&cli.Options{FollowForks: true})
+	scMeta := meta.Syscall{Name: "execve"}
+	res := handler.Result{ArgParts: []string{`"/bin/true"`, `["true"]`, `0x1 /* 1 var */`}}
+	exit := execOutputEvent(scMeta, 200, 200, 0)
+	exit.view.eventType = bpfEventTypeExit
+
+	if !output.HandleEvent(exit, res) {
+		t.Fatal("leader exec success should be handled without an earlier restart marker")
+	}
+	got := out.String()
+	if !strings.Contains(got, `200   execve("/bin/true", ["true"], 0x1 /* 1 var */)`) || !strings.Contains(got, "= 0") {
+		t.Fatalf("leader exec success output = %q, want exit snapshot rendering", got)
+	}
+}
+
 func TestExecSyscallOutputUsesEffectiveMetadata(t *testing.T) {
 	output, state, out, _ := newExecSyscallOutputForTest(&cli.Options{FollowForks: true})
 	scMeta := meta.Syscall{Name: "execve"}
