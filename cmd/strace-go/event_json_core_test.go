@@ -121,6 +121,7 @@ func TestJSONRawEventViewOverridesRawScalars(t *testing.T) {
 		duration:      55,
 		enterTime:     77,
 		ptr:           0x1234,
+		stackID:       17,
 		probeRetEnter: -1,
 		probeRetExit:  0,
 	}
@@ -148,6 +149,9 @@ func TestJSONRawEventViewOverridesRawScalars(t *testing.T) {
 	}
 	if ev.EventVersion != 2 || ev.EventFlags != bpfEventFlagGenericEnter || ev.DurationNS != 55 || ev.EnterTimeNS != 77 {
 		t.Fatalf("raw JSON timing/header = %+v, want view header/timing", ev)
+	}
+	if ev.StackID != 17 {
+		t.Fatalf("raw JSON stack_id = %d, want 17", ev.StackID)
 	}
 	if !ev.Failed || ev.Errno != 2 {
 		t.Fatalf("raw JSON failure/payload fields = %+v, want view-derived fields", ev)

@@ -66,7 +66,7 @@ enum enter_prog_index {
     u64 enter_time = bpf_ktime_get_ns();                                   \
     u32 cfg_key = 0;                                                       \
     u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);                 \
-    s32 stack_id = -1;                                                     \
+    volatile s32 stack_id = -1;                                           \
     if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {                            \
         stack_id = bpf_get_stackid((void *)(ctx), &stack_traces, BPF_F_USER_STACK); \
     }
@@ -79,7 +79,7 @@ int enter_terminating(struct trace_event_raw_sys_enter *ctx) {
         bpf_map_update_elem(&main_exited_map, &pid, &val, BPF_ANY);
     }
     emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
-    emit_terminating_exit_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+    emit_terminating_exit_event_v2_direct(pid, tid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }
 

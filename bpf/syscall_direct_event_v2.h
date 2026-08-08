@@ -131,6 +131,8 @@ static __always_inline void init_syscall_exit_event_v2_from_pending(
     body->args[5] = p->args[5];
     body->capture_len = payload_size;
     body->capture_flags = 0;
+    body->stack_id = p->stack_id;
+    body->reserved = 0;
 }
 
 static __always_inline void init_syscall_exit_event_v2_from_ctx(
@@ -138,7 +140,8 @@ static __always_inline void init_syscall_exit_event_v2_from_ctx(
     struct trace_event_raw_sys_enter *ctx,
     s64 ret_value,
     u64 duration,
-    u32 payload_size)
+    u32 payload_size,
+    s32 stack_id)
 {
     body->ret = ret_value;
     body->duration_ns = duration;
@@ -150,6 +153,8 @@ static __always_inline void init_syscall_exit_event_v2_from_ctx(
     body->args[5] = ctx->args[5];
     body->capture_len = payload_size;
     body->capture_flags = 0;
+    body->stack_id = stack_id;
+    body->reserved = 0;
 }
 
 static __always_inline int payload_tlv_write_header_direct(
@@ -242,7 +247,8 @@ static __always_inline void emit_terminating_exit_event_v2_direct(
     u32 tid,
     u32 sys_id,
     struct trace_event_raw_sys_enter *ctx,
-    u64 ts_ns)
+    u64 ts_ns,
+    s32 stack_id)
 {
     u32 out_size = EVENT_V2_HEADER_LEN + EVENT_V2_EXIT_BODY_LEN;
     struct bpf_dynptr ptr;
@@ -263,7 +269,7 @@ static __always_inline void emit_terminating_exit_event_v2_direct(
     }
 
     struct syscall_exit_event_v2 body = {};
-    init_syscall_exit_event_v2_from_ctx(&body, ctx, 0, 0, 0);
+    init_syscall_exit_event_v2_from_ctx(&body, ctx, 0, 0, 0, stack_id);
     ret = bpf_dynptr_write(&ptr, EVENT_V2_HEADER_LEN, &body, sizeof(body), 0);
     if (ret < 0) {
         record_ringbuf_copy_fail();

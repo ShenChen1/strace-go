@@ -193,6 +193,24 @@ func TestDecodeTraceEventV2ExitEnvelope(t *testing.T) {
 	}
 }
 
+func TestDecodeTraceEventV2ExitEnvelopePreservesStackID(t *testing.T) {
+	raw := traceEventV2ExitSample(t, traceEventV2SampleSpec{
+		pid:     501,
+		tid:     502,
+		sysID:   syscallIDByName(t, "chdir"),
+		tsNs:    1200,
+		stackID: 17,
+	})
+
+	envelope, ok := decodeTraceEventV2Envelope(raw)
+	if !ok {
+		t.Fatal("decodeTraceEventV2Envelope rejected an exit sample with stack id")
+	}
+	if envelope.stackID != 17 {
+		t.Fatalf("exit stackID = %d, want 17", envelope.stackID)
+	}
+}
+
 func TestDecodeTraceEventV2LifecycleEnvelope(t *testing.T) {
 	raw := traceEventV2LifecycleSample(t, traceEventV2SampleSpec{
 		pid:     401,
@@ -285,6 +303,7 @@ type traceEventV2SampleSpec struct {
 	ret           int64
 	probeRetEnter int32
 	probeRetExit  int32
+	stackID       int32
 	args          [6]uint64
 	payload       []byte
 }
@@ -314,6 +333,7 @@ func traceEventV2ExitSample(t *testing.T, spec traceEventV2SampleSpec) []byte {
 	binary.LittleEndian.PutUint64(raw[bodyOffset+8:bodyOffset+16], spec.duration)
 	putTraceEventV2Args(raw[bodyOffset+16:bodyOffset+64], spec.args)
 	binary.LittleEndian.PutUint32(raw[bodyOffset+64:bodyOffset+68], uint32(len(spec.payload)))
+	binary.LittleEndian.PutUint32(raw[bodyOffset+72:bodyOffset+76], uint32(spec.stackID))
 	copy(raw[bodyOffset+traceEventV2ExitBodyLen:], spec.payload)
 	return raw
 }

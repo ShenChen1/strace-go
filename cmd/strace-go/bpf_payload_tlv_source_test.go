@@ -166,7 +166,7 @@ func TestBPFScalarAndTerminatingUseDirectEventV2(t *testing.T) {
 		!strings.Contains(directHeader, "return sys_id == SYS_EXIT || sys_id == SYS_EXIT_GROUP;") ||
 		!strings.Contains(directHeader, "emit_terminating_exit_event_v2_direct(") ||
 		!strings.Contains(straceSource, "is_terminating_direct_syscall(sys_id)") ||
-		!strings.Contains(straceSource, "emit_terminating_exit_event_v2_direct(pid, tid, sys_id, ctx, enter_time);") {
+		!strings.Contains(straceSource, "emit_terminating_exit_event_v2_direct(pid, tid, sys_id, ctx, enter_time, stack_id);") {
 		t.Fatal("exit/exit_group should synthesize direct event v2 exit events without the bpf_event carrier")
 	}
 	if strings.Contains(straceSource, "if (sys_id == SYS_EXIT || sys_id == SYS_EXIT_GROUP)") {

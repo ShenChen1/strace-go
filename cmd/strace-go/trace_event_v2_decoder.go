@@ -6,7 +6,7 @@ const (
 	traceEventV2Version          = 2
 	traceEventV2HeaderLen        = 40
 	traceEventV2EnterBodyLen     = 72
-	traceEventV2ExitBodyLen      = 72
+	traceEventV2ExitBodyLen      = 80
 	traceEventV2LifecycleBodyLen = 56
 )
 
@@ -129,6 +129,7 @@ func decodeTraceEventV2ExitEnvelope(header traceEventV2Header, body []byte) (tra
 	duration := binary.LittleEndian.Uint64(body[8:16])
 	args := traceEventV2Args(body[16:64])
 	captureLen := binary.LittleEndian.Uint32(body[64:68])
+	stackID := int32(binary.LittleEndian.Uint32(body[72:76]))
 	payload, ok := traceEventV2Payload(body, traceEventV2ExitBodyLen, captureLen)
 	if !ok {
 		return traceEventEnvelope{}, false
@@ -156,6 +157,7 @@ func decodeTraceEventV2ExitEnvelope(header traceEventV2Header, body []byte) (tra
 		args:         args,
 		ret:          ret,
 		duration:     duration,
+		stackID:      stackID,
 		ptr:          primarySyscallPointer(scMeta, args, sections),
 		payload:      sections,
 	}, true

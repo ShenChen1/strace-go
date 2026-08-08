@@ -37,6 +37,7 @@ type jsonSyscallEvent struct {
 	Errno           int                  `json:"errno,omitempty"`
 	DurationNS      uint64               `json:"duration_ns"`
 	EnterTimeNS     uint64               `json:"enter_time_ns"`
+	StackID         int32                `json:"stack_id"`
 	PayloadSections []jsonPayloadSection `json:"payload_sections,omitempty"`
 	ProbeRetEnter   int32                `json:"probe_ret_enter"`
 	ProbeRetExit    int32                `json:"probe_ret_exit"`
@@ -105,6 +106,7 @@ func newJSONSyscallEventFromView(view syscallEventView, scMeta meta.Syscall, sec
 		Errno:           errno,
 		DurationNS:      view.duration,
 		EnterTimeNS:     view.enterTime,
+		StackID:         view.stackID,
 		PayloadSections: jsonPayloadSections(sections),
 		ProbeRetEnter:   view.probeRetEnter,
 		ProbeRetExit:    view.probeRetExit,

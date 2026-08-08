@@ -185,7 +185,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define CONFIG_FD_STATE 64
 #define EVENT_V2_HEADER_LEN 40
 #define EVENT_V2_ENTER_BODY_LEN 72
-#define EVENT_V2_EXIT_BODY_LEN 72
+#define EVENT_V2_EXIT_BODY_LEN 80
 #define EVENT_V2_LIFECYCLE_BODY_LEN 56
 #define LIFECYCLE_SNAPSHOT_MAX 4096
 
@@ -262,6 +262,8 @@ struct syscall_exit_event_v2 {
     u64 args[6];
     u32 capture_len;
     u32 capture_flags;
+    s32 stack_id;
+    u32 reserved;
 };
 
 struct lifecycle_event_v2 {
@@ -812,7 +814,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     bpf_tail_call(ctx, &enter_progs, index);
 
     // tail call fallback: keep the syscall observable even if a handler slot is missing.
-    s32 stack_id = -1;
+    volatile s32 stack_id = -1;
     if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
         stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
     }
