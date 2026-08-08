@@ -28,6 +28,7 @@ UPSTREAM_DIR = os.path.join(PROJECT_ROOT, "strace-upstream")
 STRACE_WRAPPER = os.path.join(SCRIPT_DIR, "strace-sudo.sh")
 STRACE_GO_BIN = os.path.join(PROJECT_ROOT, "strace-go")
 FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_semantic_fixture.c")
+THREAD_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_thread_fixture.c")
 EVENT_FLAG_TRUNCATED = 4
 
 def parse_args():
@@ -67,9 +68,21 @@ def build_strace_go():
 
 def build_ebpf_fixture():
     out = os.path.join(tempfile.gettempdir(), "strace-go-ebpf-semantic-fixture")
-    subprocess.run(["gcc", "-O2", "-Wall", "-Wextra", "-o", out, FIXTURE_SRC], check=True)
-    os.chmod(out, 0o755)
+    build_fixture(FIXTURE_SRC, out)
     return out
+
+def build_ebpf_thread_fixture():
+    out = os.path.join(tempfile.gettempdir(), "strace-go-ebpf-thread-fixture")
+    build_fixture(THREAD_FIXTURE_SRC, out, ["-pthread"])
+    return out
+
+def build_fixture(source, output, extra_args=None):
+    command = ["gcc", "-O2", "-Wall", "-Wextra"]
+    if extra_args:
+        command.extend(extra_args)
+    command.extend(["-o", output, source])
+    subprocess.run(command, check=True)
+    os.chmod(output, 0o755)
 
 def parse_json_events(stderr):
     events = []
@@ -320,6 +333,15 @@ def collect_semantic_events(fixture):
     exit_events = [ev for ev in events if ev.get("event_type") == "exit"]
     return res, events, lifecycle_events, stats_events, enter_events, exit_events
 
+def collect_thread_lifecycle_events(fixture):
+    res = run_strace_go_json(["-f", "-e", "trace=getpid,exit,exit_group", fixture])
+    events = parse_json_events(res.stderr)
+    lifecycle_events = parse_lifecycle_events(res.stderr)
+    stats_events = parse_stats_events(res.stderr)
+    enter_events = [ev for ev in events if ev.get("event_type") == "enter"]
+    exit_events = [ev for ev in events if ev.get("event_type") == "exit"]
+    return res, events, lifecycle_events, stats_events, enter_events, exit_events
+
 def run_ebpf_semantic(args):
     if not args.skip_build:
         build_strace_go()
@@ -328,6 +350,8 @@ def run_ebpf_semantic(args):
     failures = []
 
     res, events, lifecycle_events, stats_events, enter_events, exit_events = collect_semantic_events(fixture)
+    thread_fixture = build_ebpf_thread_fixture()
+    thread_res, thread_events, thread_lifecycle_events, thread_stats_events, thread_enter_events, thread_exit_events = collect_thread_lifecycle_events(thread_fixture)
     names = {ev.get("syscall") for ev in events}
     lifecycle_actions = {ev.get("action") for ev in lifecycle_events}
 
@@ -521,6 +545,20 @@ def run_ebpf_semantic(args):
             failures, "exec lifecycle filename snapshot missing")
     require(any(ev.get("action") in ("exit", "free") and ev.get("alive") is False for ev in lifecycle_events),
             failures, "exit/free lifecycle task state did not mark task dead")
+
+    thread_syscalls = [ev for ev in thread_events if ev.get("syscall") == "getpid" and ev.get("tid") != ev.get("pid")]
+    thread_lifecycle = [ev for ev in thread_lifecycle_events
+                        if ev.get("action") in ("exit", "free") and ev.get("tid") != ev.get("pid")]
+    require(thread_res.returncode == 0, failures, f"thread fixture rc={thread_res.returncode}")
+    require("thread-fixture-ok" in thread_res.stdout, failures, "thread fixture stdout marker missing")
+    require(len(thread_stats_events) == 1 and valid_stats_event(thread_stats_events[0]),
+            failures, "thread fixture stats JSON event missing or unavailable")
+    require(thread_syscalls, failures, "non-leader thread getpid events missing")
+    require(any(ev.get("event_type") == "exit" and ev.get("paired_enter") for ev in thread_syscalls),
+            failures, "non-leader thread getpid exit was not paired with enter")
+    require(thread_lifecycle, failures, "non-leader thread exit/free lifecycle identity missing")
+    print(f"=> eBPF thread semantic events: {len(thread_events)}")
+    print(f"=> eBPF thread lifecycle events: {len(thread_lifecycle_events)}")
     filter_event_count = check_write_only_filter(fixture, failures)
 
     return finish_ebpf_semantic(
