@@ -41,10 +41,11 @@ type traceCommandExitResult struct {
 // IMPACT: run reads and handles ringbuf records in the same goroutine; only process waiting is asynchronous.
 func (s *traceSession) run() {
 	state := newTraceRunState(s)
+	commandExit := s.commandExitHandler()
 	var rec ringbuf.Record
 
 	for {
-		state.collect(s)
+		state.collect(commandExit)
 		if state.done() {
 			s.drainEventReaderAfterDone(&rec)
 			s.finishRun()
@@ -76,11 +77,11 @@ func newTraceRunState(s *traceSession) traceRunState {
 	return state
 }
 
-func (st *traceRunState) collect(s *traceSession) {
+func (st *traceRunState) collect(commandExit *TraceCommandExitHandler) {
 	if st.cmdDone != nil {
 		select {
 		case result := <-st.cmdDone:
-			s.exitStatusCoordinator().MarkExitedWithFallback(s.targetPid, s.commandExitFallbackLine(result))
+			commandExit.MarkExited(result)
 			st.commandExited = true
 			st.cmdDone = nil
 			// IMPACT: print the wait-derived exit line shortly after wait
@@ -93,7 +94,7 @@ func (st *traceRunState) collect(s *traceSession) {
 	}
 	if st.commandExited && !st.fallbackFlush.IsZero() && time.Now().After(st.fallbackFlush) {
 		st.fallbackFlush = time.Time{}
-		s.exitStatusCoordinator().FlushFallback(s.targetPid)
+		commandExit.FlushFallback()
 	}
 	if st.attachExited || !st.shouldPollAttach() {
 		return
@@ -121,16 +122,6 @@ func newTraceCommandExitResult(state *os.ProcessState, waitErr error) traceComma
 		return traceCommandExitResult{exited: true, exitCode: uint64(code)}
 	}
 	return traceCommandExitResult{}
-}
-
-func (s *traceSession) commandExitFallbackLine(result traceCommandExitResult) string {
-	if !result.exited || s == nil || s.opts == nil {
-		return ""
-	}
-	if s.opts.QuietExit || s.opts.SummaryOnly || s.opts.EventFormat == cli.EventFormatJSON {
-		return ""
-	}
-	return s.textRenderer().ExitStatusLine(s.targetPid, result.exitCode)
 }
 
 func (st *traceRunState) shouldPollAttach() bool {

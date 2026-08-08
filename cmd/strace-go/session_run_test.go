@@ -28,15 +28,19 @@ func TestHandleBPFRecordUsesSessionRecordDecoder(t *testing.T) {
 func TestTraceRunStateCollectMarksCommandExit(t *testing.T) {
 	done := make(chan traceCommandExitResult, 1)
 	done <- traceCommandExitResult{exited: true}
-	session := &traceSession{targetPid: 77}
+	coordinator := newExitStatusCoordinator(ExitStatusCoordinatorDeps{Queue: newExitStatusQueue()})
+	handler := newTraceCommandExitHandler(TraceCommandExitHandlerDeps{
+		TargetPID:  77,
+		ExitStatus: coordinator,
+	})
 	state := traceRunState{cmdDone: done}
 
-	state.collect(session)
+	state.collect(handler)
 	if !state.commandExited || state.cmdDone != nil {
 		t.Fatalf("state after collect = %+v, want command exited and cmdDone cleared", state)
 	}
-	if !session.exitStatusQueue().HasExited(77) {
-		t.Fatalf("tracee exit was not marked: %+v", session.exitStatus)
+	if !coordinator.queue.HasExited(77) {
+		t.Fatalf("tracee exit was not marked: %+v", coordinator.queue)
 	}
 }
 
@@ -44,19 +48,24 @@ func TestTraceRunStateCollectStoresCommandExitFallback(t *testing.T) {
 	done := make(chan traceCommandExitResult, 1)
 	done <- traceCommandExitResult{exited: true, exitCode: 3}
 	var output bytes.Buffer
-	session := &traceSession{
-		targetPid:  77,
-		opts:       &cli.Options{EventFormat: cli.EventFormatText},
-		outWriter:  &output,
-		exitStatus: newExitStatusQueue(),
-	}
+	opts := &cli.Options{EventFormat: cli.EventFormatText}
+	coordinator := newExitStatusCoordinator(ExitStatusCoordinatorDeps{
+		Queue: newExitStatusQueue(),
+		Out:   &output,
+	})
+	handler := newTraceCommandExitHandler(TraceCommandExitHandlerDeps{
+		Opts:       opts,
+		TargetPID:  77,
+		ExitStatus: coordinator,
+		Renderer:   newTextRenderer(TextRendererDeps{Out: &output, Opts: opts}),
+	})
 	state := traceRunState{cmdDone: done}
 
-	state.collect(session)
+	state.collect(handler)
 	if output.Len() != 0 {
 		t.Fatalf("fallback printed before drain finished: %q", output.String())
 	}
-	session.exitStatusCoordinator().FlushFallback(77)
+	handler.FlushFallback()
 	if output.String() != "+++ exited with 3 +++\n" {
 		t.Fatalf("fallback output = %q", output.String())
 	}
@@ -115,19 +124,19 @@ func TestAnyAttachPidAliveDetectsCurrentProcess(t *testing.T) {
 
 func TestTraceRunStateThrottlesAttachPolling(t *testing.T) {
 	state := traceRunState{attachPids: []int{os.Getpid()}}
-	state.collect(&traceSession{})
+	state.collect(nil)
 	if state.attachExited || state.nextAttachPoll.IsZero() {
 		t.Fatalf("state after first attach poll = %+v, want alive pid and next poll set", state)
 	}
 
 	state.attachPids = []int{1 << 30}
-	state.collect(&traceSession{})
+	state.collect(nil)
 	if state.attachExited {
 		t.Fatal("attach polling should be skipped before nextAttachPoll")
 	}
 
 	state.nextAttachPoll = time.Now().Add(-time.Second)
-	state.collect(&traceSession{})
+	state.collect(nil)
 	if !state.attachExited {
 		t.Fatal("missing attach pid should be marked exited after the throttle expires")
 	}

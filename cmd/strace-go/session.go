@@ -43,16 +43,17 @@ type traceSession struct {
 	exitStatus    *ExitStatusQueue
 	state         *TraceState
 
-	textRendererCache     *TextRenderer
-	syscallJSONCache      *SyscallJSONOutput
-	syscallTextCache      *SyscallTextOutput
-	exitSyscallCache      *ExitSyscallOutput
-	syscallRunnerCache    *SyscallHandlerRunner
-	syscallPipelineCache  *SyscallExitPipeline
-	lifecycleHandlerCache *LifecycleEventHandler
-	exitCoordinatorCache  *ExitStatusCoordinator
-	eventRouterCache      *TraceEventRouter
-	runFinalizerCache     *TraceRunFinalizer
+	textRendererCache       *TextRenderer
+	syscallJSONCache        *SyscallJSONOutput
+	syscallTextCache        *SyscallTextOutput
+	exitSyscallCache        *ExitSyscallOutput
+	syscallRunnerCache      *SyscallHandlerRunner
+	syscallPipelineCache    *SyscallExitPipeline
+	lifecycleHandlerCache   *LifecycleEventHandler
+	exitCoordinatorCache    *ExitStatusCoordinator
+	eventRouterCache        *TraceEventRouter
+	runFinalizerCache       *TraceRunFinalizer
+	commandExitHandlerCache *TraceCommandExitHandler
 }
 
 // IMPACT: setupBPF is the single eBPF runtime wiring entry used by main. It loads
