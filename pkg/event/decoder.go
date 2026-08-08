@@ -116,15 +116,29 @@ func (d *Decoder) DecodeStringRaw(_ int, ptr uint64, bpfData []byte, probeRet in
 	return fmt.Sprintf("%#x", ptr)
 }
 
+// PathMatchRequest carries the state needed to evaluate a -P path filter.
+type PathMatchRequest struct {
+	Pid        int
+	FDs        []int32
+	IsPath     bool
+	PathText   string
+	TracePaths map[string]bool
+	FDMap      map[string]string
+}
+
 // MatchPath checks if the syscall matches any of the paths in the filter list.
-func MatchPath(pid int, fds []int32, isPath bool, scName string, ptr uint64, pathText string, tracePaths map[string]bool, fdMap map[string]string) bool {
-	if len(tracePaths) == 0 {
+func MatchPath(req PathMatchRequest) bool {
+	if len(req.TracePaths) == 0 {
 		return true
 	}
 
-	var candidatePaths []string
+	candidatePaths, baseFd := fdCandidatePaths(req.Pid, req.FDs, req.FDMap)
+	candidatePaths = append(candidatePaths, pathTextCandidates(req, baseFd)...)
+	return anyCandidateMatchesTracePath(candidatePaths, req.TracePaths)
+}
 
-	// 1. Path from FDs
+func fdCandidatePaths(pid int, fds []int32, fdMap map[string]string) ([]string, int32) {
+	candidatePaths := []string{}
 	baseFd := int32(-1)
 	for _, fd := range fds {
 		if fd == -1 {
@@ -133,68 +147,91 @@ func MatchPath(pid int, fds []int32, isPath bool, scName string, ptr uint64, pat
 		// IMPACT: the event-driven fdMap is authoritative because fd-state
 		// syscalls flow through the BPF runtime even when filtered from output;
 		// /proc is only a fallback for fd mutations the tracker does not cover.
-		if path, ok := fdMap[fmt.Sprintf("%d:%d", pid, fd)]; ok {
+		if path, ok := fdMap[fdMapKey(pid, fd)]; ok {
 			candidatePaths = append(candidatePaths, path)
 		} else if path, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", pid, fd)); err == nil {
 			candidatePaths = append(candidatePaths, path)
 			if fdMap != nil {
-				fdMap[fmt.Sprintf("%d:%d", pid, fd)] = path
+				fdMap[fdMapKey(pid, fd)] = path
 			}
 		}
 		if baseFd == -1 {
 			baseFd = fd
 		}
 	}
+	return candidatePaths, baseFd
+}
 
-	// 2. Path from string argument
-	if isPath && pathText != "" && pathText != "NULL" && !strings.HasPrefix(pathText, "0x") {
-		p := pathText
-		if len(p) >= 2 && p[0] == '"' && p[len(p)-1] == '"' {
-			p = p[1 : len(p)-1]
-		}
-
-		if strings.HasPrefix(p, "/") {
-			candidatePaths = append(candidatePaths, p)
-		} else {
-			candidatePaths = append(candidatePaths, p)
-
-			// resolve relative
-			base := ""
-			if baseFd != -1 && baseFd != -100 /* AT_FDCWD */ {
-				base = fdMap[fmt.Sprintf("%d:%d", pid, baseFd)]
-			} else if baseFd == -1 || baseFd == -100 {
-				if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid)); err == nil {
-					base = cwd
-				}
-			}
-			if base != "" {
-				candidatePaths = append(candidatePaths, base+"/"+p)
-			} else {
-				candidatePaths = append(candidatePaths, p)
-			}
-		}
+func pathTextCandidates(req PathMatchRequest, baseFd int32) []string {
+	if !usablePathText(req) {
+		return nil
+	}
+	path := unquotePath(req.PathText)
+	if strings.HasPrefix(path, "/") {
+		return []string{path}
 	}
 
-	// Check all candidate paths
-	for _, p := range candidatePaths {
-		if len(p) >= 2 && p[0] == '"' && p[len(p)-1] == '"' {
-			p = p[1 : len(p)-1]
-		}
-		for tp := range tracePaths {
-			if p == tp || strings.HasPrefix(p, tp+"/") {
-				return true
-			}
+	candidates := []string{path}
+	base := relativePathBase(req.Pid, baseFd, req.FDMap)
+	if base != "" {
+		candidates = append(candidates, base+"/"+path)
+	} else {
+		candidates = append(candidates, path)
+	}
+	return candidates
+}
 
-			absTP := tp
-			if !strings.HasPrefix(tp, "/") {
-				if cwd, err := os.Getwd(); err == nil {
-					absTP = cwd + "/" + tp
-				}
-			}
-			if p == absTP || strings.HasPrefix(p, absTP+"/") {
+func usablePathText(req PathMatchRequest) bool {
+	return req.IsPath &&
+		req.PathText != "" &&
+		req.PathText != "NULL" &&
+		!strings.HasPrefix(req.PathText, "0x")
+}
+
+func relativePathBase(pid int, baseFd int32, fdMap map[string]string) string {
+	if baseFd != -1 && baseFd != -100 {
+		return fdMap[fdMapKey(pid, baseFd)]
+	}
+	if baseFd == -1 || baseFd == -100 {
+		if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid)); err == nil {
+			return cwd
+		}
+	}
+	return ""
+}
+
+func anyCandidateMatchesTracePath(candidatePaths []string, tracePaths map[string]bool) bool {
+	for _, candidate := range candidatePaths {
+		path := unquotePath(candidate)
+		for tracePath := range tracePaths {
+			if pathMatchesTracePath(path, tracePath) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func pathMatchesTracePath(path string, tracePath string) bool {
+	if path == tracePath || strings.HasPrefix(path, tracePath+"/") {
+		return true
+	}
+	absTracePath := tracePath
+	if !strings.HasPrefix(tracePath, "/") {
+		if cwd, err := os.Getwd(); err == nil {
+			absTracePath = cwd + "/" + tracePath
+		}
+	}
+	return path == absTracePath || strings.HasPrefix(path, absTracePath+"/")
+}
+
+func unquotePath(path string) string {
+	if len(path) >= 2 && path[0] == '"' && path[len(path)-1] == '"' {
+		return path[1 : len(path)-1]
+	}
+	return path
+}
+
+func fdMapKey(pid int, fd int32) string {
+	return fmt.Sprintf("%d:%d", pid, fd)
 }

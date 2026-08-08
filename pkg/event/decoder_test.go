@@ -85,7 +85,14 @@ func TestMatchPathMatchesRawRelativeArgument(t *testing.T) {
 		"123:cwd": "/tmp/tracee-subdir",
 	}
 
-	if !MatchPath(123, []int32{-1}, true, "open", 0x1000, `"open.sample"`, tracePaths, fdMap) {
+	if !MatchPath(PathMatchRequest{
+		Pid:        123,
+		FDs:        []int32{-1},
+		IsPath:     true,
+		PathText:   `"open.sample"`,
+		TracePaths: tracePaths,
+		FDMap:      fdMap,
+	}) {
 		t.Fatal("relative trace path did not match raw relative syscall argument")
 	}
 }
@@ -100,7 +107,12 @@ func TestMatchPathFallsBackToProcFdOnFDMapMiss(t *testing.T) {
 	fd := int32(file.Fd())
 	fdMap := map[string]string{}
 	tracePaths := map[string]bool{file.Name(): true}
-	if !MatchPath(os.Getpid(), []int32{fd}, false, "fsconfig", 0, "", tracePaths, fdMap) {
+	if !MatchPath(PathMatchRequest{
+		Pid:        os.Getpid(),
+		FDs:        []int32{fd},
+		TracePaths: tracePaths,
+		FDMap:      fdMap,
+	}) {
 		t.Fatal("fd path did not match via procfs fallback")
 	}
 }
@@ -115,8 +127,13 @@ func TestMatchPathFdTargetMatchesRealpathTraceEntry(t *testing.T) {
 		"stat.sample":                     true,
 		filepath.Join(dir, "stat.sample"): true,
 	}
-	if !MatchPath(101, []int32{3}, false, "fstat", 0, "", tracePaths, map[string]string{
-		"101:3": sample,
+	if !MatchPath(PathMatchRequest{
+		Pid:        101,
+		FDs:        []int32{3},
+		TracePaths: tracePaths,
+		FDMap: map[string]string{
+			"101:3": sample,
+		},
 	}) {
 		t.Fatal("fstat(fd resolving to realpath) should match expanded -P set")
 	}
@@ -137,7 +154,12 @@ func TestMatchPathPrefersEventDrivenFDState(t *testing.T) {
 	fdMap := map[string]string{fmt.Sprintf("%d:%d", os.Getpid(), fd): sample}
 	tracePaths := map[string]bool{sample: true}
 
-	if !MatchPath(os.Getpid(), []int32{fd}, false, "fstat", 0, "", tracePaths, fdMap) {
+	if !MatchPath(PathMatchRequest{
+		Pid:        os.Getpid(),
+		FDs:        []int32{fd},
+		TracePaths: tracePaths,
+		FDMap:      fdMap,
+	}) {
 		t.Fatal("fstat(fd) should match -P path via event-driven fd state")
 	}
 	if fdMap[fmt.Sprintf("%d:%d", os.Getpid(), fd)] != sample {

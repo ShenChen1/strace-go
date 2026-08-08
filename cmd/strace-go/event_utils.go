@@ -247,7 +247,14 @@ func checkShouldPrintFromViewWithPayload(
 	if len(fds) == 0 {
 		fds = []int32{-1}
 	}
-	matchedPath := event.MatchPath(targetPid, fds, isPath, scMeta.Name, view.ptr, pathText, opts.TracePaths, fdMap)
+	matchedPath := event.MatchPath(event.PathMatchRequest{
+		Pid:        targetPid,
+		FDs:        fds,
+		IsPath:     isPath,
+		PathText:   pathText,
+		TracePaths: opts.TracePaths,
+		FDMap:      fdMap,
+	})
 	matchedFD := matchTraceFDs(fds, opts)
 	requestedRW := false
 	for _, fd := range fds {
