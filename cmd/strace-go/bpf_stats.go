@@ -11,6 +11,7 @@ type bpfRuntimeStats struct {
 	RingbufCopyFail        uint64
 	PayloadTruncatedEvents uint64
 	PendingUpdateFail      uint64
+	OrphanExit             uint64
 	Available              bool
 	Error                  string
 }
@@ -41,6 +42,7 @@ func sumBPFStatsValues(values []bpfBpfStats) bpfRuntimeStats {
 		stats.RingbufCopyFail += value.RingbufCopyFail
 		stats.PayloadTruncatedEvents += value.PayloadTruncatedEvents
 		stats.PendingUpdateFail += value.PendingUpdateFail
+		stats.OrphanExit += value.OrphanExit
 	}
 	return stats
 }

@@ -81,6 +81,7 @@ type jsonStatsEvent struct {
 	RingbufCopyFail        uint64 `json:"ringbuf_copy_fail"`
 	PayloadTruncatedEvents uint64 `json:"payload_truncated_events"`
 	PendingUpdateFail      uint64 `json:"pending_update_fail"`
+	OrphanExit             uint64 `json:"orphan_exit"`
 	Available              bool   `json:"available"`
 	Error                  string `json:"error,omitempty"`
 }
@@ -123,6 +124,7 @@ func newJSONStatsEvent(stats bpfRuntimeStats) jsonStatsEvent {
 		RingbufCopyFail:        stats.RingbufCopyFail,
 		PayloadTruncatedEvents: stats.PayloadTruncatedEvents,
 		PendingUpdateFail:      stats.PendingUpdateFail,
+		OrphanExit:             stats.OrphanExit,
 		Available:              stats.Available,
 		Error:                  stats.Error,
 	}

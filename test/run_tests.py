@@ -29,6 +29,7 @@ STRACE_WRAPPER = os.path.join(SCRIPT_DIR, "strace-sudo.sh")
 STRACE_GO_BIN = os.path.join(PROJECT_ROOT, "strace-go")
 FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_semantic_fixture.c")
 THREAD_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_thread_fixture.c")
+ATTACH_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_attach_fixture.c")
 EVENT_FLAG_TRUNCATED = 4
 
 def parse_args():
@@ -74,6 +75,11 @@ def build_ebpf_fixture():
 def build_ebpf_thread_fixture():
     out = os.path.join(tempfile.gettempdir(), "strace-go-ebpf-thread-fixture")
     build_fixture(THREAD_FIXTURE_SRC, out, ["-pthread"])
+    return out
+
+def build_ebpf_attach_fixture():
+    out = os.path.join(tempfile.gettempdir(), "strace-go-ebpf-attach-fixture")
+    build_fixture(ATTACH_FIXTURE_SRC, out)
     return out
 
 def build_fixture(source, output, extra_args=None):
@@ -146,7 +152,7 @@ def require(condition, failures, message):
 def valid_stats_event(ev):
     return ev.get("available") is True and all(
         isinstance(ev.get(key), int) and ev.get(key) >= 0
-        for key in ("ringbuf_reserve_fail", "ringbuf_copy_fail", "payload_truncated_events")
+        for key in ("ringbuf_reserve_fail", "ringbuf_copy_fail", "payload_truncated_events", "orphan_exit")
     )
 
 def check_semantic_stats(stats_events, failures):
@@ -353,6 +359,45 @@ def collect_thread_unfinished_text(fixture):
         "-f", "-e", "trace=read,getpid,write,exit,exit_group", fixture
     ])
 
+def collect_attach_orphan_stats(fixture):
+    target = subprocess.Popen(
+        [fixture], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, bufsize=1,
+    )
+    tracer = None
+    try:
+        ready = target.stdout.readline()
+        if "attach-fixture-ready" not in ready:
+            raise RuntimeError(f"attach fixture did not become ready: {ready!r}")
+
+        tracer_cmd = [
+            STRACE_WRAPPER, "--event-format=json", "-p", str(target.pid),
+            "-e", "trace=read,exit,exit_group",
+        ]
+        tracer = subprocess.Popen(
+            tracer_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, env=os.environ.copy(),
+        )
+        # BPF load and attach must finish before releasing the in-flight read.
+        time.sleep(5.0)
+        if tracer.poll() is not None:
+            raise RuntimeError(f"attach tracer exited before release: rc={tracer.returncode}")
+        os.kill(target.pid, signal.SIGUSR1)
+
+        target_stdout, target_stderr = target.communicate(timeout=10)
+        tracer_stdout, tracer_stderr = tracer.communicate(timeout=30)
+        tracer_result = subprocess.CompletedProcess(
+            tracer_cmd, tracer.returncode, tracer_stdout, tracer_stderr,
+        )
+        return target.returncode, target_stdout, target_stderr, tracer_result
+    finally:
+        if target.poll() is None:
+            target.kill()
+            target.wait(timeout=5)
+        if tracer is not None and tracer.poll() is None:
+            tracer.kill()
+            tracer.wait(timeout=5)
+
 def run_ebpf_semantic(args):
     if not args.skip_build:
         build_strace_go()
@@ -365,6 +410,9 @@ def run_ebpf_semantic(args):
     thread_res, thread_events, thread_lifecycle_events, thread_stats_events, thread_enter_events, thread_exit_events = collect_thread_lifecycle_events(thread_fixture)
     thread_text_res = collect_thread_unfinished_text(thread_fixture)
     thread_text = thread_text_res.stderr
+    attach_fixture = build_ebpf_attach_fixture()
+    attach_target_rc, attach_stdout, attach_stderr, attach_res = collect_attach_orphan_stats(attach_fixture)
+    attach_stats_events = parse_stats_events(attach_res.stderr)
     names = {ev.get("syscall") for ev in events}
     lifecycle_actions = {ev.get("action") for ev in lifecycle_events}
 
@@ -576,10 +624,18 @@ def run_ebpf_semantic(args):
             failures, "thread text fixture did not produce read unfinished output")
     require("<... read resumed>)" in thread_text,
             failures, "thread text fixture did not produce read resumed output")
+    require(attach_target_rc == 0, failures, f"attach fixture rc={attach_target_rc}")
+    require("attach-fixture-ok" in attach_stdout, failures, "attach fixture stdout marker missing")
+    require(attach_res.returncode == 0, failures, f"attach tracer rc={attach_res.returncode}")
+    require(len(attach_stats_events) == 1 and valid_stats_event(attach_stats_events[0]),
+            failures, "attach orphan stats JSON event missing or unavailable")
+    require(attach_stats_events and attach_stats_events[0].get("orphan_exit", 0) > 0,
+            failures, "attach-in-flight read did not produce orphan_exit diagnostics")
     print(f"=> eBPF thread semantic events: {len(thread_events)}")
     print(f"=> eBPF thread lifecycle events: {len(thread_lifecycle_events)}")
     unfinished_lines = sum(1 for line in thread_text.splitlines() if "<unfinished ...>" in line)
     print(f"=> eBPF thread unfinished text lines: {unfinished_lines}")
+    print(f"=> eBPF attach orphan exits: {attach_stats_events[0].get('orphan_exit') if attach_stats_events else 'unavailable'}")
     filter_event_count = check_write_only_filter(fixture, failures)
 
     return finish_ebpf_semantic(
@@ -611,6 +667,7 @@ def run_ebpf_perf(args):
         print(f"ringbuf_reserve_fail: {stats_events[0].get('ringbuf_reserve_fail')}")
         print(f"ringbuf_copy_fail: {stats_events[0].get('ringbuf_copy_fail')}")
         print(f"payload_truncated_events: {stats_events[0].get('payload_truncated_events')}")
+        print(f"orphan_exit: {stats_events[0].get('orphan_exit')}")
     if elapsed > 0:
         print(f"events_per_sec: {len(getpid_exit_events) / elapsed:.2f}")
 

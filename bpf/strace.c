@@ -230,6 +230,7 @@ struct bpf_stats {
     u64 ringbuf_copy_fail;
     u64 payload_truncated_events;
     u64 pending_update_fail;
+    u64 orphan_exit;
 };
 
 struct event_v2_header {
@@ -438,6 +439,14 @@ static __always_inline void record_pending_update_fail(void)
     struct bpf_stats *stats = lookup_stats();
     if (stats) {
         stats->pending_update_fail++;
+    }
+}
+
+static __always_inline void record_orphan_exit(void)
+{
+    struct bpf_stats *stats = lookup_stats();
+    if (stats) {
+        stats->orphan_exit++;
     }
 }
 
@@ -739,7 +748,17 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     if (!p) {
         p = bpf_map_lookup_elem(&pending_syscalls, &tid);
     }
-    if (!p) return 0;
+    if (!p) {
+        if (!is_lifecycle_task_tracked(pid, tid)) return 0;
+        u32 cfg_key = 0;
+        u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);
+        if (!should_trace_syscall((u32)ctx->id, cfg) &&
+            !is_fd_state_tracked((u32)ctx->id, cfg)) {
+            return 0;
+        }
+        record_orphan_exit();
+        return 0;
+    }
 
     u32 index = EXIT_PROG_GENERIC;
     if (is_iovec_base_exit_direct_syscall(p->sys_id)) {

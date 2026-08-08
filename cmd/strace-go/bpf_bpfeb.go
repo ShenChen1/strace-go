@@ -19,6 +19,7 @@ type bpfBpfStats struct {
 	RingbufCopyFail        uint64
 	PayloadTruncatedEvents uint64
 	PendingUpdateFail      uint64
+	OrphanExit             uint64
 }
 
 type bpfPendingSyscall struct {

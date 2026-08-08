@@ -31,3 +31,26 @@ func TestBPFStatsHasPendingUpdateFailCounter(t *testing.T) {
 		t.Fatal("bpf/strace.c missing record_pending_update_fail helper")
 	}
 }
+
+func TestBPFOrphanExitIsFilteredAndCounted(t *testing.T) {
+	src := loadBPFSources(t)
+	if !strings.Contains(src.straceSource, "u64 orphan_exit;") {
+		t.Fatal("bpf/strace.c bpf_stats missing orphan_exit counter")
+	}
+	if !strings.Contains(src.straceSource, "static __always_inline void record_orphan_exit(void)") {
+		t.Fatal("bpf/strace.c missing record_orphan_exit helper")
+	}
+	exitBody, ok := bpfFunctionBody(src.straceSource, "trace_sys_exit")
+	if !ok {
+		t.Fatal("bpf/strace.c missing trace_sys_exit body")
+	}
+	for _, snippet := range []string{
+		"if (!is_lifecycle_task_tracked(pid, tid)) return 0;",
+		"if (!should_trace_syscall((u32)ctx->id, cfg)",
+		"record_orphan_exit();",
+	} {
+		if !strings.Contains(exitBody, snippet) {
+			t.Fatalf("trace_sys_exit orphan path missing %q", snippet)
+		}
+	}
+}
