@@ -6,51 +6,73 @@ import (
 )
 
 type SyscallExitPipeline struct {
-	opts            *cli.Options
-	json            *SyscallJSONOutput
-	exit            *ExitSyscallOutput
-	runner          *SyscallHandlerRunner
-	text            *SyscallTextOutput
-	recordSummary   func(syscallEventContext)
-	cleanupClosedFD func(syscallEventContext)
-	updateFDOffsets func(syscallEventContext)
+	opts    *cli.Options
+	json    *SyscallJSONOutput
+	exit    *ExitSyscallOutput
+	runner  *SyscallHandlerRunner
+	text    *SyscallTextOutput
+	effects SyscallExitEffects
 }
 
 type SyscallExitPipelineDeps struct {
-	Opts            *cli.Options
-	JSON            *SyscallJSONOutput
-	Exit            *ExitSyscallOutput
-	Runner          *SyscallHandlerRunner
-	Text            *SyscallTextOutput
-	RecordSummary   func(syscallEventContext)
-	CleanupClosedFD func(syscallEventContext)
-	UpdateFDOffsets func(syscallEventContext)
+	Opts    *cli.Options
+	JSON    *SyscallJSONOutput
+	Exit    *ExitSyscallOutput
+	Runner  *SyscallHandlerRunner
+	Text    *SyscallTextOutput
+	Effects SyscallExitEffects
+}
+
+type SyscallExitEffects interface {
+	RecordSummary(syscallEventContext)
+	UpdateFDOffsets(syscallEventContext)
+	CleanupClosedFD(syscallEventContext)
+}
+
+type traceSessionSyscallExitEffects struct {
+	summary *SummaryStats
+	fdState *FDStateStore
+}
+
+func newTraceSessionSyscallExitEffects(summary *SummaryStats, fdState *FDStateStore) *traceSessionSyscallExitEffects {
+	return &traceSessionSyscallExitEffects{
+		summary: summary,
+		fdState: fdState,
+	}
+}
+
+func (e *traceSessionSyscallExitEffects) RecordSummary(ev syscallEventContext) {
+	ev.recordSummary(e.summary)
+}
+
+func (e *traceSessionSyscallExitEffects) UpdateFDOffsets(ev syscallEventContext) {
+	ev.updateFDOffsets(e.fdState)
+}
+
+func (e *traceSessionSyscallExitEffects) CleanupClosedFD(ev syscallEventContext) {
+	ev.cleanupClosedFD(e.fdState)
 }
 
 func newSyscallExitPipeline(deps SyscallExitPipelineDeps) *SyscallExitPipeline {
 	return &SyscallExitPipeline{
-		opts:            deps.Opts,
-		json:            deps.JSON,
-		exit:            deps.Exit,
-		runner:          deps.Runner,
-		text:            deps.Text,
-		recordSummary:   deps.RecordSummary,
-		cleanupClosedFD: deps.CleanupClosedFD,
-		updateFDOffsets: deps.UpdateFDOffsets,
+		opts:    deps.Opts,
+		json:    deps.JSON,
+		exit:    deps.Exit,
+		runner:  deps.Runner,
+		text:    deps.Text,
+		effects: deps.Effects,
 	}
 }
 
 func (s *traceSession) syscallExitPipeline() *SyscallExitPipeline {
 	if s.syscallPipelineCache == nil {
 		s.syscallPipelineCache = newSyscallExitPipeline(SyscallExitPipelineDeps{
-			Opts:            s.opts,
-			JSON:            s.syscallJSONOutput(),
-			Exit:            s.exitSyscallOutput(),
-			Runner:          s.syscallHandlerRunner(),
-			Text:            s.syscallTextOutput(),
-			RecordSummary:   s.updateSummaryStats,
-			CleanupClosedFD: s.cleanupClosedFD,
-			UpdateFDOffsets: s.updateSyscallFDOffsets,
+			Opts:    s.opts,
+			JSON:    s.syscallJSONOutput(),
+			Exit:    s.exitSyscallOutput(),
+			Runner:  s.syscallHandlerRunner(),
+			Text:    s.syscallTextOutput(),
+			Effects: newTraceSessionSyscallExitEffects(s.summaryStats(), s.fdStateStore()),
 		})
 	}
 	return s.syscallPipelineCache
@@ -90,8 +112,8 @@ func (p *SyscallExitPipeline) recordSummaryIfNeeded(ev syscallEventContext) bool
 	if p.opts == nil || (!p.opts.SummaryOnly && !p.opts.SummaryAndPrint) {
 		return false
 	}
-	if p.recordSummary != nil {
-		p.recordSummary(ev)
+	if p.effects != nil {
+		p.effects.RecordSummary(ev)
 	}
 	return p.opts.SummaryOnly
 }
@@ -104,14 +126,14 @@ func (p *SyscallExitPipeline) handleSyscall(ev syscallEventContext) (handler.Res
 }
 
 func (p *SyscallExitPipeline) cleanup(ev syscallEventContext) {
-	if p.cleanupClosedFD != nil {
-		p.cleanupClosedFD(ev)
+	if p.effects != nil {
+		p.effects.CleanupClosedFD(ev)
 	}
 }
 
 func (p *SyscallExitPipeline) updateOffsets(ev syscallEventContext) {
-	if p.updateFDOffsets != nil {
-		p.updateFDOffsets(ev)
+	if p.effects != nil {
+		p.effects.UpdateFDOffsets(ev)
 	}
 }
 

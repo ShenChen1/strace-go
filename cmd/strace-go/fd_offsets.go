@@ -75,10 +75,6 @@ func (st *FDStateStore) bufferFileOffsetFromView(view syscallEventView, scMeta m
 	return 0, false
 }
 
-func (s *traceSession) updateSyscallFDOffsets(ev syscallEventContext) {
-	ev.updateFDOffsets(s.fdStateStore())
-}
-
 func (st *FDStateStore) updateOffsetsFromView(view syscallEventView, scMeta meta.Syscall, statePID int) {
 	if !view.valid || view.probeRetEnter == 3 {
 		return

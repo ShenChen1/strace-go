@@ -64,4 +64,14 @@ func TestTraceSessionPipelineUsesCachedDependencies(t *testing.T) {
 	if pipeline.text != session.syscallTextOutput() {
 		t.Fatal("pipeline should use cached text output")
 	}
+	effects, ok := pipeline.effects.(*traceSessionSyscallExitEffects)
+	if !ok {
+		t.Fatalf("pipeline effects = %T, want *traceSessionSyscallExitEffects", pipeline.effects)
+	}
+	if effects.summary != session.summaryStats() {
+		t.Fatal("pipeline should use session summary stats")
+	}
+	if effects.fdState != session.fdStateStore() {
+		t.Fatal("pipeline should use session fd state store")
+	}
 }

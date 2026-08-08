@@ -10,24 +10,32 @@ import (
 
 type exitPipelineTestState struct {
 	pipeline *SyscallExitPipeline
-	calls    []string
+	effects  *fakeSyscallExitEffects
+}
+
+type fakeSyscallExitEffects struct {
+	calls []string
+}
+
+func (e *fakeSyscallExitEffects) RecordSummary(syscallEventContext) {
+	e.calls = append(e.calls, "summary")
+}
+
+func (e *fakeSyscallExitEffects) UpdateFDOffsets(syscallEventContext) {
+	e.calls = append(e.calls, "offset")
+}
+
+func (e *fakeSyscallExitEffects) CleanupClosedFD(syscallEventContext) {
+	e.calls = append(e.calls, "cleanup")
 }
 
 func newExitPipelineTestState(opts *cli.Options, runner *SyscallHandlerRunner, json *SyscallJSONOutput) *exitPipelineTestState {
-	state := &exitPipelineTestState{}
+	state := &exitPipelineTestState{effects: &fakeSyscallExitEffects{}}
 	state.pipeline = newSyscallExitPipeline(SyscallExitPipelineDeps{
-		Opts:   opts,
-		JSON:   json,
-		Runner: runner,
-		RecordSummary: func(syscallEventContext) {
-			state.calls = append(state.calls, "summary")
-		},
-		UpdateFDOffsets: func(syscallEventContext) {
-			state.calls = append(state.calls, "offset")
-		},
-		CleanupClosedFD: func(syscallEventContext) {
-			state.calls = append(state.calls, "cleanup")
-		},
+		Opts:    opts,
+		JSON:    json,
+		Runner:  runner,
+		Effects: state.effects,
 	})
 	return state
 }
@@ -64,7 +72,7 @@ func TestSyscallExitPipelineDebugRawStopsAfterJSONAndRunsFDSideEffects(t *testin
 
 	state.pipeline.Handle(exitPipelineEvent("getpid"))
 
-	calls = append(calls, state.calls...)
+	calls = append(calls, state.effects.calls...)
 	wantCalls(t, calls, []string{"json-raw", "offset", "cleanup"})
 }
 
@@ -80,7 +88,7 @@ func TestSyscallExitPipelineSummaryOnlyStopsBeforeHandler(t *testing.T) {
 
 	state.pipeline.Handle(exitPipelineEvent("getpid"))
 
-	wantCalls(t, state.calls, []string{"summary", "offset", "cleanup"})
+	wantCalls(t, state.effects.calls, []string{"summary", "offset", "cleanup"})
 }
 
 func TestSyscallExitPipelineSuppressesArchPrctlSetFSText(t *testing.T) {
@@ -95,7 +103,7 @@ func TestSyscallExitPipelineSuppressesArchPrctlSetFSText(t *testing.T) {
 
 	state.pipeline.Handle(ev)
 
-	wantCalls(t, state.calls, []string{"offset", "cleanup"})
+	wantCalls(t, state.effects.calls, []string{"offset", "cleanup"})
 }
 
 func TestSyscallExitPipelineSuppressesArchPrctlFromEventView(t *testing.T) {
@@ -113,7 +121,7 @@ func TestSyscallExitPipelineSuppressesArchPrctlFromEventView(t *testing.T) {
 
 	state.pipeline.Handle(ev)
 
-	wantCalls(t, state.calls, []string{"offset", "cleanup"})
+	wantCalls(t, state.effects.calls, []string{"offset", "cleanup"})
 }
 
 func TestSyscallExitPipelineRunsHandlerForPrintableEvent(t *testing.T) {
@@ -131,7 +139,7 @@ func TestSyscallExitPipelineRunsHandlerForPrintableEvent(t *testing.T) {
 
 	state.pipeline.Handle(exitPipelineEvent("getpid"))
 
-	calls = append(calls, state.calls...)
+	calls = append(calls, state.effects.calls...)
 	wantCalls(t, calls, []string{"handler", "fd-state", "offset", "cleanup"})
 }
 

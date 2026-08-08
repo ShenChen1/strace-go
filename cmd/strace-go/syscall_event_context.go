@@ -321,13 +321,6 @@ func (ev syscallEventContext) handleWith(handle func(string, *handler.Context) h
 	return handle(ev.syscallName(), ev.handlerContext)
 }
 
-func (s *traceSession) updateSummaryStats(ev syscallEventContext) {
-	if s.opts == nil || (!s.opts.SummaryOnly && !s.opts.SummaryAndPrint) {
-		return
-	}
-	ev.recordSummary(s.summaryStats())
-}
-
 func (ev syscallEventContext) isFDStateSyscall() bool {
 	switch ev.syscallName() {
 	case "open", "openat", "openat2", "creat", "dup", "dup2", "dup3", "close",
@@ -340,10 +333,6 @@ func (ev syscallEventContext) isFDStateSyscall() bool {
 
 func (s *traceSession) updateFDState(ev syscallEventContext) {
 	ev.updateFDState(s.fdStateStore())
-}
-
-func (s *traceSession) cleanupClosedFD(ev syscallEventContext) {
-	ev.cleanupClosedFD(s.fdStateStore())
 }
 
 func (ev syscallEventContext) shouldEmitStatus(optsStatus successfulFailedOptions) bool {

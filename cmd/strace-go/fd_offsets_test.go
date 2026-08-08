@@ -66,7 +66,7 @@ func TestFDOffsetsUseStatePIDFromView(t *testing.T) {
 	}
 }
 
-func TestFDOffsetsUseEventViewForSyscallContext(t *testing.T) {
+func TestSyscallExitEffectsUpdateFDOffsetsUsesEventView(t *testing.T) {
 	session := &traceSession{
 		targetPid: 101,
 		fdState: newFDStateStoreFromMaps(nil, map[string]int64{
@@ -81,7 +81,7 @@ func TestFDOffsetsUseEventViewForSyscallContext(t *testing.T) {
 		meta:     scMeta,
 	}
 
-	session.updateSyscallFDOffsets(ev)
+	newTraceSessionSyscallExitEffects(nil, session.fdStateStore()).UpdateFDOffsets(ev)
 	if got := session.fdState.offsets["101:1"]; got != 19 {
 		t.Fatalf("view fd offset after write = %d, want 19", got)
 	}

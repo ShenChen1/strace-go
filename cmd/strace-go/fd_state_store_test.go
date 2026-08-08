@@ -209,19 +209,18 @@ func TestSyscallEventContextUpdateFDStateSkipsNetlinkWithoutPayload(t *testing.T
 	}
 }
 
-func TestTraceSessionCleanupClosedFDUsesEventView(t *testing.T) {
+func TestSyscallExitEffectsCleanupClosedFDUsesEventView(t *testing.T) {
 	store := newFDStateStoreFromMaps(
 		map[string]string{"101:3": "/tmp/remove", "101:4": "/tmp/keep"},
 		map[string]int64{"101:3": 12, "101:4": 99},
 	)
-	session := &traceSession{fdState: store}
 	ev := syscallEventContext{
 		view:     syscallEventView{valid: true, args: [6]uint64{3}, ret: 0},
 		statePID: 101,
 		meta:     meta.Syscall{Name: "close"},
 	}
 
-	session.cleanupClosedFD(ev)
+	newTraceSessionSyscallExitEffects(nil, store).CleanupClosedFD(ev)
 
 	if _, ok := store.paths["101:3"]; ok {
 		t.Fatal("view-selected fd path was not removed")
