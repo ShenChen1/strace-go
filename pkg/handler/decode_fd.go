@@ -1,12 +1,9 @@
 package handler
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 )
 
@@ -122,7 +119,7 @@ func formatDetailedPath(ctx *Context, linkPath string, target string, fd int32) 
 		if len(ctx.Args) > 1 {
 			flags = ctx.Args[1]
 		}
-		if info := FormatEventfdInfo(linkPath, ctx.Args[0], flags, forceCount); info != "" {
+		if info := eventfdInfo(ctx, linkPath, ctx.Args[0], flags, forceCount); info != "" {
 			return info
 		}
 	}
@@ -151,68 +148,11 @@ func formatDetailedPath(ctx *Context, linkPath string, target string, fd int32) 
 	return target
 }
 
-var (
-	lastEventfdId     int = -1
-	lastEventfdIdLock sync.Mutex
-)
-
-// IMPACT: FormatEventfdInfo parses eventfd info from fdinfo.
-// It statefully predicts eventfd details if procfs files are already closed/destroyed.
-func FormatEventfdInfo(linkPath string, initialCount uint64, flags uint64, forceCount bool) string {
-	fdinfoPath := strings.Replace(linkPath, "/fd/", "/fdinfo/", 1)
-	file, err := os.Open(fdinfoPath)
-	if err != nil {
-		lastEventfdIdLock.Lock()
-		defer lastEventfdIdLock.Unlock()
-		if forceCount && lastEventfdId != -1 {
-			lastEventfdId++
-			semStr := "0"
-			if flags&1 != 0 {
-				semStr = "1"
-			}
-			return fmt.Sprintf("{eventfd-count=%#x, eventfd-id=%d, eventfd-semaphore=%s}", uint32(initialCount), lastEventfdId, semStr)
-		}
+func eventfdInfo(ctx *Context, linkPath string, initialCount uint64, flags uint64, forceCount bool) string {
+	if ctx == nil || ctx.Runtime == nil {
 		return ""
 	}
-	defer file.Close()
-
-	var countStr string
-	var inoStr string
-	semStr := "0"
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) == 2 {
-			key := strings.TrimSpace(parts[0])
-			val := strings.TrimSpace(parts[1])
-			if key == "eventfd-count" {
-				countStr = val
-			} else if key == "eventfd-id" || key == "ino" {
-				inoStr = val
-			} else if key == "flags" {
-				if f, err := strconv.ParseUint(val, 8, 64); err == nil && (f&1 != 0) {
-					semStr = "1"
-				}
-			}
-		}
-	}
-	if forceCount {
-		countStr = fmt.Sprintf("%d", uint32(initialCount))
-	}
-	if countStr != "" && inoStr != "" {
-		if id, err := strconv.Atoi(inoStr); err == nil {
-			lastEventfdIdLock.Lock()
-			lastEventfdId = id
-			lastEventfdIdLock.Unlock()
-		}
-		cVal, _ := strconv.ParseUint(countStr, 10, 64)
-		if cVal > 0 {
-			countStr = fmt.Sprintf("%#x", cVal)
-		}
-		return fmt.Sprintf("{eventfd-count=%s, eventfd-id=%s, eventfd-semaphore=%s}", countStr, inoStr, semStr)
-	}
-	return ""
+	return ctx.Runtime.EventfdInfo(linkPath, initialCount, flags, forceCount)
 }
 
 // formatSocketPath converts socket inode description using domain information cached in fdMap.
@@ -240,18 +180,18 @@ func formatSocketPath(ctx *Context, target string, fd int32) string {
 
 	if ctx.Opts != nil && ctx.Opts.ShowPathsMode == 2 {
 		if strings.HasPrefix(domainInfo, "AF_INET") {
-			val := getSocketInfo("tcp", inode)
+			val := socketInfo(ctx, "tcp", inode)
 			if val != inode {
 				return fmt.Sprintf("TCP:[%s]", val)
 			}
-			val = getSocketInfo("udp", inode)
+			val = socketInfo(ctx, "udp", inode)
 			if val != inode {
 				return fmt.Sprintf("UDP:[%s]", val)
 			}
 			return fmt.Sprintf("TCP:[%s]", inode)
 		}
 		if strings.HasPrefix(domainInfo, "AF_UNIX") {
-			val := getSocketInfo("unix", inode)
+			val := socketInfo(ctx, "unix", inode)
 			if val != inode && val != "" {
 				return fmt.Sprintf("UNIX-STREAM:[%s,%s]", inode, val)
 			}
@@ -269,6 +209,13 @@ func formatSocketPath(ctx *Context, target string, fd int32) string {
 		return info
 	}
 	return target
+}
+
+func socketInfo(ctx *Context, proto string, inode string) string {
+	if ctx == nil || ctx.Runtime == nil {
+		return inode
+	}
+	return ctx.Runtime.SocketInfo(proto, inode)
 }
 
 // getMajorMinor parses major and minor device IDs.

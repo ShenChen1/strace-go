@@ -6,14 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
-)
-
-var (
-	netCacheLock  sync.Mutex
-	netCache      map[string]string // maps "tcp:12345" to "127.0.0.1:80->10.0.0.1:1234"
-	netCacheValid time.Time
 )
 
 // parseHexIP parses hex IP address format used in /proc/net/tcp
@@ -44,12 +37,12 @@ func parseHexIP(hexStr string) string {
 	return hexStr
 }
 
-func updateNetCacheLocked() {
-	if time.Now().Before(netCacheValid) {
+func (r *Runtime) updateNetCache() {
+	if r == nil || time.Now().Before(r.netCacheValid) {
 		return
 	}
-	netCache = make(map[string]string)
-	
+	r.netCache = make(map[string]string)
+
 	files := []string{"/proc/net/tcp", "/proc/net/tcp6", "/proc/net/udp", "/proc/net/udp6"}
 	for _, f := range files {
 		proto := "tcp"
@@ -67,11 +60,11 @@ func updateNetCacheLocked() {
 				local := parseHexIP(fields[1])
 				rem := parseHexIP(fields[2])
 				inode := fields[9]
-				
+
 				if rem == "0.0.0.0:0" || rem == "[0:0:0:0:0:0:0:0]:0" {
-					netCache[proto+":"+inode] = local
+					r.netCache[proto+":"+inode] = local
 				} else {
-					netCache[proto+":"+inode] = local + "->" + rem
+					r.netCache[proto+":"+inode] = local + "->" + rem
 				}
 			}
 			file.Close()
@@ -88,23 +81,25 @@ func updateNetCacheLocked() {
 			}
 			inode := fields[6]
 			if len(fields) > 7 {
-				netCache["unix:"+inode] = "\"" + fields[7] + "\""
+				r.netCache["unix:"+inode] = "\"" + fields[7] + "\""
 			} else {
-				netCache["unix:"+inode] = ""
+				r.netCache["unix:"+inode] = ""
 			}
 		}
 		file.Close()
 	}
 
-	netCacheValid = time.Now().Add(50 * time.Millisecond)
+	r.netCacheValid = time.Now().Add(50 * time.Millisecond)
 }
 
-// IMPACT: getSocketInfo parses system net files to extract protocol-specific connection information for -yy.
-func getSocketInfo(proto string, inode string) string {
-	netCacheLock.Lock()
-	defer netCacheLock.Unlock()
-	updateNetCacheLocked()
-	if val, ok := netCache[proto+":"+inode]; ok && val != "" {
+// SocketInfo parses system net files to extract protocol-specific connection
+// information for -yy without sharing a cache between trace sessions.
+func (r *Runtime) SocketInfo(proto string, inode string) string {
+	if r == nil {
+		return inode
+	}
+	r.updateNetCache()
+	if val, ok := r.netCache[proto+":"+inode]; ok && val != "" {
 		return val
 	}
 	return inode

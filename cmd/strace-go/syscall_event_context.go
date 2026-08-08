@@ -44,6 +44,7 @@ type syscallEventContextDeps struct {
 	decoder *event.Decoder
 	opts    *cli.Options
 	fdState *FDStateStore
+	runtime handler.RuntimeServices
 }
 
 func newSyscallEventContextDeps(s *traceSession) syscallEventContextDeps {
@@ -51,6 +52,7 @@ func newSyscallEventContextDeps(s *traceSession) syscallEventContextDeps {
 		decoder: s.decoder,
 		opts:    s.opts,
 		fdState: s.fdStateStore(),
+		runtime: s.fdStateStore().Runtime(),
 	}
 }
 
@@ -59,6 +61,16 @@ func (deps syscallEventContextDeps) pathMap() map[string]string {
 		return nil
 	}
 	return deps.fdState.PathMap()
+}
+
+func (deps syscallEventContextDeps) runtimeService() handler.RuntimeServices {
+	if deps.runtime != nil {
+		return deps.runtime
+	}
+	if deps.fdState != nil {
+		return deps.fdState.Runtime()
+	}
+	return nil
 }
 
 func newSyscallEventContextFromView(
@@ -318,7 +330,7 @@ func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *h
 		SysName: scMeta.Name, Args: view.args, Ret: view.ret,
 		ProbeRetEnter: view.probeRetEnter, ProbeRetExit: view.probeRetExit,
 		PayloadSections: ev.outputPayloadSections(),
-		ScMeta:          scMeta, Decoder: deps.decoder, Opts: deps.opts, FdMap: deps.pathMap(),
+		ScMeta:          scMeta, Decoder: deps.decoder, Opts: deps.opts, FdMap: deps.pathMap(), Runtime: deps.runtimeService(),
 	}
 }
 

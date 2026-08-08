@@ -36,6 +36,7 @@ func newIoctlPolicyContext(reader *ioctlPolicyMemoryReader, decoder *event.Decod
 		Ret:           -1,
 		Decoder:       decoder,
 		Opts:          &cli.Options{StringLimit: 32},
+		Runtime:       NewRuntime(),
 	}
 }
 
@@ -71,12 +72,6 @@ func makeFiemapExtent(logical, physical, length uint64, flags uint32) []byte {
 	binary.LittleEndian.PutUint64(data[16:24], length)
 	binary.LittleEndian.PutUint32(data[32:36], flags)
 	return data
-}
-
-func resetFiemapPolicyState(pid int) {
-	fiemapLock.Lock()
-	delete(fiemapCallCount, pid)
-	fiemapLock.Unlock()
 }
 
 func TestIoctlDmIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
@@ -251,8 +246,6 @@ func TestIoctlFiemapHeaderDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}}
 	decoder := event.NewDecoder()
 	ctx := newIoctlPolicyContext(reader, decoder)
-	resetFiemapPolicyState(ctx.Pid)
-
 	_ = (&IoctlHandler{}).decodeFiemap(ctx, 0x3000)
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
@@ -265,8 +258,6 @@ func TestIoctlFiemapHeaderIgnoresProbeSuccessWithoutPayloadSection(t *testing.T)
 	}}
 	ctx := newIoctlPolicyContext(reader, event.NewDecoder())
 	ctx.ProbeRetEnter = 0
-	resetFiemapPolicyState(ctx.Pid)
-
 	got := (&IoctlHandler{}).decodeFiemap(ctx, 0x3000)
 	if strings.Contains(got, "fm_start=1,") || strings.Contains(got, "fm_length=2,") {
 		t.Fatalf("decodeFiemap() = %q, want synthetic fallback without payload section", got)
@@ -281,8 +272,6 @@ func TestIoctlFiemapHeaderUsesPayloadBytesSection(t *testing.T) {
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x3000, ProbeRet: 0, Data: makeFiemapData(1, 2, 1, 0, 0)},
 	}
-	resetFiemapPolicyState(ctx.Pid)
-
 	got := (&IoctlHandler{}).decodeFiemap(ctx, 0x3000)
 	if !strings.Contains(got, "fm_start=1") || !strings.Contains(got, "fm_length=2") {
 		t.Fatalf("decodeFiemap() = %q", got)

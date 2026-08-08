@@ -13,7 +13,7 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func updateFdReturnMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+func updateFdReturnMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string, runtime handler.RuntimeServices) {
 	if !view.valid || view.ret < 0 || !isFdReturnSyscall(scMeta.Name) {
 		return
 	}
@@ -21,7 +21,7 @@ func updateFdReturnMapFromView(view syscallEventView, scMeta meta.Syscall, targe
 	target, err := os.Readlink(linkPath)
 	if err == nil {
 		if strings.HasPrefix(target, "anon_inode:[eventfd]") {
-			if info := formatEventfdTargetFromView(linkPath, view, scMeta, false); info != "" {
+			if info := formatEventfdTargetFromView(linkPath, view, scMeta, false, runtime); info != "" {
 				target = info
 			}
 		}
@@ -29,17 +29,20 @@ func updateFdReturnMapFromView(view syscallEventView, scMeta meta.Syscall, targe
 		return
 	}
 	if scMeta.Name == "eventfd" || scMeta.Name == "eventfd2" {
-		if info := formatEventfdTargetFromView(linkPath, view, scMeta, true); info != "" {
+		if info := formatEventfdTargetFromView(linkPath, view, scMeta, true, runtime); info != "" {
 			fdMap[fmt.Sprintf("%d:%d", targetPid, int32(view.ret))] = info
 		}
 	}
 }
 
-func formatEventfdTargetFromView(linkPath string, view syscallEventView, scMeta meta.Syscall, force bool) string {
+func formatEventfdTargetFromView(linkPath string, view syscallEventView, scMeta meta.Syscall, force bool, runtime handler.RuntimeServices) string {
 	flags := uint64(0)
 	flags = view.args[1]
 	forceCount := force || scMeta.Name == "eventfd" || scMeta.Name == "eventfd2"
-	return handler.FormatEventfdInfo(linkPath, uint64(uint32(view.args[0])), flags, forceCount)
+	if runtime == nil {
+		return ""
+	}
+	return runtime.EventfdInfo(linkPath, uint64(uint32(view.args[0])), flags, forceCount)
 }
 
 func updateEventfdCountFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {

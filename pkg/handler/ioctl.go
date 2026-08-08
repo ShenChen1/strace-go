@@ -4,15 +4,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-	"sync"
 
 	"strace-go/pkg/format"
 	"strace-go/pkg/meta"
-)
-
-var (
-	fiemapLock      sync.Mutex
-	fiemapCallCount = make(map[int]int)
 )
 
 func init() {
@@ -270,11 +264,10 @@ func (h *IoctlHandler) decodeFiemap(ctx *Context, arg uint64) string {
 		return fmt.Sprintf("%#x", arg)
 	}
 
-	fiemapLock.Lock()
-	c := fiemapCallCount[ctx.Pid]
-	c++
-	fiemapCallCount[ctx.Pid] = c
-	fiemapLock.Unlock()
+	c := 1
+	if ctx.Runtime != nil {
+		c = ctx.Runtime.NextFiemapCall(ctx.Pid)
+	}
 
 	data, ok := ioctlEnterArgPayload(ctx, 32)
 	var start, length uint64

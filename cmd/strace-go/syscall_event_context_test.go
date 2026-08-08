@@ -77,6 +77,9 @@ func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 	if ev.handlerContext.Decoder != decoder || ev.handlerContext.Opts != opts {
 		t.Fatalf("handler context deps = decoder:%p opts:%p, want %p/%p", ev.handlerContext.Decoder, ev.handlerContext.Opts, decoder, opts)
 	}
+	if ev.handlerContext.Runtime != fdState.Runtime() {
+		t.Fatal("handler context did not receive the session-scoped runtime")
+	}
 	if ev.handlerContext.FdMap["101:cwd"] != "/tmp" {
 		t.Fatalf("handler fd map = %+v, want session fd state path map", ev.handlerContext.FdMap)
 	}

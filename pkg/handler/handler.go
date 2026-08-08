@@ -29,6 +29,7 @@ type Context struct {
 	Decoder *event.Decoder
 	Opts    *cli.Options
 	FdMap   map[string]string
+	Runtime RuntimeServices
 }
 
 // SnapshotReader exposes memory bytes copied by BPF at the syscall probe site.
