@@ -79,6 +79,38 @@ func TestSyscallTextOutputPrintsNormalSyscallFromEventView(t *testing.T) {
 	}
 }
 
+func TestSyscallTextOutputPrintsGenericUnfinishedAndResumed(t *testing.T) {
+	output, _, out := newSyscallTextOutputForTest(&cli.Options{FollowForks: true})
+	pending := &pendingSyscallState{
+		pid:       100,
+		tid:       101,
+		sysID:     syscallIDByName(t, "read"),
+		enterTime: 10,
+		args:      [6]uint64{3, 0x2000, 4},
+	}
+	enter := syscallEventContext{
+		view:        syscallEventView{valid: true, pid: 100, tid: 101, enterTime: 10},
+		meta:        meta.Syscall{Name: "read"},
+		shouldPrint: true,
+	}
+	output.HandleUnfinished(enter, handler.Result{ArgParts: []string{"3", "\"\"", "4"}})
+	pending.unfinishedPrinted = true
+
+	exit := enter
+	exit.view.eventType = bpfEventTypeExit
+	exit.view.ret = 4
+	exit.pendingEnter = pending
+	output.HandleEvent(exit, handler.Result{})
+
+	got := out.String()
+	if !strings.Contains(got, "101   read(3, \"\", 4 <unfinished ...>") {
+		t.Fatalf("generic unfinished output = %q", got)
+	}
+	if !strings.Contains(got, "101   <... read resumed>) = 4") {
+		t.Fatalf("generic resumed output = %q", got)
+	}
+}
+
 func TestSyscallTextOutputAppliesStatusFilterBeforePrinting(t *testing.T) {
 	output, _, out := newSyscallTextOutputForTest(&cli.Options{FailedOnly: true})
 

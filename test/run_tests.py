@@ -133,6 +133,12 @@ def run_strace_go_json(args, timeout=30, debug=False):
     return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                           errors="ignore", timeout=timeout, env=env)
 
+def run_strace_go_text(args, timeout=30):
+    cmd = [STRACE_WRAPPER] + args
+    env = os.environ.copy()
+    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                          errors="ignore", timeout=timeout, env=env)
+
 def require(condition, failures, message):
     if not condition:
         failures.append(message)
@@ -342,6 +348,11 @@ def collect_thread_lifecycle_events(fixture):
     exit_events = [ev for ev in events if ev.get("event_type") == "exit"]
     return res, events, lifecycle_events, stats_events, enter_events, exit_events
 
+def collect_thread_unfinished_text(fixture):
+    return run_strace_go_text([
+        "-f", "-e", "trace=read,getpid,write,exit,exit_group", fixture
+    ])
+
 def run_ebpf_semantic(args):
     if not args.skip_build:
         build_strace_go()
@@ -352,6 +363,8 @@ def run_ebpf_semantic(args):
     res, events, lifecycle_events, stats_events, enter_events, exit_events = collect_semantic_events(fixture)
     thread_fixture = build_ebpf_thread_fixture()
     thread_res, thread_events, thread_lifecycle_events, thread_stats_events, thread_enter_events, thread_exit_events = collect_thread_lifecycle_events(thread_fixture)
+    thread_text_res = collect_thread_unfinished_text(thread_fixture)
+    thread_text = thread_text_res.stderr
     names = {ev.get("syscall") for ev in events}
     lifecycle_actions = {ev.get("action") for ev in lifecycle_events}
 
@@ -557,8 +570,16 @@ def run_ebpf_semantic(args):
     require(any(ev.get("event_type") == "exit" and ev.get("paired_enter") for ev in thread_syscalls),
             failures, "non-leader thread getpid exit was not paired with enter")
     require(thread_lifecycle, failures, "non-leader thread exit/free lifecycle identity missing")
+    require(thread_text_res.returncode == 0, failures, f"thread text fixture rc={thread_text_res.returncode}")
+    require("thread-fixture-ok" in thread_text_res.stdout, failures, "thread text fixture stdout marker missing")
+    require("read(" in thread_text and "<unfinished ...>" in thread_text,
+            failures, "thread text fixture did not produce read unfinished output")
+    require("<... read resumed>)" in thread_text,
+            failures, "thread text fixture did not produce read resumed output")
     print(f"=> eBPF thread semantic events: {len(thread_events)}")
     print(f"=> eBPF thread lifecycle events: {len(thread_lifecycle_events)}")
+    unfinished_lines = sum(1 for line in thread_text.splitlines() if "<unfinished ...>" in line)
+    print(f"=> eBPF thread unfinished text lines: {unfinished_lines}")
     filter_event_count = check_write_only_filter(fixture, failures)
 
     return finish_ebpf_semantic(

@@ -67,6 +67,28 @@ func (o *SyscallTextOutput) HandleEvent(ev syscallEventContext, res handler.Resu
 	}
 }
 
+func (o *SyscallTextOutput) HandleUnfinished(ev syscallEventContext, res handler.Result) bool {
+	if !o.canHandleUnfinished(ev) {
+		return false
+	}
+	o.renderer.PrintUnfinishedEvent(ev, res)
+	return true
+}
+
+func (o *SyscallTextOutput) canHandleUnfinished(ev syscallEventContext) bool {
+	if o == nil || o.renderer == nil || !o.textMode() || !ev.shouldOutput() {
+		return false
+	}
+	if o.opts == nil {
+		return true
+	}
+	return !o.opts.SuccessfulOnly && !o.opts.FailedOnly && len(o.opts.TraceStatus) == 0
+}
+
+func (o *SyscallTextOutput) textMode() bool {
+	return o.opts == nil || (o.opts.EventFormat != cli.EventFormatJSON && !o.opts.DebugEvents)
+}
+
 func (o *SyscallTextOutput) shouldEmitEvent(ev syscallEventContext) bool {
 	if o.opts == nil {
 		return true

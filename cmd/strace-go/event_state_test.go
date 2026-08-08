@@ -327,3 +327,34 @@ func TestTraceStateExitUpdateCarriesSyscallResultView(t *testing.T) {
 		t.Fatalf("exit syscall view = %+v, want result fields from envelope", view)
 	}
 }
+
+func TestTraceStateReportsOtherTIDPendingForUnfinished(t *testing.T) {
+	state := newTraceState()
+	first := traceEventEnvelope{
+		valid:      true,
+		pid:        100,
+		tid:        101,
+		sysID:      syscallIDByName(t, "read"),
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+		enterTime:  10,
+	}
+	second := first
+	second.tid = 102
+	second.enterTime = 20
+
+	state.handleEnvelope(first)
+	update := state.handleEnvelope(second)
+
+	if len(update.unfinished) != 1 || update.unfinished[0].tid != 101 {
+		t.Fatalf("unfinished candidates = %+v, want pending TID 101", update.unfinished)
+	}
+
+	third := second
+	third.eventType = bpfEventTypeExit
+	third.ret = 0
+	update = state.handleEnvelope(third)
+	if len(update.unfinished) != 1 || update.unfinished[0].tid != 101 {
+		t.Fatalf("unfinished candidates on same-TID exit = %+v, want pending TID 101", update.unfinished)
+	}
+}

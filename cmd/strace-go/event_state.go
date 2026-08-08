@@ -1,16 +1,21 @@
 package main
 
-import "strace-go/pkg/handler"
+import (
+	"sort"
+
+	"strace-go/pkg/handler"
+)
 
 type pendingSyscallState struct {
-	pid             uint32
-	tid             uint32
-	sysID           uint32
-	enterTime       uint64
-	args            [6]uint64
-	probeRetEnter   int32
-	genericEnterRaw bool
-	payloadSections []handler.PayloadSection
+	pid               uint32
+	tid               uint32
+	sysID             uint32
+	enterTime         uint64
+	args              [6]uint64
+	probeRetEnter     int32
+	genericEnterRaw   bool
+	unfinishedPrinted bool
+	payloadSections   []handler.PayloadSection
 }
 
 type lifecycleEventView struct {
@@ -49,6 +54,7 @@ type TraceStateUpdate struct {
 	payloadSections []handler.PayloadSection
 	pendingEnter    *pendingSyscallState
 	lifecycleTask   *TaskState
+	unfinished      []*pendingSyscallState
 }
 
 func newTraceState() *TraceState {
@@ -63,6 +69,7 @@ func (s *traceSession) traceState() *TraceState {
 }
 
 func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpdate {
+	unfinished := st.pendingForOtherTID(envelope.tid)
 	if envelope.isLifecycle() {
 		lifecycleView := envelope.lifecycleView()
 		task := st.applyLifecycleEvent(lifecycleView)
@@ -73,6 +80,7 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 			kind:          traceStateLifecycle,
 			lifecycleView: lifecycleView,
 			lifecycleTask: task,
+			unfinished:    unfinished,
 		}
 	}
 
@@ -84,6 +92,7 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 			kind:            traceStateSyscallEnter,
 			syscallView:     syscallView,
 			payloadSections: envelope.payload,
+			unfinished:      unfinished,
 		}
 	}
 	if syscallView.isExitFragment() {
@@ -92,6 +101,7 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 			kind:            traceStateSyscallFragment,
 			syscallView:     syscallView,
 			payloadSections: envelope.payload,
+			unfinished:      unfinished,
 		}
 	}
 	return TraceStateUpdate{
@@ -99,6 +109,41 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 		syscallView:     syscallView,
 		payloadSections: envelope.payload,
 		pendingEnter:    st.consumeEnterEvent(syscallView),
+		unfinished:      unfinished,
+	}
+}
+
+func (st *TraceState) pendingForOtherTID(tid uint32) []*pendingSyscallState {
+	if tid == 0 || len(st.pendingSyscalls) == 0 {
+		return nil
+	}
+	candidates := make([]*pendingSyscallState, 0, len(st.pendingSyscalls))
+	for pendingTID, pending := range st.pendingSyscalls {
+		if pendingTID == tid || pending == nil || pending.unfinishedPrinted || pending.probeRetEnter >= 2 {
+			continue
+		}
+		candidates = append(candidates, pending)
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].enterTime != candidates[j].enterTime {
+			return candidates[i].enterTime < candidates[j].enterTime
+		}
+		return candidates[i].tid < candidates[j].tid
+	})
+	return candidates
+}
+
+func (pending *pendingSyscallState) enterView() syscallEventView {
+	return syscallEventView{
+		valid:         true,
+		pid:           pending.pid,
+		tid:           pending.tid,
+		sysID:         pending.sysID,
+		eventType:     bpfEventTypeEnter,
+		eventFlags:    bpfEventFlagGenericEnter,
+		args:          pending.args,
+		enterTime:     pending.enterTime,
+		probeRetEnter: pending.probeRetEnter,
 	}
 }
 
@@ -120,18 +165,20 @@ func (st *TraceState) rememberEnterEvent(view syscallEventView, payload []handle
 	}
 	if pending := st.pendingSyscalls[view.tid]; pending != nil && pending.sysID == view.sysID {
 		pending.genericEnterRaw = pending.genericEnterRaw || view.isGenericEnter()
+		pending.unfinishedPrinted = pending.unfinishedPrinted || view.probeRetEnter >= 2
 		pending.payloadSections = mergeEnterPayloadSections(pending.payloadSections, payload)
 		return
 	}
 	st.pendingSyscalls[view.tid] = &pendingSyscallState{
-		pid:             view.pid,
-		tid:             view.tid,
-		sysID:           view.sysID,
-		enterTime:       view.enterTime,
-		args:            view.args,
-		probeRetEnter:   view.probeRetEnter,
-		genericEnterRaw: view.isGenericEnter(),
-		payloadSections: copyPayloadSections(payload),
+		pid:               view.pid,
+		tid:               view.tid,
+		sysID:             view.sysID,
+		enterTime:         view.enterTime,
+		args:              view.args,
+		probeRetEnter:     view.probeRetEnter,
+		genericEnterRaw:   view.isGenericEnter(),
+		unfinishedPrinted: view.probeRetEnter >= 2,
+		payloadSections:   copyPayloadSections(payload),
 	}
 }
 

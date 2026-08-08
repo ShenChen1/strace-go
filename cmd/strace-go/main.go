@@ -213,5 +213,8 @@ func shouldEmitGenericEnter(opts *cli.Options) bool {
 	if opts == nil {
 		return false
 	}
-	return opts.EventFormat == cli.EventFormatJSON || len(opts.TracePaths) > 0
+	if opts.EventFormat == cli.EventFormatJSON || len(opts.TracePaths) > 0 {
+		return true
+	}
+	return !opts.SummaryOnly
 }

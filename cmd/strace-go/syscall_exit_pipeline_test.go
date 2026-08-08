@@ -145,6 +145,52 @@ func TestSyscallExitPipelineRunsHandlerForPrintableEvent(t *testing.T) {
 	wantCalls(t, calls, []string{"handler", "fd-state", "offset", "cleanup"})
 }
 
+func TestSyscallExitPipelineSkipsUnfinishedDecodeOutsideTextMode(t *testing.T) {
+	opts := &cli.Options{EventFormat: cli.EventFormatJSON}
+	called := false
+	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
+		HandleSyscall: func(string, *handler.Context) handler.Result {
+			called = true
+			return handler.Result{}
+		},
+	})
+	pipeline := newSyscallExitPipeline(SyscallExitPipelineDeps{
+		Opts:   opts,
+		Runner: runner,
+		Text:   newSyscallTextOutput(SyscallTextOutputDeps{Opts: opts}),
+	})
+
+	if pipeline.HandleUnfinished(exitPipelineEvent("read")) {
+		t.Fatal("JSON unfinished event should not be rendered")
+	}
+	if called {
+		t.Fatal("JSON unfinished event should not decode handler arguments")
+	}
+}
+
+func TestSyscallExitPipelineSkipsUnfinishedDecodeWithStatusFilter(t *testing.T) {
+	opts := &cli.Options{SuccessfulOnly: true}
+	called := false
+	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
+		HandleSyscall: func(string, *handler.Context) handler.Result {
+			called = true
+			return handler.Result{}
+		},
+	})
+	pipeline := newSyscallExitPipeline(SyscallExitPipelineDeps{
+		Opts:   opts,
+		Runner: runner,
+		Text:   newSyscallTextOutput(SyscallTextOutputDeps{Opts: opts}),
+	})
+
+	if pipeline.HandleUnfinished(exitPipelineEvent("read")) {
+		t.Fatal("status-filtered unfinished event should not be rendered")
+	}
+	if called {
+		t.Fatal("status-filtered unfinished event should not decode handler arguments")
+	}
+}
+
 type handlerEffectFunc func(syscallEventContext)
 
 func (fn handlerEffectFunc) UpdateFDState(ev syscallEventContext) {

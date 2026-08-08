@@ -56,6 +56,13 @@ func (r *SyscallHandlerRunner) Handle(ev syscallEventContext) (handler.Result, b
 	return res, ev.shouldOutput()
 }
 
+func (r *SyscallHandlerRunner) Decode(ev syscallEventContext) handler.Result {
+	if r == nil || r.handleSyscall == nil || !ev.shouldRunHandler() {
+		return handler.Result{}
+	}
+	return ev.handleWith(r.handleSyscall)
+}
+
 func (r *SyscallHandlerRunner) update(ev syscallEventContext) {
 	if r.effects != nil {
 		r.effects.UpdateFDState(ev)

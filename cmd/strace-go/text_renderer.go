@@ -61,7 +61,7 @@ func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.
 		args = res.ArgParts[0]
 	}
 	line := fmt.Sprintf("%s(%s <unfinished ...>", scMeta.Name, args)
-	fmt.Fprintf(r.out, "%s%s\n", r.pidPrefix(int(view.tid)), line)
+	fmt.Fprintf(r.out, "%s%s%s\n", r.timePrefix(view.enterTime), r.pidPrefix(int(view.tid)), line)
 }
 
 func (r *TextRenderer) PrintExecResumeFromView(view syscallEventView, argLine string) {
@@ -133,7 +133,9 @@ func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Res
 	ctx := ev.handlerContextForFormatting()
 	tid := int(view.tid)
 	line := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
-	if r.consumeSuspended(tid) {
+	if ev.pendingEnter != nil && ev.pendingEnter.unfinishedPrinted {
+		line = fmt.Sprintf("<... %s resumed>)", scMeta.Name)
+	} else if r.consumeSuspended(tid) {
 		if scMeta.Name == "nanosleep" {
 			line = fmt.Sprintf("<... %s resumed> <unfinished ...>)", scMeta.Name)
 		} else {

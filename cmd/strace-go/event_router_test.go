@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"testing"
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
+	"strace-go/pkg/handler"
 )
 
 type fakeRouterExitEffects struct {
@@ -132,6 +134,83 @@ func TestTraceEventRouterRoutesExitToPipeline(t *testing.T) {
 	}
 	if got := effects.recorded[0].syscallName(); got != "getpid" {
 		t.Fatalf("recorded syscall = %q, want getpid", got)
+	}
+}
+
+func TestTraceEventRouterPrintsGenericUnfinishedBeforeOtherTIDEvent(t *testing.T) {
+	opts := &cli.Options{EventFormat: cli.EventFormatText, FollowForks: true}
+	state := newTraceState()
+	var output bytes.Buffer
+	renderer := newTextRenderer(TextRendererDeps{
+		Out:           &output,
+		Opts:          opts,
+		State:         state,
+		TimeFormatter: newTimeFormatter(0),
+	})
+	textOutput := newSyscallTextOutput(SyscallTextOutputDeps{
+		Opts:     opts,
+		Renderer: renderer,
+	})
+	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
+		HandleSyscall: func(name string, _ *handler.Context) handler.Result {
+			if name == "read" {
+				return handler.Result{ArgParts: []string{"3", "\"\"", "4"}}
+			}
+			return handler.Result{}
+		},
+	})
+	router := newTraceEventRouter(TraceEventRouterDeps{
+		Scope:     newTraceScope(100, opts),
+		TargetPID: 100,
+		State:     state,
+		Pipeline: newSyscallExitPipeline(SyscallExitPipelineDeps{
+			Opts:   opts,
+			Runner: runner,
+			Text:   textOutput,
+		}),
+		ContextDeps: syscallEventContextDeps{
+			decoder: event.NewDecoder(),
+			opts:    opts,
+			fdState: newFDStateStoreFromMaps(nil, nil),
+		},
+	})
+
+	readID := syscallIDByName(t, "read")
+	router.Handle(traceEventEnvelope{
+		valid:      true,
+		pid:        100,
+		tid:        101,
+		sysID:      readID,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+		args:       [6]uint64{3, 0x2000, 4},
+		enterTime:  10,
+	})
+	router.Handle(traceEventEnvelope{
+		valid:      true,
+		pid:        100,
+		tid:        102,
+		sysID:      syscallIDByName(t, "getpid"),
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+		enterTime:  20,
+	})
+
+	if !bytes.Contains(output.Bytes(), []byte("101   read(3, \"\", 4 <unfinished ...>")) {
+		t.Fatalf("output after other TID enter = %q, want read unfinished line", output.String())
+	}
+
+	router.Handle(traceEventEnvelope{
+		valid:     true,
+		pid:       100,
+		tid:       101,
+		sysID:     readID,
+		eventType: bpfEventTypeExit,
+		ret:       4,
+		duration:  5,
+	})
+	if !bytes.Contains(output.Bytes(), []byte("101   <... read resumed>) = 4")) {
+		t.Fatalf("output after read exit = %q, want read resumed line", output.String())
 	}
 }
 

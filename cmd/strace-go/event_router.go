@@ -53,6 +53,7 @@ func (r *TraceEventRouter) Handle(envelope traceEventEnvelope) {
 		return
 	}
 	stateUpdate := r.traceState().handleEnvelope(envelope)
+	r.handleUnfinished(stateUpdate.unfinished)
 	statePID := eventStatePID(envelope, r.targetPID)
 
 	switch stateUpdate.kind {
@@ -64,6 +65,29 @@ func (r *TraceEventRouter) Handle(envelope traceEventEnvelope) {
 		return
 	default:
 		r.handleExit(stateUpdate, statePID)
+	}
+}
+
+func (r *TraceEventRouter) handleUnfinished(pendingSyscalls []*pendingSyscallState) {
+	if r.pipeline == nil {
+		return
+	}
+	for _, pending := range pendingSyscalls {
+		if pending == nil {
+			continue
+		}
+		view := pending.enterView()
+		ev := newSyscallEventContextFromViewWithDeps(
+			r.contextDeps,
+			view,
+			int(pending.pid),
+			nil,
+			pending.payloadSections,
+		)
+		if !ev.shouldOutput() || !r.pipeline.HandleUnfinished(ev) {
+			continue
+		}
+		pending.unfinishedPrinted = true
 	}
 }
 

@@ -92,6 +92,21 @@ func TestTextRendererPrintsUnfinishedFromEventView(t *testing.T) {
 	}
 }
 
+func TestTextRendererPrintsUnfinishedWithEventTime(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{FollowForks: true, PrintRelativeTime: true}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+
+	renderer.PrintUnfinishedEvent(syscallEventContext{
+		view: syscallEventView{valid: true, tid: 101, enterTime: 1_234_567_000},
+		meta: meta.Syscall{Name: "read"},
+	}, handler.Result{ArgParts: []string{"3", "\"\"", "4"}})
+
+	if got := output.String(); got != "     0.000000 101   read(3, \"\", 4 <unfinished ...>\n" {
+		t.Fatalf("unfinished event-time output = %q", got)
+	}
+}
+
 func TestTextRendererPrintsExecResumeWithDuration(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{FollowForks: true, PrintSyscallTime: true}

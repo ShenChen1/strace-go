@@ -84,6 +84,9 @@ func (o *ExecSyscallOutput) handleNonLeaderRestart(ev syscallEventContext, tid i
 	if !o.followForks() {
 		return false
 	}
+	if ev.pendingEnter != nil && ev.pendingEnter.unfinishedPrinted {
+		return true
+	}
 	view := ev.eventView()
 	argLine := o.pendingArgLine(tid, scMeta, res)
 	if view.probeRetEnter == 1 {
