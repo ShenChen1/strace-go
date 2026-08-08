@@ -1181,7 +1181,7 @@ attach 到已运行进程时：
 
 ### 13.1 背景与目标
 
-上一轮架构 review（2026-08-03）列出的问题中，attach 退出行已随 `acf6347` 收口，其余结构性风险仍在。当前 HEAD 为 `74d658a`，工作区已干净。本方案只处理以下三个问题，其余记为非目标：
+上一轮架构 review（2026-08-03）列出的问题中，attach 退出行已随 `acf6347` 收口，其余结构性风险仍在；`74d658a` 是该轮方案记录时的历史基线，不代表当前 HEAD。本方案只处理以下三个问题，其余记为非目标：
 
 - P0：recvmsg 的 kretprobe 片段与 tracepoint 最终 exit 跨 CPU 顺序无保证，Go 侧偶发丢弃 `msg_name`/`msg_control` 片段。
 - P1：pending map 满、ringbuf reserve/copy 失败静默丢数据，默认文本模式不可见。
