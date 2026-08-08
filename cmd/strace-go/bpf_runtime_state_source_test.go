@@ -1,7 +1,6 @@
 package main
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -125,7 +124,7 @@ func TestBPFPreExecSuppressionIsSymmetric(t *testing.T) {
 
 func TestBPFAioSubmitNestedCaptureGate(t *testing.T) {
 	src := loadBPFSources(t)
-	aioHeader := readTextFile(t, filepath.Join(repoRootForTest(t), "bpf/syscall_aio_direct_event_v2.h"))
+	aioHeader := readAioDirectEventSources(t)
 	for _, snippet := range []string{
 		"enter_aio",
 		"enter_aio_iovec",

@@ -12,9 +12,7 @@ func TestBPFAioPayloadsUseDirectTLV(t *testing.T) {
 	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
-	aioDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_aio_direct_event_v2.h"))
-	aioGeteventsDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_aio_getevents_direct_event_v2.h"))
-	aioDirectSources := aioDirectHeader + aioGeteventsDirectHeader
+	aioDirectSources := readAioDirectEventSources(t)
 
 	for _, snippet := range []string{
 		"#define SYS_IO_SETUP 206",
