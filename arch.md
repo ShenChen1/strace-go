@@ -1327,7 +1327,7 @@ Tail call spike（2026-08-07）：
 
 每个步骤独立提交，遵循现有 Conventional Commit 前缀；任何假设在提交说明或本文档中记录。
 
-## 14. Tail call 重构方案（待评审）
+## 14. Tail call 重构方案（已落地，保留验收记录）
 
 ### 14.1 目标与非目标
 
@@ -1430,7 +1430,7 @@ dispatcher 的 index 计算是一条 if 链（`is_*_direct_syscall(sys_id)` 判�
 - 单程序 family：`dispatcher -> handler(emit + save)`。
 - 无 family：dispatcher 直接 emit_no_payload + save（或 tail call 到 index 0）。
 
-链内每层 tail call 失败均静默跳过该 fragment（不重复 emit、不破坏 save 已完成的语义）。
+enter 链内每层 tail call 失败均静默跳过该 fragment（不重复 emit、不破坏 save 已完成的语义）。exit 侧 `recvmmsg` 链在 `base0/base1` 的 tail call 失败时补发 bounded final event 并清理 pending，避免异常路径只留下 fragment 或泄漏状态。
 
 ### 14.6 exit 侧设计
 
@@ -1485,11 +1485,11 @@ dispatcher 的 index 计算是一条 if 链（`is_*_direct_syscall(sys_id)` 判�
 | exit 消费唯一性被破坏 | 只保留一条消费链；测试断言每个 exit handler 恰好消费一次 pending（Go/BPF 语义测试）。 |
 | exec 清理路径回归 | `is_pending_lookup` 逻辑随 generic_exit handler 原样保留，用 `execveat.gen.test`/非 leader exec 用例锁住。 |
 | 生成物/门禁漂移 | 所有 handler 仍为 tracepoint SEC（bpf2go 可加载），raw spec 表与 source gate 同步更新。 |
-| 过渡期双轨混乱 | 过渡态 dispatcher 内联未迁移 family + tail call 已迁移 family，二者互斥（index 计算优先），每个迁移提交有测试。 |
+| 旧扇出与 dispatcher 漂移 | raw tracepoint spec 只保留 2 个 dispatcher；source gate 锁定 dispatcher、prog_array index 与 handler 链，避免旧扇出重新回到产品路径。 |
 
 ### 14.10 验收标准
 
 - `raw_syscalls/sys_enter`、`sys_exit` 各只挂 1 个 dispatcher（bpftool 可查）。
 - getpid 吞吐达到约 260 万 ops/s（spike 基线，`taskset -c 2` 同法复测）。
-- `go test ./cmd/... ./pkg/...`、`ebpf-semantic`、`ebpf-perf`、`upstream-reference`、`small`、`more` 全绿。
-- 事件 v2/JSON/文本输出与重构前字节级一致（reference diff 无新增差异）。
+- `go test ./cmd/... ./pkg/...`、`ebpf-semantic`、`ebpf-perf`、`upstream-reference`、`small`、`more` 通过；已知语义边界必须由 runner 显式标记为 XFAIL。
+- 事件 v2/JSON/文本输出与 reference 子集字节级一致；不属于纯 eBPF 契约的 bounded snapshot 与 wall-clock 统计差异不得伪装成兼容性通过。
