@@ -82,6 +82,7 @@ type jsonStatsEvent struct {
 	PayloadTruncatedEvents uint64 `json:"payload_truncated_events"`
 	PendingUpdateFail      uint64 `json:"pending_update_fail"`
 	OrphanExit             uint64 `json:"orphan_exit"`
+	PendingMismatch        uint64 `json:"pending_mismatch"`
 	Available              bool   `json:"available"`
 	Error                  string `json:"error,omitempty"`
 }
@@ -125,6 +126,7 @@ func newJSONStatsEvent(stats bpfRuntimeStats) jsonStatsEvent {
 		PayloadTruncatedEvents: stats.PayloadTruncatedEvents,
 		PendingUpdateFail:      stats.PendingUpdateFail,
 		OrphanExit:             stats.OrphanExit,
+		PendingMismatch:        stats.PendingMismatch,
 		Available:              stats.Available,
 		Error:                  stats.Error,
 	}

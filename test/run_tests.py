@@ -152,7 +152,7 @@ def require(condition, failures, message):
 def valid_stats_event(ev):
     return ev.get("available") is True and all(
         isinstance(ev.get(key), int) and ev.get(key) >= 0
-        for key in ("ringbuf_reserve_fail", "ringbuf_copy_fail", "payload_truncated_events", "orphan_exit")
+        for key in ("ringbuf_reserve_fail", "ringbuf_copy_fail", "payload_truncated_events", "pending_update_fail", "orphan_exit", "pending_mismatch")
     )
 
 def check_semantic_stats(stats_events, failures):
@@ -160,6 +160,10 @@ def check_semantic_stats(stats_events, failures):
     require(all(valid_stats_event(ev) for ev in stats_events), failures, "stats JSON event has invalid counters")
     require(stats_events and stats_events[0].get("payload_truncated_events", 0) > 0,
             failures, "truncated payload stats counter missing")
+    require(stats_events and stats_events[0].get("pending_mismatch", 0) == 0,
+            failures, "normal semantic fixture reported pending syscall mismatch")
+    require(stats_events and stats_events[0].get("pending_update_fail", 0) == 0,
+            failures, "normal semantic fixture reported pending map update failure")
 
 def payload_section_text(section):
     try:
@@ -324,6 +328,9 @@ def finish_ebpf_semantic(res, failures, events, enter_events, exit_events, lifec
         print(f"=> eBPF ringbuf reserve failures: {stats_events[0].get('ringbuf_reserve_fail')}")
         print(f"=> eBPF ringbuf copy failures: {stats_events[0].get('ringbuf_copy_fail')}")
         print(f"=> eBPF payload truncated events: {stats_events[0].get('payload_truncated_events')}")
+        print(f"=> eBPF pending update failures: {stats_events[0].get('pending_update_fail')}")
+        print(f"=> eBPF orphan exits: {stats_events[0].get('orphan_exit')}")
+        print(f"=> eBPF pending mismatches: {stats_events[0].get('pending_mismatch')}")
     print(f"=> eBPF write-only events: {filter_event_count}")
     if failures:
         print("\n=== EBPF SEMANTIC FAILURES ===")
@@ -675,6 +682,7 @@ def run_ebpf_perf(args):
         print(f"ringbuf_copy_fail: {stats_events[0].get('ringbuf_copy_fail')}")
         print(f"payload_truncated_events: {stats_events[0].get('payload_truncated_events')}")
         print(f"orphan_exit: {stats_events[0].get('orphan_exit')}")
+        print(f"pending_mismatch: {stats_events[0].get('pending_mismatch')}")
     if elapsed > 0:
         print(f"events_per_sec: {len(getpid_exit_events) / elapsed:.2f}")
 

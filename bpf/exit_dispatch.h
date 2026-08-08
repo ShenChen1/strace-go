@@ -25,21 +25,13 @@ enum exit_prog_index {
     s64 ret_value = (ctx)->ret;                                                    \
     u32 tid = (u32)bpf_get_current_pid_tgid();                                     \
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);                             \
-    struct pending_syscall *p = NULL;                                              \
     u32 is_pending_lookup = 0;                                                     \
-    u32 pending_tid = 0;                                                           \
-    if (ret_value == 0) {                                                          \
-        u32 *p_tid = bpf_map_lookup_elem(&pending_exec_map, &pid);                 \
-        if (p_tid) {                                                               \
-            pending_tid = *p_tid;                                                  \
-            p = bpf_map_lookup_elem(&pending_syscalls, &pending_tid);              \
-            is_pending_lookup = 1;                                                 \
-        }                                                                          \
-    }                                                                              \
-    if (!p) {                                                                      \
-        p = bpf_map_lookup_elem(&pending_syscalls, &tid);                          \
-    }                                                                              \
-    if (!p) return 0;
+    u32 pending_tid = tid;                                                         \
+    struct pending_syscall *p = lookup_pending_syscall_for_exit(                   \
+        pid, tid, ret_value, &pending_tid, &is_pending_lookup);                    \
+    if (!p) return 0;                                                              \
+    if (!validate_pending_syscall_exit(                                             \
+            p, (u32)(ctx)->id, pid, pending_tid)) return 0;
 
 SEC("tracepoint/raw_syscalls/sys_exit")
 int exit_generic(struct trace_event_raw_sys_exit *ctx) {
@@ -121,19 +113,7 @@ int exit_generic(struct trace_event_raw_sys_exit *ctx) {
         emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
     }
 
-    u32 delete_tid = tid;
-    if (is_pending_lookup) {
-        delete_tid = pending_tid;
-    }
-    u32 cleanup_nonleader_exec = is_exec_payload_direct_syscall(p->sys_id) && p->tid != p->pid;
-    bpf_map_delete_elem(&pending_syscalls, &delete_tid);
-    if (is_pending_lookup) {
-        bpf_map_delete_elem(&pending_exec_map, &pid);
-        bpf_map_delete_elem(&main_exited_map, &pid);
-        bpf_map_delete_elem(&pending_syscalls, &pid);
-    } else if (cleanup_nonleader_exec) {
-        bpf_map_delete_elem(&pending_exec_map, &pid);
-    }
+    consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
     return 0;
 }
 
@@ -160,7 +140,7 @@ int exit_iovec_base(struct trace_event_raw_sys_exit *ctx) {
     } else {
         emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
     }
-    bpf_map_delete_elem(&pending_syscalls, &tid);
+    consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
     return 0;
 }
 
@@ -183,7 +163,7 @@ int exit_msg(struct trace_event_raw_sys_exit *ctx) {
     }
 
     emit_single_msg_exit_event_v2_direct(p, ret_value, duration);
-    bpf_map_delete_elem(&pending_syscalls, &tid);
+    consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
     return 0;
 }
 
@@ -206,7 +186,7 @@ int exit_mmsg_final(struct trace_event_raw_sys_exit *ctx) {
     }
 
     emit_mmsg_exit_event_v2_direct(p, ret_value, duration);
-    bpf_map_delete_elem(&pending_syscalls, &tid);
+    consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
     return 0;
 }
 
@@ -232,7 +212,7 @@ int exit_recvmmsg_base0(struct trace_event_raw_sys_exit *ctx) {
     bpf_tail_call(ctx, &exit_progs, EXIT_PROG_RECVMMSG_BASE1);
     // A failed chain call must still close the syscall and consume pending state.
     emit_mmsg_exit_event_v2_direct(p, ret_value, duration);
-    bpf_map_delete_elem(&pending_syscalls, &tid);
+    consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
     return 0;
 }
 
@@ -258,7 +238,7 @@ int exit_recvmmsg_base1(struct trace_event_raw_sys_exit *ctx) {
     bpf_tail_call(ctx, &exit_progs, EXIT_PROG_MMSG_FINAL);
     // A failed final call must not leave the syscall pending forever.
     emit_mmsg_exit_event_v2_direct(p, ret_value, duration);
-    bpf_map_delete_elem(&pending_syscalls, &tid);
+    consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
     return 0;
 }
 

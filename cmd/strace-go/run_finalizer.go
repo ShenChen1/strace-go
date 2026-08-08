@@ -129,14 +129,15 @@ func bpfStatsDiagnosticLine(stats bpfRuntimeStats) (string, bool) {
 	}
 	// 报告事件完整性诊断；payload 截断是有界快照的正常结果，不算 dropped。
 	if stats.RingbufReserveFail == 0 && stats.RingbufCopyFail == 0 &&
-		stats.PendingUpdateFail == 0 && stats.OrphanExit == 0 {
+		stats.PendingUpdateFail == 0 && stats.OrphanExit == 0 && stats.PendingMismatch == 0 {
 		return "", false
 	}
 	return fmt.Sprintf(
-		"strace-go: event diagnostics: ringbuf_reserve_fail=%d ringbuf_copy_fail=%d pending_update_fail=%d orphan_exit=%d",
+		"strace-go: event diagnostics: ringbuf_reserve_fail=%d ringbuf_copy_fail=%d pending_update_fail=%d orphan_exit=%d pending_mismatch=%d",
 		stats.RingbufReserveFail,
 		stats.RingbufCopyFail,
 		stats.PendingUpdateFail,
 		stats.OrphanExit,
+		stats.PendingMismatch,
 	), true
 }

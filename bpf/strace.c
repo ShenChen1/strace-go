@@ -231,6 +231,7 @@ struct bpf_stats {
     u64 payload_truncated_events;
     u64 pending_update_fail;
     u64 orphan_exit;
+    u64 pending_mismatch;
 };
 
 struct event_v2_header {
@@ -450,6 +451,14 @@ static __always_inline void record_orphan_exit(void)
     }
 }
 
+static __always_inline void record_pending_mismatch(void)
+{
+    struct bpf_stats *stats = lookup_stats();
+    if (stats) {
+        stats->pending_mismatch++;
+    }
+}
+
 static __always_inline void init_lifecycle_event_v2_header(
     struct event_v2_header *header,
     u32 pid,
@@ -562,26 +571,6 @@ static __always_inline int is_lifecycle_task_tracked(u32 pid, u32 tid)
     return 0;
 }
 
-// Lifecycle cleanup is split by ownership: pending state is TID-scoped, while
-// exec/main/filter state is process-scoped unless a child thread owns it.
-static __always_inline void clear_lifecycle_task_state(u32 pid, u32 tid)
-{
-    bpf_map_delete_elem(&pending_syscalls, &tid);
-    bpf_map_delete_elem(&pre_exec_map, &tid);
-
-    if (tid != pid) {
-        u32 *pending_tid = bpf_map_lookup_elem(&pending_exec_map, &pid);
-        if (pending_tid && *pending_tid == tid) {
-            bpf_map_delete_elem(&pending_exec_map, &pid);
-        }
-        bpf_map_delete_elem(&filter_map, &tid);
-        return;
-    }
-
-    bpf_map_delete_elem(&pending_exec_map, &pid);
-    bpf_map_delete_elem(&main_exited_map, &pid);
-}
-
 #include "syscall_direct_event_v2.h"
 #include "syscall_fd_array_direct_event_v2.h"
 #include "syscall_getcwd_direct_event_v2.h"
@@ -619,6 +608,88 @@ static __always_inline void clear_lifecycle_task_state(u32 pid, u32 tid)
 #include "syscall_futex_direct_event_v2.h"
 #include "syscall_sleep_direct_event_v2.h"
 #include "syscall_timex_direct_event_v2.h"
+
+// IMPACT: every exit handler shares this resolver so a stale process-level exec
+// mapping cannot silently turn a current TID lookup into a different pending.
+static __always_inline struct pending_syscall *lookup_pending_syscall_for_exit(
+    u32 pid,
+    u32 tid,
+    s64 ret_value,
+    u32 *pending_tid,
+    u32 *pending_exec_lookup)
+{
+    *pending_tid = tid;
+    *pending_exec_lookup = 0;
+
+    if (ret_value == 0) {
+        u32 *exec_tid = bpf_map_lookup_elem(&pending_exec_map, &pid);
+        if (exec_tid) {
+            struct pending_syscall *exec_pending =
+                bpf_map_lookup_elem(&pending_syscalls, exec_tid);
+            if (exec_pending) {
+                *pending_tid = *exec_tid;
+                *pending_exec_lookup = 1;
+                return exec_pending;
+            }
+            bpf_map_delete_elem(&pending_exec_map, &pid);
+        }
+    }
+
+    return bpf_map_lookup_elem(&pending_syscalls, &tid);
+}
+
+static __always_inline int validate_pending_syscall_exit(
+    struct pending_syscall *pending,
+    u32 sys_id,
+    u32 pid,
+    u32 pending_tid)
+{
+    if (pending->sys_id == sys_id && pending->tid == pending_tid) {
+        return 1;
+    }
+
+    record_pending_mismatch();
+    bpf_map_delete_elem(&pending_syscalls, &pending_tid);
+    bpf_map_delete_elem(&pending_exec_map, &pid);
+    return 0;
+}
+
+static __always_inline void consume_pending_syscall(
+    u32 pid,
+    u32 pending_tid,
+    struct pending_syscall *pending,
+    u32 pending_exec_lookup)
+{
+    bpf_map_delete_elem(&pending_syscalls, &pending_tid);
+    if (pending_exec_lookup) {
+        bpf_map_delete_elem(&pending_exec_map, &pid);
+        bpf_map_delete_elem(&main_exited_map, &pid);
+        bpf_map_delete_elem(&pending_syscalls, &pid);
+    } else if (is_exec_payload_direct_syscall(pending->sys_id) && pending->tid != pending->pid) {
+        bpf_map_delete_elem(&pending_exec_map, &pid);
+    }
+}
+
+// Lifecycle cleanup is split by ownership: pending state is TID-scoped, while
+// exec/main/filter state is process-scoped unless a child thread owns it.
+static __always_inline void clear_lifecycle_task_state(u32 pid, u32 tid)
+{
+    bpf_map_delete_elem(&pending_syscalls, &tid);
+    bpf_map_delete_elem(&pre_exec_map, &tid);
+
+    if (tid != pid) {
+        u32 *pending_tid = bpf_map_lookup_elem(&pending_exec_map, &pid);
+        if (pending_tid && *pending_tid == tid) {
+            bpf_map_delete_elem(&pending_exec_map, &pid);
+        }
+        bpf_map_delete_elem(&filter_map, &tid);
+        return;
+    }
+
+    bpf_map_delete_elem(&pending_exec_map, &pid);
+    bpf_map_delete_elem(&main_exited_map, &pid);
+}
+
 #include "enter_dispatch.h"
 #include "exit_dispatch.h"
 
@@ -738,16 +809,14 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     u32 tid = (u32)bpf_get_current_pid_tgid();
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
 
-    struct pending_syscall *p = NULL;
-    if (ctx->ret == 0) {
-        u32 *p_tid = bpf_map_lookup_elem(&pending_exec_map, &pid);
-        if (p_tid) {
-            p = bpf_map_lookup_elem(&pending_syscalls, p_tid);
-        }
-    }
-    if (!p) {
-        p = bpf_map_lookup_elem(&pending_syscalls, &tid);
-    }
+    u32 pending_tid = tid;
+    u32 pending_exec_lookup = 0;
+    struct pending_syscall *p = lookup_pending_syscall_for_exit(
+        pid,
+        tid,
+        ctx->ret,
+        &pending_tid,
+        &pending_exec_lookup);
     if (!p) {
         if (!is_lifecycle_task_tracked(pid, tid)) return 0;
         u32 cfg_key = 0;
@@ -757,6 +826,13 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             return 0;
         }
         record_orphan_exit();
+        return 0;
+    }
+    if (!validate_pending_syscall_exit(
+            p,
+            (u32)ctx->id,
+            pid,
+            pending_tid)) {
         return 0;
     }
 
@@ -779,7 +855,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
         }
     }
     emit_syscall_exit_event_v2_direct(p, ctx->ret, duration, 0);
-    bpf_map_delete_elem(&pending_syscalls, &tid);
+    consume_pending_syscall(pid, pending_tid, p, pending_exec_lookup);
     return 0;
 }
 

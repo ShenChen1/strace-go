@@ -20,6 +20,7 @@ type bpfBpfStats struct {
 	PayloadTruncatedEvents uint64
 	PendingUpdateFail      uint64
 	OrphanExit             uint64
+	PendingMismatch        uint64
 }
 
 type bpfPendingSyscall struct {

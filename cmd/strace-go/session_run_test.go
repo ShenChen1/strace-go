@@ -95,6 +95,7 @@ func TestFinishRunWritesJSONStatsEvent(t *testing.T) {
 	var ev struct {
 		Type               string `json:"type"`
 		RingbufReserveFail uint64 `json:"ringbuf_reserve_fail"`
+		PendingMismatch    uint64 `json:"pending_mismatch"`
 		RingbufCopyFail    uint64 `json:"ringbuf_copy_fail"`
 		Available          bool   `json:"available"`
 		Error              string `json:"error"`
@@ -102,7 +103,7 @@ func TestFinishRunWritesJSONStatsEvent(t *testing.T) {
 	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &ev); err != nil {
 		t.Fatalf("decode stats JSON: %v", err)
 	}
-	if ev.Type != "stats" || ev.RingbufReserveFail != 0 || ev.RingbufCopyFail != 0 || ev.Available || ev.Error == "" {
+	if ev.Type != "stats" || ev.RingbufReserveFail != 0 || ev.PendingMismatch != 0 || ev.Available || ev.Error == "" {
 		t.Fatalf("stats JSON event = %+v, want unavailable zero stats", ev)
 	}
 }

@@ -164,7 +164,7 @@ func TestBPFRecvmmsgExitChainHasFinalFallback(t *testing.T) {
 		if !strings.Contains(body, "emit_mmsg_exit_event_v2_direct(p, ret_value, duration);") {
 			t.Fatalf("%s lacks final mmsg fallback after tail-call failure", name)
 		}
-		if !strings.Contains(body, "bpf_map_delete_elem(&pending_syscalls, &tid);") {
+		if !strings.Contains(body, "consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);") {
 			t.Fatalf("%s lacks pending cleanup after final fallback", name)
 		}
 	}

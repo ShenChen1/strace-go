@@ -54,3 +54,21 @@ func TestBPFOrphanExitIsFilteredAndCounted(t *testing.T) {
 		}
 	}
 }
+
+func TestBPFPendingExitIdentityIsValidatedAndCleaned(t *testing.T) {
+	src := loadBPFSources(t)
+	if !strings.Contains(src.straceSource, "u64 pending_mismatch;") {
+		t.Fatal("bpf/strace.c bpf_stats missing pending_mismatch counter")
+	}
+	for _, snippet := range []string{
+		"static __always_inline void record_pending_mismatch(void)",
+		"lookup_pending_syscall_for_exit(",
+		"validate_pending_syscall_exit(",
+		"pending->sys_id == sys_id && pending->tid == pending_tid",
+		"bpf_map_delete_elem(&pending_syscalls, &pending_tid);",
+	} {
+		if !strings.Contains(src.straceSource, snippet) {
+			t.Fatalf("BPF pending identity guard missing %q", snippet)
+		}
+	}
+}

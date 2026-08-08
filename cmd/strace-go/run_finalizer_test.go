@@ -32,6 +32,7 @@ func TestTraceRunFinalizerWritesJSONStats(t *testing.T) {
 		RingbufCopyFail:    6,
 		PendingUpdateFail:  7,
 		OrphanExit:         8,
+		PendingMismatch:    9,
 	})
 
 	var ev jsonStatsEvent
@@ -39,7 +40,7 @@ func TestTraceRunFinalizerWritesJSONStats(t *testing.T) {
 		t.Fatalf("decode stats JSON: %v", err)
 	}
 	if ev.Type != "stats" || ev.RingbufReserveFail != 5 || ev.RingbufCopyFail != 6 ||
-		ev.PendingUpdateFail != 7 || ev.OrphanExit != 8 || !ev.Available {
+		ev.PendingUpdateFail != 7 || ev.OrphanExit != 8 || ev.PendingMismatch != 9 || !ev.Available {
 		t.Fatalf("stats JSON = %+v, want populated stats event", ev)
 	}
 }
@@ -57,6 +58,7 @@ func TestTraceRunFinalizerWritesTextStatsDiagnostic(t *testing.T) {
 		RingbufCopyFail:    2,
 		PendingUpdateFail:  3,
 		OrphanExit:         4,
+		PendingMismatch:    5,
 	})
 
 	got := diagnostics.String()
@@ -65,6 +67,7 @@ func TestTraceRunFinalizerWritesTextStatsDiagnostic(t *testing.T) {
 		"ringbuf_copy_fail=2",
 		"pending_update_fail=3",
 		"orphan_exit=4",
+		"pending_mismatch=5",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("diagnostic = %q, missing %q", got, want)
