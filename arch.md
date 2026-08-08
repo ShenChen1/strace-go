@@ -1083,6 +1083,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 
 - `sys_exit` fallback 已直接从 compact pending metadata 合成 no-payload event v2；后续重点不再是删除 carrier，而是补齐少数 nested payload 的 probe-site bounded 深拷贝。
 - attach 模式退出行已补齐：`sched_process_exit` 直接从退出任务读取 tid/tgid 与 `exit_code`（tracepoint 结构布局不可靠），lifecycle 事件改为始终发射，Go 侧为已 exec 任务、线程与 attach 目标渲染 `+++ exited with N +++` 并跳过 os/exec 中间进程；命令退出行的 wait fallback 在 wait 完成后短宽限内 flush。attach 期间无法配对的 `sys_exit` 不伪造 enter，而是计入 BPF/JSON stats 的 `orphan_exit`，文本模式只在非零时输出事件诊断。`attach-f-p.test` 当前通过；`attach-p-cmd.test` 的两个进程退出行仍可能受纯 eBPF ringbuf/lifecycle 与 wait 的异步顺序影响而 exact diff 失败，且在无 generic unfinished 改动的 `HEAD` 基线同样复现，不能作为本次状态机回归归因。
+- 线程 child identity 已收口：BPF fork lifecycle 输出真实 parent TGID/TID，Go `TraceState` 暂存 child TID 到 parent TGID 的关系，待 child 首个 syscall/exec/exit/free 观察到实际 `(pid,tid)` 后解析；process fork 才触发 FD state 继承，thread clone 不再复制 `child_tid:*` 的伪进程状态。pthread semantic fixture 已断言 fork 阶段不猜 child TGID、thread exit 阶段恢复 `task_tgid == pid`。
 - `read-write.gen.test` 当前剩余差异主要是 512 字节 BPF snapshot 前缀之后的大 hexdump exact diff；这属于 bounded eBPF snapshot 与 ptrace 无限/大块 fetch 语义差异，当前已作为 reference `XFAIL` 明确记录，主门禁已通过 JSON `EVENT_FLAG_TRUNCATED` / section `copied_len < user_len` oracle 覆盖纯 eBPF 契约。
 - `strace-C.test` 已标记为预期失败：上游 `-c` 汇总按 per-syscall CPU 时间计，纯 eBPF 只能观测 wall-clock 时长，属于测量语义差异；runner 同时修复了 `sleep-timing` 的构建（补 `-I../src` 与 libtests 链接），`strace-r.test` / `strace-T_upper.test` 已通过。
 - 当前兼容面收口：`small` 23/23；最近一次完整 `more` 为 80 PASS、1 个 attach/时序 FAIL、2 个预期 XFAIL（`strace-C`、`read-write`）；`upstream-reference` 10 PASS + 1 预期 XFAIL；`ebpf-semantic` / `ebpf-perf` 全绿。`attach-p-cmd` 与 `strace-r` 单独重跑通过，但完整套件仍可能暴露跨任务退出顺序或跨 CPU 时间戳逆序，前者属于纯 eBPF 观察顺序限制，后者由 relative formatter 的下溢饱和保护兜底。
@@ -1149,6 +1150,7 @@ attach 到已运行进程时：
 - 无法拿到 attach 前已经进入但未退出的 syscall enter。
 - fd/cwd 初始状态只能从 `/proc` 快照近似。
 - 第一个 exit 事件可能没有对应 enter；实现不伪造 enter/exit 配对，静默丢弃该单条 syscall 事件并在 BPF stats 的 `orphan_exit` 中计数。JSON 模式暴露该字段，文本模式仅在非零时输出事件诊断。
+- `sched_process_fork` tracepoint 只提供 child TID；fork lifecycle 先输出未知 child TGID，Go 在后续 child task 事件中解析真实 TGID，避免把 thread clone 误建模为独立进程。
 
 ## 11. 成功标准
 
@@ -1323,7 +1325,6 @@ Tail call spike（2026-08-07）：
 - 生成器 138 个 `missing_btf` override 面（`pt_regs_wrapper_only`）。
 - 跨任务严格输出顺序（尤其 attach 命令与已附加进程的 exit 行）；纯 eBPF 不冻结 tracee，ringbuf/lifecycle/wait 的观察顺序不能承诺 ptrace exact order。
 - `strace-C` 的 CPU 时间测量语义差异（已 XFAIL）。
-- 线程生命周期的 child TGID 仍未完全收口：`sched_process_fork` tracepoint 只提供 child TID，Go 侧在 child 首个 syscall 到达前只能暂按 child TID 建模；本轮已消除 BPF 按 TGID 清理 pending 与 Go 非 leader 线程误删进程状态的问题，后续仍需专门 clone-thread fixture 决定是否引入更强的 child identity attach。
 
 ### 13.6 执行顺序与提交粒度
 

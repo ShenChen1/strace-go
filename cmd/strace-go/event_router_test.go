@@ -46,7 +46,7 @@ func TestTraceEventRouterSkipsOutOfScopeEvents(t *testing.T) {
 func TestTraceEventRouterRoutesLifecycleEvents(t *testing.T) {
 	effects := &fakeLifecycleEffects{}
 	router := newTraceEventRouter(TraceEventRouterDeps{
-		Scope:     newTraceScope(100, nil),
+		Scope:     newTraceScope(100, &cli.Options{FollowForks: true}),
 		TargetPID: 100,
 		State:     newTraceState(),
 		Lifecycle: newLifecycleEventHandler(LifecycleEventHandlerDeps{
@@ -57,14 +57,59 @@ func TestTraceEventRouterRoutesLifecycleEvents(t *testing.T) {
 	router.Handle(traceEventEnvelope{
 		valid:           true,
 		pid:             100,
-		tid:             101,
+		tid:             100,
 		eventType:       bpfEventTypeLifecycle,
 		lifecycleAction: lifecycleFork,
 		args:            [6]uint64{100, 101},
 	})
 
+	if len(effects.inherited) != 0 {
+		t.Fatalf("inherited = %v, want deferred identity resolution", effects.inherited)
+	}
+	router.Handle(traceEventEnvelope{
+		valid:      true,
+		pid:        101,
+		tid:        101,
+		sysID:      syscallIDByName(t, "getpid"),
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+	})
 	if len(effects.inherited) != 1 || effects.inherited[0] != [2]int{100, 101} {
-		t.Fatalf("inherited = %v, want [100 101]", effects.inherited)
+		t.Fatalf("inherited = %v, want process resolution [100 101]", effects.inherited)
+	}
+}
+
+func TestTraceEventRouterDoesNotCopyFDStateForThreadClone(t *testing.T) {
+	effects := &fakeLifecycleEffects{}
+	router := newTraceEventRouter(TraceEventRouterDeps{
+		Scope:     newTraceScope(200, &cli.Options{FollowForks: true}),
+		TargetPID: 200,
+		State:     newTraceState(),
+		Lifecycle: newLifecycleEventHandler(LifecycleEventHandlerDeps{Effects: effects}),
+	})
+
+	router.Handle(traceEventEnvelope{
+		valid:           true,
+		pid:             200,
+		tid:             200,
+		eventType:       bpfEventTypeLifecycle,
+		lifecycleAction: lifecycleFork,
+		args:            [6]uint64{200, 201},
+	})
+	router.Handle(traceEventEnvelope{
+		valid:      true,
+		pid:        200,
+		tid:        201,
+		sysID:      syscallIDByName(t, "getpid"),
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+	})
+
+	if len(effects.inherited) != 0 {
+		t.Fatalf("thread inherited = %v, want no process copy", effects.inherited)
+	}
+	if task := router.traceState().tasks[201]; task == nil || task.TGID != 200 {
+		t.Fatalf("thread task = %+v, want TGID 200", task)
 	}
 }
 

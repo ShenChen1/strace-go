@@ -14,9 +14,12 @@ func TestApplyLifecycleEventMaintainsTaskState(t *testing.T) {
 		enterTime: 10,
 		args:      [6]uint64{100, 101},
 	}
-	child := state.applyLifecycleEvent(fork)
-	if child == nil || child.TID != 101 || child.TGID != 101 || child.ParentTID != 100 || !child.Alive {
+	child, inherit := state.applyLifecycleEvent(fork)
+	if child == nil || child.TID != 101 || child.TGID != 0 || child.ParentTID != 100 || !child.Alive {
 		t.Fatalf("child task after fork = %+v", child)
+	}
+	if inherit != nil {
+		t.Fatalf("process inheritance after fork = %+v, want pending identity", inherit)
 	}
 	if parent := state.tasks[100]; parent == nil || !parent.Alive || parent.LastAction != "fork" {
 		t.Fatalf("parent task after fork = %+v", parent)
@@ -31,9 +34,12 @@ func TestApplyLifecycleEventMaintainsTaskState(t *testing.T) {
 		enterTime: 20,
 		args:      [6]uint64{101, 101},
 	}
-	execed := state.applyLifecycleEvent(exec)
+	execed, inherit := state.applyLifecycleEvent(exec)
 	if execed == nil || !execed.Execed || !execed.Alive || execed.LastAction != "exec" {
 		t.Fatalf("task after exec = %+v", execed)
+	}
+	if inherit == nil || inherit.parentTGID != 100 || inherit.childTGID != 101 {
+		t.Fatalf("process inheritance after exec = %+v, want 100 -> 101", inherit)
 	}
 
 	free := lifecycleEventView{
@@ -45,9 +51,12 @@ func TestApplyLifecycleEventMaintainsTaskState(t *testing.T) {
 		enterTime: 30,
 		args:      [6]uint64{101},
 	}
-	freed := state.applyLifecycleEvent(free)
+	freed, inherit := state.applyLifecycleEvent(free)
 	if freed == nil || freed.Alive || freed.LastAction != "free" {
 		t.Fatalf("task after free = %+v", freed)
+	}
+	if inherit != nil {
+		t.Fatalf("process inheritance after free = %+v, want none", inherit)
 	}
 }
 
@@ -58,5 +67,32 @@ func TestSyscallEventEnsuresTaskState(t *testing.T) {
 	task := state.tasks[201]
 	if task == nil || task.TID != 201 || task.TGID != 200 || !task.Alive || task.LastSeenNS != 40 {
 		t.Fatalf("task after syscall = %+v", task)
+	}
+}
+
+func TestApplyLifecycleEventResolvesThreadIdentityWithoutFDInheritance(t *testing.T) {
+	state := newTraceState()
+	child, inherit := state.applyLifecycleEvent(lifecycleEventView{
+		pid:       200,
+		tid:       200,
+		action:    lifecycleFork,
+		args:      [6]uint64{200, 201},
+		enterTime: 10,
+	})
+	if child == nil || child.TGID != 0 || inherit != nil {
+		t.Fatalf("thread child after fork = %+v inherit=%+v, want unknown TGID and pending relation", child, inherit)
+	}
+
+	resolved, inherit := state.applyLifecycleEvent(lifecycleEventView{
+		pid:       200,
+		tid:       201,
+		action:    lifecycleExit,
+		enterTime: 20,
+	})
+	if resolved == nil || resolved.TGID != 200 || resolved.Alive {
+		t.Fatalf("thread child after exit = %+v, want TGID 200 and dead", resolved)
+	}
+	if inherit != nil {
+		t.Fatalf("thread process inheritance = %+v, want none", inherit)
 	}
 }

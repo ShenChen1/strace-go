@@ -53,6 +53,7 @@ func (r *TraceEventRouter) Handle(envelope traceEventEnvelope) {
 		return
 	}
 	stateUpdate := r.traceState().handleEnvelope(envelope)
+	r.applyProcessStateInheritance(stateUpdate.processInherit)
 	r.handleUnfinished(stateUpdate.unfinished)
 	statePID := eventStatePID(envelope, r.targetPID)
 
@@ -66,6 +67,13 @@ func (r *TraceEventRouter) Handle(envelope traceEventEnvelope) {
 	default:
 		r.handleExit(stateUpdate, statePID)
 	}
+}
+
+func (r *TraceEventRouter) applyProcessStateInheritance(inheritance *processStateInheritance) {
+	if inheritance == nil || r.lifecycle == nil {
+		return
+	}
+	r.lifecycle.InheritProcessState(int(inheritance.parentTGID), int(inheritance.childTGID))
 }
 
 func (r *TraceEventRouter) handleUnfinished(pendingSyscalls []*pendingSyscallState) {

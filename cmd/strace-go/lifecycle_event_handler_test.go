@@ -60,8 +60,8 @@ func TestLifecycleEventHandlerHandlesForkAndJSON(t *testing.T) {
 		args:   [6]uint64{100, 101},
 	}, task)
 
-	if len(state.effects.inherited) != 1 || state.effects.inherited[0] != [2]int{100, 101} {
-		t.Fatalf("inherited = %v, want [100 101]", state.effects.inherited)
+	if len(state.effects.inherited) != 0 {
+		t.Fatalf("inherited = %v, want deferred identity resolution", state.effects.inherited)
 	}
 	if len(state.effects.cleaned) != 0 {
 		t.Fatalf("cleaned = %v, want none", state.effects.cleaned)

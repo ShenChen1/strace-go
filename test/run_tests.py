@@ -608,6 +608,7 @@ def run_ebpf_semantic(args):
             failures, "exit/free lifecycle task state did not mark task dead")
 
     thread_syscalls = [ev for ev in thread_events if ev.get("syscall") == "getpid" and ev.get("tid") != ev.get("pid")]
+    thread_fork_lifecycle = [ev for ev in thread_lifecycle_events if ev.get("action") == "fork"]
     thread_lifecycle = [ev for ev in thread_lifecycle_events
                         if ev.get("action") in ("exit", "free") and ev.get("tid") != ev.get("pid")]
     require(thread_res.returncode == 0, failures, f"thread fixture rc={thread_res.returncode}")
@@ -618,6 +619,12 @@ def run_ebpf_semantic(args):
     require(any(ev.get("event_type") == "exit" and ev.get("paired_enter") for ev in thread_syscalls),
             failures, "non-leader thread getpid exit was not paired with enter")
     require(thread_lifecycle, failures, "non-leader thread exit/free lifecycle identity missing")
+    require(any(ev.get("task_tid") == ev.get("arg1") and not ev.get("task_tgid")
+                for ev in thread_fork_lifecycle),
+            failures, "thread fork lifecycle must not guess child TGID from child TID")
+    require(any(ev.get("action") in ("exit", "free") and ev.get("tid") != ev.get("pid") and
+                ev.get("task_tgid") == ev.get("pid") for ev in thread_lifecycle),
+            failures, "thread exit/free lifecycle did not resolve child TGID")
     require(thread_text_res.returncode == 0, failures, f"thread text fixture rc={thread_text_res.returncode}")
     require("thread-fixture-ok" in thread_text_res.stdout, failures, "thread text fixture stdout marker missing")
     require("read(" in thread_text and "<unfinished ...>" in thread_text,

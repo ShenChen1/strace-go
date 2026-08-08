@@ -31,11 +31,17 @@ type lifecycleEventView struct {
 	snapshotText string
 }
 
+type processStateInheritance struct {
+	parentTGID uint32
+	childTGID  uint32
+}
+
 type TraceState struct {
 	pendingSyscalls   map[uint32]*pendingSyscallState
 	pendingExecArgs   map[int]string
 	suspendedSyscalls map[int]string
 	tasks             map[uint32]*TaskState
+	pendingForks      map[uint32]pendingForkState
 }
 
 type traceStateEventKind uint8
@@ -54,6 +60,7 @@ type TraceStateUpdate struct {
 	payloadSections []handler.PayloadSection
 	pendingEnter    *pendingSyscallState
 	lifecycleTask   *TaskState
+	processInherit  *processStateInheritance
 	unfinished      []*pendingSyscallState
 }
 
@@ -72,19 +79,21 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 	unfinished := st.pendingForOtherTID(envelope.tid)
 	if envelope.isLifecycle() {
 		lifecycleView := envelope.lifecycleView()
-		task := st.applyLifecycleEvent(lifecycleView)
+		task, processInherit := st.applyLifecycleEvent(lifecycleView)
 		if lifecycleView.action == lifecycleExit || lifecycleView.action == lifecycleFree {
 			st.clearTaskPending(lifecycleView.tid)
 		}
 		return TraceStateUpdate{
-			kind:          traceStateLifecycle,
-			lifecycleView: lifecycleView,
-			lifecycleTask: task,
-			unfinished:    unfinished,
+			kind:           traceStateLifecycle,
+			lifecycleView:  lifecycleView,
+			lifecycleTask:  task,
+			processInherit: processInherit,
+			unfinished:     unfinished,
 		}
 	}
 
 	syscallView := envelope.syscallView()
+	processInherit := st.resolveForkIdentity(syscallView.tid, syscallView.pid)
 	st.noteSyscallTask(syscallView)
 	if syscallView.isGenericEnter() {
 		st.rememberEnterEvent(syscallView, envelope.payload)
@@ -92,6 +101,7 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 			kind:            traceStateSyscallEnter,
 			syscallView:     syscallView,
 			payloadSections: envelope.payload,
+			processInherit:  processInherit,
 			unfinished:      unfinished,
 		}
 	}
@@ -101,6 +111,7 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 			kind:            traceStateSyscallFragment,
 			syscallView:     syscallView,
 			payloadSections: envelope.payload,
+			processInherit:  processInherit,
 			unfinished:      unfinished,
 		}
 	}
@@ -109,6 +120,7 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 		syscallView:     syscallView,
 		payloadSections: envelope.payload,
 		pendingEnter:    st.consumeEnterEvent(syscallView),
+		processInherit:  processInherit,
 		unfinished:      unfinished,
 	}
 }
@@ -282,4 +294,5 @@ func (st *TraceState) clearTaskPending(tid uint32) {
 	delete(st.pendingExecArgs, int(tid))
 	delete(st.suspendedSyscalls, int(tid))
 	delete(st.pendingSyscalls, tid)
+	delete(st.pendingForks, tid)
 }

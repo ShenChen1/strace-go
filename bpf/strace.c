@@ -832,9 +832,12 @@ int trace_kretprobe_recvmsg_control(struct pt_regs *ctx) {
 SEC("tracepoint/sched/sched_process_fork")
 int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {
     u32 child_pid = ctx->child_pid;
-    // IMPACT: ctx->parent_pid is the forking THREAD's tid; os/exec may fork from
-    // any runtime thread, so compare against the parent process tgid instead.
-    u32 parent_pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    // IMPACT: the tracepoint exposes only child TID. Keep the parent's TGID
+    // and actual forking TID in the lifecycle envelope; Go resolves the child
+    // TGID when the first child task event arrives.
+    u64 parent_pid_tgid = bpf_get_current_pid_tgid();
+    u32 parent_tgid = (u32)(parent_pid_tgid >> 32);
+    u32 parent_tid = (u32)parent_pid_tgid;
 
     // IMPACT: when strace-go arms the next fork, the tracee's pid filter is
     // installed at fork time so its initial execve (which happens before
@@ -843,14 +846,13 @@ int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {
     // parent until one of its children execs.
     u32 arm_key = 0;
     u32 *arm_parent = bpf_map_lookup_elem(&arm_fork_map, &arm_key);
-    if (arm_parent && *arm_parent != 0 && *arm_parent == parent_pid) {
+    if (arm_parent && *arm_parent != 0 && *arm_parent == parent_tgid) {
         u32 val = 1;
         bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY);
         bpf_map_update_elem(&pre_exec_map, &child_pid, &val, BPF_ANY);
     }
-    
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &parent_pid);
-    if (!filter_pid) return 0;
+
+    if (!is_lifecycle_task_tracked(parent_tgid, parent_tid)) return 0;
     
     u32 cfg_key = 0;
     u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);
@@ -858,38 +860,42 @@ int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {
         u32 val = 1;
         bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY);
     }
-    emit_lifecycle_event(LIFECYCLE_FORK, parent_pid, parent_pid, parent_pid, child_pid, 0);
+    emit_lifecycle_event(LIFECYCLE_FORK, parent_tgid, parent_tid, parent_tgid, child_pid, 0);
     return 0;
 }
 
 SEC("tracepoint/sched/sched_process_exec")
 int trace_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx) {
-    u32 pid = ctx->pid;
+    // IMPACT: ctx->pid does not provide a stable TGID/TID pair for all
+    // thread-exec paths; use the current task identity like exit/free.
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = (u32)(pid_tgid >> 32);
+    u32 tid = (u32)pid_tgid;
 
     // IMPACT: once any armed child execs, stop arming so post-start forks are
     // governed by follow-forks instead.
     u32 arm_key = 0;
     u32 *arm_parent = bpf_map_lookup_elem(&arm_fork_map, &arm_key);
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
-    if (filter_pid) {
+    int tracked = is_lifecycle_task_tracked(pid, tid);
+    if (tracked) {
         // IMPACT: always lift pre-exec suppression once a traced process execs;
         // the arm may already be cleared by a racing path, so the suppression
         // clear must not depend on it.
-        bpf_map_delete_elem(&pre_exec_map, &pid);
+        bpf_map_delete_elem(&pre_exec_map, &tid);
         if (arm_parent && *arm_parent != 0) {
             u32 zero = 0;
             bpf_map_update_elem(&arm_fork_map, &arm_key, &zero, BPF_ANY);
         }
     }
 
-    if (!filter_pid) return 0;
+    if (!tracked) return 0;
 
     u32 filename_offset = ctx->__data_loc_filename & 0xffff;
     void *filename = 0;
     if (filename_offset > 0) {
         filename = (void *)((char *)ctx + filename_offset);
     }
-    emit_lifecycle_event(LIFECYCLE_EXEC, pid, pid, ctx->old_pid, pid, filename);
+    emit_lifecycle_event(LIFECYCLE_EXEC, pid, tid, ctx->old_pid, tid, filename);
     return 0;
 }
 

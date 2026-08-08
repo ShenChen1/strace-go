@@ -30,12 +30,25 @@ func TestBPFFDStateTrackingGate(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"} arm_fork_map SEC(\".maps\");",
-		"arm_parent && *arm_parent != 0 && *arm_parent == parent_pid",
+		"arm_parent && *arm_parent != 0 && *arm_parent == parent_tgid",
 		"bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY);",
-		"u32 parent_pid = (u32)(bpf_get_current_pid_tgid() >> 32);",
+		"u64 parent_pid_tgid = bpf_get_current_pid_tgid();",
+		"u32 parent_tid = (u32)parent_pid_tgid;",
+		"is_lifecycle_task_tracked(parent_tgid, parent_tid)",
+		"emit_lifecycle_event(LIFECYCLE_FORK, parent_tgid, parent_tid, parent_tgid, child_pid, 0);",
 	} {
 		if !strings.Contains(src.straceSource, snippet) {
 			t.Fatalf("BPF source missing next-fork arm snippet %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
+		"u64 pid_tgid = bpf_get_current_pid_tgid();",
+		"u32 tid = (u32)pid_tgid;",
+		"bpf_map_delete_elem(&pre_exec_map, &tid);",
+		"emit_lifecycle_event(LIFECYCLE_EXEC, pid, tid, ctx->old_pid, tid, filename);",
+	} {
+		if !strings.Contains(src.straceSource, snippet) {
+			t.Fatalf("BPF source missing exec identity snippet %q", snippet)
 		}
 	}
 }

@@ -10,6 +10,10 @@ type TaskState struct {
 	LastSeenNS uint64
 }
 
+type pendingForkState struct {
+	parentTGID uint32
+}
+
 func (st *TraceState) ensureTaskState(tid uint32, tgid uint32) *TaskState {
 	if st.tasks == nil {
 		st.tasks = make(map[uint32]*TaskState)
@@ -21,8 +25,6 @@ func (st *TraceState) ensureTaskState(tid uint32, tgid uint32) *TaskState {
 	}
 	if tgid != 0 {
 		task.TGID = tgid
-	} else if task.TGID == 0 {
-		task.TGID = tid
 	}
 	return task
 }
@@ -36,49 +38,84 @@ func (st *TraceState) noteSyscallTask(view syscallEventView) {
 	task.LastSeenNS = view.enterTime
 }
 
-func (st *TraceState) applyLifecycleEvent(view lifecycleEventView) *TaskState {
+func (st *TraceState) applyLifecycleEvent(view lifecycleEventView) (*TaskState, *processStateInheritance) {
 	switch view.action {
 	case lifecycleFork:
-		parentTID := uint32(view.args[0])
+		parentTID := view.tid
+		if parentTID == 0 {
+			parentTID = uint32(view.args[0])
+		}
+		parentTGID := view.pid
+		if parentTGID == 0 {
+			parentTGID = uint32(view.args[0])
+		}
 		childTID := uint32(view.args[1])
-		parent := st.ensureTaskState(parentTID, view.pid)
+		parent := st.ensureTaskState(parentTID, parentTGID)
 		parent.Alive = true
 		parent.LastAction = "fork"
 		parent.LastSeenNS = view.enterTime
 
-		child := st.ensureTaskState(childTID, childTID)
+		child := st.ensureTaskState(childTID, 0)
 		child.ParentTID = parentTID
 		child.Alive = true
 		child.LastAction = "fork"
 		child.LastSeenNS = view.enterTime
-		return child
+		if st.pendingForks == nil {
+			st.pendingForks = make(map[uint32]pendingForkState)
+		}
+		st.pendingForks[childTID] = pendingForkState{
+			parentTGID: parentTGID,
+		}
+		return child, st.resolveForkIdentity(childTID, child.TGID)
 	case lifecycleExec:
 		tid := uint32(view.args[1])
 		if tid == 0 {
 			tid = view.tid
 		}
+		processInherit := st.resolveForkIdentity(tid, view.pid)
 		task := st.ensureTaskState(tid, view.pid)
 		task.Execed = true
 		task.Alive = true
 		task.LastAction = "exec"
 		task.LastSeenNS = view.enterTime
-		return task
+		return task, processInherit
 	case lifecycleExit:
+		processInherit := st.resolveForkIdentity(view.tid, view.pid)
 		task := st.ensureTaskState(view.tid, view.pid)
 		task.Alive = false
 		task.LastAction = "exit"
 		task.LastSeenNS = view.enterTime
-		return task
+		return task, processInherit
 	case lifecycleFree:
+		processInherit := st.resolveForkIdentity(view.tid, view.pid)
 		task := st.ensureTaskState(view.tid, view.pid)
 		task.Alive = false
 		task.LastAction = "free"
 		task.LastSeenNS = view.enterTime
-		return task
+		return task, processInherit
 	default:
+		processInherit := st.resolveForkIdentity(view.tid, view.pid)
 		task := st.ensureTaskState(view.tid, view.pid)
 		task.LastAction = "unknown"
 		task.LastSeenNS = view.enterTime
-		return task
+		return task, processInherit
 	}
+}
+
+func (st *TraceState) resolveForkIdentity(tid uint32, tgid uint32) *processStateInheritance {
+	if tid == 0 || st.pendingForks == nil {
+		return nil
+	}
+	relation, ok := st.pendingForks[tid]
+	if !ok {
+		return nil
+	}
+	if tgid == 0 {
+		return nil
+	}
+	delete(st.pendingForks, tid)
+	if tgid != tid {
+		return nil
+	}
+	return &processStateInheritance{parentTGID: relation.parentTGID, childTGID: tgid}
 }
