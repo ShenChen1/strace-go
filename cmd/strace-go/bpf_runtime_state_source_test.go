@@ -54,8 +54,7 @@ func TestBPFFDStateTrackingGate(t *testing.T) {
 }
 
 func TestBPFLifecycleCleanupIsTIDScoped(t *testing.T) {
-	root := repoRootForTest(t)
-	source := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	source := readCombinedBPFSources(t)
 
 	exitBody, ok := bpfFunctionBody(source, "trace_sched_process_exit")
 	if !ok {

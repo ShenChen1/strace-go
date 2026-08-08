@@ -1,0 +1,122 @@
+#ifndef STRACE_GO_LIFECYCLE_EVENT_V2_H
+#define STRACE_GO_LIFECYCLE_EVENT_V2_H
+
+static __always_inline void init_lifecycle_event_v2_header(
+    struct event_v2_header *header,
+    u32 pid,
+    u32 tid,
+    u32 out_size,
+    u64 ts_ns)
+{
+    header->version = EVENT_VERSION;
+    header->event_type = EVENT_TYPE_LIFECYCLE;
+    header->flags = 0;
+    header->header_len = EVENT_V2_HEADER_LEN;
+    header->size = out_size;
+    header->pid = pid;
+    header->tid = tid;
+    header->sys_id = 0;
+    header->seq = 0;
+    header->ts_ns = ts_ns;
+}
+
+static __always_inline void init_lifecycle_event_v2_body(
+    struct lifecycle_event_v2 *body,
+    u32 kind,
+    u32 snapshot_len,
+    u64 arg0,
+    u64 arg1)
+{
+    body->action = kind;
+    body->snapshot_len = snapshot_len;
+    body->args[0] = arg0;
+    body->args[1] = arg1;
+    body->args[2] = 0;
+    body->args[3] = 0;
+    body->args[4] = 0;
+    body->args[5] = 0;
+}
+
+static __always_inline void emit_lifecycle_event_v2_direct(
+    u32 kind,
+    u32 pid,
+    u32 tid,
+    u64 arg0,
+    u64 arg1,
+    const void *snapshot_str)
+{
+    u32 payload_capacity = snapshot_str ? LIFECYCLE_SNAPSHOT_MAX : 0;
+    u32 payload_size = 0;
+    u32 out_size = EVENT_V2_HEADER_LEN + EVENT_V2_LIFECYCLE_BODY_LEN + payload_capacity;
+    u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_LIFECYCLE_BODY_LEN;
+
+    struct bpf_dynptr ptr;
+    long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
+    if (ret < 0) {
+        record_ringbuf_reserve_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    if (snapshot_str) {
+        void *payload = bpf_dynptr_data(&ptr, payload_offset, LIFECYCLE_SNAPSHOT_MAX);
+        if (!payload) {
+            record_ringbuf_copy_fail();
+        } else {
+            long n = bpf_probe_read_kernel_str(payload, LIFECYCLE_SNAPSHOT_MAX, snapshot_str);
+            if (n > 0) {
+                payload_size = (u32)n;
+            }
+        }
+    }
+
+    struct event_v2_header header = {};
+    init_lifecycle_event_v2_header(&header, pid, tid, out_size, bpf_ktime_get_ns());
+    ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    struct lifecycle_event_v2 body = {};
+    init_lifecycle_event_v2_body(&body, kind, payload_size, arg0, arg1);
+    ret = bpf_dynptr_write(&ptr, EVENT_V2_HEADER_LEN, &body, sizeof(body), 0);
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    bpf_ringbuf_submit_dynptr(&ptr, 0);
+}
+
+static __always_inline void emit_lifecycle_event(
+    u32 kind,
+    u32 pid,
+    u32 tid,
+    u64 arg0,
+    u64 arg1,
+    const void *snapshot_str)
+{
+    u32 key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
+    if (!cfg || !(*cfg & CONFIG_EMIT_LIFECYCLE)) {
+        return;
+    }
+
+    emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);
+}
+
+static __always_inline int is_lifecycle_task_tracked(u32 pid, u32 tid)
+{
+    if (bpf_map_lookup_elem(&filter_map, &pid)) {
+        return 1;
+    }
+    if (tid != pid && bpf_map_lookup_elem(&filter_map, &tid)) {
+        return 1;
+    }
+    return 0;
+}
+
+#endif

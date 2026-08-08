@@ -69,8 +69,7 @@ func TestRecvmsgProgArrayEntriesComplete(t *testing.T) {
 }
 
 func TestRecvmsgProgIndicesMatchBPFSource(t *testing.T) {
-	root := repoRootForTest(t)
-	source := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	source := readCombinedBPFSources(t)
 	pairs := map[string]uint32{
 		"RECVMSG_PROG_NAME":    recvmsgProgName,
 		"RECVMSG_PROG_CONTROL": recvmsgProgControl,

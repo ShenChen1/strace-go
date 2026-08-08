@@ -60,13 +60,18 @@ func repoRootForTest(t *testing.T) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "../.."))
 }
 
-// readCombinedBPFSources returns strace.c plus the tail call dispatch headers.
+// readCombinedBPFSources returns the BPF translation unit sources in include
+// order so source gates assert behavior without coupling it to one file.
 // Family capture logic lives in the dispatch headers after the dispatcher
 // refactor, so source gates that assert "uses direct TLV" check all of them.
 func readCombinedBPFSources(t *testing.T) string {
 	t.Helper()
 	root := repoRootForTest(t)
-	return readTextFile(t, filepath.Join(root, "bpf/strace.c")) +
+	return readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/runtime_stats.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/lifecycle_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/pending_state.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/strace.c")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h"))
 }

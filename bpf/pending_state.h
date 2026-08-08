@@ -1,0 +1,93 @@
+#ifndef STRACE_GO_PENDING_STATE_H
+#define STRACE_GO_PENDING_STATE_H
+
+// IMPACT: pre-exec child syscalls are intentionally suppressed on both raw
+// syscall edges, so their exits cannot be mistaken for attach or map loss.
+static __always_inline int is_pre_exec_suppressed_syscall(u32 pid, u32 sys_id)
+{
+    u32 *pre_exec = bpf_map_lookup_elem(&pre_exec_map, &pid);
+    return pre_exec && !is_exec_payload_direct_syscall(sys_id);
+}
+
+// IMPACT: every exit handler shares this resolver so a stale process-level exec
+// mapping cannot silently turn a current TID lookup into a different pending.
+static __always_inline struct pending_syscall *lookup_pending_syscall_for_exit(
+    u32 pid,
+    u32 tid,
+    s64 ret_value,
+    u32 *pending_tid,
+    u32 *pending_exec_lookup)
+{
+    *pending_tid = tid;
+    *pending_exec_lookup = 0;
+
+    if (ret_value == 0) {
+        u32 *exec_tid = bpf_map_lookup_elem(&pending_exec_map, &pid);
+        if (exec_tid) {
+            struct pending_syscall *exec_pending =
+                bpf_map_lookup_elem(&pending_syscalls, exec_tid);
+            if (exec_pending) {
+                *pending_tid = *exec_tid;
+                *pending_exec_lookup = 1;
+                return exec_pending;
+            }
+            bpf_map_delete_elem(&pending_exec_map, &pid);
+        }
+    }
+
+    return bpf_map_lookup_elem(&pending_syscalls, &tid);
+}
+
+static __always_inline int validate_pending_syscall_exit(
+    struct pending_syscall *pending,
+    u32 sys_id,
+    u32 pid,
+    u32 pending_tid)
+{
+    if (pending->sys_id == sys_id && pending->tid == pending_tid) {
+        return 1;
+    }
+
+    record_pending_mismatch();
+    bpf_map_delete_elem(&pending_syscalls, &pending_tid);
+    bpf_map_delete_elem(&pending_exec_map, &pid);
+    return 0;
+}
+
+static __always_inline void consume_pending_syscall(
+    u32 pid,
+    u32 pending_tid,
+    struct pending_syscall *pending,
+    u32 pending_exec_lookup)
+{
+    bpf_map_delete_elem(&pending_syscalls, &pending_tid);
+    if (pending_exec_lookup) {
+        bpf_map_delete_elem(&pending_exec_map, &pid);
+        bpf_map_delete_elem(&main_exited_map, &pid);
+        bpf_map_delete_elem(&pending_syscalls, &pid);
+    } else if (is_exec_payload_direct_syscall(pending->sys_id) && pending->tid != pending->pid) {
+        bpf_map_delete_elem(&pending_exec_map, &pid);
+    }
+}
+
+// Lifecycle cleanup is split by ownership: pending state is TID-scoped, while
+// exec/main/filter state is process-scoped unless a child thread owns it.
+static __always_inline void clear_lifecycle_task_state(u32 pid, u32 tid)
+{
+    bpf_map_delete_elem(&pending_syscalls, &tid);
+    bpf_map_delete_elem(&pre_exec_map, &tid);
+
+    if (tid != pid) {
+        u32 *pending_tid = bpf_map_lookup_elem(&pending_exec_map, &pid);
+        if (pending_tid && *pending_tid == tid) {
+            bpf_map_delete_elem(&pending_exec_map, &pid);
+        }
+        bpf_map_delete_elem(&filter_map, &tid);
+        return;
+    }
+
+    bpf_map_delete_elem(&pending_exec_map, &pid);
+    bpf_map_delete_elem(&main_exited_map, &pid);
+}
+
+#endif
