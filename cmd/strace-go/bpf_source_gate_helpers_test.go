@@ -116,3 +116,16 @@ func TestLegacyCaptureArtifactsAreRemoved(t *testing.T) {
 		}
 	}
 }
+
+func TestBPFRuntimeSourceHasNoDebugPrintk(t *testing.T) {
+	source := readCombinedBPFSources(t)
+	for _, token := range []string{
+		"bpf_printk(",
+		"bpf_trace_printk(",
+		"trace_printk(",
+	} {
+		if strings.Contains(source, token) {
+			t.Fatalf("BPF runtime source contains debug printk token %q", token)
+		}
+	}
+}

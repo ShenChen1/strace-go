@@ -86,7 +86,6 @@ int enter_terminating(struct trace_event_raw_sys_enter *ctx) {
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_exec(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
-    bpf_printk("sgo exec enter pid=%u sys=%u", pid, sys_id);
     s32 probe_ret_enter = 0;
     u32 *exited = bpf_map_lookup_elem(&main_exited_map, &pid);
     if (exited && *exited == 1) {
