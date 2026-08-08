@@ -15,37 +15,7 @@ func getArgProbeStatus(probeRetEnter int32, argIndex int) int32 {
 	return 0
 }
 
-// IMPACT: handleEnvelope routes projected tracing events to print handlers or fd updates.
+// IMPACT: handleEnvelope keeps session_run decoupled from the event router wiring.
 func (s *traceSession) handleEnvelope(envelope traceEventEnvelope) {
-	if !s.traceScope().AllowsPID(envelope.pid) {
-		return
-	}
-	statePID := s.eventStatePID(envelope)
-	stateUpdate := s.traceState().handleEnvelope(envelope)
-
-	if stateUpdate.kind == traceStateLifecycle {
-		s.lifecycleEventHandler().Handle(stateUpdate.lifecycleView, stateUpdate.lifecycleTask)
-		return
-	}
-
-	if stateUpdate.kind == traceStateSyscallEnter {
-		s.syscallJSONOutput().HandleEnter(newSyscallEnterEventContext(
-			stateUpdate.syscallView,
-			statePID,
-			stateUpdate.payloadSections,
-		))
-		return
-	}
-	if stateUpdate.kind == traceStateSyscallFragment {
-		return
-	}
-	ev := newSyscallEventContextFromView(
-		s,
-		stateUpdate.syscallView,
-		statePID,
-		stateUpdate.pendingEnter,
-		stateUpdate.payloadSections,
-	)
-
-	s.syscallExitPipeline().Handle(ev)
+	s.traceEventRouter().Handle(envelope)
 }

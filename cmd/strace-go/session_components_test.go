@@ -41,6 +41,9 @@ func TestTraceSessionCachesEventPipelineComponents(t *testing.T) {
 	if session.traceRecordDecoder() != session.traceRecordDecoder() {
 		t.Fatal("traceRecordDecoder should be cached per session")
 	}
+	if session.traceEventRouter() != session.traceEventRouter() {
+		t.Fatal("traceEventRouter should be cached per session")
+	}
 }
 
 func TestTraceSessionPipelineUsesCachedDependencies(t *testing.T) {
@@ -87,5 +90,21 @@ func TestTraceSessionPipelineUsesCachedDependencies(t *testing.T) {
 	}
 	if lifecycleEffects.fdState != session.fdStateStore() {
 		t.Fatal("lifecycle handler should use session fd state store")
+	}
+	router := session.traceEventRouter()
+	if router.state != session.traceState() {
+		t.Fatal("router should use session trace state")
+	}
+	if router.lifecycle != session.lifecycleEventHandler() {
+		t.Fatal("router should use cached lifecycle handler")
+	}
+	if router.json != session.syscallJSONOutput() {
+		t.Fatal("router should use cached JSON output")
+	}
+	if router.pipeline != session.syscallExitPipeline() {
+		t.Fatal("router should use cached syscall exit pipeline")
+	}
+	if router.contextDeps.fdState != session.fdStateStore() {
+		t.Fatal("router should use session fd state store for contexts")
 	}
 }

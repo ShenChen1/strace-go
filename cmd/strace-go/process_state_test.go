@@ -3,15 +3,13 @@ package main
 import "testing"
 
 func TestEventStatePIDUsesViewPIDOrTargetFallback(t *testing.T) {
-	session := &traceSession{targetPid: 101}
-
-	if got := session.eventStatePID(traceEventEnvelope{valid: true, pid: 202}); got != 202 {
+	if got := eventStatePID(traceEventEnvelope{valid: true, pid: 202}, 101); got != 202 {
 		t.Fatalf("eventStatePID(view pid) = %d, want 202", got)
 	}
-	if got := session.eventStatePID(traceEventEnvelope{valid: true}); got != 101 {
+	if got := eventStatePID(traceEventEnvelope{valid: true}, 101); got != 101 {
 		t.Fatalf("eventStatePID(zero pid) = %d, want target pid 101", got)
 	}
-	if got := session.eventStatePID(traceEventEnvelope{}); got != 101 {
+	if got := eventStatePID(traceEventEnvelope{}, 101); got != 101 {
 		t.Fatalf("eventStatePID(invalid view) = %d, want target pid 101", got)
 	}
 }

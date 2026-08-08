@@ -5,13 +5,6 @@ import (
 	"strings"
 )
 
-func (s *traceSession) eventStatePID(envelope traceEventEnvelope) int {
-	if envelope.valid && envelope.pid != 0 {
-		return int(envelope.pid)
-	}
-	return s.targetPid
-}
-
 func fdMapPrefix(pid int) string {
 	return fmt.Sprintf("%d:", pid)
 }
