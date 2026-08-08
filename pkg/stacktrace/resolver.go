@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 type MapRegion struct {
@@ -29,10 +28,11 @@ type elfInfo struct {
 }
 
 type Resolver struct {
+	// Resolver is session-local and used by the single trace event consumer.
+	// Its map and ELF caches are intentionally mutated without synchronization.
 	pid     int
 	regions []MapRegion
 	elfMap  map[string]*elfInfo
-	mu      sync.Mutex
 }
 
 func NewResolver(pid int) *Resolver {
@@ -113,9 +113,6 @@ func (r *Resolver) getElfInfo(path string) *elfInfo {
 }
 
 func (r *Resolver) Resolve(ip uint64) string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	var region *MapRegion
 	for i := range r.regions {
 		if ip >= r.regions[i].Start && ip < r.regions[i].End {
