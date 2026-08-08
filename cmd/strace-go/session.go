@@ -52,6 +52,7 @@ type traceSession struct {
 	lifecycleHandlerCache *LifecycleEventHandler
 	exitCoordinatorCache  *ExitStatusCoordinator
 	eventRouterCache      *TraceEventRouter
+	runFinalizerCache     *TraceRunFinalizer
 }
 
 // IMPACT: setupBPF is the single eBPF runtime wiring entry used by main. It loads

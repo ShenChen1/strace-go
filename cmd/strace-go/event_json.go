@@ -163,10 +163,6 @@ func newJSONStatsEvent(stats bpfRuntimeStats) jsonStatsEvent {
 	}
 }
 
-func (s *traceSession) writeJSONStatsEvent(stats bpfRuntimeStats) {
-	_ = json.NewEncoder(s.outWriter).Encode(newJSONStatsEvent(stats))
-}
-
 func (s *traceSession) writeJSONDecodedEvent(syscallEvent syscallEventContext, res handler.Result) {
 	ev := syscallEvent.newJSONDecodedSyscallEvent(res)
 	_ = json.NewEncoder(s.outWriter).Encode(ev)

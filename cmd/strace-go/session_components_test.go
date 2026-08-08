@@ -44,6 +44,9 @@ func TestTraceSessionCachesEventPipelineComponents(t *testing.T) {
 	if session.traceEventRouter() != session.traceEventRouter() {
 		t.Fatal("traceEventRouter should be cached per session")
 	}
+	if session.traceRunFinalizer() != session.traceRunFinalizer() {
+		t.Fatal("traceRunFinalizer should be cached per session")
+	}
 }
 
 func TestTraceSessionPipelineUsesCachedDependencies(t *testing.T) {
@@ -106,5 +109,15 @@ func TestTraceSessionPipelineUsesCachedDependencies(t *testing.T) {
 	}
 	if router.contextDeps.fdState != session.fdStateStore() {
 		t.Fatal("router should use session fd state store for contexts")
+	}
+	finalizer := session.traceRunFinalizer()
+	if finalizer.exitStatus != session.exitStatusCoordinator() {
+		t.Fatal("finalizer should use cached exit status coordinator")
+	}
+	if finalizer.summary != session.summaryStats() {
+		t.Fatal("finalizer should use session summary stats")
+	}
+	if finalizer.bpfObjs != session.bpfObjs {
+		t.Fatal("finalizer should use session BPF objects")
 	}
 }

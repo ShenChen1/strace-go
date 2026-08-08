@@ -15,11 +15,11 @@ type bpfRuntimeStats struct {
 	Error                  string
 }
 
-func (s *traceSession) collectBPFStats() bpfRuntimeStats {
-	if s == nil || s.bpfObjs == nil {
+func collectBPFStatsFromObjects(objs *bpfObjects) bpfRuntimeStats {
+	if objs == nil {
 		return unavailableBPFStats("bpf objects unavailable")
 	}
-	return collectBPFStatsFromMap(s.bpfObjs.StatsMap)
+	return collectBPFStatsFromMap(objs.StatsMap)
 }
 
 func collectBPFStatsFromMap(statsMap *ebpf.Map) bpfRuntimeStats {
