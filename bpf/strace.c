@@ -542,6 +542,37 @@ static __always_inline void emit_lifecycle_event(u32 kind, u32 pid, u32 tid, u64
     emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);
 }
 
+static __always_inline int is_lifecycle_task_tracked(u32 pid, u32 tid)
+{
+    if (bpf_map_lookup_elem(&filter_map, &pid)) {
+        return 1;
+    }
+    if (tid != pid && bpf_map_lookup_elem(&filter_map, &tid)) {
+        return 1;
+    }
+    return 0;
+}
+
+// Lifecycle cleanup is split by ownership: pending state is TID-scoped, while
+// exec/main/filter state is process-scoped unless a child thread owns it.
+static __always_inline void clear_lifecycle_task_state(u32 pid, u32 tid)
+{
+    bpf_map_delete_elem(&pending_syscalls, &tid);
+    bpf_map_delete_elem(&pre_exec_map, &tid);
+
+    if (tid != pid) {
+        u32 *pending_tid = bpf_map_lookup_elem(&pending_exec_map, &pid);
+        if (pending_tid && *pending_tid == tid) {
+            bpf_map_delete_elem(&pending_exec_map, &pid);
+        }
+        bpf_map_delete_elem(&filter_map, &tid);
+        return;
+    }
+
+    bpf_map_delete_elem(&pending_exec_map, &pid);
+    bpf_map_delete_elem(&main_exited_map, &pid);
+}
+
 #include "syscall_direct_event_v2.h"
 #include "syscall_fd_array_direct_event_v2.h"
 #include "syscall_getcwd_direct_event_v2.h"
@@ -850,12 +881,9 @@ int trace_sched_process_exit(struct trace_event_raw_sched_process_template *ctx)
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u32 pid = (u32)(pid_tgid >> 32);
     u32 tid = (u32)pid_tgid;
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
-    if (!filter_pid) return 0;
+    if (!is_lifecycle_task_tracked(pid, tid)) return 0;
 
-    bpf_map_delete_elem(&pending_syscalls, &pid);
-    bpf_map_delete_elem(&pending_exec_map, &pid);
-    bpf_map_delete_elem(&main_exited_map, &pid);
+    clear_lifecycle_task_state(pid, tid);
     int exit_code = 0;
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     if (task) {
@@ -867,14 +895,14 @@ int trace_sched_process_exit(struct trace_event_raw_sched_process_template *ctx)
 
 SEC("tracepoint/sched/sched_process_free")
 int trace_sched_process_free(struct trace_event_raw_sched_process_template *ctx) {
-    u32 pid = ctx->pid;
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
-    if (!filter_pid) return 0;
+    // sched_process_free's tracepoint pid is task-scoped; use the current
+    // task identity so cleanup remains correct for non-leader threads.
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = (u32)(pid_tgid >> 32);
+    u32 tid = (u32)pid_tgid;
+    if (!is_lifecycle_task_tracked(pid, tid)) return 0;
 
-    bpf_map_delete_elem(&pending_syscalls, &pid);
-    bpf_map_delete_elem(&pending_exec_map, &pid);
-    bpf_map_delete_elem(&main_exited_map, &pid);
-    bpf_map_delete_elem(&filter_map, &pid);
-    emit_lifecycle_event(LIFECYCLE_FREE, pid, pid, pid, 0, 0);
+    clear_lifecycle_task_state(pid, tid);
+    emit_lifecycle_event(LIFECYCLE_FREE, pid, tid, pid, 0, 0);
     return 0;
 }

@@ -171,7 +171,7 @@ func TestBPFRecvmmsgExitChainHasFinalFallback(t *testing.T) {
 }
 
 func bpfFunctionBody(source string, name string) (string, bool) {
-	start := strings.Index(source, "int "+name+"(")
+	start := strings.Index(source, name+"(")
 	if start < 0 {
 		return "", false
 	}
@@ -179,7 +179,7 @@ func bpfFunctionBody(source string, name string) (string, bool) {
 	if end < 0 {
 		end = strings.Index(source[start:], "\n#endif")
 		if end < 0 {
-			return "", false
+			end = len(source[start:])
 		}
 	}
 	return source[start : start+end], true

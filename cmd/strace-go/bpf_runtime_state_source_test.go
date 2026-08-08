@@ -40,6 +40,51 @@ func TestBPFFDStateTrackingGate(t *testing.T) {
 	}
 }
 
+func TestBPFLifecycleCleanupIsTIDScoped(t *testing.T) {
+	root := repoRootForTest(t)
+	source := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+
+	exitBody, ok := bpfFunctionBody(source, "trace_sched_process_exit")
+	if !ok {
+		t.Fatal("strace.c missing trace_sched_process_exit body")
+	}
+	if !strings.Contains(exitBody, "clear_lifecycle_task_state(pid, tid);") {
+		t.Fatal("sched_process_exit must use TID-scoped lifecycle cleanup")
+	}
+
+	cleanupBody, ok := bpfFunctionBody(source, "clear_lifecycle_task_state")
+	if !ok {
+		t.Fatal("strace.c missing clear_lifecycle_task_state body")
+	}
+	for _, snippet := range []string{
+		"bpf_map_delete_elem(&pending_syscalls, &tid);",
+		"if (tid != pid)",
+		"bpf_map_delete_elem(&pending_exec_map, &pid);",
+	} {
+		if !strings.Contains(cleanupBody, snippet) {
+			t.Fatalf("lifecycle cleanup helper missing snippet %q", snippet)
+		}
+	}
+	if strings.Contains(cleanupBody, "bpf_map_delete_elem(&pending_syscalls, &pid);") {
+		t.Fatal("lifecycle cleanup helper must not delete pending state by TGID")
+	}
+
+	freeBody, ok := bpfFunctionBody(source, "trace_sched_process_free")
+	if !ok {
+		t.Fatal("strace.c missing trace_sched_process_free body")
+	}
+	for _, snippet := range []string{
+		"u64 pid_tgid = bpf_get_current_pid_tgid();",
+		"u32 tid = (u32)pid_tgid;",
+		"clear_lifecycle_task_state(pid, tid);",
+		"emit_lifecycle_event(LIFECYCLE_FREE, pid, tid, pid, 0, 0);",
+	} {
+		if !strings.Contains(freeBody, snippet) {
+			t.Fatalf("sched_process_free missing TID-scoped cleanup snippet %q", snippet)
+		}
+	}
+}
+
 func TestBPFAioSubmitNestedCaptureGate(t *testing.T) {
 	src := loadBPFSources(t)
 	aioHeader := readTextFile(t, filepath.Join(repoRootForTest(t), "bpf/syscall_aio_direct_event_v2.h"))

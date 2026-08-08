@@ -93,7 +93,7 @@ func (h *LifecycleEventHandler) Handle(view lifecycleEventView, task *TaskState)
 	}
 	switch view.action {
 	case lifecycleExit:
-		h.cleanupProcess(view)
+		h.cleanupProcess(view, task)
 		isAttachTarget := false
 		if h.opts != nil {
 			for _, pid := range h.opts.AttachPids {
@@ -109,7 +109,7 @@ func (h *LifecycleEventHandler) Handle(view lifecycleEventView, task *TaskState)
 			h.writeExitText(int(view.tid), view.args[0])
 		}
 	case lifecycleFree:
-		h.cleanupProcess(view)
+		h.cleanupProcess(view, task)
 	}
 	if h.jsonMode() {
 		h.writeLifecycleJSON(view, task)
@@ -122,10 +122,25 @@ func (h *LifecycleEventHandler) inheritProcess(view lifecycleEventView) {
 	}
 }
 
-func (h *LifecycleEventHandler) cleanupProcess(view lifecycleEventView) {
-	if h.effects != nil {
-		h.effects.CleanupProcessState(int(view.tid))
+func (h *LifecycleEventHandler) cleanupProcess(view lifecycleEventView, task *TaskState) {
+	if h.effects == nil {
+		return
 	}
+
+	cleanupPID := int(view.tid)
+	if task != nil && task.TID != 0 && task.TGID != 0 {
+		if task.TID != task.TGID {
+			return
+		}
+		cleanupPID = int(task.TGID)
+	} else if view.pid != 0 && view.tid != 0 {
+		if view.pid != view.tid {
+			return
+		}
+		cleanupPID = int(view.pid)
+	}
+
+	h.effects.CleanupProcessState(cleanupPID)
 }
 
 func (h *LifecycleEventHandler) writeLifecycleJSON(view lifecycleEventView, task *TaskState) {

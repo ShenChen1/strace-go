@@ -88,6 +88,40 @@ func TestLifecycleEventHandlerHandlesExitAndFreeCleanup(t *testing.T) {
 	}
 }
 
+func TestLifecycleEventHandlerDoesNotCleanupProcessForNonLeaderThread(t *testing.T) {
+	state := newLifecycleHandlerTestState(nil)
+
+	state.handler.Handle(lifecycleEventView{
+		action: lifecycleExit,
+		pid:    200,
+		tid:    201,
+	}, &TaskState{TID: 201, TGID: 200})
+
+	if len(state.effects.cleaned) != 0 {
+		t.Fatalf("cleaned = %v, want no process cleanup for non-leader thread", state.effects.cleaned)
+	}
+
+	state.handler.Handle(lifecycleEventView{
+		action: lifecycleFree,
+		pid:    200,
+		tid:    201,
+	}, &TaskState{TID: 201, TGID: 200})
+
+	if len(state.effects.cleaned) != 0 {
+		t.Fatalf("cleaned after free = %v, want no process cleanup for non-leader thread", state.effects.cleaned)
+	}
+
+	state.handler.Handle(lifecycleEventView{
+		action: lifecycleExit,
+		pid:    200,
+		tid:    200,
+	}, &TaskState{TID: 200, TGID: 200})
+
+	if len(state.effects.cleaned) != 1 || state.effects.cleaned[0] != 200 {
+		t.Fatalf("cleaned = %v, want leader process cleanup [200]", state.effects.cleaned)
+	}
+}
+
 func TestLifecycleEventHandlerSkipsJSONOutsideJSONMode(t *testing.T) {
 	opts := cli.ParseArgs([]string{"/bin/true"})
 	state := newLifecycleHandlerTestState(opts)
