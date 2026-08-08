@@ -4,18 +4,34 @@ import "strace-go/pkg/handler"
 
 type SyscallHandlerRunner struct {
 	handleSyscall func(string, *handler.Context) handler.Result
-	updateFDState func(syscallEventContext)
+	effects       SyscallHandlerEffects
 }
 
 type SyscallHandlerRunnerDeps struct {
 	HandleSyscall func(string, *handler.Context) handler.Result
-	UpdateFDState func(syscallEventContext)
+	Effects       SyscallHandlerEffects
+}
+
+type SyscallHandlerEffects interface {
+	UpdateFDState(syscallEventContext)
+}
+
+type traceSessionSyscallHandlerEffects struct {
+	fdState *FDStateStore
+}
+
+func newTraceSessionSyscallHandlerEffects(fdState *FDStateStore) *traceSessionSyscallHandlerEffects {
+	return &traceSessionSyscallHandlerEffects{fdState: fdState}
+}
+
+func (e *traceSessionSyscallHandlerEffects) UpdateFDState(ev syscallEventContext) {
+	ev.updateFDState(e.fdState)
 }
 
 func newSyscallHandlerRunner(deps SyscallHandlerRunnerDeps) *SyscallHandlerRunner {
 	return &SyscallHandlerRunner{
 		handleSyscall: deps.HandleSyscall,
-		updateFDState: deps.UpdateFDState,
+		effects:       deps.Effects,
 	}
 }
 
@@ -23,7 +39,7 @@ func (s *traceSession) syscallHandlerRunner() *SyscallHandlerRunner {
 	if s.syscallRunnerCache == nil {
 		s.syscallRunnerCache = newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
 			HandleSyscall: defaultHandleSyscall,
-			UpdateFDState: s.updateFDState,
+			Effects:       newTraceSessionSyscallHandlerEffects(s.fdStateStore()),
 		})
 	}
 	return s.syscallRunnerCache
@@ -41,8 +57,8 @@ func (r *SyscallHandlerRunner) Handle(ev syscallEventContext) (handler.Result, b
 }
 
 func (r *SyscallHandlerRunner) update(ev syscallEventContext) {
-	if r.updateFDState != nil {
-		r.updateFDState(ev)
+	if r.effects != nil {
+		r.effects.UpdateFDState(ev)
 	}
 }
 

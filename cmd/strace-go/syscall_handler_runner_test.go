@@ -10,19 +10,25 @@ import (
 type handlerRunnerTestState struct {
 	runner       *SyscallHandlerRunner
 	handledNames []string
-	updates      int
+	effects      *fakeSyscallHandlerEffects
+}
+
+type fakeSyscallHandlerEffects struct {
+	updates int
+}
+
+func (e *fakeSyscallHandlerEffects) UpdateFDState(syscallEventContext) {
+	e.updates++
 }
 
 func newHandlerRunnerTestState(result handler.Result) *handlerRunnerTestState {
-	state := &handlerRunnerTestState{}
+	state := &handlerRunnerTestState{effects: &fakeSyscallHandlerEffects{}}
 	state.runner = newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
 		HandleSyscall: func(name string, _ *handler.Context) handler.Result {
 			state.handledNames = append(state.handledNames, name)
 			return result
 		},
-		UpdateFDState: func(syscallEventContext) {
-			state.updates++
-		},
+		Effects: state.effects,
 	})
 	return state
 }
@@ -49,8 +55,8 @@ func TestSyscallHandlerRunnerHandlesPrintedEventAndUpdatesFDState(t *testing.T) 
 	if got := state.handledNames; len(got) != 1 || got[0] != "getpid" {
 		t.Fatalf("handledNames = %v, want [getpid]", got)
 	}
-	if state.updates != 1 {
-		t.Fatalf("updates = %d, want 1", state.updates)
+	if state.effects.updates != 1 {
+		t.Fatalf("updates = %d, want 1", state.effects.updates)
 	}
 }
 
@@ -65,8 +71,8 @@ func TestSyscallHandlerRunnerRunsHiddenFDStateSyscallHandler(t *testing.T) {
 	if got := state.handledNames; len(got) != 1 || got[0] != "openat" {
 		t.Fatalf("handledNames = %v, want [openat]", got)
 	}
-	if state.updates != 1 {
-		t.Fatalf("updates = %d, want 1", state.updates)
+	if state.effects.updates != 1 {
+		t.Fatalf("updates = %d, want 1", state.effects.updates)
 	}
 }
 
@@ -81,7 +87,7 @@ func TestSyscallHandlerRunnerSkipsHiddenNonFDStateSyscallHandler(t *testing.T) {
 	if len(state.handledNames) != 0 {
 		t.Fatalf("handledNames = %v, want none", state.handledNames)
 	}
-	if state.updates != 1 {
-		t.Fatalf("updates = %d, want 1", state.updates)
+	if state.effects.updates != 1 {
+		t.Fatalf("updates = %d, want 1", state.effects.updates)
 	}
 }

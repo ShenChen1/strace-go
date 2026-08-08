@@ -363,10 +363,6 @@ func (ev syscallEventContext) isFDStateSyscall() bool {
 	}
 }
 
-func (s *traceSession) updateFDState(ev syscallEventContext) {
-	ev.updateFDState(s.fdStateStore())
-}
-
 func (ev syscallEventContext) shouldEmitStatus(optsStatus successfulFailedOptions) bool {
 	return ev.eventView().shouldEmitStatus(ev.syscallName(), optsStatus)
 }

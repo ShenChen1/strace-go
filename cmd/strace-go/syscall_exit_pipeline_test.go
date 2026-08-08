@@ -131,9 +131,9 @@ func TestSyscallExitPipelineRunsHandlerForPrintableEvent(t *testing.T) {
 			calls = append(calls, "handler")
 			return handler.Result{}
 		},
-		UpdateFDState: func(syscallEventContext) {
+		Effects: handlerEffectFunc(func(syscallEventContext) {
 			calls = append(calls, "fd-state")
-		},
+		}),
 	})
 	state := newExitPipelineTestState(nil, runner, nil)
 
@@ -141,6 +141,12 @@ func TestSyscallExitPipelineRunsHandlerForPrintableEvent(t *testing.T) {
 
 	calls = append(calls, state.effects.calls...)
 	wantCalls(t, calls, []string{"handler", "fd-state", "offset", "cleanup"})
+}
+
+type handlerEffectFunc func(syscallEventContext)
+
+func (fn handlerEffectFunc) UpdateFDState(ev syscallEventContext) {
+	fn(ev)
 }
 
 func wantCalls(t *testing.T, got []string, want []string) {
