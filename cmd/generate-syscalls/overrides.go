@@ -8,6 +8,7 @@ var btfNameToSyscallent = map[string]string{
 	"newfstat":   "fstat",
 	"newuname":   "uname",
 	"mmap_pgoff": "mmap",
+	"sendfile64": "sendfile",
 	"umount":     "umount2",
 }
 

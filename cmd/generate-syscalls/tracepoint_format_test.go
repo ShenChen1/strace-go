@@ -94,6 +94,14 @@ func TestKernelTracepointFormatSourceFallsBackToDebugRoot(t *testing.T) {
 	}
 }
 
+func TestTracepointLookupNamesIncludesKernelSendfileAlias(t *testing.T) {
+	names := tracepointLookupNames([]string{"sendfile"}, btfNameToSyscallent)
+
+	if !containsString(names, "sendfile") || !containsString(names, "sendfile64") {
+		t.Fatalf("tracepoint names = %v, want sendfile and sendfile64", names)
+	}
+}
+
 func TestTracepointFormatSourceRejectsUnsafeName(t *testing.T) {
 	source := kernelTracepointFormatSource{fs: fakeTracepointFormatFileSystem{}}
 	for _, name := range []string{"../close", "close-range", "close\\\\range", ""} {
