@@ -41,6 +41,14 @@ UPSTREAM_REFERENCE_TESTS = [
     "recvmmsg-timeout.gen.test",
     "execveat.gen.test",
     "fork-f.gen.test",
+    "readv.test",
+    "preadv.gen.test",
+    "pwritev.gen.test",
+    "preadv-pwritev.gen.test",
+    "preadv2-pwritev2.gen.test",
+    "vmsplice.gen.test",
+    "process_vm_readv.gen.test",
+    "process_vm_writev.gen.test",
 ]
 
 UPSTREAM_REFERENCE_EXPECTED_FAILURES = {

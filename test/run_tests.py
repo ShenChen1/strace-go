@@ -31,6 +31,9 @@ FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_semantic_fixture.c")
 THREAD_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_thread_fixture.c")
 ATTACH_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_attach_fixture.c")
 EVENT_FLAG_TRUNCATED = 4
+UPSTREAM_TEST_TIMEOUT_SECONDS = {
+    "readv.test": 60,
+}
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Unified test framework for strace-go")
@@ -755,7 +758,8 @@ def run_test(t):
                 start_new_session=True,
             )
             try:
-                rc = proc.wait(timeout=30)
+                timeout = UPSTREAM_TEST_TIMEOUT_SECONDS.get(t, 30)
+                rc = proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 # Kill the whole test session (shell + sudo + strace-go) so
                 # hung tests do not leave orphaned tracers running.
