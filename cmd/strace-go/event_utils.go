@@ -220,67 +220,65 @@ func rememberFDTargetFromProc(procTid uint32, targetPid int, fd int32, suffix st
 	fdMap[key] = target + suffix
 }
 
-func checkShouldPrintFromView(view syscallEventView, scMeta meta.Syscall, pathText string, isPath bool, targetPid int, opts *cli.Options, fdMap map[string]string) bool {
-	return checkShouldPrintFromViewWithPayload(view, scMeta, pathText, isPath, targetPid, opts, fdMap, nil)
+type printFilterRequest struct {
+	view            syscallEventView
+	scMeta          meta.Syscall
+	pathText        string
+	isPath          bool
+	targetPid       int
+	opts            *cli.Options
+	fdMap           map[string]string
+	payloadSections []handler.PayloadSection
 }
 
-func checkShouldPrintFromViewWithPayload(
-	view syscallEventView,
-	scMeta meta.Syscall,
-	pathText string,
-	isPath bool,
-	targetPid int,
-	opts *cli.Options,
-	fdMap map[string]string,
-	payloadSections []handler.PayloadSection,
-) bool {
+func checkShouldPrintFromView(req printFilterRequest) bool {
 	var fds []int32
-	for i, argName := range scMeta.Args {
-		if scMeta.Name == "fsconfig" && i == 0 {
+	for i, argName := range req.scMeta.Args {
+		if req.scMeta.Name == "fsconfig" && i == 0 {
 			continue
 		}
 		if isFdArgName(argName) {
-			fds = append(fds, int32(view.args[i]))
+			fds = append(fds, int32(req.view.args[i]))
 		}
 	}
-	fds = append(fds, payloadSectionFDs(scMeta.Name, view.args, payloadSections)...)
+	fds = append(fds, payloadSectionFDs(req.scMeta.Name, req.view.args, req.payloadSections)...)
 	if len(fds) == 0 {
 		fds = []int32{-1}
 	}
 	matchedPath := event.MatchPath(event.PathMatchRequest{
-		Pid:        targetPid,
+		Pid:        req.targetPid,
 		FDs:        fds,
-		IsPath:     isPath,
-		PathText:   pathText,
-		TracePaths: opts.TracePaths,
-		FDMap:      fdMap,
+		IsPath:     req.isPath,
+		PathText:   req.pathText,
+		TracePaths: req.opts.TracePaths,
+		FDMap:      req.fdMap,
 	})
-	matchedFD := matchTraceFDs(fds, opts)
+	matchedFD := matchTraceFDs(fds, req.opts)
 	requestedRW := false
 	for _, fd := range fds {
-		if (scMeta.Name == "read" && opts.TraceReadFD(fd)) || (scMeta.Name == "write" && opts.TraceWriteFD(fd)) {
+		if (req.scMeta.Name == "read" && req.opts.TraceReadFD(fd)) || (req.scMeta.Name == "write" && req.opts.TraceWriteFD(fd)) {
 			requestedRW = true
 			break
 		}
 	}
 
-	matchedSyscall := len(opts.TraceSyscalls) == 0 && len(opts.TraceSyscallRegexps) == 0
+	matchedSyscall := len(req.opts.TraceSyscalls) == 0 && len(req.opts.TraceSyscallRegexps) == 0
 	if !matchedSyscall {
-		if opts.TraceSyscalls[scMeta.Name] {
+		if req.opts.TraceSyscalls[req.scMeta.Name] {
 			matchedSyscall = true
 		} else {
-			for _, r := range opts.TraceSyscallRegexps {
-				if r.MatchString(scMeta.Name) {
+			for _, r := range req.opts.TraceSyscallRegexps {
+				if r.MatchString(req.scMeta.Name) {
 					matchedSyscall = true
 					break
 				}
 			}
 		}
 	}
-	if opts.TraceSetIsNegated {
+	if req.opts.TraceSetIsNegated {
 		matchedSyscall = !matchedSyscall
 	}
-	return matchedSyscall && filtersMatch(matchedPath, matchedFD, requestedRW, opts)
+	return matchedSyscall && filtersMatch(matchedPath, matchedFD, requestedRW, req.opts)
 }
 
 func payloadSectionFDs(syscallName string, args [6]uint64, payloadSections []handler.PayloadSection) []int32 {

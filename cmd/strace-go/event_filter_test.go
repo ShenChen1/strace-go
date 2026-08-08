@@ -28,6 +28,19 @@ func viewWithArgs(args [6]uint64) syscallEventView {
 	return syscallEventView{valid: true, args: args}
 }
 
+func checkShouldPrintForTest(view syscallEventView, sc meta.Syscall, opts *cli.Options, configure func(*printFilterRequest)) bool {
+	req := printFilterRequest{
+		view:      view,
+		scMeta:    sc,
+		targetPid: 101,
+		opts:      opts,
+	}
+	if configure != nil {
+		configure(&req)
+	}
+	return checkShouldPrintFromView(req)
+}
+
 func filterTestPollfd(fd int32) []byte {
 	data := make([]byte, pollPayloadFdSize)
 	binary.LittleEndian.PutUint32(data[0:4], uint32(fd))
@@ -77,13 +90,13 @@ func TestCheckShouldPrintTraceFDs(t *testing.T) {
 	opts.TraceFDs[0] = true
 	sc := meta.Syscall{Name: "dup", Args: []string{"fd"}}
 
-	if checkShouldPrintFromView(viewWithArgs([6]uint64{rawFD(-1)}), sc, "", false, 101, opts, nil) {
+	if checkShouldPrintForTest(viewWithArgs([6]uint64{rawFD(-1)}), sc, opts, nil) {
 		t.Fatal("dup(-1) should be filtered by --trace-fds=0")
 	}
-	if !checkShouldPrintFromView(viewWithArgs([6]uint64{0}), sc, "", false, 101, opts, nil) {
+	if !checkShouldPrintForTest(viewWithArgs([6]uint64{0}), sc, opts, nil) {
 		t.Fatal("dup(0) should match --trace-fds=0")
 	}
-	if checkShouldPrintFromView(viewWithArgs([6]uint64{3}), sc, "", false, 101, opts, nil) {
+	if checkShouldPrintForTest(viewWithArgs([6]uint64{3}), sc, opts, nil) {
 		t.Fatal("dup(3) should be filtered by --trace-fds=0")
 	}
 }
@@ -96,7 +109,7 @@ func TestCheckShouldPrintFromViewUsesEventViewFDs(t *testing.T) {
 
 	view := syscallEventView{valid: true, args: [6]uint64{5}}
 
-	if !checkShouldPrintFromView(view, sc, "", false, 101, opts, nil) {
+	if !checkShouldPrintForTest(view, sc, opts, nil) {
 		t.Fatal("dup(5) view should match --trace-fds=5")
 	}
 }
@@ -108,19 +121,19 @@ func TestCheckShouldPrintTraceFDsNegated(t *testing.T) {
 	opts.TraceFDsNegated = true
 	sc := meta.Syscall{Name: "dup", Args: []string{"fd"}}
 
-	if !checkShouldPrintFromView(viewWithArgs([6]uint64{3}), sc, "", false, 101, opts, nil) {
+	if !checkShouldPrintForTest(viewWithArgs([6]uint64{3}), sc, opts, nil) {
 		t.Fatal("dup(3) should match --trace-fds=!9")
 	}
-	if checkShouldPrintFromView(viewWithArgs([6]uint64{9}), sc, "", false, 101, opts, nil) {
+	if checkShouldPrintForTest(viewWithArgs([6]uint64{9}), sc, opts, nil) {
 		t.Fatal("dup(9) should be filtered by --trace-fds=!9")
 	}
-	if checkShouldPrintFromView(viewWithArgs([6]uint64{rawFD(-1)}), sc, "", false, 101, opts, nil) {
+	if checkShouldPrintForTest(viewWithArgs([6]uint64{rawFD(-1)}), sc, opts, nil) {
 		t.Fatal("dup(-1) should be filtered by --trace-fds=!9")
 	}
 
 	sc = meta.Syscall{Name: "dup2", Args: []string{"oldfd", "newfd"}}
 	opts.TraceSyscalls["dup2"] = true
-	if !checkShouldPrintFromView(viewWithArgs([6]uint64{9, 4}), sc, "", false, 101, opts, nil) {
+	if !checkShouldPrintForTest(viewWithArgs([6]uint64{9, 4}), sc, opts, nil) {
 		t.Fatal("dup2(9, 4) should match --trace-fds=!9 because fd 4 is not excluded")
 	}
 }
@@ -133,13 +146,15 @@ func TestCheckShouldPrintTraceFDsOrPath(t *testing.T) {
 	sc := meta.Syscall{Name: "dup", Args: []string{"fd"}}
 	fdMap := map[string]string{"101:9": "/dev/full"}
 
-	if !checkShouldPrintFromView(viewWithArgs([6]uint64{0}), sc, "", false, 101, opts, fdMap) {
+	withFDMap := func(req *printFilterRequest) { req.fdMap = fdMap }
+
+	if !checkShouldPrintForTest(viewWithArgs([6]uint64{0}), sc, opts, withFDMap) {
 		t.Fatal("dup(0) should match --trace-fds=0 even with -P")
 	}
-	if !checkShouldPrintFromView(viewWithArgs([6]uint64{9}), sc, "", false, 101, opts, fdMap) {
+	if !checkShouldPrintForTest(viewWithArgs([6]uint64{9}), sc, opts, withFDMap) {
 		t.Fatal("dup(9) should match -P /dev/full even with --trace-fds=0")
 	}
-	if checkShouldPrintFromView(viewWithArgs([6]uint64{3}), sc, "", false, 101, opts, fdMap) {
+	if checkShouldPrintForTest(viewWithArgs([6]uint64{3}), sc, opts, withFDMap) {
 		t.Fatal("dup(3) should not match --trace-fds=0 or -P /dev/full")
 	}
 }
@@ -159,7 +174,9 @@ func TestCheckShouldPrintTraceFDsUsesPollPayloadFDs(t *testing.T) {
 		},
 	}
 
-	if !checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{0x1000, 2, 0}), sc, "", false, 101, opts, nil, sections) {
+	if !checkShouldPrintForTest(viewWithArgs([6]uint64{0x1000, 2, 0}), sc, opts, func(req *printFilterRequest) {
+		req.payloadSections = sections
+	}) {
 		t.Fatal("poll payload fd 9 should match --trace-fds=9")
 	}
 }
@@ -180,7 +197,10 @@ func TestCheckShouldPrintTracePathUsesPollPayloadFDs(t *testing.T) {
 		},
 	}
 
-	if !checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{0x1000, 2, 0, 0, 8}), sc, "", false, 101, opts, fdMap, sections) {
+	if !checkShouldPrintForTest(viewWithArgs([6]uint64{0x1000, 2, 0, 0, 8}), sc, opts, func(req *printFilterRequest) {
+		req.fdMap = fdMap
+		req.payloadSections = sections
+	}) {
 		t.Fatal("ppoll payload fd 9 should match -P /dev/full")
 	}
 }
@@ -200,7 +220,9 @@ func TestCheckShouldPrintTraceFDsUsesSelectPayloadFDs(t *testing.T) {
 		},
 	}
 
-	if !checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{10, 0x1000, 0, 0, 0}), sc, "", false, 101, opts, nil, sections) {
+	if !checkShouldPrintForTest(viewWithArgs([6]uint64{10, 0x1000, 0, 0, 0}), sc, opts, func(req *printFilterRequest) {
+		req.payloadSections = sections
+	}) {
 		t.Fatal("select payload fd 9 should match --trace-fds=9")
 	}
 }
@@ -221,7 +243,10 @@ func TestCheckShouldPrintTracePathUsesSelectPayloadFDs(t *testing.T) {
 		},
 	}
 
-	if !checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{10, 0, 0x2000, 0, 0}), sc, "", false, 101, opts, fdMap, sections) {
+	if !checkShouldPrintForTest(viewWithArgs([6]uint64{10, 0, 0x2000, 0, 0}), sc, opts, func(req *printFilterRequest) {
+		req.fdMap = fdMap
+		req.payloadSections = sections
+	}) {
 		t.Fatal("_newselect payload fd 9 should match -P /dev/full")
 	}
 }
@@ -233,7 +258,9 @@ func TestCheckShouldPrintTracePathUsesFsconfigAuxFD(t *testing.T) {
 	sc := meta.Syscall{Name: "fsconfig", Args: []string{"fd", "cmd", "key", "value", "aux"}}
 	fdMap := map[string]string{"101:3": "/dev/full"}
 
-	if !checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{rawFD(-100), 3, 0, 0, 3}), sc, "", false, 101, opts, fdMap, nil) {
+	if !checkShouldPrintForTest(viewWithArgs([6]uint64{rawFD(-100), 3, 0, 0, 3}), sc, opts, func(req *printFilterRequest) {
+		req.fdMap = fdMap
+	}) {
 		t.Fatal("fsconfig aux fd 3 should match -P /dev/full")
 	}
 }
@@ -245,7 +272,9 @@ func TestCheckShouldPrintTracePathIgnoresFsconfigContextFD(t *testing.T) {
 	sc := meta.Syscall{Name: "fsconfig", Args: []string{"fd", "cmd", "key", "value", "aux"}}
 	fdMap := map[string]string{"101:3": "/dev/full"}
 
-	if checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{3, 0, 0, 0, 0}), sc, "", false, 101, opts, fdMap, nil) {
+	if checkShouldPrintForTest(viewWithArgs([6]uint64{3, 0, 0, 0, 0}), sc, opts, func(req *printFilterRequest) {
+		req.fdMap = fdMap
+	}) {
 		t.Fatal("fsconfig context fd should not match -P /dev/full for SET_FLAG")
 	}
 }
@@ -278,7 +307,9 @@ func TestCheckShouldPrintSelectPayloadFDsIgnoresNegativeNfds(t *testing.T) {
 		},
 	}
 
-	if checkShouldPrintFromViewWithPayload(viewWithArgs([6]uint64{0xffffffffffffffff, 0x1000, 0, 0, 0}), sc, "", false, 101, opts, nil, sections) {
+	if checkShouldPrintForTest(viewWithArgs([6]uint64{0xffffffffffffffff, 0x1000, 0, 0, 0}), sc, opts, func(req *printFilterRequest) {
+		req.payloadSections = sections
+	}) {
 		t.Fatal("select(-1, ...) should not derive fd matches from fd_set payload")
 	}
 }

@@ -52,7 +52,16 @@ func newSyscallEventContextFromView(
 	pathText := decodePathText(s, view, scMeta, isPath, payloadSections)
 	shouldPrint := true
 	if s.opts != nil {
-		shouldPrint = checkShouldPrintFromViewWithPayload(view, scMeta, pathText, isPath, statePID, s.opts, s.fdStateStore().PathMap(), payloadSections)
+		shouldPrint = checkShouldPrintFromView(printFilterRequest{
+			view:            view,
+			scMeta:          scMeta,
+			pathText:        pathText,
+			isPath:          isPath,
+			targetPid:       statePID,
+			opts:            s.opts,
+			fdMap:           s.fdStateStore().PathMap(),
+			payloadSections: payloadSections,
+		})
 	}
 	ev := syscallEventContext{
 		view:            view,
@@ -296,7 +305,13 @@ func (ev syscallEventContext) shouldEmitRawEnter(opts *cli.Options, pathMap map[
 	if opts.DebugEvents {
 		return true
 	}
-	return checkShouldPrintFromView(ev.eventView(), ev.effectiveSyscallMeta(), "", false, ev.statePID, opts, pathMap)
+	return checkShouldPrintFromView(printFilterRequest{
+		view:      ev.eventView(),
+		scMeta:    ev.effectiveSyscallMeta(),
+		targetPid: ev.statePID,
+		opts:      opts,
+		fdMap:     pathMap,
+	})
 }
 
 func (ev syscallEventContext) handleWith(handle func(string, *handler.Context) handler.Result) handler.Result {
