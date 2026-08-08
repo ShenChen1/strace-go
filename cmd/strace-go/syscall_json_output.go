@@ -6,35 +6,31 @@ import (
 )
 
 type SyscallJSONOutput struct {
-	opts         *cli.Options
-	pathMap      map[string]string
-	writeRaw     func(syscallEventContext)
-	writeDecoded func(syscallEventContext, handler.Result)
+	opts    *cli.Options
+	pathMap map[string]string
+	writer  jsonEventWriter
 }
 
 type SyscallJSONOutputDeps struct {
-	Opts         *cli.Options
-	PathMap      map[string]string
-	WriteRaw     func(syscallEventContext)
-	WriteDecoded func(syscallEventContext, handler.Result)
+	Opts    *cli.Options
+	PathMap map[string]string
+	Writer  jsonEventWriter
 }
 
 func newSyscallJSONOutput(deps SyscallJSONOutputDeps) *SyscallJSONOutput {
 	return &SyscallJSONOutput{
-		opts:         deps.Opts,
-		pathMap:      deps.PathMap,
-		writeRaw:     deps.WriteRaw,
-		writeDecoded: deps.WriteDecoded,
+		opts:    deps.Opts,
+		pathMap: deps.PathMap,
+		writer:  deps.Writer,
 	}
 }
 
 func (s *traceSession) syscallJSONOutput() *SyscallJSONOutput {
 	if s.syscallJSONCache == nil {
 		s.syscallJSONCache = newSyscallJSONOutput(SyscallJSONOutputDeps{
-			Opts:         s.opts,
-			PathMap:      s.fdStateStore().PathMap(),
-			WriteRaw:     s.writeJSONRawEvent,
-			WriteDecoded: s.writeJSONDecodedEvent,
+			Opts:    s.opts,
+			PathMap: s.fdStateStore().PathMap(),
+			Writer:  s.jsonEventWriter(),
 		})
 	}
 	return s.syscallJSONCache
@@ -77,13 +73,13 @@ func (o *SyscallJSONOutput) jsonMode() bool {
 }
 
 func (o *SyscallJSONOutput) writeRawEvent(ev syscallEventContext) {
-	if o.writeRaw != nil {
-		o.writeRaw(ev)
+	if o.writer != nil {
+		o.writer.WriteRaw(ev)
 	}
 }
 
 func (o *SyscallJSONOutput) writeDecodedEvent(ev syscallEventContext, res handler.Result) {
-	if o.writeDecoded != nil {
-		o.writeDecoded(ev, res)
+	if o.writer != nil {
+		o.writer.WriteDecoded(ev, res)
 	}
 }

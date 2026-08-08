@@ -75,8 +75,10 @@ func TestTraceEventRouterRoutesGenericEnterToJSON(t *testing.T) {
 		State:     newTraceState(),
 		JSON: newSyscallJSONOutput(SyscallJSONOutputDeps{
 			Opts: opts,
-			WriteRaw: func(syscallEventContext) {
-				rawEvents++
+			Writer: &fakeJSONEventWriter{
+				onRaw: func(syscallEventContext) {
+					rawEvents++
+				},
 			},
 		}),
 	})

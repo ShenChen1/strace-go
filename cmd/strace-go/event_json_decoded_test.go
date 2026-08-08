@@ -11,14 +11,14 @@ import (
 
 func TestWriteJSONDecodedEventUsesSyscallEventView(t *testing.T) {
 	var output bytes.Buffer
-	session := &traceSession{outWriter: &output}
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: &output})
 	ev := syscallEventContext{
 		view:           syscallEventView{valid: true, pid: 101, tid: 102, sysID: 39, args: [6]uint64{7}, ret: -2, duration: 55, probeRetEnter: -1},
 		meta:           meta.Syscall{Name: "getpid"},
 		handlerContext: &handler.Context{},
 	}
 
-	session.writeJSONDecodedEvent(ev, handler.Result{ArgParts: []string{"7"}})
+	writer.WriteDecoded(ev, handler.Result{ArgParts: []string{"7"}})
 
 	var got jsonSyscallEvent
 	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &got); err != nil {
@@ -37,7 +37,7 @@ func TestWriteJSONDecodedEventUsesSyscallEventView(t *testing.T) {
 
 func TestWriteJSONDecodedEventUsesHandlerPayloadSections(t *testing.T) {
 	var output bytes.Buffer
-	session := &traceSession{outWriter: &output}
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: &output})
 	ev := syscallEventContext{
 		view: syscallEventView{
 			valid:     true,
@@ -69,7 +69,7 @@ func TestWriteJSONDecodedEventUsesHandlerPayloadSections(t *testing.T) {
 		},
 	}
 
-	session.writeJSONDecodedEvent(ev, handler.Result{})
+	writer.WriteDecoded(ev, handler.Result{})
 
 	var got jsonSyscallEvent
 	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &got); err != nil {
@@ -86,7 +86,7 @@ func TestWriteJSONDecodedEventUsesHandlerPayloadSections(t *testing.T) {
 
 func TestWriteJSONDecodedEventReturnTextUsesHandlerMetadata(t *testing.T) {
 	var output bytes.Buffer
-	session := &traceSession{outWriter: &output}
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: &output})
 	ev := syscallEventContext{
 		view: syscallEventView{
 			valid: true,
@@ -100,7 +100,7 @@ func TestWriteJSONDecodedEventReturnTextUsesHandlerMetadata(t *testing.T) {
 		},
 	}
 
-	session.writeJSONDecodedEvent(ev, handler.Result{})
+	writer.WriteDecoded(ev, handler.Result{})
 
 	var got jsonSyscallEvent
 	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &got); err != nil {
@@ -116,7 +116,7 @@ func TestWriteJSONDecodedEventReturnTextUsesHandlerMetadata(t *testing.T) {
 
 func TestWriteJSONDecodedEventOmitsPayloadWithoutHandlerContext(t *testing.T) {
 	var output bytes.Buffer
-	session := &traceSession{outWriter: &output}
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: &output})
 	ev := syscallEventContext{
 		view: syscallEventView{
 			valid:     true,
@@ -134,7 +134,7 @@ func TestWriteJSONDecodedEventOmitsPayloadWithoutHandlerContext(t *testing.T) {
 		}},
 	}
 
-	session.writeJSONDecodedEvent(ev, handler.Result{})
+	writer.WriteDecoded(ev, handler.Result{})
 
 	var got jsonSyscallEvent
 	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &got); err != nil {

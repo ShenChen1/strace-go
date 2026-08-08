@@ -16,17 +16,43 @@ type jsonOutputTestState struct {
 	decodedEvent  syscallEventContext
 }
 
+type fakeJSONEventWriter struct {
+	onRaw       func(syscallEventContext)
+	onDecoded   func(syscallEventContext, handler.Result)
+	onLifecycle func(lifecycleEventView, *TaskState)
+}
+
+func (w *fakeJSONEventWriter) WriteRaw(ev syscallEventContext) {
+	if w.onRaw != nil {
+		w.onRaw(ev)
+	}
+}
+
+func (w *fakeJSONEventWriter) WriteDecoded(ev syscallEventContext, res handler.Result) {
+	if w.onDecoded != nil {
+		w.onDecoded(ev, res)
+	}
+}
+
+func (w *fakeJSONEventWriter) WriteLifecycle(view lifecycleEventView, task *TaskState) {
+	if w.onLifecycle != nil {
+		w.onLifecycle(view, task)
+	}
+}
+
 func newJSONOutputTestState(opts *cli.Options) *jsonOutputTestState {
 	state := &jsonOutputTestState{}
 	state.output = newSyscallJSONOutput(SyscallJSONOutputDeps{
 		Opts: opts,
-		WriteRaw: func(ev syscallEventContext) {
-			state.rawWrites++
-			state.rawView = ev.eventView()
-		},
-		WriteDecoded: func(ev syscallEventContext, _ handler.Result) {
-			state.decodedWrites++
-			state.decodedEvent = ev
+		Writer: &fakeJSONEventWriter{
+			onRaw: func(ev syscallEventContext) {
+				state.rawWrites++
+				state.rawView = ev.eventView()
+			},
+			onDecoded: func(ev syscallEventContext, _ handler.Result) {
+				state.decodedWrites++
+				state.decodedEvent = ev
+			},
 		},
 	})
 	return state

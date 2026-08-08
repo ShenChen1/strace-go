@@ -25,18 +25,18 @@ type LifecycleEffects interface {
 
 type traceSessionLifecycleEffects struct {
 	fdState       *FDStateStore
-	writeJSON     func(lifecycleEventView, *TaskState)
+	jsonWriter    jsonEventWriter
 	writeExitText func(tid int, exitCode uint64)
 }
 
 func newTraceSessionLifecycleEffects(
 	fdState *FDStateStore,
-	writeJSON func(lifecycleEventView, *TaskState),
+	jsonWriter jsonEventWriter,
 	writeExitText func(tid int, exitCode uint64),
 ) *traceSessionLifecycleEffects {
 	return &traceSessionLifecycleEffects{
 		fdState:       fdState,
-		writeJSON:     writeJSON,
+		jsonWriter:    jsonWriter,
 		writeExitText: writeExitText,
 	}
 }
@@ -54,8 +54,8 @@ func (e *traceSessionLifecycleEffects) CleanupProcessState(pid int) {
 }
 
 func (e *traceSessionLifecycleEffects) WriteJSON(view lifecycleEventView, task *TaskState) {
-	if e.writeJSON != nil {
-		e.writeJSON(view, task)
+	if e.jsonWriter != nil {
+		e.jsonWriter.WriteLifecycle(view, task)
 	}
 }
 
@@ -78,7 +78,7 @@ func (s *traceSession) lifecycleEventHandler() *LifecycleEventHandler {
 			Opts: s.opts,
 			Effects: newTraceSessionLifecycleEffects(
 				s.fdStateStore(),
-				s.writeJSONLifecycleEventView,
+				s.jsonEventWriter(),
 				s.writeLifecycleExitText,
 			),
 		})

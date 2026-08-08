@@ -11,7 +11,7 @@ import (
 
 func TestJSONLifecycleExecIncludesFilenameSnapshot(t *testing.T) {
 	var output bytes.Buffer
-	session := &traceSession{outWriter: &output}
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: &output})
 	raw := traceEventV2LifecycleSample(t, traceEventV2SampleSpec{
 		pid:     101,
 		tid:     101,
@@ -26,7 +26,7 @@ func TestJSONLifecycleExecIncludesFilenameSnapshot(t *testing.T) {
 		t.Fatal("decodeTraceEventV2Envelope rejected lifecycle sample")
 	}
 
-	session.writeJSONLifecycleEventView(envelope.lifecycleView(), &TaskState{
+	writer.WriteLifecycle(envelope.lifecycleView(), &TaskState{
 		TID:        101,
 		TGID:       101,
 		Alive:      true,
@@ -53,9 +53,9 @@ func TestJSONLifecycleExecIncludesFilenameSnapshot(t *testing.T) {
 
 func TestJSONLifecycleViewIncludesFilenameSnapshot(t *testing.T) {
 	var output bytes.Buffer
-	session := &traceSession{outWriter: &output}
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: &output})
 
-	session.writeJSONLifecycleEventView(lifecycleEventView{
+	writer.WriteLifecycle(lifecycleEventView{
 		eventVersion: 2,
 		eventType:    bpfEventTypeLifecycle,
 		eventFlags:   bpfEventFlagTruncated,
@@ -105,7 +105,7 @@ func TestJSONStatsEventIncludesRingbufFailures(t *testing.T) {
 
 func TestJSONRawEventViewOverridesRawScalars(t *testing.T) {
 	var output bytes.Buffer
-	session := &traceSession{outWriter: &output}
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: &output})
 	view := syscallEventView{
 		valid:         true,
 		eventVersion:  2,
@@ -123,7 +123,7 @@ func TestJSONRawEventViewOverridesRawScalars(t *testing.T) {
 		probeRetExit:  0,
 	}
 
-	session.writeJSONRawEvent(syscallEventContext{
+	writer.WriteRaw(syscallEventContext{
 		view: view,
 		meta: meta.Syscall{Name: "exit"},
 		payloadSections: []handler.PayloadSection{{

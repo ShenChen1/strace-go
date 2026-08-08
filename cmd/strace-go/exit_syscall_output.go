@@ -5,7 +5,6 @@ import (
 	"io"
 
 	"strace-go/pkg/cli"
-	"strace-go/pkg/handler"
 )
 
 type ExitSyscallOutput struct {
@@ -14,7 +13,7 @@ type ExitSyscallOutput struct {
 	out               io.Writer
 	shouldQueueStatus func(int) bool
 	queueStatus       func(int, string)
-	writeJSON         func(syscallEventContext, handler.Result)
+	jsonWriter        jsonEventWriter
 }
 
 type ExitSyscallOutputDeps struct {
@@ -23,7 +22,7 @@ type ExitSyscallOutputDeps struct {
 	Out               io.Writer
 	ShouldQueueStatus func(int) bool
 	QueueStatus       func(int, string)
-	WriteJSON         func(syscallEventContext, handler.Result)
+	JSONWriter        jsonEventWriter
 }
 
 func newExitSyscallOutput(deps ExitSyscallOutputDeps) *ExitSyscallOutput {
@@ -33,7 +32,7 @@ func newExitSyscallOutput(deps ExitSyscallOutputDeps) *ExitSyscallOutput {
 		out:               deps.Out,
 		shouldQueueStatus: deps.ShouldQueueStatus,
 		queueStatus:       deps.QueueStatus,
-		writeJSON:         deps.WriteJSON,
+		jsonWriter:        deps.JSONWriter,
 	}
 }
 
@@ -46,7 +45,7 @@ func (s *traceSession) exitSyscallOutput() *ExitSyscallOutput {
 			Out:               s.outWriter,
 			ShouldQueueStatus: exitStatus.ShouldQueue,
 			QueueStatus:       exitStatus.Queue,
-			WriteJSON:         s.writeJSONDecodedEvent,
+			JSONWriter:        s.jsonEventWriter(),
 		})
 	}
 	return s.exitSyscallCache
@@ -64,8 +63,8 @@ func (o *ExitSyscallOutput) Handle(ev syscallEventContext) bool {
 	if ev.shouldOutput() {
 		res := ev.handleWith(defaultHandleSyscall)
 		if o.opts != nil && o.opts.EventFormat == cli.EventFormatJSON {
-			if o.writeJSON != nil {
-				o.writeJSON(ev, res)
+			if o.jsonWriter != nil {
+				o.jsonWriter.WriteDecoded(ev, res)
 			}
 			return true
 		}

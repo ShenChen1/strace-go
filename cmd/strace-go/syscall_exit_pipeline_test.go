@@ -58,8 +58,10 @@ func TestSyscallExitPipelineDebugRawStopsAfterJSONAndRunsFDSideEffects(t *testin
 	var calls []string
 	jsonOutput := newSyscallJSONOutput(SyscallJSONOutputDeps{
 		Opts: opts,
-		WriteRaw: func(syscallEventContext) {
-			calls = append(calls, "json-raw")
+		Writer: &fakeJSONEventWriter{
+			onRaw: func(syscallEventContext) {
+				calls = append(calls, "json-raw")
+			},
 		},
 	})
 	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{

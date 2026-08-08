@@ -20,6 +20,9 @@ func TestTraceSessionCachesEventPipelineComponents(t *testing.T) {
 	if session.syscallJSONOutput() != session.syscallJSONOutput() {
 		t.Fatal("syscallJSONOutput should be cached per session")
 	}
+	if session.jsonEventWriter() != session.jsonEventWriter() {
+		t.Fatal("jsonEventWriter should be cached per session")
+	}
 	if session.syscallHandlerRunner() != session.syscallHandlerRunner() {
 		t.Fatal("syscallHandlerRunner should be cached per session")
 	}
@@ -63,6 +66,13 @@ func TestTraceSessionPipelineUsesCachedDependencies(t *testing.T) {
 	}
 
 	pipeline := session.syscallExitPipeline()
+	jsonWriter := session.jsonEventWriter()
+	if session.syscallJSONOutput().writer != jsonWriter {
+		t.Fatal("syscall JSON output should use cached JSON writer")
+	}
+	if session.exitSyscallOutput().jsonWriter != jsonWriter {
+		t.Fatal("exit syscall output should use cached JSON writer")
+	}
 
 	if pipeline.json != session.syscallJSONOutput() {
 		t.Fatal("pipeline should use cached JSON output")
@@ -99,6 +109,9 @@ func TestTraceSessionPipelineUsesCachedDependencies(t *testing.T) {
 	}
 	if lifecycleEffects.fdState != session.fdStateStore() {
 		t.Fatal("lifecycle handler should use session fd state store")
+	}
+	if lifecycleEffects.jsonWriter != jsonWriter {
+		t.Fatal("lifecycle handler should use cached JSON writer")
 	}
 	router := session.traceEventRouter()
 	if router.state != session.traceState() {

@@ -42,9 +42,11 @@ func newExitOutputTestState(opts *cli.Options) *exitOutputTestState {
 			state.queuedPID = pid
 			state.queuedLine = line
 		},
-		WriteJSON: func(ev syscallEventContext, _ handler.Result) {
-			state.jsonCalled = true
-			state.jsonEvent = ev
+		JSONWriter: &fakeJSONEventWriter{
+			onDecoded: func(ev syscallEventContext, _ handler.Result) {
+				state.jsonCalled = true
+				state.jsonEvent = ev
+			},
 		},
 	})
 	return state

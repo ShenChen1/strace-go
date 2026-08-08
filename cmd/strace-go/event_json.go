@@ -1,8 +1,6 @@
 package main
 
 import (
-	"encoding/json"
-
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
@@ -118,39 +116,6 @@ func syscallFailure(ret int64) (bool, int) {
 	return false, 0
 }
 
-func (s *traceSession) writeJSONRawEvent(ev syscallEventContext) {
-	jsonEvent := ev.newJSONRawSyscallEvent()
-	_ = json.NewEncoder(s.outWriter).Encode(jsonEvent)
-}
-
-func (s *traceSession) writeJSONLifecycleEventView(view lifecycleEventView, task *TaskState) {
-	ev := jsonLifecycleEvent{
-		Type:         "lifecycle",
-		EventVersion: view.eventVersion,
-		EventType:    bpfEventTypeNameFromID(view.eventType),
-		EventTypeID:  view.eventType,
-		EventFlags:   view.eventFlags,
-		Action:       lifecycleActionName(view.action),
-		ActionID:     view.action,
-		Pid:          view.pid,
-		Tid:          view.tid,
-		Arg0:         view.args[0],
-		Arg1:         view.args[1],
-		TimeNS:       view.enterTime,
-	}
-	if view.action == lifecycleExec {
-		ev.Filename = view.snapshotText
-	}
-	if task != nil {
-		ev.TaskTID = task.TID
-		ev.TaskTGID = task.TGID
-		ev.ParentTID = task.ParentTID
-		ev.Alive = task.Alive
-		ev.Execed = task.Execed
-	}
-	_ = json.NewEncoder(s.outWriter).Encode(ev)
-}
-
 func newJSONStatsEvent(stats bpfRuntimeStats) jsonStatsEvent {
 	return jsonStatsEvent{
 		Type:                   "stats",
@@ -161,11 +126,6 @@ func newJSONStatsEvent(stats bpfRuntimeStats) jsonStatsEvent {
 		Available:              stats.Available,
 		Error:                  stats.Error,
 	}
-}
-
-func (s *traceSession) writeJSONDecodedEvent(syscallEvent syscallEventContext, res handler.Result) {
-	ev := syscallEvent.newJSONDecodedSyscallEvent(res)
-	_ = json.NewEncoder(s.outWriter).Encode(ev)
 }
 
 func (ev syscallEventContext) newJSONRawSyscallEvent() jsonSyscallEvent {
