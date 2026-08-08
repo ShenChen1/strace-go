@@ -7,39 +7,80 @@ import (
 )
 
 type LifecycleEventHandler struct {
-	opts          *cli.Options
-	inherit       func(parentPID int, childPID int)
-	cleanup       func(pid int)
+	opts    *cli.Options
+	effects LifecycleEffects
+}
+
+type LifecycleEventHandlerDeps struct {
+	Opts    *cli.Options
+	Effects LifecycleEffects
+}
+
+type LifecycleEffects interface {
+	InheritProcessState(parentPID int, childPID int)
+	CleanupProcessState(pid int)
+	WriteJSON(lifecycleEventView, *TaskState)
+	WriteExitText(tid int, exitCode uint64)
+}
+
+type traceSessionLifecycleEffects struct {
+	fdState       *FDStateStore
 	writeJSON     func(lifecycleEventView, *TaskState)
 	writeExitText func(tid int, exitCode uint64)
 }
 
-type LifecycleEventHandlerDeps struct {
-	Opts          *cli.Options
-	Inherit       func(parentPID int, childPID int)
-	Cleanup       func(pid int)
-	WriteJSON     func(lifecycleEventView, *TaskState)
-	WriteExitText func(tid int, exitCode uint64)
+func newTraceSessionLifecycleEffects(
+	fdState *FDStateStore,
+	writeJSON func(lifecycleEventView, *TaskState),
+	writeExitText func(tid int, exitCode uint64),
+) *traceSessionLifecycleEffects {
+	return &traceSessionLifecycleEffects{
+		fdState:       fdState,
+		writeJSON:     writeJSON,
+		writeExitText: writeExitText,
+	}
+}
+
+func (e *traceSessionLifecycleEffects) InheritProcessState(parentPID int, childPID int) {
+	if e.fdState != nil {
+		e.fdState.InheritProcessState(parentPID, childPID)
+	}
+}
+
+func (e *traceSessionLifecycleEffects) CleanupProcessState(pid int) {
+	if e.fdState != nil {
+		e.fdState.CleanupProcess(pid)
+	}
+}
+
+func (e *traceSessionLifecycleEffects) WriteJSON(view lifecycleEventView, task *TaskState) {
+	if e.writeJSON != nil {
+		e.writeJSON(view, task)
+	}
+}
+
+func (e *traceSessionLifecycleEffects) WriteExitText(tid int, exitCode uint64) {
+	if e.writeExitText != nil {
+		e.writeExitText(tid, exitCode)
+	}
 }
 
 func newLifecycleEventHandler(deps LifecycleEventHandlerDeps) *LifecycleEventHandler {
 	return &LifecycleEventHandler{
-		opts:          deps.Opts,
-		inherit:       deps.Inherit,
-		cleanup:       deps.Cleanup,
-		writeJSON:     deps.WriteJSON,
-		writeExitText: deps.WriteExitText,
+		opts:    deps.Opts,
+		effects: deps.Effects,
 	}
 }
 
 func (s *traceSession) lifecycleEventHandler() *LifecycleEventHandler {
 	if s.lifecycleHandlerCache == nil {
 		s.lifecycleHandlerCache = newLifecycleEventHandler(LifecycleEventHandlerDeps{
-			Opts:          s.opts,
-			Inherit:       s.inheritProcessState,
-			Cleanup:       s.cleanupProcessState,
-			WriteJSON:     s.writeJSONLifecycleEventView,
-			WriteExitText: s.writeLifecycleExitText,
+			Opts: s.opts,
+			Effects: newTraceSessionLifecycleEffects(
+				s.fdStateStore(),
+				s.writeJSONLifecycleEventView,
+				s.writeLifecycleExitText,
+			),
 		})
 	}
 	return s.lifecycleHandlerCache
@@ -63,7 +104,7 @@ func (h *LifecycleEventHandler) Handle(view lifecycleEventView, task *TaskState)
 			}
 		}
 		isThread := task != nil && task.TID != task.TGID
-		if !h.jsonMode() && h.writeExitText != nil &&
+		if !h.jsonMode() &&
 			(isAttachTarget || isThread || task != nil && task.Execed) {
 			h.writeExitText(int(view.tid), view.args[0])
 		}
@@ -76,20 +117,26 @@ func (h *LifecycleEventHandler) Handle(view lifecycleEventView, task *TaskState)
 }
 
 func (h *LifecycleEventHandler) inheritProcess(view lifecycleEventView) {
-	if h.inherit != nil {
-		h.inherit(int(view.args[0]), int(view.args[1]))
+	if h.effects != nil {
+		h.effects.InheritProcessState(int(view.args[0]), int(view.args[1]))
 	}
 }
 
 func (h *LifecycleEventHandler) cleanupProcess(view lifecycleEventView) {
-	if h.cleanup != nil {
-		h.cleanup(int(view.tid))
+	if h.effects != nil {
+		h.effects.CleanupProcessState(int(view.tid))
 	}
 }
 
 func (h *LifecycleEventHandler) writeLifecycleJSON(view lifecycleEventView, task *TaskState) {
-	if h.writeJSON != nil {
-		h.writeJSON(view, task)
+	if h.effects != nil {
+		h.effects.WriteJSON(view, task)
+	}
+}
+
+func (h *LifecycleEventHandler) writeExitText(tid int, exitCode uint64) {
+	if h.effects != nil {
+		h.effects.WriteExitText(tid, exitCode)
 	}
 }
 

@@ -7,27 +7,45 @@ import (
 )
 
 type lifecycleHandlerTestState struct {
-	handler       *LifecycleEventHandler
+	handler *LifecycleEventHandler
+	effects *fakeLifecycleEffects
+}
+
+type fakeLifecycleEffects struct {
 	inherited     [][2]int
 	cleaned       []int
 	jsonEventSeen bool
 	jsonTaskSeen  *TaskState
+	exitText      []fakeLifecycleExitText
+}
+
+type fakeLifecycleExitText struct {
+	tid      int
+	exitCode uint64
+}
+
+func (e *fakeLifecycleEffects) InheritProcessState(parentPID int, childPID int) {
+	e.inherited = append(e.inherited, [2]int{parentPID, childPID})
+}
+
+func (e *fakeLifecycleEffects) CleanupProcessState(pid int) {
+	e.cleaned = append(e.cleaned, pid)
+}
+
+func (e *fakeLifecycleEffects) WriteJSON(_ lifecycleEventView, task *TaskState) {
+	e.jsonEventSeen = true
+	e.jsonTaskSeen = task
+}
+
+func (e *fakeLifecycleEffects) WriteExitText(tid int, exitCode uint64) {
+	e.exitText = append(e.exitText, fakeLifecycleExitText{tid: tid, exitCode: exitCode})
 }
 
 func newLifecycleHandlerTestState(opts *cli.Options) *lifecycleHandlerTestState {
-	state := &lifecycleHandlerTestState{}
+	state := &lifecycleHandlerTestState{effects: &fakeLifecycleEffects{}}
 	state.handler = newLifecycleEventHandler(LifecycleEventHandlerDeps{
-		Opts: opts,
-		Inherit: func(parentPID int, childPID int) {
-			state.inherited = append(state.inherited, [2]int{parentPID, childPID})
-		},
-		Cleanup: func(pid int) {
-			state.cleaned = append(state.cleaned, pid)
-		},
-		WriteJSON: func(_ lifecycleEventView, task *TaskState) {
-			state.jsonEventSeen = true
-			state.jsonTaskSeen = task
-		},
+		Opts:    opts,
+		Effects: state.effects,
 	})
 	return state
 }
@@ -42,14 +60,14 @@ func TestLifecycleEventHandlerHandlesForkAndJSON(t *testing.T) {
 		args:   [6]uint64{100, 101},
 	}, task)
 
-	if len(state.inherited) != 1 || state.inherited[0] != [2]int{100, 101} {
-		t.Fatalf("inherited = %v, want [100 101]", state.inherited)
+	if len(state.effects.inherited) != 1 || state.effects.inherited[0] != [2]int{100, 101} {
+		t.Fatalf("inherited = %v, want [100 101]", state.effects.inherited)
 	}
-	if len(state.cleaned) != 0 {
-		t.Fatalf("cleaned = %v, want none", state.cleaned)
+	if len(state.effects.cleaned) != 0 {
+		t.Fatalf("cleaned = %v, want none", state.effects.cleaned)
 	}
-	if !state.jsonEventSeen || state.jsonTaskSeen != task {
-		t.Fatalf("json seen=%v task=%p, want task=%p", state.jsonEventSeen, state.jsonTaskSeen, task)
+	if !state.effects.jsonEventSeen || state.effects.jsonTaskSeen != task {
+		t.Fatalf("json seen=%v task=%p, want task=%p", state.effects.jsonEventSeen, state.effects.jsonTaskSeen, task)
 	}
 }
 
@@ -59,13 +77,13 @@ func TestLifecycleEventHandlerHandlesExitAndFreeCleanup(t *testing.T) {
 	state.handler.Handle(lifecycleEventView{action: lifecycleExit, tid: 101}, nil)
 	state.handler.Handle(lifecycleEventView{action: lifecycleFree, tid: 102}, nil)
 
-	if len(state.inherited) != 0 {
-		t.Fatalf("inherited = %v, want none", state.inherited)
+	if len(state.effects.inherited) != 0 {
+		t.Fatalf("inherited = %v, want none", state.effects.inherited)
 	}
-	if len(state.cleaned) != 2 || state.cleaned[0] != 101 || state.cleaned[1] != 102 {
-		t.Fatalf("cleaned = %v, want [101 102]", state.cleaned)
+	if len(state.effects.cleaned) != 2 || state.effects.cleaned[0] != 101 || state.effects.cleaned[1] != 102 {
+		t.Fatalf("cleaned = %v, want [101 102]", state.effects.cleaned)
 	}
-	if state.jsonEventSeen {
+	if state.effects.jsonEventSeen {
 		t.Fatal("json should not be written outside json mode")
 	}
 }
@@ -76,7 +94,25 @@ func TestLifecycleEventHandlerSkipsJSONOutsideJSONMode(t *testing.T) {
 
 	state.handler.Handle(lifecycleEventView{action: lifecycleExec}, &TaskState{TID: 101})
 
-	if state.jsonEventSeen {
+	if state.effects.jsonEventSeen {
 		t.Fatal("json should not be written for text mode")
+	}
+}
+
+func TestLifecycleEventHandlerWritesExitTextThroughEffects(t *testing.T) {
+	opts := cli.ParseArgs([]string{"-p", "101", "/bin/true"})
+	state := newLifecycleHandlerTestState(opts)
+
+	state.handler.Handle(lifecycleEventView{
+		action: lifecycleExit,
+		tid:    101,
+		args:   [6]uint64{7},
+	}, &TaskState{TID: 101, TGID: 101})
+
+	if len(state.effects.exitText) != 1 {
+		t.Fatalf("exitText = %v, want one write", state.effects.exitText)
+	}
+	if got := state.effects.exitText[0]; got != (fakeLifecycleExitText{tid: 101, exitCode: 7}) {
+		t.Fatalf("exitText[0] = %#v, want tid=101 exitCode=7", got)
 	}
 }

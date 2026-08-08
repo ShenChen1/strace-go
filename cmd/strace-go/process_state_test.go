@@ -16,58 +16,54 @@ func TestEventStatePIDUsesViewPIDOrTargetFallback(t *testing.T) {
 	}
 }
 
-func TestInheritProcessStateCopiesFDAndCWD(t *testing.T) {
-	session := &traceSession{
-		fdState: newFDStateStoreFromMaps(map[string]string{
-			"100:cwd": "/tmp",
-			"100:1":   "/tmp/out",
-			"200:1":   "/other",
-		}, map[string]int64{
-			"100:1": 42,
-			"200:1": 7,
-		}),
-	}
+func TestFDStateStoreInheritProcessStateCopiesFDAndCWD(t *testing.T) {
+	store := newFDStateStoreFromMaps(map[string]string{
+		"100:cwd": "/tmp",
+		"100:1":   "/tmp/out",
+		"200:1":   "/other",
+	}, map[string]int64{
+		"100:1": 42,
+		"200:1": 7,
+	})
 
-	session.inheritProcessState(100, 101)
+	store.InheritProcessState(100, 101)
 
-	if got := session.fdState.paths["101:cwd"]; got != "/tmp" {
+	if got := store.paths["101:cwd"]; got != "/tmp" {
 		t.Fatalf("child cwd = %q, want /tmp", got)
 	}
-	if got := session.fdState.paths["101:1"]; got != "/tmp/out" {
+	if got := store.paths["101:1"]; got != "/tmp/out" {
 		t.Fatalf("child fd target = %q, want /tmp/out", got)
 	}
-	if got := session.fdState.offsets["101:1"]; got != 42 {
+	if got := store.offsets["101:1"]; got != 42 {
 		t.Fatalf("child fd offset = %d, want 42", got)
 	}
-	if got := session.fdState.paths["200:1"]; got != "/other" {
+	if got := store.paths["200:1"]; got != "/other" {
 		t.Fatalf("unrelated fd target = %q, want /other", got)
 	}
 }
 
-func TestCleanupProcessStateRemovesFDState(t *testing.T) {
-	session := &traceSession{
-		fdState: newFDStateStoreFromMaps(map[string]string{
-			"100:cwd": "/tmp",
-			"100:1":   "/tmp/out",
-			"200:1":   "/other",
-		}, map[string]int64{
-			"100:1": 42,
-			"200:1": 7,
-		}),
-	}
+func TestFDStateStoreCleanupProcessRemovesFDState(t *testing.T) {
+	store := newFDStateStoreFromMaps(map[string]string{
+		"100:cwd": "/tmp",
+		"100:1":   "/tmp/out",
+		"200:1":   "/other",
+	}, map[string]int64{
+		"100:1": 42,
+		"200:1": 7,
+	})
 
-	session.cleanupProcessState(100)
+	store.CleanupProcess(100)
 
-	if _, ok := session.fdState.paths["100:cwd"]; ok {
+	if _, ok := store.paths["100:cwd"]; ok {
 		t.Fatal("parent cwd entry was not removed")
 	}
-	if _, ok := session.fdState.paths["100:1"]; ok {
+	if _, ok := store.paths["100:1"]; ok {
 		t.Fatal("parent fd entry was not removed")
 	}
-	if _, ok := session.fdState.offsets["100:1"]; ok {
+	if _, ok := store.offsets["100:1"]; ok {
 		t.Fatal("parent fd offset was not removed")
 	}
-	if got := session.fdState.paths["200:1"]; got != "/other" {
+	if got := store.paths["200:1"]; got != "/other" {
 		t.Fatalf("unrelated fd target = %q, want /other", got)
 	}
 }

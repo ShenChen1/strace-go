@@ -81,4 +81,11 @@ func TestTraceSessionPipelineUsesCachedDependencies(t *testing.T) {
 	if effects.fdState != session.fdStateStore() {
 		t.Fatal("pipeline should use session fd state store")
 	}
+	lifecycleEffects, ok := session.lifecycleEventHandler().effects.(*traceSessionLifecycleEffects)
+	if !ok {
+		t.Fatalf("lifecycle effects = %T, want *traceSessionLifecycleEffects", session.lifecycleEventHandler().effects)
+	}
+	if lifecycleEffects.fdState != session.fdStateStore() {
+		t.Fatal("lifecycle handler should use session fd state store")
+	}
 }
