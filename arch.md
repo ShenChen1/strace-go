@@ -1234,6 +1234,8 @@ attach 到已运行进程时：
 - 结论修正：P0 竞态的理论窗口存在（Go 逻辑「乱序则丢」成立），但实机常规压力下未复现——需要 kretprobe 与 sys_exit tracepoint 之间恰好发生跨 CPU 乱序，触发概率极低。实机观测到的 `msg_name`/`msg_control` 静默缺失主因是 **P1：ringbuf 溢出导致 fragment 事件被丢弃**，且默认文本模式完全不可见。
 - 决策点更新：P1 升为第一优先（BPF 计数 + 文本收尾汇总，见 13.3）；P0 降级为理论风险记录，方案 A 修复不再作为前置项，可在 P1 之后评估是否需要轻量防护（如顺序无关的片段合并）。
 
+实施结果（2026-08-08）：在完成 P1 可观测性后，仍按方案 A 收口了 P0。实现没有把三个捕获器直接内联到一个 kretprobe，而是新增 `recvmsg_progs` 尾调用数组：单个 `trace_kretprobe_recvmsg_dispatch` 负责挂载，随后按 `name -> control -> final` 顺序执行三个小程序。final 程序发出既有 bounded `msghdr/iovec` exit event 并消费 pending；任一尾调用失败或 kretprobe 不可用时，raw `sys_exit` 仍作为兜底。这样既消除了独立 kretprobe 的执行顺序依赖，也保留了 verifier 可控的程序规模。
+
 ### 13.3 P1：丢数据可观测性
 
 问题证据：
@@ -1349,7 +1351,7 @@ Tail call spike（2026-08-07）：
 - lifecycle free/exit 清理残留槽位，summary-only 模式仍保留即时 exit 路径；
 - 不使用定时器、锁、ptrace 或用户态 tracee 内存读取。
 
-`TestTraceStateReordersExitObservedBeforeEnter` 和 lifecycle cleanup regression 已覆盖确定性顺序；`creat.gen.test` 连续 5 次实机运行通过。该修复只解决完整 enter/exit 事件的观察乱序，`recvmsg` 的 fragment 顺序风险仍按 13.2 单独记录。
+`TestTraceStateReordersExitObservedBeforeEnter` 和 lifecycle cleanup regression 已覆盖确定性顺序；`creat.gen.test` 连续 5 次实机运行通过。该修复只解决完整 enter/exit 事件的观察乱序；此前独立记录的 recvmsg fragment 风险已由 13.10 的 kretprobe 尾调用链收口。
 
 ### 13.8 execve restart marker 乱序收口（2026-08-08）
 
@@ -1368,7 +1370,18 @@ Tail call spike（2026-08-07）：
 
 新增 `handler.RuntimeServices` 接口和每 session 一个 `handler.Runtime` 实例。`FDStateStore` 拥有该实例，`handler.Context` 和 FD-state 更新路径都显式注入同一运行时；socket、eventfd、fiemap 状态因此只在当前事件消费 Goroutine 内访问。移除三组全局 map/锁，不改变 `/proc` 元数据读取边界，也不引入 tracee 内存读取。
 
-`TestRuntimeStateIsScopedPerSession` 和 handler/context 定向测试覆盖状态隔离与依赖注入；Go 全量、race、vet 通过。下一项独立风险仍是 13.2 记录的 `recvmsg` fragment 与最终 exit 的理论观察乱序。
+`TestRuntimeStateIsScopedPerSession` 和 handler/context 定向测试覆盖状态隔离与依赖注入；Go 全量、race、vet 通过。recvmsg 顺序收口已在 13.10 完成，后续剩余工作转为更广泛的性能基线和内核版本覆盖。
+
+### 13.10 recvmsg kretprobe 顺序收口（2026-08-08）
+
+本轮实现完成 13.2 的方案 A，但采用尾调用链降低 verifier 风险：
+
+- `recvmsg_progs` 为 3 slot 的 `BPF_MAP_TYPE_PROG_ARRAY`，由 `bpf_attach.go` 在 raw tracepoint 挂载前填充。
+- 只有 `trace_kretprobe_recvmsg_dispatch` 挂载到 `__sys_recvmsg`/`__x64_sys_recvmsg`；name、control、final 程序只作为尾调用目标，不再独立挂载。
+- name 和 control handler 只发 `EVENT_FLAG_EXIT_FRAGMENT`；final handler 发完整 bounded exit 并删除 `pending_syscalls`。尾调用链保持同一 kretprobe 返回上下文内的事件顺序。
+- `trace_sys_exit_msg` 未删除，作为 kretprobe 缺失或尾调用失败时的 fallback；因为正常 final 已消费 pending，正常路径不会双发。
+
+验证：`go test ./cmd/strace-go ./pkg/handler`、`go build`、`ebpf-semantic`、`ebpf-perf`、`recvmsg.gen.test`、`msg_control.gen.test`、`msg_name.gen.test` 均通过；三项原生 recvmsg 参考测试分别为 1/1 PASS。源码门禁锁定单 dispatcher、尾调用顺序和 final 唯一消费语义。
 
 ## 14. Tail call 重构方案（已落地，保留验收记录）
 
@@ -1379,7 +1392,7 @@ Tail call spike（2026-08-07）：
 非目标：
 
 - 不迁移 `sched_process_*` 生命周期程序（不参与 raw syscall 扇出）。
-- 不动 recvmsg 的两个 kretprobe（P0 竞态独立决策，本重构不扩大也不修复它）。
+- 不改变 recvmsg 的事件契约；其 kretprobe 顺序收口由 13.10 的独立变更完成，本重构只复用最终的尾调用数组模式。
 - 不做 kprobe_multi 精确挂载（方案 C，本方案完成后再评估）。
 - 不改变事件 v2 / TLV / pending map 契约，Go 侧状态机零改动。
 
@@ -1402,7 +1415,7 @@ Enter 侧 11 个程序（全部挂 `raw_syscalls/sys_enter`）：
 
 协作关系（enter）：io_submit 需 3 个程序（aio→iovec→buf）、sendmsg 需 2 个（msg→sendmsg_base）、sendmmsg 需 3 个（mmsg→base0→base1）、iovec 家族需 2 个（主 dispatcher iovec 分支→iovec_base）。
 
-Exit 侧 6 个程序 + 2 个 kretprobe：
+Exit 侧 6 个程序 + 1 个 kretprobe dispatcher + 3 个尾调用目标：
 
 | 程序 | 职责 | 消费 pending |
 | :--- | :--- | :--- |
@@ -1411,9 +1424,11 @@ Exit 侧 6 个程序 + 2 个 kretprobe：
 | `trace_sys_exit_msg` | sendmsg/recvmsg OUT msghdr/iovec | 是（主 dispatcher 对 msg 跳过） |
 | `trace_sys_exit_recvmmsg_base0/base1` | recvmmsg OUT iov_base fragment | 否 |
 | `trace_sys_exit_mmsg` | sendmmsg/recvmmsg OUT mmsghdr | 是 |
-| `trace_kretprobe_recvmsg_name/control` | recvmsg OUT msg_name/msg_control fragment | 否 |
+| `trace_kretprobe_recvmsg_dispatch` | recvmsg kretprobe dispatcher，进入 recvmsg 尾调用链 | 否 |
+| `trace_kretprobe_recvmsg_name/control` | recvmsg OUT msg_name/msg_control fragment，尾调用链前两层 | 否 |
+| `trace_kretprobe_recvmsg_final` | recvmsg bounded final exit，尾调用链末层 | 是 |
 
-Exit 关键语义：pending 由且仅由一个程序消费（iovec/msg/mmsg 程序消费后，主 dispatcher 因找不到 pending 自然跳过）；exec 清理（`pending_exec_map` / `main_exited_map`）随消费程序执行；kretprobe fragment 在 sys_exit 之前由 `__sys_recvmsg` 返回时触发，不经过 raw tracepoint。
+Exit 关键语义：pending 由且仅由一个程序消费（iovec/msg/mmsg 程序消费后，主 dispatcher 因找不到 pending 自然跳过）；exec 清理（`pending_exec_map` / `main_exited_map`）随消费程序执行；recvmsg 的两个 fragment 与 final 在同一个 kretprobe 尾调用链内产生，raw `sys_exit` 只保留 fallback。
 
 ### 14.3 目标架构
 
@@ -1490,12 +1505,12 @@ enter 链内每层 tail call 失败均静默跳过该 fragment（不重复 emit�
 语义保持：
 
 - 主 dispatcher 保留 `pending_exec_map` 查找（非 leader exec 的 `is_pending_lookup` 路径），把 `pending_tid` 语义随 tail call 传给消费 handler（handler 内重新 lookup 或由 dispatcher 传入 index 时附带——建议 handler 内按 dispatcher 已解析的 `pending_tid` 再 lookup，保持与现状一致）。
-- kretprobe name/control 不变，仍在 `__sys_recvmsg` 返回时发 fragment；Go 侧合并逻辑零改动。
+- recvmsg 由一个 dispatcher kretprobe 进入 `name -> control -> final` 尾调用链；Go 侧合并逻辑零改动，raw `sys_exit` 保留 fallback。
 - iovec/msg/mmsg 家族在主 dispatcher 中不再需要"跳过"分支（dispatcher 直接 tail call 对应 handler）。
 
 ### 14.7 Go 侧与测试变化
 
-- `cmd/strace-go/bpf_attach.go`：`rawSyscallTracepointSpecs` 从 17 个 spec 收敛为 2 个（enter/exit dispatcher）；新增 prog_array 填充（`LoadAndAssign` 后把 handler Program 写入 `enter_progs`/`exit_progs`）；kretprobe 与 sched spec 不变。
+- `cmd/strace-go/bpf_attach.go`：`rawSyscallTracepointSpecs` 从 17 个 spec 收敛为 2 个（enter/exit dispatcher）；新增 prog_array 填充（`LoadAndAssign` 后把 handler Program 写入 `enter_progs`/`exit_progs`），并为 recvmsg 填充 `recvmsg_progs`；kretprobe 使用单 dispatcher，sched spec 不变。
 - `bpf_bpfel.go`/`bpf_bpfeb.go`：bpf2go 重新生成，新增两个 prog_array map 与全部 handler 程序字段。
 - 源码门禁：新增/更新断言——raw tracepoint 只挂 dispatcher；`bpf_tail_call` 存在；prog_array 容量覆盖 index 表；每类 handler 保留 emit+save。
 - 回归验证：每个 family 迁移后跑对应 upstream reference / semantic 测试；全部完成后跑 `small`/`more`/`upstream-reference`/`ebpf-semantic`/`ebpf-perf`。

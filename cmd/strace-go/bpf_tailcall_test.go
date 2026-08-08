@@ -49,6 +49,40 @@ func TestExitProgArrayEntriesComplete(t *testing.T) {
 	}
 }
 
+func TestRecvmsgProgArrayEntriesComplete(t *testing.T) {
+	entries := recvmsgProgArrayEntries(&bpfObjects{})
+	seen := make(map[uint32]bool)
+	for _, entry := range entries {
+		if seen[entry.index] {
+			t.Fatalf("duplicate recvmsg prog array index %d", entry.index)
+		}
+		seen[entry.index] = true
+	}
+	for i := uint32(recvmsgProgName); i <= recvmsgProgFinal; i++ {
+		if !seen[i] {
+			t.Fatalf("recvmsg prog array missing index %d", i)
+		}
+	}
+	if len(entries) != recvmsgProgFinal+1 {
+		t.Fatalf("recvmsg prog array entries = %d, want %d", len(entries), recvmsgProgFinal+1)
+	}
+}
+
+func TestRecvmsgProgIndicesMatchBPFSource(t *testing.T) {
+	root := repoRootForTest(t)
+	source := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	pairs := map[string]uint32{
+		"RECVMSG_PROG_NAME":    recvmsgProgName,
+		"RECVMSG_PROG_CONTROL": recvmsgProgControl,
+		"RECVMSG_PROG_FINAL":   recvmsgProgFinal,
+	}
+	for name, value := range pairs {
+		if !strings.Contains(source, fmt.Sprintf("%s = %d", name, value)) {
+			t.Fatalf("strace.c missing %s = %d", name, value)
+		}
+	}
+}
+
 func TestEnterProgIndicesMatchDispatchHeader(t *testing.T) {
 	root := repoRootForTest(t)
 	header := readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h"))

@@ -39,10 +39,7 @@ func (a *bpfAttacher) attachAll() []link.Link {
 	var links []link.Link
 	links = a.attachTracepoints(rawSyscallTracepointSpecs(a.objs))
 	links = append(links, a.attachTracepoints(lifecycleTracepointSpecs(a.objs))...)
-	if kp := a.attachRecvmsgNameKretprobe(); kp != nil {
-		links = append(links, kp)
-	}
-	if kp := a.attachRecvmsgControlKretprobe(); kp != nil {
+	if kp := a.attachRecvmsgKretprobe(); kp != nil {
 		links = append(links, kp)
 	}
 	return links
@@ -117,6 +114,12 @@ const (
 	exitProgRecvmmsgBase1 = 5
 )
 
+const (
+	recvmsgProgName    = 0
+	recvmsgProgControl = 1
+	recvmsgProgFinal   = 2
+)
+
 type progArrayEntry struct {
 	index uint32
 	prog  *ebpf.Program
@@ -180,6 +183,14 @@ func exitProgArrayEntries(objs *bpfObjects) []progArrayEntry {
 	}
 }
 
+func recvmsgProgArrayEntries(objs *bpfObjects) []progArrayEntry {
+	return []progArrayEntry{
+		{recvmsgProgName, objs.TraceKretprobeRecvmsgName},
+		{recvmsgProgControl, objs.TraceKretprobeRecvmsgControl},
+		{recvmsgProgFinal, objs.TraceKretprobeRecvmsgFinal},
+	}
+}
+
 // populateProgArrays fills the tail call prog arrays before any raw syscall
 // tracepoint is attached; an empty slot would silently drop that family.
 func (a *bpfAttacher) populateProgArrays() error {
@@ -197,6 +208,14 @@ func (a *bpfAttacher) populateProgArrays() error {
 		}
 		if err := a.objs.ExitProgs.Put(entry.index, entry.prog); err != nil {
 			return fmt.Errorf("exit_progs[%d]: %w", entry.index, err)
+		}
+	}
+	for _, entry := range recvmsgProgArrayEntries(a.objs) {
+		if entry.prog == nil {
+			return fmt.Errorf("nil recvmsg handler for prog array index %d", entry.index)
+		}
+		if err := a.objs.RecvmsgProgs.Put(entry.index, entry.prog); err != nil {
+			return fmt.Errorf("recvmsg_progs[%d]: %w", entry.index, err)
 		}
 	}
 	return nil
@@ -236,26 +255,14 @@ func (a *bpfAttacher) attachTracepoints(specs []tracepointSpec) []link.Link {
 	return links
 }
 
-// attachRecvmsgNameKretprobe attaches the msg_name sockaddr capture fragment.
-func (a *bpfAttacher) attachRecvmsgNameKretprobe() link.Link {
+// attachRecvmsgKretprobe attaches the single recvmsg return dispatcher.
+func (a *bpfAttacher) attachRecvmsgKretprobe() link.Link {
 	for _, symbol := range []string{"__sys_recvmsg", "__x64_sys_recvmsg"} {
-		kp, err := link.Kretprobe(symbol, a.objs.TraceKretprobeRecvmsgName, nil)
+		kp, err := link.Kretprobe(symbol, a.objs.TraceKretprobeRecvmsgDispatch, nil)
 		if err == nil {
 			return kp
 		}
 	}
-	log.Printf("recvmsg msg_name kretprobe unavailable; msg_name sockaddr payloads may fall back to pointers")
-	return nil
-}
-
-// attachRecvmsgControlKretprobe attaches the msg_control ancillary capture fragment.
-func (a *bpfAttacher) attachRecvmsgControlKretprobe() link.Link {
-	for _, symbol := range []string{"__sys_recvmsg", "__x64_sys_recvmsg"} {
-		kp, err := link.Kretprobe(symbol, a.objs.TraceKretprobeRecvmsgControl, nil)
-		if err == nil {
-			return kp
-		}
-	}
-	log.Printf("recvmsg msg_control kretprobe unavailable; ancillary payloads may fall back to pointers")
+	log.Printf("recvmsg kretprobe unavailable; nested OUT payloads may fall back to bounded tracepoint data")
 	return nil
 }

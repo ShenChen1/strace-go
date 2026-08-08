@@ -289,6 +289,19 @@ struct {
     __type(value, u32);
 } exit_progs SEC(".maps");
 
+enum recvmsg_prog_index {
+    RECVMSG_PROG_NAME = 0,
+    RECVMSG_PROG_CONTROL = 1,
+    RECVMSG_PROG_FINAL = 2,
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+    __uint(max_entries, 3);
+    __type(key, u32);
+    __type(value, u32);
+} recvmsg_progs SEC(".maps");
+
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 8192);
@@ -866,7 +879,18 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
 }
 
 
-// IMPACT: recvmsg msg_name is copied from a kretprobe fragment so the nested OUT buffer is observed after __sys_recvmsg returns.
+// IMPACT: one kretprobe dispatcher serializes all recvmsg OUT fragments on the
+// same return path; each tail target remains small enough for the verifier.
+SEC("kretprobe/__sys_recvmsg")
+int trace_kretprobe_recvmsg_dispatch(struct pt_regs *ctx) {
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
+    if (!p || p->sys_id != SYS_RECVMSG) return 0;
+
+    bpf_tail_call(ctx, &recvmsg_progs, RECVMSG_PROG_NAME);
+    return 0;
+}
+
 SEC("kretprobe/__sys_recvmsg")
 int trace_kretprobe_recvmsg_name(struct pt_regs *ctx) {
     s64 ret_value = (s64)BPF_CORE_READ(ctx, ax);
@@ -885,10 +909,10 @@ int trace_kretprobe_recvmsg_name(struct pt_regs *ctx) {
     }
 
     emit_recvmsg_name_exit_fragment_event_v2_direct(p, ret_value, duration);
+    bpf_tail_call(ctx, &recvmsg_progs, RECVMSG_PROG_CONTROL);
     return 0;
 }
 
-// IMPACT: recvmsg msg_control is copied from a separate kretprobe fragment to keep trace_sys_exit_msg under verifier limits.
 SEC("kretprobe/__sys_recvmsg")
 int trace_kretprobe_recvmsg_control(struct pt_regs *ctx) {
     s64 ret_value = (s64)BPF_CORE_READ(ctx, ax);
@@ -907,6 +931,29 @@ int trace_kretprobe_recvmsg_control(struct pt_regs *ctx) {
     }
 
     emit_recvmsg_control_exit_fragment_event_v2_direct(p, ret_value, duration);
+    bpf_tail_call(ctx, &recvmsg_progs, RECVMSG_PROG_FINAL);
+    return 0;
+}
+
+SEC("kretprobe/__sys_recvmsg")
+int trace_kretprobe_recvmsg_final(struct pt_regs *ctx) {
+    s64 ret_value = (s64)BPF_CORE_READ(ctx, ax);
+    u32 tid = (u32)bpf_get_current_pid_tgid();
+    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+
+    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
+    if (!p || p->sys_id != SYS_RECVMSG) return 0;
+
+    u64 duration = 0;
+    if (p->enter_time > 0) {
+        u64 exit_time = bpf_ktime_get_ns();
+        if (exit_time > p->enter_time) {
+            duration = exit_time - p->enter_time;
+        }
+    }
+
+    emit_single_msg_exit_event_v2_direct(p, ret_value, duration);
+    consume_pending_syscall(pid, tid, p, 0);
     return 0;
 }
 

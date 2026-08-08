@@ -34,8 +34,11 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"exit_msg",
 		"exit_recvmmsg_base0",
 		"exit_recvmmsg_base1",
+		"recvmsg_progs",
+		"trace_kretprobe_recvmsg_dispatch",
 		"trace_kretprobe_recvmsg_name",
 		"trace_kretprobe_recvmsg_control",
+		"trace_kretprobe_recvmsg_final",
 		"exit_mmsg",
 		"emit_msg_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"emit_sendmsg_base_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
@@ -67,10 +70,12 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"EnterSendmmsgBase1",
 		"objs.EnterSendmmsgBase1",
 		"ExitMsg",
+		"RecvmsgProgs",
+		"TraceKretprobeRecvmsgDispatch",
+		"attachRecvmsgKretprobe",
 		"TraceKretprobeRecvmsgName",
-		"attachRecvmsgNameKretprobe",
 		"TraceKretprobeRecvmsgControl",
-		"attachRecvmsgControlKretprobe",
+		"TraceKretprobeRecvmsgFinal",
 		"ExitRecvmmsgBase0",
 		"objs.ExitRecvmmsgBase0",
 		"ExitRecvmmsgBase1",
@@ -150,6 +155,38 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("msg syscall still uses old fixed-window rule %q", legacyRule)
 		}
+	}
+}
+
+func TestBPFRecvmsgKretprobeChainSerializesFragments(t *testing.T) {
+	root := repoRootForTest(t)
+	source := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	attachSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_attach.go"))
+
+	for _, check := range []struct {
+		name    string
+		snippet string
+	}{
+		{"trace_kretprobe_recvmsg_dispatch", "bpf_tail_call(ctx, &recvmsg_progs, RECVMSG_PROG_NAME);"},
+		{"trace_kretprobe_recvmsg_name", "bpf_tail_call(ctx, &recvmsg_progs, RECVMSG_PROG_CONTROL);"},
+		{"trace_kretprobe_recvmsg_control", "bpf_tail_call(ctx, &recvmsg_progs, RECVMSG_PROG_FINAL);"},
+		{"trace_kretprobe_recvmsg_final", "consume_pending_syscall(pid, tid, p, 0);"},
+	} {
+		body, ok := bpfFunctionBody(source, check.name)
+		if !ok {
+			t.Fatalf("strace.c missing function body for %s", check.name)
+		}
+		if !strings.Contains(body, check.snippet) {
+			t.Fatalf("%s missing recvmsg chain step %q", check.name, check.snippet)
+		}
+	}
+
+	if !strings.Contains(attachSource, "a.objs.TraceKretprobeRecvmsgDispatch") {
+		t.Fatal("bpf_attach.go does not attach the recvmsg dispatcher")
+	}
+	if strings.Contains(attachSource, "Kretprobe(symbol, a.objs.TraceKretprobeRecvmsgName") ||
+		strings.Contains(attachSource, "Kretprobe(symbol, a.objs.TraceKretprobeRecvmsgControl") {
+		t.Fatal("recvmsg fragment handlers must not be independently attached")
 	}
 }
 
