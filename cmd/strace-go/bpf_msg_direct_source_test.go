@@ -13,9 +13,7 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 	// delegates to the attacher. The gate scans both files for wiring snippets.
 	sessionSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/session.go")) +
 		"\n" + readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_attach.go"))
-	msgDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_msg_direct_event_v2.h"))
-	msgControlHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_msg_control_direct_event_v2.h"))
-	msgDirectSources := msgDirectHeader + "\n" + msgControlHeader
+	msgDirectSources := readMsgDirectEventSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 
 	for _, snippet := range []string{

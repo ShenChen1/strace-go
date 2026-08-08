@@ -11,7 +11,7 @@ func TestBPFPendingSaveChecksUpdateResult(t *testing.T) {
 	root := repoRootForTest(t)
 	headers := map[string]string{
 		"bpf/syscall_direct_event_v2.h":         loadBPFSources(t).directHeader,
-		"bpf/syscall_msg_direct_event_v2.h":     readTextFile(t, filepath.Join(root, "bpf/syscall_msg_direct_event_v2.h")),
+		"bpf/syscall_msg_direct_event_v2.h":     readMsgDirectEventSources(t),
 		"bpf/syscall_network_direct_event_v2.h": readTextFile(t, filepath.Join(root, "bpf/syscall_network_direct_event_v2.h")),
 	}
 	for name, header := range headers {

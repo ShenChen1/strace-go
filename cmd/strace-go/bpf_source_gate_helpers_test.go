@@ -60,6 +60,17 @@ func readDirectEventSources(t *testing.T) string {
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_payload_emit_direct_event_v2.h"))
 }
 
+func readMsgDirectEventSources(t *testing.T) string {
+	t.Helper()
+	root := repoRootForTest(t)
+	return readTextFile(t, filepath.Join(root, "bpf/syscall_msg_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_core_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_control_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_capture_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_enter_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_exit_direct_event_v2.h"))
+}
+
 func repoRootForTest(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
