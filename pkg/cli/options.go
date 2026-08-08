@@ -52,7 +52,7 @@ type Options struct {
 	PrintTimeMode        int      // 0 = none, 1 = -t (HH:MM:SS), 2 = -tt (HH:MM:SS.UUUUUU), 3 = -ttt (UNIX.UUUUUU)
 	PrintRelativeTime    bool     // -r
 	PrintSyscallTime     bool     // -T
-	StackTrace           bool     // -k
+	StackTrace           bool     // -k, --stack-trace
 	SuccessfulOnly       bool     // -z
 	FailedOnly           bool     // -Z
 	EnvActions           []string // -E
@@ -175,7 +175,7 @@ func parseBasicFlags(arg string, opts *Options) bool {
 		opts.PrintRelativeTime = true
 	case arg == "-T":
 		opts.PrintSyscallTime = true
-	case arg == "-k":
+	case arg == "-k" || arg == "--stack-trace":
 		opts.StackTrace = true
 	case arg == "-z":
 		opts.SuccessfulOnly = true

@@ -152,6 +152,17 @@ func TestParseDebugEventsAlias(t *testing.T) {
 	}
 }
 
+func TestParseStackTraceLongFlag(t *testing.T) {
+	opts := ParseArgs([]string{"--stack-trace", "/bin/true"})
+
+	if !opts.StackTrace {
+		t.Fatal("StackTrace = false, want true for --stack-trace")
+	}
+	if len(opts.CmdArgs) != 1 || opts.CmdArgs[0] != "/bin/true" {
+		t.Fatalf("CmdArgs = %#v, want /bin/true", opts.CmdArgs)
+	}
+}
+
 func TestParseModeFlagRejected(t *testing.T) {
 	if os.Getenv("STRACE_GO_PARSE_MODE_EXIT") == "1" {
 		ParseArgs([]string{"--mode=compat", "/bin/true"})
