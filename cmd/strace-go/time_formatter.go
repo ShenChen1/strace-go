@@ -32,7 +32,9 @@ func (tf *TimeFormatter) Prefix(enterTimeMonoNs uint64, opts *cli.Options) strin
 	if opts.PrintRelativeTime {
 		var diff uint64
 		if tf.lastSyscallTimeNs != 0 {
-			diff = enterTimeMonoNs - tf.lastSyscallTimeNs
+			if enterTimeMonoNs >= tf.lastSyscallTimeNs {
+				diff = enterTimeMonoNs - tf.lastSyscallTimeNs
+			}
 		}
 		tf.lastSyscallTimeNs = enterTimeMonoNs
 		return formatSecondsUsec(diff)

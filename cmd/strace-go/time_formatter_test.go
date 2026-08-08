@@ -21,6 +21,16 @@ func TestTimeFormatterRelativePrefixTracksPreviousSyscall(t *testing.T) {
 	}
 }
 
+func TestTimeFormatterRelativePrefixClampsOutOfOrderEvent(t *testing.T) {
+	formatter := newTimeFormatter(0)
+	opts := &cli.Options{PrintRelativeTime: true}
+
+	formatter.Prefix(2_000_000_000, opts)
+	if got := formatter.Prefix(1_000_000_000, opts); got != "     0.000000 " {
+		t.Fatalf("out-of-order relative prefix = %q, want zero delta", got)
+	}
+}
+
 func TestTimeFormatterUnixPrefixUsesBootOffset(t *testing.T) {
 	formatter := newTimeFormatter(2_000_000_000)
 	opts := &cli.Options{PrintTimeMode: 3}
