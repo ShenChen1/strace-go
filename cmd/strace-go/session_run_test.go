@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"os"
 	"testing"
 	"time"
@@ -15,10 +14,10 @@ import (
 
 func TestHandleBPFRecordUsesSessionRecordDecoder(t *testing.T) {
 	decoder := &fakeRecordDecoder{}
-	session := &traceSession{recordDecoder: decoder}
+	reader := newTraceEventReader(TraceEventReaderDeps{Decoder: decoder})
 
-	if session.handleBPFRecord(&ringbuf.Record{}) {
-		t.Fatal("handleBPFRecord should return false when decoder rejects the record")
+	if reader.HandleRecord(&ringbuf.Record{}) {
+		t.Fatal("HandleRecord should return false when decoder rejects the record")
 	}
 	if decoder.calls != 1 {
 		t.Fatalf("decoder calls = %d, want 1", decoder.calls)
@@ -139,18 +138,6 @@ func TestTraceRunStateThrottlesAttachPolling(t *testing.T) {
 	state.collect(nil)
 	if !state.attachExited {
 		t.Fatal("missing attach pid should be marked exited after the throttle expires")
-	}
-}
-
-func TestTransientRingbufReadError(t *testing.T) {
-	if !isTransientRingbufReadError(os.ErrDeadlineExceeded) {
-		t.Fatal("deadline exceeded should be a transient ringbuf read result")
-	}
-	if !isTransientRingbufReadError(ringbuf.ErrFlushed) {
-		t.Fatal("ringbuf flush should be a transient ringbuf read result")
-	}
-	if isTransientRingbufReadError(errors.New("bad sample")) {
-		t.Fatal("arbitrary errors should not be treated as transient ringbuf results")
 	}
 }
 

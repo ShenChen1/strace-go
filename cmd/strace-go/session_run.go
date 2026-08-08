@@ -42,16 +42,17 @@ type traceCommandExitResult struct {
 func (s *traceSession) run() {
 	state := newTraceRunState(s)
 	commandExit := s.commandExitHandler()
+	eventReader := s.traceEventReader()
 	var rec ringbuf.Record
 
 	for {
 		state.collect(commandExit)
 		if state.done() {
-			s.drainEventReaderAfterDone(&rec)
+			eventReader.DrainAfterDone(&rec, s.exitDrainGrace())
 			s.finishRun()
 			return
 		}
-		if s.readAndHandleEvent(&rec, traceEventPollInterval) == traceReadClosed {
+		if eventReader.Read(&rec, traceEventPollInterval) == traceReadClosed {
 			s.finishRun()
 			return
 		}
@@ -143,78 +144,11 @@ func anyAttachPidAlive(pids []int) bool {
 	return false
 }
 
-func (s *traceSession) readAndHandleEvent(rec *ringbuf.Record, timeout time.Duration) traceReadStatus {
-	if s.events == nil {
-		return traceReadClosed
-	}
-	s.events.SetDeadline(time.Now().Add(timeout))
-	if err := s.events.ReadInto(rec); err != nil {
-		if errors.Is(err, ringbuf.ErrClosed) {
-			return traceReadClosed
-		}
-		if isTransientRingbufReadError(err) {
-			return traceReadNoEvent
-		}
-		return traceReadNoEvent
-	}
-	if s.handleBPFRecord(rec) {
-		return traceReadHandled
-	}
-	return traceReadNoEvent
-}
-
-func (s *traceSession) drainEventReader(rec *ringbuf.Record) {
-	if s.events == nil {
-		return
-	}
-	if err := s.events.Flush(); err != nil {
-		return
-	}
-	s.events.SetDeadline(time.Time{})
-	for {
-		if err := s.events.ReadInto(rec); err != nil {
-			if errors.Is(err, ringbuf.ErrClosed) || isTransientRingbufReadError(err) {
-				return
-			}
-			return
-		}
-		s.handleBPFRecord(rec)
-	}
-}
-
-func (s *traceSession) drainEventReaderAfterDone(rec *ringbuf.Record) {
-	grace := s.exitDrainGrace()
-	if grace <= 0 {
-		s.drainEventReader(rec)
-		return
-	}
-	deadline := time.Now().Add(grace)
-	for time.Now().Before(deadline) {
-		if s.readAndHandleEvent(rec, traceExitDrainPollInterval) == traceReadClosed {
-			return
-		}
-	}
-	s.drainEventReader(rec)
-}
-
 func (s *traceSession) exitDrainGrace() time.Duration {
 	if s == nil || s.opts == nil || s.opts.EventFormat != cli.EventFormatJSON {
 		return 0
 	}
 	return traceExitLifecycleDrainGrace
-}
-
-func (s *traceSession) handleBPFRecord(rec *ringbuf.Record) bool {
-	envelope, ok := s.traceRecordDecoder().Decode(rec)
-	if !ok {
-		return false
-	}
-	s.handleEnvelope(envelope)
-	return true
-}
-
-func isTransientRingbufReadError(err error) bool {
-	return errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, ringbuf.ErrFlushed)
 }
 
 func (s *traceSession) finishRun() {

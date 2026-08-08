@@ -41,6 +41,9 @@ func TestTraceSessionCachesEventPipelineComponents(t *testing.T) {
 	if session.traceRecordDecoder() != session.traceRecordDecoder() {
 		t.Fatal("traceRecordDecoder should be cached per session")
 	}
+	if session.traceEventReader() != session.traceEventReader() {
+		t.Fatal("traceEventReader should be cached per session")
+	}
 	if session.traceEventRouter() != session.traceEventRouter() {
 		t.Fatal("traceEventRouter should be cached per session")
 	}
@@ -112,6 +115,13 @@ func TestTraceSessionPipelineUsesCachedDependencies(t *testing.T) {
 	}
 	if router.contextDeps.fdState != session.fdStateStore() {
 		t.Fatal("router should use session fd state store for contexts")
+	}
+	eventReader := session.traceEventReader()
+	if eventReader.decoder != session.traceRecordDecoder() {
+		t.Fatal("event reader should use cached record decoder")
+	}
+	if eventReader.sink != session.traceEventRouter() {
+		t.Fatal("event reader should use cached event router")
 	}
 	finalizer := session.traceRunFinalizer()
 	commandExit := session.commandExitHandler()
