@@ -137,6 +137,77 @@ func TestSyscallMetadataResolverReportsArityRejections(t *testing.T) {
 	}
 }
 
+func TestSyscallMetadataResolverArityDecisionMatrix(t *testing.T) {
+	makeMeta := func(name string, argc int) SyscallMeta {
+		args := make([]string, argc)
+		types := make([]string, argc)
+		for i := 0; i < argc; i++ {
+			args[i] = "arg"
+			types[i] = "long"
+		}
+		return SyscallMeta{Name: name, Args: args, ArgTypes: types}
+	}
+
+	cases := []struct {
+		name       string
+		resolver   syscallMetadataResolver
+		entry      syscallentEntry
+		wantSource syscallMetadataSource
+		wantReason syscallMetadataResolutionReason
+	}{
+		{
+			name: "btf exact wins over tracepoint mismatch",
+			resolver: syscallMetadataResolver{
+				btf:        map[string]SyscallMeta{"read": makeMeta("read", 1)},
+				tracepoint: map[string]SyscallMeta{"read": makeMeta("read", 2)},
+			},
+			entry:      syscallentEntry{Name: "read", Argc: 1},
+			wantSource: metadataSourceBTF,
+			wantReason: metadataReasonBTFExactArity,
+		},
+		{
+			name: "tracepoint exact wins over BTF mismatch",
+			resolver: syscallMetadataResolver{
+				btf:        map[string]SyscallMeta{"read": makeMeta("read", 2)},
+				tracepoint: map[string]SyscallMeta{"read": makeMeta("read", 1)},
+			},
+			entry:      syscallentEntry{Name: "read", Argc: 1},
+			wantSource: metadataSourceTracepoint,
+			wantReason: metadataReasonTracepointExactArity,
+		},
+		{
+			name: "fallback after both sources mismatch",
+			resolver: syscallMetadataResolver{
+				btf:               map[string]SyscallMeta{"read": makeMeta("read", 2)},
+				tracepoint:        map[string]SyscallMeta{"read": makeMeta("read", 2)},
+				fallbackOverrides: map[string]SyscallMeta{"read": makeMeta("read", 1)},
+			},
+			entry:      syscallentEntry{Name: "read", Argc: 1},
+			wantSource: metadataSourceFallbackOverride,
+			wantReason: syscallMetadataResolutionReason(string(metadataReasonBTFArityMismatch) + ";" + string(metadataReasonTracepointArityMismatch)),
+		},
+		{
+			name: "dummy after both sources mismatch",
+			resolver: syscallMetadataResolver{
+				btf:        map[string]SyscallMeta{"read": makeMeta("read", 2)},
+				tracepoint: map[string]SyscallMeta{"read": makeMeta("read", 2)},
+			},
+			entry:      syscallentEntry{Name: "read", Argc: 1},
+			wantSource: metadataSourceDummy,
+			wantReason: syscallMetadataResolutionReason(string(metadataReasonBTFArityMismatch) + ";" + string(metadataReasonTracepointArityMismatch)),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.resolver.Resolve(tc.entry)
+			if got.Source != tc.wantSource || got.Reason != tc.wantReason {
+				t.Fatalf("Resolve(%q) = (%s, %s), want (%s, %s)", tc.entry.Name, got.Source, got.Reason, tc.wantSource, tc.wantReason)
+			}
+		})
+	}
+}
+
 func TestSyscallMetadataLoaderReportsSourceErrors(t *testing.T) {
 	btfErr := errors.New("btf failed")
 	if _, err := (syscallMetadataLoader{btfSource: fakeBTFSource{err: btfErr}}).Load(); !errors.Is(err, btfErr) {
