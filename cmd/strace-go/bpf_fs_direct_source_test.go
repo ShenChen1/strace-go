@@ -12,12 +12,14 @@ func TestBPFFSPayloadsUseDirectTLV(t *testing.T) {
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	fsDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_fs_direct_event_v2.h"))
+	mountSetattrHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_mount_setattr_direct_event_v2.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_MOUNT 165",
 		"#define SYS_UMOUNT2 166",
 		"#define SYS_GETDENTS64 217",
 		"#define SYS_FSCONFIG 431",
+		"#define SYS_MOUNT_SETATTR 442",
 		`#include "syscall_fs_direct_event_v2.h"`,
 		"is_fs_enter_direct_syscall(sys_id)",
 		"emit_fs_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
@@ -25,7 +27,8 @@ func TestBPFFSPayloadsUseDirectTLV(t *testing.T) {
 		"emit_getdents64_exit_event_v2_direct(p, ret_value, duration);",
 		"is_fs_direct_syscall(sys_id) ||",
 	} {
-		if !strings.Contains(straceSource, snippet) && !strings.Contains(timeDirectHeader, snippet) && !strings.Contains(fsDirectHeader, snippet) {
+		if !strings.Contains(straceSource, snippet) && !strings.Contains(timeDirectHeader, snippet) &&
+			!strings.Contains(fsDirectHeader, snippet) && !strings.Contains(mountSetattrHeader, snippet) {
 			t.Fatalf("BPF source missing fs direct snippet %q", snippet)
 		}
 	}
@@ -51,9 +54,28 @@ func TestBPFFSPayloadsUseDirectTLV(t *testing.T) {
 		"PAYLOAD_TLV_FLAG_DIRECTION_OUT",
 		"bpf_probe_read_user_str(payload_data, max_len",
 		"bpf_probe_read_user(payload_data, copied_len",
+		`#include "syscall_mount_setattr_direct_event_v2.h"`,
+		"sys_id == SYS_MOUNT_SETATTR",
+		"capture_mount_setattr_enter_payload_tlv_direct(",
 	} {
 		if !strings.Contains(fsDirectHeader, snippet) {
 			t.Fatalf("fs direct header missing snippet %q", snippet)
+		}
+	}
+
+	for _, snippet := range []string{
+		"MOUNT_SETATTR_BASE_SIZE 32",
+		"MOUNT_SETATTR_EXTENSION_MAX 256",
+		"capture_path_only_tlv_direct(",
+		"ctx->args[1]",
+		"ctx->args[3]",
+		"ctx->args[4]",
+		"PAYLOAD_TLV_KIND_STRUCT",
+		"PAYLOAD_TLV_KIND_BYTES",
+		"user_ptr + MOUNT_SETATTR_BASE_SIZE",
+	} {
+		if !strings.Contains(mountSetattrHeader, snippet) {
+			t.Fatalf("mount_setattr direct header missing snippet %q", snippet)
 		}
 	}
 
@@ -66,6 +88,7 @@ func TestBPFFSPayloadsUseDirectTLV(t *testing.T) {
 		"case 166: /* umount2 */",
 		"case 217: /* getdents64 */",
 		"case 431: /* fsconfig */",
+		"case 442: /* mount_setattr */",
 	} {
 		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("fs syscall still uses old fixed-window rule %q", legacyRule)

@@ -1,6 +1,8 @@
 #ifndef STRACE_GO_SYSCALL_FS_DIRECT_EVENT_V2_H
 #define STRACE_GO_SYSCALL_FS_DIRECT_EVENT_V2_H
 
+#include "syscall_mount_setattr_direct_event_v2.h"
+
 #define FS_DIRECT_MOUNT_STRING_MAX 512
 #define FS_DIRECT_MOUNT_TYPE_MAX 128
 #define FS_DIRECT_FSCONFIG_KEY_MAX 257
@@ -8,13 +10,12 @@
 #define FS_DIRECT_FSCONFIG_SET_BINARY 2
 #define FS_DIRECT_FSCONFIG_VALUE_LEN_MASK 8191
 #define FS_DIRECT_GETDENTS64_BYTES_MAX 512
-#define FS_DIRECT_PAYLOAD_CAPACITY \
-    (2 * PAYLOAD_TLV_HEADER_SIZE + FS_DIRECT_FSCONFIG_KEY_MAX + FS_DIRECT_FSCONFIG_VALUE_MAX)
+#define FS_DIRECT_PAYLOAD_CAPACITY MOUNT_SETATTR_DIRECT_PAYLOAD_CAPACITY
 
 static __always_inline int is_fs_enter_direct_syscall(u32 sys_id)
 {
     return sys_id == SYS_MOUNT || sys_id == SYS_UMOUNT2 ||
-        sys_id == SYS_FSCONFIG;
+        sys_id == SYS_FSCONFIG || sys_id == SYS_MOUNT_SETATTR;
 }
 
 static __always_inline int is_getdents64_direct_syscall(u32 sys_id)
@@ -215,6 +216,9 @@ static __always_inline u32 capture_fs_enter_payload_tlv_direct(
     }
     if (sys_id == SYS_FSCONFIG) {
         return capture_fsconfig_payload_tlv_direct(ptr, payload_offset, ctx, event_flags);
+    }
+    if (sys_id == SYS_MOUNT_SETATTR) {
+        return capture_mount_setattr_enter_payload_tlv_direct(ptr, payload_offset, ctx, event_flags);
     }
     return 0;
 }

@@ -151,6 +151,8 @@ syscalls:
     flags: umount_flags
   mount:
     flags: mount_flags
+  mount_setattr:
+    flags: mount_setattr_flags
   rt_sigprocmask:
     how: sigprocmaskcmds
   modetypes_table:

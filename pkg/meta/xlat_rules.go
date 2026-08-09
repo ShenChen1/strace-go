@@ -69,6 +69,9 @@ var fullWidthXlatNames = map[string]bool{
 }
 
 func isEnumXlat(xlatName string) bool {
+	if xlatName == "mount_attr_propagation" {
+		return true
+	}
 	if bitflagXlatNames[xlatName] {
 		return false
 	}
@@ -96,5 +99,8 @@ func useRawEnumDecimalFormat(xlatName string, val uint64) bool {
 }
 
 func shouldTruncateXlatValueTo32(xlatName string) bool {
+	if xlatName == "mount_attr_attr" || xlatName == "mount_attr_propagation" {
+		return false
+	}
 	return !fullWidthXlatNames[xlatName] && !strings.HasPrefix(xlatName, "bpf_")
 }

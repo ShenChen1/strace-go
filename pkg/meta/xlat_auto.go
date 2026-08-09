@@ -991,6 +991,39 @@ var XlatTables = map[string]XlatTable{
 			{Val: 8192, Str: "S_IFCHR"},
 		},
 	},
+	"mount_attr_attr": {
+		Prefix: "MOUNT_ATTR_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "MOUNT_ATTR_RDONLY"},
+			{Val: 2, Str: "MOUNT_ATTR_NOSUID"},
+			{Val: 4, Str: "MOUNT_ATTR_NODEV"},
+			{Val: 8, Str: "MOUNT_ATTR_NOEXEC"},
+			{Val: 112, Str: "MOUNT_ATTR__ATIME"},
+			{Val: 16, Str: "MOUNT_ATTR_NOATIME"},
+			{Val: 32, Str: "MOUNT_ATTR_STRICTATIME"},
+			{Val: 128, Str: "MOUNT_ATTR_NODIRATIME"},
+			{Val: 1048576, Str: "MOUNT_ATTR_IDMAP"},
+			{Val: 2097152, Str: "MOUNT_ATTR_NOSYMFOLLOW"},
+		},
+	},
+	"mount_attr_propagation": {
+		Prefix: "MS_",
+		Entries: []XlatVal{
+			{Val: 131072, Str: "MS_UNBINDABLE"},
+			{Val: 262144, Str: "MS_PRIVATE"},
+			{Val: 524288, Str: "MS_SLAVE"},
+			{Val: 1048576, Str: "MS_SHARED"},
+		},
+	},
+	"mount_setattr_flags": {
+		Prefix: "AT_",
+		Entries: []XlatVal{
+			{Val: 256, Str: "AT_SYMLINK_NOFOLLOW"},
+			{Val: 2048, Str: "AT_NO_AUTOMOUNT"},
+			{Val: 4096, Str: "AT_EMPTY_PATH"},
+			{Val: 32768, Str: "AT_RECURSIVE"},
+		},
+	},
 	"mremap_flags": {
 		Prefix: "MREMAP_",
 		Entries: []XlatVal{
@@ -5758,6 +5791,9 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	},
 	"mount": {
 		"flags": "mount_flags",
+	},
+	"mount_setattr": {
+		"flags": "mount_setattr_flags",
 	},
 	"mprotect": {
 		"prot": "mmap_prot",

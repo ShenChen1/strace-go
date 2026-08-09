@@ -38,6 +38,7 @@ UPSTREAM_REFERENCE_TESTS = [
     "msg_control.gen.test",
     "msg_name.gen.test",
     "mmsg.gen.test",
+    "mount_setattr.gen.test",
     "recvmmsg-timeout.gen.test",
     "execveat.gen.test",
     "fork-f.gen.test",
