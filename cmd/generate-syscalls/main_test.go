@@ -179,17 +179,17 @@ func TestRunGenerateSyscallsAuditResolution(t *testing.T) {
 	cmd := generatorCommand{
 		loader: fakeSyscallMapLoader{err: errors.New("loader should not run")},
 		resolutionLoader: fakeSyscallResolutionLoader{resolutions: map[int]syscallMetadataResolution{
-			2: {Meta: SyscallMeta{Name: "open", Args: []string{"path"}, ArgTypes: []string{"const char *"}}, Source: metadataSourceTracepoint},
-			1: {Meta: SyscallMeta{Name: "read", Args: []string{"fd"}, ArgTypes: []string{"int"}}, Source: metadataSourceBTF},
+			2: {Meta: SyscallMeta{Name: "open", Args: []string{"path"}, ArgTypes: []string{"const char *"}}, Source: metadataSourceTracepoint, Reason: metadataReasonTracepointExactArity},
+			1: {Meta: SyscallMeta{Name: "read", Args: []string{"fd"}, ArgTypes: []string{"int"}}, Source: metadataSourceBTF, Reason: metadataReasonBTFExactArity},
 		}},
 	}
 	var out bytes.Buffer
 	if err := cmd.Run([]string{"--audit-resolution"}, &out); err != nil {
 		t.Fatalf("Run(--audit-resolution) error = %v", err)
 	}
-	want := "id\tname\tsource\targs\targ_types\n" +
-		"1\tread\tbtf\tfd\tint\n" +
-		"2\topen\ttracepoint\tpath\tconst char *\n"
+	want := "id\tname\tsource\treason\targs\targ_types\n" +
+		"1\tread\tbtf\tbtf_exact_arity\tfd\tint\n" +
+		"2\topen\ttracepoint\ttracepoint_exact_arity\tpath\tconst char *\n"
 	if out.String() != want {
 		t.Fatalf("Run(--audit-resolution) output = %q, want %q", out.String(), want)
 	}

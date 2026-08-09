@@ -6,7 +6,7 @@ import (
 	"sort"
 )
 
-const resolutionAuditHeader = "id\tname\tsource\targs\targ_types"
+const resolutionAuditHeader = "id\tname\tsource\treason\targs\targ_types"
 
 func writeResolutionAudit(stdout io.Writer, loader syscallMetadataResolutionLoader) error {
 	if loader == nil {
@@ -38,10 +38,11 @@ func sortedResolutionIDs(resolutions map[int]syscallMetadataResolution) []int {
 }
 
 func writeResolutionAuditRow(stdout io.Writer, id int, resolution syscallMetadataResolution) error {
-	_, err := fmt.Fprintf(stdout, "%d\t%s\t%s\t%s\t%s\n",
+	_, err := fmt.Fprintf(stdout, "%d\t%s\t%s\t%s\t%s\t%s\n",
 		id,
 		resolution.Meta.Name,
 		resolution.Source,
+		resolution.Reason,
 		joinAuditValues(resolution.Meta.Args),
 		joinAuditValues(resolution.Meta.ArgTypes),
 	)

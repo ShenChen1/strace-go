@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type btfSyscallSource interface {
 	LoadBTFSyscalls() (map[string]SyscallMeta, error)
@@ -76,9 +79,22 @@ const (
 	metadataSourceDummy            syscallMetadataSource = "dummy"
 )
 
+type syscallMetadataResolutionReason string
+
+const (
+	metadataReasonSemanticOverride        syscallMetadataResolutionReason = "semantic_override"
+	metadataReasonBTFExactArity           syscallMetadataResolutionReason = "btf_exact_arity"
+	metadataReasonBTFAliasExactArity      syscallMetadataResolutionReason = "btf_alias_exact_arity"
+	metadataReasonTracepointExactArity    syscallMetadataResolutionReason = "tracepoint_exact_arity"
+	metadataReasonNoKernelMetadata        syscallMetadataResolutionReason = "no_kernel_metadata"
+	metadataReasonBTFArityMismatch        syscallMetadataResolutionReason = "btf_arity_mismatch"
+	metadataReasonTracepointArityMismatch syscallMetadataResolutionReason = "tracepoint_arity_mismatch"
+)
+
 type syscallMetadataResolution struct {
 	Meta   SyscallMeta
 	Source syscallMetadataSource
+	Reason syscallMetadataResolutionReason
 }
 
 type syscallMetadataResolver struct {
@@ -162,23 +178,27 @@ func (l syscallMetadataLoader) LoadWithResolution() (map[int]syscallMetadataReso
 
 func (r syscallMetadataResolver) Resolve(ent syscallentEntry) syscallMetadataResolution {
 	if meta, ok := r.semanticOverrides[ent.Name]; ok {
-		return r.resolution(meta, ent.Flags, metadataSourceSemanticOverride)
+		return r.resolution(meta, ent.Flags, metadataSourceSemanticOverride, metadataReasonSemanticOverride)
 	}
 	if meta, ok := r.btfMeta(ent.Name, ent.Argc); ok {
-		return r.resolution(meta, ent.Flags, metadataSourceBTF)
+		return r.resolution(meta, ent.Flags, metadataSourceBTF, metadataReasonBTFExactArity)
 	}
 	if meta, ok := r.aliasedBTFMeta(ent.Name, ent.Argc); ok {
 		meta.Name = ent.Name
-		return r.resolution(meta, ent.Flags, metadataSourceBTFAlias)
+		return r.resolution(meta, ent.Flags, metadataSourceBTFAlias, metadataReasonBTFAliasExactArity)
 	}
 	if meta, ok := r.tracepointMeta(ent.Name, ent.Argc); ok {
 		meta.Name = ent.Name
-		return r.resolution(meta, ent.Flags, metadataSourceTracepoint)
+		return r.resolution(meta, ent.Flags, metadataSourceTracepoint, metadataReasonTracepointExactArity)
 	}
 	if meta, ok := r.fallbackOverrides[ent.Name]; ok {
-		return r.resolution(meta, ent.Flags, metadataSourceFallbackOverride)
+		return r.resolution(meta, ent.Flags, metadataSourceFallbackOverride, r.kernelMetadataRejectionReason(ent))
 	}
-	return syscallMetadataResolution{Meta: dummySyscallMeta(ent), Source: metadataSourceDummy}
+	return syscallMetadataResolution{
+		Meta:   dummySyscallMeta(ent),
+		Source: metadataSourceDummy,
+		Reason: r.kernelMetadataRejectionReason(ent),
+	}
 }
 
 func (r syscallMetadataResolver) btfMeta(name string, argc int) (SyscallMeta, bool) {
@@ -211,8 +231,46 @@ func (r syscallMetadataResolver) aliasedBTFMeta(name string, argc int) (SyscallM
 	return SyscallMeta{}, false
 }
 
-func (syscallMetadataResolver) resolution(meta SyscallMeta, flags string, source syscallMetadataSource) syscallMetadataResolution {
-	return syscallMetadataResolution{Meta: withFlags(meta, flags), Source: source}
+func (syscallMetadataResolver) resolution(meta SyscallMeta, flags string, source syscallMetadataSource, reason syscallMetadataResolutionReason) syscallMetadataResolution {
+	return syscallMetadataResolution{Meta: withFlags(meta, flags), Source: source, Reason: reason}
+}
+
+func (r syscallMetadataResolver) kernelMetadataRejectionReason(ent syscallentEntry) syscallMetadataResolutionReason {
+	reasons := make([]string, 0, 2)
+	if r.btfArityMismatch(ent) {
+		reasons = append(reasons, string(metadataReasonBTFArityMismatch))
+	}
+	if r.tracepointArityMismatch(ent) {
+		reasons = append(reasons, string(metadataReasonTracepointArityMismatch))
+	}
+	if len(reasons) == 0 {
+		return metadataReasonNoKernelMetadata
+	}
+	return syscallMetadataResolutionReason(strings.Join(reasons, ";"))
+}
+
+func (r syscallMetadataResolver) btfArityMismatch(ent syscallentEntry) bool {
+	if meta, ok := r.btf[ent.Name]; ok && !hasSyscallArity(meta, ent.Argc) {
+		return true
+	}
+	for btfName, syscallentName := range r.aliases {
+		if syscallentName != ent.Name {
+			continue
+		}
+		if meta, ok := r.btf[btfName]; ok && !hasSyscallArity(meta, ent.Argc) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r syscallMetadataResolver) tracepointArityMismatch(ent syscallentEntry) bool {
+	for _, name := range append([]string{ent.Name}, tracepointAliasNames(ent.Name, r.aliases)...) {
+		if meta, ok := r.tracepoint[name]; ok && !hasSyscallArity(meta, ent.Argc) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasSyscallArity(meta SyscallMeta, argc int) bool {

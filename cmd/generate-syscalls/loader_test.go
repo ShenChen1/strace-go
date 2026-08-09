@@ -97,22 +97,43 @@ func TestSyscallMetadataResolverReportsSource(t *testing.T) {
 		aliases: map[string]string{"kernel_alias": "alias"},
 	}
 	cases := []struct {
-		name    string
-		want    syscallMetadataSource
-		wantArg string
+		name       string
+		want       syscallMetadataSource
+		wantReason syscallMetadataResolutionReason
+		wantArg    string
 	}{
-		{name: "read", want: metadataSourceBTF, wantArg: "fd"},
-		{name: "alias", want: metadataSourceBTFAlias, wantArg: "fd"},
-		{name: "close", want: metadataSourceTracepoint, wantArg: "fd"},
-		{name: "stat", want: metadataSourceSemanticOverride, wantArg: "path"},
-		{name: "fallback", want: metadataSourceFallbackOverride, wantArg: "arg"},
-		{name: "missing", want: metadataSourceDummy, wantArg: "arg0"},
+		{name: "read", want: metadataSourceBTF, wantReason: metadataReasonBTFExactArity, wantArg: "fd"},
+		{name: "alias", want: metadataSourceBTFAlias, wantReason: metadataReasonBTFAliasExactArity, wantArg: "fd"},
+		{name: "close", want: metadataSourceTracepoint, wantReason: metadataReasonTracepointExactArity, wantArg: "fd"},
+		{name: "stat", want: metadataSourceSemanticOverride, wantReason: metadataReasonSemanticOverride, wantArg: "path"},
+		{name: "fallback", want: metadataSourceFallbackOverride, wantReason: metadataReasonNoKernelMetadata, wantArg: "arg"},
+		{name: "missing", want: metadataSourceDummy, wantReason: metadataReasonNoKernelMetadata, wantArg: "arg0"},
 	}
 	for _, tc := range cases {
 		got := resolver.Resolve(syscallentEntry{Name: tc.name, Argc: 1})
-		if got.Source != tc.want || got.Meta.Args[0] != tc.wantArg {
-			t.Fatalf("Resolve(%q) = (%s, %#v), want (%s, arg %q)", tc.name, got.Source, got.Meta, tc.want, tc.wantArg)
+		if got.Source != tc.want || got.Reason != tc.wantReason || got.Meta.Args[0] != tc.wantArg {
+			t.Fatalf("Resolve(%q) = (%s, %s, %#v), want (%s, %s, arg %q)", tc.name, got.Source, got.Reason, got.Meta, tc.want, tc.wantReason, tc.wantArg)
 		}
+	}
+}
+
+func TestSyscallMetadataResolverReportsArityRejections(t *testing.T) {
+	resolver := syscallMetadataResolver{
+		btf: map[string]SyscallMeta{
+			"preadv": {Name: "preadv", Args: []string{"fd", "vec"}, ArgTypes: []string{"int", "void *"}},
+		},
+		tracepoint: map[string]SyscallMeta{
+			"preadv": {Name: "preadv", Args: []string{"fd", "vec", "vlen", "pos"}, ArgTypes: []string{"unsigned long", "void *", "unsigned long", "unsigned long"}},
+		},
+		fallbackOverrides: map[string]SyscallMeta{
+			"preadv": {Name: "preadv", Args: []string{"fd", "vec", "vlen", "pos_l", "pos_h"}, ArgTypes: []string{"int", "void *", "unsigned long", "unsigned long", "unsigned long"}},
+		},
+	}
+
+	got := resolver.Resolve(syscallentEntry{Name: "preadv", Argc: 5})
+	wantReason := syscallMetadataResolutionReason(string(metadataReasonBTFArityMismatch) + ";" + string(metadataReasonTracepointArityMismatch))
+	if got.Source != metadataSourceFallbackOverride || got.Reason != wantReason {
+		t.Fatalf("Resolve(preadv) = (%s, %s), want fallback with both arity reasons", got.Source, got.Reason)
 	}
 }
 
