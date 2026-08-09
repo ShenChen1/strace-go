@@ -20,6 +20,7 @@ var enumXlatNames = map[string]bool{
 	"ioctl_cmds":            true,
 	"itimer_which":          true,
 	"key_spec":              true,
+	"listmount_mnt_id":      true,
 	"madvise_cmds":          true,
 	"open_access_modes":     true,
 	"quota_formats":         true,
@@ -61,11 +62,14 @@ var rawEnumDecimalExcluded = map[string]bool{
 }
 
 var fullWidthXlatNames = map[string]bool{
-	"clone3_flags":       true,
-	"mmap_prot64":        true,
-	"pkey_access_rights": true,
-	"statx_attrs":        true,
-	"unshare_flags":      true,
+	"clone3_flags":              true,
+	"mmap_prot64":               true,
+	"pkey_access_rights":        true,
+	"statx_attrs":               true,
+	"statmount_mask":            true,
+	"statmount_mnt_propagation": true,
+	"listmount_mnt_id":          true,
+	"unshare_flags":             true,
 }
 
 func isEnumXlat(xlatName string) bool {

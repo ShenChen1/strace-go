@@ -114,6 +114,7 @@ const (
 	exitProgRecvmmsgBase0 = 4
 	exitProgRecvmmsgBase1 = 5
 	exitProgQuota         = 6
+	exitProgMountQuery    = 7
 )
 
 const (
@@ -184,6 +185,7 @@ func exitProgArrayEntries(objs *bpfObjects) []progArrayEntry {
 		{exitProgRecvmmsgBase0, objs.ExitRecvmmsgBase0},
 		{exitProgRecvmmsgBase1, objs.ExitRecvmmsgBase1},
 		{exitProgQuota, objs.ExitQuota},
+		{exitProgMountQuery, objs.ExitMountQuery},
 	}
 }
 

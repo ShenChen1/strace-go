@@ -52,6 +52,7 @@ char LICENSE[] SEC("license") = "GPL";
 #include "enter_dispatch.h"
 #include "exit_dispatch.h"
 #include "quota_dispatch.h"
+#include "mount_query_dispatch.h"
 
 SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
@@ -199,6 +200,8 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     u32 index = EXIT_PROG_GENERIC;
     if (is_quota_direct_syscall(p->sys_id)) {
         index = EXIT_PROG_QUOTA;
+    } else if (is_mount_query_direct_syscall(p->sys_id)) {
+        index = EXIT_PROG_MOUNT_QUERY;
     } else if (is_iovec_base_exit_direct_syscall(p->sys_id)) {
         index = EXIT_PROG_IOVEC_BASE;
     } else if (is_single_msg_direct_syscall(p->sys_id)) {

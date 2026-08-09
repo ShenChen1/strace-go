@@ -39,13 +39,13 @@ func TestExitProgArrayEntriesComplete(t *testing.T) {
 		}
 		seen[entry.index] = true
 	}
-	for i := 0; i <= exitProgQuota; i++ {
+	for i := 0; i <= exitProgMountQuery; i++ {
 		if !seen[uint32(i)] {
 			t.Fatalf("exit prog array missing index %d", i)
 		}
 	}
-	if len(entries) != exitProgQuota+1 {
-		t.Fatalf("exit prog array entries = %d, want %d", len(entries), exitProgQuota+1)
+	if len(entries) != exitProgMountQuery+1 {
+		t.Fatalf("exit prog array entries = %d, want %d", len(entries), exitProgMountQuery+1)
 	}
 }
 
@@ -115,6 +115,7 @@ func TestExitProgIndicesMatchDispatchHeader(t *testing.T) {
 		"EXIT_PROG_RECVMMSG_BASE0": exitProgRecvmmsgBase0,
 		"EXIT_PROG_RECVMMSG_BASE1": exitProgRecvmmsgBase1,
 		"EXIT_PROG_QUOTA":          exitProgQuota,
+		"EXIT_PROG_MOUNT_QUERY":    exitProgMountQuery,
 	}
 	for name, val := range pairs {
 		if !strings.Contains(header, fmt.Sprintf("%s = %d", name, val)) {

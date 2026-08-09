@@ -201,6 +201,59 @@ def check_attach(context, failures):
     require(capture.stats_events and capture.stats_events[0].get("orphan_exit", 0) > 0, failures, "attach orphan_exit diagnostic missing")
 
 
+def matching_sections(events, syscall, event_type):
+    sections = []
+    for event in events:
+        if event.get("syscall") == syscall and event.get("event_type") == event_type:
+            sections.extend(event.get("payload_sections") or [])
+    return sections
+
+
+def has_copied_section(sections, kind, direction, arg_index, minimum_copied):
+    return any(
+        section.get("kind") == kind
+        and section.get("direction") == direction
+        and section.get("arg_index") == arg_index
+        and section.get("copied_len", 0) >= minimum_copied
+        for section in sections
+    )
+
+
+def check_mount_query(context, failures):
+    capture = context.mount_query
+    require(capture.result.returncode == 0, failures, f"mount-query fixture rc={capture.result.returncode}")
+    require("mount-query-fixture-ok" in capture.result.stdout, failures, "mount-query fixture stdout marker missing")
+    require(len(capture.stats_events) == 1 and valid_stats_event(capture.stats_events[0]), failures, "mount-query stats event missing")
+    error_counters = (
+        "ringbuf_reserve_fail", "ringbuf_copy_fail", "pending_update_fail",
+        "orphan_exit", "pending_mismatch",
+    )
+    clean_stats = capture.stats_events and all(
+        capture.stats_events[0].get(key, 1) == 0 for key in error_counters
+    )
+    require(clean_stats, failures, "mount-query fixture reported runtime event errors")
+
+    list_enter = matching_sections(capture.events, "listmount", "enter")
+    list_exit = matching_sections(capture.events, "listmount", "exit")
+    stat_enter = matching_sections(capture.events, "statmount", "enter")
+    stat_exit = matching_sections(capture.events, "statmount", "exit")
+    require(has_copied_section(list_enter, "struct", "in", 0, 32), failures, "listmount request snapshot missing")
+    require(has_copied_section(list_exit, "bytes", "out", 1, 8), failures, "listmount mount ID output snapshot missing")
+    require(has_copied_section(stat_enter, "struct", "in", 0, 32), failures, "statmount request snapshot missing")
+    require(has_copied_section(stat_exit, "struct", "out", 1, 512), failures, "statmount fixed output snapshot missing")
+    require(has_copied_section(stat_exit, "bytes", "out", 1, 1), failures, "statmount string output snapshot missing")
+    require(any(event.get("syscall") == "listmount" and event.get("event_type") == "exit" and event.get("paired_enter") for event in capture.events), failures, "listmount exit was not paired")
+    require(any(event.get("syscall") == "statmount" and event.get("event_type") == "exit" and event.get("paired_enter") for event in capture.events), failures, "statmount exit was not paired")
+    arg_text = " ".join(
+        part
+        for event in capture.exit_events
+        for part in (event.get("arg_text") or [])
+    )
+    require("LSMT_ROOT" in arg_text, failures, "listmount root ID text missing")
+    require("STATMOUNT_SB_BASIC" in arg_text, failures, "statmount mask text missing")
+    require("fs_type=" in arg_text, failures, "statmount filesystem type text missing")
+
+
 def check_semantic_context(context, failures):
     check_main_capture(context, failures)
     check_syscall_presence(context, failures)
@@ -211,3 +264,4 @@ def check_semantic_context(context, failures):
     check_lifecycle(context, failures)
     check_thread(context, failures)
     check_attach(context, failures)
+    check_mount_query(context, failures)

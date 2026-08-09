@@ -818,6 +818,18 @@ var XlatTables = map[string]XlatTable{
 			{Val: 18446744073709551608, Str: "KEY_SPEC_REQUESTOR_KEYRING"},
 		},
 	},
+	"listmount_flags": {
+		Prefix: "LISTMOUNT_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "LISTMOUNT_REVERSE"},
+		},
+	},
+	"listmount_mnt_id": {
+		Prefix: "LSMT_",
+		Entries: []XlatVal{
+			{Val: 18446744073709551615, Str: "LSMT_ROOT"},
+		},
+	},
 	"lockfcmds": {
 		Prefix: "F_",
 		Entries: []XlatVal{
@@ -1875,6 +1887,50 @@ var XlatTables = map[string]XlatTable{
 			{Val: 2048, Str: "ST_NODIRATIME"},
 			{Val: 4096, Str: "ST_RELATIME"},
 			{Val: 8192, Str: "ST_NOSYMFOLLOW"},
+		},
+	},
+	"statmount_flags": {
+		Prefix: "STATMOUNT_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "STATMOUNT_BY_FD"},
+		},
+	},
+	"statmount_mask": {
+		Prefix: "STATMOUNT_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "STATMOUNT_SB_BASIC"},
+			{Val: 2, Str: "STATMOUNT_MNT_BASIC"},
+			{Val: 4, Str: "STATMOUNT_PROPAGATE_FROM"},
+			{Val: 8, Str: "STATMOUNT_MNT_ROOT"},
+			{Val: 16, Str: "STATMOUNT_MNT_POINT"},
+			{Val: 32, Str: "STATMOUNT_FS_TYPE"},
+			{Val: 64, Str: "STATMOUNT_MNT_NS_ID"},
+			{Val: 128, Str: "STATMOUNT_MNT_OPTS"},
+			{Val: 256, Str: "STATMOUNT_FS_SUBTYPE"},
+			{Val: 512, Str: "STATMOUNT_SB_SOURCE"},
+			{Val: 1024, Str: "STATMOUNT_OPT_ARRAY"},
+			{Val: 2048, Str: "STATMOUNT_OPT_SEC_ARRAY"},
+			{Val: 4096, Str: "STATMOUNT_SUPPORTED_MASK"},
+			{Val: 8192, Str: "STATMOUNT_MNT_UIDMAP"},
+			{Val: 16384, Str: "STATMOUNT_MNT_GIDMAP"},
+		},
+	},
+	"statmount_mnt_propagation": {
+		Prefix: "MS_",
+		Entries: []XlatVal{
+			{Val: 131072, Str: "MS_UNBINDABLE"},
+			{Val: 262144, Str: "MS_PRIVATE"},
+			{Val: 524288, Str: "MS_SLAVE"},
+			{Val: 1048576, Str: "MS_SHARED"},
+		},
+	},
+	"statmount_sb_flags": {
+		Prefix: "MS_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "MS_RDONLY"},
+			{Val: 16, Str: "MS_SYNCHRONOUS"},
+			{Val: 128, Str: "MS_DIRSYNC"},
+			{Val: 33554432, Str: "MS_LAZYTIME"},
 		},
 	},
 	"statx_attrs": {
@@ -5764,6 +5820,9 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"kill": {
 		"sig": "signalnames",
 	},
+	"listmount": {
+		"flags": "listmount_flags",
+	},
 	"lseek": {
 		"whence": "whence_codes",
 	},
@@ -5893,6 +5952,9 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"socket": {
 		"family": "addrfams",
 		"type": "sock_type_flags",
+	},
+	"statmount": {
+		"flags": "statmount_flags",
 	},
 	"statx": {
 		"mask": "statx_masks",

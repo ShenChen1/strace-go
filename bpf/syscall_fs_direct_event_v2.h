@@ -2,6 +2,7 @@
 #define STRACE_GO_SYSCALL_FS_DIRECT_EVENT_V2_H
 
 #include "syscall_mount_setattr_direct_event_v2.h"
+#include "syscall_mount_query_direct_event_v2.h"
 
 #define FS_DIRECT_MOUNT_STRING_MAX 512
 #define FS_DIRECT_MOUNT_TYPE_MAX 128
@@ -15,7 +16,8 @@
 static __always_inline int is_fs_enter_direct_syscall(u32 sys_id)
 {
     return sys_id == SYS_MOUNT || sys_id == SYS_UMOUNT2 ||
-        sys_id == SYS_FSCONFIG || sys_id == SYS_MOUNT_SETATTR;
+        sys_id == SYS_FSCONFIG || sys_id == SYS_MOUNT_SETATTR ||
+        is_mount_query_direct_syscall(sys_id);
 }
 
 static __always_inline int is_getdents64_direct_syscall(u32 sys_id)
@@ -219,6 +221,9 @@ static __always_inline u32 capture_fs_enter_payload_tlv_direct(
     }
     if (sys_id == SYS_MOUNT_SETATTR) {
         return capture_mount_setattr_enter_payload_tlv_direct(ptr, payload_offset, ctx, event_flags);
+    }
+    if (is_mount_query_direct_syscall(sys_id)) {
+        return capture_mnt_id_req_enter_tlv_direct(ptr, payload_offset, ctx, event_flags);
     }
     return 0;
 }
