@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`cmd/strace-go/` contains the CLI entry point, eBPF loader, session lifecycle, and event loop. Reusable code lives under `pkg/`: argument parsing in `cli`, event decoding in `event`, output rendering in `format` and `handler`, generated syscall metadata in `meta`, process-memory access in `procmem`, and stack resolution in `stacktrace`. Kernel-side eBPF code is in `bpf/`. Generators live in `cmd/generate-syscalls/` and `cmd/generate-xlats/`.
+`cmd/strace-go/` contains the CLI entry point, eBPF loader, session lifecycle, and event loop. Reusable code lives under `pkg/`: argument parsing in `cli`, event decoding in `event`, output rendering in `format` and `handler`, generated syscall metadata in `meta`, and stack resolution in `stacktrace`. Kernel-side eBPF code is in `bpf/`. Generators live in `cmd/generate-syscalls/` and `cmd/generate-xlats/`.
 
 Unit tests sit beside Go packages as `*_test.go`. `test/run_tests.py` drives compatibility tests from the `strace-upstream/` submodule through `test/strace-sudo.sh`.
 
