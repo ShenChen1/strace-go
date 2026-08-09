@@ -31,6 +31,9 @@ ATTACH_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_attach_fixture.c
 MOUNT_QUERY_FIXTURE_SRC = os.path.join(
     SCRIPT_DIR, "fixtures", "ebpf_mount_query_fixture.c"
 )
+MOUNT_PATH_FIXTURE_SRC = os.path.join(
+    SCRIPT_DIR, "fixtures", "ebpf_mount_path_fixture.c"
+)
 ATTACH_READY_TIMEOUT_SECONDS = 30
 
 
@@ -63,6 +66,8 @@ class AttachCapture:
 class SemanticContext:
     main: EventCapture
     mount_query: EventCapture
+    mount_path: EventCapture
+    mount_path_filtered: EventCapture
     thread: EventCapture
     thread_text: subprocess.CompletedProcess
     attach: AttachCapture
@@ -132,6 +137,12 @@ def build_ebpf_mount_query_fixture():
     )
 
 
+def build_ebpf_mount_path_fixture():
+    return build_named_fixture(
+        "strace-go-ebpf-mount-path-fixture", MOUNT_PATH_FIXTURE_SRC
+    )
+
+
 def run_strace_go_json(args, timeout=30, debug=False):
     event_flag = "--debug-events" if debug else "--event-format=json"
     command = [STRACE_WRAPPER, event_flag] + args
@@ -192,6 +203,13 @@ def collect_mount_query_events(fixture):
     return event_capture(
         run_strace_go_json(["-e", "trace=statmount,listmount", fixture])
     )
+
+
+def collect_mount_path_events(fixture, trace_path=None):
+    args = ["-e", "trace=open_tree,move_mount"]
+    if trace_path:
+        args = ["-P", trace_path] + args
+    return event_capture(run_strace_go_json(args + [fixture]))
 
 
 def collect_thread_unfinished_text(fixture):
@@ -314,9 +332,14 @@ def collect_semantic_context(fixture):
     thread_fixture = build_ebpf_thread_fixture()
     attach_fixture = build_ebpf_attach_fixture()
     mount_query_fixture = build_ebpf_mount_query_fixture()
+    mount_path_fixture = build_ebpf_mount_path_fixture()
     return SemanticContext(
         main=collect_semantic_events(fixture),
         mount_query=collect_mount_query_events(mount_query_fixture),
+        mount_path=collect_mount_path_events(mount_path_fixture),
+        mount_path_filtered=collect_mount_path_events(
+            mount_path_fixture, "/dev/full"
+        ),
         thread=collect_thread_lifecycle_events(thread_fixture),
         thread_text=collect_thread_unfinished_text(thread_fixture),
         attach=collect_attach_orphan_stats(attach_fixture),
@@ -348,6 +371,7 @@ def print_semantic_summary(context, filter_event_count):
     print(f"=> eBPF thread semantic events: {len(context.thread.events)}")
     print(f"=> eBPF thread lifecycle events: {len(context.thread.lifecycle_events)}")
     print(f"=> eBPF mount-query semantic events: {len(context.mount_query.events)}")
+    print(f"=> eBPF mount-path semantic events: {len(context.mount_path.events)}")
     unfinished = sum(
         1 for line in context.thread_text.stderr.splitlines() if "<unfinished ...>" in line
     )

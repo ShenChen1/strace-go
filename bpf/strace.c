@@ -14,6 +14,7 @@ char LICENSE[] SEC("license") = "GPL";
 #include "syscall_misc_struct_direct_event_v2.h"
 #include "syscall_path_stat_direct_event_v2.h"
 #include "syscall_path_direct_event_v2.h"
+#include "syscall_mount_path_direct_event_v2.h"
 #include "syscall_openat2_direct_event_v2.h"
 #include "syscall_readlink_direct_event_v2.h"
 #include "syscall_small_struct_direct_event_v2.h"
@@ -53,6 +54,7 @@ char LICENSE[] SEC("license") = "GPL";
 #include "exit_dispatch.h"
 #include "quota_dispatch.h"
 #include "mount_query_dispatch.h"
+#include "mount_path_dispatch.h"
 
 SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
@@ -80,6 +82,8 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         index = ENTER_PROG_PATH_STAT;
     } else if (is_path_only_direct_syscall(sys_id)) {
         index = ENTER_PROG_PATH_ONLY;
+    } else if (is_mount_path_direct_syscall(sys_id)) {
+        index = ENTER_PROG_MOUNT_PATH;
     } else if (is_dual_path_direct_syscall(sys_id)) {
         index = ENTER_PROG_DUAL_PATH;
     } else if (is_openat2_direct_syscall(sys_id)) {

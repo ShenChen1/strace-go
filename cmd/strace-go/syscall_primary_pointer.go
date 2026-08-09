@@ -40,7 +40,8 @@ func primaryPathArgIndex(scMeta meta.Syscall) (int, bool) {
 
 func isPrimaryPathArgName(name string) bool {
 	switch name {
-	case "filename", "pathname", "path", "oldname", "newname", "oldpath", "newpath", "fs_name":
+	case "filename", "pathname", "path", "oldname", "newname", "oldpath", "newpath",
+		"from_pathname", "to_pathname", "fs_name":
 		return true
 	default:
 		return false

@@ -19,7 +19,7 @@ static __always_inline int is_path_only_arg1_direct_syscall(u32 sys_id)
 {
     return sys_id == SYS_MKDIRAT || sys_id == SYS_MKNODAT || sys_id == SYS_FCHOWNAT ||
         sys_id == SYS_UNLINKAT || sys_id == SYS_FCHMODAT || sys_id == SYS_FACCESSAT ||
-        sys_id == SYS_FACCESSAT2 || sys_id == SYS_FSPICK;
+        sys_id == SYS_FACCESSAT2 || sys_id == SYS_FSPICK || sys_id == SYS_OPEN_TREE;
 }
 
 static __always_inline int is_path_only_direct_syscall(u32 sys_id)

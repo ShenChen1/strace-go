@@ -36,6 +36,12 @@ func applyStableXlatFallbacks(name string, prefix *string, entries map[string]st
 	}
 }
 
+func normalizeXlatPrefix(name string, prefix *string) {
+	if name == "open_tree_flags" {
+		*prefix = "OPEN_TREE_"
+	}
+}
+
 func addStableXlatEntry(entries map[string]string, keys *[]string, entry stableXlatEntry) {
 	if _, ok := entries[entry.name]; ok {
 		return

@@ -77,6 +77,7 @@ func buildXlatTable(xlatDir string, name string, fileName string) xlatTableData 
 	}
 	evaluateCConstants(name, cProg.String(), table.entries)
 	applyStableXlatFallbacks(name, &table.prefix, table.entries, &table.keys)
+	normalizeXlatPrefix(name, &table.prefix)
 	return table
 }
 

@@ -163,6 +163,26 @@ func TestParseStackTraceLongFlag(t *testing.T) {
 	}
 }
 
+func TestParseDecodeFDsLongFlags(t *testing.T) {
+	tests := []struct {
+		flag string
+		mode int
+	}{
+		{flag: "--decode-fds", mode: 1},
+		{flag: "--decode-fds=path", mode: 1},
+		{flag: "--decode-fds=all", mode: 2},
+	}
+
+	for _, test := range tests {
+		t.Run(test.flag, func(t *testing.T) {
+			opts := ParseArgs([]string{test.flag, "/bin/true"})
+			if !opts.ShowPaths || opts.ShowPathsMode != test.mode {
+				t.Fatalf("decode fds = enabled:%v mode:%d, want true/%d", opts.ShowPaths, opts.ShowPathsMode, test.mode)
+			}
+		})
+	}
+}
+
 func TestParseModeFlagRejected(t *testing.T) {
 	if os.Getenv("STRACE_GO_PARSE_MODE_EXIT") == "1" {
 		ParseArgs([]string{"--mode=compat", "/bin/true"})

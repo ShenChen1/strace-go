@@ -79,17 +79,38 @@ func updateEventfdCountFromView(view syscallEventView, scMeta meta.Syscall, targ
 }
 
 func updateOpenedPathFDMapFromView(view syscallEventView, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
-	if !view.valid || view.ret < 0 || (scMeta.Name != "open" && scMeta.Name != "openat" && scMeta.Name != "openat2" && scMeta.Name != "creat") {
+	if !view.valid || view.ret < 0 || !isOpenedPathFDStateSyscall(scMeta.Name) {
 		return
 	}
-	path := pathText
-	if path == "" || strings.HasPrefix(path, "0x") || path == "NULL" {
+	path := openedPathStateTarget(view, scMeta.Name, pathText, targetPid, fdMap)
+	if path == "" {
 		return
-	}
-	if strings.HasPrefix(path, `"`) && strings.HasSuffix(path, `"`) {
-		path = path[1 : len(path)-1]
 	}
 	fdMap[fmt.Sprintf("%d:%d", targetPid, int32(view.ret))] = path
+}
+
+func openedPathStateTarget(view syscallEventView, scName string, pathText string, targetPid int, fdMap map[string]string) string {
+	if pathText == "" || strings.HasPrefix(pathText, "0x") || pathText == "NULL" {
+		return ""
+	}
+	path := strings.TrimSuffix(strings.TrimPrefix(pathText, `"`), `"`)
+	if path != "" || scName != "open_tree" {
+		return path
+	}
+	dfd := int32(view.args[0])
+	if dfd == handler.AtFdcwd {
+		return fdMap[fmt.Sprintf("%d:cwd", targetPid)]
+	}
+	return fdMap[fmt.Sprintf("%d:%d", targetPid, dfd)]
+}
+
+func isOpenedPathFDStateSyscall(scName string) bool {
+	switch scName {
+	case "open", "openat", "openat2", "open_tree", "creat":
+		return true
+	default:
+		return false
+	}
 }
 
 func updateDupFDMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
@@ -226,8 +247,7 @@ func rememberFDTargetFromProc(procTid uint32, targetPid int, fd int32, suffix st
 type printFilterRequest struct {
 	view            syscallEventView
 	scMeta          meta.Syscall
-	pathText        string
-	isPath          bool
+	pathArguments   []event.PathArgument
 	targetPid       int
 	opts            *cli.Options
 	fdMap           map[string]string
@@ -260,12 +280,11 @@ func (req printFilterRequest) candidateFDs() []int32 {
 
 func (req printFilterRequest) pathMatchRequest(fds []int32) event.PathMatchRequest {
 	return event.PathMatchRequest{
-		Pid:        req.targetPid,
-		FDs:        fds,
-		IsPath:     req.isPath,
-		PathText:   req.pathText,
-		TracePaths: req.opts.TracePaths,
-		FDMap:      req.fdMap,
+		Pid:           req.targetPid,
+		FDs:           fds,
+		PathArguments: req.pathArguments,
+		TracePaths:    req.opts.TracePaths,
+		FDMap:         req.fdMap,
 	}
 }
 

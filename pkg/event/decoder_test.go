@@ -86,12 +86,11 @@ func TestMatchPathMatchesRawRelativeArgument(t *testing.T) {
 	}
 
 	if !MatchPath(PathMatchRequest{
-		Pid:        123,
-		FDs:        []int32{-1},
-		IsPath:     true,
-		PathText:   `"open.sample"`,
-		TracePaths: tracePaths,
-		FDMap:      fdMap,
+		Pid:           123,
+		FDs:           []int32{-1},
+		PathArguments: []PathArgument{{Text: `"open.sample"`, DirFD: -100}},
+		TracePaths:    tracePaths,
+		FDMap:         fdMap,
 	}) {
 		t.Fatal("relative trace path did not match raw relative syscall argument")
 	}

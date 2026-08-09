@@ -116,14 +116,19 @@ func (d *Decoder) DecodeStringRaw(_ int, ptr uint64, bpfData []byte, probeRet in
 	return fmt.Sprintf("%#x", ptr)
 }
 
+// PathArgument binds one probe-site pathname snapshot to its directory fd.
+type PathArgument struct {
+	Text  string
+	DirFD int32
+}
+
 // PathMatchRequest carries the state needed to evaluate a -P path filter.
 type PathMatchRequest struct {
-	Pid        int
-	FDs        []int32
-	IsPath     bool
-	PathText   string
-	TracePaths map[string]bool
-	FDMap      map[string]string
+	Pid           int
+	FDs           []int32
+	PathArguments []PathArgument
+	TracePaths    map[string]bool
+	FDMap         map[string]string
 }
 
 // MatchPath checks if the syscall matches any of the paths in the filter list.
@@ -132,14 +137,15 @@ func MatchPath(req PathMatchRequest) bool {
 		return true
 	}
 
-	candidatePaths, baseFd := fdCandidatePaths(req.Pid, req.FDs, req.FDMap)
-	candidatePaths = append(candidatePaths, pathTextCandidates(req, baseFd)...)
+	candidatePaths := fdCandidatePaths(req.Pid, req.FDs, req.FDMap)
+	for _, pathArg := range req.PathArguments {
+		candidatePaths = append(candidatePaths, pathArgumentCandidates(req.Pid, pathArg, req.FDMap)...)
+	}
 	return anyCandidateMatchesTracePath(candidatePaths, req.TracePaths)
 }
 
-func fdCandidatePaths(pid int, fds []int32, fdMap map[string]string) ([]string, int32) {
+func fdCandidatePaths(pid int, fds []int32, fdMap map[string]string) []string {
 	candidatePaths := []string{}
-	baseFd := int32(-1)
 	for _, fd := range fds {
 		if fd == -1 {
 			continue
@@ -155,24 +161,21 @@ func fdCandidatePaths(pid int, fds []int32, fdMap map[string]string) ([]string, 
 				fdMap[fdMapKey(pid, fd)] = path
 			}
 		}
-		if baseFd == -1 {
-			baseFd = fd
-		}
 	}
-	return candidatePaths, baseFd
+	return candidatePaths
 }
 
-func pathTextCandidates(req PathMatchRequest, baseFd int32) []string {
-	if !usablePathText(req) {
+func pathArgumentCandidates(pid int, pathArg PathArgument, fdMap map[string]string) []string {
+	if !usablePathArgument(pathArg) {
 		return nil
 	}
-	path := unquotePath(req.PathText)
+	path := unquotePath(pathArg.Text)
 	if strings.HasPrefix(path, "/") {
 		return []string{path}
 	}
 
 	candidates := []string{path}
-	base := relativePathBase(req.Pid, baseFd, req.FDMap)
+	base := relativePathBase(pid, pathArg.DirFD, fdMap)
 	if base != "" {
 		candidates = append(candidates, base+"/"+path)
 	} else {
@@ -181,11 +184,10 @@ func pathTextCandidates(req PathMatchRequest, baseFd int32) []string {
 	return candidates
 }
 
-func usablePathText(req PathMatchRequest) bool {
-	return req.IsPath &&
-		req.PathText != "" &&
-		req.PathText != "NULL" &&
-		!strings.HasPrefix(req.PathText, "0x")
+func usablePathArgument(pathArg PathArgument) bool {
+	return pathArg.Text != "" &&
+		pathArg.Text != "NULL" &&
+		!strings.HasPrefix(pathArg.Text, "0x")
 }
 
 func relativePathBase(pid int, baseFd int32, fdMap map[string]string) string {

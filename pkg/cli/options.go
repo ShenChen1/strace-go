@@ -165,6 +165,11 @@ func parseBasicFlags(arg string, opts *Options) bool {
 		} else if opts.ShowPathsMode == 0 {
 			opts.ShowPathsMode = 1
 		}
+	case arg == "--decode-fds" || arg == "--decode-fds=path":
+		opts.ShowPaths = true
+		if opts.ShowPathsMode == 0 {
+			opts.ShowPathsMode = 1
+		}
 	case arg == "-t":
 		opts.PrintTimeMode = 1
 	case arg == "-tt":
@@ -181,7 +186,7 @@ func parseBasicFlags(arg string, opts *Options) bool {
 		opts.SuccessfulOnly = true
 	case arg == "-Z":
 		opts.FailedOnly = true
-	case arg == "-yy":
+	case arg == "-yy" || arg == "--decode-fds=all":
 		opts.ShowPaths = true
 		opts.ShowPathsMode = 2
 	case arg == "-x":

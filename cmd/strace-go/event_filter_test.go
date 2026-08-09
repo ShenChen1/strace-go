@@ -279,16 +279,16 @@ func TestCheckShouldPrintTracePathIgnoresFsconfigContextFD(t *testing.T) {
 	}
 }
 
-func TestFsconfigPathTextFromPayloadUsesValueSection(t *testing.T) {
+func TestFsconfigPathArgumentUsesValueSectionAndAuxFD(t *testing.T) {
 	session := &traceSession{decoder: event.NewDecoder()}
 	args := [6]uint64{rawFD(-1), 3, 0x1000, 0x2000, rawFD(-100)}
 	sections := []handler.PayloadSection{
 		{Kind: handler.PayloadKindString, Direction: handler.PayloadDirectionIn, ArgIndex: 3, UserPtr: 0x2000, ProbeRet: 0, Data: []byte("/dev/full\x00")},
 	}
 
-	text, ok := pathTextFromPayload(newSyscallEventContextDeps(session), viewWithArgs(args), meta.Syscall{Name: "fsconfig"}, sections)
-	if !ok || text != `"/dev/full"` {
-		t.Fatalf("fsconfig path text = %q, %v; want value path", text, ok)
+	paths := decodePathArguments(newSyscallEventContextDeps(session), viewWithArgs(args), meta.SyscallTable[431], sections)
+	if len(paths) != 1 || paths[0].Text != `"/dev/full"` || paths[0].DirFD != -100 {
+		t.Fatalf("fsconfig path arguments = %+v, want value path with aux fd", paths)
 	}
 }
 

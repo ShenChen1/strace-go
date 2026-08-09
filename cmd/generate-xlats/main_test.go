@@ -30,6 +30,15 @@ func TestApplyStableXlatFallbacksAddsMissingEntries(t *testing.T) {
 	}
 }
 
+func TestNormalizeXlatPrefixUsesOpenTreeUnknownContract(t *testing.T) {
+	prefix := "OPEN_TREE_ AT_"
+	normalizeXlatPrefix("open_tree_flags", &prefix)
+
+	if prefix != "OPEN_TREE_" {
+		t.Fatalf("open_tree prefix = %q, want OPEN_TREE_", prefix)
+	}
+}
+
 func TestSortedKeysReturnsLexicalOrder(t *testing.T) {
 	keys := sortedKeys(map[string]int{
 		"write": 1,

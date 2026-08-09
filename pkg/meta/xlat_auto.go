@@ -1036,6 +1036,19 @@ var XlatTables = map[string]XlatTable{
 			{Val: 32768, Str: "AT_RECURSIVE"},
 		},
 	},
+	"move_mount_flags": {
+		Prefix: "MOVE_MOUNT_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "MOVE_MOUNT_F_SYMLINKS"},
+			{Val: 2, Str: "MOVE_MOUNT_F_AUTOMOUNTS"},
+			{Val: 4, Str: "MOVE_MOUNT_F_EMPTY_PATH"},
+			{Val: 16, Str: "MOVE_MOUNT_T_SYMLINKS"},
+			{Val: 32, Str: "MOVE_MOUNT_T_AUTOMOUNTS"},
+			{Val: 64, Str: "MOVE_MOUNT_T_EMPTY_PATH"},
+			{Val: 256, Str: "MOVE_MOUNT_SET_GROUP"},
+			{Val: 512, Str: "MOVE_MOUNT_BENEATH"},
+		},
+	},
 	"mremap_flags": {
 		Prefix: "MREMAP_",
 		Entries: []XlatVal{
@@ -1203,6 +1216,18 @@ var XlatTables = map[string]XlatTable{
 			{Val: 8, Str: "RESOLVE_BENEATH"},
 			{Val: 16, Str: "RESOLVE_IN_ROOT"},
 			{Val: 32, Str: "RESOLVE_CACHED"},
+		},
+	},
+	"open_tree_flags": {
+		Prefix: "OPEN_TREE_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "OPEN_TREE_CLONE"},
+			{Val: 2, Str: "OPEN_TREE_NAMESPACE"},
+			{Val: 524288, Str: "OPEN_TREE_CLOEXEC"},
+			{Val: 256, Str: "AT_SYMLINK_NOFOLLOW"},
+			{Val: 2048, Str: "AT_NO_AUTOMOUNT"},
+			{Val: 4096, Str: "AT_EMPTY_PATH"},
+			{Val: 32768, Str: "AT_RECURSIVE"},
 		},
 	},
 	"pidfd_open_flags": {
@@ -5854,6 +5879,9 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"mount_setattr": {
 		"flags": "mount_setattr_flags",
 	},
+	"move_mount": {
+		"flags": "move_mount_flags",
+	},
 	"mprotect": {
 		"prot": "mmap_prot",
 	},
@@ -5871,6 +5899,9 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	},
 	"open": {
 		"flags": "open_mode_flags",
+	},
+	"open_tree": {
+		"flags": "open_tree_flags",
 	},
 	"openat": {
 		"flags": "open_mode_flags",

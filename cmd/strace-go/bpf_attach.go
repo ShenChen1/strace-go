@@ -104,6 +104,7 @@ const (
 	enterProgAioIovec    = 41
 	enterProgAioBuf      = 42
 	enterProgQuota       = 43
+	enterProgMountPath   = 44
 )
 
 const (
@@ -173,6 +174,7 @@ func enterProgArrayEntries(objs *bpfObjects) []progArrayEntry {
 		{enterProgAioIovec, objs.EnterAioIovec},
 		{enterProgAioBuf, objs.EnterAioBuf},
 		{enterProgQuota, objs.EnterQuota},
+		{enterProgMountPath, objs.EnterMountPath},
 	}
 }
 

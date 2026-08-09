@@ -64,7 +64,10 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 		}
 	}
 
-	isPath := argName == "filename" || argName == "pathname" || argName == "path" || argName == "oldname" || argName == "newname" || argName == "oldpath" || argName == "newpath" || (scName == "getcwd" && argName == "buf")
+	isPath := argName == "filename" || argName == "pathname" || argName == "path" ||
+		argName == "oldname" || argName == "newname" || argName == "oldpath" ||
+		argName == "newpath" || argName == "from_pathname" || argName == "to_pathname" ||
+		(scName == "getcwd" && argName == "buf")
 	if isPath && shouldShowFaultingTimePathPointer(ctx, val) {
 		return fmt.Sprintf("%#x", val), true
 	}

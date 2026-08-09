@@ -153,6 +153,10 @@ syscalls:
     flags: mount_flags
   mount_setattr:
     flags: mount_setattr_flags
+  open_tree:
+    flags: open_tree_flags
+  move_mount:
+    flags: move_mount_flags
   statmount:
     flags: statmount_flags
   listmount:

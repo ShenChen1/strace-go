@@ -99,6 +99,7 @@ type bpfProgramSpecs struct {
 	EnterMemfd                    *ebpf.ProgramSpec `ebpf:"enter_memfd"`
 	EnterMiscStruct               *ebpf.ProgramSpec `ebpf:"enter_misc_struct"`
 	EnterMmsg                     *ebpf.ProgramSpec `ebpf:"enter_mmsg"`
+	EnterMountPath                *ebpf.ProgramSpec `ebpf:"enter_mount_path"`
 	EnterMsg                      *ebpf.ProgramSpec `ebpf:"enter_msg"`
 	EnterNetwork                  *ebpf.ProgramSpec `ebpf:"enter_network"`
 	EnterNoPayloadDirect          *ebpf.ProgramSpec `ebpf:"enter_no_payload_direct"`
@@ -273,6 +274,7 @@ type bpfPrograms struct {
 	EnterMemfd                    *ebpf.Program `ebpf:"enter_memfd"`
 	EnterMiscStruct               *ebpf.Program `ebpf:"enter_misc_struct"`
 	EnterMmsg                     *ebpf.Program `ebpf:"enter_mmsg"`
+	EnterMountPath                *ebpf.Program `ebpf:"enter_mount_path"`
 	EnterMsg                      *ebpf.Program `ebpf:"enter_msg"`
 	EnterNetwork                  *ebpf.Program `ebpf:"enter_network"`
 	EnterNoPayloadDirect          *ebpf.Program `ebpf:"enter_no_payload_direct"`
@@ -338,6 +340,7 @@ func (p *bpfPrograms) Close() error {
 		p.EnterMemfd,
 		p.EnterMiscStruct,
 		p.EnterMmsg,
+		p.EnterMountPath,
 		p.EnterMsg,
 		p.EnterNetwork,
 		p.EnterNoPayloadDirect,

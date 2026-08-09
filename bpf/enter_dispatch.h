@@ -58,8 +58,8 @@ enum enter_prog_index {
     ENTER_PROG_AIO_IOVEC = 41,
     ENTER_PROG_AIO_BUF = 42,
     ENTER_PROG_QUOTA = 43,
+    ENTER_PROG_MOUNT_PATH = 44,
 };
-
 #define ENTER_PROLOGUE(ctx)                                                \
     u32 sys_id = (u32)(ctx)->id;                                           \
     u32 tid = (u32)bpf_get_current_pid_tgid();                             \

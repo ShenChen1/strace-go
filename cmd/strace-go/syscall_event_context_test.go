@@ -114,34 +114,35 @@ func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 	}
 }
 
-func TestDecodePathTextUsesEventViewPointerFallback(t *testing.T) {
+func TestDecodePathArgumentsUsesArgumentPointerFallback(t *testing.T) {
 	session := &traceSession{decoder: event.NewDecoder()}
 	sc := meta.Syscall{Name: "custom_path_syscall", Args: []string{"path"}}
-	view := syscallEventView{valid: true, tid: 101, ptr: 0x2000}
+	view := syscallEventView{valid: true, tid: 101, args: [6]uint64{0x2000}}
 
-	got := decodePathText(newSyscallEventContextDeps(session), view, sc, true, nil)
+	got := decodePathArguments(newSyscallEventContextDeps(session), view, sc, nil)
 
-	if got != "0x2000" {
-		t.Fatalf("pathText = %q, want pointer from event view", got)
+	if len(got) != 1 || got[0].Text != "0x2000" || got[0].DirFD != handler.AtFdcwd {
+		t.Fatalf("path arguments = %+v, want pointer with AT_FDCWD", got)
 	}
 }
 
-func TestDecodePathTextMatchesPayloadWithEventViewPointer(t *testing.T) {
+func TestDecodePathArgumentsUsesMatchingPayloadSection(t *testing.T) {
 	session := &traceSession{decoder: event.NewDecoder()}
 	sc := meta.Syscall{Name: "custom_path_syscall", Args: []string{"path"}}
-	view := syscallEventView{valid: true, tid: 101, ptr: 0x2000}
+	view := syscallEventView{valid: true, tid: 101, args: [6]uint64{0x2000}}
 	sections := []handler.PayloadSection{{
 		Kind:      handler.PayloadKindString,
 		Direction: handler.PayloadDirectionIn,
+		ArgIndex:  0,
 		UserPtr:   0x2000,
 		ProbeRet:  0,
 		Data:      []byte("view.txt\x00"),
 	}}
 
-	got := decodePathText(newSyscallEventContextDeps(session), view, sc, true, sections)
+	got := decodePathArguments(newSyscallEventContextDeps(session), view, sc, sections)
 
-	if got != `"view.txt"` {
-		t.Fatalf("pathText = %q, want payload matched by event view pointer", got)
+	if len(got) != 1 || got[0].Text != `"view.txt"` {
+		t.Fatalf("path arguments = %+v, want payload matched by arg index", got)
 	}
 }
 

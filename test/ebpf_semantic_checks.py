@@ -254,6 +254,58 @@ def check_mount_query(context, failures):
     require("fs_type=" in arg_text, failures, "statmount filesystem type text missing")
 
 
+def has_text_section(sections, arg_index, text):
+    return any(
+        section.get("kind") == "string"
+        and section.get("direction") == "in"
+        and section.get("arg_index") == arg_index
+        and text in payload_section_text(section)
+        for section in sections
+    )
+
+
+def check_mount_path_capture(capture, failures, label, snapshot_event_type):
+    require(capture.result.returncode == 0, failures, f"{label} fixture rc={capture.result.returncode}")
+    require("mount-path-fixture-ok" in capture.result.stdout, failures, f"{label} fixture stdout marker missing")
+    require(len(capture.stats_events) == 1 and valid_stats_event(capture.stats_events[0]), failures, f"{label} stats event missing")
+    error_counters = (
+        "ringbuf_reserve_fail", "ringbuf_copy_fail", "pending_update_fail",
+        "orphan_exit", "pending_mismatch",
+    )
+    clean_stats = capture.stats_events and all(
+        capture.stats_events[0].get(key, 1) == 0 for key in error_counters
+    )
+    require(clean_stats, failures, f"{label} reported runtime event errors")
+
+    open_sections = matching_sections(capture.events, "open_tree", snapshot_event_type)
+    move_sections = matching_sections(capture.events, "move_mount", snapshot_event_type)
+    require(has_text_section(open_sections, 1, "/dev/full"), failures, f"{label} open_tree path snapshot missing")
+    require(has_text_section(move_sections, 1, "/dev/full"), failures, f"{label} move_mount source snapshot missing")
+    require(has_text_section(move_sections, 3, "/tmp/strace-go-ebpf-move-target"), failures, f"{label} move_mount target snapshot missing")
+    for syscall in ("open_tree", "move_mount"):
+        paired = any(
+            event.get("syscall") == syscall
+            and event.get("event_type") == "exit"
+            and event.get("paired_enter")
+            for event in capture.events
+        )
+        require(paired, failures, f"{label} {syscall} exit was not paired")
+
+
+def check_mount_path(context, failures):
+    check_mount_path_capture(context.mount_path, failures, "mount-path", "enter")
+    check_mount_path_capture(
+        context.mount_path_filtered, failures, "mount-path filter", "exit"
+    )
+    arg_text = " ".join(
+        part
+        for event in context.mount_path.exit_events
+        for part in (event.get("arg_text") or [])
+    )
+    require("OPEN_TREE_CLONE" in arg_text, failures, "open_tree symbolic flags missing")
+    require("MOVE_MOUNT_BENEATH" in arg_text, failures, "move_mount symbolic flags missing")
+
+
 def check_semantic_context(context, failures):
     check_main_capture(context, failures)
     check_syscall_presence(context, failures)
@@ -265,3 +317,4 @@ def check_semantic_context(context, failures):
     check_thread(context, failures)
     check_attach(context, failures)
     check_mount_query(context, failures)
+    check_mount_path(context, failures)

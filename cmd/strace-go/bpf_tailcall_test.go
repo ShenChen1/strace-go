@@ -20,13 +20,13 @@ func TestEnterProgArrayEntriesComplete(t *testing.T) {
 	}
 	// Every dispatcher index from enter_dispatch.h must have a slot; missing
 	// slots silently drop that syscall family.
-	for i := 1; i <= enterProgQuota; i++ {
+	for i := 1; i <= enterProgMountPath; i++ {
 		if !seen[uint32(i)] {
 			t.Fatalf("enter prog array missing index %d", i)
 		}
 	}
-	if len(entries) != enterProgQuota {
-		t.Fatalf("enter prog array entries = %d, want %d", len(entries), enterProgQuota)
+	if len(entries) != enterProgMountPath {
+		t.Fatalf("enter prog array entries = %d, want %d", len(entries), enterProgMountPath)
 	}
 }
 
@@ -96,6 +96,7 @@ func TestEnterProgIndicesMatchDispatchHeader(t *testing.T) {
 		"ENTER_PROG_IOVEC_BASE":        enterProgIovecBase,
 		"ENTER_PROG_AIO_BUF":           enterProgAioBuf,
 		"ENTER_PROG_QUOTA":             enterProgQuota,
+		"ENTER_PROG_MOUNT_PATH":        enterProgMountPath,
 	}
 	for name, val := range pairs {
 		if !strings.Contains(header, fmt.Sprintf("%s = %d", name, val)) {

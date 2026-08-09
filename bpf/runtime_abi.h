@@ -154,6 +154,8 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_PWRITEV2 328
 #define SYS_STATX 332
 #define SYS_IO_PGETEVENTS 333
+#define SYS_OPEN_TREE 428
+#define SYS_MOVE_MOUNT 429
 #define SYS_FSOPEN 430
 #define SYS_FSCONFIG 431
 #define SYS_FSPICK 433

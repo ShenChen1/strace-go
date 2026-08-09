@@ -13,8 +13,8 @@ type syscallEventContext struct {
 	view            syscallEventView
 	statePID        int
 	meta            meta.Syscall
-	isPath          bool
 	pathText        string
+	pathArguments   []event.PathArgument
 	shouldPrint     bool
 	pendingEnter    *pendingSyscallState
 	handlerContext  *handler.Context
@@ -91,16 +91,15 @@ func newSyscallEventContextFromViewWithDeps(
 	currentPayload []handler.PayloadSection,
 ) syscallEventContext {
 	scMeta := syscallMeta(view.sysID)
-	isPath := syscallHasPathArg(scMeta)
 	payloadSections := mergePendingPayloadSections(pendingEnter, currentPayload)
-	pathText := decodePathText(deps, view, scMeta, isPath, payloadSections)
+	pathArguments := decodePathArguments(deps, view, scMeta, payloadSections)
+	pathText := primaryPathText(pathArguments)
 	shouldPrint := true
 	if deps.opts != nil {
 		shouldPrint = checkShouldPrintFromView(printFilterRequest{
 			view:            view,
 			scMeta:          scMeta,
-			pathText:        pathText,
-			isPath:          isPath,
+			pathArguments:   pathArguments,
 			targetPid:       statePID,
 			opts:            deps.opts,
 			fdMap:           deps.pathMap(),
@@ -111,8 +110,8 @@ func newSyscallEventContextFromViewWithDeps(
 		view:            view,
 		statePID:        statePID,
 		meta:            scMeta,
-		isPath:          isPath,
 		pathText:        pathText,
+		pathArguments:   pathArguments,
 		shouldPrint:     shouldPrint,
 		pendingEnter:    pendingEnter,
 		payloadSections: payloadSections,
@@ -262,66 +261,6 @@ func unknownSyscallName(sysID uint32) string {
 	return fmt.Sprintf("sys_%d", sysID)
 }
 
-func syscallHasPathArg(scMeta meta.Syscall) bool {
-	if scMeta.Name == "fsconfig" {
-		return true
-	}
-	for _, argName := range scMeta.Args {
-		switch argName {
-		case "filename", "pathname", "path", "oldname", "newname", "fs_name":
-			return true
-		}
-	}
-	return false
-}
-
-func decodePathText(deps syscallEventContextDeps, view syscallEventView, scMeta meta.Syscall, isPath bool, payloadSections []handler.PayloadSection) string {
-	if !isPath {
-		return ""
-	}
-	if text, ok := pathTextFromPayload(deps, view, scMeta, payloadSections); ok {
-		return text
-	}
-	return deps.decoder.DecodeString(int(view.tid), view.ptr, nil, -1, scMeta.Name, 0)
-}
-
-func pathTextFromPayload(deps syscallEventContextDeps, view syscallEventView, scMeta meta.Syscall, payloadSections []handler.PayloadSection) (string, bool) {
-	if scMeta.Name == "fsconfig" {
-		switch uint32(view.args[1]) {
-		case 3, 4:
-			return stringPayloadSectionText(deps, view, scMeta, payloadSections, 3)
-		}
-	}
-	if argIndex, ok := simplePathPayloadArgIndex(scMeta.Name); ok {
-		if text, ok := stringPayloadSectionText(deps, view, scMeta, payloadSections, argIndex); ok {
-			return text, true
-		}
-	}
-	for _, section := range payloadSections {
-		if section.Kind == handler.PayloadKindString && section.Direction == handler.PayloadDirectionIn &&
-			section.ProbeRet == 0 && len(section.Data) > 0 && section.UserPtr == view.ptr {
-			return deps.decoder.DecodeString(int(view.tid), section.UserPtr, section.Data, section.ProbeRet, scMeta.Name, 0), true
-		}
-	}
-	return "", false
-}
-
-func stringPayloadSectionText(
-	deps syscallEventContextDeps,
-	view syscallEventView,
-	scMeta meta.Syscall,
-	payloadSections []handler.PayloadSection,
-	argIndex int,
-) (string, bool) {
-	for _, section := range payloadSections {
-		if section.Kind == handler.PayloadKindString && section.Direction == handler.PayloadDirectionIn &&
-			section.ArgIndex == argIndex && section.ProbeRet == 0 && len(section.Data) > 0 {
-			return deps.decoder.DecodeString(int(view.tid), section.UserPtr, section.Data, section.ProbeRet, scMeta.Name, 0), true
-		}
-	}
-	return "", false
-}
-
 func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *handler.Context {
 	view := ev.eventView()
 	scMeta := ev.effectiveSyscallMeta()
@@ -350,11 +289,12 @@ func (ev syscallEventContext) shouldEmitRawEnter(opts *cli.Options, pathMap map[
 		return true
 	}
 	return checkShouldPrintFromView(printFilterRequest{
-		view:      ev.eventView(),
-		scMeta:    ev.effectiveSyscallMeta(),
-		targetPid: ev.statePID,
-		opts:      opts,
-		fdMap:     pathMap,
+		view:          ev.eventView(),
+		scMeta:        ev.effectiveSyscallMeta(),
+		pathArguments: ev.pathArguments,
+		targetPid:     ev.statePID,
+		opts:          opts,
+		fdMap:         pathMap,
 	})
 }
 
@@ -367,7 +307,7 @@ func (ev syscallEventContext) handleWith(handle func(string, *handler.Context) h
 
 func (ev syscallEventContext) isFDStateSyscall() bool {
 	switch ev.syscallName() {
-	case "open", "openat", "openat2", "creat", "dup", "dup2", "dup3", "close",
+	case "open", "openat", "openat2", "open_tree", "creat", "dup", "dup2", "dup3", "close",
 		"faccessat", "faccessat2", "chmodat", "mkdirat", "newfstatat", "fstat", "chdir", "fchdir":
 		return true
 	default:
