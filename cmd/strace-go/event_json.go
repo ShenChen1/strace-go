@@ -76,6 +76,12 @@ type jsonLifecycleEvent struct {
 	TimeNS       uint64 `json:"time_ns"`
 }
 
+type jsonReadyEvent struct {
+	Type       string `json:"type"`
+	TargetPID  int    `json:"target_pid"`
+	AttachPIDs []int  `json:"attach_pids,omitempty"`
+}
+
 type jsonStatsEvent struct {
 	Type                   string `json:"type"`
 	RingbufReserveFail     uint64 `json:"ringbuf_reserve_fail"`
@@ -86,6 +92,14 @@ type jsonStatsEvent struct {
 	PendingMismatch        uint64 `json:"pending_mismatch"`
 	Available              bool   `json:"available"`
 	Error                  string `json:"error,omitempty"`
+}
+
+func newJSONReadyEvent(targetPID int, attachPIDs []int) jsonReadyEvent {
+	return jsonReadyEvent{
+		Type:       "ready",
+		TargetPID:  targetPID,
+		AttachPIDs: append([]int(nil), attachPIDs...),
+	}
 }
 
 func newJSONSyscallEventFromView(view syscallEventView, scMeta meta.Syscall, sections []handler.PayloadSection) jsonSyscallEvent {

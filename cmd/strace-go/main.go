@@ -96,6 +96,7 @@ func main() {
 		resolver:      resolver,
 		state:         newTraceStateWithDeferredExit(shouldEmitGenericEnter(opts)),
 	}
+	session.emitDebugReady()
 	session.run()
 }
 

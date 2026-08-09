@@ -1,0 +1,420 @@
+#!/usr/bin/env python3
+import json
+import os
+import selectors
+import signal
+import subprocess
+import tempfile
+import time
+from dataclasses import dataclass
+
+from ebpf_event_oracles import (
+    parse_json_events,
+    parse_lifecycle_events,
+    parse_ready_events,
+    parse_stats_events,
+)
+from ebpf_semantic_checks import (
+    check_semantic_context,
+    require,
+    valid_stats_event,
+)
+
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+STRACE_WRAPPER = os.path.join(SCRIPT_DIR, "strace-sudo.sh")
+STRACE_GO_BIN = os.path.join(PROJECT_ROOT, "strace-go")
+FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_semantic_fixture.c")
+THREAD_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_thread_fixture.c")
+ATTACH_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_attach_fixture.c")
+ATTACH_READY_TIMEOUT_SECONDS = 30
+
+
+@dataclass
+class EventCapture:
+    result: subprocess.CompletedProcess
+    events: list
+    lifecycle_events: list
+    stats_events: list
+
+    @property
+    def enter_events(self):
+        return [event for event in self.events if event.get("event_type") == "enter"]
+
+    @property
+    def exit_events(self):
+        return [event for event in self.events if event.get("event_type") == "exit"]
+
+
+@dataclass
+class AttachCapture:
+    target_rc: int
+    target_stdout: str
+    target_stderr: str
+    result: subprocess.CompletedProcess
+    stats_events: list
+
+
+@dataclass
+class SemanticContext:
+    main: EventCapture
+    thread: EventCapture
+    thread_text: subprocess.CompletedProcess
+    attach: AttachCapture
+
+
+@dataclass
+class PerfCapture:
+    result: subprocess.CompletedProcess
+    elapsed: float
+    events: list
+    stats_events: list
+
+    @property
+    def getpid_events(self):
+        return [event for event in self.events if event.get("syscall") == "getpid"]
+
+    @property
+    def enter_events(self):
+        return [event for event in self.getpid_events if event.get("event_type") == "enter"]
+
+    @property
+    def exit_events(self):
+        return [event for event in self.getpid_events if event.get("event_type") == "exit"]
+
+
+def build_strace_go():
+    subprocess.run(
+        ["go", "build", "-o", STRACE_GO_BIN, "./cmd/strace-go"],
+        cwd=PROJECT_ROOT,
+        env=os.environ.copy(),
+        check=True,
+    )
+
+
+def build_fixture(source, output, extra_args=None):
+    command = ["gcc", "-O2", "-Wall", "-Wextra"]
+    if extra_args:
+        command.extend(extra_args)
+    command.extend(["-o", output, source])
+    subprocess.run(command, check=True)
+    os.chmod(output, 0o755)
+
+
+def build_named_fixture(name, source, extra_args=None):
+    output = os.path.join(tempfile.gettempdir(), name)
+    build_fixture(source, output, extra_args)
+    return output
+
+
+def build_ebpf_fixture():
+    return build_named_fixture("strace-go-ebpf-semantic-fixture", FIXTURE_SRC)
+
+
+def build_ebpf_thread_fixture():
+    return build_named_fixture(
+        "strace-go-ebpf-thread-fixture", THREAD_FIXTURE_SRC, ["-pthread"]
+    )
+
+
+def build_ebpf_attach_fixture():
+    return build_named_fixture("strace-go-ebpf-attach-fixture", ATTACH_FIXTURE_SRC)
+
+
+def run_strace_go_json(args, timeout=30, debug=False):
+    event_flag = "--debug-events" if debug else "--event-format=json"
+    command = [STRACE_WRAPPER, event_flag] + args
+    return subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        errors="ignore",
+        timeout=timeout,
+        env=os.environ.copy(),
+    )
+
+
+def run_strace_go_text(args, timeout=30):
+    return subprocess.run(
+        [STRACE_WRAPPER] + args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        errors="ignore",
+        timeout=timeout,
+        env=os.environ.copy(),
+    )
+
+
+def event_capture(result):
+    events = parse_json_events(result.stderr)
+    return EventCapture(
+        result=result,
+        events=events,
+        lifecycle_events=parse_lifecycle_events(result.stderr),
+        stats_events=parse_stats_events(result.stderr),
+    )
+
+
+def collect_semantic_events(fixture):
+    trace_set = (
+        "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,"
+        "newfstatat,statfs,fstatfs,getcwd,readlink,readlinkat,pipe,pipe2,"
+        "socketpair,uname,sysinfo,getrlimit,setrlimit,prlimit64,arch_prctl,"
+        "get_robust_list,sendfile,copy_file_range,getitimer,setitimer,"
+        "clock_settime,settimeofday,adjtimex,nanosleep,clock_nanosleep,"
+        "futex,futex_wait,futex_waitv,futex_requeue,sendmsg,execve,exit,"
+        "exit_group,clock_gettime,gettimeofday"
+    )
+    return event_capture(run_strace_go_json(["-f", "-e", f"trace={trace_set}", fixture]))
+
+
+def collect_thread_lifecycle_events(fixture):
+    result = run_strace_go_json(
+        ["-f", "-e", "trace=getpid,exit,exit_group", fixture]
+    )
+    return event_capture(result)
+
+
+def collect_thread_unfinished_text(fixture):
+    return run_strace_go_text(
+        ["-f", "-e", "trace=read,getpid,write,exit,exit_group", fixture]
+    )
+
+
+def decode_debug_event(line):
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return {}
+    return event if isinstance(event, dict) else {}
+
+
+def ready_error(process, captured, reason):
+    return RuntimeError(
+        f"attach tracer {reason}: rc={process.returncode}\n"
+        f"stderr:\n{captured.decode('utf-8', errors='ignore')}"
+    )
+
+
+def wait_for_debug_ready(process, timeout=ATTACH_READY_TIMEOUT_SECONDS):
+    if process.stderr is None:
+        raise RuntimeError("attach tracer has no stderr pipe")
+    deadline = time.monotonic() + timeout
+    captured = bytearray()
+    pending = bytearray()
+    selector = selectors.DefaultSelector()
+    selector.register(process.stderr.fileno(), selectors.EVENT_READ)
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                process.poll()
+                raise ready_error(process, captured, "readiness timed out")
+            if not selector.select(remaining):
+                process.poll()
+                raise ready_error(process, captured, "readiness timed out")
+            chunk = os.read(process.stderr.fileno(), 4096)
+            if not chunk:
+                try:
+                    process.wait(timeout=min(1, max(remaining, 0.1)))
+                    reason = "exited before readiness"
+                except subprocess.TimeoutExpired:
+                    process.poll()
+                    reason = "closed stderr before readiness"
+                raise ready_error(process, captured, reason)
+            captured.extend(chunk)
+            pending.extend(chunk)
+            while b"\n" in pending:
+                raw_line, _, pending = pending.partition(b"\n")
+                event = decode_debug_event(raw_line.decode("utf-8", errors="ignore"))
+                if event.get("type") == "ready":
+                    return captured.decode("utf-8", errors="ignore")
+    finally:
+        selector.close()
+
+
+def stop_process(process):
+    if process is None or process.poll() is not None:
+        return
+    process.kill()
+    process.wait(timeout=5)
+
+
+def collect_attach_orphan_stats(fixture):
+    target = subprocess.Popen(
+        [fixture],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    tracer = None
+    try:
+        ready = target.stdout.readline()
+        if "attach-fixture-ready" not in ready:
+            raise RuntimeError(f"attach fixture did not become ready: {ready!r}")
+        command = [
+            STRACE_WRAPPER,
+            "--debug-events",
+            "-p",
+            str(target.pid),
+            "-e",
+            "trace=read,exit,exit_group",
+        ]
+        tracer = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=os.environ.copy(),
+        )
+        stderr_prefix = wait_for_debug_ready(tracer)
+        ready_events = parse_ready_events(stderr_prefix)
+        if not ready_events or ready_events[-1].get("target_pid") != target.pid:
+            raise RuntimeError(f"attach tracer readiness target mismatch: {stderr_prefix!r}")
+        os.kill(target.pid, signal.SIGUSR1)
+        target_stdout, target_stderr = target.communicate(timeout=10)
+        tracer_stdout, tracer_stderr = tracer.communicate(timeout=30)
+        tracer_stderr = stderr_prefix + tracer_stderr
+        result = subprocess.CompletedProcess(
+            command, tracer.returncode, tracer_stdout, tracer_stderr
+        )
+        return AttachCapture(
+            target.returncode,
+            target_stdout,
+            target_stderr,
+            result,
+            parse_stats_events(tracer_stderr),
+        )
+    finally:
+        stop_process(target)
+        stop_process(tracer)
+
+
+def collect_semantic_context(fixture):
+    thread_fixture = build_ebpf_thread_fixture()
+    attach_fixture = build_ebpf_attach_fixture()
+    return SemanticContext(
+        main=collect_semantic_events(fixture),
+        thread=collect_thread_lifecycle_events(thread_fixture),
+        thread_text=collect_thread_unfinished_text(thread_fixture),
+        attach=collect_attach_orphan_stats(attach_fixture),
+    )
+
+
+def check_write_only_filter(fixture, failures):
+    result = run_strace_go_json(["-e", "trace=write", fixture], debug=True)
+    events = parse_json_events(result.stderr)
+    stats_events = parse_stats_events(result.stderr)
+    require(result.returncode == 0, failures, f"filter fixture rc={result.returncode}")
+    require(events, failures, "write-only filter produced no events")
+    require(
+        all(event.get("syscall") == "write" for event in events),
+        failures,
+        f"write-only filter leaked events: {sorted({event.get('syscall') for event in events})}",
+    )
+    require(
+        len(stats_events) == 1 and valid_stats_event(stats_events[0]),
+        failures,
+        "write-only filter stats event missing",
+    )
+    return len(events)
+
+
+def print_semantic_summary(context, filter_event_count):
+    main = context.main
+    stats = main.stats_events[0] if main.stats_events else {}
+    print(f"=> eBPF thread semantic events: {len(context.thread.events)}")
+    print(f"=> eBPF thread lifecycle events: {len(context.thread.lifecycle_events)}")
+    unfinished = sum(
+        1 for line in context.thread_text.stderr.splitlines() if "<unfinished ...>" in line
+    )
+    print(f"=> eBPF thread unfinished text lines: {unfinished}")
+    attach_stats = context.attach.stats_events
+    orphan = attach_stats[0].get("orphan_exit") if attach_stats else "unavailable"
+    print(f"=> eBPF attach orphan exits: {orphan}")
+    print(f"=> eBPF semantic events: {len(main.events)}")
+    print(f"=> eBPF semantic enter/exit: {len(main.enter_events)}/{len(main.exit_events)}")
+    print(f"=> eBPF lifecycle events: {len(main.lifecycle_events)}")
+    print(f"=> eBPF ringbuf reserve failures: {stats.get('ringbuf_reserve_fail')}")
+    print(f"=> eBPF ringbuf copy failures: {stats.get('ringbuf_copy_fail')}")
+    print(f"=> eBPF payload truncated events: {stats.get('payload_truncated_events')}")
+    print(f"=> eBPF pending update failures: {stats.get('pending_update_fail')}")
+    print(f"=> eBPF orphan exits: {stats.get('orphan_exit')}")
+    print(f"=> eBPF pending mismatches: {stats.get('pending_mismatch')}")
+    print(f"=> eBPF write-only events: {filter_event_count}")
+
+
+def finish_semantic(context, failures, filter_event_count):
+    print_semantic_summary(context, filter_event_count)
+    if not failures:
+        print("PASS: ebpf-semantic")
+        return 0
+    print("\n=== EBPF SEMANTIC FAILURES ===")
+    for failure in failures:
+        print(f"FAIL: {failure}")
+    print("\n--- stderr tail ---")
+    print("\n".join(context.main.result.stderr.splitlines()[-40:]))
+    return 1
+
+
+def run_ebpf_semantic(args):
+    if not args.skip_build:
+        build_strace_go()
+    fixture = build_ebpf_fixture()
+    context = collect_semantic_context(fixture)
+    failures = []
+    check_semantic_context(context, failures)
+    filter_event_count = check_write_only_filter(fixture, failures)
+    return finish_semantic(context, failures, filter_event_count)
+
+
+def run_ebpf_perf(args):
+    if not args.skip_build:
+        build_strace_go()
+    fixture = build_ebpf_fixture()
+    start = time.monotonic()
+    result = run_strace_go_json(
+        ["-e", "trace=getpid", fixture, "perf"], timeout=60
+    )
+    capture = PerfCapture(
+        result=result,
+        elapsed=time.monotonic() - start,
+        events=parse_json_events(result.stderr),
+        stats_events=parse_stats_events(result.stderr),
+    )
+    print_perf_summary(capture)
+    valid = (
+        result.returncode == 0
+        and len(capture.stats_events) == 1
+        and valid_stats_event(capture.stats_events[0])
+        and len(capture.exit_events) >= 1000
+        and len(capture.enter_events) >= 1000
+        and all(event.get("paired_enter") for event in capture.exit_events)
+    )
+    if valid:
+        return 0
+    print("\n=== EBPF PERF FAILURE ===")
+    print("\n".join(result.stderr.splitlines()[-40:]))
+    return 1
+
+
+def print_perf_summary(capture):
+    stats = capture.stats_events[0] if capture.stats_events else {}
+    print("=== EBPF PERF ===")
+    print(f"returncode: {capture.result.returncode}")
+    print(f"elapsed_sec: {capture.elapsed:.6f}")
+    print(f"json_events: {len(capture.events)}")
+    print(f"getpid_events: {len(capture.getpid_events)}")
+    print(f"getpid_enter_events: {len(capture.enter_events)}")
+    print(f"getpid_exit_events: {len(capture.exit_events)}")
+    print(f"ringbuf_reserve_fail: {stats.get('ringbuf_reserve_fail')}")
+    print(f"ringbuf_copy_fail: {stats.get('ringbuf_copy_fail')}")
+    print(f"payload_truncated_events: {stats.get('payload_truncated_events')}")
+    print(f"orphan_exit: {stats.get('orphan_exit')}")
+    print(f"pending_mismatch: {stats.get('pending_mismatch')}")
+    if capture.elapsed > 0:
+        print(f"events_per_sec: {len(capture.exit_events) / capture.elapsed:.2f}")

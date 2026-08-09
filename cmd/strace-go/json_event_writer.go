@@ -43,6 +43,10 @@ func (w *JSONEventWriter) WriteLifecycle(view lifecycleEventView, task *TaskStat
 	w.encode(newJSONLifecycleEvent(view, task))
 }
 
+func (w *JSONEventWriter) WriteReady(targetPID int, attachPIDs []int) {
+	w.encode(newJSONReadyEvent(targetPID, attachPIDs))
+}
+
 func (w *JSONEventWriter) encode(event any) {
 	if w == nil || w.encoder == nil {
 		return
@@ -83,4 +87,11 @@ func (s *traceSession) jsonEventWriter() *JSONEventWriter {
 		s.jsonWriterCache = newJSONEventWriter(JSONEventWriterDeps{Out: s.outWriter})
 	}
 	return s.jsonWriterCache
+}
+
+func (s *traceSession) emitDebugReady() {
+	if s == nil || s.opts == nil || !s.opts.DebugEvents {
+		return
+	}
+	s.jsonEventWriter().WriteReady(s.targetPid, s.opts.AttachPids)
 }
