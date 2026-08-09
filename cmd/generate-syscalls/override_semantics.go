@@ -88,6 +88,20 @@ var semanticOverrideSpecs = map[string]semanticOverrideSpec{
 		BTFArgs:      []string{"start", "len", "flags"},
 		BTFType:      []string{"long unsigned int", "size_t", "int"},
 	},
+	"preadv": {
+		Reason:       "strace_split_offset_signature",
+		OverrideArgs: []string{"fd", "vec", "vlen", "pos_l", "pos_h"},
+		OverrideType: []string{"int", "const struct iovec *", "unsigned long", "unsigned long", "unsigned long"},
+		BTFArgs:      []string{"fd", "vec", "vlen", "pos_l", "pos_h"},
+		BTFType:      []string{"unsigned long", "const struct iovec *", "unsigned long", "unsigned long", "unsigned long"},
+	},
+	"pwritev": {
+		Reason:       "strace_split_offset_signature",
+		OverrideArgs: []string{"fd", "vec", "vlen", "pos_l", "pos_h"},
+		OverrideType: []string{"int", "const struct iovec *", "unsigned long", "unsigned long", "unsigned long"},
+		BTFArgs:      []string{"fd", "vec", "vlen", "pos_l", "pos_h"},
+		BTFType:      []string{"unsigned long", "const struct iovec *", "unsigned long", "unsigned long", "unsigned long"},
+	},
 	"recvmsg": {
 		Reason:       "strace_msghdr_signature",
 		OverrideArgs: []string{"fd", "msg", "flags"},

@@ -64,7 +64,6 @@ type syscallMetadataLoader struct {
 	tracepointSource  tracepointSyscallSource
 	entrySource       syscallEntrySource
 	semanticOverrides map[string]SyscallMeta
-	fallbackOverrides map[string]SyscallMeta
 	aliases           map[string]string
 }
 
@@ -75,7 +74,6 @@ const (
 	metadataSourceBTF              syscallMetadataSource = "btf"
 	metadataSourceBTFAlias         syscallMetadataSource = "btf_alias"
 	metadataSourceTracepoint       syscallMetadataSource = "tracepoint"
-	metadataSourceFallbackOverride syscallMetadataSource = "fallback_override"
 	metadataSourceDummy            syscallMetadataSource = "dummy"
 )
 
@@ -101,7 +99,6 @@ type syscallMetadataResolver struct {
 	btf               map[string]SyscallMeta
 	tracepoint        map[string]SyscallMeta
 	semanticOverrides map[string]SyscallMeta
-	fallbackOverrides map[string]SyscallMeta
 	aliases           map[string]string
 }
 
@@ -123,7 +120,6 @@ func newDefaultSyscallMetadataLoader() (syscallMetadataLoader, error) {
 		tracepointSource:  kernelTracepointFormatSource{},
 		entrySource:       syscallentFileSource(syscallentPath),
 		semanticOverrides: semanticOverrides,
-		fallbackOverrides: fallbackOverrides,
 		aliases:           btfNameToSyscallent,
 	}
 	return loader, nil
@@ -166,7 +162,6 @@ func (l syscallMetadataLoader) LoadWithResolution() (map[int]syscallMetadataReso
 		btf:               btf,
 		tracepoint:        tracepoint,
 		semanticOverrides: l.semanticOverrides,
-		fallbackOverrides: l.fallbackOverrides,
 		aliases:           l.aliases,
 	}
 	res := make(map[int]syscallMetadataResolution, len(entries))
@@ -190,9 +185,6 @@ func (r syscallMetadataResolver) Resolve(ent syscallentEntry) syscallMetadataRes
 	if meta, ok := r.tracepointMeta(ent.Name, ent.Argc); ok {
 		meta.Name = ent.Name
 		return r.resolution(meta, ent.Flags, metadataSourceTracepoint, metadataReasonTracepointExactArity)
-	}
-	if meta, ok := r.fallbackOverrides[ent.Name]; ok {
-		return r.resolution(meta, ent.Flags, metadataSourceFallbackOverride, r.kernelMetadataRejectionReason(ent))
 	}
 	return syscallMetadataResolution{
 		Meta:   dummySyscallMeta(ent),

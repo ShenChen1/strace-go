@@ -34,9 +34,6 @@ func TestMemoryPointerOverridesStaySemantic(t *testing.T) {
 		if _, ok := semanticOverrides[name]; !ok {
 			t.Fatalf("%s must remain a semantic override", name)
 		}
-		if _, ok := fallbackOverrides[name]; ok {
-			t.Fatalf("%s must not be a fallback override", name)
-		}
 	}
 }
 
@@ -48,7 +45,35 @@ func TestExecveatUsesStraceDirectoryFDName(t *testing.T) {
 	if meta.Args[0] != "dfd" {
 		t.Fatalf("execveat first argument = %q, want dfd", meta.Args[0])
 	}
-	if _, ok := fallbackOverrides["execveat"]; ok {
-		t.Fatal("execveat must not be a fallback override")
+}
+
+func TestSplitOffsetOverridesStaySemantic(t *testing.T) {
+	for _, name := range []string{"preadv", "pwritev"} {
+		spec, ok := semanticOverrideSpecs[name]
+		if !ok {
+			t.Fatalf("%s must remain a semantic override", name)
+		}
+		if spec.Reason != "strace_split_offset_signature" {
+			t.Fatalf("%s reason = %q, want strace_split_offset_signature", name, spec.Reason)
+		}
+		if len(spec.OverrideArgs) != 5 || spec.OverrideArgs[3] != "pos_l" || spec.OverrideArgs[4] != "pos_h" {
+			t.Fatalf("%s args = %#v, want split offset raw ABI", name, spec.OverrideArgs)
+		}
+	}
+}
+
+func TestSplitOffsetOverridesWinOverLogicalArity(t *testing.T) {
+	for _, name := range []string{"preadv", "pwritev"} {
+		resolver := syscallMetadataResolver{
+			tracepoint: map[string]SyscallMeta{name: {
+				Name: name, Args: []string{"fd", "vec", "vlen", "pos_l", "pos_h"},
+				ArgTypes: []string{"unsigned long", "const struct iovec *", "unsigned long", "unsigned long", "unsigned long"},
+			}},
+			semanticOverrides: semanticOverrides,
+		}
+		got := resolver.Resolve(syscallentEntry{Name: name, Argc: 4, Flags: "TD"})
+		if got.Source != metadataSourceSemanticOverride || len(got.Meta.Args) != 5 {
+			t.Fatalf("Resolve(%s) = (%s, %#v), want five-argument semantic override", name, got.Source, got.Meta.Args)
+		}
 	}
 }

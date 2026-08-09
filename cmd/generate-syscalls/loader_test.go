@@ -54,16 +54,10 @@ func TestSyscallMetadataLoaderAppliesPriorityOrder(t *testing.T) {
 			{ID: 1, Name: "read", Argc: 1, Flags: "TD"},
 			{ID: 2, Name: "stat", Argc: 2, Flags: "TF"},
 			{ID: 3, Name: "close", Argc: 1, Flags: "TD"},
-			{ID: 4, Name: "fallback", Argc: 1, Flags: "0"},
-			{ID: 5, Name: "missing", Argc: 2, Flags: "0"},
+			{ID: 4, Name: "missing", Argc: 2, Flags: "0"},
 		}},
 		semanticOverrides: map[string]SyscallMeta{
 			"stat": {Name: "stat", Args: []string{"semantic_path", "statbuf"}, ArgTypes: []string{"const char *", "struct stat *"}},
-		},
-		fallbackOverrides: map[string]SyscallMeta{
-			"read":     {Name: "read", Args: []string{"override_fd"}, ArgTypes: []string{"int"}},
-			"close":    {Name: "close", Args: []string{"override_fd"}, ArgTypes: []string{"int"}},
-			"fallback": {Name: "fallback", Args: []string{"fallback_arg"}, ArgTypes: []string{"long"}},
 		},
 		aliases: map[string]string{},
 	}
@@ -75,8 +69,7 @@ func TestSyscallMetadataLoaderAppliesPriorityOrder(t *testing.T) {
 	assertMeta(t, got[1], SyscallMeta{Name: "read", Args: []string{"btf_fd"}, ArgTypes: []string{"unsigned int"}, Flags: "TD"})
 	assertMeta(t, got[2], SyscallMeta{Name: "stat", Args: []string{"semantic_path", "statbuf"}, ArgTypes: []string{"const char *", "struct stat *"}, Flags: "TF"})
 	assertMeta(t, got[3], SyscallMeta{Name: "close", Args: []string{"tracepoint_fd"}, ArgTypes: []string{"unsigned int"}, Flags: "TD"})
-	assertMeta(t, got[4], SyscallMeta{Name: "fallback", Args: []string{"fallback_arg"}, ArgTypes: []string{"long"}, Flags: "0"})
-	assertMeta(t, got[5], SyscallMeta{Name: "missing", Args: []string{"arg0", "arg1"}, ArgTypes: []string{"unsigned long", "unsigned long"}, Flags: "0"})
+	assertMeta(t, got[4], SyscallMeta{Name: "missing", Args: []string{"arg0", "arg1"}, ArgTypes: []string{"unsigned long", "unsigned long"}, Flags: "0"})
 }
 
 func TestSyscallMetadataResolverReportsSource(t *testing.T) {
@@ -91,9 +84,6 @@ func TestSyscallMetadataResolverReportsSource(t *testing.T) {
 		semanticOverrides: map[string]SyscallMeta{
 			"stat": {Name: "stat", Args: []string{"path"}, ArgTypes: []string{"const char *"}},
 		},
-		fallbackOverrides: map[string]SyscallMeta{
-			"fallback": {Name: "fallback", Args: []string{"arg"}, ArgTypes: []string{"long"}},
-		},
 		aliases: map[string]string{"kernel_alias": "alias"},
 	}
 	cases := []struct {
@@ -106,7 +96,6 @@ func TestSyscallMetadataResolverReportsSource(t *testing.T) {
 		{name: "alias", want: metadataSourceBTFAlias, wantReason: metadataReasonBTFAliasExactArity, wantArg: "fd"},
 		{name: "close", want: metadataSourceTracepoint, wantReason: metadataReasonTracepointExactArity, wantArg: "fd"},
 		{name: "stat", want: metadataSourceSemanticOverride, wantReason: metadataReasonSemanticOverride, wantArg: "path"},
-		{name: "fallback", want: metadataSourceFallbackOverride, wantReason: metadataReasonNoKernelMetadata, wantArg: "arg"},
 		{name: "missing", want: metadataSourceDummy, wantReason: metadataReasonNoKernelMetadata, wantArg: "arg0"},
 	}
 	for _, tc := range cases {
@@ -125,15 +114,12 @@ func TestSyscallMetadataResolverReportsArityRejections(t *testing.T) {
 		tracepoint: map[string]SyscallMeta{
 			"preadv": {Name: "preadv", Args: []string{"fd", "vec", "vlen", "pos"}, ArgTypes: []string{"unsigned long", "void *", "unsigned long", "unsigned long"}},
 		},
-		fallbackOverrides: map[string]SyscallMeta{
-			"preadv": {Name: "preadv", Args: []string{"fd", "vec", "vlen", "pos_l", "pos_h"}, ArgTypes: []string{"int", "void *", "unsigned long", "unsigned long", "unsigned long"}},
-		},
 	}
 
 	got := resolver.Resolve(syscallentEntry{Name: "preadv", Argc: 5})
 	wantReason := syscallMetadataResolutionReason(string(metadataReasonBTFArityMismatch) + ";" + string(metadataReasonTracepointArityMismatch))
-	if got.Source != metadataSourceFallbackOverride || got.Reason != wantReason {
-		t.Fatalf("Resolve(preadv) = (%s, %s), want fallback with both arity reasons", got.Source, got.Reason)
+	if got.Source != metadataSourceDummy || got.Reason != wantReason {
+		t.Fatalf("Resolve(preadv) = (%s, %s), want dummy with both arity reasons", got.Source, got.Reason)
 	}
 }
 
@@ -174,17 +160,6 @@ func TestSyscallMetadataResolverArityDecisionMatrix(t *testing.T) {
 			entry:      syscallentEntry{Name: "read", Argc: 1},
 			wantSource: metadataSourceTracepoint,
 			wantReason: metadataReasonTracepointExactArity,
-		},
-		{
-			name: "fallback after both sources mismatch",
-			resolver: syscallMetadataResolver{
-				btf:               map[string]SyscallMeta{"read": makeMeta("read", 2)},
-				tracepoint:        map[string]SyscallMeta{"read": makeMeta("read", 2)},
-				fallbackOverrides: map[string]SyscallMeta{"read": makeMeta("read", 1)},
-			},
-			entry:      syscallentEntry{Name: "read", Argc: 1},
-			wantSource: metadataSourceFallbackOverride,
-			wantReason: syscallMetadataResolutionReason(string(metadataReasonBTFArityMismatch) + ";" + string(metadataReasonTracepointArityMismatch)),
 		},
 		{
 			name: "dummy after both sources mismatch",
