@@ -25,6 +25,7 @@ type syscallTableWriter interface {
 
 type generatorCommand struct {
 	loader            syscallMapLoader
+	resolutionLoader  syscallMetadataResolutionLoader
 	writer            syscallTableWriter
 	auditSource       btfSyscallSource
 	tracepointSource  tracepointSyscallSource
@@ -46,6 +47,7 @@ func runGenerateSyscalls(args []string, stdout io.Writer) error {
 func newGeneratorCommand() generatorCommand {
 	return generatorCommand{
 		loader:           defaultSyscallMetadataLoader{},
+		resolutionLoader: defaultSyscallMetadataLoader{},
 		writer:           goSyscallTableWriter{},
 		auditSource:      kernelBTFSource{},
 		tracepointSource: kernelTracepointFormatSource{},
@@ -60,6 +62,7 @@ func (c generatorCommand) Run(args []string, stdout io.Writer) error {
 	auditOverrides := flags.Bool("audit-overrides", false, "print manual overrides already covered by BTF")
 	auditOverrideDetails := flags.Bool("audit-overrides-detail", false, "print detailed manual override audit rows")
 	auditTracepointOverrides := flags.Bool("audit-tracepoint-overrides", false, "print manual override coverage from syscall tracepoint formats")
+	auditResolution := flags.Bool("audit-resolution", false, "print final syscall metadata resolution provenance")
 	outputPath := flags.String("output", c.defaultOutputPath, "generated syscall table output path")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -72,6 +75,9 @@ func (c generatorCommand) Run(args []string, stdout io.Writer) error {
 	}
 	if *auditTracepointOverrides {
 		return writeTracepointOverrideAudit(stdout, c.tracepointSource, c.overrides, c.aliases)
+	}
+	if *auditResolution {
+		return writeResolutionAudit(stdout, c.resolutionLoader)
 	}
 
 	syscalls, err := c.loader.Load()

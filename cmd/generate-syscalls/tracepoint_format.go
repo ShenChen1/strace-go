@@ -26,10 +26,25 @@ type tracepointFormatFileSystem interface {
 	ReadFile(path string) ([]byte, error)
 }
 
+type tracepointFormatRootChecker interface {
+	CheckTracepointRoot(path string) error
+}
+
 type osTracepointFormatFileSystem struct{}
 
 func (osTracepointFormatFileSystem) ReadFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
+}
+
+func (osTracepointFormatFileSystem) CheckTracepointRoot(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", path)
+	}
+	return nil
 }
 
 func tracepointLookupNames(names []string, aliases map[string]string) []string {
@@ -75,6 +90,11 @@ func (s kernelTracepointFormatSource) LoadTracepointSyscalls(names []string) (ma
 	if len(roots) == 0 {
 		roots = []string{tracepointFormatRoot, debugTracepointFormatRoot}
 	}
+	if checker, ok := reader.(tracepointFormatRootChecker); ok {
+		if err := ensureTracepointRoot(checker, roots); err != nil {
+			return nil, err
+		}
+	}
 
 	result := make(map[string]SyscallMeta)
 	for _, name := range names {
@@ -90,6 +110,18 @@ func (s kernelTracepointFormatSource) LoadTracepointSyscalls(names []string) (ma
 		}
 	}
 	return result, nil
+}
+
+func ensureTracepointRoot(checker tracepointFormatRootChecker, roots []string) error {
+	failures := make([]string, 0, len(roots))
+	for _, root := range roots {
+		if err := checker.CheckTracepointRoot(root); err == nil {
+			return nil
+		} else {
+			failures = append(failures, fmt.Sprintf("%s: %v", root, err))
+		}
+	}
+	return fmt.Errorf("no readable syscall tracepoint root: %s", strings.Join(failures, "; "))
 }
 
 func readTracepointSyscall(reader tracepointFormatFileSystem, roots []string, name string) (SyscallMeta, bool, error) {

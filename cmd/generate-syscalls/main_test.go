@@ -18,6 +18,15 @@ func (l fakeSyscallMapLoader) Load() (map[int]SyscallMeta, error) {
 	return l.syscalls, l.err
 }
 
+type fakeSyscallResolutionLoader struct {
+	resolutions map[int]syscallMetadataResolution
+	err         error
+}
+
+func (l fakeSyscallResolutionLoader) LoadWithResolution() (map[int]syscallMetadataResolution, error) {
+	return l.resolutions, l.err
+}
+
 type fakeSyscallTableWriter struct {
 	path     string
 	syscalls map[int]SyscallMeta
@@ -163,6 +172,26 @@ func TestRunGenerateSyscallsAuditTracepointOverridesUsesAliases(t *testing.T) {
 	}
 	if got := out.String(); !strings.Contains(got, "stat\tredundant\texact_signature") {
 		t.Fatalf("Run(--audit-tracepoint-overrides) output = %q, want aliased stat row", got)
+	}
+}
+
+func TestRunGenerateSyscallsAuditResolution(t *testing.T) {
+	cmd := generatorCommand{
+		loader: fakeSyscallMapLoader{err: errors.New("loader should not run")},
+		resolutionLoader: fakeSyscallResolutionLoader{resolutions: map[int]syscallMetadataResolution{
+			2: {Meta: SyscallMeta{Name: "open", Args: []string{"path"}, ArgTypes: []string{"const char *"}}, Source: metadataSourceTracepoint},
+			1: {Meta: SyscallMeta{Name: "read", Args: []string{"fd"}, ArgTypes: []string{"int"}}, Source: metadataSourceBTF},
+		}},
+	}
+	var out bytes.Buffer
+	if err := cmd.Run([]string{"--audit-resolution"}, &out); err != nil {
+		t.Fatalf("Run(--audit-resolution) error = %v", err)
+	}
+	want := "id\tname\tsource\targs\targ_types\n" +
+		"1\tread\tbtf\tfd\tint\n" +
+		"2\topen\ttracepoint\tpath\tconst char *\n"
+	if out.String() != want {
+		t.Fatalf("Run(--audit-resolution) output = %q, want %q", out.String(), want)
 	}
 }
 

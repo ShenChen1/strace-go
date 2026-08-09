@@ -94,6 +94,38 @@ func TestKernelTracepointFormatSourceFallsBackToDebugRoot(t *testing.T) {
 	}
 }
 
+func TestKernelTracepointFormatSourceFailsWithoutReadableRoot(t *testing.T) {
+	primaryRoot := "/fake/tracing/events/syscalls"
+	debugRoot := "/fake/debug/tracing/events/syscalls"
+	fsys := fakeTracepointRootFileSystem{rootErrors: map[string]error{
+		primaryRoot: fs.ErrNotExist,
+		debugRoot:   fs.ErrPermission,
+	}}
+	source := kernelTracepointFormatSource{fs: fsys, roots: []string{primaryRoot, debugRoot}}
+
+	_, err := source.LoadTracepointSyscalls([]string{"close"})
+	if err == nil || !strings.Contains(err.Error(), "no readable syscall tracepoint root") {
+		t.Fatalf("LoadTracepointSyscalls() error = %v, want unavailable-root error", err)
+	}
+}
+
+func TestKernelTracepointFormatSourceAcceptsOneReadableRoot(t *testing.T) {
+	root := "/fake/tracing/events/syscalls"
+	path := filepath.Join(root, "sys_enter_close", "format")
+	fsys := fakeTracepointRootFileSystem{
+		fakeTracepointFormatFileSystem: fakeTracepointFormatFileSystem{files: map[string][]byte{
+			path: []byte("field:int __syscall_nr;\nfield:unsigned int fd;\n"),
+		}},
+		rootErrors: map[string]error{root: nil},
+	}
+	source := kernelTracepointFormatSource{fs: fsys, roots: []string{root}}
+
+	got, err := source.LoadTracepointSyscalls([]string{"close"})
+	if err != nil || got["close"].Args[0] != "fd" {
+		t.Fatalf("LoadTracepointSyscalls() = %#v, error %v, want close metadata", got, err)
+	}
+}
+
 func TestTracepointLookupNamesIncludesKernelSendfileAlias(t *testing.T) {
 	names := tracepointLookupNames([]string{"sendfile"}, btfNameToSyscallent)
 
@@ -195,6 +227,18 @@ func (f fakeTracepointFormatFileSystem) ReadFile(path string) ([]byte, error) {
 		return nil, fs.ErrNotExist
 	}
 	return data, nil
+}
+
+type fakeTracepointRootFileSystem struct {
+	fakeTracepointFormatFileSystem
+	rootErrors map[string]error
+}
+
+func (f fakeTracepointRootFileSystem) CheckTracepointRoot(path string) error {
+	if err, ok := f.rootErrors[path]; ok {
+		return err
+	}
+	return fs.ErrNotExist
 }
 
 type fakeTracepointSyscallSource struct {

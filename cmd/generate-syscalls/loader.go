@@ -18,6 +18,10 @@ type syscallEntrySource interface {
 	LoadSyscallEntries() ([]syscallentEntry, error)
 }
 
+type syscallMetadataResolutionLoader interface {
+	LoadWithResolution() (map[int]syscallMetadataResolution, error)
+}
+
 type kernelBTFSource struct{}
 
 func (kernelBTFSource) LoadBTFSyscalls() (map[string]SyscallMeta, error) {
@@ -36,6 +40,14 @@ type defaultSyscallMetadataLoader struct{}
 
 func (defaultSyscallMetadataLoader) Load() (map[int]SyscallMeta, error) {
 	return LoadSyscalls()
+}
+
+func (defaultSyscallMetadataLoader) LoadWithResolution() (map[int]syscallMetadataResolution, error) {
+	loader, err := newDefaultSyscallMetadataLoader()
+	if err != nil {
+		return nil, err
+	}
+	return loader.LoadWithResolution()
 }
 
 type syscallentFileSource string
@@ -102,6 +114,18 @@ func newDefaultSyscallMetadataLoader() (syscallMetadataLoader, error) {
 }
 
 func (l syscallMetadataLoader) Load() (map[int]SyscallMeta, error) {
+	resolutions, err := l.LoadWithResolution()
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[int]SyscallMeta, len(resolutions))
+	for id, resolution := range resolutions {
+		result[id] = resolution.Meta
+	}
+	return result, nil
+}
+
+func (l syscallMetadataLoader) LoadWithResolution() (map[int]syscallMetadataResolution, error) {
 	btf, err := l.btfSource.LoadBTFSyscalls()
 	if err != nil {
 		return nil, err
@@ -129,9 +153,9 @@ func (l syscallMetadataLoader) Load() (map[int]SyscallMeta, error) {
 		fallbackOverrides: l.fallbackOverrides,
 		aliases:           l.aliases,
 	}
-	res := make(map[int]SyscallMeta, len(entries))
+	res := make(map[int]syscallMetadataResolution, len(entries))
 	for _, ent := range entries {
-		res[ent.ID] = resolver.Resolve(ent).Meta
+		res[ent.ID] = resolver.Resolve(ent)
 	}
 	return res, nil
 }
