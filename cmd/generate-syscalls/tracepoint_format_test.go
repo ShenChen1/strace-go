@@ -46,6 +46,23 @@ func TestParseTracepointFormatAllowsZeroArgumentSyscall(t *testing.T) {
 	}
 }
 
+func TestParseTracepointFormatPreservesIDArgument(t *testing.T) {
+	got, err := parseTracepointFormat("quotactl", strings.NewReader(
+		"field:int __syscall_nr;\nfield:unsigned int cmd;\nfield:qid_t id;\nfield:void * addr;\n",
+	))
+	if err != nil {
+		t.Fatalf("parseTracepointFormat() error = %v", err)
+	}
+	want := SyscallMeta{
+		Name:     "quotactl",
+		Args:     []string{"cmd", "id", "addr"},
+		ArgTypes: []string{"unsigned int", "qid_t", "void *"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseTracepointFormat() = %#v, want %#v", got, want)
+	}
+}
+
 func TestSplitTracepointFieldNormalizesAttachedPointer(t *testing.T) {
 	name, argType, ok := splitTracepointField("const char *filename")
 	if !ok {

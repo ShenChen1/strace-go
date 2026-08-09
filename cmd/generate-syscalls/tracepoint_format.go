@@ -204,7 +204,7 @@ func isTracepointMetadataField(declaration string) bool {
 		return true
 	}
 	name := fields[len(fields)-1]
-	return strings.HasPrefix(name, "common_") || name == "ent" || name == "__syscall_nr" || name == "id" || name == "args" || name == "__data"
+	return strings.HasPrefix(name, "common_") || name == "__syscall_nr"
 }
 
 func splitTracepointField(declaration string) (string, string, bool) {
