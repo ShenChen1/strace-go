@@ -11,12 +11,14 @@ func TestBPFQuotaPayloadUsesDirectTLV(t *testing.T) {
 	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	quotaHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_quota_direct_event_v2.h"))
+	xfsHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_quota_xfs_direct_event_v2.h"))
 	quotaDispatch := readTextFile(t, filepath.Join(root, "bpf/quota_dispatch.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_QUOTACTL 179",
 		"#define SYS_QUOTACTL_FD 443",
 		`#include "syscall_quota_direct_event_v2.h"`,
+		`#include "syscall_quota_xfs_direct_event_v2.h"`,
 		`#include "quota_dispatch.h"`,
 		"ENTER_PROG_QUOTA = 43",
 		"EXIT_PROG_QUOTA = 6",
@@ -25,6 +27,19 @@ func TestBPFQuotaPayloadUsesDirectTLV(t *testing.T) {
 	} {
 		if !strings.Contains(straceSource, snippet) {
 			t.Errorf("BPF source missing quota direct snippet %q", snippet)
+		}
+	}
+
+	for _, snippet := range []string{
+		"QUOTA_XFS_DISK_SIZE 112",
+		"QUOTA_XFS_STAT_SIZE 80",
+		"QUOTA_XFS_STATV_SIZE 160",
+		"capture_quota_xfs_struct_tlv_direct(",
+		"quota_xfs_enter_struct_size(",
+		"quota_xfs_exit_struct_size(",
+	} {
+		if !strings.Contains(xfsHeader, snippet) {
+			t.Errorf("quota XFS header missing snippet %q", snippet)
 		}
 	}
 

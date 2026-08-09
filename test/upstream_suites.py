@@ -51,6 +51,8 @@ UPSTREAM_REFERENCE_TESTS = [
     "process_vm_writev.gen.test",
     "quotactl.gen.test",
     "quotactl_fd.gen.test",
+    "quotactl-xfs.gen.test",
+    "quotactl-xfs-v.gen.test",
 ]
 
 UPSTREAM_REFERENCE_EXPECTED_FAILURES = {

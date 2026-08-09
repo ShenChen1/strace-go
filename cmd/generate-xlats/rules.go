@@ -62,6 +62,8 @@ var alwaysAllowedXlats = []string{
 	"if_dqblk_valid",
 	"if_dqinfo_flags",
 	"if_dqinfo_valid",
+	"xfs_dqblk_flags",
+	"xfs_quota_flags",
 }
 
 var staticOnlyXlats = []string{

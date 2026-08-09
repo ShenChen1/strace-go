@@ -99,7 +99,7 @@ func newXlatCProgram(xlatDir string, name string) *strings.Builder {
 	if name == "itimer_which" {
 		cProg.WriteString("#include <sys/time.h>\n")
 	}
-	if name == "quotacmds" {
+	if usesQuotaXlatCDefinitions(name) {
 		cProg.WriteString(quotaXlatCDefinitions)
 	}
 	cProg.WriteString(xlatCCompatDefines)
@@ -111,6 +111,15 @@ func newXlatCProgram(xlatDir string, name string) *strings.Builder {
 	}
 	cProg.WriteString("int main() {\n")
 	return cProg
+}
+
+func usesQuotaXlatCDefinitions(name string) bool {
+	switch name {
+	case "quotacmds", "xfs_dqblk_flags", "xfs_quota_flags":
+		return true
+	default:
+		return false
+	}
 }
 
 func parseXlatInputLine(line string, table *xlatTableData, cProg *strings.Builder) {

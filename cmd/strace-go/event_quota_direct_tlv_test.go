@@ -36,3 +36,24 @@ func TestSyscallEventContextMergesQuotaDirectTLVSections(t *testing.T) {
 		t.Fatalf("quota dqblk section = %+v, %v; want exit OUT struct", dqblkSection, dqblkOK)
 	}
 }
+
+func TestSyscallEventContextMergesQuotaXFSStatVExitSection(t *testing.T) {
+	session := miscStructTLVSession("quotactl")
+	args := [6]uint64{0x580800, 0x1000, ^uint64(0), 0x3000}
+	enterEnvelope := testTLVSyscallEnvelope(t, "quotactl", bpfEventTypeEnter, args, 0, nil)
+	session.traceState().handleEnvelope(enterEnvelope)
+
+	statv := bytes.Repeat([]byte{0x33}, 160)
+	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind: payloadTLVKindStruct, flags: payloadTLVFlagDirectionOut, arg: 3,
+		userPtr: args[3], userLen: uint32(len(statv)), data: statv,
+	})
+	exitEnvelope := testTLVSyscallEnvelope(t, "quotactl", bpfEventTypeExit, args, 0, exitPayload)
+	exitUpdate := session.traceState().handleEnvelope(exitEnvelope)
+	ev := newSyscallEventContextFromView(session, exitUpdate.syscallView, 101, exitUpdate.pendingEnter, exitUpdate.payloadSections)
+
+	section, ok := ev.handlerContext.Section(3, handler.PayloadKindStruct)
+	if !ok || section.Direction != handler.PayloadDirectionOut || !bytes.Equal(section.Data, statv) {
+		t.Fatalf("quota XFS statv section = %+v, %v; want exit OUT struct", section, ok)
+	}
+}

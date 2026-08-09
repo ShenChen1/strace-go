@@ -1937,6 +1937,25 @@ var XlatTables = map[string]XlatTable{
 			{Val: 2, Str: "XATTR_REPLACE"},
 		},
 	},
+	"xfs_dqblk_flags": {
+		Prefix: "",
+		Entries: []XlatVal{
+			{Val: 1, Str: "FS_USER_QUOTA"},
+			{Val: 2, Str: "FS_PROJ_QUOTA"},
+			{Val: 4, Str: "FS_GROUP_QUOTA"},
+		},
+	},
+	"xfs_quota_flags": {
+		Prefix: "FS_QUOTA_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "FS_QUOTA_UDQ_ACCT"},
+			{Val: 2, Str: "FS_QUOTA_UDQ_ENFD"},
+			{Val: 4, Str: "FS_QUOTA_GDQ_ACCT"},
+			{Val: 8, Str: "FS_QUOTA_GDQ_ENFD"},
+			{Val: 16, Str: "FS_QUOTA_PDQ_ACCT"},
+			{Val: 32, Str: "FS_QUOTA_PDQ_ENFD"},
+		},
+	},
 	"pkey_access_rights": {
 		Prefix: "PKEY_",
 		Entries: []XlatVal{

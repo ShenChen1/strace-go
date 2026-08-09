@@ -46,7 +46,8 @@ static __always_inline u32 quota_direct_pending_command(struct pending_syscall *
 static __always_inline int quota_direct_has_exit_payload(u32 command)
 {
     return command == QUOTA_DIRECT_GETFMT || command == QUOTA_DIRECT_GETINFO ||
-        command == QUOTA_DIRECT_GETQUOTA || command == QUOTA_DIRECT_GETNEXTQUOTA;
+        command == QUOTA_DIRECT_GETQUOTA || command == QUOTA_DIRECT_GETNEXTQUOTA ||
+        quota_xfs_exit_struct_size(command) > 0;
 }
 
 static __always_inline u32 quota_direct_struct_size(u32 command)
@@ -126,6 +127,11 @@ static __always_inline u32 quota_direct_enter_capacity(u32 sys_id, u32 command)
         capacity += PAYLOAD_TLV_HEADER_SIZE + PATH_ONLY_DIRECT_PATH_MAX;
     } else if (command == QUOTA_DIRECT_SETINFO || command == QUOTA_DIRECT_SETQUOTA) {
         capacity += PAYLOAD_TLV_HEADER_SIZE + quota_direct_struct_size(command);
+    } else {
+        u32 xfs_size = quota_xfs_enter_struct_size(command);
+        if (xfs_size > 0) {
+            capacity += PAYLOAD_TLV_HEADER_SIZE + xfs_size;
+        }
     }
     return capacity;
 }
@@ -151,6 +157,12 @@ static __always_inline u32 capture_quota_enter_tlvs(
             ctx->args[3],
             quota_direct_struct_size(command),
             0);
+    } else {
+        u32 xfs_size = quota_xfs_enter_struct_size(command);
+        if (xfs_size > 0) {
+            payload_size += capture_quota_xfs_struct_tlv_direct(
+                ptr, payload_offset + payload_size, ctx->args[3], xfs_size, 0);
+        }
     }
     return payload_size;
 }
@@ -207,7 +219,8 @@ static __always_inline void emit_quota_exit_event_v2_direct(
     u64 duration)
 {
     u32 command = quota_direct_pending_command(p);
-    u32 struct_size = quota_direct_struct_size(command);
+    u32 xfs_size = quota_xfs_exit_struct_size(command);
+    u32 struct_size = xfs_size > 0 ? xfs_size : quota_direct_struct_size(command);
     u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + struct_size;
     u32 body_offset = EVENT_V2_HEADER_LEN;
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_EXIT_BODY_LEN;
@@ -221,12 +234,22 @@ static __always_inline void emit_quota_exit_event_v2_direct(
         return;
     }
 
-    u32 payload_size = capture_quota_struct_tlv_direct(
-        &ptr,
-        payload_offset,
-        p->args[3],
-        struct_size,
-        PAYLOAD_TLV_FLAG_DIRECTION_OUT);
+    u32 payload_size = 0;
+    if (xfs_size > 0) {
+        payload_size = capture_quota_xfs_struct_tlv_direct(
+            &ptr,
+            payload_offset,
+            p->args[3],
+            struct_size,
+            PAYLOAD_TLV_FLAG_DIRECTION_OUT);
+    } else {
+        payload_size = capture_quota_struct_tlv_direct(
+            &ptr,
+            payload_offset,
+            p->args[3],
+            struct_size,
+            PAYLOAD_TLV_FLAG_DIRECTION_OUT);
+    }
     u16 flags = payload_size > 0 ? EVENT_FLAG_PAYLOAD_TLV : 0;
     struct event_v2_header header = {};
     init_syscall_event_v2_header_direct(

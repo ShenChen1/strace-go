@@ -59,6 +59,13 @@ func (h *QuotaHandler) Handle(ctx *Context) Result {
 }
 
 func quotaCommandData(ctx *Context, command uint32) []string {
+	if parts, ok := quotaXFSCommandData(ctx, command); ok {
+		return parts
+	}
+	return quotaStandardCommandData(ctx, command)
+}
+
+func quotaStandardCommandData(ctx *Context, command uint32) []string {
 	switch command {
 	case quotaSync, quotaOff:
 		return nil

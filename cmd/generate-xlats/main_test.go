@@ -128,6 +128,8 @@ func TestQuotaXlatsAreAlwaysGenerated(t *testing.T) {
 		"if_dqblk_valid",
 		"if_dqinfo_flags",
 		"if_dqinfo_valid",
+		"xfs_dqblk_flags",
+		"xfs_quota_flags",
 	} {
 		if !allowed[name] {
 			t.Errorf("quota xlat %q is not generated", name)
@@ -139,15 +141,17 @@ func TestQuotaXlatsAreAlwaysGenerated(t *testing.T) {
 }
 
 func TestQuotaXlatCDefinitionsAreScoped(t *testing.T) {
-	quotaProgram := newXlatCProgram(t.TempDir(), "quotacmds").String()
-	for _, want := range []string{
-		"#include <linux/quota.h>",
-		"#include <linux/dqblk_xfs.h>",
-		"#define OLD_CMD(cmd)",
-		"#define NEW_CMD(cmd)",
-	} {
-		if !strings.Contains(quotaProgram, want) {
-			t.Errorf("quotacmds C program missing %q", want)
+	for _, name := range []string{"quotacmds", "xfs_dqblk_flags", "xfs_quota_flags"} {
+		quotaProgram := newXlatCProgram(t.TempDir(), name).String()
+		for _, want := range []string{
+			"#include <linux/quota.h>",
+			"#include <linux/dqblk_xfs.h>",
+			"#define OLD_CMD(cmd)",
+			"#define NEW_CMD(cmd)",
+		} {
+			if !strings.Contains(quotaProgram, want) {
+				t.Errorf("%s C program missing %q", name, want)
+			}
 		}
 	}
 
