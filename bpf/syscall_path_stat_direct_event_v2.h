@@ -5,7 +5,8 @@
 
 static __always_inline int is_path_stat_direct_syscall(u32 sys_id)
 {
-    return sys_id == SYS_STAT || sys_id == SYS_LSTAT || sys_id == SYS_STATFS || sys_id == SYS_NEWFSTATAT;
+    return sys_id == SYS_STAT || sys_id == SYS_LSTAT || sys_id == SYS_STATFS ||
+        sys_id == SYS_NEWFSTATAT || sys_id == SYS_STATX;
 }
 
 static __always_inline u32 capture_path_stat_path_tlv_direct(
@@ -118,7 +119,7 @@ static __always_inline void emit_path_stat_enter_event_v2_direct(
     struct trace_event_raw_sys_enter *ctx,
     u64 ts_ns)
 {
-    if (sys_id == SYS_NEWFSTATAT) {
+    if (sys_id == SYS_NEWFSTATAT || sys_id == SYS_STATX) {
         emit_path_stat_enter_event_v2_direct_with_path(pid, tid, sys_id, ctx, ts_ns, 1, ctx->args[1]);
         return;
     }

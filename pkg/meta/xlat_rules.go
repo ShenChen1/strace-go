@@ -64,6 +64,7 @@ var fullWidthXlatNames = map[string]bool{
 	"clone3_flags":       true,
 	"mmap_prot64":        true,
 	"pkey_access_rights": true,
+	"statx_attrs":        true,
 	"unshare_flags":      true,
 }
 

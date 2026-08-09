@@ -53,6 +53,7 @@ UPSTREAM_REFERENCE_TESTS = [
     "quotactl_fd.gen.test",
     "quotactl-xfs.gen.test",
     "quotactl-xfs-v.gen.test",
+    "statx.gen.test",
 ]
 
 UPSTREAM_REFERENCE_EXPECTED_FAILURES = {

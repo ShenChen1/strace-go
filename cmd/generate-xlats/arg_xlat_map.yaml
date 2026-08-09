@@ -166,6 +166,8 @@ syscalls:
   # IMPACT: Map flag/flags of newfstatat and faccessat2 to at_flags for symbolic printing.
   newfstatat:
     flag: at_flags
+  statx:
+    mask: statx_masks
   mlock2:
     flags: mlock_flags
   mlockall:

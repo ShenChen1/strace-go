@@ -122,6 +122,15 @@ var XlatTables = map[string]XlatTable{
 			{Val: 32768, Str: "AT_RECURSIVE"},
 		},
 	},
+	"at_statx_sync_types": {
+		Prefix: "AT_STATX_",
+		Entries: []XlatVal{
+			{Val: 0, Str: "AT_STATX_SYNC_AS_STAT"},
+			{Val: 8192, Str: "AT_STATX_FORCE_SYNC"},
+			{Val: 16384, Str: "AT_STATX_DONT_SYNC"},
+			{Val: 24576, Str: "AT_STATX_SYNC_TYPE"},
+		},
+	},
 	"bpf_attach_flags": {
 		Prefix: "BPF_F_",
 		Entries: []XlatVal{
@@ -1833,6 +1842,46 @@ var XlatTables = map[string]XlatTable{
 			{Val: 2048, Str: "ST_NODIRATIME"},
 			{Val: 4096, Str: "ST_RELATIME"},
 			{Val: 8192, Str: "ST_NOSYMFOLLOW"},
+		},
+	},
+	"statx_attrs": {
+		Prefix: "STATX_ATTR_",
+		Entries: []XlatVal{
+			{Val: 4, Str: "STATX_ATTR_COMPRESSED"},
+			{Val: 16, Str: "STATX_ATTR_IMMUTABLE"},
+			{Val: 32, Str: "STATX_ATTR_APPEND"},
+			{Val: 64, Str: "STATX_ATTR_NODUMP"},
+			{Val: 2048, Str: "STATX_ATTR_ENCRYPTED"},
+			{Val: 4096, Str: "STATX_ATTR_AUTOMOUNT"},
+			{Val: 8192, Str: "STATX_ATTR_MOUNT_ROOT"},
+			{Val: 1048576, Str: "STATX_ATTR_VERITY"},
+			{Val: 2097152, Str: "STATX_ATTR_DAX"},
+			{Val: 4194304, Str: "STATX_ATTR_WRITE_ATOMIC"},
+		},
+	},
+	"statx_masks": {
+		Prefix: "STATX_",
+		Entries: []XlatVal{
+			{Val: 4095, Str: "STATX_ALL"},
+			{Val: 2047, Str: "STATX_BASIC_STATS"},
+			{Val: 1, Str: "STATX_TYPE"},
+			{Val: 2, Str: "STATX_MODE"},
+			{Val: 4, Str: "STATX_NLINK"},
+			{Val: 8, Str: "STATX_UID"},
+			{Val: 16, Str: "STATX_GID"},
+			{Val: 32, Str: "STATX_ATIME"},
+			{Val: 64, Str: "STATX_MTIME"},
+			{Val: 128, Str: "STATX_CTIME"},
+			{Val: 256, Str: "STATX_INO"},
+			{Val: 512, Str: "STATX_SIZE"},
+			{Val: 1024, Str: "STATX_BLOCKS"},
+			{Val: 2048, Str: "STATX_BTIME"},
+			{Val: 4096, Str: "STATX_MNT_ID"},
+			{Val: 8192, Str: "STATX_DIOALIGN"},
+			{Val: 16384, Str: "STATX_MNT_ID_UNIQUE"},
+			{Val: 32768, Str: "STATX_SUBVOL"},
+			{Val: 65536, Str: "STATX_WRITE_ATOMIC"},
+			{Val: 131072, Str: "STATX_DIO_READ_ALIGN"},
 		},
 	},
 	"sync_file_range_flags": {
@@ -5808,6 +5857,9 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	"socket": {
 		"family": "addrfams",
 		"type": "sock_type_flags",
+	},
+	"statx": {
+		"mask": "statx_masks",
 	},
 	"sync_file_range": {
 		"flags": "sync_file_range_flags",

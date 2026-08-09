@@ -22,6 +22,7 @@ var alwaysAllowedXlats = []string{
 	"addrfams",
 	"whence",
 	"at_flags",
+	"at_statx_sync_types",
 	"adjtimex_status",
 	"x86_xfeature_bits",
 	"bpf_commands",
@@ -50,6 +51,8 @@ var alwaysAllowedXlats = []string{
 	"sock_tcp_options",
 	"fsmagic",
 	"statfs_flags",
+	"statx_attrs",
+	"statx_masks",
 	"waitid_options",
 	"waitid_types",
 	"itimer_which",
@@ -100,6 +103,7 @@ var zeroValueXlatNames = map[string]bool{
 	"PRIO_PROCESS":            true,
 	"ITIMER_REAL":             true,
 	"USRQUOTA":                true,
+	"AT_STATX_SYNC_AS_STAT":   true,
 }
 
 func stripIntegerSuffixes(value string) string {

@@ -72,6 +72,9 @@ func TestBPFDirectPayloadSyscallConstantsPresent(t *testing.T) {
 	if !strings.Contains(straceSource, "#define SYS_PIPE2 293") {
 		t.Fatal("strace.c missing SYS_PIPE2 constant for fd-array direct event v2 path")
 	}
+	if !strings.Contains(straceSource, "#define SYS_STATX 332") {
+		t.Fatal("strace.c missing SYS_STATX constant for statx direct event v2 path")
+	}
 }
 
 func TestBPFDirectStructSyscallConstantsPresent(t *testing.T) {
@@ -234,13 +237,18 @@ func TestBPFTimeAndStatStructPayloadsUseDirectTLV(t *testing.T) {
 		!strings.Contains(straceSource, `#include "syscall_path_stat_direct_event_v2.h"`) ||
 		!strings.Contains(statDirectHeader, "is_stat_struct_direct_syscall(") ||
 		!strings.Contains(statDirectHeader, "sys_id == SYS_STAT || sys_id == SYS_LSTAT || sys_id == SYS_FSTAT") ||
-		!strings.Contains(statDirectHeader, "sys_id == SYS_NEWFSTATAT || sys_id == SYS_STATFS || sys_id == SYS_FSTATFS;") ||
+		!strings.Contains(statDirectHeader, "sys_id == SYS_NEWFSTATAT || sys_id == SYS_STATX ||") ||
+		!strings.Contains(statDirectHeader, "sys_id == SYS_STATFS || sys_id == SYS_FSTATFS;") ||
 		!strings.Contains(statDirectHeader, "stat_direct_struct_arg_index(") ||
+		!strings.Contains(statDirectHeader, "if (sys_id == SYS_STATX)") ||
+		!strings.Contains(statDirectHeader, "return 4;") ||
 		!strings.Contains(statDirectHeader, "if (sys_id == SYS_NEWFSTATAT)") ||
 		!strings.Contains(statDirectHeader, "return p->args[2];") ||
+		!strings.Contains(statDirectHeader, "return p->args[4];") ||
 		!strings.Contains(statDirectHeader, "STAT_DIRECT_STRUCT_SIZE 144") ||
 		!strings.Contains(statDirectHeader, "STATFS_DIRECT_STRUCT_SIZE 120") ||
-		!strings.Contains(pathStatDirectHeader, "return sys_id == SYS_STAT || sys_id == SYS_LSTAT || sys_id == SYS_STATFS || sys_id == SYS_NEWFSTATAT;") ||
+		!strings.Contains(statDirectHeader, "STATX_DIRECT_STRUCT_SIZE 256") ||
+		!strings.Contains(pathStatDirectHeader, "sys_id == SYS_NEWFSTATAT || sys_id == SYS_STATX;") ||
 		!strings.Contains(pathStatDirectHeader, "emit_path_stat_enter_event_v2_direct_with_path(") ||
 		!strings.Contains(pathStatDirectHeader, "ctx, ts_ns, 1, ctx->args[1]") ||
 		!strings.Contains(pathStatDirectHeader, "ctx, ts_ns, 0, ctx->args[0]") ||
@@ -252,7 +260,7 @@ func TestBPFTimeAndStatStructPayloadsUseDirectTLV(t *testing.T) {
 		!strings.Contains(straceSource, "emit_path_stat_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);") ||
 		!strings.Contains(straceSource, "is_stat_struct_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "emit_stat_struct_exit_event_v2_direct(p, ret_value, duration);") {
-		t.Fatal("stat/lstat/newfstatat/statfs/fstat/fstatfs should emit direct TLV events without the bpf_event carrier")
+		t.Fatal("stat/lstat/newfstatat/statx/statfs/fstat/fstatfs should emit direct TLV events without the bpf_event carrier")
 	}
 	if strings.Contains(straceSource, `#include "syscall_statfs_direct_event_v2.h"`) ||
 		strings.Contains(straceSource, "is_path_statfs_direct_syscall(") {
