@@ -118,3 +118,48 @@ func TestWriteIoctlXlatTableParsesDirectionAndValue(t *testing.T) {
 		}
 	}
 }
+
+func TestQuotaXlatsAreAlwaysGenerated(t *testing.T) {
+	allowed := allowedXlatNames(ArgXlatMap{})
+	for _, name := range []string{
+		"quotacmds",
+		"quotatypes",
+		"quota_formats",
+		"if_dqblk_valid",
+		"if_dqinfo_flags",
+		"if_dqinfo_valid",
+	} {
+		if !allowed[name] {
+			t.Errorf("quota xlat %q is not generated", name)
+		}
+	}
+	if !keepZeroXlatValue("USRQUOTA") {
+		t.Fatal("USRQUOTA zero value must be preserved")
+	}
+}
+
+func TestQuotaXlatCDefinitionsAreScoped(t *testing.T) {
+	quotaProgram := newXlatCProgram(t.TempDir(), "quotacmds").String()
+	for _, want := range []string{
+		"#include <linux/quota.h>",
+		"#include <linux/dqblk_xfs.h>",
+		"#define OLD_CMD(cmd)",
+		"#define NEW_CMD(cmd)",
+	} {
+		if !strings.Contains(quotaProgram, want) {
+			t.Errorf("quotacmds C program missing %q", want)
+		}
+	}
+
+	otherProgram := newXlatCProgram(t.TempDir(), "fcntlcmds").String()
+	for _, unwanted := range []string{
+		"#include <linux/quota.h>",
+		"#include <linux/dqblk_xfs.h>",
+		"#define OLD_CMD(cmd)",
+		"#define NEW_CMD(cmd)",
+	} {
+		if strings.Contains(otherProgram, unwanted) {
+			t.Errorf("fcntlcmds C program unexpectedly contains %q", unwanted)
+		}
+	}
+}

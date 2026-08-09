@@ -108,6 +108,7 @@ type bpfProgramSpecs struct {
 	EnterPayloadDirect            *ebpf.ProgramSpec `ebpf:"enter_payload_direct"`
 	EnterPoll                     *ebpf.ProgramSpec `ebpf:"enter_poll"`
 	EnterPrctl                    *ebpf.ProgramSpec `ebpf:"enter_prctl"`
+	EnterQuota                    *ebpf.ProgramSpec `ebpf:"enter_quota"`
 	EnterReadlink                 *ebpf.ProgramSpec `ebpf:"enter_readlink"`
 	EnterSelect                   *ebpf.ProgramSpec `ebpf:"enter_select"`
 	EnterSendmmsgBase0            *ebpf.ProgramSpec `ebpf:"enter_sendmmsg_base0"`
@@ -123,6 +124,7 @@ type bpfProgramSpecs struct {
 	ExitIovecBase                 *ebpf.ProgramSpec `ebpf:"exit_iovec_base"`
 	ExitMmsgFinal                 *ebpf.ProgramSpec `ebpf:"exit_mmsg_final"`
 	ExitMsg                       *ebpf.ProgramSpec `ebpf:"exit_msg"`
+	ExitQuota                     *ebpf.ProgramSpec `ebpf:"exit_quota"`
 	ExitRecvmmsgBase0             *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base0"`
 	ExitRecvmmsgBase1             *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base1"`
 	TraceKretprobeRecvmsgControl  *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_control"`
@@ -279,6 +281,7 @@ type bpfPrograms struct {
 	EnterPayloadDirect            *ebpf.Program `ebpf:"enter_payload_direct"`
 	EnterPoll                     *ebpf.Program `ebpf:"enter_poll"`
 	EnterPrctl                    *ebpf.Program `ebpf:"enter_prctl"`
+	EnterQuota                    *ebpf.Program `ebpf:"enter_quota"`
 	EnterReadlink                 *ebpf.Program `ebpf:"enter_readlink"`
 	EnterSelect                   *ebpf.Program `ebpf:"enter_select"`
 	EnterSendmmsgBase0            *ebpf.Program `ebpf:"enter_sendmmsg_base0"`
@@ -294,6 +297,7 @@ type bpfPrograms struct {
 	ExitIovecBase                 *ebpf.Program `ebpf:"exit_iovec_base"`
 	ExitMmsgFinal                 *ebpf.Program `ebpf:"exit_mmsg_final"`
 	ExitMsg                       *ebpf.Program `ebpf:"exit_msg"`
+	ExitQuota                     *ebpf.Program `ebpf:"exit_quota"`
 	ExitRecvmmsgBase0             *ebpf.Program `ebpf:"exit_recvmmsg_base0"`
 	ExitRecvmmsgBase1             *ebpf.Program `ebpf:"exit_recvmmsg_base1"`
 	TraceKretprobeRecvmsgControl  *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_control"`
@@ -341,6 +345,7 @@ func (p *bpfPrograms) Close() error {
 		p.EnterPayloadDirect,
 		p.EnterPoll,
 		p.EnterPrctl,
+		p.EnterQuota,
 		p.EnterReadlink,
 		p.EnterSelect,
 		p.EnterSendmmsgBase0,
@@ -356,6 +361,7 @@ func (p *bpfPrograms) Close() error {
 		p.ExitIovecBase,
 		p.ExitMmsgFinal,
 		p.ExitMsg,
+		p.ExitQuota,
 		p.ExitRecvmmsgBase0,
 		p.ExitRecvmmsgBase1,
 		p.TraceKretprobeRecvmsgControl,

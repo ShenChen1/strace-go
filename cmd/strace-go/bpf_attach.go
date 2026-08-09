@@ -103,6 +103,7 @@ const (
 	enterProgSendmmsgB1  = 40
 	enterProgAioIovec    = 41
 	enterProgAioBuf      = 42
+	enterProgQuota       = 43
 )
 
 const (
@@ -112,6 +113,7 @@ const (
 	exitProgMmsgFinal     = 3
 	exitProgRecvmmsgBase0 = 4
 	exitProgRecvmmsgBase1 = 5
+	exitProgQuota         = 6
 )
 
 const (
@@ -169,6 +171,7 @@ func enterProgArrayEntries(objs *bpfObjects) []progArrayEntry {
 		{enterProgSendmmsgB1, objs.EnterSendmmsgBase1},
 		{enterProgAioIovec, objs.EnterAioIovec},
 		{enterProgAioBuf, objs.EnterAioBuf},
+		{enterProgQuota, objs.EnterQuota},
 	}
 }
 
@@ -180,6 +183,7 @@ func exitProgArrayEntries(objs *bpfObjects) []progArrayEntry {
 		{exitProgMmsgFinal, objs.ExitMmsgFinal},
 		{exitProgRecvmmsgBase0, objs.ExitRecvmmsgBase0},
 		{exitProgRecvmmsgBase1, objs.ExitRecvmmsgBase1},
+		{exitProgQuota, objs.ExitQuota},
 	}
 }
 

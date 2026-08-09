@@ -49,6 +49,8 @@ UPSTREAM_REFERENCE_TESTS = [
     "vmsplice.gen.test",
     "process_vm_readv.gen.test",
     "process_vm_writev.gen.test",
+    "quotactl.gen.test",
+    "quotactl_fd.gen.test",
 ]
 
 UPSTREAM_REFERENCE_EXPECTED_FAILURES = {

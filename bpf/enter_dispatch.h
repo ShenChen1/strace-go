@@ -57,6 +57,7 @@ enum enter_prog_index {
     ENTER_PROG_SENDMMSG_BASE1 = 40,
     ENTER_PROG_AIO_IOVEC = 41,
     ENTER_PROG_AIO_BUF = 42,
+    ENTER_PROG_QUOTA = 43,
 };
 
 #define ENTER_PROLOGUE(ctx)                                                \

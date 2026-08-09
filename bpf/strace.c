@@ -45,10 +45,12 @@ char LICENSE[] SEC("license") = "GPL";
 #include "syscall_futex_direct_event_v2.h"
 #include "syscall_sleep_direct_event_v2.h"
 #include "syscall_timex_direct_event_v2.h"
+#include "syscall_quota_direct_event_v2.h"
 
 #include "pending_state.h"
 #include "enter_dispatch.h"
 #include "exit_dispatch.h"
+#include "quota_dispatch.h"
 
 SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
@@ -101,6 +103,8 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
         index = ENTER_PROG_FUTEX;
     } else if (sys_id == SYS_CACHESTAT) {
         index = ENTER_PROG_CACHESTAT;
+    } else if (is_quota_direct_syscall(sys_id)) {
+        index = ENTER_PROG_QUOTA;
     } else if (is_capability_direct_syscall(sys_id)) {
         index = ENTER_PROG_CAPABILITY;
     } else if (is_memfd_create_direct_syscall(sys_id)) {
@@ -192,7 +196,9 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     }
 
     u32 index = EXIT_PROG_GENERIC;
-    if (is_iovec_base_exit_direct_syscall(p->sys_id)) {
+    if (is_quota_direct_syscall(p->sys_id)) {
+        index = EXIT_PROG_QUOTA;
+    } else if (is_iovec_base_exit_direct_syscall(p->sys_id)) {
         index = EXIT_PROG_IOVEC_BASE;
     } else if (is_single_msg_direct_syscall(p->sys_id)) {
         index = EXIT_PROG_MSG;

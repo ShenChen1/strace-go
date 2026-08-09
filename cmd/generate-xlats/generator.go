@@ -99,6 +99,9 @@ func newXlatCProgram(xlatDir string, name string) *strings.Builder {
 	if name == "itimer_which" {
 		cProg.WriteString("#include <sys/time.h>\n")
 	}
+	if name == "quotacmds" {
+		cProg.WriteString(quotaXlatCDefinitions)
+	}
 	cProg.WriteString(xlatCCompatDefines)
 	hPath := filepath.Join(xlatDir, name+".h")
 	if _, err := os.Stat(hPath); err == nil {

@@ -19,6 +19,7 @@ enum exit_prog_index {
     EXIT_PROG_MMSG_FINAL = 3,
     EXIT_PROG_RECVMMSG_BASE0 = 4,
     EXIT_PROG_RECVMMSG_BASE1 = 5,
+    EXIT_PROG_QUOTA = 6,
 };
 
 #define EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid) \

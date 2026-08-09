@@ -10,6 +10,8 @@ const xlatCIncludes = "#define _GNU_SOURCE\n#include <stdio.h>\n#include <fcntl.
 
 const xlatCCompatDefines = "#ifndef ARCH_GET_CPUID\n#define ARCH_GET_CPUID 0x1011\n#endif\n#ifndef ARCH_SET_CPUID\n#define ARCH_SET_CPUID 0x1012\n#endif\n"
 
+const quotaXlatCDefinitions = "#include <stdint.h>\n#include <linux/quota.h>\n#include <linux/dqblk_xfs.h>\n#ifndef OLD_CMD\n#define OLD_CMD(cmd) ((uint32_t) (cmd) << 8)\n#endif\n#ifndef NEW_CMD\n#define NEW_CMD(cmd) ((uint32_t) (cmd) | 0x800000)\n#endif\n"
+
 var alwaysAllowedXlats = []string{
 	"fcntlcmds",
 	"notifyflags",
@@ -54,6 +56,12 @@ var alwaysAllowedXlats = []string{
 	"priorities",
 	"xattrflags",
 	"bpf_attach_flags",
+	"quotacmds",
+	"quotatypes",
+	"quota_formats",
+	"if_dqblk_valid",
+	"if_dqinfo_flags",
+	"if_dqinfo_valid",
 }
 
 var staticOnlyXlats = []string{
@@ -89,6 +97,7 @@ var zeroValueXlatNames = map[string]bool{
 	"F_RDLCK":                 true,
 	"PRIO_PROCESS":            true,
 	"ITIMER_REAL":             true,
+	"USRQUOTA":                true,
 }
 
 func stripIntegerSuffixes(value string) string {

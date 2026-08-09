@@ -20,13 +20,13 @@ func TestEnterProgArrayEntriesComplete(t *testing.T) {
 	}
 	// Every dispatcher index from enter_dispatch.h must have a slot; missing
 	// slots silently drop that syscall family.
-	for i := 1; i <= enterProgAioBuf; i++ {
+	for i := 1; i <= enterProgQuota; i++ {
 		if !seen[uint32(i)] {
 			t.Fatalf("enter prog array missing index %d", i)
 		}
 	}
-	if len(entries) != enterProgAioBuf {
-		t.Fatalf("enter prog array entries = %d, want %d", len(entries), enterProgAioBuf)
+	if len(entries) != enterProgQuota {
+		t.Fatalf("enter prog array entries = %d, want %d", len(entries), enterProgQuota)
 	}
 }
 
@@ -39,13 +39,13 @@ func TestExitProgArrayEntriesComplete(t *testing.T) {
 		}
 		seen[entry.index] = true
 	}
-	for i := 0; i <= exitProgRecvmmsgBase1; i++ {
+	for i := 0; i <= exitProgQuota; i++ {
 		if !seen[uint32(i)] {
 			t.Fatalf("exit prog array missing index %d", i)
 		}
 	}
-	if len(entries) != exitProgRecvmmsgBase1+1 {
-		t.Fatalf("exit prog array entries = %d, want %d", len(entries), exitProgRecvmmsgBase1+1)
+	if len(entries) != exitProgQuota+1 {
+		t.Fatalf("exit prog array entries = %d, want %d", len(entries), exitProgQuota+1)
 	}
 }
 
@@ -95,6 +95,7 @@ func TestEnterProgIndicesMatchDispatchHeader(t *testing.T) {
 		"ENTER_PROG_PAYLOAD_DIRECT":    enterProgPayload,
 		"ENTER_PROG_IOVEC_BASE":        enterProgIovecBase,
 		"ENTER_PROG_AIO_BUF":           enterProgAioBuf,
+		"ENTER_PROG_QUOTA":             enterProgQuota,
 	}
 	for name, val := range pairs {
 		if !strings.Contains(header, fmt.Sprintf("%s = %d", name, val)) {
@@ -113,6 +114,7 @@ func TestExitProgIndicesMatchDispatchHeader(t *testing.T) {
 		"EXIT_PROG_MMSG_FINAL":     exitProgMmsgFinal,
 		"EXIT_PROG_RECVMMSG_BASE0": exitProgRecvmmsgBase0,
 		"EXIT_PROG_RECVMMSG_BASE1": exitProgRecvmmsgBase1,
+		"EXIT_PROG_QUOTA":          exitProgQuota,
 	}
 	for name, val := range pairs {
 		if !strings.Contains(header, fmt.Sprintf("%s = %d", name, val)) {
