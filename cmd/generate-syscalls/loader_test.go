@@ -45,27 +45,75 @@ func (s *fakeBTFDatasetSource) LoadBTFSyscallDataset() (btfSyscallDataset, error
 func TestSyscallMetadataLoaderAppliesPriorityOrder(t *testing.T) {
 	loader := syscallMetadataLoader{
 		btfSource: fakeBTFSource{syscalls: map[string]SyscallMeta{
-			"read":    {Name: "read", Args: []string{"btf_fd"}, ArgTypes: []string{"unsigned int"}},
-			"newstat": {Name: "newstat", Args: []string{"path", "statbuf"}, ArgTypes: []string{"const char *", "struct stat *"}},
+			"read": {Name: "read", Args: []string{"btf_fd"}, ArgTypes: []string{"unsigned int"}},
+		}},
+		tracepointSource: fakeTracepointSyscallSource{syscalls: map[string]SyscallMeta{
+			"close": {Name: "close", Args: []string{"tracepoint_fd"}, ArgTypes: []string{"unsigned int"}},
 		}},
 		entrySource: fakeEntrySource{entries: []syscallentEntry{
-			{ID: 1, Name: "read", Argc: 3, Flags: "TD"},
+			{ID: 1, Name: "read", Argc: 1, Flags: "TD"},
 			{ID: 2, Name: "stat", Argc: 2, Flags: "TF"},
-			{ID: 3, Name: "missing", Argc: 2, Flags: "0"},
+			{ID: 3, Name: "close", Argc: 1, Flags: "TD"},
+			{ID: 4, Name: "fallback", Argc: 1, Flags: "0"},
+			{ID: 5, Name: "missing", Argc: 2, Flags: "0"},
 		}},
-		overrides: map[string]SyscallMeta{
-			"read": {Name: "read", Args: []string{"override_fd"}, ArgTypes: []string{"int"}},
+		semanticOverrides: map[string]SyscallMeta{
+			"stat": {Name: "stat", Args: []string{"semantic_path", "statbuf"}, ArgTypes: []string{"const char *", "struct stat *"}},
 		},
-		aliases: map[string]string{"newstat": "stat"},
+		fallbackOverrides: map[string]SyscallMeta{
+			"read":     {Name: "read", Args: []string{"override_fd"}, ArgTypes: []string{"int"}},
+			"close":    {Name: "close", Args: []string{"override_fd"}, ArgTypes: []string{"int"}},
+			"fallback": {Name: "fallback", Args: []string{"fallback_arg"}, ArgTypes: []string{"long"}},
+		},
+		aliases: map[string]string{},
 	}
 
 	got, err := loader.Load()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	assertMeta(t, got[1], SyscallMeta{Name: "read", Args: []string{"override_fd"}, ArgTypes: []string{"int"}, Flags: "TD"})
-	assertMeta(t, got[2], SyscallMeta{Name: "stat", Args: []string{"path", "statbuf"}, ArgTypes: []string{"const char *", "struct stat *"}, Flags: "TF"})
-	assertMeta(t, got[3], SyscallMeta{Name: "missing", Args: []string{"arg0", "arg1"}, ArgTypes: []string{"unsigned long", "unsigned long"}, Flags: "0"})
+	assertMeta(t, got[1], SyscallMeta{Name: "read", Args: []string{"btf_fd"}, ArgTypes: []string{"unsigned int"}, Flags: "TD"})
+	assertMeta(t, got[2], SyscallMeta{Name: "stat", Args: []string{"semantic_path", "statbuf"}, ArgTypes: []string{"const char *", "struct stat *"}, Flags: "TF"})
+	assertMeta(t, got[3], SyscallMeta{Name: "close", Args: []string{"tracepoint_fd"}, ArgTypes: []string{"unsigned int"}, Flags: "TD"})
+	assertMeta(t, got[4], SyscallMeta{Name: "fallback", Args: []string{"fallback_arg"}, ArgTypes: []string{"long"}, Flags: "0"})
+	assertMeta(t, got[5], SyscallMeta{Name: "missing", Args: []string{"arg0", "arg1"}, ArgTypes: []string{"unsigned long", "unsigned long"}, Flags: "0"})
+}
+
+func TestSyscallMetadataResolverReportsSource(t *testing.T) {
+	resolver := syscallMetadataResolver{
+		btf: map[string]SyscallMeta{
+			"read":         {Name: "read", Args: []string{"fd"}, ArgTypes: []string{"int"}},
+			"kernel_alias": {Name: "kernel_alias", Args: []string{"fd"}, ArgTypes: []string{"int"}},
+		},
+		tracepoint: map[string]SyscallMeta{
+			"close": {Name: "close", Args: []string{"fd"}, ArgTypes: []string{"unsigned int"}},
+		},
+		semanticOverrides: map[string]SyscallMeta{
+			"stat": {Name: "stat", Args: []string{"path"}, ArgTypes: []string{"const char *"}},
+		},
+		fallbackOverrides: map[string]SyscallMeta{
+			"fallback": {Name: "fallback", Args: []string{"arg"}, ArgTypes: []string{"long"}},
+		},
+		aliases: map[string]string{"kernel_alias": "alias"},
+	}
+	cases := []struct {
+		name    string
+		want    syscallMetadataSource
+		wantArg string
+	}{
+		{name: "read", want: metadataSourceBTF, wantArg: "fd"},
+		{name: "alias", want: metadataSourceBTFAlias, wantArg: "fd"},
+		{name: "close", want: metadataSourceTracepoint, wantArg: "fd"},
+		{name: "stat", want: metadataSourceSemanticOverride, wantArg: "path"},
+		{name: "fallback", want: metadataSourceFallbackOverride, wantArg: "arg"},
+		{name: "missing", want: metadataSourceDummy, wantArg: "arg0"},
+	}
+	for _, tc := range cases {
+		got := resolver.Resolve(syscallentEntry{Name: tc.name, Argc: 1})
+		if got.Source != tc.want || got.Meta.Args[0] != tc.wantArg {
+			t.Fatalf("Resolve(%q) = (%s, %#v), want (%s, arg %q)", tc.name, got.Source, got.Meta, tc.want, tc.wantArg)
+		}
+	}
 }
 
 func TestSyscallMetadataLoaderReportsSourceErrors(t *testing.T) {

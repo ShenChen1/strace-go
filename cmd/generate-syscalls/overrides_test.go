@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-func TestManualOverridesAreNotMutatedByInit(t *testing.T) {
-	mutation := regexp.MustCompile(`manualOverrides\[[^\]]+\]\s*=`)
+func TestFallbackOverridesAreNotMutatedByInit(t *testing.T) {
+	mutation := regexp.MustCompile(`fallbackOverrides\[[^\]]+\]\s*=`)
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatalf("read generator dir: %v", err)
@@ -24,26 +24,34 @@ func TestManualOverridesAreNotMutatedByInit(t *testing.T) {
 			t.Fatalf("read %s: %v", name, err)
 		}
 		if mutation.Match(data) {
-			t.Fatalf("%s mutates manualOverrides; keep overrides explicit in overrides.go", name)
+			t.Fatalf("%s mutates fallbackOverrides; keep overrides explicit in overrides.go", name)
 		}
 	}
 }
 
-func TestManualOverridesHaveConsistentShape(t *testing.T) {
-	for key, meta := range manualOverrides {
+func TestFallbackOverridesHaveConsistentShape(t *testing.T) {
+	for key, meta := range fallbackOverrides {
 		if meta.Name != key {
-			t.Fatalf("manualOverrides[%q].Name = %q, want %q", key, meta.Name, key)
+			t.Fatalf("fallbackOverrides[%q].Name = %q, want %q", key, meta.Name, key)
 		}
 		if len(meta.Args) != len(meta.ArgTypes) {
-			t.Fatalf("manualOverrides[%q] has %d args and %d arg types", key, len(meta.Args), len(meta.ArgTypes))
+			t.Fatalf("fallbackOverrides[%q] has %d args and %d arg types", key, len(meta.Args), len(meta.ArgTypes))
 		}
 		for i := range meta.Args {
 			if meta.Args[i] == "" {
-				t.Fatalf("manualOverrides[%q].Args[%d] is empty", key, i)
+				t.Fatalf("fallbackOverrides[%q].Args[%d] is empty", key, i)
 			}
 			if meta.ArgTypes[i] == "" {
-				t.Fatalf("manualOverrides[%q].ArgTypes[%d] is empty", key, i)
+				t.Fatalf("fallbackOverrides[%q].ArgTypes[%d] is empty", key, i)
 			}
+		}
+	}
+}
+
+func TestSemanticOverridesAreSeparateFromFallbackOverrides(t *testing.T) {
+	for name := range semanticOverrides {
+		if _, ok := fallbackOverrides[name]; ok {
+			t.Fatalf("semantic override %q is duplicated in fallbackOverrides", name)
 		}
 	}
 }

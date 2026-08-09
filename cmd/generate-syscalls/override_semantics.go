@@ -25,6 +25,13 @@ var semanticOverrideSpecs = map[string]semanticOverrideSpec{
 		BTFArgs:      []string{"cmd", "uattr", "size"},
 		BTFType:      []string{"enum bpf_cmd", "bpfptr_t", "unsigned int"},
 	},
+	"execveat": {
+		Reason:       "strace_execveat_signature",
+		OverrideArgs: []string{"dfd", "filename", "argv", "envp", "flags"},
+		OverrideType: []string{"int", "const char *", "const char *const *", "const char *const *", "int"},
+		BTFArgs:      []string{"fd", "filename", "argv", "envp", "flags"},
+		BTFType:      []string{"int", "const char *", "const char *const *", "const char *const *", "int"},
+	},
 	"fstat": {
 		Reason:       "strace_stat_struct",
 		OverrideArgs: []string{"fd", "statbuf"},
@@ -66,6 +73,13 @@ var semanticOverrideSpecs = map[string]semanticOverrideSpec{
 		OverrideType: []string{"const void *", "unsigned long", "unsigned long", "unsigned long", "const void *"},
 		BTFArgs:      []string{"addr", "old_len", "new_len", "flags", "new_addr"},
 		BTFType:      []string{"long unsigned int", "long unsigned int", "long unsigned int", "long unsigned int", "long unsigned int"},
+	},
+	"mprotect": {
+		Reason:       "strace_pointer_types",
+		OverrideArgs: []string{"start", "len", "prot"},
+		OverrideType: []string{"const void *", "size_t", "unsigned long"},
+		BTFArgs:      []string{"start", "len", "prot"},
+		BTFType:      []string{"unsigned long", "size_t", "unsigned long"},
 	},
 	"msync": {
 		Reason:       "strace_pointer_types",
@@ -116,4 +130,25 @@ var semanticOverrideSpecs = map[string]semanticOverrideSpec{
 		BTFArgs:      []string{"dev", "ubuf"},
 		BTFType:      []string{"unsigned int", "struct ustat *"},
 	},
+	"munmap": {
+		Reason:       "strace_pointer_types",
+		OverrideArgs: []string{"addr", "len"},
+		OverrideType: []string{"const void *", "size_t"},
+		BTFArgs:      []string{"addr", "len"},
+		BTFType:      []string{"unsigned long", "size_t"},
+	},
+}
+
+var semanticOverrides = buildSemanticOverrides()
+
+func buildSemanticOverrides() map[string]SyscallMeta {
+	result := make(map[string]SyscallMeta, len(semanticOverrideSpecs))
+	for name, spec := range semanticOverrideSpecs {
+		result[name] = SyscallMeta{
+			Name:     name,
+			Args:     append([]string(nil), spec.OverrideArgs...),
+			ArgTypes: append([]string(nil), spec.OverrideType...),
+		}
+	}
+	return result
 }

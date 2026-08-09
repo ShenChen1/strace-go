@@ -49,7 +49,7 @@ func newGeneratorCommand() generatorCommand {
 		writer:           goSyscallTableWriter{},
 		auditSource:      kernelBTFSource{},
 		tracepointSource: kernelTracepointFormatSource{},
-		overrides:        manualOverrides,
+		overrides:        allSyscallOverrides(),
 		aliases:          btfNameToSyscallent,
 	}
 }

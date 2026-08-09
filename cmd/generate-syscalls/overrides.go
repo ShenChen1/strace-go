@@ -12,10 +12,10 @@ var btfNameToSyscallent = map[string]string{
 	"umount":     "umount2",
 }
 
-// manualOverrides provides hand-curated syscall metadata for syscalls where
-// BTF data is missing or intentionally differs from strace-facing metadata.
-// These take highest priority and must stay explicit.
-var manualOverrides = map[string]SyscallMeta{
+// fallbackOverrides provides metadata only for kernels that do not expose a
+// usable BTF or tracepoint signature. Strace-facing semantic overrides live in
+// override_semantics.go and are resolved separately.
+var fallbackOverrides = map[string]SyscallMeta{
 	// Core I/O
 	"close":             {Name: "close", Args: []string{"fd"}, ArgTypes: []string{"int"}},
 	"readv":             {Name: "readv", Args: []string{"fd", "vec", "vlen"}, ArgTypes: []string{"int", "const struct iovec *", "unsigned long"}},
@@ -27,37 +27,16 @@ var manualOverrides = map[string]SyscallMeta{
 	"process_vm_readv":  {Name: "process_vm_readv", Args: []string{"pid", "local_iov", "liovcnt", "remote_iov", "riovcnt", "flags"}, ArgTypes: []string{"pid_t", "const struct iovec *", "unsigned long", "const struct iovec *", "unsigned long", "unsigned long"}},
 	"process_vm_writev": {Name: "process_vm_writev", Args: []string{"pid", "local_iov", "liovcnt", "remote_iov", "riovcnt", "flags"}, ArgTypes: []string{"pid_t", "const struct iovec *", "unsigned long", "const struct iovec *", "unsigned long", "unsigned long"}},
 
-	// stat family — BTF has __old_kernel_stat, we need struct stat
-	"stat":  {Name: "stat", Args: []string{"filename", "statbuf"}, ArgTypes: []string{"const char *", "struct stat *"}},
-	"fstat": {Name: "fstat", Args: []string{"fd", "statbuf"}, ArgTypes: []string{"int", "struct stat *"}},
-	"lstat": {Name: "lstat", Args: []string{"filename", "statbuf"}, ArgTypes: []string{"const char *", "struct stat *"}},
-
-	// mmap — BTF ksys_mmap_pgoff uses unsigned long for everything
-	"mmap": {Name: "mmap", Args: []string{"addr", "len", "prot", "flags", "fd", "off"}, ArgTypes: []string{"const void *", "size_t", "unsigned long", "unsigned long", "int", "kernel_off_t"}},
-
-	// Network — retain strace-facing signatures where kernel metadata is internal.
-	"getsockname": {Name: "getsockname", Args: []string{"fd", "usockaddr", "usockaddr_len"}, ArgTypes: []string{"int", "struct sockaddr *", "int *"}},
-	"sendmsg":     {Name: "sendmsg", Args: []string{"fd", "msg", "flags"}, ArgTypes: []string{"int", "struct msghdr *", "unsigned int"}},
-	"recvmsg":     {Name: "recvmsg", Args: []string{"fd", "msg", "flags"}, ArgTypes: []string{"int", "struct msghdr *", "unsigned int"}},
-	"setsockopt":  {Name: "setsockopt", Args: []string{"fd", "level", "optname", "optval", "optlen"}, ArgTypes: []string{"int", "int", "int", "char *", "int"}},
-
-	// Process
-	"execveat": {Name: "execveat", Args: []string{"dfd", "filename", "argv", "envp", "flags"}, ArgTypes: []string{"int", "const char *", "const char *const *", "const char *const *", "int"}},
-
 	// Signals — retain strace-facing names and types where needed.
 
 	// File operations with strace-facing metadata requirements.
 	"ioctl": {Name: "ioctl", Args: []string{"fd", "cmd", "arg"}, ArgTypes: []string{"int", "unsigned long", "unsigned long"}},
 
 	// Memory management
-	"mprotect": {Name: "mprotect", Args: []string{"start", "len", "prot"}, ArgTypes: []string{"const void *", "size_t", "unsigned long"}},
-	"munmap":   {Name: "munmap", Args: []string{"addr", "len"}, ArgTypes: []string{"const void *", "size_t"}},
-	"madvise":  {Name: "madvise", Args: []string{"start", "len", "behavior"}, ArgTypes: []string{"const void *", "size_t", "int"}},
-	"mremap":   {Name: "mremap", Args: []string{"addr", "old_len", "new_len", "flags", "new_addr"}, ArgTypes: []string{"const void *", "unsigned long", "unsigned long", "unsigned long", "const void *"}},
-	"mlock":    {Name: "mlock", Args: []string{"addr", "len"}, ArgTypes: []string{"const void *", "size_t"}},
-	"munlock":  {Name: "munlock", Args: []string{"addr", "len"}, ArgTypes: []string{"const void *", "size_t"}},
-	"mlock2":   {Name: "mlock2", Args: []string{"addr", "len", "flags"}, ArgTypes: []string{"const void *", "size_t", "int"}},
-	"msync":    {Name: "msync", Args: []string{"addr", "len", "flags"}, ArgTypes: []string{"const void *", "size_t", "int"}},
+	"madvise": {Name: "madvise", Args: []string{"start", "len", "behavior"}, ArgTypes: []string{"const void *", "size_t", "int"}},
+	"mlock":   {Name: "mlock", Args: []string{"addr", "len"}, ArgTypes: []string{"const void *", "size_t"}},
+	"munlock": {Name: "munlock", Args: []string{"addr", "len"}, ArgTypes: []string{"const void *", "size_t"}},
+	"mlock2":  {Name: "mlock2", Args: []string{"addr", "len", "flags"}, ArgTypes: []string{"const void *", "size_t", "int"}},
 
 	// Time
 	"nanosleep":       {Name: "nanosleep", Args: []string{"rqtp", "rmtp"}, ArgTypes: []string{"struct timespec *", "struct timespec *"}},
@@ -114,22 +93,27 @@ var manualOverrides = map[string]SyscallMeta{
 	"futex": {Name: "futex", Args: []string{"uaddr", "op", "val", "utime", "uaddr2", "val3"}, ArgTypes: []string{"u32 *", "int", "u32", "const struct timespec *", "u32 *", "u32"}},
 
 	// Misc
-	"bpf": {Name: "bpf", Args: []string{"cmd", "attr", "size"}, ArgTypes: []string{"int", "void *", "unsigned int"}},
-
-	"adjtimex":         {Name: "adjtimex", Args: []string{"txc_p"}, ArgTypes: []string{"struct timex *"}},
 	"pselect6":         {Name: "pselect6", Args: []string{"n", "inp", "outp", "exp", "tsp", "sig"}, ArgTypes: []string{"int", "fd_set *", "fd_set *", "fd_set *", "struct timespec *", "void *"}},
 	"ppoll":            {Name: "ppoll", Args: []string{"ufds", "nfds", "tsp", "sigmask", "sigsetsize"}, ArgTypes: []string{"struct pollfd *", "unsigned int", "struct timespec *", "const sigset_t *", "size_t"}},
 	"sendfile":         {Name: "sendfile", Args: []string{"out_fd", "in_fd", "offset", "count"}, ArgTypes: []string{"int", "int", "off_t *", "size_t"}},
-	"uname":            {Name: "uname", Args: []string{"name"}, ArgTypes: []string{"struct utsname *"}},
 	"close_range":      {Name: "close_range", Args: []string{"first", "last", "flags"}, ArgTypes: []string{"unsigned int", "unsigned int", "unsigned int"}},
 	"inotify_rm_watch": {Name: "inotify_rm_watch", Args: []string{"fd", "wd"}, ArgTypes: []string{"int", "int"}},
 	"userfaultfd":      {Name: "userfaultfd", Args: []string{"flags"}, ArgTypes: []string{"unsigned int"}},
 	"pidfd_getfd":      {Name: "pidfd_getfd", Args: []string{"pidfd", "targetfd", "flags"}, ArgTypes: []string{"int", "int", "unsigned int"}},
 	"pkey_mprotect":    {Name: "pkey_mprotect", Args: []string{"addr", "len", "prot", "pkey"}, ArgTypes: []string{"void *", "size_t", "long unsigned int", "int"}},
-	"map_shadow_stack": {Name: "map_shadow_stack", Args: []string{"addr", "size", "flags"}, ArgTypes: []string{"void *", "size_t", "unsigned int"}},
 	"mseal":            {Name: "mseal", Args: []string{"addr", "len", "flags"}, ArgTypes: []string{"void *", "size_t", "long unsigned int"}},
 	"umask":            {Name: "umask", Args: []string{"mask"}, ArgTypes: []string{"umode_t"}},
 	"setrlimit":        {Name: "setrlimit", Args: []string{"resource", "rlim"}, ArgTypes: []string{"unsigned int", "const struct rlimit *"}},
 	"ftruncate":        {Name: "ftruncate", Args: []string{"fd", "length"}, ArgTypes: []string{"int", "long"}},
-	"ustat":            {Name: "ustat", Args: []string{"dev", "ubuf"}, ArgTypes: []string{"dev_t", "struct ustat *"}},
+}
+
+func allSyscallOverrides() map[string]SyscallMeta {
+	result := make(map[string]SyscallMeta, len(fallbackOverrides)+len(semanticOverrides))
+	for name, meta := range fallbackOverrides {
+		result[name] = meta
+	}
+	for name, meta := range semanticOverrides {
+		result[name] = meta
+	}
+	return result
 }

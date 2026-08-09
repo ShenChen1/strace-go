@@ -117,9 +117,9 @@ func TestSyscallMetadataLoaderUsesTracepointFallback(t *testing.T) {
 		tracepointSource: fakeTracepointSyscallSource{syscalls: map[string]SyscallMeta{
 			"close": {Name: "close", Args: []string{"fd"}, ArgTypes: []string{"unsigned int"}},
 		}},
-		entrySource: fakeEntrySource{entries: []syscallentEntry{{ID: 3, Name: "close", Argc: 1, Flags: "TD"}}},
-		overrides:   map[string]SyscallMeta{},
-		aliases:     map[string]string{},
+		entrySource:       fakeEntrySource{entries: []syscallentEntry{{ID: 3, Name: "close", Argc: 1, Flags: "TD"}}},
+		fallbackOverrides: map[string]SyscallMeta{},
+		aliases:           map[string]string{},
 	}
 
 	got, err := loader.Load()
@@ -147,9 +147,9 @@ func TestSyscallMetadataLoaderUsesTracepointAliasFallback(t *testing.T) {
 			},
 			requested: &requested,
 		},
-		entrySource: fakeEntrySource{entries: []syscallentEntry{{ID: 5, Name: "fstat", Argc: 2, Flags: "TF"}}},
-		overrides:   map[string]SyscallMeta{},
-		aliases:     map[string]string{"newfstat": "fstat"},
+		entrySource:       fakeEntrySource{entries: []syscallentEntry{{ID: 5, Name: "fstat", Argc: 2, Flags: "TF"}}},
+		fallbackOverrides: map[string]SyscallMeta{},
+		aliases:           map[string]string{"newfstat": "fstat"},
 	}
 
 	got, err := loader.Load()
@@ -171,9 +171,9 @@ func TestSyscallMetadataLoaderIgnoresTracepointArityMismatch(t *testing.T) {
 		tracepointSource: fakeTracepointSyscallSource{syscalls: map[string]SyscallMeta{
 			"close": {Name: "close", Args: []string{"fd", "extra"}, ArgTypes: []string{"int", "int"}},
 		}},
-		entrySource: fakeEntrySource{entries: []syscallentEntry{{ID: 3, Name: "close", Argc: 1, Flags: "TD"}}},
-		overrides:   map[string]SyscallMeta{},
-		aliases:     map[string]string{},
+		entrySource:       fakeEntrySource{entries: []syscallentEntry{{ID: 3, Name: "close", Argc: 1, Flags: "TD"}}},
+		fallbackOverrides: map[string]SyscallMeta{},
+		aliases:           map[string]string{},
 	}
 
 	got, err := loader.Load()
