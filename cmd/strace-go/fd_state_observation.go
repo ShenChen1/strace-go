@@ -14,19 +14,20 @@ func updateFDStateObservationFromSource(
 	if !src.view.valid || src.view.ret < 0 || !isFDStateObservationSyscall(scMeta.Name) {
 		return
 	}
+	if isFDArrayFDStateSyscall(scMeta.Name) {
+		if src.view.ret != 0 {
+			return
+		}
+		updateFDArrayStateObservations(src, targetPID, observations)
+		return
+	}
 
 	key := fdStateKey(targetPID, int32(src.view.ret))
 	if fdStateTargetReplaced(src.view, scMeta.Name) {
 		delete(observations, key)
 	}
 	for _, section := range src.payloadSections {
-		if section.Kind != handler.PayloadKindFDState ||
-			section.Direction != handler.PayloadDirectionOut ||
-			section.ArgIndex != handler.PayloadFDStateArgIndex ||
-			section.ProbeRet != 0 {
-			continue
-		}
-		observation, ok := handler.DecodeFDStateObservation(section.Data)
+		observation, ok := fdStateObservationFromSection(section)
 		if !ok || observation.FD != int32(src.view.ret) {
 			return
 		}
@@ -35,8 +36,43 @@ func updateFDStateObservationFromSource(
 	}
 }
 
+func updateFDArrayStateObservations(
+	src fdStateSource,
+	targetPID int,
+	observations map[string]handler.FDStateObservation,
+) {
+	for _, section := range src.payloadSections {
+		observation, ok := fdStateObservationFromSection(section)
+		if !ok {
+			continue
+		}
+		observations[fdStateKey(targetPID, observation.FD)] = observation
+	}
+}
+
+func fdStateObservationFromSection(section handler.PayloadSection) (handler.FDStateObservation, bool) {
+	if section.Kind != handler.PayloadKindFDState ||
+		section.Direction != handler.PayloadDirectionOut ||
+		section.ArgIndex != handler.PayloadFDStateArgIndex ||
+		section.ProbeRet != 0 {
+		return handler.FDStateObservation{}, false
+	}
+	observation, ok := handler.DecodeFDStateObservation(section.Data)
+	return observation, ok && observation.FD >= 0
+}
+
 func isFDStateObservationSyscall(scName string) bool {
-	return isOpenedPathFDStateSyscall(scName) || isDuplicatedFDStateSyscall(scName)
+	return isOpenedPathFDStateSyscall(scName) ||
+		isDuplicatedFDStateSyscall(scName) || isFDArrayFDStateSyscall(scName)
+}
+
+func isFDArrayFDStateSyscall(scName string) bool {
+	switch scName {
+	case "pipe", "pipe2", "socketpair":
+		return true
+	default:
+		return false
+	}
 }
 
 func isDuplicatedFDStateSyscall(scName string) bool {

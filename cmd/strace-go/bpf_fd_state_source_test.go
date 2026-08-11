@@ -40,6 +40,21 @@ func TestBPFFDStateUsesEventTimeCoreSnapshot(t *testing.T) {
 			t.Fatalf("fd state helper missing duplicated-fd syscall %q", token)
 		}
 	}
+	for _, token := range []string{
+		"FD_ARRAY_DIRECT_FD_STATE_COUNT 2",
+		"read_fd_array_values_direct(",
+		"capture_fd_state_array_tlvs_direct(",
+		"capture_fd_state_tlv_direct(",
+	} {
+		if !strings.Contains(src.fdArrayDirectHeader, token) {
+			t.Fatalf("fd array state helper missing %q", token)
+		}
+	}
+	for _, token := range []string{"case SYS_PIPE:", "case SYS_PIPE2:", "case SYS_SOCKETPAIR:"} {
+		if !strings.Contains(src.straceSource, token) {
+			t.Fatalf("runtime fd state tracking missing array syscall %q", token)
+		}
+	}
 	wantDispatch := []string{
 		`#include "syscall_fd_state_direct_event_v2.h"`,
 		"is_fd_state_exit_direct_syscall(p->sys_id)",

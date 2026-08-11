@@ -4,7 +4,11 @@ import subprocess
 import sys
 import unittest
 
-from ebpf_event_oracles import has_dup_fd_state_sections, has_fd_state_section
+from ebpf_event_oracles import (
+    has_dup_fd_state_sections,
+    has_fd_array_fd_state_sections,
+    has_fd_state_section,
+)
 from ebpf_suites import wait_for_debug_ready
 from run_tests import SuiteResults
 
@@ -132,6 +136,33 @@ class EventOracleTests(unittest.TestCase):
             })
 
         self.assertTrue(has_dup_fd_state_sections(events))
+
+    def test_accepts_two_complete_fd_array_snapshots(self):
+        events = []
+        for syscall, first_fd in (("pipe", 7), ("pipe2", 9), ("socketpair", 11)):
+            sections = []
+            for fd, inode in ((first_fd, 42), (first_fd + 1, 43)):
+                data = bytearray(48)
+                data[0:4] = fd.to_bytes(4, "little", signed=True)
+                data[4:8] = (3).to_bytes(4, "little")
+                data[32:40] = inode.to_bytes(8, "little")
+                sections.append({
+                    "kind": "fd_state",
+                    "direction": "out",
+                    "arg_index": 0xffff,
+                    "user_len": 48,
+                    "copied_len": 48,
+                    "probe_ret": 0,
+                    "data_base64": base64.b64encode(data).decode(),
+                })
+            events.append({
+                "event_type": "exit",
+                "syscall": syscall,
+                "ret": 0,
+                "payload_sections": sections,
+            })
+
+        self.assertTrue(has_fd_array_fd_state_sections(events))
 
 
 if __name__ == "__main__":

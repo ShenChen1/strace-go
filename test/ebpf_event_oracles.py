@@ -134,6 +134,43 @@ def has_dup_fd_state_sections(events):
     )
 
 
+def _has_fd_array_fd_state_sections_for_syscall(events, syscall_name):
+    for event in events:
+        if event.get("event_type") != "exit" or event.get("syscall") != syscall_name:
+            continue
+        if event.get("ret", -1) != 0:
+            continue
+        valid_fds = set()
+        for section in event.get("payload_sections") or []:
+            if (
+                section.get("kind") != "fd_state"
+                or section.get("direction") != "out"
+                or section.get("arg_index") != FD_STATE_ARG_INDEX
+                or section.get("user_len") != FD_STATE_SNAPSHOT_SIZE
+                or section.get("copied_len") != FD_STATE_SNAPSHOT_SIZE
+                or section.get("probe_ret") != 0
+            ):
+                continue
+            data = payload_section_bytes(section)
+            if len(data) != FD_STATE_SNAPSHOT_SIZE:
+                continue
+            snapshot_fd = int.from_bytes(data[0:4], "little", signed=True)
+            flags = int.from_bytes(data[4:8], "little")
+            inode = int.from_bytes(data[32:40], "little")
+            if snapshot_fd >= 0 and (flags & 3) == 3 and inode > 0:
+                valid_fds.add(snapshot_fd)
+        if len(valid_fds) >= 2:
+            return True
+    return False
+
+
+def has_fd_array_fd_state_sections(events):
+    return all(
+        _has_fd_array_fd_state_sections_for_syscall(events, syscall)
+        for syscall in ("pipe", "pipe2", "socketpair")
+    )
+
+
 def has_exec_payload_sections(events):
     for event in events:
         if event.get("syscall") != "execve" or event.get("event_type") != "enter":

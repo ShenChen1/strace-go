@@ -11,6 +11,24 @@ func fdStateKey(targetPid int, fd int32) string {
 	return fmt.Sprintf("%d:%d", targetPid, fd)
 }
 
+func updateFDStateOffsetsFromSource(
+	src fdStateSource,
+	scMeta meta.Syscall,
+	targetPID int,
+	offsets map[string]int64,
+) {
+	if !src.view.valid || src.view.ret != 0 || !isFDArrayFDStateSyscall(scMeta.Name) {
+		return
+	}
+	for _, section := range src.payloadSections {
+		observation, ok := fdStateObservationFromSection(section)
+		if !ok || observation.Flags&handler.FDStateFlagOffset == 0 {
+			continue
+		}
+		offsets[fdStateKey(targetPID, observation.FD)] = observation.Offset
+	}
+}
+
 func (st *FDStateStore) bufferFileOffsetFromView(view syscallEventView, scMeta meta.Syscall, statePID int) (int64, bool) {
 	if !view.valid {
 		return 0, false
