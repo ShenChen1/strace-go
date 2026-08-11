@@ -63,16 +63,21 @@ func (st *TraceState) applyLifecycleEvent(view lifecycleEventView) (*TaskState, 
 		parent.LastAction = "fork"
 		parent.LastSeenNS = view.enterTime
 
-		child := st.ensureTaskState(childTID, 0)
+		child := &TaskState{TID: childTID}
+		if st.trackForkIdentity {
+			child = st.ensureTaskState(childTID, 0)
+		}
 		child.ParentTID = parentTID
 		child.Alive = true
 		child.LastAction = "fork"
 		child.LastSeenNS = view.enterTime
-		if st.pendingForks == nil {
-			st.pendingForks = make(map[uint32]pendingForkState)
-		}
-		st.pendingForks[childTID] = pendingForkState{
-			parentTGID: parentTGID,
+		if st.trackForkIdentity {
+			if st.pendingForks == nil {
+				st.pendingForks = make(map[uint32]pendingForkState)
+			}
+			st.pendingForks[childTID] = pendingForkState{
+				parentTGID: parentTGID,
+			}
 		}
 		return child, st.resolveForkIdentity(childTID, child.TGID)
 	case lifecycleExec:

@@ -101,7 +101,7 @@ func main() {
 		TimeFormatter: newTimeFormatter(calculateTimeOffset()),
 		BPFObjects:    bpfObjs,
 		Resolver:      resolver,
-		State:         newTraceStateWithDeferredExit(shouldEmitGenericEnter(opts)),
+		State:         newTraceStateForSession(opts),
 	})
 	session.emitDebugReady()
 	if err := session.run(); err != nil {

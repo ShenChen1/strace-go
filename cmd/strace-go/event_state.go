@@ -43,6 +43,7 @@ type processStateInheritance struct {
 
 type TraceState struct {
 	deferUnmatchedExits bool
+	trackForkIdentity   bool
 	pendingSyscalls     map[uint32]*pendingSyscallState
 	pendingExits        map[uint32]pendingExitState
 	pendingExecArgs     map[int]string
@@ -74,11 +75,11 @@ type TraceStateUpdate struct {
 }
 
 func newTraceState() *TraceState {
-	return &TraceState{}
+	return &TraceState{trackForkIdentity: true}
 }
 
 func newTraceStateWithDeferredExit(enabled bool) *TraceState {
-	return &TraceState{deferUnmatchedExits: enabled}
+	return &TraceState{deferUnmatchedExits: enabled, trackForkIdentity: true}
 }
 
 func (s *traceSession) traceState() *TraceState {
@@ -93,6 +94,7 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 	if envelope.isLifecycle() {
 		lifecycleView := envelope.lifecycleView()
 		task, processInherit := st.applyLifecycleEvent(lifecycleView)
+		lifecycleTask := snapshotTaskState(task)
 		var deferredExit *TraceStateUpdate
 		if lifecycleView.action == lifecycleExit || lifecycleView.action == lifecycleFree {
 			if pendingExit, ok := st.takePendingExitForTID(lifecycleView.tid); ok {
@@ -102,12 +104,12 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 					payloadSections: pendingExit.payloadSections,
 				}
 			}
-			st.clearTaskPending(lifecycleView.tid)
+			st.retireTask(lifecycleView.tid)
 		}
 		return TraceStateUpdate{
 			kind:           traceStateLifecycle,
 			lifecycleView:  lifecycleView,
-			lifecycleTask:  snapshotTaskState(task),
+			lifecycleTask:  lifecycleTask,
 			processInherit: processInherit,
 			unfinished:     unfinished,
 			deferredExit:   deferredExit,
@@ -129,6 +131,9 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 		if pendingExit, ok := st.takePendingExit(syscallView); ok {
 			pendingEnter := st.consumeEnterEvent(pendingExit.view)
 			if pendingEnter != nil {
+				if isTerminatingSyscall(pendingExit.view) {
+					st.retireTask(pendingExit.view.tid)
+				}
 				update.deferredExit = &TraceStateUpdate{
 					kind:            traceStateSyscallExit,
 					syscallView:     pendingExit.view,
@@ -161,6 +166,9 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 			unfinished:      unfinished,
 		}
 	}
+	if isTerminatingSyscall(syscallView) {
+		st.retireTask(syscallView.tid)
+	}
 	return TraceStateUpdate{
 		kind:            traceStateSyscallExit,
 		syscallView:     syscallView,
@@ -169,6 +177,11 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 		processInherit:  processInherit,
 		unfinished:      unfinished,
 	}
+}
+
+func isTerminatingSyscall(view syscallEventView) bool {
+	name := syscallMeta(view.sysID).Name
+	return name == "exit" || name == "exit_group"
 }
 
 func (st *TraceState) pendingForOtherTID(tid uint32) []pendingSyscallState {
@@ -382,4 +395,12 @@ func (st *TraceState) clearTaskPending(tid uint32) {
 	delete(st.pendingSyscalls, tid)
 	delete(st.pendingExits, tid)
 	delete(st.pendingForks, tid)
+}
+
+func (st *TraceState) retireTask(tid uint32) {
+	if tid == 0 {
+		return
+	}
+	st.clearTaskPending(tid)
+	delete(st.tasks, tid)
 }

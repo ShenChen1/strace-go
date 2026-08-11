@@ -96,11 +96,22 @@ func newTraceSession(deps traceSessionDeps) *traceSession {
 		clock:         deps.Clock,
 	}
 	if session.state == nil {
-		session.state = newTraceStateWithDeferredExit(shouldEmitGenericEnter(session.opts))
+		session.state = newTraceStateForSession(session.opts)
 	}
 	normalizeTraceSession(session)
 	session.components = buildTraceSessionComponents(session)
 	return session
+}
+
+func newTraceStateForSession(opts *cli.Options) *TraceState {
+	trackForkIdentity := true
+	if opts != nil {
+		trackForkIdentity = opts.FollowForks
+	}
+	return &TraceState{
+		deferUnmatchedExits: shouldEmitGenericEnter(opts),
+		trackForkIdentity:   trackForkIdentity,
+	}
 }
 
 func normalizeTraceSession(session *traceSession) {

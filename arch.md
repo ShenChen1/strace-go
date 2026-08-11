@@ -2718,3 +2718,36 @@ ABI 与状态契约：
 本阶段只调整 session-scoped enrichment 的 ownership，不改变纯 eBPF 事实源或任何 `/proc`/ptrace 边界。
 
 实际验收结果：`FDStateStore` 已删除 `RuntimeServices` 字段、`Runtime()` 和 `handler.NewRuntime()` 初始化；`traceSession`/`traceSessionDeps` 独立持有 session runtime，context composition identity 与 runtime/FD state 独立性回归通过。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，741.16 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取路径。
+
+### 14.53 生命周期状态有界化（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：生命周期事件已经通过 BPF 的 fork/exec/exit/free 事件驱动 Go 状态机；`TraceState` 的 `tasks` map 只用于在当前生命周期事件上构造 JSON/退出文本 snapshot，`pendingForks` 只用于 child 首次事件到达时完成一次 TGID 身份解析。
+- Problem：当前实现把已退出 task 永久留在 `tasks`，并在未启用 follow-forks 时仍为不会进入 Go 状态机的 child 保存 `pendingForks` 关系。长时间 fork/exit storm 会让用户态状态随历史 task 数量增长，且不存在可确定的回收时点。
+- Goal：生命周期 handler 在输出所需 snapshot 建立后立即回收退出/free task；只有 follow-forks 会消费的 child identity 才进入长期 `pendingForks`；terminating syscall 在生命周期 tracepoint 不可用时也能回收当前 task。
+- Non-goals：不改变 lifecycle JSON 字段、fork/exec/exit/free 事件顺序、FD/path state cleanup、BPF ABI、ringbuf 事件、unfinished/resumed 语义或退出状态文本；不引入 LRU、定时器、锁、procfs、ptrace、`process_vm_readv` 或第二份 task owner。
+- Constraints：回收前必须复制 `TaskState` snapshot；生命周期 handler 只能消费 snapshot，不能依赖 `TraceState.tasks` 的历史记录；无 follow-forks 时 fork 事件仍可作为当前事件输出，但 child 不得写入长期 map；所有生产 session 的 fork tracking policy 必须由 composition root 注入，测试 fixture 保留显式默认行为。
+
+方案比较：
+
+1. 给 task map 增加 LRU/定时淘汰：能限制内存，但引入时间和淘汰顺序语义，无法证明不会误删仍需解析的 child，拒绝。
+2. 保留全部生命周期历史：实现最简单，但内存随 fork/exit storm 单调增长，拒绝。
+3. 在 lifecycle snapshot 完成后 retire task，并按 follow-forks policy 决定是否保存 child identity；terminating syscall 作为 tracepoint 缺失时的确定性兜底，选择该方案。
+
+状态契约：
+
+- `TraceState.tasks` 只保存活跃 task；`lifecycleExit`/`lifecycleFree` 返回独立 snapshot 后删除对应 TID。
+- `TraceState.pendingForks` 只在 session 开启 follow-forks 时保存；未跟踪 child 的 fork event 可以输出，但不产生长期 child task/identity state。
+- `exit`/`exit_group` 的 syscall exit 会 retire task，后续迟到 lifecycle event 只生成一次性 snapshot，不恢复历史状态。
+- 所有删除发生在单一事件消费者中，不使用定时器或并发清理；FD state 仍由既有 lifecycle mutation port 独立负责。
+
+测试与验收：
+
+- 新增 lifecycle exit/free task 回收测试、未 follow-forks child 不入 map 测试、terminating syscall 无 lifecycle fallback 回收测试。
+- 保留 fork identity、非 leader thread 不做 process FD inheritance、lifecycle snapshot alias 隔离回归。
+- 随后运行 focused Go、全量 Go/race/vet/build、eBPF semantic/perf、small、more 和 upstream reference；检查无残留 tracer/BPF pin，并确认生产源码没有新增 `/proc`、ptrace 或 `process_vm_readv` 读取路径。
+
+本阶段只限制用户态生命周期状态的存活范围，不改变纯 eBPF 事件事实源。
+
+实际验收结果：新增 lifecycle free/exit task retire、未 follow-forks child 不入长期 map、terminating syscall 无 lifecycle tracepoint 兜底回收测试；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过。实机 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 getpid 事件、5,000/5,000 enter/exit、0 丢失、737.58 events/s；`small` 为 23 PASS；完整 `more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。最终 cleanup 后 `fork-f.gen.test`、`vfork-f.gen.test`、`attach-f-p.test` 各 1 PASS；无残留 tracer/BPF pin，生产源码未新增 `/proc`、ptrace 或 `process_vm_readv` 读取路径。
