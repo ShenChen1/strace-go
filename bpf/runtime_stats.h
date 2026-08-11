@@ -23,6 +23,7 @@ static __always_inline int is_fd_state_direct_syscall(u32 sys_id)
     case SYS_OPEN_TREE:
     case SYS_CREAT:
     case SYS_CLOSE:
+    case SYS_CLOSE_RANGE:
     case SYS_DUP:
     case SYS_DUP2:
     case SYS_DUP3:

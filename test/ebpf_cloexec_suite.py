@@ -11,10 +11,14 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_cloexec_exec_fixture.c")
 STRACE_WRAPPER = os.path.join(SCRIPT_DIR, "strace-sudo.sh")
 FIXTURE_PATH = "/tmp/strace-go-ebpf-cloexec-state"
+CLOSE_RANGE_UNSHARE = 1 << 1
+CLOSE_RANGE_CLOEXEC = 1 << 2
 
 
 def build_fixture():
-    output = os.path.join(tempfile.gettempdir(), "strace-go-ebpf-cloexec-fixture")
+    output = os.path.join(
+        tempfile.gettempdir(), f"strace-go-ebpf-cloexec-fixture-{os.getuid()}"
+    )
     subprocess.run(
         ["gcc", "-O2", "-Wall", "-Wextra", "-o", output, FIXTURE_SRC],
         cwd=PROJECT_ROOT,
@@ -49,7 +53,7 @@ def run_cloexec_semantic():
         "--event-format=json",
         "-f",
         "-e",
-        "trace=open,openat,read,close,dup3,fcntl,pipe2,execve,exit,exit_group",
+        "trace=open,openat,read,close,dup3,fcntl,pipe2,close_range,execve,exit,exit_group",
         fixture,
     ]
     result = subprocess.run(
@@ -83,6 +87,35 @@ def run_cloexec_semantic():
     for syscall_name in ("open", "dup3", "pipe2"):
         if not has_successful_exit(presence_events, syscall_name):
             failures.append(f"cloexec {syscall_name} exit event missing")
+    close_range_events = [
+        event
+        for event in presence_events
+        if event.get("syscall") == "close_range" and event.get("event_type") == "exit"
+    ]
+    if not any(
+        event.get("ret") == 0
+        and len(event.get("args") or []) >= 3
+        and (event.get("args") or [0, 0, 0])[2] == 0
+        for event in close_range_events
+    ):
+        failures.append("cloexec normal close_range exit event missing")
+    if not any(
+        event.get("ret") == 0
+        and len(event.get("args") or []) >= 3
+        and (event.get("args") or [0, 0, 0])[2] & CLOSE_RANGE_CLOEXEC
+        for event in close_range_events
+    ):
+        failures.append("cloexec CLOSE_RANGE_CLOEXEC exit event missing")
+    if not any(
+        event.get("ret") == 0
+        and len(event.get("args") or []) >= 3
+        and (event.get("args") or [0, 0, 0])[2]
+        == CLOSE_RANGE_UNSHARE | CLOSE_RANGE_CLOEXEC
+        for event in close_range_events
+    ):
+        failures.append("cloexec combined close_range exit event missing")
+    if not any(event.get("ret", 0) < 0 for event in close_range_events):
+        failures.append("cloexec failed close_range exit event missing")
     if not any(
         event.get("syscall") == "fcntl"
         and event.get("event_type") == "exit"

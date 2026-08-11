@@ -162,7 +162,7 @@ func TestBPFScalarAndTerminatingUseDirectEventV2(t *testing.T) {
 		!strings.Contains(straceSource, "is_sys_exit_direct_syscall(p->sys_id)") {
 		t.Fatal("scalar syscalls should use direct event v2 helpers instead of the bpf_event carrier")
 	}
-	if !strings.Contains(directHeader, "return sys_id == SYS_GETPID || sys_id == SYS_CLOSE;") {
+	if !strings.Contains(directHeader, "return sys_id == SYS_GETPID || sys_id == SYS_CLOSE || sys_id == SYS_CLOSE_RANGE;") {
 		t.Fatal("scalar direct syscall policy should include getpid and close")
 	}
 	if !strings.Contains(directHeader, "is_terminating_direct_syscall(") ||

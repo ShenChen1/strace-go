@@ -26,6 +26,8 @@ func (st *FDStateStore) updateFDCloexecFromSource(src fdStateSource, scMeta meta
 		st.replaceFDCloexec(targetPID, int32(src.view.ret), enabled, known)
 	case "dup", "dup2", "dup3":
 		st.updateDuplicatedFDCloexec(src.view, scMeta.Name, targetPID)
+	case "close_range":
+		st.updateCloseRangeState(src.view, targetPID)
 	case "fcntl", "fcntl64":
 		st.updateFcntlFDCloexec(src.view, scMeta.Name, targetPID)
 	case "pipe", "pipe2", "socketpair":

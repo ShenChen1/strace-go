@@ -196,7 +196,7 @@ def collect_semantic_events(fixture):
     trace_set = (
         "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,"
         "newfstatat,statfs,fstatfs,getcwd,readlink,readlinkat,pipe,pipe2,"
-        "socketpair,dup,dup2,dup3,fcntl,uname,sysinfo,getrlimit,setrlimit,prlimit64,arch_prctl,"
+        "socketpair,dup,dup2,dup3,fcntl,close_range,uname,sysinfo,getrlimit,setrlimit,prlimit64,arch_prctl,"
         "get_robust_list,sendfile,copy_file_range,getitimer,setitimer,"
         "clock_settime,settimeofday,adjtimex,nanosleep,clock_nanosleep,"
         "futex,futex_wait,futex_waitv,futex_requeue,sendmsg,execve,exit,"

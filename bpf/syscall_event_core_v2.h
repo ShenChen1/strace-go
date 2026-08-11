@@ -3,7 +3,7 @@
 
 static __always_inline int is_scalar_direct_syscall(u32 sys_id)
 {
-    return sys_id == SYS_GETPID || sys_id == SYS_CLOSE;
+    return sys_id == SYS_GETPID || sys_id == SYS_CLOSE || sys_id == SYS_CLOSE_RANGE;
 }
 
 static __always_inline int is_terminating_direct_syscall(u32 sys_id)

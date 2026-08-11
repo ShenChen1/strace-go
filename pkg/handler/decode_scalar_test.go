@@ -195,6 +195,25 @@ func TestDefaultHandlerDoesNotTreatUnsignedFDAsXlatInRawMode(t *testing.T) {
 	}
 }
 
+func TestDefaultHandlerFormatsCloseRangeBoundsAsUnsigned(t *testing.T) {
+	ctx := &Context{
+		Args:   [6]uint64{0xdefaced0fffffffe, 0xdefaced0ffffffff, 0xdefaced000000006},
+		ScMeta: meta.SyscallTable[436],
+		Opts:   &cli.Options{},
+	}
+
+	got := (&DefaultHandler{}).Handle(ctx).ArgParts
+	want := []string{"4294967294", "4294967295", "CLOSE_RANGE_UNSHARE|CLOSE_RANGE_CLOEXEC"}
+	if len(got) != len(want) {
+		t.Fatalf("close_range args = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("close_range arg %d = %q, want %q (all args %#v)", i, got[i], want[i], got)
+		}
+	}
+}
+
 func TestDefaultHandlerDecodesBasicFlagXlats(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -53,6 +53,15 @@ func isScalarFDArgName(argName string) bool {
 	return strings.Contains(argName, "fd")
 }
 
+// close_range uses fd-like kernel names for unsigned range bounds.
+func isFDFormattingArg(ctx *Context, argName string) bool {
+	if ctx != nil && ctx.ScMeta.Name == "close_range" &&
+		(argName == "fd" || argName == "max_fd") {
+		return false
+	}
+	return isScalarFDArgName(argName)
+}
+
 type xlatDecodeRequest struct {
 	ctx         *Context
 	syscallName string
@@ -212,7 +221,7 @@ func (h *DefaultHandler) decodeScalar(ctx *Context, argTyp, argName string, val 
 		return fmt.Sprintf("%d", int32(val))
 	}
 
-	if strings.Contains(argName, "fd") || argName == "fildes" {
+	if isFDFormattingArg(ctx, argName) {
 		return h.formatFdArg(ctx, argName, val)
 	}
 
