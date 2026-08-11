@@ -31,6 +31,10 @@ SMOKE_TESTS = [
 # ordering and text contracts.
 UPSTREAM_REFERENCE_TESTS = [
     "getpid.gen.test",
+    "getdents.gen.test",
+    "getdents-v.gen.test",
+    "getdents64.gen.test",
+    "getdents64-v.gen.test",
     "openat.gen.test",
     "read-write.gen.test",
     "recvmsg.gen.test",

@@ -274,6 +274,58 @@ func TestGetdentsUsesPayloadBytesSection(t *testing.T) {
 	}
 }
 
+func TestLegacyGetdentsUsesPayloadBytesSection(t *testing.T) {
+	ctx := newGetdentsContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.SysName = "getdents"
+	ctx.ScMeta = meta.SyscallTable[78]
+	ctx.Ret = int64(len(makeGetdents64Dirents(24, 32)))
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, UserPtr: 0x3000, ProbeRet: 0, Data: makeGetdents64Dirents(24, 32)},
+	}
+
+	got := Get("getdents").Handle(ctx)
+	if got.ArgParts[1] != "0x3000 /* 2 entries */" {
+		t.Fatalf("legacy getdents dirent = %q, want formatted payload section count", got.ArgParts[1])
+	}
+}
+
+func TestGetdentsVerboseUsesLayoutSpecificFields(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		want string
+	}{
+		{
+			name: "getdents",
+			data: makeGetdentsRecord(false, 24, 4, ".."),
+			want: `[{d_ino=11, d_off=22, d_reclen=24, d_name="..", d_type=DT_DIR}]`,
+		},
+		{
+			name: "getdents64",
+			data: makeGetdentsRecord(true, 24, 8, "."),
+			want: `[{d_ino=11, d_off=22, d_reclen=24, d_type=DT_REG, d_name="."}]`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := newGetdentsContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+			ctx.SysName = test.name
+			ctx.ScMeta = meta.SyscallTable[map[string]uint32{"getdents": 78, "getdents64": 217}[test.name]]
+			ctx.Ret = int64(len(test.data))
+			ctx.Opts = &cli.Options{Verbose: true}
+			ctx.PayloadSections = []PayloadSection{
+				{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, UserPtr: 0x3000, ProbeRet: 0, Data: test.data},
+			}
+
+			got := Get(test.name).Handle(ctx)
+			if got.ArgParts[1] != test.want {
+				t.Fatalf("verbose dirent = %q, want %q", got.ArgParts[1], test.want)
+			}
+		})
+	}
+}
+
 func TestGetdentsFormatsZeroEntriesWithoutPayloadSection(t *testing.T) {
 	ctx := newGetdentsContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
 	ctx.Ret = 0
@@ -303,4 +355,19 @@ func makeGetdents64Dirents(reclens ...uint16) []byte {
 		data = append(data, record...)
 	}
 	return data
+}
+
+func makeGetdentsRecord(is64 bool, reclen uint16, dType byte, name string) []byte {
+	record := make([]byte, reclen)
+	binary.LittleEndian.PutUint64(record[0:8], 11)
+	binary.LittleEndian.PutUint64(record[8:16], 22)
+	binary.LittleEndian.PutUint16(record[16:18], reclen)
+	if is64 {
+		record[18] = dType
+		copy(record[19:], name)
+		return record
+	}
+	copy(record[18:], name)
+	record[len(record)-1] = dType
+	return record
 }

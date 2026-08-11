@@ -70,9 +70,6 @@ func Sigset(data []byte) string {
 	return prefix + "[" + strings.Join(res, " ") + "]"
 }
 
-// Dirents formats an array of dirents.
-func Dirents(data []byte, count int) string { return "{...}" }
-
 
 
 // BufferEscape formats a byte slice as a string, respecting a limit and escape mode.

@@ -306,6 +306,41 @@ def check_mount_path(context, failures):
     require("MOVE_MOUNT_BENEATH" in arg_text, failures, "move_mount symbolic flags missing")
 
 
+def check_dirent(context, failures):
+    capture = context.dirent
+    require(capture.result.returncode == 0, failures, f"dirent fixture rc={capture.result.returncode}")
+    require("dirent-fixture-ok" in capture.result.stdout, failures, "dirent fixture stdout marker missing")
+    require(len(capture.stats_events) == 1 and valid_stats_event(capture.stats_events[0]), failures, "dirent stats event missing")
+    error_counters = (
+        "ringbuf_reserve_fail", "ringbuf_copy_fail", "pending_update_fail",
+        "orphan_exit", "pending_mismatch",
+    )
+    clean_stats = capture.stats_events and all(
+        capture.stats_events[0].get(key, 1) == 0 for key in error_counters
+    )
+    require(clean_stats, failures, "dirent fixture reported runtime event errors")
+
+    for syscall in ("getdents", "getdents64"):
+        successful = [
+            event for event in capture.exit_events
+            if event.get("syscall") == syscall and event.get("ret", 0) > 0
+        ]
+        require(successful, failures, f"{syscall} successful exit missing")
+        require(any(event.get("paired_enter") for event in successful), failures, f"{syscall} exit was not paired")
+        sections = [
+            section
+            for event in successful
+            for section in (event.get("payload_sections") or [])
+        ]
+        require(has_copied_section(sections, "bytes", "out", 1, 1), failures, f"{syscall} OUT bytes snapshot missing")
+        failed = any(
+            event.get("syscall") == syscall and event.get("failed")
+            and event.get("errno") == 9
+            for event in capture.exit_events
+        )
+        require(failed, failures, f"{syscall} EBADF failure event missing")
+
+
 def check_semantic_context(context, failures):
     check_main_capture(context, failures)
     check_syscall_presence(context, failures)
@@ -318,3 +353,4 @@ def check_semantic_context(context, failures):
     check_attach(context, failures)
     check_mount_query(context, failures)
     check_mount_path(context, failures)
+    check_dirent(context, failures)

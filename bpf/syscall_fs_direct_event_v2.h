@@ -10,7 +10,7 @@
 #define FS_DIRECT_FSCONFIG_VALUE_MAX 4096
 #define FS_DIRECT_FSCONFIG_SET_BINARY 2
 #define FS_DIRECT_FSCONFIG_VALUE_LEN_MASK 8191
-#define FS_DIRECT_GETDENTS64_BYTES_MAX 512
+#define FS_DIRECT_GETDENTS_BYTES_MAX 512
 #define FS_DIRECT_PAYLOAD_CAPACITY MOUNT_SETATTR_DIRECT_PAYLOAD_CAPACITY
 
 static __always_inline int is_fs_enter_direct_syscall(u32 sys_id)
@@ -20,15 +20,15 @@ static __always_inline int is_fs_enter_direct_syscall(u32 sys_id)
         is_mount_query_direct_syscall(sys_id);
 }
 
-static __always_inline int is_getdents64_direct_syscall(u32 sys_id)
+static __always_inline int is_getdents_direct_syscall(u32 sys_id)
 {
-    return sys_id == SYS_GETDENTS64;
+    return sys_id == SYS_GETDENTS || sys_id == SYS_GETDENTS64;
 }
 
 static __always_inline int is_fs_direct_syscall(u32 sys_id)
 {
     return is_fs_enter_direct_syscall(sys_id) ||
-        is_getdents64_direct_syscall(sys_id);
+        is_getdents_direct_syscall(sys_id);
 }
 
 static __always_inline u32 capture_fs_string_tlv_direct(
@@ -274,7 +274,7 @@ static __always_inline void emit_fs_enter_event_v2_direct(
     bpf_ringbuf_submit_dynptr(&ptr, 0);
 }
 
-static __always_inline u32 capture_getdents64_bytes_tlv_direct(
+static __always_inline u32 capture_getdents_bytes_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,
     struct pending_syscall *p,
@@ -287,7 +287,7 @@ static __always_inline u32 capture_getdents64_bytes_tlv_direct(
 
     u64 user_ptr = p->args[1];
     u32 user_len = payload_tlv_clamp_u32((u64)ret_value);
-    u32 copied_len = payload_tlv_copy_len((u64)ret_value, FS_DIRECT_GETDENTS64_BYTES_MAX);
+    u32 copied_len = payload_tlv_copy_len((u64)ret_value, FS_DIRECT_GETDENTS_BYTES_MAX);
     s32 probe_ret = 0;
     u32 data_offset = payload_offset + PAYLOAD_TLV_HEADER_SIZE;
 
@@ -295,7 +295,7 @@ static __always_inline u32 capture_getdents64_bytes_tlv_direct(
         probe_ret = -1;
         copied_len = 0;
     } else {
-        void *payload_data = bpf_dynptr_data(ptr, data_offset, FS_DIRECT_GETDENTS64_BYTES_MAX);
+        void *payload_data = bpf_dynptr_data(ptr, data_offset, FS_DIRECT_GETDENTS_BYTES_MAX);
         if (!payload_data) {
             record_ringbuf_copy_fail();
             probe_ret = -1;
@@ -329,12 +329,12 @@ static __always_inline u32 capture_getdents64_bytes_tlv_direct(
     return PAYLOAD_TLV_HEADER_SIZE + copied_len;
 }
 
-static __always_inline void emit_getdents64_exit_event_v2_direct(
+static __always_inline void emit_getdents_exit_event_v2_direct(
     struct pending_syscall *p,
     s64 ret_value,
     u64 duration)
 {
-    u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + FS_DIRECT_GETDENTS64_BYTES_MAX;
+    u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + FS_DIRECT_GETDENTS_BYTES_MAX;
     u32 body_offset = EVENT_V2_HEADER_LEN;
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_EXIT_BODY_LEN;
     u32 out_size = payload_offset + payload_capacity;
@@ -348,7 +348,7 @@ static __always_inline void emit_getdents64_exit_event_v2_direct(
     }
 
     u16 flags = 0;
-    u32 payload_size = capture_getdents64_bytes_tlv_direct(&ptr, payload_offset, p, ret_value, &flags);
+    u32 payload_size = capture_getdents_bytes_tlv_direct(&ptr, payload_offset, p, ret_value, &flags);
     if (payload_size > 0) {
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }

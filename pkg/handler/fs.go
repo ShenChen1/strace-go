@@ -10,6 +10,7 @@ import (
 
 func init() {
 	h := &FsHandler{}
+	Register("getdents", h)
 	Register("getdents64", h)
 	Register("mount", h)
 	Register("umount2", h)
@@ -76,23 +77,8 @@ func (h *FsHandler) Handle(ctx *Context) Result {
 		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 0, 0))
 		res.ArgParts = append(res.ArgParts, meta.DecodeFlags(ctx.Args[1], "umount_flags"))
 
-	case "getdents64":
-		for i := 0; i < len(ctx.ScMeta.Args); i++ {
-			argName, _, val := ctx.ScMeta.Args[i], ctx.ScMeta.ArgTypes[i], ctx.Args[i]
-			if argName == "fd" {
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int32(val)))
-				continue
-			}
-			if argName == "dirent" {
-				res.ArgParts = append(res.ArgParts, formatGetdents64Dirent(ctx, i, val))
-				continue
-			}
-			if argName == "count" {
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", uint32(val)))
-				continue
-			}
-			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
-		}
+	case "getdents", "getdents64":
+		res.ArgParts = decodeGetdentsArgs(ctx)
 	}
 	return res
 }
@@ -223,11 +209,32 @@ func fsBytesArg(ctx *Context, argIndex int) ([]byte, bool) {
 	return nil, false
 }
 
-func formatGetdents64Dirent(ctx *Context, argIndex int, ptr uint64) string {
+func decodeGetdentsArgs(ctx *Context) []string {
+	parts := make([]string, 0, len(ctx.ScMeta.Args))
+	for i, argName := range ctx.ScMeta.Args {
+		val := ctx.Args[i]
+		switch argName {
+		case "fd":
+			parts = append(parts, fmt.Sprintf("%d", int32(val)))
+		case "dirent":
+			parts = append(parts, formatGetdentsDirent(ctx, i, val))
+		case "count":
+			parts = append(parts, fmt.Sprintf("%d", uint32(val)))
+		default:
+			parts = append(parts, fmt.Sprintf("%#x", val))
+		}
+	}
+	return parts
+}
+
+func formatGetdentsDirent(ctx *Context, argIndex int, ptr uint64) string {
 	if ptr == 0 {
 		return "NULL"
 	}
 	if ctx.Ret == 0 {
+		if getdentsVerbose(ctx) {
+			return "[]"
+		}
 		return fmt.Sprintf("%#x /* 0 entries */", ptr)
 	}
 	if ctx.Ret < 0 {
@@ -237,8 +244,28 @@ func formatGetdents64Dirent(ctx *Context, argIndex int, ptr uint64) string {
 	if !ok {
 		return formatPointer(ptr)
 	}
-	entries := format.Dirent64Count(data, int(ctx.Ret))
+	layout := getdentsLayout(ctx.SysName)
+	if getdentsVerbose(ctx) {
+		escapeMode := 0
+		if ctx.Opts != nil {
+			escapeMode = ctx.Opts.HexEscapeMode
+		}
+		snapshot := format.DecodeDirents(data, int(ctx.Ret), layout)
+		return snapshot.Verbose(escapeMode)
+	}
+	entries, _ := format.CountDirents(data, int(ctx.Ret), layout)
 	return fmt.Sprintf("%#x /* %d entries */", ptr, entries)
+}
+
+func getdentsLayout(sysName string) format.DirentLayout {
+	if sysName == "getdents" {
+		return format.DirentLayoutLegacy
+	}
+	return format.DirentLayout64
+}
+
+func getdentsVerbose(ctx *Context) bool {
+	return ctx.Opts != nil && ctx.Opts.Verbose && !ctx.Opts.VerboseDisabled[ctx.SysName]
 }
 
 func formatPointer(val uint64) string {

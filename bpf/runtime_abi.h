@@ -40,6 +40,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_PIPE 22
 #define SYS_SELECT 23
 #define SYS_TRUNCATE 76
+#define SYS_GETDENTS 78
 #define SYS_GETITIMER 36
 #define SYS_SETITIMER 38
 #define SYS_GETPID 39

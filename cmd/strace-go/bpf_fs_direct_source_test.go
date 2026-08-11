@@ -7,14 +7,37 @@ import (
 )
 
 func TestBPFFSPayloadsUseDirectTLV(t *testing.T) {
-	root := repoRootForTest(t)
-	straceSource := readCombinedBPFSources(t)
-	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
-	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
-	fsDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_fs_direct_event_v2.h"))
-	mountSetattrHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_mount_setattr_direct_event_v2.h"))
+	sources := loadFSDirectSources(t)
+	assertFSDispatchSource(t, sources)
+	assertFSDirectHeader(t, sources.fsDirect)
+	assertMountSetattrDirectHeader(t, sources.mountSetattr)
+	assertNoLegacyFSCapture(t, sources.legacyCapture)
+}
 
+type fsDirectSources struct {
+	combined      string
+	timeDirect    string
+	fsDirect      string
+	mountSetattr  string
+	legacyCapture string
+}
+
+func loadFSDirectSources(t *testing.T) fsDirectSources {
+	t.Helper()
+	root := repoRootForTest(t)
+	return fsDirectSources{
+		combined:      readCombinedBPFSources(t),
+		timeDirect:    readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h")),
+		fsDirect:      readTextFile(t, filepath.Join(root, "bpf/syscall_fs_direct_event_v2.h")),
+		mountSetattr:  readTextFile(t, filepath.Join(root, "bpf/syscall_mount_setattr_direct_event_v2.h")),
+		legacyCapture: legacyCaptureArtifactsForTest(t),
+	}
+}
+
+func assertFSDispatchSource(t *testing.T, sources fsDirectSources) {
+	t.Helper()
 	for _, snippet := range []string{
+		"#define SYS_GETDENTS 78",
 		"#define SYS_MOUNT 165",
 		"#define SYS_UMOUNT2 166",
 		"#define SYS_GETDENTS64 217",
@@ -23,31 +46,34 @@ func TestBPFFSPayloadsUseDirectTLV(t *testing.T) {
 		`#include "syscall_fs_direct_event_v2.h"`,
 		"is_fs_enter_direct_syscall(sys_id)",
 		"emit_fs_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
-		"is_getdents64_direct_syscall(p->sys_id) && ret_value > 0",
-		"emit_getdents64_exit_event_v2_direct(p, ret_value, duration);",
+		"is_getdents_direct_syscall(p->sys_id) && ret_value > 0",
+		"emit_getdents_exit_event_v2_direct(p, ret_value, duration);",
 		"is_fs_direct_syscall(sys_id) ||",
 	} {
-		if !strings.Contains(straceSource, snippet) && !strings.Contains(timeDirectHeader, snippet) &&
-			!strings.Contains(fsDirectHeader, snippet) && !strings.Contains(mountSetattrHeader, snippet) {
+		if !strings.Contains(sources.combined, snippet) && !strings.Contains(sources.timeDirect, snippet) &&
+			!strings.Contains(sources.fsDirect, snippet) && !strings.Contains(sources.mountSetattr, snippet) {
 			t.Fatalf("BPF source missing fs direct snippet %q", snippet)
 		}
 	}
+}
 
+func assertFSDirectHeader(t *testing.T, fsDirectHeader string) {
+	t.Helper()
 	for _, snippet := range []string{
 		"FS_DIRECT_MOUNT_STRING_MAX 512",
 		"FS_DIRECT_MOUNT_TYPE_MAX 128",
 		"FS_DIRECT_FSCONFIG_KEY_MAX 257",
 		"FS_DIRECT_FSCONFIG_VALUE_MAX 4096",
-		"FS_DIRECT_GETDENTS64_BYTES_MAX 512",
+		"FS_DIRECT_GETDENTS_BYTES_MAX 512",
 		"FS_DIRECT_FSCONFIG_SET_BINARY 2",
 		"is_fs_enter_direct_syscall(",
 		"is_fs_direct_syscall(",
-		"is_getdents64_direct_syscall(",
+		"is_getdents_direct_syscall(",
 		"capture_fs_string_tlv_direct(",
 		"capture_fs_bytes_tlv_direct(",
 		"capture_fs_enter_payload_tlv_direct(",
-		"capture_getdents64_bytes_tlv_direct(",
-		"emit_getdents64_exit_event_v2_direct(",
+		"capture_getdents_bytes_tlv_direct(",
+		"emit_getdents_exit_event_v2_direct(",
 		"((u32)ctx->args[1]) == FS_DIRECT_FSCONFIG_SET_BINARY",
 		"PAYLOAD_TLV_KIND_STRING",
 		"PAYLOAD_TLV_KIND_BYTES",
@@ -62,7 +88,10 @@ func TestBPFFSPayloadsUseDirectTLV(t *testing.T) {
 			t.Fatalf("fs direct header missing snippet %q", snippet)
 		}
 	}
+}
 
+func assertMountSetattrDirectHeader(t *testing.T, mountSetattrHeader string) {
+	t.Helper()
 	for _, snippet := range []string{
 		"MOUNT_SETATTR_BASE_SIZE 32",
 		"MOUNT_SETATTR_EXTENSION_MAX 256",
@@ -78,12 +107,17 @@ func TestBPFFSPayloadsUseDirectTLV(t *testing.T) {
 			t.Fatalf("mount_setattr direct header missing snippet %q", snippet)
 		}
 	}
+}
 
+func assertNoLegacyFSCapture(t *testing.T, legacyCaptureArtifacts string) {
+	t.Helper()
 	for _, legacyRule := range []string{
+		"syscalls: [getdents]",
 		"syscalls: [mount]",
 		"syscalls: [umount2]",
 		"syscalls: [getdents64]",
 		"syscalls: [fsconfig]",
+		"case 78: /* getdents */",
 		"case 165: /* mount */",
 		"case 166: /* umount2 */",
 		"case 217: /* getdents64 */",

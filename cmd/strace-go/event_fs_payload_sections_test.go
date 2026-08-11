@@ -93,6 +93,18 @@ func TestJSONSyscallEventIncludesGetdentsPayloadSection(t *testing.T) {
 	assertFsJSONPayloadSections(t, ev.PayloadSections, want)
 }
 
+func TestJSONSyscallEventIncludesLegacyGetdentsPayloadSection(t *testing.T) {
+	direntData := []byte("legacy-dirent!!")
+	args := [6]uint64{3, 0x3000, 512}
+	payload := payloadTLVBytesForTest(t, fsJSONTLVBytes(1, 0x3000, direntData, payloadTLVFlagDirectionOut))
+
+	ev := newJSONSyscallEventFromTLVForTest(t, "getdents", bpfEventTypeExit, args, int64(len(direntData)), payload)
+	want := []wantFsJSONPayloadSection{
+		{argIndex: 1, userPtr: 0x3000, kind: "bytes", direction: "out", data: string(direntData)},
+	}
+	assertFsJSONPayloadSections(t, ev.PayloadSections, want)
+}
+
 func fsJSONTLVString(arg uint16, userPtr uint64, data []byte) payloadTLVTestSection {
 	return payloadTLVTestSection{
 		kind:    payloadTLVKindString,

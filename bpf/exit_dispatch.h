@@ -94,8 +94,8 @@ int exit_generic(struct trace_event_raw_sys_exit *ctx) {
             emit_select_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_epoll_wait_direct_syscall(p->sys_id) && ret_value > 0) {
             emit_epoll_wait_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_getdents64_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_getdents64_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_getdents_direct_syscall(p->sys_id) && ret_value > 0) {
+            emit_getdents_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
             emit_exec_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_xattr_get_direct_syscall(p->sys_id) && ret_value > 0) {
