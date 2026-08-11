@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 
+	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
 )
 
@@ -21,6 +23,8 @@ func TestFDCreatorPoliciesExposeStateContract(t *testing.T) {
 		{name: "epoll_create", args: [6]uint64{1}, ret: 9, wantFD: 9, wantOff: 17, wantPath: "anon_inode:[eventpoll]"},
 		{name: "epoll_create1", args: [6]uint64{0x100000000 | 0x80000}, ret: 10, wantFD: 10, wantOff: 19, wantPath: "anon_inode:[eventpoll]", wantClo: true},
 		{name: "timerfd_create", args: [6]uint64{1, 0x100000000 | 0x80000}, ret: 11, wantFD: 11, wantOff: 23, wantPath: "anon_inode:[timerfd]", wantClo: true},
+		{name: "inotify_init", ret: 12, wantFD: 12, wantOff: 29, wantPath: "anon_inode:inotify"},
+		{name: "inotify_init1", args: [6]uint64{0x100000000 | 0x80000}, ret: 13, wantFD: 13, wantOff: 31, wantPath: "anon_inode:inotify", wantClo: true},
 	}
 
 	for _, test := range tests {
@@ -95,13 +99,41 @@ func TestFDCreatorSnapshotBoundaries(t *testing.T) {
 }
 
 func TestFDCreatorStateEventsRunWhenHidden(t *testing.T) {
-	for _, name := range []string{"eventfd", "eventfd2", "epoll_create", "epoll_create1", "timerfd_create"} {
+	for _, name := range []string{"eventfd", "eventfd2", "epoll_create", "epoll_create1", "timerfd_create", "inotify_init", "inotify_init1"} {
 		event := newFDStateEvent(name, [6]uint64{}, 7, nil)
 		event.shouldPrint = false
 		if !event.isFDStateSyscall() || !event.shouldRunHandler() {
 			t.Fatalf("%s must keep running when hidden by the syscall filter", name)
 		}
 	}
+}
+
+func TestInotifyReturnPathUsesEventSourcedState(t *testing.T) {
+	ctx := &handler.Context{
+		TargetPid: 101,
+		Opts:      &cli.Options{ShowPaths: true, ShowPathsMode: 1},
+		FdMap: map[string]string{
+			"101:12": "anon_inode:inotify",
+			"101:13": "anon_inode:inotify",
+		},
+	}
+	for _, test := range []struct {
+		name string
+		fd   int64
+	}{
+		{name: "inotify_init", fd: 12},
+		{name: "inotify_init1", fd: 13},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := formatSyscallRet(test.name, test.fd, handler.Result{}, ctx); got != formatInotifyFD(test.fd) {
+				t.Fatalf("inotify return = %q, want %q", got, formatInotifyFD(test.fd))
+			}
+		})
+	}
+}
+
+func formatInotifyFD(fd int64) string {
+	return fmt.Sprintf("%d<anon_inode:inotify>", fd)
 }
 
 func resetFDCreatorState(store *FDStateStore) {

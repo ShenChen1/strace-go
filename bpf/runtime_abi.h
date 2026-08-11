@@ -119,6 +119,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_EPOLL_CREATE 213
 #define SYS_UTIMES 235
 #define SYS_WAITID 247
+#define SYS_INOTIFY_INIT 253
 #define SYS_ADD_KEY 248
 #define SYS_REQUEST_KEY 249
 #define SYS_OPENAT 257
@@ -144,6 +145,7 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_ACCEPT4 288
 #define SYS_EVENTFD2 290
 #define SYS_EPOLL_CREATE1 291
+#define SYS_INOTIFY_INIT1 294
 #define SYS_PIPE2 293
 #define SYS_DUP3 292
 #define SYS_PREADV 295

@@ -463,6 +463,7 @@ func isFdReturnSyscall(scName string) bool {
 		strings.HasPrefix(scName, "accept") ||
 		strings.HasPrefix(scName, "eventfd") ||
 		strings.HasPrefix(scName, "epoll_create") ||
+		scName == "inotify_init" || scName == "inotify_init1" ||
 		scName == "creat" ||
 		scName == "timerfd_create" ||
 		strings.HasPrefix(scName, "signalfd") ||

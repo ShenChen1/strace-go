@@ -57,7 +57,7 @@ def run_cloexec_semantic():
         "--event-format=json",
         "-f",
         "-e",
-        "trace=open,openat,read,close,dup3,fcntl,pipe2,eventfd,eventfd2,epoll_create,epoll_create1,timerfd_create,close_range,execve,exit,exit_group",
+        "trace=open,openat,read,close,dup3,fcntl,pipe2,eventfd,eventfd2,epoll_create,epoll_create1,timerfd_create,inotify_init,inotify_init1,close_range,execve,exit,exit_group",
         fixture,
     ]
     result = subprocess.run(
@@ -97,6 +97,8 @@ def run_cloexec_semantic():
         "epoll_create",
         "epoll_create1",
         "timerfd_create",
+        "inotify_init",
+        "inotify_init1",
     ):
         if not has_successful_exit(presence_events, syscall_name):
             failures.append(f"cloexec {syscall_name} exit event missing")
@@ -106,6 +108,8 @@ def run_cloexec_semantic():
         "epoll_create",
         "epoll_create1",
         "timerfd_create",
+        "inotify_init",
+        "inotify_init1",
     ):
         if not has_fd_state_for_syscall(presence_events, syscall_name):
             failures.append(f"cloexec {syscall_name} FD_STATE snapshot missing")

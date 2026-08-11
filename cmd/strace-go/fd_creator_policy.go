@@ -9,7 +9,7 @@ type fdCreatorState struct {
 }
 
 // fdCreatorPolicy isolates the state contract for syscalls that return a new FD.
-// Special creators such as signalfd can later implement different Matches logic
+// Special creators such as signalfd can later implement different matching logic
 // without spreading their creation predicate across every FD state updater.
 type fdCreatorPolicy interface {
 	matches(syscallName string, view syscallEventView) bool
@@ -70,6 +70,17 @@ var fdCreatorPolicies = []fdCreatorPolicy{
 		syscallName: "timerfd_create",
 		path:        "anon_inode:[timerfd]",
 		flagsArg:    1,
+	},
+	simpleFDCreatorPolicy{
+		syscallName:  "inotify_init",
+		path:         "anon_inode:inotify",
+		flagsArg:     -1,
+		cloexecKnown: true,
+	},
+	simpleFDCreatorPolicy{
+		syscallName: "inotify_init1",
+		path:        "anon_inode:inotify",
+		flagsArg:    0,
 	},
 }
 

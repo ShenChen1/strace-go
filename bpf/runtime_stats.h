@@ -32,6 +32,8 @@ static __always_inline int is_fd_state_direct_syscall(u32 sys_id)
     case SYS_EVENTFD:
     case SYS_EVENTFD2:
     case SYS_EPOLL_CREATE1:
+    case SYS_INOTIFY_INIT:
+    case SYS_INOTIFY_INIT1:
     case SYS_FCNTL:
     case SYS_PIPE:
     case SYS_PIPE2:
