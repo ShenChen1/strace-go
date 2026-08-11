@@ -25,6 +25,46 @@ const (
 	traceReadClosed
 )
 
+type traceCommandWaiter interface {
+	Wait() traceCommandExitResult
+}
+
+type execTraceCommandWaiter struct {
+	command *exec.Cmd
+}
+
+func newExecTraceCommandWaiter(command *exec.Cmd) traceCommandWaiter {
+	if command == nil {
+		return nil
+	}
+	return execTraceCommandWaiter{command: command}
+}
+
+func (w execTraceCommandWaiter) Wait() traceCommandExitResult {
+	err := w.command.Wait()
+	return newTraceCommandExitResult(w.command.ProcessState, err)
+}
+
+type traceClock interface {
+	Now() time.Time
+}
+
+type tracePIDProbe interface {
+	AnyAlive(pids []int) bool
+}
+
+type systemTraceClock struct{}
+
+func (systemTraceClock) Now() time.Time {
+	return time.Now()
+}
+
+type systemTracePIDProbe struct{}
+
+func (systemTracePIDProbe) AnyAlive(pids []int) bool {
+	return anyAttachPidAlive(pids)
+}
+
 type traceRunState struct {
 	commandExited  bool
 	cmdDone        <-chan traceCommandExitResult
@@ -32,11 +72,15 @@ type traceRunState struct {
 	attachPids     []int
 	nextAttachPoll time.Time
 	fallbackFlush  time.Time
+	clock          traceClock
+	pidProbe       tracePIDProbe
 }
 
 type traceRunStateDeps struct {
-	command    *exec.Cmd
+	command    traceCommandWaiter
 	attachPids []int
+	clock      traceClock
+	pidProbe   tracePIDProbe
 }
 
 type traceCommandExitResult struct {
@@ -51,7 +95,7 @@ func (s *traceSession) run() {
 		attachPids = s.opts.AttachPids
 	}
 	state := newTraceRunState(traceRunStateDeps{
-		command:    s.cmd,
+		command:    newExecTraceCommandWaiter(s.cmd),
 		attachPids: attachPids,
 	})
 	commandExit := s.commandExitHandler()
@@ -73,17 +117,26 @@ func (s *traceSession) run() {
 }
 
 func newTraceRunState(deps traceRunStateDeps) traceRunState {
+	clock := deps.clock
+	if clock == nil {
+		clock = systemTraceClock{}
+	}
+	pidProbe := deps.pidProbe
+	if pidProbe == nil {
+		pidProbe = systemTracePIDProbe{}
+	}
 	state := traceRunState{
 		commandExited: deps.command == nil,
 		attachExited:  len(deps.attachPids) == 0,
+		clock:         clock,
+		pidProbe:      pidProbe,
 	}
 	if !state.commandExited {
 		ch := make(chan traceCommandExitResult, 1)
 		state.cmdDone = ch
 		command := deps.command
 		go func() {
-			err := command.Wait()
-			ch <- newTraceCommandExitResult(command.ProcessState, err)
+			ch <- command.Wait()
 		}()
 	}
 	state.attachPids = append([]int(nil), deps.attachPids...)
@@ -91,6 +144,7 @@ func newTraceRunState(deps traceRunStateDeps) traceRunState {
 }
 
 func (st *traceRunState) collect(commandExit *TraceCommandExitHandler) {
+	now := st.now()
 	if st.cmdDone != nil {
 		select {
 		case result := <-st.cmdDone:
@@ -101,18 +155,18 @@ func (st *traceRunState) collect(commandExit *TraceCommandExitHandler) {
 			// completes (once any lagging ringbuf exit event has been
 			// processed) instead of waiting for the end-of-run drain, so
 			// exit lines keep event-stream ordering.
-			st.fallbackFlush = time.Now().Add(traceExitFallbackGrace)
+			st.fallbackFlush = now.Add(traceExitFallbackGrace)
 		default:
 		}
 	}
-	if st.commandExited && !st.fallbackFlush.IsZero() && time.Now().After(st.fallbackFlush) {
+	if st.commandExited && !st.fallbackFlush.IsZero() && now.After(st.fallbackFlush) {
 		st.fallbackFlush = time.Time{}
 		commandExit.FlushFallback()
 	}
-	if st.attachExited || !st.shouldPollAttach() {
+	if st.attachExited || !st.shouldPollAttach(now) {
 		return
 	}
-	if !anyAttachPidAlive(st.attachPids) {
+	if !st.pidProbeOrDefault().AnyAlive(st.attachPids) {
 		st.attachExited = true
 	}
 }
@@ -137,13 +191,26 @@ func newTraceCommandExitResult(state *os.ProcessState, waitErr error) traceComma
 	return traceCommandExitResult{}
 }
 
-func (st *traceRunState) shouldPollAttach() bool {
-	now := time.Now()
+func (st *traceRunState) shouldPollAttach(now time.Time) bool {
 	if !st.nextAttachPoll.IsZero() && now.Before(st.nextAttachPoll) {
 		return false
 	}
 	st.nextAttachPoll = now.Add(traceEventPollInterval)
 	return true
+}
+
+func (st *traceRunState) now() time.Time {
+	if st != nil && st.clock != nil {
+		return st.clock.Now()
+	}
+	return time.Now()
+}
+
+func (st *traceRunState) pidProbeOrDefault() tracePIDProbe {
+	if st != nil && st.pidProbe != nil {
+		return st.pidProbe
+	}
+	return systemTracePIDProbe{}
 }
 
 func anyAttachPidAlive(pids []int) bool {

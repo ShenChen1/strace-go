@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -155,6 +156,53 @@ func TestTraceRunStateThrottlesAttachPolling(t *testing.T) {
 	}
 }
 
+func TestTraceRunStateUsesInjectedPIDProbe(t *testing.T) {
+	clock := &fakeTraceClock{now: time.Unix(100, 0)}
+	probe := &fakeTracePIDProbe{alive: false}
+	state := newTraceRunState(traceRunStateDeps{
+		attachPids: []int{101, 202},
+		clock:      clock,
+		pidProbe:   probe,
+	})
+
+	state.collect(nil)
+
+	if !state.attachExited {
+		t.Fatal("state should finish when injected PID probe reports no live process")
+	}
+	if probe.calls != 1 {
+		t.Fatalf("PID probe calls = %d, want 1", probe.calls)
+	}
+}
+
+func TestTraceRunStateUsesInjectedClockForFallback(t *testing.T) {
+	now := time.Unix(200, 0)
+	clock := &fakeTraceClock{now: now}
+	done := make(chan traceCommandExitResult, 1)
+	done <- traceCommandExitResult{exited: true}
+	state := newTraceRunState(traceRunStateDeps{clock: clock})
+	state.cmdDone = done
+
+	state.collect(nil)
+
+	want := now.Add(traceExitFallbackGrace)
+	if !state.fallbackFlush.Equal(want) {
+		t.Fatalf("fallback flush = %s, want %s", state.fallbackFlush, want)
+	}
+}
+
+func TestExecTraceCommandWaiterNormalizesExitResult(t *testing.T) {
+	command := exec.Command("sh", "-c", "exit 3")
+	if err := command.Start(); err != nil {
+		t.Fatalf("start command: %v", err)
+	}
+
+	result := newExecTraceCommandWaiter(command).Wait()
+	if !result.exited || result.exitCode != 3 {
+		t.Fatalf("normalized result = %+v, want exited with code 3", result)
+	}
+}
+
 type fakeRecordDecoder struct {
 	calls int
 }
@@ -162,4 +210,22 @@ type fakeRecordDecoder struct {
 func (d *fakeRecordDecoder) Decode(rec *ringbuf.Record) (traceEventEnvelope, bool) {
 	d.calls++
 	return traceEventEnvelope{}, false
+}
+
+type fakeTraceClock struct {
+	now time.Time
+}
+
+func (c *fakeTraceClock) Now() time.Time {
+	return c.now
+}
+
+type fakeTracePIDProbe struct {
+	alive bool
+	calls int
+}
+
+func (p *fakeTracePIDProbe) AnyAlive([]int) bool {
+	p.calls++
+	return p.alive
 }
