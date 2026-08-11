@@ -6,6 +6,7 @@ from ebpf_event_oracles import (
     StructPayloadSpec,
     has_bytes_payload_section,
     has_exec_payload_sections,
+    has_fd_state_section,
     has_gettimeofday_payload_sections,
     has_large_write_truncation,
     has_openat_path_section,
@@ -100,6 +101,10 @@ def check_path_and_bytes_payloads(context, failures):
         require(has_bytes_payload_section(events, syscall, arg_index, text), failures, f"{syscall} OUT bytes payload section missing")
     require(has_exec_payload_sections(events), failures, "execve argv/envp and filename payload sections missing")
     require(has_gettimeofday_payload_sections(events), failures, "gettimeofday OUT timeval/timezone payload sections missing")
+
+
+def check_fd_state_payloads(context, failures):
+    require(has_fd_state_section(context.main.events), failures, "open-family FD state payload section missing")
 
 
 def check_out_struct_payloads(context, failures):
@@ -396,6 +401,7 @@ def check_semantic_context(context, failures):
     check_main_capture(context, failures)
     check_syscall_presence(context, failures)
     check_path_and_bytes_payloads(context, failures)
+    check_fd_state_payloads(context, failures)
     check_out_struct_payloads(context, failures)
     check_in_struct_payloads(context, failures)
     check_pairing_and_write_payloads(context, failures)

@@ -22,6 +22,7 @@ type bpfSourceGateSources struct {
 	pathStatDirectHeader   string
 	readlinkDirectHeader   string
 	timeDirectHeader       string
+	fdStateHeader          string
 	legacyCaptureArtifacts string
 }
 
@@ -48,6 +49,7 @@ func loadBPFSources(t *testing.T) bpfSourceGateSources {
 		pathStatDirectHeader:   readTextFile(t, filepath.Join(root, "bpf/syscall_path_stat_direct_event_v2.h")),
 		readlinkDirectHeader:   readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_direct_event_v2.h")),
 		timeDirectHeader:       readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h")),
+		fdStateHeader:          readTextFile(t, filepath.Join(root, "bpf/syscall_fd_state_direct_event_v2.h")),
 	}
 }
 

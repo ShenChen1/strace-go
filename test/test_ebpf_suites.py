@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
+import base64
 import subprocess
 import sys
 import unittest
 
+from ebpf_event_oracles import has_fd_state_section
 from ebpf_suites import wait_for_debug_ready
 from run_tests import SuiteResults
 
@@ -64,6 +66,48 @@ class SuiteResultsTests(unittest.TestCase):
 
         self.assertEqual((outcome, reason), ("xpass", "bounded"))
         self.assertEqual(results.counts["xpass"], 1)
+
+
+class EventOracleTests(unittest.TestCase):
+    def test_accepts_complete_fd_state_snapshot(self):
+        data = bytearray(48)
+        data[0:4] = (7).to_bytes(4, "little", signed=True)
+        data[4:8] = (3).to_bytes(4, "little")
+        data[32:40] = (42).to_bytes(8, "little")
+        events = [{
+            "event_type": "exit",
+            "syscall": "openat",
+            "ret": 7,
+            "payload_sections": [{
+                "kind": "fd_state",
+                "direction": "out",
+                "arg_index": 0xffff,
+                "user_len": 48,
+                "copied_len": 48,
+                "probe_ret": 0,
+                "data_base64": base64.b64encode(data).decode(),
+            }],
+        }]
+
+        self.assertTrue(has_fd_state_section(events))
+
+    def test_rejects_failed_fd_state_snapshot(self):
+        events = [{
+            "event_type": "exit",
+            "syscall": "open",
+            "ret": 7,
+            "payload_sections": [{
+                "kind": "fd_state",
+                "direction": "out",
+                "arg_index": 0xffff,
+                "user_len": 48,
+                "copied_len": 0,
+                "probe_ret": -14,
+                "data_base64": "",
+            }],
+        }]
+
+        self.assertFalse(has_fd_state_section(events))
 
 
 if __name__ == "__main__":

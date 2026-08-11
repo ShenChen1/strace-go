@@ -6,9 +6,10 @@ import (
 )
 
 type FDStateStore struct {
-	paths   map[string]string
-	offsets map[string]int64
-	runtime handler.RuntimeServices
+	paths    map[string]string
+	offsets  map[string]int64
+	fdStates map[string]handler.FDStateObservation
+	runtime  handler.RuntimeServices
 }
 
 type fdStateSource struct {
@@ -28,16 +29,22 @@ func newFDStateStore(paths map[string]string) *FDStateStore {
 		paths = make(map[string]string)
 	}
 	store := &FDStateStore{
-		paths:   paths,
-		offsets: make(map[string]int64),
-		runtime: handler.NewRuntime(),
+		paths:    paths,
+		offsets:  make(map[string]int64),
+		fdStates: make(map[string]handler.FDStateObservation),
+		runtime:  handler.NewRuntime(),
 	}
 	store.ensureMaps()
 	return store
 }
 
 func newFDStateStoreFromMaps(paths map[string]string, offsets map[string]int64) *FDStateStore {
-	store := &FDStateStore{paths: paths, offsets: offsets, runtime: handler.NewRuntime()}
+	store := &FDStateStore{
+		paths:    paths,
+		offsets:  offsets,
+		fdStates: make(map[string]handler.FDStateObservation),
+		runtime:  handler.NewRuntime(),
+	}
 	store.ensureMaps()
 	return store
 }
@@ -49,11 +56,19 @@ func (st *FDStateStore) ensureMaps() {
 	if st.offsets == nil {
 		st.offsets = make(map[string]int64)
 	}
+	if st.fdStates == nil {
+		st.fdStates = make(map[string]handler.FDStateObservation)
+	}
 }
 
 func (st *FDStateStore) PathMap() map[string]string {
 	st.ensureMaps()
 	return st.paths
+}
+
+func (st *FDStateStore) FDStateMap() map[string]handler.FDStateObservation {
+	st.ensureMaps()
+	return st.fdStates
 }
 
 func (st *FDStateStore) Runtime() handler.RuntimeServices {
@@ -72,6 +87,7 @@ func (s *traceSession) fdStateStore() *FDStateStore {
 
 func (st *FDStateStore) update(update fdStateUpdate) {
 	st.ensureMaps()
+	updateFDStateObservationFromSource(update.source, update.meta, update.targetPID, st.fdStates)
 	updateFDMapFromSource(update.source, update.meta, update.pathText, update.targetPID, st.paths)
 }
 
@@ -101,4 +117,5 @@ func (st *FDStateStore) cleanupClosedFDFromView(view syscallEventView, scMeta me
 	key := fdStateKey(statePID, int32(view.args[0]))
 	delete(st.paths, key)
 	delete(st.offsets, key)
+	delete(st.fdStates, key)
 }

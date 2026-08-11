@@ -77,6 +77,7 @@ static __always_inline int is_time_struct_direct_syscall(u32 sys_id)
 static __always_inline int is_sys_exit_direct_syscall(u32 sys_id)
 {
     return is_direct_syscall(sys_id) ||
+        is_fd_state_exit_direct_syscall(sys_id) ||
         is_getcwd_direct_syscall(sys_id) ||
         is_time_struct_direct_syscall(sys_id) ||
         is_stat_struct_direct_syscall(sys_id) ||

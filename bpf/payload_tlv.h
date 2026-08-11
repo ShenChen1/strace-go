@@ -15,7 +15,23 @@
 #define PAYLOAD_TLV_KIND_SOCKADDR 5
 #define PAYLOAD_TLV_KIND_EXEC_ARGS 6
 #define PAYLOAD_TLV_KIND_CMSG 7
+#define PAYLOAD_TLV_KIND_FD_STATE 8
+#define PAYLOAD_TLV_FD_STATE_ARG_INDEX 0xffff
 #define PAYLOAD_TLV_FLAG_DIRECTION_OUT 1
+#define FD_STATE_SNAPSHOT_SIZE 48
+#define FD_STATE_FLAG_IDENTITY 1
+#define FD_STATE_FLAG_OFFSET 2
+
+struct fd_state_snapshot {
+    s32 fd;
+    u32 flags;
+    u32 mode;
+    u32 reserved;
+    u64 dev;
+    u64 rdev;
+    u64 inode;
+    s64 offset;
+};
 
 struct payload_tlv_header {
     u16 kind;

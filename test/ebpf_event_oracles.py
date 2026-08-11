@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 
 EVENT_FLAG_TRUNCATED = 4
+FD_STATE_ARG_INDEX = 0xffff
+FD_STATE_SNAPSHOT_SIZE = 48
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,35 @@ def has_path_section(events, syscall, arg_index, path_text):
 
 def has_openat_path_section(events, path_text):
     return has_path_section(events, "openat", 1, path_text)
+
+
+def has_fd_state_section(events):
+    for event in events:
+        if event.get("event_type") != "exit" or event.get("syscall") not in {
+            "open", "openat", "openat2", "open_tree", "creat"
+        }:
+            continue
+        if event.get("ret", -1) < 0:
+            continue
+        for section in event.get("payload_sections") or []:
+            if (
+                section.get("kind") != "fd_state"
+                or section.get("direction") != "out"
+                or section.get("arg_index") != FD_STATE_ARG_INDEX
+                or section.get("user_len") != FD_STATE_SNAPSHOT_SIZE
+                or section.get("copied_len") != FD_STATE_SNAPSHOT_SIZE
+                or section.get("probe_ret") != 0
+            ):
+                continue
+            data = payload_section_bytes(section)
+            if len(data) != FD_STATE_SNAPSHOT_SIZE:
+                continue
+            snapshot_fd = int.from_bytes(data[0:4], "little", signed=True)
+            flags = int.from_bytes(data[4:8], "little")
+            inode = int.from_bytes(data[32:40], "little")
+            if snapshot_fd == event.get("ret") and flags & 3 == 3 and inode > 0:
+                return True
+    return False
 
 
 def has_exec_payload_sections(events):

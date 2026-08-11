@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -39,10 +40,13 @@ func (st *FDStateStore) updateOffsetsFromView(view syscallEventView, scMeta meta
 	}
 
 	switch scMeta.Name {
-	case "open", "openat", "openat2", "creat":
+	case "open", "openat", "openat2", "open_tree", "creat":
 		fd := int32(ret)
 		key := fdStateKey(statePID, fd)
 		st.offsets[key] = 0
+		if observation, ok := st.fdStates[key]; ok && observation.Flags&handler.FDStateFlagOffset != 0 {
+			st.offsets[key] = observation.Offset
+		}
 	case "dup", "dup2", "dup3":
 		oldKey := fdStateKey(statePID, int32(view.args[0]))
 		newFD := int32(ret)

@@ -63,6 +63,13 @@ func (deps syscallEventContextDeps) pathMap() map[string]string {
 	return deps.fdState.PathMap()
 }
 
+func (deps syscallEventContextDeps) fdStateMap() map[string]handler.FDStateObservation {
+	if deps.fdState == nil {
+		return nil
+	}
+	return deps.fdState.FDStateMap()
+}
+
 func (deps syscallEventContextDeps) runtimeService() handler.RuntimeServices {
 	if deps.runtime != nil {
 		return deps.runtime
@@ -268,7 +275,8 @@ func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *h
 		SysName: scMeta.Name, Args: view.args, Ret: view.ret,
 		ProbeRetEnter: view.probeRetEnter, ProbeRetExit: view.probeRetExit,
 		PayloadSections: ev.outputPayloadSections(),
-		ScMeta:          scMeta, Decoder: deps.decoder, Opts: deps.opts, FdMap: deps.pathMap(), Runtime: deps.runtimeService(),
+		ScMeta:          scMeta, Decoder: deps.decoder, Opts: deps.opts, FdMap: deps.pathMap(),
+		FDStates: deps.fdStateMap(), Runtime: deps.runtimeService(),
 	}
 }
 

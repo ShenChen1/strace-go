@@ -25,11 +25,12 @@ type Context struct {
 	ProbeRetExit    int32
 	PayloadSections []PayloadSection
 
-	ScMeta  meta.Syscall
-	Decoder *event.Decoder
-	Opts    *cli.Options
-	FdMap   map[string]string
-	Runtime RuntimeServices
+	ScMeta   meta.Syscall
+	Decoder  *event.Decoder
+	Opts     *cli.Options
+	FdMap    map[string]string
+	FDStates map[string]FDStateObservation
+	Runtime  RuntimeServices
 }
 
 // SnapshotReader exposes memory bytes copied by BPF at the syscall probe site.

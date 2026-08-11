@@ -50,7 +50,9 @@ int exit_generic(struct trace_event_raw_sys_exit *ctx) {
     }
 
     if (is_sys_exit_direct_syscall(p->sys_id)) {
-        if (is_exit_payload_direct_syscall(p->sys_id) && ret_value > 0) {
+        if (is_fd_state_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
+            emit_fd_state_exit_event_v2_direct(p, ret_value, duration);
+        } else if (is_exit_payload_direct_syscall(p->sys_id) && ret_value > 0) {
             emit_payload_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_gettimeofday_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_gettimeofday_exit_event_v2_direct(p, ret_value, duration);

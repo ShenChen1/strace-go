@@ -13,6 +13,7 @@ const (
 	PayloadKindSockaddr PayloadKind = "sockaddr"
 	PayloadKindExecArgs PayloadKind = "exec_args"
 	PayloadKindCmsg     PayloadKind = "cmsg"
+	PayloadKindFDState  PayloadKind = "fd_state"
 )
 
 // PayloadDirection records whether a payload was captured on syscall enter or exit.

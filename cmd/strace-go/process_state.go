@@ -15,6 +15,7 @@ func (st *FDStateStore) InheritProcessState(parentPID int, childPID int) {
 	}
 	st.InheritPaths(parentPID, childPID)
 	st.InheritOffsets(parentPID, childPID)
+	st.InheritFDStates(parentPID, childPID)
 }
 
 func (st *FDStateStore) InheritPaths(parentPID int, childPID int) {
@@ -41,9 +42,22 @@ func (st *FDStateStore) InheritOffsets(parentPID int, childPID int) {
 	}
 }
 
+func (st *FDStateStore) InheritFDStates(parentPID int, childPID int) {
+	st.ensureMaps()
+	parentPrefix := fdMapPrefix(parentPID)
+	for key, observation := range st.fdStates {
+		if len(key) < len(parentPrefix) || key[:len(parentPrefix)] != parentPrefix {
+			continue
+		}
+		childKey := fmt.Sprintf("%d:%s", childPID, strings.TrimPrefix(key, parentPrefix))
+		st.fdStates[childKey] = observation
+	}
+}
+
 func (st *FDStateStore) CleanupProcess(pid int) {
 	st.CleanupPaths(pid)
 	st.CleanupOffsets(pid)
+	st.CleanupFDStates(pid)
 }
 
 func (st *FDStateStore) CleanupPaths(pid int) {
@@ -62,6 +76,16 @@ func (st *FDStateStore) CleanupOffsets(pid int) {
 	for key := range st.offsets {
 		if strings.HasPrefix(key, prefix) {
 			delete(st.offsets, key)
+		}
+	}
+}
+
+func (st *FDStateStore) CleanupFDStates(pid int) {
+	st.ensureMaps()
+	prefix := fdMapPrefix(pid)
+	for key := range st.fdStates {
+		if strings.HasPrefix(key, prefix) {
+			delete(st.fdStates, key)
 		}
 	}
 }

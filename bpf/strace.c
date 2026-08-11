@@ -9,6 +9,7 @@ char LICENSE[] SEC("license") = "GPL";
 #include "lifecycle_event_v2.h"
 
 #include "syscall_direct_event_v2.h"
+#include "syscall_fd_state_direct_event_v2.h"
 #include "syscall_fd_array_direct_event_v2.h"
 #include "syscall_getcwd_direct_event_v2.h"
 #include "syscall_misc_struct_direct_event_v2.h"

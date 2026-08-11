@@ -258,3 +258,83 @@ func TestSyscallEventContextCleanupClosedFDUsesEffectiveMetadata(t *testing.T) {
 		t.Fatal("effective metadata close did not remove fd offset")
 	}
 }
+
+func TestFDStateStorePersistsEventTimeObservationAndOffset(t *testing.T) {
+	store := newFDStateStoreFromMaps(nil, nil)
+	data := fdStateSnapshotBytes(7, handler.FDStateFlagIdentity|handler.FDStateFlagOffset, 0100644, 1, 2, 3, 27)
+	ev := syscallEventContext{
+		view: syscallEventView{
+			valid:     true,
+			eventType: bpfEventTypeExit,
+			args:      [6]uint64{rawAtFdcwd, 0x1000},
+			ret:       7,
+		},
+		statePID: 101,
+		meta:     meta.Syscall{Name: "openat"},
+		pathText: `"/tmp/event-time"`,
+		payloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindFDState,
+			Direction: handler.PayloadDirectionOut,
+			ArgIndex:  handler.PayloadFDStateArgIndex,
+			UserLen:   handler.FDStateSnapshotSize,
+			CopiedLen: handler.FDStateSnapshotSize,
+			ProbeRet:  0,
+			Data:      data,
+		}},
+	}
+
+	ev.updateFDState(store)
+	ev.updateFDOffsets(store)
+
+	observation, ok := store.FDStateMap()["101:7"]
+	if !ok || observation.Inode != 3 || observation.Offset != 27 {
+		t.Fatalf("stored observation = %+v, ok=%v", observation, ok)
+	}
+	if got := store.offsets["101:7"]; got != 27 {
+		t.Fatalf("stored offset = %d, want event-time offset 27", got)
+	}
+	if got := store.paths["101:7"]; got != "/tmp/event-time" {
+		t.Fatalf("stored path = %q, want event-time path", got)
+	}
+}
+
+func TestFDStateStoreFailedObservationClearsReusedFD(t *testing.T) {
+	store := newFDStateStoreFromMaps(nil, nil)
+	store.FDStateMap()["101:7"] = handler.FDStateObservation{FD: 7, Inode: 99}
+	ev := syscallEventContext{
+		view: syscallEventView{
+			valid:     true,
+			eventType: bpfEventTypeExit,
+			ret:       7,
+		},
+		statePID: 101,
+		meta:     meta.Syscall{Name: "open"},
+		payloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindFDState,
+			Direction: handler.PayloadDirectionOut,
+			ArgIndex:  handler.PayloadFDStateArgIndex,
+			UserLen:   handler.FDStateSnapshotSize,
+			ProbeRet:  -14,
+		}},
+	}
+
+	ev.updateFDState(store)
+	if _, ok := store.FDStateMap()["101:7"]; ok {
+		t.Fatal("failed event-time observation retained stale state for reused fd")
+	}
+}
+
+func TestFDStateStoreInheritsAndCleansEventTimeObservation(t *testing.T) {
+	store := newFDStateStoreFromMaps(nil, nil)
+	store.FDStateMap()["100:1"] = handler.FDStateObservation{FD: 1, Inode: 42}
+
+	store.InheritProcessState(100, 101)
+	if got := store.FDStateMap()["101:1"].Inode; got != 42 {
+		t.Fatalf("child event-time inode = %d, want 42", got)
+	}
+
+	store.CleanupProcess(101)
+	if _, ok := store.FDStateMap()["101:1"]; ok {
+		t.Fatal("child event-time observation was not cleaned")
+	}
+}
