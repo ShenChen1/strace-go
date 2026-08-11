@@ -7,6 +7,7 @@ import unittest
 from ebpf_event_oracles import (
     has_dup_fd_state_sections,
     has_fd_array_fd_state_sections,
+    has_fcntl_fd_state_for_command,
     has_fd_state_section,
 )
 from ebpf_suites import wait_for_debug_ready
@@ -163,6 +164,40 @@ class EventOracleTests(unittest.TestCase):
             })
 
         self.assertTrue(has_fd_array_fd_state_sections(events))
+
+    def test_accepts_only_dup_commands_as_fcntl_fd_state(self):
+        events = []
+        for command, fd in ((0, 7), (1030, 8)):
+            data = bytearray(48)
+            data[0:4] = fd.to_bytes(4, "little", signed=True)
+            data[4:8] = (3).to_bytes(4, "little")
+            data[32:40] = (42).to_bytes(8, "little")
+            events.append({
+                "event_type": "exit",
+                "syscall": "fcntl",
+                "args": [5, command, 20, 0, 0, 0],
+                "ret": fd,
+                "payload_sections": [{
+                    "kind": "fd_state",
+                    "direction": "out",
+                    "arg_index": 0xffff,
+                    "user_len": 48,
+                    "copied_len": 48,
+                    "probe_ret": 0,
+                    "data_base64": base64.b64encode(data).decode(),
+                }],
+            })
+        events.append({
+            "event_type": "exit",
+            "syscall": "fcntl",
+            "args": [5, 3, 0, 0, 0, 0],
+            "ret": 32768,
+            "payload_sections": [],
+        })
+
+        self.assertTrue(has_fcntl_fd_state_for_command(events, 0))
+        self.assertTrue(has_fcntl_fd_state_for_command(events, 1030))
+        self.assertFalse(has_fcntl_fd_state_for_command(events, 3))
 
 
 if __name__ == "__main__":

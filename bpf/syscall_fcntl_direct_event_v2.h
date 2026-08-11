@@ -3,11 +3,20 @@
 
 #define FCNTL_DIRECT_SMALL_SIZE 8
 #define FCNTL_DIRECT_FLOCK_SIZE 32
-#define FCNTL_DIRECT_MAX_PAYLOAD (PAYLOAD_TLV_HEADER_SIZE + FCNTL_DIRECT_FLOCK_SIZE)
+#define FCNTL_DIRECT_F_DUPFD 0
+#define FCNTL_DIRECT_F_DUPFD_CLOEXEC 1030
+#define FCNTL_DIRECT_MAX_PAYLOAD (PAYLOAD_TLV_HEADER_SIZE + FD_STATE_SNAPSHOT_SIZE)
 
 static __always_inline int is_fcntl_direct_syscall(u32 sys_id)
 {
     return sys_id == SYS_FCNTL;
+}
+
+static __always_inline int is_fcntl_fd_state_cmd(u64 cmd)
+{
+    u32 fcmd = (u32)cmd;
+    return fcmd == FCNTL_DIRECT_F_DUPFD ||
+        fcmd == FCNTL_DIRECT_F_DUPFD_CLOEXEC;
 }
 
 static __always_inline u32 fcntl_direct_payload_size(u64 cmd)
@@ -140,12 +149,19 @@ static __always_inline void emit_fcntl_exit_event_v2_direct(
     u16 flags = 0;
     u32 payload_size = 0;
     if (ret_value >= 0) {
-        payload_size = capture_fcntl_struct_tlv_direct(
-            &ptr,
-            payload_offset,
-            p->args[1],
-            p->args[2],
-            PAYLOAD_TLV_FLAG_DIRECTION_OUT);
+        if (is_fcntl_fd_state_cmd(p->args[1])) {
+            payload_size = capture_fd_state_tlv_direct(
+                &ptr,
+                payload_offset,
+                (s32)ret_value);
+        } else {
+            payload_size = capture_fcntl_struct_tlv_direct(
+                &ptr,
+                payload_offset,
+                p->args[1],
+                p->args[2],
+                PAYLOAD_TLV_FLAG_DIRECTION_OUT);
+        }
     }
     if (payload_size > 0) {
         flags |= EVENT_FLAG_PAYLOAD_TLV;

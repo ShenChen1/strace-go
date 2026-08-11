@@ -89,19 +89,46 @@ func isOpenedPathFDStateSyscall(scName string) bool {
 	}
 }
 
-func updateDupFDMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
-	if !view.valid || view.ret < 0 || (scMeta.Name != "dup" && scMeta.Name != "dup2" && scMeta.Name != "dup3") {
+func updateDupFDMapFromSource(src fdStateSource, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	oldFd, newFd, ok := duplicatedFDsFromView(src.view, scMeta)
+	if !ok {
 		return
 	}
-	oldFd := int32(view.args[0])
-	newFd := int32(view.ret)
 	newKey := fmt.Sprintf("%d:%d", targetPid, newFd)
 	if oldFd != newFd {
 		delete(fdMap, newKey)
 	}
+	if isFcntlFDStateSyscall(scMeta.Name) && !hasFDStateSnapshotForFD(src, newFd) {
+		return
+	}
 	if path, ok := fdMap[fmt.Sprintf("%d:%d", targetPid, oldFd)]; ok {
 		fdMap[newKey] = path
 	}
+}
+
+func duplicatedFDsFromView(view syscallEventView, scMeta meta.Syscall) (int32, int32, bool) {
+	if !view.valid || view.ret < 0 {
+		return 0, 0, false
+	}
+	switch scMeta.Name {
+	case "dup", "dup2", "dup3":
+		return int32(view.args[0]), int32(view.ret), true
+	case "fcntl", "fcntl64":
+		if isFcntlFDStateCommand(view.args) {
+			return int32(view.args[0]), int32(view.ret), true
+		}
+	}
+	return 0, 0, false
+}
+
+func hasFDStateSnapshotForFD(src fdStateSource, fd int32) bool {
+	for _, section := range src.payloadSections {
+		observation, ok := fdStateObservationFromSection(section)
+		if ok && observation.FD == fd {
+			return true
+		}
+	}
+	return false
 }
 
 func updatePipeFDMapFromPayload(src fdStateSource, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {

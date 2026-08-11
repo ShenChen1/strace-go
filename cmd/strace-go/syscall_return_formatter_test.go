@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
 )
 
@@ -34,5 +35,24 @@ func TestFormatSyscallRetFormatsExplicitEmptyReturnDescription(t *testing.T) {
 
 	if got := formatSyscallRet("select", 1, res, nil); got != "1 ()" {
 		t.Fatalf("formatSyscallRet(select empty desc) = %q, want %q", got, "1 ()")
+	}
+}
+
+func TestFormatSyscallRetFormatsOnlyFcntlDupReturnsAsFD(t *testing.T) {
+	ctx := &handler.Context{
+		Pid:       101,
+		TargetPid: 101,
+		Args:      [6]uint64{5, 0, 20},
+		Opts:      &cli.Options{ShowPaths: true, ShowPathsMode: 1},
+		FdMap:     map[string]string{"101:12": "/dev/null"},
+	}
+
+	if got := formatSyscallRet("fcntl", 12, handler.Result{}, ctx); got != "12</dev/null>" {
+		t.Fatalf("F_DUPFD return = %q, want 12</dev/null>", got)
+	}
+
+	ctx.Args[1] = 3
+	if got := formatSyscallRet("fcntl", 32768, handler.Result{}, ctx); got != "0x8000" {
+		t.Fatalf("F_GETFL return = %q, want 0x8000", got)
 	}
 }

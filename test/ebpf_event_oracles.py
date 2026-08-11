@@ -171,6 +171,38 @@ def has_fd_array_fd_state_sections(events):
     )
 
 
+def has_fcntl_fd_state_for_command(events, command):
+    for event in events:
+        args = event.get("args") or []
+        if (
+            event.get("event_type") != "exit"
+            or event.get("syscall") != "fcntl"
+            or event.get("ret", -1) < 0
+            or len(args) < 2
+            or args[1] != command
+        ):
+            continue
+        for section in event.get("payload_sections") or []:
+            if (
+                section.get("kind") != "fd_state"
+                or section.get("direction") != "out"
+                or section.get("arg_index") != FD_STATE_ARG_INDEX
+                or section.get("user_len") != FD_STATE_SNAPSHOT_SIZE
+                or section.get("copied_len") != FD_STATE_SNAPSHOT_SIZE
+                or section.get("probe_ret") != 0
+            ):
+                continue
+            data = payload_section_bytes(section)
+            if len(data) != FD_STATE_SNAPSHOT_SIZE:
+                continue
+            snapshot_fd = int.from_bytes(data[0:4], "little", signed=True)
+            flags = int.from_bytes(data[4:8], "little")
+            inode = int.from_bytes(data[32:40], "little")
+            if snapshot_fd == event.get("ret") and (flags & 3) == 3 and inode > 0:
+                return True
+    return False
+
+
 def has_exec_payload_sections(events):
     for event in events:
         if event.get("syscall") != "execve" or event.get("event_type") != "enter":

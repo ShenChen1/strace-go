@@ -102,7 +102,7 @@ func updateFDMapFromSource(
 	updateFdReturnMapFromView(src.view, scMeta, targetPID, fdMap)
 	updateEventfdCountFromView(src.view, scMeta, targetPID, fdMap)
 	updateOpenedPathFDMapFromView(src.view, scMeta, pathText, targetPID, fdMap)
-	updateDupFDMapFromView(src.view, scMeta, targetPID, fdMap)
+	updateDupFDMapFromSource(src, scMeta, targetPID, fdMap)
 	updatePipeFDMapFromPayload(src, scMeta, targetPID, fdMap)
 	updateSocketpairFDMap(src, scMeta, targetPID, fdMap)
 	updateNetlinkFDMap(src, scMeta, targetPID, fdMap)

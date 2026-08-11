@@ -68,6 +68,7 @@ class AttachCapture:
 @dataclass
 class SemanticContext:
     main: EventCapture
+    fcntl: EventCapture
     dirent: EventCapture
     mmsg: EventCapture
     mount_query: EventCapture
@@ -196,7 +197,7 @@ def collect_semantic_events(fixture):
     trace_set = (
         "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,"
         "newfstatat,statfs,fstatfs,getcwd,readlink,readlinkat,pipe,pipe2,"
-        "socketpair,dup,dup2,dup3,uname,sysinfo,getrlimit,setrlimit,prlimit64,arch_prctl,"
+        "socketpair,dup,dup2,dup3,fcntl,uname,sysinfo,getrlimit,setrlimit,prlimit64,arch_prctl,"
         "get_robust_list,sendfile,copy_file_range,getitimer,setitimer,"
         "clock_settime,settimeofday,adjtimex,nanosleep,clock_nanosleep,"
         "futex,futex_wait,futex_waitv,futex_requeue,sendmsg,execve,exit,"
@@ -354,6 +355,8 @@ def collect_attach_orphan_stats(fixture):
 
 
 def collect_semantic_context(fixture):
+    fcntl_source = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_fcntl_fixture.c")
+    fcntl_fixture = build_named_fixture("strace-go-ebpf-fcntl-fixture", fcntl_source)
     thread_fixture = build_ebpf_thread_fixture()
     attach_fixture = build_ebpf_attach_fixture()
     mount_query_fixture = build_ebpf_mount_query_fixture()
@@ -362,6 +365,7 @@ def collect_semantic_context(fixture):
     mmsg_fixture = build_ebpf_mmsg_fixture()
     return SemanticContext(
         main=collect_semantic_events(fixture),
+        fcntl=event_capture(run_strace_go_json(["-e", "trace=fcntl", fcntl_fixture])),
         dirent=collect_dirent_events(dirent_fixture),
         mmsg=collect_mmsg_events(mmsg_fixture),
         mount_query=collect_mount_query_events(mount_query_fixture),
@@ -411,6 +415,7 @@ def print_semantic_summary(context, filter_event_count):
     orphan = attach_stats[0].get("orphan_exit") if attach_stats else "unavailable"
     print(f"=> eBPF attach orphan exits: {orphan}")
     print(f"=> eBPF semantic events: {len(main.events)}")
+    print(f"=> eBPF fcntl semantic events: {len(context.fcntl.events)}")
     print(f"=> eBPF semantic enter/exit: {len(main.enter_events)}/{len(main.exit_events)}")
     print(f"=> eBPF lifecycle events: {len(main.lifecycle_events)}")
     print(f"=> eBPF ringbuf reserve failures: {stats.get('ringbuf_reserve_fail')}")

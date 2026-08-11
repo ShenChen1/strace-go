@@ -7,6 +7,7 @@ from ebpf_event_oracles import (
     has_bytes_payload_section,
     has_dup_fd_state_sections,
     has_fd_array_fd_state_sections,
+    has_fcntl_fd_state_for_command,
     has_exec_payload_sections,
     has_fd_state_section,
     has_gettimeofday_payload_sections,
@@ -109,6 +110,11 @@ def check_fd_state_payloads(context, failures):
     require(has_fd_state_section(context.main.events), failures, "open-family FD state payload section missing")
     require(has_dup_fd_state_sections(context.main.events), failures, "dup-family FD state payload sections missing")
     require(has_fd_array_fd_state_sections(context.main.events), failures, "pipe/socketpair FD state payload sections missing")
+    events = context.fcntl.events
+    require(context.fcntl.result.returncode == 0, failures, f"fcntl fixture rc={context.fcntl.result.returncode}")
+    require(has_fcntl_fd_state_for_command(events, 0), failures, "F_DUPFD FD state payload section missing")
+    require(has_fcntl_fd_state_for_command(events, 1030), failures, "F_DUPFD_CLOEXEC FD state payload section missing")
+    require(not has_fcntl_fd_state_for_command(events, 3), failures, "F_GETFL was incorrectly encoded as FD state")
 
 
 def check_out_struct_payloads(context, failures):

@@ -65,12 +65,20 @@ func (st *FDStateStore) updateOffsetsFromView(view syscallEventView, scMeta meta
 		if observation, ok := st.fdStates[key]; ok && observation.Flags&handler.FDStateFlagOffset != 0 {
 			st.offsets[key] = observation.Offset
 		}
-	case "dup", "dup2", "dup3":
-		oldKey := fdStateKey(statePID, int32(view.args[0]))
-		newFD := int32(ret)
+	case "dup", "dup2", "dup3", "fcntl", "fcntl64":
+		oldFD, newFD, ok := duplicatedFDsFromView(view, scMeta)
+		if !ok {
+			return
+		}
+		oldKey := fdStateKey(statePID, oldFD)
 		newKey := fdStateKey(statePID, newFD)
-		if int32(view.args[0]) != newFD {
+		if oldFD != newFD {
 			delete(st.offsets, newKey)
+		}
+		if isFcntlFDStateSyscall(scMeta.Name) {
+			if _, ok := st.fdStates[newKey]; !ok {
+				return
+			}
 		}
 		if off, ok := st.offsets[oldKey]; ok {
 			st.offsets[newKey] = off

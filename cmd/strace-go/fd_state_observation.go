@@ -14,6 +14,9 @@ func updateFDStateObservationFromSource(
 	if !src.view.valid || src.view.ret < 0 || !isFDStateObservationSyscall(scMeta.Name) {
 		return
 	}
+	if isFcntlFDStateSyscall(scMeta.Name) && !isFcntlFDStateCommand(src.view.args) {
+		return
+	}
 	if isFDArrayFDStateSyscall(scMeta.Name) {
 		if src.view.ret != 0 {
 			return
@@ -63,12 +66,26 @@ func fdStateObservationFromSection(section handler.PayloadSection) (handler.FDSt
 
 func isFDStateObservationSyscall(scName string) bool {
 	return isOpenedPathFDStateSyscall(scName) ||
-		isDuplicatedFDStateSyscall(scName) || isFDArrayFDStateSyscall(scName)
+		isDuplicatedFDStateSyscall(scName) || isFDArrayFDStateSyscall(scName) ||
+		isFcntlFDStateSyscall(scName)
 }
 
 func isFDArrayFDStateSyscall(scName string) bool {
 	switch scName {
 	case "pipe", "pipe2", "socketpair":
+		return true
+	default:
+		return false
+	}
+}
+
+func isFcntlFDStateSyscall(scName string) bool {
+	return scName == "fcntl" || scName == "fcntl64"
+}
+
+func isFcntlFDStateCommand(args [6]uint64) bool {
+	switch uint32(args[1]) {
+	case 0, 1030:
 		return true
 	default:
 		return false
@@ -85,7 +102,7 @@ func isDuplicatedFDStateSyscall(scName string) bool {
 }
 
 func fdStateTargetReplaced(view syscallEventView, scName string) bool {
-	if isOpenedPathFDStateSyscall(scName) || scName == "dup" {
+	if isOpenedPathFDStateSyscall(scName) || scName == "dup" || isFcntlFDStateSyscall(scName) {
 		return true
 	}
 	if scName == "dup2" || scName == "dup3" {

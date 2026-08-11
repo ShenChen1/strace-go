@@ -15,7 +15,8 @@ func formatSyscallRet(scName string, ret int64, res handler.Result, ctx *handler
 		return "?"
 	}
 	retStr := fmt.Sprintf("%d", ret)
-	if ret >= 0 && ctx != nil && ctx.Opts != nil && ctx.Opts.ShowPaths && isFdReturnSyscall(scName) {
+	if ret >= 0 && ctx != nil && ctx.Opts != nil && ctx.Opts.ShowPaths &&
+		(isFdReturnSyscall(scName) || (isFcntlFDStateSyscall(scName) && isFcntlFDStateCommand(ctx.Args))) {
 		retStr = handler.FormatFdWithPath(ctx, int32(ret))
 	}
 	if ret > 0 && (scName == "fcntl" || scName == "fcntl64") && ctx != nil {

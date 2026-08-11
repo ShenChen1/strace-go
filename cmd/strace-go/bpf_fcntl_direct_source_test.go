@@ -29,6 +29,11 @@ func TestBPFFcntlPayloadUsesDirectTLV(t *testing.T) {
 	for _, snippet := range []string{
 		"FCNTL_DIRECT_SMALL_SIZE 8",
 		"FCNTL_DIRECT_FLOCK_SIZE 32",
+		"FCNTL_DIRECT_F_DUPFD 0",
+		"FCNTL_DIRECT_F_DUPFD_CLOEXEC 1030",
+		"is_fcntl_fd_state_cmd(",
+		"capture_fd_state_tlv_direct(",
+		"FD_STATE_SNAPSHOT_SIZE",
 		"is_fcntl_direct_syscall(",
 		"fcntl_direct_payload_size(",
 		"capture_fcntl_struct_tlv_direct(",
