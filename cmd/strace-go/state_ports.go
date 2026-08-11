@@ -2,6 +2,7 @@ package main
 
 type traceEventState interface {
 	handleEnvelope(traceEventEnvelope) TraceStateUpdate
+	markUnfinishedPrinted(uint32)
 }
 
 type textRendererState interface {

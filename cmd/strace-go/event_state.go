@@ -69,7 +69,7 @@ type TraceStateUpdate struct {
 	pendingEnter    *pendingSyscallState
 	lifecycleTask   *TaskState
 	processInherit  *processStateInheritance
-	unfinished      []*pendingSyscallState
+	unfinished      []pendingSyscallState
 	deferredExit    *TraceStateUpdate
 }
 
@@ -107,7 +107,7 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 		return TraceStateUpdate{
 			kind:           traceStateLifecycle,
 			lifecycleView:  lifecycleView,
-			lifecycleTask:  task,
+			lifecycleTask:  snapshotTaskState(task),
 			processInherit: processInherit,
 			unfinished:     unfinished,
 			deferredExit:   deferredExit,
@@ -171,16 +171,16 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 	}
 }
 
-func (st *TraceState) pendingForOtherTID(tid uint32) []*pendingSyscallState {
+func (st *TraceState) pendingForOtherTID(tid uint32) []pendingSyscallState {
 	if tid == 0 || len(st.pendingSyscalls) == 0 {
 		return nil
 	}
-	candidates := make([]*pendingSyscallState, 0, len(st.pendingSyscalls))
+	candidates := make([]pendingSyscallState, 0, len(st.pendingSyscalls))
 	for pendingTID, pending := range st.pendingSyscalls {
 		if pendingTID == tid || pending == nil || pending.unfinishedPrinted || pending.probeRetEnter >= 2 {
 			continue
 		}
-		candidates = append(candidates, pending)
+		candidates = append(candidates, copyPendingSyscallState(*pending))
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].enterTime != candidates[j].enterTime {
@@ -316,6 +316,12 @@ func (st *TraceState) consumeEnterEvent(view syscallEventView) *pendingSyscallSt
 	if pending == nil || pending.sysID != view.sysID {
 		return nil
 	}
+	snapshot := copyPendingSyscallState(*pending)
+	return &snapshot
+}
+
+func copyPendingSyscallState(pending pendingSyscallState) pendingSyscallState {
+	pending.payloadSections = copyPayloadSections(pending.payloadSections)
 	return pending
 }
 
@@ -361,6 +367,13 @@ func (st *TraceState) consumeSuspendedSyscall(tid int) bool {
 		delete(st.suspendedSyscalls, tid)
 	}
 	return ok
+}
+
+func (st *TraceState) markUnfinishedPrinted(tid uint32) {
+	pending := st.pendingSyscalls[tid]
+	if pending != nil {
+		pending.unfinishedPrinted = true
+	}
 }
 
 func (st *TraceState) clearTaskPending(tid uint32) {

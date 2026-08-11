@@ -80,14 +80,11 @@ func (r *TraceEventRouter) applyProcessStateInheritance(inheritance *processStat
 	r.lifecycle.InheritProcessState(int(inheritance.parentTGID), int(inheritance.childTGID))
 }
 
-func (r *TraceEventRouter) handleUnfinished(pendingSyscalls []*pendingSyscallState) {
+func (r *TraceEventRouter) handleUnfinished(pendingSyscalls []pendingSyscallState) {
 	if r.pipeline == nil {
 		return
 	}
 	for _, pending := range pendingSyscalls {
-		if pending == nil {
-			continue
-		}
 		view := pending.enterView()
 		ev := newSyscallEventContextFromViewWithDeps(
 			r.contextDeps,
@@ -99,7 +96,7 @@ func (r *TraceEventRouter) handleUnfinished(pendingSyscalls []*pendingSyscallSta
 		if !ev.shouldOutput() || !r.pipeline.HandleUnfinished(ev) {
 			continue
 		}
-		pending.unfinishedPrinted = true
+		r.state.markUnfinishedPrinted(pending.tid)
 	}
 }
 

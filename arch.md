@@ -2520,3 +2520,38 @@ ABI 与状态契约：
 本阶段只收口 Go 写依赖边界，不改变纯 eBPF 事件事实源、单消费者状态顺序或既有 bounded snapshot 语义。
 
 实际验收结果：新增 `fdStateUpdatePort`、`fdOffsetUpdatePort`、`fdCloseUpdatePort`、`fdLifecycleUpdatePort` 和 typed command 回归测试；handler/exit/lifecycle/context 生产文件不再声明或接收 `*FDStateStore`，composition root 仍将同一个 store 注入各职责端口。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，731.83 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。
+
+### 14.47 TraceState update 改为快照，unfinished 确认回写走窄端口（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.43 已禁止输出组件持有具体 `*TraceState`，14.46 已隔离 FD state mutation。但 `TraceStateUpdate.unfinished` 仍是 pending map 内部的 `[]*pendingSyscallState`；router 为避免重复输出直接修改其中的 `unfinishedPrinted`。`lifecycleTask` 也直接指向 `TraceState.tasks` 的 map value。
+- Problem：状态 owner 通过返回指针把内部可变对象借给路由和输出层，调用方可以绕过 state transition 修改 pairing/lifecycle 状态；未来增加字段或并发边界时，这种隐式回写会造成重复 unfinished、错误清理和难以审计的 aliasing。
+- Goal：对外只返回 pending/task 的值快照；unfinished 成功渲染后通过 `traceEventState.MarkUnfinishedPrinted(tid)` 明确回写，其他消费者不能直接修改 TraceState 内部对象。保持现有事件驱动时点、单 Goroutine、unfinished/resumed 文本顺序和 payload 内容。
+- Non-goals：不拆分 pending map、不引入第二个状态 owner、不使用锁/定时器/ptrace/procfs、不改变 BPF ABI、syscall pairing、lifecycle cleanup 或输出格式。
+- Constraints：快照必须复制 payload section 及其 bytes；`pendingEnter` 已从 map 消费后才可转交 context；只有 router 在确认 `HandleUnfinished` 成功后才能调用 mark port；state port 的默认实现仍是同一个 `TraceState`。
+
+方案比较：
+
+1. 继续返回内部指针：零复制，但输出路由可以直接改 state，拒绝。
+2. 每次 update 深拷贝全部 pending/task map：隔离最强，但高频 syscall 下会引入不必要的全量分配，拒绝。
+3. 对外返回按事件需要的 value snapshot，仅复制候选 pending 和 lifecycle task，并增加单一 mark port：隔离 alias、成本局部可控，选择该方案。
+
+影响说明：`TraceStateUpdate.unfinished` 改为 `[]pendingSyscallState`，`traceEventState` 增加 `MarkUnfinishedPrinted(uint32)`；router 不再写 pending 对象字段。`lifecycleTask` 继续使用兼容的 `*TaskState` 形状，但由 state 传出独立副本，避免破坏现有 lifecycle output 接口。
+
+状态契约：
+
+- `pendingForOtherTID` 只读 map 并返回排序后的值快照，快照 payload 与内部 bytes 不共享。
+- `snapshotTaskState` 返回独立 task；lifecycle JSON/text 只能消费这个快照，不能污染 `TraceState.tasks`。
+- `MarkUnfinishedPrinted` 只接受 TID，找不到 pending 或 pending 已消费时无操作；重复确认保持幂等。
+- 事件状态仍由 ringbuf 单消费者串行更新，mark 回写发生在同一 router 调用栈内，不增加 goroutine 或锁。
+
+测试与验收：
+
+- 增加快照 alias 回归：修改返回的 pending/task/payload 后，内部 state 不得变化。
+- 增加 mark port/fake 测试，验证只有 unfinished 成功输出后才确认，下一事件不重复输出。
+- 增加源码 gate，禁止 router 直接写 `unfinishedPrinted`；随后跑 Go/race/vet/build、eBPF semantic/perf、small 和 upstream reference。
+
+本阶段只收口 TraceState update 的可变引用，不改变事件语义或纯 eBPF 数据事实源。
+
+实际验收结果：`TraceStateUpdate.unfinished` 已改为带独立 payload copy 的值快照，lifecycle task 通过独立副本传出，router 通过 `markUnfinishedPrinted` 回写而不直接修改 pending；新增 alias、mark 行为和源码 gate。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，734.27 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。

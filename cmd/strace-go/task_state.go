@@ -14,6 +14,14 @@ type pendingForkState struct {
 	parentTGID uint32
 }
 
+func snapshotTaskState(task *TaskState) *TaskState {
+	if task == nil {
+		return nil
+	}
+	snapshot := *task
+	return &snapshot
+}
+
 func (st *TraceState) ensureTaskState(tid uint32, tgid uint32) *TaskState {
 	if st.tasks == nil {
 		st.tasks = make(map[uint32]*TaskState)
