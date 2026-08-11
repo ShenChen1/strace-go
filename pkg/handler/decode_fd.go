@@ -2,7 +2,6 @@ package handler
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"syscall"
 )
@@ -24,8 +23,10 @@ func (h *DefaultHandler) formatFdArg(ctx *Context, argName string, val uint64) s
 			}
 		}
 		if cwdPath == "" {
-			if l, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", ctx.Pid)); err == nil {
-				cwdPath = l
+			if ctx.FDMetadata != nil {
+				if path, ok := ctx.FDMetadata.CWDPath(ctx.Pid); ok {
+					cwdPath = path
+				}
 			}
 		}
 		// IMPACT: Do not append resolved path if its length >= PATH_MAX (4096) to align with standard AT_FDCWD encoding rules.
@@ -65,7 +66,7 @@ func FormatFdWithPath(ctx *Context, fd int32) string {
 	if ctx.FdMap != nil {
 		if target, ok := lookupTrackedFDPath(ctx, fd); ok {
 			if ctx.Opts.ShowPathsMode == 2 {
-				return fdStr + "<" + formatDetailedPath(ctx, "", target, fd) + ">"
+				return fdStr + "<" + formatDetailedPath(ctx, target, fd) + ">"
 			}
 			if strings.HasPrefix(target, "socket:[") {
 				target = formatSocketPath(ctx, target, fd)
@@ -75,9 +76,11 @@ func FormatFdWithPath(ctx *Context, fd int32) string {
 	}
 
 	// IMPACT: Use ctx.TargetPid instead of ctx.Pid to avoid reading from transient/exited thread descriptors.
-	linkPath := fmt.Sprintf("/proc/%d/fd/%d", ctx.TargetPid, fd)
-	target, err := os.Readlink(linkPath)
-	if err != nil {
+	if ctx.FDMetadata == nil {
+		return fdStr
+	}
+	target, ok := ctx.FDMetadata.FDPath(ctx.TargetPid, fd)
+	if !ok {
 		return fdStr
 	}
 	if len(target) >= 2 && target[0] == '"' && target[len(target)-1] == '"' {
@@ -87,7 +90,7 @@ func FormatFdWithPath(ctx *Context, fd int32) string {
 		ctx.FdMap[fmt.Sprintf("%d:%d", ctx.TargetPid, fd)] = target
 	}
 	if ctx.Opts.ShowPathsMode == 2 {
-		return fdStr + "<" + formatDetailedPath(ctx, linkPath, target, fd) + ">"
+		return fdStr + "<" + formatDetailedPath(ctx, target, fd) + ">"
 	}
 	if strings.HasPrefix(target, "socket:[") {
 		target = formatSocketPath(ctx, target, fd)
@@ -112,47 +115,45 @@ func lookupTrackedFDPath(ctx *Context, fd int32) (string, bool) {
 
 // IMPACT: formatDetailedPath extracts device, inode or special fdinfo status for -yy.
 // It falls back to target path stat if procfs entry is missing.
-func formatDetailedPath(ctx *Context, linkPath string, target string, fd int32) string {
-	if linkPath != "" && strings.HasPrefix(target, "anon_inode:[eventfd]") {
+func formatDetailedPath(ctx *Context, target string, fd int32) string {
+	if strings.HasPrefix(target, "anon_inode:[eventfd]") {
 		forceCount := (ctx.ScMeta.Name == "eventfd" || ctx.ScMeta.Name == "eventfd2")
 		flags := uint64(0)
 		if len(ctx.Args) > 1 {
 			flags = ctx.Args[1]
 		}
-		if info := eventfdInfo(ctx, linkPath, ctx.Args[0], flags, forceCount); info != "" {
+		if info := eventfdInfo(ctx, fd, ctx.Args[0], flags, forceCount); info != "" {
 			return info
 		}
 	}
 	if strings.HasPrefix(target, "socket:[") {
 		return formatSocketPath(ctx, target, fd)
 	}
-	var stat syscall.Stat_t
-	var err error = syscall.ENOENT
-	if linkPath != "" {
-		err = syscall.Stat(linkPath, &stat)
-	}
-	if err != nil && target != "" && !strings.HasPrefix(target, "socket:[") && !strings.HasPrefix(target, "anon_inode:") {
-		err = syscall.Stat(target, &stat)
-	}
-	if err == nil {
-		mode := stat.Mode
-		major, minor := getMajorMinor(stat.Rdev)
-		if (mode & syscall.S_IFMT) == syscall.S_IFCHR {
-			return fmt.Sprintf("%s<char %d:%d>", target, major, minor)
+	if ctx.FDMetadata != nil {
+		stat, ok := ctx.FDMetadata.FDStat(ctx.TargetPid, fd)
+		if !ok && target != "" && !strings.HasPrefix(target, "socket:[") && !strings.HasPrefix(target, "anon_inode:") {
+			stat, ok = ctx.FDMetadata.PathStat(target)
 		}
-		if (mode & syscall.S_IFMT) == syscall.S_IFBLK {
-			return fmt.Sprintf("%s<block %d:%d>", target, major, minor)
+		if ok {
+			mode := stat.Mode
+			major, minor := getMajorMinor(stat.Rdev)
+			if (mode & syscall.S_IFMT) == syscall.S_IFCHR {
+				return fmt.Sprintf("%s<char %d:%d>", target, major, minor)
+			}
+			if (mode & syscall.S_IFMT) == syscall.S_IFBLK {
+				return fmt.Sprintf("%s<block %d:%d>", target, major, minor)
+			}
+			return fmt.Sprintf("%s<%d>", target, stat.Inode)
 		}
-		return fmt.Sprintf("%s<%d>", target, stat.Ino)
 	}
 	return target
 }
 
-func eventfdInfo(ctx *Context, linkPath string, initialCount uint64, flags uint64, forceCount bool) string {
-	if ctx == nil || ctx.Runtime == nil {
+func eventfdInfo(ctx *Context, fd int32, initialCount uint64, flags uint64, forceCount bool) string {
+	if ctx == nil || ctx.FDMetadata == nil {
 		return ""
 	}
-	return ctx.Runtime.EventfdInfo(linkPath, initialCount, flags, forceCount)
+	return ctx.FDMetadata.EventfdInfo(ctx.TargetPid, fd, initialCount, flags, forceCount)
 }
 
 // formatSocketPath converts socket inode description using domain information cached in fdMap.

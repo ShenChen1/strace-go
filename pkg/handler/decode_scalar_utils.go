@@ -2,7 +2,6 @@ package handler
 
 import (
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -36,12 +35,12 @@ func cleanAbsolute(p string) string {
 }
 
 // UpdateCwd updates current working directory cache state.
-func UpdateCwd(targetPid int, path string, fdMap map[string]string, eventPid int) {
+func UpdateCwd(targetPid int, path string, fdMap map[string]string, eventPid int, metadata FDMetadataServices) {
 	cwdKey := fmt.Sprintf("%d:cwd", targetPid)
 	base := fdMap[cwdKey]
-	if base == "" {
-		if l, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", eventPid)); err == nil {
-			base = l
+	if base == "" && metadata != nil {
+		if path, ok := metadata.CWDPath(eventPid); ok {
+			base = path
 		}
 	}
 	if strings.HasPrefix(path, `"`) && strings.HasSuffix(path, `"`) {

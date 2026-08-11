@@ -35,7 +35,8 @@ func TestFormatFdWithPathTreatsMissingTrackedFDAsClosed(t *testing.T) {
 			ShowPaths:     true,
 			ShowPathsMode: 1,
 		},
-		FdMap: map[string]string{},
+		FdMap:      map[string]string{},
+		FDMetadata: NewRuntime(),
 	}
 
 	if got := FormatFdWithPath(ctx, 4); got != "4" {
@@ -59,7 +60,8 @@ func TestFormatFdWithPathFallsBackToProcWhenTrackedMapMisses(t *testing.T) {
 			ShowPaths:     true,
 			ShowPathsMode: 1,
 		},
-		FdMap: map[string]string{},
+		FdMap:      map[string]string{},
+		FDMetadata: NewRuntime(),
 	}
 
 	want := fmt.Sprintf("%d<%s>", fd, file.Name())
@@ -82,6 +84,7 @@ func TestFormatFdWithPathDetailsTrackedTarget(t *testing.T) {
 		FdMap: map[string]string{
 			"101:0": "/dev/null",
 		},
+		FDMetadata: NewRuntime(),
 	}
 
 	if got := FormatFdWithPath(ctx, 0); got != "0</dev/null<char 1:3>>" {

@@ -6,9 +6,27 @@ import "time"
 // formatting syscall events. A trace session owns one implementation and
 // calls it from its single event-consumer goroutine.
 type RuntimeServices interface {
-	EventfdInfo(linkPath string, initialCount uint64, flags uint64, forceCount bool) string
 	SocketInfo(proto string, inode string) string
 	NextFiemapCall(pid int) int
+}
+
+// PathStat is the metadata needed for -yy rendering without exposing an OS
+// specific syscall.Stat_t to handlers.
+type PathStat struct {
+	Mode  uint64
+	Inode uint64
+	Rdev  uint64
+}
+
+// FDMetadataServices isolates procfs and filesystem metadata reads from event
+// decoding and FD state transitions.
+type FDMetadataServices interface {
+	EventfdInfo(pid int, fd int32, initialCount uint64, flags uint64, forceCount bool) string
+	FDPath(pid int, fd int32) (string, bool)
+	FDStat(pid int, fd int32) (PathStat, bool)
+	CWDPath(pid int) (string, bool)
+	FDOffset(pid int, fd int32) (int64, bool)
+	PathStat(path string) (PathStat, bool)
 }
 
 // Runtime keeps formatter state local to one trace session. Keeping this state

@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 
@@ -13,15 +12,17 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func updateFdReturnMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string, runtime handler.RuntimeServices) {
+func updateFdReturnMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string, metadata handler.FDMetadataServices) {
 	if !view.valid || view.ret < 0 || !isFdReturnSyscall(scMeta.Name) {
 		return
 	}
-	linkPath := fmt.Sprintf("/proc/%d/fd/%d", view.pid, view.ret)
-	target, err := os.Readlink(linkPath)
-	if err == nil {
+	if metadata == nil {
+		return
+	}
+	target, ok := metadata.FDPath(int(view.pid), int32(view.ret))
+	if ok {
 		if strings.HasPrefix(target, "anon_inode:[eventfd]") {
-			if info := formatEventfdTargetFromView(linkPath, view, scMeta, false, runtime); info != "" {
+			if info := formatEventfdTargetFromView(view, scMeta, false, metadata); info != "" {
 				target = info
 			}
 		}
@@ -29,20 +30,20 @@ func updateFdReturnMapFromView(view syscallEventView, scMeta meta.Syscall, targe
 		return
 	}
 	if scMeta.Name == "eventfd" || scMeta.Name == "eventfd2" {
-		if info := formatEventfdTargetFromView(linkPath, view, scMeta, true, runtime); info != "" {
+		if info := formatEventfdTargetFromView(view, scMeta, true, metadata); info != "" {
 			fdMap[fmt.Sprintf("%d:%d", targetPid, int32(view.ret))] = info
 		}
 	}
 }
 
-func formatEventfdTargetFromView(linkPath string, view syscallEventView, scMeta meta.Syscall, force bool, runtime handler.RuntimeServices) string {
+func formatEventfdTargetFromView(view syscallEventView, scMeta meta.Syscall, force bool, metadata handler.FDMetadataServices) string {
 	flags := uint64(0)
 	flags = view.args[1]
 	forceCount := force || scMeta.Name == "eventfd" || scMeta.Name == "eventfd2"
-	if runtime == nil {
+	if metadata == nil {
 		return ""
 	}
-	return runtime.EventfdInfo(linkPath, uint64(uint32(view.args[0])), flags, forceCount)
+	return metadata.EventfdInfo(int(view.pid), int32(view.ret), uint64(uint32(view.args[0])), flags, forceCount)
 }
 
 func updateEventfdCountFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
@@ -133,8 +134,8 @@ func updatePipeFDMapFromPayload(src fdStateSource, scMeta meta.Syscall, targetPi
 	}
 	fd1 := int32(binary.LittleEndian.Uint32(data[0:4]))
 	fd2 := int32(binary.LittleEndian.Uint32(data[4:8]))
-	rememberFDTargetFromProc(src.procTid, targetPid, fd1, "", fdMap)
-	rememberFDTargetFromProc(src.procTid, targetPid, fd2, "", fdMap)
+	rememberFDTargetFromMetadata(src, targetPid, fd1, "", fdMap)
+	rememberFDTargetFromMetadata(src, targetPid, fd2, "", fdMap)
 }
 
 func updateSocketpairFDMap(src fdStateSource, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
@@ -148,8 +149,8 @@ func updateSocketpairFDMap(src fdStateSource, scMeta meta.Syscall, targetPid int
 	fd1 := int32(binary.LittleEndian.Uint32(data[0:4]))
 	fd2 := int32(binary.LittleEndian.Uint32(data[4:8]))
 	info := socketFDInfoFromView(src.view)
-	rememberFDTargetFromProc(src.procTid, targetPid, fd1, "|"+info, fdMap)
-	rememberFDTargetFromProc(src.procTid, targetPid, fd2, "|"+info, fdMap)
+	rememberFDTargetFromMetadata(src, targetPid, fd1, "|"+info, fdMap)
+	rememberFDTargetFromMetadata(src, targetPid, fd2, "|"+info, fdMap)
 }
 
 func fdArrayPayloadData(sections []handler.PayloadSection, argIndex int) ([]byte, bool) {
@@ -165,15 +166,18 @@ func fdArrayPayloadData(sections []handler.PayloadSection, argIndex int) ([]byte
 	return nil, false
 }
 
-func updateSocketFDMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+func updateSocketFDMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string, metadata handler.FDMetadataServices) {
 	if !view.valid || scMeta.Name != "socket" || view.ret < 0 {
 		return
 	}
 	fd := int32(view.ret)
 	info := socketFDInfoFromView(view)
 	key := fmt.Sprintf("%d:%d", targetPid, fd)
-	target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", view.tid, fd))
-	if err != nil {
+	target := ""
+	if metadata != nil {
+		target, _ = metadata.FDPath(int(view.tid), fd)
+	}
+	if target == "" {
 		target = "socket:[]"
 	}
 	fdMap[key] = target + "|" + info
@@ -220,22 +224,27 @@ func netlinkSockaddrPayload(src fdStateSource, scMeta meta.Syscall) ([]byte, boo
 	return nil, false
 }
 
-func updateCwdFDMapFromView(view syscallEventView, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
+func updateCwdFDMapFromView(src fdStateSource, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
+	view := src.view
 	if !view.valid {
 		return
 	}
 	if scMeta.Name == "chdir" && view.ret == 0 && pathText != "" && !strings.HasPrefix(pathText, "0x") && pathText != "NULL" {
-		handler.UpdateCwd(targetPid, pathText, fdMap, int(view.pid))
+		handler.UpdateCwd(targetPid, pathText, fdMap, int(view.pid), src.metadata)
 	}
 	if scMeta.Name == "fchdir" && view.ret == 0 {
 		handler.UpdateCwdByFd(targetPid, int32(view.args[0]), fdMap)
 	}
 }
 
-func rememberFDTargetFromProc(procTid uint32, targetPid int, fd int32, suffix string, fdMap map[string]string) {
+func rememberFDTargetFromMetadata(src fdStateSource, targetPid int, fd int32, suffix string, fdMap map[string]string) {
+	metadata := src.metadata
+	if metadata == nil {
+		return
+	}
 	key := fmt.Sprintf("%d:%d", targetPid, fd)
-	target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", procTid, fd))
-	if err != nil {
+	target, ok := metadata.FDPath(int(src.procTid), fd)
+	if !ok {
 		if suffix == "" {
 			return
 		}

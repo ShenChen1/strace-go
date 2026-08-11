@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -13,8 +13,11 @@ func fdStateKey(targetPid int, fd int32) string {
 	return fmt.Sprintf("%d:%d", targetPid, fd)
 }
 
-func initFDTracking(targetPid int, fdMap map[string]string) map[string]int64 {
+func initFDTracking(targetPid int, fdMap map[string]string, metadata handler.FDMetadataServices) map[string]int64 {
 	offsets := make(map[string]int64)
+	if metadata == nil {
+		return offsets
+	}
 	prefix := fmt.Sprintf("%d:", targetPid)
 	for key := range fdMap {
 		if !strings.HasPrefix(key, prefix) || strings.HasSuffix(key, ":cwd") {
@@ -25,30 +28,11 @@ func initFDTracking(targetPid int, fdMap map[string]string) map[string]int64 {
 			continue
 		}
 		fd := int32(fd64)
-		if off, ok := readProcFDOffset(targetPid, fd); ok {
+		if off, ok := metadata.FDOffset(targetPid, fd); ok {
 			offsets[key] = off
 		}
 	}
 	return offsets
-}
-
-func readProcFDOffset(pid int, fd int32) (int64, bool) {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/fdinfo/%d", pid, fd))
-	if err != nil {
-		return 0, false
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "pos:") {
-			continue
-		}
-		pos := strings.TrimSpace(strings.TrimPrefix(line, "pos:"))
-		off, err := strconv.ParseInt(pos, 10, 64)
-		if err == nil {
-			return off, true
-		}
-	}
-	return 0, false
 }
 
 func (st *FDStateStore) bufferFileOffsetFromView(view syscallEventView, scMeta meta.Syscall, statePID int) (int64, bool) {
@@ -63,11 +47,13 @@ func (st *FDStateStore) bufferFileOffsetFromView(view syscallEventView, scMeta m
 		if off, ok := st.offsets[key]; ok {
 			return off, true
 		}
-		if off, ok := readProcFDOffset(int(view.tid), fd); ok {
-			if view.ret > 0 {
-				off -= view.ret
+		if metadata := st.Metadata(); metadata != nil {
+			if off, ok := metadata.FDOffset(int(view.tid), fd); ok {
+				if view.ret > 0 {
+					off -= view.ret
+				}
+				return off, true
 			}
-			return off, true
 		}
 	case "pwrite64":
 		return int64(view.args[3]), true
@@ -105,8 +91,10 @@ func (st *FDStateStore) updateOffsetsFromView(view syscallEventView, scMeta meta
 		key := fdStateKey(statePID, fd)
 		if off, ok := st.offsets[key]; ok {
 			st.offsets[key] = off + ret
-		} else if off, ok := readProcFDOffset(int(view.tid), fd); ok {
-			st.offsets[key] = off
+		} else if metadata := st.Metadata(); metadata != nil {
+			if off, ok := metadata.FDOffset(int(view.tid), fd); ok {
+				st.offsets[key] = off
+			}
 		}
 	case "lseek":
 		st.offsets[fdStateKey(statePID, int32(view.args[0]))] = ret

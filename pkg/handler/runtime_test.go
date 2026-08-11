@@ -22,11 +22,11 @@ func TestRuntimeEventfdFallbackStateIsScoped(t *testing.T) {
 	second := NewRuntime()
 	first.lastEventfdID = 40
 
-	got := first.EventfdInfo("/missing/fd/0", 7, 0, true)
+	got := first.EventfdInfo(101, 0, 7, 0, true)
 	if got != "{eventfd-count=0x7, eventfd-id=41, eventfd-semaphore=0}" {
 		t.Fatalf("first eventfd fallback = %q", got)
 	}
-	if got := second.EventfdInfo("/missing/fd/0", 7, 0, true); got != "" {
+	if got := second.EventfdInfo(101, 0, 7, 0, true); got != "" {
 		t.Fatalf("second eventfd fallback = %q, want empty state", got)
 	}
 }

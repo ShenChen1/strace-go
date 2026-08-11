@@ -10,8 +10,8 @@ import (
 
 // EventfdInfo formats eventfd metadata from fdinfo. The last observed id is
 // session-scoped so a closed fd cannot affect another trace session.
-func (r *Runtime) EventfdInfo(linkPath string, initialCount uint64, flags uint64, forceCount bool) string {
-	fdinfoPath := strings.Replace(linkPath, "/fd/", "/fdinfo/", 1)
+func (r *Runtime) EventfdInfo(pid int, fd int32, initialCount uint64, flags uint64, forceCount bool) string {
+	fdinfoPath := fmt.Sprintf("/proc/%d/fdinfo/%d", pid, fd)
 	file, err := os.Open(fdinfoPath)
 	if err != nil {
 		if r != nil && forceCount && r.lastEventfdID != -1 {
