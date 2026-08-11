@@ -46,7 +46,8 @@ type syscallEventContextDeps struct {
 	decoder  *event.Decoder
 	opts     *cli.Options
 	catalog  *meta.Catalog
-	fdState  *FDStateStore
+	fdState  handler.FDStateReader
+	fdPath   event.FDPathReader
 	registry *handler.Registry
 	runtime  handler.RuntimeServices
 }
@@ -59,21 +60,20 @@ func newSyscallEventContextDepsWithRegistry(
 	s *traceSession,
 	registry *handler.Registry,
 ) syscallEventContextDeps {
+	fdState := s.fdStateStore()
 	return syscallEventContextDeps{
 		decoder:  s.decoder,
 		opts:     s.opts,
 		catalog:  s.catalog,
-		fdState:  s.fdStateStore(),
+		fdState:  fdState,
+		fdPath:   fdState,
 		registry: registry,
-		runtime:  s.fdStateStore().Runtime(),
+		runtime:  fdState.Runtime(),
 	}
 }
 
 func (deps syscallEventContextDeps) fdPathReader() event.FDPathReader {
-	if deps.fdState == nil {
-		return nil
-	}
-	return deps.fdState
+	return deps.fdPath
 }
 
 func (deps syscallEventContextDeps) fdStateReader() handler.FDStateReader {
@@ -84,13 +84,7 @@ func (deps syscallEventContextDeps) fdStateReader() handler.FDStateReader {
 }
 
 func (deps syscallEventContextDeps) runtimeService() handler.RuntimeServices {
-	if deps.runtime != nil {
-		return deps.runtime
-	}
-	if deps.fdState != nil {
-		return deps.fdState.Runtime()
-	}
-	return nil
+	return deps.runtime
 }
 
 func newSyscallEventContextFromView(

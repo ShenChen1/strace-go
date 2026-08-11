@@ -2452,3 +2452,36 @@ ABI 与状态契约：
 本阶段只收口启动对象的 ownership，不把任何异步 live-state 查询引入纯 eBPF 事件路径。
 
 实际验收结果：新增私有 `fdStateSeed`、command cwd seed、seed merge 和 `newFDStateStoreFromSeed`；`startTraceCmd`、`attachToPids`、`resolveTraceTargets` 不再返回裸 FD path map，store 构造时复制 seed，seed 后续修改不会影响长期 reader。新增 seed copy/merge/invalid-cwd/ownership 回归测试。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，732.97 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。
+
+### 14.45 syscall event context 的 FD 读取端口隔离（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.42 已把 `handler.Context`、路径过滤和 JSON 输出改成 FD reader；14.44 又把启动 seed 的 ownership 收口。但 `syscallEventContextDeps` 仍保存具体 `*FDStateStore`，只是为了给 context 提供 path/observation 查询和 runtime service。
+- Problem：event context 的纯解码/过滤层因此可以看到 FDStateStore 的完整写入、继承和清理实现；未来维护者可能从 context builder 调用 mutation 方法，重新打穿单消费者 state owner。这个依赖与 `/proc` 无关，所有数据仍来自 event-sourced store 和 probe-site overlay。
+- Goal：让 context deps 显式接收 `handler.FDStateReader`、`event.FDPathReader` 和 `handler.RuntimeServices` 三个最小端口；context builder 只负责读视图、过滤和 handler context 注入，FD state mutation 继续留在 effects/pipeline 边界。
+- Non-goals：不改变 FDStateStore 的内部 map、事件 overlay、runtime implementation、FD state update/cleanup 顺序、BPF ABI、过滤结果或输出格式；不引入 procfs、ptrace、`process_vm_readv`、锁或额外 snapshot。
+- Constraints：长期 FD reader 与 event overlay 继续分离；`syscallEventContextDeps` 不得暴露 `*FDStateStore`；runtime service 只读/按当前 handler contract 使用；生产 session 仍只创建一个 FDStateStore，由 composition root 将其适配到多个只读端口。
+
+方案比较：
+
+1. 继续传 `*FDStateStore`：改动最小，但 context builder 获得全部 mutation 能力，拒绝。
+2. 定义一个同时包含 reader、runtime 和 mutation 的 `FDStateService`：调用方少一个字段，但会把状态 owner 的写能力继续泄漏进解码层，拒绝。
+3. 分别注入 `handler.FDStateReader`、`event.FDPathReader` 和 `handler.RuntimeServices`：依赖最小、已有接口可复用、无需新状态复制，选择该方案。
+
+状态契约：
+
+- `syscallEventContextDeps.fdState` 只保存 `handler.FDStateReader`；它只用于 handler 的 FD path/cwd/observation 查询。
+- `syscallEventContextDeps.fdPath` 只保存 `event.FDPathReader`；path filter 通过该端口查询长期状态，event overlay 仍单独由当前 payload 构造。
+- `syscallEventContextDeps.runtime` 只保存 `handler.RuntimeServices`；context builder 不从 FD store 反向取得 runtime。
+- `traceSession` composition root 将同一个 `FDStateStore` 分别作为上述读/runtime 端口注入；exit/handler/lifecycle effects 仍拥有唯一写入口。
+
+测试与验收：
+
+- focused context tests 使用 reader/runtime fake，验证 path filter、handler context 和 runtime 注入不依赖具体 FDStateStore。
+- 增加生产源码 gate，禁止 `syscallEventContextDeps` 声明 `*FDStateStore`；保留 session composition identity 检查，确保真实 store 仍被正确注入。
+- 验证顺序：先跑 context/port focused 测试，再 `go test ./...`、`go test -race ./...`、`go vet ./...`、build，随后运行 eBPF semantic/perf、small 和 upstream reference；测试结束清理 BPF pin 与 tracer 进程。
+
+本阶段只收紧 Go context builder 的读依赖，不改变纯 eBPF 事件事实源和 FD state 的单消费者写路径。
+
+实际验收结果：新增 reader/runtime fake 和生产源码 gate，真实 session composition 仍将同一个 `FDStateStore` 注入三个只读端口；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过。`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，743.62 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS，另有 focused `getpid.gen.test` 1 PASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。

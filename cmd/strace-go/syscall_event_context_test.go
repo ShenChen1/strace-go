@@ -68,7 +68,14 @@ func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 	}
 
 	ev := newSyscallEventContextFromViewWithDeps(
-		syscallEventContextDeps{decoder: decoder, opts: opts, catalog: catalog, fdState: fdState},
+		syscallEventContextDeps{
+			decoder: decoder,
+			opts:    opts,
+			catalog: catalog,
+			fdState: fdState,
+			fdPath:  fdState,
+			runtime: fdState.Runtime(),
+		},
 		view,
 		101,
 		nil,

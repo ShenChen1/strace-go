@@ -97,6 +97,46 @@ func TestProductOutputComponentsKeepTraceStateBehindPorts(t *testing.T) {
 	}
 }
 
+func TestProductEventContextKeepsFDStateBehindReaderPorts(t *testing.T) {
+	path := filepath.Join(repositoryRoot(t), "cmd/strace-go/syscall_event_context.go")
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	file, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	if hasConcreteFieldPointer(file, "fdState", "FDStateStore") {
+		t.Fatal("syscallEventContextDeps directly depends on concrete FDStateStore")
+	}
+}
+
+func hasConcreteFieldPointer(file *ast.File, fieldName, typeName string) bool {
+	found := false
+	ast.Inspect(file, func(node ast.Node) bool {
+		field, ok := node.(*ast.Field)
+		if !ok {
+			return true
+		}
+		star, ok := field.Type.(*ast.StarExpr)
+		if !ok {
+			return true
+		}
+		name, ok := star.X.(*ast.Ident)
+		if !ok || name.Name != typeName {
+			return true
+		}
+		for _, fieldIdent := range field.Names {
+			if fieldIdent.Name == fieldName {
+				found = true
+			}
+		}
+		return true
+	})
+	return found
+}
+
 func hasConcreteTraceStatePointer(file *ast.File) bool {
 	found := false
 	ast.Inspect(file, func(node ast.Node) bool {

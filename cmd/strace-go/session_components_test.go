@@ -225,6 +225,12 @@ func TestTraceSessionPipelineUsesComposedDependencies(t *testing.T) {
 	if router.contextDeps.fdState != session.fdStateStore() {
 		t.Fatal("router should use session fd state store for contexts")
 	}
+	if router.contextDeps.fdPath != session.fdStateStore() {
+		t.Fatal("router should use session fd path reader for contexts")
+	}
+	if router.contextDeps.runtime != session.fdStateStore().Runtime() {
+		t.Fatal("router should use session runtime service for contexts")
+	}
 	eventReader := session.traceEventReader()
 	if eventReader.decoder != session.traceRecordDecoder() {
 		t.Fatal("event reader should use composed record decoder")
