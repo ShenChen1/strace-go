@@ -83,10 +83,11 @@ func newJSONLifecycleEvent(view lifecycleEventView, task *TaskState) jsonLifecyc
 }
 
 func (s *traceSession) jsonEventWriter() *JSONEventWriter {
-	if s.jsonWriterCache == nil {
-		s.jsonWriterCache = newJSONEventWriter(JSONEventWriterDeps{Out: s.outWriter})
+	components := s.componentsOrBuild()
+	if components == nil {
+		return nil
 	}
-	return s.jsonWriterCache
+	return components.jsonWriter
 }
 
 func (s *traceSession) emitDebugReady() {

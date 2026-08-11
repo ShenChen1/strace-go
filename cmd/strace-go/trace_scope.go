@@ -17,10 +17,6 @@ func newTraceScope(targetPID int, opts *cli.Options) TraceScope {
 	return scope
 }
 
-func (s *traceSession) traceScope() TraceScope {
-	return newTraceScope(s.targetPid, s.opts)
-}
-
 func (scope TraceScope) AllowsPID(pid uint32) bool {
 	if pid == 0 {
 		return false

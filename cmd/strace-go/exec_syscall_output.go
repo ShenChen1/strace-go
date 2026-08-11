@@ -32,16 +32,6 @@ func newExecSyscallOutput(deps ExecSyscallOutputDeps) *ExecSyscallOutput {
 	}
 }
 
-func (s *traceSession) execSyscallOutput() *ExecSyscallOutput {
-	exitStatus := s.exitStatusCoordinator()
-	return newExecSyscallOutput(ExecSyscallOutputDeps{
-		Opts:              s.opts,
-		State:             s.traceState(),
-		Renderer:          s.textRenderer(),
-		DiscardExitStatus: exitStatus.Discard,
-	})
-}
-
 // IMPACT: HandleEvent owns execve/execveat restart and superseded-thread text state from event context.
 func (o *ExecSyscallOutput) HandleEvent(ev syscallEventContext, res handler.Result) bool {
 	scMeta := ev.effectiveSyscallMeta()

@@ -29,26 +29,11 @@ func newSyscallTextOutput(deps SyscallTextOutputDeps) *SyscallTextOutput {
 }
 
 func (s *traceSession) syscallTextOutput() *SyscallTextOutput {
-	if s.syscallTextCache == nil {
-		renderer := s.textRenderer()
-		state := s.traceState()
-		exitStatus := s.exitStatusCoordinator()
-		s.syscallTextCache = newSyscallTextOutput(SyscallTextOutputDeps{
-			Opts: s.opts,
-			Suspended: newSuspendedSyscallOutput(SuspendedSyscallOutputDeps{
-				State:    state,
-				Renderer: renderer,
-			}),
-			Exec: newExecSyscallOutput(ExecSyscallOutputDeps{
-				Opts:              s.opts,
-				State:             state,
-				Renderer:          renderer,
-				DiscardExitStatus: exitStatus.Discard,
-			}),
-			Renderer: renderer,
-		})
+	components := s.componentsOrBuild()
+	if components == nil {
+		return nil
 	}
-	return s.syscallTextCache
+	return components.syscallText
 }
 
 // IMPACT: HandleEvent owns text-mode syscall output from the stable syscall event context.

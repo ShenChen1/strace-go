@@ -19,17 +19,15 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
-	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
 )
 
 type traceSession struct {
 	cmd           *exec.Cmd
-	events        *ringbuf.Reader
+	events        traceRingbufReader
 	targetPid     int
 	opts          *cli.Options
 	decoder       *event.Decoder
-	recordDecoder traceRecordDecoder
 	fdState       *FDStateStore
 	outWriter     io.Writer
 	output        *TraceOutput
@@ -37,22 +35,8 @@ type traceSession struct {
 	timeFormatter *TimeFormatter
 	bpfObjs       *bpfObjects
 	resolver      *stacktrace.Resolver
-	exitStatus    *ExitStatusQueue
 	state         *TraceState
-
-	textRendererCache       *TextRenderer
-	syscallJSONCache        *SyscallJSONOutput
-	syscallTextCache        *SyscallTextOutput
-	exitSyscallCache        *ExitSyscallOutput
-	syscallRunnerCache      *SyscallHandlerRunner
-	syscallPipelineCache    *SyscallExitPipeline
-	lifecycleHandlerCache   *LifecycleEventHandler
-	exitCoordinatorCache    *ExitStatusCoordinator
-	eventRouterCache        *TraceEventRouter
-	runFinalizerCache       *TraceRunFinalizer
-	commandExitHandlerCache *TraceCommandExitHandler
-	eventReaderCache        *TraceEventReader
-	jsonWriterCache         *JSONEventWriter
+	components    *traceSessionComponents
 }
 
 // IMPACT: setupBPF is the single eBPF runtime wiring entry used by main. It loads

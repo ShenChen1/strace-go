@@ -2195,3 +2195,33 @@ ABI 与状态契约：
 本阶段接受 bounded path snapshot 对超长/无法解析路径的保守退化；已知 cwd 不得被这类不完整快照覆盖，这不是用 procfs 补齐的理由。后续若要覆盖更长路径必须设计新的 probe-site 分片 ABI。
 
 实际验收结果：先失败的 cwd 优先级、exec 后 cwd 保留和 cwd path-only 解码回归在修复后通过；BPF dentry walker 拆分后重新生成并通过 verifier。`go test ./...`、`go test -race ./...`、`go vet ./...`、10 个 Python runner 单测、`ebpf-semantic` 和 `ebpf-perf` 均通过；semantic 为 201 个主事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch 均为 0，perf 为 10,000 个 getpid 事件、5,000/5,000 enter/exit、0 丢失、727.07 events/s。原生 `small` 为 23 PASS、`more` 为 80 PASS + 3 个既定 XFAIL、`upstream-reference` 为 46 PASS + 2 个既定 XFAIL；`open_tree`、`move_mount` 和 `move_mount-P` 已从 expected-XFAIL 恢复为 PASS。
+
+### 14.37 Go session composition root 与事件端口收口（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.1 至 14.36 已将纯 eBPF event v2、单消费者状态机、生命周期、FD/path state 和 semantic output 逐步接通；但 `traceSession` 仍同时保存十余个组件 cache，各 `xxx()` 方法互相懒构造，事件 reader、router、pipeline、renderer 和 finalizer 的实例关系隐藏在调用顺序中。
+- Problem：继续在这种结构上增加 syscall family 会把依赖和资源所有权重新散落到 session 方法；单元测试只能构造半初始化 session，容易产生重复 writer、重复 exit coordinator 或不同 state 实例。接口虽然存在，composition boundary 仍不明确。
+- Goal：建立单一 `traceSessionComponents` composition root，由 `newTraceSession` 按依赖顺序一次性构造整条 Go 事件链；将 ringbuf 依赖保持为 `traceRingbufReader` 端口，使事件 reader 可以注入 fake；移除旧的 session cache 和重复的 exec/suspended/exit queue 构造路径。
+- Non-goals：本阶段不修改 BPF event ABI、syscall capture、handler formatter、CLI 选项、生命周期语义或 upstream expected-XFAIL；不把内部组件迁移到公共 package，也不引入 ptrace/procfs。
+- Constraints：生产入口必须使用 `newTraceSession`；事件处理仍由一个 goroutine 执行；`TraceOutput` 仍由 finalizer 唯一关闭；为已有纯数据单测保留零值 session fixture 的集中补齐，但该 fallback 不再拥有另一套组件构造逻辑。
+
+方案比较：
+
+1. 只把已有 cache 字段的初始化移动到 `main`：改动小，但依赖仍分散，测试和未来功能仍可能创建重复组件，拒绝。
+2. 引入 `traceSessionComponents` 和 `traceSessionDeps`，按 base/output/event/runtime 四层构造并由 session 只通过集中 accessor 使用：依赖方向、单实例关系和注入边界可验证，改动局部，选择该方案。
+3. 立即把所有组件迁移到新公共 package 并导出完整接口：长期边界更强，但会扩大 API 和包间耦合，不能为当前阶段增加足够收益，拒绝。
+
+状态契约：
+
+- `main` 先创建 BPF/ringbuf/output 等外部资源，再调用 `newTraceSession(traceSessionDeps{...})`；构造器归一化 decoder、FD state、output writer、time formatter、summary 和 deferred-exit state。
+- `traceSessionComponents` 以 base（JSON writer、renderer、exit status、handler runner）、output（syscall text/JSON/exit）、event（pipeline、lifecycle、router）和 runtime（record decoder、reader、finalizer、command exit）分层组装；router、reader、pipeline、finalizer 共用同一个 session state 和 exit coordinator。
+- `traceRingbufReader` 是 ringbuf 的 I/O 端口，生产实现仍是 `*ringbuf.Reader`；BPF 事件解码和 sink 关系在 composition root 内固定，事件循环不再从独立 cache 字段取对象。
+- 删除旧 `recordDecoder`、exit queue cache 以及 `execSyscallOutput`/`suspendedSyscallOutput` 的重复 session 构造方法；零值测试 fixture 如需触发事件链，只通过 `componentsOrBuild` 进入同一个 builder。
+
+测试与验收：
+
+- 新增 composition contract 测试：验证构造器 eager build、注入 ringbuf 端口、reader/decoder/router/state 单实例关系，以及 exit syscall、command exit、finalizer 共用同一个 exit coordinator。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `sudo -n go generate ./cmd/strace-go` 通过；Python runner 单测 5 项、semantic oracle 单测 10 项通过。
+- `ebpf-semantic` 通过：201 个主事件、102/99 enter/exit、ringbuf reserve/copy/pending/orphan/mismatch 均为 0，payload truncated 为 8；`ebpf-perf` 通过：10,000 个 getpid 事件、5,000/5,000 enter/exit、0 丢失，735.89 events/s。
+- 当前源码 binary 的 `upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）；`small` 为 23 PASS、0 FAIL。reference 首次运行的 root-owned 测试目录只造成 framework 权限失败，修正生成目录归属后重跑通过。

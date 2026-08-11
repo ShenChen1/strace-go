@@ -40,14 +40,11 @@ func newTraceEventReader(deps TraceEventReaderDeps) *TraceEventReader {
 }
 
 func (s *traceSession) traceEventReader() *TraceEventReader {
-	if s.eventReaderCache == nil {
-		s.eventReaderCache = newTraceEventReader(TraceEventReaderDeps{
-			Reader:  s.events,
-			Decoder: s.traceRecordDecoder(),
-			Sink:    s.traceEventRouter(),
-		})
+	components := s.componentsOrBuild()
+	if components == nil {
+		return nil
 	}
-	return s.eventReaderCache
+	return components.eventReader
 }
 
 func (r *TraceEventReader) Read(rec *ringbuf.Record, timeout time.Duration) traceReadStatus {

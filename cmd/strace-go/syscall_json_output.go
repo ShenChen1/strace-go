@@ -26,14 +26,11 @@ func newSyscallJSONOutput(deps SyscallJSONOutputDeps) *SyscallJSONOutput {
 }
 
 func (s *traceSession) syscallJSONOutput() *SyscallJSONOutput {
-	if s.syscallJSONCache == nil {
-		s.syscallJSONCache = newSyscallJSONOutput(SyscallJSONOutputDeps{
-			Opts:    s.opts,
-			PathMap: s.fdStateStore().PathMap(),
-			Writer:  s.jsonEventWriter(),
-		})
+	components := s.componentsOrBuild()
+	if components == nil {
+		return nil
 	}
-	return s.syscallJSONCache
+	return components.syscallJSON
 }
 
 func (o *SyscallJSONOutput) HandleEnter(ev syscallEventContext) {

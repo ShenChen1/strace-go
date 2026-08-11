@@ -21,13 +21,6 @@ func newSuspendedSyscallOutput(deps SuspendedSyscallOutputDeps) *SuspendedSyscal
 	}
 }
 
-func (s *traceSession) suspendedSyscallOutput() *SuspendedSyscallOutput {
-	return newSuspendedSyscallOutput(SuspendedSyscallOutputDeps{
-		State:    s.traceState(),
-		Renderer: s.textRenderer(),
-	})
-}
-
 // IMPACT: HandleEvent owns synthetic unfinished syscall enter events from the stable event context.
 func (o *SuspendedSyscallOutput) HandleEvent(ev syscallEventContext, res handler.Result) bool {
 	view := ev.eventView()

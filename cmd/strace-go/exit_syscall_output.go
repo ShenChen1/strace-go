@@ -37,18 +37,11 @@ func newExitSyscallOutput(deps ExitSyscallOutputDeps) *ExitSyscallOutput {
 }
 
 func (s *traceSession) exitSyscallOutput() *ExitSyscallOutput {
-	if s.exitSyscallCache == nil {
-		exitStatus := s.exitStatusCoordinator()
-		s.exitSyscallCache = newExitSyscallOutput(ExitSyscallOutputDeps{
-			Opts:              s.opts,
-			Renderer:          s.textRenderer(),
-			Out:               s.outWriter,
-			ShouldQueueStatus: exitStatus.ShouldQueue,
-			QueueStatus:       exitStatus.Queue,
-			JSONWriter:        s.jsonEventWriter(),
-		})
+	components := s.componentsOrBuild()
+	if components == nil {
+		return nil
 	}
-	return s.exitSyscallCache
+	return components.exitSyscall
 }
 
 // IMPACT: Handle owns exit/exit_group text, JSON, and exit-status queue output.

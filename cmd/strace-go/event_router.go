@@ -33,18 +33,11 @@ func newTraceEventRouter(deps TraceEventRouterDeps) *TraceEventRouter {
 }
 
 func (s *traceSession) traceEventRouter() *TraceEventRouter {
-	if s.eventRouterCache == nil {
-		s.eventRouterCache = newTraceEventRouter(TraceEventRouterDeps{
-			Scope:       s.traceScope(),
-			TargetPID:   s.targetPid,
-			State:       s.traceState(),
-			Lifecycle:   s.lifecycleEventHandler(),
-			JSON:        s.syscallJSONOutput(),
-			Pipeline:    s.syscallExitPipeline(),
-			ContextDeps: newSyscallEventContextDeps(s),
-		})
+	components := s.componentsOrBuild()
+	if components == nil {
+		return nil
 	}
-	return s.eventRouterCache
+	return components.eventRouter
 }
 
 // IMPACT: Handle is the single routing boundary after a ringbuf record is decoded.

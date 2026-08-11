@@ -10,10 +10,11 @@ type traceRecordDecoder interface {
 type traceRingbufRecordDecoder struct{}
 
 func (s *traceSession) traceRecordDecoder() traceRecordDecoder {
-	if s.recordDecoder == nil {
-		s.recordDecoder = traceRingbufRecordDecoder{}
+	components := s.componentsOrBuild()
+	if components == nil {
+		return nil
 	}
-	return s.recordDecoder
+	return components.recordDecoder
 }
 
 func (d traceRingbufRecordDecoder) Decode(rec *ringbuf.Record) (traceEventEnvelope, bool) {

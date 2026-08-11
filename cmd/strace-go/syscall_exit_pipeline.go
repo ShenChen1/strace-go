@@ -65,17 +65,11 @@ func newSyscallExitPipeline(deps SyscallExitPipelineDeps) *SyscallExitPipeline {
 }
 
 func (s *traceSession) syscallExitPipeline() *SyscallExitPipeline {
-	if s.syscallPipelineCache == nil {
-		s.syscallPipelineCache = newSyscallExitPipeline(SyscallExitPipelineDeps{
-			Opts:    s.opts,
-			JSON:    s.syscallJSONOutput(),
-			Exit:    s.exitSyscallOutput(),
-			Runner:  s.syscallHandlerRunner(),
-			Text:    s.syscallTextOutput(),
-			Effects: newTraceSessionSyscallExitEffects(s.summaryStats(), s.fdStateStore()),
-		})
+	components := s.componentsOrBuild()
+	if components == nil {
+		return nil
 	}
-	return s.syscallPipelineCache
+	return components.exitPipeline
 }
 
 // IMPACT: Handle owns the syscall exit/full event pipeline after context construction.

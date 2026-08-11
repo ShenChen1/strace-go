@@ -89,20 +89,20 @@ func main() {
 		resolver = stacktrace.NewResolver()
 	}
 
-	session := &traceSession{
-		cmd:           cmd,
-		events:        events,
-		targetPid:     targetPid,
-		opts:          opts,
-		decoder:       decoder,
-		fdState:       fdState,
-		outWriter:     output,
-		output:        output,
-		timeFormatter: newTimeFormatter(calculateTimeOffset()),
-		bpfObjs:       bpfObjs,
-		resolver:      resolver,
-		state:         newTraceStateWithDeferredExit(shouldEmitGenericEnter(opts)),
-	}
+	session := newTraceSession(traceSessionDeps{
+		Cmd:           cmd,
+		Events:        events,
+		TargetPID:     targetPid,
+		Opts:          opts,
+		Decoder:       decoder,
+		FDState:       fdState,
+		OutWriter:     output,
+		Output:        output,
+		TimeFormatter: newTimeFormatter(calculateTimeOffset()),
+		BPFObjects:    bpfObjs,
+		Resolver:      resolver,
+		State:         newTraceStateWithDeferredExit(shouldEmitGenericEnter(opts)),
+	})
 	session.emitDebugReady()
 	if err := session.run(); err != nil {
 		log.Fatalf("failed to finalize trace session: %v", err)

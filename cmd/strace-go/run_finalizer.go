@@ -46,18 +46,11 @@ func newTraceRunFinalizer(deps TraceRunFinalizerDeps) *TraceRunFinalizer {
 }
 
 func (s *traceSession) traceRunFinalizer() *TraceRunFinalizer {
-	if s.runFinalizerCache == nil {
-		s.runFinalizerCache = newTraceRunFinalizer(TraceRunFinalizerDeps{
-			Opts:            s.opts,
-			TargetPID:       s.targetPid,
-			StatsDiagnostic: os.Stderr,
-			ExitStatus:      s.exitStatusCoordinator(),
-			Summary:         s.summaryStats(),
-			BPFObjects:      s.bpfObjs,
-			Output:          s.output,
-		})
+	components := s.componentsOrBuild()
+	if components == nil {
+		return nil
 	}
-	return s.runFinalizerCache
+	return components.runFinalizer
 }
 
 func (f *TraceRunFinalizer) Finish() error {

@@ -40,17 +40,11 @@ func newTextRenderer(deps TextRendererDeps) *TextRenderer {
 }
 
 func (s *traceSession) textRenderer() *TextRenderer {
-	if s.textRendererCache == nil {
-		s.textRendererCache = newTextRenderer(TextRendererDeps{
-			Out:           s.outWriter,
-			Opts:          s.opts,
-			State:         s.traceState(),
-			TimeFormatter: s.timeFormatterState(),
-			BPFObjs:       s.bpfObjs,
-			Resolver:      s.resolver,
-		})
+	components := s.componentsOrBuild()
+	if components == nil {
+		return nil
 	}
-	return s.textRendererCache
+	return components.textRenderer
 }
 
 func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.Result) {
