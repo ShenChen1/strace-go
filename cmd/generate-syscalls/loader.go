@@ -51,17 +51,8 @@ func (defaultSyscallMetadataLoader) Load() (map[int]SyscallMeta, error) {
 }
 
 func (defaultSyscallMetadataLoader) LoadWithResolution() (map[int]syscallMetadataResolution, error) {
-	loader, err := newDefaultSyscallMetadataLoader()
-	if err != nil {
-		return nil, err
-	}
+	loader := newDefaultSyscallMetadataLoader()
 	return loader.LoadWithResolution()
-}
-
-type syscallentFileSource string
-
-func (s syscallentFileSource) LoadSyscallEntries() ([]syscallentEntry, error) {
-	return parseSyscallent(string(s))
 }
 
 type syscallMetadataLoader struct {
@@ -109,27 +100,19 @@ type syscallMetadataResolver struct {
 }
 
 func LoadSyscalls() (map[int]SyscallMeta, error) {
-	loader, err := newDefaultSyscallMetadataLoader()
-	if err != nil {
-		return nil, err
-	}
+	loader := newDefaultSyscallMetadataLoader()
 	return loader.Load()
 }
 
-func newDefaultSyscallMetadataLoader() (syscallMetadataLoader, error) {
-	syscallentPath, err := resolveRepoPath(defaultSyscallentRelPath)
-	if err != nil {
-		return syscallMetadataLoader{}, err
-	}
-	loader := syscallMetadataLoader{
+func newDefaultSyscallMetadataLoader() syscallMetadataLoader {
+	return syscallMetadataLoader{
 		btfSource:         kernelBTFSource{},
 		tracepointSource:  kernelTracepointFormatSource{},
 		numberSource:      unixSyscallSource{},
-		semanticSource:    syscallentFileSource(syscallentPath),
+		semanticSource:    checkedInSyscallSemanticSource{},
 		semanticOverrides: semanticOverrides,
-		aliases:           btfNameToSyscallent,
+		aliases:           btfNameToCanonicalSyscall,
 	}
-	return loader, nil
 }
 
 func (l syscallMetadataLoader) Load() (map[int]SyscallMeta, error) {

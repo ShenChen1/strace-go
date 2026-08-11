@@ -52,7 +52,7 @@ func newGeneratorCommand() generatorCommand {
 		auditSource:      kernelBTFSource{},
 		tracepointSource: kernelTracepointFormatSource{},
 		overrides:        allSyscallOverrides(),
-		aliases:          btfNameToSyscallent,
+		aliases:          btfNameToCanonicalSyscall,
 	}
 }
 

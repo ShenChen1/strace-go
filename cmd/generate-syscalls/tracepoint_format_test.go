@@ -144,7 +144,7 @@ func TestKernelTracepointFormatSourceAcceptsOneReadableRoot(t *testing.T) {
 }
 
 func TestTracepointLookupNamesIncludesKernelSendfileAlias(t *testing.T) {
-	names := tracepointLookupNames([]string{"sendfile"}, btfNameToSyscallent)
+	names := tracepointLookupNames([]string{"sendfile"}, btfNameToCanonicalSyscall)
 
 	if !containsString(names, "sendfile") || !containsString(names, "sendfile64") {
 		t.Fatalf("tracepoint names = %v, want sendfile and sendfile64", names)

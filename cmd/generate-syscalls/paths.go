@@ -7,7 +7,6 @@ import (
 )
 
 const (
-	defaultSyscallentRelPath    = "strace-upstream/src/linux/x86_64/syscallent.h"
 	defaultSyscallTableRelPath  = "pkg/meta/syscall_table.go"
 	generateSyscallsPackagePath = "cmd/generate-syscalls"
 )

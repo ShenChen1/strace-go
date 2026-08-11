@@ -1,8 +1,8 @@
 package main
 
 // BTF uses different function names for some syscalls.
-// This maps BTF name → syscallent.h name.
-var btfNameToSyscallent = map[string]string{
+// This maps a BTF name to the canonical syscall name used by the catalog.
+var btfNameToCanonicalSyscall = map[string]string{
 	"newstat":    "stat",
 	"newlstat":   "lstat",
 	"newfstat":   "fstat",

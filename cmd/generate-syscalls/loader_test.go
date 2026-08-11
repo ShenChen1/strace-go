@@ -209,12 +209,6 @@ func TestSyscallMetadataLoaderReportsSourceErrors(t *testing.T) {
 	}
 }
 
-func TestDefaultLoaderUsesSyscallentPath(t *testing.T) {
-	if defaultSyscallentRelPath != "strace-upstream/src/linux/x86_64/syscallent.h" {
-		t.Fatalf("defaultSyscallentRelPath = %q", defaultSyscallentRelPath)
-	}
-}
-
 func assertMeta(t *testing.T, got SyscallMeta, want SyscallMeta) {
 	t.Helper()
 	if !reflect.DeepEqual(got, want) {

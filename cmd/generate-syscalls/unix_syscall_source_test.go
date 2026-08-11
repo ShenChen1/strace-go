@@ -112,10 +112,7 @@ func TestMergeSyscallEntriesRejectsDuplicateSyscallNumbers(t *testing.T) {
 }
 
 func TestDefaultLoaderUsesUnixNumberSource(t *testing.T) {
-	loader, err := newDefaultSyscallMetadataLoader()
-	if err != nil {
-		t.Fatalf("newDefaultSyscallMetadataLoader() error = %v", err)
-	}
+	loader := newDefaultSyscallMetadataLoader()
 	if _, ok := loader.numberSource.(unixSyscallSource); !ok {
 		t.Fatalf("number source = %T, want unixSyscallSource", loader.numberSource)
 	}
