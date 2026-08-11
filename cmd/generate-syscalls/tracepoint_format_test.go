@@ -162,12 +162,13 @@ func TestTracepointFormatSourceRejectsUnsafeName(t *testing.T) {
 
 func TestSyscallMetadataLoaderUsesTracepointFallback(t *testing.T) {
 	loader := syscallMetadataLoader{
-		btfSource: fakeBTFSource{syscalls: map[string]SyscallMeta{}},
+		btfSource:    fakeBTFSource{syscalls: map[string]SyscallMeta{}},
+		numberSource: fakeSyscallNumberSource{numbers: []syscallNumberEntry{{ID: 3, Name: "close"}}},
 		tracepointSource: fakeTracepointSyscallSource{syscalls: map[string]SyscallMeta{
 			"close": {Name: "close", Args: []string{"fd"}, ArgTypes: []string{"unsigned int"}},
 		}},
-		entrySource: fakeEntrySource{entries: []syscallentEntry{{ID: 3, Name: "close", Argc: 1, Flags: "TD"}}},
-		aliases:     map[string]string{},
+		semanticSource: fakeEntrySource{entries: []syscallentEntry{{ID: 3, Name: "close", Argc: 1, Flags: "TD"}}},
+		aliases:        map[string]string{},
 	}
 
 	got, err := loader.Load()
@@ -188,15 +189,16 @@ func TestSyscallMetadataLoaderUsesTracepointFallback(t *testing.T) {
 func TestSyscallMetadataLoaderUsesTracepointAliasFallback(t *testing.T) {
 	var requested []string
 	loader := syscallMetadataLoader{
-		btfSource: fakeBTFSource{syscalls: map[string]SyscallMeta{}},
+		btfSource:    fakeBTFSource{syscalls: map[string]SyscallMeta{}},
+		numberSource: fakeSyscallNumberSource{numbers: []syscallNumberEntry{{ID: 5, Name: "fstat"}}},
 		tracepointSource: fakeTracepointSyscallSource{
 			syscalls: map[string]SyscallMeta{
 				"newfstat": {Name: "newfstat", Args: []string{"fd", "statbuf"}, ArgTypes: []string{"unsigned int", "struct stat *"}},
 			},
 			requested: &requested,
 		},
-		entrySource: fakeEntrySource{entries: []syscallentEntry{{ID: 5, Name: "fstat", Argc: 2, Flags: "TF"}}},
-		aliases:     map[string]string{"newfstat": "fstat"},
+		semanticSource: fakeEntrySource{entries: []syscallentEntry{{ID: 5, Name: "fstat", Argc: 2, Flags: "TF"}}},
+		aliases:        map[string]string{"newfstat": "fstat"},
 	}
 
 	got, err := loader.Load()
@@ -214,12 +216,13 @@ func TestSyscallMetadataLoaderUsesTracepointAliasFallback(t *testing.T) {
 
 func TestSyscallMetadataLoaderIgnoresTracepointArityMismatch(t *testing.T) {
 	loader := syscallMetadataLoader{
-		btfSource: fakeBTFSource{syscalls: map[string]SyscallMeta{}},
+		btfSource:    fakeBTFSource{syscalls: map[string]SyscallMeta{}},
+		numberSource: fakeSyscallNumberSource{numbers: []syscallNumberEntry{{ID: 3, Name: "close"}}},
 		tracepointSource: fakeTracepointSyscallSource{syscalls: map[string]SyscallMeta{
 			"close": {Name: "close", Args: []string{"fd", "extra"}, ArgTypes: []string{"int", "int"}},
 		}},
-		entrySource: fakeEntrySource{entries: []syscallentEntry{{ID: 3, Name: "close", Argc: 1, Flags: "TD"}}},
-		aliases:     map[string]string{},
+		semanticSource: fakeEntrySource{entries: []syscallentEntry{{ID: 3, Name: "close", Argc: 1, Flags: "TD"}}},
+		aliases:        map[string]string{},
 	}
 
 	got, err := loader.Load()

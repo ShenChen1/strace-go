@@ -383,8 +383,4 @@ var SyscallTable = map[uint32]Syscall{
 	465: {Name: "listxattrat", Args: []string{"dfd", "pathname", "at_flags", "list", "size"}, ArgTypes: []string{"int", "const char *", "unsigned int", "char *", "size_t"}, Flags: "TD|TF"},
 	466: {Name: "removexattrat", Args: []string{"dfd", "pathname", "at_flags", "name"}, ArgTypes: []string{"int", "const char *", "unsigned int", "const char *"}, Flags: "TD|TF"},
 	467: {Name: "open_tree_attr", Args: []string{"dfd", "filename", "flags", "uattr", "usize"}, ArgTypes: []string{"int", "const char *", "unsigned int", "struct mount_attr *", "size_t"}, Flags: "TD|TF"},
-	468: {Name: "file_getattr", Args: []string{"dfd", "filename", "ufattr", "usize", "at_flags"}, ArgTypes: []string{"int", "const char *", "struct file_attr *", "size_t", "unsigned int"}, Flags: "TD|TF"},
-	469: {Name: "file_setattr", Args: []string{"dfd", "filename", "ufattr", "usize", "at_flags"}, ArgTypes: []string{"int", "const char *", "struct file_attr *", "size_t", "unsigned int"}, Flags: "TD|TF"},
-	470: {Name: "listns", Args: []string{"req", "ns_ids", "nr_ns_ids", "flags"}, ArgTypes: []string{"const struct ns_id_req *", "u64 *", "size_t", "unsigned int"}, Flags: "0"},
-	471: {Name: "rseq_slice_yield", Args: []string{}, ArgTypes: []string{}, Flags: "0"},
 }

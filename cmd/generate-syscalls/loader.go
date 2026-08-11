@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -19,6 +20,10 @@ type btfSyscallDatasetSource interface {
 
 type syscallEntrySource interface {
 	LoadSyscallEntries() ([]syscallentEntry, error)
+}
+
+type syscallNumberSource interface {
+	LoadSyscallNumbers() ([]syscallNumberEntry, error)
 }
 
 type syscallMetadataResolutionLoader interface {
@@ -62,7 +67,8 @@ func (s syscallentFileSource) LoadSyscallEntries() ([]syscallentEntry, error) {
 type syscallMetadataLoader struct {
 	btfSource         btfSyscallSource
 	tracepointSource  tracepointSyscallSource
-	entrySource       syscallEntrySource
+	numberSource      syscallNumberSource
+	semanticSource    syscallEntrySource
 	semanticOverrides map[string]SyscallMeta
 	aliases           map[string]string
 }
@@ -118,7 +124,8 @@ func newDefaultSyscallMetadataLoader() (syscallMetadataLoader, error) {
 	loader := syscallMetadataLoader{
 		btfSource:         kernelBTFSource{},
 		tracepointSource:  kernelTracepointFormatSource{},
-		entrySource:       syscallentFileSource(syscallentPath),
+		numberSource:      unixSyscallSource{},
+		semanticSource:    syscallentFileSource(syscallentPath),
 		semanticOverrides: semanticOverrides,
 		aliases:           btfNameToSyscallent,
 	}
@@ -142,7 +149,21 @@ func (l syscallMetadataLoader) LoadWithResolution() (map[int]syscallMetadataReso
 	if err != nil {
 		return nil, err
 	}
-	entries, err := l.entrySource.LoadSyscallEntries()
+	if l.numberSource == nil {
+		return nil, fmt.Errorf("syscall number source is not configured")
+	}
+	numbers, err := l.numberSource.LoadSyscallNumbers()
+	if err != nil {
+		return nil, fmt.Errorf("load syscall numbers: %w", err)
+	}
+	if l.semanticSource == nil {
+		return nil, fmt.Errorf("syscall semantic source is not configured")
+	}
+	semanticEntries, err := l.semanticSource.LoadSyscallEntries()
+	if err != nil {
+		return nil, fmt.Errorf("load syscall semantic entries: %w", err)
+	}
+	entries, err := mergeSyscallEntries(numbers, semanticEntries)
 	if err != nil {
 		return nil, err
 	}
@@ -169,6 +190,36 @@ func (l syscallMetadataLoader) LoadWithResolution() (map[int]syscallMetadataReso
 		res[ent.ID] = resolver.Resolve(ent)
 	}
 	return res, nil
+}
+
+func mergeSyscallEntries(numbers []syscallNumberEntry, semanticEntries []syscallentEntry) ([]syscallentEntry, error) {
+	semanticByName := make(map[string]syscallentEntry, len(semanticEntries))
+	for _, entry := range semanticEntries {
+		if _, exists := semanticByName[entry.Name]; exists {
+			return nil, fmt.Errorf("duplicate semantic metadata for syscall %s", entry.Name)
+		}
+		semanticByName[entry.Name] = entry
+	}
+
+	entries := make([]syscallentEntry, 0, len(numbers))
+	seenIDs := make(map[int]string, len(numbers))
+	for _, number := range numbers {
+		if previousName, exists := seenIDs[number.ID]; exists {
+			return nil, fmt.Errorf("duplicate syscall number %d for %s and %s", number.ID, previousName, number.Name)
+		}
+		semantic, ok := semanticByName[number.Name]
+		if !ok {
+			return nil, fmt.Errorf("missing semantic metadata for syscall %s", number.Name)
+		}
+		seenIDs[number.ID] = number.Name
+		semantic.ID = number.ID
+		semantic.Name = number.Name
+		entries = append(entries, semantic)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].ID < entries[j].ID
+	})
+	return entries, nil
 }
 
 func (r syscallMetadataResolver) Resolve(ent syscallentEntry) syscallMetadataResolution {

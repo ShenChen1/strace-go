@@ -50,7 +50,13 @@ func TestSyscallMetadataLoaderAppliesPriorityOrder(t *testing.T) {
 		tracepointSource: fakeTracepointSyscallSource{syscalls: map[string]SyscallMeta{
 			"close": {Name: "close", Args: []string{"tracepoint_fd"}, ArgTypes: []string{"unsigned int"}},
 		}},
-		entrySource: fakeEntrySource{entries: []syscallentEntry{
+		numberSource: fakeSyscallNumberSource{numbers: []syscallNumberEntry{
+			{ID: 1, Name: "read"},
+			{ID: 2, Name: "stat"},
+			{ID: 3, Name: "close"},
+			{ID: 4, Name: "missing"},
+		}},
+		semanticSource: fakeEntrySource{entries: []syscallentEntry{
 			{ID: 1, Name: "read", Argc: 1, Flags: "TD"},
 			{ID: 2, Name: "stat", Argc: 2, Flags: "TF"},
 			{ID: 3, Name: "close", Argc: 1, Flags: "TD"},
@@ -185,14 +191,18 @@ func TestSyscallMetadataResolverArityDecisionMatrix(t *testing.T) {
 
 func TestSyscallMetadataLoaderReportsSourceErrors(t *testing.T) {
 	btfErr := errors.New("btf failed")
-	if _, err := (syscallMetadataLoader{btfSource: fakeBTFSource{err: btfErr}}).Load(); !errors.Is(err, btfErr) {
+	if _, err := (syscallMetadataLoader{
+		btfSource:    fakeBTFSource{err: btfErr},
+		numberSource: fakeSyscallNumberSource{},
+	}).Load(); !errors.Is(err, btfErr) {
 		t.Fatalf("Load() BTF error = %v, want %v", err, btfErr)
 	}
 
 	entryErr := errors.New("entries failed")
 	loader := syscallMetadataLoader{
-		btfSource:   fakeBTFSource{syscalls: map[string]SyscallMeta{}},
-		entrySource: fakeEntrySource{err: entryErr},
+		btfSource:      fakeBTFSource{syscalls: map[string]SyscallMeta{}},
+		numberSource:   fakeSyscallNumberSource{},
+		semanticSource: fakeEntrySource{err: entryErr},
 	}
 	if _, err := loader.Load(); !errors.Is(err, entryErr) {
 		t.Fatalf("Load() entry error = %v, want %v", err, entryErr)

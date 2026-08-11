@@ -11,7 +11,8 @@ import (
 	"strings"
 )
 
-// syscallentEntry holds data parsed from one line of syscallent.h.
+// syscallentEntry holds semantic metadata parsed from one line of syscallent.h.
+// ID is retained by the parser but replaced by the local ABI number during merge.
 type syscallentEntry struct {
 	ID    int
 	Name  string
@@ -20,7 +21,7 @@ type syscallentEntry struct {
 }
 
 // parseSyscallent parses strace-upstream's syscallent.h file to extract
-// syscall ID → (name, argc) mappings.
+// semantic name, ABI arity, and formatter flags. The parsed ID is not authoritative.
 // Format: [  0] = { 3,    TD,             SEN(read),   "read"   },
 // or: [BASE_NR + 424] = { 4,  TD|TS|TP,       SEN(pidfd_send_signal),         "pidfd_send_signal"     },
 var syscallentRe = regexp.MustCompile(
