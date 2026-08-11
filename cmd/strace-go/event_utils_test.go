@@ -21,7 +21,7 @@ func updateFDMapForTest(
 	pathText string,
 	targetPid int,
 	fdMap map[string]string,
-) {
+) *FDStateStore {
 	store := newFDStateStoreFromMaps(fdMap, nil)
 	ev := syscallEventContext{
 		view:            view,
@@ -31,6 +31,7 @@ func updateFDMapForTest(
 		payloadSections: payloadSections,
 	}
 	ev.updateFDState(store)
+	return store
 }
 
 func TestDup2FormatsArgsBeforeFDMapUpdateAndReturnAfter(t *testing.T) {
@@ -63,7 +64,8 @@ func TestDup2FormatsArgsBeforeFDMapUpdateAndReturnAfter(t *testing.T) {
 		t.Fatalf("dup2 args = %#v, want %#v", got, want)
 	}
 
-	updateFDMapForTest(syscallEventView{valid: true, pid: 101, tid: 101, args: args, ret: ret}, sc, nil, "", 101, fdMap)
+	updatedStore := updateFDMapForTest(syscallEventView{valid: true, pid: 101, tid: 101, args: args, ret: ret}, sc, nil, "", 101, fdMap)
+	ctx.FDStateView = updatedStore
 	if got := formatSyscallRet("dup2", 4, res, ctx); got != "4</dev/null>" {
 		t.Fatalf("dup2 return = %q, want %q", got, "4</dev/null>")
 	}
@@ -84,14 +86,14 @@ func TestUpdateFDMapUsesPipePayloadSection(t *testing.T) {
 			view := syscallEventView{valid: true, tid: uint32(os.Getpid()), eventType: bpfEventTypeExit, ret: 0}
 
 			fdMap := make(map[string]string)
-			updateFDMapForTest(view, meta.Syscall{Name: name}, sections, "", 101, fdMap)
+			store := updateFDMapForTest(view, meta.Syscall{Name: name}, sections, "", 101, fdMap)
 
 			readKey := fmt.Sprintf("101:%d", int32(readEnd.Fd()))
 			writeKey := fmt.Sprintf("101:%d", int32(writeEnd.Fd()))
-			if fdMap[readKey] == "" {
+			if got, ok := store.Path(101, int32(readEnd.Fd())); !ok || got == "" {
 				t.Fatalf("fdMap[%q] missing after %s payload update", readKey, name)
 			}
-			if fdMap[writeKey] == "" {
+			if got, ok := store.Path(101, int32(writeEnd.Fd())); !ok || got == "" {
 				t.Fatalf("fdMap[%q] missing after %s payload update", writeKey, name)
 			}
 		})
@@ -117,11 +119,11 @@ func TestUpdateFDMapUsesSocketpairPayloadSection(t *testing.T) {
 	}
 
 	fdMap := make(map[string]string)
-	updateFDMapForTest(view, meta.Syscall{Name: "socketpair"}, sections, "", 101, fdMap)
+	store := updateFDMapForTest(view, meta.Syscall{Name: "socketpair"}, sections, "", 101, fdMap)
 
 	for _, fd := range fds {
 		key := fmt.Sprintf("101:%d", int32(fd))
-		if got := fdMap[key]; got == "" {
+		if got, ok := store.Path(101, int32(fd)); !ok || got == "" {
 			t.Fatalf("fdMap[%q] missing after socketpair payload update", key)
 		}
 	}
@@ -169,8 +171,8 @@ func TestSyscallEventContextUpdateFDStateUsesViewForSocketpairInfo(t *testing.T)
 		t.Fatal("test setup produced identical view and raw socket info")
 	}
 	for _, fd := range fds {
-		got := fdMap[fmt.Sprintf("101:%d", int32(fd))]
-		if !strings.HasSuffix(got, wantSuffix) {
+		got, ok := store.Path(101, int32(fd))
+		if !ok || !strings.HasSuffix(got, wantSuffix) {
 			t.Fatalf("socketpair fd target = %q, want suffix %q", got, wantSuffix)
 		}
 		if strings.HasSuffix(got, rawSuffix) {
@@ -188,10 +190,10 @@ func TestUpdateFDMapSkipsSocketpairWithoutPayloadSection(t *testing.T) {
 		args:  [6]uint64{syscall.AF_UNIX, syscall.SOCK_STREAM, 0, 0x2000},
 		ret:   0,
 	}
-	updateFDMapForTest(view, meta.Syscall{Name: "socketpair"}, nil, "", 101, fdMap)
+	store := updateFDMapForTest(view, meta.Syscall{Name: "socketpair"}, nil, "", 101, fdMap)
 
-	if len(fdMap) != 0 {
-		t.Fatalf("fdMap entries = %d, want 0 without socketpair exit snapshot", len(fdMap))
+	if len(store.paths) != 0 {
+		t.Fatalf("store entries = %d, want 0 without socketpair exit snapshot", len(store.paths))
 	}
 }
 
@@ -199,8 +201,8 @@ func TestUpdateFDMapUsesOpenatPayloadPathText(t *testing.T) {
 	fdMap := make(map[string]string)
 	view := syscallEventView{valid: true, pid: 1234, tid: 1234, ret: 7}
 
-	updateFDMapForTest(view, meta.Syscall{Name: "openat"}, nil, `"/tmp/section"`, 101, fdMap)
-	if got := fdMap["101:7"]; got != "/tmp/section" {
+	store := updateFDMapForTest(view, meta.Syscall{Name: "openat"}, nil, `"/tmp/section"`, 101, fdMap)
+	if got, ok := store.Path(101, 7); !ok || got != "/tmp/section" {
 		t.Fatalf("fdMap[101:7] = %q, want payload raw path", got)
 	}
 }
@@ -247,9 +249,9 @@ func TestUpdateFDMapUsesNetlinkSockaddrPayloadSection(t *testing.T) {
 			sections := []handler.PayloadSection{netlinkSockaddrPayloadSectionForTest(test.direction, test.args[1], 42)}
 
 			fdMap := make(map[string]string)
-			updateFDMapForTest(view, meta.Syscall{Name: test.name}, sections, "", 101, fdMap)
+			store := updateFDMapForTest(view, meta.Syscall{Name: test.name}, sections, "", 101, fdMap)
 
-			if got := fdMap["101:7"]; got != "NETLINK:[SOCK_DIAG:42]" {
+			if got, ok := store.Path(101, 7); !ok || got != "NETLINK:[SOCK_DIAG:42]" {
 				t.Fatalf("fdMap[101:7] = %q, want NETLINK socket", got)
 			}
 		})
@@ -314,10 +316,10 @@ func TestSyscallEventContextUpdateFDStateUsesViewForNetlinkFD(t *testing.T) {
 	store := newFDStateStoreFromMaps(fdMap, nil)
 	ev.updateFDState(store)
 
-	if got := fdMap["101:5"]; got != "NETLINK:[SOCK_DIAG:42]" {
+	if got, ok := store.Path(101, 5); !ok || got != "NETLINK:[SOCK_DIAG:42]" {
 		t.Fatalf("fdMap[101:5] = %q, want NETLINK socket from view fd", got)
 	}
-	if got := fdMap["101:7"]; got != "" {
+	if got, ok := store.Path(101, 7); ok && got != "" {
 		t.Fatalf("raw fd entry = %q, want empty", got)
 	}
 }

@@ -2621,3 +2621,35 @@ ABI 与状态契约：
 本阶段只收口 pipeline 的组件依赖，不改变输出语义或纯 eBPF 事件事实源。
 
 实际验收结果：新增 `syscallJSONOutputPort`、`exitSyscallOutputPort`、`syscallHandlerRunnerPort`、`syscallTextOutputPort`，pipeline 不再声明四个 concrete output pointer；新增 fake port、compile assertion 和源码 gate。focused 测试发现并修复了 typed-nil `*SyscallJSONOutput` 转 interface 后导致的 nil fixture panic，测试 helper 已改为直接接收 port。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，734.25 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。
+
+### 14.50 FDStateStore constructor ownership 收口（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.44 已让启动路径通过 `fdStateSeed` 传递 cwd/path，并在 seed 构造时复制；但底层 `newFDStateStore` 和 `newFDStateStoreFromMaps` 仍直接保存调用方传入的 `paths`/`offsets` map。
+- Problem：状态 owner 的长期 map 仍可被 constructor caller 在 store 外部改写，破坏单一写入口和测试隔离；这不是运行期并发问题，但会让异步事件消费看到非 event-sourced 的外部突变。
+- Goal：`FDStateStore` 构造完成后完全拥有自己的 path/offset map；外部 seed/fixture 的后续修改不得改变 store。只在构造边界复制 map，事件热路径不增加分配。
+- Non-goals：不复制每个事件的 observation/payload，不引入锁、snapshot、procfs、ptrace、`process_vm_readv` 或第二个 state owner；不改变 path/offset 初始内容和 FD state 更新算法。
+- Constraints：复制是值复制，key/value 均为 Go 标量/string；nil/empty 输入仍由 `ensureMaps` 规范化为可写空 map；`newFDStateStore` 与 `newFDStateStoreFromMaps` 必须共享同一 ownership contract。
+
+方案比较：
+
+1. 保留 map alias：零构造复制，但外部可绕过 state owner 修改状态，拒绝。
+2. 每次 reader 查询或 event update 前复制：隔离更强，但把 O(n) 成本带入高频路径，拒绝。
+3. constructor 边界一次复制 paths/offsets：ownership 明确、热路径零额外复制，选择该方案。
+
+状态契约：
+
+- `newFDStateStore` 委托 `newFDStateStoreFromMaps`，不再拥有另一套 map 初始化逻辑。
+- `copyFDStatePaths` 和 `copyFDStateOffsets` 只在构造边界使用；`fdStates`/`fdCloexec` 仍由 store 自己创建。
+- `fdStateSeed` 可以继续被 caller 修改，store 不观察该修改；event/lifecycle mutation 是 store map 的唯一生产写入口。
+
+测试与验收：
+
+- 新增 paths/offsets constructor copy 回归，分别验证外部 map 修改不影响 `Path`/offset。
+- 保留 14.44 seed ownership 测试，确保 seed 和底层 map 两层边界都封闭。
+- 随后跑 Go/race/vet/build、eBPF semantic/perf、small 和 upstream reference，并检查 tracer/BPF pin 残留。
+
+本阶段只收口 FDStateStore 的输入 ownership，不改变纯 eBPF 事件事实源或状态更新顺序。
+
+实际验收结果：`newFDStateStore`、`newFDStateStoreFromMaps` 和 seed 构造均在边界复制 paths/offsets；事件 fixture 已改为通过 store reader 验证，不再依赖外部 map alias。focused ownership/FD-state 回归通过；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过。`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，748.16 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。

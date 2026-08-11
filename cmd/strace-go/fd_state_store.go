@@ -35,23 +35,13 @@ type fdStateUpdate struct {
 }
 
 func newFDStateStore(paths map[string]string) *FDStateStore {
-	if paths == nil {
-		paths = make(map[string]string)
-	}
-	store := &FDStateStore{
-		paths:    paths,
-		offsets:  make(map[string]int64),
-		fdStates: make(map[string]handler.FDStateObservation),
-		runtime:  handler.NewRuntime(),
-	}
-	store.ensureMaps()
-	return store
+	return newFDStateStoreFromMaps(paths, nil)
 }
 
 func newFDStateStoreFromMaps(paths map[string]string, offsets map[string]int64) *FDStateStore {
 	store := &FDStateStore{
-		paths:    paths,
-		offsets:  offsets,
+		paths:    copyFDStatePaths(paths),
+		offsets:  copyFDStateOffsets(offsets),
 		fdStates: make(map[string]handler.FDStateObservation),
 		runtime:  handler.NewRuntime(),
 	}
@@ -60,7 +50,7 @@ func newFDStateStoreFromMaps(paths map[string]string, offsets map[string]int64) 
 }
 
 func newFDStateStoreFromSeed(seed fdStateSeed) *FDStateStore {
-	return newFDStateStoreFromMaps(copyFDStatePaths(seed.paths), nil)
+	return newFDStateStoreFromMaps(seed.paths, nil)
 }
 
 func (st *FDStateStore) ensureMaps() {
