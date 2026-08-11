@@ -6,10 +6,12 @@ import (
 )
 
 const (
-	FDStateSnapshotSize = 48
-	FDStateFlagIdentity = 1 << iota
-	FDStateFlagOffset
-	PayloadFDStateArgIndex = 0xffff
+	FDStateSnapshotSize             = 48
+	FDStateFlagIdentity      uint32 = 1 << 0
+	FDStateFlagOffset        uint32 = 1 << 1
+	PayloadFDStateArgIndex          = 0xffff
+	FDPathStatePrefixSize           = 48
+	PayloadFDPathCwdArgIndex        = 0xfffe
 )
 
 // FDStateObservation is an event-time snapshot of one returned file descriptor.
@@ -21,6 +23,15 @@ type FDStateObservation struct {
 	Rdev   uint64
 	Inode  uint64
 	Offset int64
+}
+
+// FDPathSnapshot combines an optional event-time FD observation with its
+// bounded kernel path snapshot. The path-only form is valid when the state
+// prefix could not be read but the probe-site dentry walk succeeded.
+type FDPathSnapshot struct {
+	Path           string
+	Observation    FDStateObservation
+	HasObservation bool
 }
 
 // DecodeFDStateObservation decodes the stable little-endian BPF payload layout.

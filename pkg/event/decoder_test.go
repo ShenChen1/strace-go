@@ -96,6 +96,18 @@ func TestMatchPathMatchesRawRelativeArgument(t *testing.T) {
 	}
 }
 
+func TestMatchPathPrefersTrackedCWDOverEventSnapshot(t *testing.T) {
+	if !MatchPath(PathMatchRequest{
+		Pid:           123,
+		PathArguments: []PathArgument{{Text: `"sample"`, DirFD: -100}},
+		TracePaths:    map[string]bool{"/known/full/sample": true},
+		FDMap:         map[string]string{"123:cwd": "/known/full"},
+		CWDPath:       "/partial-cwd",
+	}) {
+		t.Fatal("path filter did not use the complete tracked cwd")
+	}
+}
+
 func TestMatchPathDoesNotReadLiveFDOnFDMapMiss(t *testing.T) {
 	file, err := os.CreateTemp(t.TempDir(), "match-path")
 	if err != nil {

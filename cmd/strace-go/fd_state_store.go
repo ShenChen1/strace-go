@@ -91,6 +91,7 @@ func (s *traceSession) fdStateStore() *FDStateStore {
 
 func (st *FDStateStore) update(update fdStateUpdate) {
 	st.ensureMaps()
+	updateFDPathStateFromSource(update.source, update.targetPID, st.paths, st.fdStates)
 	updateFDStateObservationFromSource(update.source, update.meta, update.targetPID, st.fdStates)
 	updateFDStateOffsetsFromSource(update.source, update.meta, update.targetPID, st.offsets)
 	updateFDMapFromSource(update.source, update.meta, update.pathText, update.targetPID, st.paths)

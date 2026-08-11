@@ -48,12 +48,12 @@ static __always_inline u32 capture_openat_path_tlv_direct(
 static __always_inline u32 capture_write_bytes_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,
-    struct trace_event_raw_sys_enter *ctx,
+    u64 args[6],
     u16 *event_flags)
 {
-    u64 user_ptr = ctx->args[1];
-    u32 user_len = payload_tlv_clamp_u32(ctx->args[2]);
-    u32 copied_len = payload_tlv_copy_len(ctx->args[2], PAYLOAD_TLV_WRITE_MAX);
+    u64 user_ptr = args[1];
+    u32 user_len = payload_tlv_clamp_u32(args[2]);
+    u32 copied_len = payload_tlv_copy_len(args[2], PAYLOAD_TLV_WRITE_MAX);
     s32 probe_ret = 0;
     u32 data_offset = payload_offset + PAYLOAD_TLV_HEADER_SIZE;
 
@@ -328,14 +328,14 @@ static __always_inline u32 capture_payload_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,
     u32 sys_id,
-    struct trace_event_raw_sys_enter *ctx,
+    u64 args[6],
     u16 *event_flags)
 {
     if (sys_id == SYS_OPEN || sys_id == SYS_CREAT) {
-        return capture_openat_path_tlv_direct(ptr, payload_offset, 0, ctx->args[0]);
+        return capture_openat_path_tlv_direct(ptr, payload_offset, 0, args[0]);
     }
     if (sys_id == SYS_OPENAT) {
-        return capture_openat_path_tlv_direct(ptr, payload_offset, 1, ctx->args[1]);
+        return capture_openat_path_tlv_direct(ptr, payload_offset, 1, args[1]);
     }
     if (sys_id == SYS_EXECVE) {
         return capture_exec_tlv_direct(
@@ -343,9 +343,9 @@ static __always_inline u32 capture_payload_tlv_direct(
             payload_offset,
             0,
             1,
-            ctx->args[0],
-            ctx->args[1],
-            ctx->args[2]);
+            args[0],
+            args[1],
+            args[2]);
     }
     if (sys_id == SYS_EXECVEAT) {
         return capture_exec_tlv_direct(
@@ -353,12 +353,12 @@ static __always_inline u32 capture_payload_tlv_direct(
             payload_offset,
             1,
             2,
-            ctx->args[1],
-            ctx->args[2],
-            ctx->args[3]);
+            args[1],
+            args[2],
+            args[3]);
     }
     if (is_write_payload_direct_syscall(sys_id)) {
-        return capture_write_bytes_tlv_direct(ptr, payload_offset, ctx, event_flags);
+        return capture_write_bytes_tlv_direct(ptr, payload_offset, args, event_flags);
     }
     return 0;
 }

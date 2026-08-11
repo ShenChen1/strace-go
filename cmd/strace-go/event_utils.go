@@ -262,6 +262,8 @@ type printFilterRequest struct {
 	targetPid       int
 	opts            *cli.Options
 	fdMap           map[string]string
+	eventFDPaths    map[int32]string
+	eventCwdPath    string
 	payloadSections []handler.PayloadSection
 }
 
@@ -296,6 +298,8 @@ func (req printFilterRequest) pathMatchRequest(fds []int32) event.PathMatchReque
 		PathArguments: req.pathArguments,
 		TracePaths:    req.opts.TracePaths,
 		FDMap:         req.fdMap,
+		FDPaths:       req.eventFDPaths,
+		CWDPath:       req.eventCwdPath,
 	}
 }
 

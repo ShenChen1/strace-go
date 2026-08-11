@@ -17,7 +17,7 @@ func TestBPFCachestatPayloadUsesDirectTLV(t *testing.T) {
 		"#define SYS_CACHESTAT 451",
 		`#include "syscall_cachestat_direct_event_v2.h"`,
 		"sys_id == SYS_CACHESTAT",
-		"emit_cachestat_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
+		"emit_cachestat_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);",
 		"is_cachestat_direct_syscall(sys_id)",
 		"is_cachestat_direct_syscall(p->sys_id) && ret_value >= 0",
 		"emit_cachestat_exit_event_v2_direct(p, ret_value, duration);",
@@ -33,11 +33,11 @@ func TestBPFCachestatPayloadUsesDirectTLV(t *testing.T) {
 		"capture_cachestat_struct_tlv_direct(",
 		"PAYLOAD_TLV_KIND_STRUCT",
 		"PAYLOAD_TLV_FLAG_DIRECTION_OUT",
-		"ctx->args[1]",
+		"scratch->args[1]",
 		"p->args[2]",
 		"emit_cachestat_enter_event_v2_direct(",
 		"emit_cachestat_exit_event_v2_direct(",
-		"init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);",
+		"init_syscall_enter_event_v2_from_args(&body, scratch->args, payload_size, 0, -1, -1);",
 	} {
 		if !strings.Contains(cachestatDirectHeader, snippet) {
 			t.Fatalf("cachestat direct header missing snippet %q", snippet)

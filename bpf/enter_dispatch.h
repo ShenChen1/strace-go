@@ -241,7 +241,7 @@ int enter_futex(struct trace_event_raw_sys_enter *ctx) {
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_cachestat(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
-    emit_cachestat_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+    emit_cachestat_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }
@@ -448,12 +448,12 @@ SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_epoll(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
     if (is_epoll_ctl_direct_syscall(sys_id)) {
-        emit_epoll_ctl_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        emit_epoll_ctl_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }
     if (is_epoll_pwait2_direct_syscall(sys_id)) {
-        emit_epoll_pwait2_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+        emit_epoll_pwait2_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
         save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
         return 0;
     }
@@ -463,7 +463,7 @@ int enter_epoll(struct trace_event_raw_sys_enter *ctx) {
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_no_payload_direct(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
-    emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
+    emit_fd_path_or_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }

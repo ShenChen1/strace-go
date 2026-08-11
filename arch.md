@@ -2162,3 +2162,36 @@ ABI 与状态契约：
 本阶段完成后，upstream reference 只剩测试 oracle 与人工更新 semantic catalog 的参考资料；它不再是默认产品生成的输入。
 
 实际验收结果：先失败的 semantic source 测试在默认 loader 仍使用旧 file source、catalog 缺失时失败，接入 checked-in source 并固化 380 项后通过；删除 parser 后 `go test ./cmd/generate-syscalls`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `sudo -n go generate ./cmd/strace-go` 均通过。新 source 重生成 `pkg/meta/syscall_table.go` 无 diff，生产代码不再引用 `strace-upstream`、`syscallentParser` 或 `defaultSyscallentRelPath`。`ebpf-semantic` 通过（201 主事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch 均为 0），`ebpf-perf` 通过（10,000 个 getpid 事件、5,000/5,000 enter/exit、0 reserve/copy/orphan/mismatch，950.19 events/s）；`getpid.gen.test` 与 `openat.gen.test` 各 1 PASS。
+
+### 14.36 probe-site FD path TLV，移除 inherited FD/cwd 的查询缺口（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.24 至 14.35 已将 FD identity、offset、creator、dup 和路径过滤迁移到 event-sourced map；但 tracee 启动前已经继承的 `stdin/stdout/stderr` 或测试 FD 不会产生 open event，当前 `fdMap` 只能看到启动后的 creator。`-P /dev/full` 因而无法匹配 `dup(9)`，`-yy` 也只能输出裸 FD；启动后首次相对 `chdir` 还缺少绝对 cwd 基准。
+- Problem：用 `/proc/<pid>/fd`、`/proc/<pid>/cwd` 或 `readlink` 在 Go 侧补齐会把查询时点和 syscall probe 点分离，并在 close/reuse、阻塞 syscall 或多线程场景引入竞争；仅依赖 `fstat` 只能得到 inode，不能恢复路径文本。
+- Goal：在 eBPF `sys_enter` probe 点从 `struct file`/`struct path` 读取并用 CO-RE dentry 遍历捕获 FD 路径，同批携带已有 `FD_STATE` identity 快照；Go 侧将 TLV 同时用于当前事件的 `-P` 判断、`-y/-yy` 格式化和后续 event-sourced map。启动 command 的初始 cwd 用 tracer 与 child 的确定性继承关系种子，不读取 tracee 的 procfs 状态。
+- Non-goals：本阶段不扫描整个 fdtable，不为从未出现在事件参数中的 FD 生成列表，不恢复 ptrace 冻结语义，不用 procfs、`process_vm_readv` 或运行期用户态路径查询，不扩展超过现有 bounded path snapshot 的无限长度保证。
+- Constraints：路径捕获只能在 `CONFIG_FD_STATE` 且 generic/direct enter 已打开时启用；每个事件最多捕获两个 FD 参数，路径上限为 512 字节，失败时保留 raw FD/指针而不伪造路径；`FD_STATE` 仅作为 probe-site observation，close、dup2/dup3 失败和 FD 重用仍按现有状态契约处理。
+
+方案比较：
+
+1. Go 启动或事件处理阶段读取 `/proc/<pid>/fd`、`/proc/<pid>/cwd`：实现快，但查询时点不稳定，违反纯 eBPF 事件契约，拒绝。
+2. 只用 `fstat` 的 dev/inode 与 `-P` 路径做用户态匹配：可以避免 proc，但无法支持无 `-P` 的 `-y` 文本，也无法处理 bind mount、hard link 和路径输出，拒绝。
+3. BPF 在 probe-site 做有界 CO-RE dentry 遍历，跨 mount parent 后把 path 与 FD_STATE 作为 typed TLV 发送：raw tracepoint 程序类型不能通过 `bpf_d_path` verifier 检查，而 dentry 遍历保留 probe-site 时点且无需 proc，选择该方案。
+
+状态契约：
+
+- 新增 `PAYLOAD_TLV_KIND_FD_PATH`；section 的 `ArgIndex` 是 syscall FD 参数位置，`0xfffe` 保留给 cwd，`Data` 以前置 48 字节 `FD_STATE` snapshot 加 NUL 结尾路径，snapshot 不可用时仍可只携带路径。
+- BPF 只在 `sys_enter` 捕获当前 syscall 参数实际引用的 FD；`dup/dup2/dup3`、`read/write`、`cachestat`、`epoll_*`、`openat` 等 direct/generic enter 先覆盖现有失败面，再逐步扩展其他 handler。每次最多两个 FD 参数，dentry 遍历失败或超过 8 个组件/512 字节上限时不得输出猜测文本。
+- Go 当前事件建立 `EventFDPaths/EventCwdPath` overlay，过滤和 handler 使用 probe-site FD path；已存在的 `pid:cwd` event-sourced 状态保持优先，cwd 快照只在没有长期状态时作为种子。exit pipeline 的单消费者再把成功观察写入长期 map，故不会把另一个事件的后态用于当前事件输出。
+- `-yy` 详细字符设备信息优先来自同一 FD_PATH snapshot 的 `mode/rdev`，不再回读 live FD；无 snapshot 时退化为 `-y` 路径或裸 FD。
+
+测试与验收：
+
+- 先写失败的 Go 测试，锁定 FD_PATH TLV 解码、当前事件 path filter、handler overlay、dup 成功/失败状态更新、launch cwd seed 和 exec 后 cwd 保留；BPF source gate 锁定 CO-RE dentry walker、bounded capacity、FD_STATE prefix，并拒绝 `bpf_d_path`、procfs 和 `process_vm_readv` 依赖。
+- 先跑 `dup-P.gen.test`、`dup2-P.gen.test`、`dup3-P.gen.test`、`dup-yy.gen.test`、`cachestat-P.gen.test`、`cachestat.gen.test`、`epoll_pwait2-y.gen.test`、`fspick.gen.test` 和 `at_fdcwd-pathmax.gen.test`，再跑 `more`。
+- 验证顺序保持：focused Go/BPF 测试、全量 Go/race/vet、BPF 生成/build、`ebpf-semantic`、`ebpf-perf`、受影响 upstream reference；全程检查 product Go 源码没有 procfs 依赖。
+
+本阶段接受 bounded path snapshot 对超长/无法解析路径的保守退化；已知 cwd 不得被这类不完整快照覆盖，这不是用 procfs 补齐的理由。后续若要覆盖更长路径必须设计新的 probe-site 分片 ABI。
+
+实际验收结果：先失败的 cwd 优先级、exec 后 cwd 保留和 cwd path-only 解码回归在修复后通过；BPF dentry walker 拆分后重新生成并通过 verifier。`go test ./...`、`go test -race ./...`、`go vet ./...`、10 个 Python runner 单测、`ebpf-semantic` 和 `ebpf-perf` 均通过；semantic 为 201 个主事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch 均为 0，perf 为 10,000 个 getpid 事件、5,000/5,000 enter/exit、0 丢失、727.07 events/s。原生 `small` 为 23 PASS、`more` 为 80 PASS + 3 个既定 XFAIL、`upstream-reference` 为 46 PASS + 2 个既定 XFAIL；`open_tree`、`move_mount` 和 `move_mount-P` 已从 expected-XFAIL 恢复为 PASS。

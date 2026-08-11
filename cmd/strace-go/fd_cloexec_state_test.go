@@ -95,7 +95,7 @@ func TestFDStateStoreTracksFcntlSetFDAndPreservesFailedMutation(t *testing.T) {
 
 func TestFDStateStoreExecDropsCloexecAndUnknownState(t *testing.T) {
 	store := newFDStateStoreFromMaps(
-		map[string]string{"101:3": "keep", "101:4": "drop", "101:5": "unknown"},
+		map[string]string{"101:cwd": "/known/cwd", "101:3": "keep", "101:4": "drop", "101:5": "unknown"},
 		map[string]int64{"101:3": 3, "101:4": 4, "101:5": 5},
 	)
 	store.FDStateMap()["101:3"] = handler.FDStateObservation{FD: 3, Inode: 30}
@@ -108,6 +108,9 @@ func TestFDStateStoreExecDropsCloexecAndUnknownState(t *testing.T) {
 
 	if got := store.paths["101:3"]; got != "keep" {
 		t.Fatalf("non-cloexec path = %q, want keep", got)
+	}
+	if got := store.paths["101:cwd"]; got != "/known/cwd" {
+		t.Fatalf("cwd path = %q, want preserved cwd", got)
 	}
 	for _, key := range []string{"101:4", "101:5"} {
 		if _, ok := store.paths[key]; ok {

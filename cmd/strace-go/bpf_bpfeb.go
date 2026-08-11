@@ -23,6 +23,13 @@ type bpfBpfStats struct {
 	PendingMismatch        uint64
 }
 
+type bpfFdPathScratch struct {
+	_          structs.HostLayout
+	Name       [256]int8
+	Components [8]uint64
+	Args       [6]uint64
+}
+
 type bpfPendingSyscall struct {
 	_         structs.HostLayout
 	EnterTime uint64
@@ -158,6 +165,7 @@ type bpfMapSpecs struct {
 	EnterProgs       *ebpf.MapSpec `ebpf:"enter_progs"`
 	Events           *ebpf.MapSpec `ebpf:"events"`
 	ExitProgs        *ebpf.MapSpec `ebpf:"exit_progs"`
+	FdPathScratchMap *ebpf.MapSpec `ebpf:"fd_path_scratch_map"`
 	FilterMap        *ebpf.MapSpec `ebpf:"filter_map"`
 	MainExitedMap    *ebpf.MapSpec `ebpf:"main_exited_map"`
 	MmsgBytesProgs   *ebpf.MapSpec `ebpf:"mmsg_bytes_progs"`
@@ -211,6 +219,7 @@ type bpfMaps struct {
 	EnterProgs       *ebpf.Map `ebpf:"enter_progs"`
 	Events           *ebpf.Map `ebpf:"events"`
 	ExitProgs        *ebpf.Map `ebpf:"exit_progs"`
+	FdPathScratchMap *ebpf.Map `ebpf:"fd_path_scratch_map"`
 	FilterMap        *ebpf.Map `ebpf:"filter_map"`
 	MainExitedMap    *ebpf.Map `ebpf:"main_exited_map"`
 	MmsgBytesProgs   *ebpf.Map `ebpf:"mmsg_bytes_progs"`
@@ -230,6 +239,7 @@ func (m *bpfMaps) Close() error {
 		m.EnterProgs,
 		m.Events,
 		m.ExitProgs,
+		m.FdPathScratchMap,
 		m.FilterMap,
 		m.MainExitedMap,
 		m.MmsgBytesProgs,

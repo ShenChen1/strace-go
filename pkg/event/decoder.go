@@ -129,6 +129,8 @@ type PathMatchRequest struct {
 	PathArguments []PathArgument
 	TracePaths    map[string]bool
 	FDMap         map[string]string
+	FDPaths       map[int32]string
+	CWDPath       string
 }
 
 // MatchPath checks if the syscall matches any of the paths in the filter list.
@@ -137,17 +139,22 @@ func MatchPath(req PathMatchRequest) bool {
 		return true
 	}
 
-	candidatePaths := fdCandidatePaths(req.Pid, req.FDs, req.FDMap)
+	candidatePaths := fdCandidatePaths(req.Pid, req.FDs, req.FDMap, req.FDPaths)
 	for _, pathArg := range req.PathArguments {
-		candidatePaths = append(candidatePaths, pathArgumentCandidates(req.Pid, pathArg, req.FDMap)...)
+		candidatePaths = append(candidatePaths,
+			pathArgumentCandidates(req.Pid, pathArg, req.FDMap, req.FDPaths, req.CWDPath)...)
 	}
 	return anyCandidateMatchesTracePath(candidatePaths, req.TracePaths)
 }
 
-func fdCandidatePaths(pid int, fds []int32, fdMap map[string]string) []string {
+func fdCandidatePaths(pid int, fds []int32, fdMap map[string]string, fdPaths map[int32]string) []string {
 	candidatePaths := []string{}
 	for _, fd := range fds {
 		if fd == -1 {
+			continue
+		}
+		if path, ok := fdPaths[fd]; ok {
+			candidatePaths = append(candidatePaths, path)
 			continue
 		}
 		if path, ok := fdMap[fdMapKey(pid, fd)]; ok {
@@ -157,7 +164,13 @@ func fdCandidatePaths(pid int, fds []int32, fdMap map[string]string) []string {
 	return candidatePaths
 }
 
-func pathArgumentCandidates(pid int, pathArg PathArgument, fdMap map[string]string) []string {
+func pathArgumentCandidates(
+	pid int,
+	pathArg PathArgument,
+	fdMap map[string]string,
+	fdPaths map[int32]string,
+	cwdPath string,
+) []string {
 	if !usablePathArgument(pathArg) {
 		return nil
 	}
@@ -167,7 +180,7 @@ func pathArgumentCandidates(pid int, pathArg PathArgument, fdMap map[string]stri
 	}
 
 	candidates := []string{path}
-	base := relativePathBase(pid, pathArg.DirFD, fdMap)
+	base := relativePathBase(pid, pathArg.DirFD, fdMap, fdPaths, cwdPath)
 	if base != "" {
 		candidates = append(candidates, base+"/"+path)
 	} else {
@@ -182,11 +195,26 @@ func usablePathArgument(pathArg PathArgument) bool {
 		!strings.HasPrefix(pathArg.Text, "0x")
 }
 
-func relativePathBase(pid int, baseFd int32, fdMap map[string]string) string {
+func relativePathBase(
+	pid int,
+	baseFd int32,
+	fdMap map[string]string,
+	fdPaths map[int32]string,
+	cwdPath string,
+) string {
 	if baseFd != -1 && baseFd != -100 {
+		if path, ok := fdPaths[baseFd]; ok {
+			return path
+		}
 		return fdMap[fdMapKey(pid, baseFd)]
 	}
-	return fdMap[fmt.Sprintf("%d:cwd", pid)]
+	if trackedCWD := fdMap[fmt.Sprintf("%d:cwd", pid)]; trackedCWD != "" {
+		return trackedCWD
+	}
+	if cwdPath != "" {
+		return cwdPath
+	}
+	return ""
 }
 
 func anyCandidateMatchesTracePath(candidatePaths []string, tracePaths map[string]bool) bool {

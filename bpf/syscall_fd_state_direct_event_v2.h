@@ -16,36 +16,45 @@ static __always_inline int is_fd_state_exit_direct_syscall(u32 sys_id)
         sys_id == SYS_SIGNALFD || sys_id == SYS_SIGNALFD4;
 }
 
-static __always_inline s32 read_fd_state_snapshot(
-    s32 fd,
-    struct fd_state_snapshot *snapshot)
+static __always_inline struct file *lookup_current_fd_file(s32 fd)
 {
     if (fd < 0 || (u32)fd >= FD_STATE_MAX_FD) {
-        return FD_STATE_PROBE_INVALID_FD;
+        return 0;
     }
 
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     struct files_struct *files = BPF_CORE_READ(task, files);
     if (!files) {
-        return FD_STATE_PROBE_READ_FAILED;
+        return 0;
     }
     struct fdtable *fdt = BPF_CORE_READ(files, fdt);
     if (!fdt) {
-        return FD_STATE_PROBE_READ_FAILED;
+        return 0;
     }
 
     u32 max_fds = BPF_CORE_READ(fdt, max_fds);
     if ((u32)fd >= max_fds) {
-        return FD_STATE_PROBE_INVALID_FD;
+        return 0;
     }
     struct file **fd_array = BPF_CORE_READ(fdt, fd);
     if (!fd_array) {
-        return FD_STATE_PROBE_READ_FAILED;
+        return 0;
     }
 
     struct file *file = 0;
     long read_ret = bpf_probe_read_kernel(&file, sizeof(file), fd_array + fd);
     if (read_ret < 0 || !file) {
+        return 0;
+    }
+    return file;
+}
+
+static __always_inline s32 read_fd_state_snapshot_from_file(
+    struct file *file,
+    s32 fd,
+    struct fd_state_snapshot *snapshot)
+{
+    if (!file) {
         return FD_STATE_PROBE_READ_FAILED;
     }
     struct inode *inode = BPF_CORE_READ(file, f_inode);
@@ -64,6 +73,20 @@ static __always_inline s32 read_fd_state_snapshot(
         .offset = (s64)BPF_CORE_READ(file, f_pos),
     };
     return 0;
+}
+
+static __always_inline s32 read_fd_state_snapshot(
+    s32 fd,
+    struct fd_state_snapshot *snapshot)
+{
+    if (fd < 0 || (u32)fd >= FD_STATE_MAX_FD) {
+        return FD_STATE_PROBE_INVALID_FD;
+    }
+    struct file *file = lookup_current_fd_file(fd);
+    if (!file) {
+        return FD_STATE_PROBE_READ_FAILED;
+    }
+    return read_fd_state_snapshot_from_file(file, fd, snapshot);
 }
 
 static __always_inline u32 capture_fd_state_tlv_direct(

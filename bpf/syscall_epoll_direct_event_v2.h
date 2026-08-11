@@ -116,9 +116,9 @@ static __always_inline u32 capture_epoll_events_tlv_direct(
 static __always_inline u32 capture_epoll_timeout_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,
-    struct trace_event_raw_sys_enter *ctx)
+    u64 args[6])
 {
-    u64 user_ptr = ctx->args[3];
+    u64 user_ptr = args[3];
     if (!user_ptr) {
         return 0;
     }
@@ -157,9 +157,9 @@ static __always_inline u32 capture_epoll_timeout_tlv_direct(
 static __always_inline u32 capture_epoll_ctl_event_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,
-    struct trace_event_raw_sys_enter *ctx)
+    u64 args[6])
 {
-    u64 user_ptr = ctx->args[3];
+    u64 user_ptr = args[3];
     if (!user_ptr) {
         return 0;
     }
@@ -200,9 +200,19 @@ static __always_inline void emit_epoll_ctl_enter_event_v2_direct(
     u32 tid,
     u32 sys_id,
     struct trace_event_raw_sys_enter *ctx,
+    u32 *cfg,
     u64 ts_ns)
 {
-    u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + EPOLL_DIRECT_EVENT_SIZE;
+    struct fd_path_scratch *scratch = lookup_fd_path_scratch();
+    if (!scratch) {
+        return;
+    }
+    copy_syscall_enter_args(scratch->args, ctx);
+    u32 fd_path_capacity = 0;
+    if (cfg && (*cfg & CONFIG_FD_STATE)) {
+        fd_path_capacity = fd_path_payload_capacity(sys_id);
+    }
+    u32 payload_capacity = fd_path_capacity + PAYLOAD_TLV_HEADER_SIZE + EPOLL_DIRECT_EVENT_SIZE;
     u32 body_offset = EVENT_V2_HEADER_LEN;
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_ENTER_BODY_LEN;
     u32 out_size = payload_offset + payload_capacity;
@@ -215,7 +225,14 @@ static __always_inline void emit_epoll_ctl_enter_event_v2_direct(
     }
 
     u16 flags = EVENT_FLAG_GENERIC_ENTER;
-    u32 payload_size = capture_epoll_ctl_event_tlv_direct(&ptr, payload_offset, ctx);
+    u32 payload_size = 0;
+    if (fd_path_capacity > 0) {
+        payload_size = capture_fd_paths_tlv_direct(&ptr, payload_offset, sys_id, scratch->args);
+    }
+    payload_size += capture_epoll_ctl_event_tlv_direct(
+        &ptr,
+        payload_offset + payload_size,
+        scratch->args);
     if (payload_size > 0) {
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
@@ -230,7 +247,7 @@ static __always_inline void emit_epoll_ctl_enter_event_v2_direct(
     }
 
     struct syscall_enter_event_v2 body = {};
-    init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);
+    init_syscall_enter_event_v2_from_args(&body, scratch->args, payload_size, 0, -1, -1);
     ret = bpf_dynptr_write(&ptr, body_offset, &body, sizeof(body), 0);
     if (ret < 0) {
         record_ringbuf_copy_fail();
@@ -246,9 +263,19 @@ static __always_inline void emit_epoll_pwait2_enter_event_v2_direct(
     u32 tid,
     u32 sys_id,
     struct trace_event_raw_sys_enter *ctx,
+    u32 *cfg,
     u64 ts_ns)
 {
-    u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + EPOLL_DIRECT_TIMEOUT_SIZE;
+    struct fd_path_scratch *scratch = lookup_fd_path_scratch();
+    if (!scratch) {
+        return;
+    }
+    copy_syscall_enter_args(scratch->args, ctx);
+    u32 fd_path_capacity = 0;
+    if (cfg && (*cfg & CONFIG_FD_STATE)) {
+        fd_path_capacity = fd_path_payload_capacity(sys_id);
+    }
+    u32 payload_capacity = fd_path_capacity + PAYLOAD_TLV_HEADER_SIZE + EPOLL_DIRECT_TIMEOUT_SIZE;
     u32 body_offset = EVENT_V2_HEADER_LEN;
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_ENTER_BODY_LEN;
     u32 out_size = payload_offset + payload_capacity;
@@ -261,7 +288,14 @@ static __always_inline void emit_epoll_pwait2_enter_event_v2_direct(
     }
 
     u16 flags = EVENT_FLAG_GENERIC_ENTER;
-    u32 payload_size = capture_epoll_timeout_tlv_direct(&ptr, payload_offset, ctx);
+    u32 payload_size = 0;
+    if (fd_path_capacity > 0) {
+        payload_size = capture_fd_paths_tlv_direct(&ptr, payload_offset, sys_id, scratch->args);
+    }
+    payload_size += capture_epoll_timeout_tlv_direct(
+        &ptr,
+        payload_offset + payload_size,
+        scratch->args);
     if (payload_size > 0) {
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
@@ -276,7 +310,7 @@ static __always_inline void emit_epoll_pwait2_enter_event_v2_direct(
     }
 
     struct syscall_enter_event_v2 body = {};
-    init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);
+    init_syscall_enter_event_v2_from_args(&body, scratch->args, payload_size, 0, -1, -1);
     ret = bpf_dynptr_write(&ptr, body_offset, &body, sizeof(body), 0);
     if (ret < 0) {
         record_ringbuf_copy_fail();

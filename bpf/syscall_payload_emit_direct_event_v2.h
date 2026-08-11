@@ -8,6 +8,8 @@ static __always_inline void emit_payload_enter_event_v2_direct(
     struct trace_event_raw_sys_enter *ctx,
     u64 ts_ns)
 {
+    u64 args[6] = {};
+    copy_syscall_enter_args(args, ctx);
     u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + PAYLOAD_TLV_OPENAT_MAX;
     if (is_write_payload_direct_syscall(sys_id)) {
         payload_capacity = PAYLOAD_TLV_HEADER_SIZE + PAYLOAD_TLV_WRITE_MAX;
@@ -27,7 +29,7 @@ static __always_inline void emit_payload_enter_event_v2_direct(
     }
 
     u16 flags = EVENT_FLAG_GENERIC_ENTER;
-    u32 payload_size = capture_payload_tlv_direct(&ptr, payload_offset, sys_id, ctx, &flags);
+    u32 payload_size = capture_payload_tlv_direct(&ptr, payload_offset, sys_id, args, &flags);
     if (payload_size > 0) {
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
@@ -42,7 +44,7 @@ static __always_inline void emit_payload_enter_event_v2_direct(
     }
 
     struct syscall_enter_event_v2 body = {};
-    init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);
+    init_syscall_enter_event_v2_from_args(&body, args, payload_size, 0, -1, -1);
     ret = bpf_dynptr_write(&ptr, body_offset, &body, sizeof(body), 0);
     if (ret < 0) {
         record_ringbuf_copy_fail();
@@ -63,6 +65,11 @@ static __always_inline void emit_exec_enter_event_v2_direct_with_status(
     s64 ret_value,
     s32 probe_ret_enter)
 {
+    struct fd_path_scratch *scratch = lookup_fd_path_scratch();
+    if (!scratch) {
+        return;
+    }
+    copy_syscall_enter_args(scratch->args, ctx);
     u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + sizeof(struct exec_snapshot) +
         PAYLOAD_TLV_HEADER_SIZE + EXEC_PATH_SNAPSHOT_MAX;
     u32 body_offset = EVENT_V2_HEADER_LEN;
@@ -77,7 +84,7 @@ static __always_inline void emit_exec_enter_event_v2_direct_with_status(
     }
 
     u16 flags = base_flags;
-    u32 payload_size = capture_payload_tlv_direct(&ptr, payload_offset, sys_id, ctx, &flags);
+    u32 payload_size = capture_payload_tlv_direct(&ptr, payload_offset, sys_id, scratch->args, &flags);
     if (payload_size > 0) {
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
@@ -92,7 +99,7 @@ static __always_inline void emit_exec_enter_event_v2_direct_with_status(
     }
 
     struct syscall_enter_event_v2 body = {};
-    init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, ret_value, probe_ret_enter, -1);
+    init_syscall_enter_event_v2_from_args(&body, scratch->args, payload_size, ret_value, probe_ret_enter, -1);
     ret = bpf_dynptr_write(&ptr, body_offset, &body, sizeof(body), 0);
     if (ret < 0) {
         record_ringbuf_copy_fail();

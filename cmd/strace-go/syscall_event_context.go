@@ -19,6 +19,9 @@ type syscallEventContext struct {
 	pendingEnter    *pendingSyscallState
 	handlerContext  *handler.Context
 	payloadSections []handler.PayloadSection
+	eventFDPaths    map[int32]string
+	eventFDStates   map[int32]handler.FDStateObservation
+	eventCwdPath    string
 }
 
 // syscallEventView is the stable syscall field set used after context construction.
@@ -99,6 +102,8 @@ func newSyscallEventContextFromViewWithDeps(
 ) syscallEventContext {
 	scMeta := syscallMeta(view.sysID)
 	payloadSections := mergePendingPayloadSections(pendingEnter, currentPayload)
+	fdPathOverlay := fdPathOverlayFromSections(payloadSections)
+	eventFDPaths, eventFDStates := fdPathOverlay.resolve(view)
 	pathArguments := decodePathArguments(deps, view, scMeta, payloadSections)
 	pathText := primaryPathText(pathArguments)
 	shouldPrint := true
@@ -110,6 +115,8 @@ func newSyscallEventContextFromViewWithDeps(
 			targetPid:       statePID,
 			opts:            deps.opts,
 			fdMap:           deps.pathMap(),
+			eventFDPaths:    eventFDPaths,
+			eventCwdPath:    fdPathOverlay.cwdPath,
 			payloadSections: payloadSections,
 		})
 	}
@@ -122,6 +129,9 @@ func newSyscallEventContextFromViewWithDeps(
 		shouldPrint:     shouldPrint,
 		pendingEnter:    pendingEnter,
 		payloadSections: payloadSections,
+		eventFDPaths:    eventFDPaths,
+		eventFDStates:   eventFDStates,
+		eventCwdPath:    fdPathOverlay.cwdPath,
 	}
 	ev.handlerContext = ev.newHandlerContext(deps)
 	return ev
@@ -155,11 +165,16 @@ func hasEquivalentPayloadSection(sections []handler.PayloadSection, want handler
 
 func newSyscallEnterEventContext(view syscallEventView, statePID int, payloadSections []handler.PayloadSection) syscallEventContext {
 	scMeta := syscallMeta(view.sysID)
+	fdPathOverlay := fdPathOverlayFromSections(payloadSections)
+	eventFDPaths, eventFDStates := fdPathOverlay.resolve(view)
 	return syscallEventContext{
 		view:            view,
 		statePID:        statePID,
 		meta:            scMeta,
 		payloadSections: payloadSections,
+		eventFDPaths:    eventFDPaths,
+		eventFDStates:   eventFDStates,
+		eventCwdPath:    fdPathOverlay.cwdPath,
 	}
 }
 
@@ -276,7 +291,9 @@ func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *h
 		ProbeRetEnter: view.probeRetEnter, ProbeRetExit: view.probeRetExit,
 		PayloadSections: ev.outputPayloadSections(),
 		ScMeta:          scMeta, Decoder: deps.decoder, Opts: deps.opts, FdMap: deps.pathMap(),
-		FDStates: deps.fdStateMap(), Runtime: deps.runtimeService(),
+		FDStates: deps.fdStateMap(), EventFDPaths: ev.eventFDPaths,
+		EventFDStates: ev.eventFDStates, EventCwdPath: ev.eventCwdPath,
+		Runtime: deps.runtimeService(),
 	}
 }
 
@@ -302,6 +319,8 @@ func (ev syscallEventContext) shouldEmitRawEnter(opts *cli.Options, pathMap map[
 		targetPid:     ev.statePID,
 		opts:          opts,
 		fdMap:         pathMap,
+		eventFDPaths:  ev.eventFDPaths,
+		eventCwdPath:  ev.eventCwdPath,
 	})
 }
 

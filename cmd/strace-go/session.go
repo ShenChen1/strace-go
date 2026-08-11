@@ -245,6 +245,7 @@ func startTraceCmd(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles []*os.
 	if err := armNextFork(bpfObjs); err != nil {
 		return nil, 0, nil, fmt.Errorf("arm initial fork: %w", err)
 	}
+	initialCwd, _ := os.Getwd()
 	cmd := newTraceCommand(opts, inheritedFiles)
 	if err := cmd.Start(); err != nil {
 		_ = disarmNextFork(bpfObjs)
@@ -264,7 +265,7 @@ func startTraceCmd(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles []*os.
 		abortTraceTarget(cmd, bpfObjs, targetPid)
 		return nil, 0, nil, fmt.Errorf("disarm initial fork: %w", err)
 	}
-	return cmd, targetPid, make(map[string]string), nil
+	return cmd, targetPid, initialTraceCommandFDMap(targetPid, initialCwd), nil
 }
 
 // armNextFork asks the BPF sched_process_fork program to add the next child of

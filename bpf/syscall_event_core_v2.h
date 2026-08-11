@@ -114,6 +114,39 @@ static __always_inline void init_syscall_enter_event_v2_from_ctx(
     body->capture_flags = 0;
 }
 
+static __always_inline void copy_syscall_enter_args(
+    u64 args[6],
+    struct trace_event_raw_sys_enter *ctx)
+{
+    args[0] = ctx->args[0];
+    args[1] = ctx->args[1];
+    args[2] = ctx->args[2];
+    args[3] = ctx->args[3];
+    args[4] = ctx->args[4];
+    args[5] = ctx->args[5];
+}
+
+static __always_inline void init_syscall_enter_event_v2_from_args(
+    struct syscall_enter_event_v2 *body,
+    u64 args[6],
+    u32 payload_size,
+    s64 ret_value,
+    s32 probe_ret_enter,
+    s32 probe_ret_exit)
+{
+    body->ret = ret_value;
+    body->probe_ret_enter = probe_ret_enter;
+    body->probe_ret_exit = probe_ret_exit;
+    body->args[0] = args[0];
+    body->args[1] = args[1];
+    body->args[2] = args[2];
+    body->args[3] = args[3];
+    body->args[4] = args[4];
+    body->args[5] = args[5];
+    body->capture_len = payload_size;
+    body->capture_flags = 0;
+}
+
 static __always_inline void init_syscall_exit_event_v2_from_pending(
     struct syscall_exit_event_v2 *body,
     struct pending_syscall *p,

@@ -251,6 +251,12 @@ struct bpf_stats {
     u64 pending_mismatch;
 };
 
+struct fd_path_scratch {
+    char name[256];
+    u64 components[8];
+    u64 args[6];
+};
+
 struct event_v2_header {
     u16 version;
     u16 event_type;
@@ -390,6 +396,13 @@ struct {
     __type(key, u32);
     __type(value, struct bpf_stats);
 } stats_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, struct fd_path_scratch);
+} fd_path_scratch_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);

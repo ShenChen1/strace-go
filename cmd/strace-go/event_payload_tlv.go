@@ -16,6 +16,7 @@ const (
 	payloadTLVKindExecArgs     = 6
 	payloadTLVKindCmsg         = 7
 	payloadTLVKindFDState      = 8
+	payloadTLVKindFDPath       = 9
 	payloadTLVFlagDirectionOut = 1
 )
 
@@ -87,6 +88,8 @@ func payloadKindFromTLV(kind uint16) (handler.PayloadKind, bool) {
 		return handler.PayloadKindCmsg, true
 	case payloadTLVKindFDState:
 		return handler.PayloadKindFDState, true
+	case payloadTLVKindFDPath:
+		return handler.PayloadKindFDPath, true
 	default:
 		return "", false
 	}

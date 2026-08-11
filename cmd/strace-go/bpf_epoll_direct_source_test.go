@@ -19,7 +19,7 @@ func TestBPFEpollWaitPayloadsUseDirectTLV(t *testing.T) {
 		"#define SYS_EPOLL_PWAIT2 441",
 		`#include "syscall_epoll_direct_event_v2.h"`,
 		"is_epoll_pwait2_direct_syscall(sys_id)",
-		"emit_epoll_pwait2_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
+		"emit_epoll_pwait2_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);",
 		"is_epoll_wait_direct_syscall(p->sys_id) && ret_value > 0",
 		"emit_epoll_wait_exit_event_v2_direct(p, ret_value, duration);",
 	} {
@@ -74,7 +74,7 @@ func TestBPFEpollCtlPayloadUsesDirectTLV(t *testing.T) {
 	for _, snippet := range []string{
 		"#define SYS_EPOLL_CTL 233",
 		"is_epoll_ctl_direct_syscall(sys_id)",
-		"emit_epoll_ctl_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
+		"emit_epoll_ctl_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);",
 		"is_epoll_wait_direct_syscall(p->sys_id) && ret_value > 0",
 	} {
 		if !strings.Contains(straceSource, snippet) {
@@ -88,7 +88,7 @@ func TestBPFEpollCtlPayloadUsesDirectTLV(t *testing.T) {
 		"emit_epoll_ctl_enter_event_v2_direct(",
 		"PAYLOAD_TLV_KIND_STRUCT",
 		"bpf_probe_read_user(payload_data, EPOLL_DIRECT_EVENT_SIZE",
-		"init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);",
+		"init_syscall_enter_event_v2_from_args(&body, scratch->args, payload_size, 0, -1, -1);",
 	} {
 		if !strings.Contains(epollDirectHeader, snippet) {
 			t.Fatalf("epoll_ctl direct header missing snippet %q", snippet)

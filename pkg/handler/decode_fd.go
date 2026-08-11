@@ -21,6 +21,9 @@ func (h *DefaultHandler) formatFdArg(ctx *Context, argName string, val uint64) s
 				cwdPath = ctx.FdMap[fmt.Sprintf("%d:cwd", ctx.Pid)]
 			}
 		}
+		if cwdPath == "" {
+			cwdPath = ctx.EventCwdPath
+		}
 		// IMPACT: Do not append resolved path if its length >= PATH_MAX (4096) to align with standard AT_FDCWD encoding rules.
 		if cwdPath != "" && len(cwdPath) < 4096 {
 			return s + "<" + cwdPath + ">"
@@ -54,18 +57,27 @@ func FormatFdWithPath(ctx *Context, fd int32) string {
 		return fdStr
 	}
 
+	if ctx.EventFDPaths != nil {
+		if target, ok := ctx.EventFDPaths[fd]; ok {
+			return formatFDTarget(ctx, fd, target)
+		}
+	}
 	if ctx.FdMap != nil {
 		if target, ok := lookupTrackedFDPath(ctx, fd); ok {
-			if ctx.Opts.ShowPathsMode == 2 {
-				return fdStr + "<" + formatDetailedPath(ctx, target, fd) + ">"
-			}
-			if strings.HasPrefix(target, "socket:[") {
-				target = formatSocketPath(ctx, target, fd)
-			}
-			return fdStr + "<" + target + ">"
+			return formatFDTarget(ctx, fd, target)
 		}
 	}
 	return fdStr
+}
+
+func formatFDTarget(ctx *Context, fd int32, target string) string {
+	if ctx.Opts.ShowPathsMode == 2 {
+		return fmt.Sprintf("%d<%s>", fd, formatDetailedPath(ctx, target, fd))
+	}
+	if strings.HasPrefix(target, "socket:[") {
+		target = formatSocketPath(ctx, target, fd)
+	}
+	return fmt.Sprintf("%d<%s>", fd, target)
 }
 
 func lookupTrackedFDPath(ctx *Context, fd int32) (string, bool) {
@@ -89,7 +101,43 @@ func formatDetailedPath(ctx *Context, target string, fd int32) string {
 	if strings.HasPrefix(target, "socket:[") {
 		return formatSocketPath(ctx, target, fd)
 	}
+	if observation, ok := eventFDState(ctx, fd); ok {
+		if detailed := formatDevicePath(target, observation); detailed != "" {
+			return detailed
+		}
+	}
 	return target
+}
+
+func eventFDState(ctx *Context, fd int32) (FDStateObservation, bool) {
+	if ctx.EventFDStates != nil {
+		if observation, ok := ctx.EventFDStates[fd]; ok {
+			return observation, true
+		}
+	}
+	return ctx.FDState(fd)
+}
+
+func formatDevicePath(target string, observation FDStateObservation) string {
+	const typeMask = 0170000
+	const charDevice = 0020000
+	const blockDevice = 0060000
+	switch observation.Mode & typeMask {
+	case charDevice:
+		return fmt.Sprintf("%s<char %d:%d>", target, deviceMajor(observation.Rdev), deviceMinor(observation.Rdev))
+	case blockDevice:
+		return fmt.Sprintf("%s<block %d:%d>", target, deviceMajor(observation.Rdev), deviceMinor(observation.Rdev))
+	default:
+		return ""
+	}
+}
+
+func deviceMajor(dev uint64) uint32 {
+	return uint32((dev >> 20) & 0xfff)
+}
+
+func deviceMinor(dev uint64) uint32 {
+	return uint32(dev & 0xfffff)
 }
 
 // formatSocketPath converts socket inode description using domain information cached in fdMap.

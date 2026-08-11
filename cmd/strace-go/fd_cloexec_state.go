@@ -219,6 +219,10 @@ func (st *FDStateStore) CloseOnExecProcess(pid int) {
 }
 
 func (st *FDStateStore) retainAfterExec(key string) bool {
+	// cwd is process state, not an inherited descriptor subject to FD_CLOEXEC.
+	if strings.HasSuffix(key, ":cwd") {
+		return true
+	}
 	enabled, known := st.fdCloexec[key]
 	return known && !enabled
 }

@@ -81,6 +81,25 @@ func TestFormatFdWithPathDetailsTrackedTarget(t *testing.T) {
 	}
 }
 
+func TestFormatAtFdcwdPrefersTrackedCWD(t *testing.T) {
+	ctx := &Context{
+		Pid:          202,
+		TargetPid:    101,
+		EventCwdPath: "/partial-cwd",
+		Opts: &cli.Options{
+			ShowPaths:     true,
+			ShowPathsMode: 1,
+		},
+		FdMap: map[string]string{
+			"101:cwd": "/opt/strace-go/strace-upstream/tests",
+		},
+	}
+
+	if got := (&DefaultHandler{}).formatFdArg(ctx, "dfd", uint64(^uint32(99))); got != "AT_FDCWD</opt/strace-go/strace-upstream/tests>" {
+		t.Fatalf("AT_FDCWD formatting = %q, want tracked cwd", got)
+	}
+}
+
 func TestDefaultHandlerDecodesSyncFileRangeFlags(t *testing.T) {
 	ctx := &Context{
 		Args: [6]uint64{
