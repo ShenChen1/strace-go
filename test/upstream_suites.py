@@ -33,6 +33,8 @@ UPSTREAM_REFERENCE_TESTS = [
     "getpid.gen.test",
     "close_range.gen.test",
     "eventfd.test",
+    "epoll_create.gen.test",
+    "epoll_create1.gen.test",
     "getdents.gen.test",
     "getdents-v.gen.test",
     "getdents64.gen.test",

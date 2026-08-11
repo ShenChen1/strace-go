@@ -9,8 +9,9 @@ static __always_inline int is_fd_state_exit_direct_syscall(u32 sys_id)
 {
     return sys_id == SYS_OPEN || sys_id == SYS_OPENAT || sys_id == SYS_OPENAT2 ||
         sys_id == SYS_OPEN_TREE || sys_id == SYS_CREAT || sys_id == SYS_DUP ||
-        sys_id == SYS_DUP2 || sys_id == SYS_DUP3 || sys_id == SYS_EVENTFD ||
-        sys_id == SYS_EVENTFD2;
+        sys_id == SYS_DUP2 || sys_id == SYS_DUP3 || sys_id == SYS_EPOLL_CREATE ||
+        sys_id == SYS_TIMERFD_CREATE || sys_id == SYS_EVENTFD ||
+        sys_id == SYS_EVENTFD2 || sys_id == SYS_EPOLL_CREATE1;
 }
 
 static __always_inline s32 read_fd_state_snapshot(

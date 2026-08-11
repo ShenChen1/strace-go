@@ -313,9 +313,12 @@ func (ev syscallEventContext) handleWith(handle func(string, *handler.Context) h
 }
 
 func (ev syscallEventContext) isFDStateSyscall() bool {
+	if isFDStateCreatorForView(ev.syscallName(), ev.view) {
+		return true
+	}
 	switch ev.syscallName() {
 	case "open", "openat", "openat2", "open_tree", "creat", "dup", "dup2", "dup3", "close",
-		"close_range", "pipe", "pipe2", "socketpair", "eventfd", "eventfd2", "fcntl", "fcntl64",
+		"close_range", "pipe", "pipe2", "socketpair", "fcntl", "fcntl64",
 		"faccessat", "faccessat2", "chmodat", "mkdirat", "newfstatat", "fstat", "chdir", "fchdir":
 		return true
 	default:

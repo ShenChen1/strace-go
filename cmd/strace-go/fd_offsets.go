@@ -56,6 +56,16 @@ func (st *FDStateStore) updateOffsetsFromView(view syscallEventView, scMeta meta
 	if ret < 0 {
 		return
 	}
+	if isFDStateCreatorForView(scMeta.Name, view) {
+		key := fdStateKey(statePID, int32(ret))
+		observation, ok := st.fdStates[key]
+		if !ok || observation.Flags&handler.FDStateFlagOffset == 0 {
+			delete(st.offsets, key)
+			return
+		}
+		st.offsets[key] = observation.Offset
+		return
+	}
 
 	switch scMeta.Name {
 	case "open", "openat", "openat2", "open_tree", "creat":
@@ -65,14 +75,6 @@ func (st *FDStateStore) updateOffsetsFromView(view syscallEventView, scMeta meta
 		if observation, ok := st.fdStates[key]; ok && observation.Flags&handler.FDStateFlagOffset != 0 {
 			st.offsets[key] = observation.Offset
 		}
-	case "eventfd", "eventfd2":
-		key := fdStateKey(statePID, int32(ret))
-		observation, ok := st.fdStates[key]
-		if !ok || observation.Flags&handler.FDStateFlagOffset == 0 {
-			delete(st.offsets, key)
-			return
-		}
-		st.offsets[key] = observation.Offset
 	case "dup", "dup2", "dup3", "fcntl", "fcntl64":
 		oldFD, newFD, ok := duplicatedFDsFromView(view, scMeta)
 		if !ok {

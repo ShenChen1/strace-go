@@ -14,16 +14,19 @@ import (
 
 func updateFdReturnMapFromSource(src fdStateSource, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
 	view := src.view
-	if !view.valid || view.ret < 0 || !isFdReturnSyscall(scMeta.Name) {
+	if !view.valid || view.ret < 0 {
 		return
 	}
-	if isSimpleFDStateSyscall(scMeta.Name) && !hasFDStateSnapshotForFD(src, int32(view.ret)) {
+	policy, ok := fdCreatorPolicyFor(scMeta.Name, view)
+	if !ok {
+		return
+	}
+	if !hasFDStateSnapshotForFD(src, int32(view.ret)) {
 		delete(fdMap, fdStateKey(targetPid, int32(view.ret)))
 		return
 	}
-	if isSimpleFDStateSyscall(scMeta.Name) {
-		fdMap[fdStateKey(targetPid, int32(view.ret))] = "anon_inode:[eventfd]"
-	}
+	state := policy.state(src)
+	fdMap[fdStateKey(targetPid, int32(view.ret))] = state.path
 }
 
 func updateEventfdCountFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
