@@ -261,5 +261,35 @@ func TestTraceEventRouterPrintsGenericUnfinishedBeforeOtherTIDEvent(t *testing.T
 	}
 }
 
+func TestTraceEventRouterDiscardsUnfinishedWithoutTextPipeline(t *testing.T) {
+	state := newTraceState()
+	router := newTraceEventRouter(TraceEventRouterDeps{
+		Scope:     newTraceScope(100, nil),
+		TargetPID: 100,
+		State:     state,
+		Pipeline: newSyscallExitPipeline(SyscallExitPipelineDeps{
+			Runner: newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
+				HandleSyscall: func(string, *handler.Context) handler.Result { return handler.Result{} },
+			}),
+		}),
+	})
+	readID := syscallIDByName(t, "read")
+	getpidID := syscallIDByName(t, "getpid")
+	for _, event := range []traceEventEnvelope{
+		{valid: true, pid: 100, tid: 101, sysID: readID, eventType: bpfEventTypeEnter, eventFlags: bpfEventFlagGenericEnter, enterTime: 10},
+		{valid: true, pid: 100, tid: 102, sysID: getpidID, eventType: bpfEventTypeEnter, eventFlags: bpfEventFlagGenericEnter, enterTime: 20},
+		{valid: true, pid: 100, tid: 103, sysID: getpidID, eventType: bpfEventTypeEnter, eventFlags: bpfEventFlagGenericEnter, enterTime: 30},
+	} {
+		router.Handle(event)
+	}
+
+	if len(state.unqueuedUnfinished) != 1 || len(state.inFlightUnfinished) != 0 {
+		t.Fatalf("unfinished index = unqueued %d, in-flight %d; want only current TID", len(state.unqueuedUnfinished), len(state.inFlightUnfinished))
+	}
+	if _, ok := state.unqueuedUnfinished[103]; !ok {
+		t.Fatalf("unfinished index = %+v, want only current TID 103", state.unqueuedUnfinished)
+	}
+}
+
 var _ SyscallExitEffects = (*fakeRouterExitEffects)(nil)
 var _ LifecycleEffects = (*fakeLifecycleEffects)(nil)

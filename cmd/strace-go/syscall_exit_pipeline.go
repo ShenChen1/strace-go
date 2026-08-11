@@ -109,11 +109,15 @@ func (p *SyscallExitPipeline) Handle(ev syscallEventContext) {
 }
 
 func (p *SyscallExitPipeline) HandleUnfinished(ev syscallEventContext) bool {
-	if p == nil || p.text == nil || p.runner == nil || !p.text.canHandleUnfinished(ev) {
+	if !p.HasTextOutput() || !p.text.canHandleUnfinished(ev) {
 		return false
 	}
 	res := p.runner.Decode(ev)
 	return p.text.HandleUnfinished(ev, res)
+}
+
+func (p *SyscallExitPipeline) HasTextOutput() bool {
+	return p != nil && p.text != nil && p.runner != nil
 }
 
 func (p *SyscallExitPipeline) recordSummaryIfNeeded(ev syscallEventContext) bool {

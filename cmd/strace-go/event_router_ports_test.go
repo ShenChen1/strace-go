@@ -37,6 +37,8 @@ func (s *recordingExitSink) HandleUnfinished(syscallEventContext) bool {
 	return true
 }
 
+func (*recordingExitSink) HasTextOutput() bool { return true }
+
 func TestTraceEventRouterDispatchesThroughOutputPorts(t *testing.T) {
 	lifecycle := &recordingLifecycleSink{}
 	enter := &recordingEnterSink{}

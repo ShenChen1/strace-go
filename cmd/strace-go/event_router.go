@@ -81,7 +81,10 @@ func (r *TraceEventRouter) applyProcessStateInheritance(inheritance *processStat
 }
 
 func (r *TraceEventRouter) handleUnfinished(pendingSyscalls []pendingSyscallState) {
-	if r.pipeline == nil {
+	if r.pipeline == nil || !r.pipeline.HasTextOutput() {
+		for _, pending := range pendingSyscalls {
+			r.state.markUnfinishedPrinted(pending.tid)
+		}
 		return
 	}
 	for _, pending := range pendingSyscalls {
@@ -94,6 +97,7 @@ func (r *TraceEventRouter) handleUnfinished(pendingSyscalls []pendingSyscallStat
 			pending.payloadSections,
 		)
 		if !ev.shouldOutput() || !r.pipeline.HandleUnfinished(ev) {
+			r.state.requeueUnfinished(pending.tid)
 			continue
 		}
 		r.state.markUnfinishedPrinted(pending.tid)

@@ -12,6 +12,7 @@ type syscallEnterSink interface {
 type syscallExitSink interface {
 	Handle(syscallEventContext)
 	HandleUnfinished(syscallEventContext) bool
+	HasTextOutput() bool
 }
 
 var (

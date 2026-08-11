@@ -1,8 +1,6 @@
 package main
 
 import (
-	"sort"
-
 	"strace-go/pkg/handler"
 )
 
@@ -50,6 +48,8 @@ type TraceState struct {
 	suspendedSyscalls   map[int]string
 	tasks               map[uint32]*TaskState
 	pendingForks        map[uint32]pendingForkState
+	unqueuedUnfinished  map[uint32]struct{}
+	inFlightUnfinished  map[uint32]struct{}
 }
 
 type traceStateEventKind uint8
@@ -184,26 +184,6 @@ func isTerminatingSyscall(view syscallEventView) bool {
 	return name == "exit" || name == "exit_group"
 }
 
-func (st *TraceState) pendingForOtherTID(tid uint32) []pendingSyscallState {
-	if tid == 0 || len(st.pendingSyscalls) == 0 {
-		return nil
-	}
-	candidates := make([]pendingSyscallState, 0, len(st.pendingSyscalls))
-	for pendingTID, pending := range st.pendingSyscalls {
-		if pendingTID == tid || pending == nil || pending.unfinishedPrinted || pending.probeRetEnter >= 2 {
-			continue
-		}
-		candidates = append(candidates, copyPendingSyscallState(*pending))
-	}
-	sort.Slice(candidates, func(i, j int) bool {
-		if candidates[i].enterTime != candidates[j].enterTime {
-			return candidates[i].enterTime < candidates[j].enterTime
-		}
-		return candidates[i].tid < candidates[j].tid
-	})
-	return candidates
-}
-
 func (pending *pendingSyscallState) enterView() syscallEventView {
 	return syscallEventView{
 		valid:         true,
@@ -240,6 +220,7 @@ func (st *TraceState) rememberEnterEvent(view syscallEventView, payload []handle
 		pending.payloadSections = mergeEnterPayloadSections(pending.payloadSections, payload)
 		return
 	}
+	st.deleteUnfinishedCandidate(view.tid)
 	st.pendingSyscalls[view.tid] = &pendingSyscallState{
 		pid:               view.pid,
 		tid:               view.tid,
@@ -251,6 +232,7 @@ func (st *TraceState) rememberEnterEvent(view syscallEventView, payload []handle
 		unfinishedPrinted: view.probeRetEnter >= 2,
 		payloadSections:   copyPayloadSections(payload),
 	}
+	st.enqueueUnfinished(view.tid)
 }
 
 func (st *TraceState) rememberExitFragment(view syscallEventView, payload []handler.PayloadSection) {
@@ -330,6 +312,7 @@ func (st *TraceState) consumeEnterEvent(view syscallEventView) *pendingSyscallSt
 	}
 	pending := st.pendingSyscalls[view.tid]
 	delete(st.pendingSyscalls, view.tid)
+	st.deleteUnfinishedCandidate(view.tid)
 	if pending == nil || pending.sysID != view.sysID {
 		return nil
 	}
@@ -389,12 +372,14 @@ func (st *TraceState) consumeSuspendedSyscall(tid int) bool {
 
 func (st *TraceState) markUnfinishedPrinted(tid uint32) {
 	pending := st.pendingSyscalls[tid]
+	st.deleteUnfinishedCandidate(tid)
 	if pending != nil {
 		pending.unfinishedPrinted = true
 	}
 }
 
 func (st *TraceState) clearTaskPending(tid uint32) {
+	st.deleteUnfinishedCandidate(tid)
 	delete(st.pendingExecArgs, int(tid))
 	delete(st.suspendedSyscalls, int(tid))
 	delete(st.pendingSyscalls, tid)

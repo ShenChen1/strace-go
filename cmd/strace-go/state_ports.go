@@ -3,6 +3,7 @@ package main
 type traceEventState interface {
 	handleEnvelope(traceEventEnvelope) TraceStateUpdate
 	markUnfinishedPrinted(uint32)
+	requeueUnfinished(uint32)
 }
 
 type textRendererState interface {

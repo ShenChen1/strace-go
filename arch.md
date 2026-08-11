@@ -2879,3 +2879,35 @@ ABI 与状态契约：
 本阶段只补 lifecycle/filter map 的错误可观测性和初始 child 原子状态，不改变纯 eBPF 事件事实源或用户态输出契约。
 
 实际验收结果：新增 `lifecycle_map_update_fail` ABI/stats 字段；fork 初始 child 的 `filter_map`/`pre_exec_map` 更新改为成对检查，pre-exec 更新失败会回滚 filter；follow-forks、terminating、非 leader exec relation 和 arm 清理更新均检查返回值。Go 聚合、JSON stats、text diagnostic 和 Python semantic oracle 已同步。source gate 先验证失败，再在修复后通过；BPF 对象和两个 bpf2go wrapper 已重新生成。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；新对象下 `ebpf-semantic` 为 201 个事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，742.89 events/s；`small` 为 23 PASS；完整 `more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer/BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
+
+### 14.58 unfinished 候选索引与单消费者热路径收口（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：`TraceState.handleEnvelope` 在每条事件进入时调用 `pendingForOtherTID`；该函数遍历全部 `pendingSyscalls`、过滤已处理项、复制每个候选的 payload，再按 enter 时间排序。候选只有在 router 输出成功后才被标记。
+- Problem：多线程阻塞 syscall storm 中，已被观察过但尚未完成的 TID 会在后续每条事件中重复扫描和深拷贝；JSON/debug 或没有 text sink 时这些副本不会产生输出。热路径复杂度随 pending TID 数量增长，违背单消费者状态机应只处理状态变化的约束。
+- Goal：维护独立的 unfinished candidate index；一个 pending TID 在首次遇到其它 TID 事件时只进入一次 in-flight 集合，输出成功确认或失败显式 requeue。无 text sink 时直接丢弃候选通知，不重复构造 snapshot；正常同 TID 事件不扫描其它状态。
+- Non-goals：不改变 `<unfinished ...>`/`<... resumed>` 文本、TID 排除、enter 时间/TID 稳定排序、path/status filter 失败后的重试语义、payload ownership、BPF ABI、事件顺序或其它 pending map；不引入 goroutine、mutex、timer、procfs、ptrace 或 `process_vm_readv`。
+- Constraints：candidate index 与 `pendingSyscalls` 由同一个事件消费者拥有；consume/retire/replacement 必须从 unqueued/in-flight 集合同时删除；router 在 `shouldOutput` 或 `HandleUnfinished` 失败时必须 requeue，成功后才能 mark；snapshot 仍需独立复制，不能把 borrowed payload 交给输出层。
+
+方案比较：
+
+1. 继续每事件扫描并排序全部 pending：实现最简单，但复杂度和 payload 分配随并发 pending 数量放大，拒绝。
+2. 只增加按 TID 的 pending map，不维护候选生命周期：可以减少部分查找，但无法避免重复候选复制，也无法表达输出失败后的重试边界，拒绝。
+3. 增加 unqueued/in-flight candidate index，并通过 router 的 requeue/mark 回写完成状态迁移：保持原有输出语义，已观察候选只处理一次，选择该方案。
+
+状态契约：
+
+- 新 enter 创建 pending 时加入 unqueued index；同 TID 同 syscall 的 payload fragment 不重复入队，替换 syscall 时清理旧 entry 后加入新 entry。
+- `pendingForOtherTID` 只从 unqueued index 取出当前事件 TID 之外的候选，并将其移至 in-flight；候选仍按 enter 时间、TID 稳定排序并返回独立 snapshot。
+- `markUnfinishedPrinted` 删除 in-flight/unqueued 记录并设置 pending 标记；`requeueUnfinished` 仅恢复仍存活且未打印的 pending。
+- consume、lifecycle cleanup 和 retire 必须幂等清理两个 index；没有 text pipeline 的 router 将候选视为无需输出并完成清理，JSON/debug 不产生 text unfinished。
+
+测试与验收：
+
+- 先新增失败优先 source gate 和状态测试，锁定 candidate index、in-flight/requeue API、consume/retire cleanup 以及 no-text router 清理。
+- 随后运行 focused unfinished/router 测试、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、`ebpf-semantic`、`ebpf-perf`、small、more、upstream reference，并检查无 tracer/BPF pin 残留；全程不引入任何 procfs/tracee live-state 读取。
+
+本阶段只优化 Go 单消费者 unfinished 状态索引，不改变纯 eBPF 事实源、内存快照时点或输出契约。
+
+实际验收结果：`TraceState` 新增 unqueued/in-flight unfinished candidate index；候选只在首次遇到其它 TID 事件时生成一次独立 snapshot，router 在 text pipeline 不可用时直接完成清理，在过滤或输出失败时显式 requeue，consume/retire/replacement 同步清理索引。保留 enter 时间/TID 稳定排序、TID=0 不触发 unfinished 和既有 `<unfinished ...>`/`<... resumed>` 文本语义。新增 in-flight 去重、失败重试、无 text pipeline 清理、TID=0 边界和 source gate。source gate 先验证失败，再在修复后通过；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、no-ptrace/no-procmem/no-procfs gate 和 `git diff --check` 通过；最终 `ebpf-semantic` 为 201 个事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，674.11 events/s；`small` 为 23 PASS；完整 `more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
