@@ -358,15 +358,17 @@ int trace_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx) {
     // governed by follow-forks instead.
     u32 arm_key = 0;
     u32 *arm_parent = bpf_map_lookup_elem(&arm_fork_map, &arm_key);
+    u32 *pre_exec = bpf_map_lookup_elem(&pre_exec_map, &tid);
     int tracked = is_lifecycle_task_tracked(pid, tid);
     if (tracked) {
-        // IMPACT: always lift pre-exec suppression once a traced process execs;
-        // the arm may already be cleared by a racing path, so the suppression
-        // clear must not depend on it.
-        bpf_map_delete_elem(&pre_exec_map, &tid);
-        if (arm_parent && *arm_parent != 0) {
-            u32 zero = 0;
-            bpf_map_update_elem(&arm_fork_map, &arm_key, &zero, BPF_ANY);
+        // IMPACT: only an armed child may consume the initial-fork arm;
+        // unrelated tracked execs must not clear another target's startup arm.
+        if (pre_exec) {
+            bpf_map_delete_elem(&pre_exec_map, &tid);
+            if (arm_parent && *arm_parent != 0) {
+                u32 zero = 0;
+                bpf_map_update_elem(&arm_fork_map, &arm_key, &zero, BPF_ANY);
+            }
         }
     }
 

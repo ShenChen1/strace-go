@@ -145,6 +145,27 @@ func TestBPFLifecycleCleanupIsTIDScoped(t *testing.T) {
 	}
 }
 
+func TestBPFInitialForkArmIsExecOwned(t *testing.T) {
+	source := readCombinedBPFSources(t)
+	execBody, ok := bpfFunctionBody(source, "trace_sched_process_exec")
+	if !ok {
+		t.Fatal("strace.c missing trace_sched_process_exec body")
+	}
+	lookup := "u32 *pre_exec = bpf_map_lookup_elem(&pre_exec_map, &tid);"
+	if !strings.Contains(execBody, lookup) {
+		t.Fatalf("exec handler must load the armed-child owner marker %q", lookup)
+	}
+	ownerGuard := strings.Index(execBody, "if (pre_exec) {")
+	deleteMarker := strings.Index(execBody, "bpf_map_delete_elem(&pre_exec_map, &tid);")
+	clearArm := strings.Index(execBody, "if (arm_parent && *arm_parent != 0) {")
+	if ownerGuard < 0 || deleteMarker < ownerGuard || clearArm < ownerGuard {
+		t.Fatal("exec handler must delete the marker and clear arm only inside the owner guard")
+	}
+	if strings.Contains(execBody, "if (tracked) {\n        // IMPACT: always lift pre-exec suppression") {
+		t.Fatal("exec handler must not clear the arm for every tracked exec")
+	}
+}
+
 func TestBPFPreExecSuppressionIsSymmetric(t *testing.T) {
 	src := loadBPFSources(t)
 	if !strings.Contains(src.straceSource, "static __always_inline int is_pre_exec_suppressed_syscall(") {

@@ -2816,3 +2816,34 @@ ABI 与状态契约：
 本阶段只回收 BPF lifecycle filter/arm state，不改变纯 eBPF 事件事实源或用户态输出契约。
 
 实际验收结果：`bpf/pending_state.h` 新增 leader filter、process-scoped exec/main-exit 和 armed-parent 的显式回收；`sched_process_exit`/`sched_process_free` 继续共用 TID/TGID owner-aware helper。BPF 对象已重新生成并嵌入最终二进制，生成的 Go wrapper 与已跟踪 wrapper 字节一致。源码 gate、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；新对象下 `ebpf-semantic` 为 201 个事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，691.79 events/s；`small` 为 23 PASS；完整 `more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer/BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
+
+### 14.56 初始 fork arm 的 exec owner 校验（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：`arm_fork_map` 是单槽状态，Go 启动 command 前写入 tracer TGID；`sched_process_fork` 用它给下一 child 安装 `filter_map` 和 `pre_exec_map`，child 首次 exec 后再撤销 arm。
+- Problem：`trace_sched_process_exec` 当前只检查 task 是否已被跟踪，任意已跟踪进程的 exec 都会清零 `arm_fork_map`。command+attach 或多个已跟踪 task 并存时，attach 目标的 exec 可能提前撤销 command child 的 arm，导致初始 exec 事件丢失。
+- Goal：只有当前 task 拥有 `pre_exec_map[tid]` 这份 armed-child 标记时，exec 才能解除初始 fork arm；普通 tracked task 的 exec 仍发送 lifecycle event，但不得改动 arm 状态。
+- Non-goals：不改变 filter/follow-forks、exec payload、lifecycle event ABI、Go 状态机、arm map 类型、输出顺序或 attach 的 unknown FD 语义；不引入 procfs、ptrace、`process_vm_readv`、定时器或锁。
+- Constraints：在删除 `pre_exec_map[tid]` 前保存 owner 标记；arm 清理必须位于该 owner 条件内；没有 owner 标记的 tracked exec 不能触碰 arm slot；exec/free 的既有生命周期清理继续幂等。
+
+方案比较：
+
+1. 保持任意 tracked exec 清 arm：改动最小，但多目标 session 存在确定性竞态，拒绝。
+2. 以 `pre_exec_map[tid]` 作为 armed-child owner 条件：复用已有 BPF 状态、无 ABI 变化、条件与 fork 写入对称，选择该方案。
+3. 扩展 `arm_fork_map` 保存 parent/child 双键：owner 信息更显式，但增加 map ABI 和 fork 写入复杂度，当前没有必要。
+
+状态契约：
+
+- `sched_process_fork` 为 armed child 写入 `pre_exec_map[child_pid]`；该标记存在即表示 child 拥有当前 initial-fork arm。
+- `sched_process_exec` 先读取当前 TID 的 `pre_exec_map` 标记；只有标记存在时才删除它并清零 `arm_fork_map[0]`。
+- 未带 `pre_exec_map` 的 tracked exec 只能更新 lifecycle 输出，不影响 arm；child 过滤仍由其自身 exit/free 清理。
+
+测试与验收：
+
+- 新增 BPF source gate，锁定 exec owner lookup、删除和 arm 清理的嵌套顺序，并防止恢复无条件 arm 清理。
+- 验证 translation unit/verifier、Go/race/vet/build、ebpf semantic/perf、small、more 和 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只修复初始 fork arm 的 owner 竞态，不改变纯 eBPF 事件事实源或用户态输出契约。
+
+实际验收结果：`trace_sched_process_exec` 现在只在当前 TID 存在 `pre_exec_map` owner 标记时删除该标记并清零 `arm_fork_map`；普通 tracked exec 不再影响其它目标的 initial-fork arm。新增 source gate 先验证失败，再在修复后通过；BPF 对象重新编译并嵌入最终二进制，生成的 Go wrapper 与已跟踪 wrapper 字节一致。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；新对象下 `ebpf-semantic` 为 201 个事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，738.05 events/s；`small` 为 23 PASS；完整 `more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer/BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
