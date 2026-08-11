@@ -138,7 +138,9 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_UTIMENSAT 280
 #define SYS_VMSPLICE 278
 #define SYS_EPOLL_PWAIT 281
+#define SYS_EVENTFD 284
 #define SYS_ACCEPT4 288
+#define SYS_EVENTFD2 290
 #define SYS_PIPE2 293
 #define SYS_DUP3 292
 #define SYS_PREADV 295

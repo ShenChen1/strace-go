@@ -3,7 +3,11 @@ import os
 import subprocess
 import tempfile
 
-from ebpf_event_oracles import parse_json_events, parse_lifecycle_events
+from ebpf_event_oracles import (
+    has_fd_state_for_syscall,
+    parse_json_events,
+    parse_lifecycle_events,
+)
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -53,7 +57,7 @@ def run_cloexec_semantic():
         "--event-format=json",
         "-f",
         "-e",
-        "trace=open,openat,read,close,dup3,fcntl,pipe2,close_range,execve,exit,exit_group",
+        "trace=open,openat,read,close,dup3,fcntl,pipe2,eventfd,eventfd2,close_range,execve,exit,exit_group",
         fixture,
     ]
     result = subprocess.run(
@@ -84,9 +88,12 @@ def run_cloexec_semantic():
         )
     if "cloexec-child-ebadf" not in result.stdout:
         failures.append("cloexec child did not observe EBADF after exec")
-    for syscall_name in ("open", "dup3", "pipe2"):
+    for syscall_name in ("open", "dup3", "pipe2", "eventfd", "eventfd2"):
         if not has_successful_exit(presence_events, syscall_name):
             failures.append(f"cloexec {syscall_name} exit event missing")
+    for syscall_name in ("eventfd", "eventfd2"):
+        if not has_fd_state_for_syscall(presence_events, syscall_name):
+            failures.append(f"cloexec {syscall_name} FD_STATE snapshot missing")
     close_range_events = [
         event
         for event in presence_events

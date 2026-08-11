@@ -8,6 +8,7 @@ from ebpf_event_oracles import (
     has_dup_fd_state_sections,
     has_fd_array_fd_state_sections,
     has_fcntl_fd_state_for_command,
+    has_fd_state_for_syscall,
     has_fd_state_section,
 )
 from ebpf_cloexec_suite import has_stale_cloexec_read
@@ -101,6 +102,8 @@ class EventOracleTests(unittest.TestCase):
         }]
 
         self.assertTrue(has_fd_state_section(events))
+        self.assertTrue(has_fd_state_for_syscall(events, "openat"))
+        self.assertFalse(has_fd_state_for_syscall(events, "eventfd2"))
 
     def test_rejects_failed_fd_state_snapshot(self):
         events = [{

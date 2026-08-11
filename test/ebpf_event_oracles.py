@@ -127,6 +127,10 @@ def has_fd_state_section(events):
     )
 
 
+def has_fd_state_for_syscall(events, syscall_name):
+    return _has_fd_state_section_for_syscalls(events, {syscall_name})
+
+
 def has_dup_fd_state_sections(events):
     return all(
         _has_fd_state_section_for_syscalls(events, {syscall})

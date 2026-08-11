@@ -66,8 +66,12 @@ func fdStateObservationFromSection(section handler.PayloadSection) (handler.FDSt
 
 func isFDStateObservationSyscall(scName string) bool {
 	return isOpenedPathFDStateSyscall(scName) ||
-		isDuplicatedFDStateSyscall(scName) || isFDArrayFDStateSyscall(scName) ||
-		isFcntlFDStateSyscall(scName)
+		isSimpleFDStateSyscall(scName) || isDuplicatedFDStateSyscall(scName) ||
+		isFDArrayFDStateSyscall(scName) || isFcntlFDStateSyscall(scName)
+}
+
+func isSimpleFDStateSyscall(scName string) bool {
+	return scName == "eventfd" || scName == "eventfd2"
 }
 
 func isFDArrayFDStateSyscall(scName string) bool {
@@ -102,7 +106,8 @@ func isDuplicatedFDStateSyscall(scName string) bool {
 }
 
 func fdStateTargetReplaced(view syscallEventView, scName string) bool {
-	if isOpenedPathFDStateSyscall(scName) || scName == "dup" || isFcntlFDStateSyscall(scName) {
+	if isOpenedPathFDStateSyscall(scName) || isSimpleFDStateSyscall(scName) ||
+		scName == "dup" || isFcntlFDStateSyscall(scName) {
 		return true
 	}
 	if scName == "dup2" || scName == "dup3" {

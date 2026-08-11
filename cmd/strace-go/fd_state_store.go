@@ -104,7 +104,7 @@ func updateFDMapFromSource(
 	targetPID int,
 	fdMap map[string]string,
 ) {
-	updateFdReturnMapFromView(src.view, scMeta, targetPID, fdMap)
+	updateFdReturnMapFromSource(src, scMeta, targetPID, fdMap)
 	updateEventfdCountFromView(src.view, scMeta, targetPID, fdMap)
 	updateOpenedPathFDMapFromView(src.view, scMeta, pathText, targetPID, fdMap)
 	updateDupFDMapFromSource(src, scMeta, targetPID, fdMap)

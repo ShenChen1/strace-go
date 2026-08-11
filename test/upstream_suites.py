@@ -32,6 +32,7 @@ SMOKE_TESTS = [
 UPSTREAM_REFERENCE_TESTS = [
     "getpid.gen.test",
     "close_range.gen.test",
+    "eventfd.test",
     "getdents.gen.test",
     "getdents-v.gen.test",
     "getdents64.gen.test",

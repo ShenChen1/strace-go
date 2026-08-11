@@ -12,12 +12,17 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func updateFdReturnMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+func updateFdReturnMapFromSource(src fdStateSource, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+	view := src.view
 	if !view.valid || view.ret < 0 || !isFdReturnSyscall(scMeta.Name) {
 		return
 	}
-	if scMeta.Name == "eventfd" || scMeta.Name == "eventfd2" {
-		fdMap[fmt.Sprintf("%d:%d", targetPid, int32(view.ret))] = "anon_inode:[eventfd]"
+	if isSimpleFDStateSyscall(scMeta.Name) && !hasFDStateSnapshotForFD(src, int32(view.ret)) {
+		delete(fdMap, fdStateKey(targetPid, int32(view.ret)))
+		return
+	}
+	if isSimpleFDStateSyscall(scMeta.Name) {
+		fdMap[fdStateKey(targetPid, int32(view.ret))] = "anon_inode:[eventfd]"
 	}
 }
 

@@ -24,6 +24,13 @@ func (st *FDStateStore) updateFDCloexecFromSource(src fdStateSource, scMeta meta
 	case "open", "openat", "openat2", "open_tree", "creat":
 		enabled, known := createdFDCloexecState(src, scMeta.Name)
 		st.replaceFDCloexec(targetPID, int32(src.view.ret), enabled, known)
+	case "eventfd", "eventfd2":
+		if !hasFDStateSnapshotForFD(src, int32(src.view.ret)) {
+			st.replaceFDCloexec(targetPID, int32(src.view.ret), false, false)
+			return
+		}
+		enabled, known := createdFDCloexecState(src, scMeta.Name)
+		st.replaceFDCloexec(targetPID, int32(src.view.ret), enabled, known)
 	case "dup", "dup2", "dup3":
 		st.updateDuplicatedFDCloexec(src.view, scMeta.Name, targetPID)
 	case "close_range":
@@ -75,6 +82,10 @@ func createdFDCloexecState(src fdStateSource, syscallName string) (bool, bool) {
 		flags = src.view.args[2]
 	case "creat":
 		return false, true
+	case "eventfd":
+		return false, true
+	case "eventfd2":
+		flags = uint64(uint32(src.view.args[1]))
 	case "openat2":
 		var ok bool
 		flags, ok = openHowFlagsFromPayload(src.payloadSections)
