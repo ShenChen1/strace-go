@@ -94,11 +94,9 @@ def has_openat_path_section(events, path_text):
     return has_path_section(events, "openat", 1, path_text)
 
 
-def has_fd_state_section(events):
+def _has_fd_state_section_for_syscalls(events, syscall_names):
     for event in events:
-        if event.get("event_type") != "exit" or event.get("syscall") not in {
-            "open", "openat", "openat2", "open_tree", "creat"
-        }:
+        if event.get("event_type") != "exit" or event.get("syscall") not in syscall_names:
             continue
         if event.get("ret", -1) < 0:
             continue
@@ -118,9 +116,22 @@ def has_fd_state_section(events):
             snapshot_fd = int.from_bytes(data[0:4], "little", signed=True)
             flags = int.from_bytes(data[4:8], "little")
             inode = int.from_bytes(data[32:40], "little")
-            if snapshot_fd == event.get("ret") and flags & 3 == 3 and inode > 0:
+            if snapshot_fd == event.get("ret") and (flags & 3) == 3 and inode > 0:
                 return True
     return False
+
+
+def has_fd_state_section(events):
+    return _has_fd_state_section_for_syscalls(
+        events, {"open", "openat", "openat2", "open_tree", "creat"}
+    )
+
+
+def has_dup_fd_state_sections(events):
+    return all(
+        _has_fd_state_section_for_syscalls(events, {syscall})
+        for syscall in ("dup", "dup2", "dup3")
+    )
 
 
 def has_exec_payload_sections(events):

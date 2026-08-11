@@ -4,7 +4,7 @@ import subprocess
 import sys
 import unittest
 
-from ebpf_event_oracles import has_fd_state_section
+from ebpf_event_oracles import has_dup_fd_state_sections, has_fd_state_section
 from ebpf_suites import wait_for_debug_ready
 from run_tests import SuiteResults
 
@@ -108,6 +108,30 @@ class EventOracleTests(unittest.TestCase):
         }]
 
         self.assertFalse(has_fd_state_section(events))
+
+    def test_accepts_complete_dup_fd_state_snapshots(self):
+        events = []
+        for syscall, fd in (("dup", 7), ("dup2", 8), ("dup3", 9)):
+            data = bytearray(48)
+            data[0:4] = fd.to_bytes(4, "little", signed=True)
+            data[4:8] = (3).to_bytes(4, "little")
+            data[32:40] = (42).to_bytes(8, "little")
+            events.append({
+                "event_type": "exit",
+                "syscall": syscall,
+                "ret": fd,
+                "payload_sections": [{
+                    "kind": "fd_state",
+                    "direction": "out",
+                    "arg_index": 0xffff,
+                    "user_len": 48,
+                    "copied_len": 48,
+                    "probe_ret": 0,
+                    "data_base64": base64.b64encode(data).decode(),
+                }],
+            })
+
+        self.assertTrue(has_dup_fd_state_sections(events))
 
 
 if __name__ == "__main__":

@@ -94,8 +94,13 @@ func updateDupFDMapFromView(view syscallEventView, scMeta meta.Syscall, targetPi
 		return
 	}
 	oldFd := int32(view.args[0])
+	newFd := int32(view.ret)
+	newKey := fmt.Sprintf("%d:%d", targetPid, newFd)
+	if oldFd != newFd {
+		delete(fdMap, newKey)
+	}
 	if path, ok := fdMap[fmt.Sprintf("%d:%d", targetPid, oldFd)]; ok {
-		fdMap[fmt.Sprintf("%d:%d", targetPid, int32(view.ret))] = path
+		fdMap[newKey] = path
 	}
 }
 

@@ -5,6 +5,7 @@ from ebpf_event_oracles import (
     EVENT_FLAG_TRUNCATED,
     StructPayloadSpec,
     has_bytes_payload_section,
+    has_dup_fd_state_sections,
     has_exec_payload_sections,
     has_fd_state_section,
     has_gettimeofday_payload_sections,
@@ -105,6 +106,7 @@ def check_path_and_bytes_payloads(context, failures):
 
 def check_fd_state_payloads(context, failures):
     require(has_fd_state_section(context.main.events), failures, "open-family FD state payload section missing")
+    require(has_dup_fd_state_sections(context.main.events), failures, "dup-family FD state payload sections missing")
 
 
 def check_out_struct_payloads(context, failures):

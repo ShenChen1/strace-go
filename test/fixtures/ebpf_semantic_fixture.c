@@ -123,6 +123,45 @@ static int run_fd_array_fixture(void)
 	return 0;
 }
 
+static int run_dup_fixture(void)
+{
+	int source_fd = open("/dev/null", O_RDONLY);
+	if (source_fd < 0) {
+		perror("open dup source");
+		return 112;
+	}
+
+	int dup_fd = syscall(SYS_dup, source_fd);
+	if (dup_fd < 0) {
+		perror("dup");
+		(void) close(source_fd);
+		return 113;
+	}
+
+	int dup2_fd = syscall(SYS_dup2, source_fd, dup_fd + 10);
+	if (dup2_fd < 0) {
+		perror("dup2");
+		(void) close(dup_fd);
+		(void) close(source_fd);
+		return 114;
+	}
+
+	int dup3_fd = syscall(SYS_dup3, source_fd, dup2_fd + 10, O_CLOEXEC);
+	if (dup3_fd < 0) {
+		perror("dup3");
+		(void) close(dup2_fd);
+		(void) close(dup_fd);
+		(void) close(source_fd);
+		return 115;
+	}
+
+	(void) close(dup3_fd);
+	(void) close(dup2_fd);
+	(void) close(dup_fd);
+	(void) close(source_fd);
+	return 0;
+}
+
 static int run_misc_struct_fixture(void)
 {
 	struct utsname uts;
@@ -444,6 +483,10 @@ static int run_semantic_fixture(void)
 	int fd_array_status = run_fd_array_fixture();
 	if (fd_array_status != 0) {
 		return fd_array_status;
+	}
+	int dup_status = run_dup_fixture();
+	if (dup_status != 0) {
+		return dup_status;
 	}
 	int misc_struct_status = run_misc_struct_fixture();
 	if (misc_struct_status != 0) {

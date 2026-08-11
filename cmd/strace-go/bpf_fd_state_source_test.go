@@ -35,6 +35,11 @@ func TestBPFFDStateUsesEventTimeCoreSnapshot(t *testing.T) {
 			t.Fatalf("fd state helper missing %q", token)
 		}
 	}
+	for _, token := range []string{"SYS_DUP", "SYS_DUP2", "SYS_DUP3"} {
+		if !strings.Contains(src.fdStateHeader, token) {
+			t.Fatalf("fd state helper missing duplicated-fd syscall %q", token)
+		}
+	}
 	wantDispatch := []string{
 		`#include "syscall_fd_state_direct_event_v2.h"`,
 		"is_fd_state_exit_direct_syscall(p->sys_id)",

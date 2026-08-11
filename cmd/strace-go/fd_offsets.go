@@ -51,6 +51,9 @@ func (st *FDStateStore) updateOffsetsFromView(view syscallEventView, scMeta meta
 		oldKey := fdStateKey(statePID, int32(view.args[0]))
 		newFD := int32(ret)
 		newKey := fdStateKey(statePID, newFD)
+		if int32(view.args[0]) != newFD {
+			delete(st.offsets, newKey)
+		}
 		if off, ok := st.offsets[oldKey]; ok {
 			st.offsets[newKey] = off
 		}

@@ -338,3 +338,119 @@ func TestFDStateStoreInheritsAndCleansEventTimeObservation(t *testing.T) {
 		t.Fatal("child event-time observation was not cleaned")
 	}
 }
+
+func TestFDStateStorePersistsDupEventTimeObservation(t *testing.T) {
+	store := newFDStateStoreFromMaps(
+		map[string]string{"101:5": "/tmp/source", "101:8": "/tmp/old-target"},
+		map[string]int64{"101:5": 11, "101:8": 99},
+	)
+	store.FDStateMap()["101:8"] = handler.FDStateObservation{FD: 8, Inode: 99}
+	ev := syscallEventContext{
+		view: syscallEventView{
+			valid: true,
+			args:  [6]uint64{5},
+			ret:   8,
+		},
+		statePID: 101,
+		meta:     meta.Syscall{Name: "dup"},
+		payloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindFDState,
+			Direction: handler.PayloadDirectionOut,
+			ArgIndex:  handler.PayloadFDStateArgIndex,
+			UserLen:   handler.FDStateSnapshotSize,
+			CopiedLen: handler.FDStateSnapshotSize,
+			ProbeRet:  0,
+			Data:      fdStateSnapshotBytes(8, handler.FDStateFlagIdentity|handler.FDStateFlagOffset, 0100644, 1, 2, 3, 11),
+		}},
+	}
+
+	ev.updateFDState(store)
+	ev.updateFDOffsets(store)
+
+	observation, ok := store.FDStateMap()["101:8"]
+	if !ok || observation.Inode != 3 || observation.Offset != 11 {
+		t.Fatalf("dup observation = %+v, ok=%v", observation, ok)
+	}
+	if got := store.paths["101:8"]; got != "/tmp/source" {
+		t.Fatalf("dup target path = %q, want source path", got)
+	}
+	if got := store.offsets["101:8"]; got != 11 {
+		t.Fatalf("dup target offset = %d, want shared source offset", got)
+	}
+}
+
+func TestFDStateStoreDupTargetFailureClearsReusedState(t *testing.T) {
+	store := newFDStateStoreFromMaps(
+		map[string]string{"101:7": "/tmp/old-target"},
+		map[string]int64{"101:7": 42},
+	)
+	store.FDStateMap()["101:7"] = handler.FDStateObservation{FD: 7, Inode: 99}
+	ev := syscallEventContext{
+		view: syscallEventView{
+			valid: true,
+			args:  [6]uint64{5, 7},
+			ret:   7,
+		},
+		statePID: 101,
+		meta:     meta.Syscall{Name: "dup2"},
+		payloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindFDState,
+			Direction: handler.PayloadDirectionOut,
+			ArgIndex:  handler.PayloadFDStateArgIndex,
+			UserLen:   handler.FDStateSnapshotSize,
+			CopiedLen: 0,
+			ProbeRet:  -14,
+		}},
+	}
+
+	ev.updateFDState(store)
+	ev.updateFDOffsets(store)
+
+	if _, ok := store.FDStateMap()["101:7"]; ok {
+		t.Fatal("failed dup2 observation retained overwritten target state")
+	}
+	if _, ok := store.paths["101:7"]; ok {
+		t.Fatal("failed dup2 path retained overwritten target state")
+	}
+	if _, ok := store.offsets["101:7"]; ok {
+		t.Fatal("failed dup2 offset retained overwritten target state")
+	}
+}
+
+func TestFDStateStoreDupSelfFailurePreservesState(t *testing.T) {
+	store := newFDStateStoreFromMaps(
+		map[string]string{"101:7": "/tmp/self"},
+		map[string]int64{"101:7": 42},
+	)
+	store.FDStateMap()["101:7"] = handler.FDStateObservation{FD: 7, Inode: 99}
+	ev := syscallEventContext{
+		view: syscallEventView{
+			valid: true,
+			args:  [6]uint64{7, 7},
+			ret:   7,
+		},
+		statePID: 101,
+		meta:     meta.Syscall{Name: "dup2"},
+		payloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindFDState,
+			Direction: handler.PayloadDirectionOut,
+			ArgIndex:  handler.PayloadFDStateArgIndex,
+			UserLen:   handler.FDStateSnapshotSize,
+			CopiedLen: 0,
+			ProbeRet:  -14,
+		}},
+	}
+
+	ev.updateFDState(store)
+	ev.updateFDOffsets(store)
+
+	if got := store.paths["101:7"]; got != "/tmp/self" {
+		t.Fatalf("dup2 self path = %q, want preserved path", got)
+	}
+	if got := store.offsets["101:7"]; got != 42 {
+		t.Fatalf("dup2 self offset = %d, want preserved offset", got)
+	}
+	if _, ok := store.FDStateMap()["101:7"]; !ok {
+		t.Fatal("dup2 self observation was removed")
+	}
+}
