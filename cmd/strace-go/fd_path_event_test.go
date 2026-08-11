@@ -47,9 +47,41 @@ func TestFDPathOverlayFeedsPathFilterAndFormatter(t *testing.T) {
 
 	ev.updateFDState(store)
 	for _, key := range []string{"101:9", "101:5"} {
-		if got := store.PathMap()[key]; got != "/dev/full" {
+		if got := store.paths[key]; got != "/dev/full" {
 			t.Fatalf("FD path %s = %q, want /dev/full", key, got)
 		}
+	}
+}
+
+func TestFDPathOverlayReaderDoesNotMutateStoreBeforeCommit(t *testing.T) {
+	store := newFDStateStoreFromMaps(map[string]string{"101:9": "/old"}, nil)
+	deps := syscallEventContextDeps{
+		decoder: event.NewDecoder(),
+		opts:    cli.ParseArgs([]string{"-y", "--trace=dup", "/bin/true"}),
+		fdState: store,
+	}
+	view := syscallEventView{
+		valid:     true,
+		pid:       101,
+		tid:       101,
+		sysID:     32,
+		eventType: bpfEventTypeExit,
+		args:      [6]uint64{9},
+		ret:       5,
+	}
+	ev := newSyscallEventContextFromViewWithDeps(deps, view, 101, nil, []handler.PayloadSection{{
+		Kind:      handler.PayloadKindFDPath,
+		Direction: handler.PayloadDirectionIn,
+		ArgIndex:  0,
+		ProbeRet:  0,
+		Data:      []byte("/new\x00"),
+	}})
+
+	if got := handler.FormatFdWithPath(ev.handlerContext, 9); got != "9</new>" {
+		t.Fatalf("overlay path = %q, want 9</new>", got)
+	}
+	if got, ok := store.Path(101, 9); !ok || got != "/old" {
+		t.Fatalf("store path before commit = %q, %v; want /old", got, ok)
 	}
 }
 
@@ -70,15 +102,17 @@ func TestFDPathOverlayStripsEventStatePrefix(t *testing.T) {
 		ProbeRet:  0,
 		Data:      data,
 	}})
-	paths, states := overlay.resolve(syscallEventView{
+	view := overlay.resolve(syscallEventView{
 		valid: true,
 		args:  [6]uint64{0},
 	})
-	if paths[0] != "/null" {
-		t.Fatalf("decoded event path = %q, want /null", paths[0])
+	path, ok := view.Path(0)
+	if !ok || path != "/null" {
+		t.Fatalf("decoded event path = %q, %v; want /null", path, ok)
 	}
-	if states[0].Mode != 0x21b6 || states[0].Rdev != 0x100003 {
-		t.Fatalf("decoded event state = %+v, want mode/rdev snapshot", states[0])
+	state, ok := view.Observation(0)
+	if !ok || state.Mode != 0x21b6 || state.Rdev != 0x100003 {
+		t.Fatalf("decoded event state = %+v, %v; want mode/rdev snapshot", state, ok)
 	}
 }
 

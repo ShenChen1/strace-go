@@ -122,15 +122,26 @@ type PathArgument struct {
 	DirFD int32
 }
 
+// FDPathReader reads event-sourced paths without exposing the backing store.
+type FDPathReader interface {
+	Path(pid int, fd int32) (string, bool)
+	Cwd(pid int) (string, bool)
+}
+
+// EventFDPathReader reads paths captured at the current probe site.
+type EventFDPathReader interface {
+	Path(fd int32) (string, bool)
+	Cwd() (string, bool)
+}
+
 // PathMatchRequest carries the state needed to evaluate a -P path filter.
 type PathMatchRequest struct {
 	Pid           int
 	FDs           []int32
 	PathArguments []PathArgument
 	TracePaths    map[string]bool
-	FDMap         map[string]string
-	FDPaths       map[int32]string
-	CWDPath       string
+	FDState       FDPathReader
+	EventFD       EventFDPathReader
 }
 
 // MatchPath checks if the syscall matches any of the paths in the filter list.
@@ -139,26 +150,30 @@ func MatchPath(req PathMatchRequest) bool {
 		return true
 	}
 
-	candidatePaths := fdCandidatePaths(req.Pid, req.FDs, req.FDMap, req.FDPaths)
+	candidatePaths := fdCandidatePaths(req.Pid, req.FDs, req.FDState, req.EventFD)
 	for _, pathArg := range req.PathArguments {
 		candidatePaths = append(candidatePaths,
-			pathArgumentCandidates(req.Pid, pathArg, req.FDMap, req.FDPaths, req.CWDPath)...)
+			pathArgumentCandidates(req.Pid, pathArg, req.FDState, req.EventFD)...)
 	}
 	return anyCandidateMatchesTracePath(candidatePaths, req.TracePaths)
 }
 
-func fdCandidatePaths(pid int, fds []int32, fdMap map[string]string, fdPaths map[int32]string) []string {
+func fdCandidatePaths(pid int, fds []int32, fdState FDPathReader, eventFD EventFDPathReader) []string {
 	candidatePaths := []string{}
 	for _, fd := range fds {
 		if fd == -1 {
 			continue
 		}
-		if path, ok := fdPaths[fd]; ok {
-			candidatePaths = append(candidatePaths, path)
-			continue
+		if eventFD != nil {
+			if path, ok := eventFD.Path(fd); ok {
+				candidatePaths = append(candidatePaths, path)
+				continue
+			}
 		}
-		if path, ok := fdMap[fdMapKey(pid, fd)]; ok {
-			candidatePaths = append(candidatePaths, path)
+		if fdState != nil {
+			if path, ok := fdState.Path(pid, fd); ok {
+				candidatePaths = append(candidatePaths, path)
+			}
 		}
 	}
 	return candidatePaths
@@ -167,9 +182,8 @@ func fdCandidatePaths(pid int, fds []int32, fdMap map[string]string, fdPaths map
 func pathArgumentCandidates(
 	pid int,
 	pathArg PathArgument,
-	fdMap map[string]string,
-	fdPaths map[int32]string,
-	cwdPath string,
+	fdState FDPathReader,
+	eventFD EventFDPathReader,
 ) []string {
 	if !usablePathArgument(pathArg) {
 		return nil
@@ -180,7 +194,7 @@ func pathArgumentCandidates(
 	}
 
 	candidates := []string{path}
-	base := relativePathBase(pid, pathArg.DirFD, fdMap, fdPaths, cwdPath)
+	base := relativePathBase(pid, pathArg.DirFD, fdState, eventFD)
 	if base != "" {
 		candidates = append(candidates, base+"/"+path)
 	} else {
@@ -198,21 +212,31 @@ func usablePathArgument(pathArg PathArgument) bool {
 func relativePathBase(
 	pid int,
 	baseFd int32,
-	fdMap map[string]string,
-	fdPaths map[int32]string,
-	cwdPath string,
+	fdState FDPathReader,
+	eventFD EventFDPathReader,
 ) string {
 	if baseFd != -1 && baseFd != -100 {
-		if path, ok := fdPaths[baseFd]; ok {
-			return path
+		if eventFD != nil {
+			if path, ok := eventFD.Path(baseFd); ok {
+				return path
+			}
 		}
-		return fdMap[fdMapKey(pid, baseFd)]
+		if fdState != nil {
+			if path, ok := fdState.Path(pid, baseFd); ok {
+				return path
+			}
+		}
+		return ""
 	}
-	if trackedCWD := fdMap[fmt.Sprintf("%d:cwd", pid)]; trackedCWD != "" {
-		return trackedCWD
+	if fdState != nil {
+		if trackedCWD, ok := fdState.Cwd(pid); ok && trackedCWD != "" {
+			return trackedCWD
+		}
 	}
-	if cwdPath != "" {
-		return cwdPath
+	if eventFD != nil {
+		if cwdPath, ok := eventFD.Cwd(); ok && cwdPath != "" {
+			return cwdPath
+		}
 	}
 	return ""
 }
@@ -247,8 +271,4 @@ func unquotePath(path string) string {
 		return path[1 : len(path)-1]
 	}
 	return path
-}
-
-func fdMapKey(pid int, fd int32) string {
-	return fmt.Sprintf("%d:%d", pid, fd)
 }

@@ -2,25 +2,26 @@ package main
 
 import (
 	"strace-go/pkg/cli"
+	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
 )
 
 type SyscallJSONOutput struct {
 	opts    *cli.Options
-	pathMap map[string]string
+	fdState event.FDPathReader
 	writer  jsonEventWriter
 }
 
 type SyscallJSONOutputDeps struct {
 	Opts    *cli.Options
-	PathMap map[string]string
+	FDState event.FDPathReader
 	Writer  jsonEventWriter
 }
 
 func newSyscallJSONOutput(deps SyscallJSONOutputDeps) *SyscallJSONOutput {
 	return &SyscallJSONOutput{
 		opts:    deps.Opts,
-		pathMap: deps.PathMap,
+		fdState: deps.FDState,
 		writer:  deps.Writer,
 	}
 }
@@ -37,7 +38,7 @@ func (o *SyscallJSONOutput) HandleEnter(ev syscallEventContext) {
 	if !o.jsonMode() {
 		return
 	}
-	if ev.shouldEmitRawEnter(o.opts, o.pathMap) {
+	if ev.shouldEmitRawEnter(o.opts, o.fdState) {
 		o.writeRawEvent(ev)
 	}
 }

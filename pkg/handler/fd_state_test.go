@@ -44,9 +44,9 @@ func TestContextFDStateFindsTargetOrEventPID(t *testing.T) {
 	ctx := &Context{
 		Pid:       202,
 		TargetPid: 101,
-		FDStates: map[string]FDStateObservation{
+		FDStateView: testFDStateView{observations: map[string]FDStateObservation{
 			"202:7": {FD: 7, Inode: 42},
-		},
+		}},
 	}
 
 	got, ok := ctx.FDState(7)

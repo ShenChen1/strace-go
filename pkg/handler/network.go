@@ -122,7 +122,10 @@ func (h *NetworkHandler) formatNetworkBuffer(ctx *Context, i int, val uint64) (s
 		return "NULL", true
 	}
 
-	fdInfo := ctx.FdMap[fmt.Sprintf("%d:%d", ctx.TargetPid, int32(ctx.Args[0]))]
+	fdInfo := ""
+	if ctx.FDStateView != nil {
+		fdInfo, _ = ctx.FDStateView.Path(ctx.TargetPid, int32(ctx.Args[0]))
+	}
 	if strings.Contains(fdInfo, "AF_NETLINK") {
 		return h.formatNetlinkBuf(ctx, val), true
 	}

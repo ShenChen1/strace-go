@@ -40,11 +40,11 @@ func TestFormatSyscallRetFormatsExplicitEmptyReturnDescription(t *testing.T) {
 
 func TestFormatSyscallRetFormatsOnlyFcntlDupReturnsAsFD(t *testing.T) {
 	ctx := &handler.Context{
-		Pid:       101,
-		TargetPid: 101,
-		Args:      [6]uint64{5, 0, 20},
-		Opts:      &cli.Options{ShowPaths: true, ShowPathsMode: 1},
-		FdMap:     map[string]string{"101:12": "/dev/null"},
+		Pid:         101,
+		TargetPid:   101,
+		Args:        [6]uint64{5, 0, 20},
+		Opts:        &cli.Options{ShowPaths: true, ShowPathsMode: 1},
+		FDStateView: newFDStateStore(map[string]string{"101:12": "/dev/null"}),
 	}
 
 	if got := formatSyscallRet("fcntl", 12, handler.Result{}, ctx); got != "12</dev/null>" {

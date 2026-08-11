@@ -51,6 +51,30 @@ func TestProductSourceHasNoGlobalXlatState(t *testing.T) {
 	}
 }
 
+func TestProductSourceKeepsFDStateBehindReaderPorts(t *testing.T) {
+	forbidden := []string{
+		"FdMap:",
+		"FDStates:",
+		"EventFDPaths:",
+		"EventFDStates:",
+		"EventCwdPath:",
+		"PathMap()",
+		"FDStateMap()",
+		"FDCloexecMap()",
+	}
+	for _, path := range productGoFiles(t) {
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for _, token := range forbidden {
+			if strings.Contains(string(source), token) {
+				t.Fatalf("%s contains forbidden mutable FD-state boundary %q", path, token)
+			}
+		}
+	}
+}
+
 func TestGlobalXlatPolicyDetectsAliasedMetaImport(t *testing.T) {
 	forbidden := map[string]bool{
 		"XlatFormat":        true,

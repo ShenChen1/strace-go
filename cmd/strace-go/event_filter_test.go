@@ -146,7 +146,7 @@ func TestCheckShouldPrintTraceFDsOrPath(t *testing.T) {
 	sc := meta.Syscall{Name: "dup", Args: []string{"fd"}}
 	fdMap := map[string]string{"101:9": "/dev/full"}
 
-	withFDMap := func(req *printFilterRequest) { req.fdMap = fdMap }
+	withFDMap := func(req *printFilterRequest) { req.fdState = testFDPathReader{paths: fdMap} }
 
 	if !checkShouldPrintForTest(viewWithArgs([6]uint64{0}), sc, opts, withFDMap) {
 		t.Fatal("dup(0) should match --trace-fds=0 even with -P")
@@ -198,7 +198,7 @@ func TestCheckShouldPrintTracePathUsesPollPayloadFDs(t *testing.T) {
 	}
 
 	if !checkShouldPrintForTest(viewWithArgs([6]uint64{0x1000, 2, 0, 0, 8}), sc, opts, func(req *printFilterRequest) {
-		req.fdMap = fdMap
+		req.fdState = testFDPathReader{paths: fdMap}
 		req.payloadSections = sections
 	}) {
 		t.Fatal("ppoll payload fd 9 should match -P /dev/full")
@@ -244,7 +244,7 @@ func TestCheckShouldPrintTracePathUsesSelectPayloadFDs(t *testing.T) {
 	}
 
 	if !checkShouldPrintForTest(viewWithArgs([6]uint64{10, 0, 0x2000, 0, 0}), sc, opts, func(req *printFilterRequest) {
-		req.fdMap = fdMap
+		req.fdState = testFDPathReader{paths: fdMap}
 		req.payloadSections = sections
 	}) {
 		t.Fatal("_newselect payload fd 9 should match -P /dev/full")
@@ -259,7 +259,7 @@ func TestCheckShouldPrintTracePathUsesFsconfigAuxFD(t *testing.T) {
 	fdMap := map[string]string{"101:3": "/dev/full"}
 
 	if !checkShouldPrintForTest(viewWithArgs([6]uint64{rawFD(-100), 3, 0, 0, 3}), sc, opts, func(req *printFilterRequest) {
-		req.fdMap = fdMap
+		req.fdState = testFDPathReader{paths: fdMap}
 	}) {
 		t.Fatal("fsconfig aux fd 3 should match -P /dev/full")
 	}
@@ -273,7 +273,7 @@ func TestCheckShouldPrintTracePathIgnoresFsconfigContextFD(t *testing.T) {
 	fdMap := map[string]string{"101:3": "/dev/full"}
 
 	if checkShouldPrintForTest(viewWithArgs([6]uint64{3, 0, 0, 0, 0}), sc, opts, func(req *printFilterRequest) {
-		req.fdMap = fdMap
+		req.fdState = testFDPathReader{paths: fdMap}
 	}) {
 		t.Fatal("fsconfig context fd should not match -P /dev/full for SET_FLAG")
 	}

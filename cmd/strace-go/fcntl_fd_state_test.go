@@ -14,7 +14,7 @@ func TestFDStateStorePersistsFcntlDupObservationsAndOffsets(t *testing.T) {
 				map[string]string{"101:5": "/dev/null", "101:12": "/tmp/old"},
 				map[string]int64{"101:5": 17, "101:12": 99},
 			)
-			store.FDStateMap()["101:12"] = handler.FDStateObservation{FD: 12, Inode: 99}
+			store.fdStates["101:12"] = handler.FDStateObservation{FD: 12, Inode: 99}
 			ev := syscallEventContext{
 				view: syscallEventView{
 					valid: true,
@@ -34,7 +34,7 @@ func TestFDStateStorePersistsFcntlDupObservationsAndOffsets(t *testing.T) {
 			ev.updateFDState(store)
 			ev.updateFDOffsets(store)
 
-			observation, ok := store.FDStateMap()["101:12"]
+			observation, ok := store.fdStates["101:12"]
 			if !ok || observation.Inode != 3 || observation.Offset != 17 {
 				t.Fatalf("fcntl observation = %+v, ok=%v", observation, ok)
 			}
@@ -53,8 +53,8 @@ func TestFDStateStoreFcntlDupFailureClearsTarget(t *testing.T) {
 		map[string]string{"101:5": "/dev/null", "101:12": "/tmp/old"},
 		map[string]int64{"101:5": 17, "101:12": 99},
 	)
-	store.FDStateMap()["101:5"] = handler.FDStateObservation{FD: 5, Inode: 3, Offset: 17}
-	store.FDStateMap()["101:12"] = handler.FDStateObservation{FD: 12, Inode: 99}
+	store.fdStates["101:5"] = handler.FDStateObservation{FD: 5, Inode: 3, Offset: 17}
+	store.fdStates["101:12"] = handler.FDStateObservation{FD: 12, Inode: 99}
 	ev := syscallEventContext{
 		view: syscallEventView{
 			valid: true,
@@ -75,7 +75,7 @@ func TestFDStateStoreFcntlDupFailureClearsTarget(t *testing.T) {
 	ev.updateFDState(store)
 	ev.updateFDOffsets(store)
 
-	if _, ok := store.FDStateMap()["101:12"]; ok {
+	if _, ok := store.fdStates["101:12"]; ok {
 		t.Fatal("failed fcntl duplication retained target observation")
 	}
 	if _, ok := store.paths["101:12"]; ok {
@@ -109,8 +109,8 @@ func TestFDStateStoreFcntlGetterDoesNotCreateObservation(t *testing.T) {
 
 	ev.updateFDState(store)
 
-	if len(store.FDStateMap()) != 0 {
-		t.Fatalf("getter created FD state: %+v", store.FDStateMap())
+	if len(store.fdStates) != 0 {
+		t.Fatalf("getter created FD state: %+v", store.fdStates)
 	}
 }
 

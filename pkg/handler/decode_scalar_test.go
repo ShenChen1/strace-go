@@ -16,9 +16,9 @@ func TestFormatFdWithPathPrefersTrackedFDMap(t *testing.T) {
 			ShowPaths:     true,
 			ShowPathsMode: 1,
 		},
-		FdMap: map[string]string{
+		FDStateView: testFDStateView{paths: map[string]string{
 			"101:4": "/dev/full",
-		},
+		}},
 	}
 
 	if got := FormatFdWithPath(ctx, 4); got != "4</dev/full>" {
@@ -34,7 +34,7 @@ func TestFormatFdWithPathTreatsMissingTrackedFDAsClosed(t *testing.T) {
 			ShowPaths:     true,
 			ShowPathsMode: 1,
 		},
-		FdMap: map[string]string{},
+		FDStateView: testFDStateView{paths: map[string]string{}},
 	}
 
 	if got := FormatFdWithPath(ctx, 4); got != "4" {
@@ -52,14 +52,14 @@ func TestFormatFdWithPathDoesNotReadLiveMetadataOnTrackedMapMiss(t *testing.T) {
 			ShowPaths:     true,
 			ShowPathsMode: 1,
 		},
-		FdMap: map[string]string{},
+		FDStateView: testFDStateView{paths: map[string]string{}},
 	}
 
 	if got := FormatFdWithPath(ctx, fd); got != fmt.Sprintf("%d", fd) {
 		t.Fatalf("FormatFdWithPath = %q, want unknown fd", got)
 	}
-	if len(ctx.FdMap) != 0 {
-		t.Fatalf("fd map changed after unknown fd lookup: %#v", ctx.FdMap)
+	if len(ctx.FDStateView.(testFDStateView).paths) != 0 {
+		t.Fatalf("fd state changed after unknown fd lookup: %#v", ctx.FDStateView)
 	}
 }
 
@@ -71,9 +71,9 @@ func TestFormatFdWithPathDetailsTrackedTarget(t *testing.T) {
 			ShowPaths:     true,
 			ShowPathsMode: 2,
 		},
-		FdMap: map[string]string{
+		FDStateView: testFDStateView{paths: map[string]string{
 			"101:0": "/dev/null",
-		},
+		}},
 	}
 
 	if got := FormatFdWithPath(ctx, 0); got != "0</dev/null>" {
@@ -83,16 +83,16 @@ func TestFormatFdWithPathDetailsTrackedTarget(t *testing.T) {
 
 func TestFormatAtFdcwdPrefersTrackedCWD(t *testing.T) {
 	ctx := &Context{
-		Pid:          202,
-		TargetPid:    101,
-		EventCwdPath: "/partial-cwd",
+		Pid:         202,
+		TargetPid:   101,
+		EventFDView: testEventFDStateView{cwd: "/partial-cwd"},
 		Opts: &cli.Options{
 			ShowPaths:     true,
 			ShowPathsMode: 1,
 		},
-		FdMap: map[string]string{
+		FDStateView: testFDStateView{paths: map[string]string{
 			"101:cwd": "/opt/strace-go/strace-upstream/tests",
-		},
+		}},
 	}
 
 	if got := (&DefaultHandler{}).formatFdArg(ctx, "dfd", uint64(^uint32(99))); got != "AT_FDCWD</opt/strace-go/strace-upstream/tests>" {

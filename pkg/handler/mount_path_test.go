@@ -21,8 +21,8 @@ func TestOpenTreeHandlerUsesSnapshotAndNarrowsFlags(t *testing.T) {
 func TestMoveMountHandlerUsesBothSnapshotsAndNarrowsFlags(t *testing.T) {
 	ctx := mountPathTestContext(429)
 	ctx.Args = [6]uint64{4, 0x1000, 5, 0x2000, 0xdefaced00000377}
-	ctx.FdMap["101:4"] = "/from"
-	ctx.FdMap["101:5"] = "/to"
+	ctx.FDStateView.(testFDStateView).paths["101:4"] = "/from"
+	ctx.FDStateView.(testFDStateView).paths["101:5"] = "/to"
 	ctx.PayloadSections = []PayloadSection{
 		mountPathStringSection(1, 0x1000, "source"),
 		mountPathStringSection(3, 0x2000, "target"),
@@ -51,9 +51,9 @@ func mountPathTestContext(sysID uint32) *Context {
 	return &Context{
 		Pid: 101, Tid: 101, TargetPid: 101, SysId: sysID,
 		SysName: meta.SyscallTable[sysID].Name, ScMeta: meta.SyscallTable[sysID],
-		Decoder: event.NewDecoder(),
-		Opts:    &cli.Options{ShowPaths: true, ShowPathsMode: 1, XlatFormat: "abbrev", StringLimit: 32},
-		FdMap:   map[string]string{"101:cwd": "/tmp/base"},
+		Decoder:     event.NewDecoder(),
+		Opts:        &cli.Options{ShowPaths: true, ShowPathsMode: 1, XlatFormat: "abbrev", StringLimit: 32},
+		FDStateView: testFDStateView{paths: map[string]string{"101:cwd": "/tmp/base"}},
 	}
 }
 

@@ -286,7 +286,7 @@ func TestFDStateStorePersistsEventTimeObservationAndOffset(t *testing.T) {
 	ev.updateFDState(store)
 	ev.updateFDOffsets(store)
 
-	observation, ok := store.FDStateMap()["101:7"]
+	observation, ok := store.fdStates["101:7"]
 	if !ok || observation.Inode != 3 || observation.Offset != 27 {
 		t.Fatalf("stored observation = %+v, ok=%v", observation, ok)
 	}
@@ -300,7 +300,7 @@ func TestFDStateStorePersistsEventTimeObservationAndOffset(t *testing.T) {
 
 func TestFDStateStoreFailedObservationClearsReusedFD(t *testing.T) {
 	store := newFDStateStoreFromMaps(nil, nil)
-	store.FDStateMap()["101:7"] = handler.FDStateObservation{FD: 7, Inode: 99}
+	store.fdStates["101:7"] = handler.FDStateObservation{FD: 7, Inode: 99}
 	ev := syscallEventContext{
 		view: syscallEventView{
 			valid:     true,
@@ -319,22 +319,22 @@ func TestFDStateStoreFailedObservationClearsReusedFD(t *testing.T) {
 	}
 
 	ev.updateFDState(store)
-	if _, ok := store.FDStateMap()["101:7"]; ok {
+	if _, ok := store.fdStates["101:7"]; ok {
 		t.Fatal("failed event-time observation retained stale state for reused fd")
 	}
 }
 
 func TestFDStateStoreInheritsAndCleansEventTimeObservation(t *testing.T) {
 	store := newFDStateStoreFromMaps(nil, nil)
-	store.FDStateMap()["100:1"] = handler.FDStateObservation{FD: 1, Inode: 42}
+	store.fdStates["100:1"] = handler.FDStateObservation{FD: 1, Inode: 42}
 
 	store.InheritProcessState(100, 101)
-	if got := store.FDStateMap()["101:1"].Inode; got != 42 {
+	if got := store.fdStates["101:1"].Inode; got != 42 {
 		t.Fatalf("child event-time inode = %d, want 42", got)
 	}
 
 	store.CleanupProcess(101)
-	if _, ok := store.FDStateMap()["101:1"]; ok {
+	if _, ok := store.fdStates["101:1"]; ok {
 		t.Fatal("child event-time observation was not cleaned")
 	}
 }
@@ -344,7 +344,7 @@ func TestFDStateStorePersistsDupEventTimeObservation(t *testing.T) {
 		map[string]string{"101:5": "/tmp/source", "101:8": "/tmp/old-target"},
 		map[string]int64{"101:5": 11, "101:8": 99},
 	)
-	store.FDStateMap()["101:8"] = handler.FDStateObservation{FD: 8, Inode: 99}
+	store.fdStates["101:8"] = handler.FDStateObservation{FD: 8, Inode: 99}
 	ev := syscallEventContext{
 		view: syscallEventView{
 			valid: true,
@@ -367,7 +367,7 @@ func TestFDStateStorePersistsDupEventTimeObservation(t *testing.T) {
 	ev.updateFDState(store)
 	ev.updateFDOffsets(store)
 
-	observation, ok := store.FDStateMap()["101:8"]
+	observation, ok := store.fdStates["101:8"]
 	if !ok || observation.Inode != 3 || observation.Offset != 11 {
 		t.Fatalf("dup observation = %+v, ok=%v", observation, ok)
 	}
@@ -384,7 +384,7 @@ func TestFDStateStoreDupTargetFailureClearsReusedState(t *testing.T) {
 		map[string]string{"101:7": "/tmp/old-target"},
 		map[string]int64{"101:7": 42},
 	)
-	store.FDStateMap()["101:7"] = handler.FDStateObservation{FD: 7, Inode: 99}
+	store.fdStates["101:7"] = handler.FDStateObservation{FD: 7, Inode: 99}
 	ev := syscallEventContext{
 		view: syscallEventView{
 			valid: true,
@@ -406,7 +406,7 @@ func TestFDStateStoreDupTargetFailureClearsReusedState(t *testing.T) {
 	ev.updateFDState(store)
 	ev.updateFDOffsets(store)
 
-	if _, ok := store.FDStateMap()["101:7"]; ok {
+	if _, ok := store.fdStates["101:7"]; ok {
 		t.Fatal("failed dup2 observation retained overwritten target state")
 	}
 	if _, ok := store.paths["101:7"]; ok {
@@ -422,7 +422,7 @@ func TestFDStateStoreDupSelfFailurePreservesState(t *testing.T) {
 		map[string]string{"101:7": "/tmp/self"},
 		map[string]int64{"101:7": 42},
 	)
-	store.FDStateMap()["101:7"] = handler.FDStateObservation{FD: 7, Inode: 99}
+	store.fdStates["101:7"] = handler.FDStateObservation{FD: 7, Inode: 99}
 	ev := syscallEventContext{
 		view: syscallEventView{
 			valid: true,
@@ -450,7 +450,7 @@ func TestFDStateStoreDupSelfFailurePreservesState(t *testing.T) {
 	if got := store.offsets["101:7"]; got != 42 {
 		t.Fatalf("dup2 self offset = %d, want preserved offset", got)
 	}
-	if _, ok := store.FDStateMap()["101:7"]; !ok {
+	if _, ok := store.fdStates["101:7"]; !ok {
 		t.Fatal("dup2 self observation was removed")
 	}
 }

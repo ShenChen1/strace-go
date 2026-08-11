@@ -52,7 +52,7 @@ func TestSyscallEventContextMergesOpenCreatDirectTLVPath(t *testing.T) {
 				t.Fatalf("%s path section = %+v, %v; want arg0 direct TLV", tt.name, section, ok)
 			}
 			ev.updateFDState(session.fdStateStore())
-			if got := session.fdStateStore().PathMap()["101:7"]; got != "/tmp/"+tt.name {
+			if got := session.fdStateStore().paths["101:7"]; got != "/tmp/"+tt.name {
 				t.Fatalf("%s fd path = %q, want direct TLV path", tt.name, got)
 			}
 		})

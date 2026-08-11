@@ -43,7 +43,7 @@ func TestFDStateStorePersistsPipeArrayObservationsAndOffsets(t *testing.T) {
 				{fd: 8, inode: 6, offset: 23},
 			} {
 				key := fdStateKey(101, want.fd)
-				observation, ok := store.FDStateMap()[key]
+				observation, ok := store.fdStates[key]
 				if !ok || observation.Inode != want.inode || observation.Offset != want.offset {
 					t.Fatalf("observation[%s] = %+v, ok=%v", key, observation, ok)
 				}
@@ -81,11 +81,11 @@ func TestFDStateStoreKeepsValidPipeObservationWhenOtherSnapshotFails(t *testing.
 
 	ev.updateFDState(store)
 
-	if _, ok := store.FDStateMap()[fdStateKey(101, 7)]; !ok {
+	if _, ok := store.fdStates[fdStateKey(101, 7)]; !ok {
 		t.Fatal("valid pipe snapshot was not retained")
 	}
-	if len(store.FDStateMap()) != 1 {
-		t.Fatalf("FD state map size = %d, want 1", len(store.FDStateMap()))
+	if len(store.fdStates) != 1 {
+		t.Fatalf("FD state map size = %d, want 1", len(store.fdStates))
 	}
 }
 

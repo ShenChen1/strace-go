@@ -4,12 +4,38 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
+)
+
+var (
+	_ event.EventFDPathReader    = eventFDStateView{}
+	_ handler.EventFDStateReader = eventFDStateView{}
 )
 
 type fdPathOverlay struct {
 	byArg   map[int]handler.FDPathSnapshot
 	cwdPath string
+}
+
+type eventFDStateView struct {
+	paths  map[int32]string
+	states map[int32]handler.FDStateObservation
+	cwd    string
+}
+
+func (view eventFDStateView) Path(fd int32) (string, bool) {
+	path, ok := view.paths[fd]
+	return path, ok
+}
+
+func (view eventFDStateView) Cwd() (string, bool) {
+	return view.cwd, view.cwd != ""
+}
+
+func (view eventFDStateView) Observation(fd int32) (handler.FDStateObservation, bool) {
+	observation, ok := view.states[fd]
+	return observation, ok
 }
 
 func fdPathOverlayFromSections(sections []handler.PayloadSection) fdPathOverlay {
@@ -42,26 +68,24 @@ func fdPathOverlayFromSections(sections []handler.PayloadSection) fdPathOverlay 
 	return overlay
 }
 
-func (overlay fdPathOverlay) resolve(view syscallEventView) (
-	map[int32]string,
-	map[int32]handler.FDStateObservation,
-) {
+func (overlay fdPathOverlay) resolve(view syscallEventView) eventFDStateView {
+	resolved := eventFDStateView{cwd: overlay.cwdPath}
 	if !view.valid || len(overlay.byArg) == 0 {
-		return nil, nil
+		return resolved
 	}
-	paths := make(map[int32]string, len(overlay.byArg))
-	states := make(map[int32]handler.FDStateObservation, len(overlay.byArg))
+	resolved.paths = make(map[int32]string, len(overlay.byArg))
+	resolved.states = make(map[int32]handler.FDStateObservation, len(overlay.byArg))
 	for argIndex, snapshot := range overlay.byArg {
 		fd := int32(view.args[argIndex])
 		if fd < 0 || fd == handler.AtFdcwd || snapshot.Path == "" {
 			continue
 		}
-		paths[fd] = snapshot.Path
+		resolved.paths[fd] = snapshot.Path
 		if snapshot.HasObservation && snapshot.Observation.FD == fd {
-			states[fd] = snapshot.Observation
+			resolved.states[fd] = snapshot.Observation
 		}
 	}
-	return paths, states
+	return resolved
 }
 
 func updateFDPathStateFromSource(
@@ -71,11 +95,11 @@ func updateFDPathStateFromSource(
 	observations map[string]handler.FDStateObservation,
 ) {
 	overlay := fdPathOverlayFromSections(src.payloadSections)
-	eventPaths, eventStates := overlay.resolve(src.view)
-	for fd, path := range eventPaths {
+	view := overlay.resolve(src.view)
+	for fd, path := range view.paths {
 		paths[fdStateKey(targetPID, fd)] = path
 	}
-	for fd, observation := range eventStates {
+	for fd, observation := range view.states {
 		observations[fdStateKey(targetPID, fd)] = observation
 	}
 	if overlay.cwdPath != "" && src.view.valid {

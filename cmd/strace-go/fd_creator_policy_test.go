@@ -46,13 +46,13 @@ func TestFDCreatorPoliciesExposeStateContract(t *testing.T) {
 			store := newFDStateStoreFromMaps(nil, nil)
 			event.updateFDState(store)
 			event.updateFDOffsets(store)
-			if got := store.PathMap()[fdStateKey(101, test.wantFD)]; got != test.wantPath {
+			if got := store.paths[fdStateKey(101, test.wantFD)]; got != test.wantPath {
 				t.Fatalf("creator path = %q, want %q", got, test.wantPath)
 			}
 			if got := store.offsets[fdStateKey(101, test.wantFD)]; got != test.wantOff {
 				t.Fatalf("creator offset = %d, want %d", got, test.wantOff)
 			}
-			if got := store.FDCloexecMap()[fdStateKey(101, test.wantFD)]; got != test.wantClo {
+			if got := store.fdCloexec[fdStateKey(101, test.wantFD)]; got != test.wantClo {
 				t.Fatalf("creator cloexec = %v, want %v", got, test.wantClo)
 			}
 		})
@@ -64,8 +64,8 @@ func TestFDCreatorSnapshotBoundaries(t *testing.T) {
 		map[string]string{"101:9": "stale"},
 		map[string]int64{"101:9": 99},
 	)
-	store.FDStateMap()["101:9"] = handler.FDStateObservation{FD: 9, Inode: 90}
-	store.FDCloexecMap()["101:9"] = true
+	store.fdStates["101:9"] = handler.FDStateObservation{FD: 9, Inode: 90}
+	store.fdCloexec["101:9"] = true
 
 	for _, test := range []struct {
 		name    string
@@ -84,10 +84,10 @@ func TestFDCreatorSnapshotBoundaries(t *testing.T) {
 			event := newFDStateEvent("epoll_create1", [6]uint64{0x80000}, test.ret, test.payload)
 			event.updateFDState(store)
 			event.updateFDOffsets(store)
-			_, observationExists := store.FDStateMap()["101:9"]
-			_, pathExists := store.PathMap()["101:9"]
+			_, observationExists := store.fdStates["101:9"]
+			_, pathExists := store.paths["101:9"]
 			_, offsetExists := store.offsets["101:9"]
-			_, cloexecExists := store.FDCloexecMap()["101:9"]
+			_, cloexecExists := store.fdCloexec["101:9"]
 			if test.clear && (observationExists || pathExists || offsetExists || cloexecExists) {
 				t.Fatal("invalid creator snapshot retained stale state")
 			}
@@ -112,10 +112,10 @@ func TestInotifyReturnPathUsesEventSourcedState(t *testing.T) {
 	ctx := &handler.Context{
 		TargetPid: 101,
 		Opts:      &cli.Options{ShowPaths: true, ShowPathsMode: 1},
-		FdMap: map[string]string{
+		FDStateView: newFDStateStore(map[string]string{
 			"101:12": "anon_inode:inotify",
 			"101:13": "anon_inode:inotify",
-		},
+		}),
 	}
 	for _, test := range []struct {
 		name string
@@ -137,8 +137,8 @@ func formatInotifyFD(fd int64) string {
 }
 
 func resetFDCreatorState(store *FDStateStore) {
-	store.PathMap()["101:9"] = "stale"
+	store.paths["101:9"] = "stale"
 	store.offsets["101:9"] = 99
-	store.FDStateMap()["101:9"] = handler.FDStateObservation{FD: 9, Inode: 90}
-	store.FDCloexecMap()["101:9"] = true
+	store.fdStates["101:9"] = handler.FDStateObservation{FD: 9, Inode: 90}
+	store.fdCloexec["101:9"] = true
 }

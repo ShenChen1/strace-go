@@ -55,7 +55,7 @@ func TestDup2FormatsArgsBeforeFDMapUpdateAndReturnAfter(t *testing.T) {
 			ShowPaths:     true,
 			ShowPathsMode: 1,
 		},
-		FdMap: fdMap,
+		FDStateView: newFDStateStore(fdMap),
 	}
 
 	res := handler.NewRegistry().Resolve("dup2").Handle(ctx)

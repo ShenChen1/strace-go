@@ -90,7 +90,7 @@ func TestMatchPathMatchesRawRelativeArgument(t *testing.T) {
 		FDs:           []int32{-1},
 		PathArguments: []PathArgument{{Text: `"open.sample"`, DirFD: -100}},
 		TracePaths:    tracePaths,
-		FDMap:         fdMap,
+		FDState:       testFDPathReader{paths: fdMap},
 	}) {
 		t.Fatal("relative trace path did not match raw relative syscall argument")
 	}
@@ -101,8 +101,8 @@ func TestMatchPathPrefersTrackedCWDOverEventSnapshot(t *testing.T) {
 		Pid:           123,
 		PathArguments: []PathArgument{{Text: `"sample"`, DirFD: -100}},
 		TracePaths:    map[string]bool{"/known/full/sample": true},
-		FDMap:         map[string]string{"123:cwd": "/known/full"},
-		CWDPath:       "/partial-cwd",
+		FDState:       testFDPathReader{paths: map[string]string{"123:cwd": "/known/full"}},
+		EventFD:       testEventFDPathReader{cwd: "/partial-cwd"},
 	}) {
 		t.Fatal("path filter did not use the complete tracked cwd")
 	}
@@ -122,7 +122,7 @@ func TestMatchPathDoesNotReadLiveFDOnFDMapMiss(t *testing.T) {
 		Pid:        os.Getpid(),
 		FDs:        []int32{fd},
 		TracePaths: tracePaths,
-		FDMap:      fdMap,
+		FDState:    testFDPathReader{paths: fdMap},
 	}) {
 		t.Fatal("fd path matched without an event-sourced fd state")
 	}
@@ -145,9 +145,9 @@ func TestMatchPathFdTargetMatchesRealpathTraceEntry(t *testing.T) {
 		Pid:        101,
 		FDs:        []int32{3},
 		TracePaths: tracePaths,
-		FDMap: map[string]string{
+		FDState: testFDPathReader{paths: map[string]string{
 			"101:3": sample,
-		},
+		}},
 	}) {
 		t.Fatal("fstat(fd resolving to realpath) should match expanded -P set")
 	}
@@ -171,7 +171,7 @@ func TestMatchPathPrefersEventDrivenFDState(t *testing.T) {
 		Pid:        os.Getpid(),
 		FDs:        []int32{fd},
 		TracePaths: tracePaths,
-		FDMap:      fdMap,
+		FDState:    testFDPathReader{paths: fdMap},
 	}) {
 		t.Fatal("fstat(fd) should match -P path via event-driven fd state")
 	}

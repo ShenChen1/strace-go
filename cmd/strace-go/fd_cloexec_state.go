@@ -10,11 +10,6 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func (st *FDStateStore) FDCloexecMap() map[string]bool {
-	st.ensureMaps()
-	return st.fdCloexec
-}
-
 func (st *FDStateStore) updateFDCloexecFromSource(src fdStateSource, scMeta meta.Syscall, targetPID int) {
 	if !src.view.valid || src.view.ret < 0 {
 		return

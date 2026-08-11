@@ -60,13 +60,13 @@ func TestSignalFDCreatorPoliciesUseEventTimeMask(t *testing.T) {
 			event.updateFDState(store)
 			event.updateFDOffsets(store)
 			key := fdStateKey(101, int32(test.ret))
-			if got := store.PathMap()[key]; got != test.wantPath {
+			if got := store.paths[key]; got != test.wantPath {
 				t.Fatalf("signalfd path = %q, want %q", got, test.wantPath)
 			}
 			if got := store.offsets[key]; got != 37 {
 				t.Fatalf("signalfd offset = %d, want 37", got)
 			}
-			if got := store.FDCloexecMap()[key]; got != test.wantClo {
+			if got := store.fdCloexec[key]; got != test.wantClo {
 				t.Fatalf("signalfd cloexec = %v, want %v", got, test.wantClo)
 			}
 		})
@@ -97,14 +97,14 @@ func TestSignalFDUpdateReplacesExistingMaskPath(t *testing.T) {
 	)
 	updated.updateFDState(store)
 
-	if got := store.PathMap()["101:7"]; got != "signalfd:[USR2 CHLD]" {
+	if got := store.paths["101:7"]; got != "signalfd:[USR2 CHLD]" {
 		t.Fatalf("updated signalfd path = %q", got)
 	}
 }
 
 func TestSignalFDMaskUpdatePreservesExistingCloexec(t *testing.T) {
 	store := newFDStateStoreFromMaps(map[string]string{"101:7": "signalfd:[USR2]"}, nil)
-	store.FDCloexecMap()["101:7"] = true
+	store.fdCloexec["101:7"] = true
 	event := newFDStateEvent(
 		"signalfd",
 		[6]uint64{7, 0x1000, 8},
@@ -116,7 +116,7 @@ func TestSignalFDMaskUpdatePreservesExistingCloexec(t *testing.T) {
 	)
 	event.updateFDState(store)
 
-	if got, ok := store.FDCloexecMap()["101:7"]; !ok || !got {
+	if got, ok := store.fdCloexec["101:7"]; !ok || !got {
 		t.Fatalf("signalfd mask update cloexec = %v, %v; want true, true", got, ok)
 	}
 }
@@ -133,24 +133,24 @@ func TestSignalFDMissingMaskClearsOldPathButKeepsSnapshot(t *testing.T) {
 	)
 	event.updateFDState(store)
 
-	if _, ok := store.PathMap()["101:7"]; ok {
+	if _, ok := store.paths["101:7"]; ok {
 		t.Fatal("stale signalfd mask path survived missing enter snapshot")
 	}
-	if _, ok := store.FDStateMap()["101:7"]; !ok {
+	if _, ok := store.fdStates["101:7"]; !ok {
 		t.Fatal("valid signalfd snapshot was discarded with missing mask")
 	}
 }
 
 func TestSignalFDFailedCallPreservesExistingState(t *testing.T) {
 	store := newFDStateStoreFromMaps(map[string]string{"101:7": "signalfd:[USR2]"}, nil)
-	store.FDStateMap()["101:7"] = handler.FDStateObservation{FD: 7, Inode: 3}
+	store.fdStates["101:7"] = handler.FDStateObservation{FD: 7, Inode: 3}
 	event := newFDStateEvent("signalfd", [6]uint64{7, 0x1000, 8}, -14, nil)
 	event.updateFDState(store)
 
-	if got := store.PathMap()["101:7"]; got != "signalfd:[USR2]" {
+	if got := store.paths["101:7"]; got != "signalfd:[USR2]" {
 		t.Fatalf("failed signalfd path = %q", got)
 	}
-	if _, ok := store.FDStateMap()["101:7"]; !ok {
+	if _, ok := store.fdStates["101:7"]; !ok {
 		t.Fatal("failed signalfd call removed existing snapshot")
 	}
 }

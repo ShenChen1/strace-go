@@ -37,7 +37,7 @@ func newNetworkPolicyContext(reader *networkPolicyMemoryReader, name string) *Co
 		ProbeRetExit:  -1,
 		Decoder:       event.NewDecoder(),
 		Opts:          &cli.Options{StringLimit: 32},
-		FdMap:         map[string]string{},
+		FDStateView:   testFDStateView{paths: map[string]string{}},
 	}
 }
 

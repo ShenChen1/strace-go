@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/binary"
-	"fmt"
 )
 
 const (
@@ -23,6 +22,20 @@ type FDStateObservation struct {
 	Rdev   uint64
 	Inode  uint64
 	Offset int64
+}
+
+// FDStateReader exposes immutable event-sourced FD state to formatters.
+type FDStateReader interface {
+	Path(pid int, fd int32) (string, bool)
+	Cwd(pid int) (string, bool)
+	Observation(pid int, fd int32) (FDStateObservation, bool)
+}
+
+// EventFDStateReader exposes the probe-site overlay for one event.
+type EventFDStateReader interface {
+	Path(fd int32) (string, bool)
+	Cwd() (string, bool)
+	Observation(fd int32) (FDStateObservation, bool)
 }
 
 // FDPathSnapshot combines an optional event-time FD observation with its
@@ -52,11 +65,11 @@ func DecodeFDStateObservation(data []byte) (FDStateObservation, bool) {
 
 // FDState returns the event-time observation for a descriptor in this context.
 func (ctx *Context) FDState(fd int32) (FDStateObservation, bool) {
-	if ctx == nil || ctx.FDStates == nil {
+	if ctx == nil || ctx.FDStateView == nil {
 		return FDStateObservation{}, false
 	}
 	for _, pid := range []int{ctx.TargetPid, ctx.Pid} {
-		if observation, ok := ctx.FDStates[fmt.Sprintf("%d:%d", pid, fd)]; ok {
+		if observation, ok := ctx.FDStateView.Observation(pid, fd); ok {
 			return observation, true
 		}
 	}

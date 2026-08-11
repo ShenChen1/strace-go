@@ -1,8 +1,16 @@
 package main
 
 import (
+	"fmt"
+
+	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
+)
+
+var (
+	_ event.FDPathReader    = (*FDStateStore)(nil)
+	_ handler.FDStateReader = (*FDStateStore)(nil)
 )
 
 type FDStateStore struct {
@@ -66,14 +74,31 @@ func (st *FDStateStore) ensureMaps() {
 	}
 }
 
-func (st *FDStateStore) PathMap() map[string]string {
-	st.ensureMaps()
-	return st.paths
+// Path returns the event-sourced path for one process descriptor.
+func (st *FDStateStore) Path(pid int, fd int32) (string, bool) {
+	if st == nil {
+		return "", false
+	}
+	path, ok := st.paths[fdStateKey(pid, fd)]
+	return path, ok
 }
 
-func (st *FDStateStore) FDStateMap() map[string]handler.FDStateObservation {
-	st.ensureMaps()
-	return st.fdStates
+// Cwd returns the event-sourced working directory for one process.
+func (st *FDStateStore) Cwd(pid int) (string, bool) {
+	if st == nil {
+		return "", false
+	}
+	path, ok := st.paths[fmt.Sprintf("%d:cwd", pid)]
+	return path, ok
+}
+
+// Observation returns the event-time FD snapshot for one process descriptor.
+func (st *FDStateStore) Observation(pid int, fd int32) (handler.FDStateObservation, bool) {
+	if st == nil {
+		return handler.FDStateObservation{}, false
+	}
+	observation, ok := st.fdStates[fdStateKey(pid, fd)]
+	return observation, ok
 }
 
 func (st *FDStateStore) Runtime() handler.RuntimeServices {

@@ -2350,3 +2350,37 @@ ABI 与状态契约：
 - 运行 `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、BPF semantic/perf 和相关 reference；源码检查不得在事件 reader 中出现直接 `time.Now()`。
 
 实际验收结果：`TraceEventReader`、`traceRunState` 和 session composition 已共享同一个注入时钟，reader 不再直接调用 `time.Now()`；reader deadline、drain grace 和 composition identity 回归通过。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 getpid 事件、5,000/5,000 enter/exit、0 丢失，731.48 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 `strace-go-*` BPF pin 或 tracer 进程。
+
+### 14.42 FD state 只读端口与事件 overlay 隔离（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.24 至 14.36 已将 FD/path/observation 迁移到 event-sourced `FDStateStore`，但 `PathMap`、`FDStateMap` 和 `FDCloexecMap` 仍返回底层可变 map；`handler.Context` 和 `event.PathMatchRequest` 也直接携带这些 map。当前 formatter、路径过滤器和测试可以绕过状态 owner 直接写入长期状态。
+- Problem：读者拿到 map 后无法区分“只读查询”和“状态变更”，同一个事件的 probe-site overlay 与长期 FD state 还可能被调用方混合。后续多线程扩展或异步输出一旦保留 map 引用，就会出现状态被后续事件改写、测试顺序依赖和难以定位的数据竞争风险。用 `/proc` 重新查询不能解决这个设计问题，反而会把查询时点从 eBPF probe 点移开并重新引入竞争。
+- Goal：由 `FDStateStore` 独占长期状态写入；向 `handler` 和 `event` 只注入最小的只读查询端口。当前事件的 FD_PATH/CWD overlay 使用独立的 per-event reader，不再暴露 overlay map；路径过滤、`-y/-yy` formatter、网络 handler 和 JSON raw-enter filter 全部通过 reader 查询。
+- Non-goals：本阶段不改变 FD state 的更新策略、TLV ABI、路径捕获上限、输出格式、事件排序或 BPF 程序；不把长期状态复制成每事件的大 map；不使用 `/proc`、`process_vm_readv`、ptrace 或其他 tracee live-state 查询补齐路径。
+- Constraints：读端口不得提供写方法；读方法不得因查询而初始化或修改 map；长期状态与 event overlay 必须保持不同接口和生命周期；生产路径不能把 `map[string]string` 传入 `handler.Context` 或 `event.PathMatchRequest`。
+
+方案比较：
+
+1. 每个事件复制一份 path/state map 再传给 formatter/filter：调用方看似拥有快照，但高频 syscall 会产生复制和分配，仍然以 map 形状表达所有权，拒绝。
+2. 定义窄的 `FDStateReader`、`EventFDStateReader` 和 `FDPathReader` 查询接口，由 store/overlay 实现：不复制长期状态，读写边界显式，事件 overlay 可按生命周期隔离，选择该方案。
+3. 让 handler 持有完整 `FDStateStore` 接口并约定“只调用读方法”：短期改动少，但接口会泄漏更新、继承和清理能力，编译器无法阻止误写，拒绝。
+
+状态契约：
+
+- `pkg/handler.Context` 只持有 `FDStateView` 与 `EventFDView` 两个读端口；`FDStateView` 提供按 pid/fd 查询 path、cwd 和 event-time observation，`EventFDView` 提供当前事件 fd/cwd/observation 查询。
+- `pkg/event.PathMatchRequest` 只持有 `FDPathReader` 与 `EventFDPathReader`；路径匹配通过 `Path`/`Cwd` 查询，不再索引 map。`FDStateStore` 实现长期 reader，per-event overlay 实现 event reader。
+- `FDStateStore` 的 path、observation、offset 和 cloexec map 只在状态更新/生命周期方法内部访问；删除对外返回底层 map 的 accessor。测试如需构造状态，直接使用 package 内测试 fixture，不把可变 map 作为运行时依赖。
+- 当前事件优先使用 event overlay；长期状态查询保持 target pid 再 fallback 到 event pid 的既有顺序。overlay 只覆盖本次 probe-site 携带的 fd/path/state，不写回 store；成功 exit 的状态更新仍由单消费者 pipeline 执行。
+- reader 是纯查询端口，不读取 `/proc` 或 tracee 当前文件描述符表；缺失状态只能保守退化为裸 fd/raw pointer，不能以异步查询猜测路径。
+
+测试与验收：
+
+- 先写失败的接口测试，锁定 store reader 查询不会初始化/暴露底层 map、event overlay 不污染长期状态、target pid fallback、cwd 优先级和 FD observation fallback。
+- 增加源码约束：生产 `handler.Context`、`event.PathMatchRequest`、`SyscallJSONOutput` 不得出现 path/state map 字段；生产 formatter/filter 不得直接索引 FD map。
+- 验证顺序：先 focused handler/event/session 测试，再 `go test ./...`、`go test -race ./...`、`go vet ./...`、build，随后运行 eBPF semantic/perf、small 和 upstream reference；测试结束清理 BPF pin 与 tracer 进程。
+
+本阶段只收口 Go 侧对象/接口边界，不改变纯 eBPF 事件事实源。所有路径和 FD 信息仍必须来自 probe-site TLV 或事件驱动状态；任何 `/proc` 方案都不属于该架构。
+
+实际验收结果：删除 `FDStateStore.PathMap`、`FDStateStore.FDStateMap` 和 `FDStateStore.FDCloexecMap`，新增 `FDStateReader`、`EventFDStateReader`、`FDPathReader` 和 `EventFDPathReader`；formatter、路径过滤器、网络 handler、JSON raw-enter filter 均改为只读端口。新增空 store reader、event overlay 隔离和生产源码边界测试。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，732.93 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后无残留 BPF pin 或 tracer 进程，生产路径未引入 `/proc`、ptrace 或 `process_vm_readv`。

@@ -32,7 +32,7 @@ func TestFDStateStoreCloseRangeAcceptsUint32Max(t *testing.T) {
 
 func TestFDStateStoreCloseRangeCloexecMarksKnownState(t *testing.T) {
 	store := closeRangeTestStore()
-	store.FDCloexecMap()[fdStateKey(101, 3)] = false
+	store.fdCloexec[fdStateKey(101, 3)] = false
 
 	newFDStateEvent(
 		"close_range",
@@ -42,11 +42,11 @@ func TestFDStateStoreCloseRangeCloexecMarksKnownState(t *testing.T) {
 	).updateFDState(store)
 
 	for _, fd := range []int32{3, 4, 5} {
-		if got, ok := store.FDCloexecMap()[fdStateKey(101, fd)]; !ok || !got {
+		if got, ok := store.fdCloexec[fdStateKey(101, fd)]; !ok || !got {
 			t.Fatalf("fd %d cloexec = %v, %v; want true, true", fd, got, ok)
 		}
 	}
-	if got := store.FDCloexecMap()[fdStateKey(101, 6)]; got {
+	if got := store.fdCloexec[fdStateKey(101, 6)]; got {
 		t.Fatal("fd outside close_range was changed")
 	}
 
@@ -62,7 +62,7 @@ func TestFDStateStoreCloseRangeCombinationUsesCloexec(t *testing.T) {
 
 	newFDStateEvent("close_range", [6]uint64{4, 4, flags}, 0, nil).updateFDState(store)
 
-	if got, ok := store.FDCloexecMap()[fdStateKey(101, 4)]; !ok || !got {
+	if got, ok := store.fdCloexec[fdStateKey(101, 4)]; !ok || !got {
 		t.Fatalf("combined flags cloexec = %v, %v; want true, true", got, ok)
 	}
 	assertFDStatePresent(t, store, 4)
@@ -90,7 +90,7 @@ func TestFDStateStoreCloseRangeRejectsInvalidMutation(t *testing.T) {
 
 			event.updateFDState(store)
 			assertFDStatePresent(t, store, 4)
-			if got, ok := store.FDCloexecMap()[fdStateKey(101, 4)]; !ok || got {
+			if got, ok := store.fdCloexec[fdStateKey(101, 4)]; !ok || got {
 				t.Fatalf("fd 4 cloexec = %v, %v; want false, true", got, ok)
 			}
 		})
@@ -124,10 +124,10 @@ func closeRangeTestStore() *FDStateStore {
 		},
 	)
 	for fd := int32(2); fd <= 6; fd++ {
-		store.FDStateMap()[fdStateKey(101, fd)] = handler.FDStateObservation{
+		store.fdStates[fdStateKey(101, fd)] = handler.FDStateObservation{
 			FD: fd, Inode: uint64(fd),
 		}
-		store.FDCloexecMap()[fdStateKey(101, fd)] = false
+		store.fdCloexec[fdStateKey(101, fd)] = false
 	}
 	return store
 }
@@ -141,7 +141,7 @@ func assertFDStatePresent(t *testing.T, store *FDStateStore, fd int32) {
 	if _, ok := store.offsets[key]; !ok {
 		t.Fatalf("fd %d offset state is missing", fd)
 	}
-	if _, ok := store.FDStateMap()[key]; !ok {
+	if _, ok := store.fdStates[key]; !ok {
 		t.Fatalf("fd %d observation is missing", fd)
 	}
 }
@@ -155,10 +155,10 @@ func assertFDStateAbsent(t *testing.T, store *FDStateStore, fd int32) {
 	if _, ok := store.offsets[key]; ok {
 		t.Fatalf("fd %d offset state survived close_range", fd)
 	}
-	if _, ok := store.FDStateMap()[key]; ok {
+	if _, ok := store.fdStates[key]; ok {
 		t.Fatalf("fd %d observation survived close_range", fd)
 	}
-	if _, ok := store.FDCloexecMap()[key]; ok {
+	if _, ok := store.fdCloexec[key]; ok {
 		t.Fatalf("fd %d cloexec state survived close_range", fd)
 	}
 }

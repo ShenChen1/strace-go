@@ -15,14 +15,14 @@ func (h *DefaultHandler) formatFdArg(ctx *Context, argName string, val uint64) s
 		}
 
 		cwdPath := ""
-		if ctx.FdMap != nil {
-			cwdPath = ctx.FdMap[fmt.Sprintf("%d:cwd", ctx.TargetPid)]
+		if ctx.FDStateView != nil {
+			cwdPath, _ = ctx.FDStateView.Cwd(ctx.TargetPid)
 			if cwdPath == "" {
-				cwdPath = ctx.FdMap[fmt.Sprintf("%d:cwd", ctx.Pid)]
+				cwdPath, _ = ctx.FDStateView.Cwd(ctx.Pid)
 			}
 		}
-		if cwdPath == "" {
-			cwdPath = ctx.EventCwdPath
+		if cwdPath == "" && ctx.EventFDView != nil {
+			cwdPath, _ = ctx.EventFDView.Cwd()
 		}
 		// IMPACT: Do not append resolved path if its length >= PATH_MAX (4096) to align with standard AT_FDCWD encoding rules.
 		if cwdPath != "" && len(cwdPath) < 4096 {
@@ -47,7 +47,7 @@ func formatAtFdcwd(ctx *Context) string {
 }
 
 // IMPACT: FormatFdWithPath formats file descriptor with path information (-y/-yy).
-// IMPACT: Strip surrounding quotes from target path if retrieved from FdMap
+// IMPACT: Strip surrounding quotes from target path returned by the FD reader
 // to ensure consistent no-quote formatting inside fd paths.
 func FormatFdWithPath(ctx *Context, fd int32) string {
 	fdStr := fmt.Sprintf("%d", fd)
@@ -55,15 +55,13 @@ func FormatFdWithPath(ctx *Context, fd int32) string {
 		return fdStr
 	}
 
-	if ctx.EventFDPaths != nil {
-		if target, ok := ctx.EventFDPaths[fd]; ok {
+	if ctx.EventFDView != nil {
+		if target, ok := ctx.EventFDView.Path(fd); ok {
 			return formatFDTarget(ctx, fd, target)
 		}
 	}
-	if ctx.FdMap != nil {
-		if target, ok := lookupTrackedFDPath(ctx, fd); ok {
-			return formatFDTarget(ctx, fd, target)
-		}
+	if target, ok := lookupTrackedFDPath(ctx, fd); ok {
+		return formatFDTarget(ctx, fd, target)
 	}
 	return fdStr
 }
@@ -79,11 +77,11 @@ func formatFDTarget(ctx *Context, fd int32, target string) string {
 }
 
 func lookupTrackedFDPath(ctx *Context, fd int32) (string, bool) {
-	if ctx.FdMap == nil {
+	if ctx == nil || ctx.FDStateView == nil {
 		return "", false
 	}
 	for _, pid := range []int{ctx.TargetPid, ctx.Pid} {
-		if target, ok := ctx.FdMap[fmt.Sprintf("%d:%d", pid, fd)]; ok {
+		if target, ok := ctx.FDStateView.Path(pid, fd); ok {
 			if len(target) >= 2 && target[0] == '"' && target[len(target)-1] == '"' {
 				target = target[1 : len(target)-1]
 			}
@@ -108,8 +106,8 @@ func formatDetailedPath(ctx *Context, target string, fd int32) string {
 }
 
 func eventFDState(ctx *Context, fd int32) (FDStateObservation, bool) {
-	if ctx.EventFDStates != nil {
-		if observation, ok := ctx.EventFDStates[fd]; ok {
+	if ctx != nil && ctx.EventFDView != nil {
+		if observation, ok := ctx.EventFDView.Observation(fd); ok {
 			return observation, true
 		}
 	}
@@ -138,13 +136,13 @@ func deviceMinor(dev uint64) uint32 {
 	return uint32(dev & 0xfffff)
 }
 
-// formatSocketPath converts socket inode description using domain information cached in fdMap.
+// formatSocketPath converts socket inode description using event-sourced domain information.
 func formatSocketPath(ctx *Context, target string, fd int32) string {
 	inode := strings.TrimSuffix(strings.TrimPrefix(target, "socket:["), "]")
-	if ctx.FdMap == nil {
+	if ctx == nil || ctx.FDStateView == nil {
 		return target
 	}
-	info, ok := ctx.FdMap[fmt.Sprintf("%d:%d", ctx.TargetPid, fd)]
+	info, ok := ctx.FDStateView.Path(ctx.TargetPid, fd)
 	if !ok {
 		return target
 	}

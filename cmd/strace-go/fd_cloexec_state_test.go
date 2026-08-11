@@ -60,7 +60,7 @@ func TestFDStateStoreTracksCloexecAcrossFDCreationSyscalls(t *testing.T) {
 			newFDStateEvent(test.syscall, test.args, test.ret, test.payload).updateFDState(store)
 
 			for fd, want := range test.wantFDs {
-				got, ok := store.FDCloexecMap()[fdStateKey(101, fd)]
+				got, ok := store.fdCloexec[fdStateKey(101, fd)]
 				if !ok || got != want {
 					t.Fatalf("fd %d cloexec = %v, %v; want %v, true", fd, got, ok, want)
 				}
@@ -71,24 +71,24 @@ func TestFDStateStoreTracksCloexecAcrossFDCreationSyscalls(t *testing.T) {
 
 func TestFDStateStoreTracksFcntlSetFDAndPreservesFailedMutation(t *testing.T) {
 	store := newFDStateStoreFromMaps(nil, nil)
-	store.FDCloexecMap()[fdStateKey(101, 5)] = false
+	store.fdCloexec[fdStateKey(101, 5)] = false
 
 	newFDStateEvent("fcntl", [6]uint64{5, 2, 1}, 0, nil).updateFDState(store)
-	if got := store.FDCloexecMap()[fdStateKey(101, 5)]; !got {
+	if got := store.fdCloexec[fdStateKey(101, 5)]; !got {
 		t.Fatal("F_SETFD(FD_CLOEXEC) did not enable close-on-exec")
 	}
 
 	newFDStateEvent("fcntl", [6]uint64{5, 2, 0}, 0, nil).updateFDState(store)
-	if got := store.FDCloexecMap()[fdStateKey(101, 5)]; got {
+	if got := store.fdCloexec[fdStateKey(101, 5)]; got {
 		t.Fatal("F_SETFD without FD_CLOEXEC did not clear close-on-exec")
 	}
 
 	newFDStateEvent("fcntl", [6]uint64{5, 2, 1}, -1, nil).updateFDState(store)
-	if got := store.FDCloexecMap()[fdStateKey(101, 5)]; got {
+	if got := store.fdCloexec[fdStateKey(101, 5)]; got {
 		t.Fatal("failed F_SETFD changed close-on-exec state")
 	}
 	newFDStateEvent("fcntl", [6]uint64{5, 2, 1}, 1, nil).updateFDState(store)
-	if got := store.FDCloexecMap()[fdStateKey(101, 5)]; got {
+	if got := store.fdCloexec[fdStateKey(101, 5)]; got {
 		t.Fatal("non-zero F_SETFD return changed close-on-exec state")
 	}
 }
@@ -98,11 +98,11 @@ func TestFDStateStoreExecDropsCloexecAndUnknownState(t *testing.T) {
 		map[string]string{"101:cwd": "/known/cwd", "101:3": "keep", "101:4": "drop", "101:5": "unknown"},
 		map[string]int64{"101:3": 3, "101:4": 4, "101:5": 5},
 	)
-	store.FDStateMap()["101:3"] = handler.FDStateObservation{FD: 3, Inode: 30}
-	store.FDStateMap()["101:4"] = handler.FDStateObservation{FD: 4, Inode: 40}
-	store.FDStateMap()["101:5"] = handler.FDStateObservation{FD: 5, Inode: 50}
-	store.FDCloexecMap()["101:3"] = false
-	store.FDCloexecMap()["101:4"] = true
+	store.fdStates["101:3"] = handler.FDStateObservation{FD: 3, Inode: 30}
+	store.fdStates["101:4"] = handler.FDStateObservation{FD: 4, Inode: 40}
+	store.fdStates["101:5"] = handler.FDStateObservation{FD: 5, Inode: 50}
+	store.fdCloexec["101:3"] = false
+	store.fdCloexec["101:4"] = true
 
 	store.CloseOnExecProcess(101)
 
@@ -119,47 +119,47 @@ func TestFDStateStoreExecDropsCloexecAndUnknownState(t *testing.T) {
 		if _, ok := store.offsets[key]; ok {
 			t.Fatalf("stale offset %s survived exec", key)
 		}
-		if _, ok := store.FDStateMap()[key]; ok {
+		if _, ok := store.fdStates[key]; ok {
 			t.Fatalf("stale observation %s survived exec", key)
 		}
 	}
-	if got, ok := store.FDCloexecMap()["101:3"]; !ok || got {
+	if got, ok := store.fdCloexec["101:3"]; !ok || got {
 		t.Fatalf("known non-cloexec state = %v, %v; want false, true", got, ok)
 	}
-	if _, ok := store.FDCloexecMap()["101:4"]; ok {
+	if _, ok := store.fdCloexec["101:4"]; ok {
 		t.Fatal("cloexec state survived exec")
 	}
 }
 
 func TestFDStateStoreInheritsAndCleansCloexecState(t *testing.T) {
 	store := newFDStateStoreFromMaps(nil, nil)
-	store.FDCloexecMap()["100:3"] = true
-	store.FDCloexecMap()["100:4"] = false
+	store.fdCloexec["100:3"] = true
+	store.fdCloexec["100:4"] = false
 
 	store.InheritProcessState(100, 101)
 	for key, want := range map[string]bool{"101:3": true, "101:4": false} {
-		if got, ok := store.FDCloexecMap()[key]; !ok || got != want {
+		if got, ok := store.fdCloexec[key]; !ok || got != want {
 			t.Fatalf("inherited state[%s] = %v, %v; want %v, true", key, got, ok, want)
 		}
 	}
 
 	store.CleanupProcess(101)
-	if _, ok := store.FDCloexecMap()["101:3"]; ok {
+	if _, ok := store.fdCloexec["101:3"]; ok {
 		t.Fatal("child close-on-exec state was not cleaned")
 	}
 }
 
 func TestFDStateStoreFailedFDReplacementPreservesPreviousCloexecState(t *testing.T) {
 	store := newFDStateStoreFromMaps(nil, nil)
-	store.FDCloexecMap()["101:7"] = true
+	store.fdCloexec["101:7"] = true
 
 	newFDStateEvent("dup2", [6]uint64{5, 7}, -1, nil).updateFDState(store)
-	if got := store.FDCloexecMap()["101:7"]; !got {
+	if got := store.fdCloexec["101:7"]; !got {
 		t.Fatal("failed dup2 changed target close-on-exec state")
 	}
 
 	newFDStateEvent("dup2", [6]uint64{5, 7}, 7, nil).updateFDState(store)
-	if got := store.FDCloexecMap()["101:7"]; got {
+	if got := store.fdCloexec["101:7"]; got {
 		t.Fatal("successful dup2 did not clear target close-on-exec state")
 	}
 }

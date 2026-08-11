@@ -203,7 +203,7 @@ func buildTraceSessionOutputs(
 	})
 	syscallJSON := newSyscallJSONOutput(SyscallJSONOutputDeps{
 		Opts:    session.opts,
-		PathMap: session.fdState.PathMap(),
+		FDState: session.fdStateStore(),
 		Writer:  base.jsonWriter,
 	})
 	exitSyscall := newExitSyscallOutput(ExitSyscallOutputDeps{

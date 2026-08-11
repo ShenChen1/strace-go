@@ -20,9 +20,7 @@ type syscallEventContext struct {
 	pendingEnter    *pendingSyscallState
 	handlerContext  *handler.Context
 	payloadSections []handler.PayloadSection
-	eventFDPaths    map[int32]string
-	eventFDStates   map[int32]handler.FDStateObservation
-	eventCwdPath    string
+	eventFDView     eventFDStateView
 }
 
 // syscallEventView is the stable syscall field set used after context construction.
@@ -71,18 +69,18 @@ func newSyscallEventContextDepsWithRegistry(
 	}
 }
 
-func (deps syscallEventContextDeps) pathMap() map[string]string {
+func (deps syscallEventContextDeps) fdPathReader() event.FDPathReader {
 	if deps.fdState == nil {
 		return nil
 	}
-	return deps.fdState.PathMap()
+	return deps.fdState
 }
 
-func (deps syscallEventContextDeps) fdStateMap() map[string]handler.FDStateObservation {
+func (deps syscallEventContextDeps) fdStateReader() handler.FDStateReader {
 	if deps.fdState == nil {
 		return nil
 	}
-	return deps.fdState.FDStateMap()
+	return deps.fdState
 }
 
 func (deps syscallEventContextDeps) runtimeService() handler.RuntimeServices {
@@ -115,7 +113,7 @@ func newSyscallEventContextFromViewWithDeps(
 	scMeta := syscallMeta(view.sysID)
 	payloadSections := mergePendingPayloadSections(pendingEnter, currentPayload)
 	fdPathOverlay := fdPathOverlayFromSections(payloadSections)
-	eventFDPaths, eventFDStates := fdPathOverlay.resolve(view)
+	eventFDView := fdPathOverlay.resolve(view)
 	pathArguments := decodePathArguments(deps, view, scMeta, payloadSections)
 	pathText := primaryPathText(pathArguments)
 	shouldPrint := true
@@ -126,9 +124,8 @@ func newSyscallEventContextFromViewWithDeps(
 			pathArguments:   pathArguments,
 			targetPid:       statePID,
 			opts:            deps.opts,
-			fdMap:           deps.pathMap(),
-			eventFDPaths:    eventFDPaths,
-			eventCwdPath:    fdPathOverlay.cwdPath,
+			fdState:         deps.fdPathReader(),
+			eventFD:         eventFDView,
 			payloadSections: payloadSections,
 		})
 	}
@@ -142,9 +139,7 @@ func newSyscallEventContextFromViewWithDeps(
 		shouldPrint:     shouldPrint,
 		pendingEnter:    pendingEnter,
 		payloadSections: payloadSections,
-		eventFDPaths:    eventFDPaths,
-		eventFDStates:   eventFDStates,
-		eventCwdPath:    fdPathOverlay.cwdPath,
+		eventFDView:     eventFDView,
 	}
 	ev.handlerContext = ev.newHandlerContext(deps)
 	return ev
@@ -191,16 +186,14 @@ func newSyscallEnterEventContextWithCatalog(
 	}
 	scMeta := syscallMeta(view.sysID)
 	fdPathOverlay := fdPathOverlayFromSections(payloadSections)
-	eventFDPaths, eventFDStates := fdPathOverlay.resolve(view)
+	eventFDView := fdPathOverlay.resolve(view)
 	return syscallEventContext{
 		view:            view,
 		statePID:        statePID,
 		meta:            scMeta,
 		catalog:         catalog,
 		payloadSections: payloadSections,
-		eventFDPaths:    eventFDPaths,
-		eventFDStates:   eventFDStates,
-		eventCwdPath:    fdPathOverlay.cwdPath,
+		eventFDView:     eventFDView,
 	}
 }
 
@@ -317,11 +310,14 @@ func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *h
 		SysName: scMeta.Name, Args: view.args, Ret: view.ret,
 		ProbeRetEnter: view.probeRetEnter, ProbeRetExit: view.probeRetExit,
 		PayloadSections: ev.outputPayloadSections(),
-		ScMeta:          scMeta, Registry: deps.registry, Decoder: deps.decoder, Opts: deps.opts, FdMap: deps.pathMap(),
-		Meta:     deps.catalog,
-		FDStates: deps.fdStateMap(), EventFDPaths: ev.eventFDPaths,
-		EventFDStates: ev.eventFDStates, EventCwdPath: ev.eventCwdPath,
-		Runtime: deps.runtimeService(),
+		ScMeta:          scMeta,
+		Registry:        deps.registry,
+		Decoder:         deps.decoder,
+		Opts:            deps.opts,
+		FDStateView:     deps.fdStateReader(),
+		EventFDView:     ev.eventFDView,
+		Meta:            deps.catalog,
+		Runtime:         deps.runtimeService(),
 	}
 }
 
@@ -333,7 +329,7 @@ func (ev syscallEventContext) shouldRunHandler() bool {
 	return ev.shouldPrint || ev.isFDStateSyscall()
 }
 
-func (ev syscallEventContext) shouldEmitRawEnter(opts *cli.Options, pathMap map[string]string) bool {
+func (ev syscallEventContext) shouldEmitRawEnter(opts *cli.Options, fdState event.FDPathReader) bool {
 	if opts == nil {
 		return false
 	}
@@ -346,9 +342,8 @@ func (ev syscallEventContext) shouldEmitRawEnter(opts *cli.Options, pathMap map[
 		pathArguments: ev.pathArguments,
 		targetPid:     ev.statePID,
 		opts:          opts,
-		fdMap:         pathMap,
-		eventFDPaths:  ev.eventFDPaths,
-		eventCwdPath:  ev.eventCwdPath,
+		fdState:       fdState,
+		eventFD:       ev.eventFDView,
 	})
 }
 

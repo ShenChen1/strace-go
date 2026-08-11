@@ -40,7 +40,7 @@ func TestSyscallEventContextUsesTLVPathSection(t *testing.T) {
 		t.Fatalf("handler section = %+v, %v; want TLV path section", section, ok)
 	}
 	ev.updateFDState(session.fdStateStore())
-	if got := session.fdStateStore().PathMap()["101:3"]; got != "from-tlv" {
+	if got := session.fdStateStore().paths["101:3"]; got != "from-tlv" {
 		t.Fatalf("fd path = %q, want TLV snapshot path", got)
 	}
 }

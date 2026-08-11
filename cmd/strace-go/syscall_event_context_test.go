@@ -49,7 +49,7 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 		t.Fatalf("handler context payload sections = %d, want 1", len(ev.handlerContext.PayloadSections))
 	}
 	ev.updateFDState(session.fdStateStore())
-	if got := session.fdStateStore().PathMap()["101:3"]; got != "input.txt" {
+	if got := session.fdStateStore().paths["101:3"]; got != "input.txt" {
 		t.Fatalf("fd path = %q, want input.txt from path snapshot", got)
 	}
 }
@@ -84,8 +84,8 @@ func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 	if ev.handlerContext.Runtime != fdState.Runtime() {
 		t.Fatal("handler context did not receive the session-scoped runtime")
 	}
-	if ev.handlerContext.FdMap["101:cwd"] != "/tmp" {
-		t.Fatalf("handler fd map = %+v, want session fd state path map", ev.handlerContext.FdMap)
+	if got, ok := ev.handlerContext.FDStateView.Cwd(101); !ok || got != "/tmp" {
+		t.Fatalf("handler fd state cwd = %q, %v; want session fd state path", got, ok)
 	}
 }
 
@@ -113,7 +113,7 @@ func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 		t.Fatalf("handler context unexpectedly exposed legacy path string section")
 	}
 	ev.updateFDState(session.fdStateStore())
-	if got := session.fdStateStore().PathMap()["101:3"]; got != "" {
+	if got := session.fdStateStore().paths["101:3"]; got != "" {
 		t.Fatalf("fd path = %q, want no update from legacy string buffer", got)
 	}
 }

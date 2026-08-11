@@ -10,10 +10,10 @@ func TestMatchPathUsesEachPathArgumentDirFD(t *testing.T) {
 			{Text: `"target"`, DirFD: 4},
 		},
 		TracePaths: map[string]bool{"/to/target": true},
-		FDMap: map[string]string{
+		FDState: testFDPathReader{paths: map[string]string{
 			"101:3": "/from",
 			"101:4": "/to",
-		},
+		}},
 	}
 
 	if !MatchPath(req) {
@@ -29,10 +29,10 @@ func TestMatchPathDoesNotPairPathWithUnrelatedDirFD(t *testing.T) {
 			{Text: `"target"`, DirFD: 4},
 		},
 		TracePaths: map[string]bool{"/to/source": true},
-		FDMap: map[string]string{
+		FDState: testFDPathReader{paths: map[string]string{
 			"101:3": "/from",
 			"101:4": "/to",
-		},
+		}},
 	}
 
 	if MatchPath(req) {
