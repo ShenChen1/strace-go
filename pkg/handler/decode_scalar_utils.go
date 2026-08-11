@@ -35,14 +35,9 @@ func cleanAbsolute(p string) string {
 }
 
 // UpdateCwd updates current working directory cache state.
-func UpdateCwd(targetPid int, path string, fdMap map[string]string, eventPid int, metadata FDMetadataServices) {
+func UpdateCwd(targetPid int, path string, fdMap map[string]string) {
 	cwdKey := fmt.Sprintf("%d:cwd", targetPid)
 	base := fdMap[cwdKey]
-	if base == "" && metadata != nil {
-		if path, ok := metadata.CWDPath(eventPid); ok {
-			base = path
-		}
-	}
 	if strings.HasPrefix(path, `"`) && strings.HasSuffix(path, `"`) {
 		path = path[1 : len(path)-1]
 	}

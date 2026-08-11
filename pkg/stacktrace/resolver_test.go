@@ -2,28 +2,30 @@ package stacktrace
 
 import (
 	"fmt"
-	"os"
-	"strings"
 	"testing"
 )
 
-func TestResolverResolvesMappedFile(t *testing.T) {
-	resolver := NewResolver(os.Getpid())
-	if len(resolver.regions) == 0 {
-		t.Fatal("expected the current process to have file-backed mappings")
-	}
+func TestResolverFormatsRawAddress(t *testing.T) {
+	resolver := NewResolver()
+	const ip = uint64(0x1234)
 
-	region := resolver.regions[0]
-	got := resolver.Resolve(region.Start)
-	if !strings.Contains(got, region.Path) {
-		t.Fatalf("Resolve(%#x) = %q, want mapped path %q", region.Start, got, region.Path)
+	got := resolver.Resolve(ip)
+	want := fmt.Sprintf("[0x%x]", ip)
+	if got != want {
+		t.Fatalf("Resolve(%#x) = %q, want %q", ip, got, want)
 	}
 }
 
-func TestResolverUnknownAddressFallsBackToPointer(t *testing.T) {
-	const ip = uint64(0x1234)
+func TestResolverKeepsAddressStableAcrossCalls(t *testing.T) {
+	resolver := NewResolver()
+	const ip = uint64(0x7fff00001234)
 
-	resolver := NewResolver(-1)
+	first := resolver.Resolve(ip)
+	second := resolver.Resolve(ip)
+	if first != second {
+		t.Fatalf("Resolve(%#x) changed from %q to %q", ip, first, second)
+	}
+
 	got := resolver.Resolve(ip)
 	want := fmt.Sprintf("[0x%x]", ip)
 	if got != want {

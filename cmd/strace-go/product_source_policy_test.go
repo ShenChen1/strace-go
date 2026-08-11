@@ -120,27 +120,27 @@ func TestProductGoFilesCoverRuntimeTree(t *testing.T) {
 	}
 }
 
-func TestProductProcfsReferencesStayMetadataOnly(t *testing.T) {
-	allowed := map[string]bool{
-		"/proc/":             true,
-		"/proc/%d/cwd":       true,
-		"/proc/%d/fd":        true,
-		"/proc/%d/fd/%d":     true,
-		"/proc/%d/fd/%s":     true,
-		"/proc/%d/fdinfo/%d": true,
-		"/proc/%d/maps":      true,
-		"/proc/net/tcp":      true,
-		"/proc/net/tcp6":     true,
-		"/proc/net/udp":      true,
-		"/proc/net/udp6":     true,
-		"/proc/net/unix":     true,
-		"/proc/self/fd":      true,
-		"/proc/self/fd/%d":   true,
+func TestProductSourceHasNoProcfsDependency(t *testing.T) {
+	for _, path := range productGoFiles(t) {
+		for _, ref := range procfsStringLiterals(t, path) {
+			t.Fatalf("%s contains procfs reference %q", path, ref)
+		}
+	}
+}
+
+func TestProductSourceHasNoEventTimeProcfsDependency(t *testing.T) {
+	forbidden := []string{
+		"/proc/%d/fd",
+		"/proc/%d/cwd",
+		"/proc/%d/fdinfo",
+		"/proc/net/",
 	}
 	for _, path := range productGoFiles(t) {
 		for _, ref := range procfsStringLiterals(t, path) {
-			if !allowed[ref] {
-				t.Fatalf("%s contains non-metadata procfs reference %q", path, ref)
+			for _, token := range forbidden {
+				if strings.Contains(ref, token) {
+					t.Fatalf("%s contains event-time procfs reference %q", path, ref)
+				}
 			}
 		}
 	}

@@ -96,7 +96,7 @@ func TestMatchPathMatchesRawRelativeArgument(t *testing.T) {
 	}
 }
 
-func TestMatchPathFallsBackToProcFdOnFDMapMiss(t *testing.T) {
+func TestMatchPathDoesNotReadLiveFDOnFDMapMiss(t *testing.T) {
 	file, err := os.CreateTemp(t.TempDir(), "match-path")
 	if err != nil {
 		t.Fatal(err)
@@ -106,13 +106,16 @@ func TestMatchPathFallsBackToProcFdOnFDMapMiss(t *testing.T) {
 	fd := int32(file.Fd())
 	fdMap := map[string]string{}
 	tracePaths := map[string]bool{file.Name(): true}
-	if !MatchPath(PathMatchRequest{
+	if MatchPath(PathMatchRequest{
 		Pid:        os.Getpid(),
 		FDs:        []int32{fd},
 		TracePaths: tracePaths,
 		FDMap:      fdMap,
 	}) {
-		t.Fatal("fd path did not match via procfs fallback")
+		t.Fatal("fd path matched without an event-sourced fd state")
+	}
+	if len(fdMap) != 0 {
+		t.Fatalf("fd map changed after unknown fd lookup: %#v", fdMap)
 	}
 }
 
@@ -148,8 +151,7 @@ func TestMatchPathPrefersEventDrivenFDState(t *testing.T) {
 	defer file.Close()
 
 	fd := int32(file.Fd())
-	// The event-driven fdMap is deterministic (fd-state syscalls keep flowing),
-	// so a cached entry must be preferred over a possibly-racy live read.
+	// The event-driven fdMap is the only accepted source for fd path filters.
 	fdMap := map[string]string{fmt.Sprintf("%d:%d", os.Getpid(), fd): sample}
 	tracePaths := map[string]bool{sample: true}
 

@@ -22,7 +22,7 @@ strace-go/
 │   ├── format/            # 常用系统调用数据结构（如 stat, timespec 等）的格式化解析器
 │   ├── handler/           # 基于注册表的特定系统调用解码器 (如 ioctl, epoll, network 等)
 │   ├── meta/              # 自动生成的系统调用元数据与标志翻译表 (syscall_table.go, xlat_auto.go)
-│   └── stacktrace/        # 用户态栈回溯解析（--stack-trace）
+│   └── stacktrace/        # BPF 用户栈地址格式化（--stack-trace）
 ├── test/                  # 测试框架与批量集成测试脚本
 ├── strace-upstream/       # 官方 strace 源代码仓库 (Submodule, 用作测试对照和数据源)
 ├── build.sh               # 一键生成与构建脚本
@@ -79,7 +79,8 @@ graph TD
    由于 eBPF 运行在高度受限的安全沙箱中，内核态无法安全解引用任意深度的嵌套指针，也无法复制无限长度字符串。`strace-go` 的产品路径只消费探针现场已经复制进事件的 bytes：
    - **内核态拷贝**：在 `sys_enter`/`sys_exit` 阶段复制高价值 IN/OUT 参数快照。
    - **用户态解码**：Go handler 只解析 BPF snapshot、返回值、fd/path 状态和已知文件缓存。
-   - **缺失数据策略**：若 snapshot 不完整或读取失败，输出原始指针地址，不在运行期通过 `ptrace`、`process_vm_readv` 或 `/proc/<pid>/mem` 补读 tracee 内存。
+   - **缺失数据策略**：若 snapshot 或 event-sourced FD state 不完整，输出原始指针/FD，不在运行期通过 `ptrace`、`process_vm_readv`、`/proc/<pid>/mem` 或 `/proc/<pid>/fd*` 补读 tracee 状态。
+   - **栈回溯策略**：`-k` 只输出 BPF 在 probe 点捕获的原始用户指令地址；不读取 tracee 的 mapping 或 ELF 符号，避免用查询时快照解释已经变化的地址空间。
 
 ---
 

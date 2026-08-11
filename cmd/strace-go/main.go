@@ -82,11 +82,11 @@ func main() {
 		log.Fatalf("failed to set up output: %v", err)
 	}
 
-	fdState := newFDStateStore(targetPid, fdMap)
+	fdState := newFDStateStore(fdMap)
 
 	var resolver *stacktrace.Resolver
 	if opts.StackTrace {
-		resolver = stacktrace.NewResolver(targetPid)
+		resolver = stacktrace.NewResolver()
 	}
 
 	session := &traceSession{
@@ -213,9 +213,9 @@ func abortTraceTarget(cmd *exec.Cmd, bpfObjs *bpfObjects, targetPid int) {
 }
 
 // expandTracePathSet mirrors upstream strace's pathtrace_select_set: each -P
-// entry is kept as given and also stored as its absolute realpath, so fd-based
-// syscalls whose /proc/<pid>/fd/<n> target is absolute can still match a
-// relative -P argument such as "-P stat.sample".
+// entry is kept as given and also stored as its absolute realpath, so
+// event-sourced absolute fd targets can still match a relative -P argument
+// such as "-P stat.sample".
 func expandTracePathSet(paths map[string]bool) map[string]bool {
 	if len(paths) == 0 {
 		return paths

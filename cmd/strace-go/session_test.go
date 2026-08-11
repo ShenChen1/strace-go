@@ -6,28 +6,30 @@ import (
 	"path/filepath"
 	"testing"
 
+	"golang.org/x/sys/unix"
+
 	"strace-go/pkg/cli"
 )
 
-func TestIsPassThroughFDTarget(t *testing.T) {
+func TestIsPassThroughFDMode(t *testing.T) {
 	tests := []struct {
-		target string
-		want   bool
+		name string
+		mode uint32
+		want bool
 	}{
-		{target: "/tmp/output", want: true},
-		{target: "/dev/full", want: true},
-		{target: "/proc/123/fd/4", want: false},
-		{target: "/sys/kernel/debug", want: false},
-		{target: "pipe:[123]", want: false},
-		{target: "socket:[123]", want: false},
-		{target: "anon_inode:bpf-link", want: false},
-		{target: "relative/path", want: false},
+		{name: "regular", mode: unix.S_IFREG, want: true},
+		{name: "directory", mode: unix.S_IFDIR, want: true},
+		{name: "character device", mode: unix.S_IFCHR, want: true},
+		{name: "block device", mode: unix.S_IFBLK, want: true},
+		{name: "fifo", mode: unix.S_IFIFO, want: true},
+		{name: "socket", mode: unix.S_IFSOCK, want: false},
+		{name: "symlink", mode: unix.S_IFLNK, want: false},
 	}
 
 	for _, test := range tests {
-		t.Run(test.target, func(t *testing.T) {
-			if got := isPassThroughFDTarget(test.target); got != test.want {
-				t.Fatalf("isPassThroughFDTarget(%q) = %v, want %v", test.target, got, test.want)
+		t.Run(test.name, func(t *testing.T) {
+			if got := isPassThroughFDMode(test.mode); got != test.want {
+				t.Fatalf("isPassThroughFDMode(%#o) = %v, want %v", test.mode, got, test.want)
 			}
 		})
 	}

@@ -3,7 +3,6 @@ package handler
 import (
 	"fmt"
 	"strings"
-	"syscall"
 )
 
 // formatFdArg handles file descriptor scalar values and AT_FDCWD logic.
@@ -20,13 +19,6 @@ func (h *DefaultHandler) formatFdArg(ctx *Context, argName string, val uint64) s
 			cwdPath = ctx.FdMap[fmt.Sprintf("%d:cwd", ctx.TargetPid)]
 			if cwdPath == "" {
 				cwdPath = ctx.FdMap[fmt.Sprintf("%d:cwd", ctx.Pid)]
-			}
-		}
-		if cwdPath == "" {
-			if ctx.FDMetadata != nil {
-				if path, ok := ctx.FDMetadata.CWDPath(ctx.Pid); ok {
-					cwdPath = path
-				}
 			}
 		}
 		// IMPACT: Do not append resolved path if its length >= PATH_MAX (4096) to align with standard AT_FDCWD encoding rules.
@@ -54,7 +46,6 @@ func formatAtFdcwd(ctx *Context) string {
 }
 
 // IMPACT: FormatFdWithPath formats file descriptor with path information (-y/-yy).
-// It falls back to looking up path in FdMap if readlink of procfs fails due to timing.
 // IMPACT: Strip surrounding quotes from target path if retrieved from FdMap
 // to ensure consistent no-quote formatting inside fd paths.
 func FormatFdWithPath(ctx *Context, fd int32) string {
@@ -74,28 +65,7 @@ func FormatFdWithPath(ctx *Context, fd int32) string {
 			return fdStr + "<" + target + ">"
 		}
 	}
-
-	// IMPACT: Use ctx.TargetPid instead of ctx.Pid to avoid reading from transient/exited thread descriptors.
-	if ctx.FDMetadata == nil {
-		return fdStr
-	}
-	target, ok := ctx.FDMetadata.FDPath(ctx.TargetPid, fd)
-	if !ok {
-		return fdStr
-	}
-	if len(target) >= 2 && target[0] == '"' && target[len(target)-1] == '"' {
-		target = target[1 : len(target)-1]
-	}
-	if ctx.FdMap != nil {
-		ctx.FdMap[fmt.Sprintf("%d:%d", ctx.TargetPid, fd)] = target
-	}
-	if ctx.Opts.ShowPathsMode == 2 {
-		return fdStr + "<" + formatDetailedPath(ctx, target, fd) + ">"
-	}
-	if strings.HasPrefix(target, "socket:[") {
-		target = formatSocketPath(ctx, target, fd)
-	}
-	return fdStr + "<" + target + ">"
+	return fdStr
 }
 
 func lookupTrackedFDPath(ctx *Context, fd int32) (string, bool) {
@@ -113,47 +83,13 @@ func lookupTrackedFDPath(ctx *Context, fd int32) (string, bool) {
 	return "", false
 }
 
-// IMPACT: formatDetailedPath extracts device, inode or special fdinfo status for -yy.
-// It falls back to target path stat if procfs entry is missing.
+// IMPACT: formatDetailedPath renders only metadata carried by the event-driven
+// FD state. It never queries the current tracee state after the probe.
 func formatDetailedPath(ctx *Context, target string, fd int32) string {
-	if strings.HasPrefix(target, "anon_inode:[eventfd]") {
-		forceCount := (ctx.ScMeta.Name == "eventfd" || ctx.ScMeta.Name == "eventfd2")
-		flags := uint64(0)
-		if len(ctx.Args) > 1 {
-			flags = ctx.Args[1]
-		}
-		if info := eventfdInfo(ctx, fd, ctx.Args[0], flags, forceCount); info != "" {
-			return info
-		}
-	}
 	if strings.HasPrefix(target, "socket:[") {
 		return formatSocketPath(ctx, target, fd)
 	}
-	if ctx.FDMetadata != nil {
-		stat, ok := ctx.FDMetadata.FDStat(ctx.TargetPid, fd)
-		if !ok && target != "" && !strings.HasPrefix(target, "socket:[") && !strings.HasPrefix(target, "anon_inode:") {
-			stat, ok = ctx.FDMetadata.PathStat(target)
-		}
-		if ok {
-			mode := stat.Mode
-			major, minor := getMajorMinor(stat.Rdev)
-			if (mode & syscall.S_IFMT) == syscall.S_IFCHR {
-				return fmt.Sprintf("%s<char %d:%d>", target, major, minor)
-			}
-			if (mode & syscall.S_IFMT) == syscall.S_IFBLK {
-				return fmt.Sprintf("%s<block %d:%d>", target, major, minor)
-			}
-			return fmt.Sprintf("%s<%d>", target, stat.Inode)
-		}
-	}
 	return target
-}
-
-func eventfdInfo(ctx *Context, fd int32, initialCount uint64, flags uint64, forceCount bool) string {
-	if ctx == nil || ctx.FDMetadata == nil {
-		return ""
-	}
-	return ctx.FDMetadata.EventfdInfo(ctx.TargetPid, fd, initialCount, flags, forceCount)
 }
 
 // formatSocketPath converts socket inode description using domain information cached in fdMap.
@@ -181,21 +117,9 @@ func formatSocketPath(ctx *Context, target string, fd int32) string {
 
 	if ctx.Opts != nil && ctx.Opts.ShowPathsMode == 2 {
 		if strings.HasPrefix(domainInfo, "AF_INET") {
-			val := socketInfo(ctx, "tcp", inode)
-			if val != inode {
-				return fmt.Sprintf("TCP:[%s]", val)
-			}
-			val = socketInfo(ctx, "udp", inode)
-			if val != inode {
-				return fmt.Sprintf("UDP:[%s]", val)
-			}
 			return fmt.Sprintf("TCP:[%s]", inode)
 		}
 		if strings.HasPrefix(domainInfo, "AF_UNIX") {
-			val := socketInfo(ctx, "unix", inode)
-			if val != inode && val != "" {
-				return fmt.Sprintf("UNIX-STREAM:[%s,%s]", inode, val)
-			}
 			return fmt.Sprintf("UNIX-STREAM:[%s]", inode)
 		}
 	} else {
@@ -210,20 +134,4 @@ func formatSocketPath(ctx *Context, target string, fd int32) string {
 		return info
 	}
 	return target
-}
-
-func socketInfo(ctx *Context, proto string, inode string) string {
-	if ctx == nil || ctx.Runtime == nil {
-		return inode
-	}
-	return ctx.Runtime.SocketInfo(proto, inode)
-}
-
-// getMajorMinor parses major and minor device IDs.
-func getMajorMinor(rdev uint64) (uint32, uint32) {
-	major := uint32((rdev >> 8) & 0xfff)
-	major |= uint32((rdev >> 32) & 0xfffff000)
-	minor := uint32(rdev & 0xff)
-	minor |= uint32((rdev >> 12) & 0xffffff00)
-	return major, minor
 }

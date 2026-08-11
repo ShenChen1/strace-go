@@ -16,17 +16,3 @@ func TestRuntimeStateIsScopedPerSession(t *testing.T) {
 		t.Fatalf("second runtime call = %d, want independent 1", got)
 	}
 }
-
-func TestRuntimeEventfdFallbackStateIsScoped(t *testing.T) {
-	first := NewRuntime()
-	second := NewRuntime()
-	first.lastEventfdID = 40
-
-	got := first.EventfdInfo(101, 0, 7, 0, true)
-	if got != "{eventfd-count=0x7, eventfd-id=41, eventfd-semaphore=0}" {
-		t.Fatalf("first eventfd fallback = %q", got)
-	}
-	if got := second.EventfdInfo(101, 0, 7, 0, true); got != "" {
-		t.Fatalf("second eventfd fallback = %q, want empty state", got)
-	}
-}

@@ -6,17 +6,14 @@ import (
 )
 
 type FDStateStore struct {
-	paths    map[string]string
-	offsets  map[string]int64
-	runtime  handler.RuntimeServices
-	metadata handler.FDMetadataServices
+	paths   map[string]string
+	offsets map[string]int64
+	runtime handler.RuntimeServices
 }
 
 type fdStateSource struct {
 	view            syscallEventView
 	payloadSections []handler.PayloadSection
-	procTid         uint32
-	metadata        handler.FDMetadataServices // session-scoped OS metadata adapter
 }
 
 type fdStateUpdate struct {
@@ -26,37 +23,21 @@ type fdStateUpdate struct {
 	targetPID int
 }
 
-func newFDStateStore(targetPid int, paths map[string]string) *FDStateStore {
+func newFDStateStore(paths map[string]string) *FDStateStore {
 	if paths == nil {
 		paths = make(map[string]string)
 	}
-	runtime := handler.NewRuntime()
-	offsets := initFDTracking(targetPid, paths, runtime)
-	return newFDStateStoreWithServices(paths, offsets, runtime, runtime)
-}
-
-func newFDStateStoreFromMaps(paths map[string]string, offsets map[string]int64) *FDStateStore {
-	runtime := handler.NewRuntime()
-	store := newFDStateStoreWithServices(paths, offsets, runtime, runtime)
+	store := &FDStateStore{
+		paths:   paths,
+		offsets: make(map[string]int64),
+		runtime: handler.NewRuntime(),
+	}
 	store.ensureMaps()
 	return store
 }
 
-func newFDStateStoreWithRuntime(paths map[string]string, offsets map[string]int64, runtime handler.RuntimeServices) *FDStateStore {
-	var metadata handler.FDMetadataServices
-	if candidate, ok := runtime.(handler.FDMetadataServices); ok {
-		metadata = candidate
-	}
-	return newFDStateStoreWithServices(paths, offsets, runtime, metadata)
-}
-
-func newFDStateStoreWithServices(
-	paths map[string]string,
-	offsets map[string]int64,
-	runtime handler.RuntimeServices,
-	metadata handler.FDMetadataServices,
-) *FDStateStore {
-	store := &FDStateStore{paths: paths, offsets: offsets, runtime: runtime, metadata: metadata}
+func newFDStateStoreFromMaps(paths map[string]string, offsets map[string]int64) *FDStateStore {
+	store := &FDStateStore{paths: paths, offsets: offsets, runtime: handler.NewRuntime()}
 	store.ensureMaps()
 	return store
 }
@@ -82,15 +63,6 @@ func (st *FDStateStore) Runtime() handler.RuntimeServices {
 	return st.runtime
 }
 
-func (st *FDStateStore) Metadata() handler.FDMetadataServices {
-	if st.metadata == nil {
-		if candidate, ok := st.Runtime().(handler.FDMetadataServices); ok {
-			st.metadata = candidate
-		}
-	}
-	return st.metadata
-}
-
 func (s *traceSession) fdStateStore() *FDStateStore {
 	if s.fdState == nil {
 		s.fdState = newFDStateStoreFromMaps(nil, nil)
@@ -100,9 +72,7 @@ func (s *traceSession) fdStateStore() *FDStateStore {
 
 func (st *FDStateStore) update(update fdStateUpdate) {
 	st.ensureMaps()
-	source := update.source
-	source.metadata = st.Metadata()
-	updateFDMapFromSource(source, update.meta, update.pathText, update.targetPID, st.paths)
+	updateFDMapFromSource(update.source, update.meta, update.pathText, update.targetPID, st.paths)
 }
 
 func updateFDMapFromSource(
@@ -112,15 +82,14 @@ func updateFDMapFromSource(
 	targetPID int,
 	fdMap map[string]string,
 ) {
-	metadata := src.metadata
-	updateFdReturnMapFromView(src.view, scMeta, targetPID, fdMap, metadata)
+	updateFdReturnMapFromView(src.view, scMeta, targetPID, fdMap)
 	updateEventfdCountFromView(src.view, scMeta, targetPID, fdMap)
 	updateOpenedPathFDMapFromView(src.view, scMeta, pathText, targetPID, fdMap)
 	updateDupFDMapFromView(src.view, scMeta, targetPID, fdMap)
 	updatePipeFDMapFromPayload(src, scMeta, targetPID, fdMap)
 	updateSocketpairFDMap(src, scMeta, targetPID, fdMap)
 	updateNetlinkFDMap(src, scMeta, targetPID, fdMap)
-	updateSocketFDMapFromView(src.view, scMeta, targetPID, fdMap, metadata)
+	updateSocketFDMapFromView(src.view, scMeta, targetPID, fdMap)
 	updateCwdFDMapFromView(src, scMeta, pathText, targetPID, fdMap)
 }
 

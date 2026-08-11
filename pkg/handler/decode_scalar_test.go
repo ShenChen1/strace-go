@@ -2,7 +2,6 @@ package handler
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
 	"strace-go/pkg/cli"
@@ -35,8 +34,7 @@ func TestFormatFdWithPathTreatsMissingTrackedFDAsClosed(t *testing.T) {
 			ShowPaths:     true,
 			ShowPathsMode: 1,
 		},
-		FdMap:      map[string]string{},
-		FDMetadata: NewRuntime(),
+		FdMap: map[string]string{},
 	}
 
 	if got := FormatFdWithPath(ctx, 4); got != "4" {
@@ -44,15 +42,9 @@ func TestFormatFdWithPathTreatsMissingTrackedFDAsClosed(t *testing.T) {
 	}
 }
 
-func TestFormatFdWithPathFallsBackToProcWhenTrackedMapMisses(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "fd-path")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
-
-	pid := os.Getpid()
-	fd := int32(file.Fd())
+func TestFormatFdWithPathDoesNotReadLiveMetadataOnTrackedMapMiss(t *testing.T) {
+	pid := 101
+	fd := int32(4)
 	ctx := &Context{
 		Pid:       pid,
 		TargetPid: pid,
@@ -60,16 +52,14 @@ func TestFormatFdWithPathFallsBackToProcWhenTrackedMapMisses(t *testing.T) {
 			ShowPaths:     true,
 			ShowPathsMode: 1,
 		},
-		FdMap:      map[string]string{},
-		FDMetadata: NewRuntime(),
+		FdMap: map[string]string{},
 	}
 
-	want := fmt.Sprintf("%d<%s>", fd, file.Name())
-	if got := FormatFdWithPath(ctx, fd); got != want {
-		t.Fatalf("FormatFdWithPath = %q, want %q", got, want)
+	if got := FormatFdWithPath(ctx, fd); got != fmt.Sprintf("%d", fd) {
+		t.Fatalf("FormatFdWithPath = %q, want unknown fd", got)
 	}
-	if got := ctx.FdMap[fmt.Sprintf("%d:%d", pid, fd)]; got != file.Name() {
-		t.Fatalf("cached fd path = %q, want %q", got, file.Name())
+	if len(ctx.FdMap) != 0 {
+		t.Fatalf("fd map changed after unknown fd lookup: %#v", ctx.FdMap)
 	}
 }
 
@@ -84,11 +74,10 @@ func TestFormatFdWithPathDetailsTrackedTarget(t *testing.T) {
 		FdMap: map[string]string{
 			"101:0": "/dev/null",
 		},
-		FDMetadata: NewRuntime(),
 	}
 
-	if got := FormatFdWithPath(ctx, 0); got != "0</dev/null<char 1:3>>" {
-		t.Fatalf("FormatFdWithPath = %q, want %q", got, "0</dev/null<char 1:3>>")
+	if got := FormatFdWithPath(ctx, 0); got != "0</dev/null>" {
+		t.Fatalf("FormatFdWithPath = %q, want %q", got, "0</dev/null>")
 	}
 }
 

@@ -41,20 +41,18 @@ type syscallEventView struct {
 }
 
 type syscallEventContextDeps struct {
-	decoder  *event.Decoder
-	opts     *cli.Options
-	fdState  *FDStateStore
-	runtime  handler.RuntimeServices
-	metadata handler.FDMetadataServices
+	decoder *event.Decoder
+	opts    *cli.Options
+	fdState *FDStateStore
+	runtime handler.RuntimeServices
 }
 
 func newSyscallEventContextDeps(s *traceSession) syscallEventContextDeps {
 	return syscallEventContextDeps{
-		decoder:  s.decoder,
-		opts:     s.opts,
-		fdState:  s.fdStateStore(),
-		runtime:  s.fdStateStore().Runtime(),
-		metadata: s.fdStateStore().Metadata(),
+		decoder: s.decoder,
+		opts:    s.opts,
+		fdState: s.fdStateStore(),
+		runtime: s.fdStateStore().Runtime(),
 	}
 }
 
@@ -71,16 +69,6 @@ func (deps syscallEventContextDeps) runtimeService() handler.RuntimeServices {
 	}
 	if deps.fdState != nil {
 		return deps.fdState.Runtime()
-	}
-	return nil
-}
-
-func (deps syscallEventContextDeps) fdMetadataService() handler.FDMetadataServices {
-	if deps.metadata != nil {
-		return deps.metadata
-	}
-	if deps.fdState != nil {
-		return deps.fdState.Metadata()
 	}
 	return nil
 }
@@ -254,7 +242,6 @@ func (ev syscallEventContext) fdStateUpdate() fdStateUpdate {
 		source: fdStateSource{
 			view:            view,
 			payloadSections: ev.outputPayloadSections(),
-			procTid:         view.tid,
 		},
 		meta:      ev.effectiveSyscallMeta(),
 		pathText:  ev.pathText,
@@ -281,7 +268,7 @@ func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *h
 		SysName: scMeta.Name, Args: view.args, Ret: view.ret,
 		ProbeRetEnter: view.probeRetEnter, ProbeRetExit: view.probeRetExit,
 		PayloadSections: ev.outputPayloadSections(),
-		ScMeta:          scMeta, Decoder: deps.decoder, Opts: deps.opts, FdMap: deps.pathMap(), Runtime: deps.runtimeService(), FDMetadata: deps.fdMetadataService(),
+		ScMeta:          scMeta, Decoder: deps.decoder, Opts: deps.opts, FdMap: deps.pathMap(), Runtime: deps.runtimeService(),
 	}
 }
 

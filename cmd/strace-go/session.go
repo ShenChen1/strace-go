@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -134,49 +133,67 @@ func setSyscallVariables(spec *ebpf.CollectionSpec) error {
 }
 
 func collectInheritedFiles() []*os.File {
-	entries, err := os.ReadDir("/proc/self/fd")
-	if err != nil {
+	fds := passThroughFDs(openFileDescriptors())
+	if len(fds) == 0 {
 		return nil
 	}
 
-	maxFD := 2
-	for _, entry := range entries {
-		fd, err := strconv.Atoi(entry.Name())
-		if err == nil && fd > maxFD {
-			maxFD = fd
-		}
-	}
-	if maxFD <= 2 {
-		return nil
-	}
-
-	files := make([]*os.File, maxFD-2)
-	for _, entry := range entries {
-		fd, err := strconv.Atoi(entry.Name())
-		if err != nil || fd <= 2 {
-			continue
-		}
-		target, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd))
-		if err != nil || !isPassThroughFDTarget(target) {
-			continue
-		}
+	files := make([]*os.File, fds[len(fds)-1]-2)
+	for _, fd := range fds {
 		dupFD, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 3)
 		if err != nil {
 			continue
 		}
-		files[fd-3] = os.NewFile(uintptr(dupFD), target)
+		files[fd-3] = os.NewFile(uintptr(dupFD), fmt.Sprintf("fd:%d", fd))
 	}
 	return files
 }
 
-func isPassThroughFDTarget(target string) bool {
-	if !strings.HasPrefix(target, "/") {
+const maxInheritedFDScan = 1 << 20
+
+func openFileDescriptors() []int {
+	var limit unix.Rlimit
+	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &limit); err != nil {
+		return nil
+	}
+	if limit.Cur > maxInheritedFDScan {
+		limit.Cur = maxInheritedFDScan
+	}
+	fds := make([]int, 0)
+	for fd := 3; uint64(fd) < limit.Cur; fd++ {
+		if _, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0); err == nil {
+			fds = append(fds, fd)
+		}
+	}
+	return fds
+}
+
+func passThroughFDs(fds []int) []int {
+	passThrough := make([]int, 0, len(fds))
+	for _, fd := range fds {
+		if isPassThroughFD(fd) {
+			passThrough = append(passThrough, fd)
+		}
+	}
+	return passThrough
+}
+
+func isPassThroughFD(fd int) bool {
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
 		return false
 	}
-	return target != "/proc" &&
-		!strings.HasPrefix(target, "/proc/") &&
-		target != "/sys" &&
-		!strings.HasPrefix(target, "/sys/")
+	return isPassThroughFDMode(uint32(stat.Mode))
+}
+
+func isPassThroughFDMode(mode uint32) bool {
+	switch mode & uint32(unix.S_IFMT) {
+	case uint32(unix.S_IFREG), uint32(unix.S_IFDIR), uint32(unix.S_IFCHR),
+		uint32(unix.S_IFBLK), uint32(unix.S_IFIFO):
+		return true
+	default:
+		return false
+	}
 }
 
 func closeFiles(files []*os.File) {
@@ -215,21 +232,6 @@ func newTraceCommand(opts *cli.Options, inheritedFiles []*os.File) *exec.Cmd {
 	return cmd
 }
 
-func populateFDMap(pid int, targetPid int) map[string]string {
-	fdMap := make(map[string]string)
-	if entries, err := os.ReadDir(fmt.Sprintf("/proc/%d/fd", pid)); err == nil {
-		for _, entry := range entries {
-			if path, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%s", pid, entry.Name())); err == nil {
-				fdMap[fmt.Sprintf("%d:%s", targetPid, entry.Name())] = path
-			}
-		}
-	}
-	if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid)); err == nil {
-		fdMap[fmt.Sprintf("%d:cwd", targetPid)] = cwd
-	}
-	return fdMap
-}
-
 // IMPACT: startTraceCmd starts a tracee without ptrace; syscall observation is
 // purely eBPF based. The next-fork arm installs the pid filter before the
 // tracee's initial execve so the exec syscall is observable like upstream.
@@ -262,8 +264,7 @@ func startTraceCmd(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles []*os.
 		abortTraceTarget(cmd, bpfObjs, targetPid)
 		return nil, 0, nil, fmt.Errorf("disarm initial fork: %w", err)
 	}
-	fdMap := populateFDMap(targetPid, targetPid)
-	return cmd, targetPid, fdMap, nil
+	return cmd, targetPid, make(map[string]string), nil
 }
 
 // armNextFork asks the BPF sched_process_fork program to add the next child of
@@ -291,7 +292,8 @@ func disarmNextFork(bpfObjs *bpfObjects) error {
 	return nil
 }
 
-// IMPACT: attachToPids attaches tracing to running processes, updating the BPF filter map and reading initial FDs.
+// IMPACT: attachToPids attaches tracing to running processes. FD state starts
+// unknown and is populated only by events observed after the attach point.
 func attachToPids(pids []int, bpfObjs *bpfObjects) (int, map[string]string, error) {
 	fdMap := make(map[string]string)
 	var firstPid int
@@ -316,17 +318,6 @@ func attachToPids(pids []int, bpfObjs *bpfObjects) (int, map[string]string, erro
 		}
 		attached = append(attached, uint32(pid))
 
-		// Populate FD map from /proc
-		if entries, err := os.ReadDir(fmt.Sprintf("/proc/%d/fd", pid)); err == nil {
-			for _, entry := range entries {
-				if path, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%s", pid, entry.Name())); err == nil {
-					fdMap[fmt.Sprintf("%d:%s", pid, entry.Name())] = path
-				}
-			}
-			if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid)); err == nil {
-				fdMap[fmt.Sprintf("%d:cwd", pid)] = cwd
-			}
-		}
 	}
 	return firstPid, fdMap, nil
 }

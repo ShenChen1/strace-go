@@ -150,16 +150,8 @@ func fdCandidatePaths(pid int, fds []int32, fdMap map[string]string) []string {
 		if fd == -1 {
 			continue
 		}
-		// IMPACT: the event-driven fdMap is authoritative because fd-state
-		// syscalls flow through the BPF runtime even when filtered from output;
-		// /proc is only a fallback for fd mutations the tracker does not cover.
 		if path, ok := fdMap[fdMapKey(pid, fd)]; ok {
 			candidatePaths = append(candidatePaths, path)
-		} else if path, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", pid, fd)); err == nil {
-			candidatePaths = append(candidatePaths, path)
-			if fdMap != nil {
-				fdMap[fdMapKey(pid, fd)] = path
-			}
 		}
 	}
 	return candidatePaths
@@ -194,12 +186,7 @@ func relativePathBase(pid int, baseFd int32, fdMap map[string]string) string {
 	if baseFd != -1 && baseFd != -100 {
 		return fdMap[fdMapKey(pid, baseFd)]
 	}
-	if baseFd == -1 || baseFd == -100 {
-		if cwd, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid)); err == nil {
-			return cwd
-		}
-	}
-	return ""
+	return fdMap[fmt.Sprintf("%d:cwd", pid)]
 }
 
 func anyCandidateMatchesTracePath(candidatePaths []string, tracePaths map[string]bool) bool {
