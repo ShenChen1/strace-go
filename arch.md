@@ -2751,3 +2751,36 @@ ABI 与状态契约：
 本阶段只限制用户态生命周期状态的存活范围，不改变纯 eBPF 事件事实源。
 
 实际验收结果：新增 lifecycle free/exit task retire、未 follow-forks child 不入长期 map、terminating syscall 无 lifecycle tracepoint 兜底回收测试；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过。实机 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 getpid 事件、5,000/5,000 enter/exit、0 丢失、737.58 events/s；`small` 为 23 PASS；完整 `more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。最终 cleanup 后 `fork-f.gen.test`、`vfork-f.gen.test`、`attach-f-p.test` 各 1 PASS；无残留 tracer/BPF pin，生产源码未新增 `/proc`、ptrace 或 `process_vm_readv` 读取路径。
+
+### 14.54 事件载荷所有权与热路径复制收口（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：ringbuf record 由 `TraceEventReader.HandleRecord` 同步解码并立即交给单一 `TraceEventRouter`；handler、JSON writer 和状态机都在这次调用栈内完成，不会把 event envelope 交给异步消费者。
+- Problem：当前 decoder 先把每个 TLV section 及其 `Data` 深拷贝，`TraceState` 缓存 enter/pending-exit 时又复制一次；paired exit 消费 pending 时还再次复制整组 payload。高频 syscall 的标量事件虽然没有数据复制，但带 path/buffer/iovec 的事件会承担不必要的分配和内存拷贝。
+- Goal：建立显式的 borrowed/owned/transfer 三段载荷生命周期：decoder 只返回当前 ringbuf record 的借用视图；进入长期 `TraceState` map 时复制一次取得 ownership；pending 被消费后直接转移 ownership 给 `TraceStateUpdate`，不再复制已从 map 删除的 payload。当前事件的 JSON/text/handler 输出仍在同一调用栈完成。
+- Non-goals：不改变 TLV ABI、payload bytes、过滤结果、formatter 输出、ringbuf reader 的同步边界、unfinished/resumed 语义或 BPF 性能；不引入引用计数、锁、池化对象、goroutine、procfs、ptrace 或 `process_vm_readv`。
+- Constraints：任何跨越 `HandleRecord` 生命周期的 section 必须由状态机拥有独立 `Data`；借用 section 不能进入 `pendingSyscalls`/`pendingExits`；`pendingForOtherTID` 对外仍返回深拷贝 snapshot，防止 router 修改内部状态；pending transfer 发生后原 map entry 必须已经删除。
+
+方案比较：
+
+1. 保留 decoder、pending 写入、pending 消费三层深拷贝：实现最保守，但重复复制高频 payload，拒绝。
+2. 引入共享引用计数或对象池：可减少复制，但把生命周期、回收和并发可见性引入热路径，违反当前单消费者的简单 ownership，拒绝。
+3. decoder 借用当前 record，state 入 map 时一次复制，消费时从已删除 map entry 转移 owned sections；未进入 state 的 exit 直接使用借用 sections，选择该方案。
+
+状态契约：
+
+- `decodeTraceEventV2*Envelope` 返回的 `PayloadSection.Data` 只在当前 `HandleRecord` 调用栈内有效，不能由 decoder 或 router 异步保存。
+- `rememberEnterEvent`、`rememberExitFragment`、`rememberPendingExit` 只复制新进入 map 的 section；合并 fragment 时保留已有 owned section，不复制已拥有的数据。
+- `consumeEnterEvent` 删除 map entry 后直接返回 pending value；退出 pipeline 使用该 value 完成一次性输出，状态 owner 不再持有同一 payload。
+- `pendingForOtherTID` 继续生成独立的 value/data snapshot，`markUnfinishedPrinted` 仍是唯一状态回写入口。
+
+测试与验收：
+
+- 增加 enter payload ownership 回归，修改输入借用 section 后，pending state 不得变化；增加 fragment 合并回归，已有 section 不得被重复复制或替换。
+- 增加 decoder/reader 生命周期注释和源码 gate，确保只有 state map 写入点复制借用 payload；保留 JSON/text 输出同步消费测试。
+- 验证 focused state/decoder 测试、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、`ebpf-semantic`、`ebpf-perf`、small 和 upstream reference；检查无 tracer/BPF pin 残留。
+
+本阶段只优化 Go 侧 payload ownership，不改变纯 eBPF 事实源、事件 ABI 或 `/proc`/ptrace 边界。
+
+实际验收结果：decoder 已返回当前 ringbuf record 的借用 TLV section；`TraceState` 仅在 enter/pending-exit/fragment 进入长期 map 时复制 payload，paired exit 直接转移已删除 map entry 的 owned pending。新增输入借用隔离、pending transfer 地址保持和 ownership source gate。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 getpid 事件、5,000/5,000 enter/exit、0 丢失，723.31 events/s；`small` 为 23 PASS；完整 `more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。测试结束时无残留 tracer/BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。

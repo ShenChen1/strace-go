@@ -239,6 +239,7 @@ func TestTraceStateHandleEnvelopeUsesSyscallViewForPendingPair(t *testing.T) {
 
 func TestTraceStateEnterUpdateCarriesSemanticPayloadSections(t *testing.T) {
 	state := newTraceState()
+	path := []byte("typed.txt\x00")
 	envelope := traceEventEnvelope{
 		valid:      true,
 		pid:        101,
@@ -249,7 +250,7 @@ func TestTraceStateEnterUpdateCarriesSemanticPayloadSections(t *testing.T) {
 		payload: []handler.PayloadSection{{
 			Kind:     handler.PayloadKindString,
 			ArgIndex: 1,
-			Data:     []byte("typed.txt\x00"),
+			Data:     path,
 		}},
 	}
 
@@ -261,8 +262,46 @@ func TestTraceStateEnterUpdateCarriesSemanticPayloadSections(t *testing.T) {
 	if len(update.payloadSections) != 1 || string(update.payloadSections[0].Data) != "typed.txt\x00" {
 		t.Fatalf("enter update payload sections = %+v, want semantic path section", update.payloadSections)
 	}
+	path[0] = 'X'
 	if len(state.pendingSyscalls[101].payloadSections) != 1 {
 		t.Fatalf("pending payload sections = %+v, want cached enter payload", state.pendingSyscalls[101].payloadSections)
+	}
+	if got := string(state.pendingSyscalls[101].payloadSections[0].Data); got != "typed.txt\x00" {
+		t.Fatalf("pending payload data = %q, want owned enter snapshot", got)
+	}
+}
+
+func TestTraceStateTransfersPendingPayloadOnExit(t *testing.T) {
+	state := newTraceState()
+	path := []byte("transfer.txt\x00")
+	enter := traceEventEnvelope{
+		valid:      true,
+		pid:        101,
+		tid:        101,
+		sysID:      syscallIDByName(t, "openat"),
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+		payload: []handler.PayloadSection{{
+			Kind:     handler.PayloadKindString,
+			ArgIndex: 1,
+			Data:     path,
+		}},
+	}
+	state.handleEnvelope(enter)
+	owned := state.pendingSyscalls[101]
+	if owned == nil || len(owned.payloadSections[0].Data) == 0 {
+		t.Fatal("enter did not create owned pending payload")
+	}
+	ownedData := owned.payloadSections[0].Data
+
+	exit := enter
+	exit.eventType = bpfEventTypeExit
+	update := state.handleEnvelope(exit)
+	if update.pendingEnter != owned {
+		t.Fatal("exit copied pending state instead of transferring the deleted map entry")
+	}
+	if &update.pendingEnter.payloadSections[0].Data[0] != &ownedData[0] {
+		t.Fatal("exit copied owned payload data during pending transfer")
 	}
 }
 

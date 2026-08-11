@@ -292,18 +292,22 @@ func (st *TraceState) takePendingExitForTID(tid uint32) (pendingExitState, bool)
 }
 
 func mergeEnterPayloadSections(existing []handler.PayloadSection, next []handler.PayloadSection) []handler.PayloadSection {
-	merged := copyPayloadSections(existing)
+	merged := existing
 	for _, section := range next {
 		if hasEquivalentPayloadSection(merged, section) {
 			continue
 		}
-		copied := section
-		if len(section.Data) > 0 {
-			copied.Data = append([]byte(nil), section.Data...)
-		}
-		merged = append(merged, copied)
+		merged = appendOwnedPayloadSection(merged, section)
 	}
 	return merged
+}
+
+func appendOwnedPayloadSection(owned []handler.PayloadSection, borrowed handler.PayloadSection) []handler.PayloadSection {
+	copied := borrowed
+	if len(borrowed.Data) > 0 {
+		copied.Data = append([]byte(nil), borrowed.Data...)
+	}
+	return append(owned, copied)
 }
 
 func copyPayloadSections(sections []handler.PayloadSection) []handler.PayloadSection {
@@ -329,8 +333,9 @@ func (st *TraceState) consumeEnterEvent(view syscallEventView) *pendingSyscallSt
 	if pending == nil || pending.sysID != view.sysID {
 		return nil
 	}
-	snapshot := copyPendingSyscallState(*pending)
-	return &snapshot
+	// The map entry is deleted above, so its owned payload can transfer to the
+	// exit update without another copy.
+	return pending
 }
 
 func copyPendingSyscallState(pending pendingSyscallState) pendingSyscallState {

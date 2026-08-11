@@ -102,7 +102,9 @@ func decodeTraceEventV2EnterEnvelope(header traceEventV2Header, body []byte) (tr
 		data:          payload,
 	}
 	scMeta := syscallMeta(header.sysID)
-	sections := copyPayloadSections(payloadSectionsForRawPayloadEvent(raw, scMeta))
+	// IMPACT: sections borrow the current ringbuf record; TraceState takes
+	// ownership only when it stores them beyond HandleRecord.
+	sections := payloadSectionsForRawPayloadEvent(raw, scMeta)
 	return traceEventEnvelope{
 		valid:         true,
 		eventVersion:  header.version,
@@ -144,7 +146,9 @@ func decodeTraceEventV2ExitEnvelope(header traceEventV2Header, body []byte) (tra
 		data:       payload,
 	}
 	scMeta := syscallMeta(header.sysID)
-	sections := copyPayloadSections(payloadSectionsForRawPayloadEvent(raw, scMeta))
+	// IMPACT: the exit pipeline consumes borrowed sections synchronously unless
+	// TraceState first stores them as a deferred exit.
+	sections := payloadSectionsForRawPayloadEvent(raw, scMeta)
 	return traceEventEnvelope{
 		valid:        true,
 		eventVersion: header.version,
