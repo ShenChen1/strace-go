@@ -86,9 +86,14 @@ func TestTraceRunStateCollectStoresCommandExitFallback(t *testing.T) {
 
 func TestFinishRunWritesJSONStatsEvent(t *testing.T) {
 	var output bytes.Buffer
+	traceOutput, err := newTraceOutput(TraceOutputDeps{Writer: &output})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
 	session := &traceSession{
 		opts:      &cli.Options{EventFormat: cli.EventFormatJSON},
-		outWriter: &output,
+		outWriter: traceOutput,
+		output:    traceOutput,
 	}
 
 	session.finishRun()

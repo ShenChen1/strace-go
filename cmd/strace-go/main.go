@@ -76,13 +76,10 @@ func main() {
 	// IMPACT: Initialize decoder.StringLimit from parsed CLI options to respect command-line formatting constraints.
 	decoder.StringLimit = opts.StringLimit
 
-	outWriter, outFile, outCmd, outPipe, err := setupOutput(opts.OutFile, opts.OutAppendMode)
+	output, err := setupOutput(opts.OutFile, opts.OutAppendMode)
 	if err != nil {
 		abortTraceTarget(cmd, bpfObjs, targetPid)
 		log.Fatalf("failed to set up output: %v", err)
-	}
-	if outFile != nil {
-		defer outFile.Close()
 	}
 
 	fdState := newFDStateStore(targetPid, fdMap)
@@ -99,17 +96,17 @@ func main() {
 		opts:          opts,
 		decoder:       decoder,
 		fdState:       fdState,
-		outWriter:     outWriter,
-		outFile:       outFile,
-		outCmd:        outCmd,
-		outPipe:       outPipe,
+		outWriter:     output,
+		output:        output,
 		timeFormatter: newTimeFormatter(calculateTimeOffset()),
 		bpfObjs:       bpfObjs,
 		resolver:      resolver,
 		state:         newTraceStateWithDeferredExit(shouldEmitGenericEnter(opts)),
 	}
 	session.emitDebugReady()
-	session.run()
+	if err := session.run(); err != nil {
+		log.Fatalf("failed to finalize trace session: %v", err)
+	}
 }
 
 // handlePrelude handles help/version requests and rejects sessions without targets.

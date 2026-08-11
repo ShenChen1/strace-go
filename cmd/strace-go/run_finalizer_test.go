@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -21,9 +22,13 @@ func (p *fakeRunFinalizerPipe) Close() error {
 
 func TestTraceRunFinalizerWritesJSONStats(t *testing.T) {
 	var out bytes.Buffer
+	output, err := newTraceOutput(TraceOutputDeps{Writer: &out})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
 	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{
-		Opts: &cli.Options{EventFormat: cli.EventFormatJSON},
-		Out:  &out,
+		Opts:   &cli.Options{EventFormat: cli.EventFormatJSON},
+		Output: output,
 	})
 
 	finalizer.writeStats(bpfRuntimeStats{
@@ -80,11 +85,14 @@ func TestTraceRunFinalizerPrintsSummaryAndClosesPipe(t *testing.T) {
 	pipe := &fakeRunFinalizerPipe{}
 	summary := newSummaryStats()
 	summary.Record("getpid", 1000, 0)
+	output, err := newTraceOutput(TraceOutputDeps{Writer: &out, Closer: pipe})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
 	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{
 		Opts:    &cli.Options{EventFormat: cli.EventFormatText, SummaryOnly: true},
-		Out:     &out,
 		Summary: summary,
-		OutPipe: pipe,
+		Output:  output,
 	})
 
 	finalizer.Finish()
@@ -113,5 +121,22 @@ func TestTraceRunFinalizerFlushesExitFallback(t *testing.T) {
 
 	if out.String() != "fallback\n" {
 		t.Fatalf("fallback output = %q, want fallback line", out.String())
+	}
+}
+
+func TestTraceRunFinalizerReturnsOutputCloseError(t *testing.T) {
+	closeErr := errors.New("output close failed")
+	events := make([]string, 0, 1)
+	output, err := newTraceOutput(TraceOutputDeps{
+		Writer: bytes.NewBuffer(nil),
+		Closer: &fakeTraceOutputCloser{events: &events, closeErr: closeErr},
+	})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{Output: output})
+
+	if err := finalizer.Finish(); !errors.Is(err, closeErr) {
+		t.Fatalf("TraceRunFinalizer.Finish() error = %v, want %v", err, closeErr)
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 
 	"strace-go/pkg/cli"
 )
@@ -13,25 +12,21 @@ import (
 type TraceRunFinalizer struct {
 	opts            *cli.Options
 	targetPID       int
-	out             io.Writer
 	statsDiagnostic io.Writer
 	exitStatus      *ExitStatusCoordinator
 	summary         *SummaryStats
 	bpfObjs         *bpfObjects
-	outPipe         io.WriteCloser
-	outCmd          *exec.Cmd
+	output          *TraceOutput
 }
 
 type TraceRunFinalizerDeps struct {
 	Opts            *cli.Options
 	TargetPID       int
-	Out             io.Writer
 	StatsDiagnostic io.Writer
 	ExitStatus      *ExitStatusCoordinator
 	Summary         *SummaryStats
 	BPFObjects      *bpfObjects
-	OutPipe         io.WriteCloser
-	OutCmd          *exec.Cmd
+	Output          *TraceOutput
 }
 
 func newTraceRunFinalizer(deps TraceRunFinalizerDeps) *TraceRunFinalizer {
@@ -42,13 +37,11 @@ func newTraceRunFinalizer(deps TraceRunFinalizerDeps) *TraceRunFinalizer {
 	return &TraceRunFinalizer{
 		opts:            deps.Opts,
 		targetPID:       deps.TargetPID,
-		out:             deps.Out,
 		statsDiagnostic: diagnostic,
 		exitStatus:      deps.ExitStatus,
 		summary:         deps.Summary,
 		bpfObjs:         deps.BPFObjects,
-		outPipe:         deps.OutPipe,
-		outCmd:          deps.OutCmd,
+		output:          deps.Output,
 	}
 }
 
@@ -57,26 +50,24 @@ func (s *traceSession) traceRunFinalizer() *TraceRunFinalizer {
 		s.runFinalizerCache = newTraceRunFinalizer(TraceRunFinalizerDeps{
 			Opts:            s.opts,
 			TargetPID:       s.targetPid,
-			Out:             s.outWriter,
 			StatsDiagnostic: os.Stderr,
 			ExitStatus:      s.exitStatusCoordinator(),
 			Summary:         s.summaryStats(),
 			BPFObjects:      s.bpfObjs,
-			OutPipe:         s.outPipe,
-			OutCmd:          s.outCmd,
+			Output:          s.output,
 		})
 	}
 	return s.runFinalizerCache
 }
 
-func (f *TraceRunFinalizer) Finish() {
+func (f *TraceRunFinalizer) Finish() error {
 	if f.exitStatus != nil {
 		f.exitStatus.FlushFallback(f.targetPID)
 	}
 	stats := collectBPFStatsFromObjects(f.bpfObjs)
 	f.writeStats(stats)
 	f.printSummary()
-	f.closeOutputPipe()
+	return f.closeOutput()
 }
 
 func (f *TraceRunFinalizer) writeStats(stats bpfRuntimeStats) {
@@ -91,8 +82,8 @@ func (f *TraceRunFinalizer) writeStats(stats bpfRuntimeStats) {
 }
 
 func (f *TraceRunFinalizer) writeJSONStats(stats bpfRuntimeStats) {
-	if f.out != nil {
-		_ = json.NewEncoder(f.out).Encode(newJSONStatsEvent(stats))
+	if f.output != nil {
+		_ = json.NewEncoder(f.output).Encode(newJSONStatsEvent(stats))
 	}
 }
 
@@ -108,19 +99,16 @@ func (f *TraceRunFinalizer) printSummary() {
 	if f.opts == nil || (!f.opts.SummaryOnly && !f.opts.SummaryAndPrint) {
 		return
 	}
-	if f.summary != nil && f.out != nil {
-		f.summary.Print(f.out)
+	if f.summary != nil && f.output != nil {
+		f.summary.Print(f.output)
 	}
 }
 
-func (f *TraceRunFinalizer) closeOutputPipe() {
-	if f.outPipe == nil {
-		return
+func (f *TraceRunFinalizer) closeOutput() error {
+	if f.output == nil {
+		return nil
 	}
-	_ = f.outPipe.Close()
-	if f.outCmd != nil {
-		_ = f.outCmd.Wait()
-	}
+	return f.output.Close()
 }
 
 func bpfStatsDiagnosticLine(stats bpfRuntimeStats) (string, bool) {

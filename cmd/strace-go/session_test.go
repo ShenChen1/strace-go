@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -47,9 +48,31 @@ func TestStartTraceCmdRejectsUnavailableBPF(t *testing.T) {
 }
 
 func TestSetupOutputReturnsFileError(t *testing.T) {
-	_, _, _, _, err := setupOutput(filepath.Join(t.TempDir(), "missing", "trace.log"), false)
+	_, err := setupOutput(filepath.Join(t.TempDir(), "missing", "trace.log"), false)
 	if err == nil {
 		t.Fatal("setupOutput() returned nil error for an unavailable directory")
+	}
+}
+
+func TestSetupOutputOwnsFileLifecycle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trace.log")
+	output, err := setupOutput(path, false)
+	if err != nil {
+		t.Fatalf("setupOutput() error = %v", err)
+	}
+	if _, err := output.Write([]byte("getpid() = 1\n")); err != nil {
+		t.Fatalf("TraceOutput.Write() error = %v", err)
+	}
+	if err := output.Close(); err != nil {
+		t.Fatalf("TraceOutput.Close() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read output file: %v", err)
+	}
+	if got := string(data); got != "getpid() = 1\n" {
+		t.Fatalf("output file = %q, want trace line", got)
 	}
 }
 

@@ -33,9 +33,7 @@ type traceSession struct {
 	recordDecoder traceRecordDecoder
 	fdState       *FDStateStore
 	outWriter     io.Writer
-	outFile       *os.File
-	outCmd        *exec.Cmd
-	outPipe       io.WriteCloser
+	output        *TraceOutput
 	summary       *SummaryStats
 	timeFormatter *TimeFormatter
 	bpfObjs       *bpfObjects
@@ -342,23 +340,33 @@ func clearFilterPids(bpfObjs *bpfObjects, pids []uint32) {
 	}
 }
 
-// IMPACT: setupOutput prepares the io.Writer target for saving strace text traces.
-func setupOutput(outFileOpt string, appendMode bool) (io.Writer, *os.File, *exec.Cmd, io.WriteCloser, error) {
+// IMPACT: setupOutput prepares the owned output resource for saving strace text traces.
+func setupOutput(outFileOpt string, appendMode bool) (*TraceOutput, error) {
 	if outFileOpt == "" {
-		return os.Stderr, nil, nil, nil, nil
+		return newTraceOutput(TraceOutputDeps{Writer: os.Stderr})
 	}
 	if strings.HasPrefix(outFileOpt, "|") || strings.HasPrefix(outFileOpt, "!") {
 		cmdStr := outFileOpt[1:]
 		cmd := exec.Command("sh", "-c", cmdStr)
 		stdin, err := cmd.StdinPipe()
 		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("create output pipe: %w", err)
+			return nil, fmt.Errorf("create output pipe: %w", err)
 		}
 		if err := cmd.Start(); err != nil {
 			_ = stdin.Close()
-			return nil, nil, nil, nil, fmt.Errorf("start output command: %w", err)
+			return nil, fmt.Errorf("start output command: %w", err)
 		}
-		return stdin, nil, cmd, stdin, nil
+		output, err := newTraceOutput(TraceOutputDeps{
+			Writer:  stdin,
+			Closer:  stdin,
+			Command: execTraceOutputWaiter{command: cmd},
+		})
+		if err != nil {
+			_ = stdin.Close()
+			_ = cmd.Wait()
+			return nil, err
+		}
+		return output, nil
 	}
 
 	flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
@@ -367,7 +375,12 @@ func setupOutput(outFileOpt string, appendMode bool) (io.Writer, *os.File, *exec
 	}
 	outFile, err := os.OpenFile(outFileOpt, flags, 0666)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("create output file: %w", err)
+		return nil, fmt.Errorf("create output file: %w", err)
 	}
-	return outFile, outFile, nil, nil, nil
+	output, err := newTraceOutput(TraceOutputDeps{Writer: outFile, Closer: outFile})
+	if err != nil {
+		_ = outFile.Close()
+		return nil, err
+	}
+	return output, nil
 }

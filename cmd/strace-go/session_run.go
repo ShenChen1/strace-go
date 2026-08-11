@@ -89,7 +89,7 @@ type traceCommandExitResult struct {
 }
 
 // IMPACT: run reads and handles ringbuf records in the same goroutine; only process waiting is asynchronous.
-func (s *traceSession) run() {
+func (s *traceSession) run() error {
 	attachPids := []int(nil)
 	if s.opts != nil {
 		attachPids = s.opts.AttachPids
@@ -106,12 +106,10 @@ func (s *traceSession) run() {
 		state.collect(commandExit)
 		if state.done() {
 			eventReader.DrainAfterDone(&rec, s.exitDrainGrace())
-			s.finishRun()
-			return
+			return s.finishRun()
 		}
 		if eventReader.Read(&rec, traceEventPollInterval) == traceReadClosed {
-			s.finishRun()
-			return
+			return s.finishRun()
 		}
 	}
 }
@@ -230,6 +228,6 @@ func (s *traceSession) exitDrainGrace() time.Duration {
 	return traceExitLifecycleDrainGrace
 }
 
-func (s *traceSession) finishRun() {
-	s.traceRunFinalizer().Finish()
+func (s *traceSession) finishRun() error {
+	return s.traceRunFinalizer().Finish()
 }
