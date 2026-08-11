@@ -32,7 +32,7 @@ func updateFDStateObservationFromSource(
 	for _, section := range src.payloadSections {
 		observation, ok := fdStateObservationFromSection(section)
 		if !ok || observation.FD != int32(src.view.ret) {
-			return
+			continue
 		}
 		observations[key] = observation
 		return

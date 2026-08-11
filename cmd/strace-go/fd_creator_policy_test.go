@@ -99,7 +99,7 @@ func TestFDCreatorSnapshotBoundaries(t *testing.T) {
 }
 
 func TestFDCreatorStateEventsRunWhenHidden(t *testing.T) {
-	for _, name := range []string{"eventfd", "eventfd2", "epoll_create", "epoll_create1", "timerfd_create", "inotify_init", "inotify_init1"} {
+	for _, name := range []string{"eventfd", "eventfd2", "epoll_create", "epoll_create1", "timerfd_create", "inotify_init", "inotify_init1", "signalfd", "signalfd4"} {
 		event := newFDStateEvent(name, [6]uint64{}, 7, nil)
 		event.shouldPrint = false
 		if !event.isFDStateSyscall() || !event.shouldRunHandler() {

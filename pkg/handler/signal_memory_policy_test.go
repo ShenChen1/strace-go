@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"strace-go/pkg/event"
+	"strace-go/pkg/meta"
 )
 
 func makeSigsetData(mask uint64) []byte {
@@ -222,6 +223,52 @@ func TestSignalOldSigactionUsesPayloadStructSection(t *testing.T) {
 	}
 	if reader.reads != 0 {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestSignalFDHandlerUsesEventTimeMask(t *testing.T) {
+	h, ok := Get("signalfd4").(*SignalHandler)
+	if !ok {
+		t.Fatal("signalfd4 must use SignalHandler")
+	}
+	ctx := &Context{
+		SysName: "signalfd4",
+		ScMeta: meta.Syscall{
+			Name:     "signalfd4",
+			Args:     []string{"ufd", "user_mask", "sizemask", "flags"},
+			ArgTypes: []string{"int", "sigset_t *", "size_t", "int"},
+		},
+		Args: [6]uint64{^uint64(0), 0x1000, 8, 0x80000},
+		PayloadSections: []PayloadSection{{
+			Kind:      PayloadKindStruct,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  1,
+			ProbeRet:  0,
+			Data:      makeSigsetData(1 << 11),
+		}},
+	}
+	if got := h.formatSigsetArg(ctx, 1, "user_mask", ctx.Args[1]); got != "[USR2]" {
+		t.Fatalf("signalfd mask = %q, want [USR2]", got)
+	}
+}
+
+func TestSignalFDHandlerUsesPointerOnInvalidMaskSnapshot(t *testing.T) {
+	h, ok := Get("signalfd4").(*SignalHandler)
+	if !ok {
+		t.Fatal("signalfd4 must use SignalHandler")
+	}
+	ctx := &Context{
+		SysName: "signalfd4",
+		ScMeta: meta.Syscall{
+			Name:     "signalfd4",
+			Args:     []string{"ufd", "user_mask", "sizemask", "flags"},
+			ArgTypes: []string{"int", "sigset_t *", "size_t", "int"},
+		},
+		Args: [6]uint64{^uint64(0), 0x1000, 16, 0},
+		Ret:  -14,
+	}
+	if got := h.formatSigsetArg(ctx, 1, "user_mask", ctx.Args[1]); got != "0x1000" {
+		t.Fatalf("invalid signalfd mask = %q, want pointer", got)
 	}
 }
 

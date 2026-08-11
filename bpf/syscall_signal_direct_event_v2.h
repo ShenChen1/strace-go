@@ -7,7 +7,8 @@
 static __always_inline int is_signal_direct_syscall(u32 sys_id)
 {
     return sys_id == SYS_RT_SIGACTION || sys_id == SYS_RT_SIGPROCMASK ||
-        sys_id == SYS_RT_SIGSUSPEND;
+        sys_id == SYS_RT_SIGSUSPEND || sys_id == SYS_SIGNALFD ||
+        sys_id == SYS_SIGNALFD4;
 }
 
 static __always_inline int is_signal_enter_direct_syscall(u32 sys_id)

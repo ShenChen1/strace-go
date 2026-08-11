@@ -293,6 +293,8 @@ func TestBPFWaitidAndSignalPayloadsUseDirectTLV(t *testing.T) {
 		!strings.Contains(signalDirectHeader, "SIGNAL_DIRECT_SIGSET_SIZE 8") ||
 		!strings.Contains(signalDirectHeader, "SIGNAL_DIRECT_SIGACTION_SIZE 32") ||
 		!strings.Contains(signalDirectHeader, "is_signal_direct_syscall(") ||
+		!strings.Contains(signalDirectHeader, "sys_id == SYS_SIGNALFD ||") ||
+		!strings.Contains(signalDirectHeader, "sys_id == SYS_SIGNALFD4") ||
 		!strings.Contains(signalDirectHeader, "is_signal_enter_direct_syscall(") ||
 		!strings.Contains(signalDirectHeader, "emit_signal_enter_event_v2_direct(") ||
 		!strings.Contains(signalDirectHeader, "emit_signal_exit_event_v2_direct(") ||
@@ -309,6 +311,15 @@ func TestBPFWaitidAndSignalPayloadsUseDirectTLV(t *testing.T) {
 		!strings.Contains(straceSource, "is_signal_direct_syscall(p->sys_id) && ret_value >= 0") ||
 		!strings.Contains(straceSource, "emit_signal_exit_event_v2_direct(p, ret_value, duration);") {
 		t.Fatal("rt_sigaction/rt_sigprocmask/rt_sigsuspend should emit direct signal TLV events without the bpf_event carrier")
+	}
+	exitBody, ok := bpfFunctionBody(readCombinedBPFSources(t), "exit_generic")
+	if !ok {
+		t.Fatal("BPF exit dispatcher missing exit_generic")
+	}
+	fdStateExit := strings.Index(exitBody, "is_fd_state_exit_direct_syscall(p->sys_id) && ret_value >= 0")
+	signalExit := strings.Index(exitBody, "is_signal_direct_syscall(p->sys_id) && ret_value >= 0")
+	if fdStateExit < 0 || signalExit < 0 || fdStateExit > signalExit {
+		t.Fatal("signalfd exit must be handled by the FD_STATE branch before signal payload handling")
 	}
 }
 

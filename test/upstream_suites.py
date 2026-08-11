@@ -37,6 +37,8 @@ UPSTREAM_REFERENCE_TESTS = [
     "epoll_create1.gen.test",
     "inotify_init.gen.test",
     "inotify_init1-y.gen.test",
+    "signalfd4.gen.test",
+    "signalfd4-yy.gen.test",
     "getdents.gen.test",
     "getdents-v.gen.test",
     "getdents64.gen.test",

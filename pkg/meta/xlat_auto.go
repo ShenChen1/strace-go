@@ -1484,6 +1484,13 @@ var XlatTables = map[string]XlatTable{
 			{Val: 1073741824, Str: "CLONE_NEWNET"},
 		},
 	},
+	"sfd_flags": {
+		Prefix: "SFD_",
+		Entries: []XlatVal{
+			{Val: 524288, Str: "SFD_CLOEXEC"},
+			{Val: 2048, Str: "SFD_NONBLOCK"},
+		},
+	},
 	"shadow_stack_flags": {
 		Prefix: "SHADOW_STACK_",
 		Entries: []XlatVal{
@@ -6004,6 +6011,9 @@ var SyscallArgXlatMap = map[string]map[string]string{
 	},
 	"setxattr": {
 		"flags": "xattrflags",
+	},
+	"signalfd4": {
+		"flags": "sfd_flags",
 	},
 	"socket": {
 		"family": "addrfams",

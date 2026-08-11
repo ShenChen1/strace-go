@@ -15,6 +15,7 @@ from ebpf_event_oracles import (
     parse_stats_events,
 )
 from ebpf_cloexec_suite import run_cloexec_semantic
+from ebpf_signalfd_suite import run_signalfd_semantic
 from ebpf_semantic_checks import (
     check_semantic_context,
     require,
@@ -447,6 +448,7 @@ def run_ebpf_semantic(args):
     failures = []
     check_semantic_context(context, failures)
     failures.extend(run_cloexec_semantic())
+    failures.extend(run_signalfd_semantic(STRACE_WRAPPER, PROJECT_ROOT))
     failures.extend(run_sockopt_semantic(STRACE_WRAPPER, PROJECT_ROOT))
     filter_event_count = check_write_only_filter(fixture, failures)
     return finish_semantic(context, failures, filter_event_count)

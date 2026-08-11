@@ -26,7 +26,12 @@ func updateFdReturnMapFromSource(src fdStateSource, scMeta meta.Syscall, targetP
 		return
 	}
 	state := policy.state(src)
-	fdMap[fdStateKey(targetPid, int32(view.ret))] = state.path
+	key := fdStateKey(targetPid, int32(view.ret))
+	if !state.pathKnown {
+		delete(fdMap, key)
+		return
+	}
+	fdMap[key] = state.path
 }
 
 func updateEventfdCountFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {

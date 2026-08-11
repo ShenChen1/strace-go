@@ -26,7 +26,9 @@ func (st *FDStateStore) updateFDCloexecFromSource(src fdStateSource, scMeta meta
 			return
 		}
 		state := policy.state(src)
-		st.replaceFDCloexec(targetPID, int32(src.view.ret), state.cloexec, state.cloexecKnown)
+		if state.cloexecKnown {
+			st.replaceFDCloexec(targetPID, int32(src.view.ret), state.cloexec, true)
+		}
 		return
 	}
 

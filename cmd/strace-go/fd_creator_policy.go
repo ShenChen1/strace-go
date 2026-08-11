@@ -1,16 +1,21 @@
 package main
 
-import "golang.org/x/sys/unix"
+import (
+	"golang.org/x/sys/unix"
+	"strace-go/pkg/format"
+	"strace-go/pkg/handler"
+)
 
 type fdCreatorState struct {
 	path         string
+	pathKnown    bool
 	cloexec      bool
 	cloexecKnown bool
 }
 
-// fdCreatorPolicy isolates the state contract for syscalls that return a new FD.
-// Special creators such as signalfd can later implement different matching logic
-// without spreading their creation predicate across every FD state updater.
+// fdCreatorPolicy isolates state for syscalls that create or update an FD.
+// Special policies such as signalfd keep their predicate and payload rules out
+// of the individual observation, path, and CLOEXEC updaters.
 type fdCreatorPolicy interface {
 	matches(syscallName string, view syscallEventView) bool
 	state(src fdStateSource) fdCreatorState
@@ -31,6 +36,7 @@ func (p simpleFDCreatorPolicy) matches(syscallName string, _ syscallEventView) b
 func (p simpleFDCreatorPolicy) state(src fdStateSource) fdCreatorState {
 	state := fdCreatorState{
 		path:         p.path,
+		pathKnown:    p.path != "",
 		cloexec:      p.fixedCloexec,
 		cloexecKnown: p.cloexecKnown,
 	}
@@ -43,7 +49,52 @@ func (p simpleFDCreatorPolicy) state(src fdStateSource) fdCreatorState {
 	return state
 }
 
+type signalfdPolicy struct {
+	syscallName string
+	flagsArg    int
+}
+
+func (p signalfdPolicy) matches(syscallName string, _ syscallEventView) bool {
+	return syscallName == p.syscallName
+}
+
+func (p signalfdPolicy) state(src fdStateSource) fdCreatorState {
+	state := fdCreatorState{}
+	if int32(src.view.args[0]) == -1 {
+		state.cloexecKnown = true
+	}
+	if state.cloexecKnown && p.flagsArg >= 0 {
+		flags := uint64(uint32(src.view.args[p.flagsArg]))
+		state.cloexec = flags&uint64(unix.O_CLOEXEC) != 0
+	}
+	mask, ok := signalfdMaskFromSource(src)
+	if !ok {
+		return state
+	}
+	state.path = "signalfd:" + format.Sigset(mask)
+	state.pathKnown = true
+	return state
+}
+
+func signalfdMaskFromSource(src fdStateSource) ([]byte, bool) {
+	if src.view.args[2] != 8 {
+		return nil, false
+	}
+	for _, section := range src.payloadSections {
+		if section.Kind != handler.PayloadKindStruct ||
+			section.Direction != handler.PayloadDirectionIn ||
+			section.ArgIndex != 1 || section.UserLen != 8 ||
+			section.CopiedLen < 8 || section.ProbeRet != 0 || len(section.Data) < 8 {
+			continue
+		}
+		return section.Data[:8], true
+	}
+	return nil, false
+}
+
 var fdCreatorPolicies = []fdCreatorPolicy{
+	signalfdPolicy{syscallName: "signalfd", flagsArg: -1},
+	signalfdPolicy{syscallName: "signalfd4", flagsArg: 3},
 	simpleFDCreatorPolicy{
 		syscallName:  "eventfd",
 		path:         "anon_inode:[eventfd]",

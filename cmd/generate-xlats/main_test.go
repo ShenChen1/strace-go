@@ -30,6 +30,13 @@ func TestApplyStableXlatFallbacksAddsMissingEntries(t *testing.T) {
 	}
 }
 
+func TestSignalFD4UsesGeneratedFlagXlat(t *testing.T) {
+	argXlat := readArgXlatMap()
+	if got := argXlat.Syscalls["signalfd4"]["flags"]; got != "sfd_flags" {
+		t.Fatalf("signalfd4 flags xlat = %q, want sfd_flags", got)
+	}
+}
+
 func TestNormalizeXlatPrefixUsesOpenTreeUnknownContract(t *testing.T) {
 	prefix := "OPEN_TREE_ AT_"
 	normalizeXlatPrefix("open_tree_flags", &prefix)

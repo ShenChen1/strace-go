@@ -192,6 +192,8 @@ syscalls:
     flags: rename_flags
   inotify_init1:
     flags: inotify_init_flags
+  signalfd4:
+    flags: sfd_flags
   userfaultfd:
     flags: uffd_flags
   unshare:

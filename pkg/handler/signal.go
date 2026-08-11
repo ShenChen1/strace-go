@@ -15,6 +15,8 @@ func init() {
 	Register("rt_sigaction", h)
 	Register("rt_sigpending", h)
 	Register("rt_sigsuspend", h)
+	Register("signalfd", h)
+	Register("signalfd4", h)
 }
 
 type SignalHandler struct {
@@ -53,7 +55,12 @@ func (h *SignalHandler) Handle(ctx *Context) Result {
 			continue
 		}
 
-		if (argName == "set" || argName == "oldset" || argName == "nset" || argName == "oset" || argName == "unblock" || argName == "mask") && strings.Contains(argTyp, "sigset_t") {
+		if (sysName == "signalfd" || sysName == "signalfd4") && argName == "ufd" {
+			res.ArgParts = append(res.ArgParts, h.formatFdArg(ctx, argName, val))
+			continue
+		}
+
+		if (argName == "set" || argName == "oldset" || argName == "nset" || argName == "oset" || argName == "unblock" || argName == "mask" || argName == "user_mask") && strings.Contains(argTyp, "sigset_t") {
 			res.ArgParts = append(res.ArgParts, h.formatSigsetArg(ctx, i, argName, val))
 			continue
 		}
@@ -64,6 +71,11 @@ func (h *SignalHandler) Handle(ctx *Context) Result {
 		}
 
 		if argName == "sigsetsize" {
+			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", val))
+			continue
+		}
+
+		if (sysName == "signalfd" || sysName == "signalfd4") && argName == "sizemask" {
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", val))
 			continue
 		}
@@ -87,6 +99,9 @@ func (h *SignalHandler) formatSigsetArg(ctx *Context, argIndex int, argName stri
 	if signalSyscallName(ctx) == "rt_sigsuspend" && ctx.Args[1] != signalSigsetSize {
 		return fmt.Sprintf("%#x", val)
 	}
+	if isSignalFDContext(ctx) && ctx.Args[2] != signalSigsetSize {
+		return fmt.Sprintf("%#x", val)
+	}
 	if (argName == "oldset" || argName == "oset") && ctx.Ret >= 0 {
 		data, ok := signalStructSnapshot(ctx, argIndex, PayloadDirectionOut, signalSigsetSize)
 		if ok {
@@ -100,6 +115,9 @@ func (h *SignalHandler) formatSigsetArg(ctx *Context, argIndex int, argName stri
 		}
 	}
 	if isRtSigprocmaskContext(ctx) && ctx.Ret < 0 {
+		return fmt.Sprintf("%#x", val)
+	}
+	if isSignalFDContext(ctx) && ctx.Ret < 0 {
 		return fmt.Sprintf("%#x", val)
 	}
 	return "[]"
@@ -122,6 +140,11 @@ func isRtSigprocmaskContext(ctx *Context) bool {
 	return ctx.ScMeta.Args[1] == "nset" &&
 		ctx.ScMeta.Args[2] == "oset" &&
 		ctx.ScMeta.Args[3] == "sigsetsize"
+}
+
+func isSignalFDContext(ctx *Context) bool {
+	name := signalSyscallName(ctx)
+	return name == "signalfd" || name == "signalfd4"
 }
 
 func (h *SignalHandler) formatSigactionArg(ctx *Context, argIndex int, argName string, val uint64) string {
