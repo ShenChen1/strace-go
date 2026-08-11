@@ -2418,3 +2418,37 @@ ABI 与状态契约：
 本阶段只改变 Go 组件依赖边界，不改变纯 eBPF 事件事实源。任何状态缺失仍按现有保守路径处理，不通过 `/proc` 或 tracee live-state 查询补齐。
 
 实际验收结果：新增 `traceEventState`、`textRendererState`、`execSyscallState` 和 `suspendedSyscallState` 四个窄端口，`TraceState` 通过 compile-time assertion 作为唯一生产实现；router、renderer、exec 和 suspended output 不再声明 `*TraceState`，新增 AST source gate 防止具体状态依赖回流。exec 失败落回普通文本输出时由 exec 组件清理 pending 参数，避免 renderer 反向修改 exec 状态。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，746.68 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径未引入 `/proc`、ptrace 或 `process_vm_readv`。
+
+### 14.44 启动 FD state seed 的 ownership 收口（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.22 以后 FD/path 状态的事实源已经是事件驱动的 `FDStateStore`；命令启动时只需要用 tracer 自身启动目录作为一个初始 cwd seed，attach 模式则从空 seed 开始。但 `startTraceCmd`、`attachToPids` 和 `resolveTraceTargets` 仍直接返回 `map[string]string`，`newFDStateStore` 也直接保存调用方 map。
+- Problem：target resolver 与 session state 之间存在可变 map alias。虽然当前 main 不再使用该 map，但同包调用方可以在 store 构造后继续写入它，绕过单一状态 owner；command+attach 合并也以字符串 key map 作为隐式协议，难以区分“启动 seed”与“长期状态”。这不是 tracee live-state 查询，也不需要 `/proc`；问题仅在 Go 对象 ownership。
+- Goal：用私有 `fdStateSeed` value 表达启动阶段的有限初始状态；command/attach resolver 只返回和合并 seed，`FDStateStore` 从 seed 构造时复制内容并成为唯一 owner。事件消费期间不再持有或接收 target resolver 的 map。
+- Non-goals：不改变 attach 的未知 FD 语义、不扫描 tracee `/proc`、不改变 event-sourced path/observation/offset 生命周期、不重写内部 FD 更新 helper、不改变 BPF ABI 或输出格式。
+- Constraints：seed 只能包含启动边界已知的 cwd/path 条目；seed API 不暴露 map accessor；store 构造必须复制 seed 内容；command+attach 的既有 merge 覆盖顺序保持不变；不能引入 ptrace、`process_vm_readv`、goroutine 或锁。
+
+方案比较：
+
+1. 保留裸 map 并约定调用方转移所有权：改动最小，但 ownership 只能靠约定，拒绝。
+2. 让现有 map 构造器统一 clone：能阻断别名，但 target resolver 仍把长期状态形状泄漏到 session 边界，暂不选择。
+3. 引入私有 `fdStateSeed`，resolver 只合并 seed，store 构造时复制：启动协议显式、长期状态 owner 唯一且改动局部，选择该方案。
+
+状态契约：
+
+- `fdStateSeed` 只允许通过构造和 merge 方法生成；调用方不能读取其内部 map，也不能把 seed 当作事件期状态使用。
+- `startTraceCmd` 为命令目标创建最多一个 cwd seed；`attachToPids` 返回空 seed，表示 attach 前 FD/cwd 未知。
+- `resolveTraceTargets` 只合并 seed，不再拼接 `map[string]string`；同时指定 command 和 attach 时保持 attach seed 覆盖既有 key 的原顺序。
+- `newFDStateStoreFromSeed` 复制 seed 后创建 `FDStateStore`；构造完成后 seed 的后续修改不影响 store。
+- 本阶段的 cwd seed 来自 tracer 自身 `os.Getwd()`，不是目标进程的 `/proc` 快照；attach 模式仍严格保持 unknown。
+
+测试与验收：
+
+- 增加 seed 构造、merge、command cwd 和无效 seed 输入测试，覆盖无效 PID/相对 cwd 不进入 seed。
+- 增加 ownership regression：修改 seed 内部内容后，已构造的 store reader 结果保持不变。
+- 验证顺序：先跑 seed/session focused 测试，再 `go test ./...`、`go test -race ./...`、`go vet ./...`、build，随后运行 eBPF semantic/perf、small 和 upstream reference；测试结束清理 BPF pin 与 tracer 进程。
+
+本阶段只收口启动对象的 ownership，不把任何异步 live-state 查询引入纯 eBPF 事件路径。
+
+实际验收结果：新增私有 `fdStateSeed`、command cwd seed、seed merge 和 `newFDStateStoreFromSeed`；`startTraceCmd`、`attachToPids`、`resolveTraceTargets` 不再返回裸 FD path map，store 构造时复制 seed，seed 后续修改不会影响长期 reader。新增 seed copy/merge/invalid-cwd/ownership 回归测试。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，732.97 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。

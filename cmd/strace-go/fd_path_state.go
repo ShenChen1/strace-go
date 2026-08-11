@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
@@ -110,15 +109,6 @@ func updateFDPathStateFromSource(
 	}
 }
 
-func initialTraceCommandFDMap(targetPID int, cwd string) map[string]string {
-	paths := make(map[string]string)
-	if targetPID <= 0 || cwd == "" {
-		return paths
-	}
-	cleaned := filepath.Clean(cwd)
-	if !filepath.IsAbs(cleaned) {
-		return paths
-	}
-	paths[fmt.Sprintf("%d:cwd", targetPID)] = cleaned
-	return paths
+func initialTraceCommandFDSeed(targetPID int, cwd string) fdStateSeed {
+	return newCwdFDStateSeed(targetPID, cwd)
 }

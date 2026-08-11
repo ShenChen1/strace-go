@@ -65,7 +65,7 @@ func main() {
 		log.Fatalf("failed to update BPF runtime config: %v", err)
 	}
 
-	cmd, targetPid, fdMap, err := resolveTraceTargets(opts, bpfObjs, inheritedFiles)
+	cmd, targetPid, fdSeed, err := resolveTraceTargets(opts, bpfObjs, inheritedFiles)
 	if err != nil {
 		log.Fatalf("failed to resolve trace targets: %v", err)
 	}
@@ -81,7 +81,7 @@ func main() {
 		log.Fatalf("failed to set up output: %v", err)
 	}
 
-	fdState := newFDStateStore(fdMap)
+	fdState := newFDStateStoreFromSeed(fdSeed)
 
 	var resolver *stacktrace.Resolver
 	if opts.StackTrace {
@@ -166,42 +166,40 @@ func buildRuntimeConfig(opts *cli.Options, bpfObjs *bpfObjects) (uint32, error) 
 }
 
 // resolveTraceTargets starts the traced command and/or attaches to pids, merging
-// fd maps when both targets are requested.
-func resolveTraceTargets(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles []*os.File) (*exec.Cmd, int, map[string]string, error) {
+// startup FD state seeds when both targets are requested.
+func resolveTraceTargets(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles []*os.File) (*exec.Cmd, int, fdStateSeed, error) {
 	if opts == nil {
-		return nil, 0, nil, fmt.Errorf("trace options are nil")
+		return nil, 0, fdStateSeed{}, fmt.Errorf("trace options are nil")
 	}
 	var cmd *exec.Cmd
 	var targetPid int
-	var fdMap map[string]string
+	var fdSeed fdStateSeed
 
 	if len(opts.CmdArgs) > 0 {
 		var err error
-		cmd, targetPid, fdMap, err = startTraceCmd(opts, bpfObjs, inheritedFiles)
+		cmd, targetPid, fdSeed, err = startTraceCmd(opts, bpfObjs, inheritedFiles)
 		if err != nil {
-			return nil, 0, nil, err
+			return nil, 0, fdStateSeed{}, err
 		}
 	}
 	if len(opts.AttachPids) > 0 {
-		firstPid, attachFdMap, err := attachToPids(opts.AttachPids, bpfObjs)
+		firstPid, attachSeed, err := attachToPids(opts.AttachPids, bpfObjs)
 		if err != nil {
 			abortTraceTarget(cmd, bpfObjs, targetPid)
-			return nil, 0, nil, err
+			return nil, 0, fdStateSeed{}, err
 		}
 		if targetPid == 0 {
 			targetPid = firstPid
-			fdMap = attachFdMap
+			fdSeed = attachSeed
 		} else {
 			opts.FollowForks = true // Tracing command + attached pids
-			for k, v := range attachFdMap {
-				fdMap[k] = v
-			}
+			fdSeed.merge(attachSeed)
 		}
 		if len(opts.AttachPids) > 1 {
 			opts.FollowForks = true // Tracing multiple attached pids
 		}
 	}
-	return cmd, targetPid, fdMap, nil
+	return cmd, targetPid, fdSeed, nil
 }
 
 func terminateTraceCommand(cmd *exec.Cmd) {

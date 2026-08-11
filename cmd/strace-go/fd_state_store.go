@@ -59,6 +59,10 @@ func newFDStateStoreFromMaps(paths map[string]string, offsets map[string]int64) 
 	return store
 }
 
+func newFDStateStoreFromSeed(seed fdStateSeed) *FDStateStore {
+	return newFDStateStoreFromMaps(copyFDStatePaths(seed.paths), nil)
+}
+
 func (st *FDStateStore) ensureMaps() {
 	if st.paths == nil {
 		st.paths = make(map[string]string)

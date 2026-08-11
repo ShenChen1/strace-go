@@ -153,9 +153,10 @@ func TestFDPathSnapshotReachesHandlerFormatter(t *testing.T) {
 }
 
 func TestTraceCommandFDStateSeedsInheritedCWD(t *testing.T) {
-	got := initialTraceCommandFDMap(101, "/opt/strace-go")
-	if got["101:cwd"] != "/opt/strace-go" {
-		t.Fatalf("initial cwd = %q, want /opt/strace-go", got["101:cwd"])
+	seed := initialTraceCommandFDSeed(101, "/opt/strace-go")
+	store := newFDStateStoreFromSeed(seed)
+	if got, ok := store.Cwd(101); !ok || got != "/opt/strace-go" {
+		t.Fatalf("initial cwd = %q, %v; want /opt/strace-go", got, ok)
 	}
 }
 
