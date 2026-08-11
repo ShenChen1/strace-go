@@ -1,0 +1,21 @@
+package main
+
+type lifecycleEventSink interface {
+	Handle(lifecycleEventView, *TaskState)
+	InheritProcessState(parentPID int, childPID int)
+}
+
+type syscallEnterSink interface {
+	HandleEnter(syscallEventContext)
+}
+
+type syscallExitSink interface {
+	Handle(syscallEventContext)
+	HandleUnfinished(syscallEventContext) bool
+}
+
+var (
+	_ lifecycleEventSink = (*LifecycleEventHandler)(nil)
+	_ syscallEnterSink   = (*SyscallJSONOutput)(nil)
+	_ syscallExitSink    = (*SyscallExitPipeline)(nil)
+)

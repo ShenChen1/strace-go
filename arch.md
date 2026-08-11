@@ -2555,3 +2555,36 @@ ABI 与状态契约：
 本阶段只收口 TraceState update 的可变引用，不改变事件语义或纯 eBPF 数据事实源。
 
 实际验收结果：`TraceStateUpdate.unfinished` 已改为带独立 payload copy 的值快照，lifecycle task 通过独立副本传出，router 通过 `markUnfinishedPrinted` 回写而不直接修改 pending；新增 alias、mark 行为和源码 gate。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，734.27 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。
+
+### 14.48 TraceEventRouter 输出 sink 端口隔离（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.37 已建立 session composition root，14.43-14.47 已收口 state、FD reader/mutation 和 snapshot ownership；但 `TraceEventRouter` 仍声明具体的 `*LifecycleEventHandler`、`*SyscallJSONOutput` 和 `*SyscallExitPipeline`。
+- Problem：路由层因此绑定输出组件的全部方法和内部实现，测试只能构造完整 pipeline 才能验证 dispatch；未来输出实现拆分或 JSON/text 分流时，路由层会继续吸收格式/handler 依赖。
+- Goal：为 lifecycle、syscall enter JSON、syscall exit/text 三条 dispatch 链定义最小 sink port；router 只负责 scope、TraceState update、顺序和调用，不知道输出实现类型。
+- Non-goals：不改变输出格式、handler 调用、unfinished/resumed 顺序、JSON enter/exit 语义、BPF ABI、FD state 或退出清理；不增加 goroutine、锁、timer、procfs、ptrace 或 `process_vm_readv`。
+- Constraints：真实 session 仍只创建一套 `LifecycleEventHandler`、`SyscallJSONOutput`、`SyscallExitPipeline`，由 composition root 注入；sink port 不返回 mutable state；缺省 fixture 允许 nil sink。
+
+方案比较：
+
+1. 保留三个具体字段：改动最小，但 router 继续依赖全部输出实现，拒绝。
+2. 定义一个包含 lifecycle/enter/exit/unfinished 的万能 `TraceOutputSink`：接线少，但把不相关输出能力重新耦合，拒绝。
+3. 定义三个职责端口：`lifecycleEventSink`、`syscallEnterSink`、`syscallExitSink`；依赖面最小且无需 adapter，选择该方案。
+
+状态契约：
+
+- `lifecycleEventSink` 只接收 lifecycle view/task snapshot 和 process-state inheritance notification。
+- `syscallEnterSink` 只接收已经构造的 enter context；`syscallExitSink` 负责完整 exit 和 unfinished decode 两个出口。
+- router 仍按 `scope -> state update -> inheritance -> unfinished -> lifecycle/enter/exit` 的现有顺序调用 sink；nil sink 只跳过对应输出，不跳过 state update。
+- 真实输出对象是上述 port 的唯一生产实现，composition identity 测试确保没有替换实例。
+
+测试与验收：
+
+- fake sink 验证 lifecycle、enter、exit、unfinished dispatch 和调用顺序，不需要构造具体输出对象。
+- 增加生产源码 gate，禁止 router 声明三个具体输出类型；保留 session composition identity 检查。
+- 随后跑 Go/race/vet/build、eBPF semantic/perf、small 和 upstream reference，并检查 tracer/BPF pin 残留。
+
+本阶段只收口 router 的输出依赖，不改变单消费者状态机和纯 eBPF 事件事实源。
+
+实际验收结果：新增 `lifecycleEventSink`、`syscallEnterSink`、`syscallExitSink`，router 不再声明三个具体输出组件；fake sink 覆盖 lifecycle/enter/exit/unfinished dispatch，composition identity 仍通过。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，746.82 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。

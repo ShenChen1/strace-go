@@ -4,9 +4,9 @@ type TraceEventRouter struct {
 	scope       TraceScope
 	targetPID   int
 	state       traceEventState
-	lifecycle   *LifecycleEventHandler
-	json        *SyscallJSONOutput
-	pipeline    *SyscallExitPipeline
+	lifecycle   lifecycleEventSink
+	json        syscallEnterSink
+	pipeline    syscallExitSink
 	contextDeps syscallEventContextDeps
 }
 
@@ -14,9 +14,9 @@ type TraceEventRouterDeps struct {
 	Scope       TraceScope
 	TargetPID   int
 	State       traceEventState
-	Lifecycle   *LifecycleEventHandler
-	JSON        *SyscallJSONOutput
-	Pipeline    *SyscallExitPipeline
+	Lifecycle   lifecycleEventSink
+	JSON        syscallEnterSink
+	Pipeline    syscallExitSink
 	ContextDeps syscallEventContextDeps
 }
 
