@@ -14,6 +14,7 @@ import (
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 	"strace-go/pkg/stacktrace"
 
@@ -30,6 +31,7 @@ type traceSession struct {
 	catalog       *meta.Catalog
 	decoder       *event.Decoder
 	fdState       *FDStateStore
+	runtime       handler.RuntimeServices
 	outWriter     io.Writer
 	output        *TraceOutput
 	summary       *SummaryStats

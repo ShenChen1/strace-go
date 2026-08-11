@@ -18,7 +18,6 @@ func TestFDPathOverlayFeedsPathFilterAndFormatter(t *testing.T) {
 		decoder: event.NewDecoder(),
 		opts:    opts,
 		fdState: store,
-		runtime: store.Runtime(),
 	}
 	view := syscallEventView{
 		valid:     true,

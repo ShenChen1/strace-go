@@ -65,6 +65,7 @@ type traceSessionDeps struct {
 	Catalog       *meta.Catalog
 	Decoder       *event.Decoder
 	FDState       *FDStateStore
+	Runtime       handler.RuntimeServices
 	OutWriter     io.Writer
 	Output        *TraceOutput
 	TimeFormatter *TimeFormatter
@@ -85,6 +86,7 @@ func newTraceSession(deps traceSessionDeps) *traceSession {
 		catalog:       deps.Catalog,
 		decoder:       deps.Decoder,
 		fdState:       deps.FDState,
+		runtime:       deps.Runtime,
 		outWriter:     deps.OutWriter,
 		output:        deps.Output,
 		timeFormatter: deps.TimeFormatter,
@@ -114,6 +116,9 @@ func normalizeTraceSession(session *traceSession) {
 	}
 	if session.fdState == nil {
 		session.fdState = newFDStateStoreFromMaps(nil, nil)
+	}
+	if session.runtime == nil {
+		session.runtime = handler.NewRuntime()
 	}
 	if session.outWriter == nil {
 		session.outWriter = io.Discard

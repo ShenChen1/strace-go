@@ -68,7 +68,7 @@ func newSyscallEventContextDepsWithRegistry(
 		fdState:  fdState,
 		fdPath:   fdState,
 		registry: registry,
-		runtime:  fdState.Runtime(),
+		runtime:  s.runtimeService(),
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -45,4 +46,22 @@ func hasConcretePointerType(file *ast.File, typeName string) bool {
 		return true
 	})
 	return found
+}
+
+func TestFDStateStoreDoesNotOwnRuntimeService(t *testing.T) {
+	path := filepath.Join(repositoryRoot(t), "cmd/strace-go/fd_state_store.go")
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	text := string(source)
+	for _, token := range []string{
+		"handler.RuntimeServices",
+		"func (st *FDStateStore) Runtime",
+		"handler.NewRuntime()",
+	} {
+		if strings.Contains(text, token) {
+			t.Fatalf("FDStateStore retains unrelated runtime ownership token %q", token)
+		}
+	}
 }

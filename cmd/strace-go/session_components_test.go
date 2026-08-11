@@ -231,8 +231,11 @@ func TestTraceSessionPipelineUsesComposedDependencies(t *testing.T) {
 	if router.contextDeps.fdPath != session.fdStateStore() {
 		t.Fatal("router should use session fd path reader for contexts")
 	}
-	if router.contextDeps.runtime != session.fdStateStore().Runtime() {
+	if router.contextDeps.runtime != session.runtimeService() {
 		t.Fatal("router should use session runtime service for contexts")
+	}
+	if router.contextDeps.runtime == nil {
+		t.Fatal("router should receive a non-nil session runtime service")
 	}
 	eventReader := session.traceEventReader()
 	if eventReader.decoder != session.traceRecordDecoder() {
@@ -257,5 +260,35 @@ func TestTraceSessionPipelineUsesComposedDependencies(t *testing.T) {
 	}
 	if finalizer.bpfObjs != session.bpfObjs {
 		t.Fatal("finalizer should use session BPF objects")
+	}
+}
+
+func TestTraceSessionOwnsRuntimeSeparatelyFromFDState(t *testing.T) {
+	store := newFDStateStoreFromMaps(map[string]string{"101:3": "/dev/null"}, nil)
+	runtime := handler.NewRuntime()
+	session := newTraceSession(traceSessionDeps{
+		FDState: store,
+		Runtime: runtime,
+		Opts:    &cli.Options{},
+	})
+
+	deps := session.traceEventRouter().contextDeps
+	if deps.runtime != runtime {
+		t.Fatal("session composition replaced the injected runtime service")
+	}
+	if deps.fdState != store {
+		t.Fatal("session composition replaced the injected FD state store")
+	}
+	if got, ok := store.Path(101, 3); !ok || got != "/dev/null" {
+		t.Fatalf("FD state path = %q, %v; want /dev/null, true", got, ok)
+	}
+	if got := runtime.NextFiemapCall(101); got != 1 {
+		t.Fatalf("injected runtime first call = %d, want 1", got)
+	}
+	if got := session.runtimeService().NextFiemapCall(101); got != 2 {
+		t.Fatalf("session runtime second call = %d, want 2", got)
+	}
+	if got, ok := store.Path(101, 3); !ok || got != "/dev/null" {
+		t.Fatalf("FD state path after runtime calls = %q, %v; want /dev/null, true", got, ok)
 	}
 }

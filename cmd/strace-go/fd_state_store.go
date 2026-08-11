@@ -18,7 +18,6 @@ type FDStateStore struct {
 	offsets   map[string]int64
 	fdStates  map[string]handler.FDStateObservation
 	fdCloexec map[string]bool
-	runtime   handler.RuntimeServices
 }
 
 type fdStateSource struct {
@@ -43,7 +42,6 @@ func newFDStateStoreFromMaps(paths map[string]string, offsets map[string]int64) 
 		paths:    copyFDStatePaths(paths),
 		offsets:  copyFDStateOffsets(offsets),
 		fdStates: make(map[string]handler.FDStateObservation),
-		runtime:  handler.NewRuntime(),
 	}
 	store.ensureMaps()
 	return store
@@ -93,13 +91,6 @@ func (st *FDStateStore) Observation(pid int, fd int32) (handler.FDStateObservati
 	}
 	observation, ok := st.fdStates[fdStateKey(pid, fd)]
 	return observation, ok
-}
-
-func (st *FDStateStore) Runtime() handler.RuntimeServices {
-	if st.runtime == nil {
-		st.runtime = handler.NewRuntime()
-	}
-	return st.runtime
 }
 
 func (s *traceSession) fdStateStore() *FDStateStore {

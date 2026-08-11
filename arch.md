@@ -2685,3 +2685,36 @@ ABI 与状态契约：
 本阶段只收口 CWD mutation ownership，不改变纯 eBPF 事件事实源、路径快照时点或输出契约。
 
 实际验收结果：CWD path normalization、chdir/fchdir state transition 已移至 `cmd/strace-go/fd_cwd_state.go`，`pkg/handler/decode_scalar_utils.go` 及其 map mutator 已删除，`event_utils.go` 降至 473 LOC；新增成功/失败回归和 handler/source gate。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过。`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，740.36 events/s；small 首次运行出现一次 `symlinkat.gen.test` 裸指针 exact diff，focused 重跑和随后完整 small 重跑均为 23 PASS，确认是偶发观察窗口而非稳定回归；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。
+
+### 14.52 session runtime enrichment 与 FD state owner 解耦（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.42-14.51 已将 FD/path/offset/cloexec/cwd 的长期状态收口到 `FDStateStore`，handler 只通过 reader 和 mutation port 访问；但 `FDStateStore` 仍持有 `handler.RuntimeServices`，并通过 `Runtime()` 为 `fiemap` formatter 维护调用次数。
+- Problem：`fiemap` 的 session-scoped 格式化计数与 FD/path 生命周期没有状态关系，却被放进同一个 owner；context composition 还要从 FD store 取得 runtime。这样会让 FD store 的构造、替换和清理意外影响 handler enrichment，并给未来维护者留下“所有 session state 都放进 FD store”的错误入口。
+- Goal：由 `traceSession` 直接拥有一个 session-scoped `handler.RuntimeServices`，在 context composition 时单独注入；`FDStateStore` 只负责 FD/path/offset/observation/cloexec state，不再暴露 `Runtime()` 或初始化 handler runtime。
+- Non-goals：不改变 `fiemap` 计数语义、handler Context 合约、事件顺序、单消费者模型、FD state 算法、BPF ABI、输出格式或性能路径；不引入 procfs、ptrace、`process_vm_readv`、锁或第二份 FD state。
+- Constraints：runtime 只能在 session composition root 创建或由测试显式注入；同一 session 的所有 event context 使用同一个 runtime instance；FDStateStore 的 reader/mutation ownership 不受影响；缺省 hand-built fixture 仍可安全运行。
+
+方案比较：
+
+1. 保留 `FDStateStore.Runtime()`：改动最小，但不相关的 formatter state 继续污染 FD owner，拒绝。
+2. 让 handler/formatter 使用包级 runtime：实现简单，但引入跨 session 共享和隐式可变全局状态，拒绝。
+3. 在 `traceSessionDeps`/`traceSession` 增加 `handler.RuntimeServices`，缺省由 composition root 创建并单独注入 context：session ownership 清晰、无热路径复制、测试可替换，选择该方案。
+
+状态契约：
+
+- `FDStateStore` 仅拥有 event-sourced FD/path/offset/observation/cloexec maps；其 constructor 不再创建或保存 `handler.Runtime`。
+- `traceSession.runtime` 是一个 session-scoped service；`normalizeTraceSession` 只在缺省时创建 `handler.NewRuntime()`，事件消费期间不替换。
+- `syscallEventContextDeps.runtime` 从 session runtime 注入；handler 仍只能通过 `RuntimeServices.NextFiemapCall` 访问计数器。
+- runtime 与 FD state 仍由同一个单消费者使用，但两者的生命周期和替换测试彼此独立；不读取 tracee live state。
+
+测试与验收：
+
+- 新增 session composition identity 测试，验证 context 使用 session runtime 而不是 FD store；增加源码 gate，禁止 `FDStateStore` 声明 `RuntimeServices`/`Runtime()`。
+- 保留 runtime 独立 session 计数测试，并增加 runtime 替换不影响 FD reader 的回归。
+- 验证顺序：focused runtime/context/state 测试，再 `go test ./...`、`go test -race ./...`、`go vet ./...`、build、eBPF semantic/perf、small 和 upstream reference；测试后检查 tracer 与 BPF pin 残留。
+
+本阶段只调整 session-scoped enrichment 的 ownership，不改变纯 eBPF 事实源或任何 `/proc`/ptrace 边界。
+
+实际验收结果：`FDStateStore` 已删除 `RuntimeServices` 字段、`Runtime()` 和 `handler.NewRuntime()` 初始化；`traceSession`/`traceSessionDeps` 独立持有 session runtime，context composition identity 与 runtime/FD state 独立性回归通过。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，741.16 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取路径。

@@ -58,6 +58,7 @@ func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-e", "trace=getpid", "/bin/true"})
 	decoder := event.NewDecoder()
 	fdState := newFDStateStoreFromMaps(map[string]string{"101:cwd": "/tmp"}, nil)
+	runtime := handler.NewRuntime()
 	catalog := meta.NewCatalog("raw")
 	view := syscallEventView{
 		valid: true,
@@ -74,7 +75,7 @@ func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 			catalog: catalog,
 			fdState: fdState,
 			fdPath:  fdState,
-			runtime: fdState.Runtime(),
+			runtime: runtime,
 		},
 		view,
 		101,
@@ -88,7 +89,7 @@ func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 	if ev.handlerContext.Meta != catalog {
 		t.Fatalf("handler context catalog = %p, want %p", ev.handlerContext.Meta, catalog)
 	}
-	if ev.handlerContext.Runtime != fdState.Runtime() {
+	if ev.handlerContext.Runtime != runtime {
 		t.Fatal("handler context did not receive the session-scoped runtime")
 	}
 	if got, ok := ev.handlerContext.FDStateView.Cwd(101); !ok || got != "/tmp" {
