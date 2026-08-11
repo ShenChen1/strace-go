@@ -6,10 +6,11 @@ import (
 )
 
 type FDStateStore struct {
-	paths    map[string]string
-	offsets  map[string]int64
-	fdStates map[string]handler.FDStateObservation
-	runtime  handler.RuntimeServices
+	paths     map[string]string
+	offsets   map[string]int64
+	fdStates  map[string]handler.FDStateObservation
+	fdCloexec map[string]bool
+	runtime   handler.RuntimeServices
 }
 
 type fdStateSource struct {
@@ -59,6 +60,9 @@ func (st *FDStateStore) ensureMaps() {
 	if st.fdStates == nil {
 		st.fdStates = make(map[string]handler.FDStateObservation)
 	}
+	if st.fdCloexec == nil {
+		st.fdCloexec = make(map[string]bool)
+	}
 }
 
 func (st *FDStateStore) PathMap() map[string]string {
@@ -90,6 +94,7 @@ func (st *FDStateStore) update(update fdStateUpdate) {
 	updateFDStateObservationFromSource(update.source, update.meta, update.targetPID, st.fdStates)
 	updateFDStateOffsetsFromSource(update.source, update.meta, update.targetPID, st.offsets)
 	updateFDMapFromSource(update.source, update.meta, update.pathText, update.targetPID, st.paths)
+	st.updateFDCloexecFromSource(update.source, update.meta, update.targetPID)
 }
 
 func updateFDMapFromSource(
@@ -119,4 +124,5 @@ func (st *FDStateStore) cleanupClosedFDFromView(view syscallEventView, scMeta me
 	delete(st.paths, key)
 	delete(st.offsets, key)
 	delete(st.fdStates, key)
+	st.cleanupClosedFDCloexecFromView(view, scMeta, statePID)
 }

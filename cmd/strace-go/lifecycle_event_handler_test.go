@@ -14,6 +14,7 @@ type lifecycleHandlerTestState struct {
 type fakeLifecycleEffects struct {
 	inherited     [][2]int
 	cleaned       []int
+	execCleared   []int
 	jsonEventSeen bool
 	jsonTaskSeen  *TaskState
 	exitText      []fakeLifecycleExitText
@@ -30,6 +31,10 @@ func (e *fakeLifecycleEffects) InheritProcessState(parentPID int, childPID int) 
 
 func (e *fakeLifecycleEffects) CleanupProcessState(pid int) {
 	e.cleaned = append(e.cleaned, pid)
+}
+
+func (e *fakeLifecycleEffects) CloseOnExecState(pid int) {
+	e.execCleared = append(e.execCleared, pid)
 }
 
 func (e *fakeLifecycleEffects) WriteJSON(_ lifecycleEventView, task *TaskState) {
@@ -130,6 +135,18 @@ func TestLifecycleEventHandlerSkipsJSONOutsideJSONMode(t *testing.T) {
 
 	if state.effects.jsonEventSeen {
 		t.Fatal("json should not be written for text mode")
+	}
+}
+
+func TestLifecycleEventHandlerClosesCloexecStateForExecProcess(t *testing.T) {
+	state := newLifecycleHandlerTestState(nil)
+	state.handler.Handle(lifecycleEventView{action: lifecycleExec, pid: 200, tid: 201}, &TaskState{
+		TID:  201,
+		TGID: 200,
+	})
+
+	if len(state.effects.execCleared) != 1 || state.effects.execCleared[0] != 200 {
+		t.Fatalf("execCleared = %v, want [200]", state.effects.execCleared)
 	}
 }
 

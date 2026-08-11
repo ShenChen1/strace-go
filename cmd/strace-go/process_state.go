@@ -16,6 +16,7 @@ func (st *FDStateStore) InheritProcessState(parentPID int, childPID int) {
 	st.InheritPaths(parentPID, childPID)
 	st.InheritOffsets(parentPID, childPID)
 	st.InheritFDStates(parentPID, childPID)
+	st.InheritFDCloexec(parentPID, childPID)
 }
 
 func (st *FDStateStore) InheritPaths(parentPID int, childPID int) {
@@ -58,6 +59,7 @@ func (st *FDStateStore) CleanupProcess(pid int) {
 	st.CleanupPaths(pid)
 	st.CleanupOffsets(pid)
 	st.CleanupFDStates(pid)
+	st.CleanupFDCloexec(pid)
 }
 
 func (st *FDStateStore) CleanupPaths(pid int) {

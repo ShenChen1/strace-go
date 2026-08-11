@@ -14,13 +14,13 @@ from ebpf_event_oracles import (
     parse_ready_events,
     parse_stats_events,
 )
+from ebpf_cloexec_suite import run_cloexec_semantic
 from ebpf_semantic_checks import (
     check_semantic_context,
     require,
     valid_stats_event,
 )
 from ebpf_sockopt_suite import run_sockopt_semantic
-
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -155,7 +155,6 @@ def build_ebpf_dirent_fixture():
 
 def build_ebpf_mmsg_fixture():
     return build_named_fixture("strace-go-ebpf-mmsg-fixture", MMSG_FIXTURE_SRC)
-
 
 def run_strace_go_json(args, timeout=30, debug=False):
     event_flag = "--debug-events" if debug else "--event-format=json"
@@ -447,6 +446,7 @@ def run_ebpf_semantic(args):
     context = collect_semantic_context(fixture)
     failures = []
     check_semantic_context(context, failures)
+    failures.extend(run_cloexec_semantic())
     failures.extend(run_sockopt_semantic(STRACE_WRAPPER, PROJECT_ROOT))
     filter_event_count = check_write_only_filter(fixture, failures)
     return finish_semantic(context, failures, filter_event_count)

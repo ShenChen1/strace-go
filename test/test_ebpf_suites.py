@@ -10,6 +10,7 @@ from ebpf_event_oracles import (
     has_fcntl_fd_state_for_command,
     has_fd_state_section,
 )
+from ebpf_cloexec_suite import has_stale_cloexec_read
 from ebpf_suites import wait_for_debug_ready
 from run_tests import SuiteResults
 
@@ -74,6 +75,11 @@ class SuiteResultsTests(unittest.TestCase):
 
 
 class EventOracleTests(unittest.TestCase):
+    def test_detects_stale_cloexec_read(self):
+        events = [{"syscall": "read", "event_type": "exit", "ret": -9}]
+        self.assertTrue(has_stale_cloexec_read(events))
+        self.assertFalse(has_stale_cloexec_read([{"syscall": "read", "ret": 0}]))
+
     def test_accepts_complete_fd_state_snapshot(self):
         data = bytearray(48)
         data[0:4] = (7).to_bytes(4, "little", signed=True)
