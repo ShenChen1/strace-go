@@ -2,6 +2,7 @@ package main
 
 import (
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"strace-go/pkg/cli"
@@ -35,6 +36,27 @@ func TestNewTraceCommandDoesNotConfigurePtrace(t *testing.T) {
 	cmd := newTraceCommand(&cli.Options{CmdArgs: []string{"/bin/true"}}, nil)
 	if cmd.SysProcAttr != nil {
 		t.Fatalf("SysProcAttr = %#v, want nil so tracing stays eBPF-only", cmd.SysProcAttr)
+	}
+}
+
+func TestStartTraceCmdRejectsUnavailableBPF(t *testing.T) {
+	_, _, _, err := startTraceCmd(&cli.Options{CmdArgs: []string{"/definitely/missing/strace-go-target"}}, nil, nil)
+	if err == nil {
+		t.Fatal("startTraceCmd() returned nil error without a BPF filter map")
+	}
+}
+
+func TestSetupOutputReturnsFileError(t *testing.T) {
+	_, _, _, _, err := setupOutput(filepath.Join(t.TempDir(), "missing", "trace.log"), false)
+	if err == nil {
+		t.Fatal("setupOutput() returned nil error for an unavailable directory")
+	}
+}
+
+func TestAttachToPidsReturnsFilterError(t *testing.T) {
+	_, _, err := attachToPids([]int{1}, nil)
+	if err == nil {
+		t.Fatal("attachToPids() returned nil error without a BPF filter map")
 	}
 }
 

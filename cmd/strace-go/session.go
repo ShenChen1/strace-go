@@ -235,58 +235,88 @@ func populateFDMap(pid int, targetPid int) map[string]string {
 // IMPACT: startTraceCmd starts a tracee without ptrace; syscall observation is
 // purely eBPF based. The next-fork arm installs the pid filter before the
 // tracee's initial execve so the exec syscall is observable like upstream.
-func startTraceCmd(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles []*os.File) (*exec.Cmd, int, map[string]string) {
-	armNextFork(bpfObjs)
+func startTraceCmd(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles []*os.File) (*exec.Cmd, int, map[string]string, error) {
+	if opts == nil || len(opts.CmdArgs) == 0 {
+		return nil, 0, nil, fmt.Errorf("trace command is empty")
+	}
+	if bpfObjs == nil || bpfObjs.FilterMap == nil {
+		return nil, 0, nil, fmt.Errorf("BPF filter map is unavailable")
+	}
+	if err := armNextFork(bpfObjs); err != nil {
+		return nil, 0, nil, fmt.Errorf("arm initial fork: %w", err)
+	}
 	cmd := newTraceCommand(opts, inheritedFiles)
 	if err := cmd.Start(); err != nil {
-		disarmNextFork(bpfObjs)
-		log.Fatalf("failed to start command: %v", err)
+		_ = disarmNextFork(bpfObjs)
+		return nil, 0, nil, fmt.Errorf("start command: %w", err)
 	}
 
 	targetPid := cmd.Process.Pid
-	bpfObjs.FilterMap.Update(uint32(targetPid), uint32(1), 0)
+	if err := bpfObjs.FilterMap.Update(uint32(targetPid), uint32(1), 0); err != nil {
+		_ = disarmNextFork(bpfObjs)
+		abortTraceTarget(cmd, bpfObjs, targetPid)
+		return nil, 0, nil, fmt.Errorf("add tracee %d to filter: %w", targetPid, err)
+	}
 	if raw, err := bpfObjs.ArmForkMap.LookupBytes(uint32(0)); err == nil && len(raw) == 4 {
 		log.Printf("DEBUG arm after start = %d, tracee = %d", binary.LittleEndian.Uint32(raw), targetPid)
 	}
-	disarmNextFork(bpfObjs)
+	if err := disarmNextFork(bpfObjs); err != nil {
+		abortTraceTarget(cmd, bpfObjs, targetPid)
+		return nil, 0, nil, fmt.Errorf("disarm initial fork: %w", err)
+	}
 	fdMap := populateFDMap(targetPid, targetPid)
-	return cmd, targetPid, fdMap
+	return cmd, targetPid, fdMap, nil
 }
 
 // armNextFork asks the BPF sched_process_fork program to add the next child of
 // this process to the trace filter before that child executes.
-func armNextFork(bpfObjs *bpfObjects) {
+func armNextFork(bpfObjs *bpfObjects) error {
 	if bpfObjs == nil || bpfObjs.ArmForkMap == nil {
-		return
+		return fmt.Errorf("BPF arm fork map is unavailable")
 	}
 	pid := uint32(os.Getpid())
-	bpfObjs.ArmForkMap.Update(uint32(0), pid, 0)
+	if err := bpfObjs.ArmForkMap.Update(uint32(0), pid, 0); err != nil {
+		return fmt.Errorf("update arm fork map: %w", err)
+	}
+	return nil
 }
 
 // disarmNextFork clears a pending fork arm after Start returns or on failure.
-func disarmNextFork(bpfObjs *bpfObjects) {
+func disarmNextFork(bpfObjs *bpfObjects) error {
 	if bpfObjs == nil || bpfObjs.ArmForkMap == nil {
-		return
+		return fmt.Errorf("BPF arm fork map is unavailable")
 	}
 	var zero uint32
-	bpfObjs.ArmForkMap.Update(uint32(0), zero, 0)
+	if err := bpfObjs.ArmForkMap.Update(uint32(0), zero, 0); err != nil {
+		return fmt.Errorf("clear arm fork map: %w", err)
+	}
+	return nil
 }
 
 // IMPACT: attachToPids attaches tracing to running processes, updating the BPF filter map and reading initial FDs.
-func attachToPids(pids []int, bpfObjs *bpfObjects) (*exec.Cmd, int, map[string]string) {
+func attachToPids(pids []int, bpfObjs *bpfObjects) (int, map[string]string, error) {
 	fdMap := make(map[string]string)
 	var firstPid int
+	if bpfObjs == nil || bpfObjs.FilterMap == nil {
+		return 0, nil, fmt.Errorf("BPF filter map is unavailable")
+	}
+	attached := make([]uint32, 0, len(pids))
 
 	for i, pid := range pids {
 		// Send signal 0 to check if PID exists and we have permissions
 		if err := syscall.Kill(pid, 0); err != nil {
-			log.Fatalf("failed to attach to pid %d: %v", pid, err)
+			clearFilterPids(bpfObjs, attached)
+			return 0, nil, fmt.Errorf("check attach pid %d: %w", pid, err)
 		}
 
 		if i == 0 {
 			firstPid = pid
 		}
-		bpfObjs.FilterMap.Update(uint32(pid), uint32(1), 0)
+		if err := bpfObjs.FilterMap.Update(uint32(pid), uint32(1), 0); err != nil {
+			clearFilterPids(bpfObjs, attached)
+			return 0, nil, fmt.Errorf("add attach pid %d to filter: %w", pid, err)
+		}
+		attached = append(attached, uint32(pid))
 
 		// Populate FD map from /proc
 		if entries, err := os.ReadDir(fmt.Sprintf("/proc/%d/fd", pid)); err == nil {
@@ -300,25 +330,35 @@ func attachToPids(pids []int, bpfObjs *bpfObjects) (*exec.Cmd, int, map[string]s
 			}
 		}
 	}
-	return nil, firstPid, fdMap
+	return firstPid, fdMap, nil
+}
+
+func clearFilterPids(bpfObjs *bpfObjects, pids []uint32) {
+	if bpfObjs == nil || bpfObjs.FilterMap == nil {
+		return
+	}
+	for _, pid := range pids {
+		_ = bpfObjs.FilterMap.Delete(pid)
+	}
 }
 
 // IMPACT: setupOutput prepares the io.Writer target for saving strace text traces.
-func setupOutput(outFileOpt string, appendMode bool) (io.Writer, *os.File, *exec.Cmd, io.WriteCloser) {
+func setupOutput(outFileOpt string, appendMode bool) (io.Writer, *os.File, *exec.Cmd, io.WriteCloser, error) {
 	if outFileOpt == "" {
-		return os.Stderr, nil, nil, nil
+		return os.Stderr, nil, nil, nil, nil
 	}
 	if strings.HasPrefix(outFileOpt, "|") || strings.HasPrefix(outFileOpt, "!") {
 		cmdStr := outFileOpt[1:]
 		cmd := exec.Command("sh", "-c", cmdStr)
 		stdin, err := cmd.StdinPipe()
 		if err != nil {
-			log.Fatalf("failed to create pipe for output: %v", err)
+			return nil, nil, nil, nil, fmt.Errorf("create output pipe: %w", err)
 		}
 		if err := cmd.Start(); err != nil {
-			log.Fatalf("failed to start output command: %v", err)
+			_ = stdin.Close()
+			return nil, nil, nil, nil, fmt.Errorf("start output command: %w", err)
 		}
-		return stdin, nil, cmd, stdin
+		return stdin, nil, cmd, stdin, nil
 	}
 
 	flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
@@ -327,7 +367,7 @@ func setupOutput(outFileOpt string, appendMode bool) (io.Writer, *os.File, *exec
 	}
 	outFile, err := os.OpenFile(outFileOpt, flags, 0666)
 	if err != nil {
-		log.Fatalf("failed to create output file: %v", err)
+		return nil, nil, nil, nil, fmt.Errorf("create output file: %w", err)
 	}
-	return outFile, outFile, nil, nil
+	return outFile, outFile, nil, nil, nil
 }

@@ -62,16 +62,25 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to build runtime config: %v", err)
 	}
-	bpfObjs.ConfigMap.Update(uint32(0), cfgVal, 0)
+	if err := bpfObjs.ConfigMap.Update(uint32(0), cfgVal, 0); err != nil {
+		log.Fatalf("failed to update BPF runtime config: %v", err)
+	}
 
-	cmd, targetPid, fdMap := resolveTraceTargets(opts, bpfObjs, inheritedFiles)
+	cmd, targetPid, fdMap, err := resolveTraceTargets(opts, bpfObjs, inheritedFiles)
+	if err != nil {
+		log.Fatalf("failed to resolve trace targets: %v", err)
+	}
 
 	decoder := event.NewDecoder()
 	decoder.HexEscapeMode = opts.HexEscapeMode
 	// IMPACT: Initialize decoder.StringLimit from parsed CLI options to respect command-line formatting constraints.
 	decoder.StringLimit = opts.StringLimit
 
-	outWriter, outFile, outCmd, outPipe := setupOutput(opts.OutFile, opts.OutAppendMode)
+	outWriter, outFile, outCmd, outPipe, err := setupOutput(opts.OutFile, opts.OutAppendMode)
+	if err != nil {
+		abortTraceTarget(cmd, bpfObjs, targetPid)
+		log.Fatalf("failed to set up output: %v", err)
+	}
 	if outFile != nil {
 		defer outFile.Close()
 	}
@@ -154,16 +163,27 @@ func buildRuntimeConfig(opts *cli.Options, bpfObjs *bpfObjects) (uint32, error) 
 
 // resolveTraceTargets starts the traced command and/or attaches to pids, merging
 // fd maps when both targets are requested.
-func resolveTraceTargets(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles []*os.File) (*exec.Cmd, int, map[string]string) {
+func resolveTraceTargets(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles []*os.File) (*exec.Cmd, int, map[string]string, error) {
+	if opts == nil {
+		return nil, 0, nil, fmt.Errorf("trace options are nil")
+	}
 	var cmd *exec.Cmd
 	var targetPid int
 	var fdMap map[string]string
 
 	if len(opts.CmdArgs) > 0 {
-		cmd, targetPid, fdMap = startTraceCmd(opts, bpfObjs, inheritedFiles)
+		var err error
+		cmd, targetPid, fdMap, err = startTraceCmd(opts, bpfObjs, inheritedFiles)
+		if err != nil {
+			return nil, 0, nil, err
+		}
 	}
 	if len(opts.AttachPids) > 0 {
-		_, firstPid, attachFdMap := attachToPids(opts.AttachPids, bpfObjs)
+		firstPid, attachFdMap, err := attachToPids(opts.AttachPids, bpfObjs)
+		if err != nil {
+			abortTraceTarget(cmd, bpfObjs, targetPid)
+			return nil, 0, nil, err
+		}
 		if targetPid == 0 {
 			targetPid = firstPid
 			fdMap = attachFdMap
@@ -177,7 +197,22 @@ func resolveTraceTargets(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles 
 			opts.FollowForks = true // Tracing multiple attached pids
 		}
 	}
-	return cmd, targetPid, fdMap
+	return cmd, targetPid, fdMap, nil
+}
+
+func terminateTraceCommand(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+}
+
+func abortTraceTarget(cmd *exec.Cmd, bpfObjs *bpfObjects, targetPid int) {
+	if targetPid > 0 {
+		clearFilterPids(bpfObjs, []uint32{uint32(targetPid)})
+	}
+	terminateTraceCommand(cmd)
 }
 
 // expandTracePathSet mirrors upstream strace's pathtrace_select_set: each -P
