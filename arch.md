@@ -2784,3 +2784,35 @@ ABI 与状态契约：
 本阶段只优化 Go 侧 payload ownership，不改变纯 eBPF 事实源、事件 ABI 或 `/proc`/ptrace 边界。
 
 实际验收结果：decoder 已返回当前 ringbuf record 的借用 TLV section；`TraceState` 仅在 enter/pending-exit/fragment 进入长期 map 时复制 payload，paired exit 直接转移已删除 map entry 的 owned pending。新增输入借用隔离、pending transfer 地址保持和 ownership source gate。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 getpid 事件、5,000/5,000 enter/exit、0 丢失，723.31 events/s；`small` 为 23 PASS；完整 `more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。测试结束时无残留 tracer/BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
+
+### 14.55 BPF 生命周期过滤状态回收（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.53 已限制 Go `TraceState.tasks` 的生命周期；BPF 侧仍以 `filter_map` 保存每个被跟踪 task，以 `pending_exec_map`/`main_exited_map` 保存进程级 exec 状态，并以单槽 `arm_fork_map` 武装初始 fork。
+- Problem：`clear_lifecycle_task_state()` 的非 leader 分支会删除 `filter_map[tid]`，但 leader 分支没有删除 `filter_map[pid]`；长时间 attach 的 leader exit/free 会让过滤 map 保留历史 PID。若 armed parent 在初始 exec 前退出，`arm_fork_map` 也会保留旧 TGID，后续 PID 重用时可能误把无关 fork 纳入 trace。
+- Goal：在 task 生命周期退出和 free 的统一清理点删除对应 leader filter entry；当退出 task 正是当前 armed parent 时撤销 `arm_fork_map`，同时保持非 leader thread 的 process-scoped exec 状态和 child filter 语义不变。
+- Non-goals：不改变 filter 选择、follow-forks、exec 初始捕获、lifecycle event ABI、pending syscall 匹配、Go FD/task state、BPF map 类型或输出顺序；不使用 LRU/定时器/procfs/ptrace/`process_vm_readv`。
+- Constraints：cleanup 必须按 TID/TGID owner 分支执行；leader 退出才清理 process-scoped state 和 armed parent，非 leader 只清理自身 filter 与指向自身的 pending exec；exit/free 重复调用必须幂等；所有变更仍在单个 BPF lifecycle tracepoint helper 中完成。
+
+方案比较：
+
+1. 依赖 session 结束时销毁 BPF object：实现零改动，但长期 attach 内 map 会随历史 task 累积，且无法覆盖 PID 重用窗口，拒绝。
+2. 把 `filter_map` 改成 LRU hash：能限制上限，但会静默淘汰仍存活 task 的 filter，产生漏追踪和错误 lifecycle，拒绝。
+3. 在现有 lifecycle cleanup 中按 owner 显式删除 leader filter，并在 armed parent 退出时清零 arm slot：无新增 ABI，语义确定且可证明幂等，选择该方案。
+
+状态契约：
+
+- `tid != pid`：删除 `pending_syscalls[tid]`、`pre_exec_map[tid]`、`filter_map[tid]`，仅当 `pending_exec_map[pid] == tid` 时删除该 exec 关系。
+- `tid == pid`：在上述基础上删除 `filter_map[pid]`、`pending_exec_map[pid]`、`main_exited_map[pid]`，并仅当 `arm_fork_map[0] == pid` 时将 arm slot 写回零。
+- `sched_process_exit` 和 `sched_process_free` 复用同一 helper；重复清理只执行 map delete/zero update，不重新创建状态。
+- child filter 仍由 child 自己的 exit/free 清理；清理 parent 的 arm slot 不删除已经建立的 child filter，避免初始 exec 竞争窗口丢失已观测 child。
+
+测试与验收：
+
+- 扩展 lifecycle source gate，锁定 leader/non-leader 两条清理分支、leader `filter_map` 删除和 armed parent 条件清零；保留现有 TID-scoped pending 断言。
+- 验证 BPF translation unit/verifier、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、`ebpf-semantic`、`ebpf-perf`、small、more 和 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只回收 BPF lifecycle filter/arm state，不改变纯 eBPF 事件事实源或用户态输出契约。
+
+实际验收结果：`bpf/pending_state.h` 新增 leader filter、process-scoped exec/main-exit 和 armed-parent 的显式回收；`sched_process_exit`/`sched_process_free` 继续共用 TID/TGID owner-aware helper。BPF 对象已重新生成并嵌入最终二进制，生成的 Go wrapper 与已跟踪 wrapper 字节一致。源码 gate、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；新对象下 `ebpf-semantic` 为 201 个事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，691.79 events/s；`small` 为 23 PASS；完整 `more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer/BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。

@@ -102,6 +102,32 @@ func TestBPFLifecycleCleanupIsTIDScoped(t *testing.T) {
 	if strings.Contains(cleanupBody, "bpf_map_delete_elem(&pending_syscalls, &pid);") {
 		t.Fatal("lifecycle cleanup helper must not delete pending state by TGID")
 	}
+	processCleanupBody, ok := bpfFunctionBody(source, "clear_process_lifecycle_state")
+	if !ok {
+		t.Fatal("pending_state.h missing process lifecycle cleanup helper")
+	}
+	for _, snippet := range []string{
+		"bpf_map_delete_elem(&filter_map, &pid);",
+		"bpf_map_delete_elem(&pending_exec_map, &pid);",
+		"bpf_map_delete_elem(&main_exited_map, &pid);",
+		"clear_armed_fork_parent(pid);",
+	} {
+		if !strings.Contains(processCleanupBody, snippet) {
+			t.Fatalf("process lifecycle cleanup missing %q", snippet)
+		}
+	}
+	armCleanupBody, ok := bpfFunctionBody(source, "clear_armed_fork_parent")
+	if !ok {
+		t.Fatal("pending_state.h missing armed parent cleanup helper")
+	}
+	for _, snippet := range []string{
+		"*armed_parent != pid",
+		"bpf_map_update_elem(&arm_fork_map, &arm_key, &zero, BPF_ANY);",
+	} {
+		if !strings.Contains(armCleanupBody, snippet) {
+			t.Fatalf("armed parent cleanup missing %q", snippet)
+		}
+	}
 
 	freeBody, ok := bpfFunctionBody(source, "trace_sched_process_free")
 	if !ok {

@@ -70,6 +70,26 @@ static __always_inline void consume_pending_syscall(
     }
 }
 
+static __always_inline void clear_armed_fork_parent(u32 pid)
+{
+    u32 arm_key = 0;
+    u32 *armed_parent = bpf_map_lookup_elem(&arm_fork_map, &arm_key);
+    if (!armed_parent || *armed_parent != pid) {
+        return;
+    }
+
+    u32 zero = 0;
+    bpf_map_update_elem(&arm_fork_map, &arm_key, &zero, BPF_ANY);
+}
+
+static __always_inline void clear_process_lifecycle_state(u32 pid)
+{
+    bpf_map_delete_elem(&filter_map, &pid);
+    bpf_map_delete_elem(&pending_exec_map, &pid);
+    bpf_map_delete_elem(&main_exited_map, &pid);
+    clear_armed_fork_parent(pid);
+}
+
 // Lifecycle cleanup is split by ownership: pending state is TID-scoped, while
 // exec/main/filter state is process-scoped unless a child thread owns it.
 static __always_inline void clear_lifecycle_task_state(u32 pid, u32 tid)
@@ -86,8 +106,7 @@ static __always_inline void clear_lifecycle_task_state(u32 pid, u32 tid)
         return;
     }
 
-    bpf_map_delete_elem(&pending_exec_map, &pid);
-    bpf_map_delete_elem(&main_exited_map, &pid);
+    clear_process_lifecycle_state(pid);
 }
 
 #endif
