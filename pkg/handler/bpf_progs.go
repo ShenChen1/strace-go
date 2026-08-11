@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 	"strings"
 )
 
@@ -22,7 +21,7 @@ func decodeBpfProgLoad(ctx *Context, data []byte, size uint32) string {
 	parts := []string{}
 	if len(data) >= 4 {
 		t := binary.LittleEndian.Uint32(data[0:4])
-		parts = append(parts, "prog_type="+meta.DecodeFlags(uint64(t), "bpf_prog_types"))
+		parts = append(parts, "prog_type="+decodeFlags(ctx, uint64(t), "bpf_prog_types"))
 		decodedSize = 4
 	}
 	insnCnt := u32OrZero(data, 4)
@@ -70,7 +69,7 @@ func decodeBpfProgLoadParts1(ctx *Context, parts []string, data []byte, size uin
 		decodedSize = 44
 	}
 	if size >= 48 {
-		parts = append(parts, "prog_flags="+meta.DecodeFlags(uint64(u32OrZero(data, 44)), "bpf_prog_flags"))
+		parts = append(parts, "prog_flags="+decodeFlags(ctx, uint64(u32OrZero(data, 44)), "bpf_prog_flags"))
 		decodedSize = 48
 	}
 	if size >= 64 {
@@ -82,7 +81,7 @@ func decodeBpfProgLoadParts1(ctx *Context, parts []string, data []byte, size uin
 		decodedSize = 68
 	}
 	if size >= 72 {
-		parts = append(parts, "expected_attach_type="+meta.DecodeFlags(uint64(u32OrZero(data, 68)), "bpf_attach_type"))
+		parts = append(parts, "expected_attach_type="+decodeFlags(ctx, uint64(u32OrZero(data, 68)), "bpf_attach_type"))
 		decodedSize = 72
 	}
 	return decodedSize, parts
@@ -90,11 +89,8 @@ func decodeBpfProgLoadParts1(ctx *Context, parts []string, data []byte, size uin
 
 func formatBpfKernelVersion(ctx *Context, kv uint32) string {
 	decoded := fmt.Sprintf("KERNEL_VERSION(%d, %d, %d)", kv>>16, (kv>>8)&0xff, kv&0xff)
-	if ctx == nil || ctx.Opts == nil {
-		return decoded
-	}
 	raw := fmt.Sprintf("%#x", kv)
-	switch ctx.Opts.XlatFormat {
+	switch xlatFormat(ctx) {
 	case "raw":
 		return raw
 	case "verbose":

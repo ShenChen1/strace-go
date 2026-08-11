@@ -82,7 +82,7 @@ func TestWriteSyscallArgXlatMapIsStable(t *testing.T) {
 		},
 	})
 
-	want := "var SyscallArgXlatMap = map[string]map[string]string{\n" +
+	want := "var generatedSyscallArgXlatMap = map[string]map[string]string{\n" +
 		"\t\"access\": {\n" +
 		"\t\t\"mode\": \"access_modes\",\n" +
 		"\t},\n" +

@@ -26,6 +26,7 @@ type Context struct {
 	PayloadSections []PayloadSection
 
 	ScMeta        meta.Syscall
+	Meta          *meta.Catalog
 	Registry      *Registry
 	Decoder       *event.Decoder
 	Opts          *cli.Options

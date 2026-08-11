@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-
-	"strace-go/pkg/meta"
 )
 
 const (
@@ -93,8 +91,8 @@ func formatQuotaCommand(ctx *Context, qcmd uint32) string {
 	quotaType := qcmd & quotaTypeMask
 	decoded := fmt.Sprintf(
 		"QCMD(%s, %s)",
-		formatQuotaDecodedValue(command, "quotacmds", "Q_???"),
-		formatQuotaDecodedValue(quotaType, "quotatypes", "???QUOTA"),
+		formatQuotaDecodedValue(ctx, command, "quotacmds", "Q_???"),
+		formatQuotaDecodedValue(ctx, quotaType, "quotatypes", "???QUOTA"),
 	)
 	switch quotaXlatMode(ctx) {
 	case "raw":
@@ -106,15 +104,15 @@ func formatQuotaCommand(ctx *Context, qcmd uint32) string {
 	}
 }
 
-func formatQuotaDecodedValue(value uint32, tableName string, unknown string) string {
-	if name, ok := quotaXlatName(tableName, uint64(value)); ok {
+func formatQuotaDecodedValue(ctx *Context, value uint32, tableName string, unknown string) string {
+	if name, ok := quotaXlatName(ctx, tableName, uint64(value)); ok {
 		return name
 	}
 	return fmt.Sprintf("%s /* %s */", quotaRawValue(value), unknown)
 }
 
 func formatQuotaXlat(ctx *Context, value uint32, tableName string, unknown string) string {
-	name, ok := quotaXlatName(tableName, uint64(value))
+	name, ok := quotaXlatName(ctx, tableName, uint64(value))
 	mode := quotaXlatMode(ctx)
 	if mode == "raw" {
 		return quotaRawValue(value)
@@ -128,8 +126,8 @@ func formatQuotaXlat(ctx *Context, value uint32, tableName string, unknown strin
 	return name
 }
 
-func quotaXlatName(tableName string, value uint64) (string, bool) {
-	table, ok := meta.XlatTables[tableName]
+func quotaXlatName(ctx *Context, tableName string, value uint64) (string, bool) {
+	table, ok := xlatTable(ctx, tableName)
 	if !ok {
 		return "", false
 	}
@@ -142,10 +140,7 @@ func quotaXlatName(tableName string, value uint64) (string, bool) {
 }
 
 func quotaXlatMode(ctx *Context) string {
-	if ctx != nil && ctx.Opts != nil && ctx.Opts.XlatFormat != "" {
-		return ctx.Opts.XlatFormat
-	}
-	return "abbrev"
+	return xlatFormat(ctx)
 }
 
 func quotaRawValue(value uint32) string {
@@ -252,20 +247,21 @@ func formatQuotaFlags(ctx *Context, value uint32, tableName string, unknown stri
 	if quotaXlatMode(ctx) == "raw" {
 		return raw
 	}
-	decoded := quotaFlagNames(value, tableName, unknown)
+	decoded := quotaFlagNames(ctx, value, tableName, unknown)
 	if quotaXlatMode(ctx) == "verbose" {
 		return fmt.Sprintf("%s /* %s */", raw, decoded)
 	}
 	return decoded
 }
 
-func quotaFlagNames(value uint32, tableName string, unknown string) string {
+func quotaFlagNames(ctx *Context, value uint32, tableName string, unknown string) string {
 	if value == 0 {
 		return "0"
 	}
 	remaining := uint64(value)
 	parts := make([]string, 0, 4)
-	for _, entry := range meta.XlatTables[tableName].Entries {
+	table, _ := xlatTable(ctx, tableName)
+	for _, entry := range table.Entries {
 		if entry.Val != 0 && remaining&entry.Val == entry.Val {
 			parts = append(parts, entry.Str)
 			remaining &^= entry.Val

@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-
-	"strace-go/pkg/meta"
 )
 
 func registerBuiltinProcessMadvise(r *Registry) {
@@ -21,7 +19,7 @@ func (h *ProcessMadviseHandler) Handle(ctx *Context) Result {
 		h.formatFdArg(ctx, "pidfd", ctx.Args[0]),
 		formatProcessMadviseIovec(ctx, ctx.Args[1], ctx.Args[2]),
 		h.decodeScalar(ctx, "size_t", "vlen", ctx.Args[2]),
-		meta.DecodeFlags(uint64(uint32(ctx.Args[3])), "madvise_cmds"),
+		decodeFlags(ctx, uint64(uint32(ctx.Args[3])), "madvise_cmds"),
 		formatProcessMadviseFlags(ctx.Args[4]),
 	}}
 }

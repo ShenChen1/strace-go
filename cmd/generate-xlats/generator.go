@@ -20,7 +20,7 @@ func writeXlatAutoFile(out io.Writer, argXlat ArgXlatMap, xlatDir string) {
 	fmt.Fprintln(out, "package meta")
 	fmt.Fprintln(out, "type XlatVal struct { Val uint64; Str string }")
 	fmt.Fprintln(out, "type XlatTable struct { Prefix string; Entries []XlatVal }")
-	fmt.Fprintln(out, "var XlatTables = map[string]XlatTable{")
+	fmt.Fprintln(out, "var generatedXlatTables = map[string]XlatTable{")
 	emitted := writeUpstreamXlatTables(out, xlatDir, allowedXlatNames(argXlat))
 	writeGeneratedStaticXlatTables(out, emitted, ioctlIncludePath)
 	fmt.Fprintln(out, "}")

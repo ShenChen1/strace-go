@@ -44,7 +44,7 @@ func decodeFlock(ctx *Context, i int, argTyp string, val uint64) (string, bool) 
 		return fmt.Sprintf("%#x", val), true
 	}
 
-	cmdStr := (&FcntlHandler{}).decodeCmd(uint64(uint32(ctx.Args[1])))
+	cmdStr := (&FcntlHandler{}).decodeCmd(ctx, uint64(uint32(ctx.Args[1])))
 	isGet := strings.Contains(cmdStr, "GETLK")
 	data, ok := miscFcntlSnapshot(ctx, i, isGet, fcntlFlockSize)
 	if !ok {
@@ -57,7 +57,7 @@ func decodeFOwnerEx(ctx *Context, i int, argTyp string, val uint64) (string, boo
 	if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
 		return fmt.Sprintf("%#x", val), true
 	}
-	cmdStr := (&FcntlHandler{}).decodeCmd(uint64(uint32(ctx.Args[1])))
+	cmdStr := (&FcntlHandler{}).decodeCmd(ctx, uint64(uint32(ctx.Args[1])))
 	data, ok := miscFcntlSnapshot(ctx, i, cmdStr == "F_GETOWN_EX", fcntlStructSize)
 	if !ok {
 		return fmt.Sprintf("%#x", val), true
@@ -115,11 +115,7 @@ func formatRlimitData(ctx *Context, data []byte) string {
 	cur := binary.LittleEndian.Uint64(data[0:8])
 	max := binary.LittleEndian.Uint64(data[8:16])
 
-	xlatFormat := ""
-	if ctx.Opts != nil {
-		xlatFormat = ctx.Opts.XlatFormat
-	}
-	return fmt.Sprintf("{rlim_cur=%s, rlim_max=%s}", formatRlimitVal(cur, xlatFormat), formatRlimitVal(max, xlatFormat))
+	return fmt.Sprintf("{rlim_cur=%s, rlim_max=%s}", formatRlimitVal(cur, xlatFormat(ctx)), formatRlimitVal(max, xlatFormat(ctx)))
 }
 
 func decodeUtsname(ctx *Context, i int, argTyp string, val uint64) (string, bool) {

@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 func registerBuiltinEpoll(r *Registry) {
@@ -28,7 +27,7 @@ func (h *EpollHandler) Handle(ctx *Context) Result {
 	case "epoll_ctl":
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int32(ctx.Args[0])))
 		op := uint32(ctx.Args[1])
-		res.ArgParts = append(res.ArgParts, meta.DecodeFlags(uint64(op), "epollctls"))
+		res.ArgParts = append(res.ArgParts, decodeFlags(ctx, uint64(op), "epollctls"))
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int32(ctx.Args[2])))
 
 		// IMPACT: Only decode struct epoll_event for ADD (1) and MOD (3) operations.
@@ -44,7 +43,7 @@ func (h *EpollHandler) Handle(ctx *Context) Result {
 				res.ArgParts = append(res.ArgParts, "NULL")
 			} else {
 				if data, ok := epollCtlEventSnapshot(ctx); ok {
-					res.ArgParts = append(res.ArgParts, format.EpollEvent(data))
+					res.ArgParts = append(res.ArgParts, format.EpollEventWithCatalog(catalogForContext(ctx), data))
 				} else {
 					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ctx.Args[3]))
 				}
@@ -66,7 +65,7 @@ func (h *EpollHandler) Handle(ctx *Context) Result {
 				capLen = epollEventSnapshotLimit
 			}
 			if data, ok := epollWaitEventsSnapshot(ctx, capLen); ok {
-				res.ArgParts = append(res.ArgParts, format.EpollEvents(data, count))
+				res.ArgParts = append(res.ArgParts, format.EpollEventsWithCatalog(catalogForContext(ctx), data, count))
 			} else {
 				res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ptr))
 			}

@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-	"strace-go/pkg/meta"
 )
 
 // decodeBpfMapCreate decodes BPF_MAP_CREATE command arguments.
@@ -14,7 +13,7 @@ func decodeBpfMapCreate(ctx *Context, data []byte, size uint32) string {
 	parts := []string{}
 	if len(data) >= 4 {
 		t := binary.LittleEndian.Uint32(data[0:4])
-		parts = append(parts, "map_type="+meta.DecodeFlags(uint64(t), "bpf_map_types"))
+		parts = append(parts, "map_type="+decodeFlags(ctx, uint64(t), "bpf_map_types"))
 		decodedSize = 4
 	}
 	parts = append(parts, fmt.Sprintf("key_size=%d", u32OrZero(data, 4)))
@@ -24,7 +23,7 @@ func decodeBpfMapCreate(ctx *Context, data []byte, size uint32) string {
 		decodedSize = 16
 	}
 	if size >= 20 {
-		parts = append(parts, "map_flags="+meta.DecodeFlags(uint64(u32OrZero(data, 16)), "bpf_map_flags"))
+		parts = append(parts, "map_flags="+decodeFlags(ctx, uint64(u32OrZero(data, 16)), "bpf_map_flags"))
 		decodedSize = 20
 	}
 	if size >= 24 {
@@ -35,7 +34,7 @@ func decodeBpfMapCreate(ctx *Context, data []byte, size uint32) string {
 		parts = decodeBpfMapCreateNode(parts, data)
 		decodedSize = 28
 	}
-	
+
 	decodedSize, parts = decodeBpfMapCreateName(parts, data, size, decodedSize)
 	decodedSize, parts = decodeBpfMapCreateBtf(parts, data, size, decodedSize)
 
@@ -62,8 +61,12 @@ func decodeBpfMapCreateNode(parts []string, data []byte) []string {
 func decodeBpfMapCreateName(parts []string, data []byte, size uint32, decodedSize int) (int, []string) {
 	if size > 28 {
 		nameLen := int(size) - 28
-		if nameLen > 16 { nameLen = 16 }
-		if len(data) < 28+nameLen { nameLen = len(data) - 28 }
+		if nameLen > 16 {
+			nameLen = 16
+		}
+		if len(data) < 28+nameLen {
+			nameLen = len(data) - 28
+		}
 		if nameLen > 0 {
 			name := string(data[28 : 28+nameLen])
 			if idx := strings.IndexByte(name, 0); idx != -1 {
@@ -71,8 +74,12 @@ func decodeBpfMapCreateName(parts []string, data []byte, size uint32, decodedSiz
 				parts = append(parts, fmt.Sprintf("map_name=%q", name))
 			} else {
 				limit := nameLen - 1
-				if limit > 15 { limit = 15 }
-				if limit < 0 { limit = 0 }
+				if limit > 15 {
+					limit = 15
+				}
+				if limit < 0 {
+					limit = 0
+				}
 				parts = append(parts, fmt.Sprintf("map_name=%q...", name[:limit]))
 			}
 		}
@@ -145,7 +152,7 @@ func decodeBpfMapLookup(ctx *Context, data []byte, size uint32) string {
 	decodedSize = 24
 
 	if size >= 32 {
-		parts = append(parts, "flags="+meta.DecodeFlags(u64OrZero(data, 24), "bpf_map_lookup_flags"))
+		parts = append(parts, "flags="+decodeFlags(ctx, u64OrZero(data, 24), "bpf_map_lookup_flags"))
 		decodedSize = 32
 	}
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
@@ -168,7 +175,7 @@ func decodeBpfMapUpdate(ctx *Context, data []byte, size uint32) string {
 	decodedSize = 24
 
 	flagsVal := u64OrZero(data, 24)
-	parts = append(parts, "flags="+meta.DecodeFlags(flagsVal, "bpf_map_update_flags"))
+	parts = append(parts, "flags="+decodeFlags(ctx, flagsVal, "bpf_map_update_flags"))
 	decodedSize = 32
 
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
@@ -242,7 +249,7 @@ func decodeBpfMapBatch(ctx *Context, data []byte, size uint32) string {
 	if cmd == 26 {
 		xlatName = "bpf_map_update_flags"
 	}
-	parts = append(parts, "elem_flags="+meta.DecodeFlags(elemFlags, xlatName))
+	parts = append(parts, "elem_flags="+decodeFlags(ctx, elemFlags, xlatName))
 
 	flagsVal := u64OrZero(data, 48)
 	if flagsVal == 0 {
@@ -255,4 +262,3 @@ func decodeBpfMapBatch(ctx *Context, data []byte, size uint32) string {
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
 	return "{batch={" + strings.Join(parts, ", ") + "}" + extra + "}"
 }
-

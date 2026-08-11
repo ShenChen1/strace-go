@@ -158,7 +158,7 @@ func updatePipeFDMapFromPayload(src fdStateSource, scMeta meta.Syscall, targetPi
 	rememberFDTarget(targetPid, fd2, "pipe:[unknown]", fdMap)
 }
 
-func updateSocketpairFDMap(src fdStateSource, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+func updateSocketpairFDMap(src fdStateSource, scMeta meta.Syscall, targetPid int, fdMap map[string]string, catalog *meta.Catalog) {
 	if !src.view.valid || scMeta.Name != "socketpair" || src.view.ret != 0 {
 		return
 	}
@@ -168,7 +168,7 @@ func updateSocketpairFDMap(src fdStateSource, scMeta meta.Syscall, targetPid int
 	}
 	fd1 := int32(binary.LittleEndian.Uint32(data[0:4]))
 	fd2 := int32(binary.LittleEndian.Uint32(data[4:8]))
-	info := socketFDInfoFromView(src.view)
+	info := socketFDInfoFromCatalog(catalog, src.view)
 	rememberFDTarget(targetPid, fd1, "socket:[unknown]|"+info, fdMap)
 	rememberFDTarget(targetPid, fd2, "socket:[unknown]|"+info, fdMap)
 }
@@ -186,20 +186,27 @@ func fdArrayPayloadData(sections []handler.PayloadSection, argIndex int) ([]byte
 	return nil, false
 }
 
-func updateSocketFDMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
+func updateSocketFDMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string, catalog *meta.Catalog) {
 	if !view.valid || scMeta.Name != "socket" || view.ret < 0 {
 		return
 	}
 	fd := int32(view.ret)
-	info := socketFDInfoFromView(view)
+	info := socketFDInfoFromCatalog(catalog, view)
 	key := fmt.Sprintf("%d:%d", targetPid, fd)
 	fdMap[key] = "socket:[unknown]|" + info
 }
 
 func socketFDInfoFromView(view syscallEventView) string {
-	info := meta.DecodeFlags(view.args[0], "addrfams")
+	return socketFDInfoFromCatalog(meta.NewCatalog("abbrev"), view)
+}
+
+func socketFDInfoFromCatalog(catalog *meta.Catalog, view syscallEventView) string {
+	if catalog == nil {
+		catalog = meta.NewCatalog("abbrev")
+	}
+	info := catalog.DecodeFlags(view.args[0], "addrfams")
 	if view.args[0] == 16 {
-		info += ":" + meta.DecodeFlags(view.args[2], "netlink_protocols")
+		info += ":" + catalog.DecodeFlags(view.args[2], "netlink_protocols")
 	}
 	return info
 }

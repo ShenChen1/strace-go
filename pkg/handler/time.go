@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 func registerBuiltinTime(r *Registry) {
@@ -28,7 +27,7 @@ func (h *TimeHandler) Handle(ctx *Context) Result {
 	switch ctx.SysName {
 	case "clock_gettime", "clock_settime", "clock_getres":
 		clockId := int32(ctx.Args[0])
-		res.ArgParts = append(res.ArgParts, meta.DecodeFlags(uint64(clockId), "clocknames"))
+		res.ArgParts = append(res.ArgParts, decodeFlags(ctx, uint64(clockId), "clocknames"))
 
 		ptr := ctx.Args[1]
 		if ptr == 0 {
@@ -52,7 +51,7 @@ func (h *TimeHandler) Handle(ctx *Context) Result {
 		ptr := ctx.Args[0]
 		if ctx.SysName == "clock_adjtime" {
 			clockId := int32(ctx.Args[0])
-			res.ArgParts = append(res.ArgParts, meta.DecodeFlags(uint64(clockId), "clocknames"))
+			res.ArgParts = append(res.ArgParts, decodeFlags(ctx, uint64(clockId), "clocknames"))
 			ptr = ctx.Args[1]
 		}
 
@@ -63,7 +62,7 @@ func (h *TimeHandler) Handle(ctx *Context) Result {
 
 		data, ok := timeHandlerStructSnapshot(ctx, timeHandlerTimexArg(ctx), PayloadDirectionOut, timexSize)
 		if ok {
-			res.ArgParts = append(res.ArgParts, format.Timex(data))
+			res.ArgParts = append(res.ArgParts, format.TimexWithCatalog(catalogForContext(ctx), data))
 		} else {
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ptr))
 		}

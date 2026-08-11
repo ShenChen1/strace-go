@@ -37,13 +37,11 @@ func (h *DefaultHandler) formatFdArg(ctx *Context, argName string, val uint64) s
 }
 
 func formatAtFdcwd(ctx *Context) string {
-	if ctx.Opts != nil {
-		switch ctx.Opts.XlatFormat {
-		case "raw":
-			return fmt.Sprintf("%d", AtFdcwd)
-		case "verbose":
-			return fmt.Sprintf("%d /* AT_FDCWD */", AtFdcwd)
-		}
+	switch xlatFormat(ctx) {
+	case "raw":
+		return fmt.Sprintf("%d", AtFdcwd)
+	case "verbose":
+		return fmt.Sprintf("%d /* AT_FDCWD */", AtFdcwd)
 	}
 	return "AT_FDCWD"
 }

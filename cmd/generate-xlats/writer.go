@@ -250,7 +250,7 @@ func writeIoctlXlatTable(out io.Writer, ioctlIncPath string) {
 }
 
 func writeSyscallArgXlatMap(out io.Writer, syscalls map[string]map[string]string) {
-	fmt.Fprintln(out, "var SyscallArgXlatMap = map[string]map[string]string{")
+	fmt.Fprintln(out, "var generatedSyscallArgXlatMap = map[string]map[string]string{")
 	for _, sc := range sortedKeys(syscalls) {
 		if strings.HasSuffix(sc, "_table") {
 			continue

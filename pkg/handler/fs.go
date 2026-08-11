@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 func registerBuiltinFs(r *Registry) {
@@ -15,46 +14,6 @@ func registerBuiltinFs(r *Registry) {
 	r.Register("mount", h)
 	r.Register("umount2", h)
 	r.Register("fsconfig", h)
-
-	// 动态注册字典
-	meta.XlatTables["fsconfig_cmds"] = meta.XlatTable{
-		Prefix: "FSCONFIG_",
-		Entries: []meta.XlatVal{
-			{Val: 0, Str: "FSCONFIG_SET_FLAG"},
-			{Val: 1, Str: "FSCONFIG_SET_STRING"},
-			{Val: 2, Str: "FSCONFIG_SET_BINARY"},
-			{Val: 3, Str: "FSCONFIG_SET_PATH"},
-			{Val: 4, Str: "FSCONFIG_SET_PATH_EMPTY"},
-			{Val: 5, Str: "FSCONFIG_SET_FD"},
-			{Val: 6, Str: "FSCONFIG_CMD_CREATE"},
-			{Val: 7, Str: "FSCONFIG_CMD_RECONFIGURE"},
-			{Val: 8, Str: "FSCONFIG_CMD_CREATE_EXCL"},
-		},
-	}
-	meta.XlatTables["fsopen_flags"] = meta.XlatTable{
-		Prefix: "FSOPEN_",
-		Entries: []meta.XlatVal{
-			{Val: 1, Str: "FSOPEN_CLOEXEC"},
-		},
-	}
-	// IMPACT: Corrected FSPICK_NO_AUTOMOUNT (4) and FSPICK_EMPTY_PATH (8) values.
-	meta.XlatTables["fspick_flags"] = meta.XlatTable{
-		Prefix: "FSPICK_",
-		Entries: []meta.XlatVal{
-			{Val: 1, Str: "FSPICK_CLOEXEC"},
-			{Val: 2, Str: "FSPICK_SYMLINK_NOFOLLOW"},
-			{Val: 4, Str: "FSPICK_NO_AUTOMOUNT"},
-			{Val: 8, Str: "FSPICK_EMPTY_PATH"},
-		},
-	}
-
-	// 动态注册参数映射关系
-	if meta.SyscallArgXlatMap == nil {
-		meta.SyscallArgXlatMap = make(map[string]map[string]string)
-	}
-	meta.SyscallArgXlatMap["fsopen"] = map[string]string{"flags": "fsopen_flags"}
-	meta.SyscallArgXlatMap["fspick"] = map[string]string{"flags": "fspick_flags"}
-	meta.SyscallArgXlatMap["fsconfig"] = map[string]string{"cmd": "fsconfig_cmds"}
 }
 
 type FsHandler struct {
@@ -75,7 +34,7 @@ func (h *FsHandler) Handle(ctx *Context) Result {
 		res.ArgParts = h.decodeMount(ctx)
 	case "umount2":
 		res.ArgParts = append(res.ArgParts, fsStringArg(ctx, 0, 0))
-		res.ArgParts = append(res.ArgParts, meta.DecodeFlags(ctx.Args[1], "umount_flags"))
+		res.ArgParts = append(res.ArgParts, decodeFlags(ctx, ctx.Args[1], "umount_flags"))
 
 	case "getdents", "getdents64":
 		res.ArgParts = decodeGetdentsArgs(ctx)
@@ -89,7 +48,7 @@ func (h *FsHandler) decodeMount(ctx *Context) []string {
 		fsStringArg(ctx, 0, 0),
 		fsStringArg(ctx, 1, 0),
 		mountTypeArg(ctx, flags),
-		decodeMountFlags(flags),
+		decodeMountFlags(ctx, flags),
 		mountDataArg(ctx, flags),
 	}
 }
@@ -114,14 +73,14 @@ func mountDataArg(ctx *Context, flags uint64) string {
 	return fsStringArg(ctx, 4, 0)
 }
 
-func decodeMountFlags(flags uint64) string {
+func decodeMountFlags(ctx *Context, flags uint64) string {
 	if (flags & 0xffff0000) != 0xc0ed0000 {
-		return meta.DecodeFlags(flags, "mount_flags")
+		return decodeFlags(ctx, flags, "mount_flags")
 	}
 	if (flags & 0x0000ffff) == 0 {
 		return "MS_MGC_VAL"
 	}
-	return "MS_MGC_VAL|" + meta.DecodeFlags(flags&0xffff, "mount_flags")
+	return "MS_MGC_VAL|" + decodeFlags(ctx, flags&0xffff, "mount_flags")
 }
 
 // decodeFsconfig decodes the arguments of fsconfig based on the command.
@@ -136,7 +95,7 @@ func (h *FsHandler) decodeFsconfig(ctx *Context) []string {
 
 	parts := []string{
 		h.decodeScalar(ctx, "int", "fd", fd),
-		meta.DecodeFlags(cmd, "fsconfig_cmds"),
+		decodeFlags(ctx, cmd, "fsconfig_cmds"),
 	}
 
 	// IMPACT: Format key and value arguments as pointers when cmd > 5 (create, reconfigure, or invalid commands) matching upstream strace behavior.

@@ -33,6 +33,14 @@ type statmountSnapshot struct {
 	data        [statmountFixedSize]byte
 	strings     []byte
 	stringLimit int
+	catalog     *meta.Catalog
+}
+
+func (snapshot statmountSnapshot) decodeFlags(value uint64, tableName string) string {
+	if snapshot.catalog == nil {
+		return meta.NewCatalog("abbrev").DecodeFlags(value, tableName)
+	}
+	return snapshot.catalog.DecodeFlags(value, tableName)
 }
 
 type statmountStringArrayField struct {
@@ -64,6 +72,7 @@ func formatStatmountOutput(ctx *Context) string {
 	}
 
 	snapshot := statmountSnapshot{}
+	snapshot.catalog = catalogForContext(ctx)
 	if ctx.Opts != nil {
 		snapshot.stringLimit = ctx.Opts.StringLimit
 	}
@@ -91,7 +100,7 @@ func (snapshot statmountSnapshot) format() string {
 	if mask&statmountMaskOpts != 0 {
 		parts = append(parts, "mnt_opts="+snapshot.cstring(binary.LittleEndian.Uint32(data[4:8])))
 	}
-	parts = append(parts, "mask="+meta.DecodeFlags(mask, "statmount_mask"))
+	parts = append(parts, "mask="+snapshot.decodeFlags(mask, "statmount_mask"))
 	parts = snapshot.appendSuperblock(parts, mask)
 	parts = snapshot.appendFilesystemType(parts, mask)
 	parts = snapshot.appendMount(parts, mask)
@@ -116,8 +125,8 @@ func (snapshot statmountSnapshot) appendSuperblock(parts []string, mask uint64) 
 	return append(parts,
 		fmt.Sprintf("sb_dev_major=%d", binary.LittleEndian.Uint32(data[16:20])),
 		fmt.Sprintf("sb_dev_minor=%d", binary.LittleEndian.Uint32(data[20:24])),
-		"sb_magic="+meta.DecodeFlags(binary.LittleEndian.Uint64(data[24:32]), "fsmagic"),
-		"sb_flags="+meta.DecodeFlags(uint64(binary.LittleEndian.Uint32(data[32:36])), "statmount_sb_flags"))
+		"sb_magic="+snapshot.decodeFlags(binary.LittleEndian.Uint64(data[24:32]), "fsmagic"),
+		"sb_flags="+snapshot.decodeFlags(uint64(binary.LittleEndian.Uint32(data[32:36])), "statmount_sb_flags"))
 }
 
 func (snapshot statmountSnapshot) appendMount(parts []string, mask uint64) []string {
@@ -130,8 +139,8 @@ func (snapshot statmountSnapshot) appendMount(parts []string, mask uint64) []str
 		"mnt_parent_id="+formatHexValue(binary.LittleEndian.Uint64(data[48:56])),
 		"mnt_id_old="+formatHexValue(uint64(binary.LittleEndian.Uint32(data[56:60]))),
 		"mnt_parent_id_old="+formatHexValue(uint64(binary.LittleEndian.Uint32(data[60:64]))),
-		"mnt_attr="+meta.DecodeFlags(binary.LittleEndian.Uint64(data[64:72]), "mount_attr_attr"),
-		"mnt_propagation="+meta.DecodeFlags(binary.LittleEndian.Uint64(data[72:80]), "statmount_mnt_propagation"),
+		"mnt_attr="+snapshot.decodeFlags(binary.LittleEndian.Uint64(data[64:72]), "mount_attr_attr"),
+		"mnt_propagation="+snapshot.decodeFlags(binary.LittleEndian.Uint64(data[72:80]), "statmount_mnt_propagation"),
 		"mnt_peer_group="+formatHexValue(binary.LittleEndian.Uint64(data[80:88])),
 		"mnt_master="+formatHexValue(binary.LittleEndian.Uint64(data[88:96])))
 }
@@ -172,7 +181,7 @@ func (snapshot statmountSnapshot) appendArrays(parts []string, mask uint64) []st
 		mask: statmountMaskSec, name: "opt_sec", countOffset: 136, valueOffset: 140,
 	})
 	if mask&statmountMaskAllow != 0 {
-		parts = append(parts, "supported_mask="+meta.DecodeFlags(binary.LittleEndian.Uint64(data[144:152]), "statmount_mask"))
+		parts = append(parts, "supported_mask="+snapshot.decodeFlags(binary.LittleEndian.Uint64(data[144:152]), "statmount_mask"))
 	}
 	parts = snapshot.appendStringArray(parts, mask, statmountStringArrayField{
 		mask: statmountMaskUID, name: "mnt_uidmap", countOffset: 152, valueOffset: 156,

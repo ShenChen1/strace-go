@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 func registerBuiltinSignal(r *Registry) {
@@ -46,12 +45,12 @@ func (h *SignalHandler) Handle(ctx *Context) Result {
 		}
 
 		if argName == "sig" {
-			res.ArgParts = append(res.ArgParts, meta.DecodeFlags(val, "signalnames"))
+			res.ArgParts = append(res.ArgParts, decodeFlags(ctx, val, "signalnames"))
 			continue
 		}
 
 		if argName == "how" {
-			res.ArgParts = append(res.ArgParts, meta.DecodeFlags(val, "sigprocmaskcmds"))
+			res.ArgParts = append(res.ArgParts, decodeFlags(ctx, val, "sigprocmaskcmds"))
 			continue
 		}
 
@@ -80,8 +79,8 @@ func (h *SignalHandler) Handle(ctx *Context) Result {
 			continue
 		}
 
-		if xlatName, ok := meta.SyscallArgXlatMap[ctx.ScMeta.Name][argName]; ok {
-			res.ArgParts = append(res.ArgParts, meta.DecodeFlags(val, xlatName))
+		if xlatName, ok := syscallArgXlat(ctx, ctx.ScMeta.Name, argName); ok {
+			res.ArgParts = append(res.ArgParts, decodeFlags(ctx, val, xlatName))
 		} else {
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
 		}
@@ -154,13 +153,13 @@ func (h *SignalHandler) formatSigactionArg(ctx *Context, argIndex int, argName s
 	if argName == "oact" {
 		data, ok := signalStructSnapshot(ctx, argIndex, PayloadDirectionOut, signalSigactionSize)
 		if ok {
-			return formatSigaction(data)
+			return formatSigaction(ctx, data)
 		}
 		return fmt.Sprintf("%#x", val)
 	}
 
 	if data, ok := signalStructSnapshot(ctx, argIndex, PayloadDirectionIn, signalSigactionSize); ok {
-		return formatSigaction(data)
+		return formatSigaction(ctx, data)
 	}
 	return fmt.Sprintf("%#x", val)
 }
@@ -177,7 +176,7 @@ func signalStructSnapshot(
 	return nil, false
 }
 
-func formatSigaction(data []byte) string {
+func formatSigaction(ctx *Context, data []byte) string {
 	if len(data) < 32 {
 		return "{...}"
 	}
@@ -194,7 +193,7 @@ func formatSigaction(data []byte) string {
 		hStr = fmt.Sprintf("%#x", handler)
 	}
 
-	res := fmt.Sprintf("{sa_handler=%s, sa_mask=%s, sa_flags=%s", hStr, format.Sigset(data[24:32]), meta.DecodeFlags(flags, "sigact_flags"))
+	res := fmt.Sprintf("{sa_handler=%s, sa_mask=%s, sa_flags=%s", hStr, format.Sigset(data[24:32]), decodeFlags(ctx, flags, "sigact_flags"))
 	if flags&0x04000000 != 0 { // SA_RESTORER
 		res += fmt.Sprintf(", sa_restorer=%#x", restorer)
 	}

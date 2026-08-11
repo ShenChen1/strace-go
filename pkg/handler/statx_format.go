@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 const (
@@ -74,17 +73,17 @@ func parseStatxTimestamp(data []byte) statxTimestamp {
 	return statxTimestamp{sec: int64(binary.LittleEndian.Uint64(data[0:8])), nsec: binary.LittleEndian.Uint32(data[8:12])}
 }
 
-func (s statxSnapshot) format(verbose bool) string {
-	parts := []string{"stx_mask=" + meta.DecodeFlags(uint64(s.mask), "statx_masks")}
+func (s statxSnapshot) format(ctx *Context, verbose bool) string {
+	parts := []string{"stx_mask=" + decodeFlags(ctx, uint64(s.mask), "statx_masks")}
 	if verbose {
 		parts = append(parts, fmt.Sprintf("stx_blksize=%d", s.blockSize))
 	}
-	parts = append(parts, "stx_attributes="+meta.DecodeFlags(s.attributes, "statx_attrs"))
+	parts = append(parts, "stx_attributes="+decodeFlags(ctx, s.attributes, "statx_attrs"))
 	parts = s.appendBasicFields(parts, verbose)
 	if !verbose {
 		return "{" + strings.Join(parts, ", ") + ", ...}"
 	}
-	parts = append(parts, "stx_attributes_mask="+meta.DecodeFlags(s.attributesMask, "statx_attrs"))
+	parts = append(parts, "stx_attributes_mask="+decodeFlags(ctx, s.attributesMask, "statx_attrs"))
 	parts = s.appendTimeFields(parts)
 	parts = s.appendDeviceFields(parts)
 	parts = s.appendExtendedFields(parts)

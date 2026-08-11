@@ -58,6 +58,7 @@ func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-e", "trace=getpid", "/bin/true"})
 	decoder := event.NewDecoder()
 	fdState := newFDStateStoreFromMaps(map[string]string{"101:cwd": "/tmp"}, nil)
+	catalog := meta.NewCatalog("raw")
 	view := syscallEventView{
 		valid: true,
 		pid:   101,
@@ -67,7 +68,7 @@ func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 	}
 
 	ev := newSyscallEventContextFromViewWithDeps(
-		syscallEventContextDeps{decoder: decoder, opts: opts, fdState: fdState},
+		syscallEventContextDeps{decoder: decoder, opts: opts, catalog: catalog, fdState: fdState},
 		view,
 		101,
 		nil,
@@ -76,6 +77,9 @@ func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 
 	if ev.handlerContext.Decoder != decoder || ev.handlerContext.Opts != opts {
 		t.Fatalf("handler context deps = decoder:%p opts:%p, want %p/%p", ev.handlerContext.Decoder, ev.handlerContext.Opts, decoder, opts)
+	}
+	if ev.handlerContext.Meta != catalog {
+		t.Fatalf("handler context catalog = %p, want %p", ev.handlerContext.Meta, catalog)
 	}
 	if ev.handlerContext.Runtime != fdState.Runtime() {
 		t.Fatal("handler context did not receive the session-scoped runtime")
@@ -235,6 +239,17 @@ func TestSyscallEnterEventContextUsesEventViewAndMetadata(t *testing.T) {
 	gotView := ev.eventView()
 	if gotView.pid != 101 || gotView.tid != 102 || gotView.sysID != 39 || gotView.args[0] != 7 || gotView.ret != -2 {
 		t.Fatalf("enter context view = %+v, want view-derived syscall fields", gotView)
+	}
+}
+
+func TestSyscallEnterEventContextUsesSessionCatalog(t *testing.T) {
+	view := syscallEventView{valid: true, sysID: 39}
+	catalog := meta.NewCatalog("raw")
+
+	ev := newSyscallEnterEventContextWithCatalog(view, 201, nil, catalog)
+
+	if ev.catalog != catalog {
+		t.Fatalf("enter context catalog = %p, want session catalog %p", ev.catalog, catalog)
 	}
 }
 

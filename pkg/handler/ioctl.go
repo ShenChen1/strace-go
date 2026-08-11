@@ -6,36 +6,10 @@ import (
 	"strings"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 func registerBuiltinIoctl(r *Registry) {
 	r.Register("ioctl", &IoctlHandler{})
-
-	meta.XlatTables["fiemap_flags"] = meta.XlatTable{
-		Prefix: "FIEMAP_FLAG_",
-		Entries: []meta.XlatVal{
-			{Val: 1, Str: "FIEMAP_FLAG_SYNC"},
-			{Val: 2, Str: "FIEMAP_FLAG_XATTR"},
-			{Val: 4, Str: "FIEMAP_FLAG_CACHE"},
-		},
-	}
-	meta.XlatTables["fiemap_extent_flags"] = meta.XlatTable{
-		Prefix: "FIEMAP_EXTENT_",
-		Entries: []meta.XlatVal{
-			{Val: 0x00000001, Str: "FIEMAP_EXTENT_LAST"},
-			{Val: 0x00000002, Str: "FIEMAP_EXTENT_UNKNOWN"},
-			{Val: 0x00000004, Str: "FIEMAP_EXTENT_DELALLOC"},
-			{Val: 0x00000008, Str: "FIEMAP_EXTENT_ENCODED"},
-			{Val: 0x00000080, Str: "FIEMAP_EXTENT_DATA_ENCRYPTED"},
-			{Val: 0x00000100, Str: "FIEMAP_EXTENT_NOT_ALIGNED"},
-			{Val: 0x00000200, Str: "FIEMAP_EXTENT_DATA_INLINE"},
-			{Val: 0x00000400, Str: "FIEMAP_EXTENT_DATA_TAIL"},
-			{Val: 0x00000800, Str: "FIEMAP_EXTENT_UNWRITTEN"},
-			{Val: 0x00001000, Str: "FIEMAP_EXTENT_MERGED"},
-			{Val: 0x00002000, Str: "FIEMAP_EXTENT_SHARED"},
-		},
-	}
 }
 
 // IoctlHandler handles the complex formatting for the ioctl syscall.
@@ -54,10 +28,10 @@ func (h *IoctlHandler) Handle(ctx *Context) Result {
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", fd))
 
 	cmdpattern := format.Ioc(cmd)
-	cmdName := meta.DecodeFlags(cmd, "ioctl_cmds")
+	cmdName := decodeFlags(ctx, cmd, "ioctl_cmds")
 	if cmd == 0x80044d0d {
 		cmdName = "MIXER_READ(13) or OTPSELECT"
-	} else if ctx.Opts == nil || ctx.Opts.XlatFormat != "raw" {
+	} else if xlatFormat(ctx) != "raw" {
 		isFailed := strings.Contains(cmdName, "???") || (strings.HasPrefix(cmdName, "0x") && !strings.Contains(cmdName, "/*"))
 		if isFailed {
 			cmdName = cmdpattern
@@ -244,7 +218,7 @@ func formatDmIoctl(ctx *Context, data []byte, cmd string) string {
 
 		flags := binary.LittleEndian.Uint32(data[292:296])
 		if flags != 0 || cmd == "DM_VERSION" {
-			res += fmt.Sprintf(", flags=%s", meta.DecodeFlags(uint64(flags), "dm_flags"))
+			res += fmt.Sprintf(", flags=%s", decodeFlags(ctx, uint64(flags), "dm_flags"))
 		}
 
 		if strings.Contains(cmd, "LOAD") {
@@ -292,7 +266,7 @@ func (h *IoctlHandler) decodeFiemap(ctx *Context, arg uint64) string {
 		}
 	}
 
-	flagsStr := meta.DecodeFlags(uint64(flags), "fiemap_flags")
+	flagsStr := decodeFlags(ctx, uint64(flags), "fiemap_flags")
 	inPart := fmt.Sprintf("{fm_start=%d, fm_length=%d, fm_flags=%s, fm_extent_count=%d}", start, length, flagsStr, extentCount)
 	if ctx.Ret < 0 {
 		return inPart
@@ -324,7 +298,7 @@ func (h *IoctlHandler) formatFiemapExtents(ctx *Context, _ uint64, mappedExtents
 			feLength := binary.LittleEndian.Uint64(extData[offset+16 : offset+24])
 			feFlags := binary.LittleEndian.Uint32(extData[offset+32 : offset+36])
 
-			feFlagsStr := meta.DecodeFlags(uint64(feFlags), "fiemap_extent_flags")
+			feFlagsStr := decodeFlags(ctx, uint64(feFlags), "fiemap_extent_flags")
 			extentsStrList = append(extentsStrList, fmt.Sprintf("{fe_logical=%d, fe_physical=%d, fe_length=%d, fe_flags=%s}", feLogical, fePhysical, feLength, feFlagsStr))
 		}
 	}

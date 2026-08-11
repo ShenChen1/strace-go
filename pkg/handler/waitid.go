@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-
-	"strace-go/pkg/meta"
 )
 
 func registerBuiltinWaitid(r *Registry) {
@@ -28,13 +26,13 @@ func (h *WaitidHandler) Handle(ctx *Context) Result {
 	if idtype == 0 {
 		res.ArgParts = append(res.ArgParts, "P_ALL")
 	} else {
-		res.ArgParts = append(res.ArgParts, meta.DecodeFlags(uint64(idtype), "waitid_types"))
+		res.ArgParts = append(res.ArgParts, decodeFlags(ctx, uint64(idtype), "waitid_types"))
 	}
 
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int32(ctx.Args[1])))
 
 	res.ArgParts = append(res.ArgParts, decodeSiginfo(ctx, ctx.Args[2]))
-	res.ArgParts = append(res.ArgParts, decodeWaitidOptions(ctx.Args[3]))
+	res.ArgParts = append(res.ArgParts, decodeWaitidOptions(ctx, ctx.Args[3]))
 
 	if ctx.Ret >= 0 && ctx.Args[4] != 0 {
 		res.ArgParts = append(res.ArgParts, decodeRusage(ctx, ctx.Args[4]))
@@ -47,8 +45,8 @@ func (h *WaitidHandler) Handle(ctx *Context) Result {
 	return res
 }
 
-func decodeWaitidOptions(options uint64) string {
-	decoded := strings.ReplaceAll(meta.DecodeFlags(options, "wait4_options"), "WUNTRACED", "WSTOPPED")
+func decodeWaitidOptions(ctx *Context, options uint64) string {
+	decoded := strings.ReplaceAll(decodeFlags(ctx, options, "wait4_options"), "WUNTRACED", "WSTOPPED")
 	return strings.ReplaceAll(decoded, "WSTOPPED|WEXITED", "WEXITED|WSTOPPED")
 }
 
@@ -92,12 +90,12 @@ func decodeSiginfo(ctx *Context, val uint64) string {
 		return "{}"
 	}
 
-	signoStr := meta.DecodeFlags(uint64(si_signo), "signalnames")
+	signoStr := decodeFlags(ctx, uint64(si_signo), "signalnames")
 	codeStr := decodeSigchldCode(si_code)
 
 	statusStr := fmt.Sprintf("%d", si_status)
 	if si_code != 1 {
-		statusStr = meta.DecodeFlags(uint64(si_status), "signalnames")
+		statusStr = decodeFlags(ctx, uint64(si_status), "signalnames")
 	}
 
 	return fmt.Sprintf("{si_signo=%s, si_code=%s, si_pid=%d, si_uid=%d, si_status=%s, si_utime=%d, si_stime=%d}",

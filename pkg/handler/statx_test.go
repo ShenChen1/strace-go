@@ -52,7 +52,7 @@ func TestStatxSnapshotAbbreviatesAfterStableFields(t *testing.T) {
 	binary.LittleEndian.PutUint16(data[28:30], 0100640)
 	binary.LittleEndian.PutUint64(data[40:48], 42)
 
-	got := parseStatxSnapshot(data).format(false)
+	got := parseStatxSnapshot(data).format(statxTestContext(0), false)
 	want := "{stx_mask=STATX_MODE|STATX_SIZE, stx_attributes=STATX_ATTR_IMMUTABLE, stx_mode=S_IFREG|0640, stx_size=42, ...}"
 	if got != want {
 		t.Fatalf("abbreviated statx = %q, want %q", got, want)
@@ -69,7 +69,7 @@ func TestStatxSnapshotUsesAttributesForAtomicWriteFields(t *testing.T) {
 	binary.LittleEndian.PutUint32(data[180:184], 4)
 	binary.LittleEndian.PutUint32(data[184:188], 5)
 
-	got := parseStatxSnapshot(data).format(true)
+	got := parseStatxSnapshot(data).format(statxTestContext(0), true)
 	wantSuffix := "stx_atomic_write_unit_min=1, stx_atomic_write_unit_max=2, stx_atomic_write_segments_max=3, stx_dio_read_offset_align=4, stx_atomic_write_unit_max_opt=5}"
 	if !strings.HasSuffix(got, wantSuffix) {
 		t.Fatalf("atomic statx = %q, want suffix %q", got, wantSuffix)
@@ -88,6 +88,7 @@ func statxTestContext(ret int64) *Context {
 		ScMeta:    meta.SyscallTable[332],
 		Decoder:   event.NewDecoder(),
 		Opts:      &cli.Options{StringLimit: 32, XlatFormat: "abbrev", Verbose: true},
+		Meta:      meta.NewCatalog("abbrev"),
 		TargetPid: 1234,
 	}
 }

@@ -3,14 +3,9 @@ package meta_test
 import (
 	"fmt"
 	"testing"
-
-	"strace-go/pkg/meta"
 )
 
 func TestDecodeSockoptTxrehashUnknownValues(t *testing.T) {
-	old := meta.XlatFormat
-	defer func() { meta.XlatFormat = old }()
-
 	tests := []struct {
 		name string
 		mode string
@@ -27,8 +22,7 @@ func TestDecodeSockoptTxrehashUnknownValues(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			meta.XlatFormat = tt.mode
-			if got := meta.DecodeFlags(tt.val, "sockopt_txrehash_vals"); got != tt.want {
+			if got := decodeFlagsForTest(tt.mode, tt.val, "sockopt_txrehash_vals"); got != tt.want {
 				t.Fatalf("DecodeFlags(%d, sockopt_txrehash_vals) in %s mode = %q, want %q", tt.val, tt.mode, got, tt.want)
 			}
 		})
@@ -36,10 +30,6 @@ func TestDecodeSockoptTxrehashUnknownValues(t *testing.T) {
 }
 
 func TestDecodeSocketLayerAndNetlinkOptions(t *testing.T) {
-	old := meta.XlatFormat
-	meta.XlatFormat = "abbrev"
-	defer func() { meta.XlatFormat = old }()
-
 	tests := []struct {
 		name string
 		val  uint64
@@ -52,7 +42,7 @@ func TestDecodeSocketLayerAndNetlinkOptions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := meta.DecodeFlags(tt.val, tt.xlat); got != tt.want {
+			if got := decodeFlagsForTest("abbrev", tt.val, tt.xlat); got != tt.want {
 				t.Fatalf("DecodeFlags(%d, %q) = %q, want %q", tt.val, tt.xlat, got, tt.want)
 			}
 		})
@@ -60,9 +50,6 @@ func TestDecodeSocketLayerAndNetlinkOptions(t *testing.T) {
 }
 
 func TestDecodeUnknownSocketOptionUsesPrefixComment(t *testing.T) {
-	old := meta.XlatFormat
-	defer func() { meta.XlatFormat = old }()
-
 	tests := []struct {
 		name string
 		mode string
@@ -75,8 +62,7 @@ func TestDecodeUnknownSocketOptionUsesPrefixComment(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			meta.XlatFormat = tt.mode
-			if got := meta.DecodeFlags(78, "sock_options"); got != tt.want {
+			if got := decodeFlagsForTest(tt.mode, 78, "sock_options"); got != tt.want {
 				t.Fatalf("DecodeFlags(78, sock_options) in %s mode = %q, want %q", tt.mode, got, tt.want)
 			}
 		})
@@ -84,9 +70,6 @@ func TestDecodeUnknownSocketOptionUsesPrefixComment(t *testing.T) {
 }
 
 func TestDecodeSocketLayerVerboseUsesHexRawValue(t *testing.T) {
-	old := meta.XlatFormat
-	defer func() { meta.XlatFormat = old }()
-
 	for _, mode := range []string{"raw", "verbose"} {
 		tests := []struct {
 			val  uint64
@@ -97,12 +80,11 @@ func TestDecodeSocketLayerVerboseUsesHexRawValue(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(mode+"/"+tt.name, func(t *testing.T) {
-				meta.XlatFormat = mode
 				want := fmt.Sprintf("%#x", tt.val)
 				if mode == "verbose" {
 					want += " /* " + tt.name + " */"
 				}
-				if got := meta.DecodeFlags(tt.val, "socketlayers"); got != want {
+				if got := decodeFlagsForTest(mode, tt.val, "socketlayers"); got != want {
 					t.Fatalf("DecodeFlags(%d, socketlayers) in %s mode = %q, want %q", tt.val, mode, got, want)
 				}
 			})
@@ -111,13 +93,9 @@ func TestDecodeSocketLayerVerboseUsesHexRawValue(t *testing.T) {
 }
 
 func TestDecodeSockoptRawTruncatesAbiWord(t *testing.T) {
-	old := meta.XlatFormat
-	meta.XlatFormat = "raw"
-	defer func() { meta.XlatFormat = old }()
-
 	for _, xlat := range []string{"socketlayers", "sock_options"} {
 		t.Run(xlat, func(t *testing.T) {
-			if got := meta.DecodeFlags(0xdefaced00000001, xlat); got != "0x1" {
+			if got := decodeFlagsForTest("raw", 0xdefaced00000001, xlat); got != "0x1" {
 				t.Fatalf("DecodeFlags(abi word, %s) = %q, want 0x1", xlat, got)
 			}
 		})

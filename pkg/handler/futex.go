@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 const (
@@ -33,7 +32,7 @@ func (h *FutexHandler) Handle(ctx *Context) Result {
 	val3 := ctx.Args[5]
 
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", uaddr))
-	res.ArgParts = append(res.ArgParts, meta.DecodeFlags(op, "futexops"))
+	res.ArgParts = append(res.ArgParts, decodeFlags(ctx, op, "futexops"))
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", int32(val)))
 
 	baseOp := op & futexCmdMask

@@ -13,6 +13,7 @@ type syscallEventContext struct {
 	view            syscallEventView
 	statePID        int
 	meta            meta.Syscall
+	catalog         *meta.Catalog
 	pathText        string
 	pathArguments   []event.PathArgument
 	shouldPrint     bool
@@ -46,6 +47,7 @@ type syscallEventView struct {
 type syscallEventContextDeps struct {
 	decoder  *event.Decoder
 	opts     *cli.Options
+	catalog  *meta.Catalog
 	fdState  *FDStateStore
 	registry *handler.Registry
 	runtime  handler.RuntimeServices
@@ -62,6 +64,7 @@ func newSyscallEventContextDepsWithRegistry(
 	return syscallEventContextDeps{
 		decoder:  s.decoder,
 		opts:     s.opts,
+		catalog:  s.catalog,
 		fdState:  s.fdStateStore(),
 		registry: registry,
 		runtime:  s.fdStateStore().Runtime(),
@@ -133,6 +136,7 @@ func newSyscallEventContextFromViewWithDeps(
 		view:            view,
 		statePID:        statePID,
 		meta:            scMeta,
+		catalog:         deps.catalog,
 		pathText:        pathText,
 		pathArguments:   pathArguments,
 		shouldPrint:     shouldPrint,
@@ -173,6 +177,18 @@ func hasEquivalentPayloadSection(sections []handler.PayloadSection, want handler
 }
 
 func newSyscallEnterEventContext(view syscallEventView, statePID int, payloadSections []handler.PayloadSection) syscallEventContext {
+	return newSyscallEnterEventContextWithCatalog(view, statePID, payloadSections, meta.NewCatalog("abbrev"))
+}
+
+func newSyscallEnterEventContextWithCatalog(
+	view syscallEventView,
+	statePID int,
+	payloadSections []handler.PayloadSection,
+	catalog *meta.Catalog,
+) syscallEventContext {
+	if catalog == nil {
+		catalog = meta.NewCatalog("abbrev")
+	}
 	scMeta := syscallMeta(view.sysID)
 	fdPathOverlay := fdPathOverlayFromSections(payloadSections)
 	eventFDPaths, eventFDStates := fdPathOverlay.resolve(view)
@@ -180,6 +196,7 @@ func newSyscallEnterEventContext(view syscallEventView, statePID int, payloadSec
 		view:            view,
 		statePID:        statePID,
 		meta:            scMeta,
+		catalog:         catalog,
 		payloadSections: payloadSections,
 		eventFDPaths:    eventFDPaths,
 		eventFDStates:   eventFDStates,
@@ -275,6 +292,7 @@ func (ev syscallEventContext) fdStateUpdate() fdStateUpdate {
 			payloadSections: ev.outputPayloadSections(),
 		},
 		meta:      ev.effectiveSyscallMeta(),
+		catalog:   ev.catalog,
 		pathText:  ev.pathText,
 		targetPID: ev.statePID,
 	}
@@ -300,6 +318,7 @@ func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *h
 		ProbeRetEnter: view.probeRetEnter, ProbeRetExit: view.probeRetExit,
 		PayloadSections: ev.outputPayloadSections(),
 		ScMeta:          scMeta, Registry: deps.registry, Decoder: deps.decoder, Opts: deps.opts, FdMap: deps.pathMap(),
+		Meta:     deps.catalog,
 		FDStates: deps.fdStateMap(), EventFDPaths: ev.eventFDPaths,
 		EventFDStates: ev.eventFDStates, EventCwdPath: ev.eventCwdPath,
 		Runtime: deps.runtimeService(),

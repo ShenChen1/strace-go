@@ -6,12 +6,11 @@ import (
 	"strings"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 // isXlatArg checks if the argument is mapped to an xlat flag.
 // IMPACT: Extracted from decodeXlat to keep function size under 80 LOC.
-func isXlatArg(scName, argName, argTyp string) bool {
+func isXlatArg(ctx *Context, scName, argName, argTyp string) bool {
 	if strings.Contains(argTyp, "*") {
 		return false
 	}
@@ -37,10 +36,8 @@ func isXlatArg(scName, argName, argTyp string) bool {
 	if strings.Contains(argTyp, "unsigned") && !strings.Contains(argTyp, "size_t") {
 		return true
 	}
-	if syscallMap, ok := meta.SyscallArgXlatMap[scName]; ok {
-		if _, ok := syscallMap[argName]; ok {
-			return true
-		}
+	if _, ok := syscallArgXlat(ctx, scName, argName); ok {
+		return true
 	}
 	return false
 }
@@ -106,11 +103,11 @@ func (h *DefaultHandler) decodeXlat(ctx *Context, argName string, val uint64) (s
 }
 
 func (req xlatDecodeRequest) isXlatArg() bool {
-	return isXlatArg(req.syscallName, req.argName, req.argType)
+	return isXlatArg(req.ctx, req.syscallName, req.argName, req.argType)
 }
 
 func (req xlatDecodeRequest) isRawMode() bool {
-	return req.ctx != nil && req.ctx.Opts != nil && req.ctx.Opts.XlatFormat == "raw"
+	return xlatFormat(req.ctx) == "raw"
 }
 
 func (req xlatDecodeRequest) formatRaw() string {
@@ -127,7 +124,7 @@ func (req xlatDecodeRequest) formatRaw() string {
 func (req xlatDecodeRequest) decodeSpecial() (string, bool) {
 	switch {
 	case req.syscallName == "execveat" && req.argName == "flags":
-		return decodeExecveatFlags(req.val), true
+		return decodeExecveatFlags(req.ctx, req.val), true
 	case req.syscallName == "pipe2" && req.argName == "flags":
 		return decodeKnownFlagSet(uint32(req.val), []namedFlagBit{
 			{0x80000, "O_CLOEXEC"},
@@ -145,7 +142,7 @@ func (req xlatDecodeRequest) decodeSpecial() (string, bool) {
 	}
 }
 
-func decodeExecveatFlags(val uint64) string {
+func decodeExecveatFlags(ctx *Context, val uint64) string {
 	uVal := uint32(val)
 	if uVal == 69888 {
 		return "AT_SYMLINK_NOFOLLOW|AT_EMPTY_PATH|AT_EXECVE_CHECK"
@@ -153,7 +150,7 @@ func decodeExecveatFlags(val uint64) string {
 	if uVal == 0xfffeeeff {
 		return "0xfffeeeff /* AT_??? */"
 	}
-	return meta.DecodeFlags(val, "at_flags")
+	return decodeFlags(ctx, val, "at_flags")
 }
 
 type namedFlagBit struct {
@@ -178,14 +175,12 @@ func decodeKnownFlagSet(val uint32, bits []namedFlagBit) string {
 }
 
 func (req xlatDecodeRequest) decodeMapped() (string, bool) {
-	if syscallMap, ok := meta.SyscallArgXlatMap[req.syscallName]; ok {
-		if xlatName, ok := syscallMap[req.argName]; ok {
-			val := req.val
-			if shouldNarrowXlatValueTo32(req.argType, xlatName) {
-				val = uint64(uint32(val))
-			}
-			return meta.DecodeFlags(val, xlatName), true
+	if xlatName, ok := syscallArgXlat(req.ctx, req.syscallName, req.argName); ok {
+		val := req.val
+		if shouldNarrowXlatValueTo32(req.argType, xlatName) {
+			val = uint64(uint32(val))
 		}
+		return decodeFlags(req.ctx, val, xlatName), true
 	}
 	return "", false
 }

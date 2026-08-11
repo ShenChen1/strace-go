@@ -27,6 +27,7 @@ type traceSession struct {
 	events        traceRingbufReader
 	targetPid     int
 	opts          *cli.Options
+	catalog       *meta.Catalog
 	decoder       *event.Decoder
 	fdState       *FDStateStore
 	outWriter     io.Writer

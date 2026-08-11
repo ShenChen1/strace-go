@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-
-	"strace-go/pkg/meta"
 )
 
 func registerBuiltinMountQuery(r *Registry) {
@@ -22,7 +20,7 @@ func (h *StatmountHandler) Handle(ctx *Context) Result {
 		request.format(ctx, ctx.Args[0]),
 		formatStatmountOutput(ctx),
 		fmt.Sprintf("%d", ctx.Args[2]),
-		meta.DecodeFlags(uint64(uint32(ctx.Args[3])), "statmount_flags"),
+		decodeFlags(ctx, uint64(uint32(ctx.Args[3])), "statmount_flags"),
 	}}
 }
 
@@ -35,7 +33,7 @@ func (h *ListmountHandler) Handle(ctx *Context) Result {
 		request.format(ctx, ctx.Args[0]),
 		formatListmountIDs(ctx),
 		fmt.Sprintf("%d", ctx.Args[2]),
-		meta.DecodeFlags(uint64(uint32(ctx.Args[3])), "listmount_flags"),
+		decodeFlags(ctx, uint64(uint32(ctx.Args[3])), "listmount_flags"),
 	}}
 }
 

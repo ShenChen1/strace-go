@@ -34,7 +34,7 @@ func decodeOpenHow(ctx *Context, i int, argTyp string, val uint64) (string, bool
 		return "", false
 	}
 
-	return formatOpenHow(d, sz), true
+	return formatOpenHow(ctx, d, sz), true
 }
 
 func readOpenHowSnapshot(ctx *Context, argIndex int, requested uint64) ([]byte, bool) {
@@ -51,15 +51,15 @@ func readOpenHowSnapshot(ctx *Context, argIndex int, requested uint64) ([]byte, 
 	return nil, false
 }
 
-func formatOpenHow(d []byte, requested uint64) string {
+func formatOpenHow(ctx *Context, d []byte, requested uint64) string {
 	flagsVal := binary.LittleEndian.Uint64(d[0:8])
 	modeVal := binary.LittleEndian.Uint64(d[8:16])
-	flags := decodeOpenHowFlags64(flagsVal, "open_mode_flags")
+	flags := decodeOpenHowFlags64(ctx, flagsVal, "open_mode_flags")
 	modeStr := ""
 	if modeVal != 0 || (flagsVal&openHowFlagCreate) != 0 || (flagsVal&openHowFlagTmpfile) != 0 {
 		modeStr = fmt.Sprintf(", mode=%#03o", modeVal)
 	}
-	resolve := decodeOpenHowFlags64(binary.LittleEndian.Uint64(d[16:24]), "open_resolve_flags")
+	resolve := decodeOpenHowFlags64(ctx, binary.LittleEndian.Uint64(d[16:24]), "open_resolve_flags")
 
 	res := fmt.Sprintf("{flags=%s%s, resolve=%s}", flags, modeStr, resolve)
 	if requested > openHowMinSize {
@@ -83,12 +83,12 @@ func formatOpenHow(d []byte, requested uint64) string {
 	return res
 }
 
-func decodeOpenHowFlags64(val uint64, xlatName string) string {
-	if meta.XlatFormat == "raw" {
+func decodeOpenHowFlags64(ctx *Context, val uint64, xlatName string) string {
+	if xlatFormat(ctx) == "raw" {
 		return openHowRawHex(val)
 	}
-	decoded := decodeOpenHowBitFlags64(val, xlatName)
-	if meta.XlatFormat != "verbose" {
+	decoded := decodeOpenHowBitFlags64(ctx, val, xlatName)
+	if xlatFormat(ctx) != "verbose" {
 		return decoded
 	}
 	if strings.Contains(decoded, "/*") {
@@ -101,8 +101,8 @@ func decodeOpenHowFlags64(val uint64, xlatName string) string {
 	return fmt.Sprintf("%s /* %s */", raw, decoded)
 }
 
-func decodeOpenHowBitFlags64(val uint64, xlatName string) string {
-	table, ok := meta.XlatTables[xlatName]
+func decodeOpenHowBitFlags64(ctx *Context, val uint64, xlatName string) string {
+	table, ok := xlatTable(ctx, xlatName)
 	if !ok {
 		return openHowRawHex(val)
 	}

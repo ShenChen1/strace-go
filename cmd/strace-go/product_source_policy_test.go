@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -27,6 +28,90 @@ func TestProductSourceHasNoRuntimePtraceOrProcmemDependency(t *testing.T) {
 			t.Fatalf("forbidden runtime memory dependency:\n%s", strings.Join(violations, "\n"))
 		}
 	}
+}
+
+func TestProductSourceHasNoGlobalXlatState(t *testing.T) {
+	forbidden := map[string]bool{
+		"XlatFormat":        true,
+		"XlatTables":        true,
+		"SyscallArgXlatMap": true,
+	}
+	for _, path := range productGoFiles(t) {
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		violations, err := globalXlatPolicyViolations(path, source, forbidden)
+		if err != nil {
+			t.Fatalf("inspect %s: %v", path, err)
+		}
+		for _, violation := range violations {
+			t.Error(violation)
+		}
+	}
+}
+
+func TestGlobalXlatPolicyDetectsAliasedMetaImport(t *testing.T) {
+	forbidden := map[string]bool{
+		"XlatFormat":        true,
+		"XlatTables":        true,
+		"SyscallArgXlatMap": true,
+	}
+	source := []byte(`package fixture
+import m "strace-go/pkg/meta"
+var _ = m.XlatFormat
+`)
+	violations, err := globalXlatPolicyViolations("fixture.go", source, forbidden)
+	if err != nil {
+		t.Fatalf("globalXlatPolicyViolations: %v", err)
+	}
+	if len(violations) != 1 || !strings.Contains(violations[0], "m.XlatFormat") {
+		t.Fatalf("violations = %q, want aliased global reference", violations)
+	}
+}
+
+func globalXlatPolicyViolations(path string, source []byte, forbidden map[string]bool) ([]string, error) {
+	file, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
+	if err != nil {
+		return nil, err
+	}
+	aliases, importViolations := metaImportAliases(path, file)
+	violations := append([]string{}, importViolations...)
+	ast.Inspect(file, func(node ast.Node) bool {
+		selector, ok := node.(*ast.SelectorExpr)
+		if !ok || !forbidden[selector.Sel.Name] {
+			return true
+		}
+		packageName, ok := selector.X.(*ast.Ident)
+		if ok && aliases[packageName.Name] {
+			violations = append(violations, fmt.Sprintf("%s references global %s.%s", path, packageName.Name, selector.Sel.Name))
+		}
+		return true
+	})
+	return violations, nil
+}
+
+func metaImportAliases(path string, file *ast.File) (map[string]bool, []string) {
+	aliases := make(map[string]bool)
+	var violations []string
+	for _, spec := range file.Imports {
+		importPath, err := strconv.Unquote(spec.Path.Value)
+		if err != nil || importPath != "strace-go/pkg/meta" {
+			continue
+		}
+		if spec.Name == nil {
+			aliases["meta"] = true
+			continue
+		}
+		switch spec.Name.Name {
+		case ".":
+			violations = append(violations, policyViolation(path, "dot import strace-go/pkg/meta"))
+		case "_":
+		default:
+			aliases[spec.Name.Name] = true
+		}
+	}
+	return aliases, violations
 }
 
 func TestRuntimeMemoryPolicyDetectsForbiddenSource(t *testing.T) {

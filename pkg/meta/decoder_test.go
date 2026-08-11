@@ -6,6 +6,10 @@ import (
 	"strace-go/pkg/meta"
 )
 
+func decodeFlagsForTest(mode string, val uint64, tableName string) string {
+	return meta.NewCatalog(mode).DecodeFlags(val, tableName)
+}
+
 func TestDecodeFlags(t *testing.T) {
 	tests := []struct {
 		val       uint64
@@ -23,7 +27,7 @@ func TestDecodeFlags(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.tableName, func(t *testing.T) {
-			got := meta.DecodeFlags(tt.val, tt.tableName)
+			got := decodeFlagsForTest("abbrev", tt.val, tt.tableName)
 			if got != tt.want {
 				t.Errorf("DecodeFlags(%#x, %q) = %q; want %q", tt.val, tt.tableName, got, tt.want)
 			}
@@ -32,10 +36,6 @@ func TestDecodeFlags(t *testing.T) {
 }
 
 func TestDecodeFutexFlagsVerbose(t *testing.T) {
-	old := meta.XlatFormat
-	meta.XlatFormat = "verbose"
-	defer func() { meta.XlatFormat = old }()
-
 	tests := []struct {
 		val       uint64
 		tableName string
@@ -47,7 +47,7 @@ func TestDecodeFutexFlagsVerbose(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.tableName, func(t *testing.T) {
-			got := meta.DecodeFlags(tt.val, tt.tableName)
+			got := decodeFlagsForTest("verbose", tt.val, tt.tableName)
 			if got != tt.want {
 				t.Errorf("DecodeFlags(%#x, %q) = %q; want %q", tt.val, tt.tableName, got, tt.want)
 			}
@@ -56,9 +56,6 @@ func TestDecodeFutexFlagsVerbose(t *testing.T) {
 }
 
 func TestDecodeMemfdCreateFlags(t *testing.T) {
-	old := meta.XlatFormat
-	defer func() { meta.XlatFormat = old }()
-
 	tests := []struct {
 		name string
 		mode string
@@ -75,8 +72,7 @@ func TestDecodeMemfdCreateFlags(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			meta.XlatFormat = tt.mode
-			if got := meta.DecodeFlags(tt.val, "memfd_create_flags"); got != tt.want {
+			if got := decodeFlagsForTest(tt.mode, tt.val, "memfd_create_flags"); got != tt.want {
 				t.Fatalf("DecodeFlags(%#x, memfd_create_flags) = %q, want %q", tt.val, got, tt.want)
 			}
 		})
@@ -84,9 +80,6 @@ func TestDecodeMemfdCreateFlags(t *testing.T) {
 }
 
 func TestDecodeBpfEnumsUseHexRawValues(t *testing.T) {
-	old := meta.XlatFormat
-	defer func() { meta.XlatFormat = old }()
-
 	tests := []struct {
 		name string
 		mode string
@@ -101,8 +94,7 @@ func TestDecodeBpfEnumsUseHexRawValues(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			meta.XlatFormat = tt.mode
-			if got := meta.DecodeFlags(tt.val, tt.xlat); got != tt.want {
+			if got := decodeFlagsForTest(tt.mode, tt.val, tt.xlat); got != tt.want {
 				t.Fatalf("DecodeFlags(%#x, %q) = %q, want %q", tt.val, tt.xlat, got, tt.want)
 			}
 		})
@@ -110,10 +102,6 @@ func TestDecodeBpfEnumsUseHexRawValues(t *testing.T) {
 }
 
 func TestDecodeRuntimeBpfXlatTables(t *testing.T) {
-	old := meta.XlatFormat
-	meta.XlatFormat = "abbrev"
-	defer func() { meta.XlatFormat = old }()
-
 	tests := []struct {
 		name string
 		val  uint64
@@ -127,7 +115,7 @@ func TestDecodeRuntimeBpfXlatTables(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := meta.DecodeFlags(tt.val, tt.xlat); got != tt.want {
+			if got := decodeFlagsForTest("abbrev", tt.val, tt.xlat); got != tt.want {
 				t.Fatalf("DecodeFlags(%#x, %q) = %q, want %q", tt.val, tt.xlat, got, tt.want)
 			}
 		})
@@ -135,9 +123,6 @@ func TestDecodeRuntimeBpfXlatTables(t *testing.T) {
 }
 
 func TestDecodeEnumRuleBoundaries(t *testing.T) {
-	old := meta.XlatFormat
-	defer func() { meta.XlatFormat = old }()
-
 	tests := []struct {
 		name string
 		mode string
@@ -156,8 +141,7 @@ func TestDecodeEnumRuleBoundaries(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			meta.XlatFormat = tt.mode
-			if got := meta.DecodeFlags(tt.val, tt.xlat); got != tt.want {
+			if got := decodeFlagsForTest(tt.mode, tt.val, tt.xlat); got != tt.want {
 				t.Fatalf("DecodeFlags(%#x, %q) in %s mode = %q, want %q", tt.val, tt.xlat, tt.mode, got, tt.want)
 			}
 		})
@@ -165,10 +149,6 @@ func TestDecodeEnumRuleBoundaries(t *testing.T) {
 }
 
 func TestDecodeRawFallbacks(t *testing.T) {
-	old := meta.XlatFormat
-	meta.XlatFormat = "raw"
-	defer func() { meta.XlatFormat = old }()
-
 	tests := []struct {
 		name string
 		val  uint64
@@ -183,7 +163,7 @@ func TestDecodeRawFallbacks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := meta.DecodeFlags(tt.val, tt.xlat); got != tt.want {
+			if got := decodeFlagsForTest("raw", tt.val, tt.xlat); got != tt.want {
 				t.Fatalf("DecodeFlags(%#x, %q) in raw mode = %q, want %q", tt.val, tt.xlat, got, tt.want)
 			}
 		})
@@ -191,9 +171,6 @@ func TestDecodeRawFallbacks(t *testing.T) {
 }
 
 func TestDecodeMadviseCmdsAsEnum(t *testing.T) {
-	old := meta.XlatFormat
-	defer func() { meta.XlatFormat = old }()
-
 	tests := []struct {
 		name string
 		mode string
@@ -211,8 +188,7 @@ func TestDecodeMadviseCmdsAsEnum(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			meta.XlatFormat = tt.mode
-			if got := meta.DecodeFlags(tt.val, "madvise_cmds"); got != tt.want {
+			if got := decodeFlagsForTest(tt.mode, tt.val, "madvise_cmds"); got != tt.want {
 				t.Fatalf("DecodeFlags(%#x, madvise_cmds) = %q, want %q", tt.val, got, tt.want)
 			}
 		})

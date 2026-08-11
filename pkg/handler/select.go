@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 func registerBuiltinSelect(r *Registry) {
@@ -128,7 +127,7 @@ func (h *PollHandler) Handle(ctx *Context) Result {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else {
 		if section, ok := pollPayloadSection(ctx, PayloadDirectionIn, nfds); ok {
-			res.ArgParts = append(res.ArgParts, formatPollfds(section, nfds, pollDisplayLimit(ctx)))
+			res.ArgParts = append(res.ArgParts, formatPollfds(ctx, section, nfds, pollDisplayLimit(ctx)))
 		} else {
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ptr))
 		}
@@ -157,7 +156,7 @@ func (h *PollHandler) Handle(ctx *Context) Result {
 		res.ReturnDesc = "Timeout"
 	} else if ctx.Ret > 0 {
 		if dataExit, ok := pollExitPayload(ctx, nfds); ok {
-			res.ReturnDesc = formatPollfdsExit(dataExit, nfds, pollDisplayLimit(ctx))
+			res.ReturnDesc = formatPollfdsExit(ctx, dataExit, nfds, pollDisplayLimit(ctx))
 		}
 	}
 	if ctx.SysName == "ppoll" && ctx.Ret > 0 {
@@ -314,7 +313,7 @@ func pollDisplayLimit(ctx *Context) int {
 	return 16
 }
 
-func formatPollfds(section PayloadSection, nfds int, displayLimit int) string {
+func formatPollfds(ctx *Context, section PayloadSection, nfds int, displayLimit int) string {
 	if nfds <= 0 {
 		return "[]"
 	}
@@ -334,7 +333,7 @@ func formatPollfds(section PayloadSection, nfds int, displayLimit int) string {
 		if fd < 0 {
 			parts = append(parts, fmt.Sprintf("{fd=%d}", fd))
 		} else {
-			s := fmt.Sprintf("{fd=%d, events=%s", fd, meta.DecodeFlags(uint64(events), "pollflags"))
+			s := fmt.Sprintf("{fd=%d, events=%s", fd, decodeFlags(ctx, uint64(events), "pollflags"))
 			// Explicitly ignore revents in input array
 			s += "}"
 			parts = append(parts, s)
@@ -357,7 +356,7 @@ func pollSectionNeedsMarker(section PayloadSection, nfds int) bool {
 	return len(section.Data) < wantBytes
 }
 
-func formatPollfdsExit(dataExit []byte, nfds int, displayLimit int) string {
+func formatPollfdsExit(ctx *Context, dataExit []byte, nfds int, displayLimit int) string {
 	if nfds <= 0 {
 		return ""
 	}
@@ -373,7 +372,7 @@ func formatPollfdsExit(dataExit []byte, nfds int, displayLimit int) string {
 		fd := int32(binary.LittleEndian.Uint32(dataExit[off : off+4]))
 		revents := binary.LittleEndian.Uint16(dataExit[off+6 : off+8])
 		if revents != 0 {
-			parts = append(parts, fmt.Sprintf("{fd=%d, revents=%s}", fd, meta.DecodeFlags(uint64(revents), "pollflags")))
+			parts = append(parts, fmt.Sprintf("{fd=%d, revents=%s}", fd, decodeFlags(ctx, uint64(revents), "pollflags")))
 		}
 	}
 	if len(parts) == 0 {

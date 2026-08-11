@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 const (
@@ -17,7 +16,7 @@ const (
 
 type mntIDRequestSemantics interface {
 	formatMountID(uint64) string
-	formatParam(uint64) string
+	formatParam(*Context, uint64) string
 }
 
 type mntIDRequestDecoder struct {
@@ -31,8 +30,8 @@ func (statmountRequestSemantics) formatMountID(value uint64) string {
 	return formatHexValue(value)
 }
 
-func (statmountRequestSemantics) formatParam(value uint64) string {
-	return meta.DecodeFlags(value, "statmount_mask")
+func (statmountRequestSemantics) formatParam(ctx *Context, value uint64) string {
+	return decodeFlags(ctx, value, "statmount_mask")
 }
 
 func (listmountRequestSemantics) formatMountID(value uint64) string {
@@ -42,7 +41,7 @@ func (listmountRequestSemantics) formatMountID(value uint64) string {
 	return formatHexValue(value)
 }
 
-func (listmountRequestSemantics) formatParam(value uint64) string {
+func (listmountRequestSemantics) formatParam(_ *Context, value uint64) string {
 	return formatHexValue(value)
 }
 
@@ -73,7 +72,7 @@ func (decoder mntIDRequestDecoder) appendBaseFields(ctx *Context, parts []string
 	parts = append(parts,
 		"mnt_ns_fd="+FormatFdWithPath(ctx, fd),
 		"mnt_id="+decoder.semantics.formatMountID(binary.LittleEndian.Uint64(data[8:16])),
-		"param="+decoder.semantics.formatParam(binary.LittleEndian.Uint64(data[16:24])))
+		"param="+decoder.semantics.formatParam(ctx, binary.LittleEndian.Uint64(data[16:24])))
 	if size >= mntIDRequestVersionOneSize {
 		parts = append(parts, "mnt_ns_id="+formatHexValue(binary.LittleEndian.Uint64(data[24:32])))
 	}

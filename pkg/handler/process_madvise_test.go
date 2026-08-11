@@ -21,6 +21,7 @@ func processMadviseContext() *Context {
 			ArgTypes: []string{"int", "const struct iovec *", "size_t", "int", "unsigned int"},
 		},
 		Opts: &cli.Options{},
+		Meta: meta.NewCatalog("abbrev"),
 	}
 }
 
@@ -34,10 +35,6 @@ func iovecBytes(entries ...[2]uint64) []byte {
 }
 
 func TestProcessMadviseHandlerIgnoresLegacyEnterSnapshot(t *testing.T) {
-	old := meta.XlatFormat
-	meta.XlatFormat = "abbrev"
-	defer func() { meta.XlatFormat = old }()
-
 	const vec = 0x7000
 	ctx := processMadviseContext()
 	ctx.Args = [6]uint64{0, vec, 2, 0, 0xffffffff}
@@ -57,10 +54,6 @@ func TestProcessMadviseHandlerIgnoresLegacyEnterSnapshot(t *testing.T) {
 }
 
 func TestProcessMadviseHandlerUsesPayloadIovecSection(t *testing.T) {
-	old := meta.XlatFormat
-	meta.XlatFormat = "abbrev"
-	defer func() { meta.XlatFormat = old }()
-
 	const vec = 0x7000
 	iovs := iovecBytes(
 		[2]uint64{0x8786858483828180, 10344361028892658056},
@@ -86,10 +79,6 @@ func TestProcessMadviseHandlerUsesPayloadIovecSection(t *testing.T) {
 }
 
 func TestProcessMadviseHandlerNullAndEmptyIov(t *testing.T) {
-	old := meta.XlatFormat
-	meta.XlatFormat = "abbrev"
-	defer func() { meta.XlatFormat = old }()
-
 	ctx := processMadviseContext()
 	ctx.Args = [6]uint64{0xffffffff, 0, 0xdeadbeefdeadbeef, 20, 0}
 	got := (&ProcessMadviseHandler{}).Handle(ctx).ArgParts
@@ -107,10 +96,6 @@ func TestProcessMadviseHandlerNullAndEmptyIov(t *testing.T) {
 }
 
 func TestProcessMadviseHandlerShortIovReadShowsNextAddress(t *testing.T) {
-	old := meta.XlatFormat
-	meta.XlatFormat = "abbrev"
-	defer func() { meta.XlatFormat = old }()
-
 	const vec = 0x7fff0
 	iovs := iovecBytes([2]uint64{0x9796959493929190, 11501803794301884824})
 	ctx := processMadviseContext()

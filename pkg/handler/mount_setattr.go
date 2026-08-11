@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 const (
@@ -24,7 +23,7 @@ type MountSetattrHandler struct{}
 
 func (h *MountSetattrHandler) Handle(ctx *Context) Result {
 	res := (&DefaultHandler{}).HandleWithCount(ctx, 2)
-	res.ArgParts = append(res.ArgParts, meta.DecodeFlags(uint64(uint32(ctx.Args[2])), "mount_setattr_flags"))
+	res.ArgParts = append(res.ArgParts, decodeFlags(ctx, uint64(uint32(ctx.Args[2])), "mount_setattr_flags"))
 	res.ArgParts = append(res.ArgParts, decodeMountSetattrAttr(ctx))
 	res.ArgParts = append(res.ArgParts, fmt.Sprintf("%d", ctx.Args[4]))
 	return res
@@ -52,9 +51,9 @@ func decodeMountSetattrAttr(ctx *Context) string {
 
 	attr := parseMountAttrSnapshot(data)
 	parts := []string{
-		"attr_set=" + meta.DecodeFlags(attr.attrSet, "mount_attr_attr"),
-		"attr_clr=" + meta.DecodeFlags(attr.attrClear, "mount_attr_attr"),
-		"propagation=" + meta.DecodeFlags(attr.propagation, "mount_attr_propagation"),
+		"attr_set=" + decodeFlags(ctx, attr.attrSet, "mount_attr_attr"),
+		"attr_clr=" + decodeFlags(ctx, attr.attrClear, "mount_attr_attr"),
+		"propagation=" + decodeFlags(ctx, attr.propagation, "mount_attr_propagation"),
 		"userns_fd=" + formatMountAttrUsernsFD(ctx, attr),
 	}
 	parts = append(parts, mountSetattrExtensionParts(ctx)...)

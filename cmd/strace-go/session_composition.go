@@ -8,6 +8,7 @@ import (
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
+	"strace-go/pkg/meta"
 	"strace-go/pkg/stacktrace"
 )
 
@@ -61,6 +62,7 @@ type traceSessionDeps struct {
 	Events        traceRingbufReader
 	TargetPID     int
 	Opts          *cli.Options
+	Catalog       *meta.Catalog
 	Decoder       *event.Decoder
 	FDState       *FDStateStore
 	OutWriter     io.Writer
@@ -79,6 +81,7 @@ func newTraceSession(deps traceSessionDeps) *traceSession {
 		events:        deps.Events,
 		targetPid:     deps.TargetPID,
 		opts:          deps.Opts,
+		catalog:       deps.Catalog,
 		decoder:       deps.Decoder,
 		fdState:       deps.FDState,
 		outWriter:     deps.OutWriter,
@@ -97,6 +100,13 @@ func newTraceSession(deps traceSessionDeps) *traceSession {
 }
 
 func normalizeTraceSession(session *traceSession) {
+	if session.catalog == nil {
+		format := "abbrev"
+		if session.opts != nil {
+			format = session.opts.XlatFormat
+		}
+		session.catalog = meta.NewCatalog(format)
+	}
 	if session.decoder == nil {
 		session.decoder = event.NewDecoder()
 	}

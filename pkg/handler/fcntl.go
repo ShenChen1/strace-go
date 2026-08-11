@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 func registerBuiltinFcntl(r *Registry) {
@@ -37,7 +36,7 @@ func (h *FcntlHandler) Handle(ctx *Context) Result {
 
 	// IMPACT: Mask higher 32 bits to prevent sign extension mismatch for fcntl cmd.
 	cmdVal := uint32(cmd)
-	cmdStr := h.decodeCmd(uint64(cmdVal))
+	cmdStr := h.decodeCmd(ctx, uint64(cmdVal))
 	res.ArgParts = append(res.ArgParts, cmdStr)
 
 	if !h.isNoArgCmd(cmdStr) {
@@ -58,14 +57,14 @@ func (h *FcntlHandler) Handle(ctx *Context) Result {
 				res.ReturnDesc = "F_UNLCK"
 			}
 		} else if cmdStr == "F_GETSIG" && ctx.Ret > 0 {
-			res.ReturnDesc = meta.DecodeFlags(uint64(ctx.Ret), "signalnames")
+			res.ReturnDesc = decodeFlags(ctx, uint64(ctx.Ret), "signalnames")
 		}
 	}
 
 	return res
 }
 
-func (h *FcntlHandler) decodeCmd(cmd uint64) string {
+func (h *FcntlHandler) decodeCmd(ctx *Context, cmd uint64) string {
 	// Normalize overlapping/libc-specific command values
 	// IMPACT: Maps glibc/libc fcntl command numeric values directly to resolve differences between UAPI and glibc headers.
 	switch cmd {
@@ -84,7 +83,7 @@ func (h *FcntlHandler) decodeCmd(cmd uint64) string {
 	case 1040:
 		return "F_SETDELEG"
 	}
-	cmdStr := meta.DecodeFlags(cmd, "fcntlcmds")
+	cmdStr := decodeFlags(ctx, cmd, "fcntlcmds")
 	// Normalize overlapping xlat names to match strace upstream test assertions
 	cmdStr = strings.ReplaceAll(cmdStr, "F_GETLK or F_GETLK64", "F_GETLK")
 	cmdStr = strings.ReplaceAll(cmdStr, "F_SETLK or F_SETLK64", "F_SETLK")
@@ -98,12 +97,12 @@ func (h *FcntlHandler) decodeArg(ctx *Context, cmdStr string, arg uint64) string
 	}
 
 	if cmdStr == "F_SETFL" {
-		return meta.DecodeFlags(arg, "open_mode_flags")
+		return decodeFlags(ctx, arg, "open_mode_flags")
 	}
 
 	if cmdStr == "F_SETFD" {
 		// IMPACT: Decodes fd flags (like FD_CLOEXEC) for F_SETFD command.
-		return meta.DecodeFlags(arg, "fdflags")
+		return decodeFlags(ctx, arg, "fdflags")
 	}
 
 	if cmdStr == "F_SETOWN" {
@@ -111,15 +110,15 @@ func (h *FcntlHandler) decodeArg(ctx *Context, cmdStr string, arg uint64) string
 	}
 
 	if cmdStr == "F_NOTIFY" {
-		return meta.DecodeFlags(arg, "notifyflags")
+		return decodeFlags(ctx, arg, "notifyflags")
 	}
 
 	if cmdStr == "F_SETLEASE" {
-		return meta.DecodeFlags(arg, "lockfcmds")
+		return decodeFlags(ctx, arg, "lockfcmds")
 	}
 
 	if cmdStr == "F_SETSIG" {
-		return meta.DecodeFlags(arg, "signalnames")
+		return decodeFlags(ctx, arg, "signalnames")
 	}
 
 	// Default formatting for other integer arguments

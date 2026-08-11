@@ -2287,3 +2287,35 @@ ABI 与状态契约：
 - 验证顺序：先跑 focused registry 测试，再跑 `go test ./...`、race、vet、生成/build，最后运行现有 eBPF semantic/perf、small 和 upstream reference 回归。输出和 BPF event ABI 必须无变化。
 
 实际验收结果：删除所有 36 个 handler/decoder `init()` 注册点，新增 `registry_bootstrap.go` 按历史 first-match 顺序显式构建 builtin snapshot；生产源码不再提供或调用包级 `Get`、`GetDefault`、`Register` 和 decoder bootstrap API。新增 catalog 完整性测试覆盖全部内建 handler、pointer/struct decoder，AST gate 拒绝隐式 bootstrap。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build` 和 `sudo -n go generate ./cmd/strace-go` 均通过；Python runner 单测 5 项通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 getpid 事件、5,000/5,000 enter/exit、0 丢失、742.10 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL、0 XPASS。
+
+### 14.40 session-local meta catalog，移除 xlat 运行期全局状态（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.39 已把 handler registry 从包级可变状态收口到 session，但 `pkg/meta` 仍暴露 `XlatFormat`、`XlatTables` 和 `SyscallArgXlatMap` 全局对象。`main` 修改格式，FS/ioctl 注册阶段修改表，BPF xlat 还通过 `sync.Once` 懒写表；handler 和 format 直接读取这些对象。
+- Problem：两个 session 或并行测试会共享 xlat 模式和目录，格式输出依赖隐含的初始化顺序；未来新增运行期目录时还可能在事件消费期间写全局 map。这个问题与 procfs 无关，正确的解决边界是 Go formatter 的 session 依赖，而不是重新读取 tracee 的状态。
+- Goal：构造一个 session-owned、构造后只读的 `meta.Catalog`，包含 xlat format、xlat table 和 syscall argument mapping。handler Context、format 辅助函数和事件状态更新都从该 Catalog 解码；生产代码不再读取或写入 `meta.XlatFormat`、`meta.XlatTables`、`meta.SyscallArgXlatMap`。
+- Non-goals：本阶段不改变 xlat 文本规则、BPF event ABI、payload capture、事件排序或 FD/path event-sourced 语义；不读取 `/proc`、`process_vm_readv` 或 tracee 用户内存，不引入 compat/ptrace 路径。
+- Constraints：Catalog 在 session 构造时完成深复制，事件消费期间不得修改；格式只允许 `raw`、`abbrev`、`verbose`，非法值归一为 `abbrev`；生成器继续产生静态基础目录，BPF、FS、ioctl 的补充目录显式合并到 Catalog；旧的无 Context 单元测试使用 `meta.NewCatalog`，不通过全局状态切换模式。
+
+方案比较：
+
+1. 保留全局 xlat 状态，只把 `main` 的赋值移动到初始化函数：改动小，但 session 隔离和并行测试问题仍在，拒绝。
+2. 每个 session 构造不可变 `meta.Catalog`，深复制目录和参数映射并注入 Context/format：依赖方向明确，运行期无 map 写入，选择该方案。
+3. 只把格式字符串放入 Context，静态表继续由全局 map 提供：分配更少，但目录仍可被任意代码修改，动态补充表的 ownership 不清晰，暂不选择。
+
+状态契约：
+
+- `meta.NewCatalog(format)` 是唯一运行期目录构造入口；Catalog 复制生成基础表、BPF/FS/ioctl 补充表和参数映射，构造完成后不提供写方法。
+- `handler.Context.Meta` 是 handler 解码的唯一 xlat 来源；未注入 Meta 的数据单测只根据 `Context.Opts.XlatFormat` 创建临时 Catalog，不回退到可变全局格式。
+- 需要格式化结构体的 `pkg/format` 函数增加带 Catalog 的显式入口；保留无 Catalog 包装函数只使用默认 `abbrev`，不得读取 session 状态。
+- `main` 不再设置 meta 全局格式；FS/ioctl 的补充目录从 handler 注册函数移到 meta Catalog 构造，BPF xlat 不再通过事件时点懒注册。
+- Catalog 只解决 formatter 元数据隔离，不改变任何 tracee 生命周期或路径获取策略；产品仍然只使用 eBPF probe-site payload，不能用 procfs 查询补齐。
+
+测试与验收：
+
+- 先增加 Catalog 单测：raw/abbrev/verbose 三种模式互不污染、FS/ioctl/BPF 表可用、参数映射可查、两个 Catalog 的修改性边界不互相泄漏。
+- 增加 source gate，禁止生产代码引用三个旧全局对象；handler Context/format 组合测试验证 raw 与 verbose 输出走 session Catalog。
+- 验证顺序：先失败的 Catalog/source focused tests，再 `go test ./...`、race、vet、生成/build，最后运行 `ebpf-semantic`、`ebpf-perf`、small 和 upstream reference。
+
+实际验收结果：新增 session-local Catalog、生成器私有静态目录、FS/ioctl/BPF 补充目录合并和旧全局 xlat source gate；所有生产 handler/format 路径均通过 Context Catalog 解码。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build`、`sudo -n go generate ./cmd/strace-go` 和 Python runner 单测 5 项通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 getpid 事件、0 丢失、732.58 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL、0 XPASS。运行期间未引入 procfs、ptrace 或 process_vm_readv 读取路径。

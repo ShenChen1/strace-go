@@ -1,22 +1,5 @@
 package meta
 
-import "sync"
-
-var bpfXlatOnce sync.Once
-
-func checkRegisterBpfXlats() {
-	bpfXlatOnce.Do(func() {
-		if XlatTables == nil {
-			XlatTables = make(map[string]XlatTable)
-		}
-		for name, table := range bpfRuntimeXlatTables {
-			if _, ok := XlatTables[name]; !ok {
-				XlatTables[name] = table
-			}
-		}
-	})
-}
-
 var bpfRuntimeXlatTables = map[string]XlatTable{
 	"bpf_map_lookup_flags": {
 		Prefix: "BPF_",

@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-
-	"strace-go/pkg/meta"
 )
 
 func registerBuiltinArchPrctl(r *Registry) {
@@ -26,7 +24,7 @@ func (h *ArchPrctlHandler) Handle(ctx *Context) Result {
 		val := ctx.Args[i]
 
 		if i == 0 {
-			res.ArgParts = append(res.ArgParts, meta.DecodeFlags(val, "archvals"))
+			res.ArgParts = append(res.ArgParts, decodeFlags(ctx, val, "archvals"))
 			continue
 		}
 
@@ -40,7 +38,7 @@ func (h *ArchPrctlHandler) Handle(ctx *Context) Result {
 
 			if val == 0 {
 				if opt == 0x1023 || opt == 0x1025 {
-					if ctx.Opts != nil && ctx.Opts.XlatFormat == "raw" {
+					if xlatFormat(ctx) == "raw" {
 						res.ArgParts = append(res.ArgParts, "0")
 					} else {
 						res.ArgParts = append(res.ArgParts, "0 /* XFEATURE_FP */")
@@ -61,8 +59,8 @@ func (h *ArchPrctlHandler) Handle(ctx *Context) Result {
 							res.ArgParts = append(res.ArgParts, "[NULL]")
 						} else {
 							if opt >= 0x1021 && opt <= 0x1024 {
-								decoded := meta.DecodeFlags(outV, "x86_xfeatures")
-								if ctx.Opts != nil && ctx.Opts.XlatFormat == "raw" {
+								decoded := decodeFlags(ctx, outV, "x86_xfeatures")
+								if xlatFormat(ctx) == "raw" {
 									res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%s]", decoded))
 								} else if strings.HasPrefix(decoded, "0x") && strings.Contains(decoded, "/*") {
 									res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%s]", decoded))
@@ -77,7 +75,7 @@ func (h *ArchPrctlHandler) Handle(ctx *Context) Result {
 						res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
 					}
 				} else if opt == 0x1023 || opt == 0x1025 {
-					res.ArgParts = append(res.ArgParts, meta.DecodeFlags(val, "x86_xfeature_bits"))
+					res.ArgParts = append(res.ArgParts, decodeFlags(ctx, val, "x86_xfeature_bits"))
 				} else {
 					res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", val))
 				}

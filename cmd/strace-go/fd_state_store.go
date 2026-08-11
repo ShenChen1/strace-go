@@ -21,6 +21,7 @@ type fdStateSource struct {
 type fdStateUpdate struct {
 	source    fdStateSource
 	meta      meta.Syscall
+	catalog   *meta.Catalog
 	pathText  string
 	targetPID int
 }
@@ -94,7 +95,7 @@ func (st *FDStateStore) update(update fdStateUpdate) {
 	updateFDPathStateFromSource(update.source, update.targetPID, st.paths, st.fdStates)
 	updateFDStateObservationFromSource(update.source, update.meta, update.targetPID, st.fdStates)
 	updateFDStateOffsetsFromSource(update.source, update.meta, update.targetPID, st.offsets)
-	updateFDMapFromSource(update.source, update.meta, update.pathText, update.targetPID, st.paths)
+	updateFDMapFromSource(update.source, update.meta, update.pathText, update.targetPID, st.paths, update.catalog)
 	st.updateFDCloexecFromSource(update.source, update.meta, update.targetPID)
 }
 
@@ -104,15 +105,16 @@ func updateFDMapFromSource(
 	pathText string,
 	targetPID int,
 	fdMap map[string]string,
+	catalog *meta.Catalog,
 ) {
 	updateFdReturnMapFromSource(src, scMeta, targetPID, fdMap)
 	updateEventfdCountFromView(src.view, scMeta, targetPID, fdMap)
 	updateOpenedPathFDMapFromView(src.view, scMeta, pathText, targetPID, fdMap)
 	updateDupFDMapFromSource(src, scMeta, targetPID, fdMap)
 	updatePipeFDMapFromPayload(src, scMeta, targetPID, fdMap)
-	updateSocketpairFDMap(src, scMeta, targetPID, fdMap)
+	updateSocketpairFDMap(src, scMeta, targetPID, fdMap, catalog)
 	updateNetlinkFDMap(src, scMeta, targetPID, fdMap)
-	updateSocketFDMapFromView(src.view, scMeta, targetPID, fdMap)
+	updateSocketFDMapFromView(src.view, scMeta, targetPID, fdMap, catalog)
 	updateCwdFDMapFromView(src, scMeta, pathText, targetPID, fdMap)
 }
 

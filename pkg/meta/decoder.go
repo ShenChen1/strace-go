@@ -152,7 +152,19 @@ func decodeBitFlags(val uint64, xlatName string, table XlatTable) string {
 	return strings.Join(res, "|")
 }
 
-func decodeFanInitFlags(val uint64) string {
+type flagDecoder struct {
+	catalog *Catalog
+}
+
+func (d *flagDecoder) table(name string) (XlatTable, bool) {
+	if d == nil || d.catalog == nil {
+		return XlatTable{}, false
+	}
+	table, ok := d.catalog.tables[name]
+	return table, ok
+}
+
+func (d *flagDecoder) decodeFanInitFlags(val uint64) string {
 	v := uint32(val)
 	class := v & 0xc
 	handled := uint32(0)
@@ -173,7 +185,8 @@ func decodeFanInitFlags(val uint64) string {
 		handled |= class
 	}
 
-	for _, entry := range XlatTables["fan_init_flags"].Entries {
+	table, _ := d.table("fan_init_flags")
+	for _, entry := range table.Entries {
 		if entry.Val == 0 || entry.Val == 4 || entry.Val == 8 {
 			continue
 		}
@@ -195,8 +208,8 @@ func decodeFanInitFlags(val uint64) string {
 	return strings.Join(res, "|")
 }
 
-func xlatNameForValue(xlatName string, val uint64) (string, bool) {
-	table, ok := XlatTables[xlatName]
+func (d *flagDecoder) xlatNameForValue(xlatName string, val uint64) (string, bool) {
+	table, ok := d.table(xlatName)
 	if !ok {
 		return "", false
 	}
@@ -215,37 +228,37 @@ func rawHexOrZero(val uint64) string {
 	return fmt.Sprintf("%#x", val)
 }
 
-func decodeFutexBitset(val uint64) string {
+func (d *flagDecoder) decodeFutexBitset(val uint64) string {
 	raw := rawHexOrZero(val)
-	if XlatFormat == "raw" {
+	if d.catalog.Format() == "raw" {
 		return raw
 	}
-	name, ok := xlatNameForValue("futexbitset", val)
+	name, ok := d.xlatNameForValue("futexbitset", val)
 	if !ok {
 		return raw
 	}
-	if XlatFormat == "verbose" {
+	if d.catalog.Format() == "verbose" {
 		return fmt.Sprintf("%s /* %s */", raw, name)
 	}
 	return name
 }
 
-func decodeFutex2Flags(val uint64) string {
+func (d *flagDecoder) decodeFutex2Flags(val uint64) string {
 	v := uint32(val)
 	raw := rawHexOrZero(uint64(v))
-	if XlatFormat == "raw" {
+	if d.catalog.Format() == "raw" {
 		return raw
 	}
 
 	size := uint64(v & 3)
-	sizeName, ok := xlatNameForValue("futex2_sizes", size)
+	sizeName, ok := d.xlatNameForValue("futex2_sizes", size)
 	if !ok {
 		sizeName = rawHexOrZero(size)
 	}
 	res := []string{sizeName}
 	handled := uint32(3)
 
-	if table, ok := XlatTables["futex2_flags"]; ok {
+	if table, ok := d.table("futex2_flags"); ok {
 		for _, entry := range table.Entries {
 			bit := uint32(entry.Val)
 			if bit != 0 && (v&bit) == bit {
@@ -260,16 +273,16 @@ func decodeFutex2Flags(val uint64) string {
 	}
 
 	decoded := strings.Join(res, "|")
-	if XlatFormat == "verbose" {
+	if d.catalog.Format() == "verbose" {
 		return fmt.Sprintf("%s /* %s */", raw, decoded)
 	}
 	return decoded
 }
 
-func decodeMemfdCreateFlags(val uint64) string {
+func (d *flagDecoder) decodeMemfdCreateFlags(val uint64) string {
 	v := uint32(val)
 	raw := rawHexOrZero(uint64(v))
-	if v == 0 || XlatFormat == "raw" {
+	if v == 0 || d.catalog.Format() == "raw" {
 		return raw
 	}
 
@@ -279,7 +292,7 @@ func decodeMemfdCreateFlags(val uint64) string {
 	baseFlags := v &^ hugeMask
 	hugeValue := (v & hugeMask) >> hugeShift
 	var parts []string
-	if table, ok := XlatTables["memfd_create_flags"]; ok && (baseFlags != 0 || hugeValue == 0) {
+	if table, ok := d.table("memfd_create_flags"); ok && (baseFlags != 0 || hugeValue == 0) {
 		parts = append(parts, decodeBitFlags(uint64(baseFlags), "memfd_create_flags", table))
 	}
 	if hugeValue != 0 {
@@ -287,28 +300,25 @@ func decodeMemfdCreateFlags(val uint64) string {
 	}
 
 	decoded := strings.Join(parts, "|")
-	if XlatFormat == "verbose" {
+	if d.catalog.Format() == "verbose" {
 		return fmt.Sprintf("%s /* %s */", raw, decoded)
 	}
 	return decoded
 }
 
-var XlatFormat string = "abbrev"
-
 // DecodeFlags translates numeric flag values into human-readable strings.
 // Impact: Core formatting helper for xlat flags. Used across default and specialized handlers.
-func DecodeFlags(val uint64, xlatName string) string {
-	checkRegisterBpfXlats()
-	if decoded, ok := decodeSpecialXlat(val, xlatName); ok {
+func (d *flagDecoder) decodeFlags(val uint64, xlatName string) string {
+	if decoded, ok := d.decodeSpecialXlat(val, xlatName); ok {
 		return decoded
 	}
-	if XlatFormat == "raw" {
-		return decodeRawXlat(val, xlatName)
+	if d.catalog.Format() == "raw" {
+		return d.decodeRawXlat(val, xlatName)
 	}
-	return decodeNamedXlat(val, xlatName)
+	return d.decodeNamedXlat(val, xlatName)
 }
 
-func decodeSpecialXlat(val uint64, xlatName string) (string, bool) {
+func (d *flagDecoder) decodeSpecialXlat(val uint64, xlatName string) (string, bool) {
 	if xlatName == "hex_flags" {
 		if val == 0 {
 			return "0", true
@@ -316,19 +326,19 @@ func decodeSpecialXlat(val uint64, xlatName string) (string, bool) {
 		return fmt.Sprintf("%#x", val), true
 	}
 	if xlatName == "futexbitset" {
-		return decodeFutexBitset(val), true
+		return d.decodeFutexBitset(val), true
 	}
 	if xlatName == "futex2_flags" {
-		return decodeFutex2Flags(val), true
+		return d.decodeFutex2Flags(val), true
 	}
 	if xlatName == "memfd_create_flags" {
-		return decodeMemfdCreateFlags(val), true
+		return d.decodeMemfdCreateFlags(val), true
 	}
 	return "", false
 }
 
-func decodeRawXlat(val uint64, xlatName string) string {
-	table, ok := XlatTables[xlatName]
+func (d *flagDecoder) decodeRawXlat(val uint64, xlatName string) string {
+	table, ok := d.table(xlatName)
 	if ok && isEnumXlat(xlatName) {
 		return rawEnumValue(val, xlatName)
 	}
@@ -363,8 +373,8 @@ func tableHasZeroEntry(table XlatTable, ok bool) bool {
 	return false
 }
 
-func decodeNamedXlat(val uint64, xlatName string) string {
-	table, ok := XlatTables[xlatName]
+func (d *flagDecoder) decodeNamedXlat(val uint64, xlatName string) string {
+	table, ok := d.table(xlatName)
 	if !ok {
 		return fmt.Sprintf("%#x", val)
 	}
@@ -373,13 +383,13 @@ func decodeNamedXlat(val uint64, xlatName string) string {
 		val = uint64(uint32(val))
 	}
 	if xlatName == "fan_init_flags" {
-		return decodeFanInitFlags(val)
+		return d.decodeFanInitFlags(val)
 	}
 
 	isEnum := isEnumXlat(xlatName)
 	decoded := decodeEnumOrFlags(val, xlatName, table, isEnum)
 
-	if XlatFormat == "verbose" {
+	if d.catalog.Format() == "verbose" {
 		return verboseXlatValue(val, xlatName, decoded, isEnum)
 	}
 

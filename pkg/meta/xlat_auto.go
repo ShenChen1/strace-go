@@ -1,7 +1,7 @@
 package meta
 type XlatVal struct { Val uint64; Str string }
 type XlatTable struct { Prefix string; Entries []XlatVal }
-var XlatTables = map[string]XlatTable{
+var generatedXlatTables = map[string]XlatTable{
 	"access_modes": {
 		Prefix: "",
 		Entries: []XlatVal{
@@ -5751,7 +5751,7 @@ var XlatTables = map[string]XlatTable{
 		},
 	},
 }
-var SyscallArgXlatMap = map[string]map[string]string{
+var generatedSyscallArgXlatMap = map[string]map[string]string{
 	"accept4": {
 		"flags": "sock_type_flags",
 	},

@@ -18,12 +18,8 @@ func registerBuiltinTypeTime(r *Registry) {
 
 func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	if ctx.ScMeta.Name == "utimensat" {
-		xlatFormat := "abbrev"
-		if ctx.Opts != nil {
-			xlatFormat = ctx.Opts.XlatFormat
-		}
 		return decodeTimeSnapshot(ctx, val, enterTimeSnapshot(i, 32), func(data []byte) string {
-			return format.UtimesWithXlat(data, xlatFormat)
+			return format.UtimesWithXlat(data, xlatFormat(ctx))
 		})
 	}
 	if ctx.ScMeta.Name == "futex_wait" {
@@ -78,7 +74,9 @@ func decodeUtimbuf(ctx *Context, i int, argTyp string, val uint64) (string, bool
 }
 
 func decodeTimex(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
-	return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(i, timexSize), format.Timex)
+	return decodeTimeSnapshot(ctx, val, exitTimeSnapshot(i, timexSize), func(data []byte) string {
+		return format.TimexWithCatalog(catalogForContext(ctx), data)
+	})
 }
 
 type timeSnapshot struct {

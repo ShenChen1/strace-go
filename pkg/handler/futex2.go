@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-
-	"strace-go/pkg/meta"
 )
 
 const (
@@ -60,7 +58,7 @@ func formatFutexWaitvArray(ctx *Context, argIndex int, ptr uint64, count uint32)
 			parts = append(parts, fmt.Sprintf("... /* %#x */", ptr+uint64(off)))
 			break
 		}
-		parts = append(parts, formatFutexWaitv(data[off:off+futexWaitvSize]))
+		parts = append(parts, formatFutexWaitv(ctx, data[off:off+futexWaitvSize]))
 	}
 	if idx == limit && count > futexWaitvMax {
 		parts = append(parts, "...")
@@ -75,7 +73,7 @@ func (ctx *Context) fetchFutexWaitvData(argIndex int, size int) ([]byte, bool) {
 	return nil, false
 }
 
-func formatFutexWaitv(data []byte) string {
+func formatFutexWaitv(ctx *Context, data []byte) string {
 	val := binary.LittleEndian.Uint64(data[0:8])
 	uaddr := binary.LittleEndian.Uint64(data[8:16])
 	flags := binary.LittleEndian.Uint32(data[16:20])
@@ -89,7 +87,7 @@ func formatFutexWaitv(data []byte) string {
 	parts := []string{
 		"val=" + formatFutexHex(val),
 		"uaddr=" + uaddrText,
-		"flags=" + meta.DecodeFlags(uint64(flags), "futex2_flags"),
+		"flags=" + decodeFlags(ctx, uint64(flags), "futex2_flags"),
 	}
 	if reserved != 0 {
 		parts = append(parts, fmt.Sprintf("__reserved=%#x", reserved))

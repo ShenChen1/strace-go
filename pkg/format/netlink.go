@@ -10,8 +10,15 @@ import (
 
 // Netlink formats a netlink message or an array of netlink messages.
 func Netlink(data []byte) string {
-	if len(data) < 16 { return Buffer(data, 0, len(data)) }
-	
+	return NetlinkWithCatalog(meta.NewCatalog("abbrev"), data)
+}
+
+// NetlinkWithCatalog formats netlink flags using the session catalog.
+func NetlinkWithCatalog(catalog *meta.Catalog, data []byte) string {
+	if len(data) < 16 {
+		return Buffer(data, 0, len(data))
+	}
+
 	var msgs []string
 	curr := data
 	for len(curr) >= 16 {
@@ -22,39 +29,43 @@ func Netlink(data []byte) string {
 			flags := binary.LittleEndian.Uint16(curr[6:8])
 			seq := binary.LittleEndian.Uint32(curr[8:12])
 			pid := binary.LittleEndian.Uint32(curr[12:16])
-			
-			typeName := meta.DecodeFlags(uint64(type_), "netlink_types")
-			flagsName := meta.DecodeFlags(uint64(flags), "netlink_flags")
-			
+
+			typeName := catalog.DecodeFlags(uint64(type_), "netlink_types")
+			flagsName := catalog.DecodeFlags(uint64(flags), "netlink_flags")
+
 			msgs = append(msgs, fmt.Sprintf("{nlmsg_len=%d, nlmsg_type=%s, nlmsg_flags=%s, nlmsg_seq=%d, nlmsg_pid=%d}", len_, typeName, flagsName, seq, pid))
 			break
 		}
-		
+
 		if int(len_) > len(curr) {
 			// Partial message?
 			len_ = uint32(len(curr))
 		}
-		
+
 		msgData := curr[:len_]
 		type_ := binary.LittleEndian.Uint16(msgData[4:6])
 		flags := binary.LittleEndian.Uint16(msgData[6:8])
 		seq := binary.LittleEndian.Uint32(msgData[8:12])
 		pid := binary.LittleEndian.Uint32(msgData[12:16])
-		
-		typeName := meta.DecodeFlags(uint64(type_), "netlink_types")
-		flagsName := meta.DecodeFlags(uint64(flags), "netlink_flags")
-		
+
+		typeName := catalog.DecodeFlags(uint64(type_), "netlink_types")
+		flagsName := catalog.DecodeFlags(uint64(flags), "netlink_flags")
+
 		payload := msgData[16:]
 		payloadStr := ""
 		if len(payload) > 0 {
 			if type_ == 2 { // NLMSG_ERROR
 				if len(payload) >= 4 {
 					errVal := int32(binary.LittleEndian.Uint32(payload[0:4]))
-					errName := meta.DecodeFlags(uint64(-errVal), "errno")
-					if errVal == 0 { errName = "0" } else { errName = "-" + errName }
+					errName := catalog.DecodeFlags(uint64(-errVal), "errno")
+					if errVal == 0 {
+						errName = "0"
+					} else {
+						errName = "-" + errName
+					}
 					payloadStr = fmt.Sprintf(", {error=%s", errName)
 					if len(payload) >= 20 {
-						payloadStr += ", msg=" + Netlink(payload[4:])
+						payloadStr += ", msg=" + NetlinkWithCatalog(catalog, payload[4:])
 					} else if len(payload) > 4 {
 						payloadStr += ", msg=" + Buffer(payload[4:], 0, len(payload)-4)
 					}
@@ -71,15 +82,19 @@ func Netlink(data []byte) string {
 				payloadStr = ", " + Buffer(payload, 0, len(payload))
 			}
 		}
-		
+
 		msgs = append(msgs, fmt.Sprintf("{nlmsg_len=%d, nlmsg_type=%s, nlmsg_flags=%s, nlmsg_seq=%d, nlmsg_pid=%d}%s", len_, typeName, flagsName, seq, pid, payloadStr))
-		
+
 		// Netlink messages are aligned to 4 bytes
 		alignedLen := (len_ + 3) &^ 3
-		if int(alignedLen) >= len(curr) { break }
+		if int(alignedLen) >= len(curr) {
+			break
+		}
 		curr = curr[alignedLen:]
 	}
-	
-	if len(msgs) == 1 { return msgs[0] }
+
+	if len(msgs) == 1 {
+		return msgs[0]
+	}
 	return "[" + strings.Join(msgs, ", ") + "]"
 }

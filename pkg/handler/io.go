@@ -3,9 +3,9 @@ package handler
 import (
 	"encoding/binary"
 	"fmt"
-	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 	"strings"
+
+	"strace-go/pkg/format"
 )
 
 func registerBuiltinIo(r *Registry) {
@@ -128,7 +128,7 @@ func (h *IoHandler) handlePositionedIovecV2(ctx *Context) Result {
 		DecodeIovecArray(ctx, 1, ctx.Args[1], ctx.Args[2]),
 		h.decodeScalar(ctx, "unsigned long", "vlen", ctx.Args[2]),
 		fmt.Sprintf("%d", int64(ctx.Args[3])),
-		meta.DecodeFlags(ctx.Args[5], "rwf_flags"),
+		decodeFlags(ctx, ctx.Args[5], "rwf_flags"),
 	}}
 	addIovecHexDump(ctx, &res, 1, ctx.Args[2])
 	return res

@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 func registerBuiltinNetwork(r *Registry) {
@@ -138,7 +137,7 @@ func (h *NetworkHandler) formatNetlinkBuf(ctx *Context, val uint64) string {
 	data, readSuccess := h.networkBufferSnapshot(ctx, sz)
 
 	if readSuccess && len(data) >= 16 {
-		return format.Netlink(data)
+		return format.NetlinkWithCatalog(catalogForContext(ctx), data)
 	}
 	return fmt.Sprintf("%#x", val)
 }
@@ -320,7 +319,7 @@ func (h *NetworkHandler) formatSockopt(ctx *Context, argName string, val uint64)
 	} else if level == 270 { // SOL_NETLINK
 		xlat = "sock_netlink_options"
 	}
-	return meta.DecodeFlags(val, xlat), true
+	return decodeFlags(ctx, val, xlat), true
 }
 
 func (h *NetworkHandler) formatSockoptValAndLen(ctx *Context, i int, argName string, val uint64) (string, bool) {
@@ -393,7 +392,7 @@ func (h *NetworkHandler) formatSockoptValue(ctx *Context, direction PayloadDirec
 	if len(data) >= 4 && (section.UserLen == 4 || (isFixedIntSockopt(ctx) && section.UserLen >= 4)) {
 		value := uint64(uint32(binary.LittleEndian.Uint32(data)))
 		if int32(uint32(ctx.Args[2])) == 74 {
-			return fmt.Sprintf("[%s]", meta.DecodeFlags(value, "sockopt_txrehash_vals")), true
+			return fmt.Sprintf("[%s]", decodeFlags(ctx, value, "sockopt_txrehash_vals")), true
 		}
 		return fmt.Sprintf("[%d]", int32(value)), true
 	}
@@ -439,8 +438,8 @@ func isFixedIntSockopt(ctx *Context) bool {
 }
 
 func (h *NetworkHandler) formatFallback(ctx *Context, i int, argName, argTyp string, val uint64) string {
-	if xlatName, ok := meta.SyscallArgXlatMap[ctx.ScMeta.Name][argName]; ok {
-		return meta.DecodeFlags(val, xlatName)
+	if xlatName, ok := syscallArgXlat(ctx, ctx.ScMeta.Name, argName); ok {
+		return decodeFlags(ctx, val, xlatName)
 	}
 
 	if val == 0 && (strings.Contains(argTyp, "*") || (strings.Contains(argName, "addr") && !strings.Contains(argName, "len"))) {

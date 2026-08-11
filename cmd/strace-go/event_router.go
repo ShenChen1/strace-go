@@ -114,10 +114,11 @@ func (r *TraceEventRouter) handleLifecycle(update TraceStateUpdate) {
 
 func (r *TraceEventRouter) handleEnter(update TraceStateUpdate, statePID int) {
 	if r.json != nil {
-		r.json.HandleEnter(newSyscallEnterEventContext(
+		r.json.HandleEnter(newSyscallEnterEventContextWithCatalog(
 			update.syscallView,
 			statePID,
 			update.payloadSections,
+			r.contextDeps.catalog,
 		))
 	}
 }

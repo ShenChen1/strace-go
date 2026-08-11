@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-
-	"strace-go/pkg/meta"
 )
 
 const (
@@ -35,7 +33,7 @@ func decodeBpfObjPin(ctx *Context, data []byte, size uint32) string {
 		decodedSize = 12
 	}
 	if size >= 16 {
-		parts = append(parts, "file_flags="+meta.DecodeFlags(uint64(u32OrZero(data, 12)), "bpf_file_flags"))
+		parts = append(parts, "file_flags="+decodeFlags(ctx, uint64(u32OrZero(data, 12)), "bpf_file_flags"))
 		decodedSize = 16
 	}
 	if size >= 20 {
@@ -68,10 +66,10 @@ func decodeBpfProgAttach(ctx *Context, data []byte, size uint32) string {
 	}
 
 	parts = append(parts, fmt.Sprintf("attach_bpf_fd=%d", int32(u32OrZero(data, 4))))
-	parts = append(parts, "attach_type="+meta.DecodeFlags(uint64(attachType), "bpf_attach_type"))
+	parts = append(parts, "attach_type="+decodeFlags(ctx, uint64(attachType), "bpf_attach_type"))
 
 	attachFlags := u32OrZero(data, 12)
-	parts = append(parts, "attach_flags="+meta.DecodeFlags(uint64(attachFlags), "bpf_attach_flags"))
+	parts = append(parts, "attach_flags="+decodeFlags(ctx, uint64(attachFlags), "bpf_attach_flags"))
 	decodedSize = 16
 
 	if size >= 20 {
@@ -131,7 +129,7 @@ func decodeBpfProgTestRun(ctx *Context, data []byte, size uint32) string {
 		decodedSize = 64
 	}
 	if size >= 68 {
-		parts = append(parts, "flags="+meta.DecodeFlags(uint64(u32OrZero(data, 64)), "bpf_test_run_flags"))
+		parts = append(parts, "flags="+decodeFlags(ctx, uint64(u32OrZero(data, 64)), "bpf_test_run_flags"))
 		decodedSize = 68
 	}
 	if size >= 72 {
@@ -209,7 +207,7 @@ func decodeBpfGetFdById(ctx *Context, data []byte, size uint32, attr uint64) str
 		if flagsVal == 0xffffff27 {
 			parts = append(parts, "open_flags=0xffffff27 /* BPF_F_??? */")
 		} else {
-			parts = append(parts, "open_flags="+meta.DecodeFlags(uint64(flagsVal), "bpf_file_flags"))
+			parts = append(parts, "open_flags="+decodeFlags(ctx, uint64(flagsVal), "bpf_file_flags"))
 		}
 		decodedSize = 12
 	}
@@ -234,7 +232,7 @@ func decodeBpfEnableStats(ctx *Context, data []byte, size uint32, attr uint64) s
 	decodedSize := 0
 	parts := []string{}
 	if len(data) >= 4 {
-		parts = append(parts, "type="+meta.DecodeFlags(uint64(binary.LittleEndian.Uint32(data[0:4])), "bpf_stats_type"))
+		parts = append(parts, "type="+decodeFlags(ctx, uint64(binary.LittleEndian.Uint32(data[0:4])), "bpf_stats_type"))
 		decodedSize = 4
 	}
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
@@ -282,9 +280,9 @@ func decodeBpfProgQuery(ctx *Context, data []byte, size uint32) string {
 		parts = append(parts, fmt.Sprintf("target_fd=%d", int32(targetVal)))
 	}
 
-	parts = append(parts, "attach_type="+meta.DecodeFlags(uint64(attachType), "bpf_attach_type"))
-	parts = append(parts, "query_flags="+meta.DecodeFlags(uint64(u32OrZero(data, 8)), "bpf_query_flags"))
-	parts = append(parts, "attach_flags="+meta.DecodeFlags(uint64(u32OrZero(data, 12)), "bpf_attach_flags"))
+	parts = append(parts, "attach_type="+decodeFlags(ctx, uint64(attachType), "bpf_attach_type"))
+	parts = append(parts, "query_flags="+decodeFlags(ctx, uint64(u32OrZero(data, 8)), "bpf_query_flags"))
+	parts = append(parts, "attach_flags="+decodeFlags(ctx, uint64(u32OrZero(data, 12)), "bpf_attach_flags"))
 
 	progIds := u64OrZero(data, 16)
 	progCnt := u32OrZero(data, 24)
@@ -382,7 +380,7 @@ func decodeBpfBtfLoad(ctx *Context, data []byte, size uint32) string {
 	}
 	if size >= 40 {
 		flagsVal := u32OrZero(data, 32)
-		parts = append(parts, "btf_flags="+meta.DecodeFlags(uint64(flagsVal), "bpf_btf_flags"))
+		parts = append(parts, "btf_flags="+decodeFlags(ctx, uint64(flagsVal), "bpf_btf_flags"))
 		parts = append(parts, fmt.Sprintf("btf_token_fd=%d", int32(u32OrZero(data, 36))))
 		decodedSize = 40
 	}

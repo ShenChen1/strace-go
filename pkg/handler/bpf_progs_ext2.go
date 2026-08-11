@@ -3,8 +3,6 @@ package handler
 import (
 	"fmt"
 	"strings"
-
-	"strace-go/pkg/meta"
 )
 
 // decodeBpfTaskFdQuery decodes BPF_TASK_FD_QUERY.
@@ -20,7 +18,7 @@ func decodeBpfTaskFdQuery(ctx *Context, data []byte, size uint32) string {
 	parts = append(parts, formatPtr("buf", bufVal))
 
 	parts = append(parts, fmt.Sprintf("prog_id=%d", u32OrZero(data, 24)))
-	parts = append(parts, "fd_type="+meta.DecodeFlags(uint64(u32OrZero(data, 28)), "bpf_fd_type"))
+	parts = append(parts, "fd_type="+decodeFlags(ctx, uint64(u32OrZero(data, 28)), "bpf_fd_type"))
 
 	probeOffset := u64OrZero(data, 32)
 	if probeOffset == 0 {

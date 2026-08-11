@@ -31,7 +31,7 @@ func decodeStat(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	if !ok || len(data) < statStructSize {
 		return fmt.Sprintf("%#x", val), true
 	}
-	return format.Stat(data[:statStructSize]), true
+	return format.StatWithCatalog(catalogForContext(ctx), data[:statStructSize]), true
 }
 
 func decodeStatfs(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
@@ -45,5 +45,5 @@ func decodeStatfs(ctx *Context, i int, argTyp string, val uint64) (string, bool)
 	if !ok || len(data) < statfsStructSize {
 		return fmt.Sprintf("%#x", val), true
 	}
-	return format.Statfs(data[:statfsStructSize]), true
+	return format.StatfsWithCatalog(catalogForContext(ctx), data[:statfsStructSize]), true
 }

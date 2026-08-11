@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 const (
@@ -47,7 +46,7 @@ func (h *MsgHandler) Handle(ctx *Context) Result {
 	res := Result{ArgParts: []string{
 		h.decodeScalar(ctx, "int", "fd", ctx.Args[0]),
 		h.formatMsghdr(ctx),
-		meta.DecodeFlags(ctx.Args[2], "msg_flags"),
+		decodeFlags(ctx, ctx.Args[2], "msg_flags"),
 	}}
 	if snap, ok := msghdrSnapshotForFormatting(ctx); ok {
 		addIovecHexDump(ctx, &res, 1, snap.iovLen)
@@ -60,7 +59,7 @@ func (h *MsgHandler) handleMmsg(ctx *Context) Result {
 		h.decodeScalar(ctx, "int", "fd", ctx.Args[0]),
 		h.formatMmsghdrArray(ctx),
 		h.decodeScalar(ctx, "unsigned int", "vlen", ctx.Args[2]),
-		meta.DecodeFlags(ctx.Args[3], "msg_flags"),
+		decodeFlags(ctx, ctx.Args[3], "msg_flags"),
 	}}
 	if ctx.SysName == "recvmmsg" {
 		res.ArgParts = append(res.ArgParts, h.decodeMmsgTimeout(ctx))

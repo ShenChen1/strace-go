@@ -3,8 +3,6 @@ package handler
 import (
 	"encoding/binary"
 	"fmt"
-
-	"strace-go/pkg/meta"
 )
 
 func registerBuiltinPrctl(r *Registry) {
@@ -22,7 +20,7 @@ const (
 func (h *PrctlHandler) Handle(ctx *Context) Result {
 	res := Result{}
 	option := int32(ctx.Args[0])
-	res.ArgParts = append(res.ArgParts, meta.DecodeFlags(uint64(option), "prctl_options"))
+	res.ArgParts = append(res.ArgParts, decodeFlags(ctx, uint64(option), "prctl_options"))
 
 	switch option {
 	case 15: // PR_SET_NAME
@@ -39,7 +37,7 @@ func (h *PrctlHandler) Handle(ctx *Context) Result {
 		if ctx.Ret >= 0 && ctx.Args[1] != 0 {
 			data, ok := prctlUint32OutPayload(ctx)
 			if ok {
-				res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%s]", meta.DecodeFlags(uint64(binary.LittleEndian.Uint32(data)), "signalnames")))
+				res.ArgParts = append(res.ArgParts, fmt.Sprintf("[%s]", decodeFlags(ctx, uint64(binary.LittleEndian.Uint32(data)), "signalnames")))
 			} else {
 				res.ArgParts = append(res.ArgParts, formatPtrFallback(ctx.Args[1]))
 			}
@@ -48,7 +46,7 @@ func (h *PrctlHandler) Handle(ctx *Context) Result {
 		}
 		return res
 	case 2: // PR_SET_PDEATHSIG
-		res.ArgParts = append(res.ArgParts, meta.DecodeFlags(ctx.Args[1], "signalnames"))
+		res.ArgParts = append(res.ArgParts, decodeFlags(ctx, ctx.Args[1], "signalnames"))
 		return res
 	case 9, 11, 19, 37, 5, 25: // PR_GET_FPEMU, PR_GET_FPEXC, PR_GET_ENDIAN, PR_GET_CHILD_SUBREAPER, PR_GET_UNALIGN, PR_GET_TSC
 		if ctx.Ret >= 0 && ctx.Args[1] != 0 {

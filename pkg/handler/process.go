@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-
-	"strace-go/pkg/meta"
 )
 
 func registerBuiltinProcess(r *Registry) {
@@ -46,7 +44,7 @@ func (h *ProcessHandler) formatClone3(ctx *Context, uargs, size uint64) string {
 		data = data[:capLen]
 	}
 
-	parts := h.decodeCloneArgsCore(data, size)
+	parts := h.decodeCloneArgsCore(ctx, data, size)
 
 	if size >= 80 {
 		parts = append(parts, h.decodeCloneArgsSetTid(ctx, data, size)...)
@@ -74,11 +72,11 @@ func (h *ProcessHandler) u64OrZero(data []byte, off int) uint64 {
 	return 0
 }
 
-func (h *ProcessHandler) decodeCloneArgsCore(data []byte, size uint64) []string {
+func (h *ProcessHandler) decodeCloneArgsCore(ctx *Context, data []byte, size uint64) []string {
 	var parts []string
 	flags := h.u64OrZero(data, 0)
 	if size >= 8 {
-		parts = append(parts, "flags="+meta.DecodeFlags(flags, "clone3_flags"))
+		parts = append(parts, "flags="+decodeFlags(ctx, flags, "clone3_flags"))
 	}
 	if size >= 16 {
 		pfd := h.u64OrZero(data, 8)
@@ -103,7 +101,7 @@ func (h *ProcessHandler) decodeCloneArgsCore(data []byte, size uint64) []string 
 		if sig == 0 {
 			parts = append(parts, "exit_signal=0")
 		} else {
-			parts = append(parts, fmt.Sprintf("exit_signal=%s", meta.DecodeFlags(sig, "signalnames")))
+			parts = append(parts, fmt.Sprintf("exit_signal=%s", decodeFlags(ctx, sig, "signalnames")))
 		}
 	}
 	if size >= 48 {

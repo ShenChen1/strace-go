@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-
-	"strace-go/pkg/meta"
 )
 
 // decodeBpfIterCreate decodes BPF_ITER_CREATE.
@@ -57,8 +55,8 @@ func decodeBpfLinkCreate(ctx *Context, data []byte, size uint32) string {
 	} else {
 		parts = append(parts, fmt.Sprintf("target_fd=%d", int32(targetVal)))
 	}
-	parts = append(parts, "attach_type="+meta.DecodeFlags(uint64(attachType), "bpf_attach_type"))
-	parts = append(parts, "flags="+meta.DecodeFlags(uint64(flagsVal), "bpf_attach_flags"))
+	parts = append(parts, "attach_type="+decodeFlags(ctx, uint64(attachType), "bpf_attach_type"))
+	parts = append(parts, "flags="+decodeFlags(ctx, uint64(flagsVal), "bpf_attach_flags"))
 	decodedSize := 16
 
 	if size >= 20 {
@@ -94,12 +92,12 @@ func decodeLinkCreateUnion(ctx *Context, data []byte, size, attachType, flags ui
 		*parts = append(*parts, formatKprobeMulti(ctx, u32OrZero(data, 16), u32OrZero(data, 20), u64OrZero(data, 24), u64OrZero(data, 32), u64OrZero(data, 40)))
 		return 48
 	case 45: // BPF_NETFILTER
-		*parts = append(*parts, fmt.Sprintf("netfilter={pf=%d, hooknum=%d, priority=%d, flags=%s}", u32OrZero(data, 16), u32OrZero(data, 20), int32(u32OrZero(data, 24)), meta.DecodeFlags(uint64(u32OrZero(data, 28)), "bpf_netfilter_ip_flags")))
+		*parts = append(*parts, fmt.Sprintf("netfilter={pf=%d, hooknum=%d, priority=%d, flags=%s}", u32OrZero(data, 16), u32OrZero(data, 20), int32(u32OrZero(data, 24)), decodeFlags(ctx, uint64(u32OrZero(data, 28)), "bpf_netfilter_ip_flags")))
 		return 32
 	case 46, 47: // BPF_TCX_INGRESS, BPF_TCX_EGRESS
 		return decodeTcxOrNetkitStruct(data, flags, parts, "tcx")
 	case 48: // BPF_TRACE_UPROBE_MULTI
-		return decodeUprobeMulti(data, parts)
+		return decodeUprobeMulti(ctx, data, parts)
 	case 54, 55: // BPF_NETKIT_PRIMARY, BPF_NETKIT_PEER
 		return decodeTcxOrNetkitStruct(data, flags, parts, "netkit")
 	default:
@@ -140,7 +138,7 @@ func formatKprobeMulti(ctx *Context, kflags, cnt uint32, syms, addrs, cookies ui
 	if kflags == 0 {
 		kparts = append(kparts, "flags=0")
 	} else {
-		kparts = append(kparts, "flags="+meta.DecodeFlags(uint64(kflags), "bpf_kprobe_multi_flags"))
+		kparts = append(kparts, "flags="+decodeFlags(ctx, uint64(kflags), "bpf_kprobe_multi_flags"))
 	}
 	kparts = append(kparts, fmt.Sprintf("cnt=%d", cnt))
 
@@ -181,7 +179,7 @@ func decodeTcxOrNetkitStruct(data []byte, flags uint32, parts *[]string, name st
 
 // decodeUprobeMulti decodes uprobe_multi struct in BPF_LINK_CREATE.
 // Impact: Formats path, offsets, ref_ctr_offsets, cookies, cnt, flags, and pid.
-func decodeUprobeMulti(data []byte, parts *[]string) int {
+func decodeUprobeMulti(ctx *Context, data []byte, parts *[]string) int {
 	var up []string
 	up = append(up, formatPtr("path", u64OrZero(data, 16)))
 	up = append(up, formatPtr("offsets", u64OrZero(data, 24)))
@@ -192,7 +190,7 @@ func decodeUprobeMulti(data []byte, parts *[]string) int {
 	if upFlags == 0 {
 		up = append(up, "flags=0")
 	} else {
-		up = append(up, "flags="+meta.DecodeFlags(uint64(upFlags), "bpf_uprobe_multi_flags"))
+		up = append(up, "flags="+decodeFlags(ctx, uint64(upFlags), "bpf_uprobe_multi_flags"))
 	}
 	up = append(up, fmt.Sprintf("pid=%d", u32OrZero(data, 56)))
 	*parts = append(*parts, "uprobe_multi={"+strings.Join(up, ", ")+"}")
@@ -215,7 +213,7 @@ func decodeBpfLinkUpdate(ctx *Context, data []byte, size uint32) string {
 	flagsVal := uint32(0)
 	if len(data) >= 12 {
 		flagsVal = u32OrZero(data, 8)
-		parts = append(parts, "flags="+meta.DecodeFlags(uint64(flagsVal), "bpf_attach_flags"))
+		parts = append(parts, "flags="+decodeFlags(ctx, uint64(flagsVal), "bpf_attach_flags"))
 		decodedSize = 12
 	}
 	if len(data) >= 16 && (flagsVal&4) != 0 {

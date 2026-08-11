@@ -35,7 +35,6 @@ const (
 // runtime config and trace targets through named helpers, and spawns the session.
 func main() {
 	opts := cli.ParseArgs(os.Args[1:])
-	meta.XlatFormat = opts.XlatFormat
 
 	handlePrelude(opts)
 	opts.TracePaths = expandTracePathSet(opts.TracePaths)
@@ -94,6 +93,7 @@ func main() {
 		Events:        events,
 		TargetPID:     targetPid,
 		Opts:          opts,
+		Catalog:       metaCatalogForOptions(opts),
 		Decoder:       decoder,
 		FDState:       fdState,
 		OutWriter:     output,
@@ -107,6 +107,13 @@ func main() {
 	if err := session.run(); err != nil {
 		log.Fatalf("failed to finalize trace session: %v", err)
 	}
+}
+
+func metaCatalogForOptions(opts *cli.Options) *meta.Catalog {
+	if opts == nil {
+		return meta.NewCatalog("abbrev")
+	}
+	return meta.NewCatalog(opts.XlatFormat)
 }
 
 // handlePrelude handles help/version requests and rejects sessions without targets.

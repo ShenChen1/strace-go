@@ -164,10 +164,11 @@ func TestQuotaCommandVerboseWrapsSymbolicQcmd(t *testing.T) {
 
 func TestQuotaFlagsOnlyAnnotateFullyUnknownValues(t *testing.T) {
 	const unknown = uint32(0x20)
-	if got := quotaFlagNames(1|unknown, "if_dqinfo_flags", "DQF_???"); got != "DQF_ROOT_SQUASH|0x20" {
+	ctx := testQuotaContext("quotactl", [6]uint64{}, 0)
+	if got := quotaFlagNames(ctx, 1|unknown, "if_dqinfo_flags", "DQF_???"); got != "DQF_ROOT_SQUASH|0x20" {
 		t.Fatalf("mixed quota flags = %q", got)
 	}
-	if got := quotaFlagNames(unknown, "if_dqinfo_flags", "DQF_???"); got != "0x20 /* DQF_??? */" {
+	if got := quotaFlagNames(ctx, unknown, "if_dqinfo_flags", "DQF_???"); got != "0x20 /* DQF_??? */" {
 		t.Fatalf("unknown quota flags = %q", got)
 	}
 }

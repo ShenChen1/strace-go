@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-
-	"strace-go/pkg/meta"
 )
 
 // translateIfindex resolves raw ifindex into if_nametoindex("name") format or raw decimal string.
@@ -41,7 +39,7 @@ func (h *BpfHandler) Handle(ctx *Context) Result {
 	attr := ctx.Args[1]
 	size := uint32(ctx.Args[2])
 
-	cmdStr := meta.DecodeFlags(cmd, "bpf_commands")
+	cmdStr := decodeFlags(ctx, cmd, "bpf_commands")
 	res.ArgParts = append(res.ArgParts, cmdStr)
 
 	var data []byte

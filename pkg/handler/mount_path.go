@@ -1,7 +1,5 @@
 package handler
 
-import "strace-go/pkg/meta"
-
 func registerBuiltinMountPath(r *Registry) {
 	r.Register("open_tree", &OpenTreeHandler{})
 	r.Register("move_mount", &MoveMountHandler{})
@@ -24,6 +22,6 @@ func (h *MoveMountHandler) Handle(ctx *Context) Result {
 func formatMountPathSyscall(ctx *Context, scalarArgs int, flagsArg int, xlat string) Result {
 	res := (&DefaultHandler{}).HandleWithCount(ctx, scalarArgs)
 	flags := uint64(uint32(ctx.Args[flagsArg]))
-	res.ArgParts = append(res.ArgParts, meta.DecodeFlags(flags, xlat))
+	res.ArgParts = append(res.ArgParts, decodeFlags(ctx, flags, xlat))
 	return res
 }

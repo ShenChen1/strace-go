@@ -133,12 +133,9 @@ func TestDecodeOpenHowPrintsZeroModeWithModeFlags(t *testing.T) {
 }
 
 func TestDecodeOpenHowRawXlatUsesFull64BitValues(t *testing.T) {
-	old := meta.XlatFormat
-	meta.XlatFormat = "raw"
-	defer func() { meta.XlatFormat = old }()
-
 	decoder := event.NewDecoder()
 	ctx := openHowContext(decoder, uint64(openHowMinSize))
+	ctx.Meta = meta.NewCatalog("raw")
 	ctx.PayloadSections = []PayloadSection{
 		{
 			Kind:      PayloadKindStruct,
@@ -157,12 +154,9 @@ func TestDecodeOpenHowRawXlatUsesFull64BitValues(t *testing.T) {
 }
 
 func TestDecodeOpenHowVerboseXlatDoesNotWrapUnknownComments(t *testing.T) {
-	old := meta.XlatFormat
-	meta.XlatFormat = "verbose"
-	defer func() { meta.XlatFormat = old }()
-
 	decoder := event.NewDecoder()
 	ctx := openHowContext(decoder, uint64(openHowMinSize))
+	ctx.Meta = meta.NewCatalog("verbose")
 	ctx.PayloadSections = []PayloadSection{
 		{
 			Kind:      PayloadKindStruct,
@@ -197,6 +191,7 @@ func openHowContext(decoder *event.Decoder, size uint64) *Context {
 		Args:          [6]uint64{^uint64(99), 0x1000, 0x2000, size},
 		ProbeRetEnter: -1,
 		Decoder:       decoder,
+		Meta:          meta.NewCatalog("abbrev"),
 	}
 }
 
