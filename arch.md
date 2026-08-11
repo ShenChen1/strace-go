@@ -2588,3 +2588,36 @@ ABI 与状态契约：
 本阶段只收口 router 的输出依赖，不改变单消费者状态机和纯 eBPF 事件事实源。
 
 实际验收结果：新增 `lifecycleEventSink`、`syscallEnterSink`、`syscallExitSink`，router 不再声明三个具体输出组件；fake sink 覆盖 lifecycle/enter/exit/unfinished dispatch，composition identity 仍通过。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，746.82 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。
+
+### 14.49 SyscallExitPipeline 内部输出端口隔离（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.48 已让 `TraceEventRouter` 通过 lifecycle/enter/exit sink dispatch，但 exit pipeline 内部仍保存 `*SyscallJSONOutput`、`*ExitSyscallOutput`、`*SyscallHandlerRunner` 和 `*SyscallTextOutput`。
+- Problem：pipeline 是事件编排边界，却仍绑定 JSON/text/handler 的具体实现；测试和未来输出替换会被迫穿透 pipeline 的实现字段，编排职责与渲染职责没有完全分开。
+- Goal：为 debug/decoded JSON、exit syscall、handler runner、text output 定义最小 port；只保留当前 pipeline 所需方法，保持 defer cleanup/offset、summary、exit special case、JSON 优先于 text 的顺序完全不变。
+- Non-goals：不改变 handler 解码、JSON/text 字节输出、exit status、FD state effect、unfinished 过滤、BPF ABI、事件顺序或错误处理；不增加 goroutine、锁、timer、procfs、ptrace 或 `process_vm_readv`。
+- Constraints：真实 session 仍只创建现有 concrete component 实例并通过 deps 注入；nil port 继续表示该输出分支未配置；port 不暴露内部 writer、state map 或 mutable component。
+
+方案比较：
+
+1. 保留 pipeline 的 concrete 字段：改动最小，但编排层继续依赖所有输出实现，拒绝。
+2. 一个万能 `pipelineComponent` 接口覆盖全部 Handle/Decode 方法：字段少，但方法集合混杂且违反职责隔离，拒绝。
+3. 四个最小 port：JSON output、exit output、handler runner、text output；依赖明确、测试可用 fake 替换，选择该方案。
+
+状态契约：
+
+- `syscallJSONOutputPort` 只提供 `HandleDebugRaw` 和 `HandleDecoded`；pipeline 不知道 JSON writer。
+- `exitSyscallOutputPort` 只提供一个 bool-returning `Handle`；exit syscall 自己拥有特殊输出和状态队列逻辑。
+- `syscallHandlerRunnerPort` 提供完整 exit handler 和 unfinished decode 两个动作；`syscallTextOutputPort` 提供普通/unfinished text output 与 unfinished 能力判断。
+- pipeline 的事件消费仍是单 Goroutine；`defer p.cleanup` 与 `defer p.updateOffsets` 的执行顺序保持不变。
+
+测试与验收：
+
+- 增加 port compile assertions/source gate，禁止 pipeline 声明四个 concrete output pointer。
+- 保留已有 pipeline 顺序测试，新增 fake port 构造测试验证 nil 分支和 unfinished port 接线。
+- 随后跑 Go/race/vet/build、eBPF semantic/perf、small 和 upstream reference，并检查 tracer/BPF pin 残留。
+
+本阶段只收口 pipeline 的组件依赖，不改变输出语义或纯 eBPF 事件事实源。
+
+实际验收结果：新增 `syscallJSONOutputPort`、`exitSyscallOutputPort`、`syscallHandlerRunnerPort`、`syscallTextOutputPort`，pipeline 不再声明四个 concrete output pointer；新增 fake port、compile assertion 和源码 gate。focused 测试发现并修复了 typed-nil `*SyscallJSONOutput` 转 interface 后导致的 nil fixture panic，测试 helper 已改为直接接收 port。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，734.25 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。

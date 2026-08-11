@@ -7,19 +7,19 @@ import (
 
 type SyscallExitPipeline struct {
 	opts    *cli.Options
-	json    *SyscallJSONOutput
-	exit    *ExitSyscallOutput
-	runner  *SyscallHandlerRunner
-	text    *SyscallTextOutput
+	json    syscallJSONOutputPort
+	exit    exitSyscallOutputPort
+	runner  syscallHandlerRunnerPort
+	text    syscallTextOutputPort
 	effects SyscallExitEffects
 }
 
 type SyscallExitPipelineDeps struct {
 	Opts    *cli.Options
-	JSON    *SyscallJSONOutput
-	Exit    *ExitSyscallOutput
-	Runner  *SyscallHandlerRunner
-	Text    *SyscallTextOutput
+	JSON    syscallJSONOutputPort
+	Exit    exitSyscallOutputPort
+	Runner  syscallHandlerRunnerPort
+	Text    syscallTextOutputPort
 	Effects SyscallExitEffects
 }
 

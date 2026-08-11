@@ -29,7 +29,7 @@ func (e *fakeSyscallExitEffects) CleanupClosedFD(syscallEventContext) {
 	e.calls = append(e.calls, "cleanup")
 }
 
-func newExitPipelineTestState(opts *cli.Options, runner *SyscallHandlerRunner, json *SyscallJSONOutput) *exitPipelineTestState {
+func newExitPipelineTestState(opts *cli.Options, runner *SyscallHandlerRunner, json syscallJSONOutputPort) *exitPipelineTestState {
 	state := &exitPipelineTestState{effects: &fakeSyscallExitEffects{}}
 	state.pipeline = newSyscallExitPipeline(SyscallExitPipelineDeps{
 		Opts:    opts,
