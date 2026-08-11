@@ -2653,3 +2653,35 @@ ABI 与状态契约：
 本阶段只收口 FDStateStore 的输入 ownership，不改变纯 eBPF 事件事实源或状态更新顺序。
 
 实际验收结果：`newFDStateStore`、`newFDStateStoreFromMaps` 和 seed 构造均在边界复制 paths/offsets；事件 fixture 已改为通过 store reader 验证，不再依赖外部 map alias。focused ownership/FD-state 回归通过；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过。`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，748.16 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。
+
+### 14.51 CWD state mutation 移回 FDState owner（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.46 已将 FD state 写入拆为 mutation port，但 `updateCwdFDMapFromView` 仍调用 `pkg/handler.UpdateCwd`/`UpdateCwdByFd`，把 `map[string]string` 直接传入 handler 包；这条路径只在 `FDStateStore.ApplyFDState` 内调用，却让 handler 层拥有绕过 owner 的 map mutation API。
+- Problem：handler 可以在未来被其它输出或测试复用时直接改长期 cwd/path 状态，破坏“单一 state owner、单一事件写入口”契约；map alias 也会让 ownership 与路径归一化逻辑混在不同 package。
+- Goal：CWD 更新、相对路径归一化和 fchdir FD 查找全部留在 `cmd/strace-go` 的 FD state 写路径；`pkg/handler` 只保留无状态格式化/解码能力，不再暴露 map mutator。
+- Non-goals：不改变 chdir/fchdir 成功/失败语义、路径归一化结果、FD/path event-sourced map、BPF ABI、procfs/ptrace 边界或事件顺序；不引入新的 state owner、锁或每事件全量复制。
+- Constraints：移动实现必须保持现有 `CleanPath` 行为；CWD 变更仍只在 `FDStateStore.ApplyFDState` 的单消费者事件路径发生；`event_utils.go` 继续保持不超过 500 LOC。
+
+方案比较：
+
+1. 保留 handler map mutator：改动最小，但 handler 继续拥有长期 state 写能力，拒绝。
+2. 向 handler 注入 `FDStateStore`/CWD service：可以隐藏 map，但把状态 owner 依赖反向带入格式化层，拒绝。
+3. 将纯路径归一化和 CWD transition helper 移到 `cmd/strace-go` 的 FD state 文件，并删除 handler mutator：写权限留在 state package，变更局部且不增加热路径复制，选择该方案。
+
+状态契约：
+
+- `updateCwdFDMapFromView` 继续接收 store 内部 map，但只能由 `FDStateStore.ApplyFDState` 的 Go state owner 调用；handler package 不再接收该 map。
+- 相对 `chdir` 以当前 event-sourced cwd 为 base；绝对路径和 `fchdir` 的 FD path 仍按原有规则更新，失败返回、NULL、裸指针文本不改变 cwd。
+- 删除 `pkg/handler/decode_scalar_utils.go` 中仅服务于 map mutation 的导出 API；无状态 path normalization 也不再作为 handler runtime API 暴露。
+
+测试与验收：
+
+- 新增 chdir/fchdir 成功与失败回归，覆盖绝对路径、相对路径和 fd 查找。
+- 新增源码 gate，确认 handler package 不再包含 CWD map mutator，`event_utils.go` 不调用 handler mutation API。
+- 随后跑 focused Go、全量 Go/race/vet/build、eBPF semantic/perf、small 和 upstream reference，并检查 tracer/BPF pin 残留。
+
+本阶段只收口 CWD mutation ownership，不改变纯 eBPF 事件事实源、路径快照时点或输出契约。
+
+实际验收结果：CWD path normalization、chdir/fchdir state transition 已移至 `cmd/strace-go/fd_cwd_state.go`，`pkg/handler/decode_scalar_utils.go` 及其 map mutator 已删除，`event_utils.go` 降至 473 LOC；新增成功/失败回归和 handler/source gate。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过。`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，740.36 events/s；small 首次运行出现一次 `symlinkat.gen.test` 裸指针 exact diff，focused 重跑和随后完整 small 重跑均为 23 PASS，确认是偶发观察窗口而非稳定回归；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。

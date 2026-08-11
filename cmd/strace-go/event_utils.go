@@ -244,19 +244,6 @@ func netlinkSockaddrPayload(src fdStateSource, scMeta meta.Syscall) ([]byte, boo
 	return nil, false
 }
 
-func updateCwdFDMapFromView(src fdStateSource, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {
-	view := src.view
-	if !view.valid {
-		return
-	}
-	if scMeta.Name == "chdir" && view.ret == 0 && pathText != "" && !strings.HasPrefix(pathText, "0x") && pathText != "NULL" {
-		handler.UpdateCwd(targetPid, pathText, fdMap)
-	}
-	if scMeta.Name == "fchdir" && view.ret == 0 {
-		handler.UpdateCwdByFd(targetPid, int32(view.args[0]), fdMap)
-	}
-}
-
 func rememberFDTarget(targetPid int, fd int32, target string, fdMap map[string]string) {
 	key := fmt.Sprintf("%d:%d", targetPid, fd)
 	fdMap[key] = target
