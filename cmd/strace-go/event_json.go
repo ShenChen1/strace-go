@@ -90,6 +90,7 @@ type jsonStatsEvent struct {
 	PendingUpdateFail      uint64 `json:"pending_update_fail"`
 	OrphanExit             uint64 `json:"orphan_exit"`
 	PendingMismatch        uint64 `json:"pending_mismatch"`
+	LifecycleMapUpdateFail uint64 `json:"lifecycle_map_update_fail"`
 	Available              bool   `json:"available"`
 	Error                  string `json:"error,omitempty"`
 }
@@ -143,6 +144,7 @@ func newJSONStatsEvent(stats bpfRuntimeStats) jsonStatsEvent {
 		PendingUpdateFail:      stats.PendingUpdateFail,
 		OrphanExit:             stats.OrphanExit,
 		PendingMismatch:        stats.PendingMismatch,
+		LifecycleMapUpdateFail: stats.LifecycleMapUpdateFail,
 		Available:              stats.Available,
 		Error:                  stats.Error,
 	}

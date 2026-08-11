@@ -424,6 +424,7 @@ def print_semantic_summary(context, filter_event_count):
     print(f"=> eBPF pending update failures: {stats.get('pending_update_fail')}")
     print(f"=> eBPF orphan exits: {stats.get('orphan_exit')}")
     print(f"=> eBPF pending mismatches: {stats.get('pending_mismatch')}")
+    print(f"=> eBPF lifecycle map update failures: {stats.get('lifecycle_map_update_fail')}")
     print(f"=> eBPF write-only events: {filter_event_count}")
 
 
@@ -498,5 +499,6 @@ def print_perf_summary(capture):
     print(f"payload_truncated_events: {stats.get('payload_truncated_events')}")
     print(f"orphan_exit: {stats.get('orphan_exit')}")
     print(f"pending_mismatch: {stats.get('pending_mismatch')}")
+    print(f"lifecycle_map_update_fail: {stats.get('lifecycle_map_update_fail')}")
     if capture.elapsed > 0:
         print(f"events_per_sec: {len(capture.exit_events) / capture.elapsed:.2f}")

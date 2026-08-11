@@ -35,6 +35,7 @@ def valid_stats_event(event):
         "pending_update_fail",
         "orphan_exit",
         "pending_mismatch",
+        "lifecycle_map_update_fail",
     )
     return event.get("available") is True and all(
         isinstance(event.get(key), int) and event.get(key) >= 0 for key in keys
@@ -53,6 +54,7 @@ def check_semantic_stats(stats_events, failures):
     require(stats.get("pending_mismatch", 0) == 0, failures, "normal semantic fixture reported pending syscall mismatch")
     require(stats.get("pending_update_fail", 0) == 0, failures, "normal semantic fixture reported pending map update failure")
     require(stats.get("orphan_exit", 0) == 0, failures, "normal semantic fixture reported orphan exit")
+    require(stats.get("lifecycle_map_update_fail", 0) == 0, failures, "normal semantic fixture reported lifecycle map update failure")
 
 
 def check_main_capture(context, failures):
@@ -242,7 +244,7 @@ def check_mount_query(context, failures):
     require(len(capture.stats_events) == 1 and valid_stats_event(capture.stats_events[0]), failures, "mount-query stats event missing")
     error_counters = (
         "ringbuf_reserve_fail", "ringbuf_copy_fail", "pending_update_fail",
-        "orphan_exit", "pending_mismatch",
+        "orphan_exit", "pending_mismatch", "lifecycle_map_update_fail",
     )
     clean_stats = capture.stats_events and all(
         capture.stats_events[0].get(key, 1) == 0 for key in error_counters
@@ -286,7 +288,7 @@ def check_mount_path_capture(capture, failures, label, snapshot_event_type):
     require(len(capture.stats_events) == 1 and valid_stats_event(capture.stats_events[0]), failures, f"{label} stats event missing")
     error_counters = (
         "ringbuf_reserve_fail", "ringbuf_copy_fail", "pending_update_fail",
-        "orphan_exit", "pending_mismatch",
+        "orphan_exit", "pending_mismatch", "lifecycle_map_update_fail",
     )
     clean_stats = capture.stats_events and all(
         capture.stats_events[0].get(key, 1) == 0 for key in error_counters
@@ -329,7 +331,7 @@ def check_dirent(context, failures):
     require(len(capture.stats_events) == 1 and valid_stats_event(capture.stats_events[0]), failures, "dirent stats event missing")
     error_counters = (
         "ringbuf_reserve_fail", "ringbuf_copy_fail", "pending_update_fail",
-        "orphan_exit", "pending_mismatch",
+        "orphan_exit", "pending_mismatch", "lifecycle_map_update_fail",
     )
     clean_stats = capture.stats_events and all(
         capture.stats_events[0].get(key, 1) == 0 for key in error_counters
@@ -364,7 +366,7 @@ def check_mmsg(context, failures):
     require(len(capture.stats_events) == 1 and valid_stats_event(capture.stats_events[0]), failures, "mmsg stats event missing")
     error_counters = (
         "ringbuf_reserve_fail", "ringbuf_copy_fail", "pending_update_fail",
-        "orphan_exit", "pending_mismatch",
+        "orphan_exit", "pending_mismatch", "lifecycle_map_update_fail",
     )
     clean_stats = capture.stats_events and all(
         capture.stats_events[0].get(key, 1) == 0 for key in error_counters

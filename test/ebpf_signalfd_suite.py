@@ -154,7 +154,7 @@ def run_signalfd_semantic(wrapper, project_root):
         failures.append("signalfd failure exits missing")
     if any(has_fd_state(event) for event in failed):
         failures.append("failed signalfd call emitted FD_STATE")
-    if stats and any(stats[0].get(key, 0) != 0 for key in ("orphan_exit", "pending_mismatch")):
+    if stats and any(stats[0].get(key, 0) != 0 for key in ("orphan_exit", "pending_mismatch", "lifecycle_map_update_fail")):
         failures.append("signalfd fixture reported pending/orphan errors")
     print(f"=> eBPF signalfd semantic events: {len(events)}")
     print(f"=> eBPF signalfd failure exits: {len(failed)}")

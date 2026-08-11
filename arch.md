@@ -2847,3 +2847,35 @@ ABI 与状态契约：
 本阶段只修复初始 fork arm 的 owner 竞态，不改变纯 eBPF 事件事实源或用户态输出契约。
 
 实际验收结果：`trace_sched_process_exec` 现在只在当前 TID 存在 `pre_exec_map` owner 标记时删除该标记并清零 `arm_fork_map`；普通 tracked exec 不再影响其它目标的 initial-fork arm。新增 source gate 先验证失败，再在修复后通过；BPF 对象重新编译并嵌入最终二进制，生成的 Go wrapper 与已跟踪 wrapper 字节一致。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；新对象下 `ebpf-semantic` 为 201 个事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，738.05 events/s；`small` 为 23 PASS；完整 `more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer/BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
+
+### 14.57 生命周期 map 更新错误可观测与初始 child 状态回滚（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：BPF 侧在 fork、exec 和 terminating syscall 路径写入 `filter_map`、`pre_exec_map`、`pending_exec_map`、`main_exited_map` 和 `arm_fork_map`；pending syscall 写入已有 `pending_update_fail` 计数，但 lifecycle/filter map 更新大多忽略返回值。
+- Problem：map 达到上限或更新失败时，初始 child 可能只写入 filter 或只写入 pre-exec 状态，随后出现漏追踪、错误抑制或 stale owner；用户态没有诊断字段区分这种状态初始化失败。
+- Goal：所有 BPF lifecycle/filter map update 检查返回值并递增 `lifecycle_map_update_fail`；初始 child 的 filter/pre-exec 安装采用成对提交，第二步失败时删除第一步，避免半初始化状态；继续保持现有 bounded map 类型和事件流。
+- Non-goals：不修改 Go 配置 map 写入、不改 BPF map 容量或 ABI 语义、不引入 LRU/定时器/锁/procfs/ptrace/`process_vm_readv`，不把正常 payload 截断计入错误。
+- Constraints：删除操作的 `ENOENT` 不作为更新失败；initial child 只有两张 map 都成功时才视为 armed；follow-forks filter 失败只影响该 child 并可由 stats 观察；JSON/text stats 字段必须保持稳定且普通 workload 为零。
+
+方案比较：
+
+1. 继续忽略 map update 返回值：代码最少，但 map 满会静默改变追踪语义，拒绝。
+2. 所有 map 改成 LRU：有界但会静默淘汰活跃 task，造成更隐蔽的漏追踪，拒绝。
+3. 检查更新、记录统一计数，并对 initial child 做失败回滚：不改变 map 类型，能保留失败证据并避免半状态，选择该方案。
+
+状态契约：
+
+- `lifecycle_map_update_fail` 统计 BPF lifecycle/filter state update 失败，不统计 Go 写入 config/filter 的用户态错误，也不统计 map delete 的“键不存在”。
+- armed child 的 `filter_map[child]` 和 `pre_exec_map[child]` 必须同时成功；pre-exec 更新失败时删除已成功的 filter entry。
+- follow-forks child、leader exit marker、non-leader exec relation 和 arm 清理的更新失败都保留原事件路径，但必须增加诊断计数。
+- stats 在 JSON 和 text diagnostic 中可见；正常 semantic/perf workload 计数为零。
+
+测试与验收：
+
+- 新增 source gate，先锁定所有 lifecycle/filter update 的返回值检查、initial child rollback 和计数 helper。
+- 扩展 stats ABI、Go 聚合、JSON/text 输出和 Python semantic oracle；运行 translation unit/verifier、Go/race/vet/build、ebpf semantic/perf、small、more 和 upstream reference，并检查无残留 tracer/BPF pin。
+
+本阶段只补 lifecycle/filter map 的错误可观测性和初始 child 原子状态，不改变纯 eBPF 事件事实源或用户态输出契约。
+
+实际验收结果：新增 `lifecycle_map_update_fail` ABI/stats 字段；fork 初始 child 的 `filter_map`/`pre_exec_map` 更新改为成对检查，pre-exec 更新失败会回滚 filter；follow-forks、terminating、非 leader exec relation 和 arm 清理更新均检查返回值。Go 聚合、JSON stats、text diagnostic 和 Python semantic oracle 已同步。source gate 先验证失败，再在修复后通过；BPF 对象和两个 bpf2go wrapper 已重新生成。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；新对象下 `ebpf-semantic` 为 201 个事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，742.89 events/s；`small` 为 23 PASS；完整 `more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer/BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。

@@ -100,6 +100,14 @@ static __always_inline void record_pending_update_fail(void)
     }
 }
 
+static __always_inline void record_lifecycle_map_update_fail(void)
+{
+    struct bpf_stats *stats = lookup_stats();
+    if (stats) {
+        stats->lifecycle_map_update_fail++;
+    }
+}
+
 static __always_inline void record_orphan_exit(void)
 {
     struct bpf_stats *stats = lookup_stats();

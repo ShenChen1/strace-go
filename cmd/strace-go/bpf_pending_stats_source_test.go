@@ -32,6 +32,46 @@ func TestBPFStatsHasPendingUpdateFailCounter(t *testing.T) {
 	}
 }
 
+func TestBPFTrackedMapUpdatesAreChecked(t *testing.T) {
+	src := loadBPFSources(t)
+	if !strings.Contains(src.straceSource, "u64 lifecycle_map_update_fail;") {
+		t.Fatal("bpf/strace.c bpf_stats missing lifecycle map update counter")
+	}
+	if !strings.Contains(src.straceSource, "static __always_inline void record_lifecycle_map_update_fail(void)") {
+		t.Fatal("bpf/strace.c missing lifecycle map update helper")
+	}
+	forkBody, ok := bpfFunctionBody(src.straceSource, "trace_sched_process_fork")
+	if !ok {
+		t.Fatal("strace.c missing trace_sched_process_fork body")
+	}
+	for _, snippet := range []string{
+		"if (bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY) != 0)",
+		"else if (bpf_map_update_elem(&pre_exec_map, &child_pid, &val, BPF_ANY) != 0)",
+		"bpf_map_delete_elem(&filter_map, &child_pid);",
+		"record_lifecycle_map_update_fail();",
+	} {
+		if !strings.Contains(forkBody, snippet) {
+			t.Fatalf("fork lifecycle update gate missing %q", snippet)
+		}
+	}
+	enterBody, ok := bpfFunctionBody(src.straceSource, "enter_terminating")
+	if !ok || !strings.Contains(enterBody, "bpf_map_update_elem(&main_exited_map, &pid, &val, BPF_ANY) != 0") {
+		t.Fatal("terminating path must check main_exited_map update")
+	}
+	execEnterBody, ok := bpfFunctionBody(src.straceSource, "enter_exec")
+	if !ok || !strings.Contains(execEnterBody, "bpf_map_update_elem(&pending_exec_map, &pid, &tid, BPF_ANY) != 0") {
+		t.Fatal("exec path must check pending_exec_map update")
+	}
+	execBody, ok := bpfFunctionBody(src.straceSource, "trace_sched_process_exec")
+	if !ok || !strings.Contains(execBody, "bpf_map_update_elem(&arm_fork_map, &arm_key, &zero, BPF_ANY) != 0") {
+		t.Fatal("exec lifecycle path must check arm cleanup update")
+	}
+	pendingBody, ok := bpfFunctionBody(readCombinedBPFSources(t), "clear_armed_fork_parent")
+	if !ok || !strings.Contains(pendingBody, "bpf_map_update_elem(&arm_fork_map, &arm_key, &zero, BPF_ANY) != 0") {
+		t.Fatal("pending cleanup path must check arm cleanup update")
+	}
+}
+
 func TestBPFOrphanExitIsFilteredAndCounted(t *testing.T) {
 	src := loadBPFSources(t)
 	if !strings.Contains(src.straceSource, "u64 orphan_exit;") {

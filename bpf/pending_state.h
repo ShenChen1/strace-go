@@ -79,7 +79,9 @@ static __always_inline void clear_armed_fork_parent(u32 pid)
     }
 
     u32 zero = 0;
-    bpf_map_update_elem(&arm_fork_map, &arm_key, &zero, BPF_ANY);
+    if (bpf_map_update_elem(&arm_fork_map, &arm_key, &zero, BPF_ANY) != 0) {
+        record_lifecycle_map_update_fail();
+    }
 }
 
 static __always_inline void clear_process_lifecycle_state(u32 pid)

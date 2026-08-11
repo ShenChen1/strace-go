@@ -53,7 +53,7 @@ func TestBPFFDStateTrackingGate(t *testing.T) {
 	for _, snippet := range []string{
 		"} arm_fork_map SEC(\".maps\");",
 		"arm_parent && *arm_parent != 0 && *arm_parent == parent_tgid",
-		"bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY);",
+		"bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY) != 0",
 		"u64 parent_pid_tgid = bpf_get_current_pid_tgid();",
 		"u32 parent_tid = (u32)parent_pid_tgid;",
 		"is_lifecycle_task_tracked(parent_tgid, parent_tid)",
@@ -122,7 +122,7 @@ func TestBPFLifecycleCleanupIsTIDScoped(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"*armed_parent != pid",
-		"bpf_map_update_elem(&arm_fork_map, &arm_key, &zero, BPF_ANY);",
+		"bpf_map_update_elem(&arm_fork_map, &arm_key, &zero, BPF_ANY) != 0",
 	} {
 		if !strings.Contains(armCleanupBody, snippet) {
 			t.Fatalf("armed parent cleanup missing %q", snippet)

@@ -62,7 +62,7 @@ def run_sockopt_semantic(wrapper, root):
     _require("sockopt-fixture-ok" in result.stdout, failures, "sockopt fixture marker missing")
     _require(len(stats) == 1, failures, "sockopt stats event missing")
     if stats:
-        for key in ("ringbuf_reserve_fail", "ringbuf_copy_fail", "pending_update_fail", "orphan_exit", "pending_mismatch"):
+        for key in ("ringbuf_reserve_fail", "ringbuf_copy_fail", "pending_update_fail", "orphan_exit", "pending_mismatch", "lifecycle_map_update_fail"):
             _require(stats[0].get(key) == 0, failures, f"sockopt {key} is non-zero")
 
     for syscall in ("setsockopt", "getsockopt"):

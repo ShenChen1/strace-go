@@ -21,6 +21,7 @@ type bpfBpfStats struct {
 	PendingUpdateFail      uint64
 	OrphanExit             uint64
 	PendingMismatch        uint64
+	LifecycleMapUpdateFail uint64
 }
 
 type bpfFdPathScratch struct {

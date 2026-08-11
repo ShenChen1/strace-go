@@ -249,6 +249,7 @@ struct bpf_stats {
     u64 pending_update_fail;
     u64 orphan_exit;
     u64 pending_mismatch;
+    u64 lifecycle_map_update_fail;
 };
 
 struct fd_path_scratch {

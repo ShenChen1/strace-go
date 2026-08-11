@@ -41,6 +41,7 @@ func TestBPFRuntimeModulesOwnCoreDefinitions(t *testing.T) {
 	for _, snippet := range []string{
 		"static __always_inline struct bpf_stats *lookup_stats(void)",
 		"record_pending_update_fail(void)",
+		"record_lifecycle_map_update_fail(void)",
 		"record_pending_mismatch(void)",
 	} {
 		if !strings.Contains(stats, snippet) {

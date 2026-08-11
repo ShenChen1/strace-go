@@ -13,6 +13,7 @@ type bpfRuntimeStats struct {
 	PendingUpdateFail      uint64
 	OrphanExit             uint64
 	PendingMismatch        uint64
+	LifecycleMapUpdateFail uint64
 	Available              bool
 	Error                  string
 }
@@ -45,6 +46,7 @@ func sumBPFStatsValues(values []bpfBpfStats) bpfRuntimeStats {
 		stats.PendingUpdateFail += value.PendingUpdateFail
 		stats.OrphanExit += value.OrphanExit
 		stats.PendingMismatch += value.PendingMismatch
+		stats.LifecycleMapUpdateFail += value.LifecycleMapUpdateFail
 	}
 	return stats
 }

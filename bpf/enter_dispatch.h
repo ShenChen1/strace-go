@@ -79,7 +79,9 @@ int enter_terminating(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
     if (tid == pid) {
         u32 val = 1;
-        bpf_map_update_elem(&main_exited_map, &pid, &val, BPF_ANY);
+        if (bpf_map_update_elem(&main_exited_map, &pid, &val, BPF_ANY) != 0) {
+            record_lifecycle_map_update_fail();
+        }
     }
     emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
     emit_terminating_exit_event_v2_direct(pid, tid, sys_id, ctx, enter_time, stack_id);
@@ -97,7 +99,9 @@ int enter_exec(struct trace_event_raw_sys_enter *ctx) {
     emit_exec_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time, probe_ret_enter);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     if (tid != pid) {
-        bpf_map_update_elem(&pending_exec_map, &pid, &tid, BPF_ANY);
+        if (bpf_map_update_elem(&pending_exec_map, &pid, &tid, BPF_ANY) != 0) {
+            record_lifecycle_map_update_fail();
+        }
     }
     return 0;
 }
