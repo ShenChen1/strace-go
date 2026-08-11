@@ -250,25 +250,41 @@ func (ev syscallEventContext) recordSummary(stats *SummaryStats) {
 	stats.Record(ev.syscallName(), view.duration, view.ret)
 }
 
-func (ev syscallEventContext) updateFDOffsets(store *FDStateStore) {
-	if store == nil {
+func (ev syscallEventContext) updateFDOffsets(port fdOffsetUpdatePort) {
+	if port == nil {
 		return
 	}
-	store.updateOffsetsFromView(ev.eventView(), ev.effectiveSyscallMeta(), ev.statePID)
+	port.ApplyFDOffsets(ev.fdOffsetUpdate())
 }
 
-func (ev syscallEventContext) cleanupClosedFD(store *FDStateStore) {
-	if store == nil {
-		return
+func (ev syscallEventContext) fdOffsetUpdate() fdOffsetUpdate {
+	return fdOffsetUpdate{
+		view:     ev.eventView(),
+		meta:     ev.effectiveSyscallMeta(),
+		statePID: ev.statePID,
 	}
-	store.cleanupClosedFDFromView(ev.eventView(), ev.effectiveSyscallMeta(), ev.statePID)
 }
 
-func (ev syscallEventContext) updateFDState(store *FDStateStore) {
-	if store == nil {
+func (ev syscallEventContext) cleanupClosedFD(port fdCloseUpdatePort) {
+	if port == nil {
 		return
 	}
-	store.update(ev.fdStateUpdate())
+	port.CleanupClosedFD(ev.fdCloseUpdate())
+}
+
+func (ev syscallEventContext) fdCloseUpdate() fdCloseUpdate {
+	return fdCloseUpdate{
+		view:     ev.eventView(),
+		meta:     ev.effectiveSyscallMeta(),
+		statePID: ev.statePID,
+	}
+}
+
+func (ev syscallEventContext) updateFDState(port fdStateUpdatePort) {
+	if port == nil {
+		return
+	}
+	port.ApplyFDState(ev.fdStateUpdate())
 }
 
 func (ev syscallEventContext) fdStateUpdate() fdStateUpdate {

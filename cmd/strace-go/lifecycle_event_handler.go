@@ -25,13 +25,13 @@ type LifecycleEffects interface {
 }
 
 type traceSessionLifecycleEffects struct {
-	fdState       *FDStateStore
+	fdState       fdLifecycleUpdatePort
 	jsonWriter    jsonEventWriter
 	writeExitText func(tid int, exitCode uint64)
 }
 
 func newTraceSessionLifecycleEffects(
-	fdState *FDStateStore,
+	fdState fdLifecycleUpdatePort,
 	jsonWriter jsonEventWriter,
 	writeExitText func(tid int, exitCode uint64),
 ) *traceSessionLifecycleEffects {

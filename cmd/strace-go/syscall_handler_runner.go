@@ -17,10 +17,10 @@ type SyscallHandlerEffects interface {
 }
 
 type traceSessionSyscallHandlerEffects struct {
-	fdState *FDStateStore
+	fdState fdStateUpdatePort
 }
 
-func newTraceSessionSyscallHandlerEffects(fdState *FDStateStore) *traceSessionSyscallHandlerEffects {
+func newTraceSessionSyscallHandlerEffects(fdState fdStateUpdatePort) *traceSessionSyscallHandlerEffects {
 	return &traceSessionSyscallHandlerEffects{fdState: fdState}
 }
 

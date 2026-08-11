@@ -31,13 +31,19 @@ type SyscallExitEffects interface {
 
 type traceSessionSyscallExitEffects struct {
 	summary *SummaryStats
-	fdState *FDStateStore
+	offsets fdOffsetUpdatePort
+	close   fdCloseUpdatePort
 }
 
-func newTraceSessionSyscallExitEffects(summary *SummaryStats, fdState *FDStateStore) *traceSessionSyscallExitEffects {
+func newTraceSessionSyscallExitEffects(
+	summary *SummaryStats,
+	offsets fdOffsetUpdatePort,
+	close fdCloseUpdatePort,
+) *traceSessionSyscallExitEffects {
 	return &traceSessionSyscallExitEffects{
 		summary: summary,
-		fdState: fdState,
+		offsets: offsets,
+		close:   close,
 	}
 }
 
@@ -46,11 +52,11 @@ func (e *traceSessionSyscallExitEffects) RecordSummary(ev syscallEventContext) {
 }
 
 func (e *traceSessionSyscallExitEffects) UpdateFDOffsets(ev syscallEventContext) {
-	ev.updateFDOffsets(e.fdState)
+	ev.updateFDOffsets(e.offsets)
 }
 
 func (e *traceSessionSyscallExitEffects) CleanupClosedFD(ev syscallEventContext) {
-	ev.cleanupClosedFD(e.fdState)
+	ev.cleanupClosedFD(e.close)
 }
 
 func newSyscallExitPipeline(deps SyscallExitPipelineDeps) *SyscallExitPipeline {

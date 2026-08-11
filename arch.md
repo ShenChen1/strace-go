@@ -2485,3 +2485,38 @@ ABI 与状态契约：
 本阶段只收紧 Go context builder 的读依赖，不改变纯 eBPF 事件事实源和 FD state 的单消费者写路径。
 
 实际验收结果：新增 reader/runtime fake 和生产源码 gate，真实 session composition 仍将同一个 `FDStateStore` 注入三个只读端口；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过。`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，743.62 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS，另有 focused `getpid.gen.test` 1 PASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。
+
+### 14.46 FD state 写入端口按职责隔离（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.45 已把 syscall event context 的读依赖拆成 `FDStateReader`、`FDPathReader` 和 `RuntimeServices`。但 handler effects、exit effects、lifecycle effects 仍以具体 `*FDStateStore` 接收全部 mutation 能力；`syscallEventContext` 的更新 helper 也直接接受具体 store。
+- Problem：单消费者 owner 虽然只有一个，组件边界却仍允许任意 effect 调用任意 state mutation。offset、close、process lifecycle 和 syscall payload 更新之间没有类型级隔离，后续重构容易把 state 顺序或职责重新混在一起。
+- Goal：以 typed mutation command 描述一次已经构造好的 state transition，并为 syscall payload、FD offset、FD close、process lifecycle 分别注入窄 mutation port；保持 `FDStateStore` 作为唯一 map owner，保持现有事件顺序和 mutation 算法。
+- Non-goals：不改变 FD state map、BPF ABI、事件 overlay、handler 输出、生命周期判定、锁模型或事件消费协程；不引入 procfs、ptrace、`process_vm_readv`、第二份 snapshot 或兼容模式。
+- Constraints：mutation command 只能由当前 event context 在消费点构造；port 不向调用方返回 mutable map；composition root 可以把同一个 `FDStateStore` 适配给多个职责端口；测试 fixture 可以使用 fake port 验证 command 内容。
+
+方案比较：
+
+1. 保留具体 `*FDStateStore`：改动最小，但所有 effects 继续拥有完整写权限，拒绝。
+2. 引入一个覆盖所有写操作的 `FDStateService`：调用点少，但仍形成万能 mutation 入口，拒绝。
+3. 使用 `fdStateUpdate`、`fdOffsetUpdate`、`fdCloseUpdate` command，并注入四个职责端口：边界最清晰，state owner 不变，只增加显式数据类型，选择该方案。
+
+影响说明：`syscallEventContext.updateFDState/updateFDOffsets/cleanupClosedFD` 的参数从具体 store 改为窄 port；`traceSessionSyscallHandlerEffects`、`traceSessionSyscallExitEffects`、`traceSessionLifecycleEffects` 的字段改为对应 port；所有直接构造这些 effects 的测试需要显式提供匹配 port。
+
+状态契约：
+
+- `fdStateUpdate` 只包含 payload、syscall metadata、path 和 target PID，交给 `fdStateUpdatePort`；store 负责按既有顺序更新 path、observation、offset、creator、cloexec。
+- `fdOffsetUpdate` 只包含 exit view、metadata 和 state PID，交给 `fdOffsetUpdatePort`；`fdCloseUpdate` 只描述 close 清理输入，交给 `fdCloseUpdatePort`。
+- `fdLifecycleUpdatePort` 只提供 inherit、process cleanup、close-on-exec 三个操作；JSON/text 输出仍属于 lifecycle effects 自身，不进入 FD state port。
+- 同一个 session 的 `FDStateStore` 是所有上述 port 的唯一生产实现；port 拆分不代表复制状态或并行写入。
+
+测试与验收：
+
+- fake mutation ports 验证 event context 发送 typed command，且不依赖具体 `FDStateStore`。
+- 生产源码 gate 禁止 handler/exit/lifecycle/context 文件声明或接收 `*FDStateStore`；composition identity 检查确保真实 store 仍注入所有 mutation port。
+- 验证顺序：先跑 mutation-port focused tests，再跑 Go/race/vet/build、eBPF semantic/perf、small 和 upstream reference；完成后检查 tracer 进程与 BPF pin。
+
+本阶段只收口 Go 写依赖边界，不改变纯 eBPF 事件事实源、单消费者状态顺序或既有 bounded snapshot 语义。
+
+实际验收结果：新增 `fdStateUpdatePort`、`fdOffsetUpdatePort`、`fdCloseUpdatePort`、`fdLifecycleUpdatePort` 和 typed command 回归测试；handler/exit/lifecycle/context 生产文件不再声明或接收 `*FDStateStore`，composition root 仍将同一个 store 注入各职责端口。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，731.83 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv`。

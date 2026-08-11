@@ -220,7 +220,7 @@ func TestSyscallExitEffectsCleanupClosedFDUsesEventView(t *testing.T) {
 		meta:     meta.Syscall{Name: "close"},
 	}
 
-	newTraceSessionSyscallExitEffects(nil, store).CleanupClosedFD(ev)
+	newTraceSessionSyscallExitEffects(nil, store, store).CleanupClosedFD(ev)
 
 	if _, ok := store.paths["101:3"]; ok {
 		t.Fatal("view-selected fd path was not removed")

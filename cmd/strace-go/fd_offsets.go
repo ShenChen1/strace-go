@@ -47,6 +47,10 @@ func (st *FDStateStore) bufferFileOffsetFromView(view syscallEventView, scMeta m
 	return 0, false
 }
 
+func (st *FDStateStore) ApplyFDOffsets(update fdOffsetUpdate) {
+	st.updateOffsetsFromView(update.view, update.meta, update.statePID)
+}
+
 func (st *FDStateStore) updateOffsetsFromView(view syscallEventView, scMeta meta.Syscall, statePID int) {
 	if !view.valid || view.probeRetEnter == 3 {
 		return

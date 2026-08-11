@@ -196,8 +196,11 @@ func TestTraceSessionPipelineUsesComposedDependencies(t *testing.T) {
 	if effects.summary != session.summaryStats() {
 		t.Fatal("pipeline should use session summary stats")
 	}
-	if effects.fdState != session.fdStateStore() {
-		t.Fatal("pipeline should use session fd state store")
+	if effects.offsets != session.fdStateStore() {
+		t.Fatal("pipeline should use session fd offset port")
+	}
+	if effects.close != session.fdStateStore() {
+		t.Fatal("pipeline should use session fd close port")
 	}
 	lifecycleEffects, ok := session.lifecycleEventHandler().effects.(*traceSessionLifecycleEffects)
 	if !ok {

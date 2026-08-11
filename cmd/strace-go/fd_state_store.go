@@ -119,7 +119,7 @@ func (s *traceSession) fdStateStore() *FDStateStore {
 	return s.fdState
 }
 
-func (st *FDStateStore) update(update fdStateUpdate) {
+func (st *FDStateStore) ApplyFDState(update fdStateUpdate) {
 	st.ensureMaps()
 	updateFDPathStateFromSource(update.source, update.targetPID, st.paths, st.fdStates)
 	updateFDStateObservationFromSource(update.source, update.meta, update.targetPID, st.fdStates)
@@ -145,6 +145,10 @@ func updateFDMapFromSource(
 	updateNetlinkFDMap(src, scMeta, targetPID, fdMap)
 	updateSocketFDMapFromView(src.view, scMeta, targetPID, fdMap, catalog)
 	updateCwdFDMapFromView(src, scMeta, pathText, targetPID, fdMap)
+}
+
+func (st *FDStateStore) CleanupClosedFD(update fdCloseUpdate) {
+	st.cleanupClosedFDFromView(update.view, update.meta, update.statePID)
 }
 
 func (st *FDStateStore) cleanupClosedFDFromView(view syscallEventView, scMeta meta.Syscall, statePID int) {

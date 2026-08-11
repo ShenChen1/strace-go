@@ -233,7 +233,7 @@ func buildTraceSessionEvents(
 		Exit:    outputs.exitSyscall,
 		Runner:  base.handlerRunner,
 		Text:    outputs.syscallText,
-		Effects: newTraceSessionSyscallExitEffects(session.summary, session.fdState),
+		Effects: newTraceSessionSyscallExitEffects(session.summary, session.fdState, session.fdState),
 	})
 	lifecycle := newLifecycleEventHandler(LifecycleEventHandlerDeps{
 		Opts: session.opts,
