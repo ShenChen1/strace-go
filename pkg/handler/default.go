@@ -58,3 +58,17 @@ func (h *DefaultHandler) HandleWithCount(ctx *Context, argCount int) Result {
 	}
 	return res
 }
+
+func handleDefaultWithCount(ctx *Context, argCount int) Result {
+	if ctx == nil {
+		return Result{}
+	}
+	defaultHandler := ctx.registry().Default()
+	if defaultDecoder, ok := defaultHandler.(*DefaultHandler); ok {
+		return defaultDecoder.HandleWithCount(ctx, argCount)
+	}
+	if defaultHandler == nil {
+		return Result{}
+	}
+	return defaultHandler.Handle(ctx)
+}

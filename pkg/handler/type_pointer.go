@@ -14,11 +14,30 @@ type pointerDecoderEntry struct {
 	decoder PointerDecoder
 }
 
-var pointerDecoders []pointerDecoderEntry
+// RegisterPointerDecoder adds a pointer decoder to this registry.
+func (r *Registry) RegisterPointerDecoder(typPattern string, d PointerDecoder) {
+	if r == nil || typPattern == "" || d == nil {
+		return
+	}
+	r.pointerDecoders = append(r.pointerDecoders, pointerDecoderEntry{typPattern, d})
+}
+
+// PointerDecoder finds the first decoder matching an argument type.
+func (r *Registry) PointerDecoder(argTyp string) PointerDecoder {
+	if r == nil {
+		return nil
+	}
+	for _, entry := range r.pointerDecoders {
+		if strings.Contains(argTyp, entry.pattern) {
+			return entry.decoder
+		}
+	}
+	return nil
+}
 
 // RegisterPointerDecoder registers a PointerDecoder for a specific type pattern.
 func RegisterPointerDecoder(typPattern string, d PointerDecoder) {
-	pointerDecoders = append(pointerDecoders, pointerDecoderEntry{typPattern, d})
+	builtinRegistry.RegisterPointerDecoder(typPattern, d)
 }
 
 // PointerDecoderFunc is a convenience adapter.
@@ -30,10 +49,5 @@ func (f PointerDecoderFunc) DecodePointer(ctx *Context, i int, argTyp, argName s
 
 // FindPointerDecoder attempts to find a decoder that matches the argument type.
 func FindPointerDecoder(argTyp string) PointerDecoder {
-	for _, entry := range pointerDecoders {
-		if strings.Contains(argTyp, entry.pattern) {
-			return entry.decoder
-		}
-	}
-	return nil
+	return builtinRegistry.PointerDecoder(argTyp)
 }

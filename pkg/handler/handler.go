@@ -26,6 +26,7 @@ type Context struct {
 	PayloadSections []PayloadSection
 
 	ScMeta        meta.Syscall
+	Registry      *Registry
 	Decoder       *event.Decoder
 	Opts          *cli.Options
 	FdMap         map[string]string
@@ -101,30 +102,110 @@ type Handler interface {
 	Handle(ctx *Context) Result
 }
 
-var (
-	registry       = make(map[string]Handler)
-	defaultHandler Handler
-)
+// Registry owns the handler and type-decoder choices for one trace session.
+// It is configured before event processing and treated as read-only afterward.
+type Registry struct {
+	handlers        map[string]Handler
+	defaultHandler  Handler
+	pointerDecoders []pointerDecoderEntry
+	structDecoders  []structDecoderEntry
+}
+
+var builtinRegistry = &Registry{
+	handlers: make(map[string]Handler),
+}
+
+// NewRegistry returns an isolated copy of the built-in handler catalog.
+func NewRegistry() *Registry {
+	return builtinRegistry.clone()
+}
+
+func (r *Registry) clone() *Registry {
+	if r == nil {
+		return &Registry{handlers: make(map[string]Handler)}
+	}
+	clone := &Registry{
+		handlers:        make(map[string]Handler, len(r.handlers)),
+		defaultHandler:  r.defaultHandler,
+		pointerDecoders: append([]pointerDecoderEntry(nil), r.pointerDecoders...),
+		structDecoders:  append([]structDecoderEntry(nil), r.structDecoders...),
+	}
+	for name, h := range r.handlers {
+		clone.handlers[name] = h
+	}
+	return clone
+}
+
+// Register adds or replaces a syscall handler in this registry.
+func (r *Registry) Register(name string, h Handler) {
+	if r == nil || name == "" || h == nil {
+		return
+	}
+	if r.handlers == nil {
+		r.handlers = make(map[string]Handler)
+	}
+	r.handlers[name] = h
+}
+
+// SetDefault sets the fallback handler in this registry.
+func (r *Registry) SetDefault(h Handler) {
+	if r == nil {
+		return
+	}
+	r.defaultHandler = h
+}
+
+// Resolve returns the named handler or this registry's fallback handler.
+func (r *Registry) Resolve(name string) Handler {
+	if r == nil {
+		return nil
+	}
+	if h, ok := r.handlers[name]; ok {
+		return h
+	}
+	return r.defaultHandler
+}
+
+// Default returns the registry's fallback handler.
+func (r *Registry) Default() Handler {
+	if r == nil {
+		return nil
+	}
+	return r.defaultHandler
+}
+
+// Handle resolves and invokes one syscall handler.
+func (r *Registry) Handle(name string, ctx *Context) Result {
+	h := r.Resolve(name)
+	if h == nil {
+		return Result{}
+	}
+	return h.Handle(ctx)
+}
+
+func (ctx *Context) registry() *Registry {
+	if ctx != nil && ctx.Registry != nil {
+		return ctx.Registry
+	}
+	return builtinRegistry
+}
 
 // Register registers a handler for a specific syscall name.
 func Register(name string, h Handler) {
-	registry[name] = h
+	builtinRegistry.Register(name, h)
 }
 
 // SetDefault sets the fallback handler for unregistered syscalls.
 func SetDefault(h Handler) {
-	defaultHandler = h
+	builtinRegistry.SetDefault(h)
 }
 
 // Get returns the registered handler for the syscall, or the default handler.
 func Get(name string) Handler {
-	if h, ok := registry[name]; ok {
-		return h
-	}
-	return defaultHandler
+	return builtinRegistry.Resolve(name)
 }
 
 // GetDefault returns the default handler.
 func GetDefault() Handler {
-	return defaultHandler
+	return builtinRegistry.Default()
 }

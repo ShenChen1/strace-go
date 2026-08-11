@@ -2225,3 +2225,35 @@ ABI 与状态契约：
 - `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `sudo -n go generate ./cmd/strace-go` 通过；Python runner 单测 5 项、semantic oracle 单测 10 项通过。
 - `ebpf-semantic` 通过：201 个主事件、102/99 enter/exit、ringbuf reserve/copy/pending/orphan/mismatch 均为 0，payload truncated 为 8；`ebpf-perf` 通过：10,000 个 getpid 事件、5,000/5,000 enter/exit、0 丢失，735.89 events/s。
 - 当前源码 binary 的 `upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）；`small` 为 23 PASS、0 FAIL。reference 首次运行的 root-owned 测试目录只造成 framework 权限失败，修正生成目录归属后重跑通过。
+
+### 14.38 session-scoped handler registry 与 formatter resolver 收口（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.37 已把 Go 事件链放入 session composition root，但 `pkg/handler` 仍使用包级 `registry`、`defaultHandler`、pointer decoder 列表和 struct decoder 列表；handler 通过 `init()` 写入共享状态，普通 pipeline 与 `exit` 特例的解析入口也不完全一致。
+- Problem：handler 依赖没有进入 session composition boundary。多个 trace session 或并行测试会共享可变注册表，测试必须依赖 package 全局初始化顺序；新增 handler、pointer decoder 或 struct decoder 可能只被某条输出路径看到。
+- Goal：引入可复制的 `handler.Registry`，每个 trace session 建立一个独立实例；将它注入 `handler.Context`、`SyscallHandlerRunner` 和 `ExitSyscallOutput`，使默认 handler、pointer decoder、struct decoder 和 exit syscall 特例都从同一 resolver 解析。
+- Non-goals：本阶段不重写 syscall formatter，不改变输出文本、JSON、BPF ABI、capture policy 或生命周期；不并行执行 handler；不把 package 初始化 bootstrap 一次性改写成几十个显式注册函数。
+- Constraints：registry 在 composition 完成后视为只读；内置 handler 当前均为无 session 可变字段的 formatter 对象，registry clone 可以共享这些只读 handler 实例；旧 package-level `Register`/`Get` API 仅保留给内置 `init()` bootstrap 和既有单测，生产事件链不得调用全局 lookup；不引入 ptrace/procfs。
+
+方案比较：
+
+1. 继续使用全局注册表，只在 runner 外包接口：改动最小，但全局状态和 init 顺序仍是实际依赖，拒绝。
+2. 每个 session 创建 `handler.Registry` 快照，并把同一实例注入整个输出链：隔离性、依赖可见性和测试替换能力都得到改善，选择该方案。
+3. 删除所有 `init()`，改成显式注册函数并逐个迁移所有 handler 文件：边界最干净，但会把 formatter 行为变更和大范围初始化重排混入本阶段，暂不选择；后续可继续删除 bootstrap API。
+
+状态契约：
+
+- `handler.NewRegistry()` 深复制 handler map、pointer decoder entries 和 struct decoder entries；handler 对象本身只读共享，registry 的注册表结构彼此独立。
+- `handler.Context.Registry` 是当前事件的唯一 handler/decoder 解析来源；未注入 registry 的旧数据单测才退回 built-in bootstrap。
+- `buildTraceSessionBase` 只创建一个 registry 和一个 `registry.Handle` resolver；普通 `SyscallHandlerRunner`、`ExitSyscallOutput` 以及 `TraceEventRouter` 的 context deps 共享它。
+- `DefaultHandler.decodePointer/decodeStruct`、open/mknod/mremap 的默认参数计数路径都通过 context registry；生产源码不再调用 `handler.Get` 或 `GetDefault`。
+- package-level 注册函数仍只服务初始化和测试迁移，不能作为 session runtime API；后续如果需要插件式 handler，应向 `traceSessionDeps` 增加显式 registry 配置，而不是重新写 global。
+
+测试与验收：
+
+- 新增 registry contract 测试：验证两个 `NewRegistry` 实例的 handler override 不互相泄漏；默认 formatter 使用 context 注入的 pointer decoder；registry resolver 能执行 session handler；内置 default handler 仍存在。
+- composition contract 测试验证 handler registry 已创建、router context 使用同一实例、exit syscall output 已拿到 session resolver。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `sudo -n go generate ./cmd/strace-go` 通过；Python runner 单测 5 项、eBPF suite 单测 10 项和 Python 语法检查通过。
+- `ebpf-semantic` 通过：201 个主事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 通过：10,000 个 getpid 事件、5,000/5,000 enter/exit、0 丢失，741.34 events/s。
+- 当前源码的 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`），无 XPASS。

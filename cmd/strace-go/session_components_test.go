@@ -5,7 +5,14 @@ import (
 	"testing"
 
 	"strace-go/pkg/cli"
+	"strace-go/pkg/handler"
 )
+
+type sessionRegistryProbeHandler struct{}
+
+func (sessionRegistryProbeHandler) Handle(*handler.Context) handler.Result {
+	return handler.Result{ReturnDesc: "session-registry"}
+}
 
 func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	var output bytes.Buffer
@@ -25,6 +32,23 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	components := session.components
 	if components.eventReader == nil || components.eventRouter == nil || components.recordDecoder == nil {
 		t.Fatalf("event graph = %+v, want reader/router/decoder", components)
+	}
+	if components.handlerRegistry == nil || components.handlerRunner == nil {
+		t.Fatal("event graph is missing the session handler registry")
+	}
+	if components.eventRouter.contextDeps.registry != components.handlerRegistry {
+		t.Fatal("event router does not use the session handler registry")
+	}
+	if components.exitSyscall.handleSyscall == nil {
+		t.Fatal("exit syscall output is missing the session handler resolver")
+	}
+	components.handlerRegistry.Register("session_registry_probe", sessionRegistryProbeHandler{})
+	probeContext := &handler.Context{Registry: components.handlerRegistry}
+	if got := components.handlerRunner.handleSyscall("session_registry_probe", probeContext); got.ReturnDesc != "session-registry" {
+		t.Fatalf("runner resolver result = %+v, want session handler", got)
+	}
+	if got := components.exitSyscall.handleSyscall("session_registry_probe", probeContext); got.ReturnDesc != "session-registry" {
+		t.Fatalf("exit resolver result = %+v, want session handler", got)
 	}
 	if components.eventReader.reader != ringReader {
 		t.Fatal("event reader did not receive the injected ringbuf port")

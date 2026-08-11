@@ -27,5 +27,5 @@ func (h *MremapHandler) Handle(ctx *Context) Result {
 	if (flags & 2) == 0 { // MREMAP_FIXED is 2
 		argCount = 4
 	}
-	return GetDefault().(*DefaultHandler).HandleWithCount(ctx, argCount)
+	return handleDefaultWithCount(ctx, argCount)
 }

@@ -7,6 +7,7 @@ import (
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
+	"strace-go/pkg/handler"
 	"strace-go/pkg/stacktrace"
 )
 
@@ -20,6 +21,7 @@ type traceSessionComponents struct {
 	syscallText        *SyscallTextOutput
 	exitSyscall        *ExitSyscallOutput
 	handlerRunner      *SyscallHandlerRunner
+	handlerRegistry    *handler.Registry
 	exitPipeline       *SyscallExitPipeline
 	lifecycleHandler   *LifecycleEventHandler
 	exitStatus         *ExitStatusCoordinator
@@ -31,10 +33,12 @@ type traceSessionComponents struct {
 }
 
 type traceSessionBaseComponents struct {
-	jsonWriter    *JSONEventWriter
-	renderer      *TextRenderer
-	exitStatus    *ExitStatusCoordinator
-	handlerRunner *SyscallHandlerRunner
+	jsonWriter      *JSONEventWriter
+	renderer        *TextRenderer
+	exitStatus      *ExitStatusCoordinator
+	handlerRegistry *handler.Registry
+	handleSyscall   func(string, *handler.Context) handler.Result
+	handlerRunner   *SyscallHandlerRunner
 }
 
 type traceSessionOutputComponents struct {
@@ -122,6 +126,7 @@ func buildTraceSessionComponents(session *traceSession) *traceSessionComponents 
 		syscallText:        outputs.syscallText,
 		exitSyscall:        outputs.exitSyscall,
 		handlerRunner:      base.handlerRunner,
+		handlerRegistry:    base.handlerRegistry,
 		exitPipeline:       events.exitPipeline,
 		lifecycleHandler:   events.lifecycleHandler,
 		exitStatus:         base.exitStatus,
@@ -134,6 +139,8 @@ func buildTraceSessionComponents(session *traceSession) *traceSessionComponents 
 }
 
 func buildTraceSessionBase(session *traceSession) traceSessionBaseComponents {
+	handlerRegistry := handler.NewRegistry()
+	handleSyscall := handlerRegistry.Handle
 	return traceSessionBaseComponents{
 		jsonWriter: newJSONEventWriter(JSONEventWriterDeps{Out: session.outWriter}),
 		renderer: newTextRenderer(TextRendererDeps{
@@ -150,8 +157,10 @@ func buildTraceSessionBase(session *traceSession) traceSessionBaseComponents {
 			HasCommand: session.cmd != nil,
 			AttachPids: attachPIDs(session.opts),
 		}),
+		handlerRegistry: handlerRegistry,
+		handleSyscall:   handleSyscall,
 		handlerRunner: newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
-			HandleSyscall: defaultHandleSyscall,
+			HandleSyscall: handleSyscall,
 			Effects:       newTraceSessionSyscallHandlerEffects(session.fdState),
 		}),
 	}
@@ -186,6 +195,7 @@ func buildTraceSessionOutputs(
 		Opts:              session.opts,
 		Renderer:          base.renderer,
 		Out:               session.outWriter,
+		HandleSyscall:     base.handleSyscall,
 		ShouldQueueStatus: base.exitStatus.ShouldQueue,
 		QueueStatus:       base.exitStatus.Queue,
 		JSONWriter:        base.jsonWriter,
@@ -225,7 +235,7 @@ func buildTraceSessionEvents(
 		Lifecycle:   lifecycle,
 		JSON:        outputs.syscallJSON,
 		Pipeline:    exitPipeline,
-		ContextDeps: newSyscallEventContextDeps(session),
+		ContextDeps: newSyscallEventContextDepsWithRegistry(session, base.handlerRegistry),
 	})
 	return traceSessionEventComponents{
 		exitPipeline:     exitPipeline,

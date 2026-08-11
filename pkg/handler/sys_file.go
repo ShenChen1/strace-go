@@ -23,7 +23,7 @@ func (h *OpenHandler) Handle(ctx *Context) Result {
 			argCount = 3
 		}
 	}
-	return GetDefault().(*DefaultHandler).HandleWithCount(ctx, argCount)
+	return handleDefaultWithCount(ctx, argCount)
 }
 
 type MknodHandler struct{}
@@ -43,5 +43,5 @@ func (h *MknodHandler) Handle(ctx *Context) Result {
 			argCount = 3
 		}
 	}
-	return GetDefault().(*DefaultHandler).HandleWithCount(ctx, argCount)
+	return handleDefaultWithCount(ctx, argCount)
 }

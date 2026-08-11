@@ -12,12 +12,30 @@ type structDecoderEntry struct {
 	decoder TypeDecoder
 }
 
-// structDecoders contains decoders for various struct types.
-var structDecoders []structDecoderEntry
+// RegisterStructDecoder adds a struct decoder to this registry.
+func (r *Registry) RegisterStructDecoder(typPattern string, d TypeDecoder) {
+	if r == nil || typPattern == "" || d == nil {
+		return
+	}
+	r.structDecoders = append(r.structDecoders, structDecoderEntry{typPattern, d})
+}
+
+// StructDecoder finds the first decoder matching an argument type.
+func (r *Registry) StructDecoder(argTyp string) TypeDecoder {
+	if r == nil {
+		return nil
+	}
+	for _, entry := range r.structDecoders {
+		if strings.Contains(argTyp, entry.pattern) {
+			return entry.decoder
+		}
+	}
+	return nil
+}
 
 // RegisterStructDecoder registers a TypeDecoder for a specific type pattern.
 func RegisterStructDecoder(typPattern string, d TypeDecoder) {
-	structDecoders = append(structDecoders, structDecoderEntry{typPattern, d})
+	builtinRegistry.RegisterStructDecoder(typPattern, d)
 }
 
 // StructDecoderFunc is a convenience adapter to allow using ordinary functions as TypeDecoders.
@@ -30,10 +48,5 @@ func (f StructDecoderFunc) Decode(ctx *Context, i int, argTyp string, val uint64
 
 // FindStructDecoder attempts to find a decoder that matches the argument type.
 func FindStructDecoder(argTyp string) TypeDecoder {
-	for _, entry := range structDecoders {
-		if strings.Contains(argTyp, entry.pattern) {
-			return entry.decoder
-		}
-	}
-	return nil
+	return builtinRegistry.StructDecoder(argTyp)
 }
