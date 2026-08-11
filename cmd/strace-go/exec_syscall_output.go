@@ -11,14 +11,14 @@ import (
 
 type ExecSyscallOutput struct {
 	opts              *cli.Options
-	state             *TraceState
+	state             execSyscallState
 	renderer          *TextRenderer
 	discardExitStatus func(int)
 }
 
 type ExecSyscallOutputDeps struct {
 	Opts              *cli.Options
-	State             *TraceState
+	State             execSyscallState
 	Renderer          *TextRenderer
 	DiscardExitStatus func(int)
 }
@@ -55,6 +55,9 @@ func (o *ExecSyscallOutput) HandleEvent(ev syscallEventContext, res handler.Resu
 		}
 		return o.handleNonLeaderSuccess(ev, tid, tgid, scMeta)
 	default:
+		if o.state != nil {
+			o.state.deletePendingExecArgs(tid)
+		}
 		return false
 	}
 }
@@ -81,6 +84,9 @@ func (o *ExecSyscallOutput) handleLeaderSuccess(ev syscallEventContext, tid int,
 
 func (o *ExecSyscallOutput) handleNonLeaderRestart(ev syscallEventContext, tid int, scMeta meta.Syscall, res handler.Result) bool {
 	if !o.followForks() {
+		if o.state != nil {
+			o.state.deletePendingExecArgs(tid)
+		}
 		return false
 	}
 	if ev.pendingEnter != nil && ev.pendingEnter.unfinishedPrinted {

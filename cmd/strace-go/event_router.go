@@ -3,7 +3,7 @@ package main
 type TraceEventRouter struct {
 	scope       TraceScope
 	targetPID   int
-	state       *TraceState
+	state       traceEventState
 	lifecycle   *LifecycleEventHandler
 	json        *SyscallJSONOutput
 	pipeline    *SyscallExitPipeline
@@ -13,7 +13,7 @@ type TraceEventRouter struct {
 type TraceEventRouterDeps struct {
 	Scope       TraceScope
 	TargetPID   int
-	State       *TraceState
+	State       traceEventState
 	Lifecycle   *LifecycleEventHandler
 	JSON        *SyscallJSONOutput
 	Pipeline    *SyscallExitPipeline
@@ -21,10 +21,14 @@ type TraceEventRouterDeps struct {
 }
 
 func newTraceEventRouter(deps TraceEventRouterDeps) *TraceEventRouter {
+	state := deps.State
+	if state == nil {
+		state = newTraceState()
+	}
 	return &TraceEventRouter{
 		scope:       deps.Scope,
 		targetPID:   deps.TargetPID,
-		state:       deps.State,
+		state:       state,
 		lifecycle:   deps.Lifecycle,
 		json:        deps.JSON,
 		pipeline:    deps.Pipeline,
@@ -45,7 +49,7 @@ func (r *TraceEventRouter) Handle(envelope traceEventEnvelope) {
 	if !r.scope.AllowsPID(envelope.pid) {
 		return
 	}
-	stateUpdate := r.traceState().handleEnvelope(envelope)
+	stateUpdate := r.state.handleEnvelope(envelope)
 	r.applyProcessStateInheritance(stateUpdate.processInherit)
 	r.handleUnfinished(stateUpdate.unfinished)
 	statePID := eventStatePID(envelope, r.targetPID)
@@ -97,13 +101,6 @@ func (r *TraceEventRouter) handleUnfinished(pendingSyscalls []*pendingSyscallSta
 		}
 		pending.unfinishedPrinted = true
 	}
-}
-
-func (r *TraceEventRouter) traceState() *TraceState {
-	if r.state == nil {
-		r.state = newTraceState()
-	}
-	return r.state
 }
 
 func (r *TraceEventRouter) handleLifecycle(update TraceStateUpdate) {

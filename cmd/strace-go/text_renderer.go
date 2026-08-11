@@ -13,7 +13,7 @@ import (
 type TextRenderer struct {
 	out           io.Writer
 	opts          *cli.Options
-	state         *TraceState
+	state         textRendererState
 	timeFormatter *TimeFormatter
 	bpfObjs       *bpfObjects
 	resolver      *stacktrace.Resolver
@@ -22,7 +22,7 @@ type TextRenderer struct {
 type TextRendererDeps struct {
 	Out           io.Writer
 	Opts          *cli.Options
-	State         *TraceState
+	State         textRendererState
 	TimeFormatter *TimeFormatter
 	BPFObjs       *bpfObjects
 	Resolver      *stacktrace.Resolver
@@ -150,9 +150,6 @@ func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Res
 	}
 
 	r.printStackTrace(view.stackID)
-	if (scMeta.Name == "execve" || scMeta.Name == "execveat") && view.ret < 0 && r.state != nil {
-		r.state.deletePendingExecArgs(tid)
-	}
 }
 
 func (r *TextRenderer) exitSyscallLine(view syscallEventView, syscallName string, res handler.Result) string {

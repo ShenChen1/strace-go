@@ -81,10 +81,11 @@ func TestTraceEventRouterRoutesLifecycleEvents(t *testing.T) {
 
 func TestTraceEventRouterDoesNotCopyFDStateForThreadClone(t *testing.T) {
 	effects := &fakeLifecycleEffects{}
+	state := newTraceState()
 	router := newTraceEventRouter(TraceEventRouterDeps{
 		Scope:     newTraceScope(200, &cli.Options{FollowForks: true}),
 		TargetPID: 200,
-		State:     newTraceState(),
+		State:     state,
 		Lifecycle: newLifecycleEventHandler(LifecycleEventHandlerDeps{Effects: effects}),
 	})
 
@@ -108,7 +109,7 @@ func TestTraceEventRouterDoesNotCopyFDStateForThreadClone(t *testing.T) {
 	if len(effects.inherited) != 0 {
 		t.Fatalf("thread inherited = %v, want no process copy", effects.inherited)
 	}
-	if task := router.traceState().tasks[201]; task == nil || task.TGID != 200 {
+	if task := state.tasks[201]; task == nil || task.TGID != 200 {
 		t.Fatalf("thread task = %+v, want TGID 200", task)
 	}
 }
@@ -116,10 +117,11 @@ func TestTraceEventRouterDoesNotCopyFDStateForThreadClone(t *testing.T) {
 func TestTraceEventRouterRoutesGenericEnterToJSON(t *testing.T) {
 	opts := cli.ParseArgs([]string{"--event-format=json", "--debug-events", "/bin/true"})
 	rawEvents := 0
+	state := newTraceState()
 	router := newTraceEventRouter(TraceEventRouterDeps{
 		Scope:     newTraceScope(100, opts),
 		TargetPID: 100,
-		State:     newTraceState(),
+		State:     state,
 		JSON: newSyscallJSONOutput(SyscallJSONOutputDeps{
 			Opts: opts,
 			Writer: &fakeJSONEventWriter{
@@ -142,7 +144,7 @@ func TestTraceEventRouterRoutesGenericEnterToJSON(t *testing.T) {
 	if rawEvents != 1 {
 		t.Fatalf("rawEvents = %d, want one generic enter JSON event", rawEvents)
 	}
-	if got := len(router.traceState().pendingSyscalls); got != 1 {
+	if got := len(state.pendingSyscalls); got != 1 {
 		t.Fatalf("pending syscalls = %d, want generic enter cached", got)
 	}
 }

@@ -220,7 +220,7 @@ func TestExecSyscallOutputNonLeaderSupersededFromEventView(t *testing.T) {
 	}
 }
 
-func TestExecSyscallOutputNonLeaderWithoutFollowForksFallsThroughAfterRemembering(t *testing.T) {
+func TestExecSyscallOutputNonLeaderWithoutFollowForksCleansPendingArgs(t *testing.T) {
 	output, state, out, _ := newExecSyscallOutputForTest(&cli.Options{})
 	scMeta := meta.Syscall{Name: "execveat"}
 	res := handler.Result{ArgParts: []string{`AT_FDCWD`, `"/bin/true"`}}
@@ -233,7 +233,7 @@ func TestExecSyscallOutputNonLeaderWithoutFollowForksFallsThroughAfterRememberin
 	if out.Len() != 0 {
 		t.Fatalf("fallthrough output = %q, want no direct exec output", out.String())
 	}
-	if got, ok := state.pendingExecArgsFor(201); !ok || !strings.HasPrefix(got, "execveat(") {
-		t.Fatalf("pending exec args = %q ok=%v, want remembered execveat args", got, ok)
+	if got, ok := state.pendingExecArgsFor(201); ok {
+		t.Fatalf("pending exec args = %q, want cleanup before fallthrough", got)
 	}
 }

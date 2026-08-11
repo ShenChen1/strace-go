@@ -2384,3 +2384,37 @@ ABI 与状态契约：
 本阶段只收口 Go 侧对象/接口边界，不改变纯 eBPF 事件事实源。所有路径和 FD 信息仍必须来自 probe-site TLV 或事件驱动状态；任何 `/proc` 方案都不属于该架构。
 
 实际验收结果：删除 `FDStateStore.PathMap`、`FDStateStore.FDStateMap` 和 `FDStateStore.FDCloexecMap`，新增 `FDStateReader`、`EventFDStateReader`、`FDPathReader` 和 `EventFDPathReader`；formatter、路径过滤器、网络 handler、JSON raw-enter filter 均改为只读端口。新增空 store reader、event overlay 隔离和生产源码边界测试。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，732.93 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后无残留 BPF pin 或 tracer 进程，生产路径未引入 `/proc`、ptrace 或 `process_vm_readv`。
+
+### 14.43 TraceState 通过窄状态端口注入输出链（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.37 已建立 session composition root，14.42 已将 FD state 从 map 改为只读 reader，但 `TraceEventRouter`、`TextRenderer`、`ExecSyscallOutput` 和 `SuspendedSyscallOutput` 仍直接持有 `*TraceState`。这些组件因此知道完整状态机的具体实现，而不是只依赖自己需要的操作。
+- Problem：输出组件可以无意中调用未来新增的状态机方法，router 的测试也只能通过具体 map 检查行为；状态机、渲染和生命周期副作用的所有权边界不清晰。继续扩大 `TraceState` 会把单消费者状态机重新变成共享服务对象。该问题与 `/proc` 无关，状态事实仍来自 eBPF 事件和 Go 单消费者状态机。
+- Goal：保留 `TraceState` 作为唯一的 pending/lifecycle 状态所有者，只通过最小接口向事件 router、text renderer、exec 输出和 suspended 输出注入所需操作；session composition root 仍负责创建真实实现，测试可以注入行为明确的 fake。
+- Non-goals：本阶段不拆分 `TraceState` 的底层 map，不改变 enter/exit 配对、unfinished/resumed 顺序、execve 特殊输出、生命周期清理、BPF ABI 或文本格式；不增加 goroutine、锁、定时器、ptrace、`/proc` 或 `process_vm_readv` 查询。
+- Constraints：每个消费者只能声明自身需要的方法；接口不得暴露 map、生命周期清理或其他消费者的操作；真实 session 只能有一个 `TraceState` 实例，事件状态更新仍由 ringbuf 单消费者完成；生产组件不得重新声明 `*TraceState` 依赖字段。
+
+方案比较：
+
+1. 所有组件继续注入 `*TraceState`：改动最小，但具体状态机实现和全部方法集合继续泄漏到输出层，拒绝。
+2. 将 pending、suspended、lifecycle map 拆成多个独立 store：职责看似更细，但会分裂唯一状态所有权，增加跨 store 配对和清理顺序风险，暂不选择。
+3. 为事件处理、文本渲染、exec 和 suspended 输出定义窄状态端口，由 `TraceState` 统一实现：依赖方向清晰、无复制和额外同步，选择该方案。
+
+状态契约：
+
+- `traceEventState` 只提供事件 envelope 到 `TraceStateUpdate` 的转换；生产 router 由 composition root 注入状态，router 不暴露具体状态对象，缺省 fixture 的默认状态只用于保持构造器安全。
+- `textRendererState` 只提供 suspended marker 消费；renderer 不索引状态 map，也不负责清理 exec pending 状态。
+- `execSyscallState` 只提供 exec 参数暂存/取出/删除和 superseded suspended marker 删除；exec 输出不访问 pending/lifecycle map。
+- `suspendedSyscallState` 只提供 suspended syscall marker 写入；probe 输出不拥有完整状态机。
+- `TraceState` 是上述端口的唯一生产实现；session 仍持有一个具体实例并把同一实例注入各端口，未引入第二份状态快照。
+
+测试与验收：
+
+- 增加 compile-time interface assertions 和生产源码 gate，防止 router/renderer/exec/suspended output 重新声明 `*TraceState`。
+- 保留现有行为测试，并增加接口注入回归：事件 router 仍缓存 enter、renderer 仍消费 suspended marker、exec restart/success 和 suspended enter 的状态操作仍按原 TID 执行。
+- 验证顺序：先跑 focused 状态端口/输出测试，再 `go test ./...`、`go test -race ./...`、`go vet ./...`、build，随后运行 eBPF semantic/perf、small 和 upstream reference；测试结束清理 BPF pin 与 tracer 进程。
+
+本阶段只改变 Go 组件依赖边界，不改变纯 eBPF 事件事实源。任何状态缺失仍按现有保守路径处理，不通过 `/proc` 或 tracee live-state 查询补齐。
+
+实际验收结果：新增 `traceEventState`、`textRendererState`、`execSyscallState` 和 `suspendedSyscallState` 四个窄端口，`TraceState` 通过 compile-time assertion 作为唯一生产实现；router、renderer、exec 和 suspended output 不再声明 `*TraceState`，新增 AST source gate 防止具体状态依赖回流。exec 失败落回普通文本输出时由 exec 组件清理 pending 参数，避免 renderer 反向修改 exec 状态。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，746.68 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 tracer 进程或 strace 相关 BPF pin，生产路径未引入 `/proc`、ptrace 或 `process_vm_readv`。

@@ -75,6 +75,44 @@ func TestProductSourceKeepsFDStateBehindReaderPorts(t *testing.T) {
 	}
 }
 
+func TestProductOutputComponentsKeepTraceStateBehindPorts(t *testing.T) {
+	for _, relative := range []string{
+		"cmd/strace-go/event_router.go",
+		"cmd/strace-go/text_renderer.go",
+		"cmd/strace-go/exec_syscall_output.go",
+		"cmd/strace-go/suspended_syscall_output.go",
+	} {
+		path := filepath.Join(repositoryRoot(t), relative)
+		source, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		if hasConcreteTraceStatePointer(file) {
+			t.Fatalf("%s directly depends on concrete TraceState", relative)
+		}
+	}
+}
+
+func hasConcreteTraceStatePointer(file *ast.File) bool {
+	found := false
+	ast.Inspect(file, func(node ast.Node) bool {
+		star, ok := node.(*ast.StarExpr)
+		if !ok {
+			return true
+		}
+		name, ok := star.X.(*ast.Ident)
+		if ok && name.Name == "TraceState" {
+			found = true
+		}
+		return true
+	})
+	return found
+}
+
 func TestGlobalXlatPolicyDetectsAliasedMetaImport(t *testing.T) {
 	forbidden := map[string]bool{
 		"XlatFormat":        true,

@@ -5,12 +5,12 @@ import (
 )
 
 type SuspendedSyscallOutput struct {
-	state    *TraceState
+	state    suspendedSyscallState
 	renderer *TextRenderer
 }
 
 type SuspendedSyscallOutputDeps struct {
-	State    *TraceState
+	State    suspendedSyscallState
 	Renderer *TextRenderer
 }
 
