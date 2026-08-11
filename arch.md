@@ -2319,3 +2319,34 @@ ABI 与状态契约：
 - 验证顺序：先失败的 Catalog/source focused tests，再 `go test ./...`、race、vet、生成/build，最后运行 `ebpf-semantic`、`ebpf-perf`、small 和 upstream reference。
 
 实际验收结果：新增 session-local Catalog、生成器私有静态目录、FS/ioctl/BPF 补充目录合并和旧全局 xlat source gate；所有生产 handler/format 路径均通过 Context Catalog 解码。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build`、`sudo -n go generate ./cmd/strace-go` 和 Python runner 单测 5 项通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 getpid 事件、0 丢失、732.58 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL、0 XPASS。运行期间未引入 procfs、ptrace 或 process_vm_readv 读取路径。
+
+### 14.41 session 统一时钟端口与事件读取边界（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.18 已将命令等待、attach 存活探测和退出 fallback 时钟注入 `traceRunState`，但 `TraceEventReader` 仍在 `Read` 和 `DrainAfterDone` 中直接调用 `time.Now()`。
+- Problem：同一个 trace session 同时存在状态机时钟和 reader 全局时钟，结束排空、deadline 和 fallback 无法由一个对象统一控制；reader 的时间行为不能用确定性 fake 完整验证，未来也容易把实时系统调用渗入事件状态机。
+- Goal：把时钟提升为 session-owned port，由 `traceSession` 在 composition root 统一创建并同时注入 `TraceRunState` 和 `TraceEventReader`；生产实现仍使用系统时钟，测试可以完全控制 deadline 和 drain 时间。
+- Non-goals：本阶段不改变 ringbuf ABI、事件排序、退出 grace 数值、BPF 程序或 CLI 语义；不增加 goroutine，不引入 timer 驱动的 unfinished/resumed 状态，也不恢复 ptrace/procfs。
+- Constraints：事件 reader 只能通过 `traceClock` 获取当前时间；所有生产 session 使用同一个 clock 实例；缺失 clock 的单元测试使用明确的系统默认 adapter，不在 reader 内直接调用 `time.Now()`。
+
+方案比较：
+
+1. 只给 `TraceEventReader` 增加独立 clock：改动小，但一个 session 仍可能有多个时间源，结束条件和 ringbuf deadline 不能证明一致，暂不选择。
+2. 在 `traceSessionDeps` 中注入一个 session clock，由 composition root 共享给 reader 与 run state：依赖方向清晰、时间行为可完整测试，选择该方案。
+3. 用全局可替换函数或包级变量封装 `time.Now`：测试方便，但重新引入隐式全局可变状态，拒绝。
+
+状态契约：
+
+- `traceSession` 持有一个只读的 `traceClock` 依赖；`normalizeTraceSession` 为缺省 fixture 设置 `systemTraceClock`。
+- `TraceEventReader.Read`、`DrainAfterDone` 和 `traceRunState` 的时间计算全部调用同一个 `traceClock.Now()`。
+- reader 的 `SetDeadline` 只负责 ringbuf I/O 边界；它不修改 `TraceState`，也不拥有退出策略。
+- 退出 grace 和 polling interval 仍由 session policy 决定，clock 只提供当前时刻，不隐藏 sleep/timer 副作用。
+
+测试与验收：
+
+- reader 单测锁定注入 clock 产生的精确 deadline，以及 drain grace 使用同一 clock；禁止通过 wall clock 断言。
+- composition 单测验证 session、reader 和 run state 共享同一个 clock 实例。
+- 运行 `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、BPF semantic/perf 和相关 reference；源码检查不得在事件 reader 中出现直接 `time.Now()`。
+
+实际验收结果：`TraceEventReader`、`traceRunState` 和 session composition 已共享同一个注入时钟，reader 不再直接调用 `time.Now()`；reader deadline、drain grace 和 composition identity 回归通过。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 getpid 事件、5,000/5,000 enter/exit、0 丢失，731.48 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。测试结束后没有残留 `strace-go-*` BPF pin 或 tracer 进程。

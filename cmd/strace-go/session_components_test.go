@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
@@ -18,12 +19,14 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	var output bytes.Buffer
 	ringReader := &fakeRingbufReader{}
 	state := newTraceStateWithDeferredExit(true)
+	clock := &fakeTraceClock{now: time.Unix(300, 0)}
 	session := newTraceSession(traceSessionDeps{
 		Events:    ringReader,
 		TargetPID: 101,
 		Opts:      &cli.Options{EventFormat: cli.EventFormatJSON},
 		OutWriter: &output,
 		State:     state,
+		Clock:     clock,
 	})
 
 	if session.components == nil {
@@ -58,6 +61,13 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	}
 	if components.eventReader.sink != components.eventRouter {
 		t.Fatal("event reader and session graph use different sinks")
+	}
+	if components.eventReader.clock != clock || session.clock != clock {
+		t.Fatal("session and event reader do not share the injected clock")
+	}
+	runState := newTraceRunState(traceRunStateDeps{clock: session.clock})
+	if runState.clock != clock {
+		t.Fatal("run state does not use the session clock")
 	}
 	if components.eventRouter.state != state {
 		t.Fatal("event router did not receive the session state")

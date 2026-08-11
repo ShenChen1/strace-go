@@ -38,6 +38,7 @@ type traceSession struct {
 	resolver      *stacktrace.Resolver
 	state         *TraceState
 	components    *traceSessionComponents
+	clock         traceClock
 }
 
 // IMPACT: setupBPF is the single eBPF runtime wiring entry used by main. It loads

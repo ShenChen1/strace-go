@@ -71,6 +71,7 @@ type traceSessionDeps struct {
 	BPFObjects    *bpfObjects
 	Resolver      *stacktrace.Resolver
 	State         *TraceState
+	Clock         traceClock
 }
 
 // newTraceSession creates the complete event pipeline before the first event
@@ -90,6 +91,7 @@ func newTraceSession(deps traceSessionDeps) *traceSession {
 		bpfObjs:       deps.BPFObjects,
 		resolver:      deps.Resolver,
 		state:         deps.State,
+		clock:         deps.Clock,
 	}
 	if session.state == nil {
 		session.state = newTraceStateWithDeferredExit(shouldEmitGenericEnter(session.opts))
@@ -121,6 +123,9 @@ func normalizeTraceSession(session *traceSession) {
 	}
 	if session.summary == nil {
 		session.summary = newSummaryStats()
+	}
+	if session.clock == nil {
+		session.clock = systemTraceClock{}
 	}
 }
 
@@ -274,6 +279,7 @@ func buildTraceSessionRuntime(
 			Reader:  session.events,
 			Decoder: recordDecoder,
 			Sink:    router,
+			Clock:   session.clock,
 		}),
 		runFinalizer: newTraceRunFinalizer(TraceRunFinalizerDeps{
 			Opts:            session.opts,

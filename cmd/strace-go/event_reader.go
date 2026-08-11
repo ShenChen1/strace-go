@@ -23,19 +23,26 @@ type TraceEventReader struct {
 	reader  traceRingbufReader
 	decoder traceRecordDecoder
 	sink    traceEventSink
+	clock   traceClock
 }
 
 type TraceEventReaderDeps struct {
 	Reader  traceRingbufReader
 	Decoder traceRecordDecoder
 	Sink    traceEventSink
+	Clock   traceClock
 }
 
 func newTraceEventReader(deps TraceEventReaderDeps) *TraceEventReader {
+	clock := deps.Clock
+	if clock == nil {
+		clock = systemTraceClock{}
+	}
 	return &TraceEventReader{
 		reader:  deps.Reader,
 		decoder: deps.Decoder,
 		sink:    deps.Sink,
+		clock:   clock,
 	}
 }
 
@@ -51,7 +58,7 @@ func (r *TraceEventReader) Read(rec *ringbuf.Record, timeout time.Duration) trac
 	if r == nil || r.reader == nil {
 		return traceReadClosed
 	}
-	r.reader.SetDeadline(time.Now().Add(timeout))
+	r.reader.SetDeadline(r.clock.Now().Add(timeout))
 	if err := r.reader.ReadInto(rec); err != nil {
 		if errors.Is(err, ringbuf.ErrClosed) {
 			return traceReadClosed
@@ -85,8 +92,8 @@ func (r *TraceEventReader) DrainAfterDone(rec *ringbuf.Record, grace time.Durati
 		r.Drain(rec)
 		return
 	}
-	deadline := time.Now().Add(grace)
-	for time.Now().Before(deadline) {
+	deadline := r.clock.Now().Add(grace)
+	for r.clock.Now().Before(deadline) {
 		if r.Read(rec, traceExitDrainPollInterval) == traceReadClosed {
 			return
 		}

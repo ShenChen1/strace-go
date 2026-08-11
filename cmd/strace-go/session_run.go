@@ -97,6 +97,7 @@ func (s *traceSession) run() error {
 	state := newTraceRunState(traceRunStateDeps{
 		command:    newExecTraceCommandWaiter(s.cmd),
 		attachPids: attachPids,
+		clock:      s.clock,
 	})
 	commandExit := s.commandExitHandler()
 	eventReader := s.traceEventReader()
