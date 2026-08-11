@@ -61,25 +61,31 @@ type traceSession struct {
 // IMPACT: setupBPF is the single eBPF runtime wiring entry used by main. It loads
 // the spec, resolves syscall id variables, and delegates all tracepoint/kretprobe
 // attachment to bpfAttacher so session.go stays a session orchestrator.
-func setupBPF() (*bpfObjects, []link.Link) {
+func setupBPF() (*bpfObjects, []link.Link, error) {
 	if err := rlimit.RemoveMemlock(); err != nil {
-		log.Fatalf("failed to remove memlock: %v", err)
+		return nil, nil, fmt.Errorf("remove memlock: %w", err)
 	}
 
 	spec, err := loadBpf()
 	if err != nil {
-		log.Fatalf("failed to load BPF spec: %v", err)
+		return nil, nil, fmt.Errorf("load BPF spec: %w", err)
 	}
 	if err := setSyscallVariables(spec); err != nil {
-		log.Fatalf("failed to resolve BPF syscall variables: %v", err)
+		return nil, nil, fmt.Errorf("resolve BPF syscall variables: %w", err)
 	}
 
 	bpfObjs := &bpfObjects{}
 	if err := spec.LoadAndAssign(bpfObjs, nil); err != nil {
-		log.Fatalf("failed to load and assign BPF objects: %v", err)
+		_ = bpfObjs.Close()
+		return nil, nil, fmt.Errorf("load and assign BPF objects: %w", err)
 	}
-	links := newBpfAttacher(bpfObjs).attachAll()
-	return bpfObjs, links
+	links, err := newBpfAttacher(bpfObjs).attachAll()
+	if err != nil {
+		_ = bpfObjs.Close()
+		closeTracepointLinks(links)
+		return nil, nil, fmt.Errorf("attach BPF programs: %w", err)
+	}
+	return bpfObjs, links, nil
 }
 
 // IMPACT: setSyscallVariables resolves strace-facing syscall ids referenced by

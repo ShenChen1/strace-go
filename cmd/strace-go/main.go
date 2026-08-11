@@ -43,7 +43,10 @@ func main() {
 	inheritedFiles := collectInheritedFiles()
 	defer closeFiles(inheritedFiles)
 
-	bpfObjs, tpLinks := setupBPF()
+	bpfObjs, tpLinks, err := setupBPF()
+	if err != nil {
+		log.Fatalf("failed to set up BPF runtime: %v", err)
+	}
 	defer bpfObjs.Close()
 	for _, l := range tpLinks {
 		defer l.Close()

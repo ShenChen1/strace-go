@@ -45,6 +45,12 @@ func TestLifecycleTracepointSpecsAreOptional(t *testing.T) {
 	}
 }
 
+func TestBPFAttacherRejectsNilObjects(t *testing.T) {
+	if _, err := newBpfAttacher(nil).attachAll(); err == nil {
+		t.Fatal("attachAll(nil) returned nil error")
+	}
+}
+
 func TestSetSyscallVariablesResolvesAgainstSyscallTable(t *testing.T) {
 	spec, err := loadBpf()
 	if err != nil {

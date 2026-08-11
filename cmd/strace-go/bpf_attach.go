@@ -32,17 +32,31 @@ func newBpfAttacher(objs *bpfObjects) *bpfAttacher {
 }
 
 // attachAll attaches every raw syscall, lifecycle and recvmsg kretprobe program.
-func (a *bpfAttacher) attachAll() []link.Link {
-	if err := a.populateProgArrays(); err != nil {
-		log.Fatalf("failed to populate tail call prog arrays: %v", err)
+func (a *bpfAttacher) attachAll() ([]link.Link, error) {
+	if a == nil || a.objs == nil {
+		return nil, fmt.Errorf("BPF objects are nil")
 	}
-	var links []link.Link
-	links = a.attachTracepoints(rawSyscallTracepointSpecs(a.objs))
-	links = append(links, a.attachTracepoints(lifecycleTracepointSpecs(a.objs))...)
-	if kp := a.attachRecvmsgKretprobe(); kp != nil {
+	if err := a.populateProgArrays(); err != nil {
+		return nil, fmt.Errorf("populate tail call prog arrays: %w", err)
+	}
+	links, err := a.attachTracepoints(rawSyscallTracepointSpecs(a.objs))
+	if err != nil {
+		closeTracepointLinks(links)
+		return nil, err
+	}
+	lifecycleLinks, err := a.attachTracepoints(lifecycleTracepointSpecs(a.objs))
+	if err != nil {
+		closeTracepointLinks(links)
+		closeTracepointLinks(lifecycleLinks)
+		return nil, err
+	}
+	links = append(links, lifecycleLinks...)
+	if kp, err := a.attachRecvmsgKretprobe(); err != nil {
+		log.Printf("recvmsg kretprobe unavailable; nested OUT payloads may fall back to bounded tracepoint data: %v", err)
+	} else if kp != nil {
 		links = append(links, kp)
 	}
-	return links
+	return links, nil
 }
 
 // rawSyscallTracepointSpecs lists the raw_syscalls programs that must attach.
@@ -276,7 +290,7 @@ func lifecycleTracepointSpecs(objs *bpfObjects) []tracepointSpec {
 
 // attachTracepoints attaches each spec, skipping optional failures and aborting
 // on required failures so the session never runs with missing raw syscall data.
-func (a *bpfAttacher) attachTracepoints(specs []tracepointSpec) []link.Link {
+func (a *bpfAttacher) attachTracepoints(specs []tracepointSpec) ([]link.Link, error) {
 	var links []link.Link
 	for _, spec := range specs {
 		tp, err := link.Tracepoint(spec.category, spec.name, spec.program, nil)
@@ -288,21 +302,33 @@ func (a *bpfAttacher) attachTracepoints(specs []tracepointSpec) []link.Link {
 			if spec.label != "" {
 				label = spec.label + " "
 			}
-			log.Fatalf("failed to attach %s%s tracepoint: %v", label, spec.name, err)
+			return links, fmt.Errorf("attach %s%s tracepoint: %w", label, spec.name, err)
 		}
 		links = append(links, tp)
 	}
-	return links
+	return links, nil
 }
 
 // attachRecvmsgKretprobe attaches the single recvmsg return dispatcher.
-func (a *bpfAttacher) attachRecvmsgKretprobe() link.Link {
+func (a *bpfAttacher) attachRecvmsgKretprobe() (link.Link, error) {
+	var lastErr error
 	for _, symbol := range []string{"__sys_recvmsg", "__x64_sys_recvmsg"} {
 		kp, err := link.Kretprobe(symbol, a.objs.TraceKretprobeRecvmsgDispatch, nil)
 		if err == nil {
-			return kp
+			return kp, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		return nil, fmt.Errorf("no recvmsg kretprobe symbol available")
+	}
+	return nil, fmt.Errorf("recvmsg symbols: %w", lastErr)
+}
+
+func closeTracepointLinks(links []link.Link) {
+	for _, l := range links {
+		if l != nil {
+			_ = l.Close()
 		}
 	}
-	log.Printf("recvmsg kretprobe unavailable; nested OUT payloads may fall back to bounded tracepoint data")
-	return nil
 }
