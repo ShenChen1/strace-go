@@ -9,15 +9,15 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func init() {
+func registerBuiltinSelect(r *Registry) {
 	h := &SelectHandler{}
-	Register("select", h)
-	Register("_newselect", h)
-	Register("pselect6", h)
+	r.Register("select", h)
+	r.Register("_newselect", h)
+	r.Register("pselect6", h)
 
 	ph := &PollHandler{}
-	Register("poll", ph)
-	Register("ppoll", ph)
+	r.Register("poll", ph)
+	r.Register("ppoll", ph)
 }
 
 type SelectHandler struct{}

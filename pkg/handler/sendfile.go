@@ -5,8 +5,8 @@ import (
 	"fmt"
 )
 
-func init() {
-	Register("sendfile", &SendfileHandler{})
+func registerBuiltinSendfile(r *Registry) {
+	r.Register("sendfile", &SendfileHandler{})
 }
 
 type SendfileHandler struct {

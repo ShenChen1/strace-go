@@ -59,10 +59,10 @@ var capabilityNames = []string{
 	"CAP_CHECKPOINT_RESTORE",
 }
 
-func init() {
+func registerBuiltinCapability(r *Registry) {
 	h := &CapabilityHandler{}
-	Register("capget", h)
-	Register("capset", h)
+	r.Register("capget", h)
+	r.Register("capset", h)
 }
 
 type CapabilityHandler struct {

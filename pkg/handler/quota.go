@@ -31,10 +31,10 @@ type QuotaHandler struct {
 	DefaultHandler
 }
 
-func init() {
+func registerBuiltinQuota(r *Registry) {
 	handler := &QuotaHandler{}
-	Register("quotactl", handler)
-	Register("quotactl_fd", handler)
+	r.Register("quotactl", handler)
+	r.Register("quotactl_fd", handler)
 }
 
 // Handle formats standard Linux quota commands from probe-time snapshots.

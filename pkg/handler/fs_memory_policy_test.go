@@ -283,7 +283,7 @@ func TestLegacyGetdentsUsesPayloadBytesSection(t *testing.T) {
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, UserPtr: 0x3000, ProbeRet: 0, Data: makeGetdents64Dirents(24, 32)},
 	}
 
-	got := Get("getdents").Handle(ctx)
+	got := NewRegistry().Resolve("getdents").Handle(ctx)
 	if got.ArgParts[1] != "0x3000 /* 2 entries */" {
 		t.Fatalf("legacy getdents dirent = %q, want formatted payload section count", got.ArgParts[1])
 	}
@@ -318,7 +318,7 @@ func TestGetdentsVerboseUsesLayoutSpecificFields(t *testing.T) {
 				{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, UserPtr: 0x3000, ProbeRet: 0, Data: test.data},
 			}
 
-			got := Get(test.name).Handle(ctx)
+			got := NewRegistry().Resolve(test.name).Handle(ctx)
 			if got.ArgParts[1] != test.want {
 				t.Fatalf("verbose dirent = %q, want %q", got.ArgParts[1], test.want)
 			}

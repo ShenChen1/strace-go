@@ -33,20 +33,10 @@ func (r *Registry) StructDecoder(argTyp string) TypeDecoder {
 	return nil
 }
 
-// RegisterStructDecoder registers a TypeDecoder for a specific type pattern.
-func RegisterStructDecoder(typPattern string, d TypeDecoder) {
-	builtinRegistry.RegisterStructDecoder(typPattern, d)
-}
-
 // StructDecoderFunc is a convenience adapter to allow using ordinary functions as TypeDecoders.
 type StructDecoderFunc func(ctx *Context, i int, argTyp string, val uint64) (string, bool)
 
 // Decode calls f(ctx, i, argTyp, val).
 func (f StructDecoderFunc) Decode(ctx *Context, i int, argTyp string, val uint64) (string, bool) {
 	return f(ctx, i, argTyp, val)
-}
-
-// FindStructDecoder attempts to find a decoder that matches the argument type.
-func FindStructDecoder(argTyp string) TypeDecoder {
-	return builtinRegistry.StructDecoder(argTyp)
 }

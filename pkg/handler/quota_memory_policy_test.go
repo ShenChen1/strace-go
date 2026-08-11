@@ -60,7 +60,7 @@ func testQuotaDqblk() []byte {
 
 func TestQuotaSyscallsUseSpecializedHandler(t *testing.T) {
 	for _, name := range []string{"quotactl", "quotactl_fd"} {
-		if reflect.TypeOf(Get(name)) == reflect.TypeOf(GetDefault()) {
+		if reflect.TypeOf(NewRegistry().Resolve(name)) == reflect.TypeOf(NewRegistry().Default()) {
 			t.Errorf("%s uses default handler", name)
 		}
 	}
@@ -79,7 +79,7 @@ func TestQuotaOnUsesEnterPathSnapshots(t *testing.T) {
 		testQuotaString(3, args[3], "/quota.user"),
 	}
 
-	got := Get("quotactl").Handle(ctx).ArgParts
+	got := NewRegistry().Resolve("quotactl").Handle(ctx).ArgParts
 	want := []string{
 		"QCMD(Q_QUOTAON, USRQUOTA)",
 		`"/dev/sda1"`,
@@ -107,7 +107,7 @@ func TestQuotaSetUsesEnterStructAfterFailure(t *testing.T) {
 		},
 	}
 
-	got := Get("quotactl").Handle(ctx).ArgParts
+	got := NewRegistry().Resolve("quotactl").Handle(ctx).ArgParts
 	if len(got) != 4 || !strings.Contains(got[3], "dqb_curinodes=6") {
 		t.Fatalf("quotactl Q_SETQUOTA args = %#v, want enter dqblk snapshot", got)
 	}
@@ -131,13 +131,13 @@ func TestQuotaGetRequiresSuccessfulExitSnapshot(t *testing.T) {
 			UserPtr: args[3], UserLen: 72, CopiedLen: 72, Data: testQuotaDqblk(),
 		},
 	}
-	got := Get("quotactl").Handle(ctx).ArgParts
+	got := NewRegistry().Resolve("quotactl").Handle(ctx).ArgParts
 	if len(got) != 4 || got[3] != "0x4000" {
 		t.Fatalf("failed Q_GETQUOTA args = %#v, want OUT pointer fallback", got)
 	}
 
 	ctx.Ret = 0
-	got = Get("quotactl").Handle(ctx).ArgParts
+	got = NewRegistry().Resolve("quotactl").Handle(ctx).ArgParts
 	if len(got) != 4 || !strings.Contains(got[3], "dqb_bhardlimit=1") {
 		t.Fatalf("successful Q_GETQUOTA args = %#v, want exit dqblk snapshot", got)
 	}
@@ -182,7 +182,7 @@ func TestQuotaFdGetFmtUsesExitSnapshot(t *testing.T) {
 		UserPtr: args[3], UserLen: 4, CopiedLen: 4, Data: formatData,
 	}}
 
-	got := Get("quotactl_fd").Handle(ctx).ArgParts
+	got := NewRegistry().Resolve("quotactl_fd").Handle(ctx).ArgParts
 	want := []string{"9", "QCMD(Q_GETFMT, USRQUOTA)", "[QFMT_VFS_V1]"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("quotactl_fd Q_GETFMT args = %#v, want %#v", got, want)

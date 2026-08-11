@@ -8,8 +8,8 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func init() {
-	RegisterStructDecoder("struct open_how *", StructDecoderFunc(decodeOpenHow))
+func registerBuiltinOpenat2(r *Registry) {
+	r.RegisterStructDecoder("struct open_how *", StructDecoderFunc(decodeOpenHow))
 }
 
 const (

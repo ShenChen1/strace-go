@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-func init() {
-	SetDefault(&DefaultHandler{})
+func registerBuiltinDefault(r *Registry) {
+	r.SetDefault(&DefaultHandler{})
 }
 
 // DefaultHandler handles all syscalls by default using metadata.

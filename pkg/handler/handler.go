@@ -111,10 +111,6 @@ type Registry struct {
 	structDecoders  []structDecoderEntry
 }
 
-var builtinRegistry = &Registry{
-	handlers: make(map[string]Handler),
-}
-
 // NewRegistry returns an isolated copy of the built-in handler catalog.
 func NewRegistry() *Registry {
 	return builtinRegistry.clone()
@@ -188,24 +184,4 @@ func (ctx *Context) registry() *Registry {
 		return ctx.Registry
 	}
 	return builtinRegistry
-}
-
-// Register registers a handler for a specific syscall name.
-func Register(name string, h Handler) {
-	builtinRegistry.Register(name, h)
-}
-
-// SetDefault sets the fallback handler for unregistered syscalls.
-func SetDefault(h Handler) {
-	builtinRegistry.SetDefault(h)
-}
-
-// Get returns the registered handler for the syscall, or the default handler.
-func Get(name string) Handler {
-	return builtinRegistry.Resolve(name)
-}
-
-// GetDefault returns the default handler.
-func GetDefault() Handler {
-	return builtinRegistry.Default()
 }

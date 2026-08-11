@@ -21,8 +21,8 @@ func translateIfindex(ifindex uint32) string {
 	return fmt.Sprintf("%d", ifindex)
 }
 
-func init() {
-	Register("bpf", &BpfHandler{})
+func registerBuiltinBpf(r *Registry) {
+	r.Register("bpf", &BpfHandler{})
 }
 
 // IMPACT: BpfHandler handles the decoding of bpf syscall parameters.

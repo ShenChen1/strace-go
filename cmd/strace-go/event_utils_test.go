@@ -58,7 +58,7 @@ func TestDup2FormatsArgsBeforeFDMapUpdateAndReturnAfter(t *testing.T) {
 		FdMap: fdMap,
 	}
 
-	res := handler.Get("dup2").Handle(ctx)
+	res := handler.NewRegistry().Resolve("dup2").Handle(ctx)
 	if got, want := res.ArgParts, []string{"3</dev/null>", "4</dev/full>"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("dup2 args = %#v, want %#v", got, want)
 	}

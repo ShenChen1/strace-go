@@ -2,9 +2,9 @@ package handler
 
 import "fmt"
 
-func init() {
-	Register("brk", &BrkHandler{})
-	Register("mremap", &MremapHandler{})
+func registerBuiltinSysMem(r *Registry) {
+	r.Register("brk", &BrkHandler{})
+	r.Register("mremap", &MremapHandler{})
 }
 
 type BrkHandler struct{}

@@ -109,7 +109,7 @@ func TestQuotaXFSFlagCommandsSkipIDAndUseEnterSnapshot(t *testing.T) {
 			value = testQuotaXDqblkFlags
 		}
 		ctx.PayloadSections = []PayloadSection{testQuotaStruct(3, args[3], PayloadDirectionIn, testQuotaUint32(value))}
-		got := Get("quotactl").Handle(ctx).ArgParts
+		got := NewRegistry().Resolve("quotactl").Handle(ctx).ArgParts
 		if len(got) != 3 || got[2] != tc.want {
 			t.Errorf("command %#x args = %#v, want final %q without id", tc.command, got, tc.want)
 		}
@@ -120,7 +120,7 @@ func TestQuotaXFSSetQLimUsesEnterDiskQuota(t *testing.T) {
 	args := [6]uint64{testQuotaCommand(testQuotaXSetQLim, testQuotaProject), 0x1000, 3141592653, 0x3000}
 	ctx := testQuotaContext("quotactl", args, -1)
 	ctx.PayloadSections = []PayloadSection{testQuotaStruct(3, args[3], PayloadDirectionIn, testXFSDiskQuota())}
-	got := Get("quotactl").Handle(ctx).ArgParts
+	got := NewRegistry().Resolve("quotactl").Handle(ctx).ArgParts
 	if len(got) != 4 || !strings.Contains(got[3], "d_flags=FS_USER_QUOTA|FS_PROJ_QUOTA|FS_GROUP_QUOTA") ||
 		!strings.Contains(got[3], "d_icount=60, ...") {
 		t.Fatalf("Q_XSETQLIM args = %#v, want abbreviated enter disk quota", got)
@@ -131,12 +131,12 @@ func TestQuotaXFSGetQuotaRequiresSuccessfulExit(t *testing.T) {
 	args := [6]uint64{testQuotaCommand(testQuotaXGetQuota, testQuotaUser), 0x1000, 1000, 0x4000}
 	ctx := testQuotaContext("quotactl", args, -1)
 	ctx.PayloadSections = []PayloadSection{testQuotaStruct(3, args[3], PayloadDirectionOut, testXFSDiskQuota())}
-	got := Get("quotactl").Handle(ctx).ArgParts
+	got := NewRegistry().Resolve("quotactl").Handle(ctx).ArgParts
 	if len(got) != 4 || got[3] != "0x4000" {
 		t.Fatalf("failed Q_XGETQUOTA args = %#v, want pointer fallback", got)
 	}
 	ctx.Ret = 0
-	got = Get("quotactl").Handle(ctx).ArgParts
+	got = NewRegistry().Resolve("quotactl").Handle(ctx).ArgParts
 	if !strings.Contains(got[3], "d_blk_hardlimit=10") {
 		t.Fatalf("successful Q_XGETQUOTA args = %#v, want exit disk quota", got)
 	}
@@ -146,14 +146,14 @@ func TestQuotaXFSGetStatsUseExitStructures(t *testing.T) {
 	ctx := testQuotaContext("quotactl", [6]uint64{testQuotaCommand(testQuotaXGetQStat, testQuotaUser), 0, 0, 0x5000}, 0)
 	ctx.Opts.Verbose = true
 	ctx.PayloadSections = []PayloadSection{testQuotaStruct(3, ctx.Args[3], PayloadDirectionOut, testXFSQuotaStat())}
-	got := Get("quotactl").Handle(ctx).ArgParts
+	got := NewRegistry().Resolve("quotactl").Handle(ctx).ArgParts
 	if len(got) != 3 || !strings.Contains(got[2], "qs_uquota={qfs_ino=10, qfs_nblks=20, qfs_nextents=2}") {
 		t.Fatalf("Q_XGETQSTAT args = %#v, want verbose stat", got)
 	}
 
 	ctx.Args[0] = testQuotaCommand(testQuotaXGetQStatV, testQuotaProject)
 	ctx.PayloadSections = []PayloadSection{testQuotaStruct(3, ctx.Args[3], PayloadDirectionOut, testXFSQuotaStatV())}
-	got = Get("quotactl").Handle(ctx).ArgParts
+	got = NewRegistry().Resolve("quotactl").Handle(ctx).ArgParts
 	if len(got) != 3 || !strings.Contains(got[2], "qs_pquota={qfs_ino=50, qfs_nblks=60, qfs_nextents=6}") {
 		t.Fatalf("Q_XGETQSTATV args = %#v, want verbose statv", got)
 	}
@@ -163,7 +163,7 @@ func TestQuotaXFSQuotaSyncSkipsIDAndAddr(t *testing.T) {
 	args := [6]uint64{testQuotaCommand(testQuotaXQuotaSync, 0xff), 0, ^uint64(0), 0x6000}
 	ctx := testQuotaContext("quotactl", args, -1)
 	want := []string{"QCMD(Q_XQUOTASYNC, 0xff /* ???QUOTA */)", "NULL"}
-	if got := Get("quotactl").Handle(ctx).ArgParts; !reflect.DeepEqual(got, want) {
+	if got := NewRegistry().Resolve("quotactl").Handle(ctx).ArgParts; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Q_XQUOTASYNC args = %#v, want %#v", got, want)
 	}
 }
@@ -172,7 +172,7 @@ func TestQuotaXFSGetNextUsesIDAndDiskQuota(t *testing.T) {
 	args := [6]uint64{testQuotaCommand(testQuotaXGetNext, testQuotaUser), 0, 123, 0x7000}
 	ctx := testQuotaContext("quotactl", args, 0)
 	ctx.PayloadSections = []PayloadSection{testQuotaStruct(3, args[3], PayloadDirectionOut, testXFSDiskQuota())}
-	got := Get("quotactl").Handle(ctx).ArgParts
+	got := NewRegistry().Resolve("quotactl").Handle(ctx).ArgParts
 	if len(got) != 4 || got[2] != "123" || !strings.Contains(got[3], "d_id=3141592653") {
 		t.Fatalf("Q_XGETNEXTQUOTA args = %#v, want id and disk quota", got)
 	}
@@ -189,7 +189,7 @@ func TestQuotaXFSFdVariantUsesSameCommandLayout(t *testing.T) {
 		"QCMD(Q_XQUOTAON, USRQUOTA)",
 		"[FS_QUOTA_UDQ_ACCT|FS_QUOTA_UDQ_ENFD|FS_QUOTA_GDQ_ACCT|FS_QUOTA_GDQ_ENFD|FS_QUOTA_PDQ_ACCT|FS_QUOTA_PDQ_ENFD]",
 	}
-	if got := Get("quotactl_fd").Handle(ctx).ArgParts; !reflect.DeepEqual(got, want) {
+	if got := NewRegistry().Resolve("quotactl_fd").Handle(ctx).ArgParts; !reflect.DeepEqual(got, want) {
 		t.Fatalf("quotactl_fd Q_XQUOTAON args = %#v, want %#v", got, want)
 	}
 }
@@ -200,7 +200,7 @@ func TestQuotaXFSTruncatedSnapshotFallsBackToPointer(t *testing.T) {
 	ctx.PayloadSections = []PayloadSection{
 		testQuotaStruct(3, args[3], PayloadDirectionIn, make([]byte, quotaXFSDiskSize-1)),
 	}
-	got := Get("quotactl").Handle(ctx).ArgParts
+	got := NewRegistry().Resolve("quotactl").Handle(ctx).ArgParts
 	if len(got) != 4 || got[3] != "0x9000" {
 		t.Fatalf("truncated Q_XSETQLIM args = %#v, want pointer fallback", got)
 	}

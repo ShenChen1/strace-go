@@ -9,10 +9,10 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func init() {
+func registerBuiltinFcntl(r *Registry) {
 	h := &FcntlHandler{}
-	Register("fcntl", h)
-	Register("fcntl64", h)
+	r.Register("fcntl", h)
+	r.Register("fcntl64", h)
 }
 
 // FcntlHandler handles multi-type arg mapping for fcntl and fcntl64.

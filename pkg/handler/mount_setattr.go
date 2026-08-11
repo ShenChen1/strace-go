@@ -15,8 +15,8 @@ const (
 	mountAttrIDMap       = uint64(0x100000)
 )
 
-func init() {
-	Register("mount_setattr", &MountSetattrHandler{})
+func registerBuiltinMountSetattr(r *Registry) {
+	r.Register("mount_setattr", &MountSetattrHandler{})
 }
 
 // MountSetattrHandler formats mount_setattr from enter-stage BPF snapshots.

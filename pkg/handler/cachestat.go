@@ -5,9 +5,9 @@ import (
 	"fmt"
 )
 
-func init() {
+func registerBuiltinCachestat(r *Registry) {
 	h := &CachestatHandler{}
-	Register("cachestat", h)
+	r.Register("cachestat", h)
 }
 
 type CachestatHandler struct {

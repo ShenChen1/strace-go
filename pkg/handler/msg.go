@@ -27,12 +27,12 @@ const (
 	mmsghdrMsgLenOffset    = 56
 )
 
-func init() {
+func registerBuiltinMsg(r *Registry) {
 	h := &MsgHandler{}
-	Register("sendmsg", h)
-	Register("recvmsg", h)
-	Register("sendmmsg", h)
-	Register("recvmmsg", h)
+	r.Register("sendmsg", h)
+	r.Register("recvmsg", h)
+	r.Register("sendmmsg", h)
+	r.Register("recvmmsg", h)
 }
 
 type MsgHandler struct {

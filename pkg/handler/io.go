@@ -8,17 +8,17 @@ import (
 	"strings"
 )
 
-func init() {
+func registerBuiltinIo(r *Registry) {
 	h := &IoHandler{}
-	Register("readv", h)
-	Register("writev", h)
-	Register("preadv", h)
-	Register("pwritev", h)
-	Register("preadv2", h)
-	Register("pwritev2", h)
-	Register("process_vm_readv", h)
-	Register("process_vm_writev", h)
-	Register("vmsplice", h)
+	r.Register("readv", h)
+	r.Register("writev", h)
+	r.Register("preadv", h)
+	r.Register("pwritev", h)
+	r.Register("preadv2", h)
+	r.Register("pwritev2", h)
+	r.Register("process_vm_readv", h)
+	r.Register("process_vm_writev", h)
+	r.Register("vmsplice", h)
 }
 
 type IoHandler struct {

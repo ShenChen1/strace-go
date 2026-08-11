@@ -8,14 +8,14 @@ import (
 	"strace-go/pkg/format"
 )
 
-func init() {
-	Register("io_setup", &AioHandler{})
-	Register("io_destroy", &AioHandler{})
-	Register("io_submit", &AioHandler{})
-	Register("io_cancel", &AioHandler{})
-	Register("io_getevents", &AioHandler{})
-	Register("io_pgetevents", &AioHandler{})
-	Register("io_pgetevents_time64", &AioHandler{})
+func registerBuiltinAio(r *Registry) {
+	r.Register("io_setup", &AioHandler{})
+	r.Register("io_destroy", &AioHandler{})
+	r.Register("io_submit", &AioHandler{})
+	r.Register("io_cancel", &AioHandler{})
+	r.Register("io_getevents", &AioHandler{})
+	r.Register("io_pgetevents", &AioHandler{})
+	r.Register("io_pgetevents_time64", &AioHandler{})
 }
 
 type AioHandler struct{}

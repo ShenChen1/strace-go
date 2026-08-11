@@ -2257,3 +2257,33 @@ ABI 与状态契约：
 - `go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `sudo -n go generate ./cmd/strace-go` 通过；Python runner 单测 5 项、eBPF suite 单测 10 项和 Python 语法检查通过。
 - `ebpf-semantic` 通过：201 个主事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 通过：10,000 个 getpid 事件、5,000/5,000 enter/exit、0 丢失，741.34 events/s。
 - 当前源码的 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`），无 XPASS。
+### 14.39 显式构建 handler registry，移除 init bootstrap（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.37 已将 session 的 handler registry 注入事件上下文、handler runner 和 exit output；14.38 已确认每个 trace session 拥有独立 registry。但 `pkg/handler` 仍通过 36 个 `init()` 调用包级 `Register`、`RegisterPointerDecoder` 和 `RegisterStructDecoder`，并保留包级 `Get`/`GetDefault` 查询入口。
+- Problem：handler catalog 的内容依赖 Go 文件初始化顺序和包级可变对象。这样会隐藏注册顺序、让测试可以意外修改后续测试看到的全局状态，也使 session composition root 无法完整表达 formatter 和 decoder 的依赖图。它与最终的纯 eBPF、事件驱动、会话隔离架构不一致。
+- Goal：用显式 `buildBuiltinRegistry` 构建一次只读的内建 catalog；`NewRegistry` 只复制该 catalog，所有生产事件路径通过 session registry 解析 handler 和 decoder；删除包级注册/查询 bootstrap API，保留 `Registry` 方法作为明确的装配和测试扩展边界。
+- Non-goals：本阶段不改变 handler 的格式化逻辑、payload ABI、BPF 程序、xlat 内容或事件排序；不重新设计 `pkg/meta` 的 catalog。FS/ioctl 的动态 xlat 初始化只从 `init()` 搬到显式 builtin build，不在本阶段改成 session-local meta catalog。
+- Constraints：必须保持 decoder 的 first-match 顺序和现有 handler 共享实例语义；内建注册只能在包初始化时完成一次，不能在每个 session 重复修改全局 map；已有测试改用独立 `NewRegistry`，不得恢复全局注册依赖；不引入 ptrace 或 procfs。
+
+方案比较：
+
+1. 保留包级 bootstrap，仅在 production path 继续注入 registry：改动最小，但 `init()` 顺序和可变全局仍是隐式依赖，拒绝。
+2. 用显式 `registerBuiltinX(*Registry)` 函数按既有 decoder 顺序构建 builtin snapshot，再由 `NewRegistry` clone：改动集中、行为可保持、注册图可审计，选择该方案。
+3. 立即生成完整 handler/decoder registration catalog：最终可减少手写装配，但需要同时改 generator 和所有 handler ownership，风险和范围过大，暂不选择。
+
+状态契约：
+
+- `buildBuiltinRegistry` 是唯一的内建 handler/decoder 构建入口；各 syscall family 文件只提供接收 `*Registry` 的显式注册函数，不再定义 `init()`。
+- builtin registry 在构建完成后只读；session registry 是浅复制 handler 实例、深复制 handler map 和 decoder slice 的独立配置对象。现有 handler 无 session 可变字段，因此共享内建 handler 实例保持安全。
+- `Context.Registry` 非空时始终优先；仅为旧的纯数据测试保留 builtin fallback，不提供包级写入口。生产代码不得调用全局 `Get`/`GetDefault`。
+- FS/ioctl 的 xlat 表仍是生成 catalog 之外的全局静态元数据，但只由 builtin build 触发一次；后续若需要运行期可变 xlat，必须单独引入 session-local meta catalog，而不是重新增加 `init()`。
+
+测试与验收：
+
+- 先验证所有内建 handler、struct decoder、pointer decoder 在 `NewRegistry` 中可解析，两个 registry 的注册和 decoder 覆盖互不影响。
+- 增加 source/registry 回归约束：`pkg/handler` 生产 Go 文件不得再定义 `init()` 或使用包级注册/查询 API；测试全部通过显式 registry 获取 handler。
+- 验证顺序：先跑 focused registry 测试，再跑 `go test ./...`、race、vet、生成/build，最后运行现有 eBPF semantic/perf、small 和 upstream reference 回归。输出和 BPF event ABI 必须无变化。
+
+实际验收结果：删除所有 36 个 handler/decoder `init()` 注册点，新增 `registry_bootstrap.go` 按历史 first-match 顺序显式构建 builtin snapshot；生产源码不再提供或调用包级 `Get`、`GetDefault`、`Register` 和 decoder bootstrap API。新增 catalog 完整性测试覆盖全部内建 handler、pointer/struct decoder，AST gate 拒绝隐式 bootstrap。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build` 和 `sudo -n go generate ./cmd/strace-go` 均通过；Python runner 单测 5 项通过；`ebpf-semantic` 为 201 个主事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch 均为 0；`ebpf-perf` 为 10,000 个 getpid 事件、5,000/5,000 enter/exit、0 丢失、742.10 events/s；`small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL、0 XPASS。

@@ -16,9 +16,9 @@ const (
 	futexCmdLockPI2       = 13
 )
 
-func init() {
+func registerBuiltinFutex(r *Registry) {
 	h := &FutexHandler{}
-	Register("futex", h)
+	r.Register("futex", h)
 }
 
 type FutexHandler struct{}

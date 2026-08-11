@@ -7,13 +7,13 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func init() {
+func registerBuiltinTime(r *Registry) {
 	h := &TimeHandler{}
-	Register("adjtimex", h)
-	Register("clock_adjtime", h)
-	Register("clock_gettime", h)
-	Register("clock_settime", h)
-	Register("clock_getres", h)
+	r.Register("adjtimex", h)
+	r.Register("clock_adjtime", h)
+	r.Register("clock_gettime", h)
+	r.Register("clock_settime", h)
+	r.Register("clock_getres", h)
 }
 
 type TimeHandler struct{}

@@ -5,10 +5,10 @@ import (
 	"fmt"
 )
 
-func init() {
+func registerBuiltinGetRobustList(r *Registry) {
 	h := &GetRobustListHandler{}
-	Register("get_robust_list", h)
-	Register("set_robust_list", &SetRobustListHandler{})
+	r.Register("get_robust_list", h)
+	r.Register("set_robust_list", &SetRobustListHandler{})
 }
 
 type GetRobustListHandler struct{}

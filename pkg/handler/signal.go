@@ -9,14 +9,14 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func init() {
+func registerBuiltinSignal(r *Registry) {
 	h := &SignalHandler{}
-	Register("rt_sigprocmask", h)
-	Register("rt_sigaction", h)
-	Register("rt_sigpending", h)
-	Register("rt_sigsuspend", h)
-	Register("signalfd", h)
-	Register("signalfd4", h)
+	r.Register("rt_sigprocmask", h)
+	r.Register("rt_sigaction", h)
+	r.Register("rt_sigpending", h)
+	r.Register("rt_sigsuspend", h)
+	r.Register("signalfd", h)
+	r.Register("signalfd4", h)
 }
 
 type SignalHandler struct {

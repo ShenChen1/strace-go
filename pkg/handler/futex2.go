@@ -14,8 +14,8 @@ const (
 	futexWaitvTimeoutOffset = futexWaitvSize * futexWaitvMax
 )
 
-func init() {
-	RegisterStructDecoder("struct futex_waitv *", StructDecoderFunc(decodeFutexWaitvArray))
+func registerBuiltinFutex2(r *Registry) {
+	r.RegisterStructDecoder("struct futex_waitv *", StructDecoderFunc(decodeFutexWaitvArray))
 }
 
 func decodeFutexWaitvArray(ctx *Context, i int, argTyp string, val uint64) (string, bool) {

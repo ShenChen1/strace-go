@@ -4,16 +4,16 @@ import (
 	"strace-go/pkg/format"
 )
 
-func init() {
-	RegisterStructDecoder("struct timespec *", StructDecoderFunc(decodeTimespec))
-	RegisterStructDecoder("struct __kernel_timespec *", StructDecoderFunc(decodeTimespec))
-	RegisterStructDecoder("struct timeval *", StructDecoderFunc(decodeTimeval))
-	RegisterStructDecoder("struct utimbuf *", StructDecoderFunc(decodeUtimbuf))
-	RegisterStructDecoder("struct timex *", StructDecoderFunc(decodeTimex))
-	RegisterStructDecoder("struct __kernel_timex *", StructDecoderFunc(decodeTimex))
-	RegisterStructDecoder("struct itimerval *", StructDecoderFunc(decodeItimerval))
-	RegisterStructDecoder("struct itimerspec *", StructDecoderFunc(decodeItimerspec))
-	RegisterStructDecoder("struct timezone *", StructDecoderFunc(decodeTimezone))
+func registerBuiltinTypeTime(r *Registry) {
+	r.RegisterStructDecoder("struct timespec *", StructDecoderFunc(decodeTimespec))
+	r.RegisterStructDecoder("struct __kernel_timespec *", StructDecoderFunc(decodeTimespec))
+	r.RegisterStructDecoder("struct timeval *", StructDecoderFunc(decodeTimeval))
+	r.RegisterStructDecoder("struct utimbuf *", StructDecoderFunc(decodeUtimbuf))
+	r.RegisterStructDecoder("struct timex *", StructDecoderFunc(decodeTimex))
+	r.RegisterStructDecoder("struct __kernel_timex *", StructDecoderFunc(decodeTimex))
+	r.RegisterStructDecoder("struct itimerval *", StructDecoderFunc(decodeItimerval))
+	r.RegisterStructDecoder("struct itimerspec *", StructDecoderFunc(decodeItimerspec))
+	r.RegisterStructDecoder("struct timezone *", StructDecoderFunc(decodeTimezone))
 }
 
 func decodeTimespec(ctx *Context, i int, argTyp string, val uint64) (string, bool) {

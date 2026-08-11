@@ -9,8 +9,8 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func init() {
-	Register("ioctl", &IoctlHandler{})
+func registerBuiltinIoctl(r *Registry) {
+	r.Register("ioctl", &IoctlHandler{})
 
 	meta.XlatTables["fiemap_flags"] = meta.XlatTable{
 		Prefix: "FIEMAP_FLAG_",

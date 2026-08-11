@@ -10,14 +10,14 @@ import (
 	"strace-go/pkg/format"
 )
 
-func init() {
-	RegisterPointerDecoder("char **", PointerDecoderFunc(decodeStringArrayPointer))
-	RegisterPointerDecoder("const char *const *", PointerDecoderFunc(decodeStringArrayPointer))
-	RegisterPointerDecoder("char *", PointerDecoderFunc(decodeCharPointer))
-	RegisterPointerDecoder("const char *", PointerDecoderFunc(decodeCharPointer))
-	RegisterPointerDecoder("void *", PointerDecoderFunc(decodeCharPointer))
-	RegisterPointerDecoder("const void *", PointerDecoderFunc(decodeCharPointer))
-	RegisterPointerDecoder("int *", PointerDecoderFunc(decodeIntPointer))
+func registerBuiltinTypeString(r *Registry) {
+	r.RegisterPointerDecoder("char **", PointerDecoderFunc(decodeStringArrayPointer))
+	r.RegisterPointerDecoder("const char *const *", PointerDecoderFunc(decodeStringArrayPointer))
+	r.RegisterPointerDecoder("char *", PointerDecoderFunc(decodeCharPointer))
+	r.RegisterPointerDecoder("const char *", PointerDecoderFunc(decodeCharPointer))
+	r.RegisterPointerDecoder("void *", PointerDecoderFunc(decodeCharPointer))
+	r.RegisterPointerDecoder("const void *", PointerDecoderFunc(decodeCharPointer))
+	r.RegisterPointerDecoder("int *", PointerDecoderFunc(decodeIntPointer))
 }
 
 func decodeStringArrayPointer(ctx *Context, i int, argTyp, argName string, val uint64, res *Result) (string, bool) {

@@ -8,8 +8,8 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func init() {
-	Register("clone3", &ProcessHandler{})
+func registerBuiltinProcess(r *Registry) {
+	r.Register("clone3", &ProcessHandler{})
 }
 
 type ProcessHandler struct{}

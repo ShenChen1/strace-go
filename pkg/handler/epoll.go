@@ -7,12 +7,12 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func init() {
+func registerBuiltinEpoll(r *Registry) {
 	h := &EpollHandler{}
-	Register("epoll_ctl", h)
-	Register("epoll_wait", h)
-	Register("epoll_pwait", h)
-	Register("epoll_pwait2", h)
+	r.Register("epoll_ctl", h)
+	r.Register("epoll_wait", h)
+	r.Register("epoll_pwait", h)
+	r.Register("epoll_pwait2", h)
 }
 
 type EpollHandler struct{}

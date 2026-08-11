@@ -8,9 +8,9 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func init() {
+func registerBuiltinWaitid(r *Registry) {
 	h := &WaitidHandler{}
-	Register("waitid", h)
+	r.Register("waitid", h)
 }
 
 type WaitidHandler struct{}

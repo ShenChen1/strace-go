@@ -2,9 +2,9 @@ package handler
 
 import "strace-go/pkg/meta"
 
-func init() {
-	Register("open_tree", &OpenTreeHandler{})
-	Register("move_mount", &MoveMountHandler{})
+func registerBuiltinMountPath(r *Registry) {
+	r.Register("open_tree", &OpenTreeHandler{})
+	r.Register("move_mount", &MoveMountHandler{})
 }
 
 // OpenTreeHandler formats the path snapshot and the 32-bit syscall flags.

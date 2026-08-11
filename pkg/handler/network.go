@@ -9,19 +9,19 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func init() {
+func registerBuiltinNetwork(r *Registry) {
 	h := &NetworkHandler{}
-	Register("accept", h)
-	Register("accept4", h)
-	Register("getsockname", h)
-	Register("getpeername", h)
-	Register("recvfrom", h)
-	Register("sendto", h)
-	Register("connect", h)
-	Register("bind", h)
-	Register("socket", h)
-	Register("setsockopt", h)
-	Register("getsockopt", h)
+	r.Register("accept", h)
+	r.Register("accept4", h)
+	r.Register("getsockname", h)
+	r.Register("getpeername", h)
+	r.Register("recvfrom", h)
+	r.Register("sendto", h)
+	r.Register("connect", h)
+	r.Register("bind", h)
+	r.Register("socket", h)
+	r.Register("setsockopt", h)
+	r.Register("getsockopt", h)
 }
 
 // NetworkHandler handles sockaddr and socket-related syscalls.

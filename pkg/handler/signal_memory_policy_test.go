@@ -227,7 +227,7 @@ func TestSignalOldSigactionUsesPayloadStructSection(t *testing.T) {
 }
 
 func TestSignalFDHandlerUsesEventTimeMask(t *testing.T) {
-	h, ok := Get("signalfd4").(*SignalHandler)
+	h, ok := NewRegistry().Resolve("signalfd4").(*SignalHandler)
 	if !ok {
 		t.Fatal("signalfd4 must use SignalHandler")
 	}
@@ -253,7 +253,7 @@ func TestSignalFDHandlerUsesEventTimeMask(t *testing.T) {
 }
 
 func TestSignalFDHandlerUsesPointerOnInvalidMaskSnapshot(t *testing.T) {
-	h, ok := Get("signalfd4").(*SignalHandler)
+	h, ok := NewRegistry().Resolve("signalfd4").(*SignalHandler)
 	if !ok {
 		t.Fatal("signalfd4 must use SignalHandler")
 	}

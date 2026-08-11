@@ -8,8 +8,8 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func init() {
-	Register("process_madvise", &ProcessMadviseHandler{})
+func registerBuiltinProcessMadvise(r *Registry) {
+	r.Register("process_madvise", &ProcessMadviseHandler{})
 }
 
 type ProcessMadviseHandler struct {

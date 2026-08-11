@@ -5,8 +5,8 @@ import (
 	"fmt"
 )
 
-func init() {
-	Register("copy_file_range", &CopyFileRangeHandler{})
+func registerBuiltinCopyFileRange(r *Registry) {
+	r.Register("copy_file_range", &CopyFileRangeHandler{})
 }
 
 type CopyFileRangeHandler struct {

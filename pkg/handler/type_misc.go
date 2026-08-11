@@ -9,14 +9,14 @@ import (
 	"strace-go/pkg/format"
 )
 
-func init() {
-	RegisterStructDecoder("struct sysinfo *", StructDecoderFunc(decodeSysinfo))
-	RegisterStructDecoder("struct flock *", StructDecoderFunc(decodeFlock))
-	RegisterStructDecoder("struct flock64 *", StructDecoderFunc(decodeFlock))
-	RegisterStructDecoder("struct f_owner_ex *", StructDecoderFunc(decodeFOwnerEx))
-	RegisterStructDecoder("struct rlimit *", StructDecoderFunc(decodeRlimitPointer))
-	RegisterStructDecoder("struct rlimit64 *", StructDecoderFunc(decodeRlimitPointer))
-	RegisterStructDecoder("struct utsname *", StructDecoderFunc(decodeUtsname))
+func registerBuiltinTypeMisc(r *Registry) {
+	r.RegisterStructDecoder("struct sysinfo *", StructDecoderFunc(decodeSysinfo))
+	r.RegisterStructDecoder("struct flock *", StructDecoderFunc(decodeFlock))
+	r.RegisterStructDecoder("struct flock64 *", StructDecoderFunc(decodeFlock))
+	r.RegisterStructDecoder("struct f_owner_ex *", StructDecoderFunc(decodeFOwnerEx))
+	r.RegisterStructDecoder("struct rlimit *", StructDecoderFunc(decodeRlimitPointer))
+	r.RegisterStructDecoder("struct rlimit64 *", StructDecoderFunc(decodeRlimitPointer))
+	r.RegisterStructDecoder("struct utsname *", StructDecoderFunc(decodeUtsname))
 }
 
 const (

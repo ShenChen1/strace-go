@@ -7,9 +7,9 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func init() {
+func registerBuiltinPrctl(r *Registry) {
 	h := &PrctlHandler{}
-	Register("prctl", h)
+	r.Register("prctl", h)
 }
 
 type PrctlHandler struct{}

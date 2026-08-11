@@ -9,8 +9,8 @@ import (
 
 const statxSyncTypeMask = uint64(0x6000)
 
-func init() {
-	Register("statx", &StatxHandler{})
+func registerBuiltinStatx(r *Registry) {
+	r.Register("statx", &StatxHandler{})
 }
 
 // StatxHandler formats statx arguments from probe-site snapshots.

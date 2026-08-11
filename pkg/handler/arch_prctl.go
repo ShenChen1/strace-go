@@ -8,8 +8,8 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func init() {
-	Register("arch_prctl", &ArchPrctlHandler{})
+func registerBuiltinArchPrctl(r *Registry) {
+	r.Register("arch_prctl", &ArchPrctlHandler{})
 }
 
 // ArchPrctlHandler handles x86_64 specific arch_prctl.

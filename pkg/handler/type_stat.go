@@ -6,13 +6,13 @@ import (
 	"strace-go/pkg/format"
 )
 
-func init() {
-	RegisterStructDecoder("struct stat *", StructDecoderFunc(decodeStat))
-	RegisterStructDecoder("struct stat64 *", StructDecoderFunc(decodeStat))
-	RegisterStructDecoder("struct new_stat *", StructDecoderFunc(decodeStat))
-	RegisterStructDecoder("struct __old_kernel_stat *", StructDecoderFunc(decodeStat))
-	RegisterStructDecoder("struct statfs *", StructDecoderFunc(decodeStatfs))
-	RegisterStructDecoder("struct statfs64 *", StructDecoderFunc(decodeStatfs))
+func registerBuiltinTypeStat(r *Registry) {
+	r.RegisterStructDecoder("struct stat *", StructDecoderFunc(decodeStat))
+	r.RegisterStructDecoder("struct stat64 *", StructDecoderFunc(decodeStat))
+	r.RegisterStructDecoder("struct new_stat *", StructDecoderFunc(decodeStat))
+	r.RegisterStructDecoder("struct __old_kernel_stat *", StructDecoderFunc(decodeStat))
+	r.RegisterStructDecoder("struct statfs *", StructDecoderFunc(decodeStatfs))
+	r.RegisterStructDecoder("struct statfs64 *", StructDecoderFunc(decodeStatfs))
 }
 
 const (

@@ -8,13 +8,13 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func init() {
+func registerBuiltinFs(r *Registry) {
 	h := &FsHandler{}
-	Register("getdents", h)
-	Register("getdents64", h)
-	Register("mount", h)
-	Register("umount2", h)
-	Register("fsconfig", h)
+	r.Register("getdents", h)
+	r.Register("getdents64", h)
+	r.Register("mount", h)
+	r.Register("umount2", h)
+	r.Register("fsconfig", h)
 
 	// 动态注册字典
 	meta.XlatTables["fsconfig_cmds"] = meta.XlatTable{

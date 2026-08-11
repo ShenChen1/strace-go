@@ -1,10 +1,10 @@
 package handler
 
-func init() {
-	Register("open", &OpenHandler{})
-	Register("openat", &OpenHandler{})
-	Register("mknod", &MknodHandler{})
-	Register("mknodat", &MknodHandler{})
+func registerBuiltinSysFile(r *Registry) {
+	r.Register("open", &OpenHandler{})
+	r.Register("openat", &OpenHandler{})
+	r.Register("mknod", &MknodHandler{})
+	r.Register("mknodat", &MknodHandler{})
 }
 
 type OpenHandler struct{}

@@ -8,9 +8,9 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func init() {
-	Register("statmount", &StatmountHandler{})
-	Register("listmount", &ListmountHandler{})
+func registerBuiltinMountQuery(r *Registry) {
+	r.Register("statmount", &StatmountHandler{})
+	r.Register("listmount", &ListmountHandler{})
 }
 
 // StatmountHandler composes the shared mount request decoder with statmount OUT semantics.
