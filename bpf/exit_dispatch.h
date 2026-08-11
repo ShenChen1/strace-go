@@ -8,8 +8,8 @@
  * It resolves the pending syscall id and tail calls the matching handler, which
  * re-resolves pending metadata (including the non-leader exec pending_exec_map
  * path) and is the sole consumer that deletes it. recvmmsg OUT fragments are
- * chained base0 -> base1 -> final so ringbuf ordering matches the old attach
- * order; sendmmsg is dispatched straight to the final handler.
+ * chained base0 -> base1 -> base2 -> base3 -> final so ringbuf ordering matches
+ * the old attach order; sendmmsg is dispatched straight to the final handler.
  */
 
 enum exit_prog_index {
@@ -19,8 +19,10 @@ enum exit_prog_index {
     EXIT_PROG_MMSG_FINAL = 3,
     EXIT_PROG_RECVMMSG_BASE0 = 4,
     EXIT_PROG_RECVMMSG_BASE1 = 5,
-    EXIT_PROG_QUOTA = 6,
-    EXIT_PROG_MOUNT_QUERY = 7,
+    EXIT_PROG_RECVMMSG_BASE2 = 6,
+    EXIT_PROG_RECVMMSG_BASE3 = 7,
+    EXIT_PROG_QUOTA = 8,
+    EXIT_PROG_MOUNT_QUERY = 9,
 };
 
 #define EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid) \
@@ -237,8 +239,58 @@ int exit_recvmmsg_base1(struct trace_event_raw_sys_exit *ctx) {
     }
 
     emit_recvmmsg_base1_exit_fragment_event_v2_direct(p, ret_value, duration);
+    bpf_tail_call(ctx, &exit_progs, EXIT_PROG_RECVMMSG_BASE2);
+    // A failed chain call must not leave the syscall pending forever.
+    emit_mmsg_exit_event_v2_direct(p, ret_value, duration);
+    consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
+    return 0;
+}
+
+SEC("tracepoint/raw_syscalls/sys_exit")
+int exit_recvmmsg_base2(struct trace_event_raw_sys_exit *ctx) {
+    if ((u32)ctx->id != SYS_RECVMMSG) {
+        return 0;
+    }
+    EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid);
+    if (p->sys_id != SYS_RECVMMSG) {
+        return 0;
+    }
+
+    u64 duration = 0;
+    if (p->enter_time > 0) {
+        u64 exit_time = bpf_ktime_get_ns();
+        if (exit_time > p->enter_time) {
+            duration = exit_time - p->enter_time;
+        }
+    }
+
+    emit_recvmmsg_base2_exit_fragment_event_v2_direct(p, ret_value, duration);
+    bpf_tail_call(ctx, &exit_progs, EXIT_PROG_RECVMMSG_BASE3);
+    emit_mmsg_exit_event_v2_direct(p, ret_value, duration);
+    consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
+    return 0;
+}
+
+SEC("tracepoint/raw_syscalls/sys_exit")
+int exit_recvmmsg_base3(struct trace_event_raw_sys_exit *ctx) {
+    if ((u32)ctx->id != SYS_RECVMMSG) {
+        return 0;
+    }
+    EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid);
+    if (p->sys_id != SYS_RECVMMSG) {
+        return 0;
+    }
+
+    u64 duration = 0;
+    if (p->enter_time > 0) {
+        u64 exit_time = bpf_ktime_get_ns();
+        if (exit_time > p->enter_time) {
+            duration = exit_time - p->enter_time;
+        }
+    }
+
+    emit_recvmmsg_base3_exit_fragment_event_v2_direct(p, ret_value, duration);
     bpf_tail_call(ctx, &exit_progs, EXIT_PROG_MMSG_FINAL);
-    // A failed final call must not leave the syscall pending forever.
     emit_mmsg_exit_event_v2_direct(p, ret_value, duration);
     consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
     return 0;

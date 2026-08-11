@@ -289,9 +289,23 @@ struct {
     __type(value, u32);
 } enter_progs SEC(".maps");
 
+enum mmsg_bytes_prog_index {
+    MMSG_BYTES_PROG_BASE0 = 0,
+    MMSG_BYTES_PROG_BASE1 = 1,
+    MMSG_BYTES_PROG_BASE2 = 2,
+    MMSG_BYTES_PROG_BASE3 = 3,
+};
+
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 8);
+    __uint(max_entries, 4);
+    __type(key, u32);
+    __type(value, u32);
+} mmsg_bytes_progs SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+    __uint(max_entries, 10);
     __type(key, u32);
     __type(value, u32);
 } exit_progs SEC(".maps");

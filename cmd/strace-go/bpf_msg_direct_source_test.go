@@ -27,11 +27,15 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"enter_msg",
 		"enter_sendmsg_base",
 		"enter_mmsg",
-		"enter_sendmmsg_base0",
-		"enter_sendmmsg_base1",
+		"enter_mmsg_base0",
+		"enter_mmsg_base1",
+		"enter_mmsg_base2",
+		"enter_mmsg_base3",
 		"exit_msg",
 		"exit_recvmmsg_base0",
 		"exit_recvmmsg_base1",
+		"exit_recvmmsg_base2",
+		"exit_recvmmsg_base3",
 		"recvmsg_progs",
 		"trace_kretprobe_recvmsg_dispatch",
 		"trace_kretprobe_recvmsg_name",
@@ -42,13 +46,17 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"emit_sendmsg_base_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"emit_mmsg_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"save_pending_msg_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);",
-		"emit_sendmmsg_base0_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
-		"emit_sendmmsg_base1_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
+		"emit_mmsg_base0_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
+		"emit_mmsg_base1_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
+		"emit_mmsg_base2_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
+		"emit_mmsg_base3_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"emit_single_msg_exit_event_v2_direct(p, ret_value, duration);",
 		"emit_recvmsg_name_exit_fragment_event_v2_direct(p, ret_value, duration);",
 		"emit_recvmsg_control_exit_fragment_event_v2_direct(p, ret_value, duration);",
 		"emit_recvmmsg_base0_exit_fragment_event_v2_direct(p, ret_value, duration);",
 		"emit_recvmmsg_base1_exit_fragment_event_v2_direct(p, ret_value, duration);",
+		"emit_recvmmsg_base2_exit_fragment_event_v2_direct(p, ret_value, duration);",
+		"emit_recvmmsg_base3_exit_fragment_event_v2_direct(p, ret_value, duration);",
 		"emit_mmsg_exit_event_v2_direct(p, ret_value, duration);",
 	} {
 		if !strings.Contains(straceSource, snippet) {
@@ -63,10 +71,24 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"objs.EnterSendmsgBase",
 		"EnterMmsg",
 		"objs.EnterMmsg",
-		"EnterSendmmsgBase0",
-		"objs.EnterSendmmsgBase0",
-		"EnterSendmmsgBase1",
-		"objs.EnterSendmmsgBase1",
+		"EnterMmsgBase0",
+		"objs.EnterMmsgBase0",
+		"EnterMmsgBase1",
+		"objs.EnterMmsgBase1",
+		"EnterMmsgBase2",
+		"objs.EnterMmsgBase2",
+		"EnterMmsgBase3",
+		"objs.EnterMmsgBase3",
+		"EnterMmsgBytes0",
+		"objs.EnterMmsgBytes0",
+		"EnterMmsgBytes1",
+		"objs.EnterMmsgBytes1",
+		"EnterMmsgBytes2",
+		"objs.EnterMmsgBytes2",
+		"EnterMmsgBytes3",
+		"objs.EnterMmsgBytes3",
+		"MmsgBytesProgs",
+		"objs.MmsgBytesProgs",
 		"ExitMsg",
 		"RecvmsgProgs",
 		"TraceKretprobeRecvmsgDispatch",
@@ -78,6 +100,10 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"objs.ExitRecvmmsgBase0",
 		"ExitRecvmmsgBase1",
 		"objs.ExitRecvmmsgBase1",
+		"ExitRecvmmsgBase2",
+		"objs.ExitRecvmmsgBase2",
+		"ExitRecvmmsgBase3",
+		"objs.ExitRecvmmsgBase3",
 		"ExitMmsg",
 	} {
 		if !strings.Contains(sessionSource, snippet) {
@@ -88,8 +114,10 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 	for _, snippet := range []string{
 		"MSGHDR_USER_SIZE 56",
 		"MMSGHDR_USER_SIZE 64",
-		"MMSGHDR_DIRECT_SLOT_MAX 2",
+		"MMSGHDR_DIRECT_SLOT_MAX 4",
 		"MMSGHDR_SECOND_IOV_ARG 151",
+		"MMSGHDR_THIRD_IOV_ARG 181",
+		"MMSGHDR_FOURTH_IOV_ARG 211",
 		"MSG_DIRECT_SOCKADDR_MAX 128",
 		"MSG_DIRECT_TIMESPEC_SIZE 16",
 		"MSG_DIRECT_TIMESPEC_MAX",
@@ -99,7 +127,8 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"MSG_DIRECT_SINGLE_ENTER_MAX",
 		"MSG_DIRECT_ENTER_MAX",
 		"MSG_DIRECT_SENDMSG_BASE_ENTER_MAX",
-		"MSG_DIRECT_SENDMMSG_BASE_ENTER_MAX",
+		"MSG_DIRECT_MMSG_BASE_ENTER_MAX",
+		"MSG_DIRECT_MMSG_BYTES_ENTER_MAX",
 		"MSG_DIRECT_RECVMSG_EXIT_MAX",
 		"MSG_DIRECT_RECVMSG_NAME_EXIT_MAX",
 		"MSG_DIRECT_RECVMSG_CONTROL_EXIT_MAX",
@@ -118,18 +147,22 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"capture_single_msg_enter_payloads_tlv_direct(",
 		"capture_sendmsg_base_enter_payloads_tlv_direct(",
 		"capture_mmsg_enter_payloads_tlv_direct(",
-		"capture_sendmmsg_base0_enter_payloads_tlv_direct(",
-		"capture_sendmmsg_base1_enter_payloads_tlv_direct(",
+		"capture_mmsg_base0_enter_payloads_tlv_direct(",
+		"capture_mmsg_base1_enter_payloads_tlv_direct(",
+		"capture_mmsg_base2_enter_payloads_tlv_direct(",
+		"capture_mmsg_base3_enter_payloads_tlv_direct(",
 		"capture_single_msg_exit_payloads_tlv_direct(",
 		"emit_recvmsg_control_exit_fragment_event_v2_direct(",
 		"capture_mmsg_exit_payloads_tlv_direct(",
 		"capture_recvmmsg_base0_exit_payloads_tlv_direct(",
 		"capture_recvmmsg_base1_exit_payloads_tlv_direct(",
+		"capture_recvmmsg_base2_exit_payloads_tlv_direct(",
+		"capture_recvmmsg_base3_exit_payloads_tlv_direct(",
 		"capture_iovec_tlv_direct(",
 		"capture_iovec_base_payloads_tlv_direct(",
-		"capture_iovec_base_payloads_arg151_tlv_direct(",
 		"capture_iovec_base_exit_payloads_tlv_direct(",
-		"capture_iovec_base_exit_payloads_arg151_tlv_direct(",
+		"capture_iovec_base_payloads_tlv_direct_for_arg(",
+		"capture_iovec_base_exit_payloads_tlv_direct_for_arg(",
 		"EVENT_FLAG_EXIT_FRAGMENT",
 		"PAYLOAD_TLV_KIND_STRUCT",
 		"PAYLOAD_TLV_KIND_STRUCT,\n            4,",
@@ -153,6 +186,93 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("msg syscall still uses old fixed-window rule %q", legacyRule)
 		}
+	}
+}
+
+func TestBPFMmsgEnterFragmentsBoundVerifierState(t *testing.T) {
+	root := repoRootForTest(t)
+	combined := readCombinedBPFSources(t)
+	core := readTextFile(t, filepath.Join(root, "bpf/syscall_msg_core_direct_event_v2.h"))
+	capture := readTextFile(t, filepath.Join(root, "bpf/syscall_mmsg_capture_direct_event_v2.h"))
+	dispatch := readTextFile(t, filepath.Join(root, "bpf/mmsg_enter_dispatch.h"))
+	runtimeABI := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
+
+	for _, snippet := range []string{
+		"MSG_DIRECT_MMSG_BASE_ENTER_MAX",
+		"capture_mmsg_base_slot_enter_payloads_tlv_direct(",
+		"capture_mmsg_base0_enter_payloads_tlv_direct(",
+		"capture_mmsg_base1_enter_payloads_tlv_direct(",
+		"capture_mmsg_base2_enter_payloads_tlv_direct(",
+		"capture_mmsg_base3_enter_payloads_tlv_direct(",
+	} {
+		if !strings.Contains(core+capture, snippet) {
+			t.Fatalf("mmsg fragment source missing %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
+		"int enter_mmsg_base0(",
+		"int enter_mmsg_base1(",
+		"int enter_mmsg_base2(",
+		"int enter_mmsg_base3(",
+		"ENTER_PROG_MMSG_BASE1",
+		"ENTER_PROG_MMSG_BASE2",
+		"ENTER_PROG_MMSG_BASE3",
+	} {
+		if !strings.Contains(dispatch, snippet) {
+			t.Fatalf("mmsg enter dispatch missing %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
+		"mmsg_bytes_progs",
+		"__uint(max_entries, 4)",
+		"MMSG_BYTES_PROG_BASE0",
+		"MMSG_BYTES_PROG_BASE1",
+		"MMSG_BYTES_PROG_BASE2",
+		"MMSG_BYTES_PROG_BASE3",
+	} {
+		if !strings.Contains(runtimeABI, snippet) {
+			t.Fatalf("mmsg bytes prog array missing %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
+		"int enter_mmsg_bytes0(",
+		"int enter_mmsg_bytes1(",
+		"int enter_mmsg_bytes2(",
+		"int enter_mmsg_bytes3(",
+		"emit_mmsg_bytes_base0_enter_event_v2_direct(",
+		"emit_mmsg_bytes_base3_enter_event_v2_direct(",
+		"capture_mmsg_bytes_base0_enter_payloads_tlv_direct(",
+		"capture_mmsg_bytes_base3_enter_payloads_tlv_direct(",
+		"bpf_tail_call(ctx, &mmsg_bytes_progs, MMSG_BYTES_PROG_BASE0);",
+	} {
+		if !strings.Contains(combined+capture+dispatch, snippet) {
+			t.Fatalf("mmsg bytes fragment source missing %q", snippet)
+		}
+	}
+	if !strings.Contains(combined, "ENTER_PROG_MMSG_BASE0") {
+		t.Fatal("mmsg enter dispatcher missing base0 tail-call target")
+	}
+	if !strings.Contains(combined, "bpf_tail_call(ctx, &enter_progs, ENTER_PROG_MMSG_BASE0);") {
+		t.Fatal("mmsg enter handler does not start the bounded fragment chain")
+	}
+	if strings.Contains(capture, "capture_mmsg_iovec_tlv_direct(\n        ptr,\n        payload_offset + payload_size") {
+		t.Fatal("mmsg aggregate capture must not inline all iovec slots")
+	}
+}
+
+func TestMmsgExitSlotHelperHasBoundedInterface(t *testing.T) {
+	root := repoRootForTest(t)
+	capture := readTextFile(t, filepath.Join(root, "bpf/syscall_mmsg_capture_direct_event_v2.h"))
+	body, ok := bpfFunctionBody(capture, "capture_recvmmsg_base_slot_exit_payloads_tlv_direct")
+	if !ok {
+		t.Fatal("mmsg capture source missing recvmmsg slot helper")
+	}
+	signature := strings.SplitN(body, "{", 2)[0]
+	if strings.Count(signature, ",")+1 > 5 {
+		t.Fatalf("recvmmsg slot helper has more than five parameters: %s", signature)
+	}
+	if !strings.Contains(body, "mmsg_iovec_arg_index_for_slot(slot)") {
+		t.Fatal("recvmmsg slot helper must derive its synthetic arg index from slot")
 	}
 }
 

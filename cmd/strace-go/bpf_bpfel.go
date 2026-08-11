@@ -99,6 +99,14 @@ type bpfProgramSpecs struct {
 	EnterMemfd                    *ebpf.ProgramSpec `ebpf:"enter_memfd"`
 	EnterMiscStruct               *ebpf.ProgramSpec `ebpf:"enter_misc_struct"`
 	EnterMmsg                     *ebpf.ProgramSpec `ebpf:"enter_mmsg"`
+	EnterMmsgBase0                *ebpf.ProgramSpec `ebpf:"enter_mmsg_base0"`
+	EnterMmsgBase1                *ebpf.ProgramSpec `ebpf:"enter_mmsg_base1"`
+	EnterMmsgBase2                *ebpf.ProgramSpec `ebpf:"enter_mmsg_base2"`
+	EnterMmsgBase3                *ebpf.ProgramSpec `ebpf:"enter_mmsg_base3"`
+	EnterMmsgBytes0               *ebpf.ProgramSpec `ebpf:"enter_mmsg_bytes0"`
+	EnterMmsgBytes1               *ebpf.ProgramSpec `ebpf:"enter_mmsg_bytes1"`
+	EnterMmsgBytes2               *ebpf.ProgramSpec `ebpf:"enter_mmsg_bytes2"`
+	EnterMmsgBytes3               *ebpf.ProgramSpec `ebpf:"enter_mmsg_bytes3"`
 	EnterMountPath                *ebpf.ProgramSpec `ebpf:"enter_mount_path"`
 	EnterMsg                      *ebpf.ProgramSpec `ebpf:"enter_msg"`
 	EnterNetwork                  *ebpf.ProgramSpec `ebpf:"enter_network"`
@@ -112,8 +120,6 @@ type bpfProgramSpecs struct {
 	EnterQuota                    *ebpf.ProgramSpec `ebpf:"enter_quota"`
 	EnterReadlink                 *ebpf.ProgramSpec `ebpf:"enter_readlink"`
 	EnterSelect                   *ebpf.ProgramSpec `ebpf:"enter_select"`
-	EnterSendmmsgBase0            *ebpf.ProgramSpec `ebpf:"enter_sendmmsg_base0"`
-	EnterSendmmsgBase1            *ebpf.ProgramSpec `ebpf:"enter_sendmmsg_base1"`
 	EnterSendmsgBase              *ebpf.ProgramSpec `ebpf:"enter_sendmsg_base"`
 	EnterSignal                   *ebpf.ProgramSpec `ebpf:"enter_signal"`
 	EnterSleep                    *ebpf.ProgramSpec `ebpf:"enter_sleep"`
@@ -129,6 +135,8 @@ type bpfProgramSpecs struct {
 	ExitQuota                     *ebpf.ProgramSpec `ebpf:"exit_quota"`
 	ExitRecvmmsgBase0             *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base0"`
 	ExitRecvmmsgBase1             *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base1"`
+	ExitRecvmmsgBase2             *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base2"`
+	ExitRecvmmsgBase3             *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base3"`
 	TraceKretprobeRecvmsgControl  *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_control"`
 	TraceKretprobeRecvmsgDispatch *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_dispatch"`
 	TraceKretprobeRecvmsgFinal    *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_final"`
@@ -152,6 +160,7 @@ type bpfMapSpecs struct {
 	ExitProgs        *ebpf.MapSpec `ebpf:"exit_progs"`
 	FilterMap        *ebpf.MapSpec `ebpf:"filter_map"`
 	MainExitedMap    *ebpf.MapSpec `ebpf:"main_exited_map"`
+	MmsgBytesProgs   *ebpf.MapSpec `ebpf:"mmsg_bytes_progs"`
 	PendingExecMap   *ebpf.MapSpec `ebpf:"pending_exec_map"`
 	PendingSyscalls  *ebpf.MapSpec `ebpf:"pending_syscalls"`
 	PreExecMap       *ebpf.MapSpec `ebpf:"pre_exec_map"`
@@ -204,6 +213,7 @@ type bpfMaps struct {
 	ExitProgs        *ebpf.Map `ebpf:"exit_progs"`
 	FilterMap        *ebpf.Map `ebpf:"filter_map"`
 	MainExitedMap    *ebpf.Map `ebpf:"main_exited_map"`
+	MmsgBytesProgs   *ebpf.Map `ebpf:"mmsg_bytes_progs"`
 	PendingExecMap   *ebpf.Map `ebpf:"pending_exec_map"`
 	PendingSyscalls  *ebpf.Map `ebpf:"pending_syscalls"`
 	PreExecMap       *ebpf.Map `ebpf:"pre_exec_map"`
@@ -222,6 +232,7 @@ func (m *bpfMaps) Close() error {
 		m.ExitProgs,
 		m.FilterMap,
 		m.MainExitedMap,
+		m.MmsgBytesProgs,
 		m.PendingExecMap,
 		m.PendingSyscalls,
 		m.PreExecMap,
@@ -274,6 +285,14 @@ type bpfPrograms struct {
 	EnterMemfd                    *ebpf.Program `ebpf:"enter_memfd"`
 	EnterMiscStruct               *ebpf.Program `ebpf:"enter_misc_struct"`
 	EnterMmsg                     *ebpf.Program `ebpf:"enter_mmsg"`
+	EnterMmsgBase0                *ebpf.Program `ebpf:"enter_mmsg_base0"`
+	EnterMmsgBase1                *ebpf.Program `ebpf:"enter_mmsg_base1"`
+	EnterMmsgBase2                *ebpf.Program `ebpf:"enter_mmsg_base2"`
+	EnterMmsgBase3                *ebpf.Program `ebpf:"enter_mmsg_base3"`
+	EnterMmsgBytes0               *ebpf.Program `ebpf:"enter_mmsg_bytes0"`
+	EnterMmsgBytes1               *ebpf.Program `ebpf:"enter_mmsg_bytes1"`
+	EnterMmsgBytes2               *ebpf.Program `ebpf:"enter_mmsg_bytes2"`
+	EnterMmsgBytes3               *ebpf.Program `ebpf:"enter_mmsg_bytes3"`
 	EnterMountPath                *ebpf.Program `ebpf:"enter_mount_path"`
 	EnterMsg                      *ebpf.Program `ebpf:"enter_msg"`
 	EnterNetwork                  *ebpf.Program `ebpf:"enter_network"`
@@ -287,8 +306,6 @@ type bpfPrograms struct {
 	EnterQuota                    *ebpf.Program `ebpf:"enter_quota"`
 	EnterReadlink                 *ebpf.Program `ebpf:"enter_readlink"`
 	EnterSelect                   *ebpf.Program `ebpf:"enter_select"`
-	EnterSendmmsgBase0            *ebpf.Program `ebpf:"enter_sendmmsg_base0"`
-	EnterSendmmsgBase1            *ebpf.Program `ebpf:"enter_sendmmsg_base1"`
 	EnterSendmsgBase              *ebpf.Program `ebpf:"enter_sendmsg_base"`
 	EnterSignal                   *ebpf.Program `ebpf:"enter_signal"`
 	EnterSleep                    *ebpf.Program `ebpf:"enter_sleep"`
@@ -304,6 +321,8 @@ type bpfPrograms struct {
 	ExitQuota                     *ebpf.Program `ebpf:"exit_quota"`
 	ExitRecvmmsgBase0             *ebpf.Program `ebpf:"exit_recvmmsg_base0"`
 	ExitRecvmmsgBase1             *ebpf.Program `ebpf:"exit_recvmmsg_base1"`
+	ExitRecvmmsgBase2             *ebpf.Program `ebpf:"exit_recvmmsg_base2"`
+	ExitRecvmmsgBase3             *ebpf.Program `ebpf:"exit_recvmmsg_base3"`
 	TraceKretprobeRecvmsgControl  *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_control"`
 	TraceKretprobeRecvmsgDispatch *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_dispatch"`
 	TraceKretprobeRecvmsgFinal    *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_final"`
@@ -340,6 +359,14 @@ func (p *bpfPrograms) Close() error {
 		p.EnterMemfd,
 		p.EnterMiscStruct,
 		p.EnterMmsg,
+		p.EnterMmsgBase0,
+		p.EnterMmsgBase1,
+		p.EnterMmsgBase2,
+		p.EnterMmsgBase3,
+		p.EnterMmsgBytes0,
+		p.EnterMmsgBytes1,
+		p.EnterMmsgBytes2,
+		p.EnterMmsgBytes3,
 		p.EnterMountPath,
 		p.EnterMsg,
 		p.EnterNetwork,
@@ -353,8 +380,6 @@ func (p *bpfPrograms) Close() error {
 		p.EnterQuota,
 		p.EnterReadlink,
 		p.EnterSelect,
-		p.EnterSendmmsgBase0,
-		p.EnterSendmmsgBase1,
 		p.EnterSendmsgBase,
 		p.EnterSignal,
 		p.EnterSleep,
@@ -370,6 +395,8 @@ func (p *bpfPrograms) Close() error {
 		p.ExitQuota,
 		p.ExitRecvmmsgBase0,
 		p.ExitRecvmmsgBase1,
+		p.ExitRecvmmsgBase2,
+		p.ExitRecvmmsgBase3,
 		p.TraceKretprobeRecvmsgControl,
 		p.TraceKretprobeRecvmsgDispatch,
 		p.TraceKretprobeRecvmsgFinal,

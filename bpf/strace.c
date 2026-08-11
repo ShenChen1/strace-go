@@ -51,6 +51,7 @@ char LICENSE[] SEC("license") = "GPL";
 
 #include "pending_state.h"
 #include "enter_dispatch.h"
+#include "mmsg_enter_dispatch.h"
 #include "exit_dispatch.h"
 #include "quota_dispatch.h"
 #include "mount_query_dispatch.h"

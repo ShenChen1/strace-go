@@ -30,6 +30,40 @@ func TestEnterProgArrayEntriesComplete(t *testing.T) {
 	}
 }
 
+func TestMmsgBytesProgArrayEntriesComplete(t *testing.T) {
+	entries := mmsgBytesProgArrayEntries(&bpfObjects{})
+	seen := make(map[uint32]bool)
+	for _, entry := range entries {
+		if seen[entry.index] {
+			t.Fatalf("duplicate mmsg bytes prog array index %d", entry.index)
+		}
+		seen[entry.index] = true
+	}
+	for i := uint32(mmsgBytesProgBase0); i <= mmsgBytesProgBase3; i++ {
+		if !seen[i] {
+			t.Fatalf("mmsg bytes prog array missing index %d", i)
+		}
+	}
+	if len(entries) != mmsgBytesProgBase3+1 {
+		t.Fatalf("mmsg bytes prog array entries = %d, want %d", len(entries), mmsgBytesProgBase3+1)
+	}
+}
+
+func TestMmsgBytesProgIndicesMatchBPFSource(t *testing.T) {
+	source := readCombinedBPFSources(t)
+	pairs := map[string]uint32{
+		"MMSG_BYTES_PROG_BASE0": mmsgBytesProgBase0,
+		"MMSG_BYTES_PROG_BASE1": mmsgBytesProgBase1,
+		"MMSG_BYTES_PROG_BASE2": mmsgBytesProgBase2,
+		"MMSG_BYTES_PROG_BASE3": mmsgBytesProgBase3,
+	}
+	for name, value := range pairs {
+		if !strings.Contains(source, fmt.Sprintf("%s = %d", name, value)) {
+			t.Fatalf("runtime ABI missing %s = %d", name, value)
+		}
+	}
+}
+
 func TestExitProgArrayEntriesComplete(t *testing.T) {
 	entries := exitProgArrayEntries(&bpfObjects{})
 	seen := make(map[uint32]bool)
@@ -94,6 +128,8 @@ func TestEnterProgIndicesMatchDispatchHeader(t *testing.T) {
 		"ENTER_PROG_NO_PAYLOAD_DIRECT": enterProgNoPayload,
 		"ENTER_PROG_PAYLOAD_DIRECT":    enterProgPayload,
 		"ENTER_PROG_IOVEC_BASE":        enterProgIovecBase,
+		"ENTER_PROG_MMSG_BASE2":        enterProgMmsgB2,
+		"ENTER_PROG_MMSG_BASE3":        enterProgMmsgB3,
 		"ENTER_PROG_AIO_BUF":           enterProgAioBuf,
 		"ENTER_PROG_QUOTA":             enterProgQuota,
 		"ENTER_PROG_MOUNT_PATH":        enterProgMountPath,
@@ -115,6 +151,8 @@ func TestExitProgIndicesMatchDispatchHeader(t *testing.T) {
 		"EXIT_PROG_MMSG_FINAL":     exitProgMmsgFinal,
 		"EXIT_PROG_RECVMMSG_BASE0": exitProgRecvmmsgBase0,
 		"EXIT_PROG_RECVMMSG_BASE1": exitProgRecvmmsgBase1,
+		"EXIT_PROG_RECVMMSG_BASE2": exitProgRecvmmsgBase2,
+		"EXIT_PROG_RECVMMSG_BASE3": exitProgRecvmmsgBase3,
 		"EXIT_PROG_QUOTA":          exitProgQuota,
 		"EXIT_PROG_MOUNT_QUERY":    exitProgMountQuery,
 	}

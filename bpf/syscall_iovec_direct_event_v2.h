@@ -9,6 +9,8 @@
 #define IOVEC_BASE_PAYLOAD_ARG1_BASE 120
 #define IOVEC_BASE_PAYLOAD_ARG3_BASE 140
 #define IOVEC_BASE_PAYLOAD_ARG151_BASE 160
+#define IOVEC_BASE_PAYLOAD_ARG181_BASE 180
+#define IOVEC_BASE_PAYLOAD_ARG211_BASE 200
 #define IOVEC_BASE_PAYLOAD_CAPACITY \
     (IOVEC_BASE_PAYLOAD_SLOT_MAX * (PAYLOAD_TLV_HEADER_SIZE + IOVEC_BASE_PAYLOAD_BYTES_MAX))
 
@@ -70,6 +72,12 @@ static __always_inline u16 iovec_base_payload_arg_index(u16 iovec_arg_index, u16
     }
     if (iovec_arg_index == 151) {
         return IOVEC_BASE_PAYLOAD_ARG151_BASE + slot;
+    }
+    if (iovec_arg_index == 181) {
+        return IOVEC_BASE_PAYLOAD_ARG181_BASE + slot;
+    }
+    if (iovec_arg_index == 211) {
+        return IOVEC_BASE_PAYLOAD_ARG211_BASE + slot;
     }
     return IOVEC_BASE_PAYLOAD_ARG1_BASE + slot;
 }
@@ -267,22 +275,6 @@ static __noinline u32 capture_iovec_base_payloads_tlv_direct(
         ptr,
         payload_offset,
         1,
-        iovec_ptr,
-        count,
-        event_flags);
-}
-
-static __noinline u32 capture_iovec_base_payloads_arg151_tlv_direct(
-    struct bpf_dynptr *ptr,
-    u32 payload_offset,
-    u64 iovec_ptr,
-    u64 count,
-    u16 *event_flags)
-{
-    return capture_iovec_base_payloads_tlv_direct_for_arg(
-        ptr,
-        payload_offset,
-        151,
         iovec_ptr,
         count,
         event_flags);

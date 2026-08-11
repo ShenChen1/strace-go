@@ -196,22 +196,6 @@ static __noinline u32 capture_iovec_base_exit_payloads_tlv_direct(
         event_flags);
 }
 
-static __noinline u32 capture_iovec_base_exit_payloads_arg151_tlv_direct(
-    struct bpf_dynptr *ptr,
-    u32 payload_offset,
-    u64 iovec_ptr,
-    u64 count,
-    u16 *event_flags)
-{
-    return capture_iovec_base_exit_payloads_tlv_direct_for_arg(
-        ptr,
-        payload_offset,
-        151,
-        iovec_ptr,
-        count,
-        event_flags);
-}
-
 static __noinline void emit_iovec_base_exit_event_v2_direct(
     struct pending_syscall *p,
     s64 ret_value,

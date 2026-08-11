@@ -20,8 +20,8 @@ func TestBPFQuotaPayloadUsesDirectTLV(t *testing.T) {
 		`#include "syscall_quota_direct_event_v2.h"`,
 		`#include "syscall_quota_xfs_direct_event_v2.h"`,
 		`#include "quota_dispatch.h"`,
-		"ENTER_PROG_QUOTA = 43",
-		"EXIT_PROG_QUOTA = 6",
+		"ENTER_PROG_QUOTA = 45",
+		"EXIT_PROG_QUOTA = 8",
 		"is_quota_direct_syscall(sys_id)",
 		"is_quota_direct_syscall(p->sys_id)",
 	} {

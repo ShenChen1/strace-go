@@ -35,6 +35,7 @@ MOUNT_PATH_FIXTURE_SRC = os.path.join(
     SCRIPT_DIR, "fixtures", "ebpf_mount_path_fixture.c"
 )
 DIRENT_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_dirent_fixture.c")
+MMSG_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_mmsg_fixture.c")
 ATTACH_READY_TIMEOUT_SECONDS = 30
 
 
@@ -67,6 +68,7 @@ class AttachCapture:
 class SemanticContext:
     main: EventCapture
     dirent: EventCapture
+    mmsg: EventCapture
     mount_query: EventCapture
     mount_path: EventCapture
     mount_path_filtered: EventCapture
@@ -149,6 +151,10 @@ def build_ebpf_dirent_fixture():
     return build_named_fixture("strace-go-ebpf-dirent-fixture", DIRENT_FIXTURE_SRC)
 
 
+def build_ebpf_mmsg_fixture():
+    return build_named_fixture("strace-go-ebpf-mmsg-fixture", MMSG_FIXTURE_SRC)
+
+
 def run_strace_go_json(args, timeout=30, debug=False):
     event_flag = "--debug-events" if debug else "--event-format=json"
     command = [STRACE_WRAPPER, event_flag] + args
@@ -221,6 +227,12 @@ def collect_mount_path_events(fixture, trace_path=None):
 def collect_dirent_events(fixture):
     return event_capture(
         run_strace_go_json(["-e", "trace=getdents,getdents64", fixture])
+    )
+
+
+def collect_mmsg_events(fixture):
+    return event_capture(
+        run_strace_go_json(["-e", "trace=sendmmsg,recvmmsg", fixture])
     )
 
 
@@ -346,9 +358,11 @@ def collect_semantic_context(fixture):
     mount_query_fixture = build_ebpf_mount_query_fixture()
     mount_path_fixture = build_ebpf_mount_path_fixture()
     dirent_fixture = build_ebpf_dirent_fixture()
+    mmsg_fixture = build_ebpf_mmsg_fixture()
     return SemanticContext(
         main=collect_semantic_events(fixture),
         dirent=collect_dirent_events(dirent_fixture),
+        mmsg=collect_mmsg_events(mmsg_fixture),
         mount_query=collect_mount_query_events(mount_query_fixture),
         mount_path=collect_mount_path_events(mount_path_fixture),
         mount_path_filtered=collect_mount_path_events(
@@ -387,6 +401,7 @@ def print_semantic_summary(context, filter_event_count):
     print(f"=> eBPF mount-query semantic events: {len(context.mount_query.events)}")
     print(f"=> eBPF mount-path semantic events: {len(context.mount_path.events)}")
     print(f"=> eBPF dirent semantic events: {len(context.dirent.events)}")
+    print(f"=> eBPF mmsg semantic events: {len(context.mmsg.events)}")
     unfinished = sum(
         1 for line in context.thread_text.stderr.splitlines() if "<unfinished ...>" in line
     )

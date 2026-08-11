@@ -15,15 +15,17 @@ func TestBPFMsgDirectModulesOwnResponsibilities(t *testing.T) {
 	facade := read("syscall_msg_direct_event_v2.h")
 	core := read("syscall_msg_core_direct_event_v2.h")
 	capture := read("syscall_msg_capture_direct_event_v2.h")
+	mmsgCapture := read("syscall_mmsg_capture_direct_event_v2.h")
 	enter := read("syscall_msg_enter_direct_event_v2.h")
 	exit := read("syscall_msg_exit_direct_event_v2.h")
 
 	for name, source := range map[string]string{
-		"syscall_msg_direct_event_v2.h":         facade,
-		"syscall_msg_core_direct_event_v2.h":    core,
-		"syscall_msg_capture_direct_event_v2.h": capture,
-		"syscall_msg_enter_direct_event_v2.h":   enter,
-		"syscall_msg_exit_direct_event_v2.h":    exit,
+		"syscall_msg_direct_event_v2.h":          facade,
+		"syscall_msg_core_direct_event_v2.h":     core,
+		"syscall_msg_capture_direct_event_v2.h":  capture,
+		"syscall_mmsg_capture_direct_event_v2.h": mmsgCapture,
+		"syscall_msg_enter_direct_event_v2.h":    enter,
+		"syscall_msg_exit_direct_event_v2.h":     exit,
 	} {
 		if !strings.Contains(source, "#ifndef STRACE_GO_") || !strings.Contains(source, "#endif") {
 			t.Fatalf("%s must have an include guard", name)
@@ -33,6 +35,7 @@ func TestBPFMsgDirectModulesOwnResponsibilities(t *testing.T) {
 	orderedIncludes := []string{
 		`#include "syscall_msg_core_direct_event_v2.h"`,
 		`#include "syscall_msg_capture_direct_event_v2.h"`,
+		`#include "syscall_mmsg_capture_direct_event_v2.h"`,
 		`#include "syscall_msg_enter_direct_event_v2.h"`,
 		`#include "syscall_msg_exit_direct_event_v2.h"`,
 	}
@@ -56,18 +59,26 @@ func TestBPFMsgDirectModulesOwnResponsibilities(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"capture_msghdr_tlv_direct(",
-		"capture_mmsg_enter_payloads_tlv_direct(",
 		"capture_single_msg_exit_payloads_tlv_direct(",
-		"capture_recvmmsg_base1_exit_payloads_tlv_direct(",
 	} {
 		if !strings.Contains(capture, snippet) {
 			t.Fatalf("msg capture module missing %q", snippet)
 		}
 	}
 	for _, snippet := range []string{
+		"capture_mmsg_enter_payloads_tlv_direct(",
+		"capture_recvmmsg_base1_exit_payloads_tlv_direct(",
+		"capture_mmsg_base3_enter_payloads_tlv_direct(",
+		"capture_recvmmsg_base3_exit_payloads_tlv_direct(",
+	} {
+		if !strings.Contains(mmsgCapture, snippet) {
+			t.Fatalf("mmsg capture module missing %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
 		"emit_msg_enter_event_v2_direct(",
 		"emit_mmsg_enter_event_v2_direct(",
-		"emit_sendmmsg_base1_enter_event_v2_direct(",
+		"emit_mmsg_base1_enter_event_v2_direct(",
 	} {
 		if !strings.Contains(enter, snippet) {
 			t.Fatalf("msg enter module missing %q", snippet)
@@ -101,6 +112,7 @@ func TestBPFMsgDirectModulesStayWithinFileLimit(t *testing.T) {
 		"syscall_msg_direct_event_v2.h",
 		"syscall_msg_core_direct_event_v2.h",
 		"syscall_msg_capture_direct_event_v2.h",
+		"syscall_mmsg_capture_direct_event_v2.h",
 		"syscall_msg_enter_direct_event_v2.h",
 		"syscall_msg_exit_direct_event_v2.h",
 	} {

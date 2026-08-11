@@ -164,6 +164,8 @@ const (
 	iovecBasePayloadArg1Base   = 120
 	iovecBasePayloadArg3Base   = 140
 	iovecBasePayloadArg151Base = 160
+	iovecBasePayloadArg181Base = 180
+	iovecBasePayloadArg211Base = 200
 )
 
 type iovecEntry struct {
@@ -397,7 +399,7 @@ func iovecBasePayloadString(ctx *Context, argIndex int, slot int, base uint64, l
 }
 
 func iovecBasePayloadDirection(ctx *Context, argIndex int) (PayloadDirection, bool) {
-	if ctx == nil || (argIndex != 1 && argIndex != 151) {
+	if ctx == nil || (argIndex != 1 && argIndex != 151 && argIndex != 181 && argIndex != 211) {
 		return "", false
 	}
 	switch ctx.SysName {
@@ -441,6 +443,10 @@ func iovecBasePayloadArgIndex(argIndex int, slot int) int {
 		return iovecBasePayloadArg3Base + slot
 	case 151:
 		return iovecBasePayloadArg151Base + slot
+	case 181:
+		return iovecBasePayloadArg181Base + slot
+	case 211:
+		return iovecBasePayloadArg211Base + slot
 	default:
 		return -1
 	}

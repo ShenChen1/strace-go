@@ -99,12 +99,14 @@ const (
 	enterProgPayload     = 36
 	enterProgIovecBase   = 37
 	enterProgSendmsgBase = 38
-	enterProgSendmmsgB0  = 39
-	enterProgSendmmsgB1  = 40
-	enterProgAioIovec    = 41
-	enterProgAioBuf      = 42
-	enterProgQuota       = 43
-	enterProgMountPath   = 44
+	enterProgMmsgB0      = 39
+	enterProgMmsgB1      = 40
+	enterProgMmsgB2      = 41
+	enterProgMmsgB3      = 42
+	enterProgAioIovec    = 43
+	enterProgAioBuf      = 44
+	enterProgQuota       = 45
+	enterProgMountPath   = 46
 )
 
 const (
@@ -114,14 +116,23 @@ const (
 	exitProgMmsgFinal     = 3
 	exitProgRecvmmsgBase0 = 4
 	exitProgRecvmmsgBase1 = 5
-	exitProgQuota         = 6
-	exitProgMountQuery    = 7
+	exitProgRecvmmsgBase2 = 6
+	exitProgRecvmmsgBase3 = 7
+	exitProgQuota         = 8
+	exitProgMountQuery    = 9
 )
 
 const (
 	recvmsgProgName    = 0
 	recvmsgProgControl = 1
 	recvmsgProgFinal   = 2
+)
+
+const (
+	mmsgBytesProgBase0 = 0
+	mmsgBytesProgBase1 = 1
+	mmsgBytesProgBase2 = 2
+	mmsgBytesProgBase3 = 3
 )
 
 type progArrayEntry struct {
@@ -169,8 +180,10 @@ func enterProgArrayEntries(objs *bpfObjects) []progArrayEntry {
 		{enterProgPayload, objs.EnterPayloadDirect},
 		{enterProgIovecBase, objs.EnterIovecBase},
 		{enterProgSendmsgBase, objs.EnterSendmsgBase},
-		{enterProgSendmmsgB0, objs.EnterSendmmsgBase0},
-		{enterProgSendmmsgB1, objs.EnterSendmmsgBase1},
+		{enterProgMmsgB0, objs.EnterMmsgBase0},
+		{enterProgMmsgB1, objs.EnterMmsgBase1},
+		{enterProgMmsgB2, objs.EnterMmsgBase2},
+		{enterProgMmsgB3, objs.EnterMmsgBase3},
 		{enterProgAioIovec, objs.EnterAioIovec},
 		{enterProgAioBuf, objs.EnterAioBuf},
 		{enterProgQuota, objs.EnterQuota},
@@ -186,6 +199,8 @@ func exitProgArrayEntries(objs *bpfObjects) []progArrayEntry {
 		{exitProgMmsgFinal, objs.ExitMmsgFinal},
 		{exitProgRecvmmsgBase0, objs.ExitRecvmmsgBase0},
 		{exitProgRecvmmsgBase1, objs.ExitRecvmmsgBase1},
+		{exitProgRecvmmsgBase2, objs.ExitRecvmmsgBase2},
+		{exitProgRecvmmsgBase3, objs.ExitRecvmmsgBase3},
 		{exitProgQuota, objs.ExitQuota},
 		{exitProgMountQuery, objs.ExitMountQuery},
 	}
@@ -199,6 +214,15 @@ func recvmsgProgArrayEntries(objs *bpfObjects) []progArrayEntry {
 	}
 }
 
+func mmsgBytesProgArrayEntries(objs *bpfObjects) []progArrayEntry {
+	return []progArrayEntry{
+		{mmsgBytesProgBase0, objs.EnterMmsgBytes0},
+		{mmsgBytesProgBase1, objs.EnterMmsgBytes1},
+		{mmsgBytesProgBase2, objs.EnterMmsgBytes2},
+		{mmsgBytesProgBase3, objs.EnterMmsgBytes3},
+	}
+}
+
 // populateProgArrays fills the tail call prog arrays before any raw syscall
 // tracepoint is attached; an empty slot would silently drop that family.
 func (a *bpfAttacher) populateProgArrays() error {
@@ -208,6 +232,14 @@ func (a *bpfAttacher) populateProgArrays() error {
 		}
 		if err := a.objs.EnterProgs.Put(entry.index, entry.prog); err != nil {
 			return fmt.Errorf("enter_progs[%d]: %w", entry.index, err)
+		}
+	}
+	for _, entry := range mmsgBytesProgArrayEntries(a.objs) {
+		if entry.prog == nil {
+			return fmt.Errorf("mmsg_bytes_progs[%d]: nil handler", entry.index)
+		}
+		if err := a.objs.MmsgBytesProgs.Put(entry.index, entry.prog); err != nil {
+			return fmt.Errorf("mmsg_bytes_progs[%d]: %w", entry.index, err)
 		}
 	}
 	for _, entry := range exitProgArrayEntries(a.objs) {

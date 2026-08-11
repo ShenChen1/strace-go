@@ -12,8 +12,10 @@ import (
 const (
 	msghdrSnapshotSize     = 56
 	mmsghdrSnapshotSize    = 64
-	mmsghdrDisplayLimit    = 2
+	mmsghdrDisplayLimit    = 4
 	mmsghdrSecondIovArg    = 151
+	mmsghdrThirdIovArg     = 181
+	mmsghdrFourthIovArg    = 211
 	recvmsgEFAULT          = -14
 	msghdrNameOffset       = 0
 	msghdrNameLenOffset    = 8
@@ -253,10 +255,16 @@ func mmsgIovecContext(ctx *Context, msgLen uint32) Context {
 }
 
 func mmsgIovecArgIndex(slot int) int {
-	if slot == 1 {
+	switch slot {
+	case 1:
 		return mmsghdrSecondIovArg
+	case 2:
+		return mmsghdrThirdIovArg
+	case 3:
+		return mmsghdrFourthIovArg
+	default:
+		return 1
 	}
-	return 1
 }
 
 func formatMsgName(ctx *Context, snap msghdrSnapshot) string {

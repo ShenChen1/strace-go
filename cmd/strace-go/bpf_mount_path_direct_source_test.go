@@ -16,7 +16,7 @@ func TestBPFMountPathSyscallsUseProbeSiteTLV(t *testing.T) {
 		"#define SYS_OPEN_TREE 428",
 		"#define SYS_MOVE_MOUNT 429",
 		`#include "syscall_mount_path_direct_event_v2.h"`,
-		"ENTER_PROG_MOUNT_PATH = 44",
+		"ENTER_PROG_MOUNT_PATH = 46",
 		"is_mount_path_direct_syscall(sys_id)",
 		"emit_mount_path_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 	} {

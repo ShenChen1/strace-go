@@ -2,6 +2,7 @@
 import os
 
 from ebpf_event_oracles import (
+    EVENT_FLAG_TRUNCATED,
     StructPayloadSpec,
     has_bytes_payload_section,
     has_exec_payload_sections,
@@ -341,6 +342,56 @@ def check_dirent(context, failures):
         require(failed, failures, f"{syscall} EBADF failure event missing")
 
 
+def check_mmsg(context, failures):
+    capture = context.mmsg
+    require(capture.result.returncode == 0, failures, f"mmsg fixture rc={capture.result.returncode}")
+    require("mmsg-fixture-ok" in capture.result.stdout, failures, "mmsg fixture stdout marker missing")
+    require(len(capture.stats_events) == 1 and valid_stats_event(capture.stats_events[0]), failures, "mmsg stats event missing")
+    error_counters = (
+        "ringbuf_reserve_fail", "ringbuf_copy_fail", "pending_update_fail",
+        "orphan_exit", "pending_mismatch",
+    )
+    clean_stats = capture.stats_events and all(
+        capture.stats_events[0].get(key, 1) == 0 for key in error_counters
+    )
+    require(clean_stats, failures, "mmsg fixture reported runtime event errors")
+    for syscall in ("sendmmsg", "recvmmsg"):
+        successful = [
+            event for event in capture.exit_events
+            if event.get("syscall") == syscall and event.get("ret", 0) > 0
+        ]
+        require(successful, failures, f"{syscall} successful exit missing")
+        require(any(event.get("paired_enter") for event in successful), failures, f"{syscall} exit was not paired")
+        sections = [
+            section
+            for event in capture.events
+            if event.get("syscall") == syscall
+            for section in (event.get("payload_sections") or [])
+        ]
+        struct_sections = [
+            section for section in sections
+            if section.get("kind") == "struct" and section.get("arg_index") == 1
+        ]
+        require(any(section.get("user_len") == 320 and section.get("copied_len") == 256 for section in struct_sections), failures, f"{syscall} four-slot mmsghdr bound missing")
+        require(any(event.get("event_flags", 0) & EVENT_FLAG_TRUNCATED for event in capture.events if event.get("syscall") == syscall), failures, f"{syscall} mmsghdr truncation flag missing")
+        for arg_index in (1, 151, 181, 211):
+            require(any(section.get("kind") == "iovec" and section.get("arg_index") == arg_index for section in sections), failures, f"{syscall} iovec slot arg {arg_index} missing")
+        bytes_direction = "in" if syscall == "sendmmsg" else "out"
+        bytes_arg_indices = (120, 160, 180, 200)
+        for arg_index in bytes_arg_indices:
+            require(
+                any(
+                    section.get("kind") == "bytes"
+                    and section.get("direction") == bytes_direction
+                    and section.get("arg_index") == arg_index
+                    and section.get("copied_len", 0) > 0
+                    for section in sections
+                ),
+                failures,
+                f"{syscall} {bytes_direction} buffer arg {arg_index} missing",
+            )
+
+
 def check_semantic_context(context, failures):
     check_main_capture(context, failures)
     check_syscall_presence(context, failures)
@@ -354,3 +405,4 @@ def check_semantic_context(context, failures):
     check_mount_query(context, failures)
     check_mount_path(context, failures)
     check_dirent(context, failures)
+    check_mmsg(context, failures)
