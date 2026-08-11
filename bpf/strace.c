@@ -33,6 +33,7 @@ char LICENSE[] SEC("license") = "GPL";
 #include "syscall_fcntl_direct_event_v2.h"
 #include "syscall_ioctl_direct_event_v2.h"
 #include "syscall_network_direct_event_v2.h"
+#include "syscall_network_direct_exit_event_v2.h"
 #include "syscall_key_direct_event_v2.h"
 #include "syscall_xattr_direct_event_v2.h"
 #include "syscall_fs_direct_event_v2.h"

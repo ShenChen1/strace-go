@@ -4,6 +4,7 @@
 #define NETWORK_DIRECT_BYTES_MAX 512
 #define NETWORK_DIRECT_SOCKADDR_MAX 128
 #define NETWORK_DIRECT_SOCKLEN_SIZE 4
+#define NETWORK_DIRECT_SOCKOPT_MAX NETWORK_DIRECT_BYTES_MAX
 #define NETWORK_DIRECT_SENDTO_ENTER_MAX \
     (PAYLOAD_TLV_HEADER_SIZE + NETWORK_DIRECT_BYTES_MAX + \
      PAYLOAD_TLV_HEADER_SIZE + NETWORK_DIRECT_SOCKADDR_MAX)
@@ -22,11 +23,17 @@ static __always_inline int is_network_accept_like_direct_syscall(u32 sys_id)
         sys_id == SYS_GETSOCKNAME || sys_id == SYS_GETPEERNAME;
 }
 
+static __always_inline int is_network_sockopt_direct_syscall(u32 sys_id)
+{
+    return sys_id == SYS_SETSOCKOPT || sys_id == SYS_GETSOCKOPT;
+}
+
 static __always_inline int is_network_direct_syscall(u32 sys_id)
 {
     return sys_id == SYS_CONNECT || sys_id == SYS_BIND ||
         sys_id == SYS_SENDTO || sys_id == SYS_RECVFROM ||
-        is_network_accept_like_direct_syscall(sys_id);
+        is_network_accept_like_direct_syscall(sys_id) ||
+        is_network_sockopt_direct_syscall(sys_id);
 }
 
 static __always_inline u32 network_direct_enter_socklen_arg(u32 sys_id)
@@ -75,6 +82,9 @@ static __always_inline u64 network_direct_pending_arg(
     if (arg_index == 2) {
         return p->args[2];
     }
+    if (arg_index == 3) {
+        return p->args[3];
+    }
     if (arg_index == 4) {
         return p->args[4];
     }
@@ -90,6 +100,64 @@ static __always_inline u32 network_direct_min_u32(u32 a, u32 b)
         return a;
     }
     return b;
+}
+
+static __always_inline u32 network_direct_sockopt_len(u64 value)
+{
+    s32 length = (s32)(u32)value;
+    if (length <= 0) {
+        return 0;
+    }
+    return (u32)length;
+}
+
+static __always_inline int network_direct_sockopt_fixed_int(
+    u64 level_value,
+    u64 option_value)
+{
+    u32 level = (u32)level_value;
+    u32 option = (u32)option_value;
+    if (level == 270) {
+        return option != 9;
+    }
+    if (level != 1) {
+        return 0;
+    }
+    return option == 1 || option == 2 || option == 5 || option == 6 ||
+        option == 7 || option == 8 || option == 9 || option == 10 ||
+        option == 11 || option == 12 || option == 14 || option == 15 ||
+        option == 16 || option == 18 || option == 19 || option == 27 ||
+        option == 29 || option == 30 || option == 32 || option == 33 ||
+        option == 34 || option == 35 || option == 36 || option == 37 ||
+        option == 40 || option == 41 || option == 42 || option == 43 ||
+        option == 44 || option == 45 || option == 46 || option == 49 ||
+        option == 53 || option == 56 || option == 60 || option == 63 ||
+        option == 64 || option == 65 || option == 68 || option == 69 ||
+		option == 70 || option == 73 || option == 74 || option == 75 ||
+		option == 76 || option == 80 || option == 82 || option == 83 ||
+        option == 84;
+}
+
+static __always_inline int network_direct_sockopt_membership_array(
+    u64 level_value,
+    u64 option_value)
+{
+    return (u32)level_value == 270 && (u32)option_value == 9;
+}
+
+static __always_inline u32 network_direct_sockopt_payload_len(
+    u64 level_value,
+    u64 option_value,
+    u64 optlen_value)
+{
+    u32 length = network_direct_sockopt_len(optlen_value);
+    if (network_direct_sockopt_membership_array(level_value, option_value)) {
+        return length & ~3U;
+    }
+    if (network_direct_sockopt_fixed_int(level_value, option_value) && length > 4) {
+        return 4;
+    }
+    return length;
 }
 
 static __always_inline int network_direct_read_socklen(u64 user_ptr, u32 *value)
@@ -253,6 +321,21 @@ static __always_inline u32 capture_network_enter_payloads_tlv_direct(
     u32 *sockaddr_len)
 {
     *sockaddr_len = 0;
+    if (sys_id == SYS_SETSOCKOPT) {
+        u32 optlen = network_direct_sockopt_payload_len(
+            args->args[1], args->args[2], args->args[4]);
+        return capture_network_tlv_direct(
+            ptr, payload_offset, PAYLOAD_TLV_KIND_BYTES, 3, 0,
+            args->args[3], optlen, optlen,
+            NETWORK_DIRECT_SOCKOPT_MAX, event_flags);
+    }
+    if (sys_id == SYS_GETSOCKOPT) {
+        u32 optlen = 0;
+        u32 payload_size = capture_network_socklen_tlv_direct(
+            ptr, payload_offset, 4, 0, args->args[4], &optlen);
+        *sockaddr_len = optlen;
+        return payload_size;
+    }
     if (sys_id == SYS_CONNECT || sys_id == SYS_BIND) {
         return capture_network_tlv_direct(
             ptr, payload_offset, PAYLOAD_TLV_KIND_STRUCT, 1, 0,
@@ -339,130 +422,6 @@ static __always_inline void emit_network_enter_event_v2_direct(
 
     struct syscall_enter_event_v2 body = {};
     init_network_enter_event_v2_from_args(&body, args, payload_size);
-    ret = bpf_dynptr_write(&ptr, body_offset, &body, sizeof(body), 0);
-    if (ret < 0) {
-        record_ringbuf_copy_fail();
-        bpf_ringbuf_discard_dynptr(&ptr, 0);
-        return;
-    }
-
-    bpf_ringbuf_submit_dynptr(&ptr, 0);
-}
-
-static __always_inline u32 network_direct_out_sockaddr_arg(u32 sys_id)
-{
-    if (sys_id == SYS_RECVFROM) {
-        return 4;
-    }
-    return 1;
-}
-
-static __always_inline u32 network_direct_out_socklen_arg(u32 sys_id)
-{
-    if (sys_id == SYS_RECVFROM) {
-        return 5;
-    }
-    return 2;
-}
-
-static __always_inline u32 capture_network_exit_payloads_tlv_direct(
-    struct bpf_dynptr *ptr,
-    u32 payload_offset,
-    struct pending_syscall *p,
-    s64 ret_value,
-    u16 *event_flags)
-{
-    u32 payload_size = 0;
-    if (p->sys_id == SYS_RECVFROM && ret_value > 0) {
-        u32 ret_len = payload_tlv_clamp_u32((u64)ret_value);
-        u32 count_len = payload_tlv_clamp_u32(p->args[2]);
-        u32 copy_len = ret_len;
-        if (count_len < copy_len) {
-            copy_len = count_len;
-        }
-        payload_size += capture_network_tlv_direct(
-            ptr, payload_offset, PAYLOAD_TLV_KIND_BYTES, 1,
-            PAYLOAD_TLV_FLAG_DIRECTION_OUT, p->args[1],
-            ret_len, copy_len, NETWORK_DIRECT_BYTES_MAX,
-            event_flags);
-    }
-    if (ret_value < 0) {
-        return payload_size;
-    }
-    if (p->sys_id != SYS_RECVFROM && !is_network_accept_like_direct_syscall(p->sys_id)) {
-        return payload_size;
-    }
-
-    u32 len_arg = network_direct_out_socklen_arg(p->sys_id);
-    u32 out_len = 0;
-    u64 len_ptr = network_direct_pending_arg(p, len_arg);
-    network_direct_read_socklen(len_ptr, &out_len);
-
-    u32 copy_len = out_len;
-    if (p->aux0 > 0 && p->aux0 < copy_len) {
-        copy_len = p->aux0;
-    }
-    copy_len = network_direct_min_u32(copy_len, NETWORK_DIRECT_SOCKADDR_MAX);
-    if (copy_len > 0) {
-        u32 addr_arg = network_direct_out_sockaddr_arg(p->sys_id);
-        u64 addr_ptr = network_direct_pending_arg(p, addr_arg);
-        payload_size += capture_network_tlv_direct(
-            ptr,
-            payload_offset + payload_size,
-            PAYLOAD_TLV_KIND_STRUCT,
-            addr_arg,
-            PAYLOAD_TLV_FLAG_DIRECTION_OUT,
-            addr_ptr,
-            copy_len,
-            copy_len,
-            NETWORK_DIRECT_SOCKADDR_MAX,
-            event_flags);
-    }
-    payload_size += capture_network_socklen_tlv_direct(
-        ptr,
-        payload_offset + payload_size,
-        len_arg,
-        PAYLOAD_TLV_FLAG_DIRECTION_OUT,
-        len_ptr,
-        &out_len);
-    return payload_size;
-}
-
-static __always_inline void emit_network_exit_event_v2_direct(
-    struct pending_syscall *p,
-    s64 ret_value,
-    u64 duration)
-{
-    u32 body_offset = EVENT_V2_HEADER_LEN;
-    u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_EXIT_BODY_LEN;
-    u32 out_size = payload_offset + NETWORK_DIRECT_RECVFROM_EXIT_MAX;
-    u64 ts_ns = p->enter_time + duration;
-    struct bpf_dynptr ptr;
-    long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
-    if (ret < 0) {
-        record_ringbuf_reserve_fail();
-        bpf_ringbuf_discard_dynptr(&ptr, 0);
-        return;
-    }
-
-    u16 flags = 0;
-    u32 payload_size = capture_network_exit_payloads_tlv_direct(
-        &ptr, payload_offset, p, ret_value, &flags);
-    if (payload_size > 0) {
-        flags |= EVENT_FLAG_PAYLOAD_TLV;
-    }
-
-    struct event_v2_header header = {};
-    init_syscall_event_v2_header_direct(&header, EVENT_TYPE_EXIT, flags, p->pid, p->tid, p->sys_id, out_size, ts_ns);
-    ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
-    if (ret < 0) {
-        record_ringbuf_copy_fail();
-        bpf_ringbuf_discard_dynptr(&ptr, 0);
-        return;
-    }
-
-    struct syscall_exit_event_v2 body = {};
-    init_syscall_exit_event_v2_from_pending(&body, p, ret_value, duration, payload_size);
     ret = bpf_dynptr_write(&ptr, body_offset, &body, sizeof(body), 0);
     if (ret < 0) {
         record_ringbuf_copy_fail();

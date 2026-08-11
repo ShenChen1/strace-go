@@ -51,6 +51,8 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define SYS_RECVFROM 45
 #define SYS_SENDMSG 46
 #define SYS_RECVMSG 47
+#define SYS_SETSOCKOPT 54
+#define SYS_GETSOCKOPT 55
 #define SYS_BIND 49
 #define SYS_GETSOCKNAME 51
 #define SYS_GETPEERNAME 52

@@ -35,6 +35,8 @@ var alwaysAllowedXlats = []string{
 	"socketlayers",
 	"sock_type_flags",
 	"sock_options",
+	"sock_netlink_options",
+	"sockopt_txrehash_vals",
 	"prctl_options",
 	"futexops",
 	"protocols",
@@ -115,6 +117,7 @@ var zeroValueXlatNames = map[string]bool{
 	"ITIMER_REAL":             true,
 	"USRQUOTA":                true,
 	"AT_STATX_SYNC_AS_STAT":   true,
+	"SOCK_TXREHASH_DISABLED":   true,
 }
 
 func stripIntegerSuffixes(value string) string {

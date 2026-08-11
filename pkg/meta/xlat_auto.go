@@ -1550,8 +1550,25 @@ var XlatTables = map[string]XlatTable{
 			{Val: 52, Str: "IP_PROTOCOL"},
 		},
 	},
+	"sock_netlink_options": {
+		Prefix: "NETLINK_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "NETLINK_ADD_MEMBERSHIP"},
+			{Val: 2, Str: "NETLINK_DROP_MEMBERSHIP"},
+			{Val: 3, Str: "NETLINK_PKTINFO"},
+			{Val: 4, Str: "NETLINK_BROADCAST_ERROR"},
+			{Val: 5, Str: "NETLINK_NO_ENOBUFS"},
+			{Val: 6, Str: "NETLINK_RX_RING"},
+			{Val: 7, Str: "NETLINK_TX_RING"},
+			{Val: 8, Str: "NETLINK_LISTEN_ALL_NSID"},
+			{Val: 9, Str: "NETLINK_LIST_MEMBERSHIPS"},
+			{Val: 10, Str: "NETLINK_CAP_ACK"},
+			{Val: 11, Str: "NETLINK_EXT_ACK"},
+			{Val: 12, Str: "NETLINK_GET_STRICT_CHK"},
+		},
+	},
 	"sock_options": {
-		Prefix: "",
+		Prefix: "SO_",
 		Entries: []XlatVal{
 			{Val: 1, Str: "SO_DEBUG"},
 			{Val: 2, Str: "SO_REUSEADDR"},
@@ -1887,6 +1904,14 @@ var XlatTables = map[string]XlatTable{
 			{Val: 286, Str: "SOL_SMC"},
 			{Val: 287, Str: "SOL_VSOCK"},
 			{Val: 1, Str: "SOL_SOCKET"},
+		},
+	},
+	"sockopt_txrehash_vals": {
+		Prefix: "SOCK_TXREHASH_",
+		Entries: []XlatVal{
+			{Val: 0, Str: "SOCK_TXREHASH_DISABLED"},
+			{Val: 1, Str: "SOCK_TXREHASH_ENABLED"},
+			{Val: 255, Str: "SOCK_TXREHASH_DEFAULT"},
 		},
 	},
 	"splice_flags": {

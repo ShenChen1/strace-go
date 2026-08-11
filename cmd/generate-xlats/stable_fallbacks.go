@@ -37,8 +37,11 @@ func applyStableXlatFallbacks(name string, prefix *string, entries map[string]st
 }
 
 func normalizeXlatPrefix(name string, prefix *string) {
-	if name == "open_tree_flags" {
+	switch name {
+	case "open_tree_flags":
 		*prefix = "OPEN_TREE_"
+	case "sock_options":
+		*prefix = "SO_"
 	}
 }
 

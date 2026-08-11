@@ -19,6 +19,7 @@ from ebpf_semantic_checks import (
     require,
     valid_stats_event,
 )
+from ebpf_sockopt_suite import run_sockopt_semantic
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -441,6 +442,7 @@ def run_ebpf_semantic(args):
     context = collect_semantic_context(fixture)
     failures = []
     check_semantic_context(context, failures)
+    failures.extend(run_sockopt_semantic(STRACE_WRAPPER, PROJECT_ROOT))
     filter_event_count = check_write_only_filter(fixture, failures)
     return finish_semantic(context, failures, filter_event_count)
 

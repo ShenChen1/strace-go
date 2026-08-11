@@ -12,11 +12,14 @@ func TestBPFNetworkPayloadsUseDirectTLV(t *testing.T) {
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	networkDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_network_direct_event_v2.h"))
+	networkDirectExitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_network_direct_exit_event_v2.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_CONNECT 42",
 		"#define SYS_RECVFROM 45",
 		"#define SYS_ACCEPT4 288",
+		"#define SYS_SETSOCKOPT 54",
+		"#define SYS_GETSOCKOPT 55",
 		`#include "syscall_network_direct_event_v2.h"`,
 		"is_network_direct_syscall(sys_id)",
 		"struct network_direct_args network_args = {};",
@@ -35,8 +38,18 @@ func TestBPFNetworkPayloadsUseDirectTLV(t *testing.T) {
 		"NETWORK_DIRECT_SOCKADDR_MAX 128",
 		"NETWORK_DIRECT_SOCKLEN_SIZE 4",
 		"is_network_direct_syscall(",
+		"is_network_sockopt_direct_syscall(",
 		"capture_network_tlv_direct(",
 		"capture_network_socklen_tlv_direct(",
+		"network_direct_sockopt_len(",
+		"network_direct_sockopt_payload_len(",
+		"network_direct_sockopt_fixed_int(",
+		"network_direct_sockopt_membership_array(",
+		"return length & ~3U;",
+		"return option != 9;",
+		"option == 84",
+		"*sockaddr_len = optlen;",
+		"capture_network_getsockopt_exit_tlv_direct(",
 		"PAYLOAD_TLV_KIND_BYTES",
 		"PAYLOAD_TLV_KIND_STRUCT",
 		"PAYLOAD_TLV_FLAG_DIRECTION_OUT",
@@ -45,7 +58,7 @@ func TestBPFNetworkPayloadsUseDirectTLV(t *testing.T) {
 		"init_network_enter_event_v2_from_args(&body, args, payload_size);",
 		"init_syscall_exit_event_v2_from_pending(&body, p, ret_value, duration, payload_size);",
 	} {
-		if !strings.Contains(networkDirectHeader, snippet) {
+		if !strings.Contains(networkDirectHeader, snippet) && !strings.Contains(networkDirectExitHeader, snippet) {
 			t.Fatalf("network direct header missing snippet %q", snippet)
 		}
 	}

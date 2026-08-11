@@ -317,6 +317,8 @@ func (h *NetworkHandler) formatSockopt(ctx *Context, argName string, val uint64)
 		xlat = "sock_ip_options"
 	} else if level == 6 { // IPPROTO_TCP
 		xlat = "sock_tcp_options"
+	} else if level == 270 { // SOL_NETLINK
+		xlat = "sock_netlink_options"
 	}
 	return meta.DecodeFlags(val, xlat), true
 }
@@ -326,25 +328,114 @@ func (h *NetworkHandler) formatSockoptValAndLen(ctx *Context, i int, argName str
 		if val == 0 {
 			return "NULL", true
 		}
-		if ctx.Ret < 0 && ctx.Ret >= -4095 && ctx.ProbeRetExit < 0 {
-			return fmt.Sprintf("%#x", val), true
+		inLen, inOK := h.sockoptLengthSnapshot(ctx, PayloadDirectionIn)
+		if outLen, ok := h.sockoptLengthSnapshot(ctx, PayloadDirectionOut); ok {
+			if inOK && inLen != outLen {
+				return fmt.Sprintf("[%d => %d]", inLen, outLen), true
+			}
+			return fmt.Sprintf("[%d]", outLen), true
 		}
-		if data, ok := ctx.PayloadBytes(4, PayloadDirectionOut); ok && len(data) >= 4 {
-			return fmt.Sprintf("[%d]", binary.LittleEndian.Uint32(data)), true
+		if inOK {
+			return fmt.Sprintf("[%d]", inLen), true
 		}
 		return fmt.Sprintf("%#x", val), true
 	}
 	if ctx.ScMeta.Name == "setsockopt" && i == 4 { // optlen (socklen_t)
-		return fmt.Sprintf("%d", val), true
+		return fmt.Sprintf("%d", int32(uint32(val))), true
 	}
 	// For optval (i == 3)
 	if (ctx.ScMeta.Name == "getsockopt" || ctx.ScMeta.Name == "setsockopt") && i == 3 {
 		if val == 0 {
 			return "NULL", true
 		}
+		direction := PayloadDirectionIn
+		if ctx.ScMeta.Name == "getsockopt" {
+			direction = PayloadDirectionOut
+		}
+		if direction == PayloadDirectionOut && ctx.Ret >= 0 && isNetlinkListMemberships(ctx) {
+			if length, ok := h.sockoptLengthSnapshot(ctx, PayloadDirectionIn); ok && length < 4 {
+				return "[]", true
+			}
+		}
+		if section, ok := h.sockoptValueSnapshot(ctx, direction); ok {
+			if formatted, formattedOK := h.formatSockoptValue(ctx, direction, section); formattedOK {
+				return formatted, true
+			}
+		}
 		return fmt.Sprintf("%#x", val), true
 	}
 	return "", false
+}
+
+func (h *NetworkHandler) sockoptLengthSnapshot(ctx *Context, direction PayloadDirection) (uint32, bool) {
+	data, ok := ctx.PayloadBytes(4, direction)
+	if !ok || len(data) < 4 {
+		return 0, false
+	}
+	return binary.LittleEndian.Uint32(data), true
+}
+
+func (h *NetworkHandler) sockoptValueSnapshot(ctx *Context, direction PayloadDirection) (PayloadSection, bool) {
+	for _, section := range ctx.PayloadSections {
+		if section.ArgIndex == 3 && section.Kind == PayloadKindBytes &&
+			section.Direction == direction && section.ProbeRet == 0 && len(section.Data) > 0 {
+			return section, true
+		}
+	}
+	return PayloadSection{}, false
+}
+
+func (h *NetworkHandler) formatSockoptValue(ctx *Context, direction PayloadDirection, section PayloadSection) (string, bool) {
+	data := section.Data
+	if isNetlinkListMemberships(ctx) && direction == PayloadDirectionOut {
+		return formatNetlinkMemberships(data), true
+	}
+	if len(data) >= 4 && (section.UserLen == 4 || (isFixedIntSockopt(ctx) && section.UserLen >= 4)) {
+		value := uint64(uint32(binary.LittleEndian.Uint32(data)))
+		if int32(uint32(ctx.Args[2])) == 74 {
+			return fmt.Sprintf("[%s]", meta.DecodeFlags(value, "sockopt_txrehash_vals")), true
+		}
+		return fmt.Sprintf("[%d]", int32(value)), true
+	}
+	if isFixedIntSockopt(ctx) {
+		if direction == PayloadDirectionOut {
+			return format.BufferEscape(data, ctx.Opts.StringLimit, len(data), 1), true
+		}
+		return "", false
+	}
+	return format.Buffer(data, ctx.Opts.StringLimit, len(data)), true
+}
+
+func isNetlinkListMemberships(ctx *Context) bool {
+	return int32(uint32(ctx.Args[1])) == 270 && int32(uint32(ctx.Args[2])) == 9
+}
+
+func formatNetlinkMemberships(data []byte) string {
+	items := make([]string, 0, len(data)/4)
+	for offset := 0; offset+4 <= len(data); offset += 4 {
+		items = append(items, fmt.Sprintf("%d", binary.LittleEndian.Uint32(data[offset:offset+4])))
+	}
+	return "[" + strings.Join(items, ", ") + "]"
+}
+
+func isFixedIntSockopt(ctx *Context) bool {
+	level := int32(uint32(ctx.Args[1]))
+	option := int32(uint32(ctx.Args[2]))
+	if level == 270 {
+		return ctx.ScMeta.Name == "setsockopt" || option != 9
+	}
+	if level != 1 {
+		return false
+	}
+	switch option {
+	case 1, 2, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16,
+		18, 19, 27, 29, 30, 32, 33, 34, 35, 36, 37, 40,
+		41, 42, 43, 44, 45, 46, 49, 53, 56, 60, 63, 64,
+		65, 68, 69, 70, 73, 74, 75, 76, 80, 82, 83, 84:
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *NetworkHandler) formatFallback(ctx *Context, i int, argName, argTyp string, val uint64) string {

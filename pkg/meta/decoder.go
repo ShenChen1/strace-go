@@ -63,6 +63,9 @@ func decodeEnum(val uint64, xlatName string, table XlatTable) (string, bool) {
 		}
 		return strings.Join(matches, " or "), true
 	}
+	if useUnknownEnumDecimalComment(xlatName) {
+		return fmt.Sprintf("%d /* %s??? */", int32(val), table.Prefix), true
+	}
 	if useUnknownEnumDecimalFallback(xlatName, val) {
 		return fmt.Sprintf("%d", int32(val)), true
 	}
@@ -336,6 +339,9 @@ func decodeRawXlat(val uint64, xlatName string) string {
 }
 
 func rawEnumValue(val uint64, xlatName string) string {
+	if shouldTruncateXlatValueTo32(xlatName) {
+		val = uint64(uint32(val))
+	}
 	if val == 0 {
 		return "0"
 	}

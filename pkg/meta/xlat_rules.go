@@ -29,6 +29,7 @@ var enumXlatNames = map[string]bool{
 	"resources":             true,
 	"signalnames":           true,
 	"socktypes":             true,
+	"socketlayers":          true,
 	"term_cmds_overlapping": true,
 	"waitid_types":          true,
 	"whence":                true,
@@ -48,6 +49,8 @@ var unknownEnumDecimalExcluded = map[string]bool{
 	"ioctl_cmds":        true,
 	"madvise_cmds":      true,
 	"resources":         true,
+	"sock_options":      true,
+	"socketlayers":      true,
 	"x86_xfeature_bits": true,
 }
 
@@ -58,7 +61,13 @@ var rawEnumDecimalExcluded = map[string]bool{
 	"ioctl_cmds":        true,
 	"madvise_cmds":      true,
 	"resources":         true,
+	"sock_options":      true,
+	"socketlayers":      true,
 	"x86_xfeature_bits": true,
+}
+
+var unknownEnumDecimalComment = map[string]bool{
+	"sockopt_txrehash_vals": true,
 }
 
 var fullWidthXlatNames = map[string]bool{
@@ -93,7 +102,14 @@ func useUnknownEnumDecimalFallback(xlatName string, val uint64) bool {
 		!unknownEnumDecimalExcluded[xlatName]
 }
 
+func useUnknownEnumDecimalComment(xlatName string) bool {
+	return unknownEnumDecimalComment[xlatName]
+}
+
 func useRawEnumDecimalFormat(xlatName string, val uint64) bool {
+	if unknownEnumDecimalComment[xlatName] {
+		return true
+	}
 	if xlatName == "signalnames" || xlatName == "key_spec" {
 		return true
 	}

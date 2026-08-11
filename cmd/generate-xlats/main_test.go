@@ -39,6 +39,15 @@ func TestNormalizeXlatPrefixUsesOpenTreeUnknownContract(t *testing.T) {
 	}
 }
 
+func TestNormalizeXlatPrefixUsesSocketOptionUnknownContract(t *testing.T) {
+	prefix := ""
+	normalizeXlatPrefix("sock_options", &prefix)
+
+	if prefix != "SO_" {
+		t.Fatalf("sock_options prefix = %q, want SO_", prefix)
+	}
+}
+
 func TestSortedKeysReturnsLexicalOrder(t *testing.T) {
 	keys := sortedKeys(map[string]int{
 		"write": 1,
