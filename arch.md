@@ -4021,3 +4021,37 @@ Impact note：全局搜索显示 production 只有 `session_composition.go` 将 
 本阶段只收敛 TraceScope 的策略输入边界，不改变 PID 过滤语义或纯 eBPF 事实源。
 
 实际验收结果：失败优先 source gate 先因 `TraceScope` 仍声明 `*cli.Options` 而失败；迁移后新增 `traceScopePolicy`，由同一个 `cliTraceOutputPolicy` snapshot 实现，composition 将 `base.outputPolicy` 注入 `TraceScope`，scope construction 再复制 attach PID slice。fake scope policy 覆盖 target、attach-only、follow-forks、zero PID 与 policy mutation，focused/source gate、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，716.72 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后待清理本轮 `strace-go` 和 Python 临时目录，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.93 将事件上下文与过滤策略改为 immutable event policy（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.89-14.92 已让输出、渲染、生命周期和 TraceScope 使用 construction-time policy，但 syscall event context 仍把 `traceSessionDeps.Opts` 作为 `handler.OptionsPort` 直接交给 handler；`cliTraceFilter` 也保存 `*cli.Options` 及其 map。
+- Problem：事件处理路径因此仍可观察 bootstrap owner 的后续 mutation；handler 的 string limit、verbose、FD path/read/write 规则和 event filter 的 syscall/FD/path 集合可能在同一 session 内漂移，且 context 仍间接持有 CLI concrete。
+- Goal：新增一个 session-scoped `cliTraceEventPolicy` immutable snapshot，内部一次性构造 `cliTraceHandlerOptions`（实现已有 `handler.OptionsPort`）和 `cliTraceFilter`（实现已有 `traceFilterOptions`）；深拷贝 handler/filter 所需 map，保留正则表达式的解析结果，事件 context 只接收两个窄 port。production `trace_filter.go` 不再持有 `*cli.Options`，`syscall_event_context.go` 不再从 `deps.Opts` 构造 event policy。
+- Non-goals：不修改 `handler.OptionsPort`、`traceFilterOptions`、syscall handler 输出、filter 组合规则、BPF syscall filter 下推、事件 ABI、ringbuf、生命周期、纯 eBPF/no-procfs 约束；不把 output policy 扩成全量 runtime options，不在每条事件重新复制 options。
+- Constraints：event policy 在 session composition construction 时只创建一次；`TraceSyscalls`、`TraceFDs`、read/write FD maps、path set、verbose-disabled map 都必须隔离 backing storage；nil options 保持 nil/default 语义；正则对象只读复用；bare test session 必须显式拥有同样 snapshot，不能回退到 `*cli.Options`。
+
+Impact note：production 入口集中在 `session_composition.go`、`syscall_event_context.go` 和 `trace_filter.go`；handler 包已经有 `OptionsPort` 能力边界，不需要修改 handler API。测试中直接组装 `syscallEventContextDeps` 的 fixture 会改为注入 snapshot port，既有 CLI parser 测试仍保留。
+
+方案比较：
+
+1. 继续把 `*cli.Options` 作为 `handler.OptionsPort` 和 filter owner：迁移成本最低，但事件路径继续读取可变 CLI map，拒绝。
+2. 在 `newSyscallEventContextDepsWithRegistry` 中分别调用两个复制函数：能消除指针，但调用点拥有两套 snapshot 生命周期，容易在构造路径和 bare fixture 中漂移，拒绝。
+3. 在 session composition 创建一个 event policy owner，并向 context 注入已有的 `handler.OptionsPort`/`traceFilterOptions` 窄端口：一次复制、能力隔离、可用 fake 验证，选择该方案。
+
+状态契约：
+
+- `cliTraceEventPolicy` 只在 construction 读取 CLI；`handlerOptions` 与 `filter` 均为只读 snapshot，不向 context 暴露 CLI owner。
+- `cliTraceHandlerOptions` 复制 `VerboseDisabled`、read/write FD maps；`cliTraceFilter` 复制 syscall/FD/path maps，`TraceReadFD` 和 `TraceWriteFD` 保持 negated/all sentinel 语义。
+- `newSyscallEventContextDeps` 和 router composition 使用同一个 session event policy；nil policy 仍让 handler options/filter 为空，保持旧默认行为。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 `trace_filter.go` 没有 `opts *cli.Options`，要求 context 不再从 `deps.Opts` 直接构造 ports，要求 composition 创建并注入 event policy；迁移前测试应失败。
+- 增加 handler/filter snapshot mutation 回归，覆盖 scalar、map、negated FD、path、syscall regex 和 debug 行为；增加 composition identity 回归。
+- 运行 focused、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf、upstream reference，并检查无残留 tracer/BPF pin。
+
+本阶段只收敛事件策略的 ownership 和不可变性，不改变 syscall 解码、输出文本或 BPF 事实源。
+
+实际验收结果：失败优先 source gate 先因 `trace_filter.go` 仍持有 `*cli.Options` 而失败；迁移后新增 session-scoped `cliTraceEventPolicy`，由 `newTraceSession` construction 一次创建，handler 使用 `cliTraceHandlerOptions`，filter 使用复制 map/regex/path 的 `cliTraceFilter`，context 与 router 只消费两个窄 port。新增测试覆盖 handler scalar、verbose-disabled、正/反向 read/write FD、syscall regex、path filter、CLI map mutation 和 session/context identity。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，707.72 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后待清理本轮 `strace-go` 和 Python 临时目录，production event context/filter 不再直接持有 `*cli.Options`，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

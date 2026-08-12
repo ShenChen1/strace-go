@@ -68,12 +68,13 @@ func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 		sysID: syscallIDByName(t, "getpid"),
 		ret:   102,
 	}
+	policy := newTraceEventPolicy(opts)
 
 	ev := newSyscallEventContextFromViewWithDeps(
 		syscallEventContextDeps{
 			decoder:     decoder,
-			handlerOpts: opts,
-			filter:      newTraceFilterOptions(opts),
+			handlerOpts: policy.handlerOptions,
+			filter:      policy.filter,
 			catalog:     catalog,
 			fdState:     fdState,
 			fdPath:      fdState,
@@ -85,8 +86,8 @@ func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 		nil,
 	)
 
-	if ev.handlerContext.Decoder != decoder || ev.handlerContext.Opts != opts {
-		t.Fatalf("handler context deps = decoder:%p opts:%p, want %p/%p", ev.handlerContext.Decoder, ev.handlerContext.Opts, decoder, opts)
+	if ev.handlerContext.Decoder != decoder || ev.handlerContext.Opts != policy.handlerOptions {
+		t.Fatalf("handler context deps = decoder:%p opts:%T, want decoder and snapshot", ev.handlerContext.Decoder, ev.handlerContext.Opts)
 	}
 	if ev.handlerContext.Meta != catalog {
 		t.Fatalf("handler context catalog = %p, want %p", ev.handlerContext.Meta, catalog)

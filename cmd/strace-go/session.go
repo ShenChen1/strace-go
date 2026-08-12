@@ -21,6 +21,7 @@ import (
 
 type traceSession struct {
 	dependencies traceSessionDeps
+	eventPolicy  *cliTraceEventPolicy
 	components   *traceSessionComponents
 }
 

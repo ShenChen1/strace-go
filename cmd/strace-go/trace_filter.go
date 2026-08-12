@@ -1,7 +1,8 @@
 package main
 
 import (
-	"strace-go/pkg/cli"
+	"regexp"
+
 	"strace-go/pkg/event"
 )
 
@@ -17,37 +18,31 @@ type traceFilterOptions interface {
 }
 
 type cliTraceFilter struct {
-	opts       *cli.Options
-	pathFilter event.PathFilter
+	debug               bool
+	traceSyscalls       map[string]bool
+	traceSyscallRegexps []*regexp.Regexp
+	traceSetIsNegated   bool
+	traceFDs            map[int32]bool
+	traceFDsNegated     bool
+	traceReadFDs        map[int32]bool
+	traceReadNegated    bool
+	traceWriteFDs       map[int32]bool
+	traceWriteNegated   bool
+	pathFilter          event.PathFilter
 }
 
-var _ traceFilterOptions = cliTraceFilter{}
-
-func newTraceFilterOptions(opts *cli.Options) traceFilterOptions {
-	if opts == nil {
-		return nil
-	}
-	paths := event.TracePathSet(opts.TracePaths)
-	var pathFilter event.PathFilter
-	if !paths.Empty() {
-		pathFilter = paths
-	}
-	return cliTraceFilter{opts: opts, pathFilter: pathFilter}
-}
+var _ traceFilterOptions = (*cliTraceFilter)(nil)
 
 func (filter cliTraceFilter) DebugEvents() bool {
-	return filter.opts != nil && filter.opts.DebugEvents
+	return filter.debug
 }
 
 func (filter cliTraceFilter) MatchSyscall(name string) bool {
-	if filter.opts == nil {
-		return true
-	}
-	matched := len(filter.opts.TraceSyscalls) == 0 && len(filter.opts.TraceSyscallRegexps) == 0
+	matched := len(filter.traceSyscalls) == 0 && len(filter.traceSyscallRegexps) == 0
 	if !matched {
-		matched = filter.opts.TraceSyscalls[name]
+		matched = filter.traceSyscalls[name]
 		if !matched {
-			for _, expression := range filter.opts.TraceSyscallRegexps {
+			for _, expression := range filter.traceSyscallRegexps {
 				if expression.MatchString(name) {
 					matched = true
 					break
@@ -55,14 +50,14 @@ func (filter cliTraceFilter) MatchSyscall(name string) bool {
 			}
 		}
 	}
-	if filter.opts.TraceSetIsNegated {
+	if filter.traceSetIsNegated {
 		return !matched
 	}
 	return matched
 }
 
 func (filter cliTraceFilter) MatchFDs(fds []int32) bool {
-	if filter.opts == nil || len(filter.opts.TraceFDs) == 0 {
+	if len(filter.traceFDs) == 0 {
 		return false
 	}
 	hasValidFD := false
@@ -73,28 +68,28 @@ func (filter cliTraceFilter) MatchFDs(fds []int32) bool {
 			continue
 		}
 		hasValidFD = true
-		if filter.opts.TraceFDs[fd] {
+		if filter.traceFDs[fd] {
 			matchesSet = true
 		} else {
 			matchesNegatedSet = true
 		}
 	}
-	if filter.opts.TraceFDsNegated {
+	if filter.traceFDsNegated {
 		return hasValidFD && matchesNegatedSet
 	}
 	return matchesSet
 }
 
 func (filter cliTraceFilter) HasFDFilter() bool {
-	return filter.opts != nil && len(filter.opts.TraceFDs) > 0
+	return len(filter.traceFDs) > 0
 }
 
 func (filter cliTraceFilter) TraceReadFD(fd int32) bool {
-	return filter.opts != nil && filter.opts.TraceReadFD(fd)
+	return matchTraceFD(fd, filter.traceReadFDs, filter.traceReadNegated)
 }
 
 func (filter cliTraceFilter) TraceWriteFD(fd int32) bool {
-	return filter.opts != nil && filter.opts.TraceWriteFD(fd)
+	return matchTraceFD(fd, filter.traceWriteFDs, filter.traceWriteNegated)
 }
 
 func (filter cliTraceFilter) PathFilter() event.PathFilter {

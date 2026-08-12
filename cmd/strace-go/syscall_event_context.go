@@ -3,14 +3,12 @@ package main
 import (
 	"fmt"
 
-	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
 var _ handler.SnapshotDecoder = (*event.Decoder)(nil)
-var _ handler.OptionsPort = (*cli.Options)(nil)
 
 type syscallEventContext struct {
 	view            syscallEventView
@@ -59,8 +57,10 @@ type syscallEventContextDeps struct {
 
 func newSyscallEventContextDeps(s *traceSession) syscallEventContextDeps {
 	var registry handler.RegistryPort
-	if s != nil && s.components != nil {
-		registry = s.components.handlerRegistry
+	if s != nil {
+		if s.components != nil {
+			registry = s.components.handlerRegistry
+		}
 	}
 	return newSyscallEventContextDepsWithRegistry(s, registry)
 }
@@ -69,20 +69,43 @@ func newSyscallEventContextDepsWithRegistry(
 	s *traceSession,
 	registry handler.RegistryPort,
 ) syscallEventContextDeps {
+	var policy *cliTraceEventPolicy
+	if s != nil {
+		policy = s.eventPolicy
+	}
+	return newSyscallEventContextDepsWithPolicy(s, registry, policy)
+}
+
+func newSyscallEventContextDepsWithPolicy(
+	s *traceSession,
+	registry handler.RegistryPort,
+	policy *cliTraceEventPolicy,
+) syscallEventContextDeps {
 	if s == nil {
-		return syscallEventContextDeps{registry: registry}
+		return newSyscallEventContextDepsForPolicy(registry, policy)
 	}
 	deps := s.dependencies
 	fdState := deps.FDState
+	policyDeps := newSyscallEventContextDepsForPolicy(registry, policy)
+	policyDeps.decoder = deps.Decoder
+	policyDeps.catalog = deps.Catalog
+	policyDeps.fdState = fdState
+	policyDeps.fdPath = fdState
+	policyDeps.runtime = deps.Runtime
+	return policyDeps
+}
+
+func newSyscallEventContextDepsForPolicy(
+	registry handler.RegistryPort,
+	policy *cliTraceEventPolicy,
+) syscallEventContextDeps {
+	if policy == nil {
+		return syscallEventContextDeps{registry: registry}
+	}
 	return syscallEventContextDeps{
-		decoder:     deps.Decoder,
-		handlerOpts: deps.Opts,
-		filter:      newTraceFilterOptions(deps.Opts),
-		catalog:     deps.Catalog,
-		fdState:     fdState,
-		fdPath:      fdState,
+		handlerOpts: policy.handlerOptions,
+		filter:      policy.filter,
 		registry:    registry,
-		runtime:     deps.Runtime,
 	}
 }
 

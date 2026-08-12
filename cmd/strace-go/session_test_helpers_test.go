@@ -27,7 +27,11 @@ func newTestTraceSession(deps traceSessionDeps) *traceSession {
 }
 
 func newBareTestTraceSession(deps traceSessionDeps) *traceSession {
-	return &traceSession{dependencies: withTestTraceSessionDefaults(deps)}
+	deps = withTestTraceSessionDefaults(deps)
+	return &traceSession{
+		dependencies: deps,
+		eventPolicy:  newTraceEventPolicy(deps.Opts),
+	}
 }
 
 func withTestTraceSessionDefaults(deps traceSessionDeps) traceSessionDeps {

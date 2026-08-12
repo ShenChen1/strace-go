@@ -17,6 +17,7 @@ import (
 // Components are constructed once, in dependency order, and never replace
 // each other during event processing.
 type traceSessionComponents struct {
+	eventPolicy        *cliTraceEventPolicy
 	outputPolicy       *cliTraceOutputPolicy
 	textRenderer       *TextRenderer
 	jsonWriter         *JSONEventWriter
@@ -36,6 +37,7 @@ type traceSessionComponents struct {
 }
 
 type traceSessionBaseComponents struct {
+	eventPolicy     *cliTraceEventPolicy
 	jsonWriter      *JSONEventWriter
 	renderer        *TextRenderer
 	exitStatus      *ExitStatusCoordinator
@@ -88,6 +90,7 @@ func newTraceSession(deps traceSessionDeps) (*traceSession, error) {
 	}
 	session := &traceSession{
 		dependencies: deps,
+		eventPolicy:  newTraceEventPolicy(deps.Opts),
 	}
 	session.components = buildTraceSessionComponents(session)
 	return session, nil
@@ -137,6 +140,7 @@ func buildTraceSessionComponents(session *traceSession) *traceSessionComponents 
 	events := buildTraceSessionEvents(session, base, outputs)
 	runtime := buildTraceSessionRuntime(session, base.outputPolicy, base.exitStatus, base.renderer, events.eventRouter)
 	return &traceSessionComponents{
+		eventPolicy:        base.eventPolicy,
 		outputPolicy:       base.outputPolicy,
 		textRenderer:       base.renderer,
 		jsonWriter:         base.jsonWriter,
@@ -160,8 +164,10 @@ func buildTraceSessionBase(session *traceSession) traceSessionBaseComponents {
 	deps := session.dependencies
 	handlerRegistry := handler.NewRegistry()
 	handleSyscall := handlerRegistry.Handle
+	eventPolicy := session.eventPolicy
 	outputPolicy := newTraceOutputPolicy(deps.Opts)
 	return traceSessionBaseComponents{
+		eventPolicy:  eventPolicy,
 		jsonWriter:   newJSONEventWriter(JSONEventWriterDeps{Out: deps.OutWriter}),
 		outputPolicy: outputPolicy,
 		renderer: newTextRenderer(TextRendererDeps{
@@ -260,7 +266,7 @@ func buildTraceSessionEvents(
 		Lifecycle:   lifecycle,
 		JSON:        outputs.syscallJSON,
 		Pipeline:    exitPipeline,
-		ContextDeps: newSyscallEventContextDepsWithRegistry(session, base.handlerRegistry),
+		ContextDeps: newSyscallEventContextDepsWithPolicy(session, base.handlerRegistry, base.eventPolicy),
 	})
 	return traceSessionEventComponents{
 		exitPipeline:     exitPipeline,
