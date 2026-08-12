@@ -8,6 +8,12 @@ import (
 	"testing"
 )
 
+type flagDecoderTestStub struct{}
+
+func (flagDecoderTestStub) DecodeFlags(uint64, string) string {
+	return "flag-port"
+}
+
 func TestFormatSourceDoesNotConstructCatalog(t *testing.T) {
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -22,5 +28,16 @@ func TestFormatSourceDoesNotConstructCatalog(t *testing.T) {
 		if strings.Contains(string(source), "meta.NewCatalog(") {
 			t.Fatalf("%s still constructs an implicit Catalog", name)
 		}
+		if strings.Contains(string(source), "*meta.Catalog") {
+			t.Fatalf("%s still exposes concrete meta.Catalog", name)
+		}
+	}
+}
+
+func TestCatalogFormattersAcceptFlagDecoder(t *testing.T) {
+	got := EpollEventWithCatalog(flagDecoderTestStub{}, make([]byte, 12))
+	want := "{events=flag-port, data={u32=0, u64=0x0}}"
+	if got != want {
+		t.Fatalf("EpollEventWithCatalog() = %q, want %q", got, want)
 	}
 }

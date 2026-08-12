@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"strace-go/pkg/format"
-	"strace-go/pkg/meta"
 )
 
 const (
@@ -33,7 +32,7 @@ type statmountSnapshot struct {
 	data        [statmountFixedSize]byte
 	strings     []byte
 	stringLimit int
-	catalog     *meta.Catalog
+	catalog     format.FlagDecoder
 }
 
 func (snapshot statmountSnapshot) decodeFlags(value uint64, tableName string) string {

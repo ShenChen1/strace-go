@@ -4,12 +4,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-
-	"strace-go/pkg/meta"
 )
 
 // NetlinkWithCatalog formats netlink flags using the session catalog.
-func NetlinkWithCatalog(catalog *meta.Catalog, data []byte) string {
+func NetlinkWithCatalog(catalog FlagDecoder, data []byte) string {
 	if len(data) < 16 {
 		return Buffer(data, 0, len(data))
 	}

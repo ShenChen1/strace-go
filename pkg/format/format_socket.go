@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"strace-go/pkg/meta"
 )
 
 // Timespec formats a struct timespec buffer into a human-readable string.
@@ -30,7 +28,7 @@ func Timeval(data []byte) string {
 }
 
 // PollfdsWithCatalog formats pollfd flags using the session catalog.
-func PollfdsWithCatalog(catalog *meta.Catalog, data []byte, nfds uint32) string {
+func PollfdsWithCatalog(catalog FlagDecoder, data []byte, nfds uint32) string {
 	if len(data) < 8 {
 		return "[]"
 	}
@@ -57,7 +55,7 @@ func PollfdsWithCatalog(catalog *meta.Catalog, data []byte, nfds uint32) string 
 }
 
 // EpollEventsWithCatalog formats epoll events using the session catalog.
-func EpollEventsWithCatalog(catalog *meta.Catalog, data []byte, count int) string {
+func EpollEventsWithCatalog(catalog FlagDecoder, data []byte, count int) string {
 	if len(data) < 12 {
 		return "[]"
 	}
@@ -83,7 +81,7 @@ func EpollEventsWithCatalog(catalog *meta.Catalog, data []byte, count int) strin
 }
 
 // EpollEventWithCatalog formats one epoll event using the session catalog.
-func EpollEventWithCatalog(catalog *meta.Catalog, data []byte) string {
+func EpollEventWithCatalog(catalog FlagDecoder, data []byte) string {
 	if len(data) < 12 {
 		return "{...}"
 	}
@@ -120,7 +118,7 @@ func IoEvents(data []byte, count int) string {
 }
 
 // StatWithCatalog formats stat mode bits using the session catalog.
-func StatWithCatalog(catalog *meta.Catalog, data []byte) string {
+func StatWithCatalog(catalog FlagDecoder, data []byte) string {
 	if len(data) < 144 {
 		return "{...}"
 	}
@@ -160,7 +158,7 @@ func StatWithCatalog(catalog *meta.Catalog, data []byte) string {
 }
 
 // TimexWithCatalog formats timex status using the session catalog.
-func TimexWithCatalog(catalog *meta.Catalog, data []byte) string {
+func TimexWithCatalog(catalog FlagDecoder, data []byte) string {
 	if len(data) < 208 {
 		return "{...}"
 	}
@@ -308,7 +306,7 @@ func Sysinfo(data []byte) string {
 }
 
 // StatfsWithCatalog formats statfs flags using the session catalog.
-func StatfsWithCatalog(catalog *meta.Catalog, data []byte) string {
+func StatfsWithCatalog(catalog FlagDecoder, data []byte) string {
 	if len(data) < 120 {
 		return "{...}"
 	}

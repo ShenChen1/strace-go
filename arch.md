@@ -3748,3 +3748,37 @@ Impact note：受影响边界集中在 `pkg/handler/handler.go`、字符串/byte
 本阶段只反转 snapshot decoder 的依赖方向，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先测试先确认 `Context.Decoder` 与 event context dependency 仍暴露 concrete decoder；迁移后新增 `SnapshotDecoder` 端口，`*event.Decoder` 通过 compile-time assertion 实现，handler 内所有 escape mode 消费均改为 `EscapeMode()`，fake decoder 已覆盖字符串 payload 和转义模式。`go test ./pkg/event ./pkg/handler ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，728.40 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.85 将 metadata catalog 收敛为消费端口（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.82 已让 `traceSession` 只拥有一份 `*meta.Catalog`，14.83/14.84 又将 registry 和 snapshot decoder 改为消费端口；但 `handler.Context.Meta` 仍声明为具体 `*meta.Catalog`，`format` 包的 stat/epoll/netlink/timex formatter 也直接接受该具体类型。
+- Problem：xlat map 的存储、clone 和 session ownership 细节继续穿透 handler 与 format 边界。formatter 实际只调用少量只读方法，却被迫依赖 concrete catalog；测试不能注入一个最小 metadata view，未来新增 catalog backend 会扩大迁移面，也无法用类型系统阻止 formatter 访问内部实现。
+- Goal：新增 `meta.CatalogPort`，表达 handler 需要的 `Format`、`Table`、`SyscallArgXlat`、`DecodeFlags` 四项只读能力；`handler.Context.Meta` 改用该端口。`format` 包只需 flags 的函数改用本地窄 `FlagDecoder`，statmount snapshot 也不再保存具体 catalog。`*meta.Catalog` 仍是 session composition 的唯一 owner，并通过 compile-time assertion 实现端口。
+- Non-goals：不改变 xlat 表内容、raw/abbrev/verbose 语义、生成器、BPF ABI、payload/lifecycle、纯 eBPF/no-procfs 约束；不把 `Catalog` 的 map 暴露给接口，不重命名既有 formatter API，不引入全局 catalog 或缓存锁。
+- Constraints：`CatalogPort` 方法不超过 4 个；仅使用 `DecodeFlags` 的 format 函数不得依赖更宽的 metadata port；nil catalog 的既有失败边界保持不变，不通过默认 catalog 静默补齐。
+
+Impact note：影响集中在 `pkg/meta/catalog.go`、`pkg/handler/handler.go`/`meta_context.go`/`statmount_format.go` 和 `pkg/format` 的 catalog 参数类型；session `traceSessionDeps.Catalog`、event context dependency 与 main bootstrap 继续持有具体 `*meta.Catalog`，因此 owner 不变，只缩小消费边界。
+
+方案比较：
+
+1. 保留 `*meta.Catalog` 并靠注释约束调用：改动最小，但 concrete 依赖和 fake 隔离问题继续存在，拒绝。
+2. 让所有 format 函数都接受完整 `CatalogPort`：能去掉 concrete 类型，但只需 flags 的 formatter 依赖过宽端口，能力边界不清晰，拒绝。
+3. handler 使用四项 `CatalogPort`，format 只需 flags 的函数使用本地 `FlagDecoder`：端口与调用能力匹配、owner 不变、迁移局部，选择该方案。
+
+状态契约：
+
+- session composition 仍负责创建和配置 `*meta.Catalog`；handler/format 只消费只读端口。
+- `CatalogPort` 不允许暴露内部 map、clone 或 merge 方法；xlat 数据仍由 catalog 私有持有。
+- format 的 `FlagDecoder` 只描述 flag translation，不承担 syscall-arg lookup 或 format mode 选择。
+
+测试与验收：
+
+- 先增加失败优先 AST/source gate，要求 `Context.Meta` 使用 `CatalogPort`，当前 concrete field 应先失败。
+- 增加 fake `CatalogPort` 回归，验证 handler 的 xlat helper 不需要构造具体 catalog；增加 concrete implementation assertion。
+- 运行 format/handler/cmd focused、全量/race/vet/build、纯 eBPF source gate、semantic/perf、upstream reference，并检查无残留 tracer/BPF pin。
+
+本阶段只反转 metadata catalog 的消费依赖，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先测试先因 `Context.Meta` 仍是 `*meta.Catalog` 且 fake port 无法注入而失败；迁移后新增 `meta.CatalogPort`，`handler.Context.Meta` 改用四项只读能力，format 的 flags-only formatter 改用本地 `FlagDecoder`，`statmount` snapshot 也不再保存 concrete catalog。`*meta.Catalog` 通过 compile-time assertion 实现端口，fake catalog/flag decoder 已覆盖 handler xlat helper 与 epoll formatter。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，747.91 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

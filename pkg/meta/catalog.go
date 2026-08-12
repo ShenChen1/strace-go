@@ -8,6 +8,16 @@ type Catalog struct {
 	syscallArgXlat map[string]map[string]string
 }
 
+// CatalogPort exposes the immutable metadata capabilities consumed by formatters.
+type CatalogPort interface {
+	Format() string
+	Table(name string) (XlatTable, bool)
+	SyscallArgXlat(syscallName, argName string) (string, bool)
+	DecodeFlags(val uint64, xlatName string) string
+}
+
+var _ CatalogPort = (*Catalog)(nil)
+
 // NewCatalog creates a session-local copy of all generated and runtime xlat metadata.
 func NewCatalog(format string) *Catalog {
 	catalog := &Catalog{

@@ -2,7 +2,7 @@ package handler
 
 import "strace-go/pkg/meta"
 
-func catalogForContext(ctx *Context) *meta.Catalog {
+func catalogForContext(ctx *Context) meta.CatalogPort {
 	if ctx == nil {
 		return nil
 	}
