@@ -3138,3 +3138,35 @@ ABI 与状态契约：
 本阶段只收口 session constructor 的依赖 ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source/constructor 测试先验证旧 `normalizeTraceSession` 和 `main` 缺少显式 `Runtime` 注入，修复后通过。`newTraceSession` 现在返回显式错误并要求 `Events`、`Opts`、`Catalog`、`Decoder`、`FDState`、`Runtime`、`OutWriter`、`Summary`、`TimeFormatter`、`State`、`Clock`；生产 `main` 已注入 `handler.NewRuntime()` 和 `newSummaryStats()`，测试默认值集中在 `_test.go` 的 `newTestTraceSession`。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused no-ptrace/no-procfs gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，702.63 events/s。原生 `small` 为 23 PASS；`attach-f-p.test` 为 1 PASS；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.66 将 main bootstrap 改为可回收的错误边界（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：当前 `main` 在 BPF objects、tracepoint links、ringbuf reader、tracee/output 和 session 都建立后，仍使用多处 `log.Fatalf`。`log.Fatal*` 会直接调用 `os.Exit`，Go defer 不会执行；而 `resolveTraceTargets` 可能已经启动命令或写入 attach filter。
+- Problem：配置更新、输出创建、session composition 或 finalizer 出错时，错误路径可能跳过 ringbuf/link/output 的显式关闭，尤其可能留下仍运行的 command tracee。内核进程退出最终会关闭部分 BPF FD，但这不是 session 自己的生命周期契约，也不覆盖 tracee 回收和 output pipe wait。
+- Goal：让 `main` 只做最终进程错误边界；`runMain`/session bootstrap 返回 error，并在拥有资源后通过 defer 按反向构造顺序关闭 reader、links、objects、output，且在非成功路径回收 command tracee、清理 command/attach filter。正常 `session.run` 成功后由 finalizer 关闭 output，外层 Close 保持幂等。
+- Non-goals：不改变 CLI help/version 的 process-exit 行为、BPF attach 顺序、target policy、event loop、output 文本/JSON、BPF ABI、ptrace/procfs 禁止规则或生命周期事件语义；不引入全局 cleanup manager、锁、goroutine 或兼容模式。
+- Constraints：错误必须在 `runMain` 返回后才由 `main` 打印并退出；resource cleanup 不依赖 `log.Fatal*`；command target 只在错误路径 kill，attach target 只清理 filter 不发送 kill；函数保持小于 80 行、所有新增 cleanup 行为有 focused 测试或 source gate。
+
+方案比较：
+
+1. 只把 `log.Fatalf` 改成 `panic`：代码短，但 defer 虽执行却向用户暴露 panic，且错误语义不清，拒绝。
+2. 将 bootstrap 拆成 error-returning `runMain`/`runTraceSession`，用局部 defer 持有资源和错误路径 target cleanup：改动局部、所有权按构造顺序可见、无需新框架，选择该方案。
+3. 引入统一 `traceResources` cleanup manager：可扩展，但当前资源数量有限，会增加 owner 转移和测试表面积，暂不选择。
+
+状态契约：
+
+- `main` 是唯一把 bootstrap error 转成进程退出码的边界；资源拥有者是 `runTraceSession`，不是 logger。
+- BPF links 在 BPF objects 之前关闭；ringbuf reader 在 links/objects 之前关闭；output 和 target cleanup 在错误路径执行；所有 Close 允许幂等。
+- target cleanup guard 在 `resolveTraceTargets` 成功后启用，正常 `session.run` 返回成功后禁用；错误返回、session constructor 失败和 finalizer 错误都会触发清理。
+- `handlePrelude` 仍在资源创建前处理 help/version/无 target，因此其 `os.Exit` 不跳过已建立的 session 资源。
+
+测试与验收：
+
+- 先增加失败优先 source gate，禁止 `main`/bootstrap 使用 `log.Fatal*`，要求 error-returning runner 和显式 cleanup guard。
+- 增加 target cleanup helper 的 PID 集合测试，运行 focused bootstrap tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和相关 upstream reference；检查错误路径和正常路径均无残留 tracer/BPF pin。
+
+本阶段只修复 bootstrap 资源生命周期，不改变纯 eBPF 事件事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source gate 先因 `main` 含有 `log.Fatalf` 且没有 error-returning runner 而失败，修复后通过；新增 target PID 去重测试覆盖 command+attach 的 filter 清理集合。`main` 现在只负责最终打印错误并退出，`runMain`/`runTraceSession` 返回 error；tracepoint links、BPF objects、ringbuf reader、output 和 command/attach filter 均由 bootstrap defer/错误 guard 管理，正常成功路径不 kill command，attach target 错误路径只清理 filter。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused no-ptrace/no-procfs gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，692.52 events/s。`attach-f-p.test` 为 1 PASS；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

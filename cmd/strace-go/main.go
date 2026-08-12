@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,90 +29,129 @@ const (
 //go:generate go run ../generate-xlats
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpf ../../bpf/strace.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
 
-// IMPACT: main is the bootstrap entry point. It parses arguments, resolves the
-// runtime config and trace targets through named helpers, and spawns the session.
+// IMPACT: main is the final process error boundary; resource-owning bootstrap
+// work stays in error-returning helpers so deferred cleanup always runs.
 func main() {
-	opts := cli.ParseArgs(os.Args[1:])
-	clock := systemTraceClock{}
+	if err := runMain(os.Args[1:]); err != nil {
+		fmt.Fprintf(os.Stderr, "strace-go: %v\n", err)
+		os.Exit(1)
+	}
+}
 
+func runMain(args []string) error {
+	opts := cli.ParseArgs(args)
 	handlePrelude(opts)
 	normalizeTraceTargetOptions(opts)
 	opts.TracePaths = expandTracePathSet(opts.TracePaths)
+	return runTraceSession(opts, systemTraceClock{})
+}
 
+func runTraceSession(opts *cli.Options, clock traceClock) error {
+	if opts == nil {
+		return fmt.Errorf("trace options are nil")
+	}
+	if clock == nil {
+		clock = systemTraceClock{}
+	}
 	inheritedFiles := collectInheritedFiles()
 	defer closeFiles(inheritedFiles)
 
 	bpfObjs, tpLinks, err := setupBPF()
 	if err != nil {
-		log.Fatalf("failed to set up BPF runtime: %v", err)
+		return fmt.Errorf("failed to set up BPF runtime: %w", err)
 	}
 	defer bpfObjs.Close()
-	for _, l := range tpLinks {
-		defer l.Close()
-	}
+	defer closeTracepointLinks(tpLinks)
 
 	events, err := ringbuf.NewReader(bpfObjs.Events)
 	if err != nil {
-		log.Fatalf("failed to create ringbuf reader: %v", err)
+		return fmt.Errorf("failed to create ringbuf reader: %w", err)
 	}
 	defer events.Close()
 
 	cfgVal, err := buildRuntimeConfig(opts, bpfObjs)
 	if err != nil {
-		log.Fatalf("failed to build runtime config: %v", err)
+		return fmt.Errorf("failed to build runtime config: %w", err)
 	}
 	if err := bpfObjs.ConfigMap.Update(uint32(0), cfgVal, 0); err != nil {
-		log.Fatalf("failed to update BPF runtime config: %v", err)
+		return fmt.Errorf("failed to update BPF runtime config: %w", err)
 	}
 
 	cmd, targetPid, fdSeed, err := resolveTraceTargets(opts, bpfObjs, inheritedFiles)
 	if err != nil {
-		log.Fatalf("failed to resolve trace targets: %v", err)
+		return fmt.Errorf("failed to resolve trace targets: %w", err)
 	}
+	cleanupTargets := true
+	defer func() {
+		if cleanupTargets {
+			abortTraceTargets(opts, cmd, bpfObjs, targetPid)
+		}
+	}()
 
+	output, err := setupOutput(opts.OutFile, opts.OutAppendMode)
+	if err != nil {
+		return fmt.Errorf("failed to set up output: %w", err)
+	}
+	defer func() { _ = output.Close() }()
+
+	session, err := composeTraceSession(opts, clock, traceSessionBootstrap{
+		cmd:       cmd,
+		events:    events,
+		targetPID: targetPid,
+		fdSeed:    fdSeed,
+		bpfObjs:   bpfObjs,
+	}, output)
+	if err != nil {
+		return fmt.Errorf("failed to compose trace session: %w", err)
+	}
+	session.emitDebugReady()
+	if err := session.run(); err != nil {
+		return fmt.Errorf("failed to finalize trace session: %w", err)
+	}
+	cleanupTargets = false
+	return nil
+}
+
+type traceSessionBootstrap struct {
+	cmd       *exec.Cmd
+	events    traceRingbufReader
+	targetPID int
+	fdSeed    fdStateSeed
+	bpfObjs   *bpfObjects
+}
+
+func composeTraceSession(
+	opts *cli.Options,
+	clock traceClock,
+	bootstrap traceSessionBootstrap,
+	output *TraceOutput,
+) (*traceSession, error) {
 	decoder := event.NewDecoder()
 	decoder.HexEscapeMode = opts.HexEscapeMode
 	// IMPACT: Initialize decoder.StringLimit from parsed CLI options to respect command-line formatting constraints.
 	decoder.StringLimit = opts.StringLimit
-
-	output, err := setupOutput(opts.OutFile, opts.OutAppendMode)
-	if err != nil {
-		abortTraceTarget(cmd, bpfObjs, targetPid)
-		log.Fatalf("failed to set up output: %v", err)
-	}
-
-	fdState := newFDStateStoreFromSeed(fdSeed)
-
 	var resolver *stacktrace.Resolver
 	if opts.StackTrace {
 		resolver = stacktrace.NewResolver()
 	}
-
-	session, err := newTraceSession(traceSessionDeps{
-		Cmd:           cmd,
-		Events:        events,
-		TargetPID:     targetPid,
+	return newTraceSession(traceSessionDeps{
+		Cmd:           bootstrap.cmd,
+		Events:        bootstrap.events,
+		TargetPID:     bootstrap.targetPID,
 		Opts:          opts,
 		Catalog:       metaCatalogForOptions(opts),
 		Decoder:       decoder,
-		FDState:       fdState,
+		FDState:       newFDStateStoreFromSeed(bootstrap.fdSeed),
 		Runtime:       handler.NewRuntime(),
 		OutWriter:     output,
 		Output:        output,
 		Summary:       newSummaryStats(),
 		TimeFormatter: newTimeFormatterWithClock(calculateTimeOffsetWithClock(clock), clock),
-		BPFObjects:    bpfObjs,
+		BPFObjects:    bootstrap.bpfObjs,
 		Resolver:      resolver,
 		State:         newTraceStateForSession(opts),
 		Clock:         clock,
 	})
-	if err != nil {
-		log.Fatalf("failed to compose trace session: %v", err)
-	}
-	session.emitDebugReady()
-	if err := session.run(); err != nil {
-		log.Fatalf("failed to finalize trace session: %v", err)
-	}
 }
 
 func metaCatalogForOptions(opts *cli.Options) *meta.Catalog {
@@ -230,6 +268,31 @@ func abortTraceTarget(cmd *exec.Cmd, bpfObjs *bpfObjects, targetPid int) {
 		clearFilterPids(bpfObjs, []uint32{uint32(targetPid)})
 	}
 	terminateTraceCommand(cmd)
+}
+
+func abortTraceTargets(opts *cli.Options, cmd *exec.Cmd, bpfObjs *bpfObjects, targetPid int) {
+	clearFilterPids(bpfObjs, traceTargetPIDs(opts, targetPid))
+	terminateTraceCommand(cmd)
+}
+
+func traceTargetPIDs(opts *cli.Options, targetPid int) []uint32 {
+	pids := make([]uint32, 0, 1+len(attachPIDs(opts)))
+	appendPID := func(pid int) {
+		if pid <= 0 {
+			return
+		}
+		for _, existing := range pids {
+			if existing == uint32(pid) {
+				return
+			}
+		}
+		pids = append(pids, uint32(pid))
+	}
+	appendPID(targetPid)
+	for _, pid := range attachPIDs(opts) {
+		appendPID(pid)
+	}
+	return pids
 }
 
 // expandTracePathSet mirrors upstream strace's pathtrace_select_set: each -P
