@@ -80,26 +80,6 @@ class SemanticContext:
     attach: AttachCapture
 
 
-@dataclass
-class PerfCapture:
-    result: subprocess.CompletedProcess
-    elapsed: float
-    events: list
-    stats_events: list
-
-    @property
-    def getpid_events(self):
-        return [event for event in self.events if event.get("syscall") == "getpid"]
-
-    @property
-    def enter_events(self):
-        return [event for event in self.getpid_events if event.get("event_type") == "enter"]
-
-    @property
-    def exit_events(self):
-        return [event for event in self.getpid_events if event.get("event_type") == "exit"]
-
-
 def build_strace_go():
     subprocess.run(
         ["go", "build", "-o", STRACE_GO_BIN, "./cmd/strace-go"],
@@ -453,52 +433,3 @@ def run_ebpf_semantic(args):
     failures.extend(run_sockopt_semantic(STRACE_WRAPPER, PROJECT_ROOT))
     filter_event_count = check_write_only_filter(fixture, failures)
     return finish_semantic(context, failures, filter_event_count)
-
-
-def run_ebpf_perf(args):
-    if not args.skip_build:
-        build_strace_go()
-    fixture = build_ebpf_fixture()
-    start = time.monotonic()
-    result = run_strace_go_json(
-        ["-e", "trace=getpid", fixture, "perf"], timeout=60
-    )
-    capture = PerfCapture(
-        result=result,
-        elapsed=time.monotonic() - start,
-        events=parse_json_events(result.stderr),
-        stats_events=parse_stats_events(result.stderr),
-    )
-    print_perf_summary(capture)
-    valid = (
-        result.returncode == 0
-        and len(capture.stats_events) == 1
-        and valid_stats_event(capture.stats_events[0])
-        and len(capture.exit_events) >= 1000
-        and len(capture.enter_events) >= 1000
-        and all(event.get("paired_enter") for event in capture.exit_events)
-    )
-    if valid:
-        return 0
-    print("\n=== EBPF PERF FAILURE ===")
-    print("\n".join(result.stderr.splitlines()[-40:]))
-    return 1
-
-
-def print_perf_summary(capture):
-    stats = capture.stats_events[0] if capture.stats_events else {}
-    print("=== EBPF PERF ===")
-    print(f"returncode: {capture.result.returncode}")
-    print(f"elapsed_sec: {capture.elapsed:.6f}")
-    print(f"json_events: {len(capture.events)}")
-    print(f"getpid_events: {len(capture.getpid_events)}")
-    print(f"getpid_enter_events: {len(capture.enter_events)}")
-    print(f"getpid_exit_events: {len(capture.exit_events)}")
-    print(f"ringbuf_reserve_fail: {stats.get('ringbuf_reserve_fail')}")
-    print(f"ringbuf_copy_fail: {stats.get('ringbuf_copy_fail')}")
-    print(f"payload_truncated_events: {stats.get('payload_truncated_events')}")
-    print(f"orphan_exit: {stats.get('orphan_exit')}")
-    print(f"pending_mismatch: {stats.get('pending_mismatch')}")
-    print(f"lifecycle_map_update_fail: {stats.get('lifecycle_map_update_fail')}")
-    if capture.elapsed > 0:
-        print(f"events_per_sec: {len(capture.exit_events) / capture.elapsed:.2f}")

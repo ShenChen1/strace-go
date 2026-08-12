@@ -4878,3 +4878,107 @@ Impact note：只新增 `target_bootstrap_inherited_test.go` 的 process-level c
 新增 process-level regression 通过真实 `newTraceCommand` 启动当前 test binary：子进程 fd 3/fd 5 分别写回父进程的两个文件，fd 4 经 `FSTAT` 返回 `EBADF`，证明 `nil` ExtraFiles slot 会关闭中间数字 FD，且没有压缩或交换高位 slot。测试只使用 `FSTAT`/`write`，未读取 procfs。
 
 focused sparse-slot tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14116 ./cmd/strace-go`、`git diff --check` 和产品源码的 pure-eBPF/no-ptrace/no-procfs gates 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，727.65 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认本阶段没有修改生产代码、BPF ABI、事件事实源或 FD collector，只增加了启动契约回归测试。
+
+### 14.117 多 workload eBPF 性能契约与测试 suite 解耦（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.1/13.4 要求性能门禁覆盖高频标量 syscall、读写 payload、fork/exec 生命周期和多线程配对；当前 `ebpf-perf` 只运行 semantic fixture 的 5000 次 `getpid`，只能证明单一高频事件能够配对，不能证明 nested payload、生命周期状态或跨 TID 状态在压力下仍完整。
+- Problem：性能 workload、事件解析和 semantic suite 编排集中在 `test/ebpf_suites.py`，文件已经超过 500 行；继续追加场景会让测试 runner 同时拥有 fixture 构建、attach 握手、语义断言和性能 oracle，扩大变更影响面。固定 events/s 阈值也会把机器负载误报为实现失败。
+- Goal：将性能 suite 抽成独立 `test/ebpf_perf_suite.py`，用一个专用 C fixture 提供 scalar、I/O、fork/exec、multi-thread 四种可重复 workload；每种 workload 都以 JSON 事件语义、enter/exit 配对、payload presence、lifecycle action 和 BPF error counters 作为门禁，吞吐只打印为诊断指标。
+- Non-goals：不修改生产 BPF/Go 事件 ABI、pending map、ringbuf、tail-call dispatcher、事件状态机或输出格式；不引入 ptrace、process_vm_readv、tracee `/proc` 读取、固定吞吐阈值、性能基准数据库或额外运行时线程；不把 upstream exact diff 变成性能 oracle。
+- Constraints：fixture 只主动触发确定 syscall，不依赖 `/proc` 查询来判断事件；每个 workload 使用独立 tracer 进程和有界迭代次数；失败必须报告 workload、缺失 syscall/action 或非零计数；新增 Python/C 文件均保持 500 行以内，函数参数不超过 5 个。
+
+Impact note：影响 `test/ebpf_suites.py` 的 suite 边界、`test/run_tests.py` 的 perf 入口，以及新增的 perf fixture/oracle 单元测试；生产代码和纯 eBPF 运行时不变。
+
+方案比较：
+
+1. 继续向现有 `ebpf_suites.py` 追加 workload：改动短，但会继续突破文件边界并混合 semantic/perf 生命周期，拒绝。
+2. 复制一套 subprocess/build helper 到新 perf suite：隔离清楚，但重复命令、环境和错误处理，长期容易漂移，拒绝。
+3. 保留现有共享进程 helper，抽离 perf capture/spec/oracle 和专用 fixture：职责清楚、变更面小、能够为后续 perf workload 扩展复用，选择该方案。
+
+状态契约：
+
+- scalar workload 必须产生 `getpid` 与 `clock_gettime` 的成功 exit，且每个 exit 有 enter 配对。
+- I/O workload 必须产生 `read` OUT bytes 与 `write` IN bytes payload；只要求 bounded snapshot 存在，不要求固定 copied length 或固定吞吐。
+- fork/exec workload 必须观察 `fork`、`exec`、`exit` lifecycle action；multi-thread workload 必须观察非 leader TID 的 `getpid` 且 exit 配对。
+- 四个 workload 的 `ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`lifecycle_map_update_fail` 必须为零；`payload_truncated_events` 允许按 bounded capture 语义非零。
+- 每个 workload 的退出码、stats event 数量和缺失项都独立判定；一个场景失败不能被其它场景的事件数量抵消。
+
+测试与验收：
+
+- 先增加 perf oracle 的失败优先单测，覆盖缺失 payload、未配对 exit、非零 runtime counter 和缺失 lifecycle action。
+- 运行 Python 单测，随后运行 `go test ./...`、`go test -race ./...`、`go vet ./...`、build、`ebpf-semantic`、新的多 workload `ebpf-perf` 和 upstream reference。
+- review 确认产品源码没有新增 ptrace、process_vm_readv 或 tracee procfs 访问；性能报告只记录 workload 事件数、丢失计数和 events/s，不建立脆弱的绝对性能门槛。
+
+本阶段只强化纯 eBPF 的可测契约并拆分测试职责，不改变生产运行时行为。
+
+#### 实际验收记录
+
+失败优先的 perf oracle 单测先因缺少 `ebpf_perf_suite` 模块而失败；拆分 suite、增加 fixture 和五项 oracle regression 后，Python 单测 16 项通过。四个 workload 均通过：scalar 产生 6000 个 JSON 事件和 3000 个 exit，I/O 产生 4002 个 JSON 事件和 2001 个 exit，lifecycle 产生 42 个 JSON 事件和 17 个 exit，threads 产生 3208 个 JSON 事件和 1604 个 exit；四组 runtime error counter 均为 0。吞吐只作为诊断输出，没有设置绝对阈值。
+
+`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14119 ./cmd/strace-go`、`ebpf-semantic` 和 `upstream-reference` 均通过；semantic 为 201 个主事件、102/99 enter/exit、6 个 lifecycle、8 个 bounded payload truncated，attach 普通 orphan 为 1；reference 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。review 确认新增 fixture 未读取 procfs，生产代码未引入 ptrace、process_vm_readv 或 tracee 内存补读。
+
+### 14.118 orphan_exit 统计边界收口（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.3 已将 `orphan_exit` 定义为“已跟踪任务、应被 filter 捕获、但 TID pending 不存在”的诊断；14.117 的多 workload perf 发现 fork/exec 和 pthread 场景稳定出现计数，但对应 syscall 事件与 lifecycle 事件完整。
+- Problem：exec 成功后内核会产生 `ERESTART*` restart marker，且 terminating syscall 的 lifecycle cleanup 可能先于 raw `sys_exit`；这两类 raw exit 本来就没有可渲染的独立 pending，却被统一计入 orphan，导致纯 eBPF 性能门禁把正常生命周期边界误判为丢事件，掩盖真正的普通 syscall map/ringbuf 丢失。
+- Goal：在 BPF orphan 计数边界中显式排除 terminating syscall 的无 pending exit，以及 `execve/execveat` 的 `-ERESTARTSYS/-ERESTARTNOINTR/-ERESTARTNOHAND/-ERESTART_RESTARTBLOCK` marker；普通被 filter 捕获且无 pending 的 syscall 仍必须计数。
+- Non-goals：不恢复 pending、不补发 event、不改变 exec restart marker 的 enter 输出、lifecycle event、ringbuf/drop counter、pending map cleanup 或用户态状态机；不通过 Go 侧按 workload 猜测或扣减 orphan，不引入 procfs、ptrace、定时器或锁。
+- Constraints：过滤必须位于 `record_orphan_exit` 前；只按 syscall id 与内核公开的负 restart return 值分类；真实 attach 场景中阻塞 `read` 等普通 syscall 的 orphan 仍保持可见；source gate 必须同时锁定排除条件和普通 orphan 计数。
+
+Impact note：影响 `bpf/strace.c` 的 orphan 分类和对应 source test，以及 14.117 perf oracle 的实际验收；不改变正常 syscall event ABI 或输出文本。
+
+方案比较：
+
+1. 在 Python perf oracle 中允许 lifecycle workload 的固定 orphan 数：能快速变绿，但把生产统计误报留在产品里，且不同 kernel/调度下不可解释，拒绝。
+2. 在 Go 收尾时按 workload 或 syscall 名称扣减 orphan：可以隐藏误报，但跨越 BPF/Go ownership，统计语义不再是内核事实，拒绝。
+3. 在 BPF orphan 计数点按明确 kernel return/syscall 语义过滤：事实源边界清晰，attach 普通 syscall 诊断仍保留，选择该方案。
+
+状态契约：
+
+- `exit`/`exit_group` 等 terminating syscall 的无 pending raw exit 不计入 `orphan_exit`，生命周期 tracepoint 负责终止状态事实。
+- `execve`/`execveat` 的四类负 restart return 无 pending 时不计入 `orphan_exit`；正常成功/失败 return 的 pending 缺失仍计数。
+- `read`、`getpid`、`clone` 等非上述边界 syscall 在已跟踪且已订阅时无 pending，仍递增 `orphan_exit`。
+
+测试与验收：
+
+- 先增加失败优先 BPF source gate，要求 orphan 分类 helper 位于 `record_orphan_exit` 前，并覆盖 terminating/restart 条件及普通路径。
+- 运行 `go test ./...`、race、vet、build、Python 单测、四 workload `ebpf-perf`、`ebpf-semantic` 和 upstream reference；attach orphan fixture 必须仍为正数。
+
+本阶段只修正丢事件诊断的统计语义，不改变事件捕获和 lifecycle 状态转移。
+
+#### 实际验收记录
+
+失败优先 BPF source gate 先因 `trace_sys_exit` 没有 lifecycle unmatched-exit 分类而失败；增加 `is_expected_unmatched_exit` 后，focused source tests、BPF 重新生成和 build 通过。最小实验确认 exec restart marker 与 terminating lifecycle cleanup 不再计入 `orphan_exit`，attach fixture 中普通 `read` unmatched orphan 仍保持为正数；四 workload 的最终验收结果见 14.119 记录。
+
+### 14.119 进程创建 syscall 子任务返回的 orphan 边界（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.118 已过滤 terminating syscall 和 exec restart marker 的无 pending raw exit；14.117 perf 的最小矩阵仍显示 `fork` 与 `clone3` workload 各有稳定的 `orphan_exit`，但父任务的 enter/exit 完整，子任务只出现 `sys_exit(ret=0)`。
+- Problem：进程创建 syscall 的 enter 只发生在父任务，内核创建的子任务从 syscall 返回点开始执行，不会再次产生对应 `sys_enter`；子任务的 `sys_exit` 按 TID 查不到父任务 pending。若把该返回继续计为 orphan，正常 fork/clone 生命周期会被误报为 map 丢失；若按 syscall 名称无条件忽略，则会隐藏父任务 pending 丢失。
+- Goal：只过滤 `fork`、`vfork`、`clone`、`clone3` 在新子任务中可识别的 `ret=0` unmatched exit；父任务返回值、失败返回和其它普通 syscall 的 unmatched exit 继续计数。
+- Non-goals：不改变 pending map key、fork lifecycle event、子任务 filter 继承、事件 ABI、用户态配对状态机或 attach orphan 诊断；不在 Python oracle 中扣减固定数量，不读取 procfs，不恢复 ptrace。
+- Constraints：分类必须发生在 `record_orphan_exit` 之前；条件必须同时包含 process-creation syscall id 和 `ret_value == 0`；源代码门禁要锁定 helper 与调用点，真实 perf 要覆盖 fork/exec 和多线程 clone3。
+
+Impact note：影响 `bpf/pending_state.h` 的 orphan 分类 helper、BPF source test，以及 14.117 perf workload 的实际验收；正常父任务事件和 lifecycle state ownership 不变。
+
+方案比较：
+
+1. 在 perf/Python 层允许 lifecycle workload 出现固定 orphan：实现最短，但掩盖生产统计错误且受调度/内核差异影响，拒绝。
+2. 按 `fork`/`clone` 名称无条件忽略所有 unmatched exit：能消除当前误报，但会隐藏父任务 enter 丢失和真正的 map 异常，拒绝。
+3. 在 BPF 侧按 process-creation syscall 且 `ret=0` 精确分类：保留父任务失败/异常诊断，事实源边界清晰，选择该方案。
+
+测试与验收：
+
+- 先增加失败优先 BPF source gate，要求 process-creation helper 同时检查 syscall id 与零返回，并位于 `record_orphan_exit` 之前。
+- 运行 focused Go source tests、BPF 生成/build、Python perf 单测和四 workload `ebpf-perf`；确认 attach fixture 中普通 `read` unmatched orphan 仍为正数。
+
+本阶段只收口 process-creation 子任务返回的诊断边界，不改变事件捕获和 lifecycle 状态转移。
+
+#### 实际验收记录
+
+失败优先 source gate 先因缺少 process-creation zero-return 分类而失败；补充 `fork`、`vfork`、`clone`、`clone3` 的精确 helper，并将调用放在 `record_orphan_exit` 之前后，focused source test、`sudo -n go generate ./cmd/strace-go`、BPF load/build 和 `ebpf-perf` 均通过。perf 的 lifecycle 与 threads workload 的 `orphan_exit` 从稳定的 8/4 收敛为 0；父任务正常返回、失败路径和 attach 普通 syscall orphan 仍由原有诊断路径保留。最终 review 未发现生成物、tracer 进程或 BPF pin 残留。

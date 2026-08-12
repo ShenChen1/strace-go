@@ -9,7 +9,8 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
-from ebpf_suites import run_ebpf_perf, run_ebpf_semantic
+from ebpf_perf_suite import run_ebpf_perf
+from ebpf_suites import run_ebpf_semantic
 from upstream_suites import (
     MORE_EXPECTED_FAILURES,
     MORE_TOLERATED_XPASSES,

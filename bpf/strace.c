@@ -172,33 +172,36 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
 
 SEC("tracepoint/raw_syscalls/sys_exit")
 int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
-    if (ctx->id == SYS_RT_SIGRETURN || ctx->id == SYS_RT_SIGRETURN_COMPAT) return 0;
+    u32 sys_id = (u32)ctx->id;
+    s64 ret_value = ctx->ret;
+    if (sys_id == SYS_RT_SIGRETURN || sys_id == SYS_RT_SIGRETURN_COMPAT) return 0;
     u32 tid = (u32)bpf_get_current_pid_tgid();
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
-    if (is_pre_exec_suppressed_syscall(pid, (u32)ctx->id)) return 0;
+    if (is_pre_exec_suppressed_syscall(pid, sys_id)) return 0;
 
     u32 pending_tid = tid;
     u32 pending_exec_lookup = 0;
     struct pending_syscall *p = lookup_pending_syscall_for_exit(
         pid,
         tid,
-        ctx->ret,
+        ret_value,
         &pending_tid,
         &pending_exec_lookup);
     if (!p) {
         if (!is_lifecycle_task_tracked(pid, tid)) return 0;
         u32 cfg_key = 0;
         u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);
-        if (!should_trace_syscall((u32)ctx->id, cfg) &&
-            !is_fd_state_tracked((u32)ctx->id, cfg)) {
+        if (!should_trace_syscall(sys_id, cfg) &&
+            !is_fd_state_tracked(sys_id, cfg)) {
             return 0;
         }
+        if (is_expected_unmatched_exit(sys_id, ret_value)) return 0;
         record_orphan_exit();
         return 0;
     }
     if (!validate_pending_syscall_exit(
             p,
-            (u32)ctx->id,
+            sys_id,
             pid,
             pending_tid)) {
         return 0;
@@ -226,7 +229,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
             duration = exit_time - p->enter_time;
         }
     }
-    emit_syscall_exit_event_v2_direct(p, ctx->ret, duration, 0);
+    emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
     consume_pending_syscall(pid, pending_tid, p, pending_exec_lookup);
     return 0;
 }

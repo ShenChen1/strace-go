@@ -187,7 +187,7 @@ func TestBPFPreExecSuppressionIsSymmetric(t *testing.T) {
 	if !ok {
 		t.Fatal("strace.c missing trace_sys_exit body")
 	}
-	if !strings.Contains(exitBody, "is_pre_exec_suppressed_syscall(pid, (u32)ctx->id)") {
+	if !strings.Contains(exitBody, "is_pre_exec_suppressed_syscall(pid, sys_id)") {
 		t.Fatal("trace_sys_exit must use the shared pre-exec suppression helper")
 	}
 }

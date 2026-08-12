@@ -9,6 +9,27 @@ static __always_inline int is_pre_exec_suppressed_syscall(u32 pid, u32 sys_id)
     return pre_exec && !is_exec_payload_direct_syscall(sys_id);
 }
 
+static __always_inline int is_exec_restart_return(s64 ret_value)
+{
+    return ret_value == -512 || ret_value == -513 ||
+        ret_value == -514 || ret_value == -516;
+}
+
+// These raw exits have no independent pending event: lifecycle cleanup owns
+// terminating calls, child tasks return from creation calls without an enter,
+// and exec restart markers are kernel control flow.
+static __always_inline int is_expected_unmatched_exit(u32 sys_id, s64 ret_value)
+{
+    if (is_terminating_direct_syscall(sys_id)) {
+        return 1;
+    }
+    if (is_process_creation_direct_syscall(sys_id) && ret_value == 0) {
+        return 1;
+    }
+    return is_exec_payload_direct_syscall(sys_id) &&
+        is_exec_restart_return(ret_value);
+}
+
 // IMPACT: every exit handler shares this resolver so a stale process-level exec
 // mapping cannot silently turn a current TID lookup into a different pending.
 static __always_inline struct pending_syscall *lookup_pending_syscall_for_exit(

@@ -86,12 +86,39 @@ func TestBPFOrphanExitIsFilteredAndCounted(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"if (!is_lifecycle_task_tracked(pid, tid)) return 0;",
-		"if (!should_trace_syscall((u32)ctx->id, cfg)",
+		"if (!should_trace_syscall(sys_id, cfg)",
 		"record_orphan_exit();",
 	} {
 		if !strings.Contains(exitBody, snippet) {
 			t.Fatalf("trace_sys_exit orphan path missing %q", snippet)
 		}
+	}
+}
+
+func TestBPFOrphanExitIgnoresExpectedLifecycleReturns(t *testing.T) {
+	src := loadBPFSources(t)
+	combined := readCombinedBPFSources(t) + "\n" + src.directHeader
+	exitBody, ok := bpfFunctionBody(src.straceSource, "trace_sys_exit")
+	if !ok {
+		t.Fatal("bpf/strace.c missing trace_sys_exit body")
+	}
+	for _, snippet := range []string{
+		"static __always_inline int is_expected_unmatched_exit(u32 sys_id, s64 ret_value)",
+		"is_terminating_direct_syscall(sys_id)",
+		"return sys_id == SYS_CLONE || sys_id == SYS_CLONE3 ||",
+		"sys_id == SYS_FORK || sys_id == SYS_VFORK;",
+		"is_process_creation_direct_syscall(sys_id) && ret_value == 0",
+		"ret_value == -512 || ret_value == -513 ||",
+		"ret_value == -514 || ret_value == -516;",
+	} {
+		if !strings.Contains(combined, snippet) && !strings.Contains(exitBody, snippet) {
+			t.Fatalf("orphan lifecycle classification missing %q", snippet)
+		}
+	}
+	classification := strings.Index(exitBody, "if (is_expected_unmatched_exit(sys_id, ret_value)) return 0;")
+	count := strings.Index(exitBody, "record_orphan_exit();")
+	if classification < 0 || count < classification {
+		t.Fatal("expected unmatched exits must be classified before orphan_exit is recorded")
 	}
 }
 

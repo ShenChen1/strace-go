@@ -11,6 +11,12 @@ static __always_inline int is_terminating_direct_syscall(u32 sys_id)
     return sys_id == SYS_EXIT || sys_id == SYS_EXIT_GROUP;
 }
 
+static __always_inline int is_process_creation_direct_syscall(u32 sys_id)
+{
+    return sys_id == SYS_CLONE || sys_id == SYS_CLONE3 ||
+        sys_id == SYS_FORK || sys_id == SYS_VFORK;
+}
+
 static __always_inline int is_open_creat_path_direct_syscall(u32 sys_id)
 {
     return sys_id == SYS_OPEN || sys_id == SYS_CREAT || sys_id == SYS_OPENAT;
