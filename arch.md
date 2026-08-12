@@ -5552,3 +5552,42 @@ Impact note：影响 `cmd/strace-go/syscall_event_context.go` 的依赖构造签
 真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 287.00 ns/op、0 B/op、0 allocs/op`、raw JSON `501.60 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `587.70 ns/op、0 B/op、0 allocs/op`、decoded payload `878.50 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
 
 当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 `syscall_event_context.go` 不再声明具体 `traceSession` 依赖，router 只保存构造期的值类型 context deps；`traceSession` 仅在 session 边界实现 source 适配，生产路径未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
+
+### 14.133 将 run finalizer 的输出与退出能力改为窄接口（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：`TraceRunFinalizer` 负责结束阶段的 fallback flush、BPF stats、summary 和 output close，但字段仍声明为 `*ExitStatusCoordinator`、`*SummaryStats`、`*TraceOutput`。
+- Problem：finalizer 依赖三个完整 owner 的具体实现，测试和未来替换输出/退出协调实现必须构造整个 session owner；这与其实际使用的单向能力不匹配，也让资源 ownership 与业务操作混在同一类型边界中。
+- Goal：定义 `traceExitStatusFlushPort`、`traceSummaryWriter`、`traceFinalizerOutput` 三个最小接口；finalizer 只依赖这些能力，session composition 继续把真实 owner 注入，保持 Finish 的调用顺序、JSON writer、summary writer 和 close error 传播不变。
+- Non-goals：不改变 `TraceOutput` 的 writer/closer ownership、`ExitStatusCoordinator` 的 queue 语义、summary 文本、BPF stats schema、关闭顺序或 CLI 行为；不引入全局 service locator、反射、锁、goroutine、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：output 必须同时满足 `io.Writer` 和 `io.Closer`；`Finish` 先 flush exit fallback，再写 stats/summary，最后 close output；nil capability 仍保持当前 no-op 行为；接口不向 finalizer 暴露具体 owner 字段。
+
+Impact note：影响 `cmd/strace-go/run_finalizer.go` 的字段和 dependency contract，以及 finalizer source policy/tests；不改变 session component graph，只收窄其注入类型。
+
+方案比较：
+
+1. 继续注入三个具体 owner：改动最小，但 finalizer 被迫了解完整 owner，测试替换成本高，拒绝。
+2. 把三个 owner 合并为一个 `TraceSessionServices` 大接口：调用点少，但接口继续扩大并隐藏 ownership，拒绝。
+3. 按 finalizer 的实际动作拆成 flush、summary writer、writer+closer 三个窄接口：依赖可替换、生命周期仍由 composition owner 管理，选择该方案。
+
+状态契约：
+
+- `TraceRunFinalizer` 不调用 queue、summary 内部 map 或 `TraceOutput` 具体方法，只调用接口声明的能力。
+- `traceExitStatusFlushPort` 仅暴露 `FlushFallback(pid)`；`traceSummaryWriter` 仅暴露 `Print(io.Writer)`；`traceFinalizerOutput` 组合 `io.Writer` 和 `io.Closer`。
+- `TraceRunFinalizerDeps` 接受这些接口的 nil 值；真实 `ExitStatusCoordinator`、`SummaryStats`、`TraceOutput` 继续在 session composition 注入并保留单一 owner。
+- source gate 禁止 finalizer 字段和 dependency struct 恢复三个具体指针；fake port 覆盖 flush、summary、close 的调用链。
+
+测试与验收：
+
+- 先增加失败优先 source-contract/fake-port 测试，确认旧 finalizer 的具体类型依赖会被发现。
+- 实现后运行 focused finalizer/output tests、Go 全量/race/vet/build、Python oracle、semantic/perf、small 和 upstream reference。
+- review 检查 `Finish` 的资源顺序和错误传播不变，output owner 没有被复制或提前关闭，纯 eBPF/procfs 禁止规则保持通过。
+
+#### 实际验收记录
+
+失败优先的 fake-port 测试先因 `TraceRunFinalizerDeps` 固定为三个具体 owner 而无法编译；接口实现后 focused finalizer/output tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14133 ./cmd/strace-go` 和 `git diff --check` 全部通过。fake port 证明 finalizer 仍按 flush -> summary -> close 传递调用，现有 close error regression 继续通过。
+
+真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 296.50 ns/op、0 B/op、0 allocs/op`、raw JSON `498.50 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `606.00 ns/op、0 B/op、0 allocs/op`、decoded payload `895.30 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
+
+当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 finalizer 仅依赖窄接口，真实 owner 仍由 session composition 注入并由 finalizer 单独 close；未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。

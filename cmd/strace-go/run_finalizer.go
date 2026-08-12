@@ -7,16 +7,29 @@ import (
 	"os"
 )
 
+type traceExitStatusFlushPort interface {
+	FlushFallback(pid int)
+}
+
+type traceSummaryWriter interface {
+	Print(io.Writer)
+}
+
+type traceFinalizerOutput interface {
+	io.Writer
+	io.Closer
+}
+
 type TraceRunFinalizer struct {
 	formatPolicy    traceFormatPolicy
 	summaryPolicy   traceSummaryPolicy
 	targetPID       int
 	statsDiagnostic io.Writer
-	exitStatus      *ExitStatusCoordinator
-	summary         *SummaryStats
+	exitStatus      traceExitStatusFlushPort
+	summary         traceSummaryWriter
 	statsReader     traceStatsReader
 	pendingState    tracePendingStateReader
-	output          *TraceOutput
+	output          traceFinalizerOutput
 }
 
 type TraceRunFinalizerDeps struct {
@@ -24,11 +37,11 @@ type TraceRunFinalizerDeps struct {
 	SummaryPolicy   traceSummaryPolicy
 	TargetPID       int
 	StatsDiagnostic io.Writer
-	ExitStatus      *ExitStatusCoordinator
-	Summary         *SummaryStats
+	ExitStatus      traceExitStatusFlushPort
+	Summary         traceSummaryWriter
 	Stats           traceStatsReader
 	PendingState    tracePendingStateReader
-	Output          *TraceOutput
+	Output          traceFinalizerOutput
 }
 
 func newTraceRunFinalizer(deps TraceRunFinalizerDeps) *TraceRunFinalizer {
