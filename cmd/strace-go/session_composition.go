@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -68,6 +69,7 @@ type traceSessionDeps struct {
 	Runtime       handler.RuntimeServices
 	OutWriter     io.Writer
 	Output        *TraceOutput
+	Summary       *SummaryStats
 	TimeFormatter *TimeFormatter
 	BPFObjects    *bpfObjects
 	Resolver      *stacktrace.Resolver
@@ -76,8 +78,11 @@ type traceSessionDeps struct {
 }
 
 // newTraceSession creates the complete event pipeline before the first event
-// is read. Zero-valued dependencies are normalized to safe session defaults.
-func newTraceSession(deps traceSessionDeps) *traceSession {
+// is read. All session-owned dependencies must be explicit at this boundary.
+func newTraceSession(deps traceSessionDeps) (*traceSession, error) {
+	if err := validateTraceSessionDeps(deps); err != nil {
+		return nil, err
+	}
 	session := &traceSession{
 		cmd:           deps.Cmd,
 		events:        deps.Events,
@@ -89,18 +94,40 @@ func newTraceSession(deps traceSessionDeps) *traceSession {
 		runtime:       deps.Runtime,
 		outWriter:     deps.OutWriter,
 		output:        deps.Output,
+		summary:       deps.Summary,
 		timeFormatter: deps.TimeFormatter,
 		bpfObjs:       deps.BPFObjects,
 		resolver:      deps.Resolver,
 		state:         deps.State,
 		clock:         deps.Clock,
 	}
-	if session.state == nil {
-		session.state = newTraceStateForSession(session.opts)
-	}
-	normalizeTraceSession(session)
 	session.components = buildTraceSessionComponents(session)
-	return session
+	return session, nil
+}
+
+func validateTraceSessionDeps(deps traceSessionDeps) error {
+	missing := []struct {
+		name  string
+		isNil bool
+	}{
+		{name: "Events", isNil: deps.Events == nil},
+		{name: "Opts", isNil: deps.Opts == nil},
+		{name: "Catalog", isNil: deps.Catalog == nil},
+		{name: "Decoder", isNil: deps.Decoder == nil},
+		{name: "FDState", isNil: deps.FDState == nil},
+		{name: "Runtime", isNil: deps.Runtime == nil},
+		{name: "OutWriter", isNil: deps.OutWriter == nil},
+		{name: "Summary", isNil: deps.Summary == nil},
+		{name: "TimeFormatter", isNil: deps.TimeFormatter == nil},
+		{name: "State", isNil: deps.State == nil},
+		{name: "Clock", isNil: deps.Clock == nil},
+	}
+	for _, dependency := range missing {
+		if dependency.isNil {
+			return fmt.Errorf("trace session dependency %s is nil", dependency.name)
+		}
+	}
+	return nil
 }
 
 func newTraceStateForSession(opts *cli.Options) *TraceState {
@@ -112,37 +139,6 @@ func newTraceStateForSession(opts *cli.Options) *TraceState {
 		deferUnmatchedExits: shouldEmitGenericEnter(opts),
 		trackForkIdentity:   trackForkIdentity,
 		unfinishedEnabled:   true,
-	}
-}
-
-func normalizeTraceSession(session *traceSession) {
-	if session.catalog == nil {
-		format := "abbrev"
-		if session.opts != nil {
-			format = session.opts.XlatFormat
-		}
-		session.catalog = meta.NewCatalog(format)
-	}
-	if session.decoder == nil {
-		session.decoder = event.NewDecoder()
-	}
-	if session.fdState == nil {
-		session.fdState = newFDStateStoreFromMaps(nil, nil)
-	}
-	if session.runtime == nil {
-		session.runtime = handler.NewRuntime()
-	}
-	if session.outWriter == nil {
-		session.outWriter = io.Discard
-	}
-	if session.summary == nil {
-		session.summary = newSummaryStats()
-	}
-	if session.clock == nil {
-		session.clock = systemTraceClock{}
-	}
-	if session.timeFormatter == nil {
-		session.timeFormatter = newTimeFormatterWithClock(0, session.clock)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 	"strace-go/pkg/stacktrace"
 
@@ -88,7 +89,7 @@ func main() {
 		resolver = stacktrace.NewResolver()
 	}
 
-	session := newTraceSession(traceSessionDeps{
+	session, err := newTraceSession(traceSessionDeps{
 		Cmd:           cmd,
 		Events:        events,
 		TargetPID:     targetPid,
@@ -96,14 +97,19 @@ func main() {
 		Catalog:       metaCatalogForOptions(opts),
 		Decoder:       decoder,
 		FDState:       fdState,
+		Runtime:       handler.NewRuntime(),
 		OutWriter:     output,
 		Output:        output,
+		Summary:       newSummaryStats(),
 		TimeFormatter: newTimeFormatterWithClock(calculateTimeOffsetWithClock(clock), clock),
 		BPFObjects:    bpfObjs,
 		Resolver:      resolver,
 		State:         newTraceStateForSession(opts),
 		Clock:         clock,
 	})
+	if err != nil {
+		log.Fatalf("failed to compose trace session: %v", err)
+	}
 	session.emitDebugReady()
 	if err := session.run(); err != nil {
 		log.Fatalf("failed to finalize trace session: %v", err)

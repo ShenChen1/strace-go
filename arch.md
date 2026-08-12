@@ -3106,3 +3106,35 @@ ABI 与状态契约：
 本阶段只收口 router 与 session 状态的 ownership，不改变事件 ABI、输出语义或纯 eBPF 事实源。
 
 实际验收结果：先加入的零状态 router 回归和 `event_router.go` source gate 在旧实现上按预期失败，修复后 focused router tests 通过；`newTraceEventRouter` 不再构造 `TraceState`，`Handle` 对 nil router/state 保持 inert。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused no-ptrace/no-procfs gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，707.35 events/s。`attach-f-p.test` 为 1 PASS；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试期间未发现残留 tracer 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.65 严格化 session composition 依赖边界（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.61/14.62 已删除组件 accessor 的 lazy 构造和基础 accessor 的隐式写入，但 `normalizeTraceSession` 仍会在 `newTraceSession` 内为缺失字段补 `Catalog`、`Decoder`、`FDState`、`Runtime`、`Summary`、`OutWriter`、`Clock`、`TimeFormatter` 和 `TraceState`。生产 `main` 显式传入了其中大部分依赖，却仍让 `Runtime`、`Summary` 依赖默认补齐。
+- Problem：生产 composition graph 看起来是 eager 的，实际仍允许关键 service 缺失后静默替换；这会掩盖 bootstrap 漏注，且让 session 构造错误延迟到事件路径。测试 fixture 的便利默认和生产依赖契约也混在同一个 constructor 中。
+- Goal：让生产 `newTraceSession` 只接受完整的 session-owned 基础依赖，缺失依赖在构造边界返回明确错误；`main` 显式创建并注入 `Runtime`、`Summary` 等基础对象。测试使用独立的 `newTestTraceSession` 填充 fake/default，不进入生产代码。
+- Non-goals：不改变事件路由、状态机、输出格式、BPF ABI、生命周期、FD state、ptrace/procfs 禁止规则或运行时性能；不把 `TraceState`、`SummaryStats`、`Runtime` 拆成多个 owner，不引入全局单例、锁、goroutine 或兼容模式。
+- Constraints：生产 constructor 仍只有一个 composition entry；构造失败必须在首个 ringbuf 事件前返回；`Cmd`、`Output`、`BPFObjects`、`Resolver` 等按运行场景可选的资源不强制要求；测试 helper 只能位于 `_test.go`，生产源不得引用它。
+
+方案比较：
+
+1. 保留 `normalizeTraceSession`，只补注释：改动最小，但生产依赖仍可静默缺失，拒绝。
+2. 保留生产 normalizer、增加 `Runtime`/`Summary` source gate：能约束当前 main，但未来其它 production caller 仍可绕过，拒绝。
+3. 删除 production normalizer，constructor 显式校验并返回错误，测试使用独立 builder：ownership 最清晰，错误在边界暴露，选择该方案。
+
+状态契约：
+
+- `newTraceSession` 只复制已验证的依赖并一次性构造 component graph，不写入任何默认基础依赖。
+- `Runtime`、`Summary`、`FDStateStore`、`TraceState`、`Catalog`、`Decoder`、`TimeFormatter`、`Clock` 和输出 writer 在 session 生命周期内各只有一个 owner/reference。
+- `newTestTraceSession` 仅为单元测试提供 fake ringbuf、discard writer 和默认基础对象；它不能被 `cmd/strace-go` 非测试源引用。
+- 可选的 command/attach、BPF object、output lifecycle 和 stack resolver 仍按当前运行场景允许 nil，不把“可选资源”误当作基础状态。
+
+测试与验收：
+
+- 先增加失败优先构造依赖测试，验证旧 normalizer 会接受缺失 `Runtime`/`Summary`；迁移生产和测试调用点后，验证缺失基础依赖返回错误，测试 helper 能显式完成 fixture。
+- 运行 focused composition tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和相关 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 session constructor 的依赖 ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source/constructor 测试先验证旧 `normalizeTraceSession` 和 `main` 缺少显式 `Runtime` 注入，修复后通过。`newTraceSession` 现在返回显式错误并要求 `Events`、`Opts`、`Catalog`、`Decoder`、`FDState`、`Runtime`、`OutWriter`、`Summary`、`TimeFormatter`、`State`、`Clock`；生产 `main` 已注入 `handler.NewRuntime()` 和 `newSummaryStats()`，测试默认值集中在 `_test.go` 的 `newTestTraceSession`。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused no-ptrace/no-procfs gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，702.63 events/s。原生 `small` 为 23 PASS；`attach-f-p.test` 为 1 PASS；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

@@ -20,7 +20,7 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	ringReader := &fakeRingbufReader{}
 	state := newTraceStateWithDeferredExit(true)
 	clock := &fakeTraceClock{now: time.Unix(300, 0)}
-	session := newTraceSession(traceSessionDeps{
+	session := newTestTraceSession(traceSessionDeps{
 		Events:    ringReader,
 		TargetPID: 101,
 		Opts:      &cli.Options{EventFormat: cli.EventFormatJSON},
@@ -84,7 +84,7 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 }
 
 func TestTraceSessionEagerGraphUsesOneExitStatusCoordinator(t *testing.T) {
-	session := newTraceSession(traceSessionDeps{Opts: &cli.Options{}})
+	session := newTestTraceSession(traceSessionDeps{Opts: &cli.Options{}})
 	components := session.components
 
 	if components.exitStatus == nil || components.exitSyscall == nil || components.runFinalizer == nil {
@@ -108,7 +108,7 @@ var _ traceEventSink = (*recordingEventSink)(nil)
 
 func TestTraceSessionFixtureUsesOneComposedComponentGraph(t *testing.T) {
 	var output bytes.Buffer
-	session := newTraceSession(traceSessionDeps{
+	session := newTestTraceSession(traceSessionDeps{
 		Opts:      &cli.Options{},
 		OutWriter: &output,
 	})
@@ -169,7 +169,7 @@ func TestZeroValueTraceSessionDoesNotBuildComponentGraph(t *testing.T) {
 
 func TestTraceSessionPipelineUsesComposedDependencies(t *testing.T) {
 	var output bytes.Buffer
-	session := newTraceSession(traceSessionDeps{
+	session := newTestTraceSession(traceSessionDeps{
 		Opts:      &cli.Options{},
 		OutWriter: &output,
 	})
@@ -279,7 +279,7 @@ func TestTraceSessionPipelineUsesComposedDependencies(t *testing.T) {
 func TestTraceSessionOwnsRuntimeSeparatelyFromFDState(t *testing.T) {
 	store := newFDStateStoreFromMaps(map[string]string{"101:3": "/dev/null"}, nil)
 	runtime := handler.NewRuntime()
-	session := newTraceSession(traceSessionDeps{
+	session := newTestTraceSession(traceSessionDeps{
 		FDState: store,
 		Runtime: runtime,
 		Opts:    &cli.Options{},
