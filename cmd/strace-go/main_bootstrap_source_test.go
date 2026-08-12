@@ -16,7 +16,7 @@ func TestMainUsesErrorReturningBootstrap(t *testing.T) {
 	if !strings.Contains(source, "func runMain(args []string) error") {
 		t.Fatal("main must delegate bootstrap to an error-returning runner")
 	}
-	if !strings.Contains(source, "func runTraceSession(config *traceLaunchConfig, clock traceClock) error") {
+	if !strings.Contains(source, "func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)") {
 		t.Fatal("bootstrap resources must be owned by runTraceSession")
 	}
 	for _, required := range []string{

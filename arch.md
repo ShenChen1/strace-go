@@ -4588,3 +4588,40 @@ Impact note：影响 `event_reader.go` 的 reader API、`session_run.go` 的错�
 失败优先 source gate 先因 reader API 仍把任意 `ReadInto` 错误转换为 no-event 而失败；迁移后 focused reader/session 测试通过，且 fatal reader error 会触发 finalizer 并通过 `errors.Is` 保留原始错误。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14108 ./cmd/strace-go` 和 `git diff --check` 全部通过。
 
 真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，745.33 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认 deadline、flush、closed 仍不会误报 fatal error，任意其他 ringbuf I/O 错误不会再被静默吞掉；生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.109 让 session bootstrap 传播资源清理错误（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.103-14.108 已把 BPF、target、output 和 ringbuf reader 的 ownership 拆成明确 owner/handoff，并让 session finalizer 暴露输出与统计收尾错误；`runTraceSession` 仍是这些资源的最终组合根。
+- Problem：`runTraceSession` 的 deferred `Close` 全部使用 `_ = ...Close()`，正常 tracing 返回成功时会静默丢弃 BPF object/link、ringbuf reader、target bootstrap 或 handoff 的清理错误。失败路径也只能看到先发生的业务错误，无法知道资源收尾是否失败，违背前面建立的显式错误边界。
+- Goal：让 `runTraceSession` 使用命名返回错误，在保持现有逆序 defer 清理顺序的同时，将每个 deferred cleanup error 与 primary/session error 用 `errors.Join` 合并返回；输出 handoff 构造失败时也不再丢失直接 `output.Close` 错误。
+- Non-goals：不改变 BPF/event ABI、事件消费 goroutine、target/filter 生命周期、输出内容、owner 的内部关闭顺序或 ptrace/procfs 约束；不新增 cleanup goroutine、重试或全局错误状态。
+- Constraints：cleanup 必须继续执行一次且保持 output handoff、target handoff、target bootstrap、reader、BPF runtime 的逆序关系；`nil` cleanup error 不改变原错误；primary error 和 cleanup error 都必须可通过 `errors.Is` 识别。
+
+Impact note：只影响 `main.go` 的 composition-root 返回签名、deferred cleanup 传播和 output 构造失败分支，以及对应 source/behavior gate；现有 owner API 和 session 事件路径保持不变。
+
+方案比较：
+
+1. 继续忽略 deferred close error：调用路径最简单，但资源故障不可观测，拒绝。
+2. 新增独立 cleanup stack/manager：可以统一注册资源，但会引入新的生命周期抽象和额外状态，当前需求没有足够复杂度支撑，拒绝。
+3. 命名返回值配合每个 defer 调用 `errors.Join`：保留现有 defer 逆序、改动小、错误链可测试，选择该方案。
+
+状态契约：
+
+- `runTraceSession` 返回的错误同时包含 primary bootstrap/session error 和所有 cleanup error；无错误时 cleanup 失败会使函数返回 cleanup error。
+- deferred cleanup 的执行顺序不变；handoff transfer 后的 no-op close 仍不会重复关闭 session-owned resource。
+- output handoff 构造失败时，handoff 构造错误和直接 output close 错误都保留在返回错误链中。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 `runTraceSession` 为命名返回并通过 `errors.Join` 传播五个 cleanup 边界；增加错误链聚合单测覆盖 primary/cleanup 两类错误。
+- 运行 focused、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference；确认没有残留 tracer/BPF pin。
+
+本阶段只补齐 composition root 的资源错误可见性，不改变纯 eBPF 事件语义。
+
+### 14.109 实际验收记录
+
+失败优先 source gate 先因 `runTraceSession` 仍使用普通返回值并丢弃 deferred cleanup error 而失败；迁移后新增 `joinTraceRunError`，覆盖 primary/cleanup 双错误链和 nil 边界，五个资源 cleanup 均通过命名返回值传播。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14109 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+
+真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，733.79 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认清理执行顺序仍为 output handoff、target handoff、target bootstrap、ringbuf reader、BPF runtime，primary error 与 cleanup error 均可通过 `errors.Is` 识别，生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。

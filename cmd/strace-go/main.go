@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,7 +40,7 @@ func runMain(args []string) error {
 	return runTraceSession(newTraceLaunchConfig(opts), systemTraceClock{})
 }
 
-func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
+func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error) {
 	if config == nil {
 		return fmt.Errorf("trace launch config is nil")
 	}
@@ -50,13 +51,13 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 	if err != nil {
 		return fmt.Errorf("failed to set up BPF runtime: %w", err)
 	}
-	defer func() { _ = bpfRuntime.Close() }()
+	defer func() { runErr = joinTraceRunError(runErr, bpfRuntime.Close()) }()
 
 	events, err := bpfRuntime.newEventReader()
 	if err != nil {
 		return fmt.Errorf("failed to create ringbuf reader: %w", err)
 	}
-	defer events.Close()
+	defer func() { runErr = joinTraceRunError(runErr, events.Close()) }()
 
 	if err := bpfRuntime.configure(config.bpfConfig); err != nil {
 		return fmt.Errorf("failed to configure BPF runtime: %w", err)
@@ -66,7 +67,7 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 	if err != nil {
 		return fmt.Errorf("failed to set up target bootstrap: %w", err)
 	}
-	defer func() { _ = targetBootstrap.Close() }()
+	defer func() { runErr = joinTraceRunError(runErr, targetBootstrap.Close()) }()
 
 	targetRuntime, targetPid, fdSeed, err := targetBootstrap.Resolve(config.targets)
 	if err != nil {
@@ -77,7 +78,7 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 		targetBootstrap.abortTraceTarget(targetRuntime, targetPid)
 		return fmt.Errorf("failed to own trace targets: %w", err)
 	}
-	defer func() { _ = targetHandoff.Close() }()
+	defer func() { runErr = joinTraceRunError(runErr, targetHandoff.Close()) }()
 
 	output, err := setupOutput(config.outputPath, config.outputAppend)
 	if err != nil {
@@ -85,10 +86,9 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 	}
 	outputHandoff, err := newTraceOutputHandoff(output)
 	if err != nil {
-		_ = output.Close()
-		return fmt.Errorf("failed to own output: %w", err)
+		return fmt.Errorf("failed to own output: %w", joinTraceRunError(err, output.Close()))
 	}
-	defer func() { _ = outputHandoff.Close() }()
+	defer func() { runErr = joinTraceRunError(runErr, outputHandoff.Close()) }()
 
 	session, err := composeTraceSession(config.session, clock, traceSessionBootstrap{
 		hasCommand:    targetRuntime != nil,
@@ -112,6 +112,10 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 		return fmt.Errorf("failed to transfer trace target ownership: %w", err)
 	}
 	return nil
+}
+
+func joinTraceRunError(primary error, cleanup error) error {
+	return errors.Join(primary, cleanup)
 }
 
 // handlePrelude handles help/version requests and rejects sessions without targets.
