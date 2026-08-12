@@ -19,7 +19,7 @@ func TestMainUsesErrorReturningBootstrap(t *testing.T) {
 	if !strings.Contains(source, "func runTraceSession(config *traceLaunchConfig, clock traceClock) error") {
 		t.Fatal("bootstrap resources must be owned by runTraceSession")
 	}
-	if !strings.Contains(source, "abortTraceTargets(config.targets, cmd, bpfObjs, targetPid)") {
+	if !strings.Contains(source, "abortTraceTargets(config.targets, cmd, bpfRuntime, targetPid)") {
 		t.Fatal("bootstrap must clean all trace targets on error")
 	}
 }

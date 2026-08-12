@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 
 	"strace-go/pkg/cli"
-
-	"github.com/cilium/ebpf/ringbuf"
 )
 
 const (
@@ -52,35 +50,30 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 	inheritedFiles := collectInheritedFiles()
 	defer closeFiles(inheritedFiles)
 
-	bpfObjs, tpLinks, err := setupBPF()
+	bpfRuntime, err := setupBPF()
 	if err != nil {
 		return fmt.Errorf("failed to set up BPF runtime: %w", err)
 	}
-	defer bpfObjs.Close()
-	defer closeTracepointLinks(tpLinks)
+	defer func() { _ = bpfRuntime.Close() }()
 
-	events, err := ringbuf.NewReader(bpfObjs.Events)
+	events, err := bpfRuntime.newEventReader()
 	if err != nil {
 		return fmt.Errorf("failed to create ringbuf reader: %w", err)
 	}
 	defer events.Close()
 
-	cfgVal, err := buildRuntimeConfig(config.bpfConfig, bpfObjs)
-	if err != nil {
-		return fmt.Errorf("failed to build runtime config: %w", err)
-	}
-	if err := bpfObjs.ConfigMap.Update(uint32(0), cfgVal, 0); err != nil {
-		return fmt.Errorf("failed to update BPF runtime config: %w", err)
+	if err := bpfRuntime.configure(config.bpfConfig); err != nil {
+		return fmt.Errorf("failed to configure BPF runtime: %w", err)
 	}
 
-	cmd, targetPid, fdSeed, err := resolveTraceTargets(config.targets, bpfObjs, inheritedFiles)
+	cmd, targetPid, fdSeed, err := resolveTraceTargets(config.targets, bpfRuntime, inheritedFiles)
 	if err != nil {
 		return fmt.Errorf("failed to resolve trace targets: %w", err)
 	}
 	cleanupTargets := true
 	defer func() {
 		if cleanupTargets {
-			abortTraceTargets(config.targets, cmd, bpfObjs, targetPid)
+			abortTraceTargets(config.targets, cmd, bpfRuntime, targetPid)
 		}
 	}()
 
@@ -95,7 +88,7 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 		events:    events,
 		targetPID: targetPid,
 		fdSeed:    fdSeed,
-		bpfReads:  newTraceBPFReadPorts(bpfObjs),
+		bpfReads:  bpfRuntime.readPorts(),
 	}, output)
 	if err != nil {
 		return fmt.Errorf("failed to compose trace session: %w", err)
@@ -142,22 +135,22 @@ func normalizeTraceTargetOptions(opts *cli.Options) {
 
 // resolveTraceTargets starts the traced command and/or attaches to pids, merging
 // startup FD state seeds when both targets are requested.
-func resolveTraceTargets(targets traceTargetConfig, bpfObjs *bpfObjects, inheritedFiles []*os.File) (*exec.Cmd, int, fdStateSeed, error) {
+func resolveTraceTargets(targets traceTargetConfig, bpfRuntime traceBPFTargetPort, inheritedFiles []*os.File) (*exec.Cmd, int, fdStateSeed, error) {
 	var cmd *exec.Cmd
 	var targetPid int
 	var fdSeed fdStateSeed
 
 	if len(targets.command.args) > 0 {
 		var err error
-		cmd, targetPid, fdSeed, err = startTraceCmd(targets.command, bpfObjs, inheritedFiles)
+		cmd, targetPid, fdSeed, err = startTraceCmd(targets.command, bpfRuntime, inheritedFiles)
 		if err != nil {
 			return nil, 0, fdStateSeed{}, err
 		}
 	}
 	if len(targets.attachPIDs) > 0 {
-		firstPid, attachSeed, err := attachToPids(targets.attachPIDs, bpfObjs)
+		firstPid, attachSeed, err := attachToPids(targets.attachPIDs, bpfRuntime)
 		if err != nil {
-			abortTraceTarget(cmd, bpfObjs, targetPid)
+			abortTraceTarget(cmd, bpfRuntime, targetPid)
 			return nil, 0, fdStateSeed{}, err
 		}
 		if targetPid == 0 {
@@ -178,15 +171,15 @@ func terminateTraceCommand(cmd *exec.Cmd) {
 	_ = cmd.Wait()
 }
 
-func abortTraceTarget(cmd *exec.Cmd, bpfObjs *bpfObjects, targetPid int) {
+func abortTraceTarget(cmd *exec.Cmd, bpfRuntime traceBPFTargetPort, targetPid int) {
 	if targetPid > 0 {
-		clearFilterPids(bpfObjs, []uint32{uint32(targetPid)})
+		clearFilterPids(bpfRuntime, []uint32{uint32(targetPid)})
 	}
 	terminateTraceCommand(cmd)
 }
 
-func abortTraceTargets(targets traceTargetConfig, cmd *exec.Cmd, bpfObjs *bpfObjects, targetPid int) {
-	clearFilterPids(bpfObjs, traceTargetPIDs(targets.attachPIDs, targetPid))
+func abortTraceTargets(targets traceTargetConfig, cmd *exec.Cmd, bpfRuntime traceBPFTargetPort, targetPid int) {
+	clearFilterPids(bpfRuntime, traceTargetPIDs(targets.attachPIDs, targetPid))
 	terminateTraceCommand(cmd)
 }
 

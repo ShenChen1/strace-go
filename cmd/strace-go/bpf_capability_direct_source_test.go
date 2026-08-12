@@ -12,7 +12,7 @@ func TestBPFCapabilityPayloadUsesDirectTLV(t *testing.T) {
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	capabilityDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_capability_direct_event_v2.h"))
-	sessionSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/session.go"))
+	runtimeSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_runtime.go"))
 
 	for _, snippet := range []string{
 		"volatile const u32 SYS_CAPGET = 125;",
@@ -27,8 +27,8 @@ func TestBPFCapabilityPayloadUsesDirectTLV(t *testing.T) {
 			t.Fatalf("BPF source missing capability direct snippet %q", snippet)
 		}
 	}
-	if !strings.Contains(sessionSource, `{"SYS_CAPGET", "capget"},`) ||
-		!strings.Contains(sessionSource, `{"SYS_CAPSET", "capset"},`) {
+	if !strings.Contains(runtimeSource, `{"SYS_CAPGET", "capget"},`) ||
+		!strings.Contains(runtimeSource, `{"SYS_CAPSET", "capset"},`) {
 		t.Fatal("BPF loader should set capability syscall ids")
 	}
 

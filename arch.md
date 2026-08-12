@@ -4370,3 +4370,38 @@ Impact note：影响 `session_composition.go`、`text_renderer.go`、`run_finali
 ### 14.102 实际验收记录
 
 失败优先 source gate 先因 `session_composition.go` 仍声明 `*bpfObjects` 而失败；迁移后新增 `traceStackTraceReader`/`traceStatsReader` 及唯一的 `bpf_read_ports.go` 适配层，renderer、finalizer、stats collector 和 `traceSessionDeps` 均不再持有生成 BPF owner。新增 fake port 覆盖 stack 成功/失败、stats 聚合/失败；`go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，748.88 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试期间未引入 ptrace、procfs 或用户态 tracee 内存读取，清理了本轮生成的二进制和 Python 缓存。
+
+### 14.103 将 BPF 资源生命周期收口到 runtime owner（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.102 已隔离 session 的 BPF 只读 map 能力，但 `runTraceSession` 仍直接持有 `*bpfObjects`、`[]link.Link` 和 `ringbuf.Reader` 的创建/关闭逻辑；它还直接更新 ConfigMap，并把生成对象传给目标启动和 attach 清理函数。`setupBPF`/`setSyscallVariables` 也仍位于 `session.go`。
+- Problem：资源所有权分散在 orchestration 中，初始化失败和 defer 顺序依赖调用者记忆；目标控制函数可以直接访问全部 map/program，BPF 绑定继续向 bootstrap 外扩散。`main.go` 因此同时承担运行编排、BPF 配置、事件 reader 创建和资源回收四类职责。
+- Goal：新增 `traceBPFRuntime` 作为 BPF owner，集中负责 load/attach、ConfigMap 配置、ringbuf reader 创建、只读 port 形成和 links/object 关闭；目标启动仅依赖 `traceBPFTargetPort` 的 arm/filter 能力。`main.go` 不再声明 `*bpfObjects`、`[]link.Link`、`ringbuf.NewReader` 或直接更新 ConfigMap；`session.go` 不再声明生成 BPF object。
+- Non-goals：不修改 raw tracepoint/tail-call attach 列表、BPF map/event ABI、ConfigMap bit、过滤/生命周期语义、目标启动顺序、ringbuf 消费模型、纯 eBPF/no-procfs/no-ptrace 约束；不在本阶段重写 `bpfAttacher` 或用户态 event state machine。
+- Constraints：owner 的 Close 必须先关闭 tracepoint links 再关闭 objects；main 中 ringbuf reader 仍在 owner 之前关闭；配置必须在 target startup 前完成；target port 对 nil runtime 返回与现有错误等价；`setSyscallVariables` 继续只从生成 syscall table 解析，不引入数字 fallback。
+
+Impact note：影响 `main.go`、`session.go`、新增 BPF runtime owner 文件、target bootstrap tests 和 source gates；所有现有 attach/filter/cleanup 调用顺序保持不变，session composition 继续只接收事件 reader 与 read ports。
+
+方案比较：
+
+1. 只在 `main.go` 增加一个 `defer` helper：改动最小，但 ConfigMap、ringbuf、links 和 object ownership 仍由 orchestrator 分散管理，拒绝。
+2. 让 `traceBPFRuntime` 暴露 `Objects() *bpfObjects`，目标函数继续从 owner 取 map：关闭逻辑集中但生成绑定仍穿透目标 bootstrap，拒绝。
+3. owner 管理资源并暴露 `NewEventReader`/`Configure`/`ReadPorts`，目标侧只依赖 `traceBPFTargetPort`：权限最小、失败路径集中、调用顺序可用 source gate 锁定，选择该方案。
+
+状态契约：
+
+- `setupBPF` 返回一个拥有 links 和 generated objects 的 `traceBPFRuntime`；调用方只调用 owner 方法，不直接关闭内部资源。
+- `traceBPFRuntime.Close` 幂等处理 nil/重复调用，先关 links 后关 objects；ringbuf reader 仍由 session run scope 单独关闭。
+- `traceBPFTargetPort` 只包含 initial fork arm/disarm、PID filter add/delete 和 debug arm snapshot；它不暴露任意 eBPF map。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 `main.go`/`session.go` 不声明 `*bpfObjects`、`[]link.Link`、`ringbuf.NewReader` 或 `ConfigMap.Update`，并要求 owner API 存在；迁移前 gate 应失败。
+- 增加 fake target port 的 arm/filter/cleanup 回归和 owner nil/close contract 单测；运行 `go test ./...`、race、vet、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference。
+
+本阶段只收口 BPF 资源与目标控制的 ownership，不改变内核采集和用户可见输出。
+
+### 14.103 实际验收记录
+
+失败优先 source gate 先因 `main.go`/`session.go` 仍直接声明 `*bpfObjects`、`[]link.Link`、ringbuf 创建和 ConfigMap 更新而失败；迁移后新增 `traceBPFRuntime` owner 和 `traceBPFTargetPort`，BPF load/attach/configure/event reader/read ports/Close 由 owner 管理，target bootstrap 只消费 arm/filter 能力。新增测试覆盖 target port 的 arm/add/disarm、filter 失败清理、nil runtime 边界和幂等 Close；同时将 capability syscall ID source gate 跟随 loader 移到 `bpf_runtime.go`。`go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，722.71 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 期间修复了 attach 失败路径中 `attachAll` 与 setup 层的重复 link close；生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"fmt"
 	"log"
 	"os"
@@ -10,12 +9,6 @@ import (
 	"syscall"
 
 	"golang.org/x/sys/unix"
-
-	"strace-go/pkg/meta"
-
-	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/link"
-	"github.com/cilium/ebpf/rlimit"
 )
 
 type traceSession struct {
@@ -29,80 +22,6 @@ type traceSession struct {
 type traceCommandSpec struct {
 	args       []string
 	envActions []string
-}
-
-// IMPACT: setupBPF is the single eBPF runtime wiring entry used by main. It loads
-// the spec, resolves syscall id variables, and delegates all tracepoint/kretprobe
-// attachment to bpfAttacher so session.go stays a session orchestrator.
-func setupBPF() (*bpfObjects, []link.Link, error) {
-	if err := rlimit.RemoveMemlock(); err != nil {
-		return nil, nil, fmt.Errorf("remove memlock: %w", err)
-	}
-
-	spec, err := loadBpf()
-	if err != nil {
-		return nil, nil, fmt.Errorf("load BPF spec: %w", err)
-	}
-	if err := setSyscallVariables(spec); err != nil {
-		return nil, nil, fmt.Errorf("resolve BPF syscall variables: %w", err)
-	}
-
-	bpfObjs := &bpfObjects{}
-	if err := spec.LoadAndAssign(bpfObjs, nil); err != nil {
-		_ = bpfObjs.Close()
-		return nil, nil, fmt.Errorf("load and assign BPF objects: %w", err)
-	}
-	links, err := newBpfAttacher(bpfObjs).attachAll()
-	if err != nil {
-		_ = bpfObjs.Close()
-		closeTracepointLinks(links)
-		return nil, nil, fmt.Errorf("attach BPF programs: %w", err)
-	}
-	return bpfObjs, links, nil
-}
-
-// IMPACT: setSyscallVariables resolves Go-managed BPF syscall ids only from the
-// generated SyscallTable. ABI-only constants remain owned by runtime_abi.h.
-func setSyscallVariables(spec *ebpf.CollectionSpec) error {
-	sysNameToID := make(map[string]uint32)
-	for id, sc := range meta.SyscallTable {
-		sysNameToID[sc.Name] = id
-	}
-
-	setVar := func(name string, val uint32) error {
-		if v, ok := spec.Variables[name]; ok {
-			if err := v.Set(val); err != nil {
-				return fmt.Errorf("set %s: %w", name, err)
-			}
-			return nil
-		}
-		return fmt.Errorf("variable %s not found in BPF spec", name)
-	}
-
-	syscalls := []struct {
-		varName string
-		scName  string
-	}{
-		{"SYS_RT_SIGRETURN", "rt_sigreturn"},
-		{"SYS_NANOSLEEP", "nanosleep"},
-		{"SYS_EXECVE", "execve"},
-		{"SYS_EXIT", "exit"},
-		{"SYS_CAPGET", "capget"},
-		{"SYS_CAPSET", "capset"},
-		{"SYS_RT_SIGSUSPEND", "rt_sigsuspend"},
-		{"SYS_EXIT_GROUP", "exit_group"},
-		{"SYS_EXECVEAT", "execveat"},
-	}
-	for _, sc := range syscalls {
-		id, ok := sysNameToID[sc.scName]
-		if !ok {
-			return fmt.Errorf("syscall %q is missing from generated syscall table", sc.scName)
-		}
-		if err := setVar(sc.varName, id); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func collectInheritedFiles() []*os.File {
@@ -208,34 +127,34 @@ func newTraceCommand(spec traceCommandSpec, inheritedFiles []*os.File) *exec.Cmd
 // IMPACT: startTraceCmd starts a tracee without ptrace; syscall observation is
 // purely eBPF based. The next-fork arm installs the pid filter before the
 // tracee's initial execve so the exec syscall is observable like upstream.
-func startTraceCmd(spec traceCommandSpec, bpfObjs *bpfObjects, inheritedFiles []*os.File) (*exec.Cmd, int, fdStateSeed, error) {
+func startTraceCmd(spec traceCommandSpec, bpfRuntime traceBPFTargetPort, inheritedFiles []*os.File) (*exec.Cmd, int, fdStateSeed, error) {
 	if len(spec.args) == 0 {
 		return nil, 0, fdStateSeed{}, fmt.Errorf("trace command is empty")
 	}
-	if bpfObjs == nil || bpfObjs.FilterMap == nil {
+	if bpfRuntime == nil {
 		return nil, 0, fdStateSeed{}, fmt.Errorf("BPF filter map is unavailable")
 	}
-	if err := armNextFork(bpfObjs); err != nil {
+	if err := armNextFork(bpfRuntime); err != nil {
 		return nil, 0, fdStateSeed{}, fmt.Errorf("arm initial fork: %w", err)
 	}
 	initialCwd, _ := os.Getwd()
 	cmd := newTraceCommand(spec, inheritedFiles)
 	if err := cmd.Start(); err != nil {
-		_ = disarmNextFork(bpfObjs)
+		_ = disarmNextFork(bpfRuntime)
 		return nil, 0, fdStateSeed{}, fmt.Errorf("start command: %w", err)
 	}
 
 	targetPid := cmd.Process.Pid
-	if err := bpfObjs.FilterMap.Update(uint32(targetPid), uint32(1), 0); err != nil {
-		_ = disarmNextFork(bpfObjs)
-		abortTraceTarget(cmd, bpfObjs, targetPid)
+	if err := bpfRuntime.addFilterPID(uint32(targetPid)); err != nil {
+		_ = disarmNextFork(bpfRuntime)
+		abortTraceTarget(cmd, bpfRuntime, targetPid)
 		return nil, 0, fdStateSeed{}, fmt.Errorf("add tracee %d to filter: %w", targetPid, err)
 	}
-	if raw, err := bpfObjs.ArmForkMap.LookupBytes(uint32(0)); err == nil && len(raw) == 4 {
-		log.Printf("DEBUG arm after start = %d, tracee = %d", binary.LittleEndian.Uint32(raw), targetPid)
+	if armedPID, ok := bpfRuntime.armedForkPID(); ok {
+		log.Printf("DEBUG arm after start = %d, tracee = %d", armedPID, targetPid)
 	}
-	if err := disarmNextFork(bpfObjs); err != nil {
-		abortTraceTarget(cmd, bpfObjs, targetPid)
+	if err := disarmNextFork(bpfRuntime); err != nil {
+		abortTraceTarget(cmd, bpfRuntime, targetPid)
 		return nil, 0, fdStateSeed{}, fmt.Errorf("disarm initial fork: %w", err)
 	}
 	return cmd, targetPid, initialTraceCommandFDSeed(targetPid, initialCwd), nil
@@ -243,34 +162,26 @@ func startTraceCmd(spec traceCommandSpec, bpfObjs *bpfObjects, inheritedFiles []
 
 // armNextFork asks the BPF sched_process_fork program to add the next child of
 // this process to the trace filter before that child executes.
-func armNextFork(bpfObjs *bpfObjects) error {
-	if bpfObjs == nil || bpfObjs.ArmForkMap == nil {
+func armNextFork(bpfRuntime traceBPFTargetPort) error {
+	if bpfRuntime == nil {
 		return fmt.Errorf("BPF arm fork map is unavailable")
 	}
-	pid := uint32(os.Getpid())
-	if err := bpfObjs.ArmForkMap.Update(uint32(0), pid, 0); err != nil {
-		return fmt.Errorf("update arm fork map: %w", err)
-	}
-	return nil
+	return bpfRuntime.armNextFork()
 }
 
 // disarmNextFork clears a pending fork arm after Start returns or on failure.
-func disarmNextFork(bpfObjs *bpfObjects) error {
-	if bpfObjs == nil || bpfObjs.ArmForkMap == nil {
+func disarmNextFork(bpfRuntime traceBPFTargetPort) error {
+	if bpfRuntime == nil {
 		return fmt.Errorf("BPF arm fork map is unavailable")
 	}
-	var zero uint32
-	if err := bpfObjs.ArmForkMap.Update(uint32(0), zero, 0); err != nil {
-		return fmt.Errorf("clear arm fork map: %w", err)
-	}
-	return nil
+	return bpfRuntime.disarmNextFork()
 }
 
 // IMPACT: attachToPids attaches tracing to running processes. FD state starts
 // unknown and is populated only by events observed after the attach point.
-func attachToPids(pids []int, bpfObjs *bpfObjects) (int, fdStateSeed, error) {
+func attachToPids(pids []int, bpfRuntime traceBPFTargetPort) (int, fdStateSeed, error) {
 	var firstPid int
-	if bpfObjs == nil || bpfObjs.FilterMap == nil {
+	if bpfRuntime == nil {
 		return 0, fdStateSeed{}, fmt.Errorf("BPF filter map is unavailable")
 	}
 	attached := make([]uint32, 0, len(pids))
@@ -278,15 +189,15 @@ func attachToPids(pids []int, bpfObjs *bpfObjects) (int, fdStateSeed, error) {
 	for i, pid := range pids {
 		// Send signal 0 to check if PID exists and we have permissions
 		if err := syscall.Kill(pid, 0); err != nil {
-			clearFilterPids(bpfObjs, attached)
+			clearFilterPids(bpfRuntime, attached)
 			return 0, fdStateSeed{}, fmt.Errorf("check attach pid %d: %w", pid, err)
 		}
 
 		if i == 0 {
 			firstPid = pid
 		}
-		if err := bpfObjs.FilterMap.Update(uint32(pid), uint32(1), 0); err != nil {
-			clearFilterPids(bpfObjs, attached)
+		if err := bpfRuntime.addFilterPID(uint32(pid)); err != nil {
+			clearFilterPids(bpfRuntime, attached)
 			return 0, fdStateSeed{}, fmt.Errorf("add attach pid %d to filter: %w", pid, err)
 		}
 		attached = append(attached, uint32(pid))
@@ -295,12 +206,12 @@ func attachToPids(pids []int, bpfObjs *bpfObjects) (int, fdStateSeed, error) {
 	return firstPid, fdStateSeed{}, nil
 }
 
-func clearFilterPids(bpfObjs *bpfObjects, pids []uint32) {
-	if bpfObjs == nil || bpfObjs.FilterMap == nil {
+func clearFilterPids(bpfRuntime traceBPFTargetPort, pids []uint32) {
+	if bpfRuntime == nil {
 		return
 	}
 	for _, pid := range pids {
-		_ = bpfObjs.FilterMap.Delete(pid)
+		bpfRuntime.deleteFilterPID(pid)
 	}
 }
 
