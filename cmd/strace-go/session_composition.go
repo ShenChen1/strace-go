@@ -105,7 +105,7 @@ type traceSessionDeps struct {
 	TargetPID     int
 	EventPolicy   *cliTraceEventPolicy
 	OutputPolicy  *cliTraceOutputPolicy
-	Catalog       *meta.Catalog
+	Catalog       meta.CatalogPort
 	Decoder       *event.Decoder
 	FDState       *FDStateStore
 	Runtime       handler.RuntimeServices

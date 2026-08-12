@@ -5860,3 +5860,41 @@ Impact note：影响 `cmd/strace-go/session_composition.go` 的 dependency contr
 真实 `ebpf-semantic` 通过：205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0，write-only events 为 6。`ebpf-perf` 通过：`TraceEventDecodeState 286.40 ns/op、0 B/op、0 allocs/op`、raw JSON `486.10 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `609.00 ns/op、0 B/op、0 allocs/op`、decoded payload `899.80 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认 composition root 仍创建一个真实 `TimeFormatter`，同一实例通过接口注入 text renderer 与 command-exit fallback；relative-time state、clock owner、输出顺序没有变化。未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
+
+### 14.141 将 session catalog 收窄为 metadata port（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：`meta.CatalogPort` 已定义 immutable metadata 的四个消费能力；事件上下文和 FD state path 都通过该 port 使用 catalog，但 `traceSessionDeps.Catalog` 仍声明为 `*meta.Catalog`。
+- Problem：session dependency contract 泄漏具体 catalog 存储类型，测试无法只注入 metadata 行为 fake；未来消费者可能绕过 port 读取 catalog 内部实现。
+- Goal：将 `traceSessionDeps.Catalog` 改为 `meta.CatalogPort`，保持真实 `*meta.Catalog` 由 session config/composition root 创建，并继续以同一个接口值注入事件上下文。
+- Non-goals：不改变 xlat 表、format mode、clone/immutable 语义、FD flag 解码、handler 输出、事件 ABI、性能模型、并发模型或纯 eBPF/no-procfs/no-ptrace 约束。
+- Constraints：session consumer 只能使用 `Format`、`Table`、`SyscallArgXlat`、`DecodeFlags`；nil 校验和现有 catalog owner 生命周期保持不变；不创建第二份 catalog。
+
+Impact note：影响 `cmd/strace-go/session_composition.go` 的 catalog dependency contract 与 metadata source/fake tests；`traceSessionConfig` 继续持有构造期具体 `*meta.Catalog`，真实 composition 继续传递同一个 catalog owner。
+
+方案比较：
+
+1. 保留 `*meta.Catalog`：无需改 wiring，但 session contract 继续暴露 metadata 存储实现，拒绝。
+2. 在 cmd 包内再定义 catalog wrapper：能隐藏类型但重复已有 port，增加转换和 owner 歧义，拒绝。
+3. 复用 `meta.CatalogPort`：直接表达现有消费面、可注入 fake、无额外 wrapper，选择该方案。
+
+状态契约：
+
+- event context 收到的 `catalog` 仍是同一个 session-local immutable owner，不复制表或改变 lookup 结果。
+- composition root 负责创建 concrete catalog；session runtime 只保存和传递 `CatalogPort` 能力。
+- FD state 的 `fdFlagDecoder` 继续从 catalog port 取得 `DecodeFlags`，不扩大 FD state 依赖。
+
+测试与验收：
+
+- 先增加失败优先的 fake catalog 测试，确认旧具体字段无法接收 `meta.CatalogPort` 替代实现。
+- 实现后运行 focused catalog-port tests、Go 全量/race/vet/build、`git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和 `upstream-reference`。
+- review 检查 xlat 结果、catalog owner 数量、纯 eBPF 禁止规则和事件输出均无变化。
+
+#### 实际验收记录
+
+失败优先的 fake catalog 测试先因 `traceSessionDeps.Catalog` 固定为 `*meta.Catalog` 而无法编译；实现为 `meta.CatalogPort` 后 focused catalog-port tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14141 ./cmd/strace-go` 和 `git diff --check` 全部通过。fake catalog 验证 session 与 event context 共享同一个 metadata port，source gate 确认 session dependency 不再暴露具体 catalog。
+
+真实 `ebpf-semantic` 通过：205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0，write-only events 为 6。`ebpf-perf` 通过：`TraceEventDecodeState 289.40 ns/op、0 B/op、0 allocs/op`、raw JSON `483.20 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `609.70 ns/op、0 B/op、0 allocs/op`、decoded payload `823.10 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认 `traceSessionConfig` 仍负责创建唯一真实 `*meta.Catalog`，session runtime 只保存 `meta.CatalogPort`，FD flag decoder 继续使用同一 owner 的 `DecodeFlags` 能力；没有改变 xlat 表或输出语义。未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
