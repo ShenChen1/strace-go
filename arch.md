@@ -3233,3 +3233,34 @@ ABI 与状态契约：
 本阶段只收口 reader 的 clock ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source gate 和 nil clock reader 回归先验证旧 constructor 会创建 `systemTraceClock{}`，修复后通过；`TraceEventReader` 不再替换注入的 clock，缺失 clock 时 timed `Read`/grace drain inert，`Drain`/`HandleRecord` 仍可独立工作。已有 deadline/closed 映射测试已显式注入 fake clock。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused no-ptrace/no-procfs gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，716.17 events/s。`attach-f-p.test` 为 1 PASS；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.69 移除 TimeFormatter 的隐式 system clock（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.60/14.65/14.68 已把 clock 作为 session-owned port 注入 main、reader、run state 和 formatter；但 `newTimeFormatterWithClock` 在 nil 时仍构造 `systemTraceClock{}`，`newTimeFormatter` 也作为无参数生产 helper 直接选择系统 clock，实际只被测试使用。
+- Problem：production formatter 文件仍拥有选择时钟来源的能力，半构造 renderer 可能生成与 session 不一致的 synthetic exit timestamp；测试 helper 和 production constructor 边界混在一起，无法通过 source gate 锁定“formatter 只消费 clock”。
+- Goal：`newTimeFormatterWithClock` 只保存注入 clock，nil 时不构造替代；删除 production `newTimeFormatter`，在 `_test.go` 中保留同名 test-only helper 显式使用 `systemTraceClock`，不改变现有格式测试和正式 main 行为。
+- Non-goals：不改变 time prefix 格式、relative time 状态、boot offset、synthetic exit 行、session clock、BPF ABI、事件顺序、ptrace/procfs 禁止规则或用户可见 syscall 输出。
+- Constraints：正式 `newTraceSession` 继续验证并注入非 nil formatter/clock；nil formatter clock 的 `NowMonoNs` 返回 0，prefix formatting 不 panic；production `time_formatter.go` 不得创建 system clock；函数保持小于 80 行。
+
+方案比较：
+
+1. 保留 nil fallback 和无参数 constructor：测试方便，但 production 仍能复制 clock owner，拒绝。
+2. `newTimeFormatterWithClock` 返回 error：契约严格，但会把简单 value constructor 的错误传播到所有 renderer fixture，改动面过大，暂不选择。
+3. 删除 production fallback/helper，test-only helper 显式选择 system clock：ownership 清晰、兼容已有单测调用形状、正式 composition 无变化，选择该方案。
+
+状态契约：
+
+- `TimeFormatter.clock` 只引用 session-owned clock 或测试显式提供的 clock，不在 production formatter constructor 中替换。
+- `Prefix` 使用事件时间和 boot offset；`NowMonoNs` 在缺失 clock 时返回 0，避免伪造系统时间。
+- 无参数 `newTimeFormatter` 仅存在于测试文件，不能被 production source 引用。
+
+测试与验收：
+
+- 先增加失败优先 source gate，禁止 production formatter 创建 `systemTraceClock{}`；增加 nil clock 不构造替代和 `NowMonoNs` 边界回归。
+- 运行 focused formatter/renderer tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和相关 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 formatter 的 clock ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：production `time_formatter.go` 原有 system clock fallback 和无参数 constructor 已删除；同名 helper 仅在 `_test.go` 中显式绑定 `systemTraceClock`，nil clock formatter 保持无 clock 且 `NowMonoNs` 返回 0。失败优先的历史 source 对照确认旧实现含有 fallback，修复后的 formatter source gate、nil clock 回归和全部 renderer/output focused tests 通过。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused no-ptrace/no-procfs gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，690.04 events/s。`attach-f-p.test` 为 1 PASS；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

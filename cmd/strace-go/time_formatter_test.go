@@ -76,3 +76,13 @@ func TestTimeFormatterNowMonoNsUsesInjectedClock(t *testing.T) {
 		t.Fatalf("NowMonoNs() = %d, want injected monotonic time %d", got, clock.monoNs)
 	}
 }
+
+func TestTimeFormatterWithNilClockDoesNotConstructFallback(t *testing.T) {
+	formatter := newTimeFormatterWithClock(0, nil)
+	if formatter.clock != nil {
+		t.Fatal("formatter unexpectedly installed a fallback clock")
+	}
+	if got := formatter.NowMonoNs(); got != 0 {
+		t.Fatalf("NowMonoNs() without clock = %d, want zero", got)
+	}
+}

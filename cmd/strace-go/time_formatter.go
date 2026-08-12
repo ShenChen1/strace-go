@@ -13,14 +13,7 @@ type TimeFormatter struct {
 	clock             traceClock
 }
 
-func newTimeFormatter(bootTimeOffsetNs int64) *TimeFormatter {
-	return newTimeFormatterWithClock(bootTimeOffsetNs, systemTraceClock{})
-}
-
 func newTimeFormatterWithClock(bootTimeOffsetNs int64, clock traceClock) *TimeFormatter {
-	if clock == nil {
-		clock = systemTraceClock{}
-	}
 	return &TimeFormatter{bootTimeOffsetNs: bootTimeOffsetNs, clock: clock}
 }
 

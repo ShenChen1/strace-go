@@ -9,6 +9,10 @@ import (
 	"strace-go/pkg/meta"
 )
 
+func newTimeFormatter(bootTimeOffsetNs int64) *TimeFormatter {
+	return newTimeFormatterWithClock(bootTimeOffsetNs, systemTraceClock{})
+}
+
 func newTestTraceSession(deps traceSessionDeps) *traceSession {
 	if deps.Events == nil {
 		deps.Events = &fakeRingbufReader{}
