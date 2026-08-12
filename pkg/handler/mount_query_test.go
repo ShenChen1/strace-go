@@ -156,6 +156,7 @@ func mountQueryTestContext(sysID uint32, name string) *Context {
 	return &Context{
 		Pid: 1234, Tid: 1234, TargetPid: 1234, SysId: sysID, SysName: name,
 		Ret: -22, ScMeta: meta.SyscallTable[sysID], Decoder: event.NewDecoder(),
+		Meta: meta.NewCatalog("abbrev"),
 		Opts: &cli.Options{StringLimit: 32, XlatFormat: "abbrev"},
 	}
 }

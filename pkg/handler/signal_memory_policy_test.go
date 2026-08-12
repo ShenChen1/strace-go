@@ -31,6 +31,7 @@ func newSignalPolicyContext(_ *fetchPolicyMemoryReader, decoder *event.Decoder) 
 		ProbeRetEnter: -1,
 		ProbeRetExit:  -1,
 		Decoder:       decoder,
+		Meta:          meta.NewCatalog("abbrev"),
 	}
 }
 
@@ -238,6 +239,7 @@ func TestSignalFDHandlerUsesEventTimeMask(t *testing.T) {
 			Args:     []string{"ufd", "user_mask", "sizemask", "flags"},
 			ArgTypes: []string{"int", "sigset_t *", "size_t", "int"},
 		},
+		Meta: meta.NewCatalog("abbrev"),
 		Args: [6]uint64{^uint64(0), 0x1000, 8, 0x80000},
 		PayloadSections: []PayloadSection{{
 			Kind:      PayloadKindStruct,
@@ -264,6 +266,7 @@ func TestSignalFDHandlerUsesPointerOnInvalidMaskSnapshot(t *testing.T) {
 			Args:     []string{"ufd", "user_mask", "sizemask", "flags"},
 			ArgTypes: []string{"int", "sigset_t *", "size_t", "int"},
 		},
+		Meta: meta.NewCatalog("abbrev"),
 		Args: [6]uint64{^uint64(0), 0x1000, 16, 0},
 		Ret:  -14,
 	}

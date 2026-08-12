@@ -1,10 +1,52 @@
 package meta_test
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"strace-go/pkg/meta"
 )
+
+func TestCatalogMethodsRejectNilReceiver(t *testing.T) {
+	var catalog *meta.Catalog
+	tests := []struct {
+		name string
+		call func()
+	}{
+		{name: "Format", call: func() { _ = catalog.Format() }},
+		{name: "Table", call: func() { _, _ = catalog.Table("open_mode_flags") }},
+		{name: "SyscallArgXlat", call: func() { _, _ = catalog.SyscallArgXlat("open", "flags") }},
+		{name: "DecodeFlags", call: func() { _ = catalog.DecodeFlags(1, "open_mode_flags") }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("nil Catalog.%s() did not panic", tt.name)
+				}
+			}()
+			tt.call()
+		})
+	}
+}
+
+func TestCatalogSourceDoesNotConstructNilFallback(t *testing.T) {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	source, err := os.ReadFile(filepath.Join(filepath.Dir(currentFile), "catalog.go"))
+	if err != nil {
+		t.Fatalf("read catalog.go: %v", err)
+	}
+	if strings.Contains(string(source), "NewCatalog(\"abbrev\").DecodeFlags") {
+		t.Fatal("Catalog.DecodeFlags still constructs an implicit abbrev catalog")
+	}
+}
 
 func TestCatalogNormalizesFormat(t *testing.T) {
 	if got := meta.NewCatalog("unsupported").Format(); got != "abbrev" {

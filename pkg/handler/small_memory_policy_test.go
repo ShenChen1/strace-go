@@ -33,6 +33,7 @@ func TestFutexTimeoutDoesNotReadWhenFallbackDisabled(t *testing.T) {
 		Args:          [6]uint64{0x2000, 0, 7, 0x1000},
 		ProbeRetEnter: -1,
 		Decoder:       decoder,
+		Meta:          meta.NewCatalog("abbrev"),
 	}
 
 	got := (&FutexHandler{}).Handle(ctx)
@@ -57,6 +58,7 @@ func TestFutexTimeoutIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 		Args:          [6]uint64{0x2000, 0, 7, 0x1000},
 		ProbeRetEnter: 0,
 		Decoder:       decoder,
+		Meta:          meta.NewCatalog("abbrev"),
 	}
 
 	got := (&FutexHandler{}).Handle(ctx)
@@ -76,6 +78,7 @@ func TestFutexTimeoutUsesPayloadStructSection(t *testing.T) {
 		SysName: "futex",
 		Args:    [6]uint64{0x2000, 0, 7, 0x1000},
 		Decoder: event.NewDecoder(),
+		Meta:    meta.NewCatalog("abbrev"),
 		PayloadSections: []PayloadSection{
 			{
 				Kind:      PayloadKindStruct,
@@ -115,6 +118,7 @@ func TestFutexTimeoutOpSelection(t *testing.T) {
 				SysName: "futex",
 				Args:    [6]uint64{0x2000, tt.op, 7, 0x1000},
 				Decoder: event.NewDecoder(),
+				Meta:    meta.NewCatalog("abbrev"),
 				PayloadSections: []PayloadSection{
 					{
 						Kind:      PayloadKindStruct,
@@ -143,6 +147,7 @@ func TestFutexWaitvDoesNotProbeLengthWhenFallbackDisabled(t *testing.T) {
 		Args:          [6]uint64{0x1000, 2},
 		ProbeRetEnter: 0,
 		Decoder:       decoder,
+		Meta:          meta.NewCatalog("abbrev"),
 		ScMeta:        meta.Syscall{Name: "futex_waitv"},
 	}
 
@@ -163,6 +168,7 @@ func TestFutexWaitvIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 		Args:          [6]uint64{0x1000, 2},
 		ProbeRetEnter: 0,
 		Decoder:       event.NewDecoder(),
+		Meta:          meta.NewCatalog("abbrev"),
 		ScMeta:        meta.Syscall{Name: "futex_waitv"},
 	}
 
@@ -183,6 +189,7 @@ func TestFutexWaitvUsesPayloadStructSection(t *testing.T) {
 		Tid:     1234,
 		Args:    [6]uint64{0x1000, 2},
 		Decoder: event.NewDecoder(),
+		Meta:    meta.NewCatalog("abbrev"),
 		ScMeta:  meta.Syscall{Name: "futex_waitv"},
 		PayloadSections: []PayloadSection{
 			{
@@ -211,6 +218,7 @@ func TestFutexWaitTimeoutUsesPayloadStructSection(t *testing.T) {
 		Tid:     1234,
 		Ret:     0,
 		Decoder: event.NewDecoder(),
+		Meta:    meta.NewCatalog("abbrev"),
 		ScMeta:  meta.Syscall{Name: "futex_wait"},
 		PayloadSections: []PayloadSection{
 			{
@@ -240,6 +248,7 @@ func TestFutexWaitvTimeoutUsesPayloadStructSection(t *testing.T) {
 		Ret:     0,
 		Args:    [6]uint64{0x1000, 1, 0, 0x4000},
 		Decoder: event.NewDecoder(),
+		Meta:    meta.NewCatalog("abbrev"),
 		ScMeta:  meta.Syscall{Name: "futex_waitv"},
 		PayloadSections: []PayloadSection{
 			{
@@ -270,6 +279,7 @@ func newArchPrctlPolicyContext(decoder *event.Decoder) *Context {
 		Ret:          0,
 		ProbeRetExit: -1,
 		Decoder:      decoder,
+		Meta:         meta.NewCatalog("abbrev"),
 		ScMeta: meta.Syscall{
 			Args:     []string{"option", "arg2"},
 			ArgTypes: []string{"int", "unsigned long"},

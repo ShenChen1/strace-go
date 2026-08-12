@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"strace-go/pkg/event"
+	"strace-go/pkg/meta"
 )
 
 func makeEpollEvent(events uint32, data uint64) []byte {
@@ -30,6 +31,7 @@ func newEpollPolicyContext(_ *fetchPolicyMemoryReader, name string) *Context {
 		ProbeRetEnter: -1,
 		ProbeRetExit:  -1,
 		Decoder:       event.NewDecoder(),
+		Meta:          meta.NewCatalog("abbrev"),
 	}
 }
 

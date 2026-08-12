@@ -39,6 +39,7 @@ func newTypeMiscPolicyContext(_ *fetchPolicyMemoryReader, decoder *event.Decoder
 		ProbeRetEnter: -1,
 		ProbeRetExit:  -1,
 		Decoder:       decoder,
+		Meta:          meta.NewCatalog("abbrev"),
 		ScMeta: meta.Syscall{
 			Name:     "sysinfo",
 			Args:     []string{"info"},

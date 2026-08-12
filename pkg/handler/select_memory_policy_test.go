@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"strace-go/pkg/event"
+	"strace-go/pkg/meta"
 )
 
 func makeFdSetData(fd int) []byte {
@@ -37,6 +38,7 @@ func newSelectPolicyContext(_ *fetchPolicyMemoryReader, name string) *Context {
 		ProbeRetEnter: -1,
 		ProbeRetExit:  -1,
 		Decoder:       event.NewDecoder(),
+		Meta:          meta.NewCatalog("abbrev"),
 	}
 }
 

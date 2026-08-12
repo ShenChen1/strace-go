@@ -86,6 +86,7 @@ func TestFormatAtFdcwdPrefersTrackedCWD(t *testing.T) {
 		Pid:         202,
 		TargetPid:   101,
 		EventFDView: testEventFDStateView{cwd: "/partial-cwd"},
+		Meta:        meta.NewCatalog("abbrev"),
 		Opts: &cli.Options{
 			ShowPaths:     true,
 			ShowPathsMode: 1,

@@ -19,6 +19,7 @@ func newFsconfigBinaryContext(reader *fetchPolicyMemoryReader, decoder *event.De
 		Args:          [6]uint64{3, 2, 0x1000, 0x2000, 3},
 		ProbeRetEnter: 0,
 		Decoder:       decoder,
+		Meta:          meta.NewCatalog("abbrev"),
 		Opts:          &cli.Options{StringLimit: 32},
 	}
 }
@@ -133,6 +134,7 @@ func TestMountUsesPayloadStringSections(t *testing.T) {
 		Pid:     1234,
 		Tid:     1234,
 		SysName: "mount",
+		Meta:    meta.NewCatalog("abbrev"),
 		Args:    [6]uint64{0x1000, 0x2000, 0x3000, 0, 0x4000},
 		PayloadSections: []PayloadSection{
 			{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 0, UserPtr: 0x1000, ProbeRet: 0, Data: []byte("/dev/sda1\x00")},
@@ -156,6 +158,7 @@ func TestMountRemountFormatsNonNullTypeAsPointer(t *testing.T) {
 		Pid:     1234,
 		Tid:     1234,
 		SysName: "mount",
+		Meta:    meta.NewCatalog("abbrev"),
 		Args:    [6]uint64{0x1000, 0x2000, 0x3000, 0x20, 0x4000},
 		PayloadSections: []PayloadSection{
 			{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 0, UserPtr: 0x1000, ProbeRet: 0, Data: []byte("mount_source\x00")},
@@ -178,6 +181,7 @@ func TestMountBindFormatsTypeAndDataAsPointers(t *testing.T) {
 		Pid:     1234,
 		Tid:     1234,
 		SysName: "mount",
+		Meta:    meta.NewCatalog("abbrev"),
 		Args:    [6]uint64{0x1000, 0x2000, 0x3000, 0x1000, 0x4000},
 		PayloadSections: []PayloadSection{
 			{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 0, UserPtr: 0x1000, ProbeRet: 0, Data: []byte("mount_source\x00")},
@@ -200,6 +204,7 @@ func TestUmountUsesPayloadStringSection(t *testing.T) {
 		Pid:     1234,
 		Tid:     1234,
 		SysName: "umount2",
+		Meta:    meta.NewCatalog("abbrev"),
 		Args:    [6]uint64{0x1000, 0},
 		PayloadSections: []PayloadSection{
 			{Kind: PayloadKindString, Direction: PayloadDirectionIn, ArgIndex: 0, UserPtr: 0x1000, ProbeRet: 0, Data: []byte("/mnt\x00")},
@@ -223,6 +228,7 @@ func newGetdentsContext(reader *fetchPolicyMemoryReader, decoder *event.Decoder)
 		Ret:          16,
 		ProbeRetExit: -1,
 		Decoder:      decoder,
+		Meta:         meta.NewCatalog("abbrev"),
 		ScMeta: meta.Syscall{
 			Args:     []string{"fd", "dirent", "count"},
 			ArgTypes: []string{"unsigned int", "struct linux_dirent64 *", "unsigned int"},

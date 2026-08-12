@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"strace-go/pkg/event"
+	"strace-go/pkg/meta"
 )
 
 func makeTimexStruct(modes uint32) []byte {
@@ -25,6 +26,7 @@ func TestTimeHandlerClockGettimeDoesNotReadWhenFallbackDisabled(t *testing.T) {
 		Ret:          0,
 		ProbeRetExit: -1,
 		Decoder:      decoder,
+		Meta:         meta.NewCatalog("abbrev"),
 	}
 
 	got := (&TimeHandler{}).Handle(ctx)
@@ -51,6 +53,7 @@ func TestTimeHandlerClockSettimeIgnoresProbeSuccessWithoutPayloadSection(t *test
 		ProbeRetEnter: 0,
 		ProbeRetExit:  -1,
 		Decoder:       decoder,
+		Meta:          meta.NewCatalog("abbrev"),
 	}
 
 	got := (&TimeHandler{}).Handle(ctx)
@@ -74,6 +77,7 @@ func TestTimeHandlerClockGettimeUsesPayloadStructSection(t *testing.T) {
 		Args:    [6]uint64{0, 0x1000},
 		Ret:     0,
 		Decoder: event.NewDecoder(),
+		Meta:    meta.NewCatalog("abbrev"),
 		PayloadSections: []PayloadSection{
 			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeTimeStruct(5, 6)},
 		},
@@ -97,6 +101,7 @@ func TestTimeHandlerClockSettimeUsesPayloadStructSection(t *testing.T) {
 		Args:    [6]uint64{0, 0x1000},
 		Ret:     0,
 		Decoder: event.NewDecoder(),
+		Meta:    meta.NewCatalog("abbrev"),
 		PayloadSections: []PayloadSection{
 			{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, ProbeRet: 0, Data: makeTimeStruct(7, 8)},
 		},
@@ -122,6 +127,7 @@ func TestTimeHandlerAdjtimexDoesNotReadWhenFallbackDisabled(t *testing.T) {
 		Ret:          -1,
 		ProbeRetExit: -1,
 		Decoder:      decoder,
+		Meta:         meta.NewCatalog("abbrev"),
 	}
 
 	got := (&TimeHandler{}).Handle(ctx)
@@ -147,6 +153,7 @@ func TestTimeHandlerAdjtimexIgnoresProbeSuccessWithoutPayloadSection(t *testing.
 		Ret:          0,
 		ProbeRetExit: 0,
 		Decoder:      decoder,
+		Meta:         meta.NewCatalog("abbrev"),
 	}
 
 	got := (&TimeHandler{}).Handle(ctx)
@@ -170,6 +177,7 @@ func TestTimeHandlerAdjtimexUsesPayloadStructSection(t *testing.T) {
 		Args:    [6]uint64{0x1000},
 		Ret:     0,
 		Decoder: event.NewDecoder(),
+		Meta:    meta.NewCatalog("abbrev"),
 		PayloadSections: []PayloadSection{
 			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 0, ProbeRet: 0, Data: makeTimexStruct(7)},
 		},
@@ -195,6 +203,7 @@ func TestTimeHandlerClockAdjtimeIgnoresProbeSuccessWithoutPayloadSection(t *test
 		Ret:          0,
 		ProbeRetExit: 0,
 		Decoder:      decoder,
+		Meta:         meta.NewCatalog("abbrev"),
 	}
 
 	got := (&TimeHandler{}).Handle(ctx)
@@ -218,6 +227,7 @@ func TestTimeHandlerClockAdjtimeUsesPayloadStructSection(t *testing.T) {
 		Args:    [6]uint64{0, 0x1000},
 		Ret:     0,
 		Decoder: event.NewDecoder(),
+		Meta:    meta.NewCatalog("abbrev"),
 		PayloadSections: []PayloadSection{
 			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeTimexStruct(9)},
 		},

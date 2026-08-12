@@ -7,6 +7,7 @@ import (
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
+	"strace-go/pkg/meta"
 )
 
 func makeWaitidSiginfo(signo uint32, code uint32, pid uint32, uid uint32, status uint32) []byte {
@@ -38,6 +39,7 @@ func newWaitidPolicyContext(decoder *event.Decoder) *Context {
 		Ret:          0,
 		ProbeRetExit: -1,
 		Decoder:      decoder,
+		Meta:         meta.NewCatalog("abbrev"),
 		Opts:         &cli.Options{},
 	}
 }

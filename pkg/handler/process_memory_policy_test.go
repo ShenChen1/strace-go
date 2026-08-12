@@ -33,6 +33,7 @@ func newClone3PolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Deco
 		ProbeRetEnter: -1,
 		ProbeRetExit:  -1,
 		Decoder:       decoder,
+		Meta:          meta.NewCatalog("abbrev"),
 		ScMeta: meta.Syscall{
 			Name:     "clone3",
 			Args:     []string{"uargs", "size"},

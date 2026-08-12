@@ -8,6 +8,7 @@ import (
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
+	"strace-go/pkg/meta"
 )
 
 type ioctlPolicyMemoryReader struct {
@@ -35,6 +36,7 @@ func newIoctlPolicyContext(reader *ioctlPolicyMemoryReader, decoder *event.Decod
 		ProbeRetExit:  -1,
 		Ret:           -1,
 		Decoder:       decoder,
+		Meta:          meta.NewCatalog("abbrev"),
 		Opts:          &cli.Options{StringLimit: 32},
 		Runtime:       NewRuntime(),
 	}

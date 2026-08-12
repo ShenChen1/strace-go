@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"strace-go/pkg/event"
+	"strace-go/pkg/meta"
 )
 
 func makeStatSnapshot(ino uint64, mode uint32) []byte {
@@ -31,6 +32,7 @@ func newTypeStatPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.De
 		Ret:          0,
 		ProbeRetExit: -1,
 		Decoder:      decoder,
+		Meta:         meta.NewCatalog("abbrev"),
 	}
 }
 

@@ -21,19 +21,21 @@ func NewCatalog(format string) *Catalog {
 	return catalog
 }
 
+func (c *Catalog) require() {
+	if c == nil {
+		panic("meta: nil Catalog")
+	}
+}
+
 // Format returns the normalized xlat output mode for this catalog.
 func (c *Catalog) Format() string {
-	if c == nil {
-		return "abbrev"
-	}
+	c.require()
 	return c.format
 }
 
 // Table returns a copy of the table descriptor. Entries remain read-only by contract.
 func (c *Catalog) Table(name string) (XlatTable, bool) {
-	if c == nil {
-		return XlatTable{}, false
-	}
+	c.require()
 	table, ok := c.tables[name]
 	if !ok {
 		return XlatTable{}, false
@@ -43,9 +45,7 @@ func (c *Catalog) Table(name string) (XlatTable, bool) {
 
 // SyscallArgXlat returns the xlat table mapped to a syscall argument.
 func (c *Catalog) SyscallArgXlat(syscallName, argName string) (string, bool) {
-	if c == nil {
-		return "", false
-	}
+	c.require()
 	args, ok := c.syscallArgXlat[syscallName]
 	if !ok {
 		return "", false
@@ -56,9 +56,7 @@ func (c *Catalog) SyscallArgXlat(syscallName, argName string) (string, bool) {
 
 // DecodeFlags translates a value using this session's xlat catalog and mode.
 func (c *Catalog) DecodeFlags(val uint64, xlatName string) string {
-	if c == nil {
-		return NewCatalog("abbrev").DecodeFlags(val, xlatName)
-	}
+	c.require()
 	return (&flagDecoder{catalog: c}).decodeFlags(val, xlatName)
 }
 

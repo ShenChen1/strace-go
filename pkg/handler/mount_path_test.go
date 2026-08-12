@@ -52,6 +52,7 @@ func mountPathTestContext(sysID uint32) *Context {
 		Pid: 101, Tid: 101, TargetPid: 101, SysId: sysID,
 		SysName: meta.SyscallTable[sysID].Name, ScMeta: meta.SyscallTable[sysID],
 		Decoder:     event.NewDecoder(),
+		Meta:        meta.NewCatalog("abbrev"),
 		Opts:        &cli.Options{ShowPaths: true, ShowPathsMode: 1, XlatFormat: "abbrev", StringLimit: 32},
 		FDStateView: testFDStateView{paths: map[string]string{"101:cwd": "/tmp/base"}},
 	}

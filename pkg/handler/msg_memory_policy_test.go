@@ -384,6 +384,7 @@ func newMsgPolicyContext(name string) *Context {
 		SysName:   name,
 		ScMeta:    meta.Syscall{Name: name},
 		Decoder:   event.NewDecoder(),
+		Meta:      meta.NewCatalog("abbrev"),
 		Opts:      &cli.Options{StringLimit: 32, TraceReadFDs: map[int32]bool{}, TraceWriteFDs: map[int32]bool{}},
 	}
 }

@@ -7,6 +7,7 @@ import (
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
+	"strace-go/pkg/meta"
 )
 
 func makePrctlUint32Snapshot(v uint32) []byte {
@@ -31,6 +32,7 @@ func newPrctlPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Decod
 		ProbeRetEnter: -1,
 		ProbeRetExit:  -1,
 		Decoder:       decoder,
+		Meta:          meta.NewCatalog("abbrev"),
 		Opts:          &cli.Options{StringLimit: 32},
 	}
 }

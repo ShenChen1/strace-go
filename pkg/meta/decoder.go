@@ -158,7 +158,7 @@ type flagDecoder struct {
 
 func (d *flagDecoder) table(name string) (XlatTable, bool) {
 	if d == nil || d.catalog == nil {
-		return XlatTable{}, false
+		panic("meta: nil flag decoder catalog")
 	}
 	table, ok := d.catalog.tables[name]
 	return table, ok

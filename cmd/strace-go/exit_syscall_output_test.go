@@ -81,6 +81,7 @@ func exitEventContextWithView(
 		ScMeta:  scMeta,
 		SysName: name,
 		Args:    handlerArgs,
+		Meta:    meta.NewCatalog(opts.XlatFormat),
 		Opts:    opts,
 	}
 	return syscallEventContext{
@@ -271,6 +272,7 @@ func TestExitSyscallOutputDetectsExitFromHandlerMetadata(t *testing.T) {
 			ScMeta:  scMeta,
 			SysName: "exit_group",
 			Args:    [6]uint64{7},
+			Meta:    meta.NewCatalog(state.output.opts.XlatFormat),
 			Opts:    state.output.opts,
 		},
 	}

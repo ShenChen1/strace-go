@@ -3420,3 +3420,35 @@ ABI 与状态契约：
 本阶段只收口 handler 的 catalog ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source gate 先验证 `meta_context.go`、`statmount_format.go` 的 fallback 和 `Opts` 替代 catalog 行为，修复后通过；`catalogForContext` 现在只返回注入的 `Context.Meta`，受影响的 BPF、标量、iovec、quota fixture 已显式注入对应 xlat catalog。`go test ./pkg/handler`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、no-ptrace/procfs source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，714.00 events/s。`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
+
+### 14.75 禁止 Catalog nil receiver 选择隐式 xlat policy（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.74 已让 handler 的 `catalogForContext` 只返回 session 注入的 `Context.Meta`，正式 `newTraceSession` 也要求 Catalog 非 nil；但 `pkg/meta/catalog.go` 的 nil receiver 仍把 `DecodeFlags` 转成新建的 `"abbrev"` catalog，`Format`/`Table`/`SyscallArgXlat` 也把缺失依赖转换成默认值或空结果。
+- Problem：nil catalog 在正式 ownership 图中是 wiring 错误，却被 metadata API 静默吞掉；`DecodeFlags` 还会在事件热路径分配整套 catalog，造成错误输出和隐性性能成本，调用者无法区分“未知 xlat”与“catalog 未注入”。
+- Goal：Catalog 方法把 nil receiver视为违反 session invariant，使用明确 panic 拒绝；删除 `DecodeFlags` 的 `"abbrev"` fallback 和 `flagDecoder.table` 的 nil 静默分支。非 nil Catalog 的表复制、xlat mode 和输出保持不变。
+- Non-goals：不改方法签名为 error、不修改 xlat 表或用户可见文本、不删除 `pkg/format` 的显式默认 `abbrev` convenience wrapper、不改变 handler 事件路由、BPF ABI、payload 事实源、纯 eBPF/no-procfs 约束或 session constructor 的非 nil 校验。
+- Constraints：正式 session 继续在 bootstrap 前拒绝 nil Catalog；所有需要 xlat 的测试 fixture 必须显式注入 Catalog；nil invariant 的测试必须确定性验证 panic；函数保持小于 80 行，非 nil `DecodeFlags` 不新增 catalog 分配。
+
+方案比较：
+
+1. 保留 nil fallback：调用兼容性最好，但继续隐藏 composition 漏注并在热路径分配，拒绝。
+2. nil 时返回 raw/unknown 字符串：避免分配，但把 wiring 错误伪装成合法输出，仍无法发现错误，拒绝。
+3. nil receiver 显式 panic，正式入口保证 non-nil，测试补齐依赖：契约最清晰、无错误签名扩散、能消除热路径 fallback，选择该方案。
+
+状态契约：
+
+- `meta.NewCatalog` 是 Catalog 的唯一构造入口；所有 `Catalog` 方法只服务于已构造实例。
+- `DecodeFlags` 不在 nil 路径创建任何 Catalog；`flagDecoder` 只由 non-nil Catalog 创建和消费。
+- `pkg/format` 的无 Catalog 包装仍是显式的默认 abbrev API，不属于 session 内部的隐式 fallback。
+
+测试与验收：
+
+- 先增加失败优先 meta source/behavior gate，验证旧 `DecodeFlags` nil fallback 存在，并要求 `Format`、`Table`、`SyscallArgXlat`、`DecodeFlags` 的 nil receiver均 panic。
+- 运行 `pkg/meta` focused tests、handler/format 受影响测试，处理所有缺失 Catalog 的 xlat fixture。
+- 运行 `go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 Catalog API 的 nil invariant，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先的 nil receiver 行为测试先确认旧实现会返回默认值、空结果或隐式创建 `abbrev` catalog；修复后 `Format`、`Table`、`SyscallArgXlat`、`DecodeFlags` 的 nil receiver 均确定性 panic，`flagDecoder` 也不再接受 nil catalog。受影响的时间、misc、stat、waitid 及其他 handler fixture 已显式注入 `meta.NewCatalog("abbrev")`，没有新增 production fallback。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、no-ptrace/no-procfs source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，745.12 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

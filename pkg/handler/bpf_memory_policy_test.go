@@ -8,6 +8,7 @@ import (
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
+	"strace-go/pkg/meta"
 )
 
 type bpfPolicyMemoryReader struct {
@@ -52,6 +53,7 @@ func newBpfPolicyContext(reader *bpfPolicyMemoryReader, decoder *event.Decoder) 
 		Tid:           1234,
 		ProbeRetEnter: -1,
 		Decoder:       decoder,
+		Meta:          meta.NewCatalog("abbrev"),
 		Opts:          &cli.Options{},
 	}
 }
