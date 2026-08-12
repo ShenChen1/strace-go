@@ -41,6 +41,7 @@ type traceSession struct {
 	state         *TraceState
 	components    *traceSessionComponents
 	clock         traceClock
+	pidProbe      tracePIDProbe
 }
 
 // IMPACT: setupBPF is the single eBPF runtime wiring entry used by main. It loads

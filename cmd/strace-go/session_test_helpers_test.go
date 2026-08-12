@@ -45,6 +45,9 @@ func newTestTraceSession(deps traceSessionDeps) *traceSession {
 	if deps.Clock == nil {
 		deps.Clock = systemTraceClock{}
 	}
+	if deps.PIDProbe == nil {
+		deps.PIDProbe = systemTracePIDProbe{}
+	}
 	if deps.TimeFormatter == nil {
 		deps.TimeFormatter = newTimeFormatterWithClock(0, deps.Clock)
 	}

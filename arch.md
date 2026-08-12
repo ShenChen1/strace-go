@@ -3264,3 +3264,34 @@ ABI 与状态契约：
 本阶段只收口 formatter 的 clock ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：production `time_formatter.go` 原有 system clock fallback 和无参数 constructor 已删除；同名 helper 仅在 `_test.go` 中显式绑定 `systemTraceClock`，nil clock formatter 保持无 clock 且 `NowMonoNs` 返回 0。失败优先的历史 source 对照确认旧实现含有 fallback，修复后的 formatter source gate、nil clock 回归和全部 renderer/output focused tests 通过。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused no-ptrace/no-procfs gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，690.04 events/s。`attach-f-p.test` 为 1 PASS；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.70 显式化 TraceRunState 的 clock/PID probe 端口（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.60、14.68、14.69 已把 session clock 作为基础 dependency，但 `newTraceRunState` 仍在 clock nil 时创建 `systemTraceClock`，在 PID probe nil 时创建 `systemTracePIDProbe`；`traceSession.run` 只显式传 clock，session graph 没有表达 attach liveness probe 的 owner。
+- Problem：run state 的 deadline 和 attach 存活检查可能绕过 session composition，测试 fixture 也可能无意触发真实 `kill(pid, 0)`；缺失依赖被隐藏在 event loop 相关代码里，和单一 bootstrap/端口契约不一致。
+- Goal：将 `tracePIDProbe` 提升为 session-owned dependency，与 clock 一起注入 `traceRunState`; run state constructor 不再创建替代实现，缺失任一端口时不推进 timed/attach 状态；main composition 显式注入 `systemTracePIDProbe`，测试显式选择 fake 或 system probe。
+- Non-goals：不改变 attach 存活判定、`kill(pid, 0)` 语义、command waiter goroutine、退出 fallback、poll interval、事件 reader、BPF ABI、输出格式、ptrace/procfs 禁止规则或 CLI attach 语义。
+- Constraints：正式 session 的 `Clock`/`PIDProbe` 必须非 nil；`newTraceRunState` 保持值返回类型；缺失依赖不 panic、不读取系统 clock、不调用 PID probe；函数保持小于 80 行。
+
+方案比较：
+
+1. 保留两个 fallback：改动最小，但隐藏时间和进程探测 side effect，拒绝。
+2. 每次 `collect` 直接调用全局 system probe：减少字段，但无法测试隔离且破坏 session ownership，拒绝。
+3. 扩展 session dependency，run state 只消费注入端口，main/test 显式提供实现：依赖图完整、行为可测试、改动局部，选择该方案。
+
+状态契约：
+
+- `traceSession.clock` 和 `traceSession.pidProbe` 是本 session 唯一的时间/attach probe 引用；`run` 原样传入 `traceRunStateDeps`。
+- `newTraceRunState` 不构造 `systemTraceClock`/`systemTracePIDProbe`；`collect` 缺失 clock 或 probe 时保持 inert。
+- `systemTracePIDProbe` 仍是 main 的边界实现，内部使用 `kill(pid, 0)`，不读取 procfs，不成为 run state 的隐式 owner。
+
+测试与验收：
+
+- 先增加失败优先 source gate，禁止 `session_run.go` 的 run-state constructor/default accessor 创建 system clock/PID probe；增加 nil dependency inert 回归和 session graph identity 检查。
+- 运行 focused run-state/composition tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和 attach upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 run state 的时间/attach probe ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source gate 先验证旧 `newTraceRunState` 会创建 `systemTraceClock`/`systemTracePIDProbe` 且无端口状态会推进 attach polling，修复后通过。`traceSessionDeps`、`traceSession` 和 `traceRunStateDeps` 现在显式传递 `PIDProbe`；production run state 不再构造默认端口，缺失 clock 或 attach probe 时保持 inert，空 attach 集合不会触发 PID 探测。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，734.13 events/s。`attach-f-p.test` 通过；`attach-p-cmd.test` 三次复跑为两次既定 XFAIL、一次 XPASS，保留 XFAIL 以反映跨任务 lifecycle exact ordering 不是纯 eBPF 契约。测试结束后无残留 tracer、fixture 或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。

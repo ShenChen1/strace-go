@@ -75,6 +75,7 @@ type traceSessionDeps struct {
 	Resolver      *stacktrace.Resolver
 	State         *TraceState
 	Clock         traceClock
+	PIDProbe      tracePIDProbe
 }
 
 // newTraceSession creates the complete event pipeline before the first event
@@ -100,6 +101,7 @@ func newTraceSession(deps traceSessionDeps) (*traceSession, error) {
 		resolver:      deps.Resolver,
 		state:         deps.State,
 		clock:         deps.Clock,
+		pidProbe:      deps.PIDProbe,
 	}
 	session.components = buildTraceSessionComponents(session)
 	return session, nil
@@ -121,6 +123,7 @@ func validateTraceSessionDeps(deps traceSessionDeps) error {
 		{name: "TimeFormatter", isNil: deps.TimeFormatter == nil},
 		{name: "State", isNil: deps.State == nil},
 		{name: "Clock", isNil: deps.Clock == nil},
+		{name: "PIDProbe", isNil: deps.PIDProbe == nil},
 	}
 	for _, dependency := range missing {
 		if dependency.isNil {

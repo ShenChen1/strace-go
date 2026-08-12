@@ -46,7 +46,7 @@ func TestTraceRunStateCollectMarksCommandExit(t *testing.T) {
 		TargetPID:  77,
 		ExitStatus: coordinator,
 	})
-	state := traceRunState{cmdDone: done}
+	state := traceRunState{cmdDone: done, clock: &fakeTraceClock{now: time.Unix(100, 0)}}
 
 	state.collect(handler)
 	if !state.commandExited || state.cmdDone != nil {
@@ -72,7 +72,7 @@ func TestTraceRunStateCollectStoresCommandExitFallback(t *testing.T) {
 		ExitStatus: coordinator,
 		Renderer:   newTextRenderer(TextRendererDeps{Out: &output, Opts: opts}),
 	})
-	state := traceRunState{cmdDone: done}
+	state := traceRunState{cmdDone: done, clock: &fakeTraceClock{now: time.Unix(100, 0)}}
 
 	state.collect(handler)
 	if output.Len() != 0 {
@@ -142,7 +142,11 @@ func TestAnyAttachPidAliveDetectsCurrentProcess(t *testing.T) {
 }
 
 func TestTraceRunStateThrottlesAttachPolling(t *testing.T) {
-	state := traceRunState{attachPids: []int{os.Getpid()}}
+	state := traceRunState{
+		attachPids: []int{os.Getpid()},
+		clock:      &fakeTraceClock{now: time.Unix(100, 0)},
+		pidProbe:   systemTracePIDProbe{},
+	}
 	state.collect(nil)
 	if state.attachExited || state.nextAttachPoll.IsZero() {
 		t.Fatalf("state after first attach poll = %+v, want alive pid and next poll set", state)
@@ -154,7 +158,7 @@ func TestTraceRunStateThrottlesAttachPolling(t *testing.T) {
 		t.Fatal("attach polling should be skipped before nextAttachPoll")
 	}
 
-	state.nextAttachPoll = time.Now().Add(-time.Second)
+	state.nextAttachPoll = time.Unix(0, 0)
 	state.collect(nil)
 	if !state.attachExited {
 		t.Fatal("missing attach pid should be marked exited after the throttle expires")

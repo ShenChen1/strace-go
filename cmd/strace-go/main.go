@@ -151,6 +151,7 @@ func composeTraceSession(
 		Resolver:      resolver,
 		State:         newTraceStateForSession(opts),
 		Clock:         clock,
+		PIDProbe:      systemTracePIDProbe{},
 	})
 }
 

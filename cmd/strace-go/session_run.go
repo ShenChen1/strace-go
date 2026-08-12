@@ -108,6 +108,7 @@ func (s *traceSession) run() error {
 		command:    newExecTraceCommandWaiter(s.cmd),
 		attachPids: attachPids,
 		clock:      s.clock,
+		pidProbe:   s.pidProbe,
 	})
 	commandExit := s.commandExitHandler()
 	eventReader := s.traceEventReader()
@@ -126,19 +127,11 @@ func (s *traceSession) run() error {
 }
 
 func newTraceRunState(deps traceRunStateDeps) traceRunState {
-	clock := deps.clock
-	if clock == nil {
-		clock = systemTraceClock{}
-	}
-	pidProbe := deps.pidProbe
-	if pidProbe == nil {
-		pidProbe = systemTracePIDProbe{}
-	}
 	state := traceRunState{
 		commandExited: deps.command == nil,
 		attachExited:  len(deps.attachPids) == 0,
-		clock:         clock,
-		pidProbe:      pidProbe,
+		clock:         deps.clock,
+		pidProbe:      deps.pidProbe,
 	}
 	if !state.commandExited {
 		ch := make(chan traceCommandExitResult, 1)
@@ -153,6 +146,9 @@ func newTraceRunState(deps traceRunStateDeps) traceRunState {
 }
 
 func (st *traceRunState) collect(commandExit *TraceCommandExitHandler) {
+	if st == nil || st.clock == nil || (len(st.attachPids) > 0 && st.pidProbe == nil) {
+		return
+	}
 	now := st.now()
 	if st.cmdDone != nil {
 		select {
@@ -172,10 +168,14 @@ func (st *traceRunState) collect(commandExit *TraceCommandExitHandler) {
 		st.fallbackFlush = time.Time{}
 		commandExit.FlushFallback()
 	}
+	if len(st.attachPids) == 0 {
+		st.attachExited = true
+		return
+	}
 	if st.attachExited || !st.shouldPollAttach(now) {
 		return
 	}
-	if !st.pidProbeOrDefault().AnyAlive(st.attachPids) {
+	if !st.pidProbe.AnyAlive(st.attachPids) {
 		st.attachExited = true
 	}
 }
@@ -212,14 +212,7 @@ func (st *traceRunState) now() time.Time {
 	if st != nil && st.clock != nil {
 		return st.clock.Now()
 	}
-	return systemTraceClock{}.Now()
-}
-
-func (st *traceRunState) pidProbeOrDefault() tracePIDProbe {
-	if st != nil && st.pidProbe != nil {
-		return st.pidProbe
-	}
-	return systemTracePIDProbe{}
+	return time.Time{}
 }
 
 func anyAttachPidAlive(pids []int) bool {
