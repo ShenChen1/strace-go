@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -126,7 +125,8 @@ func TestPendingSyscallsMapUsesCompactValue(t *testing.T) {
 
 func TestShouldQueueExitStatusSkipsExplicitAttachPid(t *testing.T) {
 	session := newTestTraceSessionWithOptions(&cli.Options{AttachPids: []int{202}}, traceSessionDeps{
-		Cmd: fakeStartedCommand(),
+		HasCommand:    true,
+		CommandWaiter: fakeTraceCommandWaiter{},
 	})
 	coordinator := session.exitStatusCoordinator()
 
@@ -138,6 +138,8 @@ func TestShouldQueueExitStatusSkipsExplicitAttachPid(t *testing.T) {
 	}
 }
 
-func fakeStartedCommand() *exec.Cmd {
-	return &exec.Cmd{}
+type fakeTraceCommandWaiter struct{}
+
+func (fakeTraceCommandWaiter) Wait() traceCommandExitResult {
+	return traceCommandExitResult{exited: true}
 }

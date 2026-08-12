@@ -53,11 +53,11 @@ func (p *fakeBPFTargetPort) armedForkPID() (uint32, bool) {
 
 func TestStartTraceCmdUsesTargetPortLifecycle(t *testing.T) {
 	port := &fakeBPFTargetPort{armedSnapshot: 123}
-	cmd, pid, _, err := startTraceCmd(traceCommandSpec{args: []string{"/bin/true"}}, port, nil)
+	target, pid, _, err := startTraceCmd(traceCommandSpec{args: []string{"/bin/true"}}, port, nil)
 	if err != nil {
 		t.Fatalf("startTraceCmd() error = %v, want nil", err)
 	}
-	terminateTraceCommand(cmd)
+	terminateTraceTarget(target)
 	if pid <= 0 || len(port.addCalls) != 1 || port.addCalls[0] != uint32(pid) {
 		t.Fatalf("target port calls = %+v, pid=%d, want one filter add", port, pid)
 	}
@@ -68,11 +68,11 @@ func TestStartTraceCmdUsesTargetPortLifecycle(t *testing.T) {
 
 func TestStartTraceCmdClearsTargetOnFilterFailure(t *testing.T) {
 	port := &fakeBPFTargetPort{addErr: errors.New("filter update failed")}
-	cmd, _, _, err := startTraceCmd(traceCommandSpec{args: []string{"/bin/true"}}, port, nil)
+	target, _, _, err := startTraceCmd(traceCommandSpec{args: []string{"/bin/true"}}, port, nil)
 	if err == nil {
 		t.Fatal("startTraceCmd() returned nil error after filter failure")
 	}
-	terminateTraceCommand(cmd)
+	terminateTraceTarget(target)
 	if port.armCalls != 1 || port.disarmCalls != 1 || len(port.deleted) != 1 {
 		t.Fatalf("failure cleanup calls = %+v, want arm/disarm/delete", port)
 	}

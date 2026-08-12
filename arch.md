@@ -4440,3 +4440,40 @@ Impact note：影响 `main.go`、新增 output handoff 类型和 bootstrap/final
 ### 14.104 实际验收记录
 
 失败优先 source gate 先因 `runTraceSession` 仍无条件 `defer output.Close()` 且不存在 handoff 类型而失败；迁移后新增 `traceOutputHandoff`，composition 成功前由 bootstrap 持有输出并负责失败清理，成功后一次性 transfer 给 session finalizer，transfer 后 bootstrap close 为 no-op。新增测试覆盖 transfer 前 close、transfer 后 session 单独 close 和重复 transfer failure。`go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，746.84 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.105 将 tracee 的 Wait ownership 收口到 target runtime（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.103 已将 BPF 资源交给 runtime owner，14.104 已将 output close ownership 改成显式 handoff；但 `traceRunState` 仍在运行期为 `*exec.Cmd` 创建一个 waiter goroutine，而 bootstrap 异常清理的 `terminateTraceCommand` 也直接调用同一个 command 的 `Wait`。
+- Problem：ringbuf 提前关闭、finalizer 返回错误或 composition 后的异常路径会让后台 waiter 与 bootstrap cleanup 同时争抢 `exec.Cmd.Wait`，正常结束后 cleanup 还会对已 wait 的 command 再次 `Kill/Wait`。错误被忽略虽然常常掩盖问题，但没有单一 process lifecycle owner，也不能证明 wait 结果在所有路径上一致。
+- Goal：命令成功 `Start` 后立即创建 `traceTargetRuntime`，由它启动且只启动一个 `cmd.Wait` worker；session run 和 bootstrap abort 都只读取该 runtime 的缓存完成结果。abort 可以请求 `Process.Kill`，随后等待同一个完成信号，但不得再次调用 `cmd.Wait`。attach-only 路径继续使用现有 PID probe 和 filter 清理。
+- Non-goals：不改变命令 argv/env、initial fork arm/disarm、BPF filter map、attach PID 校验、ringbuf 事件顺序、exit-status 文本、目标退出条件、纯 eBPF/no-procfs/no-ptrace 约束；不把 process waiter 变成事件消费者，也不增加锁保护事件状态。
+- Constraints：`exec.Cmd.Wait` 在 production path 只能位于 target runtime 的唯一 worker；完成结果必须可被多个只读调用方安全读取；kill-before-exit 与 already-exited 两条 abort 路径都必须不会阻塞或重复 wait；文件、函数和接口规模继续满足仓库限制。
+
+Impact note：影响 `main.go`、`session.go` 的目标启动返回值、`session_run.go` 的 command waiter 注入、session composition bootstrap wiring，以及目标生命周期单测/source gate；事件处理仍是单 ringbuf consumer，BPF 事实源和输出格式不变。
+
+方案比较：
+
+1. 继续保留两个 `Wait` 调用，只增加 `sync.Once`/错误忽略：改动表面小，但 process ownership 仍分散，bootstrap 与 session 的清理协议不可见，拒绝。
+2. 让 `traceRunState` 持有并暴露 command completion，bootstrap cleanup 反向读取 session state：能复用结果，但让 bootstrap 生命周期依赖运行期状态图，错误路径耦合更深，拒绝。
+3. 在 command start 边界建立 `traceTargetRuntime`，以 close-signal 缓存一次 wait 结果，session/abort 只依赖 waiter/abort 窄端口：单一 Wait owner、可测试、对事件状态机无侵入，选择该方案。
+
+状态契约：
+
+- `traceTargetRuntime` 持有 started command 和 completion signal；只有它的 worker 调用 `cmd.Wait`，完成结果写入后关闭 signal，之后所有读取都返回同一结果。
+- `traceRunState` 不再从 `*exec.Cmd` 构造 waiter；没有 command 时保持现有 command-exited 初始状态。
+- 异常 abort 先清理 BPF filter，再请求 kill 并读取 runtime completion；正常 session 返回后不再 abort，attach-only 仍只清理 filter。
+
+测试与验收：
+
+- 先增加失败优先 source gate，禁止 `session_run.go`/`main.go` 直接构造或调用 `exec.Cmd.Wait`，并增加 fake completion、kill-before-exit、already-exited 和 runtime repeated-abort 回归；迁移前 gate 应失败。
+- 运行 focused target-runtime tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference；检查没有残留 tracer/BPF pin。
+
+本阶段只修正 tracee process lifecycle 的 Wait ownership，不改变任何内核采集或用户可见事件语义。
+
+### 14.105 实际验收记录
+
+失败优先 source gate 先因 `target_runtime.go` 不存在、`main.go`/`session_run.go` 各自直接拥有 `Wait` 而失败；迁移后新增 `traceTargetRuntime`，命令成功启动后由唯一 worker 调用 tracee `cmd.Wait`，session 只接收 `HasCommand`/`CommandWaiter`，异常清理通过同一个 completion signal kill-and-wait，重复 abort 不会再次 wait。新增回归覆盖正常退出结果缓存、kill-before-exit、already-exited、重复 abort、nil port 和 command lifecycle 依赖不一致。
+
+本轮 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14105 ./cmd/strace-go`、`git diff --check` 以及纯 eBPF/no-ptrace/no-procfs source gate 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，732.34 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认 tracee `exec.Cmd.Wait` 仅存在于 `target_runtime.go` 的唯一 worker，生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。

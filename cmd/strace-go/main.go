@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"strace-go/pkg/cli"
@@ -66,14 +65,14 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 		return fmt.Errorf("failed to configure BPF runtime: %w", err)
 	}
 
-	cmd, targetPid, fdSeed, err := resolveTraceTargets(config.targets, bpfRuntime, inheritedFiles)
+	targetRuntime, targetPid, fdSeed, err := resolveTraceTargets(config.targets, bpfRuntime, inheritedFiles)
 	if err != nil {
 		return fmt.Errorf("failed to resolve trace targets: %w", err)
 	}
 	cleanupTargets := true
 	defer func() {
 		if cleanupTargets {
-			abortTraceTargets(config.targets, cmd, bpfRuntime, targetPid)
+			abortTraceTargets(config.targets, targetRuntime, bpfRuntime, targetPid)
 		}
 	}()
 
@@ -89,11 +88,12 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 	defer func() { _ = outputHandoff.Close() }()
 
 	session, err := composeTraceSession(config.session, clock, traceSessionBootstrap{
-		cmd:       cmd,
-		events:    events,
-		targetPID: targetPid,
-		fdSeed:    fdSeed,
-		bpfReads:  bpfRuntime.readPorts(),
+		hasCommand:    targetRuntime != nil,
+		commandWaiter: targetRuntime.commandWaiter(),
+		events:        events,
+		targetPID:     targetPid,
+		fdSeed:        fdSeed,
+		bpfReads:      bpfRuntime.readPorts(),
 	}, outputHandoff.Output())
 	if err != nil {
 		return fmt.Errorf("failed to compose trace session: %w", err)
@@ -143,14 +143,14 @@ func normalizeTraceTargetOptions(opts *cli.Options) {
 
 // resolveTraceTargets starts the traced command and/or attaches to pids, merging
 // startup FD state seeds when both targets are requested.
-func resolveTraceTargets(targets traceTargetConfig, bpfRuntime traceBPFTargetPort, inheritedFiles []*os.File) (*exec.Cmd, int, fdStateSeed, error) {
-	var cmd *exec.Cmd
+func resolveTraceTargets(targets traceTargetConfig, bpfRuntime traceBPFTargetPort, inheritedFiles []*os.File) (*traceTargetRuntime, int, fdStateSeed, error) {
+	var targetRuntime *traceTargetRuntime
 	var targetPid int
 	var fdSeed fdStateSeed
 
 	if len(targets.command.args) > 0 {
 		var err error
-		cmd, targetPid, fdSeed, err = startTraceCmd(targets.command, bpfRuntime, inheritedFiles)
+		targetRuntime, targetPid, fdSeed, err = startTraceCmd(targets.command, bpfRuntime, inheritedFiles)
 		if err != nil {
 			return nil, 0, fdStateSeed{}, err
 		}
@@ -158,7 +158,7 @@ func resolveTraceTargets(targets traceTargetConfig, bpfRuntime traceBPFTargetPor
 	if len(targets.attachPIDs) > 0 {
 		firstPid, attachSeed, err := attachToPids(targets.attachPIDs, bpfRuntime)
 		if err != nil {
-			abortTraceTarget(cmd, bpfRuntime, targetPid)
+			abortTraceTarget(targetRuntime, bpfRuntime, targetPid)
 			return nil, 0, fdStateSeed{}, err
 		}
 		if targetPid == 0 {
@@ -168,27 +168,26 @@ func resolveTraceTargets(targets traceTargetConfig, bpfRuntime traceBPFTargetPor
 			fdSeed.merge(attachSeed)
 		}
 	}
-	return cmd, targetPid, fdSeed, nil
+	return targetRuntime, targetPid, fdSeed, nil
 }
 
-func terminateTraceCommand(cmd *exec.Cmd) {
-	if cmd == nil || cmd.Process == nil {
+func terminateTraceTarget(targetRuntime *traceTargetRuntime) {
+	if targetRuntime == nil {
 		return
 	}
-	_ = cmd.Process.Kill()
-	_ = cmd.Wait()
+	targetRuntime.Abort()
 }
 
-func abortTraceTarget(cmd *exec.Cmd, bpfRuntime traceBPFTargetPort, targetPid int) {
+func abortTraceTarget(targetRuntime *traceTargetRuntime, bpfRuntime traceBPFTargetPort, targetPid int) {
 	if targetPid > 0 {
 		clearFilterPids(bpfRuntime, []uint32{uint32(targetPid)})
 	}
-	terminateTraceCommand(cmd)
+	terminateTraceTarget(targetRuntime)
 }
 
-func abortTraceTargets(targets traceTargetConfig, cmd *exec.Cmd, bpfRuntime traceBPFTargetPort, targetPid int) {
+func abortTraceTargets(targets traceTargetConfig, targetRuntime *traceTargetRuntime, bpfRuntime traceBPFTargetPort, targetPid int) {
 	clearFilterPids(bpfRuntime, traceTargetPIDs(targets.attachPIDs, targetPid))
-	terminateTraceCommand(cmd)
+	terminateTraceTarget(targetRuntime)
 }
 
 func traceTargetPIDs(attachPIDs []int, targetPid int) []uint32 {

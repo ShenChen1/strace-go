@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 
 	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
@@ -59,11 +58,12 @@ type traceSessionEventComponents struct {
 }
 
 type traceSessionBootstrap struct {
-	cmd       *exec.Cmd
-	events    traceRingbufReader
-	targetPID int
-	fdSeed    fdStateSeed
-	bpfReads  traceBPFReadPorts
+	hasCommand    bool
+	commandWaiter traceCommandWaiter
+	events        traceRingbufReader
+	targetPID     int
+	fdSeed        fdStateSeed
+	bpfReads      traceBPFReadPorts
 }
 
 func composeTraceSession(
@@ -73,7 +73,8 @@ func composeTraceSession(
 	output *TraceOutput,
 ) (*traceSession, error) {
 	return newTraceSession(traceSessionDeps{
-		Cmd:           bootstrap.cmd,
+		HasCommand:    bootstrap.hasCommand,
+		CommandWaiter: bootstrap.commandWaiter,
 		Events:        bootstrap.events,
 		TargetPID:     bootstrap.targetPID,
 		EventPolicy:   config.eventPolicy,
@@ -98,7 +99,8 @@ func composeTraceSession(
 // traceSessionDeps contains external resources and immutable session policy.
 // CLI parsing and policy construction stay outside this runtime graph.
 type traceSessionDeps struct {
-	Cmd           *exec.Cmd
+	HasCommand    bool
+	CommandWaiter traceCommandWaiter
 	Events        traceRingbufReader
 	TargetPID     int
 	EventPolicy   *cliTraceEventPolicy
@@ -134,6 +136,9 @@ func newTraceSession(deps traceSessionDeps) (*traceSession, error) {
 }
 
 func validateTraceSessionDeps(deps traceSessionDeps) error {
+	if deps.HasCommand != (deps.CommandWaiter != nil) {
+		return fmt.Errorf("trace command lifecycle dependencies are inconsistent")
+	}
 	missing := []struct {
 		name  string
 		isNil bool
@@ -221,7 +226,7 @@ func buildTraceSessionBase(session *traceSession) traceSessionBaseComponents {
 		exitStatus: newExitStatusCoordinator(ExitStatusCoordinatorDeps{
 			Queue:      newExitStatusQueue(),
 			Out:        deps.OutWriter,
-			HasCommand: deps.Cmd != nil,
+			HasCommand: deps.HasCommand,
 			AttachPids: outputPolicy.AttachPIDs(),
 		}),
 		handlerRegistry: handlerRegistry,

@@ -175,7 +175,7 @@ func (s *traceSession) writeLifecycleExitText(tid int, exitCode uint64) {
 	if policy.QuietExit() || policy.SummaryOnly() || policy.IsJSON() {
 		return
 	}
-	if s.dependencies.Cmd != nil && tid == s.dependencies.TargetPID {
+	if s.dependencies.HasCommand && tid == s.dependencies.TargetPID {
 		return
 	}
 	if renderer := s.textRenderer(); renderer != nil {

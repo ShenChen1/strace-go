@@ -217,15 +217,19 @@ func TestTraceRunStateUsesInjectedClockForFallback(t *testing.T) {
 	}
 }
 
-func TestExecTraceCommandWaiterNormalizesExitResult(t *testing.T) {
+func TestTraceTargetRuntimeNormalizesAndCachesExitResult(t *testing.T) {
 	command := exec.Command("sh", "-c", "exit 3")
 	if err := command.Start(); err != nil {
 		t.Fatalf("start command: %v", err)
 	}
 
-	result := newExecTraceCommandWaiter(command).Wait()
+	runtime := newTraceTargetRuntime(command)
+	result := runtime.commandWaiter().Wait()
 	if !result.exited || result.exitCode != 3 {
 		t.Fatalf("normalized result = %+v, want exited with code 3", result)
+	}
+	if cached := runtime.commandWaiter().Wait(); cached != result {
+		t.Fatalf("cached result = %+v, want %+v", cached, result)
 	}
 }
 

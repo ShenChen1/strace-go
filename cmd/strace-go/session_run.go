@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"os"
-	"os/exec"
 	"syscall"
 	"time"
 
@@ -23,26 +22,6 @@ const (
 	traceReadNoEvent
 	traceReadClosed
 )
-
-type traceCommandWaiter interface {
-	Wait() traceCommandExitResult
-}
-
-type execTraceCommandWaiter struct {
-	command *exec.Cmd
-}
-
-func newExecTraceCommandWaiter(command *exec.Cmd) traceCommandWaiter {
-	if command == nil {
-		return nil
-	}
-	return execTraceCommandWaiter{command: command}
-}
-
-func (w execTraceCommandWaiter) Wait() traceCommandExitResult {
-	err := w.command.Wait()
-	return newTraceCommandExitResult(w.command.ProcessState, err)
-}
 
 type traceClock interface {
 	Now() time.Time
@@ -100,7 +79,7 @@ type traceCommandExitResult struct {
 func (s *traceSession) run() error {
 	deps := s.dependencies
 	state := newTraceRunState(traceRunStateDeps{
-		command:    newExecTraceCommandWaiter(deps.Cmd),
+		command:    deps.CommandWaiter,
 		attachPids: s.sessionAttachPIDs(),
 		clock:      deps.Clock,
 		pidProbe:   deps.PIDProbe,

@@ -127,7 +127,7 @@ func newTraceCommand(spec traceCommandSpec, inheritedFiles []*os.File) *exec.Cmd
 // IMPACT: startTraceCmd starts a tracee without ptrace; syscall observation is
 // purely eBPF based. The next-fork arm installs the pid filter before the
 // tracee's initial execve so the exec syscall is observable like upstream.
-func startTraceCmd(spec traceCommandSpec, bpfRuntime traceBPFTargetPort, inheritedFiles []*os.File) (*exec.Cmd, int, fdStateSeed, error) {
+func startTraceCmd(spec traceCommandSpec, bpfRuntime traceBPFTargetPort, inheritedFiles []*os.File) (*traceTargetRuntime, int, fdStateSeed, error) {
 	if len(spec.args) == 0 {
 		return nil, 0, fdStateSeed{}, fmt.Errorf("trace command is empty")
 	}
@@ -144,20 +144,21 @@ func startTraceCmd(spec traceCommandSpec, bpfRuntime traceBPFTargetPort, inherit
 		return nil, 0, fdStateSeed{}, fmt.Errorf("start command: %w", err)
 	}
 
+	targetRuntime := newTraceTargetRuntime(cmd)
 	targetPid := cmd.Process.Pid
 	if err := bpfRuntime.addFilterPID(uint32(targetPid)); err != nil {
 		_ = disarmNextFork(bpfRuntime)
-		abortTraceTarget(cmd, bpfRuntime, targetPid)
+		abortTraceTarget(targetRuntime, bpfRuntime, targetPid)
 		return nil, 0, fdStateSeed{}, fmt.Errorf("add tracee %d to filter: %w", targetPid, err)
 	}
 	if armedPID, ok := bpfRuntime.armedForkPID(); ok {
 		log.Printf("DEBUG arm after start = %d, tracee = %d", armedPID, targetPid)
 	}
 	if err := disarmNextFork(bpfRuntime); err != nil {
-		abortTraceTarget(cmd, bpfRuntime, targetPid)
+		abortTraceTarget(targetRuntime, bpfRuntime, targetPid)
 		return nil, 0, fdStateSeed{}, fmt.Errorf("disarm initial fork: %w", err)
 	}
-	return cmd, targetPid, initialTraceCommandFDSeed(targetPid, initialCwd), nil
+	return targetRuntime, targetPid, initialTraceCommandFDSeed(targetPid, initialCwd), nil
 }
 
 // armNextFork asks the BPF sched_process_fork program to add the next child of
