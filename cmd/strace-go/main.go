@@ -69,12 +69,12 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 	if err != nil {
 		return fmt.Errorf("failed to resolve trace targets: %w", err)
 	}
-	cleanupTargets := true
-	defer func() {
-		if cleanupTargets {
-			abortTraceTargets(config.targets, targetRuntime, bpfRuntime, targetPid)
-		}
-	}()
+	targetHandoff, err := newTraceTargetHandoff(config.targets, targetRuntime, bpfRuntime, targetPid)
+	if err != nil {
+		abortTraceTarget(targetRuntime, bpfRuntime, targetPid)
+		return fmt.Errorf("failed to own trace targets: %w", err)
+	}
+	defer func() { _ = targetHandoff.Close() }()
 
 	output, err := setupOutput(config.outputPath, config.outputAppend)
 	if err != nil {
@@ -105,7 +105,9 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 	if err := session.run(); err != nil {
 		return fmt.Errorf("failed to finalize trace session: %w", err)
 	}
-	cleanupTargets = false
+	if err := targetHandoff.Transfer(); err != nil {
+		return fmt.Errorf("failed to transfer trace target ownership: %w", err)
+	}
 	return nil
 }
 
@@ -182,11 +184,6 @@ func abortTraceTarget(targetRuntime *traceTargetRuntime, bpfRuntime traceBPFTarg
 	if targetPid > 0 {
 		clearFilterPids(bpfRuntime, []uint32{uint32(targetPid)})
 	}
-	terminateTraceTarget(targetRuntime)
-}
-
-func abortTraceTargets(targets traceTargetConfig, targetRuntime *traceTargetRuntime, bpfRuntime traceBPFTargetPort, targetPid int) {
-	clearFilterPids(bpfRuntime, traceTargetPIDs(targets.attachPIDs, targetPid))
 	terminateTraceTarget(targetRuntime)
 }
 

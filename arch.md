@@ -4477,3 +4477,40 @@ Impact note：影响 `main.go`、`session.go` 的目标启动返回值、`sessio
 失败优先 source gate 先因 `target_runtime.go` 不存在、`main.go`/`session_run.go` 各自直接拥有 `Wait` 而失败；迁移后新增 `traceTargetRuntime`，命令成功启动后由唯一 worker 调用 tracee `cmd.Wait`，session 只接收 `HasCommand`/`CommandWaiter`，异常清理通过同一个 completion signal kill-and-wait，重复 abort 不会再次 wait。新增回归覆盖正常退出结果缓存、kill-before-exit、already-exited、重复 abort、nil port 和 command lifecycle 依赖不一致。
 
 本轮 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14105 ./cmd/strace-go`、`git diff --check` 以及纯 eBPF/no-ptrace/no-procfs source gate 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，732.34 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认 tracee `exec.Cmd.Wait` 仅存在于 `target_runtime.go` 的唯一 worker，生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.106 将目标 filter/process 清理收口到 target handoff（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.105 已让 `traceTargetRuntime` 成为 tracee `Wait` 的唯一 owner，但 `runTraceSession` 仍用 `cleanupTargets` 布尔值决定是否调用 `abortTraceTargets`；该 helper 同时清理 BPF filter map 和终止 command，目标启动失败路径又由 `abortTraceTarget` 单独处理。
+- Problem：目标 filter ownership、command abort ownership 和 session 成功转移由多个函数与一个可变布尔值拼接，正常/异常分支的责任不在同一对象上。当前代码没有重复清理的显式状态契约，未来增加 attach target、pidfd 或新的启动阶段时容易漏掉某一部分清理。
+- Goal：新增 bootstrap-only `traceTargetHandoff`，在目标解析成功后一次性持有目标 PID 集合、BPF target port 和可选 `traceTargetRuntime`；`Close` 负责一次性清理 filter 并 abort command，`Transfer` 在 session 成功后放弃 bootstrap ownership。删除 `cleanupTargets` 和主流程对 `abortTraceTargets` 的直接调用；启动阶段失败仍使用窄的 `abortTraceTarget`。
+- Non-goals：不改变 command/attach 启动顺序、initial fork arm/disarm、PID 去重规则、BPF filter map ABI、tracee Wait 实现、session 退出条件、ringbuf 事件和输出格式、纯 eBPF/no-procfs/no-ptrace 约束；不把 target handoff 放入事件状态机或让 session 直接操作 BPF target port。
+- Constraints：handoff 必须复制并固定 target PID 集合；transfer 前任何 bootstrap 错误都必须触发 filter cleanup 与 command abort；transfer 后 handoff close 不得再次删除 filter 或 kill command；handoff 的 close 顺序必须早于 BPF runtime close，避免向已关闭 map 发清理操作。
+
+Impact note：影响 `main.go` 的 target bootstrap defer、目标 ownership 类型和 source/unit tests；`session.go` 只保留启动失败的局部清理，session composition 不增加 BPF target 能力。
+
+方案比较：
+
+1. 继续保留 `cleanupTargets bool`，只把 abort helper 改名：改动最小，但状态仍散落在 orchestrator，无法表达 filter 与 command 的共同 ownership，拒绝。
+2. 让 session finalizer 负责清理 target：正常路径集中，但 finalizer 会获得 BPF target 操作权限，且 composition/运行失败路径的责任反向穿透，拒绝。
+3. 在目标解析成功后建立 `traceTargetHandoff`，以 `Transfer/Close` 管理 bootstrap ownership：能力边界窄、状态独立、defer 顺序可测试，选择该方案。
+
+状态契约：
+
+- `traceTargetHandoff` 初始拥有固定的 filter PID 集合和可选 command runtime；`Close` 先删 filter，再 abort runtime，并将 ownership 标记为已释放。
+- `Transfer` 只允许成功一次；transfer 后 `Close` 是 no-op，session 不持有 handoff，也不调用 BPF target port。
+- attach-only target 的 runtime 为 nil，但 filter cleanup 仍由 handoff 完成；command-only 和 command+attach 使用同一套 PID 去重。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 `main.go` 删除 `cleanupTargets`/`abortTraceTargets`，并要求 handoff 的构造、transfer、close API；迁移前 gate 应失败。
+- 增加 command-only、attach-only、transfer 后 no-op、重复 transfer 和 PID snapshot 回归；运行 focused、Go 全量/race/vet/build、纯 eBPF source gate、semantic/perf 和 upstream reference。
+
+本阶段只收口目标 bootstrap ownership，不改变任何内核采集或用户可见事件语义。
+
+### 14.106 实际验收记录
+
+失败优先 source gate 先因 `main.go` 仍含 `cleanupTargets` 且 `target_handoff.go` 不存在而失败；迁移后新增 `traceTargetHandoff`，目标解析成功后固定去重 PID 快照，异常路径由 handoff 先清理 filter 再 abort command，成功 session 通过 `Transfer` 放弃 bootstrap ownership，主流程不再持有 `cleanupTargets` 或 `abortTraceTargets`。
+
+本轮 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14106 ./cmd/strace-go`、`git diff --check` 以及纯 eBPF/no-ptrace/no-procfs source gate 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，737.69 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认 target handoff defer 注册晚于 event/BPF owner、因此关闭早于 BPF runtime，生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
