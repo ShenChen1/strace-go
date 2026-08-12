@@ -322,19 +322,3 @@ func attachPIDs(opts *cli.Options) []int {
 	}
 	return opts.AttachPids
 }
-
-func (s *traceSession) componentsOrBuild() *traceSessionComponents {
-	if s == nil {
-		return nil
-	}
-	if s.components == nil {
-		if s.state == nil {
-			// Hand-built event fixtures intentionally use immediate unmatched-exit
-			// handling; production sessions are created by newTraceSession.
-			s.state = newTraceState()
-		}
-		normalizeTraceSession(s)
-		s.components = buildTraceSessionComponents(s)
-	}
-	return s.components
-}

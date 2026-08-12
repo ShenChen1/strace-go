@@ -27,11 +27,10 @@ func newSyscallJSONOutput(deps SyscallJSONOutputDeps) *SyscallJSONOutput {
 }
 
 func (s *traceSession) syscallJSONOutput() *SyscallJSONOutput {
-	components := s.componentsOrBuild()
-	if components == nil {
+	if s == nil || s.components == nil {
 		return nil
 	}
-	return components.syscallJSON
+	return s.components.syscallJSON
 }
 
 func (o *SyscallJSONOutput) HandleEnter(ev syscallEventContext) {

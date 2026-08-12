@@ -40,11 +40,10 @@ func newTextRenderer(deps TextRendererDeps) *TextRenderer {
 }
 
 func (s *traceSession) textRenderer() *TextRenderer {
-	components := s.componentsOrBuild()
-	if components == nil {
+	if s == nil || s.components == nil {
 		return nil
 	}
-	return components.textRenderer
+	return s.components.textRenderer
 }
 
 func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.Result) {

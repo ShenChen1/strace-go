@@ -80,11 +80,10 @@ func newLifecycleEventHandler(deps LifecycleEventHandlerDeps) *LifecycleEventHan
 }
 
 func (s *traceSession) lifecycleEventHandler() *LifecycleEventHandler {
-	components := s.componentsOrBuild()
-	if components == nil {
+	if s == nil || s.components == nil {
 		return nil
 	}
-	return components.lifecycleHandler
+	return s.components.lifecycleHandler
 }
 
 // IMPACT: Handle owns lifecycle side effects after TraceState has updated task state.

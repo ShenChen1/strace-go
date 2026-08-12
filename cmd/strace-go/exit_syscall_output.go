@@ -41,11 +41,10 @@ func newExitSyscallOutput(deps ExitSyscallOutputDeps) *ExitSyscallOutput {
 }
 
 func (s *traceSession) exitSyscallOutput() *ExitSyscallOutput {
-	components := s.componentsOrBuild()
-	if components == nil {
+	if s == nil || s.components == nil {
 		return nil
 	}
-	return components.exitSyscall
+	return s.components.exitSyscall
 }
 
 // IMPACT: Handle owns exit/exit_group text, JSON, and exit-status queue output.

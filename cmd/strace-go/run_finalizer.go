@@ -46,11 +46,10 @@ func newTraceRunFinalizer(deps TraceRunFinalizerDeps) *TraceRunFinalizer {
 }
 
 func (s *traceSession) traceRunFinalizer() *TraceRunFinalizer {
-	components := s.componentsOrBuild()
-	if components == nil {
+	if s == nil || s.components == nil {
 		return nil
 	}
-	return components.runFinalizer
+	return s.components.runFinalizer
 }
 
 func (f *TraceRunFinalizer) Finish() error {

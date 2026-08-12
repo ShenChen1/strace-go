@@ -13,13 +13,13 @@ import (
 func TestJSONEventsArePairedByTIDState(t *testing.T) {
 	opts := cli.ParseArgs([]string{"--event-format=json", "-e", "trace=getpid", "/bin/true"})
 	var output bytes.Buffer
-	session := &traceSession{
-		targetPid: 1234,
-		opts:      opts,
-		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-		outWriter: &output,
-	}
+	session := newTraceSession(traceSessionDeps{
+		TargetPID: 1234,
+		Opts:      opts,
+		Decoder:   event.NewDecoder(),
+		FDState:   newFDStateStoreFromMaps(nil, nil),
+		OutWriter: &output,
+	})
 
 	enter := traceEventEnvelope{
 		valid:        true,

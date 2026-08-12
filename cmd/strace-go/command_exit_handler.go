@@ -28,11 +28,10 @@ func newTraceCommandExitHandler(deps TraceCommandExitHandlerDeps) *TraceCommandE
 }
 
 func (s *traceSession) commandExitHandler() *TraceCommandExitHandler {
-	components := s.componentsOrBuild()
-	if components == nil {
+	if s == nil || s.components == nil {
 		return nil
 	}
-	return components.commandExitHandler
+	return s.components.commandExitHandler
 }
 
 func (h *TraceCommandExitHandler) MarkExited(result traceCommandExitResult) {

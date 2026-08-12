@@ -39,11 +39,10 @@ func newExitStatusCoordinator(deps ExitStatusCoordinatorDeps) *ExitStatusCoordin
 }
 
 func (s *traceSession) exitStatusCoordinator() *ExitStatusCoordinator {
-	components := s.componentsOrBuild()
-	if components == nil {
+	if s == nil || s.components == nil {
 		return nil
 	}
-	return components.exitStatus
+	return s.components.exitStatus
 }
 
 // IMPACT: Queue records an exit line until process wait confirms that tracee termination is visible.

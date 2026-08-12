@@ -83,16 +83,17 @@ func newJSONLifecycleEvent(view lifecycleEventView, task *TaskState) jsonLifecyc
 }
 
 func (s *traceSession) jsonEventWriter() *JSONEventWriter {
-	components := s.componentsOrBuild()
-	if components == nil {
+	if s == nil || s.components == nil {
 		return nil
 	}
-	return components.jsonWriter
+	return s.components.jsonWriter
 }
 
 func (s *traceSession) emitDebugReady() {
 	if s == nil || s.opts == nil || !s.opts.DebugEvents {
 		return
 	}
-	s.jsonEventWriter().WriteReady(s.targetPid, s.opts.AttachPids)
+	if writer := s.jsonEventWriter(); writer != nil {
+		writer.WriteReady(s.targetPid, s.opts.AttachPids)
+	}
 }

@@ -36,11 +36,10 @@ func newSyscallHandlerRunner(deps SyscallHandlerRunnerDeps) *SyscallHandlerRunne
 }
 
 func (s *traceSession) syscallHandlerRunner() *SyscallHandlerRunner {
-	components := s.componentsOrBuild()
-	if components == nil {
+	if s == nil || s.components == nil {
 		return nil
 	}
-	return components.handlerRunner
+	return s.components.handlerRunner
 }
 
 // IMPACT: Handle owns handler decoding and FD state side effects for syscall exit events.

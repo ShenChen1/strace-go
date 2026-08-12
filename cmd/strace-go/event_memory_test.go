@@ -16,13 +16,14 @@ func TestJSONEventPathDoesNotReadTraceeMemory(t *testing.T) {
 	var output bytes.Buffer
 	decoder := event.NewDecoder()
 
-	session := &traceSession{
-		targetPid: 1234,
-		opts:      opts,
-		decoder:   decoder,
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-		outWriter: &output,
-	}
+	session := newTraceSession(traceSessionDeps{
+		TargetPID: 1234,
+		Opts:      opts,
+		Decoder:   decoder,
+		FDState:   newFDStateStoreFromMaps(nil, nil),
+		OutWriter: &output,
+		State:     newTraceState(),
+	})
 
 	pathPtr := uint64(0x1000)
 	session.handleEnvelope(traceEventEnvelope{
@@ -51,13 +52,14 @@ func TestJSONHandlerContextDoesNotReadTraceeMemory(t *testing.T) {
 	var output bytes.Buffer
 	decoder := event.NewDecoder()
 
-	session := &traceSession{
-		targetPid: 1234,
-		opts:      opts,
-		decoder:   decoder,
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-		outWriter: &output,
-	}
+	session := newTraceSession(traceSessionDeps{
+		TargetPID: 1234,
+		Opts:      opts,
+		Decoder:   decoder,
+		FDState:   newFDStateStoreFromMaps(nil, nil),
+		OutWriter: &output,
+		State:     newTraceState(),
+	})
 
 	pathPtr := uint64(0x1000)
 	howPtr := uint64(0x2000)
@@ -84,13 +86,14 @@ func TestTextEventPathDoesNotReadTraceeMemory(t *testing.T) {
 	var output bytes.Buffer
 	decoder := event.NewDecoder()
 
-	session := &traceSession{
-		targetPid: 1234,
-		opts:      opts,
-		decoder:   decoder,
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-		outWriter: &output,
-	}
+	session := newTraceSession(traceSessionDeps{
+		TargetPID: 1234,
+		Opts:      opts,
+		Decoder:   decoder,
+		FDState:   newFDStateStoreFromMaps(nil, nil),
+		OutWriter: &output,
+		State:     newTraceState(),
+	})
 
 	pathPtr := uint64(0x1000)
 	session.handleEnvelope(traceEventEnvelope{

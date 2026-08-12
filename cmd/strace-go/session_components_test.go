@@ -108,10 +108,10 @@ var _ traceEventSink = (*recordingEventSink)(nil)
 
 func TestTraceSessionFixtureUsesOneComposedComponentGraph(t *testing.T) {
 	var output bytes.Buffer
-	session := &traceSession{
-		opts:      &cli.Options{},
-		outWriter: &output,
-	}
+	session := newTraceSession(traceSessionDeps{
+		Opts:      &cli.Options{},
+		OutWriter: &output,
+	})
 
 	if session.textRenderer() != session.textRenderer() {
 		t.Fatal("textRenderer should be stable per session")
@@ -157,12 +157,22 @@ func TestTraceSessionFixtureUsesOneComposedComponentGraph(t *testing.T) {
 	}
 }
 
+func TestZeroValueTraceSessionDoesNotBuildComponentGraph(t *testing.T) {
+	session := &traceSession{}
+	if session.traceEventRouter() != nil {
+		t.Fatal("zero-value traceSession must not construct an event graph")
+	}
+	if session.components != nil {
+		t.Fatal("zero-value traceSession unexpectedly gained components")
+	}
+}
+
 func TestTraceSessionPipelineUsesComposedDependencies(t *testing.T) {
 	var output bytes.Buffer
-	session := &traceSession{
-		opts:      &cli.Options{},
-		outWriter: &output,
-	}
+	session := newTraceSession(traceSessionDeps{
+		Opts:      &cli.Options{},
+		OutWriter: &output,
+	})
 
 	pipeline := session.syscallExitPipeline()
 	jsonWriter := session.jsonEventWriter()

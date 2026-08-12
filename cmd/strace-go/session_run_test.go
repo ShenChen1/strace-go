@@ -90,11 +90,11 @@ func TestFinishRunWritesJSONStatsEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newTraceOutput() error = %v", err)
 	}
-	session := &traceSession{
-		opts:      &cli.Options{EventFormat: cli.EventFormatJSON},
-		outWriter: traceOutput,
-		output:    traceOutput,
-	}
+	session := newTraceSession(traceSessionDeps{
+		Opts:      &cli.Options{EventFormat: cli.EventFormatJSON},
+		OutWriter: traceOutput,
+		Output:    traceOutput,
+	})
 
 	session.finishRun()
 
