@@ -45,6 +45,48 @@ func (*fakeContextRuntime) NextFiemapCall(int) int {
 	return 7
 }
 
+type fakeSyscallEventContextDependencySource struct {
+	deps syscallEventContextDeps
+}
+
+func (s fakeSyscallEventContextDependencySource) eventContextDependencies() syscallEventContextDeps {
+	return s.deps
+}
+
+func TestSyscallEventContextDependencySourceProjectsPorts(t *testing.T) {
+	decoder := event.NewDecoder()
+	catalog := meta.NewCatalog("raw")
+	fdState := &fakeContextFDStateReader{path: "/state"}
+	runtime := &fakeContextRuntime{}
+	registry := handler.NewRegistry()
+	policy := newTraceEventPolicy(&cli.Options{DebugEvents: true})
+	source := fakeSyscallEventContextDependencySource{deps: syscallEventContextDeps{
+		decoder:     decoder,
+		handlerOpts: policy.handlerOptions,
+		filter:      policy.filter,
+		catalog:     catalog,
+		fdState:     fdState,
+		fdPath:      fdState,
+		registry:    registry,
+		runtime:     runtime,
+	}}
+
+	got := newSyscallEventContextDeps(source)
+	if got.decoder != decoder || got.catalog != catalog || got.fdState != fdState || got.fdPath != fdState || got.runtime != runtime {
+		t.Fatalf("dependency ports = %+v, want source-owned ports", got)
+	}
+	if got.registry != registry || got.handlerOpts != policy.handlerOptions || got.filter != policy.filter {
+		t.Fatal("dependency source did not preserve registry and immutable policy")
+	}
+}
+
+func TestSyscallEventContextDependencyConstructorAcceptsNilSource(t *testing.T) {
+	got := newSyscallEventContextDeps(nil)
+	if got.decoder != nil || got.catalog != nil || got.fdState != nil || got.fdPath != nil || got.registry != nil || got.runtime != nil {
+		t.Fatalf("nil source dependencies = %+v, want empty dependencies", got)
+	}
+}
+
 func TestSyscallEventContextUsesSeparateFDReaderPorts(t *testing.T) {
 	stateReader := &fakeContextFDStateReader{
 		path:        "/persistent",

@@ -311,7 +311,7 @@ func buildTraceSessionEvents(
 		Lifecycle:   lifecycle,
 		JSON:        outputs.syscallJSON,
 		Pipeline:    exitPipeline,
-		ContextDeps: newSyscallEventContextDepsWithPolicy(session, base.handlerRegistry, base.eventPolicy),
+		ContextDeps: newSyscallEventContextDepsWithRegistry(session, base.handlerRegistry),
 	})
 	return traceSessionEventComponents{
 		exitPipeline:     exitPipeline,

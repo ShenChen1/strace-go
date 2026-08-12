@@ -14,3 +14,25 @@ func (s *traceSession) runtimeService() handler.RuntimeServices {
 	}
 	return s.dependencies.Runtime
 }
+
+func (s *traceSession) eventContextDependencies() syscallEventContextDeps {
+	if s == nil {
+		return syscallEventContextDeps{}
+	}
+	deps := s.dependencies
+	contextDeps := syscallEventContextDeps{
+		decoder: deps.Decoder,
+		catalog: deps.Catalog,
+		fdState: deps.FDState,
+		fdPath:  deps.FDState,
+		runtime: deps.Runtime,
+	}
+	if s.components != nil {
+		contextDeps.registry = s.components.handlerRegistry
+	}
+	if s.eventPolicy != nil {
+		contextDeps.handlerOpts = s.eventPolicy.handlerOptions
+		contextDeps.filter = s.eventPolicy.filter
+	}
+	return contextDeps
+}

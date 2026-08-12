@@ -66,3 +66,16 @@ func TestEventContextDependsOnSnapshotDecoderPort(t *testing.T) {
 		t.Fatal("event context must not expose concrete event.Decoder")
 	}
 }
+
+func TestEventContextDependencyConstructorUsesSourcePort(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/syscall_event_context.go"))
+	if !strings.Contains(source, "type syscallEventContextDependencySource interface") {
+		t.Fatal("event context dependency source interface is missing")
+	}
+	if strings.Contains(source, "func newSyscallEventContextDeps(s *traceSession)") {
+		t.Fatal("event context dependency constructor must not depend on concrete traceSession")
+	}
+	if strings.Contains(source, "newSyscallEventContextDepsWithPolicy") {
+		t.Fatal("event context dependency construction must not rebuild policy from a session")
+	}
+}

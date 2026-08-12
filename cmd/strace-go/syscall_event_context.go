@@ -55,58 +55,24 @@ type syscallEventContextDeps struct {
 	runtime     handler.RuntimeServices
 }
 
-func newSyscallEventContextDeps(s *traceSession) syscallEventContextDeps {
-	var registry handler.RegistryPort
-	if s != nil {
-		if s.components != nil {
-			registry = s.components.handlerRegistry
-		}
+type syscallEventContextDependencySource interface {
+	eventContextDependencies() syscallEventContextDeps
+}
+
+func newSyscallEventContextDeps(source syscallEventContextDependencySource) syscallEventContextDeps {
+	if source == nil {
+		return syscallEventContextDeps{}
 	}
-	return newSyscallEventContextDepsWithRegistry(s, registry)
+	return source.eventContextDependencies()
 }
 
 func newSyscallEventContextDepsWithRegistry(
-	s *traceSession,
+	source syscallEventContextDependencySource,
 	registry handler.RegistryPort,
 ) syscallEventContextDeps {
-	var policy *cliTraceEventPolicy
-	if s != nil {
-		policy = s.eventPolicy
-	}
-	return newSyscallEventContextDepsWithPolicy(s, registry, policy)
-}
-
-func newSyscallEventContextDepsWithPolicy(
-	s *traceSession,
-	registry handler.RegistryPort,
-	policy *cliTraceEventPolicy,
-) syscallEventContextDeps {
-	if s == nil {
-		return newSyscallEventContextDepsForPolicy(registry, policy)
-	}
-	deps := s.dependencies
-	fdState := deps.FDState
-	policyDeps := newSyscallEventContextDepsForPolicy(registry, policy)
-	policyDeps.decoder = deps.Decoder
-	policyDeps.catalog = deps.Catalog
-	policyDeps.fdState = fdState
-	policyDeps.fdPath = fdState
-	policyDeps.runtime = deps.Runtime
-	return policyDeps
-}
-
-func newSyscallEventContextDepsForPolicy(
-	registry handler.RegistryPort,
-	policy *cliTraceEventPolicy,
-) syscallEventContextDeps {
-	if policy == nil {
-		return syscallEventContextDeps{registry: registry}
-	}
-	return syscallEventContextDeps{
-		handlerOpts: policy.handlerOptions,
-		filter:      policy.filter,
-		registry:    registry,
-	}
+	deps := newSyscallEventContextDeps(source)
+	deps.registry = registry
+	return deps
 }
 
 func (deps syscallEventContextDeps) fdPathReader() event.FDPathReader {
@@ -125,7 +91,7 @@ func (deps syscallEventContextDeps) runtimeService() handler.RuntimeServices {
 }
 
 func newSyscallEventContextFromView(
-	s *traceSession,
+	s syscallEventContextDependencySource,
 	view syscallEventView,
 	statePID int,
 	pendingEnter *pendingSyscallState,

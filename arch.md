@@ -5513,3 +5513,42 @@ Impact note：影响 `TraceState` unfinished candidate 临时 slice 的生命周
 真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 286.70 ns/op、0 B/op、0 allocs/op`、raw JSON `484.00 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `603.30 ns/op、0 B/op、0 allocs/op`、decoded payload `846.60 ns/op、16 B/op、1 alloc/op`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
 
 当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 view storage 只由单消费者在 `TraceEventRouter.Handle` 的同步 update 生命周期内取得/归还，release 顺序覆盖普通、fragment、deferred/lifecycle update；生产 handler 只读取 payload section，不写回 borrowed state，未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
+
+### 14.132 用依赖源接口隔离事件上下文与 traceSession（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：事件上下文已经通过 `handler.RegistryPort`、`handler.SnapshotDecoder`、FD state/path reader 和 runtime service 使用端口，但 `newSyscallEventContextDeps*` 仍直接接收 `*traceSession`，并在上下文构造器内读取 session 的 component/dependencies 字段。
+- Problem：事件路由层为了组装上下文依赖而编译期绑定完整 session；这扩大了组合根和事件上下文的耦合，也让测试只能构造真实 session 才能覆盖依赖源路径，削弱接口设计的可替换性。
+- Goal：引入最小的 `syscallEventContextDependencySource` 接口，由 source 一次性提供已组合的 `syscallEventContextDeps`；`traceSession` 只在 session 边界实现该接口，事件上下文构造器不再声明或解引用 `*traceSession`。
+- Non-goals：不改变 context 字段、过滤策略、handler registry、FD/path 分离、payload ownership、输出顺序或 session component graph；不把 `traceSessionDeps` 暴露给 handler/router，不引入全局 service locator、反射、锁、goroutine、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：source 返回的依赖必须是当前 session snapshot；router 只持有已经构造好的 `syscallEventContextDeps`，不在事件处理期间回调 session；nil source 保持空依赖行为；接口方法只能从 session composition 产生只读端口值。
+
+Impact note：影响 `cmd/strace-go/syscall_event_context.go` 的依赖构造签名、`session_composition.go` 的 router wiring 和 `traceSession` 的适配方法；不改变 `syscallEventContextDeps` 的字段语义或运行期事件状态。
+
+方案比较：
+
+1. 继续让构造器接收 `*traceSession`：调用点少，但保留完整 session 的编译期耦合，拒绝。
+2. 每个调用点显式传递 decoder/catalog/FD/runtime/registry/policy：边界最直接，但参数重复、容易漏传且放大路由组合噪音，拒绝。
+3. 由最小依赖源接口返回已组合的 context dependency snapshot，session 在组合边界实现适配：保留显式端口、减少参数污染并可用 fake source 测试，选择该方案。
+
+状态契约：
+
+- `newSyscallEventContextDeps` 只依赖 `syscallEventContextDependencySource`；它不读取 session 字段，也不创建 registry、decoder、FD state 或 runtime fallback。
+- `traceSession.eventContextDependencies` 负责把 session-owned decoder/catalog/FDState/Runtime、已组合 registry 和 immutable event policy 投影为一次性的 `syscallEventContextDeps` 值。
+- `TraceEventRouter` 仍在构造时接收值类型 `syscallEventContextDeps`；事件处理期间不存在从 router 反向访问 session 的路径。
+- fake source 至少覆盖成功依赖投影和 nil source 两条路径；source gate 禁止上下文构造器恢复 `*traceSession` 参数。
+
+测试与验收：
+
+- 先增加失败优先 source-contract 测试，验证构造器使用接口、fake source 的端口和 policy/registry 能完整到达 context。
+- 实现后运行 focused context/session tests、Go 全量/race/vet/build、Python oracle、semantic/perf、small 和 upstream reference。
+- review 检查 production context file 不再出现具体 session 类型，router 没有新建依赖或 fallback，且纯 eBPF/procfs 禁止规则保持通过。
+
+#### 实际验收记录
+
+失败优先的 source-contract 测试先确认旧构造器拒绝 fake dependency source；实现后 focused context/session tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14132 ./cmd/strace-go` 和 `git diff --check` 全部通过。期间 focused 测试暴露组件组合顺序问题：router 构造时 `session.components` 尚未回填，随后改为由同一 composition step 显式注入已创建的 registry；这保留了 source 接口边界且没有引入 fallback。
+
+真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 287.00 ns/op、0 B/op、0 allocs/op`、raw JSON `501.60 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `587.70 ns/op、0 B/op、0 allocs/op`、decoded payload `878.50 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
+
+当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 `syscall_event_context.go` 不再声明具体 `traceSession` 依赖，router 只保存构造期的值类型 context deps；`traceSession` 仅在 session 边界实现 source 适配，生产路径未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
