@@ -5898,3 +5898,41 @@ Impact note：影响 `cmd/strace-go/session_composition.go` 的 catalog dependen
 真实 `ebpf-semantic` 通过：205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0，write-only events 为 6。`ebpf-perf` 通过：`TraceEventDecodeState 289.40 ns/op、0 B/op、0 allocs/op`、raw JSON `483.20 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `609.70 ns/op、0 B/op、0 allocs/op`、decoded payload `823.10 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认 `traceSessionConfig` 仍负责创建唯一真实 `*meta.Catalog`，session runtime 只保存 `meta.CatalogPort`，FD flag decoder 继续使用同一 owner 的 `DecodeFlags` 能力；没有改变 xlat 表或输出语义。未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
+
+### 14.142 将 session snapshot decoder 收窄为 handler port（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：事件上下文已经声明 `handler.SnapshotDecoder`，只消费 BPF 站点捕获快照的字符串解码和 escape mode；`traceSessionDeps.Decoder` 仍声明为具体的 `*event.Decoder`。
+- Problem：session dependency contract 泄漏 decoder 的 map/配置实现，无法注入只实现快照解码行为的 fake，也容易让运行期代码重新依赖具体 decoder 可变字段。
+- Goal：将 `traceSessionDeps.Decoder` 改为 `handler.SnapshotDecoder`，保持 `traceSessionConfig` 在 bootstrap 阶段创建并配置真实 `*event.Decoder`，运行期只接收其行为 port。
+- Non-goals：不改变 BPF payload、字符串限制、escape mode、内存快照语义、event record decoder、handler 输出、性能模型、并发模型或纯 eBPF/no-procfs/no-ptrace 约束。
+- Constraints：session runtime 只调用 `DecodeString` 与 `EscapeMode`；nil 校验和 decoder owner 生命周期保持不变；不得重新创建 decoder 或增加用户态 tracee 内存读取。
+
+Impact note：影响 `cmd/strace-go/session_composition.go` 的 decoder dependency contract 与 snapshot-decoder source/fake tests；`traceSessionConfig.decoder` 继续保存构造期具体 decoder，`TraceEventReader` 的 `traceRecordDecoder` 不属于本阶段。
+
+方案比较：
+
+1. 保留 `*event.Decoder`：改动最少，但 session runtime 继续暴露具体 decoder，拒绝。
+2. 在 cmd 包内重复声明 decoder wrapper：隐藏类型但复制已有 handler port，增加转换层和语义漂移，拒绝。
+3. 复用 `handler.SnapshotDecoder`：直接匹配 event context 的实际消费面，可注入 fake，选择该方案。
+
+状态契约：
+
+- decoder 仍是 session-local 的单一快照解码 owner，interface 化不复制其配置或 payload。
+- handler Context 收到同一个 `SnapshotDecoder` 接口值；`traceRecordDecoder` 继续负责 ringbuf ABI 解码，两者职责不混合。
+- escape mode 和 string limit 仍在 bootstrap 具体 decoder 上配置，然后通过既有方法只读消费。
+
+测试与验收：
+
+- 先增加失败优先的 fake snapshot decoder 测试，确认旧具体字段无法接收 `handler.SnapshotDecoder` 替代实现。
+- 实现后运行 focused decoder-port tests、Go 全量/race/vet/build、`git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和 `upstream-reference`。
+- review 检查 record decoder、BPF payload、纯 eBPF/no-procfs/no-ptrace 禁止规则均未改变。
+
+#### 实际验收记录
+
+失败优先的 fake snapshot decoder 测试先因 `traceSessionDeps.Decoder` 固定为 `*event.Decoder` 而无法编译；实现为 `handler.SnapshotDecoder` 后 focused decoder-port tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14142 ./cmd/strace-go` 和 `git diff --check` 全部通过。fake decoder 验证 session 与 event context 共享同一个快照解码 port，source gate 确认 session dependency 不再暴露具体 decoder。
+
+真实 `ebpf-semantic` 通过：205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0，write-only events 为 6。`ebpf-perf` 通过：`TraceEventDecodeState 286.50 ns/op、0 B/op、0 allocs/op`、raw JSON `489.80 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `639.10 ns/op、0 B/op、0 allocs/op`、decoded payload `921.80 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认 `traceSessionConfig` 仍在 bootstrap 创建并配置唯一真实 `*event.Decoder`，session runtime 只保存 `handler.SnapshotDecoder`；ringbuf `traceRecordDecoder` 仍是独立的 ABI 解码 owner。未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。

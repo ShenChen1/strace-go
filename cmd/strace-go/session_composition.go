@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 
-	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 	"strace-go/pkg/stacktrace"
@@ -106,7 +105,7 @@ type traceSessionDeps struct {
 	EventPolicy   *cliTraceEventPolicy
 	OutputPolicy  *cliTraceOutputPolicy
 	Catalog       meta.CatalogPort
-	Decoder       *event.Decoder
+	Decoder       handler.SnapshotDecoder
 	FDState       *FDStateStore
 	Runtime       handler.RuntimeServices
 	OutWriter     io.Writer
