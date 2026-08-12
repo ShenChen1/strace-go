@@ -78,11 +78,12 @@ func exitEventContextWithView(
 ) syscallEventContext {
 	scMeta := meta.Syscall{Name: name, Args: []string{"error_code"}, ArgTypes: []string{"int"}}
 	ctx := &handler.Context{
-		ScMeta:  scMeta,
-		SysName: name,
-		Args:    handlerArgs,
-		Meta:    meta.NewCatalog(opts.XlatFormat),
-		Opts:    opts,
+		ScMeta:   scMeta,
+		SysName:  name,
+		Args:     handlerArgs,
+		Registry: handler.NewRegistry(),
+		Meta:     meta.NewCatalog(opts.XlatFormat),
+		Opts:     opts,
 	}
 	return syscallEventContext{
 		view:           view,
@@ -269,11 +270,12 @@ func TestExitSyscallOutputDetectsExitFromHandlerMetadata(t *testing.T) {
 		view:        syscallEventView{valid: true, eventType: bpfEventTypeExit, tid: 101, probeRetEnter: -1, args: [6]uint64{7}},
 		shouldPrint: true,
 		handlerContext: &handler.Context{
-			ScMeta:  scMeta,
-			SysName: "exit_group",
-			Args:    [6]uint64{7},
-			Meta:    meta.NewCatalog(state.output.opts.XlatFormat),
-			Opts:    state.output.opts,
+			ScMeta:   scMeta,
+			SysName:  "exit_group",
+			Args:     [6]uint64{7},
+			Registry: handler.NewRegistry(),
+			Meta:     meta.NewCatalog(state.output.opts.XlatFormat),
+			Opts:     state.output.opts,
 		},
 	}
 

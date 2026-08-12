@@ -124,9 +124,10 @@ func TestFDPathSnapshotReachesHandlerFormatter(t *testing.T) {
 	copy(data[handler.FDPathStatePrefixSize:], "/null\x00")
 
 	deps := syscallEventContextDeps{
-		decoder: event.NewDecoder(),
-		opts:    cli.ParseArgs([]string{"-yy", "--trace=dup", "/bin/true"}),
-		fdState: newFDStateStoreFromMaps(nil, nil),
+		decoder:  event.NewDecoder(),
+		opts:     cli.ParseArgs([]string{"-yy", "--trace=dup", "/bin/true"}),
+		fdState:  newFDStateStoreFromMaps(nil, nil),
+		registry: handler.NewRegistry(),
 	}
 	ev := newSyscallEventContextFromViewWithDeps(deps, syscallEventView{
 		valid: true,

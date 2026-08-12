@@ -176,10 +176,3 @@ func (r *Registry) Handle(name string, ctx *Context) Result {
 	}
 	return h.Handle(ctx)
 }
-
-func (ctx *Context) registry() *Registry {
-	if ctx != nil && ctx.Registry != nil {
-		return ctx.Registry
-	}
-	return builtinRegistry
-}

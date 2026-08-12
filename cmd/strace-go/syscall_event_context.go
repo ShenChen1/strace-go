@@ -53,7 +53,11 @@ type syscallEventContextDeps struct {
 }
 
 func newSyscallEventContextDeps(s *traceSession) syscallEventContextDeps {
-	return newSyscallEventContextDepsWithRegistry(s, nil)
+	var registry *handler.Registry
+	if s != nil && s.components != nil {
+		registry = s.components.handlerRegistry
+	}
+	return newSyscallEventContextDepsWithRegistry(s, registry)
 }
 
 func newSyscallEventContextDepsWithRegistry(

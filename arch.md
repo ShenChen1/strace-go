@@ -3613,3 +3613,35 @@ Impact note：改动只作用于 `test/run_tests.py` 与 `test/upstream_suites.p
 本阶段只修正非确定性测试结果分类，不改变纯 eBPF 运行时语义。
 
 实际验收结果：先记录完整 `more` 的 1 次 `attach-p-cmd.test` XPASS，并单独重跑确认同一测试恢复为 XFAIL；新增 `MORE_TOLERATED_XPASSES`、`xpass_allowed` 独立统计和 `XPASS-ALLOWED` 输出，严格 expected failure 的分类测试保持不变。Python runner 单测为 17/17，`more` 为 80 PASS、3 个 XFAIL、0 FAIL、0 严格 XPASS，`small` 为 23 PASS、0 XFAIL/XPASS；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，742.70 events/s。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、Python compile、纯 eBPF source gate 和 `git diff --check` 全部通过。测试结束后无残留 tracer、fixture 或 BPF pin；生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.81 删除 Context 的 builtin registry 隐式回退（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.38/14.39 已将 handler registry 改为显式构建的 session-local 实例，并把同一实例注入 event context、handler runner 和 exit output；但 `pkg/handler/handler.go` 的 `Context.registry()` 在 `Context.Registry` 缺失时仍返回包级 `builtinRegistry`。这条回退最初只是兼容旧的纯数据测试，不属于正式 session graph。
+- Problem：事件 context 漏注 registry 时会静默拿到另一份 handler/decoder owner，隐藏 composition 错误；如果 session 未来注册覆盖 handler，缺失注入的事件仍会走 builtin 行为，造成同一进程内策略不一致。全局 builtin snapshot 可以继续作为 `NewRegistry` 的模板，但不能成为事件处理时的隐式依赖。
+- Goal：删除 `Context.registry()` 和所有 builtin fallback。`DefaultHandler`、pointer decoder、struct decoder 只从显式 `Context.Registry` 读取；缺失 registry 的独立 fixture 保持安全，使用通用标量/裸指针行为，不创建或借用任何 registry。正式 session 的 registry 注入和已有 handler 输出保持不变。
+- Non-goals：不删除 `builtinRegistry` 或 `NewRegistry`，它们仍是 session registry 的只读模板；不改变 handler 注册顺序、handler 实例、xlat catalog、snapshot 读取、event ABI、BPF 路径、纯 eBPF/no-procfs 约束或用户可见输出；不把 registry 改成全局单例或增加 mutex。
+- Constraints：所有 production event context 已由 session composition 注入 registry；零 registry 只允许作为局部测试/边界 context，必须退化为明确的 generic default，而不是补齐 builtin handler。受影响函数保持小于 80 行，新增行为需要 source gate 和至少一条 nil-registry regression。
+
+方案比较：
+
+1. 保留 builtin fallback 并补注释：兼容旧 fixture，但继续隐藏漏注入和跨 session policy 泄漏，拒绝。
+2. 缺失 registry 时直接 panic：能尽早发现 wiring 错误，但把局部 formatter 的边界错误推迟成热路径崩溃，且会扩大测试迁移面，拒绝。
+3. 删除 fallback，decoder 对 nil registry 使用显式 generic default，正式 session 继续强制注入：ownership 清晰、改动局部、不会引入新的运行时同步，选择该方案。
+
+状态契约：
+
+- `Context.Registry` 是当前事件 handler/decoder 解析的唯一来源；`Context` 不通过方法或包级变量补齐 registry。
+- `NewRegistry` 仍从只读 builtin snapshot 创建 session registry；builtin snapshot 不直接参与事件格式化。
+- nil registry 的 generic default 只输出已有 metadata 能确定的标量或指针地址；需要专项 handler/decoder 的路径不会伪造 builtin 结果。
+
+测试与验收：
+
+- 先增加失败优先行为/source gate，证明旧 `Context{}` 会解析 builtin registry，并要求 production handler source 不再定义 `Context.registry` 或返回 `builtinRegistry`。
+- 增加 nil registry 的 generic pointer/default handler 回归；保留显式 session registry 的 decoder 覆盖测试。
+- 运行 `go test ./pkg/handler`、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和 upstream reference；检查无残留 tracer、fixture 或 BPF pin。
+
+本阶段只收口 handler registry 的依赖 ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先测试先证明缺失 `Context.Registry` 时旧实现会借用 builtin pointer decoder；删除 `Context.registry()` 后，nil registry 只保留通用默认行为，显式 session registry 仍复用同一 handler owner。同步收紧 `newSyscallEventContextDeps` 和 `defaultHandleSyscall`，缺失 registry 不再创建第二份 `handler.NewRegistry()`。`go test ./cmd/strace-go ./pkg/handler` focused、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，732.09 events/s。最终 `upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

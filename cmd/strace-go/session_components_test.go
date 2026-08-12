@@ -42,6 +42,9 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	if components.eventRouter.contextDeps.registry != components.handlerRegistry {
 		t.Fatal("event router does not use the session handler registry")
 	}
+	if deps := newSyscallEventContextDeps(session); deps.registry != components.handlerRegistry {
+		t.Fatal("session event context helper does not reuse the composed handler registry")
+	}
 	if components.exitSyscall.handleSyscall == nil {
 		t.Fatal("exit syscall output is missing the session handler resolver")
 	}

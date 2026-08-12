@@ -63,7 +63,10 @@ func handleDefaultWithCount(ctx *Context, argCount int) Result {
 	if ctx == nil {
 		return Result{}
 	}
-	defaultHandler := ctx.registry().Default()
+	if ctx.Registry == nil {
+		return (&DefaultHandler{}).HandleWithCount(ctx, argCount)
+	}
+	defaultHandler := ctx.Registry.Default()
 	if defaultDecoder, ok := defaultHandler.(*DefaultHandler); ok {
 		return defaultDecoder.HandleWithCount(ctx, argCount)
 	}

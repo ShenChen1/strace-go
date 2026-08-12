@@ -41,3 +41,10 @@ func TestNewTestTraceSessionProvidesFixtureDependencies(t *testing.T) {
 		t.Fatal("test session helper did not provide core state dependencies")
 	}
 }
+
+func TestDefaultHandlerResolverDoesNotCreateRegistryFallback(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/syscall_handler_runner.go"))
+	if strings.Contains(source, "handler.NewRegistry().Handle") {
+		t.Fatal("default handler resolver must not create a registry outside session composition")
+	}
+}

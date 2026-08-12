@@ -89,6 +89,7 @@ func statxTestContext(ret int64) *Context {
 		Decoder:   event.NewDecoder(),
 		Opts:      &cli.Options{StringLimit: 32, XlatFormat: "abbrev", Verbose: true},
 		Meta:      meta.NewCatalog("abbrev"),
+		Registry:  NewRegistry(),
 		TargetPid: 1234,
 	}
 }

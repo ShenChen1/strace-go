@@ -99,6 +99,7 @@ func mountSetattrTestContext(size uint64) *Context {
 		ScMeta:    meta.SyscallTable[442],
 		Decoder:   event.NewDecoder(),
 		Meta:      meta.NewCatalog("abbrev"),
+		Registry:  NewRegistry(),
 		Opts:      &cli.Options{StringLimit: 32, XlatFormat: "abbrev"},
 	}
 }

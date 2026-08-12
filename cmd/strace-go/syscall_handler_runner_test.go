@@ -91,3 +91,10 @@ func TestSyscallHandlerRunnerSkipsHiddenNonFDStateSyscallHandler(t *testing.T) {
 		t.Fatalf("updates = %d, want 1", state.effects.updates)
 	}
 }
+
+func TestDefaultHandleSyscallWithoutRegistryIsInert(t *testing.T) {
+	result := defaultHandleSyscall("getpid", &handler.Context{SysName: "getpid"})
+	if len(result.ArgParts) != 0 || result.ReturnDesc != "" || result.HexDumpStr != "" {
+		t.Fatalf("default handler without registry = %+v, want inert result", result)
+	}
+}

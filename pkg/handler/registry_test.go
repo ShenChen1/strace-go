@@ -81,6 +81,57 @@ func TestDefaultHandlerUsesContextRegistryDecoders(t *testing.T) {
 	}
 }
 
+func TestDefaultHandlerWithoutRegistryDoesNotUseBuiltinPointerDecoder(t *testing.T) {
+	ctx := &Context{
+		Decoder: event.NewDecoder(),
+		Meta:    meta.NewCatalog("abbrev"),
+		Opts:    &cli.Options{},
+		ScMeta: meta.Syscall{
+			Name:     "write",
+			Args:     []string{"fd", "buf", "count"},
+			ArgTypes: []string{"int", "char *", "size_t"},
+		},
+		Args: [6]uint64{1, 0x1000, 5},
+		PayloadSections: []PayloadSection{
+			{
+				Kind:      PayloadKindBytes,
+				Direction: PayloadDirectionIn,
+				ArgIndex:  1,
+				UserPtr:   0x1000,
+				UserLen:   5,
+				CopiedLen: 5,
+				ProbeRet:  0,
+				Data:      []byte("hello"),
+			},
+		},
+	}
+
+	got := (&DefaultHandler{}).Handle(ctx).ArgParts
+	if len(got) != 3 || got[1] != "0x1000" {
+		t.Fatalf("default handler without registry = %#v, want raw pointer fallback", got)
+	}
+}
+
+func TestContextRegistryOwnershipHasNoBuiltinFallback(t *testing.T) {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	source, err := os.ReadFile(filepath.Join(filepath.Dir(currentFile), "handler.go"))
+	if err != nil {
+		t.Fatalf("read handler.go: %v", err)
+	}
+	text := string(source)
+	for _, forbidden := range []string{
+		"func (ctx *Context) registry()",
+		"return builtinRegistry\n",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("handler.go still contains implicit registry fallback %q", forbidden)
+		}
+	}
+}
+
 func TestNewRegistryContainsBuiltinCatalog(t *testing.T) {
 	registry := NewRegistry()
 	defaultType := reflect.TypeOf(registry.Default())
