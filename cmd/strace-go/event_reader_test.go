@@ -81,8 +81,9 @@ func TestTraceEventReaderReadsAndRoutesRecord(t *testing.T) {
 		Clock:   clock,
 	})
 
-	if got := reader.Read(&ringbuf.Record{}, time.Second); got != traceReadHandled {
-		t.Fatalf("Read status = %v, want handled", got)
+	got, err := reader.Read(&ringbuf.Record{}, time.Second)
+	if err != nil || got != traceReadHandled {
+		t.Fatalf("Read result = %v/%v, want handled/nil", got, err)
 	}
 	if decoder.calls != 1 || sink.calls != 1 {
 		t.Fatalf("decoder/sink calls = %d/%d, want 1/1", decoder.calls, sink.calls)
@@ -129,8 +130,13 @@ func TestTraceEventReaderMapsReadFailures(t *testing.T) {
 				Decoder: &acceptingRecordDecoder{},
 				Clock:   &fakeTraceClock{now: time.Unix(100, 0)},
 			})
-			if got := reader.Read(&ringbuf.Record{}, time.Millisecond); got != tt.want {
-				t.Fatalf("Read status = %v, want %v", got, tt.want)
+			got, err := reader.Read(&ringbuf.Record{}, time.Millisecond)
+			if tt.name == "arbitrary" {
+				if err == nil {
+					t.Fatal("Read() returned nil error for arbitrary reader failure")
+				}
+			} else if err != nil || got != tt.want {
+				t.Fatalf("Read result = %v/%v, want %v/nil", got, err, tt.want)
 			}
 		})
 	}
@@ -159,8 +165,21 @@ func TestTraceEventReaderDrainStopsWhenFlushFails(t *testing.T) {
 	ringReader := &fakeRingbufReader{flushErr: errors.New("flush failed")}
 	reader := newTraceEventReader(TraceEventReaderDeps{Reader: ringReader})
 
-	reader.Drain(&ringbuf.Record{})
+	if err := reader.Drain(&ringbuf.Record{}); err == nil {
+		t.Fatal("Drain() returned nil error after Flush failure")
+	}
 	if ringReader.flushCalls != 1 || ringReader.readCalls != 0 {
 		t.Fatalf("flush/read calls = %d/%d, want 1/0", ringReader.flushCalls, ringReader.readCalls)
+	}
+}
+
+func TestTraceEventReaderDrainReturnsReadError(t *testing.T) {
+	readErr := errors.New("drain read failed")
+	ringReader := &fakeRingbufReader{readErrors: []error{readErr}}
+	reader := newTraceEventReader(TraceEventReaderDeps{Reader: ringReader})
+
+	err := reader.Drain(&ringbuf.Record{})
+	if !errors.Is(err, readErr) {
+		t.Fatalf("Drain() error = %v, want %v", err, readErr)
 	}
 }

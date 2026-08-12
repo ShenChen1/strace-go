@@ -91,10 +91,13 @@ func (s *traceSession) run() error {
 	for {
 		state.collect(commandExit)
 		if state.done() {
-			eventReader.DrainAfterDone(&rec, s.exitDrainGrace())
-			return s.finishRun()
+			return errors.Join(eventReader.DrainAfterDone(&rec, s.exitDrainGrace()), s.finishRun())
 		}
-		if eventReader.Read(&rec, traceEventPollInterval) == traceReadClosed {
+		status, err := eventReader.Read(&rec, traceEventPollInterval)
+		if err != nil {
+			return errors.Join(err, s.finishRun())
+		}
+		if status == traceReadClosed {
 			return s.finishRun()
 		}
 	}

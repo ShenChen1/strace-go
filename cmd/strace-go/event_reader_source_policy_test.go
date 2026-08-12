@@ -26,8 +26,8 @@ func TestTraceEventReaderWithoutClockIsInertForTimedOperations(t *testing.T) {
 	if reader.clock != nil {
 		t.Fatal("reader unexpectedly installed a fallback clock")
 	}
-	if got := reader.Read(&ringbuf.Record{}, time.Millisecond); got != traceReadNoEvent {
-		t.Fatalf("Read without clock = %v, want no event", got)
+	if got, err := reader.Read(&ringbuf.Record{}, time.Millisecond); err != nil || got != traceReadNoEvent {
+		t.Fatalf("Read without clock = %v/%v, want no event/nil", got, err)
 	}
 	reader.DrainAfterDone(&ringbuf.Record{}, time.Millisecond)
 	if len(ringReader.deadlines) != 0 {

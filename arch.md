@@ -4551,3 +4551,40 @@ Impact note：影响 `main.go`、`session.go` 的文件边界、命令/target/ou
 失败优先 source gate 先因 `session.go` 仍存在而失败；迁移后删除混合文件，新增 `traceTargetBootstrap` 持有 BPF target port 和 inherited files，`Resolve` 统一处理 command/attach，`Close` 幂等释放继承文件；新增 `output_bootstrap.go` 承载输出文件/管道创建，`session_runtime.go` 只保留 `traceSession` 运行时依赖。既有 command/attach/output/source gate 已迁移到新 owner，新增测试覆盖 nil port、空目标不触碰 BPF、inherited file close 和重复 close。
 
 本轮 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14107 ./cmd/strace-go` 和 `git diff --check` 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，729.18 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认 `main.go` 的 defer 顺序为 output handoff、target handoff、target bootstrap、event reader、BPF runtime，目标清理先于 inherited FD/BPF 资源关闭；生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.108 显式化 ringbuf reader 错误边界（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.1/14.41/14.103 已将 ringbuf 读取、时钟和 BPF runtime owner 收口，`TraceEventReader` 负责同步读取、解码并在同一 goroutine 路由事件；`session.run` 通过 deadline 轮询并在目标结束后 drain 剩余记录。
+- Problem：当前 `TraceEventReader.Read` 除 `ringbuf.ErrClosed` 外把所有 `ReadInto` 错误都转换为 `traceReadNoEvent`，`Drain`/`DrainAfterDone` 也吞掉 flush/read 错误。底层 map、poller 或 reader 故障会被当成普通超时，session 继续等待目标退出，最终可能返回看似成功的 trace，丢失实际 I/O 错误。
+- Goal：区分可继续的 deadline/flush、正常 closed 和 fatal reader error；`Read`、`Drain`、`DrainAfterDone` 显式返回 error，session 在 fatal reader error 时仍执行 `TraceRunFinalizer` 关闭输出并将 reader error 与 finalizer error 合并返回。
+- Non-goals：不改变 ringbuf record 解码、event v2 ABI、单 goroutine 消费顺序、target handoff/BPF close 顺序、统计事件或输出文本；不重试 fatal reader error，不增加 reader goroutine、锁或 procfs/ptrace 路径。
+- Constraints：`os.ErrDeadlineExceeded` 与 `ringbuf.ErrFlushed` 只能表示本轮没有更多记录，`ringbuf.ErrClosed` 仍表示 reader 结束；其他错误必须保留上下文并离开 run loop。fatal error 路径必须先完成 session finalizer，再由外层 handoff 清理目标，不能遗留输出 pipe 或 tracee。
+
+Impact note：影响 `event_reader.go` 的 reader API、`session_run.go` 的错误收尾和对应单测/source gate；BPF event producer、Go event state machine 和所有用户可见成功输出保持不变。
+
+方案比较：
+
+1. 保持当前静默 no-event：改动最小，但隐藏底层故障并可能无限轮询，拒绝。
+2. 在 `TraceEventReader` 内保存 `lastErr`，由 session 结束时再读取：可以少改调用签名，但引入隐式可变状态，错误时点和并发可见性不清晰，拒绝。
+3. reader 的读取/drain API 显式返回 error，session 统一 `errors.Join(readerErr, finishErr)`：错误边界清晰、不会绕过 finalizer、测试可确定注入，选择该方案。
+
+状态契约：
+
+- `Read` 返回 `(traceReadStatus, error)`；deadline/flush 返回 `traceReadNoEvent, nil`，closed 返回 `traceReadClosed, nil`，其他错误返回非 nil error。
+- `Drain` 与 `DrainAfterDone` 返回 drain/flush error；正常 flushed/closed 结束为 nil，已路由的记录仍在当前 goroutine 同步消费。
+- `traceSession.run` 在 reader fatal 或 drain error 时调用一次 finalizer，保留 reader error 与 output/stats/summary close error；target handoff 仍由外层 defer 在 run 返回后负责。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 reader/drain API 暴露 error；行为测试覆盖 deadline/flush/closed 非 fatal、arbitrary reader error fatal、drain error 保留和 session finalizer 仍执行。
+- 运行 focused、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只修正 ringbuf I/O 错误可见性，不改变事件语义或纯 eBPF 产品边界。
+
+### 14.108 实际验收记录
+
+失败优先 source gate 先因 reader API 仍把任意 `ReadInto` 错误转换为 no-event 而失败；迁移后 focused reader/session 测试通过，且 fatal reader error 会触发 finalizer 并通过 `errors.Is` 保留原始错误。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14108 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+
+真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，745.33 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认 deadline、flush、closed 仍不会误报 fatal error，任意其他 ringbuf I/O 错误不会再被静默吞掉；生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。

@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/cilium/ebpf/ringbuf"
@@ -49,54 +51,63 @@ func (s *traceSession) traceEventReader() *TraceEventReader {
 	return s.components.eventReader
 }
 
-func (r *TraceEventReader) Read(rec *ringbuf.Record, timeout time.Duration) traceReadStatus {
+func (r *TraceEventReader) Read(rec *ringbuf.Record, timeout time.Duration) (traceReadStatus, error) {
 	if r == nil || r.reader == nil || r.clock == nil {
-		return traceReadNoEvent
+		return traceReadNoEvent, nil
 	}
 	r.reader.SetDeadline(r.clock.Now().Add(timeout))
 	if err := r.reader.ReadInto(rec); err != nil {
 		if errors.Is(err, ringbuf.ErrClosed) {
-			return traceReadClosed
+			return traceReadClosed, nil
 		}
-		return traceReadNoEvent
+		if errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, ringbuf.ErrFlushed) {
+			return traceReadNoEvent, nil
+		}
+		return traceReadNoEvent, fmt.Errorf("read ringbuf: %w", err)
 	}
 	if r.HandleRecord(rec) {
-		return traceReadHandled
+		return traceReadHandled, nil
 	}
-	return traceReadNoEvent
+	return traceReadNoEvent, nil
 }
 
-func (r *TraceEventReader) Drain(rec *ringbuf.Record) {
+func (r *TraceEventReader) Drain(rec *ringbuf.Record) error {
 	if r == nil || r.reader == nil {
-		return
+		return nil
 	}
 	if err := r.reader.Flush(); err != nil {
-		return
+		return fmt.Errorf("flush ringbuf: %w", err)
 	}
 	r.reader.SetDeadline(time.Time{})
 	for {
 		if err := r.reader.ReadInto(rec); err != nil {
-			return
+			if errors.Is(err, ringbuf.ErrFlushed) || errors.Is(err, ringbuf.ErrClosed) {
+				return nil
+			}
+			return fmt.Errorf("drain ringbuf: %w", err)
 		}
 		r.HandleRecord(rec)
 	}
 }
 
-func (r *TraceEventReader) DrainAfterDone(rec *ringbuf.Record, grace time.Duration) {
+func (r *TraceEventReader) DrainAfterDone(rec *ringbuf.Record, grace time.Duration) error {
 	if grace <= 0 {
-		r.Drain(rec)
-		return
+		return r.Drain(rec)
 	}
 	if r == nil || r.clock == nil {
-		return
+		return nil
 	}
 	deadline := r.clock.Now().Add(grace)
 	for r.clock.Now().Before(deadline) {
-		if r.Read(rec, traceExitDrainPollInterval) == traceReadClosed {
-			return
+		status, err := r.Read(rec, traceExitDrainPollInterval)
+		if err != nil {
+			return err
+		}
+		if status == traceReadClosed {
+			return nil
 		}
 	}
-	r.Drain(rec)
+	return r.Drain(rec)
 }
 
 func (r *TraceEventReader) HandleRecord(rec *ringbuf.Record) bool {

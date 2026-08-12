@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"testing"
@@ -128,6 +129,30 @@ func TestFinishRunWritesJSONStatsEvent(t *testing.T) {
 	}
 	if ev.Type != "stats" || ev.RingbufReserveFail != 0 || ev.PendingMismatch != 0 || ev.Available || ev.Error == "" {
 		t.Fatalf("stats JSON event = %+v, want unavailable zero stats", ev)
+	}
+}
+
+func TestTraceSessionRunFinalizesAfterReaderFailure(t *testing.T) {
+	readErr := errors.New("reader failed during run")
+	var output bytes.Buffer
+	traceOutput, err := newTraceOutput(TraceOutputDeps{Writer: &output})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+	session := newTestTraceSessionWithOptions(&cli.Options{}, traceSessionDeps{
+		HasCommand:    true,
+		CommandWaiter: fakeTraceCommandWaiter{},
+		Events:        &fakeRingbufReader{readErrors: []error{readErr}},
+		OutWriter:     traceOutput,
+		Output:        traceOutput,
+	})
+
+	runErr := session.run()
+	if !errors.Is(runErr, readErr) {
+		t.Fatalf("session.run() error = %v, want %v", runErr, readErr)
+	}
+	if !traceOutput.closed {
+		t.Fatal("session.run() returned without finalizing output")
 	}
 }
 
