@@ -127,6 +127,7 @@ func TestTraceEventReaderMapsReadFailures(t *testing.T) {
 			reader := newTraceEventReader(TraceEventReaderDeps{
 				Reader:  &fakeRingbufReader{readErrors: []error{tt.err}},
 				Decoder: &acceptingRecordDecoder{},
+				Clock:   &fakeTraceClock{now: time.Unix(100, 0)},
 			})
 			if got := reader.Read(&ringbuf.Record{}, time.Millisecond); got != tt.want {
 				t.Fatalf("Read status = %v, want %v", got, tt.want)

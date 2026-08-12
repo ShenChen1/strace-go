@@ -3202,3 +3202,34 @@ ABI 与状态契约：
 本阶段只收口 Catalog ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source gate 和 nil catalog 回归先验证旧 fallback 存在，修复后通过；删除 `newSyscallEnterEventContext`、`socketFDInfoFromView` 两个无 production call site helper，router/FD state 测试改为显式复用 `meta.NewCatalog`。`event_utils.go` 和 `syscall_event_context.go` 不再隐式构造 catalog；nil catalog context 保持无 metadata，nil socket info 返回空附加描述。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused no-ptrace/no-procfs gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，694.73 events/s；原生 `small` 为 23 PASS。测试结束后无残留 tracer 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.68 移除 TraceEventReader 的隐式 system clock（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.60/14.65 已把 `traceClock` 提升为 session-owned dependency，`newTraceSession` 和 composition root 会把同一 clock 传给 reader、run state、formatter；但 `newTraceEventReader` 在 deps.Clock 为 nil 时仍替换成 `systemTraceClock{}`。
+- Problem：半构造 reader 的 deadline/drain 时间源会绕过 session clock，测试也可能遗漏 clock 注入；如果未来事件消费从单一 session graph 复制 reader，两个 reader 的时间边界会不一致。
+- Goal：reader 只使用注入的 clock；nil clock 不创建替代对象，`Read`/带 grace 的 `DrainAfterDone` 在缺失 clock 时保持 inert，`Drain`/`HandleRecord` 等不需要时间的操作仍可安全执行。正式 session 继续得到非 nil clock。
+- Non-goals：不改变 ringbuf deadline 值、drain grace、事件 decoder/sink、单 goroutine 事件循环、BPF ABI、输出格式、ptrace/procfs 禁止规则或 system clock 的生产实现；不把 clock 改成全局变量。
+- Constraints：`newTraceEventReader` 保持现有返回类型以减少 composition 改动；缺失 clock 不 panic、不隐式构造；需要 deadline 的方法必须先检查 clock；测试显式注入 fake clock；函数保持小于 80 行。
+
+方案比较：
+
+1. 保留 system clock fallback：兼容零值 fixture，但隐藏 session clock 漏注，拒绝。
+2. 将 reader constructor 改为返回 error：契约最严格，但会把 reader error 传播到整个 component graph，当前阶段改动面偏大，暂不选择。
+3. 删除 fallback，reader 在缺失 clock 的时间操作上 inert，保留不依赖时间的 decode/drain 行为：改动局部、边界安全、正式 composition 仍严格注入，选择该方案。
+
+状态契约：
+
+- `TraceEventReader.clock` 只引用 session-owned clock，不在 constructor、Read 或 DrainAfterDone 中替换。
+- `Read` 的 deadline 和 `DrainAfterDone` 的 grace loop 只有在 clock 非 nil 时执行；缺失 clock 不从系统读取时间。
+- `Drain`、`HandleRecord` 不需要 wall/monotonic time，仍可被单测独立使用；正式 graph 不依赖这些 inert fallback。
+
+测试与验收：
+
+- 先增加失败优先 source gate，禁止 reader constructor 创建 `systemTraceClock{}`；增加 nil clock reader 不构造替代且时间操作 inert 的回归。
+- 运行 focused reader tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和相关 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 reader 的 clock ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source gate 和 nil clock reader 回归先验证旧 constructor 会创建 `systemTraceClock{}`，修复后通过；`TraceEventReader` 不再替换注入的 clock，缺失 clock 时 timed `Read`/grace drain inert，`Drain`/`HandleRecord` 仍可独立工作。已有 deadline/closed 映射测试已显式注入 fake clock。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused no-ptrace/no-procfs gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，716.17 events/s。`attach-f-p.test` 为 1 PASS；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
