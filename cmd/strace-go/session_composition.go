@@ -111,6 +111,7 @@ func newTraceStateForSession(opts *cli.Options) *TraceState {
 	return &TraceState{
 		deferUnmatchedExits: shouldEmitGenericEnter(opts),
 		trackForkIdentity:   trackForkIdentity,
+		unfinishedEnabled:   true,
 	}
 }
 

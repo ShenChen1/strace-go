@@ -121,6 +121,40 @@ func TestTraceStateIgnoresZeroTIDForUnfinishedCandidates(t *testing.T) {
 	}
 }
 
+func TestTraceStateDisablesUnfinishedCandidateIndex(t *testing.T) {
+	state := newTraceState()
+	state.setUnfinishedEnabled(false)
+	first := traceEventEnvelope{
+		valid:      true,
+		pid:        100,
+		tid:        101,
+		sysID:      syscallIDByName(t, "read"),
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+		enterTime:  10,
+	}
+	state.handleEnvelope(first)
+	second := first
+	second.tid = 102
+	second.sysID = syscallIDByName(t, "getpid")
+	second.enterTime = 20
+	if update := state.handleEnvelope(second); len(update.unfinished) != 0 {
+		t.Fatalf("unfinished candidates while disabled = %+v, want none", update.unfinished)
+	}
+	if len(state.unqueuedUnfinished) != 0 || len(state.inFlightUnfinished) != 0 {
+		t.Fatalf("disabled unfinished index = unqueued %d, in-flight %d; want empty", len(state.unqueuedUnfinished), len(state.inFlightUnfinished))
+	}
+
+	state.setUnfinishedEnabled(true)
+	third := second
+	third.tid = 103
+	third.enterTime = 30
+	update := state.handleEnvelope(third)
+	if len(update.unfinished) != 2 || update.unfinished[0].tid != 101 || update.unfinished[1].tid != 102 {
+		t.Fatalf("re-enabled unfinished candidates = %+v, want TIDs 101 and 102", update.unfinished)
+	}
+}
+
 func TestTraceStateReturnsPendingAndTaskSnapshots(t *testing.T) {
 	state := newTraceState()
 	enter := traceEventEnvelope{

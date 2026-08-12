@@ -2911,3 +2911,35 @@ ABI 与状态契约：
 本阶段只优化 Go 单消费者 unfinished 状态索引，不改变纯 eBPF 事实源、内存快照时点或输出契约。
 
 实际验收结果：`TraceState` 新增 unqueued/in-flight unfinished candidate index；候选只在首次遇到其它 TID 事件时生成一次独立 snapshot，router 在 text pipeline 不可用时直接完成清理，在过滤或输出失败时显式 requeue，consume/retire/replacement 同步清理索引。保留 enter 时间/TID 稳定排序、TID=0 不触发 unfinished 和既有 `<unfinished ...>`/`<... resumed>` 文本语义。新增 in-flight 去重、失败重试、无 text pipeline 清理、TID=0 边界和 source gate。source gate 先验证失败，再在修复后通过；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、no-ptrace/no-procmem/no-procfs gate 和 `git diff --check` 通过；最终 `ebpf-semantic` 为 201 个事件、102/99 enter/exit，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，674.11 events/s；`small` 为 23 PASS；完整 `more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
+
+### 14.59 按输出能力关闭无效 unfinished 候选索引（2026-08-11）
+
+#### Problem 1-Pager
+
+- Context：14.58 把 unfinished 候选从每事件扫描收敛为 `unqueued`/`in-flight` 两级索引；router 已能判断是否存在可用的 text sink，`SyscallExitPipeline` 也把这一能力封装为 `HasTextOutput`。
+- Problem：状态机仍默认启用 unfinished 索引。JSON、debug 或其它没有 text sink 的输出组合，在第一批跨 TID 事件上仍会创建 payload snapshot，router 随后只能丢弃它。该复制没有用户可见结果，也让“是否需要 unfinished 文本”的决策分散在状态机和 router 两处。
+- Goal：由 router 在组合阶段把 unfinished 输出能力注入状态机；有 text sink 时保留完整 unfinished/resumed 语义，没有 text sink 时从源头关闭候选索引，不构造无效 snapshot。配置只发生在 session composition，不进入事件热路径。
+- Non-goals：不改变 enter/exit 配对、BPF ABI、JSON 字段、文本格式、filter/lifecycle 语义、payload ownership、单消费者模型或任何 procfs/ptrace/`process_vm_readv` 路径；不引入第二种运行模式。
+- Constraints：能力端口必须是状态接口中的单一布尔配置；默认直接构造的 `TraceState` 保持 text 语义以兼容已有 focused state tests；配置后若已有 pending 状态，关闭能力必须清空两个候选集合；重新开启只能恢复仍然存活且未打印的 pending；fake state 必须可安全接受配置。
+
+方案比较：
+
+1. 保留第一批 snapshot：改动最小，但 JSON/no-text 每次 session 仍有不可见 payload 分配，拒绝。
+2. 让 `TraceState` 读取 CLI/output 模式：可以省一个端口，但复制组合层知识、形成隐式耦合，且不适合测试替换，拒绝。
+3. 在 `traceEventState` 增加 `setUnfinishedEnabled(bool)`，由 router 根据 `Pipeline.HasTextOutput()` 注入：边界明确、只在构造阶段执行、不会把输出模式带入热路径，选择该方案。
+
+状态契约：
+
+- `unfinishedEnabled` 是 session composition 的能力结果，不是 syscall/event 的动态状态；`pendingForOtherTID` 在关闭时直接返回 nil。
+- 关闭能力会清空 `unqueuedUnfinished` 和 `inFlightUnfinished`，但保留 `pendingSyscalls` 以支持 JSON/exit 配对；重新开启时只为仍存活、未打印且不是 probe-only 的 pending 建立候选。
+- text sink 的 router 配置为 enabled；无 pipeline 或 `HasTextOutput()==false` 的 router 配置为 disabled；直接使用 `newTraceState` 的单元测试默认 enabled。
+- 该配置不改变 BPF 事件流和状态 map，不读取 tracee live state，也不增加 goroutine、锁或 timer。
+
+测试与验收：
+
+- 先增加失败优先测试，验证 no-text router 不建立候选索引、状态关闭后不产生候选，以及 source gate 锁定能力注入和关闭路径。
+- 随后运行 focused router/state/source tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、no-proc/ptrace gate、`ebpf-semantic`、`ebpf-perf`、small 和必要的 upstream reference；检查无 tracer/BPF pin 残留。
+
+本阶段只消除没有文本输出时的无效 Go payload snapshot，不改变纯 eBPF 事实源、用户态事件 ABI 或正常 text unfinished 语义。
+
+实际验收结果：`traceEventState` 新增 `setUnfinishedEnabled(bool)` 能力端口；`newTraceEventRouter` 根据 `Pipeline.HasTextOutput()` 在 session composition 阶段配置状态机。`TraceState` 默认和 text session 保持 enabled，JSON/no-text session 从源头关闭候选入队，仍保留 `pendingSyscalls` 用于 JSON 与 exit 配对；关闭后清空候选索引，重新开启时只从存活且未打印的 pending 重建。新增失败优先状态测试、router no-text 回归和 source gate。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、no-ptrace/no-procmem/no-procfs gate 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，732.66 events/s。原生 `small` 为 23 PASS；`more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。

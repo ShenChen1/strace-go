@@ -16,6 +16,8 @@ func (*recordingTraceEventState) markUnfinishedPrinted(uint32) {}
 
 func (*recordingTraceEventState) requeueUnfinished(uint32) {}
 
+func (*recordingTraceEventState) setUnfinishedEnabled(bool) {}
+
 func TestTraceEventRouterUsesEventStatePort(t *testing.T) {
 	state := &recordingTraceEventState{
 		update: TraceStateUpdate{kind: traceStateSyscallFragment},

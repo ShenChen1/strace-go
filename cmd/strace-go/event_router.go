@@ -25,6 +25,7 @@ func newTraceEventRouter(deps TraceEventRouterDeps) *TraceEventRouter {
 	if state == nil {
 		state = newTraceState()
 	}
+	state.setUnfinishedEnabled(deps.Pipeline != nil && deps.Pipeline.HasTextOutput())
 	return &TraceEventRouter{
 		scope:       deps.Scope,
 		targetPID:   deps.TargetPID,

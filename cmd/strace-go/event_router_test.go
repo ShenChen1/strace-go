@@ -283,11 +283,11 @@ func TestTraceEventRouterDiscardsUnfinishedWithoutTextPipeline(t *testing.T) {
 		router.Handle(event)
 	}
 
-	if len(state.unqueuedUnfinished) != 1 || len(state.inFlightUnfinished) != 0 {
-		t.Fatalf("unfinished index = unqueued %d, in-flight %d; want only current TID", len(state.unqueuedUnfinished), len(state.inFlightUnfinished))
+	if len(state.unqueuedUnfinished) != 0 || len(state.inFlightUnfinished) != 0 {
+		t.Fatalf("unfinished index = unqueued %d, in-flight %d; want empty without text output", len(state.unqueuedUnfinished), len(state.inFlightUnfinished))
 	}
-	if _, ok := state.unqueuedUnfinished[103]; !ok {
-		t.Fatalf("unfinished index = %+v, want only current TID 103", state.unqueuedUnfinished)
+	if len(state.pendingSyscalls) != 3 {
+		t.Fatalf("pending syscalls = %d, want all three enter events retained", len(state.pendingSyscalls))
 	}
 }
 

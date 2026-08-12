@@ -42,6 +42,7 @@ type processStateInheritance struct {
 type TraceState struct {
 	deferUnmatchedExits bool
 	trackForkIdentity   bool
+	unfinishedEnabled   bool
 	pendingSyscalls     map[uint32]*pendingSyscallState
 	pendingExits        map[uint32]pendingExitState
 	pendingExecArgs     map[int]string
@@ -75,11 +76,15 @@ type TraceStateUpdate struct {
 }
 
 func newTraceState() *TraceState {
-	return &TraceState{trackForkIdentity: true}
+	return &TraceState{trackForkIdentity: true, unfinishedEnabled: true}
 }
 
 func newTraceStateWithDeferredExit(enabled bool) *TraceState {
-	return &TraceState{deferUnmatchedExits: enabled, trackForkIdentity: true}
+	return &TraceState{
+		deferUnmatchedExits: enabled,
+		trackForkIdentity:   true,
+		unfinishedEnabled:   true,
+	}
 }
 
 func (s *traceSession) traceState() *TraceState {
