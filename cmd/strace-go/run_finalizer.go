@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-
-	"strace-go/pkg/cli"
 )
 
 type TraceRunFinalizer struct {
-	opts            *cli.Options
+	formatPolicy    traceFormatPolicy
+	summaryPolicy   traceSummaryPolicy
 	targetPID       int
 	statsDiagnostic io.Writer
 	exitStatus      *ExitStatusCoordinator
@@ -20,7 +19,8 @@ type TraceRunFinalizer struct {
 }
 
 type TraceRunFinalizerDeps struct {
-	Opts            *cli.Options
+	FormatPolicy    traceFormatPolicy
+	SummaryPolicy   traceSummaryPolicy
 	TargetPID       int
 	StatsDiagnostic io.Writer
 	ExitStatus      *ExitStatusCoordinator
@@ -35,7 +35,8 @@ func newTraceRunFinalizer(deps TraceRunFinalizerDeps) *TraceRunFinalizer {
 		diagnostic = os.Stderr
 	}
 	return &TraceRunFinalizer{
-		opts:            deps.Opts,
+		formatPolicy:    deps.FormatPolicy,
+		summaryPolicy:   deps.SummaryPolicy,
 		targetPID:       deps.TargetPID,
 		statsDiagnostic: diagnostic,
 		exitStatus:      deps.ExitStatus,
@@ -63,10 +64,10 @@ func (f *TraceRunFinalizer) Finish() error {
 }
 
 func (f *TraceRunFinalizer) writeStats(stats bpfRuntimeStats) {
-	if f.opts == nil {
+	if f.formatPolicy == nil {
 		return
 	}
-	if f.opts.EventFormat == cli.EventFormatJSON {
+	if f.formatPolicy.IsJSON() {
 		f.writeJSONStats(stats)
 		return
 	}
@@ -88,7 +89,7 @@ func (f *TraceRunFinalizer) writeTextStatsDiagnostic(stats bpfRuntimeStats) {
 }
 
 func (f *TraceRunFinalizer) printSummary() {
-	if f.opts == nil || (!f.opts.SummaryOnly && !f.opts.SummaryAndPrint) {
+	if f.summaryPolicy == nil || (!f.summaryPolicy.SummaryOnly() && !f.summaryPolicy.SummaryAndPrint()) {
 		return
 	}
 	if f.summary != nil && f.output != nil {

@@ -67,7 +67,7 @@ func TestTraceRunStateCollectStoresCommandExitFallback(t *testing.T) {
 		Out:   &output,
 	})
 	handler := newTraceCommandExitHandler(TraceCommandExitHandlerDeps{
-		Opts:       opts,
+		Policy:     newTraceOutputPolicy(opts),
 		TargetPID:  77,
 		ExitStatus: coordinator,
 		Renderer:   newTextRenderer(TextRendererDeps{Out: &output, Opts: opts}),

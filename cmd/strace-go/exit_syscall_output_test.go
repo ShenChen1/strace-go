@@ -12,6 +12,7 @@ import (
 
 type exitOutputTestState struct {
 	output         *ExitSyscallOutput
+	opts           *cli.Options
 	out            *bytes.Buffer
 	queuedPID      int
 	queuedLine     string
@@ -23,7 +24,7 @@ type exitOutputTestState struct {
 
 func newExitOutputTestState(opts *cli.Options) *exitOutputTestState {
 	out := &bytes.Buffer{}
-	state := &exitOutputTestState{out: out}
+	state := &exitOutputTestState{opts: opts, out: out}
 	renderer := newTextRenderer(TextRendererDeps{
 		Out:           out,
 		Opts:          opts,
@@ -31,7 +32,7 @@ func newExitOutputTestState(opts *cli.Options) *exitOutputTestState {
 		TimeFormatter: newTimeFormatter(0),
 	})
 	state.output = newExitSyscallOutput(ExitSyscallOutputDeps{
-		Opts:     opts,
+		Policy:   newTraceOutputPolicy(opts),
 		Renderer: renderer,
 		Out:      out,
 		ShouldQueueStatus: func(pid int) bool {
@@ -95,7 +96,7 @@ func exitEventContextWithView(
 
 func TestExitSyscallOutputFallsThroughForNonExit(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{})
-	ev := exitEventContext(state.output.opts, "getpid", true)
+	ev := exitEventContext(state.opts, "getpid", true)
 
 	if state.output.Handle(ev) {
 		t.Fatal("non-exit syscall should fall through")
@@ -108,7 +109,7 @@ func TestExitSyscallOutputFallsThroughForNonExit(t *testing.T) {
 func TestExitSyscallOutputIgnoresExitEnterEvent(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON})
 	ev := exitEventContextWithView(
-		state.output.opts,
+		state.opts,
 		"exit_group",
 		true,
 		syscallEventView{valid: true, eventType: bpfEventTypeEnter, tid: 101, args: [6]uint64{7}},
@@ -126,7 +127,7 @@ func TestExitSyscallOutputIgnoresExitEnterEvent(t *testing.T) {
 func TestExitSyscallOutputPrintsTextAndStatus(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{FollowForks: true})
 
-	if !state.output.Handle(exitEventContext(state.output.opts, "exit_group", true)) {
+	if !state.output.Handle(exitEventContext(state.opts, "exit_group", true)) {
 		t.Fatal("exit_group should be handled")
 	}
 
@@ -139,7 +140,7 @@ func TestExitSyscallOutputPrintsTextAndStatus(t *testing.T) {
 func TestExitSyscallOutputHiddenExitPrintsStatusOnly(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{FollowForks: true})
 
-	if !state.output.Handle(exitEventContext(state.output.opts, "exit_group", false)) {
+	if !state.output.Handle(exitEventContext(state.opts, "exit_group", false)) {
 		t.Fatal("hidden exit_group should still be handled")
 	}
 
@@ -155,7 +156,7 @@ func TestExitSyscallOutputHiddenExitPrintsStatusOnly(t *testing.T) {
 func TestExitSyscallOutputPrintsExitTextFromEventView(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{FollowForks: true})
 	ev := exitEventContextWithView(
-		state.output.opts,
+		state.opts,
 		"exit_group",
 		true,
 		syscallEventView{valid: true, eventType: bpfEventTypeExit, tid: 101, probeRetEnter: -1},
@@ -174,7 +175,7 @@ func TestExitSyscallOutputQueuesStatusWhenRequested(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{FollowForks: true})
 	state.shouldQueue = true
 
-	state.output.Handle(exitEventContext(state.output.opts, "exit", true))
+	state.output.Handle(exitEventContext(state.opts, "exit", true))
 
 	got := state.out.String()
 	if !strings.Contains(got, "101   exit(7) = ?") {
@@ -192,7 +193,7 @@ func TestExitSyscallOutputQueuesStatusFromEventView(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{FollowForks: true})
 	state.shouldQueue = true
 	ev := exitEventContextWithView(
-		state.output.opts,
+		state.opts,
 		"exit",
 		true,
 		syscallEventView{valid: true, eventType: bpfEventTypeExit, pid: 201, tid: 202, args: [6]uint64{9}, probeRetEnter: -1},
@@ -215,7 +216,7 @@ func TestExitSyscallOutputQueuesStatusFromEventView(t *testing.T) {
 func TestExitSyscallOutputJSONReturnsBeforeStatusLine(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON})
 
-	state.output.Handle(exitEventContext(state.output.opts, "exit_group", true))
+	state.output.Handle(exitEventContext(state.opts, "exit_group", true))
 
 	if !state.jsonCalled {
 		t.Fatal("JSON exit event was not written")
@@ -228,7 +229,7 @@ func TestExitSyscallOutputJSONReturnsBeforeStatusLine(t *testing.T) {
 func TestExitSyscallOutputJSONUsesEventContext(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON})
 	ev := exitEventContextWithView(
-		state.output.opts,
+		state.opts,
 		"exit_group",
 		true,
 		syscallEventView{valid: true, eventType: bpfEventTypeExit, ret: -2, probeRetEnter: -1},
@@ -248,7 +249,7 @@ func TestExitSyscallOutputJSONUsesEventContext(t *testing.T) {
 func TestExitSyscallOutputDetectsExitFromEventView(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{EventFormat: cli.EventFormatJSON})
 	ev := exitEventContextWithView(
-		state.output.opts,
+		state.opts,
 		"exit_group",
 		true,
 		syscallEventView{valid: true, eventType: bpfEventTypeExit, probeRetEnter: -1},
@@ -274,8 +275,8 @@ func TestExitSyscallOutputDetectsExitFromHandlerMetadata(t *testing.T) {
 			SysName:  "exit_group",
 			Args:     [6]uint64{7},
 			Registry: handler.NewRegistry(),
-			Meta:     meta.NewCatalog(state.output.opts.XlatFormat),
-			Opts:     state.output.opts,
+			Meta:     meta.NewCatalog(state.opts.XlatFormat),
+			Opts:     state.opts,
 		},
 	}
 
@@ -290,7 +291,7 @@ func TestExitSyscallOutputDetectsExitFromHandlerMetadata(t *testing.T) {
 func TestExitSyscallOutputQuietExitSuppressesStatusOnly(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{FollowForks: true, QuietExit: true})
 
-	state.output.Handle(exitEventContext(state.output.opts, "exit_group", true))
+	state.output.Handle(exitEventContext(state.opts, "exit_group", true))
 
 	got := state.out.String()
 	if !strings.Contains(got, "101   exit_group(7) = ?") {
@@ -304,7 +305,7 @@ func TestExitSyscallOutputQuietExitSuppressesStatusOnly(t *testing.T) {
 func TestExitSyscallOutputSummaryOnlyConsumesExit(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{SummaryOnly: true})
 
-	if !state.output.Handle(exitEventContext(state.output.opts, "exit_group", true)) {
+	if !state.output.Handle(exitEventContext(state.opts, "exit_group", true)) {
 		t.Fatal("summary-only exit should still be consumed")
 	}
 	if state.out.Len() != 0 || state.jsonCalled || state.queuedLine != "" {

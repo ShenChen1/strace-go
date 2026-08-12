@@ -116,6 +116,7 @@ func TestTraceEventRouterDoesNotCopyFDStateForThreadClone(t *testing.T) {
 
 func TestTraceEventRouterRoutesGenericEnterToJSON(t *testing.T) {
 	opts := cli.ParseArgs([]string{"--event-format=json", "--debug-events", "/bin/true"})
+	policy := newTraceOutputPolicy(opts)
 	rawEvents := 0
 	state := newTraceState()
 	router := newTraceEventRouter(TraceEventRouterDeps{
@@ -127,7 +128,8 @@ func TestTraceEventRouterRoutesGenericEnterToJSON(t *testing.T) {
 			filter:      newTraceFilterOptions(opts),
 		},
 		JSON: newSyscallJSONOutput(SyscallJSONOutputDeps{
-			Opts: opts,
+			Format: policy,
+			Policy: policy,
 			Writer: &fakeJSONEventWriter{
 				onRaw: func(syscallEventContext) {
 					rawEvents++
@@ -155,13 +157,14 @@ func TestTraceEventRouterRoutesGenericEnterToJSON(t *testing.T) {
 
 func TestTraceEventRouterRoutesExitToPipeline(t *testing.T) {
 	opts := &cli.Options{SummaryOnly: true}
+	policy := newTraceOutputPolicy(opts)
 	effects := &fakeRouterExitEffects{}
 	router := newTraceEventRouter(TraceEventRouterDeps{
 		Scope:     newTraceScope(100, opts),
 		TargetPID: 100,
 		State:     newTraceState(),
 		Pipeline: newSyscallExitPipeline(SyscallExitPipelineDeps{
-			Opts:    opts,
+			Summary: policy,
 			Effects: effects,
 		}),
 		ContextDeps: syscallEventContextDeps{
@@ -191,6 +194,7 @@ func TestTraceEventRouterRoutesExitToPipeline(t *testing.T) {
 
 func TestTraceEventRouterPrintsGenericUnfinishedBeforeOtherTIDEvent(t *testing.T) {
 	opts := &cli.Options{EventFormat: cli.EventFormatText, FollowForks: true}
+	policy := newTraceOutputPolicy(opts)
 	state := newTraceState()
 	var output bytes.Buffer
 	renderer := newTextRenderer(TextRendererDeps{
@@ -200,7 +204,8 @@ func TestTraceEventRouterPrintsGenericUnfinishedBeforeOtherTIDEvent(t *testing.T
 		TimeFormatter: newTimeFormatter(0),
 	})
 	textOutput := newSyscallTextOutput(SyscallTextOutputDeps{
-		Opts:     opts,
+		Format:   policy,
+		Policy:   policy,
 		Renderer: renderer,
 	})
 	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
@@ -216,9 +221,9 @@ func TestTraceEventRouterPrintsGenericUnfinishedBeforeOtherTIDEvent(t *testing.T
 		TargetPID: 100,
 		State:     state,
 		Pipeline: newSyscallExitPipeline(SyscallExitPipelineDeps{
-			Opts:   opts,
-			Runner: runner,
-			Text:   textOutput,
+			Summary: policy,
+			Runner:  runner,
+			Text:    textOutput,
 		}),
 		ContextDeps: syscallEventContextDeps{
 			decoder:     event.NewDecoder(),

@@ -26,9 +26,10 @@ func TestTraceRunFinalizerWritesJSONStats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newTraceOutput() error = %v", err)
 	}
+	policy := newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatJSON})
 	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{
-		Opts:   &cli.Options{EventFormat: cli.EventFormatJSON},
-		Output: output,
+		FormatPolicy: policy,
+		Output:       output,
 	})
 
 	finalizer.writeStats(bpfRuntimeStats{
@@ -54,8 +55,9 @@ func TestTraceRunFinalizerWritesJSONStats(t *testing.T) {
 
 func TestTraceRunFinalizerWritesTextStatsDiagnostic(t *testing.T) {
 	var diagnostics bytes.Buffer
+	policy := newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatText})
 	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{
-		Opts:            &cli.Options{EventFormat: cli.EventFormatText},
+		FormatPolicy:    policy,
 		StatsDiagnostic: &diagnostics,
 	})
 
@@ -93,10 +95,12 @@ func TestTraceRunFinalizerPrintsSummaryAndClosesPipe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newTraceOutput() error = %v", err)
 	}
+	policy := newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatText, SummaryOnly: true})
 	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{
-		Opts:    &cli.Options{EventFormat: cli.EventFormatText, SummaryOnly: true},
-		Summary: summary,
-		Output:  output,
+		FormatPolicy:  policy,
+		SummaryPolicy: policy,
+		Summary:       summary,
+		Output:        output,
 	})
 
 	finalizer.Finish()

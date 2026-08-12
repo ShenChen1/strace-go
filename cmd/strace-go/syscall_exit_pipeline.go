@@ -1,12 +1,9 @@
 package main
 
-import (
-	"strace-go/pkg/cli"
-	"strace-go/pkg/handler"
-)
+import "strace-go/pkg/handler"
 
 type SyscallExitPipeline struct {
-	opts    *cli.Options
+	summary traceSummaryPolicy
 	json    syscallJSONOutputPort
 	exit    exitSyscallOutputPort
 	runner  syscallHandlerRunnerPort
@@ -15,7 +12,7 @@ type SyscallExitPipeline struct {
 }
 
 type SyscallExitPipelineDeps struct {
-	Opts    *cli.Options
+	Summary traceSummaryPolicy
 	JSON    syscallJSONOutputPort
 	Exit    exitSyscallOutputPort
 	Runner  syscallHandlerRunnerPort
@@ -61,7 +58,7 @@ func (e *traceSessionSyscallExitEffects) CleanupClosedFD(ev syscallEventContext)
 
 func newSyscallExitPipeline(deps SyscallExitPipelineDeps) *SyscallExitPipeline {
 	return &SyscallExitPipeline{
-		opts:    deps.Opts,
+		summary: deps.Summary,
 		json:    deps.JSON,
 		exit:    deps.Exit,
 		runner:  deps.Runner,
@@ -120,13 +117,13 @@ func (p *SyscallExitPipeline) HasTextOutput() bool {
 }
 
 func (p *SyscallExitPipeline) recordSummaryIfNeeded(ev syscallEventContext) bool {
-	if p.opts == nil || (!p.opts.SummaryOnly && !p.opts.SummaryAndPrint) {
+	if p.summary == nil || (!p.summary.SummaryOnly() && !p.summary.SummaryAndPrint()) {
 		return false
 	}
 	if p.effects != nil {
 		p.effects.RecordSummary(ev)
 	}
-	return p.opts.SummaryOnly
+	return p.summary.SummaryOnly()
 }
 
 func (p *SyscallExitPipeline) handleSyscall(ev syscallEventContext) (handler.Result, bool) {

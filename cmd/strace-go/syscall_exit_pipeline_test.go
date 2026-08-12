@@ -31,8 +31,9 @@ func (e *fakeSyscallExitEffects) CleanupClosedFD(syscallEventContext) {
 
 func newExitPipelineTestState(opts *cli.Options, runner *SyscallHandlerRunner, json syscallJSONOutputPort) *exitPipelineTestState {
 	state := &exitPipelineTestState{effects: &fakeSyscallExitEffects{}}
+	policy := newTraceOutputPolicy(opts)
 	state.pipeline = newSyscallExitPipeline(SyscallExitPipelineDeps{
-		Opts:    opts,
+		Summary: policy,
 		JSON:    json,
 		Runner:  runner,
 		Effects: state.effects,
@@ -55,9 +56,11 @@ func exitPipelineEventWithView(name string, view syscallEventView) syscallEventC
 
 func TestSyscallExitPipelineDebugRawStopsAfterJSONAndRunsFDSideEffects(t *testing.T) {
 	opts := &cli.Options{EventFormat: cli.EventFormatJSON, DebugEvents: true}
+	policy := newTraceOutputPolicy(opts)
 	var calls []string
 	jsonOutput := newSyscallJSONOutput(SyscallJSONOutputDeps{
-		Opts: opts,
+		Format: policy,
+		Policy: policy,
 		Writer: &fakeJSONEventWriter{
 			onRaw: func(syscallEventContext) {
 				calls = append(calls, "json-raw")
@@ -147,6 +150,7 @@ func TestSyscallExitPipelineRunsHandlerForPrintableEvent(t *testing.T) {
 
 func TestSyscallExitPipelineSkipsUnfinishedDecodeOutsideTextMode(t *testing.T) {
 	opts := &cli.Options{EventFormat: cli.EventFormatJSON}
+	policy := newTraceOutputPolicy(opts)
 	called := false
 	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
 		HandleSyscall: func(string, *handler.Context) handler.Result {
@@ -155,9 +159,12 @@ func TestSyscallExitPipelineSkipsUnfinishedDecodeOutsideTextMode(t *testing.T) {
 		},
 	})
 	pipeline := newSyscallExitPipeline(SyscallExitPipelineDeps{
-		Opts:   opts,
-		Runner: runner,
-		Text:   newSyscallTextOutput(SyscallTextOutputDeps{Opts: opts}),
+		Summary: policy,
+		Runner:  runner,
+		Text: newSyscallTextOutput(SyscallTextOutputDeps{
+			Format: policy,
+			Policy: policy,
+		}),
 	})
 
 	if pipeline.HandleUnfinished(exitPipelineEvent("read")) {
@@ -170,6 +177,7 @@ func TestSyscallExitPipelineSkipsUnfinishedDecodeOutsideTextMode(t *testing.T) {
 
 func TestSyscallExitPipelineSkipsUnfinishedDecodeWithStatusFilter(t *testing.T) {
 	opts := &cli.Options{SuccessfulOnly: true}
+	policy := newTraceOutputPolicy(opts)
 	called := false
 	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
 		HandleSyscall: func(string, *handler.Context) handler.Result {
@@ -178,9 +186,12 @@ func TestSyscallExitPipelineSkipsUnfinishedDecodeWithStatusFilter(t *testing.T) 
 		},
 	})
 	pipeline := newSyscallExitPipeline(SyscallExitPipelineDeps{
-		Opts:   opts,
-		Runner: runner,
-		Text:   newSyscallTextOutput(SyscallTextOutputDeps{Opts: opts}),
+		Summary: policy,
+		Runner:  runner,
+		Text: newSyscallTextOutput(SyscallTextOutputDeps{
+			Format: policy,
+			Policy: policy,
+		}),
 	})
 
 	if pipeline.HandleUnfinished(exitPipelineEvent("read")) {

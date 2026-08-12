@@ -1,26 +1,28 @@
 package main
 
 import (
-	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
 )
 
 type SyscallJSONOutput struct {
-	opts    *cli.Options
+	format  traceFormatPolicy
+	policy  traceEventOutputPolicy
 	fdState event.FDPathReader
 	writer  jsonEventWriter
 }
 
 type SyscallJSONOutputDeps struct {
-	Opts    *cli.Options
+	Format  traceFormatPolicy
+	Policy  traceEventOutputPolicy
 	FDState event.FDPathReader
 	Writer  jsonEventWriter
 }
 
 func newSyscallJSONOutput(deps SyscallJSONOutputDeps) *SyscallJSONOutput {
 	return &SyscallJSONOutput{
-		opts:    deps.Opts,
+		format:  deps.Format,
+		policy:  deps.Policy,
 		fdState: deps.FDState,
 		writer:  deps.Writer,
 	}
@@ -43,7 +45,7 @@ func (o *SyscallJSONOutput) HandleEnter(ev syscallEventContext) {
 }
 
 func (o *SyscallJSONOutput) HandleDebugRaw(ev syscallEventContext) bool {
-	if !o.jsonMode() || !o.opts.DebugEvents {
+	if !o.jsonMode() || o.policy == nil || !o.policy.DebugEvents() {
 		return false
 	}
 	o.writeRawEvent(ev)
@@ -54,19 +56,14 @@ func (o *SyscallJSONOutput) HandleDecoded(ev syscallEventContext, res handler.Re
 	if !o.jsonMode() {
 		return false
 	}
-	status := successfulFailedOptions{
-		successfulOnly: o.opts.SuccessfulOnly,
-		failedOnly:     o.opts.FailedOnly,
-		traceStatus:    o.opts.TraceStatus,
-	}
-	if ev.shouldEmitStatus(status) {
+	if o.policy != nil && o.policy.ShouldEmit(ev, false) {
 		o.writeDecodedEvent(ev, res)
 	}
 	return true
 }
 
 func (o *SyscallJSONOutput) jsonMode() bool {
-	return o.opts != nil && o.opts.EventFormat == cli.EventFormatJSON
+	return o.format != nil && o.format.IsJSON()
 }
 
 func (o *SyscallJSONOutput) writeRawEvent(ev syscallEventContext) {

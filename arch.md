@@ -3885,3 +3885,37 @@ Impact note：影响集中在 `cmd/strace-go/event_utils.go`、`syscall_event_co
 本阶段只反转事件过滤的消费依赖，不改变纯 eBPF 事实源、生命周期状态机或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source gate 先因 `trace_filter.go` 不存在而失败；迁移后新增 `traceFilterOptions` 与 CLI-backed `cliTraceFilter`，事件过滤 request/context、raw enter policy 以及 `pkg/event.PathMatchRequest` 不再暴露 concrete CLI options 或路径 map。`PathFilter` fake 覆盖路径正/负匹配，trace filter fake 覆盖 path、read FD 和 debug raw enter；既有负 syscall/FD 集合测试继续通过。`go test ./cmd/strace-go ./pkg/event`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，721.17 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后清理本轮 `strace-go`、fixture 和临时构建产物，无残留 tracer/BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.89 将输出编排策略收敛为窄端口（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.86-14.88 已将 handler 格式选项、FD metadata 和事件过滤改为消费端口，但输出/退出编排层仍有多个组件直接持有完整 `*cli.Options`：`SyscallTextOutput`、`SyscallJSONOutput`、`SyscallExitPipeline`、`ExitSyscallOutput`、`TraceRunFinalizer` 和 `TraceCommandExitHandler`。这些组件分别只读取输出格式/debug、status filter、summary 和 exit policy 的小子集。
+- Problem：同一份 CLI owner 穿透多个输出组件，组件可以读取不属于自己的目标、BPF、路径或 parser 配置；测试也必须构造完整 CLI options 才能验证输出策略。若简单增加一个覆盖全部字段的 `OutputOptions` 大接口，只是把 concrete 泄漏换成过宽接口，不能形成清晰的面向对象边界。
+- Goal：在 session composition 创建一次 `cliTraceOutputPolicy` snapshot，并通过四个窄端口注入输出组件：`traceFormatPolicy`（是否 JSON）、`traceEventOutputPolicy`（debug/status）、`traceSummaryPolicy`（summary only/and print）和 `traceExitPolicy`（JSON/summary/quiet exit）。组件不再保存或读取 `*cli.Options`；同一 session 的端口来自同一策略 snapshot，保持现有 nil 默认、输出顺序、status filter 和 summary/exit 语义。
+- Non-goals：不在本阶段拆解 `TextRenderer` 的详细格式参数（时间、对齐、follow-forks、stack trace），不改 `LifecycleEventHandler` 的 attach PID 策略、不改 CLI parser、BPF config、event ABI、handler registry、payload、生命周期状态机或 JSON/text 内容；不引入第二个可变配置 owner、全局 options、锁或兼容模式。
+- Constraints：策略 snapshot 只在 composition 创建一次，复制 status map 以固定运行期策略；端口不返回 CLI map 或 `*cli.Options`；nil policy 保持既有 fixture 安全默认值。接口方法不超过 3 个，输出组件只依赖所需最窄端口。
+
+Impact note：影响集中在 `cmd/strace-go/output_policy.go`、六个输出/退出组件及 `session_composition.go` 的 wiring；`traceSessionDeps.Opts` 仍是 CLI owner，`TextRenderer`、lifecycle 和 BPF 配置继续保持现有边界，作为后续独立阶段处理。
+
+方案比较：
+
+1. 保留每个组件的 `*cli.Options`：改动最小，但 CLI concrete 依赖和无关字段继续穿透输出层，拒绝。
+2. 创建一个包含所有输出字段的 `OutputOptions` 大接口：能隐藏 concrete 类型，但接口过宽、mock 面大且继续耦合 CLI 字段表示，拒绝。
+3. 创建一次不可变 policy snapshot，并按 format/event/summary/exit 能力拆成四个窄端口：共享一致策略、组件能力最小、无每事件配置复制，选择该方案。
+
+状态契约：
+
+- `cliTraceOutputPolicy` 是 session composition 的唯一输出策略 snapshot，不保存 CLI owner 指针；status map 在 bootstrap 时复制，事件热路径只读取稳定策略。
+- `traceEventOutputPolicy` 只负责 JSON/debug/status；`traceSummaryPolicy` 只负责 summary mode；`traceExitPolicy` 只负责 JSON/summary/quiet exit；format-only consumer 不依赖更宽端口。
+- policy 缺失时，文本组件保持可输出、JSON/summary/exit 策略保持关闭，与现有 nil options 行为一致。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求六个 output/exit production component 不再声明 `*cli.Options`，并要求四个 policy port 存在；当前实现应先失败。
+- 增加 fake policy port 回归，覆盖 JSON/debug/status、summary-only、quiet exit 和 nil policy 边界；增加 snapshot 一致性测试，确认 status map 在 construction 后不会受 CLI map 修改影响。
+- 运行 output focused、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf、upstream reference，并检查无残留 tracer/BPF pin。
+
+本阶段只收敛输出编排的策略依赖，不改变纯 eBPF 事实源、生命周期状态机或用户可见输出语义。
+
+实际验收结果：失败优先 source gate 先因缺少 `output_policy.go` 而失败；迁移后新增 session-scoped `cliTraceOutputPolicy`，复制 `TraceStatus`，并将六个输出/退出组件改为只消费四个 policy port。新增 fake port 行为测试覆盖 text/JSON/debug/status/summary/exit，snapshot 测试确认 construction 后修改 CLI options 或 status map 不会改变运行期决策。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，712.47 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后清理本轮 `strace-go`、fixture 和临时构建产物，无残留 tracer/BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

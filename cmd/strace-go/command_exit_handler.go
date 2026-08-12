@@ -1,18 +1,16 @@
 package main
 
-import "strace-go/pkg/cli"
-
 // TraceCommandExitHandler translates command wait completion into exit-status
 // queue effects. It deliberately does not own ringbuf reading or trace state.
 type TraceCommandExitHandler struct {
-	opts       *cli.Options
+	policy     traceExitPolicy
 	targetPID  int
 	exitStatus *ExitStatusCoordinator
 	renderer   *TextRenderer
 }
 
 type TraceCommandExitHandlerDeps struct {
-	Opts       *cli.Options
+	Policy     traceExitPolicy
 	TargetPID  int
 	ExitStatus *ExitStatusCoordinator
 	Renderer   *TextRenderer
@@ -20,7 +18,7 @@ type TraceCommandExitHandlerDeps struct {
 
 func newTraceCommandExitHandler(deps TraceCommandExitHandlerDeps) *TraceCommandExitHandler {
 	return &TraceCommandExitHandler{
-		opts:       deps.Opts,
+		policy:     deps.Policy,
 		targetPID:  deps.TargetPID,
 		exitStatus: deps.ExitStatus,
 		renderer:   deps.Renderer,
@@ -49,10 +47,10 @@ func (h *TraceCommandExitHandler) FlushFallback() {
 }
 
 func (h *TraceCommandExitHandler) fallbackLine(result traceCommandExitResult) string {
-	if h == nil || !result.exited || h.opts == nil {
+	if h == nil || !result.exited || h.policy == nil {
 		return ""
 	}
-	if h.opts.QuietExit || h.opts.SummaryOnly || h.opts.EventFormat == cli.EventFormatJSON {
+	if h.policy.QuietExit() || h.policy.SummaryOnly() || h.policy.IsJSON() {
 		return ""
 	}
 	if h.renderer == nil {

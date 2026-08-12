@@ -38,6 +38,7 @@ type traceSessionBaseComponents struct {
 	jsonWriter      *JSONEventWriter
 	renderer        *TextRenderer
 	exitStatus      *ExitStatusCoordinator
+	outputPolicy    *cliTraceOutputPolicy
 	handlerRegistry *handler.Registry
 	handleSyscall   func(string, *handler.Context) handler.Result
 	handlerRunner   *SyscallHandlerRunner
@@ -133,7 +134,7 @@ func buildTraceSessionComponents(session *traceSession) *traceSessionComponents 
 	base := buildTraceSessionBase(session)
 	outputs := buildTraceSessionOutputs(session, base)
 	events := buildTraceSessionEvents(session, base, outputs)
-	runtime := buildTraceSessionRuntime(session, base.exitStatus, base.renderer, events.eventRouter)
+	runtime := buildTraceSessionRuntime(session, base.outputPolicy, base.exitStatus, base.renderer, events.eventRouter)
 	return &traceSessionComponents{
 		textRenderer:       base.renderer,
 		jsonWriter:         base.jsonWriter,
@@ -158,7 +159,8 @@ func buildTraceSessionBase(session *traceSession) traceSessionBaseComponents {
 	handlerRegistry := handler.NewRegistry()
 	handleSyscall := handlerRegistry.Handle
 	return traceSessionBaseComponents{
-		jsonWriter: newJSONEventWriter(JSONEventWriterDeps{Out: deps.OutWriter}),
+		jsonWriter:   newJSONEventWriter(JSONEventWriterDeps{Out: deps.OutWriter}),
+		outputPolicy: newTraceOutputPolicy(deps.Opts),
 		renderer: newTextRenderer(TextRendererDeps{
 			Out:           deps.OutWriter,
 			Opts:          deps.Opts,
@@ -198,18 +200,20 @@ func buildTraceSessionOutputs(
 		Renderer: base.renderer,
 	})
 	syscallText := newSyscallTextOutput(SyscallTextOutputDeps{
-		Opts:      deps.Opts,
+		Format:    base.outputPolicy,
+		Policy:    base.outputPolicy,
 		Suspended: suspendedOutput,
 		Exec:      execOutput,
 		Renderer:  base.renderer,
 	})
 	syscallJSON := newSyscallJSONOutput(SyscallJSONOutputDeps{
-		Opts:    deps.Opts,
+		Format:  base.outputPolicy,
+		Policy:  base.outputPolicy,
 		FDState: deps.FDState,
 		Writer:  base.jsonWriter,
 	})
 	exitSyscall := newExitSyscallOutput(ExitSyscallOutputDeps{
-		Opts:              deps.Opts,
+		Policy:            base.outputPolicy,
 		Renderer:          base.renderer,
 		Out:               deps.OutWriter,
 		HandleSyscall:     base.handleSyscall,
@@ -231,7 +235,7 @@ func buildTraceSessionEvents(
 ) traceSessionEventComponents {
 	deps := session.dependencies
 	exitPipeline := newSyscallExitPipeline(SyscallExitPipelineDeps{
-		Opts:    deps.Opts,
+		Summary: base.outputPolicy,
 		JSON:    outputs.syscallJSON,
 		Exit:    outputs.exitSyscall,
 		Runner:  base.handlerRunner,
@@ -271,6 +275,7 @@ type traceSessionRuntimeComponents struct {
 
 func buildTraceSessionRuntime(
 	session *traceSession,
+	outputPolicy *cliTraceOutputPolicy,
 	exitStatus *ExitStatusCoordinator,
 	renderer *TextRenderer,
 	router *TraceEventRouter,
@@ -286,7 +291,8 @@ func buildTraceSessionRuntime(
 			Clock:   deps.Clock,
 		}),
 		runFinalizer: newTraceRunFinalizer(TraceRunFinalizerDeps{
-			Opts:            deps.Opts,
+			FormatPolicy:    outputPolicy,
+			SummaryPolicy:   outputPolicy,
 			TargetPID:       deps.TargetPID,
 			StatsDiagnostic: os.Stderr,
 			ExitStatus:      exitStatus,
@@ -295,7 +301,7 @@ func buildTraceSessionRuntime(
 			Output:          deps.Output,
 		}),
 		commandExitHandler: newTraceCommandExitHandler(TraceCommandExitHandlerDeps{
-			Opts:       deps.Opts,
+			Policy:     outputPolicy,
 			TargetPID:  deps.TargetPID,
 			ExitStatus: exitStatus,
 			Renderer:   renderer,

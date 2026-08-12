@@ -1,19 +1,18 @@
 package main
 
-import (
-	"strace-go/pkg/cli"
-	"strace-go/pkg/handler"
-)
+import "strace-go/pkg/handler"
 
 type SyscallTextOutput struct {
-	opts      *cli.Options
+	format    traceFormatPolicy
+	policy    traceEventOutputPolicy
 	suspended *SuspendedSyscallOutput
 	exec      *ExecSyscallOutput
 	renderer  *TextRenderer
 }
 
 type SyscallTextOutputDeps struct {
-	Opts      *cli.Options
+	Format    traceFormatPolicy
+	Policy    traceEventOutputPolicy
 	Suspended *SuspendedSyscallOutput
 	Exec      *ExecSyscallOutput
 	Renderer  *TextRenderer
@@ -21,7 +20,8 @@ type SyscallTextOutputDeps struct {
 
 func newSyscallTextOutput(deps SyscallTextOutputDeps) *SyscallTextOutput {
 	return &SyscallTextOutput{
-		opts:      deps.Opts,
+		format:    deps.Format,
+		policy:    deps.Policy,
 		suspended: deps.Suspended,
 		exec:      deps.Exec,
 		renderer:  deps.Renderer,
@@ -63,24 +63,19 @@ func (o *SyscallTextOutput) canHandleUnfinished(ev syscallEventContext) bool {
 	if o == nil || o.renderer == nil || !o.textMode() || !ev.shouldOutput() {
 		return false
 	}
-	if o.opts == nil {
+	if o.policy == nil {
 		return true
 	}
-	return !o.opts.SuccessfulOnly && !o.opts.FailedOnly && len(o.opts.TraceStatus) == 0
+	return o.policy.ShouldEmit(ev, true)
 }
 
 func (o *SyscallTextOutput) textMode() bool {
-	return o.opts == nil || (o.opts.EventFormat != cli.EventFormatJSON && !o.opts.DebugEvents)
+	return o.format == nil || (!o.format.IsJSON() && (o.policy == nil || !o.policy.DebugEvents()))
 }
 
 func (o *SyscallTextOutput) shouldEmitEvent(ev syscallEventContext) bool {
-	if o.opts == nil {
+	if o.policy == nil {
 		return true
 	}
-	status := successfulFailedOptions{
-		successfulOnly: o.opts.SuccessfulOnly,
-		failedOnly:     o.opts.FailedOnly,
-		traceStatus:    o.opts.TraceStatus,
-	}
-	return ev.shouldEmitStatus(status)
+	return o.policy.ShouldEmit(ev, false)
 }

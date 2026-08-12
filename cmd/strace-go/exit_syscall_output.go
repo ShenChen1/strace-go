@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"io"
 
-	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
 )
 
 type ExitSyscallOutput struct {
-	opts              *cli.Options
+	policy            traceExitPolicy
 	renderer          *TextRenderer
 	out               io.Writer
 	handleSyscall     func(string, *handler.Context) handler.Result
@@ -19,7 +18,7 @@ type ExitSyscallOutput struct {
 }
 
 type ExitSyscallOutputDeps struct {
-	Opts              *cli.Options
+	Policy            traceExitPolicy
 	Renderer          *TextRenderer
 	Out               io.Writer
 	HandleSyscall     func(string, *handler.Context) handler.Result
@@ -30,7 +29,7 @@ type ExitSyscallOutputDeps struct {
 
 func newExitSyscallOutput(deps ExitSyscallOutputDeps) *ExitSyscallOutput {
 	return &ExitSyscallOutput{
-		opts:              deps.Opts,
+		policy:            deps.Policy,
 		renderer:          deps.Renderer,
 		out:               deps.Out,
 		handleSyscall:     deps.HandleSyscall,
@@ -52,7 +51,7 @@ func (o *ExitSyscallOutput) Handle(ev syscallEventContext) bool {
 	if !ev.isExitSyscallEvent() {
 		return false
 	}
-	if o.opts != nil && o.opts.SummaryOnly {
+	if o.policy != nil && o.policy.SummaryOnly() {
 		return true
 	}
 
@@ -62,7 +61,7 @@ func (o *ExitSyscallOutput) Handle(ev syscallEventContext) bool {
 			handleSyscall = defaultHandleSyscall
 		}
 		res := ev.handleWith(handleSyscall)
-		if o.opts != nil && o.opts.EventFormat == cli.EventFormatJSON {
+		if o.policy != nil && o.policy.IsJSON() {
 			if o.jsonWriter != nil {
 				o.jsonWriter.WriteDecoded(ev, res)
 			}
@@ -77,7 +76,7 @@ func (o *ExitSyscallOutput) Handle(ev syscallEventContext) bool {
 }
 
 func (o *ExitSyscallOutput) printExitStatus(ev syscallEventContext) {
-	if o.opts != nil && o.opts.QuietExit {
+	if o.policy != nil && o.policy.QuietExit() {
 		return
 	}
 	if o.renderer == nil {

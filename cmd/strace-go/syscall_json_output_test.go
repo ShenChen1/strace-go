@@ -42,8 +42,10 @@ func (w *fakeJSONEventWriter) WriteLifecycle(view lifecycleEventView, task *Task
 
 func newJSONOutputTestState(opts *cli.Options) *jsonOutputTestState {
 	state := &jsonOutputTestState{}
+	policy := newTraceOutputPolicy(opts)
 	state.output = newSyscallJSONOutput(SyscallJSONOutputDeps{
-		Opts: opts,
+		Format: policy,
+		Policy: policy,
 		Writer: &fakeJSONEventWriter{
 			onRaw: func(ev syscallEventContext) {
 				state.rawWrites++

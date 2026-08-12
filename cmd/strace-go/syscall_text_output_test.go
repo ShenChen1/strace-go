@@ -13,6 +13,7 @@ import (
 func newSyscallTextOutputForTest(opts *cli.Options) (*SyscallTextOutput, *TraceState, *bytes.Buffer) {
 	state := newTraceState()
 	out := &bytes.Buffer{}
+	policy := newTraceOutputPolicy(opts)
 	renderer := newTextRenderer(TextRendererDeps{
 		Out:           out,
 		Opts:          opts,
@@ -20,7 +21,8 @@ func newSyscallTextOutputForTest(opts *cli.Options) (*SyscallTextOutput, *TraceS
 		TimeFormatter: newTimeFormatter(0),
 	})
 	output := newSyscallTextOutput(SyscallTextOutputDeps{
-		Opts: opts,
+		Format: policy,
+		Policy: policy,
 		Suspended: newSuspendedSyscallOutput(SuspendedSyscallOutputDeps{
 			State:    state,
 			Renderer: renderer,

@@ -15,7 +15,7 @@ func TestTraceCommandExitHandlerFlushesTextFallback(t *testing.T) {
 		Out:   &output,
 	})
 	handler := newTraceCommandExitHandler(TraceCommandExitHandlerDeps{
-		Opts:       opts,
+		Policy:     newTraceOutputPolicy(opts),
 		TargetPID:  101,
 		ExitStatus: coordinator,
 		Renderer:   newTextRenderer(TextRendererDeps{Out: &output, Opts: opts}),
@@ -39,7 +39,7 @@ func TestTraceCommandExitHandlerSuppressesFallbackForJSON(t *testing.T) {
 		Out:   &output,
 	})
 	handler := newTraceCommandExitHandler(TraceCommandExitHandlerDeps{
-		Opts:       opts,
+		Policy:     newTraceOutputPolicy(opts),
 		TargetPID:  101,
 		ExitStatus: coordinator,
 	})
