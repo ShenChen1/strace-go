@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 
@@ -41,14 +42,11 @@ func (a *bpfAttacher) attachAll() ([]link.Link, error) {
 	}
 	links, err := a.attachTracepoints(rawSyscallTracepointSpecs(a.objs))
 	if err != nil {
-		closeTracepointLinks(links)
-		return nil, err
+		return nil, errors.Join(err, closeTracepointLinks(links))
 	}
 	lifecycleLinks, err := a.attachTracepoints(lifecycleTracepointSpecs(a.objs))
 	if err != nil {
-		closeTracepointLinks(links)
-		closeTracepointLinks(lifecycleLinks)
-		return nil, err
+		return nil, errors.Join(err, closeTracepointLinks(links), closeTracepointLinks(lifecycleLinks))
 	}
 	links = append(links, lifecycleLinks...)
 	if kp, err := a.attachRecvmsgKretprobe(); err != nil {
@@ -325,10 +323,14 @@ func (a *bpfAttacher) attachRecvmsgKretprobe() (link.Link, error) {
 	return nil, fmt.Errorf("recvmsg symbols: %w", lastErr)
 }
 
-func closeTracepointLinks(links []link.Link) {
-	for _, l := range links {
+func closeTracepointLinks(links []link.Link) error {
+	var closeErr error
+	for index, l := range links {
 		if l != nil {
-			_ = l.Close()
+			if err := l.Close(); err != nil {
+				closeErr = errors.Join(closeErr, fmt.Errorf("close BPF link %d: %w", index, err))
+			}
 		}
 	}
+	return closeErr
 }

@@ -52,15 +52,12 @@ func setupBPF() (*traceBPFRuntime, error) {
 
 	objects := &bpfObjects{}
 	if err := spec.LoadAndAssign(objects, nil); err != nil {
-		_ = objects.Close()
-		return nil, fmt.Errorf("load and assign BPF objects: %w", err)
+		return nil, fmt.Errorf("load and assign BPF objects: %w", errors.Join(err, objects.Close()))
 	}
 	runtime := &traceBPFRuntime{objects: objects}
 	links, err := newBpfAttacher(objects).attachAll()
 	if err != nil {
-		// attachAll owns partial-link cleanup on every attach failure.
-		_ = objects.Close()
-		return nil, fmt.Errorf("attach BPF programs: %w", err)
+		return nil, fmt.Errorf("attach BPF programs: %w", errors.Join(err, objects.Close()))
 	}
 	runtime.links = links
 	return runtime, nil
@@ -197,14 +194,15 @@ func (r *traceBPFRuntime) Close() error {
 	if r == nil {
 		return nil
 	}
-	closeTracepointLinks(r.links)
+	links := r.links
 	r.links = nil
+	linkErr := closeTracepointLinks(links)
 	if r.objects == nil {
-		return nil
+		return linkErr
 	}
 	objects := r.objects
 	r.objects = nil
-	return objects.Close()
+	return errors.Join(linkErr, objects.Close())
 }
 
 var _ traceBPFTargetPort = (*traceBPFRuntime)(nil)

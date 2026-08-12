@@ -4662,3 +4662,40 @@ Impact note：影响 `target_bootstrap.go`、`target_handoff.go`、`target_runti
 失败优先 source gate 先因 target port 的 `deleteFilterPID`、target `Abort`、`clearFilterPids` 和 inherited file close 仍无 error 返回而失败；迁移后 fake filter delete failure、handoff error join、已关闭 inherited file 和重复 abort regression 均通过。`ebpf.ErrKeyNotExist` 与 `os.ErrProcessDone` 被归一化为幂等成功，其它错误保留上下文。
 
 本轮 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14110 ./cmd/strace-go` 和 `git diff --check` 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，731.96 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认 rollback 会继续执行 filter cleanup 和 target wait，production path 未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.111 显式化 BPF link cleanup 错误（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.103 已将 links 和 generated objects 的生命周期交给 `traceBPFRuntime`，14.109/14.110 已让上层能够传播 cleanup error；但 `closeTracepointLinks` 仍返回 void，partial attach 回滚和 runtime final close 都忽略 link close failure。
+- Problem：某个 raw/lifecycle tracepoint attach 失败后，已建立 link 的 detach 失败不会进入返回错误；正常 session 结束时 link 仍可能存活，而 caller 只看到 object close 结果或 nil。这样“links 先于 objects 关闭”的 ownership 只有顺序，没有完整错误契约。
+- Goal：让 `closeTracepointLinks` 返回带 link index 上下文的 error；`bpfAttacher.attachAll` 在 partial attach 失败时合并 attach 与 rollback errors；`setupBPF` 合并 object load/attach failure 与 object close error；`traceBPFRuntime.Close` 保持先关 links 后关 objects，并聚合两类 cleanup error。
+- Non-goals：不改变 attach 列表、raw/lifecycle optional policy、tail-call prog array、event ABI、ringbuf reader、target/filter 生命周期、输出格式或 ptrace/procfs 约束；不新增 link retry、cleanup manager 或 goroutine。
+- Constraints：partial attach 必须继续关闭所有已创建 link，即使其中一个 close 失败；runtime Close 必须继续尝试 object close；重复 Close 仍幂等，已经释放的 link/object 不重复访问；错误必须可通过 `errors.Is` 识别。
+
+Impact note：影响 `bpf_attach.go`、`bpf_runtime.go` 的 link cleanup 返回值、setup failure 聚合和对应 source/runtime tests；BPF program attachment 行为及用户态事件路径不变。
+
+方案比较：
+
+1. 继续忽略 link close error：改动最小，但可能留下 active link 且 caller 无法判断，拒绝。
+2. link close 失败立即返回并跳过后续资源：错误看似明确，但会留下其它 link/object，破坏全量 cleanup，拒绝。
+3. 每个 link 都尝试关闭并用 `errors.Join` 聚合，再继续 objects cleanup：资源回收完整、错误链可测试，选择该方案。
+
+状态契约：
+
+- `closeTracepointLinks` 对所有非 nil link 调用一次 `Close`，错误包含稳定 index；空/nil list 返回 nil。
+- `attachAll` 的必需 attach 失败仍失败，但 partial link cleanup error 会保留在返回链；可选 recvmsg kretprobe 的既有降级行为不变。
+- `traceBPFRuntime.Close` 先消费并清空 link slice，再关闭 objects；两类 error 都返回，重复 Close 为 nil。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 link cleanup 返回 error、partial attach/setup/runtime Close 都传播 cleanup error；增加空 link list 和 runtime idempotent close 回归。
+- 运行 focused BPF owner tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference；确认没有 active link、残留 tracer/BPF pin。
+
+本阶段只收口 BPF link 的资源错误边界，不改变纯 eBPF 事件语义。
+
+### 14.111 实际验收记录
+
+失败优先 source gate 先因 `closeTracepointLinks` 仍为 void 且 runtime `Close` 丢弃 link 错误而失败；迁移后 partial raw/lifecycle attach、object load、runtime link/object close 都使用 `errors.Join`，并保持所有 link 都尝试关闭。focused BPF owner/source tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14111 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+
+真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，745.88 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认 `traceBPFRuntime.Close` 先清空并关闭 links、再关闭 objects，重复 Close 不重复访问，生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
