@@ -61,6 +61,7 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	if components.syscallText.format != components.outputPolicy || components.syscallText.policy != components.outputPolicy ||
 		components.syscallText.exec.policy != components.outputPolicy || components.syscallJSON.format != components.outputPolicy ||
 		components.syscallJSON.policy != components.outputPolicy || components.exitSyscall.policy != components.outputPolicy ||
+		components.lifecycleHandler.policy != components.outputPolicy ||
 		components.runFinalizer.formatPolicy != components.outputPolicy || components.commandExitHandler.policy != components.outputPolicy {
 		t.Fatal("session output components do not share one policy snapshot")
 	}

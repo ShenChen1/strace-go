@@ -52,6 +52,25 @@ type fakeTraceFollowForkPolicy struct{ follow bool }
 
 func (p fakeTraceFollowForkPolicy) FollowForks() bool { return p.follow }
 
+type fakeTraceLifecyclePolicy struct {
+	json      bool
+	attachPID int
+}
+
+func (p fakeTraceLifecyclePolicy) IsJSON() bool { return p.json }
+
+func (p fakeTraceLifecyclePolicy) IsAttachTarget(pid int) bool {
+	return pid == p.attachPID
+}
+
+type fakeTraceReadyPolicy struct {
+	debug  bool
+	attach []int
+}
+
+func (p fakeTraceReadyPolicy) DebugEvents() bool { return p.debug }
+func (p fakeTraceReadyPolicy) AttachPIDs() []int { return append([]int(nil), p.attach...) }
+
 var (
 	_ traceFormatPolicy      = fakeTraceFormatPolicy{}
 	_ traceEventOutputPolicy = fakeTraceEventOutputPolicy{}
@@ -60,6 +79,8 @@ var (
 	_ traceRenderPolicy      = fakeTraceRenderPolicy{}
 	_ traceTimePolicy        = fakeTraceRenderPolicy{}
 	_ traceFollowForkPolicy  = fakeTraceFollowForkPolicy{}
+	_ traceLifecyclePolicy   = fakeTraceLifecyclePolicy{}
+	_ traceReadyPolicy       = fakeTraceReadyPolicy{}
 )
 
 func TestTraceOutputPolicySnapshotsMutableCLIState(t *testing.T) {
@@ -68,6 +89,7 @@ func TestTraceOutputPolicySnapshotsMutableCLIState(t *testing.T) {
 		SuccessfulOnly: true,
 		FollowForks:    true,
 		PrintTimeMode:  3,
+		AttachPids:     []int{101},
 		TraceStatus:    map[string]bool{"successful": true},
 	}
 	policy := newTraceOutputPolicy(opts)
@@ -77,6 +99,7 @@ func TestTraceOutputPolicySnapshotsMutableCLIState(t *testing.T) {
 	opts.FailedOnly = true
 	opts.FollowForks = false
 	opts.PrintTimeMode = 0
+	opts.AttachPids[0] = 202
 	opts.TraceStatus["successful"] = false
 	opts.TraceStatus["failed"] = true
 
@@ -97,6 +120,14 @@ func TestTraceOutputPolicySnapshotsMutableCLIState(t *testing.T) {
 	if !options.followForks || options.time.printTimeMode != 3 {
 		t.Fatalf("render policy changed after snapshot: %+v", options)
 	}
+	if !policy.IsAttachTarget(101) || policy.IsAttachTarget(202) {
+		t.Fatal("attach target policy changed after snapshot")
+	}
+	attachPIDs := policy.AttachPIDs()
+	attachPIDs[0] = 303
+	if !policy.IsAttachTarget(101) {
+		t.Fatal("attach PID policy leaked its backing slice")
+	}
 }
 
 func TestTraceOutputPolicyPortsAcceptIndependentImplementations(t *testing.T) {
@@ -104,6 +135,7 @@ func TestTraceOutputPolicyPortsAcceptIndependentImplementations(t *testing.T) {
 	events := fakeTraceEventOutputPolicy{debug: true, emit: false}
 	summary := fakeTraceSummaryPolicy{only: true, andPrint: false}
 	exit := fakeTraceExitPolicy{json: true, only: true, quiet: true}
+	ready := fakeTraceReadyPolicy{debug: true, attach: []int{42, 84}}
 
 	if !format.IsJSON() || !events.DebugEvents() || events.ShouldEmit(syscallEventContext{}, false) {
 		t.Fatal("fake format/event policy ports are not usable")
@@ -113,6 +145,17 @@ func TestTraceOutputPolicyPortsAcceptIndependentImplementations(t *testing.T) {
 	}
 	if !exit.IsJSON() || !exit.SummaryOnly() || !exit.QuietExit() {
 		t.Fatal("fake exit policy port is not usable")
+	}
+	if !ready.DebugEvents() {
+		t.Fatal("fake ready policy debug port is not usable")
+	}
+	readyPIDs := ready.AttachPIDs()
+	if len(readyPIDs) != 2 || readyPIDs[0] != 42 || readyPIDs[1] != 84 {
+		t.Fatalf("fake ready policy attach PIDs = %v", readyPIDs)
+	}
+	readyPIDs[0] = 99
+	if ready.AttachPIDs()[0] != 42 {
+		t.Fatal("fake ready policy leaked its backing slice")
 	}
 
 	text := newSyscallTextOutput(SyscallTextOutputDeps{Format: format, Policy: events})

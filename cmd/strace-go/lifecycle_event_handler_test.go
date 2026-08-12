@@ -49,7 +49,7 @@ func (e *fakeLifecycleEffects) WriteExitText(tid int, exitCode uint64) {
 func newLifecycleHandlerTestState(opts *cli.Options) *lifecycleHandlerTestState {
 	state := &lifecycleHandlerTestState{effects: &fakeLifecycleEffects{}}
 	state.handler = newLifecycleEventHandler(LifecycleEventHandlerDeps{
-		Opts:    opts,
+		Policy:  newTraceOutputPolicy(opts),
 		Effects: state.effects,
 	})
 	return state
@@ -165,5 +165,23 @@ func TestLifecycleEventHandlerWritesExitTextThroughEffects(t *testing.T) {
 	}
 	if got := state.effects.exitText[0]; got != (fakeLifecycleExitText{tid: 101, exitCode: 7}) {
 		t.Fatalf("exitText[0] = %#v, want tid=101 exitCode=7", got)
+	}
+}
+
+func TestLifecycleEventHandlerAcceptsFakeLifecyclePolicy(t *testing.T) {
+	effects := &fakeLifecycleEffects{}
+	handler := newLifecycleEventHandler(LifecycleEventHandlerDeps{
+		Policy:  fakeTraceLifecyclePolicy{attachPID: 101},
+		Effects: effects,
+	})
+
+	handler.Handle(lifecycleEventView{
+		action: lifecycleExit,
+		tid:    101,
+		args:   [6]uint64{9},
+	}, &TaskState{TID: 101, TGID: 101})
+
+	if len(effects.exitText) != 1 || effects.exitText[0] != (fakeLifecycleExitText{tid: 101, exitCode: 9}) {
+		t.Fatalf("exitText = %v, want fake lifecycle policy target output", effects.exitText)
 	}
 }

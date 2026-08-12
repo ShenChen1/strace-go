@@ -90,10 +90,14 @@ func (s *traceSession) jsonEventWriter() *JSONEventWriter {
 }
 
 func (s *traceSession) emitDebugReady() {
-	if s == nil || s.dependencies.Opts == nil || !s.dependencies.Opts.DebugEvents {
+	if s == nil || s.components == nil || s.components.outputPolicy == nil {
+		return
+	}
+	var policy traceReadyPolicy = s.components.outputPolicy
+	if !policy.DebugEvents() {
 		return
 	}
 	if writer := s.jsonEventWriter(); writer != nil {
-		writer.WriteReady(s.dependencies.TargetPID, s.dependencies.Opts.AttachPids)
+		writer.WriteReady(s.dependencies.TargetPID, policy.AttachPIDs())
 	}
 }

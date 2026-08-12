@@ -246,7 +246,7 @@ func buildTraceSessionEvents(
 		Effects: newTraceSessionSyscallExitEffects(deps.Summary, deps.FDState, deps.FDState),
 	})
 	lifecycle := newLifecycleEventHandler(LifecycleEventHandlerDeps{
-		Opts: deps.Opts,
+		Policy: base.outputPolicy,
 		Effects: newTraceSessionLifecycleEffects(
 			deps.FDState,
 			base.jsonWriter,

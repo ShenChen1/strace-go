@@ -2,17 +2,15 @@ package main
 
 import (
 	"fmt"
-
-	"strace-go/pkg/cli"
 )
 
 type LifecycleEventHandler struct {
-	opts    *cli.Options
+	policy  traceLifecyclePolicy
 	effects LifecycleEffects
 }
 
 type LifecycleEventHandlerDeps struct {
-	Opts    *cli.Options
+	Policy  traceLifecyclePolicy
 	Effects LifecycleEffects
 }
 
@@ -74,7 +72,7 @@ func (e *traceSessionLifecycleEffects) WriteExitText(tid int, exitCode uint64) {
 
 func newLifecycleEventHandler(deps LifecycleEventHandlerDeps) *LifecycleEventHandler {
 	return &LifecycleEventHandler{
-		opts:    deps.Opts,
+		policy:  deps.Policy,
 		effects: deps.Effects,
 	}
 }
@@ -93,15 +91,7 @@ func (h *LifecycleEventHandler) Handle(view lifecycleEventView, task *TaskState)
 		h.closeOnExec(view, task)
 	case lifecycleExit:
 		h.cleanupProcess(view, task)
-		isAttachTarget := false
-		if h.opts != nil {
-			for _, pid := range h.opts.AttachPids {
-				if pid == int(view.tid) {
-					isAttachTarget = true
-					break
-				}
-			}
-		}
+		isAttachTarget := h.policy != nil && h.policy.IsAttachTarget(int(view.tid))
 		isThread := task != nil && task.TID != task.TGID
 		if !h.jsonMode() &&
 			(isAttachTarget || isThread || task != nil && task.Execed) {
@@ -178,18 +168,21 @@ func (h *LifecycleEventHandler) writeExitText(tid int, exitCode uint64) {
 // pids and follow-fork children). The command tracee's line is emitted by the
 // ExitStatusCoordinator after the ringbuf drain to preserve wait ordering.
 func (s *traceSession) writeLifecycleExitText(tid int, exitCode uint64) {
-	if s == nil || s.dependencies.Opts == nil {
+	if s == nil || s.components == nil || s.components.outputPolicy == nil {
 		return
 	}
-	if s.dependencies.Opts.QuietExit || s.dependencies.Opts.SummaryOnly || s.dependencies.Opts.EventFormat == cli.EventFormatJSON {
+	policy := s.components.outputPolicy
+	if policy.QuietExit() || policy.SummaryOnly() || policy.IsJSON() {
 		return
 	}
 	if s.dependencies.Cmd != nil && tid == s.dependencies.TargetPID {
 		return
 	}
-	fmt.Fprint(s.dependencies.OutWriter, s.textRenderer().ExitStatusLine(tid, exitCode))
+	if renderer := s.textRenderer(); renderer != nil {
+		fmt.Fprint(s.dependencies.OutWriter, renderer.ExitStatusLine(tid, exitCode))
+	}
 }
 
 func (h *LifecycleEventHandler) jsonMode() bool {
-	return h.opts != nil && h.opts.EventFormat == cli.EventFormatJSON
+	return h.policy != nil && h.policy.IsJSON()
 }

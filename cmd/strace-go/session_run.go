@@ -9,8 +9,6 @@ import (
 
 	"github.com/cilium/ebpf/ringbuf"
 	"golang.org/x/sys/unix"
-
-	"strace-go/pkg/cli"
 )
 
 const traceEventPollInterval = 100 * time.Millisecond
@@ -101,13 +99,9 @@ type traceCommandExitResult struct {
 // IMPACT: run reads and handles ringbuf records in the same goroutine; only process waiting is asynchronous.
 func (s *traceSession) run() error {
 	deps := s.dependencies
-	attachPids := []int(nil)
-	if deps.Opts != nil {
-		attachPids = deps.Opts.AttachPids
-	}
 	state := newTraceRunState(traceRunStateDeps{
 		command:    newExecTraceCommandWaiter(deps.Cmd),
-		attachPids: attachPids,
+		attachPids: attachPIDs(deps.Opts),
 		clock:      deps.Clock,
 		pidProbe:   deps.PIDProbe,
 	})
@@ -227,7 +221,7 @@ func anyAttachPidAlive(pids []int) bool {
 }
 
 func (s *traceSession) exitDrainGrace() time.Duration {
-	if s == nil || s.dependencies.Opts == nil || s.dependencies.Opts.EventFormat != cli.EventFormatJSON {
+	if s == nil || s.components == nil || s.components.outputPolicy == nil || !s.components.outputPolicy.IsJSON() {
 		return 0
 	}
 	return traceExitLifecycleDrainGrace

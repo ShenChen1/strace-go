@@ -57,6 +57,16 @@ type traceFollowForkPolicy interface {
 	FollowForks() bool
 }
 
+type traceLifecyclePolicy interface {
+	IsJSON() bool
+	IsAttachTarget(pid int) bool
+}
+
+type traceReadyPolicy interface {
+	DebugEvents() bool
+	AttachPIDs() []int
+}
+
 // cliTraceOutputPolicy is a session-scoped immutable snapshot of output policy.
 type cliTraceOutputPolicy struct {
 	json               bool
@@ -67,6 +77,7 @@ type cliTraceOutputPolicy struct {
 	summaryAndPrint    bool
 	quietExit          bool
 	render             traceRenderOptions
+	attachPIDs         []int
 }
 
 var (
@@ -77,6 +88,8 @@ var (
 	_ traceRenderPolicy      = (*cliTraceOutputPolicy)(nil)
 	_ traceTimePolicy        = (*cliTraceOutputPolicy)(nil)
 	_ traceFollowForkPolicy  = (*cliTraceOutputPolicy)(nil)
+	_ traceLifecyclePolicy   = (*cliTraceOutputPolicy)(nil)
+	_ traceReadyPolicy       = (*cliTraceOutputPolicy)(nil)
 )
 
 func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
@@ -95,6 +108,7 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 		summaryOnly:        opts.SummaryOnly,
 		summaryAndPrint:    opts.SummaryAndPrint,
 		quietExit:          opts.QuietExit,
+		attachPIDs:         append([]int(nil), opts.AttachPids...),
 		render: traceRenderOptions{
 			time: traceTimeOptions{
 				printTimeMode:     opts.PrintTimeMode,
@@ -155,4 +169,23 @@ func (p *cliTraceOutputPolicy) TimeOptions() traceTimeOptions {
 
 func (p *cliTraceOutputPolicy) FollowForks() bool {
 	return p != nil && p.render.followForks
+}
+
+func (p *cliTraceOutputPolicy) IsAttachTarget(pid int) bool {
+	if p == nil {
+		return false
+	}
+	for _, attachedPID := range p.attachPIDs {
+		if attachedPID == pid {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *cliTraceOutputPolicy) AttachPIDs() []int {
+	if p == nil {
+		return nil
+	}
+	return append([]int(nil), p.attachPIDs...)
 }
