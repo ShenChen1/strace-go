@@ -16,9 +16,8 @@ func execOutputTestState() (*traceSession, handler.Result, *handler.Context, *by
 	scMeta := meta.Syscall{Name: "execve"}
 	res := handler.Result{ArgParts: []string{`"/bin/true"`, `["true"]`, `0x1 /* 1 var */`}}
 	ctx := &handler.Context{ScMeta: scMeta, Opts: opts}
-	session := newTestTraceSession(traceSessionDeps{
+	session := newTestTraceSessionWithOptions(opts, traceSessionDeps{
 		TargetPID: 100,
-		Opts:      opts,
 		OutWriter: out,
 		State:     newTraceState(),
 	})

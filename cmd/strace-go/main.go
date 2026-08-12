@@ -140,7 +140,6 @@ func composeTraceSession(
 		Cmd:           bootstrap.cmd,
 		Events:        bootstrap.events,
 		TargetPID:     bootstrap.targetPID,
-		Opts:          opts,
 		EventPolicy:   eventPolicy,
 		OutputPolicy:  outputPolicy,
 		Catalog:       meta.NewCatalog(opts.XlatFormat),

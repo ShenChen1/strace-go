@@ -19,8 +19,7 @@ func TestJSONEventWriterWithoutOutputIsNoop(t *testing.T) {
 
 func TestTraceSessionEmitsDebugReadyEvent(t *testing.T) {
 	var output bytes.Buffer
-	session := newTestTraceSession(traceSessionDeps{
-		Opts:      &cli.Options{DebugEvents: true, AttachPids: []int{42, 84}},
+	session := newTestTraceSessionWithOptions(&cli.Options{DebugEvents: true, AttachPids: []int{42, 84}}, traceSessionDeps{
 		TargetPID: 42,
 		OutWriter: &output,
 	})
@@ -41,8 +40,7 @@ func TestTraceSessionEmitsDebugReadyEvent(t *testing.T) {
 
 func TestTraceSessionDoesNotEmitReadyOutsideDebugMode(t *testing.T) {
 	var output bytes.Buffer
-	session := newTestTraceSession(traceSessionDeps{
-		Opts:      &cli.Options{EventFormat: cli.EventFormatJSON},
+	session := newTestTraceSessionWithOptions(&cli.Options{EventFormat: cli.EventFormatJSON}, traceSessionDeps{
 		TargetPID: 42,
 		OutWriter: &output,
 	})

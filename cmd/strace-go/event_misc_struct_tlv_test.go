@@ -134,9 +134,8 @@ func assertPrlimitStructTLVSectionsMerged(t *testing.T, args [6]uint64) {
 }
 
 func miscStructTLVSession(syscallName string) *traceSession {
-	return newBareTestTraceSession(traceSessionDeps{
+	return newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + syscallName, "/bin/true"}), traceSessionDeps{
 		TargetPID: 101,
-		Opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + syscallName, "/bin/true"}),
 		Decoder:   event.NewDecoder(),
 		FDState:   newFDStateStoreFromMaps(nil, nil),
 		State:     newTraceState(),

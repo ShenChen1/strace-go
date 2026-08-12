@@ -10,9 +10,8 @@ import (
 )
 
 func TestSyscallEventContextUsesTLVPathSection(t *testing.T) {
-	session := newBareTestTraceSession(traceSessionDeps{
+	session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"}), traceSessionDeps{
 		TargetPID: 101,
-		Opts:      cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"}),
 		Decoder:   event.NewDecoder(),
 		FDState:   newFDStateStoreFromMaps(nil, nil),
 		State:     newTraceState(),
@@ -68,9 +67,8 @@ func TestShouldEmitGenericEnterForPathFilter(t *testing.T) {
 }
 
 func TestSyscallEventContextMergesPendingEnterTLVPathForPathFilter(t *testing.T) {
-	session := newBareTestTraceSession(traceSessionDeps{
+	session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"-e", "trace=openat", "-P", "from-tlv", "/bin/true"}), traceSessionDeps{
 		TargetPID: 101,
-		Opts:      cli.ParseArgs([]string{"-e", "trace=openat", "-P", "from-tlv", "/bin/true"}),
 		Decoder:   event.NewDecoder(),
 		FDState:   newFDStateStoreFromMaps(nil, nil),
 		State:     newTraceState(),
@@ -134,9 +132,8 @@ func assertPathStatSectionsMerged(
 	fill byte,
 ) {
 	t.Helper()
-	session := newBareTestTraceSession(traceSessionDeps{
+	session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + syscallName, "/bin/true"}), traceSessionDeps{
 		TargetPID: 101,
-		Opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + syscallName, "/bin/true"}),
 		Decoder:   event.NewDecoder(),
 		FDState:   newFDStateStoreFromMaps(nil, nil),
 		State:     newTraceState(),
@@ -197,9 +194,8 @@ func TestSyscallEventContextMergesReadlinkEnterPathAndExitBytesSections(t *testi
 }
 
 func TestSyscallEventContextUsesGetcwdExitBytesSection(t *testing.T) {
-	session := newBareTestTraceSession(traceSessionDeps{
+	session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"--event-format=json", "-e", "trace=getcwd", "/bin/true"}), traceSessionDeps{
 		TargetPID: 101,
-		Opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=getcwd", "/bin/true"}),
 		Decoder:   event.NewDecoder(),
 		FDState:   newFDStateStoreFromMaps(nil, nil),
 		State:     newTraceState(),
@@ -242,9 +238,8 @@ func TestSyscallEventContextUsesFDArrayExitStructSection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			session := newBareTestTraceSession(traceSessionDeps{
+			session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + tt.name, "/bin/true"}), traceSessionDeps{
 				TargetPID: 101,
-				Opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + tt.name, "/bin/true"}),
 				Decoder:   event.NewDecoder(),
 				FDState:   newFDStateStoreFromMaps(nil, nil),
 				State:     newTraceState(),
@@ -278,9 +273,8 @@ type readlinkTLVCase struct {
 
 func assertReadlinkSectionsMerged(t *testing.T, tt readlinkTLVCase) {
 	t.Helper()
-	session := newBareTestTraceSession(traceSessionDeps{
+	session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + tt.name, "/bin/true"}), traceSessionDeps{
 		TargetPID: 101,
-		Opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + tt.name, "/bin/true"}),
 		Decoder:   event.NewDecoder(),
 		FDState:   newFDStateStoreFromMaps(nil, nil),
 		State:     newTraceState(),

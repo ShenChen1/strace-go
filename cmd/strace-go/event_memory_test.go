@@ -16,9 +16,8 @@ func TestJSONEventPathDoesNotReadTraceeMemory(t *testing.T) {
 	var output bytes.Buffer
 	decoder := event.NewDecoder()
 
-	session := newTestTraceSession(traceSessionDeps{
+	session := newTestTraceSessionWithOptions(opts, traceSessionDeps{
 		TargetPID: 1234,
-		Opts:      opts,
 		Decoder:   decoder,
 		FDState:   newFDStateStoreFromMaps(nil, nil),
 		OutWriter: &output,
@@ -52,9 +51,8 @@ func TestJSONHandlerContextDoesNotReadTraceeMemory(t *testing.T) {
 	var output bytes.Buffer
 	decoder := event.NewDecoder()
 
-	session := newTestTraceSession(traceSessionDeps{
+	session := newTestTraceSessionWithOptions(opts, traceSessionDeps{
 		TargetPID: 1234,
-		Opts:      opts,
 		Decoder:   decoder,
 		FDState:   newFDStateStoreFromMaps(nil, nil),
 		OutWriter: &output,
@@ -86,9 +84,8 @@ func TestTextEventPathDoesNotReadTraceeMemory(t *testing.T) {
 	var output bytes.Buffer
 	decoder := event.NewDecoder()
 
-	session := newTestTraceSession(traceSessionDeps{
+	session := newTestTraceSessionWithOptions(opts, traceSessionDeps{
 		TargetPID: 1234,
-		Opts:      opts,
 		Decoder:   decoder,
 		FDState:   newFDStateStoreFromMaps(nil, nil),
 		OutWriter: &output,

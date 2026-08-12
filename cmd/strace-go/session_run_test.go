@@ -40,7 +40,7 @@ func TestNewTraceRunStateCopiesAttachDependencies(t *testing.T) {
 
 func TestTraceSessionAttachPolicySnapshotsCLIState(t *testing.T) {
 	opts := &cli.Options{AttachPids: []int{101, 202}}
-	session := newTestTraceSession(traceSessionDeps{Opts: opts})
+	session := newTestTraceSessionWithOptions(opts, traceSessionDeps{})
 	opts.AttachPids[0] = 303
 
 	attachPIDs := session.sessionAttachPIDs()
@@ -108,8 +108,7 @@ func TestFinishRunWritesJSONStatsEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newTraceOutput() error = %v", err)
 	}
-	session := newTestTraceSession(traceSessionDeps{
-		Opts:      &cli.Options{EventFormat: cli.EventFormatJSON},
+	session := newTestTraceSessionWithOptions(&cli.Options{EventFormat: cli.EventFormatJSON}, traceSessionDeps{
 		OutWriter: traceOutput,
 		Output:    traceOutput,
 	})
@@ -145,7 +144,7 @@ func TestExitDrainGraceOnlyAppliesToJSONOutput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			session := newTestTraceSession(traceSessionDeps{Opts: tt.opts})
+			session := newTestTraceSessionWithOptions(tt.opts, traceSessionDeps{})
 			if got := session.exitDrainGrace(); got != tt.want {
 				t.Fatalf("exitDrainGrace() = %s, want %s", got, tt.want)
 			}

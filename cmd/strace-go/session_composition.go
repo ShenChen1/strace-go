@@ -59,14 +59,12 @@ type traceSessionEventComponents struct {
 	eventRouter      *TraceEventRouter
 }
 
-// traceSessionDeps contains external resources and session policy. Opts is a
-// construction-only bootstrap input; newTraceSession consumes and clears it
-// before retaining the runtime dependency graph.
+// traceSessionDeps contains external resources and immutable session policy.
+// CLI parsing and policy construction stay outside this runtime graph.
 type traceSessionDeps struct {
 	Cmd           *exec.Cmd
 	Events        traceRingbufReader
 	TargetPID     int
-	Opts          *cli.Options
 	EventPolicy   *cliTraceEventPolicy
 	OutputPolicy  *cliTraceOutputPolicy
 	Catalog       *meta.Catalog
@@ -87,23 +85,12 @@ type traceSessionDeps struct {
 // newTraceSession creates the complete event pipeline before the first event
 // is read. All session-owned dependencies must be explicit at this boundary.
 func newTraceSession(deps traceSessionDeps) (*traceSession, error) {
-	eventPolicy := deps.EventPolicy
-	if eventPolicy == nil {
-		eventPolicy = newTraceEventPolicy(deps.Opts)
-	}
-	outputPolicy := deps.OutputPolicy
-	if outputPolicy == nil {
-		outputPolicy = newTraceOutputPolicy(deps.Opts)
-	}
-	deps.EventPolicy = eventPolicy
-	deps.OutputPolicy = outputPolicy
 	if err := validateTraceSessionDeps(deps); err != nil {
 		return nil, err
 	}
-	deps.Opts = nil
 	session := &traceSession{
 		dependencies: deps,
-		eventPolicy:  eventPolicy,
+		eventPolicy:  deps.EventPolicy,
 	}
 	session.components = buildTraceSessionComponents(session)
 	return session, nil

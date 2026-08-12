@@ -4160,3 +4160,38 @@ Impact note：影响集中在 `session_composition.go`、`main.go` 的 compositi
 ### 14.96 实际验收记录
 
 失败优先 source gate 先因 session 仍保留 `Opts`、base 仍从 CLI 重建 output policy 而失败；迁移后 constructor 会一次注入 event/output policy 并清空 session 依赖中的 CLI owner，components identity 与 policy snapshot 一致。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、`git diff --check` 全部通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，747.46 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试后清理本轮生成的 `strace-go` 与 Python 缓存，未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.97 删除 traceSessionDeps 中的 CLI 构造字段（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.96 已在 `newTraceSession` 返回前清空 `traceSessionDeps.Opts`，但 production struct 仍声明 `*cli.Options`，constructor 仍有从该字段派生 policy 的 fallback；测试 fixture 也继续把 CLI concrete 塞进 session dependency literal。
+- Problem：字段虽然不再被运行期保留，但它仍让 session composition API 暴露 CLI owner，并保留第二种 policy 构造入口。后续调用方可能重新依赖该字段，形成长期过渡态和隐式策略 owner。
+- Goal：从 `traceSessionDeps` 删除 `Opts` 字段；`newTraceSession` 只接受已构造的 `EventPolicy`、`OutputPolicy`，缺失时返回明确错误；production `composeTraceSession` 和所有 test fixture 显式提供两份 snapshot。
+- Non-goals：不删除 bootstrap 层 `*cli.Options`，不迁移 `buildRuntimeConfig`、syscall filter、目标启动/attach、输出文件配置或 decoder/catalog 创建；不修改事件 ABI、状态机、handler/filter 语义、BPF 事实源、纯 eBPF/no-procfs 约束。
+- Constraints：session constructor 不再 import CLI 作为 policy fallback；每个完整 session 只有一份 event policy 和一份 output policy；测试 helper 默认 policy 必须是值稳定的空 snapshot，带 CLI 行为的 fixture 通过显式 helper 在构造前生成 snapshot；缺失 policy 的错误必须在首个事件前返回。
+
+Impact note：影响 `session_composition.go`、测试 helper 以及约 20 个直接构造 `traceSessionDeps` 的测试文件；这些测试已有明确 CLI options 变量或 inline literal，可在 fixture boundary 转换为两个 policy port。`attachPIDs(*cli.Options)` 等 bootstrap helper 不属于 session dependency，不在本阶段迁移。
+
+方案比较：
+
+1. 保留 `Opts` 字段但继续约定 constructor 后清空：改动最小，但 production API 仍暴露 CLI owner，容易回流，拒绝。
+2. 将字段重命名为 `BootstrapOpts`：语义更清楚，但仍把 CLI concrete 放进 session composition 类型，仍有 fallback/双入口，拒绝。
+3. 删除字段，要求 composition/test fixture 显式注入两个 policy snapshot：依赖边界最终收敛，构造失败可定位，选择该方案。
+
+状态契约：
+
+- `traceSessionDeps` 只携带运行期资源和 immutable policy port，不包含 `*cli.Options`。
+- `newTraceSession` 不负责从 CLI 派生任何策略；`EventPolicy`/`OutputPolicy` 缺失时返回 `trace session dependency ... is nil`。
+- CLI 解析和 snapshot 创建只能发生在 `composeTraceSession` 或 test-only fixture boundary，完成后组件图只持有 policy port。
+
+测试与验收：
+
+- 先增加 source gate，锁定 `traceSessionDeps` 不声明 `*cli.Options`，constructor 不调用 `newTraceEventPolicy`/`newTraceOutputPolicy` fallback；当前实现应失败。
+- 增加缺失 policy 构造失败和显式 policy identity 回归；运行 `go test ./...`、race、vet、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf、upstream reference，并检查无残留 tracer/BPF pin。
+
+本阶段只删除 session composition 的 CLI fallback，不改变 bootstrap 目标管理或运行时事件语义。
+
+### 14.97 实际验收记录
+
+失败优先 source gate 先因 `traceSessionDeps` 仍声明 `Opts`、constructor 仍存在 CLI policy fallback 而失败；迁移后 production session dependency 只保留 event/output policy port，测试 fixture 通过 test-only options wrapper 创建 snapshot。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、`git diff --check` 全部通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，701.24 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后清理本轮生成的 `strace-go` 与 Python 缓存，session production path 未引入 ptrace、procfs 或用户态 tracee 内存读取。

@@ -11,9 +11,8 @@ import (
 
 func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"})
-	session := newBareTestTraceSession(traceSessionDeps{
+	session := newBareTestTraceSessionWithOptions(opts, traceSessionDeps{
 		TargetPID: 101,
-		Opts:      opts,
 		Decoder:   event.NewDecoder(),
 		FDState: newFDStateStoreFromMaps(map[string]string{
 			"101:cwd": "/tmp",
@@ -102,9 +101,8 @@ func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 
 func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"})
-	session := newBareTestTraceSession(traceSessionDeps{
+	session := newBareTestTraceSessionWithOptions(opts, traceSessionDeps{
 		TargetPID: 101,
-		Opts:      opts,
 		Decoder:   event.NewDecoder(),
 		FDState:   newFDStateStoreFromMaps(nil, nil),
 	})
@@ -162,9 +160,8 @@ func TestDecodePathArgumentsUsesMatchingPayloadSection(t *testing.T) {
 }
 
 func TestSyscallEventContextHandlerContextUsesEventView(t *testing.T) {
-	session := newBareTestTraceSession(traceSessionDeps{
+	session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"/bin/true"}), traceSessionDeps{
 		TargetPID: 101,
-		Opts:      cli.ParseArgs([]string{"/bin/true"}),
 		Decoder:   event.NewDecoder(),
 		FDState:   newFDStateStoreFromMaps(nil, nil),
 	})
@@ -185,9 +182,8 @@ func TestSyscallEventContextHandlerContextUsesEventView(t *testing.T) {
 }
 
 func TestSyscallEventContextHandlerContextUsesEffectiveMetadata(t *testing.T) {
-	session := newBareTestTraceSession(traceSessionDeps{
+	session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"/bin/true"}), traceSessionDeps{
 		TargetPID: 101,
-		Opts:      cli.ParseArgs([]string{"/bin/true"}),
 		Decoder:   event.NewDecoder(),
 		FDState:   newFDStateStoreFromMaps(nil, nil),
 	})
@@ -472,8 +468,7 @@ func TestSyscallEventContextRecordSummaryUsesEffectiveMetadata(t *testing.T) {
 		ret:       -2,
 		eventType: bpfEventTypeExit,
 	}
-	visibleSession := newBareTestTraceSession(traceSessionDeps{
-		Opts:    cli.ParseArgs([]string{"-e", "trace=getpid", "/bin/true"}),
+	visibleSession := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"-e", "trace=getpid", "/bin/true"}), traceSessionDeps{
 		Decoder: event.NewDecoder(),
 		FDState: newFDStateStoreFromMaps(nil, nil),
 	})
@@ -489,8 +484,7 @@ func TestSyscallEventContextRecordSummaryUsesEffectiveMetadata(t *testing.T) {
 		t.Fatalf("summary entry = %+v, want count=1 time=12 errors=1", entry)
 	}
 
-	hiddenSession := newBareTestTraceSession(traceSessionDeps{
-		Opts:    cli.ParseArgs([]string{"-e", "trace=write", "/bin/true"}),
+	hiddenSession := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"-e", "trace=write", "/bin/true"}), traceSessionDeps{
 		Decoder: event.NewDecoder(),
 		FDState: newFDStateStoreFromMaps(nil, nil),
 	})

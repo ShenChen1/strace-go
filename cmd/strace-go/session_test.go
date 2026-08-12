@@ -104,9 +104,8 @@ func TestPendingSyscallsMapUsesCompactValue(t *testing.T) {
 }
 
 func TestShouldQueueExitStatusSkipsExplicitAttachPid(t *testing.T) {
-	session := newTestTraceSession(traceSessionDeps{
-		Cmd:  fakeStartedCommand(),
-		Opts: &cli.Options{AttachPids: []int{202}},
+	session := newTestTraceSessionWithOptions(&cli.Options{AttachPids: []int{202}}, traceSessionDeps{
+		Cmd: fakeStartedCommand(),
 	})
 	coordinator := session.exitStatusCoordinator()
 

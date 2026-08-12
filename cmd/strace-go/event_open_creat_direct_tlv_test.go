@@ -20,9 +20,8 @@ func TestSyscallEventContextMergesOpenCreatDirectTLVPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			session := newBareTestTraceSession(traceSessionDeps{
+			session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"-e", "trace=" + tt.name, "/bin/true"}), traceSessionDeps{
 				TargetPID: 101,
-				Opts:      cli.ParseArgs([]string{"-e", "trace=" + tt.name, "/bin/true"}),
 				Decoder:   event.NewDecoder(),
 				FDState:   newFDStateStoreFromMaps(nil, nil),
 				State:     newTraceState(),

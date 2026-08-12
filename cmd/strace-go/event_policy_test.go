@@ -108,10 +108,10 @@ func TestTraceEventPolicySnapshotsStateOptions(t *testing.T) {
 }
 
 func TestTraceEventPolicyIsSharedBySessionAndContext(t *testing.T) {
-	session := newTestTraceSession(traceSessionDeps{Opts: &cli.Options{
+	session := newTestTraceSessionWithOptions(&cli.Options{
 		EventFormat: cli.EventFormatJSON,
 		FollowForks: true,
-	}})
+	}, traceSessionDeps{})
 	if session.eventPolicy == nil || session.components.eventPolicy != session.eventPolicy {
 		t.Fatal("session components do not share the event policy snapshot")
 	}

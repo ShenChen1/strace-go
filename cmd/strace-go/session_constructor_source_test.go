@@ -4,8 +4,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"strace-go/pkg/cli"
 )
 
 func TestTraceSessionConstructorDoesNotNormalizeDefaults(t *testing.T) {
@@ -36,7 +34,7 @@ func TestNewTraceSessionRejectsMissingCoreDependency(t *testing.T) {
 }
 
 func TestNewTestTraceSessionProvidesFixtureDependencies(t *testing.T) {
-	session := newTestTraceSession(traceSessionDeps{Opts: &cli.Options{}})
+	session := newTestTraceSession(traceSessionDeps{})
 	if session.traceState() == nil || session.fdStateStore() == nil || session.runtimeService() == nil {
 		t.Fatal("test session helper did not provide core state dependencies")
 	}

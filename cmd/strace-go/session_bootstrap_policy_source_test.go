@@ -9,12 +9,7 @@ import (
 )
 
 func TestTraceSessionDropsBootstrapOptionsAfterComposition(t *testing.T) {
-	session := newTestTraceSession(traceSessionDeps{
-		Opts: &cli.Options{EventFormat: cli.EventFormatJSON},
-	})
-	if session.dependencies.Opts != nil {
-		t.Fatal("session retained mutable bootstrap CLI options")
-	}
+	session := newTestTraceSessionWithOptions(&cli.Options{EventFormat: cli.EventFormatJSON}, traceSessionDeps{})
 	if session.dependencies.OutputPolicy == nil || session.dependencies.OutputPolicy != session.components.outputPolicy {
 		t.Fatal("session components did not reuse the injected output policy snapshot")
 	}
@@ -34,5 +29,32 @@ func TestTraceSessionBaseConsumesInjectedOutputPolicy(t *testing.T) {
 	}
 	if !strings.Contains(source, "OutputPolicy") {
 		t.Fatal("session dependencies must carry the constructed output policy")
+	}
+}
+
+func TestTraceSessionDepsDoesNotDeclareCLIOptions(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/session_composition.go"))
+	start := strings.Index(source, "type traceSessionDeps struct")
+	if start < 0 {
+		t.Fatal("traceSessionDeps definition not found")
+	}
+	end := strings.Index(source[start:], "\n}")
+	if end < 0 {
+		t.Fatal("traceSessionDeps body not found")
+	}
+	body := source[start : start+end]
+	if strings.Contains(body, "*cli.Options") || strings.Contains(body, "Opts") {
+		t.Fatal("traceSessionDeps must not retain CLI options")
+	}
+	if strings.Contains(source, "newTraceEventPolicy(deps.Opts)") || strings.Contains(source, "newTraceOutputPolicy(deps.Opts)") {
+		t.Fatal("session constructor must not derive policy from CLI options")
+	}
+}
+
+func TestTraceSessionRejectsMissingPolicySnapshot(t *testing.T) {
+	deps := withTestTraceSessionDefaults(traceSessionDeps{})
+	deps.EventPolicy = nil
+	if _, err := newTraceSession(deps); err == nil || !strings.Contains(err.Error(), "EventPolicy") {
+		t.Fatalf("newTraceSession() error = %v, want missing EventPolicy", err)
 	}
 }

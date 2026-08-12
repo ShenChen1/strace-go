@@ -28,7 +28,6 @@ func newTestTraceSession(deps traceSessionDeps) *traceSession {
 
 func newBareTestTraceSession(deps traceSessionDeps) *traceSession {
 	deps = withTestTraceSessionDefaults(deps)
-	deps.Opts = nil
 	return &traceSession{
 		dependencies: deps,
 		eventPolicy:  deps.EventPolicy,
@@ -39,21 +38,14 @@ func withTestTraceSessionDefaults(deps traceSessionDeps) traceSessionDeps {
 	if deps.Events == nil {
 		deps.Events = &fakeRingbufReader{}
 	}
-	if deps.Opts == nil {
-		deps.Opts = &cli.Options{}
-	}
 	if deps.EventPolicy == nil {
-		deps.EventPolicy = newTraceEventPolicy(deps.Opts)
+		deps.EventPolicy = newTraceEventPolicy(&cli.Options{})
 	}
 	if deps.OutputPolicy == nil {
-		deps.OutputPolicy = newTraceOutputPolicy(deps.Opts)
+		deps.OutputPolicy = newTraceOutputPolicy(&cli.Options{})
 	}
 	if deps.Catalog == nil {
-		format := deps.Opts.XlatFormat
-		if format == "" {
-			format = "abbrev"
-		}
-		deps.Catalog = meta.NewCatalog(format)
+		deps.Catalog = meta.NewCatalog("abbrev")
 	}
 	if deps.Decoder == nil {
 		deps.Decoder = event.NewDecoder()
@@ -83,4 +75,21 @@ func withTestTraceSessionDefaults(deps traceSessionDeps) traceSessionDeps {
 		deps.State = newTraceStateForSession(deps.EventPolicy)
 	}
 	return deps
+}
+
+func testTraceSessionDeps(opts *cli.Options, deps traceSessionDeps) traceSessionDeps {
+	if opts == nil {
+		opts = &cli.Options{}
+	}
+	deps.EventPolicy = newTraceEventPolicy(opts)
+	deps.OutputPolicy = newTraceOutputPolicy(opts)
+	return deps
+}
+
+func newTestTraceSessionWithOptions(opts *cli.Options, deps traceSessionDeps) *traceSession {
+	return newTestTraceSession(testTraceSessionDeps(opts, deps))
+}
+
+func newBareTestTraceSessionWithOptions(opts *cli.Options, deps traceSessionDeps) *traceSession {
+	return newBareTestTraceSession(testTraceSessionDeps(opts, deps))
 }
