@@ -8,11 +8,6 @@ import (
 	"strace-go/pkg/meta"
 )
 
-// Netlink formats a netlink message or an array of netlink messages.
-func Netlink(data []byte) string {
-	return NetlinkWithCatalog(meta.NewCatalog("abbrev"), data)
-}
-
 // NetlinkWithCatalog formats netlink flags using the session catalog.
 func NetlinkWithCatalog(catalog *meta.Catalog, data []byte) string {
 	if len(data) < 16 {

@@ -29,11 +29,6 @@ func Timeval(data []byte) string {
 	return fmt.Sprintf("{tv_sec=%d, tv_usec=%d}", sec, usec)
 }
 
-// Pollfds formats an array of struct pollfd.
-func Pollfds(data []byte, nfds uint32) string {
-	return PollfdsWithCatalog(meta.NewCatalog("abbrev"), data, nfds)
-}
-
 // PollfdsWithCatalog formats pollfd flags using the session catalog.
 func PollfdsWithCatalog(catalog *meta.Catalog, data []byte, nfds uint32) string {
 	if len(data) < 8 {
@@ -61,11 +56,6 @@ func PollfdsWithCatalog(catalog *meta.Catalog, data []byte, nfds uint32) string 
 	return "[" + strings.Join(res, ", ") + "]"
 }
 
-// EpollEvents formats an array of struct epoll_event.
-func EpollEvents(data []byte, count int) string {
-	return EpollEventsWithCatalog(meta.NewCatalog("abbrev"), data, count)
-}
-
 // EpollEventsWithCatalog formats epoll events using the session catalog.
 func EpollEventsWithCatalog(catalog *meta.Catalog, data []byte, count int) string {
 	if len(data) < 12 {
@@ -90,11 +80,6 @@ func EpollEventsWithCatalog(catalog *meta.Catalog, data []byte, count int) strin
 		res = append(res, "...")
 	}
 	return "[" + strings.Join(res, ", ") + "]"
-}
-
-// EpollEvent formats a single struct epoll_event (used in epoll_ctl).
-func EpollEvent(data []byte) string {
-	return EpollEventWithCatalog(meta.NewCatalog("abbrev"), data)
 }
 
 // EpollEventWithCatalog formats one epoll event using the session catalog.
@@ -132,11 +117,6 @@ func IoEvents(data []byte, count int) string {
 		res = append(res, "...")
 	}
 	return "[" + strings.Join(res, ", ") + "]"
-}
-
-// Stat formats a struct stat buffer into a human-readable string.
-func Stat(data []byte) string {
-	return StatWithCatalog(meta.NewCatalog("abbrev"), data)
 }
 
 // StatWithCatalog formats stat mode bits using the session catalog.
@@ -177,11 +157,6 @@ func StatWithCatalog(catalog *meta.Catalog, data []byte) string {
 	}
 	res += fmt.Sprintf(", st_atime=%d /* %s */, st_atime_nsec=%d, st_mtime=%d /* %s */, st_mtime_nsec=%d, st_ctime=%d /* %s */, st_ctime_nsec=%d}", st_atime, time.Unix(st_atime, 0).UTC().Format("2006-01-02T15:04:05")+"."+fmt.Sprintf("%09d", st_atime_nsec)+"+0000", st_atime_nsec, st_mtime, time.Unix(st_mtime, 0).UTC().Format("2006-01-02T15:04:05")+"."+fmt.Sprintf("%09d", st_mtime_nsec)+"+0000", st_mtime_nsec, st_ctime, time.Unix(st_ctime, 0).UTC().Format("2006-01-02T15:04:05")+"."+fmt.Sprintf("%09d", st_ctime_nsec)+"+0000", st_ctime_nsec)
 	return res
-}
-
-// Timex formats a struct timex buffer into a human-readable string.
-func Timex(data []byte) string {
-	return TimexWithCatalog(meta.NewCatalog("abbrev"), data)
 }
 
 // TimexWithCatalog formats timex status using the session catalog.
@@ -330,11 +305,6 @@ func Sysinfo(data []byte) string {
 
 	return fmt.Sprintf("{uptime=%d, loads=[%d, %d, %d], totalram=%d, freeram=%d, sharedram=%d, bufferram=%d, totalswap=%d, freeswap=%d, procs=%d, totalhigh=%d, freehigh=%d, mem_unit=%d}",
 		uptime, loads[0], loads[1], loads[2], totalram, freeram, sharedram, bufferram, totalswap, freeswap, procs, totalhigh, freehigh, mem_unit)
-}
-
-// Statfs formats a struct statfs buffer.
-func Statfs(data []byte) string {
-	return StatfsWithCatalog(meta.NewCatalog("abbrev"), data)
 }
 
 // StatfsWithCatalog formats statfs flags using the session catalog.

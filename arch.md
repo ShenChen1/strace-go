@@ -3452,3 +3452,36 @@ ABI 与状态契约：
 本阶段只收口 Catalog API 的 nil invariant，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先的 nil receiver 行为测试先确认旧实现会返回默认值、空结果或隐式创建 `abbrev` catalog；修复后 `Format`、`Table`、`SyscallArgXlat`、`DecodeFlags` 的 nil receiver 均确定性 panic，`flagDecoder` 也不再接受 nil catalog。受影响的时间、misc、stat、waitid 及其他 handler fixture 已显式注入 `meta.NewCatalog("abbrev")`，没有新增 production fallback。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、no-ptrace/no-procfs source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，745.12 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.76 删除 format 层无 Catalog 默认 wrapper（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.73-14.75 已把 Catalog 创建和 nil 契约收敛到 session/显式 fixture；但 `pkg/format/format_socket.go` 和 `pkg/format/netlink.go` 仍保留 `Pollfds`、`EpollEvents`、`EpollEvent`、`Stat`、`Timex`、`Statfs`、`Netlink` 无参 wrapper，在每次调用时隐式创建 `abbrev` Catalog。
+- Problem：这些 wrapper 是 format 层的第二个 xlat policy owner，调用者无法表达 session 的 `raw`/`verbose` policy；虽然当前仓内没有 caller，但它们允许未来 handler 绕过 `*WithCatalog` API，并在热路径重复构造 catalog。
+- Goal：删除所有无 Catalog wrapper，只保留要求显式 `*meta.Catalog` 的 `*WithCatalog` formatter；format production source 不再调用 `meta.NewCatalog`，现有 handler 输出和非 xlat formatter 不变。
+- Non-goals：不修改 `*WithCatalog` 的签名、字段解码、截断规则或文本；不重构非 xlat formatter；不把 Catalog 改成全局变量；不改变 BPF ABI、事件路由、纯 eBPF/no-procfs 约束或用户可见 syscall 语义。
+- Constraints：全局搜索显示七个 wrapper 只有定义、没有仓内 caller；显式 `*WithCatalog` caller 必须保持编译和输出；测试需要用 source gate 锁定 format 层不得重新创建默认 Catalog；不为仓外潜在 API 保留过渡兼容层，当前项目仍在开发阶段。
+
+Impact note：`rg` 结果显示 `pkg/handler/epoll.go`、`type_time.go`、`type_stat.go`、`network.go` 以及现有测试均已使用 `*WithCatalog`；本阶段只删除无调用 wrapper 和对应的隐式构造，不修改这些正式调用路径。
+
+方案比较：
+
+1. 保留 wrapper 并继续创建 `abbrev` Catalog：改动最小，但保留第二个 policy owner 和热路径分配，拒绝。
+2. 将 wrapper 改为接收 Catalog 并复用原名称：会破坏现有与 `*WithCatalog` 重复的 API 形状，且无法证明 caller 使用了显式 session policy，拒绝。
+3. 删除无 caller 的 wrapper，保留 `*WithCatalog` 作为唯一 xlat formatter API：契约最清晰、改动最小、符合开发期允许删除无用兼容层的约束，选择该方案。
+
+状态契约：
+
+- `pkg/format` 不创建 Catalog；需要 xlat 的 formatter 必须从调用方接收已构造的 Catalog。
+- `meta.NewCatalog` 只出现在 session composition、明确的测试 fixture 或显式 default API 的边界，不出现在 format implementation。
+- `NetlinkWithCatalog` 的递归解析继续复用同一个 Catalog，不产生子 Catalog。
+
+测试与验收：
+
+- 先增加失败优先 source gate，验证 format implementation 当前仍包含无 Catalog wrapper/`meta.NewCatalog`；修复后 source gate 必须确认这些 fallback 消失。
+- 运行 format focused tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 format 层 Catalog ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source gate 先确认 `format_socket.go` 仍包含隐式 `meta.NewCatalog("abbrev")` wrapper；删除七个无仓内 caller 的默认 wrapper 后，format implementation 不再创建 Catalog，`*WithCatalog` API 和 Netlink 递归复用同一 Catalog。`go test ./pkg/format`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、no-ptrace/no-procfs source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，735.66 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
