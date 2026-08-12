@@ -63,7 +63,7 @@ type traceSessionBootstrap struct {
 	events    traceRingbufReader
 	targetPID int
 	fdSeed    fdStateSeed
-	bpfObjs   *bpfObjects
+	bpfReads  traceBPFReadPorts
 }
 
 func composeTraceSession(
@@ -86,7 +86,8 @@ func composeTraceSession(
 		Output:        output,
 		Summary:       newSummaryStats(),
 		TimeFormatter: newTimeFormatterWithClock(calculateTimeOffsetWithClock(clock), clock),
-		BPFObjects:    bootstrap.bpfObjs,
+		StackTraces:   bootstrap.bpfReads.StackTraces,
+		Stats:         bootstrap.bpfReads.Stats,
 		Resolver:      config.resolver,
 		State:         newTraceStateForSession(config.eventPolicy),
 		Clock:         clock,
@@ -110,7 +111,8 @@ type traceSessionDeps struct {
 	Output        *TraceOutput
 	Summary       *SummaryStats
 	TimeFormatter *TimeFormatter
-	BPFObjects    *bpfObjects
+	StackTraces   traceStackTraceReader
+	Stats         traceStatsReader
 	Resolver      *stacktrace.Resolver
 	State         *TraceState
 	Clock         traceClock
@@ -213,7 +215,7 @@ func buildTraceSessionBase(session *traceSession) traceSessionBaseComponents {
 			Policy:        outputPolicy,
 			State:         deps.State,
 			TimeFormatter: deps.TimeFormatter,
-			BPFObjs:       deps.BPFObjects,
+			StackTraces:   deps.StackTraces,
 			Resolver:      deps.Resolver,
 		}),
 		exitStatus: newExitStatusCoordinator(ExitStatusCoordinatorDeps{
@@ -344,7 +346,7 @@ func buildTraceSessionRuntime(
 			StatsDiagnostic: os.Stderr,
 			ExitStatus:      exitStatus,
 			Summary:         deps.Summary,
-			BPFObjects:      deps.BPFObjects,
+			Stats:           deps.Stats,
 			Output:          deps.Output,
 		}),
 		commandExitHandler: newTraceCommandExitHandler(TraceCommandExitHandlerDeps{

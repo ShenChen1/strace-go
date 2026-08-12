@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-
-	"github.com/cilium/ebpf"
 )
 
 type bpfRuntimeStats struct {
@@ -18,20 +16,13 @@ type bpfRuntimeStats struct {
 	Error                  string
 }
 
-func collectBPFStatsFromObjects(objs *bpfObjects) bpfRuntimeStats {
-	if objs == nil {
-		return unavailableBPFStats("bpf objects unavailable")
-	}
-	return collectBPFStatsFromMap(objs.StatsMap)
-}
-
-func collectBPFStatsFromMap(statsMap *ebpf.Map) bpfRuntimeStats {
-	if statsMap == nil {
-		return unavailableBPFStats("stats map unavailable")
+func collectBPFStatsFromReader(reader traceStatsReader) bpfRuntimeStats {
+	if reader == nil {
+		return unavailableBPFStats("stats reader unavailable")
 	}
 
 	var values []bpfBpfStats
-	if err := statsMap.Lookup(uint32(0), &values); err != nil {
+	if err := reader.ReadStats(&values); err != nil {
 		return unavailableBPFStats(fmt.Sprintf("stats map lookup failed: %v", err))
 	}
 	return sumBPFStatsValues(values)

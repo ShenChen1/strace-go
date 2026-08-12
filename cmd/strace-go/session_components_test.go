@@ -294,8 +294,8 @@ func TestTraceSessionPipelineUsesComposedDependencies(t *testing.T) {
 	if finalizer.summary != session.summaryStats() {
 		t.Fatal("finalizer should use session summary stats")
 	}
-	if finalizer.bpfObjs != session.dependencies.BPFObjects {
-		t.Fatal("finalizer should use session BPF objects")
+	if finalizer.statsReader != session.dependencies.Stats {
+		t.Fatal("finalizer should use the injected stats reader")
 	}
 }
 

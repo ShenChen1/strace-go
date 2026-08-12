@@ -95,7 +95,7 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 		events:    events,
 		targetPID: targetPid,
 		fdSeed:    fdSeed,
-		bpfObjs:   bpfObjs,
+		bpfReads:  newTraceBPFReadPorts(bpfObjs),
 	}, output)
 	if err != nil {
 		return fmt.Errorf("failed to compose trace session: %w", err)

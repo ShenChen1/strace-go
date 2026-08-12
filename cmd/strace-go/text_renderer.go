@@ -14,7 +14,7 @@ type TextRenderer struct {
 	policy        traceRenderPolicy
 	state         textRendererState
 	timeFormatter *TimeFormatter
-	bpfObjs       *bpfObjects
+	stackTraces   traceStackTraceReader
 	resolver      *stacktrace.Resolver
 }
 
@@ -23,7 +23,7 @@ type TextRendererDeps struct {
 	Policy        traceRenderPolicy
 	State         textRendererState
 	TimeFormatter *TimeFormatter
-	BPFObjs       *bpfObjects
+	StackTraces   traceStackTraceReader
 	Resolver      *stacktrace.Resolver
 }
 
@@ -33,7 +33,7 @@ func newTextRenderer(deps TextRendererDeps) *TextRenderer {
 		policy:        deps.Policy,
 		state:         deps.State,
 		timeFormatter: deps.TimeFormatter,
-		bpfObjs:       deps.BPFObjs,
+		stackTraces:   deps.StackTraces,
 		resolver:      deps.Resolver,
 	}
 }
@@ -212,11 +212,11 @@ func (r *TextRenderer) durationSuffix(duration uint64) string {
 }
 
 func (r *TextRenderer) printStackTrace(stackID int32) {
-	if !r.renderOptions().stackTrace || r.bpfObjs == nil || r.resolver == nil || stackID <= 0 {
+	if !r.renderOptions().stackTrace || r.stackTraces == nil || r.resolver == nil || stackID <= 0 {
 		return
 	}
 	var ips [127]uint64
-	if err := r.bpfObjs.StackTraces.Lookup(uint32(stackID), &ips); err != nil {
+	if err := r.stackTraces.ReadStackTrace(uint32(stackID), &ips); err != nil {
 		return
 	}
 	for _, ip := range ips {

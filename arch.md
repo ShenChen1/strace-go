@@ -4335,3 +4335,38 @@ Impact note：影响 `main.go`、新增 launch config 文件、bootstrap source 
 ### 14.101 实际验收记录
 
 失败优先 source gate 先因 `runTraceSession`、`resolveTraceTargets`、`abortTraceTargets` 和 `traceTargetPIDs` 仍接收 CLI 而失败；迁移后 `newTraceLaunchConfig` 在 `runMain` 边界复制 BPF/session/command/attach/output 输入，run orchestrator 和 cleanup 只消费 launch/target snapshot。新增测试覆盖 nil launch config、command/env/attach slice mutation 和目标 PID 去重。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source/no-ptrace/no-procfs gate 和 `git diff --check` 全部通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，731.00 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试后清理本轮 `strace-go` 和 Python 临时目录，生产路径仍未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.102 将 BPF 生成对象隔离在运行期只读能力端口之外（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.99-14.101 已将 BPF、session composition 和 run orchestrator 的启动输入改为 snapshot，但 `traceSessionDeps` 仍持有完整 `*bpfObjects`。文本渲染器为栈回溯直接访问 `StackTraces`，run finalizer 为统计直接访问 `StatsMap`，生成绑定因此穿过事件组件图。
+- Problem：presentation/finalization 层可以观察并依赖全部生成的 BPF map/program 字段，生成绑定变化会扩散到 session；同时 `collectBPFStatsFromObjects` 与 `TextRenderer.printStackTrace` 无法在不加载 BPF 对象的情况下做 deterministic unit test，资源所有权和只读查询能力没有明确边界。
+- Goal：在 BPF bootstrap 边界将生成 map 适配成两个最小能力端口：`traceStackTraceReader` 只提供指定 stack id 的读取，`traceStatsReader` 只提供 per-CPU stats 读取；`traceSessionDeps`、`TextRenderer`、`TraceRunFinalizer` 和 `bpf_stats.go` 不再持有或声明 `*bpfObjects`。
+- Non-goals：不修改 BPF map ABI、ringbuf/event ABI、tail-call dispatch、生命周期/filter 语义、栈解析格式、stats JSON/text 格式、资源关闭顺序、纯 eBPF/no-procfs/no-ptrace 约束；不在本阶段重写 setupBPF、attach 或 target bootstrap 操作端口。
+- Constraints：适配器必须在 bootstrap/composition 边界创建；端口方法必须是类型化的 bounded read，不向 renderer/finalizer 暴露 `ebpf.Map` 的通用 key/value API；缺失端口保持可观测的“无 stack”或“stats unavailable”行为；每个文件和函数继续满足仓库大小限制。
+
+Impact note：影响 `session_composition.go`、`text_renderer.go`、`run_finalizer.go`、`bpf_stats.go`、BPF 适配文件及其单测；`main.go` 仍可持有生成的 BPF owner 完成配置和目标管理，但 session event graph 只接收 stack/stats 只读能力。
+
+方案比较：
+
+1. 直接把 `*ebpf.Map` 注入 renderer/finalizer：改动少，但 presentation 层绑定 cilium map API 和无界 `interface{}` lookup，拒绝。
+2. 继续注入完整 `*bpfObjects`：调用点最少，但生成绑定和全部 map/program 权限继续穿透 session，拒绝。
+3. 在 bootstrap 创建两个类型化只读 port，由 renderer/finalizer 依赖 port：能力最小、ownership 明确、可用 fake 做失败/成功测试，选择该方案。
+
+状态契约：
+
+- `traceSessionDeps` 不再声明 `*bpfObjects`；它只携带 `StackTraces traceStackTraceReader` 和 `Stats traceStatsReader`。
+- `bpfStackTraceReader` 和 `bpfStatsReader` 是唯一把 `*ebpf.Map` 适配到 typed port 的 production boundary；renderer/finalizer 不调用 `ebpf.Map.Lookup`。
+- stack read 失败继续静默跳过栈帧，stats read/map 缺失继续生成 unavailable stats；这些行为在 fake port 上锁定。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 session composition、renderer、finalizer 和 stats collector 不声明 `*bpfObjects`/`*ebpf.Map`；增加 fake stack/stats port 的成功与失败回归，迁移前 gate 应失败。
+- 运行 focused port/renderer/finalizer tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference；检查没有残留 tracer/BPF pin。
+
+本阶段只收口 BPF 生成绑定的读取权限，不改变任何内核采集或用户可见输出语义。
+
+### 14.102 实际验收记录
+
+失败优先 source gate 先因 `session_composition.go` 仍声明 `*bpfObjects` 而失败；迁移后新增 `traceStackTraceReader`/`traceStatsReader` 及唯一的 `bpf_read_ports.go` 适配层，renderer、finalizer、stats collector 和 `traceSessionDeps` 均不再持有生成 BPF owner。新增 fake port 覆盖 stack 成功/失败、stats 聚合/失败；`go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，748.88 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试期间未引入 ptrace、procfs 或用户态 tracee 内存读取，清理了本轮生成的二进制和 Python 缓存。

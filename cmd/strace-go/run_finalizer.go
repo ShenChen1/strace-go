@@ -14,7 +14,7 @@ type TraceRunFinalizer struct {
 	statsDiagnostic io.Writer
 	exitStatus      *ExitStatusCoordinator
 	summary         *SummaryStats
-	bpfObjs         *bpfObjects
+	statsReader     traceStatsReader
 	output          *TraceOutput
 }
 
@@ -25,7 +25,7 @@ type TraceRunFinalizerDeps struct {
 	StatsDiagnostic io.Writer
 	ExitStatus      *ExitStatusCoordinator
 	Summary         *SummaryStats
-	BPFObjects      *bpfObjects
+	Stats           traceStatsReader
 	Output          *TraceOutput
 }
 
@@ -41,7 +41,7 @@ func newTraceRunFinalizer(deps TraceRunFinalizerDeps) *TraceRunFinalizer {
 		statsDiagnostic: diagnostic,
 		exitStatus:      deps.ExitStatus,
 		summary:         deps.Summary,
-		bpfObjs:         deps.BPFObjects,
+		statsReader:     deps.Stats,
 		output:          deps.Output,
 	}
 }
@@ -57,7 +57,7 @@ func (f *TraceRunFinalizer) Finish() error {
 	if f.exitStatus != nil {
 		f.exitStatus.FlushFallback(f.targetPID)
 	}
-	stats := collectBPFStatsFromObjects(f.bpfObjs)
+	stats := collectBPFStatsFromReader(f.statsReader)
 	f.writeStats(stats)
 	f.printSummary()
 	return f.closeOutput()
