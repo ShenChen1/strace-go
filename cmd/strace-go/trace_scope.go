@@ -1,6 +1,9 @@
 package main
 
-import "strace-go/pkg/cli"
+type traceScopePolicy interface {
+	FollowForks() bool
+	AttachPIDs() []int
+}
 
 type TraceScope struct {
 	targetPID  int
@@ -8,11 +11,11 @@ type TraceScope struct {
 	followFork bool
 }
 
-func newTraceScope(targetPID int, opts *cli.Options) TraceScope {
+func newTraceScope(targetPID int, policy traceScopePolicy) TraceScope {
 	scope := TraceScope{targetPID: targetPID}
-	if opts != nil {
-		scope.attachPIDs = append([]int(nil), opts.AttachPids...)
-		scope.followFork = opts.FollowForks
+	if policy != nil {
+		scope.attachPIDs = append([]int(nil), policy.AttachPIDs()...)
+		scope.followFork = policy.FollowForks()
 	}
 	return scope
 }

@@ -88,6 +88,7 @@ var (
 	_ traceRenderPolicy      = (*cliTraceOutputPolicy)(nil)
 	_ traceTimePolicy        = (*cliTraceOutputPolicy)(nil)
 	_ traceFollowForkPolicy  = (*cliTraceOutputPolicy)(nil)
+	_ traceScopePolicy       = (*cliTraceOutputPolicy)(nil)
 	_ traceLifecyclePolicy   = (*cliTraceOutputPolicy)(nil)
 	_ traceReadyPolicy       = (*cliTraceOutputPolicy)(nil)
 )

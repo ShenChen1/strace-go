@@ -2,12 +2,23 @@ package main
 
 import (
 	"testing"
-
-	"strace-go/pkg/cli"
 )
 
+type fakeTraceScopePolicy struct {
+	follow bool
+	attach []int
+}
+
+func (p fakeTraceScopePolicy) FollowForks() bool { return p.follow }
+
+func (p fakeTraceScopePolicy) AttachPIDs() []int {
+	return append([]int(nil), p.attach...)
+}
+
+var _ traceScopePolicy = fakeTraceScopePolicy{}
+
 func TestTraceScopeAllowsTargetWithoutAttach(t *testing.T) {
-	scope := newTraceScope(101, &cli.Options{})
+	scope := newTraceScope(101, fakeTraceScopePolicy{})
 
 	if !scope.AllowsPID(101) {
 		t.Fatal("target pid should be allowed")
@@ -21,7 +32,7 @@ func TestTraceScopeAllowsTargetWithoutAttach(t *testing.T) {
 }
 
 func TestTraceScopeUsesAttachPidsAsDirectMatches(t *testing.T) {
-	scope := newTraceScope(101, &cli.Options{AttachPids: []int{202}})
+	scope := newTraceScope(101, fakeTraceScopePolicy{attach: []int{202}})
 
 	if !scope.AllowsPID(202) {
 		t.Fatal("attached pid should be allowed")
@@ -32,9 +43,19 @@ func TestTraceScopeUsesAttachPidsAsDirectMatches(t *testing.T) {
 }
 
 func TestTraceScopeAllowsForksWhenEnabled(t *testing.T) {
-	scope := newTraceScope(101, &cli.Options{AttachPids: []int{202}, FollowForks: true})
+	scope := newTraceScope(101, fakeTraceScopePolicy{attach: []int{202}, follow: true})
 
 	if !scope.AllowsPID(303) {
 		t.Fatal("follow-forks should allow non-direct pids")
+	}
+}
+
+func TestTraceScopeCopiesAttachPIDsFromPolicy(t *testing.T) {
+	policy := &fakeTraceScopePolicy{attach: []int{202}}
+	scope := newTraceScope(101, policy)
+	policy.attach[0] = 303
+
+	if !scope.AllowsPID(202) || scope.AllowsPID(303) {
+		t.Fatal("scope allow rules changed after policy mutation")
 	}
 }

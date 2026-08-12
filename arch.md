@@ -3987,3 +3987,37 @@ Impact note：影响集中在 `output_policy.go`、`lifecycle_event_handler.go`�
 本阶段只收敛生命周期策略消费依赖，不改变纯 eBPF 事实源、生命周期状态机或用户可见事件语义。
 
 实际验收结果：失败优先 source gate 先因 `traceLifecyclePolicy` 尚未定义而失败；迁移后复用同一个 `cliTraceOutputPolicy` snapshot，复制 attach PID 列表，`LifecycleEventHandler`、生命周期退出文本、JSON ready 和 exit drain grace 均改为消费 session policy port。fake lifecycle/ready port 覆盖 JSON、attach target、ready debug、PID copy 和生命周期输出，composition identity 确认 handler 使用的 policy 与 output snapshot 相同。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，737.14 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后待清理本轮 `strace-go` 和 Python 临时目录，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.92 将 TraceScope 的 CLI 依赖收敛为 session policy port（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.89-14.91 已让输出、渲染、退出和生命周期路径共享同一个 immutable `cliTraceOutputPolicy` snapshot，但 `TraceScope` 仍在 composition 边界接收 `*cli.Options`，并自行复制 `AttachPids`、读取 `FollowForks`。
+- Problem：目标 PID allow 规则仍能绕过 session policy snapshot 直接读取 CLI concrete；未来若 bootstrap 后 options 被修改，事件 router 的 scope 可能与 lifecycle、输出策略产生漂移。`TraceScope` 实际只需要 attach PID 集合和 follow-forks 布尔值。
+- Goal：增加二方法的 `traceScopePolicy` port，让 `TraceScope` 从现有 session snapshot 获取 `AttachPIDs()` 和 `FollowForks()`，在构造时保存自己的不可变值副本；composition 不再把 `*cli.Options` 传入 `newTraceScope`，保持无 attach 时目标 PID 默认允许、有 attach 时仅 attach PID 直接允许、follow-forks 时允许其他 PID 的既有语义。
+- Non-goals：不改 PID allow 规则、事件 router 顺序、lifecycle 继承、BPF attach/config、CLI parser、事件 ABI、纯 eBPF/no-procfs 约束；不移除 `traceSessionDeps.Opts` 这个 bootstrap owner，不重构仍需要 CLI 的 state/filter/handler 路径，不增加运行期锁或第二个 mutable owner。
+- Constraints：`traceScopePolicy` 只含 `FollowForks` 与 `AttachPIDs` 两项能力；`AttachPIDs` 返回 copy，scope 内部不暴露 backing slice；nil policy 维持旧默认行为；新增 source gate 必须先在生产迁移前失败。
+
+Impact note：全局搜索显示 production 只有 `session_composition.go` 将 CLI 传给 `newTraceScope`，测试调用点集中在 `trace_scope_test.go` 和 `event_router_test.go`；迁移会影响这些 wiring/test fixtures，不改 `TraceEventRouter` 的数据处理逻辑。
+
+方案比较：
+
+1. 继续给 `newTraceScope` 传 `*cli.Options`：改动最小，但 scope 继续依赖 CLI concrete，策略可与 session snapshot 漂移，拒绝。
+2. 由 composition 直接传 `followForks` 和 `[]int` 值：可以删除 CLI import，调用简单，但策略提取和 slice 边界散落在 composition，难以用窄 port 验证，拒绝。
+3. 在已有 immutable output snapshot 上提供二方法 `traceScopePolicy`，scope 构造时复制值：不增加 owner，能力最小，测试可注入 fake，选择该方案。
+
+状态契约：
+
+- `cliTraceOutputPolicy` 是 `traceScopePolicy` 的唯一 production 实现；scope 只在 construction 时读取一次策略。
+- `TraceScope.attachPIDs` 与 `cliTraceOutputPolicy.attachPIDs` 不共享 backing slice；调用方不能通过 `AttachPIDs` 返回值改变 scope allow 规则。
+- `newTraceScope(targetPID, nil)` 保持现有空 policy 行为，仍只允许 target PID；`AllowsPID(0)` 始终拒绝。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 `trace_scope.go` 不再声明 `*cli.Options`，要求 `traceScopePolicy` 存在，并要求 composition 将 `base.outputPolicy` 传给 scope；迁移前测试应失败。
+- 增加 fake scope policy、attach slice copy 和 snapshot mutation 回归，覆盖 target、attach-only、follow-forks、zero PID 与 nil policy。
+- 运行 focused、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf、upstream reference，并检查无残留 tracer/BPF pin。
+
+本阶段只收敛 TraceScope 的策略输入边界，不改变 PID 过滤语义或纯 eBPF 事实源。
+
+实际验收结果：失败优先 source gate 先因 `TraceScope` 仍声明 `*cli.Options` 而失败；迁移后新增 `traceScopePolicy`，由同一个 `cliTraceOutputPolicy` snapshot 实现，composition 将 `base.outputPolicy` 注入 `TraceScope`，scope construction 再复制 attach PID slice。fake scope policy 覆盖 target、attach-only、follow-forks、zero PID 与 policy mutation，focused/source gate、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，716.72 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后待清理本轮 `strace-go` 和 Python 临时目录，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

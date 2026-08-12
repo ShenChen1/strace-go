@@ -254,7 +254,7 @@ func buildTraceSessionEvents(
 		),
 	})
 	router := newTraceEventRouter(TraceEventRouterDeps{
-		Scope:       newTraceScope(deps.TargetPID, deps.Opts),
+		Scope:       newTraceScope(deps.TargetPID, base.outputPolicy),
 		TargetPID:   deps.TargetPID,
 		State:       deps.State,
 		Lifecycle:   lifecycle,

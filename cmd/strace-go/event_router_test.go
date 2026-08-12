@@ -45,8 +45,9 @@ func TestTraceEventRouterSkipsOutOfScopeEvents(t *testing.T) {
 
 func TestTraceEventRouterRoutesLifecycleEvents(t *testing.T) {
 	effects := &fakeLifecycleEffects{}
+	policy := newTraceOutputPolicy(&cli.Options{FollowForks: true})
 	router := newTraceEventRouter(TraceEventRouterDeps{
-		Scope:     newTraceScope(100, &cli.Options{FollowForks: true}),
+		Scope:     newTraceScope(100, policy),
 		TargetPID: 100,
 		State:     newTraceState(),
 		Lifecycle: newLifecycleEventHandler(LifecycleEventHandlerDeps{
@@ -82,8 +83,9 @@ func TestTraceEventRouterRoutesLifecycleEvents(t *testing.T) {
 func TestTraceEventRouterDoesNotCopyFDStateForThreadClone(t *testing.T) {
 	effects := &fakeLifecycleEffects{}
 	state := newTraceState()
+	policy := newTraceOutputPolicy(&cli.Options{FollowForks: true})
 	router := newTraceEventRouter(TraceEventRouterDeps{
-		Scope:     newTraceScope(200, &cli.Options{FollowForks: true}),
+		Scope:     newTraceScope(200, policy),
 		TargetPID: 200,
 		State:     state,
 		Lifecycle: newLifecycleEventHandler(LifecycleEventHandlerDeps{Effects: effects}),
@@ -120,7 +122,7 @@ func TestTraceEventRouterRoutesGenericEnterToJSON(t *testing.T) {
 	rawEvents := 0
 	state := newTraceState()
 	router := newTraceEventRouter(TraceEventRouterDeps{
-		Scope:     newTraceScope(100, opts),
+		Scope:     newTraceScope(100, policy),
 		TargetPID: 100,
 		State:     state,
 		ContextDeps: syscallEventContextDeps{
@@ -160,7 +162,7 @@ func TestTraceEventRouterRoutesExitToPipeline(t *testing.T) {
 	policy := newTraceOutputPolicy(opts)
 	effects := &fakeRouterExitEffects{}
 	router := newTraceEventRouter(TraceEventRouterDeps{
-		Scope:     newTraceScope(100, opts),
+		Scope:     newTraceScope(100, policy),
 		TargetPID: 100,
 		State:     newTraceState(),
 		Pipeline: newSyscallExitPipeline(SyscallExitPipelineDeps{
@@ -217,7 +219,7 @@ func TestTraceEventRouterPrintsGenericUnfinishedBeforeOtherTIDEvent(t *testing.T
 		},
 	})
 	router := newTraceEventRouter(TraceEventRouterDeps{
-		Scope:     newTraceScope(100, opts),
+		Scope:     newTraceScope(100, policy),
 		TargetPID: 100,
 		State:     state,
 		Pipeline: newSyscallExitPipeline(SyscallExitPipelineDeps{
