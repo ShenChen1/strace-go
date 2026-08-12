@@ -15,12 +15,23 @@ func payloadSectionsForRawPayloadEvent(raw rawPayloadEvent, _ meta.Syscall) []ha
 }
 
 func jsonPayloadSections(sections []handler.PayloadSection) []jsonPayloadSection {
+	return jsonPayloadSectionsInto(nil, sections)
+}
+
+func jsonPayloadSectionsInto(
+	dst []jsonPayloadSection,
+	sections []handler.PayloadSection,
+) []jsonPayloadSection {
 	if len(sections) == 0 {
 		return nil
 	}
-	out := make([]jsonPayloadSection, 0, len(sections))
-	for _, section := range sections {
-		out = append(out, jsonPayloadSection{
+	if cap(dst) < len(sections) {
+		dst = make([]jsonPayloadSection, len(sections))
+	} else {
+		dst = dst[:len(sections)]
+	}
+	for i, section := range sections {
+		dst[i] = jsonPayloadSection{
 			Kind:       string(section.Kind),
 			Direction:  string(section.Direction),
 			ArgIndex:   section.ArgIndex,
@@ -29,7 +40,7 @@ func jsonPayloadSections(sections []handler.PayloadSection) []jsonPayloadSection
 			CopiedLen:  section.CopiedLen,
 			ProbeRet:   section.ProbeRet,
 			DataBase64: base64.StdEncoding.EncodeToString(section.Data),
-		})
+		}
 	}
-	return out
+	return dst
 }

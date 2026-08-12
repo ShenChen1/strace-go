@@ -5220,3 +5220,45 @@ Impact note：影响 benchmark-only 的 JSON decoded/payload 覆盖与性能 sui
 新增的 decoded 无 payload 与 decoded payload benchmark 通过真实 `WriteDecoded` 路径运行；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14125 ./cmd/strace-go`、Python 19 项和 `git diff --check` 均通过。`ebpf-perf` 已解析四个 Go benchmark：`TraceEventDecodeState` 为 297.20 ns/op、0 B/op、0 allocs/op，raw `JSONEventWriter` 为 482.20 ns/op、0 B/op、0 allocs/op，decoded 无 payload 为 571.10 ns/op、0 B/op、0 allocs/op，decoded payload 为 858.60 ns/op、96 B/op、2 allocs/op。
 
 decoded payload 的两次分配确认来自 semantic section 到 JSON 的临时转换边界，不能归因于 writer event storage；本阶段没有提前修改 base64 或 JSON ABI。真实 `ebpf-semantic` 为 201 个主事件、102/99 enter/exit、6 个 lifecycle，所有 BPF runtime counter 与 `pending_stale` 均为 0；`ebpf-perf` 的 scalar/io/lifecycle/threads 仍为 6000/3000、4002/2001、42/17、3208/1604 个 JSON/exit 事件且诊断字段全零。第二次完整 `small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。首次完整 `small` 的 `creat.gen.test` 出现一次路径快照退化，精确重跑及第二次完整 suite 均通过，作为环境/异步观察抖动保留记录。
+
+### 14.126 复用 JSON payload section slice，减少一次转换分配（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.125 将 decoded payload writer 定位为约 `96 B/op、2 allocs/op`，而 decoded 无 payload 为零分配；`jsonPayloadSections` 每次都新建结果 slice，并为每个 section 生成 base64 string。
+- Problem：payload section slice 的 backing array 是 writer 生命周期内可复用的临时结构，却在每条事件上重新分配；这部分分配与 base64 字符串不同，属于可安全消除的 Go heap churn。
+- Goal：让单消费者 `JSONEventWriter` 复用 `jsonPayloadSection` slice；预期 decoded payload 从 2 次降为 1 次分配，保留 base64 string 的语义和成本边界。
+- Non-goals：不消除或重写 base64，不改变 JSON schema、字段顺序、`omitempty`、event v2/BPF ABI、payload data ownership、handler、输出顺序或错误语义；不引入 unsafe string、全局池、`sync.Pool`、锁、goroutine、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：slice 只属于单事件消费者的 writer；`Encoder.Encode` 返回前不能复用；返回后必须清空 section 元素中的 base64 string，避免 writer 长期持有上一条事件数据；无 payload 时必须保留已有容量但不保留旧字符串。
+
+Impact note：影响 `JSONEventWriter` 与 `jsonPayloadSections` 的临时 slice ownership、payload allocation regression 和 benchmark；JSON 事件事实与 schema 不变。
+
+方案比较：
+
+1. 保持每条事件新建 payload slice：实现简单，但持续支付可复用结构的 1 次分配，拒绝。
+2. 在 writer 内复用 typed payload slice，Encode 返回后 clear 元素并保留容量：只改变临时 storage ownership，预计消除 1 次分配，选择该方案。
+3. 用自定义 JSON/base64 编码器或 unsafe string 消除剩余字符串分配：可能更快，但会复制标准库转义/生命周期规则，风险超出本阶段，拒绝。
+
+状态契约：
+
+- 无 writer storage 的公共/测试构造仍使用 `jsonPayloadSections(nil, sections)`，保持现有 helper 语义；生产 writer 传入自己的 reusable destination。
+- payload section slice 在 Encode 返回后逐元素清零，再以零长度保留 backing capacity；下一条事件整体覆盖有效元素。
+- benchmark warm-up 后 decoded payload writer 至少减少一次分配；base64 string 分配若仍存在，必须在验收记录中明确保留。
+
+测试与验收：
+
+- 先增加 payload writer allocation regression，现有实现应因缺少 reusable storage 或仍为 2 allocs/op 而失败。
+- 实现后运行 focused JSON/payload tests、Go 全量/race/vet/build、Python oracle、semantic/perf、small 和 upstream reference。
+- review 检查 raw/decoded payload、空 payload、storage clear、Encode error 后回收和单消费者约束。
+
+本阶段只优化 JSON payload 临时 slice 生命周期，不改变事件事实源和输出语义。
+
+#### 实际验收记录
+
+失败优先的 `TestJSONEventWriterReusesPayloadSectionStorage` 先因 writer 缺少 `payloadSections` storage 而编译失败；实现 `jsonPayloadSectionsInto`、writer destination 传递和 Encode 后逐元素 clear 后，focused JSON/payload tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14126 ./cmd/strace-go`、Python 19 项和 `git diff --check` 均通过。
+
+`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState` 294.70 ns/op、0 B/op、0 allocs/op，raw `JSONEventWriter` 483.40 ns/op、0 B/op、0 allocs/op，decoded 无 payload 604.40 ns/op、0 B/op、0 allocs/op，decoded payload 838.40 ns/op、16 B/op、1 allocs/op；相较 14.125 的 `96 B/op、2 allocs/op`，已消除 payload section slice 的一次分配，保留一次 base64 string 分配作为明确边界。storage clear regression 确认 Encode 返回后 section 元素为空且 backing capacity 可复用。
+
+最终真实 `ebpf-semantic` 为 201 个主事件、102/99 enter/exit、6 个 lifecycle，所有 BPF runtime counter 与 `pending_stale` 均为 0；`ebpf-perf` 的 scalar/io/lifecycle/threads 分别为 6000/3000、4002/2001、42/17、3208/1604 个 JSON/exit 事件，四组诊断字段全零。`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS；full `small` 本次首次出现 `rename.gen.test` 路径快照退化，精确重跑通过，记录为与此前 `creat` 相同的纯 eBPF 异步 snapshot flaky，不是 payload writer 回归。
+
+review 确认 raw/decoded 两条 payload 路径均使用同一单消费者 storage，Encode error 后也会回收；清零操作不触碰 handler 输入 slice，不新增 procfs、ptrace、tracee 内存读取、锁、goroutine 或第二输出通道。

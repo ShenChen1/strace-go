@@ -42,6 +42,40 @@ func TestJSONEventWriterClearsReusableEventStorage(t *testing.T) {
 	}
 }
 
+func TestJSONEventWriterReusesPayloadSectionStorage(t *testing.T) {
+	if raceBuild {
+		t.Skip("allocation counts include race instrumentation")
+	}
+	event := syscallEventContext{
+		view: syscallEventView{valid: true, pid: 101, tid: 101, sysID: 1, ret: 7},
+		meta: meta.Syscall{Name: "write"},
+		handlerContext: &handler.Context{PayloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindBytes,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  1,
+			UserPtr:   0x2000,
+			UserLen:   7,
+			CopiedLen: 7,
+			Data:      []byte("payload"),
+		}}},
+	}
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: io.Discard})
+
+	writer.WriteDecoded(event, handler.Result{})
+	if cap(writer.payloadSections) != 1 {
+		t.Fatalf("payload storage capacity = %d, want 1", cap(writer.payloadSections))
+	}
+	if len(writer.payloadSections) != 0 || writer.payloadSections[:1][0] != (jsonPayloadSection{}) {
+		t.Fatalf("payload storage retained encoded data: len=%d value=%+v", len(writer.payloadSections), writer.payloadSections[:1][0])
+	}
+	allocs := testing.AllocsPerRun(100, func() {
+		writer.WriteDecoded(event, handler.Result{})
+	})
+	if allocs >= 2 {
+		t.Fatalf("steady-state payload JSON allocations = %.1f, want fewer than two", allocs)
+	}
+}
+
 func TestTraceSessionEmitsDebugReadyEvent(t *testing.T) {
 	var output bytes.Buffer
 	session := newTestTraceSessionWithOptions(&cli.Options{DebugEvents: true, AttachPids: []int{42, 84}}, traceSessionDeps{

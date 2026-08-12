@@ -16,9 +16,10 @@ type jsonEventWriter interface {
 // JSONEventWriter is the only user-space JSON encoding boundary for event
 // records. Filtering and event selection stay in the output policy objects.
 type JSONEventWriter struct {
-	encoder        *json.Encoder
-	syscallEvent   jsonSyscallEvent
-	lifecycleEvent jsonLifecycleEvent
+	encoder         *json.Encoder
+	syscallEvent    jsonSyscallEvent
+	payloadSections []jsonPayloadSection
+	lifecycleEvent  jsonLifecycleEvent
 }
 
 type JSONEventWriterDeps struct {
@@ -37,18 +38,18 @@ func (w *JSONEventWriter) WriteRaw(ev syscallEventContext) {
 	if !w.canEncode() {
 		return
 	}
-	w.syscallEvent = ev.newJSONRawSyscallEvent()
+	w.syscallEvent = ev.newJSONRawSyscallEventWithPayloadStorage(w.payloadSections)
 	w.encode(&w.syscallEvent)
-	w.syscallEvent = jsonSyscallEvent{}
+	w.recycleSyscallEvent()
 }
 
 func (w *JSONEventWriter) WriteDecoded(ev syscallEventContext, res handler.Result) {
 	if !w.canEncode() {
 		return
 	}
-	w.syscallEvent = ev.newJSONDecodedSyscallEvent(res)
+	w.syscallEvent = ev.newJSONDecodedSyscallEventWithPayloadStorage(res, w.payloadSections)
 	w.encode(&w.syscallEvent)
-	w.syscallEvent = jsonSyscallEvent{}
+	w.recycleSyscallEvent()
 }
 
 func (w *JSONEventWriter) WriteLifecycle(view lifecycleEventView, task *TaskState) {
@@ -73,6 +74,18 @@ func (w *JSONEventWriter) encode(event any) {
 
 func (w *JSONEventWriter) canEncode() bool {
 	return w != nil && w.encoder != nil
+}
+
+func (w *JSONEventWriter) recycleSyscallEvent() {
+	if w == nil {
+		return
+	}
+	payloadSections := w.syscallEvent.PayloadSections
+	if payloadSections != nil {
+		clear(payloadSections)
+		w.payloadSections = payloadSections[:0]
+	}
+	w.syscallEvent = jsonSyscallEvent{}
 }
 
 func newJSONLifecycleEvent(view lifecycleEventView, task *TaskState) jsonLifecycleEvent {
