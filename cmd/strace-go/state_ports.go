@@ -2,6 +2,7 @@ package main
 
 type traceEventState interface {
 	handleEnvelope(traceEventEnvelope) TraceStateUpdate
+	releaseTraceStateUpdate(TraceStateUpdate)
 	markUnfinishedPrinted(uint32)
 	requeueUnfinished(uint32)
 	setUnfinishedEnabled(bool)

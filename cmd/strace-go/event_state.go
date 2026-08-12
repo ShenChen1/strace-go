@@ -44,13 +44,16 @@ type TraceState struct {
 	trackForkIdentity   bool
 	unfinishedEnabled   bool
 	pendingSyscalls     map[uint32]*pendingSyscallState
-	pendingExits        map[uint32]pendingExitState
-	pendingExecArgs     map[int]string
-	suspendedSyscalls   map[int]string
-	tasks               map[uint32]*TaskState
-	pendingForks        map[uint32]pendingForkState
-	unqueuedUnfinished  map[uint32]struct{}
-	inFlightUnfinished  map[uint32]struct{}
+	// reusablePending is owned by the single event consumer; entries are
+	// returned only after the router finishes the update that owns them.
+	reusablePending    []*pendingSyscallState
+	pendingExits       map[uint32]pendingExitState
+	pendingExecArgs    map[int]string
+	suspendedSyscalls  map[int]string
+	tasks              map[uint32]*TaskState
+	pendingForks       map[uint32]pendingForkState
+	unqueuedUnfinished map[uint32]struct{}
+	inFlightUnfinished map[uint32]struct{}
 }
 
 type traceStateEventKind uint8
@@ -213,8 +216,13 @@ func (st *TraceState) rememberEnterEvent(view syscallEventView, payload []handle
 		pending.payloadSections = mergeEnterPayloadSections(pending.payloadSections, payload)
 		return
 	}
+	if pending := st.pendingSyscalls[view.tid]; pending != nil {
+		delete(st.pendingSyscalls, view.tid)
+		st.releasePendingSyscall(pending)
+	}
 	st.deleteUnfinishedCandidate(view.tid)
-	st.pendingSyscalls[view.tid] = &pendingSyscallState{
+	pending := st.acquirePendingSyscall()
+	*pending = pendingSyscallState{
 		pid:               view.pid,
 		tid:               view.tid,
 		sysID:             view.sysID,
@@ -225,7 +233,38 @@ func (st *TraceState) rememberEnterEvent(view syscallEventView, payload []handle
 		unfinishedPrinted: view.probeRetEnter >= 2,
 		payloadSections:   copyPayloadSections(payload),
 	}
+	st.pendingSyscalls[view.tid] = pending
 	st.enqueueUnfinished(view.tid)
+}
+
+func (st *TraceState) acquirePendingSyscall() *pendingSyscallState {
+	last := len(st.reusablePending) - 1
+	if last < 0 {
+		return &pendingSyscallState{}
+	}
+	pending := st.reusablePending[last]
+	st.reusablePending = st.reusablePending[:last]
+	return pending
+}
+
+func (st *TraceState) releasePendingSyscall(pending *pendingSyscallState) {
+	if st == nil || pending == nil {
+		return
+	}
+	*pending = pendingSyscallState{}
+	st.reusablePending = append(st.reusablePending, pending)
+}
+
+// releaseTraceStateUpdate returns consumed pending objects after all output
+// side effects for the update, including one deferred exit, have completed.
+func (st *TraceState) releaseTraceStateUpdate(update TraceStateUpdate) {
+	if st == nil {
+		return
+	}
+	st.releasePendingSyscall(update.pendingEnter)
+	if update.deferredExit != nil {
+		st.releasePendingSyscall(update.deferredExit.pendingEnter)
+	}
 }
 
 func (st *TraceState) rememberExitFragment(view syscallEventView, payload []handler.PayloadSection) {
@@ -306,7 +345,11 @@ func (st *TraceState) consumeEnterEvent(view syscallEventView) *pendingSyscallSt
 	pending := st.pendingSyscalls[view.tid]
 	delete(st.pendingSyscalls, view.tid)
 	st.deleteUnfinishedCandidate(view.tid)
-	if pending == nil || pending.sysID != view.sysID {
+	if pending == nil {
+		return nil
+	}
+	if pending.sysID != view.sysID {
+		st.releasePendingSyscall(pending)
 		return nil
 	}
 	// The map entry is deleted above, so its owned payload can transfer to the
@@ -375,7 +418,10 @@ func (st *TraceState) clearTaskPending(tid uint32) {
 	st.deleteUnfinishedCandidate(tid)
 	delete(st.pendingExecArgs, int(tid))
 	delete(st.suspendedSyscalls, int(tid))
-	delete(st.pendingSyscalls, tid)
+	if pending := st.pendingSyscalls[tid]; pending != nil {
+		delete(st.pendingSyscalls, tid)
+		st.releasePendingSyscall(pending)
+	}
 	delete(st.pendingExits, tid)
 	delete(st.pendingForks, tid)
 }

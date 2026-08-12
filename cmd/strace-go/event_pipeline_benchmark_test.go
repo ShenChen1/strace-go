@@ -8,6 +8,36 @@ import (
 	"strace-go/pkg/meta"
 )
 
+func TestTraceStatePendingFreelistReusesAfterRelease(t *testing.T) {
+	sysID := benchmarkSyscallID("getpid")
+	enterRaw := benchmarkTraceEventV2Sample(bpfEventTypeEnter, sysID, 1000, 0, 0)
+	exitRaw := benchmarkTraceEventV2Sample(bpfEventTypeExit, sysID, 1050, 50, 0)
+	enter, ok := decodeTraceEventV2Envelope(enterRaw)
+	if !ok {
+		t.Fatal("benchmark enter sample was rejected")
+	}
+	exit, ok := decodeTraceEventV2Envelope(exitRaw)
+	if !ok {
+		t.Fatal("benchmark exit sample was rejected")
+	}
+	state := newTraceStateWithDeferredExit(false)
+	state.handleEnvelope(enter)
+	update := state.handleEnvelope(exit)
+	if update.pendingEnter == nil {
+		t.Fatal("warm-up pair did not produce a pending enter")
+	}
+	state.releaseTraceStateUpdate(update)
+
+	allocs := testing.AllocsPerRun(100, func() {
+		state.handleEnvelope(enter)
+		update := state.handleEnvelope(exit)
+		state.releaseTraceStateUpdate(update)
+	})
+	if allocs != 0 {
+		t.Fatalf("steady-state pending pair allocations = %.1f, want zero", allocs)
+	}
+}
+
 func BenchmarkTraceEventDecodeState(b *testing.B) {
 	sysID := benchmarkSyscallID("getpid")
 	enterRaw := benchmarkTraceEventV2Sample(bpfEventTypeEnter, sysID, 1000, 0, 0)
@@ -27,7 +57,8 @@ func BenchmarkTraceEventDecodeState(b *testing.B) {
 		if !ok {
 			b.Fatal("benchmark exit sample was rejected")
 		}
-		state.handleEnvelope(exit)
+		update := state.handleEnvelope(exit)
+		state.releaseTraceStateUpdate(update)
 	}
 }
 

@@ -5059,3 +5059,44 @@ Impact note：影响 `cmd/strace-go` 的 benchmark-only 测试、`test/ebpf_perf
 失败优先的 Python parser 先因 `parse_go_benchmark_metrics` 不存在而失败；实现 parser、runner 集成和两个 benchmark 后，Python 单测 18 项、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14121 ./cmd/strace-go`、`ebpf-perf` 和 `git diff --check` 通过。当前同机基线为 `BenchmarkTraceEventDecodeState` 304.90 ns/op、112 B/op、1 allocs/op，`BenchmarkJSONEventWriter` 604.70 ns/op、256 B/op、1 allocs/op。
 
 同次 `ebpf-perf` 的 scalar/io/lifecycle/threads 分别为 6000/3000、4002/2001、42/17、3208/1604 个 JSON/exit 事件，lifecycle events 为 3/3/27/11，四组 runtime counters 均为 0。指标只作为诊断基线，没有设置绝对阈值；benchmark 使用确定的 event v2 bytes、生产 `TraceState` 和 `JSONEventWriter`，未引入 ptrace、procfs、tracee 内存读取或运行期计数器。
+
+### 14.122 TraceState pending 对象改为单消费者 freelist（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.121 的 Go benchmark 显示同一个 TID 的 decode/state enter/exit pair 每轮产生 1 次、112 字节分配；逃逸分析确认来源是 `rememberEnterEvent` 为 `pendingSyscalls[tid]` 创建 `*pendingSyscallState`。当前主循环已经是单 Goroutine，pending 对象在 exit pipeline 同步消费后即可安全回收。
+- Problem：高频短 syscall 会反复分配和回收相同大小的 pending 对象，增加 Go heap churn；直接改成 map value 会破坏现有 payload ownership/`pendingEnter` 指针契约，或者迫使 exit context 复制 nested sections。
+- Goal：为 `TraceState` 增加 session-local、无锁、确定性的 pending freelist；enter 优先复用已由 router 归还的对象，exit/deferred exit 完成同步输出后归还对象，使 steady-state 同 TID pair 不再为 pending struct 分配。
+- Non-goals：不改变 `pendingSyscalls` 的 TID key、enter/exit 配对、payload section 深拷贝、unfinished/resumed、deferred exit、JSON/text 输出、BPF ABI 或事件顺序；不使用 `sync.Pool`、mutex、goroutine、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：只有消费 `TraceStateUpdate` 的单 Goroutine router 可以归还 pending 对象；归还前必须完成普通 exit 和 `deferredExit` 的 pipeline；归还时清空 payload section slice，避免 freelist 持有大 buffer；直接调用状态机的测试/benchmark 必须显式调用同一 release contract。
+
+Impact note：影响 `event_state.go` 的 pending object owner/freelist、`state_ports.go`/`event_router.go` 的 release 接口、benchmark/test 的状态消费边界；不改变 handler、renderer、BPF 或用户可见输出。
+
+方案比较：
+
+1. 继续每次 `&pendingSyscallState{}`：实现最简单，但 alloc/op 和 heap churn 保持不变，拒绝。
+2. 把 `pendingSyscalls` 改为 map value 或引入 `sync.Pool`：前者扩大 payload/pointer ownership 改动，后者隐藏并发语义且不符合单消费者约束，拒绝。
+3. 在 `TraceState` 内维护显式 freelist，由 `traceEventState` release port 在 router 完成当前 update 后归还：所有权清楚、无锁、稳态零分配，选择该方案。
+
+状态契约：
+
+- `rememberEnterEvent` 从 freelist pop 一个对象；freelist 为空时才新建对象；对象仍以指针存入 TID pending map，保持现有 transfer 语义。
+- `TraceEventRouter.Handle` 在处理当前 update 的普通路径和 `deferredExit` 后调用 release；fake state port 必须实现 no-op release，保持接口可测试。
+- release 只清除已从 pending map 删除且不再被 pipeline 使用的对象；payload section/data 不由 freelist 保留。
+- 同一 TID warm-up 后的 decode/state benchmark 应达到 0 allocs/op；多 TID 同时 pending 仍允许按并发 pending 数扩容 freelist。
+
+测试与验收：
+
+- 先增加 `TraceState` release/freelist regression，要求 warm-up 后 `testing.AllocsPerRun` 为零，使现有实现先失败。
+- 实现后运行 focused state/port/router tests、Go 全量/race/vet/build、benchmark/`ebpf-perf`、semantic 和 upstream reference；检查 output pipeline 不持有已归还对象。
+- review 检查 release 顺序覆盖普通 exit、enter 后 deferred exit、lifecycle deferred exit 和错误/早退路径，不引入锁或第二消费者。
+
+本阶段只优化用户态 pending 对象生命周期，不改变事件事实源和输出语义。
+
+#### 实际验收记录
+
+失败优先的 freelist regression 验证了 warm-up 后同一 TID enter/exit pair 必须达到零分配；额外的 mismatched-exit regression 确认被错误 syscall ID 消费的 pending 也会回收。实现后 focused state/router tests、Python 18 项、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14122 ./cmd/strace-go` 和 `git diff --check` 均通过。router fake port 额外确认 fragment early return 仍执行 release contract。
+
+同机 benchmark 为 `BenchmarkTraceEventDecodeState` 291.30 ns/op、0 B/op、0 allocs/op，`BenchmarkJSONEventWriter` 580.60 ns/op、256 B/op、1 allocs/op。最终真实 `ebpf-semantic` 为 201 个主事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；payload truncated 为 8、write-only 为 6。最终 `ebpf-perf` 的 scalar/io/lifecycle/threads 分别为 6000/3000、4002/2001、42/17、3208/1604 个 JSON/exit 事件，四组 runtime counters 均为 0。
+
+本次重构后的原生参考复核为 `small` 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍是有界 eBPF read/write 快照与无 procfs 初始 FD/cwd 状态，不是本阶段回归。产品代码未新增 ptrace、procfs、tracee 内存读取、mutex、`sync.Pool` 或第二事件消费者。

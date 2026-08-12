@@ -52,6 +52,7 @@ func (r *TraceEventRouter) Handle(envelope traceEventEnvelope) {
 		return
 	}
 	stateUpdate := r.state.handleEnvelope(envelope)
+	defer r.state.releaseTraceStateUpdate(stateUpdate)
 	r.applyProcessStateInheritance(stateUpdate.processInherit)
 	r.handleUnfinished(stateUpdate.unfinished)
 	statePID := eventStatePID(envelope, r.targetPID)

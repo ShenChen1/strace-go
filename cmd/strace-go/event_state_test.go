@@ -112,6 +112,41 @@ func TestTraceStateHandlePairsEnterExitAndCleansLifecycle(t *testing.T) {
 	}
 }
 
+func TestTraceStateRecyclesMismatchedPendingExit(t *testing.T) {
+	state := newTraceState()
+	enterID := syscallIDByName(t, "getpid")
+	exitID := syscallIDByName(t, "getppid")
+	state.handleEnvelope(traceEventEnvelope{
+		valid:      true,
+		pid:        1234,
+		tid:        1235,
+		sysID:      enterID,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+	})
+	pending := state.pendingSyscalls[1235]
+	if pending == nil {
+		t.Fatal("enter did not create pending syscall")
+	}
+
+	update := state.handleEnvelope(traceEventEnvelope{
+		valid:     true,
+		pid:       1234,
+		tid:       1235,
+		sysID:     exitID,
+		eventType: bpfEventTypeExit,
+	})
+	if update.pendingEnter != nil {
+		t.Fatalf("mismatched exit paired with pending state: %+v", update.pendingEnter)
+	}
+	if len(state.pendingSyscalls) != 0 {
+		t.Fatalf("pending syscalls = %d, want zero after mismatch", len(state.pendingSyscalls))
+	}
+	if len(state.reusablePending) != 1 || state.reusablePending[0] != pending {
+		t.Fatalf("reusable pending = %p, want mismatched object %p", state.reusablePending, pending)
+	}
+}
+
 func TestTraceStateReordersExitObservedBeforeEnter(t *testing.T) {
 	state := newTraceStateWithDeferredExit(true)
 	sysID := syscallIDByName(t, "creat")

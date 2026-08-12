@@ -7,13 +7,18 @@ import (
 )
 
 type recordingTraceEventState struct {
-	calls  int
-	update TraceStateUpdate
+	calls        int
+	releaseCalls int
+	update       TraceStateUpdate
 }
 
 func (s *recordingTraceEventState) handleEnvelope(traceEventEnvelope) TraceStateUpdate {
 	s.calls++
 	return s.update
+}
+
+func (s *recordingTraceEventState) releaseTraceStateUpdate(TraceStateUpdate) {
+	s.releaseCalls++
 }
 
 func (*recordingTraceEventState) markUnfinishedPrinted(uint32) {}
@@ -35,6 +40,9 @@ func TestTraceEventRouterUsesEventStatePort(t *testing.T) {
 
 	if state.calls != 1 {
 		t.Fatalf("state calls = %d, want one event-state call", state.calls)
+	}
+	if state.releaseCalls != 1 {
+		t.Fatalf("state release calls = %d, want one release on fragment early return", state.releaseCalls)
 	}
 }
 
