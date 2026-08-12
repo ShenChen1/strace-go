@@ -19,6 +19,14 @@ func NewDecoder() *Decoder {
 	return &Decoder{HexEscapeMode: 0}
 }
 
+// EscapeMode returns the configured byte escaping mode for snapshot formatters.
+func (d *Decoder) EscapeMode() int {
+	if d == nil {
+		return 0
+	}
+	return d.HexEscapeMode
+}
+
 // IMPACT: DecodeString is snapshot-only; partial BPF bytes are decoded only when
 // the probe result proves the captured prefix is usable.
 // parseBPFData extracts string raw data from BPF buffer.

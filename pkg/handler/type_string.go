@@ -131,7 +131,7 @@ func decodeReadlinkBuffer(ctx *Context, i int, val uint64) (string, bool) {
 	if idx := bytes.IndexByte(data[:sz], 0); idx != -1 {
 		sz = idx
 	}
-	return format.BufferEscape(data[:sz], 0, sz, ctx.Decoder.HexEscapeMode), true
+	return format.BufferEscape(data[:sz], 0, sz, ctx.Decoder.EscapeMode()), true
 }
 
 func decodeXattrArg(ctx *Context, i int, argTyp string, argName string, val uint64) (string, bool) {
@@ -208,7 +208,7 @@ func formatXattrSnapshot(ctx *Context, argIndex int, val uint64, size uint64, li
 		sz--
 		size--
 	}
-	res := format.BufferEscape(data[:sz], limit, int(size), ctx.Decoder.HexEscapeMode)
+	res := format.BufferEscape(data[:sz], limit, int(size), ctx.Decoder.EscapeMode())
 	if len(data) < int(size) && int(size) <= limit {
 		res += "..."
 	}

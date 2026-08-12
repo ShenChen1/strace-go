@@ -395,7 +395,7 @@ func iovecBasePayloadString(ctx *Context, argIndex int, slot int, base uint64, l
 		limit = ctx.Opts.StringLimit
 	}
 	actualLen := int(displayLength)
-	return format.BufferEscape(data, limit, actualLen, ctx.Decoder.HexEscapeMode), true
+	return format.BufferEscape(data, limit, actualLen, ctx.Decoder.EscapeMode()), true
 }
 
 func iovecBasePayloadDirection(ctx *Context, argIndex int) (PayloadDirection, bool) {

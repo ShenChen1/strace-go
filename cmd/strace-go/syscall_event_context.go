@@ -9,6 +9,8 @@ import (
 	"strace-go/pkg/meta"
 )
 
+var _ handler.SnapshotDecoder = (*event.Decoder)(nil)
+
 type syscallEventContext struct {
 	view            syscallEventView
 	statePID        int
@@ -43,7 +45,7 @@ type syscallEventView struct {
 }
 
 type syscallEventContextDeps struct {
-	decoder  *event.Decoder
+	decoder  handler.SnapshotDecoder
 	opts     *cli.Options
 	catalog  *meta.Catalog
 	fdState  handler.FDStateReader

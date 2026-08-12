@@ -132,7 +132,7 @@ func bpfNestedBytesStringPayload(ctx *Context, argIndex int, ptr uint64, userLen
 	if actualLen <= 0 {
 		actualLen = int(section.CopiedLen)
 	}
-	return format.BufferEscape(section.Data, limit, actualLen+1, ctx.Decoder.HexEscapeMode), true
+	return format.BufferEscape(section.Data, limit, actualLen+1, ctx.Decoder.EscapeMode()), true
 }
 
 func bpfNestedBytesPayload(ctx *Context, argIndex int, ptr uint64, userLen uint32) ([]byte, bool) {

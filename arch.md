@@ -3713,3 +3713,38 @@ Impact note：影响集中在 `pkg/handler/handler.go`、default/pointer/struct 
 本阶段只反转 handler registry 的依赖方向，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source gate 先验证 `Context.Registry` 和 event context dependency 仍使用具体 registry 指针；改造后 `RegistryPort` 只暴露 `Handle`、`Default`、`PointerDecoder`、`StructDecoder` 四项能力，`*Registry` 通过 compile-time assertion 实现该端口，fake port 已覆盖 default/pointer decode。`go test ./pkg/handler ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，718.91 events/s。最终 `upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture、BPF pin 或 patch/cache artifact，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.84 将 snapshot decoder 收敛为窄接口端口（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.83 已将 handler registry 从具体类型收敛为 `RegistryPort`，但 `handler.Context.Decoder` 和 `syscallEventContextDeps.decoder` 仍暴露具体的 `*event.Decoder`。当前 handler 的生产调用只需要 BPF 快照字符串解码和转义模式，`event.Decoder` 还包含路径匹配、内部截断状态以及不属于 handler 契约的 raw 解码能力。
+- Problem：具体 decoder 穿透 handler/event 边界，使 handler 依赖了 event 包的存储和配置细节；测试无法注入一个只实现快照语义的 fake，也容易让新的 formatter 继续直接读取可变字段。这样会把 bootstrap 配置对象误当成整个领域接口，削弱依赖反转和单一职责。
+- Goal：新增 `handler.SnapshotDecoder` 端口，只表达 `DecodeString` 与 `EscapeMode` 两项能力；`Context.Decoder`、event context dependency 和 path argument decoder 均依赖该接口。`*event.Decoder` 仍由 main/session composition 创建和配置，并通过 compile-time assertion 实现端口；现有文本、JSON、payload 和纯 eBPF 语义保持不变。
+- Non-goals：不抽象 `meta.Catalog`、`cli.Options` 或 event path matcher；不保留 `DecodeStringRaw` 作为 handler 依赖；不改变 BPF payload、lifecycle、ringbuf、单 Goroutine 状态机、输出格式或 no-procfs/no-ptrace 约束。
+- Constraints：接口方法不超过 2 个；`DecodeString` 的参数保持现有快照调用契约，避免新增分配或复制；handler 不得读取 decoder 的可变字段；session 仍可在 bootstrap 阶段设置具体 decoder 的 `HexEscapeMode` 和 `StringLimit`。
+
+Impact note：受影响边界集中在 `pkg/handler/handler.go`、字符串/bytes/iovec/AIO/cmsg/BPF/exec formatter 和 `cmd/strace-go/syscall_event_context.go`、`syscall_path_arguments.go`；`traceSessionDeps.Decoder` 继续保留 concrete owner，只有消费边界改为 port。由于现有测试大量注入 `event.NewDecoder()`，接口迁移不会改变 fixture 的快照事实源。
+
+方案比较：
+
+1. 保留 `*event.Decoder` 并只约定禁止访问字段：编译器无法阻止新调用点依赖 concrete API，测试隔离能力没有改善，拒绝。
+2. 把 `event.Decoder` 的全部方法和配置字段搬进大接口：短期迁移少，但继续泄漏 event 实现、扩大 mock 面和可变状态，拒绝。
+3. 定义只含 `DecodeString`、`EscapeMode` 的 `SnapshotDecoder`，由具体 decoder 在 composition 边界实现：端口最窄、调用点清晰、fake 成本低且不改变运行时行为，选择该方案。
+
+状态契约：
+
+- `handler.Context.Decoder` 的静态类型必须是 `SnapshotDecoder`；handler 只通过端口消费 probe-site snapshot。
+- `event.Decoder` 的 `StringLimit`、`HexEscapeMode` 仍由 bootstrap owner 配置；handler 不能直接修改或读取字段。
+- decoder 缺失时保留既有边界行为：需要快照的 formatter 不伪造数据，不通过 procfs、ptrace 或其它用户态内存读取补齐。
+- `SnapshotDecoder` 是格式化层的输入端口，不拥有 decoder 生命周期，也不引入全局对象或锁。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 Context 和 event context dependency 使用 `SnapshotDecoder`，当前 concrete pointer 应先失败。
+- 增加 fake snapshot decoder 回归，验证 payload 字符串解码和 escape mode 消费不需要构造具体 `event.Decoder`。
+- 增加 `*event.Decoder` 的 compile-time implementation assertion；运行 focused Go tests、全量/race/vet/build、纯 eBPF source gate、semantic/perf、upstream reference，并检查无残留 tracer/BPF pin。
+
+本阶段只反转 snapshot decoder 的依赖方向，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先测试先确认 `Context.Decoder` 与 event context dependency 仍暴露 concrete decoder；迁移后新增 `SnapshotDecoder` 端口，`*event.Decoder` 通过 compile-time assertion 实现，handler 内所有 escape mode 消费均改为 `EscapeMode()`，fake decoder 已覆盖字符串 payload 和转义模式。`go test ./pkg/event ./pkg/handler ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，728.40 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

@@ -311,7 +311,7 @@ func formatCmsgText(ctx *Context, data []byte) string {
 	if ctx.Opts != nil && ctx.Opts.StringLimit > 0 {
 		limit = ctx.Opts.StringLimit
 	}
-	return format.BufferEscape(data, limit, len(data), ctx.Decoder.HexEscapeMode)
+	return format.BufferEscape(data, limit, len(data), ctx.Decoder.EscapeMode())
 }
 
 func formatCmsgHex(data []byte) string {

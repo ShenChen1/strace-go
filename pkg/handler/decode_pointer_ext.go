@@ -139,7 +139,7 @@ func decodeExecSnapshotRecords(ctx *Context, snapshot []byte, baseOffset, count 
 		if int(readLen) == execArgDataSize && len(raw) == execArgDataSize-1 {
 			actualLen = execArgDataSize
 		}
-		parts = append(parts, format.BufferEscape(raw, limit, actualLen, ctx.Decoder.HexEscapeMode))
+		parts = append(parts, format.BufferEscape(raw, limit, actualLen, ctx.Decoder.EscapeMode()))
 	}
 
 	result := "[" + strings.Join(parts, ", ")

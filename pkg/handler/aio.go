@@ -187,7 +187,7 @@ func (h *AioHandler) formatAioBuf(ctx *Context, iocbIndex int, opcode uint16, bu
 	}
 	if opcode == 1 && iocbIndex >= 0 {
 		if data, ok := ctx.PayloadBytes(AioSubmitBufPayloadArgBase+iocbIndex, PayloadDirectionIn); ok && len(data) > 0 {
-			return format.BufferEscape(data, len(data), int(nbytes)+1, ctx.Decoder.HexEscapeMode)
+			return format.BufferEscape(data, len(data), int(nbytes)+1, ctx.Decoder.EscapeMode())
 		}
 	}
 	return fmt.Sprintf("%#x", buf)

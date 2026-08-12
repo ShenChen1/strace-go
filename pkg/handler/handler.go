@@ -3,7 +3,6 @@ package handler
 
 import (
 	"strace-go/pkg/cli"
-	"strace-go/pkg/event"
 	"strace-go/pkg/meta"
 )
 
@@ -28,7 +27,7 @@ type Context struct {
 	ScMeta      meta.Syscall
 	Meta        *meta.Catalog
 	Registry    RegistryPort
-	Decoder     *event.Decoder
+	Decoder     SnapshotDecoder
 	Opts        *cli.Options
 	FDStateView FDStateReader
 	EventFDView EventFDStateReader
