@@ -16,6 +16,33 @@ type pendingSyscallState struct {
 	payloadSections   []handler.PayloadSection
 }
 
+// unfinishedSyscallView borrows payload data from an in-flight pending state.
+// It is valid only during the synchronous router call that owns the update.
+type unfinishedSyscallView struct {
+	pid             uint32
+	tid             uint32
+	sysID           uint32
+	enterTime       uint64
+	args            [6]uint64
+	probeRetEnter   int32
+	payloadSections []handler.PayloadSection
+}
+
+func (pending *pendingSyscallState) unfinishedView() unfinishedSyscallView {
+	if pending == nil {
+		return unfinishedSyscallView{}
+	}
+	return unfinishedSyscallView{
+		pid:             pending.pid,
+		tid:             pending.tid,
+		sysID:           pending.sysID,
+		enterTime:       pending.enterTime,
+		args:            pending.args,
+		probeRetEnter:   pending.probeRetEnter,
+		payloadSections: pending.payloadSections,
+	}
+}
+
 type pendingExitState struct {
 	view            syscallEventView
 	payloadSections []handler.PayloadSection
@@ -74,7 +101,7 @@ type TraceStateUpdate struct {
 	pendingEnter    *pendingSyscallState
 	lifecycleTask   *TaskState
 	processInherit  *processStateInheritance
-	unfinished      []pendingSyscallState
+	unfinished      []unfinishedSyscallView
 	deferredExit    *TraceStateUpdate
 }
 
@@ -200,6 +227,20 @@ func (pending *pendingSyscallState) enterView() syscallEventView {
 		args:          pending.args,
 		enterTime:     pending.enterTime,
 		probeRetEnter: pending.probeRetEnter,
+	}
+}
+
+func (view unfinishedSyscallView) enterView() syscallEventView {
+	return syscallEventView{
+		valid:         true,
+		pid:           view.pid,
+		tid:           view.tid,
+		sysID:         view.sysID,
+		eventType:     bpfEventTypeEnter,
+		eventFlags:    bpfEventFlagGenericEnter,
+		args:          view.args,
+		enterTime:     view.enterTime,
+		probeRetEnter: view.probeRetEnter,
 	}
 }
 
@@ -363,11 +404,6 @@ func (st *TraceState) consumeEnterEvent(view syscallEventView) *pendingSyscallSt
 	}
 	// The map entry is deleted above, so its owned payload can transfer to the
 	// exit update without another copy.
-	return pending
-}
-
-func copyPendingSyscallState(pending pendingSyscallState) pendingSyscallState {
-	pending.payloadSections = copyPayloadSections(pending.payloadSections)
 	return pending
 }
 

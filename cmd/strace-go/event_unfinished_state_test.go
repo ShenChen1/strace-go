@@ -155,7 +155,7 @@ func TestTraceStateDisablesUnfinishedCandidateIndex(t *testing.T) {
 	}
 }
 
-func TestTraceStateReturnsPendingAndTaskSnapshots(t *testing.T) {
+func TestTraceStateReturnsUnfinishedViewAndTaskSnapshots(t *testing.T) {
 	state := newTraceState()
 	enter := traceEventEnvelope{
 		valid:      true,
@@ -179,11 +179,16 @@ func TestTraceStateReturnsPendingAndTaskSnapshots(t *testing.T) {
 	if len(update.unfinished) != 1 {
 		t.Fatalf("unfinished snapshot count = %d, want one", len(update.unfinished))
 	}
-	update.unfinished[0].unfinishedPrinted = true
-	update.unfinished[0].payloadSections[0].Data[0] = 'X'
 	pending := state.pendingSyscalls[101]
-	if pending == nil || pending.unfinishedPrinted || string(pending.payloadSections[0].Data) != "stable" {
-		t.Fatalf("pending state was aliased by snapshot: %+v", pending)
+	if pending == nil || string(pending.payloadSections[0].Data) != "stable" {
+		t.Fatalf("pending state missing stable payload: %+v", pending)
+	}
+	if &update.unfinished[0].payloadSections[0].Data[0] != &pending.payloadSections[0].Data[0] {
+		t.Fatal("unfinished view copied payload data instead of borrowing pending owner")
+	}
+	update.unfinished[0].pid = 999
+	if pending.pid == 999 {
+		t.Fatal("unfinished view scalar mutation changed pending state")
 	}
 
 	state.markUnfinishedPrinted(101)

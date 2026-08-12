@@ -5436,3 +5436,42 @@ Impact note：影响 `newSyscallEventContextFromViewWithDeps` 的 payload owners
 真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 293.40 ns/op、0 B/op、0 allocs/op`、raw JSON `489.70 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `608.70 ns/op、0 B/op、0 allocs/op`、decoded payload `912.50 ns/op、16 B/op、1 alloc/op`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
 
 当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 pending 已从状态 map 删除后才进入 context，current section 只在同步消费窗口中借用；未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine，也未改变 exit snapshot 覆盖规则。
+
+### 14.130 unfinished view 借用已拥有 payload，移除候选深拷贝（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.58/14.59 已把 unfinished 候选从全量 pending 扫描收敛为 `unqueued`/`inFlight` 索引，但 `pendingForOtherTID` 仍通过 `copyPendingSyscallState` 深拷贝每个候选的 payload bytes。
+- Problem：enter payload 已由 `TraceState` 拥有；candidate 被移入 in-flight 后，单消费者会在同一个 `TraceEventRouter.Handle` 中同步读取它，且当前事件 TID 被排除，不存在同一消费者同时修改该 pending 的路径。重复复制路径、iovec、bytes 等 payload 既浪费 CPU/heap，也让 unfinished 的 ownership 语义比必要的更复杂。
+- Goal：引入只读语义的 `unfinishedSyscallView` 值对象，仅复制 syscall 标量字段并借用 pending 已拥有的 `PayloadSection` slice/data；候选排序、失败 requeue、成功 mark 和文本格式完全不变。
+- Non-goals：不把可变 `*pendingSyscallState` 暴露给 router；不改变 unfinished/resumed 输出、排序、filter retry、payload bytes、BPF ABI、event reader 生命周期；不引入 unsafe、全局池、锁、goroutine、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：view 只在当前 `TraceStateUpdate` 的同步消费窗口有效，router 不得保存或修改 view/payload；candidate 仍须在 `inFlight` 中保护，`mark/requeue` 必须在同一事件处理结束前完成；state release 不能早于所有 output side effect。
+
+Impact note：影响 `TraceStateUpdate.unfinished` 的内部值类型、unfinished state 的 candidate projection 和 router 的输入 ownership；不影响 pending enter/exit 的跨 ringbuf 深拷贝边界。
+
+方案比较：
+
+1. 继续深拷贝完整 `pendingSyscallState`：隔离最强，但每个 unfinished candidate 都复制 payload bytes，和单消费者同步生命周期不匹配，拒绝。
+2. 直接把 `*pendingSyscallState` 传给 router：可消除拷贝，但把可变状态暴露到输出层，容易误改 `unfinishedPrinted` 或 slice header，拒绝。
+3. 构造 `unfinishedSyscallView`，复制标量、借用已拥有 payload 并约束为同步只读：保留 ownership 边界、消除大 payload 深拷贝，选择该方案。
+
+状态契约：
+
+- `TraceStateUpdate.unfinished` 只携带 `unfinishedSyscallView`；view 的 `payloadSections` 只读借用 pending 的已拥有数据，不进入其它 map、goroutine 或 writer storage。
+- `pendingForOtherTID` 仍只消费 `unqueued`，将 pending TID 标为 in-flight 后再投影 view；排序只读取 view 的 enter time/TID。
+- router 通过 view 构造 enter context，输出返回后调用现有 `markUnfinishedPrinted`/`requeueUnfinished`；不通过 view 回写状态。
+- `copyPendingSyscallState` 从生产路径删除；跨 ringbuf 延迟 exit 和 enter pending 仍继续使用 `copyPayloadSections`。
+
+测试与验收：
+
+- 先增加失败优先测试，验证 unfinished view 的 payload data 与 pending owner 共享 backing、view 标量不改变 pending，并增加 source gate 防止恢复完整 pending deep copy 或传递可变 pending 指针。
+- 实现后运行 focused unfinished/router/ownership tests、Go 全量/race/vet/build、Python oracle、semantic/perf、small 和 upstream reference。
+- review 检查 view 没有逃逸到异步路径，current ringbuf borrowed payload 仍只在 decoder 到 state 的同步边界内使用，生产源码无 procfs/ptrace/procmem。
+
+#### 实际验收记录
+
+失败优先的 unfinished payload ownership 测试先确认旧实现复制了 candidate 的 data；source gate 也先因缺少 `unfinishedSyscallView` 和旧 deep-copy helper 而失败。实现后 focused unfinished/router/source tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14130 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+
+真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 294.30 ns/op、0 B/op、0 allocs/op`、raw JSON `486.80 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `617.80 ns/op、0 B/op、0 allocs/op`、decoded payload `895.40 ns/op、16 B/op、1 alloc/op`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
+
+当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 unfinished view 只复制标量并借用 pending 已拥有 payload，router 未接收可变 pending 指针，`HandleUnfinished` 同步完成后才允许下一条 ringbuf record；未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。

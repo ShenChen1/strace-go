@@ -46,7 +46,7 @@ func (st *TraceState) deleteUnfinishedCandidate(tid uint32) {
 	delete(st.inFlightUnfinished, tid)
 }
 
-func (st *TraceState) pendingForOtherTID(tid uint32) []pendingSyscallState {
+func (st *TraceState) pendingForOtherTID(tid uint32) []unfinishedSyscallView {
 	if st == nil || !st.unfinishedEnabled || tid == 0 || len(st.unqueuedUnfinished) == 0 {
 		return nil
 	}
@@ -56,7 +56,7 @@ func (st *TraceState) pendingForOtherTID(tid uint32) []pendingSyscallState {
 		}
 	}
 
-	candidates := make([]pendingSyscallState, 0, len(st.unqueuedUnfinished))
+	candidates := make([]unfinishedSyscallView, 0, len(st.unqueuedUnfinished))
 	for pendingTID := range st.unqueuedUnfinished {
 		if pendingTID == tid {
 			continue
@@ -68,7 +68,7 @@ func (st *TraceState) pendingForOtherTID(tid uint32) []pendingSyscallState {
 		}
 		delete(st.unqueuedUnfinished, pendingTID)
 		st.inFlightUnfinished[pendingTID] = struct{}{}
-		candidates = append(candidates, copyPendingSyscallState(*pending))
+		candidates = append(candidates, pending.unfinishedView())
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].enterTime != candidates[j].enterTime {
