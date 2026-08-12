@@ -3074,3 +3074,35 @@ ABI 与状态契约：
 本阶段只修正目标策略与 BPF 初始化的时序和 ownership，不改变 syscall 事件 ABI 或用户可见输出。
 
 实际验收结果：新增 `normalizeTraceTargetOptions`，在 `handlePrelude` 后、BPF ConfigMap 构造前执行；命令 + attach PID 与多个 attach PID 会一次性启用 `FollowForks`，`resolveTraceTargets` 不再修改 CLI policy。失败优先测试先因缺少 normalizer 失败，修复后 focused policy、BPF config bit、Go `TraceState` 和 resolver/source ordering tests 均通过。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source gate 和 `git diff --check` 全部通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，718.45 events/s。`attach-f-p.test` 为 1 PASS；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer、fixture 或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
+
+### 14.64 移除 TraceEventRouter 的隐式 TraceState owner（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.61/14.62 已让 session component graph 和基础状态由 composition root eager 注入，但 `newTraceEventRouter` 在 `deps.State == nil` 时仍调用 `newTraceState()`。这使 router 在缺失依赖时自行成为状态 owner。
+- Problem：半构造 router 可能拥有一份不属于 session 的 pending/lifecycle/unfinished map；事件状态随后与 session 的 `TraceState` 分叉，测试也会掩盖 composition 漏注。这个 fallback 与“单消费者只有一个状态 owner”的纯 eBPF 契约冲突。
+- Goal：router 不再创建 `TraceState`；正式 composition 必须传入 session-owned state；缺失 state 的 router 保持无状态并在 `Handle` 边界安全返回，不能处理事件或产生隐式 map。
+- Non-goals：不改变 `TraceState` 算法、unfinished/index 语义、事件路由顺序、输出端口、BPF ABI、生命周期事件或 CLI；不引入第二个状态机、锁、goroutine、ptrace 或 procfs。
+- Constraints：`newTraceSession` 是唯一 production router composition entry，且继续传入 `session.state`；router 只持有注入的 `traceEventState` port；nil state 不得触发任何 constructor side effect；所有需要真正处理事件的测试显式注入 state。
+
+方案比较：
+
+1. 保留 `newTraceState()` fallback：兼容旧 fixture，但保留第二个状态 owner 和隐式生命周期，拒绝。
+2. 缺失 state 时 panic：能快速暴露组合错误，但把依赖错误变成事件入口运行期 panic，边界行为不够稳健，拒绝。
+3. 不创建 state，保留 nil-safe router 并让正式 composition/测试显式注入：没有重复 owner，零值边界可安全返回，选择该方案。
+
+状态契约：
+
+- `TraceEventRouter.state` 只指向注入的 session/test state，不在 router constructor 或 `Handle` 中替换。
+- 正式 session 的 router state、renderer state、exec/suspended state 和 JSON/exit pairing 使用同一 session-owned `TraceState`。
+- 缺失 state 的 router 是 inert boundary：`Handle` 不更新 pending、不调用输出端口、不创建 map。
+- `setUnfinishedEnabled` 只作用于注入 state；没有 state 时不产生副作用。
+
+测试与验收：
+
+- 先增加失败优先测试，锁定无 state router 不会生成默认 state；源码门禁禁止 `event_router.go` 调用 `newTraceState()`。
+- 将旧 default-state fixture 改为显式 state，运行 router/state focused tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 router 与 session 状态的 ownership，不改变事件 ABI、输出语义或纯 eBPF 事实源。
+
+实际验收结果：先加入的零状态 router 回归和 `event_router.go` source gate 在旧实现上按预期失败，修复后 focused router tests 通过；`newTraceEventRouter` 不再构造 `TraceState`，`Handle` 对 nil router/state 保持 inert。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused no-ptrace/no-procfs gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，707.35 events/s。`attach-f-p.test` 为 1 PASS；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试期间未发现残留 tracer 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

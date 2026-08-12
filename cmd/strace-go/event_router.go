@@ -22,10 +22,9 @@ type TraceEventRouterDeps struct {
 
 func newTraceEventRouter(deps TraceEventRouterDeps) *TraceEventRouter {
 	state := deps.State
-	if state == nil {
-		state = newTraceState()
+	if state != nil {
+		state.setUnfinishedEnabled(deps.Pipeline != nil && deps.Pipeline.HasTextOutput())
 	}
-	state.setUnfinishedEnabled(deps.Pipeline != nil && deps.Pipeline.HasTextOutput())
 	return &TraceEventRouter{
 		scope:       deps.Scope,
 		targetPID:   deps.TargetPID,
@@ -46,6 +45,9 @@ func (s *traceSession) traceEventRouter() *TraceEventRouter {
 
 // IMPACT: Handle is the single routing boundary after a ringbuf record is decoded.
 func (r *TraceEventRouter) Handle(envelope traceEventEnvelope) {
+	if r == nil || r.state == nil {
+		return
+	}
 	if !r.scope.AllowsPID(envelope.pid) {
 		return
 	}

@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 type recordingTraceEventState struct {
 	calls  int
@@ -34,10 +38,16 @@ func TestTraceEventRouterUsesEventStatePort(t *testing.T) {
 	}
 }
 
-func TestTraceEventRouterBuildsDefaultStatePort(t *testing.T) {
+func TestTraceEventRouterDoesNotBuildDefaultStatePort(t *testing.T) {
 	router := newTraceEventRouter(TraceEventRouterDeps{
 		Scope: newTraceScope(100, nil),
 	})
+	if router == nil {
+		t.Fatal("router should remain available as an inert boundary")
+	}
+	if router.state != nil {
+		t.Fatal("router unexpectedly created a default event-state port")
+	}
 
 	router.Handle(traceEventEnvelope{
 		valid:      true,
@@ -48,8 +58,15 @@ func TestTraceEventRouterBuildsDefaultStatePort(t *testing.T) {
 		eventFlags: bpfEventFlagGenericEnter,
 	})
 
-	if router.state == nil {
-		t.Fatal("router did not install a default event-state port")
+	if router.state != nil {
+		t.Fatal("router Handle unexpectedly created an event-state port")
+	}
+}
+
+func TestTraceEventRouterDoesNotOwnStateConstruction(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/event_router.go"))
+	if strings.Contains(source, "newTraceState()") {
+		t.Fatal("event router must not construct TraceState")
 	}
 }
 
