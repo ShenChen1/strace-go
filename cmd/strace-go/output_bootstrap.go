@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -20,8 +22,7 @@ func setupOutput(outFileOpt string, appendMode bool) (*TraceOutput, error) {
 			return nil, fmt.Errorf("create output pipe: %w", err)
 		}
 		if err := cmd.Start(); err != nil {
-			_ = stdin.Close()
-			return nil, fmt.Errorf("start output command: %w", err)
+			return nil, fmt.Errorf("start output command: %w", errors.Join(err, cleanupOutputBootstrap(stdin, nil)))
 		}
 		output, err := newTraceOutput(TraceOutputDeps{
 			Writer:  stdin,
@@ -29,9 +30,7 @@ func setupOutput(outFileOpt string, appendMode bool) (*TraceOutput, error) {
 			Command: execTraceOutputWaiter{command: cmd},
 		})
 		if err != nil {
-			_ = stdin.Close()
-			_ = cmd.Wait()
-			return nil, err
+			return nil, fmt.Errorf("create output pipe: %w", errors.Join(err, cleanupOutputBootstrap(stdin, execTraceOutputWaiter{command: cmd})))
 		}
 		return output, nil
 	}
@@ -46,8 +45,28 @@ func setupOutput(outFileOpt string, appendMode bool) (*TraceOutput, error) {
 	}
 	output, err := newTraceOutput(TraceOutputDeps{Writer: outFile, Closer: outFile})
 	if err != nil {
-		_ = outFile.Close()
-		return nil, err
+		return nil, fmt.Errorf("create output file: %w", errors.Join(err, closeOutputFile(outFileOpt, outFile)))
 	}
 	return output, nil
+}
+
+func cleanupOutputBootstrap(writer io.Closer, command traceOutputWaiter) error {
+	var cleanupErr error
+	if writer != nil {
+		cleanupErr = errors.Join(cleanupErr, writer.Close())
+	}
+	if command != nil {
+		cleanupErr = errors.Join(cleanupErr, command.Wait())
+	}
+	return cleanupErr
+}
+
+func closeOutputFile(path string, file *os.File) error {
+	if file == nil {
+		return nil
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close output file %s: %w", path, err)
+	}
+	return nil
 }

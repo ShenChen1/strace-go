@@ -4699,3 +4699,40 @@ Impact note：影响 `bpf_attach.go`、`bpf_runtime.go` 的 link cleanup 返回�
 失败优先 source gate 先因 `closeTracepointLinks` 仍为 void 且 runtime `Close` 丢弃 link 错误而失败；迁移后 partial raw/lifecycle attach、object load、runtime link/object close 都使用 `errors.Join`，并保持所有 link 都尝试关闭。focused BPF owner/source tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14111 ./cmd/strace-go` 和 `git diff --check` 全部通过。
 
 真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，745.88 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认 `traceBPFRuntime.Close` 先清空并关闭 links、再关闭 objects，重复 Close 不重复访问，生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.112 输出 bootstrap 失败路径的资源错误可见性（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.104/14.109 已将正常 output ownership 和 composition-root cleanup 错误收口到 `TraceOutput`/handoff；`setupOutput` 仍直接管理 pipe stdin、output command 和普通文件打开失败路径。
+- Problem：输出 pipe 启动后如果 `newTraceOutput` 失败，`stdin.Close` 与 `cmd.Wait` 错误被丢弃；普通文件包装失败时 `outFile.Close` 错误也被忽略。更重要的是，pipe command 已启动但后续 setup 失败时，调用者只能得到构造错误，无法判断 writer/子进程是否完整收尾。
+- Goal：让 `setupOutput` 的每个失败回滚继续关闭已创建资源并通过 `errors.Join` 保留原始错误和 cleanup error；pipe 的 stdin close 必须先发送 EOF，再等待 command；普通文件 close error 必须带路径上下文返回。
+- Non-goals：不改变 output path 语法、shell command 语义、append/truncate flags、`TraceOutput` 正常 close 顺序、session finalizer、输出内容、BPF/event ABI 或 ptrace/procfs 约束；不引入输出 cleanup manager、重试或 goroutine。
+- Constraints：command 未成功 Start 时不调用 Wait；command 已 Start 后所有 setup failure 都必须 Wait 一次；stdin close 和 command wait 都要尝试；无 cleanup error 时错误文本保持原有主错误上下文；已成功返回的 `TraceOutput` ownership 不在本阶段改变。
+
+Impact note：只影响 `output_bootstrap.go` 的 setup failure 回滚和对应 focused/source tests；正常 output handoff/finalizer 路径不变。
+
+方案比较：
+
+1. 继续忽略 setup failure cleanup：代码最短，但 pipe 子进程和文件句柄错误不可见，拒绝。
+2. 抽取全局 output cleanup manager：可以聚合资源，但会重复 `TraceOutput` 的正常 owner 语义，扩大生命周期抽象，拒绝。
+3. 每个 setup 分支局部 `errors.Join`，明确记录 started state：改动小、错误链完整、与当前 owner 边界一致，选择该方案。
+
+状态契约：
+
+- pipe command Start 失败只关闭 stdin，不 Wait；stdin close error 与 start error 聚合。
+- `newTraceOutput` 失败且 command 已启动时，stdin close 和 command Wait 均执行并合并；command 只 Wait 一次。
+- 普通文件包装失败继续关闭文件并保留 close error；成功返回后仍由 `TraceOutput`/handoff 负责关闭。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 setupOutput 的 pipe/file failure path 使用 `errors.Join` 并等待已启动 command；增加 fake pipe closer/waiter 的 failure regression。
+- 运行 focused output bootstrap tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference。
+
+本阶段只补齐 output bootstrap 失败回滚的错误可见性，不改变纯 eBPF 事件语义。
+
+### 14.112 实际验收记录
+
+失败优先 source gate 先因 `setupOutput` 仍吞掉 pipe/file cleanup error 而失败；迁移后 `cleanupOutputBootstrap` 按 writer -> command 顺序执行，未启动 command 的分支不 Wait，file close error 带路径上下文。focused output bootstrap tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14112 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+
+真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，735.74 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认正常 output handoff/finalizer 路径未改变，生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
