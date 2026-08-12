@@ -53,18 +53,20 @@ func TestNormalizedTargetPolicyReachesBPFAndGoState(t *testing.T) {
 	}
 }
 
-func TestResolveTraceTargetsDoesNotMutateTargetPolicy(t *testing.T) {
-	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/main.go"))
-	resolverStart := strings.Index(source, "func resolveTraceTargets")
+func TestTargetBootstrapResolveDoesNotMutateTargetPolicy(t *testing.T) {
+	root := repoRootForTest(t)
+	bootstrapSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/target_bootstrap.go"))
+	resolverStart := strings.Index(bootstrapSource, "func (b *traceTargetBootstrap) Resolve")
 	if resolverStart < 0 {
-		t.Fatal("resolveTraceTargets definition not found")
+		t.Fatal("traceTargetBootstrap.Resolve definition not found")
 	}
-	if strings.Contains(source[resolverStart:], "opts.FollowForks =") {
-		t.Fatal("resolveTraceTargets must not mutate FollowForks after BPF configuration")
+	if strings.Contains(bootstrapSource[resolverStart:], "opts.FollowForks =") {
+		t.Fatal("target bootstrap Resolve must not mutate FollowForks after BPF configuration")
 	}
 
-	normalizeCall := strings.Index(source, "normalizeTraceTargetOptions(opts)")
-	configCall := strings.Index(source, "newTraceLaunchConfig(opts)")
+	mainSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/main.go"))
+	normalizeCall := strings.Index(mainSource, "normalizeTraceTargetOptions(opts)")
+	configCall := strings.Index(mainSource, "newTraceLaunchConfig(opts)")
 	if normalizeCall < 0 || configCall < 0 || normalizeCall > configCall {
 		t.Fatalf("target policy normalization must precede launch snapshot: normalize=%d config=%d", normalizeCall, configCall)
 	}

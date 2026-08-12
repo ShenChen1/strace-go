@@ -9,10 +9,10 @@ import (
 func TestBPFRuntimeOwnerKeepsGeneratedResourcesOutOfOrchestrators(t *testing.T) {
 	root := repoRootForTest(t)
 	mainSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/main.go"))
-	sessionSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/session.go"))
+	sessionSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/session_runtime.go"))
 	for file, source := range map[string]string{
-		"main.go":    mainSource,
-		"session.go": sessionSource,
+		"main.go":            mainSource,
+		"session_runtime.go": sessionSource,
 	} {
 		for _, forbidden := range []string{
 			"*bpfObjects",

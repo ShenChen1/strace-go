@@ -4514,3 +4514,40 @@ Impact note：影响 `main.go` 的 target bootstrap defer、目标 ownership 类
 失败优先 source gate 先因 `main.go` 仍含 `cleanupTargets` 且 `target_handoff.go` 不存在而失败；迁移后新增 `traceTargetHandoff`，目标解析成功后固定去重 PID 快照，异常路径由 handoff 先清理 filter 再 abort command，成功 session 通过 `Transfer` 放弃 bootstrap ownership，主流程不再持有 `cleanupTargets` 或 `abortTraceTargets`。
 
 本轮 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14106 ./cmd/strace-go`、`git diff --check` 以及纯 eBPF/no-ptrace/no-procfs source gate 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，737.69 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认 target handoff defer 注册晚于 event/BPF owner、因此关闭早于 BPF runtime，生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.107 将 target/output bootstrap 从 session 文件中隔离（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.98 已让命令启动消费 `traceCommandSpec`，14.103/14.106 又分别收口了 BPF runtime 和 target cleanup ownership，但当前 `session.go` 仍同时包含 `traceSession` 类型、inherited FD 枚举、命令启动、attach PID、fork arm、filter 清理和输出文件/管道创建；`main.go` 也直接调用这些 setup helper。
+- Problem：session runtime 文件继续暴露 bootstrap 的 OS/BPF side effects，目标启动与输出创建没有独立的对象生命周期；后续修改 attach、pidfd 或 output transport 时，运行期 session 文件仍会被迫承载启动细节，测试也只能通过 package-level helper 间接注入。
+- Goal：新增 `traceTargetBootstrap`，持有 BPF target port 和 inherited files，提供 `Resolve`/`Close` 边界；目标 command、attach、fork arm、filter 清理和 inherited FD 枚举全部归入 `target_bootstrap.go`。将 `setupOutput` 归入 `output_bootstrap.go`，把 `traceSession` 放回 session runtime 文件并删除混合的 `session.go`。`main.go` 只组合 bootstrap owners，不再直接调用目标细节。
+- Non-goals：不改变 command argv/env、FD seed、attach PID 校验、fork arm/disarm、BPF filter map、target handoff、output 文本/JSON/pipe 行为、session event graph、纯 eBPF/no-procfs/no-ptrace 约束；不引入新的运行期 goroutine、锁或 procfs 查询。
+- Constraints：`traceTargetBootstrap.Close` 必须释放 inherited files；target handoff 的 defer 必须早于 bootstrap close 和 BPF runtime close；`traceSession` production 文件不能声明 `traceBPFTargetPort`、`exec.Command` 或 `os.File` bootstrap scan；每个新文件/函数继续满足仓库大小限制，启动失败路径仍返回上下文 error。
+
+Impact note：影响 `main.go`、`session.go` 的文件边界、命令/target/output 单测和 source gates；BPF event ABI、Go event state machine 与用户可见输出保持不变。
+
+方案比较：
+
+1. 只把函数复制到新文件，保留 package-level setup helper：文件名变化但 ownership 不变，main/session 仍可绕过边界，拒绝。
+2. 让 `main.go` 直接组合多个低级 helper：可以删除部分 import，但 side effect 顺序和 inherited file 生命周期继续散落，拒绝。
+3. 用 `traceTargetBootstrap` 持有 target port/inherited files，提供 `Resolve/Close`，并独立 `output_bootstrap.go`：资源边界明确、可用 fake target port 测试、main 只做 composition，选择该方案。
+
+状态契约：
+
+- `traceTargetBootstrap` 是 bootstrap-only owner；`Resolve` 返回 target runtime、主 PID 和 FD seed，`Close` 只关闭 inherited files，不操作 session event state。
+- target handoff 仍拥有目标 filter/process cleanup；target bootstrap 不重复 abort target，二者的 defer 顺序由 main 的注册顺序锁定。
+- `output_bootstrap.go` 只创建 `TraceOutput`，正常 close ownership 仍由 14.104 的 handoff/finalizer 管理。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 `session.go` 不再存在且 session runtime 文件不引用 target/output bootstrap；要求 main 使用 `newTraceTargetBootstrap`/`Resolve`/`Close`，迁移前应失败。
+- 增加 bootstrap Close、命令/attach resolve 和 output setup 的现有回归迁移；运行 focused、Go 全量/race/vet/build、纯 eBPF source gate、semantic/perf 和 upstream reference。
+
+本阶段只重划 bootstrap/session 文件与对象边界，不改变任何内核采集或用户可见事件语义。
+
+### 14.107 实际验收记录
+
+失败优先 source gate 先因 `session.go` 仍存在而失败；迁移后删除混合文件，新增 `traceTargetBootstrap` 持有 BPF target port 和 inherited files，`Resolve` 统一处理 command/attach，`Close` 幂等释放继承文件；新增 `output_bootstrap.go` 承载输出文件/管道创建，`session_runtime.go` 只保留 `traceSession` 运行时依赖。既有 command/attach/output/source gate 已迁移到新 owner，新增测试覆盖 nil port、空目标不触碰 BPF、inherited file close 和重复 close。
+
+本轮 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14107 ./cmd/strace-go` 和 `git diff --check` 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，729.18 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认 `main.go` 的 defer 顺序为 output handoff、target handoff、target bootstrap、event reader、BPF runtime，目标清理先于 inherited FD/BPF 资源关闭；生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。

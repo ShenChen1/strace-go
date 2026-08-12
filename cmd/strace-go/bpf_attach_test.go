@@ -9,7 +9,7 @@ import (
 )
 
 func TestSetSyscallVariablesDoesNotUseNumericFallback(t *testing.T) {
-	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/session.go"))
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/bpf_runtime.go"))
 	for _, forbidden := range []string{
 		"fallback uint32",
 		"sc.fallback",

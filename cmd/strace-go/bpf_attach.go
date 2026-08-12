@@ -21,8 +21,8 @@ type tracepointSpec struct {
 }
 
 // bpfAttacher owns the program attachment policy for the eBPF runtime.
-// It keeps session.go focused on session orchestration and makes the
-// program-to-tracepoint wiring declarative and unit-testable.
+// It keeps runtime loading separate from program-to-tracepoint wiring and
+// makes that wiring declarative and unit-testable.
 type bpfAttacher struct {
 	objs *bpfObjects
 }

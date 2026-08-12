@@ -30,7 +30,7 @@ func TestSessionCompositionConsumesExplicitConfig(t *testing.T) {
 		t.Fatal("composeTraceSession must consume traceSessionConfig")
 	}
 	configCall := strings.Index(mainSource, "newTraceLaunchConfig(opts)")
-	targetCall := strings.Index(mainSource, "targetRuntime, targetPid, fdSeed, err := resolveTraceTargets(")
+	targetCall := strings.Index(mainSource, "targetRuntime, targetPid, fdSeed, err := targetBootstrap.Resolve(config.targets)")
 	if configCall < 0 || targetCall < 0 || configCall > targetCall {
 		t.Fatalf("session config must be formed before target startup: config=%d target=%d", configCall, targetCall)
 	}

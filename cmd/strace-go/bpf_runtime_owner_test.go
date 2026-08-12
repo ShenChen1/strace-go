@@ -53,7 +53,8 @@ func (p *fakeBPFTargetPort) armedForkPID() (uint32, bool) {
 
 func TestStartTraceCmdUsesTargetPortLifecycle(t *testing.T) {
 	port := &fakeBPFTargetPort{armedSnapshot: 123}
-	target, pid, _, err := startTraceCmd(traceCommandSpec{args: []string{"/bin/true"}}, port, nil)
+	bootstrap := &traceTargetBootstrap{bpfRuntime: port}
+	target, pid, _, err := bootstrap.startTraceCmd(traceCommandSpec{args: []string{"/bin/true"}})
 	if err != nil {
 		t.Fatalf("startTraceCmd() error = %v, want nil", err)
 	}
@@ -68,7 +69,8 @@ func TestStartTraceCmdUsesTargetPortLifecycle(t *testing.T) {
 
 func TestStartTraceCmdClearsTargetOnFilterFailure(t *testing.T) {
 	port := &fakeBPFTargetPort{addErr: errors.New("filter update failed")}
-	target, _, _, err := startTraceCmd(traceCommandSpec{args: []string{"/bin/true"}}, port, nil)
+	bootstrap := &traceTargetBootstrap{bpfRuntime: port}
+	target, _, _, err := bootstrap.startTraceCmd(traceCommandSpec{args: []string{"/bin/true"}})
 	if err == nil {
 		t.Fatal("startTraceCmd() returned nil error after filter failure")
 	}

@@ -46,9 +46,6 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 	if clock == nil {
 		return fmt.Errorf("trace clock is nil")
 	}
-	inheritedFiles := collectInheritedFiles()
-	defer closeFiles(inheritedFiles)
-
 	bpfRuntime, err := setupBPF()
 	if err != nil {
 		return fmt.Errorf("failed to set up BPF runtime: %w", err)
@@ -65,13 +62,19 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 		return fmt.Errorf("failed to configure BPF runtime: %w", err)
 	}
 
-	targetRuntime, targetPid, fdSeed, err := resolveTraceTargets(config.targets, bpfRuntime, inheritedFiles)
+	targetBootstrap, err := newTraceTargetBootstrap(bpfRuntime)
+	if err != nil {
+		return fmt.Errorf("failed to set up target bootstrap: %w", err)
+	}
+	defer func() { _ = targetBootstrap.Close() }()
+
+	targetRuntime, targetPid, fdSeed, err := targetBootstrap.Resolve(config.targets)
 	if err != nil {
 		return fmt.Errorf("failed to resolve trace targets: %w", err)
 	}
 	targetHandoff, err := newTraceTargetHandoff(config.targets, targetRuntime, bpfRuntime, targetPid)
 	if err != nil {
-		abortTraceTarget(targetRuntime, bpfRuntime, targetPid)
+		targetBootstrap.abortTraceTarget(targetRuntime, targetPid)
 		return fmt.Errorf("failed to own trace targets: %w", err)
 	}
 	defer func() { _ = targetHandoff.Close() }()
@@ -141,70 +144,6 @@ func normalizeTraceTargetOptions(opts *cli.Options) {
 	if len(opts.AttachPids) > 1 || (len(opts.CmdArgs) > 0 && len(opts.AttachPids) > 0) {
 		opts.FollowForks = true
 	}
-}
-
-// resolveTraceTargets starts the traced command and/or attaches to pids, merging
-// startup FD state seeds when both targets are requested.
-func resolveTraceTargets(targets traceTargetConfig, bpfRuntime traceBPFTargetPort, inheritedFiles []*os.File) (*traceTargetRuntime, int, fdStateSeed, error) {
-	var targetRuntime *traceTargetRuntime
-	var targetPid int
-	var fdSeed fdStateSeed
-
-	if len(targets.command.args) > 0 {
-		var err error
-		targetRuntime, targetPid, fdSeed, err = startTraceCmd(targets.command, bpfRuntime, inheritedFiles)
-		if err != nil {
-			return nil, 0, fdStateSeed{}, err
-		}
-	}
-	if len(targets.attachPIDs) > 0 {
-		firstPid, attachSeed, err := attachToPids(targets.attachPIDs, bpfRuntime)
-		if err != nil {
-			abortTraceTarget(targetRuntime, bpfRuntime, targetPid)
-			return nil, 0, fdStateSeed{}, err
-		}
-		if targetPid == 0 {
-			targetPid = firstPid
-			fdSeed = attachSeed
-		} else {
-			fdSeed.merge(attachSeed)
-		}
-	}
-	return targetRuntime, targetPid, fdSeed, nil
-}
-
-func terminateTraceTarget(targetRuntime *traceTargetRuntime) {
-	if targetRuntime == nil {
-		return
-	}
-	targetRuntime.Abort()
-}
-
-func abortTraceTarget(targetRuntime *traceTargetRuntime, bpfRuntime traceBPFTargetPort, targetPid int) {
-	if targetPid > 0 {
-		clearFilterPids(bpfRuntime, []uint32{uint32(targetPid)})
-	}
-	terminateTraceTarget(targetRuntime)
-}
-
-func traceTargetPIDs(attachPIDs []int, targetPid int) []uint32 {
-	pids := make([]uint32, 0, 1+len(attachPIDs))
-	appendPID := func(pid int) {
-		if pid <= 0 {
-			return
-		}
-		for _, existing := range pids {
-			if existing == uint32(pid) {
-				return
-			}
-		}
-		pids = append(pids, uint32(pid))
-	}
-	appendPID(targetPid)
-	for _, pid := range attachPIDs {
-		appendPID(pid)
-	}
-	return pids
 }
 
 // expandTracePathSet mirrors upstream strace's pathtrace_select_set: each -P

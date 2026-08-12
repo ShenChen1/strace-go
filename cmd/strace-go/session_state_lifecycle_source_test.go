@@ -57,7 +57,7 @@ func TestZeroValueTraceSessionDoesNotBuildBaseDependencies(t *testing.T) {
 }
 
 func TestTraceSessionDoesNotDuplicateDependencyFields(t *testing.T) {
-	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/session.go"))
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/session_runtime.go"))
 	if !strings.Contains(source, "\tdependencies traceSessionDeps") {
 		t.Fatal("traceSession does not expose its single dependency container")
 	}

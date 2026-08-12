@@ -9,10 +9,9 @@ import (
 func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readCombinedBPFSources(t)
-	// IMPACT: raw syscall program attachment lives in bpf_attach.go; session.go
-	// delegates to the attacher. The gate scans both files for wiring snippets.
-	sessionSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/session.go")) +
-		"\n" + readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_attach.go"))
+	// IMPACT: raw syscall program attachment lives in bpf_attach.go; the gate
+	// scans the attacher for generated program wiring snippets.
+	sessionSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_attach.go"))
 	msgDirectSources := readMsgDirectEventSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 

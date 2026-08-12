@@ -42,7 +42,8 @@ func TestNewTraceCommandDoesNotConfigurePtrace(t *testing.T) {
 }
 
 func TestStartTraceCmdRejectsUnavailableBPF(t *testing.T) {
-	_, _, _, err := startTraceCmd(traceCommandSpec{args: []string{"/definitely/missing/strace-go-target"}}, nil, nil)
+	bootstrap := &traceTargetBootstrap{}
+	_, _, _, err := bootstrap.startTraceCmd(traceCommandSpec{args: []string{"/definitely/missing/strace-go-target"}})
 	if err == nil {
 		t.Fatal("startTraceCmd() returned nil error without a BPF filter map")
 	}
@@ -63,7 +64,8 @@ func TestTraceCommandSpecCopiesCLIInputs(t *testing.T) {
 }
 
 func TestStartTraceCmdRejectsEmptyCommandSpec(t *testing.T) {
-	_, _, _, err := startTraceCmd(traceCommandSpec{}, nil, nil)
+	bootstrap := &traceTargetBootstrap{}
+	_, _, _, err := bootstrap.startTraceCmd(traceCommandSpec{})
 	if err == nil || err.Error() != "trace command is empty" {
 		t.Fatalf("startTraceCmd() error = %v, want empty command error", err)
 	}
@@ -99,7 +101,8 @@ func TestSetupOutputOwnsFileLifecycle(t *testing.T) {
 }
 
 func TestAttachToPidsReturnsFilterError(t *testing.T) {
-	_, _, err := attachToPids([]int{1}, nil)
+	bootstrap := &traceTargetBootstrap{}
+	_, _, err := bootstrap.attachToPids([]int{1})
 	if err == nil {
 		t.Fatal("attachToPids() returned nil error without a BPF filter map")
 	}
