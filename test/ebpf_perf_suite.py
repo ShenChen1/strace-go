@@ -116,7 +116,7 @@ def run_go_pipeline_benchmarks():
             "-run",
             "^$",
             "-bench",
-            "^Benchmark(TraceEventDecodeState|JSONEventWriter)$",
+            "^Benchmark(TraceEventDecodeState|JSONEventWriter|JSONDecodedEventWriter|JSONDecodedPayloadEventWriter)$",
             "-benchmem",
             "-count=1",
         ],
@@ -261,6 +261,8 @@ def run_ebpf_perf(args):
         expected_benchmarks = {
             "BenchmarkTraceEventDecodeState",
             "BenchmarkJSONEventWriter",
+            "BenchmarkJSONDecodedEventWriter",
+            "BenchmarkJSONDecodedPayloadEventWriter",
         }
         actual_benchmarks = {
             metric["name"].rsplit("-", 1)[0] for metric in benchmark_metrics

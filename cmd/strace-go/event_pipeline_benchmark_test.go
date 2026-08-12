@@ -5,6 +5,7 @@ import (
 	"io"
 	"testing"
 
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -95,7 +96,52 @@ func TestJSONEventWriterReusesSyscallEventStorage(t *testing.T) {
 func BenchmarkJSONEventWriter(b *testing.B) {
 	sysID := benchmarkSyscallID("getpid")
 	writer := newJSONEventWriter(JSONEventWriterDeps{Out: io.Discard})
-	event := syscallEventContext{
+	event := benchmarkJSONWriterEvent(sysID, meta.Syscall{Name: "getpid"})
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		writer.WriteRaw(event)
+	}
+}
+
+func BenchmarkJSONDecodedEventWriter(b *testing.B) {
+	sysID := benchmarkSyscallID("getpid")
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: io.Discard})
+	event := benchmarkJSONWriterEvent(sysID, meta.Syscall{Name: "getpid"})
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		writer.WriteDecoded(event, handler.Result{})
+	}
+}
+
+func BenchmarkJSONDecodedPayloadEventWriter(b *testing.B) {
+	sysID := benchmarkSyscallID("write")
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: io.Discard})
+	event := benchmarkJSONWriterEvent(sysID, meta.Syscall{Name: "write"})
+	event.handlerContext = &handler.Context{
+		PayloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindBytes,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  1,
+			UserPtr:   0x2000,
+			UserLen:   7,
+			CopiedLen: 7,
+			Data:      []byte("payload"),
+		}},
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		writer.WriteDecoded(event, handler.Result{})
+	}
+}
+
+func benchmarkJSONWriterEvent(sysID uint32, scMeta meta.Syscall) syscallEventContext {
+	return syscallEventContext{
 		view: syscallEventView{
 			valid:        true,
 			eventVersion: traceEventV2Version,
@@ -107,13 +153,7 @@ func BenchmarkJSONEventWriter(b *testing.B) {
 			duration:     50,
 			enterTime:    950,
 		},
-		meta: meta.Syscall{Name: "getpid"},
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		writer.WriteRaw(event)
+		meta: scMeta,
 	}
 }
 

@@ -39,6 +39,8 @@ class PerfOracleTests(unittest.TestCase):
         output = (
             "BenchmarkTraceEventDecodeState-8  1000  123.4 ns/op  96 B/op  2 allocs/op\n"
             "BenchmarkJSONEventWriter-8  500  456.7 ns/op  128 B/op  3 allocs/op\n"
+            "BenchmarkJSONDecodedEventWriter-8  500  600.7 ns/op  160 B/op  4 allocs/op\n"
+            "BenchmarkJSONDecodedPayloadEventWriter-8  500  900.7 ns/op  320 B/op  6 allocs/op\n"
         )
 
         metrics = parse_go_benchmark_metrics(output)
@@ -57,6 +59,18 @@ class PerfOracleTests(unittest.TestCase):
                     "ns_per_op": 456.7,
                     "bytes_per_op": 128.0,
                     "allocs_per_op": 3.0,
+                },
+                {
+                    "name": "BenchmarkJSONDecodedEventWriter-8",
+                    "ns_per_op": 600.7,
+                    "bytes_per_op": 160.0,
+                    "allocs_per_op": 4.0,
+                },
+                {
+                    "name": "BenchmarkJSONDecodedPayloadEventWriter-8",
+                    "ns_per_op": 900.7,
+                    "bytes_per_op": 320.0,
+                    "allocs_per_op": 6.0,
                 },
             ],
         )

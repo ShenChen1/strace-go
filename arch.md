@@ -5182,3 +5182,41 @@ Impact note：影响 `JSONEventWriter` 的临时事件 ownership、JSON benchmar
 同机 benchmark 为 `BenchmarkTraceEventDecodeState` 约 296.6-300.6 ns/op、0 B/op、0 allocs/op，`BenchmarkJSONEventWriter` 约 482.2-505.2 ns/op、0 B/op、0 allocs/op；相较 14.123 的 `256 B/op、1 allocs/op`，JSON syscall writer 已消除事件结构堆分配。raw、decoded、lifecycle 既有 JSON 测试及 reusable storage 清零回归均通过。
 
 最终真实 `ebpf-semantic` 为 201 个主事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 的 scalar/io/lifecycle/threads 分别为 6000/3000、4002/2001、42/17、3208/1604 个 JSON/exit 事件，四组 runtime counter 与四组 `pending_stale` 均为 0。原生参考复核为 `small` 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。review 确认复用只存在于单事件消费者拥有的 writer，Encode 返回后会清空 syscall/lifecycle storage，不引入 ptrace、procfs、tracee 内存读取、锁、goroutine 或第二输出通道。
+
+### 14.125 建立 decoded JSON 与 payload writer 分配基线（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.124 将 raw syscall JSON writer 降到 `0 B/op、0 allocs/op`，但生产 JSON 路径还会经过 handler decoded result、return text 和 semantic payload 转换；当前只有 raw benchmark，无法判断剩余分配来自格式化还是 payload/base64。
+- Problem：如果把 raw benchmark 的零分配结果直接当成整个 JSON 输出管线的契约，后续 handler/payload 重构可能把不可避免的字符串或编码开销误判成事件 storage 回归，也可能漏掉可复用的临时 slice。
+- Goal：增加 decoded 无 payload、decoded 带 payload 两个独立 benchmark，报告 `ns/op、B/op、allocs/op`，明确 writer storage 优化的覆盖边界，为后续是否优化 payload 编码提供证据。
+- Non-goals：本阶段不改变 JSON schema、event v2/BPF ABI、handler result、payload ownership、base64 语义、输出顺序或生产运行时策略；不引入自定义 JSON 编码器、unsafe string、全局池、`sync.Pool`、锁、goroutine、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：benchmark 必须复用真实 `WriteDecoded` 调用和现有 `jsonEventWriter`，不能绕过 `newJSONDecodedSyscallEvent`；payload case 必须从 `handler.Context.PayloadSections` 提供 semantic section；本阶段不设置跨机器绝对阈值。
+
+Impact note：影响 benchmark-only 的 JSON decoded/payload 覆盖与性能 suite 报告，不改变生产事件事实源和输出行为。
+
+方案比较：
+
+1. 继续只测 raw writer：成本最低，但无法定位 decoded/payload 分配来源，拒绝。
+2. 只增加端到端 semantic/perf 事件数统计：能观察吞吐，却把内核、handler、JSON 和调度成本混在一起，拒绝。
+3. 用真实 writer 增加 decoded 无 payload与 payload 两个 benchmark：分离变量、保持生产调用边界、可直接得到 Go allocator 指标，选择该方案。
+
+状态契约：
+
+- 三个 benchmark（raw、decoded、decoded-payload）都使用同一 `JSONEventWriter`，每轮写入完成后才进入下一轮。
+- benchmark 只建立基线，不把 decoded/payload 的当前分配数伪装成跨机器性能承诺。
+- 后续生产优化必须先说明要消除的具体分配来源，并保持现有 JSON 解析结果一致。
+
+测试与验收：
+
+- 增加 decoded 无 payload 与 decoded payload benchmark，并由 `ebpf-perf` 解析和打印两个新指标。
+- 运行 Go 单测、race、vet、build、Python oracle、semantic/perf、small 和 upstream reference；缺少任一 benchmark 指标时 suite 失败。
+- review 确认 benchmark 没有第二事件消费者、没有复制 tracee 内存，也没有改变生产 writer ownership。
+
+本阶段只补齐分配观测面，是否进行下一步 payload 优化以后续基线为依据。
+
+#### 实际验收记录
+
+新增的 decoded 无 payload 与 decoded payload benchmark 通过真实 `WriteDecoded` 路径运行；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14125 ./cmd/strace-go`、Python 19 项和 `git diff --check` 均通过。`ebpf-perf` 已解析四个 Go benchmark：`TraceEventDecodeState` 为 297.20 ns/op、0 B/op、0 allocs/op，raw `JSONEventWriter` 为 482.20 ns/op、0 B/op、0 allocs/op，decoded 无 payload 为 571.10 ns/op、0 B/op、0 allocs/op，decoded payload 为 858.60 ns/op、96 B/op、2 allocs/op。
+
+decoded payload 的两次分配确认来自 semantic section 到 JSON 的临时转换边界，不能归因于 writer event storage；本阶段没有提前修改 base64 或 JSON ABI。真实 `ebpf-semantic` 为 201 个主事件、102/99 enter/exit、6 个 lifecycle，所有 BPF runtime counter 与 `pending_stale` 均为 0；`ebpf-perf` 的 scalar/io/lifecycle/threads 仍为 6000/3000、4002/2001、42/17、3208/1604 个 JSON/exit 事件且诊断字段全零。第二次完整 `small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。首次完整 `small` 的 `creat.gen.test` 出现一次路径快照退化，精确重跑及第二次完整 suite 均通过，作为环境/异步观察抖动保留记录。
