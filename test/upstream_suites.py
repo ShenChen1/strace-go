@@ -92,6 +92,12 @@ MORE_EXPECTED_FAILURES = {
     "attach-p-cmd.test": "pure eBPF does not promise exact cross-task lifecycle exit ordering",
 }
 
+# This test is scheduler-sensitive: the same pure-eBPF implementation can
+# produce either the upstream order or the documented non-contract mismatch.
+# Keep the XFAIL reason while allowing a lucky exact match to remain diagnostic
+# instead of failing the whole suite.
+MORE_TOLERATED_XPASSES = {"attach-p-cmd.test"}
+
 # Tests for the next feature we are tackling.
 # Add tests here when working on a new syscall or feature.
 MORE_TESTS = [

@@ -140,7 +140,7 @@ python3 test/run_tests.py --suite ebpf-perf --skip-build
 ```
 可用的 suite 有 `small`、`more`、`all`、`upstream-reference`、`ebpf-semantic`、`ebpf-perf`，也支持 `--filter <test>` 只跑单个用例。
 `upstream-reference` 仍使用 `strace-upstream/tests` 作为参考；`ebpf-semantic` 使用本仓库 fixture 和 JSON 事件做语义断言，不做字节级输出 diff。
-`upstream-reference` 与 `more` 中已知不属于纯 eBPF 契约的 upstream exact diff 会显示为 `XFAIL`，例如 `read-write.gen.test` 的大 payload hexdump（bounded snapshot 与 ptrace 大块 fetch 的语义差异）和 `strace-C.test`（上游 `-c` 汇总按 per-syscall CPU 时间计，eBPF 只能观测 wall-clock 时长）；若这类测试意外通过会显示 `XPASS` 并使 runner 失败，提醒维护者更新契约。
+`upstream-reference` 与 `more` 中已知不属于纯 eBPF 契约的 upstream exact diff 会显示为 `XFAIL`，例如 `read-write.gen.test` 的大 payload hexdump（bounded snapshot 与 ptrace 大块 fetch 的语义差异）和 `strace-C.test`（上游 `-c` 汇总按 per-syscall CPU 时间计，eBPF 只能观测 wall-clock 时长）；稳定边界意外通过会显示 `XPASS` 并使 runner 失败，提醒维护者更新契约。`attach-p-cmd.test` 额外属于调度敏感的跨任务生命周期 exact diff：成功时显示 `XPASS-ALLOWED`，失败时仍显示 `XFAIL`，两种结果都不使 suite 失败，但不会改变 semantic lifecycle suite 的严格断言。
 
 ---
 

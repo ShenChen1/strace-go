@@ -74,6 +74,20 @@ class SuiteResultsTests(unittest.TestCase):
         self.assertEqual((outcome, reason), ("xpass", "bounded"))
         self.assertEqual(results.counts["xpass"], 1)
 
+    def test_records_tolerated_unexpected_pass(self):
+        results = SuiteResults()
+        result = {"test": "attach-p-cmd.test", "rc": 0, "success": True}
+
+        outcome, reason = results.record(
+            result,
+            {"attach-p-cmd.test": "scheduler-sensitive"},
+            {"attach-p-cmd.test"},
+        )
+
+        self.assertEqual((outcome, reason), ("xpass_allowed", "scheduler-sensitive"))
+        self.assertEqual(results.counts["xpass_allowed"], 1)
+        self.assertEqual(results.xpassed_allowed, [(result, "scheduler-sensitive")])
+
 
 class EventOracleTests(unittest.TestCase):
     def test_detects_stale_cloexec_read(self):

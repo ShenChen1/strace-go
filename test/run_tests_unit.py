@@ -38,6 +38,18 @@ class ClassifyTestResultTest(unittest.TestCase):
             ("xpass", "known"),
         )
 
+    def test_tolerated_unexpected_pass(self):
+        result = {"test": "attach-p-cmd.test", "success": True, "rc": 0}
+
+        self.assertEqual(
+            run_tests.classify_test_result(
+                result,
+                {"attach-p-cmd.test": "scheduler-sensitive"},
+                {"attach-p-cmd.test"},
+            ),
+            ("xpass_allowed", "scheduler-sensitive"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

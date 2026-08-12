@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from ebpf_suites import run_ebpf_perf, run_ebpf_semantic
 from upstream_suites import (
     MORE_EXPECTED_FAILURES,
+    MORE_TOLERATED_XPASSES,
     MORE_TESTS,
     SMOKE_TESTS,
     UPSTREAM_REFERENCE_EXPECTED_FAILURES,
@@ -35,14 +36,18 @@ class SuiteResults:
             "skip": 0,
             "xfail": 0,
             "xpass": 0,
+            "xpass_allowed": 0,
         }
     )
     failed: list = field(default_factory=list)
     xfailed: list = field(default_factory=list)
     xpassed: list = field(default_factory=list)
+    xpassed_allowed: list = field(default_factory=list)
 
-    def record(self, result, expected_failures):
-        outcome, reason = classify_test_result(result, expected_failures)
+    def record(self, result, expected_failures, tolerated_xpasses=None):
+        outcome, reason = classify_test_result(
+            result, expected_failures, tolerated_xpasses
+        )
         self.counts[outcome] += 1
         if outcome == "fail":
             self.failed.append(result)
@@ -50,6 +55,8 @@ class SuiteResults:
             self.xfailed.append((result, reason))
         elif outcome == "xpass":
             self.xpassed.append((result, reason))
+        elif outcome == "xpass_allowed":
+            self.xpassed_allowed.append((result, reason))
         return outcome, reason
 
 
@@ -215,17 +222,25 @@ def expected_failures_for_suite(suite):
     return {}
 
 
-def classify_test_result(result, expected_failures):
+def classify_test_result(result, expected_failures, tolerated_xpasses=None):
     reason = expected_failures.get(result["test"], "")
+    tolerated = tolerated_xpasses or set()
     if result["rc"] == 77:
         return "skip", ""
     if result["success"]:
+        if reason and result["test"] in tolerated:
+            return "xpass_allowed", reason
         return ("xpass", reason) if reason else ("pass", "")
     return ("xfail", reason) if reason else ("fail", "")
 
 
 def outcome_label(outcome, reason):
-    labels = {"pass": "PASS", "skip": "SKIP", "fail": "FAIL"}
+    labels = {
+        "pass": "PASS",
+        "skip": "SKIP",
+        "fail": "FAIL",
+        "xpass_allowed": f"XPASS-ALLOWED ({reason})",
+    }
     if outcome == "xfail":
         return f"XFAIL ({reason})"
     if outcome == "xpass":
@@ -241,6 +256,7 @@ def print_results(results):
     print(f"Skipped: {counts['skip']}")
     print(f"XFailed: {counts['xfail']}")
     print(f"XPassed: {counts['xpass']}")
+    print(f"XPASS allowed: {counts['xpass_allowed']}")
     print(f"Total:   {sum(counts.values())}")
     print_expected_outcomes(results)
     print_failure_details(results.failed)
@@ -254,6 +270,10 @@ def print_expected_outcomes(results):
     if results.xpassed:
         print("\n=== UNEXPECTED PASSES ===")
         for result, reason in results.xpassed:
+            print(f"{result['test']}: {reason}")
+    if results.xpassed_allowed:
+        print("\n=== NON-CONTRACT PASSES ===")
+        for result, reason in results.xpassed_allowed:
             print(f"{result['test']}: {reason}")
 
 
@@ -278,8 +298,10 @@ def selected_tests(args):
     return tests[: args.limit] if args.limit > 0 else tests
 
 
-def record_and_print(result, expected_failures, results, include_name=True):
-    outcome, reason = results.record(result, expected_failures)
+def record_and_print(
+    result, expected_failures, results, tolerated_xpasses=None, include_name=True
+):
+    outcome, reason = results.record(result, expected_failures, tolerated_xpasses)
     label = outcome_label(outcome, reason)
     if include_name:
         print(f"{label}: {result['test']}")
@@ -294,16 +316,21 @@ def run_upstream_suite(args):
     print(f"=> Running {len(tests)} tests from '{args.suite}' suite...")
     results = SuiteResults()
     expected = expected_failures_for_suite(args.suite)
+    tolerated_xpasses = MORE_TOLERATED_XPASSES if args.suite == "more" else set()
     if args.parallel > 1:
         print(f"=> Using {args.parallel} parallel workers.")
         with ThreadPoolExecutor(max_workers=args.parallel) as executor:
             futures = {executor.submit(run_test, test): test for test in tests}
             for future in as_completed(futures):
-                record_and_print(future.result(), expected, results)
+                record_and_print(
+                    future.result(), expected, results, tolerated_xpasses
+                )
     else:
         for test in tests:
             print(f"Running {test}... ", end="", flush=True)
-            record_and_print(run_test(test), expected, results, include_name=False)
+            record_and_print(
+                run_test(test), expected, results, tolerated_xpasses, include_name=False
+            )
     print_results(results)
     return 1 if results.counts["fail"] > 0 or results.counts["xpass"] > 0 else 0
 

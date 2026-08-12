@@ -3580,3 +3580,36 @@ Impact note：删除对象只在 `pkg/stacktrace` 目录中，production caller 
 - 先确认 `.rej` 存在且无引用，再删除；运行 stacktrace focused、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、no-ptrace/no-procfs source gate 和 `git diff --check`。
 
 本阶段只删除误导性的历史 artifact，不改变纯 eBPF 运行时语义。
+
+### 14.80 区分调度敏感的 upstream XPASS（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：`more` suite 把 `attach-p-cmd.test` 登记为纯 eBPF 非契约的 expected failure，因为跨任务 lifecycle exit 行序受 ringbuf、scheduler 和 wait fallback 的异步时点影响；该测试此前已出现过一次 XPASS，最近完整 suite 又出现一次 XPASS，紧接着单独重跑恢复为 XFAIL。
+- Problem：runner 当前对所有 expected failure 的 XPASS 一律返回失败。对真正稳定的契约变化，这个提醒有价值；对已证明调度敏感的跨任务 exact diff，它会把正常的非确定性误报成阶段失败，导致 `more` 无法作为可重复回归门禁。
+- Goal：保留 `attach-p-cmd.test` 的 XFAIL 诊断和 exact diff 输出，同时允许它的 XPASS 以明确的 `XPASS-ALLOWED` 结果记录且不使 suite 失败；其它 expected failure 继续使用严格 XPASS 失败规则。
+- Non-goals：不放宽真实 FAIL、不删除 attach/lifecycle 语义测试、不改变 upstream reference、eBPF semantic oracle、BPF ABI、事件顺序实现、文本输出或纯 eBPF 运行路径。
+- Constraints：允许列表必须按 suite 和测试名显式声明；普通 XFAIL/XPASS 单元测试行为保持不变；runner 计数和输出要区分严格 XPASS 与容忍 XPASS；Python 文件和函数继续满足仓库规模限制。
+
+Impact note：改动只作用于 `test/run_tests.py` 与 `test/upstream_suites.py` 的结果分类；`attach-p-cmd.test` 失败仍必须显示 XFAIL，成功显示 XPASS-ALLOWED，`strace-C`/`read-write` 等稳定边界仍在 XPASS 时让 suite 失败。
+
+方案比较：
+
+1. 重跑直到 XFAIL：不改代码，但门禁结果受调度影响，无法作为可重复验收，拒绝。
+2. 从 expected failure 删除 `attach-p-cmd.test`：XPASS 不再告警，但普通 exact diff 失败会变成 FAIL，错误地把已知非契约差异当产品回归，拒绝。
+3. 为调度敏感测试增加显式 tolerated-XPASS 分类，严格 XFAIL 规则保持不变：信息保留、失败可重复、作用域最小，选择该方案。
+
+状态契约：
+
+- expected failure 的失败结果仍为 `XFAIL`；稳定 expected failure 的成功结果仍为严格 `XPASS` 并使 runner 失败。
+- 只有 `MORE_TOLERATED_XPASSES` 显式列出的测试可输出 `XPASS-ALLOWED`；该结果计入独立统计但不计为 suite failure。
+- 该分类只处理 upstream exact diff 的测试判定，不改变任何 tracer 事件或生命周期事实。
+
+测试与验收：
+
+- 先用当前完整 `more` 的 XPASS 作为失败证据，再单独重跑 `attach-p-cmd.test` 确认其恢复 XFAIL；增加 runner 单元测试覆盖严格 XPASS、容忍 XPASS 与失败 XFAIL。
+- 运行 Python runner 单测、`more`、`small`、`upstream-reference`、`ebpf-semantic`、`ebpf-perf`、Go 全量/竞态/vet/build、纯 eBPF source gate、资源残留检查和 `git diff --check`。
+
+本阶段只修正非确定性测试结果分类，不改变纯 eBPF 运行时语义。
+
+实际验收结果：先记录完整 `more` 的 1 次 `attach-p-cmd.test` XPASS，并单独重跑确认同一测试恢复为 XFAIL；新增 `MORE_TOLERATED_XPASSES`、`xpass_allowed` 独立统计和 `XPASS-ALLOWED` 输出，严格 expected failure 的分类测试保持不变。Python runner 单测为 17/17，`more` 为 80 PASS、3 个 XFAIL、0 FAIL、0 严格 XPASS，`small` 为 23 PASS、0 XFAIL/XPASS；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，742.70 events/s。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、Python compile、纯 eBPF source gate 和 `git diff --check` 全部通过。测试结束后无残留 tracer、fixture 或 BPF pin；生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
