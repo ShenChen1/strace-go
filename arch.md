@@ -5630,3 +5630,42 @@ Impact note：影响 `cmd/strace-go/text_renderer.go` 的字段和 dependency co
 真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 290.10 ns/op、0 B/op、0 allocs/op`、raw JSON `512.60 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `617.20 ns/op、0 B/op、0 allocs/op`、decoded payload `913.40 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
 
 当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 `TextRenderer` 仅依赖时间前缀/当前单调时钟和 IP resolver 两个窄接口，真实 owner 仍由 session composition 创建；未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
+
+### 14.135 将 command exit handler 的协调与格式化改为窄接口（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：`TraceCommandExitHandler` 把 command wait 结果转换为 exit-status queue 操作；它实际只调用 `MarkExitedWithFallback`、`FlushFallback` 和 `ExitStatusLine`，但字段与 deps 仍是 `*ExitStatusCoordinator`、`*TextRenderer`。
+- Problem：wait 生命周期组件依赖完整的 queue coordinator 和 renderer，替换或单测 fallback 需要构造完整输出图；这让 command wait 边界与队列内部实现、完整文本 renderer 产生不必要的编译期耦合。
+- Goal：定义 `traceCommandExitStatusPort` 和 `traceExitStatusLinePort`，让 handler 只依赖两个操作接口；真实 coordinator/renderer 仍由 session composition 注入，保持 fallback 判断、pid/status 参数和输出时机不变。
+- Non-goals：不改变 wait 结果归一化、fallback line 的 quiet/summary/JSON 条件、queue 顺序、renderer 文本格式或 output ownership；不引入新的 wait goroutine、锁、全局 service、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：exit status port 必须同时支持 mark-with-fallback 和 flush；line port 只生成文本，不写 output；handler 不访问 queue/map/renderer 内部；nil port 延续当前 no-op 行为。
+
+Impact note：影响 `cmd/strace-go/command_exit_handler.go` 的字段和 dependency contract，以及 command-exit source/fake tests；不改变 target runtime 的 Wait ownership 或 session component graph。
+
+方案比较：
+
+1. 继续注入具体 coordinator/renderer：实现最少，但 wait 组件绑定完整输出实现，拒绝。
+2. 复用一个包含所有 exit/output 方法的大接口：可减少类型声明，但扩大 command handler 能力面，拒绝。
+3. 按 command handler 的两个职责拆分 status port 与 line port：边界清晰、fake 简单、行为不变，选择该方案。
+
+状态契约：
+
+- `traceCommandExitStatusPort` 仅暴露 `MarkExitedWithFallback(int, string)` 与 `FlushFallback(int)`。
+- `traceExitStatusLinePort` 仅暴露 `ExitStatusLine(int, uint64) string`；它不持有 writer ownership。
+- `TraceCommandExitHandlerDeps` 接受接口值；真实 `ExitStatusCoordinator` 与 `TextRenderer` 仍在 session composition 注入并由各自 owner 管理。
+- source gate 禁止 handler 和 deps 恢复两个具体指针；fake ports 覆盖 fallback line 生成、mark 和 flush 调用。
+
+测试与验收：
+
+- 先增加失败优先 source-contract/fake-port 测试，确认旧 handler 无法接收替代协调器和 line renderer。
+- 实现后运行 focused command-exit/output tests、Go 全量/race/vet/build、Python oracle、semantic/perf、small 和 upstream reference。
+- review 检查 unknown wait、JSON suppression、fallback flush 与既有队列行为不变，纯 eBPF/procfs 禁止规则保持通过。
+
+#### 实际验收记录
+
+失败优先的 fake-port 测试先因 `TraceCommandExitHandlerDeps` 固定为 `*ExitStatusCoordinator` 和 `*TextRenderer` 而无法编译；实现后 focused command-exit/output tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14135 ./cmd/strace-go` 和 `git diff --check` 全部通过。fake port 验证 fallback line 先生成，再 mark，最后 flush 的参数和调用边界保持正确；unknown wait 与 JSON suppression regression 继续通过。
+
+真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 287.50 ns/op、0 B/op、0 allocs/op`、raw JSON `494.20 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `622.30 ns/op、0 B/op、0 allocs/op`、decoded payload `925.80 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
+
+当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 command wait handler 只依赖退出状态 port 和 exit-line port，真实 coordinator/renderer 仍由 session composition 注入；未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。

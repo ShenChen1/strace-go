@@ -2,18 +2,27 @@ package main
 
 // TraceCommandExitHandler translates command wait completion into exit-status
 // queue effects. It deliberately does not own ringbuf reading or trace state.
+type traceCommandExitStatusPort interface {
+	MarkExitedWithFallback(pid int, fallback string)
+	FlushFallback(pid int)
+}
+
+type traceExitStatusLinePort interface {
+	ExitStatusLine(tid int, status uint64) string
+}
+
 type TraceCommandExitHandler struct {
 	policy     traceExitPolicy
 	targetPID  int
-	exitStatus *ExitStatusCoordinator
-	renderer   *TextRenderer
+	exitStatus traceCommandExitStatusPort
+	renderer   traceExitStatusLinePort
 }
 
 type TraceCommandExitHandlerDeps struct {
 	Policy     traceExitPolicy
 	TargetPID  int
-	ExitStatus *ExitStatusCoordinator
-	Renderer   *TextRenderer
+	ExitStatus traceCommandExitStatusPort
+	Renderer   traceExitStatusLinePort
 }
 
 func newTraceCommandExitHandler(deps TraceCommandExitHandlerDeps) *TraceCommandExitHandler {
