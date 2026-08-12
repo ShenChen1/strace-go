@@ -8,6 +8,10 @@ type traceEventState interface {
 	setUnfinishedEnabled(bool)
 }
 
+type tracePendingStateReader interface {
+	PendingStaleCount() int
+}
+
 type textRendererState interface {
 	consumeSuspendedSyscall(int) bool
 }
@@ -25,8 +29,9 @@ type suspendedSyscallState interface {
 }
 
 var (
-	_ traceEventState       = (*TraceState)(nil)
-	_ textRendererState     = (*TraceState)(nil)
-	_ execSyscallState      = (*TraceState)(nil)
-	_ suspendedSyscallState = (*TraceState)(nil)
+	_ traceEventState         = (*TraceState)(nil)
+	_ tracePendingStateReader = (*TraceState)(nil)
+	_ textRendererState       = (*TraceState)(nil)
+	_ execSyscallState        = (*TraceState)(nil)
+	_ suspendedSyscallState   = (*TraceState)(nil)
 )

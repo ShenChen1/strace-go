@@ -20,6 +20,7 @@ def make_capture(events=None, lifecycle_events=None, stats=None, returncode=0):
         "orphan_exit": 0,
         "pending_mismatch": 0,
         "lifecycle_map_update_fail": 0,
+        "pending_stale": 0,
     }
     if stats:
         zero_stats.update(stats)
@@ -97,6 +98,16 @@ class PerfOracleTests(unittest.TestCase):
         )
 
         self.assertTrue(any("ringbuf_reserve_fail" in failure for failure in failures))
+
+    def test_rejects_stale_pending_state(self):
+        spec = PerfWorkloadSpec(name="scalar", minimum_exit_counts=(('getpid', 1),))
+        events = [{"syscall": "getpid", "event_type": "exit", "paired_enter": True}]
+
+        failures = validate_perf_capture(
+            make_capture(events=events, stats={"pending_stale": 1}), spec
+        )
+
+        self.assertTrue(any("pending_stale" in failure for failure in failures))
 
     def test_rejects_missing_lifecycle_action(self):
         spec = PerfWorkloadSpec(

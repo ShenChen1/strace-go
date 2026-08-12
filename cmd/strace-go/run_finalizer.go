@@ -15,6 +15,7 @@ type TraceRunFinalizer struct {
 	exitStatus      *ExitStatusCoordinator
 	summary         *SummaryStats
 	statsReader     traceStatsReader
+	pendingState    tracePendingStateReader
 	output          *TraceOutput
 }
 
@@ -26,6 +27,7 @@ type TraceRunFinalizerDeps struct {
 	ExitStatus      *ExitStatusCoordinator
 	Summary         *SummaryStats
 	Stats           traceStatsReader
+	PendingState    tracePendingStateReader
 	Output          *TraceOutput
 }
 
@@ -42,6 +44,7 @@ func newTraceRunFinalizer(deps TraceRunFinalizerDeps) *TraceRunFinalizer {
 		exitStatus:      deps.ExitStatus,
 		summary:         deps.Summary,
 		statsReader:     deps.Stats,
+		pendingState:    deps.PendingState,
 		output:          deps.Output,
 	}
 }
@@ -67,21 +70,41 @@ func (f *TraceRunFinalizer) writeStats(stats bpfRuntimeStats) {
 	if f.formatPolicy == nil {
 		return
 	}
+	pendingStale := f.pendingStaleCount()
 	if f.formatPolicy.IsJSON() {
-		f.writeJSONStats(stats)
+		f.writeJSONStats(stats, pendingStale)
 		return
 	}
-	f.writeTextStatsDiagnostic(stats)
+	f.writeTextStatsDiagnostic(stats, pendingStale)
 }
 
-func (f *TraceRunFinalizer) writeJSONStats(stats bpfRuntimeStats) {
+func (f *TraceRunFinalizer) pendingStaleCount() uint64 {
+	if f == nil || f.pendingState == nil {
+		return 0
+	}
+	count := f.pendingState.PendingStaleCount()
+	if count <= 0 {
+		return 0
+	}
+	return uint64(count)
+}
+
+func (f *TraceRunFinalizer) writeJSONStats(stats bpfRuntimeStats, pendingStale uint64) {
 	if f.output != nil {
-		_ = json.NewEncoder(f.output).Encode(newJSONStatsEvent(stats))
+		_ = json.NewEncoder(f.output).Encode(newJSONStatsEvent(stats, pendingStale))
 	}
 }
 
-func (f *TraceRunFinalizer) writeTextStatsDiagnostic(stats bpfRuntimeStats) {
+func (f *TraceRunFinalizer) writeTextStatsDiagnostic(stats bpfRuntimeStats, pendingStale uint64) {
 	line, ok := bpfStatsDiagnosticLine(stats)
+	if pendingStale > 0 {
+		if ok {
+			line = fmt.Sprintf("%s pending_stale=%d", line, pendingStale)
+		} else {
+			line = fmt.Sprintf("strace-go: event diagnostics: pending_stale=%d", pendingStale)
+		}
+		ok = true
+	}
 	if !ok || f.statsDiagnostic == nil {
 		return
 	}

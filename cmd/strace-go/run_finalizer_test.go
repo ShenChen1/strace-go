@@ -15,6 +15,41 @@ type fakeRunFinalizerPipe struct {
 	closed bool
 }
 
+type fakePendingStateReader struct {
+	stale int
+}
+
+func (r fakePendingStateReader) PendingStaleCount() int {
+	return r.stale
+}
+
+func TestTraceRunFinalizerWritesPendingStaleCount(t *testing.T) {
+	var out bytes.Buffer
+	output, err := newTraceOutput(TraceOutputDeps{Writer: &out})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{
+		FormatPolicy: newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatJSON}),
+		PendingState: fakePendingStateReader{stale: 3},
+		Output:       output,
+	})
+
+	if err := finalizer.Finish(); err != nil {
+		t.Fatalf("TraceRunFinalizer.Finish() error = %v", err)
+	}
+	var event struct {
+		Type         string `json:"type"`
+		PendingStale uint64 `json:"pending_stale"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(out.Bytes()), &event); err != nil {
+		t.Fatalf("decode stats JSON: %v", err)
+	}
+	if event.Type != "stats" || event.PendingStale != 3 {
+		t.Fatalf("stats JSON = %+v, want pending_stale=3", event)
+	}
+}
+
 func (p *fakeRunFinalizerPipe) Close() error {
 	p.closed = true
 	return nil

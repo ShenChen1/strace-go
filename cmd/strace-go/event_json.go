@@ -91,6 +91,7 @@ type jsonStatsEvent struct {
 	OrphanExit             uint64 `json:"orphan_exit"`
 	PendingMismatch        uint64 `json:"pending_mismatch"`
 	LifecycleMapUpdateFail uint64 `json:"lifecycle_map_update_fail"`
+	PendingStale           uint64 `json:"pending_stale"`
 	Available              bool   `json:"available"`
 	Error                  string `json:"error,omitempty"`
 }
@@ -135,7 +136,7 @@ func syscallFailure(ret int64) (bool, int) {
 	return false, 0
 }
 
-func newJSONStatsEvent(stats bpfRuntimeStats) jsonStatsEvent {
+func newJSONStatsEvent(stats bpfRuntimeStats, pendingStale uint64) jsonStatsEvent {
 	return jsonStatsEvent{
 		Type:                   "stats",
 		RingbufReserveFail:     stats.RingbufReserveFail,
@@ -145,6 +146,7 @@ func newJSONStatsEvent(stats bpfRuntimeStats) jsonStatsEvent {
 		OrphanExit:             stats.OrphanExit,
 		PendingMismatch:        stats.PendingMismatch,
 		LifecycleMapUpdateFail: stats.LifecycleMapUpdateFail,
+		PendingStale:           pendingStale,
 		Available:              stats.Available,
 		Error:                  stats.Error,
 	}

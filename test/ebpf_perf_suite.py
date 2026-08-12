@@ -17,13 +17,14 @@ from ebpf_suites import build_named_fixture, build_strace_go, run_strace_go_json
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 PERF_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_perf_fixture.c")
-RUNTIME_ERROR_COUNTERS = (
+RUNTIME_DIAGNOSTIC_FIELDS = (
     "ringbuf_reserve_fail",
     "ringbuf_copy_fail",
     "pending_update_fail",
     "orphan_exit",
     "pending_mismatch",
     "lifecycle_map_update_fail",
+    "pending_stale",
 )
 GO_BENCHMARK_PATTERN = re.compile(
     r"^(?P<name>Benchmark\S+)\s+\d+\s+"
@@ -176,7 +177,7 @@ def validate_perf_capture(capture, spec):
     stats = capture.stats_events[0] if capture.stats_events else {}
     if not valid_stats_event(stats):
         failures.append(f"{spec.name} stats event is invalid")
-    for counter in RUNTIME_ERROR_COUNTERS:
+    for counter in RUNTIME_DIAGNOSTIC_FIELDS:
         if stats.get(counter, 1) != 0:
             failures.append(f"{spec.name} {counter}={stats.get(counter)}")
 
@@ -224,7 +225,7 @@ def print_perf_capture(capture):
     print(f"json_events: {len(capture.events)}")
     print(f"exit_events: {len(capture.exit_events)}")
     print(f"lifecycle_events: {len(capture.lifecycle_events)}")
-    for counter in RUNTIME_ERROR_COUNTERS:
+    for counter in RUNTIME_DIAGNOSTIC_FIELDS:
         print(f"{counter}: {stats.get(counter)}")
     if capture.elapsed > 0:
         print(f"events_per_sec: {len(capture.exit_events) / capture.elapsed:.2f}")

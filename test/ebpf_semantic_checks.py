@@ -36,6 +36,7 @@ def valid_stats_event(event):
         "orphan_exit",
         "pending_mismatch",
         "lifecycle_map_update_fail",
+        "pending_stale",
     )
     return event.get("available") is True and all(
         isinstance(event.get(key), int) and event.get(key) >= 0 for key in keys
@@ -55,6 +56,7 @@ def check_semantic_stats(stats_events, failures):
     require(stats.get("pending_update_fail", 0) == 0, failures, "normal semantic fixture reported pending map update failure")
     require(stats.get("orphan_exit", 0) == 0, failures, "normal semantic fixture reported orphan exit")
     require(stats.get("lifecycle_map_update_fail", 0) == 0, failures, "normal semantic fixture reported lifecycle map update failure")
+    require(stats.get("pending_stale", 0) == 0, failures, "normal semantic fixture left stale pending syscall state")
 
 
 def check_main_capture(context, failures):

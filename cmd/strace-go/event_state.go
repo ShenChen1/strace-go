@@ -85,6 +85,15 @@ func (s *traceSession) traceState() *TraceState {
 	return s.dependencies.State
 }
 
+// PendingStaleCount reports unconsumed syscall enters at finalization time.
+// The single event consumer owns the map, so this read needs no lock.
+func (st *TraceState) PendingStaleCount() int {
+	if st == nil {
+		return 0
+	}
+	return len(st.pendingSyscalls)
+}
+
 func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpdate {
 	unfinished := st.pendingForOtherTID(envelope.tid)
 	if envelope.isLifecycle() {

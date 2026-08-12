@@ -67,6 +67,32 @@ func TestJSONEventsArePairedByTIDState(t *testing.T) {
 	}
 }
 
+func TestTraceStatePendingStaleCountTracksUnconsumedEnters(t *testing.T) {
+	state := newTraceState()
+	enter := traceEventEnvelope{
+		valid:      true,
+		pid:        1234,
+		tid:        1235,
+		sysID:      syscallIDByName(t, "getpid"),
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+	}
+	exit := enter
+	exit.eventType = bpfEventTypeExit
+
+	if got := state.PendingStaleCount(); got != 0 {
+		t.Fatalf("initial pending stale count = %d, want zero", got)
+	}
+	state.handleEnvelope(enter)
+	if got := state.PendingStaleCount(); got != 1 {
+		t.Fatalf("pending stale count after enter = %d, want one", got)
+	}
+	state.handleEnvelope(exit)
+	if got := state.PendingStaleCount(); got != 0 {
+		t.Fatalf("pending stale count after paired exit = %d, want zero", got)
+	}
+}
+
 func TestTraceStateHandlePairsEnterExitAndCleansLifecycle(t *testing.T) {
 	state := newTraceState()
 	enter := traceEventEnvelope{

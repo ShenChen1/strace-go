@@ -352,6 +352,7 @@ func buildTraceSessionRuntime(
 			ExitStatus:      exitStatus,
 			Summary:         deps.Summary,
 			Stats:           deps.Stats,
+			PendingState:    deps.State,
 			Output:          deps.Output,
 		}),
 		commandExitHandler: newTraceCommandExitHandler(TraceCommandExitHandlerDeps{

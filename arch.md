@@ -5100,3 +5100,44 @@ Impact note：影响 `event_state.go` 的 pending object owner/freelist、`state
 同机 benchmark 为 `BenchmarkTraceEventDecodeState` 291.30 ns/op、0 B/op、0 allocs/op，`BenchmarkJSONEventWriter` 580.60 ns/op、256 B/op、1 allocs/op。最终真实 `ebpf-semantic` 为 201 个主事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；payload truncated 为 8、write-only 为 6。最终 `ebpf-perf` 的 scalar/io/lifecycle/threads 分别为 6000/3000、4002/2001、42/17、3208/1604 个 JSON/exit 事件，四组 runtime counters 均为 0。
 
 本次重构后的原生参考复核为 `small` 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍是有界 eBPF read/write 快照与无 procfs 初始 FD/cwd 状态，不是本阶段回归。产品代码未新增 ptrace、procfs、tracee 内存读取、mutex、`sync.Pool` 或第二事件消费者。
+
+### 14.123 将 Go pending map stale count 纳入结束态诊断（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：7.4 要求性能/生命周期门禁记录 `pending map stale count`；14.117 已有多 workload 的 BPF counter 和 enter/exit 配对，14.122 又让 pending 对象可回收，但最终 JSON stats 仍只报告 BPF map 写入/丢失计数，无法直接证明 Go `TraceState.pendingSyscalls` 在 drain 后为空。
+- Problem：BPF `pending_update_fail=0` 只说明内核 pending map 写入没有失败，不等价于用户态 TID 状态已经消费或由 lifecycle 清理。没有结束态 stale count，fork/exec/exit 异步边界可能留下 Go pending 而性能 suite 仍显示“无错误”。
+- Goal：在 ringbuf drain 和 finalizer 统计时，通过最小只读 `tracePendingStateReader` 读取 Go pending map 的当前条目数，作为统一 JSON stats 的 `pending_stale` 字段；真实 semantic/perf workload 必须在结束时为零。
+- Non-goals：不在每条事件上维护额外 counter，不改变 pending map、freelist、事件顺序、lifecycle 清理、BPF ABI、文本 syscall 输出或 `pending_update_fail` 语义；不读取 procfs、ptrace 或 tracee 内存，不新增 goroutine/锁。
+- Constraints：只允许单消费者拥有的 `TraceState` 暴露 `PendingStaleCount()`；finalizer 只能依赖该最小接口；读取发生在 `run` 已经完成 `DrainAfterDone` 之后；BPF stats unavailable 时仍需输出可用的 `pending_stale`，避免把 Go 状态诊断绑定到 BPF map lookup 成功。
+
+Impact note：影响 `TraceState` 的只读诊断 port、`TraceRunFinalizer` composition、统一 JSON/text stats 诊断和 semantic/perf oracle；不改变事件事实源或生产热路径事件处理。
+
+方案比较：
+
+1. 只在 Go 单测中检查 `len(pendingSyscalls)`：无法进入真实 session 的机器可读门禁，拒绝。
+2. 新增独立 `state` JSON 事件：可表达状态，但增加事件类型、解析和输出顺序契约，扩大现有 stats 兼容面，拒绝。
+3. 保留现有 stats 输出，在 finalizer 通过最小只读 port 注入 `pending_stale`：结束态时点明确、输出原子、热路径零成本，选择该方案。
+
+状态契约：
+
+- `TraceState.PendingStaleCount()` 返回当前 `pendingSyscalls` map 条目数；nil/空状态返回零，不复制 map、不改变状态。
+- `TraceRunFinalizer` 在写 stats 前读取一次 stale count；正常 session 的读取时点位于 ringbuf drain 完成之后。
+- `jsonStatsEvent.pending_stale` 始终是非负整数；text diagnostic 仅在该值非零或已有 BPF 错误 counter 时输出。
+- `pending_stale` 是 Go 用户态状态诊断，不与 BPF `pending_update_fail` 合并，也不在 BPF stats map 中伪造。
+
+测试与验收：
+
+- 先增加失败优先的 JSON/finalizer pending stale regression，使实现前因缺少字段/port 失败。
+- 实现后运行 Go 单测、race、vet、build、Python oracle、semantic/perf 和 upstream reference；每个真实 workload 的 stats 必须包含 `pending_stale=0`。
+- review 检查 stale count 只在 finalizer 读取，产品源码不新增 procfs/ptrace/锁/事件消费者，BPF stats unavailable 时仍保留 Go stale 字段。
+
+本阶段只补齐 Go 生命周期结束态的可观测性，不改变 syscall 捕获和输出语义。
+
+#### 实际验收记录
+
+失败优先的 JSON/finalizer regression 先因缺少 `PendingStale` 字段和 `PendingState` port 而编译失败；实现后 focused tests、Python 19 项、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14123 ./cmd/strace-go` 和 `git diff --check` 均通过。`TraceState` 直接回归确认 enter/exit 的 stale count 为 `1/0`，finalizer fake port 确认非零值能进入 JSON stats。
+
+最终真实 `ebpf-semantic` 为 201 个主事件、102/99 enter/exit、6 个 lifecycle；`ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`lifecycle_map_update_fail` 和 `pending_stale` 均为 0。`ebpf-perf` 的 scalar/io/lifecycle/threads 分别为 6000/3000、4002/2001、42/17、3208/1604 个 JSON/exit 事件，四组 BPF counter 与四组 `pending_stale` 均为 0；Go benchmark 为 `TraceEventDecodeState` 297.00 ns/op、0 B/op、0 allocs/op，JSON writer 为 615.10 ns/op、256 B/op、1 allocs/op。
+
+原生参考复核为 `small` 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍仅是 bounded read/write 快照和无 procfs 初始 FD/cwd 状态。review 确认 stale count 只在 finalizer 读取，未新增 procfs、ptrace、tracee 内存读取、锁、goroutine 或第二事件消费者。

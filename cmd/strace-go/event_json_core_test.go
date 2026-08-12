@@ -98,11 +98,11 @@ func TestJSONStatsEventIncludesRingbufFailures(t *testing.T) {
 		PendingMismatch:        13,
 		LifecycleMapUpdateFail: 14,
 		Available:              true,
-	})
+	}, 15)
 	if ev.Type != "stats" || ev.RingbufReserveFail != 8 || ev.RingbufCopyFail != 9 ||
 		ev.PayloadTruncatedEvents != 10 || ev.PendingUpdateFail != 11 || ev.OrphanExit != 12 || ev.PendingMismatch != 13 ||
 		ev.LifecycleMapUpdateFail != 14 ||
-		!ev.Available || ev.Error != "" {
+		ev.PendingStale != 15 || !ev.Available || ev.Error != "" {
 		t.Fatalf("stats JSON event = %+v", ev)
 	}
 }
