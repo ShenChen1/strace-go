@@ -3,8 +3,21 @@ package main
 import (
 	"bytes"
 	"errors"
+	"io"
 	"testing"
 )
+
+type fakeTraceOutputWriter struct {
+	writeErr error
+	maxBytes int
+}
+
+func (w *fakeTraceOutputWriter) Write(p []byte) (int, error) {
+	if w.maxBytes >= 0 && len(p) > w.maxBytes {
+		return w.maxBytes, w.writeErr
+	}
+	return len(p), w.writeErr
+}
 
 type fakeTraceOutputCloser struct {
 	events    *[]string
@@ -83,6 +96,68 @@ func TestTraceOutputCloseJoinsCloseErrors(t *testing.T) {
 	err = output.Close()
 	if !errors.Is(err, closeErr) || !errors.Is(err, waitErr) {
 		t.Fatalf("TraceOutput.Close() error = %v, want both resource errors", err)
+	}
+}
+
+func TestTraceOutputCapturesWriteErrorUntilClose(t *testing.T) {
+	writeErr := errors.New("output write failed")
+	events := make([]string, 0, 1)
+	output, err := newTraceOutput(TraceOutputDeps{
+		Writer: &fakeTraceOutputWriter{writeErr: writeErr, maxBytes: -1},
+		Closer: &fakeTraceOutputCloser{events: &events},
+	})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+	if _, err := output.Write([]byte("trace\n")); !errors.Is(err, writeErr) {
+		t.Fatalf("TraceOutput.Write() error = %v, want %v", err, writeErr)
+	}
+	if err := output.Close(); !errors.Is(err, writeErr) {
+		t.Fatalf("TraceOutput.Close() error = %v, want %v", err, writeErr)
+	}
+	if got, want := events, []string{"close-writer"}; !equalStrings(got, want) {
+		t.Fatalf("resource cleanup after write error = %v, want %v", got, want)
+	}
+}
+
+func TestTraceOutputNormalizesShortWrite(t *testing.T) {
+	output, err := newTraceOutput(TraceOutputDeps{
+		Writer: &fakeTraceOutputWriter{maxBytes: 1},
+	})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+	n, err := output.Write([]byte("trace"))
+	if n != 1 || !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("TraceOutput.Write() = (%d, %v), want (1, io.ErrShortWrite)", n, err)
+	}
+	if err := output.Close(); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("TraceOutput.Close() error = %v, want io.ErrShortWrite", err)
+	}
+}
+
+func TestTraceOutputCloseJoinsWriteCloseAndWaitErrors(t *testing.T) {
+	writeErr := errors.New("output write failed")
+	closeErr := errors.New("writer close failed")
+	waitErr := errors.New("output command failed")
+	events := make([]string, 0, 2)
+	output, err := newTraceOutput(TraceOutputDeps{
+		Writer:  &fakeTraceOutputWriter{writeErr: writeErr, maxBytes: -1},
+		Closer:  &fakeTraceOutputCloser{events: &events, closeErr: closeErr},
+		Command: &fakeTraceOutputWaiter{events: &events, waitErr: waitErr},
+	})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+	if _, err := output.Write([]byte("trace")); !errors.Is(err, writeErr) {
+		t.Fatalf("TraceOutput.Write() error = %v, want %v", err, writeErr)
+	}
+	err = output.Close()
+	if !errors.Is(err, writeErr) || !errors.Is(err, closeErr) || !errors.Is(err, waitErr) {
+		t.Fatalf("TraceOutput.Close() error = %v, want write/close/wait errors", err)
+	}
+	if got, want := events, []string{"close-writer", "wait-command"}; !equalStrings(got, want) {
+		t.Fatalf("resource order = %v, want %v", got, want)
 	}
 }
 

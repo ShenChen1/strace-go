@@ -27,6 +27,7 @@ type TraceOutput struct {
 	closer   io.Closer
 	command  traceOutputWaiter
 	closed   bool
+	writeErr error
 	closeErr error
 }
 
@@ -94,7 +95,14 @@ func (o *TraceOutput) Write(p []byte) (int, error) {
 	if o.closed {
 		return 0, fmt.Errorf("trace output is closed")
 	}
-	return o.writer.Write(p)
+	n, err := o.writer.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	if err != nil && o.writeErr == nil {
+		o.writeErr = fmt.Errorf("write trace output: %w", err)
+	}
+	return n, err
 }
 
 func (o *TraceOutput) Close() error {
@@ -106,9 +114,9 @@ func (o *TraceOutput) Close() error {
 	}
 	o.closed = true
 
-	var closeErr error
+	closeErr := o.writeErr
 	if o.closer != nil {
-		closeErr = o.closer.Close()
+		closeErr = errors.Join(closeErr, o.closer.Close())
 	}
 	if o.command != nil {
 		closeErr = errors.Join(closeErr, o.command.Wait())

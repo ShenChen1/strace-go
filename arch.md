@@ -4773,3 +4773,40 @@ Impact note：影响 `target_bootstrap.go` 的 command bootstrap 顺序和 cwd �
 失败优先 source gate 先因 `startTraceCmd` 在 `armNextFork` 后忽略 `os.Getwd` 而失败；迁移后 cwd reader 失败会保留原始 error，且不会调用 arm、disarm、command Start 或 filter update。focused cwd/bootstrap tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14113 ./cmd/strace-go` 和 `git diff --check` 全部通过。
 
 真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，733.56 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认 cwd 读取只针对 tracer 自身工作目录，正常 command/attach 生命周期未改变，生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.114 输出写入错误的 owner 边界（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.104/14.112 已让 `TraceOutput` 成为文本、JSON、summary、exit-status 和 output command 的共同资源 owner；但 renderer/encoder 的既有接口大多是无返回值，`fmt.Fprint`/`json.Encoder.Encode` 返回的写入错误最终会被调用方忽略。
+- Problem：stdout 管道断开、输出文件 ENOSPC 或 writer 短写时，事件状态机仍可能正常结束，`TraceOutput.Close` 只报告 closer/command error，主进程因此返回成功并留下截断 trace。把错误逐层改成事件处理 error 会扩大所有 renderer/pipeline 接口，且不能解决已有无返回值边界。
+- Goal：在唯一的 `TraceOutput.Write` 边界记录首个写错误，并在 `Close` 时与 writer close、output command wait error 聚合返回；短写且无底层 error 必须规范化为 `io.ErrShortWrite`，保证 `errors.Is` 可识别原始错误。
+- Non-goals：不改文本/JSON/summary 内容、不改 renderer/JSON writer 的同步模型、不引入输出 goroutine、mutex、重试或全局 error channel；不改变正常 close/wait 顺序、BPF/event ABI、纯 eBPF/no-procfs/no-ptrace 约束。
+- Constraints：写错误记录后继续让现有事件循环完成清理；同一 output 只保留首个 write error，避免 broken pipe 下每个事件无限累积 error tree；`Close` 仍幂等，重复调用返回同一个聚合结果；close/wait 即使写入已失败也必须继续执行。
+
+Impact note：影响 `trace_output.go` 的 writer owner 状态和 output unit tests；所有上层 renderer/JSON/event pipeline 保持现有接口和调用顺序，错误最终由现有 `runTraceSession` cleanup/finalizer error boundary 返回。
+
+方案比较：
+
+1. 让所有 renderer、JSON writer、exit queue 和 summary API 逐层返回 error：错误路径显式，但接口面大、改动跨越事件状态机，容易改变正常输出控制流，拒绝。
+2. 由 `TraceOutput` 捕获首个 write error，Close 时统一聚合：改动局部、覆盖所有现有写入调用、与 owner 生命周期一致，选择该方案。
+3. 增加独立异步 error channel 或共享锁：可以跨层传递，但破坏单消费者边界、引入并发关闭协议，拒绝。
+
+状态契约：
+
+- `TraceOutput.Write` 在 writer 返回 error 或短写时记录首个上下文 error，并原样返回给当前 `fmt`/encoder 调用。
+- `TraceOutput.Close` 按 write error -> writer close -> command wait 顺序聚合；每一步都执行，重复 Close 返回缓存结果。
+- 没有写错误时，正常 output 的 close/wait 行为和错误文本保持不变。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 TraceOutput 持有 write error 并在 Close 聚合；增加 writer error、short write、write+close+wait 多错误和重复 Close regression。
+- 运行 focused output tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference。
+
+本阶段只补齐输出写入错误的 owner 边界，不改变事件状态机和用户可见的成功输出。
+
+### 14.114 实际验收记录
+
+失败优先 source gate 先因 `TraceOutput` 没有 write error owner 而失败；迁移后 writer error、short write、write+close+wait 多错误和重复 Close regression 均通过，close/wait 顺序保持不变。focused output tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14114 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+
+真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，718.73 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认所有现有 renderer/JSON writer 仍复用同一 `TraceOutput`，首个写错误在 Close 时与文件 close/command wait 聚合，生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
