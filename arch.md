@@ -4195,3 +4195,38 @@ Impact note：影响 `session_composition.go`、测试 helper 以及约 20 个�
 ### 14.97 实际验收记录
 
 失败优先 source gate 先因 `traceSessionDeps` 仍声明 `Opts`、constructor 仍存在 CLI policy fallback 而失败；迁移后 production session dependency 只保留 event/output policy port，测试 fixture 通过 test-only options wrapper 创建 snapshot。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、`git diff --check` 全部通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，701.24 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后清理本轮生成的 `strace-go` 与 Python 缓存，session production path 未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.98 抽离命令启动的 CLI bootstrap 适配器（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.97 已删除 `traceSessionDeps.Opts`，但 `session.go` 仍让 `newTraceCommand`/`startTraceCmd` 直接接收 `*cli.Options`，并因此保留 CLI import；这些函数实际只需要命令 argv 和环境变更，属于目标启动 bootstrap。
+- Problem：session runtime 文件继续暴露 CLI concrete，命令启动函数可直接观察 parser 的全部字段；若未来复用启动路径，容易把 CLI owner 重新带入 runtime 边界，也没有明确 argv/env slice 的 ownership。
+- Goal：引入 `traceCommandSpec`，只携带复制后的 `args` 与 `envActions`；`main.go` 在 `resolveTraceTargets` 边界从 CLI 创建 spec，`session.go` 的 command start 只消费 spec，不再 import `pkg/cli`。
+- Non-goals：不改变命令 argv/env 语义、stdin/stdout/stderr 绑定、ExtraFiles、arm/disarm 顺序、BPF filter 更新、启动失败清理、FD seed、纯 eBPF/no-ptrace 约束或输出路径；不迁移 syscall filter 配置和其它 bootstrap CLI 依赖。
+- Constraints：spec 创建时复制 `CmdArgs`/`EnvActions` backing slice；空命令在 `startTraceCmd` 边界返回明确错误；`newTraceCommand` 与 `startTraceCmd` 不接收 `*cli.Options`，`session.go` 不导入 `strace-go/pkg/cli`。
+
+Impact note：影响 `main.go`、`session.go` 和命令启动单测；函数仍在同一 package，BPF 生命周期逻辑不变。新增 slice snapshot 回归用于防止 CLI mutation 影响已经开始的 bootstrap command。
+
+方案比较：
+
+1. 继续把 `*cli.Options` 传给 command start：改动最小，但 CLI concrete 继续穿透 session 文件，拒绝。
+2. 将参数散落为 `[]string` 和 `[]string` 两个函数参数：可以删除 import，但调用点容易混淆两个 slice 的语义和 ownership，拒绝。
+3. 使用值语义的 `traceCommandSpec`，在 main 边界复制 slice：能力最小、ownership 明确、可单测，选择该方案。
+
+状态契约：
+
+- `traceCommandSpec` 只存在于目标启动 bootstrap，不进入 `traceSessionDeps` 或事件组件图。
+- `resolveTraceTargets` 读取归一化 CLI 后立即形成 spec；command start 之后不再读取 CLI argv/env。
+- spec 的 slice 与 `cli.Options` 不共享 backing storage，调用方修改原 options 不会改变已构造 command 输入。
+
+测试与验收：
+
+- 先增加 source gate，锁定 `session.go` 不导入 CLI 且 command start 不声明 `*cli.Options`；增加 spec slice copy 和空命令 failure 回归，迁移前应失败。
+- 运行 `go test ./...`、race、vet、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只隔离命令启动的 CLI bootstrap 输入，不改变 session 事件图或 BPF 事实源。
+
+### 14.98 实际验收记录
+
+失败优先 source gate 先因 `session.go` 仍 import CLI、`newTraceCommand`/`startTraceCmd` 仍接收 `*cli.Options` 而失败；迁移后 `traceCommandSpec` 在 `main.go` bootstrap 边界复制 argv/env actions，session.go 只消费该 spec，保持 arm/filter/start/cleanup 顺序不变。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、`git diff --check` 全部通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，728.40 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试后清理本轮生成的 `strace-go` 与 Python 缓存，session.go 未引入 ptrace、procfs 或用户态 tracee 内存读取。

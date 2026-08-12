@@ -231,7 +231,7 @@ func resolveTraceTargets(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles 
 
 	if len(opts.CmdArgs) > 0 {
 		var err error
-		cmd, targetPid, fdSeed, err = startTraceCmd(opts, bpfObjs, inheritedFiles)
+		cmd, targetPid, fdSeed, err = startTraceCmd(traceCommandSpecFromCLI(opts), bpfObjs, inheritedFiles)
 		if err != nil {
 			return nil, 0, fdStateSeed{}, err
 		}
@@ -250,6 +250,16 @@ func resolveTraceTargets(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles 
 		}
 	}
 	return cmd, targetPid, fdSeed, nil
+}
+
+func traceCommandSpecFromCLI(opts *cli.Options) traceCommandSpec {
+	if opts == nil {
+		return traceCommandSpec{}
+	}
+	return traceCommandSpec{
+		args:       append([]string(nil), opts.CmdArgs...),
+		envActions: append([]string(nil), opts.EnvActions...),
+	}
 }
 
 func terminateTraceCommand(cmd *exec.Cmd) {

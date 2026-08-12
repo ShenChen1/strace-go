@@ -11,7 +11,6 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"strace-go/pkg/cli"
 	"strace-go/pkg/meta"
 
 	"github.com/cilium/ebpf"
@@ -23,6 +22,13 @@ type traceSession struct {
 	dependencies traceSessionDeps
 	eventPolicy  *cliTraceEventPolicy
 	components   *traceSessionComponents
+}
+
+// traceCommandSpec is the immutable bootstrap input needed to start a tracee.
+// Its slices are copied when the spec is built from CLI options.
+type traceCommandSpec struct {
+	args       []string
+	envActions []string
 }
 
 // IMPACT: setupBPF is the single eBPF runtime wiring entry used by main. It loads
@@ -171,8 +177,8 @@ func closeFiles(files []*os.File) {
 	}
 }
 
-func newTraceCommand(opts *cli.Options, inheritedFiles []*os.File) *exec.Cmd {
-	cmdArgs := opts.CmdArgs
+func newTraceCommand(spec traceCommandSpec, inheritedFiles []*os.File) *exec.Cmd {
+	cmdArgs := spec.args
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -184,7 +190,7 @@ func newTraceCommand(opts *cli.Options, inheritedFiles []*os.File) *exec.Cmd {
 			envMap[e[:idx]] = e[idx+1:]
 		}
 	}
-	for _, action := range opts.EnvActions {
+	for _, action := range spec.envActions {
 		if idx := strings.Index(action, "="); idx >= 0 {
 			envMap[action[:idx]] = action[idx+1:]
 		} else {
@@ -202,8 +208,8 @@ func newTraceCommand(opts *cli.Options, inheritedFiles []*os.File) *exec.Cmd {
 // IMPACT: startTraceCmd starts a tracee without ptrace; syscall observation is
 // purely eBPF based. The next-fork arm installs the pid filter before the
 // tracee's initial execve so the exec syscall is observable like upstream.
-func startTraceCmd(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles []*os.File) (*exec.Cmd, int, fdStateSeed, error) {
-	if opts == nil || len(opts.CmdArgs) == 0 {
+func startTraceCmd(spec traceCommandSpec, bpfObjs *bpfObjects, inheritedFiles []*os.File) (*exec.Cmd, int, fdStateSeed, error) {
+	if len(spec.args) == 0 {
 		return nil, 0, fdStateSeed{}, fmt.Errorf("trace command is empty")
 	}
 	if bpfObjs == nil || bpfObjs.FilterMap == nil {
@@ -213,7 +219,7 @@ func startTraceCmd(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles []*os.
 		return nil, 0, fdStateSeed{}, fmt.Errorf("arm initial fork: %w", err)
 	}
 	initialCwd, _ := os.Getwd()
-	cmd := newTraceCommand(opts, inheritedFiles)
+	cmd := newTraceCommand(spec, inheritedFiles)
 	if err := cmd.Start(); err != nil {
 		_ = disarmNextFork(bpfObjs)
 		return nil, 0, fdStateSeed{}, fmt.Errorf("start command: %w", err)

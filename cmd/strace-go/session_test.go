@@ -36,16 +36,37 @@ func TestIsPassThroughFDMode(t *testing.T) {
 }
 
 func TestNewTraceCommandDoesNotConfigurePtrace(t *testing.T) {
-	cmd := newTraceCommand(&cli.Options{CmdArgs: []string{"/bin/true"}}, nil)
+	cmd := newTraceCommand(traceCommandSpec{args: []string{"/bin/true"}}, nil)
 	if cmd.SysProcAttr != nil {
 		t.Fatalf("SysProcAttr = %#v, want nil so tracing stays eBPF-only", cmd.SysProcAttr)
 	}
 }
 
 func TestStartTraceCmdRejectsUnavailableBPF(t *testing.T) {
-	_, _, _, err := startTraceCmd(&cli.Options{CmdArgs: []string{"/definitely/missing/strace-go-target"}}, nil, nil)
+	_, _, _, err := startTraceCmd(traceCommandSpec{args: []string{"/definitely/missing/strace-go-target"}}, nil, nil)
 	if err == nil {
 		t.Fatal("startTraceCmd() returned nil error without a BPF filter map")
+	}
+}
+
+func TestTraceCommandSpecCopiesCLIInputs(t *testing.T) {
+	opts := &cli.Options{
+		CmdArgs:    []string{"/bin/true", "original"},
+		EnvActions: []string{"TRACE=original", "REMOVE"},
+	}
+	spec := traceCommandSpecFromCLI(opts)
+	opts.CmdArgs[1] = "mutated"
+	opts.EnvActions[0] = "TRACE=mutated"
+
+	if spec.args[1] != "original" || spec.envActions[0] != "TRACE=original" {
+		t.Fatalf("trace command spec aliases CLI slices: %+v", spec)
+	}
+}
+
+func TestStartTraceCmdRejectsEmptyCommandSpec(t *testing.T) {
+	_, _, _, err := startTraceCmd(traceCommandSpec{}, nil, nil)
+	if err == nil || err.Error() != "trace command is empty" {
+		t.Fatalf("startTraceCmd() error = %v, want empty command error", err)
 	}
 }
 
