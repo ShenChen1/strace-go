@@ -9,16 +9,11 @@ import (
 	"github.com/cilium/ebpf/link"
 )
 
-// tracepointSpec declares one tracepoint program attachment.
-//
-// optional marks lifecycle tracepoints that older kernels may not expose;
-// the attacher skips them instead of failing the whole session.
+// tracepointSpec declares one required tracepoint program attachment.
 type tracepointSpec struct {
 	program  *ebpf.Program
 	category string
 	name     string
-	label    string
-	optional bool
 }
 
 // bpfAttacher owns the program attachment policy for the eBPF runtime.
@@ -273,34 +268,25 @@ func (a *bpfAttacher) populateProgArrays() error {
 	return nil
 }
 
-// lifecycleTracepointSpecs lists the sched lifecycle programs.
-//
-// IMPACT: lifecycle tracepoints are best-effort; when unavailable the session
-// keeps running and lifecycle state degrades to syscall-driven cleanup only.
+// lifecycleTracepointSpecs lists the sched lifecycle programs required by the
+// event-sourced task state contract.
 func lifecycleTracepointSpecs(objs *bpfObjects) []tracepointSpec {
 	return []tracepointSpec{
-		{program: objs.TraceSchedProcessFork, category: "sched", name: "sched_process_fork", optional: true},
-		{program: objs.TraceSchedProcessExec, category: "sched", name: "sched_process_exec", optional: true},
-		{program: objs.TraceSchedProcessExit, category: "sched", name: "sched_process_exit", optional: true},
-		{program: objs.TraceSchedProcessFree, category: "sched", name: "sched_process_free", optional: true},
+		{program: objs.TraceSchedProcessFork, category: "sched", name: "sched_process_fork"},
+		{program: objs.TraceSchedProcessExec, category: "sched", name: "sched_process_exec"},
+		{program: objs.TraceSchedProcessExit, category: "sched", name: "sched_process_exit"},
+		{program: objs.TraceSchedProcessFree, category: "sched", name: "sched_process_free"},
 	}
 }
 
-// attachTracepoints attaches each spec, skipping optional failures and aborting
-// on required failures so the session never runs with missing raw syscall data.
+// attachTracepoints attaches each required spec and aborts on the first
+// failure so the session never runs with incomplete event facts.
 func (a *bpfAttacher) attachTracepoints(specs []tracepointSpec) ([]link.Link, error) {
 	var links []link.Link
 	for _, spec := range specs {
 		tp, err := link.Tracepoint(spec.category, spec.name, spec.program, nil)
 		if err != nil {
-			if spec.optional {
-				continue
-			}
-			label := ""
-			if spec.label != "" {
-				label = spec.label + " "
-			}
-			return links, fmt.Errorf("attach %s%s tracepoint: %w", label, spec.name, err)
+			return links, fmt.Errorf("attach %s/%s tracepoint: %w", spec.category, spec.name, err)
 		}
 		links = append(links, tp)
 	}

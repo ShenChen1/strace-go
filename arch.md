@@ -701,7 +701,7 @@ func (forbiddenMemoryReader) ReadRobust(...) ([]byte, error) {
 
 - `session.run` 已移除 event reader goroutine 和 `eventChan`，主循环在同一 goroutine 内委托 `TraceEventReader.Read` / `DrainAfterDone` 完成 ringbuf 读取、record 解码和 `TraceEventRouter` 路由。
 - 目标命令的 `cmd.Wait()` 只保留为生命周期通知 goroutine，不读取 ringbuf、不处理事件、不修改 syscall 状态机；attach pid 存活检查在主循环中轮询。
-- BPF 程序挂载已从 `session.go` 内 150 行线性 attach 块收敛到 `bpfAttacher`（`cmd/strace-go/bpf_attach.go`）：raw syscall/lifecycle tracepoint 以表驱动 spec 声明，recvmsg kretprobe 作为 attacher 方法；`setupBPF` 只负责 spec 加载、syscall id 变量解析（`setSyscallVariables` 返回 error 而非直接 fatal）和委托挂载。源码门禁同步改为同时扫描 session.go 与 bpf_attach.go，并新增 spec 表结构、optional 语义和变量解析单元测试。
+- BPF 程序挂载已从 `session.go` 内 150 行线性 attach 块收敛到 `bpfAttacher`（`cmd/strace-go/bpf_attach.go`）：raw syscall/lifecycle tracepoint 以表驱动 required spec 声明，recvmsg kretprobe 作为独立的 best-effort attacher 方法；`setupBPF` 只负责 spec 加载、syscall id 变量解析（`setSyscallVariables` 返回 error 而非直接 fatal）和委托挂载。源码门禁同步改为同时扫描 session.go 与 bpf_attach.go，并覆盖 required attach policy、变量解析和回滚单元测试。
 - tracee 初始 execve 已可观测：`arm_fork_map` 在 fork 前武装（`sched_process_fork` 以父进程 tgid 匹配，覆盖 os/exec 从任意 runtime 线程 fork 的情况），子进程在首次 exec 前通过 `pre_exec_map` 抑制 Go os/exec 内部 fd 设置 syscall（fcntl/dup3 等），只放行 exec 家族；exec 时无条件解除抑制，避免 arm 竞态残留。退出行 fallback 改用当前 mono 时间戳，不再显示 boot 相对时间。
 - `io_submit` 的 iocb 数组、PREADV/PWRITEV 嵌套 iovec 与 PWRITE 数据 buffer 已拆到三个专项 raw syscalls program（`trace_sys_enter_aio`/`_aio_iovec`/`_aio_buf`），各自 bounded 捕获避免 verifier 超限，Go formatter 渲染 iocb 列表与嵌套内容而非裸指针。
 - lifecycle 事件现在始终发射（不再只在 JSON 模式）：文本模式同样维护 task/fd 状态；`sched_process_exit` 直接从退出任务读取 tid/tgid 与 `task_struct.exit_code`（tracepoint 结构布局不可靠），Go 侧为已 exec 任务、线程与 attach 目标渲染 `+++ exited with N +++`，并跳过 os/exec 中间进程。命令退出行的 wait fallback 在 wait 完成后短宽限内 flush；`attach-f-p` 通过，`attach-p-cmd` 的跨任务 exact exit 顺序仍受纯 eBPF 异步观察限制。
@@ -4982,3 +4982,41 @@ Impact note：影响 `bpf/pending_state.h` 的 orphan 分类 helper、BPF source
 #### 实际验收记录
 
 失败优先 source gate 先因缺少 process-creation zero-return 分类而失败；补充 `fork`、`vfork`、`clone`、`clone3` 的精确 helper，并将调用放在 `record_orphan_exit` 之前后，focused source test、`sudo -n go generate ./cmd/strace-go`、BPF load/build 和 `ebpf-perf` 均通过。perf 的 lifecycle 与 threads workload 的 `orphan_exit` 从稳定的 8/4 收敛为 0；父任务正常返回、失败路径和 attach 普通 syscall orphan 仍由原有诊断路径保留。最终 review 未发现生成物、tracer 进程或 BPF pin 残留。
+
+### 14.120 生命周期 tracepoint 作为纯 eBPF 会话的硬依赖（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：4.6 将 `sched_process_fork/exec/exit/free` 定义为生命周期事实源，14.117-14.119 已用 fixture 验证 fork/exec/exit、线程和 pending 清理；但 `bpf_attach.go` 仍把四个生命周期 tracepoint 标成 `optional`，attach 失败时静默继续运行。
+- Problem：生命周期 tracepoint 缺失时，filter 继承、exec 状态迁移、pending 清理和退出事件会无声退化为 syscall 驱动的近似路径。用户仍得到“追踪已启动”的表象，却无法知道 stale map 和缺失 lifecycle event 是否来自 attach 缺口；这违反纯 eBPF 事件事实源必须完整的启动契约。
+- Goal：所有声明的 raw syscall 和 lifecycle tracepoint 都必须成功挂载；任一失败都终止本次 BPF session，并回滚此前已建立的 links。保留 `recvmsg` kretprobe 的独立 best-effort，因为它只增强 nested OUT payload，不承担 syscall/lifecycle 状态事实。
+- Non-goals：不改变 tracepoint 列表、BPF event ABI、pending/filter/lifecycle map 语义、Go 单 goroutine 状态机、recvmsg payload fallback、upstream reference suite 或输出格式；不引入 capability 降级模式、procfs、ptrace、重试或后台线程。
+- Constraints：tracepoint spec 不再提供通用静默 optional 分支；partial attach 仍必须关闭已建立 links 并聚合 cleanup error；启动失败必须包含具体 category/name；测试必须在 sudo 真实 attach 环境覆盖 required policy。
+
+Impact note：影响 `cmd/strace-go/bpf_attach.go` 的 spec/attach policy、`bpf_attach_test.go` 的 contract test，以及本文件当前架构契约；不改变 BPF 程序本身或 kretprobe 的显式降级行为。
+
+方案比较：
+
+1. 继续保留 lifecycle optional，并新增 degraded capability event：兼容更多受限环境，但引入第二套状态语义，且 stale map 风险仍由调用者承担，拒绝。
+2. 仅把四个 lifecycle spec 的 `optional` 改为 `false`：能修复当前行为，但保留无实际用途的通用静默分支，后续新增 tracepoint 时容易误用，拒绝。
+3. 删除 tracepoint spec 的 optional 字段和跳过分支，把所有声明的 raw/lifecycle tracepoint 统一作为 required；将 recvmsg kretprobe 的 best-effort 保留在独立方法中，选择该方案。
+
+状态契约：
+
+- `raw_syscalls/sys_enter`、`raw_syscalls/sys_exit`、四个 `sched` lifecycle tracepoint 任一 attach 失败，`setupBPF` 返回错误且不进入事件循环。
+- raw attach 成功但 lifecycle attach 部分失败时，raw 与已成功的 lifecycle links 都必须关闭；BPF objects 仍由 `setupBPF` 负责关闭。
+- recvmsg kretprobe attach 失败只输出已有 warning，tracepoint session 仍可运行并使用 bounded tracepoint payload fallback。
+
+测试与验收：
+
+- 先将 lifecycle optional 单测改为 required，使生产代码未修改时 focused test 失败。
+- 修复后运行 focused attach tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、BPF 生成/load、`ebpf-semantic`、`ebpf-perf`、upstream reference 和 small suite。
+- review 检查产品源码不再出现 lifecycle tracepoint 的静默 optional 路径，且失败路径不残留 tracer/link。
+
+本阶段只收口生命周期 attach 的启动完整性，不改变事件内容、用户态状态转移或纯 eBPF/no-procfs 边界。
+
+#### 实际验收记录
+
+失败优先的 lifecycle required test 先因四个 spec 仍带 `optional` 而失败；删除字段和静默跳过分支后，attach policy、category/name 错误上下文与 focused tests 通过。`sudo -n go generate ./cmd/strace-go` 串行完成，生成物无意外 diff；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14120 ./cmd/strace-go`、Python 16 项 oracle 和 `git diff --check` 均通过。
+
+required lifecycle links 下真实 `ebpf-semantic` 为 201 个主事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 的 scalar/io/lifecycle/threads 分别为 6000/3000、4002/2001、42/17、3208/1604 个 JSON/exit 事件，四组 runtime counters 均为 0。`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS，`small` 为 23 PASS。review 确认产品 attach policy 不再有 tracepoint optional 分支，错误包含 category/name，recvmsg kretprobe 仍是唯一显式 best-effort 增强点，未引入 ptrace、procfs 或用户态 tracee 内存读取。

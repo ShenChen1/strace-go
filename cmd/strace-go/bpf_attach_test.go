@@ -61,13 +61,17 @@ func TestRawSyscallTracepointSpecsAreRequired(t *testing.T) {
 		if spec.category != "raw_syscalls" {
 			t.Errorf("spec category = %q, want raw_syscalls", spec.category)
 		}
-		if spec.optional {
-			t.Errorf("raw syscall spec %s/%s must not be optional", spec.category, spec.name)
-		}
 	}
 }
 
-func TestLifecycleTracepointSpecsAreOptional(t *testing.T) {
+func TestLifecycleTracepointSpecsAreRequired(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/bpf_attach.go"))
+	for _, forbidden := range []string{"optional bool", "spec.optional"} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("tracepoint attach policy still contains silent optional path %q", forbidden)
+		}
+	}
+
 	specs := lifecycleTracepointSpecs(&bpfObjects{})
 	want := map[string]bool{
 		"sched_process_fork": true,
@@ -85,9 +89,13 @@ func TestLifecycleTracepointSpecsAreOptional(t *testing.T) {
 		if !want[spec.name] {
 			t.Errorf("unexpected lifecycle tracepoint %q", spec.name)
 		}
-		if !spec.optional {
-			t.Errorf("lifecycle spec %s must be optional", spec.name)
-		}
+	}
+}
+
+func TestTracepointAttachErrorIncludesCategoryAndName(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/bpf_attach.go"))
+	if !strings.Contains(source, `fmt.Errorf("attach %s/%s tracepoint: %w"`) {
+		t.Fatal("tracepoint attach error must include category and name")
 	}
 }
 
