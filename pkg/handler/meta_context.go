@@ -3,13 +3,10 @@ package handler
 import "strace-go/pkg/meta"
 
 func catalogForContext(ctx *Context) *meta.Catalog {
-	if ctx != nil && ctx.Meta != nil {
-		return ctx.Meta
+	if ctx == nil {
+		return nil
 	}
-	if ctx != nil && ctx.Opts != nil {
-		return meta.NewCatalog(ctx.Opts.XlatFormat)
-	}
-	return meta.NewCatalog("abbrev")
+	return ctx.Meta
 }
 
 func decodeFlags(ctx *Context, value uint64, tableName string) string {

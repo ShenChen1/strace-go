@@ -37,9 +37,6 @@ type statmountSnapshot struct {
 }
 
 func (snapshot statmountSnapshot) decodeFlags(value uint64, tableName string) string {
-	if snapshot.catalog == nil {
-		return meta.NewCatalog("abbrev").DecodeFlags(value, tableName)
-	}
 	return snapshot.catalog.DecodeFlags(value, tableName)
 }
 

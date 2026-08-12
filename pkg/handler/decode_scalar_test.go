@@ -113,6 +113,7 @@ func TestDefaultHandlerDecodesSyncFileRangeFlags(t *testing.T) {
 			Args:     []string{"fd", "offset", "nbytes", "flags"},
 			ArgTypes: []string{"int", "loff_t", "loff_t", "unsigned int"},
 		},
+		Meta: meta.NewCatalog("abbrev"),
 		Opts: &cli.Options{},
 	}
 
@@ -136,6 +137,7 @@ func TestDefaultHandlerDecodesFallocateMode(t *testing.T) {
 			Args:     []string{"fd", "mode", "offset", "len"},
 			ArgTypes: []string{"int", "int", "loff_t", "loff_t"},
 		},
+		Meta: meta.NewCatalog("abbrev"),
 		Opts: &cli.Options{},
 	}
 
@@ -186,6 +188,7 @@ func TestDefaultHandlerDecodesSpecialFlagXlats(t *testing.T) {
 					Args:     tt.argNames,
 					ArgTypes: tt.argTypes,
 				},
+				Meta: meta.NewCatalog("abbrev"),
 				Opts: &cli.Options{},
 			}
 
@@ -205,6 +208,7 @@ func TestDefaultHandlerDoesNotTreatUnsignedFDAsXlatInRawMode(t *testing.T) {
 			Args:     []string{"fd"},
 			ArgTypes: []string{"unsigned int"},
 		},
+		Meta: meta.NewCatalog("raw"),
 		Opts: &cli.Options{XlatFormat: "raw"},
 	}
 
@@ -218,6 +222,7 @@ func TestDefaultHandlerFormatsCloseRangeBoundsAsUnsigned(t *testing.T) {
 	ctx := &Context{
 		Args:   [6]uint64{0xdefaced0fffffffe, 0xdefaced0ffffffff, 0xdefaced000000006},
 		ScMeta: meta.SyscallTable[436],
+		Meta:   meta.NewCatalog("abbrev"),
 		Opts:   &cli.Options{},
 	}
 
@@ -371,6 +376,7 @@ func TestDefaultHandlerDecodesBasicFlagXlats(t *testing.T) {
 					Args:     tt.argNames,
 					ArgTypes: tt.argTypes,
 				},
+				Meta: meta.NewCatalog("abbrev"),
 				Opts: &cli.Options{},
 			}
 			got := (&DefaultHandler{}).Handle(ctx).ArgParts

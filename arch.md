@@ -3388,3 +3388,35 @@ ABI 与状态契约：
 本阶段只收口 main catalog composition，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source gate 先验证 `metaCatalogForOptions` 和 nil `"abbrev"` catalog fallback 存在，修复后通过；`composeTraceSession` 现在直接用 `meta.NewCatalog(opts.XlatFormat)` 注入唯一 session catalog。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，742.21 events/s。`attach-f-p.test` 通过；`attach-p-cmd.test` 连续观察到一次 XPASS、随后一次既定 XFAIL，保留 XFAIL 以反映跨任务 lifecycle exact ordering 的调度敏感性。测试结束后无残留 tracer、fixture 或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
+
+### 14.74 收口 handler catalog ownership（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.65/14.73 已把 `meta.Catalog` 创建边界收敛到 session composition，并由 `Context.Meta` 传入 handler；但 `pkg/handler/meta_context.go` 在缺少 `Meta` 时仍从 `Context.Opts` 或默认值创建 catalog，`statmount_format.go` 也保留独立的 `"abbrev"` fallback。
+- Problem：handler 仍拥有第二个 xlat policy owner。半构造 context、漏注入 context 或未来新增 caller 会静默绕过 session 的 `XlatFormat`，产生与正式 session 不一致的 flag、enum、syscall-argument 输出；source review 无法证明 handler 只消费 session-owned catalog。
+- Goal：`catalogForContext` 只返回已注入的 `Context.Meta`，handler 不再依据 `Opts` 或默认值构造 `meta.Catalog`；statmount snapshot 只消费传入 catalog。保留 `meta.Catalog` 方法自身的 nil-safe legacy behavior，作为后续独立阶段迁移，不在本阶段扩大到 `pkg/meta` 和全部 format fixture。
+- Non-goals：不删除 `meta.Catalog` 的 nil receiver 保护；不修改 xlat 表、格式化文本、handler 注册表、事件 ABI、payload 事实源、事件顺序、纯 eBPF 约束或 `pkg/format` 的无 catalog convenience wrappers。
+- Constraints：正式 session 已保证 `Context.Meta` 非 nil；缺失 Meta 的局部测试必须显式注入 catalog 或继续只覆盖不依赖 xlat 的路径；handler production source 不得调用 `meta.NewCatalog`；函数保持小于 80 行，测试不依赖外部进程。
+
+方案比较：
+
+1. 保留 `Opts`/`"abbrev"` fallback：兼容零值 fixture，但继续隐藏 ownership 漏注，拒绝。
+2. 同时删除 `meta.Catalog` 的 nil-safe fallback 并迁移全部 handler/format fixture：契约最严格，但改动面跨包且混入下一阶段 catalog API 清理，拒绝。
+3. 先删除 handler 内 catalog 创建，只消费 `Context.Meta`，保留 meta 层 nil-safe 保护：边界清晰、行为改动局部、便于失败优先验证，选择该方案。
+
+状态契约：
+
+- `Context.Meta` 是 handler 获取 xlat policy 的唯一正式入口；`Context.Opts` 只提供 handler options，不再决定 catalog identity。
+- `statmountSnapshot.catalog` 来自当前 context，不在 snapshot formatter 内选择默认 catalog。
+- nil catalog 的兼容行为仍由 `pkg/meta` 自身负责，下一阶段必须明确移除或改成显式错误；本阶段不把该兼容层误认为正式 composition。
+
+测试与验收：
+
+- 先增加失败优先 source gate，禁止 `pkg/handler/meta_context.go` 和 `statmount_format.go` 调用 `meta.NewCatalog`；增加 context identity 回归，验证 `Opts` 不能替代显式注入的 catalog。
+- 更新受影响的 handler fixture，使 raw/verbose xlat 测试显式注入 `meta.NewCatalog`。
+- 运行 focused handler tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和 attach upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 handler 的 catalog ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source gate 先验证 `meta_context.go`、`statmount_format.go` 的 fallback 和 `Opts` 替代 catalog 行为，修复后通过；`catalogForContext` 现在只返回注入的 `Context.Meta`，受影响的 BPF、标量、iovec、quota fixture 已显式注入对应 xlat catalog。`go test ./pkg/handler`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、no-ptrace/procfs source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，714.00 events/s。`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。

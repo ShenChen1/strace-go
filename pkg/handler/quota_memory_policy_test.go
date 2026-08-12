@@ -8,6 +8,7 @@ import (
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
+	"strace-go/pkg/meta"
 )
 
 const (
@@ -32,6 +33,7 @@ func testQuotaContext(name string, args [6]uint64, ret int64) *Context {
 		Args:    args,
 		Ret:     ret,
 		Decoder: event.NewDecoder(),
+		Meta:    meta.NewCatalog("abbrev"),
 		Opts:    &cli.Options{XlatFormat: "abbrev", StringLimit: 32},
 	}
 }
@@ -155,6 +157,7 @@ func TestQuotaIDPreservesUnsignedValuesExceptMinusOne(t *testing.T) {
 func TestQuotaCommandVerboseWrapsSymbolicQcmd(t *testing.T) {
 	ctx := testQuotaContext("quotactl", [6]uint64{}, 0)
 	ctx.Opts.XlatFormat = "verbose"
+	ctx.Meta = meta.NewCatalog("verbose")
 	qcmd := uint32(testQuotaCommand(testQuotaOn, testQuotaUser))
 	want := "2147484160 /* QCMD(Q_QUOTAON, USRQUOTA) */"
 	if got := formatQuotaCommand(ctx, qcmd); got != want {

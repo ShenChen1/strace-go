@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"strace-go/pkg/cli"
+	"strace-go/pkg/meta"
 )
 
 func TestFormatBpfKernelVersionXlatModes(t *testing.T) {
@@ -20,7 +21,10 @@ func TestFormatBpfKernelVersionXlatModes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := &Context{Opts: &cli.Options{XlatFormat: tt.mode}}
+			ctx := &Context{
+				Meta: meta.NewCatalog(tt.mode),
+				Opts: &cli.Options{XlatFormat: tt.mode},
+			}
 			if got := formatBpfKernelVersion(ctx, 0xcafef00d); got != tt.want {
 				t.Fatalf("formatBpfKernelVersion() = %q, want %q", got, tt.want)
 			}

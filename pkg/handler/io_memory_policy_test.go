@@ -6,6 +6,7 @@ import (
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
+	"strace-go/pkg/meta"
 )
 
 func newIovecPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Decoder) *Context {
@@ -14,6 +15,7 @@ func newIovecPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Decod
 		Tid:     1234,
 		SysName: "readv",
 		Decoder: decoder,
+		Meta:    meta.NewCatalog("abbrev"),
 		Opts:    &cli.Options{StringLimit: 32},
 	}
 }
