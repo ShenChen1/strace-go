@@ -20,6 +20,9 @@ func TestBPFDualPathPayloadsUseDirectTLV(t *testing.T) {
 		"is_dual_path_direct_syscall(sys_id)",
 		"emit_dual_path_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"is_dual_path_direct_syscall(sys_id) ||",
+		"EXIT_PROG_PATH = 10",
+		"emit_dual_path_exit_event_v2_direct(p, ret_value, duration);",
+		"is_dual_path_direct_syscall(p->sys_id)",
 	} {
 		if !strings.Contains(straceSource, snippet) && !strings.Contains(pathDirectHeader, snippet) && !strings.Contains(timeDirectHeader, snippet) {
 			t.Fatalf("BPF source missing dual path direct snippet %q", snippet)

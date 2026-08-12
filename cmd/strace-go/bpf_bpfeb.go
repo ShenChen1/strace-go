@@ -140,6 +140,7 @@ type bpfProgramSpecs struct {
 	ExitMmsgFinal                 *ebpf.ProgramSpec `ebpf:"exit_mmsg_final"`
 	ExitMountQuery                *ebpf.ProgramSpec `ebpf:"exit_mount_query"`
 	ExitMsg                       *ebpf.ProgramSpec `ebpf:"exit_msg"`
+	ExitPath                      *ebpf.ProgramSpec `ebpf:"exit_path"`
 	ExitQuota                     *ebpf.ProgramSpec `ebpf:"exit_quota"`
 	ExitRecvmmsgBase0             *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base0"`
 	ExitRecvmmsgBase1             *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base1"`
@@ -329,6 +330,7 @@ type bpfPrograms struct {
 	ExitMmsgFinal                 *ebpf.Program `ebpf:"exit_mmsg_final"`
 	ExitMountQuery                *ebpf.Program `ebpf:"exit_mount_query"`
 	ExitMsg                       *ebpf.Program `ebpf:"exit_msg"`
+	ExitPath                      *ebpf.Program `ebpf:"exit_path"`
 	ExitQuota                     *ebpf.Program `ebpf:"exit_quota"`
 	ExitRecvmmsgBase0             *ebpf.Program `ebpf:"exit_recvmmsg_base0"`
 	ExitRecvmmsgBase1             *ebpf.Program `ebpf:"exit_recvmmsg_base1"`
@@ -403,6 +405,7 @@ func (p *bpfPrograms) Close() error {
 		p.ExitMmsgFinal,
 		p.ExitMountQuery,
 		p.ExitMsg,
+		p.ExitPath,
 		p.ExitQuota,
 		p.ExitRecvmmsgBase0,
 		p.ExitRecvmmsgBase1,

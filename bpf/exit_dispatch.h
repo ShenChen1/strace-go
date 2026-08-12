@@ -23,6 +23,7 @@ enum exit_prog_index {
     EXIT_PROG_RECVMMSG_BASE3 = 7,
     EXIT_PROG_QUOTA = 8,
     EXIT_PROG_MOUNT_QUERY = 9,
+    EXIT_PROG_PATH = 10,
 };
 
 #define EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid) \
@@ -76,8 +77,6 @@ int exit_generic(struct trace_event_raw_sys_exit *ctx) {
             emit_readlink_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_fd_array_direct_syscall(p->sys_id) && ret_value == 0) {
             emit_fd_array_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_path_only_direct_syscall(p->sys_id)) {
-            emit_path_only_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_misc_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
             emit_misc_struct_exit_event_v2_direct(p, ret_value, duration);
         } else if (is_small_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
@@ -119,6 +118,40 @@ int exit_generic(struct trace_event_raw_sys_exit *ctx) {
         emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
     }
 
+    consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
+    return 0;
+}
+
+SEC("tracepoint/raw_syscalls/sys_exit")
+int exit_path(struct trace_event_raw_sys_exit *ctx) {
+    u32 sys_id = (u32)ctx->id;
+    if (!is_path_only_direct_syscall(sys_id) &&
+        !is_dual_path_direct_syscall(sys_id) &&
+        !is_open_creat_path_direct_syscall(sys_id)) {
+        return 0;
+    }
+    EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid);
+    if (!is_path_only_direct_syscall(p->sys_id) &&
+        !is_dual_path_direct_syscall(p->sys_id) &&
+        !is_open_creat_path_direct_syscall(p->sys_id)) {
+        return 0;
+    }
+
+    u64 duration = 0;
+    if (p->enter_time > 0) {
+        u64 exit_time = bpf_ktime_get_ns();
+        if (exit_time > p->enter_time) {
+            duration = exit_time - p->enter_time;
+        }
+    }
+
+    if (is_path_only_direct_syscall(p->sys_id)) {
+        emit_path_only_exit_event_v2_direct(p, ret_value, duration);
+    } else if (is_dual_path_direct_syscall(p->sys_id)) {
+        emit_dual_path_exit_event_v2_direct(p, ret_value, duration);
+    } else {
+        emit_open_creat_path_exit_event_v2_direct(p, ret_value, duration);
+    }
     consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
     return 0;
 }

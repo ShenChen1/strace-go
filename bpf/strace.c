@@ -208,7 +208,11 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     }
 
     u32 index = EXIT_PROG_GENERIC;
-    if (is_quota_direct_syscall(p->sys_id)) {
+    if (is_path_only_direct_syscall(p->sys_id) ||
+        is_dual_path_direct_syscall(p->sys_id) ||
+        is_open_creat_path_direct_syscall(p->sys_id)) {
+        index = EXIT_PROG_PATH;
+    } else if (is_quota_direct_syscall(p->sys_id)) {
         index = EXIT_PROG_QUOTA;
     } else if (is_mount_query_direct_syscall(p->sys_id)) {
         index = EXIT_PROG_MOUNT_QUERY;

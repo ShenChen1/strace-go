@@ -57,3 +57,70 @@ func TestSyscallEventContextMergesOpenCreatDirectTLVPath(t *testing.T) {
 		})
 	}
 }
+
+func TestSyscallEventContextPrefersOpenCreatExitRetryTLVPath(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    [6]uint64
+		pathArg uint16
+	}{
+		{name: "open", args: [6]uint64{0x1000}, pathArg: 0},
+		{name: "creat", args: [6]uint64{0x1000, 0644}, pathArg: 0},
+		{name: "openat", args: [6]uint64{^uint64(99), 0x1000}, pathArg: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{
+				"-e",
+				"trace=" + tt.name,
+				"/bin/true",
+			}), traceSessionDeps{
+				TargetPID: 101,
+				Decoder:   event.NewDecoder(),
+				FDState:   newFDStateStoreFromMaps(nil, nil),
+				State:     newTraceState(),
+			})
+			enterPayload := payloadTLVBytes(t, payloadTLVTestSection{
+				kind:     payloadTLVKindString,
+				arg:      tt.pathArg,
+				userPtr:  tt.args[tt.pathArg],
+				probeRet: -14,
+			})
+			session.traceState().handleEnvelope(testTLVSyscallEnvelope(
+				t,
+				tt.name,
+				bpfEventTypeEnter,
+				tt.args,
+				0,
+				enterPayload))
+
+			exitData := []byte("exit-retry-" + tt.name + "\x00")
+			exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
+				kind:    payloadTLVKindString,
+				arg:     tt.pathArg,
+				userPtr: tt.args[tt.pathArg],
+				userLen: uint32(len(exitData)),
+				data:    exitData,
+			})
+			exitUpdate := session.traceState().handleEnvelope(testTLVSyscallEnvelope(
+				t,
+				tt.name,
+				bpfEventTypeExit,
+				tt.args,
+				-2,
+				exitPayload))
+			ev := newSyscallEventContextFromView(
+				session,
+				exitUpdate.syscallView,
+				101,
+				exitUpdate.pendingEnter,
+				exitUpdate.payloadSections)
+
+			section, ok := ev.handlerContext.Section(int(tt.pathArg), handler.PayloadKindString)
+			if !ok || section.ProbeRet != 0 || !bytes.Equal(section.Data, exitData) {
+				t.Fatalf("%s retry path section = %+v, %v; want successful exit retry string TLV", tt.name, section, ok)
+			}
+		})
+	}
+}

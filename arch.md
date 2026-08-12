@@ -5262,3 +5262,44 @@ Impact note：影响 `JSONEventWriter` 与 `jsonPayloadSections` 的临时 slice
 最终真实 `ebpf-semantic` 为 201 个主事件、102/99 enter/exit、6 个 lifecycle，所有 BPF runtime counter 与 `pending_stale` 均为 0；`ebpf-perf` 的 scalar/io/lifecycle/threads 分别为 6000/3000、4002/2001、42/17、3208/1604 个 JSON/exit 事件，四组诊断字段全零。`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS；full `small` 本次首次出现 `rename.gen.test` 路径快照退化，精确重跑通过，记录为与此前 `creat` 相同的纯 eBPF 异步 snapshot flaky，不是 payload writer 回归。
 
 review 确认 raw/decoded 两条 payload 路径均使用同一单消费者 storage，Encode error 后也会回收；清零操作不触碰 handler 输入 slice，不新增 procfs、ptrace、tracee 内存读取、锁、goroutine 或第二输出通道。
+
+### 14.127 在 sys_exit 重试路径快照，消除纯 eBPF 异步观察退化（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.126 解决了 JSON payload section 的一次用户态分配，但最近完整 `small` 套件仍偶发看到 `creat` 或 `rename` 输出为原始用户态指针；精确重跑通常恢复，说明 enter 事件与路径快照之间存在纯 eBPF 异步观察窗口。
+- Problem：`open/creat/openat` 以及 `rename/link/symlink*` 当前只在 `sys_enter` 深拷贝路径。若 enter 阶段 ringbuf 事件或用户指针快照暂时失败，用户态不能安全地从 tracee 再读一次，只能保留不可解引用的指针，破坏路径输出和 `-P` 语义。
+- Goal：在 `sys_exit` 通过 eBPF 对路径参数再做一次 bounded snapshot，并把结果写入同一个 exit event v2/TLV；用户态用 exit snapshot 覆盖同一 `(kind,direction,arg,user_ptr)` 的 enter section，最终事件不增加、不依赖 procfs 或 ptrace。
+- Non-goals：不恢复 `ptrace`、`process_vm_readv`、`/proc/<pid>/mem` 或其他用户态 tracee 内存读取；不增加第二事件、定时器、锁、goroutine、legacy fixed-window carrier；不改变 TLV schema、路径上限、文本/JSON formatter 或普通标量 syscall 的退出路径。
+- Constraints：路径重试必须继续使用 `bpf_probe_read_user_str` 与 ringbuf dynptr；sys_exit 只能消费一次 pending；程序数组索引、生成 BPF 对象和用户态装载表必须保持一致；失败时仍要发出带 `probe_ret` 的 section，而不是静默丢失事实。
+
+Impact note：影响 path-only、open/creat/openat、dual-path 三类 syscall 的 BPF exit handler、exit tail-call 槽位和路径快照回归测试；不改变事件类型和用户态事件状态机。
+
+方案比较：
+
+1. 放宽 `small` 的 exact diff 或把偶发指针当作 XFAIL：实现成本低，但掩盖真实路径事实丢失，拒绝。
+2. 在用户态增加 procfs、`process_vm_readv` 或 ptrace fallback：能补读部分路径，但违反纯 eBPF 约束并重新引入竞态，拒绝。
+3. 在 sys_exit 由 eBPF 重新抓取路径并合并到同一 exit event：没有用户态竞态，复用现有 TLV/merge 语义，增加的成本只落在路径 syscall，选择该方案。
+
+状态契约：
+
+- `EXIT_PROG_PATH` 专门处理 path-only、open/creat/openat、dual-path；`exit_generic` 保持普通 direct exit 的职责边界。
+- enter 与 exit 可以各自携带同一逻辑 section；用户态按现有 section identity 合并，exit snapshot 优先，输出仍只有一条完成的 syscall 事件。
+- path-only 使用既有 4096 字节分段读取；open/creat 使用既有 `PAYLOAD_TLV_OPENAT_MAX`，dual-path 使用既有 512 字节上限；任何失败都保留 TLV header 和 probe 状态。
+- BPF `exit_progs` 的 `max_entries`、C 枚举、Go 常量、生成对象字段和 `populateProgArrays` 必须同时更新，缺槽位不得静默回退。
+
+测试与验收：
+
+- 先增加源码失败优先测试，要求三类 exit helper、`EXIT_PROG_PATH = 10`、dispatcher 选择和 Go prog-array 填充。
+- 实现后运行 focused BPF source/path TLV tests、`go test ./...`、race、vet、build、Python oracle、semantic/perf、`small` 和 upstream reference；必要时重复 `creat.gen.test` 与 `rename.gen.test` 验证路径退化不再出现。
+- review 检查 exit helper 的 pending 消费、ringbuf reserve/discard、TLV capacity、程序数组装载和生成文件；确认没有 procfs、ptrace、`process_vm_readv` 或第二输出事件。
+
+本阶段只修复路径事实在纯 eBPF enter/exit 观察窗口中的恢复能力，不改变用户态输出契约。
+
+#### 实际验收记录
+
+实现 `EXIT_PROG_PATH = 10`、`exit_path` tail-call handler、open/creat/openat exit path TLV、dual-path exit TLV，并同步 `exit_progs` map 容量、Go 常量、生成的 bpf2go 对象和 `populateProgArrays`。失败优先的 BPF source gate 先因缺少 `EXIT_PROG_PATH` 失败，随后 focused source/path TLV tests 与新增的 open/creat、dual-path exit retry 语义回归均通过。
+
+快速门禁为 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14127 ./cmd/strace-go`、Python 19 项和 `git diff --check` 全部通过。当前构建的真实 `ebpf-semantic` 为 201 个主事件、102/99 enter/exit、6 个 lifecycle；reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 325.00 ns/op、0 B/op、0 allocs/op`、raw JSON `543.90 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `660.20 ns/op、0 B/op、0 allocs/op`、decoded payload `929.10 ns/op、16 B/op、1 allocs/op`；四组真实 workload 的 `pending_stale` 与 BPF 错误计数均为 0。
+
+重建根目录 `strace-go` 后，当前二进制运行原生 `small` 为 23 PASS、0 FAIL；`rename`、`creat`、`open/openat`、`symlinkat` 等路径用例全部通过。当前二进制运行 `upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS；既定 XFAIL 仍只有 bounded read/write hexdump 和纯 eBPF event-sourced 状态边界。review 确认路径 exit handler 只发一个 exit event 并消费一次 pending，没有新增 procfs、ptrace、`process_vm_readv`、第二输出通道或并发状态。
