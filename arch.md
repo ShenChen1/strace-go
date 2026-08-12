@@ -5784,3 +5784,41 @@ Impact note：影响 `cmd/strace-go/syscall_event_context.go` 的 summary 写入
 真实 `ebpf-semantic` 通过：205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0，write-only events 为 6。`ebpf-perf` 通过：`TraceEventDecodeState 286.50 ns/op、0 B/op、0 allocs/op`、raw JSON `484.90 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `596.10 ns/op、0 B/op、0 allocs/op`、decoded payload `838.10 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认 `SummaryStats` 仍是 session 唯一统计 owner，finalizer 继续使用独立的 summary writer port；事件层只依赖 `Record`，没有暴露 `Print` 或引入第二份统计状态。未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
+
+### 14.139 将 session finalizer output 收窄为 writer/closer port（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：`TraceRunFinalizer` 已经只依赖 `traceFinalizerOutput`，但 `traceSessionDeps.Output` 仍声明为具体的 `*TraceOutput`，session dependency contract 因此泄漏 bootstrap output 实现。
+- Problem：session composition 之外的测试和未来组件无法注入只具备写入与关闭能力的 output fake；具体类型还暗示 finalizer 可以依赖 `TraceOutput` 的内部状态。
+- Goal：将 `traceSessionDeps.Output` 改为已有的 `traceFinalizerOutput`，保留 `TraceOutput` 在 bootstrap/composition root 的 owner 身份和 finalizer 的唯一关闭责任。
+- Non-goals：不改变 `TraceOutput` 的写入、错误、pipe wait、幂等 close 语义；不改变 `OutWriter`、文本/JSON 输出、资源关闭顺序、事件状态机、并发模型或纯 eBPF/no-procfs/no-ptrace 约束。
+- Constraints：output port 必须同时满足 `io.Writer` 和 `io.Closer`；nil output 继续允许测试和无输出 fixture 构造；不得新增第二个 close owner 或复制 output 状态。
+
+Impact note：影响 `cmd/strace-go/session_composition.go` 的 session dependency contract 与 session output-port source/fake tests；`composeTraceSession` 仍传入同一个 `*TraceOutput`，`TraceRunFinalizer` 仍是唯一运行期 close owner。
+
+方案比较：
+
+1. 保留 `*TraceOutput`：无需改 wiring，但具体 bootstrap 实现继续穿透 session 边界，拒绝。
+2. 改成 `io.Writer`：消费面更窄，但 finalizer 无法表达关闭责任，容易丢失资源清理，拒绝。
+3. 复用 `traceFinalizerOutput`：同时表达写入与关闭的最小职责，可注入 fake 且不复制 owner，选择该方案。
+
+状态契约：
+
+- `traceSessionDeps.Output` 只允许 finalizer 使用 `Write`/`Close` 能力，不暴露 `TraceOutput` 字段或 pipe 状态。
+- composition root 继续创建和持有真实 `TraceOutput`；session finalizer 接收同一接口值并负责一次关闭。
+- `OutWriter` 与 `Output` 仍是两个明确职责：前者供事件输出，后者供 finalizer close；不合并成隐式全局 writer。
+
+测试与验收：
+
+- 先增加失败优先的 fake finalizer output 测试，确认旧 `*TraceOutput` 字段无法接收仅实现 writer/closer 的对象。
+- 实现后运行 focused source/fake tests、Go 全量/race/vet/build、`git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和 `upstream-reference`。
+- review 检查真实 composition 仍传递同一个 output owner，且生产代码未新增 ptrace、procfs、第二消费者、锁或 goroutine。
+
+#### 实际验收记录
+
+失败优先的 fake finalizer output 测试先因 `traceSessionDeps.Output` 固定为 `*TraceOutput` 而无法编译；实现为 `traceFinalizerOutput` 后 focused source/fake tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14139 ./cmd/strace-go` 和 `git diff --check` 全部通过。fake writer/closer 验证 session 和 finalizer 保留同一个接口 owner，source gate 确认 session dependency 不再暴露具体 `TraceOutput`。
+
+真实 `ebpf-semantic` 通过：205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0，write-only events 为 6。`ebpf-perf` 通过：`TraceEventDecodeState 285.30 ns/op、0 B/op、0 allocs/op`、raw JSON `489.50 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `607.20 ns/op、0 B/op、0 allocs/op`、decoded payload `897.70 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认 `composeTraceSession` 仍传递同一个真实 `*TraceOutput`，运行期 finalizer 仍是唯一 close owner；本阶段没有改变 output close 顺序、pipe wait、事件状态机或用户可见输出。未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。

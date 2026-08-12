@@ -110,7 +110,7 @@ type traceSessionDeps struct {
 	FDState       *FDStateStore
 	Runtime       handler.RuntimeServices
 	OutWriter     io.Writer
-	Output        *TraceOutput
+	Output        traceFinalizerOutput
 	Summary       *SummaryStats
 	TimeFormatter *TimeFormatter
 	StackTraces   traceStackTraceReader
