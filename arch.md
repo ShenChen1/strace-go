@@ -5822,3 +5822,41 @@ Impact note：影响 `cmd/strace-go/session_composition.go` 的 session dependen
 真实 `ebpf-semantic` 通过：205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0，write-only events 为 6。`ebpf-perf` 通过：`TraceEventDecodeState 285.30 ns/op、0 B/op、0 allocs/op`、raw JSON `489.50 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `607.20 ns/op、0 B/op、0 allocs/op`、decoded payload `897.70 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认 `composeTraceSession` 仍传递同一个真实 `*TraceOutput`，运行期 finalizer 仍是唯一 close owner；本阶段没有改变 output close 顺序、pipe wait、事件状态机或用户可见输出。未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
+
+### 14.140 将 session time formatter 收窄为时间行为 port（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：`TextRenderer` 已通过 `traceTimeFormatter` 消费时间前缀和单调时钟能力，但 `traceSessionDeps.TimeFormatter` 仍声明为具体的 `*TimeFormatter`。
+- Problem：session dependency contract 泄漏 formatter 的 boot offset、relative-time state 和 clock 实现；需要测试或替换时间行为时必须构造真实 formatter。
+- Goal：将 `traceSessionDeps.TimeFormatter` 与 `timeFormatterState` 改为已有的 `traceTimeFormatter`，保持真实 formatter 仍由 composition root 创建并由同一 session owner 持有。
+- Non-goals：不改变时间格式、relative-time 状态更新、synthetic exit 时间、clock 调用、输出顺序、性能模型、并发模型或纯 eBPF/no-procfs/no-ptrace 约束。
+- Constraints：port 必须保留 `Prefix` 与 `NowMonoNs` 两个现有消费能力；nil 语义保持不变；不得复制 formatter state 或新增第二个 clock owner。
+
+Impact note：影响 `cmd/strace-go/session_composition.go` 的 dependency contract、`cmd/strace-go/time_formatter.go` 的 session accessor 及 time-port source/fake tests；`TextRenderer` 和 `TraceCommandExitHandler` 的现有端口不变。
+
+方案比较：
+
+1. 保留 `*TimeFormatter`：改动最少，但 session 和测试继续依赖具体时间存储，拒绝。
+2. 只暴露 `traceTimePolicy`：能生成前缀但丢失 `NowMonoNs`，command exit fallback 无法获得当前单调时间，拒绝。
+3. 复用已有 `traceTimeFormatter`：覆盖真实消费面，可注入 fake 且保持一个 state owner，选择该方案。
+
+状态契约：
+
+- session 只调用 `Prefix` 与 `NowMonoNs`，不观察 boot offset、last syscall timestamp 或 clock 字段。
+- composition root 继续创建一个真实 `TimeFormatter`，该实例同时注入 text renderer 和 command-exit fallback。
+- interface 只改变依赖方向，不改变 relative-time 的 session-local 可变状态和单消费者调用顺序。
+
+测试与验收：
+
+- 先增加失败优先的 fake time formatter 测试，确认旧具体字段无法接收仅实现 `traceTimeFormatter` 的对象。
+- 实现后运行 focused time-port tests、Go 全量/race/vet/build、`git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和 `upstream-reference`。
+- review 检查没有新增 clock、formatter、goroutine、锁或 procfs/ptrace 路径。
+
+#### 实际验收记录
+
+失败优先的 fake time formatter 测试先因 `traceSessionDeps.TimeFormatter` 固定为 `*TimeFormatter`、`timeFormatterState` 返回具体类型而无法编译；实现为 `traceTimeFormatter` 后 focused time-port tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14140 ./cmd/strace-go` 和 `git diff --check` 全部通过。fake formatter 验证 session accessor 与 text renderer 共享同一个接口 owner，source gate 确认 session contract 不再暴露具体 formatter。
+
+真实 `ebpf-semantic` 通过：205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0，write-only events 为 6。`ebpf-perf` 通过：`TraceEventDecodeState 286.40 ns/op、0 B/op、0 allocs/op`、raw JSON `486.10 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `609.00 ns/op、0 B/op、0 allocs/op`、decoded payload `899.80 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认 composition root 仍创建一个真实 `TimeFormatter`，同一实例通过接口注入 text renderer 与 command-exit fallback；relative-time state、clock owner、输出顺序没有变化。未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。

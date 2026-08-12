@@ -112,7 +112,7 @@ type traceSessionDeps struct {
 	OutWriter     io.Writer
 	Output        traceFinalizerOutput
 	Summary       *SummaryStats
-	TimeFormatter *TimeFormatter
+	TimeFormatter traceTimeFormatter
 	StackTraces   traceStackTraceReader
 	Stats         traceStatsReader
 	Resolver      *stacktrace.Resolver

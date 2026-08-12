@@ -15,7 +15,7 @@ func newTimeFormatterWithClock(bootTimeOffsetNs int64, clock traceClock) *TimeFo
 	return &TimeFormatter{bootTimeOffsetNs: bootTimeOffsetNs, clock: clock}
 }
 
-func (s *traceSession) timeFormatterState() *TimeFormatter {
+func (s *traceSession) timeFormatterState() traceTimeFormatter {
 	if s == nil {
 		return nil
 	}
