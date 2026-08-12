@@ -19,6 +19,8 @@ func TestUnfinishedCandidateIndexSourceContract(t *testing.T) {
 		"setUnfinishedEnabled",
 		"unfinishedSyscallView",
 		"unfinishedView()",
+		"reusableUnfinished",
+		"acquireUnfinishedViews",
 	} {
 		if !strings.Contains(state, snippet) {
 			t.Fatalf("event state candidate index missing %q", snippet)
@@ -26,6 +28,9 @@ func TestUnfinishedCandidateIndexSourceContract(t *testing.T) {
 	}
 	if strings.Contains(state, "copyPendingSyscallState") {
 		t.Fatal("unfinished candidate path must not deep-copy complete pending syscall state")
+	}
+	if !strings.Contains(state, "clear(update.unfinished)") {
+		t.Fatal("unfinished release must clear reusable view elements")
 	}
 	router := readTextFile(t, filepath.Join(root, "cmd/strace-go/event_router.go"))
 	if !strings.Contains(router, "if r.pipeline == nil || !r.pipeline.HasTextOutput()") ||

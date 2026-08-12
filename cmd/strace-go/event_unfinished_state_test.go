@@ -213,3 +213,50 @@ func TestTraceStateReturnsUnfinishedViewAndTaskSnapshots(t *testing.T) {
 		t.Fatal("lifecycle task update aliases TraceState task map")
 	}
 }
+
+func TestTraceStateReusesUnfinishedViewStorageAfterRelease(t *testing.T) {
+	state := newTraceState()
+	first := traceEventEnvelope{
+		valid:      true,
+		pid:        100,
+		tid:        101,
+		sysID:      syscallIDByName(t, "read"),
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+		enterTime:  10,
+	}
+	state.handleEnvelope(first)
+
+	second := first
+	second.tid = 102
+	second.sysID = syscallIDByName(t, "getpid")
+	second.enterTime = 20
+	firstUpdate := state.handleEnvelope(second)
+	if len(firstUpdate.unfinished) != 1 {
+		t.Fatalf("first unfinished candidates = %d, want one", len(firstUpdate.unfinished))
+	}
+	owner := &firstUpdate.unfinished[0]
+	state.markUnfinishedPrinted(102)
+	state.requeueUnfinished(101)
+	state.releaseTraceStateUpdate(firstUpdate)
+
+	third := second
+	third.tid = 103
+	third.enterTime = 30
+	secondUpdate := state.handleEnvelope(third)
+	if len(secondUpdate.unfinished) != 1 {
+		t.Fatalf("second unfinished candidates = %d, want one", len(secondUpdate.unfinished))
+	}
+	if &secondUpdate.unfinished[0] != owner {
+		t.Fatal("unfinished view storage was not reused after release")
+	}
+	state.releaseTraceStateUpdate(secondUpdate)
+	if len(state.reusableUnfinished) != 0 || cap(state.reusableUnfinished) == 0 {
+		t.Fatalf("reusable unfinished storage = len:%d cap:%d, want empty reusable backing", len(state.reusableUnfinished), cap(state.reusableUnfinished))
+	}
+	cleared := state.reusableUnfinished[:1]
+	if cleared[0].payloadSections != nil {
+		t.Fatal("reusable unfinished view retained borrowed payload section header")
+	}
+	state.reusableUnfinished = state.reusableUnfinished[:0]
+}

@@ -30,6 +30,18 @@ func (st *TraceState) ensureUnfinishedIndex() {
 	}
 }
 
+func (st *TraceState) acquireUnfinishedViews(capacity int) []unfinishedSyscallView {
+	if st == nil || capacity <= 0 {
+		return nil
+	}
+	if cap(st.reusableUnfinished) < capacity {
+		return make([]unfinishedSyscallView, 0, capacity)
+	}
+	views := st.reusableUnfinished[:0]
+	st.reusableUnfinished = nil
+	return views
+}
+
 func (st *TraceState) enqueueUnfinished(tid uint32) {
 	if st == nil || !st.unfinishedEnabled || tid == 0 {
 		return
@@ -56,7 +68,7 @@ func (st *TraceState) pendingForOtherTID(tid uint32) []unfinishedSyscallView {
 		}
 	}
 
-	candidates := make([]unfinishedSyscallView, 0, len(st.unqueuedUnfinished))
+	candidates := st.acquireUnfinishedViews(len(st.unqueuedUnfinished))
 	for pendingTID := range st.unqueuedUnfinished {
 		if pendingTID == tid {
 			continue

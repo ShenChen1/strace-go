@@ -74,6 +74,7 @@ type TraceState struct {
 	// reusablePending is owned by the single event consumer; entries are
 	// returned only after the router finishes the update that owns them.
 	reusablePending    []*pendingSyscallState
+	reusableUnfinished []unfinishedSyscallView
 	pendingExits       map[uint32]pendingExitState
 	pendingExecArgs    map[int]string
 	suspendedSyscalls  map[int]string
@@ -310,6 +311,10 @@ func (st *TraceState) releasePendingSyscall(pending *pendingSyscallState) {
 func (st *TraceState) releaseTraceStateUpdate(update TraceStateUpdate) {
 	if st == nil {
 		return
+	}
+	if update.unfinished != nil {
+		clear(update.unfinished)
+		st.reusableUnfinished = update.unfinished[:0]
 	}
 	st.releasePendingSyscall(update.pendingEnter)
 	if update.deferredExit != nil {

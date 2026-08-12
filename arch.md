@@ -5475,3 +5475,41 @@ Impact note：影响 `TraceStateUpdate.unfinished` 的内部值类型、unfinish
 真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 294.30 ns/op、0 B/op、0 allocs/op`、raw JSON `486.80 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `617.80 ns/op、0 B/op、0 allocs/op`、decoded payload `895.40 ns/op、16 B/op、1 alloc/op`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
 
 当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 unfinished view 只复制标量并借用 pending 已拥有 payload，router 未接收可变 pending 指针，`HandleUnfinished` 同步完成后才允许下一条 ringbuf record；未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
+
+### 14.131 复用 unfinished candidate view storage（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.130 已消除 unfinished candidate 的 payload bytes 深拷贝，但 `pendingForOtherTID` 每次从 candidate index 取候选时仍 `make` 一个新的 `unfinishedSyscallView` slice。
+- Problem：text 模式的多线程阻塞 syscall 会反复经历“构造候选 view -> router 同步消费 -> release”生命周期；view backing array 只承载当前 update 的临时 descriptor，重复分配属于单消费者可以直接回收的 heap churn。
+- Goal：让 `TraceState` 持有 session-local 的 `reusableUnfinished` view storage；`releaseTraceStateUpdate` 在所有 unfinished 输出 side effect 完成后清空 view 元素并归还 backing array，下一次 candidate projection 优先复用。
+- Non-goals：不复用 pending syscall 对象、payload bytes、JSON writer storage 或跨 session 全局池；不改变 candidate 排序、in-flight/requeue、输出文本、payload ownership、BPF ABI；不引入 `sync.Pool`、锁、goroutine、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：storage 只能由单事件消费者取得/归还；归还前必须完成 `HandleUnfinished`、mark/requeue 和当前 update 的其它 side effect；归还时必须 `clear` view 元素，不能让 reusable slice 持有 payload section header；容量不足时允许一次普通 make。
+
+Impact note：影响 `TraceState` unfinished candidate 临时 slice 的生命周期和 release port；不改变 14.130 的 view 标量拷贝与 payload 借用边界。
+
+方案比较：
+
+1. 每次 `make` 新建 view slice：语义简单，但 text 热路径持续产生可回收的 descriptor allocation，拒绝。
+2. 使用全局 `sync.Pool`：可能降低分配，但隐藏 session ownership、引入池清理复杂度并偏离单消费者模型，拒绝。
+3. 在 `TraceState` 内维护显式 session-local reusable storage，并由既有 release port 回收：生命周期可证明、无锁、改动局部，选择该方案。
+
+状态契约：
+
+- `pendingForOtherTID` 从 `reusableUnfinished` 取得候选 slice，填充完成后交给当前 `TraceStateUpdate`；state 在 update 活跃期间不再复用同一 backing array。
+- `releaseTraceStateUpdate` 在 router defer 中清空 `unfinished` 元素并保存 `[:0]` backing array；view 及其 payload slice header 不跨 update 保留。
+- `TraceState` 销毁时没有额外 close 动作；reusable storage 只是 session-local Go memory，不进入 BPF 或 output owner。
+
+测试与验收：
+
+- 先增加失败优先测试，验证 release 后下一次 candidate update 复用同一 view backing array；source gate 锁定显式 reusable storage、release clear 和无 `sync.Pool`。
+- 实现后运行 focused unfinished/release tests、Go 全量/race/vet/build、Python oracle、semantic/perf、small 和 upstream reference。
+- review 检查 release 顺序覆盖普通、fragment、deferred/lifecycle update，且 reusable storage 不保存 borrowed payload data 或异步引用。
+
+#### 实际验收记录
+
+失败优先的 storage reuse 测试先确认旧实现不会复用 candidate backing array；source gate 也先因缺少 `reusableUnfinished`、acquire 和 clear 契约而失败。实现后 focused unfinished/release tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14131 ./cmd/strace-go` 和 `git diff --check` 全部通过。额外行为断言确认 release 后 view 元素被清零，不再持有 borrowed payload section header。
+
+真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 286.70 ns/op、0 B/op、0 allocs/op`、raw JSON `484.00 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `603.30 ns/op、0 B/op、0 allocs/op`、decoded payload `846.60 ns/op、16 B/op、1 alloc/op`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
+
+当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 view storage 只由单消费者在 `TraceEventRouter.Handle` 的同步 update 生命周期内取得/归还，release 顺序覆盖普通、fragment、deferred/lifecycle update；生产 handler 只读取 payload section，不写回 borrowed state，未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
