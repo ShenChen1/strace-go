@@ -1,6 +1,52 @@
 package main
 
-import "testing"
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"strace-go/pkg/meta"
+)
+
+func TestSetSyscallVariablesDoesNotUseNumericFallback(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/session.go"))
+	for _, forbidden := range []string{
+		"fallback uint32",
+		"sc.fallback",
+		`{"SYS_RT_SIGRETURN_COMPAT"`,
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("setSyscallVariables still contains numeric fallback %q", forbidden)
+		}
+	}
+}
+
+func TestSetSyscallVariablesRejectsMissingGeneratedID(t *testing.T) {
+	spec, err := loadBpf()
+	if err != nil {
+		t.Fatalf("loadBpf() failed: %v", err)
+	}
+
+	var syscallID uint32
+	var syscallMeta meta.Syscall
+	for id, candidate := range meta.SyscallTable {
+		if candidate.Name == "capget" {
+			syscallID = id
+			syscallMeta = candidate
+			break
+		}
+	}
+	if syscallMeta.Name == "" {
+		t.Fatal("generated syscall table has no capget entry")
+	}
+	delete(meta.SyscallTable, syscallID)
+	defer func() { meta.SyscallTable[syscallID] = syscallMeta }()
+
+	err = setSyscallVariables(spec)
+	if err == nil || !strings.Contains(err.Error(), `syscall "capget" is missing`) {
+		t.Fatalf("setSyscallVariables() error = %v, want missing capget error", err)
+	}
+}
 
 func TestRawSyscallTracepointSpecsAreRequired(t *testing.T) {
 	specs := rawSyscallTracepointSpecs(&bpfObjects{})

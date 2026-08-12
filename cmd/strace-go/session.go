@@ -74,9 +74,8 @@ func setupBPF() (*bpfObjects, []link.Link, error) {
 	return bpfObjs, links, nil
 }
 
-// IMPACT: setSyscallVariables resolves strace-facing syscall ids referenced by
-// BPF constants from the generated SyscallTable. It returns an error instead of
-// aborting so unit tests can verify every BPF constant against the live table.
+// IMPACT: setSyscallVariables resolves Go-managed BPF syscall ids only from the
+// generated SyscallTable. ABI-only constants remain owned by runtime_abi.h.
 func setSyscallVariables(spec *ebpf.CollectionSpec) error {
 	sysNameToID := make(map[string]uint32)
 	for id, sc := range meta.SyscallTable {
@@ -94,25 +93,23 @@ func setSyscallVariables(spec *ebpf.CollectionSpec) error {
 	}
 
 	syscalls := []struct {
-		varName  string
-		scName   string
-		fallback uint32
+		varName string
+		scName  string
 	}{
-		{"SYS_RT_SIGRETURN", "rt_sigreturn", 15},
-		{"SYS_RT_SIGRETURN_COMPAT", "rt_sigreturn_compat", 173},
-		{"SYS_NANOSLEEP", "nanosleep", 35},
-		{"SYS_EXECVE", "execve", 59},
-		{"SYS_EXIT", "exit", 60},
-		{"SYS_CAPGET", "capget", 125},
-		{"SYS_CAPSET", "capset", 126},
-		{"SYS_RT_SIGSUSPEND", "rt_sigsuspend", 130},
-		{"SYS_EXIT_GROUP", "exit_group", 231},
-		{"SYS_EXECVEAT", "execveat", 322},
+		{"SYS_RT_SIGRETURN", "rt_sigreturn"},
+		{"SYS_NANOSLEEP", "nanosleep"},
+		{"SYS_EXECVE", "execve"},
+		{"SYS_EXIT", "exit"},
+		{"SYS_CAPGET", "capget"},
+		{"SYS_CAPSET", "capset"},
+		{"SYS_RT_SIGSUSPEND", "rt_sigsuspend"},
+		{"SYS_EXIT_GROUP", "exit_group"},
+		{"SYS_EXECVEAT", "execveat"},
 	}
 	for _, sc := range syscalls {
 		id, ok := sysNameToID[sc.scName]
 		if !ok {
-			id = sc.fallback
+			return fmt.Errorf("syscall %q is missing from generated syscall table", sc.scName)
 		}
 		if err := setVar(sc.varName, id); err != nil {
 			return err

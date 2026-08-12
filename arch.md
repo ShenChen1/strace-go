@@ -3485,3 +3485,36 @@ Impact note：`rg` 结果显示 `pkg/handler/epoll.go`、`type_time.go`、`type_
 本阶段只收口 format 层 Catalog ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source gate 先确认 `format_socket.go` 仍包含隐式 `meta.NewCatalog("abbrev")` wrapper；删除七个无仓内 caller 的默认 wrapper 后，format implementation 不再创建 Catalog，`*WithCatalog` API 和 Netlink 递归复用同一 Catalog。`go test ./pkg/format`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、no-ptrace/no-procfs source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，735.66 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.77 删除 loader 的手写 syscall numeric fallback（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：`setSyscallVariables` 在加载 BPF spec 时按 syscall name 查 `meta.SyscallTable`，但每个 binding 同时携带手写 numeric fallback；`rt_sigreturn_compat` 甚至不在当前 x86_64 generated catalog 中，却被当作同一类可回退 syscall 注入。
+- Problem：生成 catalog 缺项会被静默掩盖，BPF runtime 继续使用旧数字，loader 无法区分“当前架构 catalog 正确提供的 syscall”与“历史/ABI-only 常量”；这会让 metadata 生成错误直到运行期才表现为错误过滤或生命周期判断。
+- Goal：需要 session loader 注入的 syscall ID 必须全部来自 `meta.SyscallTable`，缺失时返回明确错误；`rt_sigreturn_compat` 作为 x86_64 不属于 generated catalog 的 ABI-only BPF 常量，保留其 header 默认值但移除 Go binding，不再伪装成 catalog fallback。
+- Non-goals：不在本阶段重生成 `bpf/runtime_abi.h` 全部 `#define SYS_*`；不改变 BPF event ABI、syscall direct capture policy、raw tracepoint attach、用户可见输出或纯 eBPF/no-procfs 约束；不扩展跨架构 catalog。
+- Constraints：当前 `meta.SyscallTable` 已包含 `rt_sigreturn`、`nanosleep`、`execve`、`exit`、`capget`、`capset`、`rt_sigsuspend`、`exit_group`、`execveat`；只有 `rt_sigreturn_compat` 缺失。BPF header 的 ABI-only default 必须保持可编译，现有 BPF source gates 需要改为验证无 numeric loader fallback。
+
+Impact note：`setSyscallVariables` 只有 `setupBPF` 一个 production caller，测试只验证真实 generated table 能重复解析；BPF source 中的 `SYS_*` 直接常量和 loader 注入变量是两个边界，本阶段只收紧 Go loader，不改 direct capture 使用的常量。
+
+方案比较：
+
+1. 保留 name lookup + numeric fallback：兼容旧表和 ABI-only 常量，但继续掩盖生成缺项，拒绝。
+2. 所有变量改用 `golang.org/x/sys/unix` 常量：避免局部数字，但把宿主 Go build ABI 绑定到 BPF catalog，且无法表达 `rt_sigreturn_compat` 的 catalog 缺失原因，拒绝。
+3. session loader 只接受 generated catalog，ABI-only compat 值留在 BPF header：错误边界清晰、改动局部、保持当前 x86_64 行为，选择该方案。
+
+状态契约：
+
+- `setSyscallVariables` 对每个 Go-managed BPF variable 都要求 `meta.SyscallTable` 命中；缺失返回 error，不选择 numeric default。
+- `SYS_RT_SIGRETURN_COMPAT` 不由 Go loader 更新，是 BPF header 明确拥有的 ABI-only 常量；其值不是 generated syscall metadata 的 fallback。
+- 现有 `volatile const` 默认值只作为 BPF spec 初始值，generated catalog 命中的变量仍在 loader 中显式设置并可重复验证。
+
+测试与验收：
+
+- 先增加失败优先 source gate，禁止 `fallback uint32`、`sc.fallback` 和 `SYS_RT_SIGRETURN_COMPAT` 的 Go binding。
+- 运行 BPF attach/syscall-variable focused tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收紧 loader 的 syscall ID ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source gate 先确认 `setSyscallVariables` 含 `fallback uint32`、`sc.fallback` 和 `SYS_RT_SIGRETURN_COMPAT` Go binding；修复后 9 个 Go-managed BPF variable 全部要求命中 generated `meta.SyscallTable`，缺失 `capget` entry 时返回明确错误，`SYS_RT_SIGRETURN_COMPAT` 只保留为 BPF header 的 ABI-only default。`go test ./cmd/strace-go` focused、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、no-ptrace/no-procfs source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，741.11 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
