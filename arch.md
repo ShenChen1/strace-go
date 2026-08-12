@@ -5020,3 +5020,42 @@ Impact note：影响 `cmd/strace-go/bpf_attach.go` 的 spec/attach policy、`bpf
 失败优先的 lifecycle required test 先因四个 spec 仍带 `optional` 而失败；删除字段和静默跳过分支后，attach policy、category/name 错误上下文与 focused tests 通过。`sudo -n go generate ./cmd/strace-go` 串行完成，生成物无意外 diff；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14120 ./cmd/strace-go`、Python 16 项 oracle 和 `git diff --check` 均通过。
 
 required lifecycle links 下真实 `ebpf-semantic` 为 201 个主事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 的 scalar/io/lifecycle/threads 分别为 6000/3000、4002/2001、42/17、3208/1604 个 JSON/exit 事件，四组 runtime counters 均为 0。`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS，`small` 为 23 PASS。review 确认产品 attach policy 不再有 tracepoint optional 分支，错误包含 category/name，recvmsg kretprobe 仍是唯一显式 best-effort 增强点，未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.121 Go 事件管线分配基线纳入 eBPF 性能 suite（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：7.4/13.4 要求性能门禁记录 events/s、ringbuf/drop/truncate、Go alloc/op、Go heap growth 和 pending stale；14.117 已补齐多 workload 事件语义与 runtime counters，但当前 `ebpf-perf` 只打印端到端吞吐，无法知道 Go decode/state/JSON 热点是否重新引入每条事件的大对象分配。
+- Problem：没有稳定的 Go allocation 基线，事件结构、TLV section ownership 或 JSON writer 的后续改动可能让高频 syscall 的 `B/op`、`allocs/op` 上升，却只能在端到端耗时中看到受内核、sudo、调度和机器负载混合后的模糊变化。
+- Goal：增加不依赖内核和 tracee 的 Go benchmark，分别测量一个 v2 enter/exit pair 的 decode + `TraceState` 配对，以及一个 raw JSON event 的编码；`ebpf-perf` 执行 benchmark 并报告 `ns/op`、`B/op`、`allocs/op`，指标缺失或 benchmark 失败时 suite 失败，但不设置跨机器的绝对阈值。
+- Non-goals：不在生产路径加入 allocator counter、runtime/pprof、heap dump、RSS 轮询或采样 goroutine；不改变 event v2 ABI、pending ownership、JSON 字段、BPF 程序、ringbuf、syscall workload 和 upstream reference oracle；不把 benchmark 数值伪装成跨机器性能承诺。
+- Constraints：benchmark fixture 必须在测试进程内构造确定的 event v2 bytes，不读取 procfs、不需要 sudo、不依赖 tracee；每个 benchmark 预热 map/writer 后再计时，必须启用 `-benchmem`；Python parser 要拒绝缺失或畸形指标，新增文件保持 500 行以内。
+
+Impact note：影响 `cmd/strace-go` 的 benchmark-only 测试、`test/ebpf_perf_suite.py` 的性能报告和对应 Python 单测，以及本文件性能验收记录；生产运行时与纯 eBPF/no-procfs 边界不变。
+
+方案比较：
+
+1. 在 eBPF fixture 外用 `/usr/bin/time`/RSS 估算 Go 内存：可覆盖端到端进程，但混入 sudo、BPF kernel memory 和调度噪声，不能得到 alloc/op，拒绝。
+2. 在生产事件循环加入自定义 allocation/heap 计数器：看似实时，但侵入热路径、改变性能本身，且不能代表 Go runtime allocator，拒绝。
+3. 用 Go `testing.B` 测量 decode/state pair 与 JSON writer，perf suite 只负责统一执行和报告：可重复、低侵入、直接得到 `B/op` 与 `allocs/op`，选择该方案。
+
+状态契约：
+
+- `BenchmarkTraceEventDecodeState` 必须每轮成功 decode enter 和 exit，并在同一 `TraceState` 中完成 TID 配对。
+- `BenchmarkJSONEventWriter` 必须使用与生产相同的 `JSONEventWriter` 和 JSON event constructor，只把输出目标替换为 `io.Discard`。
+- perf runner 必须解析至少两个 benchmark 指标，每个指标包含 benchmark name、`ns/op`、`B/op`、`allocs/op`；缺少任何字段视为失败。
+- benchmark 数值只作为同机同提交的诊断基线，不使用固定阈值阻断不同机器上的正确性 suite。
+
+测试与验收：
+
+- 先增加 Python parser 的 happy/failure tests，确认实现前因缺少 parser 失败。
+- 实现 benchmark、runner 集成和 parser 后运行 Python 单测、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、`ebpf-perf`；随后复核 semantic/upstream 不受影响。
+- review 确认 benchmark 没有运行期 procfs/ptrace/tracee 内存读取，生产源码没有新增热路径计数器。
+
+本阶段只建立 Go 事件处理分配基线，不以基线结果直接触发生产优化。
+
+#### 实际验收记录
+
+失败优先的 Python parser 先因 `parse_go_benchmark_metrics` 不存在而失败；实现 parser、runner 集成和两个 benchmark 后，Python 单测 18 项、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14121 ./cmd/strace-go`、`ebpf-perf` 和 `git diff --check` 通过。当前同机基线为 `BenchmarkTraceEventDecodeState` 304.90 ns/op、112 B/op、1 allocs/op，`BenchmarkJSONEventWriter` 604.70 ns/op、256 B/op、1 allocs/op。
+
+同次 `ebpf-perf` 的 scalar/io/lifecycle/threads 分别为 6000/3000、4002/2001、42/17、3208/1604 个 JSON/exit 事件，lifecycle events 为 3/3/27/11，四组 runtime counters 均为 0。指标只作为诊断基线，没有设置绝对阈值；benchmark 使用确定的 event v2 bytes、生产 `TraceState` 和 `JSONEventWriter`，未引入 ptrace、procfs、tracee 内存读取或运行期计数器。

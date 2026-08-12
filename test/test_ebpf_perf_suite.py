@@ -2,7 +2,12 @@
 import subprocess
 import unittest
 
-from ebpf_perf_suite import PerfCapture, PerfWorkloadSpec, validate_perf_capture
+from ebpf_perf_suite import (
+    PerfCapture,
+    PerfWorkloadSpec,
+    parse_go_benchmark_metrics,
+    validate_perf_capture,
+)
 
 
 def make_capture(events=None, lifecycle_events=None, stats=None, returncode=0):
@@ -29,6 +34,37 @@ def make_capture(events=None, lifecycle_events=None, stats=None, returncode=0):
 
 
 class PerfOracleTests(unittest.TestCase):
+    def test_parses_go_benchmark_allocation_metrics(self):
+        output = (
+            "BenchmarkTraceEventDecodeState-8  1000  123.4 ns/op  96 B/op  2 allocs/op\n"
+            "BenchmarkJSONEventWriter-8  500  456.7 ns/op  128 B/op  3 allocs/op\n"
+        )
+
+        metrics = parse_go_benchmark_metrics(output)
+
+        self.assertEqual(
+            metrics,
+            [
+                {
+                    "name": "BenchmarkTraceEventDecodeState-8",
+                    "ns_per_op": 123.4,
+                    "bytes_per_op": 96.0,
+                    "allocs_per_op": 2.0,
+                },
+                {
+                    "name": "BenchmarkJSONEventWriter-8",
+                    "ns_per_op": 456.7,
+                    "bytes_per_op": 128.0,
+                    "allocs_per_op": 3.0,
+                },
+            ],
+        )
+
+    def test_rejects_go_benchmark_without_alloc_metrics(self):
+        output = "BenchmarkTraceEventDecodeState-8  1000  123.4 ns/op\n"
+
+        self.assertEqual(parse_go_benchmark_metrics(output), [])
+
     def test_rejects_missing_nested_io_payload(self):
         spec = PerfWorkloadSpec(
             name="io",

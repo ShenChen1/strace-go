@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import os
+import re
+import subprocess
 import time
 from dataclasses import dataclass
 
@@ -13,6 +15,7 @@ from ebpf_suites import build_named_fixture, build_strace_go, run_strace_go_json
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 PERF_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_perf_fixture.c")
 RUNTIME_ERROR_COUNTERS = (
     "ringbuf_reserve_fail",
@@ -21,6 +24,12 @@ RUNTIME_ERROR_COUNTERS = (
     "orphan_exit",
     "pending_mismatch",
     "lifecycle_map_update_fail",
+)
+GO_BENCHMARK_PATTERN = re.compile(
+    r"^(?P<name>Benchmark\S+)\s+\d+\s+"
+    r"(?P<ns>[0-9]+(?:\.[0-9]+)?)\s+ns/op\s+"
+    r"(?P<bytes>[0-9]+(?:\.[0-9]+)?)\s+B/op\s+"
+    r"(?P<allocs>[0-9]+(?:\.[0-9]+)?)\s+allocs/op(?:\s+.*)?$"
 )
 
 
@@ -78,6 +87,45 @@ PERF_WORKLOADS = (
         require_non_leader_tid=True,
     ),
 )
+
+
+def parse_go_benchmark_metrics(output):
+    metrics = []
+    for line in output.splitlines():
+        match = GO_BENCHMARK_PATTERN.match(line.strip())
+        if not match:
+            continue
+        metrics.append(
+            {
+                "name": match.group("name"),
+                "ns_per_op": float(match.group("ns")),
+                "bytes_per_op": float(match.group("bytes")),
+                "allocs_per_op": float(match.group("allocs")),
+            }
+        )
+    return metrics
+
+
+def run_go_pipeline_benchmarks():
+    return subprocess.run(
+        [
+            "go",
+            "test",
+            "./cmd/strace-go",
+            "-run",
+            "^$",
+            "-bench",
+            "^Benchmark(TraceEventDecodeState|JSONEventWriter)$",
+            "-benchmem",
+            "-count=1",
+        ],
+        cwd=PROJECT_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        errors="ignore",
+        timeout=120,
+    )
 
 
 def _event_count(events, syscall, event_type="exit"):
@@ -182,6 +230,17 @@ def print_perf_capture(capture):
         print(f"events_per_sec: {len(capture.exit_events) / capture.elapsed:.2f}")
 
 
+def print_go_pipeline_benchmarks(result, metrics):
+    print("=== GO PERF event-pipeline ===")
+    print(f"returncode: {result.returncode}")
+    for metric in metrics:
+        print(
+            f"{metric['name']}: ns/op={metric['ns_per_op']:.2f} "
+            f"B/op={metric['bytes_per_op']:.2f} "
+            f"allocs/op={metric['allocs_per_op']:.2f}"
+        )
+
+
 def run_ebpf_perf(args):
     if not args.skip_build:
         build_strace_go()
@@ -189,6 +248,30 @@ def run_ebpf_perf(args):
         "strace-go-ebpf-perf-fixture", PERF_FIXTURE_SRC, ["-pthread"]
     )
     failed = False
+    try:
+        benchmark_result = run_go_pipeline_benchmarks()
+    except (OSError, subprocess.SubprocessError) as error:
+        print(f"FAIL: Go event-pipeline benchmark failed to run: {error}")
+        failed = True
+    else:
+        benchmark_output = benchmark_result.stdout + benchmark_result.stderr
+        benchmark_metrics = parse_go_benchmark_metrics(benchmark_output)
+        print_go_pipeline_benchmarks(benchmark_result, benchmark_metrics)
+        expected_benchmarks = {
+            "BenchmarkTraceEventDecodeState",
+            "BenchmarkJSONEventWriter",
+        }
+        actual_benchmarks = {
+            metric["name"].rsplit("-", 1)[0] for metric in benchmark_metrics
+        }
+        missing = expected_benchmarks - actual_benchmarks
+        if benchmark_result.returncode != 0:
+            failed = True
+            print("FAIL: Go event-pipeline benchmark returned nonzero")
+            print("\n".join(benchmark_output.splitlines()[-30:]))
+        elif missing:
+            failed = True
+            print(f"FAIL: missing Go benchmark metrics: {sorted(missing)}")
     for spec in PERF_WORKLOADS:
         capture = capture_workload(fixture, spec)
         print_perf_capture(capture)
