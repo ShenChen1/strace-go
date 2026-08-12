@@ -3518,3 +3518,36 @@ Impact note：`setSyscallVariables` 只有 `setupBPF` 一个 production caller�
 本阶段只收紧 loader 的 syscall ID ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source gate 先确认 `setSyscallVariables` 含 `fallback uint32`、`sc.fallback` 和 `SYS_RT_SIGRETURN_COMPAT` Go binding；修复后 9 个 Go-managed BPF variable 全部要求命中 generated `meta.SyscallTable`，缺失 `capget` entry 时返回明确错误，`SYS_RT_SIGRETURN_COMPAT` 只保留为 BPF header 的 ABI-only default。`go test ./cmd/strace-go` focused、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、no-ptrace/no-procfs source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，741.11 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.78 生成 BPF runtime syscall number header（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.34 已让 `cmd/generate-syscalls` 使用 `golang.org/x/sys/unix` 作为 syscall number source，14.77 也删除了 Go loader 的 numeric fallback；但 `bpf/runtime_abi.h` 仍手写约 160 个 `#define SYS_* <number>`，与生成 catalog 完全是两套数字 owner。
+- Problem：内核 ABI 数字变化、手工漏改或 syscall 名称写错时，Go metadata、BPF direct capture 和 filter 可能观察不同 syscall；source review 也无法证明 BPF 常量来自当前宿主架构的 syscall source。继续手改 runtime header 会把“生成的 eBPF ABI”退化为手工字典。
+- Goal：generator 从既有 `unixSyscallSource` 产出 `bpf/syscall_numbers_generated.h`，`runtime_abi.h` include 该 header 并删除重复 numeric defines；9 个由 BPF volatile const 管理的 Go runtime variables，以及 `SYS_RT_SIGRETURN_COMPAT` ABI-only 常量从生成 header 排除，避免宏与变量冲突。
+- Non-goals：不改变 syscall metadata 参数解析、semantic capture policy、BPF event ABI、direct TLV、lifecycle/filter 逻辑、跨架构构建、用户可见输出或纯 eBPF/no-procfs 约束；不把所有 BPF capture policy 自动推导成 syscall metadata。
+- Constraints：当前 x86_64 `x/sys/unix` 有 380 个 syscall constants，生成文件须稳定排序、带 include guard、少于 500 行；排除集合必须显式测试；`go generate ./cmd/strace-go` 和 `build.sh` 的生成链必须同时更新 header 与 Go table。
+
+Impact note：`runtime_abi.h` 是 BPF translation unit 的唯一入口，`strace.c` 及 direct event headers 继续只引用 `SYS_*` 名称；本阶段替换数字来源，不改任何调用点。Go loader 的 9 个 managed variables 继续由 `meta.SyscallTable` 注入，compat constant 仍由 runtime ABI header 自有。
+
+方案比较：
+
+1. 继续手写 `runtime_abi.h` 并增加一致性测试：能发现漂移但仍有双 owner，生成结果无法成为事实源，拒绝。
+2. 在每个 BPF header 中直接 include 系统 `asm/unistd.h`：减少生成代码，但把 clang 头文件和目标架构环境直接耦合，且不能稳定处理 BPF volatile variable 与项目 syscall naming，拒绝。
+3. generator 生成项目内 syscall-number header，runtime ABI include 并排除 managed/ABI-only symbols：来源单一、编译环境稳定、变更可审计，选择该方案。
+
+状态契约：
+
+- `cmd/generate-syscalls` 的 `unixSyscallSource` 是 BPF syscall number header 的唯一数字来源；writer 按宏名排序输出。
+- `bpf/runtime_abi.h` 只拥有 event/map/layout、managed volatile constants 和 ABI-only compat 常量，不再拥有普通 syscall numeric defines。
+- 生成 header 是 checked-in generated artifact，禁止手工修改；BPF source gate 必须确认 include 存在且 runtime ABI 没有重复普通 defines。
+
+测试与验收：
+
+- 先增加失败优先 generator writer 和 runtime ABI source gate，验证旧 runtime header 没有 generated include 且仍含手写 `SYS_READ` define。
+- 运行 generator focused tests、`go generate ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和 upstream reference；检查生成 diff、无残留 tracer/BPF pin。
+
+本阶段只统一 BPF syscall number 来源，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：先验证旧源码门禁因缺少 generated header 而失败，再将 `syscall_numbers_generated.h` 按翻译单元 include 顺序纳入测试源码视图；`go test ./cmd/generate-syscalls ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`sudo -n go generate ./cmd/strace-go`、`go build -o strace-go ./cmd/strace-go`、no-ptrace/no-procfs source gate 和 `git diff --check` 全部通过。生成 header 为 378 行，按 syscall name 稳定排序，旧 runtime ABI 普通 `SYS_*` numeric defines 已全部删除。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，699.45 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

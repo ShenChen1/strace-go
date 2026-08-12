@@ -101,6 +101,7 @@ func readCombinedBPFSources(t *testing.T) string {
 	t.Helper()
 	root := repoRootForTest(t)
 	return readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_numbers_generated.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/runtime_stats.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/lifecycle_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/pending_state.h")) +

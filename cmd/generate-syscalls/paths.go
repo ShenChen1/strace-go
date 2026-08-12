@@ -8,6 +8,7 @@ import (
 
 const (
 	defaultSyscallTableRelPath  = "pkg/meta/syscall_table.go"
+	defaultRuntimeABIHeaderPath = "bpf/syscall_numbers_generated.h"
 	generateSyscallsPackagePath = "cmd/generate-syscalls"
 )
 

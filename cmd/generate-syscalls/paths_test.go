@@ -61,6 +61,36 @@ func TestGeneratorCommandResolvesDefaultOutputPath(t *testing.T) {
 	}
 }
 
+func TestGeneratorCommandResolvesRuntimeABIPath(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "go.mod"), "module example.test/repo\n")
+	if err := os.MkdirAll(filepath.Join(root, generateSyscallsPackagePath), 0o755); err != nil {
+		t.Fatalf("create generator package marker: %v", err)
+	}
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	})
+	if err := os.Chdir(filepath.Join(root, generateSyscallsPackagePath)); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	got, err := (generatorCommand{}).runtimeABIOutputPath()
+	if err != nil {
+		t.Fatalf("runtimeABIOutputPath() error = %v", err)
+	}
+	want := filepath.Join(root, defaultRuntimeABIHeaderPath)
+	if got != want {
+		t.Fatalf("runtimeABIOutputPath() = %q, want %q", got, want)
+	}
+}
+
 func writeFile(t *testing.T, path string, data string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

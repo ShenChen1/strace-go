@@ -32,6 +32,8 @@ type generatorCommand struct {
 	overrides         map[string]SyscallMeta
 	aliases           map[string]string
 	defaultOutputPath string
+	runtimeABIWriter  syscallNumberHeaderWriter
+	runtimeABIPath    string
 }
 
 func main() {
@@ -53,6 +55,7 @@ func newGeneratorCommand() generatorCommand {
 		tracepointSource: kernelTracepointFormatSource{},
 		overrides:        allSyscallOverrides(),
 		aliases:          btfNameToCanonicalSyscall,
+		runtimeABIWriter: generatedSyscallNumberHeaderWriter{},
 	}
 }
 
@@ -93,7 +96,32 @@ func (c generatorCommand) Run(args []string, stdout io.Writer) error {
 	if err := writer.Write(resolvedOutputPath, syscalls); err != nil {
 		return fmt.Errorf("write syscall table: %w", err)
 	}
+	if err := c.writeRuntimeABIHeader(); err != nil {
+		return fmt.Errorf("write runtime syscall header: %w", err)
+	}
 	return nil
+}
+
+func (c generatorCommand) writeRuntimeABIHeader() error {
+	if c.runtimeABIWriter == nil {
+		return nil
+	}
+	numbers, err := (unixSyscallSource{}).LoadSyscallNumbers()
+	if err != nil {
+		return fmt.Errorf("load syscall numbers: %w", err)
+	}
+	path, err := c.runtimeABIOutputPath()
+	if err != nil {
+		return fmt.Errorf("resolve output path: %w", err)
+	}
+	return c.runtimeABIWriter.Write(path, numbers)
+}
+
+func (c generatorCommand) runtimeABIOutputPath() (string, error) {
+	if c.runtimeABIPath != "" {
+		return c.runtimeABIPath, nil
+	}
+	return resolveRepoPath(defaultRuntimeABIHeaderPath)
 }
 
 func (c generatorCommand) outputPath(path string) (string, error) {

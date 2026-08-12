@@ -78,6 +78,27 @@ func TestBPFRuntimeModulesOwnCoreDefinitions(t *testing.T) {
 	}
 }
 
+func TestBPFRuntimeSyscallNumbersAreGenerated(t *testing.T) {
+	root := repoRootForTest(t)
+	abi := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
+	generated := readTextFile(t, filepath.Join(root, "bpf/syscall_numbers_generated.h"))
+	if !strings.Contains(abi, `#include "syscall_numbers_generated.h"`) {
+		t.Fatal("runtime_abi.h must include generated syscall numbers")
+	}
+	if strings.Contains(abi, "#define SYS_READ ") {
+		t.Fatal("runtime_abi.h still owns a hand-written syscall number")
+	}
+	for _, snippet := range []string{
+		"#ifndef STRACE_GO_SYSCALL_NUMBERS_GENERATED_H",
+		"#define SYS_READ 0",
+		"#define SYS_STATMOUNT 457",
+	} {
+		if !strings.Contains(generated, snippet) {
+			t.Fatalf("generated syscall header missing %q", snippet)
+		}
+	}
+}
+
 func TestBPFRuntimeEntryFileStaysSmall(t *testing.T) {
 	root := repoRootForTest(t)
 	source := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
