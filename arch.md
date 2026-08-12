@@ -4265,3 +4265,38 @@ Impact note：影响 `main.go`、`syscall_filter.go`、BPF 配置单测和 targe
 ### 14.99 实际验收记录
 
 失败优先 source gate 先因 `buildRuntimeConfig` 仍接收 `*cli.Options` 而失败；迁移后 `newTraceBPFConfig` 在 bootstrap 边界复制 scalar、syscall name map 并预计算 filter ID，BPF 配置函数只消费 snapshot/plan。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过；纯 eBPF source/no-ptrace/no-procfs gate 通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，743.55 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试后保留生成的 BPF 对象，清理本轮 `strace-go` 和 Python 临时目录，生产路径仍未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.100 将 session composition 改为显式启动配置（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.97-14.99 已删除 `traceSessionDeps` 的 CLI owner，并将 BPF 初始化切换为最小快照，但 `composeTraceSession` 仍直接接收完整 `*cli.Options`，在 composition 内临时构造 event/output policy、decoder、catalog 和 resolver；`session_composition.go` 还仅因 `attachPIDs` helper 保留 CLI import。
+- Problem：组件组装 API 仍暴露 parser concrete，策略和 decoder 等 snapshot 的构造时点不集中；composition 文件保留 CLI import 也让未来代码容易把 bootstrap owner 带入 session graph。
+- Goal：新增值语义 `traceSessionConfig`，在 main bootstrap 边界一次形成 event/output policy、decoder、catalog 和可选 stack resolver；`composeTraceSession` 只消费该配置和外部资源，`session_composition.go` 不再依赖 `pkg/cli`；attach PID 清理 helper 留在 main bootstrap。
+- Non-goals：不修改 event/output policy 字段、decoder 行为、xlat catalog、stack resolver、目标启动/attach/cleanup、session event graph、BPF ABI、纯 eBPF/no-procfs/no-ptrace 约束；不删除 bootstrap 层对 CLI 的合法读取。
+- Constraints：配置必须在 tracee 启动前形成并且只构造一次；decoder 的 `HexEscapeMode`/`StringLimit`、catalog 的 `XlatFormat`、resolver 的 stack 开关和两个 policy snapshot 必须来自同一 options 输入；composition 不得重新读取 CLI；配置字段不得共享 CLI 的可变 map/slice。
+
+Impact note：影响 `main.go`、`session_composition.go`、新增 session config bootstrap 文件和 source/ownership tests；运行期 session dependency graph 不增加新的 mutable owner。
+
+方案比较：
+
+1. 保留 `composeTraceSession(*cli.Options, ...)`：改动最小，但 composition API 继续暴露完整 parser owner，拒绝。
+2. 把 policy、decoder、catalog、resolver 拆成多个函数参数：CLI 依赖消失，但参数数量和顺序容易错位，拒绝。
+3. 在 bootstrap 创建 `traceSessionConfig`，composition 接收一个只读配置值：ownership 集中、参数少、可测试，选择该方案。
+
+状态契约：
+
+- `traceSessionConfig` 只携带已经物化的 session construction inputs，不进入 BPF 或事件热路径；其 policy/map/slice ownership 由现有 snapshot builders 保证。
+- `newTraceSessionConfig` 在目标启动前调用一次；修改原始 CLI 后，decoder、catalog、resolver 和 policy 不发生漂移。
+- `composeTraceSession` 和 `session_composition.go` 不导入或声明 `*cli.Options`；attach PID 目标清理仍在 main bootstrap 内读取 CLI。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 composition 不再接收 CLI 且 config snapshot 在目标启动前形成；增加 decoder/output/stack 配置 mutation 回归，迁移前测试应失败。
+- 运行 focused、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 session composition 的启动输入，不改变任何 syscall 事件语义或输出契约。
+
+### 14.100 实际验收记录
+
+失败优先 source gate 先因 `session_composition.go` 仍 import CLI 且 `composeTraceSession` 直接接收 `*cli.Options` 而失败；迁移后新增 `traceSessionConfig`，在目标启动前一次物化 event/output policy、decoder、catalog 和 stack resolver，composition 文件只消费显式配置，attach PID helper 保留在 main bootstrap。构造后 CLI mutation 回归覆盖 JSON/text policy、follow-forks、decoder limit/hex、catalog format 和 resolver ownership。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source/no-ptrace/no-procfs gate 和 `git diff --check` 全部通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，724.45 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试后清理本轮 `strace-go` 和 Python 临时目录，生产路径仍未引入 ptrace、procfs 或用户态 tracee 内存读取。

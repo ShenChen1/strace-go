@@ -7,7 +7,8 @@ import (
 )
 
 func TestMainCatalogCompositionUsesCLIFormat(t *testing.T) {
-	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/main.go"))
+	root := repoRootForTest(t)
+	source := readTextFile(t, filepath.Join(root, "cmd/strace-go/session_config.go"))
 	for _, forbidden := range []string{
 		"metaCatalogForOptions(",
 		"meta.NewCatalog(\"abbrev\")",
@@ -16,7 +17,7 @@ func TestMainCatalogCompositionUsesCLIFormat(t *testing.T) {
 			t.Fatalf("main catalog source contains implicit policy %q", forbidden)
 		}
 	}
-	if !strings.Contains(source, "Catalog:       meta.NewCatalog(opts.XlatFormat)") {
-		t.Fatal("main composition must create catalog from CLI XlatFormat")
+	if !strings.Contains(source, "catalog:      meta.NewCatalog(opts.XlatFormat)") {
+		t.Fatal("session config must create catalog from CLI XlatFormat")
 	}
 }

@@ -7,10 +7,6 @@ import (
 	"path/filepath"
 
 	"strace-go/pkg/cli"
-	"strace-go/pkg/event"
-	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
-	"strace-go/pkg/stacktrace"
 
 	"github.com/cilium/ebpf/ringbuf"
 )
@@ -54,6 +50,7 @@ func runTraceSession(opts *cli.Options, clock traceClock) error {
 		return fmt.Errorf("trace clock is nil")
 	}
 	bpfConfig := newTraceBPFConfig(opts)
+	sessionConfig := newTraceSessionConfig(opts)
 	inheritedFiles := collectInheritedFiles()
 	defer closeFiles(inheritedFiles)
 
@@ -95,7 +92,7 @@ func runTraceSession(opts *cli.Options, clock traceClock) error {
 	}
 	defer func() { _ = output.Close() }()
 
-	session, err := composeTraceSession(opts, clock, traceSessionBootstrap{
+	session, err := composeTraceSession(sessionConfig, clock, traceSessionBootstrap{
 		cmd:       cmd,
 		events:    events,
 		targetPID: targetPid,
@@ -113,50 +110,11 @@ func runTraceSession(opts *cli.Options, clock traceClock) error {
 	return nil
 }
 
-type traceSessionBootstrap struct {
-	cmd       *exec.Cmd
-	events    traceRingbufReader
-	targetPID int
-	fdSeed    fdStateSeed
-	bpfObjs   *bpfObjects
-}
-
-func composeTraceSession(
-	opts *cli.Options,
-	clock traceClock,
-	bootstrap traceSessionBootstrap,
-	output *TraceOutput,
-) (*traceSession, error) {
-	eventPolicy := newTraceEventPolicy(opts)
-	outputPolicy := newTraceOutputPolicy(opts)
-	decoder := event.NewDecoder()
-	decoder.HexEscapeMode = opts.HexEscapeMode
-	// IMPACT: Initialize decoder.StringLimit from parsed CLI options to respect command-line formatting constraints.
-	decoder.StringLimit = opts.StringLimit
-	var resolver *stacktrace.Resolver
-	if opts.StackTrace {
-		resolver = stacktrace.NewResolver()
+func attachPIDs(opts *cli.Options) []int {
+	if opts == nil {
+		return nil
 	}
-	return newTraceSession(traceSessionDeps{
-		Cmd:           bootstrap.cmd,
-		Events:        bootstrap.events,
-		TargetPID:     bootstrap.targetPID,
-		EventPolicy:   eventPolicy,
-		OutputPolicy:  outputPolicy,
-		Catalog:       meta.NewCatalog(opts.XlatFormat),
-		Decoder:       decoder,
-		FDState:       newFDStateStoreFromSeed(bootstrap.fdSeed),
-		Runtime:       handler.NewRuntime(),
-		OutWriter:     output,
-		Output:        output,
-		Summary:       newSummaryStats(),
-		TimeFormatter: newTimeFormatterWithClock(calculateTimeOffsetWithClock(clock), clock),
-		BPFObjects:    bootstrap.bpfObjs,
-		Resolver:      resolver,
-		State:         newTraceStateForSession(eventPolicy),
-		Clock:         clock,
-		PIDProbe:      systemTracePIDProbe{},
-	})
+	return append([]int(nil), opts.AttachPids...)
 }
 
 // handlePrelude handles help/version requests and rejects sessions without targets.

@@ -14,7 +14,7 @@ func TestTraceSessionConstructorDoesNotNormalizeDefaults(t *testing.T) {
 }
 
 func TestMainInjectsSessionRuntimeAndSummary(t *testing.T) {
-	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/main.go"))
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/session_composition.go"))
 	if !strings.Contains(source, "Runtime:       handler.NewRuntime()") {
 		t.Fatal("main must inject the session runtime service")
 	}

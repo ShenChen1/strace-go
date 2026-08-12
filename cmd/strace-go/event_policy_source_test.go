@@ -20,8 +20,8 @@ func TestEventContextUsesImmutableSessionPolicy(t *testing.T) {
 	if !strings.Contains(policySource, "type cliTraceEventPolicy struct") {
 		t.Fatal("event policy owner is missing")
 	}
-	compositionSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/main.go"))
-	if !strings.Contains(compositionSource, "EventPolicy:   eventPolicy") {
+	compositionSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/session_composition.go"))
+	if !strings.Contains(compositionSource, "EventPolicy:   config.eventPolicy") {
 		t.Fatal("session composition must inject the event policy snapshot")
 	}
 }

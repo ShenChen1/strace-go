@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 
-	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
@@ -57,6 +56,42 @@ type traceSessionEventComponents struct {
 	exitPipeline     *SyscallExitPipeline
 	lifecycleHandler *LifecycleEventHandler
 	eventRouter      *TraceEventRouter
+}
+
+type traceSessionBootstrap struct {
+	cmd       *exec.Cmd
+	events    traceRingbufReader
+	targetPID int
+	fdSeed    fdStateSeed
+	bpfObjs   *bpfObjects
+}
+
+func composeTraceSession(
+	config traceSessionConfig,
+	clock traceClock,
+	bootstrap traceSessionBootstrap,
+	output *TraceOutput,
+) (*traceSession, error) {
+	return newTraceSession(traceSessionDeps{
+		Cmd:           bootstrap.cmd,
+		Events:        bootstrap.events,
+		TargetPID:     bootstrap.targetPID,
+		EventPolicy:   config.eventPolicy,
+		OutputPolicy:  config.outputPolicy,
+		Catalog:       config.catalog,
+		Decoder:       config.decoder,
+		FDState:       newFDStateStoreFromSeed(bootstrap.fdSeed),
+		Runtime:       handler.NewRuntime(),
+		OutWriter:     output,
+		Output:        output,
+		Summary:       newSummaryStats(),
+		TimeFormatter: newTimeFormatterWithClock(calculateTimeOffsetWithClock(clock), clock),
+		BPFObjects:    bootstrap.bpfObjs,
+		Resolver:      config.resolver,
+		State:         newTraceStateForSession(config.eventPolicy),
+		Clock:         clock,
+		PIDProbe:      systemTracePIDProbe{},
+	})
 }
 
 // traceSessionDeps contains external resources and immutable session policy.
@@ -319,11 +354,4 @@ func buildTraceSessionRuntime(
 			Renderer:   renderer,
 		}),
 	}
-}
-
-func attachPIDs(opts *cli.Options) []int {
-	if opts == nil {
-		return nil
-	}
-	return opts.AttachPids
 }

@@ -31,8 +31,7 @@ func TestTraceStateUsesEventPolicyPort(t *testing.T) {
 	if !strings.Contains(policySource, "var _ traceStatePolicy = (*cliTraceEventPolicy)(nil)") {
 		t.Fatal("event policy does not implement trace state policy")
 	}
-	mainSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/main.go"))
-	if !strings.Contains(mainSource, "EventPolicy:   eventPolicy") {
+	if !strings.Contains(source, "EventPolicy:   config.eventPolicy") {
 		t.Fatal("session composition must pass the event policy snapshot")
 	}
 }
