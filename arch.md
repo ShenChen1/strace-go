@@ -4810,3 +4810,40 @@ Impact note：影响 `trace_output.go` 的 writer owner 状态和 output unit te
 失败优先 source gate 先因 `TraceOutput` 没有 write error owner 而失败；迁移后 writer error、short write、write+close+wait 多错误和重复 Close regression 均通过，close/wait 顺序保持不变。focused output tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14114 ./cmd/strace-go` 和 `git diff --check` 全部通过。
 
 真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，718.73 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认所有现有 renderer/JSON writer 仍复用同一 `TraceOutput`，首个写错误在 Close 时与文件 close/command wait 聚合，生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.115 继承 FD 枚举的启动错误边界（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.23/14.36 保留了 tracer 自身普通文件、目录、设备和 FIFO 的 FD 继承，用于 command 启动时保持已有 `ExtraFiles` 语义；当前 `collectInheritedFiles`、`openFileDescriptors` 和 `isPassThroughFD` 仍把底层枚举/分类失败静默转换为空结果，`F_DUPFD_CLOEXEC` 失败则跳过条目。
+- Problem：RLIMIT 读取失败、非预期 `FSTAT` 错误或 FD duplicate 失败会让目标命令悄悄少继承一个 descriptor，调用者无法区分“确实没有可继承 FD”和“bootstrap 失败”；duplicate 失败还可能留下已经复制的前置文件未关闭。此问题不涉及 tracee procfs，但会破坏 command 启动输入的确定性。
+- Goal：让 inherited-FD collector 返回明确 error；对扫描中的正常 `EBADF` 竞态继续视为关闭的 FD，对其它枚举/分类错误返回上下文；duplicate 失败时关闭所有已复制文件并聚合 cleanup error；正常成功路径的 FD slot 映射保持不变。
+- Non-goals：不读取 `/proc`、不改变 ExtraFiles 的数字 slot 约定、过滤普通文件类型、RLIMIT 扫描上限、command argv/env、BPF arm/filter、FD state event source 或输出格式；不新增 FD 重试、goroutine 或全局资源 manager。
+- Constraints：`newTraceTargetBootstrap` 只有在 collector 成功后才返回 owner；collector 失败不得留下 duplicated file；`closeFiles` 仍尝试关闭所有非 nil file 并返回聚合 error；空 FD 集合仍返回 nil slice/nil error。
+
+Impact note：影响 `target_bootstrap.go` 的 inherited-FD collector 返回值、constructor failure boundary 和 focused/source tests；目标启动成功、attach-only 行为及生产纯 eBPF/no-procfs 约束保持不变。
+
+方案比较：
+
+1. 继续 best-effort 跳过错误：对现有测试最宽松，但会静默改变目标继承环境，拒绝。
+2. 任何单个 FD 错误都立即终止并不清理前置 duplicate：错误可见但会泄漏已复制资源，拒绝。
+3. collector 返回 error，允许明确的 closed-FD 竞态跳过，duplicate 失败时全量 cleanup 并聚合：语义明确、owner 完整、改动集中，选择该方案。
+
+状态契约：
+
+- `openFileDescriptors` 的 RLIMIT 读取失败、`passThroughFDs` 的非 `EBADF` FSTAT 失败和 duplicate failure 都保留 error context。
+- `collectInheritedFilesFromFDs` 成功返回与原实现相同的 `[fd-3]` slot；任一 duplicate 失败时返回 nil files，并关闭此前已复制的 files。
+- `newTraceTargetBootstrap` 不吞 collector error；调用方仍通过既有 BPF/bootstrap cleanup defer 回收已建立资源。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 collector/constructor 暴露 error；增加 fake duplicator 的 partial failure cleanup、slot mapping 和 nil/empty 输入 regression。
+- 运行 focused target/bootstrap tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference。
+
+本阶段只收口 tracer 自身 inherited FD 的 bootstrap 错误边界，不改变 tracee 运行期事实源。
+
+### 14.115 实际验收记录
+
+失败优先 source gate 先因 inherited-FD collector、constructor 和 duplicate cleanup 没有 error-return contract 而失败；迁移后 RLIMIT/F_GETFD/FSTAT/duplicate 错误均有上下文，EBADF 竞态保持跳过，partial duplicate 会完整关闭并聚合 cleanup error，原有稀疏 FD slot 映射保持不变。focused target/bootstrap tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14115 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+
+真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，729.88 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认该阶段只处理 tracer 自身启动资源，不读取 tracee procfs，不改变 ExtraFiles slot、command lifecycle、BPF ABI 或事件状态来源。

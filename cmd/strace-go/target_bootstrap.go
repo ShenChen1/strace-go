@@ -33,9 +33,13 @@ func newTraceTargetBootstrap(bpfRuntime traceBPFTargetPort) (*traceTargetBootstr
 	if bpfRuntime == nil {
 		return nil, fmt.Errorf("BPF target port is unavailable")
 	}
+	inheritedFiles, err := collectInheritedFiles()
+	if err != nil {
+		return nil, fmt.Errorf("collect inherited files: %w", err)
+	}
 	return &traceTargetBootstrap{
 		bpfRuntime:       bpfRuntime,
-		inheritedFiles:   collectInheritedFiles(),
+		inheritedFiles:   inheritedFiles,
 		workingDirectory: os.Getwd,
 	}, nil
 }
@@ -83,58 +87,111 @@ func (b *traceTargetBootstrap) Close() error {
 	return closeErr
 }
 
-func collectInheritedFiles() []*os.File {
-	fds := passThroughFDs(openFileDescriptors())
+func collectInheritedFiles() ([]*os.File, error) {
+	fds, err := openFileDescriptors()
+	if err != nil {
+		return nil, fmt.Errorf("enumerate open file descriptors: %w", err)
+	}
+	fds, err = passThroughFDs(fds)
+	if err != nil {
+		return nil, fmt.Errorf("classify inherited file descriptors: %w", err)
+	}
+	return collectInheritedFilesFromFDs(fds, duplicateInheritedFile)
+}
+
+type inheritedFileDuplicator func(fd int) (*os.File, error)
+
+func collectInheritedFilesFromFDs(fds []int, duplicate inheritedFileDuplicator) ([]*os.File, error) {
 	if len(fds) == 0 {
-		return nil
+		return nil, nil
+	}
+	if duplicate == nil {
+		return nil, fmt.Errorf("inherited file duplicator is nil")
 	}
 
-	files := make([]*os.File, fds[len(fds)-1]-2)
+	maxFD := 0
 	for _, fd := range fds {
-		dupFD, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 3)
-		if err != nil {
-			continue
+		if fd < 3 {
+			return nil, fmt.Errorf("inherited file descriptor %d is below 3", fd)
 		}
-		files[fd-3] = os.NewFile(uintptr(dupFD), fmt.Sprintf("fd:%d", fd))
+		if fd > maxFD {
+			maxFD = fd
+		}
 	}
-	return files
+	files := make([]*os.File, maxFD-2)
+	for _, fd := range fds {
+		file, err := duplicate(fd)
+		if err != nil {
+			return nil, errors.Join(
+				fmt.Errorf("duplicate inherited file descriptor %d: %w", fd, err),
+				closeFiles(files),
+			)
+		}
+		if file == nil {
+			return nil, errors.Join(
+				fmt.Errorf("duplicate inherited file descriptor %d returned nil file", fd),
+				closeFiles(files),
+			)
+		}
+		files[fd-3] = file
+	}
+	return files, nil
+}
+
+func duplicateInheritedFile(fd int) (*os.File, error) {
+	dupFD, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 3)
+	if err != nil {
+		return nil, err
+	}
+	return os.NewFile(uintptr(dupFD), fmt.Sprintf("fd:%d", fd)), nil
 }
 
 const maxInheritedFDScan = 1 << 20
 
-func openFileDescriptors() []int {
+func openFileDescriptors() ([]int, error) {
 	var limit unix.Rlimit
 	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &limit); err != nil {
-		return nil
+		return nil, fmt.Errorf("get RLIMIT_NOFILE: %w", err)
 	}
 	if limit.Cur > maxInheritedFDScan {
 		limit.Cur = maxInheritedFDScan
 	}
 	fds := make([]int, 0)
 	for fd := 3; uint64(fd) < limit.Cur; fd++ {
-		if _, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0); err == nil {
-			fds = append(fds, fd)
+		if _, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0); err != nil {
+			if errors.Is(err, unix.EBADF) {
+				continue
+			}
+			return nil, fmt.Errorf("check inherited file descriptor %d: %w", fd, err)
 		}
+		fds = append(fds, fd)
 	}
-	return fds
+	return fds, nil
 }
 
-func passThroughFDs(fds []int) []int {
+func passThroughFDs(fds []int) ([]int, error) {
 	passThrough := make([]int, 0, len(fds))
 	for _, fd := range fds {
-		if isPassThroughFD(fd) {
+		pass, err := isPassThroughFD(fd)
+		if err != nil {
+			return nil, err
+		}
+		if pass {
 			passThrough = append(passThrough, fd)
 		}
 	}
-	return passThrough
+	return passThrough, nil
 }
 
-func isPassThroughFD(fd int) bool {
+func isPassThroughFD(fd int) (bool, error) {
 	var stat unix.Stat_t
 	if err := unix.Fstat(fd, &stat); err != nil {
-		return false
+		if errors.Is(err, unix.EBADF) {
+			return false, nil
+		}
+		return false, fmt.Errorf("stat inherited file descriptor %d: %w", fd, err)
 	}
-	return isPassThroughFDMode(uint32(stat.Mode))
+	return isPassThroughFDMode(uint32(stat.Mode)), nil
 }
 
 func isPassThroughFDMode(mode uint32) bool {
