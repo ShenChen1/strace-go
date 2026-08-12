@@ -37,6 +37,20 @@ func TestOutputSubcomponentsUseNarrowRendererPorts(t *testing.T) {
 			t.Fatalf("text renderer port %q is missing", required)
 		}
 	}
+	textOutputSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/syscall_text_output.go"))
+	for _, required := range []string{
+		"type suspendedSyscallOutputPort interface",
+		"type execSyscallOutputPort interface",
+	} {
+		if !strings.Contains(textOutputSource, required) {
+			t.Fatalf("syscall text output port %q is missing", required)
+		}
+	}
+	for _, forbidden := range []string{"*SuspendedSyscallOutput", "*ExecSyscallOutput"} {
+		if strings.Contains(textOutputSource, forbidden) {
+			t.Fatalf("syscall text output still depends on concrete delegate %q", forbidden)
+		}
+	}
 }
 
 type fakeExitSyscallRenderer struct {
@@ -120,4 +134,55 @@ func TestOutputSubcomponentsAcceptInjectedRendererPorts(t *testing.T) {
 	_ = newSyscallTextOutput(SyscallTextOutputDeps{Renderer: textRenderer})
 	_ = newExecSyscallOutput(ExecSyscallOutputDeps{Renderer: execRenderer})
 	_ = newSuspendedSyscallOutput(SuspendedSyscallOutputDeps{Renderer: unfinishedRenderer})
+}
+
+type fakeSuspendedSyscallOutput struct {
+	events  *[]string
+	handled bool
+}
+
+func (o *fakeSuspendedSyscallOutput) HandleEvent(syscallEventContext, handler.Result) bool {
+	*o.events = append(*o.events, "suspended")
+	return o.handled
+}
+
+type fakeExecSyscallOutput struct {
+	events  *[]string
+	handled bool
+}
+
+func (o *fakeExecSyscallOutput) HandleEvent(syscallEventContext, handler.Result) bool {
+	*o.events = append(*o.events, "exec")
+	return o.handled
+}
+
+func TestSyscallTextOutputUsesDelegatePortsInOrder(t *testing.T) {
+	events := []string{}
+	suspended := &fakeSuspendedSyscallOutput{events: &events, handled: true}
+	exec := &fakeExecSyscallOutput{events: &events, handled: true}
+	renderer := &fakeSyscallTextRenderer{}
+	output := newSyscallTextOutput(SyscallTextOutputDeps{
+		Suspended: suspended,
+		Exec:      exec,
+		Renderer:  renderer,
+	})
+
+	output.HandleEvent(syscallEventContext{}, handler.Result{})
+	if got, want := strings.Join(events, ","), "suspended"; got != want {
+		t.Fatalf("handled delegate order = %q, want %q", got, want)
+	}
+
+	events = nil
+	suspended.handled = false
+	output.HandleEvent(syscallEventContext{}, handler.Result{})
+	if got, want := strings.Join(events, ","), "suspended,exec"; got != want {
+		t.Fatalf("fallback delegate order = %q, want %q", got, want)
+	}
+
+	events = nil
+	exec.handled = false
+	output.HandleEvent(syscallEventContext{}, handler.Result{})
+	if got, want := strings.Join(events, ","), "suspended,exec"; got != want || renderer.eventCalls != 1 {
+		t.Fatalf("normal delegate order = %q renderer calls = %d, want %q/1", got, renderer.eventCalls, want)
+	}
 }

@@ -60,8 +60,12 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	if components.eventPolicy == nil || components.eventPolicy != session.eventPolicy {
 		t.Fatal("event components do not use the session event policy snapshot")
 	}
+	execOutput, ok := components.syscallText.exec.(*ExecSyscallOutput)
+	if !ok || execOutput.policy != components.outputPolicy {
+		t.Fatal("syscall text output does not use the session exec policy snapshot")
+	}
 	if components.syscallText.format != components.outputPolicy || components.syscallText.policy != components.outputPolicy ||
-		components.syscallText.exec.policy != components.outputPolicy || components.syscallJSON.format != components.outputPolicy ||
+		components.syscallJSON.format != components.outputPolicy ||
 		components.syscallJSON.policy != components.outputPolicy || components.exitSyscall.policy != components.outputPolicy ||
 		components.lifecycleHandler.policy != components.outputPolicy ||
 		components.runFinalizer.formatPolicy != components.outputPolicy || components.commandExitHandler.policy != components.outputPolicy {

@@ -5708,3 +5708,41 @@ Impact note：影响四个输出子组件的 dependency struct、session composi
 真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 289.60 ns/op、0 B/op、0 allocs/op`、raw JSON `495.40 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `607.20 ns/op、0 B/op、0 allocs/op`、decoded payload `900.30 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
 
 当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认四个输出子组件不再保存 `*TextRenderer`，session composition 仍复用同一个真实 renderer owner；未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
+
+### 14.137 将 SyscallTextOutput 的特殊流程委托改为行为端口（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.136 已将 text/exec/suspended renderer 依赖收窄，但 `SyscallTextOutput` 仍把 `SuspendedSyscallOutput` 和 `ExecSyscallOutput` 具体指针作为 delegate。
+- Problem：普通 text 输出层被绑定到两个特殊流程的实现类型，无法独立替换或 fake 某个委托；这与其实际只调用 `HandleEvent`、`HandleUnfinished`、`canHandleUnfinished` 的行为边界不一致。
+- Goal：定义 `suspendedSyscallOutputPort` 和 `execSyscallOutputPort`，让 `SyscallTextOutput` 仅依赖行为接口，保持 suspended -> exec -> normal renderer 的调用顺序和 unfinished filter 逻辑不变。
+- Non-goals：不改变 exec/suspended 业务状态、probe marker 处理、unfinished 文本、过滤策略、renderer port、输出顺序或 session composition；不引入统一大接口、反射、全局 service、锁、goroutine、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：suspended port 只暴露 `HandleEvent`；exec port 只暴露 `HandleEvent`；unfinished 能力仍由 text renderer port 提供；`nil` delegate 必须保留当前跳过行为。
+
+Impact note：影响 `cmd/strace-go/syscall_text_output.go` 的字段和 dependency contract 及 source/fake tests；不改变两个特殊流程的内部实现或 state owner。
+
+方案比较：
+
+1. 继续注入两个具体 output 类型：调用简单，但 text 层依赖特殊流程实现细节，拒绝。
+2. 合并为一个特殊流程大接口：减少类型声明，但暴露不相关方法，拒绝。
+3. 按 suspended/exec 的单一调用面定义两个行为端口：依赖最小、nil 语义清晰、可独立 fake，选择该方案。
+
+状态契约：
+
+- `suspendedSyscallOutputPort` 与 `execSyscallOutputPort` 都只返回是否消费事件；text output 不读取 delegate 内部状态。
+- composition 继续把同一个 session-local `SuspendedSyscallOutput`/`ExecSyscallOutput` 实例注入，保持状态连续性和 owner 唯一性。
+- source gate 禁止 `SyscallTextOutput`/`SyscallTextOutputDeps` 恢复两个具体指针；fake delegate 覆盖调用顺序和 handled/unhandled 分支。
+
+测试与验收：
+
+- 先增加失败优先 source-contract/fake-delegate 测试，确认旧具体依赖无法接收替代委托。
+- 实现后运行 focused text/delegate tests、Go 全量/race/vet/build、Python oracle、semantic/perf、small 和 upstream reference。
+- review 检查特殊流程仍先于普通 renderer，unfinished path 仍受 text/filter gate 保护，纯 eBPF/procfs 禁止规则保持通过。
+
+#### 实际验收记录
+
+失败优先的 fake-delegate 测试先因 `SyscallTextOutputDeps` 固定为 `*SuspendedSyscallOutput`/`*ExecSyscallOutput` 而无法编译；实现后 focused text/delegate tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14137 ./cmd/strace-go` 和 `git diff --check` 全部通过。额外顺序断言确认 suspended -> exec -> normal renderer 委托顺序；既有 unfinished/resumed、exec restart 和 suspended marker 测试继续通过。
+
+真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 291.40 ns/op、0 B/op、0 allocs/op`、raw JSON `496.40 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `599.90 ns/op、0 B/op、0 allocs/op`、decoded payload `897.40 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
+
+第一次完整 upstream-reference 曾出现一次 `msg_control.gen.test` 尾部 sendmsg 事件瞬态缺失；精确测试连续三次通过，随后完整 suite 重跑为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL。既定 XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 `SyscallTextOutput` 只保存 suspended/exec 行为 port，真实特殊流程实例仍由 session composition 共享注入；未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。

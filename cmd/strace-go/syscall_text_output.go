@@ -2,19 +2,27 @@ package main
 
 import "strace-go/pkg/handler"
 
+type suspendedSyscallOutputPort interface {
+	HandleEvent(syscallEventContext, handler.Result) bool
+}
+
+type execSyscallOutputPort interface {
+	HandleEvent(syscallEventContext, handler.Result) bool
+}
+
 type SyscallTextOutput struct {
 	format    traceFormatPolicy
 	policy    traceEventOutputPolicy
-	suspended *SuspendedSyscallOutput
-	exec      *ExecSyscallOutput
+	suspended suspendedSyscallOutputPort
+	exec      execSyscallOutputPort
 	renderer  syscallTextRenderer
 }
 
 type SyscallTextOutputDeps struct {
 	Format    traceFormatPolicy
 	Policy    traceEventOutputPolicy
-	Suspended *SuspendedSyscallOutput
-	Exec      *ExecSyscallOutput
+	Suspended suspendedSyscallOutputPort
+	Exec      execSyscallOutputPort
 	Renderer  syscallTextRenderer
 }
 
