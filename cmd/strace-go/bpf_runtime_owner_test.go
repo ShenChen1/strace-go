@@ -14,6 +14,7 @@ type fakeBPFTargetPort struct {
 	armErr        error
 	disarmErr     error
 	addErr        error
+	deleteErr     error
 	armedSnapshot uint32
 }
 
@@ -40,8 +41,9 @@ func (p *fakeBPFTargetPort) addFilterPID(pid uint32) error {
 	return p.addErr
 }
 
-func (p *fakeBPFTargetPort) deleteFilterPID(pid uint32) {
+func (p *fakeBPFTargetPort) deleteFilterPID(pid uint32) error {
 	p.deleted = append(p.deleted, pid)
+	return p.deleteErr
 }
 
 func (p *fakeBPFTargetPort) armedForkPID() (uint32, bool) {

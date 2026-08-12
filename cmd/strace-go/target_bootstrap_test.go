@@ -46,6 +46,24 @@ func TestTraceTargetBootstrapCloseReleasesInheritedFiles(t *testing.T) {
 	}
 }
 
+func TestTraceTargetBootstrapCloseReturnsFileError(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "closed-inherited-fd-")
+	if err != nil {
+		t.Fatalf("create temp inherited file: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close temp inherited file: %v", err)
+	}
+
+	bootstrap := &traceTargetBootstrap{inheritedFiles: []*os.File{file}}
+	if err := bootstrap.Close(); err == nil {
+		t.Fatal("Close() returned nil after inherited file was already closed")
+	}
+	if bootstrap.inheritedFiles != nil {
+		t.Fatalf("inherited files after failed Close() = %v, want nil", bootstrap.inheritedFiles)
+	}
+}
+
 func TestTraceTargetBootstrapNilResolveBoundary(t *testing.T) {
 	var bootstrap *traceTargetBootstrap
 	if _, _, _, err := bootstrap.Resolve(traceTargetConfig{}); err == nil {

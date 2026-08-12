@@ -1,6 +1,11 @@
 package main
 
-import "os/exec"
+import (
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+)
 
 // traceCommandWaiter exposes the completed command result without exposing
 // exec.Cmd ownership to the event loop.
@@ -58,17 +63,21 @@ func (r *traceTargetRuntime) commandWaiter() traceCommandWaiter {
 
 // Abort requests termination and waits for the already-owned completion.
 // Repeated calls are harmless and never call exec.Cmd.Wait a second time.
-func (r *traceTargetRuntime) Abort() {
+func (r *traceTargetRuntime) Abort() error {
 	if r == nil || r.abortRequested {
-		return
+		return nil
 	}
 	r.abortRequested = true
+	var abortErr error
 	if r.command != nil && r.command.Process != nil {
-		_ = r.command.Process.Kill()
+		if err := r.command.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			abortErr = fmt.Errorf("kill tracee: %w", err)
+		}
 	}
 	if r.completion != nil {
 		_ = r.completion.Wait()
 	}
+	return abortErr
 }
 
 var _ traceCommandWaiter = (*traceCommandCompletion)(nil)

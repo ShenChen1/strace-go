@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -27,7 +28,7 @@ type traceBPFTargetPort interface {
 	armNextFork() error
 	disarmNextFork() error
 	addFilterPID(pid uint32) error
-	deleteFilterPID(pid uint32)
+	deleteFilterPID(pid uint32) error
 	armedForkPID() (uint32, bool)
 }
 
@@ -170,11 +171,14 @@ func (r *traceBPFRuntime) addFilterPID(pid uint32) error {
 	return r.objects.FilterMap.Update(pid, uint32(1), 0)
 }
 
-func (r *traceBPFRuntime) deleteFilterPID(pid uint32) {
+func (r *traceBPFRuntime) deleteFilterPID(pid uint32) error {
 	if r == nil || r.objects == nil || r.objects.FilterMap == nil {
-		return
+		return nil
 	}
-	_ = r.objects.FilterMap.Delete(pid)
+	if err := r.objects.FilterMap.Delete(pid); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+		return fmt.Errorf("delete filter pid %d: %w", pid, err)
+	}
+	return nil
 }
 
 func (r *traceBPFRuntime) armedForkPID() (uint32, bool) {

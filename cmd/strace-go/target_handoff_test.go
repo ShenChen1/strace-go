@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os/exec"
 	"testing"
 )
@@ -25,6 +26,19 @@ func TestTraceTargetHandoffSnapshotsAndClosesFilterPIDs(t *testing.T) {
 	}
 	if len(port.deleted) != 3 {
 		t.Fatalf("second Close deleted filter PIDs again: %v", port.deleted)
+	}
+}
+
+func TestTraceTargetHandoffReturnsFilterDeleteError(t *testing.T) {
+	deleteErr := errors.New("filter delete failed")
+	port := &fakeBPFTargetPort{deleteErr: deleteErr}
+	handoff, err := newTraceTargetHandoff(traceTargetConfig{}, nil, port, 101)
+	if err != nil {
+		t.Fatalf("newTraceTargetHandoff() error = %v", err)
+	}
+
+	if err := handoff.Close(); !errors.Is(err, deleteErr) {
+		t.Fatalf("handoff.Close() error = %v, want %v", err, deleteErr)
 	}
 }
 

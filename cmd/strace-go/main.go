@@ -75,8 +75,7 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 	}
 	targetHandoff, err := newTraceTargetHandoff(config.targets, targetRuntime, bpfRuntime, targetPid)
 	if err != nil {
-		targetBootstrap.abortTraceTarget(targetRuntime, targetPid)
-		return fmt.Errorf("failed to own trace targets: %w", err)
+		return fmt.Errorf("failed to own trace targets: %w", errors.Join(err, targetBootstrap.abortTraceTarget(targetRuntime, targetPid)))
 	}
 	defer func() { runErr = joinTraceRunError(runErr, targetHandoff.Close()) }()
 

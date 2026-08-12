@@ -4625,3 +4625,40 @@ Impact note：只影响 `main.go` 的 composition-root 返回签名、deferred c
 失败优先 source gate 先因 `runTraceSession` 仍使用普通返回值并丢弃 deferred cleanup error 而失败；迁移后新增 `joinTraceRunError`，覆盖 primary/cleanup 双错误链和 nil 边界，五个资源 cleanup 均通过命名返回值传播。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14109 ./cmd/strace-go` 和 `git diff --check` 全部通过。
 
 真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，733.79 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认清理执行顺序仍为 output handoff、target handoff、target bootstrap、ringbuf reader、BPF runtime，primary error 与 cleanup error 均可通过 `errors.Is` 识别，生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.110 显式化 target/bootstrap cleanup 错误（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.105/14.106 已把 tracee `Wait` 和 target/filter ownership 收口到 `traceTargetRuntime` 与 `traceTargetHandoff`；14.109 让 composition root 能接收 owner 的 `Close` 错误，但 target owner 内部仍把 filter 删除、abort 和 inherited file close 当成 best-effort。
+- Problem：attach/output/session 失败时，已写入的 PID filter 删除失败、tracee kill 失败或 inherited FD close 失败都会被静默吞掉。尤其 filter cleanup 失败会让 BPF runtime 在继续存活时保留错误 target，调用者无法区分“目标已清理”和“清理未完成”。当前 `deleteFilterPID` 返回 `void`，`traceTargetRuntime.Abort` 也无法表达 kill 错误，违反显式资源错误边界。
+- Goal：将 target filter 删除、target abort 和 inherited file close 改为显式 error；handoff/bootstrap 回滚通过 `errors.Join` 聚合并保留 PID/资源上下文；删除不存在的 filter key 视为正常幂等清理，不把目标已退出误报为失败。
+- Non-goals：不改变 BPF filter map ABI、target PID 集合、command 启动/attach 顺序、事件状态机、BPF link/object close、输出格式或 ptrace/procfs 约束；不引入 cleanup manager、锁、重试或新的后台 goroutine。
+- Constraints：所有失败回滚仍必须先清理 filter，再等待已启动 command；`Process.Kill` 返回 `os.ErrProcessDone` 视为正常，其他 kill error 必须保留；同一 handoff/target runtime 重复 close/abort 仍幂等；`ebpf.ErrKeyNotExist` 只在 filter delete 边界归一化。
+
+Impact note：影响 `target_bootstrap.go`、`target_handoff.go`、`target_runtime.go`、`bpf_runtime.go` 的 target port 签名和 fake port；调用方错误上下文、事件消费和 BPF 采集 ABI 不变。
+
+方案比较：
+
+1. 继续 best-effort 并只记录 debug log：不改变控制流，但真实 cleanup failure 仍不可观测，拒绝。
+2. 用全局 cleanup manager 记录所有 target 资源：可以集中聚合，但扩大 owner 状态和生命周期耦合，拒绝。
+3. 在现有窄 target port 上返回 error，handoff/bootstrap 局部 `errors.Join`：能力边界清晰、可注入 fake、改动局部，选择该方案。
+
+状态契约：
+
+- `traceBPFTargetPort.deleteFilterPID` 返回 error；missing key 是 nil，其它错误带 PID 上下文返回。
+- `traceTargetRuntime.Abort` 只报告非正常 kill error；command 的非零退出是目标结果，不是 cleanup failure；重复 abort 返回 nil。
+- `traceTargetHandoff.Close`、bootstrap abort/attach rollback 和 `traceTargetBootstrap.Close` 保留所有 cleanup error，并且无论前一个清理是否失败都会继续执行后续清理。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 target port/cleanup API 暴露 error；增加 fake filter delete failure、handoff error join、closed inherited file 和重复 abort regression。
+- 运行 focused target/bootstrap tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference；确认无残留 tracer/BPF pin。
+
+本阶段只补齐 target/bootstrap cleanup 的错误可见性，不改变纯 eBPF 事件语义。
+
+### 14.110 实际验收记录
+
+失败优先 source gate 先因 target port 的 `deleteFilterPID`、target `Abort`、`clearFilterPids` 和 inherited file close 仍无 error 返回而失败；迁移后 fake filter delete failure、handoff error join、已关闭 inherited file 和重复 abort regression 均通过。`ebpf.ErrKeyNotExist` 与 `os.ErrProcessDone` 被归一化为幂等成功，其它错误保留上下文。
+
+本轮 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14110 ./cmd/strace-go` 和 `git diff --check` 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，731.96 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认 rollback 会继续执行 filter cleanup 和 target wait，production path 未引入 ptrace、procfs 或用户态 tracee 内存读取。

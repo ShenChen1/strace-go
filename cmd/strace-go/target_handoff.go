@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // traceTargetHandoff owns bootstrap target cleanup until the session exits
 // successfully. It does not expose BPF target operations to the session.
@@ -44,7 +47,8 @@ func (h *traceTargetHandoff) Close() error {
 		return nil
 	}
 	h.owned = false
-	clearFilterPids(h.bpfRuntime, h.filterPIDs)
-	terminateTraceTarget(h.targetRuntime)
-	return nil
+	return errors.Join(
+		clearFilterPids(h.bpfRuntime, h.filterPIDs),
+		terminateTraceTarget(h.targetRuntime),
+	)
 }

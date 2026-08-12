@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -58,8 +59,7 @@ func (b *traceTargetBootstrap) Resolve(
 
 	firstPID, attachSeed, err := b.attachToPids(targets.attachPIDs)
 	if err != nil {
-		b.abortTraceTarget(targetRuntime, targetPID)
-		return nil, 0, fdStateSeed{}, err
+		return nil, 0, fdStateSeed{}, errors.Join(err, b.abortTraceTarget(targetRuntime, targetPID))
 	}
 	if targetPID == 0 {
 		targetPID = firstPID
@@ -74,9 +74,9 @@ func (b *traceTargetBootstrap) Close() error {
 	if b == nil {
 		return nil
 	}
-	closeFiles(b.inheritedFiles)
+	closeErr := closeFiles(b.inheritedFiles)
 	b.inheritedFiles = nil
-	return nil
+	return closeErr
 }
 
 func collectInheritedFiles() []*os.File {
@@ -143,12 +143,16 @@ func isPassThroughFDMode(mode uint32) bool {
 	}
 }
 
-func closeFiles(files []*os.File) {
+func closeFiles(files []*os.File) error {
+	var closeErr error
 	for _, file := range files {
 		if file != nil {
-			_ = file.Close()
+			if err := file.Close(); err != nil {
+				closeErr = errors.Join(closeErr, fmt.Errorf("close inherited file %s: %w", file.Name(), err))
+			}
 		}
 	}
+	return closeErr
 }
 
 func newTraceCommand(spec traceCommandSpec, inheritedFiles []*os.File) *exec.Cmd {
@@ -197,23 +201,20 @@ func (b *traceTargetBootstrap) startTraceCmd(
 	initialCwd, _ := os.Getwd()
 	cmd := newTraceCommand(spec, b.inheritedFiles)
 	if err := cmd.Start(); err != nil {
-		_ = b.disarmNextFork()
-		return nil, 0, fdStateSeed{}, fmt.Errorf("start command: %w", err)
+		return nil, 0, fdStateSeed{}, fmt.Errorf("start command: %w", errors.Join(err, b.disarmNextFork()))
 	}
 
 	targetRuntime := newTraceTargetRuntime(cmd)
 	targetPID := cmd.Process.Pid
 	if err := b.bpfRuntime.addFilterPID(uint32(targetPID)); err != nil {
-		_ = b.disarmNextFork()
-		b.abortTraceTarget(targetRuntime, targetPID)
-		return nil, 0, fdStateSeed{}, fmt.Errorf("add tracee %d to filter: %w", targetPID, err)
+		cleanupErr := errors.Join(b.disarmNextFork(), b.abortTraceTarget(targetRuntime, targetPID))
+		return nil, 0, fdStateSeed{}, fmt.Errorf("add tracee %d to filter: %w", targetPID, errors.Join(err, cleanupErr))
 	}
 	if armedPID, ok := b.bpfRuntime.armedForkPID(); ok {
 		log.Printf("DEBUG arm after start = %d, tracee = %d", armedPID, targetPID)
 	}
 	if err := b.disarmNextFork(); err != nil {
-		b.abortTraceTarget(targetRuntime, targetPID)
-		return nil, 0, fdStateSeed{}, fmt.Errorf("disarm initial fork: %w", err)
+		return nil, 0, fdStateSeed{}, fmt.Errorf("disarm initial fork: %w", errors.Join(err, b.abortTraceTarget(targetRuntime, targetPID)))
 	}
 	return targetRuntime, targetPID, initialTraceCommandFDSeed(targetPID, initialCwd), nil
 }
@@ -243,41 +244,45 @@ func (b *traceTargetBootstrap) attachToPids(pids []int) (int, fdStateSeed, error
 	attached := make([]uint32, 0, len(pids))
 	for index, pid := range pids {
 		if err := syscall.Kill(pid, 0); err != nil {
-			clearFilterPids(b.bpfRuntime, attached)
-			return 0, fdStateSeed{}, fmt.Errorf("check attach pid %d: %w", pid, err)
+			return 0, fdStateSeed{}, fmt.Errorf("check attach pid %d: %w", pid, errors.Join(err, clearFilterPids(b.bpfRuntime, attached)))
 		}
 		if index == 0 {
 			firstPID = pid
 		}
 		if err := b.bpfRuntime.addFilterPID(uint32(pid)); err != nil {
-			clearFilterPids(b.bpfRuntime, attached)
-			return 0, fdStateSeed{}, fmt.Errorf("add attach pid %d to filter: %w", pid, err)
+			return 0, fdStateSeed{}, fmt.Errorf("add attach pid %d to filter: %w", pid, errors.Join(err, clearFilterPids(b.bpfRuntime, attached)))
 		}
 		attached = append(attached, uint32(pid))
 	}
 	return firstPID, fdStateSeed{}, nil
 }
 
-func (b *traceTargetBootstrap) abortTraceTarget(targetRuntime *traceTargetRuntime, targetPID int) {
+func (b *traceTargetBootstrap) abortTraceTarget(targetRuntime *traceTargetRuntime, targetPID int) error {
+	var cleanupErr error
 	if b != nil && targetPID > 0 {
-		clearFilterPids(b.bpfRuntime, []uint32{uint32(targetPID)})
+		cleanupErr = clearFilterPids(b.bpfRuntime, []uint32{uint32(targetPID)})
 	}
-	terminateTraceTarget(targetRuntime)
+	return errors.Join(cleanupErr, terminateTraceTarget(targetRuntime))
 }
 
-func clearFilterPids(bpfRuntime traceBPFTargetPort, pids []uint32) {
+func clearFilterPids(bpfRuntime traceBPFTargetPort, pids []uint32) error {
 	if bpfRuntime == nil {
-		return
+		return nil
 	}
+	var cleanupErr error
 	for _, pid := range pids {
-		bpfRuntime.deleteFilterPID(pid)
+		if err := bpfRuntime.deleteFilterPID(pid); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("delete filter pid %d: %w", pid, err))
+		}
 	}
+	return cleanupErr
 }
 
-func terminateTraceTarget(targetRuntime *traceTargetRuntime) {
+func terminateTraceTarget(targetRuntime *traceTargetRuntime) error {
 	if targetRuntime != nil {
-		targetRuntime.Abort()
+		return targetRuntime.Abort()
 	}
+	return nil
 }
 
 func traceTargetPIDs(attachPIDs []int, targetPID int) []uint32 {
