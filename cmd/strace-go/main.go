@@ -51,7 +51,7 @@ func runTraceSession(opts *cli.Options, clock traceClock) error {
 		return fmt.Errorf("trace options are nil")
 	}
 	if clock == nil {
-		clock = systemTraceClock{}
+		return fmt.Errorf("trace clock is nil")
 	}
 	inheritedFiles := collectInheritedFiles()
 	defer closeFiles(inheritedFiles)
@@ -320,13 +320,9 @@ func expandTracePathSet(paths map[string]bool) map[string]bool {
 	return expanded
 }
 
-func calculateTimeOffset() int64 {
-	return calculateTimeOffsetWithClock(systemTraceClock{})
-}
-
 func calculateTimeOffsetWithClock(clock traceClock) int64 {
 	if clock == nil {
-		clock = systemTraceClock{}
+		return 0
 	}
 	return clock.Now().UnixNano() - int64(clock.NowMonoNs())
 }

@@ -3326,3 +3326,34 @@ ABI 与状态契约：
 本阶段只收口 TraceState constructor ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source gate 先验证 `event_state.go` 仍定义两个仅供测试使用的 constructor，迁移到 `event_state_test_helpers_test.go` 后通过；production source 现在只保留带 opts policy 的 `newTraceStateForSession`。测试 helper 默认字段与旧行为一致，session/router/state transition 没有变化。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，736.00 events/s。`attach-f-p.test` 通过；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer、fixture 或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
+
+### 14.72 收口 time offset 的 clock ownership（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.68、14.69、14.70 已将 clock 作为 reader、formatter、run state 的显式 session port；`main.go` 仍保留只被测试调用的无参 `calculateTimeOffset()`，`calculateTimeOffsetWithClock(nil)` 和 `runTraceSession(..., nil)` 也会静默创建 `systemTraceClock`。
+- Problem：时间偏移 helper 仍能在 composition 之外选择系统时钟，nil clock 会在 BPF/bootstrap 资源建立前被掩盖，导致测试或未来 caller 无法发现 session clock 漏注；这与“系统实现只在 composition root 创建”的端口契约不一致。
+- Goal：删除 production 无参 `calculateTimeOffset`；带 clock 版本只消费注入 clock，nil 时返回零值且不读取系统时间；`runTraceSession` 在创建 inherited files/BPF 前拒绝 nil clock；`runMain` 保持唯一的 system clock 选择边界，测试 helper 显式使用 system clock。
+- Non-goals：不改变时间偏移公式、时间前缀格式、synthetic exit timestamp、BPF ABI、事件顺序、输出格式、reader/run state/formatter 的 clock 接口、ptrace/procfs 禁止规则或 CLI 行为。
+- Constraints：保持 `calculateTimeOffsetWithClock` 的返回类型和参数数量；nil helper 必须无 side effect；正式 session 仍由 `newTraceSession` 验证非 nil clock；失败必须发生在任何 BPF、target、output 资源建立前。
+
+方案比较：
+
+1. 保留两个 fallback：兼容零值测试，但继续隐藏 clock ownership 错误，拒绝。
+2. 将 time offset 改为 `(int64, error)`：错误契约最强，但会把简单计算错误传播到 formatter/session graph，改动面过大，暂不选择。
+3. 删除无参 production helper、nil 带 clock helper 返回零值，并在 session bootstrap 明确拒绝 nil：系统时钟 owner 清晰、改动局部、选择该方案。
+
+状态契约：
+
+- `runMain` 创建 `systemTraceClock{}` 并将同一实例传入 session composition；time offset 不再创建 clock。
+- `calculateTimeOffsetWithClock(nil)` 返回 0，不调用 `Now`/`NowMonoNs`；正式 session 不允许依赖该零值继续运行。
+- `runTraceSession` 的 nil clock 错误在 `collectInheritedFiles`、`setupBPF`、target/output 建立之前返回。
+
+测试与验收：
+
+- 先增加失败优先 source gate，禁止 production 无参 helper 和 time offset/system clock fallback；增加 nil clock 零值及 bootstrap early-error 回归。
+- 运行 focused clock/bootstrap tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和 attach upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 time offset 的 clock ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source/behavior tests 先验证无参 production helper、time offset nil fallback 和 bootstrap late error，修复后通过。`runMain` 仍显式创建唯一 system clock；`runTraceSession` 在 inherited files/BPF setup 前拒绝 nil clock；`calculateTimeOffsetWithClock(nil)` 返回 0 且不读取系统时钟；`calculateTimeOffset` 仅保留在 `_test.go`。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，744.60 events/s。`attach-f-p.test` 通过；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer、fixture 或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。

@@ -13,6 +13,10 @@ func newTimeFormatter(bootTimeOffsetNs int64) *TimeFormatter {
 	return newTimeFormatterWithClock(bootTimeOffsetNs, systemTraceClock{})
 }
 
+func calculateTimeOffset() int64 {
+	return calculateTimeOffsetWithClock(systemTraceClock{})
+}
+
 func newTestTraceSession(deps traceSessionDeps) *traceSession {
 	if deps.Events == nil {
 		deps.Events = &fakeRingbufReader{}
