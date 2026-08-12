@@ -59,6 +59,10 @@ type syscallEventContextDependencySource interface {
 	eventContextDependencies() syscallEventContextDeps
 }
 
+type traceSummaryRecorder interface {
+	Record(name string, duration uint64, ret int64)
+}
+
 func newSyscallEventContextDeps(source syscallEventContextDependencySource) syscallEventContextDeps {
 	if source == nil {
 		return syscallEventContextDeps{}
@@ -247,12 +251,12 @@ func (ev syscallEventContext) shouldSuppressOutput() bool {
 	return ev.syscallName() == "arch_prctl" && ev.eventView().args[0] == 0x1002
 }
 
-func (ev syscallEventContext) recordSummary(stats *SummaryStats) {
-	if stats == nil || !ev.shouldOutput() {
+func (ev syscallEventContext) recordSummary(recorder traceSummaryRecorder) {
+	if recorder == nil || !ev.shouldOutput() {
 		return
 	}
 	view := ev.eventView()
-	stats.Record(ev.syscallName(), view.duration, view.ret)
+	recorder.Record(ev.syscallName(), view.duration, view.ret)
 }
 
 func (ev syscallEventContext) updateFDOffsets(port fdOffsetUpdatePort) {

@@ -5746,3 +5746,41 @@ Impact note：影响 `cmd/strace-go/syscall_text_output.go` 的字段和 depende
 真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 291.40 ns/op、0 B/op、0 allocs/op`、raw JSON `496.40 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `599.90 ns/op、0 B/op、0 allocs/op`、decoded payload `897.40 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
 
 第一次完整 upstream-reference 曾出现一次 `msg_control.gen.test` 尾部 sendmsg 事件瞬态缺失；精确测试连续三次通过，随后完整 suite 重跑为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL。既定 XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 `SyscallTextOutput` 只保存 suspended/exec 行为 port，真实特殊流程实例仍由 session composition 共享注入；未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
+
+### 14.138 将 summary 记录能力从具体 SummaryStats 中抽出（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：`SummaryStats` 是 session-owned 的可变统计存储；`syscallEventContext.recordSummary` 和 `traceSessionSyscallExitEffects` 当前直接依赖 `*SummaryStats`。
+- Problem：事件上下文只需要写入一条统计记录，却被绑定到统计存储与其输出实现，导致事件层难以使用 fake recorder 独立验证，也扩大了状态 owner 的可见边界。
+- Goal：定义只包含 `Record(name, duration, ret)` 的 `traceSummaryRecorder`，让上下文和退出 effects 只依赖该端口；`SummaryStats` 继续作为 session owner，并保留既有 finalizer 输出能力。
+- Non-goals：不改变统计计数、错误判断、排序、输出格式、调用顺序、并发模型或生命周期；不新增全局状态、锁、goroutine、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：nil recorder 保持 no-op；`recordSummary` 仍先检查 `shouldOutput`；recorder 只负责记录，不暴露 `Print`。
+
+Impact note：影响 `cmd/strace-go/syscall_event_context.go` 的 summary 写入边界、`cmd/strace-go/syscall_exit_pipeline.go` 的 effects 依赖以及对应 source/fake tests；不改变 `SummaryStats` 的统计实现与 finalizer 的输出 port。
+
+方案比较：
+
+1. 继续注入 `*SummaryStats`：改动最少，但事件层继续依赖具体存储和输出对象，拒绝。
+2. 复用 `traceSummaryWriter`：表面上少一个接口，但会把 `Print` 输出能力错误暴露给事件层，违反最小依赖，拒绝。
+3. 新增只含 `Record` 的 `traceSummaryRecorder`：依赖面最小、可独立 fake、兼容现有 owner，选择该方案。
+
+状态契约：
+
+- recorder 仅接收已完成事件的 syscall 名称、duration 和 return value；错误统计规则仍由 `SummaryStats.Record` 保持。
+- `recordSummary` 在 `shouldOutput` 为 false 时不调用 recorder；nil recorder 与现有 nil stats 一样安全返回。
+- session composition 仍创建一个 `SummaryStats` 并将同一实例分别用于记录和最终输出，不引入第二份统计状态。
+
+测试与验收：
+
+- 先增加失败优先的 source-contract/fake-recorder 测试，证明旧的具体参数无法接受独立 recorder。
+- 实现后运行 focused summary tests、Go 全量/race/vet/build、`git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和 `upstream-reference`。
+- review 检查 summary 端口没有 `Print`、事件过滤仍在记录前生效，且纯 eBPF 禁止规则无变化。
+
+#### 实际验收记录
+
+失败优先的 fake-recorder 测试先因 `recordSummary` 固定接收 `*SummaryStats` 而无法编译；实现 `traceSummaryRecorder` 后 focused summary tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14138 ./cmd/strace-go` 和 `git diff --check` 全部通过。source gate 确认事件上下文与 exit effects 不再声明具体 `*SummaryStats`，fake recorder 验证了名称、duration、ret 传递及过滤事件不记录。
+
+真实 `ebpf-semantic` 通过：205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0，write-only events 为 6。`ebpf-perf` 通过：`TraceEventDecodeState 286.50 ns/op、0 B/op、0 allocs/op`、raw JSON `484.90 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `596.10 ns/op、0 B/op、0 allocs/op`、decoded payload `838.10 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认 `SummaryStats` 仍是 session 唯一统计 owner，finalizer 继续使用独立的 summary writer port；事件层只依赖 `Record`，没有暴露 `Print` 或引入第二份统计状态。未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。

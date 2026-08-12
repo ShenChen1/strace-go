@@ -27,13 +27,13 @@ type SyscallExitEffects interface {
 }
 
 type traceSessionSyscallExitEffects struct {
-	summary *SummaryStats
+	summary traceSummaryRecorder
 	offsets fdOffsetUpdatePort
 	close   fdCloseUpdatePort
 }
 
 func newTraceSessionSyscallExitEffects(
-	summary *SummaryStats,
+	summary traceSummaryRecorder,
 	offsets fdOffsetUpdatePort,
 	close fdCloseUpdatePort,
 ) *traceSessionSyscallExitEffects {
