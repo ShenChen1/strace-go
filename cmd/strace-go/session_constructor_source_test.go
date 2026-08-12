@@ -48,3 +48,13 @@ func TestDefaultHandlerResolverDoesNotCreateRegistryFallback(t *testing.T) {
 		t.Fatal("default handler resolver must not create a registry outside session composition")
 	}
 }
+
+func TestEventContextDependsOnRegistryPort(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/syscall_event_context.go"))
+	if !strings.Contains(source, "registry handler.RegistryPort") {
+		t.Fatal("event context must depend on handler.RegistryPort")
+	}
+	if strings.Contains(source, "registry *handler.Registry") {
+		t.Fatal("event context must not expose concrete handler.Registry")
+	}
+}

@@ -48,12 +48,12 @@ type syscallEventContextDeps struct {
 	catalog  *meta.Catalog
 	fdState  handler.FDStateReader
 	fdPath   event.FDPathReader
-	registry *handler.Registry
+	registry handler.RegistryPort
 	runtime  handler.RuntimeServices
 }
 
 func newSyscallEventContextDeps(s *traceSession) syscallEventContextDeps {
-	var registry *handler.Registry
+	var registry handler.RegistryPort
 	if s != nil && s.components != nil {
 		registry = s.components.handlerRegistry
 	}
@@ -62,7 +62,7 @@ func newSyscallEventContextDeps(s *traceSession) syscallEventContextDeps {
 
 func newSyscallEventContextDepsWithRegistry(
 	s *traceSession,
-	registry *handler.Registry,
+	registry handler.RegistryPort,
 ) syscallEventContextDeps {
 	if s == nil {
 		return syscallEventContextDeps{registry: registry}

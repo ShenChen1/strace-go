@@ -18,6 +18,27 @@ import (
 
 type registryTestHandler struct{}
 
+type registryPortTestStub struct {
+	defaultHandler Handler
+	pointerDecoder PointerDecoder
+}
+
+func (registryPortTestStub) Handle(string, *Context) Result {
+	return Result{}
+}
+
+func (stub registryPortTestStub) Default() Handler {
+	return stub.defaultHandler
+}
+
+func (stub registryPortTestStub) PointerDecoder(string) PointerDecoder {
+	return stub.pointerDecoder
+}
+
+func (registryPortTestStub) StructDecoder(string) TypeDecoder {
+	return nil
+}
+
 var builtinHandlerNames = []string{
 	"io_setup", "io_destroy", "io_submit", "io_cancel", "io_getevents", "io_pgetevents", "io_pgetevents_time64",
 	"arch_prctl", "bpf", "cachestat", "capget", "capset", "copy_file_range",
@@ -81,6 +102,30 @@ func TestDefaultHandlerUsesContextRegistryDecoders(t *testing.T) {
 	}
 }
 
+func TestDefaultHandlerAcceptsRegistryPort(t *testing.T) {
+	ctx := &Context{
+		Registry: registryPortTestStub{
+			defaultHandler: &DefaultHandler{},
+			pointerDecoder: PointerDecoderFunc(func(*Context, int, string, string, uint64, *Result) (string, bool) {
+				return "port-decoder", true
+			}),
+		},
+		Decoder: event.NewDecoder(),
+		Opts:    &cli.Options{},
+		ScMeta: meta.Syscall{
+			Name:     "registry_port_test",
+			Args:     []string{"value"},
+			ArgTypes: []string{"struct registry_port *"},
+		},
+		Args: [6]uint64{0x1000},
+	}
+
+	got := handleDefaultWithCount(ctx, 1)
+	if len(got.ArgParts) != 1 || got.ArgParts[0] != "port-decoder" {
+		t.Fatalf("decoded args = %v, want registry port decoder", got.ArgParts)
+	}
+}
+
 func TestDefaultHandlerWithoutRegistryDoesNotUseBuiltinPointerDecoder(t *testing.T) {
 	ctx := &Context{
 		Decoder: event.NewDecoder(),
@@ -129,6 +174,42 @@ func TestContextRegistryOwnershipHasNoBuiltinFallback(t *testing.T) {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("handler.go still contains implicit registry fallback %q", forbidden)
 		}
+	}
+}
+
+func TestContextRegistryUsesPort(t *testing.T) {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	path := filepath.Join(filepath.Dir(currentFile), "handler.go")
+	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse handler.go: %v", err)
+	}
+	found := false
+	ast.Inspect(parsed, func(node ast.Node) bool {
+		typeSpec, ok := node.(*ast.TypeSpec)
+		if !ok || typeSpec.Name.Name != "Context" {
+			return true
+		}
+		structType, ok := typeSpec.Type.(*ast.StructType)
+		if !ok {
+			return false
+		}
+		for _, field := range structType.Fields.List {
+			for _, name := range field.Names {
+				if name.Name != "Registry" {
+					continue
+				}
+				registryType, ok := field.Type.(*ast.Ident)
+				found = ok && registryType.Name == "RegistryPort"
+			}
+		}
+		return false
+	})
+	if !found {
+		t.Fatal("handler Context must depend on RegistryPort")
 	}
 }
 

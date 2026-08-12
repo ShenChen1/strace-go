@@ -27,7 +27,7 @@ type Context struct {
 
 	ScMeta      meta.Syscall
 	Meta        *meta.Catalog
-	Registry    *Registry
+	Registry    RegistryPort
 	Decoder     *event.Decoder
 	Opts        *cli.Options
 	FDStateView FDStateReader
@@ -100,6 +100,15 @@ type Handler interface {
 	Handle(ctx *Context) Result
 }
 
+// RegistryPort is the read-only capability set handlers need from a session
+// registry. Registration and storage remain owned by the concrete Registry.
+type RegistryPort interface {
+	Handle(name string, ctx *Context) Result
+	Default() Handler
+	PointerDecoder(argTyp string) PointerDecoder
+	StructDecoder(argTyp string) TypeDecoder
+}
+
 // Registry owns the handler and type-decoder choices for one trace session.
 // It is configured before event processing and treated as read-only afterward.
 type Registry struct {
@@ -108,6 +117,8 @@ type Registry struct {
 	pointerDecoders []pointerDecoderEntry
 	structDecoders  []structDecoderEntry
 }
+
+var _ RegistryPort = (*Registry)(nil)
 
 // NewRegistry returns an isolated copy of the built-in handler catalog.
 func NewRegistry() *Registry {

@@ -3679,3 +3679,37 @@ Impact note：受影响边界集中在 `cmd/strace-go` 的 session composition�
 本阶段只收敛 session 依赖 ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source gate 先因 `traceSession` 缺少唯一 dependency container 而失败；迁移后 `traceSession` 只保留 `dependencies traceSessionDeps` 与 eager `components`，旧的 command、ringbuf、options、catalog、decoder、state、FD、runtime、summary、clock、BPF 和 output 顶层字段全部删除。所有 session component builder、run loop、event context/accessor 和测试 fixture 均改为读取同一依赖容器，并新增 decoder/catalog/FD/runtime/clock identity regression。`go test ./cmd/strace-go ./pkg/handler`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，720.73 events/s。最终 `upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture、BPF pin 或 patch/cache artifact，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.83 将 handler registry 收敛为窄接口端口（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.81 已删除 `Context` 对 builtin registry 的隐式回退，正式 session 也只注入一份 registry；但 `handler.Context.Registry` 和 `syscallEventContextDeps.registry` 仍声明为具体 `*handler.Registry`。handler 实际只调用 `Handle`、`Default`、`PointerDecoder` 和 `StructDecoder`。
+- Problem：具体类型继续穿透 handler/event 边界，测试和未来替代实现必须构造完整可变 registry；session handler map、decoder entries 等存储细节成为隐式 API，削弱面向接口的依赖反转，也让 handler 层难以做隔离测试。
+- Goal：新增 `handler.RegistryPort` 接口，`Context.Registry` 和 event-context registry dependency 只依赖该端口；具体 `*Registry` 继续作为 session composition 的默认实现，并通过 compile-time assertion 保证契约。现有输出和注册行为不变。
+- Non-goals：不拆分 handler resolver 的业务语义，不改变 `Registry` 的 clone/register 顺序，不引入全局 registry、锁或服务定位器；不把 `Context` 其它 concrete 数据（catalog/options/decoder）在本阶段全部抽象化；不改变 BPF ABI、payload、lifecycle、纯 eBPF/no-procfs 约束。
+- Constraints：接口方法必须覆盖当前 production call sites 且保持少于 5 个方法；返回类型使用已有 `Handler`、`PointerDecoder`、`TypeDecoder`，不暴露内部 map/slice；旧 `*Registry` fixture 赋值继续编译，新增 fake port 能独立验证 default/pointer decode。
+
+Impact note：影响集中在 `pkg/handler/handler.go`、default/pointer/struct decoder 和 `cmd/strace-go/syscall_event_context.go`；session 仍拥有具体 `*handler.Registry` 以完成配置，事件/handler 边界只接收 `RegistryPort`。
+
+方案比较：
+
+1. 保留具体 `*Registry` 并只补注释：改动最小，但依赖反转没有发生，拒绝。
+2. 把 `Registry` 所有方法全部拆成多个小接口并让 Context 持有多个字段：隔离更细，但扩大 Context wiring 和接口数量，重复表达同一端口，拒绝。
+3. 定义一个覆盖现有四个能力的 `RegistryPort`，具体 Registry 实现它：端口窄、调用点稳定、fake 易写，选择该方案。
+
+状态契约：
+
+- `handler.Context.Registry` 的静态类型是 `RegistryPort`；handler 不访问 registry 的 map、clone 或注册 API。
+- `*Registry` 是 session composition 的一个实现，不是 handler 层的唯一实现。
+- nil port 仍按 14.81 的 generic default 行为处理，不通过接口方法创建隐式 registry。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 Context 和 event context dependency 使用 `RegistryPort`；当前具体指针实现应先失败。
+- 增加 fake `RegistryPort` 的 pointer/default decode 回归，确认 handler 不需要构造具体 Registry。
+- 运行 `go test ./pkg/handler ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和 upstream reference。
+
+本阶段只反转 handler registry 的依赖方向，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source gate 先验证 `Context.Registry` 和 event context dependency 仍使用具体 registry 指针；改造后 `RegistryPort` 只暴露 `Handle`、`Default`、`PointerDecoder`、`StructDecoder` 四项能力，`*Registry` 通过 compile-time assertion 实现该端口，fake port 已覆盖 default/pointer decode。`go test ./pkg/handler ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，718.91 events/s。最终 `upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture、BPF pin 或 patch/cache artifact，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
