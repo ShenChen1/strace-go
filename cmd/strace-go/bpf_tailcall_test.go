@@ -164,7 +164,7 @@ func TestExitProgIndicesMatchDispatchHeader(t *testing.T) {
 }
 
 func TestBuildRuntimeConfigEnablesFDStateForPathRendering(t *testing.T) {
-	plain, err := buildRuntimeConfig(cli.ParseArgs([]string{"/bin/true"}), &bpfObjects{})
+	plain, err := buildRuntimeConfig(newTraceBPFConfig(cli.ParseArgs([]string{"/bin/true"})), &bpfObjects{})
 	if err != nil {
 		t.Fatalf("buildRuntimeConfig(plain): %v", err)
 	}
@@ -177,7 +177,7 @@ func TestBuildRuntimeConfigEnablesFDStateForPathRendering(t *testing.T) {
 		{"-yy", "/bin/true"},
 		{"-P", "/tmp", "/bin/true"},
 	} {
-		cfg, err := buildRuntimeConfig(cli.ParseArgs(args), &bpfObjects{})
+		cfg, err := buildRuntimeConfig(newTraceBPFConfig(cli.ParseArgs(args)), &bpfObjects{})
 		if err != nil {
 			t.Fatalf("buildRuntimeConfig(%v): %v", args, err)
 		}

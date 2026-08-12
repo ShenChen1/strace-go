@@ -40,7 +40,8 @@ func TestNormalizedTargetPolicyReachesBPFAndGoState(t *testing.T) {
 	}
 	normalizeTraceTargetOptions(opts)
 
-	cfg, err := buildRuntimeConfig(opts, &bpfObjects{})
+	bpfConfig := newTraceBPFConfig(opts)
+	cfg, err := buildRuntimeConfig(bpfConfig, &bpfObjects{})
 	if err != nil {
 		t.Fatalf("buildRuntimeConfig() error = %v", err)
 	}
@@ -63,8 +64,8 @@ func TestResolveTraceTargetsDoesNotMutateTargetPolicy(t *testing.T) {
 	}
 
 	normalizeCall := strings.Index(source, "normalizeTraceTargetOptions(opts)")
-	configCall := strings.Index(source, "cfgVal, err := buildRuntimeConfig(opts, bpfObjs)")
+	configCall := strings.Index(source, "bpfConfig := newTraceBPFConfig(opts)")
 	if normalizeCall < 0 || configCall < 0 || normalizeCall > configCall {
-		t.Fatalf("target policy normalization must precede BPF configuration: normalize=%d config=%d", normalizeCall, configCall)
+		t.Fatalf("target policy normalization must precede BPF snapshot: normalize=%d config=%d", normalizeCall, configCall)
 	}
 }

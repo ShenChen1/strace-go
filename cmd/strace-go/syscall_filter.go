@@ -1,13 +1,19 @@
 package main
 
 import (
+	"regexp"
 	"sort"
 
 	"github.com/cilium/ebpf"
 
-	"strace-go/pkg/cli"
 	"strace-go/pkg/meta"
 )
+
+type syscallFilterInput struct {
+	names   map[string]bool
+	regexps []*regexp.Regexp
+	negated bool
+}
 
 type syscallFilterPlan struct {
 	enabled bool
@@ -15,21 +21,21 @@ type syscallFilterPlan struct {
 	ids     []uint32
 }
 
-func buildSyscallFilterPlan(opts *cli.Options) syscallFilterPlan {
-	if opts == nil || (len(opts.TraceSyscalls) == 0 && len(opts.TraceSyscallRegexps) == 0) {
+func buildSyscallFilterPlan(input syscallFilterInput) syscallFilterPlan {
+	if len(input.names) == 0 && len(input.regexps) == 0 {
 		return syscallFilterPlan{}
 	}
-	if opts.TraceSyscalls["all"] || opts.TraceSyscalls["%all"] {
+	if input.names["all"] || input.names["%all"] {
 		return syscallFilterPlan{}
 	}
 
 	ids := make(map[uint32]bool)
 	for id, sc := range meta.SyscallTable {
-		if opts.TraceSyscalls[sc.Name] {
+		if input.names[sc.Name] {
 			ids[id] = true
 			continue
 		}
-		for _, re := range opts.TraceSyscallRegexps {
+		for _, re := range input.regexps {
 			if re.MatchString(sc.Name) {
 				ids[id] = true
 				break
@@ -39,7 +45,7 @@ func buildSyscallFilterPlan(opts *cli.Options) syscallFilterPlan {
 
 	plan := syscallFilterPlan{
 		enabled: true,
-		negated: opts.TraceSetIsNegated,
+		negated: input.negated,
 		ids:     make([]uint32, 0, len(ids)),
 	}
 	for id := range ids {
@@ -51,8 +57,7 @@ func buildSyscallFilterPlan(opts *cli.Options) syscallFilterPlan {
 	return plan
 }
 
-func configureSyscallFilter(opts *cli.Options, objs *bpfObjects) (uint32, error) {
-	plan := buildSyscallFilterPlan(opts)
+func configureSyscallFilter(plan syscallFilterPlan, objs *bpfObjects) (uint32, error) {
 	if !plan.enabled {
 		return 0, nil
 	}

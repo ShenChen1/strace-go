@@ -4230,3 +4230,38 @@ Impact note：影响 `main.go`、`session.go` 和命令启动单测；函数仍�
 ### 14.98 实际验收记录
 
 失败优先 source gate 先因 `session.go` 仍 import CLI、`newTraceCommand`/`startTraceCmd` 仍接收 `*cli.Options` 而失败；迁移后 `traceCommandSpec` 在 `main.go` bootstrap 边界复制 argv/env actions，session.go 只消费该 spec，保持 arm/filter/start/cleanup 顺序不变。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、`git diff --check` 全部通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，728.40 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试后清理本轮生成的 `strace-go` 与 Python 缓存，session.go 未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.99 将 BPF 初始化切换到最小启动快照（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.97-14.98 已删除 session runtime 的 CLI owner，并隔离命令启动输入，但 `buildRuntimeConfig` 与 `configureSyscallFilter` 仍直接接收完整的 `*cli.Options`。BPF 配置阶段实际上只读取少量布尔策略和 syscall filter 输入。
+- Problem：完整 CLI concrete 继续穿过 BPF 初始化边界，使与内核配置无关的输出、handler、状态和命令字段也可被读取；syscall filter builder 也直接依赖 parser owner，难以验证配置形成后不会受 options mutation 影响。
+- Goal：新增值语义的 `traceBPFConfig`，在 main bootstrap 边界一次复制 BPF 所需的 scalar 和 syscall filter 输入；`buildRuntimeConfig` 只消费该快照，`configureSyscallFilter` 只消费已解析的 `syscallFilterPlan`，syscall filter production 文件不再导入 `pkg/cli`。
+- Non-goals：不修改 BPF map ABI、ConfigMap bit、ringbuf、tail-call dispatch、filter 语义、事件格式、目标启动、attach/cleanup、纯 eBPF/no-procfs/no-ptrace 约束；不把完整 CLI snapshot 替换成另一个运行期 owner。
+- Constraints：snapshot 创建必须发生在 `normalizeTraceTargetOptions` 和 path expansion 之后、BPF ConfigMap 更新之前；syscall name map 必须复制 backing storage；正则表达式只读复用；nil options 产生空配置；函数和文件保持在仓库约束内。
+
+Impact note：影响 `main.go`、`syscall_filter.go`、BPF 配置单测和 target-policy source gate；事件 session graph 不受影响，bootstrap 仍可读取 CLI，但 BPF runtime 只接收最小快照。
+
+方案比较：
+
+1. 继续向 `buildRuntimeConfig`/`configureSyscallFilter` 传 `*cli.Options`：改动最小，但 BPF 边界继续暴露完整可变 owner，拒绝。
+2. 把 stack/follow/filter 等字段拆成多个函数参数：能删除 CLI import，但调用点参数多且缺少统一 ownership，容易出现字段错位，拒绝。
+3. 在 bootstrap 边界构造 `traceBPFConfig`，并把预计算的 `syscallFilterPlan` 传入 BPF 配置：能力最小、快照 ownership 明确、可直接做 mutation 回归，选择该方案。
+
+状态契约：
+
+- `traceBPFConfig` 只包含 `captureStack`、`followForks`、`emitEnter`、`fdState` 和 `syscallFilterPlan`；它不进入 `traceSessionDeps` 或事件处理热路径。
+- `newTraceBPFConfig` 深拷贝 syscall name map，并在 construction 时计算 syscall ID；构造后修改 CLI 的 trace set 不改变 ConfigMap 计划。
+- `buildRuntimeConfig` 不再读取 CLI；`configureSyscallFilter` 不再负责从 CLI 派生计划，只负责将计划写入 BPF map 并返回 bit。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 `buildRuntimeConfig`、`configureSyscallFilter` 和 `buildSyscallFilterPlan` 不接收 `*cli.Options`；增加 scalar/filter snapshot mutation 回归，迁移前测试应失败。
+- 运行 focused BPF/filter tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 BPF 初始化的输入 ownership，不改变内核事件事实源或用户可见输出。
+
+### 14.99 实际验收记录
+
+失败优先 source gate 先因 `buildRuntimeConfig` 仍接收 `*cli.Options` 而失败；迁移后 `newTraceBPFConfig` 在 bootstrap 边界复制 scalar、syscall name map 并预计算 filter ID，BPF 配置函数只消费 snapshot/plan。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过；纯 eBPF source/no-ptrace/no-procfs gate 通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，743.55 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试后保留生成的 BPF 对象，清理本轮 `strace-go` 和 Python 临时目录，生产路径仍未引入 ptrace、procfs 或用户态 tracee 内存读取。

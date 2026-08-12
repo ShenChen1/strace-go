@@ -53,6 +53,7 @@ func runTraceSession(opts *cli.Options, clock traceClock) error {
 	if clock == nil {
 		return fmt.Errorf("trace clock is nil")
 	}
+	bpfConfig := newTraceBPFConfig(opts)
 	inheritedFiles := collectInheritedFiles()
 	defer closeFiles(inheritedFiles)
 
@@ -69,7 +70,7 @@ func runTraceSession(opts *cli.Options, clock traceClock) error {
 	}
 	defer events.Close()
 
-	cfgVal, err := buildRuntimeConfig(opts, bpfObjs)
+	cfgVal, err := buildRuntimeConfig(bpfConfig, bpfObjs)
 	if err != nil {
 		return fmt.Errorf("failed to build runtime config: %w", err)
 	}
@@ -176,35 +177,6 @@ func handlePrelude(opts *cli.Options) {
 		fmt.Println("Usage: strace-go [options] <command> [args...]")
 		os.Exit(1)
 	}
-}
-
-// buildRuntimeConfig computes the BPF config map value from CLI options and the
-// syscall filter, returning an error when the filter cannot be configured.
-func buildRuntimeConfig(opts *cli.Options, bpfObjs *bpfObjects) (uint32, error) {
-	var cfgVal uint32
-	if opts.StackTrace {
-		cfgVal |= bpfConfigCaptureStack
-	}
-	if opts.FollowForks {
-		cfgVal |= bpfConfigFollowForks
-	}
-	if shouldEmitGenericEnter(opts) {
-		cfgVal |= bpfConfigEmitEnter
-	}
-	// IMPACT: lifecycle events always flow so task/fd state and attach exit
-	// status work in text mode too; JSON rendering is gated separately.
-	cfgVal |= bpfConfigEmitLifecycle
-	if len(opts.TracePaths) > 0 || opts.ShowPaths {
-		// IMPACT: -P filtering and -y/-yy fd path rendering both need a
-		// deterministic fd -> path map; the BPF runtime keeps fd-state
-		// syscalls flowing under CONFIG_FD_STATE even when filtered out.
-		cfgVal |= bpfConfigFdState
-	}
-	syscallFilterCfg, err := configureSyscallFilter(opts, bpfObjs)
-	if err != nil {
-		return 0, err
-	}
-	return cfgVal | syscallFilterCfg, nil
 }
 
 // normalizeTraceTargetOptions resolves implicit lifecycle policy before BPF

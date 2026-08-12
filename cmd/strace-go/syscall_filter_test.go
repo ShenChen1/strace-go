@@ -8,7 +8,7 @@ import (
 
 func TestBuildSyscallFilterPlanExplicitTrace(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-e", "trace=write", "/bin/true"})
-	plan := buildSyscallFilterPlan(opts)
+	plan := newTraceBPFConfig(opts).syscallFilter
 
 	if !plan.enabled {
 		t.Fatal("filter plan disabled, want enabled")
@@ -22,7 +22,7 @@ func TestBuildSyscallFilterPlanExplicitTrace(t *testing.T) {
 
 func TestBuildSyscallFilterPlanRegexTrace(t *testing.T) {
 	opts := cli.ParseArgs([]string{"--trace=/^getp", "/bin/true"})
-	plan := buildSyscallFilterPlan(opts)
+	plan := newTraceBPFConfig(opts).syscallFilter
 
 	if !plan.enabled {
 		t.Fatal("filter plan disabled, want enabled")
@@ -34,7 +34,7 @@ func TestBuildSyscallFilterPlanRegexTrace(t *testing.T) {
 
 func TestBuildSyscallFilterPlanNegatedTrace(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-e", "trace=!write", "/bin/true"})
-	plan := buildSyscallFilterPlan(opts)
+	plan := newTraceBPFConfig(opts).syscallFilter
 
 	if !plan.enabled {
 		t.Fatal("filter plan disabled, want enabled")
@@ -47,7 +47,7 @@ func TestBuildSyscallFilterPlanNegatedTrace(t *testing.T) {
 
 func TestBuildSyscallFilterPlanTraceAllStaysDisabled(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-e", "trace=all", "/bin/true"})
-	plan := buildSyscallFilterPlan(opts)
+	plan := newTraceBPFConfig(opts).syscallFilter
 
 	if plan.enabled {
 		t.Fatal("trace=all produced a BPF filter, want no BPF filter")
