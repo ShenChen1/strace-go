@@ -17,6 +17,29 @@ type traceSymbolResolver interface {
 	Resolve(ip uint64) string
 }
 
+type exitSyscallRenderer interface {
+	PrintExitSyscallEvent(syscallEventContext, handler.Result)
+	ExitStatusLineFromView(syscallEventView) string
+}
+
+type syscallTextRenderer interface {
+	PrintSyscallEvent(syscallEventContext, handler.Result)
+	PrintUnfinishedEvent(syscallEventContext, handler.Result)
+}
+
+type execSyscallRenderer interface {
+	PrintSyscallEvent(syscallEventContext, handler.Result)
+	PrintExecResumeFromView(syscallEventView, string)
+	PrintExecPidChangedFromView(syscallEventView, string)
+	PrintExecSupersededUnfinishedFromView(syscallEventView, string)
+	PrintSupersededSuspendedResumeFromView(syscallEventView, string)
+	PrintThreadExecveSupersededFromView(syscallEventView, string)
+}
+
+type unfinishedSyscallRenderer interface {
+	PrintUnfinishedEvent(syscallEventContext, handler.Result)
+}
+
 type TextRenderer struct {
 	out           io.Writer
 	policy        traceRenderPolicy

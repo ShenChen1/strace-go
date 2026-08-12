@@ -7,7 +7,7 @@ type SyscallTextOutput struct {
 	policy    traceEventOutputPolicy
 	suspended *SuspendedSyscallOutput
 	exec      *ExecSyscallOutput
-	renderer  *TextRenderer
+	renderer  syscallTextRenderer
 }
 
 type SyscallTextOutputDeps struct {
@@ -15,7 +15,7 @@ type SyscallTextOutputDeps struct {
 	Policy    traceEventOutputPolicy
 	Suspended *SuspendedSyscallOutput
 	Exec      *ExecSyscallOutput
-	Renderer  *TextRenderer
+	Renderer  syscallTextRenderer
 }
 
 func newSyscallTextOutput(deps SyscallTextOutputDeps) *SyscallTextOutput {

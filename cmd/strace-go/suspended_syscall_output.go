@@ -6,12 +6,12 @@ import (
 
 type SuspendedSyscallOutput struct {
 	state    suspendedSyscallState
-	renderer *TextRenderer
+	renderer unfinishedSyscallRenderer
 }
 
 type SuspendedSyscallOutputDeps struct {
 	State    suspendedSyscallState
-	Renderer *TextRenderer
+	Renderer unfinishedSyscallRenderer
 }
 
 func newSuspendedSyscallOutput(deps SuspendedSyscallOutputDeps) *SuspendedSyscallOutput {

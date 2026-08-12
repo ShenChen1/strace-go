@@ -5669,3 +5669,42 @@ Impact note：影响 `cmd/strace-go/command_exit_handler.go` 的字段和 depend
 真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 287.50 ns/op、0 B/op、0 allocs/op`、raw JSON `494.20 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `622.30 ns/op、0 B/op、0 allocs/op`、decoded payload `925.80 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
 
 当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 command wait handler 只依赖退出状态 port 和 exit-line port，真实 coordinator/renderer 仍由 session composition 注入；未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
+
+### 14.136 将 syscall 输出子组件与 TextRenderer 解耦（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.134 已把 `TextRenderer` 自身的时间与符号能力收窄为接口，但 `ExitSyscallOutput`、`SyscallTextOutput`、`ExecSyscallOutput` 和 `SuspendedSyscallOutput` 仍直接持有 `*TextRenderer`。
+- Problem：四个输出子组件只调用 renderer 的不同方法集合，却共享完整具体 renderer 类型；这让 exit/status、普通 syscall、exec 特殊流程和 suspended 流程的测试与替换边界互相耦合。
+- Goal：按调用职责定义四组窄 renderer port：exit status、普通 syscall text、exec text、unfinished text；四个子组件只保存各自 port，真实 `TextRenderer` 继续在 session composition 注入。
+- Non-goals：不改变任何文本格式、exec/signal/suspended 顺序、unfinished 生命周期、输出 writer ownership、过滤策略或 handler 语义；不引入统一大 renderer interface、反射、全局 service、锁、goroutine、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：每个 port 只暴露其调用方当前使用的方法；`followForks`/nil renderer 的现有 guard 必须保留；真实 renderer 仍是唯一文本格式实现；输出子组件不应取得 renderer 内部字段。
+
+Impact note：影响四个输出子组件的 dependency struct、session composition 的静态类型和相关 source/fake tests；不改变 `TextRenderer` 的实现方法和最终输出。
+
+方案比较：
+
+1. 继续注入 `*TextRenderer`：零迁移成本，但四个子组件共享完整具体 owner，拒绝。
+2. 为所有子组件定义一个统一 `syscallRenderer` 大接口：可减少类型数量，但会暴露不相关方法并扩大 mock 面，拒绝。
+3. 按 exit、普通 text、exec、unfinished 四个真实调用面拆窄 port：依赖最小、测试替换独立、改动可验证，选择该方案。
+
+状态契约：
+
+- exit port 只提供 `PrintExitSyscallEvent` 和 `ExitStatusLineFromView`；普通 text port 只提供 `PrintSyscallEvent` 和 `PrintUnfinishedEvent`。
+- exec port 只提供 exec/superseded 相关的六个 view 输出方法；unfinished port 只提供 `PrintUnfinishedEvent`。
+- `TraceSession` composition 仍把同一个 `TextRenderer` 指针投影给这些接口，未增加 renderer 实例或输出 owner。
+- source gate 禁止四个子组件和对应 deps 恢复 `*TextRenderer` 字段；fake ports 覆盖各方法被正确调用。
+
+测试与验收：
+
+- 先增加失败优先 source-contract/fake-port 测试，确认旧具体 renderer 依赖无法接受替代 port。
+- 实现后运行 focused output tests、Go 全量/race/vet/build、Python oracle、semantic/perf、small 和 upstream reference。
+- review 检查 exec/suspended 的 nil guard、exit status queue 参数和 unfinished 文本顺序不变，纯 eBPF/procfs 禁止规则保持通过。
+
+#### 实际验收记录
+
+失败优先的 fake-port 测试先因四个 output dependency struct 固定为 `*TextRenderer` 而无法编译；实现后 focused output tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14136 ./cmd/strace-go` 和 `git diff --check` 全部通过。source review 确认 exit、普通 text、exec、unfinished 四个 port 各自只暴露调用方方法，原有 exec/suspended nil guard、exit status queue 参数和 unfinished/resumed 文本测试继续通过。
+
+真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 289.60 ns/op、0 B/op、0 allocs/op`、raw JSON `495.40 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `607.20 ns/op、0 B/op、0 allocs/op`、decoded payload `900.30 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
+
+当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认四个输出子组件不再保存 `*TextRenderer`，session composition 仍复用同一个真实 renderer owner；未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。

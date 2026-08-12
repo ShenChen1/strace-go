@@ -9,7 +9,7 @@ import (
 
 type ExitSyscallOutput struct {
 	policy            traceExitPolicy
-	renderer          *TextRenderer
+	renderer          exitSyscallRenderer
 	out               io.Writer
 	handleSyscall     func(string, *handler.Context) handler.Result
 	shouldQueueStatus func(int) bool
@@ -19,7 +19,7 @@ type ExitSyscallOutput struct {
 
 type ExitSyscallOutputDeps struct {
 	Policy            traceExitPolicy
-	Renderer          *TextRenderer
+	Renderer          exitSyscallRenderer
 	Out               io.Writer
 	HandleSyscall     func(string, *handler.Context) handler.Result
 	ShouldQueueStatus func(int) bool

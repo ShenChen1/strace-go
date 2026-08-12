@@ -11,14 +11,14 @@ import (
 type ExecSyscallOutput struct {
 	policy            traceFollowForkPolicy
 	state             execSyscallState
-	renderer          *TextRenderer
+	renderer          execSyscallRenderer
 	discardExitStatus func(int)
 }
 
 type ExecSyscallOutputDeps struct {
 	Policy            traceFollowForkPolicy
 	State             execSyscallState
-	Renderer          *TextRenderer
+	Renderer          execSyscallRenderer
 	DiscardExitStatus func(int)
 }
 
