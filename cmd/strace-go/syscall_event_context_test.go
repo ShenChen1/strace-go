@@ -18,6 +18,7 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 		fdState: newFDStateStoreFromMaps(map[string]string{
 			"101:cwd": "/tmp",
 		}, nil),
+		state: newTraceState(),
 	}
 	path := []byte("input.txt\x00")
 	pathPayload := payloadTLVBytes(t, payloadTLVTestSection{

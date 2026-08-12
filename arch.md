@@ -2945,6 +2945,36 @@ ABI 与状态契约：
 实际验收结果：`traceEventState` 新增 `setUnfinishedEnabled(bool)` 能力端口；`newTraceEventRouter` 根据 `Pipeline.HasTextOutput()` 在 session composition 阶段配置状态机。`TraceState` 默认和 text session 保持 enabled，JSON/no-text session 从源头关闭候选入队，仍保留 `pendingSyscalls` 用于 JSON 与 exit 配对；关闭后清空候选索引，重新开启时只从存活且未打印的 pending 重建。新增失败优先状态测试、router no-text 回归和 source gate。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、no-ptrace/no-procmem/no-procfs gate 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，732.66 events/s。原生 `small` 为 23 PASS；`more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
 
 
+### 14.60 TimeFormatter 统一 session 时钟端口（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.41 已把 ringbuf reader、结束排空和 `traceRunState` 接入 session-owned `traceClock`；但文本 formatter 的 `TimeFormatter.NowMonoNs()` 仍直接调用 `time.Now()`，主入口的 boot offset 也单独读取系统时钟。一个 session 因此同时拥有事件 deadline、退出策略和合成文本时间的多个时间源。
+- Problem：退出 fallback、生命周期合成行和测试中的事件时间不能由同一个时钟控制；fake clock 可以验证 reader/run state，却无法确定性验证 `ExitStatusLine` 的时间前缀。直接系统调用还让时间副作用穿过 formatter 对象边界，违反“副作用在边界层”的组合约束。
+- Goal：扩展现有 `traceClock` 为同时提供 wall time 和 monotonic nanoseconds；`TimeFormatter` 在构造时注入该端口，`NowMonoNs()` 不再直接读取系统时钟；main 使用同一个 session clock 计算 boot offset、创建 formatter 并注入 run state/reader。
+- Non-goals：不改变 BPF 时间戳、时间格式、相对时间计算、退出 grace、事件顺序、ringbuf ABI、生命周期语义或 CLI；不引入全局可替换时钟、timer 驱动 unfinished、ptrace、procfs 或 tracee 内存读取。
+- Constraints：生产 `systemTraceClock` 是唯一 OS 时钟 adapter；`traceClock` 的 fake 必须能同时提供 wall/mono 值；旧的 `newTimeFormatter(offset)` 测试构造器继续使用明确的默认 adapter；formatter 不拥有 sleep/deadline 等其它副作用；同一真实 session 的 reader、run state 和 formatter 使用同一个 clock 实例。
+
+方案比较：
+
+1. 保留 `TimeFormatter.NowMonoNs()` 的 `time.Now()`：改动最小，但时间源无法注入，fallback 和 formatter 测试仍不确定定，拒绝。
+2. 新增独立 `monotonicClock` 并由 formatter 单独持有：可以缩小接口，但同一 session 会出现 wall/mono 两个注入对象，容易再次漂移，暂不选择。
+3. 扩展已有 `traceClock` 提供 `NowMonoNs()`，由 composition root 共享给 reader、run state 和 formatter：不增加第二个时钟 owner，依赖图清晰，选择该方案。
+
+状态契约：
+
+- `traceClock.Now()` 只用于 wall-clock deadline/fallback 调度，`traceClock.NowMonoNs()` 只用于 synthetic text line 的 monotonic 输入；两者都由同一个 session clock 实现。
+- `systemTraceClock` 在边界层使用 `time.Now()` 和 `CLOCK_MONOTONIC`；业务 formatter 不直接导入或调用系统时钟 API。
+- `TimeFormatter` 保存只读 clock 依赖和自身的 relative-time 状态；每个 session 只有一个 formatter 实例，事件消费仍是单 Goroutine。
+- 测试 fake 返回固定 wall/mono 值，能验证 formatter 使用注入值而不是宿主机当前时间；缺省单测构造器使用显式 system adapter，不产生隐式全局状态。
+
+测试与验收：
+
+- 先增加失败优先测试，锁定 `NowMonoNs()` 使用 fake mono 值、session composition 共享 clock identity，以及 formatter 源码不得直接出现 `time.Now()`。
+- 随后运行 focused time/composition tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、no-ptrace/proc gate、`ebpf-semantic`、`ebpf-perf`、small 和 upstream reference；检查无 tracer/BPF pin 残留。
+
+本阶段只收口 Go 时间副作用和对象依赖，不改变纯 eBPF 事实源、事件 ABI 或用户可见时间格式。
+
 实际验收结果：`traceClock` 新增 `NowMonoNs()`，`systemTraceClock` 统一封装 `CLOCK_MONOTONIC`；`TimeFormatter` 注入同一 session clock，`main` 用同一实例计算 boot offset、构造 formatter，并传入 reader/run state。新增 fake-clock 行为测试、composition identity 测试和 formatter source gate；失败优先测试先因缺少 clock 端口失败，修复后通过。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、no-ptrace/no-procmem/no-procfs gate 和 `git diff --check` 通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，732.62 events/s。原生 `small` 为 23 PASS；`more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer 进程或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
 
 ### 14.61 移除 session 组件图的 lazy/self-build 入口（2026-08-12）
@@ -2980,32 +3010,35 @@ ABI 与状态契约：
 
 实际验收结果：删除 `componentsOrBuild()` 及全部 production accessor 的隐式构造；`newTraceSession` 成为唯一组件图写入点。新增 production source gate 和零值 session 回归，依赖组件 accessor 的 event/output/finalizer fixture 已改为显式 `newTraceSession(traceSessionDeps{...})`；无组件图的 state/context fixture 仍直接使用对应基础 constructor。另清理了上一阶段重复的 14.60 文档块。失败优先 source/zero-value 测试先验证失败，修复后通过；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source policy/no-ptrace/no-procfs gate 和 `git diff --check` 通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，725.78 events/s；最终 `small` 为 23 PASS；`more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。`small` 中曾有一次 `symlinkat` bounded snapshot 输出指针的非稳定失败，单测重跑及随后完整 small 均通过，后续仍应关注该类快照压力下的偶发丢失。测试结束后无残留 tracer/BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
 
-### 14.60 TimeFormatter 统一 session 时钟端口（2026-08-12）
+### 14.62 收口 session 基础状态 accessor 的隐式写入（2026-08-12）
 
 #### Problem 1-Pager
 
-- Context：14.41 已把 ringbuf reader、结束排空和 `traceRunState` 接入 session-owned `traceClock`；但文本 formatter 的 `TimeFormatter.NowMonoNs()` 仍直接调用 `time.Now()`，主入口的 boot offset 也单独读取系统时钟。一个 session 因此同时拥有事件 deadline、退出策略和合成文本时间的多个时间源。
-- Problem：退出 fallback、生命周期合成行和测试中的事件时间不能由同一个时钟控制；fake clock 可以验证 reader/run state，却无法确定性验证 `ExitStatusLine` 的时间前缀。直接系统调用还让时间副作用穿过 formatter 对象边界，违反“副作用在边界层”的组合约束。
-- Goal：扩展现有 `traceClock` 为同时提供 wall time 和 monotonic nanoseconds；`TimeFormatter` 在构造时注入该端口，`NowMonoNs()` 不再直接读取系统时钟；main 使用同一个 session clock 计算 boot offset、创建 formatter 并注入 run state/reader。
-- Non-goals：不改变 BPF 时间戳、时间格式、相对时间计算、退出 grace、事件顺序、ringbuf ABI、生命周期语义或 CLI；不引入全局可替换时钟、timer 驱动 unfinished、ptrace、procfs 或 tracee 内存读取。
-- Constraints：生产 `systemTraceClock` 是唯一 OS 时钟 adapter；`traceClock` 的 fake 必须能同时提供 wall/mono 值；旧的 `newTimeFormatter(offset)` 测试构造器继续使用明确的默认 adapter；formatter 不拥有 sleep/deadline 等其它副作用；同一真实 session 的 reader、run state 和 formatter 使用同一个 clock 实例。
+- Context：14.61 已删除组件图的 lazy/self-build，但 `traceSession` 的基础 accessor 仍会在首次访问时写入 `state`、`fdState`、`runtime`、`summary` 或 `timeFormatter`。正式 `newTraceSession` 已在组合阶段填充这些字段，剩余 lazy 行为主要被旧测试 fixture 和少数生产 context/renderer 调用路径保留。
+- Problem：session 的对象图仍存在第二个隐式生命周期；零值或半构造 session 的第一次状态读取会改变 owner，导致测试可能掩盖遗漏依赖，也让 accessor 在并发误用时产生不可预期写入。组件图虽然已稳定，基础依赖仍可能绕过 composition root。
+- Goal：让 `traceState()`、`fdStateStore()`、`runtimeService()`、`summaryStats()`、`timeFormatterState()` 成为 nil-safe 的只读 getter；所有正式依赖继续由 `newTraceSession`/`normalizeTraceSession` 注入，测试 fixture 显式提供需要的 state/FD/runtime/summary/formatter。对象内部 map 的按需初始化仍由其 owner 保留。
+- Non-goals：不改变 `TraceState` 事件语义、FD state 更新、runtime enrichment、summary 统计、时间格式、组件类型、BPF ABI 或事件输出；不把内部 map 初始化误改成 session 级构造，不引入全局单例、锁、goroutine、ptrace、procfs 或 tracee 内存读取。
+- Constraints：`normalizeTraceSession` 是 session 字段的唯一 production 默认注入点；nil receiver/缺失字段的 getter 只返回 nil，不写 session；正式 session 的 `state`、`fdState`、`runtime`、`summary`、`timeFormatter` 必须非 nil；测试不能再依靠 accessor 自动补依赖。
 
 方案比较：
 
-1. 保留 `TimeFormatter.NowMonoNs()` 的 `time.Now()`：改动最小，但时间源无法注入，fallback 和 formatter 测试仍不确定定，拒绝。
-2. 新增独立 `monotonicClock` 并由 formatter 单独持有：可以缩小接口，但同一 session 会出现 wall/mono 两个注入对象，容易再次漂移，暂不选择。
-3. 扩展已有 `traceClock` 提供 `NowMonoNs()`，由 composition root 共享给 reader、run state 和 formatter：不增加第二个时钟 owner，依赖图清晰，选择该方案。
+1. 保留基础 accessor lazy fallback，仅禁止组件图 fallback：改动最小，但 session 仍有隐式写入和半构造对象路径，拒绝。
+2. 缺失基础依赖时直接 panic：能暴露错误，但把 fixture/composition 错误推迟到事件热路径，定位差且不利于 nil-safe 边界，拒绝。
+3. accessor 只读返回，构造器显式归一化，测试 fixture 注入最小依赖：生命周期一致、改动局部、能让遗漏依赖在测试编译/断言阶段暴露，选择该方案。
 
 状态契约：
 
-- `traceClock.Now()` 只用于 wall-clock deadline/fallback 调度，`traceClock.NowMonoNs()` 只用于 synthetic text line 的 monotonic 输入；两者都由同一个 session clock 实现。
-- `systemTraceClock` 在边界层使用 `time.Now()` 和 `CLOCK_MONOTONIC`；业务 formatter 不直接导入或调用系统时钟 API。
-- `TimeFormatter` 保存只读 clock 依赖和自身的 relative-time 状态；每个 session 只有一个 formatter 实例，事件消费仍是单 Goroutine。
-- 测试 fake 返回固定 wall/mono 值，能验证 formatter 使用注入值而不是宿主机当前时间；缺省单测构造器使用显式 system adapter，不产生隐式全局状态。
+- `traceSession` 的五类基础 dependency 字段只在 `newTraceSession` 组合阶段写入；事件处理期间 accessor 不再修改 session。
+- `TraceState`、`FDStateStore`、`SummaryStats` 自身的 map 初始化仍是 owner 内部状态变更，不属于 session graph 构造，不跨越 accessor 边界。
+- `timePrefix`/context composition 在正式 session 上只消费已注入 formatter、runtime 和 FD state；缺失依赖由 nil-safe getter 暴露为空，不静默创建默认对象。
+- 零值 session 的 accessor 调用不得产生任何字段变化；正式 session 继续保持一份共享 state/FD/runtime/summary/clock graph。
 
 测试与验收：
 
-- 先增加失败优先测试，锁定 `NowMonoNs()` 使用 fake mono 值、session composition 共享 clock identity，以及 formatter 源码不得直接出现 `time.Now()`。
-- 随后运行 focused time/composition tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、no-ptrace/proc gate、`ebpf-semantic`、`ebpf-perf`、small 和 upstream reference；检查无 tracer/BPF pin 残留。
+- 先增加失败优先 source gate，锁定五个 accessor 不得给 session 字段赋值；增加零值 session 不创建基础依赖的回归。
+- 迁移直接使用基础 accessor 的测试 fixture 到显式 constructor/field injection，保留内部 state/map 行为测试。
+- 运行 focused state/context/composition tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、`ebpf-semantic`、`ebpf-perf`、small 和 upstream reference；检查无 tracer/BPF pin 残留。
 
-本阶段只收口 Go 时间副作用和对象依赖，不改变纯 eBPF 事实源、事件 ABI 或用户可见时间格式。
+本阶段只收口 Go session 基础依赖的 ownership 边界，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：`traceState()`、`fdStateStore()`、`runtimeService()`、`summaryStats()`、`timeFormatterState()` 已全部改为 nil-safe 只读 getter；正式 session 继续由 `newTraceSession`/`normalizeTraceSession` 显式注入基础依赖，两个直接调用 `traceState()` 的旧 context fixture 已补为显式 `newTraceState()`。失败优先 source gate 和零值 session 回归先验证旧 lazy 行为确实存在，修复后通过。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused no-ptrace/no-procmem/no-procfs gate 和 `git diff --check` 全部通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，723.11 events/s。原生 `small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS；`more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer、fixture 或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。

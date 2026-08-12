@@ -22,8 +22,8 @@ func newSummaryStats() *SummaryStats {
 }
 
 func (s *traceSession) summaryStats() *SummaryStats {
-	if s.summary == nil {
-		s.summary = newSummaryStats()
+	if s == nil {
+		return nil
 	}
 	return s.summary
 }

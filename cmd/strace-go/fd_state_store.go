@@ -94,8 +94,8 @@ func (st *FDStateStore) Observation(pid int, fd int32) (handler.FDStateObservati
 }
 
 func (s *traceSession) fdStateStore() *FDStateStore {
-	if s.fdState == nil {
-		s.fdState = newFDStateStoreFromMaps(nil, nil)
+	if s == nil {
+		return nil
 	}
 	return s.fdState
 }

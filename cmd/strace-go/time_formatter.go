@@ -25,8 +25,8 @@ func newTimeFormatterWithClock(bootTimeOffsetNs int64, clock traceClock) *TimeFo
 }
 
 func (s *traceSession) timeFormatterState() *TimeFormatter {
-	if s.timeFormatter == nil {
-		s.timeFormatter = newTimeFormatter(0)
+	if s == nil {
+		return nil
 	}
 	return s.timeFormatter
 }
@@ -72,7 +72,11 @@ func formatSecondsUsec(ns uint64) string {
 }
 
 func (s *traceSession) timePrefix(enterTimeMonoNs uint64) string {
-	return s.timeFormatterState().Prefix(enterTimeMonoNs, s.opts)
+	formatter := s.timeFormatterState()
+	if formatter == nil {
+		return ""
+	}
+	return formatter.Prefix(enterTimeMonoNs, s.opts)
 }
 
 // NowMonoNs returns the current CLOCK_MONOTONIC value in nanoseconds so

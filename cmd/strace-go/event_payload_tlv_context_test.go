@@ -15,6 +15,7 @@ func TestSyscallEventContextUsesTLVPathSection(t *testing.T) {
 		opts:      cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"}),
 		decoder:   event.NewDecoder(),
 		fdState:   newFDStateStoreFromMaps(nil, nil),
+		state:     newTraceState(),
 	}
 	path := []byte("from-tlv\x00")
 	payload := payloadTLVBytes(t, payloadTLVTestSection{

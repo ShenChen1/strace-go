@@ -88,8 +88,8 @@ func newTraceStateWithDeferredExit(enabled bool) *TraceState {
 }
 
 func (s *traceSession) traceState() *TraceState {
-	if s.state == nil {
-		s.state = newTraceState()
+	if s == nil {
+		return nil
 	}
 	return s.state
 }
