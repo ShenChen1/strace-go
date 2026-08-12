@@ -16,13 +16,13 @@ func TestCatalogConsumersDoNotConstructFallbackCatalog(t *testing.T) {
 	}
 }
 
-func TestNilCatalogConsumersRemainInert(t *testing.T) {
+func TestNilFlagDecoderConsumersRemainInert(t *testing.T) {
 	view := syscallEventView{valid: true, args: [6]uint64{2, 1, 0}}
-	context := newSyscallEnterEventContextWithCatalog(view, 101, nil, nil)
-	if context.catalog != nil {
-		t.Fatal("nil catalog context unexpectedly created a catalog")
+	context := newSyscallEnterEventContextWithFlagDecoder(view, 101, nil, nil)
+	if context.fdFlags != nil {
+		t.Fatal("nil flag decoder context unexpectedly created a decoder")
 	}
-	if got := socketFDInfoFromCatalog(nil, view); got != "" {
-		t.Fatalf("nil catalog socket info = %q, want empty info", got)
+	if got := socketFDInfoFromFlags(nil, view); got != "" {
+		t.Fatalf("nil flag decoder socket info = %q, want empty info", got)
 	}
 }

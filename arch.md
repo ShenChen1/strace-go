@@ -3816,3 +3816,37 @@ Impact note：生产修改集中在 `pkg/handler` 的 option reads、`pkg/handle
 本阶段只反转 handler 对 CLI options 的依赖方向，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source gate 先因 `Context.Opts` 仍是具体 options 指针而失败；迁移后新增 `FormattingOptions`、`FDTraceOptions` 和组合端口 `OptionsPort`，`*cli.Options` 通过 nil-safe view 方法实现端口，生产 handler 与 syscall return formatter 不再读取 CLI 具体字段。测试 fixture 的可变配置统一通过显式 `*cli.Options` owner helper 修改，新增 fake options port、CLI view 单测和生产源码门禁。`go test ./pkg/handler ./pkg/cli ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，730.21 events/s。最终 `upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.87 将 FD state 的 catalog 依赖收敛为 flag decoder 端口（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.75、14.85 已移除隐式 catalog fallback，并让 handler/format 消费端使用只读 metadata port；但 `syscallEventContext.catalog`、`fdStateUpdate.catalog` 以及 `event_utils` 的 socket/socketpair metadata helper 仍声明为具体 `*meta.Catalog`。该链路只调用 `DecodeFlags` 生成 socket address family 和 netlink protocol 文本。
+- Problem：FD state 更新器因此依赖完整 catalog 的存储类型和所有 metadata 能力，具体 owner 继续穿透 event context、FD state 和 socket metadata 边界。未来替换 flag 解码实现或隔离 FD state 测试时，必须构造完整 catalog；这与 14.85 的消费端口原则不一致。
+- Goal：在 `cmd/strace-go` 内新增仅含 `DecodeFlags(uint64, string) string` 的 `fdFlagDecoder` 端口；`syscallEventContext` 的 FD metadata、`fdStateUpdate` 和 socket/socketpair helper 只依赖该端口。session composition 仍唯一拥有 `*meta.Catalog`，handler context 的完整 `meta.CatalogPort` 继续由事件依赖注入，现有 socket path 文本和 xlat 语义保持不变。
+- Non-goals：不改 `meta.Catalog` 的表内容、format mode、生成器或 handler `CatalogPort`；不改变 FD state 生命周期、path/offset/identity TLV、socketpair 多返回 FD、BPF ABI、纯 eBPF/no-procfs 约束；不把 `fdFlagDecoder` 暴露到 pkg API，不引入默认 catalog、全局状态或锁。
+- Constraints：端口只含一个方法；nil decoder 继续输出空 socket metadata，不通过 procfs 或其它运行期查询补齐；生产 session 的 concrete catalog owner 不变；相关函数保持小于 80 行，新增 fake 必须覆盖 socket 与 netlink family/protocol 解码。
+
+Impact note：影响集中在 `cmd/strace-go/syscall_event_context.go`、`fd_state_store.go`、`event_utils.go` 及其 socket/FD state 测试；`traceSessionDeps.Catalog`、handler `Context.Meta` 和 `meta.Catalog` 的 owner 不变。该阶段只缩小 FD state 的消费接口，不改变过滤、输出、lifecycle 或 BPF 事件事实源。
+
+方案比较：
+
+1. 保留 `*meta.Catalog`：改动最小，但 concrete metadata owner 继续泄漏到 FD state 热路径和测试，拒绝。
+2. 所有调用改用完整 `meta.CatalogPort`：能消除 concrete 类型，但暴露 FD state 不需要的 `Format`、`Table` 和 syscall-arg xlat 能力，拒绝。
+3. 定义 event 内部的单方法 `fdFlagDecoder`，由 `*meta.Catalog` 和 fake 实现：能力最窄、owner 不变、测试隔离直接，选择该方案。
+
+状态契约：
+
+- `traceSessionDeps.Catalog` 是 metadata owner；FD state 只持有本次事件需要的 `fdFlagDecoder` view。
+- `socketFDInfoFromFlags` 只通过 `DecodeFlags` 读取 event-time syscall args，不读取 catalog map 或 format 字段。
+- nil flag decoder 的行为是空 metadata，不能静默创建 catalog 或回退到 procfs。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 `fdStateUpdate.catalog`、socket helper 和 syscall event catalog consumer 不再使用 `*meta.Catalog`；当前 concrete 声明应先失败。
+- 增加 fake `fdFlagDecoder` 回归，验证 socket/socketpair 的 family/protocol 文本来自注入端口，并覆盖 nil 行为。
+- 运行 `go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf、upstream reference，并检查无残留 tracer/BPF pin。
+
+本阶段只收敛 FD state 的 metadata 消费依赖，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source gate 先因 FD state 路径仍声明 `*meta.Catalog` 而失败；迁移后新增单方法 `fdFlagDecoder`，`syscallEventContext` 的 FD metadata、`fdStateUpdate`、socket/socketpair metadata helper 和 FD state store 均只消费该端口，完整 `meta.CatalogPort` 仍只用于 handler context。fake decoder 覆盖 socket family/protocol 和 nil inert 行为，`*meta.Catalog` 通过 compile-time assertion 实现端口。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，733.72 events/s。最终 `upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

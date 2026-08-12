@@ -43,7 +43,7 @@ func TestSyscallEventContextSendsTypedFDMutationCommands(t *testing.T) {
 		view:            view,
 		statePID:        101,
 		meta:            meta.Syscall{Name: "close"},
-		catalog:         catalog,
+		fdFlags:         catalog,
 		pathText:        "/tmp/input",
 		payloadSections: nil,
 	}
@@ -64,7 +64,7 @@ func TestSyscallEventContextSendsTypedFDMutationCommands(t *testing.T) {
 	if got := statePort.update.pathText; got != "/tmp/input" {
 		t.Fatalf("state path = %q, want /tmp/input", got)
 	}
-	if statePort.update.catalog != catalog || statePort.update.source.view != view {
+	if statePort.update.flagDecoder != catalog || statePort.update.source.view != view {
 		t.Fatal("state command lost event context identity")
 	}
 	if offsetPort.update == nil || offsetPort.update.view != view || offsetPort.update.statePID != 101 {

@@ -234,7 +234,7 @@ func TestSyscallEnterEventContextUsesEventViewAndMetadata(t *testing.T) {
 		ret:   -2,
 	}
 
-	ev := newSyscallEnterEventContextWithCatalog(view, 201, nil, meta.NewCatalog("abbrev"))
+	ev := newSyscallEnterEventContextWithFlagDecoder(view, 201, nil, meta.NewCatalog("abbrev"))
 
 	if ev.syscallName() != "getpid" {
 		t.Fatalf("enter context syscall name = %q, want getpid", ev.syscallName())
@@ -255,10 +255,10 @@ func TestSyscallEnterEventContextUsesSessionCatalog(t *testing.T) {
 	view := syscallEventView{valid: true, sysID: 39}
 	catalog := meta.NewCatalog("raw")
 
-	ev := newSyscallEnterEventContextWithCatalog(view, 201, nil, catalog)
+	ev := newSyscallEnterEventContextWithFlagDecoder(view, 201, nil, catalog)
 
-	if ev.catalog != catalog {
-		t.Fatalf("enter context catalog = %p, want session catalog %p", ev.catalog, catalog)
+	if ev.fdFlags != catalog {
+		t.Fatalf("enter context flag decoder = %p, want session catalog %p", ev.fdFlags, catalog)
 	}
 }
 
@@ -279,7 +279,7 @@ func TestSyscallEnterEventContextCachesPayloadSections(t *testing.T) {
 		pathPayload,
 	))
 
-	ev := newSyscallEnterEventContextWithCatalog(
+	ev := newSyscallEnterEventContextWithFlagDecoder(
 		update.syscallView,
 		201,
 		update.payloadSections,

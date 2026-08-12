@@ -16,7 +16,7 @@ type syscallEventContext struct {
 	view            syscallEventView
 	statePID        int
 	meta            meta.Syscall
-	catalog         *meta.Catalog
+	fdFlags         fdFlagDecoder
 	pathText        string
 	pathArguments   []event.PathArgument
 	shouldPrint     bool
@@ -48,7 +48,7 @@ type syscallEventView struct {
 type syscallEventContextDeps struct {
 	decoder  handler.SnapshotDecoder
 	opts     *cli.Options
-	catalog  *meta.Catalog
+	catalog  meta.CatalogPort
 	fdState  handler.FDStateReader
 	fdPath   event.FDPathReader
 	registry handler.RegistryPort
@@ -138,7 +138,7 @@ func newSyscallEventContextFromViewWithDeps(
 		view:            view,
 		statePID:        statePID,
 		meta:            scMeta,
-		catalog:         deps.catalog,
+		fdFlags:         deps.catalog,
 		pathText:        pathText,
 		pathArguments:   pathArguments,
 		shouldPrint:     shouldPrint,
@@ -176,11 +176,11 @@ func hasEquivalentPayloadSection(sections []handler.PayloadSection, want handler
 	return false
 }
 
-func newSyscallEnterEventContextWithCatalog(
+func newSyscallEnterEventContextWithFlagDecoder(
 	view syscallEventView,
 	statePID int,
 	payloadSections []handler.PayloadSection,
-	catalog *meta.Catalog,
+	flagDecoder fdFlagDecoder,
 ) syscallEventContext {
 	scMeta := syscallMeta(view.sysID)
 	fdPathOverlay := fdPathOverlayFromSections(payloadSections)
@@ -189,7 +189,7 @@ func newSyscallEnterEventContextWithCatalog(
 		view:            view,
 		statePID:        statePID,
 		meta:            scMeta,
-		catalog:         catalog,
+		fdFlags:         flagDecoder,
 		payloadSections: payloadSections,
 		eventFDView:     eventFDView,
 	}
@@ -298,10 +298,10 @@ func (ev syscallEventContext) fdStateUpdate() fdStateUpdate {
 			view:            view,
 			payloadSections: ev.outputPayloadSections(),
 		},
-		meta:      ev.effectiveSyscallMeta(),
-		catalog:   ev.catalog,
-		pathText:  ev.pathText,
-		targetPID: ev.statePID,
+		meta:        ev.effectiveSyscallMeta(),
+		flagDecoder: ev.fdFlags,
+		pathText:    ev.pathText,
+		targetPID:   ev.statePID,
 	}
 }
 

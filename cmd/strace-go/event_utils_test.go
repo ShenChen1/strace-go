@@ -164,11 +164,11 @@ func TestSyscallEventContextUpdateFDStateUsesViewForSocketpairInfo(t *testing.T)
 	fdMap := make(map[string]string)
 	store := newFDStateStoreFromMaps(fdMap, nil)
 	catalog := meta.NewCatalog("abbrev")
-	ev.catalog = catalog
+	ev.fdFlags = catalog
 	ev.updateFDState(store)
 
-	wantSuffix := "|" + socketFDInfoFromCatalog(catalog, view)
-	rawSuffix := "|" + socketFDInfoFromCatalog(catalog, rawView)
+	wantSuffix := "|" + socketFDInfoFromFlags(catalog, view)
+	rawSuffix := "|" + socketFDInfoFromFlags(catalog, rawView)
 	if wantSuffix == rawSuffix {
 		t.Fatal("test setup produced identical view and raw socket info")
 	}
