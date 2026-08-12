@@ -3551,3 +3551,32 @@ Impact note：`runtime_abi.h` 是 BPF translation unit 的唯一入口，`strace
 本阶段只统一 BPF syscall number 来源，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：先验证旧源码门禁因缺少 generated header 而失败，再将 `syscall_numbers_generated.h` 按翻译单元 include 顺序纳入测试源码视图；`go test ./cmd/generate-syscalls ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`sudo -n go generate ./cmd/strace-go`、`go build -o strace-go ./cmd/strace-go`、no-ptrace/no-procfs source gate 和 `git diff --check` 全部通过。生成 header 为 378 行，按 syscall name 稳定排序，旧 runtime ABI 普通 `SYS_*` numeric defines 已全部删除。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，699.45 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.79 删除遗留 procfs 补丁残片（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：纯 eBPF 契约要求用户态不读取 tracee 的 `/proc` 内存或 mappings；`pkg/stacktrace/resolver.go` 已改为只格式化 BPF probe 时捕获的 instruction pointer，但仓库仍跟踪一个历史 `resolver.go.rej` 补丁残片。
+- Problem：该 `.rej` 文件虽然不参与 Go 编译，却保留了旧 `Resolver.readMaps` 和 `/proc/<pid>/maps` 读取内容，误导后续维护者，也可能被脚本、代码审查或自动 source scan 当成尚存的实现路径。
+- Goal：删除没有引用、没有构建作用的 patch artifact，使 stacktrace 目录只表达当前 probe-time raw-address 设计；保留现有 resolver 行为和纯 eBPF source gate。
+- Non-goals：不恢复符号解析，不引入 `/proc`、ptrace、`process_vm_readv` 或用户态异步内存读取，不修改 BPF event ABI、Go 输出格式、生命周期或 handler。
+- Constraints：先用全局引用搜索确认 `.rej` 无 caller；删除后必须通过 stacktrace 单测、全量 Go/静态门禁和 `git diff --check`；不扩大到 upstream 子模块或用户工作区文件。
+
+Impact note：删除对象只在 `pkg/stacktrace` 目录中，production caller 仍只调用 `Resolver.Resolve`；运行时继续输出 probe-time raw address，不存在新的 symbol/mapping owner。
+
+方案比较：
+
+1. 保留 `.rej` 并只依赖 Go source gate：运行时不受影响，但仓库继续携带被废弃的 procfs 设计，拒绝。
+2. 只把 `.rej` 加入 source gate：能阻止回归，但保留无效 artifact 和错误架构信号，拒绝。
+3. 删除无引用 patch artifact，继续由现有 production source policy 检查可编译 Go 路径：改动最小、事实源唯一，选择该方案。
+
+状态契约：
+
+- `pkg/stacktrace/Resolver` 只消费 BPF 已捕获的 instruction pointer；symbol/mapping 解析不属于纯 eBPF 产品契约。
+- 仓库主路径不保留历史 `.rej` 补丁作为实现或文档来源；需要对照历史时使用 git history。
+
+测试与验收：
+
+- 先确认 `.rej` 存在且无引用，再删除；运行 stacktrace focused、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、no-ptrace/no-procfs source gate 和 `git diff --check`。
+
+本阶段只删除误导性的历史 artifact，不改变纯 eBPF 运行时语义。
