@@ -28,6 +28,7 @@ func newTestTraceSession(deps traceSessionDeps) *traceSession {
 
 func newBareTestTraceSession(deps traceSessionDeps) *traceSession {
 	deps = withTestTraceSessionDefaults(deps)
+	deps.Opts = nil
 	return &traceSession{
 		dependencies: deps,
 		eventPolicy:  deps.EventPolicy,
@@ -43,6 +44,9 @@ func withTestTraceSessionDefaults(deps traceSessionDeps) traceSessionDeps {
 	}
 	if deps.EventPolicy == nil {
 		deps.EventPolicy = newTraceEventPolicy(deps.Opts)
+	}
+	if deps.OutputPolicy == nil {
+		deps.OutputPolicy = newTraceOutputPolicy(deps.Opts)
 	}
 	if deps.Catalog == nil {
 		format := deps.Opts.XlatFormat

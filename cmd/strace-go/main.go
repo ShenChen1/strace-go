@@ -127,6 +127,7 @@ func composeTraceSession(
 	output *TraceOutput,
 ) (*traceSession, error) {
 	eventPolicy := newTraceEventPolicy(opts)
+	outputPolicy := newTraceOutputPolicy(opts)
 	decoder := event.NewDecoder()
 	decoder.HexEscapeMode = opts.HexEscapeMode
 	// IMPACT: Initialize decoder.StringLimit from parsed CLI options to respect command-line formatting constraints.
@@ -141,6 +142,7 @@ func composeTraceSession(
 		TargetPID:     bootstrap.targetPID,
 		Opts:          opts,
 		EventPolicy:   eventPolicy,
+		OutputPolicy:  outputPolicy,
 		Catalog:       meta.NewCatalog(opts.XlatFormat),
 		Decoder:       decoder,
 		FDState:       newFDStateStoreFromSeed(bootstrap.fdSeed),

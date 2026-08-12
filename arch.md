@@ -4122,4 +4122,41 @@ Impact note：production 影响集中在 `session_run.go` 和 `session_compositi
 
 本阶段只收敛运行期 attach PID 的输入 ownership，不改变 bootstrap 目标管理或 run 状态机语义。
 
-实际验收结果：失败优先 source gate 先因 `session_run.go` 仍调用 `attachPIDs(deps.Opts)` 而失败；迁移后 `run()` 通过 `sessionAttachPIDs()` 读取 `cliTraceOutputPolicy.AttachPIDs()`，exit-status coordinator 也从同一 snapshot 构造，run state 与 coordinator 各自复制 slice。新增测试覆盖 CLI attach slice mutation、返回 slice mutation、coordinator snapshot 和 source wiring。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，739.44 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后待清理本轮 `strace-go` 和 Python 临时目录，bootstrap cleanup 仍保持原有 CLI 边界，运行期 attach PID 不再直接读取 CLI owner。
+### 14.95 实际验收记录
+
+失败优先 source gate 先因 `session_run.go` 仍调用 `attachPIDs(deps.Opts)` 而失败；迁移后 `run()` 通过 `sessionAttachPIDs()` 读取 `cliTraceOutputPolicy.AttachPIDs()`，exit-status coordinator 也从同一 snapshot 构造，run state 与 coordinator 各自复制 slice。新增测试覆盖 CLI attach slice mutation、返回 slice mutation、coordinator snapshot 和 source wiring。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，739.44 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。bootstrap cleanup 仍保持原有 CLI 边界，运行期 attach PID 不再直接读取 CLI owner。
+
+### 14.96 在 session 构造边界消费并丢弃 CLI owner（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.89-14.95 已让输出、渲染、生命周期、scope、event policy、State、run 和 exit-status 使用 construction-time snapshot，但 `traceSessionDeps` 仍保存 `*cli.Options`；`buildTraceSessionBase` 还会从该指针再次构造 output policy。
+- Problem：session 组件图虽然热路径不主动读取 CLI，依赖对象仍然保留可变 bootstrap owner，未来新增组件很容易重新绕过 snapshot；同一 session 也可能在不同位置重复构造策略，形成漂移风险。
+- Goal：`newTraceSession` 在依赖校验边界一次物化 `EventPolicy` 与 `OutputPolicy`，随后将 `traceSessionDeps.Opts` 清空，再构造完整组件图。运行期 `buildTraceSessionBase` 只消费已经注入的 output snapshot；测试 bare session 也必须先创建 snapshot 并丢弃 CLI owner。
+- Non-goals：不迁移 BPF ConfigMap、syscall filter、目标启动、attach 失败清理或 bootstrap `traceTargetPIDs`；不改变事件 ABI、ringbuf、单消费者状态机、FD/lifecycle 事件源、输出文本、JSON 字段、性能模型或纯 eBPF/no-procfs 约束；本阶段不删除构造期兼容输入字段。
+- Constraints：session 构造完成后 `session.dependencies.Opts == nil`；`EventPolicy`、`OutputPolicy` 均为同一构造边界形成的稳定指针；`buildTraceSessionBase` 不得调用 `newTraceOutputPolicy(deps.Opts)`；当 policy 与 bootstrap options 都缺失时，构造必须返回明确错误，避免用 nil policy 静默补图。
+
+Impact note：影响集中在 `session_composition.go`、`main.go` 的 composition wiring 和测试 fixture；`main.go` 其余 CLI 使用仍是 bootstrap 责任，`session.go` 的命令启动函数保持 setup-only。新增测试只验证 owner 生命周期与 policy identity，不改变用户可见语义。
+
+方案比较：
+
+1. 继续让组件从 `deps.Opts` 读取并生成策略：改动最小，但运行期 session 保留可变 CLI owner，策略可能漂移，拒绝。
+2. 新建第二个 mutable session config，并与 `Opts` 并存：可以隐藏 concrete CLI，但增加 owner 和同步边界，拒绝。
+3. 在 constructor boundary 一次创建 event/output snapshot，清空 `Opts` 后再 eager compose：不增加运行期 owner，复用现有 policy port，错误在边界暴露，选择该方案。
+
+状态契约：
+
+- `traceSessionDeps.Opts` 只允许作为 constructor 的 bootstrap 输入；它不能进入 `traceSession.dependencies` 的运行期状态。
+- `traceSessionDeps.EventPolicy` 与 `OutputPolicy` 是运行期唯一的 CLI 派生策略引用；所有组件从这两个 snapshot 获取策略，不重新读取 CLI。
+- `newTestTraceSession` 和 `newBareTestTraceSession` 只在 fixture 构造阶段使用 CLI 生成 snapshot，返回的 session 同样不保留 CLI owner。
+
+测试与验收：
+
+- 先增加失败优先回归，断言 session 构造后丢弃 `Opts`、output policy 与组件共享同一 pointer，并增加 source gate 禁止 `buildTraceSessionBase` 从 `deps.Opts` 重建 output policy。
+- 运行 focused composition/session tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 CLI owner 的生命周期，不改变 bootstrap 目标管理或纯 eBPF 事实源。
+
+### 14.96 实际验收记录
+
+失败优先 source gate 先因 session 仍保留 `Opts`、base 仍从 CLI 重建 output policy 而失败；迁移后 constructor 会一次注入 event/output policy 并清空 session 依赖中的 CLI owner，components identity 与 policy snapshot 一致。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、`git diff --check` 全部通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，747.46 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试后清理本轮生成的 `strace-go` 与 Python 缓存，未引入 ptrace、procfs 或用户态 tracee 内存读取。

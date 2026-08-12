@@ -59,15 +59,16 @@ type traceSessionEventComponents struct {
 	eventRouter      *TraceEventRouter
 }
 
-// traceSessionDeps contains external resources and session policy. Keeping
-// construction inputs in one object makes ownership and test substitution
-// visible without exporting the runtime graph.
+// traceSessionDeps contains external resources and session policy. Opts is a
+// construction-only bootstrap input; newTraceSession consumes and clears it
+// before retaining the runtime dependency graph.
 type traceSessionDeps struct {
 	Cmd           *exec.Cmd
 	Events        traceRingbufReader
 	TargetPID     int
 	Opts          *cli.Options
 	EventPolicy   *cliTraceEventPolicy
+	OutputPolicy  *cliTraceOutputPolicy
 	Catalog       *meta.Catalog
 	Decoder       *event.Decoder
 	FDState       *FDStateStore
@@ -86,14 +87,20 @@ type traceSessionDeps struct {
 // newTraceSession creates the complete event pipeline before the first event
 // is read. All session-owned dependencies must be explicit at this boundary.
 func newTraceSession(deps traceSessionDeps) (*traceSession, error) {
-	if err := validateTraceSessionDeps(deps); err != nil {
-		return nil, err
-	}
 	eventPolicy := deps.EventPolicy
 	if eventPolicy == nil {
 		eventPolicy = newTraceEventPolicy(deps.Opts)
 	}
+	outputPolicy := deps.OutputPolicy
+	if outputPolicy == nil {
+		outputPolicy = newTraceOutputPolicy(deps.Opts)
+	}
 	deps.EventPolicy = eventPolicy
+	deps.OutputPolicy = outputPolicy
+	if err := validateTraceSessionDeps(deps); err != nil {
+		return nil, err
+	}
+	deps.Opts = nil
 	session := &traceSession{
 		dependencies: deps,
 		eventPolicy:  eventPolicy,
@@ -108,7 +115,8 @@ func validateTraceSessionDeps(deps traceSessionDeps) error {
 		isNil bool
 	}{
 		{name: "Events", isNil: deps.Events == nil},
-		{name: "Opts", isNil: deps.Opts == nil},
+		{name: "EventPolicy", isNil: deps.EventPolicy == nil},
+		{name: "OutputPolicy", isNil: deps.OutputPolicy == nil},
 		{name: "Catalog", isNil: deps.Catalog == nil},
 		{name: "Decoder", isNil: deps.Decoder == nil},
 		{name: "FDState", isNil: deps.FDState == nil},
@@ -173,7 +181,7 @@ func buildTraceSessionBase(session *traceSession) traceSessionBaseComponents {
 	handlerRegistry := handler.NewRegistry()
 	handleSyscall := handlerRegistry.Handle
 	eventPolicy := session.eventPolicy
-	outputPolicy := newTraceOutputPolicy(deps.Opts)
+	outputPolicy := deps.OutputPolicy
 	return traceSessionBaseComponents{
 		eventPolicy:  eventPolicy,
 		jsonWriter:   newJSONEventWriter(JSONEventWriterDeps{Out: deps.OutWriter}),
