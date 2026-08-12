@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -13,10 +12,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"strace-go/pkg/cli"
-	"strace-go/pkg/event"
-	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
-	"strace-go/pkg/stacktrace"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -24,24 +20,8 @@ import (
 )
 
 type traceSession struct {
-	cmd           *exec.Cmd
-	events        traceRingbufReader
-	targetPid     int
-	opts          *cli.Options
-	catalog       *meta.Catalog
-	decoder       *event.Decoder
-	fdState       *FDStateStore
-	runtime       handler.RuntimeServices
-	outWriter     io.Writer
-	output        *TraceOutput
-	summary       *SummaryStats
-	timeFormatter *TimeFormatter
-	bpfObjs       *bpfObjects
-	resolver      *stacktrace.Resolver
-	state         *TraceState
-	components    *traceSessionComponents
-	clock         traceClock
-	pidProbe      tracePIDProbe
+	dependencies traceSessionDeps
+	components   *traceSessionComponents
 }
 
 // IMPACT: setupBPF is the single eBPF runtime wiring entry used by main. It loads

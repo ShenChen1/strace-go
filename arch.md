@@ -3645,3 +3645,37 @@ Impact note：改动只作用于 `test/run_tests.py` 与 `test/upstream_suites.p
 本阶段只收口 handler registry 的依赖 ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先测试先证明缺失 `Context.Registry` 时旧实现会借用 builtin pointer decoder；删除 `Context.registry()` 后，nil registry 只保留通用默认行为，显式 session registry 仍复用同一 handler owner。同步收紧 `newSyscallEventContextDeps` 和 `defaultHandleSyscall`，缺失 registry 不再创建第二份 `handler.NewRegistry()`。`go test ./cmd/strace-go ./pkg/handler` focused、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，732.09 events/s。最终 `upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.82 收敛 traceSession 的依赖唯一所有权（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.61-14.81 已把 session 组件改成 eager composition，并逐步移除了 lazy constructor、隐式 catalog/clock/registry；但 `traceSessionDeps` 已经包含完整的 session 输入，`traceSession` 仍再次保存 `opts`、`catalog`、`decoder`、`fdState`、`runtime`、`summary`、`timeFormatter`、`state`、`clock`、`pidProbe` 等同一批字段。组件 builder 和运行时 helper 直接读取这些复制字段。
+- Problem：同一依赖存在两个结构层级，代码可以在构造后修改顶层字段而不修改 `traceSessionDeps`，或在新组件路径只接收其中一份；这种 aliasing 让对象所有权不再可证明，也削弱了“session graph 只有一份共享状态”的接口设计。测试当前只能禁止 lazy assignment，不能禁止重复 owner。
+- Goal：`traceSession` 只持有一份不可替换的 `traceSessionDeps` 值和构造完成后的 `components`；删除重复的基础依赖字段，所有生产路径从 `session.dependencies` 读取，组件 builder 继续复用同一批指针。零值 session 仍保持 inert，不创建任何默认对象。
+- Non-goals：不重写 event router、handler registry、BPF ABI 或 formatter 业务逻辑；不把所有依赖改成接口，不引入服务定位器、全局单例或锁；不改变 CLI、JSON/text 输出、lifecycle、filter、纯 eBPF/no-procfs 语义。
+- Constraints：`traceSessionDeps` 已是现有 composition 输入，采用值复制只复制依赖指针，不复制 session map；所有 helper/test 必须迁移到唯一容器，禁止保留同名顶层 alias。文件和函数继续满足仓库规模限制。
+
+Impact note：受影响边界集中在 `cmd/strace-go` 的 session composition、run loop、event context 和 component accessors；`pkg` 与 BPF 不需要修改。`newTraceSession` 是唯一 production constructor，测试通过 `newTestTraceSession` 构造完整依赖。
+
+方案比较：
+
+1. 保留顶层字段并只增加 source gate：能发现部分回归，但重复 owner 仍然存在，拒绝。
+2. 让 `traceSession` 只保留 `*traceSessionDeps`：owner 唯一，但额外引入可变指针和 nil 生命周期，零值与构造边界更复杂，拒绝。
+3. 让 `traceSession` 按值持有不可替换的 `traceSessionDeps`，组件和 helper 统一读取该值：改动局部、零值安全、依赖来源唯一，选择该方案。
+
+状态契约：
+
+- `traceSession.dependencies` 是 session 外部资源、策略和基础状态的唯一 owner；不得再添加对应的顶层字段。
+- `components` 只持有由 `dependencies` 构造出的协作对象；不得从另一个默认 constructor 补齐依赖。
+- 构造后运行时只消费依赖，不替换 `dependencies` 或其中的 session state 指针。
+
+测试与验收：
+
+- 先增加失败优先 source gate，证明当前 `traceSession` 仍有重复基础字段；迁移后 gate 必须禁止旧字段和构造后替换。
+- 增加 identity regression，确认 event context、FD effects、summary、clock、runtime 都来自同一 `dependencies` 实例中的对象。
+- 运行 `go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和 upstream reference。
+
+本阶段只收敛 session 依赖 ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source gate 先因 `traceSession` 缺少唯一 dependency container 而失败；迁移后 `traceSession` 只保留 `dependencies traceSessionDeps` 与 eager `components`，旧的 command、ringbuf、options、catalog、decoder、state、FD、runtime、summary、clock、BPF 和 output 顶层字段全部删除。所有 session component builder、run loop、event context/accessor 和测试 fixture 均改为读取同一依赖容器，并新增 decoder/catalog/FD/runtime/clock identity regression。`go test ./cmd/strace-go ./pkg/handler`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，720.73 events/s。最终 `upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture、BPF pin 或 patch/cache artifact，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

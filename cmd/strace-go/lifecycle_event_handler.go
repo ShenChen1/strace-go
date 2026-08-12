@@ -178,16 +178,16 @@ func (h *LifecycleEventHandler) writeExitText(tid int, exitCode uint64) {
 // pids and follow-fork children). The command tracee's line is emitted by the
 // ExitStatusCoordinator after the ringbuf drain to preserve wait ordering.
 func (s *traceSession) writeLifecycleExitText(tid int, exitCode uint64) {
-	if s == nil || s.opts == nil {
+	if s == nil || s.dependencies.Opts == nil {
 		return
 	}
-	if s.opts.QuietExit || s.opts.SummaryOnly || s.opts.EventFormat == cli.EventFormatJSON {
+	if s.dependencies.Opts.QuietExit || s.dependencies.Opts.SummaryOnly || s.dependencies.Opts.EventFormat == cli.EventFormatJSON {
 		return
 	}
-	if s.cmd != nil && tid == s.targetPid {
+	if s.dependencies.Cmd != nil && tid == s.dependencies.TargetPID {
 		return
 	}
-	fmt.Fprint(s.outWriter, s.textRenderer().ExitStatusLine(tid, exitCode))
+	fmt.Fprint(s.dependencies.OutWriter, s.textRenderer().ExitStatusLine(tid, exitCode))
 }
 
 func (h *LifecycleEventHandler) jsonMode() bool {

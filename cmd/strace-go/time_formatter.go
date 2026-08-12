@@ -21,7 +21,7 @@ func (s *traceSession) timeFormatterState() *TimeFormatter {
 	if s == nil {
 		return nil
 	}
-	return s.timeFormatter
+	return s.dependencies.TimeFormatter
 }
 
 // IMPACT: Prefix formats syscall time prefixes and owns relative-time state.
@@ -69,7 +69,7 @@ func (s *traceSession) timePrefix(enterTimeMonoNs uint64) string {
 	if formatter == nil {
 		return ""
 	}
-	return formatter.Prefix(enterTimeMonoNs, s.opts)
+	return formatter.Prefix(enterTimeMonoNs, s.dependencies.Opts)
 }
 
 // NowMonoNs returns the current CLOCK_MONOTONIC value in nanoseconds so

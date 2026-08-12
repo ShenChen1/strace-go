@@ -24,7 +24,7 @@ func TestTraceSessionEmitsDebugReadyEvent(t *testing.T) {
 		TargetPID: 42,
 		OutWriter: &output,
 	})
-	session.opts.AttachPids = []int{42, 84}
+	session.dependencies.Opts.AttachPids = []int{42, 84}
 
 	session.emitDebugReady()
 

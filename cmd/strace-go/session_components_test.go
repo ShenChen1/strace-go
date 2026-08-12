@@ -45,6 +45,13 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	if deps := newSyscallEventContextDeps(session); deps.registry != components.handlerRegistry {
 		t.Fatal("session event context helper does not reuse the composed handler registry")
 	}
+	contextDeps := newSyscallEventContextDeps(session)
+	if contextDeps.decoder != session.dependencies.Decoder || contextDeps.catalog != session.dependencies.Catalog {
+		t.Fatal("event context does not use dependencies-owned decoder/catalog")
+	}
+	if contextDeps.fdState != session.dependencies.FDState || contextDeps.runtime != session.dependencies.Runtime {
+		t.Fatal("event context does not use dependencies-owned runtime state")
+	}
 	if components.exitSyscall.handleSyscall == nil {
 		t.Fatal("exit syscall output is missing the session handler resolver")
 	}
@@ -65,17 +72,17 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	if components.eventReader.sink != components.eventRouter {
 		t.Fatal("event reader and session graph use different sinks")
 	}
-	if components.eventReader.clock != clock || session.clock != clock {
+	if components.eventReader.clock != clock || session.dependencies.Clock != clock {
 		t.Fatal("session and event reader do not share the injected clock")
 	}
 	if components.textRenderer.timeFormatter.clock != clock {
 		t.Fatal("text renderer does not use the injected session clock")
 	}
 	runState := newTraceRunState(traceRunStateDeps{
-		clock:    session.clock,
-		pidProbe: session.pidProbe,
+		clock:    session.dependencies.Clock,
+		pidProbe: session.dependencies.PIDProbe,
 	})
-	if runState.clock != clock || runState.pidProbe != session.pidProbe {
+	if runState.clock != clock || runState.pidProbe != session.dependencies.PIDProbe {
 		t.Fatal("run state does not use the session-owned ports")
 	}
 	if components.eventRouter.state != state {
@@ -277,7 +284,7 @@ func TestTraceSessionPipelineUsesComposedDependencies(t *testing.T) {
 	if finalizer.summary != session.summaryStats() {
 		t.Fatal("finalizer should use session summary stats")
 	}
-	if finalizer.bpfObjs != session.bpfObjs {
+	if finalizer.bpfObjs != session.dependencies.BPFObjects {
 		t.Fatal("finalizer should use session BPF objects")
 	}
 }

@@ -10,13 +10,13 @@ import (
 )
 
 func TestSyscallEventContextUsesTLVPathSection(t *testing.T) {
-	session := &traceSession{
-		targetPid: 101,
-		opts:      cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"}),
-		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-		state:     newTraceState(),
-	}
+	session := newBareTestTraceSession(traceSessionDeps{
+		TargetPID: 101,
+		Opts:      cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"}),
+		Decoder:   event.NewDecoder(),
+		FDState:   newFDStateStoreFromMaps(nil, nil),
+		State:     newTraceState(),
+	})
 	path := []byte("from-tlv\x00")
 	payload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindString,
@@ -68,13 +68,13 @@ func TestShouldEmitGenericEnterForPathFilter(t *testing.T) {
 }
 
 func TestSyscallEventContextMergesPendingEnterTLVPathForPathFilter(t *testing.T) {
-	session := &traceSession{
-		targetPid: 101,
-		opts:      cli.ParseArgs([]string{"-e", "trace=openat", "-P", "from-tlv", "/bin/true"}),
-		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-		state:     newTraceState(),
-	}
+	session := newBareTestTraceSession(traceSessionDeps{
+		TargetPID: 101,
+		Opts:      cli.ParseArgs([]string{"-e", "trace=openat", "-P", "from-tlv", "/bin/true"}),
+		Decoder:   event.NewDecoder(),
+		FDState:   newFDStateStoreFromMaps(nil, nil),
+		State:     newTraceState(),
+	})
 	args := [6]uint64{rawAtFdcwd, 0x1000, 0}
 	pathPayload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindString,
@@ -134,13 +134,13 @@ func assertPathStatSectionsMerged(
 	fill byte,
 ) {
 	t.Helper()
-	session := &traceSession{
-		targetPid: 101,
-		opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + syscallName, "/bin/true"}),
-		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-		state:     newTraceState(),
-	}
+	session := newBareTestTraceSession(traceSessionDeps{
+		TargetPID: 101,
+		Opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + syscallName, "/bin/true"}),
+		Decoder:   event.NewDecoder(),
+		FDState:   newFDStateStoreFromMaps(nil, nil),
+		State:     newTraceState(),
+	})
 	pathData := []byte("/proc/self\x00")
 	pathPayload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindString,
@@ -197,13 +197,13 @@ func TestSyscallEventContextMergesReadlinkEnterPathAndExitBytesSections(t *testi
 }
 
 func TestSyscallEventContextUsesGetcwdExitBytesSection(t *testing.T) {
-	session := &traceSession{
-		targetPid: 101,
-		opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=getcwd", "/bin/true"}),
-		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-		state:     newTraceState(),
-	}
+	session := newBareTestTraceSession(traceSessionDeps{
+		TargetPID: 101,
+		Opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=getcwd", "/bin/true"}),
+		Decoder:   event.NewDecoder(),
+		FDState:   newFDStateStoreFromMaps(nil, nil),
+		State:     newTraceState(),
+	})
 	cwdData := []byte("/opt/strace-go\x00")
 	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindBytes,
@@ -242,13 +242,13 @@ func TestSyscallEventContextUsesFDArrayExitStructSection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			session := &traceSession{
-				targetPid: 101,
-				opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + tt.name, "/bin/true"}),
-				decoder:   event.NewDecoder(),
-				fdState:   newFDStateStoreFromMaps(nil, nil),
-				state:     newTraceState(),
-			}
+			session := newBareTestTraceSession(traceSessionDeps{
+				TargetPID: 101,
+				Opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + tt.name, "/bin/true"}),
+				Decoder:   event.NewDecoder(),
+				FDState:   newFDStateStoreFromMaps(nil, nil),
+				State:     newTraceState(),
+			})
 			fdData := fdArrayJSONData(21, 22)
 			exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
 				kind:    payloadTLVKindStruct,
@@ -278,13 +278,13 @@ type readlinkTLVCase struct {
 
 func assertReadlinkSectionsMerged(t *testing.T, tt readlinkTLVCase) {
 	t.Helper()
-	session := &traceSession{
-		targetPid: 101,
-		opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + tt.name, "/bin/true"}),
-		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-		state:     newTraceState(),
-	}
+	session := newBareTestTraceSession(traceSessionDeps{
+		TargetPID: 101,
+		Opts:      cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + tt.name, "/bin/true"}),
+		Decoder:   event.NewDecoder(),
+		FDState:   newFDStateStoreFromMaps(nil, nil),
+		State:     newTraceState(),
+	})
 	pathData := []byte("/tmp/strace-go-ebpf-readlink\x00")
 	pathPayload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindString,

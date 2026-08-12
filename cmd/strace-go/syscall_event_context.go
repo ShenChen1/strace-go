@@ -64,15 +64,19 @@ func newSyscallEventContextDepsWithRegistry(
 	s *traceSession,
 	registry *handler.Registry,
 ) syscallEventContextDeps {
-	fdState := s.fdStateStore()
+	if s == nil {
+		return syscallEventContextDeps{registry: registry}
+	}
+	deps := s.dependencies
+	fdState := deps.FDState
 	return syscallEventContextDeps{
-		decoder:  s.decoder,
-		opts:     s.opts,
-		catalog:  s.catalog,
+		decoder:  deps.Decoder,
+		opts:     deps.Opts,
+		catalog:  deps.Catalog,
 		fdState:  fdState,
 		fdPath:   fdState,
 		registry: registry,
-		runtime:  s.runtimeService(),
+		runtime:  deps.Runtime,
 	}
 }
 

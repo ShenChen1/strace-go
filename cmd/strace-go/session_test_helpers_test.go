@@ -18,6 +18,19 @@ func calculateTimeOffset() int64 {
 }
 
 func newTestTraceSession(deps traceSessionDeps) *traceSession {
+	deps = withTestTraceSessionDefaults(deps)
+	session, err := newTraceSession(deps)
+	if err != nil {
+		panic(err)
+	}
+	return session
+}
+
+func newBareTestTraceSession(deps traceSessionDeps) *traceSession {
+	return &traceSession{dependencies: withTestTraceSessionDefaults(deps)}
+}
+
+func withTestTraceSessionDefaults(deps traceSessionDeps) traceSessionDeps {
 	if deps.Events == nil {
 		deps.Events = &fakeRingbufReader{}
 	}
@@ -58,10 +71,5 @@ func newTestTraceSession(deps traceSessionDeps) *traceSession {
 	if deps.State == nil {
 		deps.State = newTraceStateForSession(deps.Opts)
 	}
-
-	session, err := newTraceSession(deps)
-	if err != nil {
-		panic(err)
-	}
-	return session
+	return deps
 }

@@ -6,5 +6,5 @@ func (s *traceSession) runtimeService() handler.RuntimeServices {
 	if s == nil {
 		return nil
 	}
-	return s.runtime
+	return s.dependencies.Runtime
 }

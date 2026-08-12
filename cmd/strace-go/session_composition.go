@@ -85,23 +85,7 @@ func newTraceSession(deps traceSessionDeps) (*traceSession, error) {
 		return nil, err
 	}
 	session := &traceSession{
-		cmd:           deps.Cmd,
-		events:        deps.Events,
-		targetPid:     deps.TargetPID,
-		opts:          deps.Opts,
-		catalog:       deps.Catalog,
-		decoder:       deps.Decoder,
-		fdState:       deps.FDState,
-		runtime:       deps.Runtime,
-		outWriter:     deps.OutWriter,
-		output:        deps.Output,
-		summary:       deps.Summary,
-		timeFormatter: deps.TimeFormatter,
-		bpfObjs:       deps.BPFObjects,
-		resolver:      deps.Resolver,
-		state:         deps.State,
-		clock:         deps.Clock,
-		pidProbe:      deps.PIDProbe,
+		dependencies: deps,
 	}
 	session.components = buildTraceSessionComponents(session)
 	return session, nil
@@ -170,29 +154,30 @@ func buildTraceSessionComponents(session *traceSession) *traceSessionComponents 
 }
 
 func buildTraceSessionBase(session *traceSession) traceSessionBaseComponents {
+	deps := session.dependencies
 	handlerRegistry := handler.NewRegistry()
 	handleSyscall := handlerRegistry.Handle
 	return traceSessionBaseComponents{
-		jsonWriter: newJSONEventWriter(JSONEventWriterDeps{Out: session.outWriter}),
+		jsonWriter: newJSONEventWriter(JSONEventWriterDeps{Out: deps.OutWriter}),
 		renderer: newTextRenderer(TextRendererDeps{
-			Out:           session.outWriter,
-			Opts:          session.opts,
-			State:         session.state,
-			TimeFormatter: session.timeFormatter,
-			BPFObjs:       session.bpfObjs,
-			Resolver:      session.resolver,
+			Out:           deps.OutWriter,
+			Opts:          deps.Opts,
+			State:         deps.State,
+			TimeFormatter: deps.TimeFormatter,
+			BPFObjs:       deps.BPFObjects,
+			Resolver:      deps.Resolver,
 		}),
 		exitStatus: newExitStatusCoordinator(ExitStatusCoordinatorDeps{
 			Queue:      newExitStatusQueue(),
-			Out:        session.outWriter,
-			HasCommand: session.cmd != nil,
-			AttachPids: attachPIDs(session.opts),
+			Out:        deps.OutWriter,
+			HasCommand: deps.Cmd != nil,
+			AttachPids: attachPIDs(deps.Opts),
 		}),
 		handlerRegistry: handlerRegistry,
 		handleSyscall:   handleSyscall,
 		handlerRunner: newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
 			HandleSyscall: handleSyscall,
-			Effects:       newTraceSessionSyscallHandlerEffects(session.fdState),
+			Effects:       newTraceSessionSyscallHandlerEffects(deps.FDState),
 		}),
 	}
 }
@@ -201,31 +186,32 @@ func buildTraceSessionOutputs(
 	session *traceSession,
 	base traceSessionBaseComponents,
 ) traceSessionOutputComponents {
+	deps := session.dependencies
 	execOutput := newExecSyscallOutput(ExecSyscallOutputDeps{
-		Opts:              session.opts,
-		State:             session.state,
+		Opts:              deps.Opts,
+		State:             deps.State,
 		Renderer:          base.renderer,
 		DiscardExitStatus: base.exitStatus.Discard,
 	})
 	suspendedOutput := newSuspendedSyscallOutput(SuspendedSyscallOutputDeps{
-		State:    session.state,
+		State:    deps.State,
 		Renderer: base.renderer,
 	})
 	syscallText := newSyscallTextOutput(SyscallTextOutputDeps{
-		Opts:      session.opts,
+		Opts:      deps.Opts,
 		Suspended: suspendedOutput,
 		Exec:      execOutput,
 		Renderer:  base.renderer,
 	})
 	syscallJSON := newSyscallJSONOutput(SyscallJSONOutputDeps{
-		Opts:    session.opts,
-		FDState: session.fdStateStore(),
+		Opts:    deps.Opts,
+		FDState: deps.FDState,
 		Writer:  base.jsonWriter,
 	})
 	exitSyscall := newExitSyscallOutput(ExitSyscallOutputDeps{
-		Opts:              session.opts,
+		Opts:              deps.Opts,
 		Renderer:          base.renderer,
-		Out:               session.outWriter,
+		Out:               deps.OutWriter,
 		HandleSyscall:     base.handleSyscall,
 		ShouldQueueStatus: base.exitStatus.ShouldQueue,
 		QueueStatus:       base.exitStatus.Queue,
@@ -243,26 +229,27 @@ func buildTraceSessionEvents(
 	base traceSessionBaseComponents,
 	outputs traceSessionOutputComponents,
 ) traceSessionEventComponents {
+	deps := session.dependencies
 	exitPipeline := newSyscallExitPipeline(SyscallExitPipelineDeps{
-		Opts:    session.opts,
+		Opts:    deps.Opts,
 		JSON:    outputs.syscallJSON,
 		Exit:    outputs.exitSyscall,
 		Runner:  base.handlerRunner,
 		Text:    outputs.syscallText,
-		Effects: newTraceSessionSyscallExitEffects(session.summary, session.fdState, session.fdState),
+		Effects: newTraceSessionSyscallExitEffects(deps.Summary, deps.FDState, deps.FDState),
 	})
 	lifecycle := newLifecycleEventHandler(LifecycleEventHandlerDeps{
-		Opts: session.opts,
+		Opts: deps.Opts,
 		Effects: newTraceSessionLifecycleEffects(
-			session.fdState,
+			deps.FDState,
 			base.jsonWriter,
 			session.writeLifecycleExitText,
 		),
 	})
 	router := newTraceEventRouter(TraceEventRouterDeps{
-		Scope:       newTraceScope(session.targetPid, session.opts),
-		TargetPID:   session.targetPid,
-		State:       session.state,
+		Scope:       newTraceScope(deps.TargetPID, deps.Opts),
+		TargetPID:   deps.TargetPID,
+		State:       deps.State,
 		Lifecycle:   lifecycle,
 		JSON:        outputs.syscallJSON,
 		Pipeline:    exitPipeline,
@@ -288,27 +275,28 @@ func buildTraceSessionRuntime(
 	renderer *TextRenderer,
 	router *TraceEventRouter,
 ) traceSessionRuntimeComponents {
+	deps := session.dependencies
 	recordDecoder := traceRingbufRecordDecoder{}
 	return traceSessionRuntimeComponents{
 		recordDecoder: recordDecoder,
 		eventReader: newTraceEventReader(TraceEventReaderDeps{
-			Reader:  session.events,
+			Reader:  deps.Events,
 			Decoder: recordDecoder,
 			Sink:    router,
-			Clock:   session.clock,
+			Clock:   deps.Clock,
 		}),
 		runFinalizer: newTraceRunFinalizer(TraceRunFinalizerDeps{
-			Opts:            session.opts,
-			TargetPID:       session.targetPid,
+			Opts:            deps.Opts,
+			TargetPID:       deps.TargetPID,
 			StatsDiagnostic: os.Stderr,
 			ExitStatus:      exitStatus,
-			Summary:         session.summary,
-			BPFObjects:      session.bpfObjs,
-			Output:          session.output,
+			Summary:         deps.Summary,
+			BPFObjects:      deps.BPFObjects,
+			Output:          deps.Output,
 		}),
 		commandExitHandler: newTraceCommandExitHandler(TraceCommandExitHandlerDeps{
-			Opts:       session.opts,
-			TargetPID:  session.targetPid,
+			Opts:       deps.Opts,
+			TargetPID:  deps.TargetPID,
 			ExitStatus: exitStatus,
 			Renderer:   renderer,
 		}),

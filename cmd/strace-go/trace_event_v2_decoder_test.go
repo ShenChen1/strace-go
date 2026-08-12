@@ -140,12 +140,12 @@ func TestTraceEventV2OpenatExitMatchesPathFilter(t *testing.T) {
 		t.Fatal("decodeTraceEventV2Envelope rejected exit")
 	}
 	update := state.handleEnvelope(exitEnvelope)
-	session := &traceSession{
-		targetPid: 101,
-		opts:      cli.ParseArgs([]string{"-e", "trace=openat", "-P", "v2.txt", "/bin/true"}),
-		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-	}
+	session := newBareTestTraceSession(traceSessionDeps{
+		TargetPID: 101,
+		Opts:      cli.ParseArgs([]string{"-e", "trace=openat", "-P", "v2.txt", "/bin/true"}),
+		Decoder:   event.NewDecoder(),
+		FDState:   newFDStateStoreFromMaps(nil, nil),
+	})
 
 	ev := newSyscallEventContextFromView(session, update.syscallView, 101, update.pendingEnter, update.payloadSections)
 

@@ -67,13 +67,13 @@ func TestFDOffsetsUseStatePIDFromView(t *testing.T) {
 }
 
 func TestSyscallExitEffectsUpdateFDOffsetsUsesEventView(t *testing.T) {
-	session := &traceSession{
-		targetPid: 101,
-		fdState: newFDStateStoreFromMaps(nil, map[string]int64{
+	session := newBareTestTraceSession(traceSessionDeps{
+		TargetPID: 101,
+		FDState: newFDStateStoreFromMaps(nil, map[string]int64{
 			"101:1": 15,
 			"101:2": 30,
 		}),
-	}
+	})
 	scMeta := meta.Syscall{Name: "write"}
 	ev := syscallEventContext{
 		view:     syscallEventView{valid: true, tid: 101, args: [6]uint64{1}, ret: 4},
@@ -82,10 +82,10 @@ func TestSyscallExitEffectsUpdateFDOffsetsUsesEventView(t *testing.T) {
 	}
 
 	newTraceSessionSyscallExitEffects(nil, session.fdStateStore(), session.fdStateStore()).UpdateFDOffsets(ev)
-	if got := session.fdState.offsets["101:1"]; got != 19 {
+	if got := session.fdStateStore().offsets["101:1"]; got != 19 {
 		t.Fatalf("view fd offset after write = %d, want 19", got)
 	}
-	if got := session.fdState.offsets["101:2"]; got != 30 {
+	if got := session.fdStateStore().offsets["101:2"]; got != 30 {
 		t.Fatalf("raw fd offset after write = %d, want unchanged 30", got)
 	}
 }

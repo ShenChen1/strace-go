@@ -90,10 +90,10 @@ func (s *traceSession) jsonEventWriter() *JSONEventWriter {
 }
 
 func (s *traceSession) emitDebugReady() {
-	if s == nil || s.opts == nil || !s.opts.DebugEvents {
+	if s == nil || s.dependencies.Opts == nil || !s.dependencies.Opts.DebugEvents {
 		return
 	}
 	if writer := s.jsonEventWriter(); writer != nil {
-		writer.WriteReady(s.targetPid, s.opts.AttachPids)
+		writer.WriteReady(s.dependencies.TargetPID, s.dependencies.Opts.AttachPids)
 	}
 }

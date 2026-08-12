@@ -25,7 +25,7 @@ func (s *traceSession) summaryStats() *SummaryStats {
 	if s == nil {
 		return nil
 	}
-	return s.summary
+	return s.dependencies.Summary
 }
 
 func (st *SummaryStats) Record(name string, duration uint64, ret int64) {

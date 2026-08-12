@@ -11,15 +11,15 @@ import (
 
 func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"})
-	session := &traceSession{
-		targetPid: 101,
-		opts:      opts,
-		decoder:   event.NewDecoder(),
-		fdState: newFDStateStoreFromMaps(map[string]string{
+	session := newBareTestTraceSession(traceSessionDeps{
+		TargetPID: 101,
+		Opts:      opts,
+		Decoder:   event.NewDecoder(),
+		FDState: newFDStateStoreFromMaps(map[string]string{
 			"101:cwd": "/tmp",
 		}, nil),
-		state: newTraceState(),
-	}
+		State: newTraceState(),
+	})
 	path := []byte("input.txt\x00")
 	pathPayload := payloadTLVBytes(t, payloadTLVTestSection{
 		kind:    payloadTLVKindString,
@@ -100,12 +100,12 @@ func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 
 func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"})
-	session := &traceSession{
-		targetPid: 101,
-		opts:      opts,
-		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-	}
+	session := newBareTestTraceSession(traceSessionDeps{
+		TargetPID: 101,
+		Opts:      opts,
+		Decoder:   event.NewDecoder(),
+		FDState:   newFDStateStoreFromMaps(nil, nil),
+	})
 	view := syscallEventView{
 		valid:         true,
 		pid:           101,
@@ -128,7 +128,7 @@ func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 }
 
 func TestDecodePathArgumentsUsesArgumentPointerFallback(t *testing.T) {
-	session := &traceSession{decoder: event.NewDecoder()}
+	session := newBareTestTraceSession(traceSessionDeps{Decoder: event.NewDecoder()})
 	sc := meta.Syscall{Name: "custom_path_syscall", Args: []string{"path"}}
 	view := syscallEventView{valid: true, tid: 101, args: [6]uint64{0x2000}}
 
@@ -140,7 +140,7 @@ func TestDecodePathArgumentsUsesArgumentPointerFallback(t *testing.T) {
 }
 
 func TestDecodePathArgumentsUsesMatchingPayloadSection(t *testing.T) {
-	session := &traceSession{decoder: event.NewDecoder()}
+	session := newBareTestTraceSession(traceSessionDeps{Decoder: event.NewDecoder()})
 	sc := meta.Syscall{Name: "custom_path_syscall", Args: []string{"path"}}
 	view := syscallEventView{valid: true, tid: 101, args: [6]uint64{0x2000}}
 	sections := []handler.PayloadSection{{
@@ -160,12 +160,12 @@ func TestDecodePathArgumentsUsesMatchingPayloadSection(t *testing.T) {
 }
 
 func TestSyscallEventContextHandlerContextUsesEventView(t *testing.T) {
-	session := &traceSession{
-		targetPid: 101,
-		opts:      cli.ParseArgs([]string{"/bin/true"}),
-		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-	}
+	session := newBareTestTraceSession(traceSessionDeps{
+		TargetPID: 101,
+		Opts:      cli.ParseArgs([]string{"/bin/true"}),
+		Decoder:   event.NewDecoder(),
+		FDState:   newFDStateStoreFromMaps(nil, nil),
+	})
 	ev := syscallEventContext{
 		view:     syscallEventView{valid: true, pid: 101, tid: 102, sysID: 39, args: [6]uint64{7}, ret: -2, probeRetEnter: -1, probeRetExit: 0},
 		statePID: 101,
@@ -183,12 +183,12 @@ func TestSyscallEventContextHandlerContextUsesEventView(t *testing.T) {
 }
 
 func TestSyscallEventContextHandlerContextUsesEffectiveMetadata(t *testing.T) {
-	session := &traceSession{
-		targetPid: 101,
-		opts:      cli.ParseArgs([]string{"/bin/true"}),
-		decoder:   event.NewDecoder(),
-		fdState:   newFDStateStoreFromMaps(nil, nil),
-	}
+	session := newBareTestTraceSession(traceSessionDeps{
+		TargetPID: 101,
+		Opts:      cli.ParseArgs([]string{"/bin/true"}),
+		Decoder:   event.NewDecoder(),
+		FDState:   newFDStateStoreFromMaps(nil, nil),
+	})
 	scMeta := meta.Syscall{Name: "pipe"}
 	fdData := fdArrayJSONData(21, 22)
 	ev := syscallEventContext{
@@ -465,11 +465,11 @@ func TestSyscallEventContextRecordSummaryUsesEffectiveMetadata(t *testing.T) {
 		ret:       -2,
 		eventType: bpfEventTypeExit,
 	}
-	visibleSession := &traceSession{
-		opts:    cli.ParseArgs([]string{"-e", "trace=getpid", "/bin/true"}),
-		decoder: event.NewDecoder(),
-		fdState: newFDStateStoreFromMaps(nil, nil),
-	}
+	visibleSession := newBareTestTraceSession(traceSessionDeps{
+		Opts:    cli.ParseArgs([]string{"-e", "trace=getpid", "/bin/true"}),
+		Decoder: event.NewDecoder(),
+		FDState: newFDStateStoreFromMaps(nil, nil),
+	})
 	ev := newSyscallEventContextFromView(visibleSession, view, 101, nil, nil)
 
 	ev.recordSummary(stats)
@@ -482,11 +482,11 @@ func TestSyscallEventContextRecordSummaryUsesEffectiveMetadata(t *testing.T) {
 		t.Fatalf("summary entry = %+v, want count=1 time=12 errors=1", entry)
 	}
 
-	hiddenSession := &traceSession{
-		opts:    cli.ParseArgs([]string{"-e", "trace=write", "/bin/true"}),
-		decoder: event.NewDecoder(),
-		fdState: newFDStateStoreFromMaps(nil, nil),
-	}
+	hiddenSession := newBareTestTraceSession(traceSessionDeps{
+		Opts:    cli.ParseArgs([]string{"-e", "trace=write", "/bin/true"}),
+		Decoder: event.NewDecoder(),
+		FDState: newFDStateStoreFromMaps(nil, nil),
+	})
 	hidden := newSyscallEventContextFromView(hiddenSession, view, 101, nil, nil)
 	hidden.recordSummary(stats)
 	if stats.stats["getpid"].calls != 1 {

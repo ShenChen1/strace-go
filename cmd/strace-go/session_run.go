@@ -100,15 +100,16 @@ type traceCommandExitResult struct {
 
 // IMPACT: run reads and handles ringbuf records in the same goroutine; only process waiting is asynchronous.
 func (s *traceSession) run() error {
+	deps := s.dependencies
 	attachPids := []int(nil)
-	if s.opts != nil {
-		attachPids = s.opts.AttachPids
+	if deps.Opts != nil {
+		attachPids = deps.Opts.AttachPids
 	}
 	state := newTraceRunState(traceRunStateDeps{
-		command:    newExecTraceCommandWaiter(s.cmd),
+		command:    newExecTraceCommandWaiter(deps.Cmd),
 		attachPids: attachPids,
-		clock:      s.clock,
-		pidProbe:   s.pidProbe,
+		clock:      deps.Clock,
+		pidProbe:   deps.PIDProbe,
 	})
 	commandExit := s.commandExitHandler()
 	eventReader := s.traceEventReader()
@@ -226,7 +227,7 @@ func anyAttachPidAlive(pids []int) bool {
 }
 
 func (s *traceSession) exitDrainGrace() time.Duration {
-	if s == nil || s.opts == nil || s.opts.EventFormat != cli.EventFormatJSON {
+	if s == nil || s.dependencies.Opts == nil || s.dependencies.Opts.EventFormat != cli.EventFormatJSON {
 		return 0
 	}
 	return traceExitLifecycleDrainGrace

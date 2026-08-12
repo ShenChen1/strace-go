@@ -79,7 +79,7 @@ func (s *traceSession) traceState() *TraceState {
 	if s == nil {
 		return nil
 	}
-	return s.state
+	return s.dependencies.State
 }
 
 func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpdate {

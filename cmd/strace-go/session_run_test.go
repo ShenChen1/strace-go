@@ -127,7 +127,7 @@ func TestExitDrainGraceOnlyAppliesToJSONOutput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			session := &traceSession{opts: tt.opts}
+			session := newBareTestTraceSession(traceSessionDeps{Opts: tt.opts})
 			if got := session.exitDrainGrace(); got != tt.want {
 				t.Fatalf("exitDrainGrace() = %s, want %s", got, tt.want)
 			}

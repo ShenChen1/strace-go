@@ -97,7 +97,7 @@ func (s *traceSession) fdStateStore() *FDStateStore {
 	if s == nil {
 		return nil
 	}
-	return s.fdState
+	return s.dependencies.FDState
 }
 
 func (st *FDStateStore) ApplyFDState(update fdStateUpdate) {

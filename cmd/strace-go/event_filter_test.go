@@ -280,7 +280,7 @@ func TestCheckShouldPrintTracePathIgnoresFsconfigContextFD(t *testing.T) {
 }
 
 func TestFsconfigPathArgumentUsesValueSectionAndAuxFD(t *testing.T) {
-	session := &traceSession{decoder: event.NewDecoder()}
+	session := newBareTestTraceSession(traceSessionDeps{Decoder: event.NewDecoder()})
 	args := [6]uint64{rawFD(-1), 3, 0x1000, 0x2000, rawFD(-100)}
 	sections := []handler.PayloadSection{
 		{Kind: handler.PayloadKindString, Direction: handler.PayloadDirectionIn, ArgIndex: 3, UserPtr: 0x2000, ProbeRet: 0, Data: []byte("/dev/full\x00")},
