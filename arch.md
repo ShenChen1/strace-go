@@ -5397,3 +5397,42 @@ Impact note：影响 `syscall_openat2_direct_event_v2.h` 的 exit capacity/emitt
 `sudo -n go generate ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14128-final ./cmd/strace-go`、Python 20 项和 `git diff --check` 全部通过。真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个 lifecycle；openat2 path/how/FD_STATE 同事件断言通过，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update、pending_stale 均为 0。`ebpf-perf` 通过：`TraceEventDecodeState 298.60 ns/op、0 B/op、0 allocs/op`，raw JSON `493.90 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `596.70 ns/op、0 B/op、0 allocs/op`，decoded payload `840.60 ns/op、16 B/op、1 alloc/op`；scalar/io/lifecycle/threads 四组 workload 的错误和 stale 计数均为 0。
 
 重建根目录 `strace-go` 后，原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。既定 XFAIL 仍只有 bounded read/write hexdump 和观察前 FD/cwd 状态边界。本阶段没有新增 ptrace、`process_vm_readv`、procfs 生产路径、第二 exit event、第二消费者或新的 prog-array slot。
+
+### 14.129 复用 pending payload owner，减少 exit context 的 section slice 分配（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.126 已复用 JSON writer 的临时 payload slice；但 exit context 仍会在 `pending enter + current exit` 合并时重新创建 section slice。普通带 enter payload、无 exit payload 的 syscall 也会支付一次无意义的 slice 分配。
+- Problem：`TraceState` 已把 enter payload 的数据所有权转移给 `pendingSyscallState`，配对 exit 后同一个单消费者同步消费该对象；继续创建第三个 merged slice 会制造热路径堆分配，并让 payload owner 不够直观。
+- Goal：让 pending enter 直接成为 exit context 的 section owner；无 current payload 时原样复用，有 current payload 时在 pending slice 上原地移除被 exit section 覆盖的项并追加 exit sections，保持 exit snapshot 优先。
+- Non-goals：不改变 TLV section identity、section 顺序、exit 覆盖规则、handler/JSON schema、ringbuf 生命周期或 payload bytes；不引入 unsafe、全局池、`sync.Pool`、锁、goroutine、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：只在 pending enter 已从状态 map 转移且 router 尚未释放它的同步窗口内修改 slice；`current` 仍只借用当前 ringbuf record；需要扩容时允许一次正常 append 分配，但不能无 current payload 时强制分配。
+
+Impact note：影响 `newSyscallEventContextFromViewWithDeps` 的 payload ownership 和 exit 合并临时存储；不影响 `TraceState` 跨 ringbuf record 的深拷贝边界。
+
+方案比较：
+
+1. 保持每次新建 merged slice：实现最简单，但普通 scalar exit 仍有无效分配，拒绝。
+2. 只对 current 为空做快速返回：能消除最常见分配，但有 payload exit 时仍复制 section 描述，拒绝。
+3. 在已转移的 pending slice 上原地过滤并追加 current：保持所有权清晰、保留覆盖语义，并把分配推迟到确实需要扩容的情况，选择该方案。
+
+状态契约：
+
+- `pendingEnter.payloadSections` 在 `newSyscallEventContextFromViewWithDeps` 返回后由 context/handler 同步只读，context 构造可以原地更新其 slice header。
+- current section 与 pending section 的 identity 仍由 kind、direction、arg index 和 user pointer 决定；同 identity 时只保留 current section。
+- 无 pending 或无 pending payload 时直接返回 current；无 current 时直接返回 pending payload，不复制 descriptor 或 data。
+- `TraceState.releaseTraceStateUpdate` 仍在 router 所有输出 side effect 完成后清空 pending，不能提前复用 backing array。
+
+测试与验收：
+
+- 先增加失败优先测试，锁定无 current payload 不分配/不更换 pending backing array，以及 current payload 覆盖同 identity section 并保留新增 section。
+- 实现后运行 focused payload/context tests、Go 全量/race/vet/build、Python oracle、semantic/perf、small 和 upstream reference。
+- review 检查没有第二消费者、没有把 borrowed current data 存入 state、没有改变 path/FD_STATE 覆盖顺序，并确认生产源码仍无 procfs/ptrace/procmem 路径。
+
+#### 实际验收记录
+
+失败优先的两个 context 测试先在旧实现上确认了 merged slice backing array 被替换；实现原地过滤/追加后，focused payload/context tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14129 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+
+真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 293.40 ns/op、0 B/op、0 allocs/op`、raw JSON `489.70 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `608.70 ns/op、0 B/op、0 allocs/op`、decoded payload `912.50 ns/op、16 B/op、1 alloc/op`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
+
+当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 pending 已从状态 map 删除后才进入 context，current section 只在同步消费窗口中借用；未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine，也未改变 exit snapshot 覆盖规则。

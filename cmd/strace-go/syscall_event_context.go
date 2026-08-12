@@ -181,14 +181,20 @@ func mergePendingPayloadSections(pendingEnter *pendingSyscallState, current []ha
 	if pendingEnter == nil || len(pendingEnter.payloadSections) == 0 {
 		return current
 	}
-	merged := make([]handler.PayloadSection, 0, len(pendingEnter.payloadSections)+len(current))
+	if len(current) == 0 {
+		return pendingEnter.payloadSections
+	}
+
+	owned := pendingEnter.payloadSections[:0]
 	for _, section := range pendingEnter.payloadSections {
 		if hasEquivalentPayloadSection(current, section) {
 			continue
 		}
-		merged = append(merged, section)
+		owned = append(owned, section)
 	}
-	return append(merged, current...)
+	owned = append(owned, current...)
+	pendingEnter.payloadSections = owned
+	return owned
 }
 
 func hasEquivalentPayloadSection(sections []handler.PayloadSection, want handler.PayloadSection) bool {

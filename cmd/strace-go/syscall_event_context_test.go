@@ -54,6 +54,68 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 	}
 }
 
+func TestMergePendingPayloadSectionsReusesOwnerWithoutExitPayload(t *testing.T) {
+	pending := &pendingSyscallState{
+		payloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindString,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  1,
+			UserPtr:   0x1000,
+			Data:      []byte("path\x00"),
+		}},
+	}
+	wantOwner := &pending.payloadSections[0]
+
+	got := mergePendingPayloadSections(pending, nil)
+
+	if len(got) != 1 || &got[0] != wantOwner {
+		t.Fatalf("payload owner changed: got=%p want=%p", &got[0], wantOwner)
+	}
+	if pending.payloadSections[0].Data[0] != 'p' {
+		t.Fatalf("pending payload data changed: %q", pending.payloadSections[0].Data)
+	}
+}
+
+func TestMergePendingPayloadSectionsUpdatesOwnerInPlace(t *testing.T) {
+	pending := &pendingSyscallState{
+		payloadSections: make([]handler.PayloadSection, 1, 3),
+	}
+	pending.payloadSections[0] = handler.PayloadSection{
+		Kind:      handler.PayloadKindString,
+		Direction: handler.PayloadDirectionIn,
+		ArgIndex:  1,
+		UserPtr:   0x1000,
+		Data:      []byte("old\x00"),
+	}
+	wantOwner := &pending.payloadSections[0]
+	exitPath := handler.PayloadSection{
+		Kind:      handler.PayloadKindString,
+		Direction: handler.PayloadDirectionIn,
+		ArgIndex:  1,
+		UserPtr:   0x1000,
+		Data:      []byte("new\x00"),
+	}
+	exitFD := handler.PayloadSection{
+		Kind:      handler.PayloadKindFDState,
+		Direction: handler.PayloadDirectionOut,
+		ArgIndex:  0,
+		UserPtr:   0,
+		Data:      []byte("fd-state"),
+	}
+
+	got := mergePendingPayloadSections(pending, []handler.PayloadSection{exitPath, exitFD})
+
+	if len(got) != 2 || &got[0] != wantOwner {
+		t.Fatalf("merged payload owner = %p len=%d, want owner=%p len=2", &got[0], len(got), wantOwner)
+	}
+	if string(got[0].Data) != "new\x00" || got[0].UserPtr != exitPath.UserPtr {
+		t.Fatalf("replaced payload = %+v, want exit path", got[0])
+	}
+	if got[1].Kind != handler.PayloadKindFDState || string(got[1].Data) != "fd-state" {
+		t.Fatalf("appended payload = %+v, want fd state", got[1])
+	}
+}
+
 func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-e", "trace=getpid", "/bin/true"})
 	decoder := event.NewDecoder()
