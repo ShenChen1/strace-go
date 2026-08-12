@@ -81,7 +81,12 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 	if err != nil {
 		return fmt.Errorf("failed to set up output: %w", err)
 	}
-	defer func() { _ = output.Close() }()
+	outputHandoff, err := newTraceOutputHandoff(output)
+	if err != nil {
+		_ = output.Close()
+		return fmt.Errorf("failed to own output: %w", err)
+	}
+	defer func() { _ = outputHandoff.Close() }()
 
 	session, err := composeTraceSession(config.session, clock, traceSessionBootstrap{
 		cmd:       cmd,
@@ -89,9 +94,12 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
 		targetPID: targetPid,
 		fdSeed:    fdSeed,
 		bpfReads:  bpfRuntime.readPorts(),
-	}, output)
+	}, outputHandoff.Output())
 	if err != nil {
 		return fmt.Errorf("failed to compose trace session: %w", err)
+	}
+	if err := outputHandoff.Transfer(); err != nil {
+		return fmt.Errorf("failed to transfer output ownership: %w", err)
 	}
 	session.emitDebugReady()
 	if err := session.run(); err != nil {

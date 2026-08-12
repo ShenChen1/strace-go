@@ -36,6 +36,46 @@ type TraceOutputDeps struct {
 	Command traceOutputWaiter
 }
 
+// traceOutputHandoff owns a bootstrap-created output until session composition
+// succeeds. After transfer, the session finalizer becomes the sole close owner.
+type traceOutputHandoff struct {
+	output *TraceOutput
+	owned  bool
+}
+
+func newTraceOutputHandoff(output *TraceOutput) (*traceOutputHandoff, error) {
+	if output == nil {
+		return nil, fmt.Errorf("trace output handoff is nil")
+	}
+	return &traceOutputHandoff{output: output, owned: true}, nil
+}
+
+func (h *traceOutputHandoff) Output() *TraceOutput {
+	if h == nil {
+		return nil
+	}
+	return h.output
+}
+
+func (h *traceOutputHandoff) Transfer() error {
+	if h == nil || h.output == nil {
+		return fmt.Errorf("trace output handoff is unavailable")
+	}
+	if !h.owned {
+		return fmt.Errorf("trace output ownership already transferred")
+	}
+	h.owned = false
+	return nil
+}
+
+func (h *traceOutputHandoff) Close() error {
+	if h == nil || !h.owned || h.output == nil {
+		return nil
+	}
+	h.owned = false
+	return h.output.Close()
+}
+
 func newTraceOutput(deps TraceOutputDeps) (*TraceOutput, error) {
 	if deps.Writer == nil {
 		return nil, fmt.Errorf("trace output writer is nil")

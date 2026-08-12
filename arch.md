@@ -4405,3 +4405,38 @@ Impact note：影响 `main.go`、`session.go`、新增 BPF runtime owner 文件�
 ### 14.103 实际验收记录
 
 失败优先 source gate 先因 `main.go`/`session.go` 仍直接声明 `*bpfObjects`、`[]link.Link`、ringbuf 创建和 ConfigMap 更新而失败；迁移后新增 `traceBPFRuntime` owner 和 `traceBPFTargetPort`，BPF load/attach/configure/event reader/read ports/Close 由 owner 管理，target bootstrap 只消费 arm/filter 能力。新增测试覆盖 target port 的 arm/add/disarm、filter 失败清理、nil runtime 边界和幂等 Close；同时将 capability syscall ID source gate 跟随 loader 移到 `bpf_runtime.go`。`go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，722.71 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 期间修复了 attach 失败路径中 `attachAll` 与 setup 层的重复 link close；生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.104 将输出资源 ownership 改为显式 handoff（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.103 已将 BPF links/object/ringbuf 生命周期收口，但 `runTraceSession` 在创建 `TraceOutput` 后仍无条件注册 `defer output.Close()`；session composition 成功后，`TraceRunFinalizer.Finish()` 也会关闭同一个 output。
+- Problem：`TraceOutput.Close` 的幂等实现掩盖了 bootstrap 与 session 的双重 close owner。正常路径的 close error 可能由 finalizer 返回后又被 bootstrap 忽略，composition 失败路径和 session 运行路径的资源责任也没有显式转移契约。
+- Goal：新增 bootstrap-only `traceOutputHandoff`。composition 成功前由 handoff 持有并负责失败清理；成功后 handoff 将唯一 ownership 转给 session finalizer，bootstrap 不再注册第二个 output close；handoff 重复 transfer/close 必须是明确、可测试的状态转换。
+- Non-goals：不修改输出文件/pipe 的打开方式、文本/JSON 内容、summary/stats 顺序、TraceOutput writer/command close 顺序、BPF 生命周期、事件状态机、纯 eBPF/no-procfs/no-ptrace 约束；不删除 `TraceOutput.Close` 的幂等保护，因为测试和边界对象仍需安全关闭。
+- Constraints：handoff 只能在 composition 成功后 transfer；transfer 前任何 bootstrap 返回路径都必须关闭 output；transfer 后 handoff close 不得再次调用 writer/command close；session finalizer 仍是正常运行路径的唯一 close owner。
+
+Impact note：影响 `main.go`、新增 output handoff 类型和 bootstrap/finalizer tests；session composition API 继续接收 `*TraceOutput`，只改变 ownership 时点，不改变输出行为。
+
+方案比较：
+
+1. 继续依赖 `TraceOutput.Close` 幂等：改动最小，但双 owner 和 close error 归属继续隐藏，拒绝。
+2. 用 `outputOwned` 布尔变量散落在 `runTraceSession`：能避免重复 close，但 ownership 状态没有独立契约，后续分支容易漏改，拒绝。
+3. 使用 `traceOutputHandoff` 明确持有、transfer、close 三态：bootstrap/session 边界清晰，可对失败与成功路径做独立测试，选择该方案。
+
+状态契约：
+
+- handoff 初始拥有 output；`Transfer` 成功一次后返回 output 并放弃 ownership，第二次 transfer 返回明确错误。
+- handoff `Close` 只关闭仍由它拥有的 output；transfer 后 `Close` 是 no-op，不吞掉 session finalizer 的 close error。
+- `TraceRunFinalizer` 不感知 handoff，只继续拥有并关闭 transfer 后的 `TraceOutput`。
+
+测试与验收：
+
+- 先增加失败优先 source gate，禁止 `runTraceSession` 在 composition 成功路径上无条件 `defer output.Close()`，并要求 output handoff 的构造/transfer API；迁移前 gate 应失败。
+- 增加 handoff close-before-transfer、transfer 后 no-op、重复 transfer failure 回归；运行 `go test ./...`、race、vet、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference。
+
+本阶段只修正输出资源 ownership，不改变任何用户可见输出或内核事件语义。
+
+### 14.104 实际验收记录
+
+失败优先 source gate 先因 `runTraceSession` 仍无条件 `defer output.Close()` 且不存在 handoff 类型而失败；迁移后新增 `traceOutputHandoff`，composition 成功前由 bootstrap 持有输出并负责失败清理，成功后一次性 transfer 给 session finalizer，transfer 后 bootstrap close 为 no-op。新增测试覆盖 transfer 前 close、transfer 后 session 单独 close 和重复 transfer failure。`go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，746.84 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
