@@ -4847,3 +4847,34 @@ Impact note：影响 `target_bootstrap.go` 的 inherited-FD collector 返回值�
 失败优先 source gate 先因 inherited-FD collector、constructor 和 duplicate cleanup 没有 error-return contract 而失败；迁移后 RLIMIT/F_GETFD/FSTAT/duplicate 错误均有上下文，EBADF 竞态保持跳过，partial duplicate 会完整关闭并聚合 cleanup error，原有稀疏 FD slot 映射保持不变。focused target/bootstrap tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14115 ./cmd/strace-go` 和 `git diff --check` 全部通过。
 
 真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，729.88 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认该阶段只处理 tracer 自身启动资源，不读取 tracee procfs，不改变 ExtraFiles slot、command lifecycle、BPF ABI 或事件状态来源。
+
+### 14.116 固化稀疏 ExtraFiles slot 的无竞争启动契约（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.23/14.36 要求 command 模式保留 tracer 自身 FD 的原始数字 slot；14.115 的 collector 因此返回 `[fd-3]` 稀疏 slice，未占用的 slot 使用 `nil`，交给 `os/exec.Cmd.ExtraFiles` 关闭对应子进程 FD。
+- Problem：当前 focused tests 只验证 slice 内存布局，没有验证 `os/exec` 真正启动子进程时会保留高位 FD、关闭中间 nil slot。后续若有人为了“消除 nil”压缩 slice，`open_tree`/`move_mount` 等依赖继承 FD 数字的行为会发生静默回归；用 `/proc` 检查子进程 FD 又会引入不必要的查询时点依赖。
+- Goal：增加一个不读取 procfs 的 process-level regression，直接在子进程中用 `FSTAT` 验证 fd 3、fd 5 有效且 fd 4 已关闭；同时保留现有 collector 的 sparse slot 单测。
+- Non-goals：不改变 inherited-FD collector、`ExtraFiles` 映射、command argv/env、BPF arm/filter、FD state seed、事件 ABI、输出格式或纯 eBPF/no-ptrace 约束；不新增 procfs 读取、runtime reaper、重试或资源 manager。
+- Constraints：helper 必须复用 `newTraceCommand` 的真实 `exec.Cmd` 路径；父子测试结果通过 exit status 传递，不通过共享文件、procfs 或额外 goroutine；测试文件保持在 500 行以内。
+
+Impact note：只新增 `target_bootstrap_inherited_test.go` 的 process-level contract test 与本阶段文档，不改变生产代码和运行期事实源。
+
+方案比较：
+
+1. 用 `/proc/<child>/fd` 或 `readlink` 检查 FD：能看到路径，但查询与子进程执行存在时序窗口，且重新引入 procfs 依赖，拒绝。
+2. 压缩 inherited files 为连续 slice：实现简单，但改变原始数字 FD，破坏既有 ExtraFiles 语义，拒绝。
+3. 通过 test binary 子进程直接 `FSTAT` 固化 sparse slot 合约：复用真实启动路径、没有 procfs 竞争、只增加测试边界，选择该方案。
+
+测试与验收：
+
+- 增加 parent/child process regression，覆盖 fd 3、fd 5 继承和 fd 4 关闭。
+- 运行 focused target tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference。
+
+本阶段只锁定 Go `ExtraFiles` 的 sparse slot 兼容契约，不改变任何生产架构行为。
+
+### 14.116 实际验收记录
+
+新增 process-level regression 通过真实 `newTraceCommand` 启动当前 test binary：子进程 fd 3/fd 5 分别写回父进程的两个文件，fd 4 经 `FSTAT` 返回 `EBADF`，证明 `nil` ExtraFiles slot 会关闭中间数字 FD，且没有压缩或交换高位 slot。测试只使用 `FSTAT`/`write`，未读取 procfs。
+
+focused sparse-slot tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14116 ./cmd/strace-go`、`git diff --check` 和产品源码的 pure-eBPF/no-ptrace/no-procfs gates 全部通过。真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，727.65 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认本阶段没有修改生产代码、BPF ABI、事件事实源或 FD collector，只增加了启动契约回归测试。
