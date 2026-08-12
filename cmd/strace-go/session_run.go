@@ -101,7 +101,7 @@ func (s *traceSession) run() error {
 	deps := s.dependencies
 	state := newTraceRunState(traceRunStateDeps{
 		command:    newExecTraceCommandWaiter(deps.Cmd),
-		attachPids: attachPIDs(deps.Opts),
+		attachPids: s.sessionAttachPIDs(),
 		clock:      deps.Clock,
 		pidProbe:   deps.PIDProbe,
 	})
@@ -119,6 +119,13 @@ func (s *traceSession) run() error {
 			return s.finishRun()
 		}
 	}
+}
+
+func (s *traceSession) sessionAttachPIDs() []int {
+	if s == nil || s.components == nil || s.components.outputPolicy == nil {
+		return nil
+	}
+	return s.components.outputPolicy.AttachPIDs()
 }
 
 func newTraceRunState(deps traceRunStateDeps) traceRunState {

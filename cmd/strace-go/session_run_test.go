@@ -38,6 +38,24 @@ func TestNewTraceRunStateCopiesAttachDependencies(t *testing.T) {
 	}
 }
 
+func TestTraceSessionAttachPolicySnapshotsCLIState(t *testing.T) {
+	opts := &cli.Options{AttachPids: []int{101, 202}}
+	session := newTestTraceSession(traceSessionDeps{Opts: opts})
+	opts.AttachPids[0] = 303
+
+	attachPIDs := session.sessionAttachPIDs()
+	if len(attachPIDs) != 2 || attachPIDs[0] != 101 || attachPIDs[1] != 202 {
+		t.Fatalf("session attach PIDs = %v, want [101 202]", attachPIDs)
+	}
+	if len(session.components.exitStatus.attachPids) != 2 || session.components.exitStatus.attachPids[0] != 101 {
+		t.Fatalf("exit status attach PIDs = %v, want snapshot [101 202]", session.components.exitStatus.attachPids)
+	}
+	attachPIDs[0] = 404
+	if session.sessionAttachPIDs()[0] != 101 {
+		t.Fatal("session attach policy leaked its backing slice")
+	}
+}
+
 func TestTraceRunStateCollectMarksCommandExit(t *testing.T) {
 	done := make(chan traceCommandExitResult, 1)
 	done <- traceCommandExitResult{exited: true}

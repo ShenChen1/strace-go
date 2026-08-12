@@ -190,7 +190,7 @@ func buildTraceSessionBase(session *traceSession) traceSessionBaseComponents {
 			Queue:      newExitStatusQueue(),
 			Out:        deps.OutWriter,
 			HasCommand: deps.Cmd != nil,
-			AttachPids: attachPIDs(deps.Opts),
+			AttachPids: outputPolicy.AttachPIDs(),
 		}),
 		handlerRegistry: handlerRegistry,
 		handleSyscall:   handleSyscall,

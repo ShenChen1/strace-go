@@ -4089,3 +4089,37 @@ Impact note：production 影响集中在 `event_policy.go`、`session_compositio
 本阶段只收敛 TraceState 的策略输入 ownership，不改变状态机行为或 BPF 事实源。
 
 实际验收结果：失败优先 source gate 先因 `newTraceStateForSession` 仍接收 `*cli.Options` 而失败；迁移后 `cliTraceEventPolicy` 增加 `traceStatePolicy`，`composeTraceSession` 只创建一次 event policy，并通过 `traceSessionDeps.EventPolicy` 同时注入 State、event context 和 components。State construction 只读取 `ShouldDeferUnmatchedExits`、`TrackForkIdentity`，新增测试覆盖 JSON/path filter、summary-only、follow-forks、nil default、CLI mutation 与 policy identity。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，709.52 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后待清理本轮 `strace-go` 和 Python 临时目录，运行期 State/event policy 不再直接读取 CLI owner，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.95 将 run/exit-status 的 attach PID 输入切换到 session snapshot（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.89-14.94 已让 scope、lifecycle、ready 和 State 使用 construction-time policy，但 `TraceSession.run` 仍调用 `attachPIDs(deps.Opts)`，`ExitStatusCoordinator` 也在 composition 中从 `deps.Opts.AttachPids` 取列表。
+- Problem：attach 进程生命周期轮询和退出行抑制仍直接读取 CLI owner；如果 options 在 session construction 后变化，run 结束条件和 exit-status 策略可能与 scope/lifecycle/ready 使用不同的 attach 集合。
+- Goal：run 和 exit-status 只消费已有 `cliTraceOutputPolicy.AttachPIDs()` snapshot；每个消费者在边界得到自己的 copy，避免共享可变 slice。bootstrap 期间的 `traceTargetPIDs(opts, ...)` 清理仍属于 session 之前的目标 setup，不纳入本阶段。
+- Non-goals：不创建第二个 target policy，不修改 attach PID 解析、BPF filter map、PID probe、run 状态机、退出队列算法、JSON ready 字段或纯 eBPF/no-procfs 约束；不改变 bootstrap cleanup 的 CLI 输入边界。
+- Constraints：`run()` 不得读取 `deps.Opts`；exit-status composition 必须使用与 scope/lifecycle 相同的 output snapshot；`AttachPIDs()` 返回 copy；nil/bare fixture 沿用空 attach 集合；session construction 只产生一份 attach snapshot。
+
+Impact note：production 影响集中在 `session_run.go` 和 `session_composition.go`，测试新增 run source gate 与 composition attach snapshot identity；`main.go` 的 `traceTargetPIDs`、`resolveTraceTargets` 和 abort cleanup 保持 bootstrap 责任。
+
+方案比较：
+
+1. 继续传 `*cli.Options` 给 run/exit-status：改动最小，但运行期继续读取可变 owner，拒绝。
+2. 新建 `cliTraceTargetPolicy` 并与 output policy 平行传递：职责命名更独立，但复制 attach owner、wiring 和 identity 复杂度增加，拒绝。
+3. 复用已有 immutable output snapshot 的 `AttachPIDs()`，在 run/exit-status 边界复制：不增加 owner，行为一致，选择该方案。
+
+状态契约：
+
+- `cliTraceOutputPolicy.attachPIDs` 是本 session 唯一 attach PID snapshot；scope、lifecycle/ready、exit-status 和 run 均从它读取。
+- `ExitStatusCoordinator` 和 `traceRunState` 不共享 output snapshot slice；构造函数各自复制，运行期只读自己的状态。
+- bootstrap cleanup 仍直接使用归一化 CLI，因为其执行早于 session composition，不能依赖尚未创建的 session graph。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 `session_run.go` 不再出现 `deps.Opts`/`attachPIDs(deps.Opts)`，要求 exit-status composition 使用 `base.outputPolicy.AttachPIDs()`。
+- 增加 CLI attach slice mutation 回归，确认 output snapshot、exit-status coordinator 和 run state 不受 construction 后 mutation 影响。
+- 运行 focused、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf、upstream reference，并检查无残留 tracer/BPF pin。
+
+本阶段只收敛运行期 attach PID 的输入 ownership，不改变 bootstrap 目标管理或 run 状态机语义。
+
+实际验收结果：失败优先 source gate 先因 `session_run.go` 仍调用 `attachPIDs(deps.Opts)` 而失败；迁移后 `run()` 通过 `sessionAttachPIDs()` 读取 `cliTraceOutputPolicy.AttachPIDs()`，exit-status coordinator 也从同一 snapshot 构造，run state 与 coordinator 各自复制 slice。新增测试覆盖 CLI attach slice mutation、返回 slice mutation、coordinator snapshot 和 source wiring。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，739.44 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后待清理本轮 `strace-go` 和 Python 临时目录，bootstrap cleanup 仍保持原有 CLI 边界，运行期 attach PID 不再直接读取 CLI owner。
