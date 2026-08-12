@@ -3357,3 +3357,34 @@ ABI 与状态契约：
 本阶段只收口 time offset 的 clock ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source/behavior tests 先验证无参 production helper、time offset nil fallback 和 bootstrap late error，修复后通过。`runMain` 仍显式创建唯一 system clock；`runTraceSession` 在 inherited files/BPF setup 前拒绝 nil clock；`calculateTimeOffsetWithClock(nil)` 返回 0 且不读取系统时钟；`calculateTimeOffset` 仅保留在 `_test.go`。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，744.60 events/s。`attach-f-p.test` 通过；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer、fixture 或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
+
+### 14.73 移除 main catalog 默认 fallback（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.65/14.67 已要求 session 持有唯一 `meta.Catalog`，但 `main.go` 仍通过 `metaCatalogForOptions(opts)` 创建 catalog；该 helper 的 nil 分支会无条件选择 `"abbrev"`，而 `composeTraceSession` 在调用前已经读取 `opts` 字段，正式 caller 不可能需要该 fallback。
+- Problem：xlat policy 的创建位置被无必要的 helper 隐藏，未来 caller 可以传 nil 并静默改变输出格式；source review 也无法直接看到 composition root 使用了 CLI `XlatFormat`。
+- Goal：删除 `metaCatalogForOptions`，在 `composeTraceSession` 直接用 `meta.NewCatalog(opts.XlatFormat)` 创建 session catalog；不改变非 nil opts 的任何 xlat 行为。
+- Non-goals：不处理 handler 侧 `catalogForContext`/`Catalog.DecodeFlags` 的独立 legacy fallback（下一阶段单独迁移）；不改变 catalog 表、xlat 格式、事件 ABI、输出格式、session constructor、ptrace/procfs 禁止规则或运行时性能。
+- Constraints：正式 `composeTraceSession` 仍只接受已由 `runTraceSession` 校验的 non-nil opts；catalog 仍只创建一次并注入 `newTraceSession`；文件和函数保持现有规模。
+
+方案比较：
+
+1. 保留 helper 并只补注释：改动最小，但 nil fallback 仍存在且 ownership 不透明，拒绝。
+2. 保留 helper、nil 时返回 nil：能暴露部分错误，但保留无意义的 indirection，且 helper 仍掩盖 composition policy，拒绝。
+3. 删除 helper，在 composition literal 直接创建 `meta.NewCatalog(opts.XlatFormat)`：调用点清晰、改动最小、选择该方案。
+
+状态契约：
+
+- main composition 的 catalog format 只来自当前 CLI options，不从 nil 或全局默认值推断。
+- `newTraceSession` 继续校验 catalog 非 nil；正式 session 的 catalog owner 不变。
+- handler 侧尚存的 nil context fallback 不属于本阶段契约，下一阶段必须单独验证和收口。
+
+测试与验收：
+
+- 先增加失败优先 source gate，禁止 `metaCatalogForOptions` 和 main 内的 `"abbrev"` catalog fallback，要求 composition literal 直接读取 `opts.XlatFormat`。
+- 运行 focused composition tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和 attach upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 main catalog composition，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source gate 先验证 `metaCatalogForOptions` 和 nil `"abbrev"` catalog fallback 存在，修复后通过；`composeTraceSession` 现在直接用 `meta.NewCatalog(opts.XlatFormat)` 注入唯一 session catalog。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，742.21 events/s。`attach-f-p.test` 通过；`attach-p-cmd.test` 连续观察到一次 XPASS、随后一次既定 XFAIL，保留 XFAIL 以反映跨任务 lifecycle exact ordering 的调度敏感性。测试结束后无残留 tracer、fixture 或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。

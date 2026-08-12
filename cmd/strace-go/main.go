@@ -139,7 +139,7 @@ func composeTraceSession(
 		Events:        bootstrap.events,
 		TargetPID:     bootstrap.targetPID,
 		Opts:          opts,
-		Catalog:       metaCatalogForOptions(opts),
+		Catalog:       meta.NewCatalog(opts.XlatFormat),
 		Decoder:       decoder,
 		FDState:       newFDStateStoreFromSeed(bootstrap.fdSeed),
 		Runtime:       handler.NewRuntime(),
@@ -153,13 +153,6 @@ func composeTraceSession(
 		Clock:         clock,
 		PIDProbe:      systemTracePIDProbe{},
 	})
-}
-
-func metaCatalogForOptions(opts *cli.Options) *meta.Catalog {
-	if opts == nil {
-		return meta.NewCatalog("abbrev")
-	}
-	return meta.NewCatalog(opts.XlatFormat)
 }
 
 // handlePrelude handles help/version requests and rejects sessions without targets.
