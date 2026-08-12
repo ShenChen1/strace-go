@@ -17,6 +17,7 @@ type syscallEventContext struct {
 	statePID        int
 	meta            meta.Syscall
 	fdFlags         fdFlagDecoder
+	filter          traceFilterOptions
 	pathText        string
 	pathArguments   []event.PathArgument
 	shouldPrint     bool
@@ -46,13 +47,14 @@ type syscallEventView struct {
 }
 
 type syscallEventContextDeps struct {
-	decoder  handler.SnapshotDecoder
-	opts     *cli.Options
-	catalog  meta.CatalogPort
-	fdState  handler.FDStateReader
-	fdPath   event.FDPathReader
-	registry handler.RegistryPort
-	runtime  handler.RuntimeServices
+	decoder     handler.SnapshotDecoder
+	handlerOpts handler.OptionsPort
+	filter      traceFilterOptions
+	catalog     meta.CatalogPort
+	fdState     handler.FDStateReader
+	fdPath      event.FDPathReader
+	registry    handler.RegistryPort
+	runtime     handler.RuntimeServices
 }
 
 func newSyscallEventContextDeps(s *traceSession) syscallEventContextDeps {
@@ -73,13 +75,14 @@ func newSyscallEventContextDepsWithRegistry(
 	deps := s.dependencies
 	fdState := deps.FDState
 	return syscallEventContextDeps{
-		decoder:  deps.Decoder,
-		opts:     deps.Opts,
-		catalog:  deps.Catalog,
-		fdState:  fdState,
-		fdPath:   fdState,
-		registry: registry,
-		runtime:  deps.Runtime,
+		decoder:     deps.Decoder,
+		handlerOpts: deps.Opts,
+		filter:      newTraceFilterOptions(deps.Opts),
+		catalog:     deps.Catalog,
+		fdState:     fdState,
+		fdPath:      fdState,
+		registry:    registry,
+		runtime:     deps.Runtime,
 	}
 }
 
@@ -122,13 +125,13 @@ func newSyscallEventContextFromViewWithDeps(
 	pathArguments := decodePathArguments(deps, view, scMeta, payloadSections)
 	pathText := primaryPathText(pathArguments)
 	shouldPrint := true
-	if deps.opts != nil {
+	if deps.filter != nil {
 		shouldPrint = checkShouldPrintFromView(printFilterRequest{
 			view:            view,
 			scMeta:          scMeta,
 			pathArguments:   pathArguments,
 			targetPid:       statePID,
-			opts:            deps.opts,
+			filter:          deps.filter,
 			fdState:         deps.fdPathReader(),
 			eventFD:         eventFDView,
 			payloadSections: payloadSections,
@@ -139,6 +142,7 @@ func newSyscallEventContextFromViewWithDeps(
 		statePID:        statePID,
 		meta:            scMeta,
 		fdFlags:         deps.catalog,
+		filter:          deps.filter,
 		pathText:        pathText,
 		pathArguments:   pathArguments,
 		shouldPrint:     shouldPrint,
@@ -181,6 +185,7 @@ func newSyscallEnterEventContextWithFlagDecoder(
 	statePID int,
 	payloadSections []handler.PayloadSection,
 	flagDecoder fdFlagDecoder,
+	filter traceFilterOptions,
 ) syscallEventContext {
 	scMeta := syscallMeta(view.sysID)
 	fdPathOverlay := fdPathOverlayFromSections(payloadSections)
@@ -190,6 +195,7 @@ func newSyscallEnterEventContextWithFlagDecoder(
 		statePID:        statePID,
 		meta:            scMeta,
 		fdFlags:         flagDecoder,
+		filter:          filter,
 		payloadSections: payloadSections,
 		eventFDView:     eventFDView,
 	}
@@ -327,7 +333,7 @@ func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *h
 		ScMeta:          scMeta,
 		Registry:        deps.registry,
 		Decoder:         deps.decoder,
-		Opts:            deps.opts,
+		Opts:            deps.handlerOpts,
 		FDStateView:     deps.fdStateReader(),
 		EventFDView:     ev.eventFDView,
 		Meta:            deps.catalog,
@@ -343,11 +349,11 @@ func (ev syscallEventContext) shouldRunHandler() bool {
 	return ev.shouldPrint || ev.isFDStateSyscall()
 }
 
-func (ev syscallEventContext) shouldEmitRawEnter(opts *cli.Options, fdState event.FDPathReader) bool {
-	if opts == nil {
+func (ev syscallEventContext) shouldEmitRawEnter(fdState event.FDPathReader) bool {
+	if ev.filter == nil {
 		return false
 	}
-	if opts.DebugEvents {
+	if ev.filter.DebugEvents() {
 		return true
 	}
 	return checkShouldPrintFromView(printFilterRequest{
@@ -355,7 +361,7 @@ func (ev syscallEventContext) shouldEmitRawEnter(opts *cli.Options, fdState even
 		scMeta:        ev.effectiveSyscallMeta(),
 		pathArguments: ev.pathArguments,
 		targetPid:     ev.statePID,
-		opts:          opts,
+		filter:        ev.filter,
 		fdState:       fdState,
 		eventFD:       ev.eventFDView,
 	})

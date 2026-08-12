@@ -142,19 +142,42 @@ type EventFDPathReader interface {
 	Cwd() (string, bool)
 }
 
+// PathFilter matches event-sourced candidate paths without exposing its storage.
+type PathFilter interface {
+	Empty() bool
+	Matches(path string) bool
+}
+
+// TracePathSet implements PathFilter for a normalized trace-path set.
+type TracePathSet map[string]bool
+
+func (paths TracePathSet) Empty() bool {
+	return len(paths) == 0
+}
+
+func (paths TracePathSet) Matches(path string) bool {
+	path = unquotePath(path)
+	for tracePath := range paths {
+		if pathMatchesTracePath(path, tracePath) {
+			return true
+		}
+	}
+	return false
+}
+
 // PathMatchRequest carries the state needed to evaluate a -P path filter.
 type PathMatchRequest struct {
 	Pid           int
 	FDs           []int32
 	PathArguments []PathArgument
-	TracePaths    map[string]bool
+	TracePaths    PathFilter
 	FDState       FDPathReader
 	EventFD       EventFDPathReader
 }
 
 // MatchPath checks if the syscall matches any of the paths in the filter list.
 func MatchPath(req PathMatchRequest) bool {
-	if len(req.TracePaths) == 0 {
+	if req.TracePaths == nil || req.TracePaths.Empty() {
 		return true
 	}
 
@@ -249,13 +272,10 @@ func relativePathBase(
 	return ""
 }
 
-func anyCandidateMatchesTracePath(candidatePaths []string, tracePaths map[string]bool) bool {
+func anyCandidateMatchesTracePath(candidatePaths []string, pathFilter PathFilter) bool {
 	for _, candidate := range candidatePaths {
-		path := unquotePath(candidate)
-		for tracePath := range tracePaths {
-			if pathMatchesTracePath(path, tracePath) {
-				return true
-			}
+		if pathFilter.Matches(candidate) {
+			return true
 		}
 	}
 	return false

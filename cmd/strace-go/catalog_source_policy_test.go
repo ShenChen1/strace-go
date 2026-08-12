@@ -18,7 +18,7 @@ func TestCatalogConsumersDoNotConstructFallbackCatalog(t *testing.T) {
 
 func TestNilFlagDecoderConsumersRemainInert(t *testing.T) {
 	view := syscallEventView{valid: true, args: [6]uint64{2, 1, 0}}
-	context := newSyscallEnterEventContextWithFlagDecoder(view, 101, nil, nil)
+	context := newSyscallEnterEventContextWithFlagDecoder(view, 101, nil, nil, nil)
 	if context.fdFlags != nil {
 		t.Fatal("nil flag decoder context unexpectedly created a decoder")
 	}

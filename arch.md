@@ -3850,3 +3850,38 @@ Impact note：影响集中在 `cmd/strace-go/syscall_event_context.go`、`fd_sta
 本阶段只收敛 FD state 的 metadata 消费依赖，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source gate 先因 FD state 路径仍声明 `*meta.Catalog` 而失败；迁移后新增单方法 `fdFlagDecoder`，`syscallEventContext` 的 FD metadata、`fdStateUpdate`、socket/socketpair metadata helper 和 FD state store 均只消费该端口，完整 `meta.CatalogPort` 仍只用于 handler context。fake decoder 覆盖 socket family/protocol 和 nil inert 行为，`*meta.Catalog` 通过 compile-time assertion 实现端口。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，733.72 events/s。最终 `upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.88 将事件过滤收敛为 trace filter port（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.86 已将 handler 的格式化选项收敛为 `OptionsPort`，14.87 又将 FD state 的 metadata 依赖收敛为单方法 flag decoder；但事件过滤仍在 `printFilterRequest`、`syscallEventContextDeps` 和 raw enter 策略中直接传递 `*cli.Options`。过滤路径实际只读取 syscall 集合/正则、路径集合、FD 集合、读写 FD 规则和 debug 事件开关。
+- Problem：CLI 的目标、输出、生命周期和其它可变配置继续穿透事件包与事件上下文，过滤器既能看到无关字段，也能间接依赖 CLI map 的存储形式。`pkg/event.PathMatchRequest` 还直接暴露 `map[string]bool`，使路径匹配 API 绑定 CLI 的 map 表示，并让测试必须构造具体 map，而不是一个可替换的路径过滤能力。
+- Goal：新增 `traceFilterOptions` 窄端口，由 CLI-backed view 在 composition 边界实现；`printFilterRequest`、`syscallEventContextDeps`、raw enter 策略和过滤 helper 只消费该端口。新增 `event.PathFilter` 与 `event.TracePathSet`，路径匹配只依赖 `Empty`/`Matches` 能力，不暴露 map。保持现有 syscall/path/FD/读写/debug 过滤语义和无每事件复制配置的运行时行为。
+- Non-goals：不改 BPF syscall filter 下推、不改变 ringbuf 事件 ABI、pending 生命周期、输出文本/JSON 字段、CLI parser 或 session target owner；不新增 compat 模式，不引入 ptrace、procfs、定时器、全局过滤器或锁；不在本阶段改造 `SyscallJSONOutput` 对 `EventFormat` 等输出 owner 的依赖。
+- Constraints：过滤端口方法只描述消费能力，不返回 CLI backing map；CLI view 在 session composition 创建一次并复用；nil filter 保持当前“无过滤时允许普通事件”的边界，raw enter 的 nil filter 仍不主动输出；路径匹配必须保留引号归一化、通配符和候选路径语义。
+
+Impact note：影响集中在 `cmd/strace-go/event_utils.go`、`syscall_event_context.go`、`event_router.go`、`syscall_json_output.go` 和 `pkg/event/decoder.go`；`traceSessionDeps.Opts`、CLI parser、BPF filter owner 仍保持 concrete。测试只替换 filter request/dependency 注入方式，并增加 fake filter/path filter 验证边界。
+
+方案比较：
+
+1. 保留 `*cli.Options`：改动最小，但 concrete CLI 依赖继续穿透事件过滤边界，编译器无法阻止读取无关配置，拒绝。
+2. 新增一个暴露 syscall/path/FD map 和 regex 的大 `FilterOptions` 结构：表面上移除了 CLI 类型，但仍泄露可变 backing map 和 CLI 表示，调用者容易绕过过滤端口，拒绝。
+3. 新增 `traceFilterOptions` 能力端口，并用 `event.PathFilter` 封装路径匹配；CLI 只在 composition 边界提供 adapter，能力最窄、无每事件 map copy、fake 可替换，选择该方案。
+
+状态契约：
+
+- CLI `Options` 是过滤配置 owner；`cliTraceFilter` 只保存只读 view 和路径集合视图，不拥有第二份可变策略状态。
+- `traceFilterOptions` 只提供 `DebugEvents`、syscall 匹配、FD 集合匹配、读写 FD 判定、路径过滤和 FD filter 是否存在；事件过滤不读取 CLI 的其它字段。
+- `event.PathFilter` 负责路径集合的空判断和候选路径匹配；`PathMatchRequest` 不再暴露 `map[string]bool`。
+- 过滤结果仍由 syscall、path、FD 和 read/write 条件按原有 OR 规则合并；负 syscall/FD 集合语义不变。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求事件过滤 request/context dependency 不再声明 `*cli.Options`；当前 concrete 声明应先失败。
+- 增加 fake trace filter 和 `TracePathSet` 回归，覆盖 syscall/FD/path/read-write/debug 过滤以及 nil 边界。
+- 运行 `go test ./cmd/strace-go ./pkg/event`、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf、upstream reference，并检查无残留 tracer/BPF pin。
+
+本阶段只反转事件过滤的消费依赖，不改变纯 eBPF 事实源、生命周期状态机或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source gate 先因 `trace_filter.go` 不存在而失败；迁移后新增 `traceFilterOptions` 与 CLI-backed `cliTraceFilter`，事件过滤 request/context、raw enter policy 以及 `pkg/event.PathMatchRequest` 不再暴露 concrete CLI options 或路径 map。`PathFilter` fake 覆盖路径正/负匹配，trace filter fake 覆盖 path、read FD 和 debug raw enter；既有负 syscall/FD 集合测试继续通过。`go test ./cmd/strace-go ./pkg/event`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，721.17 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后清理本轮 `strace-go`、fixture 和临时构建产物，无残留 tracer/BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

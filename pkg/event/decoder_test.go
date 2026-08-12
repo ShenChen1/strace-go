@@ -80,7 +80,7 @@ func TestDecodeStringTruncatedPathOverMaxStillShowsEllipsis(t *testing.T) {
 }
 
 func TestMatchPathMatchesRawRelativeArgument(t *testing.T) {
-	tracePaths := map[string]bool{"open.sample": true}
+	tracePaths := TracePathSet{"open.sample": true}
 	fdMap := map[string]string{
 		"123:cwd": "/tmp/tracee-subdir",
 	}
@@ -100,7 +100,7 @@ func TestMatchPathPrefersTrackedCWDOverEventSnapshot(t *testing.T) {
 	if !MatchPath(PathMatchRequest{
 		Pid:           123,
 		PathArguments: []PathArgument{{Text: `"sample"`, DirFD: -100}},
-		TracePaths:    map[string]bool{"/known/full/sample": true},
+		TracePaths:    TracePathSet{"/known/full/sample": true},
 		FDState:       testFDPathReader{paths: map[string]string{"123:cwd": "/known/full"}},
 		EventFD:       testEventFDPathReader{cwd: "/partial-cwd"},
 	}) {
@@ -117,7 +117,7 @@ func TestMatchPathDoesNotReadLiveFDOnFDMapMiss(t *testing.T) {
 
 	fd := int32(file.Fd())
 	fdMap := map[string]string{}
-	tracePaths := map[string]bool{file.Name(): true}
+	tracePaths := TracePathSet{file.Name(): true}
 	if MatchPath(PathMatchRequest{
 		Pid:        os.Getpid(),
 		FDs:        []int32{fd},
@@ -137,7 +137,7 @@ func TestMatchPathFdTargetMatchesRealpathTraceEntry(t *testing.T) {
 	if err := os.WriteFile(sample, []byte("x"), 0o644); err != nil {
 		t.Fatalf("write sample: %v", err)
 	}
-	tracePaths := map[string]bool{
+	tracePaths := TracePathSet{
 		"stat.sample":                     true,
 		filepath.Join(dir, "stat.sample"): true,
 	}
@@ -165,7 +165,7 @@ func TestMatchPathPrefersEventDrivenFDState(t *testing.T) {
 	fd := int32(file.Fd())
 	// The event-driven fdMap is the only accepted source for fd path filters.
 	fdMap := map[string]string{fmt.Sprintf("%d:%d", os.Getpid(), fd): sample}
-	tracePaths := map[string]bool{sample: true}
+	tracePaths := TracePathSet{sample: true}
 
 	if !MatchPath(PathMatchRequest{
 		Pid:        os.Getpid(),

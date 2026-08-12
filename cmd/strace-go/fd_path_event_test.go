@@ -15,9 +15,10 @@ func TestFDPathOverlayFeedsPathFilterAndFormatter(t *testing.T) {
 	store := newFDStateStoreFromMaps(nil, nil)
 	opts := cli.ParseArgs([]string{"-y", "-P", "/dev/full", "--trace=dup", "/bin/true"})
 	deps := syscallEventContextDeps{
-		decoder: event.NewDecoder(),
-		opts:    opts,
-		fdState: store,
+		decoder:     event.NewDecoder(),
+		handlerOpts: opts,
+		filter:      newTraceFilterOptions(opts),
+		fdState:     store,
 	}
 	view := syscallEventView{
 		valid:     true,
@@ -54,10 +55,12 @@ func TestFDPathOverlayFeedsPathFilterAndFormatter(t *testing.T) {
 
 func TestFDPathOverlayReaderDoesNotMutateStoreBeforeCommit(t *testing.T) {
 	store := newFDStateStoreFromMaps(map[string]string{"101:9": "/old"}, nil)
+	opts := cli.ParseArgs([]string{"-y", "--trace=dup", "/bin/true"})
 	deps := syscallEventContextDeps{
-		decoder: event.NewDecoder(),
-		opts:    cli.ParseArgs([]string{"-y", "--trace=dup", "/bin/true"}),
-		fdState: store,
+		decoder:     event.NewDecoder(),
+		handlerOpts: opts,
+		filter:      newTraceFilterOptions(opts),
+		fdState:     store,
 	}
 	view := syscallEventView{
 		valid:     true,
@@ -123,11 +126,13 @@ func TestFDPathSnapshotReachesHandlerFormatter(t *testing.T) {
 	binary.LittleEndian.PutUint64(data[24:32], 0x100003)
 	copy(data[handler.FDPathStatePrefixSize:], "/null\x00")
 
+	opts := cli.ParseArgs([]string{"-yy", "--trace=dup", "/bin/true"})
 	deps := syscallEventContextDeps{
-		decoder:  event.NewDecoder(),
-		opts:     cli.ParseArgs([]string{"-yy", "--trace=dup", "/bin/true"}),
-		fdState:  newFDStateStoreFromMaps(nil, nil),
-		registry: handler.NewRegistry(),
+		decoder:     event.NewDecoder(),
+		handlerOpts: opts,
+		filter:      newTraceFilterOptions(opts),
+		fdState:     newFDStateStoreFromMaps(nil, nil),
+		registry:    handler.NewRegistry(),
 	}
 	ev := newSyscallEventContextFromViewWithDeps(deps, syscallEventView{
 		valid: true,

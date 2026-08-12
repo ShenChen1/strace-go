@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"strings"
 
-	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
@@ -250,7 +249,7 @@ type printFilterRequest struct {
 	scMeta          meta.Syscall
 	pathArguments   []event.PathArgument
 	targetPid       int
-	opts            *cli.Options
+	filter          traceFilterOptions
 	fdState         event.FDPathReader
 	eventFD         event.EventFDPathReader
 	payloadSections []handler.PayloadSection
@@ -259,8 +258,8 @@ type printFilterRequest struct {
 func checkShouldPrintFromView(req printFilterRequest) bool {
 	fds := req.candidateFDs()
 	matchedPath := event.MatchPath(req.pathMatchRequest(fds))
-	matchedFD := matchTraceFDs(fds, req.opts)
-	return req.matchesSyscallSet() && filtersMatch(matchedPath, matchedFD, req.matchesReadWriteFD(fds), req.opts)
+	matchedFD := req.filter.MatchFDs(fds)
+	return req.matchesSyscallSet() && filtersMatch(matchedPath, matchedFD, req.matchesReadWriteFD(fds), req.filter)
 }
 
 func (req printFilterRequest) candidateFDs() []int32 {
@@ -285,7 +284,7 @@ func (req printFilterRequest) pathMatchRequest(fds []int32) event.PathMatchReque
 		Pid:           req.targetPid,
 		FDs:           fds,
 		PathArguments: req.pathArguments,
-		TracePaths:    req.opts.TracePaths,
+		TracePaths:    req.filter.PathFilter(),
 		FDState:       req.fdState,
 		EventFD:       req.eventFD,
 	}
@@ -293,7 +292,8 @@ func (req printFilterRequest) pathMatchRequest(fds []int32) event.PathMatchReque
 
 func (req printFilterRequest) matchesReadWriteFD(fds []int32) bool {
 	for _, fd := range fds {
-		if (req.scMeta.Name == "read" && req.opts.TraceReadFD(fd)) || (req.scMeta.Name == "write" && req.opts.TraceWriteFD(fd)) {
+		if (req.scMeta.Name == "read" && req.filter.TraceReadFD(fd)) ||
+			(req.scMeta.Name == "write" && req.filter.TraceWriteFD(fd)) {
 			return true
 		}
 	}
@@ -301,23 +301,7 @@ func (req printFilterRequest) matchesReadWriteFD(fds []int32) bool {
 }
 
 func (req printFilterRequest) matchesSyscallSet() bool {
-	matchedSyscall := len(req.opts.TraceSyscalls) == 0 && len(req.opts.TraceSyscallRegexps) == 0
-	if !matchedSyscall {
-		if req.opts.TraceSyscalls[req.scMeta.Name] {
-			matchedSyscall = true
-		} else {
-			for _, r := range req.opts.TraceSyscallRegexps {
-				if r.MatchString(req.scMeta.Name) {
-					matchedSyscall = true
-					break
-				}
-			}
-		}
-	}
-	if req.opts.TraceSetIsNegated {
-		return !matchedSyscall
-	}
-	return matchedSyscall
+	return req.filter.MatchSyscall(req.scMeta.Name)
 }
 
 func payloadSectionFDs(syscallName string, args [6]uint64, payloadSections []handler.PayloadSection) []int32 {
@@ -409,37 +393,14 @@ func selectFDsFromData(data []byte, nfds int) []int32 {
 	return fds
 }
 
-func filtersMatch(matchedPath, matchedFD, requestedRW bool, opts *cli.Options) bool {
-	hasPathFilter := len(opts.TracePaths) > 0
-	hasFDFilter := len(opts.TraceFDs) > 0
+func filtersMatch(matchedPath, matchedFD, requestedRW bool, filter traceFilterOptions) bool {
+	pathFilter := filter.PathFilter()
+	hasPathFilter := pathFilter != nil && !pathFilter.Empty()
+	hasFDFilter := filter.HasFDFilter()
 	if !hasPathFilter && !hasFDFilter {
 		return true
 	}
 	return (hasPathFilter && matchedPath) || (hasFDFilter && matchedFD) || requestedRW
-}
-
-func matchTraceFDs(fds []int32, opts *cli.Options) bool {
-	if len(opts.TraceFDs) == 0 {
-		return false
-	}
-	hasValidFD := false
-	matchesSet := false
-	matchesNegatedSet := false
-	for _, fd := range fds {
-		if fd < 0 {
-			continue
-		}
-		hasValidFD = true
-		if opts.TraceFDs[fd] {
-			matchesSet = true
-		} else {
-			matchesNegatedSet = true
-		}
-	}
-	if opts.TraceFDsNegated {
-		return hasValidFD && matchesNegatedSet
-	}
-	return matchesSet
 }
 
 func isFdArgName(name string) bool {

@@ -61,7 +61,7 @@ func TestEventContextDependsOnRegistryPort(t *testing.T) {
 
 func TestEventContextDependsOnSnapshotDecoderPort(t *testing.T) {
 	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/syscall_event_context.go"))
-	if !strings.Contains(source, "decoder  handler.SnapshotDecoder") {
+	if !strings.Contains(source, "decoder") || !strings.Contains(source, "handler.SnapshotDecoder") {
 		t.Fatal("event context must depend on handler.SnapshotDecoder")
 	}
 	if strings.Contains(source, "decoder  *event.Decoder") {

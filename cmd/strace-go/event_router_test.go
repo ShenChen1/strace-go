@@ -122,6 +122,10 @@ func TestTraceEventRouterRoutesGenericEnterToJSON(t *testing.T) {
 		Scope:     newTraceScope(100, opts),
 		TargetPID: 100,
 		State:     state,
+		ContextDeps: syscallEventContextDeps{
+			handlerOpts: opts,
+			filter:      newTraceFilterOptions(opts),
+		},
 		JSON: newSyscallJSONOutput(SyscallJSONOutputDeps{
 			Opts: opts,
 			Writer: &fakeJSONEventWriter{
@@ -161,9 +165,10 @@ func TestTraceEventRouterRoutesExitToPipeline(t *testing.T) {
 			Effects: effects,
 		}),
 		ContextDeps: syscallEventContextDeps{
-			decoder: event.NewDecoder(),
-			opts:    opts,
-			fdState: newFDStateStoreFromMaps(nil, nil),
+			decoder:     event.NewDecoder(),
+			handlerOpts: opts,
+			filter:      newTraceFilterOptions(opts),
+			fdState:     newFDStateStoreFromMaps(nil, nil),
 		},
 	})
 
@@ -216,9 +221,10 @@ func TestTraceEventRouterPrintsGenericUnfinishedBeforeOtherTIDEvent(t *testing.T
 			Text:   textOutput,
 		}),
 		ContextDeps: syscallEventContextDeps{
-			decoder: event.NewDecoder(),
-			opts:    opts,
-			fdState: newFDStateStoreFromMaps(nil, nil),
+			decoder:     event.NewDecoder(),
+			handlerOpts: opts,
+			filter:      newTraceFilterOptions(opts),
+			fdState:     newFDStateStoreFromMaps(nil, nil),
 		},
 	})
 

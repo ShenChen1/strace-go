@@ -65,6 +65,7 @@ func TestSyscallJSONOutputEnterWritesRawInDebugMode(t *testing.T) {
 		view:     syscallEventView{valid: true, eventType: bpfEventTypeEnter},
 		meta:     meta.Syscall{Name: "getpid"},
 		statePID: 101,
+		filter:   newTraceFilterOptions(&cli.Options{DebugEvents: true}),
 	})
 
 	if state.rawWrites != 1 {
@@ -84,6 +85,7 @@ func TestSyscallJSONOutputEnterFilterUsesEventView(t *testing.T) {
 		view:     view,
 		meta:     meta.Syscall{Name: "dup", Args: []string{"fd"}},
 		statePID: 101,
+		filter:   newTraceFilterOptions(opts),
 	})
 
 	if state.rawWrites != 1 {

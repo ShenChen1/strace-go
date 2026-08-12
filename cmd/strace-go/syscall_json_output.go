@@ -37,7 +37,7 @@ func (o *SyscallJSONOutput) HandleEnter(ev syscallEventContext) {
 	if !o.jsonMode() {
 		return
 	}
-	if ev.shouldEmitRawEnter(o.opts, o.fdState) {
+	if ev.shouldEmitRawEnter(o.fdState) {
 		o.writeRawEvent(ev)
 	}
 }

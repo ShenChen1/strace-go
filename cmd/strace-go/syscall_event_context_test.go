@@ -71,12 +71,13 @@ func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 
 	ev := newSyscallEventContextFromViewWithDeps(
 		syscallEventContextDeps{
-			decoder: decoder,
-			opts:    opts,
-			catalog: catalog,
-			fdState: fdState,
-			fdPath:  fdState,
-			runtime: runtime,
+			decoder:     decoder,
+			handlerOpts: opts,
+			filter:      newTraceFilterOptions(opts),
+			catalog:     catalog,
+			fdState:     fdState,
+			fdPath:      fdState,
+			runtime:     runtime,
 		},
 		view,
 		101,
@@ -234,7 +235,7 @@ func TestSyscallEnterEventContextUsesEventViewAndMetadata(t *testing.T) {
 		ret:   -2,
 	}
 
-	ev := newSyscallEnterEventContextWithFlagDecoder(view, 201, nil, meta.NewCatalog("abbrev"))
+	ev := newSyscallEnterEventContextWithFlagDecoder(view, 201, nil, meta.NewCatalog("abbrev"), nil)
 
 	if ev.syscallName() != "getpid" {
 		t.Fatalf("enter context syscall name = %q, want getpid", ev.syscallName())
@@ -255,7 +256,7 @@ func TestSyscallEnterEventContextUsesSessionCatalog(t *testing.T) {
 	view := syscallEventView{valid: true, sysID: 39}
 	catalog := meta.NewCatalog("raw")
 
-	ev := newSyscallEnterEventContextWithFlagDecoder(view, 201, nil, catalog)
+	ev := newSyscallEnterEventContextWithFlagDecoder(view, 201, nil, catalog, nil)
 
 	if ev.fdFlags != catalog {
 		t.Fatalf("enter context flag decoder = %p, want session catalog %p", ev.fdFlags, catalog)
@@ -284,6 +285,7 @@ func TestSyscallEnterEventContextCachesPayloadSections(t *testing.T) {
 		201,
 		update.payloadSections,
 		meta.NewCatalog("abbrev"),
+		nil,
 	)
 
 	sections := ev.outputPayloadSections()
@@ -403,18 +405,21 @@ func TestSyscallEventContextRawEnterPolicy(t *testing.T) {
 		view:     syscallEventView{valid: true, args: [6]uint64{5}},
 		meta:     meta.Syscall{Name: "dup", Args: []string{"fd"}},
 		statePID: 101,
+		filter:   newTraceFilterOptions(opts),
 	}
 
-	if !ev.shouldEmitRawEnter(opts, nil) {
+	if !ev.shouldEmitRawEnter(nil) {
 		t.Fatal("raw enter policy should use event view for fd filter")
 	}
-	if ev.shouldEmitRawEnter(nil, nil) {
+	ev.filter = nil
+	if ev.shouldEmitRawEnter(nil) {
 		t.Fatal("raw enter policy should reject nil options")
 	}
 
 	opts.DebugEvents = true
 	opts.TraceFDs = map[int32]bool{}
-	if !ev.shouldEmitRawEnter(opts, nil) {
+	ev.filter = newTraceFilterOptions(opts)
+	if !ev.shouldEmitRawEnter(nil) {
 		t.Fatal("debug raw enter policy should override filters")
 	}
 }
@@ -426,12 +431,13 @@ func TestSyscallEventContextRawEnterPolicyUsesEffectiveMetadata(t *testing.T) {
 	ev := syscallEventContext{
 		view:     syscallEventView{valid: true, args: [6]uint64{5}},
 		statePID: 101,
+		filter:   newTraceFilterOptions(opts),
 		handlerContext: &handler.Context{
 			ScMeta: meta.Syscall{Name: "dup", Args: []string{"fd"}},
 		},
 	}
 
-	if !ev.shouldEmitRawEnter(opts, nil) {
+	if !ev.shouldEmitRawEnter(nil) {
 		t.Fatal("raw enter policy should use effective metadata for fd filter")
 	}
 }

@@ -54,12 +54,13 @@ func TestSyscallEventContextUsesSeparateFDReaderPorts(t *testing.T) {
 	pathReader := &fakeContextFDPathReader{path: "/filter-path"}
 	runtime := &fakeContextRuntime{}
 	deps := syscallEventContextDeps{
-		decoder: event.NewDecoder(),
-		opts:    &cli.Options{},
-		catalog: meta.NewCatalog("abbrev"),
-		fdState: stateReader,
-		fdPath:  pathReader,
-		runtime: runtime,
+		decoder:     event.NewDecoder(),
+		handlerOpts: &cli.Options{},
+		filter:      newTraceFilterOptions(&cli.Options{}),
+		catalog:     meta.NewCatalog("abbrev"),
+		fdState:     stateReader,
+		fdPath:      pathReader,
+		runtime:     runtime,
 	}
 
 	ev := newSyscallEventContextFromViewWithDeps(

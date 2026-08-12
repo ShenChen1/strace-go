@@ -119,6 +119,7 @@ func (r *TraceEventRouter) handleEnter(update TraceStateUpdate, statePID int) {
 			statePID,
 			update.payloadSections,
 			r.contextDeps.catalog,
+			r.contextDeps.filter,
 		))
 	}
 }

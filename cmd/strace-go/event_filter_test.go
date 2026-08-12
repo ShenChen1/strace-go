@@ -33,7 +33,7 @@ func checkShouldPrintForTest(view syscallEventView, sc meta.Syscall, opts *cli.O
 		view:      view,
 		scMeta:    sc,
 		targetPid: 101,
-		opts:      opts,
+		filter:    newTraceFilterOptions(opts),
 	}
 	if configure != nil {
 		configure(&req)
@@ -77,8 +77,9 @@ func TestMatchTraceFDs(t *testing.T) {
 			opts := testOptions()
 			opts.TraceFDs = test.trace
 			opts.TraceFDsNegated = test.negated
-			if got := matchTraceFDs(test.fds, opts); got != test.want {
-				t.Fatalf("matchTraceFDs(%v) = %v, want %v", test.fds, got, test.want)
+			filter := newTraceFilterOptions(opts)
+			if got := filter.MatchFDs(test.fds); got != test.want {
+				t.Fatalf("MatchFDs(%v) = %v, want %v", test.fds, got, test.want)
 			}
 		})
 	}
