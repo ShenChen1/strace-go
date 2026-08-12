@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	"strace-go/pkg/cli"
+	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
@@ -40,17 +43,31 @@ func (p fakeTraceExitPolicy) IsJSON() bool      { return p.json }
 func (p fakeTraceExitPolicy) SummaryOnly() bool { return p.only }
 func (p fakeTraceExitPolicy) QuietExit() bool   { return p.quiet }
 
+type fakeTraceRenderPolicy struct{ options traceRenderOptions }
+
+func (p fakeTraceRenderPolicy) RenderOptions() traceRenderOptions { return p.options }
+func (p fakeTraceRenderPolicy) TimeOptions() traceTimeOptions     { return p.options.time }
+
+type fakeTraceFollowForkPolicy struct{ follow bool }
+
+func (p fakeTraceFollowForkPolicy) FollowForks() bool { return p.follow }
+
 var (
 	_ traceFormatPolicy      = fakeTraceFormatPolicy{}
 	_ traceEventOutputPolicy = fakeTraceEventOutputPolicy{}
 	_ traceSummaryPolicy     = fakeTraceSummaryPolicy{}
 	_ traceExitPolicy        = fakeTraceExitPolicy{}
+	_ traceRenderPolicy      = fakeTraceRenderPolicy{}
+	_ traceTimePolicy        = fakeTraceRenderPolicy{}
+	_ traceFollowForkPolicy  = fakeTraceFollowForkPolicy{}
 )
 
 func TestTraceOutputPolicySnapshotsMutableCLIState(t *testing.T) {
 	opts := &cli.Options{
 		EventFormat:    cli.EventFormatText,
 		SuccessfulOnly: true,
+		FollowForks:    true,
+		PrintTimeMode:  3,
 		TraceStatus:    map[string]bool{"successful": true},
 	}
 	policy := newTraceOutputPolicy(opts)
@@ -58,6 +75,8 @@ func TestTraceOutputPolicySnapshotsMutableCLIState(t *testing.T) {
 	opts.EventFormat = cli.EventFormatJSON
 	opts.SuccessfulOnly = false
 	opts.FailedOnly = true
+	opts.FollowForks = false
+	opts.PrintTimeMode = 0
 	opts.TraceStatus["successful"] = false
 	opts.TraceStatus["failed"] = true
 
@@ -73,6 +92,10 @@ func TestTraceOutputPolicySnapshotsMutableCLIState(t *testing.T) {
 	}
 	if !policy.ShouldEmit(ev, false) {
 		t.Fatal("policy status changed after snapshot")
+	}
+	options := policy.RenderOptions()
+	if !options.followForks || options.time.printTimeMode != 3 {
+		t.Fatalf("render policy changed after snapshot: %+v", options)
 	}
 }
 
@@ -120,5 +143,42 @@ func TestTraceOutputPolicyPortsAcceptIndependentImplementations(t *testing.T) {
 	}
 	if text == nil || json == nil || pipeline == nil || exitOutput == nil {
 		t.Fatal("output components rejected independent policy ports")
+	}
+}
+
+func TestTraceRenderPolicyPortsCanBeInjected(t *testing.T) {
+	policy := fakeTraceRenderPolicy{options: traceRenderOptions{
+		time:              traceTimeOptions{printRelativeTime: true},
+		followForks:       true,
+		alignCol:          40,
+		printSyscallTime:  true,
+		quietThreadExecve: true,
+	}}
+	if got := newTimeFormatter(0).Prefix(1_000_000_000, policy); got != "     0.000000 " {
+		t.Fatalf("fake render time policy = %q", got)
+	}
+
+	var output bytes.Buffer
+	renderer := newTextRenderer(TextRendererDeps{
+		Out:           &output,
+		Policy:        policy,
+		State:         newTraceState(),
+		TimeFormatter: newTimeFormatter(0),
+	})
+	renderer.PrintSyscallEvent(syscallEventContext{
+		view: syscallEventView{valid: true, tid: 101, ret: 0, duration: 1_234_000},
+		meta: meta.Syscall{Name: "getpid"},
+	}, handler.Result{})
+	got := output.String()
+	if !strings.Contains(got, "     0.000000 101   getpid()") || !strings.Contains(got, "<0.001234>") {
+		t.Fatalf("fake render policy output = %q", got)
+	}
+
+	execOutput := newExecSyscallOutput(ExecSyscallOutputDeps{
+		Policy:   fakeTraceFollowForkPolicy{follow: true},
+		Renderer: renderer,
+	})
+	if !execOutput.followForks() {
+		t.Fatal("fake follow-forks policy was not consumed")
 	}
 }

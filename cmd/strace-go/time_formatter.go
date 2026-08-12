@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"time"
-
-	"strace-go/pkg/cli"
 )
 
 type TimeFormatter struct {
@@ -25,12 +23,16 @@ func (s *traceSession) timeFormatterState() *TimeFormatter {
 }
 
 // IMPACT: Prefix formats syscall time prefixes and owns relative-time state.
-func (tf *TimeFormatter) Prefix(enterTimeMonoNs uint64, opts *cli.Options) string {
-	if opts == nil || (opts.PrintTimeMode == 0 && !opts.PrintRelativeTime) {
+func (tf *TimeFormatter) Prefix(enterTimeMonoNs uint64, policy traceTimePolicy) string {
+	if policy == nil {
+		return ""
+	}
+	options := policy.TimeOptions()
+	if options.printTimeMode == 0 && !options.printRelativeTime {
 		return ""
 	}
 
-	if opts.PrintRelativeTime {
+	if options.printRelativeTime {
 		var diff uint64
 		if tf.lastSyscallTimeNs != 0 {
 			if enterTimeMonoNs >= tf.lastSyscallTimeNs {
@@ -44,7 +46,7 @@ func (tf *TimeFormatter) Prefix(enterTimeMonoNs uint64, opts *cli.Options) strin
 	realTimeNs := int64(enterTimeMonoNs) + tf.bootTimeOffsetNs
 	t := time.Unix(0, realTimeNs)
 
-	switch opts.PrintTimeMode {
+	switch options.printTimeMode {
 	case 3:
 		sec := realTimeNs / 1e9
 		usec := (realTimeNs % 1e9) / 1000
@@ -65,11 +67,14 @@ func formatSecondsUsec(ns uint64) string {
 }
 
 func (s *traceSession) timePrefix(enterTimeMonoNs uint64) string {
+	if s == nil || s.components == nil {
+		return ""
+	}
 	formatter := s.timeFormatterState()
 	if formatter == nil {
 		return ""
 	}
-	return formatter.Prefix(enterTimeMonoNs, s.dependencies.Opts)
+	return formatter.Prefix(enterTimeMonoNs, s.components.outputPolicy)
 }
 
 // NowMonoNs returns the current CLOCK_MONOTONIC value in nanoseconds so

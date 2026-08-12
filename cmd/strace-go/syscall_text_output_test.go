@@ -16,7 +16,7 @@ func newSyscallTextOutputForTest(opts *cli.Options) (*SyscallTextOutput, *TraceS
 	policy := newTraceOutputPolicy(opts)
 	renderer := newTextRenderer(TextRendererDeps{
 		Out:           out,
-		Opts:          opts,
+		Policy:        policy,
 		State:         state,
 		TimeFormatter: newTimeFormatter(0),
 	})
@@ -28,7 +28,7 @@ func newSyscallTextOutputForTest(opts *cli.Options) (*SyscallTextOutput, *TraceS
 			Renderer: renderer,
 		}),
 		Exec: newExecSyscallOutput(ExecSyscallOutputDeps{
-			Opts:     opts,
+			Policy:   policy,
 			State:    state,
 			Renderer: renderer,
 		}),

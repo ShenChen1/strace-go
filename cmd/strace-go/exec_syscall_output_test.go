@@ -14,14 +14,15 @@ func newExecSyscallOutputForTest(opts *cli.Options) (*ExecSyscallOutput, *TraceS
 	state := newTraceState()
 	out := &bytes.Buffer{}
 	discarded := []int{}
+	policy := newTraceOutputPolicy(opts)
 	renderer := newTextRenderer(TextRendererDeps{
 		Out:           out,
-		Opts:          opts,
+		Policy:        policy,
 		State:         state,
 		TimeFormatter: newTimeFormatter(0),
 	})
 	output := newExecSyscallOutput(ExecSyscallOutputDeps{
-		Opts:     opts,
+		Policy:   policy,
 		State:    state,
 		Renderer: renderer,
 		DiscardExitStatus: func(pid int) {

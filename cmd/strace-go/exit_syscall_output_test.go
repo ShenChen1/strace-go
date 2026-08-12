@@ -27,7 +27,7 @@ func newExitOutputTestState(opts *cli.Options) *exitOutputTestState {
 	state := &exitOutputTestState{opts: opts, out: out}
 	renderer := newTextRenderer(TextRendererDeps{
 		Out:           out,
-		Opts:          opts,
+		Policy:        newTraceOutputPolicy(opts),
 		State:         newTraceState(),
 		TimeFormatter: newTimeFormatter(0),
 	})

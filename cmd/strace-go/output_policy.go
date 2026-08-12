@@ -27,6 +27,36 @@ type traceExitPolicy interface {
 	QuietExit() bool
 }
 
+type traceTimeOptions struct {
+	printTimeMode     int
+	printRelativeTime bool
+}
+
+type traceRenderOptions struct {
+	time              traceTimeOptions
+	followForks       bool
+	alignCol          int
+	printSyscallTime  bool
+	stackTrace        bool
+	quietThreadExecve bool
+}
+
+// traceRenderPolicy exposes the immutable scalar options used by text output.
+type traceRenderPolicy interface {
+	RenderOptions() traceRenderOptions
+	TimeOptions() traceTimeOptions
+}
+
+// traceTimePolicy keeps TimeFormatter independent from unrelated render flags.
+type traceTimePolicy interface {
+	TimeOptions() traceTimeOptions
+}
+
+// traceFollowForkPolicy is the only exec-specific render decision.
+type traceFollowForkPolicy interface {
+	FollowForks() bool
+}
+
 // cliTraceOutputPolicy is a session-scoped immutable snapshot of output policy.
 type cliTraceOutputPolicy struct {
 	json               bool
@@ -36,6 +66,7 @@ type cliTraceOutputPolicy struct {
 	summaryOnly        bool
 	summaryAndPrint    bool
 	quietExit          bool
+	render             traceRenderOptions
 }
 
 var (
@@ -43,6 +74,9 @@ var (
 	_ traceEventOutputPolicy = (*cliTraceOutputPolicy)(nil)
 	_ traceSummaryPolicy     = (*cliTraceOutputPolicy)(nil)
 	_ traceExitPolicy        = (*cliTraceOutputPolicy)(nil)
+	_ traceRenderPolicy      = (*cliTraceOutputPolicy)(nil)
+	_ traceTimePolicy        = (*cliTraceOutputPolicy)(nil)
+	_ traceFollowForkPolicy  = (*cliTraceOutputPolicy)(nil)
 )
 
 func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
@@ -61,6 +95,17 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 		summaryOnly:        opts.SummaryOnly,
 		summaryAndPrint:    opts.SummaryAndPrint,
 		quietExit:          opts.QuietExit,
+		render: traceRenderOptions{
+			time: traceTimeOptions{
+				printTimeMode:     opts.PrintTimeMode,
+				printRelativeTime: opts.PrintRelativeTime,
+			},
+			followForks:       opts.FollowForks,
+			alignCol:          opts.AlignCol,
+			printSyscallTime:  opts.PrintSyscallTime,
+			stackTrace:        opts.StackTrace,
+			quietThreadExecve: opts.QuietThreadExecve,
+		},
 	}
 }
 
@@ -92,4 +137,22 @@ func (p *cliTraceOutputPolicy) SummaryAndPrint() bool {
 
 func (p *cliTraceOutputPolicy) QuietExit() bool {
 	return p != nil && p.quietExit
+}
+
+func (p *cliTraceOutputPolicy) RenderOptions() traceRenderOptions {
+	if p == nil {
+		return traceRenderOptions{}
+	}
+	return p.render
+}
+
+func (p *cliTraceOutputPolicy) TimeOptions() traceTimeOptions {
+	if p == nil {
+		return traceTimeOptions{}
+	}
+	return p.render.time
+}
+
+func (p *cliTraceOutputPolicy) FollowForks() bool {
+	return p != nil && p.render.followForks
 }

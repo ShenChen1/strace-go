@@ -5,14 +5,13 @@ import (
 	"io"
 	"strings"
 
-	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/stacktrace"
 )
 
 type TextRenderer struct {
 	out           io.Writer
-	opts          *cli.Options
+	policy        traceRenderPolicy
 	state         textRendererState
 	timeFormatter *TimeFormatter
 	bpfObjs       *bpfObjects
@@ -21,7 +20,7 @@ type TextRenderer struct {
 
 type TextRendererDeps struct {
 	Out           io.Writer
-	Opts          *cli.Options
+	Policy        traceRenderPolicy
 	State         textRendererState
 	TimeFormatter *TimeFormatter
 	BPFObjs       *bpfObjects
@@ -31,7 +30,7 @@ type TextRendererDeps struct {
 func newTextRenderer(deps TextRendererDeps) *TextRenderer {
 	return &TextRenderer{
 		out:           deps.Out,
-		opts:          deps.Opts,
+		policy:        deps.Policy,
 		state:         deps.State,
 		timeFormatter: deps.TimeFormatter,
 		bpfObjs:       deps.BPFObjs,
@@ -90,7 +89,7 @@ func (r *TextRenderer) PrintThreadExecveSupersededFromView(view syscallEventView
 	timePrefix := r.timePrefix(view.enterTime)
 	tid := int(view.tid)
 	tgid := int(view.pid)
-	if r.opts == nil || !r.opts.QuietThreadExecve {
+	if !r.renderOptions().quietThreadExecve {
 		fmt.Fprintf(r.out, "%s%-5d +++ superseded by execve in pid %d +++\n", timePrefix, tgid, tid)
 	}
 	fmt.Fprintf(r.out, "%s%-5d <... %s resumed>) = 0\n", timePrefix, tgid, syscallName)
@@ -183,11 +182,11 @@ func (r *TextRenderer) timePrefix(enterTimeMonoNs uint64) string {
 	if r.timeFormatter == nil {
 		return ""
 	}
-	return r.timeFormatter.Prefix(enterTimeMonoNs, r.opts)
+	return r.timeFormatter.Prefix(enterTimeMonoNs, r.policy)
 }
 
 func (r *TextRenderer) pidPrefix(tid int) string {
-	if r.opts != nil && r.opts.FollowForks {
+	if r.renderOptions().followForks {
 		return fmt.Sprintf("%-5d ", tid)
 	}
 	return ""
@@ -195,18 +194,16 @@ func (r *TextRenderer) pidPrefix(tid int) string {
 
 func (r *TextRenderer) padding(timePrefix string, pidPrefix string, line string) string {
 	padding := " "
-	if r.opts == nil {
-		return padding
-	}
+	options := r.renderOptions()
 	totalLen := len(timePrefix) + len(pidPrefix) + len(line)
-	if totalLen < r.opts.AlignCol {
-		padding = strings.Repeat(" ", r.opts.AlignCol-totalLen)
+	if totalLen < options.alignCol {
+		padding = strings.Repeat(" ", options.alignCol-totalLen)
 	}
 	return padding
 }
 
 func (r *TextRenderer) durationSuffix(duration uint64) string {
-	if r.opts == nil || !r.opts.PrintSyscallTime {
+	if !r.renderOptions().printSyscallTime {
 		return ""
 	}
 	sec := duration / 1e9
@@ -215,7 +212,7 @@ func (r *TextRenderer) durationSuffix(duration uint64) string {
 }
 
 func (r *TextRenderer) printStackTrace(stackID int32) {
-	if r.opts == nil || !r.opts.StackTrace || r.bpfObjs == nil || r.resolver == nil || stackID <= 0 {
+	if !r.renderOptions().stackTrace || r.bpfObjs == nil || r.resolver == nil || stackID <= 0 {
 		return
 	}
 	var ips [127]uint64
@@ -228,4 +225,11 @@ func (r *TextRenderer) printStackTrace(stackID int32) {
 		}
 		fmt.Fprintf(r.out, " > %s\n", r.resolver.Resolve(ip))
 	}
+}
+
+func (r *TextRenderer) renderOptions() traceRenderOptions {
+	if r == nil || r.policy == nil {
+		return traceRenderOptions{}
+	}
+	return r.policy.RenderOptions()
 }

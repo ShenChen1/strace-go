@@ -16,7 +16,7 @@ func newSuspendedOutputForTest() (*SuspendedSyscallOutput, *TraceState, *bytes.B
 	opts := &cli.Options{FollowForks: true}
 	renderer := newTextRenderer(TextRendererDeps{
 		Out:           out,
-		Opts:          opts,
+		Policy:        newTraceOutputPolicy(opts),
 		State:         state,
 		TimeFormatter: newTimeFormatter(0),
 	})

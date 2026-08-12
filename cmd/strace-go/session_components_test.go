@@ -55,6 +55,15 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	if components.exitSyscall.handleSyscall == nil {
 		t.Fatal("exit syscall output is missing the session handler resolver")
 	}
+	if components.outputPolicy == nil || components.textRenderer.policy != components.outputPolicy {
+		t.Fatal("text renderer does not use the session output policy snapshot")
+	}
+	if components.syscallText.format != components.outputPolicy || components.syscallText.policy != components.outputPolicy ||
+		components.syscallText.exec.policy != components.outputPolicy || components.syscallJSON.format != components.outputPolicy ||
+		components.syscallJSON.policy != components.outputPolicy || components.exitSyscall.policy != components.outputPolicy ||
+		components.runFinalizer.formatPolicy != components.outputPolicy || components.commandExitHandler.policy != components.outputPolicy {
+		t.Fatal("session output components do not share one policy snapshot")
+	}
 	components.handlerRegistry.Register("session_registry_probe", sessionRegistryProbeHandler{})
 	probeContext := &handler.Context{Registry: components.handlerRegistry}
 	if got := components.handlerRunner.handleSyscall("session_registry_probe", probeContext); got.ReturnDesc != "session-registry" {

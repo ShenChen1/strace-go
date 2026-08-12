@@ -12,11 +12,12 @@ import (
 func TestTimeFormatterRelativePrefixTracksPreviousSyscall(t *testing.T) {
 	formatter := newTimeFormatter(0)
 	opts := &cli.Options{PrintRelativeTime: true}
+	policy := newTraceOutputPolicy(opts)
 
-	if got := formatter.Prefix(1_000_000_000, opts); got != "     0.000000 " {
+	if got := formatter.Prefix(1_000_000_000, policy); got != "     0.000000 " {
 		t.Fatalf("first relative prefix = %q", got)
 	}
-	if got := formatter.Prefix(1_234_567_000, opts); got != "     0.234567 " {
+	if got := formatter.Prefix(1_234_567_000, policy); got != "     0.234567 " {
 		t.Fatalf("second relative prefix = %q", got)
 	}
 }
@@ -24,9 +25,10 @@ func TestTimeFormatterRelativePrefixTracksPreviousSyscall(t *testing.T) {
 func TestTimeFormatterRelativePrefixClampsOutOfOrderEvent(t *testing.T) {
 	formatter := newTimeFormatter(0)
 	opts := &cli.Options{PrintRelativeTime: true}
+	policy := newTraceOutputPolicy(opts)
 
-	formatter.Prefix(2_000_000_000, opts)
-	if got := formatter.Prefix(1_000_000_000, opts); got != "     0.000000 " {
+	formatter.Prefix(2_000_000_000, policy)
+	if got := formatter.Prefix(1_000_000_000, policy); got != "     0.000000 " {
 		t.Fatalf("out-of-order relative prefix = %q, want zero delta", got)
 	}
 }
@@ -34,8 +36,9 @@ func TestTimeFormatterRelativePrefixClampsOutOfOrderEvent(t *testing.T) {
 func TestTimeFormatterUnixPrefixUsesBootOffset(t *testing.T) {
 	formatter := newTimeFormatter(2_000_000_000)
 	opts := &cli.Options{PrintTimeMode: 3}
+	policy := newTraceOutputPolicy(opts)
 
-	if got := formatter.Prefix(1_234_567_000, opts); got != "3.234567 " {
+	if got := formatter.Prefix(1_234_567_000, policy); got != "3.234567 " {
 		t.Fatalf("unix prefix = %q", got)
 	}
 }
@@ -43,7 +46,7 @@ func TestTimeFormatterUnixPrefixUsesBootOffset(t *testing.T) {
 func TestTimeFormatterReturnsEmptyWhenDisabled(t *testing.T) {
 	formatter := newTimeFormatter(0)
 
-	if got := formatter.Prefix(1_000_000_000, &cli.Options{}); got != "" {
+	if got := formatter.Prefix(1_000_000_000, newTraceOutputPolicy(&cli.Options{})); got != "" {
 		t.Fatalf("disabled prefix = %q", got)
 	}
 	if got := formatter.Prefix(1_000_000_000, nil); got != "" {
@@ -54,7 +57,7 @@ func TestTimeFormatterReturnsEmptyWhenDisabled(t *testing.T) {
 func TestTimeFormatterNowMonoNsRoundTripsToWallClock(t *testing.T) {
 	formatter := newTimeFormatter(calculateTimeOffset())
 	now := time.Now()
-	prefix := formatter.Prefix(formatter.NowMonoNs(), &cli.Options{PrintTimeMode: 3})
+	prefix := formatter.Prefix(formatter.NowMonoNs(), newTraceOutputPolicy(&cli.Options{PrintTimeMode: 3}))
 	// PrintTimeMode 3 renders <epoch-seconds>.<usec>; the round trip must be
 	// within a second of the wall clock.
 	parts := strings.Split(strings.TrimSpace(prefix), ".")

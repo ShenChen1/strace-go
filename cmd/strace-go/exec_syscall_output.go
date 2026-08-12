@@ -4,20 +4,19 @@ import (
 	"fmt"
 	"strings"
 
-	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
 
 type ExecSyscallOutput struct {
-	opts              *cli.Options
+	policy            traceFollowForkPolicy
 	state             execSyscallState
 	renderer          *TextRenderer
 	discardExitStatus func(int)
 }
 
 type ExecSyscallOutputDeps struct {
-	Opts              *cli.Options
+	Policy            traceFollowForkPolicy
 	State             execSyscallState
 	Renderer          *TextRenderer
 	DiscardExitStatus func(int)
@@ -25,7 +24,7 @@ type ExecSyscallOutputDeps struct {
 
 func newExecSyscallOutput(deps ExecSyscallOutputDeps) *ExecSyscallOutput {
 	return &ExecSyscallOutput{
-		opts:              deps.Opts,
+		policy:            deps.Policy,
 		state:             deps.State,
 		renderer:          deps.Renderer,
 		discardExitStatus: deps.DiscardExitStatus,
@@ -144,7 +143,7 @@ func (o *ExecSyscallOutput) pendingArgLine(tid int, scMeta meta.Syscall, res han
 }
 
 func (o *ExecSyscallOutput) followForks() bool {
-	return o.opts != nil && o.opts.FollowForks && o.renderer != nil
+	return o.policy != nil && o.policy.FollowForks() && o.renderer != nil
 }
 
 func execArgLine(scMeta meta.Syscall, res handler.Result) string {

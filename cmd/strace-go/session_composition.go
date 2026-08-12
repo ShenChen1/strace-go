@@ -17,6 +17,7 @@ import (
 // Components are constructed once, in dependency order, and never replace
 // each other during event processing.
 type traceSessionComponents struct {
+	outputPolicy       *cliTraceOutputPolicy
 	textRenderer       *TextRenderer
 	jsonWriter         *JSONEventWriter
 	syscallJSON        *SyscallJSONOutput
@@ -136,6 +137,7 @@ func buildTraceSessionComponents(session *traceSession) *traceSessionComponents 
 	events := buildTraceSessionEvents(session, base, outputs)
 	runtime := buildTraceSessionRuntime(session, base.outputPolicy, base.exitStatus, base.renderer, events.eventRouter)
 	return &traceSessionComponents{
+		outputPolicy:       base.outputPolicy,
 		textRenderer:       base.renderer,
 		jsonWriter:         base.jsonWriter,
 		syscallJSON:        outputs.syscallJSON,
@@ -158,12 +160,13 @@ func buildTraceSessionBase(session *traceSession) traceSessionBaseComponents {
 	deps := session.dependencies
 	handlerRegistry := handler.NewRegistry()
 	handleSyscall := handlerRegistry.Handle
+	outputPolicy := newTraceOutputPolicy(deps.Opts)
 	return traceSessionBaseComponents{
 		jsonWriter:   newJSONEventWriter(JSONEventWriterDeps{Out: deps.OutWriter}),
-		outputPolicy: newTraceOutputPolicy(deps.Opts),
+		outputPolicy: outputPolicy,
 		renderer: newTextRenderer(TextRendererDeps{
 			Out:           deps.OutWriter,
-			Opts:          deps.Opts,
+			Policy:        outputPolicy,
 			State:         deps.State,
 			TimeFormatter: deps.TimeFormatter,
 			BPFObjs:       deps.BPFObjects,
@@ -190,7 +193,7 @@ func buildTraceSessionOutputs(
 ) traceSessionOutputComponents {
 	deps := session.dependencies
 	execOutput := newExecSyscallOutput(ExecSyscallOutputDeps{
-		Opts:              deps.Opts,
+		Policy:            base.outputPolicy,
 		State:             deps.State,
 		Renderer:          base.renderer,
 		DiscardExitStatus: base.exitStatus.Discard,

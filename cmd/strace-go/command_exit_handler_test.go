@@ -18,7 +18,7 @@ func TestTraceCommandExitHandlerFlushesTextFallback(t *testing.T) {
 		Policy:     newTraceOutputPolicy(opts),
 		TargetPID:  101,
 		ExitStatus: coordinator,
-		Renderer:   newTextRenderer(TextRendererDeps{Out: &output, Opts: opts}),
+		Renderer:   newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts)}),
 	})
 
 	handler.MarkExited(traceCommandExitResult{exited: true, exitCode: 7})

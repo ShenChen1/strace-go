@@ -13,7 +13,7 @@ import (
 func TestTextRendererPrintsBasicSyscallLine(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{}
-	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 
 	renderer.PrintSyscallEvent(syscallEventContext{
 		view:           syscallEventView{valid: true, tid: 101, ret: 101},
@@ -29,7 +29,7 @@ func TestTextRendererPrintsBasicSyscallLine(t *testing.T) {
 func TestTextRendererPrintsSyscallFromEventView(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{FollowForks: true}
-	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 	ev := syscallEventContext{
 		view:           syscallEventView{valid: true, tid: 101, ret: 202},
 		meta:           meta.Syscall{Name: "getpid"},
@@ -46,7 +46,7 @@ func TestTextRendererPrintsSyscallFromEventView(t *testing.T) {
 func TestTextRendererPrintsSyscallFromHandlerMetadata(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{}
-	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 
 	renderer.PrintSyscallEvent(syscallEventContext{
 		view: syscallEventView{valid: true, tid: 101, ret: 101},
@@ -64,7 +64,7 @@ func TestTextRendererPrintsSyscallFromHandlerMetadata(t *testing.T) {
 func TestTextRendererPrintsUnfinishedLine(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{FollowForks: true}
-	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 
 	renderer.PrintUnfinishedEvent(syscallEventContext{
 		view: syscallEventView{valid: true, tid: 101},
@@ -79,7 +79,7 @@ func TestTextRendererPrintsUnfinishedLine(t *testing.T) {
 func TestTextRendererPrintsUnfinishedFromEventView(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{FollowForks: true}
-	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 	ev := syscallEventContext{
 		view: syscallEventView{valid: true, tid: 101},
 		meta: meta.Syscall{Name: "nanosleep"},
@@ -95,7 +95,7 @@ func TestTextRendererPrintsUnfinishedFromEventView(t *testing.T) {
 func TestTextRendererPrintsUnfinishedWithEventTime(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{FollowForks: true, PrintRelativeTime: true}
-	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 
 	renderer.PrintUnfinishedEvent(syscallEventContext{
 		view: syscallEventView{valid: true, tid: 101, enterTime: 1_234_567_000},
@@ -110,7 +110,7 @@ func TestTextRendererPrintsUnfinishedWithEventTime(t *testing.T) {
 func TestTextRendererPrintsExecResumeWithDuration(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{FollowForks: true, PrintSyscallTime: true}
-	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 
 	renderer.PrintExecResumeFromView(syscallEventView{valid: true, tid: 101, duration: 1_234_000}, `execve("/bin/true")`)
 
@@ -123,7 +123,7 @@ func TestTextRendererPrintsExecResumeWithDuration(t *testing.T) {
 func TestTextRendererPrintsExecMessagesFromEventView(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{FollowForks: true}
-	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 	view := syscallEventView{valid: true, pid: 200, tid: 201}
 
 	renderer.PrintExecPidChangedFromView(view, `execve("/bin/true")`)
@@ -148,7 +148,7 @@ func TestTextRendererPrintsExecMessagesFromEventView(t *testing.T) {
 func TestTextRendererPrintsSupersededExecMessages(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{FollowForks: true}
-	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 	view := syscallEventView{valid: true, pid: 200, tid: 201}
 
 	renderer.PrintExecPidChangedFromView(view, `execve("/bin/true")`)
@@ -173,7 +173,7 @@ func TestTextRendererPrintsSupersededExecMessages(t *testing.T) {
 func TestTextRendererPrintsExitLines(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{FollowForks: true}
-	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 	view := syscallEventView{valid: true, tid: 101, args: [6]uint64{7}}
 
 	renderer.PrintExitSyscallEvent(syscallEventContext{
@@ -190,7 +190,7 @@ func TestTextRendererPrintsExitLines(t *testing.T) {
 
 func TestTextRendererPrintsExitStatusFromEventView(t *testing.T) {
 	opts := &cli.Options{FollowForks: true}
-	renderer := newTextRenderer(TextRendererDeps{Out: &bytes.Buffer{}, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	renderer := newTextRenderer(TextRendererDeps{Out: &bytes.Buffer{}, Policy: newTraceOutputPolicy(opts), State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 
 	got := renderer.ExitStatusLineFromView(syscallEventView{valid: true, tid: 101, args: [6]uint64{7}})
 
@@ -202,7 +202,7 @@ func TestTextRendererPrintsExitStatusFromEventView(t *testing.T) {
 func TestTextRendererPrintsExitSyscallFromEventView(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{FollowForks: true}
-	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 	ev := syscallEventContext{
 		view: syscallEventView{valid: true, tid: 101},
 		meta: meta.Syscall{Name: "exit_group"},
@@ -220,7 +220,7 @@ func TestTextRendererConsumesSuspendedSyscall(t *testing.T) {
 	opts := &cli.Options{}
 	state := newTraceState()
 	state.rememberSuspendedSyscall(101, "nanosleep")
-	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: state, TimeFormatter: newTimeFormatter(0)})
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: state, TimeFormatter: newTimeFormatter(0)})
 
 	renderer.PrintSyscallEvent(syscallEventContext{
 		view:           syscallEventView{valid: true, tid: 101, ret: 0},
@@ -240,7 +240,7 @@ func TestTextRendererConsumesSuspendedSyscall(t *testing.T) {
 func TestTextRendererAppendsHexDumpAndSignalLine(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{}
-	renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 
 	renderer.PrintSyscallEvent(syscallEventContext{
 		view:           syscallEventView{valid: true, tid: 101, ret: -516},
@@ -258,7 +258,7 @@ func TestTextRendererPrintsClockNanosleepSignalLines(t *testing.T) {
 	for _, ret := range []int64{-516, -514} {
 		var output bytes.Buffer
 		opts := &cli.Options{}
-		renderer := newTextRenderer(TextRendererDeps{Out: &output, Opts: opts, State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
+		renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
 
 		renderer.PrintSyscallEvent(syscallEventContext{
 			view:           syscallEventView{valid: true, tid: 101, ret: ret},

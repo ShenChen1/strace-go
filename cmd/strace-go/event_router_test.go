@@ -199,7 +199,7 @@ func TestTraceEventRouterPrintsGenericUnfinishedBeforeOtherTIDEvent(t *testing.T
 	var output bytes.Buffer
 	renderer := newTextRenderer(TextRendererDeps{
 		Out:           &output,
-		Opts:          opts,
+		Policy:        policy,
 		State:         state,
 		TimeFormatter: newTimeFormatter(0),
 	})
