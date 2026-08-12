@@ -3042,3 +3042,35 @@ ABI 与状态契约：
 本阶段只收口 Go session 基础依赖的 ownership 边界，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：`traceState()`、`fdStateStore()`、`runtimeService()`、`summaryStats()`、`timeFormatterState()` 已全部改为 nil-safe 只读 getter；正式 session 继续由 `newTraceSession`/`normalizeTraceSession` 显式注入基础依赖，两个直接调用 `traceState()` 的旧 context fixture 已补为显式 `newTraceState()`。失败优先 source gate 和零值 session 回归先验证旧 lazy 行为确实存在，修复后通过。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused no-ptrace/no-procmem/no-procfs gate 和 `git diff --check` 全部通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，723.11 events/s。原生 `small` 为 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS；`more` 为 80 PASS、3 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer、fixture 或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
+
+### 14.63 目标策略归一化前置到 BPF 配置（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：当前 `main` 先根据 `opts` 写入 BPF `ConfigMap`，之后才调用 `resolveTraceTargets`。为支持“命令 + attach PID”和多个 attach PID，后者会在目标解析过程中把 `opts.FollowForks` 改成 `true`。
+- Problem：有效目标策略在 BPF 配置完成后才变化，导致混合目标或多 PID attach 可能在 Go 配置中显示 follow-forks，但内核 `CONFIG_FOLLOW_FORKS` 位没有开启。BPF filter、lifecycle map 和 Go `TraceState` 因此可能使用不同策略；如果尝试在目标启动后补写 ConfigMap，又会扩大 tracee 已运行但配置未生效的竞态。
+- Goal：在任何 BPF 配置写入和 tracee 启动之前，一次性归一化目标策略；命令 + attach PID、多个 attach PID 自动启用 `FollowForks`，显式 `-f` 保持不变；`resolveTraceTargets` 只执行外部目标操作，不再修改 CLI policy。
+- Non-goals：不改变 `-f` 的用户语义、单目标默认行为、BPF ABI、filter map 更新、attach 回滚、FD state seed、生命周期事件格式或纯 eBPF 约束；不重写命令/attach 资源所有权。
+- Constraints：归一化必须发生在 `buildRuntimeConfig` 之前；BPF ConfigMap 必须在 `resolveTraceTargets` 启动 tracee 之前写入；目标解析之后不得改变 `opts.FollowForks`；单事件消费者和现有 session composition 保持不变。
+
+方案比较：
+
+1. 把 `buildRuntimeConfig` 移到 `resolveTraceTargets` 之后：能看到最终目标，但配置晚于 tracee 启动，存在未配置事件窗口，拒绝。
+2. 保留目标解析中的 mutation，再在启动后重新写 ConfigMap：需要双阶段配置和回滚，仍有窗口且错误路径更复杂，拒绝。
+3. 在 CLI parse 后用纯 bootstrap helper 归一化一次，随后只读 `opts` 并删除 resolver mutation：初始化顺序正确、策略来源唯一、改动局部，选择该方案。
+
+状态契约：
+
+- `normalizeTraceTargetOptions` 只根据命令/attach 集合计算隐含的 follow-forks 要求；显式 `FollowForks` 只能保持或被该要求提升，不能被降低。
+- `buildRuntimeConfig`、`newTraceStateForSession`、`newTraceScope` 和输出组件读取同一份已归一化 `opts`。
+- `resolveTraceTargets` 只返回 command、target PID 和 FD seed；它不改变 `FollowForks` 或其它输出/lifecycle policy。
+- BPF config、filter map 和目标进程启动顺序保持为：setup BPF → 写 ConfigMap → resolve/start/attach targets → 构造 Go session。
+
+测试与验收：
+
+- 先增加失败优先表驱动测试，锁定单命令、单 attach、显式 `-f`、命令 + attach、多个 attach 的 effective policy；增加源码门禁，禁止 resolver 重新写 `FollowForks`，并检查 normalizer 位于 ConfigMap 写入之前。
+- 随后运行 focused target-policy tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只修正目标策略与 BPF 初始化的时序和 ownership，不改变 syscall 事件 ABI 或用户可见输出。
+
+实际验收结果：新增 `normalizeTraceTargetOptions`，在 `handlePrelude` 后、BPF ConfigMap 构造前执行；命令 + attach PID 与多个 attach PID 会一次性启用 `FollowForks`，`resolveTraceTargets` 不再修改 CLI policy。失败优先测试先因缺少 normalizer 失败，修复后 focused policy、BPF config bit、Go `TraceState` 和 resolver/source ordering tests 均通过。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source gate 和 `git diff --check` 全部通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，718.45 events/s。`attach-f-p.test` 为 1 PASS；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer、fixture 或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。

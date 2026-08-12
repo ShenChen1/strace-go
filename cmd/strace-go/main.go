@@ -36,6 +36,7 @@ func main() {
 	clock := systemTraceClock{}
 
 	handlePrelude(opts)
+	normalizeTraceTargetOptions(opts)
 	opts.TracePaths = expandTracePathSet(opts.TracePaths)
 
 	inheritedFiles := collectInheritedFiles()
@@ -165,6 +166,18 @@ func buildRuntimeConfig(opts *cli.Options, bpfObjs *bpfObjects) (uint32, error) 
 	return cfgVal | syscallFilterCfg, nil
 }
 
+// normalizeTraceTargetOptions resolves implicit lifecycle policy before BPF
+// configuration and target startup. The parsed options are read-only after
+// this bootstrap step.
+func normalizeTraceTargetOptions(opts *cli.Options) {
+	if opts == nil {
+		return
+	}
+	if len(opts.AttachPids) > 1 || (len(opts.CmdArgs) > 0 && len(opts.AttachPids) > 0) {
+		opts.FollowForks = true
+	}
+}
+
 // resolveTraceTargets starts the traced command and/or attaches to pids, merging
 // startup FD state seeds when both targets are requested.
 func resolveTraceTargets(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles []*os.File) (*exec.Cmd, int, fdStateSeed, error) {
@@ -192,11 +205,7 @@ func resolveTraceTargets(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles 
 			targetPid = firstPid
 			fdSeed = attachSeed
 		} else {
-			opts.FollowForks = true // Tracing command + attached pids
 			fdSeed.merge(attachSeed)
-		}
-		if len(opts.AttachPids) > 1 {
-			opts.FollowForks = true // Tracing multiple attached pids
 		}
 	}
 	return cmd, targetPid, fdSeed, nil
