@@ -218,11 +218,19 @@ func (d *fakeRecordDecoder) Decode(rec *ringbuf.Record) (traceEventEnvelope, boo
 }
 
 type fakeTraceClock struct {
-	now time.Time
+	now    time.Time
+	monoNs uint64
 }
 
 func (c *fakeTraceClock) Now() time.Time {
 	return c.now
+}
+
+func (c *fakeTraceClock) NowMonoNs() uint64 {
+	if c.monoNs != 0 {
+		return c.monoNs
+	}
+	return uint64(c.now.UnixNano())
 }
 
 type fakeTracePIDProbe struct {

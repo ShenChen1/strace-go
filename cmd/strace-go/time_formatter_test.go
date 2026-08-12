@@ -67,3 +67,12 @@ func TestTimeFormatterNowMonoNsRoundTripsToWallClock(t *testing.T) {
 		t.Fatalf("NowMonoNs round trip = %v, wall clock = %v (diff %v)", got, now, diff)
 	}
 }
+
+func TestTimeFormatterNowMonoNsUsesInjectedClock(t *testing.T) {
+	clock := &fakeTraceClock{now: time.Unix(300, 0), monoNs: 123456789}
+	formatter := newTimeFormatterWithClock(2_000_000_000, clock)
+
+	if got := formatter.NowMonoNs(); got != clock.monoNs {
+		t.Fatalf("NowMonoNs() = %d, want injected monotonic time %d", got, clock.monoNs)
+	}
+}

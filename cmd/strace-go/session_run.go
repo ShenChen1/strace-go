@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cilium/ebpf/ringbuf"
+	"golang.org/x/sys/unix"
 
 	"strace-go/pkg/cli"
 )
@@ -47,6 +48,7 @@ func (w execTraceCommandWaiter) Wait() traceCommandExitResult {
 
 type traceClock interface {
 	Now() time.Time
+	NowMonoNs() uint64
 }
 
 type tracePIDProbe interface {
@@ -57,6 +59,14 @@ type systemTraceClock struct{}
 
 func (systemTraceClock) Now() time.Time {
 	return time.Now()
+}
+
+func (systemTraceClock) NowMonoNs() uint64 {
+	var ts unix.Timespec
+	if err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts); err != nil {
+		return uint64(time.Now().UnixNano())
+	}
+	return uint64(ts.Sec)*1_000_000_000 + uint64(ts.Nsec)
 }
 
 type systemTracePIDProbe struct{}
@@ -202,7 +212,7 @@ func (st *traceRunState) now() time.Time {
 	if st != nil && st.clock != nil {
 		return st.clock.Now()
 	}
-	return time.Now()
+	return systemTraceClock{}.Now()
 }
 
 func (st *traceRunState) pidProbeOrDefault() tracePIDProbe {

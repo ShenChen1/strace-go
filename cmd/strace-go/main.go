@@ -7,8 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"golang.org/x/sys/unix"
-
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 	"strace-go/pkg/meta"
@@ -35,6 +33,7 @@ const (
 // runtime config and trace targets through named helpers, and spawns the session.
 func main() {
 	opts := cli.ParseArgs(os.Args[1:])
+	clock := systemTraceClock{}
 
 	handlePrelude(opts)
 	opts.TracePaths = expandTracePathSet(opts.TracePaths)
@@ -98,10 +97,11 @@ func main() {
 		FDState:       fdState,
 		OutWriter:     output,
 		Output:        output,
-		TimeFormatter: newTimeFormatter(calculateTimeOffset()),
+		TimeFormatter: newTimeFormatterWithClock(calculateTimeOffsetWithClock(clock), clock),
 		BPFObjects:    bpfObjs,
 		Resolver:      resolver,
 		State:         newTraceStateForSession(opts),
+		Clock:         clock,
 	})
 	session.emitDebugReady()
 	if err := session.run(); err != nil {
@@ -242,12 +242,14 @@ func expandTracePathSet(paths map[string]bool) map[string]bool {
 }
 
 func calculateTimeOffset() int64 {
-	var tsMono, tsReal unix.Timespec
-	unix.ClockGettime(unix.CLOCK_MONOTONIC, &tsMono)
-	unix.ClockGettime(unix.CLOCK_REALTIME, &tsReal)
-	monoNs := int64(tsMono.Sec)*1e9 + int64(tsMono.Nsec)
-	realNs := int64(tsReal.Sec)*1e9 + int64(tsReal.Nsec)
-	return realNs - monoNs
+	return calculateTimeOffsetWithClock(systemTraceClock{})
+}
+
+func calculateTimeOffsetWithClock(clock traceClock) int64 {
+	if clock == nil {
+		clock = systemTraceClock{}
+	}
+	return clock.Now().UnixNano() - int64(clock.NowMonoNs())
 }
 
 func shouldEmitGenericEnter(opts *cli.Options) bool {

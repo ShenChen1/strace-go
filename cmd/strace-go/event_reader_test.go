@@ -61,6 +61,10 @@ func (c *stepTraceClock) Now() time.Time {
 	return current
 }
 
+func (c *stepTraceClock) NowMonoNs() uint64 {
+	return uint64(c.now.UnixNano())
+}
+
 func (s *recordingEventSink) Handle(traceEventEnvelope) {
 	s.calls++
 }

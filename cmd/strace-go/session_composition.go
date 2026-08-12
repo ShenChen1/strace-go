@@ -135,14 +135,14 @@ func normalizeTraceSession(session *traceSession) {
 	if session.outWriter == nil {
 		session.outWriter = io.Discard
 	}
-	if session.timeFormatter == nil {
-		session.timeFormatter = newTimeFormatter(0)
-	}
 	if session.summary == nil {
 		session.summary = newSummaryStats()
 	}
 	if session.clock == nil {
 		session.clock = systemTraceClock{}
+	}
+	if session.timeFormatter == nil {
+		session.timeFormatter = newTimeFormatterWithClock(0, session.clock)
 	}
 }
 

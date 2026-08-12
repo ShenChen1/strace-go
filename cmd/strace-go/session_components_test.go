@@ -65,6 +65,9 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	if components.eventReader.clock != clock || session.clock != clock {
 		t.Fatal("session and event reader do not share the injected clock")
 	}
+	if components.textRenderer.timeFormatter.clock != clock {
+		t.Fatal("text renderer does not use the injected session clock")
+	}
 	runState := newTraceRunState(traceRunStateDeps{clock: session.clock})
 	if runState.clock != clock {
 		t.Fatal("run state does not use the session clock")

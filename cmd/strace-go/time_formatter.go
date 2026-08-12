@@ -10,10 +10,18 @@ import (
 type TimeFormatter struct {
 	bootTimeOffsetNs  int64
 	lastSyscallTimeNs uint64
+	clock             traceClock
 }
 
 func newTimeFormatter(bootTimeOffsetNs int64) *TimeFormatter {
-	return &TimeFormatter{bootTimeOffsetNs: bootTimeOffsetNs}
+	return newTimeFormatterWithClock(bootTimeOffsetNs, systemTraceClock{})
+}
+
+func newTimeFormatterWithClock(bootTimeOffsetNs int64, clock traceClock) *TimeFormatter {
+	if clock == nil {
+		clock = systemTraceClock{}
+	}
+	return &TimeFormatter{bootTimeOffsetNs: bootTimeOffsetNs, clock: clock}
 }
 
 func (s *traceSession) timeFormatterState() *TimeFormatter {
@@ -71,5 +79,8 @@ func (s *traceSession) timePrefix(enterTimeMonoNs uint64) string {
 // synthetic lines (e.g. the exit-status fallback) can be stamped with the
 // correct real time instead of a zero mono timestamp.
 func (tf *TimeFormatter) NowMonoNs() uint64 {
-	return uint64(time.Now().UnixNano() - tf.bootTimeOffsetNs)
+	if tf == nil || tf.clock == nil {
+		return 0
+	}
+	return tf.clock.NowMonoNs()
 }
