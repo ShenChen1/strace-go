@@ -22,17 +22,21 @@ type traceCommandSpec struct {
 // traceTargetBootstrap owns target-start side effects until target ownership is
 // transferred to traceTargetHandoff. It also owns duplicated inherited files.
 type traceTargetBootstrap struct {
-	bpfRuntime     traceBPFTargetPort
-	inheritedFiles []*os.File
+	bpfRuntime       traceBPFTargetPort
+	inheritedFiles   []*os.File
+	workingDirectory traceWorkingDirectoryReader
 }
+
+type traceWorkingDirectoryReader func() (string, error)
 
 func newTraceTargetBootstrap(bpfRuntime traceBPFTargetPort) (*traceTargetBootstrap, error) {
 	if bpfRuntime == nil {
 		return nil, fmt.Errorf("BPF target port is unavailable")
 	}
 	return &traceTargetBootstrap{
-		bpfRuntime:     bpfRuntime,
-		inheritedFiles: collectInheritedFiles(),
+		bpfRuntime:       bpfRuntime,
+		inheritedFiles:   collectInheritedFiles(),
+		workingDirectory: os.Getwd,
 	}, nil
 }
 
@@ -195,10 +199,13 @@ func (b *traceTargetBootstrap) startTraceCmd(
 	if b == nil || b.bpfRuntime == nil {
 		return nil, 0, fdStateSeed{}, fmt.Errorf("BPF filter map is unavailable")
 	}
+	initialCwd, err := b.readWorkingDirectory()
+	if err != nil {
+		return nil, 0, fdStateSeed{}, err
+	}
 	if err := b.armNextFork(); err != nil {
 		return nil, 0, fdStateSeed{}, fmt.Errorf("arm initial fork: %w", err)
 	}
-	initialCwd, _ := os.Getwd()
 	cmd := newTraceCommand(spec, b.inheritedFiles)
 	if err := cmd.Start(); err != nil {
 		return nil, 0, fdStateSeed{}, fmt.Errorf("start command: %w", errors.Join(err, b.disarmNextFork()))
@@ -217,6 +224,28 @@ func (b *traceTargetBootstrap) startTraceCmd(
 		return nil, 0, fdStateSeed{}, fmt.Errorf("disarm initial fork: %w", errors.Join(err, b.abortTraceTarget(targetRuntime, targetPID)))
 	}
 	return targetRuntime, targetPID, initialTraceCommandFDSeed(targetPID, initialCwd), nil
+}
+
+func (b *traceTargetBootstrap) readWorkingDirectory() (string, error) {
+	reader := traceWorkingDirectoryReader(os.Getwd)
+	if b != nil && b.workingDirectory != nil {
+		reader = b.workingDirectory
+	}
+	return readInitialTraceCwd(reader)
+}
+
+func readInitialTraceCwd(reader traceWorkingDirectoryReader) (string, error) {
+	if reader == nil {
+		return "", fmt.Errorf("working directory reader is nil")
+	}
+	cwd, err := reader()
+	if err != nil {
+		return "", fmt.Errorf("get initial working directory: %w", err)
+	}
+	if cwd == "" {
+		return "", fmt.Errorf("get initial working directory: empty path")
+	}
+	return cwd, nil
 }
 
 func (b *traceTargetBootstrap) armNextFork() error {

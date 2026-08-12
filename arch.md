@@ -4736,3 +4736,40 @@ Impact note：只影响 `output_bootstrap.go` 的 setup failure 回滚和对应 
 失败优先 source gate 先因 `setupOutput` 仍吞掉 pipe/file cleanup error 而失败；迁移后 `cleanupOutputBootstrap` 按 writer -> command 顺序执行，未启动 command 的分支不 Wait，file close error 带路径上下文。focused output bootstrap tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14112 ./cmd/strace-go` 和 `git diff --check` 全部通过。
 
 真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，735.74 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认正常 output handoff/finalizer 路径未改变，生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.113 command cwd seed 的启动错误边界（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.23 已禁止运行期查询 tracee 的 procfs/文件系统状态，14.44 的 command 模式只使用 tracer 自身启动目录作为初始 cwd seed；`startTraceCmd` 当前在 BPF fork arm 之后调用 `os.Getwd`，并忽略读取错误。
+- Problem：当 tracer 当前工作目录已被删除、不可解析或系统调用失败时，seed 会静默变为空，调用者无法区分“attach 前本来未知”和“command bootstrap 丢失了启动状态”；更糟的是，失败发生在 BPF arm 之后，可能留下未清理的 next-fork 状态。这样会把初始化错误伪装成正常的 event-sourced unknown。
+- Goal：把 tracer cwd 读取变成显式、可注入的 bootstrap boundary；在 command 启动前读取并校验错误，只有成功后才 arm BPF，失败返回上下文 error 且不触碰 arm/disarm/filter 状态。
+- Non-goals：不读取 tracee `/proc`、不改变 attach 模式的 unknown FD/cwd 语义、不改变 cwd/chdir/fork/exec lifecycle 更新、不改变 BPF ABI、事件格式或输出路径；不为 cwd seed 增加异步刷新、重试或 fallback 查询。
+- Constraints：`os.Getwd` 仍只表示 tracer 自身 cwd；command cwd seed 成功路径保持现有值，错误必须可通过 `errors.Is` 识别；空 command 和 nil BPF port 的既有边界优先于 cwd 读取；启动失败不得留下已 arm 的 next-fork map 状态。
+
+Impact note：影响 `target_bootstrap.go` 的 command bootstrap 顺序和 cwd 读取 helper，以及 target bootstrap focused/source tests；attach、session event loop 和生产纯 eBPF/no-procfs 约束不变。
+
+方案比较：
+
+1. 继续忽略 `os.Getwd` 错误：改动最小，但丢失状态不可观测且会把启动问题伪装成 unknown，拒绝。
+2. 先 arm BPF，读取失败时再 disarm：能够返回错误，但增加无必要的 side effect 和回滚路径，拒绝。
+3. 在 arm 前通过窄 helper 读取 cwd，失败立即返回并保持 BPF 未触碰：错误边界清晰、测试可注入、生命周期最简单，选择该方案。
+
+状态契约：
+
+- `readInitialTraceCwd` 只封装 tracer 自身 cwd 读取并保留原始 error；不访问 procfs 或 tracee。
+- `startTraceCmd` 在 `armNextFork` 之前完成 cwd 读取；读取失败不调用 arm、disarm、command Start 或 filter map。
+- 成功 command 的 cwd seed、attach seed 为空和后续 event-sourced cwd 更新保持不变。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 cwd helper 存在且调用顺序位于 `armNextFork` 之前；增加 cwd reader 的成功/失败单测，并锁定 `errors.Is` 和未 arm 行为。
+- 运行 focused target bootstrap tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference。
+
+本阶段只收口 command cwd seed 的启动边界，不改变任何 tracee 运行期状态来源。
+
+### 14.113 实际验收记录
+
+失败优先 source gate 先因 `startTraceCmd` 在 `armNextFork` 后忽略 `os.Getwd` 而失败；迁移后 cwd reader 失败会保留原始 error，且不会调用 arm、disarm、command Start 或 filter update。focused cwd/bootstrap tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14113 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+
+真实 `ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，733.56 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。review 确认 cwd 读取只针对 tracer 自身工作目录，正常 command/attach 生命周期未改变，生产路径未引入 ptrace、procfs 或用户态 tracee 内存读取。
