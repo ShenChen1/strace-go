@@ -5303,3 +5303,97 @@ Impact note：影响 path-only、open/creat/openat、dual-path 三类 syscall �
 快速门禁为 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14127 ./cmd/strace-go`、Python 19 项和 `git diff --check` 全部通过。当前构建的真实 `ebpf-semantic` 为 201 个主事件、102/99 enter/exit、6 个 lifecycle；reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 325.00 ns/op、0 B/op、0 allocs/op`、raw JSON `543.90 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `660.20 ns/op、0 B/op、0 allocs/op`、decoded payload `929.10 ns/op、16 B/op、1 allocs/op`；四组真实 workload 的 `pending_stale` 与 BPF 错误计数均为 0。
 
 重建根目录 `strace-go` 后，当前二进制运行原生 `small` 为 23 PASS、0 FAIL；`rename`、`creat`、`open/openat`、`symlinkat` 等路径用例全部通过。当前二进制运行 `upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS；既定 XFAIL 仍只有 bounded read/write hexdump 和纯 eBPF event-sourced 状态边界。review 确认路径 exit handler 只发一个 exit event 并消费一次 pending，没有新增 procfs、ptrace、`process_vm_readv`、第二输出通道或并发状态。
+
+### 14.128 为 openat2 增加 sys_exit path/how 重试快照（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.127 已为 open/creat/openat、path-only 和 dual-path syscall 增加 exit snapshot，但 `openat2` 仍只在 enter 事件中抓取 path 与 `open_how`；exit 事件仍是无 payload 的 generic direct event。
+- Problem：`openat2` 的 path/how 都是输入事实。enter 阶段若 ringbuf reserve、dynptr 写入或用户指针读取暂时失败，用户态只能依赖失败的 enter section；没有 ptrace/procfs 补读路径，最终输出会退化为原始指针或缺少 flags 解释。
+- Goal：让已有 `EXIT_PROG_PATH` 在 `openat2` 上于 sys_exit 重新抓取 path 与 how，并写入同一个 exit event v2/TLV；用户态沿用 section identity 合并，exit snapshot 成功时覆盖 enter 失败 section。
+- Non-goals：不增加新的 eBPF attach、prog-array 槽位、事件类型、TLV schema 或用户态事件消费者；不改变 `open_how` 64 字节上限、24 字节最小 ABI、文本/JSON formatter；不引入 ptrace、`process_vm_readv`、procfs、定时器、锁或第二输出通道。
+- Constraints：exit helper 必须复用 `OPENAT2_DIRECT_PAYLOAD_CAPACITY`、现有 path/how capture helper 和 `init_syscall_exit_event_v2_from_pending`；path 与 how 仍使用 IN direction；失败仍保留 TLV header/probe 状态；pending 只能由现有 `exit_path` 消费一次。
+
+Impact note：影响 `syscall_openat2_direct_event_v2.h`、`exit_path` 的路由和 openat2 源码/语义回归测试，不改变其它路径 syscall 的 exit 分发。
+
+方案比较：
+
+1. 保持 openat2 只有 enter snapshot，并把偶发缺失当作测试边界：实现成本最低，但真实输入事实会丢失，拒绝。
+2. 把 openat2 分支加入 `exit_generic`：可以复用 helper，但扩大已经很长的多职责退出程序和 verifier 风险，拒绝。
+3. 在现有 `EXIT_PROG_PATH` 中路由到独立 openat2 exit emitter：不增加 tail-call ABI，容量和 payload 语义集中，选择该方案。
+
+状态契约：
+
+- `trace_sys_exit` 将 path-only、dual-path、open/creat/openat 与 openat2 统一路由到 `EXIT_PROG_PATH`；handler 按 syscall 选择唯一的 exit emitter。
+- openat2 exit event 至少重试 arg1 string path 和 arg2 struct how 两个 IN section；成功返回时由 14.128b 追加 FD_STATE OUT section；exit section 对同一 `(kind,direction,arg,user_ptr)` 覆盖 enter section。
+- `openat2` 的成功/失败返回都结束同一个 pending；返回值不决定是否重试输入 snapshot，避免失败 syscall 丢失调用参数。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 openat2 exit emitter、`EXIT_PROG_PATH` 路由和 pending exit 初始化。
+- 增加 enter probe 失败、exit probe 成功的 path/how 语义回归；实现后运行 focused、Go 全量/race/vet/build、BPF 生成/load、Python oracle、semantic/perf、small 和 upstream reference。
+- review 检查 exit event 只有一次、容量覆盖两个 section、无 procfs/ptrace/用户态 tracee 内存读取，且不新增 prog-array 槽位。
+
+本阶段只补齐 openat2 输入 payload 的纯 eBPF exit 重试，不扩展到其它 enter-only payload 家族。
+
+### 14.128 修复 open-family exit event 丢失 FD_STATE（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.127 将 open/creat/openat 的 exit path retry 放进 `EXIT_PROG_PATH`；该 handler 原先只输出 path string。旧的 `exit_generic` 则优先输出成功返回 fd 的 FD_STATE snapshot。
+- Problem：统一路由后，成功的 open-family syscall 只剩 path TLV，Go 侧无法更新 fd -> file identity/path 状态，`ebpf-semantic` 的 open-family FD_STATE oracle 失败；若仅恢复 generic 路由，又会丢失 exit path retry。
+- Goal：在同一个 open-family exit event 中同时输出 exit path string 和成功 fd 的 FD_STATE snapshot，保持一次 reserve、一次 submit、一次 pending consume。
+- Non-goals：不发两个 exit event；不改变 FD_STATE TLV schema、path TLV schema、`openat2` 路由、用户态消费者、输出格式；不引入 ptrace、`process_vm_readv`、procfs 或新的 prog-array slot。
+- Constraints：复用 `capture_openat_path_tlv_direct`、`capture_fd_state_tlv_direct` 和 `init_syscall_exit_event_v2_from_pending`；成功返回才读取 fd snapshot，失败返回仍保留 path retry；payload capacity 必须静态覆盖两个 section。
+
+Impact note：影响 `emit_open_creat_fd_state_path_exit_event_v2_direct` 的实现和 open-family source/semantic coverage；`exit_generic` 的其它 fd-state syscall 分支不变。
+
+方案比较：
+
+1. 成功时只恢复 FD_STATE、失败时保留 path：改动最小，但成功 open 的 exit path retry 仍会丢失，拒绝。
+2. 成功时发送两个 exit event：两类数据都能保留，但破坏一 syscall 一 exit event、增加排序和 pending 语义风险，拒绝。
+3. 在 `EXIT_PROG_PATH` 中合并 path + FD_STATE 为一个 exit event：保留两种快照、没有额外事件和 attach，选择该方案。
+
+状态契约：
+
+- open/creat/openat 成功 exit event 的 section 顺序为 path string（IN）后 FD_STATE（OUT）；失败 exit event 只有 path string（IN）。
+- event body 的 `capture_len` 等于实际写入的两个 section 长度之和；FD_STATE 快照失败时仍保留显式失败 header，不影响 path section。
+- `exit_path` 仍是 open-family 唯一消费者，`consume_pending_syscall` 只执行一次。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 open-family combined emitter 同时调用两个 capture helper。
+- 运行 focused Go tests 和 `ebpf-semantic`，确认 path section 与 48 字节 FD_STATE section 同时存在；再跑全量 Go/race/vet/build、BPF 生成、Python、small、upstream-reference、perf。
+- review 检查没有第二 exit event、没有新的用户态内存读取路径，且源码无 procfs/ptrace/process_vm_readv 新增。
+
+### 14.128b 保持 openat2 exit event 的 FD_STATE（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：`is_fd_state_exit_direct_syscall` 一直把 `openat2` 作为成功 fd snapshot syscall；14.128 为了 path/how exit retry 将它改路由到 `EXIT_PROG_PATH`，但当前 openat2 emitter 只提交 path 和 `open_how` 两个 IN section。
+- Problem：openat2 成功时会丢失原有 FD_STATE，导致 event-sourced fd identity/path 状态不完整；现有语义 fixture 没有触发 openat2，因此普通门禁无法发现这个回归。
+- Goal：openat2 成功 exit event 同时包含 path、how 和 FD_STATE；失败 exit event保留 path/how retry；所有信息仍在一个 exit event 内。
+- Non-goals：不新增 attach、prog-array slot、事件版本或 TLV 类型；不改变 how 的 24/64 字节边界；不恢复 ptrace/procfs；不发送第二个 exit event。
+- Constraints：enter 继续使用 path/how 容量，exit 使用额外 FD_STATE 容量；只在 `ret_value >= 0` 时读取返回 fd；fixture 必须用真实 `SYS_OPENAT2` 并让 semantic oracle 验证同事件组合。
+
+Impact note：影响 `syscall_openat2_direct_event_v2.h` 的 exit capacity/emitter、openat2 source gate、semantic fixture 的 trace set 和 FD_STATE oracle；open/creat/openat 组合 emitter 不变。
+
+方案比较：
+
+1. 把 openat2 退回 `exit_generic`：可保留 FD_STATE，但丢掉已实现的 path/how exit retry，拒绝。
+2. 由 `EXIT_PROG_PATH` 发送 path/how event，再额外发送 FD_STATE event：数据完整但破坏一个 syscall 一个 exit event，增加用户态配对风险，拒绝。
+3. 扩大 openat2 exit payload，合并 path/how/FD_STATE：保留全部快照、不改变分发 ABI，选择该方案。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 openat2 exit capacity 包含 FD_STATE capture。
+- fixture 增加成功 `openat2`，semantic trace set 订阅它，并要求 openat2 的 path + FD_STATE 出现在同一个成功 exit event；Go oracle 单测同时覆盖合并和拆分两种输入。
+- 运行 BPF 生成/load、Go/race/vet/build、Python、semantic、perf、small、upstream-reference；review 检查 pending 仍只消费一次。
+
+#### 实际验收记录
+
+14.128 先暴露了 open-family 回归：`ebpf-semantic` 报告 `open-family FD state payload section missing`。修复为 `emit_open_creat_fd_state_path_exit_event_v2_direct` 后，成功 open/creat/openat 的单个 exit event 同时包含 path string（IN）与 48 字节 FD_STATE（OUT）；失败返回仍只提交 path retry。随后 review 发现 openat2 也属于 FD_STATE syscall，因此 14.128b 将成功 openat2 的 exit payload 扩展为 path/how/FD_STATE 三段，并把 semantic fixture、source gate、oracle 收紧到 syscall 级别和同一 event。
+
+`sudo -n go generate ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14128-final ./cmd/strace-go`、Python 20 项和 `git diff --check` 全部通过。真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个 lifecycle；openat2 path/how/FD_STATE 同事件断言通过，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update、pending_stale 均为 0。`ebpf-perf` 通过：`TraceEventDecodeState 298.60 ns/op、0 B/op、0 allocs/op`，raw JSON `493.90 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `596.70 ns/op、0 B/op、0 allocs/op`，decoded payload `840.60 ns/op、16 B/op、1 alloc/op`；scalar/io/lifecycle/threads 四组 workload 的错误和 stale 计数均为 0。
+
+重建根目录 `strace-go` 后，原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。既定 XFAIL 仍只有 bounded read/write hexdump 和观察前 FD/cwd 状态边界。本阶段没有新增 ptrace、`process_vm_readv`、procfs 生产路径、第二 exit event、第二消费者或新的 prog-array slot。

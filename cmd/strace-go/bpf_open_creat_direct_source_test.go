@@ -18,8 +18,9 @@ func TestBPFOpenCreatPayloadUsesDirectTLV(t *testing.T) {
 		"capture_openat_path_tlv_direct(ptr, payload_offset, 0, args[0])",
 		"capture_openat_path_tlv_direct(ptr, payload_offset, 1, args[1])",
 		"EXIT_PROG_PATH = 10",
-		"emit_open_creat_path_exit_event_v2_direct(p, ret_value, duration);",
+		"emit_open_creat_fd_state_path_exit_event_v2_direct(p, ret_value, duration);",
 		"is_open_creat_path_direct_syscall(p->sys_id)",
+		"capture_fd_state_tlv_direct(",
 	} {
 		if !strings.Contains(straceSource, snippet) && !strings.Contains(directHeader, snippet) {
 			t.Fatalf("BPF source missing open/creat direct snippet %q", snippet)

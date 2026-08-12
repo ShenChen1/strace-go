@@ -10,6 +10,8 @@ from ebpf_event_oracles import (
     has_fcntl_fd_state_for_command,
     has_fd_state_for_syscall,
     has_fd_state_section,
+    has_open_family_path_and_fd_state,
+    has_openat2_path_how_and_fd_state,
 )
 from ebpf_cloexec_suite import has_stale_cloexec_read
 from ebpf_suites import wait_for_debug_ready
@@ -136,6 +138,54 @@ class EventOracleTests(unittest.TestCase):
         }]
 
         self.assertFalse(has_fd_state_section(events))
+
+    def test_requires_open_path_and_fd_state_in_one_exit_event(self):
+        data = bytearray(48)
+        data[0:4] = (7).to_bytes(4, "little", signed=True)
+        data[4:8] = (3).to_bytes(4, "little")
+        data[32:40] = (42).to_bytes(8, "little")
+        path_section = {
+            "kind": "string",
+            "direction": "in",
+            "arg_index": 1,
+            "copied_len": 9,
+            "probe_ret": 0,
+        }
+        fd_section = {
+            "kind": "fd_state",
+            "direction": "out",
+            "arg_index": 0xffff,
+            "user_len": 48,
+            "copied_len": 48,
+            "probe_ret": 0,
+            "data_base64": base64.b64encode(data).decode(),
+        }
+
+        combined = [{
+            "event_type": "exit",
+            "syscall": "openat",
+            "ret": 7,
+            "payload_sections": [path_section, fd_section],
+        }]
+        split = [
+            {"event_type": "exit", "syscall": "openat", "ret": 7, "payload_sections": [path_section]},
+            {"event_type": "exit", "syscall": "openat", "ret": 7, "payload_sections": [fd_section]},
+        ]
+
+        self.assertTrue(has_open_family_path_and_fd_state(combined))
+        self.assertFalse(has_open_family_path_and_fd_state(split))
+        openat2_combined = dict(combined[0])
+        openat2_combined["syscall"] = "openat2"
+        openat2_combined["payload_sections"] = list(openat2_combined["payload_sections"])
+        openat2_combined["payload_sections"].append({
+            "kind": "struct",
+            "direction": "in",
+            "arg_index": 2,
+            "user_len": 24,
+            "copied_len": 24,
+            "probe_ret": 0,
+        })
+        self.assertTrue(has_openat2_path_how_and_fd_state([openat2_combined]))
 
     def test_accepts_complete_dup_fd_state_snapshots(self):
         events = []

@@ -42,6 +42,64 @@ func TestSyscallEventContextMergesOpenat2DirectTLVSections(t *testing.T) {
 	assertOpenat2DirectSection(t, ev.handlerContext.PayloadSections, 2, handler.PayloadKindStruct, howData)
 }
 
+func TestSyscallEventContextPrefersOpenat2ExitRetryTLVSections(t *testing.T) {
+	session := miscStructTLVSession("openat2")
+	args := [6]uint64{^uint64(99), 0x1000, 0x2000, 24}
+	enterPath := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:     payloadTLVKindString,
+		arg:      1,
+		userPtr:  args[1],
+		probeRet: -14,
+	})
+	enterHow := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:     payloadTLVKindStruct,
+		arg:      2,
+		userPtr:  args[2],
+		userLen:  24,
+		probeRet: -14,
+	})
+	session.traceState().handleEnvelope(testTLVSyscallEnvelope(
+		t,
+		"openat2",
+		bpfEventTypeEnter,
+		args,
+		0,
+		append(enterPath, enterHow...)))
+
+	exitPath := []byte("/tmp/openat2-exit\x00")
+	exitHow := bytes.Repeat([]byte{0x42}, 24)
+	exitPayload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindString,
+		arg:     1,
+		userPtr: args[1],
+		userLen: uint32(len(exitPath)),
+		data:    exitPath,
+	})
+	exitPayload = append(exitPayload, payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindStruct,
+		arg:     2,
+		userPtr: args[2],
+		userLen: uint32(len(exitHow)),
+		data:    exitHow,
+	})...)
+	exitUpdate := session.traceState().handleEnvelope(testTLVSyscallEnvelope(
+		t,
+		"openat2",
+		bpfEventTypeExit,
+		args,
+		-14,
+		exitPayload))
+	ev := newSyscallEventContextFromView(
+		session,
+		exitUpdate.syscallView,
+		101,
+		exitUpdate.pendingEnter,
+		exitUpdate.payloadSections)
+
+	assertOpenat2DirectSection(t, ev.handlerContext.PayloadSections, 1, handler.PayloadKindString, exitPath)
+	assertOpenat2DirectSection(t, ev.handlerContext.PayloadSections, 2, handler.PayloadKindStruct, exitHow)
+}
+
 func assertOpenat2DirectSection(
 	t *testing.T,
 	sections []handler.PayloadSection,

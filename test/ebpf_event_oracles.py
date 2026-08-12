@@ -94,30 +94,78 @@ def has_openat_path_section(events, path_text):
     return has_path_section(events, "openat", 1, path_text)
 
 
+def _has_valid_fd_state_section(event):
+    if event.get("event_type") != "exit" or event.get("ret", -1) < 0:
+        return False
+    for section in event.get("payload_sections") or []:
+        if (
+            section.get("kind") != "fd_state"
+            or section.get("direction") != "out"
+            or section.get("arg_index") != FD_STATE_ARG_INDEX
+            or section.get("user_len") != FD_STATE_SNAPSHOT_SIZE
+            or section.get("copied_len") != FD_STATE_SNAPSHOT_SIZE
+            or section.get("probe_ret") != 0
+        ):
+            continue
+        data = payload_section_bytes(section)
+        if len(data) != FD_STATE_SNAPSHOT_SIZE:
+            continue
+        snapshot_fd = int.from_bytes(data[0:4], "little", signed=True)
+        flags = int.from_bytes(data[4:8], "little")
+        inode = int.from_bytes(data[32:40], "little")
+        if snapshot_fd == event.get("ret") and (flags & 3) == 3 and inode > 0:
+            return True
+    return False
+
+
 def _has_fd_state_section_for_syscalls(events, syscall_names):
+    return any(
+        event.get("syscall") in syscall_names and _has_valid_fd_state_section(event)
+        for event in events
+    )
+
+
+def _has_path_and_fd_state_event(event, syscall):
+    if event.get("syscall") != syscall:
+        return False
+    path_arg = 1 if syscall in {"openat", "openat2"} else 0
+    has_path = any(
+        section.get("kind") == "string"
+        and section.get("direction") == "in"
+        and section.get("arg_index") == path_arg
+        and section.get("probe_ret") == 0
+        and section.get("copied_len", 0) > 0
+        for section in event.get("payload_sections") or []
+    )
+    return has_path and _has_valid_fd_state_section(event)
+
+
+def has_path_and_fd_state_for_syscall(events, syscall):
+    return any(_has_path_and_fd_state_event(event, syscall) for event in events)
+
+
+def has_open_family_path_and_fd_state(events):
+    return any(
+        has_path_and_fd_state_for_syscall(events, syscall)
+        for syscall in ("open", "openat", "creat")
+    )
+
+
+def has_openat2_path_how_and_fd_state(events):
     for event in events:
-        if event.get("event_type") != "exit" or event.get("syscall") not in syscall_names:
+        if not _has_path_and_fd_state_event(event, "openat2"):
             continue
-        if event.get("ret", -1) < 0:
-            continue
-        for section in event.get("payload_sections") or []:
-            if (
-                section.get("kind") != "fd_state"
-                or section.get("direction") != "out"
-                or section.get("arg_index") != FD_STATE_ARG_INDEX
-                or section.get("user_len") != FD_STATE_SNAPSHOT_SIZE
-                or section.get("copied_len") != FD_STATE_SNAPSHOT_SIZE
-                or section.get("probe_ret") != 0
-            ):
-                continue
-            data = payload_section_bytes(section)
-            if len(data) != FD_STATE_SNAPSHOT_SIZE:
-                continue
-            snapshot_fd = int.from_bytes(data[0:4], "little", signed=True)
-            flags = int.from_bytes(data[4:8], "little")
-            inode = int.from_bytes(data[32:40], "little")
-            if snapshot_fd == event.get("ret") and (flags & 3) == 3 and inode > 0:
-                return True
+        has_how = any(
+            section.get("kind") == "struct"
+            and section.get("direction") == "in"
+            and section.get("arg_index") == 2
+            and section.get("user_len", 0) >= 24
+            and section.get("copied_len", 0) >= 24
+            and section.get("probe_ret") == 0
+            for section in event.get("payload_sections") or []
+        )
+        if has_how:
+            return True
     return False
 
 

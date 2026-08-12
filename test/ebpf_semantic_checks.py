@@ -10,6 +10,8 @@ from ebpf_event_oracles import (
     has_fcntl_fd_state_for_command,
     has_exec_payload_sections,
     has_fd_state_section,
+    has_open_family_path_and_fd_state,
+    has_openat2_path_how_and_fd_state,
     has_gettimeofday_payload_sections,
     has_large_write_truncation,
     has_openat_path_section,
@@ -84,6 +86,7 @@ def check_syscall_presence(context, failures):
     for name in sorted(expected):
         require(name in names, failures, f"{name} event missing")
     require("openat" in names or "open" in names, failures, "open/openat event missing")
+    require("openat2" in names, failures, "openat2 event missing")
 
 
 def check_path_and_bytes_payloads(context, failures):
@@ -111,6 +114,16 @@ def check_path_and_bytes_payloads(context, failures):
 
 
 def check_fd_state_payloads(context, failures):
+    require(
+        has_open_family_path_and_fd_state(context.main.events),
+        failures,
+        "open-family path and FD state were not combined in one exit event",
+    )
+    require(
+        has_openat2_path_how_and_fd_state(context.main.events),
+        failures,
+        "openat2 path, how, and FD state were not combined in one exit event",
+    )
     require(has_fd_state_section(context.main.events), failures, "open-family FD state payload section missing")
     require(has_dup_fd_state_sections(context.main.events), failures, "dup-family FD state payload sections missing")
     require(has_fd_array_fd_state_sections(context.main.events), failures, "pipe/socketpair FD state payload sections missing")

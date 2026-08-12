@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/futex.h>
+#include <linux/openat2.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -91,6 +92,22 @@ static int run_getcwd_fixture(void)
 	if (syscall(SYS_getcwd, cwd_buf, sizeof(cwd_buf)) < 0) {
 		perror("getcwd");
 		return 83;
+	}
+	return 0;
+}
+
+static int run_openat2_fixture(void)
+{
+	struct open_how how = {0};
+	how.flags = O_RDONLY;
+	int fd = syscall(SYS_openat2, AT_FDCWD, "/dev/null", &how, sizeof(how));
+	if (fd < 0) {
+		perror("openat2");
+		return 116;
+	}
+	if (close(fd) != 0) {
+		perror("close openat2");
+		return 117;
 	}
 	return 0;
 }
@@ -431,6 +448,11 @@ static int run_semantic_fixture(void)
 			return 74;
 		}
 		(void) close(fd);
+	}
+
+	int openat2_status = run_openat2_fixture();
+	if (openat2_status != 0) {
+		return openat2_status;
 	}
 
 	int missing = open("/tmp/strace-go-ebpf-missing-file", O_RDONLY);

@@ -175,7 +175,7 @@ def event_capture(result):
 
 def collect_semantic_events(fixture):
     trace_set = (
-        "open,openat,read,write,pread64,pwrite64,close,stat,lstat,fstat,"
+        "open,openat,openat2,read,write,pread64,pwrite64,close,stat,lstat,fstat,"
         "newfstatat,statfs,fstatfs,getcwd,readlink,readlinkat,pipe,pipe2,"
         "socketpair,dup,dup2,dup3,fcntl,close_range,uname,sysinfo,getrlimit,setrlimit,prlimit64,arch_prctl,"
         "get_robust_list,sendfile,copy_file_range,getitimer,setitimer,"

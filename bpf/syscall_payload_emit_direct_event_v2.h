@@ -186,13 +186,16 @@ static __always_inline void emit_syscall_exit_event_v2_direct(
     bpf_ringbuf_submit_dynptr(&ptr, 0);
 }
 
-static __always_inline void emit_open_creat_path_exit_event_v2_direct(
+static __always_inline void emit_open_creat_fd_state_path_exit_event_v2_direct(
     struct pending_syscall *p,
     s64 ret_value,
     u64 duration)
 {
     u16 path_arg = p->sys_id == SYS_OPENAT ? 1 : 0;
     u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + PAYLOAD_TLV_OPENAT_MAX;
+    if (ret_value >= 0) {
+        payload_capacity += PAYLOAD_TLV_HEADER_SIZE + FD_STATE_SNAPSHOT_SIZE;
+    }
     u32 body_offset = EVENT_V2_HEADER_LEN;
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_EXIT_BODY_LEN;
     u32 out_size = payload_offset + payload_capacity;
@@ -211,6 +214,12 @@ static __always_inline void emit_open_creat_path_exit_event_v2_direct(
         payload_offset,
         path_arg,
         p->args[path_arg]);
+    if (ret_value >= 0) {
+        payload_size += capture_fd_state_tlv_direct(
+            &ptr,
+            payload_offset + payload_size,
+            (s32)ret_value);
+    }
     if (payload_size > 0) {
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
