@@ -144,7 +144,7 @@ func TestQuotaXFSGetQuotaRequiresSuccessfulExit(t *testing.T) {
 
 func TestQuotaXFSGetStatsUseExitStructures(t *testing.T) {
 	ctx := testQuotaContext("quotactl", [6]uint64{testQuotaCommand(testQuotaXGetQStat, testQuotaUser), 0, 0, 0x5000}, 0)
-	ctx.Opts.Verbose = true
+	cliOptionsForTest(ctx).Verbose = true
 	ctx.PayloadSections = []PayloadSection{testQuotaStruct(3, ctx.Args[3], PayloadDirectionOut, testXFSQuotaStat())}
 	got := NewRegistry().Resolve("quotactl").Handle(ctx).ArgParts
 	if len(got) != 3 || !strings.Contains(got[2], "qs_uquota={qfs_ino=10, qfs_nblks=20, qfs_nextents=2}") {

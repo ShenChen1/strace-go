@@ -304,11 +304,11 @@ func ppollSigmask(ctx *Context) string {
 }
 
 func pollDisplayLimit(ctx *Context) int {
-	if ctx.Opts != nil && ctx.Opts.Verbose {
+	if ctx.Opts != nil && ctx.Opts.VerboseValue() {
 		return pollPayloadLimit / pollFdSize
 	}
-	if ctx.Opts != nil && ctx.Opts.StringLimit >= 0 {
-		return ctx.Opts.StringLimit
+	if ctx.Opts != nil && ctx.Opts.StringLimitValue() >= 0 {
+		return ctx.Opts.StringLimitValue()
 	}
 	return 16
 }

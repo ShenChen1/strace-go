@@ -106,7 +106,7 @@ func TestDecodeProcessVMWritevUsesNestedLocalIovecBasePayload(t *testing.T) {
 	decoder := event.NewDecoder()
 	ctx := newIovecPolicyContext(&fetchPolicyMemoryReader{}, decoder)
 	ctx.SysName = "process_vm_writev"
-	ctx.Opts.StringLimit = 5
+	cliOptionsForTest(ctx).StringLimit = 5
 	ctx.PayloadSections = []PayloadSection{
 		{
 			Kind:      PayloadKindIovec,
@@ -165,7 +165,7 @@ func TestDecodeProcessVMReadvUsesNestedLocalIovecBaseOutPayload(t *testing.T) {
 	decoder := event.NewDecoder()
 	ctx := newIovecPolicyContext(&fetchPolicyMemoryReader{}, decoder)
 	ctx.SysName = "process_vm_readv"
-	ctx.Opts.StringLimit = 5
+	cliOptionsForTest(ctx).StringLimit = 5
 	ctx.PayloadSections = []PayloadSection{
 		{
 			Kind:      PayloadKindIovec,
@@ -233,7 +233,7 @@ func TestDecodeProcessVMIovecAddsAddressCommentForProbeTruncatedArray(t *testing
 	decoder := event.NewDecoder()
 	ctx := newIovecPolicyContext(&fetchPolicyMemoryReader{}, decoder)
 	ctx.SysName = "process_vm_writev"
-	ctx.Opts.StringLimit = 5
+	cliOptionsForTest(ctx).StringLimit = 5
 	ctx.PayloadSections = []PayloadSection{
 		{
 			Kind:      PayloadKindIovec,
@@ -264,7 +264,7 @@ func TestDecodeProcessVMIovecUsesDisplayLimitWithoutAddressComment(t *testing.T)
 	decoder := event.NewDecoder()
 	ctx := newIovecPolicyContext(&fetchPolicyMemoryReader{}, decoder)
 	ctx.SysName = "process_vm_writev"
-	ctx.Opts.StringLimit = 5
+	cliOptionsForTest(ctx).StringLimit = 5
 	ctx.PayloadSections = []PayloadSection{
 		{
 			Kind:      PayloadKindIovec,
@@ -324,7 +324,7 @@ func TestPwritevHandlerUsesFourArgSignedOffsetContract(t *testing.T) {
 func TestPwritevHandlerUsesNestedIovecBasePayloadAndStringLimit(t *testing.T) {
 	ctx := newIovecPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
 	ctx.SysName = "pwritev"
-	ctx.Opts.StringLimit = 32
+	cliOptionsForTest(ctx).StringLimit = 32
 	ctx.Args = [6]uint64{0, 0x1000, 8, 0xdefaceddeadbeef}
 	ctx.PayloadSections = []PayloadSection{
 		{
@@ -368,7 +368,7 @@ func TestPwritevHandlerUsesNestedIovecBasePayloadAndStringLimit(t *testing.T) {
 func TestPwritevHandlerDisplayLimitSuppressesLateProbeAddressComment(t *testing.T) {
 	ctx := newIovecPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
 	ctx.SysName = "pwritev"
-	ctx.Opts.StringLimit = 7
+	cliOptionsForTest(ctx).StringLimit = 7
 	ctx.Args = [6]uint64{0, 0x1000, 9, 0}
 	ctx.PayloadSections = []PayloadSection{
 		{

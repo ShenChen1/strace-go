@@ -131,7 +131,7 @@ func decodeUtsname(ctx *Context, i int, argTyp string, val uint64) (string, bool
 		return fmt.Sprintf("%#x", val), true
 	}
 
-	verbose := ctx.Opts != nil && ctx.Opts.Verbose
+	verbose := ctx.Opts != nil && ctx.Opts.VerboseValue()
 	return formatUtsname(data, verbose), true
 }
 

@@ -94,7 +94,7 @@ func decodePrctlName(ctx *Context, isExit bool) string {
 	}
 	limit := -1
 	if ctx.Opts != nil {
-		limit = ctx.Opts.StringLimit
+		limit = ctx.Opts.StringLimitValue()
 	}
 	if limit <= 0 || limit > prctlDisplayNameLimit {
 		limit = prctlDisplayNameLimit

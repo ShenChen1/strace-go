@@ -151,7 +151,7 @@ func bpfNestedStringLimit(ctx *Context) int {
 	if ctx == nil || ctx.Opts == nil {
 		return 0
 	}
-	return ctx.Opts.StringLimit
+	return ctx.Opts.StringLimitValue()
 }
 
 func bpfProgLoadSignaturePayload(ctx *Context, ptr uint64, userLen uint32) ([]byte, bool) {

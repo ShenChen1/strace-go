@@ -203,13 +203,13 @@ func formatDmIoctl(ctx *Context, data []byte, cmd string) string {
 		if idx := strings.IndexByte(string(name), 0); idx != -1 {
 			name = name[:idx]
 		}
-		res += fmt.Sprintf(", name=%s", format.Buffer(name, ctx.Opts.StringLimit, len(name)))
+		res += fmt.Sprintf(", name=%s", format.Buffer(name, ctx.Opts.StringLimitValue(), len(name)))
 
 		uuid := data[160:288]
 		if idx := strings.IndexByte(string(uuid), 0); idx != -1 {
 			uuid = uuid[:idx]
 		}
-		res += fmt.Sprintf(", uuid=%s", format.Buffer(uuid, ctx.Opts.StringLimit, len(uuid)))
+		res += fmt.Sprintf(", uuid=%s", format.Buffer(uuid, ctx.Opts.StringLimitValue(), len(uuid)))
 
 		if cmd == "DM_DEV_REMOVE" || cmd == "DM_DEV_WAIT" || cmd == "DM_DEV_SUSPEND" || cmd == "DM_DEV_RENAME" {
 			eventNr := binary.LittleEndian.Uint32(data[288:292])
@@ -272,7 +272,7 @@ func (h *IoctlHandler) decodeFiemap(ctx *Context, arg uint64) string {
 		return inPart
 	}
 
-	if ctx.Opts != nil && ctx.Opts.Verbose && mappedExtents > 0 && extentCount > 0 {
+	if ctx.Opts != nil && ctx.Opts.VerboseValue() && mappedExtents > 0 && extentCount > 0 {
 		outPart := fmt.Sprintf(" => {fm_flags=%s, fm_mapped_extents=%d, fm_extents=%s}", flagsStr, mappedExtents, h.formatFiemapExtents(ctx, arg, mappedExtents, extentCount, c))
 		return inPart + outPart
 	}

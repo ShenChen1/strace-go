@@ -2,7 +2,6 @@
 package handler
 
 import (
-	"strace-go/pkg/cli"
 	"strace-go/pkg/meta"
 )
 
@@ -28,7 +27,7 @@ type Context struct {
 	Meta        meta.CatalogPort
 	Registry    RegistryPort
 	Decoder     SnapshotDecoder
-	Opts        *cli.Options
+	Opts        OptionsPort
 	FDStateView FDStateReader
 	EventFDView EventFDStateReader
 	Runtime     RuntimeServices

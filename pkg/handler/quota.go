@@ -188,7 +188,7 @@ func formatQuotaBlockPointer(ctx *Context, direction PayloadDirection, includeID
 		values[index] = binary.LittleEndian.Uint64(data[index*8 : index*8+8])
 	}
 	parts := quotaBlockFields(values)
-	if ctx.Opts == nil || !ctx.Opts.Verbose {
+	if ctx.Opts == nil || !ctx.Opts.VerboseValue() {
 		if includeID {
 			if len(data) < 72 {
 				return formatPointer(ctx.Args[3])

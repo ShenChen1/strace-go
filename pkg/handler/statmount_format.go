@@ -70,7 +70,7 @@ func formatStatmountOutput(ctx *Context) string {
 	snapshot := statmountSnapshot{}
 	snapshot.catalog = catalogForContext(ctx)
 	if ctx.Opts != nil {
-		snapshot.stringLimit = ctx.Opts.StringLimit
+		snapshot.stringLimit = ctx.Opts.StringLimitValue()
 	}
 	copy(snapshot.data[:], base.Data)
 	if section, ok := mountQueryPayloadSection(ctx, 1, PayloadKindBytes, PayloadDirectionOut); ok && section.ProbeRet == 0 {

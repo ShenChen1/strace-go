@@ -115,7 +115,7 @@ func (h *FsHandler) decodeFsconfig(ctx *Context) []string {
 		valStr := fsStringArg(ctx, 3, 256)
 		parts = append(parts, valStr, fmt.Sprintf("%d", int32(aux)))
 	case 2: // FSCONFIG_SET_BINARY
-		limit := ctx.Opts.StringLimit
+		limit := ctx.Opts.StringLimitValue()
 		if limit <= 0 {
 			limit = 32
 		}
@@ -207,7 +207,7 @@ func formatGetdentsDirent(ctx *Context, argIndex int, ptr uint64) string {
 	if getdentsVerbose(ctx) {
 		escapeMode := 0
 		if ctx.Opts != nil {
-			escapeMode = ctx.Opts.HexEscapeMode
+			escapeMode = ctx.Opts.HexEscapeModeValue()
 		}
 		snapshot := format.DecodeDirents(data, int(ctx.Ret), layout)
 		return snapshot.Verbose(escapeMode)
@@ -224,7 +224,7 @@ func getdentsLayout(sysName string) format.DirentLayout {
 }
 
 func getdentsVerbose(ctx *Context) bool {
-	return ctx.Opts != nil && ctx.Opts.Verbose && !ctx.Opts.VerboseDisabled[ctx.SysName]
+	return ctx.Opts != nil && ctx.Opts.VerboseValue() && !ctx.Opts.VerboseDisabledFor(ctx.SysName)
 }
 
 func formatPointer(val uint64) string {

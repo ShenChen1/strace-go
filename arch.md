@@ -3782,3 +3782,37 @@ Impact note：影响集中在 `pkg/meta/catalog.go`、`pkg/handler/handler.go`/`
 本阶段只反转 metadata catalog 的消费依赖，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先测试先因 `Context.Meta` 仍是 `*meta.Catalog` 且 fake port 无法注入而失败；迁移后新增 `meta.CatalogPort`，`handler.Context.Meta` 改用四项只读能力，format 的 flags-only formatter 改用本地 `FlagDecoder`，`statmount` snapshot 也不再保存 concrete catalog。`*meta.Catalog` 通过 compile-time assertion 实现端口，fake catalog/flag decoder 已覆盖 handler xlat helper 与 epoll formatter。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，747.91 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.86 将 handler 运行选项收敛为只读 view 端口（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.83-14.85 已将 registry、snapshot decoder 和 metadata catalog 改为消费端口，但 `handler.Context.Opts` 仍是具体 `*cli.Options`。handler 实际只读取字符串/bytes 展示、verbose、hex escape、verbose-disabled、`-y/-yy` 和 read/write FD dump 规则，CLI 其余命令、目标、输出和生命周期配置不属于 formatter。
+- Problem：具体 CLI 配置对象穿透 handler 边界，formatter 可以看到大量无关且可变字段；测试也通过修改 `ctx.Opts` 的 CLI 内部 map/字段来驱动行为，难以证明 handler 只消费格式策略。继续沿用 concrete 类型会让新 handler 依赖命令行解析实现，而不是依赖事件格式化能力。
+- Goal：新增 `handler.FormattingOptions` 和 `handler.FDTraceOptions` 两个窄接口，并由组合的 `handler.OptionsPort` 暴露给 `Context.Opts`。CLI `Options` 增加 nil-safe 的只读 view 方法实现该端口；生产 handler 只调用 view 方法，session composition 仍拥有可变的 CLI owner。测试 fixture 保留 `*cli.Options` 注入兼容，但直接修改字段通过明确的 test owner helper 完成。
+- Non-goals：不重写 CLI parser、不冻结或复制整个 `cli.Options`、不改变 `-v/-s/-x/-y/-yy/-e trace-fds` 语义，不抽象 trace syscall/path/status filter、目标启动、输出、summary 或 lifecycle 配置；不改变 BPF ABI、payload、纯 eBPF/no-procfs 约束。
+- Constraints：格式端口只含 `StringLimitValue`、`HexEscapeModeValue`、`VerboseValue`、`VerboseDisabledFor` 四项；FD 端口只含 `ShowPathsValue`、`ShowPathsModeValue`、`TraceReadFD`、`TraceWriteFD` 四项。view 方法不能返回内部 map；nil `*cli.Options` 与缺失 `Context.Opts` 继续使用既有安全默认值。
+
+Impact note：生产修改集中在 `pkg/handler` 的 option reads、`pkg/handler/handler.go`、`pkg/cli/options_view.go` 和 `cmd/strace-go/syscall_event_context.go` 的 compile-time wiring；session `traceSessionDeps.Opts` 继续是 concrete owner。测试中仅迁移 16 个直接修改 `ctx.Opts` 字段的 fixture 文件，不改变测试语义。
+
+方案比较：
+
+1. 保留 `*cli.Options` 并约定 handler 只读：迁移最小，但编译器无法阻止访问无关 CLI 字段，拒绝。
+2. 将全部 `cli.Options` 复制成 handler 专用大配置结构：边界明确，但复制大量不相关策略并制造第二个可变 owner，拒绝。
+3. 用格式端口和 FD 端口组合成 `OptionsPort`，由 CLI Options 提供只读 view：能力与调用点匹配、没有第二份策略状态、fake 易注入，选择该方案。
+
+状态契约：
+
+- `handler.Context.Opts` 的静态类型是 `OptionsPort`；handler 不读取 CLI map、目标或输出字段。
+- `cli.Options` 仍由 CLI/session 负责创建和修改；view 方法只返回标量或执行已有 FD 规则，不暴露 backing map。
+- `OptionsPort` 缺失时保持当前默认行为：formatter 输出裸指针、默认截断/非 verbose，不创建全局 CLI options。
+
+测试与验收：
+
+- 先增加失败优先 AST/source gate，要求 Context 使用 `OptionsPort`；当前 concrete pointer 应先失败。
+- 增加 fake options port 回归和 CLI view accessor 单测；compile-time assertion 锁定 `*cli.Options` 实现组合端口。
+- 运行 handler/cli/cmd focused、全量/race/vet/build、纯 eBPF source gate、semantic/perf、upstream reference，并检查无残留 tracer/BPF pin。
+
+本阶段只反转 handler 对 CLI options 的依赖方向，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source gate 先因 `Context.Opts` 仍是具体 options 指针而失败；迁移后新增 `FormattingOptions`、`FDTraceOptions` 和组合端口 `OptionsPort`，`*cli.Options` 通过 nil-safe view 方法实现端口，生产 handler 与 syscall return formatter 不再读取 CLI 具体字段。测试 fixture 的可变配置统一通过显式 `*cli.Options` owner helper 修改，新增 fake options port、CLI view 单测和生产源码门禁。`go test ./pkg/handler ./pkg/cli ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，730.21 events/s。最终 `upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后无残留 tracer、fixture 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

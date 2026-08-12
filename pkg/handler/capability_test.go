@@ -195,7 +195,7 @@ func TestCapabilityHandlerHonorsVerboseDisabled(t *testing.T) {
 	ctx := capabilityContext("capget", 0,
 		capHeaderBytes(linuxCapabilityVersion3, 0),
 		capDataBytes([3]uint32{1, 0, 0}, [3]uint32{0, 0, 0}))
-	ctx.Opts.VerboseDisabled["capget"] = true
+	cliOptionsForTest(ctx).VerboseDisabled["capget"] = true
 
 	got := (&CapabilityHandler{}).Handle(ctx)
 	if len(got.ArgParts) != 2 || got.ArgParts[0] != "0x1000" || got.ArgParts[1] != "0x2000" {

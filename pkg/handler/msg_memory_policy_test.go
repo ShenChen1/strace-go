@@ -14,7 +14,7 @@ func TestSendmsgHandlerUsesMsghdrIovecPayloadSections(t *testing.T) {
 	ctx := newMsgPolicyContext("sendmsg")
 	ctx.Ret = 8
 	ctx.Args = [6]uint64{1, 0x1000, 0}
-	ctx.Opts.TraceWriteFDs = map[int32]bool{1: true}
+	cliOptionsForTest(ctx).TraceWriteFDs = map[int32]bool{1: true}
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, UserPtr: 0x1000, UserLen: msghdrSnapshotSize, CopiedLen: msghdrSnapshotSize, ProbeRet: 0, Data: msghdrBytes(0, 0, 0x2000, 2, 0, 0, 0)},
 		{Kind: PayloadKindIovec, Direction: PayloadDirectionIn, ArgIndex: 1, UserPtr: 0x2000, UserLen: iovecSize * 2, CopiedLen: iovecSize * 2, ProbeRet: 0, Data: iovecBytes([2]uint64{0x3000, 3}, [2]uint64{0x4000, 5})},
@@ -40,7 +40,7 @@ func TestRecvmsgHandlerUsesExitMsghdrAndLimitsIovecDumpByReturnValue(t *testing.
 	ctx := newMsgPolicyContext("recvmsg")
 	ctx.Ret = 7
 	ctx.Args = [6]uint64{0, 0x1000, 0}
-	ctx.Opts.TraceReadFDs = map[int32]bool{0: true}
+	cliOptionsForTest(ctx).TraceReadFDs = map[int32]bool{0: true}
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, UserPtr: 0x1000, UserLen: msghdrSnapshotSize, CopiedLen: msghdrSnapshotSize, ProbeRet: 0, Data: msghdrBytes(0, 0, 0x2000, 2, 0, 0, 0)},
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, UserPtr: 0x1000, UserLen: msghdrSnapshotSize, CopiedLen: msghdrSnapshotSize, ProbeRet: 0, Data: msghdrBytes(0, 0, 0x2000, 2, 0, 0, 0)},
@@ -259,7 +259,7 @@ func TestSendmmsgHandlerUsesExitMsgLenAndInputPayloadSections(t *testing.T) {
 	ctx := newMsgPolicyContext("sendmmsg")
 	ctx.Ret = 2
 	ctx.Args = [6]uint64{1, 0x1000, 2, 0x4004}
-	ctx.Opts.TraceWriteFDs = map[int32]bool{1: true}
+	cliOptionsForTest(ctx).TraceWriteFDs = map[int32]bool{1: true}
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, UserPtr: 0x1000, UserLen: 2 * mmsghdrSnapshotSize, CopiedLen: 2 * mmsghdrSnapshotSize, ProbeRet: 0, Data: mmsghdrArrayBytes(
 			mmsghdrBytes(0, 0, 0x2000, 2, 0, 0, 0, 0),
@@ -297,7 +297,7 @@ func TestRecvmmsgHandlerLimitsPayloadByFirstMsgLenNotMessageCount(t *testing.T) 
 	ctx := newMsgPolicyContext("recvmmsg")
 	ctx.Ret = 2
 	ctx.Args = [6]uint64{0, 0x1000, 2, 0x40, 0}
-	ctx.Opts.TraceReadFDs = map[int32]bool{0: true}
+	cliOptionsForTest(ctx).TraceReadFDs = map[int32]bool{0: true}
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, UserPtr: 0x1000, UserLen: 2 * mmsghdrSnapshotSize, CopiedLen: 2 * mmsghdrSnapshotSize, ProbeRet: 0, Data: mmsghdrArrayBytes(
 			mmsghdrBytes(0, 0, 0x2000, 1, 0, 0, 0, 0),

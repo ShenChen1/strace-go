@@ -89,5 +89,5 @@ func decodeStatxSnapshot(ctx *Context, userPtr uint64) string {
 	if !ok || len(data) < statxStructSize {
 		return fmt.Sprintf("%#x", userPtr)
 	}
-	return parseStatxSnapshot(data[:statxStructSize]).format(ctx, ctx.Opts != nil && ctx.Opts.Verbose)
+	return parseStatxSnapshot(data[:statxStructSize]).format(ctx, ctx.Opts != nil && ctx.Opts.VerboseValue())
 }

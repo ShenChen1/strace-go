@@ -137,7 +137,7 @@ func TestWaitidRusageVerboseUsesPayloadStructSection(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeWaitidRusage(1, 2)}
 	decoder := event.NewDecoder()
 	ctx := newWaitidPolicyContext(decoder)
-	ctx.Opts.Verbose = true
+	cliOptionsForTest(ctx).Verbose = true
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 4, ProbeRet: 0, Data: makeWaitidRusage(7, 8)},
 	}

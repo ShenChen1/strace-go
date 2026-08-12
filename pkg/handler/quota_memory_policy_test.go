@@ -156,7 +156,6 @@ func TestQuotaIDPreservesUnsignedValuesExceptMinusOne(t *testing.T) {
 
 func TestQuotaCommandVerboseWrapsSymbolicQcmd(t *testing.T) {
 	ctx := testQuotaContext("quotactl", [6]uint64{}, 0)
-	ctx.Opts.XlatFormat = "verbose"
 	ctx.Meta = meta.NewCatalog("verbose")
 	qcmd := uint32(testQuotaCommand(testQuotaOn, testQuotaUser))
 	want := "2147484160 /* QCMD(Q_QUOTAON, USRQUOTA) */"

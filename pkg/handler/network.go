@@ -160,7 +160,7 @@ func (h *NetworkHandler) formatStandardBuf(ctx *Context, val uint64) string {
 		sz = 0
 	}
 	if sz == 0 {
-		return format.Buffer(nil, ctx.Opts.StringLimit, 0)
+		return format.Buffer(nil, ctx.Opts.StringLimitValue(), 0)
 	}
 
 	data, readSuccess := h.networkBufferSnapshot(ctx, sz)
@@ -169,7 +169,7 @@ func (h *NetworkHandler) formatStandardBuf(ctx *Context, val uint64) string {
 		if ctx.ScMeta.Name == "recvfrom" {
 			actualLen = recvfromBufferDisplayLen(ctx)
 		}
-		return format.Buffer(data, ctx.Opts.StringLimit, actualLen)
+		return format.Buffer(data, ctx.Opts.StringLimitValue(), actualLen)
 	}
 	return fmt.Sprintf("%#x", val)
 }
@@ -401,11 +401,11 @@ func (h *NetworkHandler) formatSockoptValue(ctx *Context, direction PayloadDirec
 	}
 	if isFixedIntSockopt(ctx) {
 		if direction == PayloadDirectionOut {
-			return format.BufferEscape(data, ctx.Opts.StringLimit, len(data), 1), true
+			return format.BufferEscape(data, ctx.Opts.StringLimitValue(), len(data), 1), true
 		}
 		return "", false
 	}
-	return format.Buffer(data, ctx.Opts.StringLimit, len(data)), true
+	return format.Buffer(data, ctx.Opts.StringLimitValue(), len(data)), true
 }
 
 func isNetlinkListMemberships(ctx *Context) bool {

@@ -323,11 +323,11 @@ func iovecPayloadSection(ctx *Context, argIndex int, direction PayloadDirection)
 
 func iovecDisplayLimitForContext(ctx *Context, argIndex int) int {
 	limit := iovecDisplayLimit
-	if ctx == nil || ctx.Opts == nil || ctx.Opts.StringLimit <= 0 {
+	if ctx == nil || ctx.Opts == nil || ctx.Opts.StringLimitValue() <= 0 {
 		return limit
 	}
-	if ctx.Opts.StringLimit < limit {
-		limit = ctx.Opts.StringLimit
+	if ctx.Opts.StringLimitValue() < limit {
+		limit = ctx.Opts.StringLimitValue()
 	}
 	if _, ok := iovecBasePayloadDirection(ctx, argIndex); ok && iovecBasePayloadSlotLimit < limit {
 		limit = iovecBasePayloadSlotLimit
@@ -391,8 +391,8 @@ func iovecBasePayloadString(ctx *Context, argIndex int, slot int, base uint64, l
 		data = data[:displayLength]
 	}
 	limit := int(displayLength)
-	if ctx.Opts != nil && ctx.Opts.StringLimit > 0 && limit > ctx.Opts.StringLimit {
-		limit = ctx.Opts.StringLimit
+	if ctx.Opts != nil && ctx.Opts.StringLimitValue() > 0 && limit > ctx.Opts.StringLimitValue() {
+		limit = ctx.Opts.StringLimitValue()
 	}
 	actualLen := int(displayLength)
 	return format.BufferEscape(data, limit, actualLen, ctx.Decoder.EscapeMode()), true

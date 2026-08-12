@@ -75,7 +75,7 @@ type capHeader struct {
 }
 
 func (h *CapabilityHandler) Handle(ctx *Context) Result {
-	if ctx.Opts != nil && ctx.Opts.VerboseDisabled[ctx.ScMeta.Name] {
+	if ctx.Opts != nil && ctx.Opts.VerboseDisabledFor(ctx.ScMeta.Name) {
 		return h.handleRaw(ctx)
 	}
 

@@ -144,7 +144,7 @@ func TestDecodeExecVerboseEnvSnapshot(t *testing.T) {
 
 	ctx := stringArrayContext()
 	setExecPayloadSnapshot(ctx, buf[execSnapshotOffset:])
-	ctx.Opts.Verbose = true
+	cliOptionsForTest(ctx).Verbose = true
 
 	got, ok := decodeExecStringArraySnapshot(ctx, 0x2000, "envp")
 	if !ok || got != `["A=1", "B=2"]` {
@@ -177,7 +177,7 @@ func TestDecodeExecArgSnapshotDisplayLimit(t *testing.T) {
 		t.Fatalf("decode default argv snapshot = %q, %v; want %q", got, ok, wantShort)
 	}
 
-	ctx.Opts.Verbose = true
+	cliOptionsForTest(ctx).Verbose = true
 	wantVerbose := "[" + strings.TrimSuffix(strings.Repeat(`"x", `, 33), ", ") + "]"
 	got, ok = decodeExecStringArraySnapshot(ctx, 0x1000, "argv")
 	if !ok || got != wantVerbose {
@@ -203,7 +203,7 @@ func TestDecodeExecSnapshotHonorsStringLimit40(t *testing.T) {
 
 	ctx := stringArrayContext()
 	setExecPayloadSnapshot(ctx, buf[execSnapshotOffset:])
-	ctx.Opts.StringLimit = 40
+	cliOptionsForTest(ctx).StringLimit = 40
 
 	got, ok := decodeExecStringArraySnapshot(ctx, 0x1000, "argv")
 	want := `["` + values[0] + `", "` + strings.Repeat("b", 40) + `"...]`

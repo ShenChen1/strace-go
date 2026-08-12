@@ -150,7 +150,7 @@ func checkAndFormatExtraData(ctx *Context, offset int, size uint32) string {
 	}
 	limit := int(size)
 	// Do not restrict extra_data buffer limit in verbose mode.
-	if !ctx.Opts.Verbose {
+	if !ctx.Opts.VerboseValue() {
 		if limit > 512 {
 			limit = 512
 		}
@@ -189,7 +189,7 @@ func checkAndFormatExtraData(ctx *Context, offset int, size uint32) string {
 		return ""
 	}
 
-	if ctx.Opts.Verbose {
+	if ctx.Opts.VerboseValue() {
 		var sb strings.Builder
 		sb.WriteString(", extra_data=\"")
 		printBytes := extraBytes[0 : lastNonZero+1]

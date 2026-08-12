@@ -44,8 +44,8 @@ func decodeBpfSymbolPtr(_ *Context, ptrVal uint64) string {
 func formatBpfSymbolString(ctx *Context, strBuf []byte) string {
 	nullIdx := bytes.IndexByte(strBuf, 0)
 	limit := 32
-	if ctx.Opts != nil && ctx.Opts.StringLimit > 0 {
-		limit = ctx.Opts.StringLimit
+	if ctx.Opts != nil && ctx.Opts.StringLimitValue() > 0 {
+		limit = ctx.Opts.StringLimitValue()
 	}
 
 	var s string

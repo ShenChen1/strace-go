@@ -117,7 +117,7 @@ func TestBpfRawTracepointDoesNotUseLegacyNameFallback(t *testing.T) {
 func TestBpfRawTracepointUsesNestedNamePayloadSection(t *testing.T) {
 	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
 	ctx := newBpfPolicyContext(reader, event.NewDecoder())
-	ctx.Opts.StringLimit = 32
+	cliOptionsForTest(ctx).StringLimit = 32
 	name := []byte("0123456789qwertyuiop0123456789qwerty\x00")
 	ctx.PayloadSections = []PayloadSection{
 		{

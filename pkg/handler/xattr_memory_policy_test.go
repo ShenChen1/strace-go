@@ -52,7 +52,7 @@ func TestSetxattrValueUsesPayloadBytesSection(t *testing.T) {
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x3000, ProbeRet: 0, Data: []byte("abc")},
 	}
 
-	got, ok := decodeXattrValueArg(ctx, 2, "const void *", "value", 0x3000, ctx.Opts.StringLimit)
+	got, ok := decodeXattrValueArg(ctx, 2, "const void *", "value", 0x3000, cliOptionsForTest(ctx).StringLimit)
 	if !ok || got != `"abc"` {
 		t.Fatalf("decodeXattrValueArg(setxattr) = %q, %v; want payload bytes", got, ok)
 	}
@@ -66,7 +66,7 @@ func TestGetxattrValueUsesPayloadBytesSection(t *testing.T) {
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 2, UserPtr: 0x3000, ProbeRet: 0, Data: []byte("data")},
 	}
 
-	got, ok := decodeXattrValueArg(ctx, 2, "void *", "value", 0x3000, ctx.Opts.StringLimit)
+	got, ok := decodeXattrValueArg(ctx, 2, "void *", "value", 0x3000, cliOptionsForTest(ctx).StringLimit)
 	if !ok || got != `"data"` {
 		t.Fatalf("decodeXattrValueArg(getxattr) = %q, %v; want payload bytes", got, ok)
 	}
@@ -80,7 +80,7 @@ func TestListxattrValueUsesPayloadBytesSection(t *testing.T) {
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, UserPtr: 0x3000, ProbeRet: 0, Data: []byte("names1")},
 	}
 
-	got, ok := decodeXattrValueArg(ctx, 1, "char *", "list", 0x3000, ctx.Opts.StringLimit)
+	got, ok := decodeXattrValueArg(ctx, 1, "char *", "list", 0x3000, cliOptionsForTest(ctx).StringLimit)
 	if !ok || got != `"names1"` {
 		t.Fatalf("decodeXattrValueArg(listxattr) = %q, %v; want payload bytes", got, ok)
 	}
@@ -110,7 +110,7 @@ func TestSetxattrValueIgnoresLegacyEnterSnapshot(t *testing.T) {
 	ctx := xattrPolicyContext("setxattr")
 	ctx.Args = [6]uint64{0x1000, 0x2000, 0x3000, 3}
 
-	got, ok := decodeXattrValueArg(ctx, 2, "const void *", "value", 0x3000, ctx.Opts.StringLimit)
+	got, ok := decodeXattrValueArg(ctx, 2, "const void *", "value", 0x3000, cliOptionsForTest(ctx).StringLimit)
 	if !ok || got != "0x3000" {
 		t.Fatalf("decodeXattrValueArg(setxattr without section) = %q, %v; want pointer fallback", got, ok)
 	}
@@ -121,7 +121,7 @@ func TestGetxattrValueIgnoresLegacyExitSnapshot(t *testing.T) {
 	ctx.Args = [6]uint64{0x1000, 0x2000, 0x3000, 8}
 	ctx.Ret = 4
 
-	got, ok := decodeXattrValueArg(ctx, 2, "void *", "value", 0x3000, ctx.Opts.StringLimit)
+	got, ok := decodeXattrValueArg(ctx, 2, "void *", "value", 0x3000, cliOptionsForTest(ctx).StringLimit)
 	if !ok || got != "0x3000" {
 		t.Fatalf("decodeXattrValueArg(getxattr without section) = %q, %v; want pointer fallback", got, ok)
 	}
@@ -132,7 +132,7 @@ func TestListxattrValueIgnoresLegacyExitSnapshot(t *testing.T) {
 	ctx.Args = [6]uint64{0x1000, 0x3000, 6}
 	ctx.Ret = 6
 
-	got, ok := decodeXattrValueArg(ctx, 1, "char *", "list", 0x3000, ctx.Opts.StringLimit)
+	got, ok := decodeXattrValueArg(ctx, 1, "char *", "list", 0x3000, cliOptionsForTest(ctx).StringLimit)
 	if !ok || got != "0x3000" {
 		t.Fatalf("decodeXattrValueArg(listxattr without section) = %q, %v; want pointer fallback", got, ok)
 	}

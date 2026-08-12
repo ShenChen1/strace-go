@@ -308,8 +308,8 @@ func formatCmsgProtocolArray(data []byte) string {
 
 func formatCmsgText(ctx *Context, data []byte) string {
 	limit := len(data)
-	if ctx.Opts != nil && ctx.Opts.StringLimit > 0 {
-		limit = ctx.Opts.StringLimit
+	if ctx.Opts != nil && ctx.Opts.StringLimitValue() > 0 {
+		limit = ctx.Opts.StringLimitValue()
 	}
 	return format.BufferEscape(data, limit, len(data), ctx.Decoder.EscapeMode())
 }

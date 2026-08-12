@@ -161,5 +161,5 @@ func formatQuotaXFSFileStat(data []byte) string {
 }
 
 func quotaXFSVerbose(ctx *Context) bool {
-	return ctx.Opts != nil && ctx.Opts.Verbose
+	return ctx.Opts != nil && ctx.Opts.VerboseValue()
 }

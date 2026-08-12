@@ -46,7 +46,7 @@ func TestDecodeUtsnameVerboseAndAbbrev(t *testing.T) {
 		t.Fatalf("decodeUtsname verbose = %q, %v; want %q", got, ok, want)
 	}
 
-	ctx.Opts.Verbose = false
+	cliOptionsForTest(ctx).Verbose = false
 	got, ok = decodeUtsname(ctx, 0, "struct utsname *", 0x1000)
 	want = `{sysname="Linux", nodename="penguin", ...}`
 	if !ok || got != want {

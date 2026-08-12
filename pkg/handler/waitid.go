@@ -107,7 +107,7 @@ func decodeRusage(ctx *Context, val uint64) string {
 		return "NULL"
 	}
 	fetchSize := waitidRusageBrief
-	if ctx.Opts != nil && ctx.Opts.Verbose {
+	if ctx.Opts != nil && ctx.Opts.VerboseValue() {
 		fetchSize = waitidRusageFull
 	}
 	data, ok := waitidStructData(ctx, 4, fetchSize)
@@ -122,7 +122,7 @@ func decodeRusage(ctx *Context, val uint64) string {
 
 	res := fmt.Sprintf("{ru_utime={tv_sec=%d, tv_usec=%d}, ru_stime={tv_sec=%d, tv_usec=%d}", int64(u_sec), u_usec, int64(s_sec), s_usec)
 
-	if ctx.Opts != nil && ctx.Opts.Verbose && len(data) >= waitidRusageFull {
+	if ctx.Opts != nil && ctx.Opts.VerboseValue() && len(data) >= waitidRusageFull {
 		fields := []string{
 			"ru_maxrss", "ru_ixrss", "ru_idrss", "ru_isrss",
 			"ru_minflt", "ru_majflt", "ru_nswap", "ru_inblock",

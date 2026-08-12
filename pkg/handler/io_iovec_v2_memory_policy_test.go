@@ -10,7 +10,7 @@ import (
 func TestPreadv2HandlerUsesFiveArgOffsetAndFlagsContract(t *testing.T) {
 	ctx := newIovecPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
 	ctx.SysName = "preadv2"
-	ctx.Opts.StringLimit = 8
+	cliOptionsForTest(ctx).StringLimit = 8
 	ctx.Ret = 8
 	ctx.Args = [6]uint64{0, 0x1000, 1, 0x7ac5fed6dad7bef8, 0xbadc0deddeadbeef, 1}
 	ctx.PayloadSections = []PayloadSection{
@@ -50,7 +50,7 @@ func TestPreadv2HandlerUsesFiveArgOffsetAndFlagsContract(t *testing.T) {
 func TestPwritev2HandlerUsesFiveArgOffsetAndFlagsContract(t *testing.T) {
 	ctx := newIovecPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
 	ctx.SysName = "pwritev2"
-	ctx.Opts.StringLimit = 8
+	cliOptionsForTest(ctx).StringLimit = 8
 	ctx.Args = [6]uint64{1, 0x1000, 1, ^uint64(0), 0, 3}
 	ctx.PayloadSections = []PayloadSection{
 		{

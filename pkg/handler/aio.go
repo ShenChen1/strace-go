@@ -118,7 +118,7 @@ func (h *AioHandler) formatIoSubmit(ctx *Context, res *Result) {
 
 		if idata, ok := aioIocbSnapshot(ctx, i); ok {
 			index := i
-			parts = append(parts, format.Iocb(idata, ctx.Opts.Verbose, func(opcode uint16, buf uint64, nbytes uint64) string {
+			parts = append(parts, format.Iocb(idata, ctx.Opts.VerboseValue(), func(opcode uint16, buf uint64, nbytes uint64) string {
 				return h.formatAioBuf(ctx, index, opcode, buf, nbytes)
 			}))
 		} else {
@@ -199,7 +199,7 @@ func (h *AioHandler) formatIoCancel(ctx *Context, res *Result) {
 		res.ArgParts = append(res.ArgParts, "NULL")
 	} else {
 		if data, ok := aioStructSnapshot(ctx, 1, PayloadDirectionIn, aioIocbSize); ok {
-			res.ArgParts = append(res.ArgParts, format.Iocb(data, ctx.Opts.Verbose, func(opcode uint16, buf uint64, nbytes uint64) string {
+			res.ArgParts = append(res.ArgParts, format.Iocb(data, ctx.Opts.VerboseValue(), func(opcode uint16, buf uint64, nbytes uint64) string {
 				return h.formatAioBuf(ctx, -1, opcode, buf, nbytes)
 			}))
 		} else {

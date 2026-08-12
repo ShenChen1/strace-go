@@ -135,7 +135,7 @@ func TestStatmountHandlerAppliesStringLimit(t *testing.T) {
 	ctx := mountQueryTestContext(457, "statmount")
 	ctx.Args = [6]uint64{0, 0x3000, 529, 0}
 	ctx.Ret = 0
-	ctx.Opts.StringLimit = 4
+	cliOptionsForTest(ctx).StringLimit = 4
 	base := make([]byte, statmountFixedSize)
 	binary.LittleEndian.PutUint32(base[0:4], 529)
 	binary.LittleEndian.PutUint64(base[8:16], statmountMaskFS)

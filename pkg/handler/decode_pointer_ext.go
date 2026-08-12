@@ -53,7 +53,7 @@ func decodeExecStringArraySnapshot(ctx *Context, val uint64, argName string) (st
 		if envStatus == -1 && envCount == 0 {
 			return fmt.Sprintf("%#x", val), true
 		}
-		if ctx.Opts.Verbose {
+		if ctx.Opts.VerboseValue() {
 			envOffset := execSnapshotHeaderSize + execArgSnapshotCount*execArgSnapshotSize
 			return decodeExecSnapshotRecords(ctx, snapshot, envOffset, envCount, envStatus, envNext, execEnvSnapshotCount)
 		}
@@ -77,7 +77,7 @@ func decodeExecStringArraySnapshot(ctx *Context, val uint64, argName string) (st
 	if argvStatus == -1 && argvCount == 0 {
 		return fmt.Sprintf("%#x", val), true
 	}
-	if !ctx.Opts.Verbose && argvCount > execArgDisplayCount {
+	if !ctx.Opts.VerboseValue() && argvCount > execArgDisplayCount {
 		argvCount = execArgDisplayCount
 		argvStatus = 1
 	}
@@ -114,7 +114,7 @@ func decodeExecSnapshotRecords(ctx *Context, snapshot []byte, baseOffset, count 
 		return "", false
 	}
 
-	limit := ctx.Opts.StringLimit
+	limit := ctx.Opts.StringLimitValue()
 	var parts []string
 	for i := 0; i < count; i++ {
 		offset := baseOffset + i*execArgSnapshotSize

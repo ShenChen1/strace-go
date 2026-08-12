@@ -88,7 +88,7 @@ func decodeCharPointer(ctx *Context, i int, argTyp, argName string, val uint64, 
 		return fmt.Sprintf("%#x", val), true
 	}
 
-	limit := ctx.Opts.StringLimit
+	limit := ctx.Opts.StringLimitValue()
 	if argTyp == "void *" || argTyp == "const void *" {
 		return fmt.Sprintf("%#x", val), true
 	}
@@ -139,12 +139,12 @@ func decodeXattrArg(ctx *Context, i int, argTyp string, argName string, val uint
 		if val == 0 {
 			return "NULL", true
 		}
-		if p, ok := ctx.PayloadString(i, PayloadDirectionIn, val, ctx.Opts.StringLimit); ok {
+		if p, ok := ctx.PayloadString(i, PayloadDirectionIn, val, ctx.Opts.StringLimitValue()); ok {
 			return p, true
 		}
 		return fmt.Sprintf("%#x", val), true
 	}
-	return decodeXattrValueArg(ctx, i, argTyp, argName, val, ctx.Opts.StringLimit)
+	return decodeXattrValueArg(ctx, i, argTyp, argName, val, ctx.Opts.StringLimitValue())
 }
 
 func decodeXattrValueArg(ctx *Context, i int, argTyp string, argName string, val uint64, limit int) (string, bool) {
@@ -278,7 +278,7 @@ func decodeKeyArg(ctx *Context, i int, argName string, val uint64) (string, bool
 		if val == 0 {
 			return "NULL", true
 		}
-		if text, ok := ctx.PayloadString(i, PayloadDirectionIn, val, ctx.Opts.StringLimit); ok {
+		if text, ok := ctx.PayloadString(i, PayloadDirectionIn, val, ctx.Opts.StringLimitValue()); ok {
 			return text, true
 		}
 		return fmt.Sprintf("%#x", val), true
@@ -306,7 +306,7 @@ func decodeKeyArg(ctx *Context, i int, argName string, val uint64) (string, bool
 			return fmt.Sprintf("%#x", val), true
 		}
 
-		return format.Buffer(data, ctx.Opts.StringLimit, plen), true
+		return format.Buffer(data, ctx.Opts.StringLimitValue(), plen), true
 	}
 	return "", false
 }
@@ -336,7 +336,7 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 					res.HexDumpStr += fmt.Sprintf(" | <Cannot fetch %d %s from pid %d @0x%x>\n", miss, byteStr, ctx.Tid, val+uint64(len(data)))
 				}
 			}
-			return format.Buffer(data, ctx.Opts.StringLimit, int(szH)), true
+			return format.Buffer(data, ctx.Opts.StringLimitValue(), int(szH)), true
 		}
 	}
 
@@ -358,7 +358,7 @@ func decodeBufferArg(ctx *Context, val uint64, res *Result) (string, bool) {
 					res.HexDumpStr += fmt.Sprintf(" | <Cannot fetch %d %s from pid %d @0x%x>\n", miss, byteStr, ctx.Tid, val+uint64(len(data)))
 				}
 			}
-			return format.Buffer(data, ctx.Opts.StringLimit, int(szH)), true
+			return format.Buffer(data, ctx.Opts.StringLimitValue(), int(szH)), true
 		}
 	}
 

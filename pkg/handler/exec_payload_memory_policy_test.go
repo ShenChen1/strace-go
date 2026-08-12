@@ -8,7 +8,7 @@ import (
 func TestDecodeExecStringArrayUsesPayloadSection(t *testing.T) {
 	snapshot := makeExecPayloadSnapshot([]string{"first", "second"}, []string{"A=1"})
 	ctx := stringArrayContext()
-	ctx.Opts.Verbose = true
+	cliOptionsForTest(ctx).Verbose = true
 	ctx.PayloadSections = []PayloadSection{
 		{
 			Kind:      PayloadKindExecArgs,

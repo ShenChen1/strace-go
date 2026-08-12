@@ -293,7 +293,7 @@ func TestBpfExtraDataIgnoresLegacySnapshot(t *testing.T) {
 	ctx := newBpfPolicyContext(reader, decoder)
 	ctx.Args = [6]uint64{0, 0x2000, 600}
 	ctx.Ret = -7
-	ctx.Opts.Verbose = true
+	cliOptionsForTest(ctx).Verbose = true
 
 	got := checkAndFormatExtraData(ctx, 16, 600)
 	if got != "" {
@@ -311,7 +311,7 @@ func TestBpfExtraDataUsesPayloadBytesSection(t *testing.T) {
 	ctx := newBpfPolicyContext(reader, event.NewDecoder())
 	ctx.Args = [6]uint64{0, 0x2000, 600}
 	ctx.Ret = -7
-	ctx.Opts.Verbose = true
+	cliOptionsForTest(ctx).Verbose = true
 	attr := make([]byte, 32)
 	attr[20] = 0x7f
 	ctx.PayloadSections = []PayloadSection{
@@ -336,7 +336,7 @@ func TestBpfExtraDataDoesNotUseLegacyLargeFallback(t *testing.T) {
 	ctx := newBpfPolicyContext(reader, event.NewDecoder())
 	ctx.Args = [6]uint64{0, 0x2000, 600}
 	ctx.Ret = -7
-	ctx.Opts.Verbose = true
+	cliOptionsForTest(ctx).Verbose = true
 
 	got := checkAndFormatExtraData(ctx, 16, 600)
 	if got != "" {

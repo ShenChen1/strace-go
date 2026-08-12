@@ -10,7 +10,7 @@ func (h *DefaultHandler) formatFdArg(ctx *Context, argName string, val uint64) s
 	// IMPACT: Only translate AtFdcwd to AT_FDCWD if the argument represents a directory fd (contains "dfd" or "dirfd").
 	if int32(val) == AtFdcwd && (strings.Contains(argName, "dfd") || argName == "dirfd") {
 		s := formatAtFdcwd(ctx)
-		if ctx.Opts == nil || !ctx.Opts.ShowPaths {
+		if ctx.Opts == nil || !ctx.Opts.ShowPathsValue() {
 			return s
 		}
 
@@ -30,7 +30,7 @@ func (h *DefaultHandler) formatFdArg(ctx *Context, argName string, val uint64) s
 		}
 		return s
 	}
-	if ctx.Opts != nil && ctx.Opts.ShowPaths {
+	if ctx.Opts != nil && ctx.Opts.ShowPathsValue() {
 		return FormatFdWithPath(ctx, int32(val))
 	}
 	return fmt.Sprintf("%d", int32(val))
@@ -51,7 +51,7 @@ func formatAtFdcwd(ctx *Context) string {
 // to ensure consistent no-quote formatting inside fd paths.
 func FormatFdWithPath(ctx *Context, fd int32) string {
 	fdStr := fmt.Sprintf("%d", fd)
-	if ctx.Opts == nil || !ctx.Opts.ShowPaths {
+	if ctx.Opts == nil || !ctx.Opts.ShowPathsValue() {
 		return fdStr
 	}
 
@@ -67,7 +67,7 @@ func FormatFdWithPath(ctx *Context, fd int32) string {
 }
 
 func formatFDTarget(ctx *Context, fd int32, target string) string {
-	if ctx.Opts.ShowPathsMode == 2 {
+	if ctx.Opts.ShowPathsModeValue() == 2 {
 		return fmt.Sprintf("%d<%s>", fd, formatDetailedPath(ctx, target, fd))
 	}
 	if strings.HasPrefix(target, "socket:[") {
@@ -159,7 +159,7 @@ func formatSocketPath(ctx *Context, target string, fd int32) string {
 		return fmt.Sprintf("NETLINK:[%s]", inode)
 	}
 
-	if ctx.Opts != nil && ctx.Opts.ShowPathsMode == 2 {
+	if ctx.Opts != nil && ctx.Opts.ShowPathsModeValue() == 2 {
 		if strings.HasPrefix(domainInfo, "AF_INET") {
 			return fmt.Sprintf("TCP:[%s]", inode)
 		}

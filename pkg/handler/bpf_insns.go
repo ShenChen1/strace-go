@@ -15,7 +15,7 @@ func decodeBpfInsns(ctx *Context, insnsAddr uint64, cnt uint32) string {
 	if cnt == 0 {
 		return "insns=[]"
 	}
-	if ctx.Opts == nil || !ctx.Opts.Verbose {
+	if ctx.Opts == nil || !ctx.Opts.VerboseValue() {
 		return fmt.Sprintf("insns=%#x", insnsAddr)
 	}
 	if data, ok := bpfNestedBytesPayload(ctx, bpfProgLoadInsnsPayloadArg, insnsAddr, saturatingU32Product(cnt, 8)); ok {

@@ -10,6 +10,7 @@ import (
 )
 
 var _ handler.SnapshotDecoder = (*event.Decoder)(nil)
+var _ handler.OptionsPort = (*cli.Options)(nil)
 
 type syscallEventContext struct {
 	view            syscallEventView

@@ -9,7 +9,7 @@ func TestSendmmsgHandlerFormatsFourSlotsFromBoundedSnapshot(t *testing.T) {
 	ctx := newMsgPolicyContext("sendmmsg")
 	ctx.Ret = 4
 	ctx.Args = [6]uint64{1, 0x1000, 4, 0}
-	ctx.Opts.TraceWriteFDs = map[int32]bool{1: true}
+	cliOptionsForTest(ctx).TraceWriteFDs = map[int32]bool{1: true}
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 1, UserPtr: 0x1000, Data: mmsghdrArrayBytes(
 			mmsghdrBytes(0, 0, 0x2000, 1, 0, 0, 0, 0),
