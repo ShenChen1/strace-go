@@ -16,7 +16,9 @@ type jsonEventWriter interface {
 // JSONEventWriter is the only user-space JSON encoding boundary for event
 // records. Filtering and event selection stay in the output policy objects.
 type JSONEventWriter struct {
-	encoder *json.Encoder
+	encoder        *json.Encoder
+	syscallEvent   jsonSyscallEvent
+	lifecycleEvent jsonLifecycleEvent
 }
 
 type JSONEventWriterDeps struct {
@@ -32,15 +34,30 @@ func newJSONEventWriter(deps JSONEventWriterDeps) *JSONEventWriter {
 }
 
 func (w *JSONEventWriter) WriteRaw(ev syscallEventContext) {
-	w.encode(ev.newJSONRawSyscallEvent())
+	if !w.canEncode() {
+		return
+	}
+	w.syscallEvent = ev.newJSONRawSyscallEvent()
+	w.encode(&w.syscallEvent)
+	w.syscallEvent = jsonSyscallEvent{}
 }
 
 func (w *JSONEventWriter) WriteDecoded(ev syscallEventContext, res handler.Result) {
-	w.encode(ev.newJSONDecodedSyscallEvent(res))
+	if !w.canEncode() {
+		return
+	}
+	w.syscallEvent = ev.newJSONDecodedSyscallEvent(res)
+	w.encode(&w.syscallEvent)
+	w.syscallEvent = jsonSyscallEvent{}
 }
 
 func (w *JSONEventWriter) WriteLifecycle(view lifecycleEventView, task *TaskState) {
-	w.encode(newJSONLifecycleEvent(view, task))
+	if !w.canEncode() {
+		return
+	}
+	w.lifecycleEvent = newJSONLifecycleEvent(view, task)
+	w.encode(&w.lifecycleEvent)
+	w.lifecycleEvent = jsonLifecycleEvent{}
 }
 
 func (w *JSONEventWriter) WriteReady(targetPID int, attachPIDs []int) {
@@ -48,10 +65,14 @@ func (w *JSONEventWriter) WriteReady(targetPID int, attachPIDs []int) {
 }
 
 func (w *JSONEventWriter) encode(event any) {
-	if w == nil || w.encoder == nil {
+	if !w.canEncode() {
 		return
 	}
 	_ = w.encoder.Encode(event)
+}
+
+func (w *JSONEventWriter) canEncode() bool {
+	return w != nil && w.encoder != nil
 }
 
 func newJSONLifecycleEvent(view lifecycleEventView, task *TaskState) jsonLifecycleEvent {

@@ -5141,3 +5141,44 @@ Impact note：影响 `TraceState` 的只读诊断 port、`TraceRunFinalizer` com
 最终真实 `ebpf-semantic` 为 201 个主事件、102/99 enter/exit、6 个 lifecycle；`ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`lifecycle_map_update_fail` 和 `pending_stale` 均为 0。`ebpf-perf` 的 scalar/io/lifecycle/threads 分别为 6000/3000、4002/2001、42/17、3208/1604 个 JSON/exit 事件，四组 BPF counter 与四组 `pending_stale` 均为 0；Go benchmark 为 `TraceEventDecodeState` 297.00 ns/op、0 B/op、0 allocs/op，JSON writer 为 615.10 ns/op、256 B/op、1 allocs/op。
 
 原生参考复核为 `small` 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍仅是 bounded read/write 快照和无 procfs 初始 FD/cwd 状态。review 确认 stale count 只在 finalizer 读取，未新增 procfs、ptrace、tracee 内存读取、锁、goroutine 或第二事件消费者。
+
+### 14.124 复用 JSON writer 的事件存储，消除 syscall 事件接口分配（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：7.4/13.4 要求记录 Go alloc/op；14.121 建立了 `BenchmarkJSONEventWriter` 基线，14.122 已将 decode/state pair 降到 `0 B/op、0 allocs/op`，但 JSON writer 仍约为 `256 B/op、1 allocs/op`。
+- Problem：逃逸分析显示 `WriteRaw`/`WriteDecoded` 把临时 `jsonSyscallEvent` 值转换为 `any` 后传入 `encoding/json.Encoder.Encode`，事件结构因此每条进入堆；高频 JSON/debug 输出会持续制造短命堆对象。
+- Goal：在保持现有 JSON schema、`encoding/json` 转义和单消费者输出顺序不变的前提下，让 warm-up 后的 syscall JSON writer 达到零额外 Go 分配。
+- Non-goals：不重写 JSON 编码器、不手写转义或 `omitempty` 规则，不改变 event v2/BPF ABI、JSON 字段、renderer、handler、payload ownership、输出顺序或错误语义；不引入全局池、`sync.Pool`、锁、goroutine、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：`JSONEventWriter` 只由单事件消费者使用；可复用 storage 的编码必须在 `Encoder.Encode` 返回后才被覆盖；写入完成后不得因复用字段持有上一条事件的大 payload buffer。
+
+Impact note：影响 `JSONEventWriter` 的临时事件 ownership、JSON benchmark/test 和 `ebpf-perf` 分配基线；生产事件事实源、状态机和用户可见 JSON schema 不变。
+
+方案比较：
+
+1. 保留当前 `Encode(any)` 值传递：实现零改动，但每条 syscall JSON 继续产生约 1 次事件结构分配，拒绝。
+2. 在 writer 内复用 typed event storage，并把其指针传给现有 encoder：改动局部、保留标准库编码语义，单消费者下 ownership 明确，选择该方案。
+3. 用自定义 append/`MarshalJSON` 完全重写 JSON 字节输出：可能进一步减少反射开销，但会复制字段顺序、转义、base64 和 `omitempty` 规则，兼容风险过高，拒绝。
+
+状态契约：
+
+- writer 只在 `Encode` 返回后复用 syscall/lifecycle event storage；同一 writer 不允许并发调用写方法。
+- 每次写入先整体覆盖 typed storage，写入返回后清零含 slice/string 的 storage，避免保留上一条 payload 的 backing array。
+- `WriteReady` 等低频事件可以继续使用现有值路径；本阶段门禁只约束高频 syscall JSON writer。
+- benchmark warm-up 后 `BenchmarkJSONEventWriter` 和 focused allocation regression 都必须为 `0 allocs/op`；输出字节必须与现有 JSON 解析结果一致。
+
+测试与验收：
+
+- 先增加失败优先的 writer allocation regression；现有实现应因 `1 alloc/op` 失败。
+- 实现后运行 focused JSON tests、Go 全量/race/vet/build、benchmark/`ebpf-perf`、semantic、small 和 upstream reference。
+- review 检查 storage 清零、nil writer、payload slice、lifecycle/decoded/raw 三条路径和单消费者约束，不新增第二输出通道。
+
+本阶段只优化用户态 JSON 临时对象生命周期，不改变事件事实源和输出语义。
+
+#### 实际验收记录
+
+失败优先的 `TestJSONEventWriterReusesSyscallEventStorage` 先确认现状稳定态为 `1.0 alloc/op`；实现 writer 内 typed storage、Encode 返回后清零以及 race build 专用测试标记后，focused JSON tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14124 ./cmd/strace-go`、Python 19 项和 `git diff --check` 均通过。race suite 只跳过不适合在 instrumentation 下作数值断言的 allocation regression，其他 writer 行为测试仍执行。
+
+同机 benchmark 为 `BenchmarkTraceEventDecodeState` 约 296.6-300.6 ns/op、0 B/op、0 allocs/op，`BenchmarkJSONEventWriter` 约 482.2-505.2 ns/op、0 B/op、0 allocs/op；相较 14.123 的 `256 B/op、1 allocs/op`，JSON syscall writer 已消除事件结构堆分配。raw、decoded、lifecycle 既有 JSON 测试及 reusable storage 清零回归均通过。
+
+最终真实 `ebpf-semantic` 为 201 个主事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 的 scalar/io/lifecycle/threads 分别为 6000/3000、4002/2001、42/17、3208/1604 个 JSON/exit 事件，四组 runtime counter 与四组 `pending_stale` 均为 0。原生参考复核为 `small` 23 PASS；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。review 确认复用只存在于单事件消费者拥有的 writer，Encode 返回后会清空 syscall/lifecycle storage，不引入 ptrace、procfs、tracee 内存读取、锁、goroutine 或第二输出通道。

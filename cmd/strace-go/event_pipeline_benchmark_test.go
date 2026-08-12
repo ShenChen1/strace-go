@@ -62,6 +62,36 @@ func BenchmarkTraceEventDecodeState(b *testing.B) {
 	}
 }
 
+func TestJSONEventWriterReusesSyscallEventStorage(t *testing.T) {
+	if raceBuild {
+		t.Skip("allocation counts include race instrumentation")
+	}
+	sysID := benchmarkSyscallID("getpid")
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: io.Discard})
+	event := syscallEventContext{
+		view: syscallEventView{
+			valid:        true,
+			eventVersion: traceEventV2Version,
+			pid:          101,
+			tid:          101,
+			sysID:        sysID,
+			eventType:    bpfEventTypeExit,
+			ret:          0,
+			duration:     50,
+			enterTime:    950,
+		},
+		meta: meta.Syscall{Name: "getpid"},
+	}
+
+	writer.WriteRaw(event)
+	allocs := testing.AllocsPerRun(100, func() {
+		writer.WriteRaw(event)
+	})
+	if allocs != 0 {
+		t.Fatalf("steady-state JSON syscall writer allocations = %.1f, want zero", allocs)
+	}
+}
+
 func BenchmarkJSONEventWriter(b *testing.B) {
 	sysID := benchmarkSyscallID("getpid")
 	writer := newJSONEventWriter(JSONEventWriterDeps{Out: io.Discard})
