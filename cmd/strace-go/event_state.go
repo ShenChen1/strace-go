@@ -75,18 +75,6 @@ type TraceStateUpdate struct {
 	deferredExit    *TraceStateUpdate
 }
 
-func newTraceState() *TraceState {
-	return &TraceState{trackForkIdentity: true, unfinishedEnabled: true}
-}
-
-func newTraceStateWithDeferredExit(enabled bool) *TraceState {
-	return &TraceState{
-		deferUnmatchedExits: enabled,
-		trackForkIdentity:   true,
-		unfinishedEnabled:   true,
-	}
-}
-
 func (s *traceSession) traceState() *TraceState {
 	if s == nil {
 		return nil

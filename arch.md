@@ -3295,3 +3295,34 @@ ABI 与状态契约：
 本阶段只收口 run state 的时间/attach probe ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source gate 先验证旧 `newTraceRunState` 会创建 `systemTraceClock`/`systemTracePIDProbe` 且无端口状态会推进 attach polling，修复后通过。`traceSessionDeps`、`traceSession` 和 `traceRunStateDeps` 现在显式传递 `PIDProbe`；production run state 不再构造默认端口，缺失 clock 或 attach probe 时保持 inert，空 attach 集合不会触发 PID 探测。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，734.13 events/s。`attach-f-p.test` 通过；`attach-p-cmd.test` 三次复跑为两次既定 XFAIL、一次 XPASS，保留 XFAIL 以反映跨任务 lifecycle exact ordering 不是纯 eBPF 契约。测试结束后无残留 tracer、fixture 或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
+
+### 14.71 移除 production TraceState 测试构造器（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.64、14.65 以后，正式 session 通过 `newTraceStateForSession(opts)` 在 composition root 创建带 CLI policy 的 `TraceState`；`event_state.go` 仍保留 `newTraceState` 和 `newTraceStateWithDeferredExit`，但全局搜索显示它们没有 production caller，只被单元测试使用。
+- Problem：无 opts、无 session policy 的状态构造器留在 production 文件中，任何未来生产代码都可以绕过 `FollowForks`、generic enter 和 unfinished policy，形成第二个 state owner；source gate 也无法区分“测试 fixture 便利”与正式构造边界。
+- Goal：删除 production `newTraceState`/`newTraceStateWithDeferredExit`，将相同默认值迁移到 `_test.go` test-only helper；production 只保留 `newTraceStateForSession(opts)` 作为正式 state composition 入口。
+- Non-goals：不改变 `TraceState` 字段、生命周期/fork identity、unfinished candidate、pending enter/exit、payload ownership、事件路由、BPF ABI、输出格式、ptrace/procfs 禁止规则或 session policy；不把状态改成全局单例，也不要求把所有测试改成重复 struct literal。
+- Constraints：正式 session 的 state 创建位置不变；测试 helper 不得被 production source 引用；测试 helper 必须保持两个旧 constructor 的字段默认值；文件和函数规模保持现有约束。
+
+方案比较：
+
+1. 保留两个 production constructor：测试改动最小，但继续暴露无 policy 的隐式 owner，拒绝。
+2. 删除 constructor 并把所有测试改成 struct literal：production 边界清晰，但重复初始化字段、容易产生 fixture 漂移，拒绝。
+3. 删除 production constructor，在 `_test.go` 提供同名 test-only helper：调用点稳定、默认值集中且不污染 production，选择该方案。
+
+状态契约：
+
+- `newTraceStateForSession(opts)` 是 production 唯一的 `TraceState` 创建入口，负责读取 session CLI policy。
+- 测试 helper 只模拟旧的最小状态，不参与正式 session composition，不改变任何 event state transition。
+- `traceSession.traceState()` 继续只返回已注入 state，不在 getter 中构造替代对象。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 `event_state.go` 不再定义两个无 policy constructor，并验证 test-only helper 保留默认字段。
+- 运行 focused state/router tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和相关 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 TraceState constructor ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source gate 先验证 `event_state.go` 仍定义两个仅供测试使用的 constructor，迁移到 `event_state_test_helpers_test.go` 后通过；production source 现在只保留带 opts policy 的 `newTraceStateForSession`。测试 helper 默认字段与旧行为一致，session/router/state transition 没有变化。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，736.00 events/s。`attach-f-p.test` 通过；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer、fixture 或 strace 相关 BPF pin，生产路径仍未引入 `/proc`、ptrace 或 `process_vm_readv` 读取。
