@@ -4300,3 +4300,38 @@ Impact note：影响 `main.go`、`session_composition.go`、新增 session confi
 ### 14.100 实际验收记录
 
 失败优先 source gate 先因 `session_composition.go` 仍 import CLI 且 `composeTraceSession` 直接接收 `*cli.Options` 而失败；迁移后新增 `traceSessionConfig`，在目标启动前一次物化 event/output policy、decoder、catalog 和 stack resolver，composition 文件只消费显式配置，attach PID helper 保留在 main bootstrap。构造后 CLI mutation 回归覆盖 JSON/text policy、follow-forks、decoder limit/hex、catalog format 和 resolver ownership。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source/no-ptrace/no-procfs gate 和 `git diff --check` 全部通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，724.45 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试后清理本轮 `strace-go` 和 Python 临时目录，生产路径仍未引入 ptrace、procfs 或用户态 tracee 内存读取。
+
+### 14.101 将 run orchestrator 切换到 launch snapshot（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.100 已让 session composition 只消费显式 `traceSessionConfig`，但 `runTraceSession` 仍接收完整 `*cli.Options`，并把它传给目标启动、失败清理和输出文件初始化。
+- Problem：运行会话编排虽然已经使用 BPF/session snapshot，仍保留 parser owner 作为长生命周期参数；目标启动和 abort cleanup 也可以观察与自身无关的 CLI 字段，形成 bootstrap owner 渗透。
+- Goal：新增 `traceLaunchConfig`，在 `runMain` 完成 BPF/session snapshot、command spec、attach PID slice、output path/append mode 的一次性复制；`runTraceSession`、`resolveTraceTargets`、`abortTraceTargets` 和 `traceTargetPIDs` 只消费 launch/target snapshot，不再接收 `*cli.Options`。
+- Non-goals：不修改 CLI 解析、目标启动顺序、BPF ConfigMap、attach/filter map、失败清理、输出文件语义、session event graph、事件 ABI、纯 eBPF/no-procfs/no-ptrace 约束；不把 launch config 放进 `traceSessionDeps` 或运行期 event graph。
+- Constraints：snapshot 必须在 target command/attach 启动前形成；command/env 与 attach PID slice 必须复制 backing storage；`runTraceSession` 的 nil config/clock 错误仍需在资源申请前返回；cleanup 必须覆盖 command PID 与 attach PID 去重后的集合。
+
+Impact note：影响 `main.go`、新增 launch config 文件、bootstrap source tests 和 target PID tests；session runtime policy 不增加新 owner，目标管理只读取窄输入。
+
+方案比较：
+
+1. 继续让 `runTraceSession(*cli.Options, ...)` 统筹所有启动动作：改动最小，但运行编排保留完整 parser owner，拒绝。
+2. 只把 attach PID 和 output path 拆成多个参数：能减少部分耦合，但 BPF/session/command snapshot 的生命周期仍分散，参数容易错位，拒绝。
+3. 使用 `traceLaunchConfig` 聚合已物化的 BPF/session/target/output 输入：构造边界清晰、调用参数稳定、可做 mutation 回归，选择该方案。
+
+状态契约：
+
+- `traceLaunchConfig` 是 bootstrap 值，不进入 session dependencies；其 `traceSessionConfig` 和 `traceBPFConfig` 只在 run 开始前被消费。
+- `traceTargetConfig` 的 command spec 与 attach PID slice 不共享 CLI backing array；output path 为 string value，append 为 scalar。
+- `resolveTraceTargets`/`abortTraceTargets` 不读取 CLI；run 结束后的 cleanup 仍使用同一 target snapshot，保持 command/attach 清理语义。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 `runTraceSession`、`resolveTraceTargets`、`abortTraceTargets` 和 `traceTargetPIDs` 不接收 `*cli.Options`；增加 launch snapshot mutation、nil launch config 和 target PID 去重回归，迁移前测试应失败。
+- 运行 focused、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source/no-ptrace/no-procfs gate、semantic/perf 和 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 run/bootstrap 的 CLI ownership，不改变目标生命周期或事件输出语义。
+
+### 14.101 实际验收记录
+
+失败优先 source gate 先因 `runTraceSession`、`resolveTraceTargets`、`abortTraceTargets` 和 `traceTargetPIDs` 仍接收 CLI 而失败；迁移后 `newTraceLaunchConfig` 在 `runMain` 边界复制 BPF/session/command/attach/output 输入，run orchestrator 和 cleanup 只消费 launch/target snapshot。新增测试覆盖 nil launch config、command/env/attach slice mutation 和目标 PID 去重。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source/no-ptrace/no-procfs gate 和 `git diff --check` 全部通过；`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle、8 个 payload truncated，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，731.00 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试后清理本轮 `strace-go` 和 Python 临时目录，生产路径仍未引入 ptrace、procfs 或用户态 tracee 内存读取。

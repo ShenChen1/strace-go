@@ -12,6 +12,7 @@ func TestSessionCompositionConsumesExplicitConfig(t *testing.T) {
 	root := repoRootForTest(t)
 	source := readTextFile(t, filepath.Join(root, "cmd/strace-go/session_composition.go"))
 	mainSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/main.go"))
+	launchSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/launch_config.go"))
 	for _, forbidden := range []string{
 		"strace-go/pkg/cli",
 		"*cli.Options",
@@ -24,10 +25,11 @@ func TestSessionCompositionConsumesExplicitConfig(t *testing.T) {
 		t.Fatal("session composition must not own bootstrap attach PID helper")
 	}
 	if !strings.Contains(source, "config traceSessionConfig") ||
-		!strings.Contains(mainSource, "sessionConfig := newTraceSessionConfig(opts)") {
+		!strings.Contains(launchSource, "session:   newTraceSessionConfig(opts)") ||
+		!strings.Contains(mainSource, "newTraceLaunchConfig(opts)") {
 		t.Fatal("composeTraceSession must consume traceSessionConfig")
 	}
-	configCall := strings.Index(mainSource, "sessionConfig := newTraceSessionConfig(opts)")
+	configCall := strings.Index(mainSource, "newTraceLaunchConfig(opts)")
 	targetCall := strings.Index(mainSource, "cmd, targetPid, fdSeed, err := resolveTraceTargets(")
 	if configCall < 0 || targetCall < 0 || configCall > targetCall {
 		t.Fatalf("session config must be formed before target startup: config=%d target=%d", configCall, targetCall)

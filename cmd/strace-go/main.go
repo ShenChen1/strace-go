@@ -39,18 +39,16 @@ func runMain(args []string) error {
 	handlePrelude(opts)
 	normalizeTraceTargetOptions(opts)
 	opts.TracePaths = expandTracePathSet(opts.TracePaths)
-	return runTraceSession(opts, systemTraceClock{})
+	return runTraceSession(newTraceLaunchConfig(opts), systemTraceClock{})
 }
 
-func runTraceSession(opts *cli.Options, clock traceClock) error {
-	if opts == nil {
-		return fmt.Errorf("trace options are nil")
+func runTraceSession(config *traceLaunchConfig, clock traceClock) error {
+	if config == nil {
+		return fmt.Errorf("trace launch config is nil")
 	}
 	if clock == nil {
 		return fmt.Errorf("trace clock is nil")
 	}
-	bpfConfig := newTraceBPFConfig(opts)
-	sessionConfig := newTraceSessionConfig(opts)
 	inheritedFiles := collectInheritedFiles()
 	defer closeFiles(inheritedFiles)
 
@@ -67,7 +65,7 @@ func runTraceSession(opts *cli.Options, clock traceClock) error {
 	}
 	defer events.Close()
 
-	cfgVal, err := buildRuntimeConfig(bpfConfig, bpfObjs)
+	cfgVal, err := buildRuntimeConfig(config.bpfConfig, bpfObjs)
 	if err != nil {
 		return fmt.Errorf("failed to build runtime config: %w", err)
 	}
@@ -75,24 +73,24 @@ func runTraceSession(opts *cli.Options, clock traceClock) error {
 		return fmt.Errorf("failed to update BPF runtime config: %w", err)
 	}
 
-	cmd, targetPid, fdSeed, err := resolveTraceTargets(opts, bpfObjs, inheritedFiles)
+	cmd, targetPid, fdSeed, err := resolveTraceTargets(config.targets, bpfObjs, inheritedFiles)
 	if err != nil {
 		return fmt.Errorf("failed to resolve trace targets: %w", err)
 	}
 	cleanupTargets := true
 	defer func() {
 		if cleanupTargets {
-			abortTraceTargets(opts, cmd, bpfObjs, targetPid)
+			abortTraceTargets(config.targets, cmd, bpfObjs, targetPid)
 		}
 	}()
 
-	output, err := setupOutput(opts.OutFile, opts.OutAppendMode)
+	output, err := setupOutput(config.outputPath, config.outputAppend)
 	if err != nil {
 		return fmt.Errorf("failed to set up output: %w", err)
 	}
 	defer func() { _ = output.Close() }()
 
-	session, err := composeTraceSession(sessionConfig, clock, traceSessionBootstrap{
+	session, err := composeTraceSession(config.session, clock, traceSessionBootstrap{
 		cmd:       cmd,
 		events:    events,
 		targetPID: targetPid,
@@ -108,13 +106,6 @@ func runTraceSession(opts *cli.Options, clock traceClock) error {
 	}
 	cleanupTargets = false
 	return nil
-}
-
-func attachPIDs(opts *cli.Options) []int {
-	if opts == nil {
-		return nil
-	}
-	return append([]int(nil), opts.AttachPids...)
 }
 
 // handlePrelude handles help/version requests and rejects sessions without targets.
@@ -151,23 +142,20 @@ func normalizeTraceTargetOptions(opts *cli.Options) {
 
 // resolveTraceTargets starts the traced command and/or attaches to pids, merging
 // startup FD state seeds when both targets are requested.
-func resolveTraceTargets(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles []*os.File) (*exec.Cmd, int, fdStateSeed, error) {
-	if opts == nil {
-		return nil, 0, fdStateSeed{}, fmt.Errorf("trace options are nil")
-	}
+func resolveTraceTargets(targets traceTargetConfig, bpfObjs *bpfObjects, inheritedFiles []*os.File) (*exec.Cmd, int, fdStateSeed, error) {
 	var cmd *exec.Cmd
 	var targetPid int
 	var fdSeed fdStateSeed
 
-	if len(opts.CmdArgs) > 0 {
+	if len(targets.command.args) > 0 {
 		var err error
-		cmd, targetPid, fdSeed, err = startTraceCmd(traceCommandSpecFromCLI(opts), bpfObjs, inheritedFiles)
+		cmd, targetPid, fdSeed, err = startTraceCmd(targets.command, bpfObjs, inheritedFiles)
 		if err != nil {
 			return nil, 0, fdStateSeed{}, err
 		}
 	}
-	if len(opts.AttachPids) > 0 {
-		firstPid, attachSeed, err := attachToPids(opts.AttachPids, bpfObjs)
+	if len(targets.attachPIDs) > 0 {
+		firstPid, attachSeed, err := attachToPids(targets.attachPIDs, bpfObjs)
 		if err != nil {
 			abortTraceTarget(cmd, bpfObjs, targetPid)
 			return nil, 0, fdStateSeed{}, err
@@ -180,16 +168,6 @@ func resolveTraceTargets(opts *cli.Options, bpfObjs *bpfObjects, inheritedFiles 
 		}
 	}
 	return cmd, targetPid, fdSeed, nil
-}
-
-func traceCommandSpecFromCLI(opts *cli.Options) traceCommandSpec {
-	if opts == nil {
-		return traceCommandSpec{}
-	}
-	return traceCommandSpec{
-		args:       append([]string(nil), opts.CmdArgs...),
-		envActions: append([]string(nil), opts.EnvActions...),
-	}
 }
 
 func terminateTraceCommand(cmd *exec.Cmd) {
@@ -207,13 +185,13 @@ func abortTraceTarget(cmd *exec.Cmd, bpfObjs *bpfObjects, targetPid int) {
 	terminateTraceCommand(cmd)
 }
 
-func abortTraceTargets(opts *cli.Options, cmd *exec.Cmd, bpfObjs *bpfObjects, targetPid int) {
-	clearFilterPids(bpfObjs, traceTargetPIDs(opts, targetPid))
+func abortTraceTargets(targets traceTargetConfig, cmd *exec.Cmd, bpfObjs *bpfObjects, targetPid int) {
+	clearFilterPids(bpfObjs, traceTargetPIDs(targets.attachPIDs, targetPid))
 	terminateTraceCommand(cmd)
 }
 
-func traceTargetPIDs(opts *cli.Options, targetPid int) []uint32 {
-	pids := make([]uint32, 0, 1+len(attachPIDs(opts)))
+func traceTargetPIDs(attachPIDs []int, targetPid int) []uint32 {
+	pids := make([]uint32, 0, 1+len(attachPIDs))
 	appendPID := func(pid int) {
 		if pid <= 0 {
 			return
@@ -226,7 +204,7 @@ func traceTargetPIDs(opts *cli.Options, targetPid int) []uint32 {
 		pids = append(pids, uint32(pid))
 	}
 	appendPID(targetPid)
-	for _, pid := range attachPIDs(opts) {
+	for _, pid := range attachPIDs {
 		appendPID(pid)
 	}
 	return pids

@@ -64,8 +64,8 @@ func TestResolveTraceTargetsDoesNotMutateTargetPolicy(t *testing.T) {
 	}
 
 	normalizeCall := strings.Index(source, "normalizeTraceTargetOptions(opts)")
-	configCall := strings.Index(source, "bpfConfig := newTraceBPFConfig(opts)")
+	configCall := strings.Index(source, "newTraceLaunchConfig(opts)")
 	if normalizeCall < 0 || configCall < 0 || normalizeCall > configCall {
-		t.Fatalf("target policy normalization must precede BPF snapshot: normalize=%d config=%d", normalizeCall, configCall)
+		t.Fatalf("target policy normalization must precede launch snapshot: normalize=%d config=%d", normalizeCall, configCall)
 	}
 }

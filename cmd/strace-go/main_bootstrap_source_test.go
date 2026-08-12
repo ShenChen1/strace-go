@@ -4,8 +4,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"strace-go/pkg/cli"
 )
 
 func TestMainUsesErrorReturningBootstrap(t *testing.T) {
@@ -18,16 +16,16 @@ func TestMainUsesErrorReturningBootstrap(t *testing.T) {
 	if !strings.Contains(source, "func runMain(args []string) error") {
 		t.Fatal("main must delegate bootstrap to an error-returning runner")
 	}
-	if !strings.Contains(source, "func runTraceSession(opts *cli.Options, clock traceClock) error") {
+	if !strings.Contains(source, "func runTraceSession(config *traceLaunchConfig, clock traceClock) error") {
 		t.Fatal("bootstrap resources must be owned by runTraceSession")
 	}
-	if !strings.Contains(source, "abortTraceTargets(opts, cmd, bpfObjs, targetPid)") {
+	if !strings.Contains(source, "abortTraceTargets(config.targets, cmd, bpfObjs, targetPid)") {
 		t.Fatal("bootstrap must clean all trace targets on error")
 	}
 }
 
 func TestTraceTargetPIDsDeduplicatesCommandAndAttachTargets(t *testing.T) {
-	got := traceTargetPIDs(&cli.Options{AttachPids: []int{202, 303, 202}}, 202)
+	got := traceTargetPIDs([]int{202, 303, 202}, 202)
 	want := []uint32{202, 303}
 	if len(got) != len(want) {
 		t.Fatalf("target pids = %v, want %v", got, want)

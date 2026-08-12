@@ -30,7 +30,7 @@ func TestCalculateTimeOffsetWithoutClockIsZero(t *testing.T) {
 }
 
 func TestRunTraceSessionRejectsNilClockBeforeBootstrap(t *testing.T) {
-	err := runTraceSession(&cli.Options{}, nil)
+	err := runTraceSession(newTraceLaunchConfig(&cli.Options{}), nil)
 	if err == nil || !strings.Contains(err.Error(), "trace clock is nil") {
 		t.Fatalf("runTraceSession() error = %v, want early nil clock error", err)
 	}
