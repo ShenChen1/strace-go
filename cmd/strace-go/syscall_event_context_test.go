@@ -234,7 +234,7 @@ func TestSyscallEnterEventContextUsesEventViewAndMetadata(t *testing.T) {
 		ret:   -2,
 	}
 
-	ev := newSyscallEnterEventContext(view, 201, nil)
+	ev := newSyscallEnterEventContextWithCatalog(view, 201, nil, meta.NewCatalog("abbrev"))
 
 	if ev.syscallName() != "getpid" {
 		t.Fatalf("enter context syscall name = %q, want getpid", ev.syscallName())
@@ -279,7 +279,12 @@ func TestSyscallEnterEventContextCachesPayloadSections(t *testing.T) {
 		pathPayload,
 	))
 
-	ev := newSyscallEnterEventContext(update.syscallView, 201, update.payloadSections)
+	ev := newSyscallEnterEventContextWithCatalog(
+		update.syscallView,
+		201,
+		update.payloadSections,
+		meta.NewCatalog("abbrev"),
+	)
 
 	sections := ev.outputPayloadSections()
 	if len(sections) != 1 {

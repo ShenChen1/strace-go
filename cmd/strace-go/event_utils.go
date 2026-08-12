@@ -196,13 +196,9 @@ func updateSocketFDMapFromView(view syscallEventView, scMeta meta.Syscall, targe
 	fdMap[key] = "socket:[unknown]|" + info
 }
 
-func socketFDInfoFromView(view syscallEventView) string {
-	return socketFDInfoFromCatalog(meta.NewCatalog("abbrev"), view)
-}
-
 func socketFDInfoFromCatalog(catalog *meta.Catalog, view syscallEventView) string {
 	if catalog == nil {
-		catalog = meta.NewCatalog("abbrev")
+		return ""
 	}
 	info := catalog.DecodeFlags(view.args[0], "addrfams")
 	if view.args[0] == 16 {

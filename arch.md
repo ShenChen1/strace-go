@@ -3170,3 +3170,35 @@ ABI 与状态契约：
 本阶段只修复 bootstrap 资源生命周期，不改变纯 eBPF 事件事实源或用户可见 syscall 语义。
 
 实际验收结果：失败优先 source gate 先因 `main` 含有 `log.Fatalf` 且没有 error-returning runner 而失败，修复后通过；新增 target PID 去重测试覆盖 command+attach 的 filter 清理集合。`main` 现在只负责最终打印错误并退出，`runMain`/`runTraceSession` 返回 error；tracepoint links、BPF objects、ringbuf reader、output 和 command/attach filter 均由 bootstrap defer/错误 guard 管理，正常成功路径不 kill command，attach target 错误路径只清理 filter。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused no-ptrace/no-procfs gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，692.52 events/s。`attach-f-p.test` 为 1 PASS；`attach-p-cmd.test` 为 1 个既定 XFAIL、0 FAIL/XPASS。测试结束后无残留 tracer 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.67 移除事件上下文与 FD utility 的隐式 Catalog owner（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.65 已要求正式 session 显式注入 `meta.Catalog`，router 也把同一 catalog 传给 enter/exit context；但 `newSyscallEnterEventContextWithCatalog` 和 `socketFDInfoFromCatalog` 在收到 nil 时仍各自调用 `meta.NewCatalog("abbrev")`。`newSyscallEnterEventContext`、`socketFDInfoFromView` 只是测试方便入口，却留在 production 文件中。
+- Problem：半构造 context 或 FD state fixture 会静默生成临时 catalog，输出可能与 session `-e xlat` policy 不一致；同一事件链可能出现多个 catalog owner，测试还会掩盖 composition 漏注。
+- Goal：context/FD utility 只消费注入的 catalog；nil 时保持无 catalog/无附加 socket 描述，不创建新的 catalog。删除没有 production call site 的默认 helper，测试显式提供 `meta.NewCatalog`。
+- Non-goals：不改变 xlat 表、socket 输出格式、FD state 生命周期、事件 ABI、handler registry、纯 eBPF payload、ptrace/procfs 禁止规则或 session catalog 的创建位置；不把 catalog 改成全局单例。
+- Constraints：正式 `newTraceSession` 仍保证 catalog 非 nil；`newSyscallEventContextFromViewWithDeps`、router 和 FD state update 使用同一 session catalog；nil fixture 必须安全但不能创建对象；删除只被测试使用的 production helper 后，测试通过显式 catalog helper 编译。
+
+方案比较：
+
+1. 保留 nil fallback：兼容旧 hand-built fixture，但继续复制 catalog owner 和 xlat policy，拒绝。
+2. nil 时 panic：能暴露遗漏，但把 composition 错误推迟到输出热路径，且 socket utility 无法提供清晰错误，拒绝。
+3. 删除无生产调用的 fallback helper，nil catalog 返回空附加信息，测试显式注入 catalog：ownership 清晰、改动局部、输出主体仍安全，选择该方案。
+
+状态契约：
+
+- `traceSession.catalog` 是唯一 session catalog owner；router/context/FD state 只持有引用，不构造替代对象。
+- `newSyscallEnterEventContextWithCatalog` 的 catalog 由调用方决定；nil 只表示该独立 context 没有 xlat metadata。
+- `socketFDInfoFromCatalog` 在 nil catalog 时返回空字符串；正式 FD state path 不会走该分支，测试可显式覆盖边界。
+- `newSyscallEnterEventContext` 和 `socketFDInfoFromView` 不再作为 production API 存在，避免无依赖入口重新引入默认 owner。
+
+测试与验收：
+
+- 先增加失败优先 source gate，禁止 `event_utils.go`/`syscall_event_context.go` 生产路径调用 `meta.NewCatalog` 作为 fallback；增加 nil catalog 不构造对象、显式 catalog 仍保留格式的回归。
+- 运行 focused context/FD tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf 和相关 upstream reference；检查无残留 tracer/BPF pin。
+
+本阶段只收口 Catalog ownership，不改变纯 eBPF 事实源或用户可见 syscall 语义。
+
+实际验收结果：失败优先 source gate 和 nil catalog 回归先验证旧 fallback 存在，修复后通过；删除 `newSyscallEnterEventContext`、`socketFDInfoFromView` 两个无 production call site helper，router/FD state 测试改为显式复用 `meta.NewCatalog`。`event_utils.go` 和 `syscall_event_context.go` 不再隐式构造 catalog；nil catalog context 保持无 metadata，nil socket info 返回空附加描述。`go test ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、focused no-ptrace/no-procfs gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，payload truncated 8；`ebpf-perf` 为 10,000 个 `getpid` 事件、5,000/5,000 enter/exit、0 丢失，694.73 events/s；原生 `small` 为 23 PASS。测试结束后无残留 tracer 或 BPF pin，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

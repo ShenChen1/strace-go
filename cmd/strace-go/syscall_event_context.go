@@ -165,19 +165,12 @@ func hasEquivalentPayloadSection(sections []handler.PayloadSection, want handler
 	return false
 }
 
-func newSyscallEnterEventContext(view syscallEventView, statePID int, payloadSections []handler.PayloadSection) syscallEventContext {
-	return newSyscallEnterEventContextWithCatalog(view, statePID, payloadSections, meta.NewCatalog("abbrev"))
-}
-
 func newSyscallEnterEventContextWithCatalog(
 	view syscallEventView,
 	statePID int,
 	payloadSections []handler.PayloadSection,
 	catalog *meta.Catalog,
 ) syscallEventContext {
-	if catalog == nil {
-		catalog = meta.NewCatalog("abbrev")
-	}
 	scMeta := syscallMeta(view.sysID)
 	fdPathOverlay := fdPathOverlayFromSections(payloadSections)
 	eventFDView := fdPathOverlay.resolve(view)
