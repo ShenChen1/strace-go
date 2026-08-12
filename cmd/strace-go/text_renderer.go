@@ -6,25 +6,33 @@ import (
 	"strings"
 
 	"strace-go/pkg/handler"
-	"strace-go/pkg/stacktrace"
 )
+
+type traceTimeFormatter interface {
+	Prefix(enterTimeMonoNs uint64, policy traceTimePolicy) string
+	NowMonoNs() uint64
+}
+
+type traceSymbolResolver interface {
+	Resolve(ip uint64) string
+}
 
 type TextRenderer struct {
 	out           io.Writer
 	policy        traceRenderPolicy
 	state         textRendererState
-	timeFormatter *TimeFormatter
+	timeFormatter traceTimeFormatter
 	stackTraces   traceStackTraceReader
-	resolver      *stacktrace.Resolver
+	resolver      traceSymbolResolver
 }
 
 type TextRendererDeps struct {
 	Out           io.Writer
 	Policy        traceRenderPolicy
 	State         textRendererState
-	TimeFormatter *TimeFormatter
+	TimeFormatter traceTimeFormatter
 	StackTraces   traceStackTraceReader
-	Resolver      *stacktrace.Resolver
+	Resolver      traceSymbolResolver
 }
 
 func newTextRenderer(deps TextRendererDeps) *TextRenderer {

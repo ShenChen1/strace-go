@@ -5591,3 +5591,42 @@ Impact note：影响 `cmd/strace-go/run_finalizer.go` 的字段和 dependency co
 真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 296.50 ns/op、0 B/op、0 allocs/op`、raw JSON `498.50 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `606.00 ns/op、0 B/op、0 allocs/op`、decoded payload `895.30 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
 
 当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 finalizer 仅依赖窄接口，真实 owner 仍由 session composition 注入并由 finalizer 单独 close；未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
+
+### 14.134 将 TextRenderer 的时间与符号能力改为窄接口（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：`TextRenderer` 已通过 `textRendererState`、render policy 和 `traceStackTraceReader` 隔离大部分依赖，但 `timeFormatter` 和 `resolver` 仍声明为 `*TimeFormatter`、`*stacktrace.Resolver`。
+- Problem：renderer 因两个具体 owner 绑定到时间状态实现和当前符号格式实现；测试无法只替换时间/符号能力验证输出边界，未来更换时间源或符号化策略会扩大 renderer 变更面。
+- Goal：定义 `traceTimeFormatter`（`Prefix`、`NowMonoNs`）和 `traceSymbolResolver`（`Resolve`）两个最小接口，修改 `TextRenderer` 与 `TextRendererDeps` 使用接口，保留真实 `TimeFormatter`/`stacktrace.Resolver` 在 session composition 中注入。
+- Non-goals：不改变相对时间的可变状态归属、时间格式、stack trace 行格式、BPF stack reader、output writer、文本排序或 session ownership；不引入全局 clock、反射、锁、goroutine、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：时间 formatter 的 `Prefix` 仍可更新其 session-local relative-time state；`NowMonoNs` 用于合成退出行；resolver 只接受 BPF 捕获的 IP；nil capability 继续产生空时间/跳过 stack 的现有行为。
+
+Impact note：影响 `cmd/strace-go/text_renderer.go` 的字段和 dependency contract 及其 source/fake tests；不改变 `TimeFormatter`、`stacktrace.Resolver` 的实现或 session component graph。
+
+方案比较：
+
+1. 继续注入两个具体类型：实现最简单，但 renderer 依赖完整 owner，替换和测试成本高，拒绝。
+2. 引入一个大的 `TraceRenderServices` 接口：可以减少字段数量，但隐藏时间与符号能力边界，拒绝。
+3. 按 renderer 实际调用拆成时间和符号两个窄接口：保持能力显式、允许独立 fake、改动局部，选择该方案。
+
+状态契约：
+
+- `traceTimeFormatter` 只暴露 `Prefix(uint64, traceTimePolicy)` 和 `NowMonoNs()`；renderer 不访问 formatter 的 clock、offset 或 relative-time 字段。
+- `traceSymbolResolver` 只暴露 `Resolve(uint64) string`；renderer 不读取 resolver 内部状态或目标进程映射。
+- 真实 `TimeFormatter` 和 `stacktrace.Resolver` 仍由 composition owner 创建；renderer 只保存接口，不复制或关闭它们。
+- source gate 禁止 `TextRenderer`/`TextRendererDeps` 恢复两个具体指针；fake formatter/resolver 覆盖时间前缀和 stack 行路径。
+
+测试与验收：
+
+- 先增加失败优先 source-contract/fake-port 测试，确认旧 renderer 无法接收替代时间/符号实现。
+- 实现后运行 focused renderer/output tests、Go 全量/race/vet/build、Python oracle、semantic/perf、small 和 upstream reference。
+- review 检查 relative-time state 仍是单 session owner，nil 行为和 stack 输出不变，纯 eBPF/procfs 禁止规则保持通过。
+
+#### 实际验收记录
+
+失败优先的 fake-port 测试先因 `TextRendererDeps` 固定为 `*TimeFormatter` 和 `*stacktrace.Resolver` 而无法编译；实现后 focused renderer/output tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14134 ./cmd/strace-go` 和 `git diff --check` 全部通过。测试同时确认 session 仍注入同一时间能力，renderer 不再窥探具体 clock 字段。
+
+真实 `ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 和 pending stale 均为 0。`ebpf-perf` 的 Go benchmark 为 `TraceEventDecodeState 290.10 ns/op、0 B/op、0 allocs/op`、raw JSON `512.60 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `617.20 ns/op、0 B/op、0 allocs/op`、decoded payload `913.40 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 四组真实 workload 的错误和 stale 计数均为 0。
+
+当前根目录二进制运行原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍只有 bounded read/write hexdump 和无 procfs 初始 FD/cwd 状态。review 确认 `TextRenderer` 仅依赖时间前缀/当前单调时钟和 IP resolver 两个窄接口，真实 owner 仍由 session composition 创建；未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
