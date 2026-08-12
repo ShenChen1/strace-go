@@ -12,18 +12,37 @@ import (
 // event contexts. Its ports stay separate so handlers and filters cannot see
 // each other's policy fields.
 type cliTraceEventPolicy struct {
-	handlerOptions handler.OptionsPort
-	filter         traceFilterOptions
+	handlerOptions      handler.OptionsPort
+	filter              traceFilterOptions
+	deferUnmatchedExits bool
+	trackForkIdentity   bool
 }
+
+type traceStatePolicy interface {
+	ShouldDeferUnmatchedExits() bool
+	TrackForkIdentity() bool
+}
+
+var _ traceStatePolicy = (*cliTraceEventPolicy)(nil)
 
 func newTraceEventPolicy(opts *cli.Options) *cliTraceEventPolicy {
 	if opts == nil {
 		return nil
 	}
 	return &cliTraceEventPolicy{
-		handlerOptions: newTraceHandlerOptions(opts),
-		filter:         newTraceFilterOptions(opts),
+		handlerOptions:      newTraceHandlerOptions(opts),
+		filter:              newTraceFilterOptions(opts),
+		deferUnmatchedExits: shouldEmitGenericEnter(opts),
+		trackForkIdentity:   opts.FollowForks,
 	}
+}
+
+func (p *cliTraceEventPolicy) ShouldDeferUnmatchedExits() bool {
+	return p != nil && p.deferUnmatchedExits
+}
+
+func (p *cliTraceEventPolicy) TrackForkIdentity() bool {
+	return p == nil || p.trackForkIdentity
 }
 
 type cliTraceHandlerOptions struct {

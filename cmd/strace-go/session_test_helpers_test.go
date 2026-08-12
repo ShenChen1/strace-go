@@ -30,7 +30,7 @@ func newBareTestTraceSession(deps traceSessionDeps) *traceSession {
 	deps = withTestTraceSessionDefaults(deps)
 	return &traceSession{
 		dependencies: deps,
-		eventPolicy:  newTraceEventPolicy(deps.Opts),
+		eventPolicy:  deps.EventPolicy,
 	}
 }
 
@@ -40,6 +40,9 @@ func withTestTraceSessionDefaults(deps traceSessionDeps) traceSessionDeps {
 	}
 	if deps.Opts == nil {
 		deps.Opts = &cli.Options{}
+	}
+	if deps.EventPolicy == nil {
+		deps.EventPolicy = newTraceEventPolicy(deps.Opts)
 	}
 	if deps.Catalog == nil {
 		format := deps.Opts.XlatFormat
@@ -73,7 +76,7 @@ func withTestTraceSessionDefaults(deps traceSessionDeps) traceSessionDeps {
 		deps.TimeFormatter = newTimeFormatterWithClock(0, deps.Clock)
 	}
 	if deps.State == nil {
-		deps.State = newTraceStateForSession(deps.Opts)
+		deps.State = newTraceStateForSession(deps.EventPolicy)
 	}
 	return deps
 }

@@ -67,6 +67,7 @@ type traceSessionDeps struct {
 	Events        traceRingbufReader
 	TargetPID     int
 	Opts          *cli.Options
+	EventPolicy   *cliTraceEventPolicy
 	Catalog       *meta.Catalog
 	Decoder       *event.Decoder
 	FDState       *FDStateStore
@@ -88,9 +89,14 @@ func newTraceSession(deps traceSessionDeps) (*traceSession, error) {
 	if err := validateTraceSessionDeps(deps); err != nil {
 		return nil, err
 	}
+	eventPolicy := deps.EventPolicy
+	if eventPolicy == nil {
+		eventPolicy = newTraceEventPolicy(deps.Opts)
+	}
+	deps.EventPolicy = eventPolicy
 	session := &traceSession{
 		dependencies: deps,
-		eventPolicy:  newTraceEventPolicy(deps.Opts),
+		eventPolicy:  eventPolicy,
 	}
 	session.components = buildTraceSessionComponents(session)
 	return session, nil
@@ -122,13 +128,15 @@ func validateTraceSessionDeps(deps traceSessionDeps) error {
 	return nil
 }
 
-func newTraceStateForSession(opts *cli.Options) *TraceState {
+func newTraceStateForSession(policy traceStatePolicy) *TraceState {
 	trackForkIdentity := true
-	if opts != nil {
-		trackForkIdentity = opts.FollowForks
+	deferUnmatchedExits := false
+	if policy != nil {
+		trackForkIdentity = policy.TrackForkIdentity()
+		deferUnmatchedExits = policy.ShouldDeferUnmatchedExits()
 	}
 	return &TraceState{
-		deferUnmatchedExits: shouldEmitGenericEnter(opts),
+		deferUnmatchedExits: deferUnmatchedExits,
 		trackForkIdentity:   trackForkIdentity,
 		unfinishedEnabled:   true,
 	}

@@ -4055,3 +4055,37 @@ Impact note：production 入口集中在 `session_composition.go`、`syscall_eve
 本阶段只收敛事件策略的 ownership 和不可变性，不改变 syscall 解码、输出文本或 BPF 事实源。
 
 实际验收结果：失败优先 source gate 先因 `trace_filter.go` 仍持有 `*cli.Options` 而失败；迁移后新增 session-scoped `cliTraceEventPolicy`，由 `newTraceSession` construction 一次创建，handler 使用 `cliTraceHandlerOptions`，filter 使用复制 map/regex/path 的 `cliTraceFilter`，context 与 router 只消费两个窄 port。新增测试覆盖 handler scalar、verbose-disabled、正/反向 read/write FD、syscall regex、path filter、CLI map mutation 和 session/context identity。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，707.72 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后待清理本轮 `strace-go` 和 Python 临时目录，production event context/filter 不再直接持有 `*cli.Options`，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.94 将 TraceState 的派生配置纳入 event policy（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：14.93 已让 event context 的 handler/filter 使用 immutable `cliTraceEventPolicy`，但 `newTraceStateForSession` 仍接收 `*cli.Options`，直接读取 `FollowForks`、`EventFormat`、`TracePaths` 和 `SummaryOnly`；main 需要在 session constructor 之前先构造 State。
+- Problem：State 的 unmatched-exit 重排和 fork identity 行为仍绕过 event policy；如果 options 在 composition 后被修改，State 与 context/filter 可能使用不同的派生策略。为了同时构造 State 和 session，若简单重复调用 snapshot builder，还会出现两个 policy owner。
+- Goal：让 `cliTraceEventPolicy` 同时实现二方法 `traceStatePolicy`（`ShouldDeferUnmatchedExits`、`TrackForkIdentity`）；`composeTraceSession` 只构造一次 policy，同时注入 `traceSessionDeps.EventPolicy` 和 `newTraceStateForSession(policy)`；`newTraceSession`、bare fixture 和 components 复用同一 pointer。`newTraceStateForSession` 不再依赖 CLI concrete。
+- Non-goals：不修改 State 的 pending/unfinished/lifecycle 算法、TraceEventRouter 顺序、BPF config 位定义、CLI normalization、handler/filter snapshot 内容、事件 ABI、纯 eBPF/no-procfs 约束；bootstrap 的 `buildRuntimeConfig` 继续读取归一化 CLI，因为它属于 BPF 配置边界。
+- Constraints：`traceStatePolicy` 只含两个派生能力；nil policy 保持旧默认（不 defer unmatched exit、跟踪 fork identity）；session constructor 如果未显式注入 policy 只能在 boundary 从 opts 创建一次；State、event context 和 components 必须共享同一个 policy pointer。
+
+Impact note：production 影响集中在 `event_policy.go`、`session_composition.go`、`main.go` 的 session wiring 和测试 helper；`event_state.go` 只保留状态机本身，`main.go` 的 BPF/bootstrap 逻辑不迁移到运行期 policy。
+
+方案比较：
+
+1. 继续让 `newTraceStateForSession` 接收 `*cli.Options`：改动最小，但 State 绕过 session policy，拒绝。
+2. 在 compose 中分别构造 event policy 和 state options：能去掉 State 的 CLI 依赖，但会复制派生逻辑并产生策略 owner 漂移，拒绝。
+3. 在现有 event policy 上增加二方法，并把同一个 pointer 注入 deps、State 和 session：生命周期清晰、无第二 owner、测试可验证 identity，选择该方案。
+
+状态契约：
+
+- `cliTraceEventPolicy` construction 时计算 `ShouldDeferUnmatchedExits` 和 `TrackForkIdentity`；State 只读取值，不读取 CLI。
+- `traceSessionDeps.EventPolicy` 是已构造 policy 的传递端口；未提供时由 `newTraceSession` 在边界根据非 nil `Opts` 创建一次，并写回 session dependency snapshot。
+- `buildRuntimeConfig` 的 `shouldEmitGenericEnter(opts)` 与 State policy 使用相同归一化输入，但仅属于 setup 阶段，不进入事件热路径。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 `newTraceStateForSession` 不再声明 `*cli.Options`，要求 compose 注入 `EventPolicy`，并要求 event policy 实现 `traceStatePolicy`；迁移前测试应失败。
+- 增加 policy/state identity 和 CLI mutation 回归，覆盖 JSON、path filter、summary-only、follow-forks 及 nil policy defaults。
+- 运行 focused、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、纯 eBPF source gate、semantic/perf、upstream reference，并检查无残留 tracer/BPF pin。
+
+本阶段只收敛 TraceState 的策略输入 ownership，不改变状态机行为或 BPF 事实源。
+
+实际验收结果：失败优先 source gate 先因 `newTraceStateForSession` 仍接收 `*cli.Options` 而失败；迁移后 `cliTraceEventPolicy` 增加 `traceStatePolicy`，`composeTraceSession` 只创建一次 event policy，并通过 `traceSessionDeps.EventPolicy` 同时注入 State、event context 和 components。State construction 只读取 `ShouldDeferUnmatchedExits`、`TrackForkIdentity`，新增测试覆盖 JSON/path filter、summary-only、follow-forks、nil default、CLI mutation 与 policy identity。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、纯 eBPF source gate 和 `git diff --check` 全部通过。`ebpf-semantic` 为 201 个事件、102/99 enter/exit、6 个 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0，write-only filter 为 6 个事件；`ebpf-perf` 为 10,000 个 JSON/getpid 事件、5,000/5,000 enter/exit、0 丢失，709.52 events/s；`upstream-reference` 为 46 PASS、0 FAIL、2 个既定 XFAIL、0 XPASS。测试结束后待清理本轮 `strace-go` 和 Python 临时目录，运行期 State/event policy 不再直接读取 CLI owner，生产路径仍未引入 ptrace、`process_vm_readv` 或 procfs 读取。

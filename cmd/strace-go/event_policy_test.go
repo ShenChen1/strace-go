@@ -81,13 +81,45 @@ func TestTraceEventPolicySnapshotsFilterState(t *testing.T) {
 	}
 }
 
+func TestTraceEventPolicySnapshotsStateOptions(t *testing.T) {
+	opts := testOptions()
+	opts.EventFormat = cli.EventFormatJSON
+	opts.FollowForks = true
+	policy := newTraceEventPolicy(opts)
+
+	opts.EventFormat = cli.EventFormatText
+	opts.FollowForks = false
+	opts.SummaryOnly = true
+
+	state := newTraceStateForSession(policy)
+	if !state.deferUnmatchedExits || !state.trackForkIdentity {
+		t.Fatalf("state policy changed after CLI mutation: %+v", state)
+	}
+
+	textPolicy := newTraceEventPolicy(&cli.Options{SummaryOnly: true})
+	textState := newTraceStateForSession(textPolicy)
+	if textState.deferUnmatchedExits || textState.trackForkIdentity {
+		t.Fatalf("summary-only state policy = %+v, want no defer and no fork identity", textState)
+	}
+	defaultState := newTraceStateForSession(nil)
+	if defaultState.deferUnmatchedExits || !defaultState.trackForkIdentity {
+		t.Fatalf("nil state policy = %+v, want default state behavior", defaultState)
+	}
+}
+
 func TestTraceEventPolicyIsSharedBySessionAndContext(t *testing.T) {
-	session := newTestTraceSession(traceSessionDeps{Opts: &cli.Options{}})
+	session := newTestTraceSession(traceSessionDeps{Opts: &cli.Options{
+		EventFormat: cli.EventFormatJSON,
+		FollowForks: true,
+	}})
 	if session.eventPolicy == nil || session.components.eventPolicy != session.eventPolicy {
 		t.Fatal("session components do not share the event policy snapshot")
 	}
 	deps := newSyscallEventContextDeps(session)
 	if deps.handlerOpts != session.eventPolicy.handlerOptions || deps.filter != session.eventPolicy.filter {
 		t.Fatal("event context does not consume the session event policy ports")
+	}
+	if !session.traceState().deferUnmatchedExits || !session.traceState().trackForkIdentity {
+		t.Fatal("session state does not consume the shared event policy")
 	}
 }

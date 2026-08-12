@@ -47,7 +47,7 @@ func TestNormalizedTargetPolicyReachesBPFAndGoState(t *testing.T) {
 	if cfg&bpfConfigFollowForks == 0 {
 		t.Fatalf("BPF config = %#x, want follow-forks bit", cfg)
 	}
-	if state := newTraceStateForSession(opts); !state.trackForkIdentity {
+	if state := newTraceStateForSession(newTraceEventPolicy(opts)); !state.trackForkIdentity {
 		t.Fatal("TraceState did not receive normalized follow-forks policy")
 	}
 }

@@ -23,7 +23,7 @@ func TestTraceStateRetiresTaskAfterLifecycleFree(t *testing.T) {
 }
 
 func TestTraceStateDoesNotRetainUnfollowedForkChild(t *testing.T) {
-	state := newTraceStateForSession(&cli.Options{FollowForks: false})
+	state := newTraceStateForSession(newTraceEventPolicy(&cli.Options{FollowForks: false}))
 
 	update := state.handleEnvelope(lifecycleEnvelopeForTask(200, 200, lifecycleFork, 200, 201))
 	if update.lifecycleTask == nil || update.lifecycleTask.TID != 201 {
