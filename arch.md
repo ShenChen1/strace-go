@@ -6574,3 +6574,42 @@ Impact note：影响 `bpf/strace.c` 两个 raw dispatcher、对应 BPF 生成对
 同 14.158 的结果相比，本地吞吐在约 1% 的运行波动内，没有形成可宣称的端到端增益；本阶段收益是将每条 raw enter/exit 路径的身份 helper 调用从两次降为一次，属于低风险固定成本收口。mmsg fragment 合并不在本阶段落地：当前 raw syscall 已收敛为两个全局 tracepoint dispatcher，fragment 只影响 `sendmmsg/recvmmsg` 的低频链路；后续若继续优化，必须单独建立 mmsg-specific workload 和 verifier/事件顺序回归。
 
 review 确认两个 raw dispatcher 都在 sigreturn early return 后只读取一次任务身份，并从同一 `u64` 快照派生 TGID/TID；没有改变精确 TID 过滤、pending resolver、tail-call index 或 fallback。生产路径仍无新增 procfs、ptrace、process memory read、锁、goroutine 或第二事件消费者。
+
+### 14.160 合并 recvmmsg 前两个 OUT fragment（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：当前 `recvmmsg` 的 OUT payload 链由 `exit_recvmmsg_base0 -> base1 -> base2 -> base3 -> mmsg_final` 组成；每个 fragment 都重新执行一次 pending lookup、exit 校验和 duration 计算。raw `sys_exit` 已经只有一个 dispatcher，因此这些 fragment 不再承担全局 tracepoint 扇出，但仍增加了该 syscall 的尾调用深度和状态访问次数。
+- Problem：`base0` 与 `base1` 都是同一 bounded slot capture 的小程序，却把两个相邻的事件阶段拆成了两个独立 BPF program；当前链路因此有一次不必要的 tail call 和一次重复 pending lookup。若直接把四个 slot 全部内联，程序规模和 verifier 状态会同时放大，失败回退也更难保持。
+- Goal：将前两个 fragment 合并为一个 `exit_recvmmsg_base01`，在同一次 pending lookup 中按 `slot0 -> slot1 -> base2` 顺序发出两个 `EVENT_FLAG_EXIT_FRAGMENT` 事件；保留 `base2 -> base3 -> mmsg_final` 链和任一 tail-call 失败时的 bounded final fallback，减少一个 exit ProgArray 槽位和一次 fragment tail call。
+- Non-goals：不改变 event v2/TLV ABI、slot synthetic arg、fragment 顺序、pending ownership、duration 语义、Go 合并逻辑、sendmmsg enter bytes 链、recvmsg kretprobe 链或用户可见格式；不引入循环、per-CPU scratch state、procfs、ptrace、process memory read、锁、goroutine 或第二消费者；不把四个 slot 合并到一个 verifier 热点。
+- Constraints：`exit_recvmmsg_base01` 必须只做一次 `EXIT_PROLOGUE`；两个 emitter 的调用顺序必须由 source gate 锁定；tail-call 失败必须在两个 fragment 已提交后发 final 并消费 pending；`exit_progs` 的 indices、最大槽位、Go bpf2go 绑定和 C/Go source gates 必须同步；程序加载和 mmsg semantic fixture 必须真实验证。
+
+Impact note：影响 `bpf/exit_dispatch.h`、`bpf/strace.c` 的 exit index、`bpf/runtime_abi.h` 的 `exit_progs` 容量、Go attacher/生成绑定和 mmsg source tests；不修改用户态事件状态机或其它 syscall family。该阶段只减少 recvmmsg 局部链路成本，不能宣称为全局 getpid 吞吐优化。
+
+#### 方案比较
+
+1. 保留四个独立 fragment：行为风险最低，但重复 pending lookup 和 tail call 成本不变，拒绝。
+2. 只合并 `base0/base1`，保留 `base2/base3/final`：减少一次状态访问和一次 tail call，程序规模可测，fallback 边界清晰，选择该方案。
+3. 将四个 slot 和 final 全部合并：槽位最少，但 verifier/instruction 热点最大，失败路径和事件顺序更难审计，拒绝。
+
+#### 状态契约
+
+- `exit_recvmmsg_base01` 只接受 `SYS_RECVMMSG`，一次解析 pending 后依次调用 slot0、slot1 emitter，再 tail-call 到 `EXIT_PROG_RECVMMSG_BASE2`。
+- slot0/slot1 emitter 即使对应 `vlen` 不存在，也保持既有 fragment event 的 bounded empty/payload 语义；不由合并程序改变 ret 或 payload flags。
+- 如果 `base2` tail call 失败，`base01` 负责发出唯一 final mmsg exit 并消费 pending；如果成功，后续 `base2/base3` 保持原有 fallback/消费职责。
+- `exit_progs` 重新编号为 `generic=0 ... path=9`，不存在旧 `base1` 空槽；Go `exitProgArrayEntries` 与 BPF enum 必须一一对应。
+
+#### 测试与验收
+
+- 先增加失败优先 source gate：要求 `exit_recvmmsg_base01` 存在，slot0 emitter 在 slot1 emitter 之前，二者都在 `EXIT_PROG_RECVMMSG_BASE2` tail call 之前；旧 `base0/base1` 函数和旧 ProgArray index 不得保留。
+- 实现后运行 focused mmsg/ProgArray/source tests、BPF 重新生成与真实 load、`go test ./...`、`go test -race ./...`、`go vet ./...`、build 和 `git diff --check`；再运行 mmsg semantic fixture、完整 `ebpf-semantic`/`ebpf-perf`、`small` 与 `upstream-reference`。
+- review 检查 `recvmmsg` 四个 slot 的 JSON section/order、失败返回和 pending cleanup 均保持；确认生产路径仍无 ptrace、procfs、用户态 tracee 内存读取、第二事件消费者或锁。
+
+#### 实际验收记录
+
+已完成。先增加失败优先的 recvmmsg source gate，旧实现按预期因缺少 `exit_recvmmsg_base01` 而失败；实现后 focused mmsg/source、ProgArray index、runtime ABI 和生成 binding 检查均通过。`exit_recvmmsg_base01` 只执行一次 `EXIT_PROLOGUE`，按 slot0、slot1 顺序提交 fragment，再 tail-call 到 base2；旧 `base0/base1` handler、Go binding 和 ProgArray index 均已删除并重新生成。
+
+真实 sudo 验证通过：BPF 对象成功加载，mmsg fixture 产生 16 个事件；`recvmmsg` 最终 exit 的 OUT bytes synthetic arg 按 `120,160,180,200` 顺序合并，四个 iovec slot、成功返回、截断标记和 pending cleanup 均通过语义 oracle。完整 `ebpf-semantic` 通过，主 fixture 为 205 个事件、104/101 enter/exit、6 个 lifecycle，非 leader attach 为 631/631 配对且 `orphan_exit=0`；reserve/copy/pending/mismatch/lifecycle-map-update/stale 计数均为 0。`ebpf-perf` 通过，Go decode 为 `314.20/499.40/622.80/860.40 ns/op`（最后一项 decoded payload 为 `16 B/1 alloc`），scalar/io/lifecycle/threads 为 `403.60/267.66/2.25/214.69 events/s`，所有错误计数为 0；原生 `small` 为 23 PASS；`upstream-reference` 为 117 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+新增 Python semantic oracle 单测覆盖正确顺序和乱序失败，14 项全部通过。review 确认 event v2/TLV ABI、用户态 fragment 合并、sendmmsg/recvmsg 链、失败返回 fallback 和 pending ownership 未改变；生产路径仍无 ptrace、procfs、用户态 tracee 内存读取、第二事件消费者、锁或 goroutine。合并后的 `exit_recvmmsg_base01` 对象真实加载成功，因此本阶段不继续扩大到 base2/base3 合并。

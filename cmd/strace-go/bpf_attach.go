@@ -117,17 +117,16 @@ const (
 )
 
 const (
-	exitProgGeneric       = 0
-	exitProgIovecBase     = 1
-	exitProgMsg           = 2
-	exitProgMmsgFinal     = 3
-	exitProgRecvmmsgBase0 = 4
-	exitProgRecvmmsgBase1 = 5
-	exitProgRecvmmsgBase2 = 6
-	exitProgRecvmmsgBase3 = 7
-	exitProgQuota         = 8
-	exitProgMountQuery    = 9
-	exitProgPath          = 10
+	exitProgGeneric        = 0
+	exitProgIovecBase      = 1
+	exitProgMsg            = 2
+	exitProgMmsgFinal      = 3
+	exitProgRecvmmsgBase01 = 4
+	exitProgRecvmmsgBase2  = 5
+	exitProgRecvmmsgBase3  = 6
+	exitProgQuota          = 7
+	exitProgMountQuery     = 8
+	exitProgPath           = 9
 )
 
 const (
@@ -205,8 +204,7 @@ func exitProgArrayEntries(objs *bpfObjects) []progArrayEntry {
 		{exitProgIovecBase, objs.ExitIovecBase},
 		{exitProgMsg, objs.ExitMsg},
 		{exitProgMmsgFinal, objs.ExitMmsgFinal},
-		{exitProgRecvmmsgBase0, objs.ExitRecvmmsgBase0},
-		{exitProgRecvmmsgBase1, objs.ExitRecvmmsgBase1},
+		{exitProgRecvmmsgBase01, objs.ExitRecvmmsgBase01},
 		{exitProgRecvmmsgBase2, objs.ExitRecvmmsgBase2},
 		{exitProgRecvmmsgBase3, objs.ExitRecvmmsgBase3},
 		{exitProgQuota, objs.ExitQuota},

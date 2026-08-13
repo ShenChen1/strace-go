@@ -31,8 +31,7 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"enter_mmsg_base2",
 		"enter_mmsg_base3",
 		"exit_msg",
-		"exit_recvmmsg_base0",
-		"exit_recvmmsg_base1",
+		"exit_recvmmsg_base01",
 		"exit_recvmmsg_base2",
 		"exit_recvmmsg_base3",
 		"recvmsg_progs",
@@ -95,10 +94,8 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"TraceKretprobeRecvmsgName",
 		"TraceKretprobeRecvmsgControl",
 		"TraceKretprobeRecvmsgFinal",
-		"ExitRecvmmsgBase0",
-		"objs.ExitRecvmmsgBase0",
-		"ExitRecvmmsgBase1",
-		"objs.ExitRecvmmsgBase1",
+		"ExitRecvmmsgBase01",
+		"objs.ExitRecvmmsgBase01",
 		"ExitRecvmmsgBase2",
 		"objs.ExitRecvmmsgBase2",
 		"ExitRecvmmsgBase3",
@@ -310,7 +307,7 @@ func TestBPFRecvmsgKretprobeChainSerializesFragments(t *testing.T) {
 func TestBPFRecvmmsgExitChainHasFinalFallback(t *testing.T) {
 	root := repoRootForTest(t)
 	source := readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h"))
-	for _, name := range []string{"exit_recvmmsg_base0", "exit_recvmmsg_base1"} {
+	for _, name := range []string{"exit_recvmmsg_base01", "exit_recvmmsg_base2", "exit_recvmmsg_base3"} {
 		body, ok := bpfFunctionBody(source, name)
 		if !ok {
 			t.Fatalf("exit_dispatch.h missing function body for %s", name)
@@ -321,6 +318,25 @@ func TestBPFRecvmmsgExitChainHasFinalFallback(t *testing.T) {
 		if !strings.Contains(body, "consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);") {
 			t.Fatalf("%s lacks pending cleanup after final fallback", name)
 		}
+	}
+}
+
+func TestBPFRecvmmsgBase01PreservesFragmentOrder(t *testing.T) {
+	root := repoRootForTest(t)
+	source := readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h"))
+	body, ok := bpfFunctionBody(source, "exit_recvmmsg_base01")
+	if !ok {
+		t.Fatal("exit_dispatch.h missing merged recvmmsg base01 handler")
+	}
+	base0 := strings.Index(body, "emit_recvmmsg_base0_exit_fragment_event_v2_direct")
+	base1 := strings.Index(body, "emit_recvmmsg_base1_exit_fragment_event_v2_direct")
+	next := strings.Index(body, "EXIT_PROG_RECVMMSG_BASE2")
+	if base0 < 0 || base1 < 0 || next < 0 || base0 > base1 || base1 > next {
+		t.Fatalf("recvmmsg base01 chain order is invalid: base0=%d base1=%d next=%d", base0, base1, next)
+	}
+	if strings.Contains(source, "int exit_recvmmsg_base0(") ||
+		strings.Contains(source, "int exit_recvmmsg_base1(") {
+		t.Fatal("recvmmsg base0/base1 handlers must be replaced by base01")
 	}
 }
 

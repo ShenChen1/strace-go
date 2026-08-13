@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 
 EVENT_FLAG_TRUNCATED = 4
+EVENT_FLAG_EXIT_FRAGMENT = 8
 FD_STATE_ARG_INDEX = 0xffff
 FD_STATE_SNAPSHOT_SIZE = 48
 
@@ -75,6 +76,26 @@ def has_large_write_truncation(events):
             user_len = section.get("user_len", 0)
             has_flag = (event.get("event_flags", 0) & EVENT_FLAG_TRUNCATED) != 0
             return has_flag and 0 < copied_len < user_len
+    return False
+
+
+def has_ordered_merged_exit_sections(
+    events, syscall, kind, direction, expected_arg_indices
+):
+    expected = list(expected_arg_indices)
+    for event in events:
+        if event.get("syscall") != syscall or event.get("event_type") != "exit":
+            continue
+        if event.get("event_flags", 0) & EVENT_FLAG_EXIT_FRAGMENT:
+            continue
+        observed = [
+            section.get("arg_index")
+            for section in event.get("payload_sections") or []
+            if section.get("kind") == kind
+            and section.get("direction") == direction
+        ]
+        if observed == expected:
+            return True
     return False
 
 

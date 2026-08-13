@@ -146,24 +146,23 @@ func TestExitProgIndicesMatchDispatchHeader(t *testing.T) {
 	header := readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h"))
 	runtimeABI := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
 	pairs := map[string]uint32{
-		"EXIT_PROG_GENERIC":        exitProgGeneric,
-		"EXIT_PROG_IOVEC_BASE":     exitProgIovecBase,
-		"EXIT_PROG_MSG":            exitProgMsg,
-		"EXIT_PROG_MMSG_FINAL":     exitProgMmsgFinal,
-		"EXIT_PROG_RECVMMSG_BASE0": exitProgRecvmmsgBase0,
-		"EXIT_PROG_RECVMMSG_BASE1": exitProgRecvmmsgBase1,
-		"EXIT_PROG_RECVMMSG_BASE2": exitProgRecvmmsgBase2,
-		"EXIT_PROG_RECVMMSG_BASE3": exitProgRecvmmsgBase3,
-		"EXIT_PROG_QUOTA":          exitProgQuota,
-		"EXIT_PROG_MOUNT_QUERY":    exitProgMountQuery,
-		"EXIT_PROG_PATH":           exitProgPath,
+		"EXIT_PROG_GENERIC":         exitProgGeneric,
+		"EXIT_PROG_IOVEC_BASE":      exitProgIovecBase,
+		"EXIT_PROG_MSG":             exitProgMsg,
+		"EXIT_PROG_MMSG_FINAL":      exitProgMmsgFinal,
+		"EXIT_PROG_RECVMMSG_BASE01": exitProgRecvmmsgBase01,
+		"EXIT_PROG_RECVMMSG_BASE2":  exitProgRecvmmsgBase2,
+		"EXIT_PROG_RECVMMSG_BASE3":  exitProgRecvmmsgBase3,
+		"EXIT_PROG_QUOTA":           exitProgQuota,
+		"EXIT_PROG_MOUNT_QUERY":     exitProgMountQuery,
+		"EXIT_PROG_PATH":            exitProgPath,
 	}
 	for name, val := range pairs {
 		if !strings.Contains(header, fmt.Sprintf("%s = %d", name, val)) {
 			t.Fatalf("exit_dispatch.h missing %s = %d", name, val)
 		}
 	}
-	if !strings.Contains(runtimeABI, "__uint(max_entries, 11)") {
+	if !strings.Contains(runtimeABI, "__uint(max_entries, 10)") {
 		t.Fatal("runtime_abi.h exit_progs map must have capacity for EXIT_PROG_PATH")
 	}
 }

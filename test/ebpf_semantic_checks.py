@@ -15,6 +15,7 @@ from ebpf_event_oracles import (
     has_gettimeofday_payload_sections,
     has_large_write_truncation,
     has_openat_path_section,
+    has_ordered_merged_exit_sections,
     has_path_section,
     has_sendmsg_cmsg_section,
     has_stat_payload_section,
@@ -442,6 +443,18 @@ def check_mmsg(context, failures):
                 ),
                 failures,
                 f"{syscall} {bytes_direction} buffer arg {arg_index} missing",
+            )
+        if syscall == "recvmmsg":
+            require(
+                has_ordered_merged_exit_sections(
+                    capture.events,
+                    syscall,
+                    "bytes",
+                    "out",
+                    (120, 160, 180, 200),
+                ),
+                failures,
+                "recvmmsg exit fragments were emitted out of order",
             )
 
 

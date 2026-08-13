@@ -12,6 +12,7 @@ from ebpf_event_oracles import (
     has_fd_state_section,
     has_open_family_path_and_fd_state,
     has_openat2_path_how_and_fd_state,
+    has_ordered_merged_exit_sections,
 )
 from ebpf_cloexec_suite import has_stale_cloexec_read
 from ebpf_suites import wait_for_debug_ready
@@ -92,6 +93,40 @@ class SuiteResultsTests(unittest.TestCase):
 
 
 class EventOracleTests(unittest.TestCase):
+    def test_accepts_ordered_merged_exit_sections(self):
+        events = [{
+            "event_type": "exit",
+            "syscall": "recvmmsg",
+            "event_flags": 0,
+            "payload_sections": [
+                {"kind": "bytes", "direction": "out", "arg_index": index}
+                for index in (120, 160, 180, 200)
+            ],
+        }]
+
+        self.assertTrue(
+            has_ordered_merged_exit_sections(
+                events, "recvmmsg", "bytes", "out", (120, 160, 180, 200)
+            )
+        )
+
+    def test_rejects_reordered_merged_exit_sections(self):
+        events = [{
+            "event_type": "exit",
+            "syscall": "recvmmsg",
+            "event_flags": 0,
+            "payload_sections": [
+                {"kind": "bytes", "direction": "out", "arg_index": index}
+                for index in (160, 120, 180, 200)
+            ],
+        }]
+
+        self.assertFalse(
+            has_ordered_merged_exit_sections(
+                events, "recvmmsg", "bytes", "out", (120, 160, 180, 200)
+            )
+        )
+
     def test_detects_stale_cloexec_read(self):
         events = [{"syscall": "read", "event_type": "exit", "ret": -9}]
         self.assertTrue(has_stale_cloexec_read(events))

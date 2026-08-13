@@ -142,8 +142,7 @@ type bpfProgramSpecs struct {
 	ExitMsg                       *ebpf.ProgramSpec `ebpf:"exit_msg"`
 	ExitPath                      *ebpf.ProgramSpec `ebpf:"exit_path"`
 	ExitQuota                     *ebpf.ProgramSpec `ebpf:"exit_quota"`
-	ExitRecvmmsgBase0             *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base0"`
-	ExitRecvmmsgBase1             *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base1"`
+	ExitRecvmmsgBase01            *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base01"`
 	ExitRecvmmsgBase2             *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base2"`
 	ExitRecvmmsgBase3             *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base3"`
 	TraceKretprobeRecvmsgControl  *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_control"`
@@ -338,8 +337,7 @@ type bpfPrograms struct {
 	ExitMsg                       *ebpf.Program `ebpf:"exit_msg"`
 	ExitPath                      *ebpf.Program `ebpf:"exit_path"`
 	ExitQuota                     *ebpf.Program `ebpf:"exit_quota"`
-	ExitRecvmmsgBase0             *ebpf.Program `ebpf:"exit_recvmmsg_base0"`
-	ExitRecvmmsgBase1             *ebpf.Program `ebpf:"exit_recvmmsg_base1"`
+	ExitRecvmmsgBase01            *ebpf.Program `ebpf:"exit_recvmmsg_base01"`
 	ExitRecvmmsgBase2             *ebpf.Program `ebpf:"exit_recvmmsg_base2"`
 	ExitRecvmmsgBase3             *ebpf.Program `ebpf:"exit_recvmmsg_base3"`
 	TraceKretprobeRecvmsgControl  *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_control"`
@@ -413,8 +411,7 @@ func (p *bpfPrograms) Close() error {
 		p.ExitMsg,
 		p.ExitPath,
 		p.ExitQuota,
-		p.ExitRecvmmsgBase0,
-		p.ExitRecvmmsgBase1,
+		p.ExitRecvmmsgBase01,
 		p.ExitRecvmmsgBase2,
 		p.ExitRecvmmsgBase3,
 		p.TraceKretprobeRecvmsgControl,

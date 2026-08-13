@@ -223,7 +223,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     } else if (is_single_msg_direct_syscall(p->sys_id)) {
         index = EXIT_PROG_MSG;
     } else if (is_mmsg_direct_syscall(p->sys_id)) {
-        index = (p->sys_id == SYS_RECVMMSG) ? EXIT_PROG_RECVMMSG_BASE0 : EXIT_PROG_MMSG_FINAL;
+        index = (p->sys_id == SYS_RECVMMSG) ? EXIT_PROG_RECVMMSG_BASE01 : EXIT_PROG_MMSG_FINAL;
     }
     bpf_tail_call(ctx, &exit_progs, index);
 
