@@ -7567,3 +7567,51 @@ Impact note：这是编译期源码 ownership 重构；`mmsg_enter_dispatch.h` �
 - 新 header 只拥有 mmsg bytes enter emission，不保存、不查找、不消费 pending，也不创建 map、ProgArray、scratch 状态或用户态消费者；普通 message enter header 仍只拥有普通 single/sendmsg/mmsg enter emitter。
 - source gate 已覆盖物理 ownership、facade/include 顺序、文件约束和跨文件 direct-TLV 行为；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
 - 本阶段仅修改 `bpf/syscall_msg_enter_direct_event_v2.h`、新增 `bpf/syscall_mmsg_bytes_enter_direct_event_v2.h`、`bpf/syscall_msg_direct_event_v2.h`、message source gate/helper 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.182 拆分 time emitter ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_time_direct_event_v2.h` 同时包含跨 family 复用的 time selector、`capture_time_struct_tlv_direct*` 公共 capture helper，以及 clock/settimeofday、itimer、gettimeofday 的 5 个 direct event emitter，文件为 489 行。
+- Problem：公共 predicate/capture 基础与具体 time event emission 物理混合；修改时间事件 payload 时容易触碰 sleep/futex/timex 共用 helper，文件也接近 500 行上限。
+- Goal：新增 `bpf/syscall_time_emit_direct_event_v2.h`，完整迁移 `emit_time_struct_exit_event_v2_direct`、`emit_time_struct_enter_event_v2_direct`、`emit_itimer_enter_event_v2_direct`、`emit_itimer_exit_event_v2_direct` 和 `emit_gettimeofday_exit_event_v2_direct`；原 header 保留公共 selector/capture，并 include 新模块。
+- Non-goals：不移动 `is_sys_exit_direct_syscall`、sleep/futex/timex predicate、公共 time capture helper；不改变事件 ABI、payload、flags、ringbuf、pending 访问、路由、ProgArray、attach、map、Go consumer、ptrace/procfs 路径或 Go 侧 tracee memory read。
+- Constraints：两个生产 header/function 保持不超过 500/80 行、参数不超过 5；source gate 必须验证 5 个 emitter 的排他 ownership、公共 capture helper 所在模块、facade include 和文件行数。
+
+Impact note：这是编译期源码 ownership 重构；`enter_dispatch.h`、`exit_dispatch.h` 的调用点和 `syscall_time_direct_event_v2.h` 的 include 名称不变，sleep/futex/timex 继续复用原公共基础。
+
+#### 方案比较
+
+1. 保留 489 行单文件并加注释：运行时零风险，但公共基础和具体 emission 继续混合且没有演进空间，拒绝。
+2. 原 header 保留 selector/capture，新增 emit header 并由原 header include：调用图和 ABI 不变，测试改动局部，选择该方案。
+3. 继续拆成 core/facade/emit 三层：边界更细，但当前公共基础仍是单一责任域，会扩大 include 和 source oracle 改动面，暂不增加这一层。
+
+#### 状态契约
+
+- 公共 header 继续拥有 `TIME_DIRECT_*` 常量、time/sleep/futex/timex 复用的 syscall selector，以及 `capture_time_struct_tlv_direct_from_ptr` 和 pending wrapper；这些定义仍在 emit header 展开前可见。
+- 5 个 emitter 的函数签名、payload capacity、success/error 条件、`EVENT_FLAG_PAYLOAD_TLV` 设置、header/body 初始化、dynptr discard/submit 和 `p->enter_time + duration` 时间戳计算与迁移前一致。
+- `syscall_time_direct_event_v2.h` 末尾 include `syscall_time_emit_direct_event_v2.h`；由于公共基础先定义，新的 emit header 不增加运行时 include、map、ProgArray 或 attach。
+- time-specific source tests 读取 facade + emit header 的组合；sleep/futex/timex 等只依赖公共 selector/capture 的测试仍直接验证基础 header，物理 ownership gate 单独验证 emitter 排他性。
+
+#### 测试与验收
+
+- 先加入失败优先 ownership/line-limit gate：目标 emit header 不存在时 focused test 按预期失败；实现后检查 5 个 emitter 只存在于新 header、公共 capture helper 仍在旧 header、facade include 新 header。
+- 更新 time/itimer source oracle 使用真实 facade + emit 组合，避免把物理文件位置误当成 direct-TLV 行为契约；保留既有 sleep/futex/timex、payload、pending 和 routing gates。
+- 实现后运行 focused time source tests、`sudo -n ./build.sh`、`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check`；再运行 `ebpf-semantic`、`ebpf-perf`、sudo `small` 与完整 upstream reference。
+- review 检查没有新增 BPF attach、map、ProgArray slot、消费者、锁、goroutine、ptrace/procfs fallback 或 tracee memory read，且 time/gettimeofday/itimer 事件调用图不变。
+
+#### 实际验证结果
+
+- 失败优先 gate 首次按预期失败：`bpf/syscall_time_emit_direct_event_v2.h` 尚不存在。实现 header 后 focused time/itimer/layout、sleep/futex、payload 和全量 Go source tests 通过；期间发现并修正两个 time-specific test 的旧物理文件假设，未修改产品逻辑。
+- 5 个 emitter 按原函数体完整迁移；`bpf/syscall_time_direct_event_v2.h` 从 489 行降为 190 行，新 header 为 305 行，均低于文件限制。
+- `sudo -n ./build.sh` 通过，clang 生成和真实 BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14182 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，生命周期 6；signalfd 16、sockopt 8、thread 22、mount-query/path 4/4、dirent 8、mmsg 16、fcntl 6、write-only 6；非 leader attach `695/695` 且 orphan 0，普通 attach fixture 的 orphan=1 仍为预期诊断；正常 fixture 的 ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map/stale 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `341.60 ns/op、0 B/op、0 allocs/op`，JSON writer `487.80 ns/op、0 B/op、0 allocs/op`，decoded writer `607.30 ns/op、0 B/op、0 allocs/op`，decoded payload writer `898.50 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `424.28/279.69/2.33/222.21 events/s`，所有运行时错误计数为 0。
+- 原生参考通过：sudo `small` 为 `23 PASS / 0 FAIL`；sudo `upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`。两个 XFAIL 仍是 `read-write.gen.test` 的有界 eBPF snapshot 不承诺 ptrace 大块 hexdump，以及 `mount_setattr.gen.test` 的 event-sourced FD/cwd 初始状态未知；没有新增失败或 XPASS。
+
+#### Review 结论
+
+- 未发现运行时行为回归：5 个 emitter 的 capture helper 调用、payload 上限、返回值条件、flags、事件 header/body、错误处理、时间戳和 ringbuf submit 与迁移前逐字一致；enter/exit dispatch 调用点没有变化。
+- 公共 time header 仍是 selector/capture owner，emit header 不拥有公共 predicate、pending map 操作或额外状态；sleep/futex/timex 仍能从同一 translation unit 复用公共 `capture_time_struct_tlv_direct*`，没有引入新的 include 运行时语义。
+- source gate 已覆盖物理 ownership、facade 顺序、公共 helper 归属、文件限制和行为组合视图；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
+- 本阶段仅修改 `bpf/syscall_time_direct_event_v2.h`、新增 `bpf/syscall_time_emit_direct_event_v2.h`、time source gate/helper 和两个 time-specific source tests，以及本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

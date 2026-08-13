@@ -48,7 +48,7 @@ func loadBPFSources(t *testing.T) bpfSourceGateSources {
 		signalDirectHeader:     readTextFile(t, filepath.Join(root, "bpf/syscall_signal_direct_event_v2.h")),
 		pathStatDirectHeader:   readTextFile(t, filepath.Join(root, "bpf/syscall_path_stat_direct_event_v2.h")),
 		readlinkDirectHeader:   readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_direct_event_v2.h")),
-		timeDirectHeader:       readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h")),
+		timeDirectHeader:       readTimeDirectEventSources(t),
 		fdStateHeader:          readTextFile(t, filepath.Join(root, "bpf/syscall_fd_state_direct_event_v2.h")),
 	}
 }
@@ -73,6 +73,13 @@ func readMsgDirectEventSources(t *testing.T) string {
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_enter_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_mmsg_bytes_enter_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_exit_direct_event_v2.h"))
+}
+
+func readTimeDirectEventSources(t *testing.T) string {
+	t.Helper()
+	root := repoRootForTest(t)
+	return readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_time_emit_direct_event_v2.h"))
 }
 
 func readAioDirectEventSources(t *testing.T) string {

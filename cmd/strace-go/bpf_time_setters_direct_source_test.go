@@ -1,16 +1,14 @@
 package main
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestBPFTimeSetterPayloadsUseDirectTLV(t *testing.T) {
-	root := repoRootForTest(t)
 	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
-	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
+	timeDirectHeader := readTimeDirectEventSources(t)
 
 	for _, constant := range []string{
 		"#define SYS_SETTIMEOFDAY 164",
