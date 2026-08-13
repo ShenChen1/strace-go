@@ -194,6 +194,20 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16384);
+    __type(key, u32);
+    __type(value, u32);
+} attach_exited_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16384);
+    __type(key, u32);
+    __type(value, u32);
+} attach_roots_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 2048);
     __type(key, u32);
     __type(value, u32);

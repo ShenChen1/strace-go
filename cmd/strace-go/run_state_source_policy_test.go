@@ -33,6 +33,7 @@ func TestTraceRunStateUsesEventSourcedAttachLifecycle(t *testing.T) {
 	for _, required := range []string{
 		"type traceAttachStateReader interface",
 		"AttachTargetsDone() bool",
+		"RefreshAttachTargets() error",
 		"attachState traceAttachStateReader",
 	} {
 		if !strings.Contains(source, required) {

@@ -6354,3 +6354,42 @@ Impact note：影响 `TraceState` 的 attach-root 生命周期状态、`traceSta
 已完成。失败优先的 attach-root、非 leader TID scope 和 terminating/lifecycle 回归测试先固定了旧行为缺口；实现后 focused tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14153 ./cmd/strace-go` 和 `git diff --check` 通过。真实 semantic/perf、原生 `small` 与 `upstream-reference` 也通过：semantic 205 个主事件、104/101 enter/exit、6 个 lifecycle，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map-update 为 0；Go decode `276.10 ns/op`、0 alloc，raw JSON `499.90 ns/op`、0 alloc，decoded payload `858.20 ns/op`、16 B/1 alloc，scalar/io/lifecycle/threads 为 414.03/266.04/2.21/209.90 events/s；small 23 PASS；reference 46 PASS、2 XFAIL、0 XPASS。
 
 review 确认运行期 attach 结束判定已从 `session_run.go` 移除 PID liveness probe，统一由单一 ringbuf consumer 更新的 `TraceState` 决定；非 leader thread 不会误结束 process attach，attach 到 TID 的生命周期不会被 TGID scope 丢弃。启动阶段 `target_bootstrap.go` 的一次性目标存在性校验仍保留，作为 attach filter 安装前的输入校验，不是运行期结束判定。未新增 ptrace、procfs、process memory read、锁或事件处理 goroutine；已知 residual risk 是 ringbuf 丢失 lifecycle 事件时会保持保守等待并由 stats 暴露，而不是伪造退出事实。
+
+### 14.154 用 BPF 退出事实 map 补强 attach 结束可靠性（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：14.153 已将 attach 结束判定收敛到 `TraceState` 消费的生命周期事件，删除了运行期 `kill(pid, 0)` 和 procfs 类外部 liveness 探测；但 ringbuf 是有界、可丢失的事件输出通道。
+- Problem：如果目标的 `sched_process_exit/free` 生命周期记录在高压下丢失，Go 端既没有退出事实也没有结束条件，attach 会话可能永久等待，最终 stats 也无法被正常输出。
+- Goal：BPF 在已跟踪任务退出时，以精确 TID 为 key 写入退出事实 HASH map；同一个 ringbuf 消费者通过窄读端口轮询该事实并清理 attach root，使结束判定不依赖单条可丢失的生命周期记录。
+- Non-goals：不改变事件 ABI、文本/JSON 输出顺序、pending syscall 配对、生命周期 ringbuf 主路径；不引入 ptrace、procfs、process memory read、pidfd、第二个消费者、锁或定时器；不把退出事实 map 扩展成通用进程状态数据库。
+- Constraints：为显式 attach root 注册精确 TID；key 必须是退出任务的精确 TID；follow-forks 子进程继续使用 filter/lifecycle 事件，不向退出事实 map 累积条目；新增 filter 时清理同 PID 的陈旧事实并注册 root，删除 filter 时同时清理 root/fact；BPF map 更新和 Go map 读取失败必须显式暴露；Go 只能由现有单一事件消费者读取该 map。
+
+#### 方案比较
+
+1. 只依赖 lifecycle ringbuf：实现最简单，但生命周期记录丢失时会永久等待，保留 14.153 的关键残余风险，拒绝。
+2. 使用 pidfd 或独立用户态 liveness 控制面：身份绑定更强，但引入额外 FD/轮询事实源，不再是纯 eBPF 事件状态模型，拒绝。
+3. BPF 精确 TID 退出事实 HASH map：退出事实不依赖 ringbuf 记录是否送达，读写边界窄，仍由现有事件消费者顺序消费，选择该方案。
+
+#### 状态契约
+
+- `attach_roots_map[tid] = 1` 记录显式 attach root，`attach_exited_map[tid] = 1` 是内核控制事实，不是用户输出事件；生命周期 ringbuf 事件仍先负责任务状态、输出和 deferred exit 处理。这样 fork storm 不会把每个子进程的退出事实永久堆积到同一张 map。
+- `TraceState.RefreshAttachTargets` 只检查当前 attach roots；读到退出事实后删除对应 root。生命周期事件随后到达时删除操作保持幂等。
+- map 事实只覆盖已经进入 filter 的任务；启动阶段 filter 安装前的 PID 存在性检查仍是输入校验，不由本阶段处理其竞态。
+- map 更新失败计入既有 `lifecycle_map_update_fail`；Go 读取失败立即终止本次运行并进入统一 finalizer，禁止静默等待。
+
+#### 测试与验收
+
+- 先增加失败优先测试：BPF 源码必须声明退出事实 map、在 `sched_process_exit` 清理前写入精确 TID，filter add/delete 必须处理陈旧事实；读端口必须区分命中、未命中和 lookup 错误；状态机必须在 map 命中后完成 attach、在读取失败时返回错误。
+- 实现后运行 focused BPF/read-port/state/run/composition tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build 和 `git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 与 `upstream-reference`。
+- review 检查运行期仍无 ptrace、procfs、process memory read、pidfd、锁或第二个事件消费者；确认 `attach_exited_map` 不被生命周期清理删除，避免刚写入的事实被 BPF 自己擦掉，同时 `attach_roots_map` 在 root 生命周期结束时显式清理。
+
+#### 实际验收记录
+
+已完成。失败优先测试先因缺少退出事实读端口、状态刷新错误契约和 BPF map/source contract 而失败；实现后 focused BPF/read-port/state/run 测试、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14154 ./cmd/strace-go` 和 `git diff --check` 均通过。
+
+退出事实 map 使用 `attach_roots_map` 绑定显式 attach root，`attach_exited_map` 只保存 root TID 的退出事实；BPF 在 `sched_process_exit` 的生命周期清理前写入 fact，Go 单一事件消费者通过 `RefreshAttachTargets` 读取，lookup 失败直接进入统一 finalizer。follow-forks 子进程不会写入 fact map，root 注册和陈旧 fact 在 add/delete/生命周期清理路径均有边界处理。
+
+真实运行时验证通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `306.30 ns/op、0 B/op、0 allocs/op`，raw JSON `503.50 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `676.30 ns/op、0 B/op、0 allocs/op`，decoded payload `962.40 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 为 393.12/264.96/2.18/216.63 events/s，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认运行期仍无 ptrace、procfs、process memory read、pidfd 或第二个事件消费者；启动阶段一次性 `syscall.Kill(pid, 0)` 仍仅用于 attach filter 安装前的输入存在性校验。新增 root map 避免 fork storm 填满退出事实 map，filter 更新失败会回滚 root 注册；生命周期事件仍是输出和任务状态主路径，退出事实只补强 attach 结束判定。

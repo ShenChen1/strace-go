@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/cilium/ebpf"
@@ -17,9 +18,16 @@ type traceStatsReader interface {
 	ReadStats(values *[]bpfBpfStats) error
 }
 
+// traceAttachExitReader reads exact TID exit facts written by BPF. It is
+// consumed only by the existing event-loop goroutine.
+type traceAttachExitReader interface {
+	IsExited(pid uint32) (bool, error)
+}
+
 type traceBPFReadPorts struct {
 	StackTraces traceStackTraceReader
 	Stats       traceStatsReader
+	AttachExits traceAttachExitReader
 }
 
 type bpfStackTraceReader struct {
@@ -30,6 +38,10 @@ type bpfStatsReader struct {
 	statsMap *ebpf.Map
 }
 
+type bpfAttachExitReader struct {
+	attachExited *ebpf.Map
+}
+
 func newTraceBPFReadPorts(objs *bpfObjects) traceBPFReadPorts {
 	if objs == nil {
 		return traceBPFReadPorts{}
@@ -37,6 +49,7 @@ func newTraceBPFReadPorts(objs *bpfObjects) traceBPFReadPorts {
 	return traceBPFReadPorts{
 		StackTraces: &bpfStackTraceReader{stackTraces: objs.StackTraces},
 		Stats:       &bpfStatsReader{statsMap: objs.StatsMap},
+		AttachExits: &bpfAttachExitReader{attachExited: objs.AttachExitedMap},
 	}
 }
 
@@ -60,5 +73,20 @@ func (r *bpfStatsReader) ReadStats(values *[]bpfBpfStats) error {
 	return r.statsMap.Lookup(uint32(0), values)
 }
 
+func (r *bpfAttachExitReader) IsExited(pid uint32) (bool, error) {
+	if r == nil || r.attachExited == nil {
+		return false, fmt.Errorf("attach exit map unavailable")
+	}
+	var value uint32
+	if err := r.attachExited.Lookup(pid, &value); err != nil {
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("lookup attach exit fact for pid %d: %w", pid, err)
+	}
+	return value != 0, nil
+}
+
 var _ traceStackTraceReader = (*bpfStackTraceReader)(nil)
 var _ traceStatsReader = (*bpfStatsReader)(nil)
+var _ traceAttachExitReader = (*bpfAttachExitReader)(nil)

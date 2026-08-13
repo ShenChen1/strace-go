@@ -94,7 +94,7 @@ func TestTraceBPFRuntimeNilBoundariesAreExplicit(t *testing.T) {
 		t.Fatal("nil runtime configure() returned nil error")
 	}
 	ports := runtime.readPorts()
-	if ports.StackTraces != nil || ports.Stats != nil {
+	if ports.StackTraces != nil || ports.Stats != nil || ports.AttachExits != nil {
 		t.Fatalf("nil runtime read ports = %+v, want empty", ports)
 	}
 }

@@ -1,5 +1,12 @@
 package main
 
+import (
+	"errors"
+	"fmt"
+)
+
+var errTraceAttachExitReaderUnavailable = errors.New("attach exit reader unavailable")
+
 type TaskState struct {
 	TID        uint32
 	TGID       uint32
@@ -30,6 +37,36 @@ func (st *TraceState) seedAttachTargets(pids []int) {
 
 func (st *TraceState) AttachTargetsDone() bool {
 	return st == nil || len(st.attachTargets) == 0
+}
+
+func (st *TraceState) setAttachExitReader(reader traceAttachExitReader) {
+	if st == nil {
+		return
+	}
+	st.attachExitReader = reader
+	st.attachExitConfigured = true
+}
+
+func (st *TraceState) RefreshAttachTargets() error {
+	if st == nil || len(st.attachTargets) == 0 {
+		return nil
+	}
+	if st.attachExitReader == nil {
+		if st.attachExitConfigured {
+			return errTraceAttachExitReaderUnavailable
+		}
+		return nil
+	}
+	for pid := range st.attachTargets {
+		exited, err := st.attachExitReader.IsExited(pid)
+		if err != nil {
+			return fmt.Errorf("refresh attach target %d: %w", pid, err)
+		}
+		if exited {
+			delete(st.attachTargets, pid)
+		}
+	}
+	return nil
 }
 
 func (st *TraceState) markAttachTargetExited(pid uint32, tid uint32) {

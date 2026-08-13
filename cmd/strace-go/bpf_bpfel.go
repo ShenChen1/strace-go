@@ -163,6 +163,8 @@ type bpfProgramSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfMapSpecs struct {
 	ArmForkMap       *ebpf.MapSpec `ebpf:"arm_fork_map"`
+	AttachExitedMap  *ebpf.MapSpec `ebpf:"attach_exited_map"`
+	AttachRootsMap   *ebpf.MapSpec `ebpf:"attach_roots_map"`
 	ConfigMap        *ebpf.MapSpec `ebpf:"config_map"`
 	EnterProgs       *ebpf.MapSpec `ebpf:"enter_progs"`
 	Events           *ebpf.MapSpec `ebpf:"events"`
@@ -217,6 +219,8 @@ func (o *bpfObjects) Close() error {
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfMaps struct {
 	ArmForkMap       *ebpf.Map `ebpf:"arm_fork_map"`
+	AttachExitedMap  *ebpf.Map `ebpf:"attach_exited_map"`
+	AttachRootsMap   *ebpf.Map `ebpf:"attach_roots_map"`
 	ConfigMap        *ebpf.Map `ebpf:"config_map"`
 	EnterProgs       *ebpf.Map `ebpf:"enter_progs"`
 	Events           *ebpf.Map `ebpf:"events"`
@@ -237,6 +241,8 @@ type bpfMaps struct {
 func (m *bpfMaps) Close() error {
 	return _BpfClose(
 		m.ArmForkMap,
+		m.AttachExitedMap,
+		m.AttachRootsMap,
 		m.ConfigMap,
 		m.EnterProgs,
 		m.Events,

@@ -162,18 +162,56 @@ func (r *traceBPFRuntime) disarmNextFork() error {
 }
 
 func (r *traceBPFRuntime) addFilterPID(pid uint32) error {
-	if r == nil || r.objects == nil || r.objects.FilterMap == nil {
+	if r == nil || r.objects == nil || r.objects.FilterMap == nil ||
+		r.objects.AttachExitedMap == nil || r.objects.AttachRootsMap == nil {
 		return fmt.Errorf("BPF filter map is unavailable")
 	}
-	return r.objects.FilterMap.Update(pid, uint32(1), 0)
+	if err := r.objects.AttachExitedMap.Delete(pid); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+		return fmt.Errorf("clear attach exit fact for pid %d: %w", pid, err)
+	}
+	if err := r.objects.AttachRootsMap.Update(pid, uint32(1), 0); err != nil {
+		return fmt.Errorf("register attach root %d: %w", pid, err)
+	}
+	if err := r.objects.FilterMap.Update(pid, uint32(1), 0); err != nil {
+		return errors.Join(
+			fmt.Errorf("add filter pid %d: %w", pid, err),
+			deleteAttachRoot(r.objects.AttachRootsMap, pid),
+		)
+	}
+	return nil
 }
 
 func (r *traceBPFRuntime) deleteFilterPID(pid uint32) error {
-	if r == nil || r.objects == nil || r.objects.FilterMap == nil {
+	if r == nil || r.objects == nil {
 		return nil
 	}
-	if err := r.objects.FilterMap.Delete(pid); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
-		return fmt.Errorf("delete filter pid %d: %w", pid, err)
+	var filterErr error
+	if r.objects.FilterMap != nil {
+		if err := r.objects.FilterMap.Delete(pid); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+			filterErr = fmt.Errorf("delete filter pid %d: %w", pid, err)
+		}
+	}
+	var rootErr error
+	if r.objects.AttachRootsMap != nil {
+		if err := r.objects.AttachRootsMap.Delete(pid); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+			rootErr = fmt.Errorf("delete attach root %d: %w", pid, err)
+		}
+	}
+	var exitFactErr error
+	if r.objects.AttachExitedMap != nil {
+		if err := r.objects.AttachExitedMap.Delete(pid); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+			exitFactErr = fmt.Errorf("delete attach exit fact for pid %d: %w", pid, err)
+		}
+	}
+	return errors.Join(filterErr, rootErr, exitFactErr)
+}
+
+func deleteAttachRoot(roots *ebpf.Map, pid uint32) error {
+	if roots == nil {
+		return nil
+	}
+	if err := roots.Delete(pid); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+		return fmt.Errorf("rollback attach root %d: %w", pid, err)
 	}
 	return nil
 }

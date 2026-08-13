@@ -108,6 +108,7 @@ static __always_inline void clear_armed_fork_parent(u32 pid)
 static __always_inline void clear_process_lifecycle_state(u32 pid)
 {
     bpf_map_delete_elem(&filter_map, &pid);
+    bpf_map_delete_elem(&attach_roots_map, &pid);
     bpf_map_delete_elem(&pending_exec_map, &pid);
     bpf_map_delete_elem(&main_exited_map, &pid);
     clear_armed_fork_parent(pid);
@@ -126,6 +127,7 @@ static __always_inline void clear_lifecycle_task_state(u32 pid, u32 tid)
             bpf_map_delete_elem(&pending_exec_map, &pid);
         }
         bpf_map_delete_elem(&filter_map, &tid);
+        bpf_map_delete_elem(&attach_roots_map, &tid);
         return;
     }
 

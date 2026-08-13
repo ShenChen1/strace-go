@@ -71,6 +71,7 @@ func composeTraceSession(
 	if config.outputPolicy != nil {
 		state.seedAttachTargets(config.outputPolicy.AttachPIDs())
 	}
+	state.setAttachExitReader(bootstrap.bpfReads.AttachExits)
 	return newTraceSession(traceSessionDeps{
 		HasCommand:    bootstrap.hasCommand,
 		CommandWaiter: bootstrap.commandWaiter,

@@ -73,16 +73,18 @@ type TraceState struct {
 	pendingSyscalls     map[uint32]*pendingSyscallState
 	// reusablePending is owned by the single event consumer; entries are
 	// returned only after the router finishes the update that owns them.
-	reusablePending    []*pendingSyscallState
-	reusableUnfinished []unfinishedSyscallView
-	pendingExits       map[uint32]pendingExitState
-	pendingExecArgs    map[int]string
-	suspendedSyscalls  map[int]string
-	tasks              map[uint32]*TaskState
-	pendingForks       map[uint32]pendingForkState
-	unqueuedUnfinished map[uint32]struct{}
-	inFlightUnfinished map[uint32]struct{}
-	attachTargets      map[uint32]struct{}
+	reusablePending      []*pendingSyscallState
+	reusableUnfinished   []unfinishedSyscallView
+	pendingExits         map[uint32]pendingExitState
+	pendingExecArgs      map[int]string
+	suspendedSyscalls    map[int]string
+	tasks                map[uint32]*TaskState
+	pendingForks         map[uint32]pendingForkState
+	unqueuedUnfinished   map[uint32]struct{}
+	inFlightUnfinished   map[uint32]struct{}
+	attachTargets        map[uint32]struct{}
+	attachExitReader     traceAttachExitReader
+	attachExitConfigured bool
 }
 
 type traceStateEventKind uint8

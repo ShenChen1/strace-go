@@ -119,4 +119,19 @@ static __always_inline int is_lifecycle_task_tracked(u32 pid, u32 tid)
     return 0;
 }
 
+static __always_inline void mark_attach_task_exited(u32 tid)
+{
+    if (tid == 0) {
+        return;
+    }
+    u32 *root = bpf_map_lookup_elem(&attach_roots_map, &tid);
+    if (!root) {
+        return;
+    }
+    u32 value = 1;
+    if (bpf_map_update_elem(&attach_exited_map, &tid, &value, BPF_ANY) != 0) {
+        record_lifecycle_map_update_fail();
+    }
+}
+
 #endif

@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"syscall"
 	"time"
@@ -30,6 +31,7 @@ type traceClock interface {
 
 type traceAttachStateReader interface {
 	AttachTargetsDone() bool
+	RefreshAttachTargets() error
 }
 
 type systemTraceClock struct{}
@@ -82,7 +84,9 @@ func (s *traceSession) run() error {
 	var rec ringbuf.Record
 
 	for {
-		state.collect(commandExit)
+		if err := state.collect(commandExit); err != nil {
+			return errors.Join(err, s.finishRun())
+		}
 		if state.done() {
 			return errors.Join(eventReader.DrainAfterDone(&rec, s.exitDrainGrace()), s.finishRun())
 		}
@@ -122,9 +126,9 @@ func newTraceRunState(deps traceRunStateDeps) traceRunState {
 	return state
 }
 
-func (st *traceRunState) collect(commandExit *TraceCommandExitHandler) {
+func (st *traceRunState) collect(commandExit *TraceCommandExitHandler) error {
 	if st == nil || st.clock == nil || (len(st.attachPids) > 0 && st.attachState == nil) {
-		return
+		return nil
 	}
 	now := st.now()
 	if st.cmdDone != nil {
@@ -147,14 +151,18 @@ func (st *traceRunState) collect(commandExit *TraceCommandExitHandler) {
 	}
 	if len(st.attachPids) == 0 {
 		st.attachExited = true
-		return
+		return nil
 	}
 	if st.attachExited {
-		return
+		return nil
+	}
+	if err := st.attachState.RefreshAttachTargets(); err != nil {
+		return fmt.Errorf("refresh attach targets: %w", err)
 	}
 	if st.attachState.AttachTargetsDone() {
 		st.attachExited = true
 	}
+	return nil
 }
 
 func (st traceRunState) done() bool {
