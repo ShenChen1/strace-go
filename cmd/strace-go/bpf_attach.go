@@ -145,6 +145,11 @@ type progArrayEntry struct {
 	prog  *ebpf.Program
 }
 
+// progArrayWriter is the minimal map operation needed to populate a tail-call array.
+type progArrayWriter interface {
+	Put(key, value interface{}) error
+}
+
 func enterProgArrayEntries(objs *bpfObjects) []progArrayEntry {
 	return []progArrayEntry{
 		{enterProgTerminating, objs.EnterTerminating},
@@ -226,42 +231,32 @@ func mmsgBytesProgArrayEntries(objs *bpfObjects) []progArrayEntry {
 	}
 }
 
-// populateProgArrays fills the tail call prog arrays before any raw syscall
-// tracepoint is attached; an empty slot would silently drop that family.
-func (a *bpfAttacher) populateProgArrays() error {
-	for _, entry := range enterProgArrayEntries(a.objs) {
+// putProgArrayEntries validates and writes one complete tail-call array.
+func putProgArrayEntries(name string, writer progArrayWriter, entries []progArrayEntry) error {
+	for _, entry := range entries {
 		if entry.prog == nil {
-			return fmt.Errorf("nil enter handler for prog array index %d", entry.index)
+			return fmt.Errorf("%s[%d]: nil handler", name, entry.index)
 		}
-		if err := a.objs.EnterProgs.Put(entry.index, entry.prog); err != nil {
-			return fmt.Errorf("enter_progs[%d]: %w", entry.index, err)
-		}
-	}
-	for _, entry := range mmsgBytesProgArrayEntries(a.objs) {
-		if entry.prog == nil {
-			return fmt.Errorf("mmsg_bytes_progs[%d]: nil handler", entry.index)
-		}
-		if err := a.objs.MmsgBytesProgs.Put(entry.index, entry.prog); err != nil {
-			return fmt.Errorf("mmsg_bytes_progs[%d]: %w", entry.index, err)
-		}
-	}
-	for _, entry := range exitProgArrayEntries(a.objs) {
-		if entry.prog == nil {
-			return fmt.Errorf("nil exit handler for prog array index %d", entry.index)
-		}
-		if err := a.objs.ExitProgs.Put(entry.index, entry.prog); err != nil {
-			return fmt.Errorf("exit_progs[%d]: %w", entry.index, err)
-		}
-	}
-	for _, entry := range recvmsgProgArrayEntries(a.objs) {
-		if entry.prog == nil {
-			return fmt.Errorf("nil recvmsg handler for prog array index %d", entry.index)
-		}
-		if err := a.objs.RecvmsgProgs.Put(entry.index, entry.prog); err != nil {
-			return fmt.Errorf("recvmsg_progs[%d]: %w", entry.index, err)
+		if err := writer.Put(entry.index, entry.prog); err != nil {
+			return fmt.Errorf("%s[%d]: %w", name, entry.index, err)
 		}
 	}
 	return nil
+}
+
+// populateProgArrays fills the tail call prog arrays before any raw syscall
+// tracepoint is attached; an empty slot would silently drop that family.
+func (a *bpfAttacher) populateProgArrays() error {
+	if err := putProgArrayEntries("enter_progs", a.objs.EnterProgs, enterProgArrayEntries(a.objs)); err != nil {
+		return err
+	}
+	if err := putProgArrayEntries("mmsg_bytes_progs", a.objs.MmsgBytesProgs, mmsgBytesProgArrayEntries(a.objs)); err != nil {
+		return err
+	}
+	if err := putProgArrayEntries("exit_progs", a.objs.ExitProgs, exitProgArrayEntries(a.objs)); err != nil {
+		return err
+	}
+	return putProgArrayEntries("recvmsg_progs", a.objs.RecvmsgProgs, recvmsgProgArrayEntries(a.objs))
 }
 
 // lifecycleTracepointSpecs lists the sched lifecycle programs required by the

@@ -6872,3 +6872,45 @@ Impact note：影响 `bpf/exit_dispatch.h`、`bpf/runtime_abi.h`、`cmd/strace-g
 调用链 review 确认 `base01` 只提交 slot0/slot1，`base23` 在一次 `EXIT_PROLOGUE` 后按 slot2/slot3 顺序提交 fragment，`mmsg_final` 仍独占最终 mmsghdr/timeout event 与 pending 消费；base01/base23/final 的 tail-call 失败 fallback 仍各自只发一个 bounded final event 并清理 pending。C enum、runtime map 容量、Go 常量、ProgArray 装载和 bpf2go 生成字段均为连续 0..8、9 个槽。
 
 变更未触及 sendmmsg enter bytes、recvmsg kretprobe、用户态 fragment 合并或 event v2/TLV ABI；生产路径仍无 ptrace、procfs、用户态 tracee 内存读取、锁、第二消费者或新 runtime mode。保留的旧 `base2/base3` 名称仅是 slot emitter/helper 名称，不再是独立 BPF program 或 ProgArray entry。
+
+### 14.167 ProgArray 装载端口与缺槽失败契约（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpfAttacher.populateProgArrays` 在 raw tracepoint attach 前向 `enter_progs`、`mmsg_bytes_progs`、`exit_progs` 和 `recvmsg_progs` 写入 handler。四段循环都重复 nil handler 检查、`Map.Put` 和错误前缀；现有测试只检查静态 index 列表，没有验证写入顺序、缺槽或底层 map 写失败。
+- Problem：ProgArray 是 dispatcher 正确性的装载边界。若某个 handler 没有写入、写入顺序漂移或 `Put` 错误被包装不清，程序可能在 verifier 已通过的情况下运行但静默丢失一个 syscall family；直接依赖真实 eBPF map 的测试又会把可确定的 Go 装载契约变成权限/内核环境问题。
+- Goal：定义最小的 `progArrayWriter` 端口，把四类 ProgArray 的统一写入逻辑隔离成一个可注入函数；成功时按输入顺序写入全部 entry，遇到 nil handler 或 `Put` 错误立即停止并返回带 map 名称与 index 的明确错误。
+- Non-goals：不改变 C enum、ProgArray 容量、Go index、生成 binding、raw tracepoint attachment、tail-call fallback、BPF event ABI、filter/lifecycle、性能路径或 CLI；不把 eBPF map 抽象成运行期可替换后端，也不新增 compat/ptrace/procfs 路径。
+- Constraints：接口只覆盖 `Put(key, value) error`；生产实现仍是 `*ebpf.Map`；写入顺序由 entry slice 保持；文件和函数继续满足 500/80 行限制；测试必须包含 happy path、nil handler 和 writer failure。
+
+Impact note：只影响 `cmd/strace-go/bpf_attach.go` 的 ProgArray 装载边界及其 Go 单测，不改变四个 `*_ProgArrayEntries` 的 index 数据，也不触及 BPF/C 代码。
+
+#### 方案比较
+
+1. 保留四段直接 `Map.Put` 循环：改动最小，但重复错误处理且无法用 fake 验证写入契约，拒绝。
+2. 为整个 `bpfAttacher` 引入可替换 map 后端：测试能力最强，但把 session 级 eBPF 资源所有权扩大到不必要的接口，拒绝。
+3. 为单一 ProgArray 写入函数定义 `Put` 端口：抽象范围小，生产仍直接使用 `*ebpf.Map`，可确定验证顺序/nil/error，选择该方案。
+
+#### 状态契约
+
+- `putProgArrayEntries` 只接收 map 名称、writer 和 entries；它不创建 map、不重排 index、不吞错误。
+- 每个 entry 先检查 `prog != nil`，再调用 writer；失败后后续 entry 不再写入，调用方可以在 attach 前终止 session。
+- `populateProgArrays` 仍按 `enter -> mmsg_bytes -> exit -> recvmsg` 顺序装载；因此 raw tracepoint attach 仍发生在所有 handler 已写入之后。
+
+#### 测试与验收
+
+- 先增加失败优先单测：fake writer 应记录完整写入顺序；nil handler 应在对应 index 返回错误且不写入；writer failure 应保留 map 名称/index 并停止后续写入。
+- 实现后运行 focused attach/tail-call tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build、`git diff --check`；BPF semantic/perf/reference 只需确认装载边界未改变，仍按阶段门禁复测。
+- review 必须确认接口没有泄露到 session 其它层、生产路径仍只使用 `*ebpf.Map`，且没有因测试 fake 引入第二事件消费者或任何 procfs/ptrace 代码。
+
+#### 实际验收记录
+
+先加入 `TestPutProgArrayEntriesWritesInOrder`、`TestPutProgArrayEntriesRejectsNilHandler` 和 `TestPutProgArrayEntriesStopsAfterWriterFailure`；旧实现按预期因缺少 `putProgArrayEntries` 而编译失败。实现后新增的 `progArrayWriter` 只暴露 `Put(key, value) error`，四个 map 均经统一 helper 装载，并增加 `TestPopulateProgArraysPreservesMapOrder` 锁定 `enter -> mmsg_bytes -> exit -> recvmsg` 顺序。
+
+focused attach/tail-call tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o strace-go ./cmd/strace-go` 和 `git diff --check` 均通过。真实 `ebpf-semantic` 通过：主 fixture 205 个事件、104/101 enter/exit，非 leader attach 1503/1503 配对，`orphan_exit=0`，ringbuf/pending/lifecycle 错误计数均为 0。`ebpf-perf` 通过：decode `286.10 ns/op、0 B/op、0 allocs/op`，payload decode `899.30 ns/op、16 B/1 alloc`，scalar/io/lifecycle/threads 为 `415.76/276.32/2.27/219.19 events/s`，所有运行期错误计数为 0。`small` 为 23 PASS、0 FAIL；原生 reference 沿用本阶段前一提交已验证的 117 PASS、2 个既定 XFAIL，本阶段未修改 ABI/formatter，未重复执行。
+
+#### Review
+
+`populateProgArrays` 仍在任何 raw tracepoint attach 前执行，四个 map 的生产对象仍直接是生成 binding 中的 `*ebpf.Map`；接口只用于单元测试和统一错误边界，没有泄露到 session composition、事件循环或 handler。写入 helper 不排序、不吞错：nil handler 在 `Put` 前失败，writer 错误带 map 名称/index 并停止后续 entry，确保缺槽不会静默运行。
+
+本阶段没有新增 ptrace、procfs、用户态 tracee 内存读取、锁、第二事件消费者或 runtime mode；BPF index、map 容量、生成 binding、event ABI 和 tail-call fallback 均未改变。
