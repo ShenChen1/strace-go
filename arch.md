@@ -6959,3 +6959,46 @@ focused duration/dispatcher source tests、`go test ./...`、`go test -race ./..
 `pending_syscall_duration` 是 `static __always_inline`，只读取已解析 pending 的 `enter_time` 和单调时钟；零 enter time 与时钟倒退都返回 0。`EXIT_PROLOGUE` 在 pending identity 校验成功后计算一次局部 duration，generic/path/iovec/msg/mmsg/recvmmsg/quota/mount handler 直接复用；recvmsg kretprobe 的 name/control/final fragment 也复用同一 helper。fallback 仍在 resolver/validator 成功后计算 duration，没有引入伪造 pending。
 
 本阶段没有新增 map、scratch 状态、锁、第二事件消费者、ptrace、procfs 或用户态 tracee 内存读取；pending cleanup、tail-call fallback、event v2/TLV ABI、Go formatter 和生命周期逻辑未改变。首次编译失败已补齐所有 `EXIT_PROLOGUE` 消费者，源码扫描不再存在旧的 `if (p->enter_time > 0)` duration block。
+
+### 14.169 收口 recvmsg kretprobe final 身份快照（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：raw enter/exit dispatcher 和 recvmsg kretprobe 的 name/control 程序都从一次 `bpf_get_current_pid_tgid()` 快照派生 TID/TGID；`trace_kretprobe_recvmsg_final` 仍分别调用一次 helper 生成 tid 和 pid。
+- Problem：final fragment 是 recvmsg 尾链的最终消费点，却保留重复的身份读取；这增加一次固定 helper 成本，也让同一函数的 `(pid, tid)` 事实可能来自两个不同读取点，和其它 dispatcher 的身份快照契约不一致。
+- Goal：让 recvmsg final 使用一个 `pid_tgid` 快照派生 tid/pid，并用 source gate 固定该函数只调用一次身份 helper；不改变 pending key、消费 ownership 或 fragment 输出。
+- Non-goals：不合并 recvmsg kretprobe 程序、不改变 tail-call 链、duration helper、pending map、event v2/TLV、Go 合并逻辑、文本输出、lifecycle 或任何 ptrace/procfs 行为。
+- Constraints：只修改 `trace_kretprobe_recvmsg_final` 的局部身份读取；必须在 pending lookup 前完成快照；name/control/dispatch 的现有单次读取保持不变；函数和文件限制不变。
+
+Impact note：影响 `bpf/strace.c` 的 recvmsg final kretprobe 和 runtime source test，不影响 raw syscall dispatcher 或用户态状态机。
+
+#### 方案比较
+
+1. 保留两次 helper 调用：零行为改动，但固定成本和身份事实不一致，拒绝。
+2. 通过 tail-call 临时 map 传递身份：可跨 fragment 复用，但引入新可变状态和 verifier/lifecycle 风险，拒绝。
+3. final 函数入口一次快照并派生 tid/pid：改动局部、无新状态，和现有 dispatcher 契约一致，选择该方案。
+
+#### 状态契约
+
+- `trace_kretprobe_recvmsg_final` 的 `pid_tgid` 是当前 kretprobe 任务身份唯一来源；`tid` 继续作为 pending map key，`pid` 继续用于 `consume_pending_syscall`。
+- pending lookup、duration、最终 event 和消费顺序不变；只有身份 helper 的调用次数和派生方式改变。
+
+#### 测试与验收
+
+- 先增加失败优先 source gate：final 函数必须存在一次 `u64 pid_tgid = bpf_get_current_pid_tgid()`，并从该快照派生 tid/pid，函数体内 helper 调用次数必须为 1。
+- 实现后运行 focused source tests、`sudo -n ./build.sh`、Go 全量/race/vet/build/diff、`ebpf-semantic`、`ebpf-perf`、`small` 和完整 upstream reference。
+- review 必须确认 recvmsg name/control/dispatch 链、pending cleanup、duration 和用户态 fragment 合并没有变化，生产路径没有新增 map/锁/消费者或 procfs/ptrace 读取。
+
+#### 实际验收记录
+
+- 实现前运行失败优先 source gate，按预期因 final 函数仍缺少 `pid_tgid` 快照而失败；实现后 focused source tests 通过。
+- `sudo -n ./build.sh` 通过；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过。
+- `ebpf-semantic` 通过：主语义 workload 205 个事件，enter/exit 为 104/101，lifecycle 为 6；非 leader attach enter/exit 为 971/971；mmsg 为 16；ringbuf reserve/copy、pending update、orphan exit、pending mismatch、lifecycle map update 错误均为 0。
+- `ebpf-perf` 通过：Go decode 284.90 ns/op、JSON event 511.20 ns/op、JSON decoded 646.20 ns/op，均为 0 alloc；payload decode 930.30 ns/op、16 B/op、1 alloc/op；scalar/io/lifecycle/threads 吞吐为 396.54/273.54/2.25/217.38 events/s，错误计数均为 0。
+- `small` 通过：23 PASS；recvmsg、msg_name、msg_control、mmsg、recvmmsg-timeout 五个直接 upstream reference 均 PASS；完整 upstream reference 为 117 PASS、2 XFAIL、0 FAIL、0 XPASS。
+
+#### Review
+
+- `trace_kretprobe_recvmsg_final` 在 pending lookup 前读取一次 `pid_tgid`，从同一快照派生 `tid` 和 `pid`；没有新增 map、scratch 状态、锁、消费者、ptrace、procfs 或用户态 tracee 内存读取。
+- recvmsg dispatch/name/control 的 tail-call 链、pending key、duration helper、fragment 字段、最终 event 提交和 cleanup/consume 顺序均未改变；本次修改只收口身份读取契约。
+- source gate 只约束稳定的 BPF 源码契约，不把人类文本输出作为 eBPF 主 oracle；既有 semantic/perf/upstream 结果覆盖行为和回归风险。

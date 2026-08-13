@@ -259,8 +259,9 @@ int trace_kretprobe_recvmsg_control(struct pt_regs *ctx) {
 SEC("kretprobe/__sys_recvmsg")
 int trace_kretprobe_recvmsg_final(struct pt_regs *ctx) {
     s64 ret_value = (s64)BPF_CORE_READ(ctx, ax);
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 tid = (u32)pid_tgid;
+    u32 pid = (u32)(pid_tgid >> 32);
 
     struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
     if (!p || p->sys_id != SYS_RECVMSG) return 0;

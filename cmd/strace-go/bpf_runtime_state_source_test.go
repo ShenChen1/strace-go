@@ -183,6 +183,28 @@ func TestBPFRawDispatchersSnapshotTaskIdentityOnce(t *testing.T) {
 	}
 }
 
+func TestBPFRecvmsgFinalSnapshotsTaskIdentityOnce(t *testing.T) {
+	source := loadBPFSources(t).straceSource
+	body, ok := bpfFunctionBody(source, "trace_kretprobe_recvmsg_final")
+	if !ok {
+		t.Fatal("strace.c missing trace_kretprobe_recvmsg_final body")
+	}
+	if !strings.Contains(body, "u64 pid_tgid = bpf_get_current_pid_tgid();") {
+		t.Fatal("recvmsg final must snapshot pid/tid identity")
+	}
+	if got := strings.Count(body, "bpf_get_current_pid_tgid()"); got != 1 {
+		t.Fatalf("recvmsg final calls bpf_get_current_pid_tgid %d times, want 1", got)
+	}
+	for _, snippet := range []string{
+		"u32 tid = (u32)pid_tgid;",
+		"u32 pid = (u32)(pid_tgid >> 32);",
+	} {
+		if !strings.Contains(body, snippet) {
+			t.Fatalf("recvmsg final must derive identity from snapshot: missing %q", snippet)
+		}
+	}
+}
+
 func TestBPFExitDispatcherDefersPendingResolveToHandler(t *testing.T) {
 	source := loadBPFSources(t).straceSource
 	exitBody, ok := bpfFunctionBody(source, "trace_sys_exit")
