@@ -106,6 +106,7 @@ func readCombinedBPFSources(t *testing.T) string {
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/runtime_stats.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/lifecycle_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/pending_state.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/lifecycle_dispatch.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/strace.c")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/enter_fragment_dispatch.h")) +

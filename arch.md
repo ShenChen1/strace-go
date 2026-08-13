@@ -7421,3 +7421,53 @@ Impact note：生产行为只涉及 BPF 源码的编译期文件边界；`bpf_at
 - 新 header 不拥有 pending save 或额外状态；NAME/CONTROL 只读取和发出 bounded fragment，FINAL 仍是唯一 cleanup owner。没有新增 map、锁、goroutine、Go consumer、ProgArray slot、ptrace、procfs 或 Go 侧 tracee memory read。
 - source gate 已分别覆盖物理 ownership、chain routing、final cleanup、identity snapshot 和 attach 端 binding；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件丢失、配对变化、输出回归或性能回退。
 - 本阶段仅修改 `bpf/strace.c`、新增 `bpf/recvmsg_kretprobe_dispatch.h`、相关 BPF source gate/helper 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.179 拆分 lifecycle tracepoint handler ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：raw syscall enter/exit、recvmsg kretprobe 和 enter/exit family dispatch 已分别拥有独立源码边界，但四个 sched lifecycle tracepoint handler 仍直接位于 `bpf/strace.c`：fork 负责 child filter/pre-exec 继承，exec 负责 arm 消费与 filename snapshot，exit/free 负责 TID/process state cleanup 和 lifecycle event。
+- Problem：生命周期状态迁移与 raw syscall attach 仍混合在同一个 translation unit；后续改 fork/exec/exit 清理或 attach 结束判定时，物理 ownership 不清晰，source gate 只能通过 combined source 间接验证 handler，无法直接锁定四个 tracepoint 程序的文件归属。
+- Goal：新增 `bpf/lifecycle_dispatch.h`，完整迁移 `trace_sched_process_fork`、`trace_sched_process_exec`、`trace_sched_process_exit`、`trace_sched_process_free`，保持 tracepoint section、身份快照、map update/delete、lifecycle event 参数、attach binding 和 cleanup 顺序完全不变。
+- Non-goals：不改变 `lifecycle_event_v2.h`、`pending_state.h`、filter/lifecycle map、event ABI、Go attach 规格、生命周期语义、用户态消费者、并发模型、ptrace/procfs fallback 或 Go 侧 tracee memory read；不增加 tail call、ProgArray slot 或新的运行时状态。
+- Constraints：header/function 不超过 500/80 行、参数不超过 5；新 header 只能承载既有 lifecycle tracepoint 程序；`strace.c` 只增加 include；source gate 必须锁定四个 handler 的物理 ownership 和四个 section。
+
+Impact note：这是编译期源码边界重构；`lifecycleTracepointSpecs`、generated BPF bindings、四个 sched tracepoint attach 数量、map ownership 和用户态事件状态机不变。
+
+#### 方案比较
+
+1. 保留四个 handler 在 `bpf/strace.c`：运行时风险最低，但 lifecycle 与 raw syscall ownership 继续混合，文件已无法体现实际执行图，拒绝。
+2. 给 lifecycle handler 增加 ProgArray/tail-call 层：隔离更强，但改变 tracepoint attach、程序装载、缺槽 fallback 和生命周期事件路径，风险过大，拒绝。
+3. 新增独立 `lifecycle_dispatch.h` 并由 `strace.c` include：只改变编译期物理边界，保留原 tracepoint 程序与执行图，选择该方案。
+
+#### 状态契约
+
+- `trace_sched_process_fork` 继续先读取当前 parent TGID/TID，处理 `arm_fork_map` 的 child filter/pre-exec 安装，再执行 tracked/follow-forks 判断并发出 `LIFECYCLE_FORK`；所有 map update failure 仍记录 `lifecycle_map_update_fail`。
+- `trace_sched_process_exec` 继续从当前 task 快照派生 pid/tid，只在 tracked task 上由 `pre_exec_map` owner 消费启动 arm，读取 bounded tracepoint filename 并发出 `LIFECYCLE_EXEC`。
+- `trace_sched_process_exit` 继续先检查 TID-scoped lifecycle tracking，记录 attach exit fact，再清理 pending/lifecycle state，读取 exit code，最后发出 `LIFECYCLE_EXIT`。
+- `trace_sched_process_free` 继续使用当前 task 的 pid/tid，执行 TID/process cleanup 后发出 `LIFECYCLE_FREE`；非 leader thread 不得按 TGID 删除 pending state。
+- `bpf/strace.c` 在 `pending_state.h` 之后 include lifecycle header；Go 端 `lifecycleTracepointSpecs` 和 `attachAll` 不改变，combined source helper 只补入真实 include 顺序。
+
+#### 测试与验收
+
+- 先加入失败优先 source gate：目标 `bpf/lifecycle_dispatch.h` 不存在时必须失败；实现后检查四个 handler 只出现在新 header、不再出现在 `strace.c`，并锁定四个 `tracepoint/sched/*` section。
+- 保留现有 lifecycle cleanup、fork arm、pre-exec suppression、pending stats、attach-exit 和 event-v2 source gates；combined source 继续覆盖跨文件行为契约，raw dispatcher identity gate 直接读取 `bpf/strace.c` 本体。
+- 实现后运行 focused lifecycle/pending/attach tests、`sudo -n ./build.sh`、`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check`；再运行 `ebpf-semantic`、`ebpf-perf`、`small` 与完整 upstream reference。
+- review 必须确认没有新增 map、ProgArray、attach、消费者、锁、goroutine、ptrace/procfs 路径或 tracee memory read，且 lifecycle handler 行数和参数满足仓库限制。
+
+#### 实施与验收
+
+- 失败优先 ownership gate 首次按预期失败：`bpf/lifecycle_dispatch.h` 尚不存在。实现 header 后 focused lifecycle/source/pending/attach tests 通过。
+- 四个 lifecycle handler 按原函数体迁移到 `bpf/lifecycle_dispatch.h`，`bpf/strace.c` 在 `pending_state.h` 之后 include 新 header 并删除旧定义；`bpf/strace.c` 从 228 行降为 114 行，新 header 为 120 行，ownership gate 为 39 行。
+- 首次运行全量 Go gate 时，旧 `TestBPFRawDispatchersSnapshotTaskIdentityOnce` 因 `bpfFunctionBody` 依赖后续 `SEC(` 哨兵，在 lifecycle header 物理移动后把其它文件内容算入 `trace_sys_exit`，误报两次 `bpf_get_current_pid_tgid`。测试改为直接读取 `bpf/strace.c`；这是 source oracle 边界修正，产品代码未增加兼容逻辑。
+- 修正后 focused tests、`sudo -n ./build.sh`、clang 生成、真实 BPF verifier、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14179 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，生命周期 6，非 leader attach `578/578` 且 orphan 0；signalfd 16、sockopt 8、thread 22、mount-query/path 4/4、dirent 8、mmsg 16、fcntl 6、write-only 6；正常 fixture 的 ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map/stale 错误计数均为 0，payload truncated 为 8；普通 attach fixture 的 orphan=1 仍为预期诊断。
+- `ebpf-perf` 通过：Go decode `341.20 ns/op、0 B/op、0 allocs/op`，JSON writer `488.40 ns/op、0 B/op、0 allocs/op`，decoded writer `611.70 ns/op、0 B/op、0 allocs/op`，decoded payload writer `842.20 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `429.26/289.73/2.35/225.57 events/s`，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 计数为 0。
+- 原生参考通过：`small` 为 `23 PASS / 0 FAIL`；`upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`。两个 XFAIL 仍是 `read-write.gen.test` 的有界 eBPF snapshot 不承诺 ptrace 大块 hexdump，以及 `mount_setattr.gen.test` 的 event-sourced FD/cwd 初始状态未知；没有新增失败或 XPASS。
+
+#### Review 结论
+
+- 未发现运行时行为回归：四个 sched lifecycle tracepoint 的 section、程序名称、身份获取、filter/pre-exec arm、pending cleanup、attach exit fact、exit code 和 lifecycle event 参数均保持原实现；真实 verifier、semantic/perf、small 和 119 项 upstream reference 均通过。
+- lifecycle header 只复用既有 `lifecycle_event_v2.h`/`pending_state.h` helper，不拥有新的 map、ProgArray、锁、goroutine 或用户态状态；TID/process cleanup ownership 未改变，尤其没有把 pending 删除重新扩大为 TGID 范围。
+- source gate 已分别覆盖物理 ownership 与行为契约；raw dispatcher 的本体断言和 combined source 的跨文件断言边界已分离，避免后续 header 拆分再次产生函数边界假阳性。
+- 本阶段仅修改 `bpf/strace.c`、新增 `bpf/lifecycle_dispatch.h`、`cmd/strace-go/bpf_lifecycle_source_test.go`、source gate helper、raw identity source test 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

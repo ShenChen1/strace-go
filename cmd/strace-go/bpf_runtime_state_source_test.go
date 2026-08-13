@@ -161,7 +161,8 @@ func TestBPFSyscallEnterUsesTIDAwareFilter(t *testing.T) {
 }
 
 func TestBPFRawDispatchersSnapshotTaskIdentityOnce(t *testing.T) {
-	source := loadBPFSources(t).straceSource
+	root := repoRootForTest(t)
+	source := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
 	for _, name := range []string{"trace_sys_enter", "trace_sys_exit"} {
 		body, ok := bpfFunctionBody(source, name)
 		if !ok {
