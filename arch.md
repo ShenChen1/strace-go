@@ -7092,3 +7092,49 @@ Impact note：影响 `bpf/strace.c` 的 recvmsg kretprobe dispatcher 和现有 m
 - `trace_kretprobe_recvmsg_dispatch` 现在只做 `bpf_tail_call(ctx, &recvmsg_progs, RECVMSG_PROG_NAME)`；实际 attach 仍只有 dispatcher，name/control/final 没有独立 kretprobe attach。每次 return 少一次当前 TID 获取和 pending HASH lookup，未引入传递 pending 指针所需的 scratch/per-CPU 状态。
 - `trace_kretprobe_recvmsg_name` 保留唯一首个 pending gate，并在 `p->sys_id != SYS_RECVMSG` 或 pending 缺失时直接停止链路；因此 `recvmmsg` 复用 `__sys_recvmsg` 的内部 return 不会误提交 recvmsg name/control fragment。成功路径仍严格为 name -> control -> final，final 仍负责完整 event 和 pending consume。
 - 本阶段没有新增 map、配置、锁、goroutine、第二消费者、用户态 tracee 内存读取、ptrace 或 procfs 依赖；`bpf/strace.c` 为 378 行，新增 Go source gate 函数保持在 80 行以内。工作树中除本阶段文件外仍只有预先存在的 `strace-upstream` 子模块状态。
+
+### 14.172 拆分 TraceState 事件入口 ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`TraceState.handleEnvelope` 是单消费者状态机的唯一入口，但当前一个函数同时负责 unfinished candidate 查询、lifecycle task 应用与回收、fork identity 解析、syscall task 记录、generic enter pending 写入、deferred exit 配对、fragment 合并、普通 exit 消费和 terminating task retire。
+- Problem：入口函数超过仓库约定的 80 行，并混合四类不同状态 ownership；后续修改某一类生命周期或 pending 规则时，容易误触其它分支，也无法通过函数边界直接证明 lifecycle 不会进入 syscall pending 路径。当前测试验证行为，但没有锁定“入口只分派、子方法拥有状态变更”的结构契约。
+- Goal：保留 `TraceState.handleEnvelope` 的调用接口和 `TraceStateUpdate` ABI，将事件处理拆成 `handleLifecycleEnvelope`、`handleSyscallEnvelope`、`handleSyscallEnter`、`handleSyscallFragment` 和 `handleSyscallExit` 等单一职责方法；入口只计算 unfinished candidates 并按 envelope 类型分派。
+- Non-goals：不改变 pending map key/value、unfinished/requeue 语义、deferred exit、lifecycle task snapshot、fork identity、terminating retire、payload ownership、router/output 接口、BPF ABI、事件顺序、并发模型或纯 eBPF/no-procfs/no-ptrace 约束；不引入新的状态 owner、锁、goroutine、缓存或接口层。
+- Constraints：所有新方法参数不超过 5 个、函数不超过 80 行；lifecycle 分支必须继续先 snapshot task 再处理 exit/free 回收；generic enter 仍先 remember 再处理 deferred exit；普通 exit 仍先 consume pending，再按 defer/unmatched 和 terminating 规则生成 update；source gate 必须禁止入口直接调用 lifecycle/pending mutation helper。
+
+Impact note：只影响 `cmd/strace-go/event_state.go` 的状态机内部组织和新增 source gate；不改变 `event_router.go`、`TraceStateUpdate` 字段、测试 fixture、handler 或 BPF 代码。
+
+#### 方案比较
+
+1. 保留单一大函数，只增加注释：行为零风险，但函数规模和 ownership 混合问题继续存在，拒绝。
+2. 把每个分支抽成无状态 package helper：可以缩短入口，但状态 owner 不再通过 `TraceState` 方法表达，容易把 map mutation 分散到外部，拒绝。
+3. 抽成 `TraceState` 的按事件职责方法，入口只做候选查询和类型分派：状态仍由单一对象拥有，函数边界可测试，选择该方案。
+
+#### 状态契约
+
+- `handleEnvelope` 只调用 `pendingForOtherTID`，然后在 lifecycle 与 syscall 两个顶层事件族之间分派；它不直接修改 task/pending/unfinished map。
+- `handleLifecycleEnvelope` 独占 lifecycle view、task snapshot、attach target exit、pending exit 转移和 task retire；它不创建 syscall enter/exit update。
+- `handleSyscallEnvelope` 只解析 syscall view、补充 fork identity/task observation，并把 generic enter、exit fragment、普通 exit 分派给对应方法。
+- `handleSyscallEnter` 保持 remember-enter 后处理 deferred exit 的顺序；`handleSyscallFragment` 只合并 fragment payload；`handleSyscallExit` 保持 consume、defer unmatched 和 terminating retire 顺序。
+
+#### 测试与验收
+
+- 先增加失败优先 source gate：入口必须调用 lifecycle/syscall 分派方法，且不得直接包含 `applyLifecycleEvent`、`rememberEnterEvent`、`consumeEnterEvent`、`rememberExitFragment` 或 `retireTask`；syscall 分派方法必须覆盖 enter/fragment/exit 三个子责任。
+- 实现后运行 focused state/unfinished/router tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check`；再运行 `ebpf-semantic`、`ebpf-perf`、`small` 与 upstream reference，确认纯 eBPF 运行事实未受影响。
+- review 必须确认所有 map mutation 仍只由 `TraceState` 单消费者调用，deferred exit 的 snapshot release 仍由 router 完成，未新增接口/并发 owner，也没有 procfs/ptrace 回流。
+
+#### 实施与验收
+
+- 失败优先测试先按旧实现失败，缺少 `handleLifecycleEnvelope` 分派；重构后 `TestTraceStateEntryDelegatesEventOwnership` 通过，并锁定入口不直接调用 lifecycle/pending mutation helper。
+- `TraceState.handleEnvelope` 已移至 `event_state_dispatch.go`，只执行 unfinished 查询和 lifecycle/syscall 分派；生命周期、enter、fragment、exit、deferred exit 分别由同一 `TraceState` 的职责方法拥有。`event_state.go` 从 494 行降至 401 行，新分派文件 120 行。
+- 通过 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14172 ./cmd/strace-go`、`sudo -n ./build.sh` 和 `git diff --check`。
+- `ebpf-semantic` 通过：205 个主语义事件，enter/exit 为 104/101，生命周期 6，非 leader attach 为 1005/1005，ringbuf/pending/orphan/mismatch/lifecycle-map/stale 错误计数均为 0。
+- `ebpf-perf` 通过：Go decode 384.00 ns/op、0 B/op、0 alloc；JSON decode 681.80 ns/op、0 B/op、0 alloc；payload decode 938.90 ns/op、16 B/op、1 alloc；scalar/io/lifecycle/threads 吞吐为 391.36/260.95/2.17/208.80 events/s，所有运行时错误计数为 0。
+- 原生测试通过：`small` 为 23 PASS、0 FAIL；`upstream-reference` 为 117 PASS、0 FAIL、2 XFAIL、0 XPASS，XFAIL 原因仍是 arch.md 已声明的 eBPF 语义边界。
+
+#### Review 结论
+
+- 未发现行为回归：旧入口的 lifecycle snapshot、exit/free retire、generic enter 先 remember、deferred exit 配对、fragment 合并、普通 exit consume/defer/terminate 顺序均原样保留；既有状态/TLV/router 测试覆盖通过。
+- 未引入新的 map owner、锁、goroutine、接口调用路径或 payload copy；`releaseTraceStateUpdate` 仍由 router 在输出副作用完成后统一释放 snapshot。
+- 本阶段不涉及 BPF ABI、attach、过滤、生命周期 tracepoint 或 procfs/ptrace 路径；`strace-upstream` 子模块的预先存在状态未触碰。
