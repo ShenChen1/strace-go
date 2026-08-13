@@ -9,7 +9,7 @@ import (
 func TestBPFFSPayloadsUseDirectTLV(t *testing.T) {
 	sources := loadFSDirectSources(t)
 	assertFSDispatchSource(t, sources)
-	assertFSDirectHeader(t, sources.fsDirect)
+	assertFSDirectHeader(t, sources.fsDirect, sources.fsCapture, sources.fsEmit)
 	assertMountSetattrDirectHeader(t, sources.mountSetattr, sources.pathCapture)
 	assertNoLegacyFSCapture(t, sources.legacyCapture)
 }
@@ -18,6 +18,8 @@ type fsDirectSources struct {
 	combined      string
 	timeDirect    string
 	fsDirect      string
+	fsCapture     string
+	fsEmit        string
 	mountSetattr  string
 	pathCapture   string
 	legacyCapture string
@@ -30,6 +32,8 @@ func loadFSDirectSources(t *testing.T) fsDirectSources {
 		combined:      readCombinedBPFSources(t),
 		timeDirect:    readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h")),
 		fsDirect:      readTextFile(t, filepath.Join(root, "bpf/syscall_fs_direct_event_v2.h")),
+		fsCapture:     readTextFile(t, filepath.Join(root, "bpf/syscall_fs_capture_direct_event_v2.h")),
+		fsEmit:        readTextFile(t, filepath.Join(root, "bpf/syscall_fs_emit_direct_event_v2.h")),
 		mountSetattr:  readTextFile(t, filepath.Join(root, "bpf/syscall_mount_setattr_direct_event_v2.h")),
 		pathCapture:   readTextFile(t, filepath.Join(root, "bpf/syscall_path_capture_direct_event_v2.h")),
 		legacyCapture: legacyCaptureArtifactsForTest(t),
@@ -59,8 +63,9 @@ func assertFSDispatchSource(t *testing.T, sources fsDirectSources) {
 	}
 }
 
-func assertFSDirectHeader(t *testing.T, fsDirectHeader string) {
+func assertFSDirectHeader(t *testing.T, fsDirectHeader string, fsCapture string, fsEmit string) {
 	t.Helper()
+	fsSource := fsDirectHeader + "\n" + fsCapture + "\n" + fsEmit
 	for _, snippet := range []string{
 		"FS_DIRECT_MOUNT_STRING_MAX 512",
 		"FS_DIRECT_MOUNT_TYPE_MAX 128",
@@ -86,7 +91,7 @@ func assertFSDirectHeader(t *testing.T, fsDirectHeader string) {
 		"sys_id == SYS_MOUNT_SETATTR",
 		"capture_mount_setattr_enter_payload_tlv_direct(",
 	} {
-		if !strings.Contains(fsDirectHeader, snippet) {
+		if !strings.Contains(fsSource, snippet) {
 			t.Fatalf("fs direct header missing snippet %q", snippet)
 		}
 	}

@@ -7951,3 +7951,44 @@ Impact note：`bpf/syscall_fs_direct_event_v2.h` 仍通过 facade 暴露 mount q
 - 新 capture/emitter 模块均为编译期 header，不创建 map、ProgArray、tail call、scratch 状态、锁、goroutine 或用户态消费者；没有引入 Go 侧 tracee memory read、ptrace 或 procfs fallback。
 - source gate 已覆盖 facade/provider、capture/emit 排他 ownership、dispatch 复用和文件限制；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
 - 本阶段仅修改 mount query facade、新增 capture/emit header、相关 source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.191 拆分 filesystem capture 与 emitter ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_fs_direct_event_v2.h` 原为 377 行，同时拥有 mount/umount/fsconfig 入参 capture、getdents 出参 capture、filesystem selector，以及两个 ringbuf event emitter；它还通过 mount-setattr/mount-query facade 复用其他 capture。
+- Problem：filesystem 的 probe-site 用户内存 snapshot 与 ringbuf reservation、event header/body、submit/discard 物理混合；修改 fsconfig 或 getdents bounded copy 时容易误触 enter/exit emission。source gate 也只能把 capture 与 emitter 当作同一 owner。
+- Goal：保留 facade 的 FS 常量、selector 和 mount-setattr/mount-query include；新增 capture header 独占 mount/umount/fsconfig/getdents TLV capture；新增 emit header 独占 FS enter 和 getdents exit event emission，保持 ABI、调用图和 verifier 行为不变。
+- Non-goals：不改变 FS syscall selector、arg index、mount string/type 512/128-byte 上限、fsconfig key/value 257/4096-byte 上限、getdents 512-byte OUT snapshot、TLV kind/direction、probe/truncation/copy error、pending/lifecycle/routing/ProgArray/attach、Go decoder/formatter，也不引入 ptrace、procfs 或 Go 侧 tracee memory read。
+- Constraints：先用失败优先 source gate 固定 capture/emit ownership，再通过真实 clang/verifier、Go 全量/race/vet、semantic/perf、small 和 upstream reference；三个生产 header 和测试文件继续满足仓库行数及函数限制。
+
+Impact note：`enter_dispatch.h` 的 `enter_fs`、`exit_dispatch.h` 的 getdents 分支、`syscall_time_direct_event_v2.h` 的 FS selector、mount-setattr/mount-query include 和所有 pending/lifecycle 操作保持不变；改动只改变编译期 header ownership 与测试 source view。
+
+#### 方案比较
+
+1. 保留 377 行单文件并补充注释：运行时改动最小，但 capture/emitter 仍耦合，无法表达 FS 的真实 ownership，拒绝。
+2. 只拆 getdents exit：能隔离一部分 OUT capture，但 mount/fsconfig capture 和 enter emitter仍耦合，边界不完整，拒绝。
+3. 拆成 facade + capture + emit 三层：include 层略增，但职责完整、调用图和 ABI 不变，选择该方案。
+
+#### 状态契约
+
+- `syscall_fs_direct_event_v2.h` 只拥有 `FS_DIRECT_*` 常量、`FS_DIRECT_PAYLOAD_CAPACITY`、`is_fs_enter_direct_syscall`、`is_getdents_direct_syscall`、`is_fs_direct_syscall`，并按顺序 include mount-setattr、mount-query、FS capture 和 FS emit；它不拥有用户内存读取或 ringbuf event body。
+- `syscall_fs_capture_direct_event_v2.h` 拥有 `capture_fs_string_tlv_direct`、`capture_fs_bytes_tlv_direct`、mount/fsconfig payload composer、`capture_fs_enter_payload_tlv_direct` 和 `capture_getdents_bytes_tlv_direct`。mount/umount/fsconfig 的 arg index、字符串 NUL 复制、binary value 长度 mask、getdents 返回值到 OUT bytes 长度计算与拆分前一致。
+- 所有用户内存仍在对应 sys_enter/sys_exit probe 内 bounded copy；TLV kind、arg index、OUT direction、user/copied length、probe error、短复制 truncation 和 ringbuf copy error 统计保持不变，不把 tracee 指针交给 Go。
+- `syscall_fs_emit_direct_event_v2.h` 只拥有 `emit_fs_enter_event_v2_direct` 和 `emit_getdents_exit_event_v2_direct`，继续负责 payload capacity、ringbuf reservation、flags、event header/body 初始化和 submit/discard；capture header 不创建 map、ProgArray、tail call、锁或消费者。
+
+#### 测试与验收
+
+- 失败优先 gate 首次按预期失败：`bpf/syscall_fs_capture_direct_event_v2.h` 尚不存在。实现后新增 `TestBPFFSHasDedicatedCaptureAndEmitOwnership`，检查 facade include、capture/emit helper 排他 ownership 和文件行数；既有 FS source gate 同步按实际 include 顺序验证组合视图。
+- `sudo -n ./build.sh` 通过，clang 生成和真实 BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check` 全部通过。
+- `syscall_fs_direct_event_v2.h` 从 377 行降为 37 行，capture header 为 256 行，emit header 为 95 行；focused FS source tests 通过，所有生产文件和测试文件满足仓库行数限制。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0，普通 attach orphan 1 仍为预期诊断；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `339.40 ns/op、0 B/op、0 allocs/op`，JSON writer `483.20 ns/op、0 B/op、0 allocs/op`，decoded writer `591.10 ns/op、0 B/op、0 allocs/op`，decoded payload writer `838.70 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `440.55/284.28/2.36/225.01 events/s`，所有运行时错误计数为 0。
+- 原生参考通过：普通用户启动 `small` 时因此前 root-owned upstream 测试目录无法清理而全部 setup 失败；按仓库权限要求用 `sudo -n` 重跑后为 `23 PASS / 0 FAIL`。sudo `upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`；`getdents/getdents64`、mount/open/move、`statmount/listmount`、AIO、iovec/message 等参考项均通过，两个 XFAIL 仍是 bounded read/write snapshot 和 event-sourced `mount_setattr` FD/cwd 初始状态未知。
+
+#### Review 结论
+
+- 未发现运行时行为回归：mount/umount/fsconfig 字符串和 bytes capture、getdents OUT snapshot、payload capacity、flags、probe/truncation/copy error 及 enter/exit event 初始化与拆分前一致；FS selector、mount facade、dispatch、generic exit 和 tail-call routing 未改变。
+- 新 capture/emitter 模块均为编译期 header，不创建 map、ProgArray、tail call、scratch 状态、锁、goroutine 或用户态消费者；没有引入 Go 侧 tracee memory read、ptrace 或 procfs fallback。
+- source gate 已覆盖 facade/provider、capture/emit 排他 ownership、mount-setattr/mount-query 复用、getdents dispatch 和文件限制；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
+- 本阶段仅修改 FS facade、新增 capture/emit header、相关 source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
