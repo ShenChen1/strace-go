@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -23,6 +22,7 @@ type traceCommandSpec struct {
 // transferred to traceTargetHandoff. It also owns duplicated inherited files.
 type traceTargetBootstrap struct {
 	bpfRuntime       traceBPFTargetPort
+	attachIdentity   traceAttachIdentityOpener
 	inheritedFiles   []*os.File
 	workingDirectory traceWorkingDirectoryReader
 }
@@ -39,6 +39,7 @@ func newTraceTargetBootstrap(bpfRuntime traceBPFTargetPort) (*traceTargetBootstr
 	}
 	return &traceTargetBootstrap{
 		bpfRuntime:       bpfRuntime,
+		attachIdentity:   pidfdAttachIdentityOpener{},
 		inheritedFiles:   inheritedFiles,
 		workingDirectory: os.Getwd,
 	}, nil
@@ -328,17 +329,44 @@ func (b *traceTargetBootstrap) attachToPids(pids []int) (int, fdStateSeed, error
 
 	var firstPID int
 	attached := make([]uint32, 0, len(pids))
+	opener := b.attachIdentity
+	if opener == nil {
+		opener = pidfdAttachIdentityOpener{}
+	}
 	for index, pid := range pids {
-		if err := syscall.Kill(pid, 0); err != nil {
-			return 0, fdStateSeed{}, fmt.Errorf("check attach pid %d: %w", pid, errors.Join(err, clearFilterPids(b.bpfRuntime, attached)))
+		identity, err := opener.open(pid)
+		if err != nil {
+			return 0, fdStateSeed{}, fmt.Errorf("open attach pid %d identity: %w", pid, errors.Join(err, clearFilterPids(b.bpfRuntime, attached)))
+		}
+		if identity == nil {
+			return 0, fdStateSeed{}, errors.Join(
+				fmt.Errorf("open attach pid %d identity returned nil", pid),
+				clearFilterPids(b.bpfRuntime, attached),
+			)
 		}
 		if index == 0 {
 			firstPID = pid
 		}
-		if err := b.bpfRuntime.addFilterPID(uint32(pid)); err != nil {
-			return 0, fdStateSeed{}, fmt.Errorf("add attach pid %d to filter: %w", pid, errors.Join(err, clearFilterPids(b.bpfRuntime, attached)))
-		}
 		attached = append(attached, uint32(pid))
+		if err := b.bpfRuntime.addFilterPID(uint32(pid)); err != nil {
+			cleanupErr := errors.Join(identity.close(), clearFilterPids(b.bpfRuntime, attached))
+			return 0, fdStateSeed{}, fmt.Errorf("add attach pid %d to filter: %w", pid, errors.Join(err, cleanupErr))
+		}
+		exited, err := identity.exited()
+		if err != nil {
+			cleanupErr := errors.Join(identity.close(), clearFilterPids(b.bpfRuntime, attached))
+			return 0, fdStateSeed{}, fmt.Errorf("check attach pid %d state: %w", pid, errors.Join(err, cleanupErr))
+		}
+		if exited {
+			cleanupErr := errors.Join(identity.close(), clearFilterPids(b.bpfRuntime, attached))
+			return 0, fdStateSeed{}, errors.Join(
+				fmt.Errorf("attach pid %d exited before tracing started", pid),
+				cleanupErr,
+			)
+		}
+		if err := identity.close(); err != nil {
+			return 0, fdStateSeed{}, fmt.Errorf("close attach pid %d identity: %w", pid, errors.Join(err, clearFilterPids(b.bpfRuntime, attached)))
+		}
 	}
 	return firstPID, fdStateSeed{}, nil
 }
