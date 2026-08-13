@@ -7326,3 +7326,49 @@ Impact note：只影响 `bpf/exit_dispatch.h` 和新增 generic exit ownership s
 - `exit_generic` 仍是 pending lifecycle owner；`emit_generic_exit_event` 与五个 group helper 不查找、不校验、不消费 pending，也不写新增 map、ProgArray、锁或 scratch state。没有新增 Go consumer、goroutine、ptrace、procfs 或 tracee memory read。
 - source gate 已锁定 handler 的 prologue -> total emission -> consume 顺序、五组调用顺序、两个 fallback、所有 direct emitter ownership 和 pending lifecycle 排他性；runtime verifier、semantic/perf 与原生 reference 均未观察到事件数量或输出回归。
 - 本阶段仅修改 `bpf/exit_dispatch.h`、`cmd/strace-go/bpf_generic_exit_source_test.go`、`cmd/strace-go/bpf_payload_tlv_source_test.go` 和本记录；`strace-upstream` 子模块的预先存在 dirty 状态未触碰。
+
+### 14.177 拆分 enter fragment handler ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/enter_dispatch.h` 达到 500 行上限，同时包含按 syscall 选择的 family handler、enter prologue/fallback，以及只通过 tail call 进入的 iovec/sendmsg/AIO fragment handler。
+- Problem：family handler 与链式 payload fragment 的 ownership 混在一个文件；文件已经没有安全增长空间，fragment 是否保存 pending、是否改变既有 tail-call ABI 也不容易独立审计。
+- Goal：把 `enter_iovec_base`、`enter_sendmsg_base`、`enter_aio_iovec`、`enter_aio_buf` 移到 `bpf/enter_fragment_dispatch.h`，保持程序名、`ENTER_PROG_*` 数值、调用者、tail-call 目标、事件顺序和 pending 规则完全不变。
+- Non-goals：不新增 attach、map、ProgArray slot、事件字段、Go consumer、goroutine、锁、ptrace/procfs 路径；不改变 family handler 或 fragment emitter 的业务逻辑。
+- Constraints：新 header/function 不超过 500/80 行、参数不超过 5；fragment 只能输出 bounded payload fragment，不能保存或消费 pending；source gate 必须覆盖 header include、四个程序 ownership、关键 predicate/emitter/tail-call 顺序和既有 ABI 数值。
+
+Impact note：只影响 `bpf/enter_dispatch.h`、新增 `bpf/enter_fragment_dispatch.h`、`bpf/strace.c` include 和 source gate；不改变 BPF attach 数量、ProgArray index、event ABI、用户态状态机或纯 eBPF memory policy。
+
+#### 方案比较
+
+1. 保留 500 行单文件：运行时零变化，但已触达文件限制，fragment/family ownership 继续混杂，拒绝。
+2. 为 fragment 新增 tail-call slot：物理隔离更强，但改变 ProgArray ABI、装载映射和失败路径，风险超过收益，拒绝。
+3. 新增独立 fragment header 并复用原程序定义：仅编译期拆分，运行时执行图和 ABI 不变，选择该方案。
+
+#### 状态契约
+
+- `enter_iovec`、`enter_msg`、`enter_aio` 仍是按 syscall 选择的 family owner，继续在 tail call 前保存 pending；fragment handler 不查找、不保存、不消费 pending。
+- 四个 fragment 程序仍使用原 tracepoint section/name 和原 `ENTER_PROG_IOVEC_BASE`、`ENTER_PROG_SENDMSG_BASE`、`ENTER_PROG_AIO_IOVEC`、`ENTER_PROG_AIO_BUF` slot；AIO iovec -> AIO buffer 的二级 tail call 顺序不变。
+- `strace.c` 仅增加 header include，Go loader 的 generated program binding、ProgArray population 和 attach policy 不变。
+
+#### 测试与验收
+
+- 先加入失败优先 source gate：目标 `enter_fragment_dispatch.h` 不存在时必须失败；实现后 gate 检查四个 fragment 不再出现在 family header、fragment 不包含 pending save/consume，并锁定各自关键 emitter/predicate/tail-call。
+- 实现后运行 focused enter/tail-call/msg/AIO tests、`sudo -n ./build.sh`、Go 全量/race/vet/build/diff；再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和完整 upstream reference。
+- review 必须确认没有新增运行时状态、attach、ProgArray slot、消费者或 procfs/ptrace 回流，且 `enter_dispatch.h` 回到 500 行以下。
+
+#### 实施与验收
+
+- 失败优先 gate 首次按预期失败：`bpf/enter_fragment_dispatch.h` 尚不存在。实现后 `TestBPFEnterFragmentsHaveDedicatedOwnership` 通过，并把新 header 纳入 `readCombinedBPFSources` 的 include 顺序。
+- 四个 fragment 的原函数体按原顺序移动，没有修改 family handler 的 pending save 和 tail-call；`enter_dispatch.h` 从 500 行降为 459 行，fragment header 为 53 行，source gate 为 84 行。
+- focused enter/tail-call/msg/AIO tests、`sudo -n ./build.sh`、真实 BPF verifier、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14177 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，生命周期 6，非 leader attach `516/516` 且 orphan 0；signalfd 16、sockopt 8、thread 22、mount-query/path 4/4、dirent 8、mmsg 16、fcntl 6；ringbuf reserve/copy、pending update/mismatch、正常 orphan、lifecycle map update 和 stale 计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `338.80 ns/op、0 B/op、0 allocs/op`，JSON `497.30 ns/op、0 B/op、0 allocs/op`，decoded `605.20 ns/op、0 B/op、0 allocs/op`，payload decoded `850.70 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `420.29/281.11/2.33/223.59 events/s`，所有运行期错误计数为 0。
+- 原生参考通过：`small` 为 `23 PASS / 0 FAIL`；`upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`，119 个测试中的两个 XFAIL 仍是已声明的 bounded read/write snapshot 与 event-sourced FD/cwd 初始状态边界。
+
+#### Review 结论
+
+- 四个 fragment 仍是原有 `SEC("tracepoint/raw_syscalls/sys_enter")` 程序，程序名、predicate、emitter、AIO 二级 tail-call 和所有 ProgArray index 未改变；没有新增 attach 或 map。
+- family handler 仍拥有 pending save，fragment header 不包含 `save_pending_syscall_args` 或 `save_pending_msg_syscall_args`，也不查找/消费 pending；因此事件配对与生命周期所有权未被拆分破坏。
+- source gate 已同时覆盖物理 ownership 和行为契约；真实 verifier、semantic/perf、small 和 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
+- 本阶段仅修改 `bpf/enter_dispatch.h`、`bpf/enter_fragment_dispatch.h`、`bpf/strace.c`、`cmd/strace-go/bpf_source_gate_helpers_test.go`、`cmd/strace-go/bpf_enter_fragment_source_test.go` 和本记录；`strace-upstream` 子模块的预先存在 dirty 状态未触碰。

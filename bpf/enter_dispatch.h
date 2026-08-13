@@ -319,16 +319,6 @@ int enter_iovec(struct trace_event_raw_sys_enter *ctx) {
 }
 
 SEC("tracepoint/raw_syscalls/sys_enter")
-int enter_iovec_base(struct trace_event_raw_sys_enter *ctx) {
-    ENTER_PROLOGUE(ctx);
-    if (!is_iovec_base_enter_direct_syscall(sys_id)) {
-        return 0;
-    }
-    emit_iovec_base_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-    return 0;
-}
-
-SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_msg(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
     emit_msg_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
@@ -336,16 +326,6 @@ int enter_msg(struct trace_event_raw_sys_enter *ctx) {
     if (sys_id == SYS_SENDMSG) {
         bpf_tail_call(ctx, &enter_progs, ENTER_PROG_SENDMSG_BASE);
     }
-    return 0;
-}
-
-SEC("tracepoint/raw_syscalls/sys_enter")
-int enter_sendmsg_base(struct trace_event_raw_sys_enter *ctx) {
-    ENTER_PROLOGUE(ctx);
-    if (sys_id != SYS_SENDMSG) {
-        return 0;
-    }
-    emit_sendmsg_base_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
     return 0;
 }
 
@@ -425,27 +405,6 @@ int enter_aio(struct trace_event_raw_sys_enter *ctx) {
     }
     emit_aio_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-    return 0;
-}
-
-SEC("tracepoint/raw_syscalls/sys_enter")
-int enter_aio_iovec(struct trace_event_raw_sys_enter *ctx) {
-    ENTER_PROLOGUE(ctx);
-    if (sys_id != SYS_IO_SUBMIT) {
-        return 0;
-    }
-    emit_aio_submit_iovec_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
-    bpf_tail_call(ctx, &enter_progs, ENTER_PROG_AIO_BUF);
-    return 0;
-}
-
-SEC("tracepoint/raw_syscalls/sys_enter")
-int enter_aio_buf(struct trace_event_raw_sys_enter *ctx) {
-    ENTER_PROLOGUE(ctx);
-    if (sys_id != SYS_IO_SUBMIT) {
-        return 0;
-    }
-    emit_aio_submit_buf_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
     return 0;
 }
 

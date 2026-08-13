@@ -53,6 +53,7 @@ char LICENSE[] SEC("license") = "GPL";
 
 #include "pending_state.h"
 #include "enter_dispatch.h"
+#include "enter_fragment_dispatch.h"
 #include "enter_router.h"
 #include "mmsg_enter_dispatch.h"
 #include "exit_dispatch.h"
