@@ -7519,3 +7519,51 @@ Impact note：只影响 BPF 状态 helper 的编译期文件边界和 source gat
 - `pending_state.h` 现在只拥有 pending/exit 语义，`lifecycle_state.h` 只拥有 process/TID cleanup；没有新增 map、ProgArray、tail call、锁、goroutine、Go consumer、ptrace、procfs 或 tracee memory read。
 - source gate 已覆盖新 header 的 include、cleanup 排他 ownership、runtime module guard、TID/process deletion 契约和 attach exit fact 顺序；后续 lifecycle cleanup 修改不会再被误归类为 pending resolver 变更。
 - 本阶段仅修改 `bpf/pending_state.h`、新增 `bpf/lifecycle_state.h`、`bpf/strace.c`、lifecycle/runtime layout/source gate tests 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.181 拆分 mmsg bytes enter emitter ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_msg_enter_direct_event_v2.h` 同时承载普通消息 enter、mmsg 槽位 enter 和 `sendmmsg` 字节片段 enter；其中四个 mmsg bytes emitter 实际由独立的 `mmsg_bytes_progs` tail-call 链调用。
+- Problem：mmsg bytes 片段已经有独立的运行时链和 bounded capture 责任，却与普通消息 enter emitter 混在同一 header；文件达到 499 行上限，后续修改容易越过文件约束或误触普通消息 ABI。
+- Goal：新增 `bpf/syscall_mmsg_bytes_enter_direct_event_v2.h`，完整迁移 `emit_mmsg_bytes_base0_enter_event_v2_direct` 至 `emit_mmsg_bytes_base3_enter_event_v2_direct`，保持函数签名、ringbuf 尺寸、TLV capture、事件 header/body、flags 和提交顺序完全不变。
+- Non-goals：不改变 `mmsg_bytes_progs`、ProgArray index、tail-call chain、attach wiring、event ABI、payload 内容、Go consumer、生命周期、并发模型、ptrace/procfs 路径或 Go 侧 tracee memory read。
+- Constraints：新旧生产 header 和函数保持不超过 500/80 行、参数不超过 5；source gate 必须锁定 facade include 顺序、四个 emitter 的排他 ownership 和关键 payload/提交契约。
+
+Impact note：这是编译期源码 ownership 重构；`mmsg_enter_dispatch.h` 的四个调用点、`mmsg_bytes_progs` map ABI、Go loader binding 和运行时事件执行图均不变。
+
+#### 方案比较
+
+1. 保留 499 行单文件：运行时零风险，但文件已无演进空间，普通消息与 mmsg bytes ownership 继续混合，拒绝。
+2. 新增专属 header 并复用原函数：只改变物理边界，保留符号、调用图和 ABI，选择该方案。
+3. 增加新的运行时 tail-call 层：隔离更强，但改变 ProgArray/attach/失败路径，风险超过本阶段收益，拒绝。
+
+#### 状态契约
+
+- 四个 mmsg bytes emitter 继续各自 reserve `EVENT_V2_HEADER_LEN + EVENT_V2_ENTER_BODY_LEN + MSG_DIRECT_MMSG_BYTES_ENTER_MAX` 的 bounded ringbuf record。
+- 每个 emitter 继续在 enter probe 上调用对应的 `capture_mmsg_bytes_base{0..3}_enter_payloads_tlv_direct`，按 payload size 设置 `EVENT_FLAG_PAYLOAD_TLV`，写入同一 event v2 header/body 后提交 dynptr。
+- `mmsg_enter_dispatch.h` 继续通过 `MMSG_BYTES_PROG_BASE0` 到 `MMSG_BYTES_PROG_BASE3` 串联四个程序；本次没有新增或移动任何 `SEC()` 程序、map、ProgArray slot 或 attach。
+- `syscall_msg_direct_event_v2.h` 按 core、capture、mmsg capture、普通 enter、mmsg bytes enter、exit 的顺序 include 新 header；source helper 的 combined message view 同步使用该顺序。
+
+#### 测试与验收
+
+- 先加入失败优先 ownership gate：目标 header 不存在时 focused test 按预期失败；实现后检查四个 emitter 只出现在新 header，旧 enter header 不再拥有它们，新 header 保留 mmsg bytes 上限、base0/base3 capture 和 ringbuf submit。
+- 扩展 message module layout gate，覆盖新 header 的 include guard、facade include 顺序、关键 emitter ownership 和文件行数；跨文件 direct-TLV gate 继续从真实 include 顺序读取所有 message source。
+- 实现后运行 focused message/mmsg source tests、`sudo -n ./build.sh`、`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check`；再运行 `ebpf-semantic`、`ebpf-perf`、sudo `small` 和完整 upstream reference。
+- review 检查确认没有新增 BPF attach、map、ProgArray slot、消费者、锁、goroutine、ptrace/procfs fallback 或 tracee memory read，且 mmsg bytes 的原始调用链和事件 ABI 未变。
+
+#### 实际验证结果
+
+- 失败优先 ownership gate 首次按预期失败：`bpf/syscall_mmsg_bytes_enter_direct_event_v2.h` 尚不存在。实现 header 后 focused message/mmsg ownership、direct-TLV、pending stats 和 tail-call source tests 通过。
+- 四个 emitter 按原函数体完整迁移；`bpf/syscall_msg_enter_direct_event_v2.h` 从 499 行降为 319 行，新 header 为 184 行，facade 为 11 行，所有函数均保持五个参数以内。
+- `sudo -n ./build.sh` 通过，clang 生成和真实 BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-14-181 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+- `ebpf-semantic` 第二次运行通过：主事件 205，enter/exit `104/101`，生命周期 6；signalfd 16、sockopt 8、thread 22、mount-query/path 4/4、dirent 8、mmsg 16、fcntl 6、write-only 6；非 leader attach `665/665` 且 orphan 0，普通 attach fixture 的 orphan=1 仍为预期诊断；正常 fixture 的 ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map/stale 错误计数均为 0，payload truncated 为 8。第一次运行仅出现一次非 leader attach `orphan=1` 瞬态样本，重跑消失，未改变产品代码。
+- `ebpf-perf` 通过：Go decode `346.40 ns/op、0 B/op、0 allocs/op`，JSON writer `490.20 ns/op、0 B/op、0 allocs/op`，decoded writer `605.80 ns/op、0 B/op、0 allocs/op`，decoded payload writer `844.60 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `424.04/289.72/2.37/230.10 events/s`，所有运行时错误计数为 0。
+- 原生参考通过：sudo `small` 为 `23 PASS / 0 FAIL`；sudo `upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`。两个 XFAIL 仍是 `read-write.gen.test` 的有界 eBPF snapshot 不承诺 ptrace 大块 hexdump，以及 `mount_setattr.gen.test` 的 event-sourced FD/cwd 初始状态未知；没有新增失败或 XPASS。
+
+#### Review 结论
+
+- 未发现运行时行为回归：四个 emitter 的 capture helper、payload upper bound、flags、header/body 初始化、dynptr write/discard/submit 路径与迁移前逐字一致；mmsg enter dispatch 的调用点和四级 tail-call index 未变。
+- 新 header 只拥有 mmsg bytes enter emission，不保存、不查找、不消费 pending，也不创建 map、ProgArray、scratch 状态或用户态消费者；普通 message enter header 仍只拥有普通 single/sendmsg/mmsg enter emitter。
+- source gate 已覆盖物理 ownership、facade/include 顺序、文件约束和跨文件 direct-TLV 行为；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
+- 本阶段仅修改 `bpf/syscall_msg_enter_direct_event_v2.h`、新增 `bpf/syscall_mmsg_bytes_enter_direct_event_v2.h`、`bpf/syscall_msg_direct_event_v2.h`、message source gate/helper 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

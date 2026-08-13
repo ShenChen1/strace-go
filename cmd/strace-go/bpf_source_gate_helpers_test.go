@@ -71,6 +71,7 @@ func readMsgDirectEventSources(t *testing.T) string {
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_capture_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_mmsg_capture_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_enter_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_mmsg_bytes_enter_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_exit_direct_event_v2.h"))
 }
 
