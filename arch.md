@@ -7184,3 +7184,50 @@ Impact note：只影响 `pkg/format/netlink.go` 及其 format 层测试；`pkg/h
 - 未发现输出回归：旧实现的 header 字段顺序、malformed stop、partial clip、4 字节对齐、ERROR nested 文本和 DONE payload 规则均由新方法保持，format 行为测试与完整 reference 通过。
 - `netlinkFormatter` 只持有显式 `FlagDecoder`，没有 Catalog 创建、全局状态、缓存、锁或并发 owner；递归路径不会创建第二 Catalog，也没有改变 handler 的 snapshot-only 输入边界。
 - 本阶段未触及 BPF ABI、事件路由、生命周期、ptrace/procfs 或 Go 侧 tracee memory read；`strace-upstream` 子模块的预先存在状态未触碰。
+
+### 14.174 拆分 raw enter dispatcher 的程序选择 ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/strace.c` 的 `trace_sys_enter` 是唯一 raw syscall enter attach，但当前函数同时拥有 RT sigreturn 过滤、任务身份/filter gate、配置读取、enter timestamp、约 30 个 syscall family 到 ProgArray index 的选择、tail-call 和 fallback 调用，生产函数约 90 行。
+- Problem：程序选择策略和入口资源/过滤策略混在一起；新增 direct capture family 时需要修改 raw attach 入口，容易把 selector 分支顺序、默认 no-payload 路径或 tail-call fallback 顺序改坏。当前 source gate 验证 identity/filter/fallback，却没有把“syscall family -> enter ProgArray index”作为独立可审计模块。
+- Goal：保留 `trace_sys_enter` 的唯一 attach、身份快照、生命周期/filter/config gate、enter timestamp、tail-call/fallback 顺序；将 syscall id 到 `ENTER_PROG_*` 的纯选择策略移到 `bpf/enter_router.h` 的 `select_enter_prog_index`，使入口只负责运行时 gate 和 dispatch。
+- Non-goals：不改变任何 syscall family predicate、分支优先级、默认 `ENTER_PROG_NO_PAYLOAD_DIRECT`、ProgArray index/容量、pending/event ABI、capture payload、fallback ownership、exit dispatcher、lifecycle、Go router、输出、锁、map 或纯 eBPF/no-procfs/no-ptrace 约束；不引入 syscall-id selector map 或动态配置。
+- Constraints：selector 只接收 `u32 sys_id`，必须是 `static __always_inline`，所有既有 family 分支和优先级保持不变；raw enter 入口必须继续只调用 selector，不重复 family predicate；新 header 与函数不超过 500/80 行；source gate 必须覆盖 selector 存在、入口委托、默认分支和关键优先级。
+
+Impact note：影响 `bpf/strace.c`、新增 `bpf/enter_router.h` 和 BPF source gate；不改变生成 BPF binding、ProgArray attach 数量、event ABI 或用户态状态机。
+
+#### 方案比较
+
+1. 保留 90 行入口并增加注释：运行时零改动，但 filter/resource/dispatch ownership 仍混合，拒绝。
+2. 新增 syscall-id 到 handler 的 BPF map：选择逻辑可配置，但增加 map lookup、初始化/清理契约和热路径状态，且不能自然表达 family 优先级，拒绝。
+3. 提取 `static __always_inline` selector header：编译期展开、无新运行时状态、分支顺序可单独审计，选择该方案。
+
+#### 状态契约
+
+- `trace_sys_enter` 继续独占 raw enter 的身份快照、pre-exec/lifecycle/filter gate、config lookup 和 `enter_time`；这些事实不向 selector 泄漏。
+- `select_enter_prog_index` 只根据 `sys_id` 返回既有 ProgArray index；默认值仍是 `ENTER_PROG_NO_PAYLOAD_DIRECT`，specialized family 按当前顺序优先匹配。
+- tail-call 成功时 selector 返回的 handler 拥有事件/pending；tail-call 返回时仍只由 `emit_enter_dispatch_fallback` 处理 bounded event 和 pending save。
+
+#### 测试与验收
+
+- 先增加失败优先 source gate：入口必须调用 selector，不能直接包含 family selector chain；selector 必须覆盖默认、terminating、exec、path、message、network、filesystem、async 和 payload family 的关键 snippets。
+- 实现后运行 focused BPF source tests、`sudo -n ./build.sh`、Go 全量/race/vet/build/diff；再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和完整 upstream reference，确认真实 verifier、事件数量和输出没有变化。
+- review 必须确认 selector 是无状态编译期 helper，分支优先级与旧入口逐项一致，入口仍只 attach 一次且没有新增 map/锁/消费者或 procfs/ptrace 回流。
+
+#### 实际验证结果
+
+- 失败优先 source gate 首次运行按预期失败：`bpf/enter_router.h` 尚不存在；实现 header 后 focused `TestBPFEnterDispatcherDelegatesProgramSelection` 通过，并补充了 `readCombinedBPFSources` 的真实 include 边界。
+- `sudo -n ./build.sh` 通过；clang 生成和 BPF verifier 均接受新 translation unit。`bpf/strace.c` 为 299 行，`bpf/enter_router.h` 为 97 行，入口函数只保留身份/filter/config/time gate、selector 调用、tail-call 和 fallback。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14174 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+- `ebpf-semantic` 首次运行出现一次非 leader attach 的瞬态 `orphan_exit=1`；确认没有残留 tracer 进程或本项目 BPF link 后干净重跑通过：主事件 205，enter/exit `104/101`，lifecycle 6，非 leader attach `667/667` 且 orphan 0，ringbuf/pending/lifecycle 错误计数全为 0。
+- `ebpf-perf` 通过：Go decode `338.50 ns/op`、0 alloc；JSON payload decode `824.60 ns/op`、16 B/1 alloc；scalar/io/lifecycle/threads 分别为 `446.38/289.27/2.35/224.97 events/s`，所有丢失、orphan、pending 和 lifecycle 错误计数为 0。
+- `small` 通过 `23/23`。
+- `upstream-reference` 通过 `117 PASS / 0 FAIL / 0 XPASS`，保留既有 `read-write.gen.test` 与 `mount_setattr.gen.test` 两个 XFAIL；前者是 bounded eBPF snapshot 不承诺 ptrace 大块 hexdump，后者是 event-sourced FD/cwd 状态在观测前未知，未引入 procfs fallback。
+
+#### Review
+
+- 新 selector 逐项复制旧入口的 family predicate、分支优先级和 `ENTER_PROG_*` 映射；没有改变 ProgArray index、容量、attach 数量、event/pending ABI 或 exit 路径。
+- `trace_sys_enter` 仍是唯一 raw enter attach，继续拥有一次身份快照、生命周期/filter/config gate、enter timestamp 和 fallback；selector 是无状态 `static __always_inline` helper，不访问 map、不创建事件、不保存 pending。
+- 没有新增 Go consumer、goroutine、mutex、BPF map、ptrace、procfs 或 tracee memory read；本阶段只改善 ownership 和 source 可审计性。
+- 本阶段变更范围限定为 `bpf/strace.c`、`bpf/enter_router.h`、BPF source gate 辅助/测试和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
