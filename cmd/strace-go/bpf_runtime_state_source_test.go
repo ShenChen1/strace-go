@@ -183,6 +183,50 @@ func TestBPFRawDispatchersSnapshotTaskIdentityOnce(t *testing.T) {
 	}
 }
 
+func TestBPFExitDispatcherDefersPendingResolveToHandler(t *testing.T) {
+	source := loadBPFSources(t).straceSource
+	exitBody, ok := bpfFunctionBody(source, "trace_sys_exit")
+	if !ok {
+		t.Fatal("BPF source missing trace_sys_exit body")
+	}
+	for _, forbidden := range []string{
+		"lookup_pending_syscall_for_exit(",
+		"validate_pending_syscall_exit(",
+	} {
+		if strings.Contains(exitBody, forbidden) {
+			t.Fatalf("trace_sys_exit must not resolve pending state before tail call: %q", forbidden)
+		}
+	}
+	for _, required := range []string{
+		"is_lifecycle_task_tracked(pid, tid)",
+		"should_trace_syscall(sys_id, cfg)",
+		"bpf_tail_call(ctx, &exit_progs, index);",
+	} {
+		if !strings.Contains(exitBody, required) {
+			t.Fatalf("trace_sys_exit missing pre-dispatch gate %q", required)
+		}
+	}
+	lifecycleGate := strings.Index(exitBody, "is_lifecycle_task_tracked(pid, tid)")
+	tailCall := strings.Index(exitBody, "bpf_tail_call(ctx, &exit_progs, index);")
+	if lifecycleGate < 0 || tailCall < lifecycleGate {
+		t.Fatal("trace_sys_exit must filter tracked tasks before the exit tail call")
+	}
+	prologueStart := strings.Index(source, "#define EXIT_PROLOGUE")
+	if prologueStart < 0 {
+		t.Fatal("BPF source missing EXIT_PROLOGUE")
+	}
+	prologue := source[prologueStart:]
+	if !strings.Contains(prologue, "u32 exit_sys_id = (u32)(ctx)->id;") {
+		t.Fatal("EXIT_PROLOGUE must snapshot syscall id before helper calls")
+	}
+	if !strings.Contains(prologue, "record_unmatched_exit_if_needed(pid, tid") {
+		t.Fatal("EXIT_PROLOGUE must own unmatched-exit accounting")
+	}
+	if !strings.Contains(prologue, "p, exit_sys_id, pid, pending_tid") {
+		t.Fatal("EXIT_PROLOGUE must validate against the syscall id snapshot")
+	}
+}
+
 func TestBPFTailCallProloguesSnapshotTaskIdentityOnce(t *testing.T) {
 	source := loadBPFSources(t).straceSource
 	for _, name := range []string{"ENTER_PROLOGUE", "EXIT_PROLOGUE"} {

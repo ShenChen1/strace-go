@@ -23,7 +23,6 @@ func TestBPFQuotaPayloadUsesDirectTLV(t *testing.T) {
 		"ENTER_PROG_QUOTA = 44",
 		"EXIT_PROG_QUOTA = 7",
 		"is_quota_direct_syscall(sys_id)",
-		"is_quota_direct_syscall(p->sys_id)",
 	} {
 		if !strings.Contains(straceSource, snippet) {
 			t.Errorf("BPF source missing quota direct snippet %q", snippet)
@@ -60,6 +59,7 @@ func TestBPFQuotaPayloadUsesDirectTLV(t *testing.T) {
 	for _, snippet := range []string{
 		"SEC(\"tracepoint/raw_syscalls/sys_enter\")\nint enter_quota",
 		"SEC(\"tracepoint/raw_syscalls/sys_exit\")\nint exit_quota",
+		"is_quota_direct_syscall(p->sys_id)",
 	} {
 		if !strings.Contains(quotaDispatch, snippet) {
 			t.Errorf("quota dispatch header missing snippet %q", snippet)

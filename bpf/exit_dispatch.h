@@ -5,11 +5,12 @@
  * exit_dispatch.h - sys_exit family handlers used as bpf_tail_call targets.
  *
  * Only trace_sys_exit (the dispatcher) is attached to raw_syscalls/sys_exit.
- * It resolves the pending syscall id and tail calls the matching handler, which
- * re-resolves pending metadata (including the non-leader exec pending_exec_map
- * path) and is the sole consumer that deletes it. recvmmsg OUT fragments are
- * chained base01 -> base2 -> base3 -> final so ringbuf ordering matches the
- * old attach order; sendmmsg is dispatched straight to the final handler.
+ * It filters by the raw syscall id and tail calls the matching handler. The
+ * handler resolves pending metadata (including the non-leader exec
+ * pending_exec_map path) and is the sole normal-path consumer that deletes it.
+ * recvmmsg OUT fragments are chained base01 -> base2 -> base3 -> final so
+ * ringbuf ordering matches the old attach order; sendmmsg is dispatched
+ * straight to the final handler.
  */
 
 enum exit_prog_index {
@@ -25,8 +26,40 @@ enum exit_prog_index {
     EXIT_PROG_PATH = 9,
 };
 
+static __always_inline void emit_exit_dispatch_fallback(
+    u32 pid,
+    u32 tid,
+    u32 sys_id,
+    s64 ret_value)
+{
+    u32 pending_tid = tid;
+    u32 pending_exec_lookup = 0;
+    struct pending_syscall *p = lookup_pending_syscall_for_exit(
+        pid,
+        tid,
+        ret_value,
+        &pending_tid,
+        &pending_exec_lookup);
+    if (!p) {
+        record_unmatched_exit_if_needed(pid, tid, sys_id, ret_value);
+        return;
+    }
+    if (!validate_pending_syscall_exit(p, sys_id, pid, pending_tid)) return;
+
+    u64 duration = 0;
+    if (p->enter_time > 0) {
+        u64 exit_time = bpf_ktime_get_ns();
+        if (exit_time > p->enter_time) {
+            duration = exit_time - p->enter_time;
+        }
+    }
+    emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
+    consume_pending_syscall(pid, pending_tid, p, pending_exec_lookup);
+}
+
 #define EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid) \
     s64 ret_value = (ctx)->ret;                                                    \
+    u32 exit_sys_id = (u32)(ctx)->id;                                               \
     u64 pid_tgid = bpf_get_current_pid_tgid();                                      \
     u32 tid = (u32)pid_tgid;                                                        \
     u32 pid = (u32)(pid_tgid >> 32);                                                \
@@ -34,9 +67,12 @@ enum exit_prog_index {
     u32 pending_tid = tid;                                                         \
     struct pending_syscall *p = lookup_pending_syscall_for_exit(                   \
         pid, tid, ret_value, &pending_tid, &is_pending_lookup);                    \
-    if (!p) return 0;                                                              \
+    if (!p) {                                                                      \
+        record_unmatched_exit_if_needed(pid, tid, exit_sys_id, ret_value);          \
+        return 0;                                                                  \
+    }                                                                              \
     if (!validate_pending_syscall_exit(                                             \
-            p, (u32)(ctx)->id, pid, pending_tid)) return 0;
+            p, exit_sys_id, pid, pending_tid)) return 0;
 
 SEC("tracepoint/raw_syscalls/sys_exit")
 int exit_generic(struct trace_event_raw_sys_exit *ctx) {

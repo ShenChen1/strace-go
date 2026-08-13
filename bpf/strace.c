@@ -180,63 +180,34 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     u32 pid = (u32)(pid_tgid >> 32);
     if (is_pre_exec_suppressed_syscall(pid, sys_id)) return 0;
 
-    u32 pending_tid = tid;
-    u32 pending_exec_lookup = 0;
-    struct pending_syscall *p = lookup_pending_syscall_for_exit(
-        pid,
-        tid,
-        ret_value,
-        &pending_tid,
-        &pending_exec_lookup);
-    if (!p) {
-        if (!is_lifecycle_task_tracked(pid, tid)) return 0;
-        u32 cfg_key = 0;
-        u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);
-        if (!should_trace_syscall(sys_id, cfg) &&
-            !is_fd_state_tracked(sys_id, cfg)) {
-            return 0;
-        }
-        if (is_expected_unmatched_exit(sys_id, ret_value)) return 0;
-        record_orphan_exit();
-        return 0;
-    }
-    if (!validate_pending_syscall_exit(
-            p,
-            sys_id,
-            pid,
-            pending_tid)) {
+    if (!is_lifecycle_task_tracked(pid, tid)) return 0;
+    u32 cfg_key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);
+    if (!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)) {
         return 0;
     }
 
     u32 index = EXIT_PROG_GENERIC;
-    if (is_path_only_direct_syscall(p->sys_id) ||
-        is_dual_path_direct_syscall(p->sys_id) ||
-        is_open_creat_path_direct_syscall(p->sys_id) ||
-        is_openat2_direct_syscall(p->sys_id)) {
+    if (is_path_only_direct_syscall(sys_id) ||
+        is_dual_path_direct_syscall(sys_id) ||
+        is_open_creat_path_direct_syscall(sys_id) ||
+        is_openat2_direct_syscall(sys_id)) {
         index = EXIT_PROG_PATH;
-    } else if (is_quota_direct_syscall(p->sys_id)) {
+    } else if (is_quota_direct_syscall(sys_id)) {
         index = EXIT_PROG_QUOTA;
-    } else if (is_mount_query_direct_syscall(p->sys_id)) {
+    } else if (is_mount_query_direct_syscall(sys_id)) {
         index = EXIT_PROG_MOUNT_QUERY;
-    } else if (is_iovec_base_exit_direct_syscall(p->sys_id)) {
+    } else if (is_iovec_base_exit_direct_syscall(sys_id)) {
         index = EXIT_PROG_IOVEC_BASE;
-    } else if (is_single_msg_direct_syscall(p->sys_id)) {
+    } else if (is_single_msg_direct_syscall(sys_id)) {
         index = EXIT_PROG_MSG;
-    } else if (is_mmsg_direct_syscall(p->sys_id)) {
-        index = (p->sys_id == SYS_RECVMMSG) ? EXIT_PROG_RECVMMSG_BASE01 : EXIT_PROG_MMSG_FINAL;
+    } else if (is_mmsg_direct_syscall(sys_id)) {
+        index = (sys_id == SYS_RECVMMSG) ? EXIT_PROG_RECVMMSG_BASE01 : EXIT_PROG_MMSG_FINAL;
     }
     bpf_tail_call(ctx, &exit_progs, index);
 
-    // tail call fallback: emit a minimal no-payload exit and consume pending.
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
-    emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
-    consume_pending_syscall(pid, pending_tid, p, pending_exec_lookup);
+    // Tail-call fallback is isolated from the normal handler ownership path.
+    emit_exit_dispatch_fallback(pid, tid, sys_id, ret_value);
     return 0;
 }
 

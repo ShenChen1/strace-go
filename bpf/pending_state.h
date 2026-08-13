@@ -30,6 +30,19 @@ static __always_inline int is_expected_unmatched_exit(u32 sys_id, s64 ret_value)
         is_exec_restart_return(ret_value);
 }
 
+static __always_inline void record_unmatched_exit_if_needed(u32 pid, u32 tid, u32 sys_id, s64 ret_value)
+{
+    if (!is_lifecycle_task_tracked(pid, tid)) return;
+
+    u32 cfg_key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);
+    if (!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)) {
+        return;
+    }
+    if (is_expected_unmatched_exit(sys_id, ret_value)) return;
+    record_orphan_exit();
+}
+
 // IMPACT: every exit handler shares this resolver so a stale process-level exec
 // mapping cannot silently turn a current TID lookup into a different pending.
 static __always_inline struct pending_syscall *lookup_pending_syscall_for_exit(

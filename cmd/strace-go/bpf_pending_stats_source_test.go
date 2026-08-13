@@ -80,17 +80,16 @@ func TestBPFOrphanExitIsFilteredAndCounted(t *testing.T) {
 	if !strings.Contains(src.straceSource, "static __always_inline void record_orphan_exit(void)") {
 		t.Fatal("bpf/strace.c missing record_orphan_exit helper")
 	}
-	exitBody, ok := bpfFunctionBody(src.straceSource, "trace_sys_exit")
-	if !ok {
-		t.Fatal("bpf/strace.c missing trace_sys_exit body")
+	if !strings.Contains(src.straceSource, "static __always_inline void record_unmatched_exit_if_needed(") {
+		t.Fatal("bpf/pending_state.h missing unmatched-exit helper")
 	}
 	for _, snippet := range []string{
 		"if (!is_lifecycle_task_tracked(pid, tid)) return 0;",
 		"if (!should_trace_syscall(sys_id, cfg)",
 		"record_orphan_exit();",
 	} {
-		if !strings.Contains(exitBody, snippet) {
-			t.Fatalf("trace_sys_exit orphan path missing %q", snippet)
+		if !strings.Contains(src.straceSource, snippet) {
+			t.Fatalf("unmatched-exit helper missing %q", snippet)
 		}
 	}
 }
@@ -98,9 +97,10 @@ func TestBPFOrphanExitIsFilteredAndCounted(t *testing.T) {
 func TestBPFOrphanExitIgnoresExpectedLifecycleReturns(t *testing.T) {
 	src := loadBPFSources(t)
 	combined := readCombinedBPFSources(t) + "\n" + src.directHeader
-	exitBody, ok := bpfFunctionBody(src.straceSource, "trace_sys_exit")
-	if !ok {
-		t.Fatal("bpf/strace.c missing trace_sys_exit body")
+	root := repoRootForTest(t)
+	unmatched := readTextFile(t, filepath.Join(root, "bpf/pending_state.h"))
+	if !strings.Contains(unmatched, "static __always_inline void record_unmatched_exit_if_needed(") {
+		t.Fatal("bpf/pending_state.h missing unmatched-exit helper")
 	}
 	for _, snippet := range []string{
 		"static __always_inline int is_expected_unmatched_exit(u32 sys_id, s64 ret_value)",
@@ -111,12 +111,13 @@ func TestBPFOrphanExitIgnoresExpectedLifecycleReturns(t *testing.T) {
 		"ret_value == -512 || ret_value == -513 ||",
 		"ret_value == -514 || ret_value == -516;",
 	} {
-		if !strings.Contains(combined, snippet) && !strings.Contains(exitBody, snippet) {
+		if !strings.Contains(combined, snippet) {
 			t.Fatalf("orphan lifecycle classification missing %q", snippet)
 		}
 	}
-	classification := strings.Index(exitBody, "if (is_expected_unmatched_exit(sys_id, ret_value)) return 0;")
-	count := strings.Index(exitBody, "record_orphan_exit();")
+	helperStart := strings.Index(unmatched, "static __always_inline void record_unmatched_exit_if_needed(")
+	classification := strings.Index(unmatched[helperStart:], "if (is_expected_unmatched_exit(sys_id, ret_value)) return;")
+	count := strings.Index(unmatched[helperStart:], "record_orphan_exit();")
 	if classification < 0 || count < classification {
 		t.Fatal("expected unmatched exits must be classified before orphan_exit is recorded")
 	}

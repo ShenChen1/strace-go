@@ -1458,7 +1458,7 @@ Exit 侧 10 个 prog-array 程序 + 1 个 kretprobe dispatcher + 3 个 recvmsg �
 
 | 程序 | 职责 | 消费 pending |
 | :--- | :--- | :--- |
-| `trace_sys_exit` | 主 exit dispatcher：约 30 个 direct 分支 + fallback + exec 清理 | 是 |
+| `trace_sys_exit` | 主 exit dispatcher：raw sys_id 过滤、handler index、tail call 和隔离 fallback | 否（正常路径） |
 | `trace_sys_exit_iovec_base` | readv 等本地 OUT iov_base | 是（主 dispatcher 对 iovec 跳过） |
 | `trace_sys_exit_msg` | sendmsg/recvmsg OUT msghdr/iovec | 是（主 dispatcher 对 msg 跳过） |
 | `trace_sys_exit_recvmmsg_base0/base1/base2/base3` | recvmmsg OUT iov_base fragment | 否 |
@@ -1467,7 +1467,7 @@ Exit 侧 10 个 prog-array 程序 + 1 个 kretprobe dispatcher + 3 个 recvmsg �
 | `trace_kretprobe_recvmsg_name/control` | recvmsg OUT msg_name/msg_control fragment，尾调用链前两层 | 否 |
 | `trace_kretprobe_recvmsg_final` | recvmsg bounded final exit，尾调用链末层 | 是 |
 
-Exit 关键语义：pending 由且仅由一个程序消费（iovec/msg/mmsg 程序消费后，主 dispatcher 因找不到 pending 自然跳过）；exec 清理（`pending_exec_map` / `main_exited_map`）随消费程序执行；recvmsg 的两个 fragment 与 final 在同一个 kretprobe 尾调用链内产生，raw `sys_exit` 只保留 fallback。
+Exit 关键语义：正常路径由被选中的 iovec/msg/mmsg/generic handler 各自解析并且只消费一次 pending；raw dispatcher 不提前解析 pending，避免正常路径重复 HASH lookup。ProgArray 缺槽时才进入隔离 fallback，由 fallback 自己解析、发出 bounded no-payload exit 并消费 pending；exec 清理（`pending_exec_map` / `main_exited_map`）仍随消费 handler 执行。recvmsg 的两个 fragment 与 final 在同一个 kretprobe 尾调用链内产生，raw `sys_exit` 只保留同样隔离的异常兜底。
 
 ### 14.3 目标架构
 
@@ -1480,10 +1480,10 @@ sys_enter tracepoint ──> enter_dispatcher
                                     └─（需要时）链式 tail call ──> fragment handler
 
 sys_exit tracepoint ──> exit_dispatcher
-                          ├─ pending lookup（含 pending_exec_map 路径）
-                          ├─ p->sys_id -> index 映射
+                          ├─ tracked-task/syscall filter（按 raw sys_id）
+                          ├─ raw sys_id -> index 映射
                           └─ bpf_tail_call(exit_progs, index)
-                               └─ exit handler（emit + 唯一消费 pending）
+                               └─ exit handler（解析 + 校验 + emit + 唯一消费 pending）
                                     └─（recvmmsg）链式 tail call ──> base0 -> base1 -> base2 -> base3 -> final
 ```
 
@@ -1535,7 +1535,7 @@ enter 链内每层 tail call 失败均静默跳过该 fragment（不重复 emit�
 
 | index | handler | 说明 |
 | :--- | :--- | :--- |
-| 0 | generic_exit | 现主 dispatcher 全部 direct 分支 + fallback + exec 清理，消费 pending |
+| 0 | generic_exit | generic direct syscall exit handler；解析 pending、执行 direct OUT/ret 分支并消费 pending |
 | 1 | iovec_base_exit | readv 等 OUT iov_base，消费 |
 | 2 | msg_exit | sendmsg/recvmsg OUT，消费 |
 | 3 | mmsg_final | sendmmsg/recvmmsg OUT mmsghdr，消费；recvmmsg 由链尾到达 |
@@ -1545,7 +1545,8 @@ enter 链内每层 tail call 失败均静默跳过该 fragment（不重复 emit�
 
 语义保持：
 
-- 主 dispatcher 保留 `pending_exec_map` 查找（非 leader exec 的 `is_pending_lookup` 路径），把 `pending_tid` 语义随 tail call 传给消费 handler（handler 内重新 lookup 或由 dispatcher 传入 index 时附带——建议 handler 内按 dispatcher 已解析的 `pending_tid` 再 lookup，保持与现状一致）。
+- 主 dispatcher 不再查 `pending_exec_map` 或 `pending_syscalls`；它只按当前 raw `(pid, tid, sys_id)` 做 tracked/filter gate 和 handler 路由。每个正常 exit handler 的 `EXIT_PROLOGUE` 负责一次 `pending_exec_map`/TID pending 解析、身份校验、事件提交和消费，因此非 leader exec 的 `is_pending_lookup` 语义仍集中在 handler 内。
+- tail-call 缺槽时由 dispatcher 调用隔离 fallback；fallback 允许进行一次 resolver/validator 访问，以保留 bounded no-payload exit 和 pending 清理，但该异常路径不影响正常 handler ownership。
 - recvmsg 由一个 dispatcher kretprobe 进入 `name -> control -> final` 尾调用链；Go 侧合并逻辑零改动，raw `sys_exit` 保留 fallback。
 - iovec/msg/mmsg 家族在主 dispatcher 中不再需要"跳过"分支（dispatcher 直接 tail call 对应 handler）。
 
@@ -6765,3 +6766,59 @@ Impact note：影响 `bpf/enter_dispatch.h`/`bpf/exit_dispatch.h` 的公共 tail
 #### Review
 
 review 确认两个 tail-call prologue 都只读取一次身份并从同一 `u64` 快照派生 pid/tid；raw dispatcher、pending map、exec/lifecycle resolver、payload capture、Go 输出和 event v2/TLV ABI 未改变。BPF 对象经 `build.sh` 重新生成并被 semantic/perf/small/reference 运行期加载验证；阶段未引入 procfs、ptrace、用户态 tracee 内存读取、锁、goroutine 或第二事件消费者。
+
+### 14.165 退出 dispatcher 延迟 pending 解析并收口 resolver ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：14.160-14.164 已把 raw syscall enter/exit 收敛为 dispatcher + ProgArray handler，并把 tail-call handler 的身份读取、mmsg fragment 和用户态 pending owner 分别收口。此前 `trace_sys_exit` 仍先解析一次 `pending_syscalls`/`pending_exec_map`，确认 `p->sys_id` 后才计算 handler index；被 tail-call 的 `EXIT_PROLOGUE` 又再次解析和校验同一 pending。
+- Problem：正常 exit 的每条 syscall 都执行两次 pending HASH lookup 和相关 exec 映射判断；同时 pending ownership 分散在 dispatcher 与 handler 两层，tail-call 失败时还可能让异常路径与正常消费逻辑混在一起。重复 lookup 既增加 BPF 热路径固定成本，也让“谁负责校验、谁负责删除”难以从源码直接判断。
+- Goal：让 `trace_sys_exit` 只读取一次 raw task identity，执行 pre-exec、tracked-task 和 syscall/fd-state filter gate，按 raw `sys_id` 选择 handler 并 tail-call；正常 handler 的 `EXIT_PROLOGUE` 成为唯一 pending resolver、validator、event emitter 和 consumer。ProgArray 缺槽时保留一个显式隔离 fallback，允许它独立完成一次 resolver/validator 和 bounded no-payload exit，避免异常路径泄漏 pending。
+- Non-goals：不改变 event v2/TLV ABI、pending map key/value、`pending_exec_map` 的非 leader exec 语义、filter map 语义、lifecycle event、unfinished/resume、Go 单消费者状态机、文本/JSON 输出、mmsg/recvmsg fragment 顺序或用户可见 syscall 格式；不引入 ptrace、procfs、process memory read、用户态 TID/TGID 查询、锁、第二事件消费者或新的 runtime mode。
+- Constraints：正常 `trace_sys_exit` 函数体不得调用 pending resolver/validator；`EXIT_PROLOGUE` 必须在任何 map/helper 调用前保存 raw `ctx->id`，因为 verifier 不允许在修改过的 ctx 指针上再次解引用；unmatched-exit 统计必须保留 tracked/filter gate 和 expected lifecycle return 分类；所有变更后的 BPF 对象必须真实加载。
+
+Impact note：影响 `bpf/strace.c` 的 raw exit dispatcher、`bpf/exit_dispatch.h` 的 resolver/fallback/prologue、`bpf/pending_state.h` 的 unmatched-exit helper，以及对应的 source gate；不修改 Go 事件循环、event ABI、普通 handler 的 payload 算法或 attach 接口。
+
+#### 方案比较
+
+1. 保留 dispatcher 与 handler 双重解析：行为表面最稳定，但每条正常 exit 重复 HASH lookup，pending ownership 仍分散，拒绝。
+2. dispatcher 先解析并通过 per-CPU scratch map 把 pending 传给 handler：可以避免第二次 lookup，但引入跨 tail call 的临时可变状态、map 写读和 verifier/lifecycle 风险，拒绝。
+3. dispatcher 只做 raw sys_id 路由，handler 独立解析并消费，tail-call 缺槽走隔离 fallback：正常路径只有一次 resolver，ownership 位于实际事件 handler，异常行为边界清晰，选择该方案。
+
+#### 状态契约
+
+- `trace_sys_exit` 的输入事实只有 raw `sys_id`、当前 `(pid, tid)` 和 `ret`；在 tail call 前执行 `is_pre_exec_suppressed_syscall`、`is_lifecycle_task_tracked`、`should_trace_syscall`/`is_fd_state_tracked`，未通过时不进入任何 exit handler，也不产生 orphan 统计。
+- `syscall_filter_map` 与 `config_map` 只在 session bootstrap 配置；运行期 `filter_map` 的变化只由 fork/exec/exit 生命周期事实维护，不支持用户态热更新 syscall filter。因此 enter 已保存 pending 后，exit gate 不会因一个动态 syscall-filter 删除而丢弃配对。
+- dispatcher 使用 raw `sys_id` 选择 `EXIT_PROG_GENERIC`、path、quota、mount-query、iovec、msg 或 mmsg index；不依赖 pending 是否存在，也不读取 `pending_syscalls` 或 `pending_exec_map`。
+- 普通 handler 通过 `EXIT_PROLOGUE` 先从 `ctx` 快照 `exit_sys_id`，再解析 `pending_exec_map`/TID pending，校验 `pending->sys_id` 与 pending TID，发出 payload/fragment/exit event，并由对应最终 handler消费 pending。
+- pending 缺失时，`EXIT_PROLOGUE` 调用 `record_unmatched_exit_if_needed`；该 helper 重新使用 tracked/filter gate，并忽略 terminating、process-creation child success 和 exec restart marker 等预期无匹配 exit，其他已订阅 unmatched exit 才递增 `orphan_exit`。
+- 如果普通 handler 的 tail call 缺槽，dispatcher 调用 `emit_exit_dispatch_fallback`。该函数只作为异常 ownership 路径，独立解析、校验、发 bounded no-payload exit 并消费 pending；它不会被正常 handler 调用。
+- `EXIT_PROLOGUE` 的 `exit_sys_id` 快照是 verifier 约束的一部分：ctx 的 `ret/id` 必须在 map lookup、pending resolver 等 helper 之前读入标量，后续校验和 unmatched 统计只使用该快照，不再次解引用修改后的 ctx 指针。
+
+#### 测试与验收
+
+- 先增加失败优先 source gate：`trace_sys_exit` 不得包含 `lookup_pending_syscall_for_exit` 或 `validate_pending_syscall_exit`；它必须先通过 tracked/filter gate 再调用 `bpf_tail_call`；`EXIT_PROLOGUE` 必须负责 unmatched accounting，并保存/使用 `exit_sys_id`。
+- 同步迁移 orphan source tests：分类逻辑由 `pending_state.h` 的 `record_unmatched_exit_if_needed` 拥有，避免测试把实现位置错误地锁在 dispatcher 函数体内；quota direct source gate 同样按“raw dispatcher 路由、quota handler 校验 pending sys_id”分层。
+- 实现后运行 `sudo -n ./build.sh`，确认 clang/BTF/CO-RE、bpf2go 生成物和 verifier 加载一致；随后运行 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o strace-go ./cmd/strace-go` 和 `git diff --check`。
+- 运行期必须覆盖 `ebpf-semantic` 的主 fixture、非 leader attach、生命周期、mmsg、mount、dirent、CMSG 和失败返回；运行 `ebpf-perf` 记录 decode 分配、scalar/io/lifecycle/thread workload 和所有 BPF error counter；最后运行 `upstream-reference`，只允许已声明的纯 eBPF 语义 XFAIL。
+- verifier 回归必须保留：首次实现直接在 `EXIT_PROLOGUE` 的 unmatched 分支中再次读取 `(ctx)->id`，真实加载失败并报告 `dereference of modified ctx ptr`；增加 `exit_sys_id` 预快照后重新生成和加载通过。该失败优先证据防止未来为了复用 ctx 字段破坏 verifier。
+
+#### 实际验收记录
+
+已完成。先加入 `TestBPFExitDispatcherDefersPendingResolveToHandler`，旧 dispatcher 按预期因提前调用 resolver/validator 而失败；实现后将 normal exit ownership 移到 handler，新增 `record_unmatched_exit_if_needed` 和隔离 fallback，并修正 source gates 对新 ownership 边界的断言。
+
+第一次真实 semantic 启动暴露 verifier 缺陷：`EXIT_PROLOGUE` 在 `lookup_pending_syscall_for_exit` 之后为 unmatched 统计再次读取 `(ctx)->id`，loader 报告 `dereference of modified ctx ptr`。先由 source gate 固定“ctx id 必须先快照”，再改为 `u32 exit_sys_id = (u32)(ctx)->id`，后续 resolver/validator/unmatched 分支统一使用该标量；`sudo -n ./build.sh` 重新生成并真实加载通过。
+
+最终真实 `ebpf-semantic` 通过：主 fixture 205 个事件、104/101 enter/exit、6 个 lifecycle；非 leader attach 为 1044/1044 配对且 `orphan_exit=0`；payload truncated 8；ringbuf reserve/copy、pending update、pending mismatch 和 lifecycle-map-update 均为 0。
+
+`ebpf-perf` 通过：Go decode 为 `286.40 ns/op、0 B/op、0 allocs/op`，raw JSON 为 `488.70 ns/op、0 B/op、0 allocs/op`，decoded payload 为 `862.30 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `429.05/270.80/2.28/212.81 events/s`，`pending_stale` 和所有运行期错误计数均为 0。该数据与前阶段同机结果处于运行波动范围内，不宣称未经基准隔离的端到端收益；本阶段性能收益以正常 exit 少一次 resolver 为架构/source 契约。
+
+原生 `upstream-reference` 为 117 PASS、2 个既定 XFAIL（`read-write.gen.test` 的 ptrace-sized hexdump 差异、`mount_setattr.gen.test` 的 event-sourced FD/cwd 初始状态差异）、0 FAIL、0 XPASS；未恢复任何 compat 模式或 procfs/ptrace fallback。
+
+#### Review
+
+review 按调用链检查了 `trace_sys_exit -> exit_progs -> EXIT_PROLOGUE -> emit/consume`、quota/mount 专用 handler、pending resolver 和 orphan stats：正常 handler 解析 pending 一次并拥有消费责任；dispatcher 仅保留 raw filter/index/tail-call；fallback 是唯一允许在 dispatcher 后解析 pending 的异常函数。`p->sys_id` 仍用于 handler 内 identity/type guard，raw `sys_id` 只用于 dispatcher 路由，避免把未验证的 pending 当成路由输入。
+
+变更后生产代码仍无新增 ptrace、`/proc`、process memory read、用户态 TID/TGID 查询、mutex、第二事件消费者或 goroutine；`bpf/exit_dispatch.h` 349 行、`bpf/pending_state.h` 150 行、`bpf/strace.c` 406 行，均低于 500 行文件限制。Go 全量、race、vet、强制构建、BPF verifier、semantic、perf 和 reference 均通过；工作树中除本阶段文件外仍只有预先存在的 `strace-upstream` 子模块状态。
+
+后续候选：不要继续把 resolver 搬到 dispatcher。下一阶段应基于新的单一 ownership 边界测量 exit handler 的重复 duration/identity 计算，或建立 tail-call 缺槽的可注入测试；两者都必须先有独立 workload/source gate，避免把异常 fallback 的复杂度重新扩散到正常路径。
