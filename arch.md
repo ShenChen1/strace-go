@@ -7138,3 +7138,49 @@ Impact note：只影响 `cmd/strace-go/event_state.go` 的状态机内部组织�
 - 未发现行为回归：旧入口的 lifecycle snapshot、exit/free retire、generic enter 先 remember、deferred exit 配对、fragment 合并、普通 exit consume/defer/terminate 顺序均原样保留；既有状态/TLV/router 测试覆盖通过。
 - 未引入新的 map owner、锁、goroutine、接口调用路径或 payload copy；`releaseTraceStateUpdate` 仍由 router 在输出副作用完成后统一释放 snapshot。
 - 本阶段不涉及 BPF ABI、attach、过滤、生命周期 tracepoint 或 procfs/ptrace 路径；`strace-upstream` 子模块的预先存在状态未触碰。
+
+### 14.173 拆分 Netlink 消息格式化 ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`pkg/format.NetlinkWithCatalog` 是网络 handler 消费 netlink payload 的唯一入口，当前函数同时负责消息边界遍历、nlmsghdr 解码、截断处理、`NLMSG_ERROR` 嵌套消息递归、`NLMSG_DONE` 特殊值和最终字符串拼接，生产函数超过 80 行。
+- Problem：消息边界和 payload 语义混在同一个循环里；后续增加 netlink 类型或调整有界快照规则时，容易改变对 malformed/partial message 的停止条件，也无法通过对象边界证明递归解析始终复用同一个 `FlagDecoder`。当前 handler 只验证少量 payload fallback，format 层没有直接锁定 malformed、error nested 和多消息输出契约。
+- Goal：保留 `NetlinkWithCatalog(catalog, data)` 公共函数和所有现有文本输出，将 Catalog 封装到 session-local、无状态的 netlink formatter 对象中，由独立方法分别拥有消息遍历、header、payload、error nested 和 cursor advance；所有生产函数不超过 80 行。
+- Non-goals：不改变 netlink header 字段顺序、4 字节对齐、partial/malformed 停止规则、`NLMSG_ERROR` 递归格式、`NLMSG_DONE` payload 格式、buffer 截断上限、Catalog 接口、handler/BPF payload、输出 sink、并发模型、纯 eBPF/no-procfs/no-ptrace 约束；不引入全局 Catalog、缓存、锁或新的 goroutine。
+- Constraints：formatter 对象只持有 `FlagDecoder`，不拥有可变 session 状态；递归必须调用同一个对象的方法；malformed header 至少保留 16 字节时只输出 header 并停止；声明长度超过剩余 snapshot 时必须裁剪并停止；所有新函数参数不超过 5 个、函数不超过 80 行、文件不超过 500 行。
+
+Impact note：只影响 `pkg/format/netlink.go` 及其 format 层测试；`pkg/handler/network.go` 继续通过 `NetlinkWithCatalog` 调用，不改变 network handler 的 snapshot-only 规则。
+
+#### 方案比较
+
+1. 只把原函数拆成若干 package-level helper：能降低单函数行数，但 Catalog 参数会在递归和每个 helper 间反复传递，消息格式化 ownership 仍然分散，拒绝。
+2. 引入可变 parser/session 对象和缓存：可以复用 cursor 或预分配 buffer，但引入 formatter 生命周期和并发复用风险，超出当前收益，拒绝。
+3. 引入仅持有 `FlagDecoder` 的不可变 `netlinkFormatter`，按 message/payload/error 方法分派：保留显式依赖、复用同一 Catalog、无额外状态，选择该方案。
+
+#### 状态契约
+
+- `NetlinkWithCatalog` 只创建 formatter 并调用其顶层 `format`；它不再直接遍历消息或递归自身。
+- `netlinkFormatter.format` 只负责 snapshot cursor、消息列表和最终 list/single 输出；`formatMessage` 负责边界裁剪与 cursor advance。
+- `formatHeader` 只解码五个 nlmsghdr 字段；`formatPayload` 只处理 ERROR/DONE/普通 bytes；ERROR 的嵌套消息继续经同一个 formatter 递归。
+- 对 malformed/partial 数据的停止时机必须与旧实现相同，所有截断仍由已有 `Buffer` 完成，不读取 Go 侧 tracee 内存。
+
+#### 测试与验收
+
+- 先增加失败优先 source gate：要求公共入口委托给 `netlinkFormatter`，且不再包含消息遍历/自递归实现；旧实现应因缺少 formatter ownership 而失败。
+- 增加 format 行为测试：普通单消息 happy path、多消息 4 字节对齐、`NLMSG_ERROR` nested message、malformed length failure path、超长声明长度裁剪。
+- 实现后运行 focused format/handler tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build、`sudo -n ./build.sh`、`ebpf-semantic`、`ebpf-perf`、`small` 和完整 upstream reference；review 确认 Catalog identity、输出和纯 eBPF memory policy 未改变。
+
+#### 实施与验收
+
+- 失败优先 source gate 先按预期失败：旧 `NetlinkWithCatalog` 没有 `netlinkFormatter`，且入口仍直接拥有消息循环和递归；实现后入口委托测试通过。
+- `NetlinkWithCatalog` 现在只创建持有 `FlagDecoder` 的无状态 formatter；消息边界、header、payload、ERROR nested 和 DONE 分别由专属方法处理。`netlink.go` 为 107 行，生产函数均小于 80 行；递归继续复用同一个 Catalog。
+- 新增 format 行为测试覆盖普通对齐多消息、`NLMSG_ERROR` nested message、malformed length 和声明长度超过 snapshot 的裁剪路径；`go test ./pkg/format`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14173 ./cmd/strace-go`、`sudo -n ./build.sh` 和 `git diff --check` 通过。
+- `ebpf-semantic` 清理运行时残留后通过：主事件 205，enter/exit 为 104/101，生命周期 6，非 leader attach 为 905/905 且 orphan exits 为 0，所有 ringbuf/pending/mismatch/lifecycle-map/stale 错误计数均为 0。首轮非 leader 场景出现 756/756 与 orphan 1，清理后重跑消失，未改变产品代码。
+- `ebpf-perf` 通过：Go decode 341.10 ns/op、0 B/op、0 alloc；JSON decode 610.70 ns/op、0 B/op、0 alloc；payload decode 872.30 ns/op、16 B/op、1 alloc；scalar/io/lifecycle/threads 吞吐为 408.53/280.39/2.34/224.55 events/s，所有运行时错误计数和 pending_stale 均为 0。
+- 原生测试通过：`small` 为 23 PASS、0 FAIL；`upstream-reference` 为 117 PASS、0 FAIL、2 XFAIL、0 XPASS，XFAIL 仍为 arch.md 已声明的有界 read/write 快照和 event-sourced FD/cwd 初始状态边界。
+
+#### Review 结论
+
+- 未发现输出回归：旧实现的 header 字段顺序、malformed stop、partial clip、4 字节对齐、ERROR nested 文本和 DONE payload 规则均由新方法保持，format 行为测试与完整 reference 通过。
+- `netlinkFormatter` 只持有显式 `FlagDecoder`，没有 Catalog 创建、全局状态、缓存、锁或并发 owner；递归路径不会创建第二 Catalog，也没有改变 handler 的 snapshot-only 输入边界。
+- 本阶段未触及 BPF ABI、事件路由、生命周期、ptrace/procfs 或 Go 侧 tracee memory read；`strace-upstream` 子模块的预先存在状态未触碰。
