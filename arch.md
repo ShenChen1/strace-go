@@ -5936,3 +5936,41 @@ Impact note：影响 `cmd/strace-go/session_composition.go` 的 decoder dependen
 真实 `ebpf-semantic` 通过：205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0，write-only events 为 6。`ebpf-perf` 通过：`TraceEventDecodeState 286.50 ns/op、0 B/op、0 allocs/op`、raw JSON `489.80 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `639.10 ns/op、0 B/op、0 allocs/op`、decoded payload `921.80 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认 `traceSessionConfig` 仍在 bootstrap 创建并配置唯一真实 `*event.Decoder`，session runtime 只保存 `handler.SnapshotDecoder`；ringbuf `traceRecordDecoder` 仍是独立的 ABI 解码 owner。未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
+
+### 14.143 将 session symbol resolver 收窄为解析能力 port（2026-08-12）
+
+#### Problem 1-Pager
+
+- Context：`TextRenderer` 已只依赖 `traceSymbolResolver.Resolve`，当前 resolver 是纯 eBPF 的 probe-time 地址格式化器；`traceSessionDeps.Resolver` 仍声明为具体的 `*stacktrace.Resolver`。
+- Problem：session dependency contract 泄漏具体 resolver 类型，无法注入只实现地址解析行为的 fake，也让运行期边界看起来像拥有可扩展的 mapping/symbol state。
+- Goal：将 `traceSessionDeps.Resolver` 改为 `traceSymbolResolver`，保持 `traceSessionConfig.resolver` 在 bootstrap 阶段创建真实 resolver，并把同一个 owner 通过接口注入 TextRenderer。
+- Non-goals：不引入 `/proc/<pid>/maps`、ptrace、用户态 tracee 内存读取或动态符号解析；不改变地址格式、stack trace 输出、BPF stack capture、性能模型、并发模型或其它 session dependencies。
+- Constraints：port 只暴露 `Resolve(ip)`；nil resolver 仍表示不输出 stack trace；不得复制 resolver state 或新增 live mapping owner。
+
+Impact note：影响 `cmd/strace-go/session_composition.go` 的 resolver dependency contract 与 resolver source/fake tests；`traceSessionConfig` 保留具体 `*stacktrace.Resolver` 仅作为 construction-time owner。
+
+方案比较：
+
+1. 保留 `*stacktrace.Resolver`：改动最少，但 session runtime 继续暴露具体实现，拒绝。
+2. 在 cmd 包内新增 resolver wrapper：隐藏类型但重复已有 `Resolve` port，增加 owner 和转换层，拒绝。
+3. 复用已有 `traceSymbolResolver`：直接匹配 TextRenderer 的消费面，可注入 fake 且无额外状态，选择该方案。
+
+状态契约：
+
+- resolver 只接收 BPF 已捕获的 instruction pointer，不读取 tracee live mapping；地址到文本的规则仍由 `stacktrace.Resolver` 保持。
+- composition root 继续创建一个真实 resolver；session 与 TextRenderer 共享同一个接口 owner。
+- stack trace reader port 和 symbol resolver port 保持分离，reader 负责取地址，resolver 负责格式化地址。
+
+测试与验收：
+
+- 先增加失败优先的 fake resolver 测试，确认旧具体字段无法接收 `traceSymbolResolver` 替代实现。
+- 实现后运行 focused resolver-port tests、Go 全量/race/vet/build、`git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和 `upstream-reference`。
+- review 检查生产源码没有 procfs、ptrace、process_vm_readv、第二消费者、锁或 goroutine 新路径。
+
+#### 实际验收记录
+
+失败优先的 fake resolver 测试先因 `traceSessionDeps.Resolver` 固定为 `*stacktrace.Resolver` 而无法编译；实现为 `traceSymbolResolver` 后 focused resolver-port tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14143 ./cmd/strace-go` 和 `git diff --check` 全部通过。fake resolver 验证 session 与 TextRenderer 共享同一个符号解析 port，source gate 确认 session dependency 不再暴露具体 resolver。
+
+真实 `ebpf-semantic` 通过：205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0，write-only events 为 6。`ebpf-perf` 通过：`TraceEventDecodeState 286.50 ns/op、0 B/op、0 allocs/op`、raw JSON `491.50 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `622.60 ns/op、0 B/op、0 allocs/op`、decoded payload `878.40 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认 `traceSessionConfig` 仍只在 bootstrap 创建真实 `*stacktrace.Resolver`，session runtime 通过 `traceSymbolResolver` 消费 BPF 已捕获地址；没有新增 live symbol/mapping 查询或改变 stack trace reader owner。未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。

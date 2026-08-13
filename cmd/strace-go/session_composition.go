@@ -7,7 +7,6 @@ import (
 
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
-	"strace-go/pkg/stacktrace"
 )
 
 // traceSessionComponents is the composition root for one tracing session.
@@ -114,7 +113,7 @@ type traceSessionDeps struct {
 	TimeFormatter traceTimeFormatter
 	StackTraces   traceStackTraceReader
 	Stats         traceStatsReader
-	Resolver      *stacktrace.Resolver
+	Resolver      traceSymbolResolver
 	State         *TraceState
 	Clock         traceClock
 	PIDProbe      tracePIDProbe
