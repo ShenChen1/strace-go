@@ -285,11 +285,11 @@ func TestMmsgExitSlotHelperHasBoundedInterface(t *testing.T) {
 
 func TestBPFRecvmsgKretprobeChainSerializesFragments(t *testing.T) {
 	root := repoRootForTest(t)
-	source := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
+	source := readTextFile(t, filepath.Join(root, "bpf/recvmsg_kretprobe_dispatch.h"))
 	attachSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_attach.go"))
 	dispatchBody, ok := bpfFunctionBody(source, "trace_kretprobe_recvmsg_dispatch")
 	if !ok {
-		t.Fatal("strace.c missing recvmsg dispatcher body")
+		t.Fatal("recvmsg kretprobe dispatch header missing dispatcher body")
 	}
 	if strings.Contains(dispatchBody, "bpf_get_current_pid_tgid") ||
 		strings.Contains(dispatchBody, "bpf_map_lookup_elem") ||
@@ -308,7 +308,7 @@ func TestBPFRecvmsgKretprobeChainSerializesFragments(t *testing.T) {
 	} {
 		body, ok := bpfFunctionBody(source, check.name)
 		if !ok {
-			t.Fatalf("strace.c missing function body for %s", check.name)
+			t.Fatalf("recvmsg kretprobe header missing function body for %s", check.name)
 		}
 		if !strings.Contains(body, check.snippet) {
 			t.Fatalf("%s missing recvmsg chain step %q", check.name, check.snippet)

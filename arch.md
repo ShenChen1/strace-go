@@ -7372,3 +7372,52 @@ Impact note：只影响 `bpf/enter_dispatch.h`、新增 `bpf/enter_fragment_disp
 - family handler 仍拥有 pending save，fragment header 不包含 `save_pending_syscall_args` 或 `save_pending_msg_syscall_args`，也不查找/消费 pending；因此事件配对与生命周期所有权未被拆分破坏。
 - source gate 已同时覆盖物理 ownership 和行为契约；真实 verifier、semantic/perf、small 和 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
 - 本阶段仅修改 `bpf/enter_dispatch.h`、`bpf/enter_fragment_dispatch.h`、`bpf/strace.c`、`cmd/strace-go/bpf_source_gate_helpers_test.go`、`cmd/strace-go/bpf_enter_fragment_source_test.go` 和本记录；`strace-upstream` 子模块的预先存在 dirty 状态未触碰。
+
+### 14.178 拆分 recvmsg kretprobe fragment ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/strace.c` 同时包含 raw syscall enter/exit attach、`recvmsg` kretprobe 的 NAME/CONTROL/FINAL fragment chain 和生命周期 tracepoint。14.171 已经明确了 recvmsg dispatcher、fragment 与 final pending consume 的行为 ownership，但四个 kretprobe 程序仍物理驻留在总入口文件中。
+- Problem：逻辑边界已经存在而物理边界没有对齐；后续修改 recvmsg OUT payload 或 tail-call chain 时仍需要在混合 raw/lifecycle translation unit 中定位程序，source gate 也无法直接把“唯一 attach dispatcher”和“fragment header ownership”作为独立对象检查。
+- Goal：新增 `bpf/recvmsg_kretprobe_dispatch.h`，把四个既有 `__sys_recvmsg` kretprobe 程序完整迁移到该 header；保留唯一 dispatcher attach、NAME -> CONTROL -> FINAL 的 serialized chain、final identity snapshot、bounded event emission 和 pending consume 顺序不变。
+- Non-goals：不新增 attach、map、ProgArray slot、事件字段、Go consumer、goroutine、锁、payload ABI、filter/lifecycle 语义、ptrace/procfs fallback 或 Go 侧 tracee memory read；不修改生命周期 handler 和 recvmsg emitter 业务逻辑。
+- Constraints：新 header/function 不超过 500/80 行、参数不超过 5；dispatcher 只做 tail call，NAME/CONTROL 只输出各自 fragment 并继续 tail call，FINAL 才拥有 pending consume；BPF source gate 必须同时锁定 include、物理 ownership、chain 顺序、final cleanup 和 attach 端只有 dispatcher。
+
+Impact note：生产行为只涉及 BPF 源码的编译期文件边界；`bpf_attach.go` 的 generated binding、`recvmsg_progs` 数值和 attach 数量不变，用户态事件状态机与纯 eBPF memory policy 不变。
+
+#### 方案比较
+
+1. 保留四个程序在 `bpf/strace.c`：运行时零改动，但 raw dispatcher、recvmsg fragment 和 lifecycle attach 继续混合，文件 ownership 与实际执行图不一致，拒绝。
+2. 为 NAME/CONTROL/FINAL 分别增加 kretprobe attach：物理隔离更明显，但会重复触发同一内核 return path，破坏单 dispatcher 语义并增加 attach/顺序风险，拒绝。
+3. 新增独立 `recvmsg_kretprobe_dispatch.h`，只改变 include 边界：保持单 attach、既有 ProgArray chain 和编译期展开，选择该方案。
+
+#### 状态契约
+
+- `trace_kretprobe_recvmsg_dispatch` 是唯一直接挂载到 `kretprobe/__sys_recvmsg` 的程序，只调用 `bpf_tail_call(ctx, &recvmsg_progs, RECVMSG_PROG_NAME)`；它不读取 task identity、不查 pending、不发事件。
+- `trace_kretprobe_recvmsg_name` 继续读取 return value 和当前 TID，验证 `SYS_RECVMSG` pending，计算 duration，发出 NAME fragment 后只跳转到 `RECVMSG_PROG_CONTROL`。
+- `trace_kretprobe_recvmsg_control` 继续发出 CONTROL fragment 后只跳转到 `RECVMSG_PROG_FINAL`；它不消费 pending。
+- `trace_kretprobe_recvmsg_final` 继续只做一次 `bpf_get_current_pid_tgid` 快照，从快照派生 pid/tid，发出最终 single-message exit event，并由 `consume_pending_syscall(pid, tid, p, 0)` 关闭 pending。
+- `bpf/strace.c` 只通过 include 引入 header；`recvmsg_progs` 装载、generated program binding、attach helper 和其它 lifecycle/raw handler 均不改变。
+
+#### 测试与验收
+
+- 先增加失败优先 source gate：目标 header 不存在时必须失败；实现后检查四个 kretprobe 程序只由新 header 拥有，dispatcher/NAME/CONTROL/FINAL 的 tail-call chain 顺序正确，FINAL 拥有唯一 pending consume。
+- 将原有 recvmsg chain 和 final identity source gate 迁移到专用 header读取，避免测试继续把“物理源码合并视图”误当成单文件 ownership；跨文件 direct-TLV gate 仍使用真实 include 顺序的 combined source。
+- 实现后运行 focused source tests、`sudo -n ./build.sh`、`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check`；再运行 `ebpf-semantic`、`ebpf-perf`、`small` 与完整 upstream reference。
+- review 必须确认没有新增 BPF attach、map、ProgArray slot、消费者、并发 owner、ptrace/procfs 路径或 tracee memory read；所有 kretprobe handler 的参数和 pending 生命周期仍满足本仓库限制。
+
+#### 实施与验收
+
+- 失败优先 focused gate 首次暴露了旧 `TestBPFRecvmsgFinalSnapshotsTaskIdentityOnce` 仍从拼接源码定位 final handler，导致新 header 中只有一次身份读取却被错误计为两次。测试随后改为直接读取 `recvmsg_kretprobe_dispatch.h`；这次修改只修正 source oracle 边界，没有给产品代码增加测试特判。
+- 四个 kretprobe 程序按原函数体迁移到 `bpf/recvmsg_kretprobe_dispatch.h`，`bpf/strace.c` 只新增 include 并删除旧定义；`bpf/strace.c` 为 228 行，新 header 为 67 行，新增 ownership gate 为 37 行。
+- focused recvmsg/identity/direct-TLV/router source tests、`sudo -n ./build.sh`、clang 生成、真实 BPF verifier、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14178 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+- `ebpf-semantic` 第二次干净运行通过：主事件 205，enter/exit `104/101`，生命周期 6，非 leader attach `1039/1039` 且 orphan 0；signalfd 16、sockopt 8、thread 22、mount-query/path 4/4、dirent 8、mmsg 16、fcntl 6、write-only 6；正常 fixture 的 ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map/stale 错误计数均为 0，payload truncated 为 8。第一次运行出现 `874/874 + orphan=1` 的非 leader attach 瞬态诊断，完整清理临时 root-owned 文件后重跑消失，未改变产品代码；普通 attach fixture 的 orphan=1 仍是其预期“attach 到已进行中的 read”诊断。
+- `ebpf-perf` 通过：Go decode `347.70 ns/op、0 B/op、0 allocs/op`，JSON writer `500.50 ns/op、0 B/op、0 allocs/op`，decoded writer `614.20 ns/op、0 B/op、0 allocs/op`，decoded payload writer `840.50 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `423.84/285.75/2.38/224.81 events/s`，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 计数为 0。
+- 原生参考通过：`small` 为 `23 PASS / 0 FAIL`；`upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`。两个 XFAIL 仍是 `read-write.gen.test` 的有界 eBPF snapshot 不承诺 ptrace 大块 hexdump，以及 `mount_setattr.gen.test` 的 event-sourced FD/cwd 初始状态未知；没有新增失败或 XPASS。
+
+#### Review 结论
+
+- 未发现运行时行为回归：dispatcher 仍是唯一 kretprobe attach，NAME -> CONTROL -> FINAL 的 tail-call 顺序、每个 fragment 的 emitter、final 单次身份快照和 pending consume 均与迁移前一致；recvmsg/mmsg semantic 与 upstream reference 均通过。
+- 新 header 不拥有 pending save 或额外状态；NAME/CONTROL 只读取和发出 bounded fragment，FINAL 仍是唯一 cleanup owner。没有新增 map、锁、goroutine、Go consumer、ProgArray slot、ptrace、procfs 或 Go 侧 tracee memory read。
+- source gate 已分别覆盖物理 ownership、chain routing、final cleanup、identity snapshot 和 attach 端 binding；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件丢失、配对变化、输出回归或性能回退。
+- 本阶段仅修改 `bpf/strace.c`、新增 `bpf/recvmsg_kretprobe_dispatch.h`、相关 BPF source gate/helper 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

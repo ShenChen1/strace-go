@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -184,10 +185,11 @@ func TestBPFRawDispatchersSnapshotTaskIdentityOnce(t *testing.T) {
 }
 
 func TestBPFRecvmsgFinalSnapshotsTaskIdentityOnce(t *testing.T) {
-	source := loadBPFSources(t).straceSource
+	root := repoRootForTest(t)
+	source := readTextFile(t, filepath.Join(root, "bpf/recvmsg_kretprobe_dispatch.h"))
 	body, ok := bpfFunctionBody(source, "trace_kretprobe_recvmsg_final")
 	if !ok {
-		t.Fatal("strace.c missing trace_kretprobe_recvmsg_final body")
+		t.Fatal("recvmsg kretprobe dispatch header missing trace_kretprobe_recvmsg_final body")
 	}
 	if !strings.Contains(body, "u64 pid_tgid = bpf_get_current_pid_tgid();") {
 		t.Fatal("recvmsg final must snapshot pid/tid identity")
