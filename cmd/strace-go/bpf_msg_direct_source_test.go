@@ -26,8 +26,7 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"enter_msg",
 		"enter_sendmsg_base",
 		"enter_mmsg",
-		"enter_mmsg_base0",
-		"enter_mmsg_base1",
+		"enter_mmsg_base01",
 		"enter_mmsg_base2",
 		"enter_mmsg_base3",
 		"exit_msg",
@@ -69,10 +68,8 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"objs.EnterSendmsgBase",
 		"EnterMmsg",
 		"objs.EnterMmsg",
-		"EnterMmsgBase0",
-		"objs.EnterMmsgBase0",
-		"EnterMmsgBase1",
-		"objs.EnterMmsgBase1",
+		"EnterMmsgBase01",
+		"objs.EnterMmsgBase01",
 		"EnterMmsgBase2",
 		"objs.EnterMmsgBase2",
 		"EnterMmsgBase3",
@@ -206,11 +203,9 @@ func TestBPFMmsgEnterFragmentsBoundVerifierState(t *testing.T) {
 		}
 	}
 	for _, snippet := range []string{
-		"int enter_mmsg_base0(",
-		"int enter_mmsg_base1(",
+		"int enter_mmsg_base01(",
 		"int enter_mmsg_base2(",
 		"int enter_mmsg_base3(",
-		"ENTER_PROG_MMSG_BASE1",
 		"ENTER_PROG_MMSG_BASE2",
 		"ENTER_PROG_MMSG_BASE3",
 	} {
@@ -245,14 +240,33 @@ func TestBPFMmsgEnterFragmentsBoundVerifierState(t *testing.T) {
 			t.Fatalf("mmsg bytes fragment source missing %q", snippet)
 		}
 	}
-	if !strings.Contains(combined, "ENTER_PROG_MMSG_BASE0") {
-		t.Fatal("mmsg enter dispatcher missing base0 tail-call target")
+	if !strings.Contains(combined, "ENTER_PROG_MMSG_BASE01") {
+		t.Fatal("mmsg enter dispatcher missing base01 tail-call target")
 	}
-	if !strings.Contains(combined, "bpf_tail_call(ctx, &enter_progs, ENTER_PROG_MMSG_BASE0);") {
-		t.Fatal("mmsg enter handler does not start the bounded fragment chain")
+	if !strings.Contains(combined, "bpf_tail_call(ctx, &enter_progs, ENTER_PROG_MMSG_BASE01);") {
+		t.Fatal("mmsg enter handler does not start the merged fragment chain")
 	}
 	if strings.Contains(capture, "capture_mmsg_iovec_tlv_direct(\n        ptr,\n        payload_offset + payload_size") {
 		t.Fatal("mmsg aggregate capture must not inline all iovec slots")
+	}
+}
+
+func TestBPFMmsgBase01PreservesFragmentOrder(t *testing.T) {
+	root := repoRootForTest(t)
+	source := readTextFile(t, filepath.Join(root, "bpf/mmsg_enter_dispatch.h"))
+	body, ok := bpfFunctionBody(source, "enter_mmsg_base01")
+	if !ok {
+		t.Fatal("mmsg enter dispatch missing merged base01 handler")
+	}
+	base0 := strings.Index(body, "emit_mmsg_base0_enter_event_v2_direct")
+	base1 := strings.Index(body, "emit_mmsg_base1_enter_event_v2_direct")
+	next := strings.Index(body, "ENTER_PROG_MMSG_BASE2")
+	if base0 < 0 || base1 < 0 || next < 0 || base0 > base1 || base1 > next {
+		t.Fatalf("mmsg enter base01 order is invalid: base0=%d base1=%d next=%d", base0, base1, next)
+	}
+	if strings.Contains(source, "int enter_mmsg_base0(") ||
+		strings.Contains(source, "int enter_mmsg_base1(") {
+		t.Fatal("mmsg enter base0/base1 handlers must be replaced by base01")
 	}
 }
 

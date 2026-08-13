@@ -53,14 +53,13 @@ enum enter_prog_index {
     /* chained fragment handlers, never dispatched by syscall id */
     ENTER_PROG_IOVEC_BASE = 37,
     ENTER_PROG_SENDMSG_BASE = 38,
-    ENTER_PROG_MMSG_BASE0 = 39,
-    ENTER_PROG_MMSG_BASE1 = 40,
-    ENTER_PROG_MMSG_BASE2 = 41,
-    ENTER_PROG_MMSG_BASE3 = 42,
-    ENTER_PROG_AIO_IOVEC = 43,
-    ENTER_PROG_AIO_BUF = 44,
-    ENTER_PROG_QUOTA = 45,
-    ENTER_PROG_MOUNT_PATH = 46,
+    ENTER_PROG_MMSG_BASE01 = 39,
+    ENTER_PROG_MMSG_BASE2 = 40,
+    ENTER_PROG_MMSG_BASE3 = 41,
+    ENTER_PROG_AIO_IOVEC = 42,
+    ENTER_PROG_AIO_BUF = 43,
+    ENTER_PROG_QUOTA = 44,
+    ENTER_PROG_MOUNT_PATH = 45,
 };
 #define ENTER_PROLOGUE(ctx)                                                \
     u32 sys_id = (u32)(ctx)->id;                                           \
@@ -337,7 +336,7 @@ int enter_mmsg(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
     emit_mmsg_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
-    bpf_tail_call(ctx, &enter_progs, ENTER_PROG_MMSG_BASE0);
+    bpf_tail_call(ctx, &enter_progs, ENTER_PROG_MMSG_BASE01);
     return 0;
 }
 

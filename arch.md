@@ -6613,3 +6613,44 @@ Impact note：影响 `bpf/exit_dispatch.h`、`bpf/strace.c` 的 exit index、`bp
 真实 sudo 验证通过：BPF 对象成功加载，mmsg fixture 产生 16 个事件；`recvmmsg` 最终 exit 的 OUT bytes synthetic arg 按 `120,160,180,200` 顺序合并，四个 iovec slot、成功返回、截断标记和 pending cleanup 均通过语义 oracle。完整 `ebpf-semantic` 通过，主 fixture 为 205 个事件、104/101 enter/exit、6 个 lifecycle，非 leader attach 为 631/631 配对且 `orphan_exit=0`；reserve/copy/pending/mismatch/lifecycle-map-update/stale 计数均为 0。`ebpf-perf` 通过，Go decode 为 `314.20/499.40/622.80/860.40 ns/op`（最后一项 decoded payload 为 `16 B/1 alloc`），scalar/io/lifecycle/threads 为 `403.60/267.66/2.25/214.69 events/s`，所有错误计数为 0；原生 `small` 为 23 PASS；`upstream-reference` 为 117 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 新增 Python semantic oracle 单测覆盖正确顺序和乱序失败，14 项全部通过。review 确认 event v2/TLV ABI、用户态 fragment 合并、sendmmsg/recvmsg 链、失败返回 fallback 和 pending ownership 未改变；生产路径仍无 ptrace、procfs、用户态 tracee 内存读取、第二事件消费者、锁或 goroutine。合并后的 `exit_recvmmsg_base01` 对象真实加载成功，因此本阶段不继续扩大到 base2/base3 合并。
+
+### 14.161 合并 mmsg enter 前两个 fragment（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`sendmmsg`/`recvmmsg` enter 链当前由 `enter_mmsg_base0 -> base1 -> base2 -> base3` 组成；每个 fragment 都重复执行 `ENTER_PROLOGUE`，包括任务身份读取、时间读取、config map 查询和可选 stack capture。base0/base1 只负责相邻 slot 的 bounded snapshot，和 14.160 的 recvmmsg exit fragment 具有相同的局部重复结构。
+- Problem：base0 到 base1 的 tail call 不产生新的事件语义，却增加一次 prologue、一次 tail call 和对应的 verifier 状态；该成本落在 `sendmmsg` 与 `recvmmsg` 的每次调用上。直接合并四个 enter fragment 会同时放大 send/recv 两条链，失败行为和 verifier 边界不够清晰。
+- Goal：将 `enter_mmsg_base0` 与 `enter_mmsg_base1` 合并为 `enter_mmsg_base01`，在一次 `ENTER_PROLOGUE` 后按 slot0、slot1 顺序提交两个 enter fragment，再 tail-call 到 base2；保留 base2/base3、sendmmsg bytes 链、pending metadata 和事件合并语义。
+- Non-goals：不改变 event v2/TLV ABI、mmsg synthetic arg index、payload snapshot、pending ownership、sendmmsg bytes fragment、recvmmsg exit chain、用户态状态机或文本/JSON 输出；不合并 base2/base3，不引入循环、procfs、ptrace、process memory read、锁、goroutine 或第二消费者。
+- Constraints：`enter_mmsg_base01` 必须只执行一次 `ENTER_PROLOGUE`，slot0 emitter 必须在 slot1 emitter 之前，二者之后才能 tail-call base2；tail-call 失败仍保持 enter 链既有的无额外 final 行为；`enter_progs` index、max_entries、Go binding、source gate 和 semantic order oracle 必须同步。
+
+Impact note：影响 `bpf/mmsg_enter_dispatch.h`、`bpf/enter_dispatch.h` 的 fragment index、`bpf/runtime_abi.h` 的 `enter_progs` 容量、`bpf/strace.c` 的 enter chain index、Go attacher/生成 binding 和 mmsg tests；不修改 exit chain、用户态事件状态机或其它 syscall family。收益只针对 mmsg enter 局部链路，不能宣称为全局 syscall 吞吐优化。
+
+#### 方案比较
+
+1. 保留四个独立 enter fragment：行为风险最低，但重复 prologue 和 tail call 成本不变，拒绝。
+2. 只合并 `base0/base1`，保留 `base2/base3`：减少一次状态准备和一次 tail call，事件顺序与 fallback 边界清晰，选择该方案。
+3. 将四个 enter fragment 全部合并：程序更大，sendmmsg bytes chain 的入口和 recvmmsg 的公共路径同时变化，verifier/回退风险更高，拒绝。
+
+#### 状态契约
+
+- `enter_mmsg_base01` 只接受 `SYS_SENDMMSG` 或 `SYS_RECVMMSG`，一次解析当前任务上下文后依次调用 base0、base1 emitter，再 tail-call 到 `ENTER_PROG_MMSG_BASE2`。
+- 两个 emitter 继续各提交一个 generic enter event；用户态 `TraceState` 仍按同一 TID/syscall 合并 payload，不新增第二消费者或锁。
+- base2/base3 的调用顺序保持；base3 仍只对 `sendmmsg` 进入 `mmsg_bytes_progs`，`recvmmsg` 不产生 enter-side bytes chain。
+- `enter_progs` 压缩为 `ENTER_PROG_MMSG_BASE01=39`、base2=40、base3=41，后续 AIO/quota/mount index 顺延；Go entries 与 C enum 必须一一对应。
+
+#### 测试与验收
+
+- 先增加失败优先 source gate：要求 `enter_mmsg_base01` 存在，base0 emitter 在 base1 emitter 之前，二者都在 `ENTER_PROG_MMSG_BASE2` tail call 之前；旧 base0/base1 program declaration 和旧 index 不得保留。
+- 实现后重新生成 BPF 对象并运行 focused mmsg/ProgArray/source tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build 和 `git diff --check`；再用 mmsg fixture 验证 send/recv enter 与 recvmmsg exit 的 synthetic section 顺序，运行完整 semantic/perf/small/reference。
+- review 检查 pending enter 仍只保存一次、sendmmsg bytes chain 入口未改变、recvmmsg exit chain 未回退，生产路径仍无 ptrace、procfs、用户态 tracee 内存读取、第二消费者或锁。
+
+#### 实际验收记录
+
+已完成。先增加失败优先的 `enter_mmsg_base01` source gate，旧实现按预期因缺少合并 handler 而失败；实现后删除 `base0/base1` program declaration，`ENTER_PROG_MMSG_BASE01=39`、base2/base3 和后续 AIO/quota/mount index、`enter_progs max_entries=46`、Go attacher 与 bpf2go 生成 binding 均同步通过 focused source/ProgArray 测试。
+
+新增 semantic oracle 聚合 enter fragment 的 synthetic arg 顺序，并保留 exit wrapper 对单个最终事件的精确检查。真实 sudo 验证通过：mmsg fixture 为 16 个事件；`sendmmsg` enter 的 iovec/bytes 顺序分别为 `1,151,181,211` 与 `120,160,180,200`，`recvmmsg` enter 的 iovec 顺序为 `1,151,181,211`，最终 exit 的 OUT bytes 顺序为 `120,160,180,200`；ringbuf、pending、orphan、mismatch 和 lifecycle-map-update 计数均为 0。完整 `ebpf-semantic` 通过，主 fixture 为 205 个事件、104/101 enter/exit、6 个 lifecycle，非 leader attach 为 791/791 配对且 `orphan_exit=0`；leader attach 的 `orphan_exit=1` 仍是预期诊断。
+
+`ebpf-perf` 通过：Go decode 为 `309.30 ns/op、0 B/op、0 allocs/op`，raw JSON 为 `490.30 ns/op、0 B/op、0 allocs/op`，decoded payload 为 `888.40 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `398.68/266.16/2.18/212.13 events/s`，所有错误计数为 0。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o strace-go ./cmd/strace-go`、Python 16 项单测和 `git diff --check` 均通过；原生 `small` 为 23 PASS；`upstream-reference` 为 117 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。
+
+review 确认 base2/base3、sendmmsg bytes 链、recvmmsg exit 链、pending 保存/消费和 event v2/TLV ABI 未改变；生产路径仍无 ptrace、procfs、用户态 tracee 内存读取、锁、goroutine 或第二消费者。完整 semantic 的非 leader attach 曾出现 scheduler-sensitive 的单次 `orphan_exit=1`，独立重复与最终验收均为 0，未放宽断言或改变生产逻辑。

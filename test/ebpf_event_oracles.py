@@ -79,24 +79,38 @@ def has_large_write_truncation(events):
     return False
 
 
-def has_ordered_merged_exit_sections(
-    events, syscall, kind, direction, expected_arg_indices
+def has_ordered_event_sections(
+    events, syscall, event_type, kind, direction, expected_arg_indices
 ):
     expected = list(expected_arg_indices)
+    if not expected:
+        return False
+    observed = []
     for event in events:
-        if event.get("syscall") != syscall or event.get("event_type") != "exit":
+        if event.get("syscall") != syscall or event.get("event_type") != event_type:
             continue
-        if event.get("event_flags", 0) & EVENT_FLAG_EXIT_FRAGMENT:
+        if event_type == "exit" and event.get("event_flags", 0) & EVENT_FLAG_EXIT_FRAGMENT:
             continue
-        observed = [
+        observed.extend(
             section.get("arg_index")
             for section in event.get("payload_sections") or []
             if section.get("kind") == kind
             and section.get("direction") == direction
-        ]
-        if observed == expected:
-            return True
-    return False
+        )
+    return observed == expected
+
+
+def has_ordered_merged_exit_sections(
+    events, syscall, kind, direction, expected_arg_indices
+):
+    return any(
+        has_ordered_event_sections(
+            [event], syscall, "exit", kind, direction, expected_arg_indices
+        )
+        for event in events
+        if event.get("event_type") == "exit"
+        and (event.get("event_flags", 0) & EVENT_FLAG_EXIT_FRAGMENT) == 0
+    )
 
 
 def has_path_section(events, syscall, arg_index, path_text):

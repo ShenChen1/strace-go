@@ -128,6 +128,7 @@ func TestEnterProgIndicesMatchDispatchHeader(t *testing.T) {
 		"ENTER_PROG_NO_PAYLOAD_DIRECT": enterProgNoPayload,
 		"ENTER_PROG_PAYLOAD_DIRECT":    enterProgPayload,
 		"ENTER_PROG_IOVEC_BASE":        enterProgIovecBase,
+		"ENTER_PROG_MMSG_BASE01":       enterProgMmsgB01,
 		"ENTER_PROG_MMSG_BASE2":        enterProgMmsgB2,
 		"ENTER_PROG_MMSG_BASE3":        enterProgMmsgB3,
 		"ENTER_PROG_AIO_BUF":           enterProgAioBuf,
@@ -138,6 +139,10 @@ func TestEnterProgIndicesMatchDispatchHeader(t *testing.T) {
 		if !strings.Contains(header, fmt.Sprintf("%s = %d", name, val)) {
 			t.Fatalf("enter_dispatch.h missing %s = %d", name, val)
 		}
+	}
+	runtimeABI := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
+	if !strings.Contains(runtimeABI, "__uint(max_entries, 46)") {
+		t.Fatal("runtime_abi.h enter_progs map must have capacity for ENTER_PROG_MOUNT_PATH")
 	}
 }
 

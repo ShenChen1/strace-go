@@ -106,14 +106,13 @@ const (
 	enterProgPayload     = 36
 	enterProgIovecBase   = 37
 	enterProgSendmsgBase = 38
-	enterProgMmsgB0      = 39
-	enterProgMmsgB1      = 40
-	enterProgMmsgB2      = 41
-	enterProgMmsgB3      = 42
-	enterProgAioIovec    = 43
-	enterProgAioBuf      = 44
-	enterProgQuota       = 45
-	enterProgMountPath   = 46
+	enterProgMmsgB01     = 39
+	enterProgMmsgB2      = 40
+	enterProgMmsgB3      = 41
+	enterProgAioIovec    = 42
+	enterProgAioBuf      = 43
+	enterProgQuota       = 44
+	enterProgMountPath   = 45
 )
 
 const (
@@ -187,8 +186,7 @@ func enterProgArrayEntries(objs *bpfObjects) []progArrayEntry {
 		{enterProgPayload, objs.EnterPayloadDirect},
 		{enterProgIovecBase, objs.EnterIovecBase},
 		{enterProgSendmsgBase, objs.EnterSendmsgBase},
-		{enterProgMmsgB0, objs.EnterMmsgBase0},
-		{enterProgMmsgB1, objs.EnterMmsgBase1},
+		{enterProgMmsgB01, objs.EnterMmsgBase01},
 		{enterProgMmsgB2, objs.EnterMmsgBase2},
 		{enterProgMmsgB3, objs.EnterMmsgBase3},
 		{enterProgAioIovec, objs.EnterAioIovec},

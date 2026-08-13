@@ -107,8 +107,7 @@ type bpfProgramSpecs struct {
 	EnterMemfd                    *ebpf.ProgramSpec `ebpf:"enter_memfd"`
 	EnterMiscStruct               *ebpf.ProgramSpec `ebpf:"enter_misc_struct"`
 	EnterMmsg                     *ebpf.ProgramSpec `ebpf:"enter_mmsg"`
-	EnterMmsgBase0                *ebpf.ProgramSpec `ebpf:"enter_mmsg_base0"`
-	EnterMmsgBase1                *ebpf.ProgramSpec `ebpf:"enter_mmsg_base1"`
+	EnterMmsgBase01               *ebpf.ProgramSpec `ebpf:"enter_mmsg_base01"`
 	EnterMmsgBase2                *ebpf.ProgramSpec `ebpf:"enter_mmsg_base2"`
 	EnterMmsgBase3                *ebpf.ProgramSpec `ebpf:"enter_mmsg_base3"`
 	EnterMmsgBytes0               *ebpf.ProgramSpec `ebpf:"enter_mmsg_bytes0"`
@@ -302,8 +301,7 @@ type bpfPrograms struct {
 	EnterMemfd                    *ebpf.Program `ebpf:"enter_memfd"`
 	EnterMiscStruct               *ebpf.Program `ebpf:"enter_misc_struct"`
 	EnterMmsg                     *ebpf.Program `ebpf:"enter_mmsg"`
-	EnterMmsgBase0                *ebpf.Program `ebpf:"enter_mmsg_base0"`
-	EnterMmsgBase1                *ebpf.Program `ebpf:"enter_mmsg_base1"`
+	EnterMmsgBase01               *ebpf.Program `ebpf:"enter_mmsg_base01"`
 	EnterMmsgBase2                *ebpf.Program `ebpf:"enter_mmsg_base2"`
 	EnterMmsgBase3                *ebpf.Program `ebpf:"enter_mmsg_base3"`
 	EnterMmsgBytes0               *ebpf.Program `ebpf:"enter_mmsg_bytes0"`
@@ -376,8 +374,7 @@ func (p *bpfPrograms) Close() error {
 		p.EnterMemfd,
 		p.EnterMiscStruct,
 		p.EnterMmsg,
-		p.EnterMmsgBase0,
-		p.EnterMmsgBase1,
+		p.EnterMmsgBase01,
 		p.EnterMmsgBase2,
 		p.EnterMmsgBase3,
 		p.EnterMmsgBytes0,

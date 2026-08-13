@@ -139,7 +139,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 48);
+    __uint(max_entries, 46);
     __type(key, u32);
     __type(value, u32);
 } enter_progs SEC(".maps");

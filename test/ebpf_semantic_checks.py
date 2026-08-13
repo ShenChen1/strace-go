@@ -15,6 +15,7 @@ from ebpf_event_oracles import (
     has_gettimeofday_payload_sections,
     has_large_write_truncation,
     has_openat_path_section,
+    has_ordered_event_sections,
     has_ordered_merged_exit_sections,
     has_path_section,
     has_sendmsg_cmsg_section,
@@ -428,6 +429,18 @@ def check_mmsg(context, failures):
         ]
         require(any(section.get("user_len") == 320 and section.get("copied_len") == 256 for section in struct_sections), failures, f"{syscall} four-slot mmsghdr bound missing")
         require(any(event.get("event_flags", 0) & EVENT_FLAG_TRUNCATED for event in capture.events if event.get("syscall") == syscall), failures, f"{syscall} mmsghdr truncation flag missing")
+        require(
+            has_ordered_event_sections(
+                capture.events,
+                syscall,
+                "enter",
+                "iovec",
+                "in",
+                (1, 151, 181, 211),
+            ),
+            failures,
+            f"{syscall} enter iovec sections were emitted out of order",
+        )
         for arg_index in (1, 151, 181, 211):
             require(any(section.get("kind") == "iovec" and section.get("arg_index") == arg_index for section in sections), failures, f"{syscall} iovec slot arg {arg_index} missing")
         bytes_direction = "in" if syscall == "sendmmsg" else "out"
@@ -443,6 +456,19 @@ def check_mmsg(context, failures):
                 ),
                 failures,
                 f"{syscall} {bytes_direction} buffer arg {arg_index} missing",
+            )
+        if syscall == "sendmmsg":
+            require(
+                has_ordered_event_sections(
+                    capture.events,
+                    syscall,
+                    "enter",
+                    "bytes",
+                    "in",
+                    (120, 160, 180, 200),
+                ),
+                failures,
+                "sendmmsg enter bytes sections were emitted out of order",
             )
         if syscall == "recvmmsg":
             require(

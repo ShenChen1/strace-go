@@ -12,6 +12,7 @@ from ebpf_event_oracles import (
     has_fd_state_section,
     has_open_family_path_and_fd_state,
     has_openat2_path_how_and_fd_state,
+    has_ordered_event_sections,
     has_ordered_merged_exit_sections,
 )
 from ebpf_cloexec_suite import has_stale_cloexec_read
@@ -93,6 +94,38 @@ class SuiteResultsTests(unittest.TestCase):
 
 
 class EventOracleTests(unittest.TestCase):
+    def test_accepts_ordered_enter_sections_across_fragments(self):
+        events = [
+            {
+                "event_type": "enter",
+                "syscall": "sendmmsg",
+                "payload_sections": [{"kind": "iovec", "direction": "in", "arg_index": index}],
+            }
+            for index in (1, 151, 181, 211)
+        ]
+
+        self.assertTrue(
+            has_ordered_event_sections(
+                events, "sendmmsg", "enter", "iovec", "in", (1, 151, 181, 211)
+            )
+        )
+
+    def test_rejects_reordered_enter_sections_across_fragments(self):
+        events = [
+            {
+                "event_type": "enter",
+                "syscall": "sendmmsg",
+                "payload_sections": [{"kind": "iovec", "direction": "in", "arg_index": index}],
+            }
+            for index in (151, 1, 181, 211)
+        ]
+
+        self.assertFalse(
+            has_ordered_event_sections(
+                events, "sendmmsg", "enter", "iovec", "in", (1, 151, 181, 211)
+            )
+        )
+
     def test_accepts_ordered_merged_exit_sections(self):
         events = [{
             "event_type": "exit",
