@@ -17,11 +17,18 @@ type SummaryStats struct {
 	stats map[string]*syscallStat
 }
 
+// traceSummaryOwner is only the composition boundary for one shared summary state.
+// Consumers receive traceSummaryRecorder or traceSummaryWriter separately.
+type traceSummaryOwner interface {
+	traceSummaryRecorder
+	traceSummaryWriter
+}
+
 func newSummaryStats() *SummaryStats {
 	return &SummaryStats{}
 }
 
-func (s *traceSession) summaryStats() *SummaryStats {
+func (s *traceSession) summaryStats() traceSummaryOwner {
 	if s == nil {
 		return nil
 	}

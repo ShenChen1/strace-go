@@ -109,7 +109,7 @@ type traceSessionDeps struct {
 	Runtime       handler.RuntimeServices
 	OutWriter     io.Writer
 	Output        traceFinalizerOutput
-	Summary       *SummaryStats
+	Summary       traceSummaryOwner
 	TimeFormatter traceTimeFormatter
 	StackTraces   traceStackTraceReader
 	Stats         traceStatsReader

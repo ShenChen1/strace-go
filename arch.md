@@ -5974,3 +5974,41 @@ Impact note：影响 `cmd/strace-go/session_composition.go` 的 resolver depende
 真实 `ebpf-semantic` 通过：205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0，write-only events 为 6。`ebpf-perf` 通过：`TraceEventDecodeState 286.50 ns/op、0 B/op、0 allocs/op`、raw JSON `491.50 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `622.60 ns/op、0 B/op、0 allocs/op`、decoded payload `878.40 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认 `traceSessionConfig` 仍只在 bootstrap 创建真实 `*stacktrace.Resolver`，session runtime 通过 `traceSymbolResolver` 消费 BPF 已捕获地址；没有新增 live symbol/mapping 查询或改变 stack trace reader owner。未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
+
+### 14.144 将 session summary owner 收窄为聚合能力 port（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：退出 effects 已只依赖 `traceSummaryRecorder`，run finalizer 已只依赖 `traceSummaryWriter`，但 `traceSessionDeps.Summary` 仍声明为具体的 `*SummaryStats`。
+- Problem：session root 暴露具体统计存储，测试不能注入只具备记录/打印能力的 fake；若把记录和打印拆成两个 root 字段，又会削弱它们必须指向同一统计 owner 的契约。
+- Goal：定义仅供 composition root 使用的 `traceSummaryOwner`，组合 `Record` 与 `Print` 两个已有 port；session dependency/accessor 使用该聚合接口，业务组件继续拿到各自最小 port。
+- Non-goals：不改变统计 map、错误计数、排序、summary 文本、summary-only/summary-and-print 策略、调用顺序、并发模型、事件 ABI 或纯 eBPF/no-procfs/no-ptrace 约束。
+- Constraints：composition 必须仍注入一个 owner；不得创建第二份统计状态、把 `Print` 传入事件热路径或引入锁/goroutine；nil 校验语义保持不变。
+
+Impact note：影响 `cmd/strace-go/session_composition.go` 的 Summary dependency、`summary_stats.go` 的 session accessor 及 summary owner source/fake tests；`SummaryStats` 仍是 bootstrap 创建的唯一真实实现。
+
+方案比较：
+
+1. 保留 `*SummaryStats`：改动最少，但 session contract 继续泄漏存储实现，拒绝。
+2. 将 Record 与 Print 拆为两个 root 字段：消费面更窄，但同一 owner 关系只能靠 wiring 约定，容易产生两份统计状态，拒绝。
+3. 定义 `traceSummaryOwner` 聚合两个已有 port，并向下投影最小接口：保持单一 owner、可注入 fake、业务层不见 Print，选择该方案。
+
+状态契约：
+
+- `traceSummaryOwner` 只存在于 composition/session dependency 边界；exit effects 仍接收 `traceSummaryRecorder`，finalizer 仍接收 `traceSummaryWriter`。
+- `SummaryStats.Record` 和 `SummaryStats.Print` 继续操作同一个 map；接口化不复制状态、不改变输出。
+- `summaryStats()` 返回 owner port，测试和组件关系检查不再依赖具体统计结构。
+
+测试与验收：
+
+- 先增加失败优先的 fake summary owner 测试，确认旧具体字段无法接受只实现 Record/Print 的对象。
+- 实现后运行 focused summary-owner tests、Go 全量/race/vet/build、`git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和 `upstream-reference`。
+- review 检查业务组件没有获得 `Print`，真实 composition 只有一个 summary owner，纯 eBPF 禁止规则保持通过。
+
+#### 实际验收记录
+
+失败优先的 fake summary owner 测试先因 `traceSessionDeps.Summary` 固定为 `*SummaryStats`，且 `traceSummaryOwner` 尚不存在而无法编译；实现聚合 owner port 后 focused summary-owner tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14144 ./cmd/strace-go` 和 `git diff --check` 全部通过。fake owner 验证 session、finalizer 与 exit effects 共享同一 owner，并分别投影为 writer/recorder port；source gate 确认业务组件没有恢复具体 `SummaryStats` 依赖。
+
+真实 `ebpf-semantic` 通过：205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0，write-only events 为 6。`ebpf-perf` 通过：`TraceEventDecodeState 292.20 ns/op、0 B/op、0 allocs/op`、raw JSON `497.40 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `602.00 ns/op、0 B/op、0 allocs/op`、decoded payload `905.70 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认 composition root 仍创建一个 `SummaryStats`，`Record` 与 `Print` 操作同一 map；`traceSummaryOwner` 只存在于 session boundary，事件 effects 和 finalizer 没有互相暴露对方能力。未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
