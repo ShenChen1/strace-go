@@ -45,6 +45,20 @@ func (p *cliTraceEventPolicy) TrackForkIdentity() bool {
 	return p == nil || p.trackForkIdentity
 }
 
+func (p *cliTraceEventPolicy) HandlerOptions() handler.OptionsPort {
+	if p == nil {
+		return nil
+	}
+	return p.handlerOptions
+}
+
+func (p *cliTraceEventPolicy) FilterOptions() traceFilterOptions {
+	if p == nil {
+		return nil
+	}
+	return p.filter
+}
+
 type cliTraceHandlerOptions struct {
 	stringLimit       int
 	hexEscapeMode     int

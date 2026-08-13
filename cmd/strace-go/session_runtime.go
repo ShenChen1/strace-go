@@ -4,7 +4,7 @@ import "strace-go/pkg/handler"
 
 type traceSession struct {
 	dependencies traceSessionDeps
-	eventPolicy  *cliTraceEventPolicy
+	eventPolicy  traceEventPolicyOwner
 	components   *traceSessionComponents
 }
 
@@ -31,8 +31,8 @@ func (s *traceSession) eventContextDependencies() syscallEventContextDeps {
 		contextDeps.registry = s.components.handlerRegistry
 	}
 	if s.eventPolicy != nil {
-		contextDeps.handlerOpts = s.eventPolicy.handlerOptions
-		contextDeps.filter = s.eventPolicy.filter
+		contextDeps.handlerOpts = s.eventPolicy.HandlerOptions()
+		contextDeps.filter = s.eventPolicy.FilterOptions()
 	}
 	return contextDeps
 }

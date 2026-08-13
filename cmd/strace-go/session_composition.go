@@ -13,7 +13,7 @@ import (
 // Components are constructed once, in dependency order, and never replace
 // each other during event processing.
 type traceSessionComponents struct {
-	eventPolicy        *cliTraceEventPolicy
+	eventPolicy        traceEventPolicyOwner
 	outputPolicy       *cliTraceOutputPolicy
 	textRenderer       *TextRenderer
 	jsonWriter         *JSONEventWriter
@@ -33,7 +33,7 @@ type traceSessionComponents struct {
 }
 
 type traceSessionBaseComponents struct {
-	eventPolicy     *cliTraceEventPolicy
+	eventPolicy     traceEventPolicyOwner
 	jsonWriter      *JSONEventWriter
 	renderer        *TextRenderer
 	exitStatus      *ExitStatusCoordinator
@@ -101,7 +101,7 @@ type traceSessionDeps struct {
 	CommandWaiter traceCommandWaiter
 	Events        traceRingbufReader
 	TargetPID     int
-	EventPolicy   *cliTraceEventPolicy
+	EventPolicy   traceEventPolicyOwner
 	OutputPolicy  *cliTraceOutputPolicy
 	Catalog       meta.CatalogPort
 	Decoder       handler.SnapshotDecoder

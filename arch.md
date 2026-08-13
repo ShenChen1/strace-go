@@ -6088,3 +6088,41 @@ Impact note：影响 `session_composition.go` 的 State dependency、`event_stat
 真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `286.60 ns/op、0 B/op、0 allocs/op`，raw JSON `503.00 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `605.20 ns/op、0 B/op、0 allocs/op`，decoded payload `901.50 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认 `traceStateOwner` 只出现在 session composition/accessor 边界；router、finalizer、renderer、exec/suspended output 没有恢复 `*TraceState` 依赖。真实 composition 仍只创建一个 `TraceState`，没有新增状态副本、锁、goroutine、ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.147 将 session EventPolicy 收窄为 owner port（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`cliTraceEventPolicy` 是构造期不可变 snapshot，包含 state policy、`handler.OptionsPort` 和 `traceFilterOptions`；session composition/runtime graph 仍通过 `*cliTraceEventPolicy` 保存它，`eventContextDependencies()` 还直接读取其字段。
+- Problem：session boundary 泄漏 policy snapshot 的 concrete 类型和内部字段，无法注入只满足行为契约的 fake；同时把 state policy、handler options、filter 拆成独立 root 字段会丢失它们来自同一 CLI snapshot 的共享不变量。
+- Goal：定义仅供 session composition 使用的 `traceEventPolicyOwner`，通过显式方法投影 state policy、handler options 和 filter；`traceSession`、dependency graph 和 event context source 不再依赖 `*cliTraceEventPolicy`。
+- Non-goals：不改变 CLI snapshot 内容、正则/filter 匹配、handler option copy、summary/deferred-exit 行为、事件 ABI、并发模型、性能模型或纯 eBPF/no-procfs/no-ptrace 约束。
+- Constraints：owner 必须保持一个 immutable snapshot；handler/context 只能获得 `handler.OptionsPort` 与 `traceFilterOptions`，不得获得 owner 或 CLI options；构造期 `traceSessionConfig` 保持现有 concrete snapshot 和 nil 语义。
+
+Impact note：影响 `traceSessionDeps.EventPolicy`、`traceSession.eventPolicy`、composition component policy 类型、`eventContextDependencies()` 及 policy owner source/fake tests；`cliTraceEventPolicy` 的字段存储和 snapshot 构造逻辑不改。
+
+方案比较：
+
+1. 保留 `*cliTraceEventPolicy`：改动最少，但 runtime graph 暴露 concrete snapshot 和字段，拒绝。
+2. 将 state policy、handler options、filter 拆成三个 session root 字段：消费接口更窄，但同一 snapshot 关系依赖 wiring，可能出现混合版本，拒绝。
+3. 定义 `traceEventPolicyOwner` 聚合三类能力，并通过 `HandlerOptions`/`FilterOptions` 投影窄 port：保持 snapshot 一致、可注入 fake、避免下游大接口，选择该方案。
+
+状态契约：
+
+- `traceEventPolicyOwner` 只存在于 session composition/runtime graph；`TraceState` 只接收 `traceStatePolicy`，event context 只接收 `handler.OptionsPort` 和 `traceFilterOptions`。
+- `cliTraceEventPolicy` 仍只在构造期从 CLI 深拷贝 map/regex，运行期不回读 `cli.Options`，不复制第二份 policy。
+- session config 继续承载 concrete snapshot，进入 `traceSessionDeps` 时投影为 owner port，保持 nil/构造顺序不变。
+
+测试与验收：
+
+- 先增加失败优先 fake event policy owner 测试，确认旧的 `*cliTraceEventPolicy` dependency 无法接收替代对象。
+- 实现后运行 focused policy-owner tests、Go 全量/race/vet/build、`git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和 `upstream-reference`。
+- review 检查 runtime graph 没有 concrete policy pointer 或 CLI options 依赖，真实 session 只保存一个 policy owner，纯 eBPF 禁止规则保持通过。
+
+#### 实际验收记录
+
+已完成。失败优先测试先因 `traceSessionDeps.EventPolicy` 固定为 `*cliTraceEventPolicy` 而无法接收 fake owner；实现后 focused policy-owner tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14147 ./cmd/strace-go` 和 `git diff --check` 均通过。fake owner 验证 session、component graph 与 event context source 共享同一个 policy owner，并分别投影 handler options 和 filter。
+
+真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `305.00 ns/op、0 B/op、0 allocs/op`，raw JSON `503.30 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `615.70 ns/op、0 B/op、0 allocs/op`，decoded payload `900.60 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认 runtime session/dependency/component graph 不再声明 `*cliTraceEventPolicy`，event context 只接收 `handler.OptionsPort` 和 `traceFilterOptions`；只有构造期 `traceSessionConfig` 保留 concrete snapshot，以维持 nil/构造顺序语义。未新增 ptrace、`process_vm_readv`、procfs、第二份 policy、锁或 goroutine。

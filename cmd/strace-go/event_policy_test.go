@@ -121,7 +121,7 @@ func TestTraceEventPolicyIsSharedBySessionAndContext(t *testing.T) {
 		t.Fatal("session components do not share the event policy snapshot")
 	}
 	deps := newSyscallEventContextDeps(session)
-	if deps.handlerOpts != session.eventPolicy.handlerOptions || deps.filter != session.eventPolicy.filter {
+	if deps.handlerOpts != session.eventPolicy.HandlerOptions() || deps.filter != session.eventPolicy.FilterOptions() {
 		t.Fatal("event context does not consume the session event policy ports")
 	}
 	if !state.deferUnmatchedExits || !state.trackForkIdentity {
