@@ -6540,3 +6540,37 @@ Impact note：影响 `bpf/strace.c` raw syscall enter dispatcher、BPF 生成对
 真实 sudo 验证先用多线程 workload 手工 attach 到非 leader TID，确认 `getpid` enter/exit 成对出现、生命周期 exit 正常且 `orphan_exit=0`；随后将同一边界固化为 semantic fixture。`ebpf-semantic` 现在报告非 leader attach `867/867` 个 enter/exit、`orphan_exit=0`，其它主门禁保持通过；本阶段未读取 `/proc`、未增加 ptrace、用户态 TID/TGID 查询、锁或第二事件消费者。
 
 review 确认 `trace_sys_enter` 只把原有 TGID-only gate 替换为 `is_lifecycle_task_tracked(pid, tid)`，没有复制过滤逻辑或改变 pending/payload 路径；生成对象由 bpf2go 重新生成，非 leader TID 的精确身份由内核 `PIDFD_THREAD` 与 BPF TID filter 共同保持。
+
+### 14.159 收口 raw dispatcher 的任务身份读取（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：14.158 已将 `trace_sys_enter` 的过滤谓词统一为精确的 `pid/tid` 任务事实；当前 `trace_sys_enter` 和 `trace_sys_exit` 都在同一条 raw syscall 热路径上分别调用两次 `bpf_get_current_pid_tgid()`，一次取 TID、一次取 TGID。
+- Problem：重复 helper 调用不改变语义，却给每一个被系统执行的 syscall 增加不必要的内核侧读取；该成本在目标过滤之前发生，非目标 syscall 也会承担。继续合并 mmsg fragment 只能减少低频 mmsg 的尾调用深度，不能降低当前两个 raw dispatcher 的全局扇出，因此不应混入本阶段作为整体性能优化。
+- Goal：在两个 raw dispatcher 中各保存一次 `bpf_get_current_pid_tgid()` 返回值，再从同一个快照提取 TGID/TID；保持过滤、预执行抑制、pending resolver、orphan 统计、tail-call index 和 fallback 行为完全不变。
+- Non-goals：不改变 BPF event v2 ABI、filter map/TID 语义、生命周期、pending ownership、tail-call prog array、用户态事件循环、输出顺序或 mmsg/recvmsg fragment 链；不引入 procfs、ptrace、process memory read、第二消费者、锁、缓存或用户态 PID/TID 查询；不以本地单次吞吐数字建立跨机器性能承诺。
+- Constraints：快照必须在 sigreturn 快速返回之后、任何 pid/tid 过滤之前建立；`trace_sys_enter` 与 `trace_sys_exit` 各最多保留一次 helper 调用；生成的 BPF 对象必须与 C 源同步；优化前后必须通过 source gate、verifier/load 和完整纯 eBPF 语义门禁。
+
+Impact note：影响 `bpf/strace.c` 两个 raw dispatcher、对应 BPF 生成对象和 dispatcher source tests；不会修改 `bpf/enter_dispatch.h`/`bpf/exit_dispatch.h` 的 family handler，也不会触及 `/proc` 元数据 enrichment 边界。该阶段的性能观测只针对 dispatcher 的 helper 调用减少，mmsg 合并另立阶段。
+
+#### 方案比较
+
+1. 保持两次 helper 调用：改动为零，但每个 raw enter/exit 都重复读取同一任务身份，拒绝。
+2. 在 dispatcher 内使用一个 `u64` 快照拆出 TGID/TID：改动局部、不会改变 ABI 或 map key，helper 次数可由源码门禁锁定，选择该方案。
+3. 用 per-CPU scratch map 在 dispatcher 和 tail-call handler 之间传递身份：可能减少 handler 内重复读取，但增加 map 读写、生命周期和 verifier 状态，且会引入跨程序临时状态，拒绝。
+
+#### 测试与验收
+
+- 先增加失败优先 source test：`trace_sys_enter` 和 `trace_sys_exit` 的函数体都必须包含一个 `u64 pid_tgid = bpf_get_current_pid_tgid();` 快照，并且函数体内 helper 调用总数为 1。
+- 实现后运行 focused BPF source tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、BPF 重新生成/加载、build 和 `git diff --check`；再运行 `ebpf-semantic`、`ebpf-perf`、`small` 与 `upstream-reference`，确认语义计数和 reference 无回归。
+- review 检查 dispatcher 仍先过滤 sigreturn，再按同一快照执行精确 TID 过滤；确认生产路径没有因该优化新增 procfs、ptrace、process memory read、锁、goroutine 或第二事件消费者。
+
+#### 实际验收记录
+
+已完成。先增加失败优先的 dispatcher source gate，旧实现按预期因每个 dispatcher 重复调用 `bpf_get_current_pid_tgid()` 而失败；实现后 source gate、相关 tail-call/source tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、BPF 重新生成、`go build -a -o strace-go ./cmd/strace-go` 和 `git diff --check` 均通过。
+
+真实 sudo 验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit，非 leader attach 为 601/601 配对、`orphan_exit=0`，ringbuf reserve/copy、pending update、pending mismatch 和 lifecycle-map-update 均为 0；`ebpf-perf` 的 Go decode 为 `307.60 ns/op、0 B/op、0 allocs/op`，raw JSON 为 `506.10 ns/op、0 B/op、0 allocs/op`，decoded payload 为 `946.70 ns/op、16 B/1 alloc`，scalar/io/lifecycle/threads 为 `388.90/267.24/2.24/209.47 events/s`，所有错误计数和 pending-stale 均为 0；原生 `small` 为 23 PASS；`upstream-reference` 为 117 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。
+
+同 14.158 的结果相比，本地吞吐在约 1% 的运行波动内，没有形成可宣称的端到端增益；本阶段收益是将每条 raw enter/exit 路径的身份 helper 调用从两次降为一次，属于低风险固定成本收口。mmsg fragment 合并不在本阶段落地：当前 raw syscall 已收敛为两个全局 tracepoint dispatcher，fragment 只影响 `sendmmsg/recvmmsg` 的低频链路；后续若继续优化，必须单独建立 mmsg-specific workload 和 verifier/事件顺序回归。
+
+review 确认两个 raw dispatcher 都在 sigreturn early return 后只读取一次任务身份，并从同一 `u64` 快照派生 TGID/TID；没有改变精确 TID 过滤、pending resolver、tail-call index 或 fallback。生产路径仍无新增 procfs、ptrace、process memory read、锁、goroutine 或第二事件消费者。

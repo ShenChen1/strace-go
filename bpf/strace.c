@@ -63,8 +63,9 @@ SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     u32 sys_id = (u32)ctx->id;
     if (sys_id == SYS_RT_SIGRETURN || sys_id == SYS_RT_SIGRETURN_COMPAT) return 0;
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 tid = (u32)pid_tgid;
+    u32 pid = (u32)(pid_tgid >> 32);
 
     if (!is_lifecycle_task_tracked(pid, tid)) return 0;
 
@@ -174,8 +175,9 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     u32 sys_id = (u32)ctx->id;
     s64 ret_value = ctx->ret;
     if (sys_id == SYS_RT_SIGRETURN || sys_id == SYS_RT_SIGRETURN_COMPAT) return 0;
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 tid = (u32)pid_tgid;
+    u32 pid = (u32)(pid_tgid >> 32);
     if (is_pre_exec_suppressed_syscall(pid, sys_id)) return 0;
 
     u32 pending_tid = tid;
