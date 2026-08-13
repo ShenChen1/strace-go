@@ -52,6 +52,7 @@ char LICENSE[] SEC("license") = "GPL";
 #include "syscall_quota_direct_event_v2.h"
 
 #include "pending_state.h"
+#include "lifecycle_state.h"
 #include "lifecycle_dispatch.h"
 #include "enter_dispatch.h"
 #include "enter_fragment_dispatch.h"

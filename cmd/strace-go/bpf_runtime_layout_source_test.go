@@ -16,6 +16,7 @@ func TestBPFRuntimeModulesOwnCoreDefinitions(t *testing.T) {
 	stats := read("runtime_stats.h")
 	lifecycle := read("lifecycle_event_v2.h")
 	pending := read("pending_state.h")
+	lifecycleState := read("lifecycle_state.h")
 	entry := read("strace.c")
 
 	for name, source := range map[string]string{
@@ -23,6 +24,7 @@ func TestBPFRuntimeModulesOwnCoreDefinitions(t *testing.T) {
 		"runtime_stats.h":      stats,
 		"lifecycle_event_v2.h": lifecycle,
 		"pending_state.h":      pending,
+		"lifecycle_state.h":    lifecycleState,
 	} {
 		if !strings.Contains(source, "#ifndef STRACE_GO_") || !strings.Contains(source, "#endif") {
 			t.Fatalf("%s must have an include guard", name)
@@ -59,10 +61,23 @@ func TestBPFRuntimeModulesOwnCoreDefinitions(t *testing.T) {
 	for _, snippet := range []string{
 		"lookup_pending_syscall_for_exit(",
 		"validate_pending_syscall_exit(",
-		"clear_lifecycle_task_state(",
+		"pending_syscall_duration(",
+		"consume_pending_syscall(",
 	} {
 		if !strings.Contains(pending, snippet) {
 			t.Fatalf("pending_state.h missing pending-owned helper %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
+		"clear_armed_fork_parent(",
+		"clear_process_lifecycle_state(",
+		"clear_lifecycle_task_state(",
+	} {
+		if !strings.Contains(lifecycleState, snippet) {
+			t.Fatalf("lifecycle_state.h missing lifecycle-owned helper %q", snippet)
+		}
+		if strings.Contains(pending, snippet) {
+			t.Fatalf("pending_state.h still owns lifecycle helper %q", snippet)
 		}
 	}
 	for _, forbidden := range []string{

@@ -7471,3 +7471,51 @@ Impact note：这是编译期源码边界重构；`lifecycleTracepointSpecs`、g
 - lifecycle header 只复用既有 `lifecycle_event_v2.h`/`pending_state.h` helper，不拥有新的 map、ProgArray、锁、goroutine 或用户态状态；TID/process cleanup ownership 未改变，尤其没有把 pending 删除重新扩大为 TGID 范围。
 - source gate 已分别覆盖物理 ownership 与行为契约；raw dispatcher 的本体断言和 combined source 的跨文件断言边界已分离，避免后续 header 拆分再次产生函数边界假阳性。
 - 本阶段仅修改 `bpf/strace.c`、新增 `bpf/lifecycle_dispatch.h`、`cmd/strace-go/bpf_lifecycle_source_test.go`、source gate helper、raw identity source test 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.180 拆分 lifecycle cleanup state ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/pending_state.h` 同时包含 raw exit 的 pre-exec suppression、orphan 分类、pending lookup/validation/duration/consume，以及 lifecycle handler 使用的 `clear_armed_fork_parent`、`clear_process_lifecycle_state`、`clear_lifecycle_task_state`。
+- Problem：pending syscall resolver 和 process/TID lifecycle cleanup 虽然调用图已经分开，但物理定义仍混在一个状态头文件；修改生命周期回收时容易误触 raw exit resolver，source gate 也把 cleanup 错误描述为 pending-owned helper。
+- Goal：新增 `bpf/lifecycle_state.h`，完整迁移三个 lifecycle cleanup helper；让 `pending_state.h` 只拥有 pending/exit 状态语义，保持所有 map key 作用域、删除顺序、arm cleanup、attach root cleanup 和调用者不变。
+- Non-goals：不改变 pending lookup/validation/duration/consume、pre-exec suppression、orphan 统计、filter/lifecycle map、event ABI、Go attach、用户态状态机、并发模型、ptrace/procfs fallback 或 Go 侧 tracee memory read；不新增 map、ProgArray、tail call、attach 或 runtime state。
+- Constraints：新 header/function 不超过 500/80 行、参数不超过 5；`lifecycle_state.h` 只能拥有 process/TID cleanup helper，`pending_state.h` 不得重新声明这些 helper；`strace.c` 和 combined source 必须按 pending -> lifecycle state -> lifecycle dispatch 顺序包含。
+
+Impact note：只影响 BPF 状态 helper 的编译期文件边界和 source gate；生命周期 tracepoint、raw exit handler、map ABI、Go loader 与纯 eBPF memory policy不变。
+
+#### 方案比较
+
+1. 保留 cleanup helper 在 `pending_state.h` 并补注释：运行时零风险，但 pending resolver 与 lifecycle cleanup ownership 继续混合，拒绝。
+2. 将 cleanup helper 移到 `bpf/lifecycle_state.h`，复用既有 runtime ABI/stats helper：不改变函数体、map key 或调用图，只让状态作用域显式化，选择该方案。
+3. 将 cleanup 改成统一 runtime map/操作表：可以减少 helper 数量，但引入动态状态、额外 lookup 和更复杂的 verifier/失败契约，拒绝。
+
+#### 状态契约
+
+- `pending_state.h` 继续拥有 `is_pre_exec_suppressed_syscall`、expected unmatched 分类、`record_unmatched_exit_if_needed`、`lookup_pending_syscall_for_exit`、`validate_pending_syscall_exit`、`pending_syscall_duration` 和 `consume_pending_syscall`。
+- `lifecycle_state.h` 的 `clear_armed_fork_parent` 只在 arm owner 等于给定 pid 时清零 `arm_fork_map[0]`；失败仍记录 `lifecycle_map_update_fail`。
+- `clear_process_lifecycle_state` 继续按 pid 删除 `filter_map`、`attach_roots_map`、`pending_exec_map`、`main_exited_map`，然后清理 armed parent；`clear_lifecycle_task_state` 继续先按 tid 删除 pending/pre-exec，非 leader 只清理自己的 pending exec/filter/attach root，leader 才调用 process cleanup。
+- `strace.c` 在 `pending_state.h` 之后 include `lifecycle_state.h`，再 include `lifecycle_dispatch.h`；所有 lifecycle handler 仍从同一 translation unit 看到既有 helper，不改变执行顺序。
+
+#### 测试与验收
+
+- 先扩展失败优先 source gate：要求 `lifecycle_state.h` 存在并由 `strace.c` include；三个 cleanup helper 必须只出现在 lifecycle state header，pending header 不得继续拥有它们。
+- 更新 runtime layout gate：pending module 检查 resolver/validator/duration/consume，lifecycle state module 检查三个 cleanup helper；保留 lifecycle cleanup、attach exit、pending stats 和 raw exit source gates。
+- 实现后运行 focused lifecycle/pending/attach/duration tests、`sudo -n ./build.sh`、`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check`；再运行 `ebpf-semantic`、`ebpf-perf`、`small` 与完整 upstream reference。
+- review 必须确认 cleanup 的 TID/process 作用域和删除顺序未变，没有新增动态状态、锁、消费者或 procfs/ptrace 回流。
+
+#### 实施与验收
+
+- 失败优先 gate 首次按预期失败：`bpf/lifecycle_state.h` 尚不存在。新增 header 后，focused lifecycle ownership gate 暴露了旧 runtime layout 测试仍把 cleanup 列为 pending-owned；测试随后按新物理 ownership 修正。
+- 三个 cleanup helper 原函数体完整迁移到 `bpf/lifecycle_state.h`；`pending_state.h` 从 159 行历史边界降为 116 行，lifecycle state header 为 49 行，`bpf/strace.c` 当前为 115 行。`readCombinedBPFSources` 按真实 include 顺序补入新 header。
+- focused lifecycle/pending/attach/duration/runtime-layout tests、`sudo -n ./build.sh`、clang 生成、真实 BPF verifier、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14180 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，生命周期 6，非 leader attach `621/621` 且 orphan 0；signalfd 16、sockopt 8、thread 22、mount-query/path 4/4、dirent 8、mmsg 16、fcntl 6、write-only 6；正常 fixture 的 ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map/stale 错误计数均为 0，payload truncated 为 8；普通 attach fixture 的 orphan=1 仍为预期诊断。
+- `ebpf-perf` 通过：Go decode `342.00 ns/op、0 B/op、0 allocs/op`，JSON writer `483.80 ns/op、0 B/op、0 allocs/op`，decoded writer `634.60 ns/op、0 B/op、0 allocs/op`，decoded payload writer `894.00 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `424.12/283.50/2.32/226.51 events/s`，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 计数为 0。
+- 原生参考通过：`small` 为 `23 PASS / 0 FAIL`；`upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`。两个 XFAIL 仍是 `read-write.gen.test` 的有界 eBPF snapshot 不承诺 ptrace 大块 hexdump，以及 `mount_setattr.gen.test` 的 event-sourced FD/cwd 初始状态未知；没有新增失败或 XPASS。
+
+#### Review 结论
+
+- 未发现运行时行为回归：pending resolver、exit fallback、lifecycle exit fact、TID/process cleanup、armed parent 清理和 attach root 清理均保持原函数体及调用顺序；真实 verifier、semantic/perf、small 和 119 项 upstream reference 均通过。
+- `pending_state.h` 现在只拥有 pending/exit 语义，`lifecycle_state.h` 只拥有 process/TID cleanup；没有新增 map、ProgArray、tail call、锁、goroutine、Go consumer、ptrace、procfs 或 tracee memory read。
+- source gate 已覆盖新 header 的 include、cleanup 排他 ownership、runtime module guard、TID/process deletion 契约和 attach exit fact 顺序；后续 lifecycle cleanup 修改不会再被误归类为 pending resolver 变更。
+- 本阶段仅修改 `bpf/pending_state.h`、新增 `bpf/lifecycle_state.h`、`bpf/strace.c`、lifecycle/runtime layout/source gate tests 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
