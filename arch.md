@@ -7047,3 +7047,48 @@ Impact note：影响 `bpf/enter_dispatch.h`、`bpf/strace.c` 的 fallback 调用
 - `trace_sys_enter` 在 `bpf_tail_call` 返回后只调用 `emit_enter_dispatch_fallback`；helper 使用 dispatcher 已取得的 `pid`、`tid`、`cfg`、`enter_time`，从 ctx 读取 raw `sys_id`，按 stack capture、base enter emit、pending save 顺序执行。正常 tail-call 成功时不会返回到该 helper。
 - `emit_exit_dispatch_fallback` 未改变，仍独占缺槽 exit 的 pending lookup、syscall identity validate、bounded no-payload exit emit 和 pending consume；正常 `EXIT_PROLOGUE` handler 不调用它。14.167 的 fake writer 继续覆盖 attach 前 nil handler 注入与停止写入契约。
 - 本阶段没有新增 map、配置开关、统计热路径、scratch 状态、锁、消费者、ptrace、procfs 或用户态 tracee 内存读取；ProgArray index、pending/event ABI、Go 状态机、recvmsg/mmsg 链和正常路径 payload capture 均未改变。
+
+### 14.171 收口 recvmsg kretprobe dispatcher ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`trace_kretprobe_recvmsg_dispatch` 当前先读取当前 TID、查 `pending_syscalls` 并判断 `SYS_RECVMSG`，通过后才 tail-call 到 name fragment；name fragment 又重复读取 TID、查同一 pending 并做 syscall identity 校验。`__sys_recvmsg` 也可能服务 `recvmmsg` 的内部路径，因此不能删除第一个 fragment 的 identity guard。
+- Problem：dispatcher 和第一个 handler 同时拥有 pending gate，导致每次 recvmsg kretprobe return 额外支付一次 `bpf_get_current_pid_tgid`、一次 HASH lookup 和一次分支；更重要的是，pending ownership 分散在“路由前置检查”和“fragment handler 校验”两个位置，后续修改容易让 recvmmsg 抑制条件漂移。
+- Goal：让 `trace_kretprobe_recvmsg_dispatch` 只负责无条件 tail-call 到 `RECVMSG_PROG_NAME`；由 name fragment 唯一负责当前 TID 的 pending lookup、`SYS_RECVMSG` identity guard 和无 pending 的快速返回。保持 `name -> control -> final` 顺序，并让 recvmmsg/无 pending 场景在 name handler 处停止链路。
+- Non-goals：不改变 kretprobe attach symbol、recvmsg ProgArray index/capacity、name/control/final payload、duration、pending cleanup、raw syscall exit、recvmmsg BPF 语义、Go fragment 合并或输出；不引入 scratch/per-CPU map、锁、第二消费者、runtime mode、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：dispatcher 函数体只能保留 `bpf_tail_call(ctx, &recvmsg_progs, RECVMSG_PROG_NAME)` 与 return；name handler 必须继续在 tail-call 前校验 pending/sys_id；真实 semantic fixture 必须覆盖 recvmsg 和 recvmmsg，证明前者仍有 fragments、后者不误触发 recvmsg chain。
+
+Impact note：影响 `bpf/strace.c` 的 recvmsg kretprobe dispatcher 和现有 msg source gate；不改变 `bpf_attach.go`、ProgArray ABI、用户态 event state 或其它 raw syscall dispatcher。
+
+#### 方案比较
+
+1. 保留 dispatcher 预检查：行为最保守，但重复 map lookup/identity gate 且 ownership 分散，拒绝。
+2. 用 scratch/per-CPU map 把 pending 指针或身份传给 tail-call：可以避免重复 lookup，但引入跨 tail-call 临时状态和并发覆盖风险，拒绝。
+3. dispatcher 只做 tail-call，name handler 统一 gate：减少一次固定查找，保留第一 fragment 的 recvmmsg/无 pending guard，选择该方案。
+
+#### 状态契约
+
+- `trace_kretprobe_recvmsg_dispatch` 是唯一实际 attach 的 kretprobe，只负责把 return context 送入 name fragment；tail-call 失败时保持当前返回行为，不新增 fallback 状态。
+- `trace_kretprobe_recvmsg_name` 是 recvmsg 链的 pending ownership 起点：只有 pending 存在且 `p->sys_id == SYS_RECVMSG` 才提交 name fragment 并继续 control；因此 `recvmmsg` 内部调用和无 pending return 不会进入后续 fragment。
+- control 仍只负责 control fragment，final 仍负责完整 msg exit 和 pending consume；三者的 TID key、duration 和提交顺序不变。
+
+#### 测试与验收
+
+- 先在 `TestBPFRecvmsgKretprobeChainSerializesFragments` 增加失败优先断言：dispatcher 必须无 `bpf_get_current_pid_tgid`、`bpf_map_lookup_elem`、`p->sys_id` gate，但必须保留 name tail-call；旧实现应失败。
+- 实现后运行 focused msg/tail-call source tests、`sudo -n ./build.sh`、Go 全量/race/vet/build/diff；再运行 recvmsg/mmsg/recvmmsg direct reference、完整 `ebpf-semantic`、`ebpf-perf`、`small` 和 upstream reference。
+- review 必须确认 name handler 仍拥有唯一首个 pending gate，recvmmsg 不会误进入 recvmsg fragments，生产路径没有新增 map/scratch/锁/消费者或 procfs/ptrace 读取。
+
+#### 实际验收记录
+
+- 先加入失败优先断言；旧实现按预期失败，因为 `trace_kretprobe_recvmsg_dispatch` 仍包含 `bpf_get_current_pid_tgid`、`bpf_map_lookup_elem` 和 `p->sys_id` gate。实现后 focused msg/tail-call source tests 通过。
+- `sudo -n ./build.sh` 通过，BPF 对象重新生成并由真实 verifier 加载；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14171 ./cmd/strace-go`、`python3 test/run_tests_unit.py`（8/8）和 `git diff --check` 均通过。普通用户首次运行 semantic fixture 因 `/tmp` 中既有 root-owned fixture 无法覆盖而失败，改用 `sudo -n` 后通过，未修改产品代码。
+- `ebpf-semantic` 通过：主事件 205，enter/exit 为 104/101，lifecycle 为 6，mmsg semantic events 为 16；非 leader attach 为 703/703 且 orphan exits 为 0；ringbuf reserve/copy、pending update、pending mismatch、normal orphan exit、lifecycle map update 和 pending stale 均为 0。
+- `ebpf-perf` 通过：Go decode `286.90 ns/op、0 B/op、0 allocs/op`，raw JSON `501.90 ns/op、0 B/op、0 allocs/op`，decoded payload `930.40 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `406.40/278.76/2.34/224.21 events/s`，所有运行期错误计数和 `pending_stale` 均为 0。
+- 直接相关的 `recvmsg.gen.test`、`msg_name.gen.test`、`msg_control.gen.test`、`mmsg.gen.test`、`recvmmsg-timeout.gen.test` 各 1 PASS；`small` 为 23 PASS、0 FAIL。
+- 完整 `upstream-reference` 为 119 个测试中的 117 PASS、2 个既定 XFAIL、0 FAIL、0 XPASS。XFAIL 仍只有 `read-write.gen.test` 的有界 eBPF 快照差异和 `mount_setattr.gen.test` 的 event-sourced FD/cwd 初始状态差异；没有引入 compat、ptrace 或 procfs fallback。
+
+#### Review
+
+- `trace_kretprobe_recvmsg_dispatch` 现在只做 `bpf_tail_call(ctx, &recvmsg_progs, RECVMSG_PROG_NAME)`；实际 attach 仍只有 dispatcher，name/control/final 没有独立 kretprobe attach。每次 return 少一次当前 TID 获取和 pending HASH lookup，未引入传递 pending 指针所需的 scratch/per-CPU 状态。
+- `trace_kretprobe_recvmsg_name` 保留唯一首个 pending gate，并在 `p->sys_id != SYS_RECVMSG` 或 pending 缺失时直接停止链路；因此 `recvmmsg` 复用 `__sys_recvmsg` 的内部 return 不会误提交 recvmsg name/control fragment。成功路径仍严格为 name -> control -> final，final 仍负责完整 event 和 pending consume。
+- 本阶段没有新增 map、配置、锁、goroutine、第二消费者、用户态 tracee 内存读取、ptrace 或 procfs 依赖；`bpf/strace.c` 为 378 行，新增 Go source gate 函数保持在 80 行以内。工作树中除本阶段文件外仍只有预先存在的 `strace-upstream` 子模块状态。

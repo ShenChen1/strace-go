@@ -209,10 +209,6 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
 // same return path; each tail target remains small enough for the verifier.
 SEC("kretprobe/__sys_recvmsg")
 int trace_kretprobe_recvmsg_dispatch(struct pt_regs *ctx) {
-    u32 tid = (u32)bpf_get_current_pid_tgid();
-    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
-    if (!p || p->sys_id != SYS_RECVMSG) return 0;
-
     bpf_tail_call(ctx, &recvmsg_progs, RECVMSG_PROG_NAME);
     return 0;
 }

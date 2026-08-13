@@ -287,6 +287,15 @@ func TestBPFRecvmsgKretprobeChainSerializesFragments(t *testing.T) {
 	root := repoRootForTest(t)
 	source := readTextFile(t, filepath.Join(root, "bpf/strace.c"))
 	attachSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_attach.go"))
+	dispatchBody, ok := bpfFunctionBody(source, "trace_kretprobe_recvmsg_dispatch")
+	if !ok {
+		t.Fatal("strace.c missing recvmsg dispatcher body")
+	}
+	if strings.Contains(dispatchBody, "bpf_get_current_pid_tgid") ||
+		strings.Contains(dispatchBody, "bpf_map_lookup_elem") ||
+		strings.Contains(dispatchBody, "p->sys_id") {
+		t.Fatal("recvmsg dispatcher must route without owning the pending identity gate")
+	}
 
 	for _, check := range []struct {
 		name    string
