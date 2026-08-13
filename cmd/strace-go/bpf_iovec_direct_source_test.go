@@ -14,6 +14,7 @@ func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 	sessionSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_attach.go"))
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
+	iovecCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_iovec_capture_direct_event_v2.h"))
 	iovecDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_iovec_direct_event_v2.h"))
 	iovecBaseExitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_iovec_base_exit_direct_event_v2.h"))
 
@@ -22,6 +23,7 @@ func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 		"#define SYS_WRITEV 20",
 		"#define SYS_PROCESS_VM_READV 310",
 		"#define SYS_PROCESS_MADVISE 440",
+		`#include "syscall_iovec_capture_direct_event_v2.h"`,
 		`#include "syscall_iovec_direct_event_v2.h"`,
 		`#include "syscall_iovec_base_exit_direct_event_v2.h"`,
 		"is_iovec_direct_syscall(sys_id)",
@@ -34,7 +36,9 @@ func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 		"is_iovec_base_exit_direct_syscall(p->sys_id)",
 		"emit_iovec_base_exit_event_v2_direct(p, ret_value, duration);",
 	} {
-		if !strings.Contains(straceSource, snippet) && !strings.Contains(timeDirectHeader, snippet) {
+		if !strings.Contains(straceSource, snippet) &&
+			!strings.Contains(timeDirectHeader, snippet) &&
+			!strings.Contains(iovecDirectHeader, snippet) {
 			t.Fatalf("BPF source missing iovec direct snippet %q", snippet)
 		}
 	}
@@ -62,7 +66,6 @@ func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 		"is_iovec_base_exit_direct_syscall(",
 		"capture_iovec_tlv_direct(",
 		"capture_iovec_base_payloads_tlv_direct(",
-		"emit_iovec_base_enter_event_v2_direct(",
 		"PAYLOAD_TLV_KIND_BYTES",
 		"iovec_direct_user_len(count)",
 		"iovec_direct_copy_len(count)",
@@ -70,10 +73,17 @@ func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 		"EVENT_FLAG_TRUNCATED",
 		"record_payload_truncated_event();",
 		"bpf_probe_read_user(&iov_data, IOVEC_DIRECT_ELEM_SIZE",
+	} {
+		if !strings.Contains(iovecCaptureHeader, snippet) {
+			t.Fatalf("iovec capture header missing snippet %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
+		"emit_iovec_base_enter_event_v2_direct(",
 		"init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);",
 	} {
 		if !strings.Contains(iovecDirectHeader, snippet) {
-			t.Fatalf("iovec direct header missing snippet %q", snippet)
+			t.Fatalf("iovec direct header missing emitter snippet %q", snippet)
 		}
 	}
 

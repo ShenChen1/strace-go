@@ -7824,3 +7824,46 @@ Impact note：`emit_exec_exit_event_v2_direct` 的 execve/execveat 两个调用�
 - request struct 只是将原有参数按语义命名并集中传递，没有动态内存、map 写入、额外 tail call、锁、goroutine、Go 侧 tracee memory read、ptrace 或 procfs fallback；真实 verifier 接受新栈对象和 include 展开。
 - source gate 已覆盖 exec helper 的排他 ownership、facade 组合视图、两个 exit call site 和文件限制；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
 - 本阶段仅修改 payload capture facade、payload emitter 的 exec call site、新增 exec capture header、相关 source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.188 拆分 iovec shared capture ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_iovec_direct_event_v2.h` 原为 409 行，同时拥有 iovec syscall selector、count/length/arg-index policy、iovec descriptor capture、writev-family nested bytes capture，以及两个 enter ringbuf emitter。`msg`、`mmsg` 和 iovec exit 模块都会复用其中的 capture helper。
+- Problem：共享的用户内存 capture 与 iovec enter event emission 物理混合；修改 `readv/writev` 的 bounded copy 时容易触碰 ringbuf reservation，修改 msg/mmsg nested payload 时又依赖 facade 的隐式定义。selector、长度计算和多 family synthetic arg index 也没有明确 owner。
+- Goal：新增 `bpf/syscall_iovec_capture_direct_event_v2.h`，独占 iovec 常量、syscall predicate、长度/arg-index policy、descriptor/bytes TLV capture；原 iovec header 只保留两个 enter emitter，并通过 include 暴露共享 capture。保持 iovec base exit header、msg/mmsg capture 和所有 dispatch 调用图不变。
+- Non-goals：不改变 `readv/writev/preadv/pwritev/process_vm_readv/process_vm_writev/vmsplice/process_madvise` 的 syscall 分类、TLV kind/index、copy upper bound、truncation/probe error、payload ABI、ringbuf event layout、pending/map/ProgArray/attach、Go consumer，也不引入 ptrace、procfs 或 Go 侧 tracee memory read。
+- Constraints：先用失败优先 source gate 固定物理 ownership，再通过真实 clang/verifier、Go 全量/race/vet、semantic/perf、small 和 upstream reference；新旧生产 header、测试文件和函数继续满足仓库行数与参数限制。
+
+Impact note：生产 `bpf/strace.c` 的 include 行、`enter_iovec`/`enter_iovec_base`、`exit_iovec_base`、msg/mmsg tail-call 链和 BPF ABI 均不变；只改变共享 iovec capture 的物理文件归属和 source oracle 的展开视图。
+
+#### 方案比较
+
+1. 保留 409 行单文件并加注释：运行时改动最小，但共享 capture、selector policy 和 enter emitter 仍耦合，无法表达 msg/mmsg/exit 的真实复用边界，拒绝。
+2. 只拆出两个 enter emitter：能缩短 facade，但 capture 与 selector仍混在一起，跨 family 的 owner 仍不清晰，拒绝。
+3. 新增 shared capture header，由 iovec facade include，保留 emitter；将 selector 一并放入 shared capture，因为 capture composer 和路由都依赖同一 predicate：调用图和 ABI 不变，ownership 完整，选择该方案。
+
+#### 状态契约
+
+- `syscall_iovec_capture_direct_event_v2.h` 拥有 `IOVEC_DIRECT_*`/`IOVEC_BASE_*` 上限、`is_iovec_*` selector、`iovec_direct_user_len`/`iovec_direct_copy_len`、synthetic arg index、bounded user read/dynptr write，以及 `capture_iovec_tlv_direct`、`capture_iovec_base_tlv_direct`、`capture_iovec_base_payloads_tlv_direct_for_arg`、`capture_iovec_payloads_tlv_direct`。
+- iovec descriptor capture 仍最多处理 `IOVEC_DIRECT_SLOT_MAX=16` 个 16-byte descriptor，count 过大仍把 user length 保留为原始受限值、只复制 256 字节 bounded prefix 并设置 truncation；process-vm 双 iovec 的 arg index 和 payload 顺序不变。
+- writev-family enter nested bytes 仍最多处理 7 个 slot、每个 slot最多 7 字节，保留 arg namespace `120/140/160/180/200`、短复制 truncation、probe error 和 ringbuf copy error 统计；所有 user memory 仍在 probe site 通过 `bpf_probe_read_user*` 快照。
+- `syscall_iovec_direct_event_v2.h` 只拥有 `emit_iovec_enter_event_v2_direct` 与 `emit_iovec_base_enter_event_v2_direct`，继续负责 reservation、capacity、event header/body、flags、submit/discard；`syscall_iovec_base_exit_direct_event_v2.h` 继续独占 OUT bytes emitter/capture，并复用 shared constants/index。
+- `syscall_msg_capture_direct_event_v2.h`、`syscall_mmsg_capture_direct_event_v2.h` 继续调用同一 shared iovec capture；生产 include 顺序仍是 iovec facade（先展开 capture）再 msg facade。测试 helper 同步按该顺序组合 source，避免把“调用存在”误当成“provider 已展开”。
+
+#### 测试与验收
+
+- 失败优先 gate 首次按预期失败：`bpf/syscall_iovec_capture_direct_event_v2.h` 尚不存在。实现后新增 `TestBPFIovecCaptureHasDedicatedOwnership`，检查 capture 常量/predicate/helper 的排他 ownership、facade include、两个 emitter 的归属和文件行数。
+- 更新 iovec source oracle：共享 selector/capture 断言读取新 capture header，enter emission 断言读取 facade；更新 msg source helper 纳入实际 include 顺序下的 shared iovec provider，保留既有 mmsg verifier 分层与 direct-TLV 行为 gate。
+- `sudo -n ./build.sh` 通过，clang 生成和真实 BPF verifier 接受新 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check` 全部通过。
+- `syscall_iovec_capture_direct_event_v2.h` 为 309 行，iovec facade 降为 106 行；focused iovec/msg/mmsg source tests 通过，所有函数参数和文件长度满足限制。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，生命周期 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0，普通 attach orphan 1 仍为预期诊断；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `340.50 ns/op、0 B/op、0 allocs/op`，JSON writer `487.10 ns/op、0 B/op、0 allocs/op`，decoded writer `601.60 ns/op、0 B/op、0 allocs/op`，decoded payload writer `903.40 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `417.31/287.07/2.37/226.40 events/s`，所有运行时错误计数为 0。
+- 原生参考通过：sudo `small` 为 `23 PASS / 0 FAIL`；sudo `upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`。`readv`、`preadv`、`pwritev`、`vmsplice`、`process_vm_readv/writev` 及 msg/mmsg 参考项均通过；两个 XFAIL 仍是 `read-write.gen.test` 的 bounded eBPF snapshot 和 `mount_setattr.gen.test` 的 event-sourced FD/cwd 初始 unknown，没有新增 XPASS。
+
+#### Review 结论
+
+- 未发现运行时行为回归：selector 集合、count 到 user/copy length 的边界、iovec descriptor 复制顺序、nested bytes synthetic arg index、TLV flags、truncation/probe error 和 payload size 与拆分前一致；两个 enter emitter 的 reservation/header/body/submit 代码未改变。
+- 新 capture header 不创建 map、ProgArray、tail call、scratch 状态或用户态消费者，不引入锁、goroutine、Go 侧 tracee memory read、ptrace 或 procfs fallback；它只是被 iovec facade 展开的编译期 shared module。
+- source gate 已覆盖物理 ownership、facade/provider include、msg/mmsg 复用、iovec exit 依赖和文件限制；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
+- 本阶段仅修改 iovec facade、shared capture header、iovec/msg source helpers、source tests 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
