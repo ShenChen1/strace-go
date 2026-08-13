@@ -183,6 +183,34 @@ func TestBPFRawDispatchersSnapshotTaskIdentityOnce(t *testing.T) {
 	}
 }
 
+func TestBPFTailCallProloguesSnapshotTaskIdentityOnce(t *testing.T) {
+	source := loadBPFSources(t).straceSource
+	for _, name := range []string{"ENTER_PROLOGUE", "EXIT_PROLOGUE"} {
+		start := strings.Index(source, "#define "+name)
+		if start < 0 {
+			t.Fatalf("BPF source missing %s macro", name)
+		}
+		body := source[start:]
+		if end := strings.Index(body, "\n\nSEC("); end >= 0 {
+			body = body[:end]
+		}
+		if !strings.Contains(body, "u64 pid_tgid = bpf_get_current_pid_tgid();") {
+			t.Fatalf("%s must snapshot pid/tid identity", name)
+		}
+		if got := strings.Count(body, "bpf_get_current_pid_tgid()"); got != 1 {
+			t.Fatalf("%s calls bpf_get_current_pid_tgid %d times, want 1", name, got)
+		}
+		for _, snippet := range []string{
+			"u32 tid = (u32)pid_tgid;",
+			"u32 pid = (u32)(pid_tgid >> 32);",
+		} {
+			if !strings.Contains(body, snippet) {
+				t.Fatalf("%s must derive identity from the snapshot: missing %q", name, snippet)
+			}
+		}
+	}
+}
+
 func TestBPFInitialForkArmIsExecOwned(t *testing.T) {
 	source := readCombinedBPFSources(t)
 	execBody, ok := bpfFunctionBody(source, "trace_sched_process_exec")

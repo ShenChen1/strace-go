@@ -6728,3 +6728,40 @@ Impact note：影响 `session_composition.go` 的对象组装顺序、`TraceStat
 #### Review
 
 review 确认 unfinished 配置只存在于 session composition root，router 生产构造路径不再修改 `TraceState`；实际模式判断使用 `textMode()`，因此 JSON/debug 不再建立无用 candidate index。直接 router 测试已显式声明 state 配置，避免依赖隐藏副作用。阶段改动未触碰 BPF、attach、lifecycle fact map、procfs、ptrace、用户态 tracee 内存读取、锁、goroutine、ringbuf 消费模型或事件 ABI。
+
+### 14.164 收口 tail-call handler 的任务身份 helper 读取（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：14.159 已将两个 raw syscall dispatcher 的 `bpf_get_current_pid_tgid()` 调用收敛为每个 dispatcher 一次快照，但 dispatcher 通过 `enter_progs`/`exit_progs` tail-call 后，两个公共 prologue 宏仍分别读取一次 TID 和一次 TGID。
+- Problem：每条进入 family handler 的 syscall edge 仍承担两次相同的任务身份 helper 调用；普通 syscall 因此在 raw dispatcher 快照之外又重复读取身份，固定成本落在所有 payload/scalar handler 和 fragment handler 上。该重复不改变语义，也不应通过 per-CPU 临时 map 把身份跨 tail call 传递。
+- Goal：让 `ENTER_PROLOGUE` 和 `EXIT_PROLOGUE` 各只读取一次 `u64 pid_tgid`，再派生 `tid`/`pid`；保持非 leader TID、pending resolver、exec lookup、lifecycle cleanup、tail-call index、event v2/TLV 和 fallback 行为完全不变。
+- Non-goals：不修改 raw dispatcher 过滤、BPF map ABI、pending value、payload capture、事件顺序、Go 状态机、attach、生命周期或用户可见输出；不引入 per-CPU scratch map、procfs、ptrace、process memory read、锁、goroutine 或第二消费者。
+- Constraints：两个宏内 helper 调用源码数量必须各为 1；身份派生必须来自同一快照；`enter_dispatch.h`、`exit_dispatch.h` 继续满足文件规模限制；BPF 生成对象必须重新生成并真实加载。
+
+Impact note：影响 `bpf/enter_dispatch.h`/`bpf/exit_dispatch.h` 的公共 tail-call prologue 和 BPF source gate；所有 family handler 都会获得相同的固定成本收口，但不会改变 handler 内的 syscall 分支或事件 ABI。
+
+#### 方案比较
+
+1. 保留每个 prologue 两次 helper 调用：行为零风险，但身份读取成本随每个 tail-call handler 固定支付，拒绝。
+2. 在公共 prologue 宏中保存一个 `u64` 快照并派生 pid/tid：改动局部、所有 handler 一致受益、不会改变 map 或事件契约，选择该方案。
+3. 通过 per-CPU scratch map 在 dispatcher 与 tail-call handler 之间传递身份：可以跨程序共享快照，但增加 map 写读、临时状态和 verifier 生命周期风险，拒绝。
+
+#### 状态契约
+
+- `ENTER_PROLOGUE` 先读取 `u64 pid_tgid`，再从低/高 32 位得到 `tid`/`pid`；`sys_id`、时间、config、stack capture 的初始化顺序保持不变。
+- `EXIT_PROLOGUE` 先读取同样的身份快照，再执行 pending lookup、校验和退出处理；非 leader exec 的 `pending_exec_map` 解析仍使用同一 `pid`/`tid`。
+- raw dispatcher 与 tail-call handler 之间不共享可变身份状态；每个 BPF 程序在自己的执行上下文中读取一次当前任务身份，因此不会引入跨程序 stale state。
+- 该阶段只减少 helper 调用，不改变 `pending_syscalls` 的 TID key、filter 的 PID/TID 语义、lifecycle fact map 或 Go 单消费者状态机。
+
+#### 测试与验收
+
+- 先增加失败优先 source gate：`ENTER_PROLOGUE`/`EXIT_PROLOGUE` 必须包含 `u64 pid_tgid = bpf_get_current_pid_tgid();`、从快照派生 pid/tid，并且各自 helper 调用次数为 1；旧宏按预期先失败。
+- 实现后运行 source gate、`build.sh` BPF 重新生成、`go test ./...`、`go test -race ./...`、`go vet ./...`、强制重编译、Python 16 项 BPF suite 和 `git diff --check`，均通过；生成物没有产生额外未审查 diff。
+- 真实 `ebpf-semantic` 前两次运行的非 leader attach 各出现启动窗口 `orphan_exit=1`，但第三次独立运行通过：非 leader enter/exit 为 `734/734`、`orphan_exit=0`；主事件 205、主 enter/exit `104/101`、lifecycle 6，reserve/copy/pending/mismatch/lifecycle-map-update/stale 均为 0。未放宽断言或修改生产过滤逻辑。
+- `ebpf-perf` 通过：`BenchmarkTraceEventDecodeState` 为 `283.40 ns/op、0 B/op、0 allocs/op`，raw JSON 为 `491.50 ns/op、0 B/op、0 allocs/op`，decoded JSON 为 `657.60 ns/op、0 B/op、0 allocs/op`，decoded payload 为 `944.00 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `400.82/262.28/2.22/212.62 events/s`，所有运行期错误计数为 0。该阶段不把跨运行约 1% 的波动宣称为端到端性能收益，收益以源码/helper 次数契约为准。
+- 原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 117 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。
+
+#### Review
+
+review 确认两个 tail-call prologue 都只读取一次身份并从同一 `u64` 快照派生 pid/tid；raw dispatcher、pending map、exec/lifecycle resolver、payload capture、Go 输出和 event v2/TLV ABI 未改变。BPF 对象经 `build.sh` 重新生成并被 semantic/perf/small/reference 运行期加载验证；阶段未引入 procfs、ptrace、用户态 tracee 内存读取、锁、goroutine 或第二事件消费者。

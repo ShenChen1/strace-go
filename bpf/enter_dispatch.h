@@ -63,8 +63,9 @@ enum enter_prog_index {
 };
 #define ENTER_PROLOGUE(ctx)                                                \
     u32 sys_id = (u32)(ctx)->id;                                           \
-    u32 tid = (u32)bpf_get_current_pid_tgid();                             \
-    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);                     \
+    u64 pid_tgid = bpf_get_current_pid_tgid();                              \
+    u32 tid = (u32)pid_tgid;                                                \
+    u32 pid = (u32)(pid_tgid >> 32);                                        \
     u64 enter_time = bpf_ktime_get_ns();                                   \
     u32 cfg_key = 0;                                                       \
     u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);                 \

@@ -27,8 +27,9 @@ enum exit_prog_index {
 
 #define EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid) \
     s64 ret_value = (ctx)->ret;                                                    \
-    u32 tid = (u32)bpf_get_current_pid_tgid();                                     \
-    u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);                             \
+    u64 pid_tgid = bpf_get_current_pid_tgid();                                      \
+    u32 tid = (u32)pid_tgid;                                                        \
+    u32 pid = (u32)(pid_tgid >> 32);                                                \
     u32 is_pending_lookup = 0;                                                     \
     u32 pending_tid = tid;                                                         \
     struct pending_syscall *p = lookup_pending_syscall_for_exit(                   \
