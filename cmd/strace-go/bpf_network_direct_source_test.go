@@ -12,6 +12,7 @@ func TestBPFNetworkPayloadsUseDirectTLV(t *testing.T) {
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	networkDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_network_direct_event_v2.h"))
+	networkCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_network_capture_direct_event_v2.h"))
 	networkDirectExitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_network_direct_exit_event_v2.h"))
 
 	for _, snippet := range []string{
@@ -34,11 +35,21 @@ func TestBPFNetworkPayloadsUseDirectTLV(t *testing.T) {
 	}
 
 	for _, snippet := range []string{
+		"is_network_direct_syscall(",
+		"is_network_sockopt_direct_syscall(",
+		"*sockaddr_len = optlen;",
+		"save_pending_network_syscall_args(",
+		"p.aux0 = sockaddr_len;",
+		"init_network_enter_event_v2_from_args(&body, args, payload_size);",
+	} {
+		if !strings.Contains(networkDirectHeader, snippet) && !strings.Contains(networkDirectExitHeader, snippet) {
+			t.Fatalf("network direct header missing snippet %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
 		"NETWORK_DIRECT_BYTES_MAX 512",
 		"NETWORK_DIRECT_SOCKADDR_MAX 128",
 		"NETWORK_DIRECT_SOCKLEN_SIZE 4",
-		"is_network_direct_syscall(",
-		"is_network_sockopt_direct_syscall(",
 		"capture_network_tlv_direct(",
 		"capture_network_socklen_tlv_direct(",
 		"network_direct_sockopt_len(",
@@ -48,18 +59,21 @@ func TestBPFNetworkPayloadsUseDirectTLV(t *testing.T) {
 		"return length & ~3U;",
 		"return option != 9;",
 		"option == 84",
-		"*sockaddr_len = optlen;",
-		"capture_network_getsockopt_exit_tlv_direct(",
 		"PAYLOAD_TLV_KIND_BYTES",
+		"bpf_probe_read_user(",
+	} {
+		if !strings.Contains(networkCaptureHeader, snippet) {
+			t.Fatalf("network capture header missing snippet %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
 		"PAYLOAD_TLV_KIND_STRUCT",
+		"capture_network_getsockopt_exit_tlv_direct(",
 		"PAYLOAD_TLV_FLAG_DIRECTION_OUT",
-		"save_pending_network_syscall_args(",
-		"p.aux0 = sockaddr_len;",
-		"init_network_enter_event_v2_from_args(&body, args, payload_size);",
 		"init_syscall_exit_event_v2_from_pending(&body, p, ret_value, duration, payload_size);",
 	} {
-		if !strings.Contains(networkDirectHeader, snippet) && !strings.Contains(networkDirectExitHeader, snippet) {
-			t.Fatalf("network direct header missing snippet %q", snippet)
+		if !strings.Contains(networkDirectExitHeader, snippet) {
+			t.Fatalf("network exit header missing snippet %q", snippet)
 		}
 	}
 

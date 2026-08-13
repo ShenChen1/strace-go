@@ -7740,3 +7740,44 @@ Impact note：调用点 `enter_path_only`、`enter_dual_path`、`exit_path`、`m
 - 新 capture header 不创建 map、ProgArray、scratch 状态或用户态消费者，不引入锁、goroutine、Go 侧 tracee memory read、ptrace 或 procfs fallback；它只是被 path facade 展开的编译期 ownership 模块。
 - source gate 已覆盖 primitive 排他 ownership、facade include、mount/quota 复用和文件行数；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
 - 本阶段仅修改 path facade、新增 path capture header、相关 source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.186 拆分 network shared capture ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_network_direct_event_v2.h` 原为 435 行；虽然 exit payload 已有独立 header，但主 header仍同时拥有 network selector/args、sockopt 长度策略、socklen 读取、通用 TLV capture、enter payload 组合、pending 保存和 enter emitter。
+- Problem：enter/exit 共用的 bytes/struct/socklen capture 与 pending/state、enter composer 物理耦合；`capture_network_tlv_direct` 原有 10 个参数，调用方容易错配用户指针、声明长度、复制上限、TLV 元数据和 flags。
+- Goal：新增 `bpf/syscall_network_capture_direct_event_v2.h`，收拢共享常量、sockopt payload policy、socklen 读取、dynptr storage 选择和通用 TLV capture；network facade 保留 selector、参数访问、pending 保存、enter payload 组合和 enter emitter，并用 request struct 将两个低层 capture API 收敛为单参数。
+- Non-goals：不改变 sockaddr/sockopt 截断上限、socklen 读取顺序、TLV kind/direction/arg index、`p->aux0` 语义、pending map、事件 ABI、路由/ProgArray、Go consumer，也不引入 ptrace/procfs。
+- Constraints：先用失败优先 ownership gate，再通过真实 verifier、Go 全量/race/vet、semantic/perf、small 和 upstream reference；新增模块和函数保持仓库限制。
+
+Impact note：`enter_network`、`emit_network_exit_event_v2_direct` 和 generic exit 调用点保持不变；只改变共享 capture 的物理 ownership 和低层函数接口，request struct 只存在于 BPF 栈上，不进入 map/ringbuf ABI。
+
+#### 方案比较
+
+1. 保留主 header并增加注释：运行时风险最低，但 shared capture 与 pending/enter composer 仍耦合，且 10 参数接口继续易错，拒绝。
+2. 只把 exit helper继续扩展：会让 exit header反向拥有 enter/shared policy，边界更混乱，拒绝。
+3. 新增 shared capture header，由 network facade include，并以 request struct 封装 capture 参数：改动集中、调用图和 ABI 不变，enter/exit 共用明确 owner，选择。
+
+#### 状态契约
+
+- `syscall_network_capture_direct_event_v2.h` 只拥有 `NETWORK_DIRECT_*` 容量常量、`network_direct_min_u32`、sockopt 长度 policy、`network_direct_read_socklen`、dynptr storage 选择和两个低层 TLV capture；它不拥有 syscall selector、pending map、enter/exit emitter 或 ProgArray。
+- `network_tlv_capture_request` 保留原 capture 的 kind、arg index、TLV flags、用户指针、声明长度、copy length、storage upper bound 和 event flags；`network_socklen_capture_request` 保留 socklen user pointer、value destination、arg index 和方向 flags。
+- 通用 capture 仍先将 copy length 限制到 `storage_max` 与 `user_len`，失败仍记录 ringbuf copy error，实际短复制仍设置 truncation flag/stats，TLV header 的 user length/copied length/probe error/user pointer 语义不变。
+- `syscall_network_direct_event_v2.h` 仍拥有 `network_direct_args`、syscall family 分类、enter socklen arg 选择、pending 保存、enter payload 分支和 enter event；exit header继续只拥有 exit sockaddr/socklen 选择、getsockopt/recvfrom payload 组合和 exit event。
+
+#### 测试与验收
+
+- 失败优先 gate 首次按预期失败：`bpf/syscall_network_capture_direct_event_v2.h` 不存在。实现后新增 `TestBPFNetworkCaptureHasDedicatedOwnership`，并更新 network source oracle 验证 capture primitive 排他 ownership、facade include、request API 和 exit 复用。
+- `sudo -n ./build.sh` 通过，clang 生成和真实 BPF verifier 接受新 include 与 request struct；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check` 全部通过。
+- `bpf/syscall_network_direct_event_v2.h` 从 435 行降为 267 行，新 shared capture header 为 213 行，exit header 为 186 行，均低于 500 行限制；两个低层 capture 函数分别从 10/6 参数收敛为一个 request 指针。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，sockopt 8，生命周期 6；mount-query/path `4/4`，普通 attach orphan 1，non-leader attach `1001/1001` 且 orphan 0；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `340.40 ns/op、0 B/op、0 allocs/op`，JSON writer `482.80 ns/op、0 B/op、0 allocs/op`，decoded writer `613.40 ns/op、0 B/op、0 allocs/op`，decoded payload writer `896.00 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `425.90/283.03/2.13/227.75 events/s`，所有运行时错误计数为 0。
+- 原生参考通过：sudo `small` 为 `23 PASS / 0 FAIL`；sudo `upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`。两个 XFAIL 仍是 bounded read/write snapshot 和 event-sourced `mount_setattr` FD/cwd 状态，没有新增 XPASS。
+
+#### Review 结论
+
+- 未发现运行时行为回归：sockopt 长度策略、membership array 对齐、固定 int 截断、socklen enter/exit 读取、recvfrom bytes、accept-like sockaddr 和 `p->aux0` 约束与拆分前一致；network enter/exit 调用图未变。
+- request struct 只集中命名和传递原有参数，没有动态分配、map 写入、额外 tail call、锁、goroutine、Go 侧 tracee memory read、ptrace 或 procfs fallback；真实 verifier 证明新栈对象可接受。
+- source gate 已覆盖 primitive 排他 ownership、facade/state ownership、exit 组合视图、函数接口和文件行数；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
+- 本阶段仅修改 network facade、shared capture header、network exit call sites、相关 source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

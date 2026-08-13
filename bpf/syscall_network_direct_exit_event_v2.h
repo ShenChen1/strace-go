@@ -35,15 +35,27 @@ static __always_inline u32 capture_network_getsockopt_exit_tlv_direct(
         u32 copy_len = network_direct_sockopt_payload_len(
             p->args[1], p->args[2], user_len);
         copy_len = network_direct_min_u32(copy_len, NETWORK_DIRECT_SOCKOPT_MAX);
-        payload_size = capture_network_tlv_direct(
-            ptr, payload_offset, PAYLOAD_TLV_KIND_BYTES, 3,
-            PAYLOAD_TLV_FLAG_DIRECTION_OUT,
-            network_direct_pending_arg(p, 3), user_len, copy_len,
-            NETWORK_DIRECT_SOCKOPT_MAX, event_flags);
+        struct network_tlv_capture_request request = {};
+        request.ptr = ptr;
+        request.payload_offset = payload_offset;
+        request.kind = PAYLOAD_TLV_KIND_BYTES;
+        request.arg_index = 3;
+        request.tlv_flags = PAYLOAD_TLV_FLAG_DIRECTION_OUT;
+        request.user_ptr = network_direct_pending_arg(p, 3);
+        request.user_len = user_len;
+        request.copy_len = copy_len;
+        request.storage_max = NETWORK_DIRECT_SOCKOPT_MAX;
+        request.event_flags = event_flags;
+        payload_size = capture_network_tlv_direct(&request);
     }
-    payload_size += capture_network_socklen_tlv_direct(
-        ptr, payload_offset + payload_size, 4,
-        PAYLOAD_TLV_FLAG_DIRECTION_OUT, len_ptr, &out_len);
+    struct network_socklen_capture_request len_request = {};
+    len_request.ptr = ptr;
+    len_request.payload_offset = payload_offset + payload_size;
+    len_request.arg_index = 4;
+    len_request.tlv_flags = PAYLOAD_TLV_FLAG_DIRECTION_OUT;
+    len_request.user_ptr = len_ptr;
+    len_request.value = &out_len;
+    payload_size += capture_network_socklen_tlv_direct(&len_request);
     return payload_size;
 }
 
@@ -69,11 +81,18 @@ static __always_inline u32 capture_network_exit_payloads_tlv_direct(
         if (count_len < copy_len) {
             copy_len = count_len;
         }
-        payload_size += capture_network_tlv_direct(
-            ptr, payload_offset, PAYLOAD_TLV_KIND_BYTES, 1,
-            PAYLOAD_TLV_FLAG_DIRECTION_OUT, p->args[1],
-            ret_len, copy_len, NETWORK_DIRECT_BYTES_MAX,
-            event_flags);
+        struct network_tlv_capture_request request = {};
+        request.ptr = ptr;
+        request.payload_offset = payload_offset;
+        request.kind = PAYLOAD_TLV_KIND_BYTES;
+        request.arg_index = 1;
+        request.tlv_flags = PAYLOAD_TLV_FLAG_DIRECTION_OUT;
+        request.user_ptr = p->args[1];
+        request.user_len = ret_len;
+        request.copy_len = copy_len;
+        request.storage_max = NETWORK_DIRECT_BYTES_MAX;
+        request.event_flags = event_flags;
+        payload_size += capture_network_tlv_direct(&request);
     }
     if (ret_value < 0) {
         return payload_size;
@@ -95,25 +114,27 @@ static __always_inline u32 capture_network_exit_payloads_tlv_direct(
     if (copy_len > 0) {
         u32 addr_arg = network_direct_out_sockaddr_arg(p->sys_id);
         u64 addr_ptr = network_direct_pending_arg(p, addr_arg);
-        payload_size += capture_network_tlv_direct(
-            ptr,
-            payload_offset + payload_size,
-            PAYLOAD_TLV_KIND_STRUCT,
-            addr_arg,
-            PAYLOAD_TLV_FLAG_DIRECTION_OUT,
-            addr_ptr,
-            copy_len,
-            copy_len,
-            NETWORK_DIRECT_SOCKADDR_MAX,
-            event_flags);
+        struct network_tlv_capture_request request = {};
+        request.ptr = ptr;
+        request.payload_offset = payload_offset + payload_size;
+        request.kind = PAYLOAD_TLV_KIND_STRUCT;
+        request.arg_index = addr_arg;
+        request.tlv_flags = PAYLOAD_TLV_FLAG_DIRECTION_OUT;
+        request.user_ptr = addr_ptr;
+        request.user_len = copy_len;
+        request.copy_len = copy_len;
+        request.storage_max = NETWORK_DIRECT_SOCKADDR_MAX;
+        request.event_flags = event_flags;
+        payload_size += capture_network_tlv_direct(&request);
     }
-    payload_size += capture_network_socklen_tlv_direct(
-        ptr,
-        payload_offset + payload_size,
-        len_arg,
-        PAYLOAD_TLV_FLAG_DIRECTION_OUT,
-        len_ptr,
-        &out_len);
+    struct network_socklen_capture_request len_request = {};
+    len_request.ptr = ptr;
+    len_request.payload_offset = payload_offset + payload_size;
+    len_request.arg_index = len_arg;
+    len_request.tlv_flags = PAYLOAD_TLV_FLAG_DIRECTION_OUT;
+    len_request.user_ptr = len_ptr;
+    len_request.value = &out_len;
+    payload_size += capture_network_socklen_tlv_direct(&len_request);
     return payload_size;
 }
 
