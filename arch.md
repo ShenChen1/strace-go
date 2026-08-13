@@ -6126,3 +6126,41 @@ Impact note：影响 `traceSessionDeps.EventPolicy`、`traceSession.eventPolicy`
 真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `305.00 ns/op、0 B/op、0 allocs/op`，raw JSON `503.30 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `615.70 ns/op、0 B/op、0 allocs/op`，decoded payload `900.60 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认 runtime session/dependency/component graph 不再声明 `*cliTraceEventPolicy`，event context 只接收 `handler.OptionsPort` 和 `traceFilterOptions`；只有构造期 `traceSessionConfig` 保留 concrete snapshot，以维持 nil/构造顺序语义。未新增 ptrace、`process_vm_readv`、procfs、第二份 policy、锁或 goroutine。
+
+### 14.148 将 session OutputPolicy 收窄为聚合 owner port（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`cliTraceOutputPolicy` 已实现 format、event output、summary、exit、render、time、follow-fork、scope、lifecycle 和 ready 九个窄 port；各输出/生命周期/reader/finalizer 组件已经分别消费这些 port，但 session dependency、component graph 和 runtime builder 仍声明 `*cliTraceOutputPolicy`。
+- Problem：runtime graph 泄漏不可变 output snapshot 的 concrete 类型，测试无法注入行为 fake；若把九类 port 拆成多个 root 字段，又会破坏同一 snapshot 对输出、scope、ready 和 finalizer 的一致性。
+- Goal：定义仅供 session composition/runtime graph 使用的 `traceOutputPolicyOwner`，聚合已有九类 output policy port；下游继续按当前最小 port 接收策略。
+- Non-goals：不改变文本/JSON 输出、summary/status filter、attach PID、follow-fork、time/render 选项、ready/debug 行为、事件 ABI、并发模型、性能模型或纯 eBPF/no-procfs/no-ptrace 约束。
+- Constraints：owner 必须仍是一个 immutable snapshot；不得复制 attach PID 或 render state、让业务组件获得 owner 全集、引入锁/goroutine；构造期 `traceSessionConfig` 保持 concrete 和 nil 语义。
+
+Impact note：影响 `traceSessionDeps.OutputPolicy`、`traceSessionComponents`/base 的 policy 类型及 `buildTraceSessionRuntime` 参数；`cliTraceOutputPolicy` 字段存储和各下游窄 port 不改。
+
+方案比较：
+
+1. 保留 `*cliTraceOutputPolicy`：改动最少，但 runtime graph 继续泄漏 concrete snapshot，拒绝。
+2. 将九类 policy port 拆成独立 session root 字段：局部依赖更窄，但同一 output snapshot 关系依赖 wiring，可能混合策略版本，拒绝。
+3. 定义 `traceOutputPolicyOwner` 聚合九类已有 port，并向组件投影最小接口：保持一个 immutable owner、可注入 fake、避免扩大业务接口，选择该方案。
+
+状态契约：
+
+- `traceOutputPolicyOwner` 只存在于 session composition/runtime graph；renderer、syscall outputs、lifecycle、scope、finalizer、time formatter 和 ready writer 继续接收已有窄 port。
+- `cliTraceOutputPolicy` 仍只在构造期从 CLI 深拷贝 status/attach/render 数据，运行期不回读 `cli.Options`，不复制第二份策略。
+- session config 继续承载 concrete snapshot，进入 `traceSessionDeps` 后投影为 owner port，保持 nil/构造顺序不变。
+
+测试与验收：
+
+- 先增加失败优先 fake output policy owner 测试，确认旧的 `*cliTraceOutputPolicy` dependency 无法接收替代对象。
+- 实现后运行 focused output-owner tests、Go 全量/race/vet/build、`git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和 `upstream-reference`。
+- review 检查 runtime graph 没有 concrete output policy pointer 或 CLI options 依赖，真实 session 只保存一个 output owner，纯 eBPF 禁止规则保持通过。
+
+#### 实际验收记录
+
+已完成。失败优先测试先因 `traceSessionDeps.OutputPolicy` 固定为 `*cliTraceOutputPolicy` 而无法接收 fake owner；实现后 focused output-owner tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14148 ./cmd/strace-go` 和 `git diff --check` 均通过。fake owner 验证 session、renderer、syscall text/JSON output 和 finalizer 共享同一个 owner，并分别投影既有窄 policy port。
+
+真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `294.30 ns/op、0 B/op、0 allocs/op`，raw JSON `486.00 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `672.00 ns/op、0 B/op、0 allocs/op`，decoded payload `945.80 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认 runtime session/dependency/component graph 不再声明 `*cliTraceOutputPolicy`，所有下游仍只接收各自已有窄 port；只有构造期 `traceSessionConfig` 保留 concrete snapshot，以维持 nil/构造顺序语义。未新增 ptrace、`process_vm_readv`、procfs、第二份 output policy、锁或 goroutine。

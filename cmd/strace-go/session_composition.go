@@ -14,7 +14,7 @@ import (
 // each other during event processing.
 type traceSessionComponents struct {
 	eventPolicy        traceEventPolicyOwner
-	outputPolicy       *cliTraceOutputPolicy
+	outputPolicy       traceOutputPolicyOwner
 	textRenderer       *TextRenderer
 	jsonWriter         *JSONEventWriter
 	syscallJSON        *SyscallJSONOutput
@@ -37,7 +37,7 @@ type traceSessionBaseComponents struct {
 	jsonWriter      *JSONEventWriter
 	renderer        *TextRenderer
 	exitStatus      *ExitStatusCoordinator
-	outputPolicy    *cliTraceOutputPolicy
+	outputPolicy    traceOutputPolicyOwner
 	handlerRegistry *handler.Registry
 	handleSyscall   func(string, *handler.Context) handler.Result
 	handlerRunner   *SyscallHandlerRunner
@@ -102,7 +102,7 @@ type traceSessionDeps struct {
 	Events        traceRingbufReader
 	TargetPID     int
 	EventPolicy   traceEventPolicyOwner
-	OutputPolicy  *cliTraceOutputPolicy
+	OutputPolicy  traceOutputPolicyOwner
 	Catalog       meta.CatalogPort
 	Decoder       handler.SnapshotDecoder
 	FDState       traceFDStateOwner
@@ -327,7 +327,7 @@ type traceSessionRuntimeComponents struct {
 
 func buildTraceSessionRuntime(
 	session *traceSession,
-	outputPolicy *cliTraceOutputPolicy,
+	outputPolicy traceOutputPolicyOwner,
 	exitStatus *ExitStatusCoordinator,
 	renderer *TextRenderer,
 	router *TraceEventRouter,
