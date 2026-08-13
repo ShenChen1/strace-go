@@ -6393,3 +6393,37 @@ review 确认运行期 attach 结束判定已从 `session_run.go` 移除 PID liv
 真实运行时验证通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `306.30 ns/op、0 B/op、0 allocs/op`，raw JSON `503.50 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `676.30 ns/op、0 B/op、0 allocs/op`，decoded payload `962.40 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 为 393.12/264.96/2.18/216.63 events/s，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认运行期仍无 ptrace、procfs、process memory read、pidfd 或第二个事件消费者；启动阶段一次性 `syscall.Kill(pid, 0)` 仍仅用于 attach filter 安装前的输入存在性校验。新增 root map 避免 fork storm 填满退出事实 map，filter 更新失败会回滚 root 注册；生命周期事件仍是输出和任务状态主路径，退出事实只补强 attach 结束判定。
+
+### 14.155 扩大 upstream reference 的稳定纯 eBPF 覆盖（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：当前 `upstream-reference` 只有 48 个 curated 用例；完整 `more` suite 已实际运行 83 个可用测试，其中 80 个 PASS，3 个已明确标记为纯 eBPF 非契约边界。
+- Problem：大量已经稳定通过的 arch/filter/ioctl/fork/time/FD 测试仍只存在于 `more` 诊断 suite，后续架构重构可能回归这些行为，却没有进入持续 reference 门禁；另一方面，`strace-C`、`attach-p-cmd`、`read-write` 不适合被误当成稳定 exact contract。
+- Goal：把本轮实测稳定通过的 80 个测试纳入 `upstream-reference`，保持既有两个 XFAIL（`read-write`、`mount_setattr`），并继续将 3 个非契约边界留在 `more` 的显式 expected-failure 诊断路径。
+- Non-goals：不修改生产 eBPF/Go 事件实现、输出格式、生命周期语义或 XFAIL 契约；不把 upstream exact diff 提升为 `ebpf-semantic` 主门禁；不为 scheduler-sensitive 测试增加随机容忍。
+- Constraints：reference 列表必须是本轮真实通过结果的显式快照；列表去重且对当前子模块缺失的测试保持 runner 过滤行为；任何稳定测试未来失败都应让 reference 失败，而非自动降级；3 个 XFAIL 不能被静默吞掉。
+
+#### 方案比较
+
+1. 保持 48 个 reference 用例：改动最小，但已经验证的覆盖仍只停留在诊断 suite，架构回归保护不足，拒绝。
+2. 将整个 `more` 列表动态并入 reference：覆盖最大，但会把未来尚未验证的新诊断用例和非契约边界带入稳定门禁，契约边界不清，拒绝。
+3. 将本轮 80 个实际 PASS 用例显式提升到 reference，保留 3 个 XFAIL 在 more：覆盖和契约边界都可审计，选择该方案。
+
+#### 测试契约
+
+- `upstream-reference` 负责已验证 stable exact diff 的回归参考，不等价于 ptrace 语义主门禁。
+- `ebpf-semantic` 和 `ebpf-perf` 继续是纯 eBPF 语义与性能主门禁；reference 扩容不改变其职责。
+- `strace-C` 的 CPU summary、`attach-p-cmd` 的跨任务生命周期交错、`read-write` 的 ptrace-sized 大 payload 继续只在 `more` 作为显式 XFAIL 诊断；`mount_setattr` 继续保留在 reference 的已知 XFAIL。
+
+#### 测试与验收
+
+- 先增加 suite source/unit 断言：新 reference 必须包含稳定列表、排除 3 个 more XFAIL，且不重复测试名。
+- 实现后运行 Python suite tests、扩容后的 `upstream-reference`、`more`、`go test ./...` 和 `git diff --check`；本阶段不需要重新编译 BPF，因为不修改生产或生成代码。
+- review 检查没有把动态 `MORE_TESTS` 直接当作 reference，expected failure 原因保持可见，`strace-upstream` 工作树不被纳入提交。
+
+#### 实际验收记录
+
+已完成。先运行完整 `more` 诊断 suite，83 个可用测试得到 80 PASS、3 个预期 XFAIL、0 FAIL/XPASS；随后将其中 77 个当前子模块中存在且稳定通过的测试显式加入 reference，并用 Python unit test 锁定列表去重和 XFAIL 排除契约。`python3 -m unittest run_tests_unit.py` 的 8 项、`go test ./...` 和 `git diff --check` 均通过。
+
+扩容后的 `python3 test/run_tests.py --suite upstream-reference --skip-build` 运行 119 个测试，结果为 117 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL、0 XPASS。reference 仍是 exact-diff 诊断参考，不改变 `ebpf-semantic`/`ebpf-perf` 主门禁，也没有把 `strace-C.test` 或 `attach-p-cmd.test` 误提升为稳定契约。

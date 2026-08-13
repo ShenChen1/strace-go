@@ -1,6 +1,7 @@
 import unittest
 
 import run_tests
+import upstream_suites
 
 
 class ClassifyTestResultTest(unittest.TestCase):
@@ -49,6 +50,24 @@ class ClassifyTestResultTest(unittest.TestCase):
             ),
             ("xpass_allowed", "scheduler-sensitive"),
         )
+
+
+class UpstreamReferenceSuiteTest(unittest.TestCase):
+    def test_stable_more_snapshot_is_explicit_and_unique(self):
+        stable = upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
+        reference = upstream_suites.UPSTREAM_REFERENCE_TESTS
+
+        self.assertEqual(len(stable), len(set(stable)))
+        self.assertEqual(len(reference), len(set(reference)))
+        self.assertTrue(set(stable).issubset(reference))
+
+    def test_reference_does_not_promote_more_expected_failures(self):
+        promoted = set(upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS)
+        expected = set(upstream_suites.MORE_EXPECTED_FAILURES)
+
+        self.assertTrue(promoted.isdisjoint(expected))
+        self.assertNotIn("strace-C.test", promoted)
+        self.assertNotIn("attach-p-cmd.test", promoted)
 
 
 if __name__ == "__main__":
