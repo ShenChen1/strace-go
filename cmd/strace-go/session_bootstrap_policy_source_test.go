@@ -13,8 +13,13 @@ func TestTraceSessionDropsBootstrapOptionsAfterComposition(t *testing.T) {
 	if session.dependencies.OutputPolicy == nil || session.dependencies.OutputPolicy != session.components.outputPolicy {
 		t.Fatal("session components did not reuse the injected output policy snapshot")
 	}
-	if session.dependencies.EventPolicy == nil || session.dependencies.EventPolicy != session.eventPolicy {
-		t.Fatal("session retained a different event policy snapshot")
+	if session.dependencies.EventPolicy == nil {
+		t.Fatal("session did not retain the event policy snapshot")
+	}
+	contextDeps := session.eventContextDependencies()
+	if contextDeps.handlerOpts != session.dependencies.EventPolicy.HandlerOptions() ||
+		contextDeps.filter != session.dependencies.EventPolicy.FilterOptions() {
+		t.Fatal("session did not project the dependency-owned event policy")
 	}
 }
 

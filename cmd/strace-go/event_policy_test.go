@@ -113,15 +113,12 @@ func TestTraceEventPolicyIsSharedBySessionAndContext(t *testing.T) {
 		FollowForks: true,
 	})
 	state := newTraceStateForSession(policy)
-	session := newTestTraceSessionWithOptions(&cli.Options{
-		EventFormat: cli.EventFormatJSON,
-		FollowForks: true,
-	}, traceSessionDeps{EventPolicy: policy, State: state})
-	if session.eventPolicy == nil || session.components.eventPolicy != session.eventPolicy {
-		t.Fatal("session components do not share the event policy snapshot")
+	session := newTestTraceSession(traceSessionDeps{EventPolicy: policy, State: state})
+	if session.dependencies.EventPolicy != policy {
+		t.Fatal("session did not retain the dependency-owned event policy snapshot")
 	}
 	deps := newSyscallEventContextDeps(session)
-	if deps.handlerOpts != session.eventPolicy.HandlerOptions() || deps.filter != session.eventPolicy.FilterOptions() {
+	if deps.handlerOpts != policy.HandlerOptions() || deps.filter != policy.FilterOptions() {
 		t.Fatal("event context does not consume the session event policy ports")
 	}
 	if !state.deferUnmatchedExits || !state.trackForkIdentity {

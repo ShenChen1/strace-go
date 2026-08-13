@@ -22,8 +22,16 @@ func TestSessionUsesEventPolicyOwnerPort(t *testing.T) {
 	if strings.Contains(sessionSource, "EventPolicy   *cliTraceEventPolicy") {
 		t.Fatal("traceSessionDeps still exposes concrete event policy")
 	}
-	if !strings.Contains(runtimeSource, "eventPolicy  traceEventPolicyOwner") {
-		t.Fatal("traceSession still stores concrete event policy")
+	if strings.Contains(runtimeSource, "\teventPolicy") {
+		t.Fatal("traceSession still stores a duplicate event policy owner")
+	}
+	for _, field := range []string{
+		"\teventPolicy        traceEventPolicyOwner",
+		"\teventPolicy     traceEventPolicyOwner",
+	} {
+		if strings.Contains(sessionSource, field) {
+			t.Fatalf("session component graph still stores duplicate policy owner %q", field)
+		}
 	}
 }
 
@@ -49,12 +57,6 @@ func TestTraceSessionAcceptsEventPolicyOwnerPort(t *testing.T) {
 
 	if session.dependencies.EventPolicy != owner {
 		t.Fatal("session did not retain the injected event policy owner")
-	}
-	if session.eventPolicy != owner {
-		t.Fatal("session event policy accessor did not retain the owner")
-	}
-	if session.components.eventPolicy != owner {
-		t.Fatal("session components did not retain the event policy owner")
 	}
 	deps := session.eventContextDependencies()
 	if deps.handlerOpts != owner.handlerOptions || deps.filter != owner.filter {

@@ -13,7 +13,6 @@ import (
 // Components are constructed once, in dependency order, and never replace
 // each other during event processing.
 type traceSessionComponents struct {
-	eventPolicy        traceEventPolicyOwner
 	outputPolicy       traceOutputPolicyOwner
 	textRenderer       *TextRenderer
 	jsonWriter         *JSONEventWriter
@@ -33,7 +32,6 @@ type traceSessionComponents struct {
 }
 
 type traceSessionBaseComponents struct {
-	eventPolicy     traceEventPolicyOwner
 	jsonWriter      *JSONEventWriter
 	renderer        *TextRenderer
 	exitStatus      *ExitStatusCoordinator
@@ -127,7 +125,6 @@ func newTraceSession(deps traceSessionDeps) (*traceSession, error) {
 	}
 	session := &traceSession{
 		dependencies: deps,
-		eventPolicy:  deps.EventPolicy,
 	}
 	session.components = buildTraceSessionComponents(session)
 	return session, nil
@@ -183,7 +180,6 @@ func buildTraceSessionComponents(session *traceSession) *traceSessionComponents 
 	events := buildTraceSessionEvents(session, base, outputs)
 	runtime := buildTraceSessionRuntime(session, base.outputPolicy, base.exitStatus, base.renderer, events.eventRouter)
 	return &traceSessionComponents{
-		eventPolicy:        base.eventPolicy,
 		outputPolicy:       base.outputPolicy,
 		textRenderer:       base.renderer,
 		jsonWriter:         base.jsonWriter,
@@ -207,10 +203,8 @@ func buildTraceSessionBase(session *traceSession) traceSessionBaseComponents {
 	deps := session.dependencies
 	handlerRegistry := handler.NewRegistry()
 	handleSyscall := handlerRegistry.Handle
-	eventPolicy := session.eventPolicy
 	outputPolicy := deps.OutputPolicy
 	return traceSessionBaseComponents{
-		eventPolicy:  eventPolicy,
 		jsonWriter:   newJSONEventWriter(JSONEventWriterDeps{Out: deps.OutWriter}),
 		outputPolicy: outputPolicy,
 		renderer: newTextRenderer(TextRendererDeps{

@@ -30,7 +30,6 @@ func newBareTestTraceSession(deps traceSessionDeps) *traceSession {
 	deps = withTestTraceSessionDefaults(deps)
 	return &traceSession{
 		dependencies: deps,
-		eventPolicy:  deps.EventPolicy,
 	}
 }
 

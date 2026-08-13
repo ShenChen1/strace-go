@@ -6164,3 +6164,41 @@ Impact note：影响 `traceSessionDeps.OutputPolicy`、`traceSessionComponents`/
 真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `294.30 ns/op、0 B/op、0 allocs/op`，raw JSON `486.00 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `672.00 ns/op、0 B/op、0 allocs/op`，decoded payload `945.80 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认 runtime session/dependency/component graph 不再声明 `*cliTraceOutputPolicy`，所有下游仍只接收各自已有窄 port；只有构造期 `traceSessionConfig` 保留 concrete snapshot，以维持 nil/构造顺序语义。未新增 ptrace、`process_vm_readv`、procfs、第二份 output policy、锁或 goroutine。
+
+### 14.149 消除 session EventPolicy 的重复 owner 字段（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：14.147 已将 `traceSessionDeps.EventPolicy` 改为 `traceEventPolicyOwner`，但 `traceSession`、`traceSessionComponents` 和 `traceSessionBaseComponents` 仍各自保存一份 `eventPolicy` 引用；event context 还通过 `traceSession` 的副本读取 policy。
+- Problem：同一个 immutable snapshot 在 dependency container、session object 和 component graph 中重复登记，后续维护者可能误以为这些字段可以独立替换；测试也在验证副本之间的相等关系，而不是验证唯一 owner 来源。
+- Goal：删除 session 与 component graph 中不再需要的 `eventPolicy` 字段；所有 runtime policy 读取统一从 `traceSessionDeps.EventPolicy` 投影，component graph 只保留实际被运行期 accessor 使用的组件和 output policy owner。
+- Non-goals：不改变 `traceSessionConfig` 的构造期 concrete snapshot、不改变 policy snapshot 内容/深拷贝、state 初始化顺序、handler/filter projection、输出语义、事件 ABI、并发模型、性能模型或纯 eBPF/no-procfs/no-ptrace 约束。
+- Constraints：session dependency container 是唯一 EventPolicy owner source；`newTraceSession` 与 test fixture 不得再复制字段；`eventContextDependencies()` 的 nil 行为保持不变；component graph 仍必须 eager compose 且不引入 lazy initialization。
+
+Impact note：影响 `session_runtime.go`、`session_composition.go`、测试 fixture 和 policy source/behavior tests；不影响 `traceSessionConfig.eventPolicy` 或 `traceEventPolicyOwner` 接口本身。
+
+方案比较：
+
+1. 保留三份引用并继续做相等性测试：改动最少，但重复 owner 仍可被误写，拒绝。
+2. 只删除 `traceSession.eventPolicy`，保留 component/base policy 字段：减少一处重复，但 component graph 仍保留无运行期用途的副本，拒绝。
+3. 以 `traceSessionDeps.EventPolicy` 为唯一来源，删除 session/component/base 的 event policy 字段：ownership 清晰、改动局部、无行为变化，选择该方案。
+
+状态契约：
+
+- `traceSessionDeps.EventPolicy` 是 session runtime 唯一 policy owner；`eventContextDependencies()` 只从该字段读取 `HandlerOptions()`/`FilterOptions()`。
+- `traceSessionComponents` 不缓存 event policy；需要 policy 的组件仍在 composition 时从 deps 获取窄能力，避免运行期重新构造或复制。
+- `traceSessionConfig.eventPolicy` 仍是 bootstrap construction snapshot，进入 deps 后不再额外复制。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 session/runtime 与 component/base structs 不含 `eventPolicy` owner 字段；行为测试改为验证 dependency owner 与 context projection。
+- 实现后运行 focused policy ownership tests、Go 全量/race/vet/build、`git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和 `upstream-reference`。
+- review 检查 production 只剩 `traceSessionDeps.EventPolicy` 和构造期 `traceSessionConfig.eventPolicy` 两个合法边界，未新增第二消费者、锁、goroutine、ptrace 或 procfs。
+
+#### 实际验收记录
+
+已完成。失败优先 source gate 先因 `traceSession`、component graph 仍声明重复 `eventPolicy` owner 而失败；实现后 focused policy-owner/component tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14149 ./cmd/strace-go` 和 `git diff --check` 均通过。
+
+真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `295.10 ns/op、0 B/op、0 allocs/op`，raw JSON `491.40 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `637.00 ns/op、0 B/op、0 allocs/op`，decoded payload `955.00 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认 production runtime 只保留 `traceSessionDeps.EventPolicy` 作为唯一运行期 owner，`traceSessionConfig.eventPolicy` 仅用于构造期快照和状态初始化；session/component/base graph 不再缓存 event policy 副本，event context 直接从 dependency owner 投影 handler/filter。未新增 ptrace、`process_vm_readv`、procfs、第二份 policy、锁或 goroutine。
