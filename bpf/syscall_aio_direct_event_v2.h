@@ -3,6 +3,7 @@
 
 #include "syscall_aio_core_direct_event_v2.h"
 #include "syscall_aio_capture_direct_event_v2.h"
+#include "syscall_aio_cancel_capture_direct_event_v2.h"
 #include "syscall_aio_emit_direct_event_v2.h"
 
 #endif

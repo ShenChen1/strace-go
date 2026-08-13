@@ -93,6 +93,7 @@ func readAioDirectEventSources(t *testing.T) string {
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_aio_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_aio_core_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_aio_capture_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_aio_cancel_capture_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_aio_emit_direct_event_v2.h"))
 }
 

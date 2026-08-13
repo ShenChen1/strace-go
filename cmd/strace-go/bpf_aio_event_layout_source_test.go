@@ -16,6 +16,7 @@ func TestBPFAioDirectModulesOwnResponsibilities(t *testing.T) {
 	facade := read("syscall_aio_direct_event_v2.h")
 	core := read("syscall_aio_core_direct_event_v2.h")
 	capture := read("syscall_aio_capture_direct_event_v2.h")
+	cancelCapture := read("syscall_aio_cancel_capture_direct_event_v2.h")
 	emit := read("syscall_aio_emit_direct_event_v2.h")
 	geteventsFacade := read("syscall_aio_getevents_direct_event_v2.h")
 	geteventsCapture := read("syscall_aio_getevents_capture_direct_event_v2.h")
@@ -25,6 +26,7 @@ func TestBPFAioDirectModulesOwnResponsibilities(t *testing.T) {
 		"syscall_aio_direct_event_v2.h":                   facade,
 		"syscall_aio_core_direct_event_v2.h":              core,
 		"syscall_aio_capture_direct_event_v2.h":           capture,
+		"syscall_aio_cancel_capture_direct_event_v2.h":    cancelCapture,
 		"syscall_aio_emit_direct_event_v2.h":              emit,
 		"syscall_aio_getevents_direct_event_v2.h":         geteventsFacade,
 		"syscall_aio_getevents_capture_direct_event_v2.h": geteventsCapture,
@@ -38,6 +40,7 @@ func TestBPFAioDirectModulesOwnResponsibilities(t *testing.T) {
 	for _, include := range []string{
 		`#include "syscall_aio_core_direct_event_v2.h"`,
 		`#include "syscall_aio_capture_direct_event_v2.h"`,
+		`#include "syscall_aio_cancel_capture_direct_event_v2.h"`,
 		`#include "syscall_aio_emit_direct_event_v2.h"`,
 	} {
 		if !strings.Contains(facade, include) {
@@ -77,6 +80,9 @@ func TestBPFAioDirectModulesOwnResponsibilities(t *testing.T) {
 			t.Fatalf("AIO capture module missing %q", snippet)
 		}
 	}
+	if !strings.Contains(cancelCapture, "capture_aio_cancel_iocb_tlv_direct(") {
+		t.Fatal("AIO cancel capture module missing cancel iocb helper")
+	}
 	for _, snippet := range []string{
 		"capture_aio_getevents_timeout_tlv_direct(",
 		"capture_aio_getevents_events_tlv_direct(",
@@ -110,6 +116,7 @@ func TestBPFAioDirectModulesOwnResponsibilities(t *testing.T) {
 		"static __always_inline int is_aio_direct_syscall(",
 		"static __always_inline u32 capture_aio_setup_ctx_tlv_direct(",
 		"static __always_inline void emit_aio_enter_event_v2_direct(",
+		"static __always_inline u32 capture_aio_cancel_iocb_tlv_direct(",
 		"static __always_inline u32 capture_aio_getevents_timeout_tlv_direct(",
 		"static __always_inline void emit_aio_getevents_enter_event_v2_direct(",
 	} {
@@ -125,6 +132,7 @@ func TestBPFAioDirectModulesStayWithinFileLimit(t *testing.T) {
 		"syscall_aio_direct_event_v2.h",
 		"syscall_aio_core_direct_event_v2.h",
 		"syscall_aio_capture_direct_event_v2.h",
+		"syscall_aio_cancel_capture_direct_event_v2.h",
 		"syscall_aio_emit_direct_event_v2.h",
 		"syscall_aio_getevents_direct_event_v2.h",
 		"syscall_aio_getevents_capture_direct_event_v2.h",

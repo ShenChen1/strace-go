@@ -7992,3 +7992,43 @@ Impact note：`enter_dispatch.h` 的 `enter_fs`、`exit_dispatch.h` 的 getdents
 - 新 capture/emitter 模块均为编译期 header，不创建 map、ProgArray、tail call、scratch 状态、锁、goroutine 或用户态消费者；没有引入 Go 侧 tracee memory read、ptrace 或 procfs fallback。
 - source gate 已覆盖 facade/provider、capture/emit 排他 ownership、mount-setattr/mount-query 复用、getdents dispatch 和文件限制；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
 - 本阶段仅修改 FS facade、新增 capture/emit header、相关 source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.192 隔离 AIO cancel capture ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：AIO 已拆为 core、普通 capture/emit 和 getevents capture/emit；但 `io_cancel` 的 64-byte `iocb` 用户内存读取仍定义在 `bpf/syscall_aio_emit_direct_event_v2.h`，原 emitter 为 304 行。
+- Problem：emitter header反向拥有 probe-site 用户内存读取，导致后续调整 cancel snapshot 会扩大到 ringbuf reservation、event header/body 和 submit/discard；source gate也无法证明所有 AIO capture都位于capture owner。
+- Goal：新增 `bpf/syscall_aio_cancel_capture_direct_event_v2.h`，独占 `capture_aio_cancel_iocb_tlv_direct`；AIO facade负责 include，emit header只调用该 helper并保留 `io_cancel` enter event emission，保持ABI、调用图和bounded copy语义不变。
+- Non-goals：不改变 `io_cancel` arg1、64-byte iocb snapshot、TLV kind/index、IN方向 flag语义、probe/copy error、event ABI、pending/lifecycle/routing/ProgArray/attach、Go decoder/formatter，也不引入 ptrace、procfs或Go侧 tracee memory read。
+- Constraints：先用失败优先 ownership gate，再通过真实clang/verifier、Go全量/race/vet、semantic/perf、small和upstream reference；新增header和测试文件继续满足仓库行数限制。
+
+Impact note：`emit_aio_cancel_enter_event_v2_direct` 的调用和 `enter_aio`/AIO facade include关系不变；只把原有capture函数物理移动到独立header，`capture_aio_cancel_iocb_tlv_direct` 的参数、payload offset、arg index 1和TLV flags保持原样。
+
+#### 方案比较
+
+1. 保留在 emit header并补充注释：无运行时差异，但 ownership仍错误，拒绝。
+2. 把 cancel helper并入 396 行的普通 AIO capture header：改动少，但 setup/submit/cancel capture继续混在较大的共享文件，边界不够清晰，拒绝。
+3. 新增 cancel capture header，由 AIO facade include，选择该方案：capture/emitter物理边界最清楚，调用图和ABI不变。
+
+#### 状态契约
+
+- `syscall_aio_cancel_capture_direct_event_v2.h` 只拥有 `capture_aio_cancel_iocb_tlv_direct`；它使用 core提供的 `AIO_CANCEL_DIRECT_IOCB_SIZE=64`，在 enter event probe中对 `ctx->args[1]` 做同一 bounded `bpf_probe_read_user`，TLV kind继续为 STRUCT、arg index继续为 1、flag继续为 0。
+- `syscall_aio_emit_direct_event_v2.h` 只保留 `emit_aio_submit_iovec_enter_event_v2_direct`、`emit_aio_submit_buf_enter_event_v2_direct`、`emit_aio_submit_enter_event_v2_direct`、`emit_aio_cancel_enter_event_v2_direct`、AIO enter/exit composer；`io_cancel` emitter仍负责 reservation、event header/body、flags和submit/discard，但不再定义用户内存读取 primitive。
+- `syscall_aio_direct_event_v2.h` 按 core、普通 capture、cancel capture、emit顺序展开；cancel capture header不创建map、ProgArray、tail call、锁或消费者，也不改变pending state、lifecycle和Go事件模型。
+
+#### 测试与验收
+
+- 失败优先 gate 首次按预期失败：`bpf/syscall_aio_cancel_capture_direct_event_v2.h` 尚不存在。实现后新增 `TestBPFAioCancelCaptureHasDedicatedOwnership`，检查facade include、cancel capture helper、emit调用、错误owner排他性和文件行数；AIO layout/source gate同步覆盖新模块。
+- `sudo -n ./build.sh` 通过，clang生成和真实BPF verifier接受新include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制build和`git diff --check`全部通过。
+- `syscall_aio_direct_event_v2.h` 为 9 行，普通 capture为 396 行，新增 cancel capture为 44 行，emit从 304 行降为 264 行；focused AIO source/layout tests通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0，普通 attach orphan 1仍为预期诊断；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map错误计数均为 0，payload truncated为 8。
+- `ebpf-perf` 通过：Go decode `339.80 ns/op、0 B/op、0 allocs/op`，JSON writer `500.10 ns/op、0 B/op、0 allocs/op`，decoded writer `626.00 ns/op、0 B/op、0 allocs/op`，decoded payload writer `902.90 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads为 `414.84/283.32/2.41/230.22 events/s`，所有运行时错误计数为 0。
+- 原生参考通过：sudo `small` 为 `23 PASS / 0 FAIL`；sudo `upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`，`aio_pgetevents.gen.test`、`aio.gen.test`及其他AIO/iovec参考项通过；两个XFAIL仍是bounded read/write snapshot和event-sourced `mount_setattr` FD/cwd初始状态未知，没有新增XPASS。
+
+#### Review 结论
+
+- 未发现运行时行为回归：`io_cancel` 的用户指针、复制长度、TLV字段、probe error和payload offset与移动前一致；AIO enter dispatcher、pending保存、generic exit和tail-call routing未改变。
+- 新capture header是纯编译期模块，不创建map、ProgArray、tail call、scratch状态、锁、goroutine或用户态消费者；没有引入Go侧 tracee memory read、ptrace或procfs fallback。
+- source gate已覆盖facade/provider、capture/emitter排他ownership、实际include展开和文件限制；真实verifier、semantic/perf、small与119项upstream reference未观察到事件数量、配对、输出或性能契约回归。
+- 本阶段仅修改AIO facade、cancel capture新header、AIO emitter和source gates及本记录；`strace-upstream`子模块预先存在的dirty状态未触碰。
