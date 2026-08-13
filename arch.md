@@ -6654,3 +6654,40 @@ Impact note：影响 `bpf/mmsg_enter_dispatch.h`、`bpf/enter_dispatch.h` 的 fr
 `ebpf-perf` 通过：Go decode 为 `309.30 ns/op、0 B/op、0 allocs/op`，raw JSON 为 `490.30 ns/op、0 B/op、0 allocs/op`，decoded payload 为 `888.40 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `398.68/266.16/2.18/212.13 events/s`，所有错误计数为 0。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o strace-go ./cmd/strace-go`、Python 16 项单测和 `git diff --check` 均通过；原生 `small` 为 23 PASS；`upstream-reference` 为 117 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。
 
 review 确认 base2/base3、sendmmsg bytes 链、recvmmsg exit 链、pending 保存/消费和 event v2/TLV ABI 未改变；生产路径仍无 ptrace、procfs、用户态 tracee 内存读取、锁、goroutine 或第二消费者。完整 semantic 的非 leader attach 曾出现 scheduler-sensitive 的单次 `orphan_exit=1`，独立重复与最终验收均为 0，未放宽断言或改变生产逻辑。
+
+### 14.162 将 pending enter owner 与事件传输快照解耦（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：纯 eBPF ringbuf 事件由单消费者按 TID 配对；`TraceState` 使用 freelist 保存 enter 状态，`TraceStateUpdate` 和 `syscallEventContext` 之前直接持有 `*pendingSyscallState`。
+- Problem：可变状态对象跨越状态机、路由器、格式化和 handler 边界，回收必须延迟到完整输出链结束；内部 owner 因此泄漏到接口边界，也阻止下一条事件立即复用 pending storage。
+- Goal：让跨边界的 enter 数据使用独立 `pendingSyscallSnapshot`，exit 配对时立即回收可变 owner；保持 payload backing slice 的所有权转移、同步 router 生命周期和稳态零分配。
+- Non-goals：不引入 ptrace、procfs 或用户态 tracee 内存读取；不改变 event v2/TLV ABI、事件顺序、unfinished/resume、文本/JSON 输出、BPF pending map、并发模型或 syscall handler 契约。
+- Constraints：snapshot 在同步 router 消费期间有效；snapshot pool 只能在输出完成后回收；payload 不做第二次深拷贝；文件、函数和参数规模继续满足仓库规则。
+
+Impact note：影响 `cmd/strace-go/event_state.go` 的 pending 配对与回收、`TraceStateUpdate` 的传输类型、`syscallEventContext` 的依赖边界和对应状态/payload 测试；不影响 BPF 程序、attach、事件 ABI 或输出 sink 接口。
+
+#### 方案比较
+
+1. 保留 `*pendingSyscallState`：改动最小且无需新增对象，但继续暴露可变 owner，回收时机和跨层生命周期耦合，拒绝。
+2. 在状态与 router 之间深拷贝完整 enter/payload：所有权最清晰，但高频 syscall 会产生额外 payload 分配和复制，违背低侵入/低分配目标，拒绝。
+3. 使用独立 `pendingSyscallSnapshot` freelist：只复制标量和 slice header，转移已拥有 payload backing slice；owner 可立即复用，snapshot 在 router 完成后回收，选择该方案。
+
+#### 状态契约
+
+- `TraceState.pendingSyscalls` 和 `reusablePending` 只保存内部可变 `pendingSyscallState`；它们不再通过 `TraceStateUpdate` 或 `syscallEventContext` 向外传播。
+- `consumeEnterEvent` 删除 map entry 后创建/复用 `pendingSyscallSnapshot`，转移 payload slice，再立即清空并回收 pending owner；下一条同 TID enter 可以复用该 owner。
+- `TraceStateUpdate.pendingEnter` 和事件 context 的 pending 字段只指向 detached snapshot；`releaseTraceStateUpdate` 在同步输出和 deferred exit 完成后回收 snapshot，并清空 payload 引用。
+- 仍由同一个 ringbuf 消费 goroutine 按顺序完成 state update、router、output 和 release；没有锁、第二消费者、后台 liveness goroutine、procfs 或 ptrace fallback。
+
+#### 测试与验收
+
+- 先增加失败优先回归测试：exit update 必须在 pending owner 可复用后仍保留 syscall/payload snapshot；旧实现按预期因 owner 尚未回收而失败。
+- 实现后通过 focused state/payload/output tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a`、Python 16 项测试和 `git diff --check`。
+- 稳态性能保持 `BenchmarkTraceEventDecodeState 289.10 ns/op、0 B/op、0 allocs/op`；JSON 无 payload 为 `485.70 ns/op、0 B/op、0 allocs/op`，payload decode 为 `939.00 ns/op、16 B/1 alloc`。
+- 真实 `ebpf-semantic` 最终通过：主 fixture 205 个事件、104/101 enter/exit、6 个 lifecycle，非 leader attach 964/964 配对且 `orphan_exit=0`，ringbuf/pending/mismatch/lifecycle-map-update 错误计数均为 0。前两次非 leader attach 各出现 1 个启动窗口 orphan，第三次独立运行通过；未放宽断言或改动生产过滤逻辑。
+- `ebpf-perf` 通过：scalar/io/lifecycle/threads 为 `391.03/264.61/2.19/207.91 events/s`，所有错误计数和 pending-stale 为 0；原生 `small` 为 23 PASS；`upstream-reference` 为 117 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+#### Review
+
+review 确认生产代码中 `TraceStateUpdate`、router、格式化和 handler 只接收 `pendingSyscallSnapshot`，可变 pending owner 只留在 `TraceState` 内部；payload backing slice 没有重复复制，snapshot pool 在输出完成后清空引用。阶段改动未触碰 BPF、attach、生命周期事实 map、procfs、ptrace、锁、goroutine 或第二事件消费者。

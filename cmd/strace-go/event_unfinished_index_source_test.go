@@ -43,4 +43,8 @@ func TestUnfinishedCandidateIndexSourceContract(t *testing.T) {
 	if strings.Contains(router, "[]pendingSyscallState") || strings.Contains(router, "*pendingSyscallState") {
 		t.Fatal("router must consume immutable unfinished views instead of mutable pending state")
 	}
+	if strings.Contains(state, "pendingEnter    *pendingSyscallState") ||
+		!strings.Contains(state, "pendingEnter    *pendingSyscallSnapshot") {
+		t.Fatal("state updates must expose pending syscall snapshots, not mutable owners")
+	}
 }

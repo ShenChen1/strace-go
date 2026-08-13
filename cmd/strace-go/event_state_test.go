@@ -354,16 +354,68 @@ func TestTraceStateTransfersPendingPayloadOnExit(t *testing.T) {
 	if owned == nil || len(owned.payloadSections[0].Data) == 0 {
 		t.Fatal("enter did not create owned pending payload")
 	}
+	wantPID, wantSysID := owned.pid, owned.sysID
 	ownedData := owned.payloadSections[0].Data
 
 	exit := enter
 	exit.eventType = bpfEventTypeExit
 	update := state.handleEnvelope(exit)
-	if update.pendingEnter != owned {
-		t.Fatal("exit copied pending state instead of transferring the deleted map entry")
+	if update.pendingEnter == nil || update.pendingEnter.pid != wantPID || update.pendingEnter.sysID != wantSysID {
+		t.Fatalf("exit snapshot = %+v, want a detached pending view", update.pendingEnter)
+	}
+	if len(state.reusablePending) != 1 || state.reusablePending[0] != owned {
+		t.Fatal("exit did not recycle the mutable pending owner")
 	}
 	if &update.pendingEnter.payloadSections[0].Data[0] != &ownedData[0] {
 		t.Fatal("exit copied owned payload data during pending transfer")
+	}
+}
+
+func TestTraceStateExitSnapshotSurvivesPendingOwnerReuse(t *testing.T) {
+	state := newTraceState()
+	sysID := syscallIDByName(t, "openat")
+	enter := traceEventEnvelope{
+		valid:      true,
+		pid:        101,
+		tid:        101,
+		sysID:      sysID,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+		enterTime:  100,
+		args:       [6]uint64{rawAtFdcwd, 0x1000},
+		payload:    []handler.PayloadSection{{Kind: handler.PayloadKindString, ArgIndex: 1, Data: []byte("old.txt\x00")}},
+	}
+	state.handleEnvelope(enter)
+	owner := state.pendingSyscalls[101]
+	if owner == nil {
+		t.Fatal("enter did not create pending owner")
+	}
+
+	exit := enter
+	exit.eventType = bpfEventTypeExit
+	update := state.handleEnvelope(exit)
+	if update.pendingEnter == nil {
+		t.Fatal("exit did not produce an enter snapshot")
+	}
+	if len(state.reusablePending) != 1 || state.reusablePending[0] != owner {
+		t.Fatalf("pending owner was not recycled immediately: reusable=%p owner=%p", state.reusablePending, owner)
+	}
+
+	nextEnter := enter
+	nextEnter.sysID = syscallIDByName(t, "getpid")
+	nextEnter.enterTime = 200
+	nextEnter.payload = nil
+	state.handleEnvelope(nextEnter)
+	if state.pendingSyscalls[101] != owner {
+		t.Fatal("next enter did not reuse the pending owner")
+	}
+	if update.pendingEnter.sysID != sysID || string(update.pendingEnter.payloadSections[0].Data) != "old.txt\x00" {
+		t.Fatalf("exit snapshot changed after owner reuse: %+v", update.pendingEnter)
+	}
+
+	state.releaseTraceStateUpdate(update)
+	if len(state.reusableSnapshots) != 1 || len(state.reusableSnapshots[0].payloadSections) != 0 {
+		t.Fatalf("released snapshot pool = %+v, want one cleared snapshot", state.reusableSnapshots)
 	}
 }
 

@@ -72,8 +72,9 @@ type TraceState struct {
 	unfinishedEnabled   bool
 	pendingSyscalls     map[uint32]*pendingSyscallState
 	// reusablePending is owned by the single event consumer; entries are
-	// returned only after the router finishes the update that owns them.
+	// returned as soon as their snapshot is detached from the state update.
 	reusablePending      []*pendingSyscallState
+	reusableSnapshots    []*pendingSyscallSnapshot
 	reusableUnfinished   []unfinishedSyscallView
 	pendingExits         map[uint32]pendingExitState
 	pendingExecArgs      map[int]string
@@ -102,7 +103,7 @@ type TraceStateUpdate struct {
 	syscallView     syscallEventView
 	lifecycleView   lifecycleEventView
 	payloadSections []handler.PayloadSection
-	pendingEnter    *pendingSyscallState
+	pendingEnter    *pendingSyscallSnapshot
 	lifecycleTask   *TaskState
 	processInherit  *processStateInheritance
 	unfinished      []unfinishedSyscallView
@@ -312,8 +313,8 @@ func (st *TraceState) releasePendingSyscall(pending *pendingSyscallState) {
 	st.reusablePending = append(st.reusablePending, pending)
 }
 
-// releaseTraceStateUpdate returns consumed pending objects after all output
-// side effects for the update, including one deferred exit, have completed.
+// releaseTraceStateUpdate returns snapshots after all output side effects for
+// the update, including one deferred exit, have completed.
 func (st *TraceState) releaseTraceStateUpdate(update TraceStateUpdate) {
 	if st == nil {
 		return
@@ -322,9 +323,9 @@ func (st *TraceState) releaseTraceStateUpdate(update TraceStateUpdate) {
 		clear(update.unfinished)
 		st.reusableUnfinished = update.unfinished[:0]
 	}
-	st.releasePendingSyscall(update.pendingEnter)
+	st.releasePendingSnapshot(update.pendingEnter)
 	if update.deferredExit != nil {
-		st.releasePendingSyscall(update.deferredExit.pendingEnter)
+		st.releasePendingSnapshot(update.deferredExit.pendingEnter)
 	}
 }
 
@@ -399,7 +400,7 @@ func copyPayloadSections(sections []handler.PayloadSection) []handler.PayloadSec
 	return out
 }
 
-func (st *TraceState) consumeEnterEvent(view syscallEventView) *pendingSyscallState {
+func (st *TraceState) consumeEnterEvent(view syscallEventView) *pendingSyscallSnapshot {
 	if !view.isExit() || st.pendingSyscalls == nil {
 		return nil
 	}
@@ -413,9 +414,11 @@ func (st *TraceState) consumeEnterEvent(view syscallEventView) *pendingSyscallSt
 		st.releasePendingSyscall(pending)
 		return nil
 	}
-	// The map entry is deleted above, so its owned payload can transfer to the
-	// exit update without another copy.
-	return pending
+	// Detach the payload owner before returning the detached transfer view. The
+	// state owner can now be reused by the next event on this TID.
+	snapshot := st.acquirePendingSnapshot(pending)
+	st.releasePendingSyscall(pending)
+	return snapshot
 }
 
 func (st *TraceState) rememberPendingExecArgs(tid int, argLine string) {

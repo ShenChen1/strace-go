@@ -19,7 +19,7 @@ type syscallEventContext struct {
 	pathText        string
 	pathArguments   []event.PathArgument
 	shouldPrint     bool
-	pendingEnter    *pendingSyscallState
+	pendingEnter    *pendingSyscallSnapshot
 	handlerContext  *handler.Context
 	payloadSections []handler.PayloadSection
 	eventFDView     eventFDStateView
@@ -98,7 +98,7 @@ func newSyscallEventContextFromView(
 	s syscallEventContextDependencySource,
 	view syscallEventView,
 	statePID int,
-	pendingEnter *pendingSyscallState,
+	pendingEnter *pendingSyscallSnapshot,
 	currentPayload []handler.PayloadSection,
 ) syscallEventContext {
 	return newSyscallEventContextFromViewWithDeps(newSyscallEventContextDeps(s), view, statePID, pendingEnter, currentPayload)
@@ -108,7 +108,7 @@ func newSyscallEventContextFromViewWithDeps(
 	deps syscallEventContextDeps,
 	view syscallEventView,
 	statePID int,
-	pendingEnter *pendingSyscallState,
+	pendingEnter *pendingSyscallSnapshot,
 	currentPayload []handler.PayloadSection,
 ) syscallEventContext {
 	scMeta := syscallMeta(view.sysID)
@@ -147,7 +147,7 @@ func newSyscallEventContextFromViewWithDeps(
 	return ev
 }
 
-func mergePendingPayloadSections(pendingEnter *pendingSyscallState, current []handler.PayloadSection) []handler.PayloadSection {
+func mergePendingPayloadSections(pendingEnter *pendingSyscallSnapshot, current []handler.PayloadSection) []handler.PayloadSection {
 	if pendingEnter == nil || len(pendingEnter.payloadSections) == 0 {
 		return current
 	}

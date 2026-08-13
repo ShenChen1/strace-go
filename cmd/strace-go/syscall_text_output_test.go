@@ -83,7 +83,7 @@ func TestSyscallTextOutputPrintsNormalSyscallFromEventView(t *testing.T) {
 
 func TestSyscallTextOutputPrintsGenericUnfinishedAndResumed(t *testing.T) {
 	output, _, out := newSyscallTextOutputForTest(&cli.Options{FollowForks: true})
-	pending := &pendingSyscallState{
+	pending := &pendingSyscallSnapshot{
 		pid:       100,
 		tid:       101,
 		sysID:     syscallIDByName(t, "read"),

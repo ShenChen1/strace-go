@@ -54,7 +54,7 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 }
 
 func TestMergePendingPayloadSectionsReusesOwnerWithoutExitPayload(t *testing.T) {
-	pending := &pendingSyscallState{
+	pending := &pendingSyscallSnapshot{
 		payloadSections: []handler.PayloadSection{{
 			Kind:      handler.PayloadKindString,
 			Direction: handler.PayloadDirectionIn,
@@ -76,7 +76,7 @@ func TestMergePendingPayloadSectionsReusesOwnerWithoutExitPayload(t *testing.T) 
 }
 
 func TestMergePendingPayloadSectionsUpdatesOwnerInPlace(t *testing.T) {
-	pending := &pendingSyscallState{
+	pending := &pendingSyscallSnapshot{
 		payloadSections: make([]handler.PayloadSection, 1, 3),
 	}
 	pending.payloadSections[0] = handler.PayloadSection{
