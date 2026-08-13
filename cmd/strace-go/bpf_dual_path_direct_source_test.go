@@ -11,6 +11,7 @@ func TestBPFDualPathPayloadsUseDirectTLV(t *testing.T) {
 	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	pathDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_direct_event_v2.h"))
+	pathCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_capture_direct_event_v2.h"))
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 
 	for _, snippet := range []string{
@@ -30,19 +31,25 @@ func TestBPFDualPathPayloadsUseDirectTLV(t *testing.T) {
 	}
 
 	for _, snippet := range []string{
-		"DUAL_PATH_DIRECT_PATH_MAX 512",
 		"is_dual_path_0_1_direct_syscall(",
 		"is_dual_path_0_2_direct_syscall(",
 		"is_dual_path_1_3_direct_syscall(",
-		"capture_dual_path_tlv_direct(",
 		"emit_dual_path_enter_event_v2_direct(",
-		"PAYLOAD_TLV_KIND_STRING",
-		"bpf_probe_read_user_str(payload_data, DUAL_PATH_DIRECT_PATH_MAX",
 		"init_syscall_enter_event_v2_from_ctx(&body, ctx, 0, 0, -1, -1);",
 		"body.capture_len = payload_size;",
 	} {
 		if !strings.Contains(pathDirectHeader, snippet) {
 			t.Fatalf("path direct header missing dual path snippet %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
+		"DUAL_PATH_DIRECT_PATH_MAX 512",
+		"capture_dual_path_tlv_direct(",
+		"PAYLOAD_TLV_KIND_STRING",
+		"bpf_probe_read_user_str(payload_data, DUAL_PATH_DIRECT_PATH_MAX",
+	} {
+		if !strings.Contains(pathCaptureHeader, snippet) {
+			t.Fatalf("path capture header missing dual path snippet %q", snippet)
 		}
 	}
 

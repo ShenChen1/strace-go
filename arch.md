@@ -7699,3 +7699,44 @@ Impact note：这是测试同步边界和既有生命周期事实消费修复；
 - `pending_state.h` 为 121 行，fixture 为 56 行；新增 source test 函数和 BPF helper 均满足参数/函数/文件限制。注释仅说明 attach teardown 与 fixture 同步的关键原因。
 - semantic/perf、small 与 119 项 upstream reference 未观察到输出、事件数量、生命周期、性能或兼容性回归；两个 upstream XFAIL 与之前一致。
 - 本阶段仅修改 `bpf/pending_state.h`、pending source gate、non-leader fixture 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.185 拆分 path capture ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_path_direct_event_v2.h` 同时拥有 path syscall 分类、path-only/dual-path 两类事件 emitter，以及会被 `mount_setattr`、`move_mount`、quota 复用的两个用户指针字符串 capture primitive，原文件为 447 行。
+- Problem：共享 path capture 原语和具体 path syscall emission 物理混在一起；quota、mount 相关模块依赖 facade 的隐式定义，后续调整路径复制策略会扩大到多个事件 family。
+- Goal：新增 `bpf/syscall_path_capture_direct_event_v2.h`，只拥有 path 常量与两个 bounded string TLV capture；原 header 保留 selector 和 path enter/exit emitter，并通过 include 暴露编译期接口。
+- Non-goals：不改变 path syscall 分类、arg index、PATH_MAX 分段复制、dual-path payload 顺序、TLV ABI、ringbuf/map/pending/ProgArray、Go consumer，亦不引入 procfs/ptrace。
+- Constraints：先用失败优先 source gate 锁定 ownership，再通过真实 verifier、Go 全量、semantic/perf、small 和 upstream reference；生产 header 与新增测试文件保持仓库行数约束。
+
+Impact note：调用点 `enter_path_only`、`enter_dual_path`、`exit_path`、`mount_path`、`mount_setattr`、`quota` 均保持不变；只改变 header ownership 和 include 展开顺序。
+
+#### 方案比较
+
+1. 保留单文件并加注释：运行时风险最低，但共享 capture 与 path emission 仍耦合，无法表达真实 ownership，拒绝。
+2. 新增 capture header，由 path facade include：改动局部、无 ABI 和调用图变化，能让 mount/quota 明确依赖共享 capture，选择该方案。
+3. 同时按 path-only/dual-path 拆成多个 emitter header：边界更细，但会增加 include 层和 source oracle 风险，当前没有必要。
+
+#### 状态契约
+
+- `syscall_path_capture_direct_event_v2.h` 只拥有 `PATH_ONLY_DIRECT_*`、`DUAL_PATH_DIRECT_PATH_MAX` 和 `capture_path_only_tlv_direct`、`capture_dual_path_tlv_direct`；它不拥有 syscall selector、event emitter、pending/map 或 ProgArray 状态。
+- path-only capture 继续使用 2048 字节首段加 2049 字节尾段覆盖 PATH_MAX 边界；非 NUL 边界字节才记录 truncation，NUL 边界仍表示完整的 `PATH_MAX-1` 字符路径。
+- dual-path capture 继续以 512 字节上限分别复制两个用户指针，保持原 arg index、TLV kind、probe error、payload size 和顺序；所有用户内存仍由 BPF 在事件现场 bounded copy。
+- `syscall_path_direct_event_v2.h` 通过 include 暴露 capture 定义，继续拥有 path-only/dual-path 分类、enter/exit ringbuf reservation、header/body 初始化、flags 和 submit/discard 路径；mount/quota/fs 复用同一展开结果。
+
+#### 测试与验收
+
+- 失败优先 gate 首次按预期失败：`bpf/syscall_path_capture_direct_event_v2.h` 不存在。实现后新增 `TestBPFPathCaptureHasDedicatedOwnership`，并更新 path、dual-path、mount-path、mount-setattr source oracle 验证物理 ownership 与 facade 组合契约。
+- `sudo -n ./build.sh` 通过，clang 生成和真实 BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check` 全部通过。
+- `bpf/syscall_path_direct_event_v2.h` 从 447 行降为 311 行，新 capture header 为 136 行；focused path source tests 通过，所有函数参数和文件长度满足限制。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，生命周期 6；mount-query/path `4/4`，普通 attach orphan `1`，non-leader attach `1001/1001` 且 orphan `0`；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `342.10 ns/op、0 B/op、0 allocs/op`，JSON writer `488.80 ns/op、0 B/op、0 allocs/op`，decoded writer `611.80 ns/op、0 B/op、0 allocs/op`，decoded payload writer `847.00 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `443.53/286.99/2.39/226.49 events/s`，所有运行时错误计数为 0。
+- 原生参考通过：sudo `small` 为 `23 PASS / 0 FAIL`；sudo `upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`。两个 XFAIL 仍是 bounded read/write snapshot 和 event-sourced `mount_setattr` FD/cwd 状态，没有新增 XPASS。
+
+#### Review 结论
+
+- 未发现运行时行为回归：两个 capture 函数的用户指针读取、PATH_MAX 边界、TLV header、probe error、truncation 统计和 payload 返回值与拆分前保持一致；path enter/exit、mount、quota 的调用图未变。
+- 新 capture header 不创建 map、ProgArray、scratch 状态或用户态消费者，不引入锁、goroutine、Go 侧 tracee memory read、ptrace 或 procfs fallback；它只是被 path facade 展开的编译期 ownership 模块。
+- source gate 已覆盖 primitive 排他 ownership、facade include、mount/quota 复用和文件行数；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
+- 本阶段仅修改 path facade、新增 path capture header、相关 source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

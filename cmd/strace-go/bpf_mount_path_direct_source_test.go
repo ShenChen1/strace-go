@@ -11,6 +11,7 @@ func TestBPFMountPathSyscallsUseProbeSiteTLV(t *testing.T) {
 	dispatch := readTextFile(t, filepath.Join(root, "bpf/mount_path_dispatch.h"))
 	combined := readCombinedBPFSources(t) + "\n" + dispatch
 	header := readTextFile(t, filepath.Join(root, "bpf/syscall_mount_path_direct_event_v2.h"))
+	pathCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_capture_direct_event_v2.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_OPEN_TREE 428",
@@ -28,12 +29,14 @@ func TestBPFMountPathSyscallsUseProbeSiteTLV(t *testing.T) {
 	for _, snippet := range []string{
 		"sys_id == SYS_MOVE_MOUNT",
 		"2 * (PAYLOAD_TLV_HEADER_SIZE + PATH_ONLY_DIRECT_PATH_MAX)",
-		"capture_path_only_tlv_direct(",
 		"ctx->args[1]",
 		"ctx->args[3]",
 	} {
 		if !strings.Contains(header, snippet) {
 			t.Fatalf("mount path direct header missing snippet %q", snippet)
 		}
+	}
+	if !strings.Contains(pathCaptureHeader, "capture_path_only_tlv_direct(") {
+		t.Fatal("mount path direct capture should come from the dedicated path capture header")
 	}
 }

@@ -11,6 +11,7 @@ func TestBPFPathOnlyPayloadsUseDirectTLV(t *testing.T) {
 	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	pathDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_direct_event_v2.h"))
+	pathCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_capture_direct_event_v2.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_CHDIR 80",
@@ -29,23 +30,30 @@ func TestBPFPathOnlyPayloadsUseDirectTLV(t *testing.T) {
 	}
 
 	for _, snippet := range []string{
-		"PATH_ONLY_DIRECT_PATH_MAX 4096",
-		"PATH_ONLY_DIRECT_FIRST_CHUNK 2048",
-		"PATH_ONLY_DIRECT_SECOND_CHUNK 2049",
 		"is_path_only_arg0_direct_syscall(",
 		"sys_id == SYS_CHDIR",
 		"is_path_only_arg1_direct_syscall(",
-		"capture_path_only_tlv_direct(",
 		"emit_path_only_enter_event_v2_direct(",
 		"emit_path_only_exit_event_v2_direct(",
-		"PAYLOAD_TLV_KIND_STRING",
-		"bpf_probe_read_user_str(payload_data, PATH_ONLY_DIRECT_FIRST_CHUNK",
-		"user_ptr + PATH_ONLY_DIRECT_FIRST_CHUNK - 1",
 		"init_syscall_enter_event_v2_from_ctx(&body, ctx, 0, 0, -1, -1);",
 		"body.capture_len = payload_size;",
 	} {
 		if !strings.Contains(pathDirectHeader, snippet) {
 			t.Fatalf("path direct header missing snippet %q", snippet)
+		}
+	}
+
+	for _, snippet := range []string{
+		"PATH_ONLY_DIRECT_PATH_MAX 4096",
+		"PATH_ONLY_DIRECT_FIRST_CHUNK 2048",
+		"PATH_ONLY_DIRECT_SECOND_CHUNK 2049",
+		"capture_path_only_tlv_direct(",
+		"PAYLOAD_TLV_KIND_STRING",
+		"bpf_probe_read_user_str(payload_data, PATH_ONLY_DIRECT_FIRST_CHUNK",
+		"user_ptr + PATH_ONLY_DIRECT_FIRST_CHUNK - 1",
+	} {
+		if !strings.Contains(pathCaptureHeader, snippet) {
+			t.Fatalf("path capture header missing snippet %q", snippet)
 		}
 	}
 

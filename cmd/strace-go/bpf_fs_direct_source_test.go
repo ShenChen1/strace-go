@@ -10,7 +10,7 @@ func TestBPFFSPayloadsUseDirectTLV(t *testing.T) {
 	sources := loadFSDirectSources(t)
 	assertFSDispatchSource(t, sources)
 	assertFSDirectHeader(t, sources.fsDirect)
-	assertMountSetattrDirectHeader(t, sources.mountSetattr)
+	assertMountSetattrDirectHeader(t, sources.mountSetattr, sources.pathCapture)
 	assertNoLegacyFSCapture(t, sources.legacyCapture)
 }
 
@@ -19,6 +19,7 @@ type fsDirectSources struct {
 	timeDirect    string
 	fsDirect      string
 	mountSetattr  string
+	pathCapture   string
 	legacyCapture string
 }
 
@@ -30,6 +31,7 @@ func loadFSDirectSources(t *testing.T) fsDirectSources {
 		timeDirect:    readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h")),
 		fsDirect:      readTextFile(t, filepath.Join(root, "bpf/syscall_fs_direct_event_v2.h")),
 		mountSetattr:  readTextFile(t, filepath.Join(root, "bpf/syscall_mount_setattr_direct_event_v2.h")),
+		pathCapture:   readTextFile(t, filepath.Join(root, "bpf/syscall_path_capture_direct_event_v2.h")),
 		legacyCapture: legacyCaptureArtifactsForTest(t),
 	}
 }
@@ -90,12 +92,11 @@ func assertFSDirectHeader(t *testing.T, fsDirectHeader string) {
 	}
 }
 
-func assertMountSetattrDirectHeader(t *testing.T, mountSetattrHeader string) {
+func assertMountSetattrDirectHeader(t *testing.T, mountSetattrHeader string, pathCaptureHeader string) {
 	t.Helper()
 	for _, snippet := range []string{
 		"MOUNT_SETATTR_BASE_SIZE 32",
 		"MOUNT_SETATTR_EXTENSION_MAX 256",
-		"capture_path_only_tlv_direct(",
 		"ctx->args[1]",
 		"ctx->args[3]",
 		"ctx->args[4]",
@@ -106,6 +107,9 @@ func assertMountSetattrDirectHeader(t *testing.T, mountSetattrHeader string) {
 		if !strings.Contains(mountSetattrHeader, snippet) {
 			t.Fatalf("mount_setattr direct header missing snippet %q", snippet)
 		}
+	}
+	if !strings.Contains(pathCaptureHeader, "capture_path_only_tlv_direct(") {
+		t.Fatal("mount_setattr direct header should use the dedicated path capture helper")
 	}
 }
 
