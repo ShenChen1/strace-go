@@ -7615,3 +7615,45 @@ Impact note：这是编译期源码 ownership 重构；`enter_dispatch.h`、`exi
 - 公共 time header 仍是 selector/capture owner，emit header 不拥有公共 predicate、pending map 操作或额外状态；sleep/futex/timex 仍能从同一 translation unit 复用公共 `capture_time_struct_tlv_direct*`，没有引入新的 include 运行时语义。
 - source gate 已覆盖物理 ownership、facade 顺序、公共 helper 归属、文件限制和行为组合视图；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
 - 本阶段仅修改 `bpf/syscall_time_direct_event_v2.h`、新增 `bpf/syscall_time_emit_direct_event_v2.h`、time source gate/helper 和两个 time-specific source tests，以及本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.183 拆分 BPF nested capture ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_bpf_nested_direct_event_v2.h` 同时拥有 BPF attr reader、license/bytes/string 低层用户内存 capture、`PROG_LOAD`/`OBJ`/`BTF`/`LINK_CREATE` command composer 和 kprobe-multi 调用；文件为 452 行。
+- Problem：低层用户指针复制原语与 command-specific nested payload 物理混合；修改某个 BPF command 的 payload 时容易触碰公共复制语义。`capture_bpf_bytes_tlv_direct` 还有 7 个参数，用户指针、长度、上限、arg index 和 flags 容易错配。
+- Goal：新增 `bpf/syscall_bpf_nested_capture_direct_event_v2.h`，专门拥有 license/bytes/string TLV capture；nested header 只保留 attr reader、command composer 和 kprobe-multi 组合，并以 `bpf_nested_bytes_capture_request` 将 bytes capture 收敛为 3 参数调用。
+- Non-goals：不改变 syscall 路由、事件 ABI、TLV kind/direction/arg index、bounded copy、截断统计、错误统计、ringbuf、pending、map、ProgArray、attach、Go consumer 或纯 eBPF memory policy。
+- Constraints：生产 header 和函数不超过 500/80 行，新增 capture 函数参数不超过 5；先用失败优先 ownership gate，再通过 clang/verifier、Go 全量、semantic/perf、small 和 upstream reference。
+
+Impact note：这是 BPF 编译期 ownership 与函数接口重构；`syscall_bpf_direct_event_v2.h`、`enter_bpf`、`enter_router` 和 kprobe-multi 调用图不变，所有用户内存仍只在 enter 事件内由 BPF 立即 bounded copy。
+
+#### 方案比较
+
+1. 保留 452 行单文件并加注释：运行时风险最低，但 capture 原语和 command composer 继续耦合，文件边界不能表达真实责任，拒绝。
+2. 只移动常量和 attr reader：会把 kprobe-multi 宏依赖拆散，低层 capture 仍与 composer 混合，边界不完整，拒绝。
+3. 新增 nested capture header，保留 composer 并用 request object 收敛 bytes 参数：只改变物理边界和局部调用接口，不改变事件执行图，选择该方案。
+
+#### 状态契约
+
+- capture header 继续使用 `bpf_dynptr_data`、`bpf_probe_read_user`、`bpf_probe_read_user_str` 和 `payload_tlv_write_header_direct`；失败仍写相同 `probe_ret`，copy 失败/截断仍更新既有 stats。
+- `bpf_nested_bytes_capture_request` 只承载 `user_ptr/user_len/max_len/arg_index/event_flags`；request 是 BPF 栈上的临时值，不进入 map、ringbuf payload 或用户态 ABI。
+- nested composer 继续按原顺序处理 `PROG_LOAD` 的 insns/license/log/signature、对象路径、raw tracepoint 名称、BTF、stream buffer 和 link iterator/kprobe-multi payload；每次调用只把原 7 个实参封装进 request。
+- `syscall_bpf_direct_event_v2.h` 的 `capture_bpf_attr_tlv_direct`、`emit_bpf_enter_event_v2_direct`、payload capacity 和 event header/body 初始化不变；facade/include translation unit 仍由 direct header -> nested header -> capture/kprobe headers 展开。
+
+#### 测试与验收
+
+- 失败优先 gate 首次按预期失败：`bpf/syscall_bpf_nested_capture_direct_event_v2.h` 不存在。实现后 gate 验证 license/bytes/string 三个 primitive 只在 capture header，7 个 command handler 只在 nested header，include 顺序和两文件行数约束成立。
+- BPF attr source gate 追加 capture header，继续验证 direct TLV、所有 BPF command 常量、kprobe-multi bounded arrays、截断标志和 legacy fixed-window artifact 不回流。
+- `sudo -n ./build.sh` 通过，clang 生成和真实 BPF verifier 接受 request object 与新 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check` 通过。
+- 后续 14.184 修复 attach fixture 初始化竞态后，组合运行 `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，生命周期 6；signalfd 16、sockopt 8、thread 22、mount-query/path 4/4、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0，ringbuf/pending/mismatch/lifecycle 错误计数均为 0。
+- `ebpf-perf` 通过：Go decode `341.60 ns/op、0 B/op、0 allocs/op`（本次重构前后同一数量级），JSON writer `487.60 ns/op、0 B/op、0 allocs/op`，decoded writer `599.50 ns/op、0 B/op、0 allocs/op`，decoded payload writer `846.80 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `427.75/285.03/2.34/222.93 events/s`，错误计数全为 0。
+- 原生参考通过：sudo `small` 为 `23 PASS / 0 FAIL`；sudo `upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`，两个 XFAIL 仍为 bounded read/write snapshot 和 event-sourced mount_setattr FD/cwd 状态，不存在新增 XPASS。
+
+#### Review 结论
+
+- 三个低层 capture primitive 的函数体和 TLV 字段语义保持不变；所有 command composer 的 payload 顺序、上限、arg index、截断 flag、错误统计和用户指针来源与拆分前一致。
+- request object 只缩短接口并集中参数命名，没有引入动态内存、map、ProgArray、tail call、锁、goroutine、Go 侧 tracee memory read、ptrace 或 procfs fallback；真实 verifier 证明该 BPF 栈对象可接受。
+- `syscall_bpf_nested_direct_event_v2.h` 从 452 行降为 306 行，新 capture header 为 164 行，kprobe-multi header 为 183 行；所有函数参数满足仓库限制。
+- source gate 已覆盖物理 ownership 与组合行为视图；最终 semantic/perf、small、119 项 upstream reference 未观察到 BPF nested payload、事件数量、配对或输出回归。
+- 本阶段仅修改 nested BPF header、capture source gate 和本记录；14.184 的 attach 初始化同步与 teardown orphan 分类作为独立提交处理，`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

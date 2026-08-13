@@ -13,6 +13,7 @@ func TestBPFBpfAttrPayloadUsesDirectTLV(t *testing.T) {
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	bpfDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_direct_event_v2.h")) +
 		readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_nested_direct_event_v2.h")) +
+		readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_nested_capture_direct_event_v2.h")) +
 		readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_kprobe_multi_direct_event_v2.h"))
 
 	for _, snippet := range []string{

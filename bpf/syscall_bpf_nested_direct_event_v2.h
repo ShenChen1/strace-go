@@ -75,160 +75,8 @@ static __always_inline int bpf_attr_read_u64_direct(u64 attr_ptr, u64 requested_
     return bpf_probe_read_user(value, sizeof(*value), (void *)(attr_ptr + offset)) == 0;
 }
 
+#include "syscall_bpf_nested_capture_direct_event_v2.h"
 #include "syscall_bpf_kprobe_multi_direct_event_v2.h"
-
-static __always_inline u32 capture_bpf_license_tlv_direct(
-    struct bpf_dynptr *ptr,
-    u32 payload_offset,
-    u64 user_ptr)
-{
-    if (!user_ptr) {
-        return 0;
-    }
-
-    u32 copied_len = 0;
-    s32 probe_ret = 0;
-    u32 data_offset = payload_offset + PAYLOAD_TLV_HEADER_SIZE;
-    void *payload_data = bpf_dynptr_data(ptr, data_offset, BPF_DIRECT_LICENSE_MAX);
-    if (!payload_data) {
-        record_ringbuf_copy_fail();
-        probe_ret = -1;
-    } else {
-        long n = bpf_probe_read_user_str(payload_data, BPF_DIRECT_LICENSE_MAX, (void *)user_ptr);
-        if (n < 0) {
-            probe_ret = n;
-        } else if (n > BPF_DIRECT_LICENSE_MAX) {
-            copied_len = BPF_DIRECT_LICENSE_MAX;
-        } else {
-            copied_len = (u32)n;
-        }
-    }
-
-    if (!payload_tlv_write_header_direct(
-            ptr,
-            payload_offset,
-            PAYLOAD_TLV_KIND_STRING,
-            BPF_DIRECT_PROG_LOAD_LICENSE_ARG,
-            0,
-            copied_len,
-            copied_len,
-            probe_ret,
-            user_ptr)) {
-        return 0;
-    }
-    return PAYLOAD_TLV_HEADER_SIZE + copied_len;
-}
-
-static __always_inline u32 capture_bpf_bytes_tlv_direct(
-    struct bpf_dynptr *ptr,
-    u32 payload_offset,
-    u64 user_ptr,
-    u32 user_len,
-    u32 max_len,
-    u16 arg_index,
-    u16 *event_flags)
-{
-    if (!user_ptr || user_len == 0) {
-        return 0;
-    }
-
-    u32 copied_len = payload_tlv_copy_len(user_len, max_len);
-    s32 probe_ret = 0;
-    u32 data_offset = payload_offset + PAYLOAD_TLV_HEADER_SIZE;
-    void *payload_data = 0;
-    if (max_len == BPF_DIRECT_LOG_BUF_MAX) {
-        payload_data = bpf_dynptr_data(ptr, data_offset, BPF_DIRECT_LOG_BUF_MAX);
-    } else if (max_len == BPF_DIRECT_INSNS_MAX) {
-        payload_data = bpf_dynptr_data(ptr, data_offset, BPF_DIRECT_INSNS_MAX);
-    } else if (max_len == BPF_DIRECT_SIGNATURE_MAX) {
-        payload_data = bpf_dynptr_data(ptr, data_offset, BPF_DIRECT_SIGNATURE_MAX);
-    } else if (max_len == BPF_DIRECT_BTF_MAX) {
-        payload_data = bpf_dynptr_data(ptr, data_offset, BPF_DIRECT_BTF_MAX);
-    } else if (max_len == BPF_DIRECT_STREAM_BUF_MAX) {
-        payload_data = bpf_dynptr_data(ptr, data_offset, BPF_DIRECT_STREAM_BUF_MAX);
-    } else {
-        payload_data = bpf_dynptr_data(ptr, data_offset, BPF_DIRECT_LINK_ITER_INFO_MAX);
-    }
-    if (!payload_data) {
-        record_ringbuf_copy_fail();
-        probe_ret = -1;
-        copied_len = 0;
-    } else {
-        long err = bpf_probe_read_user(payload_data, copied_len, (void *)user_ptr);
-        if (err < 0) {
-            probe_ret = err;
-            copied_len = 0;
-        }
-    }
-
-    if (probe_ret == 0 && copied_len > 0 && copied_len < user_len) {
-        *event_flags |= EVENT_FLAG_TRUNCATED;
-        record_payload_truncated_event();
-    }
-
-    if (!payload_tlv_write_header_direct(
-            ptr,
-            payload_offset,
-            PAYLOAD_TLV_KIND_BYTES,
-            arg_index,
-            0,
-            user_len,
-            copied_len,
-            probe_ret,
-            user_ptr)) {
-        return 0;
-    }
-    return PAYLOAD_TLV_HEADER_SIZE + copied_len;
-}
-
-static __always_inline u32 capture_bpf_string_tlv_direct(
-    struct bpf_dynptr *ptr,
-    u32 payload_offset,
-    u64 user_ptr,
-    u32 max_len,
-    u16 arg_index)
-{
-    if (!user_ptr) {
-        return 0;
-    }
-
-    u32 copied_len = 0;
-    s32 probe_ret = 0;
-    u32 data_offset = payload_offset + PAYLOAD_TLV_HEADER_SIZE;
-    void *payload_data = 0;
-    if (max_len == BPF_DIRECT_OBJ_PATH_MAX) {
-        payload_data = bpf_dynptr_data(ptr, data_offset, BPF_DIRECT_OBJ_PATH_MAX);
-    } else {
-        payload_data = bpf_dynptr_data(ptr, data_offset, BPF_DIRECT_RAW_TRACEPOINT_NAME_MAX);
-    }
-    if (!payload_data) {
-        record_ringbuf_copy_fail();
-        probe_ret = -1;
-    } else {
-        long n = bpf_probe_read_user_str(payload_data, max_len, (void *)user_ptr);
-        if (n < 0) {
-            probe_ret = n;
-        } else if (n > max_len) {
-            copied_len = max_len;
-        } else {
-            copied_len = (u32)n;
-        }
-    }
-
-    if (!payload_tlv_write_header_direct(
-            ptr,
-            payload_offset,
-            PAYLOAD_TLV_KIND_STRING,
-            arg_index,
-            0,
-            copied_len,
-            copied_len,
-            probe_ret,
-            user_ptr)) {
-        return 0;
-    }
-    return PAYLOAD_TLV_HEADER_SIZE + copied_len;
-}
 
 static __always_inline u32 capture_bpf_prog_load_insns_tlv_direct(
     struct bpf_dynptr *ptr,
@@ -243,14 +91,14 @@ static __always_inline u32 capture_bpf_prog_load_insns_tlv_direct(
     if (insn_cnt > 0x1fffffffU) {
         return 0;
     }
-    return capture_bpf_bytes_tlv_direct(
-        ptr,
-        payload_offset,
-        insns,
-        insn_cnt * 8,
-        BPF_DIRECT_INSNS_MAX,
-        BPF_DIRECT_PROG_LOAD_INSNS_ARG,
-        event_flags);
+    struct bpf_nested_bytes_capture_request request = {
+        .user_ptr = insns,
+        .user_len = insn_cnt * 8,
+        .max_len = BPF_DIRECT_INSNS_MAX,
+        .arg_index = BPF_DIRECT_PROG_LOAD_INSNS_ARG,
+        .event_flags = event_flags,
+    };
+    return capture_bpf_bytes_tlv_direct(ptr, payload_offset, &request);
 }
 
 static __always_inline u32 capture_bpf_prog_load_nested_tlv_direct(
@@ -282,28 +130,34 @@ static __always_inline u32 capture_bpf_prog_load_nested_tlv_direct(
     u64 log_buf = 0;
     if (bpf_attr_read_u32_direct(attr_ptr, attr_size, BPF_DIRECT_PROG_LOAD_LOG_SIZE_OFF, &log_size) &&
         bpf_attr_read_u64_direct(attr_ptr, attr_size, BPF_DIRECT_PROG_LOAD_LOG_BUF_OFF, &log_buf)) {
+        struct bpf_nested_bytes_capture_request request = {
+            .user_ptr = log_buf,
+            .user_len = log_size,
+            .max_len = BPF_DIRECT_LOG_BUF_MAX,
+            .arg_index = BPF_DIRECT_PROG_LOAD_LOG_BUF_ARG,
+            .event_flags = event_flags,
+        };
         payload_size += capture_bpf_bytes_tlv_direct(
             ptr,
             payload_offset + payload_size,
-            log_buf,
-            log_size,
-            BPF_DIRECT_LOG_BUF_MAX,
-            BPF_DIRECT_PROG_LOAD_LOG_BUF_ARG,
-            event_flags);
+            &request);
     }
 
     u32 signature_size = 0;
     u64 signature = 0;
     if (bpf_attr_read_u32_direct(attr_ptr, attr_size, BPF_DIRECT_PROG_LOAD_SIGNATURE_SIZE_OFF, &signature_size) &&
         bpf_attr_read_u64_direct(attr_ptr, attr_size, BPF_DIRECT_PROG_LOAD_SIGNATURE_OFF, &signature)) {
+        struct bpf_nested_bytes_capture_request request = {
+            .user_ptr = signature,
+            .user_len = signature_size,
+            .max_len = BPF_DIRECT_SIGNATURE_MAX,
+            .arg_index = BPF_DIRECT_PROG_LOAD_SIGNATURE_ARG,
+            .event_flags = event_flags,
+        };
         payload_size += capture_bpf_bytes_tlv_direct(
             ptr,
             payload_offset + payload_size,
-            signature,
-            signature_size,
-            BPF_DIRECT_SIGNATURE_MAX,
-            BPF_DIRECT_PROG_LOAD_SIGNATURE_ARG,
-            event_flags);
+            &request);
     }
     return payload_size;
 }
@@ -358,14 +212,14 @@ static __always_inline u32 capture_bpf_btf_tlv_direct(
         !btf || btf_size == 0) {
         return 0;
     }
-    return capture_bpf_bytes_tlv_direct(
-        ptr,
-        payload_offset,
-        btf,
-        btf_size,
-        BPF_DIRECT_BTF_MAX,
-        BPF_DIRECT_BTF_ARG,
-        event_flags);
+    struct bpf_nested_bytes_capture_request request = {
+        .user_ptr = btf,
+        .user_len = btf_size,
+        .max_len = BPF_DIRECT_BTF_MAX,
+        .arg_index = BPF_DIRECT_BTF_ARG,
+        .event_flags = event_flags,
+    };
+    return capture_bpf_bytes_tlv_direct(ptr, payload_offset, &request);
 }
 
 static __always_inline u32 capture_bpf_prog_stream_read_tlv_direct(
@@ -382,14 +236,14 @@ static __always_inline u32 capture_bpf_prog_stream_read_tlv_direct(
         !stream_buf || stream_buf_len == 0) {
         return 0;
     }
-    return capture_bpf_bytes_tlv_direct(
-        ptr,
-        payload_offset,
-        stream_buf,
-        stream_buf_len,
-        BPF_DIRECT_STREAM_BUF_MAX,
-        BPF_DIRECT_PROG_STREAM_BUF_ARG,
-        event_flags);
+    struct bpf_nested_bytes_capture_request request = {
+        .user_ptr = stream_buf,
+        .user_len = stream_buf_len,
+        .max_len = BPF_DIRECT_STREAM_BUF_MAX,
+        .arg_index = BPF_DIRECT_PROG_STREAM_BUF_ARG,
+        .event_flags = event_flags,
+    };
+    return capture_bpf_bytes_tlv_direct(ptr, payload_offset, &request);
 }
 
 static __always_inline u32 capture_bpf_link_iter_info_tlv_direct(
@@ -413,14 +267,14 @@ static __always_inline u32 capture_bpf_link_iter_info_tlv_direct(
         return 0;
     }
 
-    return capture_bpf_bytes_tlv_direct(
-        ptr,
-        payload_offset,
-        iter_info,
-        iter_info_len * 4,
-        BPF_DIRECT_LINK_ITER_INFO_MAX,
-        BPF_DIRECT_LINK_ITER_INFO_ARG,
-        event_flags);
+    struct bpf_nested_bytes_capture_request request = {
+        .user_ptr = iter_info,
+        .user_len = iter_info_len * 4,
+        .max_len = BPF_DIRECT_LINK_ITER_INFO_MAX,
+        .arg_index = BPF_DIRECT_LINK_ITER_INFO_ARG,
+        .event_flags = event_flags,
+    };
+    return capture_bpf_bytes_tlv_direct(ptr, payload_offset, &request);
 }
 
 static __always_inline u32 capture_bpf_nested_tlv_direct(
