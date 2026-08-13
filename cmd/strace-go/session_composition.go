@@ -114,7 +114,7 @@ type traceSessionDeps struct {
 	StackTraces   traceStackTraceReader
 	Stats         traceStatsReader
 	Resolver      traceSymbolResolver
-	State         *TraceState
+	State         traceStateOwner
 	Clock         traceClock
 	PIDProbe      tracePIDProbe
 }

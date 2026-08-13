@@ -1,0 +1,13 @@
+package main
+
+// traceStateOwner exists only at the session composition boundary.
+// Runtime consumers receive the narrow state capability they require.
+type traceStateOwner interface {
+	traceEventState
+	tracePendingStateReader
+	textRendererState
+	execSyscallState
+	suspendedSyscallState
+}
+
+var _ traceStateOwner = (*TraceState)(nil)

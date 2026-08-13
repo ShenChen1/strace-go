@@ -6050,3 +6050,41 @@ Impact note：影响 `cmd/strace-go/session_composition.go` 的 FD state depende
 真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `288.30 ns/op、0 B/op、0 allocs/op`，raw JSON `487.10 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `605.80 ns/op、0 B/op、0 allocs/op`，decoded payload `882.30 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认 `traceFDStateOwner` 只出现在 session composition/accessor 边界；event context、handler、exit pipeline、lifecycle 和 JSON 输出继续使用已有窄 port。真实 composition 仍只创建一个 `FDStateStore`，没有新增第二份状态、锁、goroutine、ptrace、`process_vm_readv` 或 procfs 读取。
+
+### 14.146 将 session TraceState 收窄为聚合 owner port（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`TraceState` 已实现 `traceEventState`、`tracePendingStateReader`、`textRendererState`、`execSyscallState` 和 `suspendedSyscallState`；router、finalizer、renderer、exec output 和 suspended output 已分别使用这些窄 port，但 `traceSessionDeps.State` 与 `traceState()` 仍暴露 `*TraceState`。
+- Problem：具体的可变事件状态穿透 session root，测试无法注入只满足行为契约的 state owner；同时若把五类能力拆成五个 root 字段，会失去 pending、unfinished、exec 和 task state 必须由同一单消费者 owner 维护的关系。
+- Goal：定义仅供 composition/session boundary 使用的 `traceStateOwner`，聚合已有五类 state port；保持 `TraceState` 是唯一真实 owner，并让下游继续按最小能力接收状态。
+- Non-goals：不改变 enter/exit 配对、deferred exit、unfinished ordering、exec restart、lifecycle cleanup、pending freelist、事件 ABI、并发模型、性能模型或纯 eBPF/no-procfs/no-ptrace 约束。
+- Constraints：owner 必须能驱动 router 与 finalizer 的事件状态生命周期；不得复制 pending/task map、引入锁/goroutine、让 renderer 获得 event mutation 全集；nil 校验和 zero-value accessor 语义保持不变。
+
+Impact note：影响 `session_composition.go` 的 State dependency、`event_state.go` 的 session accessor、state owner source/fake tests，以及少数直接读取 session concrete map/flag 的测试；`TraceState` 内部状态机和五个既有窄 port 不改语义。
+
+方案比较：
+
+1. 保留 `*TraceState`：改动最少，但 session contract 泄漏完整 mutable state，拒绝。
+2. 将五个 state port 拆成独立 root 字段：组件接口更窄，但同一 pending/task owner 关系依赖 wiring 约定，可能产生错配，拒绝。
+3. 定义 `traceStateOwner` 聚合已有五个 port，并向组件投影最小接口：保持单一 owner、可注入 fake、无额外状态复制，选择该方案。
+
+状态契约：
+
+- `traceStateOwner` 只存在于 session composition/accessor 边界；router 仍接收 `traceEventState`，finalizer 仍接收 `tracePendingStateReader`，renderer/exec/suspended 输出仍接收各自 port。
+- `TraceState` 的 pending syscall、deferred exit、unfinished index、exec args、suspended syscall、task/lifecycle map 继续由单一事件消费者顺序拥有。
+- `traceState()` 返回 owner port，仅表达 session 共享同一对象，不再暴露 concrete `TraceState` 类型。
+
+测试与验收：
+
+- 先增加失败优先 fake state owner 测试，确认旧的 `*TraceState` dependency 无法接收只实现五类 state port 的替代对象。
+- 实现后运行 focused state-owner tests、Go 全量/race/vet/build、`git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和 `upstream-reference`。
+- review 检查生产组件没有恢复 `*TraceState` 依赖，真实 composition 只有一个 state owner，纯 eBPF 禁止规则保持通过。
+
+#### 实际验收记录
+
+已完成。失败优先测试先因 `traceSessionDeps.State` 固定为 `*TraceState` 而无法接收 fake owner；实现后 focused state-owner tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14146 ./cmd/strace-go` 和 `git diff --check` 均通过。fake owner 验证 session、router、run finalizer、text renderer、exec output 和 suspended output 分别获得同一个 owner 的窄能力投影。
+
+真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `286.60 ns/op、0 B/op、0 allocs/op`，raw JSON `503.00 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `605.20 ns/op、0 B/op、0 allocs/op`，decoded payload `901.50 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认 `traceStateOwner` 只出现在 session composition/accessor 边界；router、finalizer、renderer、exec/suspended output 没有恢复 `*TraceState` 依赖。真实 composition 仍只创建一个 `TraceState`，没有新增状态副本、锁、goroutine、ptrace、`process_vm_readv` 或 procfs 读取。

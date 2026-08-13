@@ -13,11 +13,13 @@ import (
 func TestJSONEventsArePairedByTIDState(t *testing.T) {
 	opts := cli.ParseArgs([]string{"--event-format=json", "-e", "trace=getpid", "/bin/true"})
 	var output bytes.Buffer
+	state := newTraceState()
 	session := newTestTraceSessionWithOptions(opts, traceSessionDeps{
 		TargetPID: 1234,
 		Decoder:   event.NewDecoder(),
 		FDState:   newFDStateStoreFromMaps(nil, nil),
 		OutWriter: &output,
+		State:     state,
 	})
 
 	enter := traceEventEnvelope{
@@ -43,11 +45,11 @@ func TestJSONEventsArePairedByTIDState(t *testing.T) {
 	}
 
 	session.handleEnvelope(enter)
-	if got := len(session.traceState().pendingSyscalls); got != 1 {
+	if got := len(state.pendingSyscalls); got != 1 {
 		t.Fatalf("pendingSyscalls after enter = %d, want 1", got)
 	}
 	session.handleEnvelope(exit)
-	if got := len(session.traceState().pendingSyscalls); got != 0 {
+	if got := len(state.pendingSyscalls); got != 0 {
 		t.Fatalf("pendingSyscalls after exit = %d, want 0", got)
 	}
 

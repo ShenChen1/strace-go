@@ -106,7 +106,7 @@ type TraceStateUpdate struct {
 	deferredExit    *TraceStateUpdate
 }
 
-func (s *traceSession) traceState() *TraceState {
+func (s *traceSession) traceState() traceStateOwner {
 	if s == nil {
 		return nil
 	}

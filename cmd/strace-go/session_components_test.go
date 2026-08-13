@@ -107,8 +107,11 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	if session.traceEventReader() != components.eventReader || session.traceEventRouter() != components.eventRouter {
 		t.Fatal("component accessors replaced eagerly composed instances")
 	}
-	if got := session.traceState(); got != state || !got.deferUnmatchedExits {
+	if got := session.traceState(); got != state {
 		t.Fatalf("session state = %+v, want injected deferred state", got)
+	}
+	if !state.deferUnmatchedExits {
+		t.Fatalf("injected session state = %+v, want deferred state", state)
 	}
 }
 
