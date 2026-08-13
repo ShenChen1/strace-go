@@ -88,6 +88,8 @@ func readAioDirectEventSources(t *testing.T) string {
 	t.Helper()
 	root := repoRootForTest(t)
 	return readTextFile(t, filepath.Join(root, "bpf/syscall_aio_getevents_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_aio_getevents_capture_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_aio_getevents_emit_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_aio_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_aio_core_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_aio_capture_direct_event_v2.h")) +

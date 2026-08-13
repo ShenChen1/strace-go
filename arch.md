@@ -7867,3 +7867,46 @@ Impact note：生产 `bpf/strace.c` 的 include 行、`enter_iovec`/`enter_iovec
 - 新 capture header 不创建 map、ProgArray、tail call、scratch 状态或用户态消费者，不引入锁、goroutine、Go 侧 tracee memory read、ptrace 或 procfs fallback；它只是被 iovec facade 展开的编译期 shared module。
 - source gate 已覆盖物理 ownership、facade/provider include、msg/mmsg 复用、iovec exit 依赖和文件限制；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
 - 本阶段仅修改 iovec facade、shared capture header、iovec/msg source helpers、source tests 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.189 拆分 AIO getevents capture 与 emitter ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_aio_getevents_direct_event_v2.h` 原为 395 行，同时拥有 getevents/pgetevents selector、event count 长度策略、timeout/sigset/sigmask/events 四类 capture，以及三个 ringbuf emitter。
+- Problem：getevents 的 IN/OUT 用户内存 snapshot 与 ringbuf reservation、event header/body、submit/discard 物理混合；修改 AIO event array 的 bounded copy 或 pgetevents sigmask 语义时，容易误触 enter/exit emission 和 capacity 计算。
+- Goal：保留 getevents facade 的常量、selector 和 count-to-length policy；新增 `bpf/syscall_aio_getevents_capture_direct_event_v2.h` 独占四类 direct TLV capture，新增 `bpf/syscall_aio_getevents_emit_direct_event_v2.h` 独占两个 enter emitter 和一个 exit emitter。
+- Non-goals：不改变 `io_getevents/io_pgetevents` selector、timeout/sigset/sigmask/events 的 arg index、TLV kind/direction、16-event/512-byte bounded snapshot、probe/truncation/copy error、event ABI、pending/lifecycle/routing/ProgArray/attach、Go decoder/formatter，也不引入 ptrace、procfs 或 Go 侧 tracee memory read。
+- Constraints：先用失败优先 source gate 固定 capture/emitter ownership，再通过真实 clang/verifier、Go 全量/race/vet、semantic/perf、small 和 upstream reference；三个生产 header和测试文件保持仓库行数与函数限制。
+
+Impact note：`bpf/strace.c` 仍先 include getevents facade 再 include AIO facade；`aio_core` 继续复用 facade 提供的 getevents predicate，`aio_emit` 继续复用 getevents enter emitter，`exit_dispatch` 继续调用 getevents exit emitter，调用图和 ABI 不变。
+
+#### 方案比较
+
+1. 保留 395 行单文件并加注释：运行时改动最小，但 AIO getevents 的 capture、policy 和 emission 仍耦合，后续 verifier/capacity 调整影响面不清晰，拒绝。
+2. 只拆出三个 emitter：能隔离 ringbuf reservation，但四类用户内存 capture 仍混在 facade，无法单独测试 snapshot ownership，拒绝。
+3. 保留 facade 的 selector/length policy，同时拆出 capture 和 emit 两个 header：include 层略增，但边界完整、调用图和 ABI 不变，选择该方案。
+
+#### 状态契约
+
+- `syscall_aio_getevents_direct_event_v2.h` 只拥有 `AIO_GETEVENTS_DIRECT_*`/`AIO_PGETEVENTS_DIRECT_*` 常量、`is_aio_getevents_direct_syscall`、`is_aio_pgetevents_direct_syscall`、`aio_getevents_user_len` 和 `aio_getevents_copy_len`，并按顺序 include capture 与 emit 模块；它不拥有用户内存读取、ringbuf reservation 或 pending 状态。
+- `syscall_aio_getevents_capture_direct_event_v2.h` 拥有 timeout arg4 的 struct snapshot、exit arg3 events array、pgetevents arg5 sigset 及由 sigset 提供的 sigmask snapshot；所有读取仍在对应 enter/exit probe 内通过 `bpf_probe_read_user*` 完成，TLV header 的 kind/index/direction、probe error 和 bounded copy 规则不变。
+- events array 仍按返回值计算 user length，最多展开 `AIO_GETEVENTS_DIRECT_EVENT_SLOT_MAX=16` 个 32-byte event；count 超过上限时最多复制 512 bytes 并设置 `EVENT_FLAG_TRUNCATED`。sigmask 仍限制为 `AIO_PGETEVENTS_DIRECT_SIGMASK_MAX=8`，不会把用户指针传到 Go。
+- `syscall_aio_getevents_emit_direct_event_v2.h` 只拥有 `emit_aio_getevents_enter_event_v2_direct`、`emit_aio_pgetevents_enter_event_v2_direct`、`emit_aio_getevents_exit_event_v2_direct`，继续负责 capacity、ringbuf reserve、event header/body、flags、submit/discard；capture header不创建map、ProgArray或消费者。
+- `syscall_aio_direct_event_v2.h` 和 `syscall_aio_emit_direct_event_v2.h` 仍以原函数名复用 getevents emitter；`readAioDirectEventSources`、AIO layout gate 和 generic exit gate 同步纳入 facade/capture/emit 展开，测试同时验证物理 ownership 和真实组合视图。
+
+#### 测试与验收
+
+- 失败优先 gate 首次按预期失败：`bpf/syscall_aio_getevents_capture_direct_event_v2.h` 不存在。实现后新增 `TestBPFAioGeteventsHasDedicatedCaptureAndEmitOwnership`，检查两个 include、四个 capture helper、三个 emitter、错误 owner 排他性和文件行数。
+- 更新 AIO layout/source helper，验证 getevents facade 的 selector/length policy、capture 的 probe/TLV helper、emit 的 ringbuf helper，以及 `aio_core`/`aio_emit`/`exit_dispatch` 的原调用关系。
+- `sudo -n ./build.sh` 通过，clang 生成和真实 BPF verifier 接受新的 getevents include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check` 全部通过。
+- `syscall_aio_getevents_direct_event_v2.h` 从 395 行降为 50 行，新 capture header 为 203 行，新 emit header 为 153 行；focused AIO source/layout tests通过，所有函数参数和文件长度满足限制。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，生命周期 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0，普通 attach orphan 1 仍为预期诊断；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `342.40 ns/op、0 B/op、0 allocs/op`，JSON writer `484.40 ns/op、0 B/op、0 allocs/op`，decoded writer `643.40 ns/op、0 B/op、0 allocs/op`，decoded payload writer `919.00 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `419.16/278.47/2.30/224.78 events/s`，所有运行时错误计数为 0。
+- 原生参考通过：sudo `small` 为 `23 PASS / 0 FAIL`；sudo `upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`。`aio_pgetevents.gen.test` 与 `aio.gen.test` 通过；两个 XFAIL 仍是 `read-write.gen.test` 的 bounded eBPF snapshot 和 `mount_setattr.gen.test` 的 event-sourced FD/cwd 初始 unknown，没有新增 XPASS。
+
+#### Review 结论
+
+- 未发现运行时行为回归：getevents/pgetevents 的 selector、count length、timeout/sigset/sigmask/events 参数、TLV顺序、truncate/probe error、payload capacity 和 enter/exit 时点与拆分前一致；AIO core、generic exit 和 tail-call routing 没有改变。
+- 新 capture/emitter 模块均为编译期 header，不创建 map、ProgArray、tail call、scratch 状态、锁、goroutine 或用户态消费者；没有引入 Go 侧 tracee memory read、ptrace 或 procfs fallback。
+- source gate 已覆盖 facade/capture/emit 三方物理 ownership、include 展开和旧调用复用；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
+- 本阶段仅修改 getevents facade、capture/emit 新 header、AIO source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
