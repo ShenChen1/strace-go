@@ -7278,3 +7278,51 @@ Impact note：只影响 `bpf/strace.c`、新增 `bpf/exit_router.h`、合并源�
 - `trace_sys_exit` 仍是唯一 raw exit attach，继续拥有 sigreturn/pre-exec/lifecycle/filter/config gate、一次身份快照、tail-call 和 fallback；selector 是无状态 `static __always_inline` helper，不访问 map、不解析 pending、不创建事件。
 - tail-call handler 的 pending resolve/consume、fallback unmatched 统计、event ABI、ProgArray 数值和 attach 数量均未改变；没有新增 Go consumer、goroutine、mutex、BPF map、scratch 状态、ptrace、procfs 或 tracee memory read。
 - 本阶段变更范围限定为 `bpf/strace.c`、`bpf/exit_router.h`、BPF source gate 辅助/测试和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.176 拆分 generic exit handler 的 direct emission ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/exit_dispatch.h` 的 `exit_generic` 只有 76 行，但在 `EXIT_PROLOGUE` 后直接串联约 20 个 direct-exit family 的 predicate、成功返回条件和 payload emitter，最后再消费 pending。
+- Problem：generic handler 同时拥有 pending 生命周期和所有 direct family emission；分支复杂度已经超过约定上限，新增一个 direct exit family 会侵入 pending owner，且 source gate 无法直接证明“emission 分支不会消费 pending 或改变 generic fallback”。
+- Goal：保持 `exit_generic` 的 tail-call handler、`EXIT_PROLOGUE`、direct family 分支顺序、返回值条件、generic fallback 和 pending consume 完全不变；将 direct-exit emission 决策拆到同文件的五个 family `static __always_inline` helper 和一个总调度 helper，让 handler 只拥有 pending 生命周期。
+- Non-goals：不新增 ProgArray slot、attach、map、scratch/per-CPU state、事件 ABI、payload capture、formatter、pending lookup/consume 规则、任何 syscall predicate 或纯 eBPF/no-procfs/no-ptrace 约束；不把 emission 改成运行时 map 或 Go 侧逻辑。
+- Constraints：每个 family helper 和总调度 helper 只接收 `pending_syscall`、`ret_value`、`duration` 三个参数，必须保持旧 branch order 和条件；每个 helper 与 `exit_generic` 不超过 80 行、分支复杂度不超过 10，文件不超过 500 行；`exit_generic` 不得直接出现 direct family predicate/emitter；source gate 覆盖五组 ownership、fallback 和 consume 顺序。
+
+Impact note：只影响 `bpf/exit_dispatch.h` 和新增 generic exit ownership source gate；不改变 raw exit router、exit ProgArray、BPF ABI、用户态事件状态机或输出。
+
+#### 方案比较
+
+1. 保留 76 行函数并增加注释：运行时零改动，但复杂度和 pending/emission ownership 混合继续存在，拒绝。
+2. 新增一个专用 tail-call slot 拆出 direct emitter：可以物理分片，但增加 ProgArray ABI、装载端口、tail-call 失败路径和事件顺序风险，拒绝。
+3. 抽出 `static __always_inline` emission helper：保留编译期展开和旧执行图，不增加运行时状态，选择该方案。
+
+#### 状态契约
+
+- `exit_generic` 独占 `EXIT_PROLOGUE`、pending resolve 结果的生命周期以及最终 `consume_pending_syscall`；helper 不查找、不校验、不消费 pending。
+- 五个 family helper 只根据 `p->sys_id`、`ret_value` 和 `duration` 选择既有 emitter；只有实际调用 emitter 后才返回 1，未满足返回值条件时返回 0，让后续旧分支继续判断。
+- `emit_generic_exit_event` 按 fd/time、struct、async、io、control 的固定顺序调用五组 helper，并保留 non-direct 与最终 generic fallback。
+- helper 返回后，无论 direct family 是否命中，`exit_generic` 都按原路径消费 pending；非 direct syscall 仍直接走 generic exit event。
+
+#### 测试与验收
+
+- 先加入失败优先 source gate：要求 `exit_generic` 委托 `emit_generic_exit_event`，禁止它直接包含 direct family predicate/emitter；总调度 helper 必须按五组固定顺序保留两个 generic fallback，五组 helper 必须覆盖原 direct emitter 且不能拥有 pending consume。
+- 实现后运行 focused exit/source tests、`sudo -n ./build.sh`、Go 全量/race/vet/build/diff；再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和完整 upstream reference，确认 generic/direct 输出和运行时统计不变。
+- review 必须确认 helper 是无状态编译期 inline，未新增 tail-call/map/锁/消费者，pending owner 仍是 `exit_generic`，没有 procfs/ptrace 回流。
+
+#### 实施与验收
+
+- 失败优先 source gate 首次按预期暴露了旧 `exit_generic` 仍直接拥有 direct family chain；第一次拆分后的 focused gate 又暴露了旧 payload source oracle 仍假设 `FD_STATE` 与 signal predicate 位于同一函数正文。测试已迁移为检查总调度 helper 的五组调用顺序，具体 family emitter 由新的 group ownership gate 覆盖；生产代码未通过测试特判。
+- 实现过程中真实 clang/verifier 首次发现一个拆分命名错误：`is_stat_struct_exit_direct_syscall` 并不存在。已恢复原有 `is_stat_struct_direct_syscall` predicate，并在重新生成 BPF、真实 verifier、focused source tests 后通过；没有改变 predicate 或 emitter 语义。
+- 最终 `exit_generic` 只保留 `EXIT_PROLOGUE`、`emit_generic_exit_event` 和 `consume_pending_syscall`；五个 family helper 分别保留原有 7、7、7、6、3 个 direct 分支，所有 helper 与总调度均为 `static __always_inline`、三个参数、低于 80 行且按分支数低于复杂度 10，`exit_dispatch.h` 为 372 行。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14176 ./cmd/strace-go`、`sudo -n ./build.sh`、focused source tests 和 `git diff --check` 全部通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，生命周期 6，非 leader attach `675/675` 且 orphan 0；signalfd 16、sockopt 8、thread 22、mount-query/path 4/4、dirent 8、mmsg 16、fcntl 6；ringbuf reserve/copy、pending update/mismatch、正常 orphan、lifecycle map update 和 stale 计数均为 0，payload truncated 为 8。首次运行的 attach workload 出现一次瞬态 `orphan_exit=1`，清理残留并完整重跑后消失；该诊断 fixture 自身保留预期 attach orphan=1。
+- `ebpf-perf` 通过：Go decode `346.20 ns/op、0 B/op、0 allocs/op`，JSON `498.40 ns/op、0 B/op、0 allocs/op`，decoded `614.90 ns/op、0 B/op、0 allocs/op`，payload decoded `828.60 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `437.14/281.63/2.32/227.38 events/s`，所有运行期错误计数为 0。
+- 原生参考通过：`small` 为 `23 PASS / 0 FAIL`；`upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`，119 个测试中的两个 XFAIL 仍是已声明的 bounded read/write snapshot 与 event-sourced FD/cwd 初始状态边界。
+
+#### Review 结论
+
+- 五组 helper 完整保留旧 direct branch 的顺序、predicate、返回值条件和 emitter；group helper 只有在实际 emitter 执行后返回 1，失败返回条件会继续尝试后续旧分支，因此没有把原 `else if` 链错误改成“predicate 命中即终止”。总调度保留 non-direct fallback 和最终 generic fallback。
+- `exit_generic` 仍是 pending lifecycle owner；`emit_generic_exit_event` 与五个 group helper 不查找、不校验、不消费 pending，也不写新增 map、ProgArray、锁或 scratch state。没有新增 Go consumer、goroutine、ptrace、procfs 或 tracee memory read。
+- source gate 已锁定 handler 的 prologue -> total emission -> consume 顺序、五组调用顺序、两个 fallback、所有 direct emitter ownership 和 pending lifecycle 排他性；runtime verifier、semantic/perf 与原生 reference 均未观察到事件数量或输出回归。
+- 本阶段仅修改 `bpf/exit_dispatch.h`、`cmd/strace-go/bpf_generic_exit_source_test.go`、`cmd/strace-go/bpf_payload_tlv_source_test.go` 和本记录；`strace-upstream` 子模块的预先存在 dirty 状态未触碰。

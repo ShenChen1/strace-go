@@ -312,15 +312,14 @@ func TestBPFWaitidAndSignalPayloadsUseDirectTLV(t *testing.T) {
 		!strings.Contains(straceSource, "emit_signal_exit_event_v2_direct(p, ret_value, duration);") {
 		t.Fatal("rt_sigaction/rt_sigprocmask/rt_sigsuspend should emit direct signal TLV events without the bpf_event carrier")
 	}
-	exitBody, ok := bpfFunctionBody(readCombinedBPFSources(t), "exit_generic")
+	exitBody, ok := bpfFunctionBody(readCombinedBPFSources(t), "emit_generic_exit_event")
 	if !ok {
-		t.Fatal("BPF exit dispatcher missing exit_generic")
+		t.Fatal("BPF exit dispatcher missing generic emission helper")
 	}
-	fdStateExit := strings.Index(exitBody, "is_fd_state_exit_direct_syscall(p->sys_id) && ret_value >= 0")
-	signalExit := strings.Index(exitBody, "is_signal_direct_syscall(p->sys_id) && ret_value >= 0")
-	if fdStateExit < 0 || signalExit < 0 || fdStateExit > signalExit {
-		t.Fatal("signalfd exit must be handled by the FD_STATE branch before signal payload handling")
-	}
+	assertBPFSourceOrder(t, exitBody, []string{
+		"emit_generic_exit_fd_time_event(p, ret_value, duration)",
+		"emit_generic_exit_struct_event(p, ret_value, duration)",
+	})
 }
 
 func TestBPFBytesPayloadsUseDirectTLV(t *testing.T) {

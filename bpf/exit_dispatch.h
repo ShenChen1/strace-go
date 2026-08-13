@@ -68,78 +68,187 @@ static __always_inline void emit_exit_dispatch_fallback(
             p, exit_sys_id, pid, pending_tid)) return 0;                             \
     u64 duration = pending_syscall_duration(p);                                    \
 
+static __always_inline int emit_generic_exit_fd_time_event(
+    struct pending_syscall *p,
+    s64 ret_value,
+    u64 duration)
+{
+    if (is_fd_state_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
+        emit_fd_state_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_exit_payload_direct_syscall(p->sys_id) && ret_value > 0) {
+        emit_payload_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_gettimeofday_direct_syscall(p->sys_id) && ret_value >= 0) {
+        emit_gettimeofday_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_clock_time_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
+        emit_time_struct_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_itimer_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
+        emit_itimer_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_timex_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
+        emit_timex_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_sleep_direct_syscall(p->sys_id)) {
+        emit_sleep_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    return 0;
+}
+
+static __always_inline int emit_generic_exit_struct_event(
+    struct pending_syscall *p,
+    s64 ret_value,
+    u64 duration)
+{
+    if (is_stat_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
+        emit_stat_struct_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_waitid_direct_syscall(p->sys_id) && ret_value >= 0) {
+        emit_waitid_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_signal_direct_syscall(p->sys_id) && ret_value >= 0) {
+        emit_signal_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_getcwd_direct_syscall(p->sys_id) && ret_value > 0) {
+        emit_getcwd_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_readlink_direct_syscall(p->sys_id) && ret_value > 0) {
+        emit_readlink_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_fd_array_direct_syscall(p->sys_id) && ret_value == 0) {
+        emit_fd_array_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_misc_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
+        emit_misc_struct_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    return 0;
+}
+
+static __always_inline int emit_generic_exit_async_event(
+    struct pending_syscall *p,
+    s64 ret_value,
+    u64 duration)
+{
+    if (is_small_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
+        emit_small_struct_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_cachestat_direct_syscall(p->sys_id) && ret_value >= 0) {
+        emit_cachestat_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (p->sys_id == SYS_CAPGET && ret_value >= 0) {
+        emit_capability_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_prctl_direct_syscall(p->sys_id) && ret_value >= 0) {
+        emit_prctl_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_aio_getevents_direct_syscall(p->sys_id) && ret_value > 0) {
+        emit_aio_getevents_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_aio_setup_direct_syscall(p->sys_id) && ret_value >= 0) {
+        emit_aio_setup_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_poll_direct_syscall(p->sys_id) && ret_value > 0) {
+        emit_poll_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    return 0;
+}
+
+static __always_inline int emit_generic_exit_io_event(
+    struct pending_syscall *p,
+    s64 ret_value,
+    u64 duration)
+{
+    if (is_select_direct_syscall(p->sys_id) && ret_value >= 0) {
+        emit_select_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_epoll_wait_direct_syscall(p->sys_id) && ret_value > 0) {
+        emit_epoll_wait_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_getdents_direct_syscall(p->sys_id) && ret_value > 0) {
+        emit_getdents_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
+        emit_exec_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_xattr_get_direct_syscall(p->sys_id) && ret_value > 0) {
+        emit_xattr_get_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_xattr_list_direct_syscall(p->sys_id) && ret_value > 0) {
+        emit_xattr_list_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    return 0;
+}
+
+static __always_inline int emit_generic_exit_control_event(
+    struct pending_syscall *p,
+    s64 ret_value,
+    u64 duration)
+{
+    if (is_fcntl_direct_syscall(p->sys_id)) {
+        emit_fcntl_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_ioctl_direct_syscall(p->sys_id)) {
+        emit_ioctl_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    if (is_network_direct_syscall(p->sys_id)) {
+        emit_network_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
+    return 0;
+}
+
+static __always_inline void emit_generic_exit_event(
+    struct pending_syscall *p,
+    s64 ret_value,
+    u64 duration)
+{
+    if (!is_sys_exit_direct_syscall(p->sys_id)) {
+        emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
+        return;
+    }
+    if (emit_generic_exit_fd_time_event(p, ret_value, duration)) return;
+    if (emit_generic_exit_struct_event(p, ret_value, duration)) return;
+    if (emit_generic_exit_async_event(p, ret_value, duration)) return;
+    if (emit_generic_exit_io_event(p, ret_value, duration)) return;
+    if (emit_generic_exit_control_event(p, ret_value, duration)) return;
+    emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
+}
+
 SEC("tracepoint/raw_syscalls/sys_exit")
 int exit_generic(struct trace_event_raw_sys_exit *ctx) {
     EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid);
-
-    if (is_sys_exit_direct_syscall(p->sys_id)) {
-        if (is_fd_state_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_fd_state_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_exit_payload_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_payload_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_gettimeofday_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_gettimeofday_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_clock_time_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_time_struct_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_itimer_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_itimer_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_timex_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_timex_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_sleep_direct_syscall(p->sys_id)) {
-            emit_sleep_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_stat_struct_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_stat_struct_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_waitid_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_waitid_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_signal_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_signal_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_getcwd_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_getcwd_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_readlink_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_readlink_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_fd_array_direct_syscall(p->sys_id) && ret_value == 0) {
-            emit_fd_array_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_misc_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_misc_struct_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_small_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_small_struct_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_cachestat_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_cachestat_exit_event_v2_direct(p, ret_value, duration);
-        } else if (p->sys_id == SYS_CAPGET && ret_value >= 0) {
-            emit_capability_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_prctl_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_prctl_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_aio_getevents_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_aio_getevents_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_aio_setup_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_aio_setup_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_poll_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_poll_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_select_direct_syscall(p->sys_id) && ret_value >= 0) {
-            emit_select_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_epoll_wait_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_epoll_wait_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_getdents_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_getdents_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_exec_payload_direct_syscall(p->sys_id) && ret_value != 0) {
-            emit_exec_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_xattr_get_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_xattr_get_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_xattr_list_direct_syscall(p->sys_id) && ret_value > 0) {
-            emit_xattr_list_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_fcntl_direct_syscall(p->sys_id)) {
-            emit_fcntl_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_ioctl_direct_syscall(p->sys_id)) {
-            emit_ioctl_exit_event_v2_direct(p, ret_value, duration);
-        } else if (is_network_direct_syscall(p->sys_id)) {
-            emit_network_exit_event_v2_direct(p, ret_value, duration);
-        } else {
-            emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
-        }
-    } else {
-        emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
-    }
-
+    emit_generic_exit_event(p, ret_value, duration);
     consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
     return 0;
 }
