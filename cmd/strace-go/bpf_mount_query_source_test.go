@@ -15,7 +15,7 @@ func TestBPFMountQueryUsesVersionedDirectTLV(t *testing.T) {
 
 	for _, snippet := range []string{
 		"#define SYS_STATMOUNT 457", "#define SYS_LISTMOUNT 458",
-		"ENTER_PROG_FS", "EXIT_PROG_MOUNT_QUERY = 8",
+		"ENTER_PROG_FS", "EXIT_PROG_MOUNT_QUERY = 7",
 		`#include "mount_query_dispatch.h"`,
 	} {
 		if !strings.Contains(source, snippet) {

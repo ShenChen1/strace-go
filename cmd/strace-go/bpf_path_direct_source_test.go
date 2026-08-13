@@ -20,7 +20,7 @@ func TestBPFPathOnlyPayloadsUseDirectTLV(t *testing.T) {
 		"is_path_only_direct_syscall(sys_id)",
 		"emit_path_only_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"emit_path_only_exit_event_v2_direct(p, ret_value, duration);",
-		"EXIT_PROG_PATH = 9",
+		"EXIT_PROG_PATH = 8",
 		"is_path_only_direct_syscall(p->sys_id)",
 	} {
 		if !strings.Contains(straceSource, snippet) {

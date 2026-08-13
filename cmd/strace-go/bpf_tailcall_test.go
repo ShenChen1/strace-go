@@ -156,8 +156,7 @@ func TestExitProgIndicesMatchDispatchHeader(t *testing.T) {
 		"EXIT_PROG_MSG":             exitProgMsg,
 		"EXIT_PROG_MMSG_FINAL":      exitProgMmsgFinal,
 		"EXIT_PROG_RECVMMSG_BASE01": exitProgRecvmmsgBase01,
-		"EXIT_PROG_RECVMMSG_BASE2":  exitProgRecvmmsgBase2,
-		"EXIT_PROG_RECVMMSG_BASE3":  exitProgRecvmmsgBase3,
+		"EXIT_PROG_RECVMMSG_BASE23": exitProgRecvmmsgBase23,
 		"EXIT_PROG_QUOTA":           exitProgQuota,
 		"EXIT_PROG_MOUNT_QUERY":     exitProgMountQuery,
 		"EXIT_PROG_PATH":            exitProgPath,
@@ -167,7 +166,7 @@ func TestExitProgIndicesMatchDispatchHeader(t *testing.T) {
 			t.Fatalf("exit_dispatch.h missing %s = %d", name, val)
 		}
 	}
-	if !strings.Contains(runtimeABI, "__uint(max_entries, 10)") {
+	if !strings.Contains(runtimeABI, "__uint(max_entries, 9)") {
 		t.Fatal("runtime_abi.h exit_progs map must have capacity for EXIT_PROG_PATH")
 	}
 }

@@ -1454,14 +1454,14 @@ Enter 侧 11 个程序（全部挂 `raw_syscalls/sys_enter`）：
 
 协作关系（enter）：io_submit 需 3 个程序（aio→iovec→buf）、sendmsg 需 2 个（msg→sendmsg_base）、mmsg 先走 4 个 descriptor fragment，再由 sendmmsg 进入独立 4 个 bytes fragment、iovec 家族需 2 个（主 dispatcher iovec 分支→iovec_base）。
 
-Exit 侧 10 个 prog-array 程序 + 1 个 kretprobe dispatcher + 3 个 recvmsg 尾调用目标：
+Exit 侧 9 个 prog-array 程序 + 1 个 kretprobe dispatcher + 3 个 recvmsg 尾调用目标：
 
 | 程序 | 职责 | 消费 pending |
 | :--- | :--- | :--- |
 | `trace_sys_exit` | 主 exit dispatcher：raw sys_id 过滤、handler index、tail call 和隔离 fallback | 否（正常路径） |
 | `trace_sys_exit_iovec_base` | readv 等本地 OUT iov_base | 是（主 dispatcher 对 iovec 跳过） |
 | `trace_sys_exit_msg` | sendmsg/recvmsg OUT msghdr/iovec | 是（主 dispatcher 对 msg 跳过） |
-| `trace_sys_exit_recvmmsg_base0/base1/base2/base3` | recvmmsg OUT iov_base fragment | 否 |
+| `trace_sys_exit_recvmmsg_base01/base23` | recvmmsg OUT iov_base fragment | 否 |
 | `trace_sys_exit_mmsg` | sendmmsg/recvmmsg OUT mmsghdr | 是 |
 | `trace_kretprobe_recvmsg_dispatch` | recvmsg kretprobe dispatcher，进入 recvmsg 尾调用链 | 否 |
 | `trace_kretprobe_recvmsg_name/control` | recvmsg OUT msg_name/msg_control fragment，尾调用链前两层 | 否 |
@@ -1484,7 +1484,7 @@ sys_exit tracepoint ──> exit_dispatcher
                           ├─ raw sys_id -> index 映射
                           └─ bpf_tail_call(exit_progs, index)
                                └─ exit handler（解析 + 校验 + emit + 唯一消费 pending）
-                                    └─（recvmmsg）链式 tail call ──> base0 -> base1 -> base2 -> base3 -> final
+                                    └─（recvmmsg）链式 tail call ──> base01 -> base23 -> final
 ```
 
 设计原则：
@@ -1531,7 +1531,7 @@ enter 链内每层 tail call 失败均静默跳过该 fragment（不重复 emit�
 
 ### 14.6 exit 侧设计
 
-`exit_progs`（max_entries = 10）：
+`exit_progs`（max_entries = 9）：
 
 | index | handler | 说明 |
 | :--- | :--- | :--- |
@@ -1539,9 +1539,11 @@ enter 链内每层 tail call 失败均静默跳过该 fragment（不重复 emit�
 | 1 | iovec_base_exit | readv 等 OUT iov_base，消费 |
 | 2 | msg_exit | sendmsg/recvmsg OUT，消费 |
 | 3 | mmsg_final | sendmmsg/recvmmsg OUT mmsghdr，消费；recvmmsg 由链尾到达 |
-| 4-7 | recvmmsg_base0/base1/base2/base3 | fragment，不消费；链：`exit_dispatcher -> base0 -> base1 -> base2 -> base3 -> mmsg_final`（recvmmsg），sendmmsg 直接 `exit_dispatcher -> mmsg_final` |
-| 8 | quota_exit | 标准与 XFS `quotactl/quotactl_fd` GET 类 OUT payload，消费 pending；无 OUT 或失败返回时发 no-payload exit |
-| 9 | mount_query_exit | `statmount/listmount` bounded OUT payload，消费 pending |
+| 4 | recvmmsg_base01 | slot0/slot1 fragment，不消费；继续到 `recvmmsg_base23` |
+| 5 | recvmmsg_base23 | slot2/slot3 fragment，不消费；继续到 `mmsg_final` |
+| 6 | quota_exit | 标准与 XFS `quotactl/quotactl_fd` GET 类 OUT payload，消费 pending；无 OUT 或失败返回时发 no-payload exit |
+| 7 | mount_query_exit | `statmount/listmount` bounded OUT payload，消费 pending |
+| 8 | path_exit | path/open/dual-path bounded payload，消费 pending |
 
 语义保持：
 
@@ -6822,3 +6824,51 @@ review 按调用链检查了 `trace_sys_exit -> exit_progs -> EXIT_PROLOGUE -> e
 变更后生产代码仍无新增 ptrace、`/proc`、process memory read、用户态 TID/TGID 查询、mutex、第二事件消费者或 goroutine；`bpf/exit_dispatch.h` 349 行、`bpf/pending_state.h` 150 行、`bpf/strace.c` 406 行，均低于 500 行文件限制。Go 全量、race、vet、强制构建、BPF verifier、semantic、perf 和 reference 均通过；工作树中除本阶段文件外仍只有预先存在的 `strace-upstream` 子模块状态。
 
 后续候选：不要继续把 resolver 搬到 dispatcher。下一阶段应基于新的单一 ownership 边界测量 exit handler 的重复 duration/identity 计算，或建立 tail-call 缺槽的可注入测试；两者都必须先有独立 workload/source gate，避免把异常 fallback 的复杂度重新扩散到正常路径。
+
+### 14.166 合并 recvmmsg 后两个 OUT fragment（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：14.160 已将 `recvmmsg` 的 `base0/base1` 合并为 `exit_recvmmsg_base01`，当前 OUT fragment 链仍是 `base01 -> base2 -> base3 -> mmsg_final`。`base2` 和 `base3` 都只负责一个 bounded iovec slot，然后继续 tail-call；它们拥有相同的 `EXIT_PROLOGUE`、pending 校验、duration 计算和失败 final fallback 结构。
+- Problem：每个 `recvmmsg` 调用仍为后两个 slot 支付一次额外 tail call、一次任务身份读取、一次 pending HASH lookup、一次 exec lookup 判断和一次 duration 计算。四个 slot 的事件语义不要求四个独立 BPF program，继续保留两层会让局部链路 ownership 和 verifier 边界保持重复。
+- Goal：将 `exit_recvmmsg_base2` 与 `exit_recvmmsg_base3` 合并为 `exit_recvmmsg_base23`，在一次 `EXIT_PROLOGUE` 后按 slot2、slot3 顺序提交两个 `EVENT_FLAG_EXIT_FRAGMENT`，再 tail-call 到 `EXIT_PROG_MMSG_FINAL`；保留 `base01 -> base23 -> final` 顺序和任一 tail-call 失败时的 bounded final exit/pending cleanup。
+- Non-goals：不改变四个 slot 的 synthetic arg、TLV direction/flags、Go fragment 合并、最终 mmsg ret/timeout 输出、sendmmsg enter bytes 链、recvmsg kretprobe 链、event v2 ABI、pending map ABI、文本/JSON 输出或 filter/lifecycle；不引入循环、per-CPU scratch、procfs、ptrace、用户态 tracee 内存读取、锁、第二消费者或新的 runtime mode。
+- Constraints：`exit_recvmmsg_base23` 只能执行一次 `EXIT_PROLOGUE`；slot2 emitter 必须先于 slot3，二者都必须先于 final tail call；base23 tail-call 失败后必须发唯一 final event并消费 pending；`exit_progs` C enum、容量、Go binding 和 source gate 必须同步，BPF verifier 必须真实加载通过。
+
+Impact note：影响 `bpf/exit_dispatch.h`、`bpf/runtime_abi.h`、`cmd/strace-go/bpf_attach.go`、bpf2go 生成 binding 以及 msg/tail-call source tests；不修改用户态事件状态机、mmsg payload capture helper 或 semantic oracle 的用户可见契约。
+
+#### 方案比较
+
+1. 保留 `base01 -> base2 -> base3 -> final`：行为改动最小，但每次 `recvmmsg` 继续重复一次 resolver 和 tail call，拒绝。
+2. 合并 `base2/base3` 为 `base23`：只扩大一个已验证的 fragment handler，保留四 slot 顺序和清晰 fallback 边界，选择该方案。
+3. 将 `base01/base2/base3` 四个 slot 全部合并：可以再减少一次 resolver，但 verifier 程序规模和失败 ownership 同时放大，拒绝。
+
+#### 状态契约
+
+- `exit_recvmmsg_base01` 负责 slot0、slot1；`exit_recvmmsg_base23` 负责 slot2、slot3；`exit_mmsg_final` 负责最终 mmsghdr/timeout OUT、完整 exit event 和 pending 消费。
+- `base23` 的两个 emitter 均使用同一个 pending 快照和 duration；它们只提交 fragment，不消费 pending。只有 final 成功到达时由 `exit_mmsg_final` 消费；base01/base23/final 的 tail-call 失败 fallback 仍由当前层发 bounded final 并消费 pending。
+- `exit_progs` 压缩为连续 index：generic=0、iovec=1、msg=2、mmsg_final=3、recvmmsg_base01=4、recvmmsg_base23=5、quota=6、mount_query=7、path=8，容量为 9；不存在旧 base2/base3 handler 或空槽。
+- Go `TraceState` 继续按同一 TID/syscall 合并 fragment；slot2/slot3 的 JSON section 顺序必须保持在 slot0/slot1 之后，不能依赖 fragment 到达顺序以外的用户态排序。
+
+#### 测试与验收
+
+- 先增加失败优先 source gate：要求 `exit_recvmmsg_base23` 存在、slot2 在 slot3 前、二者在 final tail call 前，且旧 `exit_recvmmsg_base2/base3` 不存在；Go/BPF exit index 和 `exit_progs` 容量必须覆盖连续 0..8。
+- 实现后重新生成 BPF binding，运行 focused msg/tail-call/source tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build、`git diff --check` 和真实 verifier load。
+- 运行 mmsg semantic fixture，断言 `recvmmsg` 的四个 OUT bytes section 仍按 `120,160,180,200` 顺序、成功/失败返回和 pending cleanup 正确；随后运行完整 `ebpf-semantic`、`ebpf-perf`、`small` 与 `upstream-reference`。
+- review 必须确认普通 generic/path/quota/mount exit 的 index 没有漂移错误，sendmmsg enter bytes 和 recvmsg kretprobe 未被改动，生产路径仍无 ptrace/procfs/第二消费者。
+
+#### 实际验收记录
+
+先加入失败优先 source gate：旧实现按预期因缺少 `exit_recvmmsg_base23`、仍保留 `base2/base3` handler 和旧 tail-call 链而失败。实现后重新生成 `bpf_bpfel.go`/`bpf_bpfeb.go`，focused msg/tail-call/source tests、Go 全量、race、vet、强制构建、`git diff --check` 和真实 verifier load 均通过。
+
+真实 `ebpf-semantic` 通过：mmsg semantic events 为 16，主 fixture 为 205 个事件、104/101 enter/exit、6 个 lifecycle；`ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`pending_mismatch`、`orphan_exit` 和 `lifecycle_map_update_fail` 均为 0，四个 recvmmsg OUT bytes 仍按 `120,160,180,200` 顺序合并。
+
+`ebpf-perf` 通过：Go decode 为 `284.90 ns/op、0 B/op、0 allocs/op`，raw JSON 为 `494.80 ns/op、0 B/op、0 allocs/op`，decoded payload 为 `916.80 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `400.96/278.00/2.28/215.21 events/s`，所有 BPF error counter 和 `pending_stale` 均为 0。该结果不宣称未经基准隔离的端到端收益，阶段收益以 recvmmsg exit 链减少一个 handler/tail-call 和一次重复状态解析为准。
+
+`small` 为 23 PASS、0 FAIL；`upstream-reference` 为 117 PASS、2 个既定 XFAIL、0 FAIL、0 XPASS。XFAIL 仍为 `read-write.gen.test` 的 ptrace-sized hexdump 差异和 `mount_setattr.gen.test` 的 event-sourced FD/cwd 初始状态差异；未引入 compat、ptrace 或 procfs fallback。
+
+#### Review
+
+调用链 review 确认 `base01` 只提交 slot0/slot1，`base23` 在一次 `EXIT_PROLOGUE` 后按 slot2/slot3 顺序提交 fragment，`mmsg_final` 仍独占最终 mmsghdr/timeout event 与 pending 消费；base01/base23/final 的 tail-call 失败 fallback 仍各自只发一个 bounded final event 并清理 pending。C enum、runtime map 容量、Go 常量、ProgArray 装载和 bpf2go 生成字段均为连续 0..8、9 个槽。
+
+变更未触及 sendmmsg enter bytes、recvmsg kretprobe、用户态 fragment 合并或 event v2/TLV ABI；生产路径仍无 ptrace、procfs、用户态 tracee 内存读取、锁、第二消费者或新 runtime mode。保留的旧 `base2/base3` 名称仅是 slot emitter/helper 名称，不再是独立 BPF program 或 ProgArray entry。

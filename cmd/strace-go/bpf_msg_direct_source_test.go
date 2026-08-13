@@ -31,8 +31,7 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"enter_mmsg_base3",
 		"exit_msg",
 		"exit_recvmmsg_base01",
-		"exit_recvmmsg_base2",
-		"exit_recvmmsg_base3",
+		"exit_recvmmsg_base23",
 		"recvmsg_progs",
 		"trace_kretprobe_recvmsg_dispatch",
 		"trace_kretprobe_recvmsg_name",
@@ -93,10 +92,8 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"TraceKretprobeRecvmsgFinal",
 		"ExitRecvmmsgBase01",
 		"objs.ExitRecvmmsgBase01",
-		"ExitRecvmmsgBase2",
-		"objs.ExitRecvmmsgBase2",
-		"ExitRecvmmsgBase3",
-		"objs.ExitRecvmmsgBase3",
+		"ExitRecvmmsgBase23",
+		"objs.ExitRecvmmsgBase23",
 		"ExitMmsg",
 	} {
 		if !strings.Contains(sessionSource, snippet) {
@@ -321,7 +318,7 @@ func TestBPFRecvmsgKretprobeChainSerializesFragments(t *testing.T) {
 func TestBPFRecvmmsgExitChainHasFinalFallback(t *testing.T) {
 	root := repoRootForTest(t)
 	source := readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h"))
-	for _, name := range []string{"exit_recvmmsg_base01", "exit_recvmmsg_base2", "exit_recvmmsg_base3"} {
+	for _, name := range []string{"exit_recvmmsg_base01", "exit_recvmmsg_base23"} {
 		body, ok := bpfFunctionBody(source, name)
 		if !ok {
 			t.Fatalf("exit_dispatch.h missing function body for %s", name)
@@ -332,6 +329,10 @@ func TestBPFRecvmmsgExitChainHasFinalFallback(t *testing.T) {
 		if !strings.Contains(body, "consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);") {
 			t.Fatalf("%s lacks pending cleanup after final fallback", name)
 		}
+	}
+	if strings.Contains(source, "int exit_recvmmsg_base2(") ||
+		strings.Contains(source, "int exit_recvmmsg_base3(") {
+		t.Fatal("recvmmsg base2/base3 handlers must be replaced by base23")
 	}
 }
 
@@ -344,13 +345,32 @@ func TestBPFRecvmmsgBase01PreservesFragmentOrder(t *testing.T) {
 	}
 	base0 := strings.Index(body, "emit_recvmmsg_base0_exit_fragment_event_v2_direct")
 	base1 := strings.Index(body, "emit_recvmmsg_base1_exit_fragment_event_v2_direct")
-	next := strings.Index(body, "EXIT_PROG_RECVMMSG_BASE2")
+	next := strings.Index(body, "EXIT_PROG_RECVMMSG_BASE23")
 	if base0 < 0 || base1 < 0 || next < 0 || base0 > base1 || base1 > next {
 		t.Fatalf("recvmmsg base01 chain order is invalid: base0=%d base1=%d next=%d", base0, base1, next)
 	}
 	if strings.Contains(source, "int exit_recvmmsg_base0(") ||
 		strings.Contains(source, "int exit_recvmmsg_base1(") {
 		t.Fatal("recvmmsg base0/base1 handlers must be replaced by base01")
+	}
+}
+
+func TestBPFRecvmmsgBase23PreservesFragmentOrder(t *testing.T) {
+	root := repoRootForTest(t)
+	source := readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h"))
+	body, ok := bpfFunctionBody(source, "exit_recvmmsg_base23")
+	if !ok {
+		t.Fatal("exit_dispatch.h missing merged recvmmsg base23 handler")
+	}
+	base2 := strings.Index(body, "emit_recvmmsg_base2_exit_fragment_event_v2_direct")
+	base3 := strings.Index(body, "emit_recvmmsg_base3_exit_fragment_event_v2_direct")
+	final := strings.Index(body, "EXIT_PROG_MMSG_FINAL")
+	if base2 < 0 || base3 < 0 || final < 0 || base2 > base3 || base3 > final {
+		t.Fatalf("recvmmsg base23 order is invalid: base2=%d base3=%d final=%d", base2, base3, final)
+	}
+	if strings.Contains(source, "int exit_recvmmsg_base2(") ||
+		strings.Contains(source, "int exit_recvmmsg_base3(") {
+		t.Fatal("recvmmsg base2/base3 handlers must be replaced by base23")
 	}
 }
 

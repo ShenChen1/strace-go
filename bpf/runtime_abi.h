@@ -160,7 +160,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 10);
+    __uint(max_entries, 9);
     __type(key, u32);
     __type(value, u32);
 } exit_progs SEC(".maps");
