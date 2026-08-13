@@ -68,3 +68,30 @@ func TestTraceSessionConfigSnapshotsConstructionInputs(t *testing.T) {
 		t.Fatalf("catalog format = %q, want verbose", config.catalog.Format())
 	}
 }
+
+func TestSessionCompositionBuildersUseExplicitDependencies(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/session_composition.go"))
+	for _, forbidden := range []string{
+		"func buildTraceSessionComponents(session *traceSession)",
+		"func buildTraceSessionBase(session *traceSession)",
+		"\tsession *traceSession,\n\tbase traceSessionBaseComponents",
+		"\tsession *traceSession,\n\toutputPolicy traceOutputPolicyOwner",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("composition builder still hides dependencies behind session: %q", forbidden)
+		}
+	}
+	start := strings.Index(source, "func buildTraceSessionComponents")
+	if start < 0 {
+		t.Fatal("buildTraceSessionComponents definition not found")
+	}
+	if strings.Contains(source[start:], "session.dependencies") {
+		t.Fatal("composition builders still read session.dependencies")
+	}
+	if !strings.Contains(source, "buildTraceSessionComponents(deps, session.writeLifecycleExitText)") {
+		t.Fatal("newTraceSession must pass explicit deps and lifecycle callback")
+	}
+	if !strings.Contains(source, "deps.eventContextDependencies(base.handlerRegistry)") {
+		t.Fatal("composition must build event context dependencies from explicit deps")
+	}
+}

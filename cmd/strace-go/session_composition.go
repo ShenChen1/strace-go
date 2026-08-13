@@ -125,7 +125,7 @@ func newTraceSession(deps traceSessionDeps) (*traceSession, error) {
 	session := &traceSession{
 		dependencies: deps,
 	}
-	session.components = buildTraceSessionComponents(session)
+	session.components = buildTraceSessionComponents(deps, session.writeLifecycleExitText)
 	return session, nil
 }
 
@@ -173,11 +173,20 @@ func newTraceStateForSession(policy traceStatePolicy) *TraceState {
 	}
 }
 
-func buildTraceSessionComponents(session *traceSession) *traceSessionComponents {
-	base := buildTraceSessionBase(session)
-	outputs := buildTraceSessionOutputs(session, base)
-	events := buildTraceSessionEvents(session, base, outputs)
-	runtime := buildTraceSessionRuntime(session, base.outputPolicy, base.exitStatus, base.renderer, events.eventRouter)
+func buildTraceSessionComponents(
+	deps traceSessionDeps,
+	writeLifecycleExitText func(int, uint64),
+) *traceSessionComponents {
+	base := buildTraceSessionBase(deps)
+	outputs := buildTraceSessionOutputs(deps, base)
+	events := buildTraceSessionEvents(
+		deps,
+		base,
+		outputs,
+		deps.eventContextDependencies(base.handlerRegistry),
+		writeLifecycleExitText,
+	)
+	runtime := buildTraceSessionRuntime(deps, base.outputPolicy, base.exitStatus, base.renderer, events.eventRouter)
 	return &traceSessionComponents{
 		textRenderer:       base.renderer,
 		jsonWriter:         base.jsonWriter,
@@ -197,8 +206,7 @@ func buildTraceSessionComponents(session *traceSession) *traceSessionComponents 
 	}
 }
 
-func buildTraceSessionBase(session *traceSession) traceSessionBaseComponents {
-	deps := session.dependencies
+func buildTraceSessionBase(deps traceSessionDeps) traceSessionBaseComponents {
 	handlerRegistry := handler.NewRegistry()
 	handleSyscall := handlerRegistry.Handle
 	outputPolicy := deps.OutputPolicy
@@ -229,10 +237,9 @@ func buildTraceSessionBase(session *traceSession) traceSessionBaseComponents {
 }
 
 func buildTraceSessionOutputs(
-	session *traceSession,
+	deps traceSessionDeps,
 	base traceSessionBaseComponents,
 ) traceSessionOutputComponents {
-	deps := session.dependencies
 	execOutput := newExecSyscallOutput(ExecSyscallOutputDeps{
 		Policy:            base.outputPolicy,
 		State:             deps.State,
@@ -273,11 +280,12 @@ func buildTraceSessionOutputs(
 }
 
 func buildTraceSessionEvents(
-	session *traceSession,
+	deps traceSessionDeps,
 	base traceSessionBaseComponents,
 	outputs traceSessionOutputComponents,
+	contextDeps syscallEventContextDeps,
+	writeLifecycleExitText func(int, uint64),
 ) traceSessionEventComponents {
-	deps := session.dependencies
 	exitPipeline := newSyscallExitPipeline(SyscallExitPipelineDeps{
 		Summary: base.outputPolicy,
 		JSON:    outputs.syscallJSON,
@@ -291,7 +299,7 @@ func buildTraceSessionEvents(
 		Effects: newTraceSessionLifecycleEffects(
 			deps.FDState,
 			base.jsonWriter,
-			session.writeLifecycleExitText,
+			writeLifecycleExitText,
 		),
 	})
 	router := newTraceEventRouter(TraceEventRouterDeps{
@@ -301,7 +309,7 @@ func buildTraceSessionEvents(
 		Lifecycle:   lifecycle,
 		JSON:        outputs.syscallJSON,
 		Pipeline:    exitPipeline,
-		ContextDeps: newSyscallEventContextDepsWithRegistry(session, base.handlerRegistry),
+		ContextDeps: contextDeps,
 	})
 	return traceSessionEventComponents{
 		exitPipeline:     exitPipeline,
@@ -318,13 +326,12 @@ type traceSessionRuntimeComponents struct {
 }
 
 func buildTraceSessionRuntime(
-	session *traceSession,
+	deps traceSessionDeps,
 	outputPolicy traceOutputPolicyOwner,
 	exitStatus *ExitStatusCoordinator,
 	renderer *TextRenderer,
 	router *TraceEventRouter,
 ) traceSessionRuntimeComponents {
-	deps := session.dependencies
 	recordDecoder := traceRingbufRecordDecoder{}
 	return traceSessionRuntimeComponents{
 		recordDecoder: recordDecoder,

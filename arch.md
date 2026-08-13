@@ -6240,3 +6240,41 @@ Impact note：影响 `traceSessionComponents`、session runtime/time/json/lifecy
 真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `289.40 ns/op、0 B/op、0 allocs/op`，raw JSON `521.00 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `637.90 ns/op、0 B/op、0 allocs/op`，decoded payload `930.50 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认 `traceSessionDeps.OutputPolicy` 是唯一长期 output owner；`traceSessionComponents` 不再缓存聚合 owner，session attach PID、JSON drain、时间前缀、debug ready 和 lifecycle exit helper 均直接从 dependency owner 投影所需能力。`traceSessionBaseComponents.outputPolicy` 仅用于 eager composition 的局部 wiring，renderer、syscall outputs、lifecycle、scope、finalizer 和 command exit handler 仍只接收既有窄 port。未新增 ptrace、`process_vm_readv`、procfs、第二份 policy、锁或 goroutine。
+
+### 14.151 让 composition builder 使用显式依赖（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：session composition 已有 `traceSessionDeps` 依赖容器，但 `buildTraceSessionBase`、`buildTraceSessionOutputs`、`buildTraceSessionEvents` 和 `buildTraceSessionRuntime` 仍接收 `*traceSession`，再从 `session.dependencies` 取真实输入。
+- Problem：builder 的输入契约被隐藏在 session 对象内部，构造图同时承担依赖查找和组件创建；后续测试或新入口无法单独验证 builder 的依赖完整性，且 session 生命周期被错误地当作 service locator。
+- Goal：所有 composition builder 显式接收 `traceSessionDeps`；生命周期退出文本作为唯一必要 callback 显式传入；event context dependency projection 从 deps 和新建 registry 生成，不再由 builder 回读 session。
+- Non-goals：不改变组件类型、eager composition 顺序、handler registry、event context 字段、生命周期输出、事件 ABI、并发模型、性能模型或纯 eBPF/no-procfs/no-ptrace 约束；不新增第二个 dependency container。
+- Constraints：`newTraceSession` 仍是唯一 production constructor；callback 只在组件构造后事件处理阶段调用；zero/bare session 的 nil 行为保持不变；函数参数不超过 5 个；不得引入 service locator、反射、锁或 goroutine。
+
+Impact note：影响 `session_composition.go` 的 builder signatures/wiring、`session_runtime.go` 的 dependency projection 位置，以及 composition source tests；所有下游组件依赖和 runtime output 保持原样。
+
+方案比较：
+
+1. 保留 `*traceSession` builder 参数：实现成本最低，但依赖图隐式、构造器与 session 生命周期耦合，拒绝。
+2. builder 显式接收 `traceSessionDeps`，将 lifecycle callback 和 event-context projection 作为显式输入：依赖可见、便于 fake/单独验证、无新增 owner，选择该方案。
+3. 引入全局 composition service/container：可减少参数传递，但重新制造隐式依赖和共享状态，拒绝。
+
+状态契约：
+
+- `traceSessionDeps` 是 builder 的唯一外部资源输入；builder 不读取 `session.dependencies`，也不创建缺失依赖。
+- `traceSession` 只负责保存 deps、提供 lifecycle callback，并在 deps 校验后接收已经完成的 component graph。
+- `traceSessionDeps.eventContextDependencies(registry)` 只做不可变能力投影；registry 由本次 composition 新建并只注入当前 graph。
+
+测试与验收：
+
+- 先增加失败优先 source gate，禁止五个 builder 接收 `*traceSession`，并要求 composition 从显式 deps 生成 context projection。
+- 实现后运行 focused composition/context/component tests、Go 全量/race/vet/build、`git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和 `upstream-reference`。
+- review 检查 builder 不再反向查找 session 依赖，production 仍只有一个 session dependency container，未新增 ptrace、`process_vm_readv`、procfs、锁或 goroutine。
+
+#### 实际验收记录
+
+已完成。失败优先 source gate 先因五个 composition builder 仍接收 `*traceSession` 而失败；实现后 focused composition/context/component tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14151 ./cmd/strace-go` 和 `git diff --check` 均通过。
+
+真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `297.70 ns/op、0 B/op、0 allocs/op`，raw JSON `488.00 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `616.50 ns/op、0 B/op、0 allocs/op`，decoded payload `911.90 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认 `buildTraceSessionBase`、`buildTraceSessionOutputs`、`buildTraceSessionEvents`、`buildTraceSessionRuntime` 和总组合函数均显式接收 `traceSessionDeps`，不再读取 `session.dependencies`；event context projection 由 deps 和本次 graph 的 registry 生成，lifecycle exit callback 仅由 `newTraceSession` 显式绑定。production 仍只有一个 dependency container，未新增 ptrace、`process_vm_readv`、procfs、锁或 goroutine。
