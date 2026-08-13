@@ -10,8 +10,8 @@ import (
 
 func TestTraceSessionDropsBootstrapOptionsAfterComposition(t *testing.T) {
 	session := newTestTraceSessionWithOptions(&cli.Options{EventFormat: cli.EventFormatJSON}, traceSessionDeps{})
-	if session.dependencies.OutputPolicy == nil || session.dependencies.OutputPolicy != session.components.outputPolicy {
-		t.Fatal("session components did not reuse the injected output policy snapshot")
+	if session.dependencies.OutputPolicy == nil {
+		t.Fatal("session did not retain the output policy snapshot")
 	}
 	if session.dependencies.EventPolicy == nil {
 		t.Fatal("session did not retain the event policy snapshot")

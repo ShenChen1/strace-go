@@ -32,6 +32,7 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 		t.Fatal("newTraceSession() left components nil")
 	}
 	components := session.components
+	outputPolicy := session.dependencies.OutputPolicy
 	if components.eventReader == nil || components.eventRouter == nil || components.recordDecoder == nil {
 		t.Fatalf("event graph = %+v, want reader/router/decoder", components)
 	}
@@ -54,7 +55,7 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	if components.exitSyscall.handleSyscall == nil {
 		t.Fatal("exit syscall output is missing the session handler resolver")
 	}
-	if components.outputPolicy == nil || components.textRenderer.policy != components.outputPolicy {
+	if outputPolicy == nil || components.textRenderer.policy != outputPolicy {
 		t.Fatal("text renderer does not use the session output policy snapshot")
 	}
 	if session.dependencies.EventPolicy == nil ||
@@ -63,14 +64,14 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 		t.Fatal("event context does not use the dependency-owned event policy snapshot")
 	}
 	execOutput, ok := components.syscallText.exec.(*ExecSyscallOutput)
-	if !ok || execOutput.policy != components.outputPolicy {
+	if !ok || execOutput.policy != outputPolicy {
 		t.Fatal("syscall text output does not use the session exec policy snapshot")
 	}
-	if components.syscallText.format != components.outputPolicy || components.syscallText.policy != components.outputPolicy ||
-		components.syscallJSON.format != components.outputPolicy ||
-		components.syscallJSON.policy != components.outputPolicy || components.exitSyscall.policy != components.outputPolicy ||
-		components.lifecycleHandler.policy != components.outputPolicy ||
-		components.runFinalizer.formatPolicy != components.outputPolicy || components.commandExitHandler.policy != components.outputPolicy {
+	if components.syscallText.format != outputPolicy || components.syscallText.policy != outputPolicy ||
+		components.syscallJSON.format != outputPolicy ||
+		components.syscallJSON.policy != outputPolicy || components.exitSyscall.policy != outputPolicy ||
+		components.lifecycleHandler.policy != outputPolicy ||
+		components.runFinalizer.formatPolicy != outputPolicy || components.commandExitHandler.policy != outputPolicy {
 		t.Fatal("session output components do not share one policy snapshot")
 	}
 	components.handlerRegistry.Register("session_registry_probe", sessionRegistryProbeHandler{})

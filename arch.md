@@ -6202,3 +6202,41 @@ Impact note：影响 `session_runtime.go`、`session_composition.go`、测试 fi
 真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `295.10 ns/op、0 B/op、0 allocs/op`，raw JSON `491.40 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `637.00 ns/op、0 B/op、0 allocs/op`，decoded payload `955.00 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认 production runtime 只保留 `traceSessionDeps.EventPolicy` 作为唯一运行期 owner，`traceSessionConfig.eventPolicy` 仅用于构造期快照和状态初始化；session/component/base graph 不再缓存 event policy 副本，event context 直接从 dependency owner 投影 handler/filter。未新增 ptrace、`process_vm_readv`、procfs、第二份 policy、锁或 goroutine。
+
+### 14.150 消除 session component graph 的 OutputPolicy 重复 owner（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：14.148 已将 `traceSessionDeps.OutputPolicy` 收窄为 `traceOutputPolicyOwner`，但 `traceSessionComponents` 仍保存一份同一个 owner；session 的 attach PID、JSON drain、时间前缀、debug ready 和 lifecycle exit helper 通过 component graph 读取它。
+- Problem：immutable output snapshot 在 dependency container 与长期存活的 component graph 中重复登记，运行期 accessor 的真实 owner 来源不清晰；未来若只替换其中一处，会产生策略版本不一致。
+- Goal：删除 `traceSessionComponents.outputPolicy`，session 级 helper 统一从 `traceSessionDeps.OutputPolicy` 读取；构造阶段的 `traceSessionBaseComponents.outputPolicy` 仅作为局部 wiring 值，真正输出组件继续接收已有窄 policy port。
+- Non-goals：不改变 output policy 内容、CLI snapshot、文本/JSON 输出、attach PID copy、JSON drain grace、time prefix、debug ready、lifecycle exit、事件 ABI、并发模型、性能模型或纯 eBPF/no-procfs/no-ptrace 约束。
+- Constraints：`traceSessionDeps.OutputPolicy` 是唯一长期 owner；下游不得获得聚合 owner 全集；component graph 仍 eager compose；zero/bare session 的 nil 行为保持不变；不得引入锁、goroutine 或第二份 policy。
+
+Impact note：影响 `traceSessionComponents`、session runtime/time/json/lifecycle helper 的 owner 读取，以及 output policy source/behavior tests；不影响 `traceSessionConfig.outputPolicy`、base composition wiring 或已有窄 policy interface。
+
+方案比较：
+
+1. 保留 component owner：改动最少，但继续保留可被误替换的第二个长期引用，拒绝。
+2. 删除 component owner，session helper 从 dependency owner 读取，base 只保留构造期局部 wiring：ownership 清晰、下游接口不变、改动局部，选择该方案。
+3. 将九类 output policy port 拆成独立 session root 字段：消费面更窄，但会削弱同一 immutable snapshot 的一致性，拒绝。
+
+状态契约：
+
+- `traceSessionDeps.OutputPolicy` 是 session runtime 唯一 output policy owner；`sessionAttachPIDs`、`exitDrainGrace`、`timePrefix`、`emitDebugReady` 和 `writeLifecycleExitText` 只从该字段投影所需能力。
+- `traceSessionBaseComponents.outputPolicy` 只用于一次 eager composition 的参数传递，不由 session object 长期持有；renderer、syscall outputs、lifecycle、scope、finalizer 和 command exit handler 继续接收已有窄 port。
+- `traceSessionConfig.outputPolicy` 仍是 bootstrap construction snapshot，进入 deps 后不再新增 component owner 副本。
+
+测试与验收：
+
+- 先增加失败优先 source gate，要求 `traceSessionComponents` 不含聚合 output owner；fake owner 行为测试验证 session helper 从 dependency owner 读取 attach PID 和 JSON drain 策略。
+- 实现后运行 focused output-owner/session-run/json/lifecycle/time tests、Go 全量/race/vet/build、`git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和 `upstream-reference`。
+- review 检查 production 只剩构造期 config、dependency owner 和 base 局部 wiring 三个合法边界，未新增 ptrace、`process_vm_readv`、procfs、锁或 goroutine。
+
+#### 实际验收记录
+
+已完成。失败优先 source gate 先因 `traceSessionComponents` 仍保存 `outputPolicy` owner 而失败；实现后 focused output-owner/session-run/json/lifecycle/time tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14150 ./cmd/strace-go` 和 `git diff --check` 均通过。
+
+真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `289.40 ns/op、0 B/op、0 allocs/op`，raw JSON `521.00 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `637.90 ns/op、0 B/op、0 allocs/op`，decoded payload `930.50 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认 `traceSessionDeps.OutputPolicy` 是唯一长期 output owner；`traceSessionComponents` 不再缓存聚合 owner，session attach PID、JSON drain、时间前缀、debug ready 和 lifecycle exit helper 均直接从 dependency owner 投影所需能力。`traceSessionBaseComponents.outputPolicy` 仅用于 eager composition 的局部 wiring，renderer、syscall outputs、lifecycle、scope、finalizer 和 command exit handler 仍只接收既有窄 port。未新增 ptrace、`process_vm_readv`、procfs、第二份 policy、锁或 goroutine。

@@ -74,7 +74,7 @@ func (s *traceSession) timePrefix(enterTimeMonoNs uint64) string {
 	if formatter == nil {
 		return ""
 	}
-	return formatter.Prefix(enterTimeMonoNs, s.components.outputPolicy)
+	return formatter.Prefix(enterTimeMonoNs, s.dependencies.OutputPolicy)
 }
 
 // NowMonoNs returns the current CLOCK_MONOTONIC value in nanoseconds so

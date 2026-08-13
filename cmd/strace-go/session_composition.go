@@ -13,7 +13,6 @@ import (
 // Components are constructed once, in dependency order, and never replace
 // each other during event processing.
 type traceSessionComponents struct {
-	outputPolicy       traceOutputPolicyOwner
 	textRenderer       *TextRenderer
 	jsonWriter         *JSONEventWriter
 	syscallJSON        *SyscallJSONOutput
@@ -180,7 +179,6 @@ func buildTraceSessionComponents(session *traceSession) *traceSessionComponents 
 	events := buildTraceSessionEvents(session, base, outputs)
 	runtime := buildTraceSessionRuntime(session, base.outputPolicy, base.exitStatus, base.renderer, events.eventRouter)
 	return &traceSessionComponents{
-		outputPolicy:       base.outputPolicy,
 		textRenderer:       base.renderer,
 		jsonWriter:         base.jsonWriter,
 		syscallJSON:        outputs.syscallJSON,

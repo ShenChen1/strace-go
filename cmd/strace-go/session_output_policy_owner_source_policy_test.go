@@ -19,16 +19,28 @@ func TestSessionUsesOutputPolicyOwnerPort(t *testing.T) {
 	if strings.Contains(source, "OutputPolicy  *cliTraceOutputPolicy") {
 		t.Fatal("traceSessionDeps still exposes concrete output policy")
 	}
-	if !strings.Contains(source, "outputPolicy       traceOutputPolicyOwner") {
-		t.Fatal("session component graph still exposes concrete output policy")
+	start := strings.Index(source, "type traceSessionComponents struct")
+	if start < 0 {
+		t.Fatal("traceSessionComponents definition not found")
+	}
+	end := strings.Index(source[start:], "\n}")
+	if end < 0 {
+		t.Fatal("traceSessionComponents body not found")
+	}
+	if strings.Contains(source[start:start+end], "outputPolicy") {
+		t.Fatal("session component graph still stores a duplicate output policy owner")
 	}
 }
 
-type fakeSessionOutputPolicyOwner struct{}
+type fakeSessionOutputPolicyOwner struct {
+	json       bool
+	debug      bool
+	attachPIDs []int
+}
 
-func (fakeSessionOutputPolicyOwner) IsJSON() bool { return false }
+func (p fakeSessionOutputPolicyOwner) IsJSON() bool { return p.json }
 
-func (fakeSessionOutputPolicyOwner) DebugEvents() bool { return false }
+func (p fakeSessionOutputPolicyOwner) DebugEvents() bool { return p.debug }
 
 func (fakeSessionOutputPolicyOwner) ShouldEmit(syscallEventContext, bool) bool {
 	return true
@@ -49,17 +61,23 @@ func (fakeSessionOutputPolicyOwner) TimeOptions() traceTimeOptions {
 func (fakeSessionOutputPolicyOwner) FollowForks() bool { return false }
 
 func (fakeSessionOutputPolicyOwner) IsAttachTarget(int) bool { return false }
-func (fakeSessionOutputPolicyOwner) AttachPIDs() []int       { return nil }
+func (p fakeSessionOutputPolicyOwner) AttachPIDs() []int {
+	return append([]int(nil), p.attachPIDs...)
+}
 
 func TestTraceSessionAcceptsOutputPolicyOwnerPort(t *testing.T) {
-	owner := fakeSessionOutputPolicyOwner{}
+	owner := &fakeSessionOutputPolicyOwner{json: true, attachPIDs: []int{42, 84}}
 	session := newTestTraceSession(traceSessionDeps{OutputPolicy: owner})
 
 	if session.dependencies.OutputPolicy != owner {
 		t.Fatal("session did not retain the injected output policy owner")
 	}
-	if session.components.outputPolicy != owner {
-		t.Fatal("session components did not retain the output policy owner")
+	attachPIDs := session.sessionAttachPIDs()
+	if len(attachPIDs) != 2 || attachPIDs[0] != 42 || attachPIDs[1] != 84 {
+		t.Fatalf("session attach PIDs = %v, want [42 84]", attachPIDs)
+	}
+	if session.exitDrainGrace() != traceExitLifecycleDrainGrace {
+		t.Fatalf("exit drain grace = %s, want %s", session.exitDrainGrace(), traceExitLifecycleDrainGrace)
 	}
 	if session.textRenderer().policy != owner {
 		t.Fatal("text renderer did not receive the output policy owner")

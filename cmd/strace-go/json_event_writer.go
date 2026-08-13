@@ -124,10 +124,10 @@ func (s *traceSession) jsonEventWriter() *JSONEventWriter {
 }
 
 func (s *traceSession) emitDebugReady() {
-	if s == nil || s.components == nil || s.components.outputPolicy == nil {
+	if s == nil || s.components == nil || s.dependencies.OutputPolicy == nil {
 		return
 	}
-	var policy traceReadyPolicy = s.components.outputPolicy
+	var policy traceReadyPolicy = s.dependencies.OutputPolicy
 	if !policy.DebugEvents() {
 		return
 	}

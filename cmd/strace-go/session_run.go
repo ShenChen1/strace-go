@@ -104,10 +104,10 @@ func (s *traceSession) run() error {
 }
 
 func (s *traceSession) sessionAttachPIDs() []int {
-	if s == nil || s.components == nil || s.components.outputPolicy == nil {
+	if s == nil || s.components == nil || s.dependencies.OutputPolicy == nil {
 		return nil
 	}
-	return s.components.outputPolicy.AttachPIDs()
+	return s.dependencies.OutputPolicy.AttachPIDs()
 }
 
 func newTraceRunState(deps traceRunStateDeps) traceRunState {
@@ -210,7 +210,7 @@ func anyAttachPidAlive(pids []int) bool {
 }
 
 func (s *traceSession) exitDrainGrace() time.Duration {
-	if s == nil || s.components == nil || s.components.outputPolicy == nil || !s.components.outputPolicy.IsJSON() {
+	if s == nil || s.components == nil || s.dependencies.OutputPolicy == nil || !s.dependencies.OutputPolicy.IsJSON() {
 		return 0
 	}
 	return traceExitLifecycleDrainGrace
