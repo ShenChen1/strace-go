@@ -11,13 +11,12 @@ import (
 
 func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"})
+	fdState := newFDStateStoreFromMaps(map[string]string{"101:cwd": "/tmp"}, nil)
 	session := newBareTestTraceSessionWithOptions(opts, traceSessionDeps{
 		TargetPID: 101,
 		Decoder:   event.NewDecoder(),
-		FDState: newFDStateStoreFromMaps(map[string]string{
-			"101:cwd": "/tmp",
-		}, nil),
-		State: newTraceState(),
+		FDState:   fdState,
+		State:     newTraceState(),
 	})
 	path := []byte("input.txt\x00")
 	pathPayload := payloadTLVBytes(t, payloadTLVTestSection{
@@ -49,7 +48,7 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 		t.Fatalf("handler context payload sections = %d, want 1", len(ev.handlerContext.PayloadSections))
 	}
 	ev.updateFDState(session.fdStateStore())
-	if got := session.fdStateStore().paths["101:3"]; got != "input.txt" {
+	if got, ok := fdState.Path(101, 3); !ok || got != "input.txt" {
 		t.Fatalf("fd path = %q, want input.txt from path snapshot", got)
 	}
 }
@@ -163,10 +162,11 @@ func TestSyscallEventContextWithDepsBuildsHandlerContext(t *testing.T) {
 
 func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"})
+	fdState := newFDStateStoreFromMaps(nil, nil)
 	session := newBareTestTraceSessionWithOptions(opts, traceSessionDeps{
 		TargetPID: 101,
 		Decoder:   event.NewDecoder(),
-		FDState:   newFDStateStoreFromMaps(nil, nil),
+		FDState:   fdState,
 	})
 	view := syscallEventView{
 		valid:         true,
@@ -184,7 +184,7 @@ func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 		t.Fatalf("handler context unexpectedly exposed legacy path string section")
 	}
 	ev.updateFDState(session.fdStateStore())
-	if got := session.fdStateStore().paths["101:3"]; got != "" {
+	if got, ok := fdState.Path(101, 3); ok && got != "" {
 		t.Fatalf("fd path = %q, want no update from legacy string buffer", got)
 	}
 }

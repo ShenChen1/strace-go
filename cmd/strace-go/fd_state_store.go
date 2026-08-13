@@ -99,7 +99,7 @@ func (st *FDStateStore) Observation(pid int, fd int32) (handler.FDStateObservati
 	return observation, ok
 }
 
-func (s *traceSession) fdStateStore() *FDStateStore {
+func (s *traceSession) fdStateStore() traceFDStateOwner {
 	if s == nil {
 		return nil
 	}

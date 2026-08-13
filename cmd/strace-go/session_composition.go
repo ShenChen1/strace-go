@@ -105,7 +105,7 @@ type traceSessionDeps struct {
 	OutputPolicy  *cliTraceOutputPolicy
 	Catalog       meta.CatalogPort
 	Decoder       handler.SnapshotDecoder
-	FDState       *FDStateStore
+	FDState       traceFDStateOwner
 	Runtime       handler.RuntimeServices
 	OutWriter     io.Writer
 	Output        traceFinalizerOutput

@@ -10,10 +10,11 @@ import (
 )
 
 func TestSyscallEventContextUsesTLVPathSection(t *testing.T) {
+	fdState := newFDStateStoreFromMaps(nil, nil)
 	session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"}), traceSessionDeps{
 		TargetPID: 101,
 		Decoder:   event.NewDecoder(),
-		FDState:   newFDStateStoreFromMaps(nil, nil),
+		FDState:   fdState,
 		State:     newTraceState(),
 	})
 	path := []byte("from-tlv\x00")
@@ -40,7 +41,7 @@ func TestSyscallEventContextUsesTLVPathSection(t *testing.T) {
 		t.Fatalf("handler section = %+v, %v; want TLV path section", section, ok)
 	}
 	ev.updateFDState(session.fdStateStore())
-	if got := session.fdStateStore().paths["101:3"]; got != "from-tlv" {
+	if got, ok := fdState.Path(101, 3); !ok || got != "from-tlv" {
 		t.Fatalf("fd path = %q, want TLV snapshot path", got)
 	}
 }

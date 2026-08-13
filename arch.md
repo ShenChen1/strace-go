@@ -6012,3 +6012,41 @@ Impact note：影响 `cmd/strace-go/session_composition.go` 的 Summary dependen
 真实 `ebpf-semantic` 通过：205 个主事件、104/101 enter/exit、6 个生命周期事件；ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0，write-only events 为 6。`ebpf-perf` 通过：`TraceEventDecodeState 292.20 ns/op、0 B/op、0 allocs/op`、raw JSON `497.40 ns/op、0 B/op、0 allocs/op`、decoded 无 payload `602.00 ns/op、0 B/op、0 allocs/op`、decoded payload `905.70 ns/op、16 B/op、1 alloc`；scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认 composition root 仍创建一个 `SummaryStats`，`Record` 与 `Print` 操作同一 map；`traceSummaryOwner` 只存在于 session boundary，事件 effects 和 finalizer 没有互相暴露对方能力。未新增 ptrace、`process_vm_readv`、procfs、第二消费者、锁或 goroutine。
+
+### 14.145 将 session FD state 收窄为聚合 owner port（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：业务组件已经分别依赖 `event.FDPathReader`、`handler.FDStateReader`、`fdStateUpdatePort`、`fdOffsetUpdatePort`、`fdCloseUpdatePort` 和 `fdLifecycleUpdatePort`；只有 `traceSessionDeps.FDState` 与 `fdStateStore()` 仍暴露 `*FDStateStore`。
+- Problem：具体 FD state 存储类型穿透 session root，测试无法注入只实现所需读写行为的 fake；同时把读、退出 mutation、生命周期 mutation 拆成多个 root owner 会削弱单一 event-sourced state 的共享不变量。
+- Goal：定义仅供 composition/session boundary 使用的 `traceFDStateOwner`，聚合已有读写 port；session 下游继续按最小接口投影，`FDStateStore` 保持唯一真实可变 owner。
+- Non-goals：不改变 FD path/observation/offset/cloexec/lifecycle 语义、map ownership、事件顺序、并发模型、性能模型、BPF ABI 或纯 eBPF/no-procfs/no-ptrace 约束。
+- Constraints：owner 必须同时满足现有六类能力；不得新增第二份 FD state、把所有能力传给单个业务组件、引入锁/goroutine 或恢复 procfs 查询；nil 校验语义保持不变。
+
+Impact note：影响 `cmd/strace-go/session_composition.go` 的 FD state dependency、`fd_state_store.go` 的 session accessor 及 owner source/fake tests；现有 `FDStateStore` 内部实现和各业务组件的窄 port 不变。
+
+方案比较：
+
+1. 保留 `*FDStateStore`：改动最少，但 session contract 继续泄漏 concrete mutable owner，拒绝。
+2. 将六类能力拆成多个 session root 字段：消费面独立，但会让同一状态 owner 关系依赖 wiring 约定，增加错配风险，拒绝。
+3. 定义 `traceFDStateOwner` 聚合已有 port，并向业务组件投影最小接口：保持单一 owner、可注入 fake、避免大接口下沉，选择该方案。
+
+状态契约：
+
+- `traceFDStateOwner` 只用于 session composition/accessor；`SyscallJSONOutput`、event context、handler effects、exit effects、lifecycle effects 继续只接收各自窄 port。
+- `FDStateStore` 的 paths、observations、offsets、cloexec maps 仍由一个单消费者顺序更新，不复制、不加锁。
+- `fdStateStore()` 返回 owner port，仍能表达 session 内组件共享同一对象，但不暴露 concrete store 类型。
+
+测试与验收：
+
+- 先增加失败优先的 fake FD state owner 测试，确认旧具体字段无法接收只实现读写 port 的替代对象。
+- 实现后运行 focused FD owner tests、Go 全量/race/vet/build、`git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和 `upstream-reference`。
+- review 检查各消费者没有重新依赖 `FDStateStore`，真实 composition 只有一个 FD state owner，纯 eBPF 禁止规则保持通过。
+
+#### 实际验收记录
+
+已完成。失败优先测试先验证了旧的 `*FDStateStore` session contract 无法接收 fake owner；实现后 focused owner/path/offset tests 通过。`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14145 ./cmd/strace-go` 和 `git diff --check` 均通过。
+
+真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `288.30 ns/op、0 B/op、0 allocs/op`，raw JSON `487.10 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `605.80 ns/op、0 B/op、0 allocs/op`，decoded payload `882.30 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认 `traceFDStateOwner` 只出现在 session composition/accessor 边界；event context、handler、exit pipeline、lifecycle 和 JSON 输出继续使用已有窄 port。真实 composition 仍只创建一个 `FDStateStore`，没有新增第二份状态、锁、goroutine、ptrace、`process_vm_readv` 或 procfs 读取。
