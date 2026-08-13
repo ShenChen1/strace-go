@@ -8,6 +8,7 @@ type traceStateOwner interface {
 	textRendererState
 	execSyscallState
 	suspendedSyscallState
+	traceAttachStateReader
 }
 
 var _ traceStateOwner = (*TraceState)(nil)

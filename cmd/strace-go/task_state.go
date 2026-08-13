@@ -14,6 +14,46 @@ type pendingForkState struct {
 	parentTGID uint32
 }
 
+func (st *TraceState) seedAttachTargets(pids []int) {
+	if st == nil || len(pids) == 0 {
+		return
+	}
+	if st.attachTargets == nil {
+		st.attachTargets = make(map[uint32]struct{}, len(pids))
+	}
+	for _, pid := range pids {
+		if pid > 0 {
+			st.attachTargets[uint32(pid)] = struct{}{}
+		}
+	}
+}
+
+func (st *TraceState) AttachTargetsDone() bool {
+	return st == nil || len(st.attachTargets) == 0
+}
+
+func (st *TraceState) markAttachTargetExited(pid uint32, tid uint32) {
+	if st == nil || st.attachTargets == nil {
+		return
+	}
+	if tid != 0 {
+		delete(st.attachTargets, tid)
+	}
+	if pid != 0 && pid == tid {
+		delete(st.attachTargets, pid)
+	}
+}
+
+func (st *TraceState) markAttachTargetTerminated(view syscallEventView) {
+	st.markAttachTargetExited(view.pid, view.tid)
+	if st == nil || st.attachTargets == nil || view.pid == 0 {
+		return
+	}
+	if syscallMeta(view.sysID).Name == "exit_group" {
+		delete(st.attachTargets, view.pid)
+	}
+}
+
 func snapshotTaskState(task *TaskState) *TaskState {
 	if task == nil {
 		return nil

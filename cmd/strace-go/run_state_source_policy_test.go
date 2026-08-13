@@ -10,7 +10,6 @@ func TestTraceRunStateDoesNotConstructDefaultPorts(t *testing.T) {
 	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/session_run.go"))
 	for _, forbidden := range []string{
 		"clock = systemTraceClock{}",
-		"pidProbe = systemTracePIDProbe{}",
 		"pidProbeOrDefault",
 		"return systemTraceClock{}.Now()",
 	} {
@@ -25,9 +24,28 @@ func TestTraceRunStateWithoutPortsIsInert(t *testing.T) {
 	state.collect(nil)
 
 	if state.attachExited {
-		t.Fatal("run state without clock or PID probe must not poll attach liveness")
+		t.Fatal("run state without clock or attach state must remain inert")
 	}
-	if !state.nextAttachPoll.IsZero() {
-		t.Fatalf("run state without ports scheduled a poll: %s", state.nextAttachPoll)
+}
+
+func TestTraceRunStateUsesEventSourcedAttachLifecycle(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/session_run.go"))
+	for _, required := range []string{
+		"type traceAttachStateReader interface",
+		"AttachTargetsDone() bool",
+		"attachState traceAttachStateReader",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("run state is missing event-sourced attach contract %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"syscall.Kill(",
+		"AnyAlive(",
+		"systemTracePIDProbe",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("run state still probes attach liveness with %q", forbidden)
+		}
 	}
 }

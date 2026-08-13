@@ -42,6 +42,17 @@ func TestTraceScopeUsesAttachPidsAsDirectMatches(t *testing.T) {
 	}
 }
 
+func TestTraceScopeMatchesAttachedThreadTID(t *testing.T) {
+	scope := newTraceScope(101, fakeTraceScopePolicy{attach: []int{202}})
+
+	if !scope.AllowsEvent(100, 202) {
+		t.Fatal("attached thread TID should be allowed when event PID is its TGID")
+	}
+	if scope.AllowsEvent(100, 303) {
+		t.Fatal("unrelated thread event should be rejected without follow-forks")
+	}
+}
+
 func TestTraceScopeAllowsForksWhenEnabled(t *testing.T) {
 	scope := newTraceScope(101, fakeTraceScopePolicy{attach: []int{202}, follow: true})
 

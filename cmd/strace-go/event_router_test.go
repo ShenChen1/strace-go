@@ -80,6 +80,29 @@ func TestTraceEventRouterRoutesLifecycleEvents(t *testing.T) {
 	}
 }
 
+func TestTraceEventRouterKeepsAttachedThreadLifecycleInScope(t *testing.T) {
+	state := newTraceState()
+	state.seedAttachTargets([]int{201})
+	policy := newTraceOutputPolicy(&cli.Options{AttachPids: []int{201}})
+	router := newTraceEventRouter(TraceEventRouterDeps{
+		Scope:     newTraceScope(100, policy),
+		TargetPID: 100,
+		State:     state,
+	})
+
+	router.Handle(traceEventEnvelope{
+		valid:           true,
+		pid:             200,
+		tid:             201,
+		eventType:       bpfEventTypeLifecycle,
+		lifecycleAction: lifecycleFree,
+	})
+
+	if !state.AttachTargetsDone() {
+		t.Fatal("attached thread lifecycle was filtered by TGID instead of TID")
+	}
+}
+
 func TestTraceEventRouterDoesNotCopyFDStateForThreadClone(t *testing.T) {
 	effects := &fakeLifecycleEffects{}
 	state := newTraceState()

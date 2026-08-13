@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"os"
 	"os/exec"
 	"testing"
 	"time"
@@ -177,52 +176,24 @@ func TestExitDrainGraceOnlyAppliesToJSONOutput(t *testing.T) {
 	}
 }
 
-func TestAnyAttachPidAliveDetectsCurrentProcess(t *testing.T) {
-	if !anyAttachPidAlive([]int{os.Getpid()}) {
-		t.Fatal("current process should be treated as an alive attached pid")
-	}
-}
-
-func TestTraceRunStateThrottlesAttachPolling(t *testing.T) {
-	state := traceRunState{
-		attachPids: []int{os.Getpid()},
-		clock:      &fakeTraceClock{now: time.Unix(100, 0)},
-		pidProbe:   systemTracePIDProbe{},
-	}
-	state.collect(nil)
-	if state.attachExited || state.nextAttachPoll.IsZero() {
-		t.Fatalf("state after first attach poll = %+v, want alive pid and next poll set", state)
-	}
-
-	state.attachPids = []int{1 << 30}
-	state.collect(nil)
-	if state.attachExited {
-		t.Fatal("attach polling should be skipped before nextAttachPoll")
-	}
-
-	state.nextAttachPoll = time.Unix(0, 0)
-	state.collect(nil)
-	if !state.attachExited {
-		t.Fatal("missing attach pid should be marked exited after the throttle expires")
-	}
-}
-
-func TestTraceRunStateUsesInjectedPIDProbe(t *testing.T) {
-	clock := &fakeTraceClock{now: time.Unix(100, 0)}
-	probe := &fakeTracePIDProbe{alive: false}
-	state := newTraceRunState(traceRunStateDeps{
-		attachPids: []int{101, 202},
-		clock:      clock,
-		pidProbe:   probe,
+func TestTraceRunStateFinishesFromAttachLifecycleState(t *testing.T) {
+	state := newTraceState()
+	state.seedAttachTargets([]int{101})
+	runState := newTraceRunState(traceRunStateDeps{
+		attachPids:  []int{101},
+		attachState: state,
+		clock:       &fakeTraceClock{now: time.Unix(100, 0)},
 	})
 
-	state.collect(nil)
-
-	if !state.attachExited {
-		t.Fatal("state should finish when injected PID probe reports no live process")
+	runState.collect(nil)
+	if runState.attachExited {
+		t.Fatal("attach run finished before target lifecycle event")
 	}
-	if probe.calls != 1 {
-		t.Fatalf("PID probe calls = %d, want 1", probe.calls)
+
+	state.handleEnvelope(lifecycleEnvelopeForTask(101, 101, lifecycleExit, 0, 0))
+	runState.collect(nil)
+	if !runState.attachExited {
+		t.Fatal("attach run did not finish after target lifecycle event")
 	}
 }
 
@@ -281,14 +252,4 @@ func (c *fakeTraceClock) NowMonoNs() uint64 {
 		return c.monoNs
 	}
 	return uint64(c.now.UnixNano())
-}
-
-type fakeTracePIDProbe struct {
-	alive bool
-	calls int
-}
-
-func (p *fakeTracePIDProbe) AnyAlive([]int) bool {
-	p.calls++
-	return p.alive
 }

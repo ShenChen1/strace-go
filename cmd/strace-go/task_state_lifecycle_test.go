@@ -70,6 +70,67 @@ func TestTraceStateRetiresTaskWhenTerminatingSyscallHasNoLifecycleEvent(t *testi
 	}
 }
 
+func TestTraceStateTracksAttachRootsFromLifecycleEvents(t *testing.T) {
+	state := newTraceState()
+	state.seedAttachTargets([]int{400, 500})
+
+	if state.AttachTargetsDone() {
+		t.Fatal("attach roots were marked done before lifecycle events")
+	}
+	state.handleEnvelope(lifecycleEnvelopeForTask(400, 400, lifecycleExit, 0, 0))
+	if state.AttachTargetsDone() {
+		t.Fatal("remaining attach root was marked done too early")
+	}
+	state.handleEnvelope(lifecycleEnvelopeForTask(500, 500, lifecycleFree, 0, 0))
+	if !state.AttachTargetsDone() {
+		t.Fatal("attach roots remain after exit/free lifecycle events")
+	}
+}
+
+func TestTraceStateTracksAttachRootTerminatingSyscall(t *testing.T) {
+	state := newTraceState()
+	state.seedAttachTargets([]int{600})
+	id := syscallIDByName(t, "exit_group")
+	enter := traceEventEnvelope{
+		valid:      true,
+		pid:        600,
+		tid:        600,
+		sysID:      id,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+	}
+	state.handleEnvelope(enter)
+
+	exit := enter
+	exit.eventType = bpfEventTypeExit
+	exit.eventFlags = 0
+	state.handleEnvelope(exit)
+
+	if !state.AttachTargetsDone() {
+		t.Fatal("terminating syscall did not retire attach root")
+	}
+}
+
+func TestTraceStateDoesNotRetireProcessAttachRootForThreadExit(t *testing.T) {
+	state := newTraceState()
+	state.seedAttachTargets([]int{700})
+	state.handleEnvelope(lifecycleEnvelopeForTask(700, 701, lifecycleExit, 0, 0))
+
+	if state.AttachTargetsDone() {
+		t.Fatal("thread exit retired the process attach root")
+	}
+}
+
+func TestTraceStateRetiresAttachedThreadRootByTID(t *testing.T) {
+	state := newTraceState()
+	state.seedAttachTargets([]int{701})
+	state.handleEnvelope(lifecycleEnvelopeForTask(700, 701, lifecycleFree, 0, 0))
+
+	if !state.AttachTargetsDone() {
+		t.Fatal("attached thread root was not retired by its TID")
+	}
+}
+
 func lifecycleEnvelopeForTask(pid, tid, action uint32, arg0, arg1 uint64) traceEventEnvelope {
 	return traceEventEnvelope{
 		valid:           true,

@@ -67,6 +67,10 @@ func composeTraceSession(
 	bootstrap traceSessionBootstrap,
 	output *TraceOutput,
 ) (*traceSession, error) {
+	state := newTraceStateForSession(config.eventPolicy)
+	if config.outputPolicy != nil {
+		state.seedAttachTargets(config.outputPolicy.AttachPIDs())
+	}
 	return newTraceSession(traceSessionDeps{
 		HasCommand:    bootstrap.hasCommand,
 		CommandWaiter: bootstrap.commandWaiter,
@@ -85,9 +89,8 @@ func composeTraceSession(
 		StackTraces:   bootstrap.bpfReads.StackTraces,
 		Stats:         bootstrap.bpfReads.Stats,
 		Resolver:      config.resolver,
-		State:         newTraceStateForSession(config.eventPolicy),
+		State:         state,
 		Clock:         clock,
-		PIDProbe:      systemTracePIDProbe{},
 	})
 }
 
@@ -113,7 +116,6 @@ type traceSessionDeps struct {
 	Resolver      traceSymbolResolver
 	State         traceStateOwner
 	Clock         traceClock
-	PIDProbe      tracePIDProbe
 }
 
 // newTraceSession creates the complete event pipeline before the first event
@@ -149,7 +151,6 @@ func validateTraceSessionDeps(deps traceSessionDeps) error {
 		{name: "TimeFormatter", isNil: deps.TimeFormatter == nil},
 		{name: "State", isNil: deps.State == nil},
 		{name: "Clock", isNil: deps.Clock == nil},
-		{name: "PIDProbe", isNil: deps.PIDProbe == nil},
 	}
 	for _, dependency := range missing {
 		if dependency.isNil {

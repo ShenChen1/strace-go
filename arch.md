@@ -6316,3 +6316,41 @@ Impact note：影响 `lifecycle_event_handler.go`、session event composition �
 真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `288.80 ns/op、0 B/op、0 allocs/op`，raw JSON `496.60 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `634.40 ns/op、0 B/op、0 allocs/op`，decoded payload `934.50 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认 lifecycle production code 不再引用 `traceSession`，`traceSessionLifecycleEffects` 只持有 `traceLifecycleExitTextPort`；writer 在 composition 阶段由同一 output policy、command identity、`OutWriter` 和 renderer 构造，保留 quiet/summary/JSON/command-target 抑制条件。未新增 ptrace、`process_vm_readv`、procfs、第二份 output owner、锁或 goroutine。
+
+### 14.153 将 attach 结束判定收敛为事件状态（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：纯 eBPF 事件链已经在 BPF `sched_process_exit/free` 发出目标生命周期事件，Go `TraceState` 在单一 ringbuf 消费者中维护 task 状态；但 `session_run.go` 仍以 `kill(pid, 0)` 轮询 attach PID 是否存活。
+- Problem：运行循环同时存在事件事实和外部 liveness probe，PID 复用或事件消费滞后时可能产生错误的结束判断；`kill(pid, 0)` 也让 attach 会话的生命周期契约脱离 eBPF 事件流，无法用语义 fixture 稳定验证。
+- Goal：让 attach 会话只依据已消费的 BPF lifecycle/terminating-syscall 事实判断目标是否全部退出；保留启动阶段的存在性校验，避免 filter 安装前目标消失造成无事件等待。
+- Non-goals：不改变 command waiter、目标启动/attach filter 安装、BPF lifecycle 事件 ABI、follow-forks 子进程范围、ringbuf drain、输出顺序、ptrace/procfs/no-process-memory-read 约束。
+- Constraints：状态判定必须发生在同一个 ringbuf 消费 goroutine；不得新增 liveness goroutine、锁、定时器或运行期 `kill(pid, 0)`；目标集合只在 session 构造时从 attach policy 快照初始化，子进程不得误计为 attach root。
+
+Impact note：影响 `TraceState` 的 attach-root 生命周期状态、`traceStateOwner` 的 session boundary、`traceRunState` 的结束条件和相关测试；`target_bootstrap.go` 的启动存在性校验暂不改，避免把启动竞态与运行期结束判定混为一项改动。
+
+方案比较：
+
+1. 保留运行期 `kill(pid, 0)`：实现简单，但保留 PID 复用竞态、外部状态探测和不可由 ringbuf 语义测试覆盖的第二事实源，拒绝。
+2. 使用 pidfd 轮询：比 `kill` 更能绑定 PID 身份，但仍把运行期生命周期交给额外 FD/轮询控制面，且需要维护独立资源，拒绝。
+3. 由 `TraceState` 消费 lifecycle exit/free 和 terminating syscall，维护 attach-root 剩余集合：事实来源单一、无需锁和额外 goroutine、可由 fixture 注入事件验证，选择该方案。
+
+状态契约：
+
+- `TraceState.seedAttachTargets` 在 session composition 时记录 attach roots；`AttachTargetsDone` 只表示这些 roots 是否已由事件标记退出。
+- lifecycle `exit/free` 以及已配对的 `exit/exit_group` exit 事件都会清除对应 attach root；fork child 只进入 task/fd 生命周期，不改变 attach-root 完成条件。
+- attach root 按身份精确清理：leader 生命周期只清除 `(pid == tid)` 的 process root，非 leader 线程只清除自己的 TID root；`exit_group` 额外清除其 TGID root。scope 同时匹配事件的 TGID 和 TID，支持 attach 到非 leader thread。
+- `traceRunState.collect` 只读取 `traceAttachStateReader`；ringbuf reader 的 deadline 仍用于周期性把控制权交回状态机，但不再执行 PID 系统调用探测。
+- 如果 ringbuf 丢失生命周期事件，最终 stats 仍会报告丢失；本阶段不伪造“进程已退出”的用户态结论，也不恢复 procfs/ptrace fallback。
+
+测试与验收：
+
+- 先增加失败优先的 attach-root 状态测试和 run-state source gate，确认旧 `PIDProbe` 契约不能满足新事件状态契约。
+- 实现后运行 focused state/run/composition tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build 和 `git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 与 `upstream-reference`。
+- review 检查生产运行循环不再引用 `syscall.Kill`、`AnyAlive`、`systemTracePIDProbe` 或运行期 procfs；确认真实 attach fixture 的 lifecycle exit 能结束会话，且 command 模式仍由 waiter 结束。
+
+#### 实际验收记录
+
+已完成。失败优先的 attach-root、非 leader TID scope 和 terminating/lifecycle 回归测试先固定了旧行为缺口；实现后 focused tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14153 ./cmd/strace-go` 和 `git diff --check` 通过。真实 semantic/perf、原生 `small` 与 `upstream-reference` 也通过：semantic 205 个主事件、104/101 enter/exit、6 个 lifecycle，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map-update 为 0；Go decode `276.10 ns/op`、0 alloc，raw JSON `499.90 ns/op`、0 alloc，decoded payload `858.20 ns/op`、16 B/1 alloc，scalar/io/lifecycle/threads 为 414.03/266.04/2.21/209.90 events/s；small 23 PASS；reference 46 PASS、2 XFAIL、0 XPASS。
+
+review 确认运行期 attach 结束判定已从 `session_run.go` 移除 PID liveness probe，统一由单一 ringbuf consumer 更新的 `TraceState` 决定；非 leader thread 不会误结束 process attach，attach 到 TID 的生命周期不会被 TGID scope 丢弃。启动阶段 `target_bootstrap.go` 的一次性目标存在性校验仍保留，作为 attach filter 安装前的输入校验，不是运行期结束判定。未新增 ptrace、procfs、process memory read、锁或事件处理 goroutine；已知 residual risk 是 ringbuf 丢失 lifecycle 事件时会保持保守等待并由 stats 暴露，而不是伪造退出事实。

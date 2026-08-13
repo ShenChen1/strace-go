@@ -78,7 +78,6 @@ func TestTraceSessionDoesNotDuplicateDependencyFields(t *testing.T) {
 		"\tresolver      *stacktrace.Resolver",
 		"\tstate         *TraceState",
 		"\tclock         traceClock",
-		"\tpidProbe      tracePIDProbe",
 	} {
 		if strings.Contains(source, field) {
 			t.Fatalf("traceSession still duplicates dependency field %q", field)

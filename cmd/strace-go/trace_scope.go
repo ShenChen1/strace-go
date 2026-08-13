@@ -30,6 +30,17 @@ func (scope TraceScope) AllowsPID(pid uint32) bool {
 	return scope.followFork
 }
 
+func (scope TraceScope) AllowsEvent(pid uint32, tid uint32) bool {
+	if pid == 0 && tid == 0 {
+		return false
+	}
+	if (pid != 0 && scope.directlyMatches(int(pid))) ||
+		(tid != 0 && scope.directlyMatches(int(tid))) {
+		return true
+	}
+	return scope.followFork
+}
+
 func (scope TraceScope) directlyMatches(pid int) bool {
 	if len(scope.attachPIDs) > 0 {
 		for _, attachedPID := range scope.attachPIDs {

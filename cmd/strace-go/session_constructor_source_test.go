@@ -21,9 +21,6 @@ func TestMainInjectsSessionRuntimeAndSummary(t *testing.T) {
 	if !strings.Contains(source, "Summary:       newSummaryStats()") {
 		t.Fatal("main must inject session summary stats")
 	}
-	if !strings.Contains(source, "PIDProbe:      systemTracePIDProbe{}") {
-		t.Fatal("main must inject the session PID probe")
-	}
 }
 
 func TestNewTraceSessionRejectsMissingCoreDependency(t *testing.T) {

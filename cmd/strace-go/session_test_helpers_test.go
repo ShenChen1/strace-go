@@ -64,14 +64,15 @@ func withTestTraceSessionDefaults(deps traceSessionDeps) traceSessionDeps {
 	if deps.Clock == nil {
 		deps.Clock = systemTraceClock{}
 	}
-	if deps.PIDProbe == nil {
-		deps.PIDProbe = systemTracePIDProbe{}
-	}
 	if deps.TimeFormatter == nil {
 		deps.TimeFormatter = newTimeFormatterWithClock(0, deps.Clock)
 	}
 	if deps.State == nil {
-		deps.State = newTraceStateForSession(deps.EventPolicy)
+		state := newTraceStateForSession(deps.EventPolicy)
+		if deps.OutputPolicy != nil {
+			state.seedAttachTargets(deps.OutputPolicy.AttachPIDs())
+		}
+		deps.State = state
 	}
 	return deps
 }

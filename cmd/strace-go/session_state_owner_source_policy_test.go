@@ -39,6 +39,7 @@ func (fakeSessionStateOwner) pendingExecArgsFor(int) (string, bool)    { return 
 func (fakeSessionStateOwner) deletePendingExecArgs(int)                {}
 func (fakeSessionStateOwner) deleteSuspendedSyscall(int)               {}
 func (fakeSessionStateOwner) rememberSuspendedSyscall(int, string)     {}
+func (fakeSessionStateOwner) AttachTargetsDone() bool                  { return true }
 
 func TestTraceSessionAcceptsTraceStateOwnerPort(t *testing.T) {
 	owner := fakeSessionStateOwner{}

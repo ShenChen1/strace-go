@@ -48,7 +48,7 @@ func (r *TraceEventRouter) Handle(envelope traceEventEnvelope) {
 	if r == nil || r.state == nil {
 		return
 	}
-	if !r.scope.AllowsPID(envelope.pid) {
+	if !r.scope.AllowsEvent(envelope.pid, envelope.tid) {
 		return
 	}
 	stateUpdate := r.state.handleEnvelope(envelope)

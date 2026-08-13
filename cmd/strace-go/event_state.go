@@ -82,6 +82,7 @@ type TraceState struct {
 	pendingForks       map[uint32]pendingForkState
 	unqueuedUnfinished map[uint32]struct{}
 	inFlightUnfinished map[uint32]struct{}
+	attachTargets      map[uint32]struct{}
 }
 
 type traceStateEventKind uint8
@@ -130,6 +131,7 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 		lifecycleTask := snapshotTaskState(task)
 		var deferredExit *TraceStateUpdate
 		if lifecycleView.action == lifecycleExit || lifecycleView.action == lifecycleFree {
+			st.markAttachTargetExited(lifecycleView.pid, lifecycleView.tid)
 			if pendingExit, ok := st.takePendingExitForTID(lifecycleView.tid); ok {
 				deferredExit = &TraceStateUpdate{
 					kind:            traceStateSyscallExit,
@@ -165,6 +167,7 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 			pendingEnter := st.consumeEnterEvent(pendingExit.view)
 			if pendingEnter != nil {
 				if isTerminatingSyscall(pendingExit.view) {
+					st.markAttachTargetTerminated(pendingExit.view)
 					st.retireTask(pendingExit.view.tid)
 				}
 				update.deferredExit = &TraceStateUpdate{
@@ -200,6 +203,7 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 		}
 	}
 	if isTerminatingSyscall(syscallView) {
+		st.markAttachTargetTerminated(syscallView)
 		st.retireTask(syscallView.tid)
 	}
 	return TraceStateUpdate{
