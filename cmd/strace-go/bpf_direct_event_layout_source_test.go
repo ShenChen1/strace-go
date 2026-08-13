@@ -15,12 +15,14 @@ func TestBPFDirectEventModulesOwnResponsibilities(t *testing.T) {
 	facade := read("syscall_direct_event_v2.h")
 	core := read("syscall_event_core_v2.h")
 	capture := read("syscall_payload_capture_direct_event_v2.h")
+	execCapture := read("syscall_exec_capture_direct_event_v2.h")
 	emit := read("syscall_payload_emit_direct_event_v2.h")
 
 	for name, source := range map[string]string{
 		"syscall_direct_event_v2.h":                 facade,
 		"syscall_event_core_v2.h":                   core,
 		"syscall_payload_capture_direct_event_v2.h": capture,
+		"syscall_exec_capture_direct_event_v2.h":    execCapture,
 		"syscall_payload_emit_direct_event_v2.h":    emit,
 	} {
 		if !strings.Contains(source, "#ifndef STRACE_GO_") || !strings.Contains(source, "#endif") {
@@ -48,11 +50,19 @@ func TestBPFDirectEventModulesOwnResponsibilities(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"capture_openat_path_tlv_direct(",
-		"capture_exec_snapshot_direct(",
 		"capture_read_bytes_tlv_direct(",
 	} {
 		if !strings.Contains(capture, snippet) {
 			t.Fatalf("payload capture module missing %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
+		"capture_exec_path_tlv_direct(",
+		"capture_exec_snapshot_direct(",
+		"capture_exec_tlv_direct(",
+	} {
+		if !strings.Contains(execCapture, snippet) {
+			t.Fatalf("exec capture module missing %q", snippet)
 		}
 	}
 	for _, snippet := range []string{
@@ -81,6 +91,7 @@ func TestBPFDirectEventModulesStayWithinFileLimit(t *testing.T) {
 		"syscall_direct_event_v2.h",
 		"syscall_event_core_v2.h",
 		"syscall_payload_capture_direct_event_v2.h",
+		"syscall_exec_capture_direct_event_v2.h",
 		"syscall_payload_emit_direct_event_v2.h",
 	} {
 		source := readTextFile(t, filepath.Join(root, "bpf", name))

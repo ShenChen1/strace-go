@@ -59,6 +59,7 @@ func readDirectEventSources(t *testing.T) string {
 	return readTextFile(t, filepath.Join(root, "bpf/syscall_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_event_core_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_payload_capture_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_exec_capture_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_payload_emit_direct_event_v2.h"))
 }
 

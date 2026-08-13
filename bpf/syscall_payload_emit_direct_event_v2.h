@@ -320,23 +320,25 @@ static __always_inline void emit_exec_exit_event_v2_direct(
     u16 flags = 0;
     u32 payload_size = 0;
     if (p->sys_id == SYS_EXECVE) {
-        payload_size = capture_exec_tlv_direct(
-            &ptr,
-            payload_offset,
-            0,
-            1,
-            p->args[0],
-            p->args[1],
-            p->args[2]);
+        struct exec_capture_request request = {};
+        request.ptr = &ptr;
+        request.payload_offset = payload_offset;
+        request.path_index = 0;
+        request.argv_index = 1;
+        request.path_ptr = p->args[0];
+        request.argv_ptr = p->args[1];
+        request.env_ptr = p->args[2];
+        payload_size = capture_exec_tlv_direct(&request);
     } else if (p->sys_id == SYS_EXECVEAT) {
-        payload_size = capture_exec_tlv_direct(
-            &ptr,
-            payload_offset,
-            1,
-            2,
-            p->args[1],
-            p->args[2],
-            p->args[3]);
+        struct exec_capture_request request = {};
+        request.ptr = &ptr;
+        request.payload_offset = payload_offset;
+        request.path_index = 1;
+        request.argv_index = 2;
+        request.path_ptr = p->args[1];
+        request.argv_ptr = p->args[2];
+        request.env_ptr = p->args[3];
+        payload_size = capture_exec_tlv_direct(&request);
     }
     if (payload_size > 0) {
         flags |= EVENT_FLAG_PAYLOAD_TLV;

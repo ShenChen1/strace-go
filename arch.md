@@ -7781,3 +7781,46 @@ Impact note：`enter_network`、`emit_network_exit_event_v2_direct` 和 generic 
 - request struct 只集中命名和传递原有参数，没有动态分配、map 写入、额外 tail call、锁、goroutine、Go 侧 tracee memory read、ptrace 或 procfs fallback；真实 verifier 证明新栈对象可接受。
 - source gate 已覆盖 primitive 排他 ownership、facade/state ownership、exit 组合视图、函数接口和文件行数；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
 - 本阶段仅修改 network facade、shared capture header、network exit call sites、相关 source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.187 拆分 exec payload capture ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_payload_capture_direct_event_v2.h` 原为 421 行，同时拥有 `open/creat` path、`write` bytes、`read` bytes、exec path、argv/envp records、exec snapshot 和 exec TLV；exec exit emitter 还直接传递 7 个 capture 参数。
+- Problem：exec 的多级用户内存快照与普通 payload capture 物理混合；argv/envp 的数组指针、计数、状态、next offset 和 TLV payload offset 分散在长参数列表中。后续修改 exec bounded snapshot 容易误触 open/read/write 语义，也容易在 execve 与 execveat 两个调用点错配参数。
+- Goal：新增 `bpf/syscall_exec_capture_direct_event_v2.h`，独占 exec path、argv/envp bounded records、exec snapshot 和 exec TLV；原 payload facade 只保留 open/write/read capture 与 syscall selector，并通过 request struct 调用 exec capture。
+- Non-goals：不改变 exec snapshot header、argv/envp record ABI、`EXEC_ARG_MAX`/`EXEC_ENV_MAX` 上限、path/argv/env TLV 顺序、payload offset、ringbuf event ABI、pending/lifecycle/routing/ProgArray、Go decoder/formatter，也不引入 ptrace、procfs 或 Go 侧 tracee memory read。
+- Constraints：先用失败优先 source gate 固定物理 ownership，再通过真实 clang/verifier、Go 全量/race/vet、semantic/perf、small 和 upstream reference；生产 header、测试文件和新增函数继续满足仓库行数与参数限制。
+
+Impact note：`emit_exec_exit_event_v2_direct` 的 execve/execveat 两个调用点保持同一 payload 结构和参数来源，只从旧的多参数函数调用改为 BPF 栈上的 `exec_capture_request`；普通 open/read/write 调用图不变。
+
+#### 方案比较
+
+1. 保留 421 行单文件并补充注释：运行时改动最小，但 exec 多级 snapshot 与普通 payload 仍耦合，无法表达真实 ownership，拒绝。
+2. 只拆出 argv/envp records helper：能降低部分复杂度，但 exec path、snapshot header 和 TLV composer 仍与 open/read/write 混合，边界不完整，拒绝。
+3. 新增 exec capture header，并用 `exec_records_capture_request`、`exec_capture_request` 收敛内部接口：只改变编译期 ownership 和参数表达，保持 ABI、调用图与 bounded copy 不变，选择该方案。
+
+#### 状态契约
+
+- `syscall_exec_capture_direct_event_v2.h` 只拥有 `exec_records_capture_request`、`exec_capture_request`、`capture_exec_path_tlv_direct`、`capture_exec_argv_records_direct`、`capture_exec_env_records_direct`、`capture_exec_snapshot_direct` 和 `capture_exec_tlv_direct`；它不拥有 open/write/read helper、syscall selector、pending map、生命周期状态或 ringbuf emitter。
+- `exec_records_capture_request` 保留原 records offset、用户态数组指针、count/status/next 指针和 payload cursor；argv/envp 仍按既有上限逐项 bounded 读取，字符串仍在 BPF probe 内使用 `bpf_probe_read_user_str`，不把用户指针传到 Go。
+- `exec_capture_request` 显式命名 dynptr、payload offset、path/argv TLV index 以及 path/argv/envp 用户指针；execve 与 execveat 继续使用原 arg index，exec path 先于 snapshot，argv/envp record 顺序和 TLV header 字段保持不变。
+- `syscall_payload_capture_direct_event_v2.h` 通过 include 暴露 exec capture 定义，但只保留 open path、write bytes、read bytes 和 syscall capture selector；`syscall_payload_emit_direct_event_v2.h` 仍负责 ringbuf reservation、event header/body 初始化、flags 和 submit/discard。
+- request struct 只存在于 BPF 栈上，不进入 pending map、ringbuf ABI 或 Go 事件模型；所有用户内存仍在对应 enter/exit probe 时点立即 bounded copy，纯 eBPF 路径不查询 procfs，也不使用 ptrace/procmem fallback。
+
+#### 测试与验收
+
+- 失败优先 gate 首次按预期失败：`bpf/syscall_exec_capture_direct_event_v2.h` 尚不存在。实现后新增 `TestBPFExecCaptureHasDedicatedOwnership`，检查 exec helper 的排他 ownership、payload facade include、request call site、旧 facade 不再定义 exec helper，以及生产文件行数。
+- 更新 direct-event layout/source helper，使物理文件检查与 facade 展开后的行为检查同时成立；`bpf_payload_tlv_source_test.go` 仍读取完整 direct source，不因 header 拆分丢失 exec TLV 契约。
+- 首次运行真实构建时 verifier 编译暴露 `execve`/`execveat` exit emitter 仍保留旧的 7 参数调用；两处调用均改为 request struct 后，`sudo -n ./build.sh` 通过，证明新接口已进入实际 BPF translation unit，而不是只有源码 gate 通过。
+- 新 exec capture header 为 255 行，payload capture facade 为 198 行，payload emitter 为 368 行；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check` 全部通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，生命周期 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0，普通 attach orphan 1 仍为预期诊断；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `341.50 ns/op、0 B/op、0 allocs/op`，JSON writer `494.20 ns/op、0 B/op、0 allocs/op`，decoded writer `598.00 ns/op、0 B/op、0 allocs/op`，decoded payload writer `853.40 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `427.53/290.84/2.39/223.93 events/s`，所有运行时错误计数为 0。
+- 原生参考通过：sudo `small` 为 `23 PASS / 0 FAIL`；sudo `upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`。两个 XFAIL 仍是 `read-write.gen.test` 的 bounded eBPF snapshot 不承诺 ptrace 大块 hexdump，以及 `mount_setattr.gen.test` 的 event-sourced FD/cwd 初始状态未知，没有新增 XPASS。
+
+#### Review 结论
+
+- 未发现运行时行为回归：exec path capture、argv/envp bounded record、snapshot header、TLV kind/index、payload cursor、截断/probe error 和 execve/execveat 参数来源与拆分前一致；普通 open/read/write capture 没有改变。
+- request struct 只是将原有参数按语义命名并集中传递，没有动态内存、map 写入、额外 tail call、锁、goroutine、Go 侧 tracee memory read、ptrace 或 procfs fallback；真实 verifier 接受新栈对象和 include 展开。
+- source gate 已覆盖 exec helper 的排他 ownership、facade 组合视图、两个 exit call site 和文件限制；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
+- 本阶段仅修改 payload capture facade、payload emitter 的 exec call site、新增 exec capture header、相关 source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
