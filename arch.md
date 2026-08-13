@@ -7910,3 +7910,44 @@ Impact note：`bpf/strace.c` 仍先 include getevents facade 再 include AIO fac
 - 新 capture/emitter 模块均为编译期 header，不创建 map、ProgArray、tail call、scratch 状态、锁、goroutine 或用户态消费者；没有引入 Go 侧 tracee memory read、ptrace 或 procfs fallback。
 - source gate 已覆盖 facade/capture/emit 三方物理 ownership、include 展开和旧调用复用；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
 - 本阶段仅修改 getevents facade、capture/emit 新 header、AIO source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.190 拆分 mount query capture 与 emitter ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_mount_query_direct_event_v2.h` 原为 391 行，同时拥有 mount query 常量和 selector、`mnt_id_req` 入参快照、`statmount`/`listmount` 出参快照，以及 exit ringbuf event emitter。
+- Problem：mount query 的 probe-site 用户内存读取与 ringbuf reservation、event header/body、submit/discard 物理混合；修改 `statmount` 的 bounded string snapshot 时容易误触 `listmount` emitter 和 payload capacity。
+- Goal：保留 facade 的常量、selector 和 payload capacity policy；新增 capture header 独占 `mnt_id_req/statmount/listmount` TLV capture；新增 emit header 独占 mount query exit event emission，保持 ABI、调用图和 bounded copy 语义不变。
+- Non-goals：不改变 `statmount/listmount` selector、arg index、TLV kind/direction、`mnt_id_req` 24/32-byte base、extension 256-byte 上限、statmount fixed/string 512/4096-byte 上限、listmount 32-ID 上限、truncation/probe/copy error、pending/lifecycle/routing/ProgArray/attach、Go decoder/formatter，也不引入 ptrace、procfs 或 Go 侧 tracee memory read。
+- Constraints：先用失败优先 source gate 固定 capture/emit ownership，再通过真实 clang/verifier、Go 全量/race/vet、semantic/perf、small 和 upstream reference；三个生产 header 和测试文件继续满足仓库行数及函数限制。
+
+Impact note：`bpf/syscall_fs_direct_event_v2.h` 仍通过 facade 暴露 mount query capture/emit；`mount_query_dispatch.h` 的 `exit_mount_query`、pending consume 和 tail-call routing 不变。改动只改变编译期 header ownership 和 include 展开，不改变事件 ABI 或运行时状态。
+
+#### 方案比较
+
+1. 保留 391 行单文件并补充注释：运行时改动最小，但用户内存快照与事件 emission 仍耦合，无法表达 mount query 的真实 ownership，拒绝。
+2. 只拆出 exit emitter：能隔离 ringbuf reservation，但三类 probe-site snapshot 仍混在 facade，capture 边界不完整，拒绝。
+3. 保留 facade 的常量/selector/capacity policy，同时拆出 capture 和 emit 两个 header：边界完整、include 层变化局部、调用图和 ABI 不变，选择该方案。
+
+#### 状态契约
+
+- `syscall_mount_query_direct_event_v2.h` 只拥有 `MNT_ID_REQ_*`、`STATMOUNT_*`、`LISTMOUNT_*` 常量、三个 payload capacity、`is_mount_query_direct_syscall`，并按顺序 include capture 与 emit 模块；它不拥有用户内存读取或 ringbuf event body。
+- `syscall_mount_query_capture_direct_event_v2.h` 拥有 `mnt_id_req` size/base/extension/enter TLV、`statmount` size/fixed/strings/exit TLV 和 `listmount` IDs TLV。`mnt_id_req` 继续在 enter probe 读取 arg0；`statmount` 继续在 exit 从 pending arg1/arg2 读取 result buffer 和 size；`listmount` 继续从 pending arg1/arg2 和返回值计算 ID 数组长度。
+- bounded copy、TLV 顺序、arg index、direction flag、user length/copied length、probe error、短复制 truncation 和 ringbuf copy error 统计与拆分前一致；所有用户内存仍在 BPF 对应事件时点立即 bounded copy，不把用户指针交给 Go。
+- `syscall_mount_query_emit_direct_event_v2.h` 只拥有 `emit_mount_query_exit_event_v2_direct`，继续根据 syscall 选择 statmount/listmount capacity，负责 reservation、flags、event header/body 初始化和 submit/discard；capture header 不创建 map、ProgArray、tail call、锁或消费者。
+
+#### 测试与验收
+
+- 失败优先 gate 首次按预期失败：`bpf/syscall_mount_query_capture_direct_event_v2.h` 和 emit header 尚不存在。实现后新增 `TestBPFMountQueryHasDedicatedCaptureAndEmitOwnership`，检查 facade include、capture/emit helper 排他 ownership 和文件行数；既有 mount query source gate 同步验证 facade/provider/dispatch 组合视图。
+- `sudo -n ./build.sh` 通过，clang 生成和真实 BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check` 全部通过。
+- `syscall_mount_query_direct_event_v2.h` 从 391 行降为 30 行，capture header 为 322 行，emit header 为 50 行；focused mount query source tests 通过，所有生产文件和测试文件满足仓库行数限制。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0，普通 attach orphan 1 仍为预期诊断；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `341.70 ns/op、0 B/op、0 allocs/op`，JSON writer `488.60 ns/op、0 B/op、0 allocs/op`，decoded writer `607.50 ns/op、0 B/op、0 allocs/op`，decoded payload writer `841.70 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `434.24/284.11/2.40/227.41 events/s`，所有运行时错误计数为 0。
+- 原生参考通过：sudo `small` 为 `23 PASS / 0 FAIL`；sudo `upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`。`statmount.gen.test`、`listmount.gen.test`、AIO、iovec/message 和其他参考项均通过；两个 XFAIL 仍是 `read-write.gen.test` 的 bounded eBPF snapshot 不承诺 ptrace 大块 hexdump，以及 `mount_setattr.gen.test` 的 event-sourced FD/cwd 初始状态未知，没有新增 XPASS。
+
+#### Review 结论
+
+- 未发现运行时行为回归：`mnt_id_req` 的 size/base/extension 顺序、statmount fixed/string 快照、listmount 返回 ID 数量、payload capacity、flags、probe/truncation/copy error 和 exit event 初始化与拆分前一致；filesystem facade、mount query dispatch、generic exit 和 tail-call routing 未改变。
+- 新 capture/emitter 模块均为编译期 header，不创建 map、ProgArray、tail call、scratch 状态、锁、goroutine 或用户态消费者；没有引入 Go 侧 tracee memory read、ptrace 或 procfs fallback。
+- source gate 已覆盖 facade/provider、capture/emit 排他 ownership、dispatch 复用和文件限制；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
+- 本阶段仅修改 mount query facade、新增 capture/emit header、相关 source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
