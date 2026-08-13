@@ -7657,3 +7657,45 @@ Impact note：这是 BPF 编译期 ownership 与函数接口重构；`syscall_bp
 - `syscall_bpf_nested_direct_event_v2.h` 从 452 行降为 306 行，新 capture header 为 164 行，kprobe-multi header 为 183 行；所有函数参数满足仓库限制。
 - source gate 已覆盖物理 ownership 与组合行为视图；最终 semantic/perf、small、119 项 upstream reference 未观察到 BPF nested payload、事件数量、配对或输出回归。
 - 本阶段仅修改 nested BPF header、capture source gate 和本记录；14.184 的 attach 初始化同步与 teardown orphan 分类作为独立提交处理，`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.184 修复 attach 初始化与 teardown orphan 竞态（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：non-leader attach semantic fixture 在 tracer readiness 前持续执行 `getpid`；filter map 写入与一个正在运行的 syscall 可能跨越 attach 边界。另一方面，`sched_process_exit` 已会先写 `attach_exited_map` 再清理 TID lifecycle state。
+- Problem：fixture 偶发出现 `enter/exit` 数量完全相等但 `orphan_exit=1`：enter 发生在 filter map 建立前、exit 发生在建立后，测试把 attach 初始化窗口误当成真实 unmatched syscall。已有 unmatched 分类也没有利用 attach exit fact 过滤 teardown 尾部 raw exit。
+- Goal：让 non-leader attach fixture 在 filter ready 后才开始 syscall workload；让已确认退出的 attach TID 的后续 unmatched edge 不再计入 orphan，同时保留普通 attach 初始化 orphan 诊断和真实运行中 unmatched exit 检测。
+- Non-goals：不放宽正常 orphan 统计、不增加 retry/忽略逻辑、不改变 attach API、生命周期事件 ABI、pending lookup/consume、Go reader、map layout、ProgArray、payload capture、ptrace/procfs policy。
+- Constraints：fixture 必须在 tracer readiness 前不触发被测 syscall；BPF 只复用既有 `attach_exited_map`；先加失败优先 source gate，再做重复 attach fixture、真实 verifier、semantic/perf、small 和 upstream reference。
+
+Impact note：这是测试同步边界和既有生命周期事实消费修复；不新增运行时状态。普通 attach fixture 仍以 `orphan_exit>0` 验证 attach 初始窗口的诊断能力，non-leader fixture 只在 ready 后启动固定 1000 次 `getpid`。
+
+#### 方案比较
+
+1. 在 semantic suite 重试或放宽 non-leader orphan：能隐藏失败但会掩盖 attach 边界竞态，拒绝。
+2. 新增 attach-ready BPF map/握手协议：可以提供更强同步，但增加 ABI、loader/map 生命周期和新的状态一致性问题，拒绝。
+3. fixture ready 后只做用户态等待，收到现有信号后执行有限 syscall 序列；BPF unmatched classifier消费既有 attach exit fact：不改变生产 ABI，选择该方案。
+
+#### 状态契约
+
+- `mark_attach_task_exited` 已在 `clear_lifecycle_task_state(pid, tid)` 之前写入 `attach_exited_map[tid]=1`；`pending_state.h` 的 `record_unmatched_exit_if_needed` 在生命周期 tracked gate 后读取该事实，已退出 TID 的 late raw edge直接归类为 teardown。
+- `attach_exited_map` 的 key/value、Go 端 `IsExited` reader、add/delete attach root 流程、生命周期 event emission 和 pending map 删除顺序不变；本阶段没有新增 map、字段、attach、tail call 或消费者。
+- `ebpf_attach_thread_fixture.c` 的 ready 输出后只在用户态自旋；`SIGUSR1` 将 start 标记置位，worker 随后执行 1000 次 `SYS_getpid`，主线程 join 后正常结束。
+- 普通 `ebpf_attach_fixture.c` 仍在 tracer 建立前进入阻塞 read，用于保留跨 attach 初始化边界的 orphan diagnostic；因此两个 fixture 的 orphan 契约不同且是有意的。
+
+#### 测试与验收
+
+- 失败优先 source gate 首次按预期失败：`pending_state.h` 没有 `attach_exited_map` guard；实现后 `TestBPFOrphanExitIgnoresAttachTeardownAfterExitFact` 通过，并保留 expected lifecycle return、pending identity、attach exit ordering gates。
+- 修复前独立 non-leader fixture 5 次 orphan 分布为 `[0,0,1,1,0]`，失败样本中 getpid enter/exit 始终成对，额外 orphan 来自 attach filter 建立窗口；修复后 5 次均为 `orphan=0`，每次 `1001/1001` 配对。
+- `sudo -n ./build.sh` 通过，真实 BPF verifier 接受既有 map 的新读取；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check` 全部通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，生命周期 6；普通 attach orphan `1`，non-leader attach `1001/1001` 且 orphan `0`；signalfd 16、sockopt 8、thread 22、mount-query/path 4/4、dirent 8、mmsg 16、fcntl 6、write-only 6；ringbuf/pending/mismatch/lifecycle 错误计数均为 0。
+- `ebpf-perf` 通过：Go decode `341.60 ns/op、0 B/op、0 allocs/op`，JSON writer `487.60 ns/op、0 B/op、0 allocs/op`，decoded writer `599.50 ns/op、0 B/op、0 allocs/op`，decoded payload writer `846.80 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads `427.75/285.03/2.34/222.93 events/s`，全部运行时错误计数为 0。
+- 原生参考通过：sudo `small` 为 `23 PASS / 0 FAIL`；sudo `upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`，XFAIL 仍只有 bounded read/write snapshot 和 event-sourced mount_setattr FD/cwd 状态。
+
+#### Review 结论
+
+- 生产修复只增加一个对既有 `attach_exited_map` 的只读判断，未改变 pending 消费、正常 syscall enter/exit 配对或普通 attach orphan diagnostic；没有新的 map pressure、锁、goroutine、Go 侧内存读取、ptrace 或 procfs fallback。
+- fixture 修复消除了测试自身的跨 attach syscall race，而不是通过重试掩盖；`1001/1001` 结果证明 ready 后的 workload 是确定性可配对的。
+- `pending_state.h` 为 121 行，fixture 为 56 行；新增 source test 函数和 BPF helper 均满足参数/函数/文件限制。注释仅说明 attach teardown 与 fixture 同步的关键原因。
+- semantic/perf、small 与 119 项 upstream reference 未观察到输出、事件数量、生命周期、性能或兼容性回归；两个 upstream XFAIL 与之前一致。
+- 本阶段仅修改 `bpf/pending_state.h`、pending source gate、non-leader fixture 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

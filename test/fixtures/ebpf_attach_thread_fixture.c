@@ -6,12 +6,12 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
-static volatile sig_atomic_t release_thread;
+static volatile sig_atomic_t start_thread;
 
 static void release_thread_handler(int signal_number)
 {
 	(void) signal_number;
-	release_thread = 1;
+	start_thread = 1;
 }
 
 static void *run_thread(void *unused)
@@ -19,7 +19,10 @@ static void *run_thread(void *unused)
 	(void) unused;
 	printf("attach-thread-ready %ld\n", syscall(SYS_gettid));
 	fflush(stdout);
-	while (!release_thread) {
+	while (!start_thread) {
+		/* Keep the pre-attach wait in user space so no syscall crosses setup. */
+	}
+	for (int i = 0; i < 1000; i++) {
 		if (syscall(SYS_getpid) <= 0) {
 			return (void *) 1;
 		}

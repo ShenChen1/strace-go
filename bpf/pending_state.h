@@ -34,6 +34,11 @@ static __always_inline void record_unmatched_exit_if_needed(u32 pid, u32 tid, u3
 {
     if (!is_lifecycle_task_tracked(pid, tid)) return;
 
+    // sched_process_exit can race the final raw syscall exit. Once lifecycle
+    // has recorded the attach exit fact, classify that late edge as teardown.
+    u32 *attach_exited = bpf_map_lookup_elem(&attach_exited_map, &tid);
+    if (attach_exited && *attach_exited != 0) return;
+
     u32 cfg_key = 0;
     u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);
     if (!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)) {

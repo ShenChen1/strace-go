@@ -123,6 +123,20 @@ func TestBPFOrphanExitIgnoresExpectedLifecycleReturns(t *testing.T) {
 	}
 }
 
+func TestBPFOrphanExitIgnoresAttachTeardownAfterExitFact(t *testing.T) {
+	root := repoRootForTest(t)
+	unmatched := readTextFile(t, filepath.Join(root, "bpf/pending_state.h"))
+	guard := "bpf_map_lookup_elem(&attach_exited_map, &tid)"
+	if !strings.Contains(unmatched, guard) {
+		t.Fatalf("unmatched exit helper must consult attach exit fact %q", guard)
+	}
+	guardIndex := strings.Index(unmatched, guard)
+	orphanIndex := strings.Index(unmatched, "record_orphan_exit();")
+	if guardIndex < 0 || orphanIndex < 0 || guardIndex > orphanIndex {
+		t.Fatalf("attach teardown guard must precede orphan accounting: guard=%d orphan=%d", guardIndex, orphanIndex)
+	}
+}
+
 func TestBPFPendingExitIdentityIsValidatedAndCleaned(t *testing.T) {
 	src := loadBPFSources(t)
 	if !strings.Contains(src.straceSource, "u64 pending_mismatch;") {
