@@ -7002,3 +7002,48 @@ Impact note：影响 `bpf/strace.c` 的 recvmsg final kretprobe 和 runtime sour
 - `trace_kretprobe_recvmsg_final` 在 pending lookup 前读取一次 `pid_tgid`，从同一快照派生 `tid` 和 `pid`；没有新增 map、scratch 状态、锁、消费者、ptrace、procfs 或用户态 tracee 内存读取。
 - recvmsg dispatch/name/control 的 tail-call 链、pending key、duration helper、fragment 字段、最终 event 提交和 cleanup/consume 顺序均未改变；本次修改只收口身份读取契约。
 - source gate 只约束稳定的 BPF 源码契约，不把人类文本输出作为 eBPF 主 oracle；既有 semantic/perf/upstream 结果覆盖行为和回归风险。
+
+### 14.170 收口 tail-call 缺槽 fallback ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：14.167 已为四个 ProgArray 建立可注入的 Go `Put` 端口，可以验证 handler 缺槽在 attach 前被拒绝；14.164 的 exit dispatcher 已有独立 `emit_exit_dispatch_fallback`，但 `trace_sys_enter` 仍把 stack、no-payload enter 和 pending save 直接内联在 `bpf_tail_call` 之后。现有 BPF source gate 只覆盖 recvmmsg final fallback，未把 raw enter/exit 的异常 ownership 顺序统一锁定。
+- Problem：缺槽是 tail-call 架构的异常边界。若 fallback 逻辑继续散落在 dispatcher，后续修改容易在“先发事件/先保存 pending/是否采集 stack”上产生漂移；仅测试 ProgArray 装载不能证明运行时 `bpf_tail_call` 返回后的 resolver、emit 和 consume 契约。
+- Goal：提取 `emit_enter_dispatch_fallback`，让 raw enter dispatcher 在 tail-call 返回后只调用一个异常 helper；新增 source gate 验证 enter fallback 的 stack/emit/save 顺序、exit fallback 的 lookup/validate/emit/consume 顺序，并继续复用 14.167 的可注入 ProgArray 缺槽测试。
+- Non-goals：不改变正常 tail-call 路径、syscall filter、enter_time、pending ABI、event v2/TLV、stack ID、exit resolver、recvmsg/mmsg 链、Go 状态机、CLI、性能 workload 或输出格式；不增加 runtime fault-injection 开关、统计 map、锁、第二消费者、ptrace、procfs 或用户态 tracee 内存读取。
+- Constraints：enter fallback helper 必须只存在于异常路径；必须在 helper 内从既有 ctx 派生 raw syscall id，保持当前 `enter_time` 和 `(pid, tid)` 快照；enter 必须先 emit base event 再 save pending，exit fallback 必须先 lookup/validate 再 emit/consume；参数和文件限制不变。
+
+Impact note：影响 `bpf/enter_dispatch.h`、`bpf/strace.c` 的 fallback 调用和 Go BPF source tests；正常 handler、ProgArray index、event ABI 与用户态 pipeline 不变。
+
+#### 方案比较
+
+1. 保留 enter fallback 内联：运行时行为无需改动，但异常 ownership 仍和 exit 不对称，source gate 难以精确复用，拒绝。
+2. 为运行时加入 fault-injection 配置并在测试中主动删 ProgArray 槽：能做内核级注入，但把测试控制面带入生产配置和热路径，增加状态清理风险，拒绝。
+3. 提取 enter 异常 helper，并用 source gate 绑定两侧顺序；缺槽装载继续由 `progArrayWriter` fake 注入：生产面最小、测试确定，选择该方案。
+
+#### 状态契约
+
+- `trace_sys_enter` 只负责过滤、计算 handler index、tail-call；tail-call 返回后调用 `emit_enter_dispatch_fallback`，由 helper 发 bounded no-payload enter 并保存 pending。
+- enter fallback 使用 dispatcher 已获取的 `pid`、`tid`、`cfg`、`enter_time`，只从 ctx 读取 raw `sys_id`；不重新查询 filter、任务身份或 pending。
+- `emit_exit_dispatch_fallback` 继续是唯一的 exit 异常 resolver/validator/consumer；正常 exit handler 不调用它，recvmmsg 自己的 fragment fallback 保持现状。
+- ProgArray 缺槽的 Go fake 仍在 attach 边界拒绝 nil handler；source gate 不伪造内核执行结果，只固定真实 BPF 源码的异常路径顺序。
+
+#### 测试与验收
+
+- 先增加失败优先 source tests：要求 enter dispatcher 调用 fallback helper、helper 内按 stack/emit/save 顺序执行，且 dispatcher 不再内联 fallback；要求 exit fallback 按 lookup/validate/emit/consume 顺序执行。
+- 实现后运行 focused tail-call/source tests、`sudo -n ./build.sh`、Go 全量/race/vet/build/diff；再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和完整 upstream reference，确认正常路径统计与输出不变。
+- review 必须确认 helper 只在 `bpf_tail_call` 返回后可达，正常 handler ownership、pending cleanup 和 ProgArray 装载顺序未改变；继续检查产品路径无 ptrace/procfs。
+
+#### 实际验收记录
+
+- 失败优先 source test 先按预期失败：定义尚未提取时 enter dispatcher 缺少 `emit_enter_dispatch_fallback`；修正测试只读取 helper 定义文件后，exit fallback 顺序断言通过，enter 断言继续因实现缺失失败。实现后 focused tail-call、recvmsg/mmsg fallback source tests 全部通过。
+- `sudo -n ./build.sh` 通过，BPF 对象重新生成并由真实 verifier 加载；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o strace-go ./cmd/strace-go` 和 `git diff --check` 通过。
+- `ebpf-semantic` 首轮在非 leader attach workload 观察到 `641/641` 配对但 `orphan_exit=1`；无残留 tracer/BPF link 后完整重跑通过，非 leader 为 `701/701`、`orphan_exit=0`。最终主 fixture 为 205 个事件、104/101 enter/exit、6 个 lifecycle，ringbuf/pending/mismatch/lifecycle 错误均为 0。
+- `ebpf-perf` 通过：Go decode `287.40 ns/op、0 B/op、0 allocs/op`，JSON event `499.00 ns/op、0 B/op、0 allocs/op`，decoded payload `922.20 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `403.27/279.63/2.25/216.04 events/s`，所有 runtime error counter 和 `pending_stale` 均为 0。
+- `small` 通过：23 PASS；完整 `upstream-reference` 为 117 PASS、2 个既定 XFAIL、0 FAIL、0 XPASS。XFAIL 仍为有界 read/write 快照和 event-sourced FD/cwd 初始状态，不是本阶段新增。
+
+#### Review
+
+- `trace_sys_enter` 在 `bpf_tail_call` 返回后只调用 `emit_enter_dispatch_fallback`；helper 使用 dispatcher 已取得的 `pid`、`tid`、`cfg`、`enter_time`，从 ctx 读取 raw `sys_id`，按 stack capture、base enter emit、pending save 顺序执行。正常 tail-call 成功时不会返回到该 helper。
+- `emit_exit_dispatch_fallback` 未改变，仍独占缺槽 exit 的 pending lookup、syscall identity validate、bounded no-payload exit emit 和 pending consume；正常 `EXIT_PROLOGUE` handler 不调用它。14.167 的 fake writer 继续覆盖 attach 前 nil handler 注入与停止写入契约。
+- 本阶段没有新增 map、配置开关、统计热路径、scratch 状态、锁、消费者、ptrace、procfs 或用户态 tracee 内存读取；ProgArray index、pending/event ABI、Go 状态机、recvmsg/mmsg 链和正常路径 payload capture 均未改变。

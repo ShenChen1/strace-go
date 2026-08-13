@@ -74,6 +74,23 @@ enum enter_prog_index {
         stack_id = bpf_get_stackid((void *)(ctx), &stack_traces, BPF_F_USER_STACK); \
     }
 
+// Tail-call failure owns the bounded event and pending state outside the dispatcher.
+static __always_inline void emit_enter_dispatch_fallback(
+    struct trace_event_raw_sys_enter *ctx,
+    u32 pid,
+    u32 tid,
+    u32 *cfg,
+    u64 enter_time)
+{
+    u32 sys_id = (u32)ctx->id;
+    volatile s32 stack_id = -1;
+    if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
+        stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
+    }
+    emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
+    save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+}
+
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_terminating(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);

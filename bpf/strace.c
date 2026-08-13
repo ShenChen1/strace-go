@@ -159,14 +159,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     }
 
     bpf_tail_call(ctx, &enter_progs, index);
-
-    // tail call fallback: keep the syscall observable even if a handler slot is missing.
-    volatile s32 stack_id = -1;
-    if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
-        stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
-    }
-    emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
-    save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+    emit_enter_dispatch_fallback(ctx, pid, tid, cfg, enter_time);
     return 0;
 }
 
