@@ -6427,3 +6427,37 @@ review 确认运行期仍无 ptrace、procfs、process memory read、pidfd 或�
 已完成。先运行完整 `more` 诊断 suite，83 个可用测试得到 80 PASS、3 个预期 XFAIL、0 FAIL/XPASS；随后将其中 77 个当前子模块中存在且稳定通过的测试显式加入 reference，并用 Python unit test 锁定列表去重和 XFAIL 排除契约。`python3 -m unittest run_tests_unit.py` 的 8 项、`go test ./...` 和 `git diff --check` 均通过。
 
 扩容后的 `python3 test/run_tests.py --suite upstream-reference --skip-build` 运行 119 个测试，结果为 117 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL、0 XPASS。reference 仍是 exact-diff 诊断参考，不改变 `ebpf-semantic`/`ebpf-perf` 主门禁，也没有把 `strace-C.test` 或 `attach-p-cmd.test` 误提升为稳定契约。
+
+### 14.156 让 BTF 主来源按需使用 tracepoint fallback（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：syscall metadata loader 已使用 `x/sys/unix` 提供 ABI ID，使用 BTF `trace_event_raw_sys_enter_*`/kernel function 提供签名，并保留 tracepoint `format` 作为生成阶段 fallback；但当前 loader 在每次生成时都会请求全部 syscall 的 tracepoint format。
+- Problem：当 BTF 已完整覆盖目标 syscall、而 tracefs/debugfs 不可读时，生成仍会失败；这把可选的 fallback 元数据源错误地提升为 BTF 主路径的硬依赖，也增加了生成阶段权限和环境耦合。`--audit-tracepoint-overrides` 仍可显式要求访问 tracepoint，不改变审计命令契约。
+- Goal：只有 semantic override 不接管且 BTF exact/alias arity 不匹配的 syscall 才请求 tracepoint metadata；如果没有候选 syscall，则完全不调用 tracepoint source。保留 tracepoint exact arity 的最终 fallback 和现有 resolution reason。
+- Non-goals：不改变 `x/sys/unix` ID 来源、BTF struct/function 优先级、semantic catalog、strace-facing override、dummy metadata、tracepoint parser 格式或运行期 eBPF 事件 ABI；不删除 tracepoint fallback，也不改变显式 tracepoint audit。
+- Constraints：候选列表必须稳定排序、包含所需 BTF alias；semantic override 必须继续跳过 tracepoint；loader 函数参数保持不超过 5 个；不得引入缓存、全局状态、锁、goroutine 或对 tracee/procfs 的访问。
+
+Impact note：影响 `cmd/generate-syscalls/loader.go` 的 tracepoint 请求边界和 generator loader tests；最终 `SyscallMeta` 的 source priority 仅在候选 syscall 上变化，生成表和 BPF ABI 在现有内核元数据完整时应保持不变。
+
+方案比较：
+
+1. 继续无条件加载全部 tracepoint format：实现最简单，但 BTF 完整时仍依赖 tracefs 权限，拒绝。
+2. 删除 tracepoint fallback，只使用 BTF：主路径最纯，但旧内核/不完整 BTF 无法生成，破坏既定 fallback 契约，拒绝。
+3. 根据 BTF/override 的可解析性懒加载 tracepoint，并对空候选跳过调用：保留兼容边界、减少环境依赖且改动局部，选择该方案。
+
+测试与验收：
+
+- 先增加失败优先测试：BTF exact metadata 配合返回错误的 tracepoint source 必须成功；BTF arity mismatch 时仍必须请求 tracepoint；alias 和 semantic override 的候选边界必须可观察。
+- 实现后运行 generator focused tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build 和 `git diff --check`；再用 sudo 运行生成/纯 eBPF semantic、perf、small 与 upstream-reference 验证生成物及运行时无回归。
+- review 检查生产生成路径不再把 tracepoint root 当作 BTF 完整时的硬依赖，且未新增 ptrace、procfs、process memory read、第二事件消费者、锁或 goroutine。
+
+#### 实际验收记录
+
+已完成。先按失败优先增加 loader 测试：BTF exact metadata 在 tracepoint source 报错时不再失败；BTF arity 不匹配时仍请求 canonical/alias tracepoint；semantic override 不进入 fallback 请求。实现后 `go test ./cmd/generate-syscalls`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14156 ./cmd/strace-go` 和 `git diff --check` 均通过。
+
+使用 `sudo -n go run ./cmd/generate-syscalls --output /tmp/strace-go-phase-14156-syscall_table.go` 验证真实生成链：生成表与 `pkg/meta/syscall_table.go` 字节一致，`syscall_numbers_generated.h` 无变化；resolution 分布为 BTF 90、tracepoint 253、semantic override 20、dummy 17。非 root 下 tracefs 权限不足不再影响 BTF 已完整覆盖的候选，但本机仍有 253 个真正需要 tracepoint fallback 的 syscall，符合按需依赖契约。
+
+真实运行时验证：`ebpf-semantic` 通过（205 主事件、104/101 enter/exit、6 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0）；`ebpf-perf` 通过（Go decode 310.90 ns/op、raw JSON 518.80 ns/op、decoded payload 840.10 ns/op，16 B/1 alloc，四组 workload 错误计数与 pending-stale 均为 0）；原生 `small` 为 23 PASS、0 FAIL。`upstream-reference` 长跑得到 116 PASS、2 XFAIL、1 个间歇性 `sockopt-sol_socket-Xabbrev.gen.test` FAIL；该用例随后单独连续 3 次 PASS，差异仅为尾部重复 getsockopt 事件缺失，未将其加入 XFAIL，保留为既有异步尾部 drain 风险观察项。
+
+review 确认 `tracepointFallbackNames` 只过滤 semantic override 和 BTF exact/alias exact，返回值经过既有稳定排序与 alias 扩展；resolver 的 BTF -> alias BTF -> tracepoint -> dummy 优先级未改变。改动未引入 ptrace、procfs、process memory read、锁、goroutine 或第二事件消费者。

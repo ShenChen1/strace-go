@@ -150,29 +150,41 @@ func (l syscallMetadataLoader) LoadWithResolution() (map[int]syscallMetadataReso
 	if err != nil {
 		return nil, err
 	}
-	tracepoint := map[string]SyscallMeta{}
-	if l.tracepointSource != nil {
-		names := make([]string, 0, len(entries))
-		for _, ent := range entries {
-			names = append(names, ent.Name)
-		}
-		names = tracepointLookupNames(names, l.aliases)
-		tracepoint, err = l.tracepointSource.LoadTracepointSyscalls(names)
-		if err != nil {
-			return nil, err
-		}
-	}
 	resolver := syscallMetadataResolver{
 		btf:               btf,
-		tracepoint:        tracepoint,
 		semanticOverrides: l.semanticOverrides,
 		aliases:           l.aliases,
 	}
+	tracepoint := map[string]SyscallMeta{}
+	if l.tracepointSource != nil {
+		names := tracepointFallbackNames(entries, resolver)
+		if len(names) > 0 {
+			tracepoint, err = l.tracepointSource.LoadTracepointSyscalls(names)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	resolver.tracepoint = tracepoint
 	res := make(map[int]syscallMetadataResolution, len(entries))
 	for _, ent := range entries {
 		res[ent.ID] = resolver.Resolve(ent)
 	}
 	return res, nil
+}
+
+func tracepointFallbackNames(entries []syscallentEntry, resolver syscallMetadataResolver) []string {
+	candidates := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if _, overridden := resolver.semanticOverrides[entry.Name]; overridden {
+			continue
+		}
+		if resolver.hasExactBTF(entry.Name, entry.Argc) {
+			continue
+		}
+		candidates = append(candidates, entry.Name)
+	}
+	return tracepointLookupNames(candidates, resolver.aliases)
 }
 
 func mergeSyscallEntries(numbers []syscallNumberEntry, semanticEntries []syscallentEntry) ([]syscallentEntry, error) {
@@ -233,6 +245,14 @@ func (r syscallMetadataResolver) btfMeta(name string, argc int) (SyscallMeta, bo
 		return SyscallMeta{}, false
 	}
 	return meta, true
+}
+
+func (r syscallMetadataResolver) hasExactBTF(name string, argc int) bool {
+	if _, ok := r.btfMeta(name, argc); ok {
+		return true
+	}
+	_, ok := r.aliasedBTFMeta(name, argc)
+	return ok
 }
 
 func (r syscallMetadataResolver) tracepointMeta(name string, argc int) (SyscallMeta, bool) {

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -207,6 +208,99 @@ func TestSyscallMetadataLoaderReportsSourceErrors(t *testing.T) {
 	if _, err := loader.Load(); !errors.Is(err, entryErr) {
 		t.Fatalf("Load() entry error = %v, want %v", err, entryErr)
 	}
+}
+
+func TestSyscallMetadataLoaderDoesNotRequireTracepointForExactBTF(t *testing.T) {
+	loader := syscallMetadataLoader{
+		btfSource: fakeBTFSource{syscalls: map[string]SyscallMeta{
+			"read": {Name: "read", Args: []string{"fd"}, ArgTypes: []string{"unsigned int"}},
+		}},
+		tracepointSource: failingTracepointSource{err: errors.New("tracepoint root unavailable")},
+		numberSource:     fakeSyscallNumberSource{numbers: []syscallNumberEntry{{ID: 0, Name: "read"}}},
+		semanticSource: fakeEntrySource{entries: []syscallentEntry{
+			{Name: "read", Argc: 1, Flags: "TD"},
+		}},
+		semanticOverrides: map[string]SyscallMeta{},
+		aliases:           map[string]string{},
+	}
+
+	got, err := loader.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v, want BTF-only resolution to succeed", err)
+	}
+	assertMeta(t, got[0], SyscallMeta{
+		Name: "read", Args: []string{"fd"}, ArgTypes: []string{"unsigned int"}, Flags: "TD",
+	})
+}
+
+func TestSyscallMetadataLoaderRequestsTracepointOnlyForFallbackEntries(t *testing.T) {
+	requested := make([]string, 0)
+	loader := syscallMetadataLoader{
+		btfSource: fakeBTFSource{syscalls: map[string]SyscallMeta{
+			"read": {Name: "read", Args: []string{"fd"}, ArgTypes: []string{"unsigned int"}},
+		}},
+		tracepointSource: fakeTracepointSyscallSource{
+			syscalls: map[string]SyscallMeta{
+				"close": {Name: "close", Args: []string{"fd"}, ArgTypes: []string{"unsigned int"}},
+			},
+			requested: &requested,
+		},
+		numberSource: fakeSyscallNumberSource{numbers: []syscallNumberEntry{
+			{ID: 0, Name: "read"}, {ID: 3, Name: "close"}, {ID: 4, Name: "stat"},
+		}},
+		semanticSource: fakeEntrySource{entries: []syscallentEntry{
+			{Name: "read", Argc: 1, Flags: "TD"},
+			{Name: "close", Argc: 1, Flags: "TD"},
+			{Name: "stat", Argc: 2, Flags: "TF"},
+		}},
+		semanticOverrides: map[string]SyscallMeta{
+			"stat": {Name: "stat", Args: []string{"path", "buf"}, ArgTypes: []string{"const char *", "struct stat *"}},
+		},
+		aliases: map[string]string{},
+	}
+
+	if _, err := loader.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	sort.Strings(requested)
+	if !reflect.DeepEqual(requested, []string{"close"}) {
+		t.Fatalf("tracepoint requests = %v, want only unresolved close", requested)
+	}
+}
+
+func TestSyscallMetadataLoaderRequestsTracepointAliasesForFallback(t *testing.T) {
+	requested := make([]string, 0)
+	loader := syscallMetadataLoader{
+		btfSource: fakeBTFSource{syscalls: map[string]SyscallMeta{}},
+		tracepointSource: fakeTracepointSyscallSource{
+			syscalls: map[string]SyscallMeta{
+				"mmap": {Name: "mmap", Args: []string{"addr", "len", "prot", "flags", "fd", "off"}, ArgTypes: []string{"long", "long", "long", "long", "long", "long"}},
+			},
+			requested: &requested,
+		},
+		numberSource: fakeSyscallNumberSource{numbers: []syscallNumberEntry{{ID: 9, Name: "mmap"}}},
+		semanticSource: fakeEntrySource{entries: []syscallentEntry{
+			{Name: "mmap", Argc: 6, Flags: "TM"},
+		}},
+		semanticOverrides: map[string]SyscallMeta{},
+		aliases:           map[string]string{"mmap_pgoff": "mmap"},
+	}
+
+	if _, err := loader.Load(); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	sort.Strings(requested)
+	if !reflect.DeepEqual(requested, []string{"mmap", "mmap_pgoff"}) {
+		t.Fatalf("tracepoint requests = %v, want canonical and alias", requested)
+	}
+}
+
+type failingTracepointSource struct {
+	err error
+}
+
+func (s failingTracepointSource) LoadTracepointSyscalls([]string) (map[string]SyscallMeta, error) {
+	return nil, s.err
 }
 
 func assertMeta(t *testing.T, got SyscallMeta, want SyscallMeta) {
