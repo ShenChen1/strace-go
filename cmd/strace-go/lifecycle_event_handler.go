@@ -1,9 +1,5 @@
 package main
 
-import (
-	"fmt"
-)
-
 type LifecycleEventHandler struct {
 	policy  traceLifecyclePolicy
 	effects LifecycleEffects
@@ -23,20 +19,20 @@ type LifecycleEffects interface {
 }
 
 type traceSessionLifecycleEffects struct {
-	fdState       fdLifecycleUpdatePort
-	jsonWriter    jsonEventWriter
-	writeExitText func(tid int, exitCode uint64)
+	fdState    fdLifecycleUpdatePort
+	jsonWriter jsonEventWriter
+	exitText   traceLifecycleExitTextPort
 }
 
 func newTraceSessionLifecycleEffects(
 	fdState fdLifecycleUpdatePort,
 	jsonWriter jsonEventWriter,
-	writeExitText func(tid int, exitCode uint64),
+	exitText traceLifecycleExitTextPort,
 ) *traceSessionLifecycleEffects {
 	return &traceSessionLifecycleEffects{
-		fdState:       fdState,
-		jsonWriter:    jsonWriter,
-		writeExitText: writeExitText,
+		fdState:    fdState,
+		jsonWriter: jsonWriter,
+		exitText:   exitText,
 	}
 }
 
@@ -65,8 +61,8 @@ func (e *traceSessionLifecycleEffects) WriteJSON(view lifecycleEventView, task *
 }
 
 func (e *traceSessionLifecycleEffects) WriteExitText(tid int, exitCode uint64) {
-	if e.writeExitText != nil {
-		e.writeExitText(tid, exitCode)
+	if e.exitText != nil {
+		e.exitText.WriteExitText(tid, exitCode)
 	}
 }
 
@@ -160,26 +156,6 @@ func (h *LifecycleEventHandler) writeLifecycleJSON(view lifecycleEventView, task
 func (h *LifecycleEventHandler) writeExitText(tid int, exitCode uint64) {
 	if h.effects != nil {
 		h.effects.WriteExitText(tid, exitCode)
-	}
-}
-
-// writeLifecycleExitText renders the "+++ exited with N +++" line for traced
-// processes whose exit status is not owned by the command wait path (attached
-// pids and follow-fork children). The command tracee's line is emitted by the
-// ExitStatusCoordinator after the ringbuf drain to preserve wait ordering.
-func (s *traceSession) writeLifecycleExitText(tid int, exitCode uint64) {
-	if s == nil || s.components == nil || s.dependencies.OutputPolicy == nil {
-		return
-	}
-	policy := s.dependencies.OutputPolicy
-	if policy.QuietExit() || policy.SummaryOnly() || policy.IsJSON() {
-		return
-	}
-	if s.dependencies.HasCommand && tid == s.dependencies.TargetPID {
-		return
-	}
-	if renderer := s.textRenderer(); renderer != nil {
-		fmt.Fprint(s.dependencies.OutWriter, renderer.ExitStatusLine(tid, exitCode))
 	}
 }
 

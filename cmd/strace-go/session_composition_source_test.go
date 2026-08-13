@@ -88,10 +88,30 @@ func TestSessionCompositionBuildersUseExplicitDependencies(t *testing.T) {
 	if strings.Contains(source[start:], "session.dependencies") {
 		t.Fatal("composition builders still read session.dependencies")
 	}
-	if !strings.Contains(source, "buildTraceSessionComponents(deps, session.writeLifecycleExitText)") {
-		t.Fatal("newTraceSession must pass explicit deps and lifecycle callback")
+	if !strings.Contains(source, "buildTraceSessionComponents(deps)") {
+		t.Fatal("newTraceSession must pass explicit deps to composition")
 	}
 	if !strings.Contains(source, "deps.eventContextDependencies(base.handlerRegistry)") {
 		t.Fatal("composition must build event context dependencies from explicit deps")
+	}
+}
+
+func TestLifecycleExitTextDoesNotCaptureSession(t *testing.T) {
+	root := filepath.Join(repoRootForTest(t), "cmd/strace-go")
+	compositionSource := readTextFile(t, filepath.Join(root, "session_composition.go"))
+	lifecycleSource := readTextFile(t, filepath.Join(root, "lifecycle_event_handler.go"))
+	exitTextSource := readTextFile(t, filepath.Join(root, "lifecycle_exit_text.go"))
+	if strings.Contains(compositionSource, "session.writeLifecycleExitText") {
+		t.Fatal("lifecycle composition still captures the session callback")
+	}
+	if strings.Contains(lifecycleSource, "func (s *traceSession) writeLifecycleExitText") {
+		t.Fatal("lifecycle output still depends on a concrete traceSession")
+	}
+	if !strings.Contains(compositionSource, "newTraceLifecycleExitTextWriter") {
+		t.Fatal("composition must create the lifecycle exit-text writer")
+	}
+	if !strings.Contains(exitTextSource, "type traceLifecycleExitTextPort interface") ||
+		!strings.Contains(lifecycleSource, "exitText   traceLifecycleExitTextPort") {
+		t.Fatal("lifecycle effects must depend on an exit-text port")
 	}
 }

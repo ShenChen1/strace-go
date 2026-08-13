@@ -6278,3 +6278,41 @@ Impact note：影响 `session_composition.go` 的 builder signatures/wiring、`s
 真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `297.70 ns/op、0 B/op、0 allocs/op`，raw JSON `488.00 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `616.50 ns/op、0 B/op、0 allocs/op`，decoded payload `911.90 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
 
 review 确认 `buildTraceSessionBase`、`buildTraceSessionOutputs`、`buildTraceSessionEvents`、`buildTraceSessionRuntime` 和总组合函数均显式接收 `traceSessionDeps`，不再读取 `session.dependencies`；event context projection 由 deps 和本次 graph 的 registry 生成，lifecycle exit callback 仅由 `newTraceSession` 显式绑定。production 仍只有一个 dependency container，未新增 ptrace、`process_vm_readv`、procfs、锁或 goroutine。
+
+### 14.152 消除 lifecycle effects 对 session 的反向 callback（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：14.151 已让 composition builder 显式接收 deps，但 `buildTraceSessionEvents` 仍把 `session.writeLifecycleExitText` 作为 callback 注入 `traceSessionLifecycleEffects`。
+- Problem：component graph 持有 callback，callback 又回到 `traceSession` 读取 component/output 状态，形成 graph -> session callback -> graph 的循环依赖；生命周期效果的真实输出能力不再由自身依赖契约表达。
+- Goal：新增 composition-owned `traceLifecycleExitTextWriter`，以 `traceLifecycleExitTextPort` 向 lifecycle effects 提供退出文本能力；writer 只接收 exit policy、command identity、writer 和 renderer 窄端口，session 不再参与 lifecycle exit text 回调。
+- Non-goals：不改变 lifecycle cleanup/inherit/exec 逻辑、退出文本条件和格式、JSON 输出、output policy snapshot、renderer、事件 ABI、并发模型、性能模型或纯 eBPF/no-procfs/no-ptrace 约束。
+- Constraints：writer 在 composition 阶段只创建一次；不得读取 session、CLI options 或组件 graph；必须保留 quiet/summary/JSON/command-target 抑制语义；不得引入锁、goroutine 或第二个 output owner。
+
+Impact note：影响 `lifecycle_event_handler.go`、session event composition 和 component identity tests；`LifecycleEffects` 的外部行为保持 `WriteExitText(tid, exitCode)` 不变。
+
+方案比较：
+
+1. 保留 session method callback：改动最少，但保留循环依赖和隐藏的 renderer/output lookup，拒绝。
+2. 新建 composition-owned exit-text writer port：能力边界显式、可独立测试、生命周期组件不认识 session，选择该方案。
+3. 将完整 `TraceSession` 或 `traceOutputPolicyOwner` 传给 lifecycle effects：接线简单，但扩大依赖面并恢复 service locator，拒绝。
+
+状态契约：
+
+- `traceLifecycleExitTextWriter` 是一次构造的无状态输出组件，持有 `traceExitPolicy`、`traceExitStatusLinePort` 和 `io.Writer` 窄能力。
+- `traceSessionLifecycleEffects` 只持有 `traceLifecycleExitTextPort`，不再保存 session callback；所有 lifecycle side effect 仍由同一个 event consumer 顺序调用。
+- command tracee、attach target、follow-fork child 的 exit line 抑制条件保持与原实现一致。
+
+测试与验收：
+
+- 先增加失败优先 source gate，禁止 composition 注入 `session.writeLifecycleExitText`，并要求创建 exit-text writer port；新增 writer 的正常输出和抑制分支测试。
+- 实现后运行 focused lifecycle/composition/component tests、Go 全量/race/vet/build、`git diff --check`，再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和 `upstream-reference`。
+- review 检查 lifecycle production code 不再引用 `traceSession`，未新增 ptrace、`process_vm_readv`、procfs、锁或 goroutine。
+
+#### 实际验收记录
+
+已完成。失败优先 source gate/行为测试先因缺少 `traceLifecycleExitTextWriter` port 而失败；实现后 focused lifecycle/composition/component tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase-14152 ./cmd/strace-go` 和 `git diff --check` 均通过。
+
+真实运行时验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个生命周期事件，ringbuf reserve/copy、pending update、orphan、mismatch、lifecycle-map-update 均为 0；`ebpf-perf` 的 Go 管线为 `288.80 ns/op、0 B/op、0 allocs/op`，raw JSON `496.60 ns/op、0 B/op、0 allocs/op`，decoded 无 payload `634.40 ns/op、0 B/op、0 allocs/op`，decoded payload `934.50 ns/op、16 B/op、1 alloc`，scalar/io/lifecycle/threads 的 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 均为 0。原生 `small` 为 23 PASS、0 FAIL；`upstream-reference` 为 46 PASS、2 个既定 XFAIL、0 FAIL/XPASS。
+
+review 确认 lifecycle production code 不再引用 `traceSession`，`traceSessionLifecycleEffects` 只持有 `traceLifecycleExitTextPort`；writer 在 composition 阶段由同一 output policy、command identity、`OutWriter` 和 renderer 构造，保留 quiet/summary/JSON/command-target 抑制条件。未新增 ptrace、`process_vm_readv`、procfs、第二份 output owner、锁或 goroutine。
