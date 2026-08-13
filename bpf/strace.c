@@ -66,8 +66,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     u32 tid = (u32)bpf_get_current_pid_tgid();
     u32 pid = (u32)(bpf_get_current_pid_tgid() >> 32);
 
-    u32 *filter_pid = bpf_map_lookup_elem(&filter_map, &pid);
-    if (!filter_pid) return 0;
+    if (!is_lifecycle_task_tracked(pid, tid)) return 0;
 
     if (is_pre_exec_suppressed_syscall(pid, sys_id)) return 0;
     u32 key = 0;

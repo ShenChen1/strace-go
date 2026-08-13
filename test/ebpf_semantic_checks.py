@@ -234,6 +234,27 @@ def check_attach(context, failures):
     require(capture.stats_events and capture.stats_events[0].get("orphan_exit", 0) > 0, failures, "attach orphan_exit diagnostic missing")
 
 
+def check_attach_thread(context, failures):
+    capture = context.attach_thread
+    require(capture.target_rc == 0, failures, f"non-leader attach fixture rc={capture.target_rc}")
+    require("attach-thread-fixture-ok" in capture.target_stdout, failures, "non-leader attach fixture stdout marker missing")
+    require(capture.result.returncode == 0, failures, f"non-leader attach tracer rc={capture.result.returncode}")
+    require(capture.attach_tid > 0, failures, "non-leader attach TID missing")
+    syscalls = [event for event in capture.events if event.get("syscall") == "getpid"]
+    require(syscalls, failures, "non-leader attach getpid events missing")
+    require(any(event.get("event_type") == "enter" for event in syscalls), failures, "non-leader attach enter event missing")
+    require(any(event.get("event_type") == "exit" for event in syscalls), failures, "non-leader attach exit event missing")
+    require(
+        all(event.get("tid") == capture.attach_tid and event.get("pid") != capture.attach_tid for event in syscalls),
+        failures,
+        "non-leader attach events did not retain exact TID identity",
+    )
+    require(len(capture.stats_events) == 1 and valid_stats_event(capture.stats_events[0]), failures, "non-leader attach stats event missing")
+    stats = capture.stats_events[0] if capture.stats_events else {}
+    for key in ("orphan_exit", "pending_mismatch", "pending_stale"):
+        require(stats.get(key, 1) == 0, failures, f"non-leader attach reported {key}")
+
+
 def matching_sections(events, syscall, event_type):
     sections = []
     for event in events:
@@ -435,6 +456,7 @@ def check_semantic_context(context, failures):
     check_lifecycle(context, failures)
     check_thread(context, failures)
     check_attach(context, failures)
+    check_attach_thread(context, failures)
     check_mount_query(context, failures)
     check_mount_path(context, failures)
     check_dirent(context, failures)

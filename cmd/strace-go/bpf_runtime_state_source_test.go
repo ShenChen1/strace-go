@@ -145,6 +145,20 @@ func TestBPFLifecycleCleanupIsTIDScoped(t *testing.T) {
 	}
 }
 
+func TestBPFSyscallEnterUsesTIDAwareFilter(t *testing.T) {
+	source := loadBPFSources(t).straceSource
+	enterBody, ok := bpfFunctionBody(source, "trace_sys_enter")
+	if !ok {
+		t.Fatal("strace.c missing trace_sys_enter body")
+	}
+	if !strings.Contains(enterBody, "if (!is_lifecycle_task_tracked(pid, tid)) return 0;") {
+		t.Fatal("trace_sys_enter must use the shared PID/TID-aware filter predicate")
+	}
+	if strings.Contains(enterBody, "bpf_map_lookup_elem(&filter_map, &pid)") {
+		t.Fatal("trace_sys_enter must not use a TGID-only filter lookup")
+	}
+}
+
 func TestBPFInitialForkArmIsExecOwned(t *testing.T) {
 	source := readCombinedBPFSources(t)
 	execBody, ok := bpfFunctionBody(source, "trace_sched_process_exec")

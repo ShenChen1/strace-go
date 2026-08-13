@@ -6461,3 +6461,82 @@ Impact note：影响 `cmd/generate-syscalls/loader.go` 的 tracepoint 请求边�
 真实运行时验证：`ebpf-semantic` 通过（205 主事件、104/101 enter/exit、6 lifecycle，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 均为 0）；`ebpf-perf` 通过（Go decode 310.90 ns/op、raw JSON 518.80 ns/op、decoded payload 840.10 ns/op，16 B/1 alloc，四组 workload 错误计数与 pending-stale 均为 0）；原生 `small` 为 23 PASS、0 FAIL。`upstream-reference` 长跑得到 116 PASS、2 XFAIL、1 个间歇性 `sockopt-sol_socket-Xabbrev.gen.test` FAIL；该用例随后单独连续 3 次 PASS，差异仅为尾部重复 getsockopt 事件缺失，未将其加入 XFAIL，保留为既有异步尾部 drain 风险观察项。
 
 review 确认 `tracepointFallbackNames` 只过滤 semantic override 和 BTF exact/alias exact，返回值经过既有稳定排序与 alias 扩展；resolver 的 BTF -> alias BTF -> tracepoint -> dummy 优先级未改变。改动未引入 ptrace、procfs、process memory read、锁、goroutine 或第二事件消费者。
+
+### 14.157 用 pidfd 完成 attach 启动握手（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：14.153 已删除运行期 `kill(pid, 0)`，14.154 又用 BPF 退出事实 map 补强了 ringbuf 生命周期丢失时的 attach 结束判定；但 `target_bootstrap.go` 仍在安装 attach filter 前用一次 `syscall.Kill(pid, 0)` 做目标存在性校验。
+- Problem：这个检查与后续 filter map 更新是两个独立系统调用，存在 check-then-install 竞态；它还把 attach 启动的身份事实放在 eBPF 事件链之外。若直接删除预检，已经退出的 PID 不会产生新的生命周期事件，filter 可能成功写入而用户态永久等待。
+- Goal：在 attach filter 安装边界使用 Linux 内核 pidfd 绑定目标任务身份，完成一次无等待的启动握手；不读取 `/proc`、不使用 ptrace、不在运行期维护 pidfd 或轮询 liveness。filter 安装完成后的生命周期和结束判定继续只来自 BPF 事件与退出事实 map。
+- Non-goals：不把 pidfd 变成运行期第二事件消费者或 liveness owner；不改变 BPF filter map、生命周期事件 ABI、attach-root 状态、ringbuf 消费循环、输出顺序、follow-forks 语义或 command 启动路径；不为 pidfd 增加定时器、后台 goroutine、锁或 procfs fallback。
+- Constraints：pidfd 必须在 filter 更新前打开并绑定原始任务身份；显式 attach 允许传入非 leader TID，因此必须使用 Linux `PIDFD_THREAD` flag，不能退回只接受 thread-group leader 的 `pidfd_open(pid, 0)`；filter 更新成功后必须立即用 timeout=0 的 `poll` 检查目标是否已退出；任何打开、poll、关闭或 filter 更新错误都必须清理本轮已注册的 PID；pidfd 只作为 bootstrap capability 注入，单元测试不得依赖真实目标进程。
+
+Impact note：影响 `traceTargetBootstrap` 的 attach capability、`attachToPids` 的错误清理边界，以及 Linux pidfd 封装和 source policy 测试；运行期 `traceRunState`、`TraceState` 和 BPF lifecycle 代码不应发生行为变化。
+
+方案比较：
+
+1. 保留 `syscall.Kill(pid, 0)`：实现最简单，但仍是独立 liveness 事实源，无法绑定 PID 对应的具体任务，且保留检查与 filter 更新之间的竞态，拒绝。
+2. 删除启动预检、完全依赖 eBPF 事件：运行期模型最纯，但目标若在 filter 安装前已退出则不会再有事件，attach 无法得到终止事实，拒绝。
+3. 使用启动期 pidfd 身份握手：由内核绑定目标身份、无 procfs/ptrace 依赖，安装 filter 后可立即发现已退出目标；只保留一次性 bootstrap 资源，选择该方案。
+
+#### 状态契约
+
+- `traceAttachIdentityOpener` 只负责为显式 attach PID 打开身份句柄，测试可注入 fake opener。
+- 显式 attach 的 PID 可能是非 leader TID；默认实现使用 `pidfd_open(pid, PIDFD_THREAD)`，使 pidfd 的可读退出状态与 BPF attach root 的精确 TID 契约一致。leader PID 也走同一精确 task 语义，避免按进程组猜测生命周期。
+- `attachToPids` 的顺序固定为：打开 pidfd、更新 BPF filter、将 PID 纳入 rollback 集合、`poll(timeout=0)` 检查退出状态、关闭 pidfd。poll 命中退出或返回错误时，当前 PID 和之前已注册的 PID 都必须删除。
+- 握手成功后立即关闭 pidfd；它不参与 ringbuf 消费、不读取退出状态 map，也不替代 `sched_process_exit/free` 和 `attach_exited_map`。目标在握手后退出时，仍由既有 BPF 生命周期路径负责清理和结束。
+- pidfd 只绑定启动时的任务身份，不能消除事件丢失风险；若 filter 安装后生命周期事件丢失，既有 stats/退出事实契约继续负责暴露或补强，本阶段不增加用户态 liveness fallback。
+
+#### 测试与验收
+
+- 先增加失败优先测试：attach 必须调用注入的身份 opener；目标在 filter 注册后已退出时必须返回错误并删除当前 PID；身份打开、poll、close 失败均必须回滚；生产 attach 源码不得再包含 `syscall.Kill(`；pidfd opener 必须使用 `PIDFD_THREAD`，覆盖非 leader TID。
+- 实现后运行 attach identity focused tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build 和 `git diff --check`；再用 sudo 运行 `ebpf-semantic`、`ebpf-perf`、`small` 与 `upstream-reference`，确认运行期主路径无变化。
+- review 检查 pidfd 仅存在于 bootstrap 文件，不进入 `session_run.go`/事件消费者；确认生产路径没有 ptrace、procfs、process memory read、后台 liveness goroutine、锁或第二事件消费者。
+
+#### 实际验收记录
+
+已完成。先增加失败优先的身份握手、退出回滚、打开/poll/关闭错误和 `syscall.Kill` source gate 测试；实现后 focused attach tests、`go test ./...`、`go test -race ./cmd/strace-go -count=3`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 均通过。期间发现新 pidfd 单测直接转移 `os.File` 原始 fd 所有权会与 `os.File` finalizer 竞争，已改为先 dup 再由 pidfd wrapper 独占 duplicate，race 重复验证通过。
+
+真实 sudo 验证也通过：`ebpf-semantic` 为 205 个主事件、104/101 enter/exit、6 个 lifecycle，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map-update/pending-stale 计数为 0；`ebpf-perf` 的 Go decode 为 `307.70 ns/op、0 B/op、0 allocs/op`，raw JSON `495.70 ns/op、0 B/op、0 allocs/op`，decoded payload `936.90 ns/op、16 B/1 alloc`，scalar/io/lifecycle/threads 为 387.17/265.98/2.21/212.71 events/s，错误计数均为 0；原生 `small` 为 23 PASS、0 FAIL；扩大后的 `upstream-reference` 为 117 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。semantic fixture 中的 `-p` attach 路径实际通过 pidfd 握手并正常结束，未引入 `/proc`、ptrace 或运行期 liveness 探测。
+
+review 确认 pidfd 只存在于 bootstrap capability 和一次性握手，不进入 `session_run.go`、ringbuf 消费者或 BPF 生命周期状态机；`PIDFD_THREAD` 保留非 leader TID attach，filter 更新失败会对当前及之前 PID 做幂等回滚，身份句柄在所有分支关闭。生产 attach 路径已删除 `syscall.Kill(pid, 0)`，运行期仍只依赖 BPF lifecycle/exit-fact 事实。
+
+### 14.158 统一 syscall enter 的精确 TID 过滤（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：14.157 为非 leader TID 引入了 `PIDFD_THREAD`，但真实 attach 验证显示 BPF `trace_sys_exit`/lifecycle 已通过 `is_lifecycle_task_tracked(pid, tid)` 支持精确 TID，`trace_sys_enter` 仍只查 `filter_map[pid]`。
+- Problem：attach 到非 leader TID 时，目标线程的 enter 事件被 dispatcher 直接丢弃；对应 exit 仍被视为 tracked task，于是产生大量 orphan exit，既没有完整 syscall 事件，也让 stats 失去诊断意义。这是 BPF 过滤谓词不一致，不是 pidfd 或用户态状态机问题；用 `/proc` 把 TID 转换为 TGID 会重新引入竞态和禁止的外部状态读取。
+- Goal：让 raw syscall enter 使用与 exit/lifecycle 相同的精确任务过滤契约：filter 命中 TGID 或当前 TID 即继续处理；保持显式 attach 到 leader、非 leader TID、follow-forks 和普通 command root 的现有边界。
+- Non-goals：不改变 filter map ABI、PID/TID key 语义、follow-forks 继承规则、pending map、ringbuf ABI、用户态事件状态机、pidfd bootstrap 握手或文本/JSON 输出；不读取 `/proc`、不增加 ptrace、用户态 TID/TGID 查询、锁或 goroutine。
+- Constraints：enter dispatcher 必须调用已有 `is_lifecycle_task_tracked(pid, tid)`，不得复制第二份 filter 判断；该 helper 的 PID 优先、TID fallback 语义保持稳定；生成的 `bpf_bpfel.go`/`bpf_bpfeb.go` 必须与 C 对象同步；测试必须覆盖 source contract 和真实非 leader TID attach 的 enter/exit 对称性。
+
+Impact note：影响 `bpf/strace.c` raw syscall enter dispatcher、BPF 生成对象和 dispatcher source tests；不应修改 Go 事件循环或通过用户态补偿过滤。
+
+方案比较：
+
+1. 启动时读取 `/proc/<tid>/status` 将 TID 转为 TGID：可以绕开当前 dispatcher，但存在检查后线程退出/复用竞态，且违反纯 eBPF 与无 procfs 约束，拒绝。
+2. 保持 enter 只按 TGID，宣称非 leader TID 不支持：改动最小，但与 CLI 已有 attach-TID 语义、`PIDFD_THREAD` 和 lifecycle exact-TID 状态契约冲突，拒绝。
+3. enter 复用 `is_lifecycle_task_tracked(pid, tid)`：内核直接使用当前任务身份，不需要外部查询；与 exit/lifecycle 已有逻辑统一，选择该方案。
+
+#### 状态契约
+
+- `filter_map` 的命中语义是：`filter_map[tgid]` 表示进程/leader root，`filter_map[tid]` 表示显式或生命周期继承的线程任务；raw syscall enter、raw syscall exit orphan 判定和 lifecycle tracepoint 都使用同一 helper。
+- attach 到非 leader TID 时，只有该 TID 的 syscall enter/exit 进入 pending 与 ringbuf 主路径；其余同组线程不会因为 pid 相同而被误纳入，除非 follow-forks/已有 filter policy 显式注册其 key。
+- attach 到 leader PID 时行为保持不变：leader 的 `pid == tid` 命中同一 helper；command 启动和 fork child 的 filter 注册不改变。
+- 如果目标线程在握手后退出，pidfd 只负责 bootstrap 已完成身份确认，BPF lifecycle/attach exit fact 仍是唯一运行期结束事实；enter 修复不得增加用户态 liveness fallback。
+
+#### 测试与验收
+
+- 先增加失败优先 source test：`trace_sys_enter` 必须调用 `is_lifecycle_task_tracked(pid, tid)`，不得保留只查 `filter_map[pid]` 的 dispatcher gate。
+- 实现后重新生成 BPF 对象并运行 focused BPF source/object tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、build 和 `git diff --check`；再以真实多线程 workload attach 到非 leader TID，要求 enter/exit 有配对事件且 orphan stats 为 0，最后重跑 semantic/perf/small/reference。
+- review 检查生产路径仍无 `/proc`、ptrace、process memory read、第二事件消费者、锁或用户态 TID/TGID 查询；确认生成对象没有遗留旧 dispatcher 字节码。
+
+#### 实际验收记录
+
+已完成。先增加失败优先的 `trace_sys_enter` source gate，确认旧的 `filter_map[pid]` 单独检查无法满足非 leader TID attach；实现后重新生成 BPF 对象并通过 focused BPF source/object tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o strace-go ./cmd/strace-go` 和 `git diff --check`。
+
+真实 sudo 验证先用多线程 workload 手工 attach 到非 leader TID，确认 `getpid` enter/exit 成对出现、生命周期 exit 正常且 `orphan_exit=0`；随后将同一边界固化为 semantic fixture。`ebpf-semantic` 现在报告非 leader attach `867/867` 个 enter/exit、`orphan_exit=0`，其它主门禁保持通过；本阶段未读取 `/proc`、未增加 ptrace、用户态 TID/TGID 查询、锁或第二事件消费者。
+
+review 确认 `trace_sys_enter` 只把原有 TGID-only gate 替换为 `is_lifecycle_task_tracked(pid, tid)`，没有复制过滤逻辑或改变 pending/payload 路径；生成对象由 bpf2go 重新生成，非 leader TID 的精确身份由内核 `PIDFD_THREAD` 与 BPF TID filter 共同保持。

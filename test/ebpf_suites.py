@@ -30,6 +30,9 @@ STRACE_GO_BIN = os.path.join(PROJECT_ROOT, "strace-go")
 FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_semantic_fixture.c")
 THREAD_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_thread_fixture.c")
 ATTACH_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_attach_fixture.c")
+ATTACH_THREAD_FIXTURE_SRC = os.path.join(
+    SCRIPT_DIR, "fixtures", "ebpf_attach_thread_fixture.c"
+)
 MOUNT_QUERY_FIXTURE_SRC = os.path.join(
     SCRIPT_DIR, "fixtures", "ebpf_mount_query_fixture.c"
 )
@@ -67,6 +70,17 @@ class AttachCapture:
 
 
 @dataclass
+class AttachThreadCapture:
+    target_rc: int
+    target_stdout: str
+    target_stderr: str
+    attach_tid: int
+    result: subprocess.CompletedProcess
+    events: list
+    stats_events: list
+
+
+@dataclass
 class SemanticContext:
     main: EventCapture
     fcntl: EventCapture
@@ -78,6 +92,7 @@ class SemanticContext:
     thread: EventCapture
     thread_text: subprocess.CompletedProcess
     attach: AttachCapture
+    attach_thread: AttachThreadCapture
 
 
 def build_strace_go():
@@ -116,6 +131,14 @@ def build_ebpf_thread_fixture():
 
 def build_ebpf_attach_fixture():
     return build_named_fixture("strace-go-ebpf-attach-fixture", ATTACH_FIXTURE_SRC)
+
+
+def build_ebpf_attach_thread_fixture():
+    return build_named_fixture(
+        "strace-go-ebpf-attach-thread-fixture",
+        ATTACH_THREAD_FIXTURE_SRC,
+        ["-pthread"],
+    )
 
 
 def build_ebpf_mount_query_fixture():
@@ -334,11 +357,69 @@ def collect_attach_orphan_stats(fixture):
         stop_process(tracer)
 
 
+def collect_attach_thread_events(fixture):
+    target = subprocess.Popen(
+        [fixture],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    tracer = None
+    try:
+        ready = target.stdout.readline().strip()
+        fields = ready.split()
+        if len(fields) != 2 or fields[0] != "attach-thread-ready":
+            raise RuntimeError(f"attach thread fixture did not become ready: {ready!r}")
+        attach_tid = int(fields[1])
+        command = [
+            STRACE_WRAPPER,
+            "--debug-events",
+            "-p",
+            str(attach_tid),
+            "-e",
+            "trace=getpid,exit,exit_group",
+        ]
+        tracer = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=os.environ.copy(),
+        )
+        stderr_prefix = wait_for_debug_ready(tracer)
+        ready_events = parse_ready_events(stderr_prefix)
+        if not ready_events or ready_events[-1].get("target_pid") != attach_tid:
+            raise RuntimeError(
+                f"attach thread tracer readiness mismatch: {stderr_prefix!r}"
+            )
+        os.kill(target.pid, signal.SIGUSR1)
+        target_stdout, target_stderr = target.communicate(timeout=10)
+        tracer_stdout, tracer_stderr = tracer.communicate(timeout=30)
+        tracer_stderr = stderr_prefix + tracer_stderr
+        result = subprocess.CompletedProcess(
+            command, tracer.returncode, tracer_stdout, tracer_stderr
+        )
+        return AttachThreadCapture(
+            target.returncode,
+            target_stdout,
+            target_stderr,
+            attach_tid,
+            result,
+            parse_json_events(tracer_stderr),
+            parse_stats_events(tracer_stderr),
+        )
+    finally:
+        stop_process(target)
+        stop_process(tracer)
+
+
 def collect_semantic_context(fixture):
     fcntl_source = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_fcntl_fixture.c")
     fcntl_fixture = build_named_fixture("strace-go-ebpf-fcntl-fixture", fcntl_source)
     thread_fixture = build_ebpf_thread_fixture()
     attach_fixture = build_ebpf_attach_fixture()
+    attach_thread_fixture = build_ebpf_attach_thread_fixture()
     mount_query_fixture = build_ebpf_mount_query_fixture()
     mount_path_fixture = build_ebpf_mount_path_fixture()
     dirent_fixture = build_ebpf_dirent_fixture()
@@ -356,6 +437,7 @@ def collect_semantic_context(fixture):
         thread=collect_thread_lifecycle_events(thread_fixture),
         thread_text=collect_thread_unfinished_text(thread_fixture),
         attach=collect_attach_orphan_stats(attach_fixture),
+        attach_thread=collect_attach_thread_events(attach_thread_fixture),
     )
 
 
@@ -394,6 +476,15 @@ def print_semantic_summary(context, filter_event_count):
     attach_stats = context.attach.stats_events
     orphan = attach_stats[0].get("orphan_exit") if attach_stats else "unavailable"
     print(f"=> eBPF attach orphan exits: {orphan}")
+    attach_thread = context.attach_thread
+    print(
+        f"=> eBPF non-leader attach enter/exit: "
+        f"{sum(event.get('event_type') == 'enter' for event in attach_thread.events)}/"
+        f"{sum(event.get('event_type') == 'exit' for event in attach_thread.events)}"
+    )
+    thread_stats = attach_thread.stats_events
+    thread_orphan = thread_stats[0].get("orphan_exit") if thread_stats else "unavailable"
+    print(f"=> eBPF non-leader attach orphan exits: {thread_orphan}")
     print(f"=> eBPF semantic events: {len(main.events)}")
     print(f"=> eBPF fcntl semantic events: {len(context.fcntl.events)}")
     print(f"=> eBPF semantic enter/exit: {len(main.enter_events)}/{len(main.exit_events)}")
