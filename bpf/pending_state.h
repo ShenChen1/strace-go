@@ -88,6 +88,15 @@ static __always_inline int validate_pending_syscall_exit(
     return 0;
 }
 
+static __always_inline u64 pending_syscall_duration(struct pending_syscall *p)
+{
+    if (p->enter_time == 0) return 0;
+
+    u64 exit_time = bpf_ktime_get_ns();
+    if (exit_time <= p->enter_time) return 0;
+    return exit_time - p->enter_time;
+}
+
 static __always_inline void consume_pending_syscall(
     u32 pid,
     u32 pending_tid,

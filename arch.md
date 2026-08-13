@@ -6914,3 +6914,48 @@ focused attach/tail-call tests、`go test ./...`、`go test -race ./...`、`go v
 `populateProgArrays` 仍在任何 raw tracepoint attach 前执行，四个 map 的生产对象仍直接是生成 binding 中的 `*ebpf.Map`；接口只用于单元测试和统一错误边界，没有泄露到 session composition、事件循环或 handler。写入 helper 不排序、不吞错：nil handler 在 `Put` 前失败，writer 错误带 map 名称/index 并停止后续 entry，确保缺槽不会静默运行。
 
 本阶段没有新增 ptrace、procfs、用户态 tracee 内存读取、锁、第二事件消费者或 runtime mode；BPF index、map 容量、生成 binding、event ABI 和 tail-call fallback 均未改变。
+
+### 14.168 统一 exit duration 计算边界（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`exit_dispatch.h` 的 generic/path/iovec/msg/mmsg/recvmmsg handlers，以及 `strace.c` 的 recvmsg kretprobe fragment，都重复展开 `enter_time -> bpf_ktime_get_ns -> 正向差值` 逻辑。当前每个副本都实现了相同的 `enter_time == 0` 和时钟倒退保护。
+- Problem：重复实现会让 duration 语义在后续 handler 增删时发生漂移；它也把“pending metadata 的 enter_time 如何转换成 exit duration”散落在多个 ownership 边界。mmsg 合并减少了部分状态访问，但没有解决剩余 handler 的重复代码。
+- Goal：在 pending state 层提供 `pending_syscall_duration`，由 `EXIT_PROLOGUE` 在 pending identity 校验成功后计算一次；recvmsg kretprobe 各 fragment 也使用同一 helper。保持 duration 的现有零值、时钟倒退保护和事件 ABI。
+- Non-goals：不改变 `enter_time` 来源、clock source、event v2 字段、Go decoder/formatter、pending map ABI、tail-call index、payload capture、lifecycle、性能基准 workload 或输出文本；不引入 per-CPU scratch、map 临时状态、锁、ptrace、procfs 或用户态内存读取。
+- Constraints：helper 必须是 `static __always_inline`，只接收已解析的 `struct pending_syscall *`；`EXIT_PROLOGUE` 只能在 pending validate 成功后赋值 `duration`；异常 fallback 没有 pending 时不得调用 helper；所有正常 exit handler 和 recvmsg fragment 必须使用同一 helper，文件/函数限制不变。
+
+Impact note：影响 `bpf/pending_state.h`、`bpf/exit_dispatch.h`、`bpf/strace.c` 及 duration source gate；不修改 Go 侧和 event ABI。
+
+#### 方案比较
+
+1. 保留每个 handler 的内联 duration 代码：风险最低，但重复逻辑仍会漂移，拒绝。
+2. 通过 per-CPU scratch/map 在 dispatcher 与 handler 间传递 duration：可以共享结果，但增加跨程序可变状态、map 操作和 verifier 生命周期风险，拒绝。
+3. 在 pending state 层使用 `static __always_inline` helper：调用点少、编译期内联、没有新运行期状态，能统一语义，选择该方案。
+
+#### 状态契约
+
+- `pending_syscall_duration(p)` 在 `enter_time == 0` 或当前时间不大于 enter time 时返回 0，否则返回单调时钟差值。
+- `EXIT_PROLOGUE` 在 `validate_pending_syscall_exit` 成功后只计算一次 `duration`；所有 handler 共享这个局部快照，不再次读取时钟。
+- recvmsg kretprobe 的 name/control/final fragment 没有 `EXIT_PROLOGUE`，各自解析 pending 后调用同一 helper；它们仍只由 final 消费 pending。
+- fallback 没有 pending 时继续使用 0 duration，不通过伪造 pending 调用 helper。
+
+#### 测试与验收
+
+- 先增加失败优先 source gate：要求 helper 存在且包含时钟倒退保护，`EXIT_PROLOGUE` 使用 helper，exit dispatch/recvmsg kretprobe 不再保留重复 duration block。
+- 实现后运行 focused BPF source tests、`sudo -n ./build.sh`、Go 全量/race/vet/build/diff、`ebpf-semantic`、`ebpf-perf`、`small` 和 upstream reference；确认 duration 字段与 mmsg/recvmsg 语义不变。
+- review 必须确认 helper 没有引入新 map/锁/消费者，所有调用均发生在 pending 已解析之后，fallback ownership 和 pending cleanup 未改变。
+
+#### 实际验收记录
+
+先加入 `TestBPFExitDurationUsesSharedPendingHelper`；旧实现按预期因缺少共享 helper、仍存在 inline duration block 而失败。首次编译实现时，quota/mount-query 两个独立 exit handler 暴露了 `EXIT_PROLOGUE` 新增 `duration` 与旧局部变量重定义；删除这两个专项 handler 的重复 block 后，`sudo -n ./build.sh` 重新生成并真实 verifier 加载通过。
+
+focused duration/dispatcher source tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o strace-go ./cmd/strace-go` 和 `git diff --check` 均通过。真实 `ebpf-semantic` 通过：主 fixture 205 个事件、104/101 enter/exit，非 leader attach 425/425 配对，`orphan_exit=0`，ringbuf reserve/copy、pending、mismatch 和 lifecycle-map-update 计数均为 0。`ebpf-perf` 通过：decode `283.80 ns/op、0 B/op、0 allocs/op`，raw JSON `490.30 ns/op、0 B/op、0 allocs/op`，decoded payload `925.40 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `402.96/270.84/2.29/215.89 events/s`，所有运行期错误计数为 0。`small` 为 23 PASS、0 FAIL。
+
+直接相关的 `recvmsg.gen.test`、`msg_name.gen.test`、`msg_control.gen.test`、`mmsg.gen.test`、`recvmmsg-timeout.gen.test` 为 5 PASS；完整 `upstream-reference` 最终为 117 PASS、2 个既定 XFAIL、0 FAIL、0 XPASS。第一次完整运行的 `bpf.gen.test` 因末尾异步 drain 缺少 9 条 `BPF_ENABLE_STATS` 行而偶发失败，随后连续 3 次单独运行均 PASS，第二次完整 suite 通过，未修改 expected-XFAIL。
+
+#### Review
+
+`pending_syscall_duration` 是 `static __always_inline`，只读取已解析 pending 的 `enter_time` 和单调时钟；零 enter time 与时钟倒退都返回 0。`EXIT_PROLOGUE` 在 pending identity 校验成功后计算一次局部 duration，generic/path/iovec/msg/mmsg/recvmmsg/quota/mount handler 直接复用；recvmsg kretprobe 的 name/control/final fragment 也复用同一 helper。fallback 仍在 resolver/validator 成功后计算 duration，没有引入伪造 pending。
+
+本阶段没有新增 map、scratch 状态、锁、第二事件消费者、ptrace、procfs 或用户态 tracee 内存读取；pending cleanup、tail-call fallback、event v2/TLV ABI、Go formatter 和生命周期逻辑未改变。首次编译失败已补齐所有 `EXIT_PROLOGUE` 消费者，源码扫描不再存在旧的 `if (p->enter_time > 0)` duration block。

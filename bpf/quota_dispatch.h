@@ -21,14 +21,6 @@ int exit_quota(struct trace_event_raw_sys_exit *ctx)
         return 0;
     }
 
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
-
     u32 command = quota_direct_pending_command(p);
     if (ret_value >= 0 && quota_direct_has_exit_payload(command)) {
         emit_quota_exit_event_v2_direct(p, ret_value, duration);

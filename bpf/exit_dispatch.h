@@ -45,13 +45,7 @@ static __always_inline void emit_exit_dispatch_fallback(
     }
     if (!validate_pending_syscall_exit(p, sys_id, pid, pending_tid)) return;
 
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
+    u64 duration = pending_syscall_duration(p);
     emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
     consume_pending_syscall(pid, pending_tid, p, pending_exec_lookup);
 }
@@ -71,19 +65,12 @@ static __always_inline void emit_exit_dispatch_fallback(
         return 0;                                                                  \
     }                                                                              \
     if (!validate_pending_syscall_exit(                                             \
-            p, exit_sys_id, pid, pending_tid)) return 0;
+            p, exit_sys_id, pid, pending_tid)) return 0;                             \
+    u64 duration = pending_syscall_duration(p);                                    \
 
 SEC("tracepoint/raw_syscalls/sys_exit")
 int exit_generic(struct trace_event_raw_sys_exit *ctx) {
     EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid);
-
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
 
     if (is_sys_exit_direct_syscall(p->sys_id)) {
         if (is_fd_state_exit_direct_syscall(p->sys_id) && ret_value >= 0) {
@@ -174,14 +161,6 @@ int exit_path(struct trace_event_raw_sys_exit *ctx) {
         return 0;
     }
 
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
-
     if (is_path_only_direct_syscall(p->sys_id)) {
         emit_path_only_exit_event_v2_direct(p, ret_value, duration);
     } else if (is_dual_path_direct_syscall(p->sys_id)) {
@@ -205,14 +184,6 @@ int exit_iovec_base(struct trace_event_raw_sys_exit *ctx) {
         return 0;
     }
 
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
-
     if (ret_value > 0) {
         emit_iovec_base_exit_event_v2_direct(p, ret_value, duration);
     } else {
@@ -232,14 +203,6 @@ int exit_msg(struct trace_event_raw_sys_exit *ctx) {
         return 0;
     }
 
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
-
     emit_single_msg_exit_event_v2_direct(p, ret_value, duration);
     consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
     return 0;
@@ -255,14 +218,6 @@ int exit_mmsg_final(struct trace_event_raw_sys_exit *ctx) {
         return 0;
     }
 
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
-
     emit_mmsg_exit_event_v2_direct(p, ret_value, duration);
     consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
     return 0;
@@ -276,14 +231,6 @@ int exit_recvmmsg_base01(struct trace_event_raw_sys_exit *ctx) {
     EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid);
     if (p->sys_id != SYS_RECVMMSG) {
         return 0;
-    }
-
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
     }
 
     emit_recvmmsg_base0_exit_fragment_event_v2_direct(p, ret_value, duration);
@@ -303,14 +250,6 @@ int exit_recvmmsg_base23(struct trace_event_raw_sys_exit *ctx) {
     EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid);
     if (p->sys_id != SYS_RECVMMSG) {
         return 0;
-    }
-
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
     }
 
     emit_recvmmsg_base2_exit_fragment_event_v2_direct(p, ret_value, duration);

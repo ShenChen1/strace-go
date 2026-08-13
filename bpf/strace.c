@@ -233,13 +233,7 @@ int trace_kretprobe_recvmsg_name(struct pt_regs *ctx) {
     if (!p) return 0;
     if (p->sys_id != SYS_RECVMSG) return 0;
 
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
+    u64 duration = pending_syscall_duration(p);
 
     emit_recvmsg_name_exit_fragment_event_v2_direct(p, ret_value, duration);
     bpf_tail_call(ctx, &recvmsg_progs, RECVMSG_PROG_CONTROL);
@@ -255,13 +249,7 @@ int trace_kretprobe_recvmsg_control(struct pt_regs *ctx) {
     if (!p) return 0;
     if (p->sys_id != SYS_RECVMSG) return 0;
 
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
+    u64 duration = pending_syscall_duration(p);
 
     emit_recvmsg_control_exit_fragment_event_v2_direct(p, ret_value, duration);
     bpf_tail_call(ctx, &recvmsg_progs, RECVMSG_PROG_FINAL);
@@ -277,13 +265,7 @@ int trace_kretprobe_recvmsg_final(struct pt_regs *ctx) {
     struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
     if (!p || p->sys_id != SYS_RECVMSG) return 0;
 
-    u64 duration = 0;
-    if (p->enter_time > 0) {
-        u64 exit_time = bpf_ktime_get_ns();
-        if (exit_time > p->enter_time) {
-            duration = exit_time - p->enter_time;
-        }
-    }
+    u64 duration = pending_syscall_duration(p);
 
     emit_single_msg_exit_event_v2_direct(p, ret_value, duration);
     consume_pending_syscall(pid, tid, p, 0);
