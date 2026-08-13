@@ -4,6 +4,7 @@ package main
 // Runtime consumers receive the narrow state capability they require.
 type traceStateOwner interface {
 	traceEventState
+	traceUnfinishedStateConfigurator
 	tracePendingStateReader
 	textRendererState
 	execSyscallState

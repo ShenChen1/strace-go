@@ -33,12 +33,16 @@ func TestUnfinishedCandidateIndexSourceContract(t *testing.T) {
 		t.Fatal("unfinished release must clear reusable view elements")
 	}
 	router := readTextFile(t, filepath.Join(root, "cmd/strace-go/event_router.go"))
+	composition := readTextFile(t, filepath.Join(root, "cmd/strace-go/session_composition.go"))
 	if !strings.Contains(router, "if r.pipeline == nil || !r.pipeline.HasTextOutput()") ||
 		!strings.Contains(router, "markUnfinishedPrinted") {
 		t.Fatal("router must resolve unfinished candidates when no text pipeline exists")
 	}
-	if !strings.Contains(router, "state.setUnfinishedEnabled(deps.Pipeline != nil && deps.Pipeline.HasTextOutput())") {
-		t.Fatal("router must configure unfinished capability from the text output port")
+	if strings.Contains(router, "setUnfinishedEnabled") {
+		t.Fatal("router must not configure event state during construction")
+	}
+	if !strings.Contains(composition, "deps.State.setUnfinishedEnabled(outputs.syscallText.textMode())") {
+		t.Fatal("composition root must configure unfinished capability from text mode")
 	}
 	if strings.Contains(router, "[]pendingSyscallState") || strings.Contains(router, "*pendingSyscallState") {
 		t.Fatal("router must consume immutable unfinished views instead of mutable pending state")

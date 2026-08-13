@@ -293,6 +293,7 @@ func buildTraceSessionEvents(
 		Text:    outputs.syscallText,
 		Effects: newTraceSessionSyscallExitEffects(deps.Summary, deps.FDState, deps.FDState),
 	})
+	deps.State.setUnfinishedEnabled(outputs.syscallText.textMode())
 	lifecycle := newLifecycleEventHandler(LifecycleEventHandlerDeps{
 		Policy: base.outputPolicy,
 		Effects: newTraceSessionLifecycleEffects(

@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
 )
 
@@ -259,4 +260,24 @@ func TestTraceStateReusesUnfinishedViewStorageAfterRelease(t *testing.T) {
 		t.Fatal("reusable unfinished view retained borrowed payload section header")
 	}
 	state.reusableUnfinished = state.reusableUnfinished[:0]
+}
+
+func TestTraceSessionConfiguresUnfinishedIndexFromOutputMode(t *testing.T) {
+	textSession := newTestTraceSessionWithOptions(&cli.Options{EventFormat: cli.EventFormatText}, traceSessionDeps{})
+	textState, ok := textSession.dependencies.State.(*TraceState)
+	if !ok || !textState.unfinishedEnabled {
+		t.Fatalf("text unfinished state = %#v, want enabled", textSession.dependencies.State)
+	}
+
+	jsonSession := newTestTraceSessionWithOptions(&cli.Options{EventFormat: cli.EventFormatJSON}, traceSessionDeps{})
+	jsonState, ok := jsonSession.dependencies.State.(*TraceState)
+	if !ok || jsonState.unfinishedEnabled {
+		t.Fatalf("JSON unfinished state = %#v, want disabled", jsonSession.dependencies.State)
+	}
+
+	debugSession := newTestTraceSessionWithOptions(&cli.Options{DebugEvents: true}, traceSessionDeps{})
+	debugState, ok := debugSession.dependencies.State.(*TraceState)
+	if !ok || debugState.unfinishedEnabled {
+		t.Fatalf("debug unfinished state = %#v, want disabled", debugSession.dependencies.State)
+	}
 }

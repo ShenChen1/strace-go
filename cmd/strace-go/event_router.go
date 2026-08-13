@@ -21,14 +21,10 @@ type TraceEventRouterDeps struct {
 }
 
 func newTraceEventRouter(deps TraceEventRouterDeps) *TraceEventRouter {
-	state := deps.State
-	if state != nil {
-		state.setUnfinishedEnabled(deps.Pipeline != nil && deps.Pipeline.HasTextOutput())
-	}
 	return &TraceEventRouter{
 		scope:       deps.Scope,
 		targetPID:   deps.TargetPID,
-		state:       state,
+		state:       deps.State,
 		lifecycle:   deps.Lifecycle,
 		json:        deps.JSON,
 		pipeline:    deps.Pipeline,

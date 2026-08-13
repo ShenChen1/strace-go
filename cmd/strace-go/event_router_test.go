@@ -299,6 +299,7 @@ func TestTraceEventRouterPrintsGenericUnfinishedBeforeOtherTIDEvent(t *testing.T
 
 func TestTraceEventRouterDiscardsUnfinishedWithoutTextPipeline(t *testing.T) {
 	state := newTraceState()
+	state.setUnfinishedEnabled(false)
 	router := newTraceEventRouter(TraceEventRouterDeps{
 		Scope:     newTraceScope(100, nil),
 		TargetPID: 100,

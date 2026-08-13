@@ -6691,3 +6691,40 @@ Impact note：影响 `cmd/strace-go/event_state.go` 的 pending 配对与回收�
 #### Review
 
 review 确认生产代码中 `TraceStateUpdate`、router、格式化和 handler 只接收 `pendingSyscallSnapshot`，可变 pending owner 只留在 `TraceState` 内部；payload backing slice 没有重复复制，snapshot pool 在输出完成后清空引用。阶段改动未触碰 BPF、attach、生命周期事实 map、procfs、ptrace、锁、goroutine 或第二事件消费者。
+
+### 14.163 将 unfinished 状态配置移到 session composition root（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：unfinished candidate index 是 `TraceState` 的运行状态，但是否启用它取决于最终输出模式。此前 `newTraceEventRouter` 在构造运行期 router 时调用 `setUnfinishedEnabled`，同时用 `Pipeline.HasTextOutput()` 间接判断输出能力。
+- Problem：router 同时承担事件消费和状态配置两个职责，构造过程存在隐藏副作用；`HasTextOutput()` 也不是最终文本模式的直接事实。在 JSON 或 debug event 模式下，这会不必要地建立 unfinished candidate index，并可能在没有文本 sink 时反复尝试 unfinished 输出。
+- Goal：由 session composition root 在事件 router 接收运行期 state port 前，根据 `outputs.syscallText.textMode()` 一次性配置 unfinished 能力；router 构造函数只保存依赖并消费状态，不再修改状态。
+- Non-goals：不改变 unfinished/resume 的文本语义、事件顺序、pending snapshot 生命周期、BPF/ringbuf ABI、过滤、生命周期、并发模型或输出格式；不引入 ptrace、procfs、用户态 tracee 内存读取、锁、goroutine 或第二事件消费者。
+- Constraints：配置必须发生在第一条事件到达之前；文本模式启用，JSON 和 debug 模式关闭；composition-only 配置端口不得泄漏给运行期 router；文件、函数、参数和复杂度限制保持不变。
+
+Impact note：影响 `session_composition.go` 的对象组装顺序、`TraceState` 的 construction-only capability、router 构造函数和 unfinished source/state tests；不影响 `TraceState` 的 enter/exit 配对、unfinished candidate 消费、输出 sink 或内核事件流。
+
+#### 方案比较
+
+1. 保留 router 构造时的 setter 副作用：实现最简单，但运行期消费组件继续拥有配置权限，且 router 依赖旧的间接 `HasTextOutput()` 判断，拒绝。
+2. 在 router 内通过具体类型断言配置 `TraceState`：可以避免扩展依赖结构，但隐藏具体实现耦合，测试和替换 state 会更脆弱，拒绝。
+3. 增加仅供 composition 使用的 `traceUnfinishedStateConfigurator`，在 session graph 组装期间用真实 `textMode()` 配置，然后把窄的 `traceEventState` 交给 router：边界清晰、改动局部且没有运行期额外状态，选择该方案。
+
+#### 状态契约
+
+- `traceStateOwner` 同时拥有运行期 state port 和 construction-only unfinished configurator；该 owner 只在 `buildTraceSessionEvents` 的组装阶段使用 setter。
+- `traceEventState` 不再暴露 `setUnfinishedEnabled`；`newTraceEventRouter` 只保存 `deps.State`，不调用任何状态 setter。
+- `outputs.syscallText.textMode()` 是 unfinished 能力的唯一输出事实：文本模式建立 candidate index，JSON 和 debug event 模式不建立；直接构造 router 的单元测试必须显式配置其 state，而不是依赖构造副作用。
+- unfinished candidate 的现有事件驱动消费、`markUnfinishedPrinted`/`requeueUnfinished` 和 pending snapshot 释放时机不变；仍由单一 ringbuf 消费 goroutine 顺序执行，没有定时器、锁或第二消费者。
+
+#### 测试与验收
+
+- 先增加失败优先 source/state 测试：router 源码不得包含 `setUnfinishedEnabled`；composition 必须调用 `deps.State.setUnfinishedEnabled(outputs.syscallText.textMode())`；text session 必须启用 unfinished index，JSON/debug session 必须关闭。旧实现按预期在 JSON/debug 行为契约上失败。
+- 实现后通过 focused unfinished/router tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14163 ./cmd/strace-go`、Python 16 项测试和 `git diff --check`。
+- 当前代码的真实 sudo `ebpf-semantic` 最终通过：主 fixture 205 个事件、104/101 enter/exit、6 个 lifecycle，非 leader attach 为 781/781 配对且 `orphan_exit=0`；reserve/copy/pending/mismatch/lifecycle-map-update/stale 计数均为 0。前两次独立运行各出现 1 个启动窗口 orphan，第三次通过；该 scheduler-sensitive 现象与本阶段无关，未放宽断言或修改生产过滤逻辑。
+- `ebpf-perf` 通过：`BenchmarkTraceEventDecodeState` 为 `284.30 ns/op、0 B/op、0 allocs/op`，raw JSON 为 `501.00 ns/op、0 B/op、0 allocs/op`，decoded payload 为 `940.50 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `388.36/265.49/2.22/212.56 events/s`，运行期诊断计数均为 0。
+- 原生 `small` 为 23 PASS、0 failed/skipped/xpass；扩大后的 `upstream-reference` 为 117 PASS、2 个既定 XFAIL（`read-write.gen.test`、`mount_setattr.gen.test`）、0 FAIL/XPASS。
+
+#### Review
+
+review 确认 unfinished 配置只存在于 session composition root，router 生产构造路径不再修改 `TraceState`；实际模式判断使用 `textMode()`，因此 JSON/debug 不再建立无用 candidate index。直接 router 测试已显式声明 state 配置，避免依赖隐藏副作用。阶段改动未触碰 BPF、attach、lifecycle fact map、procfs、ptrace、用户态 tracee 内存读取、锁、goroutine、ringbuf 消费模型或事件 ABI。
