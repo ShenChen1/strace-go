@@ -110,7 +110,8 @@ func readCombinedBPFSources(t *testing.T) string {
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/enter_router.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/mmsg_enter_dispatch.h")) +
-		"\n" + readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h"))
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/exit_router.h"))
 }
 
 func readTextFile(t *testing.T, path string) string {

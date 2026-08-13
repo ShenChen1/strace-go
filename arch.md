@@ -7231,3 +7231,50 @@ Impact note：影响 `bpf/strace.c`、新增 `bpf/enter_router.h` 和 BPF source
 - `trace_sys_enter` 仍是唯一 raw enter attach，继续拥有一次身份快照、生命周期/filter/config gate、enter timestamp 和 fallback；selector 是无状态 `static __always_inline` helper，不访问 map、不创建事件、不保存 pending。
 - 没有新增 Go consumer、goroutine、mutex、BPF map、ptrace、procfs 或 tracee memory read；本阶段只改善 ownership 和 source 可审计性。
 - 本阶段变更范围限定为 `bpf/strace.c`、`bpf/enter_router.h`、BPF source gate 辅助/测试和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.175 拆分 raw exit dispatcher 的程序选择 ownership（2026-08-13）
+
+#### Problem 1-Pager
+
+- Context：`bpf/strace.c` 的 `trace_sys_exit` 是唯一 raw syscall exit attach，继续同时拥有 sigreturn/pre-exec/lifecycle/filter/config gate、身份快照、exit timestamp 前置路径、约 6 个 exit family 到 `EXIT_PROG_*` 的选择、tail-call 和 fallback。
+- Problem：enter 的 family selector 已经独立到 `enter_router.h`，但 exit 仍把程序选择分支留在 raw attach 中；新增 path/quota/message/fragment family 时，入口 gate 与 exit ProgArray ownership 仍需要一起修改，source gate 也无法单独审计 exit 路由优先级。
+- Goal：保留 `trace_sys_exit` 的唯一 attach、身份/filter/config gate、pending 延迟解析、tail-call/fallback 顺序；将 `sys_id` 到既有 exit ProgArray index 的纯选择策略移到 `bpf/exit_router.h` 的 `select_exit_prog_index`。
+- Non-goals：不改变 path/quota/mount-query/iovec/message/mmsg 的 predicate、分支优先级、`EXIT_PROG_*` 数值、exit fallback、pending/event ABI、生命周期、Go state machine、输出、锁、map 或纯 eBPF/no-procfs/no-ptrace 约束；不引入 syscall-id map 或动态配置。
+- Constraints：selector 只接收 `u32 sys_id`，必须是 `static __always_inline`；默认值仍为 `EXIT_PROG_GENERIC`，specialized family 按现有顺序匹配；raw exit 入口不得重复 family predicate；新 header/function 不超过 500/80 行；source gate 必须锁定 include、委托、默认分支和关键优先级。
+
+Impact note：只影响 `bpf/strace.c`、新增 `bpf/exit_router.h`、合并源码测试辅助和 exit routing source gate；不改变 BPF attach 数量、ProgArray ABI、pending ownership 或用户态事件消费。
+
+#### 方案比较
+
+1. 保留 raw exit 中的短分支链：改动最小，但 enter/exit ownership 不对称，新增 exit family 仍侵入唯一 attach，拒绝。
+2. 新增 syscall-id 到 exit handler 的 BPF map：可运行时配置，但增加热路径 map lookup、初始化/清理契约和状态，不能自然表达 family 优先级，拒绝。
+3. 提取 `static __always_inline` selector header：编译期展开、无新运行时状态、可独立审计且与 enter 对称，选择该方案。
+
+#### 状态契约
+
+- `trace_sys_exit` 继续独占 raw exit 的 sigreturn/pre-exec/lifecycle/filter/config gate、身份快照和 fallback；这些事实不向 selector 泄漏。
+- `select_exit_prog_index` 只根据 raw `sys_id` 返回既有 `EXIT_PROG_*` index；默认 generic，path、quota、mount-query、iovec 和 message family 保持旧优先级。
+- tail-call 成功时目标 handler 继续拥有 pending resolve/consume；tail-call 返回时仍只由 `emit_exit_dispatch_fallback` 处理 unmatched/validated generic exit。
+
+#### 测试与验收
+
+- 先增加失败优先 source gate：入口必须调用 selector，不能直接包含 exit family selector chain；selector 必须覆盖 generic、path、quota、mount-query、iovec、single-message 和 mmsg 分支及其顺序。
+- 实现后运行 focused exit/tail-call source tests、`sudo -n ./build.sh`、Go 全量/race/vet/build/diff；再运行 `ebpf-semantic`、`ebpf-perf`、`small` 和完整 upstream reference，确认路由重构没有改变事件与输出。
+- review 必须确认 selector 是无状态编译期 helper，分支顺序与旧入口逐项一致，入口仍只 attach 一次且没有新增 map/锁/消费者或 procfs/ptrace 回流。
+
+#### 实际验证结果
+
+- 失败优先 source gate 首次运行按预期失败：`bpf/exit_router.h` 尚不存在；实现 header 后 focused `TestBPFExitDispatcherDelegatesProgramSelection`、既有 exit pending/fallback 和身份快照 source tests 通过，并补充了 `readCombinedBPFSources` 的真实 include 边界。
+- `sudo -n ./build.sh` 通过，clang 生成和真实 BPF verifier 接受新的 exit translation unit；`bpf/strace.c` 为 284 行，`bpf/exit_router.h` 为 32 行。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14175 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6，mount-query 4、mount-path 4、mmsg 16，非 leader attach `1094/1094` 且 orphan 0；正常事件的 ringbuf/pending/orphan/mismatch/lifecycle-map/stale 错误计数均为 0，attach fixture 的 `orphan_exit=1` 仍是该诊断场景的预期结果。
+- `ebpf-perf` 通过：Go decode `342.90 ns/op`、0 alloc；JSON payload decode `837.00 ns/op`、16 B/1 alloc；scalar/io/lifecycle/threads 分别为 `452.82/299.72/2.37/222.90 events/s`，所有运行时错误计数为 0。
+- `small` 通过 `23/23`。
+- `upstream-reference` 通过 `117 PASS / 0 FAIL / 0 XPASS`，保留既有 `read-write.gen.test` 与 `mount_setattr.gen.test` 两个 XFAIL；没有引入 compat、ptrace 或 procfs fallback。
+
+#### Review
+
+- `select_exit_prog_index` 逐项复制旧 `trace_sys_exit` 的 path、quota、mount-query、iovec、single-message、mmsg predicate、分支优先级和 `EXIT_PROG_*` 映射；默认仍为 `EXIT_PROG_GENERIC`，`SYS_RECVMMSG` 仍进入 `EXIT_PROG_RECVMMSG_BASE01`，其它 mmsg 进入 final。
+- `trace_sys_exit` 仍是唯一 raw exit attach，继续拥有 sigreturn/pre-exec/lifecycle/filter/config gate、一次身份快照、tail-call 和 fallback；selector 是无状态 `static __always_inline` helper，不访问 map、不解析 pending、不创建事件。
+- tail-call handler 的 pending resolve/consume、fallback unmatched 统计、event ABI、ProgArray 数值和 attach 数量均未改变；没有新增 Go consumer、goroutine、mutex、BPF map、scratch 状态、ptrace、procfs 或 tracee memory read。
+- 本阶段变更范围限定为 `bpf/strace.c`、`bpf/exit_router.h`、BPF source gate 辅助/测试和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
