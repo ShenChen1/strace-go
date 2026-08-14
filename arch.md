@@ -8373,3 +8373,47 @@ Impact note：`strace.c` 仍只 include `syscall_futex_direct_event_v2.h`；`ent
 - 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、attach、pending state、事件 ABI 或单消费者事件循环；没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
 - 失败路径仍显式保留：dynptr reserve/data/write、两次 probe read、TLV header 和 submit/discard 的错误处理与原逻辑一致；source gate 防止 capture provider 重新拥有 ringbuf lifecycle，也防止 emit provider 重新拥有 user read。
 - 旧式 `futex.test` 的精确文本差异已通过父提交 binary A/B 排除为本阶段回归；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。本阶段仅修改 futex facade/provider、相关 source gates、ownership regression test 和本记录。
+
+### 14.201 拆分 xattr capture 与 emit ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_xattr_direct_event_v2.h` 原为 310 行，同时拥有 xattr family selector/path-name policy、字符串与 bytes 用户内存 capture、enter payload composer，以及 enter/exit ringbuf emitter。
+- Problem：xattr path/name/value 的 bounded capture 与事件提交物理耦合；`capture_xattr_bytes_tlv_direct` 还有 7 个参数，超过仓库参数约束，OUT bytes capture 的 policy 也只能和 emitter 一起审查。
+- Goal：facade 保留 xattr constants/selector/policy；capture provider 独占 path/name/value TLV capture 与 enter composer；emit provider 独占 enter/exit ringbuf lifecycle；用 request 结构把 bytes helper 收敛到 4 个参数，保持 TLV kind、arg index、payload capacity、方向 flags、事件 ABI、pending 和路由不变。
+- Non-goals：不改变 xattr syscall 分类、字符串/bytes snapshot 上限、OUT capture 时点、Go decoder/formatter、过滤，也不引入 ptrace、procfs 或 Go 侧用户内存读取。
+- Constraints：先新增失败优先 ownership source gate，再实现生产 header；必须通过真实 clang/verifier、Go fast/race/vet、semantic/perf、串行 small 和 xattr 相关原生测试；生产文件与测试文件不超过 500 行，函数参数不超过 5 个。
+
+Impact note：`strace.c` 仍只 include `syscall_xattr_direct_event_v2.h`；`enter_router` 继续把 xattr family 路由到 `ENTER_PROG_XATTR`，`enter_xattr` 的 emit/save pending 顺序不变，generic exit 仍调用 get/list 专用 emitter。改动仅是 xattr facade 的编译期 include/ownership 与 source-test 的组合视图。
+
+#### 方案比较
+
+1. 保留 310 行单文件并只补充注释：运行时风险最小，但 selector、capture、composer 和 ringbuf lifecycle 仍耦合，7 参数接口问题也会保留，拒绝。
+2. 按 path/name/value 分拆多个 capture header：capture 责任更细，但会重复 xattr policy 与 TLV composer，增加 include/verifier 观察面，拒绝。
+3. facade + capture provider + emit provider，并用 bytes request 结构收敛接口：职责清晰、一次解决参数膨胀、调用图和 ABI 不变，选择该方案。
+
+#### 状态契约
+
+- `syscall_xattr_direct_event_v2.h` 只拥有容量常量、set/get/list/remove selector、path/name policy，并按 capture 后 emit 的顺序 include 两个 provider；它不再定义用户内存读取、TLV 写入或 emitter。
+- `syscall_xattr_capture_direct_event_v2.h` 拥有 NUL-terminated path/name string capture、bounded value bytes capture 和 enter payload composer。`xattr_bytes_capture_request` 携带 arg index、TLV flags、user pointer 和 raw length，`capture_xattr_bytes_tlv_direct` 通过 request 加 event flags 指针共 4 个参数，保留原有 clamp/copy/truncated/error 语义。
+- `syscall_xattr_emit_direct_event_v2.h` 拥有 xattr enter emitter、bytes exit emitter 及 get/list wrapper，负责 ringbuf reserve/discard、event header/body write 和 submit；它只构造 request 并调用 capture provider，不直接调用 `bpf_probe_read_user` 或 `bpf_probe_read_user_str`。
+- path/name/value capture 的 enter/exit 时点、arg index `0/1/2`、STRING/BYTES TLV kind、OUT flag、payload capacity 和 pending consume 保持不变；用户态没有补读 tracee memory 的路径。
+- 新 provider 是纯编译期 header，不创建 map、ProgArray、tail call、scratch 状态、锁、goroutine、定时器或事件消费者；单消费者 ringbuf 事件流不变。
+
+#### 测试与验收
+
+- 失败优先 gate 按预期失败：`TestBPFXattrSplitsCaptureAndEmitOwnership` 首次运行时 provider 文件尚不存在。实现后该测试检查 facade include 顺序、policy ownership、capture/emit 排他 ownership、capture provider 无 ringbuf lifecycle、emit provider 无 user read、bytes helper 的 <=5 参数接口和文件行数，并通过。
+- `TestBPFXattrPayloadsUseDirectTLV`、`TestBPFGenericExitOwnsPendingAroundEmissionHelper`、`TestBPFEnterDispatcherDelegatesProgramSelection` 和 `TestBPFExitDispatcherDelegatesProgramSelection` 均通过；xattr source gate 已读取 facade 与两个 provider 的组合视图。
+- `sudo -n ./build.sh` 通过，真实 clang/BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14201 ./cmd/strace-go` 和 `git diff --check` 均通过。
+- `syscall_xattr_direct_event_v2.h` 从 310 行降为 60 行，capture provider 为 147 行，emit provider 为 118 行，ownership source test 为 103 行；所有相关生产 header 与 source test 均满足 <=500 行限制，bytes capture 接口从 7 个参数降到 4 个。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `341.20 ns/op、0 B/op、0 allocs/op`，JSON writer `537.80 ns/op、0 B/op、0 allocs/op`，decoded writer `695.50 ns/op、0 B/op、0 allocs/op`，decoded payload writer `969.10 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `392.27/264.51/2.22/213.72 events/s`，所有运行时错误计数为 0。
+- 串行 sudo `small` 通过 `23 PASS / 0 FAIL`；原生 `xattr.gen.test` 与 `xattr-strings.gen.test` 均为 `1 PASS / 0 FAIL`，覆盖 xattr family 与字符串 capture。
+- `setxattrat.gen.test`、`getxattrat.gen.test`、`listxattrat.gen.test`、`removexattrat.gen.test` 当前均出现传统精确文本差异；父提交构建的 `/tmp/strace-go-phase-14200` 直接运行 `setxattrat.gen.test` 复现同一类差异，实际输出为 raw 指针/flags/六参数形式而不是上游的结构化 xattrat 文本。因此这些 *xattrat* 失败确认是既有 decoder/文本兼容缺口，不纳入本阶段 eBPF ownership 回归契约。
+
+#### Review 结论
+
+- 未发现运行时行为回归：xattr selector、path/name string snapshot、set enter bytes、get/list exit bytes、TLV offset/arg/flags、截断/错误统计、ringbuf lifecycle 和 pending consume 均与拆分前一致；真实 verifier、semantic/perf、串行 small 和两项基础 xattr 测试通过。
+- 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、attach、pending state、事件 ABI 或单消费者事件循环；没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
+- 失败路径仍显式保留：string read、bytes read、dynptr data/write、TLV header 和 reserve/submit/discard 的错误处理与原逻辑一致；source gate 防止 capture provider 重新拥有 ringbuf lifecycle，也防止 emit provider 重新拥有 user read。
+- *xattrat* 精确文本失败已通过父提交 binary A/B 排除为本阶段回归；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。本阶段仅修改 xattr facade/provider、相关 source gates、ownership regression test 和本记录。

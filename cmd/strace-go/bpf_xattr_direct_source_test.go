@@ -12,6 +12,9 @@ func TestBPFXattrPayloadsUseDirectTLV(t *testing.T) {
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	xattrDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_xattr_direct_event_v2.h"))
+	xattrCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_xattr_capture_direct_event_v2.h"))
+	xattrEmitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_xattr_emit_direct_event_v2.h"))
+	xattrDirectSources := xattrDirectHeader + "\n" + xattrCaptureHeader + "\n" + xattrEmitHeader
 
 	for _, snippet := range []string{
 		"#define SYS_SETXATTR 188",
@@ -23,7 +26,7 @@ func TestBPFXattrPayloadsUseDirectTLV(t *testing.T) {
 		"emit_xattr_get_exit_event_v2_direct(p, ret_value, duration);",
 		"emit_xattr_list_exit_event_v2_direct(p, ret_value, duration);",
 	} {
-		if !strings.Contains(straceSource, snippet) && !strings.Contains(timeDirectHeader, snippet) && !strings.Contains(xattrDirectHeader, snippet) {
+		if !strings.Contains(straceSource, snippet) && !strings.Contains(timeDirectHeader, snippet) && !strings.Contains(xattrDirectSources, snippet) {
 			t.Fatalf("BPF source missing xattr direct snippet %q", snippet)
 		}
 	}
@@ -43,7 +46,7 @@ func TestBPFXattrPayloadsUseDirectTLV(t *testing.T) {
 		"bpf_probe_read_user_str(payload_data, max_len",
 		"bpf_probe_read_user(payload_data, copied_len",
 	} {
-		if !strings.Contains(xattrDirectHeader, snippet) {
+		if !strings.Contains(xattrDirectSources, snippet) {
 			t.Fatalf("xattr direct header missing snippet %q", snippet)
 		}
 	}
