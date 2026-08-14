@@ -56,11 +56,9 @@ char LICENSE[] SEC("license") = "GPL";
 #include "lifecycle_dispatch.h"
 #include "enter_dispatch.h"
 #include "enter_fragment_dispatch.h"
-#include "enter_router.h"
 #include "mmsg_enter_dispatch.h"
 #include "exit_dispatch.h"
 #include "recvmsg_kretprobe_dispatch.h"
-#include "exit_router.h"
 #include "quota_dispatch.h"
 #include "mount_query_dispatch.h"
 #include "mount_path_dispatch.h"
@@ -82,9 +80,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
 
     u64 enter_time = bpf_ktime_get_ns();
 
-    u32 index = select_enter_prog_index(sys_id);
-
-    bpf_tail_call(ctx, &enter_progs, index);
+    bpf_tail_call(ctx, &enter_routes, sys_id);
     emit_enter_dispatch_fallback(ctx, pid, tid, cfg, enter_time);
     return 0;
 }
@@ -106,8 +102,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
         return 0;
     }
 
-    u32 index = select_exit_prog_index(sys_id);
-    bpf_tail_call(ctx, &exit_progs, index);
+    bpf_tail_call(ctx, &exit_routes, sys_id);
 
     // Tail-call fallback is isolated from the normal handler ownership path.
     emit_exit_dispatch_fallback(pid, tid, sys_id, ret_value);

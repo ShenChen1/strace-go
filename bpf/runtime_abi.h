@@ -144,6 +144,14 @@ struct {
     __type(value, u32);
 } enter_progs SEC(".maps");
 
+/* Direct syscall-id routing keeps the raw dispatcher independent of family predicates. */
+struct {
+    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+    __uint(max_entries, 512);
+    __type(key, u32);
+    __type(value, u32);
+} enter_routes SEC(".maps");
+
 enum mmsg_bytes_prog_index {
     MMSG_BYTES_PROG_BASE0 = 0,
     MMSG_BYTES_PROG_BASE1 = 1,
@@ -164,6 +172,13 @@ struct {
     __type(key, u32);
     __type(value, u32);
 } exit_progs SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+    __uint(max_entries, 512);
+    __type(key, u32);
+    __type(value, u32);
+} exit_routes SEC(".maps");
 
 enum recvmsg_prog_index {
     RECVMSG_PROG_NAME = 0,

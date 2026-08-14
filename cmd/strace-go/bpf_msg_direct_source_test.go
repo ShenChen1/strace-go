@@ -21,8 +21,6 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"#define SYS_RECVMMSG 299",
 		"#define SYS_SENDMMSG 307",
 		`#include "syscall_msg_direct_event_v2.h"`,
-		"is_msg_direct_syscall(sys_id)",
-		"is_single_msg_direct_syscall(sys_id)",
 		"enter_msg",
 		"enter_sendmsg_base",
 		"enter_mmsg",

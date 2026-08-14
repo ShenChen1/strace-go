@@ -28,7 +28,6 @@ func TestBPFSmallStructPayloadsUseDirectTLV(t *testing.T) {
 
 	requiredSource := []string{
 		`#include "syscall_small_struct_direct_event_v2.h"`,
-		"is_small_struct_enter_direct_syscall(sys_id)",
 		"emit_small_struct_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"is_small_struct_direct_syscall(sys_id)",
 		"is_small_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0",

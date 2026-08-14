@@ -225,14 +225,14 @@ func TestBPFExitDispatcherDefersPendingResolveToHandler(t *testing.T) {
 	for _, required := range []string{
 		"is_lifecycle_task_tracked(pid, tid)",
 		"should_trace_syscall(sys_id, cfg)",
-		"bpf_tail_call(ctx, &exit_progs, index);",
+		"bpf_tail_call(ctx, &exit_routes, sys_id);",
 	} {
 		if !strings.Contains(exitBody, required) {
 			t.Fatalf("trace_sys_exit missing pre-dispatch gate %q", required)
 		}
 	}
 	lifecycleGate := strings.Index(exitBody, "is_lifecycle_task_tracked(pid, tid)")
-	tailCall := strings.Index(exitBody, "bpf_tail_call(ctx, &exit_progs, index);")
+	tailCall := strings.Index(exitBody, "bpf_tail_call(ctx, &exit_routes, sys_id);")
 	if lifecycleGate < 0 || tailCall < lifecycleGate {
 		t.Fatal("trace_sys_exit must filter tracked tasks before the exit tail call")
 	}

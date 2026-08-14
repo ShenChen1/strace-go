@@ -8761,3 +8761,48 @@ Impact note：`strace.c` 仍只 include `syscall_small_struct_direct_event_v2.h`
 - 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、pending state、事件 ABI 或单消费者事件循环；capture provider 没有 ringbuf lifecycle，emit provider 没有用户内存读取，也没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
 - 失败路径仍显式保留：空指针、word probe、dynptr data/write、TLV header、ringbuf reserve、header/body write 和 submit/discard 的错误处理与拆分前一致；helper 参数收敛没有改变 arg2/arg1/arg3 的选择。
 - 本阶段只修改 small-struct facade/capture/emit、相关 source gates 和架构记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.210 将 raw syscall 分类下沉为 ID 路由表（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：当前纯 eBPF 运行时已经使用 raw tracepoint、tail-call ProgArray、ringbuf、pending TID state 和单 Goroutine 消费者；但 raw `sys_enter/sys_exit` dispatcher 仍在 BPF 指令中按 syscall family 逐层执行分类谓词。
+- Problem：每个 syscall 事件都要重复执行一组有序 family predicate；更大的直接问题是短 workload 的 `events_per_sec` 把 BPF load/verify、ProgArray 初始化、tracepoint attach、target bootstrap、事件 drain 和 cleanup 全部放进分母，固定启动成本会让吞吐数字看起来异常低，无法判断 steady-state 是否回退。
+- Goal：让 raw dispatcher 只保留 runtime gate、syscall ID 读取和一次 route-map tail call；由 Go 在加载后将生成 syscall table 映射到 enter/exit handler slot。保留现有 handler、pending/event ABI、生命周期、过滤和单消费者状态机，并为性能 suite 准备可拆分的 setup/steady-state 计时边界。
+- Non-goals：不改变 payload capture 时点、TLV/event ABI、handler/formatter、生命周期语义或用户可见输出；不引入 ptrace、procfs、process_vm、procmem 或其他 tracee 内存 fallback；本阶段不把人工 family route catalog 伪装成 BTF syscall 签名生成器。
+- Constraints：必须覆盖生成表中的每个 syscall ID；未知 syscall 使用 generic fallback；路由 map 容量与 BPF ABI 一致；所有修改先有失败优先测试或 source gate，生产代码与测试文件遵守仓库行数、参数数和复杂度限制；`strace-upstream` 的既有 dirty 状态不触碰。
+
+Impact note：BPF ABI 新增 `enter_routes`/`exit_routes` 两个 `BPF_MAP_TYPE_PROG_ARRAY`；`strace.c` 删除 `enter_router.h`/`exit_router.h` 的编译期分类，raw dispatcher 直接按 syscall ID tail-call。Go `setupBPF` 在 attach 前生成并写入 route maps；既有 `enter_progs`/`exit_progs` 仍保存 handler slot，fragment ProgArray 和 ringbuf/event/pending map 不变。性能 suite 的端到端计时口径仍保留，后续阶段增加阶段计时，不改变产品运行路径。
+
+#### 方案比较
+
+1. 只给现有端到端计时加说明：改动最小，但无法拆出 load/attach/target/run/cleanup，不能回答真实吞吐是否下降，拒绝。
+2. 只减少某些未使用 handler 的加载：可能降低部分 verifier 成本，但 raw dispatcher 仍保留全量分类，架构收益不稳定且需要新的选择性加载契约，拒绝。
+3. 用 syscall ID 到 ProgArray slot 的 table-driven route map：raw dispatcher 变成固定 gate + map lookup + tail call，Go 只负责一次性装载路由，分类成本从每事件路径移出；与现有 handler slot 复用度最高，选择该方案。
+
+#### 状态契约
+
+- `enter_routes` 和 `exit_routes` 的 key 为生成 syscall ID，value 为既有 `enter_progs`/`exit_progs` slot；两个 map 的 `max_entries` 均为 512，和当前 x86_64 生成表上限一致。
+- `newBPFRoutePlan` 先为生成表中的所有 ID 写入 `enterProgNoPayload`/`exitProgGeneric` 默认值，再应用集中维护的 family catalog；缺失的 arch-specific syscall 名称只跳过，不会制造不存在的 map entry；ID 越界和同名多 ID 都返回错误。
+- route map 在 raw tracepoint attach 前写入，并且所有 route entry 都必须找到非 nil handler；写入按 syscall ID 排序，map 更新失败包含 map 名和 ID 上下文并立即停止。
+- 删除的 `enter_router.h`/`exit_router.h` 不再参与 BPF 编译；raw enter/exit 的 runtime filter、tail-call fallback 和 handler 内部 family predicate 仍保留其必要的 payload/exit 细节判断。也就是说，本阶段移除的是 raw 入口分类，不是 payload provider 内部的业务策略。
+- 未订阅 syscall 仍由既有 BPF filter 在 raw dispatcher 前拒绝，不进入 route handler 或 ringbuf；route map 只解决已通过 runtime gate 的 syscall 到 handler slot 的选择。
+- `event_v2` header/body、TLV、pending TID state、lifecycle map、单 Goroutine event loop、文本/JSON 输出、无 ptrace/no-procfs 约束均保持不变。
+
+#### 测试与验收
+
+- 失败优先 route unit test 按预期先因 `newBPFRoutePlan` 不存在而失败；实现后覆盖 generic default、specialized family、生成表全量覆盖、ID 越界、重复 syscall name、route map 写入排序和 writer failure。
+- source gate 已改为断言 raw dispatcher 使用 `enter_routes`/`exit_routes`，不再 include 已删除的旧 router，也不再依赖 raw dispatcher 中的 family classifier；handler facade source view 仍覆盖各 direct provider 的真实实现。
+- `sudo -n ./build.sh` 通过，真实 clang/BPF verifier 接受两个新 ProgArray；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 `go build -a -o /tmp/strace-go-phase-14210 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`；lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001`；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `338.80 ns/op、0 B/op、0 allocs/op`，JSON writer `500.50 ns/op、0 B/op、0 allocs/op`，decoded writer `612.30 ns/op、0 B/op、0 allocs/op`，decoded payload writer `847.30 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `445.91/288.68/2.29/219.12 events/s`，所有运行时错误计数为 0。相对 14.209 的 `395.82/268.11/2.29/221.00`，scalar/io 分别上升约 12.7%/7.7%，lifecycle 持平，threads 在噪声范围内。
+- BPF object 对比显示 raw enter section 从 `0x48c88` 降至 `0x47bc0`，raw exit section 从 `0x29c20` 降至 `0x29920`；两个 route map 使 `.maps` 从 `0x230` 增至 `0x270`。这证明入口分类指令已缩小，但总 embedded object 大小不等于运行期 event throughput。
+- 端到端诊断仍显示 `/bin/true`、短 getpid workload 和输出 `/dev/null` 的耗时约 `6.6~6.7s`；扩大到 `100000 getpid` 后约 `6.94s`，摊薄固定成本后约 `1.4 万 exit events/s`。因此当前 `events_per_sec` 的低值主要是启动/收尾固定成本，不可作为 steady-state 单一 oracle；下一阶段必须输出 setup、trace 和 cleanup 分段指标，并保留端到端值作为用户感知延迟。
+- 串行 sudo `small` 通过 `23 PASS / 0 FAIL`；本阶段未修改 payload handler，因此没有新增原生单 syscall 文本契约测试，原生测试继续在 route catalog 完整审查和计时边界阶段复跑。
+
+#### Review 结论
+
+- 未发现 route migration 的运行时回归：specialized semantic fixture 覆盖的 path、payload、iovec、msg/mmsg、mount query/path、fcntl、thread/lifecycle 均正常，所有 runtime error counters 为 0；small、race、vet、verifier 均通过。
+- 路由 catalog 与删除前 `select_enter_prog_index`/`select_exit_prog_index` 的 family 集合逐项对齐；默认 route 保证生成表内每个 ID 可进入 generic handler，未知运行时 ID 仍由 BPF tail-call fallback 处理。后续应把 family catalog 与 BPF predicate 的一致性进一步自动化，避免新增 syscall 只修改一侧。
+- raw dispatcher 的热路径现在不再执行全量 family predicate，但每个事件增加一次 direct route map lookup；本机 perf 显示 scalar/io 已有改善，说明该取舍有效，但最终判断仍需在拆分 setup/steady-state 后进行。
+- 本阶段只修改 raw route ABI、Go route plan、对应 source/unit tests、生成 BPF Go bindings 和架构记录；没有引入 ptrace、procfs、process_vm、用户态 tracee memory 读取或第二种产品模式，`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

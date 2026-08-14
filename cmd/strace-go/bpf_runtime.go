@@ -54,6 +54,13 @@ func setupBPF() (*traceBPFRuntime, error) {
 	if err := spec.LoadAndAssign(objects, nil); err != nil {
 		return nil, fmt.Errorf("load and assign BPF objects: %w", errors.Join(err, objects.Close()))
 	}
+	routePlan, err := newBPFRoutePlan(meta.SyscallTable)
+	if err != nil {
+		return nil, fmt.Errorf("build BPF route plan: %w", errors.Join(err, objects.Close()))
+	}
+	if err := configureBPFRouteMaps(objects, routePlan); err != nil {
+		return nil, fmt.Errorf("configure BPF route maps: %w", errors.Join(err, objects.Close()))
+	}
 	runtime := &traceBPFRuntime{objects: objects}
 	links, err := newBpfAttacher(objects).attachAll()
 	if err != nil {

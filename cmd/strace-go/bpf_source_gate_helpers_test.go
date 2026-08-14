@@ -129,6 +129,7 @@ func readCombinedBPFSources(t *testing.T) string {
 	return readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_numbers_generated.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/runtime_stats.h")) +
+		"\n" + readBPFHandlerFacades(t) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/lifecycle_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/pending_state.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/lifecycle_state.h")) +
@@ -137,11 +138,67 @@ func readCombinedBPFSources(t *testing.T) string {
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/enter_runtime.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/enter_fragment_dispatch.h")) +
-		"\n" + readTextFile(t, filepath.Join(root, "bpf/enter_router.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/mmsg_enter_dispatch.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/recvmsg_kretprobe_dispatch.h")) +
-		"\n" + readTextFile(t, filepath.Join(root, "bpf/exit_router.h"))
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/quota_dispatch.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/mount_query_dispatch.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/mount_path_dispatch.h"))
+}
+
+func readBPFHandlerFacades(t *testing.T) string {
+	t.Helper()
+	root := repoRootForTest(t)
+	names := []string{
+		"syscall_direct_event_v2.h",
+		"syscall_fd_state_direct_event_v2.h",
+		"syscall_fd_array_direct_event_v2.h",
+		"syscall_getcwd_direct_event_v2.h",
+		"syscall_misc_struct_direct_event_v2.h",
+		"syscall_path_stat_direct_event_v2.h",
+		"syscall_path_direct_event_v2.h",
+		"syscall_mount_path_direct_event_v2.h",
+		"syscall_openat2_direct_event_v2.h",
+		"syscall_readlink_direct_event_v2.h",
+		"syscall_small_struct_direct_event_v2.h",
+		"syscall_stat_direct_event_v2.h",
+		"syscall_waitid_direct_event_v2.h",
+		"syscall_signal_direct_event_v2.h",
+		"syscall_cachestat_direct_event_v2.h",
+		"syscall_capability_direct_event_v2.h",
+		"syscall_memfd_direct_event_v2.h",
+		"syscall_prctl_direct_event_v2.h",
+		"syscall_clone3_direct_event_v2.h",
+		"syscall_bpf_direct_event_v2.h",
+		"syscall_iovec_direct_event_v2.h",
+		"syscall_iovec_base_exit_direct_event_v2.h",
+		"syscall_msg_direct_event_v2.h",
+		"syscall_fcntl_direct_event_v2.h",
+		"syscall_ioctl_direct_event_v2.h",
+		"syscall_network_direct_event_v2.h",
+		"syscall_network_direct_exit_event_v2.h",
+		"syscall_key_direct_event_v2.h",
+		"syscall_xattr_direct_event_v2.h",
+		"syscall_fs_direct_event_v2.h",
+		"syscall_aio_getevents_direct_event_v2.h",
+		"syscall_aio_direct_event_v2.h",
+		"syscall_poll_direct_event_v2.h",
+		"syscall_select_direct_event_v2.h",
+		"syscall_epoll_direct_event_v2.h",
+		"syscall_file_time_direct_event_v2.h",
+		"syscall_time_direct_event_v2.h",
+		"syscall_futex_direct_event_v2.h",
+		"syscall_sleep_direct_event_v2.h",
+		"syscall_timex_direct_event_v2.h",
+		"syscall_quota_xfs_direct_event_v2.h",
+		"syscall_quota_direct_event_v2.h",
+	}
+	var combined strings.Builder
+	for _, name := range names {
+		combined.WriteString(readTextFile(t, filepath.Join(root, "bpf", name)))
+		combined.WriteByte('\n')
+	}
+	return combined.String()
 }
 
 func readTextFile(t *testing.T, path string) string {

@@ -20,7 +20,6 @@ func TestBPFItimerPayloadsUseDirectTLV(t *testing.T) {
 	}
 
 	requiredSource := []string{
-		"is_itimer_enter_direct_syscall(sys_id)",
 		"emit_itimer_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"is_itimer_exit_direct_syscall(p->sys_id) && ret_value >= 0",
 		"emit_itimer_exit_event_v2_direct(p, ret_value, duration);",

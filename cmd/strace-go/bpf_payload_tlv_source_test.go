@@ -158,7 +158,6 @@ func TestBPFScalarAndTerminatingUseDirectEventV2(t *testing.T) {
 		!strings.Contains(straceSource, "emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);") ||
 		!strings.Contains(straceSource, "emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);") ||
 		!strings.Contains(straceSource, "save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);") ||
-		!strings.Contains(straceSource, "is_scalar_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "is_sys_exit_direct_syscall(p->sys_id)") {
 		t.Fatal("scalar syscalls should use direct event v2 helpers instead of the bpf_event carrier")
 	}
@@ -168,7 +167,6 @@ func TestBPFScalarAndTerminatingUseDirectEventV2(t *testing.T) {
 	if !strings.Contains(directHeader, "is_terminating_direct_syscall(") ||
 		!strings.Contains(directHeader, "return sys_id == SYS_EXIT || sys_id == SYS_EXIT_GROUP;") ||
 		!strings.Contains(directHeader, "emit_terminating_exit_event_v2_direct(") ||
-		!strings.Contains(straceSource, "is_terminating_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "emit_terminating_exit_event_v2_direct(pid, tid, sys_id, ctx, enter_time, stack_id);") {
 		t.Fatal("exit/exit_group should synthesize direct event v2 exit events without the bpf_event carrier")
 	}
@@ -184,7 +182,6 @@ func TestBPFReadWritePayloadHelpersUseDirectTLV(t *testing.T) {
 	if !strings.Contains(directHeader, "sys_id == SYS_OPENAT") ||
 		!strings.Contains(directHeader, "sys_id == SYS_WRITE") ||
 		!strings.Contains(directHeader, "sys_id == SYS_PWRITE64") ||
-		!strings.Contains(straceSource, "is_payload_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "is_sys_exit_direct_syscall(p->sys_id)") ||
 		!strings.Contains(directHeader, "emit_payload_enter_event_v2_direct(") ||
 		!strings.Contains(directHeader, "capture_openat_path_tlv_direct(") {
@@ -202,7 +199,6 @@ func TestBPFReadWritePayloadHelpersUseDirectTLV(t *testing.T) {
 		t.Fatal("write direct helper should reserve TLV payload capacity, copy bytes, and record truncation")
 	}
 	if !strings.Contains(directHeader, "return sys_id == SYS_READ || sys_id == SYS_PREAD64;") ||
-		!strings.Contains(straceSource, "is_exit_payload_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "is_exit_payload_direct_syscall(p->sys_id)") ||
 		!strings.Contains(straceSource, "ret_value > 0") ||
 		!strings.Contains(directHeader, "capture_read_bytes_tlv_direct(") ||
@@ -227,7 +223,6 @@ func TestBPFTimeAndStatStructPayloadsUseDirectTLV(t *testing.T) {
 		!strings.Contains(timeDirectHeader, "emit_time_struct_exit_event_v2_direct(") ||
 		!strings.Contains(timeDirectHeader, "emit_gettimeofday_exit_event_v2_direct(") ||
 		!strings.Contains(timeDirectHeader, "TIME_DIRECT_TIMEZONE_SIZE") ||
-		!strings.Contains(straceSource, "is_time_struct_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "is_sys_exit_direct_syscall(p->sys_id)") ||
 		!strings.Contains(straceSource, "emit_time_struct_exit_event_v2_direct(p, ret_value, duration);") ||
 		!strings.Contains(straceSource, "emit_gettimeofday_exit_event_v2_direct(p, ret_value, duration);") {
@@ -256,9 +251,7 @@ func TestBPFTimeAndStatStructPayloadsUseDirectTLV(t *testing.T) {
 		!strings.Contains(pathStatDirectHeader, "PATH_STAT_DIRECT_PATH_MAX 512") ||
 		!strings.Contains(statDirectHeader, "emit_stat_struct_exit_event_v2_direct(") ||
 		!strings.Contains(timeDirectHeader, "is_stat_struct_direct_syscall(sys_id)") ||
-		!strings.Contains(straceSource, "is_path_stat_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "emit_path_stat_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);") ||
-		!strings.Contains(straceSource, "is_stat_struct_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "emit_stat_struct_exit_event_v2_direct(p, ret_value, duration);") {
 		t.Fatal("stat/lstat/newfstatat/statx/statfs/fstat/fstatfs should emit direct TLV events without the bpf_event carrier")
 	}
@@ -304,7 +297,6 @@ func TestBPFWaitidAndSignalPayloadsUseDirectTLV(t *testing.T) {
 		!strings.Contains(signalDirectHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") ||
 		!strings.Contains(signalDirectHeader, "init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, probe_ret_enter, -1);") ||
 		!strings.Contains(timeDirectHeader, "is_signal_direct_syscall(sys_id)") ||
-		!strings.Contains(straceSource, "is_signal_enter_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "emit_signal_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time, -1);") ||
 		!strings.Contains(straceSource, "should_emit_signal_sigsuspend_marker(tid, pid)") ||
 		!strings.Contains(straceSource, "emit_signal_sigsuspend_marker_event_v2_direct(pid, tid, sys_id, ctx, enter_time);") ||
@@ -336,7 +328,6 @@ func TestBPFBytesPayloadsUseDirectTLV(t *testing.T) {
 		!strings.Contains(getcwdDirectHeader, "emit_getcwd_exit_event_v2_direct(") ||
 		!strings.Contains(getcwdDirectHeader, "PAYLOAD_TLV_KIND_BYTES") ||
 		!strings.Contains(getcwdDirectHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") ||
-		!strings.Contains(straceSource, "is_getcwd_direct_syscall(sys_id)") ||
 		!strings.Contains(timeDirectHeader, "is_getcwd_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "emit_getcwd_exit_event_v2_direct(p, ret_value, duration);") {
 		t.Fatal("getcwd should emit direct TLV events without the bpf_event carrier")
@@ -402,7 +393,6 @@ func TestBPFMiscStructPayloadsUseDirectTLV(t *testing.T) {
 		!strings.Contains(miscDirectHeader, "return p->args[3];") ||
 		!strings.Contains(miscDirectHeader, "return p->args[1];") ||
 		!strings.Contains(timeDirectHeader, "is_misc_struct_direct_syscall(sys_id)") ||
-		!strings.Contains(straceSource, "is_misc_struct_enter_direct_syscall(sys_id)") ||
 		!strings.Contains(straceSource, "emit_misc_struct_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);") ||
 		!strings.Contains(straceSource, "is_misc_struct_exit_direct_syscall(p->sys_id) && ret_value >= 0") ||
 		!strings.Contains(straceSource, "emit_misc_struct_exit_event_v2_direct(p, ret_value, duration);") {

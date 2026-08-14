@@ -164,8 +164,10 @@ type bpfMapSpecs struct {
 	AttachRootsMap   *ebpf.MapSpec `ebpf:"attach_roots_map"`
 	ConfigMap        *ebpf.MapSpec `ebpf:"config_map"`
 	EnterProgs       *ebpf.MapSpec `ebpf:"enter_progs"`
+	EnterRoutes      *ebpf.MapSpec `ebpf:"enter_routes"`
 	Events           *ebpf.MapSpec `ebpf:"events"`
 	ExitProgs        *ebpf.MapSpec `ebpf:"exit_progs"`
+	ExitRoutes       *ebpf.MapSpec `ebpf:"exit_routes"`
 	FdPathScratchMap *ebpf.MapSpec `ebpf:"fd_path_scratch_map"`
 	FilterMap        *ebpf.MapSpec `ebpf:"filter_map"`
 	MainExitedMap    *ebpf.MapSpec `ebpf:"main_exited_map"`
@@ -220,8 +222,10 @@ type bpfMaps struct {
 	AttachRootsMap   *ebpf.Map `ebpf:"attach_roots_map"`
 	ConfigMap        *ebpf.Map `ebpf:"config_map"`
 	EnterProgs       *ebpf.Map `ebpf:"enter_progs"`
+	EnterRoutes      *ebpf.Map `ebpf:"enter_routes"`
 	Events           *ebpf.Map `ebpf:"events"`
 	ExitProgs        *ebpf.Map `ebpf:"exit_progs"`
+	ExitRoutes       *ebpf.Map `ebpf:"exit_routes"`
 	FdPathScratchMap *ebpf.Map `ebpf:"fd_path_scratch_map"`
 	FilterMap        *ebpf.Map `ebpf:"filter_map"`
 	MainExitedMap    *ebpf.Map `ebpf:"main_exited_map"`
@@ -242,8 +246,10 @@ func (m *bpfMaps) Close() error {
 		m.AttachRootsMap,
 		m.ConfigMap,
 		m.EnterProgs,
+		m.EnterRoutes,
 		m.Events,
 		m.ExitProgs,
+		m.ExitRoutes,
 		m.FdPathScratchMap,
 		m.FilterMap,
 		m.MainExitedMap,
