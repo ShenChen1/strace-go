@@ -15,19 +15,24 @@ import (
 type traceBPFSetupStage string
 
 const (
-	bpfSetupMemlockStage           traceBPFSetupStage = "bpf_memlock"
-	bpfSetupSpecStage              traceBPFSetupStage = "bpf_spec"
-	bpfSetupObjectPrepareStage     traceBPFSetupStage = "bpf_object_prepare"
-	bpfSetupCoreCollectionStage    traceBPFSetupStage = "bpf_core_collection_load"
-	bpfSetupEnterCollectionStage   traceBPFSetupStage = "bpf_enter_collection_load"
-	bpfSetupExitCollectionStage    traceBPFSetupStage = "bpf_exit_collection_load"
-	bpfSetupRecvmsgCollectionStage traceBPFSetupStage = "bpf_recvmsg_collection_load"
-	bpfSetupResourceBindStage      traceBPFSetupStage = "bpf_resource_bind"
-	bpfSetupRoutePlanStage         traceBPFSetupStage = "bpf_route_plan"
-	bpfSetupRouteMapsStage         traceBPFSetupStage = "bpf_route_maps"
-	bpfSetupProgArraysStage        traceBPFSetupStage = "bpf_prog_arrays"
-	bpfSetupTracepointsStage       traceBPFSetupStage = "bpf_tracepoints"
-	bpfSetupRecvmsgKretprobeStage  traceBPFSetupStage = "bpf_recvmsg_kretprobe"
+	bpfSetupMemlockStage                   traceBPFSetupStage = "bpf_memlock"
+	bpfSetupSpecStage                      traceBPFSetupStage = "bpf_spec"
+	bpfSetupObjectPrepareStage             traceBPFSetupStage = "bpf_object_prepare"
+	bpfSetupCoreCollectionStage            traceBPFSetupStage = "bpf_core_collection_load"
+	bpfSetupEnterGenericCollectionStage    traceBPFSetupStage = "bpf_enter_generic_collection_load"
+	bpfSetupEnterPayloadCollectionStage    traceBPFSetupStage = "bpf_enter_payload_collection_load"
+	bpfSetupEnterPathCollectionStage       traceBPFSetupStage = "bpf_enter_path_collection_load"
+	bpfSetupEnterMemoryCollectionStage     traceBPFSetupStage = "bpf_enter_memory_collection_load"
+	bpfSetupEnterControlCollectionStage    traceBPFSetupStage = "bpf_enter_control_collection_load"
+	bpfSetupEnterStructuredCollectionStage traceBPFSetupStage = "bpf_enter_structured_collection_load"
+	bpfSetupExitCollectionStage            traceBPFSetupStage = "bpf_exit_collection_load"
+	bpfSetupRecvmsgCollectionStage         traceBPFSetupStage = "bpf_recvmsg_collection_load"
+	bpfSetupResourceBindStage              traceBPFSetupStage = "bpf_resource_bind"
+	bpfSetupRoutePlanStage                 traceBPFSetupStage = "bpf_route_plan"
+	bpfSetupRouteMapsStage                 traceBPFSetupStage = "bpf_route_maps"
+	bpfSetupProgArraysStage                traceBPFSetupStage = "bpf_prog_arrays"
+	bpfSetupTracepointsStage               traceBPFSetupStage = "bpf_tracepoints"
+	bpfSetupRecvmsgKretprobeStage          traceBPFSetupStage = "bpf_recvmsg_kretprobe"
 )
 
 type traceBPFSetupTiming struct {
@@ -38,8 +43,18 @@ type traceBPFSetupTiming struct {
 
 func bpfHandlerCollectionStage(family bpfHandlerFamily) traceBPFSetupStage {
 	switch family {
-	case bpfHandlerEnterFamily:
-		return bpfSetupEnterCollectionStage
+	case bpfHandlerEnterGenericFamily:
+		return bpfSetupEnterGenericCollectionStage
+	case bpfHandlerEnterPayloadFamily:
+		return bpfSetupEnterPayloadCollectionStage
+	case bpfHandlerEnterPathFamily:
+		return bpfSetupEnterPathCollectionStage
+	case bpfHandlerEnterMemoryFamily:
+		return bpfSetupEnterMemoryCollectionStage
+	case bpfHandlerEnterControlFamily:
+		return bpfSetupEnterControlCollectionStage
+	case bpfHandlerEnterStructuredFamily:
+		return bpfSetupEnterStructuredCollectionStage
 	case bpfHandlerExitFamily:
 		return bpfSetupExitCollectionStage
 	case bpfHandlerRecvmsgFamily:
@@ -216,7 +231,12 @@ func loadBPFHandlerSpecs() (map[bpfHandlerFamily]*ebpf.CollectionSpec, error) {
 		name   string
 		load   func() (*ebpf.CollectionSpec, error)
 	}{
-		{bpfHandlerEnterFamily, "enter", loadBpfEnter},
+		{bpfHandlerEnterGenericFamily, "enter generic", loadBpfEnterGeneric},
+		{bpfHandlerEnterPayloadFamily, "enter payload", loadBpfEnterPayload},
+		{bpfHandlerEnterPathFamily, "enter path", loadBpfEnterPath},
+		{bpfHandlerEnterMemoryFamily, "enter memory", loadBpfEnterMemory},
+		{bpfHandlerEnterControlFamily, "enter control", loadBpfEnterControl},
+		{bpfHandlerEnterStructuredFamily, "enter structured", loadBpfEnterStructured},
 		{bpfHandlerExitFamily, "exit", loadBpfExit},
 		{bpfHandlerRecvmsgFamily, "recvmsg", loadBpfRecvmsg},
 	}

@@ -64,7 +64,7 @@ func TestClassifyBPFHandlerProgram(t *testing.T) {
 		family bpfHandlerFamily
 		valid  bool
 	}{
-		{name: "enter_no_payload_direct", family: bpfHandlerEnterFamily, valid: true},
+		{name: "enter_no_payload_direct", family: bpfHandlerEnterPathFamily, valid: true},
 		{name: "exit_generic", family: bpfHandlerExitFamily, valid: true},
 		{name: "trace_kretprobe_recvmsg_dispatch", family: bpfHandlerRecvmsgFamily, valid: true},
 		{name: "trace_sys_enter", valid: false},
@@ -80,14 +80,63 @@ func TestClassifyBPFHandlerProgram(t *testing.T) {
 	}
 }
 
+func TestClassifyBPFEnterProgramsByCapability(t *testing.T) {
+	tests := []struct {
+		name   string
+		family bpfHandlerFamily
+	}{
+		{name: "enter_no_payload_generic", family: bpfHandlerFamily("enter_generic")},
+		{name: "enter_payload_direct", family: bpfHandlerFamily("enter_payload")},
+		{name: "enter_path_only", family: bpfHandlerFamily("enter_path")},
+		{name: "enter_iovec_base", family: bpfHandlerFamily("enter_memory")},
+		{name: "enter_network", family: bpfHandlerFamily("enter_control")},
+		{name: "enter_capability", family: bpfHandlerFamily("enter_structured")},
+		{name: "enter_mmsg_bytes3", family: bpfHandlerFamily("enter_memory")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			family, ok := classifyBPFHandlerProgram(test.name)
+			if !ok || family != test.family {
+				t.Fatalf("classifyBPFHandlerProgram(%q) = (%q, %v), want (%q, true)", test.name, family, ok, test.family)
+			}
+		})
+	}
+}
+
+func TestClassifyBPFHandlerProgramRejectsUnownedEnterProgram(t *testing.T) {
+	for _, name := range []string{"enter_future", "enter_unknown_fragment"} {
+		if family, ok := classifyBPFHandlerProgram(name); ok {
+			t.Fatalf("classifyBPFHandlerProgram(%q) = (%q, true), want rejected", name, family)
+		}
+	}
+}
+
+func TestBPFEnterCapabilityLoadOrder(t *testing.T) {
+	want := []bpfHandlerFamily{
+		bpfHandlerFamily("enter_generic"),
+		bpfHandlerFamily("enter_payload"),
+		bpfHandlerFamily("enter_path"),
+		bpfHandlerFamily("enter_memory"),
+		bpfHandlerFamily("enter_control"),
+		bpfHandlerFamily("enter_structured"),
+		bpfHandlerExitFamily,
+		bpfHandlerRecvmsgFamily,
+	}
+	if !equalHandlerFamilies(bpfHandlerLoadOrder, want) {
+		t.Fatalf("handler load order = %v, want %v", bpfHandlerLoadOrder, want)
+	}
+}
+
 func TestPrepareBPFCollectionProgramsSplitsSelectedFamilies(t *testing.T) {
 	core := &ebpf.CollectionSpec{Programs: map[string]*ebpf.ProgramSpec{
 		"trace_sys_enter": {},
 	}}
 	handlers := map[bpfHandlerFamily]*ebpf.CollectionSpec{
-		bpfHandlerEnterFamily: {Programs: map[string]*ebpf.ProgramSpec{
+		bpfHandlerEnterPathFamily: {Programs: map[string]*ebpf.ProgramSpec{
 			"enter_no_payload_direct": {},
-			"enter_network":           {},
+		}},
+		bpfHandlerEnterControlFamily: {Programs: map[string]*ebpf.ProgramSpec{
+			"enter_network": {},
 		}},
 		bpfHandlerExitFamily: {Programs: map[string]*ebpf.ProgramSpec{
 			"exit_generic": {},
@@ -100,6 +149,7 @@ func TestPrepareBPFCollectionProgramsSplitsSelectedFamilies(t *testing.T) {
 	selection := bpfProgramSelection{programs: map[string]struct{}{
 		"trace_sys_enter":                  {},
 		"enter_no_payload_direct":          {},
+		"enter_network":                    {},
 		"exit_generic":                     {},
 		"trace_kretprobe_recvmsg_dispatch": {},
 	}}
@@ -107,8 +157,11 @@ func TestPrepareBPFCollectionProgramsSplitsSelectedFamilies(t *testing.T) {
 	if err := prepareBPFCollectionPrograms(core, handlers, selection); err != nil {
 		t.Fatalf("prepareBPFCollectionPrograms() error = %v", err)
 	}
-	if len(handlers[bpfHandlerEnterFamily].Programs) != 1 {
-		t.Fatalf("enter programs = %d, want 1", len(handlers[bpfHandlerEnterFamily].Programs))
+	if len(handlers[bpfHandlerEnterPathFamily].Programs) != 1 {
+		t.Fatalf("path programs = %d, want 1", len(handlers[bpfHandlerEnterPathFamily].Programs))
+	}
+	if len(handlers[bpfHandlerEnterControlFamily].Programs) != 1 {
+		t.Fatalf("control programs = %d, want 1", len(handlers[bpfHandlerEnterControlFamily].Programs))
 	}
 	if len(handlers[bpfHandlerExitFamily].Programs) != 1 {
 		t.Fatalf("exit programs = %d, want 1", len(handlers[bpfHandlerExitFamily].Programs))
@@ -121,12 +174,28 @@ func TestPrepareBPFCollectionProgramsSplitsSelectedFamilies(t *testing.T) {
 func TestPrepareBPFCollectionProgramsRejectsUnclassifiedSelection(t *testing.T) {
 	core := &ebpf.CollectionSpec{}
 	handlers := map[bpfHandlerFamily]*ebpf.CollectionSpec{
-		bpfHandlerEnterFamily: {Programs: map[string]*ebpf.ProgramSpec{"enter_network": {}}},
+		bpfHandlerEnterControlFamily: {Programs: map[string]*ebpf.ProgramSpec{"enter_network": {}}},
 	}
 	selection := bpfProgramSelection{programs: map[string]struct{}{"mystery": {}}}
 
 	err := prepareBPFCollectionPrograms(core, handlers, selection)
 	if err == nil || !strings.Contains(err.Error(), `selected BPF program "mystery" is unavailable`) {
+		t.Fatalf("prepareBPFCollectionPrograms() error = %v, want unavailable program", err)
+	}
+}
+
+func TestPrepareBPFCollectionProgramsRejectsUnknownSelectionInLoadAllMode(t *testing.T) {
+	core := &ebpf.CollectionSpec{}
+	handlers := map[bpfHandlerFamily]*ebpf.CollectionSpec{
+		bpfHandlerEnterGenericFamily: {Programs: map[string]*ebpf.ProgramSpec{"enter_no_payload_generic": {}}},
+	}
+	selection := bpfProgramSelection{
+		loadAll:  true,
+		programs: map[string]struct{}{"enter_future": {}},
+	}
+
+	err := prepareBPFCollectionPrograms(core, handlers, selection)
+	if err == nil || !strings.Contains(err.Error(), `selected BPF program "enter_future" is unavailable`) {
 		t.Fatalf("prepareBPFCollectionPrograms() error = %v, want unavailable program", err)
 	}
 }
@@ -145,14 +214,14 @@ func TestBPFLoadedHandlerCollectionsCloseInReverseLoadOrder(t *testing.T) {
 	var order []string
 	loaded := &bpfLoadedHandlerCollections{
 		collections: map[bpfHandlerFamily]*bpfLoadedCollection{
-			bpfHandlerEnterFamily: {
+			bpfHandlerEnterGenericFamily: {
 				closer: &orderedBPFCloser{name: "enter", order: &order},
 			},
 			bpfHandlerExitFamily: {
 				closer: &orderedBPFCloser{name: "exit", order: &order},
 			},
 		},
-		loadOrder: []bpfHandlerFamily{bpfHandlerEnterFamily, bpfHandlerExitFamily},
+		loadOrder: []bpfHandlerFamily{bpfHandlerEnterGenericFamily, bpfHandlerExitFamily},
 	}
 
 	if err := loaded.Close(); err != nil {

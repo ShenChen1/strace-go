@@ -287,9 +287,14 @@ func TestBPFProgramSelectionCatalogMatchesGeneratedSpec(t *testing.T) {
 	}
 	handlerSpecs := map[bpfHandlerFamily]*ebpf.CollectionSpec{}
 	for family, loader := range map[bpfHandlerFamily]func() (*ebpf.CollectionSpec, error){
-		bpfHandlerEnterFamily:   loadBpfEnter,
-		bpfHandlerExitFamily:    loadBpfExit,
-		bpfHandlerRecvmsgFamily: loadBpfRecvmsg,
+		bpfHandlerEnterGenericFamily:    loadBpfEnterGeneric,
+		bpfHandlerEnterPayloadFamily:    loadBpfEnterPayload,
+		bpfHandlerEnterPathFamily:       loadBpfEnterPath,
+		bpfHandlerEnterMemoryFamily:     loadBpfEnterMemory,
+		bpfHandlerEnterControlFamily:    loadBpfEnterControl,
+		bpfHandlerEnterStructuredFamily: loadBpfEnterStructured,
+		bpfHandlerExitFamily:            loadBpfExit,
+		bpfHandlerRecvmsgFamily:         loadBpfRecvmsg,
 	} {
 		handlerSpec, err := loader()
 		if err != nil {
@@ -298,8 +303,9 @@ func TestBPFProgramSelectionCatalogMatchesGeneratedSpec(t *testing.T) {
 		handlerSpecs[family] = handlerSpec
 	}
 	for slot, name := range bpfEnterProgramNames {
-		if handlerSpecs[bpfHandlerEnterFamily].Programs[name] == nil {
-			t.Fatalf("generated BPF spec is missing enter slot %d program %q", slot, name)
+		family, ok := bpfHandlerProgramFamilies[name]
+		if !ok || handlerSpecs[family].Programs[name] == nil {
+			t.Fatalf("generated BPF spec is missing enter slot %d program %q in family %q", slot, name, family)
 		}
 	}
 	for slot, name := range bpfExitProgramNames {
@@ -313,8 +319,41 @@ func TestBPFProgramSelectionCatalogMatchesGeneratedSpec(t *testing.T) {
 		}
 	}
 	for slot, name := range bpfMmsgByteProgramNames {
-		if handlerSpecs[bpfHandlerEnterFamily].Programs[name] == nil {
+		family, ok := bpfHandlerProgramFamilies[name]
+		if !ok || handlerSpecs[family].Programs[name] == nil {
 			t.Fatalf("generated BPF spec is missing mmsg byte slot %d program %q", slot, name)
+		}
+	}
+}
+
+func TestBPFEnterProgramOwnershipIsExclusive(t *testing.T) {
+	loaders := map[bpfHandlerFamily]func() (*ebpf.CollectionSpec, error){
+		bpfHandlerEnterGenericFamily:    loadBpfEnterGeneric,
+		bpfHandlerEnterPayloadFamily:    loadBpfEnterPayload,
+		bpfHandlerEnterPathFamily:       loadBpfEnterPath,
+		bpfHandlerEnterMemoryFamily:     loadBpfEnterMemory,
+		bpfHandlerEnterControlFamily:    loadBpfEnterControl,
+		bpfHandlerEnterStructuredFamily: loadBpfEnterStructured,
+	}
+	owners := make(map[string]bpfHandlerFamily)
+	for family, loader := range loaders {
+		spec, err := loader()
+		if err != nil {
+			t.Fatalf("load %s handler spec: %v", family, err)
+		}
+		for name := range spec.Programs {
+			if previous, exists := owners[name]; exists {
+				t.Fatalf("enter program %q is owned by %q and %q", name, previous, family)
+			}
+			owners[name] = family
+			if want := bpfHandlerProgramFamilies[name]; want != family {
+				t.Fatalf("enter program %q owner = %q, want %q", name, family, want)
+			}
+		}
+	}
+	for slot, name := range bpfEnterProgramNames {
+		if _, ok := owners[name]; !ok {
+			t.Fatalf("enter slot %d program %q has no capability owner", slot, name)
 		}
 	}
 }

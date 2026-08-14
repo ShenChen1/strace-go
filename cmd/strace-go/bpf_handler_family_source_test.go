@@ -9,19 +9,10 @@ import (
 func TestBPFHandlerFamilyTranslationUnitsKeepOwnership(t *testing.T) {
 	root := repoRootForTest(t)
 	sources := map[string]string{
-		"enter":   readTextFile(t, filepath.Join(root, "bpf/handlers_enter.c")),
 		"exit":    readTextFile(t, filepath.Join(root, "bpf/handlers_exit.c")),
 		"recvmsg": readTextFile(t, filepath.Join(root, "bpf/handlers_recvmsg.c")),
 	}
 	required := map[string][]string{
-		"enter": {
-			"#define STRACE_GO_HANDLER_ENTER 1",
-			`#include "enter_dispatch.h"`,
-			`#include "enter_fragment_dispatch.h"`,
-			`#include "mmsg_enter_dispatch.h"`,
-			`#include "quota_dispatch.h"`,
-			`#include "mount_path_dispatch.h"`,
-		},
 		"exit": {
 			"#define STRACE_GO_HANDLER_EXIT 1",
 			`#include "exit_dispatch.h"`,
@@ -44,8 +35,7 @@ func TestBPFHandlerFamilyTranslationUnitsKeepOwnership(t *testing.T) {
 			}
 		}
 	}
-	if strings.Contains(sources["enter"], `#include "exit_dispatch.h"`) ||
-		strings.Contains(sources["exit"], `#include "enter_dispatch.h"`) ||
+	if strings.Contains(sources["exit"], `#include "enter_dispatch.h"`) ||
 		strings.Contains(sources["recvmsg"], `#include "enter_dispatch.h"`) {
 		t.Fatal("handler family translation units include a foreign dispatch family")
 	}

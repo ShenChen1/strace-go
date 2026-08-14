@@ -10,28 +10,101 @@ import (
 type bpfHandlerFamily string
 
 const (
-	bpfHandlerEnterFamily   bpfHandlerFamily = "enter"
-	bpfHandlerExitFamily    bpfHandlerFamily = "exit"
-	bpfHandlerRecvmsgFamily bpfHandlerFamily = "recvmsg"
+	bpfHandlerEnterGenericFamily    bpfHandlerFamily = "enter_generic"
+	bpfHandlerEnterPayloadFamily    bpfHandlerFamily = "enter_payload"
+	bpfHandlerEnterPathFamily       bpfHandlerFamily = "enter_path"
+	bpfHandlerEnterMemoryFamily     bpfHandlerFamily = "enter_memory"
+	bpfHandlerEnterControlFamily    bpfHandlerFamily = "enter_control"
+	bpfHandlerEnterStructuredFamily bpfHandlerFamily = "enter_structured"
+	bpfHandlerExitFamily            bpfHandlerFamily = "exit"
+	bpfHandlerRecvmsgFamily         bpfHandlerFamily = "recvmsg"
 )
 
 var bpfHandlerLoadOrder = []bpfHandlerFamily{
-	bpfHandlerEnterFamily,
+	bpfHandlerEnterGenericFamily,
+	bpfHandlerEnterPayloadFamily,
+	bpfHandlerEnterPathFamily,
+	bpfHandlerEnterMemoryFamily,
+	bpfHandlerEnterControlFamily,
+	bpfHandlerEnterStructuredFamily,
 	bpfHandlerExitFamily,
 	bpfHandlerRecvmsgFamily,
 }
 
+var bpfHandlerProgramFamilies = map[string]bpfHandlerFamily{
+	"enter_terminating":                bpfHandlerEnterGenericFamily,
+	"enter_no_payload_generic":         bpfHandlerEnterGenericFamily,
+	"enter_exec":                       bpfHandlerEnterPayloadFamily,
+	"enter_payload_direct":             bpfHandlerEnterPayloadFamily,
+	"enter_path_stat":                  bpfHandlerEnterPathFamily,
+	"enter_path_only":                  bpfHandlerEnterPathFamily,
+	"enter_dual_path":                  bpfHandlerEnterPathFamily,
+	"enter_openat2":                    bpfHandlerEnterPathFamily,
+	"enter_readlink":                   bpfHandlerEnterPathFamily,
+	"enter_no_payload_direct":          bpfHandlerEnterPathFamily,
+	"enter_mount_path":                 bpfHandlerEnterPathFamily,
+	"enter_iovec":                      bpfHandlerEnterMemoryFamily,
+	"enter_msg":                        bpfHandlerEnterMemoryFamily,
+	"enter_mmsg":                       bpfHandlerEnterMemoryFamily,
+	"enter_iovec_base":                 bpfHandlerEnterMemoryFamily,
+	"enter_sendmsg_base":               bpfHandlerEnterMemoryFamily,
+	"enter_mmsg_base01":                bpfHandlerEnterMemoryFamily,
+	"enter_mmsg_base2":                 bpfHandlerEnterMemoryFamily,
+	"enter_mmsg_base3":                 bpfHandlerEnterMemoryFamily,
+	"enter_aio":                        bpfHandlerEnterMemoryFamily,
+	"enter_aio_iovec":                  bpfHandlerEnterMemoryFamily,
+	"enter_aio_buf":                    bpfHandlerEnterMemoryFamily,
+	"enter_mmsg_bytes0":                bpfHandlerEnterMemoryFamily,
+	"enter_mmsg_bytes1":                bpfHandlerEnterMemoryFamily,
+	"enter_mmsg_bytes2":                bpfHandlerEnterMemoryFamily,
+	"enter_mmsg_bytes3":                bpfHandlerEnterMemoryFamily,
+	"enter_fcntl":                      bpfHandlerEnterControlFamily,
+	"enter_ioctl":                      bpfHandlerEnterControlFamily,
+	"enter_network":                    bpfHandlerEnterControlFamily,
+	"enter_key":                        bpfHandlerEnterControlFamily,
+	"enter_xattr":                      bpfHandlerEnterControlFamily,
+	"enter_fs":                         bpfHandlerEnterControlFamily,
+	"enter_poll":                       bpfHandlerEnterControlFamily,
+	"enter_select":                     bpfHandlerEnterControlFamily,
+	"enter_epoll":                      bpfHandlerEnterControlFamily,
+	"enter_misc_struct":                bpfHandlerEnterStructuredFamily,
+	"enter_small_struct":               bpfHandlerEnterStructuredFamily,
+	"enter_itimer":                     bpfHandlerEnterStructuredFamily,
+	"enter_time_struct":                bpfHandlerEnterStructuredFamily,
+	"enter_signal":                     bpfHandlerEnterStructuredFamily,
+	"enter_file_time":                  bpfHandlerEnterStructuredFamily,
+	"enter_sleep":                      bpfHandlerEnterStructuredFamily,
+	"enter_futex":                      bpfHandlerEnterStructuredFamily,
+	"enter_cachestat":                  bpfHandlerEnterStructuredFamily,
+	"enter_capability":                 bpfHandlerEnterStructuredFamily,
+	"enter_memfd":                      bpfHandlerEnterStructuredFamily,
+	"enter_prctl":                      bpfHandlerEnterStructuredFamily,
+	"enter_clone3":                     bpfHandlerEnterStructuredFamily,
+	"enter_bpf":                        bpfHandlerEnterStructuredFamily,
+	"enter_quota":                      bpfHandlerEnterStructuredFamily,
+	"exit_generic":                     bpfHandlerExitFamily,
+	"exit_iovec_base":                  bpfHandlerExitFamily,
+	"exit_msg":                         bpfHandlerExitFamily,
+	"exit_mmsg_final":                  bpfHandlerExitFamily,
+	"exit_recvmmsg_base01":             bpfHandlerExitFamily,
+	"exit_recvmmsg_base23":             bpfHandlerExitFamily,
+	"exit_quota":                       bpfHandlerExitFamily,
+	"exit_mount_query":                 bpfHandlerExitFamily,
+	"exit_path":                        bpfHandlerExitFamily,
+	"exit_fd_time":                     bpfHandlerExitFamily,
+	"exit_struct":                      bpfHandlerExitFamily,
+	"exit_async":                       bpfHandlerExitFamily,
+	"exit_io":                          bpfHandlerExitFamily,
+	"exit_control":                     bpfHandlerExitFamily,
+	"trace_kretprobe_recvmsg_dispatch": bpfHandlerRecvmsgFamily,
+	"trace_kretprobe_recvmsg_name":     bpfHandlerRecvmsgFamily,
+	"trace_kretprobe_recvmsg_control":  bpfHandlerRecvmsgFamily,
+	"trace_kretprobe_recvmsg_final":    bpfHandlerRecvmsgFamily,
+}
+
 func classifyBPFHandlerProgram(name string) (bpfHandlerFamily, bool) {
-	switch {
-	case strings.HasPrefix(name, "enter_"):
-		return bpfHandlerEnterFamily, true
-	case strings.HasPrefix(name, "exit_"):
-		return bpfHandlerExitFamily, true
-	case strings.HasPrefix(name, "trace_kretprobe_recvmsg_"):
-		return bpfHandlerRecvmsgFamily, true
-	default:
-		return "", false
-	}
+	family, ok := bpfHandlerProgramFamilies[name]
+	return family, ok
 }
 
 // bpfMapReplacementPlan describes handler maps that must reuse core state.
@@ -76,9 +149,6 @@ func prepareBPFCollectionPrograms(
 	if core == nil || len(handlers) == 0 {
 		return fmt.Errorf("BPF core and handler specs are required")
 	}
-	if selection.loadAll {
-		return nil
-	}
 	for name := range selection.programs {
 		if _, ok := core.Programs[name]; ok {
 			continue
@@ -94,6 +164,9 @@ func prepareBPFCollectionPrograms(
 			}
 		}
 		return fmt.Errorf("selected BPF program %q is unavailable", name)
+	}
+	if selection.loadAll {
+		return nil
 	}
 	coreSelection := selectionForBPFSpec(selection, core)
 	if err := pruneBPFProgramSpecs(core, coreSelection); err != nil {

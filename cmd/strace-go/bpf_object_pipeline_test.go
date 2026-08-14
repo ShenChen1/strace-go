@@ -84,7 +84,7 @@ func TestBPFObjectPipelineClosesLoadedCollectionOnBindFailure(t *testing.T) {
 	}
 
 	_, err := loadBPFObjectsWithTiming(
-		&sequenceBPFSetupClock{values: []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}},
+		&sequenceBPFSetupClock{values: []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22}},
 		observer,
 		testBPFCollectionSpecSet(),
 		bpfProgramSelection{loadAll: true},
@@ -108,7 +108,12 @@ func TestBPFObjectPipelineClosesLoadedCollectionOnBindFailure(t *testing.T) {
 	if got, want := bpfSetupStages(observer.Timings()), []traceBPFSetupStage{
 		bpfSetupObjectPrepareStage,
 		bpfSetupCoreCollectionStage,
-		bpfSetupEnterCollectionStage,
+		bpfSetupEnterGenericCollectionStage,
+		bpfSetupEnterPayloadCollectionStage,
+		bpfSetupEnterPathCollectionStage,
+		bpfSetupEnterMemoryCollectionStage,
+		bpfSetupEnterControlCollectionStage,
+		bpfSetupEnterStructuredCollectionStage,
 		bpfSetupExitCollectionStage,
 		bpfSetupRecvmsgCollectionStage,
 		bpfSetupResourceBindStage,
@@ -128,7 +133,7 @@ func TestBPFObjectPipelineDetachesAfterSuccessfulBind(t *testing.T) {
 	}
 
 	_, err := loadBPFObjectsWithTiming(
-		&sequenceBPFSetupClock{values: []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}},
+		&sequenceBPFSetupClock{values: []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22}},
 		newBPFSetupRecorder(),
 		testBPFCollectionSpecSet(),
 		bpfProgramSelection{loadAll: true},
@@ -180,26 +185,26 @@ func TestNativeBPFObjectLoaderPrepareCopiesSelectiveSpec(t *testing.T) {
 	coreSpec := &ebpf.CollectionSpec{}
 	handlerSpec := &ebpf.CollectionSpec{
 		Programs: map[string]*ebpf.ProgramSpec{
-			"enter_keep":   {},
-			"enter_remove": {},
+			"enter_no_payload_generic": {},
+			"enter_terminating":        {},
 		},
 	}
 	loader := &nativeBPFObjectLoader{}
 	plan, err := loader.prepare(&bpfCollectionSpecSet{
 		core: coreSpec,
 		handlers: map[bpfHandlerFamily]*ebpf.CollectionSpec{
-			bpfHandlerEnterFamily: handlerSpec,
+			bpfHandlerEnterGenericFamily: handlerSpec,
 		},
 	}, bpfProgramSelection{
-		programs: map[string]struct{}{"enter_keep": {}},
+		programs: map[string]struct{}{"enter_no_payload_generic": {}},
 	})
 	if err != nil {
 		t.Fatalf("prepare() error = %v", err)
 	}
-	if _, ok := handlerSpec.Programs["enter_remove"]; !ok {
+	if _, ok := handlerSpec.Programs["enter_terminating"]; !ok {
 		t.Fatal("prepare() mutated the caller's collection spec")
 	}
-	if _, ok := plan.handlerSpecs[bpfHandlerEnterFamily].Programs["enter_remove"]; ok {
+	if _, ok := plan.handlerSpecs[bpfHandlerEnterGenericFamily].Programs["enter_terminating"]; ok {
 		t.Fatal("prepare() kept an unselected program")
 	}
 }
@@ -227,9 +232,9 @@ func testBPFCollectionSpecSet() *bpfCollectionSpecSet {
 	return &bpfCollectionSpecSet{
 		core: &ebpf.CollectionSpec{},
 		handlers: map[bpfHandlerFamily]*ebpf.CollectionSpec{
-			bpfHandlerEnterFamily:   &ebpf.CollectionSpec{},
-			bpfHandlerExitFamily:    &ebpf.CollectionSpec{},
-			bpfHandlerRecvmsgFamily: &ebpf.CollectionSpec{},
+			bpfHandlerEnterGenericFamily: &ebpf.CollectionSpec{},
+			bpfHandlerExitFamily:         &ebpf.CollectionSpec{},
+			bpfHandlerRecvmsgFamily:      &ebpf.CollectionSpec{},
 		},
 	}
 }
@@ -237,9 +242,9 @@ func testBPFCollectionSpecSet() *bpfCollectionSpecSet {
 func testLoadedHandlerCollections(closer io.Closer) *bpfLoadedHandlerCollections {
 	return &bpfLoadedHandlerCollections{
 		collections: map[bpfHandlerFamily]*bpfLoadedCollection{
-			bpfHandlerEnterFamily: {closer: closer},
+			bpfHandlerEnterGenericFamily: {closer: closer},
 		},
-		loadOrder: []bpfHandlerFamily{bpfHandlerEnterFamily},
+		loadOrder: []bpfHandlerFamily{bpfHandlerEnterGenericFamily},
 	}
 }
 

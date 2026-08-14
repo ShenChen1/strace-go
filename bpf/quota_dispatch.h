@@ -3,7 +3,7 @@
 
 #ifndef STRACE_GO_CORE_ONLY
 
-#if !defined(STRACE_GO_HANDLER_FAMILY) || defined(STRACE_GO_HANDLER_ENTER)
+#if !defined(STRACE_GO_HANDLER_FAMILY) || defined(STRACE_GO_HANDLER_ENTER) || defined(STRACE_GO_ENTER_STRUCTURED)
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_quota(struct trace_event_raw_sys_enter *ctx)
 {

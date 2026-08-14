@@ -3,6 +3,8 @@
 
 #ifndef STRACE_GO_CORE_ONLY
 
+#if defined(STRACE_GO_ENTER_MEMORY)
+
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_mmsg_base01(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
@@ -81,6 +83,8 @@ int enter_mmsg_bytes3(struct trace_event_raw_sys_enter *ctx) {
     emit_mmsg_bytes_base3_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
     return 0;
 }
+
+#endif
 
 #endif
 

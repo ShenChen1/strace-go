@@ -3,6 +3,8 @@
 
 #ifndef STRACE_GO_CORE_ONLY
 
+#if defined(STRACE_GO_ENTER_PATH)
+
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_mount_path(struct trace_event_raw_sys_enter *ctx)
 {
@@ -14,6 +16,8 @@ int enter_mount_path(struct trace_event_raw_sys_enter *ctx)
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }
+
+#endif
 
 #endif
 

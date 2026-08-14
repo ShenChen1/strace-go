@@ -9157,3 +9157,36 @@ Impact note：影响 `shouldLoadAllBPFPrograms`、full/negated filter 的 select
 - 真实无 filter `/bin/true`：enter collection load 从 `4.005415s` 降至 `3.539910s`，减少约 `0.466s/11.6%`；exit 从 `1.272345s` 变为 `1.286146s`，recvmsg 从 `0.549984s` 变为 `0.547851s`，说明剩余主成本是 direct handler family 的全量 verifier，而不是 selection 开关本身。
 - 新 selection 下 `go test ./...`、`ebpf-semantic`、`ebpf-perf` 通过；最新正向 perf 的 scalar/io/lifecycle/threads steady-state 分别约为 `9649/6615/42/5190 events/s`，runtime counters 全零。当前不把 `0.466s` 的 default-mode 收益夸大为完成性能重构。
 - review 结论：route closure pruning 可以保留，因它减少不可达 capability 且不改变语义；但下一阶段必须按 enter direct capability 拆 collection/ELF，目标是让 `getpid` 等默认普通 syscall 不再触发完整 direct enter verifier。任何进一步拆分仍须先补 route closure、shared-map replacement 和失败回滚测试。
+
+### 14.220 Enter direct capability ELF ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.219 已让无 filter/否定 filter 使用完整 route closure，但默认 `/bin/true` 的 `bpf_enter_collection_load` 仍约 3.54s。原因不是 route map 包含不可达 slot，而是所有 enter direct handler 仍由一个 ELF 作为同一 verifier/load 单元交给内核。
+- Problem：单一 enter ELF 同时拥有 generic、路径、payload、向量/消息、控制和结构化 syscall capability。selection 只能删除 ProgramSpec，不能把这些 capability 的 ELF ownership、失败回滚和 setup 阶段分开；后续无法针对单组测量或并行优化，也无法在 capability 级别证明 selected program 的归属。
+- Goal：将 enter handler 拆成六个独立 translation unit/ELF：`generic`、`payload`、`path`、`memory`、`control`、`structured`。core map 仍是唯一 state owner；loader 根据 selection 只加载包含 selected program 的 capability ELF，并把所有 program 合并为同一个 attach/ProgArray capability。
+- Non-goals：本阶段不引入运行期动态 BPF 加载、不改变 route slot、event v2/TLV、pending/lifecycle、Go 单消费者或 FD-state 语义；不引入 ptrace、procfs、process_vm、procmem 或用户态 tracee memory fallback；不预先宣称六个 ELF 的串行总 load 时间必然下降。
+- Constraints：每个 `enter_*` program 必须且只能属于一个 capability；fragment tail-call 必须与其 owner 同 ELF；所有 capability 使用 core map replacement；任一 capability load/bind 失败都按反向顺序回收此前已加载资源；生成 directive、selection catalog、setup phases 和 source gate 必须保持同步。
+
+Impact note：影响 `bpf/enter_dispatch.h`、enter fragment ownership、`handlers_enter*.c`、Go family classifier/loader、generated bpf2go bindings、setup phase oracle 和 selection tests；不改变 core collection、exit/recvmsg collection、map ABI、raw tracepoint attachment 或用户态 output state machine。
+
+#### 方案比较
+
+1. 保留单一 enter ELF，只继续做 ProgramSpec pruning：改动小，但无 filter 仍由一个 verifier 输入承载全部 direct capability，不能形成能力级 ownership，拒绝作为下一阶段方案。
+2. 拆成 `generic` 与 `direct` 两个 ELF：loader 改动较小，但 path/payload/memory/control/structured 仍混在一个大型 direct ELF，无法定位后续瓶颈，作为过渡形态拒绝。
+3. 拆成六个 capability ELF，复用现有 core map replacement 和 aggregate owner：translation unit 边界清晰，正向 filter 可只加载对应 capability，all 模式也能分别测量每组 verifier 成本；需要扩展 generated binding、load order 和失败回滚测试，选择该方案。
+
+#### 状态契约
+
+- `generic` 拥有 `enter_terminating` 与 `enter_no_payload_generic`；`payload` 拥有 `enter_exec` 与 `enter_payload_direct`；`path` 拥有 path/openat2/readlink/no-payload FD path/mount-path handlers。
+- `memory` 拥有 iovec、msg、mmsg、AIO 及其所有 enter fragment 和 mmsg bytes fragment；`control` 拥有 fcntl/ioctl/network/key/xattr/fs/poll/select/epoll；`structured` 拥有其余 struct/time/signal/futex/capability/prctl/bpf/quota handlers。
+- enter fragment 不能跨 capability tail-call。selection 添加 fragment dependency 时，必须得到同一 capability 的 program；缺失 capability 或 selected program 必须在 prepare/bind 阶段报错。
+- 每个 capability ELF 的非 data map 通过 `MapReplacements` 指向 core map；其 generated syscall variables 在 load 前独立设置。`.rodata`/`.bss` 等私有 section 不进入 core replacement。
+- raw `sys_enter` 仍只有 core dispatcher 一个 attachment；所有 capability program 在 raw attachment 前写入同一个 `enter_progs`/`mmsg_bytes_progs`，route map 和 pending 语义保持不变。
+
+#### 测试与验收
+
+- 失败优先测试覆盖：program 到 capability 的完整分类、未知 enter program 拒绝、fragment 与 owner 不一致拒绝、空 capability 不调用 kernel load、selected route 对应 capability 完整、capability load 失败时已加载集合逆序关闭、成功 bind 后 aggregate owner 单独关闭。
+- source gate 锁定六份 enter translation unit 的 macro/include ownership，确保 dispatch function 不在多个 capability 中出现；生成 directive 和 build clean list 必须覆盖 little/big endian artifacts。
+- 真实验证必须报告每个 capability 的 collection load phase、program 数量、route/ProgArray completeness、runtime error counters；同时通过 `sudo -n ./build.sh`、Go/race/vet、semantic、perf、small 和 upstream reference。
+- 若六个 capability 串行总 load 没有下降，只能记录为结构性隔离收益不足，下一阶段再评估并行 verifier/load；不得恢复单 ELF，也不得用 procfs/ptrace 补偿。

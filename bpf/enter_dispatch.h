@@ -17,6 +17,7 @@
 
 #ifndef STRACE_GO_CORE_ONLY
 
+#if defined(STRACE_GO_ENTER_GENERIC)
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_terminating(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
@@ -30,7 +31,9 @@ int enter_terminating(struct trace_event_raw_sys_enter *ctx) {
     emit_terminating_exit_event_v2_direct(pid, tid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }
+#endif
 
+#if defined(STRACE_GO_ENTER_PAYLOAD)
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_exec(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
@@ -48,7 +51,9 @@ int enter_exec(struct trace_event_raw_sys_enter *ctx) {
     }
     return 0;
 }
+#endif
 
+#if defined(STRACE_GO_ENTER_PATH)
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_path_stat(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
@@ -88,7 +93,9 @@ int enter_readlink(struct trace_event_raw_sys_enter *ctx) {
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }
+#endif
 
+#if defined(STRACE_GO_ENTER_STRUCTURED)
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_misc_struct(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
@@ -232,7 +239,9 @@ int enter_bpf(struct trace_event_raw_sys_enter *ctx) {
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }
+#endif
 
+#if defined(STRACE_GO_ENTER_MEMORY)
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_iovec(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
@@ -263,7 +272,9 @@ int enter_mmsg(struct trace_event_raw_sys_enter *ctx) {
     bpf_tail_call(ctx, &enter_progs, ENTER_PROG_MMSG_BASE01);
     return 0;
 }
+#endif
 
+#if defined(STRACE_GO_ENTER_CONTROL)
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_fcntl(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
@@ -319,7 +330,9 @@ int enter_fs(struct trace_event_raw_sys_enter *ctx) {
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }
+#endif
 
+#if defined(STRACE_GO_ENTER_MEMORY)
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_aio(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
@@ -333,7 +346,9 @@ int enter_aio(struct trace_event_raw_sys_enter *ctx) {
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }
+#endif
 
+#if defined(STRACE_GO_ENTER_CONTROL)
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_poll(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
@@ -365,7 +380,9 @@ int enter_epoll(struct trace_event_raw_sys_enter *ctx) {
     }
     return 0;
 }
+#endif
 
+#if defined(STRACE_GO_ENTER_PATH)
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_no_payload_direct(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
@@ -373,7 +390,9 @@ int enter_no_payload_direct(struct trace_event_raw_sys_enter *ctx) {
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }
+#endif
 
+#if defined(STRACE_GO_ENTER_GENERIC)
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_no_payload_generic(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
@@ -381,7 +400,9 @@ int enter_no_payload_generic(struct trace_event_raw_sys_enter *ctx) {
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }
+#endif
 
+#if defined(STRACE_GO_ENTER_PAYLOAD)
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_payload_direct(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
@@ -389,6 +410,7 @@ int enter_payload_direct(struct trace_event_raw_sys_enter *ctx) {
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }
+#endif
 
 #endif
 
