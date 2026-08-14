@@ -8032,3 +8032,44 @@ Impact note：`emit_aio_cancel_enter_event_v2_direct` 的调用和 `enter_aio`/A
 - 新capture header是纯编译期模块，不创建map、ProgArray、tail call、scratch状态、锁、goroutine或用户态消费者；没有引入Go侧 tracee memory read、ptrace或procfs fallback。
 - source gate已覆盖facade/provider、capture/emitter排他ownership、实际include展开和文件限制；真实verifier、semantic/perf、small与119项upstream reference未观察到事件数量、配对、输出或性能契约回归。
 - 本阶段仅修改AIO facade、cancel capture新header、AIO emitter和source gates及本记录；`strace-upstream`子模块预先存在的dirty状态未触碰。
+
+### 14.193 按 exit 生命周期拆分 message emitter ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_msg_exit_direct_event_v2.h` 原为 395 行，同时拥有 recvmsg kretprobe 的 name/control/final 三段、单消息 recvmsg exit，以及 mmsg/recvmmsg raw sys_exit 的 final/base0-base3 五类 emitter。
+- Problem：两条不同的 exit 生命周期链路共用一个物理 provider：recvmsg fragment由 `recvmsg_progs` tail-call串行消费，recvmmsg fragment由 `exit_progs`串行消费。修改一条链路时会扩大source/verifier审查范围，facade也无法表达 family ownership。
+- Goal：保留 `syscall_msg_exit_direct_event_v2.h` 作为 facade；新增 `syscall_msg_recv_exit_direct_event_v2.h` 承担 recvmsg 三个 emitter，新增 `syscall_mmsg_exit_direct_event_v2.h` 承担 mmsg/recvmmsg 五个 emitter，保持函数名、include展开、事件顺序和ABI不变。
+- Non-goals：不改变 `MSG_DIRECT_*` capacity、TLV payload capture、recvmsg kretprobe attach、mmsg exit tail-call index、pending consume、fragment flag、Go decoder/formatter，也不引入 ptrace、procfs或Go侧 tracee memory read。
+- Constraints：先用失败优先 ownership gate，再通过真实clang/verifier、Go全量/race/vet、semantic/perf、small和upstream reference；三个生产header和source gates继续满足仓库行数限制。
+
+Impact note：`exit_dispatch.h` 的 `exit_msg`、`exit_mmsg_final`、`exit_recvmmsg_base01/base23` 与 `recvmsg_kretprobe_dispatch.h` 的 name/control/final 调用均保持不变；只改变 emitter 的物理归属和 facade include展开。
+
+#### 方案比较
+
+1. 保留 395 行单文件并补充注释：运行时零改动，但两条 exit chain仍物理耦合，拒绝。
+2. 按每个 emitter单独拆五六个header：边界过细，include层和source oracle噪声增加，拒绝。
+3. 按 recvmsg kretprobe 与 mmsg raw-exit 两条生命周期链拆两个 provider，由现有 facade include，选择该方案。
+
+#### 状态契约
+
+- `syscall_msg_recv_exit_direct_event_v2.h` 只拥有 `emit_recvmsg_control_exit_fragment_event_v2_direct`、`emit_recvmsg_name_exit_fragment_event_v2_direct` 和 `emit_single_msg_exit_event_v2_direct`；它继续使用原 `MSG_DIRECT_RECVMSG_*` capacity、capture helper、fragment flag和 `EVENT_TYPE_EXIT` header/body。
+- `syscall_mmsg_exit_direct_event_v2.h` 只拥有 `emit_mmsg_exit_event_v2_direct` 及 recvmmsg base0/base1/base2/base3 fragment emitter；每个 fragment继续使用对应 `capture_recvmmsg_baseN_exit_payloads_tlv_direct`，保留 `EVENT_FLAG_EXIT_FRAGMENT`、payload capacity和短返回值 fallback。
+- `syscall_msg_exit_direct_event_v2.h` 只 include recvmsg与mmsg两个provider，不拥有 emitter实现；msg facade仍在 capture、enter、bytes-enter之后展开 exit facade，实际 BPF translation unit的符号可见性和调用顺序不变。
+- 两个provider均为编译期header，不创建map、ProgArray、tail call、scratch状态、锁、goroutine或用户态消费者；pending lookup/consume仍由既有 dispatch/kretprobe handler负责。
+
+#### 测试与验收
+
+- 失败优先 gate 首次按预期失败：两个family provider尚不存在。实现后新增 `TestBPFMsgExitHasFamilyOwnedEmitters`，检查facade include、recvmsg/mmsg helper排他ownership、capture复用和文件行数；msg layout/source gate同步纳入两个provider及实际include顺序。
+- `sudo -n ./build.sh` 通过，clang生成和真实BPF verifier接受新的include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制build和`git diff --check`全部通过。
+- `syscall_msg_exit_direct_event_v2.h` 从 395 行降为 7 行，recvmsg provider为 154 行，mmsg provider为 245 行；focused msg/recvmsg/mmsg source tests通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，mmsg 16；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0，普通 attach orphan 1仍为预期诊断；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map错误计数均为 0，payload truncated为 8。
+- `ebpf-perf` 通过：Go decode `341.90 ns/op、0 B/op、0 allocs/op`，JSON writer `485.60 ns/op、0 B/op、0 allocs/op`，decoded writer `603.30 ns/op、0 B/op、0 allocs/op`，decoded payload writer `847.60 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads为 `441.05/282.54/2.30/221.22 events/s`，所有运行时错误计数为 0。
+- 原生参考通过：sudo `small` 为 `23 PASS / 0 FAIL`；sudo `upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`。`recvmsg.gen.test`、`scm_credentials.gen.test`、`msg_control.gen.test`、`msg_name.gen.test`、`mmsg.gen.test`、AIO、iovec和其他参考项均通过；两个XFAIL仍是bounded read/write snapshot和event-sourced `mount_setattr` FD/cwd初始状态未知，没有新增XPASS。
+
+#### Review 结论
+
+- 未发现运行时行为回归：recvmsg fragment顺序仍为 name -> control -> final，recvmmsg仍为 base01 -> base23 -> final；各事件的 capacity、TLV、fragment flag、timestamp、pending consume和tail-call fallback与拆分前一致。
+- 新provider只改变编译期ownership，不改变 `recvmsg_progs`、`exit_progs`、attach、map或事件ABI；没有引入Go侧 tracee memory read、ptrace或procfs fallback。
+- source gate已覆盖facade/provider、recvmsg/mmsg排他ownership、capture复用、dispatch链和文件限制；真实verifier、semantic/perf、small与119项upstream reference未观察到事件数量、配对、输出或性能契约回归。
+- 本阶段仅修改msg exit facade、新增recvmsg/mmsg exit provider、source gates和本记录；`strace-upstream`子模块预先存在的dirty状态未触碰。

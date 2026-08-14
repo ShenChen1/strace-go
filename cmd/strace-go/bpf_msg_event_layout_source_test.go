@@ -19,6 +19,8 @@ func TestBPFMsgDirectModulesOwnResponsibilities(t *testing.T) {
 	enter := read("syscall_msg_enter_direct_event_v2.h")
 	bytesEnter := read("syscall_mmsg_bytes_enter_direct_event_v2.h")
 	exit := read("syscall_msg_exit_direct_event_v2.h")
+	recvExit := read("syscall_msg_recv_exit_direct_event_v2.h")
+	mmsgExit := read("syscall_mmsg_exit_direct_event_v2.h")
 
 	for name, source := range map[string]string{
 		"syscall_msg_direct_event_v2.h":              facade,
@@ -28,6 +30,8 @@ func TestBPFMsgDirectModulesOwnResponsibilities(t *testing.T) {
 		"syscall_msg_enter_direct_event_v2.h":        enter,
 		"syscall_mmsg_bytes_enter_direct_event_v2.h": bytesEnter,
 		"syscall_msg_exit_direct_event_v2.h":         exit,
+		"syscall_msg_recv_exit_direct_event_v2.h":    recvExit,
+		"syscall_mmsg_exit_direct_event_v2.h":        mmsgExit,
 	} {
 		if !strings.Contains(source, "#ifndef STRACE_GO_") || !strings.Contains(source, "#endif") {
 			t.Fatalf("%s must have an include guard", name)
@@ -58,6 +62,14 @@ func TestBPFMsgDirectModulesOwnResponsibilities(t *testing.T) {
 	} {
 		if !strings.Contains(core, snippet) {
 			t.Fatalf("msg core module missing %q", snippet)
+		}
+	}
+	for _, include := range []string{
+		`#include "syscall_msg_recv_exit_direct_event_v2.h"`,
+		`#include "syscall_mmsg_exit_direct_event_v2.h"`,
+	} {
+		if !strings.Contains(exit, include) {
+			t.Fatalf("msg exit facade missing %q", include)
 		}
 	}
 	for _, snippet := range []string{
@@ -98,11 +110,17 @@ func TestBPFMsgDirectModulesOwnResponsibilities(t *testing.T) {
 	for _, snippet := range []string{
 		"emit_recvmsg_control_exit_fragment_event_v2_direct(",
 		"emit_single_msg_exit_event_v2_direct(",
+	} {
+		if !strings.Contains(recvExit, snippet) {
+			t.Fatalf("recvmsg exit module missing %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
 		"emit_mmsg_exit_event_v2_direct(",
 		"emit_recvmmsg_base1_exit_fragment_event_v2_direct(",
 	} {
-		if !strings.Contains(exit, snippet) {
-			t.Fatalf("msg exit module missing %q", snippet)
+		if !strings.Contains(mmsgExit, snippet) {
+			t.Fatalf("mmsg exit module missing %q", snippet)
 		}
 	}
 	for _, forbidden := range []string{
@@ -127,6 +145,8 @@ func TestBPFMsgDirectModulesStayWithinFileLimit(t *testing.T) {
 		"syscall_msg_enter_direct_event_v2.h",
 		"syscall_mmsg_bytes_enter_direct_event_v2.h",
 		"syscall_msg_exit_direct_event_v2.h",
+		"syscall_msg_recv_exit_direct_event_v2.h",
+		"syscall_mmsg_exit_direct_event_v2.h",
 	} {
 		source := readTextFile(t, filepath.Join(root, "bpf", name))
 		if lines := strings.Count(source, "\n") + 1; lines > 500 {
