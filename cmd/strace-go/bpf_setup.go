@@ -17,7 +17,9 @@ type traceBPFSetupStage string
 const (
 	bpfSetupMemlockStage          traceBPFSetupStage = "bpf_memlock"
 	bpfSetupSpecStage             traceBPFSetupStage = "bpf_spec"
-	bpfSetupObjectsStage          traceBPFSetupStage = "bpf_objects"
+	bpfSetupObjectPrepareStage    traceBPFSetupStage = "bpf_object_prepare"
+	bpfSetupCollectionLoadStage   traceBPFSetupStage = "bpf_collection_load"
+	bpfSetupResourceBindStage     traceBPFSetupStage = "bpf_resource_bind"
 	bpfSetupRoutePlanStage        traceBPFSetupStage = "bpf_route_plan"
 	bpfSetupRouteMapsStage        traceBPFSetupStage = "bpf_route_maps"
 	bpfSetupProgArraysStage       traceBPFSetupStage = "bpf_prog_arrays"
@@ -110,7 +112,13 @@ func setupBPFWithConfig(clock traceClock, config traceBPFConfig) (*traceBPFRunti
 		return nil, err
 	}
 
-	bundle, err := loadBPFObjectsWithTiming(clock, recorder, spec, selection)
+	bundle, err := loadBPFObjectsWithTiming(
+		clock,
+		recorder,
+		spec,
+		selection,
+		&nativeBPFObjectLoader{},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -205,19 +213,48 @@ func loadBPFObjectsWithTiming(
 	recorder traceBPFSetupObserver,
 	spec *ebpf.CollectionSpec,
 	selection bpfProgramSelection,
+	loader bpfObjectLoader,
 ) (*bpfObjectBundle, error) {
-	var bundle *bpfObjectBundle
-	err := measureBPFSetupStage(clock, recorder, bpfSetupObjectsStage, func() error {
+	if loader == nil {
+		return nil, fmt.Errorf("BPF object loader is nil")
+	}
+	var plan *bpfCollectionPlan
+	if err := measureBPFSetupStage(clock, recorder, bpfSetupObjectPrepareStage, func() error {
 		var err error
-		bundle, err = loadBPFObjectBundle(spec, selection)
-		if err != nil {
-			return fmt.Errorf("load and assign BPF objects: %w", err)
-		}
-		return nil
+		plan, err = loader.prepare(spec, selection)
+		return err
+	}); err != nil {
+		return nil, fmt.Errorf("prepare BPF collection: %w", err)
+	}
+
+	var loaded *bpfLoadedCollection
+	if err := measureBPFSetupStage(clock, recorder, bpfSetupCollectionLoadStage, func() error {
+		var err error
+		loaded, err = loader.load(plan)
+		return err
+	}); err != nil {
+		return nil, fmt.Errorf("load BPF collection: %w", errors.Join(err, loaded.Close()))
+	}
+	if loaded == nil {
+		return nil, fmt.Errorf("BPF object loader returned nil collection")
+	}
+
+	var bundle *bpfObjectBundle
+	err := measureBPFSetupStage(clock, recorder, bpfSetupResourceBindStage, func() error {
+		var err error
+		bundle, err = loader.bind(loaded)
+		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("bind BPF resources: %w", errors.Join(err, loaded.Close()))
 	}
+	if bundle == nil {
+		return nil, fmt.Errorf(
+			"bind BPF resources: %w",
+			errors.Join(fmt.Errorf("BPF object loader returned nil bundle"), loaded.Close()),
+		)
+	}
+	loaded.detach()
 	return bundle, nil
 }
 

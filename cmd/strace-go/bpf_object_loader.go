@@ -15,24 +15,100 @@ type bpfObjectBundle struct {
 	extraClosers []io.Closer
 }
 
-func loadBPFObjectBundle(spec *ebpf.CollectionSpec, selection bpfProgramSelection) (*bpfObjectBundle, error) {
+// bpfCollectionPlan owns the prepared spec until a collection is loaded.
+// Keeping selection beside the spec prevents a loader backend from silently
+// loading a different program set than the route plan requested.
+type bpfCollectionPlan struct {
+	spec      *ebpf.CollectionSpec
+	selection bpfProgramSelection
+}
+
+// bpfLoadedCollection is the temporary owner between kernel collection load
+// and generated-resource binding. detach transfers every live handle to the
+// resulting bpfObjectBundle.
+type bpfLoadedCollection struct {
+	collection *ebpf.Collection
+	closer     io.Closer
+	closed     bool
+	detached   bool
+}
+
+func (c *bpfLoadedCollection) Close() error {
+	if c == nil || c.closed || c.detached {
+		return nil
+	}
+	c.closed = true
+	if c.closer != nil {
+		return c.closer.Close()
+	}
+	if c.collection != nil {
+		c.collection.Close()
+	}
+	return nil
+}
+
+func (c *bpfLoadedCollection) detach() {
+	if c == nil {
+		return
+	}
+	c.detached = true
+	c.collection = nil
+	c.closer = nil
+}
+
+func (c *bpfLoadedCollection) value() *ebpf.Collection {
+	if c == nil || c.detached {
+		return nil
+	}
+	return c.collection
+}
+
+// bpfObjectLoader is the ownership boundary between setup orchestration and
+// a concrete collection backend. A future family loader can implement the
+// same plan/load/bind lifecycle without leaking generated objects upward.
+type bpfObjectLoader interface {
+	prepare(*ebpf.CollectionSpec, bpfProgramSelection) (*bpfCollectionPlan, error)
+	load(*bpfCollectionPlan) (*bpfLoadedCollection, error)
+	bind(*bpfLoadedCollection) (*bpfObjectBundle, error)
+}
+
+type nativeBPFObjectLoader struct{}
+
+func (l *nativeBPFObjectLoader) prepare(
+	spec *ebpf.CollectionSpec,
+	selection bpfProgramSelection,
+) (*bpfCollectionPlan, error) {
 	if spec == nil {
 		return nil, fmt.Errorf("BPF collection spec is nil")
 	}
+	prepared := spec
 	if !selection.loadAll {
-		spec = spec.Copy()
-		if err := pruneBPFProgramSpecs(spec, selection); err != nil {
-			return nil, err
+		prepared = spec.Copy()
+		if err := pruneBPFProgramSpecs(prepared, selection); err != nil {
+			return nil, fmt.Errorf("prepare selected BPF programs: %w", err)
 		}
 	}
+	return &bpfCollectionPlan{spec: prepared, selection: selection}, nil
+}
 
-	collection, err := ebpf.NewCollection(spec)
+func (l *nativeBPFObjectLoader) load(plan *bpfCollectionPlan) (*bpfLoadedCollection, error) {
+	if plan == nil || plan.spec == nil {
+		return nil, fmt.Errorf("BPF collection plan is unavailable")
+	}
+	collection, err := ebpf.NewCollection(plan.spec)
 	if err != nil {
 		return nil, err
 	}
+	return &bpfLoadedCollection{collection: collection}, nil
+}
+
+func (l *nativeBPFObjectLoader) bind(loaded *bpfLoadedCollection) (*bpfObjectBundle, error) {
+	collection := loaded.value()
+	if collection == nil {
+		return nil, fmt.Errorf("loaded BPF collection is unavailable")
+	}
 	objects := &bpfObjects{}
 	if err := assignBPFCollection(objects, collection); err != nil {
-		collection.Close()
 		return nil, err
 	}
 	extraClosers := collectBPFExtraClosers(collection)

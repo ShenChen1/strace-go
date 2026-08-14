@@ -123,7 +123,7 @@ func TestTraceSessionEmitsBPFSetupPhaseDuration(t *testing.T) {
 	})
 
 	session.emitDebugBPFSetupPhases([]traceBPFSetupTiming{{
-		Stage:   bpfSetupObjectsStage,
+		Stage:   bpfSetupCollectionLoadStage,
 		StartNS: 10,
 		EndNS:   25,
 	}})
@@ -132,8 +132,8 @@ func TestTraceSessionEmitsBPFSetupPhaseDuration(t *testing.T) {
 	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &event); err != nil {
 		t.Fatalf("decode BPF setup phase event: %v", err)
 	}
-	if event.Phase != string(bpfSetupObjectsStage) || event.StartTimeNS != 10 || event.DurationNS != 15 {
-		t.Fatalf("phase event = %+v, want objects duration 15ns", event)
+	if event.Phase != string(bpfSetupCollectionLoadStage) || event.StartTimeNS != 10 || event.DurationNS != 15 {
+		t.Fatalf("phase event = %+v, want collection load duration 15ns", event)
 	}
 }
 

@@ -8980,3 +8980,44 @@ Impact note：新增 `EXIT_PROG_FD_TIME=9`、`STRUCT=10`、`ASYNC=11`、`IO=12`�
 
 - 如果目标是继续降低无 filter/否定 filter 的 `bpf_objects` 成本，下一阶段应测量 core/family ELF 拆分、BPF 编译指令瘦身或按运行模式拆 collection 的收益与资源代价；不能再用本阶段的 positive-filter 结果推断 all 模式同样受益。
 - `events_per_sec` 继续保留为用户感知端到端指标；架构性能门禁使用 `steady_state_events_per_sec`、setup phase、ringbuf drop/error counters 和 Go alloc 指标联合判断。
+
+### 14.215 Collection loader ownership 与 verifier 阶段边界（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.214 已将 direct exit family 从 `exit_generic` 中拆出，但 `setupBPF` 仍直接调用具体的 `loadBPFObjectBundle`。对象 spec 裁剪、内核 collection 创建、generated resource 绑定和隐藏资源收集共处一个具体函数。
+- Problem：`bpf_objects` 只有一个聚合耗时，无法判断 verifier、map/program collection 创建、反射绑定各自的成本；失败时也无法用单元测试证明 collection 在 bind 失败后只关闭一次。后续若尝试 family collection，setup 没有可替换的 loader ownership 边界。
+- Goal：建立 `CollectionSpec -> Collection -> bpfObjectBundle` 的显式 loader/binder 契约，拆出 object prepare、collection load、resource bind 三个 setup phase；成功后资源归 `bpfObjectBundle`/`traceBPFRuntime`，bind 失败时 collection 由 setup 负责关闭且不泄漏。
+- Non-goals：本阶段不拆多 ELF、不引入长驻 daemon/cache、不改变 BPF event ABI、route/filter/pending/lifecycle 语义、单 Go consumer 或纯 eBPF/no-procfs/no-ptrace 约束。
+- Constraints：native loader 仍使用单一生成 ELF；接口只表达真实的 collection load/bind ownership，不引入无调用价值的通用框架；所有失败路径先有测试，新增文件/函数遵守仓库大小约束。
+
+Impact note：`setupBPFWithConfig` 只编排 stage、loader 和 runtime owner；`bpf_object_loader.go` 负责 native collection load 与 generated resource bind；`bpfObjectBundle` 继续集中关闭 objects 和未映射资源。阶段输出从聚合 `bpf_objects` 改为 `bpf_object_prepare`、`bpf_collection_load`、`bpf_resource_bind`，性能 suite 据此分别计算 verifier/load/绑定成本。
+
+#### 方案比较
+
+1. 继续扩大 `loadBPFObjectBundle`：改动最小，但 verifier、map 创建和 bind 仍不可替换、不可独立验证，拒绝。
+2. 现在直接拆 core/family 多 ELF：能隔离 verifier，但会同时引入 map replacement、ProgArray、global variable、extra closer 和部分失败回滚，缺少本阶段的 ownership 契约证据，暂缓。
+3. 先引入单 ELF native loader 接口并拆三段计时，用 fake loader 验证 transfer/close 规则，再以实测数据决定多 collection：风险局部、可直接测量、且为最终多 collection 形态保留替换点，选择该方案。
+
+#### 状态契约
+
+- object prepare 只复制/裁剪 `CollectionSpec`，不触碰 kernel resource。
+- collection load 成功后，native loader 返回一个待绑定 collection；resource bind 成功表示 map/program handle 已转移给 `bpfObjectBundle`，调用方不得再次关闭 collection 内 handle。
+- loader 若在 load 阶段返回部分 collection 与 error，setup 仍负责回收该临时 owner；bind 阶段不得在 error 时同时返回已转移的 bundle。
+- resource bind 失败时 setup 关闭待绑定 collection；bind 成功但 runtime 后续阶段失败时仍由 `bpfObjectBundle.Close` 统一关闭 mapped 和 extra resources。
+- 三个阶段均记录 start/end，包括失败阶段；普通输出和 BPF event ABI 不包含这些诊断字段，只有 `--debug-phases` 暴露。
+
+#### 实现与验证
+
+- 失败优先测试覆盖 loader 的 `prepare -> load -> bind` 顺序、缺失 spec、load 返回 partial owner、bind 失败后的单次 close、bind 成功后的 detach 和三段 timing 记录；新增测试文件仍未超过仓库限制。
+- `setupBPFWithConfig` 不再直接调用 `loadBPFObjectBundle`；native 单 ELF loader 是唯一生产实现，后续 collection backend 只能通过 `bpfObjectLoader` 注入，不把 generated objects 暴露给 session。
+- `sudo -n ./build.sh` 通过，真实 clang/BPF verifier 接受新 loader；`go test ./...`、`go test -race ./...`、`go vet ./...` 和 `git diff --check` 通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6，non-leader attach `1001/1001`，所有 runtime error counter 为 0。
+- `ebpf-perf` 通过：scalar/io/lifecycle/threads 的端到端 `events_per_sec` 为 `2125/1434/11/1209`，稳态 `exit/s` 为 `9862/6590/42/5191`；`bpf_collection_load` 为 `0.676/0.623/0.653/0.591s`，`bpf_object_prepare` 约 `0.001~0.002s`，`bpf_resource_bind` 约几十微秒。固定成本仍明确位于 collection load/verifier。
+- `small` 为 `23 PASS / 0 FAIL`；`upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL`，XFAIL 仍是登记的 bounded read/write hexdump 和未知初始 FD/cwd state 边界。
+
+#### Review 结论与下一边界
+
+- `bpfLoadedCollection` 是 bind 前的唯一临时 owner；bind 失败由 setup 关闭，成功后 `detach`，后续 runtime 只关闭 `bpfObjectBundle` 和 links，未发现重复 close 或资源泄漏路径。
+- 新接口没有改变 raw tracepoint、ProgArray、route map、pending map、ringbuf、Go 单消费者或纯 eBPF 约束；阶段字段只通过 `--debug-phases` 输出。
+- 当前数据证明继续优化应针对 `bpf_collection_load`。下一阶段评估 capability-based map set 与 core/family collection 两个方向，并先测共享 map replacement、global variable 和 ProgArray 生命周期的最小可行实验；不引入 daemon/cache，也不根据正向 filter 结果推断 all/否定模式收益。
