@@ -10,7 +10,10 @@ func TestBPFQuotaPayloadUsesDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
-	quotaHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_quota_direct_event_v2.h"))
+	quotaFacade := readTextFile(t, filepath.Join(root, "bpf/syscall_quota_direct_event_v2.h"))
+	quotaCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_quota_capture_direct_event_v2.h"))
+	quotaEmit := readTextFile(t, filepath.Join(root, "bpf/syscall_quota_emit_direct_event_v2.h"))
+	quotaHeader := quotaFacade + "\n" + quotaCapture + "\n" + quotaEmit
 	xfsHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_quota_xfs_direct_event_v2.h"))
 	quotaDispatch := readTextFile(t, filepath.Join(root, "bpf/quota_dispatch.h"))
 

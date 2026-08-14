@@ -8503,3 +8503,45 @@ Impact note：`strace.c` 的 `syscall_fd_state_direct_event_v2.h` 仍先于 FD p
 - 新 facade/provider 只改变编译期 ownership，不改变 FD state map、`PERCPU_ARRAY` scratch、`enter_progs`、pending state、事件 ABI 或单消费者事件循环；没有引入 procfs、ptrace、process_vm 或 Go 侧 tracee memory fallback。
 - 失败路径仍显式保留：task/fs/file/dentry/mount read、state snapshot、dynptr write、TLV header 和 reserve/submit/discard 的失败处理与拆分前一致；source gate 防止 emit provider重新拥有内核对象读取，也防止 capture provider重新拥有 ringbuf lifecycle。
 - `dup2-y`/`dup2-yy` 的 A/B 已排除本阶段回归；本阶段仅修改 FD path facade/capture/emit、enter dispatch 调用签名、相关 source gates、ownership regression test 和本记录，`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.204 拆分 quota capture 与 emit ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：纯 eBPF quota 事件通过 `quotactl`/`quotactl_fd` 的 enter/exit TLV 快照表达普通 quota struct、XFS quota struct 和 quota-on 路径，用户态只消费 ringbuf snapshot，不补读 tracee 内存。
+- Problem：`bpf/syscall_quota_direct_event_v2.h` 原为 275 行，同时拥有 syscall/command policy、普通 quota struct 的用户内存读取、XFS/path capture 组合、payload capacity 和两个 ringbuf emitter；后续调整任一 bounded capture 都会扩大到策略和事件提交的审查范围。
+- Goal：facade 只保留 quota 常量与 command/size policy；capture provider 独占普通 struct、path TLV、XFS capture 组合和容量计算；emit provider 独占 enter/exit ringbuf 生命周期，保持函数签名、TLV 顺序、arg index、payload capacity、event ABI 和 dispatch 调用图不变。
+- Non-goals：不改变 XFS struct layout 或 handler formatter，不改变 quota filter、pending map、ProgArray、生命周期、用户态状态机，不引入 ptrace、procfs 或 Go 侧 tracee memory read。
+- Constraints：先用失败优先 ownership gate，再通过真实 clang/verifier、Go fast/race/vet、强制 build、semantic/perf、串行 small 和 quota 原生参考测试；生产 header 与 source test 均不超过 500 行，函数参数不超过 5 个。
+
+Impact note：`strace.c` 仍先 include `syscall_quota_xfs_direct_event_v2.h`，再 include quota facade；`quota_dispatch.h`、enter/exit router 和 pending save/consume 继续调用相同 emitter/policy 符号。新增 include 只改变编译期 header ownership，不改变 BPF map、ringbuf ABI、tail-call index 或 Go 事件消费者。
+
+#### 方案比较
+
+1. 保留 275 行单文件并只补充注释：运行时改动最小，但 command policy、用户内存 capture、TLV composer 和 ringbuf lifecycle 仍耦合，无法形成独立审计边界，拒绝。
+2. 把 command policy、普通 quota、XFS quota、path 和每个 emitter 全部分拆：职责最细，但 include 顺序、verifier 观察面和 source oracle 复杂度明显增加，当前阶段过度拆分，拒绝。
+3. facade + quota capture + quota emit，并保留现有 XFS provider：策略、snapshot capture 和 event emission 边界清晰，依赖变化局部、调用图和 ABI 不变，选择该方案。
+
+#### 状态契约
+
+- `syscall_quota_direct_event_v2.h` 只拥有 `QUOTA_DIRECT_*` 常量、`is_quota_direct_syscall`、command 提取、pending command、exit payload 判定和普通 struct size policy；它按 capture 后 emit 的顺序 include 两个新 provider，并显式 include XFS policy dependency。
+- `syscall_quota_capture_direct_event_v2.h` 拥有普通 quota struct 的 dynptr 数据选择、`bpf_probe_read_user`、TLV header 写入、`quotactl` path capture、quota-on path capture、普通/XFS enter payload 组合和 capacity 计算；它组合既有 path capture 与 XFS provider，不拥有 ringbuf reserve/submit。
+- `syscall_quota_emit_direct_event_v2.h` 拥有 `emit_quota_enter_event_v2_direct` 与 `emit_quota_exit_event_v2_direct`，负责 reserve/discard、event header/body write、payload flag、timestamp 和 submit；它只调用 capture helper，不直接拥有 `bpf_probe_read_user*`。
+- 普通 quota struct、XFS struct、quota-on path 的 enter/exit 时点、struct arg index `3`、OUT flag、TLV offset、错误/截断统计和失败回退保持不变；没有新增 map、scratch、tail call、锁、goroutine、定时器或 procfs 依赖。
+
+#### 测试与验收
+
+- 失败优先 gate 按预期失败：`TestBPFQuotaHasDedicatedCaptureAndEmitOwnership` 首次运行时两个 provider 文件不存在。实现后新增 source gate 检查 facade include 顺序、policy ownership、capture 对 path/XFS provider 的组合、capture/emit 排他 ownership、capture 无 ringbuf lifecycle、emit 无 user memory read 和所有相关文件行数，并通过。
+- 旧 `TestBPFQuotaPayloadUsesDirectTLV` 已改为读取 facade + capture + emit 组合视图，保留原有 direct TLV、quota/XFS、dispatch 和 legacy fixed-window 断言；quota TLV context merge 与 handler policy 测试通过。
+- `sudo -n ./build.sh` 通过，真实 clang/BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14204 ./cmd/strace-go` 和 `git diff --check` 通过。
+- `syscall_quota_direct_event_v2.h` 从 275 行降为 69 行，capture provider 为 113 行，emit provider 为 109 行，ownership source test 为 99 行；所有相关文件满足 <=500 行限制，现有 helper 参数均不超过 5 个。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `339.90 ns/op、0 B/op、0 allocs/op`，JSON writer `495.70 ns/op、0 B/op、0 allocs/op`，decoded writer `650.80 ns/op、0 B/op、0 allocs/op`，decoded payload writer `948.90 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `396.83/268.18/2.25/216.92 events/s`，所有运行时错误计数为 0。
+- 串行 sudo `small` 通过 `23 PASS / 0 FAIL`；原生 `quotactl.gen.test`、`quotactl_fd.gen.test`、`quotactl-xfs.gen.test`、`quotactl-xfs-v.gen.test` 均为 `1 PASS / 0 FAIL`，覆盖普通 quota、fd variant、XFS struct 和 verbose formatter。
+
+#### Review 结论
+
+- 未发现运行时行为回归：quota command selector、普通/XFS struct size、quota-on path snapshot、TLV arg/flags/offset、payload capacity、event header/body、reserve/submit/discard、pending consume 和 router 调用图均与拆分前一致；真实 verifier、semantic/perf、small 和四项 quota 原生测试通过。
+- 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、pending map、事件 ABI、单消费者状态机或 Go handler；没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
+- 失败路径仍显式保留：空指针、dynptr data、probe read、TLV header、ringbuf reserve、header/body write 和 submit/discard 的错误处理与拆分前一致；source gate 防止 capture provider 重新拥有 ringbuf lifecycle，也防止 emit provider重新拥有用户内存读取。
+- 本阶段仅修改 quota facade、capture/emit provider、quota source gate 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
