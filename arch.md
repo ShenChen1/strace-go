@@ -8114,3 +8114,44 @@ Impact note：`strace.c` 仍通过 `enter_dispatch.h` 获得完整 enter handler
 - 新 runtime provider 只改变编译期 ownership，不创建运行时状态或并发消费者；没有引入 Go 侧 tracee memory read、ptrace 或 procfs fallback。
 - source gate 已覆盖 runtime/family 排他 ownership、实际 include 展开、fallback helper、ProgArray index 和文件限制；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
 - 本阶段仅修改 enter runtime/family include、相关 source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.195 拆分 epoll selector、capture 与 emitter ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_epoll_direct_event_v2.h` 原为 369 行，同时拥有 epoll syscall selector、事件数组长度/copy policy、`epoll_ctl`/`epoll_pwait2`/`epoll_wait` 的三类用户内存 capture，以及两个 enter 和一个 exit ringbuf emitter。
+- Problem：IN/OUT bounded snapshot 与 ringbuf reservation、event header/body、submit/discard 物理混合；修改 capture 长度或 probe 错误处理时会扩大到 enter/exit emitter 和 facade policy 的审查范围。
+- Goal：保留 facade 的 selector、长度上限和 capacity policy；新增 `syscall_epoll_capture_direct_event_v2.h` 独占三个 probe-site capture helper；新增 `syscall_epoll_emit_direct_event_v2.h` 独占两个 enter 与一个 exit event emitter，保持事件 ABI、TLV 顺序、arg index、截断/错误统计和调用图不变。
+- Non-goals：不改变 epoll 过滤、pending、ProgArray、attach、Go formatter、事件结构、用户内存读取时点，也不引入 ptrace、procfs 或 Go 侧 tracee memory read。
+- Constraints：先用失败优先 ownership gate，再通过真实 clang/verifier、Go 全量/race/vet、semantic/perf、small 和 epoll-specific upstream reference；生产 header 与测试文件继续满足 <=500 行限制。
+
+Impact note：`strace.c` 仍只 include epoll facade，`enter_router`/`enter_dispatch`/`exit_dispatch` 的 selector 与 emitter 调用不变；新 provider 只改变编译期 include 展开和物理 ownership。
+
+#### 方案比较
+
+1. 保留 369 行单文件并补充注释：运行时改动最小，但 capture/emitter 仍耦合，无法形成 epoll probe-site 与 event emission 的独立审计边界，拒绝。
+2. 按三个 emitter 与三个 capture helper 分成多个小 header：职责过细，include 层和 verifier/source oracle 观察面膨胀，拒绝。
+3. facade + capture + emit 三层：policy、用户内存读取和 ringbuf emission 边界完整，include 层变化局部、调用图和 ABI 不变，选择该方案。
+
+#### 状态契约
+
+- `syscall_epoll_direct_event_v2.h` 只拥有 `EPOLL_DIRECT_*` 常量、`is_epoll_*` selector、`epoll_events_user_len` 与 `epoll_events_copy_len` policy，并按 capture、emit 顺序 include 两个 provider。
+- `syscall_epoll_capture_direct_event_v2.h` 只拥有 `capture_epoll_events_tlv_direct`、`capture_epoll_timeout_tlv_direct`、`capture_epoll_ctl_event_tlv_direct`；保留 events arg1 OUT、timeout arg3 IN、ctl event arg3 IN、12/16-byte bounded copy、42-slot/504-byte上限、TLV kind/direction、probe/copy error 和 truncation 语义。
+- `syscall_epoll_emit_direct_event_v2.h` 只拥有 `emit_epoll_ctl_enter_event_v2_direct`、`emit_epoll_pwait2_enter_event_v2_direct`、`emit_epoll_wait_exit_event_v2_direct`；继续负责 fd-path capacity、ringbuf reservation、event header/body 初始化、payload flag 和 submit/discard，但不定义 probe-site capture primitive。
+- 两个 provider 均为编译期 header，不创建 map、ProgArray、tail call、scratch 状态、锁、goroutine 或用户态消费者；pending state、过滤、attach 和 event loop 不变。
+
+#### 测试与验收
+
+- 失败优先 gate 首次按预期失败：两个 provider 尚不存在。实现后新增 `TestBPFEpollHasDedicatedCaptureAndEmitOwnership`，并更新 epoll source gate 读取 facade/capture/emit 组合视图；focused epoll source/TLV tests 通过。
+- `sudo -n ./build.sh` 通过；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check` 通过。
+- `syscall_epoll_direct_event_v2.h` 从 369 行降为 56 行，capture provider 为 149 行，emit provider 为 175 行；所有生产 header 与 source test 均满足 <=500 行限制。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，生命周期 6，ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6。
+- `ebpf-perf` 通过：Go decode `341.30 ns/op、0 B/op、0 allocs/op`，JSON writer `492.70 ns/op、0 B/op、0 allocs/op`，decoded writer `614.30 ns/op、0 B/op、0 allocs/op`，decoded payload writer `916.10 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `408.03/281.41/2.36/219.73 events/s`，所有运行时错误计数为 0。
+- 原生 `small` 通过 `23 PASS / 0 FAIL`；epoll-specific `epoll_ctl.gen.test`、`epoll_pwait2-y.gen.test`、`epoll_pwait2.gen.test`、`epoll_wait.gen.test` 均通过。完整 `upstream-reference` 首次运行暴露一个与 epoll 无关的 text-mode command tail drain 偶发缺口：`strace-x.gen.test` 为 `116 PASS / 1 FAIL / 2 XFAIL`，随后精确重跑 11 次均 `PASS`；该缺口转入 14.196，不作为本阶段 epoll ABI 回归。
+
+#### Review 结论
+
+- 未发现 epoll 运行时行为回归：selector 顺序、events/timeout/ctl event 参数、TLV kind/direction、bounded copy、截断/错误统计、payload capacity、event header/body 与拆分前一致；真实 verifier、semantic/perf、small 和四个 epoll upstream reference 未观察到 epoll 事件数量或输出差异。
+- 新 capture/emitter provider 只改变编译期 ownership，不创建运行时状态或并发消费者；没有引入 Go 侧 tracee memory read、ptrace 或 procfs fallback。
+- source gate 已覆盖 facade/provider include、capture/emitter 排他 ownership、实际 dispatch 复用和文件限制；独立的 text drain 缺口位于 `session_run.go` 的 command lifecycle 收尾，不由本阶段 epoll header 改动造成，下一阶段修复。
+- 本阶段仅修改 epoll facade、新增 capture/emit provider、epoll source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

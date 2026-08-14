@@ -12,6 +12,9 @@ func TestBPFEpollWaitPayloadsUseDirectTLV(t *testing.T) {
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	epollDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_epoll_direct_event_v2.h"))
+	epollCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_epoll_capture_direct_event_v2.h"))
+	epollEmitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_epoll_emit_direct_event_v2.h"))
+	epollDirectSource := strings.Join([]string{epollDirectHeader, epollCaptureHeader, epollEmitHeader}, "\n")
 
 	for _, snippet := range []string{
 		"#define SYS_EPOLL_WAIT 232",
@@ -47,7 +50,7 @@ func TestBPFEpollWaitPayloadsUseDirectTLV(t *testing.T) {
 		"bpf_dynptr_write(ptr, data_offset + copied_len, &event_data",
 		"init_syscall_exit_event_v2_from_pending(&body, p, ret_value, duration, payload_size);",
 	} {
-		if !strings.Contains(epollDirectHeader, snippet) {
+		if !strings.Contains(epollDirectSource, snippet) {
 			t.Fatalf("epoll wait direct header missing snippet %q", snippet)
 		}
 	}
@@ -70,6 +73,9 @@ func TestBPFEpollCtlPayloadUsesDirectTLV(t *testing.T) {
 	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	epollDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_epoll_direct_event_v2.h"))
+	epollCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_epoll_capture_direct_event_v2.h"))
+	epollEmitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_epoll_emit_direct_event_v2.h"))
+	epollDirectSource := strings.Join([]string{epollDirectHeader, epollCaptureHeader, epollEmitHeader}, "\n")
 
 	for _, snippet := range []string{
 		"#define SYS_EPOLL_CTL 233",
@@ -90,7 +96,7 @@ func TestBPFEpollCtlPayloadUsesDirectTLV(t *testing.T) {
 		"bpf_probe_read_user(payload_data, EPOLL_DIRECT_EVENT_SIZE",
 		"init_syscall_enter_event_v2_from_args(&body, scratch->args, payload_size, 0, -1, -1);",
 	} {
-		if !strings.Contains(epollDirectHeader, snippet) {
+		if !strings.Contains(epollDirectSource, snippet) {
 			t.Fatalf("epoll_ctl direct header missing snippet %q", snippet)
 		}
 	}
