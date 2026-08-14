@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
+import io
 import subprocess
 import unittest
+from contextlib import redirect_stdout
 
 from ebpf_perf_suite import (
     PerfCapture,
     PerfWorkloadSpec,
     parse_go_benchmark_metrics,
+    print_perf_capture,
     validate_perf_capture,
 )
 
@@ -68,6 +71,27 @@ def make_capture(events=None, lifecycle_events=None, stats=None, returncode=0):
 
 
 class PerfOracleTests(unittest.TestCase):
+    def test_prints_explicit_exit_event_rate_boundaries(self):
+        capture = make_capture(
+            events=[
+                {
+                    "syscall": "getpid",
+                    "event_type": "exit",
+                    "paired_enter": True,
+                }
+            ],
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            print_perf_capture(capture)
+
+        text = output.getvalue()
+        self.assertIn("end_to_end_exit_events_per_sec:", text)
+        self.assertIn("trace_exit_events_per_sec:", text)
+        self.assertNotIn("\nevents_per_sec:", text)
+        self.assertNotIn("steady_state_events_per_sec:", text)
+
     def test_parses_go_benchmark_allocation_metrics(self):
         output = (
             "BenchmarkTraceEventDecodeState-8  1000  123.4 ns/op  96 B/op  2 allocs/op\n"

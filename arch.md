@@ -9370,3 +9370,27 @@ Impact note：影响 `session_run.go` 的 command completion state、`task_state
 - `ebpf-semantic` 通过：主事件 `205`，enter/exit `104/101`，lifecycle `6`，payload truncated `8`，所有运行时错误计数为 `0`；`small` 为 `23 PASS`；`upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`。
 - `go test ./...`、`go test -race ./...`、`go vet ./...`、强制 `go build -a` 和 `git diff --check` 通过。终止 syscall 与 lifecycle event 的间隔由 TID 级 `lifecyclePending` 保持可见；observed 但 child 未 quiescent 时也有 bounded fallback，避免零 grace 提前结束或无限等待。
 - Review 未发现新的 ptrace/procfs/process_vm 路径、第二事件消费者或事件路径锁；`traceCommandLifecycleReader` 直接拥有 exit fact、event observation 和 quiescence 三个窄能力，避免可选接口静默回退旧行为。
+
+### 14.227 明确性能速率的时间边界与事件口径（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：性能 suite 同时输出完整进程生命周期速率和 `trace_start..trace_end` 事件窗口速率；当前标签分别是 `events_per_sec` 与 `steady_state_events_per_sec`，但两者实际都只统计 exit event。
+- Problem：`events_per_sec` 没有表达其分母包含 BPF setup、target 启动、drain 和 teardown，也没有表达分子排除了 enter/lifecycle 事件。短 workload 因固定成本得到约 `5.8k/s`，同一批事件的 trace 窗口约为 `23k/s`，含糊标签会把 CLI 端到端延迟误判为 ringbuf/Go 热路径吞吐回退。
+- Goal：把两个输出标签分别改为 `end_to_end_exit_events_per_sec` 与 `trace_exit_events_per_sec`，使时间边界和事件口径成为稳定测试契约。
+- Non-goals：不改变任何计时边界、workload 次数、事件过滤、门禁阈值、BPF/Go 运行时代码或历史测量记录；本阶段不通过扩大 workload 掩盖启动/退出成本。
+- Constraints：端到端值仍使用 Python 包围整个 tracer 的 `elapsed`；trace 值仍使用 phase 事件中的 `trace_sec`；旧含糊标签在开发阶段直接删除，不保留兼容别名。
+
+Impact note：只影响 `test/ebpf_perf_suite.py` 的可读输出标签、`test/test_ebpf_perf_suite.py` 的输出契约测试和本文档；不影响机器可测 JSON event ABI、session phase ABI 或真实 syscall 输出。
+
+#### 方案比较
+
+1. 只在文档解释旧标签：没有代码风险，但每次读取性能结果仍需依赖上下文，歧义持续存在，拒绝。
+2. 同时明确时间边界和 exit-event 口径：保留端到端延迟与 trace 吞吐两个 oracle，改动局部且无需兼容旧开发标签，选择。
+3. 删除端到端值，只保留 trace 吞吐：可避免误读，但会隐藏 BPF setup/teardown 对真实短命令的影响，拒绝。
+
+#### 测试与验收
+
+- 失败优先测试捕获 `print_perf_capture` 输出，要求新标签同时存在并拒绝两个旧标签。
+- Python perf oracle、真实 `ebpf-perf` 和 `git diff --check` 通过后提交；真实输出中的数值应与重命名前使用同一公式，不把标签修正伪装成性能提升。
+- 实际验证：失败优先测试先观察到旧 `events_per_sec`/`steady_state_events_per_sec` 后失败，改名后 Python oracle `18 OK`、语法检查和真实 `ebpf-perf` 通过。scalar 同一轮为 `end_to_end_exit_events_per_sec=6105.08`、`trace_exit_events_per_sec=24021.00`；io/lifecycle/threads 也同时输出两个显式口径，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map/stale counter 均为 `0`。

@@ -398,7 +398,10 @@ def print_perf_capture(capture):
     for counter in RUNTIME_DIAGNOSTIC_FIELDS:
         print(f"{counter}: {stats.get(counter)}")
     if capture.elapsed > 0:
-        print(f"events_per_sec: {len(capture.exit_events) / capture.elapsed:.2f}")
+        print(
+            "end_to_end_exit_events_per_sec: "
+            f"{len(capture.exit_events) / capture.elapsed:.2f}"
+        )
     durations = _phase_durations(capture)
     if durations is not None:
         print(f"setup_sec: {durations['setup_sec']:.6f}")
@@ -419,7 +422,7 @@ def print_perf_capture(capture):
         )
         if durations["trace_sec"] > 0:
             print(
-                "steady_state_events_per_sec: "
+                "trace_exit_events_per_sec: "
                 f"{len(capture.exit_events) / durations['trace_sec']:.2f}"
             )
         print(
