@@ -8677,3 +8677,45 @@ Impact note：`strace.c` 仍只 include `syscall_readlink_direct_event_v2.h`；`
 - 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、pending map、事件 ABI、单消费者状态机或 Go handler；capture provider 没有 ringbuf lifecycle，emit provider 没有用户内存读取，也没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
 - 失败路径仍显式保留：空指针、string/bytes probe、dynptr data/write、TLV header、reserve、header/body write 和 submit/discard 的错误处理与拆分前一致；request snapshot source gate 额外锁定 verifier 所需的固定偏移读取顺序。
 - 本阶段只修改 readlink facade/capture/emit、相关 source gate 和架构记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.208 拆分 prctl capture 与 emit ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：`prctl` 既有 `PR_SET_NAME`/`PR_GET_NAME` 字符串 snapshot，也有 `PR_GET_PDEATHSIG` 等 uint32 OUT snapshot；enter 与 exit 都通过 direct TLV 事件进入同一 ringbuf。
+- Problem：`bpf/syscall_prctl_direct_event_v2.h` 原为 234 行，同时拥有 option policy、用户内存读取、TLV header 写入和 enter/exit ringbuf emitter。后续修改某一类 prctl payload 时，capture 与 event lifecycle 无法独立审查。
+- Goal：保留 prctl facade 的 option 常量、selector 和 provider include；capture provider 独占 name/uint32 snapshot，emit provider 独占 enter/exit ringbuf 生命周期，保持事件 ABI、TLV 字段、失败统计和调用图不变。
+- Non-goals：不修复 `PR_SET/GET_PDEATHSIG` 的现有文本格式化缺口，不改变 Go handler/formatter、过滤、pending/lifecycle、事件消费者或 syscall 字典；不引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
+- Constraints：先用失败优先 ownership gate，再通过真实 clang/verifier、Go fast/race/vet、强制 build、semantic/perf、串行 small 和 prctl direct 原生参考测试；生产 header 与 source test 不超过 500 行，函数参数不超过 5 个。
+
+Impact note：`strace.c` 仍只 include `syscall_prctl_direct_event_v2.h`；`enter_dispatch.h`、`exit_dispatch.h` 和 `syscall_time_direct_event_v2.h` 继续使用原有 prctl selector/emitter 符号。改动只改变编译期 header ownership 与 source-test 的观察边界，不改变 `enter_progs`、`exit_progs`、pending map、ringbuf ABI 或 Go 单消费者状态机。
+
+#### 方案比较
+
+1. 保留 234 行单文件并只增加注释：运行时改动最小，但 option policy、用户内存读取、TLV composer 和 ringbuf lifecycle 仍耦合，无法独立审计，拒绝。
+2. 按 `PR_SET_NAME`、`PR_GET_NAME`、uint32 option 分别拆成多个 provider：策略边界更细，但会复制同一字符串/uint32 TLV primitive，扩大 include 和 verifier 风险，拒绝。
+3. facade + 共享 capture provider + 共享 emit provider：只形成 policy、snapshot 和事件提交三层边界，依赖变化局部，调用图与 ABI 不变，选择该方案。
+
+#### 状态契约
+
+- `syscall_prctl_direct_event_v2.h` 从 234 行降为 35 行，只拥有 `PRCTL_DIRECT_*` 常量、option selector 和按 capture 后 emit 顺序排列的两个 include。
+- `syscall_prctl_capture_direct_event_v2.h` 为 103 行，拥有 `capture_prctl_name_tlv_direct` 与 `capture_prctl_uint32_tlv_direct`；继续在 eBPF probe 时点使用 `bpf_probe_read_user_str`/`bpf_probe_read_user`，执行 bounded copy、TLV header 写入和 probe/copy 错误统计；它不拥有 ringbuf reserve/submit。
+- `syscall_prctl_emit_direct_event_v2.h` 为 107 行，拥有 enter/exit emitter，负责 reserve/discard、event header/body write、payload flag、timestamp 和 submit；它只调用 capture helper，不直接读取用户内存。
+- `PR_SET_NAME` enter 的 IN string、`PR_GET_NAME` exit 的 OUT string、uint32 option exit 的 OUT struct、payload capacity、TLV kind/direction/arg index、截断和错误统计、pending save/consume 以及 generic exit 分发均保持不变；没有新增 map、scratch、tail call、锁、goroutine、定时器或运行期 procfs/ptrace 依赖。
+
+#### 测试与验收
+
+- 失败优先 gate 按预期失败：`TestBPFPrctlHasDedicatedCaptureAndEmitOwnership` 首次运行时两个 provider 文件不存在。实现后该 gate 检查 facade include 顺序、policy ownership、capture helper、emitter、capture 无 ringbuf lifecycle、emit 无 user memory read 和所有相关文件行数，并通过。
+- `TestBPFPrctlPayloadsUseDirectTLV` 已改为读取 facade、capture、emit 的组合视图；prctl payload section、handler focused tests 和 ownership gate 均通过。
+- `sudo -n ./build.sh` 通过，真实 clang/BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14208 ./cmd/strace-go` 和 `git diff --check` 均通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `335.80 ns/op、0 B/op、0 allocs/op`，JSON writer `498.20 ns/op、0 B/op、0 allocs/op`，decoded writer `663.20 ns/op、0 B/op、0 allocs/op`，decoded payload writer `943.80 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `404.43/267.01/2.25/221.34 events/s`，所有运行时错误计数为 0。
+- 性能诊断补充实测：`/bin/true`、只追踪 `getpid` 和追踪 `getpid + clock_gettime` 的端到端耗时均约 `6.6~6.7s`，输出写入 `/dev/null` 后没有明显变化；fixture 扩大到 `100000 getpid` 后约 `6.94s`，摊薄固定成本后约 `1.4 万 exit events/s`。因此 suite 当前 `events/s` 明确是端到端诊断值，不设置绝对吞吐门槛；后续性能阶段需拆出 setup/steady-state 两个指标。
+- 串行 sudo `small` 通过 `23 PASS / 0 FAIL`；原生 `prctl-name.gen.test` 返回 `0`，覆盖 `PR_SET_NAME` enter string 与 `PR_GET_NAME` exit string direct payload。`prctl-pdeathsig.gen.test` 仍出现已有的 signal/整数参数格式化差异，未发现本次 header 拆分引入的行为变化，留作独立 handler/formatter 兼容任务，不纳入本阶段 gate。
+
+#### Review 结论
+
+- 未发现本阶段运行时回归：prctl option selector、name/uint32 snapshot 时点、TLV offset/arg/flags、payload capacity、event header/body、reserve/submit/discard、pending consume 和 generic exit 调用图均与拆分前一致；真实 verifier、semantic/perf、small 和 direct name 原生测试通过。
+- 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、pending state、事件 ABI 或单消费者事件循环；capture provider 没有 ringbuf lifecycle，emit provider 没有用户内存读取，也没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
+- 失败路径仍显式保留：空指针、string/uint32 probe、dynptr data/write、TLV header、ringbuf reserve、header/body write 和 submit/discard 的错误处理与拆分前一致；`prctl-pdeathsig` 的文本 mismatch 已按父代码行为归类，不由本阶段掩盖或修复。
+- 本阶段只修改 prctl facade/capture/emit、相关 source gates 和架构记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

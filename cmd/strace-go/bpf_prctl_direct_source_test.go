@@ -11,7 +11,9 @@ func TestBPFPrctlPayloadsUseDirectTLV(t *testing.T) {
 	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
-	prctlDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_prctl_direct_event_v2.h"))
+	prctlDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_prctl_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_prctl_capture_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_prctl_emit_direct_event_v2.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_PRCTL 157",
