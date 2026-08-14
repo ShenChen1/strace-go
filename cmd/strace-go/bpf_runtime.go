@@ -219,16 +219,16 @@ func (r *traceBPFRuntime) Close() error {
 	links := r.links
 	r.links = nil
 	linkErr := closeTracepointLinks(links)
-	handlerErr := closeBPFExtraResources(r.handlerClosers)
+	resources := make([]io.Closer, 0, len(r.handlerClosers)+len(r.extraClosers)+1)
+	resources = append(resources, r.handlerClosers...)
 	r.handlerClosers = nil
-	extraClosers := r.extraClosers
-	r.extraClosers = nil
-	if r.objects == nil {
-		return errors.Join(linkErr, handlerErr, closeBPFExtraResources(extraClosers))
+	if r.objects != nil {
+		resources = append(resources, r.objects)
 	}
-	objects := r.objects
+	resources = append(resources, r.extraClosers...)
+	r.extraClosers = nil
 	r.objects = nil
-	return errors.Join(linkErr, handlerErr, objects.Close(), closeBPFExtraResources(extraClosers))
+	return errors.Join(linkErr, closeBPFResourcesParallel(resources))
 }
 
 var _ traceBPFTargetPort = (*traceBPFRuntime)(nil)

@@ -9252,3 +9252,33 @@ Impact note：影响 `json_event_writer.go` 的 phase emitter 复用、`session_
 - finalizer 单测确认事件顺序为 `cleanup_start -> close-writer`；真实 `--debug-phases /bin/true` 确认 stats 后出现 `cleanup_start`，没有改变 output close ownership。
 - 新 `ebpf-perf` 输出包含 `cleanup_sec` 与 `post_cleanup_unattributed_sec`。scalar 实测 `cleanup_sec=0.000061s`、`post_cleanup_unattributed_sec=0.319976s`、steady-state `9687.80 events/s`；io/lifecycle/threads 的 cleanup phase 也均在 `0.1ms` 内，post-cleanup 尾部约 `0.30~0.33s`。
 - `go test ./...`、`go test -race ./cmd/strace-go`、`go vet ./...` 和 Python perf oracle `14 OK` 通过；本阶段只增加测量边界，没有调整 drain grace 或任何资源关闭顺序。下一步若要继续降低端到端 event/s，应独立优化并验证 deferred cleanup，而不是修改吞吐分母。
+
+### 14.223 Parallel BPF resource teardown（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.222 的 cleanup phase 已证明 scalar workload 的 `cleanup_sec` 低于 `0.1ms`，但 `cleanup_start` 之后仍有约 `0.30~0.33s` 的尾部。独立 eBPF close 观测显示，这段时间内 tracer 连续关闭大量高编号 BPF FD，主要来自 handler collections、core objects 和额外 BPF resources。
+- Problem：`traceBPFRuntime.Close` 先关闭 links，再串行关闭所有 handler collections、core objects 和 extra resources。加载阶段已经把各 handler collection 拆成独立 ownership，MapReplacements 在 cilium/ebpf 中会 clone replacement map；links 解除后这些 userspace FD 集合没有共享 Go 状态，可以并发销毁。串行 close 把资源数量放大成固定端到端尾延迟，短 workload 的 endpoint `events_per_sec` 因此被显著稀释。
+- Goal：保留 links 先关闭的依赖边界，在其完成后并行 close handler/core/extra BPF resources；使用固定槽位收集错误，保证错误聚合顺序稳定，Close 仍然幂等。用 blocking fake 验证所有资源确实重叠执行，用真实 `ebpf-perf` 验证 cleanup tail 和 steady-state 吞吐。
+- Non-goals：不并行 event reader、formatter、pending TID 状态或 syscall handler；不改变 ringbuf drain grace、事件 ABI、BPF program selection、map ownership、普通输出和 links 的关闭顺序；不跳过显式 close，不使用 ptrace、procfs、process_vm 或后台遗留 BPF 资源。
+- Constraints：每个 closer 最多调用一次；一个 closer 出错时其他 closer 仍必须完成；结果按输入顺序 `errors.Join`，避免并发完成顺序污染诊断；parallel cleanup 只发生在 session 已停止消费事件之后。
+
+Impact note：影响 `bpf_runtime.go` 的 teardown 调度和 cleanup 性能测试，不改变 `event_reader.go`、`session_run.go` 的事件状态机；`bpfLoadedHandlerCollections.Close` 的失败回滚仍保持逆加载顺序，避免把 setup rollback 与成功路径优化混在一起。
+
+#### 方案比较
+
+1. 保持所有 BPF resources 串行 close：依赖关系最直观、改动最小，但实测保留约 `318ms` 固定尾部，不能解决端到端口径下的明显下降。
+2. 成功退出时跳过 close、交给进程退出回收：端到端时间可能更短，但违反 `github.com/cilium/ebpf` 的显式资源契约，失败路径和长期 attach 语义不可接受，拒绝。
+3. links 串行 close 后并行释放独立 BPF resource groups：保留内核 attach 依赖和显式 ownership，错误可确定聚合，选择该方案；若真实测量显示内核 contention 反而恶化，再回退为串行实现并保留测量结论。
+
+#### 并行边界
+
+- `closeTracepointLinks` 仍先串行执行，确保所有 tracepoint/kretprobe link 已解除，再释放被 link 引用的 programs/maps。
+- handler collection closers、core `objects.Close`、extra resource closers 使用独立 worker；它们只操作各自的 BPF FD。MapReplacements 的 clone 语义使 handler collection 不会关闭 core replacement map 本身。
+- worker 不写共享 error，不操作 session/event state；主 goroutine等待全部 worker 后按资源输入顺序聚合错误。该并行只属于 process teardown，不违反单 Goroutine 无锁事件消费约束。
+
+#### 阶段验证与否决项
+
+- 只并行 collection 之间的第一轮实测：scalar/io/lifecycle/threads 的 `post_cleanup_unattributed_sec` 约为 `0.308/0.328/0.308/0.297s`，相对串行基线 `0.320/0.334/0.316/0.301s` 有小幅收益；steady-state 分别约 `9760/6598/41.9/5310 events/s`，runtime counters 全零。
+- 将单个 collection 内的 program/map FD 也并行关闭后，实测尾部反而变为 `0.341/0.355/0.323/0.320s`，且 scalar/io/threads endpoint event/s 下降；这说明内核 close 路径存在 contention，已撤回该层实现，不纳入最终架构。
+- 最终只保留 collection-level parallel teardown；撤回后重新构建并完成 Go/race/vet、semantic、small、perf 和 upstream reference，确认二进制行为与文档结论一致。
