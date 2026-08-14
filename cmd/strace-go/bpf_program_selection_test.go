@@ -38,7 +38,7 @@ func TestBPFProgramSelectionKeepsPositiveFilterDependencies(t *testing.T) {
 		"trace_sched_process_exec",
 		"trace_sched_process_exit",
 		"trace_sched_process_free",
-		"enter_no_payload_direct",
+		"enter_no_payload_generic",
 		"exit_generic",
 	} {
 		if !selection.hasProgram(name) {
@@ -49,6 +49,54 @@ func TestBPFProgramSelectionKeepsPositiveFilterDependencies(t *testing.T) {
 		if selection.hasProgram(name) {
 			t.Fatalf("selection unexpectedly includes program %q", name)
 		}
+	}
+}
+
+func TestBPFProgramSelectionUsesGenericNoPayloadWithoutFDState(t *testing.T) {
+	table := map[uint32]meta.Syscall{1: {Name: "getpid"}}
+	fullPlan, err := newBPFRoutePlan(table)
+	if err != nil {
+		t.Fatalf("newBPFRoutePlan() error = %v", err)
+	}
+	config := traceBPFConfig{
+		syscallFilter: syscallFilterPlan{enabled: true, ids: []uint32{1}},
+	}
+	plan := selectBPFRoutePlan(fullPlan, config)
+	if got := plan.enter[1]; got != enterProgNoPayloadGeneric {
+		t.Fatalf("plain enter route = %d, want generic slot %d", got, enterProgNoPayloadGeneric)
+	}
+	selection, err := newBPFProgramSelection(plan, table, config)
+	if err != nil {
+		t.Fatalf("newBPFProgramSelection() error = %v", err)
+	}
+	if !selection.hasProgram("enter_no_payload_generic") {
+		t.Fatal("plain selection is missing generic no-payload handler")
+	}
+	if selection.hasProgram("enter_no_payload_direct") {
+		t.Fatal("plain selection retained FD/path-aware no-payload handler")
+	}
+}
+
+func TestBPFProgramSelectionKeepsFDStateNoPayloadHandler(t *testing.T) {
+	table := map[uint32]meta.Syscall{1: {Name: "getpid"}}
+	plan, err := newBPFRoutePlan(table)
+	if err != nil {
+		t.Fatalf("newBPFRoutePlan() error = %v", err)
+	}
+	config := traceBPFConfig{
+		fdState:       true,
+		syscallFilter: syscallFilterPlan{enabled: true, ids: []uint32{1}},
+	}
+	selectedPlan := selectBPFRoutePlan(plan, config)
+	if got := selectedPlan.enter[1]; got != enterProgNoPayload {
+		t.Fatalf("FD-state enter route = %d, want path-aware slot %d", got, enterProgNoPayload)
+	}
+	selection, err := newBPFProgramSelection(selectedPlan, table, config)
+	if err != nil {
+		t.Fatalf("newBPFProgramSelection() error = %v", err)
+	}
+	if !selection.loadAll {
+		t.Fatal("FD-state selection must keep conservative full loading")
 	}
 }
 
@@ -108,24 +156,74 @@ func TestBPFProgramSelectionIncludesAIOFragmentDependencies(t *testing.T) {
 	}
 }
 
+func TestBPFProgramSelectionPrunesFullRouteClosureWithoutFDState(t *testing.T) {
+	table := map[uint32]meta.Syscall{1: {Name: "getpid"}}
+	plan, err := newBPFRoutePlan(table)
+	if err != nil {
+		t.Fatalf("newBPFRoutePlan() error = %v", err)
+	}
+	config := traceBPFConfig{}
+	selectedPlan := selectBPFRoutePlan(plan, config)
+	selection, err := newBPFProgramSelection(selectedPlan, table, config)
+	if err != nil {
+		t.Fatalf("newBPFProgramSelection() error = %v", err)
+	}
+	if selection.loadAll {
+		t.Fatal("plain full route closure unexpectedly selected load-all mode")
+	}
+	if !selection.hasProgram("enter_no_payload_generic") {
+		t.Fatal("plain full route closure is missing generic no-payload handler")
+	}
+	if selection.hasProgram("enter_no_payload_direct") {
+		t.Fatal("plain full route closure retained unreachable FD/path-aware handler")
+	}
+}
+
+func TestBPFProgramSelectionPrunesNegatedFilterClosureWithoutFDState(t *testing.T) {
+	table := map[uint32]meta.Syscall{1: {Name: "getpid"}}
+	plan, err := newBPFRoutePlan(table)
+	if err != nil {
+		t.Fatalf("newBPFRoutePlan() error = %v", err)
+	}
+	config := traceBPFConfig{
+		syscallFilter: syscallFilterPlan{enabled: true, negated: true, ids: []uint32{1}},
+	}
+	selectedPlan := selectBPFRoutePlan(plan, config)
+	selection, err := newBPFProgramSelection(selectedPlan, table, config)
+	if err != nil {
+		t.Fatalf("newBPFProgramSelection() error = %v", err)
+	}
+	if selection.loadAll {
+		t.Fatal("negated full route closure unexpectedly selected load-all mode")
+	}
+}
+
 func TestBPFProgramSelectionUsesConservativeModes(t *testing.T) {
 	plan := bpfRoutePlan{
 		enter: map[uint32]uint32{1: enterProgNoPayload},
 		exit:  map[uint32]uint32{1: exitProgGeneric},
 	}
-	tests := []traceBPFConfig{
-		{},
-		{syscallFilter: syscallFilterPlan{enabled: true, negated: true, ids: []uint32{1}}},
-		{fdState: true, syscallFilter: syscallFilterPlan{enabled: true, ids: []uint32{1}}},
+	tests := []struct {
+		config  traceBPFConfig
+		wantAll bool
+	}{
+		{config: traceBPFConfig{}, wantAll: false},
+		{config: traceBPFConfig{
+			syscallFilter: syscallFilterPlan{enabled: true, negated: true, ids: []uint32{1}},
+		}, wantAll: false},
+		{config: traceBPFConfig{
+			fdState:       true,
+			syscallFilter: syscallFilterPlan{enabled: true, ids: []uint32{1}},
+		}, wantAll: true},
 	}
-	for index, config := range tests {
-		selected := selectBPFRoutePlan(plan, config)
-		selection, err := newBPFProgramSelection(selected, map[uint32]meta.Syscall{1: {Name: "getpid"}}, config)
+	for index, test := range tests {
+		selected := selectBPFRoutePlan(plan, test.config)
+		selection, err := newBPFProgramSelection(selected, map[uint32]meta.Syscall{1: {Name: "getpid"}}, test.config)
 		if err != nil {
 			t.Fatalf("case %d newBPFProgramSelection() error = %v", index, err)
 		}
-		if !selection.loadAll {
-			t.Fatalf("case %d selected selective loading, want conservative full loading", index)
+		if selection.loadAll != test.wantAll {
+			t.Fatalf("case %d loadAll = %v, want %v", index, selection.loadAll, test.wantAll)
 		}
 		if len(selected.enter) != len(plan.enter) || len(selected.exit) != len(plan.exit) {
 			t.Fatalf("case %d route plan was narrowed in conservative mode: %+v", index, selected)
@@ -171,7 +269,7 @@ func TestBPFProgramSelectionRejectsUnknownRouteSlot(t *testing.T) {
 }
 
 func TestBPFProgramSelectionCatalogMatchesGeneratedSpec(t *testing.T) {
-	spec, err := loadBpf()
+	coreSpec, err := loadBpf()
 	if err != nil {
 		t.Fatalf("loadBpf() error = %v", err)
 	}
@@ -183,27 +281,39 @@ func TestBPFProgramSelectionCatalogMatchesGeneratedSpec(t *testing.T) {
 		"trace_sched_process_exit",
 		"trace_sched_process_free",
 	} {
-		if spec.Programs[name] == nil {
+		if coreSpec.Programs[name] == nil {
 			t.Fatalf("generated BPF spec is missing core program %q", name)
 		}
 	}
+	handlerSpecs := map[bpfHandlerFamily]*ebpf.CollectionSpec{}
+	for family, loader := range map[bpfHandlerFamily]func() (*ebpf.CollectionSpec, error){
+		bpfHandlerEnterFamily:   loadBpfEnter,
+		bpfHandlerExitFamily:    loadBpfExit,
+		bpfHandlerRecvmsgFamily: loadBpfRecvmsg,
+	} {
+		handlerSpec, err := loader()
+		if err != nil {
+			t.Fatalf("load %s handler spec: %v", family, err)
+		}
+		handlerSpecs[family] = handlerSpec
+	}
 	for slot, name := range bpfEnterProgramNames {
-		if spec.Programs[name] == nil {
+		if handlerSpecs[bpfHandlerEnterFamily].Programs[name] == nil {
 			t.Fatalf("generated BPF spec is missing enter slot %d program %q", slot, name)
 		}
 	}
 	for slot, name := range bpfExitProgramNames {
-		if spec.Programs[name] == nil {
+		if handlerSpecs[bpfHandlerExitFamily].Programs[name] == nil {
 			t.Fatalf("generated BPF spec is missing exit slot %d program %q", slot, name)
 		}
 	}
 	for slot, name := range bpfRecvmsgProgramNames {
-		if spec.Programs[name] == nil {
+		if handlerSpecs[bpfHandlerRecvmsgFamily].Programs[name] == nil {
 			t.Fatalf("generated BPF spec is missing recvmsg slot %d program %q", slot, name)
 		}
 	}
 	for slot, name := range bpfMmsgByteProgramNames {
-		if spec.Programs[name] == nil {
+		if handlerSpecs[bpfHandlerEnterFamily].Programs[name] == nil {
 			t.Fatalf("generated BPF spec is missing mmsg byte slot %d program %q", slot, name)
 		}
 	}

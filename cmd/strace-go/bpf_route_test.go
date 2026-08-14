@@ -201,3 +201,21 @@ func TestPutBPFRouteEntriesSortsAndPropagatesWriterFailure(t *testing.T) {
 		t.Fatalf("write order = (%d, %d), want (3, 7)", writer.writes[0].index, writer.writes[1].index)
 	}
 }
+
+func TestBPFRouteProgramsUseHandlerCapability(t *testing.T) {
+	enter := &ebpf.Program{}
+	exit := &ebpf.Program{}
+	catalog := newBPFProgramCatalog(nil, map[string]*ebpf.Program{
+		"enter_no_payload_direct": enter,
+		"exit_generic":            exit,
+	})
+
+	enterPrograms := routePrograms(enterProgArrayEntries(catalog))
+	if enterPrograms[enterProgNoPayload] != enter {
+		t.Fatal("enter route catalog did not expose the handler capability")
+	}
+	exitPrograms := routePrograms(exitProgArrayEntries(catalog))
+	if exitPrograms[exitProgGeneric] != exit {
+		t.Fatal("exit route catalog did not expose the handler capability")
+	}
+}

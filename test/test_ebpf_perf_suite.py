@@ -37,9 +37,12 @@ def make_capture(events=None, lifecycle_events=None, stats=None, returncode=0):
             {"type": "phase", "phase": "bpf_spec", "start_time_ns": 110, "time_ns": 120},
             {"type": "phase", "phase": "bpf_route_plan", "start_time_ns": 120, "time_ns": 125},
             {"type": "phase", "phase": "bpf_object_prepare", "start_time_ns": 125, "time_ns": 127},
-            {"type": "phase", "phase": "bpf_collection_load", "start_time_ns": 127, "time_ns": 130},
-            {"type": "phase", "phase": "bpf_resource_bind", "start_time_ns": 130, "time_ns": 135},
-            {"type": "phase", "phase": "bpf_route_maps", "start_time_ns": 135, "time_ns": 140},
+            {"type": "phase", "phase": "bpf_core_collection_load", "start_time_ns": 127, "time_ns": 130},
+            {"type": "phase", "phase": "bpf_enter_collection_load", "start_time_ns": 130, "time_ns": 132},
+            {"type": "phase", "phase": "bpf_exit_collection_load", "start_time_ns": 132, "time_ns": 134},
+            {"type": "phase", "phase": "bpf_recvmsg_collection_load", "start_time_ns": 134, "time_ns": 136},
+            {"type": "phase", "phase": "bpf_resource_bind", "start_time_ns": 136, "time_ns": 138},
+            {"type": "phase", "phase": "bpf_route_maps", "start_time_ns": 138, "time_ns": 140},
             {"type": "phase", "phase": "bpf_prog_arrays", "start_time_ns": 140, "time_ns": 142},
             {"type": "phase", "phase": "bpf_tracepoints", "start_time_ns": 142, "time_ns": 145},
             {"type": "phase", "phase": "bpf_recvmsg_kretprobe", "start_time_ns": 145, "time_ns": 148},
@@ -195,7 +198,7 @@ class PerfOracleTests(unittest.TestCase):
         capture.phase_events = [
             event
             for event in capture.phase_events
-            if event.get("phase") != "bpf_collection_load"
+            if event.get("phase") != "bpf_core_collection_load"
         ]
 
         failures = validate_perf_capture(capture, spec)

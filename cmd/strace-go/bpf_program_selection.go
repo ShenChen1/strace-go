@@ -19,51 +19,52 @@ type bpfProgramSelection struct {
 }
 
 var bpfEnterProgramNames = map[uint32]string{
-	enterProgTerminating: "enter_terminating",
-	enterProgExec:        "enter_exec",
-	enterProgPathStat:    "enter_path_stat",
-	enterProgPathOnly:    "enter_path_only",
-	enterProgDualPath:    "enter_dual_path",
-	enterProgOpenat2:     "enter_openat2",
-	enterProgReadlink:    "enter_readlink",
-	enterProgMiscStruct:  "enter_misc_struct",
-	enterProgSmallStruct: "enter_small_struct",
-	enterProgItimer:      "enter_itimer",
-	enterProgTimeStruct:  "enter_time_struct",
-	enterProgSignal:      "enter_signal",
-	enterProgFileTime:    "enter_file_time",
-	enterProgSleep:       "enter_sleep",
-	enterProgFutex:       "enter_futex",
-	enterProgCachestat:   "enter_cachestat",
-	enterProgCapability:  "enter_capability",
-	enterProgMemfd:       "enter_memfd",
-	enterProgPrctl:       "enter_prctl",
-	enterProgClone3:      "enter_clone3",
-	enterProgBpf:         "enter_bpf",
-	enterProgIovec:       "enter_iovec",
-	enterProgMsg:         "enter_msg",
-	enterProgMmsg:        "enter_mmsg",
-	enterProgFcntl:       "enter_fcntl",
-	enterProgIoctl:       "enter_ioctl",
-	enterProgNetwork:     "enter_network",
-	enterProgKey:         "enter_key",
-	enterProgXattr:       "enter_xattr",
-	enterProgFs:          "enter_fs",
-	enterProgAio:         "enter_aio",
-	enterProgPoll:        "enter_poll",
-	enterProgSelect:      "enter_select",
-	enterProgEpoll:       "enter_epoll",
-	enterProgNoPayload:   "enter_no_payload_direct",
-	enterProgPayload:     "enter_payload_direct",
-	enterProgIovecBase:   "enter_iovec_base",
-	enterProgSendmsgBase: "enter_sendmsg_base",
-	enterProgMmsgB01:     "enter_mmsg_base01",
-	enterProgMmsgB2:      "enter_mmsg_base2",
-	enterProgMmsgB3:      "enter_mmsg_base3",
-	enterProgAioIovec:    "enter_aio_iovec",
-	enterProgAioBuf:      "enter_aio_buf",
-	enterProgQuota:       "enter_quota",
-	enterProgMountPath:   "enter_mount_path",
+	enterProgTerminating:      "enter_terminating",
+	enterProgExec:             "enter_exec",
+	enterProgPathStat:         "enter_path_stat",
+	enterProgPathOnly:         "enter_path_only",
+	enterProgDualPath:         "enter_dual_path",
+	enterProgOpenat2:          "enter_openat2",
+	enterProgReadlink:         "enter_readlink",
+	enterProgMiscStruct:       "enter_misc_struct",
+	enterProgSmallStruct:      "enter_small_struct",
+	enterProgItimer:           "enter_itimer",
+	enterProgTimeStruct:       "enter_time_struct",
+	enterProgSignal:           "enter_signal",
+	enterProgFileTime:         "enter_file_time",
+	enterProgSleep:            "enter_sleep",
+	enterProgFutex:            "enter_futex",
+	enterProgCachestat:        "enter_cachestat",
+	enterProgCapability:       "enter_capability",
+	enterProgMemfd:            "enter_memfd",
+	enterProgPrctl:            "enter_prctl",
+	enterProgClone3:           "enter_clone3",
+	enterProgBpf:              "enter_bpf",
+	enterProgIovec:            "enter_iovec",
+	enterProgMsg:              "enter_msg",
+	enterProgMmsg:             "enter_mmsg",
+	enterProgFcntl:            "enter_fcntl",
+	enterProgIoctl:            "enter_ioctl",
+	enterProgNetwork:          "enter_network",
+	enterProgKey:              "enter_key",
+	enterProgXattr:            "enter_xattr",
+	enterProgFs:               "enter_fs",
+	enterProgAio:              "enter_aio",
+	enterProgPoll:             "enter_poll",
+	enterProgSelect:           "enter_select",
+	enterProgEpoll:            "enter_epoll",
+	enterProgNoPayload:        "enter_no_payload_direct",
+	enterProgPayload:          "enter_payload_direct",
+	enterProgNoPayloadGeneric: "enter_no_payload_generic",
+	enterProgIovecBase:        "enter_iovec_base",
+	enterProgSendmsgBase:      "enter_sendmsg_base",
+	enterProgMmsgB01:          "enter_mmsg_base01",
+	enterProgMmsgB2:           "enter_mmsg_base2",
+	enterProgMmsgB3:           "enter_mmsg_base3",
+	enterProgAioIovec:         "enter_aio_iovec",
+	enterProgAioBuf:           "enter_aio_buf",
+	enterProgQuota:            "enter_quota",
+	enterProgMountPath:        "enter_mount_path",
 }
 
 var bpfExitProgramNames = map[uint32]string{
@@ -97,18 +98,28 @@ var bpfMmsgByteProgramNames = map[uint32]string{
 }
 
 func selectBPFRoutePlan(plan bpfRoutePlan, config traceBPFConfig) bpfRoutePlan {
-	if config.syscallFilter.negated || !config.syscallFilter.enabled || config.fdState {
-		return copyBPFRoutePlan(plan)
+	selected := copyBPFRoutePlan(plan)
+	if !config.syscallFilter.negated && config.syscallFilter.enabled && !config.fdState {
+		ids := make(map[uint32]struct{}, len(config.syscallFilter.ids))
+		for _, id := range config.syscallFilter.ids {
+			ids[id] = struct{}{}
+		}
+		selected.enter = filterBPFRouteMap(selected.enter, ids)
+		selected.exit = filterBPFRouteMap(selected.exit, ids)
 	}
+	if !config.fdState {
+		selected.enter = useGenericNoPayloadEnterSlot(selected.enter)
+	}
+	return selected
+}
 
-	selected := make(map[uint32]struct{}, len(config.syscallFilter.ids))
-	for _, id := range config.syscallFilter.ids {
-		selected[id] = struct{}{}
+func useGenericNoPayloadEnterSlot(routes map[uint32]uint32) map[uint32]uint32 {
+	for id, slot := range routes {
+		if slot == enterProgNoPayload {
+			routes[id] = enterProgNoPayloadGeneric
+		}
 	}
-	return bpfRoutePlan{
-		enter: filterBPFRouteMap(plan.enter, selected),
-		exit:  filterBPFRouteMap(plan.exit, selected),
-	}
+	return routes
 }
 
 func copyBPFRoutePlan(plan bpfRoutePlan) bpfRoutePlan {
@@ -154,7 +165,7 @@ func newBPFProgramSelection(
 		return selection, nil
 	}
 
-	if err := selection.addCorePrograms(); err != nil {
+	if err := selection.addCorePrograms(config.fdState); err != nil {
 		return bpfProgramSelection{}, err
 	}
 	for _, slot := range plan.enter {
@@ -177,10 +188,13 @@ func newBPFProgramSelection(
 }
 
 func shouldLoadAllBPFPrograms(config traceBPFConfig) bool {
-	return !config.syscallFilter.enabled || config.syscallFilter.negated || config.fdState
+	// Full and negated filters still have a complete route closure, so they can
+	// prune unreachable handler programs. FD-state must keep excluded creator and
+	// closer syscalls alive to maintain the event-sourced fd state map.
+	return config.fdState
 }
 
-func (s *bpfProgramSelection) addCorePrograms() error {
+func (s *bpfProgramSelection) addCorePrograms(fdState bool) error {
 	for _, name := range []string{
 		"trace_sys_enter",
 		"trace_sys_exit",
@@ -191,7 +205,11 @@ func (s *bpfProgramSelection) addCorePrograms() error {
 	} {
 		s.addProgram(name)
 	}
-	if err := s.addEnterSlotUnchecked(enterProgNoPayload); err != nil {
+	noPayloadSlot := uint32(enterProgNoPayloadGeneric)
+	if fdState {
+		noPayloadSlot = enterProgNoPayload
+	}
+	if err := s.addEnterSlotUnchecked(noPayloadSlot); err != nil {
 		return err
 	}
 	return s.addExitSlotUnchecked(exitProgGeneric)

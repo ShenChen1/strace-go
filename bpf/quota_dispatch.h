@@ -1,6 +1,9 @@
 #ifndef STRACE_GO_QUOTA_DISPATCH_H
 #define STRACE_GO_QUOTA_DISPATCH_H
 
+#ifndef STRACE_GO_CORE_ONLY
+
+#if !defined(STRACE_GO_HANDLER_FAMILY) || defined(STRACE_GO_HANDLER_ENTER)
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_quota(struct trace_event_raw_sys_enter *ctx)
 {
@@ -12,7 +15,9 @@ int enter_quota(struct trace_event_raw_sys_enter *ctx)
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }
+#endif
 
+#if !defined(STRACE_GO_HANDLER_FAMILY) || defined(STRACE_GO_HANDLER_EXIT)
 SEC("tracepoint/raw_syscalls/sys_exit")
 int exit_quota(struct trace_event_raw_sys_exit *ctx)
 {
@@ -30,5 +35,8 @@ int exit_quota(struct trace_event_raw_sys_exit *ctx)
     consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
     return 0;
 }
+#endif
+
+#endif
 
 #endif

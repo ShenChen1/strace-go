@@ -15,6 +15,8 @@
  * always saves pending metadata before chaining because tail calls never return.
  */
 
+#ifndef STRACE_GO_CORE_ONLY
+
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_terminating(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
@@ -373,11 +375,21 @@ int enter_no_payload_direct(struct trace_event_raw_sys_enter *ctx) {
 }
 
 SEC("tracepoint/raw_syscalls/sys_enter")
+int enter_no_payload_generic(struct trace_event_raw_sys_enter *ctx) {
+    ENTER_PROLOGUE(ctx);
+    emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
+    save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+    return 0;
+}
+
+SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_payload_direct(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
     emit_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }
+
+#endif
 
 #endif

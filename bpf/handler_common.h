@@ -1,3 +1,6 @@
+#ifndef STRACE_GO_HANDLER_COMMON_H
+#define STRACE_GO_HANDLER_COMMON_H
+
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
@@ -53,60 +56,5 @@ char LICENSE[] SEC("license") = "GPL";
 
 #include "pending_state.h"
 #include "lifecycle_state.h"
-#include "lifecycle_dispatch.h"
-#define STRACE_GO_CORE_ONLY 1
-#include "enter_dispatch.h"
-#include "enter_fragment_dispatch.h"
-#include "mmsg_enter_dispatch.h"
-#include "exit_dispatch.h"
-#include "exit_direct_dispatch.h"
-#include "recvmsg_kretprobe_dispatch.h"
-#include "quota_dispatch.h"
-#include "mount_query_dispatch.h"
-#include "mount_path_dispatch.h"
 
-SEC("tracepoint/raw_syscalls/sys_enter")
-int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
-    u32 sys_id = (u32)ctx->id;
-    if (sys_id == SYS_RT_SIGRETURN || sys_id == SYS_RT_SIGRETURN_COMPAT) return 0;
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    u32 tid = (u32)pid_tgid;
-    u32 pid = (u32)(pid_tgid >> 32);
-
-    if (!is_lifecycle_task_tracked(pid, tid)) return 0;
-
-    if (is_pre_exec_suppressed_syscall(pid, sys_id)) return 0;
-    u32 key = 0;
-    u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
-    if (!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)) return 0;
-
-    u64 enter_time = bpf_ktime_get_ns();
-
-    bpf_tail_call(ctx, &enter_routes, sys_id);
-    emit_enter_dispatch_fallback(ctx, pid, tid, cfg, enter_time);
-    return 0;
-}
-
-SEC("tracepoint/raw_syscalls/sys_exit")
-int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
-    u32 sys_id = (u32)ctx->id;
-    s64 ret_value = ctx->ret;
-    if (sys_id == SYS_RT_SIGRETURN || sys_id == SYS_RT_SIGRETURN_COMPAT) return 0;
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    u32 tid = (u32)pid_tgid;
-    u32 pid = (u32)(pid_tgid >> 32);
-    if (is_pre_exec_suppressed_syscall(pid, sys_id)) return 0;
-
-    if (!is_lifecycle_task_tracked(pid, tid)) return 0;
-    u32 cfg_key = 0;
-    u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);
-    if (!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)) {
-        return 0;
-    }
-
-    bpf_tail_call(ctx, &exit_routes, sys_id);
-
-    // Tail-call fallback is isolated from the normal handler ownership path.
-    emit_exit_dispatch_fallback(pid, tid, sys_id, ret_value);
-    return 0;
-}
+#endif

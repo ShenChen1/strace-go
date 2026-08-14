@@ -22,6 +22,9 @@ const (
 //go:generate go run -C ../generate-syscalls .
 //go:generate go run ../generate-xlats
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpf ../../bpf/strace.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfEnter ../../bpf/handlers_enter.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfExit ../../bpf/handlers_exit.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfRecvmsg ../../bpf/handlers_recvmsg.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
 
 // IMPACT: main is the final process error boundary; resource-owning bootstrap
 // work stays in error-returning helpers so deferred cleanup always runs.

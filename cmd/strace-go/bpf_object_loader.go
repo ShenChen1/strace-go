@@ -11,26 +11,43 @@ import (
 )
 
 type bpfObjectBundle struct {
-	objects      *bpfObjects
-	extraClosers []io.Closer
+	objects        *bpfObjects
+	programs       bpfProgramProvider
+	handlerClosers []io.Closer
+	extraClosers   []io.Closer
 }
 
-// bpfCollectionPlan owns the prepared spec until a collection is loaded.
-// Keeping selection beside the spec prevents a loader backend from silently
-// loading a different program set than the route plan requested.
+type bpfCollectionSpecSet struct {
+	core     *ebpf.CollectionSpec
+	handlers map[bpfHandlerFamily]*ebpf.CollectionSpec
+}
+
+// bpfCollectionPlan owns prepared core and family specs until they load.
 type bpfCollectionPlan struct {
-	spec      *ebpf.CollectionSpec
-	selection bpfProgramSelection
+	coreSpec     *ebpf.CollectionSpec
+	handlerSpecs map[bpfHandlerFamily]*ebpf.CollectionSpec
+	selection    bpfProgramSelection
 }
 
-// bpfLoadedCollection is the temporary owner between kernel collection load
-// and generated-resource binding. detach transfers every live handle to the
-// resulting bpfObjectBundle.
+// bpfLoadedCollection is the temporary owner for one collection.
 type bpfLoadedCollection struct {
 	collection *ebpf.Collection
 	closer     io.Closer
 	closed     bool
 	detached   bool
+}
+
+type bpfCollectionCloser struct {
+	collection *ebpf.Collection
+}
+
+func (c *bpfCollectionCloser) Close() error {
+	if c == nil || c.collection == nil {
+		return nil
+	}
+	c.collection.Close()
+	c.collection = nil
+	return nil
 }
 
 func (c *bpfLoadedCollection) Close() error {
@@ -63,56 +80,207 @@ func (c *bpfLoadedCollection) value() *ebpf.Collection {
 	return c.collection
 }
 
+func (c *bpfLoadedCollection) transferCloser() io.Closer {
+	if c == nil || c.closed || c.detached {
+		return nil
+	}
+	closer := c.closer
+	if closer == nil {
+		closer = &bpfCollectionCloser{collection: c.collection}
+	}
+	c.detached = true
+	c.collection = nil
+	c.closer = nil
+	return closer
+}
+
+type bpfLoadedCollectionSet struct {
+	core      *bpfLoadedCollection
+	handlers  *bpfLoadedHandlerCollections
+	selection bpfProgramSelection
+}
+
+func (s *bpfLoadedCollectionSet) Close() error {
+	if s == nil {
+		return nil
+	}
+	return errors.Join(s.handlers.Close(), s.core.Close())
+}
+
+func (s *bpfLoadedCollectionSet) transferTo(bundle *bpfObjectBundle) {
+	if s == nil || bundle == nil {
+		return
+	}
+	if s.core != nil {
+		s.core.detach()
+	}
+	if s.handlers != nil {
+		s.handlers.transferTo(bundle)
+	}
+}
+
+type bpfLoadedHandlerCollections struct {
+	collections map[bpfHandlerFamily]*bpfLoadedCollection
+	loadOrder   []bpfHandlerFamily
+}
+
+func (h *bpfLoadedHandlerCollections) Close() error {
+	if h == nil {
+		return nil
+	}
+	var closeErr error
+	for index := len(h.loadOrder) - 1; index >= 0; index-- {
+		family := h.loadOrder[index]
+		if collection := h.collections[family]; collection != nil {
+			closeErr = errors.Join(closeErr, collection.Close())
+		}
+	}
+	return closeErr
+}
+
+func (h *bpfLoadedHandlerCollections) transferTo(bundle *bpfObjectBundle) {
+	if h == nil || bundle == nil {
+		return
+	}
+	for index := len(h.loadOrder) - 1; index >= 0; index-- {
+		family := h.loadOrder[index]
+		collection := h.collections[family]
+		if collection == nil {
+			continue
+		}
+		if closer := collection.transferCloser(); closer != nil {
+			bundle.handlerClosers = append(bundle.handlerClosers, closer)
+		}
+	}
+}
+
 // bpfObjectLoader is the ownership boundary between setup orchestration and
-// a concrete collection backend. A future family loader can implement the
-// same plan/load/bind lifecycle without leaking generated objects upward.
+// a concrete core/handler collection backend.
 type bpfObjectLoader interface {
-	prepare(*ebpf.CollectionSpec, bpfProgramSelection) (*bpfCollectionPlan, error)
-	load(*bpfCollectionPlan) (*bpfLoadedCollection, error)
-	bind(*bpfLoadedCollection) (*bpfObjectBundle, error)
+	prepare(*bpfCollectionSpecSet, bpfProgramSelection) (*bpfCollectionPlan, error)
+	loadCore(*bpfCollectionPlan) (*bpfLoadedCollection, error)
+	loadHandlers(
+		*bpfCollectionPlan,
+		*bpfLoadedCollection,
+		traceClock,
+		traceBPFSetupObserver,
+	) (*bpfLoadedHandlerCollections, error)
+	bind(*bpfLoadedCollectionSet) (*bpfObjectBundle, error)
 }
 
 type nativeBPFObjectLoader struct{}
 
 func (l *nativeBPFObjectLoader) prepare(
-	spec *ebpf.CollectionSpec,
+	specs *bpfCollectionSpecSet,
 	selection bpfProgramSelection,
 ) (*bpfCollectionPlan, error) {
-	if spec == nil {
-		return nil, fmt.Errorf("BPF collection spec is nil")
+	if specs == nil || specs.core == nil || len(specs.handlers) == 0 {
+		return nil, fmt.Errorf("BPF core and handler specs are required")
 	}
-	prepared := spec
-	if !selection.loadAll {
-		prepared = spec.Copy()
-		if err := pruneBPFProgramSpecs(prepared, selection); err != nil {
-			return nil, fmt.Errorf("prepare selected BPF programs: %w", err)
+	coreSpec := specs.core.Copy()
+	handlerSpecs := make(map[bpfHandlerFamily]*ebpf.CollectionSpec, len(specs.handlers))
+	for family, spec := range specs.handlers {
+		if spec == nil {
+			return nil, fmt.Errorf("handler spec %q is nil", family)
 		}
+		handlerSpecs[family] = spec.Copy()
 	}
-	return &bpfCollectionPlan{spec: prepared, selection: selection}, nil
+	if err := prepareBPFCollectionPrograms(coreSpec, handlerSpecs, selection); err != nil {
+		return nil, fmt.Errorf("prepare selected BPF programs: %w", err)
+	}
+	return &bpfCollectionPlan{
+		coreSpec:     coreSpec,
+		handlerSpecs: handlerSpecs,
+		selection:    selection,
+	}, nil
 }
 
-func (l *nativeBPFObjectLoader) load(plan *bpfCollectionPlan) (*bpfLoadedCollection, error) {
-	if plan == nil || plan.spec == nil {
-		return nil, fmt.Errorf("BPF collection plan is unavailable")
+func (l *nativeBPFObjectLoader) loadCore(plan *bpfCollectionPlan) (*bpfLoadedCollection, error) {
+	if plan == nil || plan.coreSpec == nil {
+		return nil, fmt.Errorf("BPF core collection plan is unavailable")
 	}
-	collection, err := ebpf.NewCollection(plan.spec)
+	core, err := ebpf.NewCollection(plan.coreSpec)
+	if err != nil {
+		return nil, err
+	}
+	return &bpfLoadedCollection{collection: core}, nil
+}
+
+func (l *nativeBPFObjectLoader) loadHandlers(
+	plan *bpfCollectionPlan,
+	core *bpfLoadedCollection,
+	clock traceClock,
+	observer traceBPFSetupObserver,
+) (*bpfLoadedHandlerCollections, error) {
+	if plan == nil || len(plan.handlerSpecs) == 0 || core == nil || core.value() == nil {
+		return nil, fmt.Errorf("BPF handler collection plan is unavailable")
+	}
+	coreCollection := core.value()
+	loaded := &bpfLoadedHandlerCollections{
+		collections: make(map[bpfHandlerFamily]*bpfLoadedCollection),
+	}
+	for _, family := range bpfHandlerLoadOrder {
+		spec := plan.handlerSpecs[family]
+		var collection *bpfLoadedCollection
+		stage := bpfHandlerCollectionStage(family)
+		err := measureBPFSetupStage(clock, observer, stage, func() error {
+			if spec == nil || len(spec.Programs) == 0 {
+				return nil
+			}
+			var err error
+			collection, err = loadBPFHandlerFamily(spec, coreCollection)
+			return err
+		})
+		if err != nil {
+			return loaded, fmt.Errorf("load %s handler collection: %w", family, err)
+		}
+		if collection != nil {
+			loaded.collections[family] = collection
+			loaded.loadOrder = append(loaded.loadOrder, family)
+		}
+	}
+	return loaded, nil
+}
+
+func loadBPFHandlerFamily(
+	spec *ebpf.CollectionSpec,
+	core *ebpf.Collection,
+) (*bpfLoadedCollection, error) {
+	replacementPlan, err := newBPFMapReplacementPlan(core, spec)
+	if err != nil {
+		return nil, err
+	}
+	collection, err := ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{
+		MapReplacements: replacementPlan.replacements,
+	})
 	if err != nil {
 		return nil, err
 	}
 	return &bpfLoadedCollection{collection: collection}, nil
 }
 
-func (l *nativeBPFObjectLoader) bind(loaded *bpfLoadedCollection) (*bpfObjectBundle, error) {
-	collection := loaded.value()
-	if collection == nil {
-		return nil, fmt.Errorf("loaded BPF collection is unavailable")
+func (l *nativeBPFObjectLoader) bind(loaded *bpfLoadedCollectionSet) (*bpfObjectBundle, error) {
+	if loaded == nil {
+		return nil, fmt.Errorf("loaded BPF collections are unavailable")
+	}
+	core := loaded.core.value()
+	if core == nil || loaded.handlers == nil {
+		return nil, fmt.Errorf("loaded BPF core or handler collections are unavailable")
 	}
 	objects := &bpfObjects{}
-	if err := assignBPFCollection(objects, collection); err != nil {
+	if err := assignBPFCollection(objects, core); err != nil {
 		return nil, err
 	}
-	extraClosers := collectBPFExtraClosers(collection)
-	return &bpfObjectBundle{objects: objects, extraClosers: extraClosers}, nil
+	programs, err := selectedBPFHandlerPrograms(loaded.handlers, loaded.selection)
+	if err != nil {
+		return nil, err
+	}
+	extraClosers := collectBPFExtraClosers(core)
+	return &bpfObjectBundle{
+		objects:      objects,
+		programs:     newBPFProgramCatalog(objects, programs),
+		extraClosers: extraClosers,
+	}, nil
 }
 
 func assignBPFCollection(objects *bpfObjects, collection *ebpf.Collection) error {
@@ -218,10 +386,66 @@ func taggedBPFResourceNames(resourceType reflect.Type) map[string]struct{} {
 	return names
 }
 
+func selectedBPFHandlerPrograms(
+	loaded *bpfLoadedHandlerCollections,
+	selection bpfProgramSelection,
+) (map[string]*ebpf.Program, error) {
+	if loaded == nil {
+		return nil, fmt.Errorf("handler BPF collections are nil")
+	}
+	programs := make(map[string]*ebpf.Program)
+	for _, family := range loaded.loadOrder {
+		collection := loaded.collections[family]
+		if collection == nil || collection.value() == nil {
+			return nil, fmt.Errorf("handler BPF collection %q is unavailable", family)
+		}
+		for name, program := range collection.value().Programs {
+			if isCoreBPFProgramName(name) {
+				continue
+			}
+			if _, exists := programs[name]; exists {
+				return nil, fmt.Errorf("handler BPF program %q belongs to multiple families", name)
+			}
+			if program == nil {
+				return nil, fmt.Errorf("handler BPF program %q is nil", name)
+			}
+			if _, ok := classifyBPFHandlerProgram(name); !ok {
+				return nil, fmt.Errorf("handler BPF program %q has no family", name)
+			}
+			programs[name] = program
+		}
+	}
+	if selection.loadAll {
+		return programs, nil
+	}
+	for name := range selection.programs {
+		if isCoreBPFProgramName(name) {
+			continue
+		}
+		if programs[name] == nil {
+			return nil, fmt.Errorf("selected handler BPF program %q is unavailable", name)
+		}
+	}
+	return programs, nil
+}
+
+func isCoreBPFProgramName(name string) bool {
+	switch name {
+	case "trace_sys_enter", "trace_sys_exit",
+		"trace_sched_process_fork", "trace_sched_process_exec",
+		"trace_sched_process_exit", "trace_sched_process_free":
+		return true
+	default:
+		return false
+	}
+}
+
 func (b *bpfObjectBundle) Close() error {
 	if b == nil {
 		return nil
 	}
+	handlerErr := closeBPFExtraResources(b.handlerClosers)
+	b.handlerClosers = nil
 	var objectErr error
 	if b.objects != nil {
 		objectErr = b.objects.Close()
@@ -229,7 +453,7 @@ func (b *bpfObjectBundle) Close() error {
 	}
 	extraErr := closeBPFExtraResources(b.extraClosers)
 	b.extraClosers = nil
-	return errors.Join(objectErr, extraErr)
+	return errors.Join(handlerErr, objectErr, extraErr)
 }
 
 func closeBPFExtraResources(resources []io.Closer) error {

@@ -2,7 +2,7 @@
 set -e
 
 echo "==> [1/3] Cleaning previous build artifacts..."
-sudo rm -f strace-go cmd/strace-go/bpf_bpf*.go cmd/strace-go/bpf_bpf*.o pkg/meta/syscall_table.go pkg/meta/xlat_auto.go
+sudo rm -f strace-go cmd/strace-go/bpf_bpf*.go cmd/strace-go/bpf_bpf*.o cmd/strace-go/bpfhandlers_bpf*.go cmd/strace-go/bpfhandlers_bpf*.o cmd/strace-go/bpfenter_bpf*.go cmd/strace-go/bpfenter_bpf*.o cmd/strace-go/bpfexit_bpf*.go cmd/strace-go/bpfexit_bpf*.o cmd/strace-go/bpfrecvmsg_bpf*.go cmd/strace-go/bpfrecvmsg_bpf*.o pkg/meta/syscall_table.go pkg/meta/xlat_auto.go
 
 echo "==> [2/3] Generating Syscall Table and eBPF bytecode..."
 echo "    (sudo is required to read /sys/kernel/tracing and parse events)"

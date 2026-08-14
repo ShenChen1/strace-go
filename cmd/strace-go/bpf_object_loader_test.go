@@ -22,7 +22,7 @@ func TestAssignBPFCollectionAllowsOmittedProgramFields(t *testing.T) {
 	if objects.TraceSysEnter == nil {
 		t.Fatal("trace_sys_enter was not assigned")
 	}
-	if objects.EnterNetwork != nil {
+	if objects.program("enter_network") != nil {
 		t.Fatal("omitted enter_network was assigned unexpectedly")
 	}
 }

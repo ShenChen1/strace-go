@@ -1,6 +1,8 @@
 #ifndef STRACE_GO_RECVMSG_KRETPROBE_DISPATCH_H
 #define STRACE_GO_RECVMSG_KRETPROBE_DISPATCH_H
 
+#ifndef STRACE_GO_CORE_ONLY
+
 /*
  * recvmsg_kretprobe_dispatch.h - serialized recvmsg OUT fragments.
  *
@@ -63,5 +65,7 @@ int trace_kretprobe_recvmsg_final(struct pt_regs *ctx) {
     consume_pending_syscall(pid, tid, p, 0);
     return 0;
 }
+
+#endif
 
 #endif

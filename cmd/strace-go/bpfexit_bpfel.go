@@ -13,7 +13,7 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-type bpfBpfStats struct {
+type bpfExitBpfStats struct {
 	_                      structs.HostLayout
 	RingbufReserveFail     uint64
 	RingbufCopyFail        uint64
@@ -24,14 +24,14 @@ type bpfBpfStats struct {
 	LifecycleMapUpdateFail uint64
 }
 
-type bpfFdPathScratch struct {
+type bpfExitFdPathScratch struct {
 	_          structs.HostLayout
 	Name       [256]int8
 	Components [8]uint64
 	Args       [6]uint64
 }
 
-type bpfPendingSyscall struct {
+type bpfExitPendingSyscall struct {
 	_         structs.HostLayout
 	EnterTime uint64
 	Args      [6]uint64
@@ -43,28 +43,28 @@ type bpfPendingSyscall struct {
 	Aux1      uint32
 }
 
-// loadBpf returns the embedded CollectionSpec for bpf.
-func loadBpf() (*ebpf.CollectionSpec, error) {
-	reader := bytes.NewReader(_BpfBytes)
+// loadBpfExit returns the embedded CollectionSpec for bpfExit.
+func loadBpfExit() (*ebpf.CollectionSpec, error) {
+	reader := bytes.NewReader(_BpfExitBytes)
 	spec, err := ebpf.LoadCollectionSpecFromReader(reader)
 	if err != nil {
-		return nil, fmt.Errorf("can't load bpf: %w", err)
+		return nil, fmt.Errorf("can't load bpfExit: %w", err)
 	}
 
 	return spec, err
 }
 
-// loadBpfObjects loads bpf and converts it into a struct.
+// loadBpfExitObjects loads bpfExit and converts it into a struct.
 //
 // The following types are suitable as obj argument:
 //
-//	*bpfObjects
-//	*bpfPrograms
-//	*bpfMaps
+//	*bpfExitObjects
+//	*bpfExitPrograms
+//	*bpfExitMaps
 //
 // See ebpf.CollectionSpec.LoadAndAssign documentation for details.
-func loadBpfObjects(obj interface{}, opts *ebpf.CollectionOptions) error {
-	spec, err := loadBpf()
+func loadBpfExitObjects(obj interface{}, opts *ebpf.CollectionOptions) error {
+	spec, err := loadBpfExit()
 	if err != nil {
 		return err
 	}
@@ -72,31 +72,39 @@ func loadBpfObjects(obj interface{}, opts *ebpf.CollectionOptions) error {
 	return spec.LoadAndAssign(obj, opts)
 }
 
-// bpfSpecs contains maps and programs before they are loaded into the kernel.
+// bpfExitSpecs contains maps and programs before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type bpfSpecs struct {
-	bpfProgramSpecs
-	bpfMapSpecs
-	bpfVariableSpecs
+type bpfExitSpecs struct {
+	bpfExitProgramSpecs
+	bpfExitMapSpecs
+	bpfExitVariableSpecs
 }
 
-// bpfProgramSpecs contains programs before they are loaded into the kernel.
+// bpfExitProgramSpecs contains programs before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type bpfProgramSpecs struct {
-	TraceSchedProcessExec *ebpf.ProgramSpec `ebpf:"trace_sched_process_exec"`
-	TraceSchedProcessExit *ebpf.ProgramSpec `ebpf:"trace_sched_process_exit"`
-	TraceSchedProcessFork *ebpf.ProgramSpec `ebpf:"trace_sched_process_fork"`
-	TraceSchedProcessFree *ebpf.ProgramSpec `ebpf:"trace_sched_process_free"`
-	TraceSysEnter         *ebpf.ProgramSpec `ebpf:"trace_sys_enter"`
-	TraceSysExit          *ebpf.ProgramSpec `ebpf:"trace_sys_exit"`
+type bpfExitProgramSpecs struct {
+	ExitAsync          *ebpf.ProgramSpec `ebpf:"exit_async"`
+	ExitControl        *ebpf.ProgramSpec `ebpf:"exit_control"`
+	ExitFdTime         *ebpf.ProgramSpec `ebpf:"exit_fd_time"`
+	ExitGeneric        *ebpf.ProgramSpec `ebpf:"exit_generic"`
+	ExitIo             *ebpf.ProgramSpec `ebpf:"exit_io"`
+	ExitIovecBase      *ebpf.ProgramSpec `ebpf:"exit_iovec_base"`
+	ExitMmsgFinal      *ebpf.ProgramSpec `ebpf:"exit_mmsg_final"`
+	ExitMountQuery     *ebpf.ProgramSpec `ebpf:"exit_mount_query"`
+	ExitMsg            *ebpf.ProgramSpec `ebpf:"exit_msg"`
+	ExitPath           *ebpf.ProgramSpec `ebpf:"exit_path"`
+	ExitQuota          *ebpf.ProgramSpec `ebpf:"exit_quota"`
+	ExitRecvmmsgBase01 *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base01"`
+	ExitRecvmmsgBase23 *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base23"`
+	ExitStruct         *ebpf.ProgramSpec `ebpf:"exit_struct"`
 }
 
-// bpfMapSpecs contains maps before they are loaded into the kernel.
+// bpfExitMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type bpfMapSpecs struct {
+type bpfExitMapSpecs struct {
 	ArmForkMap       *ebpf.MapSpec `ebpf:"arm_fork_map"`
 	AttachExitedMap  *ebpf.MapSpec `ebpf:"attach_exited_map"`
 	AttachRootsMap   *ebpf.MapSpec `ebpf:"attach_roots_map"`
@@ -119,10 +127,10 @@ type bpfMapSpecs struct {
 	SyscallFilterMap *ebpf.MapSpec `ebpf:"syscall_filter_map"`
 }
 
-// bpfVariableSpecs contains global variables before they are loaded into the kernel.
+// bpfExitVariableSpecs contains global variables before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type bpfVariableSpecs struct {
+type bpfExitVariableSpecs struct {
 	SYS_CAPGET              *ebpf.VariableSpec `ebpf:"SYS_CAPGET"`
 	SYS_CAPSET              *ebpf.VariableSpec `ebpf:"SYS_CAPSET"`
 	SYS_EXECVE              *ebpf.VariableSpec `ebpf:"SYS_EXECVE"`
@@ -135,26 +143,26 @@ type bpfVariableSpecs struct {
 	SYS_RT_SIGSUSPEND       *ebpf.VariableSpec `ebpf:"SYS_RT_SIGSUSPEND"`
 }
 
-// bpfObjects contains all objects after they have been loaded into the kernel.
+// bpfExitObjects contains all objects after they have been loaded into the kernel.
 //
-// It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
-type bpfObjects struct {
-	bpfPrograms
-	bpfMaps
-	bpfVariables
+// It can be passed to loadBpfExitObjects or ebpf.CollectionSpec.LoadAndAssign.
+type bpfExitObjects struct {
+	bpfExitPrograms
+	bpfExitMaps
+	bpfExitVariables
 }
 
-func (o *bpfObjects) Close() error {
-	return _BpfClose(
-		&o.bpfPrograms,
-		&o.bpfMaps,
+func (o *bpfExitObjects) Close() error {
+	return _BpfExitClose(
+		&o.bpfExitPrograms,
+		&o.bpfExitMaps,
 	)
 }
 
-// bpfMaps contains all maps after they have been loaded into the kernel.
+// bpfExitMaps contains all maps after they have been loaded into the kernel.
 //
-// It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
-type bpfMaps struct {
+// It can be passed to loadBpfExitObjects or ebpf.CollectionSpec.LoadAndAssign.
+type bpfExitMaps struct {
 	ArmForkMap       *ebpf.Map `ebpf:"arm_fork_map"`
 	AttachExitedMap  *ebpf.Map `ebpf:"attach_exited_map"`
 	AttachRootsMap   *ebpf.Map `ebpf:"attach_roots_map"`
@@ -177,8 +185,8 @@ type bpfMaps struct {
 	SyscallFilterMap *ebpf.Map `ebpf:"syscall_filter_map"`
 }
 
-func (m *bpfMaps) Close() error {
-	return _BpfClose(
+func (m *bpfExitMaps) Close() error {
+	return _BpfExitClose(
 		m.ArmForkMap,
 		m.AttachExitedMap,
 		m.AttachRootsMap,
@@ -202,10 +210,10 @@ func (m *bpfMaps) Close() error {
 	)
 }
 
-// bpfVariables contains all global variables after they have been loaded into the kernel.
+// bpfExitVariables contains all global variables after they have been loaded into the kernel.
 //
-// It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
-type bpfVariables struct {
+// It can be passed to loadBpfExitObjects or ebpf.CollectionSpec.LoadAndAssign.
+type bpfExitVariables struct {
 	SYS_CAPGET              *ebpf.Variable `ebpf:"SYS_CAPGET"`
 	SYS_CAPSET              *ebpf.Variable `ebpf:"SYS_CAPSET"`
 	SYS_EXECVE              *ebpf.Variable `ebpf:"SYS_EXECVE"`
@@ -218,30 +226,46 @@ type bpfVariables struct {
 	SYS_RT_SIGSUSPEND       *ebpf.Variable `ebpf:"SYS_RT_SIGSUSPEND"`
 }
 
-// bpfPrograms contains all programs after they have been loaded into the kernel.
+// bpfExitPrograms contains all programs after they have been loaded into the kernel.
 //
-// It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
-type bpfPrograms struct {
-	TraceSchedProcessExec *ebpf.Program `ebpf:"trace_sched_process_exec"`
-	TraceSchedProcessExit *ebpf.Program `ebpf:"trace_sched_process_exit"`
-	TraceSchedProcessFork *ebpf.Program `ebpf:"trace_sched_process_fork"`
-	TraceSchedProcessFree *ebpf.Program `ebpf:"trace_sched_process_free"`
-	TraceSysEnter         *ebpf.Program `ebpf:"trace_sys_enter"`
-	TraceSysExit          *ebpf.Program `ebpf:"trace_sys_exit"`
+// It can be passed to loadBpfExitObjects or ebpf.CollectionSpec.LoadAndAssign.
+type bpfExitPrograms struct {
+	ExitAsync          *ebpf.Program `ebpf:"exit_async"`
+	ExitControl        *ebpf.Program `ebpf:"exit_control"`
+	ExitFdTime         *ebpf.Program `ebpf:"exit_fd_time"`
+	ExitGeneric        *ebpf.Program `ebpf:"exit_generic"`
+	ExitIo             *ebpf.Program `ebpf:"exit_io"`
+	ExitIovecBase      *ebpf.Program `ebpf:"exit_iovec_base"`
+	ExitMmsgFinal      *ebpf.Program `ebpf:"exit_mmsg_final"`
+	ExitMountQuery     *ebpf.Program `ebpf:"exit_mount_query"`
+	ExitMsg            *ebpf.Program `ebpf:"exit_msg"`
+	ExitPath           *ebpf.Program `ebpf:"exit_path"`
+	ExitQuota          *ebpf.Program `ebpf:"exit_quota"`
+	ExitRecvmmsgBase01 *ebpf.Program `ebpf:"exit_recvmmsg_base01"`
+	ExitRecvmmsgBase23 *ebpf.Program `ebpf:"exit_recvmmsg_base23"`
+	ExitStruct         *ebpf.Program `ebpf:"exit_struct"`
 }
 
-func (p *bpfPrograms) Close() error {
-	return _BpfClose(
-		p.TraceSchedProcessExec,
-		p.TraceSchedProcessExit,
-		p.TraceSchedProcessFork,
-		p.TraceSchedProcessFree,
-		p.TraceSysEnter,
-		p.TraceSysExit,
+func (p *bpfExitPrograms) Close() error {
+	return _BpfExitClose(
+		p.ExitAsync,
+		p.ExitControl,
+		p.ExitFdTime,
+		p.ExitGeneric,
+		p.ExitIo,
+		p.ExitIovecBase,
+		p.ExitMmsgFinal,
+		p.ExitMountQuery,
+		p.ExitMsg,
+		p.ExitPath,
+		p.ExitQuota,
+		p.ExitRecvmmsgBase01,
+		p.ExitRecvmmsgBase23,
+		p.ExitStruct,
 	)
 }
 
-func _BpfClose(closers ...io.Closer) error {
+func _BpfExitClose(closers ...io.Closer) error {
 	for _, closer := range closers {
 		if err := closer.Close(); err != nil {
 			return err
@@ -252,5 +276,5 @@ func _BpfClose(closers ...io.Closer) error {
 
 // Do not access this directly.
 //
-//go:embed bpf_bpfel.o
-var _BpfBytes []byte
+//go:embed bpfexit_bpfel.o
+var _BpfExitBytes []byte

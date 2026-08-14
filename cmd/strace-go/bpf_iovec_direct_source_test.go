@@ -43,9 +43,8 @@ func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 		}
 	}
 	for _, snippet := range []string{
-		"EnterIovecBase",
-		"objs.EnterIovecBase",
-		"ExitIovecBase",
+		`bpfProgram(programs, "enter_iovec_base")`,
+		`bpfProgram(programs, "exit_iovec_base")`,
 	} {
 		if !strings.Contains(sessionSource, snippet) {
 			t.Fatalf("session source missing process_vm_writev attach snippet %q", snippet)

@@ -1,6 +1,8 @@
 #ifndef STRACE_GO_MOUNT_QUERY_DISPATCH_H
 #define STRACE_GO_MOUNT_QUERY_DISPATCH_H
 
+#ifndef STRACE_GO_CORE_ONLY
+
 SEC("tracepoint/raw_syscalls/sys_exit")
 int exit_mount_query(struct trace_event_raw_sys_exit *ctx)
 {
@@ -17,5 +19,7 @@ int exit_mount_query(struct trace_event_raw_sys_exit *ctx)
     consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
     return 0;
 }
+
+#endif
 
 #endif

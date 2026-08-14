@@ -9021,3 +9021,139 @@ Impact note：`setupBPFWithConfig` 只编排 stage、loader 和 runtime owner；
 - `bpfLoadedCollection` 是 bind 前的唯一临时 owner；bind 失败由 setup 关闭，成功后 `detach`，后续 runtime 只关闭 `bpfObjectBundle` 和 links，未发现重复 close 或资源泄漏路径。
 - 新接口没有改变 raw tracepoint、ProgArray、route map、pending map、ringbuf、Go 单消费者或纯 eBPF 约束；阶段字段只通过 `--debug-phases` 输出。
 - 当前数据证明继续优化应针对 `bpf_collection_load`。下一阶段评估 capability-based map set 与 core/family collection 两个方向，并先测共享 map replacement、global variable 和 ProgArray 生命周期的最小可行实验；不引入 daemon/cache，也不根据正向 filter 结果推断 all/否定模式收益。
+
+### 14.216 Core/handler collection ownership 与按 family 加载边界（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.215 已把单 ELF 的 prepare、collection load 和 resource bind 分开，但生产路径仍把 raw dispatcher、生命周期程序、所有 syscall handler 和所有共享 map 放在同一个 BPF collection 中。正向 filter 可以裁剪 ProgramSpec；无 filter、否定 filter 或 FD-state 模式仍会把大型 handler 集合一起交给 verifier。
+- Problem：单一生成对象同时承担三种不同生命周期：必须先加载并 attach 的 core 程序、由 route/ProgArray 引用的 handler 程序、以及必须跨 collection 共享的 ringbuf/pending/filter/state map。这样既不能独立测量 core 与 handler 的 verifier 成本，也不能在后续 family 选择中只加载需要的 handler；直接复制 map 声明又会制造重复 state、悬空 ProgArray 或 double close 风险。
+- Goal：将 BPF 资源分成 core collection 与 handler collection。core 拥有并创建共享 map、raw syscall/lifecycle 程序；handler collection 只加载 handler 程序，通过 `MapReplacements` 使用 core map，并由一个明确的 aggregate owner 向 Go attach/runtime 暴露统一 capability。positive filter、all、否定 filter 和 FD-state 的选择结果必须在 handler collection 层保持一致，先以真实 verifier 时间和 route 完整性证明收益。
+- Non-goals：不引入 ptrace、procfs、process_vm、procmem、长驻 daemon 或跨命令 collection cache；不改变 event v2/TLV、pending TID、生命周期、filter、单 Goroutine consumer 和用户可见输出；不因为拆 ELF 而允许首个事件丢失或依赖 Go 侧 tracee memory fallback。
+- Constraints：core map 是唯一 kernel state owner；handler 只能通过 map replacement 引用共享 map；`.rodata`/global variable 必须显式处理，不能依赖未验证的隐式共享；ProgArray 在所有 handler collection 成功加载并绑定后、raw tracepoint attach 前填充；任何 core/handler/load/bind/attach 失败都按逆序关闭 links、handler programs、core objects，且重复 Close 安全；生成绑定只作为 ELF bytes 和 core map/program ABI 来源，session 不直接持有 collection。
+
+Impact note：生成链路增加 core ELF 与 handler ELF；Go loader 从单 collection owner 演进为 core/handler aggregate owner，`bpfAttacher` 改为消费 program capability 和 core map capability。现有 route map、enter/exit/mmsg/recvmsg ProgArray 仍由 core 创建，handler collection 只提供可被写入的 program fd；setup phase 增加 core load、handler prepare/load/bind 和 aggregate bind 的边界，普通输出与 BPF event ABI 不变。
+
+#### 方案比较
+
+1. 继续单 ELF 并只做源码内联/指令瘦身：实现简单，适合消除重复 helper；但 all/否定模式仍需一次性加载所有 handler，不能建立按 family 的资源边界，拒绝作为本阶段唯一方案。
+2. core + 一个 handler ELF，共享 core maps：改动可控，能验证 MapReplacements、生成绑定和 ownership；但如果 handler ELF 仍全量加载，拆分本身不保证总 verifier 时间下降，选择为第一阶段可验证边界而不是最终性能结论。
+3. core + 多个 family ELF，按 route selection 加载需要的 family：最有机会减少 all 之外的无关 verifier 输入，生命周期和回滚复杂度最高；在方案 2 的共享 map/aggregate owner 契约通过真实 verifier 后继续演进，选择为目标形态。
+
+#### 状态契约
+
+- core collection 创建 `events`、所有 pending/filter/lifecycle/config/state map、`enter_progs`/`exit_progs`/fragment ProgArray/route map，以及 raw/lifecycle programs；core 资源在 handler load 失败时仍由唯一 core owner 回收。
+- handler collection 的 map spec 必须与 core map replacement 逐项兼容；handler 不创建第二份 runtime state。`.rodata` 不默认替换，若 handler 引用全局 syscall变量，则在其自己的 spec 上显式设置变量并验证运行时值。
+- aggregate owner 负责 core collection、handler collections、extra program handles 和 links 的逆序 Close；成功 bind 后不再让临时 collection owner重复关闭已转移资源。
+- raw tracepoint 只有在 core、所需 handler、ProgArray、route map 全部完成后才 attach；任何缺失的 selected slot 都是 setup error，不允许静默落入 generic fallback。
+- 选择性加载的 route plan、FD-state 强制 handler、recvmsg kretprobe 和 mmsg fragment 闭包必须与现有 `bpfProgramSelection` 一致；未知 syscall 仍走既有 generic fallback。
+
+#### 实现与验证边界
+
+- 先增加失败优先测试：core/handler map replacement 缺失与 spec mismatch、global variable 设置、handler bind 后 program fd 可写入 core ProgArray、core/handler 任一阶段失败的逆序 close、重复 close 和 selected route 全覆盖。
+- 先生成并加载一个 core + 一个 handler ELF，分别记录 verifier/load 时间、program/map 数量和 object text size；只有在真实内核上通过且语义/route 无回归，才拆成多个 family ELF。
+- 性能结论必须同时报告 core load、handler load、aggregate setup、trace steady-state、ringbuf/pending error counters；不能用 collection 文件大小或单次 endpoint `events_per_sec` 推断收益。
+- `ebpf-semantic`、`small` 和 upstream reference 继续验证同一纯 eBPF 契约；任何 split 失败不得用 ptrace/procfs fallback 修复。
+
+### 14.217 Enter/exit/recvmsg handler family collections（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.216 已验证 core collection 与单一 handler collection 的 map replacement、program capability 和 aggregate ownership，但 handler ELF 仍把 raw `sys_enter` handler、raw `sys_exit` handler 和 recvmsg kretprobe 放在同一个 verifier 输入中。
+- Problem：没有 recvmsg 路由的普通 syscall workload 仍需解析和加载 kretprobe family；loader 也无法表达“一个 family 未选择时不创建 collection”，导致 handler collection 的拆分只停留在观测层，不能继续减少无关加载。
+- Goal：将 handler 资源拆成 `enter`、`exit`、`recvmsg` 三个独立 ELF。loader 根据 program selection 只加载包含 selected program 的 family；core 继续唯一拥有 runtime maps，所有 family 通过 map replacement 共享 state；Go attach/route 只消费合并后的 program capability。
+- Non-goals：本阶段不把每个 direct syscall 再拆成独立 ELF，不改变 event ABI、route slot、pending/lifecycle、single-consumer 或 no-ptrace/no-procfs 约束；不宣称三 family 已消除单个大型 handler 的 verifier 成本。
+- Constraints：一个 handler program 只能属于一个 family；空 family 不得调用 kernel collection load；recvmsg kretprobe 只有在 `selection.recvmsgKretprobe` 且 dispatcher 存在时才 attach；family load、bind、route、ProgArray、attach 任一步失败都必须逆序关闭资源。
+
+Impact note：生成链路从 `bpfHandlers` 变为 `bpfEnter`、`bpfExit`、`bpfRecvmsg` 三组 binding；`bpfCollectionSpecSet`/`bpfCollectionPlan` 保存按 family 的 spec，aggregate owner 保存按 load order 的 handler collections。core map ABI 不变，handler 的 `.rodata`/global variables 仍按 collection 独立设置。
+
+#### 状态契约
+
+- `enter_*` 程序只来自 enter collection；`exit_*` 程序只来自 exit collection；`trace_kretprobe_recvmsg_*` 程序只来自 recvmsg collection。family classifier 对未知 selected program 返回错误，不静默丢弃。
+- `enter` 和 `exit` 是 generic syscall tracing 的必需 family；`recvmsg` 只有 selection 包含 kretprobe dispatcher 或其 fragment 时才加载。正向 filter 的 tail-call dependency 仍由 `bpfProgramSelection` 负责闭包。
+- 每个 family 的 runtime map spec 必须与 core map replacement 兼容；family 私有 data sections 不进入 replacement map；Go 在每个 spec load 前设置同一组 generated syscall variables。
+- handler collections 按 `enter -> exit -> recvmsg` 顺序加载，失败和 runtime Close 按相反顺序释放；core 在所有 handler 之后释放。成功 bind 后临时 owner 不再关闭已转移句柄。
+
+#### 测试与验收边界
+
+- 先添加失败优先测试：family classifier 覆盖、未知 program 拒绝、空 family 不加载、selected program 在对应 family 可用、任一 family load 失败关闭此前已加载 collections、成功 transfer 后只由 aggregate owner close。
+- source gate 必须确认三份 C translation unit 的 dispatch include 边界、quota enter/exit 不重复归属、生成 directive 与 build clean list 同步。
+- 真实验证至少包括 `sudo ./build.sh`、Go/race/vet、semantic、perf 和 upstream reference；报告每个 family load 阶段、事件稳态吞吐和 runtime error counters。
+- 本阶段若端到端收益不明显，只能说明当前 selected handler 本身占主导，不能回退到单 ELF；后续应以同一 family capability 契约继续评估 direct family ELF 或 BPF 指令瘦身。
+
+### 14.218 Generic enter handler 编译期瘦身与 events/s 口径（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.217 的真实 perf 已把 handler load 拆开。`scalar` workload 的 `bpf_enter_collection_load` 约为 `0.56~0.59s`，`bpf_exit_collection_load` 约为 `0.01s`；Go decode/JSON pipeline 保持 `0 B/op`，runtime error counters 也为零。
+- Problem：`enter_no_payload_direct` 为同时支持 `-y/-yy/-P`，运行时检查 `CONFIG_FD_STATE` 后才决定走 FD/path capture 或普通 enter。即使当前配置在加载前已经确定为无 FD-state，函数仍引用 `emit_fd_path_or_no_payload_enter_event_v2_direct`，使选中的 BPF program 携带完整的 fd table、dentry walk 和 path capture 调用图，verifier 成本被无关能力放大。端到端 `events_per_sec` 还用整个进程耗时作分母，启动和收尾成本会进一步稀释数值。
+- Goal：为无 FD-state route 提供不包含 FD/path 调用图的编译期 generic enter handler；保持 event v2、pending、route 和用户可见语义不变，并同时明确 endpoint 与 steady-state 吞吐的区别。
+- Non-goals：本阶段不改变 `CONFIG_FD_STATE` 运行时语义、不删除 FD/path handler、不引入 ptrace/procfs/process_vm/procmem fallback、不拆新的 ELF、不改变事件 ABI 或 Go 单消费者模型。
+- Constraints：新增 slot 只能追加，既有 slot 1..45 不重排；`enter_progs` 容量、Go catalog、BPF source gate、route plan 和 selection 必须同步；FD-state 配置仍必须使用 path-aware handler；所有性能结论必须同时报告 `events_per_sec` 和 `steady_state_events_per_sec`。
+
+Impact note：影响 `bpf/enter_dispatch.h`、`bpf/enter_runtime.h`、`bpf/runtime_abi.h`、Go enter slot/catalog、route selection、生成 binding 和相关 source/semantic/perf tests；不影响 exit/recvmsg collection、pending map、ringbuf ABI、lifecycle 或 output state machine。
+
+#### 方案比较
+
+1. 保留现有运行时分支：代码最少、兼容路径集中，但 verifier 仍看到完整 FD/path inline call graph，无法解决当前已测出的 enter load 主成本，拒绝。
+2. 追加 `enter_no_payload_generic` slot：只增加一个纯 generic handler，配置阶段把无 FD-state route 指向它；不复制 map/state，也不增加 ELF，能用失败优先测试和真实 load phase 验证，选择该方案。
+3. 再拆一个 generic enter ELF：编译隔离最强，但会重复引入 collection load、map replacement、global variable 和 ownership 边界；在 slot 方案无法消除 enter verifier 成本时再评估。
+
+#### 状态契约
+
+- 无 FD-state 的 enter route 使用 `enter_no_payload_generic`，只调用受 `CONFIG_EMIT_ENTER` 保护的普通 enter emitter，然后保存 pending syscall args。
+- `-y/-yy/-P` 等 FD-state 配置继续使用 `enter_no_payload_direct`，由其调用 FD/path emitter；该模式的 event payload 和 fd state 语义不变。
+- route selection 在 collection prepare 之前完成，不能依赖 BPF 运行时分支来选择 slot；route map 中的 slot 必须在对应 ProgArray capability 存在后写入。
+- generic handler 的失败路径仍只记录统一 ringbuf/pending counters；不能静默丢 pending 或回退到用户态读取 tracee memory。
+
+#### 测试与验收
+
+- 失败优先单测验证：无 FD-state route/selection 只选择 generic slot，FD-state route 保留 path-aware slot，generic slot 与 C enum/ProgArray/max_entries 一致。
+- source gate 验证 generic handler 不调用 FD/path emitter，path-aware handler 仍存在且只在 FD-state route 使用。
+- 真实验证记录同一 `scalar` workload 的 enter load、endpoint 和 steady-state；semantic/perf 必须通过，FD-state/path fixture 必须无回归。
+- 若 enter load 仍占主导，下一边界是 direct handler family/ELF 进一步按 capability 隔离，而不是重新引入 ptrace 或 procfs。
+
+#### 实现结果与 review
+
+- 已新增 `ENTER_PROG_NO_PAYLOAD_GENERIC=46` 和 `enter_no_payload_generic`。无 FD-state route 在 selection 阶段改写 slot 35 为 slot 46，再进入 collection prepare；`-y/-yy/-P` 仍保留 slot 35 的 FD/path-aware handler。`enter_progs` 容量同步为 47，既有 slot 1..45 未重排。
+- 真实 `scalar` perf：generic handler 前 `bpf_enter_collection_load=0.560388s`、endpoint `2218.81/s`、steady `9791.65/s`；改造后分别为 `0.000424s`、`3805.05/s`、`9928.04/s`。这说明 endpoint 下降的主因是启动/verifier 固定成本，而不是事件循环吞吐下降；steady-state 反而基本不变并略有上升。
+- 其它 workload 也符合能力边界：`io` enter load `0.022521s`、steady `6598.88/s`；`lifecycle` `0.030189s`、`41.91/s`；`threads` `0.001428s`、`5308.35/s`。四个 workload 的 endpoint/steady 分别为 `2449/6599`、`18/42`、`2062/5308`，所有 ringbuf/pending/lifecycle error counters 为零。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、handler-family/generic source gates、Python perf suite 单测、`ebpf-semantic` 和 `ebpf-perf` 均通过。semantic 仍覆盖 path/mount、payload、线程、生命周期和失败返回，事件数 `205`，enter/exit `104/101`。
+- review 结论：generic slot 只减少选中 program 的编译调用图，不改变 FD-state event payload、pending 保存或 route map ABI；当前性能报告必须优先看 `steady_state_events_per_sec`，endpoint 只作为包含启动成本的用户体验指标。后续若 all/否定 filter 仍受大型 enter ELF 影响，再按 direct capability 继续拆分。
+
+### 14.219 Full route closure pruning 与 conservative FD-state 边界（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.218 解决了正向 syscall filter 的 generic enter 调用图，但无 filter 的真实 `/bin/true` 测量仍显示 `bpf_enter_collection_load=4.005s`、`exit=1.272s`、`recvmsg=0.550s`。当前 `loadAll` 会让 collection prepare 直接跳过 pruning。
+- Problem：无 filter 并不代表需要加载没有 route capability 的 program。完整 `meta.SyscallTable` 已经提供了稳定 route closure；继续保留 `loadAll` 会额外加载未被 route 使用的旧 `enter_no_payload_direct` 以及不可达的 family fragment。FD-state 则不同：被 trace filter 排除的 fd creator/closer 仍必须进入 ringbuf 维护 Go 侧 event-sourced state。
+- Goal：无 filter 和 negated filter 使用完整 route closure 精确选择 handler；只有 FD-state 继续 conservative load all。保持所有 syscall route、tail-call dependency、lifecycle 和 filter 语义不变，并用真实 verifier 阶段验证默认模式的固定成本下降。
+- Non-goals：本阶段不拆 direct syscall family ELF，不改变 FD-state map 追踪集合，不改变 event ABI、route map key/value、pending 或 output ordering，不引入 procfs/ptrace/process_vm/procmem fallback。
+- Constraints：完整 route closure 必须覆盖 `meta.SyscallTable` 的每个 enter/exit ID；selection 还必须显式补齐 mmsg/AIO/iovec/recvmsg tail-call dependency；未知或缺失 program 必须在 prepare/bind 阶段报错，不能静默依赖 fallback。
+
+Impact note：影响 `shouldLoadAllBPFPrograms`、full/negated filter 的 selection tests、handler collection pruning 和默认 perf oracle；FD-state selection、route map 写入和所有用户可见事件格式保持不变。
+
+#### 方案比较
+
+1. 所有 conservative 模式继续 `loadAll`：实现最简单，但默认启动 verifier 成本已经实测到秒级，且把不可达 program 当作隐式依赖，拒绝。
+2. 无 filter/negated filter 使用 full route closure，FD-state 保持 `loadAll`：复用现有 route/selection 闭包，只删除不可达 program，风险局部且能直接验证，选择该方案。
+3. 为每个 direct syscall family 建独立 ELF：可进一步按 capability 隔离，但会扩大 map replacement、ProgArray 和失败回滚边界；等 closure pruning 的实际收益和缺口明确后再做。
+
+#### 状态契约
+
+- `!config.fdState` 时，`selection.loadAll` 必须为 false；`selectBPFRoutePlan` 保留完整 route map（正向 filter 仍按 ID 过滤），`newBPFProgramSelection` 负责添加所有 route slot 和链式依赖。
+- `config.fdState` 时仍使用 full route plan + `loadAll`，保证 trace filter 排除的 fd-state direct syscall 也能运行 handler 并产生 state payload。
+- `pruneBPFProgramSpecs` 删除的 program 不能被任何 route map 或 fragment tail-call 引用；ProgArray 只写入 selected slots，route map 写入前继续检查 nil capability。
+
+#### 测试与验收
+
+- 单测验证：无 filter/negated filter 不再 load all 且不选择不可达的 path-aware generic；FD-state 仍 load all；full route closure 的所有 route ID 与 selection capability 完整。
+- 真实验证比较无 filter 的 core/enter/exit/recvmsg load phase、endpoint 和 steady-state；正向 filter、FD-state semantic、small 和 upstream reference 必须保持通过。
+- 若默认模式仍为秒级，下一边界转向 direct capability ELF，而不是放宽 pruning 或恢复用户态/procfs 内存读取。
+
+#### 实现结果与 review
+
+- `shouldLoadAllBPFPrograms` 已收窄为仅在 `fdState` 时返回 true。无 filter/negated filter 现在使用完整 syscall route closure、所有 tail-call dependency 和 generic slot 46 做精确 pruning；FD-state 仍保留 conservative all-load，避免过滤掉未订阅但负责维护 fd state 的 creator/closer。
+- 真实无 filter `/bin/true`：enter collection load 从 `4.005415s` 降至 `3.539910s`，减少约 `0.466s/11.6%`；exit 从 `1.272345s` 变为 `1.286146s`，recvmsg 从 `0.549984s` 变为 `0.547851s`，说明剩余主成本是 direct handler family 的全量 verifier，而不是 selection 开关本身。
+- 新 selection 下 `go test ./...`、`ebpf-semantic`、`ebpf-perf` 通过；最新正向 perf 的 scalar/io/lifecycle/threads steady-state 分别约为 `9649/6615/42/5190 events/s`，runtime counters 全零。当前不把 `0.466s` 的 default-mode 收益夸大为完成性能重构。
+- review 结论：route closure pruning 可以保留，因它减少不可达 capability 且不改变语义；但下一阶段必须按 enter direct capability 拆 collection/ELF，目标是让 `getpid` 等默认普通 syscall 不再触发完整 direct enter verifier。任何进一步拆分仍须先补 route closure、shared-map replacement 和失败回滚测试。

@@ -13,7 +13,7 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-type bpfBpfStats struct {
+type bpfRecvmsgBpfStats struct {
 	_                      structs.HostLayout
 	RingbufReserveFail     uint64
 	RingbufCopyFail        uint64
@@ -24,14 +24,14 @@ type bpfBpfStats struct {
 	LifecycleMapUpdateFail uint64
 }
 
-type bpfFdPathScratch struct {
+type bpfRecvmsgFdPathScratch struct {
 	_          structs.HostLayout
 	Name       [256]int8
 	Components [8]uint64
 	Args       [6]uint64
 }
 
-type bpfPendingSyscall struct {
+type bpfRecvmsgPendingSyscall struct {
 	_         structs.HostLayout
 	EnterTime uint64
 	Args      [6]uint64
@@ -43,28 +43,28 @@ type bpfPendingSyscall struct {
 	Aux1      uint32
 }
 
-// loadBpf returns the embedded CollectionSpec for bpf.
-func loadBpf() (*ebpf.CollectionSpec, error) {
-	reader := bytes.NewReader(_BpfBytes)
+// loadBpfRecvmsg returns the embedded CollectionSpec for bpfRecvmsg.
+func loadBpfRecvmsg() (*ebpf.CollectionSpec, error) {
+	reader := bytes.NewReader(_BpfRecvmsgBytes)
 	spec, err := ebpf.LoadCollectionSpecFromReader(reader)
 	if err != nil {
-		return nil, fmt.Errorf("can't load bpf: %w", err)
+		return nil, fmt.Errorf("can't load bpfRecvmsg: %w", err)
 	}
 
 	return spec, err
 }
 
-// loadBpfObjects loads bpf and converts it into a struct.
+// loadBpfRecvmsgObjects loads bpfRecvmsg and converts it into a struct.
 //
 // The following types are suitable as obj argument:
 //
-//	*bpfObjects
-//	*bpfPrograms
-//	*bpfMaps
+//	*bpfRecvmsgObjects
+//	*bpfRecvmsgPrograms
+//	*bpfRecvmsgMaps
 //
 // See ebpf.CollectionSpec.LoadAndAssign documentation for details.
-func loadBpfObjects(obj interface{}, opts *ebpf.CollectionOptions) error {
-	spec, err := loadBpf()
+func loadBpfRecvmsgObjects(obj interface{}, opts *ebpf.CollectionOptions) error {
+	spec, err := loadBpfRecvmsg()
 	if err != nil {
 		return err
 	}
@@ -72,31 +72,29 @@ func loadBpfObjects(obj interface{}, opts *ebpf.CollectionOptions) error {
 	return spec.LoadAndAssign(obj, opts)
 }
 
-// bpfSpecs contains maps and programs before they are loaded into the kernel.
+// bpfRecvmsgSpecs contains maps and programs before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type bpfSpecs struct {
-	bpfProgramSpecs
-	bpfMapSpecs
-	bpfVariableSpecs
+type bpfRecvmsgSpecs struct {
+	bpfRecvmsgProgramSpecs
+	bpfRecvmsgMapSpecs
+	bpfRecvmsgVariableSpecs
 }
 
-// bpfProgramSpecs contains programs before they are loaded into the kernel.
+// bpfRecvmsgProgramSpecs contains programs before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type bpfProgramSpecs struct {
-	TraceSchedProcessExec *ebpf.ProgramSpec `ebpf:"trace_sched_process_exec"`
-	TraceSchedProcessExit *ebpf.ProgramSpec `ebpf:"trace_sched_process_exit"`
-	TraceSchedProcessFork *ebpf.ProgramSpec `ebpf:"trace_sched_process_fork"`
-	TraceSchedProcessFree *ebpf.ProgramSpec `ebpf:"trace_sched_process_free"`
-	TraceSysEnter         *ebpf.ProgramSpec `ebpf:"trace_sys_enter"`
-	TraceSysExit          *ebpf.ProgramSpec `ebpf:"trace_sys_exit"`
+type bpfRecvmsgProgramSpecs struct {
+	TraceKretprobeRecvmsgControl  *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_control"`
+	TraceKretprobeRecvmsgDispatch *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_dispatch"`
+	TraceKretprobeRecvmsgFinal    *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_final"`
+	TraceKretprobeRecvmsgName     *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_name"`
 }
 
-// bpfMapSpecs contains maps before they are loaded into the kernel.
+// bpfRecvmsgMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type bpfMapSpecs struct {
+type bpfRecvmsgMapSpecs struct {
 	ArmForkMap       *ebpf.MapSpec `ebpf:"arm_fork_map"`
 	AttachExitedMap  *ebpf.MapSpec `ebpf:"attach_exited_map"`
 	AttachRootsMap   *ebpf.MapSpec `ebpf:"attach_roots_map"`
@@ -119,10 +117,10 @@ type bpfMapSpecs struct {
 	SyscallFilterMap *ebpf.MapSpec `ebpf:"syscall_filter_map"`
 }
 
-// bpfVariableSpecs contains global variables before they are loaded into the kernel.
+// bpfRecvmsgVariableSpecs contains global variables before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
-type bpfVariableSpecs struct {
+type bpfRecvmsgVariableSpecs struct {
 	SYS_CAPGET              *ebpf.VariableSpec `ebpf:"SYS_CAPGET"`
 	SYS_CAPSET              *ebpf.VariableSpec `ebpf:"SYS_CAPSET"`
 	SYS_EXECVE              *ebpf.VariableSpec `ebpf:"SYS_EXECVE"`
@@ -135,26 +133,26 @@ type bpfVariableSpecs struct {
 	SYS_RT_SIGSUSPEND       *ebpf.VariableSpec `ebpf:"SYS_RT_SIGSUSPEND"`
 }
 
-// bpfObjects contains all objects after they have been loaded into the kernel.
+// bpfRecvmsgObjects contains all objects after they have been loaded into the kernel.
 //
-// It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
-type bpfObjects struct {
-	bpfPrograms
-	bpfMaps
-	bpfVariables
+// It can be passed to loadBpfRecvmsgObjects or ebpf.CollectionSpec.LoadAndAssign.
+type bpfRecvmsgObjects struct {
+	bpfRecvmsgPrograms
+	bpfRecvmsgMaps
+	bpfRecvmsgVariables
 }
 
-func (o *bpfObjects) Close() error {
-	return _BpfClose(
-		&o.bpfPrograms,
-		&o.bpfMaps,
+func (o *bpfRecvmsgObjects) Close() error {
+	return _BpfRecvmsgClose(
+		&o.bpfRecvmsgPrograms,
+		&o.bpfRecvmsgMaps,
 	)
 }
 
-// bpfMaps contains all maps after they have been loaded into the kernel.
+// bpfRecvmsgMaps contains all maps after they have been loaded into the kernel.
 //
-// It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
-type bpfMaps struct {
+// It can be passed to loadBpfRecvmsgObjects or ebpf.CollectionSpec.LoadAndAssign.
+type bpfRecvmsgMaps struct {
 	ArmForkMap       *ebpf.Map `ebpf:"arm_fork_map"`
 	AttachExitedMap  *ebpf.Map `ebpf:"attach_exited_map"`
 	AttachRootsMap   *ebpf.Map `ebpf:"attach_roots_map"`
@@ -177,8 +175,8 @@ type bpfMaps struct {
 	SyscallFilterMap *ebpf.Map `ebpf:"syscall_filter_map"`
 }
 
-func (m *bpfMaps) Close() error {
-	return _BpfClose(
+func (m *bpfRecvmsgMaps) Close() error {
+	return _BpfRecvmsgClose(
 		m.ArmForkMap,
 		m.AttachExitedMap,
 		m.AttachRootsMap,
@@ -202,10 +200,10 @@ func (m *bpfMaps) Close() error {
 	)
 }
 
-// bpfVariables contains all global variables after they have been loaded into the kernel.
+// bpfRecvmsgVariables contains all global variables after they have been loaded into the kernel.
 //
-// It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
-type bpfVariables struct {
+// It can be passed to loadBpfRecvmsgObjects or ebpf.CollectionSpec.LoadAndAssign.
+type bpfRecvmsgVariables struct {
 	SYS_CAPGET              *ebpf.Variable `ebpf:"SYS_CAPGET"`
 	SYS_CAPSET              *ebpf.Variable `ebpf:"SYS_CAPSET"`
 	SYS_EXECVE              *ebpf.Variable `ebpf:"SYS_EXECVE"`
@@ -218,30 +216,26 @@ type bpfVariables struct {
 	SYS_RT_SIGSUSPEND       *ebpf.Variable `ebpf:"SYS_RT_SIGSUSPEND"`
 }
 
-// bpfPrograms contains all programs after they have been loaded into the kernel.
+// bpfRecvmsgPrograms contains all programs after they have been loaded into the kernel.
 //
-// It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
-type bpfPrograms struct {
-	TraceSchedProcessExec *ebpf.Program `ebpf:"trace_sched_process_exec"`
-	TraceSchedProcessExit *ebpf.Program `ebpf:"trace_sched_process_exit"`
-	TraceSchedProcessFork *ebpf.Program `ebpf:"trace_sched_process_fork"`
-	TraceSchedProcessFree *ebpf.Program `ebpf:"trace_sched_process_free"`
-	TraceSysEnter         *ebpf.Program `ebpf:"trace_sys_enter"`
-	TraceSysExit          *ebpf.Program `ebpf:"trace_sys_exit"`
+// It can be passed to loadBpfRecvmsgObjects or ebpf.CollectionSpec.LoadAndAssign.
+type bpfRecvmsgPrograms struct {
+	TraceKretprobeRecvmsgControl  *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_control"`
+	TraceKretprobeRecvmsgDispatch *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_dispatch"`
+	TraceKretprobeRecvmsgFinal    *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_final"`
+	TraceKretprobeRecvmsgName     *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_name"`
 }
 
-func (p *bpfPrograms) Close() error {
-	return _BpfClose(
-		p.TraceSchedProcessExec,
-		p.TraceSchedProcessExit,
-		p.TraceSchedProcessFork,
-		p.TraceSchedProcessFree,
-		p.TraceSysEnter,
-		p.TraceSysExit,
+func (p *bpfRecvmsgPrograms) Close() error {
+	return _BpfRecvmsgClose(
+		p.TraceKretprobeRecvmsgControl,
+		p.TraceKretprobeRecvmsgDispatch,
+		p.TraceKretprobeRecvmsgFinal,
+		p.TraceKretprobeRecvmsgName,
 	)
 }
 
-func _BpfClose(closers ...io.Closer) error {
+func _BpfRecvmsgClose(closers ...io.Closer) error {
 	for _, closer := range closers {
 		if err := closer.Close(); err != nil {
 			return err
@@ -252,5 +246,5 @@ func _BpfClose(closers ...io.Closer) error {
 
 // Do not access this directly.
 //
-//go:embed bpf_bpfel.o
-var _BpfBytes []byte
+//go:embed bpfrecvmsg_bpfel.o
+var _BpfRecvmsgBytes []byte

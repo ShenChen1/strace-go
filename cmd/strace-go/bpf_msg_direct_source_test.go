@@ -59,40 +59,28 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 	}
 
 	for _, snippet := range []string{
-		"EnterMsg",
-		"objs.EnterMsg",
-		"EnterSendmsgBase",
-		"objs.EnterSendmsgBase",
-		"EnterMmsg",
-		"objs.EnterMmsg",
-		"EnterMmsgBase01",
-		"objs.EnterMmsgBase01",
-		"EnterMmsgBase2",
-		"objs.EnterMmsgBase2",
-		"EnterMmsgBase3",
-		"objs.EnterMmsgBase3",
-		"EnterMmsgBytes0",
-		"objs.EnterMmsgBytes0",
-		"EnterMmsgBytes1",
-		"objs.EnterMmsgBytes1",
-		"EnterMmsgBytes2",
-		"objs.EnterMmsgBytes2",
-		"EnterMmsgBytes3",
-		"objs.EnterMmsgBytes3",
+		`bpfProgram(programs, "enter_msg")`,
+		`bpfProgram(programs, "enter_sendmsg_base")`,
+		`bpfProgram(programs, "enter_mmsg")`,
+		`bpfProgram(programs, "enter_mmsg_base01")`,
+		`bpfProgram(programs, "enter_mmsg_base2")`,
+		`bpfProgram(programs, "enter_mmsg_base3")`,
+		`bpfProgram(programs, "enter_mmsg_bytes0")`,
+		`bpfProgram(programs, "enter_mmsg_bytes1")`,
+		`bpfProgram(programs, "enter_mmsg_bytes2")`,
+		`bpfProgram(programs, "enter_mmsg_bytes3")`,
 		"MmsgBytesProgs",
 		"objs.MmsgBytesProgs",
-		"ExitMsg",
+		`bpfProgram(programs, "exit_msg")`,
 		"RecvmsgProgs",
-		"TraceKretprobeRecvmsgDispatch",
+		`bpfProgram(a.programs, "trace_kretprobe_recvmsg_dispatch")`,
 		"attachRecvmsgKretprobe",
-		"TraceKretprobeRecvmsgName",
-		"TraceKretprobeRecvmsgControl",
-		"TraceKretprobeRecvmsgFinal",
-		"ExitRecvmmsgBase01",
-		"objs.ExitRecvmmsgBase01",
-		"ExitRecvmmsgBase23",
-		"objs.ExitRecvmmsgBase23",
-		"ExitMmsg",
+		`bpfProgram(programs, "trace_kretprobe_recvmsg_name")`,
+		`bpfProgram(programs, "trace_kretprobe_recvmsg_control")`,
+		`bpfProgram(programs, "trace_kretprobe_recvmsg_final")`,
+		`bpfProgram(programs, "exit_recvmmsg_base01")`,
+		`bpfProgram(programs, "exit_recvmmsg_base23")`,
+		`bpfProgram(programs, "exit_mmsg_final")`,
 	} {
 		if !strings.Contains(sessionSource, snippet) {
 			t.Fatalf("session source missing msg attach snippet %q", snippet)
@@ -312,7 +300,7 @@ func TestBPFRecvmsgKretprobeChainSerializesFragments(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(attachSource, "a.objs.TraceKretprobeRecvmsgDispatch") {
+	if !strings.Contains(attachSource, `bpfProgram(a.programs, "trace_kretprobe_recvmsg_dispatch")`) {
 		t.Fatal("bpf_attach.go does not attach the recvmsg dispatcher")
 	}
 	if strings.Contains(attachSource, "Kretprobe(symbol, a.objs.TraceKretprobeRecvmsgName") ||

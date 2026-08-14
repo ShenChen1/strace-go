@@ -17,7 +17,7 @@ func TestBPFLinkCleanupPropagatesErrors(t *testing.T) {
 		{source: attachSource, required: "func closeTracepointLinks(links []link.Link) error"},
 		{source: attachSource, required: "errors.Join"},
 		{source: runtimeSource, required: "linkErr := closeTracepointLinks(links)"},
-		{source: runtimeSource, required: "return errors.Join(linkErr, objects.Close(), closeBPFExtraResources(extraClosers))"},
+		{source: runtimeSource, required: "return errors.Join(linkErr, handlerErr, objects.Close(), closeBPFExtraResources(extraClosers))"},
 	}
 	for _, check := range checks {
 		if !strings.Contains(check.source, check.required) {

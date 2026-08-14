@@ -17,10 +17,12 @@ import (
 // traceBPFRuntime owns the loaded collection, all attached links, and the
 // narrow operations needed by bootstrap. Callers never close its internals.
 type traceBPFRuntime struct {
-	objects      *bpfObjects
-	links        []link.Link
-	extraClosers []io.Closer
-	setupTimings []traceBPFSetupTiming
+	objects        *bpfObjects
+	programs       bpfProgramProvider
+	links          []link.Link
+	handlerClosers []io.Closer
+	extraClosers   []io.Closer
+	setupTimings   []traceBPFSetupTiming
 }
 
 // traceBPFTargetPort is the smallest BPF capability needed while starting or
@@ -217,14 +219,16 @@ func (r *traceBPFRuntime) Close() error {
 	links := r.links
 	r.links = nil
 	linkErr := closeTracepointLinks(links)
+	handlerErr := closeBPFExtraResources(r.handlerClosers)
+	r.handlerClosers = nil
 	extraClosers := r.extraClosers
 	r.extraClosers = nil
 	if r.objects == nil {
-		return errors.Join(linkErr, closeBPFExtraResources(extraClosers))
+		return errors.Join(linkErr, handlerErr, closeBPFExtraResources(extraClosers))
 	}
 	objects := r.objects
 	r.objects = nil
-	return errors.Join(linkErr, objects.Close(), closeBPFExtraResources(extraClosers))
+	return errors.Join(linkErr, handlerErr, objects.Close(), closeBPFExtraResources(extraClosers))
 }
 
 var _ traceBPFTargetPort = (*traceBPFRuntime)(nil)

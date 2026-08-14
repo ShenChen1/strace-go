@@ -49,6 +49,7 @@ enum enter_prog_index {
     ENTER_PROG_AIO_BUF = 43,
     ENTER_PROG_QUOTA = 44,
     ENTER_PROG_MOUNT_PATH = 45,
+    ENTER_PROG_NO_PAYLOAD_GENERIC = 46,
 };
 
 #define ENTER_PROLOGUE(ctx)                                                \

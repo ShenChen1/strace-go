@@ -241,6 +241,8 @@ static __always_inline void emit_generic_exit_event(
     emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
 }
 
+#ifndef STRACE_GO_CORE_ONLY
+
 SEC("tracepoint/raw_syscalls/sys_exit")
 int exit_generic(struct trace_event_raw_sys_exit *ctx) {
     EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid);
@@ -364,5 +366,7 @@ int exit_recvmmsg_base23(struct trace_event_raw_sys_exit *ctx) {
     consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
     return 0;
 }
+
+#endif
 
 #endif

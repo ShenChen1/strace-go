@@ -34,7 +34,7 @@ func TestMeasureBPFSetupStageRecordsTimingOnFailure(t *testing.T) {
 	observer := &fakeBPFSetupObserver{}
 	clock := &sequenceBPFSetupClock{values: []uint64{10, 25}}
 
-	err := measureBPFSetupStage(clock, observer, bpfSetupCollectionLoadStage, func() error {
+	err := measureBPFSetupStage(clock, observer, bpfSetupCoreCollectionStage, func() error {
 		return wantErr
 	})
 
@@ -45,7 +45,7 @@ func TestMeasureBPFSetupStageRecordsTimingOnFailure(t *testing.T) {
 		t.Fatalf("recorded timings = %d, want 1", len(observer.timings))
 	}
 	got := observer.timings[0]
-	if got.Stage != bpfSetupCollectionLoadStage || got.StartNS != 10 || got.EndNS != 25 {
+	if got.Stage != bpfSetupCoreCollectionStage || got.StartNS != 10 || got.EndNS != 25 {
 		t.Fatalf("timing = %+v, want collection load [10,25]", got)
 	}
 }

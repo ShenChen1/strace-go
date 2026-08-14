@@ -150,15 +150,19 @@ func applyBPFRouteRules(routes map[uint32]uint32, ids map[string]uint32, rules [
 	}
 }
 
-func configureBPFRouteMaps(objs *bpfObjects, plan bpfRoutePlan) error {
+func configureBPFRouteMaps(
+	objs *bpfObjects,
+	programs bpfProgramProvider,
+	plan bpfRoutePlan,
+) error {
 	if objs == nil || objs.EnterRoutes == nil || objs.ExitRoutes == nil {
 		return fmt.Errorf("BPF route maps are unavailable")
 	}
-	enterPrograms := routePrograms(enterProgArrayEntries(objs))
+	enterPrograms := routePrograms(enterProgArrayEntries(programs))
 	if err := putBPFRouteEntries("enter_routes", objs.EnterRoutes, plan.enter, enterPrograms); err != nil {
 		return err
 	}
-	exitPrograms := routePrograms(exitProgArrayEntries(objs))
+	exitPrograms := routePrograms(exitProgArrayEntries(programs))
 	return putBPFRouteEntries("exit_routes", objs.ExitRoutes, plan.exit, exitPrograms)
 }
 

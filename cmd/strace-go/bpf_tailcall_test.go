@@ -20,13 +20,13 @@ func TestEnterProgArrayEntriesComplete(t *testing.T) {
 	}
 	// Every dispatcher index from enter_dispatch.h must have a slot; missing
 	// slots silently drop that syscall family.
-	for i := 1; i <= enterProgMountPath; i++ {
+	for i := 1; i <= enterProgNoPayloadGeneric; i++ {
 		if !seen[uint32(i)] {
 			t.Fatalf("enter prog array missing index %d", i)
 		}
 	}
-	if len(entries) != enterProgMountPath {
-		t.Fatalf("enter prog array entries = %d, want %d", len(entries), enterProgMountPath)
+	if len(entries) != enterProgNoPayloadGeneric {
+		t.Fatalf("enter prog array entries = %d, want %d", len(entries), enterProgNoPayloadGeneric)
 	}
 }
 
@@ -141,8 +141,8 @@ func TestEnterProgIndicesMatchDispatchHeader(t *testing.T) {
 		}
 	}
 	runtimeABI := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
-	if !strings.Contains(runtimeABI, "__uint(max_entries, 46)") {
-		t.Fatal("runtime_abi.h enter_progs map must have capacity for ENTER_PROG_MOUNT_PATH")
+	if !strings.Contains(runtimeABI, "__uint(max_entries, 47)") {
+		t.Fatal("runtime_abi.h enter_progs map must have capacity for generic no-payload handler")
 	}
 }
 

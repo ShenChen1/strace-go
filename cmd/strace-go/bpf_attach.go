@@ -20,11 +20,19 @@ type tracepointSpec struct {
 // It keeps runtime loading separate from program-to-tracepoint wiring and
 // makes that wiring declarative and unit-testable.
 type bpfAttacher struct {
-	objs *bpfObjects
+	objs     *bpfObjects
+	programs bpfProgramProvider
 }
 
 func newBpfAttacher(objs *bpfObjects) *bpfAttacher {
-	return &bpfAttacher{objs: objs}
+	return newBpfAttacherWithPrograms(objs, objs)
+}
+
+func newBpfAttacherWithPrograms(
+	objs *bpfObjects,
+	programs bpfProgramProvider,
+) *bpfAttacher {
+	return &bpfAttacher{objs: objs, programs: programs}
 }
 
 // attachAll attaches every raw syscall, lifecycle and recvmsg kretprobe program.
@@ -94,51 +102,52 @@ func rawSyscallTracepointSpecs(objs *bpfObjects) []tracepointSpec {
 // Tail call prog array indices, kept in sync with bpf/enter_dispatch.h and
 // bpf/exit_dispatch.h. The BPF source gate test enforces the mapping.
 const (
-	enterProgTerminating = 1
-	enterProgExec        = 2
-	enterProgPathStat    = 3
-	enterProgPathOnly    = 4
-	enterProgDualPath    = 5
-	enterProgOpenat2     = 6
-	enterProgReadlink    = 7
-	enterProgMiscStruct  = 8
-	enterProgSmallStruct = 9
-	enterProgItimer      = 10
-	enterProgTimeStruct  = 11
-	enterProgSignal      = 12
-	enterProgFileTime    = 13
-	enterProgSleep       = 14
-	enterProgFutex       = 15
-	enterProgCachestat   = 16
-	enterProgCapability  = 17
-	enterProgMemfd       = 18
-	enterProgPrctl       = 19
-	enterProgClone3      = 20
-	enterProgBpf         = 21
-	enterProgIovec       = 22
-	enterProgMsg         = 23
-	enterProgMmsg        = 24
-	enterProgFcntl       = 25
-	enterProgIoctl       = 26
-	enterProgNetwork     = 27
-	enterProgKey         = 28
-	enterProgXattr       = 29
-	enterProgFs          = 30
-	enterProgAio         = 31
-	enterProgPoll        = 32
-	enterProgSelect      = 33
-	enterProgEpoll       = 34
-	enterProgNoPayload   = 35
-	enterProgPayload     = 36
-	enterProgIovecBase   = 37
-	enterProgSendmsgBase = 38
-	enterProgMmsgB01     = 39
-	enterProgMmsgB2      = 40
-	enterProgMmsgB3      = 41
-	enterProgAioIovec    = 42
-	enterProgAioBuf      = 43
-	enterProgQuota       = 44
-	enterProgMountPath   = 45
+	enterProgTerminating      = 1
+	enterProgExec             = 2
+	enterProgPathStat         = 3
+	enterProgPathOnly         = 4
+	enterProgDualPath         = 5
+	enterProgOpenat2          = 6
+	enterProgReadlink         = 7
+	enterProgMiscStruct       = 8
+	enterProgSmallStruct      = 9
+	enterProgItimer           = 10
+	enterProgTimeStruct       = 11
+	enterProgSignal           = 12
+	enterProgFileTime         = 13
+	enterProgSleep            = 14
+	enterProgFutex            = 15
+	enterProgCachestat        = 16
+	enterProgCapability       = 17
+	enterProgMemfd            = 18
+	enterProgPrctl            = 19
+	enterProgClone3           = 20
+	enterProgBpf              = 21
+	enterProgIovec            = 22
+	enterProgMsg              = 23
+	enterProgMmsg             = 24
+	enterProgFcntl            = 25
+	enterProgIoctl            = 26
+	enterProgNetwork          = 27
+	enterProgKey              = 28
+	enterProgXattr            = 29
+	enterProgFs               = 30
+	enterProgAio              = 31
+	enterProgPoll             = 32
+	enterProgSelect           = 33
+	enterProgEpoll            = 34
+	enterProgNoPayload        = 35
+	enterProgPayload          = 36
+	enterProgIovecBase        = 37
+	enterProgSendmsgBase      = 38
+	enterProgMmsgB01          = 39
+	enterProgMmsgB2           = 40
+	enterProgMmsgB3           = 41
+	enterProgAioIovec         = 42
+	enterProgAioBuf           = 43
+	enterProgQuota            = 44
+	enterProgMountPath        = 45
+	enterProgNoPayloadGeneric = 46
 )
 
 const (
@@ -181,90 +190,98 @@ type progArrayWriter interface {
 	Put(key, value interface{}) error
 }
 
-func enterProgArrayEntries(objs *bpfObjects) []progArrayEntry {
+func enterProgArrayEntries(programs bpfProgramProvider) []progArrayEntry {
 	return []progArrayEntry{
-		{enterProgTerminating, objs.EnterTerminating},
-		{enterProgExec, objs.EnterExec},
-		{enterProgPathStat, objs.EnterPathStat},
-		{enterProgPathOnly, objs.EnterPathOnly},
-		{enterProgDualPath, objs.EnterDualPath},
-		{enterProgOpenat2, objs.EnterOpenat2},
-		{enterProgReadlink, objs.EnterReadlink},
-		{enterProgMiscStruct, objs.EnterMiscStruct},
-		{enterProgSmallStruct, objs.EnterSmallStruct},
-		{enterProgItimer, objs.EnterItimer},
-		{enterProgTimeStruct, objs.EnterTimeStruct},
-		{enterProgSignal, objs.EnterSignal},
-		{enterProgFileTime, objs.EnterFileTime},
-		{enterProgSleep, objs.EnterSleep},
-		{enterProgFutex, objs.EnterFutex},
-		{enterProgCachestat, objs.EnterCachestat},
-		{enterProgCapability, objs.EnterCapability},
-		{enterProgMemfd, objs.EnterMemfd},
-		{enterProgPrctl, objs.EnterPrctl},
-		{enterProgClone3, objs.EnterClone3},
-		{enterProgBpf, objs.EnterBpf},
-		{enterProgIovec, objs.EnterIovec},
-		{enterProgMsg, objs.EnterMsg},
-		{enterProgMmsg, objs.EnterMmsg},
-		{enterProgFcntl, objs.EnterFcntl},
-		{enterProgIoctl, objs.EnterIoctl},
-		{enterProgNetwork, objs.EnterNetwork},
-		{enterProgKey, objs.EnterKey},
-		{enterProgXattr, objs.EnterXattr},
-		{enterProgFs, objs.EnterFs},
-		{enterProgAio, objs.EnterAio},
-		{enterProgPoll, objs.EnterPoll},
-		{enterProgSelect, objs.EnterSelect},
-		{enterProgEpoll, objs.EnterEpoll},
-		{enterProgNoPayload, objs.EnterNoPayloadDirect},
-		{enterProgPayload, objs.EnterPayloadDirect},
-		{enterProgIovecBase, objs.EnterIovecBase},
-		{enterProgSendmsgBase, objs.EnterSendmsgBase},
-		{enterProgMmsgB01, objs.EnterMmsgBase01},
-		{enterProgMmsgB2, objs.EnterMmsgBase2},
-		{enterProgMmsgB3, objs.EnterMmsgBase3},
-		{enterProgAioIovec, objs.EnterAioIovec},
-		{enterProgAioBuf, objs.EnterAioBuf},
-		{enterProgQuota, objs.EnterQuota},
-		{enterProgMountPath, objs.EnterMountPath},
+		{enterProgTerminating, bpfProgram(programs, "enter_terminating")},
+		{enterProgExec, bpfProgram(programs, "enter_exec")},
+		{enterProgPathStat, bpfProgram(programs, "enter_path_stat")},
+		{enterProgPathOnly, bpfProgram(programs, "enter_path_only")},
+		{enterProgDualPath, bpfProgram(programs, "enter_dual_path")},
+		{enterProgOpenat2, bpfProgram(programs, "enter_openat2")},
+		{enterProgReadlink, bpfProgram(programs, "enter_readlink")},
+		{enterProgMiscStruct, bpfProgram(programs, "enter_misc_struct")},
+		{enterProgSmallStruct, bpfProgram(programs, "enter_small_struct")},
+		{enterProgItimer, bpfProgram(programs, "enter_itimer")},
+		{enterProgTimeStruct, bpfProgram(programs, "enter_time_struct")},
+		{enterProgSignal, bpfProgram(programs, "enter_signal")},
+		{enterProgFileTime, bpfProgram(programs, "enter_file_time")},
+		{enterProgSleep, bpfProgram(programs, "enter_sleep")},
+		{enterProgFutex, bpfProgram(programs, "enter_futex")},
+		{enterProgCachestat, bpfProgram(programs, "enter_cachestat")},
+		{enterProgCapability, bpfProgram(programs, "enter_capability")},
+		{enterProgMemfd, bpfProgram(programs, "enter_memfd")},
+		{enterProgPrctl, bpfProgram(programs, "enter_prctl")},
+		{enterProgClone3, bpfProgram(programs, "enter_clone3")},
+		{enterProgBpf, bpfProgram(programs, "enter_bpf")},
+		{enterProgIovec, bpfProgram(programs, "enter_iovec")},
+		{enterProgMsg, bpfProgram(programs, "enter_msg")},
+		{enterProgMmsg, bpfProgram(programs, "enter_mmsg")},
+		{enterProgFcntl, bpfProgram(programs, "enter_fcntl")},
+		{enterProgIoctl, bpfProgram(programs, "enter_ioctl")},
+		{enterProgNetwork, bpfProgram(programs, "enter_network")},
+		{enterProgKey, bpfProgram(programs, "enter_key")},
+		{enterProgXattr, bpfProgram(programs, "enter_xattr")},
+		{enterProgFs, bpfProgram(programs, "enter_fs")},
+		{enterProgAio, bpfProgram(programs, "enter_aio")},
+		{enterProgPoll, bpfProgram(programs, "enter_poll")},
+		{enterProgSelect, bpfProgram(programs, "enter_select")},
+		{enterProgEpoll, bpfProgram(programs, "enter_epoll")},
+		{enterProgNoPayload, bpfProgram(programs, "enter_no_payload_direct")},
+		{enterProgPayload, bpfProgram(programs, "enter_payload_direct")},
+		{enterProgIovecBase, bpfProgram(programs, "enter_iovec_base")},
+		{enterProgSendmsgBase, bpfProgram(programs, "enter_sendmsg_base")},
+		{enterProgMmsgB01, bpfProgram(programs, "enter_mmsg_base01")},
+		{enterProgMmsgB2, bpfProgram(programs, "enter_mmsg_base2")},
+		{enterProgMmsgB3, bpfProgram(programs, "enter_mmsg_base3")},
+		{enterProgAioIovec, bpfProgram(programs, "enter_aio_iovec")},
+		{enterProgAioBuf, bpfProgram(programs, "enter_aio_buf")},
+		{enterProgQuota, bpfProgram(programs, "enter_quota")},
+		{enterProgMountPath, bpfProgram(programs, "enter_mount_path")},
+		{enterProgNoPayloadGeneric, bpfProgram(programs, "enter_no_payload_generic")},
 	}
 }
 
-func exitProgArrayEntries(objs *bpfObjects) []progArrayEntry {
+func exitProgArrayEntries(programs bpfProgramProvider) []progArrayEntry {
 	return []progArrayEntry{
-		{exitProgGeneric, objs.ExitGeneric},
-		{exitProgIovecBase, objs.ExitIovecBase},
-		{exitProgMsg, objs.ExitMsg},
-		{exitProgMmsgFinal, objs.ExitMmsgFinal},
-		{exitProgRecvmmsgBase01, objs.ExitRecvmmsgBase01},
-		{exitProgRecvmmsgBase23, objs.ExitRecvmmsgBase23},
-		{exitProgQuota, objs.ExitQuota},
-		{exitProgMountQuery, objs.ExitMountQuery},
-		{exitProgPath, objs.ExitPath},
-		{exitProgFDTime, objs.ExitFdTime},
-		{exitProgStruct, objs.ExitStruct},
-		{exitProgAsync, objs.ExitAsync},
-		{exitProgIO, objs.ExitIo},
-		{exitProgControl, objs.ExitControl},
+		{exitProgGeneric, bpfProgram(programs, "exit_generic")},
+		{exitProgIovecBase, bpfProgram(programs, "exit_iovec_base")},
+		{exitProgMsg, bpfProgram(programs, "exit_msg")},
+		{exitProgMmsgFinal, bpfProgram(programs, "exit_mmsg_final")},
+		{exitProgRecvmmsgBase01, bpfProgram(programs, "exit_recvmmsg_base01")},
+		{exitProgRecvmmsgBase23, bpfProgram(programs, "exit_recvmmsg_base23")},
+		{exitProgQuota, bpfProgram(programs, "exit_quota")},
+		{exitProgMountQuery, bpfProgram(programs, "exit_mount_query")},
+		{exitProgPath, bpfProgram(programs, "exit_path")},
+		{exitProgFDTime, bpfProgram(programs, "exit_fd_time")},
+		{exitProgStruct, bpfProgram(programs, "exit_struct")},
+		{exitProgAsync, bpfProgram(programs, "exit_async")},
+		{exitProgIO, bpfProgram(programs, "exit_io")},
+		{exitProgControl, bpfProgram(programs, "exit_control")},
 	}
 }
 
-func recvmsgProgArrayEntries(objs *bpfObjects) []progArrayEntry {
+func recvmsgProgArrayEntries(programs bpfProgramProvider) []progArrayEntry {
 	return []progArrayEntry{
-		{recvmsgProgName, objs.TraceKretprobeRecvmsgName},
-		{recvmsgProgControl, objs.TraceKretprobeRecvmsgControl},
-		{recvmsgProgFinal, objs.TraceKretprobeRecvmsgFinal},
+		{recvmsgProgName, bpfProgram(programs, "trace_kretprobe_recvmsg_name")},
+		{recvmsgProgControl, bpfProgram(programs, "trace_kretprobe_recvmsg_control")},
+		{recvmsgProgFinal, bpfProgram(programs, "trace_kretprobe_recvmsg_final")},
 	}
 }
 
-func mmsgBytesProgArrayEntries(objs *bpfObjects) []progArrayEntry {
+func mmsgBytesProgArrayEntries(programs bpfProgramProvider) []progArrayEntry {
 	return []progArrayEntry{
-		{mmsgBytesProgBase0, objs.EnterMmsgBytes0},
-		{mmsgBytesProgBase1, objs.EnterMmsgBytes1},
-		{mmsgBytesProgBase2, objs.EnterMmsgBytes2},
-		{mmsgBytesProgBase3, objs.EnterMmsgBytes3},
+		{mmsgBytesProgBase0, bpfProgram(programs, "enter_mmsg_bytes0")},
+		{mmsgBytesProgBase1, bpfProgram(programs, "enter_mmsg_bytes1")},
+		{mmsgBytesProgBase2, bpfProgram(programs, "enter_mmsg_bytes2")},
+		{mmsgBytesProgBase3, bpfProgram(programs, "enter_mmsg_bytes3")},
 	}
+}
+
+func bpfProgram(provider bpfProgramProvider, name string) *ebpf.Program {
+	if provider == nil {
+		return nil
+	}
+	return provider.program(name)
 }
 
 // putProgArrayEntries validates and writes one complete tail-call array.
@@ -288,7 +305,7 @@ func (a *bpfAttacher) populateProgArrays() error {
 
 func (a *bpfAttacher) populateProgArraysFor(selection bpfProgramSelection) error {
 	enterEntries := selectedProgArrayEntries(
-		enterProgArrayEntries(a.objs),
+		enterProgArrayEntries(a.programs),
 		selection.enterSlots,
 		selection.loadAll,
 	)
@@ -296,7 +313,7 @@ func (a *bpfAttacher) populateProgArraysFor(selection bpfProgramSelection) error
 		return err
 	}
 	mmsgByteEntries := selectedProgArrayEntries(
-		mmsgBytesProgArrayEntries(a.objs),
+		mmsgBytesProgArrayEntries(a.programs),
 		selection.mmsgByteSlots,
 		selection.loadAll,
 	)
@@ -304,7 +321,7 @@ func (a *bpfAttacher) populateProgArraysFor(selection bpfProgramSelection) error
 		return err
 	}
 	exitEntries := selectedProgArrayEntries(
-		exitProgArrayEntries(a.objs),
+		exitProgArrayEntries(a.programs),
 		selection.exitSlots,
 		selection.loadAll,
 	)
@@ -312,7 +329,7 @@ func (a *bpfAttacher) populateProgArraysFor(selection bpfProgramSelection) error
 		return err
 	}
 	recvmsgEntries := selectedProgArrayEntries(
-		recvmsgProgArrayEntries(a.objs),
+		recvmsgProgArrayEntries(a.programs),
 		selection.recvmsgSlots,
 		selection.loadAll,
 	)
@@ -346,9 +363,13 @@ func (a *bpfAttacher) attachTracepoints(specs []tracepointSpec) ([]link.Link, er
 
 // attachRecvmsgKretprobe attaches the single recvmsg return dispatcher.
 func (a *bpfAttacher) attachRecvmsgKretprobe() (link.Link, error) {
+	program := bpfProgram(a.programs, "trace_kretprobe_recvmsg_dispatch")
+	if program == nil {
+		return nil, fmt.Errorf("recvmsg kretprobe program is unavailable")
+	}
 	var lastErr error
 	for _, symbol := range []string{"__sys_recvmsg", "__x64_sys_recvmsg"} {
-		kp, err := link.Kretprobe(symbol, a.objs.TraceKretprobeRecvmsgDispatch, nil)
+		kp, err := link.Kretprobe(symbol, program, nil)
 		if err == nil {
 			return kp, nil
 		}

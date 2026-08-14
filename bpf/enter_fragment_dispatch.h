@@ -9,6 +9,8 @@
  * consume pending syscall state.
  */
 
+#ifndef STRACE_GO_CORE_ONLY
+
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_iovec_base(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
@@ -49,5 +51,7 @@ int enter_aio_buf(struct trace_event_raw_sys_enter *ctx) {
     emit_aio_submit_buf_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
     return 0;
 }
+
+#endif
 
 #endif

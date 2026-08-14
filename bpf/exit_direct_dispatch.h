@@ -1,6 +1,8 @@
 #ifndef STRACE_GO_EXIT_DIRECT_DISPATCH_H
 #define STRACE_GO_EXIT_DIRECT_DISPATCH_H
 
+#ifndef STRACE_GO_CORE_ONLY
+
 /*
  * Direct exit families keep large payload emitters out of exit_generic.
  * Each handler owns one pending lookup/consume pair and falls back to the
@@ -56,5 +58,7 @@ int exit_control(struct trace_event_raw_sys_exit *ctx) {
     consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
     return 0;
 }
+
+#endif
 
 #endif
