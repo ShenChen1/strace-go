@@ -15,6 +15,8 @@ func TestBPFSetupHasExplicitStageBoundaries(t *testing.T) {
 		"measureBPFSetupStage(",
 		"bpfSetupSpecStage",
 		"bpfSetupObjectsStage",
+		"buildBPFSelectionWithTiming(",
+		"loadBPFObjectsWithTiming(",
 		"bpfSetupRouteMapsStage",
 		"bpfSetupTracepointsStage",
 	} {

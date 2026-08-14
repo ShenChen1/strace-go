@@ -8892,3 +8892,44 @@ Impact note：`bpf_setup.go` 只编排 setup 阶段和 recorder，不暴露 gene
 - required attach 的部分失败会关闭 partial links，optional kretprobe 失败不改变主路径成功条件；该差异被显式建模而不是隐藏在通用 `attachAll` 线性流程中。
 - 阶段观测只增加启动期少量 monotonic clock 读取，不进入 syscall event hot path；普通输出、raw debug 语义、BPF ABI 和纯 eBPF/no-procfs/no-ptrace 契约保持不变。
 - 下一阶段应针对 `bpf_objects` 的 verifier/load 成本做独立优化实验，例如拆分 collection/program load 或减少 verifier 输入；在没有新实测前，不应声称 route/attach 是当前 `events/s` 瓶颈。
+
+### 14.213 按正向 syscall filter 选择性加载 BPF 程序（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.212 已确认 `events_per_sec` 的低值主要来自启动期；当前每次 session 都通过 `LoadAndAssign` 加载并验证全部 handler，即使 `-e trace=getpid` 只会使用 generic enter/exit 路径。
+- Problem：短 workload 的 trace 阶段约 0.3 秒，而 `bpf_objects` 约 5.9 秒；无关 family 的 verifier 工作成为端到端耗时和用户感知启动延迟的主要来源。
+- Goal：对正向 syscall filter 只加载被选 syscall 所需的 route handler、tail-call fragment、raw/lifecycle 核心程序；保持 route map、ProgArray、pending/event ABI、FD 状态和纯 eBPF 语义不变，并用实测验证 `bpf_objects` 与端到端耗时下降。
+- Non-goals：本阶段不对 `all`、否定过滤或启用 FD 状态做激进裁剪；不引入对象跨进程缓存、长驻 daemon、ptrace、procfs、process_vm、procmem 或 Go 侧 tracee 内存 fallback；不改变事件热路径和输出格式。
+- Constraints：tail-call 依赖必须显式声明，任何已选 slot 不能因裁剪变成 nil；generated object 的资源所有权仍由 `traceBPFRuntime` 集中管理；加载失败必须关闭 collection 和已转移资源；新增代码和测试遵守文件/函数/参数边界。
+
+Impact note：生产调用链由 `runTraceSession -> setupBPFWithConfig` 中的全量 `CollectionSpec.LoadAndAssign` 改为先构造 route/selection，再通过裁剪后的 `ebpf.NewCollection` 加载对象；`bpfAttacher` 只填充实际存在的 ProgArray slot，required tracepoint 仍始终保留，recvmsg kretprobe 只在选择 `recvmsg` 时尝试。`setupBPFWithClock`、`populateProgArrays` 和 `attachOptionalRecvmsg` 的测试调用保持兼容包装，避免改变既有测试 owner 边界。
+
+#### 方案比较
+
+1. 只调整性能指标口径：风险最低，但不减少 verifier 工作，用户实际启动延迟和短命令端到端耗时不变，拒绝。
+2. 复用长驻 BPF collection 或增加 daemon：可以摊薄加载成本，但改变 CLI 生命周期、权限和资源隔离，且不适合一次性 strace 命令，拒绝。
+3. 依据正向 filter 裁剪 ProgramSpec，并保留显式 tail-call 依赖：直接减少内核加载输入，默认/all/否定/FD 状态走保守全量路径，选择该方案。
+
+#### 状态契约
+
+- 正向 filter 先裁剪 `bpfRoutePlan`，再从 enter/exit slot 推导 handler 和 fragment 依赖；generic `enter_no_payload_direct`、`exit_generic`、raw syscall dispatcher 与四个 lifecycle tracepoint 始终保留。
+- `recvmsg` 额外加载 kretprobe dispatcher 和三个 `recvmsg_progs` slot；`sendmmsg` 额外加载四个 mmsg bytes slot；`recvmmsg` 只加载 mmsg enter/exit chain，不加载 send-only bytes。iovec、aio、sendmsg、recvmmsg 的 tail-call 依赖由 selection catalog 显式闭包。
+- 没有 filter、否定 filter 或启用 FD-state 时保持全量 ProgramSpec 和全量 ProgArray；这保证 FD-state syscall 即使不在用户 trace set 中仍能经过正确的 direct handler，不把 BPF 旁路语义交给 generic fallback。
+- 选择性路径使用裁剪后的 `CollectionSpec` 创建 `ebpf.Collection`，再按 generated `ebpf` tag 将已加载 program/map 转移到 `bpfObjects`；未被 generated struct 覆盖的 collection map/program 句柄保存到 `traceBPFRuntime.extraClosers`，和 objects 一起由同一 owner 关闭。
+- setup phase 顺序调整为 `bpf_memlock`、`bpf_spec`、`bpf_route_plan`、`bpf_objects`、`bpf_route_maps`、`bpf_prog_arrays`、`bpf_tracepoints`、`bpf_recvmsg_kretprobe`；阶段输出仍只属于 `--debug-phases`，不进入 event ABI 或普通输出。
+
+#### 测试与验收
+
+- 失败优先测试覆盖 positive filter 的 generic/core 保留、family tail-call 依赖、mmsg/recvmsg 差异、all/否定/FD-state 保守路径、未知 slot、缺失 ProgramSpec、tagged map/program 赋值和额外 collection 资源发现；实现前 selection/loader 测试按预期编译失败，实现后通过。
+- `sudo -n ./build.sh` 通过，真实 clang/verifier 接受裁剪后的 collection；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build、Python 12 项性能 oracle 和 `git diff --check` 通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6；non-leader attach `1001/1001` 且 orphan 0，所有 runtime error counter 为 0。
+- 在同一机器和同一 fixture 下，选择性加载前后端到端结果为：scalar `451.07 -> 1969.37 events/s`、io `296.89 -> 1348.31`、lifecycle `2.41 -> 10.87`、threads `226.55 -> 1111.94`；最终复测的 `bpf_objects` 为 `0.752/0.737/0.724/0.698s`。
+- 选择性加载后的稳态吞吐仍为 scalar/io/lifecycle/threads `9684.44/6591.14/41.83/5182.78 exit/s`，与优化前同一数量级；这证明端到端 `events_per_sec` 的主要下降来自 verifier 启动成本，而非 ringbuf 消费热路径。运行时 reserve/copy/pending/orphan/mismatch/lifecycle-map 计数均为 0。
+- 串行 sudo `small` 通过 `23 PASS / 0 FAIL`；该阶段没有改变 syscall 文本 formatter，只验证选择性加载没有破坏既有 upstream 参考契约。
+
+#### Review 结论
+
+- 未发现正向 filter 语义回归：route map 只包含选中的 syscall ID，ProgArray 只写实际加载的 slot；mmsg/recvmsg、payload、生命周期、线程和 FD-state 语义测试均通过。
+- `traceBPFRuntime` 仍是唯一 BPF resource owner；`NewCollection` 的隐藏 map/program 句柄没有被遗弃，失败路径和正常 Close 都会回收。session 没有获得 generated object 或 collection 的直接所有权。
+- 选择性加载只改变启动期 verifier 输入，不改变 raw dispatcher、pending TID、ringbuf/event v2、Go 单消费者、文本/JSON 输出或 no-ptrace/no-procfs 约束。否定/all/FD-state 的保守回退是有意的性能与语义边界，后续若优化这些模式必须先补完整 FD-state route catalog。

@@ -32,8 +32,8 @@ REQUIRED_PERF_PHASES = ("trace_start", "trace_end", "finalize_start")
 REQUIRED_BPF_SETUP_PHASES = (
     "bpf_memlock",
     "bpf_spec",
-    "bpf_objects",
     "bpf_route_plan",
+    "bpf_objects",
     "bpf_route_maps",
     "bpf_prog_arrays",
     "bpf_tracepoints",

@@ -20,6 +20,7 @@ func TestMainUsesErrorReturningBootstrap(t *testing.T) {
 		t.Fatal("bootstrap resources must be owned by runTraceSession")
 	}
 	for _, required := range []string{
+		"setupBPFWithConfig(clock, config.bpfConfig)",
 		"newTraceTargetHandoff(config.targets, targetRuntime, bpfRuntime, targetPid)",
 		"targetHandoff.Transfer()",
 	} {

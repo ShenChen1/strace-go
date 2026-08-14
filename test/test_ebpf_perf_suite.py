@@ -35,8 +35,8 @@ def make_capture(events=None, lifecycle_events=None, stats=None, returncode=0):
         phase_events=[
             {"type": "phase", "phase": "bpf_memlock", "start_time_ns": 100, "time_ns": 110},
             {"type": "phase", "phase": "bpf_spec", "start_time_ns": 110, "time_ns": 120},
-            {"type": "phase", "phase": "bpf_objects", "start_time_ns": 120, "time_ns": 130},
-            {"type": "phase", "phase": "bpf_route_plan", "start_time_ns": 130, "time_ns": 135},
+            {"type": "phase", "phase": "bpf_route_plan", "start_time_ns": 120, "time_ns": 125},
+            {"type": "phase", "phase": "bpf_objects", "start_time_ns": 125, "time_ns": 130},
             {"type": "phase", "phase": "bpf_route_maps", "start_time_ns": 135, "time_ns": 140},
             {"type": "phase", "phase": "bpf_prog_arrays", "start_time_ns": 140, "time_ns": 142},
             {"type": "phase", "phase": "bpf_tracepoints", "start_time_ns": 142, "time_ns": 145},

@@ -48,7 +48,7 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 		return fmt.Errorf("trace clock is nil")
 	}
 	bootstrapStartNS := clock.NowMonoNs()
-	bpfRuntime, err := setupBPFWithClock(clock)
+	bpfRuntime, err := setupBPFWithConfig(clock, config.bpfConfig)
 	if err != nil {
 		return fmt.Errorf("failed to set up BPF runtime: %w", err)
 	}

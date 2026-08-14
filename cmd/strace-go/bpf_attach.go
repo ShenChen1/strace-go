@@ -65,8 +65,15 @@ func (a *bpfAttacher) attachRequired() ([]link.Link, error) {
 }
 
 func (a *bpfAttacher) attachOptionalRecvmsg() (link.Link, error) {
+	return a.attachOptionalRecvmsgFor(true)
+}
+
+func (a *bpfAttacher) attachOptionalRecvmsgFor(enabled bool) (link.Link, error) {
 	if a == nil || a.objs == nil {
 		return nil, fmt.Errorf("BPF objects are nil")
+	}
+	if !enabled {
+		return nil, nil
 	}
 	return a.attachRecvmsgKretprobe()
 }
@@ -266,16 +273,40 @@ func putProgArrayEntries(name string, writer progArrayWriter, entries []progArra
 // populateProgArrays fills the tail call prog arrays before any raw syscall
 // tracepoint is attached; an empty slot would silently drop that family.
 func (a *bpfAttacher) populateProgArrays() error {
-	if err := putProgArrayEntries("enter_progs", a.objs.EnterProgs, enterProgArrayEntries(a.objs)); err != nil {
+	return a.populateProgArraysFor(bpfProgramSelection{loadAll: true})
+}
+
+func (a *bpfAttacher) populateProgArraysFor(selection bpfProgramSelection) error {
+	enterEntries := selectedProgArrayEntries(
+		enterProgArrayEntries(a.objs),
+		selection.enterSlots,
+		selection.loadAll,
+	)
+	if err := putProgArrayEntries("enter_progs", a.objs.EnterProgs, enterEntries); err != nil {
 		return err
 	}
-	if err := putProgArrayEntries("mmsg_bytes_progs", a.objs.MmsgBytesProgs, mmsgBytesProgArrayEntries(a.objs)); err != nil {
+	mmsgByteEntries := selectedProgArrayEntries(
+		mmsgBytesProgArrayEntries(a.objs),
+		selection.mmsgByteSlots,
+		selection.loadAll,
+	)
+	if err := putProgArrayEntries("mmsg_bytes_progs", a.objs.MmsgBytesProgs, mmsgByteEntries); err != nil {
 		return err
 	}
-	if err := putProgArrayEntries("exit_progs", a.objs.ExitProgs, exitProgArrayEntries(a.objs)); err != nil {
+	exitEntries := selectedProgArrayEntries(
+		exitProgArrayEntries(a.objs),
+		selection.exitSlots,
+		selection.loadAll,
+	)
+	if err := putProgArrayEntries("exit_progs", a.objs.ExitProgs, exitEntries); err != nil {
 		return err
 	}
-	return putProgArrayEntries("recvmsg_progs", a.objs.RecvmsgProgs, recvmsgProgArrayEntries(a.objs))
+	recvmsgEntries := selectedProgArrayEntries(
+		recvmsgProgArrayEntries(a.objs),
+		selection.recvmsgSlots,
+		selection.loadAll,
+	)
+	return putProgArrayEntries("recvmsg_progs", a.objs.RecvmsgProgs, recvmsgEntries)
 }
 
 // lifecycleTracepointSpecs lists the sched lifecycle programs required by the

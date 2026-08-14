@@ -88,6 +88,10 @@ func setupBPF() (*traceBPFRuntime, error) {
 }
 
 func setupBPFWithClock(clock traceClock) (*traceBPFRuntime, error) {
+	return setupBPFWithConfig(clock, traceBPFConfig{})
+}
+
+func setupBPFWithConfig(clock traceClock, config traceBPFConfig) (*traceBPFRuntime, error) {
 	if clock == nil {
 		return nil, fmt.Errorf("BPF setup clock is nil")
 	}
@@ -96,48 +100,32 @@ func setupBPFWithClock(clock traceClock) (*traceBPFRuntime, error) {
 		return nil, fmt.Errorf("remove memlock: %w", err)
 	}
 
-	var spec *ebpf.CollectionSpec
-	if err := measureBPFSetupStage(clock, recorder, bpfSetupSpecStage, func() error {
-		var err error
-		spec, err = loadBpf()
-		if err != nil {
-			return fmt.Errorf("load BPF spec: %w", err)
-		}
-		if err := setSyscallVariables(spec); err != nil {
-			return fmt.Errorf("resolve BPF syscall variables: %w", err)
-		}
-		return nil
-	}); err != nil {
+	spec, err := loadBPFSpecWithTiming(clock, recorder)
+	if err != nil {
 		return nil, err
 	}
 
-	objects := &bpfObjects{}
-	if err := measureBPFSetupStage(clock, recorder, bpfSetupObjectsStage, func() error {
-		if err := spec.LoadAndAssign(objects, nil); err != nil {
-			return fmt.Errorf("load and assign BPF objects: %w", err)
-		}
-		return nil
-	}); err != nil {
-		return nil, errors.Join(err, objects.Close())
+	routePlan, selection, err := buildBPFSelectionWithTiming(clock, recorder, config)
+	if err != nil {
+		return nil, err
 	}
 
-	var routePlan bpfRoutePlan
-	if err := measureBPFSetupStage(clock, recorder, bpfSetupRoutePlanStage, func() error {
-		var err error
-		routePlan, err = newBPFRoutePlan(meta.SyscallTable)
-		return err
-	}); err != nil {
-		return nil, fmt.Errorf("build BPF route plan: %w", errors.Join(err, objects.Close()))
+	bundle, err := loadBPFObjectsWithTiming(clock, recorder, spec, selection)
+	if err != nil {
+		return nil, err
 	}
+	objects := bundle.objects
 	if err := measureBPFSetupStage(clock, recorder, bpfSetupRouteMapsStage, func() error {
 		return configureBPFRouteMaps(objects, routePlan)
 	}); err != nil {
-		return nil, fmt.Errorf("configure BPF route maps: %w", errors.Join(err, objects.Close()))
+		return nil, closeBPFSetupFailure("configure BPF route maps", err, nil, bundle)
 	}
 
 	attacher := newBpfAttacher(objects)
-	if err := measureBPFSetupStage(clock, recorder, bpfSetupProgArraysStage, attacher.populateProgArrays); err != nil {
-		return nil, fmt.Errorf("populate BPF program arrays: %w", errors.Join(err, objects.Close()))
+	if err := measureBPFSetupStage(clock, recorder, bpfSetupProgArraysStage, func() error {
+		return attacher.populateProgArraysFor(selection)
+	}); err != nil {
+		return nil, closeBPFSetupFailure("populate BPF program arrays", err, nil, bundle)
 	}
 	var links []link.Link
 	if err := measureBPFSetupStage(clock, recorder, bpfSetupTracepointsStage, func() error {
@@ -145,10 +133,10 @@ func setupBPFWithClock(clock traceClock) (*traceBPFRuntime, error) {
 		links, err = attacher.attachRequired()
 		return err
 	}); err != nil {
-		return nil, fmt.Errorf("attach required BPF programs: %w", errors.Join(err, closeTracepointLinks(links), objects.Close()))
+		return nil, closeBPFSetupFailure("attach required BPF programs", err, links, bundle)
 	}
 	if err := measureBPFSetupStage(clock, recorder, bpfSetupRecvmsgKretprobeStage, func() error {
-		kprobe, err := attacher.attachOptionalRecvmsg()
+		kprobe, err := attacher.attachOptionalRecvmsgFor(selection.recvmsgKretprobe)
 		if err != nil {
 			log.Printf("recvmsg kretprobe unavailable; nested OUT payloads may fall back to bounded tracepoint data: %v", err)
 			return nil
@@ -158,12 +146,86 @@ func setupBPFWithClock(clock traceClock) (*traceBPFRuntime, error) {
 		}
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("attach optional BPF programs: %w", errors.Join(err, closeTracepointLinks(links), objects.Close()))
+		return nil, closeBPFSetupFailure("attach optional BPF programs", err, links, bundle)
 	}
 
+	extraClosers := bundle.extraClosers
+	bundle.extraClosers = nil
 	return &traceBPFRuntime{
 		objects:      objects,
 		links:        links,
+		extraClosers: extraClosers,
 		setupTimings: recorder.Timings(),
 	}, nil
+}
+
+func loadBPFSpecWithTiming(clock traceClock, recorder traceBPFSetupObserver) (*ebpf.CollectionSpec, error) {
+	var spec *ebpf.CollectionSpec
+	err := measureBPFSetupStage(clock, recorder, bpfSetupSpecStage, func() error {
+		var err error
+		spec, err = loadBpf()
+		if err != nil {
+			return fmt.Errorf("load BPF spec: %w", err)
+		}
+		if err := setSyscallVariables(spec); err != nil {
+			return fmt.Errorf("resolve BPF syscall variables: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return spec, nil
+}
+
+func buildBPFSelectionWithTiming(
+	clock traceClock,
+	recorder traceBPFSetupObserver,
+	config traceBPFConfig,
+) (bpfRoutePlan, bpfProgramSelection, error) {
+	var routePlan bpfRoutePlan
+	var selection bpfProgramSelection
+	err := measureBPFSetupStage(clock, recorder, bpfSetupRoutePlanStage, func() error {
+		fullPlan, err := newBPFRoutePlan(meta.SyscallTable)
+		if err != nil {
+			return err
+		}
+		routePlan = selectBPFRoutePlan(fullPlan, config)
+		selection, err = newBPFProgramSelection(routePlan, meta.SyscallTable, config)
+		return err
+	})
+	if err != nil {
+		return bpfRoutePlan{}, bpfProgramSelection{}, fmt.Errorf("build BPF route plan: %w", err)
+	}
+	return routePlan, selection, nil
+}
+
+func loadBPFObjectsWithTiming(
+	clock traceClock,
+	recorder traceBPFSetupObserver,
+	spec *ebpf.CollectionSpec,
+	selection bpfProgramSelection,
+) (*bpfObjectBundle, error) {
+	var bundle *bpfObjectBundle
+	err := measureBPFSetupStage(clock, recorder, bpfSetupObjectsStage, func() error {
+		var err error
+		bundle, err = loadBPFObjectBundle(spec, selection)
+		if err != nil {
+			return fmt.Errorf("load and assign BPF objects: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return bundle, nil
+}
+
+func closeBPFSetupFailure(
+	message string,
+	primary error,
+	links []link.Link,
+	bundle *bpfObjectBundle,
+) error {
+	return fmt.Errorf("%s: %w", message, errors.Join(primary, closeTracepointLinks(links), bundle.Close()))
 }

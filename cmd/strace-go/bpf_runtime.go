@@ -19,6 +19,7 @@ import (
 type traceBPFRuntime struct {
 	objects      *bpfObjects
 	links        []link.Link
+	extraClosers []io.Closer
 	setupTimings []traceBPFSetupTiming
 }
 
@@ -216,12 +217,14 @@ func (r *traceBPFRuntime) Close() error {
 	links := r.links
 	r.links = nil
 	linkErr := closeTracepointLinks(links)
+	extraClosers := r.extraClosers
+	r.extraClosers = nil
 	if r.objects == nil {
-		return linkErr
+		return errors.Join(linkErr, closeBPFExtraResources(extraClosers))
 	}
 	objects := r.objects
 	r.objects = nil
-	return errors.Join(linkErr, objects.Close())
+	return errors.Join(linkErr, objects.Close(), closeBPFExtraResources(extraClosers))
 }
 
 var _ traceBPFTargetPort = (*traceBPFRuntime)(nil)
