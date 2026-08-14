@@ -10,6 +10,13 @@
 
 static int pipe_fds[2];
 static atomic_int read_started;
+extern char **environ;
+
+static _Noreturn void exit_process(int code)
+{
+	(void) syscall(SYS_exit_group, code);
+	__builtin_unreachable();
+}
 
 static void *run_thread(void *unused)
 {
@@ -17,14 +24,21 @@ static void *run_thread(void *unused)
 	char value = 0;
 	atomic_store_explicit(&read_started, 1, memory_order_release);
 	if (syscall(SYS_read, pipe_fds[0], &value, sizeof(value)) != 1) {
-		return (void *) 1;
+		exit_process(6);
 	}
 	for (int i = 0; i < 8; i++) {
 		if (syscall(SYS_getpid) <= 0) {
-			return (void *) 1;
+			exit_process(7);
 		}
 	}
-	return NULL;
+
+	static const char marker[] = "thread-fixture-ok\n";
+	if (syscall(SYS_write, STDOUT_FILENO, marker, sizeof(marker) - 1) < 0) {
+		exit_process(8);
+	}
+	char *const argv[] = {(char *) "true", NULL};
+	(void) syscall(SYS_execve, "/bin/true", argv, environ);
+	exit_process(9);
 }
 
 int main(void)
@@ -55,14 +69,7 @@ int main(void)
 		return 4;
 	}
 
-	void *result = NULL;
-	if (pthread_join(thread, &result) != 0 || result != NULL) {
-		fputs("pthread_join failed\n", stderr);
-		return 5;
+	for (;;) {
+		pause();
 	}
-	(void) close(pipe_fds[0]);
-	(void) close(pipe_fds[1]);
-
-	fputs("thread-fixture-ok\n", stdout);
-	return 0;
 }

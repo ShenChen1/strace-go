@@ -92,10 +92,15 @@ int trace_sched_process_exit(struct trace_event_raw_sched_process_template *ctx)
     u32 tid = (u32)pid_tgid;
     if (!is_lifecycle_task_tracked(pid, tid)) return 0;
 
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    if (is_exec_replaced_leader(task, pid, tid)) {
+        clear_replaced_leader_task_state(tid);
+        return 0;
+    }
+
     mark_attach_task_exited(tid);
     clear_lifecycle_task_state(pid, tid);
     int exit_code = 0;
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     if (task) {
         bpf_probe_read_kernel(&exit_code, sizeof(exit_code), &task->exit_code);
     }

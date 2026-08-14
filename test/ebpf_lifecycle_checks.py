@@ -98,12 +98,24 @@ def check_thread(context, failures):
     forks = [
         event for event in capture.lifecycle_events if event.get("action") == "fork"
     ]
-    lifecycle = [
+    exec_events = [
+        event
+        for event in capture.events
+        if event.get("syscall") == "execve" and event.get("tid") != event.get("pid")
+    ]
+    exec_tids = {event.get("tid") for event in exec_events}
+    exec_lifecycle = [
         event
         for event in capture.lifecycle_events
-        if event.get("action") in ("exit", "free")
-        and event.get("tid") != event.get("pid")
+        if event.get("action") == "exec"
+        and event.get("arg0") in exec_tids
+        and event.get("arg0") != event.get("task_tid")
     ]
+    migrated_exec_tasks = {
+        event.get("task_tid"): event.get("task_executable")
+        for event in exec_lifecycle
+        if _is_true_task_executable(event)
+    }
     require(
         capture.result.returncode == 0,
         failures,
@@ -129,7 +141,30 @@ def check_thread(context, failures):
         failures,
         "thread getpid exit not paired",
     )
-    require(lifecycle, failures, "non-leader thread lifecycle identity missing")
+    require(exec_events, failures, "non-leader thread execve events missing")
+    require(
+        any(
+            event.get("event_type") == "exit" and event.get("paired_enter")
+            for event in exec_events
+        ),
+        failures,
+        "non-leader thread execve exit not paired",
+    )
+    require(
+        any(_is_true_task_executable(event) for event in exec_lifecycle),
+        failures,
+        "non-leader exec lifecycle task migration missing",
+    )
+    require(
+        any(
+            _retains_executable(event, migrated_exec_tasks)
+            and event.get("task_tgid") == event.get("pid")
+            and event.get("alive") is False
+            for event in capture.lifecycle_events
+        ),
+        failures,
+        "non-leader exec exit/free lost migrated executable state",
+    )
     require(
         any(
             event.get("task_tid") == event.get("arg1")
@@ -138,11 +173,6 @@ def check_thread(context, failures):
         ),
         failures,
         "thread fork guessed child TGID",
-    )
-    require(
-        any(event.get("task_tgid") == event.get("pid") for event in lifecycle),
-        failures,
-        "thread lifecycle did not resolve TGID",
     )
     text = context.thread_text.stderr
     require(
@@ -161,3 +191,8 @@ def check_thread(context, failures):
         "thread unfinished output missing",
     )
     require("<... read resumed>)" in text, failures, "thread resumed output missing")
+    require(
+        "superseded by execve" in text and "<... execve resumed>) = 0" in text,
+        failures,
+        "non-leader exec superseded output missing",
+    )

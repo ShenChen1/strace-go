@@ -17,7 +17,7 @@ from ebpf_event_oracles import (
     has_ordered_merged_exit_sections,
 )
 from ebpf_cloexec_suite import has_stale_cloexec_read
-from ebpf_lifecycle_checks import check_lifecycle
+from ebpf_lifecycle_checks import check_lifecycle, check_thread
 from ebpf_suites import wait_for_debug_ready
 from run_tests import SuiteResults
 
@@ -98,6 +98,84 @@ class LifecycleCheckTests(unittest.TestCase):
         failures = []
         check_lifecycle(context, failures)
         self.assertEqual(failures, [])
+
+    def test_accepts_non_leader_exec_identity_migration(self):
+        stats = {
+            "available": True,
+            "ringbuf_reserve_fail": 0,
+            "ringbuf_copy_fail": 0,
+            "payload_truncated_events": 0,
+            "pending_update_fail": 0,
+            "orphan_exit": 0,
+            "pending_mismatch": 0,
+            "lifecycle_map_update_fail": 0,
+            "pending_stale": 0,
+        }
+        events = [
+            {
+                "syscall": "getpid",
+                "pid": 10,
+                "tid": 11,
+                "event_type": "exit",
+                "paired_enter": True,
+            },
+            {
+                "syscall": "execve",
+                "pid": 10,
+                "tid": 11,
+                "event_type": "exit",
+                "paired_enter": True,
+            },
+        ]
+        lifecycle = [
+            {"action": "fork", "task_tid": 11, "arg1": 11},
+            {
+                "action": "exec",
+                "pid": 10,
+                "task_tid": 10,
+                "task_tgid": 10,
+                "arg0": 11,
+                "task_executable": "/bin/true",
+            },
+            {
+                "action": "exit",
+                "pid": 10,
+                "task_tid": 10,
+                "task_tgid": 10,
+                "alive": False,
+                "task_executable": "/bin/true",
+            },
+        ]
+        context = SimpleNamespace(
+            thread=SimpleNamespace(
+                result=SimpleNamespace(returncode=0, stdout="thread-fixture-ok\n"),
+                events=events,
+                lifecycle_events=lifecycle,
+                stats_events=[stats],
+            ),
+            thread_text=SimpleNamespace(
+                returncode=0,
+                stdout="thread-fixture-ok\n",
+                stderr=(
+                    "read( <unfinished ...>\n"
+                    "<... read resumed>) = 1\n"
+                    "superseded by execve\n"
+                    "<... execve resumed>) = 0\n"
+                ),
+            ),
+        )
+
+        failures = []
+        check_thread(context, failures)
+        self.assertEqual(failures, [])
+
+        lifecycle[-1].pop("task_executable")
+        failures = []
+        check_thread(context, failures)
+        self.assertEqual(
+            failures,
+            ["non-leader exec exit/free lost migrated executable state"],
+        )
 
 
 class SuiteResultsTests(unittest.TestCase):

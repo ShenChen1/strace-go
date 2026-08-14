@@ -125,6 +125,74 @@ func TestApplyLifecycleExecClearsStaleExecutableWithoutSnapshot(t *testing.T) {
 	}
 }
 
+func TestTraceStateMigratesNonLeaderExecTaskWithoutDroppingPending(t *testing.T) {
+	state := newTraceState()
+	leader := state.ensureTaskState(200, 200)
+	leader.ParentTID = 100
+	leader.Executable = "/bin/parent"
+	state.handleEnvelope(traceEventEnvelope{
+		valid:      true,
+		pid:        200,
+		tid:        200,
+		sysID:      syscallIDByName(t, "read"),
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+		enterTime:  5,
+	})
+
+	execID := syscallIDByName(t, "execve")
+	enter := traceEventEnvelope{
+		valid:      true,
+		pid:        200,
+		tid:        201,
+		sysID:      execID,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+		enterTime:  10,
+	}
+	state.handleEnvelope(enter)
+	worker := state.tasks[201]
+	if worker == nil {
+		t.Fatal("exec enter did not create worker task")
+	}
+	worker.ParentTID = 200
+	worker.Executable = "/bin/parent"
+
+	lifecycle := lifecycleEnvelopeForTask(200, 200, lifecycleExec, 201, 200)
+	lifecycle.snapshotText = "/bin/true"
+	update := state.handleEnvelope(lifecycle)
+	if update.lifecycleTask == nil || update.lifecycleTask.TID != 200 {
+		t.Fatalf("exec lifecycle task = %+v, want leader TID 200", update.lifecycleTask)
+	}
+	if update.lifecycleTask.ParentTID != 100 {
+		t.Fatalf("exec lifecycle parent = %d, want existing leader parent 100", update.lifecycleTask.ParentTID)
+	}
+	if _, ok := state.tasks[201]; ok {
+		t.Fatal("old non-leader task remains after exec lifecycle migration")
+	}
+	if state.pendingSyscalls[200] != nil {
+		t.Fatal("exec lifecycle migration retained replaced leader pending syscall")
+	}
+	if state.pendingSyscalls[201] == nil {
+		t.Fatal("exec lifecycle migration dropped old-TID pending syscall")
+	}
+
+	exit := enter
+	exit.eventType = bpfEventTypeExit
+	exit.eventFlags = 0
+	exit.ret = 0
+	exitUpdate := state.handleEnvelope(exit)
+	if exitUpdate.pendingEnter == nil {
+		t.Fatal("successful non-leader exec exit did not pair old-TID enter")
+	}
+	if _, ok := state.tasks[201]; ok {
+		t.Fatal("successful non-leader exec exit recreated old task identity")
+	}
+	if task := state.tasks[200]; task == nil || !task.Alive || task.Executable != "/bin/true" {
+		t.Fatalf("migrated leader task = %+v, want alive /bin/true", task)
+	}
+}
+
 func TestSyscallEventEnsuresTaskState(t *testing.T) {
 	state := newTraceState()
 	state.noteSyscallTask(syscallEventView{valid: true, pid: 200, tid: 201, enterTime: 40})

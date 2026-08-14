@@ -190,9 +190,20 @@ func (st *TraceState) noteSyscallTask(view syscallEventView) {
 	if view.tid == 0 {
 		return
 	}
-	task := st.ensureTaskState(view.tid, view.pid)
+	task := st.ensureTaskState(taskTIDForSyscall(view), view.pid)
 	task.Alive = true
 	task.LastSeenNS = view.enterTime
+}
+
+func taskTIDForSyscall(view syscallEventView) uint32 {
+	if !view.isExit() || view.ret != 0 || view.pid == 0 || view.pid == view.tid {
+		return view.tid
+	}
+	name := syscallMeta(view.sysID).Name
+	if name == "execve" || name == "execveat" {
+		return view.pid
+	}
+	return view.tid
 }
 
 func (st *TraceState) applyLifecycleEvent(view lifecycleEventView) (*TaskState, *processStateInheritance) {
@@ -235,8 +246,16 @@ func (st *TraceState) applyLifecycleEvent(view lifecycleEventView) (*TaskState, 
 		if tid == 0 {
 			tid = view.tid
 		}
-		processInherit := st.resolveForkIdentity(tid, view.pid)
-		task := st.ensureTaskState(tid, view.pid)
+		oldTID := uint32(view.args[0])
+		identityTID := tid
+		if oldTID != 0 {
+			identityTID = oldTID
+		}
+		processInherit := st.resolveForkIdentity(identityTID, view.pid)
+		if oldTID != 0 && oldTID != tid {
+			st.clearTaskPending(tid)
+		}
+		task := st.ensureExecTaskState(oldTID, tid, view.pid)
 		task.Execed = true
 		task.Executable = view.snapshotText
 		task.Alive = true
@@ -264,6 +283,32 @@ func (st *TraceState) applyLifecycleEvent(view lifecycleEventView) (*TaskState, 
 		task.LastSeenNS = view.enterTime
 		return task, processInherit
 	}
+}
+
+func (st *TraceState) ensureExecTaskState(oldTID uint32, tid uint32, tgid uint32) *TaskState {
+	if oldTID == 0 || oldTID == tid {
+		return st.ensureTaskState(tid, tgid)
+	}
+
+	task := st.tasks[tid]
+	oldTask := st.tasks[oldTID]
+	delete(st.tasks, oldTID)
+	if task != nil {
+		if tgid != 0 {
+			task.TGID = tgid
+		}
+		return task
+	}
+	if oldTask == nil {
+		return st.ensureTaskState(tid, tgid)
+	}
+
+	oldTask.TID = tid
+	if tgid != 0 {
+		oldTask.TGID = tgid
+	}
+	st.tasks[tid] = oldTask
+	return oldTask
 }
 
 func (st *TraceState) resolveForkIdentity(tid uint32, tgid uint32) *processStateInheritance {

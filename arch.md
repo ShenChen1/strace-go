@@ -9423,3 +9423,33 @@ Impact note：影响 `task_state.go` 的 lifecycle 状态转移、`event_json.go
 - 真实 semantic 为 205 个 syscall events（enter/exit `104/101`）和 6 个 lifecycle events，exec 的 `/bin/true` 状态保留到 exit/free，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map counter 为 `0`。
 - 真实 perf 通过：scalar 的 end-to-end/trace exit rate 为 `5814.66/25118.53`，io 为 `3712.68/16262.16`，lifecycle 为 `28.33/82.94`，threads 为 `3305.25/14643.51`；全部内核错误/丢状态 counter 为 `0`。
 - 原生 `small` 为 `23 PASS`；`upstream-reference` 为 `117 PASS`、2 个既有 expected XFAIL（bounded read/write snapshot、纯事件 FD/cwd 未知），无 FAIL/XPASS。
+
+### 14.229 收口 non-leader exec 的任务身份迁移（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：`sched_process_exec` 已把 `ctx->old_pid` 放在 lifecycle `arg0`，把 exec 后的 leader TID 放在 `arg1`。non-leader thread 成功 exec 时，事件身份从旧执行线程 TID 切换为 TGID；随后 raw syscall exit 仍使用 BPF pending 中保存的旧 TID。
+- Problem：Go `applyLifecycleEvent` 当前只在新 leader TID 上更新 exec 状态，不删除旧执行线程的 alive `TaskState`。该旧身份不会再收到属于自己的正常 exit，可能永久阻止 `TargetLifecycleQuiescent`；若迁移时顺手清理旧 TID pending，又会破坏稍后成功 exec exit 的 enter/exit 配对与 superseded 文本输出。
+- Goal：lifecycle exec 原子地把任务聚合状态从 `old_pid` 收口到新 leader TID，同时保留旧 TID 的 syscall/output pending 直到成功 exec exit 消费；成功 non-leader exec exit 只更新新 leader task，不能重新创建旧 alive task。
+- Non-goals：不修改 BPF event v2、`pending_exec_map` 或 raw syscall 输出身份；不新增 procfs、ptrace、process memory read、goroutine、锁或进程查询；不改变 leader exec、失败 exec、fork process inheritance 和现有 superseded 文本格式。
+- Constraints：`sched_process_exec` 先于成功 raw syscall exit 提交；迁移不得提前删除 `pendingSyscalls[oldTID]`、`pendingExecArgs[oldTID]`；新 leader 已有状态时保留其 parent identity，exec snapshot 仍覆盖 executable；未知/零 `old_pid` 必须退化为普通 leader exec。
+
+Impact note：影响 BPF sched-exit lifecycle cleanup、`task_state.go` 的 exec 状态转移与 syscall task identity 选择、对应 Go tests，以及真实 thread semantic fixture/oracle；lifecycle handler、FD state、BPF map schema/event ABI 和文本 renderer 不变。
+
+#### 方案比较
+
+1. 忽略 `old_pid`，等待旧 TID 的 exit/free：改动最少，但执行线程完成 exec 后旧身份已消失，不能保证收到可退休该状态的事件，拒绝。
+2. lifecycle exec 迁移 `TaskState`，成功 exec exit 根据自带 `pid/tid` 直接路由到新 leader：无需额外 owner，保留现有 pending 配对，选择。
+3. 增加 `oldTID -> newTID` 临时 alias map：可以统一重定向任意晚到事件，但增加生命周期、丢事件和 teardown 清理规则；现有成功 exec exit 已携带足够身份，不引入。
+
+#### 测试与验收
+
+- 失败优先 Go 测试构造 leader `200`、worker `201` 和 pending exec，要求 lifecycle `{pid:200, tid:200, old_pid:201}` 后只保留 leader task，且旧 TID pending 仍可被成功 exit 配对消费。
+- 将真实 pthread fixture 的 worker 路径扩展为 non-leader `execve("/bin/true")`；semantic oracle 要求 lifecycle exec 的 `arg0 != task_tid`、新 task executable 为 `true`、exit/free 延续该状态，并保留既有 thread pairing 与 unfinished/resumed 断言。
+- Go/race/vet/build、Python oracle、真实 semantic/perf、small 和 upstream reference 全部通过后提交。
+- 失败优先结果：Go 测试先捕获旧 worker `TaskState` 未迁移，补充 replaced leader 阻塞 syscall 后再次捕获 leader pending 未清；实现后 lifecycle 只清新 leader 的旧 pending，保留 `pendingSyscalls[old_pid]` 直到成功 exec exit 配对，并把该 exit 的 task 活跃度定向到新 leader。
+- 真实 fixture 首轮暴露更早的 BPF 缺口：worker exec enter 后，旧 leader 的 `sched_process_exit` 清除了进程级 filter/pending-exec，导致真正 exec lifecycle 和成功 raw exit 丢失，thread 只有 `21` 个 syscall events、`4` 个 lifecycle events，且 `pending_stale=1`。
+- BPF 通过 CO-RE 读取 `task->signal->group_exec_task->pid`，并与 `pending_exec_map[pid]` 核对；确认旧 leader 正被 non-leader exec 替换时，只清旧 leader TID pending，不写 attach-exit 事实、不清进程 filter、不发伪进程 exit。该判断不依赖 procfs、用户态查询或时序猜测。
+- 最终真实 semantic 通过：thread 为 `24` 个 syscall events、`5` 个 lifecycle events，non-leader exec exit 配对、TaskState 迁移、最终 executable 保留和 superseded/resumed 文本均成立；主 fixture 仍为 `205` events（enter/exit `104/101`），所有 reserve/copy/pending/orphan/mismatch/lifecycle-map counter 为 `0`。
+- 最终真实 perf 通过：scalar end-to-end/trace exit rate 为 `5861.07/22113.97`，io 为 `3930.88/16341.28`，lifecycle 为 `27.34/82.83`，threads 为 `3251.27/14685.99`；所有 workload 的 pending stale 和错误 counter 为 `0`。该 guard 只运行于 sched exit，不进入 syscall 热路径。
+- 完整门禁通过：`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a`；Python semantic oracle `18 OK`、perf oracle `18 OK`、runner unit `8 OK`；原生 `small` 为 `23 PASS`，`upstream-reference` 为 `117 PASS`、2 个既有 expected XFAIL，无 FAIL/XPASS。
