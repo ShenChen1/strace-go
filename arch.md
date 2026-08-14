@@ -8285,3 +8285,47 @@ Impact note：`enter_dispatch.h`、`exit_dispatch.h`、`enter_router.h` 和 `sys
 - 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、attach、pending state、事件 ABI 或单消费者事件循环；没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
 - 失败路径仍显式保留：fdset/timeout 的 probe read、reserve 或 TLV capture 失败按原有错误/截断语义处理；provider source gate 防止 emit provider重新拥有用户内存读取，composer 接口也没有继续膨胀。
 - `select-P.gen.test` 的失败已通过 `7f028ac` 基线 A/B 排除为本阶段回归；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。本阶段仅修改 select facade/provider、相关 source gates、ownership regression test 和本记录。
+
+### 14.199 拆分 poll capture 与 emit ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_poll_direct_event_v2.h` 原为 314 行，同时承载 poll/ppoll 判定与参数归一化、`pollfd`/timeout/sigmask 用户内存快照，以及 enter/exit ringbuf emitter；`enter_poll` 和 generic exit 直接依赖这些 helper。
+- Problem：capture 与 emit ownership 混在同一 facade，`capture_poll_fds_tlv_direct` 还拥有 6 个参数，后续增加 capture policy 会继续扩大 verifier 状态和 emitter 的接口面。
+- Goal：保留 poll facade 的 syscall policy，新增 capture provider 与 emit provider；以显式 request 结构承载 `pollfd` 指针、数量和 TLV flags，把 fd capture helper 收敛到 4 个参数，保持 TLV 顺序、截断计数、参数编号、事件 ABI、路由和 pending 语义不变。
+- Non-goals：不改变 poll/ppoll 的过滤、文本输出、ringbuf capacity、`pollfd` snapshot 上限、Go decoder/formatter、生命周期状态，也不引入 ptrace、procfs 或 Go 侧用户内存读取。
+- Constraints：先新增失败优先 ownership source gate，再实现生产 header；必须通过真实 clang/verifier、Go fast/race/vet、semantic/perf、串行 small 和相关原生 poll/ppoll 测试；生产文件与测试文件不超过 500 行，函数参数不超过 5 个。
+
+Impact note：`strace.c` 仍只 include `syscall_poll_direct_event_v2.h`；`enter_router` 仍选择 `ENTER_PROG_POLL`，`enter_poll` 仍先发 enter 再保存 pending，`exit_dispatch` 仍只在返回值大于 0 时发 poll exit。没有改变 `enter_progs`、`exit_progs`、pending map、过滤调用图或事件 v2 ABI，改动仅是编译期 include/ownership 与 source-test 的组合视图。
+
+#### 方案比较
+
+1. 保留 314 行单文件并只减少重复代码：行为风险最低，但 capture、policy 和 ringbuf lifecycle 仍物理耦合，6 参数 helper 的接口压力也会保留，拒绝。
+2. 把 pollfd 的每个 slot 再拆成独立 provider：可以更细地限制 verifier 分支，但会重复 fd 长度/截断策略，增加 include 和审计面，拒绝。
+3. facade + capture provider + emit provider，由 request 结构收敛 fd capture：职责清晰、只改变编译期 ownership、调用图和 ABI 不变，选择该方案。
+
+#### 状态契约
+
+- `syscall_poll_direct_event_v2.h` 只拥有常量、poll/ppoll selector、ppoll count 归一化和 fd snapshot 长度策略，并按 capture 后 emit 的顺序 include 两个 provider；它不再定义用户内存读取、TLV header 写入或 emitter。
+- `syscall_poll_capture_direct_event_v2.h` 拥有 `pollfd`、timeout、sigmask 三类 bounded capture；`poll_fd_capture_request` 只描述用户指针、count 和方向 flags，`capture_poll_fds_tlv_direct` 通过 request 和 event flags 输出截断事实，参数数目不超过 5。
+- `syscall_poll_emit_direct_event_v2.h` 拥有 enter/exit ringbuf reserve、event header/body 写入和 submit；它只构造 request 并调用 capture helper，不直接调用 `bpf_probe_read_user`，也不拥有 snapshot 上限和 TLV 细节。
+- `pollfd` 逐 slot 读取、timeout/sigmask 读取和 truncation/error 记录仍发生在原有 BPF enter/exit probe 时点；OUT flag、arg index、payload offset、copy length 与拆分前一致，用户态没有补读 tracee memory 的路径。
+- 新 provider 是纯编译期 header，不创建 map、ProgArray、tail call、scratch 状态、锁、goroutine、定时器或事件消费者；单消费者 ringbuf 事件流和 pending 生命周期不变。
+
+#### 测试与验收
+
+- 失败优先 gate 按预期失败：`TestBPFPollSplitsCaptureAndEmitOwnership` 首次运行时 provider 文件尚不存在。实现后该测试检查 facade include 顺序、policy ownership、capture/emit 排他 ownership、emit provider 无 user read、fd composer 的 <=5 参数接口和文件行数，并通过。
+- `TestBPFPollPayloadsUseDirectTLV`、`TestBPFGenericExitOwnsPendingAroundEmissionHelper`、`TestBPFEnterDispatcherDelegatesProgramSelection` 和 `TestBPFExitDispatcherDelegatesProgramSelection` 均通过；poll source gate 已读取 facade 与两个 provider 的组合视图。
+- `sudo -n ./build.sh` 通过，真实 clang/BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14199 ./cmd/strace-go` 和 `git diff --check` 均通过。
+- `syscall_poll_direct_event_v2.h` 从 314 行降为 47 行，capture provider 为 153 行，emit provider 为 125 行，ownership source test 为 94 行；所有相关生产 header 与 source test 均满足 <=500 行限制。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `333.90 ns/op、0 B/op、0 allocs/op`，JSON writer `520.40 ns/op、0 B/op、0 allocs/op`，decoded writer `687.50 ns/op、0 B/op、0 allocs/op`，decoded payload writer `971.60 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `397.85/266.47/2.28/210.95 events/s`，所有运行时错误计数为 0。
+- 串行 sudo `small` 通过 `23 PASS / 0 FAIL`；并行 small 的唯一失败是测试 worker 删除工作目录后 `creat.gen.test` 的 `getwd: no such file or directory`，不作为代码结果。原生 `ppoll.gen.test`、`ppoll-v.gen.test`、`ppoll-e-trace-fds-23.gen.test`、`ppoll-e-trace-fds-23-42.gen.test` 和 `ppoll-e-trace-fds-not-9-42-P.gen.test` 均为 `1 PASS / 0 FAIL`。
+- `poll.test` 与 `ppoll-P.gen.test` 失败，但均在父提交 `0a6457a` 的隔离基线中复现：前者实际执行 `-vepoll` 的旧式 epoll 测试并只有 `arm after start = 0`，后者的 `-P /dev/full` tracer log 只有退出行。两者均不是本次 poll provider 拆分的回归，后者继续归入既有 path-filter state 缺口。
+
+#### Review 结论
+
+- 未发现运行时行为回归：poll/ppoll selector、count 归一化、pollfd slot copy、timeout/sigmask TLV、OUT flags、截断/错误统计、enter/exit emitter 与 pending consume 均保持原有行为；真实 verifier、semantic/perf、串行 small 和五项生成式 ppoll 测试通过。
+- 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、attach、pending state、事件 ABI 或单消费者事件循环；没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
+- 失败路径仍显式保留：单 slot probe read、dynptr write、timeout/sigmask capture、TLV header 和 ringbuf reserve/submit 的失败处理与拆分前一致；source gate 防止 emit provider 重新拥有用户内存读取，request 接口也没有超过参数限制。
+- `poll.test`/`ppoll-P.gen.test` 的失败已通过 `0a6457a` 基线 A/B 排除为本阶段回归；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。本阶段仅修改 poll facade/provider、相关 source gates、ownership regression test 和本记录。

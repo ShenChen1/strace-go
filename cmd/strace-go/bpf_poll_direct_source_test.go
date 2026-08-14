@@ -12,6 +12,9 @@ func TestBPFPollPayloadsUseDirectTLV(t *testing.T) {
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	pollDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_poll_direct_event_v2.h"))
+	pollCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_poll_capture_direct_event_v2.h"))
+	pollEmitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_poll_emit_direct_event_v2.h"))
+	pollDirectSources := pollDirectHeader + "\n" + pollCaptureHeader + "\n" + pollEmitHeader
 
 	for _, snippet := range []string{
 		"#define SYS_POLL 7",
@@ -47,7 +50,7 @@ func TestBPFPollPayloadsUseDirectTLV(t *testing.T) {
 		"bpf_probe_read_user(payload_data, POLL_DIRECT_SIGMASK_SIZE",
 		"init_syscall_exit_event_v2_from_pending(&body, p, ret_value, duration, payload_size);",
 	} {
-		if !strings.Contains(pollDirectHeader, snippet) {
+		if !strings.Contains(pollDirectSources, snippet) {
 			t.Fatalf("poll direct header missing snippet %q", snippet)
 		}
 	}
