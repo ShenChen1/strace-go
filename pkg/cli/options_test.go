@@ -152,6 +152,20 @@ func TestParseDebugEventsAlias(t *testing.T) {
 	}
 }
 
+func TestParseDebugPhasesAlias(t *testing.T) {
+	opts := ParseArgs([]string{"--debug-phases", "/bin/true"})
+
+	if opts.EventFormat != EventFormatJSON {
+		t.Fatalf("EventFormat = %q, want %q", opts.EventFormat, EventFormatJSON)
+	}
+	if opts.DebugEvents {
+		t.Fatal("DebugEvents = true, want false")
+	}
+	if !opts.DebugPhases {
+		t.Fatal("DebugPhases = false, want true")
+	}
+}
+
 func TestParseStackTraceLongFlag(t *testing.T) {
 	opts := ParseArgs([]string{"--stack-trace", "/bin/true"})
 

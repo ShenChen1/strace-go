@@ -81,19 +81,65 @@ func TestTraceSessionEmitsDebugReadyEvent(t *testing.T) {
 	session := newTestTraceSessionWithOptions(&cli.Options{DebugEvents: true, AttachPids: []int{42, 84}}, traceSessionDeps{
 		TargetPID: 42,
 		OutWriter: &output,
+		Clock:     &fakeTraceClock{monoNs: 99},
 	})
 
-	session.emitDebugReady()
+	session.emitDebugReadyAt(7)
 
 	var event jsonReadyEvent
 	if err := json.Unmarshal(output.Bytes(), &event); err != nil {
 		t.Fatalf("decode ready event: %v", err)
 	}
-	if event.Type != "ready" || event.TargetPID != 42 {
+	if event.Type != "ready" || event.TargetPID != 42 || event.StartTimeNS != 7 || event.TimeNS != 99 {
 		t.Fatalf("ready event = %+v, want target 42", event)
 	}
 	if len(event.AttachPIDs) != 2 || event.AttachPIDs[1] != 84 {
 		t.Fatalf("attach pids = %v, want [42 84]", event.AttachPIDs)
+	}
+}
+
+func TestTraceSessionEmitsDebugPhaseEvent(t *testing.T) {
+	var output bytes.Buffer
+	session := newTestTraceSessionWithOptions(&cli.Options{DebugPhases: true}, traceSessionDeps{
+		OutWriter: &output,
+		Clock:     &fakeTraceClock{monoNs: 123},
+	})
+
+	session.emitDebugPhase("trace_start")
+
+	var event jsonPhaseEvent
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &event); err != nil {
+		t.Fatalf("decode phase event: %v", err)
+	}
+	if event.Type != "phase" || event.Phase != "trace_start" || event.TimeNS != 123 {
+		t.Fatalf("phase event = %+v, want trace_start at 123ns", event)
+	}
+}
+
+func TestTraceSessionDoesNotEmitPhaseForRawDebugMode(t *testing.T) {
+	var output bytes.Buffer
+	session := newTestTraceSessionWithOptions(&cli.Options{DebugEvents: true}, traceSessionDeps{
+		OutWriter: &output,
+		Clock:     &fakeTraceClock{monoNs: 123},
+	})
+
+	session.emitDebugPhase("trace_start")
+
+	if output.Len() != 0 {
+		t.Fatalf("raw debug mode contains phase event: %q", output.String())
+	}
+}
+
+func TestTraceSessionDoesNotEmitDebugPhaseOutsideDebugMode(t *testing.T) {
+	var output bytes.Buffer
+	session := newTestTraceSessionWithOptions(&cli.Options{EventFormat: cli.EventFormatJSON}, traceSessionDeps{
+		OutWriter: &output,
+	})
+
+	session.emitDebugPhase("trace_start")
+
+	if output.Len() != 0 {
+		t.Fatalf("ordinary JSON output contains debug phase event: %q", output.String())
 	}
 }
 

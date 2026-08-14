@@ -65,10 +65,12 @@ func (p fakeTraceLifecyclePolicy) IsAttachTarget(pid int) bool {
 
 type fakeTraceReadyPolicy struct {
 	debug  bool
+	phases bool
 	attach []int
 }
 
 func (p fakeTraceReadyPolicy) DebugEvents() bool { return p.debug }
+func (p fakeTraceReadyPolicy) DebugPhases() bool { return p.phases }
 func (p fakeTraceReadyPolicy) AttachPIDs() []int { return append([]int(nil), p.attach...) }
 
 var (
@@ -135,7 +137,7 @@ func TestTraceOutputPolicyPortsAcceptIndependentImplementations(t *testing.T) {
 	events := fakeTraceEventOutputPolicy{debug: true, emit: false}
 	summary := fakeTraceSummaryPolicy{only: true, andPrint: false}
 	exit := fakeTraceExitPolicy{json: true, only: true, quiet: true}
-	ready := fakeTraceReadyPolicy{debug: true, attach: []int{42, 84}}
+	ready := fakeTraceReadyPolicy{debug: true, phases: true, attach: []int{42, 84}}
 
 	if !format.IsJSON() || !events.DebugEvents() || events.ShouldEmit(syscallEventContext{}, false) {
 		t.Fatal("fake format/event policy ports are not usable")
@@ -148,6 +150,9 @@ func TestTraceOutputPolicyPortsAcceptIndependentImplementations(t *testing.T) {
 	}
 	if !ready.DebugEvents() {
 		t.Fatal("fake ready policy debug port is not usable")
+	}
+	if !ready.DebugPhases() {
+		t.Fatal("fake ready policy phase port is not usable")
 	}
 	readyPIDs := ready.AttachPIDs()
 	if len(readyPIDs) != 2 || readyPIDs[0] != 42 || readyPIDs[1] != 84 {

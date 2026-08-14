@@ -64,6 +64,7 @@ type traceLifecyclePolicy interface {
 
 type traceReadyPolicy interface {
 	DebugEvents() bool
+	DebugPhases() bool
 	AttachPIDs() []int
 }
 
@@ -71,6 +72,7 @@ type traceReadyPolicy interface {
 type cliTraceOutputPolicy struct {
 	json               bool
 	debug              bool
+	debugPhases        bool
 	status             successfulFailedOptions
 	statusFilterActive bool
 	summaryOnly        bool
@@ -104,6 +106,7 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 	return &cliTraceOutputPolicy{
 		json:               opts.EventFormat == cli.EventFormatJSON,
 		debug:              opts.DebugEvents,
+		debugPhases:        opts.DebugPhases,
 		status:             successfulFailedOptions{successfulOnly: opts.SuccessfulOnly, failedOnly: opts.FailedOnly, traceStatus: traceStatus},
 		statusFilterActive: opts.SuccessfulOnly || opts.FailedOnly || len(traceStatus) > 0,
 		summaryOnly:        opts.SummaryOnly,
@@ -130,6 +133,10 @@ func (p *cliTraceOutputPolicy) IsJSON() bool {
 
 func (p *cliTraceOutputPolicy) DebugEvents() bool {
 	return p != nil && p.debug
+}
+
+func (p *cliTraceOutputPolicy) DebugPhases() bool {
+	return p != nil && p.debugPhases
 }
 
 func (p *cliTraceOutputPolicy) ShouldEmit(ev syscallEventContext, unfinished bool) bool {

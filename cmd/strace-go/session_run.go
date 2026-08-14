@@ -81,6 +81,7 @@ type traceCommandExitResult struct {
 
 // IMPACT: run reads and handles ringbuf records in the same goroutine; only process waiting is asynchronous.
 func (s *traceSession) run() error {
+	s.emitDebugPhase("trace_start")
 	deps := s.dependencies
 	state := newTraceRunState(traceRunStateDeps{
 		command:          deps.CommandWaiter,
@@ -240,5 +241,7 @@ func (s *traceSession) exitDrainGrace() time.Duration {
 }
 
 func (s *traceSession) finishRun() error {
+	s.emitDebugPhase("trace_end")
+	s.emitDebugPhase("finalize_start")
 	return s.traceRunFinalizer().Finish()
 }

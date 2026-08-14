@@ -35,12 +35,14 @@ func TestSessionUsesOutputPolicyOwnerPort(t *testing.T) {
 type fakeSessionOutputPolicyOwner struct {
 	json       bool
 	debug      bool
+	phases     bool
 	attachPIDs []int
 }
 
 func (p fakeSessionOutputPolicyOwner) IsJSON() bool { return p.json }
 
 func (p fakeSessionOutputPolicyOwner) DebugEvents() bool { return p.debug }
+func (p fakeSessionOutputPolicyOwner) DebugPhases() bool { return p.phases }
 
 func (fakeSessionOutputPolicyOwner) ShouldEmit(syscallEventContext, bool) bool {
 	return true

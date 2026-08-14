@@ -8806,3 +8806,48 @@ Impact note：BPF ABI 新增 `enter_routes`/`exit_routes` 两个 `BPF_MAP_TYPE_P
 - 路由 catalog 与删除前 `select_enter_prog_index`/`select_exit_prog_index` 的 family 集合逐项对齐；默认 route 保证生成表内每个 ID 可进入 generic handler，未知运行时 ID 仍由 BPF tail-call fallback 处理。后续应把 family catalog 与 BPF predicate 的一致性进一步自动化，避免新增 syscall 只修改一侧。
 - raw dispatcher 的热路径现在不再执行全量 family predicate，但每个事件增加一次 direct route map lookup；本机 perf 显示 scalar/io 已有改善，说明该取舍有效，但最终判断仍需在拆分 setup/steady-state 后进行。
 - 本阶段只修改 raw route ABI、Go route plan、对应 source/unit tests、生成 BPF Go bindings 和架构记录；没有引入 ptrace、procfs、process_vm、用户态 tracee memory 读取或第二种产品模式，`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.211 拆分端到端耗时与稳态事件吞吐（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：性能 suite 目前通过外部进程计时计算 `events/s`；短 workload 的实际 trace 阶段只有约 0.3 秒，但 BPF 加载、验证、ProgArray 初始化、tracepoint attach、目标进程启动和收尾占用约 6 秒。
+- Problem：端到端耗时被直接作为事件吞吐分母，导致 `events/s` 显著偏低；同时复用 `--debug-events` 会切换到原始调试输出，破坏正常 JSON decoded event 的 enter/exit 配对，无法同时观察阶段耗时和业务事件语义。
+- Goal：增加仅用于调试和性能 suite 的阶段事件；记录 bootstrap 起点、ready、trace start、trace end、finalize start 的单调时钟；同时保留原端到端 `events_per_sec`，增加 setup、trace 和稳态 `events_per_sec`，让性能回归可以定位到具体阶段。
+- Non-goals：不改变 BPF event ABI、ringbuf、pending TID 状态机、payload capture、过滤、输出语义或正常产品路径；不引入 ptrace、procfs、process_vm、procmem、定时器或第二种产品模式。
+- Constraints：使用 monotonic nanosecond clock；`--debug-events` 的既有 raw 语义必须保持；新增 `--debug-phases` 不得打开 raw debug；生产代码和测试文件遵守文件 500 行、函数 80 行、参数不超过 5 个的约束，并覆盖缺失、重复和非单调阶段的失败路径。
+
+Impact note：`runTraceSession` 在 BPF setup 前记录 bootstrap 起点，在 session ready 后输出 ready；`traceSession.run` 输出 `trace_start`，ringbuf drain 完成后输出 `trace_end`，调用 finalizer 前输出 `finalize_start`。这些标记只由 debug policy 输出，不进入普通 JSON/text 输出，也不修改 BPF 或 Go 事件处理热路径。
+
+#### 方案比较
+
+1. 继续只使用 Python 外部计时：没有产品代码变化，但无法区分 setup、trace 和 finalize，仍不能回答稳态吞吐是否回退，拒绝。
+2. 复用 `--debug-events` 输出阶段标记：改动少，但该开关会启用 raw 调试事件，破坏性能 suite 需要的 paired enter/exit decoded oracle，拒绝。
+3. 增加独立的 `--debug-phases` JSON 通道：沿用现有 debug ready/JSON writer、只增加阶段边界和单调时间字段；正常输出不变，性能 suite 可同时保留语义校验，选择该方案。
+
+#### 状态契约
+
+- debug ready event 增加 `start_time_ns` 和 `time_ns`；phase event 结构为 `{type:"phase", phase, time_ns}`。字段只在 debug 输出中出现，普通事件格式不增加额外记录。
+- `start_time_ns` 是 `runTraceSession` 开始 setupBPF 前的单调时间；ready 的 `time_ns` 是 session 完成 BPF route、attach、target bootstrap 和 output handoff 后的时间，因此 `setup_sec = ready - start` 是内部 setup 观测值。
+- `trace_start` 在 ringbuf consumer 开始运行前输出；`trace_end` 在命令退出、事件 drain 和 exit grace 完成后输出；`finalize_start` 紧邻 finalizer 调用前输出。`trace_sec = trace_end - trace_start`，稳态吞吐为 exit event 数除以 `trace_sec`。
+- `--debug-events` 仍然启用原始 debug event 语义；`--debug-phases` 强制 JSON 并只启用 phase/ready 观测，不设置 `DebugEvents`，所以性能 suite 仍消费正常 decoded enter/exit event。
+- 外部计时保留为用户感知端到端耗时；`unattributed_sec` 记录外部耗时减去 setup 和 trace 的剩余部分，主要覆盖进程启动、输出关闭和清理边界，不被误称为稳态 trace 时间。
+
+#### 测试与验收
+
+- 失败优先 Go 测试先验证缺少 `emitDebugReadyAt`、phase event 类型和 `DebugPhases` 接口时确实失败；实现后 ready 时间字段、phase 输出、普通 JSON 不输出 phase、CLI 不打开 raw debug 的测试均通过。
+- Python oracle 增加 ready/phase 解析与阶段校验，覆盖 ready 缺失、phase 缺失、重复 phase 和非单调时间失败路径；`PYTHONPATH=test python3 -m unittest test_ebpf_perf_suite` 的 11 项测试通过。
+- `ebpf-perf` 使用 `--debug-phases`，真实结果为：scalar setup/trace `6.043867/0.308231s`、稳态 `9732.96 events/s`、端到端 `447.80 events/s`；io 为 `6.264470/0.303067s`、稳态 `6602.50 events/s`、端到端 `289.13 events/s`；lifecycle 为 `6.388500/0.405899s`、稳态 `41.88 events/s`、端到端 `2.37 events/s`；threads 为 `6.490385/0.301890s`、稳态 `5313.19 events/s`、端到端 `225.15 events/s`，运行时错误计数均为 0。
+- 这组结果说明本次 `events/s` 下降主要是固定 setup 成本进入短 workload 分母，而不是事件热路径骤降；lifecycle 的绝对值还受其 workload 仅产生 17 个 exit event 的影响。Go decode/writer 基准仍保持 0 alloc，普通 decoded event 的语义校验没有被 debug phase 通道破坏。
+- 本阶段继续要求真实 `build.sh`/verifier、`go test`、`go test -race`、`go vet`、强制 build、`ebpf-semantic` 和串行 `small` 通过；`strace-upstream` 子模块既有 dirty 状态不触碰。
+
+#### Review 结论
+
+- 阶段标记只增加观测边界，没有改变 BPF 程序、事件 ABI、ringbuf 消费、pending 配对、过滤或生命周期处理；`--debug-phases` 与 raw `--debug-events` 分离，避免性能 oracle 退化为不配对的原始事件。
+- 当前性能 suite 同时展示用户感知的端到端值和用于架构判断的稳态值，后续优化应优先继续拆分 setupBPF 内部 load/verify、map route、attach 和 target bootstrap，而不是直接用端到端 `events/s` 判断事件热路径。
+- 本阶段修改范围限定在 debug timing、CLI policy、性能 oracle、测试和架构记录；没有引入 ptrace、procfs、process_vm、用户态 tracee memory 读取或兼容双轨，`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+#### Review 后收紧
+
+- 首轮 review 发现 `DebugPhases()` 若复用 `DebugEvents`，`--debug-events` 会额外产生 phase 记录，导致两个 debug 通道的输出契约耦合；已改为只有 `--debug-phases` 开启 phase，raw debug 测试明确验证不会产生 phase。
+- 性能 oracle 原先用 phase 名称做字典，重复 phase 会被最后一条覆盖；已增加重复计数校验和失败测试，保证 ready/phase 观测既完整又唯一。

@@ -3,11 +3,13 @@ import os
 import re
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ebpf_event_oracles import (
     parse_json_events,
     parse_lifecycle_events,
+    parse_phase_events,
+    parse_ready_events,
     parse_stats_events,
 )
 from ebpf_semantic_checks import valid_stats_event
@@ -26,6 +28,7 @@ RUNTIME_DIAGNOSTIC_FIELDS = (
     "lifecycle_map_update_fail",
     "pending_stale",
 )
+REQUIRED_PERF_PHASES = ("trace_start", "trace_end", "finalize_start")
 GO_BENCHMARK_PATTERN = re.compile(
     r"^(?P<name>Benchmark\S+)\s+\d+\s+"
     r"(?P<ns>[0-9]+(?:\.[0-9]+)?)\s+ns/op\s+"
@@ -53,6 +56,8 @@ class PerfCapture:
     events: list
     lifecycle_events: list
     stats_events: list
+    ready_events: list = field(default_factory=list)
+    phase_events: list = field(default_factory=list)
 
     @property
     def exit_events(self):
@@ -168,6 +173,61 @@ def _paired_failures(events, syscalls):
     return failures
 
 
+def _validate_phase_timing(capture):
+    failures = []
+    if len(capture.ready_events) != 1:
+        failures.append(f"{capture.name} ready event count={len(capture.ready_events)}")
+        return failures
+    ready = capture.ready_events[0]
+    start_time = ready.get("start_time_ns", 0)
+    ready_time = ready.get("time_ns", 0)
+    if start_time <= 0 or ready_time < start_time:
+        failures.append(f"{capture.name} ready phase timing is invalid")
+
+    phase_counts = {}
+    for event in capture.phase_events:
+        phase = event.get("phase")
+        phase_counts[phase] = phase_counts.get(phase, 0) + 1
+    duplicates = [phase for phase, count in phase_counts.items() if count > 1]
+    if duplicates:
+        failures.append(
+            f"{capture.name} duplicate phase events: {','.join(map(str, duplicates))}"
+        )
+    phases = {event.get("phase"): event for event in capture.phase_events}
+    missing = [phase for phase in REQUIRED_PERF_PHASES if phase not in phases]
+    if missing:
+        failures.append(f"{capture.name} missing phase events: {','.join(missing)}")
+        return failures
+    phase_times = [phases[phase].get("time_ns", 0) for phase in REQUIRED_PERF_PHASES]
+    if any(time_ns <= 0 for time_ns in phase_times) or phase_times != sorted(phase_times):
+        failures.append(f"{capture.name} phase timing is not monotonic")
+    if phase_times[0] < ready_time:
+        failures.append(f"{capture.name} trace started before ready")
+    return failures
+
+
+def _phase_durations(capture):
+    if len(capture.ready_events) != 1:
+        return None
+    phases = {event.get("phase"): event for event in capture.phase_events}
+    if any(phase not in phases for phase in REQUIRED_PERF_PHASES):
+        return None
+    ready = capture.ready_events[0]
+    try:
+        ready_time = ready["time_ns"]
+        start_time = ready["start_time_ns"]
+        trace_start = phases["trace_start"]["time_ns"]
+        trace_end = phases["trace_end"]["time_ns"]
+        finalize_start = phases["finalize_start"]["time_ns"]
+    except (KeyError, TypeError):
+        return None
+    return {
+        "setup_sec": (ready_time - start_time) / 1_000_000_000,
+        "trace_sec": (trace_end - trace_start) / 1_000_000_000,
+        "finalize_start_sec": (finalize_start - trace_end) / 1_000_000_000,
+    }
+
+
 def validate_perf_capture(capture, spec):
     failures = []
     if capture.result.returncode != 0:
@@ -177,6 +237,7 @@ def validate_perf_capture(capture, spec):
     stats = capture.stats_events[0] if capture.stats_events else {}
     if not valid_stats_event(stats):
         failures.append(f"{spec.name} stats event is invalid")
+    failures.extend(_validate_phase_timing(capture))
     for counter in RUNTIME_DIAGNOSTIC_FIELDS:
         if stats.get(counter, 1) != 0:
             failures.append(f"{spec.name} {counter}={stats.get(counter)}")
@@ -206,7 +267,7 @@ def capture_workload(fixture, spec):
     command_args = ["-f", "-e", f"trace={spec.trace}", fixture]
     command_args.extend(spec.fixture_args)
     start = time.monotonic()
-    result = run_strace_go_json(command_args, timeout=60)
+    result = run_strace_go_json(command_args, timeout=60, phases=True)
     return PerfCapture(
         name=spec.name,
         result=result,
@@ -214,6 +275,8 @@ def capture_workload(fixture, spec):
         events=parse_json_events(result.stderr),
         lifecycle_events=parse_lifecycle_events(result.stderr),
         stats_events=parse_stats_events(result.stderr),
+        ready_events=parse_ready_events(result.stderr),
+        phase_events=parse_phase_events(result.stderr),
     )
 
 
@@ -225,10 +288,26 @@ def print_perf_capture(capture):
     print(f"json_events: {len(capture.events)}")
     print(f"exit_events: {len(capture.exit_events)}")
     print(f"lifecycle_events: {len(capture.lifecycle_events)}")
+    print(f"ready_events: {len(capture.ready_events)}")
+    print(f"phase_events: {len(capture.phase_events)}")
     for counter in RUNTIME_DIAGNOSTIC_FIELDS:
         print(f"{counter}: {stats.get(counter)}")
     if capture.elapsed > 0:
         print(f"events_per_sec: {len(capture.exit_events) / capture.elapsed:.2f}")
+    durations = _phase_durations(capture)
+    if durations is not None:
+        print(f"setup_sec: {durations['setup_sec']:.6f}")
+        print(f"trace_sec: {durations['trace_sec']:.6f}")
+        print(f"finalize_start_delay_sec: {durations['finalize_start_sec']:.6f}")
+        if durations["trace_sec"] > 0:
+            print(
+                "steady_state_events_per_sec: "
+                f"{len(capture.exit_events) / durations['trace_sec']:.2f}"
+            )
+        print(
+            "unattributed_sec: "
+            f"{capture.elapsed - durations['setup_sec'] - durations['trace_sec']:.6f}"
+        )
 
 
 def print_go_pipeline_benchmarks(result, metrics):

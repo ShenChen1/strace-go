@@ -50,6 +50,10 @@ def parse_ready_events(stderr):
     return parse_events(stderr, "ready")
 
 
+def parse_phase_events(stderr):
+    return parse_events(stderr, "phase")
+
+
 def payload_section_bytes(section):
     try:
         return base64.b64decode(section.get("data_base64") or "")

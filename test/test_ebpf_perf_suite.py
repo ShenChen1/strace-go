@@ -31,6 +31,12 @@ def make_capture(events=None, lifecycle_events=None, stats=None, returncode=0):
         events=events or [],
         lifecycle_events=lifecycle_events or [],
         stats_events=[zero_stats],
+        ready_events=[{"type": "ready", "start_time_ns": 100, "time_ns": 150}],
+        phase_events=[
+            {"type": "phase", "phase": "trace_start", "time_ns": 200},
+            {"type": "phase", "phase": "trace_end", "time_ns": 300},
+            {"type": "phase", "phase": "finalize_start", "time_ns": 301},
+        ],
     )
 
 
@@ -157,6 +163,47 @@ class PerfOracleTests(unittest.TestCase):
         failures = validate_perf_capture(make_capture(events=events), spec)
 
         self.assertEqual(failures, [])
+
+    def test_rejects_missing_perf_phase(self):
+        spec = PerfWorkloadSpec(name="scalar", minimum_exit_counts=(('getpid', 1),))
+        capture = make_capture(
+            events=[{"syscall": "getpid", "event_type": "exit", "paired_enter": True}],
+        )
+        capture.phase_events = [
+            {"type": "phase", "phase": "trace_start", "time_ns": 200},
+        ]
+
+        failures = validate_perf_capture(capture, spec)
+
+        self.assertTrue(any("phase" in failure for failure in failures))
+
+    def test_rejects_non_monotonic_perf_phase(self):
+        spec = PerfWorkloadSpec(name="scalar", minimum_exit_counts=(('getpid', 1),))
+        capture = make_capture(
+            events=[{"syscall": "getpid", "event_type": "exit", "paired_enter": True}],
+        )
+        capture.phase_events = [
+            {"type": "phase", "phase": "trace_start", "time_ns": 300},
+            {"type": "phase", "phase": "trace_end", "time_ns": 200},
+            {"type": "phase", "phase": "finalize_start", "time_ns": 201},
+        ]
+
+        failures = validate_perf_capture(capture, spec)
+
+        self.assertTrue(any("phase" in failure for failure in failures))
+
+    def test_rejects_duplicate_perf_phase(self):
+        spec = PerfWorkloadSpec(name="scalar", minimum_exit_counts=(('getpid', 1),))
+        capture = make_capture(
+            events=[{"syscall": "getpid", "event_type": "exit", "paired_enter": True}],
+        )
+        capture.phase_events.append(
+            {"type": "phase", "phase": "trace_end", "time_ns": 302}
+        )
+
+        failures = validate_perf_capture(capture, spec)
+
+        self.assertTrue(any("duplicate" in failure for failure in failures))
 
 
 if __name__ == "__main__":

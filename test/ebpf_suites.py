@@ -160,8 +160,13 @@ def build_ebpf_dirent_fixture():
 def build_ebpf_mmsg_fixture():
     return build_named_fixture("strace-go-ebpf-mmsg-fixture", MMSG_FIXTURE_SRC)
 
-def run_strace_go_json(args, timeout=30, debug=False):
-    event_flag = "--debug-events" if debug else "--event-format=json"
+def run_strace_go_json(args, timeout=30, debug=False, phases=False):
+    if debug:
+        event_flag = "--debug-events"
+    elif phases:
+        event_flag = "--debug-phases"
+    else:
+        event_flag = "--event-format=json"
     command = [STRACE_WRAPPER, event_flag] + args
     return subprocess.run(
         command,

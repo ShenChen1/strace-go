@@ -77,9 +77,17 @@ type jsonLifecycleEvent struct {
 }
 
 type jsonReadyEvent struct {
-	Type       string `json:"type"`
-	TargetPID  int    `json:"target_pid"`
-	AttachPIDs []int  `json:"attach_pids,omitempty"`
+	Type        string `json:"type"`
+	TargetPID   int    `json:"target_pid"`
+	AttachPIDs  []int  `json:"attach_pids,omitempty"`
+	StartTimeNS uint64 `json:"start_time_ns,omitempty"`
+	TimeNS      uint64 `json:"time_ns"`
+}
+
+type jsonPhaseEvent struct {
+	Type   string `json:"type"`
+	Phase  string `json:"phase"`
+	TimeNS uint64 `json:"time_ns"`
 }
 
 type jsonStatsEvent struct {
@@ -96,12 +104,18 @@ type jsonStatsEvent struct {
 	Error                  string `json:"error,omitempty"`
 }
 
-func newJSONReadyEvent(targetPID int, attachPIDs []int) jsonReadyEvent {
+func newJSONReadyEventAt(targetPID int, attachPIDs []int, startTimeNS uint64, timeNS uint64) jsonReadyEvent {
 	return jsonReadyEvent{
-		Type:       "ready",
-		TargetPID:  targetPID,
-		AttachPIDs: append([]int(nil), attachPIDs...),
+		Type:        "ready",
+		TargetPID:   targetPID,
+		AttachPIDs:  append([]int(nil), attachPIDs...),
+		StartTimeNS: startTimeNS,
+		TimeNS:      timeNS,
 	}
+}
+
+func newJSONPhaseEvent(phase string, timeNS uint64) jsonPhaseEvent {
+	return jsonPhaseEvent{Type: "phase", Phase: phase, TimeNS: timeNS}
 }
 
 func newJSONSyscallEventFromView(view syscallEventView, scMeta meta.Syscall, sections []handler.PayloadSection) jsonSyscallEvent {

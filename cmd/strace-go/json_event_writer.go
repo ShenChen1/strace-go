@@ -61,8 +61,17 @@ func (w *JSONEventWriter) WriteLifecycle(view lifecycleEventView, task *TaskStat
 	w.lifecycleEvent = jsonLifecycleEvent{}
 }
 
-func (w *JSONEventWriter) WriteReady(targetPID int, attachPIDs []int) {
-	w.encode(newJSONReadyEvent(targetPID, attachPIDs))
+func (w *JSONEventWriter) WriteReadyAt(
+	targetPID int,
+	attachPIDs []int,
+	startTimeNS uint64,
+	timeNS uint64,
+) {
+	w.encode(newJSONReadyEventAt(targetPID, attachPIDs, startTimeNS, timeNS))
+}
+
+func (w *JSONEventWriter) WritePhase(phase string, timeNS uint64) {
+	w.encode(newJSONPhaseEvent(phase, timeNS))
 }
 
 func (w *JSONEventWriter) encode(event any) {
@@ -124,14 +133,42 @@ func (s *traceSession) jsonEventWriter() *JSONEventWriter {
 }
 
 func (s *traceSession) emitDebugReady() {
+	s.emitDebugReadyAt(0)
+}
+
+func (s *traceSession) emitDebugReadyAt(startTimeNS uint64) {
 	if s == nil || s.components == nil || s.dependencies.OutputPolicy == nil {
 		return
 	}
 	var policy traceReadyPolicy = s.dependencies.OutputPolicy
-	if !policy.DebugEvents() {
+	if !policy.DebugEvents() && !policy.DebugPhases() {
 		return
 	}
 	if writer := s.jsonEventWriter(); writer != nil {
-		writer.WriteReady(s.dependencies.TargetPID, policy.AttachPIDs())
+		writer.WriteReadyAt(
+			s.dependencies.TargetPID,
+			policy.AttachPIDs(),
+			startTimeNS,
+			s.debugTimeNS(),
+		)
 	}
+}
+
+func (s *traceSession) emitDebugPhase(phase string) {
+	if s == nil || s.components == nil || s.dependencies.OutputPolicy == nil {
+		return
+	}
+	if !s.dependencies.OutputPolicy.DebugPhases() {
+		return
+	}
+	if writer := s.jsonEventWriter(); writer != nil {
+		writer.WritePhase(phase, s.debugTimeNS())
+	}
+}
+
+func (s *traceSession) debugTimeNS() uint64 {
+	if s == nil || s.dependencies.Clock == nil {
+		return 0
+	}
+	return s.dependencies.Clock.NowMonoNs()
 }

@@ -21,6 +21,7 @@ type Options struct {
 	AttachPids           []int
 	EventFormat          string
 	DebugEvents          bool
+	DebugPhases          bool
 	OutFile              string
 	AlignCol             int
 	StringLimit          int
@@ -220,6 +221,11 @@ func parseTraceFlags(arg string, opts *Options) bool {
 	if arg == "--debug-events" {
 		opts.EventFormat = EventFormatJSON
 		opts.DebugEvents = true
+		return true
+	}
+	if arg == "--debug-phases" {
+		opts.EventFormat = EventFormatJSON
+		opts.DebugPhases = true
 		return true
 	}
 	if strings.HasPrefix(arg, "--trace=") {
