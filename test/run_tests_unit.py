@@ -52,6 +52,14 @@ class ClassifyTestResultTest(unittest.TestCase):
         )
 
 
+class RootRequirementTest(unittest.TestCase):
+    def test_root_has_no_requirement_error(self):
+        self.assertEqual(run_tests.root_requirement_error(0), "")
+
+    def test_non_root_gets_actionable_requirement_error(self):
+        self.assertIn("sudo -n", run_tests.root_requirement_error(1000))
+
+
 class UpstreamReferenceSuiteTest(unittest.TestCase):
     def test_stable_more_snapshot_is_explicit_and_unique(self):
         stable = upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS

@@ -9509,3 +9509,31 @@ Impact note：影响主 semantic fixture、两个新 workload translation unit�
 - Python semantic oracle 为 18 OK、perf oracle 为 18 OK、runner unit 为 8 OK；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 `go build -a`、Python syntax 和 `git diff --check` 均通过。
 - 真实 `ebpf-semantic` 通过：主事件为 197 个（enter/exit `100/97`）、lifecycle 6 个、truncated 7 个、write-only filter 6 个，所有 ringbuf reserve/copy、pending update/mismatch/stale、orphan 和 lifecycle map counter 为 0。相对旧 205 个事件减少的 8 个是删除 `fopen/fgets/close("/proc/self/status")` 的预期附带事件，必测 syscall/payload/lifecycle 集合未减少。
 - 真实 `ebpf-perf` 通过：scalar/io/lifecycle/threads 的 trace exit rate 为 `23803/15960/82.54/13983 events/s`，Go decode/raw JSON 仍为 0 alloc，所有 runtime counter 为 0。Review 未发现 procfs token 被迁移到新 source、C helper 被错误导出或产品 runtime/BPF ABI 变化；本阶段未运行无关 upstream suite。
+
+### 14.232 移除 dirent 与测试 wrapper 的 procfs/FD 重建（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.231 已移除主 semantic fixture 的 procfs；独立 dirent fixture 仍从动态 `/proc/self/fd` 读取目录项，`strace-sudo.sh` 仍枚举 `/proc/self/fd/*`、读取链接目标并通过 `eval` 在提权 shell 中重新打开普通文件 FD。
+- Problem：dirent 结果受 fixture 自身 FD 变化影响；wrapper 的 readlink/reopen 发生在原 FD 之后，既有 TOCTOU，又会重置 file offset、丢失原 open flags/identity，未引用 target 拼入 `eval` 还形成 shell 解释风险。当前 `sudo-rs 0.2.13` 不支持传统 sudo `-C` closefrom override，无法用该机制精确透传任意 FD。
+- Goal：dirent fixture 使用 mode 0700 的自有临时目录和固定条目；测试 runner 明确要求 root，wrapper 在 root 下验证 binary 后直接 `exec`，让内核原样继承 non-CLOEXEC FD，不再枚举、重建或解释路径。
+- Non-goals：不修改产品 tracer、BPF/event ABI、dirent payload capture、upstream expected output或提供新的非 root/capability 测试兼容层；不把测试 wrapper 变成通用 privilege broker。
+- Constraints：wrapper 不得读取 procfs、调用 sudo/eval 或执行 FD path reconstruction；非 root 必须在执行 tracer 前返回明确错误；runner 在 suite 启动前报告同一 root 前置条件；README 测试命令必须显式使用 `sudo -n`；dirent 仍覆盖两个 syscall 的 EBADF 与成功 OUT bytes。
+
+Impact note：影响 dirent fixture、测试 wrapper、runner root precondition、对应 Python/source tests、README 与本文档；产品 binary、BPF object、semantic oracle 结构和 upstream 测试清单不变。
+
+#### 方案比较
+
+1. 保留 procfs readlink/reopen：兼容旧调用方式，但事件时点、offset、flags 和 shell 安全均不可靠，拒绝。
+2. 使用 sudo `-C` bounded closefrom：可保留原 FD identity，但当前 sudo-rs 明确不支持该选项，且固定上限会静默丢失更高 FD，拒绝。
+3. 测试入口显式要求 root并直接 exec，dirent 使用私有目录：删除整个重建机制，继承语义由内核保证，错误边界清晰，选择。
+
+#### 测试与验收
+
+- 先增加失败优先 source test，要求 dirent fixture 与 wrapper 均无 `/proc/`，且 wrapper 不调用 `eval`/`sudo`；增加 runner root precondition 的 root/non-root 单元测试。
+- dirent fixture 使用 standalone `gcc -Werror` 与直接执行验证；wrapper 运行 `bash -n`，并分别验证非 root 明确失败、root `--help` 可直接进入 tracer。
+- 运行 Python 全量 oracle、Go 全量/race/vet/build、真实 `ebpf-semantic`、`small` 与 upstream reference；review 确认继承 FD 不再重建、dirent 成功/失败事件和错误 counters 不变。
+- 失败优先结果：source policy 在旧 dirent `/proc/self/fd` 上为 1 FAIL；runner root precondition 因 helper 尚未实现为 2 ERROR。实现后 fixture/source 测试为 6 OK，runner unit 为 10 OK，semantic/perf oracle 均为 18 OK。
+- dirent 使用 `mkdtemp` 生成 mode 0700 的私有目录和固定 `entry`，两个 syscall 均以新打开的目录 FD 覆盖 EBADF 与成功 OUT bytes。严格 `gcc -Werror -Wmissing-prototypes`、standalone 运行、`bash -n`、wrapper mode 0755、非 root rc=126 和 root `--help` 均通过。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、强制 `go build -a`、Python syntax 和 `git diff --check` 均通过。真实 `ebpf-semantic` 为主事件 197 个（enter/exit `100/97`）、lifecycle 6 个、dirent 8 个、write-only filter 6 个，所有 runtime error counter 为 0。
+- `small` 为 23 PASS、0 FAIL；upstream reference 为 117 PASS、2 个已接受 XFAIL、0 FAIL/XPASS，XFAIL 仍只是 bounded read/write snapshot 和 event-sourced FD/cwd 初始状态边界。Review 未发现新回归；实际运行 fixture/wrapper 中已无 procfs 读取、FD reopen 或 shell `eval`，产品 runtime/BPF ABI 未变。

@@ -132,12 +132,13 @@ sudo ./strace-go <待追踪的命令或进程>
 #### 4. 运行测试
 测试采用纯 eBPF 语义门禁；upstream 测试只作为参考集。
 ```bash
-python3 test/run_tests.py --suite small --skip-build
-python3 test/run_tests.py --suite more --skip-build
-python3 test/run_tests.py --suite upstream-reference --skip-build
-python3 test/run_tests.py --suite ebpf-semantic --skip-build
-python3 test/run_tests.py --suite ebpf-perf --skip-build
+sudo -n python3 test/run_tests.py --suite small --skip-build
+sudo -n python3 test/run_tests.py --suite more --skip-build
+sudo -n python3 test/run_tests.py --suite upstream-reference --skip-build
+sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build
+sudo -n python3 test/run_tests.py --suite ebpf-perf --skip-build
 ```
+测试 runner 明确要求 root，并让 wrapper 直接继承原始文件描述符；不会通过 procfs 读取链接后重新打开 FD。
 可用的 suite 有 `small`、`more`、`all`、`upstream-reference`、`ebpf-semantic`、`ebpf-perf`，也支持 `--filter <test>` 只跑单个用例。
 `upstream-reference` 仍使用 `strace-upstream/tests` 作为参考；`ebpf-semantic` 使用本仓库 fixture 和 JSON 事件做语义断言，不做字节级输出 diff。
 `upstream-reference` 与 `more` 中已知不属于纯 eBPF 契约的 upstream exact diff 会显示为 `XFAIL`，例如 `read-write.gen.test` 的大 payload hexdump（bounded snapshot 与 ptrace 大块 fetch 的语义差异）和 `strace-C.test`（上游 `-c` 汇总按 per-syscall CPU 时间计，eBPF 只能观测 wall-clock 时长）；稳定边界意外通过会显示 `XPASS` 并使 runner 失败，提醒维护者更新契约。`attach-p-cmd.test` 额外属于调度敏感的跨任务生命周期 exact diff：成功时显示 `XPASS-ALLOWED`，失败时仍显示 `XFAIL`，两种结果都不使 suite 失败，但不会改变 semantic lifecycle suite 的严格断言。

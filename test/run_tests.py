@@ -90,6 +90,12 @@ def setup_env():
     os.environ["STRACE_NATIVE_ARCH"] = "x86_64"
 
 
+def root_requirement_error(euid):
+    if euid == 0:
+        return ""
+    return "test suites require root; rerun with sudo -n python3 test/run_tests.py"
+
+
 def build_upstream():
     if not os.path.isfile(os.path.join(UPSTREAM_DIR, "Makefile")):
         print("=> Configuring upstream strace...")
@@ -338,6 +344,10 @@ def run_upstream_suite(args):
 
 def main():
     args = parse_args()
+    root_error = root_requirement_error(os.geteuid())
+    if root_error:
+        print(root_error, file=sys.stderr)
+        return 2
     setup_env()
     if args.suite == "ebpf-semantic":
         return run_ebpf_semantic(args)

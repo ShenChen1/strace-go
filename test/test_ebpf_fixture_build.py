@@ -27,6 +27,23 @@ class SemanticFixtureSourcePolicyTests(unittest.TestCase):
             self.assertNotIn("/proc/", text, source)
             self.assertNotIn("TracerPid", text, source)
 
+    def test_runtime_test_support_does_not_read_procfs_or_rebuild_fds(self):
+        test_dir = os.path.dirname(__file__)
+        paths = (
+            os.path.join(test_dir, "fixtures", "ebpf_dirent_fixture.c"),
+            os.path.join(test_dir, "strace-sudo.sh"),
+        )
+
+        for path in paths:
+            with open(path, "r", encoding="utf-8") as support_file:
+                text = support_file.read()
+            self.assertNotIn("/proc/", text, path)
+        with open(paths[1], "r", encoding="utf-8") as wrapper_file:
+            wrapper = wrapper_file.read()
+        self.assertNotRegex(wrapper, r"\beval\b")
+        self.assertNotIn("exec sudo", wrapper)
+        self.assertNotIn("sudo env", wrapper)
+
 
 class FixtureBuildTests(unittest.TestCase):
     @mock.patch.object(ebpf_fixture_build.os, "chmod")
