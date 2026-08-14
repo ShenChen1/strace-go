@@ -9477,3 +9477,6 @@ Impact note：只影响 `cmd/strace-go` 下三个现有测试文件、按职责�
 - 每拆分一个原文件，运行 `gofmt`、focused package test、测试名称清单哈希和文件行数检查，并以独立提交记录。
 - 全部拆分后运行 `go test ./...`、`go test -race ./...`、`go vet ./...`、非生成 Go 测试文件 500 行 gate 和 `git diff --check`。
 - 本阶段没有产品代码变化，因此不重复运行真实 eBPF、性能和 upstream suite；最终 review 必须确认测试函数没有删除、重命名、复制或弱化。
+- 实际拆分结果：event state 基础/payload 文件为 `300/267` 行，event context 构造/policy 文件为 `358/210` 行，product source policy 用例/scanner 文件为 `274/242` 行；所有非生成 Go 测试文件均不超过 500 行。
+- 三次 focused `go test ./cmd/strace-go` 均通过；最终 `go test ./...`、`go test -race ./...`、`go vet ./...` 和 `git diff --check` 通过。测试函数总数仍为 910，名称清单哈希保持基线值不变。
+- Review 未发现测试删除、重命名、复制或断言弱化；新文件只接管完整测试组或纯 scanner helper，没有修改产品代码、BPF ABI、运行时依赖和纯 eBPF memory policy。真实 semantic/perf/upstream suite 按本阶段 Non-goals 未重复运行。
