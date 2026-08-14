@@ -71,12 +71,20 @@ func readMsgDirectEventSources(t *testing.T) string {
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_core_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_control_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_capture_direct_event_v2.h")) +
-		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_mmsg_capture_direct_event_v2.h")) +
+		"\n" + readMmsgCaptureSources(t) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_enter_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_mmsg_bytes_enter_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_exit_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_msg_recv_exit_direct_event_v2.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_mmsg_exit_direct_event_v2.h"))
+}
+
+func readMmsgCaptureSources(t *testing.T) string {
+	t.Helper()
+	root := repoRootForTest(t)
+	return readTextFile(t, filepath.Join(root, "bpf/syscall_mmsg_capture_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_mmsg_struct_capture_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_mmsg_bytes_capture_direct_event_v2.h"))
 }
 
 func readTimeDirectEventSources(t *testing.T) string {

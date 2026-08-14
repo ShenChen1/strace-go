@@ -8198,3 +8198,46 @@ Impact note：`traceSession.run` 只新增 command lifecycle reader 和 target P
 - 新增 `lifecycleExited` 只按 command target pid/tid 记录，不收集所有 fork child 的退出事实；无锁、无第二消费者、无定时器式 unfinished 改动，函数和文件规模仍满足仓库限制。
 - 失败路径是显式的：BPF exit fact lookup 失败不会假装 command 已完成，`run` 返回带上下文的错误并继续 finalizer；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
 - 本阶段仅修改 command lifecycle/run state、TraceState port 与回归/source tests 以及本记录；未修改 BPF ABI，也未引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
+
+### 14.197 拆分 mmsg capture 的结构与字节 ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_mmsg_capture_direct_event_v2.h` 原为 390 行，同时拥有 `mmsghdr`/timespec 聚合结构快照、mmsg 每个 slot 的 iovec 描述快照、enter 阶段字节片段以及 `recvmmsg` exit 阶段 OUT 字节片段。
+- Problem：结构解析、nested descriptor 读取和高频 bytes capture 物理耦合；修改任意一个 bounded snapshot 或 verifier 边界时，都必须同时审查 enter/exit 两类 payload owner。旧 facade 也无法表达结构快照与字节快照是两条不同的 capture contract。
+- Goal：保留 `syscall_mmsg_capture_direct_event_v2.h` 作为兼容 facade；新增结构 provider 与字节 provider，并把 synthetic iovec 参数编号策略放入 msg core，保持函数名、TLV 顺序、payload capacity、事件 ABI 和 dispatch 调用图不变。
+- Non-goals：不改变 mmsg/recvmmsg 的事件数量、fragment 顺序、enter/exit 时点、pending map、tail-call、过滤、attach、Go decoder/formatter，也不引入 ptrace、procfs 或 Go 侧 tracee memory read。
+- Constraints：先用失败优先 source gate 固定 provider ownership，再通过真实 clang/verifier、Go 全量/race/vet、强制 build、semantic/perf、small 和完整 upstream reference；新增生产 header 与 source test 继续满足 <=500 行限制。
+
+Impact note：`syscall_msg_direct_event_v2.h` 仍只 include 原 mmsg facade，`strace.c` 的 translation unit 不变；mmsg enter/exit dispatch 继续调用原有 helper 名称，`mmsg_bytes_progs`、`enter_progs`、`exit_progs` 的 index、tail-call fallback、pending consume 和 event v2 ABI 均不变。改动只改变编译期 header ownership 与 source-test 观察边界。
+
+#### 方案比较
+
+1. 保留 390 行单文件并补充注释：运行时改动最小，但结构/descriptor/bytes capture 仍耦合，无法独立审计两类 verifier 与 snapshot contract，拒绝。
+2. 按每个 slot 和每个方向拆成多个 header：职责最细，但 include 层、source oracle 和 verifier 观察面膨胀，容易把简单的 ownership 重构变成调用图重构，拒绝。
+3. facade + struct provider + bytes provider，并由 msg core 统一 slot 参数策略：边界足够清晰、include 变化局部、调用图和 ABI 不变，选择该方案。
+
+#### 状态契约
+
+- `syscall_mmsg_capture_direct_event_v2.h` 只保留 include facade；它不再定义 capture helper，也不拥有 mmsg slot policy。
+- `syscall_mmsg_struct_capture_direct_event_v2.h` 拥有 `capture_mmsghdr_tlv_direct`、`capture_mmsg_timespec_tlv_direct`、`capture_mmsg_iovec_tlv_direct`，以及 aggregate enter/exit 和各 slot 的 iovec descriptor enter helper。它负责结构/描述信息快照，不拥有 mmsg bytes enter 或 recvmmsg bytes exit helper。
+- `syscall_mmsg_bytes_capture_direct_event_v2.h` 拥有各 slot 的 mmsg enter bytes helper，以及各 slot 的 recvmmsg exit bytes helper。它复用 iovec base capture primitive，不拥有 `mmsghdr`、timespec 或 aggregate struct helper。
+- `syscall_msg_core_direct_event_v2.h` 拥有 `mmsg_iovec_arg_index_for_slot`，统一 slot 到 synthetic argument index `1/151/181/211` 的策略；两个 provider 共享该策略，避免重复 switch 和 ownership 漂移。
+- 新 provider 是纯编译期 header，不创建 map、ProgArray、tail call、scratch 状态、锁、goroutine 或用户态消费者；没有改变用户内存读取发生在 BPF enter/exit probe 的时点，也没有新增用户态补读路径。
+
+#### 测试与验收
+
+- 失败优先 gate 按预期失败：`TestBPFMmsgCaptureSplitsStructAndBytesOwnership` 首次运行时，两个 provider 文件尚不存在。实现后该测试检查 facade include、struct/bytes helper 排他 ownership、core slot policy 和文件行数，并通过。
+- `TestBPFMsgDirectModulesOwnResponsibilities`、`TestBPFMmsgEnterFragmentsBoundVerifierState`、`TestMmsgExitSlotHelperHasBoundedInterface`、`TestBPFMmsgBytesEnterEmittersHaveDedicatedOwnership` 和 `TestBPFMsgExitHasFamilyOwnedEmitters` 均通过；mmsg source gate 已读取 facade 与两个 provider 的组合视图。
+- `sudo -n ./build.sh` 通过，真实 clang/BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14197 ./cmd/strace-go` 和 `git diff --check` 均通过。
+- `syscall_mmsg_capture_direct_event_v2.h` 从 390 行降为 7 行，新增 struct provider 为 249 行、bytes provider 为 134 行，msg core 为 148 行；所有相关生产 header 与 source test 均满足 <=500 行限制。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；mmsg semantic events 16，signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `335.50 ns/op、0 B/op、0 allocs/op`，JSON writer `492.10 ns/op、0 B/op、0 allocs/op`，decoded writer `637.50 ns/op、0 B/op、0 allocs/op`，decoded payload writer `931.90 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `400.12/275.98/2.32/219.27 events/s`，所有运行时错误计数为 0。
+- 原生 `small` 通过 `23 PASS / 0 FAIL`；`mmsg.gen.test`、`recvmmsg-timeout.gen.test`、`recvmsg.gen.test` 均通过；完整 `upstream-reference` 通过 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS / 119 total`。两个 XFAIL 仍是 `read-write.gen.test` 的 bounded eBPF snapshot 不承诺 ptrace 级别大块 hexdump，以及 `mount_setattr.gen.test` 的 event-sourced FD/cwd 初始状态未知，没有新增 XPASS。
+
+#### Review 结论
+
+- 未发现运行时行为回归：`mmsghdr`/timespec TLV、mmsg slot descriptor、enter bytes、recvmmsg exit bytes 的 payload offset、arg index、方向 flag、截断/错误统计与拆分前一致；mmsg enter 的 base01 -> base2 -> base3 和 recvmmsg exit 的 base01 -> base23 -> final 链路保持不变。
+- 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`mmsg_bytes_progs`、`exit_progs`、attach、pending state、事件 ABI 或单消费者事件循环；没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
+- source gate 已覆盖 facade/provider include、struct/bytes 排他 ownership、core slot policy、dispatch 复用和文件限制；真实 verifier、semantic/perf、small、三项定向 upstream 和 119 项完整 reference 未观察到事件数量、配对、输出或性能契约回归。
+- 本阶段仅修改 mmsg capture facade/provider、msg core、相关 source gates、ownership regression test 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

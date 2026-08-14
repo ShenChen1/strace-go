@@ -16,6 +16,8 @@ func TestBPFMsgDirectModulesOwnResponsibilities(t *testing.T) {
 	core := read("syscall_msg_core_direct_event_v2.h")
 	capture := read("syscall_msg_capture_direct_event_v2.h")
 	mmsgCapture := read("syscall_mmsg_capture_direct_event_v2.h")
+	mmsgStructCapture := read("syscall_mmsg_struct_capture_direct_event_v2.h")
+	mmsgBytesCapture := read("syscall_mmsg_bytes_capture_direct_event_v2.h")
 	enter := read("syscall_msg_enter_direct_event_v2.h")
 	bytesEnter := read("syscall_mmsg_bytes_enter_direct_event_v2.h")
 	exit := read("syscall_msg_exit_direct_event_v2.h")
@@ -23,15 +25,17 @@ func TestBPFMsgDirectModulesOwnResponsibilities(t *testing.T) {
 	mmsgExit := read("syscall_mmsg_exit_direct_event_v2.h")
 
 	for name, source := range map[string]string{
-		"syscall_msg_direct_event_v2.h":              facade,
-		"syscall_msg_core_direct_event_v2.h":         core,
-		"syscall_msg_capture_direct_event_v2.h":      capture,
-		"syscall_mmsg_capture_direct_event_v2.h":     mmsgCapture,
-		"syscall_msg_enter_direct_event_v2.h":        enter,
-		"syscall_mmsg_bytes_enter_direct_event_v2.h": bytesEnter,
-		"syscall_msg_exit_direct_event_v2.h":         exit,
-		"syscall_msg_recv_exit_direct_event_v2.h":    recvExit,
-		"syscall_mmsg_exit_direct_event_v2.h":        mmsgExit,
+		"syscall_msg_direct_event_v2.h":                 facade,
+		"syscall_msg_core_direct_event_v2.h":            core,
+		"syscall_msg_capture_direct_event_v2.h":         capture,
+		"syscall_mmsg_capture_direct_event_v2.h":        mmsgCapture,
+		"syscall_mmsg_struct_capture_direct_event_v2.h": mmsgStructCapture,
+		"syscall_mmsg_bytes_capture_direct_event_v2.h":  mmsgBytesCapture,
+		"syscall_msg_enter_direct_event_v2.h":           enter,
+		"syscall_mmsg_bytes_enter_direct_event_v2.h":    bytesEnter,
+		"syscall_msg_exit_direct_event_v2.h":            exit,
+		"syscall_msg_recv_exit_direct_event_v2.h":       recvExit,
+		"syscall_mmsg_exit_direct_event_v2.h":           mmsgExit,
 	} {
 		if !strings.Contains(source, "#ifndef STRACE_GO_") || !strings.Contains(source, "#endif") {
 			t.Fatalf("%s must have an include guard", name)
@@ -82,12 +86,20 @@ func TestBPFMsgDirectModulesOwnResponsibilities(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"capture_mmsg_enter_payloads_tlv_direct(",
-		"capture_recvmmsg_base1_exit_payloads_tlv_direct(",
+		"capture_mmsg_base1_enter_payloads_tlv_direct(",
 		"capture_mmsg_base3_enter_payloads_tlv_direct(",
+		"capture_mmsg_exit_payloads_tlv_direct(",
+	} {
+		if !strings.Contains(mmsgStructCapture, snippet) {
+			t.Fatalf("mmsg capture module missing %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
+		"capture_recvmmsg_base1_exit_payloads_tlv_direct(",
 		"capture_recvmmsg_base3_exit_payloads_tlv_direct(",
 	} {
-		if !strings.Contains(mmsgCapture, snippet) {
-			t.Fatalf("mmsg capture module missing %q", snippet)
+		if !strings.Contains(mmsgBytesCapture, snippet) {
+			t.Fatalf("mmsg bytes capture module missing %q", snippet)
 		}
 	}
 	for _, snippet := range []string{
@@ -142,6 +154,8 @@ func TestBPFMsgDirectModulesStayWithinFileLimit(t *testing.T) {
 		"syscall_msg_core_direct_event_v2.h",
 		"syscall_msg_capture_direct_event_v2.h",
 		"syscall_mmsg_capture_direct_event_v2.h",
+		"syscall_mmsg_struct_capture_direct_event_v2.h",
+		"syscall_mmsg_bytes_capture_direct_event_v2.h",
 		"syscall_msg_enter_direct_event_v2.h",
 		"syscall_mmsg_bytes_enter_direct_event_v2.h",
 		"syscall_msg_exit_direct_event_v2.h",

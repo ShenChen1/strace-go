@@ -65,6 +65,20 @@ static __always_inline int is_mmsg_direct_syscall(u32 sys_id)
     return sys_id == SYS_SENDMMSG || sys_id == SYS_RECVMMSG;
 }
 
+static __always_inline u16 mmsg_iovec_arg_index_for_slot(u16 slot)
+{
+    switch (slot) {
+    case 1:
+        return MMSGHDR_SECOND_IOV_ARG;
+    case 2:
+        return MMSGHDR_THIRD_IOV_ARG;
+    case 3:
+        return MMSGHDR_FOURTH_IOV_ARG;
+    default:
+        return 1;
+    }
+}
+
 static __always_inline int msg_direct_read_iov(u64 msg_ptr, struct msg_direct_iov *iov)
 {
     iov->ptr = 0;

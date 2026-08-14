@@ -183,7 +183,7 @@ func TestBPFMmsgEnterFragmentsBoundVerifierState(t *testing.T) {
 	root := repoRootForTest(t)
 	combined := readCombinedBPFSources(t)
 	core := readTextFile(t, filepath.Join(root, "bpf/syscall_msg_core_direct_event_v2.h"))
-	capture := readTextFile(t, filepath.Join(root, "bpf/syscall_mmsg_capture_direct_event_v2.h"))
+	capture := readMmsgCaptureSources(t)
 	dispatch := readTextFile(t, filepath.Join(root, "bpf/mmsg_enter_dispatch.h"))
 	runtimeABI := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
 
@@ -268,8 +268,7 @@ func TestBPFMmsgBase01PreservesFragmentOrder(t *testing.T) {
 }
 
 func TestMmsgExitSlotHelperHasBoundedInterface(t *testing.T) {
-	root := repoRootForTest(t)
-	capture := readTextFile(t, filepath.Join(root, "bpf/syscall_mmsg_capture_direct_event_v2.h"))
+	capture := readMmsgCaptureSources(t)
 	body, ok := bpfFunctionBody(capture, "capture_recvmmsg_base_slot_exit_payloads_tlv_direct")
 	if !ok {
 		t.Fatal("mmsg capture source missing recvmmsg slot helper")
