@@ -37,8 +37,17 @@ func TestTraceRunStateUsesEventSourcedAttachLifecycle(t *testing.T) {
 		"attachState",
 		"type traceCommandLifecycleReader interface",
 		"TargetLifecycleExited(pid uint32) (bool, error)",
+		"TargetLifecycleEventObserved(pid uint32) bool",
+		"TargetLifecycleQuiescent(pid uint32) bool",
 		"commandLifecycle traceCommandLifecycleReader",
 		"commandLifecycleDone",
+		"commandLifecycleObserved",
+		"commandLifecycleFallback",
+		"lifecycleFallbackAt",
+		"exitDrainGraceForState",
+		"eventReader.DrainAfterDone(&rec, s.exitDrainGraceForState(state))",
+		"collectLifecycleQuiescence",
+		"s.emitDebugPhase(\"lifecycle_fallback\")",
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("run state is missing event-sourced attach contract %q", required)

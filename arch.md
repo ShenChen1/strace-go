@@ -9282,3 +9282,43 @@ Impact note：影响 `bpf_runtime.go` 的 teardown 调度和 cleanup 性能测�
 - 只并行 collection 之间的第一轮实测：scalar/io/lifecycle/threads 的 `post_cleanup_unattributed_sec` 约为 `0.308/0.328/0.308/0.297s`，相对串行基线 `0.320/0.334/0.316/0.301s` 有小幅收益；steady-state 分别约 `9760/6598/41.9/5310 events/s`，runtime counters 全零。
 - 将单个 collection 内的 program/map FD 也并行关闭后，实测尾部反而变为 `0.341/0.355/0.323/0.320s`，且 scalar/io/threads endpoint event/s 下降；这说明内核 close 路径存在 contention，已撤回该层实现，不纳入最终架构。
 - 最终只保留 collection-level parallel teardown；撤回后重新构建并完成 Go/race/vet、semantic、small、perf 和 upstream reference，确认二进制行为与文档结论一致。
+
+### 14.224 生命周期事实驱动的 ringbuf 收尾（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.196 已让 command 等待 `Wait()` 与 BPF `attach_exited_map` 事实，14.222/14.223 又证明短 workload 的固定成本主要出现在 JSON drain grace 和 BPF teardown 尾部。当前 JSON 路径在 command lifecycle 完成后仍无条件等待 `200ms`，即使 lifecycle exit 事件已经被单消费者消费且没有活动子任务。
+- Problem：固定 grace 同时覆盖两种不同状态：正常事件已经到达，以及 ringbuf 事件可能晚到或丢失。它保证了一部分尾事件安全，却把正常短 workload 的 trace 窗口人为拉长；简单改成零 grace 又会在 BPF 退出事实先于 ringbuf lifecycle 事件可见时丢尾部记录。
+- Goal：把 command 收尾拆成三态：等待 lifecycle 事件、事件已消费且 tracked task 已清空、lifecycle 事件缺失的有界 fallback。正常路径只在事件流事实成立后结束并立即 drain；只有 fallback 才保留 bounded grace，不改变纯 eBPF 事件来源。
+- Non-goals：不新增 ptrace/procfs/process_vm/procmem，不改变 event v2、ringbuf、pending TID、unfinished/resumed、payload、输出格式或 attach filter；不启动第二事件消费者，不在事件路径加入锁；本阶段不引入新的 BPF map ABI。
+- Constraints：生命周期事件必须仍由 BPF tracepoint 产生并由唯一 Go consumer 消费；`Wait()` 只能作为“目标已终止”的外部事实，不能替代 lifecycle event；follow-forks 时 root exit 后仍需等待 Go 状态中活动 task 清空；事件缺失时必须有明确、有界的 fallback，不能无限等待。
+
+Impact note：影响 `session_run.go` 的 command completion state、`task_state.go` 的 lifecycle observation/quiescence port、`event_reader.go` 的 drain grace 选择和对应测试；不改变 BPF ABI 或 runtime resource ownership。
+
+#### 方案比较
+
+1. 保持所有 JSON command 固定 `200ms` grace：最稳妥但正常路径承担无条件延迟，短 workload 的 trace throughput 被系统性稀释，拒绝继续作为最终方案。
+2. `Wait()` 完成后直接 `Drain()`：延迟最低，但绕过 lifecycle ringbuf 事件和 child task 状态，存在尾事件丢失及 follow-forks 提前结束风险，拒绝。
+3. 先等待 lifecycle event，确认 tracked task quiescent 后零 grace；若 BPF exit fact 已出现但事件在 bounded window 内未到达，再使用 `200ms` fallback drain：正常路径事件驱动、异常路径有界，复用现有 BPF fact 和单消费者状态，选择该方案。
+
+#### 状态契约
+
+- `traceRunState` 区分 `commandLifecycleDone`、`commandLifecycleObserved` 和 `commandLifecycleFallback`。BPF map fact 首次出现时只启动 fallback deadline，不立即结束 run；Go 消费到目标 root 的 lifecycle exit/free 后才进入 observed 状态。
+- observed 状态下，command 只有在 `TraceState.TargetLifecycleQuiescent(pid)` 为 true 时才完成。当前会话内仍存活的 tracked task 被视为 child/thread 活动状态，必须继续由同一 ringbuf consumer 处理其 lifecycle/syscall 事件。
+- observed + quiescent 使用零额外 grace，随后执行一次正常 ringbuf drain；fallback 使用既有 `traceExitLifecycleDrainGrace` 作为有界保护。text 模式正常路径仍无固定等待，JSON 模式只在 fallback 或既有非 command 收尾场景保留 grace。
+- 若 lifecycle map lookup 失败，继续返回显式错误；若生命周期 event 在 fallback deadline 内到达，取消 fallback，不进入固定等待。没有 procfs 或用户态 tracee memory 作为完成条件。
+
+#### 测试与验收
+
+- 失败优先单测覆盖：BPF fact 已出现但 lifecycle event 未消费时不能 `done`；event 到达后必须进入 observed；root event 已到达但 child task 活动时不能 `done`；所有 task 清空后才允许 drain；event 永久缺失时到达 bounded fallback 并使用 fallback grace；旧 fake lifecycle reader 保持兼容 inert 语义。
+- `TraceState` 单测覆盖 command target 事件过滤、活动 task/quiescence 和无关 fork child 不污染 root completion；source policy 锁定没有新增第二消费者、timer-driven unfinished 或内存 fallback。
+- 真实验证必须比较 JSON scalar/io/lifecycle/threads 的 `trace_sec`、steady-state throughput、`lifecycle_fallback` phase 次数和 runtime error counters；semantic、small、race、vet、强制 build 与 upstream reference 继续通过。
+- 若正常 workload 的 trace window 从约 `0.3s` 降到接近 fixture 实际运行时间，同时事件数、配对、lifecycle、payload 和错误计数不变，则证明优化的是固定 drain latency；若出现尾事件缺失，立即回退到 fallback 契约，不以吞吐数字掩盖语义回归。
+
+#### 实际验证与 Review
+
+- 正常 JSON perf fixture 的事件数量保持不变：scalar `3000`、io `2001`、lifecycle `17`、threads `1604` 个 exit event；runtime reserve/copy/pending/orphan/mismatch/lifecycle-map 错误计数全部为 `0`。
+- 第二轮真实 `ebpf-perf` 的 `trace_sec` 为 `0.120/0.124/0.205/0.113s`，对应 steady-state 约 `24916/16165/83/14171 events/s`；scalar/io 相比固定 `200ms` grace 版本的 trace window 明显缩短，性能收益来自排空等待消除而非丢事件。
+- `ebpf-semantic` 通过：主事件 `205`，enter/exit `104/101`，lifecycle `6`，payload truncated `8`，所有运行时错误计数为 `0`；`small` 为 `23 PASS`；`upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、强制 `go build -a` 和 `git diff --check` 通过。终止 syscall 与 lifecycle event 的间隔由 TID 级 `lifecyclePending` 保持可见；observed 但 child 未 quiescent 时也有 bounded fallback，避免零 grace 提前结束或无限等待。
+- Review 未发现新的 ptrace/procfs/process_vm 路径、第二事件消费者或事件路径锁；`traceCommandLifecycleReader` 直接拥有 exit fact、event observation 和 quiescence 三个窄能力，避免可选接口静默回退旧行为。

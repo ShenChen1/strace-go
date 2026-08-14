@@ -88,6 +88,8 @@ type TraceState struct {
 	attachExitConfigured bool
 	commandTargetPID     uint32
 	lifecycleExited      map[uint32]struct{}
+	// lifecyclePending retains terminating TIDs until sched lifecycle confirms exit.
+	lifecyclePending     map[uint32]struct{}
 }
 
 type traceStateEventKind uint8
@@ -126,6 +128,23 @@ func (st *TraceState) PendingStaleCount() int {
 		return 0
 	}
 	return len(st.pendingSyscalls)
+}
+
+func (st *TraceState) markLifecyclePending(tid uint32) {
+	if st == nil || tid == 0 {
+		return
+	}
+	if st.lifecyclePending == nil {
+		st.lifecyclePending = make(map[uint32]struct{})
+	}
+	st.lifecyclePending[tid] = struct{}{}
+}
+
+func (st *TraceState) clearLifecyclePending(tid uint32) {
+	if st == nil || st.lifecyclePending == nil {
+		return
+	}
+	delete(st.lifecyclePending, tid)
 }
 
 func isTerminatingSyscall(view syscallEventView) bool {

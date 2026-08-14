@@ -299,6 +299,14 @@ func (r *fakeCommandLifecycleReader) TargetLifecycleExited(uint32) (bool, error)
 	return r.exited, nil
 }
 
+func (r *fakeCommandLifecycleReader) TargetLifecycleEventObserved(uint32) bool {
+	return r.exited
+}
+
+func (r *fakeCommandLifecycleReader) TargetLifecycleQuiescent(uint32) bool {
+	return true
+}
+
 func (c *fakeTraceClock) Now() time.Time {
 	return c.now
 }

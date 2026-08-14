@@ -67,6 +67,34 @@ func (st *TraceState) TargetLifecycleExited(pid uint32) (bool, error) {
 	return exited, nil
 }
 
+func (st *TraceState) TargetLifecycleEventObserved(pid uint32) bool {
+	if st == nil || pid == 0 {
+		return false
+	}
+	_, ok := st.lifecycleExited[pid]
+	return ok
+}
+
+func (st *TraceState) TargetLifecycleQuiescent(pid uint32) bool {
+	if st == nil || pid == 0 {
+		return false
+	}
+	for _, task := range st.tasks {
+		if task != nil && task.Alive {
+			return false
+		}
+	}
+	if len(st.lifecyclePending) != 0 {
+		return false
+	}
+	for _, fork := range st.pendingForks {
+		if fork.parentTGID == pid {
+			return false
+		}
+	}
+	return true
+}
+
 func (st *TraceState) setCommandTargetPID(pid int) {
 	if st == nil || pid <= 0 {
 		return

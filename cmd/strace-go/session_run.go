@@ -36,6 +36,8 @@ type traceAttachStateReader interface {
 
 type traceCommandLifecycleReader interface {
 	TargetLifecycleExited(pid uint32) (bool, error)
+	TargetLifecycleEventObserved(pid uint32) bool
+	TargetLifecycleQuiescent(pid uint32) bool
 }
 
 type systemTraceClock struct{}
@@ -53,16 +55,19 @@ func (systemTraceClock) NowMonoNs() uint64 {
 }
 
 type traceRunState struct {
-	commandExited        bool
-	commandLifecycleDone bool
-	cmdDone              <-chan traceCommandExitResult
-	targetPID            uint32
-	commandLifecycle     traceCommandLifecycleReader
-	attachExited         bool
-	attachPids           []int
-	attachState          traceAttachStateReader
-	fallbackFlush        time.Time
-	clock                traceClock
+	commandExited            bool
+	commandLifecycleDone     bool
+	commandLifecycleObserved bool
+	commandLifecycleFallback bool
+	cmdDone                  <-chan traceCommandExitResult
+	targetPID                uint32
+	commandLifecycle         traceCommandLifecycleReader
+	attachExited             bool
+	attachPids               []int
+	attachState              traceAttachStateReader
+	fallbackFlush            time.Time
+	lifecycleFallbackAt      time.Time
+	clock                    traceClock
 }
 
 type traceRunStateDeps struct {
@@ -96,11 +101,15 @@ func (s *traceSession) run() error {
 	var rec ringbuf.Record
 
 	for {
+		fallbackBefore := state.commandLifecycleFallback
 		if err := state.collect(commandExit); err != nil {
 			return errors.Join(err, s.finishRun())
 		}
+		if !fallbackBefore && state.commandLifecycleFallback {
+			s.emitDebugPhase("lifecycle_fallback")
+		}
 		if state.done() {
-			return errors.Join(eventReader.DrainAfterDone(&rec, s.exitDrainGrace()), s.finishRun())
+			return errors.Join(eventReader.DrainAfterDone(&rec, s.exitDrainGraceForState(state)), s.finishRun())
 		}
 		status, err := eventReader.Read(&rec, traceEventPollInterval)
 		if err != nil {
@@ -185,22 +194,76 @@ func (st *traceRunState) collect(commandExit *TraceCommandExitHandler) error {
 }
 
 func (st traceRunState) done() bool {
-	return st.commandExited && st.commandLifecycleDone && st.attachExited
+	if !st.commandExited || !st.commandLifecycleDone || !st.attachExited {
+		return false
+	}
+	if st.commandLifecycleFallback {
+		return true
+	}
+	if !st.commandLifecycleObserved {
+		return true
+	}
+	if st.commandLifecycle == nil {
+		return false
+	}
+	return st.commandLifecycle.TargetLifecycleQuiescent(st.targetPID)
 }
 
 func (st *traceRunState) collectCommandLifecycle() error {
-	if st == nil || st.commandLifecycleDone || !st.commandExited ||
+	if st == nil || !st.commandExited ||
 		st.targetPID == 0 || st.commandLifecycle == nil {
+		return nil
+	}
+	if st.commandLifecycleFallback {
+		return nil
+	}
+	if st.commandLifecycleObserved {
+		st.collectLifecycleQuiescence()
+		return nil
+	}
+	if st.commandLifecycleDone {
+		return nil
+	}
+	if st.commandLifecycle.TargetLifecycleEventObserved(st.targetPID) {
+		st.commandLifecycleDone = true
+		st.commandLifecycleObserved = true
+		st.commandLifecycleFallback = false
+		st.lifecycleFallbackAt = time.Time{}
+		st.collectLifecycleQuiescence()
 		return nil
 	}
 	exited, err := st.commandLifecycle.TargetLifecycleExited(st.targetPID)
 	if err != nil {
 		return fmt.Errorf("refresh command lifecycle: %w", err)
 	}
-	if exited {
+	if !exited {
+		return nil
+	}
+	now := st.now()
+	if st.lifecycleFallbackAt.IsZero() {
+		st.lifecycleFallbackAt = now.Add(traceExitLifecycleDrainGrace)
+		return nil
+	}
+	if !now.Before(st.lifecycleFallbackAt) {
 		st.commandLifecycleDone = true
+		st.commandLifecycleFallback = true
 	}
 	return nil
+}
+
+func (st *traceRunState) collectLifecycleQuiescence() {
+	if st.commandLifecycle.TargetLifecycleQuiescent(st.targetPID) {
+		st.lifecycleFallbackAt = time.Time{}
+		return
+	}
+	now := st.now()
+	if st.lifecycleFallbackAt.IsZero() {
+		st.lifecycleFallbackAt = now.Add(traceExitLifecycleDrainGrace)
+		return
+	}
+	if !now.Before(st.lifecycleFallbackAt) {
+		st.commandLifecycleFallback = true
+	}
 }
 
 func traceTargetPIDValue(pid int) uint32 {
@@ -238,6 +301,16 @@ func (s *traceSession) exitDrainGrace() time.Duration {
 		return 0
 	}
 	return traceExitLifecycleDrainGrace
+}
+
+func (s *traceSession) exitDrainGraceForState(state traceRunState) time.Duration {
+	if state.commandLifecycleFallback {
+		return traceExitLifecycleDrainGrace
+	}
+	if state.commandLifecycleObserved {
+		return 0
+	}
+	return s.exitDrainGrace()
 }
 
 func (s *traceSession) finishRun() error {

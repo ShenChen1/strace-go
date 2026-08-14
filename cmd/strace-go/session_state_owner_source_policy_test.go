@@ -42,6 +42,8 @@ func (fakeSessionStateOwner) rememberSuspendedSyscall(int, string)       {}
 func (fakeSessionStateOwner) AttachTargetsDone() bool                    { return true }
 func (fakeSessionStateOwner) RefreshAttachTargets() error                { return nil }
 func (fakeSessionStateOwner) TargetLifecycleExited(uint32) (bool, error) { return false, nil }
+func (fakeSessionStateOwner) TargetLifecycleEventObserved(uint32) bool   { return false }
+func (fakeSessionStateOwner) TargetLifecycleQuiescent(uint32) bool       { return true }
 
 func TestTraceSessionAcceptsTraceStateOwnerPort(t *testing.T) {
 	owner := fakeSessionStateOwner{}
