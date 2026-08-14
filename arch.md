@@ -9253,6 +9253,30 @@ Impact note：影响 `json_event_writer.go` 的 phase emitter 复用、`session_
 - 新 `ebpf-perf` 输出包含 `cleanup_sec` 与 `post_cleanup_unattributed_sec`。scalar 实测 `cleanup_sec=0.000061s`、`post_cleanup_unattributed_sec=0.319976s`、steady-state `9687.80 events/s`；io/lifecycle/threads 的 cleanup phase 也均在 `0.1ms` 内，post-cleanup 尾部约 `0.30~0.33s`。
 - `go test ./...`、`go test -race ./cmd/strace-go`、`go vet ./...` 和 Python perf oracle `14 OK` 通过；本阶段只增加测量边界，没有调整 drain grace 或任何资源关闭顺序。下一步若要继续降低端到端 event/s，应独立优化并验证 deferred cleanup，而不是修改吞吐分母。
 
+### 14.225 显式化 session cleanup owner 与 BPF 尾延迟归因（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.224 消除了正常 JSON workload 的固定 drain grace；14.223 只在 BPF resource group 层并行释放，仍留下约 `0.30s` 的 `cleanup_start` 后尾部。原实现由 `runTraceSession` 的五层反向 `defer` 隐式维护 output、target、reader 和 BPF owner 的生命周期。
+- Problem：隐式 defer 链能够工作，但关闭顺序、错误聚合和耗时观测分散在 composition root；无法证明新增资源一定注册、只关闭一次，也无法把端到端低 `events_per_sec` 归因到具体 owner。
+- Goal：引入单一 `traceCleanupPlan` owner，按注册逆序关闭已获取资源，继续聚合所有 cleanup error，并在 `--debug-phases` 下记录每个 cleanup step 的单调耗时。
+- Non-goals：不改变 event ABI、Ringbuf drain、事件消费者、BPF map 生命周期、输出文本、ptrace/procfs 约束；不并行不同 owner，不新增 cleanup goroutine、锁、重试或第二消费者。
+- Constraints：关闭顺序保持 `output -> target_handoff -> target_bootstrap -> ringbuf_reader -> bpf_runtime`；单步失败仍继续后续步骤；重复 `Close` 不得重复调用 closer；`errors.Is` 必须识别原始 cleanup error；普通运行不输出诊断。
+
+#### 方案比较
+
+1. 仅给现有 defer 加计时：改动小，但所有权仍隐式，注册/逆序/幂等契约不可独立测试，拒绝。
+2. 显式 cleanup plan/owner：集中生命周期、错误和 timing port，改动集中且可用 fake 验证，选择该方案。
+3. 直接并行关闭 target、reader、BPF：可能降低尾延迟，但依赖关系和内核 close contention 未证明，暂不采用。
+
+#### 实现与验证
+
+- `traceCleanupPlan` 只保存已成功获取的资源；`Add` 校验名称和 closer，`Close` 在开始时锁定 plan，随后按逆序执行并清空 step 列表，因此 setup/session 失败和正常返回都共享同一 cleanup owner。
+- `traceCleanupPhaseWriter` 仅在 `--debug-phases` 下通过独立诊断输出记录 `cleanup_output`、`cleanup_target_handoff`、`cleanup_target_bootstrap`、`cleanup_ringbuf_reader` 和 `cleanup_bpf_runtime`；它不重新打开已关闭的 session output，也不参与事件消费。
+- 失败优先测试覆盖逆序、错误继续/聚合、幂等、非法 step 和 phase 编码；性能 oracle 要求五个 cleanup phase 存在、顺序非重叠且位于 `cleanup_start` 之后。
+- 真实 `ebpf-perf` 事件数保持 scalar/io/lifecycle/threads `3000/2001/17/1604` 个 exit，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误为 `0`；`cleanup_ringbuf_reader` 约 `1.8~2.0ms`，`cleanup_bpf_runtime` 约 `0.272~0.295s`，确认端到端 event/s 的尾部主要来自 BPF runtime close，而非事件热路径。
+- `go test ./...`、Python perf 单测、强制 build 和真实 `ebpf-perf` 通过；下一阶段只针对 BPF runtime 内部资源组继续测量/优化，保留当前 cleanup owner 作为边界。
+
 ### 14.223 Parallel BPF resource teardown（2026-08-14）
 
 #### Problem 1-Pager

@@ -12,11 +12,12 @@ func TestRunTraceSessionPropagatesCleanupErrors(t *testing.T) {
 		"func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)",
 		"func joinTraceRunError(primary error, cleanup error) error",
 		"return errors.Join(primary, cleanup)",
-		"runErr = joinTraceRunError(runErr, outputHandoff.Close())",
-		"runErr = joinTraceRunError(runErr, targetHandoff.Close())",
-		"runErr = joinTraceRunError(runErr, targetBootstrap.Close())",
-		"runErr = joinTraceRunError(runErr, events.Close())",
-		"runErr = joinTraceRunError(runErr, bpfRuntime.Close())",
+		"defer func() { runErr = joinTraceRunError(runErr, cleanup.Close()) }()",
+		"cleanup.Add(\"output\", outputHandoff.Close)",
+		"cleanup.Add(\"target_handoff\", targetHandoff.Close)",
+		"cleanup.Add(\"target_bootstrap\", targetBootstrap.Close)",
+		"cleanup.Add(\"ringbuf_reader\", events.Close)",
+		"cleanup.Add(\"bpf_runtime\", bpfRuntime.Close)",
 		"joinTraceRunError(err, output.Close())",
 	} {
 		if !strings.Contains(source, required) {

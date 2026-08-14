@@ -45,7 +45,7 @@ func TestBootstrapSideEffectsStayOutsideSessionRuntime(t *testing.T) {
 	for _, required := range []string{
 		"newTraceTargetBootstrap(bpfRuntime)",
 		"targetBootstrap.Resolve(config.targets)",
-		"targetBootstrap.Close()",
+		"cleanup.Add(\"target_bootstrap\", targetBootstrap.Close)",
 	} {
 		if !strings.Contains(mainSource, required) {
 			t.Fatalf("main is missing bootstrap composition step %q", required)

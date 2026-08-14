@@ -13,6 +13,11 @@ from ebpf_event_oracles import (
     parse_stats_events,
 )
 from ebpf_semantic_checks import valid_stats_event
+from ebpf_perf_phases import (
+    REQUIRED_CLEANUP_PHASES,
+    cleanup_phase_durations,
+    validate_cleanup_phases,
+)
 from ebpf_suites import build_named_fixture, build_strace_go, run_strace_go_json
 
 
@@ -249,6 +254,7 @@ def _validate_phase_timing(capture):
         failures.append(f"{capture.name} phase timing is not monotonic")
     if phase_times[0] < ready_time:
         failures.append(f"{capture.name} trace started before ready")
+    failures.extend(validate_cleanup_phases(phases, capture.name))
     return failures
 
 
@@ -285,7 +291,11 @@ def _phase_durations(capture):
     phases = {event.get("phase"): event for event in capture.phase_events}
     if any(
         phase not in phases
-        for phase in (*REQUIRED_BPF_SETUP_PHASES, *REQUIRED_PERF_PHASES)
+        for phase in (
+            *REQUIRED_BPF_SETUP_PHASES,
+            *REQUIRED_PERF_PHASES,
+            *REQUIRED_CLEANUP_PHASES,
+        )
     ):
         return None
     ready = capture.ready_events[0]
@@ -313,6 +323,7 @@ def _phase_durations(capture):
         "post_cleanup_unattributed_sec": capture.elapsed
         - (cleanup_start - start_time) / 1_000_000_000,
     }
+    durations.update(cleanup_phase_durations(phases))
     durations.update(bpf_durations)
     durations["bpf_setup_sec"] = _phase_interval_union_seconds(
         phases, REQUIRED_BPF_SETUP_PHASES
@@ -395,6 +406,9 @@ def print_perf_capture(capture):
         print(f"trace_sec: {durations['trace_sec']:.6f}")
         print(f"finalize_start_delay_sec: {durations['finalize_start_sec']:.6f}")
         print(f"cleanup_sec: {durations['cleanup_sec']:.6f}")
+        print(f"cleanup_owner_sec: {durations['cleanup_owner_sec']:.6f}")
+        for phase in REQUIRED_CLEANUP_PHASES:
+            print(f"{phase}_sec: {durations[f'{phase}_sec']:.6f}")
         print(
             "post_cleanup_unattributed_sec: "
             f"{durations['post_cleanup_unattributed_sec']:.6f}"

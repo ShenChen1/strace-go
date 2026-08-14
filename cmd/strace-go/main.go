@@ -55,18 +55,27 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 	if clock == nil {
 		return fmt.Errorf("trace clock is nil")
 	}
+	cleanup := newTraceCleanupPlan(traceCleanupPlanDeps{
+		Clock:    clock,
+		Observer: newTraceCleanupPhaseWriter(config.session.outputPolicy, os.Stderr),
+	})
+	defer func() { runErr = joinTraceRunError(runErr, cleanup.Close()) }()
 	bootstrapStartNS := clock.NowMonoNs()
 	bpfRuntime, err := setupBPFWithConfig(clock, config.bpfConfig)
 	if err != nil {
 		return fmt.Errorf("failed to set up BPF runtime: %w", err)
 	}
-	defer func() { runErr = joinTraceRunError(runErr, bpfRuntime.Close()) }()
+	if err := cleanup.Add("bpf_runtime", bpfRuntime.Close); err != nil {
+		return fmt.Errorf("register BPF runtime cleanup: %w", err)
+	}
 
 	events, err := bpfRuntime.newEventReader()
 	if err != nil {
 		return fmt.Errorf("failed to create ringbuf reader: %w", err)
 	}
-	defer func() { runErr = joinTraceRunError(runErr, events.Close()) }()
+	if err := cleanup.Add("ringbuf_reader", events.Close); err != nil {
+		return fmt.Errorf("register ringbuf cleanup: %w", err)
+	}
 
 	if err := bpfRuntime.configure(config.bpfConfig); err != nil {
 		return fmt.Errorf("failed to configure BPF runtime: %w", err)
@@ -76,7 +85,9 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 	if err != nil {
 		return fmt.Errorf("failed to set up target bootstrap: %w", err)
 	}
-	defer func() { runErr = joinTraceRunError(runErr, targetBootstrap.Close()) }()
+	if err := cleanup.Add("target_bootstrap", targetBootstrap.Close); err != nil {
+		return fmt.Errorf("register target bootstrap cleanup: %w", err)
+	}
 
 	targetRuntime, targetPid, fdSeed, err := targetBootstrap.Resolve(config.targets)
 	if err != nil {
@@ -86,7 +97,9 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 	if err != nil {
 		return fmt.Errorf("failed to own trace targets: %w", errors.Join(err, targetBootstrap.abortTraceTarget(targetRuntime, targetPid)))
 	}
-	defer func() { runErr = joinTraceRunError(runErr, targetHandoff.Close()) }()
+	if err := cleanup.Add("target_handoff", targetHandoff.Close); err != nil {
+		return fmt.Errorf("register target cleanup: %w", err)
+	}
 
 	output, err := setupOutput(config.outputPath, config.outputAppend)
 	if err != nil {
@@ -96,7 +109,9 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 	if err != nil {
 		return fmt.Errorf("failed to own output: %w", joinTraceRunError(err, output.Close()))
 	}
-	defer func() { runErr = joinTraceRunError(runErr, outputHandoff.Close()) }()
+	if err := cleanup.Add("output", outputHandoff.Close); err != nil {
+		return fmt.Errorf("register output cleanup: %w", err)
+	}
 
 	session, err := composeTraceSession(config.session, clock, traceSessionBootstrap{
 		hasCommand:    targetRuntime != nil,
