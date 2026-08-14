@@ -3,6 +3,53 @@
 
 #include "syscall_fd_path_walk_direct_event_v2.h"
 
+static __always_inline int fd_path_nested_candidate_exists(
+    const struct fd_path_scratch *scratch,
+    s32 fd)
+{
+    u32 count = scratch->nested_fd_count;
+    return (count > 0 && scratch->nested_fd0 == fd) ||
+        (count > 1 && scratch->nested_fd1 == fd) ||
+        (count > 2 && scratch->nested_fd2 == fd) ||
+        (count > 3 && scratch->nested_fd3 == fd);
+}
+
+static __always_inline void fd_path_nested_add_candidate(
+    struct fd_path_scratch *scratch,
+    s32 fd)
+{
+    u32 count = scratch->nested_fd_count;
+    if (count >= FD_PATH_NESTED_MAX || fd_path_nested_candidate_exists(scratch, fd)) {
+        return;
+    }
+    if (count == 0) {
+        scratch->nested_fd0 = fd;
+    } else if (count == 1) {
+        scratch->nested_fd1 = fd;
+    } else if (count == 2) {
+        scratch->nested_fd2 = fd;
+    } else {
+        scratch->nested_fd3 = fd;
+    }
+    scratch->nested_fd_count = count + 1;
+}
+
+static __always_inline void fd_path_nested_add_poll_candidate(
+    struct fd_path_scratch *scratch,
+    s32 fd)
+{
+    u32 count = scratch->nested_fd_count;
+    if (count < FD_PATH_NESTED_MAX - 1) {
+        fd_path_nested_add_candidate(scratch, fd);
+        return;
+    }
+    if (fd_path_nested_candidate_exists(scratch, fd)) {
+        return;
+    }
+    scratch->nested_fd3 = fd;
+    scratch->nested_fd_count = FD_PATH_NESTED_MAX;
+}
+
 static __always_inline u32 capture_fd_cwd_path_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset)

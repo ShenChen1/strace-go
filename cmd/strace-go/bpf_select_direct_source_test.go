@@ -15,9 +15,10 @@ func TestBPFSelectPayloadsUseDirectTLV(t *testing.T) {
 	selectDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_select_direct_event_v2.h"))
 	selectCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_select_capture_direct_event_v2.h"))
 	selectEmitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_select_emit_direct_event_v2.h"))
+	fdPathEmitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_fd_path_emit_direct_event_v2.h"))
 	enterHeader := readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h"))
 	runtimeABI := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
-	selectDirectSources := runtimeABI + "\n" + enterHeader + "\n" + selectDirectHeader + "\n" + selectCaptureHeader + "\n" + selectEmitHeader
+	selectDirectSources := runtimeABI + "\n" + enterHeader + "\n" + selectDirectHeader + "\n" + selectCaptureHeader + "\n" + selectEmitHeader + "\n" + fdPathEmitHeader
 
 	for _, snippet := range []string{
 		"#define SYS_SELECT 23",
@@ -78,7 +79,7 @@ func TestBPFSelectPayloadsUseDirectTLV(t *testing.T) {
 func TestBPFSelectPathCaptureUsesTailCallFragments(t *testing.T) {
 	root := repoRootForTest(t)
 	enter := readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h"))
-	fragments := readTextFile(t, filepath.Join(root, "bpf/select_fd_path_dispatch.h"))
+	fragments := readTextFile(t, filepath.Join(root, "bpf/nested_fd_path_dispatch.h"))
 	emit := readTextFile(t, filepath.Join(root, "bpf/syscall_select_emit_direct_event_v2.h"))
 	enterRuntime := readTextFile(t, filepath.Join(root, "bpf/enter_runtime.h"))
 	runtime := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
@@ -88,28 +89,32 @@ func TestBPFSelectPathCaptureUsesTailCallFragments(t *testing.T) {
 		t.Fatal("select enter handler is missing")
 	}
 	save := strings.Index(enterBody, "save_pending_syscall_args(")
-	start := strings.Index(enterBody, "ENTER_PROG_SELECT_FD_PATH0")
+	start := strings.Index(enterBody, "ENTER_PROG_NESTED_FD_PATH0")
 	if save < 0 || start <= save {
 		t.Fatalf("select fragment order is invalid: save=%d start=%d", save, start)
 	}
 	for index := 0; index < 4; index++ {
-		name := fmt.Sprintf("enter_select_fd_path%d", index)
+		name := fmt.Sprintf("enter_nested_fd_path%d", index)
 		if !strings.Contains(fragments, "int "+name+"(") {
 			t.Fatalf("select fragment handler %s is missing", name)
 		}
-		slot := fmt.Sprintf("ENTER_PROG_SELECT_FD_PATH%d = %d", index, 47+index)
+		slot := fmt.Sprintf("ENTER_PROG_NESTED_FD_PATH%d = %d", index, 47+index)
 		if !strings.Contains(enterRuntime, slot) {
 			t.Fatalf("select fragment slot %d is missing", index)
 		}
 	}
+	pathEmit := readTextFile(t, filepath.Join(root, "bpf/syscall_fd_path_emit_direct_event_v2.h"))
 	for _, snippet := range []string{
-		"emit_select_fd_path_fragment_event_v2_direct(",
+		"emit_nested_fd_path_fragment_event_v2_direct(",
 		"EVENT_FLAG_EXIT_FRAGMENT",
 		"PAYLOAD_TLV_FD_PATH_NESTED_ARG_INDEX",
 	} {
-		if !strings.Contains(emit, snippet) {
-			t.Fatalf("select fragment emitter missing %q", snippet)
+		if !strings.Contains(pathEmit, snippet) {
+			t.Fatalf("nested fragment emitter missing %q", snippet)
 		}
+	}
+	if strings.Contains(emit, "emit_nested_fd_path_fragment_event_v2_direct(") {
+		t.Fatal("select emit provider must not own shared nested path emitter")
 	}
 	if !strings.Contains(runtime, "__uint(max_entries, 51)") {
 		t.Fatal("enter ProgArray does not reserve four select path fragment slots")

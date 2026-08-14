@@ -57,7 +57,7 @@ char LICENSE[] SEC("license") = "GPL";
 #define STRACE_GO_CORE_ONLY 1
 #include "enter_dispatch.h"
 #include "enter_fragment_dispatch.h"
-#include "select_fd_path_dispatch.h"
+#include "nested_fd_path_dispatch.h"
 #include "mmsg_enter_dispatch.h"
 #include "exit_dispatch.h"
 #include "exit_direct_dispatch.h"

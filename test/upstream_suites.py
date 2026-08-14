@@ -35,6 +35,8 @@ UPSTREAM_REFERENCE_TESTS = [
     "eventfd.test",
     "epoll_create.gen.test",
     "epoll_create1.gen.test",
+    "poll-P.test",
+    "ppoll-P.gen.test",
     "inotify_init.gen.test",
     "inotify_init1-y.gen.test",
     "signalfd4.gen.test",

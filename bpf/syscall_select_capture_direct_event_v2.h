@@ -159,17 +159,6 @@ static __always_inline u32 capture_select_timeout_tlv_direct(
     return PAYLOAD_TLV_HEADER_SIZE + copied_len;
 }
 
-static __always_inline int select_fd_candidate_exists(
-    const struct fd_path_scratch *scratch,
-    s32 fd)
-{
-    u32 count = scratch->nested_fd_count;
-    return (count > 0 && scratch->nested_fd0 == fd) ||
-        (count > 1 && scratch->nested_fd1 == fd) ||
-        (count > 2 && scratch->nested_fd2 == fd) ||
-        (count > 3 && scratch->nested_fd3 == fd);
-}
-
 static __always_inline long read_select_fdset_candidates_direct(
     struct fd_path_scratch *scratch,
     u64 user_ptr,
@@ -205,20 +194,7 @@ static long select_fd_scan_callback(u32 fd, void *data)
     if (!(scratch->nested_fdset[byte_index] & (1U << (fd & 7)))) {
         return 0;
     }
-    if (select_fd_candidate_exists(scratch, (s32)fd)) {
-        return 0;
-    }
-    u32 count = scratch->nested_fd_count;
-    if (count == 0) {
-        scratch->nested_fd0 = (s32)fd;
-    } else if (count == 1) {
-        scratch->nested_fd1 = (s32)fd;
-    } else if (count == 2) {
-        scratch->nested_fd2 = (s32)fd;
-    } else {
-        scratch->nested_fd3 = (s32)fd;
-    }
-    scratch->nested_fd_count = count + 1;
+    fd_path_nested_add_candidate(scratch, (s32)fd);
     return 0;
 }
 

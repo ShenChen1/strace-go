@@ -90,7 +90,7 @@ func TestClassifyBPFEnterProgramsByCapability(t *testing.T) {
 		{name: "enter_path_only", family: bpfHandlerFamily("enter_path")},
 		{name: "enter_iovec_base", family: bpfHandlerFamily("enter_memory")},
 		{name: "enter_network", family: bpfHandlerFamily("enter_control")},
-		{name: "enter_select_fd_path3", family: bpfHandlerFamily("enter_control")},
+		{name: "enter_nested_fd_path3", family: bpfHandlerFamily("enter_control")},
 		{name: "enter_capability", family: bpfHandlerFamily("enter_structured")},
 		{name: "enter_mmsg_bytes3", family: bpfHandlerFamily("enter_memory")},
 	}

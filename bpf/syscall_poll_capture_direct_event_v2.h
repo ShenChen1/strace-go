@@ -7,6 +7,56 @@ struct poll_fd_capture_request {
     u16 tlv_flags;
 };
 
+struct poll_fd_path_scan_context {
+    struct fd_path_scratch *scratch;
+    u64 user_ptr;
+    u32 count;
+};
+
+static long poll_fd_path_scan_callback(u32 index, void *data)
+{
+    struct poll_fd_path_scan_context *scan = data;
+    if (index >= scan->count) {
+        return 1;
+    }
+
+    s32 fd = -1;
+    u64 offset = (u64)index * POLL_DIRECT_FD_SIZE;
+    if (bpf_probe_read_user(&fd, sizeof(fd), (void *)(scan->user_ptr + offset)) < 0 ||
+        fd < 0) {
+        return 0;
+    }
+    fd_path_nested_add_poll_candidate(scan->scratch, fd);
+    return 0;
+}
+
+static __always_inline u32 collect_poll_fd_path_candidates_direct(
+    u32 sys_id,
+    u64 user_ptr,
+    u64 raw_count)
+{
+    struct fd_path_scratch *scratch = lookup_fd_path_scratch();
+    if (!scratch || !is_poll_direct_syscall(sys_id) || !user_ptr) {
+        return 0;
+    }
+
+    u64 count = poll_direct_count(sys_id, raw_count);
+    if (count == 0) {
+        return 0;
+    }
+    if (count > POLL_DIRECT_FD_SLOT_MAX) {
+        count = POLL_DIRECT_FD_SLOT_MAX;
+    }
+    scratch->nested_fd_count = 0;
+    struct poll_fd_path_scan_context scan = {
+        .scratch = scratch,
+        .user_ptr = user_ptr,
+        .count = (u32)count,
+    };
+    bpf_loop(POLL_DIRECT_FD_SLOT_MAX, poll_fd_path_scan_callback, &scan, 0);
+    return scratch->nested_fd_count;
+}
+
 static __always_inline u32 capture_poll_fds_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,

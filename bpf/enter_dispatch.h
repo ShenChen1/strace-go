@@ -352,8 +352,18 @@ int enter_aio(struct trace_event_raw_sys_enter *ctx) {
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_poll(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
+    u32 fd_path_count = 0;
+    if (cfg && (*cfg & CONFIG_FD_STATE)) {
+        fd_path_count = collect_poll_fd_path_candidates_direct(
+            sys_id,
+            ctx->args[0],
+            ctx->args[1]);
+    }
     emit_poll_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+    if (fd_path_count > 0) {
+        bpf_tail_call(ctx, &enter_progs, ENTER_PROG_NESTED_FD_PATH0);
+    }
     return 0;
 }
 
@@ -371,7 +381,7 @@ int enter_select(struct trace_event_raw_sys_enter *ctx) {
     emit_select_enter_event_v2_direct(ctx, pid, tid, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     if (fd_path_count > 0) {
-        bpf_tail_call(ctx, &enter_progs, ENTER_PROG_SELECT_FD_PATH0);
+        bpf_tail_call(ctx, &enter_progs, ENTER_PROG_NESTED_FD_PATH0);
     }
     return 0;
 }

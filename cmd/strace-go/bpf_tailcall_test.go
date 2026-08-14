@@ -20,13 +20,13 @@ func TestEnterProgArrayEntriesComplete(t *testing.T) {
 	}
 	// Every dispatcher index from enter_dispatch.h must have a slot; missing
 	// slots silently drop that syscall family.
-	for i := 1; i <= enterProgSelectFDPath3; i++ {
+	for i := 1; i <= enterProgNestedFDPath3; i++ {
 		if !seen[uint32(i)] {
 			t.Fatalf("enter prog array missing index %d", i)
 		}
 	}
-	if len(entries) != enterProgSelectFDPath3 {
-		t.Fatalf("enter prog array entries = %d, want %d", len(entries), enterProgSelectFDPath3)
+	if len(entries) != enterProgNestedFDPath3 {
+		t.Fatalf("enter prog array entries = %d, want %d", len(entries), enterProgNestedFDPath3)
 	}
 }
 
@@ -134,10 +134,10 @@ func TestEnterProgIndicesMatchDispatchHeader(t *testing.T) {
 		"ENTER_PROG_AIO_BUF":           enterProgAioBuf,
 		"ENTER_PROG_QUOTA":             enterProgQuota,
 		"ENTER_PROG_MOUNT_PATH":        enterProgMountPath,
-		"ENTER_PROG_SELECT_FD_PATH0":   enterProgSelectFDPath0,
-		"ENTER_PROG_SELECT_FD_PATH1":   enterProgSelectFDPath1,
-		"ENTER_PROG_SELECT_FD_PATH2":   enterProgSelectFDPath2,
-		"ENTER_PROG_SELECT_FD_PATH3":   enterProgSelectFDPath3,
+		"ENTER_PROG_NESTED_FD_PATH0":   enterProgNestedFDPath0,
+		"ENTER_PROG_NESTED_FD_PATH1":   enterProgNestedFDPath1,
+		"ENTER_PROG_NESTED_FD_PATH2":   enterProgNestedFDPath2,
+		"ENTER_PROG_NESTED_FD_PATH3":   enterProgNestedFDPath3,
 	}
 	for name, val := range pairs {
 		if !strings.Contains(header, fmt.Sprintf("%s = %d", name, val)) {

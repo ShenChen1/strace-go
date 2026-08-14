@@ -97,13 +97,13 @@ type bpfEnterControlProgramSpecs struct {
 	EnterFs            *ebpf.ProgramSpec `ebpf:"enter_fs"`
 	EnterIoctl         *ebpf.ProgramSpec `ebpf:"enter_ioctl"`
 	EnterKey           *ebpf.ProgramSpec `ebpf:"enter_key"`
+	EnterNestedFdPath0 *ebpf.ProgramSpec `ebpf:"enter_nested_fd_path0"`
+	EnterNestedFdPath1 *ebpf.ProgramSpec `ebpf:"enter_nested_fd_path1"`
+	EnterNestedFdPath2 *ebpf.ProgramSpec `ebpf:"enter_nested_fd_path2"`
+	EnterNestedFdPath3 *ebpf.ProgramSpec `ebpf:"enter_nested_fd_path3"`
 	EnterNetwork       *ebpf.ProgramSpec `ebpf:"enter_network"`
 	EnterPoll          *ebpf.ProgramSpec `ebpf:"enter_poll"`
 	EnterSelect        *ebpf.ProgramSpec `ebpf:"enter_select"`
-	EnterSelectFdPath0 *ebpf.ProgramSpec `ebpf:"enter_select_fd_path0"`
-	EnterSelectFdPath1 *ebpf.ProgramSpec `ebpf:"enter_select_fd_path1"`
-	EnterSelectFdPath2 *ebpf.ProgramSpec `ebpf:"enter_select_fd_path2"`
-	EnterSelectFdPath3 *ebpf.ProgramSpec `ebpf:"enter_select_fd_path3"`
 	EnterXattr         *ebpf.ProgramSpec `ebpf:"enter_xattr"`
 }
 
@@ -241,13 +241,13 @@ type bpfEnterControlPrograms struct {
 	EnterFs            *ebpf.Program `ebpf:"enter_fs"`
 	EnterIoctl         *ebpf.Program `ebpf:"enter_ioctl"`
 	EnterKey           *ebpf.Program `ebpf:"enter_key"`
+	EnterNestedFdPath0 *ebpf.Program `ebpf:"enter_nested_fd_path0"`
+	EnterNestedFdPath1 *ebpf.Program `ebpf:"enter_nested_fd_path1"`
+	EnterNestedFdPath2 *ebpf.Program `ebpf:"enter_nested_fd_path2"`
+	EnterNestedFdPath3 *ebpf.Program `ebpf:"enter_nested_fd_path3"`
 	EnterNetwork       *ebpf.Program `ebpf:"enter_network"`
 	EnterPoll          *ebpf.Program `ebpf:"enter_poll"`
 	EnterSelect        *ebpf.Program `ebpf:"enter_select"`
-	EnterSelectFdPath0 *ebpf.Program `ebpf:"enter_select_fd_path0"`
-	EnterSelectFdPath1 *ebpf.Program `ebpf:"enter_select_fd_path1"`
-	EnterSelectFdPath2 *ebpf.Program `ebpf:"enter_select_fd_path2"`
-	EnterSelectFdPath3 *ebpf.Program `ebpf:"enter_select_fd_path3"`
 	EnterXattr         *ebpf.Program `ebpf:"enter_xattr"`
 }
 
@@ -258,13 +258,13 @@ func (p *bpfEnterControlPrograms) Close() error {
 		p.EnterFs,
 		p.EnterIoctl,
 		p.EnterKey,
+		p.EnterNestedFdPath0,
+		p.EnterNestedFdPath1,
+		p.EnterNestedFdPath2,
+		p.EnterNestedFdPath3,
 		p.EnterNetwork,
 		p.EnterPoll,
 		p.EnterSelect,
-		p.EnterSelectFdPath0,
-		p.EnterSelectFdPath1,
-		p.EnterSelectFdPath2,
-		p.EnterSelectFdPath3,
 		p.EnterXattr,
 	)
 }

@@ -15,6 +15,7 @@ func TestBPFSelectSplitsCaptureAndEmitOwnership(t *testing.T) {
 	facade := read("syscall_select_direct_event_v2.h")
 	capture := read("syscall_select_capture_direct_event_v2.h")
 	emit := read("syscall_select_emit_direct_event_v2.h")
+	pathEmit := read("syscall_fd_path_emit_direct_event_v2.h")
 
 	for _, include := range []string{
 		`#include "syscall_select_capture_direct_event_v2.h"`,
@@ -53,7 +54,6 @@ func TestBPFSelectSplitsCaptureAndEmitOwnership(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"emit_select_enter_event_v2_direct(",
-		"emit_select_fd_path_fragment_event_v2_direct(",
 		"emit_select_exit_event_v2_direct(",
 		"bpf_ringbuf_reserve_dynptr(",
 		"bpf_ringbuf_submit_dynptr(",
@@ -77,6 +77,15 @@ func TestBPFSelectSplitsCaptureAndEmitOwnership(t *testing.T) {
 	}
 	if strings.Contains(emit, "bpf_probe_read_user(") {
 		t.Fatal("select emit provider must not own user memory reads")
+	}
+	for _, snippet := range []string{
+		"emit_nested_fd_path_fragment_event_v2_direct(",
+		"EVENT_FLAG_EXIT_FRAGMENT",
+		"PAYLOAD_TLV_FD_PATH_NESTED_ARG_INDEX",
+	} {
+		if !strings.Contains(pathEmit, snippet) {
+			t.Fatalf("shared FD path emitter missing %q", snippet)
+		}
 	}
 	scanStart := strings.Index(capture, "static __always_inline void collect_select_fdset_candidates_direct(")
 	collectorStart := strings.Index(capture, "static __always_inline u32 collect_select_fd_path_candidates_direct(")

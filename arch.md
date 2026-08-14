@@ -9565,3 +9565,30 @@ Impact note：影响 select enter BPF candidate capture/fragment route、共享 
 - 实际验收：`select-P.gen.test` 从 0/1 修复为 1/1 exact PASS；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 BPF 重新生成均通过；`ebpf-semantic` 为 197 主事件、100/97 enter/exit、6 lifecycle，runtime error counters 全零；`small` 为 23 PASS；upstream reference 为 117 PASS、2 个既有 XFAIL、0 FAIL。
 - 性能复测：scalar 端到端/trace 为 `6134.82/22786.19 exit events/s`，I/O trace 为 `16179.50/s`，threads trace 为 `14353.68/s`；对比改动前同轮 scalar `6154.88/23390.69`，端到端约 `-0.3%`、短 trace 窗口约 `-2.6%`，在噪声范围内。默认 workload 不加载 enter-control collection，Go decode 和普通 JSON writer 仍为 0 alloc，所有 reserve/copy/pending/orphan/mismatch/stale 计数为 0。
 - Review：未发现 ptrace、procfs、process_vm 或第二消费者回流；普通 payload 的去重规则不变，nested snapshot 不再被误解为 syscall argument。明确保留边界：每次 select 最多 4 个唯一 FD，当前尚未扩展到 poll/epoll 的嵌套 FD path。
+
+### 14.234 为 poll/ppoll 嵌套 FD 捕获 probe-site path（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.233 已让 select 在 probe site 捕获最多 4 个 nested FD path，但 `poll/ppoll` 仍只有 `pollfd[]` 的 bounded struct payload。`-P` 过滤无法从异步用户态 payload 可靠恢复每个 fd 的内核 path。
+- Problem：用户态不能在事件产生后通过 procfs、process_vm 或 ptrace 补读；如果只依赖 tracer 启动时继承的 FD state，会遗漏事件前打开或重用的 fd。`pollfd[]` 又可能包含最多 64 个条目，不能为每个条目生成独立的 dentry walk 控制流。
+- Goal：在 `poll/ppoll` enter probe site 读取最多 64 个 `pollfd.fd`，收集最多 4 个唯一候选；先保留前 3 个，再持续扫描并用最后一个新候选替换第 4 个槽位。正常 enter/pending 保存完成后，通过 4 个通用 tail-call fragment 复用 CO-RE FD path walker，输出带实际 fd 号的 nested `FD_PATH` fragment。
+- Non-goals：不扫描 procfs 或完整 fdtable，不增加 Ringbuf 中每个 pollfd 的路径事件，不承诺超过 64 个条目或超过 4 个候选时的全量路径，不扩展本阶段的 epoll nested FD path。
+- Constraints：候选收集仅在 `CONFIG_FD_STATE` 下启用；`ppoll` count 必须经过现有 syscall-specific normalization；扫描使用 `bpf_loop`，候选窗口始终为 4；fragment tail call 必须晚于正常 enter emit 和 pending save；不增加用户态消费者、锁或运行期文件系统读取。
+
+Impact note：影响 poll enter candidate capture、通用 nested FD path dispatcher、FD path emitter、ProgArray 槽位和对应 source/upstream 测试；select 的输出 ABI、普通 poll payload、单 Goroutine event state machine 与无 `-P` workload 的热路径保持不变。
+
+#### 方案比较
+
+1. 用户态从 pollfd payload 推断路径或使用启动时 FD seed：改动小，但存在事件时点竞争、FD 重用和硬链接误判，不能满足 probe-site 语义，拒绝。
+2. 为 64 个 pollfd 都生成路径 fragment：路径覆盖完整，但 Ringbuf、verifier 和 syscall enter 成本随条目数放大，违反 bounded event 设计，拒绝。
+3. `bpf_loop` 扫描 64 个 fd、保留前 3 个加最后一个唯一候选，再用 4 个固定 tail-call fragment 分段捕获：内核工作量和 wire 上限明确，保留事件时点语义，选择。
+
+#### 测试与验收
+
+- 失败优先 source test 首先要求存在通用 nested dispatcher、probe-site `bpf_probe_read_user`、`bpf_loop`、`CONFIG_FD_STATE` 门控、pending save 先于 tail call，以及 4 个 fragment 槽位；缺少 dispatcher 时先失败。随后增加回归断言，禁止扫描器在候选窗口填满后提前停止，确保最后一个新 fd 仍可替换第 4 个槽位。
+- 首轮真实原生验证中，`poll-P.test` 为失败：包含 fd9 的有效 pollfd 数组没有产生成功 nested path fragment；debug event 显示扫描在第 4 个候选处提前结束。把停止条件改为只在用户数组耗尽时返回后，fd9 path 在 probe site 成功捕获。
+- 精确原生测试最终通过：`poll-P.test` PASS，`ppoll-P.gen.test` PASS；两者均通过 `test/strace-sudo.sh`，并纳入 `upstream-reference` 持续门禁。
+- 完整快速门禁通过：`go test ./...`、`go test -race ./...`、`go vet ./...`、`sudo ./build.sh`；`ebpf-semantic` 主事件 197 个、enter/exit `100/97`、lifecycle 6 个，reserve/copy/pending/orphan/mismatch/stale counters 全为 0；`small` 为 23 PASS；参考集合加入两个测试后实际为 119 PASS、2 个既有 XFAIL、0 FAIL/XPASS。完整集合中 `msg_control.gen.test` 曾出现一次调度相关的截断 FAIL，随后单测与完整重跑均 PASS，不作为本阶段回归。
+- 当前 scalar 性能样本为端到端 `5942.89 exit events/s`、steady-state trace `25127.59 exit events/s`；setup `0.179871s`，cleanup owner `0.190128s`，固定 teardown 仍明显稀释短 workload 的端到端口径。Go decode/raw JSON writer 保持 0 alloc，所有 perf runtime counters 为 0。后续报告继续同时使用 trace rate 与 endpoint rate，不把 cleanup 尾部误判为 BPF syscall 热路径下降。
+- Review：select 专用 dispatcher 已收敛为通用 nested FD path dispatcher，生成 BPF binding、ProgArray 名称和 source gates 已同步；未引入 ptrace、procfs、process_vm、第二事件消费者或用户态锁。明确保留边界：当前仍只覆盖 poll/ppoll 最多 64 个条目中的 4 个 nested FD path，epoll nested FD path 尚未实现。
