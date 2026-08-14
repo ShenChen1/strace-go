@@ -9453,3 +9453,27 @@ Impact note：影响 BPF sched-exit lifecycle cleanup、`task_state.go` 的 exec
 - 最终真实 semantic 通过：thread 为 `24` 个 syscall events、`5` 个 lifecycle events，non-leader exec exit 配对、TaskState 迁移、最终 executable 保留和 superseded/resumed 文本均成立；主 fixture 仍为 `205` events（enter/exit `104/101`），所有 reserve/copy/pending/orphan/mismatch/lifecycle-map counter 为 `0`。
 - 最终真实 perf 通过：scalar end-to-end/trace exit rate 为 `5861.07/22113.97`，io 为 `3930.88/16341.28`，lifecycle 为 `27.34/82.83`，threads 为 `3251.27/14685.99`；所有 workload 的 pending stale 和错误 counter 为 `0`。该 guard 只运行于 sched exit，不进入 syscall 热路径。
 - 完整门禁通过：`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a`；Python semantic oracle `18 OK`、perf oracle `18 OK`、runner unit `8 OK`；原生 `small` 为 `23 PASS`，`upstream-reference` 为 `117 PASS`、2 个既有 expected XFAIL，无 FAIL/XPASS。
+
+### 14.230 按职责拆分超限 Go 测试文件（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：项目硬约束要求源码文件不超过 500 行；当前 `event_state_test.go`、`syscall_event_context_test.go` 和 `product_source_policy_test.go` 分别为 560、558 和 506 行，并继续承担新架构契约。
+- Problem：状态配对与 payload 所有权、event context 构造与输出策略、产品 policy 用例与 AST scanner 分别混在同一文件；继续追加测试会扩大职责边界并持续违反文件限制。
+- Goal：把完整测试组按意图迁移到聚焦文件，保持全部测试名称、断言、helper 单一所有权和测试发现清单不变，并让所有非生成 Go 测试文件不超过 500 行。
+- Non-goals：不修改产品 Go/BPF 代码、event ABI、运行时行为、fixture、输出、性能公式或生成文件；本阶段不抽象新的通用测试框架。
+- Constraints：移动前后 `cmd/strace-go` 的 910 个 `Test*` 函数清单哈希必须保持 `65c6ab5ae87236686fe068fd1cc7f69ae79b3b33373e07876cae963af5cfc54f`；共享 helper 只能保留一个定义；`strace-upstream` 工作区状态不变。
+
+Impact note：只影响 `cmd/strace-go` 下三个现有测试文件、按职责新增的测试文件和本文档；产品构建产物、运行时依赖图与纯 eBPF 约束不变。
+
+#### 方案比较
+
+1. 豁免测试文件的 500 行限制：没有代码移动，但直接违反硬约束并继续扩大混合职责，拒绝。
+2. 移动完整测试组到意图明确的新文件：不改变测试行为，边界清晰，能通过测试清单哈希直接证明无删改，选择。
+3. 引入通用测试 DSL 或共享 framework：可能减少局部样板，但会增加抽象和迁移风险，本阶段没有足够重复收益，拒绝。
+
+#### 测试与验收
+
+- 每拆分一个原文件，运行 `gofmt`、focused package test、测试名称清单哈希和文件行数检查，并以独立提交记录。
+- 全部拆分后运行 `go test ./...`、`go test -race ./...`、`go vet ./...`、非生成 Go 测试文件 500 行 gate 和 `git diff --check`。
+- 本阶段没有产品代码变化，因此不重复运行真实 eBPF、性能和 upstream suite；最终 review 必须确认测试函数没有删除、重命名、复制或弱化。
