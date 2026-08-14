@@ -47,9 +47,11 @@ func loadBPFSources(t *testing.T) bpfSourceGateSources {
 		waitidDirectHeader:     readTextFile(t, filepath.Join(root, "bpf/syscall_waitid_direct_event_v2.h")),
 		signalDirectHeader:     readTextFile(t, filepath.Join(root, "bpf/syscall_signal_direct_event_v2.h")),
 		pathStatDirectHeader:   readTextFile(t, filepath.Join(root, "bpf/syscall_path_stat_direct_event_v2.h")),
-		readlinkDirectHeader:   readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_direct_event_v2.h")),
-		timeDirectHeader:       readTimeDirectEventSources(t),
-		fdStateHeader:          readTextFile(t, filepath.Join(root, "bpf/syscall_fd_state_direct_event_v2.h")),
+		readlinkDirectHeader: readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_direct_event_v2.h")) +
+			"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_capture_direct_event_v2.h")) +
+			"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_emit_direct_event_v2.h")),
+		timeDirectHeader: readTimeDirectEventSources(t),
+		fdStateHeader:    readTextFile(t, filepath.Join(root, "bpf/syscall_fd_state_direct_event_v2.h")),
 	}
 }
 

@@ -8633,3 +8633,47 @@ Impact note：`strace.c` 仍只 include `syscall_key_direct_event_v2.h`；`enter
 - 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、attach、pending state、事件 ABI 或单消费者事件循环；capture provider 没有 ringbuf lifecycle，emit provider 没有用户内存读取，也没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
 - 失败路径仍显式保留：空指针、string/bytes probe、dynptr data/write、TLV header、ringbuf reserve、header/body write 和 submit/discard 的错误处理与拆分前一致；source gate 防止 capture provider重新拥有 emitter，也防止 emit provider 重新拥有 user read。
 - `keyctl` 的四项精确文本失败已通过父提交 binary A/B 排除本阶段回归；本阶段仅修改 key facade、capture/emit provider、相关 source gates 和本记录，`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.207 拆分 readlink capture 与 emit ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：`readlink/readlinkat` 在 enter 阶段立即快照路径字符串，在 exit 阶段根据成功返回长度快照 OUT buffer；用户态只消费两个时点的 TLV snapshot。
+- Problem：`bpf/syscall_readlink_direct_event_v2.h` 原为 247 行，同时拥有 syscall selector、readlinkat 参数策略、enter/exit 用户内存读取、TLV composer 和两个 ringbuf emitter，无法独立审计 bounded capture 与事件提交的边界。
+- Goal：保留 readlink facade 的常量、selector 和 buffer 参数策略；capture provider 独占 enter path/exit bytes snapshot；emit provider 独占 enter/exit ringbuf 生命周期，保持 TLV 顺序、arg index、上限、失败统计、pending 配对、事件 ABI 和路由不变。
+- Non-goals：不改变 `enter_readlink`、通用 exit handler、Go decoder/formatter、过滤、生命周期或原生文本契约，也不引入 ptrace、procfs 或 Go 侧用户内存读取。
+- Constraints：先用失败优先 ownership gate；capture 可调用 `bpf_probe_read_user*` 但不能拥有 ringbuf lifecycle，emit 不能直接读取用户内存；生产 header 与 source test 不超过 500 行，函数参数不超过 5 个；通过真实 verifier、Go fast/race/vet、semantic/perf、串行 small 和 readlink 原生参考测试。
+
+Impact note：`strace.c` 仍只 include `syscall_readlink_direct_event_v2.h`；`enter_dispatch.h` 继续调用 `emit_readlink_enter_event_v2_direct` 并保存 pending，`exit_dispatch.h`/generic exit 继续调用 `emit_readlink_exit_event_v2_direct`。`bpf_source_gate_helpers_test.go` 只把三个 provider 拼成观察视图，改动不改变 `enter_progs`、`exit_progs`、map、ringbuf ABI 或 Go 单消费者。
+
+#### 方案比较
+
+1. 保留 247 行单文件并只增加注释：运行时改动最小，但 selector、用户内存读取、TLV composer 和 ringbuf lifecycle 仍耦合，无法独立审查，拒绝。
+2. 按 readlink enter 与 readlinkat enter 再分别拆 provider：可以细化 syscall 差异，但会复制相同的路径/OUT bounded policy，增加 include、verifier 和 source oracle 复杂度，拒绝。
+3. facade + 共享 capture provider + 共享 emit provider：两种 syscall 复用同一 snapshot policy，职责边界完整，include 和调用图变化局部，选择该方案。
+
+#### 状态契约
+
+- `syscall_readlink_direct_event_v2.h` 从 247 行降为 31 行，只拥有 `READLINK_DIRECT_*` 上限、`is_readlink_direct_syscall`、buffer arg index/user pointer policy 和按 capture 后 emit 顺序的 provider include。
+- `syscall_readlink_capture_direct_event_v2.h` 为 104 行，拥有 `capture_readlink_path_tlv_direct` 与 `capture_readlink_bytes_tlv_direct`；enter path 使用 bounded string read，exit bytes 使用返回值 clamp/copy、OUT direction、truncated/error 统计和 TLV header 写入；它不拥有 ringbuf reserve/submit。
+- `syscall_readlink_emit_direct_event_v2.h` 为 128 行，拥有 enter/exit emitter，负责 reserve/discard、event header/body write、payload flag、timestamp 和 submit；它只调用 capture helper，不直接调用 `bpf_probe_read_user*`。
+- 为满足 verifier 和函数参数限制，enter emitter 在 probe 入口按固定 `ctx->args[0..5]` 偏移复制 `readlink_enter_request`，随后只消费 request 中的 args/path arg/user pointer。这样保持 `readlinkat` 路径 arg 1、`readlink` 路径 arg 0，同时避免在 ringbuf/capture 逻辑中再次解引用原始 ctx。
+- readlink enter 的 path string、readlinkat enter 的 path string、exit 的 buffer bytes、payload capacity、`PAYLOAD_TLV_FLAG_DIRECTION_OUT`、`EVENT_FLAG_PAYLOAD_TLV`、`EVENT_FLAG_TRUNCATED`、probe/copy 失败处理、pending save/consume 和 generic exit 分发均保持不变；没有新增 map、scratch、tail call、锁、goroutine、定时器或运行期 procfs/ptrace 依赖。
+
+#### 测试与验收
+
+- 失败优先 gate 按预期失败：`TestBPFReadlinkHasDedicatedCaptureAndEmitOwnership` 首次运行时 capture/emit provider 文件不存在。实现后该测试检查 facade include 顺序、policy ownership、两类 capture helper、enter/exit emitter、capture 无 ringbuf lifecycle、emit 无 user memory read 和文件行数，并通过。
+- 初次拆分后的 direct-TLV source gate 通过，但 `ebpf-semantic` 首次运行暴露真实 verifier 错误：`enter_readlink` 报告 `dereference of modified ctx ptr`。随后先增加 request args 复制断言使源码测试失败，再将 6 个固定 ctx 参数复制到 `readlink_enter_request`；修复后的 source gate 和 verifier 均通过。
+- `TestBPFBytesPayloadsUseDirectTLV` 已改为读取 facade、capture、emit 的组合视图；readlink payload section、TLV context merge、JSON OUT buffer 和 handler snapshot-only 测试通过。
+- `sudo -n ./build.sh` 通过，真实 clang/BPF verifier 接受 request snapshot 和新的 include translation unit；修复后 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14207 ./cmd/strace-go` 和 `git diff --check` 均通过。
+- 三个生产 header 分别为 31、104、128 行，ownership source test 为 99 行，相关函数参数均不超过 5 个；`bpf_payload_tlv_source_test.go` 为 453 行，`bpf_source_gate_helpers_test.go` 为 204 行，均满足仓库限制。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `334.90 ns/op、0 B/op、0 allocs/op`，JSON writer `504.90 ns/op、0 B/op、0 allocs/op`，decoded writer `614.10 ns/op、0 B/op、0 allocs/op`，decoded payload writer `885.70 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `403.17/269.90/2.25/220.76 events/s`，所有运行时错误计数为 0。
+- 串行 sudo `small` 通过 `23 PASS / 0 FAIL`；原生 `readlink.gen.test` 与 `readlinkat.gen.test` 均返回 `0`，覆盖失败路径、enter path string、exit OUT bytes 和 readlinkat 参数偏移。
+
+#### Review 结论
+
+- 未发现运行时行为回归：readlink selector、固定 ctx args snapshot、路径/OUT buffer capture 时点、TLV offset/arg/flags、payload capacity、event header/body、reserve/submit/discard、pending consume 和 generic exit 调用图均与拆分前一致；修复后的 verifier、semantic/perf、small 和两项原生测试通过。
+- 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、pending map、事件 ABI、单消费者状态机或 Go handler；capture provider 没有 ringbuf lifecycle，emit provider 没有用户内存读取，也没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
+- 失败路径仍显式保留：空指针、string/bytes probe、dynptr data/write、TLV header、reserve、header/body write 和 submit/discard 的错误处理与拆分前一致；request snapshot source gate 额外锁定 verifier 所需的固定偏移读取顺序。
+- 本阶段只修改 readlink facade/capture/emit、相关 source gate 和架构记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

@@ -348,8 +348,9 @@ func TestBPFBytesPayloadsUseDirectTLV(t *testing.T) {
 		!strings.Contains(readlinkDirectHeader, "READLINK_DIRECT_BYTES_MAX 512") ||
 		!strings.Contains(readlinkDirectHeader, "emit_readlink_enter_event_v2_direct(") ||
 		!strings.Contains(readlinkDirectHeader, "emit_readlink_exit_event_v2_direct(") ||
-		!strings.Contains(readlinkDirectHeader, "ctx, ts_ns, 1, ctx->args[1]") ||
-		!strings.Contains(readlinkDirectHeader, "ctx, ts_ns, 0, ctx->args[0]") ||
+		!strings.Contains(readlinkDirectHeader, "path_arg = 1;") ||
+		!strings.Contains(readlinkDirectHeader, "request.user_ptr = request.args[1];") ||
+		!strings.Contains(readlinkDirectHeader, "request.user_ptr = request.args[0];") ||
 		!strings.Contains(readlinkDirectHeader, "return p->args[2];") ||
 		!strings.Contains(readlinkDirectHeader, "PAYLOAD_TLV_KIND_BYTES") ||
 		!strings.Contains(readlinkDirectHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") ||
