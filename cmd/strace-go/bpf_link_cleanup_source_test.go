@@ -14,10 +14,10 @@ func TestBPFLinkCleanupPropagatesErrors(t *testing.T) {
 		source   string
 		required string
 	}{
-		{source: attachSource, required: "func closeTracepointLinks(links []link.Link) error"},
+		{source: attachSource, required: "func closeTracepointLinksParallelWithDiagnostics("},
 		{source: attachSource, required: "errors.Join"},
-		{source: runtimeSource, required: "linkErr := closeTracepointLinks(links)"},
-		{source: runtimeSource, required: "return errors.Join(linkErr, closeBPFResourcesParallel(resources))"},
+		{source: runtimeSource, required: "linkErr := closeTracepointLinksParallelWithDiagnostics(links, clock, observer)"},
+		{source: runtimeSource, required: "return errors.Join(linkErr, closeNamedBPFResourcesParallel(namedResources, clock, observer))"},
 	}
 	for _, check := range checks {
 		if !strings.Contains(check.source, check.required) {

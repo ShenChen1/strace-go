@@ -60,6 +60,8 @@ def make_capture(events=None, lifecycle_events=None, stats=None, returncode=0):
             {"type": "phase", "phase": "cleanup_target_handoff", "start_time_ns": 304, "time_ns": 305},
             {"type": "phase", "phase": "cleanup_target_bootstrap", "start_time_ns": 305, "time_ns": 306},
             {"type": "phase", "phase": "cleanup_ringbuf_reader", "start_time_ns": 306, "time_ns": 307},
+            {"type": "phase", "phase": "cleanup_bpf_links", "start_time_ns": 307, "time_ns": 307},
+            {"type": "phase", "phase": "cleanup_bpf_core_objects", "start_time_ns": 307, "time_ns": 307},
             {"type": "phase", "phase": "cleanup_bpf_runtime", "start_time_ns": 307, "time_ns": 308},
         ],
     )
@@ -280,6 +282,34 @@ class PerfOracleTests(unittest.TestCase):
         failures = validate_perf_capture(capture, spec)
 
         self.assertTrue(any("cleanup_bpf_runtime" in failure for failure in failures))
+
+    def test_rejects_missing_bpf_cleanup_phase(self):
+        spec = PerfWorkloadSpec(name="scalar", minimum_exit_counts=(('getpid', 1),))
+        capture = make_capture(
+            events=[{"syscall": "getpid", "event_type": "exit", "paired_enter": True}],
+        )
+        capture.phase_events = [
+            event
+            for event in capture.phase_events
+            if event.get("phase") != "cleanup_bpf_links"
+        ]
+
+        failures = validate_perf_capture(capture, spec)
+
+        self.assertTrue(any("cleanup_bpf_links" in failure for failure in failures))
+
+    def test_rejects_overlapping_bpf_link_and_core_cleanup(self):
+        spec = PerfWorkloadSpec(name="scalar", minimum_exit_counts=(('getpid', 1),))
+        capture = make_capture(
+            events=[{"syscall": "getpid", "event_type": "exit", "paired_enter": True}],
+        )
+        for event in capture.phase_events:
+            if event.get("phase") == "cleanup_bpf_core_objects":
+                event["start_time_ns"] = 306
+
+        failures = validate_perf_capture(capture, spec)
+
+        self.assertTrue(any("overlaps link cleanup" in failure for failure in failures))
 
 
 if __name__ == "__main__":

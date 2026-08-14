@@ -17,7 +17,7 @@ func TestRunTraceSessionPropagatesCleanupErrors(t *testing.T) {
 		"cleanup.Add(\"target_handoff\", targetHandoff.Close)",
 		"cleanup.Add(\"target_bootstrap\", targetBootstrap.Close)",
 		"cleanup.Add(\"ringbuf_reader\", events.Close)",
-		"cleanup.Add(\"bpf_runtime\", bpfRuntime.Close)",
+		"return bpfRuntime.closeWithDiagnostics(clock, cleanupObserver)",
 		"joinTraceRunError(err, output.Close())",
 	} {
 		if !strings.Contains(source, required) {

@@ -213,22 +213,51 @@ func (r *traceBPFRuntime) armedForkPID() (uint32, bool) {
 
 // Close releases links before maps/programs and is safe to call repeatedly.
 func (r *traceBPFRuntime) Close() error {
+	return r.closeWithDiagnostics(nil, nil)
+}
+
+func (r *traceBPFRuntime) closeWithDiagnostics(
+	clock traceClock,
+	observer traceCleanupObserver,
+) error {
 	if r == nil {
 		return nil
 	}
 	links := r.links
 	r.links = nil
-	linkErr := closeTracepointLinks(links)
-	resources := make([]io.Closer, 0, len(r.handlerClosers)+len(r.extraClosers)+1)
-	resources = append(resources, r.handlerClosers...)
+	linkStartNS := cleanupClockNowNS(clock)
+	linkErr := closeTracepointLinksParallelWithDiagnostics(links, clock, observer)
+	recordBPFResourceTiming(observer, "bpf_links", linkStartNS, cleanupClockNowNS(clock))
+	namedResources := make([]traceBPFResource, 0, len(r.handlerClosers)+len(r.extraClosers)+1)
+	for index, closer := range r.handlerClosers {
+		namedResources = append(namedResources, traceBPFResource{
+			Name:   fmt.Sprintf("bpf_handler_%d", index),
+			Closer: closer,
+		})
+	}
 	r.handlerClosers = nil
 	if r.objects != nil {
-		resources = append(resources, r.objects)
+		namedResources = append(namedResources, traceBPFResource{
+			Name:   "bpf_core_objects",
+			Closer: r.objects,
+		})
 	}
-	resources = append(resources, r.extraClosers...)
+	for index, closer := range r.extraClosers {
+		namedResources = append(namedResources, traceBPFResource{
+			Name:   fmt.Sprintf("bpf_extra_%d", index),
+			Closer: closer,
+		})
+	}
 	r.extraClosers = nil
 	r.objects = nil
-	return errors.Join(linkErr, closeBPFResourcesParallel(resources))
+	return errors.Join(linkErr, closeNamedBPFResourcesParallel(namedResources, clock, observer))
+}
+
+func recordBPFResourceTiming(observer traceCleanupObserver, name string, startNS uint64, endNS uint64) {
+	if observer == nil {
+		return
+	}
+	observer.RecordCleanupStep(traceCleanupTiming{Name: name, StartNS: startNS, EndNS: endNS})
 }
 
 var _ traceBPFTargetPort = (*traceBPFRuntime)(nil)

@@ -9277,6 +9277,30 @@ Impact note：影响 `json_event_writer.go` 的 phase emitter 复用、`session_
 - 真实 `ebpf-perf` 事件数保持 scalar/io/lifecycle/threads `3000/2001/17/1604` 个 exit，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误为 `0`；`cleanup_ringbuf_reader` 约 `1.8~2.0ms`，`cleanup_bpf_runtime` 约 `0.272~0.295s`，确认端到端 event/s 的尾部主要来自 BPF runtime close，而非事件热路径。
 - `go test ./...`、Python perf 单测、强制 build 和真实 `ebpf-perf` 通过；下一阶段只针对 BPF runtime 内部资源组继续测量/优化，保留当前 cleanup owner 作为边界。
 
+### 14.226 并行关闭独立 tracepoint links（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.225 的内部 timing 显示 `cleanup_bpf_runtime` 的主要部分不是 core objects 或 handler collections，而是 6 个 raw syscall/lifecycle perf-event link 的串行关闭；单个 link 约 `42~57ms`，总计约 `285ms`。
+- Problem：`closeTracepointLinks` 按 attach 顺序串行调用每个 `link.Close()`。这些 link 在事件 drain 完成后不共享用户态状态，串行等待会把每个 perf-event detach 的固定内核等待时间累加到 endpoint 分母。
+- Goal：在 runtime 正常收尾中并行关闭已建立的 tracepoint links，等所有 link worker 完成后再关闭 BPF programs/maps；保留 partial-attach rollback 的串行路径和原错误上下文。
+- Non-goals：不改变 attach 顺序、tracepoint 集合、BPF program/map close 顺序、事件 ABI、Ringbuf drain、filter/lifecycle 事实或单消费者事件循环；不把 link close 与 program/map close 跨依赖并行，不跳过 FD close。
+- Constraints：每个 link 最多关闭一次；所有 link 都必须尝试关闭；错误按输入 index 稳定聚合；worker 只写固定 result slot，主 goroutine 等待后再写 phase observer，避免并发访问 JSON encoder。
+
+#### 方案比较
+
+1. 保持 link 串行关闭：依赖关系最直观，但实测 6 个 link 累积约 `285ms`，继续稀释短 workload endpoint event/s，拒绝。
+2. link 全部并行，完成后再关 program/map：link 之间没有共享 Go owner，依赖边界仍由“全部 link 完成”保证；有固定槽位错误/timing 收集，选择。
+3. link 与 program/map 一起并行：可能进一步缩短 wall time，但会让仍被 link 引用的 kernel object 同时进入 close，破坏清晰依赖边界，拒绝。
+
+#### 实现与验证
+
+- `closeTracepointLinksParallelWithDiagnostics` 将非 nil link 转为带 index 的 resource，复用无锁固定槽位并行 closer；`tracepointLinkCloser` 保留 `close BPF link <index>` 错误上下文。
+- `traceBPFRuntime.closeWithDiagnostics` 只在成功 session 的最终 cleanup 使用并行 link 路径；setup/partial attach rollback 继续走 `closeTracepointLinksWithDiagnostics` 的串行 wrapper。所有 link 完成后才进入现有 handler/core/extra resource group close。
+- 失败优先测试覆盖 named BPF resource timing、link 错误 index/cause 和 source policy；真实 phase 输出能区分 `cleanup_bpf_links`、每个 `cleanup_bpf_link_N` 与 core/handler close。
+- 实测 scalar/io/lifecycle/threads 的 `cleanup_bpf_runtime` 约 `0.165~0.183s`，相对串行约 `0.272~0.295s`；本轮 scalar endpoint 为 `5.82k events/s`，steady-state 为 `23.13k events/s`。重复短 workload 的 link aggregate 约 `173~197ms`，方向一致。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、强制 `go build -a` 和 Python perf oracle 全部通过；真实 `ebpf-semantic` 为 `205` 个主事件且所有 runtime counters 为 `0`，`small` 为 `23 PASS`，`upstream-reference` 为 `117 PASS / 2 XFAIL / 0 FAIL / 0 XPASS`，完整 `ebpf-perf` 四类 workload 通过。Review 确认该优化只改变退出阶段调度，没有引入第二事件消费者、事件路径锁或 ptrace/procfs/process_vm 路径。
+
 ### 14.223 Parallel BPF resource teardown（2026-08-14）
 
 #### Problem 1-Pager

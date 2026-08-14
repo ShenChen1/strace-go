@@ -14,6 +14,7 @@ from ebpf_event_oracles import (
 )
 from ebpf_semantic_checks import valid_stats_event
 from ebpf_perf_phases import (
+    REQUIRED_BPF_CLEANUP_PHASES,
     REQUIRED_CLEANUP_PHASES,
     cleanup_phase_durations,
     validate_cleanup_phases,
@@ -295,6 +296,7 @@ def _phase_durations(capture):
             *REQUIRED_BPF_SETUP_PHASES,
             *REQUIRED_PERF_PHASES,
             *REQUIRED_CLEANUP_PHASES,
+            *REQUIRED_BPF_CLEANUP_PHASES,
         )
     ):
         return None
@@ -408,6 +410,8 @@ def print_perf_capture(capture):
         print(f"cleanup_sec: {durations['cleanup_sec']:.6f}")
         print(f"cleanup_owner_sec: {durations['cleanup_owner_sec']:.6f}")
         for phase in REQUIRED_CLEANUP_PHASES:
+            print(f"{phase}_sec: {durations[f'{phase}_sec']:.6f}")
+        for phase in REQUIRED_BPF_CLEANUP_PHASES:
             print(f"{phase}_sec: {durations[f'{phase}_sec']:.6f}")
         print(
             "post_cleanup_unattributed_sec: "

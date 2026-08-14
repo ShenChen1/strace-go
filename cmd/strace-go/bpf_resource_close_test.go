@@ -54,6 +54,42 @@ func TestCloseBPFResourcesParallelJoinsErrorsInInputOrder(t *testing.T) {
 	}
 }
 
+func TestCloseNamedBPFResourcesParallelRecordsStableResourceTimings(t *testing.T) {
+	observer := &recordingTraceCleanupObserver{}
+	resources := []traceBPFResource{
+		{Name: "handler_collection", Closer: &immediateBPFCloser{}},
+		{Name: "core_objects", Closer: &immediateBPFCloser{}},
+	}
+
+	err := closeNamedBPFResourcesParallel(
+		resources,
+		&fakeTraceClock{monoNs: 101},
+		observer,
+	)
+	if err != nil {
+		t.Fatalf("closeNamedBPFResourcesParallel() error = %v, want nil", err)
+	}
+	if len(observer.steps) != 2 || observer.steps[0].Name != "handler_collection" ||
+		observer.steps[1].Name != "core_objects" {
+		t.Fatalf("resource timings = %+v, want input order", observer.steps)
+	}
+}
+
+func TestTracepointLinkCloserAddsLinkIndexToError(t *testing.T) {
+	wantErr := errors.New("link close failed")
+	closer := tracepointLinkCloser{
+		index: 4,
+		closer: &immediateBPFCloser{
+			err: wantErr,
+		},
+	}
+
+	err := closer.Close()
+	if !errors.Is(err, wantErr) || !strings.Contains(err.Error(), "BPF link 4") {
+		t.Fatalf("tracepoint link close error = %v, want index and cause", err)
+	}
+}
+
 type immediateBPFCloser struct {
 	err error
 }

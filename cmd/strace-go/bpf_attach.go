@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log"
 
 	"github.com/cilium/ebpf"
@@ -382,13 +383,56 @@ func (a *bpfAttacher) attachRecvmsgKretprobe() (link.Link, error) {
 }
 
 func closeTracepointLinks(links []link.Link) error {
+	return closeTracepointLinksWithDiagnostics(links, nil, nil)
+}
+
+func closeTracepointLinksWithDiagnostics(
+	links []link.Link,
+	clock traceClock,
+	observer traceCleanupObserver,
+) error {
 	var closeErr error
 	for index, l := range links {
 		if l != nil {
+			startNS := cleanupClockNowNS(clock)
 			if err := l.Close(); err != nil {
 				closeErr = errors.Join(closeErr, fmt.Errorf("close BPF link %d: %w", index, err))
 			}
+			recordBPFResourceTiming(observer, fmt.Sprintf("bpf_link_%d", index), startNS, cleanupClockNowNS(clock))
 		}
 	}
 	return closeErr
+}
+
+func closeTracepointLinksParallelWithDiagnostics(
+	links []link.Link,
+	clock traceClock,
+	observer traceCleanupObserver,
+) error {
+	resources := make([]traceBPFResource, 0, len(links))
+	for index, current := range links {
+		if current == nil {
+			continue
+		}
+		resources = append(resources, traceBPFResource{
+			Name:   fmt.Sprintf("bpf_link_%d", index),
+			Closer: tracepointLinkCloser{index: index, closer: current},
+		})
+	}
+	return closeNamedBPFResourcesParallel(resources, clock, observer)
+}
+
+type tracepointLinkCloser struct {
+	index  int
+	closer io.Closer
+}
+
+func (c tracepointLinkCloser) Close() error {
+	if c.closer == nil {
+		return nil
+	}
+	if err := c.closer.Close(); err != nil {
+		return fmt.Errorf("close BPF link %d: %w", c.index, err)
+	}
+	return nil
 }

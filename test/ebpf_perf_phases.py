@@ -5,6 +5,10 @@ REQUIRED_CLEANUP_PHASES = (
     "cleanup_ringbuf_reader",
     "cleanup_bpf_runtime",
 )
+REQUIRED_BPF_CLEANUP_PHASES = (
+    "cleanup_bpf_links",
+    "cleanup_bpf_core_objects",
+)
 
 
 def validate_cleanup_phases(phases, capture_name):
@@ -26,6 +30,29 @@ def validate_cleanup_phases(phases, capture_name):
     for previous, current in zip(cleanup_times, cleanup_times[1:]):
         if current[0] < previous[1]:
             failures.append(f"{capture_name} cleanup steps overlap")
+    runtime = phases.get("cleanup_bpf_runtime")
+    if runtime is not None:
+        runtime_start = runtime.get("start_time_ns", 0)
+        runtime_end = runtime.get("time_ns", 0)
+        link_event = phases.get("cleanup_bpf_links")
+        core_event = phases.get("cleanup_bpf_core_objects")
+        if (
+            link_event is not None
+            and core_event is not None
+            and core_event.get("start_time_ns", 0)
+            < link_event.get("time_ns", 0)
+        ):
+            failures.append(f"{capture_name} BPF core cleanup overlaps link cleanup")
+        for phase in REQUIRED_BPF_CLEANUP_PHASES:
+            event = phases.get(phase)
+            if event is None:
+                failures.append(f"{capture_name} missing BPF cleanup phase: {phase}")
+                continue
+            if (
+                event.get("start_time_ns", 0) < runtime_start
+                or event.get("time_ns", 0) > runtime_end
+            ):
+                failures.append(f"{capture_name} {phase} is outside cleanup_bpf_runtime")
     return failures
 
 
@@ -38,4 +65,8 @@ def cleanup_phase_durations(phases):
         for phase in REQUIRED_CLEANUP_PHASES
     }
     durations["cleanup_owner_sec"] = sum(durations.values())
+    for phase in REQUIRED_BPF_CLEANUP_PHASES:
+        durations[f"{phase}_sec"] = (
+            phases[phase]["time_ns"] - phases[phase]["start_time_ns"]
+        ) / 1_000_000_000
     return durations

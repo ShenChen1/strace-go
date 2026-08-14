@@ -55,9 +55,10 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 	if clock == nil {
 		return fmt.Errorf("trace clock is nil")
 	}
+	cleanupObserver := newTraceCleanupPhaseWriter(config.session.outputPolicy, os.Stderr)
 	cleanup := newTraceCleanupPlan(traceCleanupPlanDeps{
 		Clock:    clock,
-		Observer: newTraceCleanupPhaseWriter(config.session.outputPolicy, os.Stderr),
+		Observer: cleanupObserver,
 	})
 	defer func() { runErr = joinTraceRunError(runErr, cleanup.Close()) }()
 	bootstrapStartNS := clock.NowMonoNs()
@@ -65,7 +66,9 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 	if err != nil {
 		return fmt.Errorf("failed to set up BPF runtime: %w", err)
 	}
-	if err := cleanup.Add("bpf_runtime", bpfRuntime.Close); err != nil {
+	if err := cleanup.Add("bpf_runtime", func() error {
+		return bpfRuntime.closeWithDiagnostics(clock, cleanupObserver)
+	}); err != nil {
 		return fmt.Errorf("register BPF runtime cleanup: %w", err)
 	}
 
