@@ -4,7 +4,6 @@ import os
 import selectors
 import signal
 import subprocess
-import tempfile
 import time
 from dataclasses import dataclass
 
@@ -14,6 +13,7 @@ from ebpf_event_oracles import (
     parse_ready_events,
     parse_stats_events,
 )
+from ebpf_fixture_build import build_named_fixture
 from ebpf_cloexec_suite import run_cloexec_semantic
 from ebpf_signalfd_suite import run_signalfd_semantic
 from ebpf_semantic_checks import (
@@ -28,7 +28,11 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 STRACE_WRAPPER = os.path.join(SCRIPT_DIR, "strace-sudo.sh")
 STRACE_GO_BIN = os.path.join(PROJECT_ROOT, "strace-go")
-FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_semantic_fixture.c")
+FIXTURE_SOURCES = (
+    os.path.join(SCRIPT_DIR, "fixtures", "ebpf_semantic_fixture.c"),
+    os.path.join(SCRIPT_DIR, "fixtures", "ebpf_semantic_fs_workloads.c"),
+    os.path.join(SCRIPT_DIR, "fixtures", "ebpf_semantic_runtime_workloads.c"),
+)
 THREAD_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_thread_fixture.c")
 ATTACH_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_attach_fixture.c")
 ATTACH_THREAD_FIXTURE_SRC = os.path.join(
@@ -105,61 +109,46 @@ def build_strace_go():
     )
 
 
-def build_fixture(source, output, extra_args=None):
-    command = ["gcc", "-O2", "-Wall", "-Wextra"]
-    if extra_args:
-        command.extend(extra_args)
-    command.extend(["-o", output, source])
-    subprocess.run(command, check=True)
-    os.chmod(output, 0o755)
-
-
-def build_named_fixture(name, source, extra_args=None):
-    output = os.path.join(tempfile.gettempdir(), name)
-    build_fixture(source, output, extra_args)
-    return output
-
-
 def build_ebpf_fixture():
-    return build_named_fixture("strace-go-ebpf-semantic-fixture", FIXTURE_SRC)
+    return build_named_fixture("strace-go-ebpf-semantic-fixture", FIXTURE_SOURCES)
 
 
 def build_ebpf_thread_fixture():
     return build_named_fixture(
-        "strace-go-ebpf-thread-fixture", THREAD_FIXTURE_SRC, ["-pthread"]
+        "strace-go-ebpf-thread-fixture", (THREAD_FIXTURE_SRC,), ["-pthread"]
     )
 
 
 def build_ebpf_attach_fixture():
-    return build_named_fixture("strace-go-ebpf-attach-fixture", ATTACH_FIXTURE_SRC)
+    return build_named_fixture("strace-go-ebpf-attach-fixture", (ATTACH_FIXTURE_SRC,))
 
 
 def build_ebpf_attach_thread_fixture():
     return build_named_fixture(
         "strace-go-ebpf-attach-thread-fixture",
-        ATTACH_THREAD_FIXTURE_SRC,
+        (ATTACH_THREAD_FIXTURE_SRC,),
         ["-pthread"],
     )
 
 
 def build_ebpf_mount_query_fixture():
     return build_named_fixture(
-        "strace-go-ebpf-mount-query-fixture", MOUNT_QUERY_FIXTURE_SRC
+        "strace-go-ebpf-mount-query-fixture", (MOUNT_QUERY_FIXTURE_SRC,)
     )
 
 
 def build_ebpf_mount_path_fixture():
     return build_named_fixture(
-        "strace-go-ebpf-mount-path-fixture", MOUNT_PATH_FIXTURE_SRC
+        "strace-go-ebpf-mount-path-fixture", (MOUNT_PATH_FIXTURE_SRC,)
     )
 
 
 def build_ebpf_dirent_fixture():
-    return build_named_fixture("strace-go-ebpf-dirent-fixture", DIRENT_FIXTURE_SRC)
+    return build_named_fixture("strace-go-ebpf-dirent-fixture", (DIRENT_FIXTURE_SRC,))
 
 
 def build_ebpf_mmsg_fixture():
-    return build_named_fixture("strace-go-ebpf-mmsg-fixture", MMSG_FIXTURE_SRC)
+    return build_named_fixture("strace-go-ebpf-mmsg-fixture", (MMSG_FIXTURE_SRC,))
 
 def run_strace_go_json(args, timeout=30, debug=False, phases=False):
     if debug:
@@ -422,7 +411,7 @@ def collect_attach_thread_events(fixture):
 
 def collect_semantic_context(fixture):
     fcntl_source = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_fcntl_fixture.c")
-    fcntl_fixture = build_named_fixture("strace-go-ebpf-fcntl-fixture", fcntl_source)
+    fcntl_fixture = build_named_fixture("strace-go-ebpf-fcntl-fixture", (fcntl_source,))
     thread_fixture = build_ebpf_thread_fixture()
     attach_fixture = build_ebpf_attach_fixture()
     attach_thread_fixture = build_ebpf_attach_thread_fixture()

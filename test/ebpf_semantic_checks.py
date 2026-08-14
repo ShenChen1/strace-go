@@ -74,10 +74,10 @@ def check_syscall_presence(context, failures):
 def check_path_and_bytes_payloads(context, failures):
     events = context.main.events
     path_specs = (
-        ("statfs", 0, "/proc/self"),
-        ("stat", 0, "/proc/self"),
-        ("lstat", 0, "/proc/self"),
-        ("newfstatat", 1, "/proc/self"),
+        ("statfs", 0, "/tmp/strace-go-ebpf-path-"),
+        ("stat", 0, "/tmp/strace-go-ebpf-path-"),
+        ("lstat", 0, "/tmp/strace-go-ebpf-path-"),
+        ("newfstatat", 1, "/tmp/strace-go-ebpf-path-"),
         ("readlink", 0, "/tmp/strace-go-ebpf-readlink-"),
         ("readlinkat", 1, "/tmp/strace-go-ebpf-readlink-"),
     )
@@ -86,8 +86,8 @@ def check_path_and_bytes_payloads(context, failures):
         require(has_path_section(events, syscall, arg_index, text), failures, f"{syscall} path payload section missing")
     byte_specs = (
         ("getcwd", 0, "strace-go"),
-        ("readlink", 1, "/proc/self"),
-        ("readlinkat", 2, "/proc/self"),
+        ("readlink", 1, "ebpf-readlink-target"),
+        ("readlinkat", 2, "ebpf-readlink-target"),
     )
     for syscall, arg_index, text in byte_specs:
         require(has_bytes_payload_section(events, syscall, arg_index, text), failures, f"{syscall} OUT bytes payload section missing")

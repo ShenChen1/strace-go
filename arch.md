@@ -9480,3 +9480,32 @@ Impact note：只影响 `cmd/strace-go` 下三个现有测试文件、按职责�
 - 实际拆分结果：event state 基础/payload 文件为 `300/267` 行，event context 构造/policy 文件为 `358/210` 行，product source policy 用例/scanner 文件为 `274/242` 行；所有非生成 Go 测试文件均不超过 500 行。
 - 三次 focused `go test ./cmd/strace-go` 均通过；最终 `go test ./...`、`go test -race ./...`、`go vet ./...` 和 `git diff --check` 通过。测试函数总数仍为 910，名称清单哈希保持基线值不变。
 - Review 未发现测试删除、重命名、复制或断言弱化；新文件只接管完整测试组或纯 scanner helper，没有修改产品代码、BPF ABI、运行时依赖和纯 eBPF memory policy。真实 semantic/perf/upstream suite 按本阶段 Non-goals 未重复运行。
+
+### 14.231 拆分 semantic fixture 并移除主 fixture 的 procfs oracle（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：主 `ebpf_semantic_fixture.c` 已增长到 599 行，同时通过 `/proc/self/status` 的 `TracerPid` 和 `/proc/self` 路径触发 no-ptrace/path oracle；产品源码已有 AST source gate 禁止 ptrace/procmem/procfs 读取。
+- Problem：单文件混合文件系统、资源、时间、futex、消息、I/O、exec 和入口编排，违反 500 行限制；读取 procfs 让测试结果依赖可变虚拟文件系统状态，并把 no-ptrace 证明重复绑定到 tracee 内的 procfs 快照。
+- Goal：使用显式多 translation unit，把主入口、文件系统 workloads 和 runtime workloads 通过窄 C header 接口组合；所有主 semantic fixture source 均不超过 500 行且不包含 `/proc/`/`TracerPid`，路径 oracle 改用 fixture 自有临时目录和 symlink target。
+- Non-goals：不修改产品 Go/BPF 代码、event v2/TLV ABI、syscall filter、用户态状态机、文本输出或性能公式；本阶段不处理独立 dirent fixture 和 sudo wrapper 的 procfs 使用，也不改变 semantic syscall/payload/lifecycle 覆盖集合。
+- Constraints：C 接口只暴露文件系统与 runtime 两个 workload 入口；构建层必须显式接收非空 source 序列并拒绝空输入；原有错误码、syscall 次序族、stdout marker、payload kind/direction/arg index 和 fork/exec 行为保持；每个文件不超过 500 行。
+
+Impact note：影响主 semantic fixture、两个新 workload translation unit、fixture header、Python fixture build 边界、path oracle 和对应单元/source tests；生产 binary、BPF object、perf fixture 和 upstream wrapper 不变。
+
+#### 方案比较
+
+1. 保留单文件并豁免 C fixture：没有构建变化，但违反硬限制且保留 procfs oracle，拒绝。
+2. 把 workload 实现放进 header：可维持单 source 构建，但实现所有权和编译边界隐式，后续仍易重新膨胀，拒绝。
+3. 使用主入口、fs/runtime 两个 translation unit 和窄 header，并让构建边界显式接收 source 序列：职责和依赖清晰，可独立执行文件/source gate，选择。
+
+#### 测试与验收
+
+- 先增加失败优先 source test，要求主 fixture source set 为三个 C 文件、每个不超过 500 行且不含 `/proc/`/`TracerPid`；旧单文件应因 599 行和 procfs token 失败。
+- fixture build 单元测试覆盖多 source + extra flags 的 happy path，以及空 source 序列的明确失败；更新 path oracle 后运行 Python semantic oracle。
+- 运行 standalone gcc build、`go test ./...`、`go test -race ./...`、`go vet ./...`、Python runner/perf oracle 和真实 `ebpf-semantic`；review 确认 syscall/payload/lifecycle 契约不变且没有把 procfs 读取迁移到新文件。
+- 失败优先结果为 2 个 FAIL 和 1 个 ERROR：旧 source set 只有单个 599 行文件，多 source 参数被作为一个 list 传给 gcc，空 source 最终触发底层 `TypeError`；实现后 build/source test 为 5 OK，并额外拒绝 scalar source 与 scalar extra args。
+- 最终主入口、fs workload、runtime workload 和 header 分别为 `85/304/253/7` 行；全仓除 `vmlinux.h` 与生成的 `xlat_auto.go` 外没有超过 500 行的 Go/Python/C/header source。严格 `gcc -Werror -Wmissing-prototypes` 与 standalone semantic/perf 两种模式通过，动态符号只暴露 `main` 和两个 workload 入口。
+- Python semantic oracle 为 18 OK、perf oracle 为 18 OK、runner unit 为 8 OK；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 `go build -a`、Python syntax 和 `git diff --check` 均通过。
+- 真实 `ebpf-semantic` 通过：主事件为 197 个（enter/exit `100/97`）、lifecycle 6 个、truncated 7 个、write-only filter 6 个，所有 ringbuf reserve/copy、pending update/mismatch/stale、orphan 和 lifecycle map counter 为 0。相对旧 205 个事件减少的 8 个是删除 `fopen/fgets/close("/proc/self/status")` 的预期附带事件，必测 syscall/payload/lifecycle 集合未减少。
+- 真实 `ebpf-perf` 通过：scalar/io/lifecycle/threads 的 trace exit rate 为 `23803/15960/82.54/13983 events/s`，Go decode/raw JSON 仍为 0 alloc，所有 runtime counter 为 0。Review 未发现 procfs token 被迁移到新 source、C helper 被错误导出或产品 runtime/BPF ABI 变化；本阶段未运行无关 upstream suite。

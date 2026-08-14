@@ -13,13 +13,14 @@ from ebpf_event_oracles import (
     parse_stats_events,
 )
 from ebpf_check_support import valid_stats_event
+from ebpf_fixture_build import build_named_fixture
 from ebpf_perf_phases import (
     REQUIRED_BPF_CLEANUP_PHASES,
     REQUIRED_CLEANUP_PHASES,
     cleanup_phase_durations,
     validate_cleanup_phases,
 )
-from ebpf_suites import build_named_fixture, build_strace_go, run_strace_go_json
+from ebpf_suites import build_strace_go, run_strace_go_json
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -446,7 +447,7 @@ def run_ebpf_perf(args):
     if not args.skip_build:
         build_strace_go()
     fixture = build_named_fixture(
-        "strace-go-ebpf-perf-fixture", PERF_FIXTURE_SRC, ["-pthread"]
+        "strace-go-ebpf-perf-fixture", (PERF_FIXTURE_SRC,), ["-pthread"]
     )
     failed = False
     try:
