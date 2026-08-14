@@ -65,6 +65,10 @@ var bpfEnterProgramNames = map[uint32]string{
 	enterProgAioBuf:           "enter_aio_buf",
 	enterProgQuota:            "enter_quota",
 	enterProgMountPath:        "enter_mount_path",
+	enterProgSelectFDPath0:    "enter_select_fd_path0",
+	enterProgSelectFDPath1:    "enter_select_fd_path1",
+	enterProgSelectFDPath2:    "enter_select_fd_path2",
+	enterProgSelectFDPath3:    "enter_select_fd_path3",
 }
 
 var bpfExitProgramNames = map[uint32]string{

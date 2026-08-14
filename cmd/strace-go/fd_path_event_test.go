@@ -118,6 +118,28 @@ func TestFDPathOverlayStripsEventStatePrefix(t *testing.T) {
 	}
 }
 
+func TestFDPathOverlayResolvesNestedFDFromSnapshot(t *testing.T) {
+	data := make([]byte, handler.FDPathStatePrefixSize+len("/dev/full")+1)
+	binary.LittleEndian.PutUint32(data[0:4], 9)
+	binary.LittleEndian.PutUint32(data[4:8], handler.FDStateFlagIdentity)
+	copy(data[handler.FDPathStatePrefixSize:], "/dev/full\x00")
+
+	overlay := fdPathOverlayFromSections([]handler.PayloadSection{{
+		Kind:      handler.PayloadKindFDPath,
+		Direction: handler.PayloadDirectionIn,
+		ArgIndex:  handler.PayloadFDPathNestedArgIndex,
+		ProbeRet:  0,
+		Data:      data,
+	}})
+	view := overlay.resolve(syscallEventView{valid: true})
+	if path, ok := view.Path(9); !ok || path != "/dev/full" {
+		t.Fatalf("nested event path = %q, %v; want fd 9 /dev/full", path, ok)
+	}
+	if _, ok := view.Path(0); ok {
+		t.Fatal("nested event path was resolved through a syscall argument")
+	}
+}
+
 func TestFDPathSnapshotReachesHandlerFormatter(t *testing.T) {
 	data := make([]byte, handler.FDPathStatePrefixSize+len("/null")+1)
 	binary.LittleEndian.PutUint32(data[0:4], 0)

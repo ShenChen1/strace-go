@@ -149,6 +149,10 @@ const (
 	enterProgQuota            = 44
 	enterProgMountPath        = 45
 	enterProgNoPayloadGeneric = 46
+	enterProgSelectFDPath0    = 47
+	enterProgSelectFDPath1    = 48
+	enterProgSelectFDPath2    = 49
+	enterProgSelectFDPath3    = 50
 )
 
 const (
@@ -239,6 +243,10 @@ func enterProgArrayEntries(programs bpfProgramProvider) []progArrayEntry {
 		{enterProgQuota, bpfProgram(programs, "enter_quota")},
 		{enterProgMountPath, bpfProgram(programs, "enter_mount_path")},
 		{enterProgNoPayloadGeneric, bpfProgram(programs, "enter_no_payload_generic")},
+		{enterProgSelectFDPath0, bpfProgram(programs, "enter_select_fd_path0")},
+		{enterProgSelectFDPath1, bpfProgram(programs, "enter_select_fd_path1")},
+		{enterProgSelectFDPath2, bpfProgram(programs, "enter_select_fd_path2")},
+		{enterProgSelectFDPath3, bpfProgram(programs, "enter_select_fd_path3")},
 	}
 }
 

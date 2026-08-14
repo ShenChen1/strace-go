@@ -5,12 +5,13 @@ import (
 )
 
 const (
-	FDStateSnapshotSize             = 48
-	FDStateFlagIdentity      uint32 = 1 << 0
-	FDStateFlagOffset        uint32 = 1 << 1
-	PayloadFDStateArgIndex          = 0xffff
-	FDPathStatePrefixSize           = 48
-	PayloadFDPathCwdArgIndex        = 0xfffe
+	FDStateSnapshotSize                = 48
+	FDStateFlagIdentity         uint32 = 1 << 0
+	FDStateFlagOffset           uint32 = 1 << 1
+	PayloadFDStateArgIndex             = 0xffff
+	FDPathStatePrefixSize              = 48
+	PayloadFDPathCwdArgIndex           = 0xfffe
+	PayloadFDPathNestedArgIndex        = 0xfffd
 )
 
 // FDStateObservation is an event-time snapshot of one returned file descriptor.

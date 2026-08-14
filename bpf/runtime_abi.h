@@ -41,6 +41,8 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define EVENT_V2_EXIT_BODY_LEN 80
 #define EVENT_V2_LIFECYCLE_BODY_LEN 56
 #define LIFECYCLE_SNAPSHOT_MAX 4096
+#define FD_PATH_NESTED_SCAN_BYTES 128
+#define FD_PATH_NESTED_MAX 4
 
 struct exec_snapshot_header {
     u32 magic;
@@ -92,6 +94,12 @@ struct fd_path_scratch {
     char name[256];
     u64 components[8];
     u64 args[6];
+    u8 nested_fdset[FD_PATH_NESTED_SCAN_BYTES];
+    s32 nested_fd0;
+    s32 nested_fd1;
+    s32 nested_fd2;
+    s32 nested_fd3;
+    u32 nested_fd_count;
 };
 
 struct event_v2_header {
@@ -139,7 +147,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 47);
+    __uint(max_entries, 51);
     __type(key, u32);
     __type(value, u32);
 } enter_progs SEC(".maps");

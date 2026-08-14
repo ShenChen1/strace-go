@@ -172,11 +172,33 @@ func hasEquivalentPayloadSection(sections []handler.PayloadSection, want handler
 		if section.Kind == want.Kind &&
 			section.Direction == want.Direction &&
 			section.ArgIndex == want.ArgIndex &&
-			section.UserPtr == want.UserPtr {
+			section.UserPtr == want.UserPtr &&
+			nestedFDPathIdentityMatches(section, want) {
 			return true
 		}
 	}
 	return false
+}
+
+func nestedFDPathIdentityMatches(left, right handler.PayloadSection) bool {
+	if left.Kind != handler.PayloadKindFDPath ||
+		left.ArgIndex != handler.PayloadFDPathNestedArgIndex {
+		return true
+	}
+	leftFD, leftOK := nestedFDPathSnapshotFD(left)
+	rightFD, rightOK := nestedFDPathSnapshotFD(right)
+	if !leftOK && !rightOK {
+		return true
+	}
+	return leftOK && rightOK && leftFD == rightFD
+}
+
+func nestedFDPathSnapshotFD(section handler.PayloadSection) (int32, bool) {
+	snapshot, ok := handler.DecodeFDPathSnapshot(section.Data)
+	if !ok || !snapshot.HasObservation {
+		return 0, false
+	}
+	return snapshot.Observation.FD, true
 }
 
 func newSyscallEnterEventContextWithFlagDecoder(

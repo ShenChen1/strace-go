@@ -159,6 +159,106 @@ static __always_inline u32 capture_select_timeout_tlv_direct(
     return PAYLOAD_TLV_HEADER_SIZE + copied_len;
 }
 
+static __always_inline int select_fd_candidate_exists(
+    const struct fd_path_scratch *scratch,
+    s32 fd)
+{
+    u32 count = scratch->nested_fd_count;
+    return (count > 0 && scratch->nested_fd0 == fd) ||
+        (count > 1 && scratch->nested_fd1 == fd) ||
+        (count > 2 && scratch->nested_fd2 == fd) ||
+        (count > 3 && scratch->nested_fd3 == fd);
+}
+
+static __always_inline long read_select_fdset_candidates_direct(
+    struct fd_path_scratch *scratch,
+    u64 user_ptr,
+    u32 user_len)
+{
+    if (user_len == FD_PATH_NESTED_SCAN_BYTES) {
+        return bpf_probe_read_user(
+            scratch->nested_fdset,
+            FD_PATH_NESTED_SCAN_BYTES,
+            (void *)user_ptr);
+    }
+    user_len &= FD_PATH_NESTED_SCAN_BYTES - 1;
+    if (user_len == 0) {
+        return -1;
+    }
+    return bpf_probe_read_user(scratch->nested_fdset, user_len, (void *)user_ptr);
+}
+
+struct select_fd_scan_context {
+    struct fd_path_scratch *scratch;
+    u32 bit_count;
+};
+
+static long select_fd_scan_callback(u32 fd, void *data)
+{
+    struct select_fd_scan_context *scan = data;
+    struct fd_path_scratch *scratch = scan->scratch;
+    if (fd >= scan->bit_count ||
+        scratch->nested_fd_count >= SELECT_DIRECT_FD_PATH_MAX) {
+        return 1;
+    }
+    u32 byte_index = (fd >> 3) & (FD_PATH_NESTED_SCAN_BYTES - 1);
+    if (!(scratch->nested_fdset[byte_index] & (1U << (fd & 7)))) {
+        return 0;
+    }
+    if (select_fd_candidate_exists(scratch, (s32)fd)) {
+        return 0;
+    }
+    u32 count = scratch->nested_fd_count;
+    if (count == 0) {
+        scratch->nested_fd0 = (s32)fd;
+    } else if (count == 1) {
+        scratch->nested_fd1 = (s32)fd;
+    } else if (count == 2) {
+        scratch->nested_fd2 = (s32)fd;
+    } else {
+        scratch->nested_fd3 = (s32)fd;
+    }
+    scratch->nested_fd_count = count + 1;
+    return 0;
+}
+
+static __always_inline void collect_select_fdset_candidates_direct(
+    struct fd_path_scratch *scratch,
+    u64 user_ptr,
+    u64 nfds)
+{
+    u32 user_len = select_direct_fdset_user_len(nfds);
+    if (!user_ptr || user_len == 0 ||
+        scratch->nested_fd_count >= SELECT_DIRECT_FD_PATH_MAX) {
+        return;
+    }
+    if (read_select_fdset_candidates_direct(scratch, user_ptr, user_len) < 0) {
+        return;
+    }
+    struct select_fd_scan_context scan = {
+        .scratch = scratch,
+        .bit_count = user_len * 8,
+    };
+    bpf_loop(FD_PATH_NESTED_SCAN_BYTES * 8, select_fd_scan_callback, &scan, 0);
+}
+
+static __always_inline u32 collect_select_fd_path_candidates_direct(
+    u64 nfds,
+    u64 readfds,
+    u64 writefds,
+    u64 exceptfds)
+{
+    struct fd_path_scratch *scratch = lookup_fd_path_scratch();
+    if (!scratch) {
+        return 0;
+    }
+    scratch->nested_fd_count = 0;
+    collect_select_fdset_candidates_direct(scratch, readfds, nfds);
+    collect_select_fdset_candidates_direct(scratch, writefds, nfds);
+    collect_select_fdset_candidates_direct(scratch, exceptfds, nfds);
+    return scratch->nested_fd_count;
+}
+
 static __always_inline u32 capture_select_payloads_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,

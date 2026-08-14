@@ -25,10 +25,17 @@ type bpfEnterControlBpfStats struct {
 }
 
 type bpfEnterControlFdPathScratch struct {
-	_          structs.HostLayout
-	Name       [256]int8
-	Components [8]uint64
-	Args       [6]uint64
+	_             structs.HostLayout
+	Name          [256]int8
+	Components    [8]uint64
+	Args          [6]uint64
+	NestedFdset   [128]uint8
+	NestedFd0     int32
+	NestedFd1     int32
+	NestedFd2     int32
+	NestedFd3     int32
+	NestedFdCount uint32
+	_             [4]byte
 }
 
 type bpfEnterControlPendingSyscall struct {
@@ -85,15 +92,19 @@ type bpfEnterControlSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfEnterControlProgramSpecs struct {
-	EnterEpoll   *ebpf.ProgramSpec `ebpf:"enter_epoll"`
-	EnterFcntl   *ebpf.ProgramSpec `ebpf:"enter_fcntl"`
-	EnterFs      *ebpf.ProgramSpec `ebpf:"enter_fs"`
-	EnterIoctl   *ebpf.ProgramSpec `ebpf:"enter_ioctl"`
-	EnterKey     *ebpf.ProgramSpec `ebpf:"enter_key"`
-	EnterNetwork *ebpf.ProgramSpec `ebpf:"enter_network"`
-	EnterPoll    *ebpf.ProgramSpec `ebpf:"enter_poll"`
-	EnterSelect  *ebpf.ProgramSpec `ebpf:"enter_select"`
-	EnterXattr   *ebpf.ProgramSpec `ebpf:"enter_xattr"`
+	EnterEpoll         *ebpf.ProgramSpec `ebpf:"enter_epoll"`
+	EnterFcntl         *ebpf.ProgramSpec `ebpf:"enter_fcntl"`
+	EnterFs            *ebpf.ProgramSpec `ebpf:"enter_fs"`
+	EnterIoctl         *ebpf.ProgramSpec `ebpf:"enter_ioctl"`
+	EnterKey           *ebpf.ProgramSpec `ebpf:"enter_key"`
+	EnterNetwork       *ebpf.ProgramSpec `ebpf:"enter_network"`
+	EnterPoll          *ebpf.ProgramSpec `ebpf:"enter_poll"`
+	EnterSelect        *ebpf.ProgramSpec `ebpf:"enter_select"`
+	EnterSelectFdPath0 *ebpf.ProgramSpec `ebpf:"enter_select_fd_path0"`
+	EnterSelectFdPath1 *ebpf.ProgramSpec `ebpf:"enter_select_fd_path1"`
+	EnterSelectFdPath2 *ebpf.ProgramSpec `ebpf:"enter_select_fd_path2"`
+	EnterSelectFdPath3 *ebpf.ProgramSpec `ebpf:"enter_select_fd_path3"`
+	EnterXattr         *ebpf.ProgramSpec `ebpf:"enter_xattr"`
 }
 
 // bpfEnterControlMapSpecs contains maps before they are loaded into the kernel.
@@ -225,15 +236,19 @@ type bpfEnterControlVariables struct {
 //
 // It can be passed to loadBpfEnterControlObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfEnterControlPrograms struct {
-	EnterEpoll   *ebpf.Program `ebpf:"enter_epoll"`
-	EnterFcntl   *ebpf.Program `ebpf:"enter_fcntl"`
-	EnterFs      *ebpf.Program `ebpf:"enter_fs"`
-	EnterIoctl   *ebpf.Program `ebpf:"enter_ioctl"`
-	EnterKey     *ebpf.Program `ebpf:"enter_key"`
-	EnterNetwork *ebpf.Program `ebpf:"enter_network"`
-	EnterPoll    *ebpf.Program `ebpf:"enter_poll"`
-	EnterSelect  *ebpf.Program `ebpf:"enter_select"`
-	EnterXattr   *ebpf.Program `ebpf:"enter_xattr"`
+	EnterEpoll         *ebpf.Program `ebpf:"enter_epoll"`
+	EnterFcntl         *ebpf.Program `ebpf:"enter_fcntl"`
+	EnterFs            *ebpf.Program `ebpf:"enter_fs"`
+	EnterIoctl         *ebpf.Program `ebpf:"enter_ioctl"`
+	EnterKey           *ebpf.Program `ebpf:"enter_key"`
+	EnterNetwork       *ebpf.Program `ebpf:"enter_network"`
+	EnterPoll          *ebpf.Program `ebpf:"enter_poll"`
+	EnterSelect        *ebpf.Program `ebpf:"enter_select"`
+	EnterSelectFdPath0 *ebpf.Program `ebpf:"enter_select_fd_path0"`
+	EnterSelectFdPath1 *ebpf.Program `ebpf:"enter_select_fd_path1"`
+	EnterSelectFdPath2 *ebpf.Program `ebpf:"enter_select_fd_path2"`
+	EnterSelectFdPath3 *ebpf.Program `ebpf:"enter_select_fd_path3"`
+	EnterXattr         *ebpf.Program `ebpf:"enter_xattr"`
 }
 
 func (p *bpfEnterControlPrograms) Close() error {
@@ -246,6 +261,10 @@ func (p *bpfEnterControlPrograms) Close() error {
 		p.EnterNetwork,
 		p.EnterPoll,
 		p.EnterSelect,
+		p.EnterSelectFdPath0,
+		p.EnterSelectFdPath1,
+		p.EnterSelectFdPath2,
+		p.EnterSelectFdPath3,
 		p.EnterXattr,
 	)
 }

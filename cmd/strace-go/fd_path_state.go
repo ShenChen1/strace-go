@@ -14,6 +14,7 @@ var (
 
 type fdPathOverlay struct {
 	byArg   map[int]handler.FDPathSnapshot
+	byFD    map[int32]handler.FDPathSnapshot
 	cwdPath string
 }
 
@@ -56,6 +57,16 @@ func fdPathOverlayFromSections(sections []handler.PayloadSection) fdPathOverlay 
 		if !ok {
 			continue
 		}
+		if section.ArgIndex == handler.PayloadFDPathNestedArgIndex {
+			if !snapshot.HasObservation || snapshot.Observation.FD < 0 {
+				continue
+			}
+			if overlay.byFD == nil {
+				overlay.byFD = make(map[int32]handler.FDPathSnapshot)
+			}
+			overlay.byFD[snapshot.Observation.FD] = snapshot
+			continue
+		}
 		if section.ArgIndex < 0 || section.ArgIndex >= 6 {
 			continue
 		}
@@ -69,11 +80,19 @@ func fdPathOverlayFromSections(sections []handler.PayloadSection) fdPathOverlay 
 
 func (overlay fdPathOverlay) resolve(view syscallEventView) eventFDStateView {
 	resolved := eventFDStateView{cwd: overlay.cwdPath}
-	if !view.valid || len(overlay.byArg) == 0 {
+	if !view.valid {
 		return resolved
 	}
-	resolved.paths = make(map[int32]string, len(overlay.byArg))
-	resolved.states = make(map[int32]handler.FDStateObservation, len(overlay.byArg))
+	capacity := len(overlay.byArg) + len(overlay.byFD)
+	if capacity == 0 {
+		return resolved
+	}
+	resolved.paths = make(map[int32]string, capacity)
+	resolved.states = make(map[int32]handler.FDStateObservation, capacity)
+	for fd, snapshot := range overlay.byFD {
+		resolved.paths[fd] = snapshot.Path
+		resolved.states[fd] = snapshot.Observation
+	}
 	for argIndex, snapshot := range overlay.byArg {
 		fd := int32(view.args[argIndex])
 		if fd < 0 || fd == handler.AtFdcwd || snapshot.Path == "" {

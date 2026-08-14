@@ -29,7 +29,7 @@ func TestBPFGenericEnterHandlerExcludesFDPathCapture(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"ENTER_PROG_NO_PAYLOAD_GENERIC = 46",
-		"__uint(max_entries, 47)",
+		"__uint(max_entries, 51)",
 	} {
 		if !strings.Contains(runtime+abi, snippet) {
 			t.Fatalf("generic enter ABI is missing %q", snippet)

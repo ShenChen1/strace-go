@@ -9537,3 +9537,31 @@ Impact note：影响 dirent fixture、测试 wrapper、runner root precondition�
 - dirent 使用 `mkdtemp` 生成 mode 0700 的私有目录和固定 `entry`，两个 syscall 均以新打开的目录 FD 覆盖 EBADF 与成功 OUT bytes。严格 `gcc -Werror -Wmissing-prototypes`、standalone 运行、`bash -n`、wrapper mode 0755、非 root rc=126 和 root `--help` 均通过。
 - `go test ./...`、`go test -race ./...`、`go vet ./...`、强制 `go build -a`、Python syntax 和 `git diff --check` 均通过。真实 `ebpf-semantic` 为主事件 197 个（enter/exit `100/97`）、lifecycle 6 个、dirent 8 个、write-only filter 6 个，所有 runtime error counter 为 0。
 - `small` 为 23 PASS、0 FAIL；upstream reference 为 117 PASS、2 个已接受 XFAIL、0 FAIL/XPASS，XFAIL 仍只是 bounded read/write snapshot 和 event-sourced FD/cwd 初始状态边界。Review 未发现新回归；实际运行 fixture/wrapper 中已无 procfs 读取、FD reopen 或 shell `eval`，产品 runtime/BPF ABI 未变。
+
+### 14.233 为 select 嵌套 FD 捕获 probe-site path（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：`select/_newselect` 已在 enter 事件捕获三个 fd_set，Go path filter 也能从 TLV bytes 枚举 candidate FD；但 event-time `FD_PATH` 只覆盖直接 syscall 参数，启动前已继承的 FD 不在长期 store 中，导致 `select-P.gen.test` 的 287 条 select 全被 `-P /dev/full` 过滤。
+- Problem：用户态不能在事件后通过 procfs 补读；只根据 tracer 继承 FD 与 `-P` 路径的 dev/inode 做 seed 会把不同硬链接误当成同一路径，也不适用于事件前 FD 重用。
+- Goal：在 select enter probe 现场从 bounded fd_set 中收集唯一 candidate FD；保存正常 enter/pending 后，通过最多 4 个 tail-call verifier 单元分别复用现有 CO-RE dentry walker，产生带实际 FD 号的 nested `FD_PATH` fragment；Go overlay 使用 snapshot 内 FD 而不是 syscall arg 解析，使 path filter 在 store miss 时仍可消费事件时路径。
+- Non-goals：不扫描 procfs，不为 attach 前的整张 fdtable 建立全量 seed，不承诺超过 4 个唯一 FD 的 select 也能命中路径过滤，不修改 select 文本 formatter、exit payload 或无 `CONFIG_FD_STATE` 模式的事件成本。
+- Constraints：fd_set 扫描最多 1024 bit，使用 `bpf_loop` 避免展开 8193 个以上控制流跳转，路径捕获在扫描 callback 之外执行；nested TLV 使用独立 sentinel arg index，成功路径必须带可验证的 FD state prefix；仅 `CONFIG_FD_STATE` 启用时产生额外 fragment Ringbuf 事件；不增加用户态锁、goroutine 或运行期文件系统读取。
+
+Impact note：影响 select enter BPF candidate capture/fragment route、共享 FD path scratch/wire sentinel、Go event-time FD overlay 和对应 source/unit/upstream 测试；普通 select enter/exit payload capacity、pending map、用户态单消费者、其它 syscall 路由与 attach 初始状态边界不变。
+
+#### 方案比较
+
+1. 使用 tracer 继承 FD 的 `fstat` 与 `-P` 目标 identity 一次性 seed：启动成本低，但硬链接与 FD 重用语义不精确，拒绝。
+2. 每个 select 捕获所有最多 1024 个 FD 的路径：事件时点精确，但 Ringbuf 记录、verifier 状态和热路径成本无法接受，拒绝。
+3. 在单个 `enter_select` 内扫描并捕获前 4 个唯一 FD path：保留 probe-site 语义，但四次 dentry walk 使 verifier 处理超过 100 万条指令，拒绝。
+4. `bpf_loop` 收集前 4 个唯一 FD，再以 4 个固定 ProgArray tail-call fragment 分段捕获：控制流和 Ringbuf 上限明确，保留 probe-site 语义，选择。
+
+#### 测试与验收
+
+- 失败优先：基线 `select-P.gen.test` 为 0/1，287 条 select 全被过滤；Go overlay test 要求 nested sentinel 使用 snapshot FD，状态机 test 要求前置失败 fragment 不能遮蔽后续 FD 9 成功 snapshot；source gate 要求 `CONFIG_FD_STATE` 门控、`bpf_loop`、最多 4 个候选、pending 保存先于 fragment tail call，以及 47-50 槽位完整。
+- verifier 证据：动态 `bpf_probe_read_user` 长度先被拒绝为负值范围；动态 scratch 索引随后被拒绝；改为显式 1024 次循环后又达到 100 万指令和 `8193 jumps` 上限。最终 `bpf_loop` 只负责扫描，四个独立 `select_fd_path_dispatch.h` 程序各执行一次 dentry walk，control collection 成功加载。
+- 事件合并证据：调试 JSON 证明首个 FD path fragment 已进入 pending，但通用去重键把所有 nested fragment 视为同一 section；最终去重对 nested FD path 解码 state prefix，以实际 FD 区分成功 snapshot，无法解码的重复失败片段仍合并。
+- 实际验收：`select-P.gen.test` 从 0/1 修复为 1/1 exact PASS；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 BPF 重新生成均通过；`ebpf-semantic` 为 197 主事件、100/97 enter/exit、6 lifecycle，runtime error counters 全零；`small` 为 23 PASS；upstream reference 为 117 PASS、2 个既有 XFAIL、0 FAIL。
+- 性能复测：scalar 端到端/trace 为 `6134.82/22786.19 exit events/s`，I/O trace 为 `16179.50/s`，threads trace 为 `14353.68/s`；对比改动前同轮 scalar `6154.88/23390.69`，端到端约 `-0.3%`、短 trace 窗口约 `-2.6%`，在噪声范围内。默认 workload 不加载 enter-control collection，Go decode 和普通 JSON writer 仍为 0 alloc，所有 reserve/copy/pending/orphan/mismatch/stale 计数为 0。
+- Review：未发现 ptrace、procfs、process_vm 或第二消费者回流；普通 payload 的去重规则不变，nested snapshot 不再被误解为 syscall argument。明确保留边界：每次 select 最多 4 个唯一 FD，当前尚未扩展到 poll/epoll 的嵌套 FD path。

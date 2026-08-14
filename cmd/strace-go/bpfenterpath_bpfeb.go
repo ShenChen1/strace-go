@@ -25,10 +25,17 @@ type bpfEnterPathBpfStats struct {
 }
 
 type bpfEnterPathFdPathScratch struct {
-	_          structs.HostLayout
-	Name       [256]int8
-	Components [8]uint64
-	Args       [6]uint64
+	_             structs.HostLayout
+	Name          [256]int8
+	Components    [8]uint64
+	Args          [6]uint64
+	NestedFdset   [128]uint8
+	NestedFd0     int32
+	NestedFd1     int32
+	NestedFd2     int32
+	NestedFd3     int32
+	NestedFdCount uint32
+	_             [4]byte
 }
 
 type bpfEnterPathPendingSyscall struct {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"strace-go/pkg/handler"
@@ -213,6 +214,56 @@ func TestTraceStateMergesExitFragmentPayloadSections(t *testing.T) {
 	}
 	if len(exitUpdate.pendingEnter.payloadSections) != 2 {
 		t.Fatalf("paired payload sections = %+v, want merged fragment payload", exitUpdate.pendingEnter.payloadSections)
+	}
+}
+
+func TestTraceStateKeepsSuccessfulNestedFDPathAfterFailedFragment(t *testing.T) {
+	state := newTraceState()
+	sysID := syscallIDByName(t, "select")
+	enter := traceEventEnvelope{
+		valid:      true,
+		pid:        101,
+		tid:        101,
+		sysID:      sysID,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter,
+	}
+	failed := traceEventEnvelope{
+		valid:      true,
+		pid:        101,
+		tid:        101,
+		sysID:      sysID,
+		eventType:  bpfEventTypeExit,
+		eventFlags: bpfEventFlagExitFragment | bpfEventFlagPayloadTLV,
+		payload: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindFDPath,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  handler.PayloadFDPathNestedArgIndex,
+			ProbeRet:  -36,
+		}},
+	}
+	snapshot := make([]byte, handler.FDPathStatePrefixSize+len("/dev/full")+1)
+	binary.LittleEndian.PutUint32(snapshot[0:4], 9)
+	copy(snapshot[handler.FDPathStatePrefixSize:], "/dev/full\x00")
+	succeeded := failed
+	succeeded.payload = []handler.PayloadSection{{
+		Kind:      handler.PayloadKindFDPath,
+		Direction: handler.PayloadDirectionIn,
+		ArgIndex:  handler.PayloadFDPathNestedArgIndex,
+		Data:      snapshot,
+	}}
+
+	state.handleEnvelope(enter)
+	state.handleEnvelope(failed)
+	state.handleEnvelope(succeeded)
+
+	pending := state.pendingSyscalls[101]
+	if pending == nil || len(pending.payloadSections) != 2 {
+		t.Fatalf("nested path fragments = %+v, want failed and fd 9 snapshots", pending)
+	}
+	decoded, ok := handler.DecodeFDPathSnapshot(pending.payloadSections[1].Data)
+	if !ok || !decoded.HasObservation || decoded.Observation.FD != 9 || decoded.Path != "/dev/full" {
+		t.Fatalf("successful nested path = %+v, %v; want fd 9 /dev/full", decoded, ok)
 	}
 }
 

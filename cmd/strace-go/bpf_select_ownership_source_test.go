@@ -44,6 +44,8 @@ func TestBPFSelectSplitsCaptureAndEmitOwnership(t *testing.T) {
 		"capture_select_fdset_tlv_direct(",
 		"capture_select_timeout_tlv_direct(",
 		"capture_select_payloads_tlv_direct(",
+		"collect_select_fdset_candidates_direct(",
+		"collect_select_fd_path_candidates_direct(",
 	} {
 		if !strings.Contains(capture, snippet) {
 			t.Fatalf("select capture provider missing %q", snippet)
@@ -51,6 +53,7 @@ func TestBPFSelectSplitsCaptureAndEmitOwnership(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"emit_select_enter_event_v2_direct(",
+		"emit_select_fd_path_fragment_event_v2_direct(",
 		"emit_select_exit_event_v2_direct(",
 		"bpf_ringbuf_reserve_dynptr(",
 		"bpf_ringbuf_submit_dynptr(",
@@ -74,6 +77,27 @@ func TestBPFSelectSplitsCaptureAndEmitOwnership(t *testing.T) {
 	}
 	if strings.Contains(emit, "bpf_probe_read_user(") {
 		t.Fatal("select emit provider must not own user memory reads")
+	}
+	scanStart := strings.Index(capture, "static __always_inline void collect_select_fdset_candidates_direct(")
+	collectorStart := strings.Index(capture, "static __always_inline u32 collect_select_fd_path_candidates_direct(")
+	if scanStart < 0 || collectorStart <= scanStart {
+		t.Fatal("select capture provider missing bounded fd_set scanner")
+	}
+	scanBody := capture[scanStart:collectorStart]
+	if strings.Contains(scanBody, "capture_fd_path_tlv_direct(") {
+		t.Fatal("select fd_set scanner must not perform dentry path capture inside its bounded loop")
+	}
+	for _, snippet := range []string{
+		"struct select_fd_scan_context",
+		"select_fd_scan_callback(",
+		"bpf_loop(FD_PATH_NESTED_SCAN_BYTES * 8",
+	} {
+		if !strings.Contains(capture, snippet) {
+			t.Fatalf("select fd_set scanner missing bounded helper loop %q", snippet)
+		}
+	}
+	if strings.Contains(scanBody, "for (u32 fd = 0;") {
+		t.Fatal("select fd_set scanner must not expand 1024 branches in enter_select")
 	}
 	body, ok := bpfFunctionBody(capture, "capture_select_payloads_tlv_direct")
 	if !ok {
