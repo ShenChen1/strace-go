@@ -8460,3 +8460,46 @@ Impact note：`strace.c` 仍只 include `syscall_path_direct_event_v2.h`；`ente
 - 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、attach、pending state、事件 ABI 或单消费者事件循环；没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
 - 失败路径仍显式保留：path probe read、dynptr data/write、TLV header 和 ringbuf reserve/submit/discard 的错误处理与拆分前一致；source gate 防止 emit provider 重新拥有用户内存读取，capture provider 也不拥有 emitter。
 - 本阶段仅修改 path facade、emit provider、相关 source gates、ownership regression test 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.203 拆分 FD path capture 与 emit ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：纯 eBPF FD path 通过 BTF 读取当前 task 的 cwd、fd 对应 `file`、dentry/mount 和 48-byte FD state snapshot，在 enter 事件中写入 `FD_PATH` TLV，用户态据此驱动 `-y/-yy/-P` 和 event-sourced FD state。
+- Problem：`bpf/syscall_fd_path_direct_event_v2.h` 原为 319 行，同时拥有 syscall policy、fd 参数 mask/capacity、内核 path/state capture、scratch map 使用和 ringbuf emitter；`emit_fd_path_or_no_payload_enter_event_v2_direct` 还有 6 个参数。
+- Goal：facade 保留 FD path policy；capture provider 组合既有 dentry/mount walk；emit provider 独占两个 enter emitter，并从 `ctx->id` 派生 `sys_id`，将 emitter 接口收敛到最多 5 个参数。
+- Non-goals：不改变 `fd_path_scratch_map` 的 `PERCPU_ARRAY` 类型、FD state map、cwd/path walk 算法、FD_PATH TLV ABI、用户态 overlay/filter、生命周期或 output commit 顺序，也不引入 procfs、ptrace、process_vm 或 Go 侧 tracee memory 读取。
+- Constraints：先用失败优先 ownership gate 固定 facade/capture/walk/emit 边界；必须通过真实 clang/verifier、Go fast/race/vet、semantic/perf、串行 small、FD path Go 测试和 `-y/-yy/-P` 原生测试；生产文件与 source test 不超过 500 行，函数参数不超过 5 个。
+
+Impact note：`strace.c` 的 `syscall_fd_state_direct_event_v2.h` 仍先于 FD path facade 提供 file/state lookup；`enter_dispatch` 仍只在 FD state 配置下选择 FD path emitter，epoll/cachestat/payload/open-creat 继续复用同一组 capture/policy helper。改动只改变 header ownership 和 `enter_dispatch` 的等价参数调用，不改变 scratch、map、事件 ABI 或用户态状态机。
+
+#### 方案比较
+
+1. 保持 319 行单文件：调用图最稳定，但 kernel capture、scratch 生命周期和 ringbuf ownership 继续混合，无法单独审计 `-P` path snapshot，拒绝。
+2. 只抽 capture provider 和 emit provider，保留既有 walk helper：include 变化局部，epoll/cachestat/open-creat 的复用入口不变，能收敛 6 参数接口，选择。
+3. 同时重做 dentry/mount walk、FD state map 和用户态 overlay：可以更彻底重塑 FD path，但会扩大竞态和 event-sourced state 风险，留待独立阶段。
+
+#### 状态契约
+
+- `syscall_fd_path_direct_event_v2.h` 只拥有 FD path 常量、syscall arg mask/count/capacity policy，并按 capture 后 emit 顺序 include 两个 provider；它不再定义 path capture 或 ringbuf emitter。
+- `syscall_fd_path_capture_direct_event_v2.h` 拥有 cwd path、fd path + state prefix、multi-arg path TLV composer，并组合 `syscall_fd_path_walk_direct_event_v2.h`；内核对象读取和 scratch component/path walk 仍在原有 BPF probe 时点执行。
+- `syscall_fd_path_emit_direct_event_v2.h` 拥有 `emit_fd_path_enter_event_v2_direct` 与 `emit_fd_path_or_no_payload_enter_event_v2_direct`，负责 scratch args snapshot、ringbuf reserve/discard、event header/body write 和 submit；它只调用 capture helper，不直接拥有 kernel/user memory read。
+- `emit_fd_path_or_no_payload_enter_event_v2_direct` 从 `ctx->id` 派生 syscall id，避免 6 参数接口；所有新 provider helper 的参数数目不超过 5，调用方仍保持原有 `pid/tid/sys_id/ctx/cfg/timestamp` 语义。
+- `fd_path_scratch_map` 仍为 per-CPU scratch，`fd_path_arg_mask`、FD_PATH section capacity、CWD arg index、state prefix、TLV flags、pending save/consume 和用户态 event overlay 均不变；没有新增 map、tail call、锁、goroutine 或 procfs 依赖。
+
+#### 测试与验收
+
+- 失败优先 gate 按预期失败：`TestBPFFDPathHasDedicatedCaptureAndEmitOwnership` 首次运行时 capture/emit provider 尚不存在。实现后该测试检查 facade include、policy ownership、capture 对 walk 的组合、3 个 capture helper 和 2 个 emitter 的排他 ownership、capture 无 ringbuf lifecycle、emit 无 kernel/user read，以及新的 5 参数 dispatch 调用，并通过。
+- `TestBPFFDPathHasDedicatedCaptureAndEmitOwnership`、`TestBPFFDPathCaptureUsesProbeSiteOnly`、FD path overlay/formatter/state Go tests 通过；`dup`/`dup-y`/`dup-yy`/`dup-P`/`dup-trace-fds-0-9`、`cachestat-fd`、`epoll_pwait2` 原生生成式测试均为 `1 PASS / 0 FAIL`。
+- `sudo -n ./build.sh` 通过，真实 clang/BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14203 ./cmd/strace-go` 和 `git diff --check` 均通过。
+- `syscall_fd_path_direct_event_v2.h` 从 319 行降为 88 行，capture provider 为 170 行，emit provider 为 72 行，既有 walk provider 为 202 行，ownership source test 为 110 行；所有相关文件满足 <=500 行限制，新增 emitter helper 参数均不超过 5 个。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `342.00 ns/op、0 B/op、0 allocs/op`，JSON writer `514.30 ns/op、0 B/op、0 allocs/op`，decoded writer `689.00 ns/op、0 B/op、0 allocs/op`，decoded payload writer `944.20 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `394.83/271.51/2.26/213.12 events/s`，所有运行时错误计数为 0。
+- 串行 sudo `small` 通过 `23 PASS / 0 FAIL`；`dup2-y.gen.test` 与 `dup2-yy.gen.test` 仍失败，但父 binary `/tmp/strace-go-phase-14202` 复现完全相同的目标 FD 旧/新 path 文本差异，确认是既有 event-sourced FD snapshot 与 upstream 精确时序的兼容缺口，不纳入本阶段回归。
+
+#### Review 结论
+
+- 未发现运行时行为回归：FD arg policy、cwd/fd path capture、state prefix、TLV offset/flags、scratch map 使用、enter dispatch、epoll/cachestat/open-creat 复用和用户态 overlay/filter 均保持不变；verifier、semantic/perf、small、FD Go tests 和定向原生测试通过。
+- 新 facade/provider 只改变编译期 ownership，不改变 FD state map、`PERCPU_ARRAY` scratch、`enter_progs`、pending state、事件 ABI 或单消费者事件循环；没有引入 procfs、ptrace、process_vm 或 Go 侧 tracee memory fallback。
+- 失败路径仍显式保留：task/fs/file/dentry/mount read、state snapshot、dynptr write、TLV header 和 reserve/submit/discard 的失败处理与拆分前一致；source gate 防止 emit provider重新拥有内核对象读取，也防止 capture provider重新拥有 ringbuf lifecycle。
+- `dup2-y`/`dup2-yy` 的 A/B 已排除本阶段回归；本阶段仅修改 FD path facade/capture/emit、enter dispatch 调用签名、相关 source gates、ownership regression test 和本记录，`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

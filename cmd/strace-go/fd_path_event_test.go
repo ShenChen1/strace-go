@@ -202,7 +202,9 @@ func TestFDPathOverlayDecodesCWDAsPathOnly(t *testing.T) {
 
 func TestBPFFDPathCaptureUsesProbeSiteOnly(t *testing.T) {
 	root := repoRootForTest(t)
-	source := readTextFile(t, filepath.Join(root, "bpf/syscall_fd_path_direct_event_v2.h"))
+	source := readTextFile(t, filepath.Join(root, "bpf/syscall_fd_path_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_fd_path_capture_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_fd_path_walk_direct_event_v2.h"))
 	combined := readCombinedBPFSources(t) + "\n" + readDirectEventSources(t)
 	for _, token := range []string{
 		"read_dentry_path_direct(",
