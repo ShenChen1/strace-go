@@ -77,6 +77,33 @@ var bpfEnterRouteRules = []bpfRouteRule{
 }
 
 var bpfExitRouteRules = []bpfRouteRule{
+	{exitProgFDTime, []string{
+		"read", "pread64", "gettimeofday", "clock_gettime", "clock_getres",
+		"getitimer", "setitimer", "adjtimex", "clock_adjtime", "nanosleep",
+		"clock_nanosleep", "open", "openat", "openat2", "open_tree", "creat",
+		"dup", "dup2", "dup3", "epoll_create", "timerfd_create", "eventfd",
+		"eventfd2", "epoll_create1", "inotify_init", "inotify_init1", "signalfd",
+		"signalfd4",
+	}},
+	{exitProgStruct, []string{
+		"stat", "lstat", "fstat", "newfstatat", "statx", "statfs", "fstatfs",
+		"waitid", "rt_sigaction", "rt_sigprocmask", "rt_sigsuspend", "getcwd",
+		"readlink", "readlinkat", "pipe", "pipe2", "socketpair", "uname",
+		"sysinfo", "getrlimit", "prlimit64",
+	}},
+	{exitProgAsync, []string{
+		"sendfile", "arch_prctl", "get_robust_list", "cachestat", "capget", "capset",
+		"prctl", "io_getevents", "io_pgetevents", "io_setup", "poll", "ppoll",
+	}},
+	{exitProgIO, []string{
+		"select", "epoll_wait", "epoll_pwait", "epoll_pwait2", "getdents", "getdents64",
+		"execve", "execveat", "getxattr", "lgetxattr", "fgetxattr", "listxattr",
+		"llistxattr", "flistxattr",
+	}},
+	{exitProgControl, []string{
+		"fcntl", "ioctl", "connect", "bind", "sendto", "recvfrom", "accept", "accept4",
+		"getsockname", "getpeername", "setsockopt", "getsockopt",
+	}},
 	{exitProgPath, []string{
 		"access", "chdir", "chroot", "chmod", "chown", "lchown", "mkdir", "mknod", "rmdir", "unlink",
 		"swapon", "swapoff", "acct", "truncate", "fsopen", "mkdirat", "mknodat", "fchownat",

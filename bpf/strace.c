@@ -58,6 +58,7 @@ char LICENSE[] SEC("license") = "GPL";
 #include "enter_fragment_dispatch.h"
 #include "mmsg_enter_dispatch.h"
 #include "exit_dispatch.h"
+#include "exit_direct_dispatch.h"
 #include "recvmsg_kretprobe_dispatch.h"
 #include "quota_dispatch.h"
 #include "mount_query_dispatch.h"

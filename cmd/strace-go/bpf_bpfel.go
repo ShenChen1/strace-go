@@ -134,7 +134,11 @@ type bpfProgramSpecs struct {
 	EnterTerminating              *ebpf.ProgramSpec `ebpf:"enter_terminating"`
 	EnterTimeStruct               *ebpf.ProgramSpec `ebpf:"enter_time_struct"`
 	EnterXattr                    *ebpf.ProgramSpec `ebpf:"enter_xattr"`
+	ExitAsync                     *ebpf.ProgramSpec `ebpf:"exit_async"`
+	ExitControl                   *ebpf.ProgramSpec `ebpf:"exit_control"`
+	ExitFdTime                    *ebpf.ProgramSpec `ebpf:"exit_fd_time"`
 	ExitGeneric                   *ebpf.ProgramSpec `ebpf:"exit_generic"`
+	ExitIo                        *ebpf.ProgramSpec `ebpf:"exit_io"`
 	ExitIovecBase                 *ebpf.ProgramSpec `ebpf:"exit_iovec_base"`
 	ExitMmsgFinal                 *ebpf.ProgramSpec `ebpf:"exit_mmsg_final"`
 	ExitMountQuery                *ebpf.ProgramSpec `ebpf:"exit_mount_query"`
@@ -143,6 +147,7 @@ type bpfProgramSpecs struct {
 	ExitQuota                     *ebpf.ProgramSpec `ebpf:"exit_quota"`
 	ExitRecvmmsgBase01            *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base01"`
 	ExitRecvmmsgBase23            *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base23"`
+	ExitStruct                    *ebpf.ProgramSpec `ebpf:"exit_struct"`
 	TraceKretprobeRecvmsgControl  *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_control"`
 	TraceKretprobeRecvmsgDispatch *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_dispatch"`
 	TraceKretprobeRecvmsgFinal    *ebpf.ProgramSpec `ebpf:"trace_kretprobe_recvmsg_final"`
@@ -333,7 +338,11 @@ type bpfPrograms struct {
 	EnterTerminating              *ebpf.Program `ebpf:"enter_terminating"`
 	EnterTimeStruct               *ebpf.Program `ebpf:"enter_time_struct"`
 	EnterXattr                    *ebpf.Program `ebpf:"enter_xattr"`
+	ExitAsync                     *ebpf.Program `ebpf:"exit_async"`
+	ExitControl                   *ebpf.Program `ebpf:"exit_control"`
+	ExitFdTime                    *ebpf.Program `ebpf:"exit_fd_time"`
 	ExitGeneric                   *ebpf.Program `ebpf:"exit_generic"`
+	ExitIo                        *ebpf.Program `ebpf:"exit_io"`
 	ExitIovecBase                 *ebpf.Program `ebpf:"exit_iovec_base"`
 	ExitMmsgFinal                 *ebpf.Program `ebpf:"exit_mmsg_final"`
 	ExitMountQuery                *ebpf.Program `ebpf:"exit_mount_query"`
@@ -342,6 +351,7 @@ type bpfPrograms struct {
 	ExitQuota                     *ebpf.Program `ebpf:"exit_quota"`
 	ExitRecvmmsgBase01            *ebpf.Program `ebpf:"exit_recvmmsg_base01"`
 	ExitRecvmmsgBase23            *ebpf.Program `ebpf:"exit_recvmmsg_base23"`
+	ExitStruct                    *ebpf.Program `ebpf:"exit_struct"`
 	TraceKretprobeRecvmsgControl  *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_control"`
 	TraceKretprobeRecvmsgDispatch *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_dispatch"`
 	TraceKretprobeRecvmsgFinal    *ebpf.Program `ebpf:"trace_kretprobe_recvmsg_final"`
@@ -405,7 +415,11 @@ func (p *bpfPrograms) Close() error {
 		p.EnterTerminating,
 		p.EnterTimeStruct,
 		p.EnterXattr,
+		p.ExitAsync,
+		p.ExitControl,
+		p.ExitFdTime,
 		p.ExitGeneric,
+		p.ExitIo,
 		p.ExitIovecBase,
 		p.ExitMmsgFinal,
 		p.ExitMountQuery,
@@ -414,6 +428,7 @@ func (p *bpfPrograms) Close() error {
 		p.ExitQuota,
 		p.ExitRecvmmsgBase01,
 		p.ExitRecvmmsgBase23,
+		p.ExitStruct,
 		p.TraceKretprobeRecvmsgControl,
 		p.TraceKretprobeRecvmsgDispatch,
 		p.TraceKretprobeRecvmsgFinal,

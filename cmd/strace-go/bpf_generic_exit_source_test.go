@@ -42,21 +42,20 @@ func TestBPFGenericExitOwnsPendingAroundEmissionHelper(t *testing.T) {
 	if !strings.Contains(source, "static __always_inline void emit_generic_exit_event(") {
 		t.Fatal("generic emission must be a static inline helper")
 	}
-	if !strings.Contains(emitter, "is_sys_exit_direct_syscall(p->sys_id)") {
-		t.Fatal("generic emission helper must gate direct syscall families")
-	}
-	groupCalls := []string{
-		"emit_generic_exit_fd_time_event(p, ret_value, duration)",
-		"emit_generic_exit_struct_event(p, ret_value, duration)",
-		"emit_generic_exit_async_event(p, ret_value, duration)",
-		"emit_generic_exit_io_event(p, ret_value, duration)",
-		"emit_generic_exit_control_event(p, ret_value, duration)",
-	}
-	assertBPFSourceOrder(t, emitter, groupCalls)
 	fallback := "emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);"
-	if strings.Count(emitter, fallback) != 2 ||
-		strings.LastIndex(emitter, fallback) < strings.Index(emitter, groupCalls[len(groupCalls)-1]) {
-		t.Fatal("generic emission helper must retain non-direct and final generic fallbacks")
+	if strings.Count(emitter, fallback) != 1 {
+		t.Fatal("generic emission helper must emit exactly one generic fallback")
+	}
+	for _, group := range []string{
+		"emit_generic_exit_fd_time_event(",
+		"emit_generic_exit_struct_event(",
+		"emit_generic_exit_async_event(",
+		"emit_generic_exit_io_event(",
+		"emit_generic_exit_control_event(",
+	} {
+		if strings.Contains(emitter, group) {
+			t.Fatalf("generic emission helper still owns family dispatch %q", group)
+		}
 	}
 	if strings.Contains(emitter, "consume_pending_syscall(") ||
 		strings.Contains(emitter, "lookup_pending_syscall_for_exit(") {

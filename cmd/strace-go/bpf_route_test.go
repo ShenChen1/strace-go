@@ -60,6 +60,92 @@ func TestBPFRoutePlanSelectsSpecializedFamilies(t *testing.T) {
 	}
 }
 
+func TestBPFRoutePlanSelectsSplitDirectExitFamilies(t *testing.T) {
+	table := map[uint32]meta.Syscall{
+		1: {Name: "read"},
+		2: {Name: "stat"},
+		3: {Name: "cachestat"},
+		4: {Name: "epoll_wait"},
+		5: {Name: "fcntl"},
+		6: {Name: "getpid"},
+	}
+	plan, err := newBPFRoutePlan(table)
+	if err != nil {
+		t.Fatalf("newBPFRoutePlan() error = %v", err)
+	}
+	want := map[uint32]uint32{
+		1: exitProgFDTime,
+		2: exitProgStruct,
+		3: exitProgAsync,
+		4: exitProgIO,
+		5: exitProgControl,
+		6: exitProgGeneric,
+	}
+	for id, expected := range want {
+		if plan.exit[id] != expected {
+			t.Fatalf("exit route[%d] = %d, want %d", id, plan.exit[id], expected)
+		}
+	}
+}
+
+func TestBPFRoutePlanCoversSplitDirectExitCatalog(t *testing.T) {
+	plan, err := newBPFRoutePlan(meta.SyscallTable)
+	if err != nil {
+		t.Fatalf("newBPFRoutePlan() error = %v", err)
+	}
+	catalog := []struct {
+		slot  uint32
+		names []string
+	}{
+		{exitProgFDTime, []string{
+			"read", "pread64", "gettimeofday", "clock_gettime", "clock_getres",
+			"getitimer", "setitimer", "adjtimex", "clock_adjtime", "nanosleep",
+			"clock_nanosleep", "dup", "dup2", "dup3", "epoll_create", "timerfd_create",
+			"eventfd", "eventfd2", "epoll_create1", "inotify_init", "inotify_init1",
+			"signalfd", "signalfd4",
+		}},
+		{exitProgStruct, []string{
+			"stat", "lstat", "fstat", "newfstatat", "statx", "statfs", "fstatfs",
+			"waitid", "rt_sigaction", "rt_sigprocmask", "rt_sigsuspend", "getcwd",
+			"readlink", "readlinkat", "pipe", "pipe2", "socketpair", "uname", "sysinfo",
+			"getrlimit", "prlimit64",
+		}},
+		{exitProgAsync, []string{
+			"sendfile", "arch_prctl", "get_robust_list", "cachestat", "capget", "capset",
+			"prctl", "io_getevents", "io_pgetevents", "io_setup", "poll", "ppoll",
+		}},
+		{exitProgIO, []string{
+			"select", "epoll_wait", "epoll_pwait", "epoll_pwait2", "getdents", "getdents64",
+			"execve", "execveat", "getxattr", "lgetxattr", "fgetxattr", "listxattr",
+			"llistxattr", "flistxattr",
+		}},
+		{exitProgControl, []string{
+			"fcntl", "ioctl", "connect", "bind", "sendto", "recvfrom", "accept", "accept4",
+			"getsockname", "getpeername", "setsockopt", "getsockopt",
+		}},
+	}
+	for _, family := range catalog {
+		for _, name := range family.names {
+			id, ok := routeSyscallIDByName(meta.SyscallTable, name)
+			if !ok {
+				t.Fatalf("split exit catalog syscall %q is missing from generated table", name)
+			}
+			if plan.exit[id] != family.slot {
+				t.Fatalf("exit route for %s = %d, want family slot %d", name, plan.exit[id], family.slot)
+			}
+		}
+	}
+}
+
+func routeSyscallIDByName(table map[uint32]meta.Syscall, name string) (uint32, bool) {
+	for id, syscall := range table {
+		if syscall.Name == name {
+			return id, true
+		}
+	}
+	return 0, false
+}
+
 func TestBPFRoutePlanCoversGeneratedSyscalls(t *testing.T) {
 	plan, err := newBPFRoutePlan(meta.SyscallTable)
 	if err != nil {

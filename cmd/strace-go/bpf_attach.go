@@ -151,6 +151,11 @@ const (
 	exitProgQuota          = 6
 	exitProgMountQuery     = 7
 	exitProgPath           = 8
+	exitProgFDTime         = 9
+	exitProgStruct         = 10
+	exitProgAsync          = 11
+	exitProgIO             = 12
+	exitProgControl        = 13
 )
 
 const (
@@ -237,6 +242,11 @@ func exitProgArrayEntries(objs *bpfObjects) []progArrayEntry {
 		{exitProgQuota, objs.ExitQuota},
 		{exitProgMountQuery, objs.ExitMountQuery},
 		{exitProgPath, objs.ExitPath},
+		{exitProgFDTime, objs.ExitFdTime},
+		{exitProgStruct, objs.ExitStruct},
+		{exitProgAsync, objs.ExitAsync},
+		{exitProgIO, objs.ExitIo},
+		{exitProgControl, objs.ExitControl},
 	}
 }
 

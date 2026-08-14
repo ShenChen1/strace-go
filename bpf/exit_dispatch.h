@@ -23,6 +23,11 @@ enum exit_prog_index {
     EXIT_PROG_QUOTA = 6,
     EXIT_PROG_MOUNT_QUERY = 7,
     EXIT_PROG_PATH = 8,
+    EXIT_PROG_FD_TIME = 9,
+    EXIT_PROG_STRUCT = 10,
+    EXIT_PROG_ASYNC = 11,
+    EXIT_PROG_IO = 12,
+    EXIT_PROG_CONTROL = 13,
 };
 
 static __always_inline void emit_exit_dispatch_fallback(
@@ -233,15 +238,6 @@ static __always_inline void emit_generic_exit_event(
     s64 ret_value,
     u64 duration)
 {
-    if (!is_sys_exit_direct_syscall(p->sys_id)) {
-        emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
-        return;
-    }
-    if (emit_generic_exit_fd_time_event(p, ret_value, duration)) return;
-    if (emit_generic_exit_struct_event(p, ret_value, duration)) return;
-    if (emit_generic_exit_async_event(p, ret_value, duration)) return;
-    if (emit_generic_exit_io_event(p, ret_value, duration)) return;
-    if (emit_generic_exit_control_event(p, ret_value, duration)) return;
     emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);
 }
 

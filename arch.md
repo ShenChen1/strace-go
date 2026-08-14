@@ -8933,3 +8933,50 @@ Impact note：生产调用链由 `runTraceSession -> setupBPFWithConfig` 中的�
 - 未发现正向 filter 语义回归：route map 只包含选中的 syscall ID，ProgArray 只写实际加载的 slot；mmsg/recvmsg、payload、生命周期、线程和 FD-state 语义测试均通过。
 - `traceBPFRuntime` 仍是唯一 BPF resource owner；`NewCollection` 的隐藏 map/program 句柄没有被遗弃，失败路径和正常 Close 都会回收。session 没有获得 generated object 或 collection 的直接所有权。
 - 选择性加载只改变启动期 verifier 输入，不改变 raw dispatcher、pending TID、ringbuf/event v2、Go 单消费者、文本/JSON 输出或 no-ptrace/no-procfs 约束。否定/all/FD-state 的保守回退是有意的性能与语义边界，后续若优化这些模式必须先补完整 FD-state route catalog。
+
+### 14.214 拆分 direct exit family 并修正 AIO tail-call 闭包（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.213 已按正向 syscall filter 裁剪 BPF ProgramSpec，但 `exit_generic` 仍内联 fd/time、struct、async、I/O、control 五组大型 emitter。无 filter、否定 filter 和 FD-state 模式仍需验证完整对象集合；正向 filter 的固定成本已经下降，但单个 generic section 仍承载过多 verifier 输入。
+- Problem：继续把五组 emitter 留在 `exit_generic` 会让 generic handler 的指令和 verifier 分析边界持续膨胀；同时，选择性加载的 AIO 依赖闭包只加载 `enter_aio_iovec`，没有继续加载其 tail-call 目标 `enter_aio_buf`，导致 `io_submit` 的 PWRITE buffer payload 在正向 filter 下丢失。
+- Goal：把五组 direct exit emitter 拆成独立的 tail-call handler，保留同一事件 ABI、pending 生命周期和 generic fallback；补齐 AIO fragment 的显式依赖闭包，并用完整 family catalog 和原生 AIO 测试锁定行为。
+- Non-goals：不引入第二种产品模式，不恢复 ptrace、procfs、process_vm、procmem 或用户态 tracee memory fallback；不改变 Go 单 Goroutine 消费者、ringbuf、event v2/TLV、文本 formatter、生命周期 map 或 filter 语义；不声称本阶段消除了 all/否定/FD-state 的全部 verifier 成本。
+- Constraints：route catalog 必须覆盖现有五组 helper 的最终路由；path/quota/mount/iovec/msg/mmsg 的后置规则继续保留优先级；ProgArray、生成绑定和真实 verifier 必须同步；不触碰预先存在的 `strace-upstream` dirty 状态。
+
+Impact note：新增 `EXIT_PROG_FD_TIME=9`、`STRUCT=10`、`ASYNC=11`、`IO=12`、`CONTROL=13`，`exit_progs` 容量从 9 调整为 14；`exit_generic` 只保留普通 event v2 fallback，五个 handler 各自拥有 `EXIT_PROLOGUE`、family emitter、fallback 和 pending consume。Go route catalog 将 direct family 映射到这些 slot，后定义的 path/quota/mount/iovec/msg/mmsg 规则继续覆盖冲突名称。选择器将 `enterProgAio -> enterProgAioIovec -> enterProgAioBuf` 作为完整 tail-call 闭包。
+
+#### 方案比较
+
+1. 继续只缩减 `exit_generic` 内部条件：改动小，但大型 emitter 仍在同一 verifier 输入中，all/否定模式没有结构边界，拒绝。
+2. 并行加载多个完整 BPF ELF：可以隔离 verifier，但会扩大 map、ProgArray、资源回滚和生成绑定的所有权复杂度，且短期收益不稳定，拒绝。
+3. 保持单 ELF 和现有 ProgArray，在 exit family 边界增加五个 tail-call handler，并为 AIO 使用显式依赖闭包：改动局部、ABI 稳定、可由 source/route/verifier 测试证明，选择该方案。
+
+#### 状态契约
+
+- `exit_generic` 只调用 `emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0)`；`exit_fd_time`、`exit_struct`、`exit_async`、`exit_io`、`exit_control` 各自只调用对应的 `emit_generic_exit_*_event`，helper 返回 0 时发普通 exit event。
+- 每个 split handler 都执行同一顺序：`EXIT_PROLOGUE` 查找并校验 TID pending，执行 family emitter 或 generic fallback，最后调用 `consume_pending_syscall`。因此 handler 不引入第二份 pending map，也不会在 emitter 失败分支遗留 pending。
+- `bpfExitRouteRules` 的五组 catalog 与原 helper predicate 对齐：fd/time、struct、async、I/O、control；open/path、quota、mount query、iovec、msg、mmsg 等已有规则位于后方并按既有顺序覆盖冲突名称。未知 syscall 仍使用 generic route。
+- `enter_aio` 的选择性依赖现在通过 `addEnterSlot(enterProgAioIovec)` 继续闭包到 `enterProgAioBuf`；这保证 `io_submit` 的第二次 tail call 有目标，不把 PWRITE buffer payload 静默降级为裸指针。
+- 运行时仍只有 raw `sys_enter/sys_exit` 两个入口 attachment；family handler 只存在于 `enter_progs`/`exit_progs`，不改变 raw tracepoint 扇出、Go 单消费者或无锁状态机。
+
+#### 测试与验收
+
+- 失败优先验证：新增的 `TestBPFProgramSelectionIncludesAIOFragmentDependencies` 在修复前因缺少 `enter_aio_buf` 失败；实现闭包后通过。新增 `TestBPFRoutePlanCoversSplitDirectExitCatalog` 枚举五组 direct family 的全部当前 syscall 名称，防止 route catalog 漂移；source gate 检查五个 handler 的 prologue/emitter/fallback/consume 顺序和 translation unit include。
+- `sudo -n ./build.sh` 通过，clang、BPF 生成器和真实 verifier 接受新的 14-slot `exit_progs`；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 CLI build 和 `git diff --check` 通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6；所有 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误计数为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `341.60 ns/op、0 B/op、0 allocs/op`，JSON writer `504.70 ns/op、0 B/op、0 allocs/op`，decoded writer `688.00 ns/op、0 B/op、0 allocs/op`，decoded payload writer `980.30 ns/op、16 B/1 alloc`。scalar/io/lifecycle/threads 的端到端 `events_per_sec` 为 `2065.12/1424.47/11.12/1202.03`，稳态 `exit/s` 为 `9818.36/6564.61/41.92/5188.39`；`bpf_objects` 约 `0.696/0.657/0.685/0.596s`，trace 阶段约 `0.306/0.305/0.406/0.309s`。
+- 性能口径结论：当前短 workload 的端到端分母仍包含约 `0.71~0.83s` setup、约 `0.31~0.34s` target/cleanup 等固定成本，所以端到端值显著低于稳态值；这不是 ringbuf 消费热路径突然下降。all/否定/FD-state 仍会加载完整对象集合，当前无 filter 的 verifier 固定成本仍是下一条优化边界。
+- 原生测试：`upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL`；`aio.gen.test` 在修复 AIO 闭包后通过。两个 XFAIL 仍是登记的 pure-eBPF 边界：ptrace-sized read/write hexdump 和未观察到的 FD/cwd state；`small` 为 `23 PASS / 0 FAIL`。
+
+#### Review 结论
+
+- `readelf` 显示 `exit_generic` 从原约 `84424` 字节降为 `3008` 字节；新 handler 为 `exit_fd_time 16672`、`exit_struct 20624`、`exit_async 17856`、`exit_io 25360`、`exit_control 14904` 字节。大型 emitter 已从 generic verifier 输入中移出，但单 ELF 的总 verifier 工作没有被宣称为全部消失。
+- route 优先级与原 helper 行为一致：direct handler 对不满足返回值条件的事件发普通 fallback，后置 specialized route 仍独占 path/msg/mmsg 等生命周期与 payload 语义；完整 semantic、small、upstream-reference 和真实 verifier 验证了这一点。
+- AIO 回归根因是 selective loader 的依赖闭包不完整，而非 eBPF 内存读取时点问题；修复没有引入 procfs/ptrace，也没有把异步内存读取推迟到用户态，buffer 仍在 `sys_enter` fragment 中 bounded copy。
+- 本阶段没有新增锁、goroutine、定时器、map owner 或用户态回查；`traceBPFRuntime` 仍是唯一 BPF resource owner，`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+#### 下一步边界
+
+- 如果目标是继续降低无 filter/否定 filter 的 `bpf_objects` 成本，下一阶段应测量 core/family ELF 拆分、BPF 编译指令瘦身或按运行模式拆 collection 的收益与资源代价；不能再用本阶段的 positive-filter 结果推断 all 模式同样受益。
+- `events_per_sec` 继续保留为用户感知端到端指标；架构性能门禁使用 `steady_state_events_per_sec`、setup phase、ringbuf drop/error counters 和 Go alloc 指标联合判断。

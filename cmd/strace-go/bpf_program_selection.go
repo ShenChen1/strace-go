@@ -76,6 +76,11 @@ var bpfExitProgramNames = map[uint32]string{
 	exitProgQuota:          "exit_quota",
 	exitProgMountQuery:     "exit_mount_query",
 	exitProgPath:           "exit_path",
+	exitProgFDTime:         "exit_fd_time",
+	exitProgStruct:         "exit_struct",
+	exitProgAsync:          "exit_async",
+	exitProgIO:             "exit_io",
+	exitProgControl:        "exit_control",
 }
 
 var bpfRecvmsgProgramNames = map[uint32]string{
@@ -210,7 +215,7 @@ func (s *bpfProgramSelection) addEnterSlot(slot uint32) error {
 		}
 		return s.addEnterSlotUnchecked(enterProgMmsgB3)
 	case enterProgAio:
-		return s.addEnterSlotUnchecked(enterProgAioIovec)
+		return s.addEnterSlot(enterProgAioIovec)
 	case enterProgAioIovec:
 		return s.addEnterSlotUnchecked(enterProgAioBuf)
 	case enterProgMmsgB01:

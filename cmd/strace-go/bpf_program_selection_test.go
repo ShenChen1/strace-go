@@ -87,6 +87,27 @@ func TestBPFProgramSelectionIncludesTailCallDependencies(t *testing.T) {
 	}
 }
 
+func TestBPFProgramSelectionIncludesAIOFragmentDependencies(t *testing.T) {
+	table := map[uint32]meta.Syscall{
+		1: {Name: "io_submit"},
+	}
+	plan, err := newBPFRoutePlan(table)
+	if err != nil {
+		t.Fatalf("newBPFRoutePlan() error = %v", err)
+	}
+	selection, err := newBPFProgramSelection(plan, table, traceBPFConfig{
+		syscallFilter: syscallFilterPlan{enabled: true, ids: []uint32{1}},
+	})
+	if err != nil {
+		t.Fatalf("newBPFProgramSelection() error = %v", err)
+	}
+	for _, name := range []string{"enter_aio", "enter_aio_iovec", "enter_aio_buf"} {
+		if !selection.hasProgram(name) {
+			t.Fatalf("AIO selection missing tail-call dependency %q", name)
+		}
+	}
+}
+
 func TestBPFProgramSelectionUsesConservativeModes(t *testing.T) {
 	plan := bpfRoutePlan{
 		enter: map[uint32]uint32{1: enterProgNoPayload},

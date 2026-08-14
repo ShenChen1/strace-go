@@ -158,7 +158,7 @@ func TestBPFScalarAndTerminatingUseDirectEventV2(t *testing.T) {
 		!strings.Contains(straceSource, "emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);") ||
 		!strings.Contains(straceSource, "emit_syscall_exit_event_v2_direct(p, ret_value, duration, 0);") ||
 		!strings.Contains(straceSource, "save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);") ||
-		!strings.Contains(straceSource, "is_sys_exit_direct_syscall(p->sys_id)") {
+		!strings.Contains(straceSource, "int exit_fd_time(") {
 		t.Fatal("scalar syscalls should use direct event v2 helpers instead of the bpf_event carrier")
 	}
 	if !strings.Contains(directHeader, "return sys_id == SYS_GETPID || sys_id == SYS_CLOSE || sys_id == SYS_CLOSE_RANGE;") {
@@ -182,7 +182,7 @@ func TestBPFReadWritePayloadHelpersUseDirectTLV(t *testing.T) {
 	if !strings.Contains(directHeader, "sys_id == SYS_OPENAT") ||
 		!strings.Contains(directHeader, "sys_id == SYS_WRITE") ||
 		!strings.Contains(directHeader, "sys_id == SYS_PWRITE64") ||
-		!strings.Contains(straceSource, "is_sys_exit_direct_syscall(p->sys_id)") ||
+		!strings.Contains(straceSource, "int exit_fd_time(") ||
 		!strings.Contains(directHeader, "emit_payload_enter_event_v2_direct(") ||
 		!strings.Contains(directHeader, "capture_openat_path_tlv_direct(") {
 		t.Fatal("payload syscalls should use direct event v2 TLV helpers instead of the bpf_event carrier")
@@ -223,7 +223,7 @@ func TestBPFTimeAndStatStructPayloadsUseDirectTLV(t *testing.T) {
 		!strings.Contains(timeDirectHeader, "emit_time_struct_exit_event_v2_direct(") ||
 		!strings.Contains(timeDirectHeader, "emit_gettimeofday_exit_event_v2_direct(") ||
 		!strings.Contains(timeDirectHeader, "TIME_DIRECT_TIMEZONE_SIZE") ||
-		!strings.Contains(straceSource, "is_sys_exit_direct_syscall(p->sys_id)") ||
+		!strings.Contains(straceSource, "int exit_fd_time(") ||
 		!strings.Contains(straceSource, "emit_time_struct_exit_event_v2_direct(p, ret_value, duration);") ||
 		!strings.Contains(straceSource, "emit_gettimeofday_exit_event_v2_direct(p, ret_value, duration);") {
 		t.Fatal("clock/gettimeofday syscalls should emit direct struct TLV exit events without the bpf_event carrier")
@@ -304,14 +304,18 @@ func TestBPFWaitidAndSignalPayloadsUseDirectTLV(t *testing.T) {
 		!strings.Contains(straceSource, "emit_signal_exit_event_v2_direct(p, ret_value, duration);") {
 		t.Fatal("rt_sigaction/rt_sigprocmask/rt_sigsuspend should emit direct signal TLV events without the bpf_event carrier")
 	}
-	exitBody, ok := bpfFunctionBody(readCombinedBPFSources(t), "emit_generic_exit_event")
-	if !ok {
-		t.Fatal("BPF exit dispatcher missing generic emission helper")
+	combinedExitSource := readCombinedBPFSources(t)
+	for _, handler := range []string{
+		"exit_fd_time",
+		"exit_struct",
+		"exit_async",
+		"exit_io",
+		"exit_control",
+	} {
+		if !strings.Contains(combinedExitSource, "int "+handler+"(") {
+			t.Fatalf("BPF exit dispatcher missing split direct handler %s", handler)
+		}
 	}
-	assertBPFSourceOrder(t, exitBody, []string{
-		"emit_generic_exit_fd_time_event(p, ret_value, duration)",
-		"emit_generic_exit_struct_event(p, ret_value, duration)",
-	})
 }
 
 func TestBPFBytesPayloadsUseDirectTLV(t *testing.T) {

@@ -140,6 +140,7 @@ func readCombinedBPFSources(t *testing.T) string {
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/enter_fragment_dispatch.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/mmsg_enter_dispatch.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/exit_direct_dispatch.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/recvmsg_kretprobe_dispatch.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/quota_dispatch.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/mount_query_dispatch.h")) +
