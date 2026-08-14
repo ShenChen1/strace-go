@@ -60,6 +60,71 @@ func TestApplyLifecycleEventMaintainsTaskState(t *testing.T) {
 	}
 }
 
+func TestApplyLifecycleEventOwnsExecutableState(t *testing.T) {
+	state := newTraceState()
+	parent := state.ensureTaskState(100, 100)
+	parent.Executable = "/bin/parent"
+
+	child, _ := state.applyLifecycleEvent(lifecycleEventView{
+		pid:    100,
+		tid:    100,
+		action: lifecycleFork,
+		args:   [6]uint64{100, 101},
+	})
+	if child == nil {
+		t.Fatal("fork child task is nil")
+	}
+	if child.Executable != "/bin/parent" {
+		t.Fatalf("fork child executable = %q, want inherited /bin/parent", child.Executable)
+	}
+
+	execed, _ := state.applyLifecycleEvent(lifecycleEventView{
+		pid:          101,
+		tid:          101,
+		action:       lifecycleExec,
+		args:         [6]uint64{101, 101},
+		snapshotText: "/bin/child",
+	})
+	if execed == nil {
+		t.Fatal("exec task is nil")
+	}
+	if execed.Executable != "/bin/child" {
+		t.Fatalf("exec task executable = %q, want /bin/child", execed.Executable)
+	}
+
+	freed, _ := state.applyLifecycleEvent(lifecycleEventView{
+		pid:    101,
+		tid:    101,
+		action: lifecycleFree,
+	})
+	if freed == nil {
+		t.Fatal("free task is nil")
+	}
+	if freed.Executable != "/bin/child" {
+		t.Fatalf("free task executable = %q, want retained /bin/child", freed.Executable)
+	}
+}
+
+func TestApplyLifecycleExecClearsStaleExecutableWithoutSnapshot(t *testing.T) {
+	state := newTraceState()
+	task := state.ensureTaskState(101, 101)
+	task.Executable = "/bin/old"
+
+	execed, _ := state.applyLifecycleEvent(lifecycleEventView{
+		pid:    101,
+		tid:    101,
+		action: lifecycleExec,
+		args:   [6]uint64{101, 101},
+	})
+
+	if execed == nil {
+		t.Fatal("exec task is nil")
+	}
+	if execed.Executable != "" {
+		t.Fatalf("exec task executable = %q, want unknown after missing snapshot", execed.Executable)
+	}
+}
+
 func TestSyscallEventEnsuresTaskState(t *testing.T) {
 	state := newTraceState()
 	state.noteSyscallTask(syscallEventView{valid: true, pid: 200, tid: 201, enterTime: 40})

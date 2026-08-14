@@ -9394,3 +9394,32 @@ Impact note：只影响 `test/ebpf_perf_suite.py` 的可读输出标签、`test/
 - 失败优先测试捕获 `print_perf_capture` 输出，要求新标签同时存在并拒绝两个旧标签。
 - Python perf oracle、真实 `ebpf-perf` 和 `git diff --check` 通过后提交；真实输出中的数值应与重命名前使用同一公式，不把标签修正伪装成性能提升。
 - 实际验证：失败优先测试先观察到旧 `events_per_sec`/`steady_state_events_per_sec` 后失败，改名后 Python oracle `18 OK`、语法检查和真实 `ebpf-perf` 通过。scalar 同一轮为 `end_to_end_exit_events_per_sec=6105.08`、`trace_exit_events_per_sec=24021.00`；io/lifecycle/threads 也同时输出两个显式口径，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map/stale counter 均为 `0`。
+
+### 14.228 让 TaskState 拥有 lifecycle executable 状态（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：Phase 6 要求 Go `TaskState` 维护 `tgid/tid/parent/alive/exe`。当前 `sched_process_exec` 已通过纯 eBPF lifecycle event 携带 bounded filename，但该值只存在于瞬时 `lifecycleEventView`/JSON `filename`，`TaskState` 只记录 `Execed=true`。
+- Problem：事件处理结束后无法从任务聚合状态得知最后观察到的 executable；后续 exit/free JSON 也不能证明任务映像状态跨事件保留。把 filename 只当输出字段使 lifecycle event 同时承担事实和长期状态，未完成 Phase 6 的 owner 收口。
+- Goal：由 `TaskState` 唯一拥有最后观察到的 bounded executable；fork 从已知父任务继承，exec 用当前 snapshot 替换，exit/free 保留；JSON 通过 `task_executable` 投影状态，使 semantic oracle 能验证 exec 后持久化。
+- Non-goals：不读取 procfs、`/proc/<pid>/exe` 或 tracee 内存；不把 bounded snapshot 宣称为规范化/完整路径；不新增 BPF map、event 字段、goroutine、锁或独立 process-image registry；不改变文本输出。
+- Constraints：exec snapshot 为空时也必须清空旧 executable，不能把旧映像错误延续到新进程；未知 attach 目标保持空值；`TraceStateUpdate` 继续返回值快照，输出层不能取得可变 `TaskState` owner。
+
+Impact note：影响 `task_state.go` 的 lifecycle 状态转移、`event_json.go`/`json_event_writer.go` 的只读投影、对应 Go/semantic tests；BPF lifecycle filename、event v2 ABI、FD/cwd side effects 和单消费者路由不变。
+
+#### 方案比较
+
+1. 保持 filename 只存在于 lifecycle event：实现最少，但不能满足 `TaskState.exe` 契约，也无法在 exit/free 观察长期状态，拒绝。
+2. 在 `TaskState` 增加 executable 值并遵循 fork/exec/exit 转移：复用现有单消费者 owner，副作用局部且可由状态测试证明，选择。
+3. 新增按 TGID 的 process image registry：线程共享表达更规范，但当前没有独立查询者，会形成第二 owner 和同步规则，暂不引入。
+
+#### 测试与验收
+
+- 失败优先 Go 测试先因 `TaskState` 不存在 `Executable` 字段编译失败；补齐状态转移后，再用终止 syscall 回归测试捕获到任务被提前删除，改为只清理 syscall pending、由 lifecycle exit/free 唯一负责快照后退休。
+- Go 测试覆盖父任务 executable 的 fork 继承、exec 替换、空 snapshot 清除旧值、free 保留，以及 JSON `task_executable` 投影。
+- semantic fixture 要求 exec lifecycle 的 `filename` 与 `task_executable` 同时指向 `true`，并要求同一 task 的 exit/free 仍携带该状态。
+- 为遵守源码 500 LOC 上限，把共享断言和 lifecycle/thread oracle 分别移到 `ebpf_check_support.py`、`ebpf_lifecycle_checks.py`；原 suite 入口和检查语义不变。
+- 实际验证：`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a` 通过；Python oracle 为 `17 OK`、perf oracle 为 `18 OK`、runner unit 为 `8 OK`。
+- 真实 semantic 为 205 个 syscall events（enter/exit `104/101`）和 6 个 lifecycle events，exec 的 `/bin/true` 状态保留到 exit/free，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map counter 为 `0`。
+- 真实 perf 通过：scalar 的 end-to-end/trace exit rate 为 `5814.66/25118.53`，io 为 `3712.68/16262.16`，lifecycle 为 `28.33/82.94`，threads 为 `3305.25/14643.51`；全部内核错误/丢状态 counter 为 `0`。
+- 原生 `small` 为 `23 PASS`；`upstream-reference` 为 `117 PASS`、2 个既有 expected XFAIL（bounded read/write snapshot、纯事件 FD/cwd 未知），无 FAIL/XPASS。

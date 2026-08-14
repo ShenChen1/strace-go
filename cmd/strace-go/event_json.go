@@ -56,24 +56,25 @@ type jsonPayloadSection struct {
 }
 
 type jsonLifecycleEvent struct {
-	Type         string `json:"type"`
-	EventVersion uint16 `json:"event_version,omitempty"`
-	EventType    string `json:"event_type"`
-	EventTypeID  uint16 `json:"event_type_id,omitempty"`
-	EventFlags   uint32 `json:"event_flags,omitempty"`
-	Action       string `json:"action"`
-	ActionID     uint32 `json:"action_id,omitempty"`
-	Pid          uint32 `json:"pid"`
-	Tid          uint32 `json:"tid"`
-	TaskTID      uint32 `json:"task_tid,omitempty"`
-	TaskTGID     uint32 `json:"task_tgid,omitempty"`
-	ParentTID    uint32 `json:"parent_tid,omitempty"`
-	Alive        bool   `json:"alive"`
-	Execed       bool   `json:"execed,omitempty"`
-	Filename     string `json:"filename,omitempty"`
-	Arg0         uint64 `json:"arg0,omitempty"`
-	Arg1         uint64 `json:"arg1,omitempty"`
-	TimeNS       uint64 `json:"time_ns"`
+	Type           string `json:"type"`
+	EventVersion   uint16 `json:"event_version,omitempty"`
+	EventType      string `json:"event_type"`
+	EventTypeID    uint16 `json:"event_type_id,omitempty"`
+	EventFlags     uint32 `json:"event_flags,omitempty"`
+	Action         string `json:"action"`
+	ActionID       uint32 `json:"action_id,omitempty"`
+	Pid            uint32 `json:"pid"`
+	Tid            uint32 `json:"tid"`
+	TaskTID        uint32 `json:"task_tid,omitempty"`
+	TaskTGID       uint32 `json:"task_tgid,omitempty"`
+	ParentTID      uint32 `json:"parent_tid,omitempty"`
+	Alive          bool   `json:"alive"`
+	Execed         bool   `json:"execed,omitempty"`
+	TaskExecutable string `json:"task_executable,omitempty"`
+	Filename       string `json:"filename,omitempty"`
+	Arg0           uint64 `json:"arg0,omitempty"`
+	Arg1           uint64 `json:"arg1,omitempty"`
+	TimeNS         uint64 `json:"time_ns"`
 }
 
 type jsonReadyEvent struct {

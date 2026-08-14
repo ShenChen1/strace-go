@@ -161,6 +161,7 @@ func newJSONLifecycleEvent(view lifecycleEventView, task *TaskState) jsonLifecyc
 		ev.ParentTID = task.ParentTID
 		ev.Alive = task.Alive
 		ev.Execed = task.Execed
+		ev.TaskExecutable = task.Executable
 	}
 	return ev
 }

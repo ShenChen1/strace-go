@@ -66,24 +66,27 @@ func TestJSONLifecycleViewIncludesFilenameSnapshot(t *testing.T) {
 		enterTime:    20,
 		snapshotText: "/bin/true",
 	}, &TaskState{
-		TID:    101,
-		TGID:   101,
-		Alive:  true,
-		Execed: true,
+		TID:        101,
+		TGID:       101,
+		Alive:      true,
+		Execed:     true,
+		Executable: "/bin/true",
 	})
 
 	var ev struct {
-		Type       string `json:"type"`
-		EventFlags uint32 `json:"event_flags"`
-		Action     string `json:"action"`
-		ActionID   uint32 `json:"action_id"`
-		Filename   string `json:"filename"`
+		Type           string `json:"type"`
+		EventFlags     uint32 `json:"event_flags"`
+		Action         string `json:"action"`
+		ActionID       uint32 `json:"action_id"`
+		Filename       string `json:"filename"`
+		TaskExecutable string `json:"task_executable"`
 	}
 	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &ev); err != nil {
 		t.Fatalf("decode lifecycle view JSON: %v", err)
 	}
 	if ev.Type != "lifecycle" || ev.EventFlags != bpfEventFlagTruncated ||
-		ev.Action != "exec" || ev.ActionID != lifecycleExec || ev.Filename != "/bin/true" {
+		ev.Action != "exec" || ev.ActionID != lifecycleExec || ev.Filename != "/bin/true" ||
+		ev.TaskExecutable != "/bin/true" {
 		t.Fatalf("lifecycle view JSON = %+v, want exec filename /bin/true", ev)
 	}
 }

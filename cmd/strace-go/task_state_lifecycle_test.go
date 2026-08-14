@@ -38,7 +38,7 @@ func TestTraceStateDoesNotRetainUnfollowedForkChild(t *testing.T) {
 	}
 }
 
-func TestTraceStateRetiresTaskWhenTerminatingSyscallHasNoLifecycleEvent(t *testing.T) {
+func TestTraceStateKeepsTaskUntilLifecycleAfterTerminatingSyscall(t *testing.T) {
 	state := newTraceState()
 	id := syscallIDByName(t, "exit_group")
 	state.rememberPendingExecArgs(300, "stale exec args")
@@ -52,22 +52,35 @@ func TestTraceStateRetiresTaskWhenTerminatingSyscallHasNoLifecycleEvent(t *testi
 		eventFlags: bpfEventFlagGenericEnter,
 	}
 	state.handleEnvelope(enter)
-	if _, ok := state.tasks[300]; !ok {
+	task, ok := state.tasks[300]
+	if !ok {
 		t.Fatal("terminating syscall enter did not create task state")
 	}
+	task.Executable = "/bin/target"
 
 	exit := enter
 	exit.eventType = bpfEventTypeExit
 	exit.eventFlags = 0
 	state.handleEnvelope(exit)
-	if _, ok := state.tasks[300]; ok {
-		t.Fatal("terminating syscall exit did not retire task state")
+	if task := state.tasks[300]; task == nil || task.Executable != "/bin/target" {
+		t.Fatalf("terminating syscall task = %+v, want retained executable", task)
 	}
 	if _, ok := state.pendingExecArgs[300]; ok {
 		t.Fatal("terminating syscall exit left pending exec args")
 	}
 	if _, ok := state.suspendedSyscalls[300]; ok {
 		t.Fatal("terminating syscall exit left suspended syscall state")
+	}
+	if _, ok := state.lifecyclePending[300]; !ok {
+		t.Fatal("terminating syscall exit did not mark lifecycle pending")
+	}
+
+	update := state.handleEnvelope(lifecycleEnvelopeForTask(300, 300, lifecycleExit, 0, 0))
+	if update.lifecycleTask == nil || update.lifecycleTask.Executable != "/bin/target" {
+		t.Fatalf("lifecycle snapshot = %+v, want retained executable", update.lifecycleTask)
+	}
+	if _, ok := state.tasks[300]; ok {
+		t.Fatal("lifecycle exit did not retire task state")
 	}
 }
 

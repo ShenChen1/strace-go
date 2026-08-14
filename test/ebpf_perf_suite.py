@@ -12,7 +12,7 @@ from ebpf_event_oracles import (
     parse_ready_events,
     parse_stats_events,
 )
-from ebpf_semantic_checks import valid_stats_event
+from ebpf_check_support import valid_stats_event
 from ebpf_perf_phases import (
     REQUIRED_BPF_CLEANUP_PHASES,
     REQUIRED_CLEANUP_PHASES,

@@ -13,6 +13,7 @@ type TaskState struct {
 	ParentTID  uint32
 	Alive      bool
 	Execed     bool
+	Executable string
 	LastAction string
 	LastSeenNS uint64
 }
@@ -216,6 +217,7 @@ func (st *TraceState) applyLifecycleEvent(view lifecycleEventView) (*TaskState, 
 			child = st.ensureTaskState(childTID, 0)
 		}
 		child.ParentTID = parentTID
+		child.Executable = parent.Executable
 		child.Alive = true
 		child.LastAction = "fork"
 		child.LastSeenNS = view.enterTime
@@ -236,6 +238,7 @@ func (st *TraceState) applyLifecycleEvent(view lifecycleEventView) (*TaskState, 
 		processInherit := st.resolveForkIdentity(tid, view.pid)
 		task := st.ensureTaskState(tid, view.pid)
 		task.Execed = true
+		task.Executable = view.snapshotText
 		task.Alive = true
 		task.LastAction = "exec"
 		task.LastSeenNS = view.enterTime

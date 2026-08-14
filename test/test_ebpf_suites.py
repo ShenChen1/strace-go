@@ -3,6 +3,7 @@ import base64
 import subprocess
 import sys
 import unittest
+from types import SimpleNamespace
 
 from ebpf_event_oracles import (
     has_dup_fd_state_sections,
@@ -16,6 +17,7 @@ from ebpf_event_oracles import (
     has_ordered_merged_exit_sections,
 )
 from ebpf_cloexec_suite import has_stale_cloexec_read
+from ebpf_lifecycle_checks import check_lifecycle
 from ebpf_suites import wait_for_debug_ready
 from run_tests import SuiteResults
 
@@ -56,6 +58,46 @@ class WaitForDebugReadyTests(unittest.TestCase):
         message = str(raised.exception)
         self.assertIn("rc=7", message)
         self.assertIn("load failed", message)
+
+
+class LifecycleCheckTests(unittest.TestCase):
+    def test_requires_executable_state_on_exit(self):
+        events = [
+            {
+                "action": "fork",
+                "pid": 1,
+                "task_tid": 2,
+                "arg1": 2,
+                "parent_tid": 1,
+                "arg0": 1,
+                "alive": True,
+            },
+            {
+                "action": "exec",
+                "pid": 2,
+                "task_tid": 2,
+                "execed": True,
+                "alive": True,
+                "filename": "/bin/true",
+                "task_executable": "/bin/true",
+            },
+            {"action": "exit", "pid": 2, "task_tid": 2, "alive": False},
+        ]
+        context = SimpleNamespace(
+            main=SimpleNamespace(
+                events=[{"pid": 1}, {"pid": 2}],
+                lifecycle_events=events,
+            )
+        )
+
+        failures = []
+        check_lifecycle(context, failures)
+        self.assertEqual(failures, ["exit/free lifecycle lost task executable state"])
+
+        events[-1]["task_executable"] = "/bin/true"
+        failures = []
+        check_lifecycle(context, failures)
+        self.assertEqual(failures, [])
 
 
 class SuiteResultsTests(unittest.TestCase):
