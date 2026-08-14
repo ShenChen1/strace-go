@@ -30,13 +30,21 @@ func TestBPFRuntimeOwnerKeepsGeneratedResourcesOutOfOrchestrators(t *testing.T) 
 	ownerSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_runtime.go"))
 	for _, required := range []string{
 		"type traceBPFRuntime struct",
-		"func setupBPF() (*traceBPFRuntime, error)",
 		"func (r *traceBPFRuntime) newEventReader()",
 		"func (r *traceBPFRuntime) configure(",
 		"func (r *traceBPFRuntime) Close() error",
 	} {
 		if !strings.Contains(ownerSource, required) {
 			t.Fatalf("BPF runtime owner is missing %q", required)
+		}
+	}
+	setupSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_setup.go"))
+	for _, required := range []string{
+		"func setupBPF() (*traceBPFRuntime, error)",
+		"func setupBPFWithClock(clock traceClock)",
+	} {
+		if !strings.Contains(setupSource, required) {
+			t.Fatalf("BPF setup owner is missing %q", required)
 		}
 	}
 }

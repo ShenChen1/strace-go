@@ -29,6 +29,16 @@ RUNTIME_DIAGNOSTIC_FIELDS = (
     "pending_stale",
 )
 REQUIRED_PERF_PHASES = ("trace_start", "trace_end", "finalize_start")
+REQUIRED_BPF_SETUP_PHASES = (
+    "bpf_memlock",
+    "bpf_spec",
+    "bpf_objects",
+    "bpf_route_plan",
+    "bpf_route_maps",
+    "bpf_prog_arrays",
+    "bpf_tracepoints",
+    "bpf_recvmsg_kretprobe",
+)
 GO_BENCHMARK_PATTERN = re.compile(
     r"^(?P<name>Benchmark\S+)\s+\d+\s+"
     r"(?P<ns>[0-9]+(?:\.[0-9]+)?)\s+ns/op\s+"
@@ -194,6 +204,28 @@ def _validate_phase_timing(capture):
             f"{capture.name} duplicate phase events: {','.join(map(str, duplicates))}"
         )
     phases = {event.get("phase"): event for event in capture.phase_events}
+    missing_bpf = [
+        phase for phase in REQUIRED_BPF_SETUP_PHASES if phase not in phases
+    ]
+    if missing_bpf:
+        failures.append(
+            f"{capture.name} missing BPF setup phases: {','.join(missing_bpf)}"
+        )
+    previous_end = ready_time
+    for phase in reversed(REQUIRED_BPF_SETUP_PHASES):
+        event = phases.get(phase)
+        if event is None:
+            continue
+        start_time_ns = event.get("start_time_ns", 0)
+        end_time_ns = event.get("time_ns", 0)
+        if start_time_ns <= 0 or end_time_ns < start_time_ns:
+            failures.append(f"{capture.name} {phase} timing is invalid")
+        if end_time_ns > ready_time or start_time_ns > previous_end:
+            failures.append(f"{capture.name} {phase} is outside BPF setup")
+        previous_end = start_time_ns
+    first_bpf = phases.get(REQUIRED_BPF_SETUP_PHASES[0])
+    if first_bpf is not None and first_bpf.get("start_time_ns", 0) < start_time:
+        failures.append(f"{capture.name} BPF setup starts before bootstrap")
     missing = [phase for phase in REQUIRED_PERF_PHASES if phase not in phases]
     if missing:
         failures.append(f"{capture.name} missing phase events: {','.join(missing)}")
@@ -210,7 +242,10 @@ def _phase_durations(capture):
     if len(capture.ready_events) != 1:
         return None
     phases = {event.get("phase"): event for event in capture.phase_events}
-    if any(phase not in phases for phase in REQUIRED_PERF_PHASES):
+    if any(
+        phase not in phases
+        for phase in (*REQUIRED_BPF_SETUP_PHASES, *REQUIRED_PERF_PHASES)
+    ):
         return None
     ready = capture.ready_events[0]
     try:
@@ -219,13 +254,23 @@ def _phase_durations(capture):
         trace_start = phases["trace_start"]["time_ns"]
         trace_end = phases["trace_end"]["time_ns"]
         finalize_start = phases["finalize_start"]["time_ns"]
+        bpf_durations = {
+            f"{phase}_sec": (
+                phases[phase]["time_ns"] - phases[phase]["start_time_ns"]
+            )
+            / 1_000_000_000
+            for phase in REQUIRED_BPF_SETUP_PHASES
+        }
     except (KeyError, TypeError):
         return None
-    return {
+    durations = {
         "setup_sec": (ready_time - start_time) / 1_000_000_000,
         "trace_sec": (trace_end - trace_start) / 1_000_000_000,
         "finalize_start_sec": (finalize_start - trace_end) / 1_000_000_000,
     }
+    durations.update(bpf_durations)
+    durations["bpf_setup_sec"] = sum(bpf_durations.values())
+    return durations
 
 
 def validate_perf_capture(capture, spec):
@@ -297,6 +342,9 @@ def print_perf_capture(capture):
     durations = _phase_durations(capture)
     if durations is not None:
         print(f"setup_sec: {durations['setup_sec']:.6f}")
+        print(f"bpf_setup_sec: {durations['bpf_setup_sec']:.6f}")
+        for phase in REQUIRED_BPF_SETUP_PHASES:
+            print(f"{phase}_sec: {durations[f'{phase}_sec']:.6f}")
         print(f"trace_sec: {durations['trace_sec']:.6f}")
         print(f"finalize_start_delay_sec: {durations['finalize_start_sec']:.6f}")
         if durations["trace_sec"] > 0:

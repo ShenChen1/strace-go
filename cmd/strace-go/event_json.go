@@ -85,9 +85,11 @@ type jsonReadyEvent struct {
 }
 
 type jsonPhaseEvent struct {
-	Type   string `json:"type"`
-	Phase  string `json:"phase"`
-	TimeNS uint64 `json:"time_ns"`
+	Type        string `json:"type"`
+	Phase       string `json:"phase"`
+	StartTimeNS uint64 `json:"start_time_ns,omitempty"`
+	DurationNS  uint64 `json:"duration_ns,omitempty"`
+	TimeNS      uint64 `json:"time_ns"`
 }
 
 type jsonStatsEvent struct {
@@ -115,7 +117,21 @@ func newJSONReadyEventAt(targetPID int, attachPIDs []int, startTimeNS uint64, ti
 }
 
 func newJSONPhaseEvent(phase string, timeNS uint64) jsonPhaseEvent {
-	return jsonPhaseEvent{Type: "phase", Phase: phase, TimeNS: timeNS}
+	return newJSONPhaseEventAt(phase, 0, timeNS)
+}
+
+func newJSONPhaseEventAt(phase string, startTimeNS uint64, timeNS uint64) jsonPhaseEvent {
+	var durationNS uint64
+	if startTimeNS > 0 && timeNS >= startTimeNS {
+		durationNS = timeNS - startTimeNS
+	}
+	return jsonPhaseEvent{
+		Type:        "phase",
+		Phase:       phase,
+		StartTimeNS: startTimeNS,
+		DurationNS:  durationNS,
+		TimeNS:      timeNS,
+	}
 }
 
 func newJSONSyscallEventFromView(view syscallEventView, scMeta meta.Syscall, sections []handler.PayloadSection) jsonSyscallEvent {

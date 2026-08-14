@@ -48,7 +48,7 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 		return fmt.Errorf("trace clock is nil")
 	}
 	bootstrapStartNS := clock.NowMonoNs()
-	bpfRuntime, err := setupBPF()
+	bpfRuntime, err := setupBPFWithClock(clock)
 	if err != nil {
 		return fmt.Errorf("failed to set up BPF runtime: %w", err)
 	}
@@ -104,6 +104,7 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 	if err := outputHandoff.Transfer(); err != nil {
 		return fmt.Errorf("failed to transfer output ownership: %w", err)
 	}
+	session.emitDebugBPFSetupPhases(bpfRuntime.setupStages())
 	session.emitDebugReadyAt(bootstrapStartNS)
 	if err := session.run(); err != nil {
 		return fmt.Errorf("failed to finalize trace session: %w", err)

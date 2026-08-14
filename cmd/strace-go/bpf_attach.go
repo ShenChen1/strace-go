@@ -35,21 +35,40 @@ func (a *bpfAttacher) attachAll() ([]link.Link, error) {
 	if err := a.populateProgArrays(); err != nil {
 		return nil, fmt.Errorf("populate tail call prog arrays: %w", err)
 	}
-	links, err := a.attachTracepoints(rawSyscallTracepointSpecs(a.objs))
+	links, err := a.attachRequired()
 	if err != nil {
 		return nil, errors.Join(err, closeTracepointLinks(links))
 	}
-	lifecycleLinks, err := a.attachTracepoints(lifecycleTracepointSpecs(a.objs))
-	if err != nil {
-		return nil, errors.Join(err, closeTracepointLinks(links), closeTracepointLinks(lifecycleLinks))
-	}
-	links = append(links, lifecycleLinks...)
-	if kp, err := a.attachRecvmsgKretprobe(); err != nil {
+	if kp, err := a.attachOptionalRecvmsg(); err != nil {
 		log.Printf("recvmsg kretprobe unavailable; nested OUT payloads may fall back to bounded tracepoint data: %v", err)
 	} else if kp != nil {
 		links = append(links, kp)
 	}
 	return links, nil
+}
+
+// attachRequired owns only the raw syscall and lifecycle links. Partial links
+// are returned so the caller can roll them back when a later attach fails.
+func (a *bpfAttacher) attachRequired() ([]link.Link, error) {
+	if a == nil || a.objs == nil {
+		return nil, fmt.Errorf("BPF objects are nil")
+	}
+	links, err := a.attachTracepoints(rawSyscallTracepointSpecs(a.objs))
+	if err != nil {
+		return links, err
+	}
+	lifecycleLinks, err := a.attachTracepoints(lifecycleTracepointSpecs(a.objs))
+	if err != nil {
+		return append(links, lifecycleLinks...), err
+	}
+	return append(links, lifecycleLinks...), nil
+}
+
+func (a *bpfAttacher) attachOptionalRecvmsg() (link.Link, error) {
+	if a == nil || a.objs == nil {
+		return nil, fmt.Errorf("BPF objects are nil")
+	}
+	return a.attachRecvmsgKretprobe()
 }
 
 // rawSyscallTracepointSpecs lists the raw_syscalls programs that must attach.

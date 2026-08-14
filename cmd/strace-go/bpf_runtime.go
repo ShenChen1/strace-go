@@ -10,7 +10,6 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
-	"github.com/cilium/ebpf/rlimit"
 
 	"strace-go/pkg/meta"
 )
@@ -18,8 +17,9 @@ import (
 // traceBPFRuntime owns the loaded collection, all attached links, and the
 // narrow operations needed by bootstrap. Callers never close its internals.
 type traceBPFRuntime struct {
-	objects *bpfObjects
-	links   []link.Link
+	objects      *bpfObjects
+	links        []link.Link
+	setupTimings []traceBPFSetupTiming
 }
 
 // traceBPFTargetPort is the smallest BPF capability needed while starting or
@@ -35,39 +35,6 @@ type traceBPFTargetPort interface {
 type traceRingbufResource interface {
 	traceRingbufReader
 	io.Closer
-}
-
-func setupBPF() (*traceBPFRuntime, error) {
-	if err := rlimit.RemoveMemlock(); err != nil {
-		return nil, fmt.Errorf("remove memlock: %w", err)
-	}
-
-	spec, err := loadBpf()
-	if err != nil {
-		return nil, fmt.Errorf("load BPF spec: %w", err)
-	}
-	if err := setSyscallVariables(spec); err != nil {
-		return nil, fmt.Errorf("resolve BPF syscall variables: %w", err)
-	}
-
-	objects := &bpfObjects{}
-	if err := spec.LoadAndAssign(objects, nil); err != nil {
-		return nil, fmt.Errorf("load and assign BPF objects: %w", errors.Join(err, objects.Close()))
-	}
-	routePlan, err := newBPFRoutePlan(meta.SyscallTable)
-	if err != nil {
-		return nil, fmt.Errorf("build BPF route plan: %w", errors.Join(err, objects.Close()))
-	}
-	if err := configureBPFRouteMaps(objects, routePlan); err != nil {
-		return nil, fmt.Errorf("configure BPF route maps: %w", errors.Join(err, objects.Close()))
-	}
-	runtime := &traceBPFRuntime{objects: objects}
-	links, err := newBpfAttacher(objects).attachAll()
-	if err != nil {
-		return nil, fmt.Errorf("attach BPF programs: %w", errors.Join(err, objects.Close()))
-	}
-	runtime.links = links
-	return runtime, nil
 }
 
 // setSyscallVariables resolves Go-managed BPF syscall ids only from the
@@ -144,6 +111,13 @@ func (r *traceBPFRuntime) readPorts() traceBPFReadPorts {
 		return traceBPFReadPorts{}
 	}
 	return newTraceBPFReadPorts(r.objects)
+}
+
+func (r *traceBPFRuntime) setupStages() []traceBPFSetupTiming {
+	if r == nil {
+		return nil
+	}
+	return append([]traceBPFSetupTiming(nil), r.setupTimings...)
 }
 
 func (r *traceBPFRuntime) armNextFork() error {

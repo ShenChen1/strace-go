@@ -8851,3 +8851,44 @@ Impact note：`runTraceSession` 在 BPF setup 前记录 bootstrap 起点，在 s
 
 - 首轮 review 发现 `DebugPhases()` 若复用 `DebugEvents`，`--debug-events` 会额外产生 phase 记录，导致两个 debug 通道的输出契约耦合；已改为只有 `--debug-phases` 开启 phase，raw debug 测试明确验证不会产生 phase。
 - 性能 oracle 原先用 phase 名称做字典，重复 phase 会被最后一条覆盖；已增加重复计数校验和失败测试，保证 ready/phase 观测既完整又唯一。
+
+### 14.212 阶段化 BPF bootstrap 与 verifier 耗时观测（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.211 已把端到端耗时拆成 setup、trace 和 finalize，但 `setupBPF` 内部仍把 memlock、spec、对象加载、route map、ProgArray 和 tracepoint attachment 组织在一个函数里。
+- Problem：约 6 秒的固定成本仍无法定位；`bpfAttacher.attachAll` 还把 required raw/lifecycle tracepoint 与 best-effort recvmsg kretprobe 混在一起，失败回滚和阶段测试边界不清晰。
+- Goal：保留 `traceBPFRuntime` 作为唯一 BPF resource owner，新增 setup stage observer/recorder，拆出 required attachment 与 optional kretprobe，并将阶段时长通过 `--debug-phases` 输出。
+- Non-goals：不改变 BPF event ABI、route/filter/pending/lifecycle 语义、ringbuf 事件内容、普通输出或纯 eBPF/no-procfs/no-ptrace 边界；不增加 goroutine、锁或运行期 tracee 内存读取。
+- Constraints：阶段失败必须记录并执行资源清理；required attach 失败必须关闭已经创建的 links；optional kretprobe 失败只记录并继续；函数、文件和接口边界遵守仓库约束，先运行失败优先测试。
+
+Impact note：`bpf_setup.go` 只编排 setup 阶段和 recorder，不暴露 generated maps 给 session；`bpf_runtime.go` 仍拥有 objects/links，并以复制快照提供 setup timings；`main` 使用同一 session clock 调用 `setupBPFWithClock`，因此 ready、BPF stage 和 trace phase 使用同一 monotonic time domain。
+
+#### 方案比较
+
+1. 继续在 `runTraceSession` 外部增加更多总计时：不能定位 verifier 和 attach，且会把资源所有权重新带回 orchestrator，拒绝。
+2. 为每个 BPF 阶段建立独立 resource owner：粒度更细，但会复制 objects/links 的关闭责任，扩大错误回滚和 typed-nil 风险，拒绝。
+3. 使用显式 stage runner 加 observer 接口，保留单一 `traceBPFRuntime` owner，并将 attacher 分成 required/optional 能力：阶段可单测、资源责任不扩散，选择该方案。
+
+#### 状态契约
+
+- setup 阶段固定为 `bpf_memlock`、`bpf_spec`、`bpf_objects`、`bpf_route_plan`、`bpf_route_maps`、`bpf_prog_arrays`、`bpf_tracepoints`、`bpf_recvmsg_kretprobe`；每个 phase 记录 `start_time_ns`、`time_ns` 和 `duration_ns`。
+- `bpf_objects` 包含 `CollectionSpec.LoadAndAssign` 和 verifier；`bpf_route_plan` 只构造 Go route plan；`bpf_route_maps` 只写 route maps；`bpf_prog_arrays` 只填充既有 tail-call arrays。
+- `bpf_tracepoints` 只挂载 raw syscall 与 lifecycle required links，部分成功时返回已创建 links，由 setup owner 统一回滚；`bpf_recvmsg_kretprobe` 失败不会使主 syscall tracing session 失败，并保留现有诊断日志。
+- `--debug-phases` 在 ready 前输出 BPF setup phase，在 ready 后输出 trace/finalize phase；普通 JSON/text 和 `--debug-events` 不输出这些 phase。新增计时字段不进入 BPF event ABI。
+- `traceBPFRuntime.setupStages()` 返回独立 slice，调用方不能修改 owner 内部计时；`Close` 仍按 links 后 objects 的顺序释放，且保持幂等。
+
+#### 测试与验收
+
+- 失败优先测试先因缺少 stage timing、observer、BPF setup phase writer 和 required/optional attachment 边界而失败；实现后覆盖失败阶段仍记录时间、timing snapshot 不可变、普通/raw debug 不输出 phase、缺失/重复/越界阶段 oracle。
+- Python 性能 oracle 增加 8 个 BPF setup phase 的完整性、顺序、起止时间和 ready 边界检查；`PYTHONPATH=test python3 -m unittest test_ebpf_perf_suite` 通过 12 项测试。
+- `sudo -n ./build.sh` 通过，真实 clang/verifier 接受新的 setup 编排；Go 全量测试、vet、强制 build、`git diff --check` 通过，`ebpf-semantic` 保持主事件 205、enter/exit `104/101`、lifecycle 6，所有 runtime error counter 为 0。
+- 最新 `ebpf-perf` 显示 scalar `setup/bpf_setup/bpf_objects = 5.999975/5.902410/5.883823s`，io 为 `6.380251/6.268947/6.247546s`，lifecycle 为 `6.458270/6.346065/6.329994s`，threads 为 `6.770759/6.653653/6.637490s`；route map、ProgArray、required tracepoint 和 kretprobe 各自均约 0.00003~0.002s，稳态吞吐分别约 `9639/6552/42/5285 exit/s`，端到端值仍仅约 `451/284/2/216 exit/s`。
+- 性能结果证明固定成本主要来自 `LoadAndAssign/verifier`，不是 route map 或 attachment；Go decode/writer 仍为 `0 alloc` 普通路径，BPF reserve/copy/pending/orphan/mismatch/lifecycle-map 错误全为 0。
+
+#### Review 结论
+
+- setup 阶段接口化没有引入第二个 BPF resource owner；`traceBPFRuntime` 继续集中管理 generated objects、links、reader ports 和 cleanup，session 只拿 capability ports 和不可变 timing snapshot。
+- required attach 的部分失败会关闭 partial links，optional kretprobe 失败不改变主路径成功条件；该差异被显式建模而不是隐藏在通用 `attachAll` 线性流程中。
+- 阶段观测只增加启动期少量 monotonic clock 读取，不进入 syscall event hot path；普通输出、raw debug 语义、BPF ABI 和纯 eBPF/no-procfs/no-ptrace 契约保持不变。
+- 下一阶段应针对 `bpf_objects` 的 verifier/load 成本做独立优化实验，例如拆分 collection/program load 或减少 verifier 输入；在没有新实测前，不应声称 route/attach 是当前 `events/s` 瓶颈。

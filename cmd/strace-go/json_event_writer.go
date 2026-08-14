@@ -74,6 +74,10 @@ func (w *JSONEventWriter) WritePhase(phase string, timeNS uint64) {
 	w.encode(newJSONPhaseEvent(phase, timeNS))
 }
 
+func (w *JSONEventWriter) WritePhaseAt(phase string, startTimeNS uint64, timeNS uint64) {
+	w.encode(newJSONPhaseEventAt(phase, startTimeNS, timeNS))
+}
+
 func (w *JSONEventWriter) encode(event any) {
 	if !w.canEncode() {
 		return
@@ -155,6 +159,10 @@ func (s *traceSession) emitDebugReadyAt(startTimeNS uint64) {
 }
 
 func (s *traceSession) emitDebugPhase(phase string) {
+	s.emitDebugPhaseAt(phase, 0, s.debugTimeNS())
+}
+
+func (s *traceSession) emitDebugPhaseAt(phase string, startTimeNS uint64, timeNS uint64) {
 	if s == nil || s.components == nil || s.dependencies.OutputPolicy == nil {
 		return
 	}
@@ -162,7 +170,16 @@ func (s *traceSession) emitDebugPhase(phase string) {
 		return
 	}
 	if writer := s.jsonEventWriter(); writer != nil {
-		writer.WritePhase(phase, s.debugTimeNS())
+		writer.WritePhaseAt(phase, startTimeNS, timeNS)
+	}
+}
+
+func (s *traceSession) emitDebugBPFSetupPhases(timings []traceBPFSetupTiming) {
+	if s == nil || s.dependencies.OutputPolicy == nil || !s.dependencies.OutputPolicy.DebugPhases() {
+		return
+	}
+	for _, timing := range timings {
+		s.emitDebugPhaseAt(string(timing.Stage), timing.StartNS, timing.EndNS)
 	}
 }
 

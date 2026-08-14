@@ -33,6 +33,14 @@ def make_capture(events=None, lifecycle_events=None, stats=None, returncode=0):
         stats_events=[zero_stats],
         ready_events=[{"type": "ready", "start_time_ns": 100, "time_ns": 150}],
         phase_events=[
+            {"type": "phase", "phase": "bpf_memlock", "start_time_ns": 100, "time_ns": 110},
+            {"type": "phase", "phase": "bpf_spec", "start_time_ns": 110, "time_ns": 120},
+            {"type": "phase", "phase": "bpf_objects", "start_time_ns": 120, "time_ns": 130},
+            {"type": "phase", "phase": "bpf_route_plan", "start_time_ns": 130, "time_ns": 135},
+            {"type": "phase", "phase": "bpf_route_maps", "start_time_ns": 135, "time_ns": 140},
+            {"type": "phase", "phase": "bpf_prog_arrays", "start_time_ns": 140, "time_ns": 142},
+            {"type": "phase", "phase": "bpf_tracepoints", "start_time_ns": 142, "time_ns": 145},
+            {"type": "phase", "phase": "bpf_recvmsg_kretprobe", "start_time_ns": 145, "time_ns": 148},
             {"type": "phase", "phase": "trace_start", "time_ns": 200},
             {"type": "phase", "phase": "trace_end", "time_ns": 300},
             {"type": "phase", "phase": "finalize_start", "time_ns": 301},
@@ -176,6 +184,21 @@ class PerfOracleTests(unittest.TestCase):
         failures = validate_perf_capture(capture, spec)
 
         self.assertTrue(any("phase" in failure for failure in failures))
+
+    def test_rejects_missing_bpf_setup_phase(self):
+        spec = PerfWorkloadSpec(name="scalar", minimum_exit_counts=(('getpid', 1),))
+        capture = make_capture(
+            events=[{"syscall": "getpid", "event_type": "exit", "paired_enter": True}],
+        )
+        capture.phase_events = [
+            event
+            for event in capture.phase_events
+            if event.get("phase") != "bpf_objects"
+        ]
+
+        failures = validate_perf_capture(capture, spec)
+
+        self.assertTrue(any("BPF setup" in failure for failure in failures))
 
     def test_rejects_non_monotonic_perf_phase(self):
         spec = PerfWorkloadSpec(name="scalar", minimum_exit_counts=(('getpid', 1),))

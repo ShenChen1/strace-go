@@ -111,8 +111,29 @@ func TestTraceSessionEmitsDebugPhaseEvent(t *testing.T) {
 	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &event); err != nil {
 		t.Fatalf("decode phase event: %v", err)
 	}
-	if event.Type != "phase" || event.Phase != "trace_start" || event.TimeNS != 123 {
+	if event.Type != "phase" || event.Phase != "trace_start" || event.TimeNS != 123 || event.DurationNS != 0 {
 		t.Fatalf("phase event = %+v, want trace_start at 123ns", event)
+	}
+}
+
+func TestTraceSessionEmitsBPFSetupPhaseDuration(t *testing.T) {
+	var output bytes.Buffer
+	session := newTestTraceSessionWithOptions(&cli.Options{DebugPhases: true}, traceSessionDeps{
+		OutWriter: &output,
+	})
+
+	session.emitDebugBPFSetupPhases([]traceBPFSetupTiming{{
+		Stage:   bpfSetupObjectsStage,
+		StartNS: 10,
+		EndNS:   25,
+	}})
+
+	var event jsonPhaseEvent
+	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &event); err != nil {
+		t.Fatalf("decode BPF setup phase event: %v", err)
+	}
+	if event.Phase != string(bpfSetupObjectsStage) || event.StartTimeNS != 10 || event.DurationNS != 15 {
+		t.Fatalf("phase event = %+v, want objects duration 15ns", event)
 	}
 }
 
