@@ -12,6 +12,9 @@ func TestBPFSelectPayloadsUseDirectTLV(t *testing.T) {
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	selectDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_select_direct_event_v2.h"))
+	selectCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_select_capture_direct_event_v2.h"))
+	selectEmitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_select_emit_direct_event_v2.h"))
+	selectDirectSources := selectDirectHeader + "\n" + selectCaptureHeader + "\n" + selectEmitHeader
 
 	for _, snippet := range []string{
 		"#define SYS_SELECT 23",
@@ -48,7 +51,7 @@ func TestBPFSelectPayloadsUseDirectTLV(t *testing.T) {
 		"init_syscall_enter_event_v2_from_ctx(&body, ctx, 0, 0, -1, -1);",
 		"body.capture_len = payload_size;",
 	} {
-		if !strings.Contains(selectDirectHeader, snippet) {
+		if !strings.Contains(selectDirectSources, snippet) {
 			t.Fatalf("select direct header missing snippet %q", snippet)
 		}
 	}

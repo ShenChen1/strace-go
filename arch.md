@@ -8241,3 +8241,47 @@ Impact note：`syscall_msg_direct_event_v2.h` 仍只 include 原 mmsg facade，`
 - 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`mmsg_bytes_progs`、`exit_progs`、attach、pending state、事件 ABI 或单消费者事件循环；没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
 - source gate 已覆盖 facade/provider include、struct/bytes 排他 ownership、core slot policy、dispatch 复用和文件限制；真实 verifier、semantic/perf、small、三项定向 upstream 和 119 项完整 reference 未观察到事件数量、配对、输出或性能契约回归。
 - 本阶段仅修改 mmsg capture facade/provider、msg core、相关 source gates、ownership regression test 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.198 拆分 select capture 与 emit ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_select_direct_event_v2.h` 原为 326 行，同时拥有 syscall selector、fdset/timeout 用户内存快照、TLV composer、ringbuf reserve/write/submit 和 enter/exit 两个 emitter。
+- Problem：选择逻辑、bounded capture 与事件提交物理耦合；修改 fdset 长度策略或 timeout 快照时，必须同时审查 ringbuf 生命周期和 enter/exit 发射路径。旧 facade 也无法用 source gate 清晰证明 capture provider 没有反向拥有 emit 逻辑。
+- Goal：保留 `syscall_select_direct_event_v2.h` 作为策略 facade；新增 capture provider 与 emit provider，保持 helper 名称、TLV 顺序、事件 ABI、参数编号、dispatch 调用图和过滤行为不变。
+- Non-goals：不改变 select/pselect 的事件数量、fdset/timeout snapshot 上限、pending 配对、ringbuf ABI、tail-call、filter、Go decoder/formatter、生命周期状态，也不引入 ptrace、procfs 或 Go 侧用户内存读取。
+- Constraints：先用失败优先 source gate 固定 provider ownership，再通过真实 clang/verifier、Go 全量/race/vet、强制 build、semantic/perf、small 和相关原生 upstream 测试；新增 header 与 source test 继续满足 <=500 行限制。
+
+Impact note：`enter_dispatch.h`、`exit_dispatch.h`、`enter_router.h` 和 `syscall_time_direct_event_v2.h` 仍通过 select facade 使用同一组 selector/helper；`strace.c` 的 translation unit、`enter_progs`、`exit_progs`、pending state 和事件 v2 ABI 均不变。改动只改变编译期 header ownership 与 source-test 观察边界。
+
+#### 方案比较
+
+1. 保留 326 行单文件并补充注释：运行时改动最小，但 selector、capture 和 emit 仍耦合，无法独立审计用户内存快照与 ringbuf 提交的边界，拒绝。
+2. 按每种 fdset/timeout 参数继续拆成多个 provider：capture 责任更细，但 include 层和 source oracle 会膨胀，且 fdset 参数策略会重复，拒绝。
+3. facade + capture provider + emit provider，由 facade 统一常量、selector 和 capture policy：边界清晰、include 变化局部、调用图和 ABI 不变，选择该方案。
+
+#### 状态契约
+
+- `syscall_select_direct_event_v2.h` 只拥有 select 常量、selector、fdset 长度策略和 capture policy bits，并按 capture 后 emit 的顺序 include 两个 provider；它不再定义用户内存读取、TLV 写入或 emitter。
+- `syscall_select_capture_direct_event_v2.h` 拥有 fdset small/medium/wide bounded read helper、fdset/timeout TLV capture 和 `capture_select_payloads_tlv_direct` composer。composer 参数收敛为 5 个，capture policy 由调用方显式传入。
+- `syscall_select_emit_direct_event_v2.h` 拥有 enter/exit ringbuf reserve、事件头/主体写入和 submit；它只调用 capture composer，不直接调用 `bpf_probe_read_user`，也不拥有 fdset/timeout 读取细节。
+- fdset/timeout capture 仍发生在 BPF enter/exit probe 的原有时点，OUT/IN 方向 flag、TLV 顺序、payload capacity、截断行为和错误计数保持不变；用户态没有补读 tracee memory 的路径。
+- 没有新增 map、ProgArray、tail call、scratch 状态、锁、goroutine、定时器或事件消费者；该阶段是编译期 ownership 重构，不改变纯 eBPF 事件流的单消费者契约。
+
+#### 测试与验收
+
+- 失败优先 gate 按预期失败：`TestBPFSelectSplitsCaptureAndEmitOwnership` 首次运行时 provider 文件尚不存在。实现后该测试检查 facade include 顺序、selector/policy、capture/emit 排他 ownership、无 user read 的 emit provider、composer 的 <=5 参数接口和文件行数，并通过。
+- `TestBPFSelectPayloadsUseDirectTLV`、`TestBPFGenericExitOwnsPendingAroundEmissionHelper`、`TestBPFEnterDispatcherDelegatesProgramSelection` 和 `TestBPFExitDispatcherDelegatesProgramSelection` 均通过；select source gate 已读取 facade 与两个 provider 的组合视图。
+- `sudo -n ./build.sh` 通过，真实 clang/BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14198 ./cmd/strace-go` 和 `git diff --check` 均通过。
+- `syscall_select_direct_event_v2.h` 从 326 行降为 34 行，capture provider 为 205 行，emit provider 为 109 行，ownership source test 为 94 行；所有相关生产 header 与 source test 均满足 <=500 行限制。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `333.00 ns/op、0 B/op、0 allocs/op`，JSON writer `483.80 ns/op、0 B/op、0 allocs/op`，decoded writer `616.30 ns/op、0 B/op、0 allocs/op`，decoded payload writer `876.90 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `402.38/274.57/2.35/212.86 events/s`，所有运行时错误计数为 0。
+- 原生 `small` 通过 `23 PASS / 0 FAIL`；使用 `--suite all` 运行的 `select.gen.test` 精确通过 `1 PASS / 0 FAIL`，说明本次拆分没有引入 select 文本回归。
+- `select-P.gen.test` 仍失败：`-P /dev/full` 场景的 tracer log 只有退出行，select 事件被既有 path-filter 链路抑制。该结果在提交 `7f028ac` 的隔离基线工作树上同样可复现，因此确认是本阶段之前已存在的 `-P` 路径过滤缺口，不纳入本次 ownership 重构的回归契约；后续应作为独立 path-state 任务处理。
+
+#### Review 结论
+
+- 未发现运行时行为回归：select selector、fdset/timeout bounded snapshot、TLV offset、enter/exit emitter、pending consume 与过滤调用图保持不变；真实 verifier、semantic/perf、small 和定向 `select.gen.test` 均通过。
+- 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、attach、pending state、事件 ABI 或单消费者事件循环；没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
+- 失败路径仍显式保留：fdset/timeout 的 probe read、reserve 或 TLV capture 失败按原有错误/截断语义处理；provider source gate 防止 emit provider重新拥有用户内存读取，composer 接口也没有继续膨胀。
+- `select-P.gen.test` 的失败已通过 `7f028ac` 基线 A/B 排除为本阶段回归；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。本阶段仅修改 select facade/provider、相关 source gates、ownership regression test 和本记录。
