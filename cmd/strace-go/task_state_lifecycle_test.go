@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"testing"
 
 	"strace-go/pkg/cli"
@@ -108,6 +109,41 @@ func TestTraceStateTracksAttachRootTerminatingSyscall(t *testing.T) {
 
 	if !state.AttachTargetsDone() {
 		t.Fatal("terminating syscall did not retire attach root")
+	}
+}
+
+func TestTraceStateRecordsCommandLifecycleExit(t *testing.T) {
+	state := newTraceState()
+	state.setCommandTargetPID(800)
+	if exited, err := state.TargetLifecycleExited(800); err != nil || exited {
+		t.Fatalf("TargetLifecycleExited() before event = %v/%v, want false/nil", exited, err)
+	}
+
+	state.handleEnvelope(lifecycleEnvelopeForTask(800, 800, lifecycleExit, 0, 0))
+
+	if exited, err := state.TargetLifecycleExited(800); err != nil || !exited {
+		t.Fatalf("TargetLifecycleExited() after event = %v/%v, want true/nil", exited, err)
+	}
+}
+
+func TestTraceStateUsesBPFCommandExitFact(t *testing.T) {
+	state := newTraceState()
+	state.setAttachExitReader(&fakeTraceAttachExitReader{
+		exited: map[uint32]bool{801: true},
+	})
+
+	if exited, err := state.TargetLifecycleExited(801); err != nil || !exited {
+		t.Fatalf("TargetLifecycleExited() from BPF fact = %v/%v, want true/nil", exited, err)
+	}
+}
+
+func TestTraceStatePropagatesBPFCommandExitFactFailure(t *testing.T) {
+	state := newTraceState()
+	wantErr := errors.New("command exit fact unavailable")
+	state.setAttachExitReader(&fakeTraceAttachExitReader{err: wantErr})
+
+	if _, err := state.TargetLifecycleExited(802); !errors.Is(err, wantErr) {
+		t.Fatalf("TargetLifecycleExited() error = %v, want %v", err, wantErr)
 	}
 }
 

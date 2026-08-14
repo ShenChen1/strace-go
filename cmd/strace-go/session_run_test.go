@@ -75,6 +75,50 @@ func TestTraceRunStateCollectMarksCommandExit(t *testing.T) {
 	}
 }
 
+func TestTraceRunStateWaitsForCommandLifecycleExit(t *testing.T) {
+	lifecycle := &fakeCommandLifecycleReader{}
+	state := traceRunState{
+		commandExited:    true,
+		attachExited:     true,
+		targetPID:        101,
+		commandLifecycle: lifecycle,
+		clock:            &fakeTraceClock{now: time.Unix(100, 0)},
+	}
+
+	if state.done() {
+		t.Fatal("run state finished before command lifecycle exit")
+	}
+	if err := state.collect(nil); err != nil {
+		t.Fatalf("collect() error = %v", err)
+	}
+	if state.done() {
+		t.Fatal("run state finished while lifecycle exit was absent")
+	}
+
+	lifecycle.exited = true
+	if err := state.collect(nil); err != nil {
+		t.Fatalf("collect() after lifecycle exit error = %v", err)
+	}
+	if !state.done() {
+		t.Fatal("run state did not finish after command lifecycle exit")
+	}
+}
+
+func TestTraceRunStatePropagatesCommandLifecycleReadFailure(t *testing.T) {
+	wantErr := errors.New("command lifecycle lookup failed")
+	state := traceRunState{
+		commandExited:    true,
+		attachExited:     true,
+		targetPID:        101,
+		commandLifecycle: &fakeCommandLifecycleReader{err: wantErr},
+		clock:            &fakeTraceClock{now: time.Unix(100, 0)},
+	}
+
+	if err := state.collect(nil); !errors.Is(err, wantErr) {
+		t.Fatalf("collect() error = %v, want %v", err, wantErr)
+	}
+}
+
 func TestTraceRunStateCollectStoresCommandExitFallback(t *testing.T) {
 	done := make(chan traceCommandExitResult, 1)
 	done <- traceCommandExitResult{exited: true, exitCode: 3}
@@ -241,6 +285,18 @@ func (d *fakeRecordDecoder) Decode(rec *ringbuf.Record) (traceEventEnvelope, boo
 type fakeTraceClock struct {
 	now    time.Time
 	monoNs uint64
+}
+
+type fakeCommandLifecycleReader struct {
+	exited bool
+	err    error
+}
+
+func (r *fakeCommandLifecycleReader) TargetLifecycleExited(uint32) (bool, error) {
+	if r.err != nil {
+		return false, r.err
+	}
+	return r.exited, nil
 }
 
 func (c *fakeTraceClock) Now() time.Time {

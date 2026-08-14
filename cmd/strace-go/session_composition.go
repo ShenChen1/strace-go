@@ -68,6 +68,7 @@ func composeTraceSession(
 	output *TraceOutput,
 ) (*traceSession, error) {
 	state := newTraceStateForSession(config.eventPolicy)
+	state.setCommandTargetPID(bootstrap.targetPID)
 	if config.outputPolicy != nil {
 		state.seedAttachTargets(config.outputPolicy.AttachPIDs())
 	}

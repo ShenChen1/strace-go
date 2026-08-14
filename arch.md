@@ -8155,3 +8155,46 @@ Impact note：`strace.c` 仍只 include epoll facade，`enter_router`/`enter_dis
 - 新 capture/emitter provider 只改变编译期 ownership，不创建运行时状态或并发消费者；没有引入 Go 侧 tracee memory read、ptrace 或 procfs fallback。
 - source gate 已覆盖 facade/provider include、capture/emitter 排他 ownership、实际 dispatch 复用和文件限制；独立的 text drain 缺口位于 `session_run.go` 的 command lifecycle 收尾，不由本阶段 epoll header 改动造成，下一阶段修复。
 - 本阶段仅修改 epoll facade、新增 capture/emit provider、epoll source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.196 让 command 收尾等待 lifecycle exit fact（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：事件循环已经是单 goroutine，BPF 始终发 lifecycle 事件，并在 `attach_exited_map` 写入 attach root 的退出事实；command 的 `exec.Cmd.Wait()` 由 target runtime 独占，Go 侧不能通过 ptrace、procfs 或 tracee memory read 补齐状态。
+- Problem：`Wait()` 可能先于最后一个 lifecycle/ringbuf 记录被当前消费者处理。旧的 text 路径在 `commandExited && attachExited` 后立即对 ringbuf 做 snapshot drain，偶发漏掉命令尾部的 syscall 输出；仅增加固定 text grace 会引入无依据延迟，不能证明目标已经完成。
+- Goal：把 command 完成条件收敛为 `process Wait + target lifecycle exit fact`，其中 lifecycle fact 优先来自同一 Go 事件状态机已消费的 exit/free 事件，事件尚未到达时从 BPF `attach_exited_map` 查询；只有完成条件成立后才进入 ringbuf tail drain。
+- Non-goals：不改变 ringbuf/event v2 ABI、lifecycle tracepoint、pending syscall 配对、unfinished/resumed 规则、attach-only 收尾、JSON 的既有 bounded grace，也不引入新的 goroutine、定时器、ptrace、procfs 或 Go 侧用户内存读取。
+- Constraints：保持 text 输出无正常固定等待；BPF map 查询错误必须显式返回；目标 lifecycle 缓存只记录本次 command target 的 pid/tid，避免 fork storm 让退出事实 map 在 Go 侧无界增长；通过失败优先单元测试、Go 全量门禁、真实 verifier、semantic/perf、small 和完整 upstream reference。
+
+Impact note：`traceSession.run` 只新增 command lifecycle reader 和 target PID 的显式依赖；`TraceState` 只增加目标生命周期完成事实与 BPF exit-map 查询端口；正常事件读取、单消费者 ownership、attach target 列表和最终输出组件不改。`TraceRunFinalizer` 仍负责最后一次 fallback exit status flush，因此异常缺失 lifecycle 文本不会静默丢掉最终状态行。
+
+#### 方案比较
+
+1. 所有 text command 统一增加 200ms grace：实现最简单，但固定延迟不能证明 ringbuf 已完成，低延迟场景无谓等待，压力场景仍可能不够，拒绝。
+2. 等待 command lifecycle exit 事件或 BPF exit fact，再 drain：使用已有纯 eBPF 完成事实，不改变事件 ABI；正常路径无固定等待，map/事件错误可显式传播，选择该方案。
+3. 新增独立 terminal event 或重新引入 ptrace reaper：能建立更强同步点，但会扩大 BPF ABI/生命周期状态面，或违背纯 eBPF 主线约束，拒绝。
+
+#### 状态契约
+
+- `traceCommandLifecycleReader` 只暴露 `TargetLifecycleExited(pid)`；`traceRunState.done()` 必须同时满足 `commandExited`、`commandLifecycleDone` 和现有 `attachExited`。没有 command、没有 target PID 或没有 lifecycle reader 的纯测试 fixture 保持 inert 语义。
+- command Wait 完成后，`collectCommandLifecycle` 先查询 `TraceState.TargetLifecycleExited(targetPID)`；查询到 BPF `attach_exited_map` 的 true 或事件状态机已经记住 exit/free 后，才允许进入 `DrainAfterDone`。查询错误以 `refresh command lifecycle` 包装返回，并与 finalizer error 合并。
+- `TraceState` 在 `lifecycleExit`/`lifecycleFree` dispatch 中记录 command target 的 pid/tid；无关子进程的生命周期事件不进入该缓存。事件事实优先于 map 查询，map 是 ringbuf 事件丢失时的纯 eBPF fallback，不是 procfs/procmem 观察。
+- text command 的 wait-derived fallback exit line 只有在 lifecycle completion 后才提前 flush；若生命周期很快完成，`TraceRunFinalizer` 在 tail drain 后仍会执行一次幂等 flush。JSON 继续使用原有 `traceExitLifecycleDrainGrace`，本阶段没有扩大 JSON 延迟契约。
+- `attach_exited_map` 的写入仍由 `sched_process_exit` 在 BPF 中完成，Go 只通过 `traceAttachExitReader` 读取布尔事实；没有向 `TraceState` 增加锁，也没有启动第二个事件消费者。
+
+#### 测试与验收
+
+- 失败优先测试按预期先失败：新回归测试引用了尚不存在的 `commandLifecycle`、`commandLifecycleDone` 和 `TargetLifecycleExited` 契约，随后实现生产端口、目标 PID 注入、生命周期缓存和 BPF map fallback。
+- 新增 `TestTraceRunStateWaitsForCommandLifecycleExit`、`TestTraceRunStatePropagatesCommandLifecycleReadFailure`，覆盖 command 尚未完成 lifecycle 时不能 done，以及 lifecycle 读取错误传播；新增 `TestTraceStateRecordsCommandLifecycleExit`、`TestTraceStateUsesBPFCommandExitFact`、`TestTraceStatePropagatesBPFCommandExitFactFailure`，覆盖事件事实、BPF map fallback 和失败路径；session composition/source policy 同时验证依赖注入与端口存在。
+- `sudo -n ./build.sh` 通过；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14196 ./cmd/strace-go` 和 `git diff --check` 全部通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `337.80 ns/op、0 B/op、0 allocs/op`，JSON writer `508.60 ns/op、0 B/op、0 allocs/op`，decoded writer `616.10 ns/op、0 B/op、0 allocs/op`，decoded payload writer `871.90 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `404.10/271.24/2.22/212.39 events/s`，所有运行时错误计数为 0。
+- sudo `small` 通过 `23 PASS / 0 FAIL`；`strace-x.gen.test` 精确连续运行 5 次均 `1 PASS / 0 FAIL`，证明此前偶发的 text command tail drain 缺口已稳定消失。
+- 完整 sudo `upstream-reference` 通过 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS / 119 total`。两个 XFAIL 仍是 `read-write.gen.test` 的 bounded eBPF snapshot 不承诺 ptrace 级别大块 hexdump，以及 `mount_setattr.gen.test` 的 event-sourced FD/cwd 初始状态未知；没有新增失败或 XPASS。
+
+#### Review 结论
+
+- 未发现运行时回归：command Wait、lifecycle exit/free、attach exit map、text fallback flush 和 ringbuf tail drain 的顺序满足单消费者完成契约；目标生命周期事件漏到 ringbuf 时由 BPF map fact 收口，目标事件先到时由 Go state cache 收口。
+- 新增 `lifecycleExited` 只按 command target pid/tid 记录，不收集所有 fork child 的退出事实；无锁、无第二消费者、无定时器式 unfinished 改动，函数和文件规模仍满足仓库限制。
+- 失败路径是显式的：BPF exit fact lookup 失败不会假装 command 已完成，`run` 返回带上下文的错误并继续 finalizer；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+- 本阶段仅修改 command lifecycle/run state、TraceState port 与回归/source tests 以及本记录；未修改 BPF ABI，也未引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。

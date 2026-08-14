@@ -69,6 +69,7 @@ func withTestTraceSessionDefaults(deps traceSessionDeps) traceSessionDeps {
 	}
 	if deps.State == nil {
 		state := newTraceStateForSession(deps.EventPolicy)
+		state.setCommandTargetPID(deps.TargetPID)
 		if deps.OutputPolicy != nil {
 			state.seedAttachTargets(deps.OutputPolicy.AttachPIDs())
 		}

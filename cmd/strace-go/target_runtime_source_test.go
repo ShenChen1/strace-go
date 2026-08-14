@@ -31,7 +31,7 @@ func TestTraceeWaitOwnershipIsCentralizedInTargetRuntime(t *testing.T) {
 		}
 	}
 	for _, required := range []string{
-		"command:     deps.CommandWaiter",
+		"command:          deps.CommandWaiter",
 		"commandWaiter: targetRuntime.commandWaiter()",
 		"HasCommand:    bootstrap.hasCommand",
 	} {

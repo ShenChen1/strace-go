@@ -27,20 +27,21 @@ func (fakeSessionStateOwner) handleEnvelope(traceEventEnvelope) TraceStateUpdate
 	return TraceStateUpdate{}
 }
 
-func (fakeSessionStateOwner) releaseTraceStateUpdate(TraceStateUpdate) {}
-func (fakeSessionStateOwner) markUnfinishedPrinted(uint32)             {}
-func (fakeSessionStateOwner) requeueUnfinished(uint32)                 {}
-func (fakeSessionStateOwner) setUnfinishedEnabled(bool)                {}
-func (fakeSessionStateOwner) PendingStaleCount() int                   { return 0 }
-func (fakeSessionStateOwner) consumeSuspendedSyscall(int) bool         { return false }
-func (fakeSessionStateOwner) rememberPendingExecArgs(int, string)      {}
-func (fakeSessionStateOwner) takePendingExecArgs(int) (string, bool)   { return "", false }
-func (fakeSessionStateOwner) pendingExecArgsFor(int) (string, bool)    { return "", false }
-func (fakeSessionStateOwner) deletePendingExecArgs(int)                {}
-func (fakeSessionStateOwner) deleteSuspendedSyscall(int)               {}
-func (fakeSessionStateOwner) rememberSuspendedSyscall(int, string)     {}
-func (fakeSessionStateOwner) AttachTargetsDone() bool                  { return true }
-func (fakeSessionStateOwner) RefreshAttachTargets() error              { return nil }
+func (fakeSessionStateOwner) releaseTraceStateUpdate(TraceStateUpdate)   {}
+func (fakeSessionStateOwner) markUnfinishedPrinted(uint32)               {}
+func (fakeSessionStateOwner) requeueUnfinished(uint32)                   {}
+func (fakeSessionStateOwner) setUnfinishedEnabled(bool)                  {}
+func (fakeSessionStateOwner) PendingStaleCount() int                     { return 0 }
+func (fakeSessionStateOwner) consumeSuspendedSyscall(int) bool           { return false }
+func (fakeSessionStateOwner) rememberPendingExecArgs(int, string)        {}
+func (fakeSessionStateOwner) takePendingExecArgs(int) (string, bool)     { return "", false }
+func (fakeSessionStateOwner) pendingExecArgsFor(int) (string, bool)      { return "", false }
+func (fakeSessionStateOwner) deletePendingExecArgs(int)                  {}
+func (fakeSessionStateOwner) deleteSuspendedSyscall(int)                 {}
+func (fakeSessionStateOwner) rememberSuspendedSyscall(int, string)       {}
+func (fakeSessionStateOwner) AttachTargetsDone() bool                    { return true }
+func (fakeSessionStateOwner) RefreshAttachTargets() error                { return nil }
+func (fakeSessionStateOwner) TargetLifecycleExited(uint32) (bool, error) { return false, nil }
 
 func TestTraceSessionAcceptsTraceStateOwnerPort(t *testing.T) {
 	owner := fakeSessionStateOwner{}

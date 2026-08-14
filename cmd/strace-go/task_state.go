@@ -47,6 +47,49 @@ func (st *TraceState) setAttachExitReader(reader traceAttachExitReader) {
 	st.attachExitConfigured = true
 }
 
+func (st *TraceState) TargetLifecycleExited(pid uint32) (bool, error) {
+	if st == nil || pid == 0 {
+		return false, nil
+	}
+	if _, ok := st.lifecycleExited[pid]; ok {
+		return true, nil
+	}
+	if st.attachExitReader == nil {
+		if st.attachExitConfigured {
+			return false, errTraceAttachExitReaderUnavailable
+		}
+		return false, nil
+	}
+	exited, err := st.attachExitReader.IsExited(pid)
+	if err != nil {
+		return false, fmt.Errorf("refresh command target %d: %w", pid, err)
+	}
+	return exited, nil
+}
+
+func (st *TraceState) setCommandTargetPID(pid int) {
+	if st == nil || pid <= 0 {
+		return
+	}
+	st.commandTargetPID = uint32(pid)
+}
+
+func (st *TraceState) rememberLifecycleExit(pid uint32, tid uint32) {
+	if st == nil || st.commandTargetPID == 0 ||
+		(st.commandTargetPID != pid && st.commandTargetPID != tid) {
+		return
+	}
+	if st.lifecycleExited == nil {
+		st.lifecycleExited = make(map[uint32]struct{}, 2)
+	}
+	if pid != 0 {
+		st.lifecycleExited[pid] = struct{}{}
+	}
+	if tid != 0 {
+		st.lifecycleExited[tid] = struct{}{}
+	}
+}
+
 func (st *TraceState) RefreshAttachTargets() error {
 	if st == nil || len(st.attachTargets) == 0 {
 		return nil

@@ -10,6 +10,7 @@ type traceStateOwner interface {
 	execSyscallState
 	suspendedSyscallState
 	traceAttachStateReader
+	traceCommandLifecycleReader
 }
 
 var _ traceStateOwner = (*TraceState)(nil)

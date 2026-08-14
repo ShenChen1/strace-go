@@ -98,10 +98,13 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 		t.Fatal("text renderer does not use the injected session time source")
 	}
 	runState := newTraceRunState(traceRunStateDeps{
-		clock:       session.dependencies.Clock,
-		attachState: session.dependencies.State,
+		clock:            session.dependencies.Clock,
+		commandLifecycle: session.dependencies.State,
+		targetPID:        traceTargetPIDValue(session.dependencies.TargetPID),
+		attachState:      session.dependencies.State,
 	})
-	if runState.clock != clock || runState.attachState != session.dependencies.State {
+	if runState.clock != clock || runState.attachState != session.dependencies.State ||
+		runState.commandLifecycle != session.dependencies.State || runState.targetPID != 101 {
 		t.Fatal("run state does not use the session-owned ports")
 	}
 	if components.eventRouter.state != state {

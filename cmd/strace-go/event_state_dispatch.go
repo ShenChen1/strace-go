@@ -24,6 +24,7 @@ func (st *TraceState) handleLifecycleEnvelope(envelope traceEventEnvelope, unfin
 		return update
 	}
 
+	st.rememberLifecycleExit(lifecycleView.pid, lifecycleView.tid)
 	st.markAttachTargetExited(lifecycleView.pid, lifecycleView.tid)
 	if pendingExit, ok := st.takePendingExitForTID(lifecycleView.tid); ok {
 		update.deferredExit = &TraceStateUpdate{

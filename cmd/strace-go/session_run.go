@@ -34,6 +34,10 @@ type traceAttachStateReader interface {
 	RefreshAttachTargets() error
 }
 
+type traceCommandLifecycleReader interface {
+	TargetLifecycleExited(pid uint32) (bool, error)
+}
+
 type systemTraceClock struct{}
 
 func (systemTraceClock) Now() time.Time {
@@ -49,20 +53,25 @@ func (systemTraceClock) NowMonoNs() uint64 {
 }
 
 type traceRunState struct {
-	commandExited bool
-	cmdDone       <-chan traceCommandExitResult
-	attachExited  bool
-	attachPids    []int
-	attachState   traceAttachStateReader
-	fallbackFlush time.Time
-	clock         traceClock
+	commandExited        bool
+	commandLifecycleDone bool
+	cmdDone              <-chan traceCommandExitResult
+	targetPID            uint32
+	commandLifecycle     traceCommandLifecycleReader
+	attachExited         bool
+	attachPids           []int
+	attachState          traceAttachStateReader
+	fallbackFlush        time.Time
+	clock                traceClock
 }
 
 type traceRunStateDeps struct {
-	command     traceCommandWaiter
-	attachPids  []int
-	attachState traceAttachStateReader
-	clock       traceClock
+	command          traceCommandWaiter
+	commandLifecycle traceCommandLifecycleReader
+	targetPID        uint32
+	attachPids       []int
+	attachState      traceAttachStateReader
+	clock            traceClock
 }
 
 type traceCommandExitResult struct {
@@ -74,10 +83,12 @@ type traceCommandExitResult struct {
 func (s *traceSession) run() error {
 	deps := s.dependencies
 	state := newTraceRunState(traceRunStateDeps{
-		command:     deps.CommandWaiter,
-		attachPids:  s.sessionAttachPIDs(),
-		attachState: deps.State,
-		clock:       deps.Clock,
+		command:          deps.CommandWaiter,
+		commandLifecycle: deps.State,
+		targetPID:        traceTargetPIDValue(deps.TargetPID),
+		attachPids:       s.sessionAttachPIDs(),
+		attachState:      deps.State,
+		clock:            deps.Clock,
 	})
 	commandExit := s.commandExitHandler()
 	eventReader := s.traceEventReader()
@@ -108,11 +119,15 @@ func (s *traceSession) sessionAttachPIDs() []int {
 }
 
 func newTraceRunState(deps traceRunStateDeps) traceRunState {
+	commandExited := deps.command == nil
 	state := traceRunState{
-		commandExited: deps.command == nil,
-		attachExited:  len(deps.attachPids) == 0,
-		clock:         deps.clock,
-		attachState:   deps.attachState,
+		commandExited:        commandExited,
+		commandLifecycleDone: commandExited || deps.targetPID == 0 || deps.commandLifecycle == nil,
+		targetPID:            deps.targetPID,
+		commandLifecycle:     deps.commandLifecycle,
+		attachExited:         len(deps.attachPids) == 0,
+		clock:                deps.clock,
+		attachState:          deps.attachState,
 	}
 	if !state.commandExited {
 		ch := make(chan traceCommandExitResult, 1)
@@ -145,7 +160,10 @@ func (st *traceRunState) collect(commandExit *TraceCommandExitHandler) error {
 		default:
 		}
 	}
-	if st.commandExited && !st.fallbackFlush.IsZero() && now.After(st.fallbackFlush) {
+	if err := st.collectCommandLifecycle(); err != nil {
+		return err
+	}
+	if st.commandExited && st.commandLifecycleDone && !st.fallbackFlush.IsZero() && now.After(st.fallbackFlush) {
 		st.fallbackFlush = time.Time{}
 		commandExit.FlushFallback()
 	}
@@ -166,7 +184,29 @@ func (st *traceRunState) collect(commandExit *TraceCommandExitHandler) error {
 }
 
 func (st traceRunState) done() bool {
-	return st.commandExited && st.attachExited
+	return st.commandExited && st.commandLifecycleDone && st.attachExited
+}
+
+func (st *traceRunState) collectCommandLifecycle() error {
+	if st == nil || st.commandLifecycleDone || !st.commandExited ||
+		st.targetPID == 0 || st.commandLifecycle == nil {
+		return nil
+	}
+	exited, err := st.commandLifecycle.TargetLifecycleExited(st.targetPID)
+	if err != nil {
+		return fmt.Errorf("refresh command lifecycle: %w", err)
+	}
+	if exited {
+		st.commandLifecycleDone = true
+	}
+	return nil
+}
+
+func traceTargetPIDValue(pid int) uint32 {
+	if pid <= 0 {
+		return 0
+	}
+	return uint32(pid)
 }
 
 func newTraceCommandExitResult(state *os.ProcessState, waitErr error) traceCommandExitResult {

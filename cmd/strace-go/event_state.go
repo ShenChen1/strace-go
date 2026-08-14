@@ -86,6 +86,8 @@ type TraceState struct {
 	attachTargets        map[uint32]struct{}
 	attachExitReader     traceAttachExitReader
 	attachExitConfigured bool
+	commandTargetPID     uint32
+	lifecycleExited      map[uint32]struct{}
 }
 
 type traceStateEventKind uint8
