@@ -13,6 +13,42 @@ type jsonEventWriter interface {
 	WriteLifecycle(lifecycleEventView, *TaskState)
 }
 
+// traceDebugPhasePort is the narrow phase capability used by bootstrap and
+// finalization boundaries; it does not expose syscall event encoding.
+type traceDebugPhasePort interface {
+	EmitPhase(string)
+	EmitPhaseAt(string, uint64, uint64)
+}
+
+type traceDebugPhaseWriter struct {
+	policy traceReadyPolicy
+	writer *JSONEventWriter
+	clock  traceClock
+}
+
+func newTraceDebugPhaseWriter(
+	policy traceReadyPolicy,
+	writer *JSONEventWriter,
+	clock traceClock,
+) *traceDebugPhaseWriter {
+	return &traceDebugPhaseWriter{policy: policy, writer: writer, clock: clock}
+}
+
+func (w *traceDebugPhaseWriter) EmitPhase(phase string) {
+	var timeNS uint64
+	if w != nil && w.clock != nil {
+		timeNS = w.clock.NowMonoNs()
+	}
+	w.EmitPhaseAt(phase, 0, timeNS)
+}
+
+func (w *traceDebugPhaseWriter) EmitPhaseAt(phase string, startTimeNS, timeNS uint64) {
+	if w == nil || w.policy == nil || !w.policy.DebugPhases() || w.writer == nil {
+		return
+	}
+	w.writer.WritePhaseAt(phase, startTimeNS, timeNS)
+}
+
 // JSONEventWriter is the only user-space JSON encoding boundary for event
 // records. Filtering and event selection stay in the output policy objects.
 type JSONEventWriter struct {
@@ -169,8 +205,8 @@ func (s *traceSession) emitDebugPhaseAt(phase string, startTimeNS uint64, timeNS
 	if !s.dependencies.OutputPolicy.DebugPhases() {
 		return
 	}
-	if writer := s.jsonEventWriter(); writer != nil {
-		writer.WritePhaseAt(phase, startTimeNS, timeNS)
+	if writer := s.components.debugPhases; writer != nil {
+		writer.EmitPhaseAt(phase, startTimeNS, timeNS)
 	}
 }
 

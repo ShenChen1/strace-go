@@ -29,6 +29,7 @@ type TraceRunFinalizer struct {
 	summary         traceSummaryWriter
 	statsReader     traceStatsReader
 	pendingState    tracePendingStateReader
+	debugPhases     traceDebugPhasePort
 	output          traceFinalizerOutput
 }
 
@@ -41,6 +42,7 @@ type TraceRunFinalizerDeps struct {
 	Summary         traceSummaryWriter
 	Stats           traceStatsReader
 	PendingState    tracePendingStateReader
+	DebugPhases     traceDebugPhasePort
 	Output          traceFinalizerOutput
 }
 
@@ -58,6 +60,7 @@ func newTraceRunFinalizer(deps TraceRunFinalizerDeps) *TraceRunFinalizer {
 		summary:         deps.Summary,
 		statsReader:     deps.Stats,
 		pendingState:    deps.PendingState,
+		debugPhases:     deps.DebugPhases,
 		output:          deps.Output,
 	}
 }
@@ -76,6 +79,9 @@ func (f *TraceRunFinalizer) Finish() error {
 	stats := collectBPFStatsFromReader(f.statsReader)
 	f.writeStats(stats)
 	f.printSummary()
+	if f.debugPhases != nil {
+		f.debugPhases.EmitPhase("cleanup_start")
+	}
 	return f.closeOutput()
 }
 

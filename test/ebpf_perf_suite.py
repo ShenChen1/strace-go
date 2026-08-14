@@ -28,7 +28,12 @@ RUNTIME_DIAGNOSTIC_FIELDS = (
     "lifecycle_map_update_fail",
     "pending_stale",
 )
-REQUIRED_PERF_PHASES = ("trace_start", "trace_end", "finalize_start")
+REQUIRED_PERF_PHASES = (
+    "trace_start",
+    "trace_end",
+    "finalize_start",
+    "cleanup_start",
+)
 REQUIRED_BPF_SETUP_PHASES = (
     "bpf_memlock",
     "bpf_spec",
@@ -290,6 +295,7 @@ def _phase_durations(capture):
         trace_start = phases["trace_start"]["time_ns"]
         trace_end = phases["trace_end"]["time_ns"]
         finalize_start = phases["finalize_start"]["time_ns"]
+        cleanup_start = phases["cleanup_start"]["time_ns"]
         bpf_durations = {
             f"{phase}_sec": (
                 phases[phase]["time_ns"] - phases[phase]["start_time_ns"]
@@ -303,6 +309,9 @@ def _phase_durations(capture):
         "setup_sec": (ready_time - start_time) / 1_000_000_000,
         "trace_sec": (trace_end - trace_start) / 1_000_000_000,
         "finalize_start_sec": (finalize_start - trace_end) / 1_000_000_000,
+        "cleanup_sec": (cleanup_start - finalize_start) / 1_000_000_000,
+        "post_cleanup_unattributed_sec": capture.elapsed
+        - (cleanup_start - start_time) / 1_000_000_000,
     }
     durations.update(bpf_durations)
     durations["bpf_setup_sec"] = _phase_interval_union_seconds(
@@ -385,6 +394,11 @@ def print_perf_capture(capture):
             print(f"{phase}_sec: {durations[f'{phase}_sec']:.6f}")
         print(f"trace_sec: {durations['trace_sec']:.6f}")
         print(f"finalize_start_delay_sec: {durations['finalize_start_sec']:.6f}")
+        print(f"cleanup_sec: {durations['cleanup_sec']:.6f}")
+        print(
+            "post_cleanup_unattributed_sec: "
+            f"{durations['post_cleanup_unattributed_sec']:.6f}"
+        )
         if durations["trace_sec"] > 0:
             print(
                 "steady_state_events_per_sec: "

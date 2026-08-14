@@ -13,6 +13,7 @@ import (
 // Components are constructed once, in dependency order, and never replace
 // each other during event processing.
 type traceSessionComponents struct {
+	debugPhases        traceDebugPhasePort
 	textRenderer       *TextRenderer
 	jsonWriter         *JSONEventWriter
 	syscallJSON        *SyscallJSONOutput
@@ -32,6 +33,7 @@ type traceSessionComponents struct {
 
 type traceSessionBaseComponents struct {
 	jsonWriter      *JSONEventWriter
+	debugPhases     traceDebugPhasePort
 	renderer        *TextRenderer
 	exitStatus      *ExitStatusCoordinator
 	outputPolicy    traceOutputPolicyOwner
@@ -187,8 +189,9 @@ func buildTraceSessionComponents(
 		outputs,
 		deps.eventContextDependencies(base.handlerRegistry),
 	)
-	runtime := buildTraceSessionRuntime(deps, base.outputPolicy, base.exitStatus, base.renderer, events.eventRouter)
+	runtime := buildTraceSessionRuntime(deps, base, events.eventRouter)
 	return &traceSessionComponents{
+		debugPhases:        base.debugPhases,
 		textRenderer:       base.renderer,
 		jsonWriter:         base.jsonWriter,
 		syscallJSON:        outputs.syscallJSON,
@@ -211,8 +214,10 @@ func buildTraceSessionBase(deps traceSessionDeps) traceSessionBaseComponents {
 	handlerRegistry := handler.NewRegistry()
 	handleSyscall := handlerRegistry.Handle
 	outputPolicy := deps.OutputPolicy
+	jsonWriter := newJSONEventWriter(JSONEventWriterDeps{Out: deps.OutWriter})
 	return traceSessionBaseComponents{
-		jsonWriter:   newJSONEventWriter(JSONEventWriterDeps{Out: deps.OutWriter}),
+		jsonWriter:   jsonWriter,
+		debugPhases:  newTraceDebugPhaseWriter(outputPolicy, jsonWriter, deps.Clock),
 		outputPolicy: outputPolicy,
 		renderer: newTextRenderer(TextRendererDeps{
 			Out:           deps.OutWriter,
@@ -334,9 +339,7 @@ type traceSessionRuntimeComponents struct {
 
 func buildTraceSessionRuntime(
 	deps traceSessionDeps,
-	outputPolicy traceOutputPolicyOwner,
-	exitStatus *ExitStatusCoordinator,
-	renderer *TextRenderer,
+	base traceSessionBaseComponents,
 	router *TraceEventRouter,
 ) traceSessionRuntimeComponents {
 	recordDecoder := traceRingbufRecordDecoder{}
@@ -349,21 +352,22 @@ func buildTraceSessionRuntime(
 			Clock:   deps.Clock,
 		}),
 		runFinalizer: newTraceRunFinalizer(TraceRunFinalizerDeps{
-			FormatPolicy:    outputPolicy,
-			SummaryPolicy:   outputPolicy,
+			FormatPolicy:    base.outputPolicy,
+			SummaryPolicy:   base.outputPolicy,
 			TargetPID:       deps.TargetPID,
 			StatsDiagnostic: os.Stderr,
-			ExitStatus:      exitStatus,
+			ExitStatus:      base.exitStatus,
 			Summary:         deps.Summary,
 			Stats:           deps.Stats,
 			PendingState:    deps.State,
+			DebugPhases:     base.debugPhases,
 			Output:          deps.Output,
 		}),
 		commandExitHandler: newTraceCommandExitHandler(TraceCommandExitHandlerDeps{
-			Policy:     outputPolicy,
+			Policy:     base.outputPolicy,
 			TargetPID:  deps.TargetPID,
-			ExitStatus: exitStatus,
-			Renderer:   renderer,
+			ExitStatus: base.exitStatus,
+			Renderer:   base.renderer,
 		}),
 	}
 }

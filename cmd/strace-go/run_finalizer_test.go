@@ -19,8 +19,42 @@ type fakePendingStateReader struct {
 	stale int
 }
 
+type recordingTraceDebugPhasePort struct {
+	events *[]string
+}
+
+func (p *recordingTraceDebugPhasePort) EmitPhase(phase string) {
+	*p.events = append(*p.events, "phase:"+phase)
+}
+
+func (p *recordingTraceDebugPhasePort) EmitPhaseAt(phase string, _, _ uint64) {
+	p.EmitPhase(phase)
+}
+
 func (r fakePendingStateReader) PendingStaleCount() int {
 	return r.stale
+}
+
+func TestTraceRunFinalizerEmitsCleanupPhaseBeforeOutputClose(t *testing.T) {
+	events := make([]string, 0, 2)
+	output, err := newTraceOutput(TraceOutputDeps{
+		Writer: bytes.NewBuffer(nil),
+		Closer: &fakeTraceOutputCloser{events: &events},
+	})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{
+		DebugPhases: &recordingTraceDebugPhasePort{events: &events},
+		Output:      output,
+	})
+
+	if err := finalizer.Finish(); err != nil {
+		t.Fatalf("TraceRunFinalizer.Finish() error = %v", err)
+	}
+	if got, want := events, []string{"phase:cleanup_start", "close-writer"}; !equalStrings(got, want) {
+		t.Fatalf("finalizer cleanup order = %v, want %v", got, want)
+	}
 }
 
 func TestTraceRunFinalizerWritesPendingStaleCount(t *testing.T) {

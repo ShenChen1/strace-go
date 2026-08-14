@@ -9222,3 +9222,33 @@ Impact note：影响 `bpf_object_loader.go` 的 handler collection ownership、s
 - `ebpf-perf` 通过：scalar/io/lifecycle/threads 的 steady-state 分别约为 `9621/6594/42.0/5200 events/s`，runtime counters 全零；Go pipeline benchmark 维持 `0 alloc` 的 decode/JSON writer 路径。
 - semantic、small（`23 PASS`）和单独重跑的 `sockopt-sol_socket.gen.test` 通过；upstream reference 的并发失败是测试环境同时运行特权 tracer 导致的截断，不能作为代码结论。两个既有 XFAIL 保持不变。
 - review 结论：`events_per_sec` 仍包含 process startup、BPF setup、ringbuf drain 和资源回收；`steady_state_events_per_sec` 才是事件管线吞吐。当前实现不修改端到端口径，而是同时输出 setup/trace/unattributed 分解，避免把 teardown 尾部误认为 ringbuf 性能下降。
+
+### 14.222 Cleanup boundary phase attribution（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.221 已把 handler load 并行化，并同时报告端到端 `events_per_sec` 与 trace 区间吞吐；短 workload 仍有约 `0.3s` 的 `unattributed_sec`，其中包含 finalizer/output close、target handoff cleanup、event reader close、BPF runtime close 和外部进程尾部。
+- Problem：现有 phase 只到 `finalize_start`。`TraceRunFinalizer.Finish` 随后写 stats/summary 并关闭 output，`runTraceSession` 的 deferred owner 再按依赖顺序关闭 target、reader 和 BPF；由于 output 已关闭，无法在 session 返回后补写 phase，当前 oracle 只能把这些成本统称为 unattributed。
+- Goal：建立可复用的 debug phase emitter，由 session composition 注入 finalizer；在 output close 之前发出 `cleanup_start`，并让 perf oracle 验证其位于 `finalize_start` 之后、进程结束之前。保留端到端耗时作为用户感知指标，同时报告 finalizer 前段和 cleanup 后尾部的归因值。
+- Non-goals：本阶段不改变 JSON drain grace、ringbuf reader、target/BPF cleanup 顺序、output ownership、事件 ABI、单消费者模型或任何用户可见 syscall 输出；不通过缩短等待时间伪造吞吐收益；不引入 ptrace、procfs、process_vm、锁或第二事件消费者。
+- Constraints：`cleanup_start` 必须在 `TraceRunFinalizer.closeOutput` 前写出；无 debug phase 时不能增加普通输出；finalizer 单测必须证明 phase 先于 output close；phase 缺失、重复、非单调或跨越 ready 边界都必须被 oracle 拒绝。
+
+Impact note：影响 `json_event_writer.go` 的 phase emitter 复用、`session_composition.go` 的依赖注入、`run_finalizer.go` 的 close 边界和 `test/ebpf_perf_suite.py` 的 phase duration 计算；不改变 `main.go` deferred resource owner 和 `event_reader.go` drain 行为。
+
+#### 方案比较
+
+1. 仅继续使用 Python 端到端计时：实现零改动，但无法区分 finalizer 与 deferred resource cleanup，不能形成可验证的归因契约，拒绝。
+2. `session.run()` 返回后再发 `cleanup_start`：语义上接近 defer cleanup，但 output 已由 finalizer 关闭，文件/pipe 输出无法可靠写 phase，拒绝。
+3. 通过 composition 注入窄 `traceDebugPhasePort`，由 finalizer 在 closeOutput 前发出 phase：保持 ownership 和关闭顺序，默认输出无变化，测试可证明 phase/write/close 顺序，选择该方案。
+
+#### 状态与测量契约
+
+- `cleanup_start` 表示 finalizer 已完成 stats/summary、即将关闭 output；它不是 BPF runtime close 的开始。`post_cleanup_unattributed_sec` 继续覆盖 output close 及之后的 deferred target/reader/BPF cleanup 和外部进程尾部。
+- `REQUIRED_PERF_PHASES` 扩展为 `trace_start -> trace_end -> finalize_start -> cleanup_start`；`cleanup_sec` 计量 `finalize_start` 到 `cleanup_start`，端到端分母仍不变。
+- `traceDebugPhasePort` 只暴露 phase 写入能力，event reader、formatter 和 BPF runtime 不取得该端口；phase emitter 复用同一个 JSON writer，避免第二输出消费者。
+
+#### 阶段验证
+
+- finalizer 单测确认事件顺序为 `cleanup_start -> close-writer`；真实 `--debug-phases /bin/true` 确认 stats 后出现 `cleanup_start`，没有改变 output close ownership。
+- 新 `ebpf-perf` 输出包含 `cleanup_sec` 与 `post_cleanup_unattributed_sec`。scalar 实测 `cleanup_sec=0.000061s`、`post_cleanup_unattributed_sec=0.319976s`、steady-state `9687.80 events/s`；io/lifecycle/threads 的 cleanup phase 也均在 `0.1ms` 内，post-cleanup 尾部约 `0.30~0.33s`。
+- `go test ./...`、`go test -race ./cmd/strace-go`、`go vet ./...` 和 Python perf oracle `14 OK` 通过；本阶段只增加测量边界，没有调整 drain grace 或任何资源关闭顺序。下一步若要继续降低端到端 event/s，应独立优化并验证 deferred cleanup，而不是修改吞吐分母。

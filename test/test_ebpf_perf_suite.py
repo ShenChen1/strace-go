@@ -55,6 +55,7 @@ def make_capture(events=None, lifecycle_events=None, stats=None, returncode=0):
             {"type": "phase", "phase": "trace_start", "time_ns": 200},
             {"type": "phase", "phase": "trace_end", "time_ns": 300},
             {"type": "phase", "phase": "finalize_start", "time_ns": 301},
+            {"type": "phase", "phase": "cleanup_start", "time_ns": 302},
         ],
     )
 
@@ -246,6 +247,19 @@ class PerfOracleTests(unittest.TestCase):
         failures = validate_perf_capture(capture, spec)
 
         self.assertTrue(any("duplicate" in failure for failure in failures))
+
+    def test_rejects_cleanup_phase_before_finalize(self):
+        spec = PerfWorkloadSpec(name="scalar", minimum_exit_counts=(('getpid', 1),))
+        capture = make_capture(
+            events=[{"syscall": "getpid", "event_type": "exit", "paired_enter": True}],
+        )
+        for event in capture.phase_events:
+            if event.get("phase") == "cleanup_start":
+                event["time_ns"] = 299
+
+        failures = validate_perf_capture(capture, spec)
+
+        self.assertTrue(any("phase" in failure for failure in failures))
 
 
 if __name__ == "__main__":
