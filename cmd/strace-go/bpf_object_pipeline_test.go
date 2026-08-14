@@ -46,14 +46,27 @@ func (l *fakeBPFObjectLoader) loadHandlers(
 	observer traceBPFSetupObserver,
 ) (*bpfLoadedHandlerCollections, error) {
 	l.calls = append(l.calls, "load_handlers")
-	for _, family := range bpfHandlerLoadOrder {
-		if err := measureBPFSetupStage(clock, observer, bpfHandlerCollectionStage(family), func() error {
-			return nil
-		}); err != nil {
-			return l.loadedHandlers, err
+	aggregateRecorder := newBPFSetupRecorder()
+	childRecorder := newBPFSetupRecorder()
+	err := measureBPFSetupStage(clock, aggregateRecorder, bpfSetupHandlerCollectionsStage, func() error {
+		for _, family := range bpfHandlerLoadOrder {
+			if err := measureBPFSetupStage(clock, childRecorder, bpfHandlerCollectionStage(family), func() error {
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return l.handlerLoadErr
+	})
+	if observer != nil {
+		for _, timing := range aggregateRecorder.Timings() {
+			observer.RecordBPFSetupStage(timing)
+		}
+		for _, timing := range childRecorder.Timings() {
+			observer.RecordBPFSetupStage(timing)
 		}
 	}
-	return l.loadedHandlers, l.handlerLoadErr
+	return l.loadedHandlers, err
 }
 
 func (l *fakeBPFObjectLoader) bind(loaded *bpfLoadedCollectionSet) (*bpfObjectBundle, error) {
@@ -84,7 +97,7 @@ func TestBPFObjectPipelineClosesLoadedCollectionOnBindFailure(t *testing.T) {
 	}
 
 	_, err := loadBPFObjectsWithTiming(
-		&sequenceBPFSetupClock{values: []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22}},
+		&sequenceBPFSetupClock{values: []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24}},
 		observer,
 		testBPFCollectionSpecSet(),
 		bpfProgramSelection{loadAll: true},
@@ -108,6 +121,7 @@ func TestBPFObjectPipelineClosesLoadedCollectionOnBindFailure(t *testing.T) {
 	if got, want := bpfSetupStages(observer.Timings()), []traceBPFSetupStage{
 		bpfSetupObjectPrepareStage,
 		bpfSetupCoreCollectionStage,
+		bpfSetupHandlerCollectionsStage,
 		bpfSetupEnterGenericCollectionStage,
 		bpfSetupEnterPayloadCollectionStage,
 		bpfSetupEnterPathCollectionStage,
@@ -133,7 +147,7 @@ func TestBPFObjectPipelineDetachesAfterSuccessfulBind(t *testing.T) {
 	}
 
 	_, err := loadBPFObjectsWithTiming(
-		&sequenceBPFSetupClock{values: []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22}},
+		&sequenceBPFSetupClock{values: []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24}},
 		newBPFSetupRecorder(),
 		testBPFCollectionSpecSet(),
 		bpfProgramSelection{loadAll: true},

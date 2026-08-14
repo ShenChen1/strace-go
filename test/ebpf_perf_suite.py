@@ -35,6 +35,7 @@ REQUIRED_BPF_SETUP_PHASES = (
     "bpf_route_plan",
     "bpf_object_prepare",
     "bpf_core_collection_load",
+    "bpf_handler_collections_load",
     "bpf_enter_generic_collection_load",
     "bpf_enter_payload_collection_load",
     "bpf_enter_path_collection_load",
@@ -221,8 +222,7 @@ def _validate_phase_timing(capture):
         failures.append(
             f"{capture.name} missing BPF setup phases: {','.join(missing_bpf)}"
         )
-    previous_end = ready_time
-    for phase in reversed(REQUIRED_BPF_SETUP_PHASES):
+    for phase in REQUIRED_BPF_SETUP_PHASES:
         event = phases.get(phase)
         if event is None:
             continue
@@ -230,9 +230,8 @@ def _validate_phase_timing(capture):
         end_time_ns = event.get("time_ns", 0)
         if start_time_ns <= 0 or end_time_ns < start_time_ns:
             failures.append(f"{capture.name} {phase} timing is invalid")
-        if end_time_ns > ready_time or start_time_ns > previous_end:
+        if start_time_ns < start_time or end_time_ns > ready_time:
             failures.append(f"{capture.name} {phase} is outside BPF setup")
-        previous_end = start_time_ns
     first_bpf = phases.get(REQUIRED_BPF_SETUP_PHASES[0])
     if first_bpf is not None and first_bpf.get("start_time_ns", 0) < start_time:
         failures.append(f"{capture.name} BPF setup starts before bootstrap")
@@ -246,6 +245,33 @@ def _validate_phase_timing(capture):
     if phase_times[0] < ready_time:
         failures.append(f"{capture.name} trace started before ready")
     return failures
+
+
+def _phase_interval_union_seconds(phases, phase_names):
+    intervals = []
+    for phase in phase_names:
+        event = phases.get(phase)
+        if event is None:
+            continue
+        start_time_ns = event.get("start_time_ns", 0)
+        end_time_ns = event.get("time_ns", 0)
+        if end_time_ns >= start_time_ns:
+            intervals.append((start_time_ns, end_time_ns))
+    intervals.sort()
+    total_ns = 0
+    current_start = current_end = None
+    for start_time_ns, end_time_ns in intervals:
+        if current_start is None:
+            current_start, current_end = start_time_ns, end_time_ns
+            continue
+        if start_time_ns > current_end:
+            total_ns += current_end - current_start
+            current_start, current_end = start_time_ns, end_time_ns
+        else:
+            current_end = max(current_end, end_time_ns)
+    if current_start is not None:
+        total_ns += current_end - current_start
+    return total_ns / 1_000_000_000
 
 
 def _phase_durations(capture):
@@ -279,7 +305,9 @@ def _phase_durations(capture):
         "finalize_start_sec": (finalize_start - trace_end) / 1_000_000_000,
     }
     durations.update(bpf_durations)
-    durations["bpf_setup_sec"] = sum(bpf_durations.values())
+    durations["bpf_setup_sec"] = _phase_interval_union_seconds(
+        phases, REQUIRED_BPF_SETUP_PHASES
+    )
     return durations
 
 

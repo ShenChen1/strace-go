@@ -38,14 +38,15 @@ def make_capture(events=None, lifecycle_events=None, stats=None, returncode=0):
             {"type": "phase", "phase": "bpf_route_plan", "start_time_ns": 120, "time_ns": 125},
             {"type": "phase", "phase": "bpf_object_prepare", "start_time_ns": 125, "time_ns": 127},
             {"type": "phase", "phase": "bpf_core_collection_load", "start_time_ns": 127, "time_ns": 130},
+            {"type": "phase", "phase": "bpf_handler_collections_load", "start_time_ns": 130, "time_ns": 146},
             {"type": "phase", "phase": "bpf_enter_generic_collection_load", "start_time_ns": 130, "time_ns": 132},
-            {"type": "phase", "phase": "bpf_enter_payload_collection_load", "start_time_ns": 132, "time_ns": 134},
-            {"type": "phase", "phase": "bpf_enter_path_collection_load", "start_time_ns": 134, "time_ns": 136},
-            {"type": "phase", "phase": "bpf_enter_memory_collection_load", "start_time_ns": 136, "time_ns": 138},
-            {"type": "phase", "phase": "bpf_enter_control_collection_load", "start_time_ns": 138, "time_ns": 140},
-            {"type": "phase", "phase": "bpf_enter_structured_collection_load", "start_time_ns": 140, "time_ns": 142},
-            {"type": "phase", "phase": "bpf_exit_collection_load", "start_time_ns": 142, "time_ns": 144},
-            {"type": "phase", "phase": "bpf_recvmsg_collection_load", "start_time_ns": 144, "time_ns": 146},
+            {"type": "phase", "phase": "bpf_enter_payload_collection_load", "start_time_ns": 130, "time_ns": 134},
+            {"type": "phase", "phase": "bpf_enter_path_collection_load", "start_time_ns": 130, "time_ns": 136},
+            {"type": "phase", "phase": "bpf_enter_memory_collection_load", "start_time_ns": 130, "time_ns": 138},
+            {"type": "phase", "phase": "bpf_enter_control_collection_load", "start_time_ns": 130, "time_ns": 140},
+            {"type": "phase", "phase": "bpf_enter_structured_collection_load", "start_time_ns": 130, "time_ns": 142},
+            {"type": "phase", "phase": "bpf_exit_collection_load", "start_time_ns": 130, "time_ns": 144},
+            {"type": "phase", "phase": "bpf_recvmsg_collection_load", "start_time_ns": 130, "time_ns": 146},
             {"type": "phase", "phase": "bpf_resource_bind", "start_time_ns": 146, "time_ns": 148},
             {"type": "phase", "phase": "bpf_route_maps", "start_time_ns": 148, "time_ns": 150},
             {"type": "phase", "phase": "bpf_prog_arrays", "start_time_ns": 150, "time_ns": 152},
@@ -181,6 +182,14 @@ class PerfOracleTests(unittest.TestCase):
         failures = validate_perf_capture(make_capture(events=events), spec)
 
         self.assertEqual(failures, [])
+
+    def test_accepts_overlapping_handler_setup_phases(self):
+        spec = PerfWorkloadSpec(name="scalar", minimum_exit_counts=(('getpid', 1),))
+        events = [{"syscall": "getpid", "event_type": "exit", "paired_enter": True}]
+
+        failures = validate_perf_capture(make_capture(events=events), spec)
+
+        self.assertFalse(any("BPF setup" in failure for failure in failures))
 
     def test_rejects_missing_perf_phase(self):
         spec = PerfWorkloadSpec(name="scalar", minimum_exit_counts=(('getpid', 1),))

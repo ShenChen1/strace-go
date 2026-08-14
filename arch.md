@@ -9190,3 +9190,35 @@ Impact note：影响 `bpf/enter_dispatch.h`、enter fragment ownership、`handle
 - source gate 锁定六份 enter translation unit 的 macro/include ownership，确保 dispatch function 不在多个 capability 中出现；生成 directive 和 build clean list 必须覆盖 little/big endian artifacts。
 - 真实验证必须报告每个 capability 的 collection load phase、program 数量、route/ProgArray completeness、runtime error counters；同时通过 `sudo -n ./build.sh`、Go/race/vet、semantic、perf、small 和 upstream reference。
 - 若六个 capability 串行总 load 没有下降，只能记录为结构性隔离收益不足，下一阶段再评估并行 verifier/load；不得恢复单 ELF，也不得用 procfs/ptrace 补偿。
+
+### 14.221 Parallel handler collection load and event-rate accounting（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.220 已将 enter direct handler 拆成六个 capability ELF，但 `nativeBPFObjectLoader.loadHandlers` 仍按固定顺序串行执行 `ebpf.NewCollectionWithOptions`。无 filter 全量启动时，六个 enter 加 exit/recvmsg 的 verifier/load 时间仍累计到端到端 event/s 的分母。
+- Problem：当前 perf suite 的 `events_per_sec` 是从 Python 启动 tracer 到进程退出的端到端值，包含 BPF setup、trace、ringbuf drain、链接/map close 和进程退出；它不能单独代表事件消费吞吐。与此同时，handler collection 之间只共享已加载 core map 的只读句柄，串行加载没有数据依赖，却延长了 bootstrap wall time。
+- Goal：并行加载所有已选择的 handler collection；保留单 Goroutine ringbuf consumer 和现有 BPF state ownership。为每个 worker 使用私有 timing recorder，完成后按稳定 `bpfHandlerLoadOrder` 合并结果；任一 worker 失败时，统一由 aggregate owner 逆序关闭所有已成功加载的 collection。
+- Non-goals：不并行事件读取、不增加 mutex 到事件路径、不改变 map ABI、tail-call slot、attach 顺序、pending/lifecycle 语义；不通过修改 event/s 分母伪造性能收益；不使用 ptrace、procfs、process_vm 或用户态 tracee memory fallback。
+- Constraints：handler ELF 的 spec 与 core map 只在 load 期间读；collection load 失败必须保留具体 family 错误并触发完整回滚；setup phase 允许 capability intervals 重叠，必须增加 handler aggregate wall-time phase，禁止把重叠 duration 直接相加。
+
+Impact note：影响 `bpf_object_loader.go` 的 handler collection ownership、setup phase recorder、perf phase oracle 和对象流水线测试；不改变 `bpf_runtime.go` 的单一事件读取职责或 `bpf_attach.go` 的 attach/ProgArray 顺序。
+
+#### 方案比较
+
+1. 只重新定义 `events_per_sec` 为 trace 区间吞吐：能解释指标，但不减少 verifier/load 或端到端耗时，作为观测修正而非性能实现。
+2. 只并行六个 enter capability，exit/recvmsg 保持串行：峰值资源较小，改动风险较低；但全量启动仍保留约 1.9s 的 exit/recvmsg 串行墙钟时间，收益不完整。
+3. 并行所有已选择的 handler collection，core 先完成、attach 后统一执行：可以把独立 verifier/load 压缩到最长单个 collection，资源回滚仍由已有 aggregate owner 负责；需要处理 timing 重叠和 verifier 峰值，选择该方案。
+
+#### 状态与测量契约
+
+- 新增 `bpf_handler_collections_load` aggregate phase，覆盖所有 handler worker；六个 enter、exit、recvmsg phase 保留为独立诊断，完成事件按稳定 family 顺序输出。
+- perf oracle 对 setup phase 只要求每个 interval 位于 bootstrap 区间且 `start <= end`，不再假设 capability phase 互不重叠；`bpf_setup_sec` 使用 phase interval union，aggregate 与子 phase 不重复计时。
+- 同时报告端到端 `events_per_sec` 与 `steady_state_events_per_sec`。前者用于真实 CLI latency，后者用于事件管线吞吐；任何优化必须至少不降低后者，且用多次运行比较 handler aggregate wall time。
+- 失败优先测试覆盖：并行 worker 的 family ownership、阶段 overlap 可被 oracle 接受、任一 family load 失败时所有已完成 collection 被关闭、成功 bind 后不重复关闭；运行时仍需通过 Go/race/vet、build、semantic、perf、small 和 upstream reference。
+
+#### 阶段验证
+
+- 串行拆分后的无 filter `/bin/true` handler load 约为 `3.55s + 1.33s + 0.56s`；并行实现三次复测的 `bpf_handler_collections_load` 为 `2.014s/1.993s/2.000s`，墙钟为 `2.69s/2.66s/2.72s`。并行 verifier 会因 CPU 竞争拉长单个 memory worker，但 aggregate wall time 明显低于串行累计值。
+- `ebpf-perf` 通过：scalar/io/lifecycle/threads 的 steady-state 分别约为 `9621/6594/42.0/5200 events/s`，runtime counters 全零；Go pipeline benchmark 维持 `0 alloc` 的 decode/JSON writer 路径。
+- semantic、small（`23 PASS`）和单独重跑的 `sockopt-sol_socket.gen.test` 通过；upstream reference 的并发失败是测试环境同时运行特权 tracer 导致的截断，不能作为代码结论。两个既有 XFAIL 保持不变。
+- review 结论：`events_per_sec` 仍包含 process startup、BPF setup、ringbuf drain 和资源回收；`steady_state_events_per_sec` 才是事件管线吞吐。当前实现不修改端到端口径，而是同时输出 setup/trace/unattributed 分解，避免把 teardown 尾部误认为 ringbuf 性能下降。

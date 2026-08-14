@@ -19,6 +19,7 @@ const (
 	bpfSetupSpecStage                      traceBPFSetupStage = "bpf_spec"
 	bpfSetupObjectPrepareStage             traceBPFSetupStage = "bpf_object_prepare"
 	bpfSetupCoreCollectionStage            traceBPFSetupStage = "bpf_core_collection_load"
+	bpfSetupHandlerCollectionsStage        traceBPFSetupStage = "bpf_handler_collections_load"
 	bpfSetupEnterGenericCollectionStage    traceBPFSetupStage = "bpf_enter_generic_collection_load"
 	bpfSetupEnterPayloadCollectionStage    traceBPFSetupStage = "bpf_enter_payload_collection_load"
 	bpfSetupEnterPathCollectionStage       traceBPFSetupStage = "bpf_enter_path_collection_load"

@@ -16,6 +16,7 @@ func TestBPFSetupHasExplicitStageBoundaries(t *testing.T) {
 		"bpfSetupSpecStage",
 		"bpfSetupObjectPrepareStage",
 		"bpfSetupCoreCollectionStage",
+		"bpfSetupHandlerCollectionsStage",
 		"bpfSetupEnterGenericCollectionStage",
 		"bpfSetupEnterPayloadCollectionStage",
 		"bpfSetupEnterPathCollectionStage",

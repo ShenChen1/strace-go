@@ -119,41 +119,6 @@ func (s *bpfLoadedCollectionSet) transferTo(bundle *bpfObjectBundle) {
 	}
 }
 
-type bpfLoadedHandlerCollections struct {
-	collections map[bpfHandlerFamily]*bpfLoadedCollection
-	loadOrder   []bpfHandlerFamily
-}
-
-func (h *bpfLoadedHandlerCollections) Close() error {
-	if h == nil {
-		return nil
-	}
-	var closeErr error
-	for index := len(h.loadOrder) - 1; index >= 0; index-- {
-		family := h.loadOrder[index]
-		if collection := h.collections[family]; collection != nil {
-			closeErr = errors.Join(closeErr, collection.Close())
-		}
-	}
-	return closeErr
-}
-
-func (h *bpfLoadedHandlerCollections) transferTo(bundle *bpfObjectBundle) {
-	if h == nil || bundle == nil {
-		return
-	}
-	for index := len(h.loadOrder) - 1; index >= 0; index-- {
-		family := h.loadOrder[index]
-		collection := h.collections[family]
-		if collection == nil {
-			continue
-		}
-		if closer := collection.transferCloser(); closer != nil {
-			bundle.handlerClosers = append(bundle.handlerClosers, closer)
-		}
-	}
-}
-
 // bpfObjectLoader is the ownership boundary between setup orchestration and
 // a concrete core/handler collection backend.
 type bpfObjectLoader interface {
@@ -204,59 +169,6 @@ func (l *nativeBPFObjectLoader) loadCore(plan *bpfCollectionPlan) (*bpfLoadedCol
 		return nil, err
 	}
 	return &bpfLoadedCollection{collection: core}, nil
-}
-
-func (l *nativeBPFObjectLoader) loadHandlers(
-	plan *bpfCollectionPlan,
-	core *bpfLoadedCollection,
-	clock traceClock,
-	observer traceBPFSetupObserver,
-) (*bpfLoadedHandlerCollections, error) {
-	if plan == nil || len(plan.handlerSpecs) == 0 || core == nil || core.value() == nil {
-		return nil, fmt.Errorf("BPF handler collection plan is unavailable")
-	}
-	coreCollection := core.value()
-	loaded := &bpfLoadedHandlerCollections{
-		collections: make(map[bpfHandlerFamily]*bpfLoadedCollection),
-	}
-	for _, family := range bpfHandlerLoadOrder {
-		spec := plan.handlerSpecs[family]
-		var collection *bpfLoadedCollection
-		stage := bpfHandlerCollectionStage(family)
-		err := measureBPFSetupStage(clock, observer, stage, func() error {
-			if spec == nil || len(spec.Programs) == 0 {
-				return nil
-			}
-			var err error
-			collection, err = loadBPFHandlerFamily(spec, coreCollection)
-			return err
-		})
-		if err != nil {
-			return loaded, fmt.Errorf("load %s handler collection: %w", family, err)
-		}
-		if collection != nil {
-			loaded.collections[family] = collection
-			loaded.loadOrder = append(loaded.loadOrder, family)
-		}
-	}
-	return loaded, nil
-}
-
-func loadBPFHandlerFamily(
-	spec *ebpf.CollectionSpec,
-	core *ebpf.Collection,
-) (*bpfLoadedCollection, error) {
-	replacementPlan, err := newBPFMapReplacementPlan(core, spec)
-	if err != nil {
-		return nil, err
-	}
-	collection, err := ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{
-		MapReplacements: replacementPlan.replacements,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &bpfLoadedCollection{collection: collection}, nil
 }
 
 func (l *nativeBPFObjectLoader) bind(loaded *bpfLoadedCollectionSet) (*bpfObjectBundle, error) {
@@ -384,49 +296,6 @@ func taggedBPFResourceNames(resourceType reflect.Type) map[string]struct{} {
 		}
 	}
 	return names
-}
-
-func selectedBPFHandlerPrograms(
-	loaded *bpfLoadedHandlerCollections,
-	selection bpfProgramSelection,
-) (map[string]*ebpf.Program, error) {
-	if loaded == nil {
-		return nil, fmt.Errorf("handler BPF collections are nil")
-	}
-	programs := make(map[string]*ebpf.Program)
-	for _, family := range loaded.loadOrder {
-		collection := loaded.collections[family]
-		if collection == nil || collection.value() == nil {
-			return nil, fmt.Errorf("handler BPF collection %q is unavailable", family)
-		}
-		for name, program := range collection.value().Programs {
-			if isCoreBPFProgramName(name) {
-				continue
-			}
-			if _, exists := programs[name]; exists {
-				return nil, fmt.Errorf("handler BPF program %q belongs to multiple families", name)
-			}
-			if program == nil {
-				return nil, fmt.Errorf("handler BPF program %q is nil", name)
-			}
-			if _, ok := classifyBPFHandlerProgram(name); !ok {
-				return nil, fmt.Errorf("handler BPF program %q has no family", name)
-			}
-			programs[name] = program
-		}
-	}
-	if selection.loadAll {
-		return programs, nil
-	}
-	for name := range selection.programs {
-		if isCoreBPFProgramName(name) {
-			continue
-		}
-		if programs[name] == nil {
-			return nil, fmt.Errorf("selected handler BPF program %q is unavailable", name)
-		}
-	}
-	return programs, nil
 }
 
 func isCoreBPFProgramName(name string) bool {
