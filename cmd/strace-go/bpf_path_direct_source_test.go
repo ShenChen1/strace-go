@@ -11,7 +11,9 @@ func TestBPFPathOnlyPayloadsUseDirectTLV(t *testing.T) {
 	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	pathDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_direct_event_v2.h"))
+	pathEmitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_emit_direct_event_v2.h"))
 	pathCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_path_capture_direct_event_v2.h"))
+	pathSource := pathDirectHeader + "\n" + pathEmitHeader
 
 	for _, snippet := range []string{
 		"#define SYS_CHDIR 80",
@@ -38,7 +40,7 @@ func TestBPFPathOnlyPayloadsUseDirectTLV(t *testing.T) {
 		"init_syscall_enter_event_v2_from_ctx(&body, ctx, 0, 0, -1, -1);",
 		"body.capture_len = payload_size;",
 	} {
-		if !strings.Contains(pathDirectHeader, snippet) {
+		if !strings.Contains(pathSource, snippet) {
 			t.Fatalf("path direct header missing snippet %q", snippet)
 		}
 	}

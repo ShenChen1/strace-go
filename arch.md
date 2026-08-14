@@ -8417,3 +8417,46 @@ Impact note：`strace.c` 仍只 include `syscall_xattr_direct_event_v2.h`；`ent
 - 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、attach、pending state、事件 ABI 或单消费者事件循环；没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
 - 失败路径仍显式保留：string read、bytes read、dynptr data/write、TLV header 和 reserve/submit/discard 的错误处理与原逻辑一致；source gate 防止 capture provider 重新拥有 ringbuf lifecycle，也防止 emit provider 重新拥有 user read。
 - *xattrat* 精确文本失败已通过父提交 binary A/B 排除为本阶段回归；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。本阶段仅修改 xattr facade/provider、相关 source gates、ownership regression test 和本记录。
+
+### 14.202 拆分 path emit ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_path_direct_event_v2.h` 原为 311 行，同时拥有 path-only/dual-path syscall 分类、路径 capture provider 的组合入口，以及 6 个 enter/exit ringbuf emitter；`mount_setattr`、`mount_path` 和 quota 还复用 path capture helper。
+- Problem：path 分类策略、事件提交生命周期和用户内存 capture 的依赖关系集中在一个实现头中；修改 ringbuf reserve/write/submit 或 path payload 时，难以单独审查是否越过 capture ownership，且 source gate 无法清晰区分 facade 与 emitter。
+- Goal：保留 `syscall_path_direct_event_v2.h` 作为分类 facade；新增 emit provider，保持 capture provider 的稳定入口、helper 名称、事件布局、payload capacity、TLV 顺序、路由和 pending 语义不变。
+- Non-goals：不改变 path-only/dual-path 的 syscall 分类、字符串 snapshot 上限、enter/exit capture 时点、Go decoder/formatter、FD state/cwd 逻辑、过滤，也不引入 ptrace、procfs 或 Go 侧用户内存读取。
+- Constraints：先新增失败优先 ownership source gate，再实现生产 header；必须通过真实 clang/verifier、Go fast/race/vet、semantic/perf、串行 small 和 path family 原生测试；生产文件与测试文件不超过 500 行，函数参数不超过 5 个。
+
+Impact note：`strace.c` 仍只 include `syscall_path_direct_event_v2.h`；`enter_router`、`enter_path_only`、`enter_dual_path`、`exit_router` 和 `exit_path` 继续使用原有分类与 emitter 符号，`mount_setattr`/`mount_path`/quota 继续从 path capture provider 获得 capture helper。改动只改变编译期 header ownership 与 source-test 的观察边界。
+
+#### 方案比较
+
+1. 保留 311 行单文件并只增加注释：运行时改动最小，但分类、capture 依赖和 ringbuf lifecycle 仍耦合，无法独立审计 emitter 是否重新拥有用户内存读取，拒绝。
+2. 同时拆分 path-only 与 dual-path 为两个 emitter provider：职责更细，但会重复 ringbuf/event body 约束，增加 include 和 source oracle 面，当前收益不足，拒绝。
+3. facade + 既有 capture provider + 单一 emit provider：只迁移事件提交实现，分类和 capture 复用稳定，调用图与 ABI 不变，选择该方案。
+
+#### 状态契约
+
+- `syscall_path_direct_event_v2.h` 只拥有 path-only/dual-path 常量对应的 syscall selector，并按 capture 后 emit 的顺序 include `syscall_path_capture_direct_event_v2.h` 与 `syscall_path_emit_direct_event_v2.h`；它不再定义 ringbuf emitter。
+- `syscall_path_capture_direct_event_v2.h` 继续拥有 path-only 的两段 `PATH_MAX` bounded string read 和 dual-path bounded string read、TLV header 写入、probe error/truncated 统计；本阶段未改其行为。
+- `syscall_path_emit_direct_event_v2.h` 拥有 path-only enter/exit 与 dual-path enter/exit emitter，负责 ringbuf reserve/discard、event header/body write 和 submit；它只调用 capture helper，不直接调用 `bpf_probe_read_user` 或 `bpf_probe_read_user_str`。enter helper 使用显式 request 结构传递已用常量索引读取的 user pointer，避免 verifier 看到变量索引的 `ctx->args` 解引用。
+- enter/exit 的 path arg index、dual-path 参数映射、payload capacity、TLV offset、事件 flags、timestamp、pending save/consume 和 tail-call 路由与拆分前一致；用户态没有补读 tracee memory 的路径。
+- 新 provider 是纯编译期 header，不创建 map、ProgArray、tail call、scratch 状态、锁、goroutine、定时器或事件消费者；单消费者 ringbuf 事件流不变。
+
+#### 测试与验收
+
+- 失败优先 gate 按预期失败：`TestBPFPathEmitHasDedicatedOwnership` 首次运行时 provider 文件尚不存在。实现后该测试检查 facade 的 provider include、6 个 emitter 定义的排他 ownership、emit provider 的 ringbuf lifecycle、emit provider 无 user read、capture provider 无 emitter 和文件行数，并通过。
+- `TestBPFPathEmitHasDedicatedOwnership`、`TestBPFPathOnlyPayloadsUseDirectTLV`、`TestBPFDualPathPayloadsUseDirectTLV`、`TestBPFPathCaptureHasDedicatedOwnership` 及 enter/exit/router 相关 source gates 均通过；path source gate 已读取 facade 与 emit provider 的组合视图。
+- `sudo -n ./build.sh` 通过，真实 clang/BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14202 ./cmd/strace-go` 和 `git diff --check` 均通过。
+- `syscall_path_direct_event_v2.h` 从 311 行降为 53 行，emit provider 为 297 行，capture provider 为 136 行，ownership source test 为 64 行；所有相关生产 header 与 source test 均满足 <=500 行限制，emit helper 参数均不超过 5 个。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `337.70 ns/op、0 B/op、0 allocs/op`，JSON writer `501.00 ns/op、0 B/op、0 allocs/op`，decoded writer `658.80 ns/op、0 B/op、0 allocs/op`，decoded payload writer `940.90 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `396.19/265.82/2.26/213.98 events/s`，所有运行时错误计数为 0。
+- 串行 sudo `small` 通过 `23 PASS / 0 FAIL`；原生 `chdir.gen.test`、`mkdir.gen.test`、`mkdirat.gen.test`、`rename.gen.test`、`renameat.gen.test` 和 `renameat2.gen.test` 均为 `1 PASS / 0 FAIL`，覆盖 path-only 与 dual-path 的常见 enter/exit 文本。
+
+#### Review 结论
+
+- 未发现运行时行为回归：path selector、路径 capture、TLV offset/arg、payload capacity、event flags、enter/exit emitter、pending consume 与过滤调用图保持不变；真实 verifier、semantic/perf、串行 small 和六项 path 原生测试均通过。
+- 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、attach、pending state、事件 ABI 或单消费者事件循环；没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
+- 失败路径仍显式保留：path probe read、dynptr data/write、TLV header 和 ringbuf reserve/submit/discard 的错误处理与拆分前一致；source gate 防止 emit provider 重新拥有用户内存读取，capture provider 也不拥有 emitter。
+- 本阶段仅修改 path facade、emit provider、相关 source gates、ownership regression test 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
