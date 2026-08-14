@@ -8719,3 +8719,45 @@ Impact note：`strace.c` 仍只 include `syscall_prctl_direct_event_v2.h`；`ent
 - 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、pending state、事件 ABI 或单消费者事件循环；capture provider 没有 ringbuf lifecycle，emit provider 没有用户内存读取，也没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
 - 失败路径仍显式保留：空指针、string/uint32 probe、dynptr data/write、TLV header、ringbuf reserve、header/body write 和 submit/discard 的错误处理与拆分前一致；`prctl-pdeathsig` 的文本 mismatch 已按父代码行为归类，不由本阶段掩盖或修复。
 - 本阶段只修改 prctl facade/capture/emit、相关 source gates 和架构记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.209 拆分 small-struct capture 与 emit ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：`sendfile`、`copy_file_range` 在 enter 阶段捕获 offset word，`sendfile`、`arch_prctl`、`get_robust_list` 在 exit 阶段捕获 OUT word；这些 payload 通过 pending enter/exit sections 合并后交给 Go handler。
+- Problem：`bpf/syscall_small_struct_direct_event_v2.h` 原为 253 行，同时拥有四个 syscall 的 selector、用户内存读取、TLV capture 和 enter/exit ringbuf emitter；其中通用 enter helper 有 7 个参数，超过当前函数边界约束。
+- Goal：保留 facade 的 small-struct policy；capture provider 独占 8-byte word snapshot；emit provider 独占 enter/exit ringbuf lifecycle，并将 enter helper 参数收敛到不超过 5 个，保持事件 ABI 与 payload 语义不变。
+- Non-goals：不改变 Go handler/formatter、generic dispatch、生命周期、过滤、旧 fixed-window 删除策略或 small-struct syscall 的文本契约；不引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
+- Constraints：先用失败优先 ownership gate，再通过真实 clang/verifier、Go fast/race/vet、强制 build、semantic/perf、串行 small 和 arch_prctl/sendfile/copy_file_range 原生参考测试；生产 header 与 source test 不超过 500 行，函数参数不超过 5 个。
+
+Impact note：`strace.c` 仍只 include `syscall_small_struct_direct_event_v2.h`；`enter_router.h`、`enter_dispatch.h`、`exit_dispatch.h` 和 `syscall_time_direct_event_v2.h` 继续使用原有 selector/emitter 符号。改动只改变编译期 header ownership 与一个内部 helper 的参数形状，不改变 `enter_progs`、`exit_progs`、pending map、ringbuf ABI 或 Go 单消费者状态机。
+
+#### 方案比较
+
+1. 保留 253 行单文件并只增加注释：运行时改动最小，但 policy、user read、TLV composer 和 ringbuf lifecycle 仍耦合，且保留 7 参数 helper，拒绝。
+2. 按 `arch_prctl`、`get_robust_list`、`sendfile`、`copy_file_range` 分别拆 provider：syscall 差异隔离更细，但会复制同一 8-byte TLV primitive，扩大 include/verifier 和 source oracle 复杂度，拒绝。
+3. facade + 共享 word capture provider + 共享 enter/exit emit provider：复用唯一 snapshot policy，职责边界完整，调用图与 ABI 变化局部，选择该方案。
+
+#### 状态契约
+
+- `syscall_small_struct_direct_event_v2.h` 从 253 行降为 35 行，只拥有 `SMALL_STRUCT_DIRECT_*` 常量、arch option selector、四个 syscall selector 和按 capture 后 emit 顺序排列的两个 include。
+- `syscall_small_struct_capture_direct_event_v2.h` 为 46 行，拥有 `capture_small_struct_word_tlv_direct`；继续在 eBPF probe 时点使用 `bpf_probe_read_user`，执行 bounded 8-byte copy、TLV header 写入和 probe/copy 错误统计；它不拥有 ringbuf reserve/submit。
+- `syscall_small_struct_emit_direct_event_v2.h` 为 186 行，拥有 sendfile/copy_file_range enter、small-struct word enter 和 small-struct exit emitter，负责 reserve/discard、event header/body write、payload flag、timestamp 和 submit；它只调用 capture helper，不直接读取用户内存。
+- 原 7 参数 `emit_small_struct_enter_event_v2_direct_with_arg` 删除；普通 small-struct enter 固定捕获 arg2，使用 5 参数 `emit_small_struct_enter_word_event_v2_direct`，`copy_file_range` 仍独立捕获 arg1/arg3，exit 的 arg/direction/order 保持不变。
+- `arch_prctl` GET、`get_robust_list` head/len、`sendfile` offset IN/OUT、`copy_file_range` off_in/off_out 的 TLV kind、arg index、direction、payload capacity、pending 合并和 generic exit dispatch 均保持不变；没有新增 map、scratch、tail call、锁、goroutine、定时器或运行期 procfs/ptrace 依赖。
+
+#### 测试与验收
+
+- 失败优先 gate 按预期失败：`TestBPFSmallStructHasDedicatedCaptureAndEmitOwnership` 首次运行时两个 provider 文件不存在。实现后该 gate 检查 facade include 顺序、policy ownership、capture helper、三个 emitter、capture 无 ringbuf lifecycle、emit 无 user memory read、旧 7 参数 helper 删除和文件行数，并通过。
+- `TestBPFSmallStructPayloadsUseDirectTLV` 改为读取 facade、capture、emit 的组合视图；`TestSyscallEventContextUsesSmallStructTLVSections` 的 arch_prctl、get_robust_list、sendfile、copy_file_range 四个场景通过。
+- `sudo -n ./build.sh` 通过，真实 clang/BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14209 ./cmd/strace-go`、Python perf oracle 8 项和 `git diff --check` 均通过。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `333.60 ns/op、0 B/op、0 allocs/op`，JSON writer `490.00 ns/op、0 B/op、0 allocs/op`，decoded writer `667.40 ns/op、0 B/op、0 allocs/op`，decoded payload writer `954.70 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `395.82/268.11/2.29/221.00 events/s`，所有运行时错误计数为 0。
+- 串行 sudo `small` 通过 `23 PASS / 0 FAIL`；原生 `arch_prctl.gen.test`、`sendfile.gen.test`、`copy_file_range.gen.test` 均返回 `0`，覆盖 GET OUT word、offset IN/OUT 和双 offset enter payload。
+
+#### Review 结论
+
+- 未发现本阶段运行时回归：small-struct selector、capture 时点、TLV offset/arg/flags、payload capacity、event header/body、reserve/submit/discard、pending consume 和 generic exit 调用图均与拆分前一致；真实 verifier、semantic/perf、small 和三项原生测试通过。
+- 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、pending state、事件 ABI 或单消费者事件循环；capture provider 没有 ringbuf lifecycle，emit provider 没有用户内存读取，也没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
+- 失败路径仍显式保留：空指针、word probe、dynptr data/write、TLV header、ringbuf reserve、header/body write 和 submit/discard 的错误处理与拆分前一致；helper 参数收敛没有改变 arg2/arg1/arg3 的选择。
+- 本阶段只修改 small-struct facade/capture/emit、相关 source gates 和架构记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

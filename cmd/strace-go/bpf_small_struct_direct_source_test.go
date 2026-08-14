@@ -11,7 +11,9 @@ func TestBPFSmallStructPayloadsUseDirectTLV(t *testing.T) {
 	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
-	smallDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_small_struct_direct_event_v2.h"))
+	smallDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_small_struct_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_small_struct_capture_direct_event_v2.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_small_struct_emit_direct_event_v2.h"))
 
 	for _, constant := range []string{
 		"#define SYS_SENDFILE 40",
@@ -46,7 +48,7 @@ func TestBPFSmallStructPayloadsUseDirectTLV(t *testing.T) {
 		"return sys_id == SYS_SENDFILE || sys_id == SYS_ARCH_PRCTL ||",
 		"PAYLOAD_TLV_KIND_STRUCT",
 		"PAYLOAD_TLV_FLAG_DIRECTION_OUT",
-		"ctx, ts_ns, 2, ctx->args[2]",
+		"payload_offset,\n        2,\n        ctx->args[2]",
 		"payload_offset, 1, ctx->args[1]",
 		"payload_offset + payload_size, 3, ctx->args[3]",
 		"is_arch_prctl_get_direct_option(p->args[0])",
