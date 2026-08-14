@@ -25,7 +25,7 @@ func TestBPFEnterDispatcherFallbackIsIsolated(t *testing.T) {
 		}
 	}
 
-	enterSource := readTextFile(t, filepath.Join(repoRootForTest(t), "bpf/enter_dispatch.h"))
+	enterSource := readTextFile(t, filepath.Join(repoRootForTest(t), "bpf/enter_runtime.h"))
 	helper, ok := bpfFunctionBody(enterSource, "emit_enter_dispatch_fallback")
 	if !ok {
 		t.Fatal("BPF source missing emit_enter_dispatch_fallback")

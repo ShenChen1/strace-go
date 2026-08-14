@@ -118,7 +118,7 @@ func TestRecvmsgProgIndicesMatchBPFSource(t *testing.T) {
 
 func TestEnterProgIndicesMatchDispatchHeader(t *testing.T) {
 	root := repoRootForTest(t)
-	header := readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h"))
+	header := readTextFile(t, filepath.Join(root, "bpf/enter_runtime.h"))
 	pairs := map[string]uint32{
 		"ENTER_PROG_TERMINATING":       enterProgTerminating,
 		"ENTER_PROG_IOVEC":             enterProgIovec,

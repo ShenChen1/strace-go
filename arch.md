@@ -8073,3 +8073,44 @@ Impact note：`exit_dispatch.h` 的 `exit_msg`、`exit_mmsg_final`、`exit_recvm
 - 新provider只改变编译期ownership，不改变 `recvmsg_progs`、`exit_progs`、attach、map或事件ABI；没有引入Go侧 tracee memory read、ptrace或procfs fallback。
 - source gate已覆盖facade/provider、recvmsg/mmsg排他ownership、capture复用、dispatch链和文件限制；真实verifier、semantic/perf、small与119项upstream reference未观察到事件数量、配对、输出或性能契约回归。
 - 本阶段仅修改msg exit facade、新增recvmsg/mmsg exit provider、source gates和本记录；`strace-upstream`子模块预先存在的dirty状态未触碰。
+
+### 14.194 拆分 enter runtime contract 与 family handlers（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：`bpf/enter_dispatch.h` 原为 459 行，同时拥有 45 个 `ENTER_PROG_*` index、`ENTER_PROLOGUE`、tail-call fallback 和 35 个 syscall family handlers；fragment、quota、mount-path handlers 也复用前三者。
+- Problem：ProgArray ABI、身份快照与 stack capture prologue、tail-call fallback 和大量 family handler 物理耦合；修改共享入口契约时会扩大到所有 family verifier/source review，source gate 也无法表达真正 owner。
+- Goal：新增 `bpf/enter_runtime.h` 独占 enum、prologue 和 fallback；`enter_dispatch.h` include 它并保留 family handlers，保持 ProgArray index、map capacity、tail-call/attach、pending 语义和事件 ABI 不变。
+- Non-goals：不改变运行时事件顺序、syscall family selector、pending map、stack capture、ProgArray slot、tail-call fallback 语义、Go decoder/formatter，也不引入 ptrace、procfs 或 Go 侧 tracee memory read。
+- Constraints：先用失败优先 source gate 固定 runtime contract ownership，再通过真实 clang/verifier、Go 全量/race/vet、semantic/perf、small 和 upstream reference；生产 header 与测试文件继续满足仓库行数及函数限制。
+
+Impact note：`strace.c` 仍通过 `enter_dispatch.h` 获得完整 enter handler translation unit；fragment、quota、mount-path dispatch 仍调用同一 `ENTER_PROLOGUE`，tail-call index 与 fallback 调用图不变。改动只改变编译期 header ownership 和 source-test 视图。
+
+#### 方案比较
+
+1. 保留 459 行单文件并补充注释：运行时改动最小，但 ProgArray/runtime contract 仍与 family handler 耦合，无法形成独立审计边界，拒绝。
+2. 把每个 family handler 拆成独立 header：职责更细，但 include 数量、source oracle 和 verifier 观察面显著扩大，当前阶段过度拆分，拒绝。
+3. 新增 runtime contract provider，由 `enter_dispatch.h` facade include，选择该方案：共享 ABI 集中、调用图不变、ownership 清晰，且改动面最小。
+
+#### 状态契约
+
+- `bpf/enter_runtime.h` 只拥有 `enum enter_prog_index` 的 1..45 稳定值、`ENTER_PROLOGUE(ctx)` 和 `emit_enter_dispatch_fallback`；prologue 继续一次性快照 syscall id、pid/tid、enter time、config 和可选 user stack，fallback 继续发 no-payload enter、保存 pending，并在 tail-call 缺槽时结束当前路径。
+- `bpf/enter_dispatch.h` 只拥有 syscall family enter handlers，通过 include runtime provider 使用 index、prologue 和 fallback；它不再定义 enum、宏或 fallback implementation。
+- `enter_fragment_dispatch.h`、`quota_dispatch.h`、`mount_path_dispatch.h` 继续只调用共享 `ENTER_PROLOGUE`，不复制 runtime contract；`strace.c` 的实际 include 展开仍包含全部符号。
+- 新 provider 是纯编译期 header，不创建 map、ProgArray、tail call、scratch 状态、锁、goroutine 或用户态消费者；没有改变 event ABI、pending state、attach、过滤或事件 loop。
+
+#### 测试与验收
+
+- 失败优先 gate 首次按预期失败：`bpf/enter_runtime.h` 尚不存在。实现后新增 `TestBPFEnterRuntimeContractHasDedicatedOwnership`，检查 runtime owner、dispatch include、fragment/quota/mount-path 复用和生产文件行数；combined source gate、fallback gate 和 ProgArray index gate 同步切换到真实 provider。
+- `sudo -n ./build.sh` 通过，clang 生成和真实 BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、强制 build 和 `git diff --check` 全部通过。
+- focused enter runtime/tail-call tests 通过；`enter_dispatch.h` 从 459 行降为 383 行，runtime provider 为 84 行，runtime source test 为 59 行，均满足 <=500 行限制。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0，普通 attach orphan 1 仍为预期诊断；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `344.10 ns/op、0 B/op、0 allocs/op`，JSON writer `511.20 ns/op、0 B/op、0 allocs/op`，decoded writer `648.60 ns/op、0 B/op、0 allocs/op`，decoded payload writer `947.80 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `407.33/270.71/2.32/219.16 events/s`，所有运行时错误计数为 0。
+- 原生参考通过：sudo `small` 为 `23 PASS / 0 FAIL`；sudo `upstream-reference` 为 `117 PASS / 0 FAIL / 2 XFAIL / 0 XPASS`。两个 XFAIL 仍是 `read-write.gen.test` 的 bounded eBPF snapshot 不承诺 ptrace 级别大块 hexdump，以及 `mount_setattr.gen.test` 的 event-sourced FD/cwd 初始状态未知，没有新增 XPASS。
+
+#### Review 结论
+
+- 未发现运行时行为回归：45 个 ProgArray index、prologue 的身份/时间/config/stack 快照、fallback 的 no-payload enter 与 pending 保存、fragment/quota/mount-path 的共享调用关系均与拆分前一致；attach、tail-call routing、map 和事件 ABI 未改变。
+- 新 runtime provider 只改变编译期 ownership，不创建运行时状态或并发消费者；没有引入 Go 侧 tracee memory read、ptrace 或 procfs fallback。
+- source gate 已覆盖 runtime/family 排他 ownership、实际 include 展开、fallback helper、ProgArray index 和文件限制；真实 verifier、semantic/perf、small 与 119 项 upstream reference 未观察到事件数量、配对、输出或性能契约回归。
+- 本阶段仅修改 enter runtime/family include、相关 source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
