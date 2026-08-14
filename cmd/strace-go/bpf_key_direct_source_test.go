@@ -11,7 +11,10 @@ func TestBPFKeyPayloadsUseDirectTLV(t *testing.T) {
 	straceSource := readCombinedBPFSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
-	keyDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_key_direct_event_v2.h"))
+	keyFacade := readTextFile(t, filepath.Join(root, "bpf/syscall_key_direct_event_v2.h"))
+	keyCapture := readTextFile(t, filepath.Join(root, "bpf/syscall_key_capture_direct_event_v2.h"))
+	keyEmit := readTextFile(t, filepath.Join(root, "bpf/syscall_key_emit_direct_event_v2.h"))
+	keyHeader := keyFacade + "\n" + keyCapture + "\n" + keyEmit
 
 	for _, snippet := range []string{
 		"#define SYS_ADD_KEY 248",
@@ -21,7 +24,7 @@ func TestBPFKeyPayloadsUseDirectTLV(t *testing.T) {
 		"emit_key_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
 		"is_key_direct_syscall(sys_id) ||",
 	} {
-		if !strings.Contains(straceSource, snippet) && !strings.Contains(timeDirectHeader, snippet) && !strings.Contains(keyDirectHeader, snippet) {
+		if !strings.Contains(straceSource, snippet) && !strings.Contains(timeDirectHeader, snippet) && !strings.Contains(keyHeader, snippet) {
 			t.Fatalf("BPF source missing key direct snippet %q", snippet)
 		}
 	}
@@ -38,7 +41,7 @@ func TestBPFKeyPayloadsUseDirectTLV(t *testing.T) {
 		"bpf_probe_read_user(payload_data, copied_len",
 		"init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);",
 	} {
-		if !strings.Contains(keyDirectHeader, snippet) {
+		if !strings.Contains(keyHeader, snippet) {
 			t.Fatalf("key direct header missing snippet %q", snippet)
 		}
 	}

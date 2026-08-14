@@ -8589,3 +8589,47 @@ Impact note：`strace.c` 的 include 顺序仍为 network enter facade 后 netwo
 - 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、pending map、事件 ABI、单消费者状态机或 Go handler；enter/exit emit provider 均没有用户内存读取，capture provider 均没有 ringbuf lifecycle。
 - 失败路径仍显式保留：空指针、socklen probe、dynptr data/write、TLV header、bounded copy、reserve、header/body write 和 submit/discard 的错误处理与拆分前一致；共享 capture provider 没有被复制，避免产生两套网络 snapshot 语义。
 - 本阶段仅修改 network facade/provider、network source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.206 拆分 key capture 与 emit ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：`add_key` 与 `request_key` 通过纯 eBPF enter 事件捕获 type、description 和 payload，使用 TLV snapshot 供用户态解码；`keyctl` 走独立的通用路径，不属于本阶段的 key direct family。
+- Problem：`bpf/syscall_key_direct_event_v2.h` 原为 199 行，同时拥有 syscall selector、payload 上限、字符串/字节用户内存读取、TLV composer 和 ringbuf emitter。后续调整 bounded snapshot 或事件提交时，capture 与 emit 的 ownership 不能独立审查。
+- Goal：保留 key facade 的常量、selector、payload capacity 和 provider include；capture provider 独占三类 bounded TLV snapshot；emit provider 独占 enter ringbuf 生命周期，保持 payload 顺序、arg index、截断/error 统计、事件 ABI 和调用图不变。
+- Non-goals：不改变 `keyctl` 通用解码、不改变 Go handler/formatter、过滤、pending/lifecycle、事件消费者或 syscall 字典，也不引入 ptrace、procfs 或 Go 侧用户内存读取。
+- Constraints：先用失败优先 ownership gate，再通过真实 clang/verifier、Go fast/race/vet、强制 build、semantic/perf、串行 small 和 key 原生参考测试；生产 header 与 source test 不超过 500 行，函数参数不超过 5 个。
+
+Impact note：`strace.c` 仍只 include `syscall_key_direct_event_v2.h`；`enter_router`、`enter_dispatch` 和 direct key emitter 继续使用原有 selector、capture 和 emitter 符号，`keyctl` 路径未被触碰。改动只改变编译期 header ownership 与 source-test 的观察边界，不改变 BPF map、ProgArray、ringbuf ABI 或 Go 单消费者状态机。
+
+#### 方案比较
+
+1. 保留 199 行单文件并只增加注释：运行时改动最小，但 selector、用户内存 capture、TLV composer 和 ringbuf lifecycle 仍耦合，无法独立审计，拒绝。
+2. 按 type、description、bytes、payload composer 和 emitter 拆成多个 provider：职责最细，但会扩大 include 依赖和 source oracle，重复维护同一 payload 组合契约，当前收益不足，拒绝。
+3. facade + key capture provider + key emit provider：只形成策略、snapshot 和事件提交三层边界，依赖变化局部，调用图与 ABI 不变，选择该方案。
+
+#### 状态契约
+
+- `syscall_key_direct_event_v2.h` 从 199 行降为 18 行，只拥有 `KEY_DIRECT_*` 常量、payload capacity、`is_key_direct_syscall` 和按 capture 后 emit 顺序排列的两个 include。
+- `syscall_key_capture_direct_event_v2.h` 拥有 `capture_key_string_tlv_direct`、`capture_key_bytes_tlv_direct` 和 `capture_key_payload_tlv_direct`，继续在 eBPF probe 时点使用 `bpf_probe_read_user_str`/`bpf_probe_read_user`，执行 bounded copy、TLV header 写入、截断标记和 probe/copy 错误统计；它不拥有 ringbuf reserve/submit。
+- `syscall_key_emit_direct_event_v2.h` 拥有 `emit_key_enter_event_v2_direct`，负责 reserve/discard、event header/body write、payload flag 和 submit；它只调用 capture composer，不直接读取用户内存。
+- `add_key` 的 type、description、bytes 顺序与 `request_key` 的 type、description、payload 顺序保持不变；arg index、最大长度、payload capacity、`EVENT_FLAG_PAYLOAD_TLV`、`EVENT_FLAG_TRUNCATED`、错误统计和 enter event layout 与拆分前一致。
+- 本阶段没有新增 map、scratch、tail call、锁、goroutine、定时器或运行期 procfs/ptrace 依赖，也没有改变 `keyctl` 的现有通用路径。
+
+#### 测试与验收
+
+- 失败优先 gate 按预期失败：`TestBPFKeyHasDedicatedCaptureAndEmitOwnership` 首次运行时两个 provider 文件不存在。实现后该测试检查 facade include 顺序、policy ownership、三类 capture helper、emitter 的排他 ownership、capture 无 ringbuf lifecycle、emit 无 user memory read 和所有相关文件行数，并通过。
+- `TestBPFKeyPayloadsUseDirectTLV` 已改为读取 facade、capture、emit 的组合视图，保留 direct TLV、add_key/request_key selector、legacy fixed-window 排除和 enter dispatch 断言；key TLV context merge、payload section 和 handler 相关测试通过。
+- `sudo -n ./build.sh` 通过，真实 clang/BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14206 ./cmd/strace-go` 和 `git diff --check` 均通过。
+- `syscall_key_direct_event_v2.h` 为 18 行，capture provider 为 142 行，emit provider 为 51 行，ownership source test 为 92 行，相关函数参数均不超过 5 个。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `338.20 ns/op、0 B/op、0 allocs/op`，JSON writer `482.90 ns/op、0 B/op、0 allocs/op`，decoded writer `647.10 ns/op、0 B/op、0 allocs/op`，decoded payload writer `951.40 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `410.34/271.20/2.28/218.76 events/s`，所有运行时错误计数为 0。
+- 串行 sudo `small` 通过 `23 PASS / 0 FAIL`；原生 `add_key.gen.test` 与 `request_key.gen.test` 均为 `1 PASS / 0 FAIL`，覆盖两类 direct key enter payload。
+- 原生 `keyctl.gen.test`、`keyctl-Xabbrev.gen.test`、`keyctl-Xverbose.gen.test` 和 `keyctl-Xraw.gen.test` 仍失败。使用父提交构建的 `/tmp/strace-go-phase-14205` 做 A/B 后复现相同的 raw numeric/five-argument 输出与上游结构化 xlat/string 输出差异，确认这是既有通用 `keyctl` decoder/formatter 兼容缺口，不是本阶段 key direct 拆分回归，也不纳入本阶段 gate。
+
+#### Review 结论
+
+- 未发现运行时行为回归：key selector、type/description/payload snapshot、TLV offset/arg、最大长度、截断/error 统计、event header/body、reserve/submit/discard 和 enter router 调用图均与拆分前一致；真实 verifier、semantic/perf、small 以及两项 direct key 原生测试通过。
+- 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、attach、pending state、事件 ABI 或单消费者事件循环；capture provider 没有 ringbuf lifecycle，emit provider 没有用户内存读取，也没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
+- 失败路径仍显式保留：空指针、string/bytes probe、dynptr data/write、TLV header、ringbuf reserve、header/body write 和 submit/discard 的错误处理与拆分前一致；source gate 防止 capture provider重新拥有 emitter，也防止 emit provider 重新拥有 user read。
+- `keyctl` 的四项精确文本失败已通过父提交 binary A/B 排除本阶段回归；本阶段仅修改 key facade、capture/emit provider、相关 source gates 和本记录，`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
