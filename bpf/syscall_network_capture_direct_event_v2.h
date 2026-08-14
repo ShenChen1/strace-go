@@ -210,4 +210,89 @@ static __always_inline u32 capture_network_socklen_tlv_direct(
     return PAYLOAD_TLV_HEADER_SIZE + copied_len;
 }
 
+static __always_inline u32 capture_network_enter_payloads_tlv_direct(
+    struct bpf_dynptr *ptr,
+    u32 payload_offset,
+    u32 sys_id,
+    struct network_direct_args *args,
+    u16 *event_flags,
+    u32 *sockaddr_len)
+{
+    *sockaddr_len = 0;
+    if (sys_id == SYS_SETSOCKOPT) {
+        u32 optlen = network_direct_sockopt_payload_len(
+            args->args[1], args->args[2], args->args[4]);
+        struct network_tlv_capture_request request = {};
+        request.ptr = ptr;
+        request.payload_offset = payload_offset;
+        request.kind = PAYLOAD_TLV_KIND_BYTES;
+        request.arg_index = 3;
+        request.user_ptr = args->args[3];
+        request.user_len = optlen;
+        request.copy_len = optlen;
+        request.storage_max = NETWORK_DIRECT_SOCKOPT_MAX;
+        request.event_flags = event_flags;
+        return capture_network_tlv_direct(&request);
+    }
+    if (sys_id == SYS_GETSOCKOPT) {
+        u32 optlen = 0;
+        struct network_socklen_capture_request request = {};
+        request.ptr = ptr;
+        request.payload_offset = payload_offset;
+        request.arg_index = 4;
+        request.user_ptr = args->args[4];
+        request.value = &optlen;
+        u32 payload_size = capture_network_socklen_tlv_direct(&request);
+        *sockaddr_len = optlen;
+        return payload_size;
+    }
+    if (sys_id == SYS_CONNECT || sys_id == SYS_BIND) {
+        struct network_tlv_capture_request request = {};
+        request.ptr = ptr;
+        request.payload_offset = payload_offset;
+        request.kind = PAYLOAD_TLV_KIND_STRUCT;
+        request.arg_index = 1;
+        request.user_ptr = args->args[1];
+        request.user_len = payload_tlv_clamp_u32(args->args[2]);
+        request.copy_len = request.user_len;
+        request.storage_max = NETWORK_DIRECT_SOCKADDR_MAX;
+        request.event_flags = event_flags;
+        return capture_network_tlv_direct(&request);
+    }
+    if (sys_id == SYS_SENDTO) {
+        struct network_tlv_capture_request request = {};
+        request.ptr = ptr;
+        request.payload_offset = payload_offset;
+        request.kind = PAYLOAD_TLV_KIND_BYTES;
+        request.arg_index = 1;
+        request.user_ptr = args->args[1];
+        request.user_len = payload_tlv_clamp_u32(args->args[2]);
+        request.copy_len = request.user_len;
+        request.storage_max = NETWORK_DIRECT_BYTES_MAX;
+        request.event_flags = event_flags;
+        u32 payload_size = capture_network_tlv_direct(&request);
+        request.payload_offset = payload_offset + payload_size;
+        request.kind = PAYLOAD_TLV_KIND_STRUCT;
+        request.arg_index = 4;
+        request.user_ptr = args->args[4];
+        request.user_len = payload_tlv_clamp_u32(args->args[5]);
+        request.copy_len = request.user_len;
+        request.storage_max = NETWORK_DIRECT_SOCKADDR_MAX;
+        payload_size += capture_network_tlv_direct(&request);
+        return payload_size;
+    }
+
+    u32 len_arg = network_direct_enter_socklen_arg(sys_id);
+    if (len_arg < 6) {
+        struct network_socklen_capture_request request = {};
+        request.ptr = ptr;
+        request.payload_offset = payload_offset;
+        request.arg_index = len_arg;
+        request.user_ptr = network_direct_arg(args, len_arg);
+        request.value = sockaddr_len;
+        return capture_network_socklen_tlv_direct(&request);
+    }
+    return 0;
+}
+
 #endif

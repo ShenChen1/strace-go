@@ -8545,3 +8545,47 @@ Impact note：`strace.c` 仍先 include `syscall_quota_xfs_direct_event_v2.h`，
 - 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、pending map、事件 ABI、单消费者状态机或 Go handler；没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
 - 失败路径仍显式保留：空指针、dynptr data、probe read、TLV header、ringbuf reserve、header/body write 和 submit/discard 的错误处理与拆分前一致；source gate 防止 capture provider 重新拥有 ringbuf lifecycle，也防止 emit provider重新拥有用户内存读取。
 - 本阶段仅修改 quota facade、capture/emit provider、quota source gate 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。
+
+### 14.205 拆分 network enter/exit capture 与 emit ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：network family 通过纯 eBPF TLV snapshot 支持 connect/bind、sendto/recvfrom、accept-like 和 sockopt；共享 `syscall_network_capture_direct_event_v2.h` 已使用 request-based capture primitive。
+- Problem：enter facade 仍同时拥有 enter capture composer、enter event body 初始化和 ringbuf emitter；exit header 同时拥有 OUT sockaddr/socklen/sockopt capture 和 exit emitter。修改网络 payload 边界时无法独立审查 capture 与 event submission。
+- Goal：保留 network selector、`network_direct_args`、pending metadata 和共享 capture primitive；新增 enter capture/emit 与 exit capture/emit provider，保持 TLV 顺序、arg index、payload 上限、事件 ABI、pending 语义和 dispatch 调用图不变。
+- Non-goals：不改变 sockaddr/socklen 读取时点、sockopt 长度策略、Go decoder/handler、filter、lifecycle、原生文本输出，也不引入 ptrace、procfs 或 Go 侧 tracee memory read。
+- Constraints：先用失败优先 ownership gate；capture provider 可调用 `bpf_probe_read_user*`，emit provider 不可调用；capture provider 不可拥有 ringbuf reserve/submit；所有新文件与测试文件不超过 500 行；通过真实 verifier、Go fast/race/vet、semantic/perf、small 和 network 原生参考测试。
+
+Impact note：`strace.c` 的 include 顺序仍为 network enter facade 后 network exit facade；`enter_dispatch.h` 继续构造同一个 `network_direct_args` 并调用原有 enter emitter/save-pending，`exit_dispatch.h` 继续调用原有 exit emitter。改动只改变 header ownership 和 include 展开，不改变 BPF map、ProgArray、ringbuf ABI 或 Go 单消费者。
+
+#### 方案比较
+
+1. 只拆 enter capture/emit，保留混合的 exit header：改动较小，但 network 仍有一半 capture/emitter ownership 混合，后续 exit payload 修改仍缺少审计边界，拒绝。
+2. enter 与 exit 各自拆成 facade + capture + emit，并复用共享 network capture provider：职责边界完整，include 变化局部，调用图和 ABI 不变，选择该方案。
+3. 重写 sockaddr/sockopt capture request 与用户态 handler：可以进一步统一数据模型，但会扩大 verifier、TLV 和 formatter 风险，留待独立 payload 策略阶段。
+
+#### 状态契约
+
+- `syscall_network_direct_event_v2.h` 只拥有 `network_direct_args`、network syscall selector、socklen 参数策略、参数读取 helper 和 pending metadata 保存；它在所有 policy/state 定义之后按 capture、emit 顺序 include enter provider。
+- `syscall_network_capture_direct_event_v2.h` 继续拥有 bytes/struct/socklen request、sockopt 长度 policy、user read、bounded copy、TLV header 和 enter payload composer；它不拥有 ringbuf reserve/submit，也不拥有 enter emitter。
+- `syscall_network_emit_direct_event_v2.h` 拥有 enter body 初始化与 `emit_network_enter_event_v2_direct`，只负责 reserve/discard、event header/body write、payload flag、timestamp 和 submit，并调用 enter capture provider；没有 `bpf_probe_read_user*`。
+- `syscall_network_direct_exit_event_v2.h` 只组合 exit capture 与 exit emit provider；`syscall_network_exit_capture_direct_event_v2.h` 拥有 getsockopt/recvfrom/accept-like OUT payload composer，复用共享 capture primitive，不拥有 ringbuf lifecycle。
+- `syscall_network_exit_emit_direct_event_v2.h` 拥有 `emit_network_exit_event_v2_direct`，只负责 exit event reserve、header/body write 和 submit，并调用 exit capture provider；没有 `bpf_probe_read_user*`。
+- sockaddr/socklen 的 enter/exit snapshot 时点、`recvfrom` ret/count bounded copy、sockopt fixed-int/membership-array 长度策略、TLV kind/direction/arg index、pending `aux0` 和所有失败统计保持不变；没有新增 map、scratch、tail call、锁、goroutine、定时器或 procfs 依赖。
+
+#### 测试与验收
+
+- 失败优先 gate 按预期失败：`TestBPFNetworkHasDedicatedEnterAndExitOwnership` 首次运行时 enter/exit provider 文件不存在。实现后该测试检查两组 facade include 顺序、policy/state ownership、capture/emitter 排他 ownership、capture 无 ringbuf lifecycle、emit 无 user memory read 和所有相关文件行数，并通过。
+- `TestBPFNetworkPayloadsUseDirectTLV` 已改为读取 enter/exit facade 与 provider 的组合视图；`TestBPFNetworkCaptureHasDedicatedOwnership`、network TLV merge、JSON section 和 network handler snapshot-only 测试通过。
+- `sudo -n ./build.sh` 通过，真实 clang/BPF verifier 接受新的 enter/exit include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14205 ./cmd/strace-go` 和 `git diff --check` 通过。
+- `syscall_network_direct_event_v2.h` 从 267 行降为 117 行，shared capture provider 为 298 行，enter emit provider 为 71 行；exit facade 从 186 行降为 7 行，exit capture provider 为 143 行，exit emit provider 为 50 行；ownership source test 为 144 行，均满足 <=500 行限制。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `333.70 ns/op、0 B/op、0 allocs/op`，JSON writer `486.20 ns/op、0 B/op、0 allocs/op`，decoded writer `653.60 ns/op、0 B/op、0 allocs/op`，decoded payload writer `950.20 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `399.51/270.63/2.24/221.52 events/s`，所有运行时错误计数为 0。
+- 串行 sudo `small` 通过 `23 PASS / 0 FAIL`；原生 `getsockname.gen.test`、`sockopt-sol_netlink.gen.test`、`sockopt-sol_socket.gen.test`、`sockopt-sol_socket-Xabbrev.gen.test`、`sockopt-sol_socket-Xverbose.gen.test`、`sockopt-sol_socket-Xraw.gen.test` 均为 `1 PASS / 0 FAIL`，覆盖 OUT sockaddr/socklen 和 sockopt 多种输出视图。
+
+#### Review 结论
+
+- 未发现运行时行为回归：network selector、enter/exit capture 时点、sockopt 长度计算、TLV offset/arg/flags、payload capacity、event header/body、reserve/submit/discard、pending `aux0` 和 dispatch 调用图均与拆分前一致；真实 verifier、semantic/perf、small 和六项 network 原生测试通过。
+- 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、pending map、事件 ABI、单消费者状态机或 Go handler；enter/exit emit provider 均没有用户内存读取，capture provider 均没有 ringbuf lifecycle。
+- 失败路径仍显式保留：空指针、socklen probe、dynptr data/write、TLV header、bounded copy、reserve、header/body write 和 submit/discard 的错误处理与拆分前一致；共享 capture provider 没有被复制，避免产生两套网络 snapshot 语义。
+- 本阶段仅修改 network facade/provider、network source gates 和本记录；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。

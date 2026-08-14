@@ -13,7 +13,12 @@ func TestBPFNetworkPayloadsUseDirectTLV(t *testing.T) {
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	networkDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_network_direct_event_v2.h"))
 	networkCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_network_capture_direct_event_v2.h"))
-	networkDirectExitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_network_direct_exit_event_v2.h"))
+	networkEmitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_network_emit_direct_event_v2.h"))
+	networkExitFacade := readTextFile(t, filepath.Join(root, "bpf/syscall_network_direct_exit_event_v2.h"))
+	networkExitCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_network_exit_capture_direct_event_v2.h"))
+	networkExitEmitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_network_exit_emit_direct_event_v2.h"))
+	networkEnterHeader := networkDirectHeader + "\n" + networkCaptureHeader + "\n" + networkEmitHeader
+	networkExitHeader := networkExitFacade + "\n" + networkExitCaptureHeader + "\n" + networkExitEmitHeader
 
 	for _, snippet := range []string{
 		"#define SYS_CONNECT 42",
@@ -42,7 +47,7 @@ func TestBPFNetworkPayloadsUseDirectTLV(t *testing.T) {
 		"p.aux0 = sockaddr_len;",
 		"init_network_enter_event_v2_from_args(&body, args, payload_size);",
 	} {
-		if !strings.Contains(networkDirectHeader, snippet) && !strings.Contains(networkDirectExitHeader, snippet) {
+		if !strings.Contains(networkEnterHeader, snippet) && !strings.Contains(networkExitHeader, snippet) {
 			t.Fatalf("network direct header missing snippet %q", snippet)
 		}
 	}
@@ -72,7 +77,7 @@ func TestBPFNetworkPayloadsUseDirectTLV(t *testing.T) {
 		"PAYLOAD_TLV_FLAG_DIRECTION_OUT",
 		"init_syscall_exit_event_v2_from_pending(&body, p, ret_value, duration, payload_size);",
 	} {
-		if !strings.Contains(networkDirectExitHeader, snippet) {
+		if !strings.Contains(networkExitHeader, snippet) {
 			t.Fatalf("network exit header missing snippet %q", snippet)
 		}
 	}
