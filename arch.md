@@ -8329,3 +8329,47 @@ Impact note：`strace.c` 仍只 include `syscall_poll_direct_event_v2.h`；`ente
 - 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、attach、pending state、事件 ABI 或单消费者事件循环；没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
 - 失败路径仍显式保留：单 slot probe read、dynptr write、timeout/sigmask capture、TLV header 和 ringbuf reserve/submit 的失败处理与拆分前一致；source gate 防止 emit provider 重新拥有用户内存读取，request 接口也没有超过参数限制。
 - `poll.test`/`ppoll-P.gen.test` 的失败已通过 `0a6457a` 基线 A/B 排除为本阶段回归；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。本阶段仅修改 poll facade/provider、相关 source gates、ownership regression test 和本记录。
+
+### 14.200 拆分 futex capture 与 emit ownership（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：`bpf/syscall_futex_direct_event_v2.h` 原为 363 行，同时承载 futex op timeout policy、普通/WAIT enter emitter、waitv 3072-byte nested snapshot、requeue 48-byte struct snapshot，以及所有 ringbuf 提交逻辑。
+- Problem：nested capture 与事件 emission 共存于一个 facade；waitv 的两段 bounded read、requeue struct copy 和 timeout TLV 的 verifier 边界无法独立审计，后续修改任一 snapshot 都会牵动四个 emitter。
+- Goal：facade 保留 futex constants 与 timeout policy；capture provider 独占 waitv/requeue snapshot 和长度策略；emit provider 独占四类 enter event 的 ringbuf lifecycle，保持 payload、TLV、事件 ABI、pending 和路由不变。
+- Non-goals：不改变 futex op 判定、waitv/requeue copy 上限、timeout arg、事件顺序、Go 解析器、过滤，也不引入 ptrace、procfs 或 Go 侧用户内存读取。
+- Constraints：先新增失败优先 ownership source gate，再实现生产 header；必须通过真实 clang/verifier、Go fast/race/vet、semantic/perf、串行 small 和 futex 相关原生测试；生产文件与测试文件不超过 500 行，函数参数不超过 5 个。
+
+Impact note：`strace.c` 仍只 include `syscall_futex_direct_event_v2.h`；`enter_router` 继续将 futex family 路由到 `ENTER_PROG_FUTEX`，`enter_futex` 的四个分支和 generic exit 的 pending consume 均不改；`syscall_time_direct_event_v2.h` 仍提供 timeout TLV primitive。改动仅是 futex facade 的编译期 include/ownership 与 source-test 的组合视图。
+
+#### 方案比较
+
+1. 保留 363 行单文件并只增加注释：运行时变更最小，但 waitv/requeue capture、timeout capture 和四个 emitter 继续耦合，verifier 边界无法独立审计，拒绝。
+2. 只把 waitv 和 requeue 各自拆成独立 header：nested capture 更细，但会引入更多 include 层，四个 emitter 仍与 ringbuf/capture 交叉，职责边界不完整，拒绝。
+3. facade + capture provider + emit provider，复用 time provider 的 timeout TLV：一次完成 capture/emit ownership 分层，调用图和 ABI 不变，选择该方案。
+
+#### 状态契约
+
+- `syscall_futex_direct_event_v2.h` 只拥有 futex op 常量与 `futex_has_timeout_direct` policy，并按 capture 后 emit 的顺序 include 两个 provider；它不再定义用户内存读取、TLV 写入或 emitter。
+- `syscall_futex_capture_direct_event_v2.h` 拥有 requeue waiter struct capture、waitv user/copy length policy 和 waitv 两段 bounded capture。`capture_futex_waitv_waiters_tlv_direct` 保持 5 个参数，仍先读取首个 24-byte element，再读取剩余 bounded bytes，仍使用 3072-byte payload 上限和 truncated/error 统计。
+- `syscall_futex_emit_direct_event_v2.h` 拥有普通 futex、futex_wait、futex_waitv、futex_requeue 的 enter emitter，以及 ringbuf reserve/discard、event header/body write、submit；waitv/requeue emitter 只调用 capture provider，timeout emitter 复用 `capture_time_struct_tlv_direct_from_ptr`。
+- futex enter/exit 的原有时点、arg index、TLV kind、payload capacity、方向 flags、pending save/consume 和 tail-call 路由保持不变；用户态没有补读 tracee memory 的路径。
+- 新 provider 是纯编译期 header，不创建 map、ProgArray、tail call、scratch 状态、锁、goroutine、定时器或事件消费者；单消费者 ringbuf 事件流不变。
+
+#### 测试与验收
+
+- 失败优先 gate 按预期失败：`TestBPFFutexSplitsCaptureAndEmitOwnership` 首次运行时 provider 文件尚不存在。实现后该测试检查 facade include 顺序、policy ownership、capture/emit 排他 ownership、capture provider 无 ringbuf lifecycle、emit provider 无 user read、waitv composer 的 <=5 参数接口和文件行数，并通过。
+- `TestBPFFutexPayloadUsesDirectTLV`、`TestBPFGenericExitOwnsPendingAroundEmissionHelper`、`TestBPFEnterDispatcherDelegatesProgramSelection` 和 `TestBPFExitDispatcherDelegatesProgramSelection` 均通过；futex source gate 已读取 facade 与两个 provider 的组合视图。
+- `sudo -n ./build.sh` 通过，真实 clang/BPF verifier 接受新的 include translation unit；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -a -o /tmp/strace-go-phase-14200 ./cmd/strace-go` 和 `git diff --check` 均通过。
+- `syscall_futex_direct_event_v2.h` 从 363 行降为 28 行，capture provider 为 130 行，emit provider 为 216 行，ownership source test 为 101 行；所有相关生产 header 与 source test 均满足 <=500 行限制。
+- `ebpf-semantic` 通过：主事件 205，enter/exit `104/101`，lifecycle 6；signalfd 16、sockopt 8、thread 22、mount-query/path `4/4`、dirent 8、mmsg 16、fcntl 6、write-only 6；non-leader attach `1001/1001` 且 orphan 0；ringbuf reserve/copy、pending update/mismatch、orphan、lifecycle-map 错误计数均为 0，payload truncated 为 8。
+- `ebpf-perf` 通过：Go decode `339.90 ns/op、0 B/op、0 allocs/op`，JSON writer `516.50 ns/op、0 B/op、0 allocs/op`，decoded writer `678.50 ns/op、0 B/op、0 allocs/op`，decoded payload writer `970.70 ns/op、16 B/1 alloc`；scalar/io/lifecycle/threads 为 `396.31/273.20/2.30/211.63 events/s`，所有运行时错误计数为 0。
+- 串行 sudo `small` 通过 `23 PASS / 0 FAIL`；`futex_wait.gen.test`、`futex_wake.gen.test`、`futex_requeue.gen.test` 和 `futex_waitv.gen.test` 均为 `1 PASS / 0 FAIL`，覆盖 timeout、wake/requeue 和 waitv bounded payload。
+- 旧式 `futex.test` 仍失败：它要求传统 strace 的精确 futex 文本，当前纯 eBPF 输出保留 6 个原始 syscall 参数并对部分 op 显示未知值。使用本阶段父提交构建的 `/tmp/strace-go-phase-14199` 直接运行同一 upstream test 复现了相同差异，因此确认不是本次 provider 拆分回归；该测试继续作为传统文本兼容缺口跟踪，不改变 eBPF semantic gate。
+
+#### Review 结论
+
+- 未发现运行时行为回归：futex timeout 判定、waitv 两段 copy、requeue struct capture、payload capacity、TLV offset/arg、截断/错误统计、四类 enter emitter 和 pending consume 均与拆分前一致；真实 verifier、semantic/perf、串行 small 和四项生成式 futex 测试通过。
+- 新 facade/provider 只改变编译期 ownership，不改变 `enter_progs`、`exit_progs`、attach、pending state、事件 ABI 或单消费者事件循环；没有引入 ptrace、procfs、process_vm 或 Go 侧 tracee memory fallback。
+- 失败路径仍显式保留：dynptr reserve/data/write、两次 probe read、TLV header 和 submit/discard 的错误处理与原逻辑一致；source gate 防止 capture provider 重新拥有 ringbuf lifecycle，也防止 emit provider 重新拥有 user read。
+- 旧式 `futex.test` 的精确文本差异已通过父提交 binary A/B 排除为本阶段回归；`strace-upstream` 子模块预先存在的 dirty 状态未触碰。本阶段仅修改 futex facade/provider、相关 source gates、ownership regression test 和本记录。

@@ -12,6 +12,9 @@ func TestBPFFutexPayloadUsesDirectTLV(t *testing.T) {
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	futexDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_futex_direct_event_v2.h"))
+	futexCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_futex_capture_direct_event_v2.h"))
+	futexEmitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_futex_emit_direct_event_v2.h"))
+	futexDirectSources := futexDirectHeader + "\n" + futexCaptureHeader + "\n" + futexEmitHeader
 
 	for _, snippet := range []string{
 		"#define SYS_FUTEX 202",
@@ -52,7 +55,7 @@ func TestBPFFutexPayloadUsesDirectTLV(t *testing.T) {
 		"emit_futex_requeue_enter_event_v2_direct(",
 		"init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);",
 	} {
-		if !strings.Contains(futexDirectHeader, snippet) {
+		if !strings.Contains(futexDirectSources, snippet) {
 			t.Fatalf("futex direct header missing snippet %q", snippet)
 		}
 	}
