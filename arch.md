@@ -10201,3 +10201,68 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 使用 `none` 的 reader 对账作为基线，评估 Ringbuf 容量、record 大小、payload capture 和 reader 批量消费的独立影响；先确保每个实验仍能闭合 `reserve_fail + records_read` 的 producer 对账。
 - 优先检查固定 record 与 payload event 的 reservation 字节数、BPF producer 执行时间和单消费者每 record 的最小处理成本，不再用 JSON 输出或端到端 event/s 单独推断根因。
 - 任何 Ringbuf/record 结构改动都必须先补事件顺序、生命周期、丢失计数和 verifier 测试，再做同一 fixture 的交替 A/B。
+
+### 14.252 评估 Ringbuf 容量对高压丢失的影响（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：Phase 14.251 已经通过 producer reservation attempt 与 Go reader 计数闭合了高压 workload 的账：当前 64 MiB Ringbuf 会达到 `67,108,736` 字节 backlog 上限，`none` 模式仍发生约 186 万次 reserve failure。
+- Problem：事件丢失发生在 BPF `ringbuf_reserve`，容量不足会把短时 producer burst 直接变成丢失；但单纯增大 map 也可能只是延迟丢失并增加常驻内存，不能假设它会提高稳态吞吐。
+- Goal：比较 64/128/256 MiB 在相同 capture fixture 下的 reservation 对账、trace window、reader 记录数和 backlog 峰值，选择可接受的默认容量，并明确容量只是 burst 缓冲而不是吞吐修复。
+- Non-goals：不改变 event v2 wire layout、reservation API、payload 上限、单 Go consumer、事件状态机或 pure-eBPF/no-ptrace/no-procfs 边界；不通过扩大 Ringbuf 掩盖长期 producer/consumer 速率不匹配。
+- Constraints：每轮必须同时报告 `reserve_fail + records_read`、`max_remaining_bytes` 和 `trace_sec`；semantic、verifier 和默认输出不能回退；256 MiB 只有在 128 MiB 仍无法区分 burst 与稳态瓶颈时才作为诊断上限。
+
+#### 方案比较
+
+1. 保持 64 MiB：内存占用最小，作为原始基线，但高压 backlog 很快触顶，拒绝作为当前默认。
+2. 使用 128 MiB：增加有限内存换取更长 burst 缓冲，ABI 和 producer 路径不变，作为默认选择。
+3. 使用 256 MiB：可进一步吸收 burst，但常驻内存翻倍且不能代表稳态吞吐改善，仅作为上限实验，不进入默认。
+
+#### 实验结果与决策
+
+- 64 MiB 基线的一轮对账为：`none` `trace_sec=1.186016`、`records_read=1,838,877`、`reserve_fail=1,361,158`、`max_remaining_bytes=67,108,736`；JSON `trace_sec=2.104879`、`records_read=587,131`、`reserve_fail=2,612,904`。两种模式均闭合到约 `3,200,035` 次 reservation attempt。
+- 128 MiB 的首轮结果为：`none` `trace_sec=1.070066`、`records_read=2,483,378`、`reserve_fail=716,657`、`max_remaining_bytes=134,217,600`；JSON `trace_sec=3.662732`、`records_read=1,142,302`、`reserve_fail=2,057,733`。后续 batch=64 复测仍闭合：`none` `2,246,839 + 953,196`，JSON `1,144,444 + 2,055,591`。
+- 256 MiB 诊断结果为：`none` `trace_sec=1.335425`、`records_read=3,059,543`、`reserve_fail=140,493`、`max_remaining_bytes=268,435,328`；JSON `trace_sec=6.748467`、`records_read=2,223,774`、`reserve_fail=976,261`。它明显减少了本轮 burst drop，但消耗更大 Ringbuf 空间，且 JSON 仍存在近百万次 reservation failure。
+- 决策：保留 128 MiB 作为当前默认。它比 64 MiB 提供更大的 burst 缓冲，且没有 256 MiB 的内存代价；不宣称高压丢失已经解决。容量扩展只能降低触顶频率，不能改变长期 producer/consumer 的速率差。
+
+#### Review
+
+- 代码变化只有 `events` map 的 `max_entries` 从 `1 << 26` 调整为 `1 << 27`，没有新增 map、record 字段、helper 或用户态并发路径；source gate 固定该容量契约。
+- 64/128/256 的结果证明此前 event/s 下降不能只归因于 Ringbuf 容量：容量增大改善了部分 `none` burst drop，但 JSON 仍受用户态处理速度限制，且 `trace_sec` 波动不能替代稳态 A/B。
+- 本阶段没有引入 ptrace、procfs、process_vm、第二消费者、外部 mutex 或定时器；`strace-upstream` 仍是既有未跟踪目录，不纳入提交。
+
+### 14.253 以 `Record.Remaining` 实验有界批量事件轮询（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：Cilium Ringbuf reader 每次成功读取一条 record 后提供 `Record.Remaining`，当前 session loop 每条 record 都重复执行 command/attach/lifecycle 状态检查；高压 backlog 下这些检查会放大外层循环开销。
+- Problem：直接重写 mmap reader 可以减少接口层开销，但会复制 Cilium reader 的数据状态、poll/close 和 record 边界语义，风险大；不加边界的批量消费又可能延迟生命周期收尾。
+- Goal：在同一 Go consumer 中按 `Remaining > 0` 最多连续消费 64 条记录，只把 session 状态检查移到有界 batch 边界；保持 reader、decoder、router 和输出仍逐条处理，并用语义与高压对账验证没有额外丢失。
+- Non-goals：不增加 Goroutine、mutex、定时器或第二 Ringbuf consumer；不修改 BPF ABI、Ringbuf reservation、事件顺序、pending TID 状态、lifecycle 语义或输出格式。
+- Constraints：batch limit 必须有明确上限；空 reader、timeout、close、reader error 都必须结束当前 batch；必须先有失败优先的 backlog-limit 测试，再通过 race、verifier、semantic、perf 和 capture。
+
+#### 方案比较
+
+1. 每条 record 做完整 session 状态检查：语义最保守，但在 backlog 中重复检查，作为 batch=1 对照。
+2. 复用 Cilium reader，按 `Remaining` 最多读 64 条：改动小、保留底层 reader 状态和单消费者契约，选择。
+3. 自己实现 Ringbuf mmap reader：理论上可以进一步合并读取，但需要重建 poll、丢弃、关闭、内存可见性和 record 校验，暂缓。
+
+#### 实现与失败优先测试
+
+- 新增 `readTraceEventBatch`，首条 record 通过既有 `TraceEventReader.Read` 读取；只有 `Remaining > 0` 且未达到 64 条上限时继续读取。每条 record 仍由 `TraceEventReader` 解码、计数、更新 state/router，未引入第二处理路径。
+- 新增 `TestReadTraceEventBatchHonorsBacklogLimit`：fake reader 返回 `512/256/0` 的 backlog，limit=2 时第一轮只能读取两条，第二轮再读取一条；修改前测试因 helper 不存在失败，完成后通过。
+- `session_run.go` 的主循环只在 batch 返回后执行下一次 command/attach/lifecycle 检查；batch 结束后仍沿用既有 `done`、`DrainAfterDone` 和 `finishRun` 路径。最大延迟被限制为 64 条 record，不使用定时器补偿。
+
+#### 验证与实测
+
+- batch=64 已通过 `go test ./...`、`go test -race ./...`、`go vet ./...`、`sudo -n ./build.sh`；clang、BPF object generation 和真实 verifier 均通过。高压 capture 的 decoder/router 对账仍满足 `records_invalid=0` 且 `records_read=records_decoded=records_routed`。
+- batch=64 的普通 perf 一轮为：scalar/io/lifecycle/threads 的 `trace_exit_events_per_sec` 分别 `25199.27/14953.62/85.47/14580.08`；batch=1 对照为 `22480.64/16218.64/85.26/14393.92`。workload 间方向不一致，不能把单轮差异当成稳定加速。
+- 高压 capture 的 batch=64 一轮为：`none` `trace_sec=1.050146`、`records_read=2,676,023`、`reserve_fail=524,013`；JSON `trace_sec=3.626081`、`records_read=1,135,415`、`reserve_fail=2,064,620`。此前 batch=1 一轮为 `none` `1.084103/2,507,577/692,458`，JSON `3.589701/1,152,978/2,047,057`。结果显示 batch=64 在该 none 轮次较好，但 JSON 方向相反，且重复轮次存在明显调度噪声。
+- 结论：有界 batch 保留为局部 event-loop 优化，但不把它标记为 event/s 根因修复。它减少了 backlog 下重复的 session 状态检查，未解决 BPF producer 与 JSON/Go consumer 的稳态速率差；后续需要专门的 producer/consumer 分层压测，而不是继续放大 batch 上限。
+
+#### Review
+
+- batch helper 的参数为 reader、record、timeout、limit 四个，函数保持单一职责且小于 80 行；默认上限是固定常量，避免动态配置引入不可测的收尾延迟。
+- `Record.Remaining` 只用于决定是否继续本轮读取，不被解释为精确 backlog 计数；reader 自身仍是唯一事件消费和解码入口，事件顺序、payload ownership、pending 配对和 lifecycle 处理边界没有变化。
+- 本阶段的真实问题结论是：此前端到端 event/s 的大幅下降已经通过指标拆分定位为 setup/cleanup 固定成本；高压 trace-window 的实际 drop 仍发生在 BPF `ringbuf_reserve`，128 MiB 和 batch=64 只能缓解部分 burst，尚未彻底解决。
+- 当前工作树仍保持纯 eBPF、单 Go 消费者、无 ptrace/procfs/process_vm；下一阶段应优先做 producer reservation attempt、record size、payload capture 和 consumer processing 的独立实验，并继续以 `trace_sec`、事件数和 runtime counters 联合判定。
