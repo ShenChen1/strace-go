@@ -9912,3 +9912,32 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留了显式 BPF link cleanup 和现有并行 owner；没有新增第二消费者、锁、定时器、ptrace、procfs 或 process_vm 路径。
 - `trace_sec`、端到端耗时和 per-link cleanup timing 已由同一 perf fixture 输出，可在后续 dispatcher/handler 改动中做 before/after 对比。
 - 本阶段是测量和架构决策收口，不宣称 pure eBPF 已达到无成本；真实 capture 的 syscall 参数深拷贝、payload 大小和 Ringbuf 竞争仍是后续热路径优化边界。
+
+### 14.244 评估 read/write 动态 Ringbuf reservation（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：`read/write` 的 probe-site TLV capture 当前按 512 字节上限 reserve；实际 fixture 每次读写 64 字节，固定容量存在潜在 Ringbuf 空间浪费。
+- Problem：直接使用 `copied_len` 作为 `bpf_dynptr_data` 长度在当前 verifier 上不成立；按 size class 动态 reserve 虽可绕过常量限制，却可能把分支和动态 reservation 成本带入每条 IO 事件。
+- Goal：先以失败优先测试证明动态容量契约，再用真实 clang/verifier 和长 workload A/B 判断是否值得保留；没有可重复收益时回到稳定固定容量实现。
+- Non-goals：不改变 TLV `user_len`/`copied_len`、512 字节 capture 上限、probe-site 深拷贝、Go decoder 或 Ringbuf ABI。
+- Constraints：不能接受 verifier 拒绝或 `trace_sec` 回退；测试 workload 必须与 Phase 14.242 旧二进制使用同一 fixture、同一内核和同一命令；未证明收益的实验代码不得进入主线。
+
+#### 方案比较
+
+1. 精确按 `copied_len` reserve/data：理论上空间最省，但当前内核 verifier 拒绝 `bpf_dynptr_data` 的非编译期常量长度，拒绝。
+2. 使用 `64/256/512` size class：可加载且减少小 IO 的 reservation，但每条 capture 增加 size-class 分支和动态 reserve 计算，作为实验方案验证。
+3. 保留固定 512：空间效率较低，但 verifier/热路径最简单、当前稳定基线明确；在 size-class A/B 无收益后选择。
+
+#### 实验结果与决策
+
+- 失败优先 source gate 先要求 bounded dynamic reservation，旧实现按预期失败；第一版精确动态实现通过 Go source test，但真实 attach 时 verifier 报 `bpf_dynptr_data ... R3 is not a known constant`，没有进入运行态。
+- 随后实现 size-class reservation，并成功通过 clang、BPF object generation、真实 verifier 和 `ebpf-semantic`；semantic 仍为 197 主事件、enter/exit `100/97`、所有 reserve/copy/pending/orphan/mismatch/lifecycle counters 为 0。
+- 同一 `/tmp/strace-go-ebpf-perf-fixture io 50000` 长 workload 与 Phase 14.242 旧二进制对照：`8/16/32/64/128/256/512` 桶版本 trace window 约 `1.272s`，旧固定容量约 `1.171s`，回退约 `8.6%`；收敛为 `64/256/512` 三档后约 `1.330s`，旧固定容量约 `1.198s`，回退约 `11.0%`。
+- 决策：撤回动态 reservation 实现，恢复固定 512 容量。该方向说明“减少 Ringbuf record 容量”不等于“提高事件吞吐”；后续若继续优化，必须先找到不增加每条 BPF capture 分支/动态 reservation 成本的方案，例如编译期专用 emitter 或独立的高负载 Ringbuf 压测，而不是继续叠加 size class。
+
+#### Review
+
+- 最终工作树不保留实验性的 bucket helper、动态 `dynptr` 长度或新的 ABI 字段；固定 reservation source gate 和实机 verifier 基线恢复。
+- 本实验没有引入 ptrace、procfs、process_vm、第二事件消费者、锁或定时器，也没有改变纯 eBPF 的 payload ownership。
+- Phase 14.244 是一次有证据的否决，不代表 IO payload 性能问题已经解决；当前结论是动态容量方案不适合直接落地，后续性能工作转向更低分支成本的 BPF capture 设计。
