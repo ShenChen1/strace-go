@@ -10002,3 +10002,32 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 实验没有改变最终工作树的事件 ABI、pending ownership、Go 单消费者或 pure-eBPF 边界；生成绑定将在撤回后重新构建，避免残留不可达 handler。
 - 该结果说明“少一个 config map lookup”不能直接推导出 trace 吞吐提升；BPF handler 指令布局、tail-call route 和事件提交成本需要联合测量。
 - Phase 14.246 是有 verifier、semantic 和长 workload A/B 证据的否决，不代表 generic enter 的重复配置读取已经理想化；下一阶段应优先评估全局配置注入或按 capture capability 进一步瘦身。
+
+### 14.247 评估跨 collection 的 `.rodata` 静态运行时配置（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：`captureStack`、`followForks`、`emitEnter`、`emitLifecycle` 和 `fdState` 在 BPF collection 加载前已经冻结；只有 syscall filter 仍需要运行时 `config_map` 状态。
+- Problem：共享 `ENTER_PROLOGUE` 当前为每条 enter 事件读取 `config_map`，理论上可以把静态位注入每个 BPF collection 的 `.rodata`，减少一次 lookup 和配置分支。
+- Goal：验证 core 与全部 handler collection 是否能注入同一个 `RUNTIME_STATIC_CONFIG`，保持 filter map、pending/lifecycle map 和事件 ABI 不变，并用 verifier、semantic、perf 证明是否有稳定收益。
+- Non-goals：不保留第二配置路径，不移动 syscall filter，不改变 ProgArray、Ringbuf、Go 单消费者、payload policy 或 pure-eBPF/no-ptrace/no-procfs 边界。
+- Constraints：每个 collection 必须在 load 前显式设置变量；变量缺失必须 fail-fast；生成绑定、真实 verifier 和运行时语义都必须通过；无收益实验不得进入主线。
+
+#### 方案比较
+
+1. 保持 `config_map` lookup：实现和 ABI 最稳定，但保留每条 enter 的静态配置读取成本，作为当前基线。
+2. 用 per-CPU scratch map 传递静态配置：可跨 dispatcher/handler 共享，但增加 map 写读和并发状态，拒绝。
+3. 向每个 collection 注入 `.rodata` 全局：理论上可删除 handler lookup，但扩大 loader、generated binding 和 verifier 边界，作为本阶段实验。
+
+#### 实验结果与决策
+
+- 实验新增 `RUNTIME_STATIC_CONFIG` BPF global，在 core 和全部 handler `CollectionSpec` load 前设置；`ENTER_PROLOGUE` 改为读取 immutable global，同时保留 `u32 *cfg` emitter contract。生成绑定、clang、真实 verifier、focused Go tests、`go test ./...`、`go test -race ./...` 和 `go vet ./...` 均通过。
+- `ebpf-semantic` 仍通过：197 个主事件，enter/exit `100/97`，ringbuf reserve/copy、pending、orphan、mismatch、lifecycle-map 和 stale counters 全为 `0`。
+- 同一 `scalar 100000` fixture、同一命令、同一内核交替四轮测量，`.rodata` 实验版本为 `101537.59/102177.57/103816.38/102165.55 exit/s`，均值 `102424.27 exit/s`；撤回后的干净基线为 `109881.21/109750.73/112438.62/107790.96 exit/s`，均值 `109965.38 exit/s`，实验反而慢约 `6.9%`。
+- 决策：撤回 `.rodata` global、loader 注入、生成绑定和实验测试，恢复 `config_map` 基线。该结果说明 local pointer/stack 布局、global 重定位和 handler 指令布局的综合成本超过了单次 lookup 的收益；不能用“减少 lookup”单因素推断吞吐提升。
+
+#### Review
+
+- 最终工作树不保留 `RUNTIME_STATIC_CONFIG`、额外 collection 配置路径或 generated binding 残留；强制 build 后生成文件恢复干净，`strace-upstream` 仍为既有未跟踪目录。
+- 本实验没有引入 ptrace、procfs、process_vm、第二消费者、锁或定时器，也没有改变事件 ABI 和生命周期语义。
+- 当前结论：之前观察到的 event/s 大幅下降，主因仍是端到端口径混入 setup/cleanup 固定成本、旧启动等待和旧 tracepoint 扇出；在 `trace_sec` 口径下当前干净基线已恢复到稳定水平。真正仍需优化的是 BPF capture、payload 深拷贝和 Ringbuf 竞争，而不是继续强行删除单个配置 lookup。
