@@ -353,14 +353,15 @@ func buildTraceSessionRuntime(
 	router *TraceEventRouter,
 ) traceSessionRuntimeComponents {
 	recordDecoder := traceRingbufRecordDecoder{}
+	eventReader := newTraceEventReader(TraceEventReaderDeps{
+		Reader:  deps.Events,
+		Decoder: recordDecoder,
+		Sink:    router,
+		Clock:   deps.Clock,
+	})
 	return traceSessionRuntimeComponents{
 		recordDecoder: recordDecoder,
-		eventReader: newTraceEventReader(TraceEventReaderDeps{
-			Reader:  deps.Events,
-			Decoder: recordDecoder,
-			Sink:    router,
-			Clock:   deps.Clock,
-		}),
+		eventReader:   eventReader,
 		runFinalizer: newTraceRunFinalizer(TraceRunFinalizerDeps{
 			FormatPolicy:    base.outputPolicy,
 			SummaryPolicy:   base.outputPolicy,
@@ -369,6 +370,7 @@ func buildTraceSessionRuntime(
 			ExitStatus:      base.exitStatus,
 			Summary:         deps.Summary,
 			Stats:           deps.Stats,
+			ReaderStats:     eventReader,
 			PendingState:    deps.State,
 			DebugPhases:     base.debugPhases,
 			Output:          deps.Output,

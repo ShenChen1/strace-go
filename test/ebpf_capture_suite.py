@@ -94,6 +94,12 @@ def _validate_capture(capture, expect_syscalls):
     stats = _stats(capture)
     if stats is None:
         failures.append(f"{capture.name} stats event is missing or invalid")
+    elif stats["records_read"] < stats["records_decoded"]:
+        failures.append(f"{capture.name} decoded more records than read")
+    elif stats["records_decoded"] < stats["records_routed"]:
+        failures.append(f"{capture.name} routed more records than decoded")
+    elif stats["records_invalid"] != stats["records_read"] - stats["records_decoded"]:
+        failures.append(f"{capture.name} record accounting is inconsistent")
     if expect_syscalls and capture.syscall_events == 0:
         failures.append(f"{capture.name} produced no syscall events")
     if not expect_syscalls and capture.syscall_events != 0:
@@ -118,6 +124,11 @@ def _print_capture(capture, stats):
         "pending_mismatch",
         "lifecycle_map_update_fail",
         "pending_stale",
+        "records_read",
+        "records_decoded",
+        "records_invalid",
+        "records_routed",
+        "max_remaining_bytes",
     ):
         print(f"{field}: {stats.get(field)}")
 

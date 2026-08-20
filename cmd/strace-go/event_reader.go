@@ -19,6 +19,18 @@ type traceEventSink interface {
 	Handle(traceEventEnvelope)
 }
 
+type traceEventReaderStats struct {
+	RecordsRead       uint64
+	RecordsDecoded    uint64
+	RecordsInvalid    uint64
+	RecordsRouted     uint64
+	MaxRemainingBytes uint64
+}
+
+type traceEventReaderStatsReader interface {
+	ReaderStats() traceEventReaderStats
+}
+
 // TraceEventReader owns the synchronous ringbuf boundary. It decodes and
 // routes each sample before returning control to the session loop.
 type TraceEventReader struct {
@@ -27,6 +39,7 @@ type TraceEventReader struct {
 	sink           traceEventSink
 	clock          traceClock
 	deadlineActive bool
+	stats          traceEventReaderStats
 }
 
 type TraceEventReaderDeps struct {
@@ -72,6 +85,7 @@ func (r *TraceEventReader) Read(rec *ringbuf.Record, timeout time.Duration) (tra
 		r.deadlineActive = false
 		return traceReadNoEvent, fmt.Errorf("read ringbuf: %w", err)
 	}
+	r.recordRead(rec)
 	if r.HandleRecord(rec) {
 		return traceReadHandled, nil
 	}
@@ -94,6 +108,7 @@ func (r *TraceEventReader) Drain(rec *ringbuf.Record) error {
 			}
 			return fmt.Errorf("drain ringbuf: %w", err)
 		}
+		r.recordRead(rec)
 		r.HandleRecord(rec)
 	}
 }
@@ -124,10 +139,30 @@ func (r *TraceEventReader) HandleRecord(rec *ringbuf.Record) bool {
 	}
 	envelope, ok := r.decoder.Decode(rec)
 	if !ok {
+		r.stats.RecordsInvalid++
 		return false
 	}
+	r.stats.RecordsDecoded++
 	if r.sink != nil {
 		r.sink.Handle(envelope)
+		r.stats.RecordsRouted++
 	}
 	return true
+}
+
+func (r *TraceEventReader) ReaderStats() traceEventReaderStats {
+	if r == nil {
+		return traceEventReaderStats{}
+	}
+	return r.stats
+}
+
+func (r *TraceEventReader) recordRead(rec *ringbuf.Record) {
+	if r == nil {
+		return
+	}
+	r.stats.RecordsRead++
+	if rec != nil && rec.Remaining > 0 && uint64(rec.Remaining) > r.stats.MaxRemainingBytes {
+		r.stats.MaxRemainingBytes = uint64(rec.Remaining)
+	}
 }

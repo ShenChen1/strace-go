@@ -91,6 +91,9 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	if components.eventReader.sink != components.eventRouter {
 		t.Fatal("event reader and session graph use different sinks")
 	}
+	if components.runFinalizer.readerStats != components.eventReader {
+		t.Fatal("run finalizer and event reader do not share reader stats")
+	}
 	if components.eventReader.clock != clock || session.dependencies.Clock != clock {
 		t.Fatal("session and event reader do not share the injected clock")
 	}

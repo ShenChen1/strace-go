@@ -28,6 +28,11 @@ def make_capture(stderr, returncode=0):
                 "pending_mismatch": 0,
                 "lifecycle_map_update_fail": 0,
                 "pending_stale": 0,
+                "records_read": 2,
+                "records_decoded": 2,
+                "records_invalid": 0,
+                "records_routed": 2,
+                "max_remaining_bytes": 128,
             }
         ],
     )

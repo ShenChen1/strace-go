@@ -16,6 +16,18 @@ func TestTraceEventReaderDoesNotConstructSystemClock(t *testing.T) {
 	}
 }
 
+func TestTraceEventReaderExposesNarrowStatsPort(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/event_reader.go"))
+	for _, required := range []string{
+		"type traceEventReaderStatsReader interface",
+		"func (r *TraceEventReader) ReaderStats() traceEventReaderStats",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("event reader is missing stats port %q", required)
+		}
+	}
+}
+
 func TestTraceEventReaderWithoutClockIsInertForTimedOperations(t *testing.T) {
 	ringReader := &fakeRingbufReader{readErrors: []error{nil}}
 	reader := newTraceEventReader(TraceEventReaderDeps{

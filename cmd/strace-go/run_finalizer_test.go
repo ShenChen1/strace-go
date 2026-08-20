@@ -19,6 +19,14 @@ type fakePendingStateReader struct {
 	stale int
 }
 
+type fakeEventReaderStatsReader struct {
+	stats traceEventReaderStats
+}
+
+func (r fakeEventReaderStatsReader) ReaderStats() traceEventReaderStats {
+	return r.stats
+}
+
 type recordingTraceDebugPhasePort struct {
 	events *[]string
 }
@@ -127,6 +135,13 @@ func TestTraceRunFinalizerWritesDiscardStatsToDiagnostic(t *testing.T) {
 	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{
 		FormatPolicy:    newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatNone}),
 		StatsDiagnostic: &diagnostics,
+		ReaderStats: fakeEventReaderStatsReader{stats: traceEventReaderStats{
+			RecordsRead:       21,
+			RecordsDecoded:    19,
+			RecordsInvalid:    2,
+			RecordsRouted:     19,
+			MaxRemainingBytes: 4096,
+		}},
 	})
 
 	finalizer.writeStats(bpfRuntimeStats{Available: true, RingbufReserveFail: 11})
@@ -135,7 +150,9 @@ func TestTraceRunFinalizerWritesDiscardStatsToDiagnostic(t *testing.T) {
 	if err := json.Unmarshal(bytes.TrimSpace(diagnostics.Bytes()), &event); err != nil {
 		t.Fatalf("decode discard stats JSON: %v", err)
 	}
-	if event.Type != "stats" || !event.Available || event.RingbufReserveFail != 11 {
+	if event.Type != "stats" || !event.Available || event.RingbufReserveFail != 11 ||
+		event.RecordsRead != 21 || event.RecordsDecoded != 19 || event.RecordsInvalid != 2 ||
+		event.RecordsRouted != 19 || event.MaxRemainingBytes != 4096 {
 		t.Fatalf("discard stats JSON = %+v, want available reserve_fail=11", event)
 	}
 }

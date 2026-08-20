@@ -103,6 +103,11 @@ type jsonStatsEvent struct {
 	PendingMismatch        uint64 `json:"pending_mismatch"`
 	LifecycleMapUpdateFail uint64 `json:"lifecycle_map_update_fail"`
 	PendingStale           uint64 `json:"pending_stale"`
+	RecordsRead            uint64 `json:"records_read"`
+	RecordsDecoded         uint64 `json:"records_decoded"`
+	RecordsInvalid         uint64 `json:"records_invalid"`
+	RecordsRouted          uint64 `json:"records_routed"`
+	MaxRemainingBytes      uint64 `json:"max_remaining_bytes"`
 	Available              bool   `json:"available"`
 	Error                  string `json:"error,omitempty"`
 }
@@ -176,7 +181,11 @@ func syscallFailure(ret int64) (bool, int) {
 	return false, 0
 }
 
-func newJSONStatsEvent(stats bpfRuntimeStats, pendingStale uint64) jsonStatsEvent {
+func newJSONStatsEvent(
+	stats bpfRuntimeStats,
+	pendingStale uint64,
+	readerStats traceEventReaderStats,
+) jsonStatsEvent {
 	return jsonStatsEvent{
 		Type:                   "stats",
 		RingbufReserveFail:     stats.RingbufReserveFail,
@@ -187,6 +196,11 @@ func newJSONStatsEvent(stats bpfRuntimeStats, pendingStale uint64) jsonStatsEven
 		PendingMismatch:        stats.PendingMismatch,
 		LifecycleMapUpdateFail: stats.LifecycleMapUpdateFail,
 		PendingStale:           pendingStale,
+		RecordsRead:            readerStats.RecordsRead,
+		RecordsDecoded:         readerStats.RecordsDecoded,
+		RecordsInvalid:         readerStats.RecordsInvalid,
+		RecordsRouted:          readerStats.RecordsRouted,
+		MaxRemainingBytes:      readerStats.MaxRemainingBytes,
 		Available:              stats.Available,
 		Error:                  stats.Error,
 	}

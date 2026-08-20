@@ -12,6 +12,7 @@ import (
 type fakeRingbufReader struct {
 	deadlines  []time.Time
 	readErrors []error
+	remaining  []int
 	flushErr   error
 	flushCalls int
 	readCalls  int
@@ -21,11 +22,15 @@ func (r *fakeRingbufReader) SetDeadline(deadline time.Time) {
 	r.deadlines = append(r.deadlines, deadline)
 }
 
-func (r *fakeRingbufReader) ReadInto(*ringbuf.Record) error {
+func (r *fakeRingbufReader) ReadInto(rec *ringbuf.Record) error {
 	if r.readCalls >= len(r.readErrors) {
 		return ringbuf.ErrFlushed
 	}
 	err := r.readErrors[r.readCalls]
+	if err == nil && r.readCalls < len(r.remaining) && rec != nil {
+		// The test reader models the metadata populated by cilium/ebpf.
+		rec.Remaining = r.remaining[r.readCalls]
+	}
 	r.readCalls++
 	return err
 }
@@ -67,6 +72,43 @@ func (c *stepTraceClock) NowMonoNs() uint64 {
 
 func (s *recordingEventSink) Handle(traceEventEnvelope) {
 	s.calls++
+}
+
+type scriptedRecordDecoder struct {
+	results []bool
+	calls   int
+}
+
+func (d *scriptedRecordDecoder) Decode(*ringbuf.Record) (traceEventEnvelope, bool) {
+	result := d.calls < len(d.results) && d.results[d.calls]
+	d.calls++
+	return traceEventEnvelope{valid: result}, result
+}
+
+func TestTraceEventReaderReportsConsumptionStats(t *testing.T) {
+	readerPort := &fakeRingbufReader{
+		readErrors: []error{nil, nil},
+		remaining:  []int{4096, 128},
+	}
+	reader := newTraceEventReader(TraceEventReaderDeps{
+		Reader:  readerPort,
+		Decoder: &scriptedRecordDecoder{results: []bool{true, false}},
+		Sink:    &recordingEventSink{},
+		Clock:   &fakeTraceClock{now: time.Unix(100, 0)},
+	})
+
+	if status, err := reader.Read(&ringbuf.Record{}, time.Second); err != nil || status != traceReadHandled {
+		t.Fatalf("first Read() = %v/%v, want handled/nil", status, err)
+	}
+	if status, err := reader.Read(&ringbuf.Record{}, time.Second); err != nil || status != traceReadNoEvent {
+		t.Fatalf("second Read() = %v/%v, want no event/nil", status, err)
+	}
+
+	stats := reader.ReaderStats()
+	if stats.RecordsRead != 2 || stats.RecordsDecoded != 1 || stats.RecordsInvalid != 1 ||
+		stats.RecordsRouted != 1 || stats.MaxRemainingBytes != 4096 {
+		t.Fatalf("reader stats = %+v, want read=2 decoded=1 invalid=1 routed=1 max_remaining=4096", stats)
+	}
 }
 
 func TestTraceEventReaderReadsAndRoutesRecord(t *testing.T) {
@@ -187,6 +229,9 @@ func TestTraceEventReaderDrainFlushesAndRoutesPendingRecords(t *testing.T) {
 	reader.Drain(&ringbuf.Record{})
 	if ringReader.flushCalls != 1 || decoder.calls != 1 || sink.calls != 1 {
 		t.Fatalf("flush/decoder/sink calls = %d/%d/%d, want 1/1/1", ringReader.flushCalls, decoder.calls, sink.calls)
+	}
+	if stats := reader.ReaderStats(); stats.RecordsRead != 1 || stats.RecordsDecoded != 1 || stats.RecordsRouted != 1 {
+		t.Fatalf("drain reader stats = %+v, want read=1 decoded=1 routed=1", stats)
 	}
 	if len(ringReader.deadlines) != 1 || !ringReader.deadlines[0].IsZero() {
 		t.Fatalf("drain deadlines = %v, want one zero deadline", ringReader.deadlines)
