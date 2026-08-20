@@ -15,6 +15,7 @@ from ebpf_event_oracles import (
 )
 from ebpf_fixture_build import build_named_fixture
 from ebpf_cloexec_suite import run_cloexec_semantic
+from ebpf_epoll_suite import run_epoll_semantic
 from ebpf_signalfd_suite import run_signalfd_semantic
 from ebpf_semantic_checks import (
     check_semantic_context,
@@ -475,6 +476,7 @@ def run_ebpf_semantic(args):
     context = collect_semantic_context(fixture)
     failures = []
     check_semantic_context(context, failures)
+    failures.extend(run_epoll_semantic(STRACE_WRAPPER))
     failures.extend(run_cloexec_semantic())
     failures.extend(run_signalfd_semantic(STRACE_WRAPPER, PROJECT_ROOT))
     failures.extend(run_sockopt_semantic(STRACE_WRAPPER, PROJECT_ROOT))

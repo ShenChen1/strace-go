@@ -26,7 +26,7 @@ static long poll_fd_path_scan_callback(u32 index, void *data)
         fd < 0) {
         return 0;
     }
-    fd_path_nested_add_poll_candidate(scan->scratch, fd);
+    fd_path_nested_add_window_candidate(scan->scratch, fd);
     return 0;
 }
 

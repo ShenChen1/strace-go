@@ -1,6 +1,64 @@
 #ifndef STRACE_GO_SYSCALL_EPOLL_CAPTURE_DIRECT_EVENT_V2_H
 #define STRACE_GO_SYSCALL_EPOLL_CAPTURE_DIRECT_EVENT_V2_H
 
+struct epoll_fd_path_scan_context {
+    struct fd_path_scratch *scratch;
+    u64 user_ptr;
+    u32 count;
+};
+
+static long epoll_fd_path_scan_callback(u32 index, void *data)
+{
+    struct epoll_fd_path_scan_context *scan = data;
+    if (index >= scan->count) {
+        return 1;
+    }
+
+    s32 fd = -1;
+    u64 offset = (u64)index * EPOLL_DIRECT_EVENT_SIZE +
+        EPOLL_DIRECT_EVENT_DATA_OFFSET;
+    if (bpf_probe_read_user(
+            &fd,
+            sizeof(fd),
+            (void *)(scan->user_ptr + offset)) < 0 ||
+        fd < 0 || (u32)fd >= FD_STATE_MAX_FD) {
+        return 0;
+    }
+    fd_path_nested_add_window_candidate(scan->scratch, fd);
+    return 0;
+}
+
+static __always_inline u32 collect_epoll_fd_path_candidates_direct(
+    struct pending_syscall *p,
+    s64 ret_value)
+{
+    u32 cfg_key = 0;
+    u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);
+    if (!cfg || !(*cfg & CONFIG_FD_STATE) || !p ||
+        !is_epoll_wait_direct_syscall(p->sys_id) || ret_value <= 0 ||
+        !p->args[1]) {
+        return 0;
+    }
+
+    struct fd_path_scratch *scratch = lookup_fd_path_scratch();
+    if (!scratch) {
+        return 0;
+    }
+
+    u64 count = (u64)ret_value;
+    if (count > EPOLL_DIRECT_EVENT_SLOT_MAX) {
+        count = EPOLL_DIRECT_EVENT_SLOT_MAX;
+    }
+    scratch->nested_fd_count = 0;
+    struct epoll_fd_path_scan_context scan = {
+        .scratch = scratch,
+        .user_ptr = p->args[1],
+        .count = (u32)count,
+    };
+    bpf_loop(EPOLL_DIRECT_EVENT_SLOT_MAX, epoll_fd_path_scan_callback, &scan, 0);
+    return scratch->nested_fd_count;
+}
+
 static __always_inline u32 capture_epoll_events_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,

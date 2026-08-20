@@ -25,7 +25,7 @@ func TestBPFPollNestedFDPathUsesProbeSiteFragments(t *testing.T) {
 		"poll_fd_path_scan_callback(",
 		"bpf_loop(POLL_DIRECT_FD_SLOT_MAX",
 		"bpf_probe_read_user(&fd",
-		"fd_path_nested_add_poll_candidate(",
+		"fd_path_nested_add_window_candidate(",
 		"FD_PATH_NESTED_MAX",
 	} {
 		if !strings.Contains(pollCapture, snippet) &&

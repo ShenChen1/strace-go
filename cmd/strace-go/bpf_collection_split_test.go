@@ -66,6 +66,7 @@ func TestClassifyBPFHandlerProgram(t *testing.T) {
 	}{
 		{name: "enter_no_payload_direct", family: bpfHandlerEnterPathFamily, valid: true},
 		{name: "exit_generic", family: bpfHandlerExitFamily, valid: true},
+		{name: "exit_nested_fd_path3", family: bpfHandlerExitFamily, valid: true},
 		{name: "trace_kretprobe_recvmsg_dispatch", family: bpfHandlerRecvmsgFamily, valid: true},
 		{name: "trace_sys_enter", valid: false},
 		{name: "unknown_handler", valid: false},

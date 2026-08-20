@@ -17,6 +17,7 @@ func TestBPFHandlerFamilyTranslationUnitsKeepOwnership(t *testing.T) {
 			"#define STRACE_GO_HANDLER_EXIT 1",
 			`#include "exit_dispatch.h"`,
 			`#include "exit_direct_dispatch.h"`,
+			`#include "nested_fd_path_exit_dispatch.h"`,
 			`#include "quota_dispatch.h"`,
 			`#include "mount_query_dispatch.h"`,
 		},

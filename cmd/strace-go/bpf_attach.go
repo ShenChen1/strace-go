@@ -170,6 +170,10 @@ const (
 	exitProgAsync          = 11
 	exitProgIO             = 12
 	exitProgControl        = 13
+	exitProgNestedFDPath0  = 14
+	exitProgNestedFDPath1  = 15
+	exitProgNestedFDPath2  = 16
+	exitProgNestedFDPath3  = 17
 )
 
 const (
@@ -266,6 +270,10 @@ func exitProgArrayEntries(programs bpfProgramProvider) []progArrayEntry {
 		{exitProgAsync, bpfProgram(programs, "exit_async")},
 		{exitProgIO, bpfProgram(programs, "exit_io")},
 		{exitProgControl, bpfProgram(programs, "exit_control")},
+		{exitProgNestedFDPath0, bpfProgram(programs, "exit_nested_fd_path0")},
+		{exitProgNestedFDPath1, bpfProgram(programs, "exit_nested_fd_path1")},
+		{exitProgNestedFDPath2, bpfProgram(programs, "exit_nested_fd_path2")},
+		{exitProgNestedFDPath3, bpfProgram(programs, "exit_nested_fd_path3")},
 	}
 }
 

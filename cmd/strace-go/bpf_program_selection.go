@@ -86,6 +86,10 @@ var bpfExitProgramNames = map[uint32]string{
 	exitProgAsync:          "exit_async",
 	exitProgIO:             "exit_io",
 	exitProgControl:        "exit_control",
+	exitProgNestedFDPath0:  "exit_nested_fd_path0",
+	exitProgNestedFDPath1:  "exit_nested_fd_path1",
+	exitProgNestedFDPath2:  "exit_nested_fd_path2",
+	exitProgNestedFDPath3:  "exit_nested_fd_path3",
 }
 
 var bpfRecvmsgProgramNames = map[uint32]string{

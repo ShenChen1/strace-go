@@ -9592,3 +9592,32 @@ Impact note：影响 poll enter candidate capture、通用 nested FD path dispat
 - 完整快速门禁通过：`go test ./...`、`go test -race ./...`、`go vet ./...`、`sudo ./build.sh`；`ebpf-semantic` 主事件 197 个、enter/exit `100/97`、lifecycle 6 个，reserve/copy/pending/orphan/mismatch/stale counters 全为 0；`small` 为 23 PASS；参考集合加入两个测试后实际为 119 PASS、2 个既有 XFAIL、0 FAIL/XPASS。完整集合中 `msg_control.gen.test` 曾出现一次调度相关的截断 FAIL，随后单测与完整重跑均 PASS，不作为本阶段回归。
 - 当前 scalar 性能样本为端到端 `5942.89 exit events/s`、steady-state trace `25127.59 exit events/s`；setup `0.179871s`，cleanup owner `0.190128s`，固定 teardown 仍明显稀释短 workload 的端到端口径。Go decode/raw JSON writer 保持 0 alloc，所有 perf runtime counters 为 0。后续报告继续同时使用 trace rate 与 endpoint rate，不把 cleanup 尾部误判为 BPF syscall 热路径下降。
 - Review：select 专用 dispatcher 已收敛为通用 nested FD path dispatcher，生成 BPF binding、ProgArray 名称和 source gates 已同步；未引入 ptrace、procfs、process_vm、第二事件消费者或用户态锁。明确保留边界：当前仍只覆盖 poll/ppoll 最多 64 个条目中的 4 个 nested FD path，epoll nested FD path 尚未实现。
+
+### 14.235 为 epoll 返回数组补齐 probe-site nested FD path（2026-08-14）
+
+#### Problem 1-Pager
+
+- Context：14.234 已覆盖 select、poll 和 ppoll 的 bounded nested FD path，但 `epoll_wait`/`epoll_pwait2` 的返回 `epoll_event[]` 仍只有 struct payload。用户态不能在 syscall 完成后通过 procfs、process_vm 或 ptrace 回查每个 `data.fd` 的路径。
+- Problem：epoll 返回数组的 FD 是 OUT 参数，必须在 `sys_exit` 读取；直接在 exit handler 中循环展开会扩大 verifier 控制流，并且 exit fragment 若晚于已消费的主 exit，现有单消费者状态机不会再合并。
+- Goal：在 exit probe site 以 `bpf_loop` 扫描最多 42 个返回槽位，从 `epoll_event.data.fd` 收集有限候选；通过固定 tail-call fragment 复用 CO-RE FD path walker，并在主 epoll exit 事件前提交 nested path fragment，使 Go pending 状态机保持无锁、无定时器和单消费者。
+- Non-goals：不扫描 procfs 或完整 fdtable，不承诺超过 4 个 nested path 的全量输出，不修改 epoll 主 struct payload、文本 formatter、用户态 pending owner 或无 `CONFIG_FD_STATE` 模式的普通事件成本。
+- Constraints：只在 `CONFIG_FD_STATE` 且返回值大于 0 时扫描；候选数量和扫描槽位有固定上限；所有 `bpf_probe_read_user` 失败都必须是可观察的 bounded payload 结果；fragment 必须先于完整 epoll exit 事件，且最终只由 fragment dispatcher 消费 pending。
+
+Impact note：影响 epoll exit collector、nested FD path exit ProgArray 槽位、生成 binding、源代码门禁和 eBPF semantic fixture；既有 event v2/TLV wire 结构、Go 单 Goroutine、生命周期 map、纯 eBPF/no-procfs/no-ptrace 约束保持不变。
+
+#### 方案比较
+
+1. 让用户态延迟完整 epoll exit，等待所有 nested fragment：能保留主事件先提交的顺序，但需要新增 completed-exit cache、终止标记和跨 TID 输出状态，扩大丢事件与 teardown 风险，拒绝。
+2. 在 exit handler 内展开全部路径读取：实现直观，但 verifier 控制流和 dentry walk 成本随槽位线性膨胀，不能稳定加载，拒绝。
+3. 使用 `bpf_loop` bounded scan，最多收集 4 个候选，再用 4 个 tail-call fragment 先发路径、最后发完整主事件：复用已有 pending merge 协议，内核工作量和 wire 上限明确，选择。
+
+#### 测试与验收
+
+- 失败优先测试先验证 epoll source 必须包含 `bpf_loop`、正确的 `data.fd` 偏移、`CONFIG_FD_STATE` 门控、FD 上限和四个 exit fragment；随后用自有 FIFO fixture 触发 `epoll_ctl`、写入、`epoll_wait` 和 close 生命周期。
+- 首轮手工 debug 曾使用 `fd=3` 临时 scratch 值验证 tail-call、路径 emitter 和 Go fragment merge；恢复真实 collector 后，fixture 仍能在 `sys_exit` 直接从返回数组读出 FD 3，并生成 FIFO 的 probe-site path。临时硬编码已删除。
+- 事件协议最终固定为 nested path fragment 先于完整 epoll exit；fragment 保存到 pending 后由同一 dispatcher 完成主事件并 consume，避免主 exit 先消费 pending 后再丢 fragment。
+- `ebpf-semantic` 通过，ringbuf reserve/copy、pending update、orphan、mismatch、stale 和 lifecycle-map counters 全为 0；epoll fixture 要求 `arg_index=0xfffd` 的 nested `FD_PATH`、成功 probe 和 FIFO 路径。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、Python 44 项单测和 `git diff --check` 通过；原生 small 为 23 PASS，`epoll_create.gen.test`、`epoll_create1.gen.test`、`epoll_ctl.gen.test`、`epoll_wait.gen.test`、`epoll_pwait2.gen.test`、`epoll_pwait2-y.gen.test` 均 PASS。
+- 本轮 `ebpf-perf` 的 trace exit rate 为 scalar/io/lifecycle/threads `24052/16317/83/14252`，端到端 exit rate 为 `6372/3969/28/3032`；runtime error counters 全为 0。与前一轮 `23976/16277/82/14611` 的 trace 基线同量级，未观察到 epoll dispatcher 引起的热路径崩塌。
+- 性能 review：端到端低值主要由短 workload 的 BPF link cleanup `0.166~0.217s`、退出后未归因尾部 `0.182~0.234s` 和 setup 固定成本稀释；`trace_sec` 窗口才是事件管线吞吐口径。后续性能优化应继续独立测量 cleanup/verifier，不得把端到端分母变化解释为 Ringbuf 或 Go consumer 退化。
+- Review：未发现 procfs、ptrace、process_vm、用户态回查、第二消费者、锁或定时器；epoll nested path 已从本阶段“未实现”边界移入已验证能力，仍保留最多 4 个 nested path 的 bounded 限制。

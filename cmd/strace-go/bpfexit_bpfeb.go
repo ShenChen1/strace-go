@@ -101,6 +101,10 @@ type bpfExitProgramSpecs struct {
 	ExitMmsgFinal      *ebpf.ProgramSpec `ebpf:"exit_mmsg_final"`
 	ExitMountQuery     *ebpf.ProgramSpec `ebpf:"exit_mount_query"`
 	ExitMsg            *ebpf.ProgramSpec `ebpf:"exit_msg"`
+	ExitNestedFdPath0  *ebpf.ProgramSpec `ebpf:"exit_nested_fd_path0"`
+	ExitNestedFdPath1  *ebpf.ProgramSpec `ebpf:"exit_nested_fd_path1"`
+	ExitNestedFdPath2  *ebpf.ProgramSpec `ebpf:"exit_nested_fd_path2"`
+	ExitNestedFdPath3  *ebpf.ProgramSpec `ebpf:"exit_nested_fd_path3"`
 	ExitPath           *ebpf.ProgramSpec `ebpf:"exit_path"`
 	ExitQuota          *ebpf.ProgramSpec `ebpf:"exit_quota"`
 	ExitRecvmmsgBase01 *ebpf.ProgramSpec `ebpf:"exit_recvmmsg_base01"`
@@ -246,6 +250,10 @@ type bpfExitPrograms struct {
 	ExitMmsgFinal      *ebpf.Program `ebpf:"exit_mmsg_final"`
 	ExitMountQuery     *ebpf.Program `ebpf:"exit_mount_query"`
 	ExitMsg            *ebpf.Program `ebpf:"exit_msg"`
+	ExitNestedFdPath0  *ebpf.Program `ebpf:"exit_nested_fd_path0"`
+	ExitNestedFdPath1  *ebpf.Program `ebpf:"exit_nested_fd_path1"`
+	ExitNestedFdPath2  *ebpf.Program `ebpf:"exit_nested_fd_path2"`
+	ExitNestedFdPath3  *ebpf.Program `ebpf:"exit_nested_fd_path3"`
 	ExitPath           *ebpf.Program `ebpf:"exit_path"`
 	ExitQuota          *ebpf.Program `ebpf:"exit_quota"`
 	ExitRecvmmsgBase01 *ebpf.Program `ebpf:"exit_recvmmsg_base01"`
@@ -264,6 +272,10 @@ func (p *bpfExitPrograms) Close() error {
 		p.ExitMmsgFinal,
 		p.ExitMountQuery,
 		p.ExitMsg,
+		p.ExitNestedFdPath0,
+		p.ExitNestedFdPath1,
+		p.ExitNestedFdPath2,
+		p.ExitNestedFdPath3,
 		p.ExitPath,
 		p.ExitQuota,
 		p.ExitRecvmmsgBase01,

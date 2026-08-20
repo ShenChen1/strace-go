@@ -34,7 +34,7 @@ static __always_inline void fd_path_nested_add_candidate(
     scratch->nested_fd_count = count + 1;
 }
 
-static __always_inline void fd_path_nested_add_poll_candidate(
+static __always_inline void fd_path_nested_add_window_candidate(
     struct fd_path_scratch *scratch,
     s32 fd)
 {

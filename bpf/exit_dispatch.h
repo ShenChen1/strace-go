@@ -28,6 +28,10 @@ enum exit_prog_index {
     EXIT_PROG_ASYNC = 11,
     EXIT_PROG_IO = 12,
     EXIT_PROG_CONTROL = 13,
+    EXIT_PROG_NESTED_FD_PATH0 = 14,
+    EXIT_PROG_NESTED_FD_PATH1 = 15,
+    EXIT_PROG_NESTED_FD_PATH2 = 16,
+    EXIT_PROG_NESTED_FD_PATH3 = 17,
 };
 
 static __always_inline void emit_exit_dispatch_fallback(

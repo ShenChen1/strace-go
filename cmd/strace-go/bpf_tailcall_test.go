@@ -73,13 +73,13 @@ func TestExitProgArrayEntriesComplete(t *testing.T) {
 		}
 		seen[entry.index] = true
 	}
-	for i := uint32(exitProgGeneric); i <= exitProgControl; i++ {
+	for i := uint32(exitProgGeneric); i <= exitProgNestedFDPath3; i++ {
 		if !seen[i] {
 			t.Fatalf("exit prog array missing index %d", i)
 		}
 	}
-	if len(entries) != exitProgControl+1 {
-		t.Fatalf("exit prog array entries = %d, want %d", len(entries), exitProgControl+1)
+	if len(entries) != exitProgNestedFDPath3+1 {
+		t.Fatalf("exit prog array entries = %d, want %d", len(entries), exitProgNestedFDPath3+1)
 	}
 }
 
@@ -169,14 +169,18 @@ func TestExitProgIndicesMatchDispatchHeader(t *testing.T) {
 		"EXIT_PROG_ASYNC":           exitProgAsync,
 		"EXIT_PROG_IO":              exitProgIO,
 		"EXIT_PROG_CONTROL":         exitProgControl,
+		"EXIT_PROG_NESTED_FD_PATH0": exitProgNestedFDPath0,
+		"EXIT_PROG_NESTED_FD_PATH1": exitProgNestedFDPath1,
+		"EXIT_PROG_NESTED_FD_PATH2": exitProgNestedFDPath2,
+		"EXIT_PROG_NESTED_FD_PATH3": exitProgNestedFDPath3,
 	}
 	for name, val := range pairs {
 		if !strings.Contains(header, fmt.Sprintf("%s = %d", name, val)) {
 			t.Fatalf("exit_dispatch.h missing %s = %d", name, val)
 		}
 	}
-	if !strings.Contains(runtimeABI, "__uint(max_entries, 14)") {
-		t.Fatal("runtime_abi.h exit_progs map must have capacity for EXIT_PROG_CONTROL")
+	if !strings.Contains(runtimeABI, "__uint(max_entries, 18)") {
+		t.Fatal("runtime_abi.h exit_progs map must have capacity for nested exit fragments")
 	}
 }
 
