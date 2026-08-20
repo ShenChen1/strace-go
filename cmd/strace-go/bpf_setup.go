@@ -42,29 +42,6 @@ type traceBPFSetupTiming struct {
 	EndNS   uint64
 }
 
-func bpfHandlerCollectionStage(family bpfHandlerFamily) traceBPFSetupStage {
-	switch family {
-	case bpfHandlerEnterGenericFamily:
-		return bpfSetupEnterGenericCollectionStage
-	case bpfHandlerEnterPayloadFamily:
-		return bpfSetupEnterPayloadCollectionStage
-	case bpfHandlerEnterPathFamily:
-		return bpfSetupEnterPathCollectionStage
-	case bpfHandlerEnterMemoryFamily:
-		return bpfSetupEnterMemoryCollectionStage
-	case bpfHandlerEnterControlFamily:
-		return bpfSetupEnterControlCollectionStage
-	case bpfHandlerEnterStructuredFamily:
-		return bpfSetupEnterStructuredCollectionStage
-	case bpfHandlerExitFamily:
-		return bpfSetupExitCollectionStage
-	case bpfHandlerRecvmsgFamily:
-		return bpfSetupRecvmsgCollectionStage
-	default:
-		return traceBPFSetupStage("bpf_unknown_handler_collection_load")
-	}
-}
-
 // traceBPFSetupObserver receives completed setup stages without owning BPF resources.
 type traceBPFSetupObserver interface {
 	RecordBPFSetupStage(timing traceBPFSetupTiming)
@@ -227,22 +204,11 @@ func loadBPFSpecWithTiming(clock traceClock, recorder traceBPFSetupObserver) (*b
 }
 
 func loadBPFHandlerSpecs() (map[bpfHandlerFamily]*ebpf.CollectionSpec, error) {
-	loaders := []struct {
-		family bpfHandlerFamily
-		name   string
-		load   func() (*ebpf.CollectionSpec, error)
-	}{
-		{bpfHandlerEnterGenericFamily, "enter generic", loadBpfEnterGeneric},
-		{bpfHandlerEnterPayloadFamily, "enter payload", loadBpfEnterPayload},
-		{bpfHandlerEnterPathFamily, "enter path", loadBpfEnterPath},
-		{bpfHandlerEnterMemoryFamily, "enter memory", loadBpfEnterMemory},
-		{bpfHandlerEnterControlFamily, "enter control", loadBpfEnterControl},
-		{bpfHandlerEnterStructuredFamily, "enter structured", loadBpfEnterStructured},
-		{bpfHandlerExitFamily, "exit", loadBpfExit},
-		{bpfHandlerRecvmsgFamily, "recvmsg", loadBpfRecvmsg},
+	if err := validateBPFHandlerFamilyCatalog(); err != nil {
+		return nil, fmt.Errorf("validate BPF handler family catalog: %w", err)
 	}
-	specs := make(map[bpfHandlerFamily]*ebpf.CollectionSpec, len(loaders))
-	for _, loader := range loaders {
+	specs := make(map[bpfHandlerFamily]*ebpf.CollectionSpec, len(bpfHandlerFamilyCatalog))
+	for _, loader := range bpfHandlerFamilyCatalog {
 		spec, err := loader.load()
 		if err != nil {
 			return nil, fmt.Errorf("load %s handler spec: %w", loader.name, err)

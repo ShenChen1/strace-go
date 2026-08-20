@@ -74,26 +74,32 @@ func loadBPFHandlerCollectionsParallel(
 	if load == nil {
 		return nil, nil, fmt.Errorf("BPF handler collection loader is nil")
 	}
+	if err := validateBPFHandlerFamilyCatalog(); err != nil {
+		return nil, nil, fmt.Errorf("validate BPF handler family catalog: %w", err)
+	}
+	if err := validateBPFHandlerSpecFamilies(plan.handlerSpecs); err != nil {
+		return nil, nil, err
+	}
 
-	results := make([]bpfHandlerCollectionLoadResult, len(bpfHandlerLoadOrder))
+	results := make([]bpfHandlerCollectionLoadResult, len(bpfHandlerFamilyCatalog))
 	var workers sync.WaitGroup
-	workers.Add(len(bpfHandlerLoadOrder))
-	for index, family := range bpfHandlerLoadOrder {
-		spec := plan.handlerSpecs[family]
-		go func(index int, family bpfHandlerFamily, spec *ebpf.CollectionSpec) {
+	workers.Add(len(bpfHandlerFamilyCatalog))
+	for index, familySpec := range bpfHandlerFamilyCatalog {
+		spec := plan.handlerSpecs[familySpec.family]
+		go func(index int, familySpec bpfHandlerFamilySpec, spec *ebpf.CollectionSpec) {
 			defer workers.Done()
-			result := bpfHandlerCollectionLoadResult{family: family}
+			result := bpfHandlerCollectionLoadResult{family: familySpec.family}
 			recorder := newBPFSetupRecorder()
 			err := measureBPFSetupStage(
 				clock,
 				recorder,
-				bpfHandlerCollectionStage(family),
+				familySpec.stage,
 				func() error {
 					if spec == nil || len(spec.Programs) == 0 {
 						return nil
 					}
 					var loadErr error
-					result.collection, loadErr = load(family, spec, core)
+					result.collection, loadErr = load(familySpec.family, spec, core)
 					return loadErr
 				},
 			)
@@ -102,7 +108,7 @@ func loadBPFHandlerCollectionsParallel(
 				result.timing = timings[0]
 			}
 			results[index] = result
-		}(index, family, spec)
+		}(index, familySpec, spec)
 	}
 	workers.Wait()
 

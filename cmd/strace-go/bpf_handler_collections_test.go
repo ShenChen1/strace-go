@@ -46,11 +46,11 @@ func TestLoadBPFHandlerCollectionsParallelKeepsFamilyOrder(t *testing.T) {
 	}; !equalHandlerFamilies(got, want) {
 		t.Fatalf("loaded family order = %v, want %v", got, want)
 	}
-	if len(timings) != len(bpfHandlerLoadOrder) {
-		t.Fatalf("timing count = %d, want %d", len(timings), len(bpfHandlerLoadOrder))
+	if len(timings) != len(bpfHandlerFamilyCatalog) {
+		t.Fatalf("timing count = %d, want %d", len(timings), len(bpfHandlerFamilyCatalog))
 	}
-	for index, family := range bpfHandlerLoadOrder {
-		if got, want := timings[index].Stage, bpfHandlerCollectionStage(family); got != want {
+	for index, familySpec := range bpfHandlerFamilyCatalog {
+		if got, want := timings[index].Stage, familySpec.stage; got != want {
 			t.Fatalf("timing %d stage = %q, want %q", index, got, want)
 		}
 	}

@@ -9768,3 +9768,41 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 未发现 runtime map consumer 继续直接访问 generated map 字段；generated binding 只保留在 catalog callback 和 collection loader 边界。
 - catalog lookup 不进入 BPF handler、Ringbuf consumer 或 Go syscall event decode 热路径；没有新增 goroutine、mutex、ptrace、procfs 或 process_vm。
 - map replacement 现在对未知 shared map fail-fast；保留边界是 map name/field 仍属于显式 BPF ABI，catalog 不自动生成 map 语义，也不改变 `events/s` 的 cleanup 尾延迟。
+
+### 14.240 统一 handler family loader catalog 与 setup stage 元数据（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：handler 已拆成 enter generic/payload/path/memory/control/structured、exit 和 recvmsg 多个 collection，并支持并行加载、稳定 timing 聚合和 partial failure 回收。
+- Problem：family 类型/名称/loader 位于 `loadBPFHandlerSpecs` 的手写 slice，加载顺序位于 `bpfHandlerLoadOrder`，family 到 setup stage 又位于 `bpfHandlerCollectionStage` 的 switch；新增或迁移 family 时三处容易漂移，错误会延迟到 collection load、ProgArray 或 attach 阶段。
+- Goal：建立 typed `bpfHandlerFamilySpec` catalog，集中声明 family、诊断名称、setup stage 和 collection loader；生产 loader、并行加载和 stage lookup 统一消费该 catalog，并校验程序目录覆盖。
+- Non-goals：不修改 BPF event ABI、ProgArray slot、map replacement、并行策略、collection ownership、单消费者、ptrace/procfs 策略或事件热路径。
+- Constraints：保持现有八个 family 的顺序和诊断文本；重复 family/name/stage、空字段、nil loader、未知 handler spec family 和未归属程序必须 fail-fast；既有 partial spec 测试仍可表达选择性加载。
+
+#### 方案比较
+
+1. 保留多张表：改动最小，但继续保留事实源漂移风险，拒绝。
+2. 从 ELF/BTF 名称反射推导 loader 和 stage：减少手写，但 ELF/BTF 不表达 setup 生命周期和产品 family ownership，错误难以提前诊断，拒绝。
+3. 使用 typed family catalog，并由 loader、stage、program coverage 校验共同消费：边界清晰、可测试且不进入热路径，选择。
+
+#### 实现
+
+- 新增 `bpf_handler_catalog.go`，集中声明八个 `bpfHandlerFamilySpec`，提供 family lookup、stage lookup、catalog 唯一性校验和 program/standalone catalog 覆盖校验。
+- `loadBPFHandlerSpecs` 不再维护本地 loader slice；`loadBPFHandlerCollectionsParallel` 直接按 catalog 启动 worker，并从 catalog 读取稳定 stage，timing 聚合顺序保持不变。
+- 删除 `bpfHandlerLoadOrder`、`bpfHandlerCollectionStage` switch 和 collection split 中的 family 定义重复；未知 handler spec family 在 prepare/parallel load 边界直接报错。
+- 相关生成 spec 校验和 pipeline fake 改为消费同一 catalog；source gate 禁止旧 load-order、loader slice 和 family switch 回流。
+
+#### 测试与验收
+
+- 失败优先：catalog API 尚不存在时，family metadata、唯一性、程序覆盖和未知 family 测试按预期编译失败；实现后 focused catalog/loader/pipeline tests 通过。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase14240 ./cmd/strace-go`、Python 44 项单测和 `git diff --check` 全部通过。
+- 真实 `ebpf-semantic` 通过：主事件 197，enter/exit `100/97`，lifecycle 6，payload truncation 7，reserve/copy/pending/orphan/mismatch/lifecycle-map error counters 全为 0。
+- 真实 `ebpf-perf` 通过：普通 decode `354.80 ns/op`、JSON writer `486.20 ns/op`、decoded writer `599.20 ns/op`，普通路径均为 0 alloc；scalar/io/lifecycle/threads trace exit rate 为 `24406.60/16252.81/83.02/14249.20`。
+- 本轮端到端 exit rate 为 `6279.28/4153.61/29.56/3372.23`；setup 约 `0.159~0.192s`，BPF link cleanup 约 `0.161~0.190s`，与既有固定尾延迟基线一致，未观察到事件管线退化。
+- 原生 `small`：23 PASS、0 FAIL；`more`：80 PASS、3 个既定 XFAIL、0 FAIL/XPASS。XFAIL 仍为 CPU-time summary、跨任务生命周期精确顺序和 bounded read/write snapshot 边界。
+
+#### Review
+
+- handler family 的 loader、名称、stage 和顺序现在只有一份生产 catalog；program catalog 与 standalone attach catalog 均要求存在 family owner，未知 map/spec 不会被静默跳过。
+- catalog lookup 只发生在 setup、collection prepare/load 和测试校验边界，没有新增事件消费者、锁、定时器、ptrace、procfs、process_vm 或用户态 tracee memory fallback。
+- 保留边界：family catalog 统一的是 Go-side loader 元数据，不自动推导 BPF capture policy、BTF 参数语义或 upstream 精确输出顺序；下一阶段继续收敛 collection resource capability 与 cleanup 性能边界。

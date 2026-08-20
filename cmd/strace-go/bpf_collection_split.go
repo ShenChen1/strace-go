@@ -7,30 +7,6 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-type bpfHandlerFamily string
-
-const (
-	bpfHandlerEnterGenericFamily    bpfHandlerFamily = "enter_generic"
-	bpfHandlerEnterPayloadFamily    bpfHandlerFamily = "enter_payload"
-	bpfHandlerEnterPathFamily       bpfHandlerFamily = "enter_path"
-	bpfHandlerEnterMemoryFamily     bpfHandlerFamily = "enter_memory"
-	bpfHandlerEnterControlFamily    bpfHandlerFamily = "enter_control"
-	bpfHandlerEnterStructuredFamily bpfHandlerFamily = "enter_structured"
-	bpfHandlerExitFamily            bpfHandlerFamily = "exit"
-	bpfHandlerRecvmsgFamily         bpfHandlerFamily = "recvmsg"
-)
-
-var bpfHandlerLoadOrder = []bpfHandlerFamily{
-	bpfHandlerEnterGenericFamily,
-	bpfHandlerEnterPayloadFamily,
-	bpfHandlerEnterPathFamily,
-	bpfHandlerEnterMemoryFamily,
-	bpfHandlerEnterControlFamily,
-	bpfHandlerEnterStructuredFamily,
-	bpfHandlerExitFamily,
-	bpfHandlerRecvmsgFamily,
-}
-
 var bpfHandlerProgramFamilies = buildBPFHandlerProgramFamilies()
 
 func classifyBPFHandlerProgram(name string) (bpfHandlerFamily, bool) {
@@ -82,6 +58,9 @@ func prepareBPFCollectionPrograms(
 ) error {
 	if core == nil || len(handlers) == 0 {
 		return fmt.Errorf("BPF core and handler specs are required")
+	}
+	if err := validateBPFHandlerSpecFamilies(handlers); err != nil {
+		return err
 	}
 	for name := range selection.programs {
 		if _, ok := core.Programs[name]; ok {

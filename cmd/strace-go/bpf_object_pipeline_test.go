@@ -49,8 +49,8 @@ func (l *fakeBPFObjectLoader) loadHandlers(
 	aggregateRecorder := newBPFSetupRecorder()
 	childRecorder := newBPFSetupRecorder()
 	err := measureBPFSetupStage(clock, aggregateRecorder, bpfSetupHandlerCollectionsStage, func() error {
-		for _, family := range bpfHandlerLoadOrder {
-			if err := measureBPFSetupStage(clock, childRecorder, bpfHandlerCollectionStage(family), func() error {
+		for _, familySpec := range bpfHandlerFamilyCatalog {
+			if err := measureBPFSetupStage(clock, childRecorder, familySpec.stage, func() error {
 				return nil
 			}); err != nil {
 				return err

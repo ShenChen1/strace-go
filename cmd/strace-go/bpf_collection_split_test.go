@@ -124,8 +124,12 @@ func TestBPFEnterCapabilityLoadOrder(t *testing.T) {
 		bpfHandlerExitFamily,
 		bpfHandlerRecvmsgFamily,
 	}
-	if !equalHandlerFamilies(bpfHandlerLoadOrder, want) {
-		t.Fatalf("handler load order = %v, want %v", bpfHandlerLoadOrder, want)
+	got := make([]bpfHandlerFamily, 0, len(bpfHandlerFamilyCatalog))
+	for _, spec := range bpfHandlerFamilyCatalog {
+		got = append(got, spec.family)
+	}
+	if !equalHandlerFamilies(got, want) {
+		t.Fatalf("handler load order = %v, want %v", got, want)
 	}
 }
 

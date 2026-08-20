@@ -277,22 +277,9 @@ func TestBPFProgramSelectionCatalogMatchesGeneratedSpec(t *testing.T) {
 			t.Fatalf("generated BPF spec is missing core program %q", program.name)
 		}
 	}
-	handlerSpecs := map[bpfHandlerFamily]*ebpf.CollectionSpec{}
-	for family, loader := range map[bpfHandlerFamily]func() (*ebpf.CollectionSpec, error){
-		bpfHandlerEnterGenericFamily:    loadBpfEnterGeneric,
-		bpfHandlerEnterPayloadFamily:    loadBpfEnterPayload,
-		bpfHandlerEnterPathFamily:       loadBpfEnterPath,
-		bpfHandlerEnterMemoryFamily:     loadBpfEnterMemory,
-		bpfHandlerEnterControlFamily:    loadBpfEnterControl,
-		bpfHandlerEnterStructuredFamily: loadBpfEnterStructured,
-		bpfHandlerExitFamily:            loadBpfExit,
-		bpfHandlerRecvmsgFamily:         loadBpfRecvmsg,
-	} {
-		handlerSpec, err := loader()
-		if err != nil {
-			t.Fatalf("load %s handler spec: %v", family, err)
-		}
-		handlerSpecs[family] = handlerSpec
+	handlerSpecs, err := loadBPFHandlerSpecs()
+	if err != nil {
+		t.Fatalf("load BPF handler specs: %v", err)
 	}
 	for _, program := range bpfEnterProgramCatalog {
 		family, ok := bpfHandlerProgramFamilies[program.name]
@@ -324,19 +311,19 @@ func TestBPFProgramSelectionCatalogMatchesGeneratedSpec(t *testing.T) {
 }
 
 func TestBPFEnterProgramOwnershipIsExclusive(t *testing.T) {
-	loaders := map[bpfHandlerFamily]func() (*ebpf.CollectionSpec, error){
-		bpfHandlerEnterGenericFamily:    loadBpfEnterGeneric,
-		bpfHandlerEnterPayloadFamily:    loadBpfEnterPayload,
-		bpfHandlerEnterPathFamily:       loadBpfEnterPath,
-		bpfHandlerEnterMemoryFamily:     loadBpfEnterMemory,
-		bpfHandlerEnterControlFamily:    loadBpfEnterControl,
-		bpfHandlerEnterStructuredFamily: loadBpfEnterStructured,
+	handlerSpecs, err := loadBPFHandlerSpecs()
+	if err != nil {
+		t.Fatalf("load BPF handler specs: %v", err)
+	}
+	enterFamilies := make(map[bpfHandlerFamily]struct{})
+	for _, program := range bpfEnterProgramCatalog {
+		enterFamilies[program.family] = struct{}{}
 	}
 	owners := make(map[string]bpfHandlerFamily)
-	for family, loader := range loaders {
-		spec, err := loader()
-		if err != nil {
-			t.Fatalf("load %s handler spec: %v", family, err)
+	for family := range enterFamilies {
+		spec := handlerSpecs[family]
+		if spec == nil {
+			t.Fatalf("missing handler spec for enter family %q", family)
 		}
 		for name := range spec.Programs {
 			if previous, exists := owners[name]; exists {
