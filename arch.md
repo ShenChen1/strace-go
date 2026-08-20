@@ -10231,55 +10231,6 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 64/128/256 的结果证明此前 event/s 下降不能只归因于 Ringbuf 容量：容量增大改善了部分 `none` burst drop，但 JSON 仍受用户态处理速度限制，且 `trace_sec` 波动不能替代稳态 A/B。
 - 本阶段没有引入 ptrace、procfs、process_vm、第二消费者、外部 mutex 或定时器；`strace-upstream` 仍是既有未跟踪目录，不纳入提交。
 
-### 14.256 在 JSON 输出所有权边界增加同步缓冲（2026-08-20）
-
-#### Problem 1-Pager
-
-- Context：Phase 14.255 已经证明，公共 pending value 瘦身只改善 capture-only 的高频路径；完整 JSON 路径仍明显慢于 `none`。`JSONEventWriter` 通过 `TraceOutput` 写入 stderr 或文件，单条 JSON record 可能触发一次底层写入。
-- Problem：同步单条写会让唯一 Go 事件消费者频繁进入 pipe/file I/O，延长 Ringbuf backlog 存活时间并放大 BPF `ringbuf_reserve` failure。直接增加异步 writer、第二消费者或锁会违反纯 eBPF 单消费者架构；只在 JSON writer 内部缓存又会模糊输出所有权和关闭顺序。
-- Goal：在 `TraceOutput` 所有权边界提供可选的 64 KiB `bufio.Writer`，只对 JSON/debug JSON 启用；在 stats、summary、底层 writer close 之前显式 flush，保持事件顺序、错误传播、ready 可见性和单 Go 消费者约束。
-- Non-goals：不改变 BPF ABI、Ringbuf reservation、event 顺序、pending/lifecycle 状态机或默认文本实时输出；不引入 Goroutine、mutex、定时器、ptrace、procfs 或 process memory fallback；不把缓冲当作 Ringbuf 吞吐修复。
-- Constraints：缓冲必须由 `TraceOutput` 这个唯一 close owner 管理；JSON ready 事件仍须在 attach harness 等待前可见；flush 失败不能吞掉，且必须先于底层 writer close；测试必须覆盖正常路径和失败路径。
-
-#### 方案比较
-
-1. 只在 `JSONEventWriter` 内维护私有 bytes buffer：编码边界局部，但 writer close、stats、summary 和 attach ready 的 flush 顺序容易被拆散，拒绝。
-2. 在 `TraceOutput` 所有权边界包裹 64 KiB `bufio.Writer`：不改变事件消费者，不增加并发，所有输出最终经过同一个 close/flush owner，选择。
-3. 增加异步输出 Goroutine 和有界 channel：理论上可以把 I/O 与事件处理解耦，但会引入第二个事件相关执行单元、排空和错误传播复杂度，违反当前架构约束，拒绝。
-
-#### 实现与失败优先测试
-
-- `TraceOutput.EnableBuffer` 在 setup 完成、ownership handoff 前把原始 writer 包成 64 KiB `bufio.Writer`；仅当 session output policy 为 JSON 时启用，因此默认 text 仍保持逐步可见。
-- `TraceOutput.Flush` 缓存 flush 错误；`Close` 的顺序固定为 flush、标记关闭、关闭底层 writer、等待输出命令，并通过 `errors.Join` 保留 write/flush/close/wait 的错误。
-- `TraceRunFinalizer.Finish` 在写 JSON stats 和 summary 前 flush 一次；`Close` 再 flush 尚未写满的尾部，保证事件 record 在 stats 前落到底层 writer。
-- `emitDebugReadyAt` 在写 ready record 后立即 flush，避免 JSON 缓冲让 attach/semantic harness 等不到 ready；普通事件仍批量写入。
-- 先增加 `TraceOutputDeps.Flush`、关闭顺序和 finalizer 顺序测试，修改前 focused test 按预期因缺少 flush capability 编译失败；实现后增加 `TestTraceOutputCloseJoinsFlushError`，并让 finalizer 测试直接调用真实 `EnableBuffer`。
-- 覆盖的边界包括：flush 先于 close、flush 错误仍执行资源清理、事件先于 stats、ready 立即可见、重复 close 不重复释放，以及原有 write/short-write 错误聚合。
-
-#### 验证与实测
-
-- `sudo -n ./build.sh` 通过，重新生成 syscall/xlat/BPF 产物并完成真实 clang/verifier 构建；本阶段没有产生生成文件差异。
-- 使用重建后的当前二进制，`ebpf-semantic` 通过：主事件 `197`，enter/exit `100/97`，lifecycle `6`，reserve/copy、pending、orphan、mismatch 和 lifecycle-map 错误均为 `0`。
-- `ebpf-perf` 通过：Go decode `351.10 ns/op`、普通 JSON writer `482.80 ns/op`、decoded JSON `601.90 ns/op`，均为 `0 alloc/op`；decoded payload `853.50 ns/op`、`16 B/op`、`1 alloc/op`。trace-window exit rate 为 scalar `26770.61/s`、IO `17430.64/s`、lifecycle `85.21/s`、threads `15151.70/s`。
-- 重建后二轮高压 capture 使用同一 16-thread、每线程 100000 次 `getpid` fixture、128 MiB Ringbuf，均满足 `records_read=records_decoded=records_routed` 且 `records_invalid=0`：
-  - `none`：第一轮 `trace_sec=1.006079`、`ringbuf_reserve_fail=1,036,808`、`records_read=2,163,228`；第二轮 `trace_sec=1.269486`、`ringbuf_reserve_fail=1,311,658`、`records_read=1,888,378`。
-  - JSON：第一轮 `trace_sec=2.359882`、`ringbuf_reserve_fail=1,949,562`、`records_read=1,250,473`；第二轮 `trace_sec=2.418191`、`ringbuf_reserve_fail=1,992,946`、`records_read=1,207,089`。
-  - Phase 14.255 的无缓冲 JSON 三轮为 `records_read=1,149,364/1,134,325/1,141,838`、`ringbuf_reserve_fail=2,050,671/2,065,710/2,058,197`。当前缓冲 JSON 约多读取 `6%` 到 `10%` 的 record，reserve failure 约减少 `3%` 到 `5%`；这是稳定的局部改善，但仍有约 `1.2M` 条 record 被读到，不能视为无丢失。
-- `go test ./...`、`go test -race ./...`、`go vet ./...`、Python unit `10/10` 和 native upstream small `23/23 PASS` 均通过；`git diff --check` 通过。
-
-#### 决策与 Review
-
-- 保留 64 KiB JSON 输出缓冲。它把批量策略放在已有输出所有权边界，不改变纯 eBPF producer、单 Go consumer、pending/lifecycle 状态机或默认 text 语义；ready、stats、summary 和资源 close 的顺序都有测试保护。
-- 这不是 event/s 问题的完整修复。JSON 高压路径仍有约 `1.95M` 到 `1.99M` 次 BPF reserve failure，`none` 也有约 `1.04M` 到 `1.31M` 次；Ringbuf producer 与单消费者的稳态速率差仍然存在。
-- trace-window 性能相比 Phase 14.255 单轮基线有小幅回升，但 `none` 结果受调度和 Ringbuf burst 影响明显，不能把端到端差异全部归因于 buffer。Go JSON microbenchmark 基本不变，说明收益来自底层写调用次数和 I/O 阻塞，而不是编码器本身。
-- 当前没有新增事件 Goroutine、锁或定时器；`strace-upstream` 仍是既有未跟踪目录，不纳入提交。
-
-#### 下一阶段入口
-
-- 继续以 `none`/JSON 的 `reserve_fail + records_read` 对账为基线，分离 BPF producer 指令成本、payload 深拷贝、Ringbuf reservation 和 reader/state 处理成本。
-- 对输出缓冲不再继续加大容量；除非新的 trace-window A/B 能证明 Ringbuf drop 直接受写批量影响，否则优先测量固定 record、payload family 和 BPF map/pending 热路径。
-- 后续任何吞吐优化仍需先补顺序、生命周期、flush/error 和丢失计数测试，再跑真实 verifier、semantic、perf、capture 和 native small。
-
 ### 14.253 以 `Record.Remaining` 实验有界批量事件轮询（2026-08-20）
 
 #### Problem 1-Pager
@@ -10395,3 +10346,100 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 
 - 以本阶段 `none`/JSON 对账作为新基线，继续分离 JSON handler/编码、payload 深拷贝、BPF reservation 和 reader 消费成本；不能把 `none` 的改善外推为完整输出吞吐改善。
 - 优先做按 syscall family 的 producer 指令/辅助 map 成本和 payload capture 压测，并保留 `reserve_fail + records_read` 对账；任何进一步 map/record 改动仍需先补失败优先的语义、生命周期和 verifier 门禁。
+
+### 14.256 在 JSON 输出所有权边界增加同步缓冲（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：Phase 14.255 已经证明，公共 pending value 瘦身只改善 capture-only 的高频路径；完整 JSON 路径仍明显慢于 `none`。`JSONEventWriter` 通过 `TraceOutput` 写入 stderr 或文件，单条 JSON record 可能触发一次底层写入。
+- Problem：同步单条写会让唯一 Go 事件消费者频繁进入 pipe/file I/O，延长 Ringbuf backlog 存活时间并放大 BPF `ringbuf_reserve` failure。直接增加异步 writer、第二消费者或锁会违反纯 eBPF 单消费者架构；只在 JSON writer 内部缓存又会模糊输出所有权和关闭顺序。
+- Goal：在 `TraceOutput` 所有权边界提供可选的 64 KiB `bufio.Writer`，只对 JSON/debug JSON 启用；在 stats、summary、底层 writer close 之前显式 flush，保持事件顺序、错误传播、ready 可见性和单 Go 消费者约束。
+- Non-goals：不改变 BPF ABI、Ringbuf reservation、event 顺序、pending/lifecycle 状态机或默认文本实时输出；不引入 Goroutine、mutex、定时器、ptrace、procfs 或 process memory fallback；不把缓冲当作 Ringbuf 吞吐修复。
+- Constraints：缓冲必须由 `TraceOutput` 这个唯一 close owner 管理；JSON ready 事件仍须在 attach harness 等待前可见；flush 失败不能吞掉，且必须先于底层 writer close；测试必须覆盖正常路径和失败路径。
+
+#### 方案比较
+
+1. 只在 `JSONEventWriter` 内维护私有 bytes buffer：编码边界局部，但 writer close、stats、summary 和 attach ready 的 flush 顺序容易被拆散，拒绝。
+2. 在 `TraceOutput` 所有权边界包裹 64 KiB `bufio.Writer`：不改变事件消费者，不增加并发，所有输出最终经过同一个 close/flush owner，选择。
+3. 增加异步输出 Goroutine 和有界 channel：理论上可以把 I/O 与事件处理解耦，但会引入第二个事件相关执行单元、排空和错误传播复杂度，违反当前架构约束，拒绝。
+
+#### 实现与失败优先测试
+
+- `TraceOutput.EnableBuffer` 在 setup 完成、ownership handoff 前把原始 writer 包成 64 KiB `bufio.Writer`；仅当 session output policy 为 JSON 时启用，因此默认 text 仍保持逐步可见。
+- `TraceOutput.Flush` 缓存 flush 错误；`Close` 的顺序固定为 flush、标记关闭、关闭底层 writer、等待输出命令，并通过 `errors.Join` 保留 write/flush/close/wait 的错误。
+- `TraceRunFinalizer.Finish` 在写 JSON stats 和 summary 前 flush 一次；`Close` 再 flush 尚未写满的尾部，保证事件 record 在 stats 前落到底层 writer。
+- `emitDebugReadyAt` 在写 ready record 后立即 flush，避免 JSON 缓冲让 attach/semantic harness 等不到 ready；普通事件仍批量写入。
+- 先增加 `TraceOutputDeps.Flush`、关闭顺序和 finalizer 顺序测试，修改前 focused test 按预期因缺少 flush capability 编译失败；实现后增加 `TestTraceOutputCloseJoinsFlushError`，并让 finalizer 测试直接调用真实 `EnableBuffer`。
+- 覆盖的边界包括：flush 先于 close、flush 错误仍执行资源清理、事件先于 stats、ready 立即可见、重复 close 不重复释放，以及原有 write/short-write 错误聚合。
+
+#### 验证与实测
+
+- `sudo -n ./build.sh` 通过，重新生成 syscall/xlat/BPF 产物并完成真实 clang/verifier 构建；本阶段没有产生生成文件差异。
+- 使用重建后的当前二进制，`ebpf-semantic` 通过：主事件 `197`，enter/exit `100/97`，lifecycle `6`，reserve/copy、pending、orphan、mismatch 和 lifecycle-map 错误均为 `0`。
+- `ebpf-perf` 通过：Go decode `351.10 ns/op`、普通 JSON writer `482.80 ns/op`、decoded JSON `601.90 ns/op`，均为 `0 alloc/op`；decoded payload `853.50 ns/op`、`16 B/op`、`1 alloc/op`。trace-window exit rate 为 scalar `26770.61/s`、IO `17430.64/s`、lifecycle `85.21/s`、threads `15151.70/s`。
+- 重建后二轮高压 capture 使用同一 16-thread、每线程 100000 次 `getpid` fixture、128 MiB Ringbuf，均满足 `records_read=records_decoded=records_routed` 且 `records_invalid=0`：
+  - `none`：第一轮 `trace_sec=1.006079`、`ringbuf_reserve_fail=1,036,808`、`records_read=2,163,228`；第二轮 `trace_sec=1.269486`、`ringbuf_reserve_fail=1,311,658`、`records_read=1,888,378`。
+  - JSON：第一轮 `trace_sec=2.359882`、`ringbuf_reserve_fail=1,949,562`、`records_read=1,250,473`；第二轮 `trace_sec=2.418191`、`ringbuf_reserve_fail=1,992,946`、`records_read=1,207,089`。
+  - Phase 14.255 的无缓冲 JSON 三轮为 `records_read=1,149,364/1,134,325/1,141,838`、`ringbuf_reserve_fail=2,050,671/2,065,710/2,058,197`。当前缓冲 JSON 约多读取 `6%` 到 `10%` 的 record，reserve failure 约减少 `3%` 到 `5%`；这是稳定的局部改善，但仍有约 `1.2M` 条 record 被读到，不能视为无丢失。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、Python unit `47/47` 和 native upstream small `23/23 PASS` 均通过；`git diff --check` 通过。
+
+#### 决策与 Review
+
+- 保留 64 KiB JSON 输出缓冲。它把批量策略放在已有输出所有权边界，不改变纯 eBPF producer、单 Go consumer、pending/lifecycle 状态机或默认 text 语义；ready、stats、summary 和资源 close 的顺序都有测试保护。
+- 这不是 event/s 问题的完整修复。JSON 高压路径仍有约 `1.95M` 到 `1.99M` 次 BPF reserve failure，`none` 也有约 `1.04M` 到 `1.31M` 次；Ringbuf producer 与单消费者的稳态速率差仍然存在。
+- trace-window 性能相比 Phase 14.255 单轮基线有小幅回升，但 `none` 结果受调度和 Ringbuf burst 影响明显，不能把端到端差异全部归因于 buffer。Go JSON microbenchmark 基本不变，说明收益来自底层写调用次数和 I/O 阻塞，而不是编码器本身。
+- 当前没有新增事件 Goroutine、锁或定时器；`strace-upstream` 仍是既有未跟踪目录，不纳入提交。
+
+#### 下一阶段入口
+
+- 继续以 `none`/JSON 的 `reserve_fail + records_read` 对账为基线，分离 BPF producer 指令成本、payload 深拷贝、Ringbuf reservation 和 reader/state 处理成本。
+- 对输出缓冲不再继续加大容量；除非新的 trace-window A/B 能证明 Ringbuf drop 直接受写批量影响，否则优先测量固定 record、payload family 和 BPF map/pending 热路径。
+- 后续任何吞吐优化仍需先补顺序、生命周期、flush/error 和丢失计数测试，再跑真实 verifier、semantic、perf、capture 和 native small。
+
+### 14.257 使用 task storage 复用 TID pending 状态（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：原实现用 `pending_syscalls` TID Hash 保存每次 syscall 的 enter 快照，另用 auxiliary Hash 保存少数 network/`recvmsg` metadata；每个 enter/exit 和 lifecycle 路径都需要 Hash lookup/update/delete，并由 BPF 手动清理 stale TID。
+- Problem：Hash key 操作和手工生命周期清理增加高频 producer 热路径成本；更严重的是把 task storage 当作每次 syscall 的临时对象、在 exit 立即 delete，会让下一次 enter 重新分配 local storage，在高压 raw tracepoint 场景出现 `pending_update_fail` 和假性 orphan。
+- Goal：使用 BTF task-local storage 承载公共 pending、稀有 `aux0` 和 `valid` 标志；同一 task 只在首次需要时创建，enter/exit 之间通过 `valid` 复用，任务销毁时由内核自动回收；保留 process-scoped `pending_exec_map` 仅用于 non-leader exec 的身份 handoff。
+- Non-goals：不改变 event v2 wire layout、Ringbuf API、Go 单消费者、输出格式、filter、payload 深拷贝时点或 pure-eBPF/no-ptrace/no-procfs 边界；不保留 Hash/task 双轨，也不把 `pending_exec_map` 扩大为普通 pending store。
+- Constraints：task storage map 必须遵守内核 local-storage contract；普通 syscall 不得依赖 TID Hash；exec identity migration、kretprobe、nested fd path、mismatch 和 lifecycle cleanup 必须有语义覆盖；所有失败仍计入 runtime stats。
+
+#### 方案比较
+
+1. 继续调大 TID Hash 或只改 value layout：改动小，但保留 key lookup、容量和 stale cleanup 成本，不能解决状态所有权问题。
+2. Per-CPU Hash：可能减少锁竞争，但 syscall enter/exit 可能跨 CPU，无法保证同一 TID 配对，拒绝。
+3. `BPF_MAP_TYPE_TASK_STORAGE`：状态由 `task_struct` 所有，自动随 task 生命周期清理，天然支持当前 task 的 enter/exit 配对，选择。
+
+#### 实现与失败优先测试
+
+- 先加入 source gate，要求 `BPF_MAP_TYPE_TASK_STORAGE`、`__type(key, int)`、`max_entries=0`、`BPF_F_NO_PREALLOC` 和稳定的 `pending_task_state` layout；旧 Hash 声明和直接 Hash pending 操作被列为禁用契约。
+- 使用 `bpf_get_current_task_btf()` 和 `bpf_task_storage_get(..., BPF_LOCAL_STORAGE_GET_F_CREATE)` 获取状态；公共 `pending_syscall`、network/`recvmsg` 的 `aux0` 和 `valid` 合并在 80 字节 task value 中，并更新 map catalog、collection replacement 和生成 bindings。
+- `current_pending_syscall`、aux capture、recvmsg kretprobe、nested fd path 和 exit resolver 都只接受 `valid` 状态；正常 consume、mismatch、替换 leader 和 lifecycle 事件只清 `valid/aux0`，不再每个 syscall 调用 `bpf_task_storage_delete`。
+- 非 leader exec 成功后 Linux 会改变当前 pid/tid 身份。resolver 只在 `ret==0`、pending syscall 是 exec 且当前 TID 与保存 TID 不同的窄分支查 `pending_exec_map`，把旧 TID 带回验证和输出；普通 exit 完全走 task storage。
+- 失败优先过程实际捕获了两个问题：普通 map 风格的 `max_entries=1` 造成 task storage `EINVAL`，修正为 local-storage 的 key/max contract；初版每次 exit delete 在高压 capture 中产生 `pending_update_fail=7304/32615`，改为 `valid` 复用后归零。
+
+#### 验证与 A/B 结果
+
+- `sudo -n ./build.sh` 通过，生成对象包含 task storage map，真实 clang、CO-RE 和 verifier 通过；`session_test` 同时校验 map type、key size `4`、max entries `0`、`BPF_F_NO_PREALLOC` 和 value size `80`。
+- `ebpf-semantic` 通过：主事件 `197`，enter/exit `100/97`，lifecycle `6`；thread fixture 的 non-leader exec 成为 `24` 个 syscall events，`pending_update_fail=0`、`orphan_exit=0`、`pending_mismatch=0`、`lifecycle_map_update_fail=0`。
+- `ebpf-perf` 通过：Go decode `352.90 ns/op`、普通 JSON writer `507.30 ns/op`、decoded JSON `600.90 ns/op`，均为 `0 alloc/op`；decoded payload `884.40 ns/op`、`16 B/op`、`1 alloc/op`。trace-window exit rate 为 scalar `25967.92/s`、IO `17413.58/s`、lifecycle `85.22/s`、threads `15149.01/s`，runtime counters 均为 `0`。
+- 当前 task-storage 版本的三轮高压 capture 使用 16 threads、每线程 100000 次 `getpid`、128 MiB Ringbuf；每轮都满足 `reserve_fail + records_read = 3,200,035`、`records_invalid=0`、`pending_update_fail=0`、`orphan_exit=0`：
+  - `none`：`records_read=2,162,647/2,108,174/2,159,478`，对应 `reserve_fail=1,037,388/1,091,861/1,040,557`。
+  - JSON：`records_read=1,215,851/1,190,515/1,190,471`，对应 `reserve_fail=1,984,184/2,009,520/2,009,564`。
+- 临时 worktree 的提交前 Hash 版本三轮对照为：`none` `records_read=2,203,227/2,269,255/1,790,370`、JSON `1,216,975/1,211,319/1,213,747`；两组区间重叠，JSON 中位数几乎相同，不能把 task storage 宣称为整体 event/s 修复。它解决的是 pending allocation failure 和状态所有权问题，不是 Ringbuf producer/consumer 稳态速率差。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、Python unit `47/47`、native upstream small `23/23 PASS` 均通过；`git diff --check` 通过。
+
+#### 决策与 Review
+
+- 保留 task storage 重构。它消除了普通 pending TID Hash 和 auxiliary Hash，保留了纯 eBPF 的 enter-time snapshot，且高压下 runtime error counters 恢复为零；task state 的有效性和清理边界现在由明确的 `valid` 标志表达。
+- 不把本阶段标记为 event/s 根因修复：Ringbuf reservation failure 仍约为 none `1.04M` 到 `1.09M`、JSON `1.98M` 到 `2.01M`；完整 JSON 的 records 与 Hash 基线同量级，剩余瓶颈仍在 BPF reservation、payload/record producer 和单 Go consumer/output 竞争。
+- `pending_exec_map` 仍是必要的 process-scoped lifecycle fact，而不是兼容模式或第二 pending backend；它只参与 non-leader exec identity handoff 和 leader replacement 判断。
+- 本阶段没有使用 procfs 读取运行时状态，也没有恢复 ptrace/process_vm fallback；没有新增 Goroutine、mutex 或定时器。生成绑定、map catalog、生命周期 cleanup 和 source gates 与最终 task-storage 架构一致。
+
+#### 下一阶段入口
+
+- 以 task storage 版本的 `reserve_fail + records_read` 和零 pending failure 作为基线，继续分层测量 BPF reservation attempt、固定 record 大小、payload 深拷贝、handler 指令成本和 JSON/output 消费成本。
+- 不再通过扩大 pending map 或重复调整 task state 解决 Ringbuf drop；下一项优化必须先证明 producer/consumer 某一段的独立成本，再做同 fixture 交替 A/B。
+- 继续保持一个 Ringbuf、一个 Go consumer、纯 eBPF 事件时点和语义 oracle；下一阶段仍需运行 semantic、perf、capture、native small 及针对性 upstream exact tests。
