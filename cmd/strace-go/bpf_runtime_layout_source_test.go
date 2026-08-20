@@ -33,6 +33,7 @@ func TestBPFRuntimeModulesOwnCoreDefinitions(t *testing.T) {
 	for _, snippet := range []string{
 		"struct pending_syscall {",
 		"struct event_v2_header {",
+		"__uint(max_entries, 1 << 27);",
 		"} events SEC(\".maps\");",
 		"} pending_syscalls SEC(\".maps\");",
 	} {

@@ -142,7 +142,7 @@ struct lifecycle_event_v2 {
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 26);
+    __uint(max_entries, 1 << 27);
 } events SEC(".maps");
 
 struct {
