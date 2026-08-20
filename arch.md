@@ -10301,3 +10301,48 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 最终源码没有保留实验性 ABI、decoder 偏移或 source gate；工作树只保留本节架构否决记录，不产生 BPF/Go 运行行为变化。
 - 这项实验补充了此前 plain reservation、动态 size-class 和 Ringbuf 容量实验的边界：Ringbuf 压力仍然存在，但固定事件 API、record 字节数和容量都不能单独解释或修复高压 drop。
 - 本阶段没有引入 ptrace、procfs、process_vm、第二消费者、外部 mutex 或定时器；后续应转向按 syscall family 分层的 producer 指令成本、pending map 成本和 payload 深拷贝成本测量，而不是继续做无证据的全局 ABI 微调。
+
+### 14.255 拆分 pending syscall 的稀有辅助状态（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：公共 `pending_syscall` 由每次需要 enter/exit 配对的 syscall 写入，原结构包含 `enter_time`、6 个参数、任务身份、stack id 以及 `aux0/aux1`，BPF map value 为 80 字节；其中 `aux1` 没有消费者，`aux0` 只服务网络 addrlen 和 `recvmsg` name length。
+- Problem：把稀有字段放在每次 syscall 都要复制的公共 map value 中，会增加高频 `getpid/read/write` 的 map update 成本；直接删除 `aux0` 或在 exit 阶段重新读取用户内存，又会破坏纯 eBPF 的事件时点语义并重新引入异步内存失效。
+- Goal：将公共 pending value 缩小到 72 字节，把只在 network/`recvmsg` 使用的 `aux0` 放入独立的 TID auxiliary map，同时保持 enter/exit 配对、payload 长度和生命周期清理语义。
+- Non-goals：不改变 event v2 wire layout、Ringbuf reservation、Go 单消费者、过滤、payload 上限或 text/JSON 输出；不引入 ptrace、procfs、process_vm、用户态重读 tracee memory、锁或第二事件消费者。
+- Constraints：必须通过失败优先的结构/layout/source gate、真实 clang/verifier、semantic/perf、capture 对账和 native small；高压结论必须同时看 `reserve_fail + records_read`，不能只看端到端 `events/s`。
+
+#### 方案比较
+
+1. 保留 80 字节公共 value：实现和 ABI 最稳定，但每个高频 pending update 都复制无用的 `aux0/aux1`，作为基线。
+2. 删除辅助字段并在 exit 重读用户内存：公共 value 最小，但违反异步 eBPF 事件语义，存在用户内存已变化或失效的竞态，拒绝。
+3. 公共 72 字节 value 加独立 `pending_syscall_aux_map`：只在 network/`recvmsg` 路径保存需要的 metadata，保留事件现场快照并把常见路径成本降到最低，选择。
+
+#### 实现与失败优先测试
+
+- `struct pending_syscall` 删除 `aux0/aux1`；新增 8192 项 TID-keyed `pending_syscall_aux_map`，value 只包含 `aux0`。重新生成的所有 BPF Go bindings 暴露该 map，Go core map catalog 负责跨 collection 共享和关闭。
+- `save_pending_syscall_aux` 只在公共 pending 写入成功后执行：network 保存 sockaddr length，只有 `recvmsg` 保存 name length；exit capture 通过 TID lookup 读取辅助值。
+- mismatch、正常 consume、exec pending lookup、被替换 leader 和 sched lifecycle cleanup 都同时删除公共 pending 与 auxiliary state，避免辅助 map 遗留 stale TID entry；auxiliary map 更新失败复用既有 `pending_update_fail` 计数，禁止静默丢 metadata。
+- 修改前新增的 focused tests 按预期失败：源码中缺少 auxiliary struct/map，旧 BPF object 的 `pending_syscalls` value 仍为 80 字节。实现和重新生成后，layout、map catalog、update failure 和 cleanup source gates 全部通过。
+
+#### 验证与 A/B 结果
+
+- `sudo -n ./build.sh` 通过，clang、BPF object generation、真实 verifier 和生成 binding 均通过；生成对象确认 `pending_syscalls` value 为 72 字节。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、Python unit `10/10` 和 native upstream small `23/23 PASS` 通过。
+- `ebpf-semantic` 通过：主事件 `197`，enter/exit `100/97`，lifecycle `6`；reserve/copy、pending update、orphan、mismatch、lifecycle-map 错误均为 `0`。
+- `ebpf-perf` 通过：Go decode `351.30 ns/op`、普通 JSON writer `489.10 ns/op`、decoded JSON `598.90 ns/op`，均为 `0 alloc/op`；decoded payload `844.30 ns/op`、`16 B/op`、`1 alloc/op`。trace-window exit rate 为 scalar `24652.90/s`、IO `16090.81/s`、lifecycle `85.23/s`、threads `14539.36/s`，runtime counters 均为 `0`。
+- 在同一 16-thread、每线程 100000 次 `getpid` 的 `ebpf-capture` 上，对当前实现和无本阶段功能改动的 `889f147` 基线各运行三轮；每轮 `reserve_fail + records_read` 约闭合到 `3,200,035` 次，Ringbuf 上限均为 `134,217,600` 字节。
+  - `none` 当前实现 records 为 `2,801,239/2,816,373/2,837,518`，reserve failure 为 `398,796/383,662/362,517`；基线 records 为 `1,932,561/2,157,974/2,098,391`，reserve failure 为 `1,267,475/1,042,061/1,101,644`。中位数约为 `2.816M/0.384M` 对 `2.098M/1.102M`，说明公共 pending value 瘦身对 capture-only 高频路径有可重复的正向信号。
+  - `json` 当前实现 records 为 `1,149,364/1,134,325/1,141,838`，reserve failure 为 `2,050,671/2,065,710/2,058,197`；基线 records 为 `1,155,656/1,217,802/1,140,222`，reserve failure 为 `2,044,379/1,982,235/2,059,813`。中位数基本同一量级，没有证明 JSON/完整输出路径获得收益。
+- 所有 capture 轮次 `records_invalid=0`，正常 semantic/perf 的 pending/orphan/mismatch/stale counters 为 `0`；高压 capture 中偶发的 `pending_stale` 仍属于既有压力诊断，不提升为正常语义契约。
+
+#### 决策与 Review
+
+- 保留该优化。它只缩小公共 BPF map value，并把稀有 metadata 的读写隔离到真正需要的 syscall family；不改变事件 ABI 或用户态事件循环，且 capture-only A/B 的公共高频路径收益比 header 瘦身实验更稳定。
+- 不能宣称“event/s 已恢复”或“高压丢失已解决”：JSON 路径的 records/reserve failure 没有稳定改善，Go decode/handler/output 与 BPF producer 的整体竞争仍是剩余瓶颈。之前端到端 `events/s` 的大幅下降仍应拆成 setup/cleanup 固定成本和 trace-window Ringbuf producer/consumer 压力两部分观察。
+- 该阶段没有使用 procfs 读取运行时状态，也没有恢复 ptrace/process_vm fallback；network/`recvmsg` 的 metadata 都在 BPF enter 时保存，并在 exit 事件中通过 TID state 取回。运行时仍保持纯 eBPF、单 Go 消费者、无外部 mutex、无定时器。
+
+#### 下一阶段入口
+
+- 以本阶段 `none`/JSON 对账作为新基线，继续分离 JSON handler/编码、payload 深拷贝、BPF reservation 和 reader 消费成本；不能把 `none` 的改善外推为完整输出吞吐改善。
+- 优先做按 syscall family 的 producer 指令/辅助 map 成本和 payload capture 压测，并保留 `reserve_fail + records_read` 对账；任何进一步 map/record 改动仍需先补失败优先的语义、生命周期和 verifier 门禁。
