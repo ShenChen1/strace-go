@@ -153,7 +153,7 @@ func (st *TraceState) markAttachTargetExited(pid uint32, tid uint32) {
 	}
 }
 
-func (st *TraceState) markAttachTargetTerminated(view syscallEventView) {
+func (st *TraceState) markAttachTargetTerminated(view *syscallEventView) {
 	st.markAttachTargetExited(view.pid, view.tid)
 	if st == nil || st.attachTargets == nil || view.pid == 0 {
 		return
@@ -186,7 +186,7 @@ func (st *TraceState) ensureTaskState(tid uint32, tgid uint32) *TaskState {
 	return task
 }
 
-func (st *TraceState) noteSyscallTask(view syscallEventView) {
+func (st *TraceState) noteSyscallTask(view *syscallEventView) {
 	if view.tid == 0 {
 		return
 	}
@@ -195,8 +195,8 @@ func (st *TraceState) noteSyscallTask(view syscallEventView) {
 	task.LastSeenNS = view.enterTime
 }
 
-func taskTIDForSyscall(view syscallEventView) uint32 {
-	if !view.isExit() || view.ret != 0 || view.pid == 0 || view.pid == view.tid {
+func taskTIDForSyscall(view *syscallEventView) uint32 {
+	if !isExitView(view) || view.ret != 0 || view.pid == 0 || view.pid == view.tid {
 		return view.tid
 	}
 	name := syscallMeta(view.sysID).Name

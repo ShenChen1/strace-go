@@ -39,41 +39,43 @@ func (st *TraceState) handleLifecycleEnvelope(envelope traceEventEnvelope, unfin
 }
 
 func (st *TraceState) handleSyscallEnvelope(envelope traceEventEnvelope, unfinished []unfinishedSyscallView) TraceStateUpdate {
-	syscallView := envelope.syscallView()
-	processInherit := st.resolveForkIdentity(syscallView.tid, syscallView.pid)
-	if syscallView.isGenericEnter() {
-		st.noteSyscallTask(syscallView)
-		return st.handleSyscallEnter(syscallView, envelope.payload, processInherit, unfinished)
-	}
-	if syscallView.isExitFragment() {
-		st.noteSyscallTask(syscallView)
-		return st.handleSyscallFragment(syscallView, envelope.payload, processInherit, unfinished)
-	}
-	return st.handleSyscallExit(syscallView, envelope.payload, processInherit, unfinished)
-}
-
-func (st *TraceState) handleSyscallEnter(view syscallEventView, payload []handler.PayloadSection, processInherit *processStateInheritance, unfinished []unfinishedSyscallView) TraceStateUpdate {
-	st.rememberEnterEvent(view, payload)
 	update := TraceStateUpdate{
-		kind:            traceStateSyscallEnter,
-		syscallView:     view,
-		payloadSections: payload,
-		processInherit:  processInherit,
-		unfinished:      unfinished,
+		syscallView: envelope.syscallView(),
+		unfinished:  unfinished,
 	}
-	if pendingExit, ok := st.takePendingExit(view); ok {
-		st.attachDeferredExit(&update, pendingExit)
+	syscallView := &update.syscallView
+	update.processInherit = st.resolveForkIdentity(syscallView.tid, syscallView.pid)
+	if isGenericEnterView(syscallView) {
+		st.noteSyscallTask(syscallView)
+		st.handleSyscallEnter(&update, envelope.payload)
+		return update
 	}
+	if isExitFragmentView(syscallView) {
+		st.noteSyscallTask(syscallView)
+		st.handleSyscallFragment(&update, envelope.payload)
+		return update
+	}
+	st.handleSyscallExit(&update, envelope.payload)
 	return update
 }
 
+func (st *TraceState) handleSyscallEnter(update *TraceStateUpdate, payload []handler.PayloadSection) {
+	view := &update.syscallView
+	st.rememberEnterEvent(view, payload)
+	update.kind = traceStateSyscallEnter
+	update.payloadSections = payload
+	if pendingExit, ok := st.takePendingExit(view); ok {
+		st.attachDeferredExit(update, pendingExit)
+	}
+}
+
 func (st *TraceState) attachDeferredExit(update *TraceStateUpdate, pendingExit pendingExitState) {
-	pendingEnter := st.consumeEnterEvent(pendingExit.view)
+	pendingEnter := st.consumeEnterEvent(&pendingExit.view)
 	if pendingEnter == nil {
 		return
 	}
-	if st.isTerminatingSyscall(pendingExit.view) {
-		st.markAttachTargetTerminated(pendingExit.view)
+	if st.isTerminatingSyscall(&pendingExit.view) {
+		st.markAttachTargetTerminated(&pendingExit.view)
 		st.markLifecyclePending(pendingExit.view.tid)
 		st.clearTaskPending(pendingExit.view.tid)
 	}
@@ -85,44 +87,31 @@ func (st *TraceState) attachDeferredExit(update *TraceStateUpdate, pendingExit p
 	}
 }
 
-func (st *TraceState) handleSyscallFragment(view syscallEventView, payload []handler.PayloadSection, processInherit *processStateInheritance, unfinished []unfinishedSyscallView) TraceStateUpdate {
-	st.rememberExitFragment(view, payload)
-	return TraceStateUpdate{
-		kind:            traceStateSyscallFragment,
-		syscallView:     view,
-		payloadSections: payload,
-		processInherit:  processInherit,
-		unfinished:      unfinished,
-	}
+func (st *TraceState) handleSyscallFragment(update *TraceStateUpdate, payload []handler.PayloadSection) {
+	st.rememberExitFragment(update.syscallView, payload)
+	update.kind = traceStateSyscallFragment
+	update.payloadSections = payload
 }
 
-func (st *TraceState) handleSyscallExit(view syscallEventView, payload []handler.PayloadSection, processInherit *processStateInheritance, unfinished []unfinishedSyscallView) TraceStateUpdate {
+func (st *TraceState) handleSyscallExit(update *TraceStateUpdate, payload []handler.PayloadSection) {
+	view := &update.syscallView
 	pendingEnter := st.consumeEnterEvent(view)
 	if pendingEnter == nil {
 		st.noteSyscallTask(view)
 	}
 	if pendingEnter == nil && st.deferUnmatchedExits {
 		st.rememberPendingExit(view, payload)
-		return TraceStateUpdate{
-			kind:            traceStateSyscallExit,
-			deferred:        true,
-			syscallView:     view,
-			payloadSections: payload,
-			processInherit:  processInherit,
-			unfinished:      unfinished,
-		}
+		update.kind = traceStateSyscallExit
+		update.deferred = true
+		update.payloadSections = payload
+		return
 	}
 	if st.isTerminatingSyscall(view) {
 		st.markAttachTargetTerminated(view)
 		st.markLifecyclePending(view.tid)
 		st.clearTaskPending(view.tid)
 	}
-	return TraceStateUpdate{
-		kind:            traceStateSyscallExit,
-		syscallView:     view,
-		payloadSections: payload,
-		pendingEnter:    pendingEnter,
-		processInherit:  processInherit,
-		unfinished:      unfinished,
-	}
+	update.kind = traceStateSyscallExit
+	update.payloadSections = payload
+	update.pendingEnter = pendingEnter
 }

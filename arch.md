@@ -10780,3 +10780,41 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 高压 capture 的 `reserve_fail` 仍然存在，说明剩余瓶颈仍在状态 map bookkeeping、router transport、handler/effect 和 output，而不是终止 syscall 名称解析本身。
 - 下一阶段继续对 `traceEventEnvelope` 的值传递、router/state update 生命周期和 output writer 做分层 profile；所有收益继续以 semantic、native reference 和 `records_read + reserve_fail` 联合判定。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、第二事件消费者、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.267 就地填充 TraceStateUpdate，移除 syscall view 中间复制（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.266 后 state-only profile 仍显示 `traceEventEnvelope.syscallView` 约占 CPU 样本的 `7.9%`；dispatcher 先创建局部 `syscallEventView`，再把它按值传给 enter/exit helper，helper 又按值构造并返回 `TraceStateUpdate`。
+- Problem：`syscallEventView` 包含 `[6]uint64` 参数数组和多个标量字段；这些中间值复制不改变语义，却延长了单消费者占用 Ringbuf 的时间，并把 producer 背压表现成 `ringbuf_reserve_fail`。
+- Goal：让 dispatcher 直接在最终 `TraceStateUpdate` 中生成 view，helper 通过 update 指针就地填充 kind、payload、pending 和 deferred 状态；保持 steady-state `0 alloc/op` 和原有 update 生命周期。
+- Non-goals：不把 `TraceStateUpdate.syscallView` 改成跨事件借用指针，不改变 event v2/BPF ABI、payload 所有权、enter/exit 配对、lifecycle、输出文本或纯 eBPF/no-ptrace/no-procfs 边界。
+- Constraints：仍只有一个同步 Go consumer；deferred exit 必须复制到独立 update；所有状态 helper 的参数数量和函数规模保持在架构限制内。
+
+#### 方案比较
+
+1. 保留 view 按值传递：改动最小，但保留已由 profile 证实的固定复制成本，拒绝。
+2. 把 `TraceStateUpdate.syscallView` 改成 TraceState scratch 指针：可能进一步减少复制，但会引入“下一条事件覆盖 view”的借用生命周期，且需要改动大量测试和调用方，拒绝。
+3. 保留 update 的值语义，在 update 内先生成 view，再让 enter/fragment/exit helper 就地修改：去掉局部 view 与 helper 返回值复制，生命周期不变，选择。
+
+#### 实现与失败优先测试
+
+- `handleSyscallEnvelope` 先构造 `TraceStateUpdate`，将 `syscallView` 地址交给同步 dispatcher；enter、exit fragment、exit helper 都接收 update 指针并就地填写结果。
+- `rememberEnterEvent`、`takePendingExit`、`consumeEnterEvent`、task bookkeeping 和终止 syscall 判断改为接收短生命周期 view 指针；真正跨事件保存的 pending exit 仍显式复制 view。
+- 保留 `syscallEventView` 的值类型和现有输出 API，避免把内部借用生命周期扩散到 formatter、handler 和测试 fixture；新增/更新 pointer 参数的 focused state tests 与 source contract tests。
+- 先保留原有 `BenchmarkTraceEventDecodeState` 和 `BenchmarkTraceEventDecodeStateWithoutUnfinished` 作为回归基线，要求优化后仍为 `0 B/op、0 allocs/op`，再运行真实 eBPF capture 对账。
+
+#### 验证与实测
+
+- 独立 state-only benchmark 从前一阶段约 `302.3 ns/op` 降到 `260.7 ns/op`；三轮复测为 `260.7/260.7/261.0 ns/op`，均为 `0 B/op、0 allocs/op`。unfinished 开启的三轮为 `277.7/278.1/278.0 ns/op`，同样为 `0 B/op、0 allocs/op`。
+- 当前 `ebpf-semantic` 通过：主语义事件 `197`，enter/exit `100/97`，lifecycle `6`，payload truncated `7`，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 错误均为 `0`。
+- 当前四路高压 capture 对账到约 `3,200,035` 次 reservation attempt：reader `3,200,035/0`、none `3,200,036/0`、handler `1,556,807/1,643,228`、JSON `1,214,625/1,985,410`，格式为 `records_read/ringbuf_reserve_fail`。各路 `records_invalid=0` 且 decoded/read 对账成立；handler/JSON 的少量 `pending_stale=6` 来自 producer 丢失造成的不完整配对，不是新的状态错误。
+- 当前 `ebpf-perf` 通过：Go pipeline decode `284.00 ns/op、0 B/op、0 allocs/op`，raw/decoded JSON `490.10/599.20 ns/op`，均为 `0 alloc/op`；payload JSON `842.00 ns/op、16 B/op、1 alloc/op`。trace-window exit rate 为 scalar `26221.20/s`、IO `16153.79/s`、lifecycle `85.48/s`、threads `15216.52/s`，运行期 error counters 为 `0`。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、`ebpf-semantic`、`ebpf-capture`、`ebpf-perf` 和 native upstream `small` `23/23 PASS` 均通过；`git diff --check` 通过。
+
+#### 决策与 Review
+
+- 保留本阶段优化。它只改变 Go state dispatcher 的值传递形态，保留跨事件状态的显式所有权，没有引入 scratch view 借用、额外分配、锁、协程、定时器或接口调用。
+- 这次结果解释了此前 event/s 下降的一部分：state-only consumer 的固定复制成本确实能让 `none` 在本轮 fixture 达到无 reservation loss；但 handler/JSON 仍然产生大量 reservation failure，完整端到端吞吐尚未根治。
+- 下一阶段继续拆分 `TraceEventRouter`/output path 的 envelope 和 update 消费成本，并保持 `records_read + reserve_fail`、语义事件数和原生 smoke 联合验收；不能用 reader-only 的无损结果替代完整输出链结论。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、第二事件消费者、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

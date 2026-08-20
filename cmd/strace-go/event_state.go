@@ -148,16 +148,28 @@ func (st *TraceState) clearLifecyclePending(tid uint32) {
 	delete(st.lifecyclePending, tid)
 }
 
-func isTerminatingSyscall(view syscallEventView) bool {
+func isTerminatingSyscall(view *syscallEventView) bool {
 	name := syscallMeta(view.sysID).Name
 	return name == "exit" || name == "exit_group"
 }
 
-func (st *TraceState) isTerminatingSyscall(view syscallEventView) bool {
+func (st *TraceState) isTerminatingSyscall(view *syscallEventView) bool {
 	if st == nil || !st.lifecycleIDs.configured() {
 		return isTerminatingSyscall(view)
 	}
 	return st.lifecycleIDs.isTerminating(view.sysID)
+}
+
+func isGenericEnterView(view *syscallEventView) bool {
+	return view.eventType == bpfEventTypeEnter && (view.eventFlags&bpfEventFlagGenericEnter) != 0
+}
+
+func isExitView(view *syscallEventView) bool {
+	return view.eventType == bpfEventTypeExit
+}
+
+func isExitFragmentView(view *syscallEventView) bool {
+	return isExitView(view) && (view.eventFlags&bpfEventFlagExitFragment) != 0
 }
 
 func (pending *pendingSyscallState) enterView() syscallEventView {
@@ -200,12 +212,12 @@ func (view syscallEventView) isExitFragment() bool {
 	return view.isExit() && (view.eventFlags&bpfEventFlagExitFragment) != 0
 }
 
-func (st *TraceState) rememberEnterEvent(view syscallEventView, payload []handler.PayloadSection) {
+func (st *TraceState) rememberEnterEvent(view *syscallEventView, payload []handler.PayloadSection) {
 	if st.pendingSyscalls == nil {
 		st.pendingSyscalls = make(map[uint32]*pendingSyscallState)
 	}
 	if pending := st.pendingSyscalls[view.tid]; pending != nil && pending.sysID == view.sysID {
-		pending.genericEnterRaw = pending.genericEnterRaw || view.isGenericEnter()
+		pending.genericEnterRaw = pending.genericEnterRaw || isGenericEnterView(view)
 		pending.unfinishedPrinted = pending.unfinishedPrinted || view.probeRetEnter >= 2
 		pending.payloadSections = mergeEnterPayloadSections(pending.payloadSections, payload)
 		return
@@ -223,7 +235,7 @@ func (st *TraceState) rememberEnterEvent(view syscallEventView, payload []handle
 		enterTime:         view.enterTime,
 		args:              view.args,
 		probeRetEnter:     view.probeRetEnter,
-		genericEnterRaw:   view.isGenericEnter(),
+		genericEnterRaw:   isGenericEnterView(view),
 		unfinishedPrinted: view.probeRetEnter >= 2,
 		payloadSections:   copyPayloadSections(payload),
 	}
@@ -276,17 +288,17 @@ func (st *TraceState) rememberExitFragment(view syscallEventView, payload []hand
 	pending.payloadSections = mergeEnterPayloadSections(pending.payloadSections, payload)
 }
 
-func (st *TraceState) rememberPendingExit(view syscallEventView, payload []handler.PayloadSection) {
+func (st *TraceState) rememberPendingExit(view *syscallEventView, payload []handler.PayloadSection) {
 	if st.pendingExits == nil {
 		st.pendingExits = make(map[uint32]pendingExitState)
 	}
 	st.pendingExits[view.tid] = pendingExitState{
-		view:            view,
+		view:            *view,
 		payloadSections: copyPayloadSections(payload),
 	}
 }
 
-func (st *TraceState) takePendingExit(view syscallEventView) (pendingExitState, bool) {
+func (st *TraceState) takePendingExit(view *syscallEventView) (pendingExitState, bool) {
 	pending, ok := st.takePendingExitForTID(view.tid)
 	if !ok || pending.view.sysID != view.sysID || pending.view.enterTime != view.enterTime {
 		return pendingExitState{}, false
@@ -336,8 +348,8 @@ func copyPayloadSections(sections []handler.PayloadSection) []handler.PayloadSec
 	return out
 }
 
-func (st *TraceState) consumeEnterEvent(view syscallEventView) *pendingSyscallSnapshot {
-	if !view.isExit() || st.pendingSyscalls == nil {
+func (st *TraceState) consumeEnterEvent(view *syscallEventView) *pendingSyscallSnapshot {
+	if !isExitView(view) || st.pendingSyscalls == nil {
 		return nil
 	}
 	pending := st.pendingSyscalls[view.tid]

@@ -51,7 +51,7 @@ func TestTraceStateDefersExitTaskBookkeepingUntilPairing(t *testing.T) {
 	root := repoRootForTest(t)
 	dispatchSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/event_state_dispatch.go"))
 	syscall := sourceFunctionBody(t, dispatchSource, "func (st *TraceState) handleSyscallEnvelope")
-	enterBranch := strings.Index(syscall, "if syscallView.isGenericEnter()")
+	enterBranch := strings.Index(syscall, "if isGenericEnterView(syscallView)")
 	if enterBranch < 0 {
 		t.Fatal("syscall dispatcher is missing the enter branch")
 	}
