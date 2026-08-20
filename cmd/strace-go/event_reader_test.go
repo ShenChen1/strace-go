@@ -94,6 +94,38 @@ func TestTraceEventReaderReadsAndRoutesRecord(t *testing.T) {
 	}
 }
 
+func TestTraceEventReaderReusesDeadlineAcrossRecords(t *testing.T) {
+	ringReader := &fakeRingbufReader{
+		readErrors: []error{nil, nil, os.ErrDeadlineExceeded, nil},
+	}
+	clock := &stepTraceClock{now: time.Unix(100, 0), step: time.Second}
+	reader := newTraceEventReader(TraceEventReaderDeps{
+		Reader:  ringReader,
+		Decoder: &acceptingRecordDecoder{},
+		Clock:   clock,
+	})
+
+	for i := 0; i < 2; i++ {
+		if got, err := reader.Read(&ringbuf.Record{}, time.Second); err != nil || got != traceReadHandled {
+			t.Fatalf("Read(%d) result = %v/%v, want handled/nil", i, got, err)
+		}
+	}
+	if got, err := reader.Read(&ringbuf.Record{}, time.Second); err != nil || got != traceReadNoEvent {
+		t.Fatalf("timeout Read result = %v/%v, want no event/nil", got, err)
+	}
+	if got, err := reader.Read(&ringbuf.Record{}, time.Second); err != nil || got != traceReadHandled {
+		t.Fatalf("next-round Read result = %v/%v, want handled/nil", got, err)
+	}
+
+	if len(ringReader.deadlines) != 2 {
+		t.Fatalf("deadline calls = %d, want one per wait round", len(ringReader.deadlines))
+	}
+	if !ringReader.deadlines[0].Equal(time.Unix(101, 0)) ||
+		!ringReader.deadlines[1].Equal(time.Unix(102, 0)) {
+		t.Fatalf("deadlines = %v, want [101s, 102s]", ringReader.deadlines)
+	}
+}
+
 func TestTraceEventReaderDrainAfterDoneUsesInjectedClock(t *testing.T) {
 	clock := &stepTraceClock{now: time.Unix(200, 0), step: time.Second}
 	ringReader := &fakeRingbufReader{}

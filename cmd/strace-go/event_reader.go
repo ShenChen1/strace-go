@@ -22,10 +22,11 @@ type traceEventSink interface {
 // TraceEventReader owns the synchronous ringbuf boundary. It decodes and
 // routes each sample before returning control to the session loop.
 type TraceEventReader struct {
-	reader  traceRingbufReader
-	decoder traceRecordDecoder
-	sink    traceEventSink
-	clock   traceClock
+	reader         traceRingbufReader
+	decoder        traceRecordDecoder
+	sink           traceEventSink
+	clock          traceClock
+	deadlineActive bool
 }
 
 type TraceEventReaderDeps struct {
@@ -55,14 +56,20 @@ func (r *TraceEventReader) Read(rec *ringbuf.Record, timeout time.Duration) (tra
 	if r == nil || r.reader == nil || r.clock == nil {
 		return traceReadNoEvent, nil
 	}
-	r.reader.SetDeadline(r.clock.Now().Add(timeout))
+	if !r.deadlineActive {
+		r.reader.SetDeadline(r.clock.Now().Add(timeout))
+		r.deadlineActive = true
+	}
 	if err := r.reader.ReadInto(rec); err != nil {
 		if errors.Is(err, ringbuf.ErrClosed) {
+			r.deadlineActive = false
 			return traceReadClosed, nil
 		}
 		if errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, ringbuf.ErrFlushed) {
+			r.deadlineActive = false
 			return traceReadNoEvent, nil
 		}
+		r.deadlineActive = false
 		return traceReadNoEvent, fmt.Errorf("read ringbuf: %w", err)
 	}
 	if r.HandleRecord(rec) {
@@ -79,6 +86,7 @@ func (r *TraceEventReader) Drain(rec *ringbuf.Record) error {
 		return fmt.Errorf("flush ringbuf: %w", err)
 	}
 	r.reader.SetDeadline(time.Time{})
+	r.deadlineActive = false
 	for {
 		if err := r.reader.ReadInto(rec); err != nil {
 			if errors.Is(err, ringbuf.ErrFlushed) || errors.Is(err, ringbuf.ErrClosed) {
