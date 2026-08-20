@@ -25,6 +25,36 @@ func TestHandleBPFRecordUsesSessionRecordDecoder(t *testing.T) {
 	}
 }
 
+func TestReadTraceEventBatchHonorsBacklogLimit(t *testing.T) {
+	ringReader := &fakeRingbufReader{
+		readErrors: []error{nil, nil, nil},
+		remaining:  []int{512, 256, 0},
+	}
+	decoder := &acceptingRecordDecoder{}
+	reader := newTraceEventReader(TraceEventReaderDeps{
+		Reader:  ringReader,
+		Decoder: decoder,
+		Clock:   &fakeTraceClock{now: time.Unix(100, 0)},
+	})
+	var record ringbuf.Record
+
+	status, err := readTraceEventBatch(reader, &record, time.Second, 2)
+	if err != nil || status != traceReadHandled {
+		t.Fatalf("first batch = %v/%v, want handled/nil", status, err)
+	}
+	if ringReader.readCalls != 2 || decoder.calls != 2 {
+		t.Fatalf("first batch read/decode calls = %d/%d, want 2/2", ringReader.readCalls, decoder.calls)
+	}
+
+	status, err = readTraceEventBatch(reader, &record, time.Second, 2)
+	if err != nil || status != traceReadHandled {
+		t.Fatalf("second batch = %v/%v, want handled/nil", status, err)
+	}
+	if ringReader.readCalls != 3 || decoder.calls != 3 {
+		t.Fatalf("second batch read/decode calls = %d/%d, want 3/3", ringReader.readCalls, decoder.calls)
+	}
+}
+
 func TestNewTraceRunStateCopiesAttachDependencies(t *testing.T) {
 	attachPids := []int{101, 202}
 	state := newTraceRunState(traceRunStateDeps{attachPids: attachPids})

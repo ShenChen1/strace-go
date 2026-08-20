@@ -15,6 +15,7 @@ const traceEventPollInterval = 100 * time.Millisecond
 const traceExitLifecycleDrainGrace = 200 * time.Millisecond
 const traceExitDrainPollInterval = 10 * time.Millisecond
 const traceExitFallbackGrace = 100 * time.Millisecond
+const traceEventBatchLimit = 64
 
 type traceReadStatus uint8
 
@@ -111,7 +112,12 @@ func (s *traceSession) run() error {
 		if state.done() {
 			return errors.Join(eventReader.DrainAfterDone(&rec, s.exitDrainGraceForState(state)), s.finishRun())
 		}
-		status, err := eventReader.Read(&rec, traceEventPollInterval)
+		status, err := readTraceEventBatch(
+			eventReader,
+			&rec,
+			traceEventPollInterval,
+			traceEventBatchLimit,
+		)
 		if err != nil {
 			return errors.Join(err, s.finishRun())
 		}
@@ -119,6 +125,31 @@ func (s *traceSession) run() error {
 			return s.finishRun()
 		}
 	}
+}
+
+func readTraceEventBatch(
+	reader *TraceEventReader,
+	rec *ringbuf.Record,
+	timeout time.Duration,
+	limit int,
+) (traceReadStatus, error) {
+	if reader == nil {
+		return traceReadNoEvent, nil
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	status, err := reader.Read(rec, timeout)
+	if err != nil || status != traceReadHandled {
+		return status, err
+	}
+	for count := 1; count < limit && rec != nil && rec.Remaining > 0; count++ {
+		status, err = reader.Read(rec, timeout)
+		if err != nil || status != traceReadHandled {
+			return status, err
+		}
+	}
+	return traceReadHandled, nil
 }
 
 func (s *traceSession) sessionAttachPIDs() []int {
