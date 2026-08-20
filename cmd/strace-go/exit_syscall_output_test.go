@@ -137,6 +137,17 @@ func TestExitSyscallOutputPrintsTextAndStatus(t *testing.T) {
 	}
 }
 
+func TestExitSyscallOutputHandlerOnlySuppressesTerminalOutput(t *testing.T) {
+	state := newExitOutputTestState(&cli.Options{EventFormat: cli.EventFormatHandler, FollowForks: true})
+
+	if !state.output.Handle(exitEventContext(state.opts, "exit_group", true)) {
+		t.Fatal("handler-only exit_group should be handled")
+	}
+	if state.out.Len() != 0 || state.jsonCalled || state.queuedLine != "" {
+		t.Fatalf("handler-only exit output leaked: out=%q json=%v queued=%q", state.out.String(), state.jsonCalled, state.queuedLine)
+	}
+}
+
 func TestExitSyscallOutputHiddenExitPrintsStatusOnly(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{FollowForks: true})
 

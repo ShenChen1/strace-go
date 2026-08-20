@@ -10628,3 +10628,39 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留这两项用户态优化：前者删除常见 paired exit 的重复 task map 更新，后者消除 decoder 的重复 header validation；两者都没有牺牲纯 eBPF 事件时点或异常顺序 fallback。
 - 当前问题只得到部分改善，尚未解决：reader-only 能跟上 producer，而完整 none/json 仍在 `TraceState/router` 和 output 压力下触发 BPF `ringbuf_reserve_fail`。短 workload 的低 event/s 仍需使用 `trace_sec` 排除 setup/cleanup 分母，长 workload 则必须按 producer、state、handler 和 output 分层压测。
 - 下一阶段优先做高压 text/JSON handler 的独立消费基线，以及 decoder/state/router 的 per-layer A/B；继续以 `reserve_fail + records_read`、`trace_sec`、`records_invalid` 和语义计数联合判定，不再用单轮 wall-clock 作为结论。
+
+### 14.263 增加 handler-only 分层基线（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：reader-only 只执行 event-v2 边界校验，`none` 跳过完整 exit pipeline，JSON 则同时包含 handler、FD/lifecycle effect 和 JSON 编码；这三个现有点不足以单独衡量 handler 成本。
+- Problem：高压 `event/s` 下降究竟来自 `TraceState/router`、syscall handler/FD effect，还是 JSON/text renderer，仍然只能间接推断；直接改 BPF 会把用户态背压与 producer 成本混在一起。
+- Goal：增加开发期 `--event-format=handler`，复用正常 decoder、TraceState、router、handler runner 和 lifecycle/FD effects，但抑制 text、JSON 和 exit-status rendering，形成第四个真实 eBPF 分层点。
+- Non-goals：不建立 compat/ebpf-fast 双模式，不改变默认 text/json/none/reader，不改变 BPF ABI、事件顺序、payload 时点、单 Go consumer 或输出语义。
+- Constraints：handler-only 必须仍经过 router 和 handler pipeline；终止 syscall、lifecycle、unfinished 和 command exit 均不得泄漏文本；capture 必须继续闭合 `reserve_fail + records_read`。
+
+#### 方案比较
+
+1. 只增加 Go handler benchmark：改动小，但没有真实 Ringbuf producer/consumer 背压，不能解释高压丢失。
+2. 让 `none` 可选地运行 handler：会混淆现有 none 的 state-only 含义，且测试结果难以复现。
+3. 增加独立 `handler` 诊断格式：保留现有层的定义，完整执行 handler/effect 但统一抑制渲染，选择。
+
+#### 实现与测试
+
+- CLI 增加 `EventFormatHandler` 和 `--event-format=handler`；policy 暴露窄的 `HandlerOnly` capability，仍将所有 rendered event 标记为 discard。
+- session composition 在 handler-only 下保留 `SyscallExitPipeline` 与 `LifecycleEventHandler`，但不启用 reader-only decoder，不启用 unfinished rendering；`ExitSyscallOutput`、lifecycle exit text 和 command fallback 复用 discard 保护。
+- capture suite 扩展为 `reader`、`none`、`handler`、`json` 四路，并继续检查 ready、phase、stats、invalid/decode/route 对账和无意 JSON syscall 输出。
+- 新增 CLI、policy、session graph、pipeline handler execution 和 terminal output suppression tests；handler-only 测试确认 handler 与 FD effect 运行，而输出 buffer 保持为空。
+
+#### 验证与实测
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、Python unit `47/47`、`ebpf-semantic`、`ebpf-perf` 和 native small `23/23 PASS` 均通过；semantic 主事件 `197`，enter/exit `100/97`，lifecycle `6`，runtime error counters 为 `0`。
+- 同一 16-thread、每线程 100000 次 `getpid` fixture 的两轮 capture 均闭合到约 `3,200,035` 次 reservation attempt。第一轮：reader `3,200,035/0`、none `2,261,739/938,296`、handler `1,352,317/1,847,718`、JSON `1,184,620/2,015,415`，格式为 `records_read/ringbuf_reserve_fail`。
+- 第二轮：reader `3,200,035/0`、none `2,929,055/270,980`、handler `1,392,805/1,807,230`、JSON `1,205,399/1,994,637`。各模式 `records_invalid=0` 且 `records_decoded=records_read`、正常 routed 模式 `records_routed=records_read`。
+- 结论不是某个绝对 event/s 数字，而是层次稳定：reader 可跟上 producer；state-only 有明显用户态成本；handler/effect 再降低吞吐；JSON 编码和输出在 handler 之上继续产生压力。
+
+#### 决策与 Review
+
+- 保留 handler-only 作为开发期性能诊断能力，不把它作为用户语义模式或第二产品架构；生产默认仍是一条纯 eBPF 路径。
+- 之前的 event/s 下降现在可以更精确地归因：高压丢失首先在完整 Go state/router，handler/effect 和 JSON/output 继续放大背压；reader 本身不是主因。高压丢失仍未修复。
+- 下一阶段优先 profile 并优化 `SyscallEventContext` 构造、handler registry/FD effect 和 JSON writer 的独立热路径；每项改动都用四路 capture 对账，禁止用 reader-only 的吞吐替代完整语义结论。

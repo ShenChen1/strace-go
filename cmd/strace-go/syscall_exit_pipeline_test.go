@@ -148,6 +148,29 @@ func TestSyscallExitPipelineRunsHandlerForPrintableEvent(t *testing.T) {
 	wantCalls(t, calls, []string{"handler", "fd-state", "offset", "cleanup"})
 }
 
+func TestSyscallExitPipelineHandlerOnlyRunsHandlerWithoutOutput(t *testing.T) {
+	var calls []string
+	policy := newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatHandler})
+	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
+		HandleSyscall: func(string, *handler.Context) handler.Result {
+			calls = append(calls, "handler")
+			return handler.Result{}
+		},
+		Effects: handlerEffectFunc(func(syscallEventContext) {
+			calls = append(calls, "fd-state")
+		}),
+	})
+	pipeline := newSyscallExitPipeline(SyscallExitPipelineDeps{
+		Summary: policy,
+		Runner:  runner,
+		Effects: &fakeSyscallExitEffects{},
+	})
+
+	pipeline.Handle(exitPipelineEvent("getpid"))
+
+	wantCalls(t, calls, []string{"handler", "fd-state"})
+}
+
 func TestSyscallExitPipelineSkipsUnfinishedDecodeOutsideTextMode(t *testing.T) {
 	opts := &cli.Options{EventFormat: cli.EventFormatJSON}
 	policy := newTraceOutputPolicy(opts)

@@ -11,10 +11,11 @@ import (
 )
 
 const (
-	EventFormatText   = "text"
-	EventFormatJSON   = "json"
-	EventFormatNone   = "none"
-	EventFormatReader = "reader"
+	EventFormatText    = "text"
+	EventFormatJSON    = "json"
+	EventFormatNone    = "none"
+	EventFormatReader  = "reader"
+	EventFormatHandler = "handler"
 )
 
 // Options holds all parsed command-line options.
@@ -270,7 +271,7 @@ func parseTraceFlags(arg string, opts *Options) bool {
 
 func validateEventFormat(format string) {
 	switch format {
-	case EventFormatText, EventFormatJSON, EventFormatNone, EventFormatReader:
+	case EventFormatText, EventFormatJSON, EventFormatNone, EventFormatReader, EventFormatHandler:
 		return
 	default:
 		fmt.Fprintf(os.Stderr, "%s: unsupported --event-format value '%s'\n", os.Args[0], format)

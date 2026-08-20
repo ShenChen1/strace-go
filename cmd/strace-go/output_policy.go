@@ -12,6 +12,10 @@ type traceReaderOnlyPolicy interface {
 	ReaderOnly() bool
 }
 
+type traceHandlerOnlyPolicy interface {
+	HandlerOnly() bool
+}
+
 // traceEventOutputPolicy owns debug and status decisions for syscall events.
 // unfinished distinguishes an enter-side text fragment from a completed exit.
 type traceEventOutputPolicy interface {
@@ -78,6 +82,7 @@ type cliTraceOutputPolicy struct {
 	json               bool
 	discard            bool
 	readerOnly         bool
+	handlerOnly        bool
 	debug              bool
 	debugPhases        bool
 	status             successfulFailedOptions
@@ -100,6 +105,7 @@ var (
 	_ traceScopePolicy       = (*cliTraceOutputPolicy)(nil)
 	_ traceLifecyclePolicy   = (*cliTraceOutputPolicy)(nil)
 	_ traceReadyPolicy       = (*cliTraceOutputPolicy)(nil)
+	_ traceHandlerOnlyPolicy = (*cliTraceOutputPolicy)(nil)
 )
 
 func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
@@ -112,8 +118,9 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 	}
 	return &cliTraceOutputPolicy{
 		json:               opts.EventFormat == cli.EventFormatJSON,
-		discard:            opts.EventFormat == cli.EventFormatNone || opts.EventFormat == cli.EventFormatReader,
+		discard:            opts.EventFormat == cli.EventFormatNone || opts.EventFormat == cli.EventFormatReader || opts.EventFormat == cli.EventFormatHandler,
 		readerOnly:         opts.EventFormat == cli.EventFormatReader,
+		handlerOnly:        opts.EventFormat == cli.EventFormatHandler,
 		debug:              opts.DebugEvents,
 		debugPhases:        opts.DebugPhases,
 		status:             successfulFailedOptions{successfulOnly: opts.SuccessfulOnly, failedOnly: opts.FailedOnly, traceStatus: traceStatus},
@@ -149,9 +156,19 @@ func (p *cliTraceOutputPolicy) ReaderOnly() bool {
 	return p != nil && p.readerOnly
 }
 
+// HandlerOnly identifies the diagnostic path that runs handlers without rendering output.
+func (p *cliTraceOutputPolicy) HandlerOnly() bool {
+	return p != nil && p.handlerOnly
+}
+
 func isTraceReaderOnlyPolicy(policy interface{}) bool {
 	readerPolicy, ok := policy.(traceReaderOnlyPolicy)
 	return ok && readerPolicy.ReaderOnly()
+}
+
+func isTraceHandlerOnlyPolicy(policy interface{}) bool {
+	handlerPolicy, ok := policy.(traceHandlerOnlyPolicy)
+	return ok && handlerPolicy.HandlerOnly()
 }
 
 func (p *cliTraceOutputPolicy) DebugEvents() bool {

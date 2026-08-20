@@ -230,6 +230,20 @@ func TestTraceOutputPolicyReaderOnlyIsDiscardMode(t *testing.T) {
 	}
 }
 
+func TestTraceOutputPolicyHandlerOnlyKeepsPipelineWithoutOutput(t *testing.T) {
+	policy := newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatHandler})
+
+	if !policy.DiscardEvents() {
+		t.Fatal("handler-only policy did not suppress rendered events")
+	}
+	if !policy.HandlerOnly() {
+		t.Fatal("handler-only policy did not expose handler-only capability")
+	}
+	if policy.IsJSON() || policy.ShouldEmit(syscallEventContext{}, false) {
+		t.Fatal("handler-only policy unexpectedly enabled output")
+	}
+}
+
 func TestTraceRenderPolicyPortsCanBeInjected(t *testing.T) {
 	policy := fakeTraceRenderPolicy{options: traceRenderOptions{
 		time:              traceTimeOptions{printRelativeTime: true},

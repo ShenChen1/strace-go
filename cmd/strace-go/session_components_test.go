@@ -156,6 +156,24 @@ func TestReaderFormatBuildsReaderOnlyConsumer(t *testing.T) {
 	}
 }
 
+func TestHandlerFormatBuildsPipelineWithoutRenderedOutput(t *testing.T) {
+	session := newTestTraceSessionWithOptions(&cli.Options{EventFormat: cli.EventFormatHandler}, traceSessionDeps{})
+
+	if session.syscallExitPipeline() == nil || session.lifecycleEventHandler() == nil {
+		t.Fatal("handler-only format did not construct the handler pipeline")
+	}
+	if session.components.eventReader.sink != session.components.eventRouter {
+		t.Fatal("handler-only format did not route records through the event router")
+	}
+	if session.dependencies.OutputPolicy == nil || !session.dependencies.OutputPolicy.DiscardEvents() {
+		t.Fatal("handler-only format did not suppress rendered output")
+	}
+	state, ok := session.traceState().(*TraceState)
+	if !ok || state.unfinishedEnabled {
+		t.Fatal("handler-only format enabled unfinished rendering state")
+	}
+}
+
 func TestTraceSessionEagerGraphUsesOneExitStatusCoordinator(t *testing.T) {
 	session := newTestTraceSession(traceSessionDeps{})
 	components := session.components

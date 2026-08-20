@@ -296,7 +296,7 @@ func buildTraceSessionEvents(
 	var exitSink syscallExitSink
 	var lifecycleSink lifecycleEventSink
 	var jsonSink syscallEnterSink
-	if !base.outputPolicy.DiscardEvents() {
+	if !base.outputPolicy.DiscardEvents() || isTraceHandlerOnlyPolicy(base.outputPolicy) {
 		exitPipeline = newSyscallExitPipeline(SyscallExitPipelineDeps{
 			Summary: base.outputPolicy,
 			JSON:    outputs.syscallJSON,

@@ -56,10 +56,8 @@ def _count_json_events(stderr, event_type):
 def _run_capture(name, fixture, event_format):
     args = _fixture_args(fixture)
     start = time.monotonic()
-    if event_format == "none":
-        result = run_strace_go_capture(args, "none", timeout=60)
-    elif event_format == "reader":
-        result = run_strace_go_capture(args, "reader", timeout=60)
+    if event_format in ("none", "handler", "reader"):
+        result = run_strace_go_capture(args, event_format, timeout=60)
     else:
         result = run_strace_go_json(args, timeout=60, phases=True)
     return CaptureRun(
@@ -146,8 +144,9 @@ def run_ebpf_capture(args):
         "strace-go-ebpf-capture-fixture", (PERF_FIXTURE_SRC,), ["-pthread"]
     )
     captures = (
-        _run_capture("none", fixture, "none"),
         _run_capture("reader", fixture, "reader"),
+        _run_capture("none", fixture, "none"),
+        _run_capture("handler", fixture, "handler"),
         _run_capture("json", fixture, "json"),
     )
     failed = False
