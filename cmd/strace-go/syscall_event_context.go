@@ -21,6 +21,7 @@ type syscallEventContext struct {
 	shouldPrint     bool
 	pendingEnter    *pendingSyscallSnapshot
 	handlerContext  *handler.Context
+	contextRecycler *handlerContextRecycler
 	payloadSections []handler.PayloadSection
 	eventFDView     eventFDStateView
 }
@@ -53,6 +54,7 @@ type syscallEventContextDeps struct {
 	fdPath      event.FDPathReader
 	registry    handler.RegistryPort
 	runtime     handler.RuntimeServices
+	contextPool *handlerContextRecycler
 }
 
 type syscallEventContextDependencySource interface {
@@ -118,7 +120,7 @@ func newSyscallEventContextFromViewWithDeps(
 	pathArguments := decodePathArguments(deps, view, scMeta, payloadSections)
 	pathText := primaryPathText(pathArguments)
 	shouldPrint := true
-	if deps.filter != nil {
+	if deps.filter != nil && !deps.filter.IsUnfiltered() {
 		shouldPrint = checkShouldPrintFromView(printFilterRequest{
 			view:            view,
 			scMeta:          scMeta,
@@ -140,6 +142,7 @@ func newSyscallEventContextFromViewWithDeps(
 		pathArguments:   pathArguments,
 		shouldPrint:     shouldPrint,
 		pendingEnter:    pendingEnter,
+		contextRecycler: deps.contextPool,
 		payloadSections: payloadSections,
 		eventFDView:     eventFDView,
 	}
@@ -346,7 +349,8 @@ func unknownSyscallName(sysID uint32) string {
 func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *handler.Context {
 	view := ev.eventView()
 	scMeta := ev.effectiveSyscallMeta()
-	return &handler.Context{
+	context := deps.contextPool.acquire()
+	*context = handler.Context{
 		Pid: int(view.pid), Tid: int(view.tid), TargetPid: ev.statePID, SysId: view.sysID,
 		SysName: scMeta.Name, Args: view.args, Ret: view.ret,
 		ProbeRetEnter: view.probeRetEnter, ProbeRetExit: view.probeRetExit,
@@ -356,10 +360,25 @@ func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *h
 		Decoder:         deps.decoder,
 		Opts:            deps.handlerOpts,
 		FDStateView:     deps.fdStateReader(),
-		EventFDView:     ev.eventFDView,
+		EventFDView:     ev.handlerEventFDView(),
 		Meta:            deps.catalog,
 		Runtime:         deps.runtimeService(),
 	}
+	return context
+}
+
+func (ev syscallEventContext) handlerEventFDView() handler.EventFDStateReader {
+	if len(ev.eventFDView.paths) == 0 && len(ev.eventFDView.states) == 0 && ev.eventFDView.cwd == "" {
+		return nil
+	}
+	return ev.eventFDView
+}
+
+func (ev syscallEventContext) releaseHandlerContext() {
+	if ev.contextRecycler == nil {
+		return
+	}
+	ev.contextRecycler.release(ev.handlerContext)
 }
 
 func (ev syscallEventContext) shouldOutput() bool {

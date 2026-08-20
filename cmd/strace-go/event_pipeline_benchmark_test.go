@@ -5,6 +5,7 @@ import (
 	"io"
 	"testing"
 
+	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
@@ -60,6 +61,36 @@ func BenchmarkTraceEventDecodeState(b *testing.B) {
 		}
 		update := state.handleEnvelope(exit)
 		state.releaseTraceStateUpdate(update)
+	}
+}
+
+func BenchmarkTraceEventContextHandler(b *testing.B) {
+	session := newTestTraceSessionWithOptions(&cli.Options{EventFormat: cli.EventFormatHandler}, traceSessionDeps{
+		TargetPID: 101,
+	})
+	deps := newSyscallEventContextDeps(session)
+	deps.contextPool = newHandlerContextRecycler()
+	runner := session.syscallHandlerRunner()
+	view := syscallEventView{
+		valid:         true,
+		pid:           101,
+		tid:           101,
+		sysID:         benchmarkSyscallID("getpid"),
+		eventType:     bpfEventTypeExit,
+		ret:           101,
+		enterTime:     950,
+		duration:      50,
+		probeRetEnter: -1,
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ev := newSyscallEventContextFromViewWithDeps(deps, view, 101, nil, nil)
+		if _, ok := runner.Handle(ev); !ok {
+			b.Fatal("handler benchmark event was not selected")
+		}
+		ev.releaseHandlerContext()
 	}
 }
 

@@ -76,6 +76,7 @@ func (s *traceSession) syscallExitPipeline() *SyscallExitPipeline {
 
 // IMPACT: Handle owns the syscall exit/full event pipeline after context construction.
 func (p *SyscallExitPipeline) Handle(ev syscallEventContext) {
+	defer ev.releaseHandlerContext()
 	defer p.cleanup(ev)
 	defer p.updateOffsets(ev)
 
@@ -105,6 +106,7 @@ func (p *SyscallExitPipeline) Handle(ev syscallEventContext) {
 }
 
 func (p *SyscallExitPipeline) HandleUnfinished(ev syscallEventContext) bool {
+	defer ev.releaseHandlerContext()
 	if !p.HasTextOutput() || !p.text.canHandleUnfinished(ev) {
 		return false
 	}

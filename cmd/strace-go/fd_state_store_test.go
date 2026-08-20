@@ -8,6 +8,30 @@ import (
 	"strace-go/pkg/meta"
 )
 
+func TestFDStateStoreSkipsNoopEventBeforeInitializingMaps(t *testing.T) {
+	store := &FDStateStore{}
+	store.ApplyFDState(fdStateUpdate{
+		source: fdStateSource{view: syscallEventView{valid: true}},
+		meta:   meta.Syscall{Name: "getpid"},
+	})
+
+	if store.paths != nil || store.offsets != nil || store.fdStates != nil || store.fdCloexec != nil {
+		t.Fatal("no-op FD state event initialized backing maps")
+	}
+}
+
+func TestFDStateStoreUpdatesEventfdReadCount(t *testing.T) {
+	store := newFDStateStoreFromMaps(map[string]string{
+		"101:3": "anon_inode:[eventfd],eventfd-count=0x5,eventfd-semaphore=1",
+	}, nil)
+
+	newFDStateEvent("read", [6]uint64{3}, 8, nil).updateFDState(store)
+
+	if got := store.paths["101:3"]; got != "anon_inode:[eventfd],eventfd-count=0x4,eventfd-semaphore=1" {
+		t.Fatalf("eventfd path after read = %q", got)
+	}
+}
+
 func TestFDStateStoreCleanupClosedFDRemovesOwnedState(t *testing.T) {
 	store := newFDStateStoreFromMaps(
 		map[string]string{"101:3": "/tmp/remove", "101:4": "/tmp/keep"},

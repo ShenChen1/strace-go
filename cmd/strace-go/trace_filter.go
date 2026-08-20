@@ -9,6 +9,7 @@ import (
 // traceFilterOptions is the event-side view of CLI filtering policy.
 type traceFilterOptions interface {
 	DebugEvents() bool
+	IsUnfiltered() bool
 	MatchSyscall(name string) bool
 	MatchFDs(fds []int32) bool
 	HasFDFilter() bool
@@ -35,6 +36,19 @@ var _ traceFilterOptions = (*cliTraceFilter)(nil)
 
 func (filter cliTraceFilter) DebugEvents() bool {
 	return filter.debug
+}
+
+func (filter cliTraceFilter) IsUnfiltered() bool {
+	return !filter.traceSetIsNegated &&
+		len(filter.traceSyscalls) == 0 &&
+		len(filter.traceSyscallRegexps) == 0 &&
+		len(filter.traceFDs) == 0 &&
+		!filter.traceFDsNegated &&
+		len(filter.traceReadFDs) == 0 &&
+		!filter.traceReadNegated &&
+		len(filter.traceWriteFDs) == 0 &&
+		!filter.traceWriteNegated &&
+		(filter.pathFilter == nil || filter.pathFilter.Empty())
 }
 
 func (filter cliTraceFilter) MatchSyscall(name string) bool {

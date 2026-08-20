@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"regexp"
 	"testing"
 
 	"strace-go/pkg/cli"
@@ -17,6 +18,30 @@ func testOptions() *cli.Options {
 		TraceFDs:      make(map[int32]bool),
 		TraceReadFDs:  make(map[int32]bool),
 		TraceWriteFDs: make(map[int32]bool),
+	}
+}
+
+func TestTraceFilterIdentifiesUnfilteredPolicy(t *testing.T) {
+	if !newTraceFilterOptions(&cli.Options{}).IsUnfiltered() {
+		t.Fatal("empty CLI filter was not identified as unfiltered")
+	}
+
+	filtered := []cli.Options{
+		{TraceSyscalls: map[string]bool{"getpid": true}},
+		{TraceSyscallRegexps: []*regexp.Regexp{regexp.MustCompile("get.*")}},
+		{TraceSetIsNegated: true},
+		{TraceFDs: map[int32]bool{3: true}},
+		{TraceFDsNegated: true},
+		{TraceReadFDs: map[int32]bool{3: true}},
+		{TraceReadFDsNegated: true},
+		{TraceWriteFDs: map[int32]bool{4: true}},
+		{TraceWriteFDsNegated: true},
+		{TracePaths: map[string]bool{"/tmp": true}},
+	}
+	for _, opts := range filtered {
+		if newTraceFilterOptions(&opts).IsUnfiltered() {
+			t.Fatalf("filter options %+v were identified as unfiltered", opts)
+		}
 	}
 }
 

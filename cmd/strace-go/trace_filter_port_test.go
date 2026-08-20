@@ -21,6 +21,10 @@ func (filter fakeTraceFilterPort) DebugEvents() bool {
 	return filter.debug
 }
 
+func (filter fakeTraceFilterPort) IsUnfiltered() bool {
+	return false
+}
+
 func (filter fakeTraceFilterPort) MatchSyscall(string) bool {
 	return filter.syscall
 }

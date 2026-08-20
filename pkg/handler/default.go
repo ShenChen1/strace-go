@@ -14,6 +14,9 @@ type DefaultHandler struct{}
 
 // Handle formats the arguments of a system call based on type metadata.
 func (h *DefaultHandler) Handle(ctx *Context) Result {
+	if len(ctx.ScMeta.ArgTypes) == 0 {
+		return Result{}
+	}
 	return h.HandleWithCount(ctx, len(ctx.ScMeta.ArgTypes))
 }
 

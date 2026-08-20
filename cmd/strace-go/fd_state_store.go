@@ -106,7 +106,34 @@ func (s *traceSession) fdStateStore() traceFDStateOwner {
 	return s.dependencies.FDState
 }
 
+func shouldApplyFDStateUpdate(update fdStateUpdate) bool {
+	if len(update.source.payloadSections) > 0 {
+		return true
+	}
+	if !update.source.view.valid {
+		return false
+	}
+	if update.meta.Name == "read" {
+		return update.source.view.ret == 8
+	}
+
+	switch update.meta.Name {
+	case "open", "openat", "openat2", "open_tree", "creat",
+		"dup", "dup2", "dup3", "fcntl", "fcntl64",
+		"socket", "chdir", "fchdir", "close_range",
+		"eventfd", "eventfd2", "epoll_create", "epoll_create1",
+		"timerfd_create", "inotify_init", "inotify_init1",
+		"signalfd", "signalfd4":
+		return true
+	default:
+		return false
+	}
+}
+
 func (st *FDStateStore) ApplyFDState(update fdStateUpdate) {
+	if !shouldApplyFDStateUpdate(update) {
+		return
+	}
 	st.ensureMaps()
 	updateFDPathStateFromSource(update.source, update.targetPID, st.paths, st.fdStates)
 	updateFDStateObservationFromSource(update.source, update.meta, update.targetPID, st.fdStates)
