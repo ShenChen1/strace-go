@@ -42,6 +42,11 @@ type jsonSyscallEvent struct {
 	ProbeRetEnter   int32                `json:"probe_ret_enter"`
 	ProbeRetExit    int32                `json:"probe_ret_exit"`
 	PairedEnter     bool                 `json:"paired_enter,omitempty"`
+	returnTextName  string
+	returnTextRet   int64
+	returnTextRes   handler.Result
+	returnTextCtx   *handler.Context
+	hasReturnText   bool
 }
 
 type jsonPayloadSection struct {
@@ -242,7 +247,11 @@ func (ev syscallEventContext) newJSONDecodedSyscallEventWithPayloadStorage(
 ) jsonSyscallEvent {
 	jsonEvent := ev.newJSONSyscallEventWithPayloadStorage(ev.decodedPayloadSections(), payloadStorage)
 	jsonEvent.ArgText = res.ArgParts
-	jsonEvent.ReturnText = ev.returnText(res)
+	jsonEvent.returnTextName = ev.syscallName()
+	jsonEvent.returnTextRet = ev.eventView().ret
+	jsonEvent.returnTextRes = res
+	jsonEvent.returnTextCtx = ev.handlerContextForFormatting()
+	jsonEvent.hasReturnText = true
 	jsonEvent.PairedEnter = ev.pairedGenericEnter()
 	return jsonEvent
 }

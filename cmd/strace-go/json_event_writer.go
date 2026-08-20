@@ -53,8 +53,10 @@ func (w *traceDebugPhaseWriter) EmitPhaseAt(phase string, startTimeNS, timeNS ui
 // records. Filtering and event selection stay in the output policy objects.
 type JSONEventWriter struct {
 	encoder         *json.Encoder
+	out             io.Writer
 	flusher         interface{ Flush() error }
 	syscallEvent    jsonSyscallEvent
+	syscallBuffer   []byte
 	payloadSections []jsonPayloadSection
 	lifecycleEvent  jsonLifecycleEvent
 }
@@ -66,6 +68,7 @@ type JSONEventWriterDeps struct {
 func newJSONEventWriter(deps JSONEventWriterDeps) *JSONEventWriter {
 	writer := &JSONEventWriter{}
 	if deps.Out != nil {
+		writer.out = deps.Out
 		writer.encoder = json.NewEncoder(deps.Out)
 		if flusher, ok := deps.Out.(interface{ Flush() error }); ok {
 			writer.flusher = flusher
@@ -86,7 +89,7 @@ func (w *JSONEventWriter) WriteRaw(ev syscallEventContext) {
 		return
 	}
 	w.syscallEvent = ev.newJSONRawSyscallEventWithPayloadStorage(w.payloadSections)
-	w.encode(&w.syscallEvent)
+	w.writeSyscallEvent(&w.syscallEvent)
 	w.recycleSyscallEvent()
 }
 
@@ -95,7 +98,7 @@ func (w *JSONEventWriter) WriteDecoded(ev syscallEventContext, res handler.Resul
 		return
 	}
 	w.syscallEvent = ev.newJSONDecodedSyscallEventWithPayloadStorage(res, w.payloadSections)
-	w.encode(&w.syscallEvent)
+	w.writeSyscallEvent(&w.syscallEvent)
 	w.recycleSyscallEvent()
 }
 
@@ -130,6 +133,14 @@ func (w *JSONEventWriter) encode(event any) {
 		return
 	}
 	_ = w.encoder.Encode(event)
+}
+
+func (w *JSONEventWriter) writeSyscallEvent(event *jsonSyscallEvent) {
+	if w == nil || w.out == nil {
+		return
+	}
+	w.syscallBuffer = appendJSONSyscallEvent(w.syscallBuffer[:0], event)
+	_, _ = w.out.Write(w.syscallBuffer)
 }
 
 func (w *JSONEventWriter) canEncode() bool {

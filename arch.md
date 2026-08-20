@@ -10932,3 +10932,44 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - service time 目前覆盖 record 已取出后的 decode 到 sink 返回，不包含 `ReadInto` 的阻塞等待；与 `records_read + reserve_fail`、Ringbuf 低水位联合使用，不能单独解释 producer 供给。
 - 下一阶段继续用无诊断 reader/none 作为吞吐上限，用诊断采样估计 consumer service，并拆出 record size、BPF reservation burst 和 output path 的影响；不把诊断模式的 event/s 与正式模式直接比较。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、第二事件消费者、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.271 用可复用 append 编码器替换 syscall JSON 反射热路径（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.270 的 CPU profile 显示完整 JSON pipeline 约 `1.05 us/op`，其中 `encoding/json.(*Encoder).Encode` 及反射累计约占一半；JSON writer 自身的微基准约 `490 ns/op`，但它仍把每条高频 syscall event 交给标准库反射编码。
+- Problem：单 Go consumer 必须在 Ringbuf record 仍被占用期间完成 decode、状态更新、handler 和 JSON 编码；反射固定成本会直接缩短消费能力，最终在 BPF 侧表现为 `ringbuf_reserve_fail`。仅继续增加 output buffer 无法消除这段 CPU 工作。
+- Goal：为高频 syscall JSON event 增加 session-owned、同步、可复用的 append 编码器，保持现有字段名、字段顺序、`omitempty`、JSON 转义、payload 和 enter/exit 语义；ready/phase/lifecycle/stats 等低频诊断事件继续复用标准 Encoder。
+- Non-goals：不改变 event v2 ABI、BPF producer、事件顺序、输出过滤、文本格式、JSON schema 或生命周期语义；不引入自定义 unsafe 字符串转换、第二消费者、异步 writer、锁、ptrace、procfs 或 process_vm。
+- Constraints：编码 buffer 只由单一 Go consumer 所有；底层 writer 必须在 `Write` 返回前消费切片；控制字符、无效 UTF-8、HTML-sensitive 字符和 U+2028/U+2029 必须产生合法且与标准 Encoder 等价的 JSON 字节；普通 syscall event steady-state 不增加每条分配。
+
+#### 方案比较
+
+1. 保留标准 `json.Encoder`：风险最低，但 profile 已证明反射成本是主要热点，拒绝。
+2. 给 `jsonSyscallEvent` 增加 `MarshalJSON`：可以减少部分反射，但每条 event 仍需返回新字节切片，且 buffer 所有权不清晰，拒绝。
+3. 在 `JSONEventWriter` 内复用 append buffer，只对高频 syscall event 使用显式字段编码，低频事件保留标准 Encoder：边界明确、无异步状态、能直接覆盖主要热点，选择。
+
+#### 实现与失败优先测试
+
+- 新增 append builder，按现有 struct 字段顺序编码 syscall event、args、arg_text 和 payload_sections；字符串转义遵循 JSON 标准并覆盖控制字符、无效 UTF-8、HTML-sensitive 字符和行分隔符。
+- 先增加 direct-vs-standard JSON 字节等价测试和 writer 输出解析测试，使旧实现缺少 append encoder 时失败，再接入 `WriteRaw`/`WriteDecoded`；保留 lifecycle/phase/ready 的标准 Encoder 路径。
+- 扩展 pipeline benchmark，要求 syscall JSON 编码保持语义等价、steady-state buffer 可复用，并记录 `ns/op`、`B/op`、`allocs/op`；真实 capture 继续用 semantic、`records_read + reserve_fail` 和 service sample 联合验收。
+
+#### Review 入口
+
+- 重点检查 append encoder 是否遗漏 `omitempty` 字段、错误处理字段、payload base64、转义边界和 writer 生命周期；不接受为了性能改变 JSON 事实字段。
+- 若 direct encoder 只改善合成 benchmark、真实 handler/JSON capture 没有改善，则保留诊断结果但不把该优化宣称为端到端解决。
+
+#### 验证与实测
+
+- 失败优先测试先因缺少 `appendJSONSyscallEvent` 编译失败；实现后 direct-vs-standard JSON 字节等价测试覆盖 `omitempty`、args、arg_text、payload、控制字符、无效 UTF-8、HTML-sensitive 字符和 U+2028/U+2029。期间真实 semantic 暴露一次 signalfd FD return path 回归，新增 FD path 单元测试并改为在 `ShowPaths`/FD creator 返回上回退既有 formatter，随后 semantic 恢复通过。
+- 合成 benchmark：JSON pipeline 从 14.270 的约 `1050-1064 ns/op、3 B/op、1 alloc/op` 降到 `715-733 ns/op、0 B/op、0 allocs/op`；`JSONDecodedEventWriter` 降到约 `309-325 ns/op、0 B/op、0 allocs/op`；payload JSON 仍为约 `495-507 ns/op、16 B/op、1 alloc/op`，剩余分配来自 payload base64 字符串构造，不把它误报为零分配。
+- 最新高压 capture 对账约 `3,200,035` 次 reservation attempt：reader `3,200,035/0`、none `2,351,272/848,764`、handler `1,883,035/1,317,000`、JSON `1,337,256/1,862,780`，格式为 `records_read/ringbuf_reserve_fail`；四路 `records_invalid=0`，正常 routed 路径 decoded/read 对账成立。相对 14.270 的代表性 JSON `1,264,825/1,935,211`，当前轮次约多读 `5.7%` record、少 `3.7%` reservation failure，但调度噪声仍然存在，不能宣称端到端无丢失。
+- `ebpf-semantic` 通过：主语义事件 `197`，enter/exit `100/97`，lifecycle `6`，signalfd、payload、FD path、生命周期和所有运行期错误计数均通过；`ebpf-perf`、`go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 native `small` `23/23` 通过。
+
+#### 决策与 Review
+
+- 保留 syscall 高频 append encoder 和延迟普通 return text；标准 Encoder 仍负责低频 ready/phase/lifecycle/stats，减少了自定义 JSON 的行为面。
+- 自定义编码器没有使用 unsafe、锁、第二消费者或异步 writer；buffer 由单一 Go consumer 持有，写入后复用；字符串转义与标准 Encoder 字节等价测试锁定。
+- 性能瓶颈已得到可测的局部改善，但 handler/JSON 高压仍触发大量 `ringbuf_reserve_fail`；剩余重点是 payload base64、context/handler 和完整 output path，不能把本阶段视为 arch.md 全部完成。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
