@@ -284,7 +284,7 @@ func (ev syscallEventContext) recordSummary(recorder traceSummaryRecorder) {
 }
 
 func (ev syscallEventContext) updateFDOffsets(port fdOffsetUpdatePort) {
-	if port == nil {
+	if port == nil || !ev.shouldUpdateFDOffsets() {
 		return
 	}
 	port.ApplyFDOffsets(ev.fdOffsetUpdate())
@@ -299,7 +299,7 @@ func (ev syscallEventContext) fdOffsetUpdate() fdOffsetUpdate {
 }
 
 func (ev syscallEventContext) cleanupClosedFD(port fdCloseUpdatePort) {
-	if port == nil {
+	if port == nil || !ev.shouldCleanupClosedFD() {
 		return
 	}
 	port.CleanupClosedFD(ev.fdCloseUpdate())
@@ -394,6 +394,14 @@ func (ev syscallEventContext) shouldUpdateFDState() bool {
 		ev.effectiveSyscallMeta().Name,
 		ev.payloadSections,
 	)
+}
+
+func (ev syscallEventContext) shouldUpdateFDOffsets() bool {
+	return shouldApplyFDOffsetEvent(ev.view, ev.effectiveSyscallMeta().Name)
+}
+
+func (ev syscallEventContext) shouldCleanupClosedFD() bool {
+	return shouldCleanupClosedFDEvent(ev.view, ev.effectiveSyscallMeta().Name)
 }
 
 func (ev syscallEventContext) shouldEmitRawEnter(fdState event.FDPathReader) bool {

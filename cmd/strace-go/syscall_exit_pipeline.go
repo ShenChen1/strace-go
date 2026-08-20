@@ -136,13 +136,13 @@ func (p *SyscallExitPipeline) handleSyscall(ev syscallEventContext) (handler.Res
 }
 
 func (p *SyscallExitPipeline) cleanup(ev syscallEventContext) {
-	if p.effects != nil {
+	if p.effects != nil && ev.shouldCleanupClosedFD() {
 		p.effects.CleanupClosedFD(ev)
 	}
 }
 
 func (p *SyscallExitPipeline) updateOffsets(ev syscallEventContext) {
-	if p.effects != nil {
+	if p.effects != nil && ev.shouldUpdateFDOffsets() {
 		p.effects.UpdateFDOffsets(ev)
 	}
 }

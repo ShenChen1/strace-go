@@ -177,8 +177,12 @@ func (st *FDStateStore) CleanupClosedFD(update fdCloseUpdate) {
 	st.cleanupClosedFDFromView(update.view, update.meta, update.statePID)
 }
 
+func shouldCleanupClosedFDEvent(view syscallEventView, syscallName string) bool {
+	return view.valid && syscallName == "close" && view.ret == 0
+}
+
 func (st *FDStateStore) cleanupClosedFDFromView(view syscallEventView, scMeta meta.Syscall, statePID int) {
-	if !view.valid || scMeta.Name != "close" || view.ret != 0 {
+	if !shouldCleanupClosedFDEvent(view, scMeta.Name) {
 		return
 	}
 	st.ensureMaps()

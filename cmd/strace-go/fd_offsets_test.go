@@ -40,6 +40,39 @@ func TestFDOffsetsExposeWriteStartAndAdvanceFromView(t *testing.T) {
 	}
 }
 
+func TestShouldApplyFDOffsetEventKeepsOnlyOffsetTransitions(t *testing.T) {
+	tests := []struct {
+		name          string
+		syscallName   string
+		ret           int64
+		probeRetEnter int32
+		want          bool
+	}{
+		{name: "ordinary", syscallName: "getpid", ret: 101},
+		{name: "zero write", syscallName: "write", ret: 0},
+		{name: "write", syscallName: "write", ret: 4, want: true},
+		{name: "read", syscallName: "read", ret: 8, want: true},
+		{name: "lseek", syscallName: "lseek", ret: 4096, want: true},
+		{name: "open", syscallName: "openat", ret: 3, want: true},
+		{name: "creator", syscallName: "eventfd2", ret: 3, want: true},
+		{name: "failed", syscallName: "openat", ret: -1},
+		{name: "filtered", syscallName: "write", ret: 4, probeRetEnter: 3},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := shouldApplyFDOffsetEvent(syscallEventView{
+				valid:         true,
+				ret:           test.ret,
+				probeRetEnter: test.probeRetEnter,
+			}, test.syscallName)
+			if got != test.want {
+				t.Fatalf("shouldApplyFDOffsetEvent(%q, %d) = %v, want %v", test.syscallName, test.ret, got, test.want)
+			}
+		})
+	}
+}
+
 func TestFDOffsetsUseStatePIDFromView(t *testing.T) {
 	store := newFDStateStoreFromMaps(nil, map[string]int64{
 		"100:1": 3,

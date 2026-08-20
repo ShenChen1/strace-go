@@ -52,8 +52,13 @@ func TestSyscallEventContextSendsTypedFDMutationCommands(t *testing.T) {
 	offsetPort := &recordingFDOffsetUpdatePort{}
 	closePort := &recordingFDCloseUpdatePort{}
 	ev.updateFDState(statePort)
-	ev.updateFDOffsets(offsetPort)
-	ev.cleanupClosedFD(closePort)
+	offsetEvent := ev
+	offsetEvent.meta = meta.Syscall{Name: "lseek"}
+	offsetEvent.view.ret = 4096
+	offsetEvent.updateFDOffsets(offsetPort)
+	closeEvent := ev
+	closeEvent.view.ret = 0
+	closeEvent.cleanupClosedFD(closePort)
 
 	if statePort.update == nil {
 		t.Fatal("FD state update port did not receive a command")
@@ -67,10 +72,10 @@ func TestSyscallEventContextSendsTypedFDMutationCommands(t *testing.T) {
 	if statePort.update.flagDecoder != catalog || statePort.update.source.view != view {
 		t.Fatal("state command lost event context identity")
 	}
-	if offsetPort.update == nil || offsetPort.update.view != view || offsetPort.update.statePID != 101 {
+	if offsetPort.update == nil || offsetPort.update.view != offsetEvent.view || offsetPort.update.statePID != 101 {
 		t.Fatalf("offset command = %+v, want event view and target PID", offsetPort.update)
 	}
-	if closePort.update == nil || closePort.update.view != view || closePort.update.statePID != 101 {
+	if closePort.update == nil || closePort.update.view != closeEvent.view || closePort.update.statePID != 101 {
 		t.Fatalf("close command = %+v, want event view and target PID", closePort.update)
 	}
 }

@@ -54,7 +54,7 @@ func exitPipelineEventWithView(name string, view syscallEventView) syscallEventC
 	}
 }
 
-func TestSyscallExitPipelineDebugRawStopsAfterJSONAndRunsFDSideEffects(t *testing.T) {
+func TestSyscallExitPipelineDebugRawSkipsNoopFDSideEffects(t *testing.T) {
 	opts := &cli.Options{EventFormat: cli.EventFormatJSON, DebugEvents: true}
 	policy := newTraceOutputPolicy(opts)
 	var calls []string
@@ -78,7 +78,7 @@ func TestSyscallExitPipelineDebugRawStopsAfterJSONAndRunsFDSideEffects(t *testin
 	state.pipeline.Handle(exitPipelineEvent("getpid"))
 
 	calls = append(calls, state.effects.calls...)
-	wantCalls(t, calls, []string{"json-raw", "offset", "cleanup"})
+	wantCalls(t, calls, []string{"json-raw"})
 }
 
 func TestSyscallExitPipelineSummaryOnlyStopsBeforeHandler(t *testing.T) {
@@ -93,7 +93,7 @@ func TestSyscallExitPipelineSummaryOnlyStopsBeforeHandler(t *testing.T) {
 
 	state.pipeline.Handle(exitPipelineEvent("getpid"))
 
-	wantCalls(t, state.effects.calls, []string{"summary", "offset", "cleanup"})
+	wantCalls(t, state.effects.calls, []string{"summary"})
 }
 
 func TestSyscallExitPipelineSuppressesArchPrctlSetFSText(t *testing.T) {
@@ -108,7 +108,7 @@ func TestSyscallExitPipelineSuppressesArchPrctlSetFSText(t *testing.T) {
 
 	state.pipeline.Handle(ev)
 
-	wantCalls(t, state.effects.calls, []string{"offset", "cleanup"})
+	wantCalls(t, state.effects.calls, nil)
 }
 
 func TestSyscallExitPipelineSuppressesArchPrctlFromEventView(t *testing.T) {
@@ -126,7 +126,7 @@ func TestSyscallExitPipelineSuppressesArchPrctlFromEventView(t *testing.T) {
 
 	state.pipeline.Handle(ev)
 
-	wantCalls(t, state.effects.calls, []string{"offset", "cleanup"})
+	wantCalls(t, state.effects.calls, nil)
 }
 
 func TestSyscallExitPipelineSkipsNoopFDStateEffectForPrintableEvent(t *testing.T) {
@@ -145,7 +145,7 @@ func TestSyscallExitPipelineSkipsNoopFDStateEffectForPrintableEvent(t *testing.T
 	state.pipeline.Handle(exitPipelineEvent("getpid"))
 
 	calls = append(calls, state.effects.calls...)
-	wantCalls(t, calls, []string{"handler", "offset", "cleanup"})
+	wantCalls(t, calls, []string{"handler"})
 }
 
 func TestSyscallExitPipelineHandlerOnlySkipsNoopFDStateEffect(t *testing.T) {
@@ -187,7 +187,42 @@ func TestSyscallExitPipelineKeepsFDStateEffectForCreator(t *testing.T) {
 	state.pipeline.Handle(exitPipelineEvent("openat"))
 
 	calls = append(calls, state.effects.calls...)
-	wantCalls(t, calls, []string{"handler", "fd-state", "offset", "cleanup"})
+	wantCalls(t, calls, []string{"handler", "fd-state", "offset"})
+}
+
+func TestSyscallExitPipelineKeepsOffsetEffectForLseek(t *testing.T) {
+	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
+		HandleSyscall: func(string, *handler.Context) handler.Result {
+			return handler.Result{}
+		},
+	})
+	state := newExitPipelineTestState(nil, runner, nil)
+	ev := exitPipelineEventWithView("lseek", syscallEventView{
+		valid: true,
+		ret:   4096,
+	})
+
+	state.pipeline.Handle(ev)
+
+	wantCalls(t, state.effects.calls, []string{"offset"})
+}
+
+func TestSyscallExitPipelineKeepsCleanupEffectForSuccessfulClose(t *testing.T) {
+	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
+		HandleSyscall: func(string, *handler.Context) handler.Result {
+			return handler.Result{}
+		},
+	})
+	state := newExitPipelineTestState(nil, runner, nil)
+	ev := exitPipelineEventWithView("close", syscallEventView{
+		valid: true,
+		args:  [6]uint64{3},
+		ret:   0,
+	})
+
+	state.pipeline.Handle(ev)
+
+	wantCalls(t, state.effects.calls, []string{"cleanup"})
 }
 
 func TestSyscallExitPipelineSkipsUnfinishedDecodeOutsideTextMode(t *testing.T) {
