@@ -52,13 +52,11 @@ func (w *traceDebugPhaseWriter) EmitPhaseAt(phase string, startTimeNS, timeNS ui
 // JSONEventWriter is the only user-space JSON encoding boundary for event
 // records. Filtering and event selection stay in the output policy objects.
 type JSONEventWriter struct {
-	encoder         *json.Encoder
-	out             io.Writer
-	flusher         interface{ Flush() error }
-	syscallEvent    jsonSyscallEvent
-	syscallBuffer   []byte
-	payloadSections []jsonPayloadSection
-	lifecycleEvent  jsonLifecycleEvent
+	encoder        *json.Encoder
+	out            io.Writer
+	flusher        interface{ Flush() error }
+	syscallBuffer  []byte
+	lifecycleEvent jsonLifecycleEvent
 }
 
 type JSONEventWriterDeps struct {
@@ -88,18 +86,16 @@ func (w *JSONEventWriter) WriteRaw(ev syscallEventContext) {
 	if !w.canEncode() {
 		return
 	}
-	w.syscallEvent = ev.newJSONRawSyscallEventWithPayloadStorage(w.payloadSections)
-	w.writeSyscallEvent(&w.syscallEvent)
-	w.recycleSyscallEvent()
+	w.syscallBuffer = appendJSONRawSyscallEvent(w.syscallBuffer[:0], ev)
+	w.writeRawSyscallBuffer()
 }
 
 func (w *JSONEventWriter) WriteDecoded(ev syscallEventContext, res handler.Result) {
 	if !w.canEncode() {
 		return
 	}
-	w.syscallEvent = ev.newJSONDecodedSyscallEventWithPayloadStorage(res, w.payloadSections)
-	w.writeSyscallEvent(&w.syscallEvent)
-	w.recycleSyscallEvent()
+	w.syscallBuffer = appendJSONDecodedSyscallEvent(w.syscallBuffer[:0], ev, res)
+	w.writeDecodedSyscallBuffer()
 }
 
 func (w *JSONEventWriter) WriteLifecycle(view lifecycleEventView, task *TaskState) {
@@ -135,28 +131,22 @@ func (w *JSONEventWriter) encode(event any) {
 	_ = w.encoder.Encode(event)
 }
 
-func (w *JSONEventWriter) writeSyscallEvent(event *jsonSyscallEvent) {
+func (w *JSONEventWriter) writeRawSyscallBuffer() {
 	if w == nil || w.out == nil {
 		return
 	}
-	w.syscallBuffer = appendJSONSyscallEvent(w.syscallBuffer[:0], event)
+	_, _ = w.out.Write(w.syscallBuffer)
+}
+
+func (w *JSONEventWriter) writeDecodedSyscallBuffer() {
+	if w == nil || w.out == nil {
+		return
+	}
 	_, _ = w.out.Write(w.syscallBuffer)
 }
 
 func (w *JSONEventWriter) canEncode() bool {
 	return w != nil && w.encoder != nil
-}
-
-func (w *JSONEventWriter) recycleSyscallEvent() {
-	if w == nil {
-		return
-	}
-	payloadSections := w.syscallEvent.PayloadSections
-	if payloadSections != nil {
-		clear(payloadSections)
-		w.payloadSections = payloadSections[:0]
-	}
-	w.syscallEvent = jsonSyscallEvent{}
 }
 
 func newJSONLifecycleEvent(view lifecycleEventView, task *TaskState) jsonLifecycleEvent {

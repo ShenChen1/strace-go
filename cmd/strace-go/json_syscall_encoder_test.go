@@ -8,6 +8,7 @@ import (
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
+	"strace-go/pkg/meta"
 )
 
 func TestJSONLineBuilderFieldTokenBoundaries(t *testing.T) {
@@ -25,6 +26,80 @@ func TestJSONLineBuilderFieldTokenBoundaries(t *testing.T) {
 	empty.beginObject()
 	if got := string(empty.endLine()); got != "{}\n" {
 		t.Fatalf("empty token object = %q, want %q", got, "{}\n")
+	}
+}
+
+func TestAppendJSONDecodedSyscallEventMatchesMaterializedEncoding(t *testing.T) {
+	event := syscallEventContext{
+		view: syscallEventView{
+			valid:         true,
+			eventVersion:  traceEventV2Version,
+			pid:           101,
+			tid:           102,
+			sysID:         1,
+			eventType:     bpfEventTypeExit,
+			eventFlags:    bpfEventFlagPayloadTLV,
+			args:          [6]uint64{1, 0x2000, 7},
+			ret:           -2,
+			duration:      55,
+			enterTime:     77,
+			stackID:       -1,
+			probeRetEnter: -1,
+			probeRetExit:  0,
+		},
+		meta:         meta.Syscall{Name: "write"},
+		pendingEnter: &pendingSyscallSnapshot{genericEnterRaw: true},
+		handlerContext: &handler.Context{PayloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindBytes,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  1,
+			UserPtr:   0x2000,
+			UserLen:   7,
+			CopiedLen: 7,
+			Data:      []byte("payload"),
+		}}},
+	}
+	result := handler.Result{ArgParts: []string{"1", "\"payload\""}}
+
+	got := appendJSONDecodedSyscallEvent(nil, event, result)
+	materialized := event.newJSONDecodedSyscallEvent(result)
+	want := appendJSONSyscallEvent(nil, &materialized)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("direct decoded JSON differs from materialized encoding:\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestAppendJSONRawSyscallEventMatchesMaterializedEncoding(t *testing.T) {
+	event := syscallEventContext{
+		view: syscallEventView{
+			valid:         true,
+			eventVersion:  traceEventV2Version,
+			pid:           101,
+			tid:           102,
+			sysID:         39,
+			eventType:     bpfEventTypeEnter,
+			eventFlags:    bpfEventFlagGenericEnter,
+			args:          [6]uint64{7},
+			enterTime:     77,
+			probeRetEnter: -1,
+		},
+		meta: meta.Syscall{Name: "getpid"},
+		payloadSections: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindBytes,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  1,
+			UserPtr:   0x2000,
+			UserLen:   3,
+			CopiedLen: 3,
+			Data:      []byte("raw"),
+		}},
+	}
+
+	got := appendJSONRawSyscallEvent(nil, event)
+	materialized := event.newJSONRawSyscallEvent()
+	want := appendJSONSyscallEvent(nil, &materialized)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("direct raw JSON differs from materialized encoding:\n got: %s\nwant: %s", got, want)
 	}
 }
 

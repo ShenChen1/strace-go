@@ -11172,3 +11172,45 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留固定字段 token。token 覆盖 syscall/payload encoder 的全部固定 JSON 字段，`omitempty` 仍在写 token 前判断，动态值转义和标准 JSON 对照测试保持不变。
 - 这是稳定的局部 CPU 改善，但没有根治完整 handler/JSON consumer 的 Ringbuf 背压；下一步应独立评估数值 append 和 handler service time，不能继续把字段微优化包装成 event/s 已解决。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.277 让高频 syscall JSON 直接编码 event context（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.276 后完整 `BenchmarkTraceEventJSONPipeline` 约 `646.8 ns/op、0 B/op、0 allocs/op`；CPU profile 中 `WriteDecoded` 的 `newJSONDecodedSyscallEventWithPayloadStorage` 累计约 `13.3%`，raw path 也会构造临时 `jsonSyscallEvent` 和复用的 `jsonPayloadSection` slice。
+- Problem：高频 JSON 路径已经持有 `syscallEventContext`、`handler.Result` 和 event payload；先把它们投影成中间 JSON model，再遍历 model 编码，会重复复制 metadata、args、return context 和 payload section，缩短单 Go consumer 的服务时间。
+- Goal：让 raw 与 decoded JSON path 都直接从 event context、effective syscall metadata、handler result 和 payload sections append 到 session-owned buffer；保持字段顺序、return formatting、payload 选择、`omitempty` 和 JSON 字节语义不变。
+- Non-goals：不删除 `jsonSyscallEvent`，它继续作为标准对照和低频/测试 model；不改 handler registry、event v2 ABI、BPF producer、payload ownership、输出策略或单消费者约束；不引入 unsafe、第二 writer、锁或异步任务。
+- Constraints：direct encoder 必须只在同步 `WriteRaw`/`WriteDecoded` 调用内借用 payload bytes；空 handler context 必须不输出 decoded payload；旧 materialized encoder 与 direct encoder 必须用字节级对照测试锁定等价；函数和文件保持现有限制。
+
+#### 方案比较
+
+1. 保留 raw/decoded event model：正确性边界最稳定，但 profile 已确认每个高频 event 都支付一次中间 projection，拒绝作为高压路径。
+2. direct append `syscallEventContext + handler.Result`：减少中间 model 和 payload projection，仍复用现有 field/value encoder 和旧 model oracle，选择。
+3. 让 handler 直接返回 JSON bytes：可以继续减少 writer projection，但把输出 schema、buffer ownership 和 JSON 责任扩散到所有 handler，破坏 registry/handler 接口边界，拒绝。
+
+#### 实现与失败优先测试
+
+- 先增加 direct raw/decoded encoder 与 materialized encoder 的字节对照测试，覆盖失败 return、arg text、handler payload、paired enter 和字段边界；修改前测试因 direct API 不存在而失败。
+- 切换 `JSONEventWriter.WriteRaw` 和 `WriteDecoded`，direct payload helper 直接遍历 `[]handler.PayloadSection`，在同步 append 边界使用 raw bytes，不创建 `jsonPayloadSection` 临时 slice；旧 materialized model 仍留作 oracle。
+- 运行 focused benchmark/profile；只有 decoded writer 稳定改善且仍为零分配，才进入 semantic、capture/perf 和 native smoke 门禁。
+
+#### Review 入口
+
+- 逐项比对 raw/decoded direct 字段与 `newJSONSyscallEventFromViewWithPayloadMode`：尤其是 `event_type`、失败 errno、return text fallback、`paired_enter` 和 handler context 缺失时的 payload 行为。
+- 检查 raw path 使用 `ev.outputPayloadSections`、decoded path 使用 handler context payload，不能互相替代；检查 writer `Write` 返回前不释放或跨 event 保存 tracee bytes。
+- 如果 direct model 只改善合成 writer benchmark、完整 pipeline 或高压 capture 没有方向性改善，保留字节等价但停止继续扩大 direct encoder，转向 handler/state service time。
+
+#### 验证与实测
+
+- 失败优先的 decoded direct 测试先因 `appendJSONDecodedSyscallEvent` 不存在而编译失败；raw direct 测试随后先因 `appendJSONRawSyscallEvent` 不存在而编译失败。实现后两条 direct-vs-materialized 字节对照、现有 JSON 解码、payload 生命周期和 buffer 复用测试均通过。
+- focused benchmark 五轮：raw `JSONEventWriter` 为 `208.8-211.9 ns/op`，decoded `JSONDecodedEventWriter` 为 `222.3-226.1 ns/op`，decoded payload 为 `318.0-331.2 ns/op`，完整 JSON pipeline 为 `595.0-600.4 ns/op`，均为 `0 B/op、0 allocs/op`；`ebpf-perf` 当前报告为 `216.20/228.40/328.70 ns/op`。
+- direct pipeline profile 中 `newJSONDecodedSyscallEventWithPayloadStorage` 不再位于高频写路径，主要成本转为 direct field/value encoding、handler context 和既有 pipeline effects；这是可测的 service time 改善，不改变 event ABI。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、`ebpf-semantic` 和 `ebpf-perf` 均通过；semantic 主事件 `197`，enter/exit `100/97`，lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`；native `small` `23/23`。
+- 本轮高压 capture：reader `3,178,408/21,627`、none `2,180,504/1,019,531`、handler `1,484,850/1,715,185`、JSON `1,273,076/1,926,961`，格式为 `records_read/ringbuf_reserve_fail`；JSON `syscall_events=1,246,721`、`records_invalid=0`，运行期 orphan/mismatch 为 `0`，但 `pending_stale=8`。JSON 仍约有 `1.93M` 次 reservation failure，与 14.276 的 `1,282,451/1,917,584` 同一量级，不能宣称 direct encoder 修复了高压丢失。
+
+#### 决策与 Review
+
+- 保留 raw/decoded direct encoder。它移除了 writer 高频路径的中间 JSON model 和 payload section slice，raw/decoded 均由同一 session-owned buffer 同步写出；旧 model 保留为行为 oracle。
+- 合成 pipeline 有约 7% 到 9% 的稳定方向性改善，但高压 capture 没有脱离约 `1.9M` reserve failure 的量级；剩余瓶颈仍是单 Go consumer 的 handler/state/output 总服务时间与 BPF producer burst 的竞争，下一阶段转向 handler/state service time。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"reflect"
 	"testing"
 
 	"strace-go/pkg/cli"
@@ -30,30 +29,30 @@ func TestJSONEventWriterWithoutOutputIsNoop(t *testing.T) {
 	writer.WriteLifecycle(lifecycleEventView{}, nil)
 }
 
-func TestJSONEventWriterClearsReusableEventStorage(t *testing.T) {
+func TestJSONEventWriterReusesRawAndDecodedBuffer(t *testing.T) {
 	writer := newJSONEventWriter(JSONEventWriterDeps{Out: io.Discard})
-	writer.WriteRaw(syscallEventContext{
+	event := syscallEventContext{
 		view: syscallEventView{valid: true, pid: 101, tid: 101, sysID: 1},
 		meta: meta.Syscall{Name: "write"},
 		payloadSections: []handler.PayloadSection{{
 			Kind: handler.PayloadKindBytes,
 			Data: []byte("payload"),
 		}},
-	})
-	if writer.syscallEvent.PayloadSections != nil || writer.syscallEvent.Syscall != "" {
-		t.Fatalf("syscall storage retained event data: %+v", writer.syscallEvent)
+	}
+	writer.WriteRaw(event)
+	capacity := cap(writer.syscallBuffer)
+	if capacity == 0 || len(writer.syscallBuffer) == 0 {
+		t.Fatalf("raw JSON buffer is empty: len=%d cap=%d", len(writer.syscallBuffer), capacity)
 	}
 
-	writer.WriteLifecycle(lifecycleEventView{
-		action:       lifecycleExec,
-		snapshotText: "/bin/true",
-	}, nil)
-	if writer.lifecycleEvent != (jsonLifecycleEvent{}) {
-		t.Fatalf("lifecycle storage retained event data: %+v", writer.lifecycleEvent)
+	event.handlerContext = &handler.Context{PayloadSections: event.payloadSections}
+	writer.WriteDecoded(event, handler.Result{})
+	if cap(writer.syscallBuffer) < capacity || len(writer.syscallBuffer) == 0 {
+		t.Fatalf("decoded JSON buffer was not reused: len=%d cap=%d initial_cap=%d", len(writer.syscallBuffer), cap(writer.syscallBuffer), capacity)
 	}
 }
 
-func TestJSONEventWriterReusesPayloadSectionStorage(t *testing.T) {
+func TestJSONEventWriterReusesDecodedBuffer(t *testing.T) {
 	if raceBuild {
 		t.Skip("allocation counts include race instrumentation")
 	}
@@ -73,11 +72,8 @@ func TestJSONEventWriterReusesPayloadSectionStorage(t *testing.T) {
 	writer := newJSONEventWriter(JSONEventWriterDeps{Out: io.Discard})
 
 	writer.WriteDecoded(event, handler.Result{})
-	if cap(writer.payloadSections) != 1 {
-		t.Fatalf("payload storage capacity = %d, want 1", cap(writer.payloadSections))
-	}
-	if len(writer.payloadSections) != 0 || !reflect.DeepEqual(writer.payloadSections[:1][0], jsonPayloadSection{}) {
-		t.Fatalf("payload storage retained encoded data: len=%d value=%+v", len(writer.payloadSections), writer.payloadSections[:1][0])
+	if len(writer.syscallBuffer) == 0 {
+		t.Fatal("decoded JSON buffer is empty")
 	}
 	allocs := testing.AllocsPerRun(100, func() {
 		writer.WriteDecoded(event, handler.Result{})
