@@ -11053,3 +11053,42 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 
 - 保留 `syscallName` 的直接 meta fast path。它没有新增 context 字段，fallback 行为由四类测试锁定，收益虽小但边界清楚。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.274 评估 FD creator policy dispatch 的固定扫描成本（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.273 的 CPU profile 中，`fdCreatorPolicyFor` 约占 `4.6%`；每个 syscall event 为判断是否是 FD creator 都要遍历 9 个 policy，并对每个 policy 做接口 `matches` 调用。
+- Problem：creator policy 名称唯一，当前线性列表没有利用这个不变量；普通 `getpid`/I/O event 也会支付完整扫描成本，进一步缩短单 Go consumer 的 Ringbuf 服务能力。
+- Goal：保留 `signalfd`/`signalfd4` 的特殊 payload 和 CLOEXEC 规则，以及所有非 creator 的 false 结果；通过可测的名称 dispatch 降低普通 event 的固定成本。
+- Non-goals：不改变 FD state、offset、path、CLOEXEC、payload、过滤、event v2 ABI 或 handler 接口；不引入 procfs、ptrace、第二消费者、锁或异步状态。
+- Constraints：dispatch 仍返回现有 `fdCreatorPolicy` 接口，policy state 逻辑不重写；未知 syscall 名称必须快速返回 false；所有调用点 `fdCreatorPolicyFor`/`isFDStateCreatorForView` 继续共享同一规则。
+
+#### 方案比较
+
+1. 保留线性 slice：最直观，但 profile 已确认普通 event 重复支付 9 次匹配，作为 baseline。
+2. 按 syscall name 建立 map：改动小、policy 对象仍由接口持有，未知名称一次 hash 返回；需要用 benchmark 确认 map hash 是否优于 9 次字符串比较。
+3. 显式 switch 返回 policy：可能生成更紧凑的字符串 dispatch，但把 policy 名称和存储顺序绑定在 switch，新增 creator 容易漏改，维护风险较高。
+
+#### 实现与失败优先测试
+
+- 先增加 known/unknown creator dispatch 表驱动测试和 `BenchmarkFDCreatorPolicyFor`，记录 linear baseline，再只替换 dispatch 容器，不触碰 policy.state。
+- 运行 FD state 单元、semantic、perf 和高压 capture；只有 dispatch benchmark 有稳定收益且所有 state/path/CLOEXEC 语义不变才保留。
+
+#### Review 入口
+
+- 检查 map 是否包含全部现有 policy，尤其 `signalfd` 和 `signalfd4`；检查未知 name、空 name 和 view 参数不会误报 creator。
+- 如果 map 相对线性扫描没有稳定收益，回退该实验，不把数据结构复杂度留在 event hot path。
+
+#### 验证与实测
+
+- 先加入 known/unknown dispatch 测试；focused FD creator、signalfd、path、offset 和 CLOEXEC 测试均通过。线性 baseline `BenchmarkFDCreatorPolicyFor` 为 `18.75-19.32 ns/op、0 B/op、0 allocs/op`，map dispatch 为 `7.83-7.99 ns/op、0 B/op、0 allocs/op`。
+- 完整 JSON pipeline 五轮从上一阶段 `698.8-706.3 ns/op` 降到 `659.0-666.0 ns/op、0 B/op、0 allocs/op`，约 5% 稳定改善；`go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 Python oracle 均通过。
+- `ebpf-semantic` 通过：主语义事件 `197`，enter/exit `100/97`，lifecycle `6`，signalfd、FD path 和所有运行期错误计数均通过；`ebpf-perf` scalar/io/lifecycle/threads 也无 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误。
+- 最新高压 capture 对账约 `3,200,036` 次 reservation attempt：reader `3,098,276/101,759`、none `3,125,548/74,488`、handler `1,701,298/1,498,737`、JSON `1,263,566/1,936,470`，格式为 `records_read/ringbuf_reserve_fail`；四路 `records_invalid=0`，JSON `syscall_events=1,237,586`。相对上一轮 JSON `1,255,003/1,945,032` 有轻微方向性改善，但受调度和 burst 影响，不能宣称高压无丢失。
+
+#### 决策与 Review
+
+- 采用 name-keyed map dispatch，保留 policy interface、`matches` 防御检查和原有 state 实现；现有 9 个 policy 由 known tests 覆盖，未知 name 快速 false。
+- 这是完整 pipeline 的可测局部改善，但 JSON 高压仍有约 `1.94M` 次 reservation failure；下一阶段继续看 `newHandlerContext` 的 context 初始化和 output field encoding，不把 FD policy 优化误报为 event/s 根治。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

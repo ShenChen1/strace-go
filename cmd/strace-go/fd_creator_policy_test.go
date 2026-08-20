@@ -108,6 +108,43 @@ func TestFDCreatorStateEventsRunWhenHidden(t *testing.T) {
 	}
 }
 
+func TestFDCreatorPolicyDispatchRejectsUnknownNames(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		want bool
+	}{
+		{name: "eventfd", want: true},
+		{name: "signalfd", want: true},
+		{name: "signalfd4", want: true},
+		{name: "getpid", want: false},
+		{name: "", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, got := fdCreatorPolicyFor(test.name, syscallEventView{})
+			if got != test.want {
+				t.Fatalf("fdCreatorPolicyFor(%q) = %v, want %v", test.name, got, test.want)
+			}
+		})
+	}
+}
+
+func BenchmarkFDCreatorPolicyFor(b *testing.B) {
+	names := []string{"eventfd", "getpid", "read", "signalfd4", "inotify_init1", "unknown"}
+	view := syscallEventView{valid: true, args: [6]uint64{0x80000}}
+	matches := 0
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, ok := fdCreatorPolicyFor(names[i%len(names)], view); ok {
+			matches++
+		}
+	}
+	b.StopTimer()
+	if matches == 0 {
+		b.Fatal("benchmark did not find a creator policy")
+	}
+}
+
 func TestInotifyReturnPathUsesEventSourcedState(t *testing.T) {
 	ctx := &handler.Context{
 		TargetPid: 101,

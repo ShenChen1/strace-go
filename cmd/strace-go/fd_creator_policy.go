@@ -92,43 +92,43 @@ func signalfdMaskFromSource(src fdStateSource) ([]byte, bool) {
 	return nil, false
 }
 
-var fdCreatorPolicies = []fdCreatorPolicy{
-	signalfdPolicy{syscallName: "signalfd", flagsArg: -1},
-	signalfdPolicy{syscallName: "signalfd4", flagsArg: 3},
-	simpleFDCreatorPolicy{
+var fdCreatorPolicies = map[string]fdCreatorPolicy{
+	"signalfd":  signalfdPolicy{syscallName: "signalfd", flagsArg: -1},
+	"signalfd4": signalfdPolicy{syscallName: "signalfd4", flagsArg: 3},
+	"eventfd": simpleFDCreatorPolicy{
 		syscallName:  "eventfd",
 		path:         "anon_inode:[eventfd]",
 		flagsArg:     -1,
 		cloexecKnown: true,
 	},
-	simpleFDCreatorPolicy{
+	"eventfd2": simpleFDCreatorPolicy{
 		syscallName: "eventfd2",
 		path:        "anon_inode:[eventfd]",
 		flagsArg:    1,
 	},
-	simpleFDCreatorPolicy{
+	"epoll_create": simpleFDCreatorPolicy{
 		syscallName:  "epoll_create",
 		path:         "anon_inode:[eventpoll]",
 		flagsArg:     -1,
 		cloexecKnown: true,
 	},
-	simpleFDCreatorPolicy{
+	"epoll_create1": simpleFDCreatorPolicy{
 		syscallName: "epoll_create1",
 		path:        "anon_inode:[eventpoll]",
 		flagsArg:    0,
 	},
-	simpleFDCreatorPolicy{
+	"timerfd_create": simpleFDCreatorPolicy{
 		syscallName: "timerfd_create",
 		path:        "anon_inode:[timerfd]",
 		flagsArg:    1,
 	},
-	simpleFDCreatorPolicy{
+	"inotify_init": simpleFDCreatorPolicy{
 		syscallName:  "inotify_init",
 		path:         "anon_inode:inotify",
 		flagsArg:     -1,
 		cloexecKnown: true,
 	},
-	simpleFDCreatorPolicy{
+	"inotify_init1": simpleFDCreatorPolicy{
 		syscallName: "inotify_init1",
 		path:        "anon_inode:inotify",
 		flagsArg:    0,
@@ -136,12 +136,11 @@ var fdCreatorPolicies = []fdCreatorPolicy{
 }
 
 func fdCreatorPolicyFor(syscallName string, view syscallEventView) (fdCreatorPolicy, bool) {
-	for _, policy := range fdCreatorPolicies {
-		if policy.matches(syscallName, view) {
-			return policy, true
-		}
+	policy, ok := fdCreatorPolicies[syscallName]
+	if !ok || !policy.matches(syscallName, view) {
+		return nil, false
 	}
-	return nil, false
+	return policy, true
 }
 
 func isFDStateCreatorForView(syscallName string, view syscallEventView) bool {
