@@ -10,9 +10,13 @@ import (
 	"strace-go/pkg/meta"
 )
 
-type fakeTraceFormatPolicy struct{ json bool }
+type fakeTraceFormatPolicy struct {
+	json    bool
+	discard bool
+}
 
-func (p fakeTraceFormatPolicy) IsJSON() bool { return p.json }
+func (p fakeTraceFormatPolicy) IsJSON() bool        { return p.json }
+func (p fakeTraceFormatPolicy) DiscardEvents() bool { return p.discard }
 
 type fakeTraceEventOutputPolicy struct {
 	debug bool
@@ -34,14 +38,16 @@ func (p fakeTraceSummaryPolicy) SummaryOnly() bool     { return p.only }
 func (p fakeTraceSummaryPolicy) SummaryAndPrint() bool { return p.andPrint }
 
 type fakeTraceExitPolicy struct {
-	json  bool
-	only  bool
-	quiet bool
+	json    bool
+	discard bool
+	only    bool
+	quiet   bool
 }
 
-func (p fakeTraceExitPolicy) IsJSON() bool      { return p.json }
-func (p fakeTraceExitPolicy) SummaryOnly() bool { return p.only }
-func (p fakeTraceExitPolicy) QuietExit() bool   { return p.quiet }
+func (p fakeTraceExitPolicy) IsJSON() bool        { return p.json }
+func (p fakeTraceExitPolicy) DiscardEvents() bool { return p.discard }
+func (p fakeTraceExitPolicy) SummaryOnly() bool   { return p.only }
+func (p fakeTraceExitPolicy) QuietExit() bool     { return p.quiet }
 
 type fakeTraceRenderPolicy struct{ options traceRenderOptions }
 
@@ -54,10 +60,12 @@ func (p fakeTraceFollowForkPolicy) FollowForks() bool { return p.follow }
 
 type fakeTraceLifecyclePolicy struct {
 	json      bool
+	discard   bool
 	attachPID int
 }
 
-func (p fakeTraceLifecyclePolicy) IsJSON() bool { return p.json }
+func (p fakeTraceLifecyclePolicy) IsJSON() bool        { return p.json }
+func (p fakeTraceLifecyclePolicy) DiscardEvents() bool { return p.discard }
 
 func (p fakeTraceLifecyclePolicy) IsAttachTarget(pid int) bool {
 	return pid == p.attachPID
@@ -191,6 +199,20 @@ func TestTraceOutputPolicyPortsAcceptIndependentImplementations(t *testing.T) {
 	}
 	if text == nil || json == nil || pipeline == nil || exitOutput == nil {
 		t.Fatal("output components rejected independent policy ports")
+	}
+}
+
+func TestTraceOutputPolicyDiscardsEventsWithoutBecomingJSON(t *testing.T) {
+	policy := newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatNone})
+
+	if !policy.DiscardEvents() {
+		t.Fatal("discard policy did not report discarded events")
+	}
+	if policy.IsJSON() {
+		t.Fatal("discard policy unexpectedly reports JSON mode")
+	}
+	if policy.ShouldEmit(syscallEventContext{}, false) {
+		t.Fatal("discard policy emitted a syscall event")
 	}
 }
 

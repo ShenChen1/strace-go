@@ -56,6 +56,7 @@ func TestShouldEmitGenericEnterForPathFilter(t *testing.T) {
 		{name: "text with path filter", args: []string{"-e", "trace=openat", "-P", "from-tlv", "/bin/true"}, want: true},
 		{name: "summary only without path filter", args: []string{"-c", "-e", "trace=openat", "/bin/true"}, want: false},
 		{name: "json", args: []string{"--event-format=json", "-e", "trace=openat", "/bin/true"}, want: true},
+		{name: "discard measurement", args: []string{"--event-format=none", "-e", "trace=openat", "/bin/true"}, want: true},
 	}
 
 	for _, tt := range tests {

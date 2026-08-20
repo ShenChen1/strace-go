@@ -90,11 +90,22 @@ func (f *TraceRunFinalizer) writeStats(stats bpfRuntimeStats) {
 		return
 	}
 	pendingStale := f.pendingStaleCount()
+	if f.formatPolicy.DiscardEvents() {
+		f.writeJSONStatsDiagnostic(stats, pendingStale)
+		return
+	}
 	if f.formatPolicy.IsJSON() {
 		f.writeJSONStats(stats, pendingStale)
 		return
 	}
 	f.writeTextStatsDiagnostic(stats, pendingStale)
+}
+
+func (f *TraceRunFinalizer) writeJSONStatsDiagnostic(stats bpfRuntimeStats, pendingStale uint64) {
+	if f == nil || f.statsDiagnostic == nil {
+		return
+	}
+	_ = json.NewEncoder(f.statsDiagnostic).Encode(newJSONStatsEvent(stats, pendingStale))
 }
 
 func (f *TraceRunFinalizer) pendingStaleCount() uint64 {

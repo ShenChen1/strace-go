@@ -43,6 +43,22 @@ func TestTraceEventRouterSkipsOutOfScopeEvents(t *testing.T) {
 	}
 }
 
+func TestTraceEventRouterAllowsLifecycleWithoutOutputSink(t *testing.T) {
+	router := newTraceEventRouter(TraceEventRouterDeps{
+		Scope:     newTraceScope(100, nil),
+		TargetPID: 100,
+		State:     newTraceState(),
+	})
+
+	router.Handle(traceEventEnvelope{
+		valid:           true,
+		pid:             100,
+		tid:             100,
+		eventType:       bpfEventTypeLifecycle,
+		lifecycleAction: lifecycleExit,
+	})
+}
+
 func TestTraceEventRouterRoutesLifecycleEvents(t *testing.T) {
 	effects := &fakeLifecycleEffects{}
 	policy := newTraceOutputPolicy(&cli.Options{FollowForks: true})

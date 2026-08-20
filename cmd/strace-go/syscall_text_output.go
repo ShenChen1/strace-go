@@ -78,7 +78,8 @@ func (o *SyscallTextOutput) canHandleUnfinished(ev syscallEventContext) bool {
 }
 
 func (o *SyscallTextOutput) textMode() bool {
-	return o.format == nil || (!o.format.IsJSON() && (o.policy == nil || !o.policy.DebugEvents()))
+	return o.format == nil || (!o.format.IsJSON() && !o.format.DiscardEvents() &&
+		(o.policy == nil || !o.policy.DebugEvents()))
 }
 
 func (o *SyscallTextOutput) shouldEmitEvent(ev syscallEventContext) bool {

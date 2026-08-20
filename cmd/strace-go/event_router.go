@@ -104,9 +104,10 @@ func (r *TraceEventRouter) handleUnfinished(pendingSyscalls []unfinishedSyscallV
 }
 
 func (r *TraceEventRouter) handleLifecycle(update TraceStateUpdate) {
-	if r.lifecycle != nil {
-		r.lifecycle.Handle(update.lifecycleView, update.lifecycleTask)
+	if r.lifecycle == nil {
+		return
 	}
+	r.lifecycle.Handle(update.lifecycleView, update.lifecycleTask)
 }
 
 func (r *TraceEventRouter) handleEnter(update TraceStateUpdate, statePID int) {

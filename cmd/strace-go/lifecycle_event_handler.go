@@ -89,7 +89,7 @@ func (h *LifecycleEventHandler) Handle(view lifecycleEventView, task *TaskState)
 		h.cleanupProcess(view, task)
 		isAttachTarget := h.policy != nil && h.policy.IsAttachTarget(int(view.tid))
 		isThread := task != nil && task.TID != task.TGID
-		if !h.jsonMode() &&
+		if !h.jsonMode() && !h.discardMode() &&
 			(isAttachTarget || isThread || task != nil && task.Execed) {
 			h.writeExitText(int(view.tid), view.args[0])
 		}
@@ -161,4 +161,8 @@ func (h *LifecycleEventHandler) writeExitText(tid int, exitCode uint64) {
 
 func (h *LifecycleEventHandler) jsonMode() bool {
 	return h.policy != nil && h.policy.IsJSON()
+}
+
+func (h *LifecycleEventHandler) discardMode() bool {
+	return h.policy != nil && h.policy.DiscardEvents()
 }

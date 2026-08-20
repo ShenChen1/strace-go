@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 from ebpf_perf_suite import run_ebpf_perf
+from ebpf_capture_suite import run_ebpf_capture
 from ebpf_suites import run_ebpf_semantic
 from upstream_suites import (
     MORE_EXPECTED_FAILURES,
@@ -72,6 +73,7 @@ def parse_args():
             "upstream-reference",
             "ebpf-semantic",
             "ebpf-perf",
+            "ebpf-capture",
         ],
         default="small",
         help="Which test suite to run",
@@ -353,6 +355,8 @@ def main():
         return run_ebpf_semantic(args)
     if args.suite == "ebpf-perf":
         return run_ebpf_perf(args)
+    if args.suite == "ebpf-capture":
+        return run_ebpf_capture(args)
     return run_upstream_suite(args)
 
 

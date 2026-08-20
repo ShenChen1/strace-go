@@ -39,7 +39,8 @@ type fakeSessionOutputPolicyOwner struct {
 	attachPIDs []int
 }
 
-func (p fakeSessionOutputPolicyOwner) IsJSON() bool { return p.json }
+func (p fakeSessionOutputPolicyOwner) IsJSON() bool      { return p.json }
+func (fakeSessionOutputPolicyOwner) DiscardEvents() bool { return false }
 
 func (p fakeSessionOutputPolicyOwner) DebugEvents() bool { return p.debug }
 func (p fakeSessionOutputPolicyOwner) DebugPhases() bool { return p.phases }

@@ -122,6 +122,24 @@ func TestTraceRunFinalizerWritesJSONStats(t *testing.T) {
 	}
 }
 
+func TestTraceRunFinalizerWritesDiscardStatsToDiagnostic(t *testing.T) {
+	var diagnostics bytes.Buffer
+	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{
+		FormatPolicy:    newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatNone}),
+		StatsDiagnostic: &diagnostics,
+	})
+
+	finalizer.writeStats(bpfRuntimeStats{Available: true, RingbufReserveFail: 11})
+
+	var event jsonStatsEvent
+	if err := json.Unmarshal(bytes.TrimSpace(diagnostics.Bytes()), &event); err != nil {
+		t.Fatalf("decode discard stats JSON: %v", err)
+	}
+	if event.Type != "stats" || !event.Available || event.RingbufReserveFail != 11 {
+		t.Fatalf("discard stats JSON = %+v, want available reserve_fail=11", event)
+	}
+}
+
 func TestTraceRunFinalizerWritesTextStatsDiagnostic(t *testing.T) {
 	var diagnostics bytes.Buffer
 	policy := newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatText})

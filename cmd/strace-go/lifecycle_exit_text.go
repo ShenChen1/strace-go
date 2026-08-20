@@ -36,7 +36,8 @@ func newTraceLifecycleExitTextWriter(deps traceLifecycleExitTextWriterDeps) *tra
 }
 
 func (w *traceLifecycleExitTextWriter) WriteExitText(tid int, exitCode uint64) {
-	if w == nil || w.policy == nil || w.policy.QuietExit() || w.policy.SummaryOnly() || w.policy.IsJSON() {
+	if w == nil || w.policy == nil || w.policy.QuietExit() || w.policy.SummaryOnly() ||
+		w.policy.IsJSON() || w.policy.DiscardEvents() {
 		return
 	}
 	if w.hasCommand && tid == w.targetPID {

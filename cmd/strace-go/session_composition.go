@@ -291,36 +291,46 @@ func buildTraceSessionEvents(
 	outputs traceSessionOutputComponents,
 	contextDeps syscallEventContextDeps,
 ) traceSessionEventComponents {
-	exitPipeline := newSyscallExitPipeline(SyscallExitPipelineDeps{
-		Summary: base.outputPolicy,
-		JSON:    outputs.syscallJSON,
-		Exit:    outputs.exitSyscall,
-		Runner:  base.handlerRunner,
-		Text:    outputs.syscallText,
-		Effects: newTraceSessionSyscallExitEffects(deps.Summary, deps.FDState, deps.FDState),
-	})
+	var exitPipeline *SyscallExitPipeline
+	var lifecycle *LifecycleEventHandler
+	var exitSink syscallExitSink
+	var lifecycleSink lifecycleEventSink
+	var jsonSink syscallEnterSink
+	if !base.outputPolicy.DiscardEvents() {
+		exitPipeline = newSyscallExitPipeline(SyscallExitPipelineDeps{
+			Summary: base.outputPolicy,
+			JSON:    outputs.syscallJSON,
+			Exit:    outputs.exitSyscall,
+			Runner:  base.handlerRunner,
+			Text:    outputs.syscallText,
+			Effects: newTraceSessionSyscallExitEffects(deps.Summary, deps.FDState, deps.FDState),
+		})
+		lifecycle = newLifecycleEventHandler(LifecycleEventHandlerDeps{
+			Policy: base.outputPolicy,
+			Effects: newTraceSessionLifecycleEffects(
+				deps.FDState,
+				base.jsonWriter,
+				newTraceLifecycleExitTextWriter(traceLifecycleExitTextWriterDeps{
+					Policy:     deps.OutputPolicy,
+					HasCommand: deps.HasCommand,
+					TargetPID:  deps.TargetPID,
+					Out:        deps.OutWriter,
+					Renderer:   base.renderer,
+				}),
+			),
+		})
+		exitSink = exitPipeline
+		lifecycleSink = lifecycle
+		jsonSink = outputs.syscallJSON
+	}
 	deps.State.setUnfinishedEnabled(outputs.syscallText.textMode())
-	lifecycle := newLifecycleEventHandler(LifecycleEventHandlerDeps{
-		Policy: base.outputPolicy,
-		Effects: newTraceSessionLifecycleEffects(
-			deps.FDState,
-			base.jsonWriter,
-			newTraceLifecycleExitTextWriter(traceLifecycleExitTextWriterDeps{
-				Policy:     deps.OutputPolicy,
-				HasCommand: deps.HasCommand,
-				TargetPID:  deps.TargetPID,
-				Out:        deps.OutWriter,
-				Renderer:   base.renderer,
-			}),
-		),
-	})
 	router := newTraceEventRouter(TraceEventRouterDeps{
 		Scope:       newTraceScope(deps.TargetPID, base.outputPolicy),
 		TargetPID:   deps.TargetPID,
 		State:       deps.State,
-		Lifecycle:   lifecycle,
-		JSON:        outputs.syscallJSON,
-		Pipeline:    exitPipeline,
+		Lifecycle:   lifecycleSink,
+		JSON:        jsonSink,
+		Pipeline:    exitSink,
 		ContextDeps: contextDeps,
 	})
 	return traceSessionEventComponents{

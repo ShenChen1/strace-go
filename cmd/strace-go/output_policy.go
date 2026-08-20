@@ -5,6 +5,7 @@ import "strace-go/pkg/cli"
 // traceFormatPolicy exposes only the output format decision.
 type traceFormatPolicy interface {
 	IsJSON() bool
+	DiscardEvents() bool
 }
 
 // traceEventOutputPolicy owns debug and status decisions for syscall events.
@@ -22,7 +23,7 @@ type traceSummaryPolicy interface {
 
 // traceExitPolicy controls command and exit-syscall fallback output.
 type traceExitPolicy interface {
-	IsJSON() bool
+	traceFormatPolicy
 	SummaryOnly() bool
 	QuietExit() bool
 }
@@ -58,7 +59,7 @@ type traceFollowForkPolicy interface {
 }
 
 type traceLifecyclePolicy interface {
-	IsJSON() bool
+	traceFormatPolicy
 	IsAttachTarget(pid int) bool
 }
 
@@ -71,6 +72,7 @@ type traceReadyPolicy interface {
 // cliTraceOutputPolicy is a session-scoped immutable snapshot of output policy.
 type cliTraceOutputPolicy struct {
 	json               bool
+	discard            bool
 	debug              bool
 	debugPhases        bool
 	status             successfulFailedOptions
@@ -105,6 +107,7 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 	}
 	return &cliTraceOutputPolicy{
 		json:               opts.EventFormat == cli.EventFormatJSON,
+		discard:            opts.EventFormat == cli.EventFormatNone,
 		debug:              opts.DebugEvents,
 		debugPhases:        opts.DebugPhases,
 		status:             successfulFailedOptions{successfulOnly: opts.SuccessfulOnly, failedOnly: opts.FailedOnly, traceStatus: traceStatus},
@@ -131,6 +134,10 @@ func (p *cliTraceOutputPolicy) IsJSON() bool {
 	return p != nil && p.json
 }
 
+func (p *cliTraceOutputPolicy) DiscardEvents() bool {
+	return p != nil && p.discard
+}
+
 func (p *cliTraceOutputPolicy) DebugEvents() bool {
 	return p != nil && p.debug
 }
@@ -142,6 +149,9 @@ func (p *cliTraceOutputPolicy) DebugPhases() bool {
 func (p *cliTraceOutputPolicy) ShouldEmit(ev syscallEventContext, unfinished bool) bool {
 	if p == nil {
 		return true
+	}
+	if p.discard {
+		return false
 	}
 	if unfinished {
 		return !p.statusFilterActive

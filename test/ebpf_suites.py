@@ -170,6 +170,19 @@ def run_strace_go_json(args, timeout=30, debug=False, phases=False):
     )
 
 
+def run_strace_go_none(args, timeout=30):
+    command = [STRACE_WRAPPER, "--debug-phases", "--event-format=none"] + args
+    return subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        errors="ignore",
+        timeout=timeout,
+        env=os.environ.copy(),
+    )
+
+
 def run_strace_go_text(args, timeout=30):
     return subprocess.run(
         [STRACE_WRAPPER] + args,

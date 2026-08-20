@@ -51,6 +51,9 @@ func (o *ExitSyscallOutput) Handle(ev syscallEventContext) bool {
 	if !ev.isExitSyscallEvent() {
 		return false
 	}
+	if o.policy != nil && o.policy.DiscardEvents() {
+		return true
+	}
 	if o.policy != nil && o.policy.SummaryOnly() {
 		return true
 	}
@@ -76,7 +79,7 @@ func (o *ExitSyscallOutput) Handle(ev syscallEventContext) bool {
 }
 
 func (o *ExitSyscallOutput) printExitStatus(ev syscallEventContext) {
-	if o.policy != nil && o.policy.QuietExit() {
+	if o.policy != nil && (o.policy.QuietExit() || o.policy.DiscardEvents()) {
 		return
 	}
 	if o.renderer == nil {

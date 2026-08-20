@@ -121,6 +121,24 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	}
 }
 
+func TestNoneFormatSkipsPerEventOutputPipeline(t *testing.T) {
+	session := newTestTraceSessionWithOptions(&cli.Options{EventFormat: cli.EventFormatNone}, traceSessionDeps{})
+
+	if session.dependencies.OutputPolicy == nil || !session.dependencies.OutputPolicy.DiscardEvents() {
+		t.Fatal("none format did not reach the session output policy")
+	}
+	if session.syscallExitPipeline() != nil {
+		t.Fatal("none format constructed a syscall output pipeline")
+	}
+	if session.lifecycleEventHandler() != nil {
+		t.Fatal("none format constructed a lifecycle output handler")
+	}
+	state, ok := session.traceState().(*TraceState)
+	if !ok || state.unfinishedEnabled {
+		t.Fatal("none format enabled unfinished output state")
+	}
+}
+
 func TestTraceSessionEagerGraphUsesOneExitStatusCoordinator(t *testing.T) {
 	session := newTestTraceSession(traceSessionDeps{})
 	components := session.components

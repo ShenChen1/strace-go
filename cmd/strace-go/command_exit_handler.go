@@ -59,7 +59,7 @@ func (h *TraceCommandExitHandler) fallbackLine(result traceCommandExitResult) st
 	if h == nil || !result.exited || h.policy == nil {
 		return ""
 	}
-	if h.policy.QuietExit() || h.policy.SummaryOnly() || h.policy.IsJSON() {
+	if h.policy.QuietExit() || h.policy.SummaryOnly() || h.policy.IsJSON() || h.policy.DiscardEvents() {
 		return ""
 	}
 	if h.renderer == nil {
