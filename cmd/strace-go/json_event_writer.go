@@ -53,6 +53,7 @@ func (w *traceDebugPhaseWriter) EmitPhaseAt(phase string, startTimeNS, timeNS ui
 // records. Filtering and event selection stay in the output policy objects.
 type JSONEventWriter struct {
 	encoder         *json.Encoder
+	flusher         interface{ Flush() error }
 	syscallEvent    jsonSyscallEvent
 	payloadSections []jsonPayloadSection
 	lifecycleEvent  jsonLifecycleEvent
@@ -66,8 +67,18 @@ func newJSONEventWriter(deps JSONEventWriterDeps) *JSONEventWriter {
 	writer := &JSONEventWriter{}
 	if deps.Out != nil {
 		writer.encoder = json.NewEncoder(deps.Out)
+		if flusher, ok := deps.Out.(interface{ Flush() error }); ok {
+			writer.flusher = flusher
+		}
 	}
 	return writer
+}
+
+func (w *JSONEventWriter) Flush() error {
+	if w == nil || w.flusher == nil {
+		return nil
+	}
+	return w.flusher.Flush()
 }
 
 func (w *JSONEventWriter) WriteRaw(ev syscallEventContext) {
@@ -192,6 +203,7 @@ func (s *traceSession) emitDebugReadyAt(startTimeNS uint64) {
 			startTimeNS,
 			s.debugTimeNS(),
 		)
+		_ = writer.Flush()
 	}
 }
 

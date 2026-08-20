@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -79,13 +80,25 @@ func (f *TraceRunFinalizer) Finish() error {
 	if f.exitStatus != nil {
 		f.exitStatus.FlushFallback(f.targetPID)
 	}
+	flushErr := f.flushOutput()
 	stats := collectBPFStatsFromReader(f.statsReader)
 	f.writeStats(stats)
 	f.printSummary()
 	if f.debugPhases != nil {
 		f.debugPhases.EmitPhase("cleanup_start")
 	}
-	return f.closeOutput()
+	return errors.Join(flushErr, f.closeOutput())
+}
+
+func (f *TraceRunFinalizer) flushOutput() error {
+	if f == nil || f.output == nil {
+		return nil
+	}
+	flusher, ok := f.output.(interface{ Flush() error })
+	if !ok {
+		return nil
+	}
+	return flusher.Flush()
 }
 
 func (f *TraceRunFinalizer) writeStats(stats bpfRuntimeStats) {

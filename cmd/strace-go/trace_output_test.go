@@ -12,6 +12,16 @@ type fakeTraceOutputWriter struct {
 	maxBytes int
 }
 
+type fakeTraceOutputFlusher struct {
+	events   *[]string
+	flushErr error
+}
+
+func (f *fakeTraceOutputFlusher) Flush() error {
+	*f.events = append(*f.events, "flush-output")
+	return f.flushErr
+}
+
 func (w *fakeTraceOutputWriter) Write(p []byte) (int, error) {
 	if w.maxBytes >= 0 && len(p) > w.maxBytes {
 		return w.maxBytes, w.writeErr
@@ -77,6 +87,45 @@ func TestTraceOutputOwnsWriterAndWaitsAfterClose(t *testing.T) {
 	}
 	if closer.closeCall != 1 || waiter.waitCall != 1 {
 		t.Fatalf("second close repeated resources: close=%d wait=%d", closer.closeCall, waiter.waitCall)
+	}
+}
+
+func TestTraceOutputFlushesBeforeClosingWriter(t *testing.T) {
+	events := make([]string, 0, 2)
+	output, err := newTraceOutput(TraceOutputDeps{
+		Writer: bytes.NewBuffer(nil),
+		Flush:  (&fakeTraceOutputFlusher{events: &events}).Flush,
+		Closer: &fakeTraceOutputCloser{events: &events},
+	})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+
+	if err := output.Close(); err != nil {
+		t.Fatalf("TraceOutput.Close() error = %v", err)
+	}
+	if got, want := events, []string{"flush-output", "close-writer"}; !equalStrings(got, want) {
+		t.Fatalf("flush/close order = %v, want %v", got, want)
+	}
+}
+
+func TestTraceOutputCloseJoinsFlushError(t *testing.T) {
+	flushErr := errors.New("output flush failed")
+	events := make([]string, 0, 2)
+	output, err := newTraceOutput(TraceOutputDeps{
+		Writer: bytes.NewBuffer(nil),
+		Flush:  (&fakeTraceOutputFlusher{events: &events, flushErr: flushErr}).Flush,
+		Closer: &fakeTraceOutputCloser{events: &events},
+	})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+
+	if err := output.Close(); !errors.Is(err, flushErr) {
+		t.Fatalf("TraceOutput.Close() error = %v, want %v", err, flushErr)
+	}
+	if got, want := events, []string{"flush-output", "close-writer"}; !equalStrings(got, want) {
+		t.Fatalf("flush error cleanup order = %v, want %v", got, want)
 	}
 }
 

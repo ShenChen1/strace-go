@@ -108,6 +108,11 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 	if err != nil {
 		return fmt.Errorf("failed to set up output: %w", err)
 	}
+	if config.session.outputPolicy != nil && config.session.outputPolicy.IsJSON() {
+		if err := output.EnableBuffer(traceOutputBufferSize); err != nil {
+			return fmt.Errorf("failed to buffer output: %w", errors.Join(err, output.Close()))
+		}
+	}
 	outputHandoff, err := newTraceOutputHandoff(output)
 	if err != nil {
 		return fmt.Errorf("failed to own output: %w", joinTraceRunError(err, output.Close()))

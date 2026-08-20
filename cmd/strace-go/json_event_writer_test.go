@@ -11,6 +11,16 @@ import (
 	"strace-go/pkg/meta"
 )
 
+type flushableJSONOutput struct {
+	bytes.Buffer
+	flushCalls int
+}
+
+func (w *flushableJSONOutput) Flush() error {
+	w.flushCalls++
+	return nil
+}
+
 func TestJSONEventWriterWithoutOutputIsNoop(t *testing.T) {
 	writer := newJSONEventWriter(JSONEventWriterDeps{})
 
@@ -95,6 +105,19 @@ func TestTraceSessionEmitsDebugReadyEvent(t *testing.T) {
 	}
 	if len(event.AttachPIDs) != 2 || event.AttachPIDs[1] != 84 {
 		t.Fatalf("attach pids = %v, want [42 84]", event.AttachPIDs)
+	}
+}
+
+func TestTraceSessionFlushesDebugReadyEvent(t *testing.T) {
+	output := &flushableJSONOutput{}
+	session := newTestTraceSessionWithOptions(&cli.Options{DebugEvents: true}, traceSessionDeps{
+		OutWriter: output,
+	})
+
+	session.emitDebugReadyAt(7)
+
+	if output.flushCalls != 1 {
+		t.Fatalf("ready flush calls = %d, want 1", output.flushCalls)
 	}
 }
 

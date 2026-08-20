@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
 	"os/exec"
 )
+
+const traceOutputBufferSize = 64 * 1024
 
 type traceOutputWaiter interface {
 	Wait() error
@@ -26,8 +29,10 @@ type TraceOutput struct {
 	writer   io.Writer
 	closer   io.Closer
 	command  traceOutputWaiter
+	flushFn  func() error
 	closed   bool
 	writeErr error
+	flushErr error
 	closeErr error
 }
 
@@ -35,6 +40,7 @@ type TraceOutputDeps struct {
 	Writer  io.Writer
 	Closer  io.Closer
 	Command traceOutputWaiter
+	Flush   func() error
 }
 
 // traceOutputHandoff owns a bootstrap-created output until session composition
@@ -85,7 +91,29 @@ func newTraceOutput(deps TraceOutputDeps) (*TraceOutput, error) {
 		writer:  deps.Writer,
 		closer:  deps.Closer,
 		command: deps.Command,
+		flushFn: deps.Flush,
 	}, nil
+}
+
+// EnableBuffer batches output at the ownership boundary without adding an
+// asynchronous writer to the event pipeline.
+func (o *TraceOutput) EnableBuffer(size int) error {
+	if o == nil || o.writer == nil {
+		return fmt.Errorf("trace output is unavailable")
+	}
+	if o.closed {
+		return fmt.Errorf("trace output is closed")
+	}
+	if size < 1 {
+		return fmt.Errorf("trace output buffer size must be positive")
+	}
+	if o.flushFn != nil {
+		return nil
+	}
+	buffered := bufio.NewWriterSize(o.writer, size)
+	o.writer = buffered
+	o.flushFn = buffered.Flush
+	return nil
 }
 
 func (o *TraceOutput) Write(p []byte) (int, error) {
@@ -105,6 +133,23 @@ func (o *TraceOutput) Write(p []byte) (int, error) {
 	return n, err
 }
 
+func (o *TraceOutput) Flush() error {
+	if o == nil || o.flushFn == nil {
+		return nil
+	}
+	if o.closed {
+		return fmt.Errorf("trace output is closed")
+	}
+	if o.flushErr != nil {
+		return o.flushErr
+	}
+	if err := o.flushFn(); err != nil {
+		o.flushErr = fmt.Errorf("flush trace output: %w", err)
+		return o.flushErr
+	}
+	return nil
+}
+
 func (o *TraceOutput) Close() error {
 	if o == nil {
 		return nil
@@ -112,9 +157,11 @@ func (o *TraceOutput) Close() error {
 	if o.closed {
 		return o.closeErr
 	}
+	flushErr := o.Flush()
 	o.closed = true
 
 	closeErr := o.writeErr
+	closeErr = errors.Join(closeErr, flushErr)
 	if o.closer != nil {
 		closeErr = errors.Join(closeErr, o.closer.Close())
 	}

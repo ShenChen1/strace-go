@@ -15,6 +15,15 @@ type fakeRunFinalizerPipe struct {
 	closed bool
 }
 
+type recordingOutputWriter struct {
+	writes []string
+}
+
+func (w *recordingOutputWriter) Write(p []byte) (int, error) {
+	w.writes = append(w.writes, string(p))
+	return len(p), nil
+}
+
 type fakePendingStateReader struct {
 	stale int
 }
@@ -89,6 +98,40 @@ func TestTraceRunFinalizerWritesPendingStaleCount(t *testing.T) {
 	}
 	if event.Type != "stats" || event.PendingStale != 3 {
 		t.Fatalf("stats JSON = %+v, want pending_stale=3", event)
+	}
+}
+
+func TestTraceRunFinalizerFlushesBufferedEventsBeforeStats(t *testing.T) {
+	underlying := &recordingOutputWriter{}
+	output, err := newTraceOutput(TraceOutputDeps{
+		Writer: underlying,
+	})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+	if err := output.EnableBuffer(traceOutputBufferSize); err != nil {
+		t.Fatalf("TraceOutput.EnableBuffer() error = %v", err)
+	}
+	if _, err := output.Write([]byte("event\\n")); err != nil {
+		t.Fatalf("TraceOutput.Write() error = %v", err)
+	}
+
+	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{
+		FormatPolicy: newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatJSON}),
+		Output:       output,
+	})
+	if err := finalizer.Finish(); err != nil {
+		t.Fatalf("TraceRunFinalizer.Finish() error = %v", err)
+	}
+	if len(underlying.writes) != 2 || underlying.writes[0] != "event\\n" {
+		t.Fatalf("buffered writes = %#v, want event before stats", underlying.writes)
+	}
+	var stats jsonStatsEvent
+	if err := json.Unmarshal(bytes.TrimSpace([]byte(underlying.writes[1])), &stats); err != nil {
+		t.Fatalf("decode stats write: %v", err)
+	}
+	if stats.Type != "stats" {
+		t.Fatalf("second buffered write type = %q, want stats", stats.Type)
 	}
 }
 
