@@ -10592,3 +10592,39 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 当前 event/s 的状态可以明确回答：短 workload 的端到端下降已通过 `trace_sec` 与 setup/cleanup 分解纠正，当前 scalar trace window 约 `26.5k exit/s`；高压真实丢失尚未解决，reader-only 仍观察到 BPF reservation failure。
 - 下一步应优先针对 `TraceState/router` 的 generic enter/exit 热路径做可控 A/B，再分别测量 producer reservation、task-storage helper、固定 record emitter 和 payload family；不能再把 JSON 路径的低速或单轮 wall-clock 差异直接当成 BPF producer 的唯一证据。
 - 本阶段没有引入 ptrace、procfs、process_vm、第二消费者、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.262 优化配对 exit 状态账与 event v2 header 校验（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：高压 `getpid` fixture 的完整 Go consumer 仍会经过 TID task bookkeeping、enter/exit pending 配对和 event v2 header 解码；reader-only 已证明底层 Ringbuf reader 本身可以读满 producer。
+- Problem：配对成功的 exit 已经从 enter 建立了 task 状态，却仍重复执行一次 task map 更新；event envelope 解码还会先做一次 sample validation，再由 header parser 重复读取同一组字段。
+- Goal：对正常配对的 exit 跳过重复 task 更新，仅保留 exit-only/mismatch fallback；让 header parser 成为唯一校验入口，同时保留边界 decoder 的行为。
+- Non-goals：不改变 event v2 ABI、payload ownership、unfinished/resumed、生命周期、filter、输出文本或 BPF producer；不引入 ptrace/procfs、第二 consumer、锁、定时器或额外 Goroutine。
+- Constraints：必须保留 exit-only 任务状态和 reader-only 边界校验；所有语义、compat reference、race、verifier 和高压对账继续通过；不能用单轮 event/s 波动宣称根因已修复。
+
+#### 方案比较
+
+1. 保留每条 exit 的 task 更新：语义最保守，但每个正常配对事件重复访问 task map，收益为零。
+2. 仅在未配对 exit 或 fragment 路径更新 task：常见 paired exit 少一次 map 操作，异常/attach 顺序仍有 fallback，选择。
+3. 给 decoder 增加“已校验”参数：可以避免重复校验，但会扩大调用接口；让 header parser 同时承担校验、`isTraceEventV2Sample` 复用它，改动更小，选择。
+
+#### 实现与测试
+
+- `handleSyscallEnvelope` 现在只在 generic enter 和 exit fragment 更新 task；普通 exit 先消费 pending enter，只有 `pendingEnter == nil` 时才执行 exit-only task fallback。
+- 新增 paired-exit source gate 和 exit-only task regression test，锁定上述分支边界。
+- `decodeTraceEventV2Header` 现在一次读取并校验 version/type/header length/record size，`isTraceEventV2Sample` 复用该 parser；新增 source gate 防止 header parser 再调用 sample validation。
+- 保持 payload section 解码和 pending owner 生命周期不变；没有把 borrowed ringbuf payload 提前 deep-copy。
+
+#### 验证与实测
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、Python unit `47/47`、`ebpf-semantic` 和 native `small` `23/23 PASS` 均通过；semantic 主事件 `197`，enter/exit `100/97`，lifecycle `6`，正常 runtime error counters 均为 `0`。
+- 状态机 benchmark 从改动前约 `352.0 ns/op` 降到约 `343.5 ns/op`，保持 `0 B/op`、`0 allocs/op`；重新做 header 优化后的三轮为 `344.9/343.6/342.6 ns/op`，没有把测量噪声解释成额外稳定收益。
+- 真实旧/新交替高压 A/B（16 线程、每线程 100000 次 `getpid`）第一对为：旧实现 `trace_sec=1.090956`、`records_read=2,917,861`、`reserve_fail=282,175`；新实现 `1.031730`、`2,995,342`、`204,693`。第二对为：旧实现 `1.091190`、`2,123,442`、`1,076,593`；新实现 `1.071969`、`2,130,480`、`1,069,555`。两对方向不完全一致，说明状态优化有合理的微基准收益，但尚不能宣称稳定修复高压 event/s。
+- 当前重建二进制的一轮 capture 为：reader `records_read=3,200,036`、`reserve_fail=0`；none `1,749,667`、`1,450,368`；JSON `1,202,811`、`1,997,224`。三条路径均满足 `records_read=records_decoded=records_routed`（reader 的 routed 有意为 0）且 `records_invalid=0`，producer 对账闭合到约 `3,200,036` 次 reservation attempt。
+
+#### 决策与 Review
+
+- 保留这两项用户态优化：前者删除常见 paired exit 的重复 task map 更新，后者消除 decoder 的重复 header validation；两者都没有牺牲纯 eBPF 事件时点或异常顺序 fallback。
+- 当前问题只得到部分改善，尚未解决：reader-only 能跟上 producer，而完整 none/json 仍在 `TraceState/router` 和 output 压力下触发 BPF `ringbuf_reserve_fail`。短 workload 的低 event/s 仍需使用 `trace_sec` 排除 setup/cleanup 分母，长 workload 则必须按 producer、state、handler 和 output 分层压测。
+- 下一阶段优先做高压 text/JSON handler 的独立消费基线，以及 decoder/state/router 的 per-layer A/B；继续以 `reserve_fail + records_read`、`trace_sec`、`records_invalid` 和语义计数联合判定，不再用单轮 wall-clock 作为结论。

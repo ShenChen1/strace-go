@@ -41,11 +41,12 @@ func (st *TraceState) handleLifecycleEnvelope(envelope traceEventEnvelope, unfin
 func (st *TraceState) handleSyscallEnvelope(envelope traceEventEnvelope, unfinished []unfinishedSyscallView) TraceStateUpdate {
 	syscallView := envelope.syscallView()
 	processInherit := st.resolveForkIdentity(syscallView.tid, syscallView.pid)
-	st.noteSyscallTask(syscallView)
 	if syscallView.isGenericEnter() {
+		st.noteSyscallTask(syscallView)
 		return st.handleSyscallEnter(syscallView, envelope.payload, processInherit, unfinished)
 	}
 	if syscallView.isExitFragment() {
+		st.noteSyscallTask(syscallView)
 		return st.handleSyscallFragment(syscallView, envelope.payload, processInherit, unfinished)
 	}
 	return st.handleSyscallExit(syscallView, envelope.payload, processInherit, unfinished)
@@ -97,6 +98,9 @@ func (st *TraceState) handleSyscallFragment(view syscallEventView, payload []han
 
 func (st *TraceState) handleSyscallExit(view syscallEventView, payload []handler.PayloadSection, processInherit *processStateInheritance, unfinished []unfinishedSyscallView) TraceStateUpdate {
 	pendingEnter := st.consumeEnterEvent(view)
+	if pendingEnter == nil {
+		st.noteSyscallTask(view)
+	}
 	if pendingEnter == nil && st.deferUnmatchedExits {
 		st.rememberPendingExit(view, payload)
 		return TraceStateUpdate{

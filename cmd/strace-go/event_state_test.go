@@ -140,6 +140,23 @@ func TestTraceStateHandlePairsEnterExitAndCleansLifecycle(t *testing.T) {
 	}
 }
 
+func TestTraceStateExitWithoutEnterStillEnsuresTaskState(t *testing.T) {
+	state := newTraceState()
+	state.handleEnvelope(traceEventEnvelope{
+		valid:     true,
+		pid:       1234,
+		tid:       1235,
+		sysID:     39,
+		eventType: bpfEventTypeExit,
+		enterTime: 80,
+	})
+
+	task := state.tasks[1235]
+	if task == nil || !task.Alive || task.LastSeenNS != 80 {
+		t.Fatalf("exit-only task state = %+v, want alive task at timestamp 80", task)
+	}
+}
+
 func TestTraceStateRecyclesMismatchedPendingExit(t *testing.T) {
 	state := newTraceState()
 	enterID := syscallIDByName(t, "getpid")

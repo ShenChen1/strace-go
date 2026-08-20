@@ -47,6 +47,24 @@ func TestTraceStateEntryDelegatesEventOwnership(t *testing.T) {
 	}
 }
 
+func TestTraceStateDefersExitTaskBookkeepingUntilPairing(t *testing.T) {
+	root := repoRootForTest(t)
+	dispatchSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/event_state_dispatch.go"))
+	syscall := sourceFunctionBody(t, dispatchSource, "func (st *TraceState) handleSyscallEnvelope")
+	enterBranch := strings.Index(syscall, "if syscallView.isGenericEnter()")
+	if enterBranch < 0 {
+		t.Fatal("syscall dispatcher is missing the enter branch")
+	}
+	if strings.Contains(syscall[:enterBranch], "st.noteSyscallTask(syscallView)") {
+		t.Fatal("syscall dispatcher still updates task state before it knows whether exit is paired")
+	}
+	exit := sourceFunctionBody(t, dispatchSource, "func (st *TraceState) handleSyscallExit")
+	if !strings.Contains(exit, "if pendingEnter == nil") ||
+		!strings.Contains(exit, "st.noteSyscallTask(view)") {
+		t.Fatal("exit handler must retain an exit-only task-state fallback")
+	}
+}
+
 func sourceFunctionBody(t *testing.T, source, signature string) string {
 	t.Helper()
 	start := strings.Index(source, signature)

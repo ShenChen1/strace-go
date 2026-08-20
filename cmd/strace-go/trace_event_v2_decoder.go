@@ -21,22 +21,8 @@ type traceEventV2Header struct {
 }
 
 func isTraceEventV2Sample(rawSample []byte) bool {
-	if len(rawSample) < traceEventV2HeaderLen {
-		return false
-	}
-	if binary.LittleEndian.Uint16(rawSample[0:2]) != traceEventV2Version {
-		return false
-	}
-	eventType := binary.LittleEndian.Uint16(rawSample[2:4])
-	if eventType != bpfEventTypeEnter && eventType != bpfEventTypeExit &&
-		eventType != bpfEventTypeLifecycle {
-		return false
-	}
-	headerLen := binary.LittleEndian.Uint16(rawSample[6:8])
-	size := binary.LittleEndian.Uint32(rawSample[8:12])
-	return headerLen >= traceEventV2HeaderLen &&
-		uint32(headerLen) <= size &&
-		size <= uint32(len(rawSample))
+	_, _, ok := decodeTraceEventV2Header(rawSample)
+	return ok
 }
 
 func decodeTraceEventV2Envelope(rawSample []byte) (traceEventEnvelope, bool) {
@@ -57,21 +43,33 @@ func decodeTraceEventV2Envelope(rawSample []byte) (traceEventEnvelope, bool) {
 }
 
 func decodeTraceEventV2Header(rawSample []byte) (traceEventV2Header, []byte, bool) {
-	if !isTraceEventV2Sample(rawSample) {
+	if len(rawSample) < traceEventV2HeaderLen {
 		return traceEventV2Header{}, nil, false
 	}
-	headerLen := int(binary.LittleEndian.Uint16(rawSample[6:8]))
-	size := int(binary.LittleEndian.Uint32(rawSample[8:12]))
+	version := binary.LittleEndian.Uint16(rawSample[0:2])
+	eventType := binary.LittleEndian.Uint16(rawSample[2:4])
+	headerLen := binary.LittleEndian.Uint16(rawSample[6:8])
+	size := binary.LittleEndian.Uint32(rawSample[8:12])
+	if version != traceEventV2Version ||
+		(eventType != bpfEventTypeEnter && eventType != bpfEventTypeExit &&
+			eventType != bpfEventTypeLifecycle) ||
+		headerLen < traceEventV2HeaderLen ||
+		uint32(headerLen) > size ||
+		size > uint32(len(rawSample)) {
+		return traceEventV2Header{}, nil, false
+	}
+	headerLenInt := int(headerLen)
+	sizeInt := int(size)
 	header := traceEventV2Header{
-		version:   binary.LittleEndian.Uint16(rawSample[0:2]),
-		eventType: binary.LittleEndian.Uint16(rawSample[2:4]),
+		version:   version,
+		eventType: eventType,
 		flags:     binary.LittleEndian.Uint16(rawSample[4:6]),
 		pid:       binary.LittleEndian.Uint32(rawSample[12:16]),
 		tid:       binary.LittleEndian.Uint32(rawSample[16:20]),
 		sysID:     binary.LittleEndian.Uint32(rawSample[20:24]),
 		tsNs:      binary.LittleEndian.Uint64(rawSample[32:40]),
 	}
-	return header, rawSample[headerLen:size], true
+	return header, rawSample[headerLenInt:sizeInt], true
 }
 
 func decodeTraceEventV2EnterEnvelope(header traceEventV2Header, body []byte) (traceEventEnvelope, bool) {
