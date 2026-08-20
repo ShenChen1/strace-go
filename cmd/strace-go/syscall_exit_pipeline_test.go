@@ -129,7 +129,7 @@ func TestSyscallExitPipelineSuppressesArchPrctlFromEventView(t *testing.T) {
 	wantCalls(t, state.effects.calls, []string{"offset", "cleanup"})
 }
 
-func TestSyscallExitPipelineRunsHandlerForPrintableEvent(t *testing.T) {
+func TestSyscallExitPipelineSkipsNoopFDStateEffectForPrintableEvent(t *testing.T) {
 	var calls []string
 	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
 		HandleSyscall: func(string, *handler.Context) handler.Result {
@@ -145,10 +145,10 @@ func TestSyscallExitPipelineRunsHandlerForPrintableEvent(t *testing.T) {
 	state.pipeline.Handle(exitPipelineEvent("getpid"))
 
 	calls = append(calls, state.effects.calls...)
-	wantCalls(t, calls, []string{"handler", "fd-state", "offset", "cleanup"})
+	wantCalls(t, calls, []string{"handler", "offset", "cleanup"})
 }
 
-func TestSyscallExitPipelineHandlerOnlyRunsHandlerWithoutOutput(t *testing.T) {
+func TestSyscallExitPipelineHandlerOnlySkipsNoopFDStateEffect(t *testing.T) {
 	var calls []string
 	policy := newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatHandler})
 	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
@@ -168,7 +168,26 @@ func TestSyscallExitPipelineHandlerOnlyRunsHandlerWithoutOutput(t *testing.T) {
 
 	pipeline.Handle(exitPipelineEvent("getpid"))
 
-	wantCalls(t, calls, []string{"handler", "fd-state"})
+	wantCalls(t, calls, []string{"handler"})
+}
+
+func TestSyscallExitPipelineKeepsFDStateEffectForCreator(t *testing.T) {
+	var calls []string
+	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
+		HandleSyscall: func(string, *handler.Context) handler.Result {
+			calls = append(calls, "handler")
+			return handler.Result{}
+		},
+		Effects: handlerEffectFunc(func(syscallEventContext) {
+			calls = append(calls, "fd-state")
+		}),
+	})
+	state := newExitPipelineTestState(nil, runner, nil)
+
+	state.pipeline.Handle(exitPipelineEvent("openat"))
+
+	calls = append(calls, state.effects.calls...)
+	wantCalls(t, calls, []string{"handler", "fd-state", "offset", "cleanup"})
 }
 
 func TestSyscallExitPipelineSkipsUnfinishedDecodeOutsideTextMode(t *testing.T) {

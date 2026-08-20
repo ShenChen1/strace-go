@@ -10745,6 +10745,47 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 下一阶段继续 profile `TraceState` 的 map bookkeeping、router envelope 传递和 output producer；每次只接受语义回归通过且 `records_read + reserve_fail` 闭合的 A/B 结果。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、第二事件消费者、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
 
+### 14.268 在 handler runner 外部门控无效 FD state effect（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.267 后 `TraceState` 的 state-only 固定成本已经下降，但 handler pipeline profile 仍显示 `SyscallHandlerRunner.update` 和 `FDStateStore` effect 占据普通 `getpid`/`clock_gettime` 事件的明显比例。
+- Problem：普通可打印 syscall 没有 payload，也不会创建 FD、改变 cwd、更新 eventfd 或改变 FD offset；它们仍先构造 `fdStateUpdate`、调用 effect 接口，最后才在 `FDStateStore.ApplyFDState` 内部判定 no-op。每条事件的接口调用和 value 构造都会延长 Ringbuf 消费时间。
+- Goal：把同一条 FD state applicability predicate 提前到 `SyscallHandlerRunner`，让确定的 no-op 事件不进入 effect；保持 payload、creator、`read` eventfd 特殊计数和现有 offset/close cleanup 语义不变。
+- Non-goals：不改变 BPF producer、event ABI、FD state 数据结构、handler 输出格式、Ringbuf 容量、ptrace/procfs/process_vm 边界、事件消费者数量或线程模型。
+- Constraints：不能只按“是否打印”判断；隐藏的 FD syscall 和带 payload 的普通名字必须继续执行 FD state effect。store 内部仍保留 predicate，避免其他调用方绕过保护。
+
+#### 方案比较
+
+1. 只保留 `FDStateStore.ApplyFDState` 内部门控：行为最安全，但每条 no-op 事件仍支付接口调用和 update 构造成本，拒绝。
+2. 在 `SyscallHandlerRunner` 复用 store 的纯 predicate：只增加一次轻量判断，能覆盖打印和隐藏事件，选择。
+3. 将 handler、offset、close 三类 effect 合并成一个统一 fast path：可能继续减少接口次数，但扩大 pipeline 所有权边界，难以区分 cleanup 与 state update，拒绝。
+
+#### 实现与失败优先测试
+
+- 将原 `shouldApplyFDStateUpdate` 的规则抽成 `shouldApplyFDStateEvent(view, syscallName, payloadSections)`；`FDStateStore` 和 `syscallEventContext` 共用这一纯函数。
+- `SyscallHandlerRunner.update` 只有在 effect 存在且 predicate 为真时才调用 `UpdateFDState`。有任意 payload 时保守放行；无 payload 时保留 open/creator、dup/fcntl、socket、cwd、close_range、eventfd 等已有 syscall 集合，并保留 `read` 返回值为 8 的特殊路径。
+- 先让新增 runner/pipeline 断言在旧实现上失败，再更新实现；测试覆盖普通可打印 `getpid`、隐藏非 FD `getpid`、隐藏 `openat`、payload-backed 普通 syscall，以及完整 pipeline 的 creator effect。
+- 增加 `BenchmarkTraceEventHandlerPipeline` 和 `BenchmarkTraceEventJSONPipeline`，把 context 构造、handler、FD effect、offset/close cleanup 和输出连接到同一个同步基准中。
+
+#### 验证与实测
+
+- handler context 基准从门控前约 `216.9 ns/op` 降到 `178.0 ns/op`，连续复测保持 `178 ns/op` 左右，均为 `0 B/op、0 allocs/op`。
+- 完整 handler pipeline 连续三轮为 `371.8/371.9/372.8 ns/op、0 B/op、0 allocs/op`；JSON pipeline 为 `1124/1129/1131 ns/op、3 B/op、1 alloc/op`。当前主要热点已经转移到 handler context、FD offset/cleanup 和 JSON 编码，gate 本身约占很小的剩余比例。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 均通过。
+- `ebpf-semantic` 通过：主事件 `197`，enter/exit `100/97`，lifecycle `6`，payload truncated `7`；reserve/copy/pending/orphan/mismatch/lifecycle-map-update 错误均为 `0`。
+- `ebpf-capture` 通过：本轮 reader `3,200,035/0`、none `3,200,035/0`、handler `1,556,312/1,643,723`、JSON `1,253,283/1,946,752`，格式为 `records_read/ringbuf_reserve_fail`；所有路由均 `records_invalid=0` 且 decoded/read 对账成立。handler/JSON 的 reserve failure 仍然存在，不能宣称完整高压丢失已经解决。
+- `ebpf-perf` 通过：state decode `278.70 ns/op、0 B/op、0 allocs/op`，raw/decoded JSON `484.80/627.30 ns/op`，payload JSON `873.70 ns/op、16 B/op、1 alloc/op`；scalar/io/lifecycle/threads 的 trace-window exit/s 为 `25713.00/17492.38/85.33/15236.38`，运行期错误计数为 `0`。
+- upstream `small` 通过 `23/23`。相关 native full reference 仍只作为兼容参考，不改变纯 eBPF 单一产品路径的架构决策。
+
+#### 决策与 Review
+
+- 保留本阶段优化。它把已经验证过的业务 predicate 前移，去掉普通 syscall 的一次 effect 接口调用和 update 构造，同时没有把 payload/FD creator 判定泄漏成“是否打印”的错误语义。
+- pipeline 测试明确锁定：普通 `getpid` 不调用 FD state effect，`openat` 仍调用，payload-backed 普通 syscall 仍调用；offset 和 close cleanup 不受影响。
+- 本阶段改善了 handler 的合成固定成本，但单次高压 capture 与上一阶段相比仍处于调度噪声范围内；完整 event/s 下降的剩余来源仍是 state/router、handler/FD effect、JSON/output 和 Ringbuf burst 背压的组合。
+- 下一阶段继续 profile pipeline/output 的长 workload 消费成本，优先关注 JSON `1 alloc/op` 和输出写入背压；所有结论继续使用语义、capture 对账、性能和 upstream smoke 联合验收。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、第二事件消费者、额外事件 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
 ### 14.266 将终止 syscall 分类移出 event hot path（2026-08-20）
 
 #### Problem 1-Pager

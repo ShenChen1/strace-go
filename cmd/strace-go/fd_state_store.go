@@ -107,17 +107,29 @@ func (s *traceSession) fdStateStore() traceFDStateOwner {
 }
 
 func shouldApplyFDStateUpdate(update fdStateUpdate) bool {
-	if len(update.source.payloadSections) > 0 {
+	return shouldApplyFDStateEvent(
+		update.source.view,
+		update.meta.Name,
+		update.source.payloadSections,
+	)
+}
+
+func shouldApplyFDStateEvent(
+	view syscallEventView,
+	syscallName string,
+	payloadSections []handler.PayloadSection,
+) bool {
+	if len(payloadSections) > 0 {
 		return true
 	}
-	if !update.source.view.valid {
+	if !view.valid {
 		return false
 	}
-	if update.meta.Name == "read" {
-		return update.source.view.ret == 8
+	if syscallName == "read" {
+		return view.ret == 8
 	}
 
-	switch update.meta.Name {
+	switch syscallName {
 	case "open", "openat", "openat2", "open_tree", "creat",
 		"dup", "dup2", "dup3", "fcntl", "fcntl64",
 		"socket", "chdir", "fchdir", "close_range",

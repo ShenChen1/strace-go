@@ -61,7 +61,7 @@ func (r *SyscallHandlerRunner) Decode(ev syscallEventContext) handler.Result {
 }
 
 func (r *SyscallHandlerRunner) update(ev syscallEventContext) {
-	if r.effects != nil {
+	if r.effects != nil && ev.shouldUpdateFDState() {
 		r.effects.UpdateFDState(ev)
 	}
 }

@@ -388,6 +388,14 @@ func (ev syscallEventContext) shouldRunHandler() bool {
 	return ev.shouldPrint || ev.isFDStateSyscall()
 }
 
+func (ev syscallEventContext) shouldUpdateFDState() bool {
+	return shouldApplyFDStateEvent(
+		ev.view,
+		ev.effectiveSyscallMeta().Name,
+		ev.payloadSections,
+	)
+}
+
 func (ev syscallEventContext) shouldEmitRawEnter(fdState event.FDPathReader) bool {
 	if ev.filter == nil {
 		return false

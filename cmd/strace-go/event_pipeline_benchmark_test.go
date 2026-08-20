@@ -119,6 +119,44 @@ func BenchmarkTraceEventContextHandler(b *testing.B) {
 	}
 }
 
+func BenchmarkTraceEventHandlerPipeline(b *testing.B) {
+	benchmarkTraceEventPipeline(b, cli.EventFormatHandler)
+}
+
+func BenchmarkTraceEventJSONPipeline(b *testing.B) {
+	benchmarkTraceEventPipeline(b, cli.EventFormatJSON)
+}
+
+func benchmarkTraceEventPipeline(b *testing.B, format string) {
+	session := newTestTraceSessionWithOptions(&cli.Options{EventFormat: format}, traceSessionDeps{
+		TargetPID: 101,
+	})
+	deps := newSyscallEventContextDeps(session)
+	deps.contextPool = newHandlerContextRecycler()
+	pipeline := session.syscallExitPipeline()
+	if pipeline == nil {
+		b.Fatal("pipeline was not composed")
+	}
+	view := syscallEventView{
+		valid:         true,
+		pid:           101,
+		tid:           101,
+		sysID:         benchmarkSyscallID("getpid"),
+		eventType:     bpfEventTypeExit,
+		ret:           101,
+		enterTime:     950,
+		duration:      50,
+		probeRetEnter: -1,
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ev := newSyscallEventContextFromViewWithDeps(deps, view, 101, nil, nil)
+		pipeline.Handle(ev)
+	}
+}
+
 func TestJSONEventWriterReusesSyscallEventStorage(t *testing.T) {
 	if raceBuild {
 		t.Skip("allocation counts include race instrumentation")

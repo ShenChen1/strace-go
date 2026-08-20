@@ -35,6 +35,7 @@ func newHandlerRunnerTestState(result handler.Result) *handlerRunnerTestState {
 
 func handlerRunnerEvent(name string, shouldPrint bool) syscallEventContext {
 	return syscallEventContext{
+		view:           syscallEventView{valid: true},
 		meta:           meta.Syscall{Name: name},
 		shouldPrint:    shouldPrint,
 		handlerContext: &handler.Context{SysName: name},
@@ -55,8 +56,8 @@ func TestSyscallHandlerRunnerHandlesPrintedEventAndUpdatesFDState(t *testing.T) 
 	if got := state.handledNames; len(got) != 1 || got[0] != "getpid" {
 		t.Fatalf("handledNames = %v, want [getpid]", got)
 	}
-	if state.effects.updates != 1 {
-		t.Fatalf("updates = %d, want 1", state.effects.updates)
+	if state.effects.updates != 0 {
+		t.Fatalf("updates = %d, want no-op getpid effect", state.effects.updates)
 	}
 }
 
@@ -76,6 +77,25 @@ func TestSyscallHandlerRunnerRunsHiddenFDStateSyscallHandler(t *testing.T) {
 	}
 }
 
+func TestSyscallHandlerRunnerKeepsPayloadFDStateEffect(t *testing.T) {
+	state := newHandlerRunnerTestState(handler.Result{})
+	event := handlerRunnerEvent("getpid", true)
+	event.payloadSections = []handler.PayloadSection{{
+		Kind:      handler.PayloadKindBytes,
+		Direction: handler.PayloadDirectionIn,
+		ArgIndex:  0,
+		UserPtr:   0x1000,
+		CopiedLen: 1,
+		Data:      []byte{1},
+	}}
+
+	state.runner.Handle(event)
+
+	if state.effects.updates != 1 {
+		t.Fatalf("updates = %d, want payload-backed FD state effect", state.effects.updates)
+	}
+}
+
 func TestSyscallHandlerRunnerSkipsHiddenNonFDStateSyscallHandler(t *testing.T) {
 	state := newHandlerRunnerTestState(handler.Result{})
 
@@ -87,8 +107,8 @@ func TestSyscallHandlerRunnerSkipsHiddenNonFDStateSyscallHandler(t *testing.T) {
 	if len(state.handledNames) != 0 {
 		t.Fatalf("handledNames = %v, want none", state.handledNames)
 	}
-	if state.effects.updates != 1 {
-		t.Fatalf("updates = %d, want 1", state.effects.updates)
+	if state.effects.updates != 0 {
+		t.Fatalf("updates = %d, want no-op hidden getpid effect", state.effects.updates)
 	}
 }
 
