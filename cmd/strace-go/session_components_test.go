@@ -33,8 +33,8 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	}
 	components := session.components
 	outputPolicy := session.dependencies.OutputPolicy
-	if components.eventReader == nil || components.eventRouter == nil || components.recordDecoder == nil {
-		t.Fatalf("event graph = %+v, want reader/router/decoder", components)
+	if components.eventReader == nil || components.eventRouter == nil || components.eventDispatcher == nil || components.recordDecoder == nil {
+		t.Fatalf("event graph = %+v, want reader/router/dispatcher/decoder", components)
 	}
 	if components.handlerRegistry == nil || components.handlerRunner == nil {
 		t.Fatal("event graph is missing the session handler registry")
@@ -42,8 +42,8 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	if components.handlerDispatch == nil {
 		t.Fatal("event graph is missing the session handler dispatch table")
 	}
-	if components.eventRouter.contextDeps.registry != components.handlerRegistry {
-		t.Fatal("event router does not use the session handler registry")
+	if components.eventDispatcher.contextDeps.registry != components.handlerRegistry {
+		t.Fatal("event dispatcher does not use the session handler registry")
 	}
 	if deps := newSyscallEventContextDeps(session); deps.registry != components.handlerRegistry {
 		t.Fatal("session event context helper does not reuse the composed handler registry")
@@ -324,26 +324,33 @@ func TestTraceSessionPipelineUsesComposedDependencies(t *testing.T) {
 	if router.state != session.traceState() {
 		t.Fatal("router should use session trace state")
 	}
-	if router.lifecycle != session.lifecycleEventHandler() {
-		t.Fatal("router should use composed lifecycle handler")
+	dispatcher, ok := router.dispatcher.(*TraceEventDispatcher)
+	if !ok {
+		t.Fatalf("router dispatcher = %T, want *TraceEventDispatcher", router.dispatcher)
 	}
-	if router.json != session.syscallJSONOutput() {
-		t.Fatal("router should use composed JSON output")
+	if dispatcher.state != session.traceState() {
+		t.Fatal("dispatcher should use session trace state")
 	}
-	if router.pipeline != session.syscallExitPipeline() {
-		t.Fatal("router should use composed syscall exit pipeline")
+	if dispatcher.lifecycle != session.lifecycleEventHandler() {
+		t.Fatal("dispatcher should use composed lifecycle handler")
 	}
-	if router.contextDeps.fdState != session.fdStateStore() {
-		t.Fatal("router should use session fd state store for contexts")
+	if dispatcher.json != session.syscallJSONOutput() {
+		t.Fatal("dispatcher should use composed JSON output")
 	}
-	if router.contextDeps.fdPath != session.fdStateStore() {
-		t.Fatal("router should use session fd path reader for contexts")
+	if dispatcher.pipeline != session.syscallExitPipeline() {
+		t.Fatal("dispatcher should use composed syscall exit pipeline")
 	}
-	if router.contextDeps.runtime != session.runtimeService() {
-		t.Fatal("router should use session runtime service for contexts")
+	if dispatcher.contextDeps.fdState != session.fdStateStore() {
+		t.Fatal("dispatcher should use session fd state store for contexts")
 	}
-	if router.contextDeps.runtime == nil {
-		t.Fatal("router should receive a non-nil session runtime service")
+	if dispatcher.contextDeps.fdPath != session.fdStateStore() {
+		t.Fatal("dispatcher should use session fd path reader for contexts")
+	}
+	if dispatcher.contextDeps.runtime != session.runtimeService() {
+		t.Fatal("dispatcher should use session runtime service for contexts")
+	}
+	if dispatcher.contextDeps.runtime == nil {
+		t.Fatal("dispatcher should receive a non-nil session runtime service")
 	}
 	eventReader := session.traceEventReader()
 	if eventReader.decoder != session.traceRecordDecoder() {
@@ -379,7 +386,11 @@ func TestTraceSessionOwnsRuntimeSeparatelyFromFDState(t *testing.T) {
 		Runtime: runtime,
 	})
 
-	deps := session.traceEventRouter().contextDeps
+	dispatcher, ok := session.traceEventRouter().dispatcher.(*TraceEventDispatcher)
+	if !ok {
+		t.Fatalf("router dispatcher = %T, want *TraceEventDispatcher", session.traceEventRouter().dispatcher)
+	}
+	deps := dispatcher.contextDeps
 	if deps.runtime != runtime {
 		t.Fatal("session composition replaced the injected runtime service")
 	}

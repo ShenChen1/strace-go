@@ -43,7 +43,11 @@ func TestTraceSessionAcceptsCatalogPort(t *testing.T) {
 	if session.dependencies.Catalog != catalog {
 		t.Fatal("session did not retain the injected catalog port")
 	}
-	if session.traceEventRouter().contextDeps.catalog != catalog {
+	dispatcher, ok := session.traceEventRouter().dispatcher.(*TraceEventDispatcher)
+	if !ok {
+		t.Fatalf("router dispatcher = %T, want *TraceEventDispatcher", session.traceEventRouter().dispatcher)
+	}
+	if dispatcher.contextDeps.catalog != catalog {
 		t.Fatal("event context did not receive the injected catalog port")
 	}
 }

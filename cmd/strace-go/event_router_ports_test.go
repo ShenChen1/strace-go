@@ -39,11 +39,23 @@ func (s *recordingExitSink) HandleUnfinished(syscallEventContext) bool {
 
 func (*recordingExitSink) HasTextOutput() bool { return true }
 
+type recordingEventDispatcher struct {
+	calls    int
+	envelope traceEventEnvelope
+	update   TraceStateUpdate
+}
+
+func (d *recordingEventDispatcher) Dispatch(envelope traceEventEnvelope, update TraceStateUpdate) {
+	d.calls++
+	d.envelope = envelope
+	d.update = update
+}
+
 func TestTraceEventRouterDispatchesThroughOutputPorts(t *testing.T) {
 	lifecycle := &recordingLifecycleSink{}
 	enter := &recordingEnterSink{}
 	exit := &recordingExitSink{}
-	router := newTraceEventRouter(TraceEventRouterDeps{
+	router := newTestTraceEventRouter(traceEventRouterTestDeps{
 		Scope:     newTraceScope(100, nil),
 		TargetPID: 100,
 		State:     newTraceState(),
@@ -97,8 +109,32 @@ func TestTraceEventRouterDispatchesThroughOutputPorts(t *testing.T) {
 	}
 }
 
+func TestTraceEventRouterDelegatesUpdateToDispatcherPort(t *testing.T) {
+	state := &recordingTraceEventState{
+		update: TraceStateUpdate{kind: traceStateSyscallFragment},
+	}
+	dispatcher := &recordingEventDispatcher{}
+	envelope := traceEventEnvelope{valid: true, pid: 100, tid: 101}
+	router := newTraceEventRouter(TraceEventRouterDeps{
+		Scope:      newTraceScope(100, nil),
+		State:      state,
+		Dispatcher: dispatcher,
+	})
+
+	router.Handle(envelope)
+
+	if dispatcher.calls != 1 || dispatcher.envelope.pid != envelope.pid ||
+		dispatcher.envelope.tid != envelope.tid {
+		t.Fatalf("dispatcher calls=%d envelope=%+v, want one exact dispatch", dispatcher.calls, dispatcher.envelope)
+	}
+	if state.releaseCalls != 1 {
+		t.Fatalf("state release calls=%d, want one release after dispatch", state.releaseCalls)
+	}
+}
+
 var (
-	_ lifecycleEventSink = (*recordingLifecycleSink)(nil)
-	_ syscallEnterSink   = (*recordingEnterSink)(nil)
-	_ syscallExitSink    = (*recordingExitSink)(nil)
+	_ lifecycleEventSink         = (*recordingLifecycleSink)(nil)
+	_ syscallEnterSink           = (*recordingEnterSink)(nil)
+	_ syscallExitSink            = (*recordingExitSink)(nil)
+	_ traceEventUpdateDispatcher = (*recordingEventDispatcher)(nil)
 )

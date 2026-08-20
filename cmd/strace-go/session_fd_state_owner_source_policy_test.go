@@ -60,7 +60,11 @@ func TestTraceSessionAcceptsFDStateOwnerPort(t *testing.T) {
 	if session.fdStateStore() != owner {
 		t.Fatal("session FD state accessor did not retain the owner")
 	}
-	deps := session.traceEventRouter().contextDeps
+	dispatcher, ok := session.traceEventRouter().dispatcher.(*TraceEventDispatcher)
+	if !ok {
+		t.Fatalf("router dispatcher = %T, want *TraceEventDispatcher", session.traceEventRouter().dispatcher)
+	}
+	deps := dispatcher.contextDeps
 	if deps.fdState != owner || deps.fdPath != owner {
 		t.Fatal("event context did not receive the FD reader projections")
 	}

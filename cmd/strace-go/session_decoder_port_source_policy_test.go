@@ -35,7 +35,11 @@ func TestTraceSessionAcceptsSnapshotDecoderPort(t *testing.T) {
 	if session.dependencies.Decoder != decoder {
 		t.Fatal("session did not retain the injected snapshot decoder port")
 	}
-	if session.traceEventRouter().contextDeps.decoder != decoder {
+	dispatcher, ok := session.traceEventRouter().dispatcher.(*TraceEventDispatcher)
+	if !ok {
+		t.Fatalf("router dispatcher = %T, want *TraceEventDispatcher", session.traceEventRouter().dispatcher)
+	}
+	if dispatcher.contextDeps.decoder != decoder {
 		t.Fatal("event context did not receive the injected snapshot decoder port")
 	}
 }

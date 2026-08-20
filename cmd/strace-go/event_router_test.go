@@ -13,6 +13,32 @@ type fakeRouterExitEffects struct {
 	recorded []syscallEventContext
 }
 
+type traceEventRouterTestDeps struct {
+	Scope       TraceScope
+	TargetPID   int
+	State       traceEventState
+	Lifecycle   lifecycleEventSink
+	JSON        syscallEnterSink
+	Pipeline    syscallExitSink
+	ContextDeps syscallEventContextDeps
+}
+
+func newTestTraceEventRouter(deps traceEventRouterTestDeps) *TraceEventRouter {
+	dispatcher := newTraceEventDispatcher(TraceEventDispatcherDeps{
+		TargetPID:   deps.TargetPID,
+		State:       deps.State,
+		Lifecycle:   deps.Lifecycle,
+		JSON:        deps.JSON,
+		Pipeline:    deps.Pipeline,
+		ContextDeps: deps.ContextDeps,
+	})
+	return newTraceEventRouter(TraceEventRouterDeps{
+		Scope:      deps.Scope,
+		State:      deps.State,
+		Dispatcher: dispatcher,
+	})
+}
+
 func (e *fakeRouterExitEffects) RecordSummary(ev syscallEventContext) {
 	e.recorded = append(e.recorded, ev)
 }
@@ -25,7 +51,7 @@ func (e *fakeRouterExitEffects) Finalize(syscallEventContext) {}
 
 func TestTraceEventRouterSkipsOutOfScopeEvents(t *testing.T) {
 	state := newTraceState()
-	router := newTraceEventRouter(TraceEventRouterDeps{
+	router := newTestTraceEventRouter(traceEventRouterTestDeps{
 		Scope:     newTraceScope(100, nil),
 		TargetPID: 100,
 		State:     state,
@@ -46,7 +72,7 @@ func TestTraceEventRouterSkipsOutOfScopeEvents(t *testing.T) {
 }
 
 func TestTraceEventRouterAllowsLifecycleWithoutOutputSink(t *testing.T) {
-	router := newTraceEventRouter(TraceEventRouterDeps{
+	router := newTestTraceEventRouter(traceEventRouterTestDeps{
 		Scope:     newTraceScope(100, nil),
 		TargetPID: 100,
 		State:     newTraceState(),
@@ -64,7 +90,7 @@ func TestTraceEventRouterAllowsLifecycleWithoutOutputSink(t *testing.T) {
 func TestTraceEventRouterRoutesLifecycleEvents(t *testing.T) {
 	effects := &fakeLifecycleEffects{}
 	policy := newTraceOutputPolicy(&cli.Options{FollowForks: true})
-	router := newTraceEventRouter(TraceEventRouterDeps{
+	router := newTestTraceEventRouter(traceEventRouterTestDeps{
 		Scope:     newTraceScope(100, policy),
 		TargetPID: 100,
 		State:     newTraceState(),
@@ -102,7 +128,7 @@ func TestTraceEventRouterKeepsAttachedThreadLifecycleInScope(t *testing.T) {
 	state := newTraceState()
 	state.seedAttachTargets([]int{201})
 	policy := newTraceOutputPolicy(&cli.Options{AttachPids: []int{201}})
-	router := newTraceEventRouter(TraceEventRouterDeps{
+	router := newTestTraceEventRouter(traceEventRouterTestDeps{
 		Scope:     newTraceScope(100, policy),
 		TargetPID: 100,
 		State:     state,
@@ -125,7 +151,7 @@ func TestTraceEventRouterDoesNotCopyFDStateForThreadClone(t *testing.T) {
 	effects := &fakeLifecycleEffects{}
 	state := newTraceState()
 	policy := newTraceOutputPolicy(&cli.Options{FollowForks: true})
-	router := newTraceEventRouter(TraceEventRouterDeps{
+	router := newTestTraceEventRouter(traceEventRouterTestDeps{
 		Scope:     newTraceScope(200, policy),
 		TargetPID: 200,
 		State:     state,
@@ -162,7 +188,7 @@ func TestTraceEventRouterRoutesGenericEnterToJSON(t *testing.T) {
 	policy := newTraceOutputPolicy(opts)
 	rawEvents := 0
 	state := newTraceState()
-	router := newTraceEventRouter(TraceEventRouterDeps{
+	router := newTestTraceEventRouter(traceEventRouterTestDeps{
 		Scope:     newTraceScope(100, policy),
 		TargetPID: 100,
 		State:     state,
@@ -202,7 +228,7 @@ func TestTraceEventRouterRoutesExitToPipeline(t *testing.T) {
 	opts := &cli.Options{SummaryOnly: true}
 	policy := newTraceOutputPolicy(opts)
 	effects := &fakeRouterExitEffects{}
-	router := newTraceEventRouter(TraceEventRouterDeps{
+	router := newTestTraceEventRouter(traceEventRouterTestDeps{
 		Scope:     newTraceScope(100, policy),
 		TargetPID: 100,
 		State:     newTraceState(),
@@ -259,7 +285,7 @@ func TestTraceEventRouterPrintsGenericUnfinishedBeforeOtherTIDEvent(t *testing.T
 			return handler.Result{}
 		},
 	})
-	router := newTraceEventRouter(TraceEventRouterDeps{
+	router := newTestTraceEventRouter(traceEventRouterTestDeps{
 		Scope:     newTraceScope(100, policy),
 		TargetPID: 100,
 		State:     state,
@@ -318,7 +344,7 @@ func TestTraceEventRouterPrintsGenericUnfinishedBeforeOtherTIDEvent(t *testing.T
 func TestTraceEventRouterDiscardsUnfinishedWithoutTextPipeline(t *testing.T) {
 	state := newTraceState()
 	state.setUnfinishedEnabled(false)
-	router := newTraceEventRouter(TraceEventRouterDeps{
+	router := newTestTraceEventRouter(traceEventRouterTestDeps{
 		Scope:     newTraceScope(100, nil),
 		TargetPID: 100,
 		State:     state,

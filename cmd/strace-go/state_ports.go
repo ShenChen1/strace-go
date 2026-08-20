@@ -7,6 +7,10 @@ type traceEventState interface {
 	requeueUnfinished(uint32)
 }
 
+type traceEventUpdateDispatcher interface {
+	Dispatch(traceEventEnvelope, TraceStateUpdate)
+}
+
 // traceUnfinishedStateConfigurator is used only while the session graph is
 // composed, before the event router receives its runtime state port.
 type traceUnfinishedStateConfigurator interface {
@@ -35,6 +39,7 @@ type suspendedSyscallState interface {
 
 var (
 	_ traceEventState                  = (*TraceState)(nil)
+	_ traceEventUpdateDispatcher       = (*TraceEventDispatcher)(nil)
 	_ traceUnfinishedStateConfigurator = (*TraceState)(nil)
 	_ tracePendingStateReader          = (*TraceState)(nil)
 	_ textRendererState                = (*TraceState)(nil)

@@ -11434,3 +11434,47 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留 finalizer port 和显式 finalize。它同时改善了对象职责、依赖替换和热路径成本，且没有改变 syscall event 的观察与输出语义。
 - 下一阶段继续拆分 `TraceEventRouter` 的 state transition 与 effect dispatch，并将 handler、FD effect、JSON writer 的耗时分别观测；不再把所有 sink 成本归因于 JSON 编码。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.283 将事件状态更新分发从 Router 中抽出（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.282 已将 syscall exit 的收尾副作用从 pipeline 中抽出，但 `TraceEventRouter` 仍同时持有 `TraceState`、unfinished 处理、生命周期 sink、JSON enter sink、exit pipeline 和 event context dependencies。
+- Problem：Router 既负责作用域判断和状态更新，又负责所有 output/effect dispatch；状态 transition、借用 view 的生命周期和具体输出依赖混在一个对象中，无法独立替换或测量，也容易让后续重构重新扩大 Router。
+- Goal：引入 `TraceEventDispatcher`，让 Router 只负责 scope、state update、Dispatcher 调用和 update release；Dispatcher 独立拥有 process inheritance、unfinished、lifecycle、syscall enter/exit 和 deferred exit 的副作用编排。
+- Non-goals：不改变 event v2 ABI、BPF producer、单 Go consumer、事件顺序、unfinished 语义、输出 schema、payload 所有权或纯 eBPF/no-procfs 契约；不引入第二协程、锁、定时器或新的状态存储。
+- Constraints：session composition 必须显式构造 Dispatcher；Router 不保留旧的 Lifecycle/JSON/Pipeline/ContextDeps fallback；状态 update 的 borrowed view 必须在 Dispatcher 完成后释放，fragment 和 early-return 也必须释放。
+
+#### 方案比较
+
+1. 只把 Router 方法拆成几个函数：改动小，但对象仍拥有全部依赖，无法形成可替换的 effect boundary，拒绝。
+2. 新建 `TraceEventDispatcher` 和窄 `traceEventUpdateDispatcher` port：职责、生命周期和测试替身边界清晰，生产 composition 可显式连接，选择。
+3. 为 lifecycle、enter、exit、unfinished 分别建立多个 Router：边界更细，但会扩大当前对象图和接口调用，且没有当前证据证明需要四个独立消费者，暂不采用。
+
+#### 实现与失败优先测试
+
+- 先加入 Dispatcher 注入测试；旧实现按预期因 `Dispatcher` 字段和 `traceEventUpdateDispatcher` 不存在而编译失败，确认测试锁定了新的委托边界。
+- 新增 `TraceEventDispatcher`，集中承接原 Router 的 process inheritance、unfinished、lifecycle、enter、exit 和 deferred exit 逻辑。
+- `TraceEventRouter` 现在只保存 `TraceScope`、`traceEventState` 和窄 Dispatcher port；`Handle` 完成 scope 判断后执行 `state.handleEnvelope -> dispatcher.Dispatch -> state.releaseTraceStateUpdate`。
+- session composition 显式创建并保存 Dispatcher；旧 sink 组合 helper 只存在于 `_test.go`，用于构造局部测试夹具，生产构造器不再保留 fallback 双路径。
+
+#### Review 入口
+
+- 检查 Dispatcher 的 dispatch 顺序与旧 Router 一致：先 process inheritance 和 unfinished，再按 update kind 处理 lifecycle/enter/exit；deferred exit 仍在原对应事件边界输出。
+- 检查 Router 不再直接依赖 `LifecycleEventHandler`、`SyscallJSONOutput`、`SyscallExitPipeline` 或 context dependencies；所有 borrowed payload/view 都在一次 Dispatch 返回后由 Router release。
+- 检查无 text pipeline 时 unfinished candidate 仍调用 `markUnfinishedPrinted`，不会重新排队；text pipeline 过滤或输出失败时仍按原逻辑 requeue。
+- 如果拆分后只有对象边界改善而 event/s 没有稳定提升，不把这次重构误报为高压背压修复；继续以 `records_read + ringbuf_reserve_fail + service_time` 联合判断。
+
+#### 验证与实测
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 均通过；定向 Router/session graph 测试也通过。
+- `ebpf-semantic` 通过：语义事件 `197`，enter/exit `100/97`，lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`。
+- `ebpf-perf` 通过：scalar/io/lifecycle/threads 的 end-to-end exit rate 分别为 `6370.72`、`4007.20`、`29.32`、`3321.26 events/s`；Go DecodeState 为 `278.60 ns/op`，JSON writer/decoded/payload writer 为 `216.40/228.20/331.10 ns/op`，均为 `0 B/op、0 allocs/op`。
+- `ebpf-capture` 通过结构和语义校验：reader `3,200,036/0`；none `2,380,082/819,953`；handler `1,458,584/1,741,451`；JSON `1,272,611/1,927,424`，格式为 `records_read/ringbuf_reserve_fail`；JSON `syscall_events=1,242,181`、`records_invalid=0`、orphan/mismatch 为 `0`。
+- upstream native `small` `23/23` 通过。高压完整 output 的 reservation failure 仍在百万级，说明本阶段没有解决单 Go consumer 与 BPF producer burst 的背压；它保留为下一阶段基线。
+
+#### 决策与 Review
+
+- 保留 `TraceEventDispatcher` 和显式 session composition；删除生产 Router 的旧依赖 fallback，只在测试夹具中保留便于构造 sink 的 helper。
+- 这次重构完成了 state transition 与 effect dispatch 的对象边界，未观察到事件语义回归或额外分配；它不是 event/s 根治方案。
+- 下一阶段继续拆分 Dispatcher 内的 handler/FD effect/JSON service time，并用高压 reserve failure 验收；不引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器，`strace-upstream` 仍不纳入提交。

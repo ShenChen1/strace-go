@@ -24,6 +24,7 @@ type traceSessionComponents struct {
 	handlerDispatch    handler.HandlerDispatchPort
 	exitPipeline       *SyscallExitPipeline
 	lifecycleHandler   *LifecycleEventHandler
+	eventDispatcher    *TraceEventDispatcher
 	exitStatus         *ExitStatusCoordinator
 	eventRouter        *TraceEventRouter
 	recordDecoder      traceRecordDecoder
@@ -52,6 +53,7 @@ type traceSessionOutputComponents struct {
 type traceSessionEventComponents struct {
 	exitPipeline     *SyscallExitPipeline
 	lifecycleHandler *LifecycleEventHandler
+	eventDispatcher  *TraceEventDispatcher
 	eventRouter      *TraceEventRouter
 }
 
@@ -207,6 +209,7 @@ func buildTraceSessionComponents(
 		handlerDispatch:    handlerDispatch,
 		exitPipeline:       events.exitPipeline,
 		lifecycleHandler:   events.lifecycleHandler,
+		eventDispatcher:    events.eventDispatcher,
 		exitStatus:         base.exitStatus,
 		eventRouter:        events.eventRouter,
 		recordDecoder:      runtime.recordDecoder,
@@ -331,8 +334,7 @@ func buildTraceSessionEvents(
 		jsonSink = outputs.syscallJSON
 	}
 	deps.State.setUnfinishedEnabled(outputs.syscallText.textMode())
-	router := newTraceEventRouter(TraceEventRouterDeps{
-		Scope:       newTraceScope(deps.TargetPID, base.outputPolicy),
+	dispatcher := newTraceEventDispatcher(TraceEventDispatcherDeps{
 		TargetPID:   deps.TargetPID,
 		State:       deps.State,
 		Lifecycle:   lifecycleSink,
@@ -340,9 +342,15 @@ func buildTraceSessionEvents(
 		Pipeline:    exitSink,
 		ContextDeps: contextDeps,
 	})
+	router := newTraceEventRouter(TraceEventRouterDeps{
+		Scope:      newTraceScope(deps.TargetPID, base.outputPolicy),
+		State:      deps.State,
+		Dispatcher: dispatcher,
+	})
 	return traceSessionEventComponents{
 		exitPipeline:     exitPipeline,
 		lifecycleHandler: lifecycle,
+		eventDispatcher:  dispatcher,
 		eventRouter:      router,
 	}
 }

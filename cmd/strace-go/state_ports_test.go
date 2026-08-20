@@ -31,7 +31,7 @@ func TestTraceEventRouterUsesEventStatePort(t *testing.T) {
 	state := &recordingTraceEventState{
 		update: TraceStateUpdate{kind: traceStateSyscallFragment},
 	}
-	router := newTraceEventRouter(TraceEventRouterDeps{
+	router := newTestTraceEventRouter(traceEventRouterTestDeps{
 		Scope: newTraceScope(100, nil),
 		State: state,
 	})
@@ -47,7 +47,7 @@ func TestTraceEventRouterUsesEventStatePort(t *testing.T) {
 }
 
 func TestTraceEventRouterDoesNotBuildDefaultStatePort(t *testing.T) {
-	router := newTraceEventRouter(TraceEventRouterDeps{
+	router := newTestTraceEventRouter(traceEventRouterTestDeps{
 		Scope: newTraceScope(100, nil),
 	})
 	if router == nil {
