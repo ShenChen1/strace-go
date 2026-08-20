@@ -10031,3 +10031,32 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 最终工作树不保留 `RUNTIME_STATIC_CONFIG`、额外 collection 配置路径或 generated binding 残留；强制 build 后生成文件恢复干净，`strace-upstream` 仍为既有未跟踪目录。
 - 本实验没有引入 ptrace、procfs、process_vm、第二消费者、锁或定时器，也没有改变事件 ABI 和生命周期语义。
 - 当前结论：之前观察到的 event/s 大幅下降，主因仍是端到端口径混入 setup/cleanup 固定成本、旧启动等待和旧 tracepoint 扇出；在 `trace_sec` 口径下当前干净基线已恢复到稳定水平。真正仍需优化的是 BPF capture、payload 深拷贝和 Ringbuf 竞争，而不是继续强行删除单个配置 lookup。
+
+### 14.248 评估固定事件的 plain Ringbuf reservation（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：普通 enter、无 payload exit 和 terminating exit 的 v2 记录大小固定，但现有实现仍通过 `bpf_ringbuf_reserve_dynptr` 加两次 `bpf_dynptr_write` 写入 header/body。
+- Problem：固定记录不需要 dynptr 的可变边界能力，理论上可以用 `bpf_ringbuf_reserve` 直接写连续 record，减少 dynptr wrapper 和两次写入。
+- Goal：在不改变 v2 wire bytes、事件计数、错误计数和 payload/TLV 路径的前提下，验证固定 record 直接 reservation 是否改善真实 trace-window 吞吐。
+- Non-goals：不修改 payload capture、pending map、过滤、Go consumer、生命周期、事件 ABI 语义或 pure-eBPF/no-ptrace/no-procfs 边界。
+- Constraints：必须先通过 source gate，再通过 clang、真实 verifier、semantic 和长 workload A/B；没有稳定收益时撤回实现，只保留测量记录。
+
+#### 方案比较
+
+1. 保持 dynptr：风险最低，作为稳定基线，但固定事件继续承担 dynptr reserve/write 成本。
+2. 使用 `bpf_ringbuf_reserve` 直接写固定 record：理论上减少 wrapper 和 copy，作为实验方案验证。
+3. 使用 `bpf_ringbuf_output` 从栈上复制完整 record：API 简单，但增加栈对象和 helper copy，预期不如 reserve 直接写，未采用。
+
+#### 实验结果与决策
+
+- 失败优先 source gate 先要求固定 record wrapper 和 plain reservation；旧实现按预期失败。随后新增 header/body wrapper，固定 enter、普通 exit 和 terminating exit 直接写入连续 record，payload/TLV emitter 保持 dynptr。
+- 实验版本通过 focused Go source test、`sudo -n ./build.sh`、clang、真实 eBPF verifier、`go test ./...` 和 `ebpf-semantic`；semantic 仍为 197 个主事件，enter/exit `100/97`，生命周期 6，所有 runtime error counters 为 `0`。
+- 同一 scalar fixture、同一内核、同一命令，固定 100000 次循环产生 200000 个 exit，交替四轮 trace-window A/B：plain reservation 为 `135666.56/134491.54/133642.87/142187.28 exit/s`，dynptr 基线为 `138376.48/137594.20/137045.98/142902.36 exit/s`；均值分别为 `136497.06/s` 和 `138979.76/s`，实验慢约 `1.8%`。
+- 决策：撤回固定 record wrapper、plain reservation emitter 和 source gate，恢复 dynptr 基线。该方向没有解决 event/s 问题，反而在真实长 workload 上产生小幅可重复回退；不能因为 API 看起来更直接就假设 BPF 热路径更快。
+
+#### Review
+
+- 最终工作树不保留本实验的 ABI wrapper、固定 emitter 或生成物差异；当前只留下本节的否决记录，`strace-upstream` 仍是既有未跟踪目录。
+- 事件完整性和语义没有问题，回退发生在固定事件的 BPF capture/提交路径成本；因此此前端到端 event/s 下降的解释仍成立：setup/cleanup 固定成本不能与 trace-window 吞吐混用，但 trace-window 内的 BPF 热路径仍需独立优化。
+- 下一阶段应优先用指令级 verifier 输出、真实 Ringbuf contention/drop 压测和 payload capture 分层定位；不再继续堆叠未经 A/B 证明的 emitter API 替换。
