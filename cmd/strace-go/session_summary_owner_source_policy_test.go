@@ -47,9 +47,9 @@ func TestTraceSessionAcceptsSummaryOwnerPort(t *testing.T) {
 	if session.traceRunFinalizer().summary != summary {
 		t.Fatal("finalizer did not receive the summary writer projection")
 	}
-	effects, ok := session.syscallExitPipeline().effects.(*traceSessionSyscallExitEffects)
+	effects, ok := session.syscallExitPipeline().finalizer.(*traceSessionSyscallExitFinalizer)
 	if !ok || effects.summary != summary {
-		t.Fatal("exit effects did not receive the summary recorder projection")
+		t.Fatal("exit finalizer did not receive the summary recorder projection")
 	}
 }
 

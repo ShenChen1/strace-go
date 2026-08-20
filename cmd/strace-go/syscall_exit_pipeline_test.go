@@ -29,14 +29,23 @@ func (e *fakeSyscallExitEffects) CleanupClosedFD(syscallEventContext) {
 	e.calls = append(e.calls, "cleanup")
 }
 
+func (e *fakeSyscallExitEffects) Finalize(ev syscallEventContext) {
+	if ev.shouldUpdateFDOffsets() {
+		e.UpdateFDOffsets(ev)
+	}
+	if ev.shouldCleanupClosedFD() {
+		e.CleanupClosedFD(ev)
+	}
+}
+
 func newExitPipelineTestState(opts *cli.Options, runner *SyscallHandlerRunner, json syscallJSONOutputPort) *exitPipelineTestState {
 	state := &exitPipelineTestState{effects: &fakeSyscallExitEffects{}}
 	policy := newTraceOutputPolicy(opts)
 	state.pipeline = newSyscallExitPipeline(SyscallExitPipelineDeps{
-		Summary: policy,
-		JSON:    json,
-		Runner:  runner,
-		Effects: state.effects,
+		Summary:   policy,
+		JSON:      json,
+		Runner:    runner,
+		Finalizer: state.effects,
 	})
 	return state
 }
@@ -161,9 +170,9 @@ func TestSyscallExitPipelineHandlerOnlySkipsNoopFDStateEffect(t *testing.T) {
 		}),
 	})
 	pipeline := newSyscallExitPipeline(SyscallExitPipelineDeps{
-		Summary: policy,
-		Runner:  runner,
-		Effects: &fakeSyscallExitEffects{},
+		Summary:   policy,
+		Runner:    runner,
+		Finalizer: &fakeSyscallExitEffects{},
 	})
 
 	pipeline.Handle(exitPipelineEvent("getpid"))

@@ -297,9 +297,9 @@ func TestTraceSessionPipelineUsesComposedDependencies(t *testing.T) {
 	if handlerEffects.fdState != session.fdStateStore() {
 		t.Fatal("handler runner should use session fd state store")
 	}
-	effects, ok := pipeline.effects.(*traceSessionSyscallExitEffects)
+	effects, ok := pipeline.finalizer.(*traceSessionSyscallExitFinalizer)
 	if !ok {
-		t.Fatalf("pipeline effects = %T, want *traceSessionSyscallExitEffects", pipeline.effects)
+		t.Fatalf("pipeline finalizer = %T, want *traceSessionSyscallExitFinalizer", pipeline.finalizer)
 	}
 	if effects.summary != session.summaryStats() {
 		t.Fatal("pipeline should use session summary stats")

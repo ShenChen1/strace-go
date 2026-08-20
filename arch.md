@@ -11391,3 +11391,46 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留 TraceEventReader 的 debug-only 分段测量和稳定 stats 字段；它已经证明 event/s 下降主要发生在完整 sink 路径，而不是 ringbuf reader API 本身。
 - 否决 batch limit 256：它只能改变 session loop 的批处理粒度，不能稳定提升 JSON/handler 持续消费速率；下一阶段应继续拆分 `TraceEventRouter`、state update、handler/effects 和 JSON writer 的 sink 时间，并以 reserve failure 联合验收。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.282 将 syscall exit pipeline 的副作用与输出编排分离（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.281 的 sink 分段与 CPU profile 显示，`SyscallExitPipeline.Handle` 是完整 JSON/handler consumer 的主要累计路径；当前 pipeline 直接持有 `SyscallExitEffects`，并通过三个 `defer` 保证 FD offset、close 和 handler context 回收。
+- Problem：输出分支和事件副作用共享一个对象，早退路径依赖隐式 defer；这增加每条 exit event 的固定成本，也让 context 生命周期和 effect ownership 不容易由接口表达。
+- Goal：引入 `syscallExitFinalizerPort`，由独立 finalizer 统一拥有 summary、FD offset/close 和 handler context 回收；pipeline 只负责输出决策与 handler 编排，并在正常路径显式执行 finalize。
+- Non-goals：不修改 event v2 ABI、BPF producer、JSON schema、输出顺序、payload 所有权、纯 eBPF/no-procfs 契约；不引入异步 writer、锁、第二消费者或新的状态存储。
+- Constraints：所有 debug raw、summary-only、suppressed、exit syscall、handler-hidden 和普通输出分支都必须执行 finalizer；副作用顺序保持 `offset -> close -> context release`；session composition 必须显式注入 finalizer，测试替身只能依赖窄接口。
+
+#### 方案比较
+
+1. 只删除 `defer`：可能降低少量热路径固定成本，但 pipeline 仍拥有所有副作用，职责和可替换性没有改善，拒绝作为完整方案。
+2. 抽出 finalizer port，并将 finalize 改为显式调用：同时收窄对象职责、明确 context ownership，并可测量 defer 成本，选择。
+3. 为 JSON/text/exit 每条分支建立独立 pipeline：职责更细，但会增加对象数量和接口调用，扩大当前重构面，拒绝。
+
+#### 实现与失败优先测试
+
+- 先在 `syscall_exit_pipeline_ports_test.go` 注入 `fakePipelineFinalizerPort`，旧实现按预期因缺少 `Finalizer` 字段、finalizer port 和 pipeline finalizer 成员而编译失败。
+- `SyscallExitPipeline` 删除直接持有的 `SyscallExitEffects`，改为持有 `syscallExitFinalizerPort`；默认构造仍提供无 effect finalizer，避免手工测试 context 泄漏。
+- `traceSessionSyscallExitFinalizer` 实现 `RecordSummary` 与 `Finalize`；`Finalize` 按 offset、close、context release 顺序执行。`HandleUnfinished` 也改为显式释放 context，早退语义保持不变。
+- session composition、组件 ownership 测试、FD offset/close 测试和 router fake 全部切换到 finalizer port；没有改变 handler runner 的 FD state effect。
+
+#### Review 入口
+
+- 检查 `SyscallExitPipeline.Handle` 和 `HandleUnfinished` 不再依赖隐式 defer，且 `p == nil`、finalizer 缺省和所有 early return 都不会遗留 handler context。
+- 检查 finalizer 只处理 exit pipeline 的收尾副作用，JSON/text/exit 输出仍由窄 output port 决定；summary 仍在 summary-only/summary-and-print 策略边界记录。
+- 检查 session composition 不再向 pipeline 暴露具体 `traceSessionSyscallExitEffects`；finalizer 是唯一的 summary/offset/close 组合 owner。
+- 不把合成 benchmark 的改善直接等同于 BPF producer 已解决；必须继续用 semantic、capture 的 `records_read + ringbuf_reserve_fail`、perf 和 native smoke 联合验证。
+
+#### 验证与实测
+
+- focused pipeline tests 通过，包含 narrow finalizer port、summary owner、组件组合、FD offset/close 和 handler context release。
+- 固定 `GOMAXPROCS=1`、五轮 benchmark：handler pipeline 从 14.281 的 `277.2-279.5 ns/op` 降至 `268.8-271.2 ns/op`；JSON pipeline 从 `563.6-568.0 ns/op` 降至 `524.3-527.1 ns/op`；两者均为 `0 B/op、0 allocs/op`。
+- Go 门禁：`go test ./...`、`go test -race ./...`、`go vet ./...` 和构建均通过；`ebpf-semantic`、`ebpf-perf`、`ebpf-capture` 和 native `small` 均通过。perf scalar/io/lifecycle/threads 的 trace exit rate 分别为 `27674.57`、`18004.95`、`85.41`、`15461.62` events/s，运行期错误计数均为 `0`。
+- 新一轮四路高压 capture：reader `records_read=3,200,035/reserve_fail=0`；none `2,076,355/1,123,680`；handler `1,458,383/1,741,652`；JSON `1,298,417/1,901,618`，JSON `syscall_events=1,270,775`、`records_invalid=0`、`orphan_exit=0`、`pending_mismatch=0`。finalizer 没有改变 reservation failure 的量级，说明剩余背压仍在完整 router/state/handler/output sink 组合中。
+
+#### 决策与 Review
+
+- 保留 finalizer port 和显式 finalize。它同时改善了对象职责、依赖替换和热路径成本，且没有改变 syscall event 的观察与输出语义。
+- 下一阶段继续拆分 `TraceEventRouter` 的 state transition 与 effect dispatch，并将 handler、FD effect、JSON writer 的耗时分别观测；不再把所有 sink 成本归因于 JSON 编码。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

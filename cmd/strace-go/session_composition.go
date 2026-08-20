@@ -305,12 +305,12 @@ func buildTraceSessionEvents(
 	if !base.outputPolicy.DiscardEvents() || isTraceHandlerOnlyPolicy(base.outputPolicy) {
 		contextDeps.contextPool = newHandlerContextRecycler()
 		exitPipeline = newSyscallExitPipeline(SyscallExitPipelineDeps{
-			Summary: base.outputPolicy,
-			JSON:    outputs.syscallJSON,
-			Exit:    outputs.exitSyscall,
-			Runner:  base.handlerRunner,
-			Text:    outputs.syscallText,
-			Effects: newTraceSessionSyscallExitEffects(deps.Summary, deps.FDState, deps.FDState),
+			Summary:   base.outputPolicy,
+			JSON:      outputs.syscallJSON,
+			Exit:      outputs.exitSyscall,
+			Runner:    base.handlerRunner,
+			Text:      outputs.syscallText,
+			Finalizer: newTraceSessionSyscallExitFinalizer(deps.Summary, deps.FDState, deps.FDState),
 		})
 		lifecycle = newLifecycleEventHandler(LifecycleEventHandlerDeps{
 			Policy: base.outputPolicy,

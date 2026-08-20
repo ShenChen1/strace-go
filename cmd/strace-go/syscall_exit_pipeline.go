@@ -3,68 +3,83 @@ package main
 import "strace-go/pkg/handler"
 
 type SyscallExitPipeline struct {
-	summary traceSummaryPolicy
-	json    syscallJSONOutputPort
-	exit    exitSyscallOutputPort
-	runner  syscallHandlerRunnerPort
-	text    syscallTextOutputPort
-	effects SyscallExitEffects
+	summary   traceSummaryPolicy
+	json      syscallJSONOutputPort
+	exit      exitSyscallOutputPort
+	runner    syscallHandlerRunnerPort
+	text      syscallTextOutputPort
+	finalizer syscallExitFinalizerPort
 }
 
 type SyscallExitPipelineDeps struct {
-	Summary traceSummaryPolicy
-	JSON    syscallJSONOutputPort
-	Exit    exitSyscallOutputPort
-	Runner  syscallHandlerRunnerPort
-	Text    syscallTextOutputPort
-	Effects SyscallExitEffects
+	Summary   traceSummaryPolicy
+	JSON      syscallJSONOutputPort
+	Exit      exitSyscallOutputPort
+	Runner    syscallHandlerRunnerPort
+	Text      syscallTextOutputPort
+	Finalizer syscallExitFinalizerPort
 }
 
-type SyscallExitEffects interface {
+// syscallExitFinalizerPort owns side effects that must run after every exit
+// pipeline branch, including branches that return before handler decoding.
+type syscallExitFinalizerPort interface {
 	RecordSummary(syscallEventContext)
-	UpdateFDOffsets(syscallEventContext)
-	CleanupClosedFD(syscallEventContext)
+	Finalize(syscallEventContext)
 }
 
-type traceSessionSyscallExitEffects struct {
+type traceSessionSyscallExitFinalizer struct {
 	summary traceSummaryRecorder
 	offsets fdOffsetUpdatePort
 	close   fdCloseUpdatePort
 }
 
-func newTraceSessionSyscallExitEffects(
+func newTraceSessionSyscallExitFinalizer(
 	summary traceSummaryRecorder,
 	offsets fdOffsetUpdatePort,
 	close fdCloseUpdatePort,
-) *traceSessionSyscallExitEffects {
-	return &traceSessionSyscallExitEffects{
+) *traceSessionSyscallExitFinalizer {
+	return &traceSessionSyscallExitFinalizer{
 		summary: summary,
 		offsets: offsets,
 		close:   close,
 	}
 }
 
-func (e *traceSessionSyscallExitEffects) RecordSummary(ev syscallEventContext) {
-	ev.recordSummary(e.summary)
+func (f *traceSessionSyscallExitFinalizer) RecordSummary(ev syscallEventContext) {
+	if f == nil {
+		return
+	}
+	ev.recordSummary(f.summary)
 }
 
-func (e *traceSessionSyscallExitEffects) UpdateFDOffsets(ev syscallEventContext) {
-	ev.updateFDOffsets(e.offsets)
-}
-
-func (e *traceSessionSyscallExitEffects) CleanupClosedFD(ev syscallEventContext) {
-	ev.cleanupClosedFD(e.close)
+func (f *traceSessionSyscallExitFinalizer) Finalize(ev syscallEventContext) {
+	if f != nil {
+		if ev.shouldUpdateFDOffsets() {
+			ev.updateFDOffsets(f.offsets)
+		}
+		if ev.shouldCleanupClosedFD() {
+			ev.cleanupClosedFD(f.close)
+		}
+	}
+	ev.releaseHandlerContext()
 }
 
 func newSyscallExitPipeline(deps SyscallExitPipelineDeps) *SyscallExitPipeline {
 	return &SyscallExitPipeline{
-		summary: deps.Summary,
-		json:    deps.JSON,
-		exit:    deps.Exit,
-		runner:  deps.Runner,
-		text:    deps.Text,
-		effects: deps.Effects,
+		summary:   deps.Summary,
+		json:      deps.JSON,
+		exit:      deps.Exit,
+		runner:    deps.Runner,
+		text:      deps.Text,
+		finalizer: defaultSyscallExitFinalizer(deps.Finalizer),
 	}
+}
+
+func defaultSyscallExitFinalizer(finalizer syscallExitFinalizerPort) syscallExitFinalizerPort {
+	if finalizer != nil {
+		return finalizer
+	}
+	return newTraceSessionSyscallExitFinalizer(nil, nil, nil)
 }
 
 func (s *traceSession) syscallExitPipeline() *SyscallExitPipeline {
@@ -76,10 +91,15 @@ func (s *traceSession) syscallExitPipeline() *SyscallExitPipeline {
 
 // IMPACT: Handle owns the syscall exit/full event pipeline after context construction.
 func (p *SyscallExitPipeline) Handle(ev syscallEventContext) {
-	defer ev.releaseHandlerContext()
-	defer p.cleanup(ev)
-	defer p.updateOffsets(ev)
+	if p == nil {
+		ev.releaseHandlerContext()
+		return
+	}
+	p.dispatch(ev)
+	p.finalizer.Finalize(ev)
+}
 
+func (p *SyscallExitPipeline) dispatch(ev syscallEventContext) {
 	if p.json != nil && p.json.HandleDebugRaw(ev) {
 		return
 	}
@@ -106,12 +126,14 @@ func (p *SyscallExitPipeline) Handle(ev syscallEventContext) {
 }
 
 func (p *SyscallExitPipeline) HandleUnfinished(ev syscallEventContext) bool {
-	defer ev.releaseHandlerContext()
-	if !p.HasTextOutput() || !p.text.canHandleUnfinished(ev) {
+	if p == nil || !p.HasTextOutput() || !p.text.canHandleUnfinished(ev) {
+		ev.releaseHandlerContext()
 		return false
 	}
 	res := p.runner.Decode(ev)
-	return p.text.HandleUnfinished(ev, res)
+	handled := p.text.HandleUnfinished(ev, res)
+	ev.releaseHandlerContext()
+	return handled
 }
 
 func (p *SyscallExitPipeline) HasTextOutput() bool {
@@ -122,8 +144,8 @@ func (p *SyscallExitPipeline) recordSummaryIfNeeded(ev syscallEventContext) bool
 	if p.summary == nil || (!p.summary.SummaryOnly() && !p.summary.SummaryAndPrint()) {
 		return false
 	}
-	if p.effects != nil {
-		p.effects.RecordSummary(ev)
+	if p.finalizer != nil {
+		p.finalizer.RecordSummary(ev)
 	}
 	return p.summary.SummaryOnly()
 }
@@ -133,18 +155,6 @@ func (p *SyscallExitPipeline) handleSyscall(ev syscallEventContext) (handler.Res
 		return handler.Result{}, false
 	}
 	return p.runner.Handle(ev)
-}
-
-func (p *SyscallExitPipeline) cleanup(ev syscallEventContext) {
-	if p.effects != nil && ev.shouldCleanupClosedFD() {
-		p.effects.CleanupClosedFD(ev)
-	}
-}
-
-func (p *SyscallExitPipeline) updateOffsets(ev syscallEventContext) {
-	if p.effects != nil && ev.shouldUpdateFDOffsets() {
-		p.effects.UpdateFDOffsets(ev)
-	}
 }
 
 func suppressSyscallOutput(ev syscallEventContext) bool {

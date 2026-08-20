@@ -21,6 +21,8 @@ func (e *fakeRouterExitEffects) UpdateFDOffsets(syscallEventContext) {}
 
 func (e *fakeRouterExitEffects) CleanupClosedFD(syscallEventContext) {}
 
+func (e *fakeRouterExitEffects) Finalize(syscallEventContext) {}
+
 func TestTraceEventRouterSkipsOutOfScopeEvents(t *testing.T) {
 	state := newTraceState()
 	router := newTraceEventRouter(TraceEventRouterDeps{
@@ -205,8 +207,8 @@ func TestTraceEventRouterRoutesExitToPipeline(t *testing.T) {
 		TargetPID: 100,
 		State:     newTraceState(),
 		Pipeline: newSyscallExitPipeline(SyscallExitPipelineDeps{
-			Summary: policy,
-			Effects: effects,
+			Summary:   policy,
+			Finalizer: effects,
 		}),
 		ContextDeps: syscallEventContextDeps{
 			decoder:     event.NewDecoder(),
@@ -344,5 +346,5 @@ func TestTraceEventRouterDiscardsUnfinishedWithoutTextPipeline(t *testing.T) {
 	}
 }
 
-var _ SyscallExitEffects = (*fakeRouterExitEffects)(nil)
+var _ syscallExitFinalizerPort = (*fakeRouterExitEffects)(nil)
 var _ LifecycleEffects = (*fakeLifecycleEffects)(nil)

@@ -115,7 +115,7 @@ func TestSyscallExitEffectsUpdateFDOffsetsUsesEventView(t *testing.T) {
 		meta:     scMeta,
 	}
 
-	newTraceSessionSyscallExitEffects(nil, session.fdStateStore(), session.fdStateStore()).UpdateFDOffsets(ev)
+	newTraceSessionSyscallExitFinalizer(nil, session.fdStateStore(), session.fdStateStore()).Finalize(ev)
 	if got := fdState.offsets["101:1"]; got != 19 {
 		t.Fatalf("view fd offset after write = %d, want 19", got)
 	}
