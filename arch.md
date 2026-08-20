@@ -9882,3 +9882,33 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - bundle/runtime 不再维护裸 `handlerClosers/extraClosers`；资源命名和 transfer 只有 owner 一份，core 仍由单独 capability owner 管理，没有新增回收副本。
 - owner 不进入 syscall event path，不增加 goroutine、锁或定时器；正常 runtime 仍使用既有并行 named-resource close，纯 eBPF 边界保持不变。
 - 保留边界：本阶段统一资源生命周期结构但没有减少内核 link detach 固定成本；后续 cleanup 性能优化应继续基于 phase timing 和真实 workload 评估。
+
+### 14.243 分离事件窗口吞吐与 BPF teardown 尾延迟（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：当前运行时已经将 raw syscall 观察收敛为 enter/exit 两个 dispatcher，生命周期保持四个 required tracepoint；`ebpf-perf` 同时记录 `trace_sec`、端到端耗时、每个 BPF link 的 cleanup timing 和 runtime error counters。
+- Problem：短 workload 的端到端 `events/s` 包含固定的 BPF link detach、ringbuf reader 和进程收尾时间，不能直接代表事件消费者或 BPF capture 的吞吐。跳过显式 link cleanup 虽可降低表面耗时，却会破坏错误路径、attach 和长期运行场景的资源所有权契约。
+- Goal：将 `trace_sec` 的 exit rate 定义为事件窗口主指标，将端到端 exit rate 定义为生命周期指标；用同机实测数据确认事件吞吐是否仍有异常回退，并决定是否需要进入 BPF 热路径重构。
+- Non-goals：不删除显式 link cleanup，不异步转移 BPF owner，不修改 Ringbuf ABI、单 Goroutine 消费者、事件状态机、capture handler 或 pure-eBPF/no-ptrace/no-procfs 边界。
+- Constraints：必须保留 link -> handler/core 的回收顺序；cleanup 继续并行关闭独立 link；性能结论必须同时报告 runtime error counters 和 workload 事件数，不能用短 workload 的端到端数字单独作结论。
+
+#### 方案比较
+
+1. 跳过显式 `link.Close`，依赖进程退出回收：端到端数字会变好，但 setup failure、attach 和非正常退出的资源语义不再明确，拒绝。
+2. 将 link cleanup 放入异步 Goroutine：可隐藏一部分收尾等待，但不能消除内核 detach 成本，并会引入 tracer 退出与 owner 生命周期竞态，拒绝。
+3. 保持并行显式 cleanup，使用 `trace_sec` 作为事件吞吐指标、端到端耗时作为生命周期指标，并记录 per-link timing：语义稳定、测量不失真，选择。
+
+#### 实测与结论
+
+- 当前 HEAD `4877512` 的 Go pipeline benchmark 为 decode `355.50 ns/op`、普通 JSON writer `480.50 ns/op`、decoded JSON `592.10 ns/op`，均为 `0 alloc/op`；payload JSON 为 `840.60 ns/op`、`16 B/op`、`1 alloc/op`。
+- 当前实机 `ebpf-perf` 的事件窗口 exit rate 为：scalar `23464.19/s`、IO `16465.82/s`、lifecycle `82.84/s`、threads `13530.02/s`；对应端到端 exit rate 为 `5945.14/s`、`4120.14/s`、`29.54/s`、`3307.35/s`。
+- 四个 workload 的 ringbuf reserve/copy、pending update、orphan exit、pending mismatch、lifecycle map update 和 stale pending counters 全为 `0`，required semantic events 仍完整到达；因此当前没有“事件丢失导致 events/s 崩塌”的证据。
+- scalar 运行的六个 BPF link 在同一 cleanup 窗口并行关闭，单 link 实测约 `42~179 ms`，聚合 `cleanup_bpf_links` 约 `0.166~0.179 s`；core object cleanup 约几十微秒。端到端低值主要由这段固定 teardown 尾部和短 workload setup 共同稀释，而不是 Go event pipeline 进入异常慢路径。
+- 当前结论：此前下降主要由旧版固定启动等待、原始 tracepoint 多程序扇出和端到端分母混用叠加造成。tail-call dispatcher 已消除主要 attach fanout 罚项；本轮没有发现需要通过放弃显式 cleanup 来“修复”事件吞吐的理由。后续性能工作应针对真实 `trace_sec` 中的 BPF capture 成本和 Ringbuf 压力，不能继续优化 teardown 指标假象。
+
+#### Review
+
+- 保留了显式 BPF link cleanup 和现有并行 owner；没有新增第二消费者、锁、定时器、ptrace、procfs 或 process_vm 路径。
+- `trace_sec`、端到端耗时和 per-link cleanup timing 已由同一 perf fixture 输出，可在后续 dispatcher/handler 改动中做 before/after 对比。
+- 本阶段是测量和架构决策收口，不宣称 pure eBPF 已达到无成本；真实 capture 的 syscall 参数深拷贝、payload 大小和 Ringbuf 竞争仍是后续热路径优化边界。
