@@ -76,7 +76,12 @@ static __always_inline void emit_recvmsg_name_exit_fragment_event_v2_direct(
     }
 
     u16 flags = EVENT_FLAG_EXIT_FRAGMENT;
-    u32 payload_size = capture_msg_name_tlv_direct(&ptr, payload_offset, p->args[1], p->aux0, &flags);
+    u32 payload_size = capture_msg_name_tlv_direct(
+        &ptr,
+        payload_offset,
+        p->args[1],
+        lookup_pending_syscall_aux0(p->tid),
+        &flags);
     if (payload_size > 0) {
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }

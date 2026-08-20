@@ -46,8 +46,11 @@ type bpfRecvmsgPendingSyscall struct {
 	SysId     uint32
 	Tid       uint32
 	StackId   int32
-	Aux0      uint32
-	Aux1      uint32
+}
+
+type bpfRecvmsgPendingSyscallAux struct {
+	_    structs.HostLayout
+	Aux0 uint32
 }
 
 // loadBpfRecvmsg returns the embedded CollectionSpec for bpfRecvmsg.
@@ -102,26 +105,27 @@ type bpfRecvmsgProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfRecvmsgMapSpecs struct {
-	ArmForkMap       *ebpf.MapSpec `ebpf:"arm_fork_map"`
-	AttachExitedMap  *ebpf.MapSpec `ebpf:"attach_exited_map"`
-	AttachRootsMap   *ebpf.MapSpec `ebpf:"attach_roots_map"`
-	ConfigMap        *ebpf.MapSpec `ebpf:"config_map"`
-	EnterProgs       *ebpf.MapSpec `ebpf:"enter_progs"`
-	EnterRoutes      *ebpf.MapSpec `ebpf:"enter_routes"`
-	Events           *ebpf.MapSpec `ebpf:"events"`
-	ExitProgs        *ebpf.MapSpec `ebpf:"exit_progs"`
-	ExitRoutes       *ebpf.MapSpec `ebpf:"exit_routes"`
-	FdPathScratchMap *ebpf.MapSpec `ebpf:"fd_path_scratch_map"`
-	FilterMap        *ebpf.MapSpec `ebpf:"filter_map"`
-	MainExitedMap    *ebpf.MapSpec `ebpf:"main_exited_map"`
-	MmsgBytesProgs   *ebpf.MapSpec `ebpf:"mmsg_bytes_progs"`
-	PendingExecMap   *ebpf.MapSpec `ebpf:"pending_exec_map"`
-	PendingSyscalls  *ebpf.MapSpec `ebpf:"pending_syscalls"`
-	PreExecMap       *ebpf.MapSpec `ebpf:"pre_exec_map"`
-	RecvmsgProgs     *ebpf.MapSpec `ebpf:"recvmsg_progs"`
-	StackTraces      *ebpf.MapSpec `ebpf:"stack_traces"`
-	StatsMap         *ebpf.MapSpec `ebpf:"stats_map"`
-	SyscallFilterMap *ebpf.MapSpec `ebpf:"syscall_filter_map"`
+	ArmForkMap           *ebpf.MapSpec `ebpf:"arm_fork_map"`
+	AttachExitedMap      *ebpf.MapSpec `ebpf:"attach_exited_map"`
+	AttachRootsMap       *ebpf.MapSpec `ebpf:"attach_roots_map"`
+	ConfigMap            *ebpf.MapSpec `ebpf:"config_map"`
+	EnterProgs           *ebpf.MapSpec `ebpf:"enter_progs"`
+	EnterRoutes          *ebpf.MapSpec `ebpf:"enter_routes"`
+	Events               *ebpf.MapSpec `ebpf:"events"`
+	ExitProgs            *ebpf.MapSpec `ebpf:"exit_progs"`
+	ExitRoutes           *ebpf.MapSpec `ebpf:"exit_routes"`
+	FdPathScratchMap     *ebpf.MapSpec `ebpf:"fd_path_scratch_map"`
+	FilterMap            *ebpf.MapSpec `ebpf:"filter_map"`
+	MainExitedMap        *ebpf.MapSpec `ebpf:"main_exited_map"`
+	MmsgBytesProgs       *ebpf.MapSpec `ebpf:"mmsg_bytes_progs"`
+	PendingExecMap       *ebpf.MapSpec `ebpf:"pending_exec_map"`
+	PendingSyscallAuxMap *ebpf.MapSpec `ebpf:"pending_syscall_aux_map"`
+	PendingSyscalls      *ebpf.MapSpec `ebpf:"pending_syscalls"`
+	PreExecMap           *ebpf.MapSpec `ebpf:"pre_exec_map"`
+	RecvmsgProgs         *ebpf.MapSpec `ebpf:"recvmsg_progs"`
+	StackTraces          *ebpf.MapSpec `ebpf:"stack_traces"`
+	StatsMap             *ebpf.MapSpec `ebpf:"stats_map"`
+	SyscallFilterMap     *ebpf.MapSpec `ebpf:"syscall_filter_map"`
 }
 
 // bpfRecvmsgVariableSpecs contains global variables before they are loaded into the kernel.
@@ -160,26 +164,27 @@ func (o *bpfRecvmsgObjects) Close() error {
 //
 // It can be passed to loadBpfRecvmsgObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfRecvmsgMaps struct {
-	ArmForkMap       *ebpf.Map `ebpf:"arm_fork_map"`
-	AttachExitedMap  *ebpf.Map `ebpf:"attach_exited_map"`
-	AttachRootsMap   *ebpf.Map `ebpf:"attach_roots_map"`
-	ConfigMap        *ebpf.Map `ebpf:"config_map"`
-	EnterProgs       *ebpf.Map `ebpf:"enter_progs"`
-	EnterRoutes      *ebpf.Map `ebpf:"enter_routes"`
-	Events           *ebpf.Map `ebpf:"events"`
-	ExitProgs        *ebpf.Map `ebpf:"exit_progs"`
-	ExitRoutes       *ebpf.Map `ebpf:"exit_routes"`
-	FdPathScratchMap *ebpf.Map `ebpf:"fd_path_scratch_map"`
-	FilterMap        *ebpf.Map `ebpf:"filter_map"`
-	MainExitedMap    *ebpf.Map `ebpf:"main_exited_map"`
-	MmsgBytesProgs   *ebpf.Map `ebpf:"mmsg_bytes_progs"`
-	PendingExecMap   *ebpf.Map `ebpf:"pending_exec_map"`
-	PendingSyscalls  *ebpf.Map `ebpf:"pending_syscalls"`
-	PreExecMap       *ebpf.Map `ebpf:"pre_exec_map"`
-	RecvmsgProgs     *ebpf.Map `ebpf:"recvmsg_progs"`
-	StackTraces      *ebpf.Map `ebpf:"stack_traces"`
-	StatsMap         *ebpf.Map `ebpf:"stats_map"`
-	SyscallFilterMap *ebpf.Map `ebpf:"syscall_filter_map"`
+	ArmForkMap           *ebpf.Map `ebpf:"arm_fork_map"`
+	AttachExitedMap      *ebpf.Map `ebpf:"attach_exited_map"`
+	AttachRootsMap       *ebpf.Map `ebpf:"attach_roots_map"`
+	ConfigMap            *ebpf.Map `ebpf:"config_map"`
+	EnterProgs           *ebpf.Map `ebpf:"enter_progs"`
+	EnterRoutes          *ebpf.Map `ebpf:"enter_routes"`
+	Events               *ebpf.Map `ebpf:"events"`
+	ExitProgs            *ebpf.Map `ebpf:"exit_progs"`
+	ExitRoutes           *ebpf.Map `ebpf:"exit_routes"`
+	FdPathScratchMap     *ebpf.Map `ebpf:"fd_path_scratch_map"`
+	FilterMap            *ebpf.Map `ebpf:"filter_map"`
+	MainExitedMap        *ebpf.Map `ebpf:"main_exited_map"`
+	MmsgBytesProgs       *ebpf.Map `ebpf:"mmsg_bytes_progs"`
+	PendingExecMap       *ebpf.Map `ebpf:"pending_exec_map"`
+	PendingSyscallAuxMap *ebpf.Map `ebpf:"pending_syscall_aux_map"`
+	PendingSyscalls      *ebpf.Map `ebpf:"pending_syscalls"`
+	PreExecMap           *ebpf.Map `ebpf:"pre_exec_map"`
+	RecvmsgProgs         *ebpf.Map `ebpf:"recvmsg_progs"`
+	StackTraces          *ebpf.Map `ebpf:"stack_traces"`
+	StatsMap             *ebpf.Map `ebpf:"stats_map"`
+	SyscallFilterMap     *ebpf.Map `ebpf:"syscall_filter_map"`
 }
 
 func (m *bpfRecvmsgMaps) Close() error {
@@ -198,6 +203,7 @@ func (m *bpfRecvmsgMaps) Close() error {
 		m.MainExitedMap,
 		m.MmsgBytesProgs,
 		m.PendingExecMap,
+		m.PendingSyscallAuxMap,
 		m.PendingSyscalls,
 		m.PreExecMap,
 		m.RecvmsgProgs,

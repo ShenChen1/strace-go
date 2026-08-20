@@ -133,15 +133,18 @@ static __always_inline void save_pending_msg_syscall_args(
     p.tid = tid;
     p.stack_id = stack_id;
 
+    u32 aux0 = 0;
     if (sys_id == SYS_RECVMSG) {
         struct msg_direct_name name = {};
         if (msg_direct_read_name(ctx->args[1], &name) == 0) {
-            p.aux0 = name.len;
+            aux0 = name.len;
         }
     }
 
     if (bpf_map_update_elem(&pending_syscalls, &tid, &p, BPF_ANY) != 0) {
         record_pending_update_fail();
+    } else if (sys_id == SYS_RECVMSG) {
+        save_pending_syscall_aux(tid, aux0);
     }
 }
 

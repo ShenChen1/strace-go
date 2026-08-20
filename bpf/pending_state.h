@@ -89,6 +89,7 @@ static __always_inline int validate_pending_syscall_exit(
 
     record_pending_mismatch();
     bpf_map_delete_elem(&pending_syscalls, &pending_tid);
+    bpf_map_delete_elem(&pending_syscall_aux_map, &pending_tid);
     bpf_map_delete_elem(&pending_exec_map, &pid);
     return 0;
 }
@@ -109,10 +110,12 @@ static __always_inline void consume_pending_syscall(
     u32 pending_exec_lookup)
 {
     bpf_map_delete_elem(&pending_syscalls, &pending_tid);
+    bpf_map_delete_elem(&pending_syscall_aux_map, &pending_tid);
     if (pending_exec_lookup) {
         bpf_map_delete_elem(&pending_exec_map, &pid);
         bpf_map_delete_elem(&main_exited_map, &pid);
         bpf_map_delete_elem(&pending_syscalls, &pid);
+        bpf_map_delete_elem(&pending_syscall_aux_map, &pid);
     } else if (is_exec_payload_direct_syscall(pending->sys_id) && pending->tid != pending->pid) {
         bpf_map_delete_elem(&pending_exec_map, &pid);
     }

@@ -77,6 +77,21 @@ static __always_inline void save_pending_syscall_args(
     }
 }
 
+static __always_inline void save_pending_syscall_aux(u32 tid, u32 aux0)
+{
+    struct pending_syscall_aux aux = {};
+    aux.aux0 = aux0;
+    if (bpf_map_update_elem(&pending_syscall_aux_map, &tid, &aux, BPF_ANY) != 0) {
+        record_pending_update_fail();
+    }
+}
+
+static __always_inline u32 lookup_pending_syscall_aux0(u32 tid)
+{
+    struct pending_syscall_aux *aux = bpf_map_lookup_elem(&pending_syscall_aux_map, &tid);
+    return aux ? aux->aux0 : 0;
+}
+
 static __always_inline void init_syscall_event_v2_header_direct(
     struct event_v2_header *header,
     u16 event_type,

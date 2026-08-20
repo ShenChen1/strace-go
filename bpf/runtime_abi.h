@@ -76,8 +76,10 @@ struct pending_syscall {
     u32 sys_id;
     u32 tid;
     s32 stack_id;
+};
+
+struct pending_syscall_aux {
     u32 aux0;
-    u32 aux1;
 };
 
 struct bpf_stats {
@@ -207,6 +209,13 @@ struct {
     __type(key, u32);
     __type(value, struct pending_syscall);
 } pending_syscalls SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 8192);
+    __type(key, u32);
+    __type(value, struct pending_syscall_aux);
+} pending_syscall_aux_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);

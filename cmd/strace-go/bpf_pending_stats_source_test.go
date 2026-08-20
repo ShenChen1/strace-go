@@ -22,6 +22,54 @@ func TestBPFPendingSaveChecksUpdateResult(t *testing.T) {
 	}
 }
 
+func TestBPFPendingAuxSaveChecksUpdateResult(t *testing.T) {
+	root := repoRootForTest(t)
+	source := readTextFile(t, filepath.Join(root, "bpf/syscall_event_core_v2.h"))
+	for _, snippet := range []string{
+		"bpf_map_update_elem(&pending_syscall_aux_map, &tid, &aux, BPF_ANY) != 0",
+		"record_pending_update_fail()",
+	} {
+		if !strings.Contains(source, snippet) {
+			t.Fatalf("auxiliary pending state update is missing failure accounting %q", snippet)
+		}
+	}
+}
+
+func TestBPFPendingAuxiliaryCleanupMirrorsCommonState(t *testing.T) {
+	source := readCombinedBPFSources(t)
+	want := map[string][]string{
+		"validate_pending_syscall_exit": {
+			"bpf_map_delete_elem(&pending_syscalls, &pending_tid);",
+			"bpf_map_delete_elem(&pending_syscall_aux_map, &pending_tid);",
+		},
+		"consume_pending_syscall": {
+			"bpf_map_delete_elem(&pending_syscalls, &pending_tid);",
+			"bpf_map_delete_elem(&pending_syscall_aux_map, &pending_tid);",
+			"bpf_map_delete_elem(&pending_syscalls, &pid);",
+			"bpf_map_delete_elem(&pending_syscall_aux_map, &pid);",
+		},
+		"clear_replaced_leader_task_state": {
+			"bpf_map_delete_elem(&pending_syscalls, &tid);",
+			"bpf_map_delete_elem(&pending_syscall_aux_map, &tid);",
+		},
+		"clear_lifecycle_task_state": {
+			"bpf_map_delete_elem(&pending_syscalls, &tid);",
+			"bpf_map_delete_elem(&pending_syscall_aux_map, &tid);",
+		},
+	}
+	for name, snippets := range want {
+		body, ok := bpfFunctionBody(source, name)
+		if !ok {
+			t.Fatalf("BPF source missing %s body", name)
+		}
+		for _, snippet := range snippets {
+			if !strings.Contains(body, snippet) {
+				t.Fatalf("%s cleanup is missing %q", name, snippet)
+			}
+		}
+	}
+}
+
 func TestBPFStatsHasPendingUpdateFailCounter(t *testing.T) {
 	src := loadBPFSources(t)
 	if !strings.Contains(src.straceSource, "u64 pending_update_fail;") {

@@ -30,10 +30,11 @@ static __always_inline u32 capture_network_getsockopt_exit_tlv_direct(
 {
     u32 payload_size = 0;
     u32 out_len = 0;
+    u32 aux0 = lookup_pending_syscall_aux0(p->tid);
     u64 len_ptr = network_direct_pending_arg(p, 4);
     long read_ret = network_direct_read_socklen(len_ptr, &out_len);
-    if (ret_value >= 0 && read_ret == 0 && out_len > 0 && p->aux0 > 0) {
-        u32 user_len = network_direct_min_u32(out_len, p->aux0);
+    if (ret_value >= 0 && read_ret == 0 && out_len > 0 && aux0 > 0) {
+        u32 user_len = network_direct_min_u32(out_len, aux0);
         u32 copy_len = network_direct_sockopt_payload_len(
             p->args[1], p->args[2], user_len);
         copy_len = network_direct_min_u32(copy_len, NETWORK_DIRECT_SOCKOPT_MAX);
@@ -103,14 +104,15 @@ static __always_inline u32 capture_network_exit_payloads_tlv_direct(
         return payload_size;
     }
 
+    u32 aux0 = lookup_pending_syscall_aux0(p->tid);
     u32 len_arg = network_direct_out_socklen_arg(p->sys_id);
     u32 out_len = 0;
     u64 len_ptr = network_direct_pending_arg(p, len_arg);
     network_direct_read_socklen(len_ptr, &out_len);
 
     u32 copy_len = out_len;
-    if (p->aux0 > 0 && p->aux0 < copy_len) {
-        copy_len = p->aux0;
+    if (aux0 > 0 && aux0 < copy_len) {
+        copy_len = aux0;
     }
     copy_len = network_direct_min_u32(copy_len, NETWORK_DIRECT_SOCKADDR_MAX);
     if (copy_len > 0) {

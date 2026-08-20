@@ -104,10 +104,11 @@ static __always_inline void save_pending_network_syscall_args(
     p.sys_id = sys_id;
     p.tid = tid;
     p.stack_id = stack_id;
-    p.aux0 = sockaddr_len;
 
     if (bpf_map_update_elem(&pending_syscalls, &tid, &p, BPF_ANY) != 0) {
         record_pending_update_fail();
+    } else {
+        save_pending_syscall_aux(tid, sockaddr_len);
     }
 }
 

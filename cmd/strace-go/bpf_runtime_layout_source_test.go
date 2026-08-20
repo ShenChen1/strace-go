@@ -94,6 +94,38 @@ func TestBPFRuntimeModulesOwnCoreDefinitions(t *testing.T) {
 	}
 }
 
+func TestBPFPendingAuxiliaryStateIsSeparateFromCommonState(t *testing.T) {
+	root := repoRootForTest(t)
+	abi := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
+	network := readTextFile(t, filepath.Join(root, "bpf/syscall_network_direct_event_v2.h"))
+	msg := readTextFile(t, filepath.Join(root, "bpf/syscall_msg_core_direct_event_v2.h"))
+	for _, snippet := range []string{
+		"struct pending_syscall_aux {",
+		"} pending_syscall_aux_map SEC(\".maps\");",
+	} {
+		if !strings.Contains(abi, snippet) {
+			t.Fatalf("runtime_abi.h missing auxiliary pending state %q", snippet)
+		}
+	}
+	pendingStart := strings.Index(abi, "struct pending_syscall {")
+	if pendingStart < 0 {
+		t.Fatal("runtime_abi.h pending_syscall definition is missing")
+	}
+	pendingEnd := strings.Index(abi[pendingStart:], "};")
+	if pendingEnd < 0 {
+		t.Fatal("runtime_abi.h pending_syscall definition is unterminated")
+	}
+	pending := abi[pendingStart : pendingStart+pendingEnd]
+	if strings.Contains(pending, "aux0") || strings.Contains(pending, "aux1") {
+		t.Fatal("common pending state must not own rare auxiliary metadata")
+	}
+	for name, source := range map[string]string{"network": network, "msg": msg} {
+		if !strings.Contains(source, "save_pending_syscall_aux(") {
+			t.Fatalf("%s pending path does not save auxiliary metadata", name)
+		}
+	}
+}
+
 func TestBPFRuntimeSyscallNumbersAreGenerated(t *testing.T) {
 	root := repoRootForTest(t)
 	abi := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))

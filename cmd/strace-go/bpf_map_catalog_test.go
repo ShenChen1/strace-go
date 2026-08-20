@@ -56,6 +56,7 @@ func TestBPFCoreMapCatalogHasUniqueNamesAndBindings(t *testing.T) {
 	for _, name := range []string{
 		bpfMapConfig,
 		bpfMapEvents,
+		bpfMapPendingAux,
 		bpfMapPendingSyscalls,
 		bpfMapEnterRoutes,
 		bpfMapExitRoutes,

@@ -121,8 +121,8 @@ func TestPendingSyscallsMapUsesCompactValue(t *testing.T) {
 	if pending == nil {
 		t.Fatal("pending_syscalls map missing from BPF object")
 	}
-	if pending.ValueSize > 128 {
-		t.Fatalf("pending_syscalls value size = %d, want <= 128 bytes", pending.ValueSize)
+	if pending.ValueSize != 72 {
+		t.Fatalf("pending_syscalls value size = %d, want 72 bytes", pending.ValueSize)
 	}
 }
 

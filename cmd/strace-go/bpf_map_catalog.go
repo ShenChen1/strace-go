@@ -22,6 +22,7 @@ const (
 	bpfMapMainExited      = "main_exited_map"
 	bpfMapMmsgBytesProgs  = "mmsg_bytes_progs"
 	bpfMapPendingExec     = "pending_exec_map"
+	bpfMapPendingAux      = "pending_syscall_aux_map"
 	bpfMapPendingSyscalls = "pending_syscalls"
 	bpfMapPreExec         = "pre_exec_map"
 	bpfMapRecvmsgProgs    = "recvmsg_progs"
@@ -51,6 +52,7 @@ var bpfCoreMapCatalog = []bpfCoreMapSpec{
 	{name: bpfMapMainExited, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.MainExitedMap }},
 	{name: bpfMapMmsgBytesProgs, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.MmsgBytesProgs }},
 	{name: bpfMapPendingExec, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PendingExecMap }},
+	{name: bpfMapPendingAux, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PendingSyscallAuxMap }},
 	{name: bpfMapPendingSyscalls, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PendingSyscalls }},
 	{name: bpfMapPreExec, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PreExecMap }},
 	{name: bpfMapRecvmsgProgs, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.RecvmsgProgs }},

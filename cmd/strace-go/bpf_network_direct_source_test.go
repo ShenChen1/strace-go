@@ -44,7 +44,7 @@ func TestBPFNetworkPayloadsUseDirectTLV(t *testing.T) {
 		"is_network_sockopt_direct_syscall(",
 		"*sockaddr_len = optlen;",
 		"save_pending_network_syscall_args(",
-		"p.aux0 = sockaddr_len;",
+		"save_pending_syscall_aux(tid, sockaddr_len);",
 		"init_network_enter_event_v2_from_args(&body, args, payload_size);",
 	} {
 		if !strings.Contains(networkEnterHeader, snippet) && !strings.Contains(networkExitHeader, snippet) {
