@@ -11214,3 +11214,47 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留 raw/decoded direct encoder。它移除了 writer 高频路径的中间 JSON model 和 payload section slice，raw/decoded 均由同一 session-owned buffer 同步写出；旧 model 保留为行为 oracle。
 - 合成 pipeline 有约 7% 到 9% 的稳定方向性改善，但高压 capture 没有脱离约 `1.9M` reserve failure 的量级；剩余瓶颈仍是单 Go consumer 的 handler/state/output 总服务时间与 BPF producer burst 的竞争，下一阶段转向 handler/state service time。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.278 一次性绑定 handler context 的 session ports（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.277 后 JSON pipeline profile 中 `newHandlerContext` 仍约占 `9.5%`，其中每个 event 都通过完整 `handler.Context` struct literal 重写 session-owned `Meta`、`Registry`、`Decoder`、`Opts`、`FDStateView` 和 `Runtime`；14.275 已证明 recycler release 可以保留这些 ports。
+- Problem：动态 syscall 字段和 immutable session capability 被同一条 struct assignment 混合写入，编译器会产生不必要的整体复制/cache traffic；在单 Go consumer 中，这段固定成本会直接缩短 Ringbuf service budget。
+- Goal：在 recycler/session boundary 一次性绑定 session-owned ports；acquire 新 context 时注入一次，复用 context 时沿用已有 ports；`newHandlerContext` 每个 event 只更新 pid/tid、syscall、args、ret、payload、metadata 和 event FD view。
+- Non-goals：不改变 `handler.Context` 字段或 handler 接口，不跨 session 共享 context，不改变测试替身的依赖语义、payload 所有权、event 顺序、JSON/text 输出、BPF ABI 或 event loop；不引入锁、第二消费者、ptrace、procfs 或 process_vm。
+- Constraints：session ports 在 session composition 后视为 immutable；nil/unconfigured test pool 仍必须得到与旧实现相同的 ports；release 必须继续清理全部 event-owned 字段；新 context 和复用 context 的 ports 都必须经过测试锁定。
+
+#### 方案比较
+
+1. 保留每 event 完整 struct literal：行为最直观，但 profile 已确认整体重填成本，拒绝。
+2. recycler 一次性绑定 session ports，动态字段按 event 就地写入：复用现有单对象 recycler，改动局部且 session ownership 明确，选择。
+3. 建立 `handler.Context` immutable template 并每 event 复制：可以集中初始化，但仍保留整体复制成本，并扩大 composition/template 生命周期边界，拒绝。
+
+#### 实现与失败优先测试
+
+- 先增加 configured recycler 测试，验证新 acquire 得到所有 session ports，并验证 release/acquire 后 ports 保留、event fields 清空；修改前测试因 session-port binding API 不存在而失败。
+- 将 context recycler 增加 session-port binding 状态；session pool 首次绑定 ports，`acquire` 只为新对象应用 immutable ports，复用对象不重复写入。
+- 重写 `newHandlerContext` 为动态字段就地赋值；对 nil pool 保留一次性 fallback，避免测试/非 handler 构造路径改变行为。
+- 运行 context/handler benchmark 和 CPU profile；只有 context service time 有稳定改善且所有 handler payload/FD state/semantic 行为不变，才进入 capture/perf/native 门禁。
+
+#### Review 入口
+
+- 检查六类 session ports 是否全部绑定，尤其 `FDStateView`、`Runtime` 和 `Registry`，不能因 selective reset 误清或因首次 acquire 漏注入。
+- 检查新 event 只覆盖动态字段，前一事件的 `PayloadSections`、`ScMeta`、`EventFDView`、SysName/Args 不得残留；检查 session 依赖不会在一个 recycler 生命周期内被静默替换。
+- 如果 binding 只减少局部 benchmark 而完整 handler/JSON capture 无方向性改善，保留正确性边界但停止继续扩大 context template 设计，转向 handler registry/effect 热路径。
+
+#### 验证与实测
+
+- 失败优先 configured recycler 测试先因 `configureSessionPorts` 和 `handlerContextSessionPorts` 不存在而编译失败；实现后 recycler 的新对象注入、复用对象保留 ports、release 清理 event state 均通过。
+- focused benchmark 五轮：`ContextHandler` `169.8-174.0 ns/op`，handler pipeline `293.5-299.8 ns/op`，JSON pipeline `572.2-576.6 ns/op`，均为 `0 B/op、0 allocs/op`；`ebpf-perf` 当前报告为 DecodeState `277.60`、JSON writer `210.40`、decoded writer `225.50`、decoded payload writer `326.60 ns/op`。
+- CPU profile 中 `newHandlerContext` 累计约 `6.5%`，相对 14.277 profile 的约 `9.5%` 下降；完整 JSON pipeline 的主成本已转移到 direct JSON encoder、handler runner 和既有 `runtime.memmove`，说明本阶段只解决 context 固定初始化成本。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、`ebpf-semantic`、`ebpf-perf` 和 native `small` 均通过；semantic 主事件 `197`，enter/exit `100/97`，lifecycle `6`，payload truncated `7`，运行期 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`；native `small` `23/23`。
+- 最新高压 capture：reader `3,200,036/0`，none `2,332,206/867,829`，handler `1,615,980/1,584,055`，JSON `1,276,571/1,923,464`，格式为 `records_read/ringbuf_reserve_fail`；JSON `syscall_events=1,249,270`、`records_invalid=0`、`pending_stale=11`。相对 14.277 JSON `1,273,076/1,926,961` 仅是同一量级内的小幅波动，不能归因于本阶段已根治高压 event/s 下降。
+
+#### 决策与 Review
+
+- 保留 session-port binding：六类 immutable dependency 只在 recycler 首次配置/新对象创建时注入，release 继续清理所有 event-owned 字段；handler.Context ABI、payload 所有权和单消费者约束不变。
+- review 未发现 ports 遗漏或跨事件状态残留：`Meta`、`Registry`、`Decoder`、`Opts`、`FDStateView`、`Runtime` 均被测试锁定，`Pid/Tid/SysName/Args/Ret/PayloadSections/ScMeta/EventFDView` 仍逐事件覆盖或由 release 清理。
+- 本阶段的性能收益是真实但局部的 context service-time 改善；高压 reserve failure 和 event/s 降低仍来自单 Go consumer 与 producer burst 的背压，下一阶段应转向 handler registry/effect 或事件服务路径，不再继续扩大 Context template 优化。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

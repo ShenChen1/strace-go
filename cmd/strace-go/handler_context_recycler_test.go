@@ -60,6 +60,37 @@ func TestHandlerContextRecyclerPreservesSessionPorts(t *testing.T) {
 	}
 }
 
+func TestHandlerContextRecyclerAppliesConfiguredSessionPorts(t *testing.T) {
+	catalog := meta.NewCatalog("raw")
+	registry := handler.NewRegistry()
+	decoder := event.NewDecoder()
+	opts := &cli.Options{}
+	fdState := newFDStateStoreFromMaps(nil, nil)
+	runtime := handler.NewRuntime()
+	recycler := newHandlerContextRecycler()
+	recycler.configureSessionPorts(handlerContextSessionPorts{
+		meta:     catalog,
+		registry: registry,
+		decoder:  decoder,
+		opts:     opts,
+		fdState:  fdState,
+		runtime:  runtime,
+	})
+
+	first := recycler.acquire()
+	if first.Meta != catalog || first.Registry != registry || first.Decoder != decoder ||
+		first.Opts != opts || first.FDStateView != fdState || first.Runtime != runtime {
+		t.Fatalf("configured session ports not applied: %+v", first)
+	}
+	first.Pid = 101
+	recycler.release(first)
+	second := recycler.acquire()
+	if second != first || second.Meta != catalog || second.Registry != registry ||
+		second.Decoder != decoder || second.Opts != opts || second.FDStateView != fdState || second.Runtime != runtime {
+		t.Fatalf("reused configured session ports changed: %+v", second)
+	}
+}
+
 func TestSyscallExitPipelineReleasesHandlerContext(t *testing.T) {
 	recycler := newHandlerContextRecycler()
 	context := recycler.acquire()

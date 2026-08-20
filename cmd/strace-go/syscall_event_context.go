@@ -351,21 +351,31 @@ func unknownSyscallName(sysID uint32) string {
 func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *handler.Context {
 	view := ev.eventView()
 	scMeta := ev.effectiveSyscallMeta()
-	context := deps.contextPool.acquire()
-	*context = handler.Context{
-		Pid: int(view.pid), Tid: int(view.tid), TargetPid: ev.statePID, SysId: view.sysID,
-		SysName: scMeta.Name, Args: view.args, Ret: view.ret,
-		ProbeRetEnter: view.probeRetEnter, ProbeRetExit: view.probeRetExit,
-		PayloadSections: ev.outputPayloadSections(),
-		ScMeta:          scMeta,
-		Registry:        deps.registry,
-		Decoder:         deps.decoder,
-		Opts:            deps.handlerOpts,
-		FDStateView:     deps.fdStateReader(),
-		EventFDView:     ev.handlerEventFDView(),
-		Meta:            deps.catalog,
-		Runtime:         deps.runtimeService(),
+	sessionPorts := handlerContextSessionPorts{
+		meta:     deps.catalog,
+		registry: deps.registry,
+		decoder:  deps.decoder,
+		opts:     deps.handlerOpts,
+		fdState:  deps.fdStateReader(),
+		runtime:  deps.runtimeService(),
 	}
+	deps.contextPool.configureSessionPorts(sessionPorts)
+	context := deps.contextPool.acquire()
+	if deps.contextPool == nil {
+		applyHandlerContextSessionPorts(context, sessionPorts)
+	}
+	context.Pid = int(view.pid)
+	context.Tid = int(view.tid)
+	context.TargetPid = ev.statePID
+	context.SysId = view.sysID
+	context.SysName = scMeta.Name
+	context.Args = view.args
+	context.Ret = view.ret
+	context.ProbeRetEnter = view.probeRetEnter
+	context.ProbeRetExit = view.probeRetExit
+	context.PayloadSections = ev.outputPayloadSections()
+	context.ScMeta = scMeta
+	context.EventFDView = ev.handlerEventFDView()
 	return context
 }
 

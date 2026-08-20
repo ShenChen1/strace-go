@@ -5,18 +5,44 @@ import (
 	"strace-go/pkg/meta"
 )
 
+type handlerContextSessionPorts struct {
+	meta     meta.CatalogPort
+	registry handler.RegistryPort
+	decoder  handler.SnapshotDecoder
+	opts     handler.OptionsPort
+	fdState  handler.FDStateReader
+	runtime  handler.RuntimeServices
+}
+
 // handlerContextRecycler owns one reusable context for the single event consumer.
 type handlerContextRecycler struct {
-	cached *handler.Context
+	cached          *handler.Context
+	sessionPorts    handlerContextSessionPorts
+	portsConfigured bool
 }
 
 func newHandlerContextRecycler() *handlerContextRecycler {
 	return &handlerContextRecycler{}
 }
 
+func (r *handlerContextRecycler) configureSessionPorts(ports handlerContextSessionPorts) {
+	if r == nil || r.portsConfigured {
+		return
+	}
+	r.sessionPorts = ports
+	r.portsConfigured = true
+	if r.cached != nil {
+		applyHandlerContextSessionPorts(r.cached, ports)
+	}
+}
+
 func (r *handlerContextRecycler) acquire() *handler.Context {
 	if r == nil || r.cached == nil {
-		return &handler.Context{}
+		context := &handler.Context{}
+		if r != nil && r.portsConfigured {
+			applyHandlerContextSessionPorts(context, r.sessionPorts)
+		}
+		return context
 	}
 	context := r.cached
 	r.cached = nil
@@ -29,6 +55,18 @@ func (r *handlerContextRecycler) release(context *handler.Context) {
 	}
 	resetHandlerContextEventState(context)
 	r.cached = context
+}
+
+func applyHandlerContextSessionPorts(
+	context *handler.Context,
+	ports handlerContextSessionPorts,
+) {
+	context.Meta = ports.meta
+	context.Registry = ports.registry
+	context.Decoder = ports.decoder
+	context.Opts = ports.opts
+	context.FDStateView = ports.fdState
+	context.Runtime = ports.runtime
 }
 
 // resetHandlerContextEventState drops per-event data while retaining session-owned ports.
