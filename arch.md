@@ -92,7 +92,7 @@ Phase 3 之前，`run()` 中有单独 goroutine 读 ringbuf，再通过 `eventCh
 当前 `cmd/generate-syscalls`：
 
 - 使用 `github.com/cilium/ebpf/btf` 从 `__x64_sys_*`、`__do_sys_*`、`ksys_*` 抽取参数。
-- 仍解析 `strace-upstream/src/linux/x86_64/syscallent.h` 作为 syscall id/name/flags 基准。
+- syscall id/name 以本机 `golang.org/x/sys/unix` 为主源，formatter 的 arity/flags 使用 checked-in semantic catalog；默认生成链不读取 `strace-upstream`。
 - BTF 函数签名不足时读取 syscall tracepoint format；仍无法解析的历史 syscall 显式生成 dummy metadata，不回退到通用手写签名字典。
 - `semanticOverrides` 只保留有 reason 和双边签名测试的 strace-facing ABI 差异。
 - payload capture 由 syscall-specific direct TLV helper 显式实现，不再由 `capture_rules.yaml` 生成固定窗口策略。
@@ -9729,3 +9729,42 @@ Impact note：只影响 `cmd/strace-go` loader/attach metadata、core resource c
 - 未发现 core program name switch、raw/lifecycle attach literal 或 required/optional 语义回退；generated core programs、tracepoint category/name 和 object lookup 由同一 catalog 覆盖。
 - catalog callback 只在 setup/attach/resource classification 阶段执行，不进入 syscall enter/exit handler 或 Ringbuf consumer 热路径；不新增 goroutine、锁、ptrace、procfs 或 process_vm。
 - 保留的架构边界：catalog 只统一 loader 元数据；kernel tracepoint ABI 与 generated `bpfObjects` 字段仍需显式维护，不能据此宣称 core attach 已由 BTF 自动生成。
+
+### 14.239 统一 core map catalog 与 runtime capability 边界（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.237/14.238 已统一 tail-call handler、core program 和 tracepoint 元数据，但 `bpf_runtime.go`、`syscall_filter.go`、`bpf_routes.go`、`bpf_read_ports.go` 和 `bpf_attach.go` 仍分别直接访问生成的 `bpfObjects` map 字段；handler collection replacement 也只根据 ELF map 名称动态推断共享资源。
+- Problem：map 的 kernel name、generated field 和 runtime 职责分散在多个模块。新增或重命名 map 时，ProgArray、route/config、stats/exit reader、filter/lifecycle state 和 handler replacement 可能只更新部分位置，错误会延迟到 setup 或运行期。
+- Goal：建立 typed core-map catalog，集中声明 map name 与 generated `bpfObjects` lookup；所有 runtime map consumer 通过 catalog 获取 map；handler collection replacement 对未登记的共享 map 直接失败。
+- Non-goals：不修改 BPF map ABI、key/value、事件 wire、BPF handler、syscall route、生成文件、事件热路径或 cleanup 并发策略；不引入 map reflection 到产品 runtime。
+- Constraints：catalog callback 只允许在 setup/runtime resource boundary 使用；生成的 `bpfMaps` 字段集合必须与 catalog 一一对应；nil/unknown map 必须返回明确错误；保持纯 eBPF、无 ptrace/procfs、单消费者和无锁事件状态机。
+
+Impact note：影响 `cmd/strace-go` map binding、runtime target operations、filter/config/route setup、stats/stack/attach read ports、ProgArray population 和 handler collection replacement；BPF C ABI、Ringbuf consumer 与 syscall capture 语义保持不变。
+
+#### 方案比较
+
+1. 保留各模块直接访问 generated map 字段：改动最小，但 map binding 和职责事实继续重复，拒绝。
+2. 使用字符串/反射通用 map lookup：可以减少 callback，但类型错误和缺失绑定延迟到运行期，且会把 generated binding 细节带入通用路径，拒绝。
+3. 使用 typed core-map catalog 与显式 lookup callback：保留 ABI 产品知识、能在单测中验证字段一一对应，并且不进入 syscall 热路径，选择。
+
+#### 实现
+
+- 新增 `bpfCoreMapSpec`、20 个稳定 map name 常量和 `bpfCoreMapCatalog`；`bpfCoreMapSpecByName`/`bpfCoreMap` 是 runtime 访问 generated map 的唯一 lookup boundary。
+- `traceBPFRuntime`、syscall filter、route setup、read ports 和 ProgArray attach 改为通过 catalog 获取 map；nil runtime 通过 `coreMap` capability 返回明确 unavailable error，不再在 lookup 前解引用 nil receiver。
+- `newBPFMapReplacementPlan` 要求每个非 data section handler map 已在 core catalog 登记，防止新 shared map 静默形成独立 state；generated `bpf_object_loader.go` 仍是唯一的 collection-to-object binding owner。
+- source gate 改为验证 catalog 使用和 map ownership，不再把直接字段访问误当作架构契约；catalog 测试通过 reflection 检查 20 个 generated map 字段、callback 返回值和名称唯一性。
+
+#### 测试与验收
+
+- 失败优先：catalog API 尚不存在时，core map uniqueness/binding、uncataloged shared map 和 runtime consumer source tests 按预期编译失败；实现后 focused tests 通过。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase14239 ./cmd/strace-go`、Python 44 项单测和 `git diff --check` 均通过。
+- `ebpf-semantic` 通过：主事件 197，enter/exit `100/97`，lifecycle 6，reserve/copy/pending/orphan/mismatch/lifecycle-map error counters 全为 0。
+- `ebpf-perf` 通过：Go decode `349.70 ns/op`、普通 JSON writer `484.40 ns/op`、decoded JSON `602.10 ns/op` 且均为 0 alloc；payload JSON `853.50 ns/op`、16 B/1 alloc；scalar/io/lifecycle/threads steady-state trace rate 为 `22332/14406/83/14187 exit/s`。
+- 原生 small 为 `23 PASS`；more 为 `80 PASS`、`3 XFAIL`、0 FAIL/XPASS。XFAIL 仍是 CPU-time summary、跨任务生命周期精确顺序和 bounded read/write snapshot，与本阶段无关。
+
+#### Review
+
+- 未发现 runtime map consumer 继续直接访问 generated map 字段；generated binding 只保留在 catalog callback 和 collection loader 边界。
+- catalog lookup 不进入 BPF handler、Ringbuf consumer 或 Go syscall event decode 热路径；没有新增 goroutine、mutex、ptrace、procfs 或 process_vm。
+- map replacement 现在对未知 shared map fail-fast；保留边界是 map name/field 仍属于显式 BPF ABI，catalog 不自动生成 map 语义，也不改变 `events/s` 的 cleanup 尾延迟。

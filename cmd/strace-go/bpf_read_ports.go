@@ -47,9 +47,9 @@ func newTraceBPFReadPorts(objs *bpfObjects) traceBPFReadPorts {
 		return traceBPFReadPorts{}
 	}
 	return traceBPFReadPorts{
-		StackTraces: &bpfStackTraceReader{stackTraces: objs.StackTraces},
-		Stats:       &bpfStatsReader{statsMap: objs.StatsMap},
-		AttachExits: &bpfAttachExitReader{attachExited: objs.AttachExitedMap},
+		StackTraces: &bpfStackTraceReader{stackTraces: bpfCoreMap(objs, bpfMapStackTraces)},
+		Stats:       &bpfStatsReader{statsMap: bpfCoreMap(objs, bpfMapStats)},
+		AttachExits: &bpfAttachExitReader{attachExited: bpfCoreMap(objs, bpfMapAttachExited)},
 	}
 }
 

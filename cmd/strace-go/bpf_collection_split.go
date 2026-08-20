@@ -59,6 +59,9 @@ func newBPFMapReplacementPlan(
 		if isBPFDataSection(name) {
 			continue
 		}
+		if _, ok := bpfCoreMapSpecByName(name); !ok {
+			return nil, fmt.Errorf("handler map %q is not in the core map catalog", name)
+		}
 		resource, ok := core.Maps[name]
 		if !ok || resource == nil {
 			return nil, fmt.Errorf("core map %q is unavailable", name)

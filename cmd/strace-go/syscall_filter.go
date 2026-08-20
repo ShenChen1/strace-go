@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"regexp"
 	"sort"
 
@@ -61,10 +62,14 @@ func configureSyscallFilter(plan syscallFilterPlan, objs *bpfObjects) (uint32, e
 	if !plan.enabled {
 		return 0, nil
 	}
+	filterMap := bpfCoreMap(objs, bpfMapSyscallFilter)
+	if filterMap == nil {
+		return 0, fmt.Errorf("BPF syscall filter map is unavailable")
+	}
 
 	var one uint32 = 1
 	for _, id := range plan.ids {
-		if err := objs.SyscallFilterMap.Update(id, one, ebpf.UpdateAny); err != nil {
+		if err := filterMap.Update(id, one, ebpf.UpdateAny); err != nil {
 			return 0, err
 		}
 	}

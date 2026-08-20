@@ -239,12 +239,19 @@ func (a *bpfAttacher) populateProgArrays() error {
 }
 
 func (a *bpfAttacher) populateProgArraysFor(selection bpfProgramSelection) error {
+	enterProgs := bpfCoreMap(a.objs, bpfMapEnterProgs)
+	mmsgBytesProgs := bpfCoreMap(a.objs, bpfMapMmsgBytesProgs)
+	exitProgs := bpfCoreMap(a.objs, bpfMapExitProgs)
+	recvmsgProgs := bpfCoreMap(a.objs, bpfMapRecvmsgProgs)
+	if enterProgs == nil || mmsgBytesProgs == nil || exitProgs == nil || recvmsgProgs == nil {
+		return fmt.Errorf("BPF tail-call prog arrays are unavailable")
+	}
 	enterEntries := selectedProgArrayEntries(
 		enterProgArrayEntries(a.programs),
 		selection.enterSlots,
 		selection.loadAll,
 	)
-	if err := putProgArrayEntries("enter_progs", a.objs.EnterProgs, enterEntries); err != nil {
+	if err := putProgArrayEntries(bpfMapEnterProgs, enterProgs, enterEntries); err != nil {
 		return err
 	}
 	mmsgByteEntries := selectedProgArrayEntries(
@@ -252,7 +259,7 @@ func (a *bpfAttacher) populateProgArraysFor(selection bpfProgramSelection) error
 		selection.mmsgByteSlots,
 		selection.loadAll,
 	)
-	if err := putProgArrayEntries("mmsg_bytes_progs", a.objs.MmsgBytesProgs, mmsgByteEntries); err != nil {
+	if err := putProgArrayEntries(bpfMapMmsgBytesProgs, mmsgBytesProgs, mmsgByteEntries); err != nil {
 		return err
 	}
 	exitEntries := selectedProgArrayEntries(
@@ -260,7 +267,7 @@ func (a *bpfAttacher) populateProgArraysFor(selection bpfProgramSelection) error
 		selection.exitSlots,
 		selection.loadAll,
 	)
-	if err := putProgArrayEntries("exit_progs", a.objs.ExitProgs, exitEntries); err != nil {
+	if err := putProgArrayEntries(bpfMapExitProgs, exitProgs, exitEntries); err != nil {
 		return err
 	}
 	recvmsgEntries := selectedProgArrayEntries(
@@ -268,7 +275,7 @@ func (a *bpfAttacher) populateProgArraysFor(selection bpfProgramSelection) error
 		selection.recvmsgSlots,
 		selection.loadAll,
 	)
-	return putProgArrayEntries("recvmsg_progs", a.objs.RecvmsgProgs, recvmsgEntries)
+	return putProgArrayEntries(bpfMapRecvmsgProgs, recvmsgProgs, recvmsgEntries)
 }
 
 // lifecycleTracepointSpecs lists the sched lifecycle programs required by the

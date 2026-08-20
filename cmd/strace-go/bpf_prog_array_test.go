@@ -88,12 +88,12 @@ func TestPopulateProgArraysPreservesMapOrder(t *testing.T) {
 	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/bpf_attach.go"))
 	last := -1
 	for _, name := range []string{
-		"enter_progs",
-		"mmsg_bytes_progs",
-		"exit_progs",
-		"recvmsg_progs",
+		"bpfMapEnterProgs",
+		"bpfMapMmsgBytesProgs",
+		"bpfMapExitProgs",
+		"bpfMapRecvmsgProgs",
 	} {
-		index := strings.Index(source, `putProgArrayEntries("`+name+`"`)
+		index := strings.Index(source, "putProgArrayEntries("+name+",")
 		if index < 0 {
 			t.Fatalf("populateProgArrays missing %s writer call", name)
 		}

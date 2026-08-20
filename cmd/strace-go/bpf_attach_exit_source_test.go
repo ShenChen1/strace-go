@@ -58,9 +58,11 @@ func TestBPFAttachExitFactFilterLifecycleClearsStaleEntries(t *testing.T) {
 	root := repoRootForTest(t)
 	source := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_runtime.go"))
 	for _, method := range []string{
-		"r.objects.AttachExitedMap.Delete(pid)",
-		"r.objects.AttachRootsMap.Update(pid, uint32(1), 0)",
-		"r.objects.AttachRootsMap.Delete(pid)",
+		"attachExited := r.coreMap(bpfMapAttachExited)",
+		"attachRoots := r.coreMap(bpfMapAttachRoots)",
+		"attachExited.Delete(pid)",
+		"attachRoots.Update(pid, uint32(1), 0)",
+		"attachRoots.Delete(pid)",
 	} {
 		if !strings.Contains(source, method) {
 			t.Fatalf("BPF runtime must maintain attach root state: %q", method)
@@ -75,7 +77,7 @@ func TestBPFReadPortsExposeAttachExitLookupPort(t *testing.T) {
 		"type traceAttachExitReader interface",
 		"IsExited(pid uint32) (bool, error)",
 		"AttachExits traceAttachExitReader",
-		"objs.AttachExitedMap",
+		"bpfCoreMap(objs, bpfMapAttachExited)",
 		"ebpf.ErrKeyNotExist",
 	} {
 		if !strings.Contains(source, required) {

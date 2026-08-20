@@ -170,15 +170,17 @@ func configureBPFRouteMaps(
 	programs bpfProgramProvider,
 	plan bpfRoutePlan,
 ) error {
-	if objs == nil || objs.EnterRoutes == nil || objs.ExitRoutes == nil {
+	enterRoutes := bpfCoreMap(objs, bpfMapEnterRoutes)
+	exitRoutes := bpfCoreMap(objs, bpfMapExitRoutes)
+	if enterRoutes == nil || exitRoutes == nil {
 		return fmt.Errorf("BPF route maps are unavailable")
 	}
 	enterPrograms := routePrograms(enterProgArrayEntries(programs))
-	if err := putBPFRouteEntries("enter_routes", objs.EnterRoutes, plan.enter, enterPrograms); err != nil {
+	if err := putBPFRouteEntries(bpfMapEnterRoutes, enterRoutes, plan.enter, enterPrograms); err != nil {
 		return err
 	}
 	exitPrograms := routePrograms(exitProgArrayEntries(programs))
-	return putBPFRouteEntries("exit_routes", objs.ExitRoutes, plan.exit, exitPrograms)
+	return putBPFRouteEntries(bpfMapExitRoutes, exitRoutes, plan.exit, exitPrograms)
 }
 
 func routePrograms(entries []progArrayEntry) map[uint32]*ebpf.Program {

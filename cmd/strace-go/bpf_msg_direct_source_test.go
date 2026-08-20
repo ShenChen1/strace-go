@@ -13,6 +13,7 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 	// scan both the attacher and catalog for the generated wiring contract.
 	attachSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_attach.go"))
 	catalogSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_program_catalog.go"))
+	mapCatalogSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_map_catalog.go"))
 	msgDirectSources := readMsgDirectEventSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 
@@ -64,9 +65,8 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"return bpfTailCallProgramEntries(programs, bpfExitProgramCatalog)",
 		"return bpfTailCallProgramEntries(programs, bpfRecvmsgProgramCatalog)",
 		"return bpfTailCallProgramEntries(programs, bpfMmsgByteProgramCatalog)",
-		"MmsgBytesProgs",
-		"objs.MmsgBytesProgs",
-		"RecvmsgProgs",
+		"bpfCoreMap(a.objs, bpfMapMmsgBytesProgs)",
+		"bpfCoreMap(a.objs, bpfMapRecvmsgProgs)",
 		"attachRecvmsgKretprobe",
 	} {
 		if !strings.Contains(attachSource, snippet) {
@@ -95,6 +95,18 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 	} {
 		if !strings.Contains(catalogSource, snippet) {
 			t.Fatalf("program catalog missing msg handler %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
+		"bpfMapMmsgBytesProgs",
+		"bpfMapRecvmsgProgs",
+		`"mmsg_bytes_progs"`,
+		`"recvmsg_progs"`,
+		"lookup: func(objects *bpfObjects) *ebpf.Map { return objects.MmsgBytesProgs }",
+		"lookup: func(objects *bpfObjects) *ebpf.Map { return objects.RecvmsgProgs }",
+	} {
+		if !strings.Contains(mapCatalogSource, snippet) {
+			t.Fatalf("map catalog missing msg binding %q", snippet)
 		}
 	}
 

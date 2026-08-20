@@ -35,6 +35,13 @@ type traceBPFTargetPort interface {
 	armedForkPID() (uint32, bool)
 }
 
+func (r *traceBPFRuntime) coreMap(name string) *ebpf.Map {
+	if r == nil {
+		return nil
+	}
+	return bpfCoreMap(r.objects, name)
+}
+
 type traceRingbufResource interface {
 	traceRingbufReader
 	io.Closer
@@ -85,10 +92,11 @@ func setSyscallVariables(spec *ebpf.CollectionSpec) error {
 }
 
 func (r *traceBPFRuntime) newEventReader() (traceRingbufResource, error) {
-	if r == nil || r.objects == nil || r.objects.Events == nil {
+	events := r.coreMap(bpfMapEvents)
+	if events == nil {
 		return nil, fmt.Errorf("BPF events map is unavailable")
 	}
-	reader, err := ringbuf.NewReader(r.objects.Events)
+	reader, err := ringbuf.NewReader(events)
 	if err != nil {
 		return nil, err
 	}
@@ -96,14 +104,15 @@ func (r *traceBPFRuntime) newEventReader() (traceRingbufResource, error) {
 }
 
 func (r *traceBPFRuntime) configure(config traceBPFConfig) error {
-	if r == nil || r.objects == nil || r.objects.ConfigMap == nil {
+	configMap := r.coreMap(bpfMapConfig)
+	if configMap == nil {
 		return fmt.Errorf("BPF config map is unavailable")
 	}
 	cfgVal, err := buildRuntimeConfig(config, r.objects)
 	if err != nil {
 		return fmt.Errorf("build runtime config: %w", err)
 	}
-	if err := r.objects.ConfigMap.Update(uint32(0), cfgVal, 0); err != nil {
+	if err := configMap.Update(uint32(0), cfgVal, 0); err != nil {
 		return fmt.Errorf("update BPF runtime config: %w", err)
 	}
 	return nil
@@ -124,42 +133,46 @@ func (r *traceBPFRuntime) setupStages() []traceBPFSetupTiming {
 }
 
 func (r *traceBPFRuntime) armNextFork() error {
-	if r == nil || r.objects == nil || r.objects.ArmForkMap == nil {
+	armFork := r.coreMap(bpfMapArmFork)
+	if armFork == nil {
 		return fmt.Errorf("BPF arm fork map is unavailable")
 	}
 	pid := uint32(os.Getpid())
-	if err := r.objects.ArmForkMap.Update(uint32(0), pid, 0); err != nil {
+	if err := armFork.Update(uint32(0), pid, 0); err != nil {
 		return fmt.Errorf("update arm fork map: %w", err)
 	}
 	return nil
 }
 
 func (r *traceBPFRuntime) disarmNextFork() error {
-	if r == nil || r.objects == nil || r.objects.ArmForkMap == nil {
+	armFork := r.coreMap(bpfMapArmFork)
+	if armFork == nil {
 		return fmt.Errorf("BPF arm fork map is unavailable")
 	}
 	var zero uint32
-	if err := r.objects.ArmForkMap.Update(uint32(0), zero, 0); err != nil {
+	if err := armFork.Update(uint32(0), zero, 0); err != nil {
 		return fmt.Errorf("clear arm fork map: %w", err)
 	}
 	return nil
 }
 
 func (r *traceBPFRuntime) addFilterPID(pid uint32) error {
-	if r == nil || r.objects == nil || r.objects.FilterMap == nil ||
-		r.objects.AttachExitedMap == nil || r.objects.AttachRootsMap == nil {
+	filterMap := r.coreMap(bpfMapFilter)
+	attachExited := r.coreMap(bpfMapAttachExited)
+	attachRoots := r.coreMap(bpfMapAttachRoots)
+	if filterMap == nil || attachExited == nil || attachRoots == nil {
 		return fmt.Errorf("BPF filter map is unavailable")
 	}
-	if err := r.objects.AttachExitedMap.Delete(pid); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+	if err := attachExited.Delete(pid); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
 		return fmt.Errorf("clear attach exit fact for pid %d: %w", pid, err)
 	}
-	if err := r.objects.AttachRootsMap.Update(pid, uint32(1), 0); err != nil {
+	if err := attachRoots.Update(pid, uint32(1), 0); err != nil {
 		return fmt.Errorf("register attach root %d: %w", pid, err)
 	}
-	if err := r.objects.FilterMap.Update(pid, uint32(1), 0); err != nil {
+	if err := filterMap.Update(pid, uint32(1), 0); err != nil {
 		return errors.Join(
 			fmt.Errorf("add filter pid %d: %w", pid, err),
-			deleteAttachRoot(r.objects.AttachRootsMap, pid),
+			deleteAttachRoot(attachRoots, pid),
 		)
 	}
 	return nil
@@ -169,21 +182,24 @@ func (r *traceBPFRuntime) deleteFilterPID(pid uint32) error {
 	if r == nil || r.objects == nil {
 		return nil
 	}
+	filterMap := r.coreMap(bpfMapFilter)
+	attachRoots := r.coreMap(bpfMapAttachRoots)
+	attachExited := r.coreMap(bpfMapAttachExited)
 	var filterErr error
-	if r.objects.FilterMap != nil {
-		if err := r.objects.FilterMap.Delete(pid); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+	if filterMap != nil {
+		if err := filterMap.Delete(pid); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
 			filterErr = fmt.Errorf("delete filter pid %d: %w", pid, err)
 		}
 	}
 	var rootErr error
-	if r.objects.AttachRootsMap != nil {
-		if err := r.objects.AttachRootsMap.Delete(pid); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+	if attachRoots != nil {
+		if err := attachRoots.Delete(pid); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
 			rootErr = fmt.Errorf("delete attach root %d: %w", pid, err)
 		}
 	}
 	var exitFactErr error
-	if r.objects.AttachExitedMap != nil {
-		if err := r.objects.AttachExitedMap.Delete(pid); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+	if attachExited != nil {
+		if err := attachExited.Delete(pid); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
 			exitFactErr = fmt.Errorf("delete attach exit fact for pid %d: %w", pid, err)
 		}
 	}
@@ -201,10 +217,11 @@ func deleteAttachRoot(roots *ebpf.Map, pid uint32) error {
 }
 
 func (r *traceBPFRuntime) armedForkPID() (uint32, bool) {
-	if r == nil || r.objects == nil || r.objects.ArmForkMap == nil {
+	armFork := r.coreMap(bpfMapArmFork)
+	if armFork == nil {
 		return 0, false
 	}
-	raw, err := r.objects.ArmForkMap.LookupBytes(uint32(0))
+	raw, err := armFork.LookupBytes(uint32(0))
 	if err != nil || len(raw) != 4 {
 		return 0, false
 	}
