@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"reflect"
 	"testing"
 
 	"strace-go/pkg/cli"
@@ -75,14 +76,14 @@ func TestJSONEventWriterReusesPayloadSectionStorage(t *testing.T) {
 	if cap(writer.payloadSections) != 1 {
 		t.Fatalf("payload storage capacity = %d, want 1", cap(writer.payloadSections))
 	}
-	if len(writer.payloadSections) != 0 || writer.payloadSections[:1][0] != (jsonPayloadSection{}) {
+	if len(writer.payloadSections) != 0 || !reflect.DeepEqual(writer.payloadSections[:1][0], jsonPayloadSection{}) {
 		t.Fatalf("payload storage retained encoded data: len=%d value=%+v", len(writer.payloadSections), writer.payloadSections[:1][0])
 	}
 	allocs := testing.AllocsPerRun(100, func() {
 		writer.WriteDecoded(event, handler.Result{})
 	})
-	if allocs >= 2 {
-		t.Fatalf("steady-state payload JSON allocations = %.1f, want fewer than two", allocs)
+	if allocs != 0 {
+		t.Fatalf("steady-state payload JSON allocations = %.1f, want zero", allocs)
 	}
 }
 

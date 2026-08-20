@@ -58,6 +58,7 @@ type jsonPayloadSection struct {
 	CopiedLen  uint32 `json:"copied_len"`
 	ProbeRet   int32  `json:"probe_ret"`
 	DataBase64 string `json:"data_base64,omitempty"`
+	rawData    []byte
 }
 
 type jsonLifecycleEvent struct {
@@ -163,7 +164,32 @@ func newJSONSyscallEventFromViewWithPayloadStorage(
 	sections []handler.PayloadSection,
 	payloadStorage []jsonPayloadSection,
 ) jsonSyscallEvent {
+	return newJSONSyscallEventFromViewWithPayloadMode(view, scMeta, sections, payloadStorage, false)
+}
+
+func newJSONSyscallEventFromViewWithRawPayloadStorage(
+	view syscallEventView,
+	scMeta meta.Syscall,
+	sections []handler.PayloadSection,
+	payloadStorage []jsonPayloadSection,
+) jsonSyscallEvent {
+	return newJSONSyscallEventFromViewWithPayloadMode(view, scMeta, sections, payloadStorage, true)
+}
+
+func newJSONSyscallEventFromViewWithPayloadMode(
+	view syscallEventView,
+	scMeta meta.Syscall,
+	sections []handler.PayloadSection,
+	payloadStorage []jsonPayloadSection,
+	rawPayload bool,
+) jsonSyscallEvent {
 	failed, errno := syscallFailure(view.ret)
+	var payloadSections []jsonPayloadSection
+	if rawPayload {
+		payloadSections = jsonPayloadSectionsIntoRaw(payloadStorage, sections)
+	} else {
+		payloadSections = jsonPayloadSectionsInto(payloadStorage, sections)
+	}
 	return jsonSyscallEvent{
 		Type:            "syscall",
 		EventVersion:    view.eventVersion,
@@ -181,7 +207,7 @@ func newJSONSyscallEventFromViewWithPayloadStorage(
 		DurationNS:      view.duration,
 		EnterTimeNS:     view.enterTime,
 		StackID:         view.stackID,
-		PayloadSections: jsonPayloadSectionsInto(payloadStorage, sections),
+		PayloadSections: payloadSections,
 		ProbeRetEnter:   view.probeRetEnter,
 		ProbeRetExit:    view.probeRetExit,
 	}
@@ -234,7 +260,7 @@ func (ev syscallEventContext) newJSONRawSyscallEvent() jsonSyscallEvent {
 func (ev syscallEventContext) newJSONRawSyscallEventWithPayloadStorage(
 	payloadStorage []jsonPayloadSection,
 ) jsonSyscallEvent {
-	return ev.newJSONSyscallEventWithPayloadStorage(ev.outputPayloadSections(), payloadStorage)
+	return ev.newJSONSyscallEventWithRawPayloadStorage(ev.outputPayloadSections(), payloadStorage)
 }
 
 func (ev syscallEventContext) newJSONDecodedSyscallEvent(res handler.Result) jsonSyscallEvent {
@@ -245,7 +271,7 @@ func (ev syscallEventContext) newJSONDecodedSyscallEventWithPayloadStorage(
 	res handler.Result,
 	payloadStorage []jsonPayloadSection,
 ) jsonSyscallEvent {
-	jsonEvent := ev.newJSONSyscallEventWithPayloadStorage(ev.decodedPayloadSections(), payloadStorage)
+	jsonEvent := ev.newJSONSyscallEventWithRawPayloadStorage(ev.decodedPayloadSections(), payloadStorage)
 	jsonEvent.ArgText = res.ArgParts
 	jsonEvent.returnTextName = ev.syscallName()
 	jsonEvent.returnTextRet = ev.eventView().ret
@@ -269,6 +295,15 @@ func (ev syscallEventContext) newJSONSyscallEventWithPayloadStorage(
 		ev.effectiveSyscallMeta(),
 		sections,
 		payloadStorage,
+	)
+}
+
+func (ev syscallEventContext) newJSONSyscallEventWithRawPayloadStorage(
+	sections []handler.PayloadSection,
+	payloadStorage []jsonPayloadSection,
+) jsonSyscallEvent {
+	return newJSONSyscallEventFromViewWithRawPayloadStorage(
+		ev.eventView(), ev.effectiveSyscallMeta(), sections, payloadStorage,
 	)
 }
 

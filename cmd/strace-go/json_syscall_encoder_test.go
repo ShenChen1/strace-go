@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"testing"
 
@@ -92,5 +93,31 @@ func TestAppendJSONSyscallReturnPreservesFDPath(t *testing.T) {
 	got := appendJSONSyscallReturn(nil, "signalfd", 3, handler.Result{}, ctx)
 	if string(got) != `"3\u003c/dev/null\u003e"` {
 		t.Fatalf("FD return text = %q, want %q", got, `"3\u003c/dev/null\u003e"`)
+	}
+}
+
+func TestAppendJSONPayloadSectionRawDataMatchesEagerBase64(t *testing.T) {
+	raw := []byte{0x00, 0x01, 0xfe, 0xff, 0x02}
+	value := jsonPayloadSection{
+		Kind:      "bytes",
+		Direction: "out",
+		ArgIndex:  1,
+		UserPtr:   0x3000,
+		UserLen:   uint32(len(raw)),
+		CopiedLen: uint32(len(raw)),
+		ProbeRet:  0,
+		rawData:   raw,
+	}
+	eager := value
+	eager.rawData = nil
+	eager.DataBase64 = base64.StdEncoding.EncodeToString(raw)
+
+	want, err := json.Marshal(eager)
+	if err != nil {
+		t.Fatalf("marshal eager payload: %v", err)
+	}
+	got := appendJSONPayloadSection(nil, value)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("raw payload JSON differs from eager encoding:\n got: %s\nwant: %s", got, want)
 	}
 }

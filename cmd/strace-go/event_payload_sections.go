@@ -24,22 +24,44 @@ func jsonPayloadSectionsInto(
 	if len(sections) == 0 {
 		return nil
 	}
-	if cap(dst) < len(sections) {
-		dst = make([]jsonPayloadSection, len(sections))
-	} else {
-		dst = dst[:len(sections)]
-	}
+	dst = resizeJSONPayloadSections(dst, len(sections))
 	for i, section := range sections {
-		dst[i] = jsonPayloadSection{
-			Kind:       string(section.Kind),
-			Direction:  string(section.Direction),
-			ArgIndex:   section.ArgIndex,
-			UserPtr:    section.UserPtr,
-			UserLen:    section.UserLen,
-			CopiedLen:  section.CopiedLen,
-			ProbeRet:   section.ProbeRet,
-			DataBase64: base64.StdEncoding.EncodeToString(section.Data),
-		}
+		dst[i] = newJSONPayloadSection(section)
+		dst[i].DataBase64 = base64.StdEncoding.EncodeToString(section.Data)
 	}
 	return dst
+}
+
+func jsonPayloadSectionsIntoRaw(
+	dst []jsonPayloadSection,
+	sections []handler.PayloadSection,
+) []jsonPayloadSection {
+	if len(sections) == 0 {
+		return nil
+	}
+	dst = resizeJSONPayloadSections(dst, len(sections))
+	for i, section := range sections {
+		dst[i] = newJSONPayloadSection(section)
+		dst[i].rawData = section.Data
+	}
+	return dst
+}
+
+func resizeJSONPayloadSections(dst []jsonPayloadSection, length int) []jsonPayloadSection {
+	if cap(dst) < length {
+		return make([]jsonPayloadSection, length)
+	}
+	return dst[:length]
+}
+
+func newJSONPayloadSection(section handler.PayloadSection) jsonPayloadSection {
+	return jsonPayloadSection{
+		Kind:      string(section.Kind),
+		Direction: string(section.Direction),
+		ArgIndex:  section.ArgIndex,
+		UserPtr:   section.UserPtr,
+		UserLen:   section.UserLen,
+		CopiedLen: section.CopiedLen,
+		ProbeRet:  section.ProbeRet,
+	}
 }

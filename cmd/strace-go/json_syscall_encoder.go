@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"strconv"
 	"unicode/utf8"
 
@@ -223,9 +224,23 @@ func appendJSONPayloadSection(dst []byte, value jsonPayloadSection) []byte {
 	builder.uintField("user_len", uint64(value.UserLen), true)
 	builder.uintField("copied_len", uint64(value.CopiedLen), false)
 	builder.intField("probe_ret", int64(value.ProbeRet))
-	builder.stringField("data_base64", value.DataBase64, true)
+	builder.base64Field("data_base64", value.DataBase64, value.rawData)
 	builder.endObject()
 	return builder.data
+}
+
+func (b *jsonLineBuilder) base64Field(name, encoded string, raw []byte) {
+	if len(raw) == 0 && encoded == "" {
+		return
+	}
+	b.beginField(name)
+	b.data = append(b.data, '"')
+	if raw != nil {
+		b.data = base64.StdEncoding.AppendEncode(b.data, raw)
+	} else {
+		b.data = append(b.data, encoded...)
+	}
+	b.data = append(b.data, '"')
 }
 
 func appendJSONString(dst []byte, value string) []byte {

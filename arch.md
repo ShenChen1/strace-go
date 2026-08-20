@@ -10973,3 +10973,45 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 自定义编码器没有使用 unsafe、锁、第二消费者或异步 writer；buffer 由单一 Go consumer 持有，写入后复用；字符串转义与标准 Encoder 字节等价测试锁定。
 - 性能瓶颈已得到可测的局部改善，但 handler/JSON 高压仍触发大量 `ringbuf_reserve_fail`；剩余重点是 payload base64、context/handler 和完整 output path，不能把本阶段视为 arch.md 全部完成。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.272 在 JSON append 边界延迟 payload base64 编码（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.271 已移除 syscall event 的 JSON 反射和普通 return text 分配，但 payload JSON 基准仍约 `495 ns/op、16 B/op、1 alloc/op`；固定分配来自 `base64.StdEncoding.EncodeToString` 在 event 构造阶段创建的中间字符串。
+- Problem：单 Go consumer 先把 BPF payload 转成 base64 字符串，再把字符串复制/扫描到可复用 JSON buffer；高频 `read/write`、iovec 和 socket payload 会重复支付中间对象的分配和 GC 成本，并缩短 Ringbuf 消费能力。
+- Goal：让 JSON syscall writer 在同步输出边界直接把仍由当前 event 借用的 payload bytes append-encode 到 session-owned JSON buffer，去掉 base64 中间字符串，同时保持 `data_base64` 字段、编码结果、截断元数据和 payload 生命周期语义不变。
+- Non-goals：不改变 event v2 ABI、BPF payload capture、payload 大小上限、JSON schema、事件顺序、文本输出、handler 语义或非 writer 的 `DataBase64` 兼容测试；不引入 payload 深拷贝、unsafe 字符串、异步 writer、第二消费者、锁、ptrace、procfs 或 process_vm。
+- Constraints：原始 `Data` 只能在同步 writer `Write` 返回前借用；标准 JSON event 构造路径继续提供 `DataBase64`，只有专用 JSON writer fast path 使用 raw bytes；writer recycle 必须清理 raw slice，避免跨事件保留 tracee payload。
+
+#### 方案比较
+
+1. 保留 event 构造阶段 `EncodeToString`：行为最稳定，但已确认存在每个 payload event 的中间分配，拒绝。
+2. 在 fast path 的 payload section 中借用 raw bytes，并在 append encoder 内使用 `base64.Encoding.AppendEncode`；普通构造路径继续 eager 编码：生命周期边界清晰，能直接消除分配，选择。
+3. 进一步缩小 BPF payload 或只输出 payload 摘要：可能提高吞吐，但改变 JSON 事实字段和语义覆盖，拒绝。
+
+#### 实现与失败优先测试
+
+- 先增加 raw payload section 的 append-vs-eager 等价测试和 writer 输出解码测试；先让缺少 raw section 编码支持的实现失败，再接入 writer 专用构造路径。
+- 保留 `jsonPayloadSectionsInto` 的 eager 行为供现有 JSON 事件单元测试和普通构造器使用，新增明确命名的 raw fast path，避免把借用生命周期扩散到其他边界。
+- 扩展 payload benchmark 和 allocation 断言，目标是 payload writer 达到 `0 B/op、0 allocs/op`；真实 capture 继续以 semantic、payload 字段、`records_read + reserve_fail` 和 service sample 联合验收。
+
+#### Review 入口
+
+- 重点检查空 payload、`data_base64` 的 `omitempty`、非 4 字节长度、多个 section、writer recycle 和 output writer 同步消费边界；不接受 raw slice 跨 `Write` 或跨事件保留。
+- 如果合成 benchmark 变好但高压 JSON capture 的 reservation failure 没有方向性改善，只记录局部收益，继续定位完整 handler/output service time，不宣称端到端完成。
+
+#### 验证与实测
+
+- 失败优先测试先因 `jsonPayloadSection` 没有 raw storage 编译失败；实现后 raw payload 与 eager base64 字节等价测试通过，writer recycle 清理 raw slice，payload writer allocation 断言收紧为 `0`。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、Python capture/perf/semantic oracle 和 native `small` `23/23` 均通过。
+- payload writer 基准从改动前 `493.2-498.4 ns/op、16 B/op、1 alloc/op` 降到 `452.7-457.3 ns/op、0 B/op、0 allocs/op`；本轮 `ebpf-perf` 报告 `453.60 ns/op、0 B/op、0 allocs/op`。收益来自去掉 base64 中间字符串，未改变 BPF record 内容。
+- `ebpf-semantic` 通过：主语义事件 `197`，enter/exit `100/97`，lifecycle `6`，payload、FD path、signalfd 和所有运行期状态错误计数均通过。
+- 最新高压 capture 对账约 `3,200,035` 次 reservation attempt：reader `2,792,802/407,234`、none `2,341,487/858,548`、handler `1,509,746/1,690,289`、JSON `1,255,003/1,945,032`，格式为 `records_read/ringbuf_reserve_fail`；四路 `records_invalid=0`，JSON `syscall_events=1,229,600`。本轮调度噪声较大，JSON 仍由完整 handler/output 背压主导，不能宣称 event/s 已根治。
+- `ebpf-perf` 的 scalar/io/lifecycle/threads workload 均无 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误；典型 scalar/io/threads `trace_exit_events_per_sec` 为 `27433.28/16139.52/15383.94`，仅作本轮运行参考，不与高压 capture 直接横比。
+
+#### 决策与 Review
+
+- 保留 raw payload fast path。借用范围限制在单一 writer 的同步 `Write` 调用内，recycle 使用 `clear` 清理 `rawData`，标准构造器仍保留 eager `DataBase64` 行为，边界明确。
+- 本阶段消除了 payload base64 的用户态中间分配，但没有解决高压 JSON 的整体 Ringbuf 背压；下一阶段优先继续 profile handler context、return formatting 和底层 writer 消费时间，而不是继续改变 payload ABI。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
