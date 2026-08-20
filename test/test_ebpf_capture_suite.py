@@ -36,6 +36,9 @@ def make_capture(stderr, returncode=0):
                 "service_sample_rate": 1,
                 "bytes_read": 192,
                 "max_record_bytes": 96,
+                "read_time_ns": 20,
+                "decode_time_ns": 80,
+                "sink_time_ns": 120,
                 "min_remaining_bytes": 128,
                 "service_time_ns": 200,
                 "service_records": 2,
@@ -76,6 +79,14 @@ class CaptureOracleTests(unittest.TestCase):
         failures, _ = _validate_capture(capture, expect_syscalls=False)
 
         self.assertTrue(any("exceeds records_read" in failure for failure in failures))
+
+    def test_rejects_stage_time_above_total_service_time(self):
+        capture = make_capture('{"type":"stats"}\n')
+        capture.stats_events[0]["decode_time_ns"] = 201
+
+        failures, _ = _validate_capture(capture, expect_syscalls=False)
+
+        self.assertTrue(any("stage times exceed" in failure for failure in failures))
 
 
 if __name__ == "__main__":

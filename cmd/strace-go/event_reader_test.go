@@ -137,12 +137,11 @@ func TestTraceEventReaderMeasuresDiagnosticServiceTime(t *testing.T) {
 	}
 	clock := &diagnosticTraceClock{
 		now:    time.Unix(100, 0),
-		monoNS: []uint64{1000, 1042},
+		monoNS: []uint64{900, 910, 1000, 1042},
 	}
 	reader := newTraceEventReader(TraceEventReaderDeps{
 		Reader:            ringReader,
 		Decoder:           &acceptingRecordDecoder{},
-		Sink:              &recordingEventSink{},
 		Clock:             clock,
 		MeasureService:    true,
 		ServiceSampleRate: 1,
@@ -155,16 +154,42 @@ func TestTraceEventReaderMeasuresDiagnosticServiceTime(t *testing.T) {
 
 	stats := reader.ReaderStats()
 	if !stats.ServiceEnabled || stats.ServiceSampleRate != 1 || stats.ServiceRecords != 1 || stats.ServiceTimeNS != 42 ||
+		stats.ReadTimeNS != 10 || stats.DecodeTimeNS != 42 || stats.SinkTimeNS != 0 ||
 		stats.MaxServiceTimeNS != 42 || stats.BytesRead != 96 || stats.MaxRecordBytes != 96 ||
-		stats.MinRemainingBytes != 4096 || clock.monoCall != 2 {
-		t.Fatalf("diagnostic reader stats = %+v, want one 42ns measured record", stats)
+		stats.MinRemainingBytes != 4096 || clock.monoCall != 4 {
+		t.Fatalf("diagnostic reader stats = %+v, want one 10ns read and 42ns decode", stats)
+	}
+}
+
+func TestTraceEventReaderMeasuresDecodeAndSinkStages(t *testing.T) {
+	clock := &diagnosticTraceClock{
+		now:    time.Unix(100, 0),
+		monoNS: []uint64{1000, 1015, 1020, 1045, 1050, 1080},
+	}
+	reader := newTraceEventReader(TraceEventReaderDeps{
+		Reader:            &fakeRingbufReader{readErrors: []error{nil}},
+		Decoder:           &acceptingRecordDecoder{},
+		Sink:              &recordingEventSink{},
+		Clock:             clock,
+		MeasureService:    true,
+		ServiceSampleRate: 1,
+	})
+
+	if status, err := reader.Read(&ringbuf.Record{}, time.Second); err != nil || status != traceReadHandled {
+		t.Fatalf("staged Read() = %v/%v, want handled/nil", status, err)
+	}
+
+	stats := reader.ReaderStats()
+	if stats.ReadTimeNS != 15 || stats.DecodeTimeNS != 25 || stats.SinkTimeNS != 30 ||
+		stats.ServiceTimeNS != 60 || stats.ServiceRecords != 1 || clock.monoCall != 6 {
+		t.Fatalf("staged reader stats = %+v, want read=15 decode=25 sink=30 service=60", stats)
 	}
 }
 
 func TestTraceEventReaderSamplesDiagnosticServiceTime(t *testing.T) {
 	clock := &diagnosticTraceClock{
 		now:    time.Unix(100, 0),
-		monoNS: []uint64{1000, 1042, 2000, 2048},
+		monoNS: []uint64{900, 910, 1000, 1042, 1900, 1910, 2000, 2048},
 	}
 	reader := newTraceEventReader(TraceEventReaderDeps{
 		Reader: &fakeRingbufReader{
@@ -184,7 +209,8 @@ func TestTraceEventReaderSamplesDiagnosticServiceTime(t *testing.T) {
 	}
 
 	stats := reader.ReaderStats()
-	if stats.ServiceSampleRate != 2 || stats.ServiceRecords != 2 || stats.ServiceTimeNS != 90 || clock.monoCall != 4 {
+	if stats.ServiceSampleRate != 2 || stats.ServiceRecords != 2 || stats.ServiceTimeNS != 90 ||
+		stats.ReadTimeNS != 20 || stats.DecodeTimeNS != 90 || stats.SinkTimeNS != 0 || clock.monoCall != 8 {
 		t.Fatalf("sampled reader stats = %+v, clock calls=%d; want two samples totaling 90ns", stats, clock.monoCall)
 	}
 }
@@ -332,6 +358,29 @@ func TestTraceEventReaderDrainFlushesAndRoutesPendingRecords(t *testing.T) {
 	}
 	if len(ringReader.deadlines) != 1 || !ringReader.deadlines[0].IsZero() {
 		t.Fatalf("drain deadlines = %v, want one zero deadline", ringReader.deadlines)
+	}
+}
+
+func TestTraceEventReaderMeasuresDrainReadStage(t *testing.T) {
+	clock := &diagnosticTraceClock{
+		now:    time.Unix(100, 0),
+		monoNS: []uint64{1000, 1010, 1020, 1030},
+	}
+	reader := newTraceEventReader(TraceEventReaderDeps{
+		Reader:            &fakeRingbufReader{readErrors: []error{nil, ringbuf.ErrFlushed}},
+		Decoder:           &acceptingRecordDecoder{},
+		Clock:             clock,
+		MeasureService:    true,
+		ServiceSampleRate: 1,
+	})
+
+	if err := reader.Drain(&ringbuf.Record{}); err != nil {
+		t.Fatalf("diagnostic Drain() error = %v", err)
+	}
+	stats := reader.ReaderStats()
+	if stats.ReadTimeNS != 10 || stats.DecodeTimeNS != 10 || stats.ServiceTimeNS != 10 ||
+		stats.ServiceRecords != 1 || clock.monoCall != 4 {
+		t.Fatalf("diagnostic drain stats = %+v, want read/decode/service=10", stats)
 	}
 }
 

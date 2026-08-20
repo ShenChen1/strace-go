@@ -106,6 +106,9 @@ func TestJSONStatsEventIncludesRingbufFailures(t *testing.T) {
 		ServiceSampleRate: 1,
 		BytesRead:         96,
 		MaxRecordBytes:    64,
+		ReadTimeNS:        11,
+		DecodeTimeNS:      22,
+		SinkTimeNS:        33,
 		MinRemainingBytes: 128,
 		ServiceTimeNS:     42,
 		ServiceRecords:    1,
@@ -118,6 +121,7 @@ func TestJSONStatsEventIncludesRingbufFailures(t *testing.T) {
 		t.Fatalf("stats JSON event = %+v", ev)
 	}
 	if !ev.ServiceEnabled || ev.ServiceSampleRate != 1 || ev.BytesRead != 96 || ev.MaxRecordBytes != 64 ||
+		ev.ReadTimeNS != 11 || ev.DecodeTimeNS != 22 || ev.SinkTimeNS != 33 ||
 		ev.MinRemainingBytes != 128 || ev.ServiceTimeNS != 42 ||
 		ev.ServiceRecords != 1 || ev.MaxServiceTimeNS != 42 {
 		t.Fatalf("stats JSON reader diagnostics = %+v", ev)

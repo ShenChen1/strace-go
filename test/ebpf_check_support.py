@@ -22,6 +22,9 @@ def valid_stats_event(event):
             "service_sample_rate",
             "bytes_read",
             "max_record_bytes",
+            "read_time_ns",
+            "decode_time_ns",
+            "sink_time_ns",
             "min_remaining_bytes",
             "service_time_ns",
             "service_records",
@@ -55,6 +58,9 @@ def service_measurement_failures(stats, label):
         failures.append(f"{label} service_time_ns is zero")
     if records_read > 0 and stats.get("max_service_time_ns", 0) <= 0:
         failures.append(f"{label} max_service_time_ns is zero")
+    stage_time = stats.get("decode_time_ns", 0) + stats.get("sink_time_ns", 0)
+    if stage_time > stats.get("service_time_ns", 0):
+        failures.append(f"{label} stage times exceed service_time_ns")
     if stats.get("min_remaining_bytes", 0) > stats.get("max_remaining_bytes", 0):
         failures.append(f"{label} remaining-bytes watermarks are inverted")
     return failures

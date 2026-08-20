@@ -30,6 +30,9 @@ type traceEventReaderStats struct {
 	ServiceSampleRate uint64
 	BytesRead         uint64
 	MaxRecordBytes    uint64
+	ReadTimeNS        uint64
+	DecodeTimeNS      uint64
+	SinkTimeNS        uint64
 	MinRemainingBytes uint64
 	ServiceTimeNS     uint64
 	ServiceRecords    uint64
@@ -96,6 +99,7 @@ func (r *TraceEventReader) Read(rec *ringbuf.Record, timeout time.Duration) (tra
 		r.reader.SetDeadline(r.clock.Now().Add(timeout))
 		r.deadlineActive = true
 	}
+	readStartNS, measureRead := r.startReadMeasurement()
 	if err := r.reader.ReadInto(rec); err != nil {
 		if errors.Is(err, ringbuf.ErrClosed) {
 			r.deadlineActive = false
@@ -108,6 +112,7 @@ func (r *TraceEventReader) Read(rec *ringbuf.Record, timeout time.Duration) (tra
 		r.deadlineActive = false
 		return traceReadNoEvent, fmt.Errorf("read ringbuf: %w", err)
 	}
+	r.finishReadMeasurement(readStartNS, measureRead)
 	r.recordRead(rec)
 	if r.HandleRecord(rec) {
 		return traceReadHandled, nil
@@ -125,12 +130,14 @@ func (r *TraceEventReader) Drain(rec *ringbuf.Record) error {
 	r.reader.SetDeadline(time.Time{})
 	r.deadlineActive = false
 	for {
+		readStartNS, measureRead := r.startReadMeasurement()
 		if err := r.reader.ReadInto(rec); err != nil {
 			if errors.Is(err, ringbuf.ErrFlushed) || errors.Is(err, ringbuf.ErrClosed) {
 				return nil
 			}
 			return fmt.Errorf("drain ringbuf: %w", err)
 		}
+		r.finishReadMeasurement(readStartNS, measureRead)
 		r.recordRead(rec)
 		r.HandleRecord(rec)
 	}
@@ -165,17 +172,28 @@ func (r *TraceEventReader) HandleRecord(rec *ringbuf.Record) bool {
 		r.stats.ServiceRecords++
 	}
 	envelope, ok := r.decoder.Decode(rec)
+	decodeEndNS := r.monotonicNow(measureService)
+	if measureService {
+		r.recordStageDuration(&r.stats.DecodeTimeNS, startNS, decodeEndNS)
+	}
 	if !ok {
 		r.stats.RecordsInvalid++
-		r.finishServiceMeasurement(startNS, measureService)
+		r.finishServiceMeasurement(startNS, decodeEndNS, measureService)
 		return false
 	}
 	r.stats.RecordsDecoded++
+	serviceEndNS := decodeEndNS
 	if r.sink != nil {
+		sinkStartNS := r.monotonicNow(measureService)
 		r.sink.Handle(envelope)
 		r.stats.RecordsRouted++
+		sinkEndNS := r.monotonicNow(measureService)
+		if measureService {
+			r.recordStageDuration(&r.stats.SinkTimeNS, sinkStartNS, sinkEndNS)
+		}
+		serviceEndNS = sinkEndNS
 	}
-	r.finishServiceMeasurement(startNS, measureService)
+	r.finishServiceMeasurement(startNS, serviceEndNS, measureService)
 	return true
 }
 
@@ -209,20 +227,29 @@ func (r *TraceEventReader) recordRead(rec *ringbuf.Record) {
 	}
 }
 
-func (r *TraceEventReader) startServiceMeasurement() (uint64, bool) {
-	if r == nil || !r.stats.ServiceEnabled || r.clock == nil || r.stats.ServiceSampleRate == 0 ||
-		r.stats.RecordsRead == 0 || (r.stats.RecordsRead-1)%r.stats.ServiceSampleRate != 0 {
+func (r *TraceEventReader) startReadMeasurement() (uint64, bool) {
+	if r == nil || !r.shouldMeasureServiceSample(r.stats.RecordsRead) {
 		return 0, false
 	}
 	return r.clock.NowMonoNs(), true
 }
 
-func (r *TraceEventReader) finishServiceMeasurement(startNS uint64, measured bool) {
-	if r == nil || !measured || r.clock == nil {
+func (r *TraceEventReader) startServiceMeasurement() (uint64, bool) {
+	if r == nil || r.stats.RecordsRead == 0 || !r.shouldMeasureServiceSample(r.stats.RecordsRead-1) {
+		return 0, false
+	}
+	return r.clock.NowMonoNs(), true
+}
+
+func (r *TraceEventReader) finishReadMeasurement(startNS uint64, measured bool) {
+	if r == nil || !measured {
 		return
 	}
-	endNS := r.clock.NowMonoNs()
-	if endNS < startNS {
+	r.recordStageDuration(&r.stats.ReadTimeNS, startNS, r.clock.NowMonoNs())
+}
+
+func (r *TraceEventReader) finishServiceMeasurement(startNS, endNS uint64, measured bool) {
+	if r == nil || !measured || endNS < startNS {
 		return
 	}
 	duration := endNS - startNS
@@ -230,4 +257,23 @@ func (r *TraceEventReader) finishServiceMeasurement(startNS uint64, measured boo
 	if duration > r.stats.MaxServiceTimeNS {
 		r.stats.MaxServiceTimeNS = duration
 	}
+}
+
+func (r *TraceEventReader) shouldMeasureServiceSample(recordIndex uint64) bool {
+	return r != nil && r.stats.ServiceEnabled && r.clock != nil && r.stats.ServiceSampleRate > 0 &&
+		recordIndex%r.stats.ServiceSampleRate == 0
+}
+
+func (r *TraceEventReader) monotonicNow(measured bool) uint64 {
+	if r == nil || !measured || r.clock == nil {
+		return 0
+	}
+	return r.clock.NowMonoNs()
+}
+
+func (r *TraceEventReader) recordStageDuration(target *uint64, startNS, endNS uint64) {
+	if r == nil || target == nil || endNS < startNS {
+		return
+	}
+	*target += endNS - startNS
 }

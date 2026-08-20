@@ -117,6 +117,9 @@ type jsonStatsEvent struct {
 	ServiceSampleRate      uint64 `json:"service_sample_rate"`
 	BytesRead              uint64 `json:"bytes_read"`
 	MaxRecordBytes         uint64 `json:"max_record_bytes"`
+	ReadTimeNS             uint64 `json:"read_time_ns"`
+	DecodeTimeNS           uint64 `json:"decode_time_ns"`
+	SinkTimeNS             uint64 `json:"sink_time_ns"`
 	MinRemainingBytes      uint64 `json:"min_remaining_bytes"`
 	ServiceTimeNS          uint64 `json:"service_time_ns"`
 	ServiceRecords         uint64 `json:"service_records"`
@@ -243,6 +246,9 @@ func newJSONStatsEvent(
 		ServiceSampleRate:      readerStats.ServiceSampleRate,
 		BytesRead:              readerStats.BytesRead,
 		MaxRecordBytes:         readerStats.MaxRecordBytes,
+		ReadTimeNS:             readerStats.ReadTimeNS,
+		DecodeTimeNS:           readerStats.DecodeTimeNS,
+		SinkTimeNS:             readerStats.SinkTimeNS,
 		MinRemainingBytes:      readerStats.MinRemainingBytes,
 		ServiceTimeNS:          readerStats.ServiceTimeNS,
 		ServiceRecords:         readerStats.ServiceRecords,

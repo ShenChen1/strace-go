@@ -11347,3 +11347,47 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 否决并回退把 effect flags 放入 `syscallEventContext` 的方案；当前 event context 是值传递对象，新增缓存字段会扩大每条事件的复制成本。
 - 本阶段只证明局部 handler/creator service-time 改善，没有解决单 Go consumer 与 BPF producer burst 竞争造成的高压 `ringbuf_reserve_fail`；下一阶段继续拆分输出链和 producer/consumer 背压。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.281 拆分高压事件消费阶段并否决批量上限 tuning（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.280 已确认高压 capture 仍有百万级 `ringbuf_reserve_fail`，但已有 `service_time_ns` 只覆盖 `TraceEventReader.HandleRecord` 的 decode 和 sink 总调用，无法判断 reader、event decode、状态/handler/JSON 路由中哪一段消耗了单 Go consumer 的预算。
+- Problem：如果没有阶段边界，扩大 ringbuf 或盲目调整 batch limit 只能改变 burst 的表现，不能证明持续消费能力提高；结束阶段 `Drain` 还可能与正常 run 使用不同的统计口径。
+- Goal：在 debug phase 下以固定采样率测量 `ReadInto`、record decode、sink 路由和总 service 时间；让 run 与 drain 都遵守同一统计契约，并把字段稳定输出到 stats JSON 和 capture/perf suite。
+- Non-goals：不改 event v2 ABI、BPF producer、payload、状态机算法、handler 接口、JSON schema 的 syscall 字段、不引入第二消费者、锁、定时器、ptrace、procfs 或 process_vm。
+- Constraints：默认路径不能调用单调时钟；统计只能复用现有 session clock 和单消费者状态；阶段时间必须满足 `decode_time_ns + sink_time_ns <= service_time_ns`，允许阶段边界时钟调用带来的少量间隙。
+
+#### 方案比较
+
+1. 只用 CPU profile 或系统级采样：覆盖面广，但无法稳定对应一次 ringbuf record 的 read/decode/sink 边界，不能作为 capture oracle，拒绝。
+2. 在 `TraceEventReader` 内做 debug-only 分段采样：改动局部，能同时覆盖正常 run 和 drain，并直接与 `records_read`、`ringbuf_reserve_fail` 对齐，选择。
+3. 直接把 ringbuf 从 128 MiB 扩大或移除 batch 上限：可以暂时吸收 burst，但增加内存压力且不能提升 sink 的持续服务速率，作为后续实验而不是本阶段实现，拒绝。
+
+#### 实现与失败优先测试
+
+- 先增加 `TraceEventReader` 的 read/decode/sink 分段测试；旧实现先因 `ReadTimeNS`、`DecodeTimeNS` 和 `SinkTimeNS` 不存在而编译失败，确认测试确实锁定新契约。
+- `traceEventReaderStats` 新增 `read_time_ns`、`decode_time_ns` 和 `sink_time_ns`；`Read` 与 `Drain` 在成功消费 record 后记录 `ReadInto` 阶段，`HandleRecord` 分别记录 decoder 和 sink，`service_time_ns` 保留为 decode 到 sink 返回的总服务区间。
+- 采样沿用 `service_sample_rate`，当前为每 64 条 record 采样一次；未启用 debug phase 时不调用 `NowMonoNs`，也不创建额外对象或分配。
+- stats JSON、capture/perf 打印和 Python schema 校验同步增加三个字段，并校验阶段时间不超过总 service 时间；Go 单测覆盖普通 read、sink、采样和 drain 尾部路径。
+
+#### Review 入口
+
+- 检查 `Read` 和 `Drain` 是否都在成功 `ReadInto` 后记账，错误/timeout/flush 不得伪造一条 read 样本；检查采样索引与 `RecordsRead` 的增量一致。
+- 检查 decoder 拒绝事件仍记录 decode 时间但不记录 sink 时间；sink 为空时总 service 结束于 decoder；sink 存在时总 service 结束于 sink 返回。
+- 检查新增 stats 字段只用于诊断，不进入 event v2 header/body；检查默认生产路径没有额外时钟调用，JSON/text 输出字段和 payload 所有权没有改变。
+- 不能用 reader-only 的无损结果宣称完整输出链无丢失；必须同时观察 `records_read`、`ringbuf_reserve_fail`、`service_time_ns` 和各阶段时间。
+
+#### 验证与实测
+
+- 失败优先 reader 分段测试按预期先因三个 stats 字段缺失而失败；实现后 reader、sink、采样、drain 测试和 stats JSON 字段测试通过。
+- Go 门禁：`go test ./...`、`go test -race ./...`、`go vet ./...` 和构建均通过；直接 Python suite 单测 `test_ebpf_capture_suite.py` `4/4`、`test_ebpf_perf_suite.py` `18/18`、`test_ebpf_suites.py` `18/18` 通过。
+- 默认 batch limit 为 64 时的一轮高压 capture：reader `records_read=3,200,035`、`ringbuf_reserve_fail=0`；none `2,183,839/1,016,196`；handler `1,985,653/1,214,382`；JSON `1,365,944/1,834,091`，JSON `syscall_events=1,330,211`，均无 records invalid。JSON 采样阶段约为 read `0.20 us/sample`、decode `0.37 us/sample`、sink `1.28 us/sample`，sink 是完整路由路径中最重的一段。
+- 作为 A/B，临时把 batch limit 从 64 提高到 256，重复三轮后 JSON `records_read` 约 `1.366M-1.384M`，与 64 条结果同一量级；none/handler 波动更大，且出现一轮 reader `orphan_exit=1`。没有稳定的 JSON event/s 或错误率收益，已恢复 64，拒绝提交该 tuning。
+- 默认生产 pipeline benchmark 仍为零分配：`ContextHandler` `163.2-164.5 ns/op`，handler pipeline `279.1-279.5 ns/op`，JSON pipeline `563.6-568.0 ns/op`；分段诊断没有引入可见回归。
+
+#### 决策与 Review
+
+- 保留 TraceEventReader 的 debug-only 分段测量和稳定 stats 字段；它已经证明 event/s 下降主要发生在完整 sink 路径，而不是 ringbuf reader API 本身。
+- 否决 batch limit 256：它只能改变 session loop 的批处理粒度，不能稳定提升 JSON/handler 持续消费速率；下一阶段应继续拆分 `TraceEventRouter`、state update、handler/effects 和 JSON writer 的 sink 时间，并以 reserve failure 联合验收。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
