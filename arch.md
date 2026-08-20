@@ -10153,3 +10153,51 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 以 `none` 模式作为 Go consumer 基线，增加原始 envelope/record 数与 reader 处理数的可测计数，区分“producer reserve 失败”和“reader/state 路径处理不足”。
 - 结合 `ringbuf.Record.Remaining`、reader 等待轮和 BPF reservation 结果做小范围 A/B；任何批量读取或 record 结构改变都必须先补事件顺序、生命周期和丢失计数测试，再通过真实 verifier 和 semantic/perf。
 - 不再仅凭端到端 event/s 推断热路径瓶颈；后续报告同时给出 trace window、端到端生命周期时间、事件数量和 runtime error counters。
+
+### 14.251 增加 Ringbuf producer/reader 对账诊断（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：`TraceEventReader` 是唯一 Ringbuf 消费边界，`TraceRunFinalizer` 统一输出 stats；BPF `stats_map` 目前只有 reserve/copy/pending 等失败计数，没有 Go 端实际读取量和 backlog 观察值。
+- Problem：高压结果只能看到 `ringbuf_reserve_fail`，无法证明丢失发生在 BPF reservation、Go reader、ABI 解码还是 router。Cilium `ringbuf.Record.Remaining` 也没有被保留，无法观察 reader 读到 record 时的 backlog 峰值。
+- Goal：增加只读 reader 诊断计数：`records_read`、`records_decoded`、`records_invalid`、`records_routed` 和 `max_remaining_bytes`，让 `none`/JSON capture 可以对账 producer drop 与 Go consumer 实际处理量。
+- Non-goals：不改变 reader 循环、deadline、BPF ABI、Ringbuf reservation、事件顺序、默认文本输出或 normal semantic 契约；不引入第二消费者、锁、定时器或新的 BPF submit 路径。
+- Constraints：计数必须位于 reader 边界，通过显式窄 capability 传给 finalizer；`Remaining` 只作为观测到的最大值，不宣称为精确瞬时 backlog。
+
+#### 方案比较
+
+1. 给 `bpf_stats` 增加成功提交计数，并统一替换所有 emitter 的 submit 调用：producer 侧信息最完整，但要扩大 BPF ABI 和大量热路径修改，暂缓。
+2. 只在 Go reader 统计成功读取、解码、无效 record、路由和 `Remaining` 峰值：改动局部、没有 BPF 热路径成本，选择。
+3. 只统计 reader record 总数：实现更小，但无法区分 ABI 无效 record 与有效事件处理，拒绝。
+
+#### 实现与失败优先测试
+
+- `TraceEventReader` 在成功 `ReadInto` 后递增 `records_read` 并更新 `max_remaining_bytes`；decoder 成功递增 `records_decoded`，失败递增 `records_invalid`，存在 sink 并调用后递增 `records_routed`。Drain 路径复用同一计数边界。
+- 新增 `traceEventReaderStatsReader` 窄接口；session composition 将同一个 reader capability 注入 finalizer，避免复制状态或增加共享锁。finalizer 的 JSON stats 同时覆盖正常 JSON 输出和 `none` 的 stderr 诊断输出。
+- 失败优先测试先引用未实现的 stats port、JSON 字段和 finalizer wiring，按预期编译失败；实现后增加 read/decode/invalid/route/backlog、drain、source-policy、session composition 和 Python capture accounting 测试。
+- capture oracle 要求 `records_read >= records_decoded >= records_routed`，并要求 `records_invalid == records_read - records_decoded`。这只约束 Go reader 自身的账，不把预期 workload 数硬编码进通用 suite。
+
+#### 验证与实测
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...` 通过；Python 单测 discovery 为 `47` 项通过。
+- `sudo -n ./build.sh` 通过，重新生成对象并通过真实 clang/verifier；本阶段没有 BPF 源码或 ABI 生成物差异。
+- `ebpf-semantic` 通过：主事件 `197`，enter/exit `100/97`，lifecycle `6`；reserve/copy、pending、orphan、mismatch、lifecycle-map 和 stale counters 均为 `0`。
+- `ebpf-perf` 通过：Go decode `356.50 ns/op`、普通 JSON writer `489.40 ns/op`、decoded JSON `598.30 ns/op`，均为 `0 alloc/op`；decoded payload `869.00 ns/op`、`16 B/op`、`1 alloc/op`。事件窗口 exit rate 为 scalar `23814.78/s`、IO `16310.27/s`、lifecycle `85.44/s`、threads `13598.12/s`，runtime counters 均为 `0`。
+- native small 首次完整运行出现 `chdir.gen.test` 一次性输出截断（`22/23`）；随后独立 `chdir` 重跑通过，完整 suite 重跑为 `23/23 PASS`。当前没有可重复的兼容回归，但超长输出测试仍保留环境负载敏感性。
+- 最新同机高压 capture 使用 16 线程、每线程 100000 次 `getpid`，两种模式都对同一约 `3,200,035` 次 producer reservation attempt 完成对账：
+  - `none`：`ringbuf_reserve_fail=1,861,387`，`records_read=1,338,648`，`records_decoded=1,338,648`，`records_invalid=0`，`records_routed=1,338,648`，`max_remaining_bytes=67,108,736`。
+  - JSON：`ringbuf_reserve_fail=2,596,456`，`records_read=603,579`，`records_decoded=603,579`，`records_invalid=0`，`records_routed=603,579`，`max_remaining_bytes=67,108,736`。
+  - 两者分别满足 `1,861,387 + 1,338,648 = 3,200,035` 和 `2,596,456 + 603,579 = 3,200,035`；Go 没有额外的 invalid/decode drop，JSON 只改变了 reader 消费速度和 producer drop 比例。
+
+#### 决策与 Review
+
+- 保留 reader 对账诊断。它没有提高 event/s，但把“事件丢在哪一层”从猜测变成可复核证据：当前主要丢失发生在 BPF `ringbuf_reserve`，不是 Go decoder 或 router。
+- `max_remaining_bytes` 达到 `67,108,736`，对应当前 64 MiB Ringbuf 容量的上限量级，说明高压期间 Ringbuf 经常被填满；`none` 仍有约 `186` 万次 reserve failure，因此去掉 JSON 不能单独解决 producer/consumer 速率不匹配。
+- 之前观察到的 event/s 下降现在可以拆成两部分：短 workload 的端到端指标仍受 setup/cleanup 分母影响；长高压 workload 的真实丢失则来自 BPF producer 与单 Go consumer 的 Ringbuf 竞争。前者已通过 `trace_sec` 口径纠正，后者尚未修复。
+- 本阶段没有引入 ptrace、procfs、process_vm、第二事件消费者、外部 mutex 或定时器；纯 eBPF 和单消费者约束保持不变。
+
+#### 下一阶段入口
+
+- 使用 `none` 的 reader 对账作为基线，评估 Ringbuf 容量、record 大小、payload capture 和 reader 批量消费的独立影响；先确保每个实验仍能闭合 `reserve_fail + records_read` 的 producer 对账。
+- 优先检查固定 record 与 payload event 的 reservation 字节数、BPF producer 执行时间和单消费者每 record 的最小处理成本，不再用 JSON 输出或端到端 event/s 单独推断根因。
+- 任何 Ringbuf/record 结构改动都必须先补事件顺序、生命周期、丢失计数和 verifier 测试，再做同一 fixture 的交替 A/B。
