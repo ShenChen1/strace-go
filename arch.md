@@ -10266,3 +10266,38 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - `Record.Remaining` 只用于决定是否继续本轮读取，不被解释为精确 backlog 计数；reader 自身仍是唯一事件消费和解码入口，事件顺序、payload ownership、pending 配对和 lifecycle 处理边界没有变化。
 - 本阶段的真实问题结论是：此前端到端 event/s 的大幅下降已经通过指标拆分定位为 setup/cleanup 固定成本；高压 trace-window 的实际 drop 仍发生在 BPF `ringbuf_reserve`，128 MiB 和 batch=64 只能缓解部分 burst，尚未彻底解决。
 - 当前工作树仍保持纯 eBPF、单 Go 消费者、无 ptrace/procfs/process_vm；下一阶段应优先做 producer reservation attempt、record size、payload capture 和 consumer processing 的独立实验，并继续以 `trace_sec`、事件数和 runtime counters 联合判定。
+
+### 14.254 否决删除 event header `seq` 字段的瘦身实验（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：当前 event v2 header 为 40 字节，字段包含 version、event type、flags、header length、record size、pid、tid、syscall id、`seq` 和 timestamp；BPF initializer 始终将 `seq` 写为 0，Go decoder 也不读取它。
+- Problem：删除未使用字段理论上可以把 enter/exit 每对记录从 `112 + 120 = 232` 字节降到 `104 + 112 = 216` 字节，增加 Ringbuf 可容纳的事件数；但 header 是所有 direct emitter 的共同 ABI，任何收益必须同时在 `none` producer/reader 基线和 JSON 输出路径上成立。
+- Goal：先用失败优先 source gate 锁定 32 字节 header，再同步 BPF/Go wire layout，通过真实 verifier、semantic、capture 和 perf A/B 判断是否保留。
+- Non-goals：不同时删除 version/header_len/size，不重做完整 v3 header，不改变 enter/exit/lifecycle body、payload TLV、pending 状态或用户态事件顺序。
+- Constraints：A/B 必须使用同一 128 MiB Ringbuf、同一 batch=64、同一高压 fixture；`records_read + reserve_fail` 必须闭合；没有稳定收益时撤回 ABI 实验，不保留仅“看起来更紧凑”的布局。
+
+#### 方案比较
+
+1. 保留 40 字节 header：语义和现有 wire 最稳定，但继续保留永远为零的 `seq` 空间，作为基线。
+2. 只删除 `seq`：header 变为 32 字节，body 和所有 payload offset 仍由既有常量驱动，改动局部，作为本阶段实验。
+3. 重做完整紧凑 header：可以进一步删除固定 version/header_len/size 并压缩 meta，但会同时改变 decoder 校验、生命周期和所有 sample builder，作为后续独立设计，不与本实验捆绑。
+
+#### 实现与失败优先测试
+
+- 新增 source gate，要求 `EVENT_V2_HEADER_LEN 32` 且不再出现 `u64 seq;`；修改前 focused test 按预期失败。
+- 实验实现删除 BPF `event_v2_header.seq` 和两个 initializer 的赋值，将 Go decoder timestamp 偏移从 `[32:40]` 改为 `[24:32]`，同步更新 Go decoder tests 和 pipeline benchmark sample builder。
+- 实验代码通过 `go test ./...`、clang、对象生成和真实 verifier；`ebpf-semantic` 仍为主事件 `197`、enter/exit `100/97`、生命周期 `6`，所有正常 runtime error counters 为 `0`。
+
+#### A/B 结果与决策
+
+- 使用干净 `1e0145b` worktree 构建的 40 字节基线，两轮 `none` 分别读取 `2,909,072/2,190,677` 条，reserve failure 为 `290,964/1,009,358`；JSON 分别读取 `1,144,115/1,154,303` 条，reserve failure 为 `2,055,920/2,045,732`。
+- 32 字节实验三轮 `none` 分别读取 `1,978,681/2,147,014/1,794,356` 条，reserve failure 为 `1,221,354/1,053,021/1,405,680`；JSON 分别读取 `1,206,923/1,201,686/1,207,614` 条，reserve failure 为 `1,993,112/1,998,349/1,992,421`。
+- 所有轮次都满足约 `3,200,035` 次 reservation attempt 对账，且 `records_invalid=0`。32 字节 header 在 JSON 路径有小幅事件数改善，但 `none` 路径的 records 明显少于 40 字节基线，不能证明 producer/reader 热路径的普遍收益；高压结果也没有显示稳定的端到端改善。
+- 决策：撤回 32 字节 header 实验，恢复 40 字节 header 和 `seq` 字段。这个结果说明 record 字节数不是当前唯一瓶颈，减少 wire bytes 可能被 BPF 编译布局、dynptr 写入和单消费者调度成本抵消；不再仅凭结构体字段“未使用”继续压缩 ABI。
+
+#### Review
+
+- 最终源码没有保留实验性 ABI、decoder 偏移或 source gate；工作树只保留本节架构否决记录，不产生 BPF/Go 运行行为变化。
+- 这项实验补充了此前 plain reservation、动态 size-class 和 Ringbuf 容量实验的边界：Ringbuf 压力仍然存在，但固定事件 API、record 字节数和容量都不能单独解释或修复高压 drop。
+- 本阶段没有引入 ptrace、procfs、process_vm、第二消费者、外部 mutex 或定时器；后续应转向按 syscall family 分层的 producer 指令成本、pending map 成本和 payload 深拷贝成本测量，而不是继续做无证据的全局 ABI 微调。
