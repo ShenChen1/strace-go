@@ -91,3 +91,24 @@ func TestLoadBPFHandlerCollectionsParallelReturnsCompletedLoadsOnFailure(t *test
 		t.Fatalf("completed collection close calls = %d, want 1", genericCloser.calls)
 	}
 }
+
+func TestBPFLoadedHandlerCollectionsTransferKeepsResourceNames(t *testing.T) {
+	loaded := &bpfLoadedHandlerCollections{
+		collections: map[bpfHandlerFamily]*bpfLoadedCollection{
+			bpfHandlerEnterGenericFamily: {closer: &countingBPFCloser{}},
+			bpfHandlerExitFamily:         {closer: &countingBPFCloser{}},
+		},
+		loadOrder: []bpfHandlerFamily{bpfHandlerEnterGenericFamily, bpfHandlerExitFamily},
+	}
+	bundle := &bpfObjectBundle{}
+	loaded.transferTo(bundle)
+	if got, want := len(bundle.handlerResources.resources), 2; got != want {
+		t.Fatalf("transferred resources = %d, want %d", got, want)
+	}
+	if got, want := bundle.handlerResources.resources[0].Name, "bpf_handler_0"; got != want {
+		t.Fatalf("first handler resource name = %q, want %q", got, want)
+	}
+	if got, want := bundle.handlerResources.resources[1].Name, "bpf_handler_1"; got != want {
+		t.Fatalf("second handler resource name = %q, want %q", got, want)
+	}
+}

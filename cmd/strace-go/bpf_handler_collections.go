@@ -31,6 +31,7 @@ func (h *bpfLoadedHandlerCollections) transferTo(bundle *bpfObjectBundle) {
 	if h == nil || bundle == nil {
 		return
 	}
+	resourceIndex := 0
 	for index := len(h.loadOrder) - 1; index >= 0; index-- {
 		family := h.loadOrder[index]
 		collection := h.collections[family]
@@ -38,7 +39,8 @@ func (h *bpfLoadedHandlerCollections) transferTo(bundle *bpfObjectBundle) {
 			continue
 		}
 		if closer := collection.transferCloser(); closer != nil {
-			bundle.handlerClosers = append(bundle.handlerClosers, closer)
+			bundle.handlerResources.add(fmt.Sprintf("bpf_handler_%d", resourceIndex), closer)
+			resourceIndex++
 		}
 	}
 }

@@ -11,10 +11,10 @@ import (
 )
 
 type bpfObjectBundle struct {
-	core           bpfCoreResourceProvider
-	programs       bpfProgramProvider
-	handlerClosers []io.Closer
-	extraClosers   []io.Closer
+	core             bpfCoreResourceProvider
+	programs         bpfProgramProvider
+	handlerResources bpfResourceOwner
+	extraResources   bpfResourceOwner
 }
 
 // bpfCoreResourceProvider is the only core capability exposed after native
@@ -195,12 +195,13 @@ func (l *nativeBPFObjectLoader) bind(loaded *bpfLoadedCollectionSet) (*bpfObject
 	if err != nil {
 		return nil, err
 	}
-	extraClosers := collectBPFExtraClosers(core)
-	return &bpfObjectBundle{
-		core:         objects,
-		programs:     newBPFProgramCatalog(objects, programs),
-		extraClosers: extraClosers,
-	}, nil
+	unboundResources := collectBPFExtraClosers(core)
+	bundle := &bpfObjectBundle{
+		core:     objects,
+		programs: newBPFProgramCatalog(objects, programs),
+	}
+	bundle.extraResources.addGroup("bpf_extra", unboundResources)
+	return bundle, nil
 }
 
 func assignBPFCollection(objects *bpfObjects, collection *ebpf.Collection) error {
@@ -315,27 +316,12 @@ func (b *bpfObjectBundle) Close() error {
 	if b == nil {
 		return nil
 	}
-	handlerErr := closeBPFExtraResources(b.handlerClosers)
-	b.handlerClosers = nil
+	handlerErr := b.handlerResources.close()
 	var objectErr error
 	if b.core != nil {
 		objectErr = b.core.Close()
 		b.core = nil
 	}
-	extraErr := closeBPFExtraResources(b.extraClosers)
-	b.extraClosers = nil
+	extraErr := b.extraResources.close()
 	return errors.Join(handlerErr, objectErr, extraErr)
-}
-
-func closeBPFExtraResources(resources []io.Closer) error {
-	var closeErr error
-	for index, resource := range resources {
-		if resource == nil {
-			continue
-		}
-		if err := resource.Close(); err != nil {
-			closeErr = errors.Join(closeErr, fmt.Errorf("close extra BPF resource %d: %w", index, err))
-		}
-	}
-	return closeErr
 }

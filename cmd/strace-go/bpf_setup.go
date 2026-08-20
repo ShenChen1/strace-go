@@ -166,17 +166,15 @@ func setupBPFWithConfig(clock traceClock, config traceBPFConfig) (*traceBPFRunti
 		return nil, closeBPFSetupFailure("attach optional BPF programs", err, links, bundle)
 	}
 
-	extraClosers := bundle.extraClosers
-	bundle.extraClosers = nil
-	handlerClosers := bundle.handlerClosers
-	bundle.handlerClosers = nil
+	extraResources := bundle.extraResources.transfer()
+	handlerResources := bundle.handlerResources.transfer()
 	return &traceBPFRuntime{
-		core:           core,
-		programs:       bundle.programs,
-		links:          links,
-		handlerClosers: handlerClosers,
-		extraClosers:   extraClosers,
-		setupTimings:   recorder.Timings(),
+		core:             core,
+		programs:         bundle.programs,
+		links:            links,
+		handlerResources: handlerResources,
+		extraResources:   extraResources,
+		setupTimings:     recorder.Timings(),
 	}, nil
 }
 

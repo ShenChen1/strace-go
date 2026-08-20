@@ -17,12 +17,12 @@ import (
 // traceBPFRuntime owns the loaded collection, all attached links, and the
 // narrow operations needed by bootstrap. Callers never close its internals.
 type traceBPFRuntime struct {
-	core           bpfCoreResourceProvider
-	programs       bpfProgramProvider
-	links          []link.Link
-	handlerClosers []io.Closer
-	extraClosers   []io.Closer
-	setupTimings   []traceBPFSetupTiming
+	core             bpfCoreResourceProvider
+	programs         bpfProgramProvider
+	links            []link.Link
+	handlerResources bpfResourceOwner
+	extraResources   bpfResourceOwner
+	setupTimings     []traceBPFSetupTiming
 }
 
 // traceBPFTargetPort is the smallest BPF capability needed while starting or
@@ -245,27 +245,15 @@ func (r *traceBPFRuntime) closeWithDiagnostics(
 	linkStartNS := cleanupClockNowNS(clock)
 	linkErr := closeTracepointLinksParallelWithDiagnostics(links, clock, observer)
 	recordBPFResourceTiming(observer, "bpf_links", linkStartNS, cleanupClockNowNS(clock))
-	namedResources := make([]traceBPFResource, 0, len(r.handlerClosers)+len(r.extraClosers)+1)
-	for index, closer := range r.handlerClosers {
-		namedResources = append(namedResources, traceBPFResource{
-			Name:   fmt.Sprintf("bpf_handler_%d", index),
-			Closer: closer,
-		})
-	}
-	r.handlerClosers = nil
+	namedResources := make([]traceBPFResource, 0, len(r.handlerResources.resources)+len(r.extraResources.resources)+1)
+	namedResources = append(namedResources, r.handlerResources.take()...)
 	if r.core != nil {
 		namedResources = append(namedResources, traceBPFResource{
 			Name:   "bpf_core_objects",
 			Closer: r.core,
 		})
 	}
-	for index, closer := range r.extraClosers {
-		namedResources = append(namedResources, traceBPFResource{
-			Name:   fmt.Sprintf("bpf_extra_%d", index),
-			Closer: closer,
-		})
-	}
-	r.extraClosers = nil
+	namedResources = append(namedResources, r.extraResources.take()...)
 	r.core = nil
 	return errors.Join(linkErr, closeNamedBPFResourcesParallel(namedResources, clock, observer))
 }

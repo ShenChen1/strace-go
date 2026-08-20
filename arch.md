@@ -9844,3 +9844,41 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - generated `*bpfObjects` 现在只出现在 generated adapter/catalog 和 native collection bind 侧；runtime、setup、attach、route、config、filter、read ports 均通过 capability 边界访问资源。
 - core Close owner 没有新增副本或第二回收路径；接口只在 setup/cleanup/测试边界使用，不进入 BPF handler、Ringbuf consumer 或 Go event decode 热路径。
 - 保留边界：capability 解决的是 generated binding 与资源 owner 耦合，不改变 map ABI、BTF 参数语义、capture policy 或 cleanup 的内核固定尾延迟；后续可在该边界上继续优化 teardown，而无需重新暴露 generated object。
+
+### 14.242 统一 BPF resource owner 与 bundle/runtime transfer（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：core capability 已经在 bundle/runtime 间转移，但 handler collection 和未绑定的 extra resource 仍由两个 owner 维护裸 `[]io.Closer`，runtime 再重复包装成命名资源。
+- Problem：资源命名、转移、清空和重复 Close 逻辑分散；新增资源容易漏注册，setup failure 与正常 teardown 的诊断名称也可能不一致。
+- Goal：引入 typed `bpfResourceOwner`，统一 named resource 的追加、group 命名、transfer、清空和并行 Close；bundle/runtime 只持有 owner，不再复制 closer slice 管理代码。
+- Non-goals：不改变 core/handler/extra 生命周期顺序、link cleanup、事件热路径、并发模型、BPF ABI 或 pure-eBPF/no-ptrace/no-procfs 约束。
+- Constraints：transfer 后源 owner 必须为空；Close 幂等；保留 `bpf_handler_N`/`bpf_extra_N` 诊断名称；owner 只在 setup/teardown 边界修改，不加 mutex。
+
+#### 方案比较
+
+1. 继续复制两套裸 closer slice：改动最小，但资源 owner 漂移风险继续存在，拒绝。
+2. 直接复用 session `traceCleanupPlan`：它是逆序串行 launch cleanup，不适合 BPF resource 的并行关闭和现有 phase diagnostics，拒绝。
+3. 新增局部 `bpfResourceOwner`，复用 `closeNamedBPFResourcesParallel`，bundle/runtime 各自持有明确 owner：边界小且可测试，选择。
+
+#### 实现
+
+- 新增 `bpfResourceOwner`，提供 `add`、`addGroup`、`transfer`、`take` 和幂等 `close`；命名资源直接复用既有并行 close/error aggregation 原语。
+- `bpfObjectBundle` 改为持有 `handlerResources`/`extraResources`，native bind 和 handler transfer 只向 owner 注册；bundle failure cleanup 保持 handler -> core -> extra 的阶段顺序。
+- `traceBPFRuntime` 接收已 transfer 的两个 owner，cleanup 时 snapshot named resources，再与 core resource 一起交给现有 diagnostics closer；不再重复生成 handler/extra 名称。
+- 保留 handler resource 的原有 `bpf_handler_0...` 顺序，并通过回归测试固定 transfer 后 source owner 为空和重复 Close 只执行一次。
+
+#### 测试与验收
+
+- 失败优先：resource owner API、命名 transfer、幂等 Close 和 raw closer slice source gate 在实现前按预期失败；实现后 focused owner/pipeline tests 通过。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase14242 ./cmd/strace-go`、Python 44 项单测和 `git diff --check` 全部通过。
+- 真实 `ebpf-semantic` 通过：主事件 197，enter/exit `100/97`，lifecycle 6，reserve/copy/pending/orphan/mismatch/lifecycle-map error counters 全为 0。
+- 真实 `ebpf-perf` 通过：decode `351.70 ns/op`、普通 JSON writer `485.60 ns/op` 且均为 0 alloc；scalar/io/lifecycle/threads trace exit rate 为 `24063.90/16271.28/82.96/14333.86`。
+- 本轮端到端 exit rate 为 `6184.25/3957.21/29.12/3499.01`；BPF link cleanup 约 `0.163~0.185s`，与既有基线同量级，未观察到 owner 重构导致的事件或 teardown 回归。
+- 原生 `small`：23 PASS、0 FAIL；`more`：80 PASS、3 个既定 XFAIL、0 FAIL/XPASS。
+
+#### Review
+
+- bundle/runtime 不再维护裸 `handlerClosers/extraClosers`；资源命名和 transfer 只有 owner 一份，core 仍由单独 capability owner 管理，没有新增回收副本。
+- owner 不进入 syscall event path，不增加 goroutine、锁或定时器；正常 runtime 仍使用既有并行 named-resource close，纯 eBPF 边界保持不变。
+- 保留边界：本阶段统一资源生命周期结构但没有减少内核 link detach 固定成本；后续 cleanup 性能优化应继续基于 phase timing 和真实 workload 评估。
