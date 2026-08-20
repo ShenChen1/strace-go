@@ -8,6 +8,39 @@ import (
 	"strace-go/pkg/handler"
 )
 
+const (
+	jsonFieldType            = `"type":`
+	jsonFieldEventVersion    = `"event_version":`
+	jsonFieldEventType       = `"event_type":`
+	jsonFieldEventTypeID     = `"event_type_id":`
+	jsonFieldEventFlags      = `"event_flags":`
+	jsonFieldPID             = `"pid":`
+	jsonFieldTID             = `"tid":`
+	jsonFieldSysID           = `"sys_id":`
+	jsonFieldSyscall         = `"syscall":`
+	jsonFieldArgs            = `"args":`
+	jsonFieldArgText         = `"arg_text":`
+	jsonFieldRet             = `"ret":`
+	jsonFieldReturnText      = `"return_text":`
+	jsonFieldFailed          = `"failed":`
+	jsonFieldErrno           = `"errno":`
+	jsonFieldDurationNS      = `"duration_ns":`
+	jsonFieldEnterTimeNS     = `"enter_time_ns":`
+	jsonFieldStackID         = `"stack_id":`
+	jsonFieldPayloadSections = `"payload_sections":`
+	jsonFieldProbeRetEnter   = `"probe_ret_enter":`
+	jsonFieldProbeRetExit    = `"probe_ret_exit":`
+	jsonFieldPairedEnter     = `"paired_enter":`
+	jsonFieldKind            = `"kind":`
+	jsonFieldDirection       = `"direction":`
+	jsonFieldArgIndex        = `"arg_index":`
+	jsonFieldUserPtr         = `"user_ptr":`
+	jsonFieldUserLen         = `"user_len":`
+	jsonFieldCopiedLen       = `"copied_len":`
+	jsonFieldProbeRet        = `"probe_ret":`
+	jsonFieldDataBase64      = `"data_base64":`
+)
+
 type jsonLineBuilder struct {
 	data  []byte
 	first bool
@@ -18,42 +51,40 @@ func (b *jsonLineBuilder) beginObject() {
 	b.first = true
 }
 
-func (b *jsonLineBuilder) beginField(name string) {
+func (b *jsonLineBuilder) beginFieldToken(token string) {
 	if !b.first {
 		b.data = append(b.data, ',')
 	}
 	b.first = false
-	b.data = append(b.data, '"')
-	b.data = append(b.data, name...)
-	b.data = append(b.data, '"', ':')
+	b.data = append(b.data, token...)
 }
 
-func (b *jsonLineBuilder) stringField(name, value string, omit bool) {
+func (b *jsonLineBuilder) stringField(token, value string, omit bool) {
 	if omit && value == "" {
 		return
 	}
-	b.beginField(name)
+	b.beginFieldToken(token)
 	b.data = appendJSONString(b.data, value)
 }
 
-func (b *jsonLineBuilder) uintField(name string, value uint64, omit bool) {
+func (b *jsonLineBuilder) uintField(token string, value uint64, omit bool) {
 	if omit && value == 0 {
 		return
 	}
-	b.beginField(name)
+	b.beginFieldToken(token)
 	b.data = strconv.AppendUint(b.data, value, 10)
 }
 
-func (b *jsonLineBuilder) intField(name string, value int64) {
-	b.beginField(name)
+func (b *jsonLineBuilder) intField(token string, value int64) {
+	b.beginFieldToken(token)
 	b.data = strconv.AppendInt(b.data, value, 10)
 }
 
-func (b *jsonLineBuilder) boolField(name string, value, omit bool) {
+func (b *jsonLineBuilder) boolField(token string, value, omit bool) {
 	if omit && !value {
 		return
 	}
-	b.beginField(name)
+	b.beginFieldToken(token)
 	if value {
 		b.data = append(b.data, "true"...)
 		return
@@ -71,8 +102,8 @@ func (b *jsonLineBuilder) endLine() []byte {
 	return b.data
 }
 
-func (b *jsonLineBuilder) uint64ArrayField(name string, values [6]uint64) {
-	b.beginField(name)
+func (b *jsonLineBuilder) uint64ArrayField(token string, values [6]uint64) {
+	b.beginFieldToken(token)
 	b.data = append(b.data, '[')
 	for index, value := range values {
 		if index > 0 {
@@ -83,19 +114,19 @@ func (b *jsonLineBuilder) uint64ArrayField(name string, values [6]uint64) {
 	b.data = append(b.data, ']')
 }
 
-func (b *jsonLineBuilder) stringArrayField(name string, values []string) {
+func (b *jsonLineBuilder) stringArrayField(token string, values []string) {
 	if len(values) == 0 {
 		return
 	}
-	b.beginField(name)
+	b.beginFieldToken(token)
 	b.data = appendJSONStringArray(b.data, values)
 }
 
-func (b *jsonLineBuilder) payloadSectionsField(name string, values []jsonPayloadSection) {
+func (b *jsonLineBuilder) payloadSectionsField(token string, values []jsonPayloadSection) {
 	if len(values) == 0 {
 		return
 	}
-	b.beginField(name)
+	b.beginFieldToken(token)
 	b.data = appendJSONPayloadSections(b.data, values)
 }
 
@@ -105,47 +136,47 @@ func appendJSONSyscallEvent(dst []byte, event *jsonSyscallEvent) []byte {
 	}
 	builder := jsonLineBuilder{data: dst}
 	builder.beginObject()
-	builder.stringField("type", event.Type, false)
-	builder.uintField("event_version", uint64(event.EventVersion), true)
-	builder.stringField("event_type", event.EventType, false)
-	builder.uintField("event_type_id", uint64(event.EventTypeID), true)
-	builder.uintField("event_flags", uint64(event.EventFlags), true)
-	builder.uintField("pid", uint64(event.Pid), false)
-	builder.uintField("tid", uint64(event.Tid), false)
-	builder.uintField("sys_id", uint64(event.SysID), false)
-	builder.stringField("syscall", event.Syscall, false)
-	builder.uint64ArrayField("args", event.Args)
-	builder.stringArrayField("arg_text", event.ArgText)
-	builder.intField("ret", event.Ret)
+	builder.stringField(jsonFieldType, event.Type, false)
+	builder.uintField(jsonFieldEventVersion, uint64(event.EventVersion), true)
+	builder.stringField(jsonFieldEventType, event.EventType, false)
+	builder.uintField(jsonFieldEventTypeID, uint64(event.EventTypeID), true)
+	builder.uintField(jsonFieldEventFlags, uint64(event.EventFlags), true)
+	builder.uintField(jsonFieldPID, uint64(event.Pid), false)
+	builder.uintField(jsonFieldTID, uint64(event.Tid), false)
+	builder.uintField(jsonFieldSysID, uint64(event.SysID), false)
+	builder.stringField(jsonFieldSyscall, event.Syscall, false)
+	builder.uint64ArrayField(jsonFieldArgs, event.Args)
+	builder.stringArrayField(jsonFieldArgText, event.ArgText)
+	builder.intField(jsonFieldRet, event.Ret)
 	builder.returnTextField(event)
-	builder.boolField("failed", event.Failed, false)
-	builder.intFieldIfNonZero("errno", int64(event.Errno))
-	builder.uintField("duration_ns", event.DurationNS, false)
-	builder.uintField("enter_time_ns", event.EnterTimeNS, false)
-	builder.intField("stack_id", int64(event.StackID))
-	builder.payloadSectionsField("payload_sections", event.PayloadSections)
-	builder.intField("probe_ret_enter", int64(event.ProbeRetEnter))
-	builder.intField("probe_ret_exit", int64(event.ProbeRetExit))
-	builder.boolField("paired_enter", event.PairedEnter, true)
+	builder.boolField(jsonFieldFailed, event.Failed, false)
+	builder.intFieldIfNonZero(jsonFieldErrno, int64(event.Errno))
+	builder.uintField(jsonFieldDurationNS, event.DurationNS, false)
+	builder.uintField(jsonFieldEnterTimeNS, event.EnterTimeNS, false)
+	builder.intField(jsonFieldStackID, int64(event.StackID))
+	builder.payloadSectionsField(jsonFieldPayloadSections, event.PayloadSections)
+	builder.intField(jsonFieldProbeRetEnter, int64(event.ProbeRetEnter))
+	builder.intField(jsonFieldProbeRetExit, int64(event.ProbeRetExit))
+	builder.boolField(jsonFieldPairedEnter, event.PairedEnter, true)
 	return builder.endLine()
 }
 
-func (b *jsonLineBuilder) intFieldIfNonZero(name string, value int64) {
+func (b *jsonLineBuilder) intFieldIfNonZero(token string, value int64) {
 	if value == 0 {
 		return
 	}
-	b.intField(name, value)
+	b.intField(token, value)
 }
 
 func (b *jsonLineBuilder) returnTextField(event *jsonSyscallEvent) {
 	if event.ReturnText != "" {
-		b.stringField("return_text", event.ReturnText, false)
+		b.stringField(jsonFieldReturnText, event.ReturnText, false)
 		return
 	}
 	if !event.hasReturnText {
 		return
 	}
-	b.beginField("return_text")
+	b.beginFieldToken(jsonFieldReturnText)
 	b.data = appendJSONSyscallReturn(
 		b.data,
 		event.returnTextName,
@@ -217,23 +248,23 @@ func appendJSONPayloadSections(dst []byte, values []jsonPayloadSection) []byte {
 func appendJSONPayloadSection(dst []byte, value jsonPayloadSection) []byte {
 	builder := jsonLineBuilder{data: dst}
 	builder.beginObject()
-	builder.stringField("kind", value.Kind, false)
-	builder.stringField("direction", value.Direction, false)
-	builder.intField("arg_index", int64(value.ArgIndex))
-	builder.uintField("user_ptr", value.UserPtr, true)
-	builder.uintField("user_len", uint64(value.UserLen), true)
-	builder.uintField("copied_len", uint64(value.CopiedLen), false)
-	builder.intField("probe_ret", int64(value.ProbeRet))
-	builder.base64Field("data_base64", value.DataBase64, value.rawData)
+	builder.stringField(jsonFieldKind, value.Kind, false)
+	builder.stringField(jsonFieldDirection, value.Direction, false)
+	builder.intField(jsonFieldArgIndex, int64(value.ArgIndex))
+	builder.uintField(jsonFieldUserPtr, value.UserPtr, true)
+	builder.uintField(jsonFieldUserLen, uint64(value.UserLen), true)
+	builder.uintField(jsonFieldCopiedLen, uint64(value.CopiedLen), false)
+	builder.intField(jsonFieldProbeRet, int64(value.ProbeRet))
+	builder.base64Field(jsonFieldDataBase64, value.DataBase64, value.rawData)
 	builder.endObject()
 	return builder.data
 }
 
-func (b *jsonLineBuilder) base64Field(name, encoded string, raw []byte) {
+func (b *jsonLineBuilder) base64Field(token, encoded string, raw []byte) {
 	if len(raw) == 0 && encoded == "" {
 		return
 	}
-	b.beginField(name)
+	b.beginFieldToken(token)
 	b.data = append(b.data, '"')
 	if raw != nil {
 		b.data = base64.StdEncoding.AppendEncode(b.data, raw)

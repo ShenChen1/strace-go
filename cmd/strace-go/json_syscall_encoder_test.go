@@ -10,6 +10,24 @@ import (
 	"strace-go/pkg/handler"
 )
 
+func TestJSONLineBuilderFieldTokenBoundaries(t *testing.T) {
+	var builder jsonLineBuilder
+	builder.beginObject()
+	builder.beginFieldToken(`"type":`)
+	builder.data = append(builder.data, `"syscall"`...)
+	builder.beginFieldToken(`"pid":`)
+	builder.data = append(builder.data, '7')
+	if got := string(builder.endLine()); got != "{\"type\":\"syscall\",\"pid\":7}\n" {
+		t.Fatalf("token fields = %q, want %q", got, "{\"type\":\"syscall\",\"pid\":7}\n")
+	}
+
+	var empty jsonLineBuilder
+	empty.beginObject()
+	if got := string(empty.endLine()); got != "{}\n" {
+		t.Fatalf("empty token object = %q, want %q", got, "{}\n")
+	}
+}
+
 func TestAppendJSONSyscallEventMatchesStandardEncoding(t *testing.T) {
 	event := jsonSyscallEvent{
 		Type:         "syscall",

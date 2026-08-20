@@ -11130,3 +11130,45 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留 selective reset。它清除了 event-owned payload、metadata 和 FD view，同时不重复清空 session-owned ports；未修改 `handler.Context` ABI，也没有跨 session 复用 recycler。
 - 当前主要性能证据只证明 context 微基准方向改善，JSON 高压背压仍待后续 output field 优化和重复 capture 证明；不把本阶段视为完整性能目标完成。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.276 将固定 JSON 字段前缀改为预编码 token（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.275 后 `JSONDecodedEventWriter` 基线约为 `304.6-311.1 ns/op、0 B/op、0 allocs/op`；CPU profile 中 `beginField` 约占 `15.2%` flat/cumulative 相关样本，`stringField`/`uintField` 累计约占 `29%`，`strconv.AppendUint` 约占 `11.6%`。
+- Problem：每个固定 JSON 字段都先追加逗号、引号，再复制字段名，最后追加引号和冒号；syscall 和 payload object 的字段名在运行期不会变化，却支付了重复的 prefix 拼接成本，进一步缩短单 Go consumer 服务 Ringbuf 的时间预算。
+- Goal：保持 JSON 字段顺序、字段名、`omitempty`、转义、数值和 payload 输出完全不变；将固定字段的完整 `"name":` 前缀作为静态 token 一次追加，减少字段边界操作，并用 profile/benchmark 判断是否值得保留。
+- Non-goals：不改变 JSON schema、event v2 ABI、handler/FD state、payload 所有权、输出策略、BPF producer、Ringbuf 容量或单消费者模型；本阶段不引入 unsafe、反射替代层或第二输出协程。
+- Constraints：token 必须覆盖 syscall event 和 payload section 的全部字段；缺失字段必须由标准编码对照测试发现；动态字符串值仍走现有 JSON 转义，数字仍保持十进制和有符号语义；文件和函数保持现有规模约束。
+
+#### 方案比较
+
+1. 保留 `beginField(name string)`：兼容性和代码改动最小，但每个字段继续执行多次 append 与字段名复制，profile 已确认是固定热点，拒绝。
+2. 为固定字段使用预编码 `"name":` token：字段顺序仍由现有 encoder 明确表达，只减少 prefix 操作；需要集中维护 token 常量并依赖对照测试防止漏字段，选择。
+3. 重新引入标准 `encoding/json` 或生成完整对象 encoder：正确性由库保证，但会恢复反射/对象构造成本，与前几阶段消除分配和反射的目标冲突，拒绝。
+
+#### 实现与失败优先测试
+
+- 先增加 `jsonLineBuilder` 预编码 token 的测试，验证首字段、后续字段和空对象的逗号边界；测试先引用尚未存在的 token API，确认失败后再实现。
+- 将 syscall/payload encoder 的固定字段全部切换到 token API，保留输出字段顺序；现有标准 `json.Marshal` 对照测试作为 schema oracle，并新增 token 覆盖测试。
+- 运行 focused benchmark 和 CPU profile；只有 `ns/op` 或 profile 有稳定方向性收益且分配仍为零，才进入 semantic、capture/perf 和 native smoke 门禁。
+
+#### Review 入口
+
+- 逐项核对 `jsonSyscallEvent` 和 `jsonPayloadSection` 的 JSON tag 与 token 常量，不能因手工 token 漏掉 `return_text`、`payload_sections` 或 probe 字段。
+- 检查静态 token 不接受外部输入，动态值仍经过 `appendJSONString`；检查 `omitempty` 判断发生在写 token 之前，避免输出空字段。
+- 如果 token 化只改善微基准而高压 capture 无方向性改善，保留正确性收益但停止继续扩大手工 encoder，转向数值编码或 handler service time 的独立实验。
+
+#### 验证与实测
+
+- 失败优先 token 边界测试先因 `beginFieldToken` 不存在而编译失败；实现后首字段、后续字段、空对象和完整 syscall/payload direct-vs-standard JSON 对照均通过。
+- focused benchmark 五轮：`JSONEventWriter` `219.6-220.7 ns/op`，`JSONDecodedEventWriter` `285.9-289.6 ns/op`，`JSONDecodedPayloadEventWriter` `403.5-413.0 ns/op`，均为 `0 B/op、0 allocs/op`；`ebpf-perf` 当前报告为 `221.10/291.90/412.50 ns/op`。
+- CPU profile 中固定前缀复制仍是可见成本，但原 `beginField` 路径已替换为 token path；相对 14.275 的 `304.6-311.1 ns/op`，decoded writer 有稳定约 6% 方向性改善，不把合成 benchmark 直接等同于 event/s。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、`ebpf-semantic` 和 `ebpf-perf` 均通过；semantic 主事件 `197`，enter/exit `100/97`，lifecycle `6`，运行期错误计数为 `0`；native `small` `23/23`。
+- 本轮高压 capture：reader `3,200,035/0`、none `2,313,318/886,717`、handler `1,596,849/1,603,186`、JSON `1,282,451/1,917,584`，格式为 `records_read/ringbuf_reserve_fail`；JSON `syscall_events=1,251,947`、`records_invalid=0`。相对上一轮 JSON `1,223,228/1,976,807` 有方向性改善，但仍有约 `1.92M` 次 reservation failure，且本轮 JSON 出现 `orphan_exit=1`、`pending_stale=7`，不宣称高压无丢失。
+
+#### 决策与 Review
+
+- 保留固定字段 token。token 覆盖 syscall/payload encoder 的全部固定 JSON 字段，`omitempty` 仍在写 token 前判断，动态值转义和标准 JSON 对照测试保持不变。
+- 这是稳定的局部 CPU 改善，但没有根治完整 handler/JSON consumer 的 Ringbuf 背压；下一步应独立评估数值 append 和 handler service time，不能继续把字段微优化包装成 event/s 已解决。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
