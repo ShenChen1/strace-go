@@ -36,7 +36,7 @@ func newTraceBPFConfig(opts *cli.Options) traceBPFConfig {
 
 // buildRuntimeConfig computes the BPF config map value from the bootstrap
 // snapshot and the syscall filter, returning an error for map update failures.
-func buildRuntimeConfig(config traceBPFConfig, bpfObjs *bpfObjects) (uint32, error) {
+func buildRuntimeConfig(config traceBPFConfig, maps bpfMapProvider) (uint32, error) {
 	var cfgVal uint32
 	if config.captureStack {
 		cfgVal |= bpfConfigCaptureStack
@@ -55,7 +55,7 @@ func buildRuntimeConfig(config traceBPFConfig, bpfObjs *bpfObjects) (uint32, err
 		// fd -> path map, including when the syscall filter excludes fd updates.
 		cfgVal |= bpfConfigFdState
 	}
-	syscallFilterCfg, err := configureSyscallFilter(config.syscallFilter, bpfObjs)
+	syscallFilterCfg, err := configureSyscallFilter(config.syscallFilter, maps)
 	if err != nil {
 		return 0, err
 	}

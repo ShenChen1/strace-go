@@ -42,14 +42,14 @@ type bpfAttachExitReader struct {
 	attachExited *ebpf.Map
 }
 
-func newTraceBPFReadPorts(objs *bpfObjects) traceBPFReadPorts {
-	if objs == nil {
+func newTraceBPFReadPorts(maps bpfMapProvider) traceBPFReadPorts {
+	if maps == nil {
 		return traceBPFReadPorts{}
 	}
 	return traceBPFReadPorts{
-		StackTraces: &bpfStackTraceReader{stackTraces: bpfCoreMap(objs, bpfMapStackTraces)},
-		Stats:       &bpfStatsReader{statsMap: bpfCoreMap(objs, bpfMapStats)},
-		AttachExits: &bpfAttachExitReader{attachExited: bpfCoreMap(objs, bpfMapAttachExited)},
+		StackTraces: &bpfStackTraceReader{stackTraces: maps.coreMap(bpfMapStackTraces)},
+		Stats:       &bpfStatsReader{statsMap: maps.coreMap(bpfMapStats)},
+		AttachExits: &bpfAttachExitReader{attachExited: maps.coreMap(bpfMapAttachExited)},
 	}
 }
 

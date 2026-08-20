@@ -17,7 +17,7 @@ import (
 // traceBPFRuntime owns the loaded collection, all attached links, and the
 // narrow operations needed by bootstrap. Callers never close its internals.
 type traceBPFRuntime struct {
-	objects        *bpfObjects
+	core           bpfCoreResourceProvider
 	programs       bpfProgramProvider
 	links          []link.Link
 	handlerClosers []io.Closer
@@ -36,10 +36,10 @@ type traceBPFTargetPort interface {
 }
 
 func (r *traceBPFRuntime) coreMap(name string) *ebpf.Map {
-	if r == nil {
+	if r == nil || r.core == nil {
 		return nil
 	}
-	return bpfCoreMap(r.objects, name)
+	return r.core.coreMap(name)
 }
 
 type traceRingbufResource interface {
@@ -108,7 +108,7 @@ func (r *traceBPFRuntime) configure(config traceBPFConfig) error {
 	if configMap == nil {
 		return fmt.Errorf("BPF config map is unavailable")
 	}
-	cfgVal, err := buildRuntimeConfig(config, r.objects)
+	cfgVal, err := buildRuntimeConfig(config, r.core)
 	if err != nil {
 		return fmt.Errorf("build runtime config: %w", err)
 	}
@@ -122,7 +122,7 @@ func (r *traceBPFRuntime) readPorts() traceBPFReadPorts {
 	if r == nil {
 		return traceBPFReadPorts{}
 	}
-	return newTraceBPFReadPorts(r.objects)
+	return newTraceBPFReadPorts(r.core)
 }
 
 func (r *traceBPFRuntime) setupStages() []traceBPFSetupTiming {
@@ -179,7 +179,7 @@ func (r *traceBPFRuntime) addFilterPID(pid uint32) error {
 }
 
 func (r *traceBPFRuntime) deleteFilterPID(pid uint32) error {
-	if r == nil || r.objects == nil {
+	if r == nil || r.core == nil {
 		return nil
 	}
 	filterMap := r.coreMap(bpfMapFilter)
@@ -253,10 +253,10 @@ func (r *traceBPFRuntime) closeWithDiagnostics(
 		})
 	}
 	r.handlerClosers = nil
-	if r.objects != nil {
+	if r.core != nil {
 		namedResources = append(namedResources, traceBPFResource{
 			Name:   "bpf_core_objects",
-			Closer: r.objects,
+			Closer: r.core,
 		})
 	}
 	for index, closer := range r.extraClosers {
@@ -266,7 +266,7 @@ func (r *traceBPFRuntime) closeWithDiagnostics(
 		})
 	}
 	r.extraClosers = nil
-	r.objects = nil
+	r.core = nil
 	return errors.Join(linkErr, closeNamedBPFResourcesParallel(namedResources, clock, observer))
 }
 

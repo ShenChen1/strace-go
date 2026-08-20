@@ -21,25 +21,25 @@ type tracepointSpec struct {
 // It keeps runtime loading separate from program-to-tracepoint wiring and
 // makes that wiring declarative and unit-testable.
 type bpfAttacher struct {
-	objs     *bpfObjects
+	core     bpfMapProvider
 	programs bpfProgramProvider
 }
 
-func newBpfAttacher(objs *bpfObjects) *bpfAttacher {
-	return newBpfAttacherWithPrograms(objs, objs)
+func newBpfAttacher(core bpfCoreResourceProvider) *bpfAttacher {
+	return newBpfAttacherWithPrograms(core, core)
 }
 
 func newBpfAttacherWithPrograms(
-	objs *bpfObjects,
+	core bpfMapProvider,
 	programs bpfProgramProvider,
 ) *bpfAttacher {
-	return &bpfAttacher{objs: objs, programs: programs}
+	return &bpfAttacher{core: core, programs: programs}
 }
 
 // attachAll attaches every raw syscall, lifecycle and recvmsg kretprobe program.
 func (a *bpfAttacher) attachAll() ([]link.Link, error) {
-	if a == nil || a.objs == nil {
-		return nil, fmt.Errorf("BPF objects are nil")
+	if a == nil || a.core == nil {
+		return nil, fmt.Errorf("BPF core resources are nil")
 	}
 	if err := a.populateProgArrays(); err != nil {
 		return nil, fmt.Errorf("populate tail call prog arrays: %w", err)
@@ -59,14 +59,14 @@ func (a *bpfAttacher) attachAll() ([]link.Link, error) {
 // attachRequired owns only the raw syscall and lifecycle links. Partial links
 // are returned so the caller can roll them back when a later attach fails.
 func (a *bpfAttacher) attachRequired() ([]link.Link, error) {
-	if a == nil || a.objs == nil {
-		return nil, fmt.Errorf("BPF objects are nil")
+	if a == nil || a.core == nil {
+		return nil, fmt.Errorf("BPF core resources are nil")
 	}
-	links, err := a.attachTracepoints(rawSyscallTracepointSpecs(a.objs))
+	links, err := a.attachTracepoints(rawSyscallTracepointSpecs(a.programs))
 	if err != nil {
 		return links, err
 	}
-	lifecycleLinks, err := a.attachTracepoints(lifecycleTracepointSpecs(a.objs))
+	lifecycleLinks, err := a.attachTracepoints(lifecycleTracepointSpecs(a.programs))
 	if err != nil {
 		return append(links, lifecycleLinks...), err
 	}
@@ -78,8 +78,8 @@ func (a *bpfAttacher) attachOptionalRecvmsg() (link.Link, error) {
 }
 
 func (a *bpfAttacher) attachOptionalRecvmsgFor(enabled bool) (link.Link, error) {
-	if a == nil || a.objs == nil {
-		return nil, fmt.Errorf("BPF objects are nil")
+	if a == nil || a.core == nil {
+		return nil, fmt.Errorf("BPF core resources are nil")
 	}
 	if !enabled {
 		return nil, nil
@@ -93,8 +93,8 @@ func (a *bpfAttacher) attachOptionalRecvmsgFor(enabled bool) (link.Link, error) 
 // aborts the session because syscall observation would be incomplete. Family
 // handlers are not attached here; they live in enter_progs/exit_progs and are
 // dispatched via bpf_tail_call (see populateProgArrays).
-func rawSyscallTracepointSpecs(objs *bpfObjects) []tracepointSpec {
-	return bpfCoreTracepointSpecs(objs, bpfRawSyscallTracepointCategory)
+func rawSyscallTracepointSpecs(programs bpfProgramProvider) []tracepointSpec {
+	return bpfCoreTracepointSpecs(programs, bpfRawSyscallTracepointCategory)
 }
 
 // Tail call prog array indices, kept in sync with bpf/enter_dispatch.h and
@@ -239,10 +239,13 @@ func (a *bpfAttacher) populateProgArrays() error {
 }
 
 func (a *bpfAttacher) populateProgArraysFor(selection bpfProgramSelection) error {
-	enterProgs := bpfCoreMap(a.objs, bpfMapEnterProgs)
-	mmsgBytesProgs := bpfCoreMap(a.objs, bpfMapMmsgBytesProgs)
-	exitProgs := bpfCoreMap(a.objs, bpfMapExitProgs)
-	recvmsgProgs := bpfCoreMap(a.objs, bpfMapRecvmsgProgs)
+	if a == nil || a.core == nil {
+		return fmt.Errorf("BPF core resources are nil")
+	}
+	enterProgs := a.core.coreMap(bpfMapEnterProgs)
+	mmsgBytesProgs := a.core.coreMap(bpfMapMmsgBytesProgs)
+	exitProgs := a.core.coreMap(bpfMapExitProgs)
+	recvmsgProgs := a.core.coreMap(bpfMapRecvmsgProgs)
 	if enterProgs == nil || mmsgBytesProgs == nil || exitProgs == nil || recvmsgProgs == nil {
 		return fmt.Errorf("BPF tail-call prog arrays are unavailable")
 	}
@@ -280,19 +283,19 @@ func (a *bpfAttacher) populateProgArraysFor(selection bpfProgramSelection) error
 
 // lifecycleTracepointSpecs lists the sched lifecycle programs required by the
 // event-sourced task state contract.
-func lifecycleTracepointSpecs(objs *bpfObjects) []tracepointSpec {
-	return bpfCoreTracepointSpecs(objs, bpfLifecycleTracepointCategory)
+func lifecycleTracepointSpecs(programs bpfProgramProvider) []tracepointSpec {
+	return bpfCoreTracepointSpecs(programs, bpfLifecycleTracepointCategory)
 }
 
-func bpfCoreTracepointSpecs(objs *bpfObjects, category string) []tracepointSpec {
+func bpfCoreTracepointSpecs(programs bpfProgramProvider, category string) []tracepointSpec {
 	specs := make([]tracepointSpec, 0)
 	for _, program := range bpfCoreProgramCatalog {
 		if program.category != category {
 			continue
 		}
 		var loaded *ebpf.Program
-		if objs != nil && program.lookup != nil {
-			loaded = program.lookup(objs)
+		if programs != nil {
+			loaded = programs.program(program.name)
 		}
 		specs = append(specs, tracepointSpec{
 			program:  loaded,

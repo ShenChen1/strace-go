@@ -2,6 +2,11 @@ package main
 
 import "github.com/cilium/ebpf"
 
+// bpfMapProvider exposes named core maps without leaking generated bindings.
+type bpfMapProvider interface {
+	coreMap(name string) *ebpf.Map
+}
+
 const (
 	bpfMapArmFork         = "arm_fork_map"
 	bpfMapAttachExited    = "attach_exited_map"
@@ -70,3 +75,9 @@ func bpfCoreMap(objects *bpfObjects, name string) *ebpf.Map {
 	}
 	return spec.lookup(objects)
 }
+
+func (o *bpfObjects) coreMap(name string) *ebpf.Map {
+	return bpfCoreMap(o, name)
+}
+
+var _ bpfMapProvider = (*bpfObjects)(nil)

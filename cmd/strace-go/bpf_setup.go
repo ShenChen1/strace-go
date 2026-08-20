@@ -131,14 +131,14 @@ func setupBPFWithConfig(clock traceClock, config traceBPFConfig) (*traceBPFRunti
 	if err != nil {
 		return nil, err
 	}
-	objects := bundle.objects
+	core := bundle.core
 	if err := measureBPFSetupStage(clock, recorder, bpfSetupRouteMapsStage, func() error {
-		return configureBPFRouteMaps(objects, bundle.programs, routePlan)
+		return configureBPFRouteMaps(core, bundle.programs, routePlan)
 	}); err != nil {
 		return nil, closeBPFSetupFailure("configure BPF route maps", err, nil, bundle)
 	}
 
-	attacher := newBpfAttacherWithPrograms(objects, bundle.programs)
+	attacher := newBpfAttacherWithPrograms(core, bundle.programs)
 	if err := measureBPFSetupStage(clock, recorder, bpfSetupProgArraysStage, func() error {
 		return attacher.populateProgArraysFor(selection)
 	}); err != nil {
@@ -171,7 +171,7 @@ func setupBPFWithConfig(clock traceClock, config traceBPFConfig) (*traceBPFRunti
 	handlerClosers := bundle.handlerClosers
 	bundle.handlerClosers = nil
 	return &traceBPFRuntime{
-		objects:        objects,
+		core:           core,
 		programs:       bundle.programs,
 		links:          links,
 		handlerClosers: handlerClosers,

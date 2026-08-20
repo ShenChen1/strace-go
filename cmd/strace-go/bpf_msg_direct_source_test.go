@@ -65,8 +65,8 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 		"return bpfTailCallProgramEntries(programs, bpfExitProgramCatalog)",
 		"return bpfTailCallProgramEntries(programs, bpfRecvmsgProgramCatalog)",
 		"return bpfTailCallProgramEntries(programs, bpfMmsgByteProgramCatalog)",
-		"bpfCoreMap(a.objs, bpfMapMmsgBytesProgs)",
-		"bpfCoreMap(a.objs, bpfMapRecvmsgProgs)",
+		"a.core.coreMap(bpfMapMmsgBytesProgs)",
+		"a.core.coreMap(bpfMapRecvmsgProgs)",
 		"attachRecvmsgKretprobe",
 	} {
 		if !strings.Contains(attachSource, snippet) {

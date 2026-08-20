@@ -9806,3 +9806,41 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - handler family 的 loader、名称、stage 和顺序现在只有一份生产 catalog；program catalog 与 standalone attach catalog 均要求存在 family owner，未知 map/spec 不会被静默跳过。
 - catalog lookup 只发生在 setup、collection prepare/load 和测试校验边界，没有新增事件消费者、锁、定时器、ptrace、procfs、process_vm 或用户态 tracee memory fallback。
 - 保留边界：family catalog 统一的是 Go-side loader 元数据，不自动推导 BPF capture policy、BTF 参数语义或 upstream 精确输出顺序；下一阶段继续收敛 collection resource capability 与 cleanup 性能边界。
+
+### 14.241 收窄 generated BPF object 到 core resource capability（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：map/program catalog 已经可以按稳定名称提供资源，但 `bpfObjectBundle`、`traceBPFRuntime`、attacher、config、route 和 read-port 函数仍直接接收 generated `*bpfObjects`。
+- Problem：native generated binding、资源 owner 和 setup capability 仍通过具体类型耦合；后续替换 loader backend 或注入 fake 时，必须构造 generated object，且 map lookup/program lookup/Close 的职责边界不清晰。
+- Goal：引入窄 `bpfMapProvider`、已有的 `bpfProgramProvider` 和可关闭的 `bpfCoreResourceProvider`；generated object 只在 native bind 与 catalog adapter 边界出现，runtime/setup 消费 capability。
+- Non-goals：不改变 BPF ABI、map/program 名称、route/ProgArray、collection ownership 顺序、事件循环、性能指标或纯 eBPF/no-ptrace/no-procfs 约束。
+- Constraints：core resource 只能由一个 owner 关闭；nil capability 返回明确错误；不能用 map/program 字符串表或反射替代 typed catalog；保留现有 generated binding 的唯一性校验。
+
+#### 方案比较
+
+1. 继续让所有模块接收 `*bpfObjects`：实现最少，但 generated binding 继续泄漏到 runtime/setup，拒绝。
+2. 各处传 `map[string]*ebpf.Map` 和 `map[string]*ebpf.Program`：表面解耦，但绕过 catalog、失去类型边界和错误诊断，拒绝。
+3. 使用窄 capability 接口，由 generated object 在 bind 边界实现：可注入 fake、保留唯一 owner、改动局部，选择。
+
+#### 实现
+
+- 新增 `bpfMapProvider`，由 map catalog 适配 `bpfObjects.coreMap`；`bpfCoreResourceProvider` 组合 named map/program lookup 与 `io.Closer`，作为 bundle 的 core capability。
+- `traceBPFRuntime` 持有 `core bpfCoreResourceProvider`，`bpfObjectBundle` 也只转移该 capability；runtime cleanup 仍将 core 作为单一 named resource，重复 Close 安全且只执行一次。
+- `bpfAttacher`、route/config/filter/read-port 和 core tracepoint spec builder 改为消费 map/program provider；raw/lifecycle tracepoint 通过 program catalog lookup，不再从 generated object 字段读取。
+- `bpfProgramCatalog` 的 core 依赖收窄为 `bpfProgramProvider`；native loader 仍在 assign/generated binding 边界构造 `bpfObjects`，未把 reflection 或字符串 lookup 扩散到 runtime。
+
+#### 测试与验收
+
+- 失败优先：core provider 接口、generated object 实现、owner 单次 Close 和 consumer source gate 在实现前按预期失败；实现后 focused capability/attach/read-port tests 通过。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /tmp/strace-go-phase14241 ./cmd/strace-go`、Python 44 项单测和 `git diff --check` 全部通过。
+- 真实 `ebpf-semantic` 通过：主事件 197，enter/exit `100/97`，lifecycle 6，reserve/copy/pending/orphan/mismatch/lifecycle-map error counters 全为 0。
+- 真实 `ebpf-perf` 通过：decode `349.60 ns/op`、普通 JSON writer `483.60 ns/op` 且均为 0 alloc；scalar/io/lifecycle/threads trace exit rate 为 `19927.77/16015.74/82.95/13676.09`，无 runtime error counter。
+- 本轮端到端 exit rate 为 `5796.16/4069.51/29.52/3359.21`；setup 约 `0.168~0.190s`，BPF link cleanup 约 `0.162~0.181s`，仍由固定 teardown 稀释短 workload，没有观察到接口重构导致的事件吞吐回退。
+- 原生 `small`：23 PASS、0 FAIL；`more`：80 PASS、3 个既定 XFAIL、0 FAIL/XPASS。
+
+#### Review
+
+- generated `*bpfObjects` 现在只出现在 generated adapter/catalog 和 native collection bind 侧；runtime、setup、attach、route、config、filter、read ports 均通过 capability 边界访问资源。
+- core Close owner 没有新增副本或第二回收路径；接口只在 setup/cleanup/测试边界使用，不进入 BPF handler、Ringbuf consumer 或 Go event decode 热路径。
+- 保留边界：capability 解决的是 generated binding 与资源 owner 耦合，不改变 map ABI、BTF 参数语义、capture policy 或 cleanup 的内核固定尾延迟；后续可在该边界上继续优化 teardown，而无需重新暴露 generated object。

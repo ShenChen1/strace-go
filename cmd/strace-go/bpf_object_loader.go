@@ -11,10 +11,18 @@ import (
 )
 
 type bpfObjectBundle struct {
-	objects        *bpfObjects
+	core           bpfCoreResourceProvider
 	programs       bpfProgramProvider
 	handlerClosers []io.Closer
 	extraClosers   []io.Closer
+}
+
+// bpfCoreResourceProvider is the only core capability exposed after native
+// generated binding. It combines named map/program lookup with one close owner.
+type bpfCoreResourceProvider interface {
+	bpfMapProvider
+	bpfProgramProvider
+	io.Closer
 }
 
 type bpfCollectionSpecSet struct {
@@ -189,7 +197,7 @@ func (l *nativeBPFObjectLoader) bind(loaded *bpfLoadedCollectionSet) (*bpfObject
 	}
 	extraClosers := collectBPFExtraClosers(core)
 	return &bpfObjectBundle{
-		objects:      objects,
+		core:         objects,
 		programs:     newBPFProgramCatalog(objects, programs),
 		extraClosers: extraClosers,
 	}, nil
@@ -310,9 +318,9 @@ func (b *bpfObjectBundle) Close() error {
 	handlerErr := closeBPFExtraResources(b.handlerClosers)
 	b.handlerClosers = nil
 	var objectErr error
-	if b.objects != nil {
-		objectErr = b.objects.Close()
-		b.objects = nil
+	if b.core != nil {
+		objectErr = b.core.Close()
+		b.core = nil
 	}
 	extraErr := closeBPFExtraResources(b.extraClosers)
 	b.extraClosers = nil

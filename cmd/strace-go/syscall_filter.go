@@ -58,11 +58,14 @@ func buildSyscallFilterPlan(input syscallFilterInput) syscallFilterPlan {
 	return plan
 }
 
-func configureSyscallFilter(plan syscallFilterPlan, objs *bpfObjects) (uint32, error) {
+func configureSyscallFilter(plan syscallFilterPlan, maps bpfMapProvider) (uint32, error) {
 	if !plan.enabled {
 		return 0, nil
 	}
-	filterMap := bpfCoreMap(objs, bpfMapSyscallFilter)
+	if maps == nil {
+		return 0, fmt.Errorf("BPF syscall filter map is unavailable")
+	}
+	filterMap := maps.coreMap(bpfMapSyscallFilter)
 	if filterMap == nil {
 		return 0, fmt.Errorf("BPF syscall filter map is unavailable")
 	}

@@ -77,7 +77,7 @@ func TestBPFReadPortsExposeAttachExitLookupPort(t *testing.T) {
 		"type traceAttachExitReader interface",
 		"IsExited(pid uint32) (bool, error)",
 		"AttachExits traceAttachExitReader",
-		"bpfCoreMap(objs, bpfMapAttachExited)",
+		"maps.coreMap(bpfMapAttachExited)",
 		"ebpf.ErrKeyNotExist",
 	} {
 		if !strings.Contains(source, required) {

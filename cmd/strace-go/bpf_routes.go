@@ -166,12 +166,15 @@ func validateBPFRouteCapabilities(capabilities map[string]bpfRouteCapability) er
 }
 
 func configureBPFRouteMaps(
-	objs *bpfObjects,
+	maps bpfMapProvider,
 	programs bpfProgramProvider,
 	plan bpfRoutePlan,
 ) error {
-	enterRoutes := bpfCoreMap(objs, bpfMapEnterRoutes)
-	exitRoutes := bpfCoreMap(objs, bpfMapExitRoutes)
+	if maps == nil {
+		return fmt.Errorf("BPF route maps are unavailable")
+	}
+	enterRoutes := maps.coreMap(bpfMapEnterRoutes)
+	exitRoutes := maps.coreMap(bpfMapExitRoutes)
 	if enterRoutes == nil || exitRoutes == nil {
 		return fmt.Errorf("BPF route maps are unavailable")
 	}

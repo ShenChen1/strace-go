@@ -221,12 +221,12 @@ func buildBPFHandlerProgramFamilies() map[string]bpfHandlerFamily {
 }
 
 type bpfProgramCatalog struct {
-	core     *bpfObjects
+	core     bpfProgramProvider
 	handlers map[string]*ebpf.Program
 }
 
 func newBPFProgramCatalog(
-	core *bpfObjects,
+	core bpfProgramProvider,
 	handlers map[string]*ebpf.Program,
 ) *bpfProgramCatalog {
 	return &bpfProgramCatalog{core: core, handlers: handlers}
@@ -236,8 +236,10 @@ func (c *bpfProgramCatalog) program(name string) *ebpf.Program {
 	if c == nil {
 		return nil
 	}
-	if coreProgram := coreBPFProgram(c.core, name); coreProgram != nil {
-		return coreProgram
+	if c.core != nil {
+		if coreProgram := c.core.program(name); coreProgram != nil {
+			return coreProgram
+		}
 	}
 	return c.handlers[name]
 }
