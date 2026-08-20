@@ -361,10 +361,12 @@ func buildTraceSessionRuntime(
 		eventSink = nil
 	}
 	eventReader := newTraceEventReader(TraceEventReaderDeps{
-		Reader:  deps.Events,
-		Decoder: recordDecoder,
-		Sink:    eventSink,
-		Clock:   deps.Clock,
+		Reader:            deps.Events,
+		Decoder:           recordDecoder,
+		Sink:              eventSink,
+		Clock:             deps.Clock,
+		MeasureService:    base.outputPolicy.DebugPhases(),
+		ServiceSampleRate: traceDiagnosticServiceSampleRate,
 	})
 	return traceSessionRuntimeComponents{
 		recordDecoder: recordDecoder,

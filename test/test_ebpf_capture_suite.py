@@ -32,6 +32,14 @@ def make_capture(stderr, returncode=0):
                 "records_decoded": 2,
                 "records_invalid": 0,
                 "records_routed": 2,
+                "service_enabled": True,
+                "service_sample_rate": 1,
+                "bytes_read": 192,
+                "max_record_bytes": 96,
+                "min_remaining_bytes": 128,
+                "service_time_ns": 200,
+                "service_records": 2,
+                "max_service_time_ns": 120,
                 "max_remaining_bytes": 128,
             }
         ],
@@ -60,6 +68,14 @@ class CaptureOracleTests(unittest.TestCase):
         failures, _ = _validate_capture(capture, expect_syscalls=False)
 
         self.assertTrue(any("leaked" in failure for failure in failures))
+
+    def test_rejects_incomplete_service_measurement(self):
+        capture = make_capture('{"type":"stats"}\n')
+        capture.stats_events[0]["service_records"] = 3
+
+        failures, _ = _validate_capture(capture, expect_syscalls=False)
+
+        self.assertTrue(any("exceeds records_read" in failure for failure in failures))
 
 
 if __name__ == "__main__":

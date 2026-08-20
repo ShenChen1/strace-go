@@ -24,6 +24,19 @@ def make_capture(events=None, lifecycle_events=None, stats=None, returncode=0):
         "pending_mismatch": 0,
         "lifecycle_map_update_fail": 0,
         "pending_stale": 0,
+        "records_read": 1,
+        "records_decoded": 1,
+        "records_invalid": 0,
+        "records_routed": 1,
+        "service_enabled": True,
+        "service_sample_rate": 1,
+        "bytes_read": 96,
+        "max_record_bytes": 96,
+        "min_remaining_bytes": 64,
+        "service_time_ns": 100,
+        "service_records": 1,
+        "max_service_time_ns": 100,
+        "max_remaining_bytes": 128,
     }
     if stats:
         zero_stats.update(stats)

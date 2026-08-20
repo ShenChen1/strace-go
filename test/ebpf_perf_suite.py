@@ -12,7 +12,7 @@ from ebpf_event_oracles import (
     parse_ready_events,
     parse_stats_events,
 )
-from ebpf_check_support import valid_stats_event
+from ebpf_check_support import service_measurement_failures, valid_stats_event
 from ebpf_fixture_build import build_named_fixture
 from ebpf_perf_phases import (
     REQUIRED_BPF_CLEANUP_PHASES,
@@ -344,6 +344,7 @@ def validate_perf_capture(capture, spec):
     if not valid_stats_event(stats):
         failures.append(f"{spec.name} stats event is invalid")
     failures.extend(_validate_phase_timing(capture))
+    failures.extend(service_measurement_failures(stats, spec.name))
     for counter in RUNTIME_DIAGNOSTIC_FIELDS:
         if stats.get(counter, 1) != 0:
             failures.append(f"{spec.name} {counter}={stats.get(counter)}")
@@ -398,6 +399,22 @@ def print_perf_capture(capture):
     print(f"phase_events: {len(capture.phase_events)}")
     for counter in RUNTIME_DIAGNOSTIC_FIELDS:
         print(f"{counter}: {stats.get(counter)}")
+    for field in (
+        "service_enabled",
+        "service_sample_rate",
+        "bytes_read",
+        "max_record_bytes",
+        "min_remaining_bytes",
+        "service_time_ns",
+        "service_records",
+        "max_service_time_ns",
+    ):
+        print(f"{field}: {stats.get(field)}")
+    if stats.get("service_records", 0) > 0:
+        print(
+            "consumer_service_ns_per_sample: "
+            f"{stats.get('service_time_ns', 0) / stats['service_records']:.2f}"
+        )
     if capture.elapsed > 0:
         print(
             "end_to_end_exit_events_per_sec: "

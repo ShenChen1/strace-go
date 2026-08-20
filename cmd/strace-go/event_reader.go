@@ -9,6 +9,8 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 )
 
+const traceDiagnosticServiceSampleRate uint64 = 64
+
 type traceRingbufReader interface {
 	SetDeadline(time.Time)
 	ReadInto(*ringbuf.Record) error
@@ -24,6 +26,14 @@ type traceEventReaderStats struct {
 	RecordsDecoded    uint64
 	RecordsInvalid    uint64
 	RecordsRouted     uint64
+	ServiceEnabled    bool
+	ServiceSampleRate uint64
+	BytesRead         uint64
+	MaxRecordBytes    uint64
+	MinRemainingBytes uint64
+	ServiceTimeNS     uint64
+	ServiceRecords    uint64
+	MaxServiceTimeNS  uint64
 	MaxRemainingBytes uint64
 }
 
@@ -43,18 +53,31 @@ type TraceEventReader struct {
 }
 
 type TraceEventReaderDeps struct {
-	Reader  traceRingbufReader
-	Decoder traceRecordDecoder
-	Sink    traceEventSink
-	Clock   traceClock
+	Reader            traceRingbufReader
+	Decoder           traceRecordDecoder
+	Sink              traceEventSink
+	Clock             traceClock
+	MeasureService    bool
+	ServiceSampleRate uint64
 }
 
 func newTraceEventReader(deps TraceEventReaderDeps) *TraceEventReader {
+	serviceEnabled := deps.MeasureService && deps.Clock != nil
+	serviceSampleRate := deps.ServiceSampleRate
+	if !serviceEnabled {
+		serviceSampleRate = 0
+	} else if serviceSampleRate == 0 {
+		serviceSampleRate = 1
+	}
 	return &TraceEventReader{
 		reader:  deps.Reader,
 		decoder: deps.Decoder,
 		sink:    deps.Sink,
 		clock:   deps.Clock,
+		stats: traceEventReaderStats{
+			ServiceEnabled:    serviceEnabled,
+			ServiceSampleRate: serviceSampleRate,
+		},
 	}
 }
 
@@ -137,9 +160,14 @@ func (r *TraceEventReader) HandleRecord(rec *ringbuf.Record) bool {
 	if r == nil || r.decoder == nil {
 		return false
 	}
+	startNS, measureService := r.startServiceMeasurement()
+	if measureService {
+		r.stats.ServiceRecords++
+	}
 	envelope, ok := r.decoder.Decode(rec)
 	if !ok {
 		r.stats.RecordsInvalid++
+		r.finishServiceMeasurement(startNS, measureService)
 		return false
 	}
 	r.stats.RecordsDecoded++
@@ -147,6 +175,7 @@ func (r *TraceEventReader) HandleRecord(rec *ringbuf.Record) bool {
 		r.sink.Handle(envelope)
 		r.stats.RecordsRouted++
 	}
+	r.finishServiceMeasurement(startNS, measureService)
 	return true
 }
 
@@ -162,7 +191,43 @@ func (r *TraceEventReader) recordRead(rec *ringbuf.Record) {
 		return
 	}
 	r.stats.RecordsRead++
+	if rec != nil {
+		recordBytes := uint64(len(rec.RawSample))
+		r.stats.BytesRead += recordBytes
+		if recordBytes > r.stats.MaxRecordBytes {
+			r.stats.MaxRecordBytes = recordBytes
+		}
+	}
 	if rec != nil && rec.Remaining > 0 && uint64(rec.Remaining) > r.stats.MaxRemainingBytes {
 		r.stats.MaxRemainingBytes = uint64(rec.Remaining)
+	}
+	if rec != nil && rec.Remaining >= 0 {
+		remaining := uint64(rec.Remaining)
+		if r.stats.RecordsRead == 1 || remaining < r.stats.MinRemainingBytes {
+			r.stats.MinRemainingBytes = remaining
+		}
+	}
+}
+
+func (r *TraceEventReader) startServiceMeasurement() (uint64, bool) {
+	if r == nil || !r.stats.ServiceEnabled || r.clock == nil || r.stats.ServiceSampleRate == 0 ||
+		r.stats.RecordsRead == 0 || (r.stats.RecordsRead-1)%r.stats.ServiceSampleRate != 0 {
+		return 0, false
+	}
+	return r.clock.NowMonoNs(), true
+}
+
+func (r *TraceEventReader) finishServiceMeasurement(startNS uint64, measured bool) {
+	if r == nil || !measured || r.clock == nil {
+		return
+	}
+	endNS := r.clock.NowMonoNs()
+	if endNS < startNS {
+		return
+	}
+	duration := endNS - startNS
+	r.stats.ServiceTimeNS += duration
+	if duration > r.stats.MaxServiceTimeNS {
+		r.stats.MaxServiceTimeNS = duration
 	}
 }

@@ -110,6 +110,19 @@ class LifecycleCheckTests(unittest.TestCase):
             "pending_mismatch": 0,
             "lifecycle_map_update_fail": 0,
             "pending_stale": 0,
+            "service_enabled": False,
+            "service_sample_rate": 0,
+            "bytes_read": 0,
+            "max_record_bytes": 0,
+            "min_remaining_bytes": 0,
+            "service_time_ns": 0,
+            "service_records": 0,
+            "max_service_time_ns": 0,
+            "records_read": 0,
+            "records_decoded": 0,
+            "records_invalid": 0,
+            "records_routed": 0,
+            "max_remaining_bytes": 0,
         }
         events = [
             {

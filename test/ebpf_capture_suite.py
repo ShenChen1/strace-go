@@ -4,7 +4,7 @@ import os
 import time
 from dataclasses import dataclass
 
-from ebpf_check_support import valid_stats_event
+from ebpf_check_support import service_measurement_failures, valid_stats_event
 from ebpf_event_oracles import (
     parse_phase_events,
     parse_ready_events,
@@ -104,6 +104,8 @@ def _validate_capture(capture, expect_syscalls):
         failures.append(f"{capture.name} routed more records than decoded")
     elif stats["records_invalid"] != stats["records_read"] - stats["records_decoded"]:
         failures.append(f"{capture.name} record accounting is inconsistent")
+    if stats is not None:
+        failures.extend(service_measurement_failures(stats, capture.name))
     if expect_syscalls and capture.syscall_events == 0:
         failures.append(f"{capture.name} produced no syscall events")
     if not expect_syscalls and capture.syscall_events != 0:
@@ -132,6 +134,14 @@ def _print_capture(capture, stats):
         "records_decoded",
         "records_invalid",
         "records_routed",
+        "service_enabled",
+        "service_sample_rate",
+        "bytes_read",
+        "max_record_bytes",
+        "min_remaining_bytes",
+        "service_time_ns",
+        "service_records",
+        "max_service_time_ns",
         "max_remaining_bytes",
     ):
         print(f"{field}: {stats.get(field)}")

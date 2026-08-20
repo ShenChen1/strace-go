@@ -107,6 +107,14 @@ type jsonStatsEvent struct {
 	RecordsDecoded         uint64 `json:"records_decoded"`
 	RecordsInvalid         uint64 `json:"records_invalid"`
 	RecordsRouted          uint64 `json:"records_routed"`
+	ServiceEnabled         bool   `json:"service_enabled"`
+	ServiceSampleRate      uint64 `json:"service_sample_rate"`
+	BytesRead              uint64 `json:"bytes_read"`
+	MaxRecordBytes         uint64 `json:"max_record_bytes"`
+	MinRemainingBytes      uint64 `json:"min_remaining_bytes"`
+	ServiceTimeNS          uint64 `json:"service_time_ns"`
+	ServiceRecords         uint64 `json:"service_records"`
+	MaxServiceTimeNS       uint64 `json:"max_service_time_ns"`
 	MaxRemainingBytes      uint64 `json:"max_remaining_bytes"`
 	Available              bool   `json:"available"`
 	Error                  string `json:"error,omitempty"`
@@ -200,6 +208,14 @@ func newJSONStatsEvent(
 		RecordsDecoded:         readerStats.RecordsDecoded,
 		RecordsInvalid:         readerStats.RecordsInvalid,
 		RecordsRouted:          readerStats.RecordsRouted,
+		ServiceEnabled:         readerStats.ServiceEnabled,
+		ServiceSampleRate:      readerStats.ServiceSampleRate,
+		BytesRead:              readerStats.BytesRead,
+		MaxRecordBytes:         readerStats.MaxRecordBytes,
+		MinRemainingBytes:      readerStats.MinRemainingBytes,
+		ServiceTimeNS:          readerStats.ServiceTimeNS,
+		ServiceRecords:         readerStats.ServiceRecords,
+		MaxServiceTimeNS:       readerStats.MaxServiceTimeNS,
 		MaxRemainingBytes:      readerStats.MaxRemainingBytes,
 		Available:              stats.Available,
 		Error:                  stats.Error,

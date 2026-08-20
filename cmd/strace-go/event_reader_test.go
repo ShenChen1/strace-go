@@ -59,6 +59,25 @@ type stepTraceClock struct {
 	calls int
 }
 
+type diagnosticTraceClock struct {
+	now      time.Time
+	monoNS   []uint64
+	monoCall int
+}
+
+func (c *diagnosticTraceClock) Now() time.Time {
+	return c.now
+}
+
+func (c *diagnosticTraceClock) NowMonoNs() uint64 {
+	if c.monoCall >= len(c.monoNS) {
+		return 0
+	}
+	value := c.monoNS[c.monoCall]
+	c.monoCall++
+	return value
+}
+
 func (c *stepTraceClock) Now() time.Time {
 	current := c.now
 	c.now = c.now.Add(c.step)
@@ -108,6 +127,84 @@ func TestTraceEventReaderReportsConsumptionStats(t *testing.T) {
 	if stats.RecordsRead != 2 || stats.RecordsDecoded != 1 || stats.RecordsInvalid != 1 ||
 		stats.RecordsRouted != 1 || stats.MaxRemainingBytes != 4096 {
 		t.Fatalf("reader stats = %+v, want read=2 decoded=1 invalid=1 routed=1 max_remaining=4096", stats)
+	}
+}
+
+func TestTraceEventReaderMeasuresDiagnosticServiceTime(t *testing.T) {
+	ringReader := &fakeRingbufReader{
+		readErrors: []error{nil},
+		remaining:  []int{4096},
+	}
+	clock := &diagnosticTraceClock{
+		now:    time.Unix(100, 0),
+		monoNS: []uint64{1000, 1042},
+	}
+	reader := newTraceEventReader(TraceEventReaderDeps{
+		Reader:            ringReader,
+		Decoder:           &acceptingRecordDecoder{},
+		Sink:              &recordingEventSink{},
+		Clock:             clock,
+		MeasureService:    true,
+		ServiceSampleRate: 1,
+	})
+	record := &ringbuf.Record{RawSample: make([]byte, 96)}
+
+	if status, err := reader.Read(record, time.Second); err != nil || status != traceReadHandled {
+		t.Fatalf("diagnostic Read() = %v/%v, want handled/nil", status, err)
+	}
+
+	stats := reader.ReaderStats()
+	if !stats.ServiceEnabled || stats.ServiceSampleRate != 1 || stats.ServiceRecords != 1 || stats.ServiceTimeNS != 42 ||
+		stats.MaxServiceTimeNS != 42 || stats.BytesRead != 96 || stats.MaxRecordBytes != 96 ||
+		stats.MinRemainingBytes != 4096 || clock.monoCall != 2 {
+		t.Fatalf("diagnostic reader stats = %+v, want one 42ns measured record", stats)
+	}
+}
+
+func TestTraceEventReaderSamplesDiagnosticServiceTime(t *testing.T) {
+	clock := &diagnosticTraceClock{
+		now:    time.Unix(100, 0),
+		monoNS: []uint64{1000, 1042, 2000, 2048},
+	}
+	reader := newTraceEventReader(TraceEventReaderDeps{
+		Reader: &fakeRingbufReader{
+			readErrors: []error{nil, nil, nil},
+			remaining:  []int{4096, 2048, 1024},
+		},
+		Decoder:           &acceptingRecordDecoder{},
+		Clock:             clock,
+		MeasureService:    true,
+		ServiceSampleRate: 2,
+	})
+
+	for i := 0; i < 3; i++ {
+		if status, err := reader.Read(&ringbuf.Record{RawSample: make([]byte, 16)}, time.Second); err != nil || status != traceReadHandled {
+			t.Fatalf("sampled Read(%d) = %v/%v, want handled/nil", i, status, err)
+		}
+	}
+
+	stats := reader.ReaderStats()
+	if stats.ServiceSampleRate != 2 || stats.ServiceRecords != 2 || stats.ServiceTimeNS != 90 || clock.monoCall != 4 {
+		t.Fatalf("sampled reader stats = %+v, clock calls=%d; want two samples totaling 90ns", stats, clock.monoCall)
+	}
+}
+
+func TestTraceEventReaderSkipsServiceClockWhenDiagnosticModeIsDisabled(t *testing.T) {
+	clock := &diagnosticTraceClock{now: time.Unix(100, 0), monoNS: []uint64{1000, 1042}}
+	reader := newTraceEventReader(TraceEventReaderDeps{
+		Reader:            &fakeRingbufReader{readErrors: []error{nil}},
+		Decoder:           &acceptingRecordDecoder{},
+		Clock:             clock,
+		ServiceSampleRate: 64,
+	})
+
+	if status, err := reader.Read(&ringbuf.Record{RawSample: make([]byte, 16)}, time.Second); err != nil || status != traceReadHandled {
+		t.Fatalf("non-diagnostic Read() = %v/%v, want handled/nil", status, err)
+	}
+
+	stats := reader.ReaderStats()
+	if stats.ServiceEnabled || stats.ServiceSampleRate != 0 || stats.ServiceRecords != 0 || stats.ServiceTimeNS != 0 || clock.monoCall != 0 {
+		t.Fatalf("non-diagnostic reader stats = %+v, clock calls=%d; want no service timing", stats, clock.monoCall)
 	}
 }
 

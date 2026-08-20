@@ -10895,3 +10895,40 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - JSON writer 本身已为零分配；剩余 `return_text` 分配是当前标准库格式化边界，继续优化需要改变既有安全/可维护性约束，暂不为追求一个 `alloc/op` 引入不透明实现。
 - 当前距离完整性能目标仍有一段距离：下一阶段应把 BPF producer reservation burst、Ringbuf 容量/剩余空间和单 Go consumer service time 放到同一个实验中，区分 producer 供给、Ringbuf 背压与输出链路耗时。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、第二事件消费者、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.270 为高压 capture 增加诊断模式 service time 与 Ringbuf 低水位（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.269 的 capture 已显示 reader/none 可以读完约 `3.2M` 条记录，而 handler/JSON 在 Ringbuf 到达 `128 MiB` 后出现大量 `ringbuf_reserve_fail`；现有 `trace_sec`、`records_read` 和 `max_remaining_bytes` 只能证明结果，不能隔离单条 Go consumer 服务时间。
+- Problem：如果把 BPF producer 变慢、Ringbuf 容量不足、Go decode/state/handler/output 变慢混成一个 `event/s`，后续优化会继续误判。无条件在每条事件读取时钟又会改变正式吞吐基线。
+- Goal：在 `--debug-phases` 诊断路径中按固定比例采样 ringbuf record 的 service time，同时记录总字节数、最大 record 大小和剩余空间低水位，并通过结构化 stats 输出，让 producer reservation、Ringbuf 压力和 consumer 服务时间可以同一轮对账。
+- Non-goals：不改变 event v2 ABI、BPF producer、Ringbuf 容量、输出语义、事件顺序、单 Go consumer 模型或正式运行路径；不引入第二消费者、异步 writer、锁、ptrace、procfs 或 process_vm。
+- Constraints：诊断开关关闭时不得调用单调时钟；计时覆盖从 record 已取出后的 decode 到 sink 返回，不把阻塞等待误计入 service time；stats 字段必须保持可解析且缺失/零值语义明确。
+
+#### 方案比较
+
+1. 只使用已有 `trace_start/trace_end`：零代码路径成本，但无法区分 producer、等待和 consumer，拒绝。
+2. 所有运行模式逐条调用时钟：观测最完整，但会污染正式 event/s 基线，拒绝。
+3. 仅在 `DebugPhases` 下按固定采样率累计 service time，并同时记录 bytes/remaining 统计：诊断有足够证据，正式路径保持原成本，选择。
+
+#### 实现与失败优先测试
+
+- 扩展 `TraceEventReader` 的 reader stats，增加 `bytes_read`、`max_record_bytes`、`min_remaining_bytes`、`service_sample_rate`、`service_time_ns`、`service_records` 和 `max_service_time_ns`；低水位以第一条有效记录初始化，避免零值歧义。
+- `TraceEventReaderDeps` 增加诊断计时开关和采样率，由 session composition 从 `OutputPolicy.DebugPhases()` 投影；只有开关打开且存在 clock 时才测量 decode/sink 区间，正式路径不调用时钟。
+- stats JSON 透传这些字段；capture/perf suite 打印并校验采样条数不超过 records read、采样率有效且 service time 非零，使 `trace_sec` 不再是唯一吞吐 oracle。
+- 先增加“诊断开启会累计计时、固定比例采样、关闭不调用时钟”和 stats JSON 字段测试，使旧实现失败，再实现 reader 和 output wiring。
+
+#### 验证与实测
+
+- 逐条计时的失败实验使 reader-only 从无丢失变成约 `1.66M` 次 reservation failure；改为每 `64` 条采样后，在无干扰轮次 reader/none 均恢复为 `3,200,035/0`（records_read/reserve_fail），说明诊断采样策略可以避免把时钟成本直接放大到无侵入基线。
+- 当前复测的高压 capture：reader `3,200,036/0`、none `3,200,035/0`、handler `1,578,277/1,621,758`、JSON `1,264,825/1,935,211`；四路 `records_invalid=0`，采样数分别为 `50,001/50,001/24,661/19,763`，`service_sample_rate=64`，低水位均到 `0`。不同轮次受调度影响，但 handler/JSON 的 reservation failure 仍稳定显著高于 reader/none。
+- 本次采样 service time 总量/样本数约为 reader `28.81 ms/50,001`、none `22.61 ms/50,001`、handler `26.27 ms/24,661`、JSON `38.08 ms/19,763`；只能作为定位信号，不能当作无诊断正式 event/s，因为采样仍包含 clock 与调度长尾。
+- `ebpf-semantic` 通过：主语义事件 `197`，enter/exit `100/97`，lifecycle `6`，所有运行期状态错误计数为 `0`；`ebpf-perf` 的 scalar/io/lifecycle/threads 也通过且 counters 为 `0`。Go 全量、race、vet、构建和 Python capture/perf/semantic oracle 均通过。
+
+#### 决策与 Review
+
+- 保留固定比例诊断采样，不保留逐条计时；reader/none 无损恢复是采样策略成立的必要证据。
+- service time 目前覆盖 record 已取出后的 decode 到 sink 返回，不包含 `ReadInto` 的阻塞等待；与 `records_read + reserve_fail`、Ringbuf 低水位联合使用，不能单独解释 producer 供给。
+- 下一阶段继续用无诊断 reader/none 作为吞吐上限，用诊断采样估计 consumer service，并拆出 record size、BPF reservation burst 和 output path 的影响；不把诊断模式的 event/s 与正式模式直接比较。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、第二事件消费者、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
