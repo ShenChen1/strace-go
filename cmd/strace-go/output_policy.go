@@ -8,6 +8,10 @@ type traceFormatPolicy interface {
 	DiscardEvents() bool
 }
 
+type traceReaderOnlyPolicy interface {
+	ReaderOnly() bool
+}
+
 // traceEventOutputPolicy owns debug and status decisions for syscall events.
 // unfinished distinguishes an enter-side text fragment from a completed exit.
 type traceEventOutputPolicy interface {
@@ -73,6 +77,7 @@ type traceReadyPolicy interface {
 type cliTraceOutputPolicy struct {
 	json               bool
 	discard            bool
+	readerOnly         bool
 	debug              bool
 	debugPhases        bool
 	status             successfulFailedOptions
@@ -107,7 +112,8 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 	}
 	return &cliTraceOutputPolicy{
 		json:               opts.EventFormat == cli.EventFormatJSON,
-		discard:            opts.EventFormat == cli.EventFormatNone,
+		discard:            opts.EventFormat == cli.EventFormatNone || opts.EventFormat == cli.EventFormatReader,
+		readerOnly:         opts.EventFormat == cli.EventFormatReader,
 		debug:              opts.DebugEvents,
 		debugPhases:        opts.DebugPhases,
 		status:             successfulFailedOptions{successfulOnly: opts.SuccessfulOnly, failedOnly: opts.FailedOnly, traceStatus: traceStatus},
@@ -136,6 +142,16 @@ func (p *cliTraceOutputPolicy) IsJSON() bool {
 
 func (p *cliTraceOutputPolicy) DiscardEvents() bool {
 	return p != nil && p.discard
+}
+
+// ReaderOnly identifies the diagnostic path that stops after event-v2 bounds validation.
+func (p *cliTraceOutputPolicy) ReaderOnly() bool {
+	return p != nil && p.readerOnly
+}
+
+func isTraceReaderOnlyPolicy(policy interface{}) bool {
+	readerPolicy, ok := policy.(traceReaderOnlyPolicy)
+	return ok && readerPolicy.ReaderOnly()
 }
 
 func (p *cliTraceOutputPolicy) DebugEvents() bool {

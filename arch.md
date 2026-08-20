@@ -10551,3 +10551,44 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 最终代码不保留 `SYS_GETPID` dispatcher 特判，生成对象需在回退后重新 build，避免仅 source 已回退而 `.o` 仍是实验版本。
 - 这项实验进一步确认：减少一次抽象边界不等于减少真实 BPF 热路径成本；当前瓶颈仍应按 producer reservation、task-state helper、固定 record emitter、payload capture 和 Go output consumer 分层测量。
 - 本阶段没有引入 ptrace、procfs、process_vm、第二消费者、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.261 增加 reader-only Ringbuf 上限测量（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：`--event-format=none` 已经跳过 handler、文本/JSON 编码和最终事件写出，但仍会经过 event-v2 完整 decoder、`TraceState` 和 router。高压结果因此只能说明完整 Go consumer 的吞吐，不能单独给出 Cilium Ringbuf reader 的上限。
+- Problem：直接继续改 BPF producer 会把 BPF reservation、Ringbuf reader、event decoder 和状态机成本混在一起；当前环境的 `bpftool prog profile` 子命令也没有可用的 profile 支持，不能用内核程序级采样替代分层测量。
+- Goal：增加明确的 `--event-format=reader` 诊断模式，只执行 Ringbuf record 边界校验，不解析 syscall 字段、不更新 `TraceState`、不进入 router/handler/output，从而与 `none` 形成 reader-only、完整 Go consumer、JSON output 三个测量点。
+- Non-goals：不改变默认 text/json/none 行为，不把 reader-only 当作用户输出格式，不减少 BPF enter/exit 事件，不引入第二 Ringbuf consumer、锁、定时器、ptrace、procfs、process_vm 或用户态 tracee memory fallback。
+- Constraints：reader-only 必须复用既有 `TraceEventReader`、deadline、batch、drain 和 finalizer 统计边界；无效 event-v2 record 仍计入 `records_invalid`；真实高压测试必须继续闭合 `ringbuf_reserve_fail + records_read`。
+
+#### 方案比较
+
+1. 继续使用 `none`：实现零新增，但 decoder/state 成本无法与 Ringbuf reader 分离，拒绝作为下一阶段唯一测量。
+2. 重写 mmap/epoll reader：可能进一步降低接口开销，但要重新维护 poll、关闭、record 边界和内存可见性，且此前自定义 reader A/B 没有稳定收益，拒绝。
+3. 增加 reader-only 测量策略，复用同一个 Cilium reader 并替换为轻量边界 decoder、nil event sink：测量边界清晰、生产行为不增加并发复杂度，选择。
+
+#### 实现与失败优先测试
+
+- CLI 增加 `EventFormatReader` 和 `--event-format=reader`；输出策略把它标记为 discard，同时暴露窄的 `ReaderOnly` capability，普通 `traceFormatPolicy` 不被迫扩大。
+- 新增 `traceRingbufBoundaryDecoder`，只调用已有 event-v2 version/type/header/size 校验；reader-only session 不把 record 路由到 `TraceEventRouter`，因此不会创建或更新用户态 syscall/lifecycle 状态。
+- 先增加 CLI parse、policy capability、有效/截断 event-v2 boundary 和 session composition tests；旧实现按预期编译失败，完成后 focused tests、Go 全量和 race 均通过。
+- capture suite 增加第三条 `reader` 路径，并保留现有 `none` 与 JSON；reader-only 统计中 `records_decoded` 表示边界校验成功，`records_routed=0` 是有意的测量结果，不是事件丢失。
+
+#### 验证与实测
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、Python unit `47/47` 和 `git diff --check` 通过；reader-only 不改变 BPF object 或 event ABI。
+- 当前二进制同一 16-thread、每线程 100000 次 `getpid`、128 MiB Ringbuf 高压 capture 的一轮对账为：
+  - `reader`：`trace_sec=1.068832`，`records_read=3,128,104`，`records_decoded=3,128,104`，`records_routed=0`，`records_invalid=0`，`ringbuf_reserve_fail=71,931`。
+  - `none`：`trace_sec=1.107311`，`records_read=2,951,616`，`records_decoded=2,951,616`，`records_routed=2,951,616`，`records_invalid=0`，`ringbuf_reserve_fail=248,419`。
+  - `json`：`trace_sec=2.365757`，`records_read=1,228,327`，`records_decoded=1,228,327`，`records_routed=1,228,327`，`records_invalid=0`，`ringbuf_reserve_fail=1,971,709`。
+- 三种模式都闭合到约 `3,200,035` 次 reservation attempt。首轮 reader-only 比完整 `none` 多读 `176,488` 条，说明 decoder/state/router 已产生可见消费差异；首轮的 `71,931` 次 reader-only reservation failure 在后续重建产物复测中没有复现，因此不能把它单轮解释为稳定的 BPF producer 瓶颈。
+- 重建后二轮同机 capture 为：`reader` `trace_sec=1.200089`、`records_read=3,200,035`、`ringbuf_reserve_fail=0`、`max_remaining_bytes=22,644,136`；`none` `trace_sec=1.210687`、`records_read=2,767,869`、`ringbuf_reserve_fail=432,166`；JSON `trace_sec=2.439722`、`records_read=1,197,556`、`ringbuf_reserve_fail=2,002,479`。这说明该 workload 下轻量 reader 可以跟上 BPF producer，完整 `TraceState/router` 是主要 backpressure 来源，JSON handler/output 又进一步放大压力；`reserve_fail` 仍是内核端表现出来的丢失位置。
+- reader-only 路径没有把 `records_routed=0` 误当作完整语义测试；`ebpf-semantic`、`ebpf-perf` 和 native upstream suite 仍使用正常 text/JSON/none 契约，后续需要在 reader-only 下只验证边界和对账。
+
+#### 决策与 Review
+
+- 保留 reader-only 测量模式。它是测试与性能诊断边界，不是 compat/fast 双轨，也不改变产品默认全部走 eBPF 的运行架构；生产仍是一个 Ringbuf、一个 Go consumer 和原有 event state machine。
+- 当前 event/s 的状态可以明确回答：短 workload 的端到端下降已通过 `trace_sec` 与 setup/cleanup 分解纠正，当前 scalar trace window 约 `26.5k exit/s`；高压真实丢失尚未解决，reader-only 仍观察到 BPF reservation failure。
+- 下一步应优先针对 `TraceState/router` 的 generic enter/exit 热路径做可控 A/B，再分别测量 producer reservation、task-storage helper、固定 record emitter 和 payload family；不能再把 JSON 路径的低速或单轮 wall-clock 差异直接当成 BPF producer 的唯一证据。
+- 本阶段没有引入 ptrace、procfs、process_vm、第二消费者、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

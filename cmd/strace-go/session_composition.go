@@ -352,11 +352,16 @@ func buildTraceSessionRuntime(
 	base traceSessionBaseComponents,
 	router *TraceEventRouter,
 ) traceSessionRuntimeComponents {
-	recordDecoder := traceRingbufRecordDecoder{}
+	var recordDecoder traceRecordDecoder = traceRingbufRecordDecoder{}
+	var eventSink traceEventSink = router
+	if isTraceReaderOnlyPolicy(base.outputPolicy) {
+		recordDecoder = traceRingbufBoundaryDecoder{}
+		eventSink = nil
+	}
 	eventReader := newTraceEventReader(TraceEventReaderDeps{
 		Reader:  deps.Events,
 		Decoder: recordDecoder,
-		Sink:    router,
+		Sink:    eventSink,
 		Clock:   deps.Clock,
 	})
 	return traceSessionRuntimeComponents{

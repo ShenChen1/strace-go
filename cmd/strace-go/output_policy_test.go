@@ -216,6 +216,20 @@ func TestTraceOutputPolicyDiscardsEventsWithoutBecomingJSON(t *testing.T) {
 	}
 }
 
+func TestTraceOutputPolicyReaderOnlyIsDiscardMode(t *testing.T) {
+	policy := newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatReader})
+
+	if !policy.DiscardEvents() {
+		t.Fatal("reader-only policy did not suppress event output")
+	}
+	if !policy.ReaderOnly() {
+		t.Fatal("reader-only policy did not expose reader-only capability")
+	}
+	if policy.IsJSON() {
+		t.Fatal("reader-only policy unexpectedly reports JSON mode")
+	}
+}
+
 func TestTraceRenderPolicyPortsCanBeInjected(t *testing.T) {
 	policy := fakeTraceRenderPolicy{options: traceRenderOptions{
 		time:              traceTimeOptions{printRelativeTime: true},

@@ -141,6 +141,14 @@ func TestParseNoEventFormat(t *testing.T) {
 	}
 }
 
+func TestParseReaderEventFormat(t *testing.T) {
+	opts := ParseArgs([]string{"--event-format=reader", "/bin/true"})
+
+	if opts.EventFormat != EventFormatReader {
+		t.Fatalf("EventFormat = %q, want %q", opts.EventFormat, EventFormatReader)
+	}
+}
+
 func TestParseDefaultsToTextEventFormat(t *testing.T) {
 	opts := ParseArgs([]string{"/bin/true"})
 

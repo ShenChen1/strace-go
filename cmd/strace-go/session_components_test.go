@@ -142,6 +142,20 @@ func TestNoneFormatSkipsPerEventOutputPipeline(t *testing.T) {
 	}
 }
 
+func TestReaderFormatBuildsReaderOnlyConsumer(t *testing.T) {
+	session := newTestTraceSessionWithOptions(&cli.Options{EventFormat: cli.EventFormatReader}, traceSessionDeps{})
+
+	if session.syscallExitPipeline() != nil || session.lifecycleEventHandler() != nil {
+		t.Fatal("reader-only format constructed an event output pipeline")
+	}
+	if session.components.eventReader.sink != nil {
+		t.Fatal("reader-only format still routes records into the event state machine")
+	}
+	if _, ok := session.components.recordDecoder.(traceRingbufBoundaryDecoder); !ok {
+		t.Fatalf("reader-only decoder = %T, want traceRingbufBoundaryDecoder", session.components.recordDecoder)
+	}
+}
+
 func TestTraceSessionEagerGraphUsesOneExitStatusCoordinator(t *testing.T) {
 	session := newTestTraceSession(traceSessionDeps{})
 	components := session.components
