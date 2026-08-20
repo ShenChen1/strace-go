@@ -10060,3 +10060,40 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 最终工作树不保留本实验的 ABI wrapper、固定 emitter 或生成物差异；当前只留下本节的否决记录，`strace-upstream` 仍是既有未跟踪目录。
 - 事件完整性和语义没有问题，回退发生在固定事件的 BPF capture/提交路径成本；因此此前端到端 event/s 下降的解释仍成立：setup/cleanup 固定成本不能与 trace-window 吞吐混用，但 trace-window 内的 BPF 热路径仍需独立优化。
 - 下一阶段应优先用指令级 verifier 输出、真实 Ringbuf contention/drop 压测和 payload capture 分层定位；不再继续堆叠未经 A/B 证明的 emitter API 替换。
+
+### 14.249 按等待轮复用 Ringbuf deadline（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：事件处理已经收敛为单个 Go 消费者；`TraceEventReader.Read` 通过 Cilium Ringbuf reader 同步读取记录，底层 `SetDeadline` 和 `ReadInto` 都受 reader 内部互斥保护。
+- Problem：旧实现每次读取一条记录前都调用 `SetDeadline(now + timeout)`。连续事件到达时，同一个等待轮的 deadline 并没有变化，却为每条事件重复执行一次带锁设置；这会增加用户态热路径开销，并可能在 Ringbuf 高压时进一步放大消费滞后。
+- Goal：只在开始一轮等待时设置 deadline；连续读到记录时复用它；遇到 timeout、flush、close 或其他错误后结束当前等待轮，下一次读取重新设置 deadline。
+- Non-goals：不增加 Goroutine、外部 mutex 或定时器；不修改 Ringbuf 大小、BPF reservation、payload capture、事件 ABI、状态机和丢失策略；不引入 ptrace、procfs 或 process_vm fallback。
+- Constraints：先用 fake reader 验证 deadline 调用次数和等待轮重置，再通过真实 clang/verifier、Go/race/vet、semantic、perf 和 upstream small；吞吐结论必须以交替 A/B 和 runtime error counters 为依据。
+
+#### 方案比较
+
+1. 每条记录刷新 deadline：代码最直接，但保留不必要的 reader mutex 热点，拒绝。
+2. 按等待轮缓存 deadline，空读后重置：不改底层接口，保留 command/lifecycle 的超时边界，选择。
+3. 删除 deadline，依赖阻塞读返回：会阻塞 session 轮询、命令退出检查和 attach 状态刷新，拒绝。
+
+#### 实现与失败优先测试
+
+- `TraceEventReader` 增加单一 `deadlineActive` 状态。第一次 `Read` 设置 deadline；连续成功记录直接调用 `ReadInto`；timeout、flush、close 和其他错误都会清除状态；`Drain` 切换为无限 deadline 后也清除状态，避免 drain 后复用旧等待轮。
+- 修改前新增的 focused test 按预期失败：两条连续记录、一次 timeout、下一轮一条记录会观察到 `4` 次 `SetDeadline`，目标是每轮一次的 `2` 次。实现后该测试验证 deadline 为 `101s` 和 `102s`，并通过。
+- 改动只位于 Go reader 边界，没有新增并发执行单元、共享锁或延迟提交；事件顺序、解码、路由和输出状态机保持原有责任边界。
+
+#### 验证与性能结果
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、`git diff --check` 通过；`sudo -n ./build.sh` 通过，BPF 对象生成和真实 verifier 通过。
+- `ebpf-semantic` 通过：主事件 `197`，enter/exit `100/97`，生命周期事件 `6`；reserve/copy、pending、orphan、mismatch、lifecycle-map 和 stale counters 均为 `0`，payload truncation 为既有 bounded-capture 行为。
+- `ebpf-perf` 通过：Go pipeline 为 decode `355.00 ns/op`、普通 JSON writer `495.80 ns/op`、decoded JSON `606.00 ns/op`，均为 `0 alloc/op`；decoded payload 为 `862.10 ns/op`、`16 B/op`、`1 alloc/op`。事件窗口 exit rate 为 scalar `24649.35/s`、IO `15076.70/s`、lifecycle `85.25/s`、threads `12543.34/s`，所有 runtime counters 为 `0`。
+- 与修改前 clean binary 在同一 `16-thread/160000 syscall` workload 上交替测量：修改后四轮 exit rate 为 `147251.12/144716.52/151696.43/144772.25/s`，均值约 `147109.08/s`；修改前为 `147080.75/146455.31/146579.55/152329.66/s`，均值约 `148111.32/s`。差异约 `0.7%`，不足以宣称稳定加速，且没有观察到语义回退。
+- 在 `16-thread/1,600,000 getpid` 长压 workload 中，修改后解析到 `284995` 个 exit、`138956.53/s`，`ringbuf_reserve_fail=2610738`；修改前为 `283408` 个 exit、`139332.86/s`，`ringbuf_reserve_fail=2615594`。两者都发生约 `260` 万次 reservation 丢失，说明当前主要瓶颈仍是生产速度与单消费者/输出能力之间的压力，不是 deadline 设置本身。
+- native upstream small 为 `23/23 PASS`。这些结果证明本改动保持了现有语义和资源边界，但没有证明高压事件丢失已经解决。
+
+#### 决策与 Review
+
+- 保留按等待轮复用 deadline 的实现：它删除了每条事件一次重复的 deadline 设置和对应的底层 mutex 路径，改动局部、语义明确、无额外并发复杂度；但性能收益记为“未测得稳定加速”，不能作为 event/s 根因修复发布。
+- 高压丢失问题仍未解决。Ringbuf reserve failure 已经可观测，但当前 perf workload 同时包含 JSON 解析、输出和 session 轮询，尚未把 BPF capture、Ringbuf 消费、状态机和输出成本分离。下一阶段应增加 capture-only/stats-only 测量或按 `ringbuf.Record.Remaining` 评估批量轮询，先补对应顺序与生命周期测试，再决定是否重构。
+- 本阶段没有改变 pure-eBPF 约束：运行期仍无 ptrace、procfs、process_vm、第二事件消费者、外部 mutex 或定时器；`strace-upstream` 仍只作为既有未跟踪目录，不纳入本次改动。
