@@ -169,7 +169,7 @@ func (r *traceBPFRuntime) addFilterPID(pid uint32) error {
 	if err := attachRoots.Update(pid, uint32(1), 0); err != nil {
 		return fmt.Errorf("register attach root %d: %w", pid, err)
 	}
-	if err := filterMap.Update(pid, uint32(1), 0); err != nil {
+	if err := filterMap.Update(pid, bpfFilterTaskTracked, 0); err != nil {
 		return errors.Join(
 			fmt.Errorf("add filter pid %d: %w", pid, err),
 			deleteAttachRoot(attachRoots, pid),

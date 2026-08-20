@@ -90,13 +90,18 @@ func TestBPFTrackedMapUpdatesAreChecked(t *testing.T) {
 		t.Fatal("strace.c missing trace_sched_process_fork body")
 	}
 	for _, snippet := range []string{
-		"if (bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY) != 0)",
-		"else if (bpf_map_update_elem(&pre_exec_map, &child_pid, &val, BPF_ANY) != 0)",
-		"bpf_map_delete_elem(&filter_map, &child_pid);",
-		"record_lifecycle_map_update_fail();",
+		"install_pre_exec_filter(child_pid);",
+		"install_tracked_filter(child_pid);",
 	} {
 		if !strings.Contains(forkBody, snippet) {
 			t.Fatalf("fork lifecycle update gate missing %q", snippet)
+		}
+	}
+	for _, name := range []string{"install_pre_exec_filter", "install_tracked_filter"} {
+		body, ok := bpfFunctionBody(readCombinedBPFSources(t), name)
+		if !ok || !strings.Contains(body, "bpf_map_update_elem(&filter_map") ||
+			!strings.Contains(body, "record_lifecycle_map_update_fail();") {
+			t.Fatalf("%s must check filter map update failures", name)
 		}
 	}
 	enterBody, ok := bpfFunctionBody(src.straceSource, "enter_terminating")

@@ -120,7 +120,6 @@ type bpfRecvmsgMapSpecs struct {
 	MmsgBytesProgs     *ebpf.MapSpec `ebpf:"mmsg_bytes_progs"`
 	PendingExecMap     *ebpf.MapSpec `ebpf:"pending_exec_map"`
 	PendingTaskStorage *ebpf.MapSpec `ebpf:"pending_task_storage"`
-	PreExecMap         *ebpf.MapSpec `ebpf:"pre_exec_map"`
 	RecvmsgProgs       *ebpf.MapSpec `ebpf:"recvmsg_progs"`
 	StackTraces        *ebpf.MapSpec `ebpf:"stack_traces"`
 	StatsMap           *ebpf.MapSpec `ebpf:"stats_map"`
@@ -178,7 +177,6 @@ type bpfRecvmsgMaps struct {
 	MmsgBytesProgs     *ebpf.Map `ebpf:"mmsg_bytes_progs"`
 	PendingExecMap     *ebpf.Map `ebpf:"pending_exec_map"`
 	PendingTaskStorage *ebpf.Map `ebpf:"pending_task_storage"`
-	PreExecMap         *ebpf.Map `ebpf:"pre_exec_map"`
 	RecvmsgProgs       *ebpf.Map `ebpf:"recvmsg_progs"`
 	StackTraces        *ebpf.Map `ebpf:"stack_traces"`
 	StatsMap           *ebpf.Map `ebpf:"stats_map"`
@@ -202,7 +200,6 @@ func (m *bpfRecvmsgMaps) Close() error {
 		m.MmsgBytesProgs,
 		m.PendingExecMap,
 		m.PendingTaskStorage,
-		m.PreExecMap,
 		m.RecvmsgProgs,
 		m.StackTraces,
 		m.StatsMap,

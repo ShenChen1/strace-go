@@ -74,9 +74,10 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     u32 tid = (u32)pid_tgid;
     u32 pid = (u32)(pid_tgid >> 32);
 
-    if (!is_lifecycle_task_tracked(pid, tid)) return 0;
+    u32 *filter_flags = lookup_lifecycle_task_filter_flags(pid, tid);
+    if (!filter_flags) return 0;
 
-    if (is_pre_exec_suppressed_syscall(pid, sys_id)) return 0;
+    if (is_pre_exec_suppressed_syscall(filter_flags, sys_id)) return 0;
     u32 key = 0;
     u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
     if (!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)) return 0;
@@ -94,9 +95,10 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u32 tid = (u32)pid_tgid;
     u32 pid = (u32)(pid_tgid >> 32);
-    if (is_pre_exec_suppressed_syscall(pid, sys_id)) return 0;
 
-    if (!is_lifecycle_task_tracked(pid, tid)) return 0;
+    u32 *filter_flags = lookup_lifecycle_task_filter_flags(pid, tid);
+    if (!filter_flags) return 0;
+    if (is_pre_exec_suppressed_syscall(filter_flags, sys_id)) return 0;
     u32 cfg_key = 0;
     u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);
     if (!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)) {

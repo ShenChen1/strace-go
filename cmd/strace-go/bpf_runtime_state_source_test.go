@@ -54,7 +54,8 @@ func TestBPFFDStateTrackingGate(t *testing.T) {
 	for _, snippet := range []string{
 		"} arm_fork_map SEC(\".maps\");",
 		"arm_parent && *arm_parent != 0 && *arm_parent == parent_tgid",
-		"bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY) != 0",
+		"install_pre_exec_filter(child_pid);",
+		"install_tracked_filter(child_pid);",
 		"u64 parent_pid_tgid = bpf_get_current_pid_tgid();",
 		"u32 parent_tid = (u32)parent_pid_tgid;",
 		"is_lifecycle_task_tracked(parent_tgid, parent_tid)",
@@ -67,7 +68,8 @@ func TestBPFFDStateTrackingGate(t *testing.T) {
 	for _, snippet := range []string{
 		"u64 pid_tgid = bpf_get_current_pid_tgid();",
 		"u32 tid = (u32)pid_tgid;",
-		"bpf_map_delete_elem(&pre_exec_map, &tid);",
+		"int pre_exec_owner = clear_pre_exec_filter(tid);",
+		"if (pre_exec_owner) {",
 		"emit_lifecycle_event(LIFECYCLE_EXEC, pid, tid, ctx->old_pid, tid, filename);",
 	} {
 		if !strings.Contains(src.straceSource, snippet) {
@@ -152,8 +154,8 @@ func TestBPFSyscallEnterUsesTIDAwareFilter(t *testing.T) {
 	if !ok {
 		t.Fatal("strace.c missing trace_sys_enter body")
 	}
-	if !strings.Contains(enterBody, "if (!is_lifecycle_task_tracked(pid, tid)) return 0;") {
-		t.Fatal("trace_sys_enter must use the shared PID/TID-aware filter predicate")
+	if !strings.Contains(enterBody, "u32 *filter_flags = lookup_lifecycle_task_filter_flags(pid, tid);") {
+		t.Fatal("trace_sys_enter must use the shared PID/TID-aware filter lookup")
 	}
 	if strings.Contains(enterBody, "bpf_map_lookup_elem(&filter_map, &pid)") {
 		t.Fatal("trace_sys_enter must not use a TGID-only filter lookup")
@@ -223,7 +225,7 @@ func TestBPFExitDispatcherDefersPendingResolveToHandler(t *testing.T) {
 		}
 	}
 	for _, required := range []string{
-		"is_lifecycle_task_tracked(pid, tid)",
+		"u32 *filter_flags = lookup_lifecycle_task_filter_flags(pid, tid);",
 		"should_trace_syscall(sys_id, cfg)",
 		"bpf_tail_call(ctx, &exit_routes, sys_id);",
 	} {
@@ -231,7 +233,7 @@ func TestBPFExitDispatcherDefersPendingResolveToHandler(t *testing.T) {
 			t.Fatalf("trace_sys_exit missing pre-dispatch gate %q", required)
 		}
 	}
-	lifecycleGate := strings.Index(exitBody, "is_lifecycle_task_tracked(pid, tid)")
+	lifecycleGate := strings.Index(exitBody, "u32 *filter_flags = lookup_lifecycle_task_filter_flags(pid, tid);")
 	tailCall := strings.Index(exitBody, "bpf_tail_call(ctx, &exit_routes, sys_id);")
 	if lifecycleGate < 0 || tailCall < lifecycleGate {
 		t.Fatal("trace_sys_exit must filter tracked tasks before the exit tail call")
@@ -286,15 +288,14 @@ func TestBPFInitialForkArmIsExecOwned(t *testing.T) {
 	if !ok {
 		t.Fatal("strace.c missing trace_sched_process_exec body")
 	}
-	lookup := "u32 *pre_exec = bpf_map_lookup_elem(&pre_exec_map, &tid);"
+	lookup := "int pre_exec_owner = clear_pre_exec_filter(tid);"
 	if !strings.Contains(execBody, lookup) {
-		t.Fatalf("exec handler must load the armed-child owner marker %q", lookup)
+		t.Fatalf("exec handler must consume the armed-child owner marker %q", lookup)
 	}
-	ownerGuard := strings.Index(execBody, "if (pre_exec) {")
-	deleteMarker := strings.Index(execBody, "bpf_map_delete_elem(&pre_exec_map, &tid);")
+	ownerGuard := strings.Index(execBody, "if (pre_exec_owner) {")
 	clearArm := strings.Index(execBody, "if (arm_parent && *arm_parent != 0) {")
-	if ownerGuard < 0 || deleteMarker < ownerGuard || clearArm < ownerGuard {
-		t.Fatal("exec handler must delete the marker and clear arm only inside the owner guard")
+	if ownerGuard < 0 || clearArm < ownerGuard {
+		t.Fatal("exec handler must consume the marker and clear arm only inside the owner guard")
 	}
 	if strings.Contains(execBody, "if (tracked) {\n        // IMPACT: always lift pre-exec suppression") {
 		t.Fatal("exec handler must not clear the arm for every tracked exec")
@@ -311,18 +312,15 @@ func TestBPFPreExecSuppressionIsSymmetric(t *testing.T) {
 	if !ok {
 		t.Fatal("strace.c missing trace_sys_enter body")
 	}
-	if !strings.Contains(enterBody, "is_pre_exec_suppressed_syscall(pid, sys_id)") {
+	if !strings.Contains(enterBody, "is_pre_exec_suppressed_syscall(filter_flags, sys_id)") {
 		t.Fatal("trace_sys_enter must use the shared pre-exec suppression helper")
-	}
-	if strings.Contains(enterBody, "bpf_map_lookup_elem(&pre_exec_map, &pid)") {
-		t.Fatal("trace_sys_enter must not duplicate pre-exec map lookup logic")
 	}
 
 	exitBody, ok := bpfFunctionBody(src.straceSource, "trace_sys_exit")
 	if !ok {
 		t.Fatal("strace.c missing trace_sys_exit body")
 	}
-	if !strings.Contains(exitBody, "is_pre_exec_suppressed_syscall(pid, sys_id)") {
+	if !strings.Contains(exitBody, "is_pre_exec_suppressed_syscall(filter_flags, sys_id)") {
 		t.Fatal("trace_sys_exit must use the shared pre-exec suppression helper")
 	}
 }

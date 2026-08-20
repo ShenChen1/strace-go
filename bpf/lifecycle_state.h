@@ -17,6 +17,45 @@ static __always_inline void clear_armed_fork_parent(u32 pid)
     }
 }
 
+static __always_inline int install_pre_exec_filter(u32 tid)
+{
+    u32 value = FILTER_TASK_TRACKED | FILTER_TASK_PRE_EXEC;
+    if (bpf_map_update_elem(&filter_map, &tid, &value, BPF_ANY) != 0) {
+        record_lifecycle_map_update_fail();
+        return 0;
+    }
+    return 1;
+}
+
+static __always_inline int install_tracked_filter(u32 tid)
+{
+    u32 value = FILTER_TASK_TRACKED;
+    u32 *existing = bpf_map_lookup_elem(&filter_map, &tid);
+    if (existing) {
+        value |= *existing & FILTER_TASK_PRE_EXEC;
+    }
+    if (bpf_map_update_elem(&filter_map, &tid, &value, BPF_ANY) != 0) {
+        record_lifecycle_map_update_fail();
+        return 0;
+    }
+    return 1;
+}
+
+static __always_inline int clear_pre_exec_filter(u32 tid)
+{
+    u32 *flags = bpf_map_lookup_elem(&filter_map, &tid);
+    if (!flags || !(*flags & FILTER_TASK_PRE_EXEC)) {
+        return 0;
+    }
+
+    u32 value = *flags & ~FILTER_TASK_PRE_EXEC;
+    if (bpf_map_update_elem(&filter_map, &tid, &value, BPF_ANY) != 0) {
+        record_lifecycle_map_update_fail();
+        return 0;
+    }
+    return 1;
+}
+
 static __always_inline void clear_process_lifecycle_state(u32 pid)
 {
     bpf_map_delete_elem(&filter_map, &pid);
@@ -49,7 +88,6 @@ static __always_inline int is_exec_replaced_leader(
 static __always_inline void clear_replaced_leader_task_state(u32 tid)
 {
     clear_pending_task_state();
-    bpf_map_delete_elem(&pre_exec_map, &tid);
 }
 
 // Lifecycle cleanup is split by ownership: pending state is TID-scoped, while
@@ -57,7 +95,6 @@ static __always_inline void clear_replaced_leader_task_state(u32 tid)
 static __always_inline void clear_lifecycle_task_state(u32 pid, u32 tid)
 {
     clear_pending_task_state();
-    bpf_map_delete_elem(&pre_exec_map, &tid);
 
     if (tid != pid) {
         u32 *pending_tid = bpf_map_lookup_elem(&pending_exec_map, &pid);

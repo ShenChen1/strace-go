@@ -21,13 +21,7 @@ int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {
     u32 arm_key = 0;
     u32 *arm_parent = bpf_map_lookup_elem(&arm_fork_map, &arm_key);
     if (arm_parent && *arm_parent != 0 && *arm_parent == parent_tgid) {
-        u32 val = 1;
-        if (bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY) != 0) {
-            record_lifecycle_map_update_fail();
-        } else if (bpf_map_update_elem(&pre_exec_map, &child_pid, &val, BPF_ANY) != 0) {
-            record_lifecycle_map_update_fail();
-            bpf_map_delete_elem(&filter_map, &child_pid);
-        }
+        install_pre_exec_filter(child_pid);
     }
 
     if (!is_lifecycle_task_tracked(parent_tgid, parent_tid)) return 0;
@@ -35,10 +29,7 @@ int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {
     u32 cfg_key = 0;
     u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);
     if (cfg && (*cfg & CONFIG_FOLLOW_FORKS)) {
-        u32 val = 1;
-        if (bpf_map_update_elem(&filter_map, &child_pid, &val, BPF_ANY) != 0) {
-            record_lifecycle_map_update_fail();
-        }
+        install_tracked_filter(child_pid);
     }
     emit_lifecycle_event(LIFECYCLE_FORK, parent_tgid, parent_tid, parent_tgid, child_pid, 0);
     return 0;
@@ -56,13 +47,12 @@ int trace_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx) {
     // governed by follow-forks instead.
     u32 arm_key = 0;
     u32 *arm_parent = bpf_map_lookup_elem(&arm_fork_map, &arm_key);
-    u32 *pre_exec = bpf_map_lookup_elem(&pre_exec_map, &tid);
     int tracked = is_lifecycle_task_tracked(pid, tid);
     if (tracked) {
         // IMPACT: only an armed child may consume the initial-fork arm;
         // unrelated tracked execs must not clear another target's startup arm.
-        if (pre_exec) {
-            bpf_map_delete_elem(&pre_exec_map, &tid);
+        int pre_exec_owner = clear_pre_exec_filter(tid);
+        if (pre_exec_owner) {
             if (arm_parent && *arm_parent != 0) {
                 u32 zero = 0;
                 if (bpf_map_update_elem(&arm_fork_map, &arm_key, &zero, BPF_ANY) != 0) {

@@ -10443,3 +10443,77 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 以 task storage 版本的 `reserve_fail + records_read` 和零 pending failure 作为基线，继续分层测量 BPF reservation attempt、固定 record 大小、payload 深拷贝、handler 指令成本和 JSON/output 消费成本。
 - 不再通过扩大 pending map 或重复调整 task state 解决 Ringbuf drop；下一项优化必须先证明 producer/consumer 某一段的独立成本，再做同 fixture 交替 A/B。
 - 继续保持一个 Ringbuf、一个 Go consumer、纯 eBPF 事件时点和语义 oracle；下一阶段仍需运行 semantic、perf、capture、native small 及针对性 upstream exact tests。
+
+### 14.258 否决自定义 mmap/epoll Ringbuf reader（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：Cilium `ringbuf.Reader` 的 `ReadInto` 每条 record 都经过 reader 内部锁和 epoll 等待；高压 capture 中 BPF `ringbuf_reserve` failure 仍然明显，需要确认用户态 reader 是否是主要瓶颈。
+- Problem：自行实现 mmap reader 可能绕过接口层开销，但必须重新维护 consumer position、record header 校验、busy/discard 状态、内存可见性、epoll 唤醒、deadline、close 和 Ringbuf overwrite 语义；错误实现会比现有 reader 更难诊断。
+- Goal：用失败优先测试验证一个单消费者 reader 的最小 record 生命周期，再与 Cilium reader 在相同 128 MiB fixture 上 A/B，只有稳定减少 `reserve_fail` 并提高 `records_read` 才保留。
+- Non-goals：不增加第二消费者、Goroutine、外部 mutex、定时器或 ptrace/procfs fallback；不改变 event v2、decoder、router、output 和 session drain 语义。
+- Constraints：reader 必须保持 `TraceEventReader` 的唯一解码入口；A/B 必须同时报告 `trace_sec`、`reserve_fail + records_read`、`records_invalid` 和 `records_routed`，不能只看 wall-clock。
+
+#### 方案比较
+
+1. 保留 Cilium `ringbuf.Reader`：底层边界和 close 语义由依赖维护，风险最低，作为基线。
+2. 使用一次性 `poll` 加 mmap 扫描：理论上可减少接口调用，但会复制 record 可见性和等待语义，且首次实现容易在 burst/close 边界漏读，否决。
+3. 使用持久 epoll 加 mmap 扫描：比一次性 poll 更接近 Cilium 等待模型，但仍需自行证明所有 Ringbuf 状态转换，实测没有收益，否决。
+
+#### 实现与失败优先测试
+
+- 新增 Linux reader focused test，先要求 fixture 中存在两个提交 record、空 Ringbuf flush、backlog remaining 和 close 后读错误；旧代码因 reader 类型不存在按预期失败。
+- 临时实现只放在工作树中，先用 mmap 读取 record，再改为持久 epoll；每个版本都复用 `TraceEventReader` 的 decoder、stats 和 router，不引入第二事件处理路径。
+- focused reader tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、BPF build/verifier、semantic、perf 和 native `small` 均可通过，说明实验的主要问题不是语义正确性，而是吞吐没有改善。
+
+#### A/B 结果与决策
+
+- Cilium baseline 一轮 `none` 为 `trace_sec=1.101153`、`records_read=2,925,455`、`reserve_fail=274,580`；JSON 为 `2.355831s`、`1,184,349`、`2,015,686`。
+- 临时 mmap reader 一轮 `none` 为 `1.112846s`、`2,902,042`、`297,994`；JSON 为 `2.329550s`、`1,211,984`、`1,988,052`。随后改为持久 epoll 的一轮 `none` 变为 `1.273333s`、`2,081,562`、`1,118,473`，JSON 为 `2.349807s`、`1,209,147`、`1,990,888`。
+- 重复轮次方向不稳定：有时 mmap reader 与 Cilium 接近，有时 `none` 明显更差，JSON 仍处于同一压力区间；`records_read=records_decoded=records_routed` 的闭环没有改变，说明主要丢失仍发生在 BPF reservation，而不是 reader 解码或 router。
+- 决策：删除临时 mmap/epoll reader，恢复 `ringbuf.NewReader`。自定义 reader 没有形成稳定 event/s 或 drop-rate 收益，维护的状态面却显著扩大；后续优化必须先证明 producer 或 output consumer 的独立成本。
+
+#### Review
+
+- 最终工作树没有保留 mmap position、epoll fd、额外 reader 状态或新的并发单元；Ringbuf 仍是一个 producer stream、一个 Go consumer。
+- 本实验没有使用 procfs、ptrace、process_vm，也没有把 Cilium reader 的内部锁暴露到业务层；`Record.Remaining` 的有界 batch 仍是现有 session 层优化，不与本实验混为 reader 替换。
+- 当前 event/s 结论保持不变：短 workload 的端到端速率受 setup/cleanup 固定成本稀释；长高压 workload 的真实 drop 仍由 BPF producer 与单 Go consumer/output 的稳态速率差造成，尚未解决。
+
+### 14.259 将 pre-exec owner 合并到 filter flags（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：每次 raw `sys_enter/sys_exit` 都必须判断任务是否被跟踪，同时还要查一个只在初始 fork 到首次 exec 窗口存在的 `pre_exec_map`。普通任务也会为这个稀有状态支付一次额外 Hash lookup。
+- Problem：继续保留独立 Hash 最稳但保留热路径重复查表；把 marker 放到 task storage 会混淆 process startup ownership 与当前 task pending ownership；直接删除 marker 则会让启动子进程内部 syscall 泄漏到事件流。
+- Goal：把 `FILTER_TASK_PRE_EXEC` 作为已有 `filter_map` value 的标志位，并让 raw dispatcher 一次查出 `(TGID,TID)` 对应的 flags，enter/exit 对称复用该指针；生命周期稀有路径负责设置、保留和清除标志。
+- Non-goals：不改变 initial-fork arm owner 语义、follow-forks 继承、exec lifecycle event、pending task storage、event ABI、输出顺序或 filter map 的 process/TID ownership。
+- Constraints：必须先有旧实现会失败的 source gate；armed child 与 follow-forks 同时命中时必须保留 `PRE_EXEC` 位；filter map update 失败必须计数；真实 verifier、semantic、perf、capture 和 native small 必须通过。
+
+#### 方案比较
+
+1. 保留独立 `pre_exec_map`：改动最小、生命周期最直观，但每个 raw syscall 多一次 Hash lookup，拒绝作为最终热路径。
+2. 把 marker 放进 task storage：普通 raw syscall 可以复用当前 task state，但 marker 的进程启动 owner 生命周期与 pending syscall 不同，且会把两个所有权概念耦合，拒绝。
+3. 合并到 `filter_map` value 并一次返回 flags：只增加 lifecycle 稀有路径的位维护，raw enter/exit 共用一次 filter lookup，选择。
+
+#### 实现与失败优先测试
+
+- 先新增 `TestBPFFilterFlagsOwnPreExecState` 和 `TestBPFRawDispatchUsesOneFilterLookup`；旧源码因缺少 flags、helper 和单 lookup gate 失败，完成后通过。
+- `runtime_abi.h` 定义 `FILTER_TASK_TRACKED=1` 与 `FILTER_TASK_PRE_EXEC=2`，删除 `pre_exec_map`；`lookup_lifecycle_task_filter_flags(pid, tid)` 只返回带 tracked 位的 map value。
+- `trace_sys_enter` 与 `trace_sys_exit` 先获得同一个 `filter_flags` 指针，再对称调用 `is_pre_exec_suppressed_syscall(filter_flags, sys_id)`；这同时消除了独立 pre-exec Hash lookup 和前后两次重复的 filter lookup。
+- fork arm 使用 `install_pre_exec_filter` 写入 `TRACKED|PRE_EXEC`；follow-forks 使用 `install_tracked_filter`，先保留已有 `PRE_EXEC` 位再更新；exec 使用 `clear_pre_exec_filter`，只有成功消费 owner 标记后才清理 `arm_fork_map`。所有 map update 失败复用 `lifecycle_map_update_fail`。
+- Go map catalog 和生成 bindings 同步删除 `pre_exec_map`，attach root 写入使用显式 `bpfFilterTaskTracked` 常量，避免用户态继续依赖未命名的 `1`。
+
+#### 验证与 A/B 结果
+
+- `sudo -n ./build.sh`、`go test ./...`、`go test -race ./...`、`go vet ./...`、`git diff --check` 和真实 verifier 均通过；生成 object/bindings 中不再存在 `pre_exec_map`，source gate 通过。
+- `ebpf-semantic` 通过：主事件 `197`，enter/exit `100/97`，生命周期 `6`；`ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`lifecycle_map_update_fail` 均为 `0`。
+- `ebpf-perf` 通过：Go decode `350.70 ns/op`、JSON writer `488.60 ns/op`，均为 `0 alloc/op`；trace-window exit rate 为 scalar `26728.73/s`、IO `16755.87/s`、lifecycle `85.14/s`、threads `15056.23/s`，运行期错误计数均为 `0`。
+- 同一 16-thread、每线程 100000 次 `getpid` capture 的未固定 CPU 样本为：当前 `none` `trace_sec=1.111211`、`records_read=2,866,505`、`reserve_fail=333,530`，JSON `2.385795s`、`1,205,536`、`1,994,499`；旧 Hash baseline 的同类一轮为 `none` `1.269625s`、`2,107,321`、`1,092,714`，JSON `2.363427s`、`1,197,916`、`2,002,119`，调度噪声较大。
+- 为降低调度差异，current/baseline 交替固定在 CPU 2 重跑：current `none` `records_read=1,190,409`、`reserve_fail=2,009,626`，JSON `1,091,716`、`2,108,319`；baseline `none` `1,194,749`、`2,005,286`，JSON `1,091,713`、`2,108,323`。两者几乎相同，说明本项没有形成可宣称的高压 event/s 收益。
+- native `small` 为 `23 PASS`；所有 capture 都满足 `records_read=records_decoded=records_routed`、`records_invalid=0`，且 reservation 对账闭合到约 `3,200,035` 次尝试。
+
+#### 决策与 Review
+
+- 保留 flags 合并。它删除了一个独立 BPF map 和普通 raw syscall 的稀有状态查表，同时保持 initial-fork owner、exec suppression 对称性和生命周期清理语义；这是最终架构中更干净的状态布局。
+- 不把本阶段标记为 event/s 根因修复。受控 A/B 没有稳定提高 `records_read`，高压 reservation failure 仍然存在；此前 event/s 下降仍需拆成端到端固定成本与 trace-window producer/consumer 竞争两部分。
+- 当前实现仍然是纯 eBPF、一个 Ringbuf、一个 Go consumer、无 ptrace/procfs/process_vm、无额外事件 Goroutine、mutex 或定时器；下一步继续针对固定 record/payload family、BPF helper 成本和 output consumer 做独立测量。

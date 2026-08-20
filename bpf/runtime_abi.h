@@ -36,6 +36,8 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define CONFIG_SYSCALL_FILTER_NEGATED 16
 #define CONFIG_EMIT_LIFECYCLE 32
 #define CONFIG_FD_STATE 64
+#define FILTER_TASK_TRACKED 1
+#define FILTER_TASK_PRE_EXEC 2
 #define EVENT_V2_HEADER_LEN 40
 #define EVENT_V2_ENTER_BODY_LEN 72
 #define EVENT_V2_EXIT_BODY_LEN 80
@@ -254,13 +256,6 @@ struct {
     __type(key, u32);
     __type(value, u32);
 } arm_fork_map SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 1024);
-    __type(key, u32);
-    __type(value, u32);
-} pre_exec_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);

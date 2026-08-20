@@ -3,10 +3,12 @@
 
 // IMPACT: pre-exec child syscalls are intentionally suppressed on both raw
 // syscall edges, so their exits cannot be mistaken for attach or map loss.
-static __always_inline int is_pre_exec_suppressed_syscall(u32 pid, u32 sys_id)
+static __always_inline int is_pre_exec_suppressed_syscall(
+    u32 *filter_flags,
+    u32 sys_id)
 {
-    u32 *pre_exec = bpf_map_lookup_elem(&pre_exec_map, &pid);
-    return pre_exec && !is_exec_payload_direct_syscall(sys_id);
+    return filter_flags && (*filter_flags & FILTER_TASK_PRE_EXEC) &&
+        !is_exec_payload_direct_syscall(sys_id);
 }
 
 static __always_inline int is_exec_restart_return(s64 ret_value)

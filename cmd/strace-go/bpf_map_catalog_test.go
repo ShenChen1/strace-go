@@ -110,7 +110,6 @@ func TestBPFRuntimeMapConsumersUseCatalog(t *testing.T) {
 			".MmsgBytesProgs",
 			".PendingExecMap",
 			".PendingTaskStorage",
-			".PreExecMap",
 			".RecvmsgProgs",
 			".StackTraces",
 			".StatsMap",

@@ -108,15 +108,24 @@ static __always_inline void emit_lifecycle_event(
     emit_lifecycle_event_v2_direct(kind, pid, tid, arg0, arg1, snapshot_str);
 }
 
-static __always_inline int is_lifecycle_task_tracked(u32 pid, u32 tid)
+static __always_inline u32 *lookup_lifecycle_task_filter_flags(u32 pid, u32 tid)
 {
-    if (bpf_map_lookup_elem(&filter_map, &pid)) {
-        return 1;
+    u32 *flags = bpf_map_lookup_elem(&filter_map, &pid);
+    if (flags && (*flags & FILTER_TASK_TRACKED)) {
+        return flags;
     }
-    if (tid != pid && bpf_map_lookup_elem(&filter_map, &tid)) {
-        return 1;
+    if (tid != pid) {
+        flags = bpf_map_lookup_elem(&filter_map, &tid);
+        if (flags && (*flags & FILTER_TASK_TRACKED)) {
+            return flags;
+        }
     }
     return 0;
+}
+
+static __always_inline int is_lifecycle_task_tracked(u32 pid, u32 tid)
+{
+    return lookup_lifecycle_task_filter_flags(pid, tid) != 0;
 }
 
 static __always_inline void mark_attach_task_exited(u32 tid)
