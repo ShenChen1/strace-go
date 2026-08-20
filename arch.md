@@ -10706,3 +10706,41 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 之前 event/s 大幅下降的主要原因已经更具体：用户态 `TraceState/router`、handler/FD effect 和 JSON/output 的固定成本造成 Ringbuf 背压；本阶段已消除高频无 payload handler 的 heap allocation，但完整高压模式仍有较多 `ringbuf_reserve_fail`，因此整体问题尚未根治。
 - 下一阶段仍需拆分 `TraceState/router`、text/JSON output 和 BPF producer 的长 workload 消费上限；reader-only 的无损结果不能替代完整语义路径的丢失率结论。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外事件 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.265 删除 dead pointer 数据流并缩短 state-only 路径（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.264 后完整 eBPF consumer 仍在 `TraceState`/router 上产生背压；5 秒 CPU profile 显示 `decodeTraceEventV2Envelope` 约占 36%，其中每条事件都会查 `syscallMeta` 并计算 `primarySyscallPointer`。
+- Problem：`traceEventEnvelope.ptr` 和 `syscallEventView.ptr` 在当前纯 eBPF 输出链路没有任何运行时消费者；它只被 decoder 计算、view 搬运和历史测试 fixture 使用。JSON/text 已从 payload/path snapshot 或 syscall args 直接渲染，不会读取这个 pointer。与此同时，关闭 unfinished 输出后，state 仍对两个未使用的索引执行 map delete。
+- Goal：删除不再有语义用途的 pointer 数据流和计算，降低每条 event 的 metadata lookup 与 value copy；关闭 unfinished 时直接跳过索引操作；保持 event v2 wire ABI、TLV payload ownership、路径参数解码和生命周期语义不变。
+- Non-goals：不改变 BPF producer、Ringbuf、event v2 wire layout、路径快照、ptrace/procfs/process_vm 行为，不新增消费者、锁、定时器或产品模式。
+- Constraints：`primaryPathArgIndex` 仍是路径参数解码的共享能力，不能随 dead pointer 一起删除；payload projector 不再接收无用 `meta.Syscall` 参数；完整 high-pressure capture 必须继续报告 `records_read + ringbuf_reserve_fail`。
+
+#### 方案比较
+
+1. 保留 pointer 并缓存 syscall metadata：可以避免部分重复查表，但保留无消费者字段并扩大 envelope/view，拒绝。
+2. 将 pointer 改为按需计算：只有现有无调用者的潜在路径得到保留，仍然增加复杂度，拒绝。
+3. 删除 `ptr` 字段、`primarySyscallPointer` 和仅为它服务的输入 payload 扫描；保留 `primaryPathArgIndex` 给真实路径解码使用，选择。
+4. unfinished 索引继续无条件 delete、只加 nil map 检查或在关闭时走独立 state 实现：前者仍有固定分支/map 成本，后者扩大状态架构；以 `unfinishedEnabled` 作为 owner gate，选择。
+
+#### 实现与失败优先测试
+
+- 删除 `traceEventEnvelope.ptr`、`syscallEventView.ptr`、`primarySyscallPointer` 和 `primaryInputStringPayloadPointer`；同步删除 decoder 中每条事件的 metadata lookup 和 pointer scan。`primaryPathArgIndex` 保留，路径参数测试仍通过。
+- `payloadSectionsForRawPayloadEvent` 删除未使用的 `meta.Syscall` 参数，使 payload projection 的输入只包含真实需要的 raw event。
+- `deleteUnfinishedCandidate` 在 `unfinishedEnabled=false` 时立即返回；新增回归测试锁定 disabled index 不被触碰，保留 enabled 场景的排序、requeue、in-flight 语义测试。
+- 增加 `BenchmarkTraceEventDecodeStateWithoutUnfinished`，与实际 `none` state-only composition 一致；原有 benchmark 保留，用于对比 unfinished 开启时的通用状态成本。
+
+#### 验证与实测
+
+- decoder/state focused tests、`go test ./...`、`go test -race ./...`、`go vet ./...`、Python unit `47/47`、`ebpf-semantic` 均通过；semantic 主事件 `197`，enter/exit `100/97`，lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map-update 错误均为 `0`。
+- 代表性 5 秒 benchmark：改动前 `BenchmarkTraceEventDecodeState` 约 `344.3 ns/op`；删除 pointer 后约 `334.1 ns/op`，均为 `0 B/op、0 allocs/op`。多轮 2 秒复测中，普通 state 约 `332.5-370.5 ns/op`，关闭 unfinished 的 state-only 约 `312.9-325.9 ns/op`，保留调度噪声，不宣称固定倍率。
+- 当前二进制四路 capture 对账到约 `3,200,035` 次 reservation attempt：reader `3,200,035/0`、none `2,215,434/984,601`、handler `1,545,227/1,654,808`、JSON `1,238,554/1,961,482`，格式为 `records_read/ringbuf_reserve_fail`。各路 `records_invalid=0`，`records_decoded=records_read`，正常 routed 路径 `records_routed=records_read`；高压 handler/JSON 的 reservation failure 仍存在。
+- 因为高压 fixture 受调度和 Ringbuf burst 影响，本轮不能证明完整 event/s 已根治；本阶段只证明 decoder/state 固定成本下降，reader 仍是 producer 可跟上的上限，完整语义和输出路径仍需继续拆分。
+
+#### 决策与 Review
+
+- 保留这项删除型优化。它不改变 BPF ABI 和事件时点，且删除的是当前运行时无消费者的用户态字段；路径 fallback 仍由 event-sourced payload/path arguments 提供，不引入任何 tracee memory 读取。
+- `unfinishedEnabled` 是 session composition 时确定的状态能力；关闭时索引已经被清空，gate 不会影响 text 模式。高压丢失时出现的少量 `pending_stale` 只反映 producer 丢失造成的 enter/exit 不完整，不是本改动新增的 fallback。
+- 下一阶段继续 profile `TraceState` 的 map bookkeeping、router envelope 传递和 output producer；每次只接受语义回归通过且 `records_read + reserve_fail` 闭合的 A/B 结果。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、第二事件消费者、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

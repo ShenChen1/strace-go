@@ -118,3 +118,25 @@ func stringPayloadSectionText(
 	}
 	return "", false
 }
+
+func primaryPathArgIndex(scMeta meta.Syscall) (int, bool) {
+	for index, name := range scMeta.Args {
+		if index >= 6 {
+			return 0, false
+		}
+		if isPrimaryPathArgName(name) {
+			return index, true
+		}
+	}
+	return 0, false
+}
+
+func isPrimaryPathArgName(name string) bool {
+	switch name {
+	case "filename", "pathname", "path", "oldname", "newname", "oldpath", "newpath",
+		"from_pathname", "to_pathname", "fs_name":
+		return true
+	default:
+		return false
+	}
+}

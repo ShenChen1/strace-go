@@ -303,7 +303,6 @@ func TestTraceStateExitUpdateCarriesSyscallResultView(t *testing.T) {
 		eventType:    bpfEventTypeExit,
 		ret:          -2,
 		duration:     55,
-		ptr:          0x1234,
 		stackID:      7,
 		probeRetExit: -1,
 	}
@@ -311,7 +310,7 @@ func TestTraceStateExitUpdateCarriesSyscallResultView(t *testing.T) {
 	update := state.handleEnvelope(envelope)
 	view := update.syscallView
 
-	if view.ret != -2 || view.duration != 55 || view.ptr != 0x1234 ||
+	if view.ret != -2 || view.duration != 55 ||
 		view.stackID != 7 || view.probeRetExit != -1 {
 		t.Fatalf("exit syscall view = %+v, want result fields from envelope", view)
 	}

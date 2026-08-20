@@ -174,7 +174,6 @@ func TestSyscallEventContextIgnoresLegacyPathStringBuffer(t *testing.T) {
 		tid:           101,
 		sysID:         syscallIDByName(t, "openat"),
 		args:          [6]uint64{rawAtFdcwd, 0x1000, 0},
-		ptr:           0x1000,
 		probeRetEnter: 0,
 		ret:           -2,
 	}

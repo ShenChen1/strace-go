@@ -4,10 +4,9 @@ import (
 	"encoding/base64"
 
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
 )
 
-func payloadSectionsForRawPayloadEvent(raw rawPayloadEvent, _ meta.Syscall) []handler.PayloadSection {
+func payloadSectionsForRawPayloadEvent(raw rawPayloadEvent) []handler.PayloadSection {
 	if sections, ok := payloadTLVSectionsForRaw(raw); ok {
 		return sections
 	}

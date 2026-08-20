@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
 )
 
 func TestPayloadSectionsDecodeFDStateTLV(t *testing.T) {
@@ -26,7 +25,7 @@ func TestPayloadSectionsDecodeFDStateTLV(t *testing.T) {
 		data:       payload,
 	}
 
-	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "openat"})
+	sections := payloadSectionsForRawPayloadEvent(raw)
 	if len(sections) != 1 {
 		t.Fatalf("sections = %d, want one FD state section", len(sections))
 	}
@@ -60,7 +59,7 @@ func TestPayloadSectionsPreserveFailedFDStateTLV(t *testing.T) {
 		data:       payload,
 	}
 
-	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "open"})
+	sections := payloadSectionsForRawPayloadEvent(raw)
 	if len(sections) != 1 || sections[0].Kind != handler.PayloadKindFDState || sections[0].ProbeRet != -14 {
 		t.Fatalf("failed FD state section = %+v, want explicit probe failure", sections)
 	}

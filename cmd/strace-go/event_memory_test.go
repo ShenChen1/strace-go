@@ -33,7 +33,6 @@ func TestJSONEventPathDoesNotReadTraceeMemory(t *testing.T) {
 		eventVersion:  2,
 		eventType:     bpfEventTypeExit,
 		args:          [6]uint64{rawAtFdcwd, pathPtr, 0},
-		ptr:           pathPtr,
 		probeRetEnter: -3,
 		ret:           3,
 	})
@@ -69,7 +68,6 @@ func TestJSONHandlerContextDoesNotReadTraceeMemory(t *testing.T) {
 		eventVersion:  2,
 		eventType:     bpfEventTypeExit,
 		args:          [6]uint64{rawAtFdcwd, pathPtr, howPtr, 24},
-		ptr:           pathPtr,
 		probeRetEnter: -3,
 		ret:           3,
 	})
@@ -101,7 +99,6 @@ func TestTextEventPathDoesNotReadTraceeMemory(t *testing.T) {
 		eventVersion:  2,
 		eventType:     bpfEventTypeExit,
 		args:          [6]uint64{rawAtFdcwd, pathPtr, 0},
-		ptr:           pathPtr,
 		probeRetEnter: -3,
 		ret:           3,
 	})

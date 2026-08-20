@@ -16,7 +16,6 @@ type traceEventEnvelope struct {
 	args            [6]uint64
 	ret             int64
 	duration        uint64
-	ptr             uint64
 	stackID         int32
 	probeRetEnter   int32
 	probeRetExit    int32
@@ -52,7 +51,6 @@ func (envelope traceEventEnvelope) syscallView() syscallEventView {
 		ret:           envelope.ret,
 		duration:      envelope.duration,
 		enterTime:     envelope.enterTime,
-		ptr:           envelope.ptr,
 		stackID:       envelope.stackID,
 		probeRetEnter: envelope.probeRetEnter,
 		probeRetExit:  envelope.probeRetExit,

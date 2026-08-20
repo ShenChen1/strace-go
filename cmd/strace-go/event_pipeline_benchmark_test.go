@@ -64,6 +64,31 @@ func BenchmarkTraceEventDecodeState(b *testing.B) {
 	}
 }
 
+func BenchmarkTraceEventDecodeStateWithoutUnfinished(b *testing.B) {
+	sysID := benchmarkSyscallID("getpid")
+	enterRaw := benchmarkTraceEventV2Sample(bpfEventTypeEnter, sysID, 1000, 0, 0)
+	exitRaw := benchmarkTraceEventV2Sample(bpfEventTypeExit, sysID, 1050, 50, 0)
+	state := newTraceStateWithDeferredExit(false)
+	state.setUnfinishedEnabled(false)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		enter, ok := decodeTraceEventV2Envelope(enterRaw)
+		if !ok {
+			b.Fatal("benchmark enter sample was rejected")
+		}
+		state.handleEnvelope(enter)
+
+		exit, ok := decodeTraceEventV2Envelope(exitRaw)
+		if !ok {
+			b.Fatal("benchmark exit sample was rejected")
+		}
+		update := state.handleEnvelope(exit)
+		state.releaseTraceStateUpdate(update)
+	}
+}
+
 func BenchmarkTraceEventContextHandler(b *testing.B) {
 	session := newTestTraceSessionWithOptions(&cli.Options{EventFormat: cli.EventFormatHandler}, traceSessionDeps{
 		TargetPID: 101,

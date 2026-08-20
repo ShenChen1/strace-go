@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"testing"
-
-	"strace-go/pkg/meta"
 )
 
 type wantPathJSONPayloadSection struct {
@@ -57,7 +55,7 @@ func TestPayloadSectionsForRawPayloadEventDoesNotUseFixedOpenatPathPayload(t *te
 		data:          []byte("legacy\x00"),
 	}
 
-	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "openat"})
+	sections := payloadSectionsForRawPayloadEvent(raw)
 	if len(sections) != 0 {
 		t.Fatalf("PayloadSections = %d, want no fixed openat path fallback", len(sections))
 	}

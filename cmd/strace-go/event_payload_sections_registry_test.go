@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
 )
 
 func TestPayloadSectionsForEventUsesRawTLVStructSection(t *testing.T) {
@@ -29,7 +28,7 @@ func TestPayloadSectionsForEventUsesRawTLVStructSection(t *testing.T) {
 		data:          payload,
 	}
 
-	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "stat"})
+	sections := payloadSectionsForRawPayloadEvent(raw)
 	if len(sections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(sections))
 	}
@@ -60,7 +59,7 @@ func TestPayloadSectionsForEventUsesRawTLVStringSection(t *testing.T) {
 		data:          payload,
 	}
 
-	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "chdir"})
+	sections := payloadSectionsForRawPayloadEvent(raw)
 	if len(sections) != 1 {
 		t.Fatalf("PayloadSections = %d, want 1", len(sections))
 	}

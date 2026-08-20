@@ -39,7 +39,6 @@ type syscallEventView struct {
 	ret           int64
 	duration      uint64
 	enterTime     uint64
-	ptr           uint64
 	stackID       int32
 	probeRetEnter int32
 	probeRetExit  int32

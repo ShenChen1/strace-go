@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"strace-go/pkg/handler"
-	"strace-go/pkg/meta"
 )
 
 func TestPayloadSectionsForEventUsesTLVSections(t *testing.T) {
@@ -24,7 +23,7 @@ func TestPayloadSectionsForEventUsesTLVSections(t *testing.T) {
 		data:       payload,
 	}
 
-	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "openat"})
+	sections := payloadSectionsForRawPayloadEvent(raw)
 
 	if len(sections) != 1 {
 		t.Fatalf("sections = %d, want 1", len(sections))
@@ -55,7 +54,7 @@ func TestPayloadSectionsForRawPayloadEventUsesTLVSections(t *testing.T) {
 		data:       payload,
 	}
 
-	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "openat"})
+	sections := payloadSectionsForRawPayloadEvent(raw)
 
 	if len(sections) != 1 {
 		t.Fatalf("sections = %d, want 1", len(sections))
@@ -88,7 +87,7 @@ func TestPayloadSectionsForRawPayloadEventUsesStructTLVSection(t *testing.T) {
 		data:       payload,
 	}
 
-	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "clock_gettime"})
+	sections := payloadSectionsForRawPayloadEvent(raw)
 
 	if len(sections) != 1 {
 		t.Fatalf("sections = %d, want 1", len(sections))
@@ -119,7 +118,7 @@ func TestPayloadSectionsForRawPayloadEventUsesCmsgTLVSection(t *testing.T) {
 		data:       payload,
 	}
 
-	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "sendmsg"})
+	sections := payloadSectionsForRawPayloadEvent(raw)
 
 	if len(sections) != 1 {
 		t.Fatalf("sections = %d, want 1", len(sections))
@@ -153,7 +152,7 @@ func TestPayloadSectionsForRawPayloadEventUsesStatTLVSection(t *testing.T) {
 		data:       payload,
 	}
 
-	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "fstat"})
+	sections := payloadSectionsForRawPayloadEvent(raw)
 
 	if len(sections) != 1 {
 		t.Fatalf("sections = %d, want 1", len(sections))
@@ -187,7 +186,7 @@ func TestPayloadSectionsForRawPayloadEventUsesStatfsTLVSection(t *testing.T) {
 		data:       payload,
 	}
 
-	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "fstatfs"})
+	sections := payloadSectionsForRawPayloadEvent(raw)
 
 	if len(sections) != 1 {
 		t.Fatalf("sections = %d, want 1", len(sections))
@@ -228,7 +227,7 @@ func TestPayloadSectionsForRawPayloadEventUsesMultipleStructTLVSections(t *testi
 		data:       payload,
 	}
 
-	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "gettimeofday"})
+	sections := payloadSectionsForRawPayloadEvent(raw)
 
 	if len(sections) != 2 {
 		t.Fatalf("sections = %d, want timeval and timezone TLV sections", len(sections))
@@ -275,7 +274,7 @@ func TestPayloadSectionsForEventUsesExecTLVSections(t *testing.T) {
 		data:       payload,
 	}
 
-	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "execve"})
+	sections := payloadSectionsForRawPayloadEvent(raw)
 
 	if len(sections) != 2 {
 		t.Fatalf("sections = %d, want exec args and filename sections", len(sections))
@@ -302,7 +301,7 @@ func TestPayloadSectionsForEventDoesNotUseFixedExecSnapshot(t *testing.T) {
 		data:          snapshot,
 	}
 
-	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "execve"})
+	sections := payloadSectionsForRawPayloadEvent(raw)
 
 	if len(sections) != 0 {
 		t.Fatalf("sections = %d, want no fixed exec snapshot fallback", len(sections))
@@ -360,7 +359,7 @@ func TestPayloadSectionsForEventDoesNotUseFixedReadWritePayload(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sections := payloadSectionsForRawPayloadEvent(tt.raw, meta.Syscall{Name: tt.name})
+			sections := payloadSectionsForRawPayloadEvent(tt.raw)
 			if len(sections) != 0 {
 				t.Fatalf("sections = %d, want no fixed %s payload fallback", len(sections), tt.name)
 			}
@@ -378,7 +377,7 @@ func TestPayloadSectionsForEventDoesNotFallbackOnInvalidTLV(t *testing.T) {
 		data:       []byte{0xff, 0xff, 0, 0},
 	}
 
-	sections := payloadSectionsForRawPayloadEvent(raw, meta.Syscall{Name: "openat"})
+	sections := payloadSectionsForRawPayloadEvent(raw)
 
 	if len(sections) != 0 {
 		t.Fatalf("sections = %d, want no fixed fallback for invalid TLV", len(sections))

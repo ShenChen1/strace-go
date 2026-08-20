@@ -51,7 +51,7 @@ func (st *TraceState) enqueueUnfinished(tid uint32) {
 }
 
 func (st *TraceState) deleteUnfinishedCandidate(tid uint32) {
-	if st == nil {
+	if st == nil || !st.unfinishedEnabled {
 		return
 	}
 	delete(st.unqueuedUnfinished, tid)

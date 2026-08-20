@@ -156,6 +156,19 @@ func TestTraceStateDisablesUnfinishedCandidateIndex(t *testing.T) {
 	}
 }
 
+func TestTraceStateDoesNotTouchUnfinishedIndexWhenDisabled(t *testing.T) {
+	state := newTraceState()
+	state.setUnfinishedEnabled(false)
+	state.unqueuedUnfinished = map[uint32]struct{}{101: {}}
+	state.inFlightUnfinished = map[uint32]struct{}{101: {}}
+
+	state.deleteUnfinishedCandidate(101)
+
+	if len(state.unqueuedUnfinished) != 1 || len(state.inFlightUnfinished) != 1 {
+		t.Fatalf("disabled unfinished index was mutated: unqueued=%d in-flight=%d", len(state.unqueuedUnfinished), len(state.inFlightUnfinished))
+	}
+}
+
 func TestTraceStateReturnsUnfinishedViewAndTaskSnapshots(t *testing.T) {
 	state := newTraceState()
 	enter := traceEventEnvelope{
