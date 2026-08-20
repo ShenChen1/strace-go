@@ -74,8 +74,7 @@ func TestHandlerContextRecyclerAppliesConfiguredSessionPorts(t *testing.T) {
 	dispatch := handler.NewDispatchTable(registry, map[uint32]meta.Syscall{
 		39: {Name: "getpid"},
 	})
-	recycler := newHandlerContextRecycler()
-	recycler.configureSessionPorts(handlerContextSessionPorts{
+	recycler := newHandlerContextRecyclerWithPorts(handlerContextSessionPorts{
 		meta:     catalog,
 		registry: registry,
 		dispatch: dispatch,
@@ -125,7 +124,7 @@ func TestSyscallExitPipelineReleasesHandlerContext(t *testing.T) {
 func TestSyscallEventContextReusesReleasedContext(t *testing.T) {
 	session := newTestTraceSession(traceSessionDeps{TargetPID: 101})
 	deps := newSyscallEventContextDeps(session)
-	deps.contextPool = newHandlerContextRecycler()
+	deps.contextPool = newHandlerContextRecyclerWithPorts(handlerContextSessionPortsFromDeps(deps))
 	view := syscallEventView{valid: true, sysID: benchmarkSyscallID("getpid")}
 
 	first := newSyscallEventContextFromViewWithDeps(deps, view, 101, nil, nil)

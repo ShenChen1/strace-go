@@ -94,7 +94,7 @@ func BenchmarkTraceEventContextHandler(b *testing.B) {
 		TargetPID: 101,
 	})
 	deps := newSyscallEventContextDeps(session)
-	deps.contextPool = newHandlerContextRecycler()
+	deps.contextPool = newHandlerContextRecyclerWithPorts(handlerContextSessionPortsFromDeps(deps))
 	runner := session.syscallHandlerRunner()
 	view := syscallEventView{
 		valid:         true,
@@ -132,7 +132,7 @@ func benchmarkTraceEventPipeline(b *testing.B, format string) {
 		TargetPID: 101,
 	})
 	deps := newSyscallEventContextDeps(session)
-	deps.contextPool = newHandlerContextRecycler()
+	deps.contextPool = newHandlerContextRecyclerWithPorts(handlerContextSessionPortsFromDeps(deps))
 	pipeline := session.syscallExitPipeline()
 	if pipeline == nil {
 		b.Fatal("pipeline was not composed")

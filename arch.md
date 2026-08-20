@@ -11478,3 +11478,49 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留 `TraceEventDispatcher` 和显式 session composition；删除生产 Router 的旧依赖 fallback，只在测试夹具中保留便于构造 sink 的 helper。
 - 这次重构完成了 state transition 与 effect dispatch 的对象边界，未观察到事件语义回归或额外分配；它不是 event/s 根治方案。
 - 下一阶段继续拆分 Dispatcher 内的 handler/FD effect/JSON service time，并用高压 reserve failure 验收；不引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器，`strace-upstream` 仍不纳入提交。
+
+### 14.284 将 handler context session ports 绑定移到 composition（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.283 后 CPU profile 显示 handler pipeline 中 `newSyscallEventContextFromViewWithDeps` 累计约 `29.6%`，其中 `newHandlerContext` 约 `12.9%`；JSON pipeline 中 context 构造累计约 `16.1%`。14.278 虽然引入了 session-port recycler，但实际仍在每条事件中组装 `handlerContextSessionPorts` 并调用带 guard 的 `configureSessionPorts`。
+- Problem：`Meta`、Registry、dispatch、decoder、options、FD reader 和 runtime 都是 session-owned immutable ports，却在每个 exit event 中重新构造临时 ports 并支付一次配置检查，缩短单 Go consumer 的服务预算。
+- Goal：在 session composition 时创建已经绑定 ports 的 recycler；生产事件路径只 acquire 可复用 context 并写入动态 syscall 字段，保留 nil pool 手工路径的旧行为。
+- Non-goals：不修改 `handler.Context` 字段、handler 接口、event v2 ABI、payload/FD 语义、输出 schema、生命周期顺序或单 Go consumer 模型；不引入 template memmove、第二消费者、锁、ptrace、procfs 或 process_vm。
+- Constraints：配置后的 recycler 必须保留 session-owned ports并清空 event-owned 字段；production `newHandlerContext` 不得调用 `configureSessionPorts`；所有 benchmark 和 session composition 夹具必须使用同一预绑定构造路径。
+
+#### 方案比较
+
+1. 保留每 event 的 ports 构造和 configure guard：代码兼容性最好，但继续支付 profile 已确认的固定成本，拒绝。
+2. composition-time 创建 `newHandlerContextRecyclerWithPorts`，事件路径直接 acquire；端口生命周期明确且避免每条事件的临时结构，选择。
+3. 每 event 从 immutable context template 整体复制：可集中依赖，但会引入 memmove 并抵消 recycler 收益，拒绝。
+
+#### 实现与失败优先测试
+
+- 先将 recycler、pipeline benchmark 夹具切换到尚不存在的 `newHandlerContextRecyclerWithPorts` 和 `handlerContextSessionPortsFromDeps`；修改前按预期因符号缺失编译失败。
+- 新增 `newHandlerContextRecyclerWithPorts`，在构造边界一次调用 `configureSessionPorts`；session composition 用 `handlerContextSessionPortsFromDeps(contextDeps)` 创建预绑定 recycler。
+- 从 `syscallEventContext.newHandlerContext` 删除 per-event ports 结构和 configure 调用；只有 contextPool 为 nil 的手工路径才即时应用依赖 ports，正式 session 不进入该分支。
+- 增加 source policy，锁定 production event construction 不得重新绑定 ports；复用、清理和 session-port 保留测试继续作为生命周期 oracle。
+
+#### Review 入口
+
+- 检查 composition 时 `handlerDispatch`、catalog、decoder、options、FD state/path reader 和 runtime 都已填充，再创建 recycler；不能在绑定前漏掉 dispatch capability。
+- 检查 recycler 的 `resetHandlerContextEventState` 仍清空 Pid/Tid、args、return、payload、metadata 和 EventFDView，同时保留所有 session ports。
+- 检查 nil pool 手工构造仍能得到完整 session ports；生产预绑定 pool 不得因 event context 值复制或 fallback 分支重新配置。
+- 只有 handler pipeline 有稳定 A/B 收益才保留本阶段性能结论；JSON writer 变化和高压 reserve failure 必须单独验收，不能归因给 context binding。
+
+#### 验证与实测
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、focused recycler/source-policy tests 和 `git diff --check` 均通过。
+- 固定 CPU `taskset -c 0`、`GOMAXPROCS=1` A/B：handler pipeline 从基线 `271.2-273.0 ns/op` 降至 `255.3-257.5 ns/op`，约改善 `5%-6%`，两边均为 `0 B/op、0 allocs/op`；ContextHandler 为当前 `166.3-167.4 ns/op` 对基线 `163.6-163.9 ns/op`，不宣称 microbenchmark 收益。
+- 同一 A/B 的 JSON pipeline 当前 `576.9-599.5 ns/op`，基线 `576.9-583.8 ns/op`，区间重叠且当前尾轮更慢；本阶段不宣称 JSON 性能改善。
+- `ebpf-semantic` 通过：语义事件 `197`，enter/exit `100/97`，lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`。
+- `ebpf-perf` 通过：scalar/io/lifecycle/threads 的 end-to-end exit rate 为 `6191.50`、`4062.18`、`28.77`、`3392.72 events/s`；Go DecodeState `279.20 ns/op`，JSON writer/decoded/payload writer `210.50/234.20/329.90 ns/op`，均为零分配。
+- 本轮 `ebpf-capture` 通过结构校验：reader `2,939,984/260,051`，none `2,941,191/258,844`，handler `1,696,850/1,503,185`，JSON `1,276,605/1,923,430`，格式为 `records_read/ringbuf_reserve_fail`；JSON `syscall_events=1,246,560`、`records_invalid=0`、orphan/mismatch 为 `0`。handler 相对 14.283 有方向性改善，JSON 仍同一量级，reader 本轮也受 burst 调度影响，不能视为高压无丢失。
+- upstream native `small` `23/23` 通过。
+
+#### 决策与 Review
+
+- 保留 composition-time ports binding；它移除了生产 event hot path 的重复 session-port 组装，并在固定 CPU A/B 中改善 handler pipeline，未改变 context 生命周期或输出语义。
+- 不把 JSON pipeline 的重叠 A/B 和高压 capture 的单轮波动包装成端到端性能解决；下一阶段继续针对 JSON writer、FD effect 和完整 Dispatcher sink 做独立 profile/A-B。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

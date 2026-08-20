@@ -306,7 +306,7 @@ func buildTraceSessionEvents(
 	var lifecycleSink lifecycleEventSink
 	var jsonSink syscallEnterSink
 	if !base.outputPolicy.DiscardEvents() || isTraceHandlerOnlyPolicy(base.outputPolicy) {
-		contextDeps.contextPool = newHandlerContextRecycler()
+		contextDeps.contextPool = newHandlerContextRecyclerWithPorts(handlerContextSessionPortsFromDeps(contextDeps))
 		exitPipeline = newSyscallExitPipeline(SyscallExitPipelineDeps{
 			Summary:   base.outputPolicy,
 			JSON:      outputs.syscallJSON,

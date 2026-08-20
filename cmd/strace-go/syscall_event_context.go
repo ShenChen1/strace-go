@@ -352,19 +352,9 @@ func unknownSyscallName(sysID uint32) string {
 func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *handler.Context {
 	view := ev.eventView()
 	scMeta := ev.effectiveSyscallMeta()
-	sessionPorts := handlerContextSessionPorts{
-		meta:     deps.catalog,
-		registry: deps.registry,
-		dispatch: deps.handlerDispatch,
-		decoder:  deps.decoder,
-		opts:     deps.handlerOpts,
-		fdState:  deps.fdStateReader(),
-		runtime:  deps.runtimeService(),
-	}
-	deps.contextPool.configureSessionPorts(sessionPorts)
 	context := deps.contextPool.acquire()
 	if deps.contextPool == nil {
-		applyHandlerContextSessionPorts(context, sessionPorts)
+		applyHandlerContextSessionPorts(context, handlerContextSessionPortsFromDeps(deps))
 	}
 	context.Pid = int(view.pid)
 	context.Tid = int(view.tid)
@@ -379,6 +369,18 @@ func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *h
 	context.ScMeta = scMeta
 	context.EventFDView = ev.handlerEventFDView()
 	return context
+}
+
+func handlerContextSessionPortsFromDeps(deps syscallEventContextDeps) handlerContextSessionPorts {
+	return handlerContextSessionPorts{
+		meta:     deps.catalog,
+		registry: deps.registry,
+		dispatch: deps.handlerDispatch,
+		decoder:  deps.decoder,
+		opts:     deps.handlerOpts,
+		fdState:  deps.fdStateReader(),
+		runtime:  deps.runtimeService(),
+	}
 }
 
 func (ev syscallEventContext) handlerEventFDView() handler.EventFDStateReader {

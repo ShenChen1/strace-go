@@ -26,6 +26,12 @@ func newHandlerContextRecycler() *handlerContextRecycler {
 	return &handlerContextRecycler{}
 }
 
+func newHandlerContextRecyclerWithPorts(ports handlerContextSessionPorts) *handlerContextRecycler {
+	recycler := newHandlerContextRecycler()
+	recycler.configureSessionPorts(ports)
+	return recycler
+}
+
 func (r *handlerContextRecycler) configureSessionPorts(ports handlerContextSessionPorts) {
 	if r == nil || r.portsConfigured {
 		return
