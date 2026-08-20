@@ -31,6 +31,10 @@ func (stub registryPortTestStub) Default() Handler {
 	return stub.defaultHandler
 }
 
+func (stub registryPortTestStub) Resolve(string) Handler {
+	return stub.defaultHandler
+}
+
 func (stub registryPortTestStub) PointerDecoder(string) PointerDecoder {
 	return stub.pointerDecoder
 }

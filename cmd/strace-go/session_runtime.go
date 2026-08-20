@@ -19,10 +19,14 @@ func (s *traceSession) eventContextDependencies() syscallEventContextDeps {
 		return syscallEventContextDeps{}
 	}
 	var registry handler.RegistryPort
+	var handlerDispatch handler.HandlerDispatchPort
 	if s.components != nil {
 		registry = s.components.handlerRegistry
+		handlerDispatch = s.components.handlerDispatch
 	}
-	return s.dependencies.eventContextDependencies(registry)
+	deps := s.dependencies.eventContextDependencies(registry)
+	deps.handlerDispatch = handlerDispatch
+	return deps
 }
 
 func (deps traceSessionDeps) eventContextDependencies(registry handler.RegistryPort) syscallEventContextDeps {

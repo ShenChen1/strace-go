@@ -23,14 +23,15 @@ type Context struct {
 	ProbeRetExit    int32
 	PayloadSections []PayloadSection
 
-	ScMeta      meta.Syscall
-	Meta        meta.CatalogPort
-	Registry    RegistryPort
-	Decoder     SnapshotDecoder
-	Opts        OptionsPort
-	FDStateView FDStateReader
-	EventFDView EventFDStateReader
-	Runtime     RuntimeServices
+	ScMeta          meta.Syscall
+	Meta            meta.CatalogPort
+	Registry        RegistryPort
+	HandlerDispatch HandlerDispatchPort
+	Decoder         SnapshotDecoder
+	Opts            OptionsPort
+	FDStateView     FDStateReader
+	EventFDView     EventFDStateReader
+	Runtime         RuntimeServices
 }
 
 // SnapshotReader exposes memory bytes copied by BPF at the syscall probe site.
@@ -102,6 +103,7 @@ type Handler interface {
 // registry. Registration and storage remain owned by the concrete Registry.
 type RegistryPort interface {
 	Handle(name string, ctx *Context) Result
+	Resolve(name string) Handler
 	Default() Handler
 	PointerDecoder(argTyp string) PointerDecoder
 	StructDecoder(argTyp string) TypeDecoder

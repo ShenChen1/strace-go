@@ -8,6 +8,7 @@ import (
 type handlerContextSessionPorts struct {
 	meta     meta.CatalogPort
 	registry handler.RegistryPort
+	dispatch handler.HandlerDispatchPort
 	decoder  handler.SnapshotDecoder
 	opts     handler.OptionsPort
 	fdState  handler.FDStateReader
@@ -63,6 +64,7 @@ func applyHandlerContextSessionPorts(
 ) {
 	context.Meta = ports.meta
 	context.Registry = ports.registry
+	context.HandlerDispatch = ports.dispatch
 	context.Decoder = ports.decoder
 	context.Opts = ports.opts
 	context.FDStateView = ports.fdState

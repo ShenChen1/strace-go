@@ -13,6 +13,12 @@ type handlerRunnerTestState struct {
 	effects      *fakeSyscallHandlerEffects
 }
 
+type runnerDispatchHandler struct{}
+
+func (runnerDispatchHandler) Handle(*handler.Context) handler.Result {
+	return handler.Result{ReturnDesc: "dispatch-table"}
+}
+
 type fakeSyscallHandlerEffects struct {
 	updates int
 }
@@ -116,5 +122,23 @@ func TestDefaultHandleSyscallWithoutRegistryIsInert(t *testing.T) {
 	result := defaultHandleSyscall("getpid", &handler.Context{SysName: "getpid"})
 	if len(result.ArgParts) != 0 || result.ReturnDesc != "" || result.HexDumpStr != "" {
 		t.Fatalf("default handler without registry = %+v, want inert result", result)
+	}
+}
+
+func TestDefaultHandleSyscallUsesSessionDispatchTable(t *testing.T) {
+	registry := handler.NewRegistry()
+	registry.Register("dispatch_test", runnerDispatchHandler{})
+	dispatch := handler.NewDispatchTable(registry, map[uint32]meta.Syscall{
+		400: {Name: "dispatch_test"},
+	})
+	ctx := &handler.Context{
+		SysId:           400,
+		Registry:        registry,
+		HandlerDispatch: dispatch,
+	}
+
+	got := defaultHandleSyscall("dispatch_test", ctx)
+	if got.ReturnDesc != "dispatch-table" {
+		t.Fatalf("dispatch result = %+v, want session dispatch table result", got)
 	}
 }

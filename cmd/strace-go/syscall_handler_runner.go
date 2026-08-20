@@ -67,7 +67,13 @@ func (r *SyscallHandlerRunner) update(ev syscallEventContext) {
 }
 
 func defaultHandleSyscall(name string, ctx *handler.Context) handler.Result {
-	if ctx == nil || ctx.Registry == nil {
+	if ctx == nil {
+		return handler.Result{}
+	}
+	if ctx.HandlerDispatch != nil {
+		return ctx.HandlerDispatch.Handle(ctx.SysId, name, ctx)
+	}
+	if ctx.Registry == nil {
 		return handler.Result{}
 	}
 	return ctx.Registry.Handle(name, ctx)

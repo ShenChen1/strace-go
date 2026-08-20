@@ -11258,3 +11258,48 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - review 未发现 ports 遗漏或跨事件状态残留：`Meta`、`Registry`、`Decoder`、`Opts`、`FDStateView`、`Runtime` 均被测试锁定，`Pid/Tid/SysName/Args/Ret/PayloadSections/ScMeta/EventFDView` 仍逐事件覆盖或由 release 清理。
 - 本阶段的性能收益是真实但局部的 context service-time 改善；高压 reserve failure 和 event/s 降低仍来自单 Go consumer 与 producer burst 的背压，下一阶段应转向 handler registry/effect 或事件服务路径，不再继续扩大 Context template 优化。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.279 为 session handler 引入 syscall-ID dispatch table（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.278 后 profile 仍显示 `Registry.Handle` 的字符串 map lookup 和 `SyscallHandlerRunner.handleWith` 位于高频 JSON pipeline；handler registry 在 session composition 时已经固定，但事件路径仍重复按 name 解析。
+- Problem：已知 syscall 的 ID 已经存在于 event v2，继续按字符串查找会支付可避免的 hash/map/interface 成本；如果只把 `Registry.Handle` 搬到 Context 初始化，lookup 仍然存在，不能真正缩短 consumer service time。
+- Goal：在 session composition 阶段根据 `meta.SyscallTable` 构造只读、按 syscall ID 索引的 `handler.DispatchTable`；`handler.Context` 通过 `HandlerDispatchPort` 使用该表，未知 ID 和无 dispatch 的手工 Context 继续回退 `RegistryPort`。
+- Non-goals：不改变 handler 的 `Context` 解码能力、handler 输出结果、FD state effects、syscall metadata 生成、BPF ABI、事件顺序或并发模型；不引入动态注册、第二消费者、锁、ptrace、procfs 或 process_vm。
+- Constraints：registry 在 composition 后视为 immutable；已知 ID 必须使用 session table，未知 ID 必须保留 registry name fallback；旧的 RegistryPort 测试替身和没有 dispatch 的手工 Context 必须继续可用。
+
+#### 方案比较
+
+1. 保留每 event `Registry.Handle(name, ctx)`：行为最简单，但保留已确认的字符串 map lookup，拒绝。
+2. 在每个 Context 中缓存 `Registry.Resolve(name)` 的 handler：只把 lookup 从 runner 移到 context 构造，事件总成本基本不变，拒绝。
+3. composition 构造按 ID 的 immutable dispatch table，并以 `HandlerDispatchPort` 注入 Context：已知路径变成数组索引，未知路径保留 registry fallback，选择。
+4. 为每个 syscall 生成独立 Go dispatch 函数：理论上更快，但把 handler registry 和生成代码强耦合，难以支持 session-local handler override，拒绝。
+
+#### 实现与失败优先测试
+
+- 先增加 `DispatchTable` 路由测试；修改前因 `NewDispatchTable` 不存在而编译失败。
+- 扩展 `RegistryPort` 为只读解析能力，新增 `HandlerDispatchPort` 与 `DispatchTable`；dispatch table 在 composition 期间按 `meta.SyscallTable` 解析 handler，未知 ID 仍调用 registry `Resolve`。
+- 将 dispatch port 作为 session-owned Context port 绑定到 recycler；正式 session runner 使用 `defaultHandleSyscall`，优先 dispatch table，手工/旧测试 Context 没有该 port 时继续使用 `Registry.Handle`。
+- 集成测试覆盖 session graph 注入、known/unknown dispatch、custom registry handler 和 recycler release/acquire 保留 dispatch port；所有修改保持 handler payload、FD state 和 fallback 行为可测。
+
+#### Review 入口
+
+- 检查正式 composition 是否真的把 `handlerRegistry.Handle` method value 替换为 `defaultHandleSyscall`；只注入 dispatch 但不走 dispatch 是无效重构。
+- 检查已知 syscall ID 的 table handler 在 composition 后不因 registry map 改动而漂移；未知 ID/name 仍可走 registry fallback；空/手工 Context 不因新增字段而 panic。
+- 检查 `HandlerDispatch` 是 session-owned 并由 recycler 保留，不能被 release 清零；检查所有 handler 仍通过原 `RegistryPort` 访问 decoder/metadata capabilities。
+- 如果完整 capture 只在噪声范围内改善，保留接口边界和已验证的局部收益，但停止继续扩大 dispatch table，转向 FD effect 或状态服务路径。
+
+#### 验证与实测
+
+- 失败优先 dispatch 测试先因 `NewDispatchTable` 不存在而编译失败；实现后 known ID、unknown ID fallback、custom handler 和 session Context dispatch 测试通过。
+- focused benchmark 五轮：`ContextHandler` `162.8-165.6 ns/op`，handler pipeline `289.3-294.3 ns/op`，JSON pipeline `563.9-570.8 ns/op`，均为 `0 B/op、0 allocs/op`；`ebpf-perf` 当前报告为 DecodeState `278.90`、JSON writer `202.10`、decoded writer `222.40`、decoded payload writer `312.30 ns/op`。
+- wired dispatch profile 中 `Registry.Handle` 不再是主要已知 syscall lookup 热点，`DispatchTable.Handle` 约 `2%`；`defaultHandleSyscall` 和 handler runner 仍有固定成本，说明本阶段只减少 registry 查找，不等同于消除 handler service time。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、`ebpf-semantic`、`ebpf-perf` 和 native `small` 均通过；semantic 主事件 `197`，enter/exit `100/97`，lifecycle `6`，payload truncated `7`，运行期错误计数均为 `0`；native `small` `23/23`。
+- 最新高压 capture：reader `3,200,036/0`，none `2,597,659/602,376`，handler `1,536,651/1,663,384`，JSON `1,294,311/1,905,724`，格式为 `records_read/ringbuf_reserve_fail`；JSON `syscall_events=1,265,603`、`records_invalid=0`、`pending_stale=6`。相对 14.278 JSON `1,276,571/1,923,464` 有小幅方向性改善，但仍保留约 `1.9M` reservation failure，event/s 背压没有根治。
+
+#### 决策与 Review
+
+- 保留 ID dispatch table：正式 session 通过 `HandlerDispatchPort` 走一次性构造的已知 syscall handler，未知 syscall 和无 dispatch Context 保留原 registry fallback；handler 内部的 registry capability 没有被移除。
+- 这是真实但局部的 handler dispatch 优化；高压数据只显示轻微改善，剩余瓶颈仍是单 Go consumer 的状态、FD effects、handler 和 JSON 输出与 producer burst 的竞争。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

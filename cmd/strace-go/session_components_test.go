@@ -39,6 +39,9 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	if components.handlerRegistry == nil || components.handlerRunner == nil {
 		t.Fatal("event graph is missing the session handler registry")
 	}
+	if components.handlerDispatch == nil {
+		t.Fatal("event graph is missing the session handler dispatch table")
+	}
 	if components.eventRouter.contextDeps.registry != components.handlerRegistry {
 		t.Fatal("event router does not use the session handler registry")
 	}
@@ -51,6 +54,9 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 	}
 	if contextDeps.fdState != session.dependencies.FDState || contextDeps.runtime != session.dependencies.Runtime {
 		t.Fatal("event context does not use dependencies-owned runtime state")
+	}
+	if contextDeps.handlerDispatch != components.handlerDispatch {
+		t.Fatal("event context does not use the session handler dispatch table")
 	}
 	if components.exitSyscall.handleSyscall == nil {
 		t.Fatal("exit syscall output is missing the session handler resolver")

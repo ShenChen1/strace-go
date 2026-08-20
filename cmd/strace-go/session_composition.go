@@ -21,6 +21,7 @@ type traceSessionComponents struct {
 	exitSyscall        *ExitSyscallOutput
 	handlerRunner      *SyscallHandlerRunner
 	handlerRegistry    *handler.Registry
+	handlerDispatch    handler.HandlerDispatchPort
 	exitPipeline       *SyscallExitPipeline
 	lifecycleHandler   *LifecycleEventHandler
 	exitStatus         *ExitStatusCoordinator
@@ -184,11 +185,14 @@ func buildTraceSessionComponents(
 ) *traceSessionComponents {
 	base := buildTraceSessionBase(deps)
 	outputs := buildTraceSessionOutputs(deps, base)
+	handlerDispatch := handler.NewDispatchTable(base.handlerRegistry, meta.SyscallTable)
+	contextDeps := deps.eventContextDependencies(base.handlerRegistry)
+	contextDeps.handlerDispatch = handlerDispatch
 	events := buildTraceSessionEvents(
 		deps,
 		base,
 		outputs,
-		deps.eventContextDependencies(base.handlerRegistry),
+		contextDeps,
 	)
 	runtime := buildTraceSessionRuntime(deps, base, events.eventRouter)
 	return &traceSessionComponents{
@@ -200,6 +204,7 @@ func buildTraceSessionComponents(
 		exitSyscall:        outputs.exitSyscall,
 		handlerRunner:      base.handlerRunner,
 		handlerRegistry:    base.handlerRegistry,
+		handlerDispatch:    handlerDispatch,
 		exitPipeline:       events.exitPipeline,
 		lifecycleHandler:   events.lifecycleHandler,
 		exitStatus:         base.exitStatus,
@@ -213,7 +218,7 @@ func buildTraceSessionComponents(
 
 func buildTraceSessionBase(deps traceSessionDeps) traceSessionBaseComponents {
 	handlerRegistry := handler.NewRegistry()
-	handleSyscall := handlerRegistry.Handle
+	handleSyscall := defaultHandleSyscall
 	outputPolicy := deps.OutputPolicy
 	jsonWriter := newJSONEventWriter(JSONEventWriterDeps{Out: deps.OutWriter})
 	return traceSessionBaseComponents{

@@ -45,15 +45,16 @@ type syscallEventView struct {
 }
 
 type syscallEventContextDeps struct {
-	decoder     handler.SnapshotDecoder
-	handlerOpts handler.OptionsPort
-	filter      traceFilterOptions
-	catalog     meta.CatalogPort
-	fdState     handler.FDStateReader
-	fdPath      event.FDPathReader
-	registry    handler.RegistryPort
-	runtime     handler.RuntimeServices
-	contextPool *handlerContextRecycler
+	decoder         handler.SnapshotDecoder
+	handlerOpts     handler.OptionsPort
+	filter          traceFilterOptions
+	catalog         meta.CatalogPort
+	fdState         handler.FDStateReader
+	fdPath          event.FDPathReader
+	registry        handler.RegistryPort
+	handlerDispatch handler.HandlerDispatchPort
+	runtime         handler.RuntimeServices
+	contextPool     *handlerContextRecycler
 }
 
 type syscallEventContextDependencySource interface {
@@ -354,6 +355,7 @@ func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *h
 	sessionPorts := handlerContextSessionPorts{
 		meta:     deps.catalog,
 		registry: deps.registry,
+		dispatch: deps.handlerDispatch,
 		decoder:  deps.decoder,
 		opts:     deps.handlerOpts,
 		fdState:  deps.fdStateReader(),

@@ -34,9 +34,13 @@ func TestHandlerContextRecyclerPreservesSessionPorts(t *testing.T) {
 	opts := &cli.Options{}
 	fdState := newFDStateStoreFromMaps(nil, nil)
 	runtime := handler.NewRuntime()
+	dispatch := handler.NewDispatchTable(registry, map[uint32]meta.Syscall{
+		39: {Name: "getpid"},
+	})
 	eventFD := eventFDStateView{cwd: "/work"}
 	context.Meta = catalog
 	context.Registry = registry
+	context.HandlerDispatch = dispatch
 	context.Decoder = decoder
 	context.Opts = opts
 	context.FDStateView = fdState
@@ -50,8 +54,8 @@ func TestHandlerContextRecyclerPreservesSessionPorts(t *testing.T) {
 
 	recycler.release(context)
 	got := recycler.acquire()
-	if got.Meta != catalog || got.Registry != registry || got.Decoder != decoder ||
-		got.Opts != opts || got.FDStateView != fdState || got.Runtime != runtime {
+	if got.Meta != catalog || got.Registry != registry || got.HandlerDispatch != dispatch ||
+		got.Decoder != decoder || got.Opts != opts || got.FDStateView != fdState || got.Runtime != runtime {
 		t.Fatalf("session ports changed after release: %+v", got)
 	}
 	if got.Pid != 0 || got.SysName != "" || got.Args != ([6]uint64{}) ||
@@ -67,10 +71,14 @@ func TestHandlerContextRecyclerAppliesConfiguredSessionPorts(t *testing.T) {
 	opts := &cli.Options{}
 	fdState := newFDStateStoreFromMaps(nil, nil)
 	runtime := handler.NewRuntime()
+	dispatch := handler.NewDispatchTable(registry, map[uint32]meta.Syscall{
+		39: {Name: "getpid"},
+	})
 	recycler := newHandlerContextRecycler()
 	recycler.configureSessionPorts(handlerContextSessionPorts{
 		meta:     catalog,
 		registry: registry,
+		dispatch: dispatch,
 		decoder:  decoder,
 		opts:     opts,
 		fdState:  fdState,
@@ -78,15 +86,16 @@ func TestHandlerContextRecyclerAppliesConfiguredSessionPorts(t *testing.T) {
 	})
 
 	first := recycler.acquire()
-	if first.Meta != catalog || first.Registry != registry || first.Decoder != decoder ||
-		first.Opts != opts || first.FDStateView != fdState || first.Runtime != runtime {
+	if first.Meta != catalog || first.Registry != registry || first.HandlerDispatch != dispatch ||
+		first.Decoder != decoder || first.Opts != opts || first.FDStateView != fdState || first.Runtime != runtime {
 		t.Fatalf("configured session ports not applied: %+v", first)
 	}
 	first.Pid = 101
 	recycler.release(first)
 	second := recycler.acquire()
 	if second != first || second.Meta != catalog || second.Registry != registry ||
-		second.Decoder != decoder || second.Opts != opts || second.FDStateView != fdState || second.Runtime != runtime {
+		second.HandlerDispatch != dispatch || second.Decoder != decoder || second.Opts != opts ||
+		second.FDStateView != fdState || second.Runtime != runtime {
 		t.Fatalf("reused configured session ports changed: %+v", second)
 	}
 }
