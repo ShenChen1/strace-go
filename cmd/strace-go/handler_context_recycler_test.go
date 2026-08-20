@@ -3,6 +3,8 @@ package main
 import (
 	"testing"
 
+	"strace-go/pkg/cli"
+	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
@@ -20,6 +22,41 @@ func TestHandlerContextRecyclerClearsAndReusesContext(t *testing.T) {
 	}
 	if second.SysName != "" || second.PayloadSections != nil {
 		t.Fatalf("reused handler context retained state: %+v", second)
+	}
+}
+
+func TestHandlerContextRecyclerPreservesSessionPorts(t *testing.T) {
+	recycler := newHandlerContextRecycler()
+	context := recycler.acquire()
+	catalog := meta.NewCatalog("raw")
+	registry := handler.NewRegistry()
+	decoder := event.NewDecoder()
+	opts := &cli.Options{}
+	fdState := newFDStateStoreFromMaps(nil, nil)
+	runtime := handler.NewRuntime()
+	eventFD := eventFDStateView{cwd: "/work"}
+	context.Meta = catalog
+	context.Registry = registry
+	context.Decoder = decoder
+	context.Opts = opts
+	context.FDStateView = fdState
+	context.Runtime = runtime
+	context.EventFDView = eventFD
+	context.Pid = 101
+	context.SysName = "write"
+	context.Args = [6]uint64{1, 2, 3}
+	context.PayloadSections = []handler.PayloadSection{{Data: []byte("payload")}}
+	context.ScMeta = meta.Syscall{Name: "write"}
+
+	recycler.release(context)
+	got := recycler.acquire()
+	if got.Meta != catalog || got.Registry != registry || got.Decoder != decoder ||
+		got.Opts != opts || got.FDStateView != fdState || got.Runtime != runtime {
+		t.Fatalf("session ports changed after release: %+v", got)
+	}
+	if got.Pid != 0 || got.SysName != "" || got.Args != ([6]uint64{}) ||
+		got.PayloadSections != nil || got.ScMeta.Name != "" || got.EventFDView != nil {
+		t.Fatalf("event state retained after release: %+v", got)
 	}
 }
 

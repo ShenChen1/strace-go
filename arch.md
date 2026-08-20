@@ -11092,3 +11092,41 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 采用 name-keyed map dispatch，保留 policy interface、`matches` 防御检查和原有 state 实现；现有 9 个 policy 由 known tests 覆盖，未知 name 快速 false。
 - 这是完整 pipeline 的可测局部改善，但 JSON 高压仍有约 `1.94M` 次 reservation failure；下一阶段继续看 `newHandlerContext` 的 context 初始化和 output field encoding，不把 FD policy 优化误报为 event/s 根治。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.275 让 handler context recycler 只清理 event-owned 字段（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.274 后的 profile 中，`newHandlerContext` 约占 `8.4%`，`runtime.memmove` 约占 `6.5%`；handler context 在单 consumer 中每个 event 都会 release，再由 recycler 复用。
+- Problem：`handlerContextRecycler.release` 当前把整个 `handler.Context` 赋为零值，下一次 `newHandlerContext` 又完整填充同一个对象；其中 `Meta`、`Registry`、`Decoder`、`Opts`、`FDStateView` 和 `Runtime` 都是 session-owned，不需要每条事件清空或重新建立。
+- Goal：recycle 时只清理 pid/tid、syscall、args、ret、payload、ScMeta 和 event FD view 等 event-owned 数据，保留 session-owned service ports，减少无意义的整对象清零和潜在 cache traffic。
+- Non-goals：不改变 `handler.Context` 字段、handler 接口、payload 所有权、session 生命周期或事件语义；不缓存 tracee event 数据，不跨 session 共享 recycler，不引入锁、第二消费者、ptrace、procfs 或 process_vm。
+- Constraints：recycler 必须继续清除所有可能引用 tracee payload 或当前 syscall 的字段；每次 `newHandlerContext` 仍完整覆盖依赖字段，以支持测试替身和 session 依赖变化；普通 `newHandlerContext` 行为必须保持等价。
+
+#### 方案比较
+
+1. 保留整对象零值赋值：实现最简单，但 profile 已确认存在每 event 的重复 memmove，拒绝。
+2. recycler release 只清 event-owned 字段，session-owned ports 留在对象中：改动局部、生命周期边界明确，选择。
+3. 使用新的 context template/pool，在 acquire 时复制模板：可以集中 immutable 依赖，但仍有整对象复制，并扩大 composition 和测试替身边界，暂不采用。
+
+#### 实现与失败优先测试
+
+- 先扩展 recycler 测试，验证 event-owned 字段被清空、session-owned ports 保留且同一对象复用；再替换 release reset。
+- 对比 `BenchmarkTraceEventContextHandler` 和 JSON pipeline 的 `ns/op、B/op、allocs/op`，并运行 semantic、capture/perf，确认 payload 与 FD path 没有因为保留 service ports 而串事件。
+
+#### Review 入口
+
+- 检查 `handler.Context` 新增字段时 reset 清单是否会漏清；重点检查 `PayloadSections`、`ScMeta`、`EventFDView` 和 `SysName`，不允许 tracee 数据或前一个 syscall 进入下一个事件。
+- 如果 selective reset 没有稳定减少 service time，保留清理语义测试但不继续引入 template pool，转向 JSON field encoding 的独立 profile。
+
+#### 验证与实测
+
+- 失败优先 recycler 测试先验证 session-owned ports 被错误清空；实现后 event-owned 字段清零、session ports 保留和对象复用测试通过。
+- `BenchmarkTraceEventContextHandler` 当前为 `171.2-173.3 ns/op、0 B/op、0 allocs/op`；JSON pipeline 为 `665.4-668.2 ns/op、0 B/op、0 allocs/op`，相对 map dispatch 阶段 `659.0-666.0 ns/op` 区间重叠，不宣称端到端固定收益。
+- 本阶段代码 focused tests 通过；完整 `go test ./...`、race、vet、semantic、capture/perf 和 native smoke 将与下一步 output field 实验一起做最终门禁。
+
+#### 决策与 Review
+
+- 保留 selective reset。它清除了 event-owned payload、metadata 和 FD view，同时不重复清空 session-owned ports；未修改 `handler.Context` ABI，也没有跨 session 复用 recycler。
+- 当前主要性能证据只证明 context 微基准方向改善，JSON 高压背压仍待后续 output field 优化和重复 capture 证明；不把本阶段视为完整性能目标完成。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
