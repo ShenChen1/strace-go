@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/cilium/ebpf"
 	"golang.org/x/sys/unix"
 
 	"strace-go/pkg/cli"
@@ -108,7 +109,7 @@ func TestAttachToPidsReturnsFilterError(t *testing.T) {
 	}
 }
 
-func TestPendingSyscallsMapUsesCompactValue(t *testing.T) {
+func TestPendingTaskStorageUsesTaskLocalValue(t *testing.T) {
 	spec, err := loadBpf()
 	if err != nil {
 		t.Fatalf("loadBpf() failed: %v", err)
@@ -117,12 +118,24 @@ func TestPendingSyscallsMapUsesCompactValue(t *testing.T) {
 	if _, ok := spec.Maps["events_map"]; ok {
 		t.Fatal("events_map should not remain as the syscall pending state map")
 	}
-	pending := spec.Maps["pending_syscalls"]
+	pending := spec.Maps["pending_task_storage"]
 	if pending == nil {
-		t.Fatal("pending_syscalls map missing from BPF object")
+		t.Fatal("pending_task_storage map missing from BPF object")
 	}
-	if pending.ValueSize != 72 {
-		t.Fatalf("pending_syscalls value size = %d, want 72 bytes", pending.ValueSize)
+	if pending.Type != ebpf.TaskStorage {
+		t.Fatalf("pending task storage type = %s, want task storage", pending.Type)
+	}
+	if pending.KeySize != 4 {
+		t.Fatalf("pending task storage key size = %d, want 4", pending.KeySize)
+	}
+	if pending.MaxEntries != 0 {
+		t.Fatalf("pending task storage max entries = %d, want 0", pending.MaxEntries)
+	}
+	if pending.Flags&uint32(unix.BPF_F_NO_PREALLOC) == 0 {
+		t.Fatal("pending task storage must use BPF_F_NO_PREALLOC")
+	}
+	if pending.ValueSize != 80 {
+		t.Fatalf("pending task storage value size = %d, want 80 bytes", pending.ValueSize)
 	}
 }
 

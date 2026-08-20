@@ -141,9 +141,8 @@ static __always_inline void save_pending_msg_syscall_args(
         }
     }
 
-    if (bpf_map_update_elem(&pending_syscalls, &tid, &p, BPF_ANY) != 0) {
-        record_pending_update_fail();
-    } else if (sys_id == SYS_RECVMSG) {
+    (void)tid;
+    if (save_pending_syscall_value(&p) && sys_id == SYS_RECVMSG) {
         save_pending_syscall_aux(tid, aux0);
     }
 }

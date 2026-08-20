@@ -27,7 +27,7 @@ static __always_inline int load_nested_fd_path_fragment_context(
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u32 tid = (u32)pid_tgid;
     u32 pid = (u32)(pid_tgid >> 32);
-    struct pending_syscall *pending = bpf_map_lookup_elem(&pending_syscalls, &tid);
+    struct pending_syscall *pending = current_pending_syscall();
     if (!pending || pending->pid != pid || pending->tid != tid ||
         pending->sys_id != sys_id) {
         return 0;

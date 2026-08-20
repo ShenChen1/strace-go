@@ -48,8 +48,8 @@ static __always_inline void record_unmatched_exit_if_needed(u32 pid, u32 tid, u3
     record_orphan_exit();
 }
 
-// IMPACT: every exit handler shares this resolver so a stale process-level exec
-// mapping cannot silently turn a current TID lookup into a different pending.
+// IMPACT: normal exits use task-local state; only a successful non-leader exec
+// may use the process-scoped handoff because Linux changes the task identity.
 static __always_inline struct pending_syscall *lookup_pending_syscall_for_exit(
     u32 pid,
     u32 tid,
@@ -60,21 +60,26 @@ static __always_inline struct pending_syscall *lookup_pending_syscall_for_exit(
     *pending_tid = tid;
     *pending_exec_lookup = 0;
 
-    if (ret_value == 0) {
+    struct pending_task_state *state = current_pending_task_state();
+    if (!state || !state->valid) {
+        return 0;
+    }
+
+    struct pending_syscall *pending = &state->syscall;
+    if (pending->tid == tid) {
+        return pending;
+    }
+
+    if (ret_value == 0 && is_exec_payload_direct_syscall(pending->sys_id)) {
         u32 *exec_tid = bpf_map_lookup_elem(&pending_exec_map, &pid);
-        if (exec_tid) {
-            struct pending_syscall *exec_pending =
-                bpf_map_lookup_elem(&pending_syscalls, exec_tid);
-            if (exec_pending) {
-                *pending_tid = *exec_tid;
-                *pending_exec_lookup = 1;
-                return exec_pending;
-            }
-            bpf_map_delete_elem(&pending_exec_map, &pid);
+        if (exec_tid && *exec_tid == pending->tid) {
+            *pending_tid = *exec_tid;
+            *pending_exec_lookup = 1;
+            return pending;
         }
     }
 
-    return bpf_map_lookup_elem(&pending_syscalls, &tid);
+    return pending;
 }
 
 static __always_inline int validate_pending_syscall_exit(
@@ -88,8 +93,7 @@ static __always_inline int validate_pending_syscall_exit(
     }
 
     record_pending_mismatch();
-    bpf_map_delete_elem(&pending_syscalls, &pending_tid);
-    bpf_map_delete_elem(&pending_syscall_aux_map, &pending_tid);
+    clear_pending_task_state();
     bpf_map_delete_elem(&pending_exec_map, &pid);
     return 0;
 }
@@ -109,14 +113,13 @@ static __always_inline void consume_pending_syscall(
     struct pending_syscall *pending,
     u32 pending_exec_lookup)
 {
-    bpf_map_delete_elem(&pending_syscalls, &pending_tid);
-    bpf_map_delete_elem(&pending_syscall_aux_map, &pending_tid);
+    u32 pending_sys_id = pending->sys_id;
+    u32 pending_pid = pending->pid;
+    clear_pending_task_state();
     if (pending_exec_lookup) {
         bpf_map_delete_elem(&pending_exec_map, &pid);
         bpf_map_delete_elem(&main_exited_map, &pid);
-        bpf_map_delete_elem(&pending_syscalls, &pid);
-        bpf_map_delete_elem(&pending_syscall_aux_map, &pid);
-    } else if (is_exec_payload_direct_syscall(pending->sys_id) && pending->tid != pending->pid) {
+    } else if (is_exec_payload_direct_syscall(pending_sys_id) && pending_tid != pending_pid) {
         bpf_map_delete_elem(&pending_exec_map, &pid);
     }
 }

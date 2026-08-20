@@ -92,7 +92,7 @@ func TestBPFLifecycleCleanupIsTIDScoped(t *testing.T) {
 		t.Fatal("strace.c missing clear_lifecycle_task_state body")
 	}
 	for _, snippet := range []string{
-		"bpf_map_delete_elem(&pending_syscalls, &tid);",
+		"clear_pending_task_state();",
 		"if (tid != pid)",
 		"bpf_map_delete_elem(&pending_exec_map, &pid);",
 	} {

@@ -78,8 +78,10 @@ struct pending_syscall {
     s32 stack_id;
 };
 
-struct pending_syscall_aux {
+struct pending_task_state {
+    struct pending_syscall syscall;
     u32 aux0;
+    u32 valid;
 };
 
 struct bpf_stats {
@@ -203,19 +205,20 @@ struct {
     __type(value, u32);
 } recvmsg_progs SEC(".maps");
 
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 8192);
-    __type(key, u32);
-    __type(value, struct pending_syscall);
-} pending_syscalls SEC(".maps");
+#ifndef BPF_F_NO_PREALLOC
+#define BPF_F_NO_PREALLOC (1U << 0)
+#endif
+#ifndef BPF_LOCAL_STORAGE_GET_F_CREATE
+#define BPF_LOCAL_STORAGE_GET_F_CREATE (1ULL << 0)
+#endif
 
 struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 8192);
-    __type(key, u32);
-    __type(value, struct pending_syscall_aux);
-} pending_syscall_aux_map SEC(".maps");
+    __uint(type, BPF_MAP_TYPE_TASK_STORAGE);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+    __type(key, int);
+    __uint(max_entries, 0);
+    __type(value, struct pending_task_state);
+} pending_task_storage SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);

@@ -19,13 +19,13 @@ func TestBPFMapReplacementPlanRejectsNilInputs(t *testing.T) {
 func TestBPFMapReplacementPlanRequiresCoreRuntimeMaps(t *testing.T) {
 	core := &ebpf.Collection{Maps: map[string]*ebpf.Map{"events": {}}}
 	handlers := &ebpf.CollectionSpec{Maps: map[string]*ebpf.MapSpec{
-		"events":           {Type: ebpf.RingBuf, MaxEntries: 4096},
-		"pending_syscalls": {Type: ebpf.Hash, KeySize: 4, ValueSize: 8, MaxEntries: 8},
+		"events":               {Type: ebpf.RingBuf, MaxEntries: 4096},
+		"pending_task_storage": {Type: ebpf.TaskStorage, ValueSize: 8},
 	}}
 
 	_, err := newBPFMapReplacementPlan(core, handlers)
-	if err == nil || !strings.Contains(err.Error(), `core map "pending_syscalls" is unavailable`) {
-		t.Fatalf("replacement plan error = %v, want missing core map", err)
+	if err == nil || !strings.Contains(err.Error(), `core map "pending_task_storage" is unavailable`) {
+		t.Fatalf("replacement plan error = %v, want missing task storage map", err)
 	}
 }
 

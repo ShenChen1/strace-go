@@ -50,6 +50,49 @@ static __always_inline int is_direct_syscall(u32 sys_id)
         is_exit_payload_direct_syscall(sys_id);
 }
 
+static __always_inline struct pending_task_state *lookup_pending_task_state(u64 flags)
+{
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    if (!task) {
+        return 0;
+    }
+    return bpf_task_storage_get(&pending_task_storage, task, 0, flags);
+}
+
+static __always_inline struct pending_task_state *current_pending_task_state(void)
+{
+    return lookup_pending_task_state(0);
+}
+
+static __always_inline struct pending_syscall *current_pending_syscall(void)
+{
+    struct pending_task_state *state = current_pending_task_state();
+    return state && state->valid ? &state->syscall : 0;
+}
+
+static __always_inline void clear_pending_task_state(void)
+{
+    struct pending_task_state *state = current_pending_task_state();
+    if (state) {
+        state->aux0 = 0;
+        state->valid = 0;
+    }
+}
+
+static __always_inline int save_pending_syscall_value(struct pending_syscall *pending)
+{
+    struct pending_task_state *state = lookup_pending_task_state(
+        BPF_LOCAL_STORAGE_GET_F_CREATE);
+    if (!state) {
+        record_pending_update_fail();
+        return 0;
+    }
+    state->syscall = *pending;
+    state->aux0 = 0;
+    state->valid = 1;
+    return 1;
+}
+
 static __always_inline void save_pending_syscall_args(
     u32 tid,
     u32 pid,
@@ -72,24 +115,26 @@ static __always_inline void save_pending_syscall_args(
     p.tid = tid;
     p.stack_id = stack_id;
 
-    if (bpf_map_update_elem(&pending_syscalls, &tid, &p, BPF_ANY) != 0) {
-        record_pending_update_fail();
-    }
+    (void)tid;
+    save_pending_syscall_value(&p);
 }
 
 static __always_inline void save_pending_syscall_aux(u32 tid, u32 aux0)
 {
-    struct pending_syscall_aux aux = {};
-    aux.aux0 = aux0;
-    if (bpf_map_update_elem(&pending_syscall_aux_map, &tid, &aux, BPF_ANY) != 0) {
+    struct pending_task_state *state = current_pending_task_state();
+    if (!state || !state->valid) {
         record_pending_update_fail();
+        return;
     }
+    (void)tid;
+    state->aux0 = aux0;
 }
 
 static __always_inline u32 lookup_pending_syscall_aux0(u32 tid)
 {
-    struct pending_syscall_aux *aux = bpf_map_lookup_elem(&pending_syscall_aux_map, &tid);
-    return aux ? aux->aux0 : 0;
+    struct pending_task_state *state = current_pending_task_state();
+    (void)tid;
+    return state && state->valid ? state->aux0 : 0;
 }
 
 static __always_inline void init_syscall_event_v2_header_direct(

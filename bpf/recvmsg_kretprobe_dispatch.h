@@ -22,7 +22,7 @@ int trace_kretprobe_recvmsg_name(struct pt_regs *ctx) {
     s64 ret_value = (s64)BPF_CORE_READ(ctx, ax);
     u32 tid = (u32)bpf_get_current_pid_tgid();
 
-    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
+    struct pending_syscall *p = current_pending_syscall();
     if (!p) return 0;
     if (p->sys_id != SYS_RECVMSG) return 0;
 
@@ -38,7 +38,7 @@ int trace_kretprobe_recvmsg_control(struct pt_regs *ctx) {
     s64 ret_value = (s64)BPF_CORE_READ(ctx, ax);
     u32 tid = (u32)bpf_get_current_pid_tgid();
 
-    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
+    struct pending_syscall *p = current_pending_syscall();
     if (!p) return 0;
     if (p->sys_id != SYS_RECVMSG) return 0;
 
@@ -56,7 +56,7 @@ int trace_kretprobe_recvmsg_final(struct pt_regs *ctx) {
     u32 tid = (u32)pid_tgid;
     u32 pid = (u32)(pid_tgid >> 32);
 
-    struct pending_syscall *p = bpf_map_lookup_elem(&pending_syscalls, &tid);
+    struct pending_syscall *p = current_pending_syscall();
     if (!p || p->sys_id != SYS_RECVMSG) return 0;
 
     u64 duration = pending_syscall_duration(p);

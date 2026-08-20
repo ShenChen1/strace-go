@@ -32,10 +32,11 @@ func TestBPFRuntimeModulesOwnCoreDefinitions(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"struct pending_syscall {",
+		"struct pending_task_state {",
 		"struct event_v2_header {",
 		"__uint(max_entries, 1 << 27);",
 		"} events SEC(\".maps\");",
-		"} pending_syscalls SEC(\".maps\");",
+		"} pending_task_storage SEC(\".maps\");",
 	} {
 		if !strings.Contains(abi, snippet) {
 			t.Fatalf("runtime_abi.h missing ABI-owned definition %q", snippet)
@@ -94,30 +95,27 @@ func TestBPFRuntimeModulesOwnCoreDefinitions(t *testing.T) {
 	}
 }
 
-func TestBPFPendingAuxiliaryStateIsSeparateFromCommonState(t *testing.T) {
+func TestBPFPendingTaskStateOwnsAuxiliaryMetadata(t *testing.T) {
 	root := repoRootForTest(t)
 	abi := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
 	network := readTextFile(t, filepath.Join(root, "bpf/syscall_network_direct_event_v2.h"))
 	msg := readTextFile(t, filepath.Join(root, "bpf/syscall_msg_core_direct_event_v2.h"))
-	for _, snippet := range []string{
-		"struct pending_syscall_aux {",
-		"} pending_syscall_aux_map SEC(\".maps\");",
-	} {
-		if !strings.Contains(abi, snippet) {
-			t.Fatalf("runtime_abi.h missing auxiliary pending state %q", snippet)
+	stateStart := strings.Index(abi, "struct pending_task_state {")
+	if stateStart < 0 {
+		t.Fatal("runtime_abi.h task-local pending state is missing")
+	}
+	stateEnd := strings.Index(abi[stateStart:], "};")
+	if stateEnd < 0 {
+		t.Fatal("runtime_abi.h pending task state is unterminated")
+	}
+	state := abi[stateStart : stateStart+stateEnd]
+	for _, snippet := range []string{"struct pending_syscall syscall;", "u32 aux0;", "u32 valid;"} {
+		if !strings.Contains(state, snippet) {
+			t.Fatalf("pending task state missing %q", snippet)
 		}
 	}
-	pendingStart := strings.Index(abi, "struct pending_syscall {")
-	if pendingStart < 0 {
-		t.Fatal("runtime_abi.h pending_syscall definition is missing")
-	}
-	pendingEnd := strings.Index(abi[pendingStart:], "};")
-	if pendingEnd < 0 {
-		t.Fatal("runtime_abi.h pending_syscall definition is unterminated")
-	}
-	pending := abi[pendingStart : pendingStart+pendingEnd]
-	if strings.Contains(pending, "aux0") || strings.Contains(pending, "aux1") {
-		t.Fatal("common pending state must not own rare auxiliary metadata")
+	if strings.Contains(abi, "pending_syscall_aux_map SEC(\".maps\")") {
+		t.Fatal("task-local pending state must not retain an auxiliary hash map")
 	}
 	for name, source := range map[string]string{"network": network, "msg": msg} {
 		if !strings.Contains(source, "save_pending_syscall_aux(") {

@@ -56,8 +56,7 @@ func TestBPFCoreMapCatalogHasUniqueNamesAndBindings(t *testing.T) {
 	for _, name := range []string{
 		bpfMapConfig,
 		bpfMapEvents,
-		bpfMapPendingAux,
-		bpfMapPendingSyscalls,
+		bpfMapPendingTask,
 		bpfMapEnterRoutes,
 		bpfMapExitRoutes,
 		bpfMapStats,
@@ -110,7 +109,7 @@ func TestBPFRuntimeMapConsumersUseCatalog(t *testing.T) {
 			".MainExitedMap",
 			".MmsgBytesProgs",
 			".PendingExecMap",
-			".PendingSyscalls",
+			".PendingTaskStorage",
 			".PreExecMap",
 			".RecvmsgProgs",
 			".StackTraces",

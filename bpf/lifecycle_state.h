@@ -48,8 +48,7 @@ static __always_inline int is_exec_replaced_leader(
 
 static __always_inline void clear_replaced_leader_task_state(u32 tid)
 {
-    bpf_map_delete_elem(&pending_syscalls, &tid);
-    bpf_map_delete_elem(&pending_syscall_aux_map, &tid);
+    clear_pending_task_state();
     bpf_map_delete_elem(&pre_exec_map, &tid);
 }
 
@@ -57,8 +56,7 @@ static __always_inline void clear_replaced_leader_task_state(u32 tid)
 // exec/main/filter state is process-scoped unless a child thread owns it.
 static __always_inline void clear_lifecycle_task_state(u32 pid, u32 tid)
 {
-    bpf_map_delete_elem(&pending_syscalls, &tid);
-    bpf_map_delete_elem(&pending_syscall_aux_map, &tid);
+    clear_pending_task_state();
     bpf_map_delete_elem(&pre_exec_map, &tid);
 
     if (tid != pid) {

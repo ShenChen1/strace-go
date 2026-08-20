@@ -6,18 +6,20 @@ import (
 	"testing"
 )
 
-// 源码门禁：pending_syscalls 的每次写入失败都必须计入 stats，防止 map 满时静默丢数据。
+// 源码门禁：task storage 创建失败必须计入 stats，防止 pending state 静默丢失。
 func TestBPFPendingSaveChecksUpdateResult(t *testing.T) {
 	root := repoRootForTest(t)
 	headers := map[string]string{
-		"bpf/syscall_direct_event_v2.h":         loadBPFSources(t).directHeader,
-		"bpf/syscall_msg_direct_event_v2.h":     readMsgDirectEventSources(t),
-		"bpf/syscall_network_direct_event_v2.h": readTextFile(t, filepath.Join(root, "bpf/syscall_network_direct_event_v2.h")),
+		"bpf/syscall_direct_event_v2.h": loadBPFSources(t).directHeader,
+		"bpf/syscall_msg_direct_event_v2.h": readMsgDirectEventSources(t) +
+			"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_event_core_v2.h")),
+		"bpf/syscall_network_direct_event_v2.h": readTextFile(t, filepath.Join(root, "bpf/syscall_network_direct_event_v2.h")) +
+			"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_event_core_v2.h")),
 	}
 	for name, header := range headers {
-		if !strings.Contains(header, "bpf_map_update_elem(&pending_syscalls, &tid, &p, BPF_ANY) != 0") ||
+		if !strings.Contains(header, "save_pending_syscall_value(&p)") ||
 			!strings.Contains(header, "record_pending_update_fail()") {
-			t.Fatalf("%s does not check pending_syscalls update result and record failure", name)
+			t.Fatalf("%s does not route pending state through task storage failure accounting", name)
 		}
 	}
 }
@@ -26,7 +28,8 @@ func TestBPFPendingAuxSaveChecksUpdateResult(t *testing.T) {
 	root := repoRootForTest(t)
 	source := readTextFile(t, filepath.Join(root, "bpf/syscall_event_core_v2.h"))
 	for _, snippet := range []string{
-		"bpf_map_update_elem(&pending_syscall_aux_map, &tid, &aux, BPF_ANY) != 0",
+		"struct pending_task_state *state = current_pending_task_state();",
+		"state->aux0 = aux0;",
 		"record_pending_update_fail()",
 	} {
 		if !strings.Contains(source, snippet) {
@@ -35,26 +38,20 @@ func TestBPFPendingAuxSaveChecksUpdateResult(t *testing.T) {
 	}
 }
 
-func TestBPFPendingAuxiliaryCleanupMirrorsCommonState(t *testing.T) {
+func TestBPFPendingTaskStorageCleanupIsCentralized(t *testing.T) {
 	source := readCombinedBPFSources(t)
 	want := map[string][]string{
 		"validate_pending_syscall_exit": {
-			"bpf_map_delete_elem(&pending_syscalls, &pending_tid);",
-			"bpf_map_delete_elem(&pending_syscall_aux_map, &pending_tid);",
+			"clear_pending_task_state();",
 		},
 		"consume_pending_syscall": {
-			"bpf_map_delete_elem(&pending_syscalls, &pending_tid);",
-			"bpf_map_delete_elem(&pending_syscall_aux_map, &pending_tid);",
-			"bpf_map_delete_elem(&pending_syscalls, &pid);",
-			"bpf_map_delete_elem(&pending_syscall_aux_map, &pid);",
+			"clear_pending_task_state();",
 		},
 		"clear_replaced_leader_task_state": {
-			"bpf_map_delete_elem(&pending_syscalls, &tid);",
-			"bpf_map_delete_elem(&pending_syscall_aux_map, &tid);",
+			"clear_pending_task_state();",
 		},
 		"clear_lifecycle_task_state": {
-			"bpf_map_delete_elem(&pending_syscalls, &tid);",
-			"bpf_map_delete_elem(&pending_syscall_aux_map, &tid);",
+			"clear_pending_task_state();",
 		},
 	}
 	for name, snippets := range want {
@@ -195,10 +192,24 @@ func TestBPFPendingExitIdentityIsValidatedAndCleaned(t *testing.T) {
 		"lookup_pending_syscall_for_exit(",
 		"validate_pending_syscall_exit(",
 		"pending->sys_id == sys_id && pending->tid == pending_tid",
-		"bpf_map_delete_elem(&pending_syscalls, &pending_tid);",
+		"clear_pending_task_state();",
 	} {
 		if !strings.Contains(src.straceSource, snippet) {
 			t.Fatalf("BPF pending identity guard missing %q", snippet)
+		}
+	}
+}
+
+func TestBPFNonLeaderExecUsesTaskStorageHandoff(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "bpf/pending_state.h"))
+	for _, snippet := range []string{
+		"struct pending_task_state *state = current_pending_task_state();",
+		"ret_value == 0 && is_exec_payload_direct_syscall(pending->sys_id)",
+		"bpf_map_lookup_elem(&pending_exec_map, &pid)",
+		"*pending_exec_lookup = 1;",
+	} {
+		if !strings.Contains(source, snippet) {
+			t.Fatalf("non-leader exec task handoff is missing %q", snippet)
 		}
 	}
 }
