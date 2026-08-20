@@ -88,6 +88,37 @@ func TestBPFRoutePlanSelectsSplitDirectExitFamilies(t *testing.T) {
 	}
 }
 
+func TestBPFRouteCapabilitiesKeepEnterAndExitPolicyTogether(t *testing.T) {
+	capability, ok := bpfRouteCapabilities["openat2"]
+	if !ok {
+		t.Fatal("openat2 capability is missing")
+	}
+	if capability.enterSlot != enterProgOpenat2 || capability.exitSlot != exitProgPath {
+		t.Fatalf("openat2 capability = %+v, want enter openat2 and exit path", capability)
+	}
+
+	capability, ok = bpfRouteCapabilities["epoll_pwait2"]
+	if !ok {
+		t.Fatal("epoll_pwait2 capability is missing")
+	}
+	if capability.enterSlot != enterProgEpoll || capability.exitSlot != exitProgIO {
+		t.Fatalf("epoll_pwait2 capability = %+v, want enter epoll and exit IO", capability)
+	}
+}
+
+func TestBPFRoutePlanRejectsInvalidCapabilitySlot(t *testing.T) {
+	table := map[uint32]meta.Syscall{
+		1: {Name: "getpid"},
+	}
+	capabilities := map[string]bpfRouteCapability{
+		"getpid": {enterSlot: 999},
+	}
+	if _, err := newBPFRoutePlanWithCapabilities(table, capabilities); err == nil ||
+		!strings.Contains(err.Error(), "unknown BPF enter route slot 999") {
+		t.Fatalf("newBPFRoutePlanWithCapabilities() error = %v, want invalid slot error", err)
+	}
+}
+
 func TestBPFRoutePlanCoversSplitDirectExitCatalog(t *testing.T) {
 	plan, err := newBPFRoutePlan(meta.SyscallTable)
 	if err != nil {

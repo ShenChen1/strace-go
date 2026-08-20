@@ -9621,3 +9621,31 @@ Impact note：影响 epoll exit collector、nested FD path exit ProgArray 槽位
 - 本轮 `ebpf-perf` 的 trace exit rate 为 scalar/io/lifecycle/threads `24052/16317/83/14252`，端到端 exit rate 为 `6372/3969/28/3032`；runtime error counters 全为 0。与前一轮 `23976/16277/82/14611` 的 trace 基线同量级，未观察到 epoll dispatcher 引起的热路径崩塌。
 - 性能 review：端到端低值主要由短 workload 的 BPF link cleanup `0.166~0.217s`、退出后未归因尾部 `0.182~0.234s` 和 setup 固定成本稀释；`trace_sec` 窗口才是事件管线吞吐口径。后续性能优化应继续独立测量 cleanup/verifier，不得把端到端分母变化解释为 Ringbuf 或 Go consumer 退化。
 - Review：未发现 procfs、ptrace、process_vm、用户态回查、第二消费者、锁或定时器；epoll nested path 已从本阶段“未实现”边界移入已验证能力，仍保留最多 4 个 nested path 的 bounded 限制。
+
+### 14.236 将 syscall capture route 收敛为单一 capability registry（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：`bpf_routes.go` 原先用两套独立的 enter/exit `bpfRouteRule` 数组，把 syscall 名称分散到多个 handler family 中；同一个 syscall 可能重复出现在两张表，最终行为依赖规则数组的后写覆盖顺序。
+- Problem：这种组织方式不能表达一个 syscall 的完整 capture contract，也无法在新增/迁移 handler 时及时发现 enter/exit 漏项。BTF 只能提供参数形状，不能推导 bounded payload、FD path、iovec 或生命周期 handler 的产品语义。
+- Goal：引入 `bpfRouteCapability`，让每个 syscall 名称只有一条记录，独立声明 enter/exit slot；默认仍使用 generic handler，跨架构缺少某个 syscall 名称时仍忽略该能力，非法 slot 则在构造 route plan 时明确失败。
+- Non-goals：不修改 BPF event ABI、tail-call slot 编号、handler 实现、过滤语义、BTF syscall 字典生成器或用户态事件状态机；不把 capture policy 强行从 BTF 自动生成。
+- Constraints：保持纯 eBPF/no-ptrace/no-procfs；route policy 仍是显式产品知识；生成的 BPF binding 不变；每个 syscall 的最终 enter/exit 路由必须与 14.235 之前完全一致；测试先失败后实现。
+
+Impact note：只影响 `cmd/strace-go/bpf_routes.go` 的 route plan 构造和对应 Go 测试；BPF C 源码、生成对象、事件 wire、Ringbuf 消费者和 runtime teardown 不变。
+
+#### 方案比较
+
+1. 保留 enter/exit 两张规则表：迁移成本最低，但重复 syscall 名称和顺序覆盖继续隐藏策略冲突，拒绝。
+2. 从 BTF 自动生成 capture route：可减少手写表面代码，但 BTF 没有 handler 的 bounded/lifetime 语义，生成结果会错误地替代产品判断，拒绝。
+3. 使用显式 `map[string]bpfRouteCapability`：每个 syscall 有单一策略记录，enter/exit 可独立选择，slot 可校验且保留跨架构缺失容忍，选择。
+
+#### 测试与验收
+
+- 失败优先新增测试首先要求 `bpfRouteCapabilities` 存在，并要求 `openat2`、`epoll_pwait2` 的 enter/exit 组合由同一 capability 记录表达；旧双表实现先编译失败。
+- 增加非法 enter slot 回归测试；`validateBPFRouteCapabilities` 对 enter/exit slot 分别检查现有 program catalog，避免未知 slot 静默写入 route map。
+- 用独立脚本将旧版本 136 个 enter 能力和 129 个 exit 能力逐项与新 registry 生成的最终 route 比较，差异为零；`open_tree` 等原先依赖数组覆盖顺序的路由也明确写成最终 slot。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 通过；Python runner 单测为 44 OK；真实 `ebpf-semantic` 主事件 197（enter/exit `100/97`）、lifecycle 6，所有 runtime error counter 为 0。
+- `ebpf-perf` 通过：scalar/io/threads trace exit rate 为 `24405.58/16364.16/14673.84`，end-to-end 为 `6353.56/3951.89/3467.11`；route plan 阶段约 `0.00005s`，未观察到事件管线退化。
+- 原生 `small` 为 23 PASS；`more` 为 80 PASS、3 个既有 expected XFAIL、0 FAIL/XPASS。XFAIL 仍是 CPU-time summary、跨任务生命周期精确顺序和 ptrace-sized hexdump 边界，与本阶段无关。
+- Review：未发现旧 route rule、ptrace/procfs/process_vm、用户态第二消费者、锁或定时器残留；route capability registry 仍是显式 capture policy，未误称为 BTF 自动推导结果。
