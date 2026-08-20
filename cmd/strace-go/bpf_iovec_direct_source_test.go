@@ -9,9 +9,10 @@ import (
 func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readCombinedBPFSources(t)
-	// IMPACT: raw syscall program attachment lives in bpf_attach.go; the gate
-	// scans the attacher for generated program wiring snippets.
-	sessionSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_attach.go"))
+	// IMPACT: raw syscall program attachment is derived from the typed catalog;
+	// scan both the attacher and catalog for the generated wiring contract.
+	attachSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_attach.go"))
+	catalogSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_program_catalog.go"))
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	iovecCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_iovec_capture_direct_event_v2.h"))
@@ -43,11 +44,16 @@ func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 		}
 	}
 	for _, snippet := range []string{
-		`bpfProgram(programs, "enter_iovec_base")`,
-		`bpfProgram(programs, "exit_iovec_base")`,
+		"return bpfTailCallProgramEntries(programs, bpfEnterProgramCatalog)",
+		"return bpfTailCallProgramEntries(programs, bpfExitProgramCatalog)",
 	} {
-		if !strings.Contains(sessionSource, snippet) {
+		if !strings.Contains(attachSource, snippet) {
 			t.Fatalf("session source missing process_vm_writev attach snippet %q", snippet)
+		}
+	}
+	for _, snippet := range []string{"\"enter_iovec_base\"", "\"exit_iovec_base\""} {
+		if !strings.Contains(catalogSource, snippet) {
+			t.Fatalf("program catalog missing process_vm_writev handler %q", snippet)
 		}
 	}
 

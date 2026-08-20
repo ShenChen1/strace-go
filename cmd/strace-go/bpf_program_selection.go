@@ -18,93 +18,6 @@ type bpfProgramSelection struct {
 	recvmsgKretprobe bool
 }
 
-var bpfEnterProgramNames = map[uint32]string{
-	enterProgTerminating:      "enter_terminating",
-	enterProgExec:             "enter_exec",
-	enterProgPathStat:         "enter_path_stat",
-	enterProgPathOnly:         "enter_path_only",
-	enterProgDualPath:         "enter_dual_path",
-	enterProgOpenat2:          "enter_openat2",
-	enterProgReadlink:         "enter_readlink",
-	enterProgMiscStruct:       "enter_misc_struct",
-	enterProgSmallStruct:      "enter_small_struct",
-	enterProgItimer:           "enter_itimer",
-	enterProgTimeStruct:       "enter_time_struct",
-	enterProgSignal:           "enter_signal",
-	enterProgFileTime:         "enter_file_time",
-	enterProgSleep:            "enter_sleep",
-	enterProgFutex:            "enter_futex",
-	enterProgCachestat:        "enter_cachestat",
-	enterProgCapability:       "enter_capability",
-	enterProgMemfd:            "enter_memfd",
-	enterProgPrctl:            "enter_prctl",
-	enterProgClone3:           "enter_clone3",
-	enterProgBpf:              "enter_bpf",
-	enterProgIovec:            "enter_iovec",
-	enterProgMsg:              "enter_msg",
-	enterProgMmsg:             "enter_mmsg",
-	enterProgFcntl:            "enter_fcntl",
-	enterProgIoctl:            "enter_ioctl",
-	enterProgNetwork:          "enter_network",
-	enterProgKey:              "enter_key",
-	enterProgXattr:            "enter_xattr",
-	enterProgFs:               "enter_fs",
-	enterProgAio:              "enter_aio",
-	enterProgPoll:             "enter_poll",
-	enterProgSelect:           "enter_select",
-	enterProgEpoll:            "enter_epoll",
-	enterProgNoPayload:        "enter_no_payload_direct",
-	enterProgPayload:          "enter_payload_direct",
-	enterProgNoPayloadGeneric: "enter_no_payload_generic",
-	enterProgIovecBase:        "enter_iovec_base",
-	enterProgSendmsgBase:      "enter_sendmsg_base",
-	enterProgMmsgB01:          "enter_mmsg_base01",
-	enterProgMmsgB2:           "enter_mmsg_base2",
-	enterProgMmsgB3:           "enter_mmsg_base3",
-	enterProgAioIovec:         "enter_aio_iovec",
-	enterProgAioBuf:           "enter_aio_buf",
-	enterProgQuota:            "enter_quota",
-	enterProgMountPath:        "enter_mount_path",
-	enterProgNestedFDPath0:    "enter_nested_fd_path0",
-	enterProgNestedFDPath1:    "enter_nested_fd_path1",
-	enterProgNestedFDPath2:    "enter_nested_fd_path2",
-	enterProgNestedFDPath3:    "enter_nested_fd_path3",
-}
-
-var bpfExitProgramNames = map[uint32]string{
-	exitProgGeneric:        "exit_generic",
-	exitProgIovecBase:      "exit_iovec_base",
-	exitProgMsg:            "exit_msg",
-	exitProgMmsgFinal:      "exit_mmsg_final",
-	exitProgRecvmmsgBase01: "exit_recvmmsg_base01",
-	exitProgRecvmmsgBase23: "exit_recvmmsg_base23",
-	exitProgQuota:          "exit_quota",
-	exitProgMountQuery:     "exit_mount_query",
-	exitProgPath:           "exit_path",
-	exitProgFDTime:         "exit_fd_time",
-	exitProgStruct:         "exit_struct",
-	exitProgAsync:          "exit_async",
-	exitProgIO:             "exit_io",
-	exitProgControl:        "exit_control",
-	exitProgNestedFDPath0:  "exit_nested_fd_path0",
-	exitProgNestedFDPath1:  "exit_nested_fd_path1",
-	exitProgNestedFDPath2:  "exit_nested_fd_path2",
-	exitProgNestedFDPath3:  "exit_nested_fd_path3",
-}
-
-var bpfRecvmsgProgramNames = map[uint32]string{
-	recvmsgProgName:    "trace_kretprobe_recvmsg_name",
-	recvmsgProgControl: "trace_kretprobe_recvmsg_control",
-	recvmsgProgFinal:   "trace_kretprobe_recvmsg_final",
-}
-
-var bpfMmsgByteProgramNames = map[uint32]string{
-	mmsgBytesProgBase0: "enter_mmsg_bytes0",
-	mmsgBytesProgBase1: "enter_mmsg_bytes1",
-	mmsgBytesProgBase2: "enter_mmsg_bytes2",
-	mmsgBytesProgBase3: "enter_mmsg_bytes3",
-}
-
 func selectBPFRoutePlan(plan bpfRoutePlan, config traceBPFConfig) bpfRoutePlan {
 	selected := copyBPFRoutePlan(plan)
 	if !config.syscallFilter.negated && config.syscallFilter.enabled && !config.fdState {
@@ -253,12 +166,12 @@ func (s *bpfProgramSelection) addEnterSlot(slot uint32) error {
 }
 
 func (s *bpfProgramSelection) addEnterSlotUnchecked(slot uint32) error {
-	name, ok := bpfEnterProgramNames[slot]
+	program, ok := bpfTailCallProgramBySlot(bpfEnterProgramCatalog, slot)
 	if !ok {
 		return fmt.Errorf("unknown BPF enter program slot %d", slot)
 	}
 	s.enterSlots[slot] = struct{}{}
-	s.addProgram(name)
+	s.addProgram(program.name)
 	return nil
 }
 
@@ -279,28 +192,28 @@ func (s *bpfProgramSelection) addExitSlot(slot uint32) error {
 }
 
 func (s *bpfProgramSelection) addExitSlotUnchecked(slot uint32) error {
-	name, ok := bpfExitProgramNames[slot]
+	program, ok := bpfTailCallProgramBySlot(bpfExitProgramCatalog, slot)
 	if !ok {
 		return fmt.Errorf("unknown BPF exit program slot %d", slot)
 	}
 	s.exitSlots[slot] = struct{}{}
-	s.addProgram(name)
+	s.addProgram(program.name)
 	return nil
 }
 
 func (s *bpfProgramSelection) addRecvmsgPrograms() {
 	s.recvmsgKretprobe = true
-	s.addProgram("trace_kretprobe_recvmsg_dispatch")
-	for slot, name := range bpfRecvmsgProgramNames {
-		s.recvmsgSlots[slot] = struct{}{}
-		s.addProgram(name)
+	s.addProgram(bpfRecvmsgDispatchProgramName)
+	for _, program := range bpfRecvmsgProgramCatalog {
+		s.recvmsgSlots[program.slot] = struct{}{}
+		s.addProgram(program.name)
 	}
 }
 
 func (s *bpfProgramSelection) addMmsgBytePrograms() {
-	for slot, name := range bpfMmsgByteProgramNames {
-		s.mmsgByteSlots[slot] = struct{}{}
-		s.addProgram(name)
+	for _, program := range bpfMmsgByteProgramCatalog {
+		s.mmsgByteSlots[program.slot] = struct{}{}
+		s.addProgram(program.name)
 	}
 }
 

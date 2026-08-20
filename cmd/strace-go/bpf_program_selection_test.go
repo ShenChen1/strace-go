@@ -302,26 +302,31 @@ func TestBPFProgramSelectionCatalogMatchesGeneratedSpec(t *testing.T) {
 		}
 		handlerSpecs[family] = handlerSpec
 	}
-	for slot, name := range bpfEnterProgramNames {
-		family, ok := bpfHandlerProgramFamilies[name]
-		if !ok || handlerSpecs[family].Programs[name] == nil {
-			t.Fatalf("generated BPF spec is missing enter slot %d program %q in family %q", slot, name, family)
+	for _, program := range bpfEnterProgramCatalog {
+		family, ok := bpfHandlerProgramFamilies[program.name]
+		if !ok || handlerSpecs[family].Programs[program.name] == nil {
+			t.Fatalf("generated BPF spec is missing enter slot %d program %q in family %q", program.slot, program.name, family)
 		}
 	}
-	for slot, name := range bpfExitProgramNames {
-		if handlerSpecs[bpfHandlerExitFamily].Programs[name] == nil {
-			t.Fatalf("generated BPF spec is missing exit slot %d program %q", slot, name)
+	for _, program := range bpfExitProgramCatalog {
+		if handlerSpecs[bpfHandlerExitFamily].Programs[program.name] == nil {
+			t.Fatalf("generated BPF spec is missing exit slot %d program %q", program.slot, program.name)
 		}
 	}
-	for slot, name := range bpfRecvmsgProgramNames {
-		if handlerSpecs[bpfHandlerRecvmsgFamily].Programs[name] == nil {
-			t.Fatalf("generated BPF spec is missing recvmsg slot %d program %q", slot, name)
+	for _, program := range bpfRecvmsgProgramCatalog {
+		if handlerSpecs[bpfHandlerRecvmsgFamily].Programs[program.name] == nil {
+			t.Fatalf("generated BPF spec is missing recvmsg slot %d program %q", program.slot, program.name)
 		}
 	}
-	for slot, name := range bpfMmsgByteProgramNames {
-		family, ok := bpfHandlerProgramFamilies[name]
-		if !ok || handlerSpecs[family].Programs[name] == nil {
-			t.Fatalf("generated BPF spec is missing mmsg byte slot %d program %q", slot, name)
+	for _, program := range bpfMmsgByteProgramCatalog {
+		family, ok := bpfHandlerProgramFamilies[program.name]
+		if !ok || handlerSpecs[family].Programs[program.name] == nil {
+			t.Fatalf("generated BPF spec is missing mmsg byte slot %d program %q", program.slot, program.name)
+		}
+	}
+	for _, program := range bpfStandaloneProgramCatalog {
+		if handlerSpecs[program.family].Programs[program.name] == nil {
+			t.Fatalf("generated BPF spec is missing standalone program %q in family %q", program.name, program.family)
 		}
 	}
 }
@@ -351,9 +356,9 @@ func TestBPFEnterProgramOwnershipIsExclusive(t *testing.T) {
 			}
 		}
 	}
-	for slot, name := range bpfEnterProgramNames {
-		if _, ok := owners[name]; !ok {
-			t.Fatalf("enter slot %d program %q has no capability owner", slot, name)
+	for _, program := range bpfEnterProgramCatalog {
+		if _, ok := owners[program.name]; !ok {
+			t.Fatalf("enter slot %d program %q has no capability owner", program.slot, program.name)
 		}
 	}
 }
@@ -363,5 +368,51 @@ func TestSelectedProgArrayEntriesKeepOnlyRequestedSlots(t *testing.T) {
 	selected := selectedProgArrayEntries(entries, map[uint32]struct{}{3: {}}, false)
 	if len(selected) != 1 || selected[0].index != 3 {
 		t.Fatalf("selected entries = %+v, want only slot 3", selected)
+	}
+}
+
+func TestBPFProgramCatalogOwnsSlotNameAndFamily(t *testing.T) {
+	program, ok := bpfTailCallProgramBySlot(bpfEnterProgramCatalog, enterProgEpoll)
+	if !ok {
+		t.Fatal("enter epoll program is missing from the catalog")
+	}
+	if program.name != "enter_epoll" || program.family != bpfHandlerEnterControlFamily {
+		t.Fatalf("enter epoll catalog entry = %+v, want name and control family", program)
+	}
+
+	program, ok = bpfTailCallProgramBySlot(bpfExitProgramCatalog, exitProgNestedFDPath3)
+	if !ok {
+		t.Fatal("exit nested path program is missing from the catalog")
+	}
+	if program.name != "exit_nested_fd_path3" || program.family != bpfHandlerExitFamily {
+		t.Fatalf("exit nested path catalog entry = %+v, want name and exit family", program)
+	}
+}
+
+func TestBPFProgramCatalogHasUniqueSlotAndNameEntries(t *testing.T) {
+	seenNames := make(map[string]struct{})
+	for _, catalog := range [][]bpfTailCallProgramSpec{
+		bpfEnterProgramCatalog,
+		bpfExitProgramCatalog,
+		bpfRecvmsgProgramCatalog,
+		bpfMmsgByteProgramCatalog,
+	} {
+		seenSlots := make(map[uint32]struct{})
+		for _, program := range catalog {
+			if _, exists := seenSlots[program.slot]; exists {
+				t.Fatalf("duplicate slot %d in catalog", program.slot)
+			}
+			seenSlots[program.slot] = struct{}{}
+			if _, exists := seenNames[program.name]; exists {
+				t.Fatalf("program %q appears in multiple catalogs", program.name)
+			}
+			seenNames[program.name] = struct{}{}
+		}
+	}
+	for _, program := range bpfStandaloneProgramCatalog {
+		if _, exists := seenNames[program.name]; exists {
+			t.Fatalf("program %q appears in multiple catalogs", program.name)
+		}
+		seenNames[program.name] = struct{}{}
 	}
 }

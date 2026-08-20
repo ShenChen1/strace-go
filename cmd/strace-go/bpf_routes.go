@@ -152,12 +152,12 @@ func validateBPFRouteCapabilities(capabilities map[string]bpfRouteCapability) er
 			return fmt.Errorf("BPF route capability has empty syscall name")
 		}
 		if capability.enterSlot != 0 {
-			if _, ok := bpfEnterProgramNames[capability.enterSlot]; !ok {
+			if _, ok := bpfTailCallProgramBySlot(bpfEnterProgramCatalog, capability.enterSlot); !ok {
 				return fmt.Errorf("unknown BPF enter route slot %d for syscall %q", capability.enterSlot, name)
 			}
 		}
 		if capability.exitSlot != 0 {
-			if _, ok := bpfExitProgramNames[capability.exitSlot]; !ok {
+			if _, ok := bpfTailCallProgramBySlot(bpfExitProgramCatalog, capability.exitSlot); !ok {
 				return fmt.Errorf("unknown BPF exit route slot %d for syscall %q", capability.exitSlot, name)
 			}
 		}

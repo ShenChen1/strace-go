@@ -200,98 +200,19 @@ type progArrayWriter interface {
 }
 
 func enterProgArrayEntries(programs bpfProgramProvider) []progArrayEntry {
-	return []progArrayEntry{
-		{enterProgTerminating, bpfProgram(programs, "enter_terminating")},
-		{enterProgExec, bpfProgram(programs, "enter_exec")},
-		{enterProgPathStat, bpfProgram(programs, "enter_path_stat")},
-		{enterProgPathOnly, bpfProgram(programs, "enter_path_only")},
-		{enterProgDualPath, bpfProgram(programs, "enter_dual_path")},
-		{enterProgOpenat2, bpfProgram(programs, "enter_openat2")},
-		{enterProgReadlink, bpfProgram(programs, "enter_readlink")},
-		{enterProgMiscStruct, bpfProgram(programs, "enter_misc_struct")},
-		{enterProgSmallStruct, bpfProgram(programs, "enter_small_struct")},
-		{enterProgItimer, bpfProgram(programs, "enter_itimer")},
-		{enterProgTimeStruct, bpfProgram(programs, "enter_time_struct")},
-		{enterProgSignal, bpfProgram(programs, "enter_signal")},
-		{enterProgFileTime, bpfProgram(programs, "enter_file_time")},
-		{enterProgSleep, bpfProgram(programs, "enter_sleep")},
-		{enterProgFutex, bpfProgram(programs, "enter_futex")},
-		{enterProgCachestat, bpfProgram(programs, "enter_cachestat")},
-		{enterProgCapability, bpfProgram(programs, "enter_capability")},
-		{enterProgMemfd, bpfProgram(programs, "enter_memfd")},
-		{enterProgPrctl, bpfProgram(programs, "enter_prctl")},
-		{enterProgClone3, bpfProgram(programs, "enter_clone3")},
-		{enterProgBpf, bpfProgram(programs, "enter_bpf")},
-		{enterProgIovec, bpfProgram(programs, "enter_iovec")},
-		{enterProgMsg, bpfProgram(programs, "enter_msg")},
-		{enterProgMmsg, bpfProgram(programs, "enter_mmsg")},
-		{enterProgFcntl, bpfProgram(programs, "enter_fcntl")},
-		{enterProgIoctl, bpfProgram(programs, "enter_ioctl")},
-		{enterProgNetwork, bpfProgram(programs, "enter_network")},
-		{enterProgKey, bpfProgram(programs, "enter_key")},
-		{enterProgXattr, bpfProgram(programs, "enter_xattr")},
-		{enterProgFs, bpfProgram(programs, "enter_fs")},
-		{enterProgAio, bpfProgram(programs, "enter_aio")},
-		{enterProgPoll, bpfProgram(programs, "enter_poll")},
-		{enterProgSelect, bpfProgram(programs, "enter_select")},
-		{enterProgEpoll, bpfProgram(programs, "enter_epoll")},
-		{enterProgNoPayload, bpfProgram(programs, "enter_no_payload_direct")},
-		{enterProgPayload, bpfProgram(programs, "enter_payload_direct")},
-		{enterProgIovecBase, bpfProgram(programs, "enter_iovec_base")},
-		{enterProgSendmsgBase, bpfProgram(programs, "enter_sendmsg_base")},
-		{enterProgMmsgB01, bpfProgram(programs, "enter_mmsg_base01")},
-		{enterProgMmsgB2, bpfProgram(programs, "enter_mmsg_base2")},
-		{enterProgMmsgB3, bpfProgram(programs, "enter_mmsg_base3")},
-		{enterProgAioIovec, bpfProgram(programs, "enter_aio_iovec")},
-		{enterProgAioBuf, bpfProgram(programs, "enter_aio_buf")},
-		{enterProgQuota, bpfProgram(programs, "enter_quota")},
-		{enterProgMountPath, bpfProgram(programs, "enter_mount_path")},
-		{enterProgNoPayloadGeneric, bpfProgram(programs, "enter_no_payload_generic")},
-		{enterProgNestedFDPath0, bpfProgram(programs, "enter_nested_fd_path0")},
-		{enterProgNestedFDPath1, bpfProgram(programs, "enter_nested_fd_path1")},
-		{enterProgNestedFDPath2, bpfProgram(programs, "enter_nested_fd_path2")},
-		{enterProgNestedFDPath3, bpfProgram(programs, "enter_nested_fd_path3")},
-	}
+	return bpfTailCallProgramEntries(programs, bpfEnterProgramCatalog)
 }
 
 func exitProgArrayEntries(programs bpfProgramProvider) []progArrayEntry {
-	return []progArrayEntry{
-		{exitProgGeneric, bpfProgram(programs, "exit_generic")},
-		{exitProgIovecBase, bpfProgram(programs, "exit_iovec_base")},
-		{exitProgMsg, bpfProgram(programs, "exit_msg")},
-		{exitProgMmsgFinal, bpfProgram(programs, "exit_mmsg_final")},
-		{exitProgRecvmmsgBase01, bpfProgram(programs, "exit_recvmmsg_base01")},
-		{exitProgRecvmmsgBase23, bpfProgram(programs, "exit_recvmmsg_base23")},
-		{exitProgQuota, bpfProgram(programs, "exit_quota")},
-		{exitProgMountQuery, bpfProgram(programs, "exit_mount_query")},
-		{exitProgPath, bpfProgram(programs, "exit_path")},
-		{exitProgFDTime, bpfProgram(programs, "exit_fd_time")},
-		{exitProgStruct, bpfProgram(programs, "exit_struct")},
-		{exitProgAsync, bpfProgram(programs, "exit_async")},
-		{exitProgIO, bpfProgram(programs, "exit_io")},
-		{exitProgControl, bpfProgram(programs, "exit_control")},
-		{exitProgNestedFDPath0, bpfProgram(programs, "exit_nested_fd_path0")},
-		{exitProgNestedFDPath1, bpfProgram(programs, "exit_nested_fd_path1")},
-		{exitProgNestedFDPath2, bpfProgram(programs, "exit_nested_fd_path2")},
-		{exitProgNestedFDPath3, bpfProgram(programs, "exit_nested_fd_path3")},
-	}
+	return bpfTailCallProgramEntries(programs, bpfExitProgramCatalog)
 }
 
 func recvmsgProgArrayEntries(programs bpfProgramProvider) []progArrayEntry {
-	return []progArrayEntry{
-		{recvmsgProgName, bpfProgram(programs, "trace_kretprobe_recvmsg_name")},
-		{recvmsgProgControl, bpfProgram(programs, "trace_kretprobe_recvmsg_control")},
-		{recvmsgProgFinal, bpfProgram(programs, "trace_kretprobe_recvmsg_final")},
-	}
+	return bpfTailCallProgramEntries(programs, bpfRecvmsgProgramCatalog)
 }
 
 func mmsgBytesProgArrayEntries(programs bpfProgramProvider) []progArrayEntry {
-	return []progArrayEntry{
-		{mmsgBytesProgBase0, bpfProgram(programs, "enter_mmsg_bytes0")},
-		{mmsgBytesProgBase1, bpfProgram(programs, "enter_mmsg_bytes1")},
-		{mmsgBytesProgBase2, bpfProgram(programs, "enter_mmsg_bytes2")},
-		{mmsgBytesProgBase3, bpfProgram(programs, "enter_mmsg_bytes3")},
-	}
+	return bpfTailCallProgramEntries(programs, bpfMmsgByteProgramCatalog)
 }
 
 func bpfProgram(provider bpfProgramProvider, name string) *ebpf.Program {
@@ -380,7 +301,7 @@ func (a *bpfAttacher) attachTracepoints(specs []tracepointSpec) ([]link.Link, er
 
 // attachRecvmsgKretprobe attaches the single recvmsg return dispatcher.
 func (a *bpfAttacher) attachRecvmsgKretprobe() (link.Link, error) {
-	program := bpfProgram(a.programs, "trace_kretprobe_recvmsg_dispatch")
+	program := bpfProgram(a.programs, bpfRecvmsgDispatchProgramName)
 	if program == nil {
 		return nil, fmt.Errorf("recvmsg kretprobe program is unavailable")
 	}

@@ -9,9 +9,10 @@ import (
 func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 	root := repoRootForTest(t)
 	straceSource := readCombinedBPFSources(t)
-	// IMPACT: raw syscall program attachment lives in bpf_attach.go; the gate
-	// scans the attacher for generated program wiring snippets.
-	sessionSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_attach.go"))
+	// IMPACT: raw syscall program attachment is derived from the typed catalog;
+	// scan both the attacher and catalog for the generated wiring contract.
+	attachSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_attach.go"))
+	catalogSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_program_catalog.go"))
 	msgDirectSources := readMsgDirectEventSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 
@@ -59,31 +60,41 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 	}
 
 	for _, snippet := range []string{
-		`bpfProgram(programs, "enter_msg")`,
-		`bpfProgram(programs, "enter_sendmsg_base")`,
-		`bpfProgram(programs, "enter_mmsg")`,
-		`bpfProgram(programs, "enter_mmsg_base01")`,
-		`bpfProgram(programs, "enter_mmsg_base2")`,
-		`bpfProgram(programs, "enter_mmsg_base3")`,
-		`bpfProgram(programs, "enter_mmsg_bytes0")`,
-		`bpfProgram(programs, "enter_mmsg_bytes1")`,
-		`bpfProgram(programs, "enter_mmsg_bytes2")`,
-		`bpfProgram(programs, "enter_mmsg_bytes3")`,
+		"return bpfTailCallProgramEntries(programs, bpfEnterProgramCatalog)",
+		"return bpfTailCallProgramEntries(programs, bpfExitProgramCatalog)",
+		"return bpfTailCallProgramEntries(programs, bpfRecvmsgProgramCatalog)",
+		"return bpfTailCallProgramEntries(programs, bpfMmsgByteProgramCatalog)",
 		"MmsgBytesProgs",
 		"objs.MmsgBytesProgs",
-		`bpfProgram(programs, "exit_msg")`,
 		"RecvmsgProgs",
-		`bpfProgram(a.programs, "trace_kretprobe_recvmsg_dispatch")`,
 		"attachRecvmsgKretprobe",
-		`bpfProgram(programs, "trace_kretprobe_recvmsg_name")`,
-		`bpfProgram(programs, "trace_kretprobe_recvmsg_control")`,
-		`bpfProgram(programs, "trace_kretprobe_recvmsg_final")`,
-		`bpfProgram(programs, "exit_recvmmsg_base01")`,
-		`bpfProgram(programs, "exit_recvmmsg_base23")`,
-		`bpfProgram(programs, "exit_mmsg_final")`,
 	} {
-		if !strings.Contains(sessionSource, snippet) {
+		if !strings.Contains(attachSource, snippet) {
 			t.Fatalf("session source missing msg attach snippet %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
+		"\"enter_msg\"",
+		"\"enter_sendmsg_base\"",
+		"\"enter_mmsg\"",
+		"\"enter_mmsg_base01\"",
+		"\"enter_mmsg_base2\"",
+		"\"enter_mmsg_base3\"",
+		"\"enter_mmsg_bytes0\"",
+		"\"enter_mmsg_bytes1\"",
+		"\"enter_mmsg_bytes2\"",
+		"\"enter_mmsg_bytes3\"",
+		"\"exit_msg\"",
+		"\"exit_recvmmsg_base01\"",
+		"\"exit_recvmmsg_base23\"",
+		"\"exit_mmsg_final\"",
+		"bpfRecvmsgDispatchProgramName = \"trace_kretprobe_recvmsg_dispatch\"",
+		"\"trace_kretprobe_recvmsg_name\"",
+		"\"trace_kretprobe_recvmsg_control\"",
+		"\"trace_kretprobe_recvmsg_final\"",
+	} {
+		if !strings.Contains(catalogSource, snippet) {
+			t.Fatalf("program catalog missing msg handler %q", snippet)
 		}
 	}
 
@@ -300,7 +311,7 @@ func TestBPFRecvmsgKretprobeChainSerializesFragments(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(attachSource, `bpfProgram(a.programs, "trace_kretprobe_recvmsg_dispatch")`) {
+	if !strings.Contains(attachSource, "bpfProgram(a.programs, bpfRecvmsgDispatchProgramName)") {
 		t.Fatal("bpf_attach.go does not attach the recvmsg dispatcher")
 	}
 	if strings.Contains(attachSource, "Kretprobe(symbol, a.objs.TraceKretprobeRecvmsgName") ||

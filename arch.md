@@ -9649,3 +9649,43 @@ Impact note：只影响 `cmd/strace-go/bpf_routes.go` 的 route plan 构造和�
 - `ebpf-perf` 通过：scalar/io/threads trace exit rate 为 `24405.58/16364.16/14673.84`，end-to-end 为 `6353.56/3951.89/3467.11`；route plan 阶段约 `0.00005s`，未观察到事件管线退化。
 - 原生 `small` 为 23 PASS；`more` 为 80 PASS、3 个既有 expected XFAIL、0 FAIL/XPASS。XFAIL 仍是 CPU-time summary、跨任务生命周期精确顺序和 ptrace-sized hexdump 边界，与本阶段无关。
 - Review：未发现旧 route rule、ptrace/procfs/process_vm、用户态第二消费者、锁或定时器残留；route capability registry 仍是显式 capture policy，未误称为 BTF 自动推导结果。
+
+### 14.237 统一 eBPF tail-call 程序目录与 handler family 元数据（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.236 已将 syscall route 收敛为单一 capability registry，但 loader 侧仍有四份互相独立的程序元数据：`bpf_attach.go` 的四组 ProgArray literal、`bpf_program_selection.go` 的 slot/name map、`bpf_collection_split.go` 的 program/family map，以及测试中对这些表的间接引用。
+- Problem：新增或迁移一个 BPF handler 时，slot、ELF program name、handler family 和 ProgArray 写入顺序可能只更新其中一处；错误会在 collection prepare、tail call 或 route map 阶段才暴露。`recvmsg` dispatcher 还是独立 kretprobe attach，不属于 ProgArray，若简单塞入 slot catalog 会混淆两种生命周期。
+- Goal：建立 typed BPF program catalog，让每个 tail-call handler 的 slot、name、family 只有一份 Go-side 声明；ProgArray entries、slot lookup、handler family lookup 和 selection 都从目录派生。对直接 attach 的 handler 使用独立 standalone catalog，明确区分 attach ownership 与 tail-call ownership。
+- Non-goals：不修改 BPF ABI、tail-call slot 编号、C handler、tracepoint/kretprobe 语义、route capability 内容、事件消费者或运行期 cleanup；不把 BTF 用来推导 capture policy。
+- Constraints：纯 eBPF/no-ptrace/no-procfs 保持不变；ProgArray entry 顺序必须与 BPF dispatch ABI 完全一致；handler collection family 必须覆盖每个 catalog entry；不存在的 slot、重复 name 和缺失 generated program 必须在 Go 测试中可诊断；不增加事件热路径分配、锁或 goroutine。
+
+Impact note：影响 `cmd/strace-go` loader metadata、ProgArray population、program selection、handler family classification、route slot validation，以及依赖源码位置的 direct payload source tests；BPF object、event wire、runtime event loop 和 syscall capture policy 不变。
+
+#### 方案比较
+
+1. 保留四组手写 map/literal：改动最小，但 slot/name/family 继续容易漂移，拒绝。
+2. 从 BTF 或 ELF program 名称自动推导 family 和 slot：可减少手写，但 BTF/ELF 不表达产品 handler 的 capture ownership，也不能可靠表达独立 kretprobe attach，拒绝。
+3. 使用 typed tail-call catalog 加 standalone catalog，并从目录派生 loader 索引和 entries：保留显式 ABI/product knowledge，消除重复事实源，能区分两类 attach 生命周期，选择。
+
+#### 实现
+
+- 新增 `bpfTailCallProgramSpec`，集中声明 enter、exit、recvmsg fragment 和 mmsg byte 四组 catalog；`bpfTailCallProgramEntries` 统一生成 ProgArray entries，selection 的 slot lookup 直接查 catalog。
+- 新增 `bpfStandaloneProgramSpec` 和 `bpfStandaloneProgramCatalog`，登记 `trace_kretprobe_recvmsg_dispatch`；它不占用 `recvmsg_progs` slot，但由同一 family registry 参与 collection split 和 generated program 校验。
+- 删除 `bpf_program_selection.go` 的手写 slot/name map、`bpf_attach.go` 的四组程序 literal，以及 `bpf_collection_split.go` 的手写 family map。route capability validation 直接查 typed catalog，避免派生 name map 回到产品校验路径。
+- 测试改为验证 catalog 本身的 slot/name 唯一性、standalone ownership、generated handler collection 覆盖和 selected ProgArray 行为；iovec/msg 源码 gate 改为分别检查 attach 使用 catalog、catalog 含关键程序名，避免把旧文件位置误当成架构契约。
+
+#### 测试与验收
+
+- 失败优先：先加入 catalog slot/name/family 测试；在 catalog 尚不存在时按预期编译失败，随后实现并补充重复 slot/name、standalone dispatch 和 generated collection 覆盖断言。
+- `go test ./...`：通过；`go test -race ./...`：通过；`go vet ./...`：通过；`go build -o /tmp/strace-go-phase14237 ./cmd/strace-go`：通过；Python runner 单测：44 OK；`git diff --check`：通过。
+- `ebpf-semantic`：通过；主事件 197，enter/exit `100/97`，lifecycle 6，ringbuf reserve/copy、pending update、orphan、mismatch 和 lifecycle map error counters 全为 0。
+- `ebpf-perf`：通过；Go decode `352.40 ns/op`、普通 JSON writer `501.00 ns/op`、decoded JSON `616.90 ns/op` 且均为 0 alloc；payload JSON 为 `861.60 ns/op`、16 B/1 alloc。scalar/io/threads trace exit rate 为 `25176.94/15532.74/14361.03`，end-to-end 为 `6274.27/4044.92/3234.25`。
+- 端到端低值仍主要由短 workload 的 BPF link cleanup 约 `0.162~0.179s` 和 post-cleanup 未归因尾部约 `0.183~0.195s` 稀释；trace window 速率与 14.236 基线同量级，catalog 重构没有进入事件热路径，也没有造成 event/sec 崩塌。
+- upstream small：23 PASS、0 FAIL；upstream more：80 PASS、3 个既有 expected XFAIL、0 FAIL/XPASS。XFAIL 仍是 CPU-time summary、跨任务生命周期精确顺序和 ptrace-sized read/write snapshot，与本阶段无关。
+
+#### Review
+
+- 未发现 slot 顺序变化、handler family 漏项、standalone dispatcher 被错误写入 ProgArray、ptrace/procfs/process_vm、第二消费者、用户态锁或定时器回流。
+- 目录初始化依赖由 package-level catalog 引用建立，generated collection test 实际加载全部 handler family 并校验每个 catalog entry；重复 name/slot 测试覆盖后续新增 handler 的主要回归面。
+- 保留的架构边界：slot 仍是 BPF C/Go ABI，需要显式维护；catalog 统一的是 loader 元数据，不会自动解决 bounded payload policy、BTF syscall 参数语义或 upstream 精确顺序差异。
