@@ -94,10 +94,7 @@ func (a *bpfAttacher) attachOptionalRecvmsgFor(enabled bool) (link.Link, error) 
 // handlers are not attached here; they live in enter_progs/exit_progs and are
 // dispatched via bpf_tail_call (see populateProgArrays).
 func rawSyscallTracepointSpecs(objs *bpfObjects) []tracepointSpec {
-	return []tracepointSpec{
-		{program: objs.TraceSysEnter, category: "raw_syscalls", name: "sys_enter"},
-		{program: objs.TraceSysExit, category: "raw_syscalls", name: "sys_exit"},
-	}
+	return bpfCoreTracepointSpecs(objs, bpfRawSyscallTracepointCategory)
 }
 
 // Tail call prog array indices, kept in sync with bpf/enter_dispatch.h and
@@ -277,12 +274,26 @@ func (a *bpfAttacher) populateProgArraysFor(selection bpfProgramSelection) error
 // lifecycleTracepointSpecs lists the sched lifecycle programs required by the
 // event-sourced task state contract.
 func lifecycleTracepointSpecs(objs *bpfObjects) []tracepointSpec {
-	return []tracepointSpec{
-		{program: objs.TraceSchedProcessFork, category: "sched", name: "sched_process_fork"},
-		{program: objs.TraceSchedProcessExec, category: "sched", name: "sched_process_exec"},
-		{program: objs.TraceSchedProcessExit, category: "sched", name: "sched_process_exit"},
-		{program: objs.TraceSchedProcessFree, category: "sched", name: "sched_process_free"},
+	return bpfCoreTracepointSpecs(objs, bpfLifecycleTracepointCategory)
+}
+
+func bpfCoreTracepointSpecs(objs *bpfObjects, category string) []tracepointSpec {
+	specs := make([]tracepointSpec, 0)
+	for _, program := range bpfCoreProgramCatalog {
+		if program.category != category {
+			continue
+		}
+		var loaded *ebpf.Program
+		if objs != nil && program.lookup != nil {
+			loaded = program.lookup(objs)
+		}
+		specs = append(specs, tracepointSpec{
+			program:  loaded,
+			category: program.category,
+			name:     program.tracepoint,
+		})
 	}
+	return specs
 }
 
 // attachTracepoints attaches each required spec and aborts on the first

@@ -31,13 +31,12 @@ func TestBPFProgramSelectionKeepsPositiveFilterDependencies(t *testing.T) {
 	if selection.loadAll {
 		t.Fatal("positive filter selected all BPF programs")
 	}
+	for _, program := range bpfCoreProgramCatalog {
+		if !selection.hasProgram(program.name) {
+			t.Fatalf("selection missing required core program %q", program.name)
+		}
+	}
 	for _, name := range []string{
-		"trace_sys_enter",
-		"trace_sys_exit",
-		"trace_sched_process_fork",
-		"trace_sched_process_exec",
-		"trace_sched_process_exit",
-		"trace_sched_process_free",
 		"enter_no_payload_generic",
 		"exit_generic",
 	} {
@@ -273,16 +272,9 @@ func TestBPFProgramSelectionCatalogMatchesGeneratedSpec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadBpf() error = %v", err)
 	}
-	for _, name := range []string{
-		"trace_sys_enter",
-		"trace_sys_exit",
-		"trace_sched_process_fork",
-		"trace_sched_process_exec",
-		"trace_sched_process_exit",
-		"trace_sched_process_free",
-	} {
-		if coreSpec.Programs[name] == nil {
-			t.Fatalf("generated BPF spec is missing core program %q", name)
+	for _, program := range bpfCoreProgramCatalog {
+		if coreSpec.Programs[program.name] == nil {
+			t.Fatalf("generated BPF spec is missing core program %q", program.name)
 		}
 	}
 	handlerSpecs := map[bpfHandlerFamily]*ebpf.CollectionSpec{}

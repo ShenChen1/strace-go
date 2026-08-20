@@ -64,6 +64,40 @@ func TestRawSyscallTracepointSpecsAreRequired(t *testing.T) {
 	}
 }
 
+func TestBPFCoreProgramCatalogOwnsTracepointBinding(t *testing.T) {
+	program, ok := bpfCoreProgramSpecByName("trace_sys_enter")
+	if !ok {
+		t.Fatal("trace_sys_enter is missing from the core program catalog")
+	}
+	if program.category != "raw_syscalls" || program.tracepoint != "sys_enter" {
+		t.Fatalf("trace_sys_enter catalog entry = %+v, want raw syscall binding", program)
+	}
+
+	program, ok = bpfCoreProgramSpecByName("trace_sched_process_exit")
+	if !ok {
+		t.Fatal("trace_sched_process_exit is missing from the core program catalog")
+	}
+	if program.category != "sched" || program.tracepoint != "sched_process_exit" {
+		t.Fatalf("trace_sched_process_exit catalog entry = %+v, want lifecycle binding", program)
+	}
+}
+
+func TestBPFCoreProgramCatalogHasUniqueNamesAndTracepoints(t *testing.T) {
+	seenNames := make(map[string]struct{})
+	seenTracepoints := make(map[string]struct{})
+	for _, program := range bpfCoreProgramCatalog {
+		if _, exists := seenNames[program.name]; exists {
+			t.Fatalf("duplicate core program name %q", program.name)
+		}
+		seenNames[program.name] = struct{}{}
+		key := program.category + "/" + program.tracepoint
+		if _, exists := seenTracepoints[key]; exists {
+			t.Fatalf("duplicate core tracepoint %q", key)
+		}
+		seenTracepoints[key] = struct{}{}
+	}
+}
+
 func TestLifecycleTracepointSpecsAreRequired(t *testing.T) {
 	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/bpf_attach.go"))
 	for _, forbidden := range []string{"optional bool", "spec.optional"} {

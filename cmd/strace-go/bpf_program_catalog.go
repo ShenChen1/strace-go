@@ -7,6 +7,67 @@ type bpfProgramProvider interface {
 	program(name string) *ebpf.Program
 }
 
+const (
+	bpfRawSyscallTracepointCategory = "raw_syscalls"
+	bpfLifecycleTracepointCategory  = "sched"
+)
+
+// bpfCoreProgramSpec owns the generated core program name and its kernel hook.
+type bpfCoreProgramSpec struct {
+	name       string
+	category   string
+	tracepoint string
+	lookup     func(*bpfObjects) *ebpf.Program
+}
+
+var bpfCoreProgramCatalog = []bpfCoreProgramSpec{
+	{
+		name:       "trace_sys_enter",
+		category:   bpfRawSyscallTracepointCategory,
+		tracepoint: "sys_enter",
+		lookup:     func(objects *bpfObjects) *ebpf.Program { return objects.TraceSysEnter },
+	},
+	{
+		name:       "trace_sys_exit",
+		category:   bpfRawSyscallTracepointCategory,
+		tracepoint: "sys_exit",
+		lookup:     func(objects *bpfObjects) *ebpf.Program { return objects.TraceSysExit },
+	},
+	{
+		name:       "trace_sched_process_fork",
+		category:   bpfLifecycleTracepointCategory,
+		tracepoint: "sched_process_fork",
+		lookup:     func(objects *bpfObjects) *ebpf.Program { return objects.TraceSchedProcessFork },
+	},
+	{
+		name:       "trace_sched_process_exec",
+		category:   bpfLifecycleTracepointCategory,
+		tracepoint: "sched_process_exec",
+		lookup:     func(objects *bpfObjects) *ebpf.Program { return objects.TraceSchedProcessExec },
+	},
+	{
+		name:       "trace_sched_process_exit",
+		category:   bpfLifecycleTracepointCategory,
+		tracepoint: "sched_process_exit",
+		lookup:     func(objects *bpfObjects) *ebpf.Program { return objects.TraceSchedProcessExit },
+	},
+	{
+		name:       "trace_sched_process_free",
+		category:   bpfLifecycleTracepointCategory,
+		tracepoint: "sched_process_free",
+		lookup:     func(objects *bpfObjects) *ebpf.Program { return objects.TraceSchedProcessFree },
+	},
+}
+
+func bpfCoreProgramSpecByName(name string) (bpfCoreProgramSpec, bool) {
+	for _, program := range bpfCoreProgramCatalog {
+		if program.name == name {
+			return program, true
+		}
+	}
+	return bpfCoreProgramSpec{}, false
+}
+
 // bpfTailCallProgramSpec is the single Go-side description of a handler
 // program exposed through a BPF ProgArray.
 type bpfTailCallProgramSpec struct {
@@ -189,23 +250,9 @@ func (o *bpfObjects) program(name string) *ebpf.Program {
 }
 
 func coreBPFProgram(objects *bpfObjects, name string) *ebpf.Program {
-	if objects == nil {
+	program, ok := bpfCoreProgramSpecByName(name)
+	if !ok || objects == nil || program.lookup == nil {
 		return nil
 	}
-	switch name {
-	case "trace_sys_enter":
-		return objects.TraceSysEnter
-	case "trace_sys_exit":
-		return objects.TraceSysExit
-	case "trace_sched_process_fork":
-		return objects.TraceSchedProcessFork
-	case "trace_sched_process_exec":
-		return objects.TraceSchedProcessExec
-	case "trace_sched_process_exit":
-		return objects.TraceSchedProcessExit
-	case "trace_sched_process_free":
-		return objects.TraceSchedProcessFree
-	default:
-		return nil
-	}
+	return program.lookup(objects)
 }

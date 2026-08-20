@@ -9689,3 +9689,43 @@ Impact note：影响 `cmd/strace-go` loader metadata、ProgArray population、pr
 - 未发现 slot 顺序变化、handler family 漏项、standalone dispatcher 被错误写入 ProgArray、ptrace/procfs/process_vm、第二消费者、用户态锁或定时器回流。
 - 目录初始化依赖由 package-level catalog 引用建立，generated collection test 实际加载全部 handler family 并校验每个 catalog entry；重复 name/slot 测试覆盖后续新增 handler 的主要回归面。
 - 保留的架构边界：slot 仍是 BPF C/Go ABI，需要显式维护；catalog 统一的是 loader 元数据，不会自动解决 bounded payload policy、BTF syscall 参数语义或 upstream 精确顺序差异。
+
+### 14.238 统一 core tracepoint 程序目录与 attach 元数据（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.237 已收敛 ProgArray handler，但 core collection 仍有三处分散的程序知识：`coreBPFProgram` 的 name-to-field switch、`bpf_object_loader.go` 的 core program name switch，以及 `bpf_attach.go` 中 raw syscall/lifecycle tracepoint 的两组手写 `tracepointSpec` literal。
+- Problem：新增、重命名或迁移一个 core BPF program 时，generated ELF name、`bpfObjects` 字段、kernel tracepoint category/name 和 core-resource ownership 可能只更新部分位置；加载、attach 或 cleanup 阶段才会暴露，且测试无法从一个目录审计完整 binding。
+- Goal：建立 typed core-program catalog，集中声明 generated program name、`bpfObjects` lookup、tracepoint category 和 tracepoint name；由它派生 `coreBPFProgram`、raw/lifecycle attach specs 和 core-resource 判定。
+- Non-goals：不修改 BPF C 程序、tracepoint attach 顺序、event ABI、lifecycle 语义、handler catalog、runtime cleanup 并发策略或 syscall route policy；不从 BTF/ELF 自动推导 raw/lifecycle role。
+- Constraints：raw syscall 与 lifecycle 必须仍是 required attach；catalog entry 的 generated program 必须存在；同一 category/tracepoint 和 generated name 不能重复；nil objects 的测试输入不能 panic；不增加事件热路径工作。
+
+Impact note：只影响 `cmd/strace-go` loader/attach metadata、core resource classification 和对应 Go 测试；BPF object、tracepoint wiring 的最终 category/name、Ringbuf consumer 和 runtime resource ownership保持不变。
+
+#### 方案比较
+
+1. 继续维护 core name switch、attach literal 和 object loader switch：改动最小，但同一 program 的绑定信息仍有三份，拒绝。
+2. 根据 generated ELF/BTF 名称自动寻找 tracepoint：可减少字段，但无法表达 required attach role、category 选择和产品级 lifecycle 语义，拒绝。
+3. 使用显式 typed core catalog，并由 attach/loader 派生各自视图：保留 kernel hook 的产品知识，消除重复映射且可测试，选择。
+
+#### 实现
+
+- 新增 `bpfCoreProgramSpec` 和 `bpfCoreProgramCatalog`，登记 `trace_sys_enter`、`trace_sys_exit`、四个 `sched_process_*` 程序，以及对应的 object lookup/category/tracepoint binding。
+- `rawSyscallTracepointSpecs` 与 `lifecycleTracepointSpecs` 通过 category 过滤同一 catalog 生成 `tracepointSpec`；required attach 行为和原有顺序保持不变。
+- `coreBPFProgram` 与 `isCoreBPFProgramName` 改为查 catalog，删除手写 switch；handler `bpfProgramCatalog` 仍可通过统一 provider 读取 core program。
+- 失败优先测试覆盖 core program binding、name/tracepoint 唯一性和 generated core collection 覆盖；已有 selection 测试改为遍历 catalog，避免测试再次维护第二份 core name 列表。
+
+#### 测试与验收
+
+- 失败优先结果：在 catalog API 尚不存在时，`TestBPFCoreProgramCatalog*` 按预期编译失败；实现后 focused attach/loader/selection tests 全部通过。
+- `go test ./...`：通过；`go test -race ./...`：通过；`go vet ./...`：通过；`go build -o /tmp/strace-go-phase14238 ./cmd/strace-go`：通过；`git diff --check`：通过。
+- `ebpf-semantic`：通过；主事件 197，enter/exit `100/97`，lifecycle 6，ringbuf/pending/orphan/mismatch/lifecycle-map error counters 全为 0。
+- `ebpf-perf`：通过；Go decode `353.80 ns/op`、普通 JSON writer `494.00 ns/op`、decoded JSON `599.50 ns/op`、decoded payload `832.30 ns/op` 且 payload 为 16 B/1 alloc。scalar/io/threads trace exit rate 为 `22940.63/16278.48/14181.48`，end-to-end 为 `5891.55/3883.75/3419.81`。
+- cleanup 观测保持一致：`cleanup_bpf_links` 约 `0.181~0.199s`，说明 event/sec 的端到端稀释仍来自内核 link detach 固定尾部；core catalog 没有改变 tracepoint attach 语义或 Go event pipeline。
+- 原生 small：23 PASS、0 FAIL；more：80 PASS、3 个既有 expected XFAIL、0 FAIL/XPASS。XFAIL 仍是 `strace-C`、`attach-p-cmd` 和 bounded `read-write` snapshot 边界。
+
+#### Review
+
+- 未发现 core program name switch、raw/lifecycle attach literal 或 required/optional 语义回退；generated core programs、tracepoint category/name 和 object lookup 由同一 catalog 覆盖。
+- catalog callback 只在 setup/attach/resource classification 阶段执行，不进入 syscall enter/exit handler 或 Ringbuf consumer 热路径；不新增 goroutine、锁、ptrace、procfs 或 process_vm。
+- 保留的架构边界：catalog 只统一 loader 元数据；kernel tracepoint ABI 与 generated `bpfObjects` 字段仍需显式维护，不能据此宣称 core attach 已由 BTF 自动生成。

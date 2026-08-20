@@ -299,14 +299,8 @@ func taggedBPFResourceNames(resourceType reflect.Type) map[string]struct{} {
 }
 
 func isCoreBPFProgramName(name string) bool {
-	switch name {
-	case "trace_sys_enter", "trace_sys_exit",
-		"trace_sched_process_fork", "trace_sched_process_exec",
-		"trace_sched_process_exit", "trace_sched_process_free":
-		return true
-	default:
-		return false
-	}
+	_, ok := bpfCoreProgramSpecByName(name)
+	return ok
 }
 
 func (b *bpfObjectBundle) Close() error {
