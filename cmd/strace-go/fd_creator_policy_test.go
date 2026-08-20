@@ -128,6 +128,19 @@ func TestFDCreatorPolicyDispatchRejectsUnknownNames(t *testing.T) {
 	}
 }
 
+func TestFDCreatorNamePredicateMatchesPolicyCatalog(t *testing.T) {
+	for name := range fdCreatorPolicies {
+		if !isFDStateCreatorName(name) {
+			t.Fatalf("creator name predicate rejected catalog entry %q", name)
+		}
+	}
+	for _, name := range []string{"getpid", "openat", "", "unknown_creator"} {
+		if isFDStateCreatorName(name) {
+			t.Fatalf("creator name predicate accepted non-creator %q", name)
+		}
+	}
+}
+
 func BenchmarkFDCreatorPolicyFor(b *testing.B) {
 	names := []string{"eventfd", "getpid", "read", "signalfd4", "inotify_init1", "unknown"}
 	view := syscallEventView{valid: true, args: [6]uint64{0x80000}}

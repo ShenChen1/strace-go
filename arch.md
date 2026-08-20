@@ -11303,3 +11303,47 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留 ID dispatch table：正式 session 通过 `HandlerDispatchPort` 走一次性构造的已知 syscall handler，未知 syscall 和无 dispatch Context 保留原 registry fallback；handler 内部的 registry capability 没有被移除。
 - 这是真实但局部的 handler dispatch 优化；高压数据只显示轻微改善，剩余瓶颈仍是单 Go consumer 的状态、FD effects、handler 和 JSON 输出与 producer burst 的竞争。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.280 固定 FD creator predicate，避免普通 syscall 的 map lookup（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.279 已移除已知 syscall 的 handler registry 字符串查找，但 FD effect 路径中的 `isFDStateCreatorForView` 仍通过 `map[string]fdCreatorPolicy` 判断 creator；普通 `getpid`、`read` 等事件也会经过这个判断。
+- Problem：creator predicate 本身只由固定 syscall 名称决定，不依赖 `syscallEventView`；在单 Go consumer 的高频路径上，为非 creator 事件支付 map/interface 查找会缩短 Ringbuf service budget。
+- Goal：把“是否为 creator”的纯名称判断拆成无 map 的 `isFDStateCreatorName`；详细 `fdCreatorPolicy` 仍只在确认 creator 后查表，避免改变 creator 的 payload、CLOEXEC 和 path 状态逻辑。
+- Non-goals：不改变 FDStateStore 的状态迁移、payload 语义、输出格式、BPF ABI、事件顺序、生命周期处理或并发模型；不引入新的 event context 字段、第二消费者、锁、ptrace、procfs 或 process_vm。
+- Constraints：predicate 名称集合必须与 policy catalog 一致；未知 syscall、空名称和非 creator 名称必须返回 false；手工 view 和现有 handler 测试替身继续可用。
+
+#### 方案比较
+
+1. 保留 `map[string]fdCreatorPolicy` 作为所有判断入口：实现最简单，但普通事件仍支付 map/interface lookup，拒绝。
+2. 为所有 effect 构造 session-owned ID capability table，并把 flags 缓存到 `syscallEventContext`：架构边界清晰，但实验显示 event context 按值传递的结构复制成本抵消收益，handler pipeline 从约 `290` 退化到 `302 ns/op`，回退。
+3. 单独提取无 map 的 creator 名称 predicate，policy map 仅保留给真实 creator 的详细 state：改动局部、无 event context ABI 成本，选择。
+
+#### 实现与失败优先测试
+
+- 先增加 `TestFDCreatorNamePredicateMatchesPolicyCatalog`；修改前因 `isFDStateCreatorName` 不存在而编译失败。
+- `isFDStateCreatorForView` 现在直接委托名称 predicate；`fdCreatorPolicyFor` 先做无 map predicate，只有命中后才访问 policy map，并继续执行原有 `policy.matches`。
+- 测试同时遍历 policy catalog，防止新增 creator policy 时遗漏 predicate；对 `getpid`、`openat`、空名称和未知名称锁定 false 结果。
+
+#### Review 入口
+
+- predicate 的 creator 集合必须覆盖 `signalfd/signalfd4`、`eventfd/eventfd2`、`epoll_create/epoll_create1`、`timerfd_create` 和 `inotify_init/inotify_init1`。
+- 详细 policy lookup 和 `policy.state` 不得移除；signalfd mask、O_CLOEXEC 和 BPF FD snapshot 仍由原 policy 路径处理。
+- 不得把 `openat` 等普通 FD syscall 误判为 creator；名称 predicate 不应读取或推断用户态 view。
+
+#### 验证与实测
+
+- focused creator/policy、FD offset、context 和 session tests 通过；`go test ./...`、`go test -race ./...`、`go vet ./...` 和构建均通过。
+- `BenchmarkFDCreatorPolicyFor` 从基线约 `8.1 ns/op` 降到顺序测量约 `6.3 ns/op`；handler pipeline 顺序五轮为 `279.4-285.0 ns/op`，基线为 `289.3-294.3 ns/op`；JSON pipeline 为 `558.6-573.1 ns/op`，与基线区间重叠，无稳定回归。
+- `ebpf-semantic` 通过：事件 `197`，enter/exit `100/97`，lifecycle `6`，payload truncated `7`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`。
+- `ebpf-perf` 通过：scalar exit `6164.44 events/s`、I/O exit `3974.49 events/s`、lifecycle exit `29.72 events/s`、threads exit `3295.36 events/s`，运行期错误计数均为 `0`。
+- 最新 `ebpf-capture` 通过：reader `2,923,097/276,938`、none `2,375,601/824,434`、handler `1,397,435/1,802,601`、JSON `1,410,806/1,789,229`，格式为 `records_read/ringbuf_reserve_fail`；JSON `syscall_events=1,370,947`、`records_invalid=0`、runtime error 均为 `0`。该单轮结果有方向性改善，但高压 reservation loss 仍存在，不能视为根治。
+- native `small` `23/23`；本阶段不把并行运行 suite 时出现的临时 ringbuf drain timeout 作为结论，改用当前二进制顺序重跑后 semantic/perf/small 均通过。
+
+#### 决策与 Review
+
+- 保留无 map creator predicate：它只优化固定名称的热判断，详细 creator policy 仍是唯一状态解释入口；policy catalog 单测防止两套名称集合漂移。
+- 否决并回退把 effect flags 放入 `syscallEventContext` 的方案；当前 event context 是值传递对象，新增缓存字段会扩大每条事件的复制成本。
+- 本阶段只证明局部 handler/creator service-time 改善，没有解决单 Go consumer 与 BPF producer burst 竞争造成的高压 `ringbuf_reserve_fail`；下一阶段继续拆分输出链和 producer/consumer 背压。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

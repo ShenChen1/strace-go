@@ -135,7 +135,21 @@ var fdCreatorPolicies = map[string]fdCreatorPolicy{
 	},
 }
 
+func isFDStateCreatorName(syscallName string) bool {
+	switch syscallName {
+	case "signalfd", "signalfd4", "eventfd", "eventfd2",
+		"epoll_create", "epoll_create1", "timerfd_create",
+		"inotify_init", "inotify_init1":
+		return true
+	default:
+		return false
+	}
+}
+
 func fdCreatorPolicyFor(syscallName string, view syscallEventView) (fdCreatorPolicy, bool) {
+	if !isFDStateCreatorName(syscallName) {
+		return nil, false
+	}
 	policy, ok := fdCreatorPolicies[syscallName]
 	if !ok || !policy.matches(syscallName, view) {
 		return nil, false
@@ -143,7 +157,6 @@ func fdCreatorPolicyFor(syscallName string, view syscallEventView) (fdCreatorPol
 	return policy, true
 }
 
-func isFDStateCreatorForView(syscallName string, view syscallEventView) bool {
-	_, ok := fdCreatorPolicyFor(syscallName, view)
-	return ok
+func isFDStateCreatorForView(syscallName string, _ syscallEventView) bool {
+	return isFDStateCreatorName(syscallName)
 }
