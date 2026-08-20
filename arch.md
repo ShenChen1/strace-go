@@ -10517,3 +10517,37 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留 flags 合并。它删除了一个独立 BPF map 和普通 raw syscall 的稀有状态查表，同时保持 initial-fork owner、exec suppression 对称性和生命周期清理语义；这是最终架构中更干净的状态布局。
 - 不把本阶段标记为 event/s 根因修复。受控 A/B 没有稳定提高 `records_read`，高压 reservation failure 仍然存在；此前 event/s 下降仍需拆成端到端固定成本与 trace-window producer/consumer 竞争两部分。
 - 当前实现仍然是纯 eBPF、一个 Ringbuf、一个 Go consumer、无 ptrace/procfs/process_vm、无额外事件 Goroutine、mutex 或定时器；下一步继续针对固定 record/payload family、BPF helper 成本和 output consumer 做独立测量。
+
+### 14.260 否决 raw dispatcher 的 getpid fast path（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：高压 fixture 主要触发 `getpid`。当前路径是 raw dispatcher 过滤后 tail-call 到 `enter_no_payload_generic/exit_generic`，handler prologue 会再次读取当前身份和配置，然后执行固定事件与 task-storage pending。
+- Problem：为一个高频无 payload syscall 增加 raw dispatcher 内联 fallback，理论上可以去掉一次 tail call 和 handler prologue；但把完整 pending、duration、dynptr emitter 内联进 core dispatcher 会扩大主程序，增加 verifier/JIT 指令布局风险。
+- Goal：只对 `SYS_GETPID` 复用已经存在的 enter/exit fallback，保持 stack capture、pending task storage、duration、事件 ABI 和过滤语义不变，并用相同高压 fixture 验证是否有稳定收益。
+- Non-goals：不改变其它 syscall route，不删除 generic handler，不减少 enter/exit 事件，不改变 fallback 的错误计数和 lifecycle 处理。
+- Constraints：先补失败优先 source gate；真实 verifier、semantic、perf、capture 必须通过；A/B 必须报告 core object section size 以及 `records_read + reserve_fail`，不能把单轮 wall-clock 差异当成收益。
+
+#### 方案比较
+
+1. 保持 tail-call generic handler：代码和 program-array ownership 最稳定，作为 baseline。
+2. 在 raw dispatcher 对 `getpid` 直接调用 enter/exit fallback：理论上少一次 tail call，但会把大段 inline 逻辑带入 core object，作为实验。
+3. 新增独立 scalar enter/exit handler slot：可以隔离 core object 增长，但需要扩展 route catalog、program selection、bindings 和生命周期验证，成本更大，暂不采用。
+
+#### 实现与失败优先测试
+
+- 新增 `TestBPFRawDispatcherFastPathsGetpid`，旧源码因 raw enter/exit 没有 `SYS_GETPID` fallback 分支而失败；临时实现要求 fallback 位于对应 `bpf_tail_call` 之前，并在 fast path 直接 return。
+- enter fast path 调用 `emit_enter_dispatch_fallback(ctx, pid, tid, cfg)`，exit fast path 调用 `emit_exit_dispatch_fallback(pid, tid, sys_id, ret_value)`；未修改 route map、handler collection 或 event wire layout。
+- 临时对象通过 clang、真实 verifier、semantic 和 perf；但撤回前的 core object section 从 baseline 的 enter `0x958`、exit `0x1038` 增长到 enter `0xe08`、exit `0x1b00`，说明“少一次 tail call”换来了显著 core inline 体积。
+
+#### A/B 结果与决策
+
+- 固定 CPU 2 的 current/baseline capture：fast path `none` 为 `records_read=1,195,360`、`reserve_fail=2,004,675`，baseline 为 `1,192,675`、`2,007,361`；fast path JSON 为 `1,092,279`、`2,107,756`，baseline 为 `1,093,125`、`2,106,913`。
+- 差异小于调度和 Ringbuf burst 噪声，普通 `ebpf-perf` scalar trace-window 也只有 `26,538.78 exit/s`，没有超过此前同量级 baseline；semantic 的 `197` 主事件和所有正常 runtime error counters 仍为 0。
+- 决策：删除 fast path 和 source gate，恢复 raw dispatcher 的 tail-call generic handler。该实验没有稳定降低 reservation failure，也没有证明 event/s 收益，却扩大了 core BPF 程序和 verifier/JIT 风险，拒绝纳入最终架构。
+
+#### Review
+
+- 最终代码不保留 `SYS_GETPID` dispatcher 特判，生成对象需在回退后重新 build，避免仅 source 已回退而 `.o` 仍是实验版本。
+- 这项实验进一步确认：减少一次抽象边界不等于减少真实 BPF 热路径成本；当前瓶颈仍应按 producer reservation、task-state helper、固定 record emitter、payload capture 和 Go output consumer 分层测量。
+- 本阶段没有引入 ptrace、procfs、process_vm、第二消费者、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
