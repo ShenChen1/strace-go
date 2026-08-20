@@ -10097,3 +10097,59 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留按等待轮复用 deadline 的实现：它删除了每条事件一次重复的 deadline 设置和对应的底层 mutex 路径，改动局部、语义明确、无额外并发复杂度；但性能收益记为“未测得稳定加速”，不能作为 event/s 根因修复发布。
 - 高压丢失问题仍未解决。Ringbuf reserve failure 已经可观测，但当前 perf workload 同时包含 JSON 解析、输出和 session 轮询，尚未把 BPF capture、Ringbuf 消费、状态机和输出成本分离。下一阶段应增加 capture-only/stats-only 测量或按 `ringbuf.Record.Remaining` 评估批量轮询，先补对应顺序与生命周期测试，再决定是否重构。
 - 本阶段没有改变 pure-eBPF 约束：运行期仍无 ptrace、procfs、process_vm、第二事件消费者、外部 mutex 或定时器；`strace-upstream` 仍只作为既有未跟踪目录，不纳入本次改动。
+
+### 14.250 增加 capture-only 测量模式，拆分输出成本与 Ringbuf 压力（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：当前高压 perf 使用 JSON 输出；每条事件会经过 envelope 解码、`TraceState` 更新、handler、JSON 编码和写出。`ringbuf_reserve_fail` 可以暴露生产者与消费端之间的拥塞，但原有指标不能区分输出编码慢与 Ringbuf/事件消费慢。
+- Problem：把输出写到 `/dev/null` 只能丢弃最终字节，仍会执行 handler 和 JSON 编码，因此不能作为 capture/consumer 基线。直接在 reader 层只计原始 record，又会跳过状态机和生命周期处理。
+- Goal：增加显式 `--event-format=none` 测量模式，保留 BPF、Ringbuf、事件 envelope 解码和 `TraceState` 生命周期处理，跳过 syscall handler、文本/JSON 事件渲染，并将最终 stats 写到 stderr，便于在无事件文本的条件下测量。
+- Non-goals：不改变默认 text/json 行为，不引入第二消费者、锁、定时器、ptrace/procfs fallback，不修改 BPF ABI、Ringbuf reservation 或正常语义测试。
+- Constraints：格式能力必须通过输出策略接口传播，不能在 router 中散落 CLI 判断；先补策略、可选 sink 和 finalizer 的失败优先测试，再做真实 BPF 高压对比。
+
+#### 方案比较
+
+1. 继续使用 `--event-format=json -o /dev/null`：仍执行 handler 和 JSON 编码，无法隔离输出成本，拒绝。
+2. 增加 `--event-format=none`，由 `DiscardEvents` 能力让 session 跳过每事件输出 pipeline，同时保留 envelope/state：边界清晰、可复用，选择。
+3. 让 reader 只计原始 Ringbuf record：测量更轻，但跳过 `TraceState` 和 lifecycle，不能解释完整 Go consumer 行为，保留为后续更底层实验。
+
+#### 实现
+
+- CLI 接受 `text`、`json` 和 `none` 三种格式；`none` 不是新的兼容输出，而是明确的 capture-only/stats-only 测量契约。
+- `traceFormatPolicy` 增加 `DiscardEvents` capability。`ShouldEmit` 在 discard 模式直接拒绝事件输出，避免只在 renderer 端拦截造成策略语义不一致；BPF enter emission 仍保持开启，因此该模式仍能测量真实 producer pressure。
+- session composition 在 discard 模式不构造 `SyscallExitPipeline`、`LifecycleEventHandler` 和 JSON sink，把 nil capability 传给 router；router 对可选 lifecycle sink 做显式 nil guard。这里使用 nil interface，而不是把 typed-nil pointer 塞入 interface，避免真实运行时再次调用 nil receiver。
+- `TraceState` 仍接收并处理 envelope/lifecycle，保证测量覆盖事件解码和状态生命周期；`unfinished` 输出能力在 discard 模式关闭。finalizer 将 stats 作为诊断 JSON 写入 stderr，不污染正常事件流。
+- 新增 `ebpf-capture` suite，使用与普通 perf 相同的 16 线程、100000 次 `getpid` fixture，连续测量 `none` 和 JSON，并比较 trace window、syscall 事件数和 BPF runtime counters。该 suite 有独立 Python 单测，验证 stats、phase、ready 和“discard 不泄漏 syscall JSON”契约。
+
+#### 失败优先发现与修复
+
+- 第一轮 focused test 捕获到 `DiscardEvents` 已传播到格式端口，但 `ShouldEmit` 仍返回 true；修复为策略级拒绝，并保留 BPF producer 的 enter 事件资格。
+- 第一轮真实 capture 运行在 lifecycle 收尾时因 router 无条件调用 nil sink panic；增加可选 sink 回归测试并加入 nil guard。
+- 第二轮真实运行暴露 Go typed-nil interface 问题：`*LifecycleEventHandler` 和 `*SyscallExitPipeline` 赋给 interface 后，interface 本身不等于 nil。composition 改为显式 nil interface capability，并同步跳过 JSON sink/context 构造；新增 session composition 回归测试。
+- 这些问题都发生在新能力边界，而非通过放宽测试绕过；默认 text/json 路径未改变。
+
+#### 验证与实测
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...` 通过；Python 单测 discovery 为 `47` 项通过。
+- `sudo -n ./build.sh` 通过，clang、BPF object generation 和真实 verifier 接受新增 CLI/Go 运行边界；没有改变 BPF ABI 或 attach 数量。
+- `ebpf-semantic` 通过：主事件 `197`，enter/exit `100/97`，lifecycle `6`；reserve/copy、pending、orphan、mismatch、lifecycle-map 和 stale counters 均为 `0`。
+- `ebpf-perf` 通过：Go decode `350.40 ns/op`、普通 JSON writer `495.70 ns/op`、decoded JSON `600.40 ns/op`，均为 `0 alloc/op`；decoded payload `837.80 ns/op`、`16 B/op`、`1 alloc/op`。事件窗口 exit rate 为 scalar `24073.04/s`、IO `16114.44/s`、lifecycle `85.55/s`、threads `14269.12/s`，runtime counters 均为 `0`。
+- `small` upstream native suite 为 `23/23 PASS`，说明默认输出和兼容参考没有回归。
+- 最新同机高压 capture 结果：
+  - `none`：trace `1.180999s`，syscall JSON `0`，`ringbuf_reserve_fail=1827463`，`ringbuf_copy_fail=0`，`pending_update_fail=0`，`orphan_exit=0`，`pending_mismatch=0`，`lifecycle_map_update_fail=0`，`pending_stale=4`。
+  - JSON：trace `2.087029s`，syscall JSON `599074`，`ringbuf_reserve_fail=2587926`，`ringbuf_copy_fail=0`，`pending_update_fail=0`，`orphan_exit=2`，`pending_mismatch=0`，`lifecycle_map_update_fail=0`，`pending_stale=6`。
+  - JSON 相对 `none` 多 `760463` 次 reserve failure；这证明 Go handler/JSON 路径会放大拥塞，但 discard 模式仍有约 `183` 万次 reserve failure。
+
+#### 决策与 Review
+
+- 保留 `--event-format=none` 作为后续性能实验的正式测量工具。它隔离了“完整事件消费但不渲染”的路径，且不改变默认用户行为。
+- 本阶段没有解决高压丢事件问题，也没有证据说明 JSON 是唯一根因。`none` 仍存在明显 BPF producer/Ringbuf 压力，下一阶段应继续拆分固定 record、payload capture、Ringbuf reservation 和 reader 批量消费成本。
+- 高压 suite 中的 `orphan_exit`/`pending_stale` 仅用于诊断压力边界，不提升为普通 semantic/perf 的正常契约；正常 suite 仍要求这些 counters 为零。
+- 本阶段没有引入 ptrace、procfs、process_vm、第二事件消费者、外部 mutex 或定时器；纯 eBPF、单 Go 消费者和事件状态机边界保持不变。
+
+#### 下一阶段入口
+
+- 以 `none` 模式作为 Go consumer 基线，增加原始 envelope/record 数与 reader 处理数的可测计数，区分“producer reserve 失败”和“reader/state 路径处理不足”。
+- 结合 `ringbuf.Record.Remaining`、reader 等待轮和 BPF reservation 结果做小范围 A/B；任何批量读取或 record 结构改变都必须先补事件顺序、生命周期和丢失计数测试，再通过真实 verifier 和 semantic/perf。
+- 不再仅凭端到端 event/s 推断热路径瓶颈；后续报告同时给出 trace window、端到端生命周期时间、事件数量和 runtime error counters。
