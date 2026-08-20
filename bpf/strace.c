@@ -81,10 +81,8 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
     if (!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)) return 0;
 
-    u64 enter_time = bpf_ktime_get_ns();
-
     bpf_tail_call(ctx, &enter_routes, sys_id);
-    emit_enter_dispatch_fallback(ctx, pid, tid, cfg, enter_time);
+    emit_enter_dispatch_fallback(ctx, pid, tid, cfg);
     return 0;
 }
 

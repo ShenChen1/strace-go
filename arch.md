@@ -9941,3 +9941,35 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 最终工作树不保留实验性的 bucket helper、动态 `dynptr` 长度或新的 ABI 字段；固定 reservation source gate 和实机 verifier 基线恢复。
 - 本实验没有引入 ptrace、procfs、process_vm、第二事件消费者、锁或定时器，也没有改变纯 eBPF 的 payload ownership。
 - Phase 14.244 是一次有证据的否决，不代表 IO payload 性能问题已经解决；当前结论是动态容量方案不适合直接落地，后续性能工作转向更低分支成本的 BPF capture 设计。
+
+### 14.245 去除 enter dispatcher 的重复时间戳（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：`trace_sys_enter` 已完成生命周期、过滤和 `enter_routes` tail-call；正常进入具体 family handler 后，统一的 `ENTER_PROLOGUE` 还会重新获取 `bpf_ktime_get_ns()`。
+- Problem：dispatcher 在成功 tail-call 前获取的时间戳只服务于 tail-call 失败 fallback，而正常 handler 不会消费它；每个正常 enter 事件因此多执行一次无效 helper。
+- Goal：让正常 tail-call 路径只由 handler 获取 enter 时间；让 fallback 在自己拥有 event/pending state 时获取时间；保持 duration、pending 配对、fallback 输出和事件顺序不变。
+- Non-goals：不修改 Ringbuf ABI、过滤逻辑、handler route map、生命周期状态、Go 单消费者或 payload capture；不引入 ptrace、procfs、锁或定时器。
+- Constraints：必须先通过失败优先源码契约；BPF 必须通过 clang/verifier；semantic、perf 和 upstream reference 不得出现事件或错误计数回退。
+
+#### 方案比较
+
+1. 使用 per-CPU scratch map 在 dispatcher 与 handler 间传递时间戳：可复用数值，但每个事件增加 map 写读和并发边界，复杂度及 verifier 风险不匹配收益，拒绝。
+2. 删除 dispatcher 时间戳，让 fallback 自己获取：正常路径少一次 helper，fallback 保持完整时间语义，改动局部且可直接 A/B，选择。
+3. 让 handler 统一消费 dispatcher 时间戳：局部变量不能跨 BPF tail-call 直接传递，需要额外共享状态，拒绝。
+
+#### 实现与验证
+
+- `trace_sys_enter` 不再在 `bpf_tail_call` 前调用 `bpf_ktime_get_ns()`，fallback helper 签名不再接收时间戳，并在提交 enter event 和 pending state 前自行获取时间。
+- 新增源码契约，固定 dispatcher 不拥有成功 tail-call 时间戳、fallback 拥有自己的时间戳；修改前 focused test 按预期失败，修改后通过。
+- `sudo -n ./build.sh` 通过，clang 和真实 eBPF verifier 接受新对象；`go test ./...`、`go test -race ./...`、`go vet ./...`、Python 44 项单测通过。
+- `ebpf-semantic` 通过：主事件 197，enter/exit `100/97`，lifecycle 6，reserve/copy/pending/orphan/mismatch/lifecycle-map/stale counters 全为 `0`。
+- `ebpf-perf` 通过：trace exit rate 为 scalar `24965.74/s`、IO `16056.91/s`、lifecycle `82.65/s`、threads `14341.98/s`；端到端值较低仍对应约 `0.168~0.184s` 的 BPF link cleanup 和 post-cleanup 尾部。
+- 同一 scalar fixture、同一内核、同一命令与 Phase 14.242 旧二进制做长 workload A/B：当前版本三轮 trace window 为 `0.1397/0.1301/0.1296s`，旧版本为 `0.1302/0.1307/0.1300s`；当前首轮存在启动暖机波动，排除该波动后均值约 `0.1298s` 对 `0.1303s`，没有足以宣称大幅提升的收益，也没有观察到稳定回退。
+- upstream reference：`small` 为 `23 PASS`；`more` 为 `80 PASS`、3 个既定 XFAIL、0 FAIL/XPASS。
+
+#### Review
+
+- enter 时间戳的责任边界与现有 handler `ENTER_PROLOGUE` 一致；fallback 仍在写入 event 和 pending state 前采样时间，不会产生未初始化 duration。
+- 正常事件路径少一个 helper 调用，没有新增 map、ABI 字段、BPF attachment、Go 协程或共享锁；所有运行时仍是纯 eBPF 事件流。
+- 此项优化解决的是一个局部重复工作，不是此前端到端 `event/sec` 下降的主因。此前下降的主要原因仍是固定 setup/cleanup 成本与旧指标分母混用；当前 `trace_sec` 已恢复为稳定主指标，但 BPF capture、Ringbuf 竞争和 payload 成本仍需后续单独优化。

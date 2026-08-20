@@ -12,7 +12,7 @@ func TestBPFEnterDispatcherFallbackIsIsolated(t *testing.T) {
 	if !ok {
 		t.Fatal("strace.c missing trace_sys_enter body")
 	}
-	call := "emit_enter_dispatch_fallback(ctx, pid, tid, cfg, enter_time);"
+	call := "emit_enter_dispatch_fallback(ctx, pid, tid, cfg);"
 	if !strings.Contains(dispatcher, call) {
 		t.Fatalf("trace_sys_enter missing fallback helper call %q", call)
 	}
@@ -35,6 +35,29 @@ func TestBPFEnterDispatcherFallbackIsIsolated(t *testing.T) {
 		"emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);",
 		"save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);",
 	})
+}
+
+func TestBPFEnterDispatcherDoesNotTimestampSuccessfulTailCalls(t *testing.T) {
+	source := loadBPFSources(t).straceSource
+	dispatcher, ok := bpfFunctionBody(source, "trace_sys_enter")
+	if !ok {
+		t.Fatal("strace.c missing trace_sys_enter body")
+	}
+	if strings.Contains(dispatcher, "bpf_ktime_get_ns()") {
+		t.Fatal("trace_sys_enter must not timestamp successful tail-call events")
+	}
+	if !strings.Contains(dispatcher, "emit_enter_dispatch_fallback(ctx, pid, tid, cfg);") {
+		t.Fatal("trace_sys_enter must delegate fallback without an enter timestamp")
+	}
+
+	enterSource := readTextFile(t, filepath.Join(repoRootForTest(t), "bpf/enter_runtime.h"))
+	helper, ok := bpfFunctionBody(enterSource, "emit_enter_dispatch_fallback")
+	if !ok {
+		t.Fatal("BPF source missing emit_enter_dispatch_fallback")
+	}
+	if !strings.Contains(helper, "u64 enter_time = bpf_ktime_get_ns();") {
+		t.Fatal("fallback must own its enter timestamp")
+	}
 }
 
 func TestBPFExitDispatchFallbackOwnsPending(t *testing.T) {
