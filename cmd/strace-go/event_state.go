@@ -70,6 +70,7 @@ type TraceState struct {
 	deferUnmatchedExits bool
 	trackForkIdentity   bool
 	unfinishedEnabled   bool
+	lifecycleIDs        syscallLifecycleIDs
 	pendingSyscalls     map[uint32]*pendingSyscallState
 	// reusablePending is owned by the single event consumer; entries are
 	// returned as soon as their snapshot is detached from the state update.
@@ -150,6 +151,13 @@ func (st *TraceState) clearLifecyclePending(tid uint32) {
 func isTerminatingSyscall(view syscallEventView) bool {
 	name := syscallMeta(view.sysID).Name
 	return name == "exit" || name == "exit_group"
+}
+
+func (st *TraceState) isTerminatingSyscall(view syscallEventView) bool {
+	if st == nil || !st.lifecycleIDs.configured() {
+		return isTerminatingSyscall(view)
+	}
+	return st.lifecycleIDs.isTerminating(view.sysID)
 }
 
 func (pending *pendingSyscallState) enterView() syscallEventView {

@@ -10744,3 +10744,39 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - `unfinishedEnabled` 是 session composition 时确定的状态能力；关闭时索引已经被清空，gate 不会影响 text 模式。高压丢失时出现的少量 `pending_stale` 只反映 producer 丢失造成的 enter/exit 不完整，不是本改动新增的 fallback。
 - 下一阶段继续 profile `TraceState` 的 map bookkeeping、router envelope 传递和 output producer；每次只接受语义回归通过且 `records_read + reserve_fail` 闭合的 A/B 结果。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、第二事件消费者、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.266 将终止 syscall 分类移出 event hot path（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.265 的 state-only profile 中，paired exit 仍会调用 `syscallMeta(view.sysID)`，只为判断当前 syscall 是否是 `exit` 或 `exit_group`；这条判断位于每个 exit 的生命周期分支上。
+- Problem：全局 metadata map lookup、`meta.Syscall` 值取出和字符串比较对普通 `getpid`/I/O exit 都是固定成本；它不依赖当前 event 的 payload，也不应该让 session event path重复解析生成表。
+- Goal：在 session 构造时从生成的 syscall catalog 解析 `exit`/`exit_group` 的 ID，事件路径只做预解析的整数比较；保留未配置 `TraceState` 的 metadata fallback，避免测试/特殊构造丢失语义。
+- Non-goals：不硬编码 x86_64 syscall ID，不改变 lifecycle event、attach target、exit_group 清理、event v2 ABI 或 BPF producer；不引入接口调用、锁、第二 consumer 或异步任务。
+- Constraints：ID catalog 必须按当前生成表构造，支持只存在一个终止 syscall 的表；普通状态机和 fallback 仍要通过 exit/exit_group 生命周期测试。
+
+#### 方案比较
+
+1. 每次继续查 `meta.SyscallTable` 并比较名字：架构最直观，但保留 event hot path map/string 固定成本，拒绝。
+2. 直接写死当前平台的 `60/231`：最快，但违反生成 metadata 的跨架构边界，拒绝。
+3. session 构造阶段解析两个 ID，事件路径执行两个整数比较，并保留未配置 fallback：一次性成本、架构无关、热路径简单，选择。
+
+#### 实现与失败优先测试
+
+- 新增不可变 `syscallLifecycleIDs` value object，从 `meta.SyscallTable` 解析 `exit` 和 `exit_group`，记录是否存在以避免 syscall ID `0` 的隐式歧义。
+- `TraceState` 在 session composition 和测试构造器中保存该 catalog；`handleSyscallExit`/deferred exit 使用 `TraceState.isTerminatingSyscall`，正常 session 不再进入全局 metadata lookup。
+- 保留未配置状态的 fallback，并新增表驱动 catalog 测试、非终止 syscall 测试和 fallback 测试；现有 lifecycle/exit cleanup 测试继续覆盖行为。
+
+#### 验证与实测
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、`ebpf-semantic`、`ebpf-perf` 均通过；semantic 主事件 `197`，enter/exit `100/97`，lifecycle `6`，各运行期 error counter 为 `0`。
+- state-only benchmark 三轮约为 `301.9-302.3 ns/op、0 B/op、0 allocs/op`；相对 14.265 的约 `302.2 ns/op` 属于微小收益。profile 中终止判断不再显示 `syscallMeta` 热点，因此保留该优化的主要依据是去除固定 map/string 成本和明确生命周期边界，不是宣称大幅 event/s 提升。
+- 当前四路高压 capture 对账到约 `3,200,035` 次 reservation attempt：reader `3,200,035/0`、none `2,311,743/888,292`、handler `1,528,816/1,671,219`、JSON `1,350,475/1,849,561`，格式为 `records_read/ringbuf_reserve_fail`；`records_invalid=0`，正常 routed 路径的 decoded/routed 对账成立。
+- 原生 upstream-reference 在本阶段前后相关语义保持通过；最近完整结果为 `119 PASS / 0 FAIL / 2 XFAIL`，两个 XFAIL 仍是有界 eBPF snapshot 和未观测 event-sourced FD/cwd 状态。
+
+#### 决策与 Review
+
+- 保留该分类优化。它是 session-owned metadata projection，不把架构 ID 写死，也没有在 event path 引入接口或额外分配；未配置 fallback 只服务手工构造的状态对象。
+- 高压 capture 的 `reserve_fail` 仍然存在，说明剩余瓶颈仍在状态 map bookkeeping、router transport、handler/effect 和 output，而不是终止 syscall 名称解析本身。
+- 下一阶段继续对 `traceEventEnvelope` 的值传递、router/state update 生命周期和 output writer 做分层 profile；所有收益继续以 semantic、native reference 和 `records_read + reserve_fail` 联合判定。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、第二事件消费者、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

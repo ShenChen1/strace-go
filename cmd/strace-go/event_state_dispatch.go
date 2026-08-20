@@ -72,7 +72,7 @@ func (st *TraceState) attachDeferredExit(update *TraceStateUpdate, pendingExit p
 	if pendingEnter == nil {
 		return
 	}
-	if isTerminatingSyscall(pendingExit.view) {
+	if st.isTerminatingSyscall(pendingExit.view) {
 		st.markAttachTargetTerminated(pendingExit.view)
 		st.markLifecyclePending(pendingExit.view.tid)
 		st.clearTaskPending(pendingExit.view.tid)
@@ -112,7 +112,7 @@ func (st *TraceState) handleSyscallExit(view syscallEventView, payload []handler
 			unfinished:      unfinished,
 		}
 	}
-	if isTerminatingSyscall(view) {
+	if st.isTerminatingSyscall(view) {
 		st.markAttachTargetTerminated(view)
 		st.markLifecyclePending(view.tid)
 		st.clearTaskPending(view.tid)

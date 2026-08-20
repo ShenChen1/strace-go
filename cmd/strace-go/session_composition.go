@@ -175,6 +175,7 @@ func newTraceStateForSession(policy traceStatePolicy) *TraceState {
 		deferUnmatchedExits: deferUnmatchedExits,
 		trackForkIdentity:   trackForkIdentity,
 		unfinishedEnabled:   true,
+		lifecycleIDs:        newSyscallLifecycleIDs(meta.SyscallTable),
 	}
 }
 
