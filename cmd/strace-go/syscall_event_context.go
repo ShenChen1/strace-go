@@ -248,6 +248,9 @@ func (ev syscallEventContext) effectiveSyscallMeta() meta.Syscall {
 }
 
 func (ev syscallEventContext) syscallName() string {
+	if ev.meta.Name != "" {
+		return ev.meta.Name
+	}
 	return ev.effectiveSyscallMeta().Name
 }
 

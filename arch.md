@@ -11015,3 +11015,41 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留 raw payload fast path。借用范围限制在单一 writer 的同步 `Write` 调用内，recycle 使用 `clear` 清理 `rawData`，标准构造器仍保留 eager `DataBase64` 行为，边界明确。
 - 本阶段消除了 payload base64 的用户态中间分配，但没有解决高压 JSON 的整体 Ringbuf 背压；下一阶段优先继续 profile handler context、return formatting 和底层 writer 消费时间，而不是继续改变 payload ABI。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.273 缩短 syscall name metadata projection 热路径（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：14.272 的 JSON pipeline CPU profile 中，`syscallEventContext.syscallName` 约占 `6.7%`；正常事件已经在 context 构造时拥有 `ev.meta.Name`，但 handler、FD state、return formatting 和 JSON output 仍反复调用 `effectiveSyscallMeta`，产生 struct projection 和 fallback 分支。
+- Problem：metadata fallback 是为手工构造/不完整测试 context 保留的边界能力，不应让正常 event path 每次都检查 handler context；在单 Go consumer 下，这类重复固定成本会直接减少可消费 Ringbuf record 数。
+- Goal：让正常 event 直接返回已有 `ev.meta.Name`，只在 meta 缺失时保留现有 handler context fallback 和空值行为；不改变 syscall 名称、unknown syscall、过滤、FD state 或 JSON 语义。
+- Non-goals：不改变 syscall catalog、event v2 ABI、handler registry、FD creator policy、输出字段、事件顺序或生命周期；不引入第二消费者、锁、异步任务、ptrace、procfs 或 process_vm。
+- Constraints：手工构造的 `handlerContext.ScMeta.Name`/`SysName` fallback 必须继续有效；`effectiveSyscallMeta` 仍用于需要完整 `meta.Syscall` 的构造点，不能用字符串替换 metadata value object。
+
+#### 方案比较
+
+1. 每次继续调用 `effectiveSyscallMeta`：实现最少，但保留 profile 已确认的重复 projection，拒绝。
+2. 在 `syscallName` 内对 `ev.meta.Name` 做直接 fast path，meta 缺失时沿用原 fallback：改动局部、行为等价、无需新增 event 字段，选择。
+3. 在 context 中新增多个预计算布尔字段，覆盖 name、FD state、exit 和 filtering：潜在收益更大，但扩大构造 ABI 和状态同步面，拒绝作为本步范围。
+
+#### 实现与失败优先测试
+
+- 先增加正常 meta、handler `ScMeta` fallback、handler `SysName` fallback 和空 meta 四类测试，固定 projection 的优先级和未知值行为。
+- 只改 `syscallName` 的读取顺序，保留 `effectiveSyscallMeta` 原实现；运行 pipeline benchmark、semantic、capture/perf 对账，收益必须以 profile 和端到端统计共同判断。
+
+#### Review 入口
+
+- 检查正常 event 是否始终由 `newSyscallEventContextFromViewWithDeps` 填充 `meta`，以及手工 enter context 是否仍能得到 syscall name；不接受删除 fallback 或把空 name 静默变成错误 syscall。
+- 如果局部 name fast path 对完整 pipeline 没有稳定收益，保留行为测试但不继续叠加字段缓存，转向 `newHandlerContext` 或 FD policy 的独立实验。
+
+#### 验证与实测
+
+- 新增 projection 优先级测试，覆盖 event meta、handler `ScMeta`、handler `SysName` 和空 meta；全量行为保持不变。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、`ebpf-semantic` 和 `ebpf-perf` 均通过；semantic 主事件 `197`，enter/exit `100/97`，lifecycle `6`，运行期错误计数均为 `0`。
+- CPU profile 中 syscall name projection 不再进入 top；JSON pipeline 五轮为 `698.8-706.3 ns/op、0 B/op、0 allocs/op`，上一阶段代表值为 `706.8 ns/op`，结果区间重叠，只记录为小幅方向性改善，不宣称固定倍率。
+- profile 剩余热点为 `newHandlerContext` 约 `6.7%`、`fdCreatorPolicyFor` 约 `4.6%` 和 JSON append field/number encoding；下一步以独立 FD policy dispatch 实验验证，不在本阶段混改。
+
+#### 决策与 Review
+
+- 保留 `syscallName` 的直接 meta fast path。它没有新增 context 字段，fallback 行为由四类测试锁定，收益虽小但边界清楚。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
