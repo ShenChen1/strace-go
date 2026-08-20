@@ -10231,6 +10231,55 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 64/128/256 的结果证明此前 event/s 下降不能只归因于 Ringbuf 容量：容量增大改善了部分 `none` burst drop，但 JSON 仍受用户态处理速度限制，且 `trace_sec` 波动不能替代稳态 A/B。
 - 本阶段没有引入 ptrace、procfs、process_vm、第二消费者、外部 mutex 或定时器；`strace-upstream` 仍是既有未跟踪目录，不纳入提交。
 
+### 14.256 在 JSON 输出所有权边界增加同步缓冲（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：Phase 14.255 已经证明，公共 pending value 瘦身只改善 capture-only 的高频路径；完整 JSON 路径仍明显慢于 `none`。`JSONEventWriter` 通过 `TraceOutput` 写入 stderr 或文件，单条 JSON record 可能触发一次底层写入。
+- Problem：同步单条写会让唯一 Go 事件消费者频繁进入 pipe/file I/O，延长 Ringbuf backlog 存活时间并放大 BPF `ringbuf_reserve` failure。直接增加异步 writer、第二消费者或锁会违反纯 eBPF 单消费者架构；只在 JSON writer 内部缓存又会模糊输出所有权和关闭顺序。
+- Goal：在 `TraceOutput` 所有权边界提供可选的 64 KiB `bufio.Writer`，只对 JSON/debug JSON 启用；在 stats、summary、底层 writer close 之前显式 flush，保持事件顺序、错误传播、ready 可见性和单 Go 消费者约束。
+- Non-goals：不改变 BPF ABI、Ringbuf reservation、event 顺序、pending/lifecycle 状态机或默认文本实时输出；不引入 Goroutine、mutex、定时器、ptrace、procfs 或 process memory fallback；不把缓冲当作 Ringbuf 吞吐修复。
+- Constraints：缓冲必须由 `TraceOutput` 这个唯一 close owner 管理；JSON ready 事件仍须在 attach harness 等待前可见；flush 失败不能吞掉，且必须先于底层 writer close；测试必须覆盖正常路径和失败路径。
+
+#### 方案比较
+
+1. 只在 `JSONEventWriter` 内维护私有 bytes buffer：编码边界局部，但 writer close、stats、summary 和 attach ready 的 flush 顺序容易被拆散，拒绝。
+2. 在 `TraceOutput` 所有权边界包裹 64 KiB `bufio.Writer`：不改变事件消费者，不增加并发，所有输出最终经过同一个 close/flush owner，选择。
+3. 增加异步输出 Goroutine 和有界 channel：理论上可以把 I/O 与事件处理解耦，但会引入第二个事件相关执行单元、排空和错误传播复杂度，违反当前架构约束，拒绝。
+
+#### 实现与失败优先测试
+
+- `TraceOutput.EnableBuffer` 在 setup 完成、ownership handoff 前把原始 writer 包成 64 KiB `bufio.Writer`；仅当 session output policy 为 JSON 时启用，因此默认 text 仍保持逐步可见。
+- `TraceOutput.Flush` 缓存 flush 错误；`Close` 的顺序固定为 flush、标记关闭、关闭底层 writer、等待输出命令，并通过 `errors.Join` 保留 write/flush/close/wait 的错误。
+- `TraceRunFinalizer.Finish` 在写 JSON stats 和 summary 前 flush 一次；`Close` 再 flush 尚未写满的尾部，保证事件 record 在 stats 前落到底层 writer。
+- `emitDebugReadyAt` 在写 ready record 后立即 flush，避免 JSON 缓冲让 attach/semantic harness 等不到 ready；普通事件仍批量写入。
+- 先增加 `TraceOutputDeps.Flush`、关闭顺序和 finalizer 顺序测试，修改前 focused test 按预期因缺少 flush capability 编译失败；实现后增加 `TestTraceOutputCloseJoinsFlushError`，并让 finalizer 测试直接调用真实 `EnableBuffer`。
+- 覆盖的边界包括：flush 先于 close、flush 错误仍执行资源清理、事件先于 stats、ready 立即可见、重复 close 不重复释放，以及原有 write/short-write 错误聚合。
+
+#### 验证与实测
+
+- `sudo -n ./build.sh` 通过，重新生成 syscall/xlat/BPF 产物并完成真实 clang/verifier 构建；本阶段没有产生生成文件差异。
+- 使用重建后的当前二进制，`ebpf-semantic` 通过：主事件 `197`，enter/exit `100/97`，lifecycle `6`，reserve/copy、pending、orphan、mismatch 和 lifecycle-map 错误均为 `0`。
+- `ebpf-perf` 通过：Go decode `351.10 ns/op`、普通 JSON writer `482.80 ns/op`、decoded JSON `601.90 ns/op`，均为 `0 alloc/op`；decoded payload `853.50 ns/op`、`16 B/op`、`1 alloc/op`。trace-window exit rate 为 scalar `26770.61/s`、IO `17430.64/s`、lifecycle `85.21/s`、threads `15151.70/s`。
+- 重建后二轮高压 capture 使用同一 16-thread、每线程 100000 次 `getpid` fixture、128 MiB Ringbuf，均满足 `records_read=records_decoded=records_routed` 且 `records_invalid=0`：
+  - `none`：第一轮 `trace_sec=1.006079`、`ringbuf_reserve_fail=1,036,808`、`records_read=2,163,228`；第二轮 `trace_sec=1.269486`、`ringbuf_reserve_fail=1,311,658`、`records_read=1,888,378`。
+  - JSON：第一轮 `trace_sec=2.359882`、`ringbuf_reserve_fail=1,949,562`、`records_read=1,250,473`；第二轮 `trace_sec=2.418191`、`ringbuf_reserve_fail=1,992,946`、`records_read=1,207,089`。
+  - Phase 14.255 的无缓冲 JSON 三轮为 `records_read=1,149,364/1,134,325/1,141,838`、`ringbuf_reserve_fail=2,050,671/2,065,710/2,058,197`。当前缓冲 JSON 约多读取 `6%` 到 `10%` 的 record，reserve failure 约减少 `3%` 到 `5%`；这是稳定的局部改善，但仍有约 `1.2M` 条 record 被读到，不能视为无丢失。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、Python unit `10/10` 和 native upstream small `23/23 PASS` 均通过；`git diff --check` 通过。
+
+#### 决策与 Review
+
+- 保留 64 KiB JSON 输出缓冲。它把批量策略放在已有输出所有权边界，不改变纯 eBPF producer、单 Go consumer、pending/lifecycle 状态机或默认 text 语义；ready、stats、summary 和资源 close 的顺序都有测试保护。
+- 这不是 event/s 问题的完整修复。JSON 高压路径仍有约 `1.95M` 到 `1.99M` 次 BPF reserve failure，`none` 也有约 `1.04M` 到 `1.31M` 次；Ringbuf producer 与单消费者的稳态速率差仍然存在。
+- trace-window 性能相比 Phase 14.255 单轮基线有小幅回升，但 `none` 结果受调度和 Ringbuf burst 影响明显，不能把端到端差异全部归因于 buffer。Go JSON microbenchmark 基本不变，说明收益来自底层写调用次数和 I/O 阻塞，而不是编码器本身。
+- 当前没有新增事件 Goroutine、锁或定时器；`strace-upstream` 仍是既有未跟踪目录，不纳入提交。
+
+#### 下一阶段入口
+
+- 继续以 `none`/JSON 的 `reserve_fail + records_read` 对账为基线，分离 BPF producer 指令成本、payload 深拷贝、Ringbuf reservation 和 reader/state 处理成本。
+- 对输出缓冲不再继续加大容量；除非新的 trace-window A/B 能证明 Ringbuf drop 直接受写批量影响，否则优先测量固定 record、payload family 和 BPF map/pending 热路径。
+- 后续任何吞吐优化仍需先补顺序、生命周期、flush/error 和丢失计数测试，再跑真实 verifier、semantic、perf、capture 和 native small。
+
 ### 14.253 以 `Record.Remaining` 实验有界批量事件轮询（2026-08-20）
 
 #### Problem 1-Pager
