@@ -9973,3 +9973,32 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - enter 时间戳的责任边界与现有 handler `ENTER_PROLOGUE` 一致；fallback 仍在写入 event 和 pending state 前采样时间，不会产生未初始化 duration。
 - 正常事件路径少一个 helper 调用，没有新增 map、ABI 字段、BPF attachment、Go 协程或共享锁；所有运行时仍是纯 eBPF 事件流。
 - 此项优化解决的是一个局部重复工作，不是此前端到端 `event/sec` 下降的主因。此前下降的主要原因仍是固定 setup/cleanup 成本与旧指标分母混用；当前 `trace_sec` 已恢复为稳定主指标，但 BPF capture、Ringbuf 竞争和 payload 成本仍需后续单独优化。
+
+### 14.246 评估 generic enter 静态配置专用 handler（2026-08-20）
+
+#### Problem 1-Pager
+
+- Context：无 FD-state、无 stack trace 时，generic no-payload enter 的 `emitEnter` 与 `captureStack` 在 session 启动后不可变；现有 handler 仍在每条事件中读取 `config_map` 并判断两个配置位。
+- Problem：高频 `getpid/clock_gettime` enter 路径增加一次 config map lookup 和运行时配置分支；该成本位于 `trace_sec` 内。
+- Goal：为普通输出和 summary/quiet 输出提供两个静态行为 handler，保留 pending args、enter timestamp、event ABI 和 route/filter 语义。
+- Non-goals：不改变 dispatcher 过滤、不移除 stack-enabled/FD-state 的可配置路径、不改变 Ringbuf、Go consumer 或 pure-eBPF/no-ptrace/no-procfs 边界。
+- Constraints：新 ProgArray slot 只能追加；旧 slot 1..50 不重排；quiet、emit、stack、FD-state 四种组合都必须有选择测试；必须通过真实 verifier 和 semantic/perf。
+
+#### 方案比较
+
+1. 用 per-CPU scratch map 在 dispatcher 与 handler 间传配置：能复用上下文，但每条事件增加 map 写读和并发状态，拒绝。
+2. 用 `.rodata` 全局配置替代 `config_map`：理论上能统一消除重复 lookup，但需要把多个 handler collection 的 global variable、加载和 ownership 一起改造，作为后续独立实验。
+3. 只新增两个静态 generic handler slot：改动局部，默认路径可删除 map lookup，选择作为本阶段实验。
+
+#### 实验结果与决策
+
+- 新增 `fast_emit`/`fast_quiet` 两个 enter slot，普通无 FD-state route 按 `emitEnter` 选择 fast handler；stack trace 回退既有可配置 handler，FD-state 继续使用 path-aware handler。
+- 失败优先 source/selection tests 先捕获缺失 handler 和旧 slot 断言；实现后 Go 测试、完整 BPF 生成/verifier 和 `ebpf-semantic` 通过，语义事件仍为 197、enter/exit `100/97`、所有 runtime error counters 为 `0`。
+- 同一 `scalar 100000` fixture、同一命令、同一内核交替四轮 A/B：当前 fast 版本 trace window `1.7783/1.7850/1.8035/1.8109s`，旧版本 `1.7955/1.7808/1.7954/1.7759s`，均值分别为 `1.7944s/1.7869s`，当前约慢 `0.42%`，没有可重复收益。
+- 决策：撤回两个 fast slot、ProgArray 容量和 route selection 改动，恢复固定 1..50 enter slot ABI。保留本节作为否决记录；后续若继续消除配置 lookup，应先验证 `.rodata` 多 collection 注入的真实收益，再决定是否扩大加载边界。
+
+#### Review
+
+- 实验没有改变最终工作树的事件 ABI、pending ownership、Go 单消费者或 pure-eBPF 边界；生成绑定将在撤回后重新构建，避免残留不可达 handler。
+- 该结果说明“少一个 config map lookup”不能直接推导出 trace 吞吐提升；BPF handler 指令布局、tail-call route 和事件提交成本需要联合测量。
+- Phase 14.246 是有 verifier、semantic 和长 workload A/B 证据的否决，不代表 generic enter 的重复配置读取已经理想化；下一阶段应优先评估全局配置注入或按 capture capability 进一步瘦身。
