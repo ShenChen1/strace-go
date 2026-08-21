@@ -11562,3 +11562,62 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 本阶段可以回答 event/s 下降的一个具体原因：用户态 JSON sink 的每事件服务时间过高会缩短消费者预算；该原因已局部缓解，但不是唯一原因。
 - 当前不能宣称 event/s 已完全恢复：reader 仍可无丢失消费，而 none/handler/JSON 在完整 sink 下仍有 reserve failure；下一阶段继续 profile FD effect、handler 和 JSON 之外的 Dispatcher sink，并以高压 capture 的持续多轮结果验收。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.286 否决把 event capabilities 放入高频值对象（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.285 profile 中 `shouldUpdateFDState`、`shouldUpdateFDOffsets`、`shouldCleanupClosedFD`、`isFDStateSyscall` 和 `isExitSyscallEvent` 在多个 pipeline boundary 重复按 syscall metadata 和 view 计算。
+- Problem：希望在 context 构造时一次 materialize 这些能力，但 `syscallEventContext` 和 `syscallEventView` 都是高频按值传递对象；新增字段可能通过复制成本抵消 switch 查询收益。
+- Goal：验证紧凑 capability bitmask 是否能在不改变行为的情况下减少重复策略判断。
+- Non-goals：不改变 event v2 ABI、BPF producer、FD state 算法、输出 schema、生命周期顺序或纯 eBPF/no-procfs 约束。
+
+#### 实现与 A/B
+
+- 先增加 capability materialization 测试，验证 openat 的 handler、FD state、offset 能力和非 close/exit 能力；测试按失败优先流程从缺失字段开始。
+- 分别尝试把 mask 放入 `syscallEventContext` 和已有 `syscallEventView`；两种实现都让 production context 在构造时计算 mask，手工 context 保留 fallback。
+- 固定 `taskset -c 0`、`GOMAXPROCS=1` A/B：mask 放入 context 后 handler pipeline 约 `274 ns/op`，14.285 基线约 `256 ns/op`；移入 view 后仍约 `274-276 ns/op`。JSON pipeline 约 `509-512 ns/op`，与基线 `512-535 ns/op` 没有稳定改善。
+- CPU profile 显示 capability 构造本身约 `1.6%`，但按值 receiver 和 context/view 复制增量抵消了被省略的 switch；没有形成可接受的服务时间收益。
+
+#### 决策与 Review
+
+- 回退该实验，不保留 capability 字段、测试或生产 fallback；工作树恢复到 14.285 的 source shape，避免用对象边界名义接受高频值对象退化。
+- 这次实验仍保留为架构否决证据：后续若要缓存事件能力，必须先改变 ownership/传递方式，例如指针化或在已有 session-owned port 中缓存，不能继续扩大值对象。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器。
+
+### 14.287 特化 direct JSON 的内部受控字符串编码（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.285 已优化全零参数数组，但 JSON profile 仍显示 `appendJSONString`/`appendJSONASCII` 占据约 `8%-9%`；direct raw/decoded 路径中的 `type` 和 `event_type` 只来自固定内部值。
+- Problem：受控 ASCII 枚举仍进入通用 JSON 转义状态机，增加每条事件的用户态 sink 服务时间。
+- Goal：为内部受控字符串增加显式 `trustedStringField`，只替换 direct raw/decoded 的 `"syscall"` 和 `bpfEventTypeNameFromID`；保持所有用户可影响的字符串走通用转义。
+- Non-goals：不改变 syscall metadata、`arg_text`、payload、return text、物化 `jsonSyscallEvent`、event v2 ABI、BPF producer 或输出顺序。
+- Constraints：trusted helper 只能接收内部 enum/constant；必须有 direct/materialized 字节对照、标准 JSON 对照、race 和真实 eBPF suite 证据。
+
+#### 方案比较
+
+1. 保留通用转义：边界最保守，但放过 profile 已确认的固定热点，拒绝。
+2. 所有 syscall 名称也绕过转义：潜在收益更大，但扩大 metadata 信任假设，拒绝。
+3. 只对内部 `type` 与 `event_type` 使用 trusted helper，用户数据继续通用转义：边界最窄且可测，选择。
+
+#### 实现与失败优先测试
+
+- 先增加 `TestJSONLineBuilderTrustedStringField`，在 helper 不存在时按预期编译失败。
+- `trustedStringField` 只直接追加受控值的引号和内容；调用点仅位于 `appendJSONRawSyscallEvent` 和 `appendJSONDecodedSyscallEvent` 的固定 `type`/`event_type` 字段。
+- syscall 名称、参数文本、payload base64/raw data、return text 和通用 `appendJSONSyscallEvent` 保持原有安全编码路径；现有标准 `json.Marshal` 与 direct/materialized 对照测试继续作为字节级 oracle。
+
+#### 验证与实测
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 均通过。
+- 固定 CPU A/B：当前 JSON pipeline `470.0-471.6 ns/op`，14.285 基线约 `513.7-565.6 ns/op`；raw writer `143.3-151.9 ns/op` 对基线 `208.3-210.1 ns/op`；decoded writer `176.1-178.8 ns/op` 对基线 `217.0-220.8 ns/op`；均为 `0 B/op、0 allocs/op`。
+- `ebpf-semantic` 通过：语义事件 `197`，enter/exit `100/97`，lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`。
+- `ebpf-perf` 通过：JSON writer/decoded/payload writer 为 `148.10/165.40/270.60 ns/op`，均为零分配；scalar/io/lifecycle/threads 的 end-to-end exit rate 为 `6185.37/4129.06/28.63/3381.16 events/s`，运行期错误计数为 `0`；scalar consumer service sample 约 `1935.95 ns`。
+- `ebpf-capture` 通过结构与语义校验：reader `records_read=3,200,035/reserve_fail=0`；none `2,529,476/670,559`；handler `2,022,963/1,177,072`；JSON `1,259,155/1,940,881`，JSON `syscall_events=1,231,108`、`records_invalid=0`、orphan/mismatch 为 `0`。高压 JSON 仍有百万级 reservation failure，不能宣称完整 event/s 已恢复。
+- upstream native `small` `23/23` 通过。
+
+#### 决策与 Review
+
+- 保留 trusted helper；profile 证明 direct JSON 编码的固定字符串转义是有效用户态热点，且没有扩大用户数据的编码信任边界。
+- 本阶段改善了 sink 服务时间，但没有解决单 Go consumer 与 BPF producer 的整体背压；下一阶段继续定位 Dispatcher、handler/FD effect 和输出边界的剩余成本，并进行多轮高压 capture。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

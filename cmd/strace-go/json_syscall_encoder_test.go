@@ -29,6 +29,15 @@ func TestJSONLineBuilderFieldTokenBoundaries(t *testing.T) {
 	}
 }
 
+func TestJSONLineBuilderTrustedStringField(t *testing.T) {
+	var builder jsonLineBuilder
+	builder.beginObject()
+	builder.trustedStringField(jsonFieldType, "syscall")
+	if got := string(builder.endLine()); got != `{"type":"syscall"}`+"\n" {
+		t.Fatalf("trusted string field = %q, want %q", got, `{"type":"syscall"}`+"\n")
+	}
+}
+
 func TestJSONLineBuilderZeroUint64ArrayField(t *testing.T) {
 	var builder jsonLineBuilder
 	builder.beginObject()

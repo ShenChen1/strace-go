@@ -8,9 +8,9 @@ func appendJSONRawSyscallEvent(dst []byte, ev syscallEventContext) []byte {
 	failed, errno := syscallFailure(view.ret)
 	builder := jsonLineBuilder{data: dst}
 	builder.beginObject()
-	builder.stringField(jsonFieldType, "syscall", false)
+	builder.trustedStringField(jsonFieldType, "syscall")
 	builder.uintField(jsonFieldEventVersion, uint64(view.eventVersion), true)
-	builder.stringField(jsonFieldEventType, bpfEventTypeNameFromID(view.eventType), false)
+	builder.trustedStringField(jsonFieldEventType, bpfEventTypeNameFromID(view.eventType))
 	builder.uintField(jsonFieldEventTypeID, uint64(view.eventType), true)
 	builder.uintField(jsonFieldEventFlags, uint64(view.eventFlags), true)
 	builder.uintField(jsonFieldPID, uint64(view.pid), false)
@@ -46,9 +46,9 @@ func appendJSONDecodedSyscallEvent(
 	failed, errno := syscallFailure(view.ret)
 	builder := jsonLineBuilder{data: dst}
 	builder.beginObject()
-	builder.stringField(jsonFieldType, "syscall", false)
+	builder.trustedStringField(jsonFieldType, "syscall")
 	builder.uintField(jsonFieldEventVersion, uint64(view.eventVersion), true)
-	builder.stringField(jsonFieldEventType, bpfEventTypeNameFromID(view.eventType), false)
+	builder.trustedStringField(jsonFieldEventType, bpfEventTypeNameFromID(view.eventType))
 	builder.uintField(jsonFieldEventTypeID, uint64(view.eventType), true)
 	builder.uintField(jsonFieldEventFlags, uint64(view.eventFlags), true)
 	builder.uintField(jsonFieldPID, uint64(view.pid), false)

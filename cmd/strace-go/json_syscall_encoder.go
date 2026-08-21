@@ -67,6 +67,15 @@ func (b *jsonLineBuilder) stringField(token, value string, omit bool) {
 	b.data = appendJSONString(b.data, value)
 }
 
+// trustedStringField is only for internal enum or constant values that are
+// already constrained to JSON-safe text at their source.
+func (b *jsonLineBuilder) trustedStringField(token, value string) {
+	b.beginFieldToken(token)
+	b.data = append(b.data, '"')
+	b.data = append(b.data, value...)
+	b.data = append(b.data, '"')
+}
+
 func (b *jsonLineBuilder) uintField(token string, value uint64, omit bool) {
 	if omit && value == 0 {
 		return
