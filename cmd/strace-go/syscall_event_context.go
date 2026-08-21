@@ -435,19 +435,19 @@ func (ev syscallEventContext) shouldRunHandler() bool {
 }
 
 func (ev syscallEventContext) shouldUpdateFDState() bool {
-	return shouldApplyFDStateEvent(
+	return shouldApplyFDStateEventWithTraits(
 		ev.view,
-		ev.effectiveSyscallMeta().Name,
 		ev.payloadSections,
+		ev.eventTraits(),
 	)
 }
 
 func (ev syscallEventContext) shouldUpdateFDOffsets() bool {
-	return shouldApplyFDOffsetEvent(ev.view, ev.effectiveSyscallMeta().Name)
+	return shouldApplyFDOffsetEventWithTraits(ev.view, ev.eventTraits())
 }
 
 func (ev syscallEventContext) shouldCleanupClosedFD() bool {
-	return shouldCleanupClosedFDEvent(ev.view, ev.effectiveSyscallMeta().Name)
+	return shouldCleanupClosedFDEventWithTraits(ev.view, ev.eventTraits())
 }
 
 func (ev syscallEventContext) shouldEmitRawEnter(fdState event.FDPathReader) bool {
@@ -483,17 +483,7 @@ func (ev syscallEventContext) handleWith(handle func(string, *handler.Context) h
 }
 
 func (ev syscallEventContext) isFDStateSyscall() bool {
-	if isFDStateCreatorForView(ev.syscallName(), ev.view) {
-		return true
-	}
-	switch ev.syscallName() {
-	case "open", "openat", "openat2", "open_tree", "creat", "dup", "dup2", "dup3", "close",
-		"close_range", "pipe", "pipe2", "socketpair", "fcntl", "fcntl64",
-		"faccessat", "faccessat2", "chmodat", "mkdirat", "newfstatat", "fstat", "chdir", "fchdir":
-		return true
-	default:
-		return false
-	}
+	return ev.eventTraits()&syscallEventTraitHandler != 0
 }
 
 func (ev syscallEventContext) shouldEmitStatus(optsStatus successfulFailedOptions) bool {

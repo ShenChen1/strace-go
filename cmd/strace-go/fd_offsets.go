@@ -12,21 +12,26 @@ func fdStateKey(targetPid int, fd int32) string {
 }
 
 func shouldApplyFDOffsetEvent(view syscallEventView, syscallName string) bool {
+	return shouldApplyFDOffsetEventWithTraits(
+		view,
+		syscallEventTraitsForView(view, syscallName),
+	)
+}
+
+func shouldApplyFDOffsetEventWithTraits(view syscallEventView, traits syscallEventTraits) bool {
 	if !view.valid || view.probeRetEnter == 3 || view.ret < 0 {
 		return false
 	}
-	if isFDStateCreatorForView(syscallName, view) {
+	if traits&syscallEventTraitCreator != 0 {
 		return true
 	}
-	switch syscallName {
-	case "open", "openat", "openat2", "open_tree", "creat",
-		"dup", "dup2", "dup3", "fcntl", "fcntl64", "lseek":
+	if traits&syscallEventTraitOffset != 0 {
 		return true
-	case "read", "write":
+	}
+	if traits&syscallEventTraitOffsetIO != 0 {
 		return view.ret != 0
-	default:
-		return false
 	}
+	return false
 }
 
 func updateFDStateOffsetsFromSource(

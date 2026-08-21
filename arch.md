@@ -11846,3 +11846,42 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留 composition-time filter binding；它删除了确定不变的重复状态判断，未改变任何 active filter 分支，也未扩大高频 context 对象。
 - 当前 JSON sink 仍有百万级 reservation failure；下一阶段继续处理 FD effect 判断和 dispatcher/finalizer 剩余固定成本。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.294 按 syscall ID 绑定 FD effect traits（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.291-14.293 已将 handler dispatch、无过滤策略和 plain context 构造移到 composition/事件边界，但 FD 状态、偏移、close 清理和 exit 判断仍在每个事件上按 syscall name 执行字符串比较或 switch。
+- Problem：无 payload 高频 syscall 仍重复支付 FD effect 判断；字符串路径还会把 syscall metadata/name 投影带入 handler、finalizer 和 JSON pipeline 的固定成本。
+- Goal：在 session 级别按 syscall ID 预计算不可变 traits，生产事件优先用 ID 查表；synthetic/未知 ID 保留 name fallback，且不改变 FD state、offset、close cleanup、exit 和隐藏 FD 状态事件语义。
+- Non-goals：不改变 event v2 ABI、BPF producer、payload 捕获、输出 schema、过滤规则、事件顺序、单消费者约束或任何 ptrace/procfs fallback；不把 JSON A/B 的噪声解释成确定收益。
+- Constraints：traits 表必须覆盖 creator、handler、state、read state、offset、read/write offset、close、exit 语义；有效 ID 不得依赖运行期 map 查找或字符串 switch；测试必须覆盖常见 ID 和 synthetic name fallback。
+
+#### 方案比较
+
+1. 保留每事件字符串 switch：行为最保守，但保留高频固定成本，拒绝。
+2. 在每个 sink 复制 syscall-specific 判断：可能局部减少调用，但会复制 FD effect 规则并造成语义漂移，拒绝。
+3. 在 composition 初始化阶段构造固定大小 traits 表，事件按 ID 查表，异常 ID 回退 name：改动集中、可复用现有 predicate 语义，选择。
+
+#### 实现与失败优先测试
+
+- 新增 `syscallEventTraits` 位集合和 512 项 ID 表；表初始化复用现有 creator predicate，并显式绑定 handler/state/read-state/offset/close/exit 规则。
+- `syscallEventContext` 的 `isFDStateSyscall`、FD state/offset/close effect 和 `isExitSyscallEvent` 均改为消费 traits；`syscallEventTraitsForView` 对 `sysID=0` 的 synthetic event 和越界 ID 保留 name fallback。
+- 新增 `TestSyscallEventTraitsUseSyscallID`，覆盖 `getpid`、`openat`、`read`、`write`、`close`、`eventfd2`、`exit_group`；新增 `TestSyscallEventTraitsKeepSyntheticNameFallback` 锁定无 ID 夹具行为。
+- traits 只存在于 session 级表，不向每条 event 增加字段，不引入额外 Goroutine、锁、定时器或分配。
+
+#### 验证与实测
+
+- `go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、`git diff --check` 全部通过。
+- `ebpf-semantic` 通过：197 个语义事件，enter/exit `100/97`，lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`。
+- `ebpf-perf` 通过：JSON writer/decoded/payload writer 为 `127.70/144.90/252.60 ns/op`，均为零分配；scalar/io/lifecycle/threads 的 trace-window exit rate 为 `27972.87/18052.67/85.26/15458.08 events/s`，运行期错误计数均为 `0`；scalar consumer service sample 为 `1805.16 ns`。
+- `ebpf-capture` 结构校验通过，所有 records invalid 为 `0`，orphan/mismatch 为 `0`；本轮 reader/none/handler/JSON 分别读取 `3,044,221/3,050,761/1,452,546/1,385,250` 条记录，对应 `ringbuf_reserve_fail=155,814/149,274/1,747,489/1,814,785`。完整 handler/JSON sink 仍会在高压下落后于 producer，说明背压问题尚未闭环。
+- 原生 upstream `small` 为 `23 PASS / 0 FAIL`。
+- 固定 CPU、`GOMAXPROCS=1`、`-benchtime=5s -count=5` 的 A/B：handler pipeline 当前中位数约 `246.9 ns/op`，14.293 基线约 `250.3 ns/op`；JSON pipeline 当前约 `453.5 ns/op`，基线约 `448.3 ns/op`。因此只确认 handler 固定成本有小幅方向性改善，不宣称 JSON 端到端提升。
+
+#### Review 与决策
+
+- 保留按 ID 查 traits 的生产路径；它缩短了 FD effect 和 exit 判断的固定路径，同时保留 synthetic/未知 ID fallback 和现有状态更新边界。
+- 本阶段回答了“普通 workload 的 event/s 是否因用户态判断退化”的一部分：trace-window 吞吐稳定在万级，低负载 perf 无运行期错误；但没有解决“高压完整 sink 零丢失”，`reserve_fail` 仍与单 Go consumer 的 service time 直接相关。
+- 后续优先级仍是缩短 JSON/output sink 服务时间、评估批量消费或 producer-side backpressure 设计，并继续以 `records_read`、`reserve_fail`、`service_time_ns` 和语义事件数联合判断；不能只看端到端分母。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

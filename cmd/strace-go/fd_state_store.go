@@ -119,27 +119,28 @@ func shouldApplyFDStateEvent(
 	syscallName string,
 	payloadSections []handler.PayloadSection,
 ) bool {
+	return shouldApplyFDStateEventWithTraits(
+		view,
+		payloadSections,
+		syscallEventTraitsForView(view, syscallName),
+	)
+}
+
+func shouldApplyFDStateEventWithTraits(
+	view syscallEventView,
+	payloadSections []handler.PayloadSection,
+	traits syscallEventTraits,
+) bool {
 	if len(payloadSections) > 0 {
 		return true
 	}
 	if !view.valid {
 		return false
 	}
-	if syscallName == "read" {
+	if traits&syscallEventTraitStateRead != 0 {
 		return view.ret == 8
 	}
-
-	switch syscallName {
-	case "open", "openat", "openat2", "open_tree", "creat",
-		"dup", "dup2", "dup3", "fcntl", "fcntl64",
-		"socket", "chdir", "fchdir", "close_range",
-		"eventfd", "eventfd2", "epoll_create", "epoll_create1",
-		"timerfd_create", "inotify_init", "inotify_init1",
-		"signalfd", "signalfd4":
-		return true
-	default:
-		return false
-	}
+	return traits&syscallEventTraitState != 0
 }
 
 func (st *FDStateStore) ApplyFDState(update fdStateUpdate) {
@@ -178,7 +179,17 @@ func (st *FDStateStore) CleanupClosedFD(update fdCloseUpdate) {
 }
 
 func shouldCleanupClosedFDEvent(view syscallEventView, syscallName string) bool {
-	return view.valid && syscallName == "close" && view.ret == 0
+	return shouldCleanupClosedFDEventWithTraits(
+		view,
+		syscallEventTraitsForView(view, syscallName),
+	)
+}
+
+func shouldCleanupClosedFDEventWithTraits(
+	view syscallEventView,
+	traits syscallEventTraits,
+) bool {
+	return view.valid && traits&syscallEventTraitClose != 0 && view.ret == 0
 }
 
 func (st *FDStateStore) cleanupClosedFDFromView(view syscallEventView, scMeta meta.Syscall, statePID int) {
