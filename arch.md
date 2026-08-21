@@ -12013,3 +12013,33 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 
 - 保留该 runner guard；它在保持 FD effect update 的前提下删除了 contextless event 的重复 dispatch，局部 benchmark 和 none capture 均有方向性改善。
 - JSON 高压路径仍由字段编码、context/finalizer 和输出管道服务时间主导；下一阶段继续处理 JSON encoder 固定成本，不引入第二消费者来掩盖背压。
+
+### 14.299 为安全 syscall name 增加 JSON encoder fast path（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.298 的 JSON profile 中 `appendJSONString` 和 `appendJSONASCII` 仍反复扫描固定且受控的 syscall name；Linux syscall metadata 的正常名称是 ASCII 标识符。
+- Problem：每条事件都为 `getpid`、`read` 等安全名称执行完整 UTF-8、控制字符和 HTML-sensitive 字符判断，增加单消费者的固定编码时间。
+- Goal：对经过严格 ASCII `[A-Za-z0-9_]` 校验的 syscall name 直接复制到 JSON 引号内；空值或任何不安全字符继续走原有完整转义路径，保持 JSON 字节和安全边界。
+- Non-goals：不信任任意 handler、tracee payload 或生命周期文本；不改变 JSON schema、字段顺序、event v2 ABI、BPF producer、输出顺序或单消费者模型；不引入 unsafe、锁、第二 consumer、ptrace、procfs 或 process_vm。
+- Constraints：fast path 只能用于 syscall name 字段；异常/测试 metadata 必须仍由通用 encoder 正确转义；标准 `json.Marshal` 等价测试和真实 semantic/capture 共同验收。
+
+#### 方案比较
+
+1. 所有 syscall name 继续完整转义：最保守，但保留 profile 已确认的固定扫描成本，拒绝。
+2. 所有 metadata name 直接当作 trusted string：最快，但会把异常或测试 metadata 变成非法 JSON，拒绝。
+3. composition 不改变 metadata，encoder 每次做轻量 ASCII identifier 校验，安全值直接复制、其他值回退完整转义：风险边界最小，选择。
+
+#### 实现与失败优先测试
+
+- `jsonLineBuilder` 新增 syscall name 专用字段方法；只优化 raw、decoded 和 materialized syscall encoder 的 `syscall` 字段。
+- 测试覆盖安全名称、引号/空格/NUL/U+2028 等不安全名称，以及 `_`、数字和 x32 风格名称。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、semantic 和 native `small` 均通过；semantic 为 `197` 个事件、enter/exit `100/97`、lifecycle `6`，small 为 `23 PASS / 0 FAIL`。
+- Go benchmark 中 JSON pipeline 从 14.298 的约 `344-347 ns/op` 降到 `322-333 ns/op`；raw/decoded/payload writer 本轮分别约 `111-114/132-142/258-269 ns/op`，均为 `0 B/op、0 allocs/op`。
+- `ebpf-perf` 通过：Go JSON writer/decoded/payload 为 `120.90/139.60/243.10 ns/op`，scalar/io/lifecycle/threads trace-window exit rate 为 `27565.42/17026.49/85.45/15478.78 events/s`，运行期错误计数均为 `0`。
+- `ebpf-capture` 结构校验通过；本轮 reader/none/handler/JSON 分别为 `3,200,035/0`、`2,647,219/552,816`、`1,575,651/1,624,384`、`1,373,588/1,826,447`（`records_read/reserve_fail`），JSON syscall events `1,333,072`，invalid/orphan/mismatch 均为 `0`。相对 14.298 JSON `1,297,658/1,902,377` 有方向性改善，但仍未闭环高压背压。
+
+#### Review 与决策
+
+- 保留 syscall name identifier fast path；安全名称直接复制，异常值仍走完整转义，标准 JSON 字节等价测试锁定了行为边界。
+- 这轮优化已传导到真实 JSON capture，但完整 sink 仍受单消费者、字段编码其余部分、context/finalizer 和输出管道限制；下一阶段继续 profile 剩余 JSON 固定成本。

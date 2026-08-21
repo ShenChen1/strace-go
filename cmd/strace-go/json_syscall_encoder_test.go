@@ -38,6 +38,37 @@ func TestJSONLineBuilderTrustedStringField(t *testing.T) {
 	}
 }
 
+func TestJSONLineBuilderSyscallNameFastPath(t *testing.T) {
+	var builder jsonLineBuilder
+	builder.beginObject()
+	builder.syscallNameField(jsonFieldSyscall, "getpid")
+	if got := string(builder.endLine()); got != `{"syscall":"getpid"}`+"\n" {
+		t.Fatalf("safe syscall name = %q", got)
+	}
+}
+
+func TestJSONLineBuilderSyscallNameEscapesUnsafeValue(t *testing.T) {
+	var builder jsonLineBuilder
+	builder.beginObject()
+	builder.syscallNameField(jsonFieldSyscall, "get\"pid")
+	if got := string(builder.endLine()); got != `{"syscall":"get\"pid"}`+"\n" {
+		t.Fatalf("unsafe syscall name = %q", got)
+	}
+}
+
+func TestIsJSONIdentifierRejectsEmptyAndUnsafeValues(t *testing.T) {
+	for _, value := range []string{"", "get-pid", "get pid", "get\x00pid", "get\u2028pid"} {
+		if isJSONIdentifier(value) {
+			t.Fatalf("isJSONIdentifier(%q) = true, want false", value)
+		}
+	}
+	for _, value := range []string{"getpid", "__x32_compat_getpid", "sys_123"} {
+		if !isJSONIdentifier(value) {
+			t.Fatalf("isJSONIdentifier(%q) = false, want true", value)
+		}
+	}
+}
+
 func TestAppendJSONIntegerFastPathBoundaries(t *testing.T) {
 	unsigned := []struct {
 		value uint64

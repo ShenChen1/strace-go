@@ -67,6 +67,11 @@ func (b *jsonLineBuilder) stringField(token, value string, omit bool) {
 	b.data = appendJSONString(b.data, value)
 }
 
+func (b *jsonLineBuilder) syscallNameField(token, value string) {
+	b.beginFieldToken(token)
+	b.data = appendJSONSyscallName(b.data, value)
+}
+
 // trustedStringField is only for internal enum or constant values that are
 // already constrained to JSON-safe text at their source.
 func (b *jsonLineBuilder) trustedStringField(token, value string) {
@@ -162,7 +167,7 @@ func appendJSONSyscallEvent(dst []byte, event *jsonSyscallEvent) []byte {
 	builder.uintField(jsonFieldPID, uint64(event.Pid), false)
 	builder.uintField(jsonFieldTID, uint64(event.Tid), false)
 	builder.uintField(jsonFieldSysID, uint64(event.SysID), false)
-	builder.stringField(jsonFieldSyscall, event.Syscall, false)
+	builder.syscallNameField(jsonFieldSyscall, event.Syscall)
 	builder.uint64ArrayField(jsonFieldArgs, event.Args)
 	builder.stringArrayField(jsonFieldArgText, event.ArgText)
 	builder.intField(jsonFieldRet, event.Ret)
@@ -345,6 +350,31 @@ func appendJSONString(dst []byte, value string) []byte {
 		index += size
 	}
 	return append(dst, '"')
+}
+
+func appendJSONSyscallName(dst []byte, value string) []byte {
+	if isJSONIdentifier(value) {
+		dst = append(dst, '"')
+		dst = append(dst, value...)
+		return append(dst, '"')
+	}
+	return appendJSONString(dst, value)
+}
+
+func isJSONIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		char := value[index]
+		if (char >= 'a' && char <= 'z') ||
+			(char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func appendJSONASCII(dst []byte, value byte) []byte {
