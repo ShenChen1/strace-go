@@ -54,7 +54,7 @@ func (r *SyscallHandlerRunner) Handle(ev syscallEventContext) (handler.Result, b
 }
 
 func (r *SyscallHandlerRunner) Decode(ev syscallEventContext) handler.Result {
-	if r == nil || r.handleSyscall == nil || !ev.shouldRunHandler() {
+	if r == nil || !ev.shouldRunHandler() {
 		return handler.Result{}
 	}
 	return ev.handleWith(r.handleSyscall)

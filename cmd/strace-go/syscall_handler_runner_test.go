@@ -118,6 +118,52 @@ func TestSyscallHandlerRunnerSkipsHiddenNonFDStateSyscallHandler(t *testing.T) {
 	}
 }
 
+func TestSyscallHandlerRunnerUsesBoundDispatchBeforeFallback(t *testing.T) {
+	registry := handler.NewRegistry()
+	registry.Register("dispatch_test", runnerDispatchHandler{})
+	dispatch := handler.NewDispatchTable(registry, map[uint32]meta.Syscall{
+		400: {Name: "dispatch_test"},
+	})
+	event := handlerRunnerEvent("dispatch_test", true)
+	event.handlerContext.SysId = 400
+	event.handlerContext.HandlerDispatch = dispatch
+	fallbackCalled := false
+	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
+		HandleSyscall: func(string, *handler.Context) handler.Result {
+			fallbackCalled = true
+			return handler.Result{ReturnDesc: "fallback"}
+		},
+	})
+
+	got, shouldOutput := runner.Handle(event)
+	if !shouldOutput {
+		t.Fatal("dispatch-backed event should continue to output")
+	}
+	if got.ReturnDesc != "dispatch-table" {
+		t.Fatalf("handler result = %+v, want dispatch-table result", got)
+	}
+	if fallbackCalled {
+		t.Fatal("fallback handler ran before bound dispatch")
+	}
+}
+
+func TestSyscallHandlerRunnerDecodeUsesBoundDispatchWithoutFallback(t *testing.T) {
+	registry := handler.NewRegistry()
+	registry.Register("dispatch_test", runnerDispatchHandler{})
+	dispatch := handler.NewDispatchTable(registry, map[uint32]meta.Syscall{
+		400: {Name: "dispatch_test"},
+	})
+	event := handlerRunnerEvent("dispatch_test", true)
+	event.handlerContext.SysId = 400
+	event.handlerContext.HandlerDispatch = dispatch
+	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{})
+
+	got := runner.Decode(event)
+	if got.ReturnDesc != "dispatch-table" {
+		t.Fatalf("decoded handler result = %+v, want dispatch-table result", got)
+	}
+}
+
 func TestDefaultHandleSyscallWithoutRegistryIsInert(t *testing.T) {
 	result := defaultHandleSyscall("getpid", &handler.Context{SysName: "getpid"})
 	if len(result.ArgParts) != 0 || result.ReturnDesc != "" || result.HexDumpStr != "" {

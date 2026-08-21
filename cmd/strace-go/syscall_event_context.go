@@ -440,6 +440,13 @@ func (ev syscallEventContext) shouldEmitRawEnter(fdState event.FDPathReader) boo
 }
 
 func (ev syscallEventContext) handleWith(handle func(string, *handler.Context) handler.Result) handler.Result {
+	if ev.handlerContext != nil && ev.handlerContext.HandlerDispatch != nil {
+		return ev.handlerContext.HandlerDispatch.Handle(
+			ev.handlerContext.SysId,
+			ev.syscallName(),
+			ev.handlerContext,
+		)
+	}
 	if handle == nil {
 		return handler.Result{}
 	}

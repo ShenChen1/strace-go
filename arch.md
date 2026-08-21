@@ -11734,3 +11734,49 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留小整数快速路径；profile、边界 oracle 和多层 eBPF 验证都支持其收益，标准 `strconv` 仍覆盖所有大范围和溢出敏感值。
 - 当前 event/s 下降的用户态原因得到进一步缓解，但 reader 与完整 output sink 的差距仍然存在；下一阶段继续拆分 Dispatcher/handler/FD effect 和输出 policy 的服务时间，并进行多轮高压 capture。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.291 让生产 handler 直接使用 composition-time dispatch（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.284 已将 `HandlerDispatchPort` 绑定到可复用的 handler context，但 runner 和 exit output 仍通过通用 `handleWith(func)` 进入默认 resolver；生产事件因此重复支付函数值传递、syscall name 投影和默认分发判断。
+- Problem：CPU profile 中 `SyscallHandlerRunner.Handle`、`handleWith` 和 `defaultHandleSyscall` 仍是 handler pipeline 的固定累计成本；在单 Go consumer 下，这会缩短 ringbuf 消费预算，但不能仅凭 profile 推断 BPF producer 的 reserve failure 已经解决。
+- Goal：让已有的 immutable context dispatch table 成为生产 handler 的第一调用路径；没有 dispatch 的局部测试夹具仍使用注入函数，不能改变 handler 结果、FD state effect、JSON/text 输出或 context 生命周期。
+- Non-goals：不改变 handler registry、event v2 ABI、BPF producer、payload 解码、输出 schema、生命周期顺序或纯 eBPF/no-procfs 约束；不引入新的事件字段、协程、锁、定时器或第二消费者。
+- Constraints：dispatch 优先级必须有失败优先回归测试；`Decode` 在 resolver 函数为空但 context 已绑定 dispatch 时也必须可用；fallback 只能作为没有 dispatch 的测试/手工构造边界。
+
+#### 方案比较
+
+1. 在 `SyscallHandlerRunner` 中新增 dispatch 字段并重排 session composition：生产路径显式，但会扩大对象图并增加 composition 改动面，暂不采用。
+2. 在已有 `syscallEventContext.handleWith` 中优先调用 context 的 dispatch，缺失时再调用传入函数：不增加高频对象字段，复用现有 composition-time binding，选择。
+3. 删除函数 resolver，只保留 dispatch：理论路径最短，但会破坏测试替身和局部 output 构造，不符合当前接口边界，拒绝。
+
+#### 实现与失败优先测试
+
+- 先加入两个回归测试：绑定 dispatch 时不得调用 fallback；`Decode` 没有 resolver 函数时仍应返回 dispatch handler 结果。旧实现按预期分别返回 fallback 和空结果，确认测试确实锁定了问题。
+- `handleWith` 现在在 `handler.Context.HandlerDispatch` 非空时直接调用 `Handle(SysId, syscallName, context)`；未绑定 dispatch 时保持原有函数 resolver fallback。
+- `SyscallHandlerRunner.Decode` 删除对 `handleSyscall != nil` 的提前拒绝，让 dispatch-only context 能进入 `handleWith`；空 dispatch、空 fallback 仍返回空 `handler.Result`。
+- `HandlerDispatchPort` 仍由 session composition 创建并由 context recycler 保留；没有把 dispatch table 复制到每条 event 或新增 per-event capability 字段。
+
+#### Review 入口
+
+- 检查生产 `newHandlerContext`/recycler 的 dispatch 已在事件处理前绑定，且 `handleWith` 使用 event context 的 metadata 作为未知 ID 的 registry fallback 名称。
+- 检查测试夹具没有绑定 dispatch 时仍能注入 fake `HandleSyscall`，因此局部 handler/FD effect 测试不依赖完整 session composition。
+- 检查 `ExitSyscallOutput` 与 `SyscallHandlerRunner` 共用同一 dispatch 优先规则，没有改变 exit/JSON/text 输出顺序或 handler context release ownership。
+- 不把 handler microbenchmark 的改善当作完整 event/s 修复；必须联合观察 `records_read`、`ringbuf_reserve_fail`、`service_time_ns` 和 syscall event 数量。
+
+#### 验证与实测
+
+- 失败优先测试按预期先失败；实现后 `go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 均通过。
+- 固定 `taskset -c 0`、`GOMAXPROCS=1` 五轮 A/B：`ContextHandler` 当前 `159.2-159.8 ns/op`，父提交 `166.3-166.9 ns/op`；handler pipeline 当前中位数约 `247.5 ns/op`，父提交中位数约 `254.2 ns/op`；均为 `0 B/op、0 allocs/op`。
+- JSON pipeline 当前 `420.6-426.8 ns/op`，父提交 `421.7-423.6 ns/op`，区间基本重叠，不宣称 JSON 端到端改善。
+- `ebpf-semantic` 通过：语义事件 `197`，enter/exit `100/97`，lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`。
+- `ebpf-perf` 通过：Go DecodeState `279.00 ns/op`，JSON writer/decoded/payload writer `127.30/147.70/244.10 ns/op`，均为零分配；scalar/io/lifecycle/threads exit rate 为 `6258.41/3956.16/28.77/3372.61 events/s`，运行期错误计数为 `0`。
+- `ebpf-capture` 通过结构与语义校验：reader `records_read=3,200,035/reserve_fail=0`，records invalid `0`；none `3,165,159/34,876`；handler `1,769,868/1,430,167`；JSON `1,468,681/1,731,354`，JSON syscall events `1,429,255`，orphan/mismatch 为 `0`。完整 handler/JSON sink 仍有百万级 reserve failure，说明本阶段只缓解 handler 固定成本，没有解决整体背压。
+- upstream native `small` `23/23` 通过。
+
+#### 决策与 Review
+
+- 保留 dispatch-first 的 context 调用路径；它复用已有对象图，在 handler pipeline A/B 中有方向性收益，没有新增分配或改变语义。
+- 当前不能说 event/s 已完全恢复。reader 可以无丢失消费，而完整 sink 仍受 Go 单消费者服务时间和 ringbuf reserve failure 限制；下一阶段继续拆分 FD effect、Dispatcher 剩余路径和输出 sink 的服务时间。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
