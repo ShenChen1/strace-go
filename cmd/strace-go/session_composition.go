@@ -22,6 +22,7 @@ type traceSessionComponents struct {
 	handlerRunner      *SyscallHandlerRunner
 	handlerRegistry    *handler.Registry
 	handlerDispatch    handler.HandlerDispatchPort
+	handlerDecodePlan  *syscallDecodePlan
 	exitPipeline       *SyscallExitPipeline
 	lifecycleHandler   *LifecycleEventHandler
 	eventDispatcher    *TraceEventDispatcher
@@ -195,6 +196,8 @@ func buildTraceSessionComponents(
 	handlerDispatch := handler.NewDispatchTable(base.handlerRegistry, meta.SyscallTable)
 	contextDeps := deps.eventContextDependencies(base.handlerRegistry)
 	contextDeps.handlerDispatch = handlerDispatch
+	handlerDecodePlan := newSyscallDecodePlan(deps.SyscallMetadata, handlerDispatch)
+	contextDeps.handlerDecodePlan = handlerDecodePlan
 	events := buildTraceSessionEvents(
 		deps,
 		base,
@@ -212,6 +215,7 @@ func buildTraceSessionComponents(
 		handlerRunner:      base.handlerRunner,
 		handlerRegistry:    base.handlerRegistry,
 		handlerDispatch:    handlerDispatch,
+		handlerDecodePlan:  handlerDecodePlan,
 		exitPipeline:       events.exitPipeline,
 		lifecycleHandler:   events.lifecycleHandler,
 		eventDispatcher:    events.eventDispatcher,
@@ -400,6 +404,7 @@ func buildTraceSessionRuntime(
 			ReaderStats:     eventReader,
 			PendingState:    deps.State,
 			DebugPhases:     base.debugPhases,
+			JSONWriter:      base.jsonWriter,
 			Output:          deps.Output,
 		}),
 		commandExitHandler: newTraceCommandExitHandler(TraceCommandExitHandlerDeps{

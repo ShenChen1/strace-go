@@ -93,6 +93,80 @@ func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 	}
 }
 
+func TestSyscallEventContextUsesDecodeCapabilityBoundaries(t *testing.T) {
+	registry := handler.NewRegistry()
+	registry.Register("custom_no_args", runnerDispatchHandler{})
+	dispatch := handler.NewDispatchTable(registry, map[uint32]meta.Syscall{
+		39:  {Name: "getpid"},
+		1:   {Name: "write", ArgTypes: []string{"int"}},
+		400: {Name: "custom_no_args"},
+	})
+	deps := syscallEventContextDeps{
+		catalog:         meta.NewCatalog("raw"),
+		handlerDispatch: dispatch,
+		filter:          newTraceFilterOptions(nil),
+		contextPool: newHandlerContextRecyclerWithPorts(handlerContextSessionPorts{
+			meta:     meta.NewCatalog("raw"),
+			registry: registry,
+			dispatch: dispatch,
+		}),
+		syscallMetadata: newSyscallMetadataTable(map[uint32]meta.Syscall{
+			39:  {Name: "getpid"},
+			1:   {Name: "write", ArgTypes: []string{"int"}},
+			400: {Name: "custom_no_args"},
+			401: {Name: "dup"},
+		}),
+	}
+	deps.handlerDecodePlan = newSyscallDecodePlan(deps.syscallMetadata, dispatch)
+
+	tests := []struct {
+		name        string
+		sysID       uint32
+		args        [6]uint64
+		payload     []handler.PayloadSection
+		showPaths   bool
+		wantContext bool
+	}{
+		{name: "empty default handler", sysID: 39, wantContext: false},
+		{name: "default handler with arguments", sysID: 1, wantContext: true},
+		{name: "custom handler without arguments", sysID: 400, wantContext: true},
+		{name: "unknown id keeps fallback", sysID: 999, wantContext: true},
+		{
+			name:        "payload keeps context",
+			sysID:       39,
+			payload:     []handler.PayloadSection{{Kind: handler.PayloadKindBytes, Data: []byte("x")}},
+			wantContext: true,
+		},
+		{name: "fd return path keeps context", sysID: 401, showPaths: true, wantContext: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.showPaths {
+				deps.handlerOpts = cli.ParseArgs([]string{"--show-paths"})
+			}
+			ev := newSyscallEventContextFromViewWithDeps(
+				deps,
+				syscallEventView{
+					valid: true,
+					pid:   101,
+					tid:   101,
+					sysID: tt.sysID,
+					args:  tt.args,
+					ret:   3,
+				},
+				101,
+				nil,
+				tt.payload,
+			)
+			if (ev.handlerContext != nil) != tt.wantContext {
+				t.Fatalf("handler context present = %v, want %v", ev.handlerContext != nil, tt.wantContext)
+			}
+			ev.releaseHandlerContext()
+			deps.handlerOpts = nil
+		})
+	}
+}
+
 func TestMergePendingPayloadSectionsReusesOwnerWithoutExitPayload(t *testing.T) {
 	pending := &pendingSyscallSnapshot{
 		payloadSections: []handler.PayloadSection{{

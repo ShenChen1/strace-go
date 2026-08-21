@@ -13,7 +13,7 @@ func TestSyscallEventContextOmitsEmptyEventFDView(t *testing.T) {
 	}
 	ev := newSyscallEventContextFromViewWithDeps(
 		deps,
-		syscallEventView{valid: true, sysID: benchmarkSyscallID("getpid")},
+		syscallEventView{valid: true, sysID: benchmarkSyscallID("write")},
 		101,
 		nil,
 		nil,

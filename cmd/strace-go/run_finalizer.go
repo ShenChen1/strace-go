@@ -21,6 +21,10 @@ type traceFinalizerOutput interface {
 	io.Closer
 }
 
+type traceJSONWriterFlusher interface {
+	Flush() error
+}
+
 type TraceRunFinalizer struct {
 	formatPolicy    traceFormatPolicy
 	summaryPolicy   traceSummaryPolicy
@@ -32,6 +36,7 @@ type TraceRunFinalizer struct {
 	readerStats     traceEventReaderStatsReader
 	pendingState    tracePendingStateReader
 	debugPhases     traceDebugPhasePort
+	jsonWriter      traceJSONWriterFlusher
 	output          traceFinalizerOutput
 }
 
@@ -46,6 +51,7 @@ type TraceRunFinalizerDeps struct {
 	ReaderStats     traceEventReaderStatsReader
 	PendingState    tracePendingStateReader
 	DebugPhases     traceDebugPhasePort
+	JSONWriter      traceJSONWriterFlusher
 	Output          traceFinalizerOutput
 }
 
@@ -65,6 +71,7 @@ func newTraceRunFinalizer(deps TraceRunFinalizerDeps) *TraceRunFinalizer {
 		readerStats:     deps.ReaderStats,
 		pendingState:    deps.PendingState,
 		debugPhases:     deps.DebugPhases,
+		jsonWriter:      deps.JSONWriter,
 		output:          deps.Output,
 	}
 }
@@ -91,14 +98,21 @@ func (f *TraceRunFinalizer) Finish() error {
 }
 
 func (f *TraceRunFinalizer) flushOutput() error {
-	if f == nil || f.output == nil {
+	if f == nil {
 		return nil
+	}
+	var flushErr error
+	if f.jsonWriter != nil {
+		flushErr = errors.Join(flushErr, f.jsonWriter.Flush())
+	}
+	if f.output == nil {
+		return flushErr
 	}
 	flusher, ok := f.output.(interface{ Flush() error })
 	if !ok {
-		return nil
+		return flushErr
 	}
-	return flusher.Flush()
+	return errors.Join(flushErr, flusher.Flush())
 }
 
 func (f *TraceRunFinalizer) writeStats(stats bpfRuntimeStats) {

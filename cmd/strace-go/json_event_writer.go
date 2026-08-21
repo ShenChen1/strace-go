@@ -55,9 +55,12 @@ type JSONEventWriter struct {
 	encoder        *json.Encoder
 	out            io.Writer
 	flusher        interface{ Flush() error }
+	batchWriter    interface{ WriteBatch([]byte) (int, error) }
 	syscallBuffer  []byte
 	lifecycleEvent jsonLifecycleEvent
 }
+
+const jsonSyscallBatchSize = traceOutputBufferSize + 1
 
 type JSONEventWriterDeps struct {
 	Out io.Writer
@@ -71,12 +74,21 @@ func newJSONEventWriter(deps JSONEventWriterDeps) *JSONEventWriter {
 		if flusher, ok := deps.Out.(interface{ Flush() error }); ok {
 			writer.flusher = flusher
 		}
+		if batchWriter, ok := deps.Out.(interface{ WriteBatch([]byte) (int, error) }); ok {
+			writer.batchWriter = batchWriter
+		}
 	}
 	return writer
 }
 
 func (w *JSONEventWriter) Flush() error {
-	if w == nil || w.flusher == nil {
+	if w == nil {
+		return nil
+	}
+	if w.batchWriter != nil {
+		w.flushSyscallBuffer()
+	}
+	if w.flusher == nil {
 		return nil
 	}
 	return w.flusher.Flush()
@@ -86,16 +98,26 @@ func (w *JSONEventWriter) WriteRaw(ev syscallEventContext) {
 	if !w.canEncode() {
 		return
 	}
-	w.syscallBuffer = appendJSONRawSyscallEvent(w.syscallBuffer[:0], ev)
-	w.writeRawSyscallBuffer()
+	if w.batchWriter == nil {
+		w.syscallBuffer = appendJSONRawSyscallEvent(w.syscallBuffer[:0], ev)
+		w.writeSyscallBuffer()
+		return
+	}
+	w.syscallBuffer = appendJSONRawSyscallEvent(w.syscallBuffer, ev)
+	w.flushSyscallBufferIfFull()
 }
 
 func (w *JSONEventWriter) WriteDecoded(ev syscallEventContext, res handler.Result) {
 	if !w.canEncode() {
 		return
 	}
-	w.syscallBuffer = appendJSONDecodedSyscallEvent(w.syscallBuffer[:0], ev, res)
-	w.writeDecodedSyscallBuffer()
+	if w.batchWriter == nil {
+		w.syscallBuffer = appendJSONDecodedSyscallEvent(w.syscallBuffer[:0], ev, res)
+		w.writeSyscallBuffer()
+		return
+	}
+	w.syscallBuffer = appendJSONDecodedSyscallEvent(w.syscallBuffer, ev, res)
+	w.flushSyscallBufferIfFull()
 }
 
 func (w *JSONEventWriter) WriteLifecycle(view lifecycleEventView, task *TaskState) {
@@ -128,21 +150,36 @@ func (w *JSONEventWriter) encode(event any) {
 	if !w.canEncode() {
 		return
 	}
+	if w.batchWriter != nil {
+		w.flushSyscallBuffer()
+	}
 	_ = w.encoder.Encode(event)
 }
 
-func (w *JSONEventWriter) writeRawSyscallBuffer() {
-	if w == nil || w.out == nil {
+func (w *JSONEventWriter) writeSyscallBuffer() {
+	if w == nil || w.out == nil || len(w.syscallBuffer) == 0 {
 		return
 	}
 	_, _ = w.out.Write(w.syscallBuffer)
 }
 
-func (w *JSONEventWriter) writeDecodedSyscallBuffer() {
-	if w == nil || w.out == nil {
+func (w *JSONEventWriter) flushSyscallBufferIfFull() {
+	if w == nil || len(w.syscallBuffer) < jsonSyscallBatchSize {
 		return
 	}
-	_, _ = w.out.Write(w.syscallBuffer)
+	w.flushSyscallBuffer()
+}
+
+func (w *JSONEventWriter) flushSyscallBuffer() {
+	if w == nil || w.out == nil || len(w.syscallBuffer) == 0 {
+		return
+	}
+	if w.batchWriter != nil {
+		_, _ = w.batchWriter.WriteBatch(w.syscallBuffer)
+	} else {
+		_, _ = w.out.Write(w.syscallBuffer)
+	}
+	w.syscallBuffer = w.syscallBuffer[:0]
 }
 
 func (w *JSONEventWriter) canEncode() bool {

@@ -83,6 +83,88 @@ func TestJSONEventWriterReusesDecodedBuffer(t *testing.T) {
 	}
 }
 
+func TestJSONEventWriterBatchesOnlyTraceOutputAndPreservesPhaseOrder(t *testing.T) {
+	underlying := &countingTraceOutputWriter{}
+	output, err := newTraceOutput(TraceOutputDeps{Writer: underlying})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: output})
+	event := syscallEventContext{
+		view: syscallEventView{valid: true, eventType: bpfEventTypeExit, pid: 101, tid: 101, sysID: 39, ret: 101},
+		meta: meta.Syscall{Name: "getpid"},
+	}
+
+	writer.WriteRaw(event)
+	writer.WriteRaw(event)
+	if underlying.writes != 0 {
+		t.Fatalf("writes before batch boundary = %d, want 0", underlying.writes)
+	}
+	writer.WritePhase("trace_start", 7)
+	writer.WriteRaw(event)
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("JSON writer Flush() error = %v", err)
+	}
+
+	lines := bytes.Split(bytes.TrimSpace(underlying.data.Bytes()), []byte{'\n'})
+	if len(lines) != 4 {
+		t.Fatalf("JSON output lines = %d, want 4: %q", len(lines), underlying.data.String())
+	}
+	var first, second, third, fourth struct {
+		Type  string `json:"type"`
+		Phase string `json:"phase"`
+	}
+	for index, line := range lines {
+		var event struct {
+			Type  string `json:"type"`
+			Phase string `json:"phase"`
+		}
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatalf("decode line %d: %v", index, err)
+		}
+		switch index {
+		case 0:
+			first = event
+		case 1:
+			second = event
+		case 2:
+			third = event
+		case 3:
+			fourth = event
+		}
+	}
+	if first.Type != "syscall" || second.Type != "syscall" ||
+		third.Type != "phase" || third.Phase != "trace_start" || fourth.Type != "syscall" {
+		t.Fatalf("event order = %+v %+v %+v %+v", first, second, third, fourth)
+	}
+	if underlying.writes != 3 {
+		t.Fatalf("underlying writes = %d, want batch/phase/batch", underlying.writes)
+	}
+}
+
+func TestTraceRunFinalizerFlushesJSONSyscallTail(t *testing.T) {
+	var out bytes.Buffer
+	output, err := newTraceOutput(TraceOutputDeps{Writer: &out})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: output})
+	writer.WriteRaw(syscallEventContext{
+		view: syscallEventView{valid: true, eventType: bpfEventTypeExit, pid: 101, tid: 101, sysID: 39, ret: 101},
+		meta: meta.Syscall{Name: "getpid"},
+	})
+	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{
+		JSONWriter: writer,
+		Output:     output,
+	})
+	if err := finalizer.Finish(); err != nil {
+		t.Fatalf("TraceRunFinalizer.Finish() error = %v", err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte(`"type":"syscall"`)) {
+		t.Fatalf("finalizer dropped JSON syscall tail: %q", out.String())
+	}
+}
+
 func TestTraceSessionEmitsDebugReadyEvent(t *testing.T) {
 	var output bytes.Buffer
 	session := newTestTraceSessionWithOptions(&cli.Options{DebugEvents: true, AttachPids: []int{42, 84}}, traceSessionDeps{

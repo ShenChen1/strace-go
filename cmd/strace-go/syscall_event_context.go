@@ -45,17 +45,18 @@ type syscallEventView struct {
 }
 
 type syscallEventContextDeps struct {
-	decoder         handler.SnapshotDecoder
-	handlerOpts     handler.OptionsPort
-	filter          traceFilterOptions
-	catalog         meta.CatalogPort
-	syscallMetadata *syscallMetadataTable
-	fdState         handler.FDStateReader
-	fdPath          event.FDPathReader
-	registry        handler.RegistryPort
-	handlerDispatch handler.HandlerDispatchPort
-	runtime         handler.RuntimeServices
-	contextPool     *handlerContextRecycler
+	decoder           handler.SnapshotDecoder
+	handlerOpts       handler.OptionsPort
+	filter            traceFilterOptions
+	catalog           meta.CatalogPort
+	syscallMetadata   *syscallMetadataTable
+	handlerDecodePlan *syscallDecodePlan
+	fdState           handler.FDStateReader
+	fdPath            event.FDPathReader
+	registry          handler.RegistryPort
+	handlerDispatch   handler.HandlerDispatchPort
+	runtime           handler.RuntimeServices
+	contextPool       *handlerContextRecycler
 }
 
 type syscallEventContextDependencySource interface {
@@ -126,7 +127,9 @@ func newSyscallEventContextFromViewWithDeps(
 			pendingEnter:    pendingEnter,
 			contextRecycler: deps.contextPool,
 		}
-		ev.handlerContext = ev.newHandlerContext(deps)
+		if shouldBuildHandlerContext(ev, deps) {
+			ev.handlerContext = ev.newHandlerContext(deps)
+		}
 		return ev
 	}
 	payloadSections := mergePendingPayloadSections(pendingEnter, currentPayload)
@@ -161,8 +164,34 @@ func newSyscallEventContextFromViewWithDeps(
 		payloadSections: payloadSections,
 		eventFDView:     eventFDView,
 	}
-	ev.handlerContext = ev.newHandlerContext(deps)
+	if shouldBuildHandlerContext(ev, deps) {
+		ev.handlerContext = ev.newHandlerContext(deps)
+	}
 	return ev
+}
+
+func shouldBuildHandlerContext(ev syscallEventContext, deps syscallEventContextDeps) bool {
+	if !ev.shouldRunHandler() {
+		return false
+	}
+	if len(ev.outputPayloadSections()) > 0 {
+		return true
+	}
+	if handlerContextNeededForReturn(ev, deps.handlerOpts) {
+		return true
+	}
+	return deps.handlerDecodePlan.needs(ev.view.sysID, ev.syscallName())
+}
+
+func handlerContextNeededForReturn(ev syscallEventContext, opts handler.OptionsPort) bool {
+	if opts == nil || !opts.ShowPathsValue() {
+		return false
+	}
+	name := ev.syscallName()
+	if isFdReturnSyscall(name) {
+		return true
+	}
+	return isFcntlFDStateSyscall(name) && isFcntlFDStateCommand(ev.view.args)
 }
 
 func canUseFastSyscallEventContext(
@@ -507,6 +536,9 @@ func (ev syscallEventContext) shouldEmitRawEnter(fdState event.FDPathReader) boo
 }
 
 func (ev syscallEventContext) handleWith(handle func(string, *handler.Context) handler.Result) handler.Result {
+	if ev.handlerContext == nil {
+		return handler.Result{}
+	}
 	if ev.handlerContext != nil && ev.handlerContext.HandlerDispatch != nil {
 		return ev.handlerContext.HandlerDispatch.Handle(
 			ev.handlerContext.SysId,

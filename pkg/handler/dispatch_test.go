@@ -34,3 +34,33 @@ func TestDispatchTableRoutesKnownAndUnknownSyscalls(t *testing.T) {
 		t.Fatalf("custom handler calls = %d, want 2", custom.calls)
 	}
 }
+
+func TestDispatchTableDecodePlanKeepsRequiredHandlers(t *testing.T) {
+	custom := &dispatchTestHandler{}
+	registry := NewRegistry()
+	registry.Register("custom_no_args", custom)
+	table := NewDispatchTable(registry, map[uint32]meta.Syscall{
+		39:  {Name: "getpid"},
+		1:   {Name: "write", ArgTypes: []string{"int"}},
+		400: {Name: "custom_no_args"},
+	})
+
+	tests := []struct {
+		name       string
+		sysID      uint32
+		syscall    string
+		wantDecode bool
+	}{
+		{name: "empty default handler", sysID: 39, syscall: "getpid", wantDecode: false},
+		{name: "default handler with arguments", sysID: 1, syscall: "write", wantDecode: true},
+		{name: "custom handler without arguments", sysID: 400, syscall: "custom_no_args", wantDecode: true},
+		{name: "unknown id keeps registry fallback", sysID: 999, syscall: "unknown", wantDecode: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := table.NeedsDecode(tt.sysID, tt.syscall); got != tt.wantDecode {
+				t.Fatalf("NeedsDecode(%d, %q) = %v, want %v", tt.sysID, tt.syscall, got, tt.wantDecode)
+			}
+		})
+	}
+}

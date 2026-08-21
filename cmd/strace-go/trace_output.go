@@ -133,6 +133,30 @@ func (o *TraceOutput) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// WriteBatch writes a large synchronous batch after draining the optional
+// bufio layer, so the batch can cross the underlying writer boundary intact.
+func (o *TraceOutput) WriteBatch(p []byte) (int, error) {
+	if o == nil || o.writer == nil {
+		return 0, fmt.Errorf("trace output is unavailable")
+	}
+	if o.closed {
+		return 0, fmt.Errorf("trace output is closed")
+	}
+	if o.flushFn != nil {
+		if err := o.Flush(); err != nil {
+			return 0, err
+		}
+	}
+	n, err := o.Write(p)
+	if o.flushFn != nil {
+		flushErr := o.Flush()
+		if err == nil {
+			err = flushErr
+		}
+	}
+	return n, err
+}
+
 func (o *TraceOutput) Flush() error {
 	if o == nil || o.flushFn == nil {
 		return nil

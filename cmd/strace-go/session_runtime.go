@@ -25,19 +25,23 @@ func (s *traceSession) eventContextDependencies() syscallEventContextDeps {
 		handlerDispatch = s.components.handlerDispatch
 	}
 	deps := s.dependencies.eventContextDependencies(registry)
+	if s.components != nil {
+		deps.handlerDecodePlan = s.components.handlerDecodePlan
+	}
 	deps.handlerDispatch = handlerDispatch
 	return deps
 }
 
 func (deps traceSessionDeps) eventContextDependencies(registry handler.RegistryPort) syscallEventContextDeps {
 	contextDeps := syscallEventContextDeps{
-		decoder:         deps.Decoder,
-		catalog:         deps.Catalog,
-		syscallMetadata: deps.SyscallMetadata,
-		fdState:         deps.FDState,
-		fdPath:          deps.FDState,
-		registry:        registry,
-		runtime:         deps.Runtime,
+		decoder:           deps.Decoder,
+		catalog:           deps.Catalog,
+		syscallMetadata:   deps.SyscallMetadata,
+		handlerDecodePlan: nil,
+		fdState:           deps.FDState,
+		fdPath:            deps.FDState,
+		registry:          registry,
+		runtime:           deps.Runtime,
 	}
 	if deps.EventPolicy != nil {
 		contextDeps.handlerOpts = deps.EventPolicy.HandlerOptions()

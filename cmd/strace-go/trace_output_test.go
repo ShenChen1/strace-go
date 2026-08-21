@@ -12,6 +12,16 @@ type fakeTraceOutputWriter struct {
 	maxBytes int
 }
 
+type countingTraceOutputWriter struct {
+	data   bytes.Buffer
+	writes int
+}
+
+func (w *countingTraceOutputWriter) Write(p []byte) (int, error) {
+	w.writes++
+	return w.data.Write(p)
+}
+
 type fakeTraceOutputFlusher struct {
 	events   *[]string
 	flushErr error
@@ -182,6 +192,26 @@ func TestTraceOutputNormalizesShortWrite(t *testing.T) {
 	}
 	if err := output.Close(); !errors.Is(err, io.ErrShortWrite) {
 		t.Fatalf("TraceOutput.Close() error = %v, want io.ErrShortWrite", err)
+	}
+}
+
+func TestTraceOutputWriteBatchFlushesBufferedPrefix(t *testing.T) {
+	var out bytes.Buffer
+	output, err := newTraceOutput(TraceOutputDeps{Writer: &out})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+	if err := output.EnableBuffer(8); err != nil {
+		t.Fatalf("EnableBuffer() error = %v", err)
+	}
+	if _, err := output.Write([]byte("prefix")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if _, err := output.WriteBatch([]byte("batch")); err != nil {
+		t.Fatalf("WriteBatch() error = %v", err)
+	}
+	if got, want := out.String(), "prefixbatch"; got != want {
+		t.Fatalf("batched output = %q, want %q", got, want)
 	}
 }
 

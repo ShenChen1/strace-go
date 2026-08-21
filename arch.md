@@ -11925,3 +11925,91 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - metadata 优化只改善消费服务时间，不能证明高压零丢失；当前下一主热点仍是 handler/context dispatch、JSON 字段 token/数字编码和单消费者持续服务时间。
 - 后续继续以 `records_read`、`records_routed`、`service_time_ns`、`ringbuf_reserve_fail` 和 semantic oracle 联合评估，不用单一端到端 event/s 作为完成标准。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.296 为无参数默认 handler 事件绑定 decode capability（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.295 后，JSON profile 中 context 构造和 handler runner 仍是高频固定成本；高压 fixture 主要追踪无参数的 `getpid`，默认 handler 最终只返回空 `Result`。
+- Problem：无参数默认 syscall 仍创建/回收 `handler.Context`，并通过 dispatch table 进入不会产生格式化结果的默认 handler，缩短单 Go consumer 的 Ringbuf 服务预算。
+- Goal：在 session composition 阶段绑定 handler decode capability；已知无参数默认 handler 且无 payload、路径返回依赖的事件不创建 context，也不调用 handler；自定义 handler、带参数默认 handler、未知 syscall、payload 和路径格式化继续走完整路径。
+- Non-goals：不改变 JSON schema、return text、FD state、filter、生命周期、未知 syscall fallback、event v2 ABI、BPF producer 或单消费者模型；不引入第二 consumer、锁、定时器、ptrace、procfs 或 process_vm。
+- Constraints：decode capability 是 session-owned immutable plan；生产路径不依赖运行期 registry map lookup；省略 context 后 release、handler/text/JSON payload 和 FD effect 语义保持等价。
+
+#### 方案比较
+
+1. 保留每事件 context 和默认 handler：行为最保守，但保留 profile 已确认的固定成本，拒绝。
+2. 只在 runner 中跳过默认 handler：仍支付 context 构造和回收成本，收益不足，拒绝。
+3. 在 `DispatchTable` 绑定 `NeedsDecode` capability，事件边界按 capability 决定是否构造 context；payload、return path 和自定义 handler 强制完整路径，选择。
+
+#### 实现与验证
+
+- `pkg/handler.DispatchTable` 在 composition 时按 syscall ID 计算 decode plan；主程序用独立的 `HandlerDecodePlanPort` 消费 capability，不扩大 `HandlerDispatchPort` 契约。
+- context 构造只在 `shouldRunHandler`、payload、return path 或 decode capability 要求时发生；nil context 仍由 pipeline/finalizer 完成必要的 FD effect 和 recycler 边界。
+- 新增测试覆盖无参数默认跳过、带参数默认保留、自定义 handler、未知 ID、payload、FD return path 和 nil context runner 行为。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建通过；本轮后续 14.297 验证中 semantic 为 `197` 个事件、enter/exit `100/97`、lifecycle `6`，原生 `small` 为 `23 PASS / 0 FAIL`。
+
+#### Review 与决策
+
+- 保留 composition-time decode capability；它删除了确定不会产生 handler 结果的 context/dispatch 工作，完整 handler 和 payload 路径仍保留。
+- 14.296 的局部 pipeline 成本下降没有单独闭合高压 JSON 背压；`ringbuf_reserve_fail` 必须继续和 `records_read`、service time 联合判断。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.297 在 TraceOutput 边界批量写出 JSON syscall 行（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.296 已缩短 JSON 事件的 handler/context 服务时间，但 JSON syscall 行仍逐条穿过 `TraceOutput.Write`；已有 64 KiB `bufio` 不能消除每事件 writer 接口边界。
+- Problem：单事件写调用、bufio 边界和频繁小写入继续占用单消费者预算，14.296 的局部 pipeline 改善没有同步转化为高压 `ringbuf_reserve_fail` 的确定下降。
+- Goal：在同步 JSON writer 内把 syscall 行累积到约 64 KiB，通过现有 `TraceOutput` 一次批量写出；低频 lifecycle/ready/phase 先排空 batch，finalizer 排空尾批，保持严格事件顺序和资源所有权。
+- Non-goals：不引入异步 writer、第二 consumer、mutex、定时器、ptrace、procfs 或 process_vm；不改变 JSON schema、事件顺序、文本输出、BPF record、ringbuf ABI 或错误诊断字段。
+- Constraints：只有实现 `WriteBatch` 的 session-owned `TraceOutput` 启用批处理；普通测试 writer 保持同步逐条可见；batch flush 必须发生在 lifecycle/phase/close 前，短写和错误仍由 `TraceOutput` 记录。
+
+#### 方案比较
+
+1. 只扩大 `TraceOutput` 的 bufio 容量：减少底层 write 次数但保留每事件接口和小片段复制，拒绝。
+2. 在 `JSONEventWriter` 累积 syscall 行并通过 `TraceOutput.WriteBatch` 写出：保留同步单消费者和 ownership boundary，同时减少接口调用与管道写，选择。
+3. 增加独立异步 output goroutine：吞吐可能更高，但改变顺序、关闭和错误传播模型，违反单消费者约束，拒绝。
+
+#### 实现与验证
+
+- `TraceOutput.WriteBatch` 先排空自身 bufio，再同步写入同一 owned writer；`JSONEventWriter` 只在该 capability 存在时累积 syscall buffer。
+- lifecycle、ready、phase 和 finalizer flush 先排空 syscall batch；测试覆盖批量边界、跨 phase 顺序、finalizer 尾批和已有 writer 的 buffer 复用语义。
+- 本轮 Go benchmark：`TraceEventContextHandler` `120.9-123.0 ns/op`，handler pipeline `197.4-202.7 ns/op`，JSON pipeline `360.4-361.6 ns/op`，均为 `0 B/op、0 allocs/op`；`go test ./...`、race、vet、build 通过。
+- `ebpf-perf` 通过：scalar/io/lifecycle/threads trace-window exit rate 为 `27508.52/17775.09/85.24/15138.29 events/s`，运行期错误计数均为 `0`；Go pipeline 指标为 `278.00/131.60/142.60/262.20 ns/op`，均零分配。
+- `ebpf-capture` 通过结构校验，但高压背压仍存在：reader `records_read=2,970,647/reserve_fail=229,388`，none `2,168,992/1,031,043`，handler `1,949,489/1,250,546`，JSON `1,308,240/1,891,795`，JSON syscall events `1,278,825`；invalid/orphan/mismatch 均为 `0`。
+
+#### Review 与决策
+
+- 保留同步批量输出；它改善了 output ownership boundary 并保持严格顺序，但本轮 capture 没有证明高压 JSON 背压已闭环，不能宣称 event/s 已完全恢复。
+- 目前普通 perf workload 无运行期错误，下降主要来自完整 JSON sink 的服务时间、进程管道和 BPF producer 竞争；下一步继续缩短 contextless runner、JSON 字段编码和底层 sink 固定成本。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.298 跳过 contextless 事件的重复 handler dispatch（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.296 已允许无参数默认 syscall 不创建 `handler.Context`，但 `SyscallHandlerRunner.Handle` 仍先执行 `shouldRunHandler`，再调用 `handleWith`；contextless 事件最终只返回空 `Result`。
+- Problem：这个分支不会改变输出或 FD effect，却让高频 plain syscall 继续支付一次 handler dispatch 和 nil context 检查，保留单消费者的固定服务时间。
+- Goal：在 runner 入口识别 contextless event，直接保留原有 `update` 和 `shouldOutput` 结果，跳过 handler dispatch；隐藏 FD state event 仍必须执行 effect update，打印/过滤语义不变。
+- Non-goals：不改变有 context 的 handler、payload、unfinished、FD state、输出 schema、事件顺序、event v2 ABI、BPF producer 或单消费者模型；不引入第二 consumer、锁、定时器、ptrace、procfs 或 process_vm。
+- Constraints：contextless 不是“无 effect”；runner 必须先执行已有 `update`，并以 `ev.shouldOutput()` 返回结果，避免误删被过滤事件的 FD state 维护。
+
+#### 方案比较
+
+1. 保留现有 runner 分支：行为不变，但重复支付 nil context dispatch，拒绝。
+2. 在 runner 入口增加 contextless guard，并保留 update：改动最小、所有权不变、可以用 FD state 回归测试锁定，选择。
+3. 在 context 构造阶段新增更多 per-event effect 字段：可能进一步减少判断，但扩大 event 对象和构造同步面，本阶段拒绝。
+
+#### 实现与失败优先测试
+
+- `Handle` 对 nil context 直接执行 `update` 后返回空 result 和 `shouldOutput`；有 context 的原路径保持不变。
+- 测试覆盖 contextless printed event 不调用 fallback，以及 contextless hidden `openat` 仍执行 FD state effect。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 targeted tests 通过；native `small` 为 `23 PASS / 0 FAIL`，semantic 为 `197` 个事件、enter/exit `100/97`、lifecycle `6`。
+- 固定 benchmark 中 context/handler 从约 `121/198 ns/op` 降到 `105-107/181-186 ns/op`，JSON pipeline 多数轮为 `344-347 ns/op`，均为 `0 B/op、0 allocs/op`；perf scalar/io/threads consumer sample 为 `2212.76/2048.95/2338.08 ns`。
+- capture 的 none 路径本轮为 `records_read=2,999,672/reserve_fail=200,363`，较上一轮明显改善；handler 为 `1,907,799/1,292,236`，JSON 为 `1,297,658/1,902,377`，高压 JSON 仍有百万级 reserve failure，不能宣称背压已闭环。
+
+#### Review 与决策
+
+- 保留该 runner guard；它在保持 FD effect update 的前提下删除了 contextless event 的重复 dispatch，局部 benchmark 和 none capture 均有方向性改善。
+- JSON 高压路径仍由字段编码、context/finalizer 和输出管道服务时间主导；下一阶段继续处理 JSON encoder 固定成本，不引入第二消费者来掩盖背压。

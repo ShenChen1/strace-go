@@ -164,6 +164,44 @@ func TestSyscallHandlerRunnerDecodeUsesBoundDispatchWithoutFallback(t *testing.T
 	}
 }
 
+func TestSyscallHandlerRunnerDoesNotCallFallbackWithoutContext(t *testing.T) {
+	called := false
+	runner := newSyscallHandlerRunner(SyscallHandlerRunnerDeps{
+		HandleSyscall: func(string, *handler.Context) handler.Result {
+			called = true
+			return handler.Result{ReturnDesc: "fallback"}
+		},
+	})
+	event := handlerRunnerEvent("getpid", true)
+	event.handlerContext = nil
+
+	got, shouldOutput := runner.Handle(event)
+	if !shouldOutput {
+		t.Fatal("contextless printed event should continue to output")
+	}
+	if called {
+		t.Fatal("fallback handler ran for a contextless event")
+	}
+	if got.ReturnDesc != "" {
+		t.Fatalf("contextless handler result = %+v, want empty result", got)
+	}
+}
+
+func TestSyscallHandlerRunnerContextlessFDStateEventStillUpdates(t *testing.T) {
+	state := newHandlerRunnerTestState(handler.Result{})
+	event := handlerRunnerEvent("openat", false)
+	event.handlerContext = nil
+
+	_, shouldOutput := state.runner.Handle(event)
+
+	if shouldOutput {
+		t.Fatal("hidden contextless event should not continue to output")
+	}
+	if state.effects.updates != 1 {
+		t.Fatalf("updates = %d, want 1 for FD state event", state.effects.updates)
+	}
+}
+
 func TestDefaultHandleSyscallWithoutRegistryIsInert(t *testing.T) {
 	result := defaultHandleSyscall("getpid", &handler.Context{SysName: "getpid"})
 	if len(result.ArgParts) != 0 || result.ReturnDesc != "" || result.HexDumpStr != "" {

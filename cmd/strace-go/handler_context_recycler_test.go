@@ -125,7 +125,7 @@ func TestSyscallEventContextReusesReleasedContext(t *testing.T) {
 	session := newTestTraceSession(traceSessionDeps{TargetPID: 101})
 	deps := newSyscallEventContextDeps(session)
 	deps.contextPool = newHandlerContextRecyclerWithPorts(handlerContextSessionPortsFromDeps(deps))
-	view := syscallEventView{valid: true, sysID: benchmarkSyscallID("getpid")}
+	view := syscallEventView{valid: true, sysID: benchmarkSyscallID("write")}
 
 	first := newSyscallEventContextFromViewWithDeps(deps, view, 101, nil, nil)
 	context := first.handlerContext
