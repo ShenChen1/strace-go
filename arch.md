@@ -11622,6 +11622,44 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 本阶段改善了 sink 服务时间，但没有解决单 Go consumer 与 BPF producer 的整体背压；下一阶段继续定位 Dispatcher、handler/FD effect 和输出边界的剩余成本，并进行多轮高压 capture。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
 
+### 14.289 在 composition 绑定 JSON 输出模式（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`SyscallJSONOutput` 在 composition 已拿到 session-scoped immutable `traceFormatPolicy`，但 `HandleEnter`、`HandleDebugRaw` 和 `HandleDecoded` 每条事件仍调用 `IsJSON()`。
+- Problem：格式模式不会在 trace session 运行期间变化，却被重复作为接口调用、nil 判断和分支执行，增加完整 sink 的固定服务成本。
+- Goal：在 `newSyscallJSONOutput` 边界绑定 `enabled`，让事件路径只读取布尔值；保持 status/filter、debug raw、writer ownership 和非 JSON fall-through 行为。
+- Non-goals：不改变 `ShouldEmit`、trace status、payload、JSON schema、事件顺序、event v2 ABI 或 BPF producer；不引入新的事件对象、协程、锁或计时器。
+- Constraints：format policy 的 `IsJSON()` 只允许在 composition 调用一次；组件测试必须验证该 ownership contract；高压 capture 不能仅凭单轮波动宣称背压改善。
+
+#### 方案比较
+
+1. 保留每事件 `IsJSON()`：实现最简单，但保留 profile 中的固定接口成本，拒绝。
+2. composition-time 缓存 `enabled`：不扩大高频 event context，依赖生命周期清晰，选择。
+3. 为 JSON/text/none 分别建立不同 concrete output 类型：可以进一步消除分支，但扩大对象图和接口替换面，暂不采用。
+
+#### 实现与失败优先测试
+
+- 先增加 counting format policy 测试；旧实现 composition 调用次数为 `0`，按预期失败，确认测试锁定了新契约。
+- `SyscallJSONOutput` 删除运行期 `format` 字段，在构造时执行一次 `deps.Format.IsJSON()` 并保存 `enabled`；三个事件入口共用 `jsonMode()` 的布尔读取。
+- session composition 测试从“保留具体 format port”改为验证 JSON enabled 已绑定；独立 policy owner 测试继续验证 policy 接口被保留用于 status/debug 决策。
+
+#### 验证与实测
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 均通过。
+- 固定 CPU A/B 的完整 JSON pipeline：当前 `446.5-451.1 ns/op`，14.288 基线本轮 `470.7-496.1 ns/op`，均为 `0 B/op、0 allocs/op`；该差异只作为方向性证据，未把未受本阶段影响的 writer 子基准差异归因于本改动。
+- 14.289 profile 中 `SyscallJSONOutput.jsonMode` 不再作为 per-event 热路径节点出现；剩余主要成本仍在 JSON field token、数字/字符串编码、handler context 和 finalizer。
+- `ebpf-semantic` 通过：语义事件 `197`，enter/exit `100/97`，lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`。
+- `ebpf-perf` 通过：JSON writer/decoded/payload writer 为 `129.90/147.80/234.30 ns/op`，均为零分配；scalar/io/lifecycle/threads 的 end-to-end exit rate 为 `6145.67/4099.37/29.73/3445.97 events/s`，运行期错误计数为 `0`。本轮 scalar sink sample 受调度波动影响较大，不作稳定收益结论。
+- `ebpf-capture` 通过结构与语义校验：reader `records_read=3,093,131/reserve_fail=106,904`；none `2,234,032/966,004`；handler `1,728,459/1,471,576`；JSON `1,314,850/1,885,186`，JSON `syscall_events=1,282,584`、`records_invalid=0`、orphan/mismatch 为 `0`。reader 本轮自身也发生 reserve failure，不能用它判断完整 output sink 背压已经改善。
+- upstream native `small` `23/23` 通过。
+
+#### 决策与 Review
+
+- 保留 composition-time `enabled` binding；它符合 session object graph 的 immutable dependency 设计，并删除了 per-event format interface query。
+- 不把本阶段单轮 A/B 或 capture 数字包装成整体 event/s 修复；下一阶段继续针对 `ShouldEmit` 无状态过滤 fast path、Dispatcher/handler/FD effect 和输出边界做独立证据。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
 ### 14.288 特化 JSON 小整数编码（2026-08-21）
 
 #### Problem 1-Pager

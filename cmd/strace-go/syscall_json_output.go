@@ -6,7 +6,7 @@ import (
 )
 
 type SyscallJSONOutput struct {
-	format  traceFormatPolicy
+	enabled bool
 	policy  traceEventOutputPolicy
 	fdState event.FDPathReader
 	writer  jsonEventWriter
@@ -21,7 +21,7 @@ type SyscallJSONOutputDeps struct {
 
 func newSyscallJSONOutput(deps SyscallJSONOutputDeps) *SyscallJSONOutput {
 	return &SyscallJSONOutput{
-		format:  deps.Format,
+		enabled: deps.Format != nil && deps.Format.IsJSON(),
 		policy:  deps.Policy,
 		fdState: deps.FDState,
 		writer:  deps.Writer,
@@ -63,7 +63,7 @@ func (o *SyscallJSONOutput) HandleDecoded(ev syscallEventContext, res handler.Re
 }
 
 func (o *SyscallJSONOutput) jsonMode() bool {
-	return o.format != nil && o.format.IsJSON()
+	return o != nil && o.enabled
 }
 
 func (o *SyscallJSONOutput) writeRawEvent(ev syscallEventContext) {

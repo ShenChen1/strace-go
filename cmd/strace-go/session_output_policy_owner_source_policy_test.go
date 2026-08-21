@@ -88,8 +88,8 @@ func TestTraceSessionAcceptsOutputPolicyOwnerPort(t *testing.T) {
 	if session.syscallTextOutput().format != owner || session.syscallTextOutput().policy != owner {
 		t.Fatal("syscall text output did not receive output policy projections")
 	}
-	if session.syscallJSONOutput().format != owner || session.syscallJSONOutput().policy != owner {
-		t.Fatal("syscall JSON output did not receive output policy projections")
+	if !session.syscallJSONOutput().enabled || session.syscallJSONOutput().policy != owner {
+		t.Fatal("syscall JSON output did not bind output policy projections")
 	}
 	if session.traceRunFinalizer().formatPolicy != owner || session.traceRunFinalizer().summaryPolicy != owner {
 		t.Fatal("run finalizer did not receive output policy projections")

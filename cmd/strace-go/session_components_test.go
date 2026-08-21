@@ -74,7 +74,7 @@ func TestNewTraceSessionEagerlyComposesEventGraph(t *testing.T) {
 		t.Fatal("syscall text output does not use the session exec policy snapshot")
 	}
 	if components.syscallText.format != outputPolicy || components.syscallText.policy != outputPolicy ||
-		components.syscallJSON.format != outputPolicy ||
+		!components.syscallJSON.enabled ||
 		components.syscallJSON.policy != outputPolicy || components.exitSyscall.policy != outputPolicy ||
 		components.lifecycleHandler.policy != outputPolicy ||
 		components.runFinalizer.formatPolicy != outputPolicy || components.commandExitHandler.policy != outputPolicy {

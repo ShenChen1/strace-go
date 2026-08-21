@@ -22,6 +22,20 @@ type fakeJSONEventWriter struct {
 	onLifecycle func(lifecycleEventView, *TaskState)
 }
 
+type countingTraceFormatPolicy struct {
+	json  bool
+	calls int
+}
+
+func (p *countingTraceFormatPolicy) IsJSON() bool {
+	p.calls++
+	return p.json
+}
+
+func (p *countingTraceFormatPolicy) DiscardEvents() bool {
+	return false
+}
+
 func (w *fakeJSONEventWriter) WriteRaw(ev syscallEventContext) {
 	if w.onRaw != nil {
 		w.onRaw(ev)
@@ -58,6 +72,23 @@ func newJSONOutputTestState(opts *cli.Options) *jsonOutputTestState {
 		},
 	})
 	return state
+}
+
+func TestSyscallJSONOutputBindsFormatAtComposition(t *testing.T) {
+	format := &countingTraceFormatPolicy{json: true}
+	output := newSyscallJSONOutput(SyscallJSONOutputDeps{
+		Format: format,
+		Writer: &fakeJSONEventWriter{},
+	})
+
+	if format.calls != 1 {
+		t.Fatalf("format IsJSON calls during composition = %d, want 1", format.calls)
+	}
+	output.HandleDecoded(syscallEventContext{}, handler.Result{})
+	output.HandleEnter(syscallEventContext{})
+	if format.calls != 1 {
+		t.Fatalf("format IsJSON calls after event handling = %d, want 1", format.calls)
+	}
 }
 
 func TestSyscallJSONOutputEnterWritesRawInDebugMode(t *testing.T) {
