@@ -11885,3 +11885,43 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 本阶段回答了“普通 workload 的 event/s 是否因用户态判断退化”的一部分：trace-window 吞吐稳定在万级，低负载 perf 无运行期错误；但没有解决“高压完整 sink 零丢失”，`reserve_fail` 仍与单 Go consumer 的 service time 直接相关。
 - 后续优先级仍是缩短 JSON/output sink 服务时间、评估批量消费或 producer-side backpressure 设计，并继续以 `records_read`、`reserve_fail`、`service_time_ns` 和语义事件数联合判断；不能只看端到端分母。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.295 在 session composition 绑定 syscall metadata table（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.294 已把 FD effect traits 按 syscall ID 绑定，但 exit/enter context 仍通过 `meta.SyscallTable` map 查找完整 `meta.Syscall`；最新 JSON profile 中 `syscallMeta` 约占 `5%`，并位于每个事件的 context 构造路径。
+- Problem：高频事件重复支付 map lookup，且 enter/exit 分别自行解析 metadata，session 的 immutable composition 没有成为 metadata 的唯一所有者。
+- Goal：在 session composition 阶段构造固定大小、不可变的 ID-indexed metadata snapshot；enter/exit context 优先数组查找，synthetic、bare test 和未知 ID 保留原有 map/`sys_N` fallback。
+- Non-goals：不改变生成 syscall 表、event v2 ABI、handler registry、payload、过滤、输出 schema、BPF producer 或未知 syscall 行为；不把 JSON microbenchmark 改善等同于 ringbuf 背压已解决。
+- Constraints：metadata snapshot 只创建一次并由 session dependency graph 持有；不向每条 event 增加 metadata 拷贝，不引入锁、额外消费者或运行期 map lookup 作为已知 ID 的主路径。
+
+#### 方案比较
+
+1. 保留每事件 map lookup：兼容性最保守，但保留 profile 已确认的固定成本，拒绝。
+2. 把完整 `meta.Syscall` 拷贝进每条 event：查找可能变快，但扩大事件对象和拷贝成本，拒绝。
+3. composition-time 构造固定 ID 表，context 持有 session table 指针，synthetic/未知 ID fallback：所有权清晰、事件路径是数组索引，选择。
+
+#### 实现与失败优先测试
+
+- 新增 `syscallMetadataTable`，保存 512 个 ID 槽位和 presence bitmap；`newTraceSession` 在依赖校验后一次物化 `meta.SyscallTable` 快照。
+- `syscallEventContextDeps` 绑定 metadata table；exit context 和 JSON enter context 均通过 `lookupSyscallMetadata` 优先读取 snapshot。
+- 保留 `newSyscallEnterEventContextWithFlagDecoder` 作为 synthetic/test wrapper；没有 session table 时仍调用既有 `syscallMeta` fallback。
+- 先加入 `TestSyscallMetadataLookupUsesBoundTable` 和 `TestSyscallMetadataLookupFallsBackForUnknownTableEntries`，旧实现按预期编译失败，随后锁定 bound、known fallback 和 unknown `sys_N` 三种边界。
+
+#### 验证与实测
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 全部通过。
+- 固定 CPU、`GOMAXPROCS=1`、5 轮 A/B、`0 B/op` 和 `0 allocs/op`：handler pipeline 中位数从基线 `228.5` 降到 `218.0 ns/op`；JSON pipeline 从 `432.9` 降到 `394.9 ns/op`。
+- 新 profile 中 `syscallMeta` map lookup 不再出现，metadata 数组 lookup 约占 `1.75%`；context 构造累计占比从约 `20%` 降至约 `18.6%`。
+- `ebpf-semantic` 通过：197 个语义事件，enter/exit `100/97`，lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`。
+- `ebpf-perf` 通过：Go DecodeState/JSON writer/decoded/payload writer 为 `281.70/128.70/157.70/266.00 ns/op`，均为零分配；scalar/io/lifecycle/threads trace-window exit rate 为 `27720.72/18038.55/85.63/15163.94 events/s`，运行期错误计数均为 `0`。
+- `ebpf-capture` 结构校验通过，records invalid、orphan、mismatch 均为 `0`；本轮 reader/none/handler/JSON 分别读取 `2,974,940/2,935,457/1,649,855/1,288,644` 条记录，对应 `ringbuf_reserve_fail=225,095/264,578/1,550,180/1,911,391`。JSON 完整 sink 的高压背压仍未解决。
+- 原生 upstream `small` 为 `23 PASS / 0 FAIL`。
+
+#### Review 与决策
+
+- 保留 session-scoped metadata snapshot；profile 和 A/B 均证明它减少了稳定的 context 固定成本，且所有语义门禁保持通过。
+- metadata 优化只改善消费服务时间，不能证明高压零丢失；当前下一主热点仍是 handler/context dispatch、JSON 字段 token/数字编码和单消费者持续服务时间。
+- 后续继续以 `records_read`、`records_routed`、`service_time_ns`、`ringbuf_reserve_fail` 和 semantic oracle 联合评估，不用单一端到端 event/s 作为完成标准。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

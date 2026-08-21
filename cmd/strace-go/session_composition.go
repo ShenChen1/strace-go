@@ -123,6 +123,8 @@ type traceSessionDeps struct {
 	Resolver      traceSymbolResolver
 	State         traceStateOwner
 	Clock         traceClock
+
+	SyscallMetadata *syscallMetadataTable
 }
 
 // newTraceSession creates the complete event pipeline before the first event
@@ -130,6 +132,9 @@ type traceSessionDeps struct {
 func newTraceSession(deps traceSessionDeps) (*traceSession, error) {
 	if err := validateTraceSessionDeps(deps); err != nil {
 		return nil, err
+	}
+	if deps.SyscallMetadata == nil {
+		deps.SyscallMetadata = newSyscallMetadataTable(meta.SyscallTable)
 	}
 	session := &traceSession{
 		dependencies: deps,

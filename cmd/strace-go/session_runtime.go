@@ -31,12 +31,13 @@ func (s *traceSession) eventContextDependencies() syscallEventContextDeps {
 
 func (deps traceSessionDeps) eventContextDependencies(registry handler.RegistryPort) syscallEventContextDeps {
 	contextDeps := syscallEventContextDeps{
-		decoder:  deps.Decoder,
-		catalog:  deps.Catalog,
-		fdState:  deps.FDState,
-		fdPath:   deps.FDState,
-		registry: registry,
-		runtime:  deps.Runtime,
+		decoder:         deps.Decoder,
+		catalog:         deps.Catalog,
+		syscallMetadata: deps.SyscallMetadata,
+		fdState:         deps.FDState,
+		fdPath:          deps.FDState,
+		registry:        registry,
+		runtime:         deps.Runtime,
 	}
 	if deps.EventPolicy != nil {
 		contextDeps.handlerOpts = deps.EventPolicy.HandlerOptions()

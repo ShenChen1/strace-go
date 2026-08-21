@@ -49,6 +49,7 @@ type syscallEventContextDeps struct {
 	handlerOpts     handler.OptionsPort
 	filter          traceFilterOptions
 	catalog         meta.CatalogPort
+	syscallMetadata *syscallMetadataTable
 	fdState         handler.FDStateReader
 	fdPath          event.FDPathReader
 	registry        handler.RegistryPort
@@ -113,7 +114,7 @@ func newSyscallEventContextFromViewWithDeps(
 	pendingEnter *pendingSyscallSnapshot,
 	currentPayload []handler.PayloadSection,
 ) syscallEventContext {
-	scMeta := syscallMeta(view.sysID)
+	scMeta := lookupSyscallMetadata(deps.syscallMetadata, view.sysID)
 	if canUseFastSyscallEventContext(view, pendingEnter, currentPayload, deps.filter) {
 		ev := syscallEventContext{
 			view:            view,
@@ -240,16 +241,53 @@ func newSyscallEnterEventContextWithFlagDecoder(
 	flagDecoder fdFlagDecoder,
 	filter traceFilterOptions,
 ) syscallEventContext {
-	scMeta := syscallMeta(view.sysID)
-	fdPathOverlay := fdPathOverlayFromSections(payloadSections)
-	eventFDView := fdPathOverlay.resolve(view)
-	return syscallEventContext{
+	return newSyscallEnterEventContextFromConfig(syscallEnterEventContextConfig{
 		view:            view,
 		statePID:        statePID,
-		meta:            scMeta,
-		fdFlags:         flagDecoder,
-		filter:          filter,
 		payloadSections: payloadSections,
+		flagDecoder:     flagDecoder,
+		filter:          filter,
+	})
+}
+
+type syscallEnterEventContextConfig struct {
+	view            syscallEventView
+	statePID        int
+	payloadSections []handler.PayloadSection
+	flagDecoder     fdFlagDecoder
+	filter          traceFilterOptions
+	syscallMetadata *syscallMetadataTable
+}
+
+func newSyscallEnterEventContextFromDeps(
+	deps syscallEventContextDeps,
+	view syscallEventView,
+	statePID int,
+	payloadSections []handler.PayloadSection,
+) syscallEventContext {
+	return newSyscallEnterEventContextFromConfig(syscallEnterEventContextConfig{
+		view:            view,
+		statePID:        statePID,
+		payloadSections: payloadSections,
+		flagDecoder:     deps.catalog,
+		filter:          deps.filter,
+		syscallMetadata: deps.syscallMetadata,
+	})
+}
+
+func newSyscallEnterEventContextFromConfig(
+	config syscallEnterEventContextConfig,
+) syscallEventContext {
+	scMeta := lookupSyscallMetadata(config.syscallMetadata, config.view.sysID)
+	fdPathOverlay := fdPathOverlayFromSections(config.payloadSections)
+	eventFDView := fdPathOverlay.resolve(config.view)
+	return syscallEventContext{
+		view:            config.view,
+		statePID:        config.statePID,
+		meta:            scMeta,
+		fdFlags:         config.flagDecoder,
+		filter:          config.filter,
+		payloadSections: config.payloadSections,
 		eventFDView:     eventFDView,
 	}
 }

@@ -95,12 +95,11 @@ func (d *TraceEventDispatcher) handleEnter(update TraceStateUpdate, statePID int
 	if d.json == nil {
 		return
 	}
-	d.json.HandleEnter(newSyscallEnterEventContextWithFlagDecoder(
+	d.json.HandleEnter(newSyscallEnterEventContextFromDeps(
+		d.contextDeps,
 		update.syscallView,
 		statePID,
 		update.payloadSections,
-		d.contextDeps.catalog,
-		d.contextDeps.filter,
 	))
 }
 
