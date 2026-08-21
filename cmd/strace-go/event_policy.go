@@ -128,8 +128,18 @@ func newTraceFilterOptions(opts *cli.Options) traceFilterOptions {
 	if candidate := event.TracePathSet(paths); !candidate.Empty() {
 		pathFilter = candidate
 	}
-	return &cliTraceFilter{
-		debug:               opts.DebugEvents,
+	filter := &cliTraceFilter{
+		debug: opts.DebugEvents,
+		unfiltered: !opts.TraceSetIsNegated &&
+			len(opts.TraceSyscalls) == 0 &&
+			len(opts.TraceSyscallRegexps) == 0 &&
+			len(opts.TraceFDs) == 0 &&
+			!opts.TraceFDsNegated &&
+			len(opts.TraceReadFDs) == 0 &&
+			!opts.TraceReadFDsNegated &&
+			len(opts.TraceWriteFDs) == 0 &&
+			!opts.TraceWriteFDsNegated &&
+			(pathFilter == nil || pathFilter.Empty()),
 		traceSyscalls:       copyStringBoolMap(opts.TraceSyscalls),
 		traceSyscallRegexps: append([]*regexp.Regexp(nil), opts.TraceSyscallRegexps...),
 		traceSetIsNegated:   opts.TraceSetIsNegated,
@@ -141,6 +151,7 @@ func newTraceFilterOptions(opts *cli.Options) traceFilterOptions {
 		traceWriteNegated:   opts.TraceWriteFDsNegated,
 		pathFilter:          pathFilter,
 	}
+	return filter
 }
 
 func copyStringBoolMap(source map[string]bool) map[string]bool {

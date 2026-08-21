@@ -45,6 +45,20 @@ func TestTraceFilterIdentifiesUnfilteredPolicy(t *testing.T) {
 	}
 }
 
+func TestTraceFilterBindsUnfilteredDecisionAtComposition(t *testing.T) {
+	plain, ok := newTraceFilterOptions(&cli.Options{}).(*cliTraceFilter)
+	if !ok || !plain.unfiltered {
+		t.Fatalf("plain filter = %#v, want composition-bound unfiltered state", plain)
+	}
+
+	filtered, ok := newTraceFilterOptions(&cli.Options{
+		TraceSyscalls: map[string]bool{"getpid": true},
+	}).(*cliTraceFilter)
+	if !ok || filtered.unfiltered {
+		t.Fatalf("filtered filter = %#v, want composition-bound filtered state", filtered)
+	}
+}
+
 func rawFD(fd int32) uint64 {
 	return uint64(uint32(fd))
 }

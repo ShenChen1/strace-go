@@ -11815,3 +11815,34 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留该快路径：它只减少确定无效的构造工作，所有 payload/filter 场景仍走原有完整路径，且真实 capture 的 none/handler 结果支持其对共性路由的收益。
 - 本阶段没有解决完整 JSON sink 的整体背压；下一阶段继续处理按 syscall ID 的 FD effect 判断和输出 sink 剩余服务时间，不能把本阶段的吞吐改善包装成 event/s 问题已经闭环。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.293 在 composition 绑定 unfiltered filter 状态（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.292 的 plain-event 快路径和完整 context 路径都会查询 `traceFilterOptions.IsUnfiltered()`；当前实现每次都重新检查多个 map、slice 和 negated 标志。
+- Problem：filter policy 在 session composition 后不可变，却在每条事件上重复计算，增加单 Go consumer 的固定服务时间。
+- Goal：在 `newTraceFilterOptions` 构造时计算并绑定 `unfiltered`，运行期 `IsUnfiltered()` 只读取一个布尔值。
+- Non-goals：不改变 syscall/FD/path filter 匹配、不改变 BPF filter pushdown、event v2 ABI、事件上下文、输出 schema 或过滤优先级。
+- Constraints：plain 和所有 active filter 必须有测试；不向 `syscallEventContext` 增加字段，不引入 per-event allocation。
+
+#### 方案比较
+
+1. 保留每事件重算：实现最简单，但保留 profile 已确认的固定成本，拒绝。
+2. composition-time 缓存 immutable bool：改动局部，不扩大高频事件对象，选择。
+3. 在每个 sink 复制过滤判断：可能减少接口调用，但会复制策略逻辑并产生语义漂移，拒绝。
+
+#### 实现与验证
+
+- 先增加 `TestTraceFilterBindsUnfilteredDecisionAtComposition`；旧实现缺少绑定字段，按预期编译失败，随后验证 plain/filtered 两种 composition state。
+- `cliTraceFilter` 新增 `unfiltered` 字段；`newTraceFilterOptions` 根据原有全部条件一次计算，`IsUnfiltered` 保持原接口但不再遍历容器。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 均通过；本阶段 targeted filter、semantic 依赖的 filter 行为保持通过。
+- 固定 `taskset -c 0`、`GOMAXPROCS=1` 五轮 benchmark：context `135.4-136.0 ns/op`，handler pipeline `229.0-230.8 ns/op`，JSON pipeline `397.2-400.8 ns/op`，均为 `0 B/op、0 allocs/op`。
+- `ebpf-perf` 通过：scalar/io/lifecycle/threads trace-window exit rate 为 `27884.99/18067.85/85.30/15519.66 events/s`，runtime error counters 均为 `0`。
+- `ebpf-capture` 通过结构与语义校验：reader `records_read=3,200,035/reserve_fail=0`；none `2,215,220/984,815`；handler `1,482,659/1,717,376`；JSON `1,342,287/1,857,748`，JSON syscall events `1,306,460`，`records_invalid/orphan/mismatch=0`。高压轮次存在明显 workload 波动，不能把本阶段包装成完整 sink 背压修复。
+
+#### Review 与决策
+
+- 保留 composition-time filter binding；它删除了确定不变的重复状态判断，未改变任何 active filter 分支，也未扩大高频 context 对象。
+- 当前 JSON sink 仍有百万级 reservation failure；下一阶段继续处理 FD effect 判断和 dispatcher/finalizer 剩余固定成本。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

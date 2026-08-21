@@ -20,6 +20,7 @@ type traceFilterOptions interface {
 
 type cliTraceFilter struct {
 	debug               bool
+	unfiltered          bool
 	traceSyscalls       map[string]bool
 	traceSyscallRegexps []*regexp.Regexp
 	traceSetIsNegated   bool
@@ -39,16 +40,7 @@ func (filter cliTraceFilter) DebugEvents() bool {
 }
 
 func (filter cliTraceFilter) IsUnfiltered() bool {
-	return !filter.traceSetIsNegated &&
-		len(filter.traceSyscalls) == 0 &&
-		len(filter.traceSyscallRegexps) == 0 &&
-		len(filter.traceFDs) == 0 &&
-		!filter.traceFDsNegated &&
-		len(filter.traceReadFDs) == 0 &&
-		!filter.traceReadNegated &&
-		len(filter.traceWriteFDs) == 0 &&
-		!filter.traceWriteNegated &&
-		(filter.pathFilter == nil || filter.pathFilter.Empty())
+	return filter.unfiltered
 }
 
 func (filter cliTraceFilter) MatchSyscall(name string) bool {
