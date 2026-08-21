@@ -11524,3 +11524,41 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留 composition-time ports binding；它移除了生产 event hot path 的重复 session-port 组装，并在固定 CPU A/B 中改善 handler pipeline，未改变 context 生命周期或输出语义。
 - 不把 JSON pipeline 的重叠 A/B 和高压 capture 的单轮波动包装成端到端性能解决；下一阶段继续针对 JSON writer、FD effect 和完整 Dispatcher sink 做独立 profile/A-B。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.285 特化全零 syscall 参数的 JSON 编码（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.284 已移除 production event path 中重复的 session-port 绑定，但 JSON CPU profile 仍显示 `uint64ArrayField`、`strconv.AppendUint` 和数组字段组装占据 decoded sink 的明显比例；capture workload 的 `getpid` 事件六个 syscall 参数均为零。
+- Problem：通用六元素数组编码对每条全零事件逐项执行整数格式化，增加单 Go consumer 的服务时间；这会加剧 BPF producer burst 与 ringbuf 消费之间的竞争，但不能仅凭 profile 推断 reservation failure 已经解决。
+- Goal：为全零六参数数组增加稳定的固定字面量路径，保持非零数组的原有通用编码和 JSON 字节输出完全不变，并用固定 CPU A/B、语义测试和高压 capture 联合验收。
+- Non-goals：不改 event v2 ABI、BPF producer、ringbuf 大小、状态机、handler 接口、JSON schema 或输出顺序；不引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex、定时器或自定义任意整数编码器。
+- Constraints：特化必须只覆盖 `[6]uint64{}`；非零参数继续走 `strconv.AppendUint` 回退；优化收益必须与 `records_read`、`ringbuf_reserve_fail` 和最终 syscall event 数量分开报告。
+
+#### 方案比较
+
+1. 保留通用循环：行为风险最低，但放过 profile 已确认的固定热点，拒绝。
+2. 重写任意整数编码器：潜在收益更大，但扩大 JSON 正确性风险和维护面，拒绝。
+3. 在 `jsonLineBuilder.uint64ArrayField` 中为全零数组调用固定字面量 helper，非零数组保持原路径：改动局部、输出可验证、存在通用回退，选择。
+
+#### 实现与失败优先测试
+
+- 先增加 `TestJSONLineBuilderZeroUint64ArrayField`，在 helper 不存在时按预期编译失败，确认测试锁定了目标行为。
+- 增加 `zeroUint64ArrayField`，输出固定的 `[0,0,0,0,0,0]`；`uint64ArrayField` 只在输入等于全零数组时进入该分支。
+- 物化、raw、decoded 三条 syscall JSON 路径继续共用 `uint64ArrayField`；非零参数的直接编码与 `json.Marshal` 对照测试保持不变。
+
+#### 验证与实测
+
+- 聚焦 JSON 测试、`go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 均通过。
+- 固定 `taskset -c 0`、`GOMAXPROCS=1` 的 A/B：当前 JSON pipeline 为 `511.6-518.6 ns/op`，14.284 基线为 `550.4-574.4 ns/op`；raw writer 当前约 `199-203 ns/op`，基线约 `212-220 ns/op`；decoded writer 当前约 `218 ns/op`，基线约 `234-238 ns/op`；均为 `0 B/op、0 allocs/op`。这证明合成用户态 JSON 服务时间有约 `6%-10%` 的改善，但不把单轮 outlier 当作结论。
+- `ebpf-semantic` 通过：语义事件 `197`，enter/exit `100/97`，lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`。
+- `ebpf-perf` 通过：Go JSON writer/decoded/payload writer 分别为 `195.20/202.30/310.50 ns/op`，均为零分配；scalar/io/lifecycle/threads 的 end-to-end exit rate 分别为 `6270.45/4057.97/28.04/3300.25 events/s`，运行期错误计数为 `0`。
+- `ebpf-capture` 通过结构与语义校验：reader `records_read=3,200,036/reserve_fail=0`；none `1,808,440/1,391,595`；handler `1,645,579/1,554,456`；JSON `1,326,511/1,873,524`，JSON `syscall_events=1,297,559`、`records_invalid=0`、orphan/mismatch 为 `0`。完整 JSON sink 仍存在百万级 reservation failure，说明本阶段改善了用户态编码成本，但没有解决单 Go consumer 的整体背压。
+- upstream native `small` `23/23` 通过。
+
+#### 决策与 Review
+
+- 保留全零数组字面量特化；它只改变已验证的 JSON 数字编码局部路径，非零参数和输出字节契约不变。
+- 本阶段可以回答 event/s 下降的一个具体原因：用户态 JSON sink 的每事件服务时间过高会缩短消费者预算；该原因已局部缓解，但不是唯一原因。
+- 当前不能宣称 event/s 已完全恢复：reader 仍可无丢失消费，而 none/handler/JSON 在完整 sink 下仍有 reserve failure；下一阶段继续 profile FD effect、handler 和 JSON 之外的 Dispatcher sink，并以高压 capture 的持续多轮结果验收。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

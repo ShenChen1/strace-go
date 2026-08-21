@@ -29,6 +29,15 @@ func TestJSONLineBuilderFieldTokenBoundaries(t *testing.T) {
 	}
 }
 
+func TestJSONLineBuilderZeroUint64ArrayField(t *testing.T) {
+	var builder jsonLineBuilder
+	builder.beginObject()
+	builder.zeroUint64ArrayField(jsonFieldArgs)
+	if got := string(builder.endLine()); got != `{"args":[0,0,0,0,0,0]}`+"\n" {
+		t.Fatalf("zero args field = %q, want %q", got, `{"args":[0,0,0,0,0,0]}`+"\n")
+	}
+}
+
 func TestAppendJSONDecodedSyscallEventMatchesMaterializedEncoding(t *testing.T) {
 	event := syscallEventContext{
 		view: syscallEventView{

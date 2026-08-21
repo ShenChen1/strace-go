@@ -103,6 +103,10 @@ func (b *jsonLineBuilder) endLine() []byte {
 }
 
 func (b *jsonLineBuilder) uint64ArrayField(token string, values [6]uint64) {
+	if values == ([6]uint64{}) {
+		b.zeroUint64ArrayField(token)
+		return
+	}
 	b.beginFieldToken(token)
 	b.data = append(b.data, '[')
 	for index, value := range values {
@@ -112,6 +116,11 @@ func (b *jsonLineBuilder) uint64ArrayField(token string, values [6]uint64) {
 		b.data = strconv.AppendUint(b.data, value, 10)
 	}
 	b.data = append(b.data, ']')
+}
+
+func (b *jsonLineBuilder) zeroUint64ArrayField(token string) {
+	b.beginFieldToken(token)
+	b.data = append(b.data, "[0,0,0,0,0,0]"...)
 }
 
 func (b *jsonLineBuilder) stringArrayField(token string, values []string) {
