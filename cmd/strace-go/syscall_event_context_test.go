@@ -9,6 +9,46 @@ import (
 	"strace-go/pkg/meta"
 )
 
+func TestCanUseFastSyscallEventContext(t *testing.T) {
+	filter := newTraceFilterOptions(&cli.Options{})
+	tests := []struct {
+		name         string
+		viewValid    bool
+		filter       traceFilterOptions
+		pendingData  []byte
+		currentData  []byte
+		wantFastPath bool
+	}{
+		{name: "plain unfiltered event", viewValid: true, filter: filter, wantFastPath: true},
+		{name: "nil filter means unfiltered", viewValid: true, wantFastPath: true},
+		{name: "payload on exit", viewValid: true, filter: filter, currentData: []byte("payload")},
+		{name: "payload on pending enter", viewValid: true, filter: filter, pendingData: []byte("payload")},
+		{name: "active filter", viewValid: true, filter: newTraceFilterOptions(&cli.Options{TraceSyscalls: map[string]bool{"getpid": true}})},
+		{name: "invalid event", filter: filter},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var pending *pendingSyscallSnapshot
+			if tt.pendingData != nil {
+				pending = &pendingSyscallSnapshot{payloadSections: []handler.PayloadSection{{Data: tt.pendingData}}}
+			}
+			view := syscallEventView{valid: tt.viewValid}
+			got := canUseFastSyscallEventContext(view, pending, payloadSectionsWithData(tt.currentData), tt.filter)
+			if got != tt.wantFastPath {
+				t.Fatalf("canUseFastSyscallEventContext() = %v, want %v", got, tt.wantFastPath)
+			}
+		})
+	}
+}
+
+func payloadSectionsWithData(data []byte) []handler.PayloadSection {
+	if data == nil {
+		return nil
+	}
+	return []handler.PayloadSection{{Data: data}}
+}
+
 func TestSyscallEventContextBuildsPayloadHandlerContext(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-e", "trace=openat", "/bin/true"})
 	fdState := newFDStateStoreFromMaps(map[string]string{"101:cwd": "/tmp"}, nil)

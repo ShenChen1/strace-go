@@ -11780,3 +11780,38 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留 dispatch-first 的 context 调用路径；它复用已有对象图，在 handler pipeline A/B 中有方向性收益，没有新增分配或改变语义。
 - 当前不能说 event/s 已完全恢复。reader 可以无丢失消费，而完整 sink 仍受 Go 单消费者服务时间和 ringbuf reserve failure 限制；下一阶段继续拆分 FD effect、Dispatcher 剩余路径和输出 sink 的服务时间。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.292 为无 payload、无过滤事件增加 context 构造快路径（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.291 后，完整 event pipeline 的剩余固定成本集中在 `newSyscallEventContextFromViewWithDeps`、payload 合并、FD path overlay 和路径参数解码；高压 fixture 以无 payload 的 `getpid` 为主，正好反复支付这些不可能产生结果的步骤。
+- Problem：无 payload、无过滤事件仍执行 payload section 合并、FD overlay resolve、path argument decode 和 filter decision，导致单 Go consumer 更早落后于 BPF producer。
+- Goal：在 context 构造边界识别无 payload、无过滤且有效的事件，直接构造同一个 recycled `handler.Context`，跳过无效的 payload/path/filter 工作。
+- Non-goals：不删除 generic enter，不改变 JSON raw enter/exit 配对、不改变 handler context 字段、FD state 语义、event v2 ABI、BPF producer、输出 schema 或单消费者约束。
+- Constraints：payload、active filter 和 invalid event 必须拒绝快路径；快路径只能复用已有 context recycler，不能引入每事件分配。
+
+#### 方案比较
+
+1. 在 context 构造函数中按完整条件增加局部快路径：不复制配对和输出逻辑，风险边界最小，选择。
+2. 在 JSON/handler sink 各自复制一套 fast event 逻辑：可能减少更多调用，但会造成 text/JSON 语义分叉，拒绝。
+
+#### 实现与失败优先测试
+
+- 先增加 `TestCanUseFastSyscallEventContext`；在 predicate 尚不存在时测试按预期编译失败，随后覆盖 plain/nil-filter、payload、active-filter 和 invalid event 五个边界。
+- `canUseFastSyscallEventContext` 只在 `view.valid`、当前 payload 为空、pending enter payload 为空且 filter 为 nil 或 `IsUnfiltered()` 时返回 true。
+- 快路径继续填充 `view/statePID/meta/fdFlags/filter/pendingEnter/contextRecycler`，并调用原有 `newHandlerContext`；因此 handler dispatch、JSON/text formatter 和 release ownership 没有分叉。
+
+#### 验证与实测
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...` 和 `go build -o strace-go ./cmd/strace-go` 均通过。
+- 固定 `taskset -c 0`、`GOMAXPROCS=1` 五轮 benchmark：`ContextHandler` 为 `137.1-142.5 ns/op`，handler pipeline 为 `232.7-235.1 ns/op`，JSON pipeline 为 `395.3-396.7 ns/op`；均为 `0 B/op、0 allocs/op`。相对 14.291 的 context `159 ns`、handler `247 ns`、JSON `421 ns` 左右基线，三条路径均有稳定下降。
+- `ebpf-perf` 通过：scalar/io/lifecycle/threads trace-window exit rate 为 `27974.29/17973.43/85.37/15531.10 events/s`，运行期错误计数均为 `0`。
+- `ebpf-capture` 通过结构与语义校验：reader `records_read=3,200,035/reserve_fail=0`；none `2,413,966/786,069`；handler `2,026,612/1,173,423`；JSON `1,305,054/1,894,982`，JSON syscall events `1,270,788`，`records_invalid/orphan/mismatch=0`。相对上一轮 none `1,867,768/1,332,268`、handler `1,616,174/1,583,862`，完整路由吞吐明显改善；JSON 仍有百万级 reserve failure。
+- upstream native `small` 保持通过（本阶段代码未改变兼容输出）。
+
+#### Review 与决策
+
+- 保留该快路径：它只减少确定无效的构造工作，所有 payload/filter 场景仍走原有完整路径，且真实 capture 的 none/handler 结果支持其对共性路由的收益。
+- 本阶段没有解决完整 JSON sink 的整体背压；下一阶段继续处理按 syscall ID 的 FD effect 判断和输出 sink 剩余服务时间，不能把本阶段的吞吐改善包装成 event/s 问题已经闭环。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。

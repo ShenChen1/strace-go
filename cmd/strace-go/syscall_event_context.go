@@ -114,6 +114,20 @@ func newSyscallEventContextFromViewWithDeps(
 	currentPayload []handler.PayloadSection,
 ) syscallEventContext {
 	scMeta := syscallMeta(view.sysID)
+	if canUseFastSyscallEventContext(view, pendingEnter, currentPayload, deps.filter) {
+		ev := syscallEventContext{
+			view:            view,
+			statePID:        statePID,
+			meta:            scMeta,
+			fdFlags:         deps.catalog,
+			filter:          deps.filter,
+			shouldPrint:     true,
+			pendingEnter:    pendingEnter,
+			contextRecycler: deps.contextPool,
+		}
+		ev.handlerContext = ev.newHandlerContext(deps)
+		return ev
+	}
 	payloadSections := mergePendingPayloadSections(pendingEnter, currentPayload)
 	fdPathOverlay := fdPathOverlayFromSections(payloadSections)
 	eventFDView := fdPathOverlay.resolve(view)
@@ -148,6 +162,21 @@ func newSyscallEventContextFromViewWithDeps(
 	}
 	ev.handlerContext = ev.newHandlerContext(deps)
 	return ev
+}
+
+func canUseFastSyscallEventContext(
+	view syscallEventView,
+	pendingEnter *pendingSyscallSnapshot,
+	currentPayload []handler.PayloadSection,
+	filter traceFilterOptions,
+) bool {
+	if !view.valid || len(currentPayload) > 0 {
+		return false
+	}
+	if pendingEnter != nil && len(pendingEnter.payloadSections) > 0 {
+		return false
+	}
+	return filter == nil || filter.IsUnfiltered()
 }
 
 func mergePendingPayloadSections(pendingEnter *pendingSyscallSnapshot, current []handler.PayloadSection) []handler.PayloadSection {
