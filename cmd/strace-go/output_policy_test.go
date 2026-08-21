@@ -216,6 +216,17 @@ func TestTraceOutputPolicyDiscardsEventsWithoutBecomingJSON(t *testing.T) {
 	}
 }
 
+func TestTraceOutputPolicyUnfilteredEventsEmitWithoutStatusOptions(t *testing.T) {
+	policy := newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatJSON})
+	ev := syscallEventContext{
+		view: syscallEventView{valid: true, ret: -2, probeRetEnter: 3},
+	}
+
+	if !policy.ShouldEmit(ev, false) || !policy.ShouldEmit(ev, true) {
+		t.Fatal("unfiltered output policy suppressed an event")
+	}
+}
+
 func TestTraceOutputPolicyReaderOnlyIsDiscardMode(t *testing.T) {
 	policy := newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatReader})
 

@@ -189,6 +189,9 @@ func (p *cliTraceOutputPolicy) ShouldEmit(ev syscallEventContext, unfinished boo
 	if unfinished {
 		return !p.statusFilterActive
 	}
+	if !p.statusFilterActive {
+		return true
+	}
 	return ev.shouldEmitStatus(p.status)
 }
 

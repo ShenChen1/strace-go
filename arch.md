@@ -11660,6 +11660,43 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 不把本阶段单轮 A/B 或 capture 数字包装成整体 event/s 修复；下一阶段继续针对 `ShouldEmit` 无状态过滤 fast path、Dispatcher/handler/FD effect 和输出边界做独立证据。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
 
+### 14.290 为无 status filter 的输出策略增加 fast path（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.289 profile 中 `cliTraceOutputPolicy.ShouldEmit` 仍是每条 JSON exit event 的固定路径；当 session 没有 successful/failed/trace-status filter 时，`shouldEmitStatus` 最终必然返回 `true`。
+- Problem：无过滤配置仍执行 probe 状态、失败判断和 status map 分支，浪费单 Go consumer 的服务预算。
+- Goal：在 `ShouldEmit` 中对 `statusFilterActive=false` 提前返回 true；保留 discard、unfinished 和所有 active status filter 的原有顺序与语义。
+- Non-goals：不改变 trace status 语义、event context、JSON writer、event ABI、BPF producer、过滤下推或输出顺序。
+- Constraints：无过滤成功/失败/probe event 仍必须输出；unfinished 仍先走独立分支；有任意 status filter 时必须继续调用 `shouldEmitStatus`。
+
+#### 方案比较
+
+1. 保留完整状态判断：行为最直观，但保留 profile 已确认的无效分支，拒绝。
+2. 在 `ShouldEmit` 中按 immutable `statusFilterActive` 提前返回：不扩大事件对象，改动局部且与 policy composition 一致，选择。
+3. 在每个 output sink 中复制 status 判断：可能减少接口调用，但造成策略逻辑重复和语义漂移，拒绝。
+
+#### 实现与测试
+
+- 增加无 status filter 的成功/失败/probe/unfinished 行为测试；无过滤事件和 unfinished 均保持 emit，discard/active filter 测试继续覆盖原分支。
+- `cliTraceOutputPolicy.ShouldEmit` 顺序保持为 `nil -> discard -> unfinished -> unfiltered fast path -> status decision`；没有修改 `syscallEventContext` 或 JSON schema。
+
+#### 验证与实测
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 均通过。
+- 固定 CPU A/B：当前 JSON pipeline `423.1-423.2 ns/op`，14.289 基线 `449.7-468.4 ns/op`，均为 `0 B/op、0 allocs/op`。
+- profile 中无过滤 JSON pipeline 不再出现 `cliTraceOutputPolicy.ShouldEmit` 或 `syscallEventContext.shouldEmitStatus`，剩余成本集中在 JSON field/数字编码、handler context 和 finalizer。
+- `ebpf-semantic` 通过：语义事件 `197`，enter/exit `100/97`，lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`。
+- `ebpf-perf` 通过：JSON writer/decoded/payload writer 为 `126.70/149.20/236.30 ns/op`，均为零分配；scalar/io/lifecycle/threads 的 end-to-end exit rate 为 `6154.42/4085.45/28.99/3406.85 events/s`，运行期错误计数为 `0`；scalar consumer service sample 为 `1837.61 ns`。
+- `ebpf-capture` 通过结构与语义校验：reader `records_read=2,740,642/reserve_fail=459,393`；none `3,132,993/67,043`；handler `1,666,555/1,533,480`；JSON `1,241,394/1,958,641`，JSON `syscall_events=1,216,671`、`records_invalid=0`、orphan/mismatch 为 `0`。本轮 reader/none 的 producer 结果也有较大波动，不能据此宣称完整 sink 背压改善。
+- upstream native `small` `23/23` 通过。
+
+#### 决策与 Review
+
+- 保留无过滤 fast path；它只读取 session-scoped immutable policy state，未扩大高频 event context，且 active filter 仍使用原有 status oracle。
+- 当前 event/s 下降的用户态判断成本继续下降，但高压 capture 仍有百万级 reserve failure；下一阶段继续拆分 Dispatcher/handler/FD effect 和 field token/output sink 的持续服务时间。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
 ### 14.288 特化 JSON 小整数编码（2026-08-21）
 
 #### Problem 1-Pager
