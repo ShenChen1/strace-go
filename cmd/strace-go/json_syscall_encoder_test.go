@@ -155,6 +155,81 @@ func TestAppendJSONDecodedSyscallEventMatchesMaterializedEncoding(t *testing.T) 
 	}
 }
 
+func TestAppendJSONPlainDecodedSyscallEventMatchesMaterializedEncoding(t *testing.T) {
+	event := syscallEventContext{
+		view: syscallEventView{
+			valid:         true,
+			eventVersion:  traceEventV2Version,
+			pid:           101,
+			tid:           102,
+			sysID:         39,
+			eventType:     bpfEventTypeExit,
+			eventFlags:    bpfEventFlagTruncated,
+			args:          [6]uint64{7, 8, 9},
+			ret:           101,
+			duration:      55,
+			enterTime:     77,
+			stackID:       17,
+			probeRetEnter: -1,
+			probeRetExit:  0,
+		},
+		meta: meta.Syscall{Name: "getpid"},
+	}
+	result := handler.Result{}
+
+	got := appendJSONDecodedSyscallEvent(nil, event, result)
+	materialized := event.newJSONDecodedSyscallEvent(result)
+	want := appendJSONSyscallEvent(nil, &materialized)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("plain decoded JSON differs from materialized encoding:\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestCanUsePlainDecodedJSONFallsBackForComplexEvents(t *testing.T) {
+	base := syscallEventContext{
+		view: syscallEventView{
+			valid:     true,
+			sysID:     39,
+			eventType: bpfEventTypeExit,
+			ret:       101,
+		},
+		meta: meta.Syscall{Name: "getpid"},
+	}
+	cases := []struct {
+		name   string
+		mutate func(*syscallEventContext, *handler.Result)
+	}{
+		{name: "handler context", mutate: func(ev *syscallEventContext, _ *handler.Result) {
+			ev.handlerContext = &handler.Context{}
+		}},
+		{name: "payload", mutate: func(ev *syscallEventContext, _ *handler.Result) {
+			ev.payloadSections = []handler.PayloadSection{{Kind: handler.PayloadKindBytes}}
+		}},
+		{name: "arguments", mutate: func(_ *syscallEventContext, res *handler.Result) {
+			res.ArgParts = []string{"101"}
+		}},
+		{name: "return description", mutate: func(_ *syscallEventContext, res *handler.Result) {
+			res.ReturnDesc = "ok"
+		}},
+		{name: "paired enter", mutate: func(ev *syscallEventContext, _ *handler.Result) {
+			ev.pendingEnter = &pendingSyscallSnapshot{genericEnterRaw: true}
+		}},
+		{name: "special return", mutate: func(ev *syscallEventContext, _ *handler.Result) {
+			ev.meta = meta.Syscall{Name: "fcntl"}
+		}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			event := base
+			result := handler.Result{}
+			test.mutate(&event, &result)
+			if canUsePlainDecodedJSON(event, result) {
+				t.Fatal("complex event selected plain decoded fast path")
+			}
+		})
+	}
+}
+
 func TestAppendJSONRawSyscallEventMatchesMaterializedEncoding(t *testing.T) {
 	event := syscallEventContext{
 		view: syscallEventView{

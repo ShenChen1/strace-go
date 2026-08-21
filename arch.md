@@ -12043,3 +12043,33 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 
 - 保留 syscall name identifier fast path；安全名称直接复制，异常值仍走完整转义，标准 JSON 字节等价测试锁定了行为边界。
 - 这轮优化已传导到真实 JSON capture，但完整 sink 仍受单消费者、字段编码其余部分、context/finalizer 和输出管道限制；下一阶段继续 profile 剩余 JSON 固定成本。
+
+### 14.300 为无 context plain decoded syscall 增加 JSON 专用编码路径（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.299 后 JSON profile 的 syscall name 扫描已下降，剩余最大热点是 `beginFieldToken`、字段数字编码以及每事件通用 builder 分支；高压 fixture 的 `getpid` decoded event 没有 handler context、payload 或 `arg_text`，return text 只是数字字符串。
+- Problem：这种固定事件形状仍逐字段执行通用 `first` 判断和可选字段方法，单 Go consumer 重复支付不会命中的复杂路径。
+- Goal：为无 context、无 payload、无 arg text、plain return、无 generic-enter 配对的 decoded syscall 直接按稳定字段顺序 append；复杂 handler、payload、return formatter 和配对事件继续使用通用 encoder。
+- Non-goals：不改变 JSON schema、字段顺序、`omitempty`、错误/errno、event v2 ABI、BPF producer、输出顺序或单消费者模型；不把任意 metadata 当作 trusted string；不引入 unsafe、锁、第二 consumer、ptrace、procfs 或 process_vm。
+- Constraints：专用路径必须与 materialized `jsonSyscallEvent` 字节等价；触发条件必须保守，任何 `ArgParts`、payload、return description、特殊 return formatter 或 paired enter 都回退通用路径。
+
+#### 方案比较
+
+1. 继续使用通用 builder：行为最稳定，但保留 profile 已确认的字段 token 固定成本，拒绝。
+2. 对所有 syscall 复制一套字段 append：潜在收益大，但复杂 payload/handler 分支容易与标准 JSON 漂移，拒绝。
+3. 只对可证明的 contextless plain decoded 形状专用编码，其他事件复用通用路径：收益集中、等价边界清楚，选择。
+
+#### 实现与失败优先测试
+
+- 先增加专用路径与 materialized encoder 的字节等价测试，覆盖可选 event header、失败 errno、负/正 return 和 unsafe syscall name fallback。
+- 增加触发条件回退测试，确保 `ArgParts`、payload、`ReturnDesc`、paired enter 和特殊 return syscall 不走专用路径。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、semantic 和 native `small` 均通过；semantic 为 `197` 个事件、enter/exit `100/97`、lifecycle `6`，small 为 `23 PASS / 0 FAIL`。
+- Go benchmark 中 JSON pipeline 从 14.299 的约 `322-333 ns/op` 降到 `301-308 ns/op`；decoded writer 约 `103-109 ns/op`，payload writer 约 `258-263 ns/op`，均为 `0 B/op、0 allocs/op`。
+- `ebpf-perf` 通过：Go JSON writer/decoded/payload 为 `119.40/103.40/241.90 ns/op`，scalar/io/lifecycle/threads trace-window exit rate 为 `27765.13/17844.65/85.55/15501.07 events/s`，运行期错误计数均为 `0`。
+- `ebpf-capture` 结构校验通过；本轮 reader/none/handler/JSON 分别为 `3,200,035/0`、`2,319,274/880,761`、`1,971,913/1,228,122`、`1,465,568/1,734,467`（`records_read/reserve_fail`），JSON syscall events `1,424,742`，invalid/mismatch 为 `0`。JSON 相对 14.299 又多消费约 `6.7%`、reserve failure 约少 `5.0%`，但高压背压仍未闭环。
+
+#### Review 与决策
+
+- 保留专用 plain decoded encoder；触发条件保守，materialized 字节等价和复杂事件回退测试通过，profile 与真实 capture 均支持其收益。
+- 当前 JSON sink 仍不是无丢失高压实现，下一阶段应继续处理剩余字段 token/numeric encoder 和 context/finalizer service time，并保持 semantic oracle 对 payload、失败返回和生命周期的门禁。
