@@ -12050,9 +12050,9 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 
 - Context：14.299 后 JSON profile 的 syscall name 扫描已下降，剩余最大热点是 `beginFieldToken`、字段数字编码以及每事件通用 builder 分支；高压 fixture 的 `getpid` decoded event 没有 handler context、payload 或 `arg_text`，return text 只是数字字符串。
 - Problem：这种固定事件形状仍逐字段执行通用 `first` 判断和可选字段方法，单 Go consumer 重复支付不会命中的复杂路径。
-- Goal：为无 context、无 payload、无 arg text、plain return、无 generic-enter 配对的 decoded syscall 直接按稳定字段顺序 append；复杂 handler、payload、return formatter 和配对事件继续使用通用 encoder。
+- Goal：为无 context、无 payload、无 arg text、plain return 的 decoded syscall 直接按稳定字段顺序 append；paired enter 仅追加可选布尔字段，复杂 handler、payload 和 return formatter 继续使用通用 encoder。
 - Non-goals：不改变 JSON schema、字段顺序、`omitempty`、错误/errno、event v2 ABI、BPF producer、输出顺序或单消费者模型；不把任意 metadata 当作 trusted string；不引入 unsafe、锁、第二 consumer、ptrace、procfs 或 process_vm。
-- Constraints：专用路径必须与 materialized `jsonSyscallEvent` 字节等价；触发条件必须保守，任何 `ArgParts`、payload、return description、特殊 return formatter 或 paired enter 都回退通用路径。
+- Constraints：专用路径必须与 materialized `jsonSyscallEvent` 字节等价；触发条件必须保守，任何 `ArgParts`、payload、return description 或特殊 return formatter 都回退通用路径；paired enter 必须只追加 `true`。
 
 #### 方案比较
 
@@ -12063,7 +12063,7 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 #### 实现与失败优先测试
 
 - 先增加专用路径与 materialized encoder 的字节等价测试，覆盖可选 event header、失败 errno、负/正 return 和 unsafe syscall name fallback。
-- 增加触发条件回退测试，确保 `ArgParts`、payload、`ReturnDesc`、paired enter 和特殊 return syscall 不走专用路径。
+- 增加触发条件回退测试，确保 `ArgParts`、payload、`ReturnDesc` 和特殊 return syscall 不走专用路径；paired enter 单独验证可选字段等价。
 - `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、semantic 和 native `small` 均通过；semantic 为 `197` 个事件、enter/exit `100/97`、lifecycle `6`，small 为 `23 PASS / 0 FAIL`。
 - Go benchmark 中 JSON pipeline 从 14.299 的约 `322-333 ns/op` 降到 `301-308 ns/op`；decoded writer 约 `103-109 ns/op`，payload writer 约 `258-263 ns/op`，均为 `0 B/op、0 allocs/op`。
 - `ebpf-perf` 通过：Go JSON writer/decoded/payload 为 `119.40/103.40/241.90 ns/op`，scalar/io/lifecycle/threads trace-window exit rate 为 `27765.13/17844.65/85.55/15501.07 events/s`，运行期错误计数均为 `0`。
@@ -12072,4 +12072,33 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 #### Review 与决策
 
 - 保留专用 plain decoded encoder；触发条件保守，materialized 字节等价和复杂事件回退测试通过，profile 与真实 capture 均支持其收益。
-- 当前 JSON sink 仍不是无丢失高压实现，下一阶段应继续处理剩余字段 token/numeric encoder 和 context/finalizer service time，并保持 semantic oracle 对 payload、失败返回和生命周期的门禁。
+- 14.300 的合成收益不能直接归因于 paired 高压事件；14.301 补齐真实事件形状后再重新评估 capture，完整 sink 仍受单消费者、字段编码其余部分、context/finalizer 和输出管道限制。
+
+### 14.301 让 plain decoded JSON fast path 覆盖 paired enter（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.300 的专用编码条件排除了 `paired_enter=true`；真实 eBPF `getpid` exit 通常带 generic enter 配对，因此高压 capture 仍走通用 builder，14.300 的合成收益不能直接代表生产 JSON sink。
+- Problem：为了规避一个可选布尔字段，最常见的真实事件形状失去 plain decoded fast path，保留 `beginFieldToken` 和通用 payload/return 分支成本。
+- Goal：在专用编码路径末尾按标准 `omitempty` 规则追加 `paired_enter=true`，让无 context、无 payload、plain return 的 paired/unpaired 两种事件都保持 materialized 字节等价。
+- Non-goals：不改变 paired enter 的语义、字段顺序、JSON schema、pending state、event v2 ABI、BPF producer 或单消费者模型；不让带 payload、ArgParts、特殊 return 的事件进入专用路径。
+- Constraints：`paired_enter` 只能在 generic enter 标志存在时追加；unpaired 事件必须继续省略字段；标准 JSON 等价和真实 semantic/capture 必须共同验证。
+
+#### 方案比较
+
+1. 保持 paired event 回退通用 encoder：行为简单，但无法优化真实高压主路径，拒绝。
+2. 为 paired event 复制另一套完整 encoder：能覆盖生产样本，但形成两份字段逻辑，拒绝。
+3. 扩展现有 plain encoder，仅在 probe 字段后追加 `paired_enter=true`：字段差异局部、顺序明确、选择。
+
+#### 实现与失败优先测试
+
+- 移除 paired enter 的 fast-path 排除条件；专用 encoder 在 probe return 字段之后追加 `paired_enter`。
+- 增加 paired/unpaired materialized 字节等价测试，并确认复杂 payload/handler 条件仍回退。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、semantic 和 native `small` 均通过；semantic 为 `197` 个事件、enter/exit `100/97`、lifecycle `6`，small 为 `23 PASS / 0 FAIL`。
+- paired/unpaired JSON benchmark 均保持零分配；pipeline 为 `302-307 ns/op`，decoded writer 为 `99-106 ns/op`。真实 `ebpf-perf` 通过，运行期错误计数均为 `0`。
+- `ebpf-capture` 结构校验通过；本轮 reader/none/handler/JSON 为 `3,200,036/0`、`2,119,456/1,080,580`、`1,504,182/1,695,853`、`1,451,930/1,748,105`（`records_read/reserve_fail`），JSON syscall events `1,414,479`，invalid/orphan/mismatch 均为 `0`。相对 14.300 单轮结果没有稳定增益，说明根因已转向整体 sink/管道吞吐，而不是 paired 字段遗漏。
+
+#### Review 与决策
+
+- 保留 paired enter 的专用编码覆盖；它修正了真实事件形状的路径选择，字节等价与 semantic 均通过，且没有引入额外对象或分配。
+- 高压 JSON 仍持续落后于 BPF producer；下一阶段不再把单个字段微优化当作背压解决方案，转向量化剩余 sink service time、输出带宽和可观测的丢失边界。

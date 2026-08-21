@@ -183,6 +183,14 @@ func TestAppendJSONPlainDecodedSyscallEventMatchesMaterializedEncoding(t *testin
 	if !bytes.Equal(got, want) {
 		t.Fatalf("plain decoded JSON differs from materialized encoding:\n got: %s\nwant: %s", got, want)
 	}
+
+	event.pendingEnter = &pendingSyscallSnapshot{genericEnterRaw: true}
+	got = appendJSONDecodedSyscallEvent(nil, event, result)
+	materialized = event.newJSONDecodedSyscallEvent(result)
+	want = appendJSONSyscallEvent(nil, &materialized)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("paired plain decoded JSON differs from materialized encoding:\n got: %s\nwant: %s", got, want)
+	}
 }
 
 func TestCanUsePlainDecodedJSONFallsBackForComplexEvents(t *testing.T) {
@@ -210,9 +218,6 @@ func TestCanUsePlainDecodedJSONFallsBackForComplexEvents(t *testing.T) {
 		}},
 		{name: "return description", mutate: func(_ *syscallEventContext, res *handler.Result) {
 			res.ReturnDesc = "ok"
-		}},
-		{name: "paired enter", mutate: func(ev *syscallEventContext, _ *handler.Result) {
-			ev.pendingEnter = &pendingSyscallSnapshot{genericEnterRaw: true}
 		}},
 		{name: "special return", mutate: func(ev *syscallEventContext, _ *handler.Result) {
 			ev.meta = meta.Syscall{Name: "fcntl"}

@@ -91,9 +91,6 @@ func canUsePlainDecodedJSON(ev syscallEventContext, res handler.Result) bool {
 	if len(res.ArgParts) > 0 || res.HexDumpStr != "" || res.ReturnDesc != "" || res.ShowEmptyReturnDesc {
 		return false
 	}
-	if ev.pairedGenericEnter() {
-		return false
-	}
 	return canAppendPlainSyscallReturn(ev.syscallName(), ev.eventView().ret, res, nil)
 }
 
@@ -155,6 +152,9 @@ func appendJSONPlainDecodedSyscallEvent(
 	dst = appendJSONInt(dst, int64(view.probeRetEnter))
 	dst = append(dst, `,"probe_ret_exit":`...)
 	dst = appendJSONInt(dst, int64(view.probeRetExit))
+	if ev.pairedGenericEnter() {
+		dst = append(dst, `,"paired_enter":true`...)
+	}
 	return append(dst, "}\n"...)
 }
 
