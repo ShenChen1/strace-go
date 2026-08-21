@@ -81,12 +81,12 @@ func (b *jsonLineBuilder) uintField(token string, value uint64, omit bool) {
 		return
 	}
 	b.beginFieldToken(token)
-	b.data = strconv.AppendUint(b.data, value, 10)
+	b.data = appendJSONUint(b.data, value)
 }
 
 func (b *jsonLineBuilder) intField(token string, value int64) {
 	b.beginFieldToken(token)
-	b.data = strconv.AppendInt(b.data, value, 10)
+	b.data = appendJSONInt(b.data, value)
 }
 
 func (b *jsonLineBuilder) boolField(token string, value, omit bool) {
@@ -217,6 +217,37 @@ func appendJSONSyscallReturn(
 		return append(dst, '"')
 	}
 	return appendJSONString(dst, formatSyscallRet(syscallName, ret, res, ctx))
+}
+
+func appendJSONUint(dst []byte, value uint64) []byte {
+	switch {
+	case value < 10:
+		return append(dst, byte('0'+value))
+	case value < 100:
+		return append(dst,
+			byte('0'+value/10),
+			byte('0'+value%10),
+		)
+	case value < 1000:
+		return append(dst,
+			byte('0'+value/100),
+			byte('0'+value/10%10),
+			byte('0'+value%10),
+		)
+	default:
+		return strconv.AppendUint(dst, value, 10)
+	}
+}
+
+func appendJSONInt(dst []byte, value int64) []byte {
+	if value >= 0 {
+		return appendJSONUint(dst, uint64(value))
+	}
+	if value > -1000 {
+		dst = append(dst, '-')
+		return appendJSONUint(dst, uint64(-value))
+	}
+	return strconv.AppendInt(dst, value, 10)
 }
 
 func canAppendPlainSyscallReturn(

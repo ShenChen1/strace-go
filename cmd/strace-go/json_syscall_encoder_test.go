@@ -38,6 +38,43 @@ func TestJSONLineBuilderTrustedStringField(t *testing.T) {
 	}
 }
 
+func TestAppendJSONIntegerFastPathBoundaries(t *testing.T) {
+	unsigned := []struct {
+		value uint64
+		want  string
+	}{
+		{value: 0, want: "0"},
+		{value: 9, want: "9"},
+		{value: 10, want: "10"},
+		{value: 99, want: "99"},
+		{value: 100, want: "100"},
+		{value: 999, want: "999"},
+		{value: 1000, want: "1000"},
+	}
+	for _, test := range unsigned {
+		if got := string(appendJSONUint(nil, test.value)); got != test.want {
+			t.Fatalf("appendJSONUint(%d) = %q, want %q", test.value, got, test.want)
+		}
+	}
+
+	signed := []struct {
+		value int64
+		want  string
+	}{
+		{value: -1000, want: "-1000"},
+		{value: -999, want: "-999"},
+		{value: -1, want: "-1"},
+		{value: 0, want: "0"},
+		{value: 999, want: "999"},
+		{value: -1 << 63, want: "-9223372036854775808"},
+	}
+	for _, test := range signed {
+		if got := string(appendJSONInt(nil, test.value)); got != test.want {
+			t.Fatalf("appendJSONInt(%d) = %q, want %q", test.value, got, test.want)
+		}
+	}
+}
+
 func TestJSONLineBuilderZeroUint64ArrayField(t *testing.T) {
 	var builder jsonLineBuilder
 	builder.beginObject()

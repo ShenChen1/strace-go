@@ -11621,3 +11621,41 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 - 保留 trusted helper；profile 证明 direct JSON 编码的固定字符串转义是有效用户态热点，且没有扩大用户数据的编码信任边界。
 - 本阶段改善了 sink 服务时间，但没有解决单 Go consumer 与 BPF producer 的整体背压；下一阶段继续定位 Dispatcher、handler/FD effect 和输出边界的剩余成本，并进行多轮高压 capture。
 - 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.288 特化 JSON 小整数编码（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.287 已消除 direct JSON 固定字符串的通用转义成本，profile 下一主热点变为 `uintField`/`strconv.AppendUint` 约 `11%`，以及 `intField`/`strconv.AppendInt` 约 `5%`；高频 getpid workload 的 pid、sysid、ret、duration 和时间戳多为小整数。
+- Problem：每个常见小整数都进入通用十进制格式化，增加单 Go consumer 的 sink service time。
+- Goal：为 `[-999,999]` 增加局部十进制快速路径，边界外值继续使用标准 `strconv`，保持 JSON 字节输出完全一致。
+- Non-goals：不重写任意范围整数编码，不改变 JSON schema、event v2 ABI、BPF producer、handler、payload 或输出顺序。
+- Constraints：必须覆盖 0、个位、两位、三位、阈值、负数和 `MinInt64`；快速路径不能产生分配；A/B 无稳定收益则回退。
+
+#### 方案比较
+
+1. 保留 `strconv.Append*`：正确性最保守，但放过 profile 已确认的数字热点，拒绝。
+2. 重写全部整数编码：潜在收益大，但扩大边界和溢出风险，拒绝。
+3. 仅对小整数使用 `appendJSONUint`/`appendJSONInt`，其余值回退 `strconv`：边界清晰、风险局部且可用标准 oracle 验证，选择。
+
+#### 实现与失败优先测试
+
+- 先增加 `TestAppendJSONIntegerFastPathBoundaries`，在 helper 不存在时按预期编译失败。
+- `appendJSONUint` 对 `0-999` 直接追加十进制字节；`appendJSONInt` 对非负小整数复用 unsigned 路径，对 `-999..-1` 追加负号后复用 unsigned 路径，`-1000` 及更小值直接回退 `strconv.AppendInt`。
+- `uintField`/`intField` 使用新 helper；数组字段、通用物化 JSON、payload base64 和字符串安全编码不变。
+
+#### 验证与实测
+
+- 边界测试、`go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 均通过；覆盖 `MinInt64`，所有 benchmark 仍为零分配。
+- 固定 CPU `taskset -c 0`、`GOMAXPROCS=1` A/B：当前 JSON pipeline `447.0-447.2 ns/op`，14.287 基线 `505.4-509.1 ns/op`；raw writer 当前 `124.0-131.2 ns/op`，基线 `156.8-159.2 ns/op`；decoded writer 单独复跑当前 `144.4-149.4 ns/op`，基线 `167.6-178.4 ns/op`；payload writer 当前 `234.2-255.1 ns/op`，基线 `291.6-295.9 ns/op`，均为 `0 B/op、0 allocs/op`。
+- 新 profile 中 `strconv.AppendUint` 降至约 `2.5%`、`strconv.AppendInt` 约 `2.6%`；新增 helper 约 `1.6%`，没有发生分配或 ABI 变化。
+- `ebpf-semantic` 通过：语义事件 `197`，enter/exit `100/97`，lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`。
+- `ebpf-perf` 通过：JSON writer/decoded/payload writer 为 `124.70/143.60/237.20 ns/op`，均为零分配；scalar/io/lifecycle/threads 的 end-to-end exit rate 为 `6275.57/4182.99/30.01/3419.63 events/s`，运行期错误计数为 `0`；scalar consumer service sample 为 `2153.18 ns`。
+- `ebpf-capture` 通过结构与语义校验：reader `records_read=3,200,035/reserve_fail=0`；none `3,163,970/36,066`；handler `1,581,681/1,618,354`；JSON `1,381,674/1,818,362`，JSON `syscall_events=1,338,174`、`records_invalid=0`、orphan/mismatch 为 `0`。完整 JSON sink 仍有百万级 reservation failure，说明数字优化改善了服务时间但没有解决整体背压。
+- upstream native `small` `23/23` 通过。
+
+#### 决策与 Review
+
+- 保留小整数快速路径；profile、边界 oracle 和多层 eBPF 验证都支持其收益，标准 `strconv` 仍覆盖所有大范围和溢出敏感值。
+- 当前 event/s 下降的用户态原因得到进一步缓解，但 reader 与完整 output sink 的差距仍然存在；下一阶段继续拆分 Dispatcher/handler/FD effect 和输出 policy 的服务时间，并进行多轮高压 capture。
+- 本阶段没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
