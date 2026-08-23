@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import tempfile
 import unittest
 from unittest import mock
 
@@ -44,6 +45,16 @@ class SemanticFixtureSourcePolicyTests(unittest.TestCase):
         self.assertNotIn("exec sudo", wrapper)
         self.assertNotIn("sudo env", wrapper)
 
+    def test_no_ptrace_fixture_is_the_explicit_procfs_probe(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "fixtures", "ebpf_no_ptrace_fixture.c"
+        )
+        with open(path, "r", encoding="utf-8") as fixture_file:
+            text = fixture_file.read()
+        self.assertIn('"/proc/self/status"', text)
+        self.assertIn("TracerPid:", text)
+        self.assertNotIn("/proc/", text.replace('"/proc/self/status"', ""))
+
 
 class FixtureBuildTests(unittest.TestCase):
     @mock.patch.object(ebpf_fixture_build.os, "chmod")
@@ -81,6 +92,41 @@ class FixtureBuildTests(unittest.TestCase):
             ebpf_fixture_build.build_fixture(
                 ["fixture.c"], "/tmp/fixture", "-pthread"
             )
+
+    @mock.patch.object(ebpf_fixture_build.os, "chmod")
+    @mock.patch.object(ebpf_fixture_build.subprocess, "run")
+    def test_build_bpf_object_compiles_one_source(self, run, chmod):
+        ebpf_fixture_build.build_bpf_object("stream.o", "stream.bpf.c", ["-DTEST=1"])
+
+        run.assert_called_once_with(
+            [
+                "clang",
+                "-target",
+                "bpf",
+                "-O2",
+                "-g",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-DTEST=1",
+                "-c",
+                "stream.bpf.c",
+                "-o",
+                os.path.join(tempfile.gettempdir(), "stream.o"),
+            ],
+            check=True,
+        )
+        chmod.assert_called_once_with(
+            os.path.join(tempfile.gettempdir(), "stream.o"), 0o644
+        )
+
+    def test_build_bpf_object_rejects_invalid_source(self):
+        with self.assertRaisesRegex(ValueError, "one source path"):
+            ebpf_fixture_build.build_bpf_object("stream.o", "")
+
+    def test_build_bpf_object_rejects_scalar_extra_args(self):
+        with self.assertRaisesRegex(TypeError, "argument sequence"):
+            ebpf_fixture_build.build_bpf_object("stream.o", "stream.bpf.c", "-g")
 
 
 if __name__ == "__main__":

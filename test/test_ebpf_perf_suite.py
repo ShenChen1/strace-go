@@ -11,79 +11,7 @@ from ebpf_perf_suite import (
     print_perf_capture,
     validate_perf_capture,
 )
-
-
-def make_capture(events=None, lifecycle_events=None, stats=None, returncode=0):
-    zero_stats = {
-        "available": True,
-        "ringbuf_reserve_fail": 0,
-        "ringbuf_copy_fail": 0,
-        "payload_truncated_events": 0,
-        "pending_update_fail": 0,
-        "orphan_exit": 0,
-        "pending_mismatch": 0,
-        "lifecycle_map_update_fail": 0,
-        "pending_stale": 0,
-        "records_read": 1,
-        "records_decoded": 1,
-        "records_invalid": 0,
-        "records_routed": 1,
-        "service_enabled": True,
-        "service_sample_rate": 1,
-        "bytes_read": 96,
-        "max_record_bytes": 96,
-        "read_time_ns": 10,
-        "decode_time_ns": 40,
-        "sink_time_ns": 60,
-        "min_remaining_bytes": 64,
-        "service_time_ns": 100,
-        "service_records": 1,
-        "max_service_time_ns": 100,
-        "max_remaining_bytes": 128,
-    }
-    if stats:
-        zero_stats.update(stats)
-    return PerfCapture(
-        name="unit",
-        result=subprocess.CompletedProcess([], returncode, "", ""),
-        elapsed=0.1,
-        events=events or [],
-        lifecycle_events=lifecycle_events or [],
-        stats_events=[zero_stats],
-        ready_events=[{"type": "ready", "start_time_ns": 100, "time_ns": 170}],
-        phase_events=[
-            {"type": "phase", "phase": "bpf_memlock", "start_time_ns": 100, "time_ns": 110},
-            {"type": "phase", "phase": "bpf_spec", "start_time_ns": 110, "time_ns": 120},
-            {"type": "phase", "phase": "bpf_route_plan", "start_time_ns": 120, "time_ns": 125},
-            {"type": "phase", "phase": "bpf_object_prepare", "start_time_ns": 125, "time_ns": 127},
-            {"type": "phase", "phase": "bpf_core_collection_load", "start_time_ns": 127, "time_ns": 130},
-            {"type": "phase", "phase": "bpf_handler_collections_load", "start_time_ns": 130, "time_ns": 146},
-            {"type": "phase", "phase": "bpf_enter_generic_collection_load", "start_time_ns": 130, "time_ns": 132},
-            {"type": "phase", "phase": "bpf_enter_payload_collection_load", "start_time_ns": 130, "time_ns": 134},
-            {"type": "phase", "phase": "bpf_enter_path_collection_load", "start_time_ns": 130, "time_ns": 136},
-            {"type": "phase", "phase": "bpf_enter_memory_collection_load", "start_time_ns": 130, "time_ns": 138},
-            {"type": "phase", "phase": "bpf_enter_control_collection_load", "start_time_ns": 130, "time_ns": 140},
-            {"type": "phase", "phase": "bpf_enter_structured_collection_load", "start_time_ns": 130, "time_ns": 142},
-            {"type": "phase", "phase": "bpf_exit_collection_load", "start_time_ns": 130, "time_ns": 144},
-            {"type": "phase", "phase": "bpf_recvmsg_collection_load", "start_time_ns": 130, "time_ns": 146},
-            {"type": "phase", "phase": "bpf_resource_bind", "start_time_ns": 146, "time_ns": 148},
-            {"type": "phase", "phase": "bpf_route_maps", "start_time_ns": 148, "time_ns": 150},
-            {"type": "phase", "phase": "bpf_prog_arrays", "start_time_ns": 150, "time_ns": 152},
-            {"type": "phase", "phase": "bpf_tracepoints", "start_time_ns": 152, "time_ns": 155},
-            {"type": "phase", "phase": "bpf_recvmsg_kretprobe", "start_time_ns": 155, "time_ns": 158},
-            {"type": "phase", "phase": "trace_start", "time_ns": 200},
-            {"type": "phase", "phase": "trace_end", "time_ns": 300},
-            {"type": "phase", "phase": "finalize_start", "time_ns": 301},
-            {"type": "phase", "phase": "cleanup_start", "time_ns": 302},
-            {"type": "phase", "phase": "cleanup_output", "start_time_ns": 303, "time_ns": 304},
-            {"type": "phase", "phase": "cleanup_target_handoff", "start_time_ns": 304, "time_ns": 305},
-            {"type": "phase", "phase": "cleanup_target_bootstrap", "start_time_ns": 305, "time_ns": 306},
-            {"type": "phase", "phase": "cleanup_ringbuf_reader", "start_time_ns": 306, "time_ns": 307},
-            {"type": "phase", "phase": "cleanup_bpf_links", "start_time_ns": 307, "time_ns": 307},
-            {"type": "phase", "phase": "cleanup_bpf_core_objects", "start_time_ns": 307, "time_ns": 307},
-            {"type": "phase", "phase": "cleanup_bpf_runtime", "start_time_ns": 307, "time_ns": 308},
-        ],
-    )
+from ebpf_perf_testdata import expected_benchmark_metrics, make_capture
 
 
 class PerfOracleTests(unittest.TestCase):
@@ -110,7 +38,13 @@ class PerfOracleTests(unittest.TestCase):
 
     def test_parses_go_benchmark_allocation_metrics(self):
         output = (
+            "BenchmarkTraceRecordDecoderPayload-8  1000  100.4 ns/op  0 B/op  0 allocs/op\n"
             "BenchmarkTraceEventDecodeState-8  1000  123.4 ns/op  96 B/op  2 allocs/op\n"
+            "BenchmarkTraceStateDeferredPayload-8  1000  200.4 ns/op  0 B/op  0 allocs/op\n"
+            "BenchmarkTraceEventContextHandler-8  1000  234.5 ns/op  0 B/op  0 allocs/op\n"
+            "BenchmarkTraceEventHandlerPipeline-8  1000  345.6 ns/op  0 B/op  0 allocs/op\n"
+            "BenchmarkTraceEventTextPipeline-8  1000  456.7 ns/op  0 B/op  0 allocs/op\n"
+            "BenchmarkTraceEventJSONPipeline-8  1000  567.8 ns/op  0 B/op  0 allocs/op\n"
             "BenchmarkJSONEventWriter-8  500  456.7 ns/op  128 B/op  3 allocs/op\n"
             "BenchmarkJSONDecodedEventWriter-8  500  600.7 ns/op  160 B/op  4 allocs/op\n"
             "BenchmarkJSONDecodedPayloadEventWriter-8  500  900.7 ns/op  320 B/op  6 allocs/op\n"
@@ -118,35 +52,7 @@ class PerfOracleTests(unittest.TestCase):
 
         metrics = parse_go_benchmark_metrics(output)
 
-        self.assertEqual(
-            metrics,
-            [
-                {
-                    "name": "BenchmarkTraceEventDecodeState-8",
-                    "ns_per_op": 123.4,
-                    "bytes_per_op": 96.0,
-                    "allocs_per_op": 2.0,
-                },
-                {
-                    "name": "BenchmarkJSONEventWriter-8",
-                    "ns_per_op": 456.7,
-                    "bytes_per_op": 128.0,
-                    "allocs_per_op": 3.0,
-                },
-                {
-                    "name": "BenchmarkJSONDecodedEventWriter-8",
-                    "ns_per_op": 600.7,
-                    "bytes_per_op": 160.0,
-                    "allocs_per_op": 4.0,
-                },
-                {
-                    "name": "BenchmarkJSONDecodedPayloadEventWriter-8",
-                    "ns_per_op": 900.7,
-                    "bytes_per_op": 320.0,
-                    "allocs_per_op": 6.0,
-                },
-            ],
-        )
+        self.assertEqual(metrics, expected_benchmark_metrics())
 
     def test_rejects_go_benchmark_without_alloc_metrics(self):
         output = "BenchmarkTraceEventDecodeState-8  1000  123.4 ns/op\n"
@@ -186,6 +92,82 @@ class PerfOracleTests(unittest.TestCase):
 
         self.assertTrue(any("ringbuf_reserve_fail" in failure for failure in failures))
 
+    def test_rejects_io_payload_byte_budget_regression(self):
+        spec = PerfWorkloadSpec(
+            name="io",
+            minimum_exit_counts=(("read", 1), ("write", 1)),
+            max_bytes_read=900000,
+        )
+        events = [
+            {"syscall": "read", "event_type": "exit", "paired_enter": True},
+            {"syscall": "write", "event_type": "exit", "paired_enter": True},
+        ]
+
+        failures = validate_perf_capture(
+            make_capture(events=events, stats={"bytes_read": 900001}), spec
+        )
+
+        self.assertTrue(any("bytes_read" in failure for failure in failures))
+
+    def test_accepts_long_reader_record_and_bytes_budget(self):
+        spec = PerfWorkloadSpec(
+            name="io-long-reader",
+            minimum_exit_counts=(),
+            event_format="reader",
+            max_bytes_read=65000000,
+            minimum_records_read=400000,
+            minimum_producer_attempts_lower_bound=400000,
+        )
+
+        failures = validate_perf_capture(
+            make_capture(
+                stats={
+                    "records_read": 400005,
+                    "producer_attempts_lower_bound": 400005,
+                    "bytes_read": 63205136,
+                }
+            ),
+            spec,
+        )
+
+        self.assertEqual(failures, [])
+
+    def test_rejects_long_reader_record_budget_regression(self):
+        spec = PerfWorkloadSpec(
+            name="io-long-reader",
+            minimum_exit_counts=(),
+            event_format="reader",
+            minimum_records_read=400000,
+            minimum_producer_attempts_lower_bound=400000,
+        )
+
+        failures = validate_perf_capture(
+            make_capture(
+                stats={
+                    "records_read": 399999,
+                    "producer_attempts_lower_bound": 399999,
+                }
+            ),
+            spec,
+        )
+
+        self.assertTrue(any("records_read" in failure for failure in failures))
+
+    def test_rejects_producer_accounting_below_records_read(self):
+        spec = PerfWorkloadSpec(name="io-long-reader", minimum_exit_counts=())
+
+        failures = validate_perf_capture(
+            make_capture(
+                stats={
+                    "records_read": 10,
+                    "producer_attempts_lower_bound": 9,
+                }
+            ),
+            spec,
+        )
+
+        self.assertTrue(any("below records_read" in failure for failure in failures))
+
     def test_rejects_stale_pending_state(self):
         spec = PerfWorkloadSpec(name="scalar", minimum_exit_counts=(('getpid', 1),))
         events = [{"syscall": "getpid", "event_type": "exit", "paired_enter": True}]
@@ -209,6 +191,63 @@ class PerfOracleTests(unittest.TestCase):
         )
 
         self.assertTrue(any("lifecycle exec" in failure for failure in failures))
+
+    def test_accepts_lifecycle_storm_counts_and_diagnostics(self):
+        spec = PerfWorkloadSpec(
+            name="lifecycle-storm",
+            minimum_exit_counts=(),
+            lifecycle_minimum_counts=(("fork", 2), ("exec", 3), ("exit", 2)),
+            lifecycle_stat_minimums=(
+                ("lifecycle_fork_seen", 2),
+                ("lifecycle_fork_parent_tracked", 2),
+                ("lifecycle_fork_child_filter_installed", 2),
+            ),
+            lifecycle_stat_zeroes=(
+                "lifecycle_fork_child_filter_failed",
+            ),
+        )
+        lifecycle = [
+            {"action": "fork"},
+            {"action": "fork"},
+            {"action": "exec"},
+            {"action": "exec"},
+            {"action": "exec"},
+            {"action": "exit"},
+            {"action": "exit"},
+        ]
+        failures = validate_perf_capture(
+            make_capture(
+                lifecycle_events=lifecycle,
+                stats={
+                    "lifecycle_fork_seen": 2,
+                    "lifecycle_fork_parent_tracked": 2,
+                    "lifecycle_fork_child_filter_installed": 2,
+                },
+            ),
+            spec,
+        )
+        self.assertEqual(failures, [])
+
+    def test_rejects_lifecycle_storm_diagnostic_regression(self):
+        spec = PerfWorkloadSpec(
+            name="lifecycle-storm",
+            minimum_exit_counts=(),
+            lifecycle_minimum_counts=(("fork", 2),),
+            lifecycle_stat_minimums=(("lifecycle_fork_parent_tracked", 2),),
+            lifecycle_stat_zeroes=("lifecycle_fork_child_filter_failed",),
+        )
+        failures = validate_perf_capture(
+            make_capture(
+                lifecycle_events=[{"action": "fork"}, {"action": "fork"}],
+                stats={
+                    "lifecycle_fork_parent_tracked": 1,
+                    "lifecycle_fork_child_filter_failed": 1,
+                },
+            ),
+            spec,
+        )
+        self.assertTrue(any("lifecycle_fork_parent_tracked" in failure for failure in failures))
+        self.assertTrue(any("lifecycle_fork_child_filter_failed" in failure for failure in failures))
 
     def test_accepts_non_leader_thread_pairing(self):
         spec = PerfWorkloadSpec(

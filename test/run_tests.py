@@ -10,8 +10,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 from ebpf_perf_suite import run_ebpf_perf
-from ebpf_capture_suite import run_ebpf_capture
-from ebpf_suites import run_ebpf_semantic
+from ebpf_capture_suite import run_ebpf_capture, run_ebpf_capture_long
+from ebpf_bpf_rare_suite import run_bpf_capability_semantic
+from ebpf_bpf_stream_suite import run_bpf_stream_semantic
+from ebpf_bpf_struct_ops_suite import run_bpf_struct_ops_semantic
+from ebpf_no_ptrace_suite import run_no_ptrace_semantic
+from ebpf_suites import build_strace_go, run_ebpf_semantic
 from upstream_suites import (
     MORE_EXPECTED_FAILURES,
     MORE_TOLERATED_XPASSES,
@@ -72,8 +76,13 @@ def parse_args():
             "all",
             "upstream-reference",
             "ebpf-semantic",
+            "ebpf-capability",
+            "ebpf-stream",
+            "ebpf-struct-ops",
+            "ebpf-no-ptrace",
             "ebpf-perf",
             "ebpf-capture",
+            "ebpf-capture-long",
         ],
         default="small",
         help="Which test suite to run",
@@ -353,10 +362,54 @@ def main():
     setup_env()
     if args.suite == "ebpf-semantic":
         return run_ebpf_semantic(args)
+    if args.suite == "ebpf-capability":
+        if not args.skip_build:
+            build_strace_go()
+        return run_bpf_capability_semantic(
+            os.path.join(SCRIPT_DIR, "strace-sudo.sh"), PROJECT_ROOT
+        )
+    if args.suite == "ebpf-stream":
+        if not args.skip_build:
+            build_strace_go()
+        failures = run_bpf_stream_semantic(
+            os.path.join(SCRIPT_DIR, "strace-sudo.sh"), PROJECT_ROOT
+        )
+        if failures:
+            for failure in failures:
+                print(f"FAIL: {failure}")
+            return 1
+        print("PASS: ebpf-stream")
+        return 0
+    if args.suite == "ebpf-struct-ops":
+        if not args.skip_build:
+            build_strace_go()
+        failures = run_bpf_struct_ops_semantic(
+            os.path.join(SCRIPT_DIR, "strace-sudo.sh"), PROJECT_ROOT
+        )
+        if failures:
+            for failure in failures:
+                print(f"FAIL: {failure}")
+            return 1
+        print("PASS: ebpf-struct-ops")
+        return 0
+    if args.suite == "ebpf-no-ptrace":
+        if not args.skip_build:
+            build_strace_go()
+        failures = run_no_ptrace_semantic(
+            os.path.join(SCRIPT_DIR, "strace-sudo.sh"), PROJECT_ROOT
+        )
+        if failures:
+            for failure in failures:
+                print(f"FAIL: {failure}")
+            return 1
+        print("PASS: ebpf-no-ptrace")
+        return 0
     if args.suite == "ebpf-perf":
         return run_ebpf_perf(args)
     if args.suite == "ebpf-capture":
         return run_ebpf_capture(args)
+    if args.suite == "ebpf-capture-long":
+        return run_ebpf_capture_long(args)
     return run_upstream_suite(args)
 
 

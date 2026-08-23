@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 
+#include <asm/prctl.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -33,6 +34,20 @@ static int run_scalar(int iterations)
 		}
 	}
 	return last_pid == 0;
+}
+
+static int run_small_struct(int iterations)
+{
+	for (int i = 0; i < iterations; i++) {
+		unsigned long fs_base = 0;
+		unsigned long robust_head = 0;
+		size_t robust_len = 0;
+		if (syscall(SYS_arch_prctl, ARCH_GET_FS, &fs_base) != 0 ||
+			syscall(SYS_get_robust_list, 0, &robust_head, &robust_len) != 0) {
+			return 1;
+		}
+	}
+	return 0;
 }
 
 static int run_io(int iterations)
@@ -99,9 +114,9 @@ static void *run_thread(void *opaque)
 
 static int run_threads(int thread_count, int iterations)
 {
-	pthread_t threads[16];
-	struct thread_work work[16];
-	if (thread_count < 1 || thread_count > 16) {
+	pthread_t threads[32];
+	struct thread_work work[32];
+	if (thread_count < 1 || thread_count > 32) {
 		return 1;
 	}
 	for (int i = 0; i < thread_count; i++) {
@@ -126,6 +141,9 @@ int main(int argc, char **argv)
 	usleep(100000);
 	if (strcmp(argv[1], "scalar") == 0) {
 		return run_scalar(argc > 2 ? parse_count(argv[2], 1500) : 1500);
+	}
+	if (strcmp(argv[1], "small") == 0) {
+		return run_small_struct(argc > 2 ? parse_count(argv[2], 1500) : 1500);
 	}
 	if (strcmp(argv[1], "io") == 0) {
 		return run_io(argc > 2 ? parse_count(argv[2], 1000) : 1000);

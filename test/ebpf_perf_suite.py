@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 import os
-import re
 import subprocess
 import time
-from dataclasses import dataclass, field
 
 from ebpf_event_oracles import (
     parse_json_events,
@@ -12,137 +10,16 @@ from ebpf_event_oracles import (
     parse_ready_events,
     parse_stats_events,
 )
-from ebpf_check_support import service_measurement_failures, valid_stats_event
 from ebpf_fixture_build import build_named_fixture
-from ebpf_perf_phases import (
-    REQUIRED_BPF_CLEANUP_PHASES,
-    REQUIRED_CLEANUP_PHASES,
-    cleanup_phase_durations,
-    validate_cleanup_phases,
-)
-from ebpf_suites import build_strace_go, run_strace_go_json
+from ebpf_perf_model import PERF_WORKLOADS, PerfCapture, PerfWorkloadSpec
+from ebpf_perf_reporting import print_go_pipeline_benchmarks, print_perf_capture
+from ebpf_perf_validation import parse_go_benchmark_metrics, validate_perf_capture
+from ebpf_suites import build_strace_go, run_strace_go_capture, run_strace_go_json
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 PERF_FIXTURE_SRC = os.path.join(SCRIPT_DIR, "fixtures", "ebpf_perf_fixture.c")
-RUNTIME_DIAGNOSTIC_FIELDS = (
-    "ringbuf_reserve_fail",
-    "ringbuf_copy_fail",
-    "pending_update_fail",
-    "orphan_exit",
-    "pending_mismatch",
-    "lifecycle_map_update_fail",
-    "pending_stale",
-)
-REQUIRED_PERF_PHASES = (
-    "trace_start",
-    "trace_end",
-    "finalize_start",
-    "cleanup_start",
-)
-REQUIRED_BPF_SETUP_PHASES = (
-    "bpf_memlock",
-    "bpf_spec",
-    "bpf_route_plan",
-    "bpf_object_prepare",
-    "bpf_core_collection_load",
-    "bpf_handler_collections_load",
-    "bpf_enter_generic_collection_load",
-    "bpf_enter_payload_collection_load",
-    "bpf_enter_path_collection_load",
-    "bpf_enter_memory_collection_load",
-    "bpf_enter_control_collection_load",
-    "bpf_enter_structured_collection_load",
-    "bpf_exit_collection_load",
-    "bpf_recvmsg_collection_load",
-    "bpf_resource_bind",
-    "bpf_route_maps",
-    "bpf_prog_arrays",
-    "bpf_tracepoints",
-    "bpf_recvmsg_kretprobe",
-)
-GO_BENCHMARK_PATTERN = re.compile(
-    r"^(?P<name>Benchmark\S+)\s+\d+\s+"
-    r"(?P<ns>[0-9]+(?:\.[0-9]+)?)\s+ns/op\s+"
-    r"(?P<bytes>[0-9]+(?:\.[0-9]+)?)\s+B/op\s+"
-    r"(?P<allocs>[0-9]+(?:\.[0-9]+)?)\s+allocs/op(?:\s+.*)?$"
-)
-
-
-@dataclass(frozen=True)
-class PerfWorkloadSpec:
-    name: str
-    minimum_exit_counts: tuple
-    fixture_args: tuple = ()
-    trace: str = ""
-    payload_requirements: tuple = ()
-    lifecycle_actions: tuple = ()
-    require_non_leader_tid: bool = False
-
-
-@dataclass
-class PerfCapture:
-    name: str
-    result: object
-    elapsed: float
-    events: list
-    lifecycle_events: list
-    stats_events: list
-    ready_events: list = field(default_factory=list)
-    phase_events: list = field(default_factory=list)
-
-    @property
-    def exit_events(self):
-        return [event for event in self.events if event.get("event_type") == "exit"]
-
-
-PERF_WORKLOADS = (
-    PerfWorkloadSpec(
-        name="scalar",
-        fixture_args=("scalar", "1500"),
-        trace="getpid,clock_gettime",
-        minimum_exit_counts=(("getpid", 1500), ("clock_gettime", 1500)),
-    ),
-    PerfWorkloadSpec(
-        name="io",
-        fixture_args=("io", "1000"),
-        trace="read,write",
-        minimum_exit_counts=(("read", 1000), ("write", 1000)),
-        payload_requirements=(("read", "out", 1), ("write", "in", 1)),
-    ),
-    PerfWorkloadSpec(
-        name="lifecycle",
-        fixture_args=("lifecycle", "8"),
-        trace="fork,vfork,clone,clone3,execve",
-        minimum_exit_counts=(("execve", 1),),
-        lifecycle_actions=("fork", "exec", "exit"),
-    ),
-    PerfWorkloadSpec(
-        name="threads",
-        fixture_args=("threads", "4", "400"),
-        trace="getpid,clone,clone3",
-        minimum_exit_counts=(("getpid", 1000),),
-        require_non_leader_tid=True,
-    ),
-)
-
-
-def parse_go_benchmark_metrics(output):
-    metrics = []
-    for line in output.splitlines():
-        match = GO_BENCHMARK_PATTERN.match(line.strip())
-        if not match:
-            continue
-        metrics.append(
-            {
-                "name": match.group("name"),
-                "ns_per_op": float(match.group("ns")),
-                "bytes_per_op": float(match.group("bytes")),
-                "allocs_per_op": float(match.group("allocs")),
-            }
-        )
-    return metrics
 
 
 def run_go_pipeline_benchmarks():
@@ -154,7 +31,7 @@ def run_go_pipeline_benchmarks():
             "-run",
             "^$",
             "-bench",
-            "^Benchmark(TraceEventDecodeState|JSONEventWriter|JSONDecodedEventWriter|JSONDecodedPayloadEventWriter)$",
+            "^Benchmark(TraceRecordDecoderPayload|TraceEventDecodeState|TraceStateDeferredPayload|TraceEventContextHandler|TraceEventHandlerPipeline|TraceEventTextPipeline|TraceEventJSONPipeline|JSONEventWriter|JSONDecodedEventWriter|JSONDecodedPayloadEventWriter)$",
             "-benchmem",
             "-count=1",
         ],
@@ -167,214 +44,16 @@ def run_go_pipeline_benchmarks():
     )
 
 
-def _event_count(events, syscall, event_type="exit"):
-    return sum(
-        1
-        for event in events
-        if event.get("syscall") == syscall and event.get("event_type") == event_type
-    )
-
-
-def _has_payload(events, syscall, direction, arg_index):
-    for event in events:
-        if event.get("syscall") != syscall or event.get("event_type") != "exit":
-            continue
-        for section in event.get("payload_sections") or []:
-            if (
-                section.get("kind") == "bytes"
-                and section.get("direction") == direction
-                and section.get("arg_index") == arg_index
-                and section.get("probe_ret") == 0
-                and section.get("copied_len", 0) > 0
-            ):
-                return True
-    return False
-
-
-def _paired_failures(events, syscalls):
-    failures = []
-    for syscall in syscalls:
-        unpaired = [
-            event
-            for event in events
-            if event.get("syscall") == syscall
-            and event.get("event_type") == "exit"
-            and not event.get("paired_enter")
-        ]
-        if unpaired:
-            failures.append(f"{syscall} has {len(unpaired)} unpaired exit events")
-    return failures
-
-
-def _validate_phase_timing(capture):
-    failures = []
-    if len(capture.ready_events) != 1:
-        failures.append(f"{capture.name} ready event count={len(capture.ready_events)}")
-        return failures
-    ready = capture.ready_events[0]
-    start_time = ready.get("start_time_ns", 0)
-    ready_time = ready.get("time_ns", 0)
-    if start_time <= 0 or ready_time < start_time:
-        failures.append(f"{capture.name} ready phase timing is invalid")
-
-    phase_counts = {}
-    for event in capture.phase_events:
-        phase = event.get("phase")
-        phase_counts[phase] = phase_counts.get(phase, 0) + 1
-    duplicates = [phase for phase, count in phase_counts.items() if count > 1]
-    if duplicates:
-        failures.append(
-            f"{capture.name} duplicate phase events: {','.join(map(str, duplicates))}"
-        )
-    phases = {event.get("phase"): event for event in capture.phase_events}
-    missing_bpf = [
-        phase for phase in REQUIRED_BPF_SETUP_PHASES if phase not in phases
-    ]
-    if missing_bpf:
-        failures.append(
-            f"{capture.name} missing BPF setup phases: {','.join(missing_bpf)}"
-        )
-    for phase in REQUIRED_BPF_SETUP_PHASES:
-        event = phases.get(phase)
-        if event is None:
-            continue
-        start_time_ns = event.get("start_time_ns", 0)
-        end_time_ns = event.get("time_ns", 0)
-        if start_time_ns <= 0 or end_time_ns < start_time_ns:
-            failures.append(f"{capture.name} {phase} timing is invalid")
-        if start_time_ns < start_time or end_time_ns > ready_time:
-            failures.append(f"{capture.name} {phase} is outside BPF setup")
-    first_bpf = phases.get(REQUIRED_BPF_SETUP_PHASES[0])
-    if first_bpf is not None and first_bpf.get("start_time_ns", 0) < start_time:
-        failures.append(f"{capture.name} BPF setup starts before bootstrap")
-    missing = [phase for phase in REQUIRED_PERF_PHASES if phase not in phases]
-    if missing:
-        failures.append(f"{capture.name} missing phase events: {','.join(missing)}")
-        return failures
-    phase_times = [phases[phase].get("time_ns", 0) for phase in REQUIRED_PERF_PHASES]
-    if any(time_ns <= 0 for time_ns in phase_times) or phase_times != sorted(phase_times):
-        failures.append(f"{capture.name} phase timing is not monotonic")
-    if phase_times[0] < ready_time:
-        failures.append(f"{capture.name} trace started before ready")
-    failures.extend(validate_cleanup_phases(phases, capture.name))
-    return failures
-
-
-def _phase_interval_union_seconds(phases, phase_names):
-    intervals = []
-    for phase in phase_names:
-        event = phases.get(phase)
-        if event is None:
-            continue
-        start_time_ns = event.get("start_time_ns", 0)
-        end_time_ns = event.get("time_ns", 0)
-        if end_time_ns >= start_time_ns:
-            intervals.append((start_time_ns, end_time_ns))
-    intervals.sort()
-    total_ns = 0
-    current_start = current_end = None
-    for start_time_ns, end_time_ns in intervals:
-        if current_start is None:
-            current_start, current_end = start_time_ns, end_time_ns
-            continue
-        if start_time_ns > current_end:
-            total_ns += current_end - current_start
-            current_start, current_end = start_time_ns, end_time_ns
-        else:
-            current_end = max(current_end, end_time_ns)
-    if current_start is not None:
-        total_ns += current_end - current_start
-    return total_ns / 1_000_000_000
-
-
-def _phase_durations(capture):
-    if len(capture.ready_events) != 1:
-        return None
-    phases = {event.get("phase"): event for event in capture.phase_events}
-    if any(
-        phase not in phases
-        for phase in (
-            *REQUIRED_BPF_SETUP_PHASES,
-            *REQUIRED_PERF_PHASES,
-            *REQUIRED_CLEANUP_PHASES,
-            *REQUIRED_BPF_CLEANUP_PHASES,
-        )
-    ):
-        return None
-    ready = capture.ready_events[0]
-    try:
-        ready_time = ready["time_ns"]
-        start_time = ready["start_time_ns"]
-        trace_start = phases["trace_start"]["time_ns"]
-        trace_end = phases["trace_end"]["time_ns"]
-        finalize_start = phases["finalize_start"]["time_ns"]
-        cleanup_start = phases["cleanup_start"]["time_ns"]
-        bpf_durations = {
-            f"{phase}_sec": (
-                phases[phase]["time_ns"] - phases[phase]["start_time_ns"]
-            )
-            / 1_000_000_000
-            for phase in REQUIRED_BPF_SETUP_PHASES
-        }
-    except (KeyError, TypeError):
-        return None
-    durations = {
-        "setup_sec": (ready_time - start_time) / 1_000_000_000,
-        "trace_sec": (trace_end - trace_start) / 1_000_000_000,
-        "finalize_start_sec": (finalize_start - trace_end) / 1_000_000_000,
-        "cleanup_sec": (cleanup_start - finalize_start) / 1_000_000_000,
-        "post_cleanup_unattributed_sec": capture.elapsed
-        - (cleanup_start - start_time) / 1_000_000_000,
-    }
-    durations.update(cleanup_phase_durations(phases))
-    durations.update(bpf_durations)
-    durations["bpf_setup_sec"] = _phase_interval_union_seconds(
-        phases, REQUIRED_BPF_SETUP_PHASES
-    )
-    return durations
-
-
-def validate_perf_capture(capture, spec):
-    failures = []
-    if capture.result.returncode != 0:
-        failures.append(f"{spec.name} fixture rc={capture.result.returncode}")
-    if len(capture.stats_events) != 1:
-        failures.append(f"{spec.name} stats event count={len(capture.stats_events)}")
-    stats = capture.stats_events[0] if capture.stats_events else {}
-    if not valid_stats_event(stats):
-        failures.append(f"{spec.name} stats event is invalid")
-    failures.extend(_validate_phase_timing(capture))
-    failures.extend(service_measurement_failures(stats, spec.name))
-    for counter in RUNTIME_DIAGNOSTIC_FIELDS:
-        if stats.get(counter, 1) != 0:
-            failures.append(f"{spec.name} {counter}={stats.get(counter)}")
-
-    required_syscalls = []
-    for syscall, minimum in spec.minimum_exit_counts:
-        required_syscalls.append(syscall)
-        actual = _event_count(capture.events, syscall)
-        if actual < minimum:
-            failures.append(f"{spec.name} {syscall} exits={actual}, want>={minimum}")
-    failures.extend(_paired_failures(capture.events, required_syscalls))
-    for syscall, direction, arg_index in spec.payload_requirements:
-        if not _has_payload(capture.events, syscall, direction, arg_index):
-            failures.append(f"{spec.name} {syscall} {direction} payload missing")
-    for action in spec.lifecycle_actions:
-        if not any(event.get("action") == action for event in capture.lifecycle_events):
-            failures.append(f"{spec.name} lifecycle {action} missing")
-    if spec.require_non_leader_tid and not any(
-        event.get("event_type") == "exit" and event.get("tid") != event.get("pid")
-        for event in capture.events
-    ):
-        failures.append(f"{spec.name} non-leader TID event missing")
-    return failures
-
-
 def capture_workload(fixture, spec):
     command_args = ["-f", "-e", f"trace={spec.trace}", fixture]
     command_args.extend(spec.fixture_args)
     start = time.monotonic()
-    result = run_strace_go_json(command_args, timeout=60, phases=True)
+    if spec.event_format == "json":
+        result = run_strace_go_json(command_args, timeout=60, phases=True)
+    elif spec.event_format == "reader":
+        result = run_strace_go_capture(command_args, "reader", timeout=60)
+    else:
+        raise ValueError(f"unsupported perf event format: {spec.event_format}")
     return PerfCapture(
         name=spec.name,
         result=result,
@@ -387,80 +66,40 @@ def capture_workload(fixture, spec):
     )
 
 
-def print_perf_capture(capture):
-    stats = capture.stats_events[0] if capture.stats_events else {}
-    print(f"=== EBPF PERF {capture.name} ===")
-    print(f"returncode: {capture.result.returncode}")
-    print(f"elapsed_sec: {capture.elapsed:.6f}")
-    print(f"json_events: {len(capture.events)}")
-    print(f"exit_events: {len(capture.exit_events)}")
-    print(f"lifecycle_events: {len(capture.lifecycle_events)}")
-    print(f"ready_events: {len(capture.ready_events)}")
-    print(f"phase_events: {len(capture.phase_events)}")
-    for counter in RUNTIME_DIAGNOSTIC_FIELDS:
-        print(f"{counter}: {stats.get(counter)}")
-    for field in (
-        "service_enabled",
-        "service_sample_rate",
-        "bytes_read",
-        "max_record_bytes",
-        "read_time_ns",
-        "decode_time_ns",
-        "sink_time_ns",
-        "min_remaining_bytes",
-        "service_time_ns",
-        "service_records",
-        "max_service_time_ns",
-    ):
-        print(f"{field}: {stats.get(field)}")
-    if stats.get("service_records", 0) > 0:
-        print(
-            "consumer_service_ns_per_sample: "
-            f"{stats.get('service_time_ns', 0) / stats['service_records']:.2f}"
-        )
-    if capture.elapsed > 0:
-        print(
-            "end_to_end_exit_events_per_sec: "
-            f"{len(capture.exit_events) / capture.elapsed:.2f}"
-        )
-    durations = _phase_durations(capture)
-    if durations is not None:
-        print(f"setup_sec: {durations['setup_sec']:.6f}")
-        print(f"bpf_setup_sec: {durations['bpf_setup_sec']:.6f}")
-        for phase in REQUIRED_BPF_SETUP_PHASES:
-            print(f"{phase}_sec: {durations[f'{phase}_sec']:.6f}")
-        print(f"trace_sec: {durations['trace_sec']:.6f}")
-        print(f"finalize_start_delay_sec: {durations['finalize_start_sec']:.6f}")
-        print(f"cleanup_sec: {durations['cleanup_sec']:.6f}")
-        print(f"cleanup_owner_sec: {durations['cleanup_owner_sec']:.6f}")
-        for phase in REQUIRED_CLEANUP_PHASES:
-            print(f"{phase}_sec: {durations[f'{phase}_sec']:.6f}")
-        for phase in REQUIRED_BPF_CLEANUP_PHASES:
-            print(f"{phase}_sec: {durations[f'{phase}_sec']:.6f}")
-        print(
-            "post_cleanup_unattributed_sec: "
-            f"{durations['post_cleanup_unattributed_sec']:.6f}"
-        )
-        if durations["trace_sec"] > 0:
-            print(
-                "trace_exit_events_per_sec: "
-                f"{len(capture.exit_events) / durations['trace_sec']:.2f}"
-            )
-        print(
-            "unattributed_sec: "
-            f"{capture.elapsed - durations['setup_sec'] - durations['trace_sec']:.6f}"
-        )
+def _check_go_benchmarks(result, metrics):
+    expected = {
+        "BenchmarkTraceRecordDecoderPayload",
+        "BenchmarkTraceEventDecodeState",
+        "BenchmarkTraceStateDeferredPayload",
+        "BenchmarkTraceEventContextHandler",
+        "BenchmarkTraceEventHandlerPipeline",
+        "BenchmarkTraceEventTextPipeline",
+        "BenchmarkTraceEventJSONPipeline",
+        "BenchmarkJSONEventWriter",
+        "BenchmarkJSONDecodedEventWriter",
+        "BenchmarkJSONDecodedPayloadEventWriter",
+    }
+    actual = {metric["name"].rsplit("-", 1)[0] for metric in metrics}
+    if result.returncode != 0:
+        return ["Go event-pipeline benchmark returned nonzero"]
+    missing = expected - actual
+    if missing:
+        return [f"missing Go benchmark metrics: {sorted(missing)}"]
+    return []
 
 
-def print_go_pipeline_benchmarks(result, metrics):
-    print("=== GO PERF event-pipeline ===")
-    print(f"returncode: {result.returncode}")
-    for metric in metrics:
-        print(
-            f"{metric['name']}: ns/op={metric['ns_per_op']:.2f} "
-            f"B/op={metric['bytes_per_op']:.2f} "
-            f"allocs/op={metric['allocs_per_op']:.2f}"
-        )
+def _run_go_benchmarks():
+    try:
+        result = run_go_pipeline_benchmarks()
+    except (OSError, subprocess.SubprocessError) as error:
+        return None, [], [f"Go event-pipeline benchmark failed to run: {error}"]
+    output = result.stdout + result.stderr
+    metrics = parse_go_benchmark_metrics(output)
+    print_go_pipeline_benchmarks(result, metrics)
+    failures = _check_go_benchmarks(result, metrics)
+    if failures and result.returncode != 0:
+        failures.append("\n".join(output.splitlines()[-30:]))
+    return result, metrics, failures
 
 
 def run_ebpf_perf(args):
@@ -469,33 +108,8 @@ def run_ebpf_perf(args):
     fixture = build_named_fixture(
         "strace-go-ebpf-perf-fixture", (PERF_FIXTURE_SRC,), ["-pthread"]
     )
-    failed = False
-    try:
-        benchmark_result = run_go_pipeline_benchmarks()
-    except (OSError, subprocess.SubprocessError) as error:
-        print(f"FAIL: Go event-pipeline benchmark failed to run: {error}")
-        failed = True
-    else:
-        benchmark_output = benchmark_result.stdout + benchmark_result.stderr
-        benchmark_metrics = parse_go_benchmark_metrics(benchmark_output)
-        print_go_pipeline_benchmarks(benchmark_result, benchmark_metrics)
-        expected_benchmarks = {
-            "BenchmarkTraceEventDecodeState",
-            "BenchmarkJSONEventWriter",
-            "BenchmarkJSONDecodedEventWriter",
-            "BenchmarkJSONDecodedPayloadEventWriter",
-        }
-        actual_benchmarks = {
-            metric["name"].rsplit("-", 1)[0] for metric in benchmark_metrics
-        }
-        missing = expected_benchmarks - actual_benchmarks
-        if benchmark_result.returncode != 0:
-            failed = True
-            print("FAIL: Go event-pipeline benchmark returned nonzero")
-            print("\n".join(benchmark_output.splitlines()[-30:]))
-        elif missing:
-            failed = True
-            print(f"FAIL: missing Go benchmark metrics: {sorted(missing)}")
+    _, _, benchmark_failures = _run_go_benchmarks()
+    failed = bool(benchmark_failures)
     for spec in PERF_WORKLOADS:
         capture = capture_workload(fixture, spec)
         print_perf_capture(capture)
@@ -506,6 +120,8 @@ def run_ebpf_perf(args):
                 print(f"FAIL: {failure}")
             print("--- stderr tail ---")
             print("\n".join(capture.result.stderr.splitlines()[-30:]))
+    for failure in benchmark_failures:
+        print(f"FAIL: {failure}")
     if failed:
         return 1
     print("PASS: ebpf-perf")

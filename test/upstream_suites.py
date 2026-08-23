@@ -171,7 +171,6 @@ UPSTREAM_REFERENCE_TESTS = list(
 
 UPSTREAM_REFERENCE_EXPECTED_FAILURES = {
     "read-write.gen.test": "bounded eBPF snapshot does not promise ptrace-sized read/write hexdump fetches",
-    "mount_setattr.gen.test": "event-sourced FD/cwd state is unknown before observation; pure eBPF does not read procfs",
 }
 
 # Known non-contract differences for the growing compatibility list.

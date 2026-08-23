@@ -12,6 +12,15 @@ def valid_stats_event(event):
         "orphan_exit",
         "pending_mismatch",
         "lifecycle_map_update_fail",
+        "lifecycle_fork_seen",
+        "lifecycle_fork_parent_tracked",
+        "lifecycle_fork_parent_untracked",
+        "lifecycle_fork_child_filter_installed",
+        "lifecycle_fork_child_filter_failed",
+        "lifecycle_exec_seen",
+        "lifecycle_exec_untracked",
+        "lifecycle_exit_seen",
+        "lifecycle_exit_untracked",
         "pending_stale",
     )
     return event.get("available") is True and all(
@@ -34,8 +43,21 @@ def valid_stats_event(event):
             "records_invalid",
             "records_routed",
             "max_remaining_bytes",
+            "producer_attempts_lower_bound",
+            "syscall_output_bytes",
+            "syscall_output_writes",
+            "syscall_output_write_errors",
+            "syscall_write_time_ns",
+            "syscall_write_time_samples",
+            "stage_sample_rate",
+            "state_time_ns",
+            "state_records",
+            "max_state_time_ns",
+            "dispatch_time_ns",
+            "dispatch_records",
+            "max_dispatch_time_ns",
         )
-    )
+    ) and isinstance(event.get("stage_enabled"), bool)
 
 
 def service_measurement_failures(stats, label):
