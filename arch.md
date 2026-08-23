@@ -227,7 +227,18 @@ TLV section 描述：
 
 修改 ABI 时必须先改 generator spec、同步生成 C/Go 输出、增加 decoder failure tests，再重新生成全部 BPF objects。
 
-### 5.3 payload 内存所有权
+### 5.3 捕获编排 ownership
+
+`cmd/generate-capture-manifest/` 是捕获编排的唯一事实源。它只描述稳定的 slot、ELF program symbol、handler family、syscall enter/exit route、standalone-exit-elision、tail-call 依赖和辅助 program roots；不描述具体 payload 算法、参数位置或 IN/OUT 捕获分支。
+
+生成结果为：
+
+- `bpf/capture_manifest_generated.h`：C enum 与 ProgArray/route map 容量。
+- `cmd/strace-go/bpf_capture_manifest_generated.go`：Go slot、program catalog、route capability、依赖图和辅助 roots。
+
+`generate-capture-manifest -check` 和 generator drift test 阻止手工产物漂移。运行时 selection 只遍历生成依赖图并用 visited-set 去重；未知引用、错误 ProgArray 方向、不可直接路由的 fragment 和依赖环由 generator 拒绝。payload capture、handler registry 和 event traits 继续由各自 owner 明确维护。
+
+### 5.4 payload 内存所有权
 
 decoder 默认返回借用 Ringbuf record 的 payload section。同步 pipeline 可以直接读取；只有 deferred exit、跨记录 fragment 或 pending enter 等跨调用生命周期状态才复制到 recycler 管理的 storage。
 
@@ -301,6 +312,7 @@ FD state 完全由已观察事件维护：
 
 | 生成器 | 输入 | 输出与职责 |
 | --- | --- | --- |
+| `generate-capture-manifest` | Go-native capture manifest | C/Go slot、program catalog、route capability、依赖图和辅助 roots |
 | `generate-event-abi` | checked-in ABI spec | C/Go event-v2、config 和 TLV 常量 |
 | `generate-syscalls` | `x/sys/unix` syscall numbers、BTF、tracepoint format、checked-in semantic catalog | syscall ID/name/signature/traits metadata |
 | `generate-xlats` | `strace-upstream` xlat sources | enum/bitflag translation tables |
@@ -383,11 +395,11 @@ producer attempts
 
 以下是当前需要继续治理的结构性问题，不是已批准的兼容 fallback：
 
-### P0：捕获事实仍有重复登记
+### P0：捕获编排事实源（已解决）
 
-Go route capability registry 已统一 syscall 到 family 的选择，但 slot、C program 名、handler registration、metadata traits 和部分 source gates 仍分别表达相关事实。测试可以发现漂移，却不能从结构上消除漂移。
+捕获 slot、C/Go program symbol、route capability、tail-call closure、standalone-exit-elision 和 `recvmsg`/`sendmmsg` 辅助 roots 已收敛到 `cmd/generate-capture-manifest/` 的 Go-native manifest。C/Go 产物由 generator 生成并纳入 `-check` 漂移门禁；运行时不再保留手写 route/catalog/switch 第二轨。
 
-演进方向：建立一个只描述稳定事实的 capability manifest，生成 Go route、C/Go slot 和 coverage contract；专项捕获算法继续保留为显式 C 代码，避免制造 capture DSL。
+维护边界保持明确：manifest 只维护捕获编排稳定事实；具体参数位置、probe 时点、payload variant、emit/capture 分支继续在 BPF C 中显式维护；Go handler registry 与 event traits 不并入 manifest。新增或调整捕获路由时只修改 manifest 输入，运行 `go run ./cmd/generate-capture-manifest -check` 和相关行为测试。
 
 ### P1：FD state 存储布局
 
@@ -471,12 +483,14 @@ composition 和领域 owner 的窄接口是有价值的，但部分单实现内�
 | 单消费者循环 | `cmd/strace-go/session_run.go`, `event_reader.go` |
 | event decoder | `cmd/strace-go/trace_event_v2_decoder.go` |
 | 状态 owner | `cmd/strace-go/event_state*.go` |
-| syscall route | `cmd/strace-go/bpf_routes.go`, `bpf_program_catalog.go` |
+| capture manifest 与生成合同 | `cmd/generate-capture-manifest/`, `bpf/capture_manifest_generated.h`, `cmd/strace-go/bpf_capture_manifest_generated.go` |
+| syscall route 与 selection | `cmd/strace-go/bpf_routes.go`, `bpf_program_selection.go` |
 | BPF collection ownership | `cmd/strace-go/bpf_collection*.go`, `bpf_handler_collections.go` |
 | core dispatcher | `bpf/strace.c` |
 | runtime ABI 与 maps | `bpf/runtime_abi.h`, `runtime_stats.h` |
 | tail-call handlers | `bpf/enter_dispatch.h`, `exit_dispatch.h`, `*_dispatch.h` |
 | event ABI generator | `cmd/generate-event-abi/` |
+| capture manifest generator | `cmd/generate-capture-manifest/` |
 | syscall metadata generator | `cmd/generate-syscalls/` |
 | handler registry/decoder | `pkg/handler/` |
 | xlat 与 syscall metadata | `pkg/meta/` |

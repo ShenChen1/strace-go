@@ -176,6 +176,7 @@ go build -o strace-go ./cmd/strace-go
 
 生成链包括：
 
+- `cmd/generate-capture-manifest`：捕获 slot、C/Go program catalog、syscall route、依赖闭包和辅助 roots 的唯一输入；生成 C/Go 合同并支持 `-check` 漂移检查。
 - `cmd/generate-event-abi`：生成 C/Go event-v2/TLV ABI 常量。
 - `cmd/generate-syscalls`：结合 BTF、tracepoint 信息和显式 override 生成 syscall metadata。
 - `cmd/generate-xlats`：从 `strace-upstream` 生成常量翻译表。
@@ -218,6 +219,7 @@ suite 按目标分组：
 strace-go/
 ├── bpf/                     # eBPF C、运行时 ABI、dispatcher 和专项 capture helpers
 ├── cmd/
+│   ├── generate-capture-manifest/ # 捕获编排 manifest 与 C/Go 合同生成器
 │   ├── generate-event-abi/  # C/Go event-v2 与 TLV ABI 生成器
 │   ├── generate-syscalls/   # syscall metadata 生成器
 │   ├── generate-xlats/      # strace xlat 生成器
