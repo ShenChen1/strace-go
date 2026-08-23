@@ -12102,3 +12102,3397 @@ Impact note：影响 `cmd/strace-go` map binding、runtime target operations、f
 
 - 保留 paired enter 的专用编码覆盖；它修正了真实事件形状的路径选择，字节等价与 semantic 均通过，且没有引入额外对象或分配。
 - 高压 JSON 仍持续落后于 BPF producer；下一阶段不再把单个字段微优化当作背压解决方案，转向量化剩余 sink service time、输出带宽和可观测的丢失边界。
+
+### 14.302 对 JSON plain syscall 省略重复 enter record（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.301 后，JSON 编码器的 plain decoded 路径已覆盖真实 paired exit，但高压 `getpid` workload 仍为每次 syscall 产生一条 enter 和一条 exit；BPF producer 约提交 320 万条 record，用户态完整 JSON sink 只能消费约 140 万条。
+- Problem：plain syscall 的 enter record 只重复传递参数和 enter timestamp；pending task storage 仍保存同一份参数，exit record 已携带 args、ret、duration 和 enter time。重复 enter record 直接把 ringbuf、decoder、state、JSON sink 的输入量放大近一倍，是当前高压 `ringbuf_reserve_fail` 的主要可削减来源。
+- Goal：仅在 JSON、没有 FD/path state、没有 debug event、且 syscall 的 enter 和 exit 都使用 generic route 时，在 BPF 侧保留 pending state 但省略 enter ringbuf record；用户态用 exit 记录合成逻辑配对，继续输出 `paired_enter=true`，并保持过滤、handler、summary、生命周期和失败返回语义。
+- Non-goals：不改变文本输出、debug/raw event 观察、`-y/-yy/-P` 路径状态、IN/OUT payload、专用 enter handler、event v2 exit 字段、BPF pending storage、单 Go consumer、输出顺序；不引入 ptrace、procfs、process_vm、第二 Goroutine、mutex 或定时器。
+- Constraints：省略条件必须是 construction-time immutable policy；专用 enter route 缺少 enter record 时仍走原有 unmatched-exit 延迟，不能把 payload/路径事件误判为 plain synthetic pair；BPF config ABI 新 bit 必须由 Go 和 C 同步更新，生成对象必须重新构建。
+
+#### 方案比较
+
+1. 保留所有 enter record：语义最直观，但高压 producer 输入量翻倍，无法解决已测得的 ringbuf 背压，拒绝。
+2. JSON 全部取消 enter record：输入量下降最大，但会丢失 payload/path/unfinished/debug 所需的 enter 事件，并破坏专用 handler 的配对与过滤语义，拒绝。
+3. 只对 plain no-payload route 做 capability-gated enter elision，pending state 不变；用户态仅为该 capability 合成 paired snapshot，其他 route 保持原有延迟配对，选择。
+
+#### 实现与失败优先测试
+
+- `traceBPFConfig` 增加 immutable `elidePlainEnter`，只由 JSON 且无 FD/path/debug 选项触发；新增 `CONFIG_ELIDE_PLAIN_ENTER`，generic enter/fallback 结合 Go 预计算并写入的 `plain_enter_elide_map` 只省略 generic-exit syscall，terminating、payload、path、OUT payload、structured、memory 和 control handler 不受影响。
+- `TraceState` 从共享 event policy 接收同一 elision capability；plain route 的 unmatched exit 从 exit 字段生成可回收的 synthetic pending snapshot，special route 继续进入原有 deferred-exit 队列。
+- 新增配置和 BPF source gate，覆盖 JSON/plain 开启、text/debug/path 关闭；新增 state happy path（`getpid` exit 直接 paired）和 failure/boundary path（`read`/`openat` 等专用 exit/enter route 仍保留或 deferred）。
+- 重新生成 BPF objects 后运行 Go 全量、race、vet、build、semantic、perf、capture 和 native `small`；capture 必须同时报告 record input、reserve failure、syscall event 数和 paired 语义，不能只看 event/s。
+
+#### Review 与决策
+
+- 选择按 route capability 做 producer-side reduction；它直接减少高压 ringbuf 输入量，且不把 pending state 或用户态的单消费者模型改成隐式异步。
+- 该阶段的成功标准是 plain JSON 高压输入量和 `ringbuf_reserve_fail` 有方向性改善，同时专用 payload/path 语义和原生兼容测试不回退；即使 reserve failure 下降，也不能宣称所有输出 sink 背压已闭环。
+- 当前仍没有引入 ptrace、procfs、process_vm、compat 模式、额外 Goroutine、mutex 或定时器；`strace-upstream` 仍不纳入提交。
+
+### 14.303 省略 plain JSON enter 后跳过重复 syscall task bookkeeping（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.302 在 JSON、无 FD/path/debug 状态下省略 generic enter record，但 `TraceState.handleSyscallExit` 仍对每个 synthetic plain exit 调用 `noteSyscallTask`，为普通 syscall 更新用户态 `tasks` map。
+- Problem：这类 exit 的 task 生命周期并不由 syscall enter/exit 驱动；fork/exec/exit/free 等 lifecycle event 才是任务状态的权威来源。对高频 `getpid` 逐条更新 `TaskState` 会重复支付 map lookup、指针初始化和时间戳写入，继续缩短单 Go consumer 的 service budget。
+- Goal：当且仅当 event policy 已启用 plain enter elision 且 syscall 的 enter/exit 都是 generic route 时，合成 exit pair 时跳过 syscall task bookkeeping；保留 lifecycle state、fork identity、pending/unfinished、专用 route 和其他输出模式的既有语义。
+- Non-goals：不删除 lifecycle task state，不改变 `TargetLifecycleQuiescent`、fork/exec/exit/free 状态转移，不改变 JSON/text 输出 schema、BPF pending storage、过滤、FD state、payload、事件顺序或单消费者约束；不引入 procfs、ptrace、第二消费者、锁或定时器。
+- Constraints：优化只能沿用 14.302 已验证的 route capability，不能按 syscall 名称猜测；`read`、`openat` 等专用 exit/enter route 仍必须执行原有 task fallback；非 JSON 或 debug/path/FD state 模式不能进入该分支。
+
+#### 方案比较
+
+1. 保留所有 syscall task 更新：语义最保守，但 plain synthetic exit 的重复 map 工作仍在高压热路径，拒绝。
+2. 新增独立的 task-state policy/interface：表达能力更强，但扩大 composition policy 和状态对象边界，当前收益只覆盖一个已存在的 capability，拒绝。
+3. 在 synthetic plain route 的 unmatched-exit 分支内跳过 `noteSyscallTask`，生命周期事件继续使用完整 task state；改动局部、条件与 producer capability 同源，选择。
+
+#### 实现与失败优先测试
+
+- 在 `handleSyscallExit` 中把 task fallback 与 `isPlainGenericEnterExitRoute` capability 绑定：elided generic route 直接合成 pending snapshot，其他 unmatched exit 继续先更新 task state。
+- 增加 state 测试，验证 JSON synthetic plain exit 不创建 syscall task，且 `openat` 专用 unmatched exit 仍 deferred；现有 lifecycle completion 测试继续验证 lifecycle event 可以独立建立/退休 task 并完成 quiescence。
+- 增加一个 full-router JSON benchmark，避免只用 pipeline benchmark 推断 state/router 成本；保持 steady-state 零分配要求。
+
+#### 验证与 Review 入口
+
+- 先运行 focused state/benchmark 与 `go test ./...`；随后运行 race、vet、build、semantic、perf、capture 和 native `small`。
+- capture 仍以 `records_read`、`ringbuf_reserve_fail`、`service_time_ns`、orphan/mismatch 和 syscall semantic 数联合验收；单轮 event/s 不作为充分证据。
+- 若生命周期 JSON task 字段、target quiescence 或专用 route 语义出现回归，必须撤销该优化，不扩大到其他 route。
+
+#### 验证结果与 Review
+
+- focused state 测试、full-router JSON benchmark、`go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 均通过；full-router synthetic plain exit 约 `423 ns/op`、`0 B/op`、`0 allocs/op`。
+- `ebpf-semantic` 通过：semantic `175`、enter/exit `78/97`、lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`；`ebpf-perf` 和 native `small` 为 `23 PASS / 0 FAIL`。
+- 连续 capture 轮次的 JSON `ringbuf_reserve_fail` 约为 `0.402M-0.470M`，`records_read` 约 `1.13M-1.20M`；相对 14.302 的量级没有稳定可归因的额外改善。该阶段保留为局部、语义安全的热路径削减，但不宣称它修复了整体背压。
+- Review 未发现生命周期或专用 route 回归；高压剩余瓶颈仍是 JSON 输出带宽和完整 sink 服务时间。下一阶段应增加输出 bytes/write 次数与 producer attempt 的闭合诊断，继续区分“Go 处理慢”和“输出设备吞吐不足”。
+
+### 14.304 记录 JSON syscall 输出带宽与写边界（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.302 已减少 JSON plain syscall 的 producer 输入，14.303 又安全地跳过了 synthetic generic exit 的重复 task bookkeeping，但 capture 中 JSON 仍有约 `0.4M` 级别的 `ringbuf_reserve_fail`。现有 reader 统计能看到 record、decode、sink service time，BPF 统计能看到 reserve failure，却不能直接看到 JSON syscall 输出的逻辑字节量、写调用量和写错误。
+- Problem：缺少输出边界观测时，`event/s` 和 reserve failure 无法区分是 Go 事件处理慢、JSON 编码慢、输出 writer 带宽不足，还是 writer 发生短写/错误；单轮结果也无法判断 producer attempts 与 sink capacity 的关系。
+- Goal：在 JSON stats event 中报告 syscall 输出边界的逻辑字节数、写调用数和写错误数，并在写 stats 自身之前完成快照，使下一轮 semantic/perf/capture 能闭合“输入 record -> JSON syscall bytes -> 输出错误”的诊断链。
+- Non-goals：不引入异步 writer、第二个 Goroutine、mutex 或新的队列；不改变 syscall JSON schema、事件语义、字段顺序、BPF ABI、ringbuf 策略、文本输出、ptrace/procfs fallback 或事件消费模型；不把 lifecycle/phase/stats 自身字节混入 syscall 专用计数。
+- Constraints：计数点必须位于 `JSONEventWriter` 的 syscall buffer flush 边界，兼容 `WriteBatch` 和普通 `Write`；计数为 writer 边界接受的逻辑字节，不假装等于底层 `write(2)` 次数；snapshot 必须发生在 stats event 写出前，避免 stats 行自我计入；不能给每条 syscall event 增加分配。
+
+#### 方案比较
+
+1. 从 reader bytes 反推 JSON 输出：实现最小，但 reader bytes 是 BPF record，不能表示 JSON 编码膨胀或 writer 短写，拒绝。
+2. 只在 `TraceOutput` 统计所有写入：能覆盖最终输出边界，但会混入 lifecycle、phase、文本和 stats，无法单独解释高压 syscall sink，拒绝作为唯一指标。
+3. 在 `JSONEventWriter` 的 syscall buffer flush 处统计逻辑 bytes、write calls 和 errors，并由 finalizer 在 stats 前读取 snapshot：归因精确、接口局部、保持单消费者，选择。
+
+#### 实现与失败优先测试
+
+- 增加 `traceJSONOutputStats` 及只读 snapshot 接口；`JSONEventWriter` 在 batch writer 和普通 writer 两条路径记录正向写入字节、写调用和错误。
+- 扩展 `jsonStatsEvent` 为 `syscall_output_bytes`、`syscall_output_writes`、`syscall_output_write_errors`；finalizer 对真实 writer 做可选接口探测，对现有 fake writer 保持零值兼容，并在写 stats 前取快照。
+- 增加 writer 统计的 happy path、短写/错误 path 和 stats 字段断言；更新 capture suite 打印字段，但不把单个新指标误当作通过条件。
+- 运行 `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、semantic、perf、capture 和 native `small`；比较 syscall output bytes、records_read、reserve failure、sink service time 与 event count，而不是只比较 event/s。
+
+#### Review 入口
+
+- 计数只覆盖已经交给 JSON 输出边界的 syscall batch；lifecycle、phase、stats 和底层 bufio flush 不纳入 syscall 专用计数，口径必须在字段名和文档中保持明确。
+- write error 只能作为诊断信号，不改变现有 finalizer 错误传播；若统计接口破坏 fake writer 或导致 stats 自包含，必须回退实现。
+
+#### 验证结果与 Review
+
+- Go 快速门禁、全量 `go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 均通过；Python capture oracle 为 `5` 个测试通过。
+- `ebpf-semantic` 通过：semantic `175`、enter/exit `78/97`、lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`；native `small` 为 `23 PASS / 0 FAIL`。
+- 最新 `ebpf-perf` 通过：Go decode/writer/decoded/payload 为 `280.80/114.40/110.00/250.20 ns/op`，均为 `0 B/op、0 allocs/op`；scalar/io/lifecycle/threads trace-window exit rate 为 `27411.59/17807.62/85.64/15626.65 events/s`。
+- 最新 `ebpf-capture` 通过：JSON `records_read=1,130,297`、syscall events `1,130,271`、`syscall_output_bytes=415,623,592`、`syscall_output_writes=6,325`、`syscall_output_write_errors=0`、reserve failure `469,738`；同轮 none reserve failure 为 `958,572`。reader/none/handler/JSON 的 records read 分别为 `3,035,806/2,241,468/1,459,010/1,130,297`，所有 invalid、orphan、mismatch 均为 `0`。
+- 新统计已证明 JSON syscall 输出约为 `0.4 GB` 量级、每次约 `64 KiB` batch；它只表示 JSON syscall buffer 交给 writer 的逻辑字节，不等价于底层 `write(2)` 次数，也不包含 lifecycle、phase 和 stats 行。stats 快照在 stats 行写出前完成，没有自包含污染。
+
+#### Review 与决策
+
+- 保留 JSON writer 局部统计和 finalizer 可选 snapshot 接口；没有改 `TraceOutput` 全局计数，因此不会把不同输出格式和 cleanup 阶段混在一起，也没有增加事件路径分配或并发。
+- 加入 Python 必需字段校验，避免后续统计字段缺失时 capture 仅打印 `None` 仍然通过；JSON capture 额外要求 syscall output bytes/writes 为正且 write errors 为 `0`。
+- 本阶段解决了“无法判断输出端容量”的观测缺口，但没有解决整体背压：JSON 仍有约 `0.47M` 级 reserve failure，event/s 仍会受单消费者和输出带宽影响。下一阶段应基于这组 bytes/write/service 数据闭合 producer attempt 与 sink capacity 的对账，再决定是否需要进一步减少 JSON 字段、改变输出目标或调整 ringbuf/backpressure 策略；不能把本阶段误称为 event/s 已完全恢复。
+
+### 14.305 扩大 ringbuf burst budget 并做容量 A/B（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.304 的 capture 显示 JSON syscall sink 在有限 trace window 内输出约 `0.4 GB`，而 `events` map 当前固定为 `1 << 27`，reader 的 `max_remaining_bytes` 多次达到约 `128 MiB`。这证明 producer 在目标短时 burst 中会先填满 ringbuf，随后出现 reserve failure。
+- Problem：ringbuf 容量不足会把尚未被单 Go consumer 处理的合法事件直接变成 reserve failure；当前 `event/s` 同时受 ringbuf burst budget 和持续 JSON 输出带宽影响，单看 output bytes 还不能判断容量上限能否显著减少有限 workload 的丢失。
+- Goal：在不改变事件语义和单消费者架构的前提下，把 ringbuf burst budget 从 `128 MiB` A/B 到 `256 MiB`，验证 records、reserve failure、output bytes 和 trace-window rate 的变化，并把可保留的容量策略固定下来。
+- Non-goals：不让 BPF 阻塞等待用户态、不引入第二 consumer、mutex、异步 writer、ptrace、procfs 或 process_vm；不改变 event v2 ABI、JSON schema、过滤、pending/lifecycle 状态或文本输出；不把容量扩大误称为持续吞吐解决方案。
+- Constraints：ringbuf `max_entries` 必须满足内核的合法容量约束；扩大容量不能突破文件和函数大小限制；所有生成 BPF objects 必须与 ABI 同步；capture 必须在同一 fixture、同一输出模式下比较，不能用单轮 event/s 作为唯一 oracle。
+
+#### 方案比较
+
+1. 保持 `128 MiB`：内存成本最低，但当前已观测到 ringbuf 水位触顶，有限 burst 的 reserve failure 无法改善，拒绝。
+2. 固定扩大到 `256 MiB`：改动最小、setup 语义稳定、能直接覆盖当前约 `0.4 GB` 输出 burst 的更长前缀，但会增加常驻内存并且不能提升持续 sink 带宽，选择作为 A/B 候选。
+3. 运行时根据 workload 动态选择容量：长期弹性更好，但需要把容量策略穿过 BPF spec、loader、配置和测试接口；在没有 A/B 证据前扩大架构边界，暂缓。
+
+#### 实现与失败优先测试
+
+- 先把 ABI ringbuf 容量改为 `1 << 28` 并重新生成 core/handler objects；同步更新 source gate，确保所有 handler 复用同一个 core events map。
+- 运行 Go 全量、race、vet、构建、semantic、perf、capture 和 native `small`；capture 记录 `max_remaining_bytes`、`records_read`、`ringbuf_reserve_fail`、`syscall_output_bytes`、trace-window rate。
+- 若 reserve failure 方向性下降且 lifecycle/payload/过滤无回归，保留 256 MiB；若只增加内存而持续 sink 指标不变，则回退容量变更并记录为不值得的方案。
+
+#### Review 入口
+
+- 成功标准是有限 burst 的丢失边界改善，不是“JSON 输出可以无限追平 producer”。持续高压仍必须由 producer-side reduction、输出格式/目标和可观测 loss accounting 解决。
+- 需要同时检查内核 map 创建、handler map replacement、最大水位和 cleanup 内存；不能只验证 Go 生成文件里出现了新常量。
+
+#### 验证结果与 Review
+
+- `./build.sh` 成功重新生成并加载 256 MiB ringbuf 对应的 core/handler objects；`go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 均通过。`ebpf-semantic` 通过：semantic `175`、enter/exit `78/97`、lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`；`ebpf-perf` 和 native `small` 均通过，native `small` 为 `23 PASS / 0 FAIL`。
+- 第一轮高压 capture：reader `records_read=3,200,036`、reserve `0`、最大剩余容量 `59,021,752`；none `records_read=3,200,035`、reserve `0`、最大剩余容量 `165,459,496`；handler `records_read=2,809,732`、reserve `390,303`、最大剩余容量 `268,435,328`；JSON `syscall_events=1,600,000`、`records_read=1,600,036`、reserve `0`、最大剩余容量 `192,245,120`、syscall output `588,362,221` bytes / `8,953` writes / `0` errors。
+- 第二轮高压 capture：reader `records_read=3,200,035`、reserve `0`；none `records_read=3,102,236`、reserve `97,799`；handler `records_read=2,784,311`、reserve `415,724`；JSON 仍为 `syscall_events=1,600,000`、`records_read=1,600,035`、reserve `0`、最大剩余容量 `182,930,200`、syscall output `588,276,292` bytes / `8,956` writes / `0` errors。两轮所有 invalid/orphan/mismatch 均为 `0`。
+- 与 128 MiB 的 14.304 基线相比，JSON 从约 `1.13M` records、`0.47M` reserve failure 提升到完整 `1.6M` syscall 且两轮均为 `0` reserve failure；旧 ringbuf 水位约为 `134,217,608` bytes，已触及 128 MiB 上限。256 MiB 对 JSON 有明确、可重复的有限 burst 改善，因此保留固定 `1 << 28`，不引入运行时动态容量。
+- `none`/`handler` 仍可在 256 MiB 水位触顶，说明扩大容量没有解决持续 producer 超过单 Go consumer/sink 服务能力的问题；它只是延长了可吸收的 burst。后续仍需沿 producer-side reduction、输出目标/格式和 loss accounting 继续推进，不能把本阶段描述为 event/s 或持续吞吐已完全恢复。
+- map replacement 和 cleanup 均通过真实加载验证；没有增加 ptrace、procfs、process_vm、第二 Goroutine、mutex、异步 writer 或事件 ABI/schema 变化。本阶段决策：保留 256 MiB ringbuf，下一阶段回到持续背压的 producer/sink 对账与削减。
+
+### 14.306 增加无热路径开销的 producer attempt 下界对账（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.304 已记录 JSON syscall 输出 bytes/write，14.305 又把 ringbuf 从 128 MiB 扩到 256 MiB；当前 capture 同时拥有用户态 `records_read` 和 BPF `ringbuf_reserve_fail`，但没有一个明确字段把两者组合成 producer 与 sink 的可比较口径。
+- Problem：如果为了精确统计每次 reserve/submit，在 107 个 BPF reserve/submit 热点上增加 stats map lookup，会让诊断计数本身改变 event/s；而不加定义地把 `records_read` 当作 producer 总量，又会在 ringbuf 丢失时误判 sink 能力。
+- Goal：在 stats JSON 中报告 `producer_attempts_lower_bound = records_read + ringbuf_reserve_fail`，让 capture 能直接比较已观察到的 producer attempt 下界、已交付 record、reserve drop 和 JSON output bytes；保持 BPF 热路径、事件 ABI 和 ringbuf 行为不变。
+- Non-goals：不声称这是精确的 BPF reserve attempt 计数；不统计 copy-fail 对应的成功 reserve、关闭时尚未被 reader 取出的 record 或其他未观察事件；不引入每事件 map lookup、第二 consumer、mutex、异步 writer、ptrace、procfs 或 process_vm。
+- Constraints：字段命名必须包含 `lower_bound`，避免被误读为精确 counter；公式只能在 finalizer 已拿到 reader stats 和 BPF stats 后计算；Python oracle、Go unit test 和 capture 输出必须同时覆盖零值、reserve failure 和 records-read 边界。
+
+#### 方案比较
+
+1. 在所有 BPF reserve/submit 调用点增加精确计数：诊断最完整，但每条事件增加 stats map lookup，且有 107 个 reserve/submit 调用点和 verifier/生成对象风险，暂缓。
+2. 只继续分别输出 `records_read` 与 `ringbuf_reserve_fail`：没有热路径成本，但每个 suite 都要自行理解公式，容易产生不同口径，拒绝。
+3. 在 Go finalizer 统一生成带 `lower_bound` 语义的派生字段：零 BPF 成本、接口集中、足以比较本阶段 capture，选择。
+
+#### 实现与失败优先测试
+
+- 增加纯函数 `producerAttemptLowerBound`，由 `traceEventReaderStats.RecordsRead` 与 `bpfRuntimeStats.RingbufReserveFail` 求和，并在 `jsonStatsEvent` 写出 `producer_attempts_lower_bound`。
+- 增加 Go happy path（records 与 reserve failure 相加）和 boundary path（空 reader、不可用 stats、溢出保护）测试；更新 Python `valid_stats_event`、capture fixture 和打印逻辑。
+- capture 继续同时比较 `records_read`、reserve failure、`producer_attempts_lower_bound`、output bytes 和 service time；不把下界当作绝对 loss-free producer total。
+
+#### Review 入口
+
+- 该字段是诊断下界，不改变任何运行时策略；若后续需要精确 attempt 计数，应单独做可开关的 BPF instrumentation A/B，不能偷偷把 map lookup 加到默认热路径。
+- 只有在 reader drain 语义、copy-fail 口径和关闭时残留 record 都被单独测量后，才可以把字段升级为精确计数；本阶段不做这个推断。
+
+#### 验证结果与 Review
+
+- 新增 `producer_attempts_lower_bound` 的 Go 单元测试覆盖正常相加、stats 不可用和 `uint64` 溢出饱和；`go test ./...`、`go test -race ./...`、`go vet ./...`、构建和 `git diff --check` 均通过。Python eBPF 单测 `49` 个全部通过。
+- `ebpf-semantic` 通过：semantic `175`、enter/exit `78/97`、lifecycle `6`，所有 runtime error counters 均为 `0`。`ebpf-perf` 通过，Go decode/writer/payload benchmark 仍为 `0 B/op、0 allocs/op`，trace-window exit rate 为 scalar `26,763.19`、io `17,799.06`、lifecycle `85.42`、threads `15,664.17 events/s`。
+- 最新高压 capture 中，reader `records_read=3,200,035`、reserve `0`、lower bound `3,200,035`；none 同为 `3,200,035/0/3,200,035`；handler 为 `records_read=2,773,162`、reserve `426,873`、lower bound `3,200,035`；JSON 为 `syscall_events=1,600,000`、`records_read=1,600,036`、reserve `0`、lower bound `1,600,036`、output `588,256,466` bytes / `8,958` writes / `0` errors。capture 的 invalid/orphan/mismatch 检查通过。
+- 该字段有效地解释了 handler 这轮的 426,873 个 reserve-level drop，但它仍是下界：如果成功 reserve 后发生 copy failure，或 shutdown 时仍有未被 reader 观察的 record，字段不会假装知道那些数量。因此它适合作为 A/B 诊断口径，不适合作为精确 producer total 或 loss-free 保证。
+- 本阶段不改 BPF ABI、对象、事件结构或 event/s；没有引入全局 stats map lookup。后续若仍需要精确 attempt/submit 计数，必须先做可开关 instrumentation 的独立性能 A/B；当前保留轻量派生指标，继续把优化重点放在持续背压和 sink service time。
+
+### 14.307 让 none 使用边界消费拓扑（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.305/14.306 已经验证 256 MiB ringbuf 能吸收有限 JSON burst，并补充了 producer attempt 下界统计；但 `event-format=none` 的高压路径仍然把每条 record 送入完整的 `TraceState -> Router -> Dispatcher`，即使它最终不生成事件输出。
+- Problem：discard 模式支付了完整 envelope decode、事件路由和状态机检查的成本，却没有任何需要这些语义的输出消费者。在单 Go consumer 模型下，这会减少 reader 的 service budget，并使 none 路径的 reserve failure 与 event/s 诊断混入无关的状态处理成本。
+- Goal：让 `event-format=none` 与 `event-format=reader` 一样只执行 ringbuf record 的边界校验和 reader 统计，不进入事件状态机；保留 finalizer 的 BPF/reader diagnostics、summary/exit cleanup 语义。
+- Non-goals：不改变 JSON、text、handler 模式；不改变 BPF ABI、事件 schema、生命周期状态机、过滤、payload、FD state 或 ringbuf 策略；不引入 ptrace、procfs、第二 consumer、mutex、异步 writer 或定时器。
+- Constraints：必须沿用已验证的 `traceRingbufBoundaryDecoder` 和 nil sink 拓扑；`runFinalizer` 仍可读取 reader stats 和 pending state；测试必须明确保证 none 不再路由事件，且 reader 模式现有契约不回退。
+
+#### 方案比较
+
+1. 保留 none 的完整路由：行为最保守，但继续为 discard 事件支付无收益的 decoder/state/router 成本，拒绝。
+2. 为 none 新建独立 discard consumer：语义命名更直观，但复制 reader 边界路径并扩大组合根，拒绝。
+3. 把现有 `ReaderOnly` 能力扩展为 none 的边界消费能力：复用已测试的 decoder、reader 统计和 finalizer 接口，局部改动最小，选择。
+
+#### 实现与失败优先测试
+
+- 在 immutable output policy 中把 `EventFormatNone` 标记为 `ReaderOnly`，使 session runtime 选择边界 decoder 和 nil sink。
+- 扩展 session composition 测试，断言 none 的 event reader 没有 sink 且使用 `traceRingbufBoundaryDecoder`；保留 reader、handler 和 JSON 的拓扑断言。
+- 运行 Go 快速门禁、race、vet、构建、Python eBPF suites、semantic、perf、capture 和 native `small`；capture 重点比较 none/reader 的 records、reserve failure、service time 与 producer lower bound，不能把一次 event/s 当作充分结论。
+
+#### Review 入口
+
+- `none` 不再产生任何 syscall/lifecycle 输出，因此不需要 `TraceState` 的事件驱动更新；finalizer 中 pending stale 应保持为零或显式报告，不得通过 procfs/ptrace 补状态。
+- 该阶段只优化 discard 诊断路径，不宣称 JSON 持续输出带宽问题已经解决；JSON/handler 的完整 sink service time 仍需单独测量。
+
+#### 实现结果与 Review
+
+- `EventFormatNone` 现在复用 `ReaderOnly` 能力：`traceEventReader` 使用 `traceRingbufBoundaryDecoder`，sink 为 nil；JSON、text 和 handler 仍保持完整 decoder/router 拓扑。新增 policy 与 session composition 回归断言，防止 none 重新进入状态机。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、`git diff --check` 和 Python eBPF 单测 `49` 个全部通过；`ebpf-semantic` 通过，semantic `175`、enter/exit `78/97`、lifecycle `6`，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`；`ebpf-perf` 通过，Go decode/writer/payload benchmark 仍为 `0 B/op、0 allocs/op`；原生 `small` 为 `23 PASS / 0 FAIL`。
+- 最新高压 capture 中，reader 与 none 都是 `records_read=3,200,035`、`records_decoded=3,200,035`、`records_routed=0`、`ringbuf_reserve_fail=0`、`producer_attempts_lower_bound=3,200,035`；reader/none trace window 分别约 `1.108s/1.058s`。none 的 `sink_time_ns=0`，确认状态机和输出 sink 没有被调用；单轮时间差不足以作为稳定 event/s 提升结论。
+- 同轮 JSON 仍然完整读取 `1,600,036` records 并产生 `1,600,000` syscall events，reserve failure 为 `0`，输出约 `588 MB`、`8,956` 次 batch write、write error 为 `0`。这说明本阶段没有破坏产品路径，但也再次确认持续背压的主要问题仍在 JSON sink 带宽和完整事件处理，不在 none 的 discard 路由。
+- Review 未发现 ABI、schema、生命周期、过滤或权限回归；不需要引入新的 discard consumer。下一阶段应继续处理 JSON/handler 的持续 sink service time，优先做可归因的分阶段测量或 producer-side event reduction，而不是继续扩大 ringbuf 容量。
+
+### 14.308 拆分完整事件 sink 的诊断阶段（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.281 以后 reader 已经能报告 read/decode/sink/service 时间，14.304 又报告了 JSON syscall 输出 bytes/write；14.307 证明 none 的完整状态路由可以移除。但 `sink_time_ns` 仍把 `TraceState` 状态转移、dispatcher effects、handler/FD effect、JSON 编码和输出写入混成一个区间。
+- Problem：当前只能知道完整输出路径比 boundary reader 慢，不能回答“event/s 下降”主要发生在 state、handler/FD、JSON encode 还是 writer 写入；继续只看单轮速率或 ringbuf 水位会把局部优化误判成端到端修复。
+- Goal：在已有 `--debug-phases` 诊断路径中，以固定采样率增加 state transition、dispatcher effect 和 syscall JSON writer write 的时间/样本统计；默认路径不调用时钟、不增加每事件 map/接口工作。
+- Non-goals：不改变 event v2 ABI、BPF producer、JSON syscall schema、输出顺序、过滤、生命周期语义、Ringbuf 容量或单 Go consumer；不引入第二消费者、异步 writer、锁、ptrace、procfs 或 process_vm；本阶段不根据诊断数据直接改变输出字段。
+- Constraints：state/dispatch 计时必须覆盖同一个 routed envelope；writer 计时只覆盖 syscall buffer 的实际 Write/WriteBatch 边界，不把 lifecycle/phase/stats 行混入；统计字段必须区分“采样样本”与 workload 总事件，且在诊断关闭时保持零值。
+
+#### 方案比较
+
+1. 每条事件无条件调用时钟并在 JSON 中输出：定位最直接，但会污染正式 event/s，拒绝。
+2. 继续只使用 reader 的 aggregate `sink_time_ns` 和 output bytes：无运行时改动，但无法拆分 state/effect/write，拒绝。
+3. 仅在 `DebugPhases` 下按固定比例采样 router state/dispatch 和 syscall writer write：正式路径零时钟成本，能直接对账完整 sink 的主要边界，选择。
+
+#### 实现与失败优先测试
+
+- 增加单消费者拥有的阶段统计对象；`TraceEventRouter` 在同一个 sample 中记录 `state_time_ns` 与 `dispatch_time_ns`，`TraceEventReader.ReaderStats()` 汇总该统计。
+- `JSONEventWriter` 在 syscall buffer 的实际写边界记录 `syscall_write_time_ns` 和 `syscall_write_time_samples`；不计入 lifecycle、phase、stats 的标准 encoder 写入。
+- 扩展 Go stats/schema 测试，覆盖诊断关闭不取时钟、采样状态/dispatch 区间、writer 写入计时和 stats 字段；Python oracle 校验非负值及阶段样本不超过 reader/service 样本。
+- 运行 Go、race、vet、构建、Python eBPF suites、semantic、perf、capture 和 native `small`；比较同轮 state/dispatch/write 与 reader sink/service，而不是只比较 event/s。
+
+#### Review 入口
+
+- `state_time_ns + dispatch_time_ns` 是 sampled routed-event 的两个连续区间，允许存在时钟调用间隙；它们不能直接与所有 record 的 `sink_time_ns` 做逐纳秒等式比较。
+- `syscall_write_time_ns` 只解释 syscall JSON writer 的实际写调用；它不等价于输出设备总耗时，也不包括 JSON 编码和 lifecycle/phase 写入。只有多轮同 workload 结果稳定后，才据此选择下一项实际优化。
+
+#### 实现结果与 Review
+
+- 新增 sampled stage diagnostics：`TraceEventRouter` 在同一 routed envelope 上记录 state transition 与 dispatcher effect，`TraceEventReader.ReaderStats()` 汇总阶段计数；默认非 debug 路径不创建诊断对象，也不调用 `NowMonoNs`。
+- `JSONEventWriter` 只在 syscall buffer 的 `Write`/`WriteBatch` 边界计时；lifecycle、phase、stats 行不计入 syscall writer time。stats 新增 `stage_*`、`state_*`、`dispatch_*` 和 `syscall_write_time_*` 字段，Python oracle 同步校验字段类型和 JSON capture 的采样非零性。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、Python eBPF 单测 `49` 个、`ebpf-semantic`、`ebpf-perf` 和 native `small` `23/23` 均通过。Go writer/decode benchmark 仍为 `0 B/op、0 allocs/op`。
+- 最新高压 capture：reader/none 分别读取 `3,200,035/3,200,036` records，均 `records_routed=0`、reserve failure `0`；handler 读取 `2,734,714`、reserve failure `465,324`，sampled state/dispatch 为 `18.1/24.8 ms`；JSON 读取并路由 `1,600,035` records、产生 `1,600,000` syscall events、reserve failure `0`，sampled state/dispatch 为 `8.9/27.7 ms`，syscall output `588,218,718` bytes / `8,958` writes / `0` errors，实际 write 边界累计 `268,175,182 ns`。
+- 这些时间是不同采样口径：state/dispatch 使用 reader 采样，writer 计时覆盖每个实际写调用，不能把它们直接相加或外推成精确总 CPU 时间；但它已经确认 JSON writer 写入是可观测的显著边界，handler 的剩余压力来自完整 state/effect 路径。阶段诊断本身没有引入默认热路径时钟或新的并发模型。
+- Review 未发现事件 schema、生命周期、过滤、payload、文本兼容性或错误计数回归。本阶段只补齐归因能力；持续 event/s 与 handler 高压丢失仍未根治，下一步做 JSON batch size 的同 workload A/B，并继续保留 reader/none 作为边界上限。
+
+### 14.309 增大 JSON syscall batch 并验证写边界 A/B（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.308 的真实 capture 显示 JSON syscall output 约 `588 MB` 被拆成约 `8,958` 次 `64 KiB` 级 `WriteBatch`；每次 batch 还会穿过 `TraceOutput` 的 flush 边界。writer write time 已可测，但当前 batch 上限固定为 `traceOutputBufferSize + 1`。
+- Problem：高频 syscall 下，过小 batch 会增加同步 writer 调用、bufio flush 和边界检查次数，缩短单 consumer 可用于 decoder/state/handler 的服务预算；当前尚未验证这些调用是否足以影响完整 event/s。
+- Goal：把 syscall JSON batch 从约 `64 KiB` A/B 到 `256 KiB`，在同一 fixture 和输出模式下比较 write calls、write time、records/read、reserve failure、stage service 和 JSON semantic 结果；若收益不稳定或内存/延迟成本不可接受则回退。
+- Non-goals：不改变 JSON 字段/schema、事件顺序、过滤、BPF producer、event v2 ABI、ringbuf 容量、handler/FD state、lifecycle 或单 Go consumer；不引入异步 writer、第二 Goroutine、mutex、procfs、ptrace 或 process_vm。
+- Constraints：仍需在 lifecycle/phase/stats 写出前 flush syscall tail；batch buffer 是单 writer 所有，不能跨 session 共享；A/B 必须使用同一二进制、同一 workload、同一 `--debug-phases` 配置，不能只看 write calls 就宣称 event/s 提升。
+
+#### 方案比较
+
+1. 保持约 `64 KiB`：内存和尾延迟最小，但保留已观测的约 `9k` 次同步写边界，拒绝作为优化。
+2. 固定增大到约 `256 KiB`：只增加单个 batch buffer 的有界内存，能直接减少边界调用并保持 flush 语义，选择作为 A/B。
+3. 自适应 batch 或按剩余 Ringbuf 动态调整：理论上可平衡延迟和吞吐，但会把运行时策略、诊断和测试复杂度引入 writer，暂缓。
+
+#### 实现与失败优先测试
+
+- 将 JSON syscall batch 常量提升为 `4 * traceOutputBufferSize + 1`，保留 `WriteBatch`、lifecycle/phase 切换和 finalizer tail flush 的既有边界。
+- 增加 writer 测试，确认大于旧上限但小于新上限的多条事件不会提前写出，显式 `Flush` 仍完整输出；保留 stats bytes/calls/error 断言。
+- 运行 Go、race、vet、构建、Python suites、semantic、perf、capture 和 native `small`；重点比较 JSON write calls/time、records_read、reserve failure、stage service 和输出字节，确认 syscall JSON 内容 oracle 不变。
+
+#### Review 入口
+
+- 批量变更只能优化用户态 writer 边界，不能修复 BPF producer 超过 handler/state service 的情况；handler reserve failure 不下降时不能把本阶段描述为整体 event/s 修复。
+- 需要确认大 batch 不会让 debug/lifecycle/phase 输出延迟到错误的顺序边界；所有非-syscall JSON event 仍必须先 flush syscall buffer。
+
+#### A/B 结果与 Review
+
+- 256 KiB 实验在两轮同一高压 fixture 下都保持 JSON `1,600,000` syscall events、`records_invalid=0`、reserve failure `0`、输出约 `588 MB`；batch write 次数从 64 KiB 基线的 `8,958` 降到 `2,262/2,260`，说明批量边界确实生效。
+- 但 256 KiB 两轮 JSON trace window 约 `1.914s/1.942s`，syscall write time 约 `387ms/418ms`；14.308 的 64 KiB 基线约 `1.784s`、`268ms`。handler reserve failure 仍在 `404k-516k`，没有 producer/handler 方向收益。由于写边界时间和 trace window 均没有改善，不能把减少 write calls 当作吞吐提升。
+- 已回退 `jsonSyscallBatchSize` 到原有 `traceOutputBufferSize + 1`，删除仅服务于该实验的扩大 batch 回归测试；保留 JSON 输出统计与 14.308 的阶段诊断。当前固定 64 KiB 是基于真实 A/B 的选择，不是未验证的常量偏好。
+- Review：JSON schema、输出顺序、semantic/perf/native small 均无回归；实验否决了“单纯扩大 batch 能解决 event/s 下降”的假设。后续重点转向 handler/state/producer 事件削减或更细的 effect 诊断，不能继续用 writer batch tuning 迭代。
+
+### 14.310 将 plain-enter elision 扩展到 handler-only（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.308/14.309 的阶段数据表明 handler-only 高压路径仍支付完整 generic enter + exit 事件流；最新 capture 中 handler 约 `2.76M` records read、`435k` reserve failure，而该模式只运行 handler/FD effect，不渲染 enter，也没有 JSON/text 配对输出需求。
+- Problem：普通 generic enter 会进入 `TraceState.pendingSyscalls`，随后再由 exit 配对；这对 handler-only 没有输出收益，却增加 BPF reservation、ringbuf bytes、用户态 state map 和 release 工作，直接压缩 handler service budget。
+- Goal：在 handler-only 且没有 debug/path/FD state 需求时复用已验证的 plain-enter elision：BPF 继续保留专用 enter/payload/lifecycle route，普通 generic exit 在用户态合成最小 enter snapshot，handler/FD effect 继续运行。
+- Non-goals：不省略专用 enter、OUT payload、lifecycle 或 FD/path state 事件；不改变 JSON/text 模式、handler 结果、FD state、生命周期、事件 ABI、filter、输出 schema 或 `--debug-events` 语义；不关闭全部 enter，也不引入 ptrace/procfs、第二 consumer、锁或异步 writer。
+- Constraints：elision 必须由同一 `isPlainGenericEnterExitRoute` capability 判定；handler-only 的 synthetic exit 不能再进入 unmatched-exit defer map；debug/path/`-y`/`-P` 必须保持 generic enter，避免诊断和状态语义缺失。
+
+#### 方案比较
+
+1. 保持 handler-only 完整 generic enter：行为最保守，但已观测到大量 producer drop 和无收益 state 配对，拒绝。
+2. 复用现有 plain-enter elision，只针对无 debug/FD/path 的 handler-only：改动集中在 policy/config predicate，专用 route 不受影响，选择。
+3. handler-only 关闭全部 syscall enter：producer 成本最低，但会丢失专用 enter/payload 和未来 handler 依赖的 enter 语义，拒绝。
+
+#### 实现与失败优先测试
+
+- 扩展 `shouldElidePlainEnter` 使 JSON 与 handler-only 都可用；handler-only 的 debug、`-y`、`-P` 和路径过滤继续禁用 elision。
+- 增加 BPF config/policy 测试，确认 handler-only state 能合成 plain exit，专用 route 仍保留 unmatched/deferred 语义。
+- 运行 Go、race、vet、构建、semantic、perf、capture 和 native `small`；比较 handler `records_read + reserve_fail`、records routed、pending stale、stage service 与 JSON/text 语义。只有 producer attempt 下界和 handler 丢失方向性改善且语义无回归才保留。
+
+#### Review 入口
+
+- 该优化只减少开发期 handler-only 的 producer 输入，不代表 JSON/text 的 generic enter 语义改变；handler-only 本身不输出 syscall 文本。
+- 需要确认 `synthesizeGenericEnter` 提供 handler 所需的 syscall ID/args/enter time，且 `shouldUpdateFDState`、终止 syscall和 lifecycle state 仍由 exit/lifecycle 事件驱动。
+
+#### 实现结果与 Review
+
+- `shouldElidePlainEnter` 现在对普通 handler-only 生效，但在 `--debug-events`、`-y`、`--show-paths`、`-P` 或其他 FD/path state 需求下保持关闭；JSON 的既有 elision 行为不变。BPF 只为 `isPlainGenericEnterExitRoute` 返回 true 的 syscall 写入 elision map，专用 enter/payload/exit route 不受影响。
+- 用户态 `TraceState.handleSyscallExit` 在没有 generic enter 时，仅对 plain route 合成最小 enter snapshot，复用 exit 的 TID、syscall ID、args 和 enter time；该 snapshot 不进入 task pending map，也不会改变 unmatched-exit defer 规则。专用 route 仍保留 pending exit 处理，handler 的 FD effect 和 terminating syscall/lifecycle 处理继续由原有 exit/lifecycle 路径驱动。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、`git diff --check` 和 Python eBPF 单测 `49` 个全部通过；`ebpf-semantic` 通过（semantic `175`、enter/exit `78/97`、lifecycle `6`，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`）；`ebpf-perf` 通过，Go decode/writer/payload benchmark 仍为 `0 B/op、0 allocs/op`；原生 `small` 重新确认 `23 PASS / 0 FAIL`。
+- 最新同一高压 capture 中，reader/none 仍分别读取约 `3,200,035/3,200,035` records，reserve failure 为 `0`；handler 从之前约 `3.2M` producer attempts 下界、约 `400k-500k` reserve failure，降为 `1,600,036` attempts 下界、`1,600,036` records read、`1,600,036` records routed、`0` reserve failure，trace window 约 `1.125s`。这说明 handler-only 的主要问题确实是无收益 generic enter 造成的 producer 和 ringbuf 压力，本阶段已经消除该轮的 reserve drop。
+- 同轮 JSON 仍稳定读取约 `1,600,035` records，产生 `1,600,000` syscall events，reserve failure 为 `0`，输出约 `588 MB`、`8,952` 次写入、写错误为 `0`；state/dispatch sampled time 约为 `8.7/27.0 ms`。JSON semantic 没有因 handler elision 改变，但这不等于 JSON/text 的持续 event/s 已经完全解决。
+- Review 未发现 BPF ABI、event schema、payload、生命周期、过滤、FD state、权限或并发模型回归。该阶段只解决 handler-only 的 producer-side 事件削减；后续仍应以多轮 capture 的持续 service time 和事件完整性为依据，继续处理完整 JSON/text sink 的吞吐边界，不应把单轮 event/s 或 ringbuf 容量当成最终性能结论。
+
+### 14.311 统一 debug-phases 的文本 stats 通道并纳入 text 高压 capture（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：JSON、none、reader 和 handler 的 `--debug-phases` capture 已经通过结构化 `stats` 事件报告 producer 下界、reader、state、dispatch 和 JSON writer 指标；默认 text 路径只在 BPF 错误计数非零时输出一行人类诊断。
+- Problem：text sink 即使成功处理了大量事件，也没有结构化 `records_read/records_routed/service_time` 统计；因此无法把 text 放进同一套 producer/consumer 对账，容易把 JSON 的结果错误外推到默认产品路径。
+- Goal：在 `--debug-phases` 下让所有输出格式都通过同一个 diagnostic writer 输出完整 `stats` JSON；默认 text 不改变任何用户可见输出。将 text 加入高压 capture，验证其 records、reserve failure 和 service time。
+- Non-goals：不把 stats JSON 写入普通 text 输出；不改变 event v2、BPF ABI、ringbuf、状态机、formatter、输出顺序或默认 CLI 行为；不引入第二事件消费者、锁、ptrace、procfs 或 process_vm。
+- Constraints：debug-only stats 必须包含零错误 workload 的完整计数；text 的 syscall 输出仍是普通文本，结构化 stats 只写 diagnostic channel；capture oracle 不能用 JSON syscall 行数代替 text 的 routed-record 证据。
+
+#### 方案比较
+
+1. 保留 text 人类诊断：默认行为最稳定，但无法观测零错误 text capture 的 records/service，拒绝。
+2. 普通 text 始终追加 JSON stats：诊断完整，但破坏用户输出契约和上游 reference，拒绝。
+3. 仅在 `DebugPhases` 下复用 JSON stats schema 写 diagnostic channel：默认零行为变化，所有格式共用同一统计口径，选择。
+
+#### 实现与失败优先测试
+
+- `TraceRunFinalizer` 在 `DebugPhases` 为真时优先写结构化 `jsonStatsEvent`，否则保留 JSON/none/reader/handler 与普通 text 的既有分流。
+- finalizer 单测覆盖 text + debug phases 的 happy path，并确认普通 text 仍只输出人类错误诊断。
+- `ebpf-capture` 增加 text workload；text 以 `records_routed > 0` 和 stats/service 计数作为事件存在 oracle，不要求 text stderr 出现 JSON syscall 行。
+- 运行 Go、race、vet、构建、Python eBPF 单测、semantic、perf、capture 和 native `small`，比较 text 与 JSON 的 producer 下界、reserve failure、routed records 和 service time。
+
+### 14.312 为 rendered text 启用同步输出缓冲并验证高压背压（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.311 将 text 纳入同口径 capture 后，reader/none/handler/JSON 在同一 `16` 线程、每线程 `100000 getpid` workload 下均无 reserve failure；text 仍逐行写出，trace window 约 `5.02s`，reserve failure 约 `947k`，而 JSON 使用 64 KiB `TraceOutput` buffer 后为 `0`。
+- Problem：text renderer 每条 syscall 都直接穿过底层 `os.Stderr`/output pipe，系统调用和 pipe backpressure 直接压缩唯一 Go consumer 的 service budget；这不是 formatter 语义成本，而是已经存在的 output ownership boundary 没有复用。
+- Goal：让 text 与 JSON 都在唯一 `TraceOutput` owner 内使用有界同步 buffer；buffer 满或 finalizer flush 时才写底层，不引入异步 writer。保持 event 顺序、错误传播、关闭顺序和普通 text 内容不变。
+- Non-goals：不改变 text formatter、unfinished/resumed 语义、lifecycle 顺序、JSON batch、ringbuf 容量、BPF ABI、event schema 或 CLI 文本格式；不通过丢弃 text、只保留 summary、第二 Goroutine、mutex、ptrace、procfs 或 process_vm 隐藏背压。
+- Constraints：reader/none/handler 不应为无输出路径创建 buffer；`TraceOutput.Close` 必须继续 flush 后 close；输出 pipe/file 的 write/flush/close 错误仍由 finalizer 聚合返回；高压验收同时检查 text records 与 `ringbuf_reserve_fail`，不能只看 trace window。
+
+#### 方案比较
+
+1. 维持 text 逐行写：实时可见性最好，但已被 capture 证明会形成近百万 reserve failure，拒绝。
+2. 在现有 `TraceOutput` owner 内启用固定 64 KiB 同步 buffer：复用已验证的 flush/close/error ownership，不改变事件处理拓扑，选择。
+3. 新增异步 text writer：可能提升吞吐，但违反单 Go consumer 输出约束并引入 flush/退出竞态，拒绝。
+
+#### 实现与失败优先测试
+
+- 把 output bootstrap 的缓冲条件从“仅 JSON”收敛为“所有 rendered output”，discard/reader/handler 保持无 buffer。
+- 增加 policy/helper 单测和现有 `TraceOutput` flush/close/error 测试，确认 text/json 开启、discard 关闭。
+- 运行 Go、race、vet、构建、Python eBPF 单测、semantic、perf、capture 和 native `small`；capture 重点对比 text 的 `producer_attempts_lower_bound`、`records_read`、`records_routed`、reserve failure、trace window 和 JSON 输出语义。
+
+#### 实现结果与 Review
+
+- output bootstrap 现在对所有 rendered output（text/JSON）启用现有 64 KiB `TraceOutput` buffer；none/reader/handler 仍不创建输出 buffer。`TraceOutput` 的同步 flush、close 和错误聚合边界未改变。
+- Go 定向测试、Python capture oracle 单测和真实 `ebpf-capture` 均通过。text 的 reserve failure 从未缓冲时约 `947k` 降至本轮约 `908k`，说明 writer syscall 有局部贡献，但 records 仍未闭合；`/dev/null` A/B 仍约 `893k`，证明底层 pipe 不是主瓶颈。
+- 该阶段没有解决 text 的整体背压，不能把“启用 buffer”描述成 event/s 根治；后续应减少 plain generic enter 的 event body 和重复状态服务成本。普通 text 内容、JSON semantic、BPF ABI 和单消费者拓扑均未改变。
+
+### 14.313 为 plain generic enter 增加 compact event body（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.312 的 text capture 显示未缓冲与缓冲差距有限，而 text 仍要为每个普通 syscall 消费 generic enter + exit 两条 event。现有 generic enter 固定使用 `72` 字节 body，其中 `ret`、`probe_ret_exit`、`capture_len` 和 `capture_flags` 对普通无 payload enter 没有语义价值。
+- Problem：固定 enter body 使 BPF ringbuf record、Go decode 和 reader service 都支付无效字段；在 text 模式不能像 JSON/handler 一样直接 elide enter，因为 unfinished/resumed 需要在其他 TID event 到达时知道 enter 的 args、TID 和时间。
+- Goal：为 plain generic enter 增加 `compact-enter` event flag 和仅含 6 个 args 的 `48` 字节 body。保留 event header 的 version/type/pid/tid/sys_id/ts_ns、generic-enter 语义和完整用户态 unfinished/resumed 状态；专用 enter、payload、lifecycle 和 debug status enter 继续使用完整 body。
+- Non-goals：不省略 text enter event，不改变 enter/exit 配对、输出顺序、probe 状态、payload TLV、生命周期、filter、JSON schema 的既有字段语义；不引入第二消费者、锁、ptrace、procfs 或 process_vm。
+- Constraints：decoder 必须按 compact flag 严格选择 body 长度并拒绝截断 record；compact enter 的 `probe_ret_enter/exit` 使用明确的 unavailable sentinel，不得把二进制零值误当 probe success；compact event 仍能被 JSON/debug formatter 识别并保留 `event_flags`。
+
+#### 方案比较
+
+1. 保持 `72` 字节 generic enter：ABI 最稳定，但继续传输 24 字节无效字段，无法缓解 text 的 record/service 压力，拒绝。
+2. text 直接 elide generic enter：字节和事件数收益最大，但丢失纯事件流的 unfinished/resumed 语义，违反目标契约，拒绝。
+3. 新增 compact enter body，保留一条 enter marker：只改变 plain enter 的 bounded ABI 表达，保留状态机语义并降低 record 成本，选择。
+
+#### 实现与失败优先测试
+
+- BPF runtime ABI 增加 compact body 长度和 flag，plain generic enter/fallback 使用 compact emitter；专用 direct enter emitter 不改变。
+- Go v2 decoder 增加 compact enter 分支，测试完整 enter、compact enter、截断 body、compact flag 与 payload flag 冲突边界；synthetic enter 保持原有 probe sentinel 契约。
+- 重新生成并真实加载所有 bpf2go objects，运行 semantic/perf/capture 和 native `small`；重点比较 text `max_record_bytes`、records、reserve failure、dispatch service，以及 JSON/debug enter/exit 配对和 payload semantic。
+
+#### 实现结果与 Review
+
+- event v2 ABI 已增加 `EVENT_FLAG_COMPACT_ENTER` 和 `48` 字节 compact body；plain generic enter 及 tail-call fallback 使用 compact emitter，payload、exec、path、structured、lifecycle 和带专用 probe 状态的 enter 仍使用完整 body。Go decoder 对 compact body 做严格长度、flag 和 payload 冲突校验，并为不可用 probe 字段设置 `-1` sentinel。
+- text renderer 增加受边界条件保护的 plain syscall fast path：无参数、无 payload、非错误返回、无路径/特殊返回/时间/stack 选项时复用 line buffer 和 `strconv.AppendInt`，保持 unfinished/resumed 状态消费和单消费者写出顺序。新增默认对齐列、unfinished 行不对齐、suspended nanosleep 和稳态 `0 allocs` 回归测试。
+- 最终门禁全部通过：`go test ./...`、`go test -race ./cmd/strace-go`、`go vet ./...`、构建、`git diff --check`，Python eBPF 单测 `50` 个；`ebpf-semantic` 为 `175` 个 semantic events、enter/exit `78/97`、lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`；`ebpf-perf` 通过，Go decode/writer benchmark 仍为 `0 B/op、0 allocs/op`；原生 `small` 为 `23 PASS / 0 FAIL`。
+- 同类高压 capture 的 compact baseline 约为 `640k` reserve failure、`2.56M` records read；加入 text fast path 后两轮结果为约 `487k-498k` reserve failure、`2.70M-2.71M` records read，producer lower bound 仍约 `3.20M`。最新一轮为 `497,585` reserve failure、`2,702,450` records read/routed、`records_invalid=0`，text trace window `2.457s`，state/dispatch sampled time 约 `20.0/36.2ms`。这是约 `22%` 的 reserve failure 降幅和约 `5.6%` 的 records-read 增幅，但仍有明显 ringbuf 背压，不能宣称 event/s 已根治。
+- Review 未发现 compact decoder、专用 payload route、exec/lifecycle、普通 text 对齐、suspended syscall、过滤、并发模型或错误计数回归。此前一次 semantic 的非 leader exec 文本断言抖动已独立复现为时序波动，最终 semantic 重跑通过；当前实现没有引入 ptrace、procfs、process_vm、第二消费者或 mutex。
+- 阶段结论：compact event 和 text formatter fast path 是有效的局部优化，但剩余 text 背压主要仍在完整 enter/exit 事件数量、unfinished 状态扫描以及文本 pipeline 的每事件 CPU 成本。下一阶段应继续用同一 capture 的 producer lower bound、records read、ringbuf drops、state/dispatch/service time 做受控 A/B，不应继续只优化底层 writer。
+
+### 14.314 只为可能阻塞的 syscall 建立 unfinished 候选（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.313 的高压 text capture 仍有约 `3.20M` producer attempts、约 `2.70M` records read；当前 unfinished index 对每个 syscall enter 都建立候选，其他 TID 的事件到达时再输出 unfinished/resumed。
+- Problem：`getpid` 等明确不会阻塞的 syscall 在并发 workload 中也会被当成“可能 unfinished”，产生额外文本行、状态 map 操作和 renderer 工作。它们不但放大用户态 service time，还会让 ringbuf reserve failure 看起来像 BPF producer 本身变慢。
+- Goal：只跳过语义上明确不会阻塞的 syscall 的 unfinished 候选；未知 syscall 和可能阻塞 syscall 保持现有事件驱动语义。text 仍不使用定时器、ptrace、procfs、process_vm 或第二消费者。
+- Non-goals：不改变 enter/exit 配对、pending state、JSON/handler/debug 模式、可能阻塞 syscall 的 unfinished/resumed 输出、event v2 ABI、BPF producer、过滤或生命周期状态。
+- Constraints：分类必须在 Go 状态层集中、可单测；默认采用保守 denylist，未列出的 syscall 继续进入候选 index；`pendingSyscalls` 仍保留非阻塞 syscall，只有 unfinished index 被跳过，避免影响 exit 配对和 stale 诊断。
+
+#### 方案比较
+
+1. 继续为所有 syscall 建候选，只优化 map 扫描：可以降低部分状态成本，但不会减少虚假的 unfinished/resumed 输出，拒绝。
+2. 建立“可能阻塞”正向 allowlist：能大幅减少候选，但未知或遗漏的阻塞 syscall 会丢失 unfinished 语义，风险过高，拒绝。
+3. 建立明确的“不会阻塞” denylist，未知值保守保持原行为：能消除稳定错误候选，且不扩大未知 syscall 的语义风险，选择。
+
+#### 实现与失败优先测试
+
+- 增加集中式 `shouldTrackUnfinishedSyscall` 判断，在 `rememberEnterEvent` 和重新启用 unfinished index 时复用；不改变 pending map。
+- 单测覆盖 `getpid` 等稳定非阻塞 syscall 不进入候选、`read` 仍进入候选、未知 syscall 保守进入候选，以及 text router 的 read unfinished/resumed 回归。
+- 运行 Go、race、vet、构建、Python eBPF 单测、semantic、perf、capture 和 native `small`；重点比较 text 的 unfinished 行数量、records read、reserve failure、state/dispatch service，并确认 JSON/handler 没有行为变化。
+
+#### 实现结果与 Review
+
+- `TraceState` 现在只为保守 denylist 之外的 syscall 建立 unfinished 候选；`pendingSyscalls` 仍记录所有 enter，因此 exit 配对和 stale 诊断没有被跳过。`getpid` 压测确认不再产生 unfinished/resumed 行，`read` 和未知 syscall 仍保留原候选行为。
+- Go 单测、race、vet、构建、Python eBPF 单测 `50` 个、`ebpf-capture` 均通过；capture 的 `records_invalid=0`、`pending_stale=4`。本轮官方 capture 的 text 为 `2,709,241` records read/routed、`490,794` reserve failure、trace window `1.825s`；自定义同 workload 统计确认 `unfinished_lines=0`、`resumed_lines=0`。
+- 该阶段证明 false unfinished 输出已经被消除，但 reserve failure 仍有较大 run-to-run 波动，说明状态候选不是唯一 producer 背压来源。不能把本阶段描述成 event/s 根治；下一阶段继续减少稳定非阻塞 syscall 的 BPF enter record。
+
+### 14.315 文本模式只省略稳定非阻塞的 plain enter（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.314 已从用户态 unfinished index 移除稳定非阻塞 syscall，但 BPF 仍为这些 syscall 生产 compact enter；对于 `getpid` 等 generic enter/exit 路由，exit 已携带完整 args，用户态具备 synthetic enter 所需数据。
+- Problem：并发高频 workload 中，稳定非阻塞 syscall 的 enter record 只用于建立一个不会触发 unfinished 的 pending 状态，仍占用 ringbuf reservation、reader decode、state map 和 dispatch 预算。只优化用户态候选无法降低 producer 事件数。
+- Goal：在默认 text 输出中，仅对“稳定非阻塞 + plain generic enter/exit route + 无路径/debug 状态”的 syscall 在 BPF 侧省略 enter record；exit 到达时由现有状态机合成 enter，保持完整文本行、过滤、summary 和单消费者顺序。
+- Non-goals：不省略可能阻塞 syscall 的 enter；不省略任何 payload/path/specialized route；不改变 JSON、handler、reader、debug、`-y/-yy`、`-P` 的既有事件契约；不引入 ptrace、procfs、process_vm、定时器、第二消费者或锁；不扩大 `nonBlockingUnfinishedSyscalls` denylist。
+- Constraints：BPF map 集合必须由一个明确的 Go helper 生成，且与 `shouldTrackUnfinishedSyscall` 使用同一稳定非阻塞判定；用户态 state 的 `elidePlainEnter` 只能在相同模式开启。未知 syscall 保守保留 enter，专用 exit route 即使在 denylist 中也不得写入省略 map。
+
+#### 方案比较
+
+1. 直接把 text 的全部 plain generic enter 放入省略 map：事件量下降最大，但会破坏可能阻塞 syscall 的 unfinished/resumed 语义，拒绝。
+2. 只在用户态看到 exit 后补齐缺失 enter：无法减少 ringbuf producer 压力，且不能阻止 BPF 继续写 enter，拒绝。
+3. 复用已有 elision ABI，增加“稳定非阻塞子集”配置模式，并让 text policy 与 BPF map 共享同一谓词：收益集中、边界明确、未知值保守，选择。
+
+#### 实现与失败优先测试
+
+- 扩展 `traceBPFConfig` 区分全部 plain enter elision 与稳定非阻塞 plain enter elision；`configurePlainEnterElision` 只为 text 的稳定非阻塞 generic route 更新 map，JSON/handler 保持全部 plain generic elision。
+- 更新 event policy 与 BPF config 单测，覆盖 text/default、JSON/handler、debug、path、reader/none、specialized route 和 unknown syscall；增加 map 集合谓词测试与 synthetic exit 文本回归。
+- 运行 Go、race、vet、构建、Python eBPF 单测、semantic、perf、capture 和 native `small`；A/B 同时记录 producer lower bound、records read、reserve failure、text 行数、state/dispatch service，并确认 `getpid` 输出仍为完整 syscall 行。
+
+#### 实现结果与 Review
+
+- `traceBPFConfig` 现在区分全部 plain enter elision 与稳定非阻塞子集；默认 text 只为稳定非阻塞且 generic enter/exit route 的 syscall 更新 `plain_enter_elide_map`，JSON/handler 保留原有全部 plain generic elision。`shouldElidePlainEnterForSyscall` 是 map 列表的唯一谓词，未知 syscall 和 specialized route 保守不省略。
+- `TraceState` 与 BPF 配置共享 `shouldTrackUnfinishedSyscall` 的稳定非阻塞分类。BPF 省略 `getpid` enter 后，exit 通过现有 synthetic enter 生成完整文本行；路径/debug/reader/none 均不启用该路径，可能阻塞的 `read` 仍保留 enter 和 unfinished/resumed 语义。
+- 全部门禁通过：`go test ./...`、`go test -race ./cmd/strace-go`、`go vet ./...`、构建、`git diff --check`、Python eBPF 单测 `50` 个、`ebpf-semantic`、`ebpf-perf` 和 native `small` `23 PASS / 0 FAIL`。semantic 仍为 `175` events、enter/exit `78/97`、lifecycle `6`，运行时错误计数为 `0`。
+- 同一 `16` 线程、每线程 `100000` 次 getpid capture 中，reader/none 保持 `3,200,035` records；handler 和 text 均为 `1,600,035` records、`1,600,035` routed、`0` reserve failure、`records_invalid=0`。text trace window 为 `1.366s`，sampled state/dispatch 为约 `9.2/21.6ms`；这与省略 `1,600,000` 个稳定非阻塞 enter 的预期一致。
+- 小 workload 以 `2` 个线程各执行 `5` 次时，text 输出完整 `10` 行 `getpid() = ...`，每行均有返回值，没有 unfinished/resumed 残留。JSON/handler/perf 语义测试没有因 text 专用省略模式改变。
+- Review 未发现 event v2 ABI、payload/path、生命周期、过滤、FD state、未知 syscall、专用 route、错误计数或单消费者并发模型回归。本阶段已经解决当前高压 getpid workload 的主要 ringbuf drops，但只覆盖稳定非阻塞 plain route；完整 text/handler 负载、阻塞 syscall 和更高事件多样性仍需后续阶段继续测量。
+
+### 14.316 文本模式省略可独立渲染的时间类专用出口 enter（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.315 已让 text 模式省略稳定非阻塞且 enter/exit 都走 generic route 的 enter record；混合 `getpid,clock_gettime` workload 中，`clock_gettime` 的 enter 仍被保留，因为它的 exit 走 `exitProgFDTime`，而不是 generic exit。
+- Problem：`clock_gettime`、`clock_getres`、`gettimeofday` 的 BPF 专用 exit event 已携带 pending args 和成功后的 OUT struct TLV。当前用户态却把所有 specialized exit 都视为必须等待 enter 的事件，导致这三个稳定非阻塞 syscall 继续为只建立配对状态而支付一条 enter record。
+- Goal：只在默认 text、无 debug/path/fd-state 的模式下，省略这三个时间类 syscall 的 generic enter；exit 到达时合成 generic enter，并使用 exit payload 完成 strace-like 文本渲染。JSON/handler 的既有 all-plain 策略、阻塞 syscall 和其他专用出口保持不变。
+- Non-goals：不省略 `read/pread64` 等 OUT buffer syscall；不省略 `arch_prctl/get_robust_list` 等尚未证明独立渲染的 async route；不修改 BPF event v2 ABI、direct TLV、unfinished 定时规则、ptrace/procfs 路径或消费者拓扑。
+- Constraints：能力必须同时满足 generic enter、明确的 standalone exit route 和稳定非阻塞三个条件；unknown syscall、普通 generic exit、阻塞 syscall、失败返回都不能因为该优化改变配对或 payload 语义；用户态 policy 与 BPF elision map 必须复用同一谓词。
+
+#### 方案比较
+
+1. 继续保留所有 specialized-exit enter：语义最保守，但混合高频 workload 仍支付可由 exit 独立提供的 enter record，拒绝。
+2. 只对已验证的时间类 direct TLV exit 建立 explicit standalone capability：收益集中，args 和 OUT snapshot 已有 ABI 与 handler 测试，选择。
+3. 对所有“generic enter + stable nonblocking” syscall 泛化省略：事件数下降更大，但会把未验证的 async、FD 和复杂返回 route 带入 synthetic context，风险过高，拒绝。
+
+#### 实现与失败优先测试
+
+- 将 route 判断拆成 enter capability 与 exit capability，并增加只允许三个时间类 syscall 的 standalone exit predicate；普通 plain elision 的 JSON/handler 行为保持原样。
+- 将 text-only restricted elision 能力通过 event policy 传给 `TraceState`；缺失 enter 的时间类 exit 只在该 policy 下合成，JSON/handler 对同一事件仍按原策略等待 enter。
+- Go 单测覆盖 route、BPF elision ID、policy snapshot、text synthetic exit、JSON/handler 保守 defer；增加带 OUT struct TLV 的 `clock_gettime` context 回归，确认 handler 使用 exit snapshot 而不是指针 fallback。
+- capture 增加高压 text mixed workload，比较 `producer_attempts_lower_bound`、`records_read`、reserve failure、输出行数、state/dispatch service time；继续运行 semantic、perf、race、vet、build 和 native `small`。
+
+#### 实现结果与 Review
+
+- `bpfRouteCapability` 现在分别暴露 generic enter 判断和 standalone exit 判断；restricted text elision 只允许 `clock_gettime`、`clock_getres`、`gettimeofday`，并要求该 syscall 稳定非阻塞。`read/pread64`、`arch_prctl`、`get_robust_list` 和其他 specialized route 仍保留 enter。
+- `TraceState` 从 event policy 接收 restricted elision 标志，并复用 BPF map 的同一 `shouldElidePlainEnterForSyscall` 谓词。text 缺失 enter 时合成 generic enter；JSON/handler 的 restricted 标志为 false，因此没有扩大它们原有的 generic-only 合成范围。
+- 新增 route/config/policy/state 测试，以及带 exit OUT struct TLV 的 `clock_gettime` 文本 context 测试。成功返回使用真实 snapshot；失败返回仍合成配对，但没有 OUT snapshot 时由 handler 回退到指针文本，未发生 deferred/unmatched。
+- `ebpf-capture` 新增 `text-mixed`：fixture 执行 100000 次 `getpid` 与 100000 次 `clock_gettime`。实际 `records_read=records_routed=200003`、`producer_attempts_lower_bound=200003`、`ringbuf_reserve_fail=0`、`records_invalid=0`，trace window `0.366638s`；文本 syscall 行数达到 200000 门槛。原有 16 线程 text capture 仍为 `1,600,036` records、reserve failure `0`。
+- 同一 mixed fixture 的 handler 控制组为 `300003` records、reserve failure `0`；因此本阶段实际少掉约 `100000` 条 specialized enter，证明收益来自 producer/event volume，而不是只改变统计口径。text mixed 当前约 `545505 records/s`，仍低于 handler 控制组约 `896k records/s`，剩余差异属于带时间结构 payload 的用户态 decode/format 成本，不能宣称文本 pipeline 已经完全解决。
+- 最终本阶段门禁通过：`go test ./...`、`go test -race ./cmd/strace-go`、`go vet ./...`、构建、Python eBPF 单测 `51` 个、`ebpf-semantic` `175` events、`ebpf-perf`、以及 native `small` `23 PASS / 0 FAIL`。
+- Review 未发现 specialized exit payload 合并、失败返回、JSON/handler policy 隔离、unfinished 配对、生命周期或单消费者拓扑回归。本阶段只消除了已证明的三个时间类出口 enter；整体 arch.md 仍需继续处理其他 payload/生命周期覆盖和更广的性能 workload，不能据此宣称所有 syscall 的 event/s 问题已经完成。
+
+### 14.317 文本模式省略 small-struct 专用出口 enter（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.316 已证明 direct time exit 可以在没有 enter record 时由 exit args 和 OUT TLV 独立渲染；`arch_prctl` 与 `get_robust_list` 也使用 `exitProgAsync`，但仍被保守地保留 enter。
+- Problem：这两个 syscall 的 exit body 同样复制 pending args，small-struct emitter 在成功返回时只拷贝有限的 8 字节 OUT word；用户态 handler 不依赖 enter payload，也不会在快照缺失时读取 tracee 内存。因此当前 enter 只是额外的 ringbuf、decode 和 state 成本。
+- Goal：在 text restricted elision 中加入 `arch_prctl` 和 `get_robust_list`；把 `get_robust_list` 纳入稳定非阻塞分类；验证成功 OUT snapshot、失败返回指针回退、`ARCH_SET_FS` 的既有 suppress 规则和 JSON/handler 隔离。
+- Non-goals：不对 `sendfile/copy_file_range/cachestat/capget/capset/prctl` 等其他 async route 泛化；不改变 small-struct ABI、BPF reserve 容量、生命周期、filter、payload decoder 或 output mode contract。
+- Constraints：只能选择已有 small-struct direct exit 且 enter route generic 的 syscall；成功返回必须能独立从 exit TLV 渲染，失败返回不得伪造 payload；unknown syscall 和可能阻塞 syscall 继续保守保留 enter。
+
+#### 方案比较
+
+1. 继续保留两个 enter：没有新风险，但 small-struct 的已验证 exit payload 不能带来事件量收益，拒绝。
+2. 只加入 `arch_prctl`：已有稳定非阻塞分类，但遗漏同一 direct ABI 的 `get_robust_list`，收益和策略不完整，拒绝。
+3. 显式加入两个 small-struct route，并单独把 `get_robust_list` 加入 denylist：能力边界与 BPF/handler 现状一致，选择。
+
+#### 实现与失败优先测试
+
+- 扩展 standalone predicate 和稳定非阻塞表；route/config 测试必须继续排除其他 async syscall。
+- 增加 text state/context 测试：`arch_prctl(ARCH_GET_FS)` 与 `get_robust_list` 使用 exit OUT TLV；失败 exit 无 payload 时仍合成并回退指针；`ARCH_SET_FS` 仍被 pipeline suppress。
+- 扩展 eBPF fixture 的 small-struct workload，运行高压 text capture，断言 200000 条文本 syscall 行、producer/consumer 对账和 reserve/copy/pairing 错误为零；JSON semantic 与 native small 继续复跑。
+
+#### 实现结果与 Review
+
+- `bpfRouteCapability` 的 standalone exit allowlist 现在包含 `clock_gettime`、`clock_getres`、`gettimeofday`、`arch_prctl` 和 `get_robust_list`；其中 `get_robust_list` 已加入稳定非阻塞分类。`read`、`openat`、`sendfile`、`prctl` 以及其他 async route 仍不会进入该集合。
+- `TraceState` 的 text-only 缺失 enter 合成继续复用生产 `shouldElidePlainEnterForSyscall`，成功的 `arch_prctl(ARCH_GET_FS)` 和 `get_robust_list` 使用 exit OUT TLV；失败返回没有伪造 payload，仍回退到指针形式。`ARCH_SET_FS` 的既有 suppress 规则保持不变。
+- 新增的 route/config/policy/stable-nonblocking/state/context 测试全部通过；small-struct fixture 的真实 eBPF capture 中，100000 次 `arch_prctl` 加 100000 次 `get_robust_list` 产生 `records_read=records_routed=200004`、文本 syscall 行 `200000`、`producer_attempts_lower_bound=200004`，`ringbuf_reserve_fail/ringbuf_copy_fail/pending_update_fail/orphan_exit/pending_mismatch/pending_stale` 均为 `0`，trace window 为 `0.582361s`。
+- 14.316 的 text mixed 回归仍稳定为 `records_read=records_routed=200003`、文本行 `200000`、reserve failure `0`；本轮普通 16 线程 text capture 为 `1,600,036` records、文本行 `1,600,000`、reserve failure `0`。此前单轮出现的 `orphan_exit=1` 在完整 capture 复跑中恢复为 `0`，因此归类为捕获退出窗口抖动，未形成可重复回归。
+- 最终门禁通过：`go test ./...`、`go test -race ./cmd/strace-go`、`go vet ./...`、构建、`git diff --check`、Python eBPF 单测 `51` 个、`ebpf-semantic` `175` events、`ebpf-perf`、`ebpf-capture` 和 native `small` `23 PASS / 0 FAIL`。JSON semantic、handler-only elision、生命周期、过滤和单消费者拓扑没有因本阶段改变。
+- Review 未发现 small-struct OUT TLV 合并、失败返回、text/JSON/handler policy 隔离、unfinished 配对、生命周期或 event v2 ABI 回归。本阶段只完成了两个有明确 payload 能力的 async 出口；阻塞 IO、复杂可变内存和剩余生命周期/过滤覆盖仍是 arch.md 后续阶段，不能据此宣称整体 event/s 已完成。
+
+### 14.318 为 read/write bytes TLV 按实际长度精确预留 ringbuf（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.315-14.317 已削减了可以独立由 exit 渲染的稳定非阻塞 syscall enter，但 `read/write` 仍必须保留 enter/exit：`read` 可能阻塞，`write` 的 IN buffer 需要在 enter 点深拷贝，不能通过省略事件规避成本。
+- Problem：当前 `emit_payload_enter_event_v2_direct` 和 `emit_payload_exit_event_v2_direct` 对 bytes TLV 固定按 `PAYLOAD_TLV_*_MAX=512` 预留空间。本轮 perf fixture 每次只读写 64 字节，却让每条 payload record 都占用完整 `32+512` 字节；失败 read 没有 OUT payload 也会预留同样空间。这会降低 ringbuf 有效容量并放大 producer/reader 的内存复制和 cache 成本，直接表现为 IO event/s 明显低于 scalar。
+- Goal：在不改变 event v2 schema 和 bytes TLV 语义的前提下，先按 `write` 的 `min(count, PAYLOAD_TLV_WRITE_MAX)` 和 `read` 成功返回的 `min(ret, PAYLOAD_TLV_READ_MAX)` 计算逻辑 copy 长度，再映射到 verifier 可证明的 `64/128/256/512` 常量 bucket；失败 read 只保留 exit body，write 仍保留 bytes TLV header。BPF `bpf_dynptr_data` 的访问长度必须使用对应常量 bucket，实际 `bpf_probe_read_user` copy 仍使用真实长度，避免精确预留后误报 copy failure。
+- Non-goals：不省略可阻塞的 `read` enter，不降低 `PAYLOAD_TLV_*_MAX` 的用户可见截断上限，不改变 `user_len/copied_len/probe_ret`、失败回退、unfinished/resumed、JSON/text 输出、过滤、生命周期或消费者拓扑；不使用 ptrace、procfs、process_vm、第二 consumer、锁或异步 writer。
+- Constraints：reserve size 必须始终覆盖 TLV header 和对应 bucket；`count=0`、`ret<=0`、NULL 指针和 probe failure 必须产生与当前相同的 TLV/无 TLV 结果；bucket 分支中的 `bpf_dynptr_data` size 必须是编译期常量；所有生成的 BPF object 必须重新加载并通过真实 IO payload fixture。
+
+#### 方案比较
+
+1. 保持固定 `32+512` 预留：实现最简单、ABI 行为不变，但小 IO 仍浪费大部分 ringbuf record 空间，无法解释并改善 IO event/s，拒绝。
+2. 仅降低全局 `PAYLOAD_TLV_*_MAX`：能减少空间，但会改变截断上限和现有 payload 契约，拒绝。
+3. 根据本次 `count/ret` 选择最小常量 bucket、保留固定最大截断上限：只改变 BPF record 的物理容量，TLV 字段和用户态语义不变；选择，但需接受 bucket 内部的有界余量。
+
+#### 实现与失败优先测试
+
+- BPF source test 覆盖 write enter、read exit 的 bucket capacity 和常量 `bpf_dynptr_data` 访问；禁止重新引入固定 bytes max 作为所有 reserve size。
+- Go/Python 单测覆盖 64 字节 payload、零长度、失败返回、NULL/probe failure 和大于 512 字节的截断；检查 payload sections、`user_len/copied_len/event_flags` 与文本 pointer fallback 保持不变。
+- 真实 eBPF perf 增加/复用小 IO workload，比较 `max_record_bytes`、`bytes_read`、trace window、exit events/s、reserve/copy failure 和 payload 完整性；同时复跑 semantic、capture、race、vet、build 和 native `small`。
+
+#### 实现结果与 Review
+
+- 第一版完全动态 `bpf_dynptr_data(ptr, data_offset, copied_len)` 在真实加载时被 verifier 拒绝，错误为 `R3 is not a known constant`；没有把该实现当作已完成结果。随后改为 `payload_tlv_data_bucket` 和 `payload_tlv_data_direct`，按 `64/128/256/512` 四档常量访问，实际 probe copy 仍按 `copied_len`，并重新生成全部 BPF object。
+- `write` enter 的 reserve 现在使用 `PAYLOAD_TLV_HEADER_SIZE + bucket(min(count, 512))`；read 成功 exit 使用 `bucket(min(ret, 512))`，`ret<=0` 不再预留无用 OUT bytes 区域。TLV 的 `user_len/copied_len/probe_ret`、截断标志和用户态 pointer fallback 没有改变；read enter 仍然保留，所以阻塞语义未被削弱。
+- 当前 `ebpf-perf` IO workload（1000 次 64 字节 read/write）为 `bytes_read=637136`，低于新增的 `900000` bytes budget；trace window `0.121017s`，exit throughput `16534.86/s`，`ringbuf_reserve_fail/ringbuf_copy_fail/pending_update_fail/orphan_exit/pending_mismatch/pending_stale` 均为 `0`。此前固定容量路径记录的同 workload 为约 `0.127690s/15670.79/s`，方向上约有 5% 改善，但短 workload 仍受启动和调度噪声影响，不能只用该比例外推高压吞吐。
+- `ebpf-semantic` 仍为 `175` events、enter/exit `78/97`、payload truncated `7`，所有运行时错误为 `0`；`ebpf-capture` 的 reader/none/handler/text/text-mixed/text-small-struct/json 全部通过，新增 bucket 没有改变非 IO 路径记录或文本行门槛。source/route/perf Python 单测和定向 Go 测试通过，BPF verifier、真实 loader 和 payload fixture 均已验证。
+- Review 未发现 event v2 schema、TLV decoder、失败返回、read unfinished/resumed、过滤、生命周期或单消费者拓扑回归。本阶段解决的是 bytes payload 的物理预留浪费，不是所有 IO event/s 的最终上限；高频可阻塞 read 的 Go 状态/文本处理成本和更大 payload bucket 仍需独立压测，不能宣称整体性能问题已经完成。
+
+### 14.319 增加长 IO 的 reader-only 稳态性能门禁（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.318 只用 1000 轮 JSON IO workload 验证了 bytes TLV bucket；本轮手工扩展到 100000 轮后，reader/none/handler 的 `ringbuf_reserve_fail` 都为 `0`，约 400005 条 record 全部被 reader 观察到。长 JSON 还会产生约 245 MB 输出，不能直接作为 Ringbuf producer 稳态的唯一 oracle。
+- Problem：如果性能 suite 继续只运行短 JSON workload，就无法防止固定 payload 容量、Ringbuf burst 或 reader 边界消费回退；如果把 100000 轮直接作为 JSON suite，又会把 Python JSON 解析和输出写入带宽混入 producer 测量，并显著增加测试内存和运行时间。
+- Goal：增加一个默认执行的长 IO reader-only workload，使用 100000 轮 64 字节 `read/write`，验证真实 eBPF producer 在无完整事件路由和输出 sink 的条件下能持续提交并被单一 Go reader 消费；同时固定 `records_read` 下限、reserve/copy/pairing 错误为零和 bytes-read budget，持续保护 14.318 的物理容量收益。
+- Non-goals：不把 reader-only throughput 当作 JSON/text/handler 的用户可见吞吐；不替代短 JSON 的 payload/enter/exit 语义测试；不新增第二消费者、异步 writer、锁、ptrace、procfs 或 process_vm；不把一次 trace window 数字硬编码成跨机器的 event/s 门槛。
+- Constraints：长 workload 必须通过现有真实 loader、BTF/verifier、Ringbuf 和 finalizer；`event-format=reader` 只能做 record boundary validation 和统计，`--debug-phases` 仍需输出可解析 stats；门禁必须能区分“没有读到足够 record”和“有 reserve failure”，并在 Python 单测中覆盖通过与失败路径。
+
+#### 方案比较
+
+1. 把 100000 轮 IO 直接加入 JSON `PERF_WORKLOADS`：语义覆盖最完整，但会制造约 245 MB 输出，把 JSON 编码、Python 解析和 pipe 带宽混入稳态指标，默认门禁过重，暂缓。
+2. 只保留当前 1000 轮 JSON：运行开销小，但不能稳定暴露长 burst、固定 payload reservation 和 Ringbuf 消费回退，拒绝。
+3. 增加 100000 轮 `event-format=reader` 的长 IO spec，保留短 JSON payload spec：可以隔离 producer/reader 稳态与完整输出语义，复用现有 stats/finalizer 和单消费者拓扑，选择。
+
+#### 实现与失败优先测试
+
+- 为 `PerfWorkloadSpec` 增加 `event_format` 与 `minimum_records_read`；`capture_workload` 对 JSON 复用 `run_strace_go_json`，对 reader 复用明确的 `run_strace_go_capture`，不在测试中实现第二套运行器。
+- 新增 `io-long-reader`：`fixture_args=("io", "100000")`、`trace=read,write`、`event_format="reader"`、`minimum_records_read=400000`、`max_bytes_read=65000000`。所有既有 runtime diagnostic counters 仍必须为零；短 `io` spec 继续检查 read OUT 和 write IN payload。
+- Python 单测覆盖 reader-only 长 workload 在 records/bytes 边界内通过，以及 records 不足和 bytes 超预算失败；继续运行 Go、race、vet、构建、semantic、capture、perf 和 native `small`。
+
+#### 实现结果与 Review
+
+- 性能 suite 已加入 `io-long-reader`，长 workload 不解析 JSON syscall 行，只通过真实 `event-format=reader` 读取 Ringbuf record 并输出 stats。校验包含 `records_read >= 400000`、`producer_attempts_lower_bound >= records_read`、`bytes_read <= 65000000` 和全部 runtime error counters 为零；perf oracle 还增加了 records/accounting 不一致的失败路径。
+- 当前真实运行结果：`100000` 轮 IO 产生 `400005` 条 record，`producer_attempts_lower_bound=400005`，`bytes_read=63205136`，`ringbuf_reserve_fail/ringbuf_copy_fail/pending_update_fail/orphan_exit/pending_mismatch/pending_stale=0`，trace window `0.796746s`。同轮 reader-only 没有 JSON syscall output，`records_routed=0`，符合边界消费拓扑；短 JSON IO 仍为 `4002` events/`2001` exits，payload 与错误计数门禁通过。
+- 全量 Python 单测现在为 `55` 个通过，`ebpf-perf`（含长 reader workload）通过。该门禁保护的是 producer/reader 稳态和 record physical size，不宣称完整 text/handler/JSON 的 event/s 已解决。后续若长 reader 稳定而完整 sink 仍丢失，优化入口应继续落在 state/handler/output 的服务时间；若 reader 也失败，再回到 BPF reservation 或 Ringbuf 消费路径。
+
+### 14.320 定位 fork/exec/exit storm 下的生命周期覆盖缺口（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.319 已证明长 IO 的 producer、Ringbuf reader 和 record accounting 没有丢失；下一项 arch.md 要求是 fork/exec/exit 生命周期和子进程过滤状态。当前 `ebpf_perf_fixture` 的 `lifecycle N` 会执行 N 次 `fork`、子进程 `execve(/bin/true)` 和父进程 `waitpid`。
+- Problem：fixture 返回码和原生 `strace -f` 都证明 `lifecycle 1000` 完成了 1000 轮，但 pure eBPF 在 128 轮以上只观察到不稳定的子集；例如 1000 轮某次只观察到约 82 个 `fork/exec/exit` lifecycle action。`records_read == producer_attempts_lower_bound` 且 Ringbuf、pending、lifecycle map 错误均为零，现有统计无法区分 fork tracepoint 未触发、父任务失去 tracked 状态、子过滤安装失败或事件发送遗漏。
+- Goal：先增加低频、可审计的生命周期诊断计数，证明每个 fork 阶段的实际覆盖；随后修复 tracked filter 的所有权/传播问题，并为生命周期风暴建立“fixture 完成轮数 == 观察到的 fork/exec/exit 语义”的稳定门禁。
+- Non-goals：不通过 procfs 扫描或 PID 轮询补齐子进程，不使用 ptrace/process_vm，不增加第二 Ringbuf consumer，不用放宽计数阈值掩盖缺口，不改变 event v2 用户事件 ABI，除非诊断证明需要明确的新统计字段。
+- Constraints：诊断只增加生命周期 tracepoint 级计数，不进入每个普通 syscall 的热路径；计数必须区分 parent tracked、child filter install 结果和 lifecycle emission；所有 map 更新错误继续单独统计；先验证根因再改 `filter_map` 清理/继承逻辑。
+
+#### 方案比较
+
+1. 直接把生命周期 workload 降到 8 轮或放宽长压计数：能让现有 suite 继续通过，但保留了真实覆盖缺口，拒绝。
+2. 用 procfs/PID 扫描发现遗漏子进程：可以在用户态补观察范围，但存在扫描竞争，违背纯 eBPF 事件流约束，拒绝。
+3. 在 `sched_process_fork/exec/exit/free` 的生命周期边界增加专用诊断，先定位 tracked filter 的丢失阶段，再修复 BPF 状态所有权并收紧 oracle，选择。
+
+#### 实现与失败优先测试
+
+- 在 BPF stats ABI 增加 lifecycle fork seen、parent tracked、child filter install success/failure、exec/exit untracked 等诊断字段；Go stats/json 只负责稳定输出，不把诊断失败误归类为 Ringbuf drop。
+- Python oracle 增加生命周期计数拆分和 failure path：fixture rc 非零、fork/exec/exit action 不足、诊断计数不一致都必须失败；在根因修复前不把 1000 轮 storm 作为通过门禁。
+- 先运行小档 `8/32/64/128/256/512/1000`，确认缺口和 `filter_map` ownership 的对应关系；修复后再加入可重复的长生命周期门禁，并复跑 semantic、perf、capture、race、vet、build 和 native small。
+
+#### 实现结果与 Review
+
+- 根因已经确认：`sched_process_free` 的 raw tracepoint 只提供被释放任务的 `pid`，而旧实现使用 `bpf_get_current_pid_tgid()` 作为清理对象。该 tracepoint 可能运行在调度上下文中，导致一个子进程释放时误清理仍然存活目标进程的 `filter_map` 状态；表现为 fixture 已完成 1000 轮，但后续 fork 的 parent tracked 数量和生命周期事件只剩不稳定子集。
+- 修复使用 `ctx->pid` 做 task-scoped cleanup：先检查 `is_lifecycle_task_tracked(tid, tid)`，再调用 `clear_lifecycle_task_state(tid, tid)` 并发出对应 `free` 事件。没有引入 procfs/PID 轮询、ptrace、process_vm、第二消费者或锁；`sched_process_exit` 仍是带完整当前任务身份的主要生命周期路径，`free` 只承担安全的清理兜底。
+- BPF stats 新增 fork/exec/exit 覆盖诊断，Go JSON stats 保持字段稳定。`fork_parent_untracked`、`exec_untracked`、`exit_untracked` 是全局 tracepoint 可观测计数，不作为全局零值门禁；生命周期 storm 只对 tracked parent、child filter install 和 child install failure 做门禁，避免把无关任务的全局 tracepoint 噪声误报为目标 workload 失败。
+- 修复后的真实 `lifecycle 1000` 结果稳定：`lifecycle_fork_seen=1002`、`lifecycle_fork_parent_tracked=1000`、`lifecycle_fork_parent_untracked=2`、`lifecycle_fork_child_filter_installed=1000`、`lifecycle_fork_child_filter_failed=0`、`lifecycle_exec_seen=1001`、`lifecycle_exec_untracked=0`、`lifecycle_exit_seen=1002`、`lifecycle_exit_untracked=0`；观察到 `fork=1000`、`exec=1001`、`exit=1000`，Ringbuf、pending、orphan、mismatch、stale 和 lifecycle map 错误均为 `0`。
+- 当前完整验证通过：`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、Python `57` 项单测、`ebpf-semantic`、`ebpf-perf`、`ebpf-capture` 和原生 `small` `23 PASS / 0 FAIL`；`git diff --check` 通过。长 IO reader-only 仍为 `400005` 条记录、`producer_attempts_lower_bound=400005`、`bytes_read=63205136`、所有运行时错误为 `0`，说明本次生命周期修复没有破坏前一阶段的 producer/reader 稳态。
+- Review 残余风险：`sched_process_free` 的 raw 模板没有独立的 TGID 字段，因此非 leader task 的 free 事件无法仅凭该 tracepoint 恢复精确 TGID；本实现把它限制为 task-scoped 清理，避免误删其他 live task，精确生命周期语义仍以 `sched_process_exit` 为准。后续若要扩展 free 的元数据，必须先增加可验证的内核字段来源，不能回退到 procfs 竞争读取。
+- 阶段结论：Phase 14.320 的生命周期覆盖缺口和对应性能门禁已完成，之前 lifecycle storm 下 event/s/事件数大幅下降的根因已解决并有真实 eBPF 证据。整体 arch.md 尚未完成：剩余工作仍包括更广 syscall/payload 覆盖、text/JSON/handler 的多 workload 基准和最终架构收敛，不能把本阶段结果宣称为整个 strace-go 已完成。
+
+### 14.321 收敛 syscallEventContext 的职责边界（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：Phase 3 已把 syscall 事件处理迁移到单 Goroutine，并陆续引入 `TraceEventRouter`、`SyscallExitPipeline`、`SyscallHandlerRunner`、`TextRenderer` 和 `JSONEventWriter` 等协作对象。当前 `cmd/strace-go/syscall_event_context.go` 仍有 593 行，同时承担 event view、依赖组装、payload 合并、path/filter 派生、handler context 构造、FD effect 和 status policy。
+- Problem：一个上下文文件混合了构造期派生数据和事件处理期副作用协议。新增 payload 或 FD 语义时容易继续修改同一个聚合文件；文件也超过项目 500 行限制，测试只能通过大量 concrete struct literal 间接锁定职责，接口边界不够清晰。
+- Goal：保持 `syscallEventContext` 作为单个事件的不可变值对象，按职责拆出 context construction、handler context projection、FD effect projection 和 output/status policy；不改变 event v2 ABI、payload 合并、过滤、handler、文本/JSON 输出或单消费者拓扑。
+- Non-goals：不把所有调用点一次性改成宽泛的 `interface{}`，不重写已有 renderer/pipeline，不引入第二消费者、锁、ptrace、procfs 或 tracee memory fallback，不借机改变 `syscallEventContext` 的字段语义和测试 fixture。
+- Constraints：每个生产 Go 文件不超过 500 行；构造函数仍必须在创建后完成 path/filter/payload 派生；handler context 只能持有 BPF snapshot sections；FD update 仍由现有 port 执行；拆分后必须通过现有 Go/race/vet、semantic/perf/capture 和 native small 门禁。
+
+#### 方案比较
+
+1. 保留单文件并只增加注释：改动最小，但继续违反文件边界并扩大聚合对象的维护风险，拒绝。
+2. 立即把所有消费者改成新的宽泛事件接口：长期解耦更强，但会同时改动大量 renderer/pipeline/test 合同，容易把本阶段的结构整理和行为迁移混在一起，暂缓。
+3. 保留稳定的 concrete event value，在文件边界上按职责拆分并增加 source/line 门禁：能立即降低单文件复杂度、保持零行为变化，并为后续小步抽象提供稳定切点，选择。
+
+#### 实现与失败优先测试
+
+- 将 context 依赖/构造和 view 保留在核心文件；把 handler context projection、FD effect projection、output/status policy 迁入独立文件，删除重复定义。
+- 增加结构门禁，验证核心 context 文件和新职责文件均不超过 500 行，并确认纯 eBPF snapshot-only 约束没有因拆分回流。
+- 运行 `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、Python eBPF 单测、`ebpf-semantic`、`ebpf-perf`、`ebpf-capture` 和 native `small`；对比 event/record/error 统计，确保本阶段只改变代码组织。
+
+#### 实现结果与 Review
+
+- `syscall_event_context.go` 现在只保留事件值、依赖组装、event view、payload merge 和 context construction；handler projection、FD effect projection、output/status policy 分别迁入 `syscall_event_context_handler.go`、`syscall_event_context_effects.go`、`syscall_event_context_policy.go`。现有 concrete event value、构造函数和协作 port 没有改成宽泛接口，避免把结构整理与行为迁移混在一起。
+- 生产文件行数已收敛为：核心 `320` 行、handler `131` 行、effects `68` 行、policy `85` 行；新增 source/line regression test 防止职责重新堆回核心文件。handler context 仍只携带 `PayloadSections`，没有恢复任何 tracee memory reader 或旧 fixed snapshot API。
+- 全量验证通过：`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、Python `57` 项单测、`ebpf-semantic`、`ebpf-perf`、`ebpf-capture` 和 native `small` `23 PASS / 0 FAIL`。`ebpf-capture` JSON 场景仍读取 `1600035` 条 record、`records_invalid=0`、`ringbuf_reserve_fail=0`、`pending/orphan/mismatch/stale=0`；长 IO 仍读取 `400005` 条 record。
+- Review 未发现 event v2 ABI、payload section merge、path/filter、FD state、handler dispatch、text/JSON 输出、生命周期或单消费者拓扑回归。本阶段是结构收敛，不声称提升 event/s；后续新增 syscall 应优先落在对应职责文件或新的专项模块，不再扩大核心 context 文件。
+
+### 14.322 为 mount_setattr 增加 probe-site FD path snapshot（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`mount_setattr` 已经通过 FS direct event 在 enter 点捕获 pathname、`struct mount_attr` 和 bounded extension；handler 也按 `dfd`/path 参数模型渲染。但 `mount_setattr-P` 的 `dfd` 和 `mount_attr.userns_fd` 在目标进程启动时不一定已由 open/dup 事件建立 FD state。
+- Problem：当前 `mount_setattr` enter event 没有捕获 `dfd` 对应的 event-time FD path/cwd snapshot，`-y/-P` 只能看到裸 FD，upstream reference 因此被标记为“需要 procfs”。如果用 `/proc/$pid/fd` 补齐，会引入竞争并违反纯 eBPF 契约；实际上 BPF 已有 `lookup_current_fd_file`、dentry path 和 cwd snapshot 能力。
+- Goal：在 `mount_setattr` 的 probe-site direct TLV 中增加 arg0 `dfd` 的 `PayloadKindFDPath` section；对 `AT_FDCWD` 捕获 event-time cwd，对真实 FD 捕获 path 和 FD identity/offset snapshot。让同一事件的 path argument 与嵌套 `userns_fd` 复用该 overlay，并尝试将 `mount_setattr-P` 从 expected XFAIL 提升为稳定 reference。
+- Non-goals：不读取 procfs、tracee memory、filesystem live state，不改变 mount_attr 的 bounded struct/extension 截断契约，不修改通用 FD path 语义、event v2 ABI、Ringbuf consumer、lifecycle、过滤或输出顺序；未知/失效 FD 仍输出裸值。
+- Constraints：FD path capture 必须发生在 BPF syscall enter probe；reserve capacity 必须覆盖新增 section；失败 probe 必须保留 section failure 状态而不是伪造路径；普通 `mount_setattr`/semantic JSON、`-P` path filter 和 native reference 必须同时验证。
+
+#### 方案比较
+
+1. 在 Go 侧查询 `/proc/$pid/fd` 或延迟读取 filesystem：可能通过 exact diff，但存在 TOCTOU，违反纯 eBPF/no-procfs 约束，拒绝。
+2. 在启动阶段预扫描全部 FD：仍然是 procfs 快照，且 attach/启动后会竞争 FD 复用，拒绝。
+3. 在 `mount_setattr` enter probe 使用已有 BPF file/path walker 直接捕获 arg0 FD/cwd section：时点正确、复用现有 event-sourced overlay、失败可降级为裸 FD，选择。
+
+#### 实现与失败优先测试
+
+- 先增加 BPF source regression，要求 mount_setattr capacity 包含 FD path section，capture 顺序为 `dfd -> pathname -> mount_attr -> extension`，并禁止通过 Go/procfs 补路径。
+- 增加 event context/handler regression，验证 arg0 FD path overlay 同时用于 path argument 的 dirfd 展示和 `mount_attr.userns_fd` 展示；AT_FDCWD、失效 FD 和缺失 section 保持原始降级。
+- 运行真实 verifier、`mount_setattr.gen.test`/`mount_setattr-P.gen.test` reference、semantic、perf、capture、Go race/vet/build 和 native small；若 exact diff 仍受纯 eBPF 调度影响，保留明确 XFAIL，不放宽主门禁。
+
+#### 实现结果与 Review
+
+- 失败优先 source gate 先验证 `mount_setattr` 缺少 `FD_PATH_DIRECT_SECTION_MAX`；实现后 `syscall_mount_setattr_direct_event_v2.h` 复用已有 BPF file/path walker，在 enter probe 依次写入 `dfd` arg0 FD/cwd section、pathname arg1、`mount_attr` base arg3 和 bounded extension。`CONFIG_FD_STATE` 未开启时动态缩小 reservation，避免普通路径为可选 FD snapshot 支付固定 record 空间；修复并测试了 TLV append offset，pathname 不再覆盖前一个 FD section。
+- Go 侧没有增加 procfs、tracee memory reader 或第二状态来源；现有 event-time FD overlay 直接为 `mount_setattr` 的 dirfd 和嵌套 `userns_fd` 提供路径/identity，失效 FD 仍保留明确 failure section 并降级为裸值。
+- focused source tests、`sudo -n go generate ./cmd/strace-go`、`go build -o strace-go ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、Python `57` 项单测、`ebpf-semantic` 和 `ebpf-capture` 均通过。semantic 为 `175` 个事件、enter/exit `78/97`、lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`。
+- 当前 `ebpf-perf` 的 Go pipeline benchmark 为 decode `253.60 ns/op`、raw JSON `112.50 ns/op`、decoded JSON `101.10 ns/op`、decoded payload `253.90 ns/op`，均为 `0 B/op`、`0 allocs/op`。trace-window exit rate 为 scalar `27325.87/s`、IO `17862.52/s`、lifecycle storm `4324.13/s`、threads `15577.54/s`；这些场景的 runtime error counters 均为 `0`。端到端 scalar/IO 分别为 `5957.00/s` 和 `3786.07/s`，仍包含约 `0.17~0.21s` BPF link cleanup 与约 `0.19~0.21s` 未归因收尾时间，不能作为热路径吞吐指标。
+- 当前 `ebpf-capture` 高压对账已闭合：reader/none 均读取 `3200035` 条 record，handler/text/JSON 均读取 `1600035` 条，JSON 交付 `1600000` 个 syscall event；所有模式 `ringbuf_reserve_fail=0`、`records_invalid=0`，JSON 输出约 `588 MB`、`8955` 次写出、写错误为 `0`。因此此前“event/s 下降”中的真实 Ringbuf 丢失，在当前固定 fixture、256 MiB ringbuf 和 producer-side plain-enter reduction 下已解决；无限制持续高压仍不承诺无损，需要继续以 producer attempt、record 对账和 reserve counter 作为边界证据。
+- 原生验证结果为 upstream reference `120 PASS / 1 XFAIL / 0 FAIL`，唯一 XFAIL 是 bounded eBPF read/write snapshot；`mount_setattr.gen.test` 已从 expected failure 移除并通过，native `small` 为 `23 PASS / 0 FAIL`。Review 未发现 event v2 ABI、过滤、生命周期、单消费者或 pure-eBPF/no-procfs 约束回归。
+
+### 14.323 抽出 syscall correlation state owner（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：Phase 3 已将 ringbuf 读取、事件路由、输出和生命周期处理拆成协作对象，但 `TraceState` 仍同时直接拥有 syscall enter/exit 配对、deferred exit、pending snapshot recycler、exec 参数暂存和 suspended syscall 状态；生命周期 task、attach completion 和 unfinished index 也在同一个对象中协作。
+- Problem：当前 `TraceState` 虽然只有 `444` 行且实现分散在多个文件，字段所有权仍然是隐式的。新增 syscall pairing 或 exec 输出规则时，会直接触碰生命周期 owner 的 map；`clearTaskPending` 也同时清理多组不同语义的状态，容易把 TID 退出清理和输出暂存清理改成不一致的行为。
+- Goal：引入具体的 `traceSyscallCorrelationState` owner，独立拥有 pending syscall、deferred exit、snapshot recycler、exec 参数和 suspended 状态；`TraceState` 保留事件状态机和生命周期协调，通过窄 façade 继续向已有 output/dispatcher ports 暴露能力。保持单 Goroutine、零 mutex、零第二消费者和现有 event v2 行为。
+- Non-goals：不把每个 state 方法改成 interface，不改变 `TraceStateUpdate`、unfinished/resumed 顺序、生命周期事件 ABI、handler/output API、BPF pending map 或任何 ptrace/procfs 行为；不在本阶段拆分 lifecycle task owner 和 unfinished index。
+- Constraints：correlation owner 必须可零值构造并保持单消费者所有权；payload section 的 transfer/recycle 生命周期不能改变；TID cleanup 必须由 coordinator 同时通知 correlation 和 unfinished/lifecycle owner；生产文件保持不超过 `500` 行，测试 fixture 要显式适配新的字段边界。
+
+#### 方案比较
+
+1. 只把现有方法移动到新文件：物理文件更小，但 `TraceState` 仍直接拥有所有 map，无法建立真实 ownership，拒绝。
+2. 用具体 `traceSyscallCorrelationState` 组合 pending/exec/suspended 状态，`TraceState` 只保留窄 façade 和跨 owner cleanup：所有权真实收敛，无热路径 interface 调用，选择。
+3. 为 enter、exit、exec、unfinished 分别引入运行时 interface：扩展性更强，但会扩大 event update 生命周期和对象分配边界，当前收益不足，拒绝。
+
+#### 实现与失败优先测试
+
+- 先新增 correlation owner source/behavior test，验证 production `TraceState` 不再声明 correlation maps，且 owner 的 acquire/release、deferred exit、exec/suspended 和 TID cleanup 具备独立边界。
+- 将现有 state tests 的直接 map 断言迁移到 owner 端口或 owner view，不放宽 enter/exit、deferred、lifecycle cleanup 和 payload ownership 断言。
+- 运行 `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、semantic、perf、capture、native small/reference 和 `git diff --check`；比较事件数、配对、stale、orphan、输出和分配指标，确保这是结构重构而非行为变更。
+
+#### 实现结果与 Review
+
+- 新增 `cmd/strace-go/event_syscall_correlation.go`，由具体的 `traceSyscallCorrelationState` 独立拥有 `pendingSyscalls`、`pendingExits`、snapshot recycler、`pendingExecArgs` 和 `suspendedSyscalls`；`TraceState` 现在只保存一个 correlation owner，并通过窄 façade 参与 event dispatch、生命周期清理和输出协作。没有引入热路径 interface、锁、第二消费者或新的分配边界。
+- `TraceState` 的生产文件收敛为 `272` 行，correlation owner 也为 `272` 行，均低于 500 行限制。payload merge/copy、pending acquire/release、deferred exit、exec/suspended 状态和 TID cleanup 均跟随 owner；源代码门禁确认 `TraceState` 不再声明这些 correlation maps，decoder 仍不会在 state ownership 确认前复制 payload。
+- 重构过程中发现并修复一个行为差异：重复的同 TID、同 syscall enter 只合并 payload 和状态，不会重新操作 unfinished index。新增回归测试验证处于 in-flight 的 unfinished syscall 在重复 enter 后仍保持 in-flight，不会被错误地重新排队。
+- 完整 Go 门禁通过：`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check`；Python 单测 `57` 项通过。Go pipeline benchmark 为 decode `254.30 ns/op`、raw JSON `117.00 ns/op`、decoded JSON `109.80 ns/op`、decoded payload `256.00 ns/op`，均为 `0 B/op`、`0 allocs/op`。
+- 真实 `ebpf-semantic` 通过：`175` 个语义事件、enter/exit `78/97`、lifecycle `6`；reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 错误均为 `0`。`ebpf-perf` 全部 workload 通过，当前 scalar/io/lifecycle-storm/threads 的 trace exit rate 分别为约 `25940/16415/3024/15692 events/s`，不是端到端固定成本指标；长 reader-only 仍为 `63205136` bytes、`0` 个 reserve/copy/pairing 错误。
+- 真实 `ebpf-capture` 对账闭合：reader/none 各读取 `3200035` 条 record，handler/text/JSON 各读取 `1600035` 条；JSON 交付 `1600000` 个 syscall event，text 交付 `1600000` 行，JSON 输出约 `588 MB`、`8958` 次写出且写错误为 `0`。所有模式的 `records_invalid`、`ringbuf_reserve_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch` 和 `pending_stale` 均为 `0`。
+- 原生参考门禁通过：`small` 为 `23 PASS / 0 FAIL`；`upstream-reference` 为 `120 PASS / 1 XFAIL / 0 FAIL / 0 XPASS`。唯一 XFAIL 仍是 `read-write.gen.test` 的 bounded eBPF snapshot 不承诺 ptrace 级 hexdump，不是本阶段引入的回归。
+- Review 未发现 event v2 ABI、payload ownership、enter/exit 配对、deferred exit、unfinished/resumed、exec/suspended 清理、生命周期 task、过滤、文本/JSON/handler 输出或纯 eBPF/no-procfs 约束回归。本阶段完成了 syscall correlation 的真实所有权收敛，但 unfinished index、lifecycle task 和 attach completion 仍由 `TraceState` 协调，整体 arch.md 还未完成；下一阶段应继续减少 coordinator 的跨域状态，而不是把现有 façade 扩展成宽接口。
+
+### 14.324 抽出 unfinished output state owner（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.323 已将 syscall correlation map 和 snapshot recycler 移入具体 owner，但 unfinished/resumed 输出仍由 `TraceState` 直接保存 `unfinishedEnabled`、unqueued/in-flight 两个 TID 集合和 reusable view slice。unfinished 逻辑只服务文本输出，却在 enter/exit/lifecycle 路径中以 coordinator 字段形式散落协作。
+- Problem：unfinished candidate 的索引、生命周期和 payload 借用规则没有清晰的 owner；新增 unfinished 策略时容易直接修改 `TraceState`，并把 correlation map 的读取和输出队列的状态迁移混在一起。当前 `clearTaskPending`、`rememberEnterEvent`、`consumeEnterEvent` 和 dispatcher façade 还要分别维护这组状态。
+- Goal：引入具体的 `traceUnfinishedState`，独立拥有 enabled 标志、unqueued/in-flight TID 索引和 reusable unfinished view；由 coordinator 通过窄 façade 调用，correlation owner 作为显式只读/借用输入传入。保持单 Goroutine、无锁、无第二消费者、payload 借用生命周期和所有文本顺序不变。
+- Non-goals：不拆 lifecycle task、fork identity、attach completion 或 correlation owner；不改变 unfinished/resumed 文本格式、非阻塞 denylist、dispatcher/output port、event v2 ABI、BPF filter 或任何 ptrace/procfs 行为；不为 owner 引入宽泛运行时 interface。
+- Constraints：owner 必须可零值构造；pending view 只能在同步 router 调用内借用 correlation payload；release 必须清空 view 元素并回收到 owner；重复 enter、output failure requeue、TID cleanup 和关闭 text mode 都必须保持现有行为；生产文件继续不超过 `500` 行。
+
+#### 方案比较
+
+1. 只把 unfinished 方法移动到新文件：TraceState 仍直接持有四组字段，文件位置改变但 ownership 不变，拒绝。
+2. 用具体 `traceUnfinishedState` 持有索引/recycler，方法接收 `*traceSyscallCorrelationState` 作为显式输入，TraceState 保留窄 façade：真实收敛所有权，不增加热路径动态 dispatch，选择。
+3. 增加 `pendingSyscallReader` 等运行时 interface 让 unfinished owner 查询 correlation：边界更抽象，但会扩大接口和 nil/生命周期合同，当前收益不足，拒绝。
+
+#### 实现与失败优先测试
+
+- 先增加 source gate，要求 TraceState 不再声明 unfinished map/recycler，unfinished owner 必须声明全部字段；保留 decoder 不复制 payload 和 dispatcher 只消费 immutable view 的门禁。
+- 迁移 unfinished 单测和 fixture 到 owner view，增加重复 enter、in-flight 不重排、requeue、disabled index、release 清理和 TID cleanup 回归；先让直接字段访问测试失败，再完成迁移。
+- 运行 `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、semantic、perf、capture、native small/reference 和 `git diff --check`；比较 text 行数、unfinished 配对、pending stale、record/error counters 与当前基线，确认这是 owner 重构而非输出行为变化。
+
+#### 实现结果与 Review
+
+- 新增具体 `traceUnfinishedState`，独立持有 `enabled`、unqueued/in-flight TID 索引和 reusable unfinished view；`TraceState` 不再声明 unfinished map、enabled 标志或 recycler，只保留 `unfinished` owner 和几个兼容现有 ports 的窄 façade。correlation pending map 通过显式 `*traceSyscallCorrelationState` 参数提供，owner 不保存反向引用，避免构造顺序和生命周期形成隐式耦合。
+- `unfinishedSyscallView`、pending 到 view 的借用转换、view acquire/release 和 index mutation 均归入 unfinished owner 文件。`releaseViews` 继续先 `clear` 每个 view，再回收 slice；payload section 仍只借用 correlation owner 的 backing data，router 同步消费完成后才释放，没有增加复制或异步 writer。
+- 失败优先迁移完成：生产 `TraceState` 的直接字段断言被 source gate 阻止，测试随后改为检查 owner view；新增/保留覆盖了重复 enter 不重排 in-flight、output failure requeue、disabled index 不变、TID cleanup、view recycler 清理和 text/JSON/handler mode 配置。生产文件行数为 `event_state.go=246`、`event_unfinished_state.go=222`，均低于 500 行限制。
+- 完整门禁通过：`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、`git diff --check` 和 Python 单测 `57` 项。Go pipeline benchmark 本轮为 decode `273.70 ns/op`、raw JSON `122.40 ns/op`、decoded JSON `165.10 ns/op`、decoded payload `252.20 ns/op`，均为 `0 B/op`、`0 allocs/op`；短 benchmark 有调度波动，不能把该结构重构宣称为性能提升。
+- 真实 `ebpf-semantic` 仍为 `175` 个事件、enter/exit `78/97`、lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 错误全部为 `0`。`ebpf-perf` 全 workload 通过，长 reader-only 仍读取 `400005` 条记录、`63205136` bytes；lifecycle storm 仍观察到 `5004` JSON、`3002` exit、`3003` lifecycle events，tracked parent `1000`、child filter install `1000`、失败 `0`。
+- 真实 `ebpf-capture` 对账保持闭合：reader/none 各 `3200035` records，handler/text/JSON 各 `1600035` records；text `1600000` 行、JSON `1600000` 事件，JSON 输出约 `588 MB`，reserve/copy/pending/orphan/mismatch/stale/invalid 全为 `0`。unfinished owner 重构没有改变 Ringbuf producer、decoder、事件拓扑或输出交付计数。
+- native 参考复跑通过：`small` 为 `23 PASS / 0 FAIL`；`upstream-reference` 为 `120 PASS / 1 XFAIL / 0 FAIL / 0 XPASS`。唯一 XFAIL 仍是 `read-write.gen.test` 的 bounded eBPF snapshot 与 ptrace-sized hexdump 语义边界。
+- Review 未发现 unfinished/resumed 顺序、重复 enter、失败重排、payload 借用释放、text mode 隔离、event v2 ABI、生命周期清理、过滤或纯 eBPF/no-procfs 约束回归。本阶段只收敛 unfinished owner，不解决剩余 `tasks/pendingForks/lifecyclePending/attach` 跨域状态；下一阶段应继续处理 lifecycle/task owner，并保持 correlation、unfinished 和 attach state 通过明确协调动作交互。
+
+### 14.325 抽出 task/lifecycle state owner（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.323/14.324 已分别收敛 syscall correlation 和 unfinished output state，但 `TraceState` 仍直接保存 task map、pending fork identity、terminating syscall 的 lifecycle pending、command target exit facts 和 target PID。`task_state.go` 同时包含 task identity 逻辑与 attach target refresh，边界仍然混杂。
+- Problem：fork/exec/exit/free 的 task 状态与 command finalizer 所需的 lifecycle completion facts 没有单独 owner；exec 的 TID 迁移还需要清理 correlation/unfinished，若直接把方法移动而不建立协调动作，容易留下 stale pending 或错误的 task alias。attach target 的 exit reader 又是另一种外部事实来源，不应被 task owner 隐式拥有。
+- Goal：引入具体 `traceTaskLifecycleState`，独立拥有 `TaskState`、pending fork identity、lifecycle pending、command target PID 和 observed exit facts；保留 `TraceState` 作为 coordinator，通过窄 façade 处理 event dispatch、exec TID 迁移和 correlation/unfinished cleanup。attach target map/reader 继续由现有 attach 边界拥有。
+- Non-goals：不改变 lifecycle event ABI、fork/exec/exit/free 语义、task snapshot、command finalizer、attach reader、BPF lifecycle map、过滤、unfinished/correlation owner 或输出文本；不引入运行时 interface、锁、第二消费者、procfs、ptrace 或 PID 轮询。
+- Constraints：owner 必须可零值构造；lifecycle event 生成的 `TaskState` 仍需在同步 router update 中 snapshot；exec oldTID/newTID 清理必须先后顺序稳定；`TargetLifecycleExited/Quiescent` 的外部 port 签名保持不变；生产文件继续不超过 `500` 行。
+
+#### 方案比较
+
+1. 只把 `task_state.go` 的方法移动到新文件：TraceState 仍直接拥有 task/lifecycle map，无法证明 owner 边界，拒绝。
+2. 用具体 `traceTaskLifecycleState` 统一拥有 task、fork、termination 和 command facts，TraceState 只协调 attach 与跨 owner cleanup：所有权真实收敛，外部 ports 不变，选择。
+3. 为 task、fork、command completion 分别引入多个运行时 interface：边界细，但会把一次 lifecycle event 拆成多次动态调用并扩大 exec cleanup 合同，当前收益不足，拒绝。
+
+#### 实现与失败优先测试
+
+- 先增加 source gate，要求 TraceState 不再声明 task/lifecycle map，task owner 必须声明完整字段，attach reader 不得迁入；迁移 task/lifecycle 单测的直接 map 断言到 owner view。
+- 增加 exec TID 迁移、fork identity resolve、exit/free cleanup、lifecycle quiescent、command exit fact 和 zero-value owner 回归；确认 synthetic plain exit 不创建 task state 的现有策略保持不变。
+- 运行 `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、semantic、perf、capture、native small/reference 和 `git diff --check`；比较 lifecycle event 数、task snapshot、pending stale、unfinished 配对、Ringbuf error counters 和原生输出。
+
+#### 实现结果与 Review
+
+- 新增 `traceTaskLifecycleState`，独立拥有 `TaskState`、pending fork identity、lifecycle pending、command target PID 和 observed exit facts；`TraceState` 只保留 `lifecycle` owner。`event_task_lifecycle.go` 为 `373` 行，`event_state.go` 为 `209` 行，原 `task_state.go` 收敛为 `98` 行并继续只承载 attach target/exit reader 边界，均低于 500 行限制。
+- task owner 内部按 fork、exec、exit/free 分开处理；`TraceState.applyLifecycleEvent` 只负责 exec oldTID/newTID 的跨 owner cleanup，然后委托 task identity 迁移。`clearTaskPending` 现在显式通知 unfinished、correlation 和 lifecycle 三个 owner，`retireTask` 再删除 task map entry，避免把 pending syscall 或 output state 留在旧 TID 上。
+- `TargetLifecycleExited` 的外部合同保持不变：task owner 提供 event-sourced exit fact，TraceState 仍负责 attach exit reader fallback；`TargetLifecycleEventObserved` 和 `TargetLifecycleQuiescent` 通过同一 owner 读取。attach targets、attach reader、BPF exit fact 输入没有迁移到 task owner，也没有新增 procfs 或 PID probe。
+- 失败优先 source gate 确认 `TraceState` 不再声明 task/fork/lifecycle fields，task owner 拥有完整字段，attach 文件仍保留 `attachTargets`/`attachExitReader`；新增 zero-value owner 测试，并保留 fork identity、exec TID migration、exit/free cleanup、quiescent 和 command exit fact 回归。
+- 完整 Go 门禁通过：`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、`git diff --check` 和 Python 单测 `57` 项。Go pipeline benchmark 本轮为 decode `276.90 ns/op`、raw JSON `118.40 ns/op`、decoded JSON `112.90 ns/op`、decoded payload `277.40 ns/op`，均为 `0 B/op`、`0 allocs/op`；本阶段是所有权重构，不宣称这些短 benchmark 数字代表稳定加速。
+- 真实 `ebpf-semantic` 仍为 `175` 个事件、enter/exit `78/97`、lifecycle `6`，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 错误为 `0`。`ebpf-perf` 全 workload 通过，lifecycle storm 仍为 `5004` JSON、`3002` exit、`3003` lifecycle events，tracked parent `1000`、child filter install `1000`、失败 `0`；长 reader-only 仍为 `400005` records 和 `63205136` bytes。
+- `ebpf-capture` 对账保持闭合：reader/none 各读取 `3200035` records，handler/text/JSON 各 `1600035` records；text `1600000` 行、JSON `1600000` 事件，所有 records_invalid、reserve/copy/pending/orphan/mismatch/stale counters 为 `0`。native `small` 为 `23 PASS / 0 FAIL`，`upstream-reference` 为 `120 PASS / 1 XFAIL / 0 FAIL / 0 XPASS`；唯一 XFAIL 仍是 bounded eBPF read/write snapshot。
+- Review 未发现 task snapshot alias、fork identity resolve、exec TID 迁移、lifecycle pending/quiescence、command exit fact、attach fallback、unfinished/correlation cleanup、event v2 ABI 或纯 eBPF/no-procfs 约束回归。本阶段完成 task/lifecycle owner 收敛，但 attach state 仍与 task 文件物理共存，下一阶段应独立抽出 attach completion owner，再评估是否可以进一步缩窄 `TraceState` façade。
+
+### 14.326 抽出 attach completion state owner（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.325 已将 task/lifecycle state 移入 `traceTaskLifecycleState`，但原 `task_state.go` 现在只剩 attach target set、BPF exit reader 和 attach refresh。`TraceState` 仍直接保存 `attachTargets`、reader 和 configured 标志，文件命名也不再表达实际职责。
+- Problem：attach root 的 event-time retire、external exit fact refresh 和 command lifecycle 的 BPF fallback 仍与 TraceState/task owner 的 façade 混在一起；后续处理 attach completion 或 attached non-leader 语义时，容易重新把外部事实和 task identity map 交叉读写。
+- Goal：引入具体 `traceAttachState`，独立拥有 attach target set、exit reader 和 reader configured 状态；将 attach seed/refresh/retire/fallback 移入 `event_attach_state.go`，删除只剩 attach 代码的 `task_state.go`。TraceState 只协调 lifecycle event fact 与 attach reader fallback，外部 `traceAttachStateReader`/`traceCommandLifecycleReader` 签名不变。
+- Non-goals：不改变 attach target 过滤、non-leader TID retire、exit_group 处理、BPF exit fact、command finalizer、lifecycle/task owner、event v2 ABI 或 output；不新增 procfs、PID scan、ptrace、锁、第二消费者或 runtime interface。
+- Constraints：owner 可零值构造；reader 缺失/读取失败错误语义保持；`TargetLifecycleExited` 必须先使用 lifecycle owner 的 event-sourced fact，再使用 attach owner 的 reader；attach map 只在单 Go consumer 中变更；生产文件继续不超过 `500` 行。
+
+#### 方案比较
+
+1. 保留 attach 字段在 TraceState，只重命名 `task_state.go`：改名不能解决字段所有权和跨域清理，拒绝。
+2. 用具体 `traceAttachState` 持有 target/reader，TraceState 仅组合 lifecycle fact 与 attach fallback：真实 owner 收敛且外部 port 不变，选择。
+3. 将 attach reader 直接注入 `traceRunState`，绕过 TraceState：可以减少一层调用，但破坏 event-sourced attach state 单一 owner，并扩大 session/run graph，拒绝。
+
+#### 实现与失败优先测试
+
+- 先增加 source gate，要求 TraceState 不再声明 attach map/reader，attach owner 必须声明全部字段，task lifecycle owner 不得引用 attach reader；删除旧 `task_state.go` 后更新 source path。
+- 迁移 attach refresh、missing reader、reader error、process root/non-leader TID retire、exit_group 和 command exit fact 回归；增加 zero-value attach owner 测试。
+- 运行 `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、semantic、perf、capture、native small/reference 和 `git diff --check`，比较 attach completion、lifecycle event、pending stale、Ringbuf error counters 和原生输出。
+
+#### 实现结果与 Review
+
+- 新增 `traceAttachState`，独立拥有 attach target set、exit reader 和 reader configured 状态；`TraceState` 只保留 `attach` owner。`event_attach_state.go` 为 `157` 行，`event_task_lifecycle.go` 为 `373` 行，`event_state.go` 为 `207` 行，全部低于 500 行限制；只剩 attach 逻辑的旧 `task_state.go` 已删除。
+- attach owner 覆盖 seed、event-time process/non-leader TID retire、`exit_group` retire、external exit fact refresh、missing reader 和 reader error；`TargetLifecycleExited` 仍由 coordinator 先检查 task/lifecycle owner 的 event-sourced fact，再调用 attach owner 的 reader fallback，错误文本和外部 ports 保持不变。
+- source gate 验证 `TraceState` 不再声明 attach map/reader，task lifecycle owner 不引用 attach reader，attach owner 独立声明 target/reader/configuration；新增 zero-value attach owner 测试，原有 attach refresh、root/non-leader、exit_group 和 command fact 回归全部保留。
+- 完整 Go 门禁通过：`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o strace-go ./cmd/strace-go`、`git diff --check` 和 Python 单测 `57` 项。Go pipeline benchmark 本轮为 decode `272.90 ns/op`、raw JSON `120.70 ns/op`、decoded JSON `125.30 ns/op`、decoded payload `265.40 ns/op`，均为 `0 B/op`、`0 allocs/op`；结构重构没有引入新的热路径分配。
+- 真实 `ebpf-semantic` 保持 `175` 事件、enter/exit `78/97`、lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 错误全部为 `0`。`ebpf-perf` 全 workload 通过，lifecycle storm 仍为 `5004` JSON、`3002` exit、`3003` lifecycle events，tracked parent `1000`、child filter install `1000`、失败 `0`；长 reader-only 仍读取 `400005` records、`63205136` bytes。
+- `ebpf-capture` 对账保持闭合：reader/none 各 `3200035` records，handler/text/JSON 各 `1600035` records；text `1600000` 行、JSON `1600000` 事件，records_invalid/reserve/copy/pending/orphan/mismatch/stale 全为 `0`。native `small` 为 `23 PASS / 0 FAIL`，`upstream-reference` 为 `120 PASS / 1 XFAIL / 0 FAIL / 0 XPASS`，唯一 XFAIL 仍是 bounded eBPF read/write snapshot。
+- Review 未发现 attach root/non-leader 生命周期、reader fallback、task/lifecycle owner、unfinished/correlation cleanup、event v2 ABI、Ringbuf 拓扑或 pure eBPF/no-procfs 约束回归。Go 侧状态 owner 已完成四域拆分；剩余架构风险转向更广 syscall/payload 覆盖、最终 output/handler 性能基线以及 `arch.md` 中尚未完成的协议/生成器收敛，不能把 owner 拆分等同于整个 strace-go 完成。
+
+### 14.327 统一运行时 syscall ABI 的生成边界（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：当前 syscall number generator 已从 `x/sys/unix` 生成 `bpf/syscall_numbers_generated.h`，但 `bpf/runtime_abi.h` 仍手写 9 个 `volatile const u32 SYS_*` 声明；`cmd/strace-go/bpf_runtime.go` 又维护一份 Go 侧变量名到 syscall 名的列表。生成 header、BPF global data 和 Go loader 因此存在三处 ABI 合同。
+- Problem：新增或修改 syscall number、替换目标架构或调整 runtime-special syscall 时，可能只更新其中一处；BPF object 仍能编译，但 Go loader 与 runtime global 的绑定会静默漂移。当前 writer 还通过排除表隐藏这些变量，生成产物无法证明它们来自同一 number source。
+- Goal：让 runtime special syscall variables 由现有 generator 从同一 `unix` number source 生成；Go loader 根据加载后的 BPF variable 名称和生成的 `meta.SyscallTable` 自动解析并设置 ID，不再维护手写变量映射。保留 `SYS_RT_SIGRETURN_COMPAT` 这一不在 x86_64 `x/sys/unix` syscall table 中的显式 compat ABI 常量，并把它标为唯一架构例外。
+- Non-goals：不改变 event v2 ABI、BPF global variable 名称、filter、tail-call、handler、生命周期、纯 eBPF/no-procfs 约束或运行时 variable 的可配置语义；不把 capture policy 强行从 BTF 推导，不删除有 reason 和测试保护的 semantic override。
+- Constraints：生成 header 必须可重复、排序稳定且保留现有 bpf2go variable binding；未知 `SYS_*` variable 必须 fail-fast，只有明确声明的 compat exception 可以保留默认值；生产函数不超过 80 行，生成器和 loader 保持接口可测试；先跑 focused generator/loader/source tests，再重新生成 BPF objects 并跑完整 Go、semantic、perf、capture 和 native reference 门禁。
+
+#### 方案比较
+
+1. 继续保留 runtime_abi.h 和 bpf_runtime.go 两份手写列表：改动最小，但 ABI 仍有多源漂移风险，拒绝。
+2. 让 generator 对 special syscall 输出 `volatile const`，Go loader 遍历 spec variables 并用 `SyscallTable` 解析；只保留 compat ABI 的显式例外：能消除重复映射、保持 bpf2go variable 绑定和 fail-fast 合同，选择。
+3. 把所有 syscall ID 在运行期通过 BPF map 下发：架构更动态，但增加启动 map、每次比较和 verifier/loader 状态面，无法解决生成产物的静态合同，拒绝。
+
+#### 实现与失败优先测试
+
+- 先修改 generator writer 测试，要求 special entries 输出 `volatile const` 而不是宏；增加 loader/source 测试，拒绝未知 runtime variable，并验证 Go loader 不再包含变量到 syscall 的手写列表。
+- 实现生成 header 与 `runtime_abi.h` 的单一 include 边界，删除重复的 BPF runtime declarations；让 `setSyscallVariables` 遍历 `CollectionSpec.Variables`，对每个可解析的 `SYS_*` 变量从 `meta.SyscallTable` 设置 ID。
+- 重新生成 `syscall_numbers_generated.h` 与全部 bpf2go objects，运行 focused tests、`go test ./...`、race、vet、build、`git diff --check`、Python suites、`ebpf-semantic`、`ebpf-perf`、`ebpf-capture`、native small/reference；确认 event counts、runtime error counters 和输出没有行为变化。
+
+#### 实现结果与 Review
+
+- 生成器现在统一声明 runtime special syscall variables：属于宿主机 syscall table 的 `SYS_CAPGET`、`SYS_CAPSET`、`SYS_EXECVE`、`SYS_EXECVEAT`、`SYS_EXIT`、`SYS_EXIT_GROUP`、`SYS_NANOSLEEP`、`SYS_RT_SIGRETURN` 和 `SYS_RT_SIGSUSPEND` 会从同一份 `unix` number source 输出为 `volatile const u32`；`SYS_RT_SIGRETURN_COMPAT=173` 作为唯一显式架构 ABI 例外，也由生成器输出。`runtime_abi.h` 不再重复声明这些变量。
+- Go 侧生成的 `pkg/meta.RuntimeSyscallVariables` 成为 loader 的唯一变量合同。`setSyscallVariables` 遍历 `CollectionSpec.Variables`，拒绝未知的 `SYS_*` 变量，按生成的 `meta.SyscallTable` 设置 ID，并对缺失变量或缺失 syscall metadata fail-fast；空 syscall 名只表示保留 C 默认值的 compat ABI 例外。loader 中已删除原手写变量到 syscall 名的列表和 numeric fallback。
+- 失败优先测试覆盖了 special variable 的生成形式、compat entry、Go metadata 生成、未知变量拒绝、缺失 syscall ID、变量排序和重复 resolver；重新生成 syscall header、Go metadata 及全部 bpf2go objects 后，源码门禁确认 `runtime_abi.h` 与 loader 没有回退到重复 ABI 合同。
+- 当前验证通过：`go test ./...`、`go vet ./...`、`go build`、`git diff --check` 和 Python 单测 `57` 项；原生 `small` 为 `23 PASS / 0 FAIL`，`upstream-reference` 为 `120 PASS / 1 XFAIL / 0 FAIL / 0 XPASS`。唯一 XFAIL 仍是 `read-write.gen.test` 的 bounded eBPF snapshot 与 ptrace-sized hexdump 语义边界。
+- eBPF 语义、性能和 capture 门禁在生成器收敛后保持通过：semantic 为 `175` 个事件、enter/exit `78/97`、lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`；perf 的 scalar/io/lifecycle-storm trace exit rate 分别为 `27890.94/17689.69/4324.18 events/s`，threads workload 交付 `1608` 个 JSON、观察到 `1604` 个 exit，所有错误计数为 `0`；capture reader/none 各读取 `3200035` 条 record，handler/text/JSON 各读取 `1600035` 条，invalid/reserve/pending/orphan/mismatch/stale 均为 `0`。
+- Review 未发现 event v2 ABI、BPF variable binding、filter、tail-call、生命周期、payload ownership、单 Go consumer、纯 eBPF/no-procfs 约束或原生输出回归。本阶段只解决生成器与 runtime loader 的 ABI 多源问题；剩余架构距离主要在更广 syscall/payload 覆盖、最终 output/handler 性能基线，以及 `arch.md` 中仍未完成的协议/生成器收敛，不能把本阶段等同于整个项目完成。
+
+### 14.328 统一 event v2/config/TLV 协议常量生成边界（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.327 已把 syscall number 和 runtime special variable 的合同收敛到生成器，但 event v2 协议仍在多个边界分别声明：`bpf/runtime_abi.h` 手写 event type、flags、body length、lifecycle action、config/filter bits，`bpf/payload_tlv.h` 手写 TLV kind/header/方向常量，Go 又在 `event_json.go`、`trace_event_v2_decoder.go`、`event_payload_tlv.go` 和 `main.go` 复制同一组数值。
+- Problem：修改 event flag、body layout 或 TLV kind 时，C producer、Go decoder 和配置 map 可能只更新一侧；现有 source gate 能发现部分文本漂移，但不能把协议值本身表达为单一合同。尤其 compact enter、payload/truncated/fragment flag 和 config bit 已经在性能阶段频繁演进，继续复制会让下一次 ABI 调整变成隐性兼容风险。
+- Goal：建立一个纯 Go 的 checked-in protocol specification，由生成器同时输出 `bpf/event_abi_generated.h` 和 `cmd/strace-go/event_abi_generated.go`；删除 BPF/Go 两侧重复的 event v2、lifecycle、config/filter 和 TLV protocol constants。保持当前所有数值、wire layout、JSON schema、BPF map ABI 和用户可见输出不变。
+- Non-goals：不改变 event v2 字段布局、Ringbuf record、TLV section 语义、syscall filter 算法、handler/output、生命周期顺序、runtime syscall number generator 或纯 eBPF/no-procfs 约束；不把 syscall-specific payload capacity 和 semantic policy 强行塞进通用协议生成器。
+- Constraints：生成输出必须稳定、可重复并纳入 `go generate`；C header 可被所有 BPF translation unit 安全 include；Go 常量名称和底层类型保持现有调用合同；生成器函数小于 80 行，生成文件和测试保持小于 500 行；必须先让重复声明测试失败，再实现并重新生成 BPF objects。
+
+#### 方案比较
+
+1. 继续在 C 和 Go 各自维护常量，并扩大 source gate：改动最小，但协议仍有双重事实源，无法从结构上阻止数值漂移，拒绝。
+2. 以 C header 为源再由 Go 解析生成：可以复用现有 header，但需要解析 C 宏表达式，容易引入构建顺序和预处理器差异，拒绝。
+3. 以 checked-in Go protocol specification 为源，同时生成 C header 和 Go constants：数值只有一个事实源，生成产物可审计，保留静态 verifier 输入，选择。
+
+#### 实现与失败优先测试
+
+- 先增加 generator 测试，覆盖 event type/flag、config/filter、layout 和 TLV kind 的 C/Go 双输出，并增加重复声明 source gate；删除旧声明后测试应能证明生产文件只引用生成常量。
+- 新增 `cmd/generate-event-abi`，将 protocol specification 接入 `cmd/strace-go/main.go` 的 `go:generate`，生成 C header 和 Go constants；`runtime_abi.h`、`payload_tlv.h` 只 include 生成 header。
+- 运行 generator focused tests、`go generate`、`go test ./...`、race、vet、build、BPF verifier、semantic、perf、capture 和 native small/reference；比较 event counts、record bytes、payload sections、runtime error counters 和输出，确认是合同收敛而非行为变化。
+
+#### 实现结果与 Review
+
+- 新增 `cmd/generate-event-abi`，以 checked-in Go `protocolConstants` 作为 event v2、lifecycle、config/filter、layout 和 payload TLV 常量的唯一事实源，同时生成 `bpf/event_abi_generated.h` 与 `cmd/strace-go/event_abi_generated.go`。`go:generate` 已接入 `cmd/strace-go/main.go`，从仓库根目录执行完整生成链可以重复生成两份产物和 BPF objects。
+- `bpf/runtime_abi.h`、`bpf/payload_tlv.h` 和 Go 侧 `main.go`、`event_json.go`、`trace_event_v2_decoder.go`、`event_payload_tlv.go`、`bpf_map_catalog.go` 已删除重复协议声明，只通过生成结果或其 include 使用常量。源码门禁也改为检查实际展开后的生成头，而不是要求被删除的手写声明继续存在；event type、flag、body length、TLV kind、config/filter bit 和所有数值保持不变。
+- 失败优先测试先在生成文件不存在、旧 Go 类型格式仍被断言时失败，随后补齐生成器、输出和 source gate；最终 `go test ./cmd/generate-event-abi`、focused event ABI/decoder/source tests、`go generate ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...`、强制重编译、`git diff --check` 和 Python `57` 项单测均通过。`sudo -n ./build.sh` 重新生成并构建成功。
+- 真实 `ebpf-semantic` 保持 `175` 个事件、enter/exit `78/97`、lifecycle `6`；reserve/copy/pending/orphan/mismatch/lifecycle-map 错误全部为 `0`，payload truncated `7` 仍是有界快照的显式语义，不是 Ringbuf 丢失。`lifecycle-storm` 仍观察到 `5004` JSON、`3002` exit、`3003` lifecycle，tracked parent `1000`、child filter install `1000`、失败 `0`。
+- 当前 Go 热路径 benchmark 为 decode `266.90 ns/op`、raw JSON `116.00 ns/op`、decoded JSON `111.80 ns/op`、decoded payload `245.10 ns/op`，全部为 `0 B/op`、`0 allocs/op`。trace-window exit rate 为 scalar `27184.05/s`、IO `17638.94/s`、lifecycle storm `4319.37/s`、threads `15707.50/s`；短场景端到端 scalar/IO 为 `6005.88/3886.81 events/s`，但 setup 约 `0.18~0.21s`、cleanup 约 `0.17~0.19s`、另有约 `0.19~0.20s` 收尾时间，不能把这个固定成本归因于事件消费热路径。长 reader-only 的 service 采样约 `255 ns/record`，读取 `63205136` bytes，错误计数为 `0`。
+- 高压 capture 对账闭合：reader/none 各读取 `3200035` 条 record，handler/text/JSON 各读取 `1600035` 条；text 交付 `1600000` 行，JSON 交付 `1600000` 个 syscall event，JSON 输出约 `588 MB`、`8954` 次写出且写错误为 `0`。所有模式 `records_invalid`、`ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch` 和 `pending_stale` 均为 `0`。
+- 关于此前 event/s 大幅下降的结论：一部分是把短 workload 的端到端速率当成 producer/consumer 热路径速率，启动、BPF link cleanup、输出 flush 和未归因收尾时间被放进分母；另一部分是 lifecycle cleanup 曾使用当前调度上下文 PID 而不是 raw tracepoint 提供的被释放任务 PID，误清理存活目标的 filter state，造成后续任务不再 tracked，实际事件数下降。后者已在 Phase 14.320 修复，当前 lifecycle storm 和 3.2M-record capture 用 producer attempts、records read/decoded 和 error counters 对账，证明已测试范围内没有事件丢失。因而“真实丢事件/状态丢失”已解决，但“短命令端到端 event/s 很低”仍由固定 setup/cleanup/output 成本决定，不能宣称所有 event/s 指标都已最大化。
+- 原生验证为 `small: 23 PASS / 0 FAIL`，`upstream-reference: 120 PASS / 1 XFAIL / 0 XPASS`；唯一 XFAIL 是 `read-write.gen.test` 的 bounded eBPF snapshot 不承诺 ptrace-sized hexdump。Review 未发现 event v2 ABI、TLV payload、filter、生命周期、单 Go consumer、BPF variable binding 或 pure-eBPF/no-procfs 约束回归；协议常量多源问题已收敛，但更广 syscall/payload 覆盖和最终 output/handler 性能基线仍是后续工作，不能把 Phase 14.328 等同于整个 arch.md 完成。
+
+### 14.329 收敛 JSON payload section 编码热路径（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：Phase 14.328 已将 event v2 的协议常量收敛到生成产物；当前 JSON writer 已经复用 session buffer，并且普通 syscall 事件有 plain fast path。CPU profile 显示 payload syscall 的主要用户态热点仍在 `jsonLineBuilder.beginFieldToken`、payload section 的重复字段分支和 `base64Field`，而不是 Go heap 分配或 Ringbuf 读取。
+- Problem：raw event 和 decoded event 的 payload section 都严格使用相同的固定字段顺序，但每个 section 都重新经过通用 builder 的“是否首字段”判断和方法分派。高频 `read`/`write`/`recvmsg` payload 会重复支付这部分固定成本，导致 payload workload 的 event/s 低于无 payload workload；如果直接删字段或改顺序，又会破坏机器可测 JSON 契约。
+- Goal：为 raw/decoded payload section 建立一个固定 wire-layout encoder，保持字段顺序、可选字段、省略规则、字符串转义和 base64 输出完全不变；保持单 Goroutine、零分配 steady state，并以 benchmark 和字节级回归测试证明收益。
+- Non-goals：不改变 JSON schema、event v2 ABI、payload capture 上限、handler 语义、文本输出、Ringbuf、过滤、生命周期或任何 procfs/ptrace fallback；不在本阶段重写整个 JSON syscall encoder，也不引入第二个输出消费者。
+- Constraints：生产文件仍小于 500 行；helper 参数不超过 5 个；raw/decoded 两种 section 必须共享同一字段写入规则；空可选字段必须与原实现逐项一致；先让失败优先测试证明新 wire-layout 合同缺失，再实现并运行 Go/race/vet、semantic、perf、capture 和 native reference 门禁。
+
+#### 方案比较
+
+1. 保留通用 `jsonLineBuilder`，只增加 profile 注释：行为风险最低，但不能减少每个 payload section 的固定分支和重复调用，无法解决已定位的热路径，拒绝。
+2. 为 raw/decoded 各写一份独立的手工 JSON encoder：局部最快，但字段规则会出现两份事实源，未来 payload schema 漂移时容易产生不一致，拒绝。
+3. 抽出一个以 `jsonPayloadSectionFields` 为输入的固定 wire-layout helper，raw/decoded 只负责投影字段：保留单一字段顺序和省略规则，避免接口/反射开销，改动小且容易用现有字节级测试约束，选择。
+
+#### 实现与失败优先测试
+
+- 先增加固定字段顺序、optional zero 字段和 raw-data base64 的 helper 测试；在 helper 尚未实现时运行 focused test，确认测试确实能阻止缺失实现。
+- 用同一 helper 替换 `jsonPayloadSection` 和 `handler.PayloadSection` 的 payload 对象编码，保留 syscall 外层 builder 和所有现有 materialized-vs-direct 对照测试。
+- 对比 raw/decoded payload benchmark 的 ns/op、B/op、allocs/op，并运行完整 Go/race/vet/build、Python suite、semantic、perf、capture、native small/reference；若 event/s 变化只来自 setup/cleanup 固定成本，单独报告而不冒充热路径收益。
+
+#### 实现结果与 Review
+
+- 失败优先测试先在 helper 不存在时编译失败，随后新增 `jsonPayloadSectionFields` 和固定字段顺序 writer。raw `jsonPayloadSection` 与 decoded `handler.PayloadSection` 只把字段投影到同一 helper；`kind`/`direction` 仍走 JSON 转义，`user_ptr`/`user_len` 保持零值省略，`copied_len`/`probe_ret` 保持必填，raw data 与已有 `DataBase64` 规则保持一致。
+- 字节级回归、materialized-vs-direct JSON 对照、payload buffer reuse 和 zero-allocation 测试均通过。生产文件行数为 `json_syscall_encoder.go=460`、`json_decoded_encoder.go=203`、`json_syscall_encoder_test.go=399`，仍满足 500 行边界。
+- Go 全量、race、vet、强制构建、Python `57` 项单测和 `git diff --check` 均通过。focused benchmark 中 decoded payload 从此前约 `245 ns/op` 降到 `212 ns/op`；perf suite 本次为 decode `266.90 ns/op`、raw JSON `121.00 ns/op`、decoded JSON `109.20 ns/op`、decoded payload `229.20 ns/op`，全部 `0 B/op`、`0 allocs/op`。普通 handler pipeline 约 `181 ns/op`，没有明显回归。
+- 真实 `ebpf-semantic` 仍为 `175` 个事件、enter/exit `78/97`、lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`。`ebpf-perf` 的 scalar/io/lifecycle-storm/threads trace exit rate 本次分别为 `28081.68/17367.08/4324.10/15754.81 events/s`；长 reader-only 读取 `63205136` bytes，service 约 `255.83 ns/sample`，所有错误为 `0`。
+- `ebpf-capture` 对账保持闭合：reader/none 各读取并解码 `3200035` 条 record，handler/text/JSON 各读取 `1600035` 条；JSON 交付 `1600000` 个 syscall event、输出 `588311050` bytes、`8954` 次写出、写错误为 `0`；所有模式 `records_invalid`、`ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`pending_stale` 均为 `0`。
+- 原生验证为 `small: 23 PASS / 0 FAIL`、`upstream-reference: 120 PASS / 1 XFAIL / 0 XPASS`；唯一 XFAIL 仍是 `read-write.gen.test` 的 bounded eBPF snapshot。Review 未发现 JSON 字段顺序、optional 字段、字符串转义、base64、event v2 ABI、payload ownership、单 Go consumer 或 pure-eBPF/no-procfs 约束回归。本阶段确认 payload JSON 热路径有收益，但 syscall 外层 builder 和 context/pipeline 仍是后续最终性能基线的主要候选，不能把 Phase 14.329 等同于整个 arch.md 完成。
+
+### 14.330 将 event v2 wire layout 纳入生成合同（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：Phase 14.328 已统一 event type、flag、body length 和 TLV 常量，但 Go decoder 仍直接使用 `0/2/4/8/12/16/20/32` 以及 body 内 `64/68/72/76` 等偏移；BPF 侧通过 C struct 的自然布局写入同一 record。测试 fixture 也重复维护这些数字。
+- Problem：event v2 的数值合同虽然只有一个生成源，wire layout 却仍有 Go offset、BPF struct layout 和测试 fixture 三份事实源。改变字段、增加 padding 或调整 body 时，编译器不会保证 Go decoder 仍读取同一字段，问题可能只在真实 payload 或特定事件类型中暴露。
+- Goal：把 header/enter/compact-enter/exit/lifecycle 的字段 offset 和基础宽度纳入现有 event ABI generator；Go decoder 使用生成 offset；BPF runtime ABI 对 C struct 做 compile-time size/offset assertions；测试 fixture 复用同一组生成 offset。保持 record bytes、事件语义和性能不变。
+- Non-goals：不重写 BPF event producer，不生成完整 C struct，不改变 event v2 ABI 数值或 JSON schema，不引入运行期反射、动态 schema 解析、第二消费者、ptrace、procfs 或 tracee memory fallback。
+- Constraints：生成文件、generator 函数和生产 Go 文件保持项目边界；C assertions 必须在 `clang -target bpf` 下通过；Go decoder 的 short-sample validation 不能放宽；先增加缺失 layout symbol 的失败优先测试，再生成并切换使用方。
+
+#### 方案比较
+
+1. 继续保留手写 offset，只增加 source grep：改动最小，但只能发现文字重复，不能约束 C struct 的实际 `offsetof`，拒绝。
+2. 由 generator 生成完整 C struct 和 Go decoder：理论上只有一份布局，但会把 C 编译器 ABI、字段类型和 decoder 控制流耦合到模板，生成结果难以审查，改动面过大，拒绝。
+3. 在现有协议常量 generator 中增加 layout offset/width 常量，Go 使用生成值，C 用 `_Static_assert` 校验自然 struct layout：保留手写的可读 C struct 和 decoder 控制流，只消除跨语言数字漂移，选择。
+
+#### 实现与失败优先测试
+
+- 先在 decoder/source test 中引用待生成的 layout symbols，并要求 generated header/Go 同时包含 header/body offsets；在生成扩展前 focused test 应失败。
+- 扩展 `cmd/generate-event-abi` 的 checked-in spec，生成 layout constants；替换 Go decoder 与 trace-event fixture 的 literal offsets；在 `bpf/runtime_abi.h` 添加 header/body `sizeof` 与 `__builtin_offsetof` assertions。
+- 运行 generator focused tests、`go generate`、Go/race/vet/build、clang/BPF verifier、semantic、perf、capture、native small/reference；对比 event bytes、record counts、payload sections、error counters 和 decode benchmark，确认只收敛合同不改变行为。
+
+#### 实现结果与 Review
+
+- 失败优先 source test 先因 generated layout symbol 与 runtime assertion 缺失而失败；随后扩展 `cmd/generate-event-abi/spec.go`，同时生成 event v2 基础宽度、header、enter、compact-enter、exit 和 lifecycle 的 offset constants。`trace_event_v2_decoder.go`、decoder fixtures、boundary fixture 和 pipeline benchmark fixture 已删除对应 literal offsets，统一使用生成值。
+- `bpf/runtime_abi.h` 保留可读的 C struct 作为 producer 侧布局定义，并增加 header/body `sizeof` 与 `__builtin_offsetof` compile-time assertions。最终 review 又补齐 enter `capture_flags`、compact-enter `args`、exit `capture_flags`/`reserved` 四个字段断言；Go `traceEventV2Args` 也改为使用生成的 U64 width。`sudo -n ./build.sh` 在 clang BPF target 下通过，证明生成合同与当前 C ABI 一致；没有生成完整 C struct，也没有引入运行期反射。
+- 生成器 focused tests、Go 全量、race、vet、强制构建、Python `57` 项单测和 `git diff --check` 均通过。布局替换后的 Go perf suite 为 decode `263.00 ns/op`、raw JSON `114.80 ns/op`、decoded JSON `104.50 ns/op`、decoded payload `224.70 ns/op`，全部 `0 B/op`、`0 allocs/op`，与 Phase 14.329 在测量噪声范围内一致。
+- 真实 `ebpf-semantic` 保持 `175` 个事件、enter/exit `78/97`、lifecycle `6`，payload truncated `7`，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误为 `0`。`ebpf-perf` trace exit rate 本次为 scalar `27914.90/s`、io `17824.70/s`、lifecycle-storm `4321.74/s`、threads `15680.32/s`；长 reader-only `63205136` bytes、service `295.70 ns/sample`，无错误。
+- `ebpf-capture` 对账仍闭合：reader/none 各读取并解码 `3200035` 条，handler/text/JSON 各读取 `1600035` 条，JSON 交付 `1600000` 个 syscall event、输出 `588308338` bytes、`8958` 次写出、写错误为 `0`；records/reserve/copy/pending/orphan/mismatch/stale 均无异常。native small 为 `23 PASS / 0 FAIL`，upstream reference 为 `120 PASS / 0 FAIL / 1 XFAIL / 0 XPASS`，唯一 XFAIL 仍是 bounded read/write snapshot。
+- 最终 focused source test、Go 全量/race/vet/build、`git diff --check`、BPF build 和 `ebpf-semantic` 均通过；后者仍为 `175` 个事件、enter/exit `78/97`、lifecycle `6`，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误为 `0`。Review 未发现 wire offset、record size、payload section、decoder short-sample validation、JSON 输出、BPF verifier、单 Go consumer 或 pure-eBPF/no-procfs 约束回归。本阶段完成了 event v2 layout 的跨语言合同收敛；剩余整体距离主要是更广 syscall/payload 覆盖、text/handler 最终基线和 arch.md 最终 review，不能把 Phase 14.330 等同于项目完成。
+
+### 14.331 收敛 syscall JSON 外层 wire writer（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：Phase 14.329 已把 payload section 的固定字段编码收敛到共享 helper；当前 CPU profile 显示 Ringbuf、Go heap 和 base64 不是主要热点，`appendJSONRawSyscallEvent` 与复杂 decoded path 仍为每个 syscall 通过 `jsonLineBuilder.beginFieldToken`、`uintField` 和重复字段分派构造相同的外层 JSON。
+- Problem：raw/decoded 热路径共享的是 JSON schema，却没有共享外层 wire writer。每个字段都要支付 `first` 状态判断和 token 方法分派；短 syscall 高频场景会重复支付这段固定成本，且未来 raw/decoded 字段顺序容易产生漂移。
+- Goal：建立一个 typed `jsonSyscallWireEvent` 和一个共享的直接 append writer，让 raw/decoded syscall 热路径共用同一字段顺序、optional 字段规则、字符串转义、return text 和 payload section 边界；保持 steady-state 零分配，并以 materialized JSON 作为字节级 oracle。
+- Non-goals：不改变 JSON schema、字段顺序、event v2 ABI、payload capture、handler 语义、文本输出、Ringbuf、过滤、生命周期、单 Go consumer 或 pure-eBPF/no-procfs 约束；不删除仍适合低频控制事件和 materialized regression oracle 的通用 `jsonLineBuilder`。
+- Constraints：typed wire writer 只接收已经完成策略判断的事件事实，不在 encoder 内重新读取 session 或 tracee；生产文件和函数继续满足 500/80 行限制、参数不超过 5 个；先让 source gate 在共享 writer 不存在时失败，再实现并运行 benchmark、全量 Go、semantic、capture 和 native reference。
+
+#### 方案比较
+
+1. 只优化 `jsonLineBuilder` 的 token/first 分支：改动最小，但 raw/decoded 仍各自维护字段序列，固定状态机成本仍在，拒绝。
+2. raw 和 decoded 各写一套完整直接 encoder：局部 benchmark 可能最好，但 schema、optional 字段和后续 ABI 字段会形成两份事实源，拒绝。
+3. 用共享 typed wire event 表达已决定的字段，再由一个直接 append writer 编码；保留 materialized builder 作为兼容 oracle，能同时消除重复字段序列和通用分派，选择。
+
+#### 实现与失败优先测试
+
+- 新增 source gate，要求 raw/decoded 热路径都调用共享 wire writer，且不再在这两个函数体内创建 `jsonLineBuilder`；先运行 focused test 验证缺失 writer 时失败。
+- 实现 `jsonSyscallWireEvent` 的 common header、identity、args、return、failure、timing、payload、probe 和 paired 字段编码；raw/decoded 只负责把各自的 event view、handler result 和 payload view 投影到该结构。
+- 保留 plain decoded fast path和 `appendJSONSyscallEvent`，用 raw/decoded 与 materialized 输出的字节级对照覆盖零值、省略、失败返回、payload、转义和 paired enter；补充共享 writer 的零分配 benchmark。
+- 运行 `go test ./...`、`go test -race ./...`、`go vet ./...`、构建、`git diff --check`、`ebpf-semantic`、`ebpf-perf`、`ebpf-capture`、native small/reference；只有 syscall writer benchmark 的稳定改善才计为本阶段性能收益，端到端 event/s 继续区分 trace-window 与 setup/cleanup 固定成本。
+
+#### 实现结果与 Review
+
+- 失败优先 source gate 先因共享 writer 文件和调用点不存在而失败；随后新增 `jsonSyscallWireEvent` 与 `json_syscall_wire.go`，raw/复杂 decoded path 只负责投影 event view、handler result 和 payload sections，统一 writer 负责 header、identity、return、failure、timing、payload、probe 和 paired 字段。plain decoded fast path、低频 materialized `jsonLineBuilder` 和 lifecycle JSON 没有被混入热路径重构。
+- raw/decoded 与 materialized JSON 的字节级对照、zero-value optional 字段、失败返回、payload/base64、转义、paired enter 和 shared writer zero-allocation 回归均通过；`json_syscall_wire.go=125`、`json_decoded_encoder.go=187`、`json_syscall_encoder_test.go=429`、source gate `29` 行，均满足文件边界。
+- Go benchmark 当前为 decode `270.20 ns/op`、raw JSON `94.84 ns/op`、decoded JSON `105.40 ns/op`、decoded payload `203.00 ns/op`，均为 `0 B/op`、`0 allocs/op`；独立 profile 中 `beginFieldToken` 已不再是主要热点，raw JSON 相对本阶段前约 `112 ns/op` 降至约 `91 ns/op`，payload writer 约从 `217` 降至 `204 ns/op`。handler pipeline `182.3 ns/op`、JSON pipeline `300.0 ns/op`，不把跨运行噪声冒充为额外收益。
+- 完整 Go `test`、race、vet、强制构建、Python `57` 项单测和 `git diff --check` 均通过。真实 `ebpf-semantic` 保持 `175` 事件、enter/exit `78/97`、lifecycle `6`，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误为 `0`；`ebpf-perf` scalar/io/lifecycle-storm/threads trace exit rate 为 `27881.93/17745.44/4322.92/15549.68 events/s`。
+- `ebpf-capture` 对账保持闭合：reader/none 各读取 `3200035` 条，handler/text/JSON 各读取 `1600035` 条，JSON 交付 `1600000` 个事件，`records_invalid`、reserve/copy/pending/orphan/mismatch/stale 全为 `0`；native small 为 `23 PASS / 0 FAIL`，upstream-reference 为 `120 PASS / 1 XFAIL / 0 XPASS`，唯一 XFAIL 仍是 bounded read/write snapshot。
+- Review 未发现 JSON 字段顺序、optional 字段、return text、payload ownership、零分配、event v2 ABI、单 Go consumer、Ringbuf 对账或 pure-eBPF/no-procfs 约束回归。本阶段完成 syscall JSON 外层编码边界收敛；剩余整体距离主要是更广 syscall/payload 覆盖、text/handler 最终基线和 arch.md 最终 review，不能把 Phase 14.331 等同于项目完成。
+
+### 14.332 将 syscall capability 绑定到 session snapshot（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：当前 session 已经在 `syscallMetadataTable` 中保存按 syscall ID 索引的不可变 metadata，但 `syscallEventContext.eventTraits()` 仍直接读取包级全局 `syscallEventTraitsByID`。事件上下文在 FD state、offset、close 和 exit policy 中会重复调用该查找。
+- Problem：全局 trait 表只由 `meta.SyscallTable` 构建，无法保证与 session 注入的 metadata snapshot 一致；测试或未来的 runtime metadata overlay 可能已经改变 syscall name，却仍使用旧的 handler/state/offset capability。即使默认表相同，事件生命周期内重复做相同的 ID 分支查找也没有体现 session 组合根的不可变依赖。
+- Goal：由 session metadata snapshot 在构造阶段一次性绑定 syscall traits；事件上下文后续只读取自身的 capability 字段。保留 synthetic unit test 的 name/global fallback，但生产 event enter/exit/unfinished context 必须携带 session-bound traits，且零 trait（例如 `getpid`）不能被误判为未绑定。
+- Non-goals：不改变 trait 规则、handler/FD state 语义、event v2 ABI、Ringbuf、filter、生命周期、输出 schema、纯 eBPF/no-procfs 约束；不在本阶段把整个 `syscallEventContext` 改为指针传递，也不重写 global fallback 的测试构造器。
+- Constraints：修改文件与函数保持项目边界；新增状态必须有显式 bound bit，不能用零值 capability 充当 sentinel；先增加会证明 session metadata drift 的失败优先测试，再实现并运行 Go/race/vet/build、semantic、perf、capture 和 native reference 门禁。
+
+#### 方案比较
+
+1. 继续在 `eventTraits()` 中读取全局数组，只补注释或 source gate：改动最小，但 session metadata 仍可能与 capability 漂移，重复查找也保留，拒绝。
+2. 将整个 `syscallEventContext` 和所有输出 port 改成指针传递：可以减少大结构体复制，但会触碰 enter/exit/router/output/handler 的完整接口面，生命周期 ownership 和测试替身风险高，不适合作为本轮单一问题修复，暂缓。
+3. 扩展现有 session metadata snapshot，按 ID 预计算 traits，并在 context 构造时写入 `traits` 与 `traitsBound`：只改变一次性构造边界，生产热路径读取字段，保留 synthetic fallback，选择。
+
+#### 实现与失败优先测试
+
+- 先新增 session metadata drift 测试：将真实 syscall ID 绑定到不同 syscall name，要求构造出的 context 使用 snapshot 对应的 handler/state traits，而不是 global table；在 `traits` 绑定实现前 focused test 必须失败。
+- 扩展 `syscallMetadataTable` 保存按 ID 预计算的 `syscallEventTraits`，增加显式 `traitsBound` 状态；普通 view、enter view 和 unfinished view 都从同一个 `syscallEventContextDeps`/metadata snapshot 取 capability。
+- 保留没有 session metadata 的 synthetic context 对 global/name fallback；增加零 trait syscall 的绑定测试，防止把 `getpid` 这类合法零值当成未绑定。
+- 运行 focused tests、Go/race/vet/build、`ebpf-semantic`、`ebpf-perf`、`ebpf-capture` 和 native small/reference；只有 context/handler benchmark 的稳定变化才作为性能结论，trace-window 与 setup/cleanup 固定成本继续分开报告。
+
+#### 实现结果与 Review
+
+- 失败优先测试先证明 session snapshot 中将 syscall ID `39` 重绑定为 `openat` 时，旧实现仍从全局 trait 表得到零 capability；随后 `syscallMetadataTable` 增加按 ID 预计算的 traits，`lookupSyscallMetadataWithTraits` 在一次边界/存在性检查中同时返回 metadata 和 traits。`syscallEventContext` 显式保存 `traits` 与 `traitsBound`，exit、enter、unfinished context 都从同一 session dependency 构造；合法的零 trait syscall 通过 bound bit 与未绑定 synthetic context 区分。
+- 生产路径不再在 `eventTraits()` 中读取全局 capability 表；没有 metadata snapshot 的 synthetic unit test 仍保留原有 ID/name fallback。trait 规则本身、handler/FD state/offset/close/exit policy、输出、event v2 ABI、Ringbuf、生命周期和 pure-eBPF/no-procfs 约束均未改变。新增代码文件保持在 500 行以内，函数参数和函数长度未越界。
+- focused binding test、`go test ./...`、`go test -race ./...`、`go vet ./...`、强制构建、Python `57` 项单测和 `git diff --check` 均通过。当前 Go perf suite 为 decode `261.90 ns/op`、raw JSON `95.64 ns/op`、decoded JSON `110.40 ns/op`、decoded payload `187.60 ns/op`，均为 `0 B/op、0 allocs/op`；本阶段没有足够稳定的 context/pipeline 对照证明 event/s 提升，因此只记录为 capability correctness 和 zero-allocation 保持，不把测量噪声算成性能收益。
+- 真实 `ebpf-semantic` 通过：`175` 个 semantic events、enter/exit `78/97`、lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误全部为 `0`。`ebpf-perf` 通过：scalar/io/lifecycle-storm/threads trace exit rate 约为 `27466.84/17488.19/4319.94/15669.82 events/s`，长 reader `63205136` bytes、`252.47 ns/sample`，所有运行时错误为 `0`。
+- `ebpf-capture` 对账闭合：reader/none 各读取、解码 `3200035` 条；handler/text/JSON 各读取、路由 `1600035` 条；text 交付 `1600000` 行，JSON 交付 `1600000` 事件并输出 `588221104` bytes、`8952` 次写出，写错误为 `0`；reserve/copy/pending/orphan/mismatch/stale 全为 `0`。
+- native small 为 `23 PASS / 0 FAIL`；upstream-reference 为 `120 PASS / 1 XFAIL / 0 FAIL / 0 XPASS`；更广 `more` 为 `80 PASS / 3 XFAIL / 0 FAIL / 0 XPASS`。XFAIL 仍只有既定语义边界：`strace-C` 的 per-syscall CPU summary、纯 eBPF 跨任务 lifecycle exact ordering、以及 bounded read/write snapshot 不承诺 ptrace-sized hexdump。Review 未发现 session metadata drift、零 trait sentinel、JSON/event ABI、生命周期、Ringbuf 对账或纯 eBPF 约束回归；整体 arch.md 仍剩更广 syscall/payload 覆盖和最终架构审计，不能把 Phase 14.332 等同于项目完成。
+
+### 14.333 建立 text/handler/JSON 完整 pipeline 性能基线（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：当前事件消费已经拆成 decoder/state、handler、text renderer 和 JSON writer 多个明确 owner；代码中已有 `TraceEventHandlerPipeline`、`TraceEventJSONPipeline` 与 text fast path，但 `ebpf-perf` 只执行 decoder 和 JSON writer microbenchmark。
+- Problem：门禁没有同时报告 text、handler、JSON 完整 pipeline 的 ns/op 与分配数，无法判断一次状态机、handler 或输出重构影响了哪一层；只看 trace-window event/s 还会把 BPF producer、调度和固定 cleanup 混在一起。
+- Goal：把 text、handler、JSON 完整 pipeline 和 context handler 纳入同一 Go benchmark 命令及 Python perf oracle，保持 benchmark 不写真实文件、不依赖 Ringbuf，不改变产品事件路径；让最终架构 review 有稳定的分层性能证据。
+- Non-goals：不把 microbenchmark 当成端到端 event/s，不改变 text/JSON 字节输出、handler 语义、event v2 ABI、Ringbuf、生命周期、过滤、单消费者或 pure-eBPF/no-procfs 约束；不新增第二事件消费者、锁、定时器或 ptrace/procfs fallback。
+- Constraints：benchmark 必须复用现有 session composition、pipeline 和 text fast path；所有样本保持 `0 B/op`、`0 allocs/op` 目标；缺少任一基线项时 `ebpf-perf` 必须失败，避免性能报告静默降级。
+
+#### 方案比较
+
+1. 继续只测 decoder/JSON writer：改动最小，但遗漏 text/handler 组合路径，无法支撑最终架构结论，拒绝。
+2. 新增真实端到端 workload 分别测三种输出：更接近用户体验，但会混入 BPF setup、调度、Ringbuf burst 和 cleanup 尾延迟，无法稳定归因，暂缓。
+3. 扩展既有无 I/O Go pipeline benchmark，并让现有 `ebpf-perf` 解析并强制校验完整集合：复用同一组合根、低噪声、能定位层级，选择。
+
+#### 实现与失败优先测试
+
+- 将 `TraceEventTextPipeline`、`TraceEventHandlerPipeline`、`TraceEventJSONPipeline` 和 `TraceEventContextHandler` 加入已有 benchmark 命令；保留 decoder、raw/decoded JSON writer 与 payload writer 作为底层基线。
+- 扩展 Python benchmark 解析和缺失项门禁；单测覆盖新增 benchmark 行的 ns/op、B/op、allocs/op 解析，缺失项仍必须失败。
+- 更新 README 的结构化输出与 suite 清单，删除已经过时的“后续状态机和 OUT 参数重构”描述，并明确 `ebpf-capture` 是高压对账门禁。
+- 运行 focused benchmark、Go/race/vet/build、Python 单测、`ebpf-semantic`、`ebpf-perf`、`ebpf-capture` 和 upstream reference；性能结论同时记录完整 pipeline 与 trace-window，不能把端到端短 workload 数字冒充 pipeline 吞吐。
+
+#### 实现结果与 Review
+
+- 新增 text pipeline benchmark，并把 text/handler/JSON pipeline 与 context handler 纳入 `ebpf-perf` 的强制 benchmark 集合；旧 JSON/decoder/payload 指标保持不变，缺少任一名称或 allocation 字段会使 suite 失败。
+- README 已同步当前纯 eBPF 事件状态机、OUT snapshot 和 `ebpf-capture` 用法；不再暗示状态机/OUT 参数仍待重构。
+- focused benchmark 与当前 `ebpf-perf` 的 Go 基线为：decode `262.10 ns/op`、context handler `95.81 ns/op`、handler pipeline `214.40 ns/op`、text pipeline `288.60 ns/op`、JSON pipeline `325.70 ns/op`、raw JSON `93.85 ns/op`、decoded JSON `106.90 ns/op`、decoded payload `181.90 ns/op`；全部为 `0 B/op`、`0 allocs/op`。
+- 完整 Go test、race、vet、强制构建、Python `57` 项单测和 `git diff --check` 通过；真实 `ebpf-semantic` 为 `175` 个事件、enter/exit `78/97`、lifecycle `6`，payload truncated `7`，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误为 `0`。`ebpf-perf` trace-window scalar/io/lifecycle-storm/threads 为 `27624.47/17788.91/4321.61/15473.47 exit/s`，长 reader bytes `63205136`、service `300.42 ns/sample`，无运行时错误。
+- `ebpf-capture` 对账通过：reader/none 各读取 `3200035` 条，handler/text/JSON 各读取 `1600035` 条；text 输出 `1600000` 行，JSON 输出 `1600000` 事件、`588286585` bytes、`8952` 次写出、写错误为 `0`；所有模式 `records_invalid`、reserve/copy/pending/orphan/mismatch/stale 均为 `0`。native small 为 `23 PASS / 0 FAIL`，upstream-reference 为 `120 PASS / 1 XFAIL / 0 XPASS`，唯一 XFAIL 是 bounded read/write snapshot。
+- 本阶段只增加可归因的性能观测和文档合同，不改变生产事件 ABI、状态所有权或并发拓扑。Review 确认 text/handler/JSON 三条完整 pipeline 已有同一门禁，且端到端 event/s 仍与 setup/cleanup 分离；整体 arch.md 仍需最终架构合规矩阵和残余边界审计，不能把 Phase 14.333 单独视为项目完成。
+
+### 14.334 最终审计 event/s 下降原因与架构边界（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：历史性能记录同时存在 tracepoint producer 扇出、生命周期状态清理、Go 消费 pipeline 和短命令端到端耗时四类指标；它们曾被汇总成单一 `event/s`，导致真实丢事件与固定启动/收尾成本混在一起。
+- Problem：需要确认此前 event/s 大幅下降究竟是 Ringbuf/状态机丢事件、eBPF 全局探针成本，还是统计口径把 setup/cleanup/output 固定时间算进了分母；同时必须确认最终纯 eBPF 架构没有重新引入并发事件消费者、ptrace 或 procfs 读取。
+- Goal：建立可复核的原因分类和最终合规矩阵，分别给出 producer/reader 对账、trace-window 吞吐、Go pipeline 分配和短命令端到端速率；把已解决问题与仍属于产品语义边界的限制明确分开。
+- Non-goals：不新增兼容模式，不恢复 ptrace/procfs/process_vm fallback，不把端到端短 workload 数字强行优化成热路径指标，不以一次机器负载下的微小 event/s 波动作为性能收益。
+- Constraints：所有结论必须来自当前源码、source gate、真实 eBPF semantic/perf/capture 和 upstream reference；代码边界继续满足单 Ringbuf、单同步事件消费者、事件状态按 owner 拆分和零分配热路径。
+
+#### 方案比较
+
+1. 只看端到端 `event/s`：最接近用户表面体验，但会把 BPF setup、调度、输出 flush、link cleanup 和进程等待混入分母，不能定位事件丢失，拒绝作为唯一 oracle。
+2. 只看 Go microbenchmark：能稳定归因 decoder/handler/output 成本，但无法覆盖 BPF producer、Ringbuf 对账和生命周期继承，拒绝作为唯一 oracle。
+3. 采用 producer attempts、records read/decoded、runtime error counters、trace-window exit rate、分层 Go benchmark 和端到端耗时的分层矩阵：覆盖完整链路且每项可归因，选择。
+
+#### 根因审计
+
+- **BPF producer 扇出成本**：旧架构在 raw syscall tracepoint 上挂了 `11` 个 enter 与 `6` 个 exit 程序；每次系统调用都会触发整组程序，即使多数只做 syscall ID 检查和 filter lookup。历史独立测量中，`11+6` 空探针模型相对无探针约下降 `46%`。最终架构已收敛为 enter/exit 各一个 dispatcher，再通过 `PROG_ARRAY` tail call 分派 family handler，raw attachment 不再随 handler 数量线性增加。
+- **生命周期状态错误**：旧 cleanup 曾使用当前调度上下文 PID，而不是 raw tracepoint 提供的被释放任务 PID 清理 filter state，可能误删仍存活目标的状态，表现为后续事件数异常下降。Phase 14.320 已改为使用事件中的 task identity；lifecycle semantic/perf 现在对 parent tracking、child filter install 和 exit 清理做计数断言。
+- **统计口径混淆**：短命令的端到端速率把 BPF setup、进程等待、Ringbuf drain、stdout flush、BPF link cleanup 和未归因收尾放进分母。当前短 workload 仍会看到 scalar/io 约 `5.6k/3.7k exit/s`，但这不是事件消费热路径吞吐；同一次运行的 trace-window 约为 `28.0k/18.0k exit/s`。
+- **Go 消费固定成本**：旧路径的重复 metadata/capability 查找、通用 JSON field builder、payload section 分派和中间对象会叠加到每条事件。当前 decoder、context handler、handler、text、JSON 及 raw/decoded writer 基准均为 `0 B/op、0 allocs/op`，不再把 10KB 级临时对象带入高频事件路径。
+
+#### 当前证据与合规矩阵
+
+| 契约 | 当前实现/门禁 | 当前结果 |
+| :--- | :--- | :--- |
+| 纯 eBPF、无运行期 ptrace/procfs/process_vm | `product_source_policy_test`、CLI 拒绝旧 `--mode`、事件时源码扫描 | 通过 |
+| 单事件消费者 | `TraceEventReader` 同步 decode/router/sink；`session_run.go` 只有进程 `Wait` 异步，setup/cleanup 并发不进入事件消费路径 | 通过 |
+| raw tracepoint 扇出 | `trace_sys_enter`/`trace_sys_exit` 各一个 dispatcher，`PROG_ARRAY` tail call 进入 family handler | source gate、BPF build 通过 |
+| enter/exit 配对与生命周期 | TID pending、raw task identity、fork/exec/exit map 计数 | semantic `175` events，enter/exit `78/97`，lifecycle `6`，错误计数全 `0` |
+| 高压 Ringbuf 完整性 | `ebpf-capture` 对账 producer attempts、records、decoded/routed/output 和 reserve/copy 错误 | reader/none 各 `3200035` records；handler/text/JSON 各 `1600035` routed；JSON `1600000` events；丢失/错误全 `0` |
+| Go 热路径 | 分层 decode/context/handler/text/JSON/writer benchmarks | `263/98/214/293/337 ns/op` 量级，全部 `0 B/op、0 allocs/op` |
+| trace-window 吞吐 | `ebpf-perf` scalar/io/lifecycle-storm/threads | `27983/17959/4324/15599 exit/s`，所有 runtime error counter `0` |
+| upstream 参考边界 | `small` 与 `upstream-reference` | small `23 PASS`；reference `120 PASS、1 XFAIL、0 FAIL` |
+
+#### 结论与剩余边界
+
+- 如果问题指的是“真实事件丢失、生命周期状态被错误清除导致 event/s 断崖式下降”，在当前 fixture、lifecycle storm 和 `3.2M` record 高压范围内已经解决：producer attempts、Ringbuf records、Go 解码/路由和最终输出能够对账，reserve/copy/pending/orphan/mismatch/stale 均为 `0`。
+- 如果问题指的是“短命令显示的端到端 event/s 仍然不高”，则没有完全消失，原因是固定 setup/cleanup/output 成本仍占短 workload 的主要比例。这是指标定义问题和运行时固定成本，不应再被误判为热路径丢事件；perf runner 已同时报告两种口径。
+- 仍然不承诺无限持续高压下绝对无损，Ringbuf 是有限容量；后续任何性能回归都必须同时看 producer attempts、records read/decoded、reserve/drop counters 和 trace-window rate。`read-write.gen.test` 的 bounded snapshot XFAIL、跨任务异步顺序和 ptrace 冻结语义仍是明确非目标。
+- 本阶段完成 event/s 根因审计和当前架构合规矩阵，但不把它等同于所有 syscall/payload 覆盖完成；新增 syscall 仍需按同一 producer、semantic payload、lifecycle 和性能门禁补齐。
+
+
+### 14.335 回收 syscall payload ownership storage（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：Phase 14.334 已确认 producer/Ringbuf 对账闭合，Go 无 payload 热路径为零分配；但带 payload 的 enter、exit fragment 和 deferred exit 仍通过 `copyPayloadSections`、`append([]byte(nil), ...)` 为每个事件创建 section slice 和 data backing array，释放 snapshot 时又把这些容量丢回 GC。
+- Problem：高频 `read`/`write`/`recvmsg` 等事件的用户态固定成本仍被 payload 深拷贝放大；直接把 Ringbuf 借用切片交给 pending/snapshot 又会在下一次 Ringbuf 复用后产生悬空数据。`mergePendingPayloadSections` 还会把 owned enter sections 与当前 borrowed exit sections 组合成临时视图，不能把整个视图误当成可回收 ownership。
+- Goal：在单事件消费者所属的 `traceSyscallCorrelationState` 内建立可复用的 payload storage owner。首次使用后，enter/fragment/deferred-exit 的 section 元数据和 data backing array 在同一 owner 内复用；pending 到 snapshot 只转移 owner，不复制；snapshot/延迟 update 在同步 router 返回后归还 owner；合并视图只保存临时 section header，不保留 borrowed Ringbuf data。
+- Non-goals：不改变 event v2/TLV ABI、payload schema、capture 上限、路径/handler/text/JSON 语义、Ringbuf producer、并发拓扑或 ptrace/procfs fallback；本阶段不把 decoder 的 TLV section header slice 也改成跨调用复用，避免把 reader 的借用边界与 state ownership 混成一个 owner。
+- Constraints：只允许单 Go event consumer 访问 recycler，不使用 `sync.Pool`、mutex 或第二个事件 goroutine；所有 storage 必须在同步 `TraceEventRouter.Handle` 返回后释放；异常替换、生命周期清理、pending mismatch 和 deferred exit 都必须回收，不能以降低 GC 为代价泄漏状态。
+
+#### 方案比较
+
+1. 保留每次深拷贝：所有权最直观、行为风险最低，但 payload workload 继续按事件分配，不能满足高频 heap/吞吐目标，拒绝。
+2. 引入 `sync.Pool`：可以降低短期 GC 压力，但隐藏跨 owner 的同步与生命周期，难以证明 Ringbuf data 不会被错误复用，也违背单消费者状态 owner 的显式设计，拒绝。
+3. 在 correlation state 内维护显式 `tracePayloadStorage` freelist：section header、每个 data backing array 和合并视图都有清晰 owner，pending/snapshot/deferred update 只转移指针，释放时由同一事件协程回收；选择该方案。
+
+#### 实施边界
+
+- 为 pending syscall 和 pending exit 增加显式 storage transfer/recycle 生命周期；替换旧 pending、退出 sysID 不匹配、task clear 和 pending exit 覆盖都必须归还旧 storage。
+- storage 内部分离 `owned sections` 与 `merged view`：合并当前 borrowed payload 时只重写 view，释放时清空 view 并只保留 owned data backing，绝不把 Ringbuf record 的 `Data` slice 放入 freelist。
+- 增加 payload enter/fragment/deferred-exit 的零分配回归测试、ownership pointer/内容稳定性测试和 payload state benchmark；materialized JSON、semantic、capture、native reference 继续作为行为门禁。
+- 只把 state ownership 的 steady-state allocation 下降计为本阶段收益；decoder TLV header slice 和短命令 setup/cleanup 仍单独记录，不能混入本阶段结论。
+
+#### 实施结果
+
+- 新增 `cmd/strace-go/event_payload_storage.go`，由 `traceSyscallCorrelationState` 独占 payload storage freelist。每个 storage 分开维护 owned section/data backing 和临时 merged view；owned enter/fragment/deferred exit 在 state owner 内复制一次并复用 backing，当前 Ringbuf section 只进入 merged view，不会在释放后进入 freelist。reset 对单个 data backing 设置 `64 KiB` retention 上限，避免异常大 payload 长期滞留。
+- `pendingSyscallState`、`pendingSyscallSnapshot` 和 `pendingExitState` 改为显式转移 `payloadStorage`。`TraceEventRouter.Handle` 的同步 release 边界负责回收 snapshot/deferred storage；pending 替换、task clear、sysID mismatch、lifecycle free 和 deferred attach 失败路径都有明确释放。
+- `pendingExits` 改成 `map[uint32]*pendingExitState` 加 `reusableExits`。原 value 包含大 `syscallEventView`、slice 和 storage 指针，Go map 插入会产生间接大 value 分配；指针 owner 让 pending exit 插入也达到 steady-state 零分配。
+- 单层 `deferredExit` 从递归 `*TraceStateUpdate` 展平成 `traceDeferredExit` 值结构，去掉每个异序 enter/exit 配对的 update heap allocation；不改变 dispatcher 的生命周期和输出顺序。
+- 新增 payload enter/fragment、deferred pair、pending exit replacement/mismatch 的分配和 ownership 回归；source gate 禁止回退到 `append([]byte(nil), ...)` 的 correlation 深拷贝，并要求显式 storage reset/transfer。
+
+#### 方案落地后的验证
+
+- 新增 `BenchmarkTraceStateDeferredPayload` 当前为 `290.30 ns/op`、`0 B/op`、`0 allocs/op`。同一轮 `ebpf-perf` 的 decode/context/handler/text/JSON/writer 基线为 `285.80/95.65/214.50/291.80/332.00/95.99/118.40/194.20 ns/op`，全部 `0 B/op、0 allocs/op`。
+- trace-window 吞吐为 scalar `27532.31/s`、IO `17845.52/s`、lifecycle-storm `4323.09/s`、threads `15781.65/s`；相对 Phase 14.334 在测量噪声范围内，说明本阶段主要消除了 payload heap 分配风险，没有把微基准零分配冒充为 BPF producer 吞吐跃升。短命令端到端速率仍受 setup、cleanup、输出和等待固定成本影响。
+- `ebpf-semantic` 为 `175` 个事件、enter/exit `78/97`、lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误全为 `0`。`ebpf-perf` 全部 workload 通过；`ebpf-capture` reader/none 各读取 `3200035` records，handler/text/JSON 各读取 `1600035`，JSON 交付 `1600000` 个事件，reserve/copy/pending/orphan/mismatch/stale 全为 `0`。
+- Go 全量、race、vet、构建、Python perf oracle `24` 项和 `git diff --check` 通过。原生 `small` 为 `23 PASS / 0 FAIL`；`upstream-reference` 为 `120 PASS / 1 XFAIL / 0 FAIL`；`more` 为 `80 PASS / 3 XFAIL / 0 FAIL`。XFAIL 集合未新增，仍是既定 eBPF 语义边界。
+
+#### Review 结论
+
+- 没有引入 `sync.Pool`、mutex、第二事件消费者、timer、ptrace、procfs 或 `process_vm_readv`；payload storage 只由单事件协程访问。Ringbuf borrowed data 的有效期仍止于同步 router 调用，storage recycler 只保留自己的 backing array。
+- 本阶段解决了用户态 payload ownership 的重复分配和大 map value 分配，但没有改变 `decodePayloadTLVSections` 的 per-record section header 临时 slice；该项仍是后续独立 reader ownership 阶段，不能把本阶段称为所有 payload 路径都零分配。
+- 因而此前 event/s 下降的“状态丢失/GC 放大/大 value map”风险在当前测试范围内已被门禁覆盖；剩余短命令 event/s 低仍主要是固定生命周期成本和 Ringbuf/输出服务成本，不应只看一个端到端分母判断是否丢事件。
+
+### 14.336 回收 decoder TLV section header ownership（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：Phase 14.335 已在 correlation state 内回收 payload data 和 owned section，但 `decodePayloadTLVSections` 仍为每个带 TLV 的 Ringbuf record 创建一个新的 `[]handler.PayloadSection` header slice。生产 decoder 的实际生命周期是单事件消费者同步执行 `Decode -> sink.Handle`，section header 不需要跨记录保存。
+- Problem：当前实现把 decoder 的临时 section header 当成普通返回值处理，无法利用明确的同步边界复用 backing array；高频 `read`/`write`/结构化 payload 会继续支付 decoder header allocation 和 GC 成本。直接复用全局 scratch 或跨 goroutine pool 又会使尚未完成的 sink 使用悬空/被覆盖的 section view。
+- Goal：让产品 `traceRingbufRecordDecoder` 独占可复用的 TLV section scratch。每次 Decode 前清空 header 长度，解析时写入 scratch，返回的 envelope 只在同步 `traceEventSink.Handle` 期间有效；Handle 返回后下一条记录才允许复用。payload `Data` 仍然只借用当前 Ringbuf record，state 若跨调用保存必须继续转移到 Phase 14.335 的 storage owner。
+- Non-goals：不改变 event v2 wire layout、TLV schema、payload data copy 策略、state correlation、输出顺序、Ringbuf 容量、并发拓扑或 ptrace/procfs/process_vm fallback；不使用 `sync.Pool`、mutex、timer 或第二事件消费者；单元测试用的无 owner 解码 helper 不作为产品 runtime path。
+- Constraints：产品 decoder 必须通过 session component graph 以指针 owner 注入；任何记录解码失败都要重置 scratch 长度；`TraceEventReader` 必须保持同步 sink 边界。文件/函数/参数限制不放宽，scratch 只能由 event consumer 所属 goroutine 访问。
+
+#### 方案比较
+
+1. 每次 `make([]handler.PayloadSection, 0, 4)`：ownership 直观，但保留已定位的 decoder header allocation，拒绝。
+2. 全局变量或 `sync.Pool`：可跨调用复用，但隐藏 owner、增加并发/清理证明成本，违背单消费者的显式状态边界，拒绝。
+3. 在 `traceRingbufRecordDecoder` 内维护 `payloadSections` scratch，并把 `Decode` 改为指针 owner：复用范围与同步 Ringbuf 生命周期一致，失败和下一次 Decode 都能显式 reset，选择。
+
+#### 实施边界
+
+- 增加 `decodePayloadTLVSectionsInto` 和 `decodeTraceEventV2EnvelopeInto`，stateless helper 仅作为测试/构造辅助；session 使用的 `traceRingbufRecordDecoder` 传入自己的 scratch。
+- 把 `traceRingbufRecordDecoder` 从无状态值改为指针 owner，在 session composition 中只创建一个实例；`TraceEventReader` 的同步 `sink.Handle` 继续是 borrowed envelope 的最后使用点。
+- 添加失败优先的 scratch backing 复用、malformed record reset 和 steady-state zero-allocation 测试；保留现有所有 payload 字段/JSON/native semantic 门禁。
+
+#### 实施结果
+
+- `traceRingbufRecordDecoder` 现在由单个 session component 持有 `payloadSections []handler.PayloadSection`；`Decode` 通过 `decodeTraceEventV2EnvelopeInto` 写入同一 backing array，失败和下一次 Decode 都先清空长度。decoder 从值类型改为指针 owner，避免 append 扩容后丢失 scratch。
+- TLV parser 增加 `decodePayloadTLVSectionsInto`，只在 stateless 测试 helper 没有 owner 时创建初始 slice；产品路径复用 decoder capacity。TLV 解析失败仍保留既有“事件有效但不暴露无效 payload section”的语义，同时清空可能已经解析出的 partial sections。
+- `TraceEventReader.HandleRecord` 的同步 `sink.Handle(envelope)` 仍是借用 section header 的最后边界；state correlation 继续在需要跨调用保存时复制到 Phase 14.335 的 owned storage，decoder scratch 不会被放进 pending/snapshot。
+- source gate 现在要求 pointer-owned decoder、显式 scratch 传递和 session composition 的唯一 owner；没有增加全局缓存、`sync.Pool`、mutex、定时器或第二事件消费者。
+
+#### 当前验证
+
+- 失败优先测试先因 `newTraceRingbufRecordDecoder` 不存在而失败；实现后 decoder scratch 复用、非法 record reset、nil record reset、ownership source gate 均通过。最终一轮 `ebpf-perf` 中 `BenchmarkTraceRecordDecoderPayload` 为 `103.00 ns/op`、`0 B/op`、`0 allocs/op`；同轮其他 decode/state/pipeline/writer benchmark 也全部为 `0 B/op、0 allocs/op`。
+- 真实 `ebpf-semantic` 通过：`175` 个 semantic events、enter/exit `78/97`、lifecycle `6`，payload truncated `7`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`。
+- 真实 `ebpf-perf` 通过：trace-window scalar/io/lifecycle-storm/threads 分别为 `27943.66/17937.37/4319.36/15371.82 exit/s`，io-long-reader consumer service 为 `255.54 ns/sample`，所有 runtime error counter 为 `0`。
+- 真实 `ebpf-capture` 对账通过：reader/none 各 `3200035` records，handler/text/JSON 各 `1600035` records，JSON 交付 `1600000` 个事件、输出 `588288805` bytes、`8954` 次写出，records/reserve/copy/pending/orphan/mismatch/stale 全为 `0`。
+- Go 全量、race、vet、构建、Python perf oracle `24` 项和 `git diff --check` 通过；native `small` 为 `23 PASS / 0 FAIL`，`upstream-reference` 为 `120 PASS / 1 XFAIL / 0 FAIL`，`more` 为 `80 PASS / 3 XFAIL / 0 FAIL`。XFAIL 未新增，仍是既定 eBPF 语义边界。
+
+### 14.337 补齐网络 syscall 的真实 payload 语义 fixture（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：BPF 网络 direct event 已在 probe 点捕获 `connect/bind` 的 IN `sockaddr`、`sendto` 的 IN buffer 与 IN `sockaddr`、`recvfrom` 的 OUT buffer/`sockaddr`/`socklen`，`accept/accept4/getsockname/getpeername` 也已具备 OUT snapshot；`pkg/handler/network.go` 和 Go JSON 单测覆盖了合成 section，但真实 semantic fixture 还没有覆盖这条链。
+- Problem：没有真实 TCP/UDP workload，就无法证明用户态指针在 syscall enter/exit 的正确时点被复制，也无法证明 `socklen` 的 IN/OUT 变化、失败返回和文本 sockaddr 解码在纯 eBPF 路径中同时成立。只依赖 handler fake reader 会掩盖 BPF capture、Ringbuf ABI 和 filter route 的问题。
+- Goal：增加一个不依赖 procfs、网络外部服务或固定端口的 loopback fixture，确定性触发 `connect/accept/accept4/sendto/recvfrom/getsockname/getpeername` 及失败返回；增加独立 JSON semantic oracle，验证 section kind/direction/arg index/长度/内容、enter/exit 配对、失败 errno 和 sockaddr 文本。
+- Non-goals：不恢复 ptrace/procfs/process_vm fallback，不读取或轮询 `/proc`，不依赖外部网络，不改变 event v2/TLV ABI、BPF 网络 capture、handler 或输出格式；本阶段不把 socket 族的所有协议扩展成全量兼容契约。
+- Constraints：fixture 只能使用 loopback 和内核分配的临时端口；TCP accept 与 UDP datagram 必须在同一进程内完成且不能依赖 sleep/timer；oracle 使用结构化 JSON 语义断言而不是整行文本 diff；统计中的 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误必须为零。
+
+#### 方案比较
+
+1. 只扩展现有 `ebpf_semantic_fixture`：复用构建流程，但网络状态、TCP accept 和 UDP datagram 会进一步扩大主 fixture，失败时难以区分网络与其他 syscall 回归，拒绝。
+2. 只增加 `pkg/handler` 合成 section 单测：执行快且能验证格式化，但不覆盖 BPF 指针读取、Ringbuf payload 顺序、真实 `socklen` 更新和 filter route，不能作为架构语义门禁，拒绝。
+3. 新增独立 loopback TCP/UDP C fixture 与 `ebpf_network_suite.py`：状态空间小、无外部依赖，能直接验证 probe-site payload 和 JSON oracle，选择。
+
+#### 实施边界
+
+- fixture 使用 TCP loopback 触发 `connect/accept/accept4/getpeername/getsockname`，使用 UDP loopback 触发 `sendto/recvfrom`，并执行 `connect/sendto/recvfrom` 的 `EBADF` 失败调用；端口由 `getsockname` 动态取得。
+- suite 只解析 `--event-format=json` 的 syscall/stats 事件，分别校验 payload section 的 `bytes/struct`、IN/OUT、arg index、copied length 和确定性 payload marker；文本只作为 sockaddr 解码的辅助语义断言。
+- 为 oracle 提供纯函数校验和 happy/failure Python 单测；集成到 `ebpf-semantic`，不改变 upstream reference 的职责。
+
+#### 实施结果
+
+- 新增 `test/fixtures/ebpf_network_fixture.c`。TCP 阶段使用内核分配的 loopback 临时端口连续完成 `bind/listen/connect/accept/accept4/getsockname/getpeername`；UDP 阶段用 `sendto` 发出固定 marker、用 `recvfrom` 接收并校验；最后对 `connect/sendto/recvfrom` 使用合法用户指针触发 `EBADF` 失败路径。整个 fixture 不读取 procfs、不访问外部网络、不使用 sleep。
+- 新增 `test/ebpf_network_suite.py`，oracle 直接检查 `struct sockaddr`、bytes buffer、IN/OUT `socklen` 的 section metadata、长度、probe result、IPv4 内容和 marker，同时要求成功 exit 带 `paired_enter`，失败 exit 为 `EBADF`，sockaddr 文本包含 `AF_INET`/loopback。
+- `run_ebpf_semantic` 已接入独立网络 suite；新增 Python 单测覆盖完整 capture、缺失 `recvfrom` snapshot 和非零 runtime counter 三条路径。网络 workload 不复用主 semantic fixture，失败时可以独立归因到网络 BPF route/payload 或 oracle。
+
+#### 当前验证
+
+- 失败优先证明：新增 oracle 单测在实现文件缺失时先因 `ModuleNotFoundError` 失败；实现后 `python3 test/test_ebpf_network_suite.py` 为 `3` 项通过，fixture `gcc -O2 -Wall -Wextra` 编译通过，`py_compile` 与 `git diff --check` 通过。
+- 真实 `run_network_semantic` 产生 `49` 个 syscall events 并通过；完整 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` 通过，网络 suite 输出 `49` events，主 semantic 仍为 `175` events、enter/exit `78/97`、所有 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误为 `0`。
+
+#### Review 结论
+
+- fixture 的 TCP/UDP 状态只由内核 syscall 返回值和 loopback 地址驱动，没有固定端口竞争、外部服务依赖或用户态补读 tracee 内存；oracle 不把动态端口作为稳定文本契约。
+- 本阶段没有改变 BPF event v2 ABI、网络 capture 或 `NetworkHandler`，而是用真实 Ringbuf 事件证明已有 probe-site payload 实现；后续若扩展 IPv6、Unix domain、`recvmsg/sendmsg`，必须分别增加 fixture 和 payload oracle，不能把本阶段的 IPv4 UDP/TCP 结果泛化为全网络兼容。
+
+### 14.338 补齐 ioctl direct payload 的真实语义 fixture（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`ioctl` 已经由独立 BPF direct family 在 enter 捕获 arg2 的 bounded bytes、在成功 exit 捕获 OUT bytes；`IoctlHandler` 的 `FIONREAD` formatter 和 Go JSON/TLV 单测也只消费 semantic payload section。但当前真实 semantic workload 没有包含 ioctl。
+- Problem：仅靠 synthetic section 无法证明 ioctl command size 解码、enter/exit payload 方向、pipe 内核写回值和失败返回在真实 Ringbuf 事件中一致；依赖具体 tty、device-mapper 或 filesystem 设备又会引入机器环境差异。
+- Goal：增加一个仅使用匿名 pipe 的 deterministic fixture，写入固定字节后调用 `FIONREAD`，同时执行无效 FD 的失败 ioctl；oracle 验证 IN/OUT arg2 bytes section、`FIONREAD` 文本和值、enter/exit 配对、`EBADF` 和 runtime error counters。
+- Non-goals：不扩展所有 tty/DM/Btrfs/fiemap ioctl，不依赖 `/dev/tty`、外部设备、procfs 或 ptrace，不改变 ioctl event v2/TLV ABI、command size policy、handler 或 upstream reference 语义。
+- Constraints：fixture 只能依赖 pipe、`FIONREAD` 和 syscall 返回值；不能使用 sleep 或固定设备状态；oracle 使用 JSON section 语义断言，失败路径必须保留 enter snapshot 但不得伪造 OUT snapshot。
+
+#### 方案比较
+
+1. 只保留现有 handler/JSON 合成单测：无需运行环境，但完全绕过 BPF probe-site、Ringbuf 和 command-size capture，拒绝作为真实语义门禁。
+2. 直接把 upstream `ioctl*.gen.test` 作为 eBPF 门禁：覆盖面大，但 exact 文本和设备/内核环境差异会掩盖 direct payload 是否正确，不能作为唯一 oracle，拒绝。
+3. 新增匿名 pipe + `FIONREAD` 独立 fixture 与 JSON oracle：不依赖设备，能同时验证 enter/exit snapshot 和失败路径，选择。
+
+#### 实施边界
+
+- C fixture 使用 `pipe`、`write`、`ioctl(FIONREAD)`、失败 `ioctl(-1, FIONREAD, ...)` 和 `close`；通过固定 marker 长度校验返回值。
+- suite 只追踪 `ioctl` 及必要的 pipe/write/close syscall，验证 arg2、4 字节长度、IN/OUT 方向、little-endian 返回值和 formatter 文本，不做完整 upstream 文本 diff。
+- 为纯 oracle 增加 happy/failure 单测，并集成到 `ebpf-semantic`；后续其他 ioctl 家族仍须单独增加设备无关或明确能力约束的 fixture。
+
+#### 实施结果
+
+- 新增 `test/fixtures/ebpf_ioctl_fixture.c`。fixture 向匿名 pipe 写入固定 17 字节，调用 `ioctl(FIONREAD)` 读取可用字节数，再对 `fd=-1` 执行相同 command 的失败调用；没有设备节点、procfs、外部服务或等待。
+- 新增 `test/ebpf_ioctl_suite.py` 与 happy/failure 单测，要求 arg2 的 IN/OUT bytes section 都是 4 字节、OUT little-endian 值为 `17`、成功 exit 配对、失败 exit 为 `EBADF` 且没有 OUT section，文本包含 `FIONREAD` 与 `[17]`。
+- 真实验证发现 `FIONREAD=0x541b` 的 `_IOC` size bits 为零，旧 `ioctl_direct_user_len` 会把它按通用 zero-size 上限 `128` 字节捕获。BPF policy 新增 `ioctl_direct_known_size`，为 `FIONREAD`、`TIOCGWINSZ` 和 `TCGETS/TCSETS*` 使用 handler 已知的精确结构长度，未知 zero-size command 仍保留 128 字节 bounded fallback；这样既避免常见 ioctl over-capture，也不把未知命令误判成固定 ABI。
+- `bpf_ioctl_direct_source_test.go` 增加 exact zero-size command source gate；重新生成 bpf2go 产物，运行时加载的是包含新 policy 的对象。
+
+#### 当前验证
+
+- 失败优先证明：source gate 在 `ioctl_direct_known_size` 尚未存在时先失败；实现后 `go test ./cmd/strace-go -run 'TestBPFIoctl|TestJSONSyscallEventIncludes.*Ioctl|TestSyscallEventContextMergesIoctl'` 通过，C fixture 编译、Python oracle `3` 项、`py_compile` 和 `git diff --check` 通过。
+- 真实 `run_ioctl_semantic` 通过；完整 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` 通过，ioctl suite 成功，网络 suite `49` events，主 semantic `175` events、enter/exit `78/97`，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误为 `0`。
+
+#### Review 结论
+
+- 精确长度表位于 BPF probe-site policy，不依赖 Go 侧重新读取 ioctl 参数；失败 ioctl 仍可保留 enter IN snapshot，但 exit 只在 `ret >= 0` 时捕获 OUT，符合 event-time ownership。
+- `ioctl_direct_known_size` 只覆盖 handler 已明确解码的 zero-size commands；它没有把整个 ioctl command namespace 硬编码成伪 metadata。新增 command 必须同时提供 handler 语义和 direct payload test，不能通过放大 128 字节窗口掩盖缺少长度合同。
+
+#### 复核结论补充
+
+- 本阶段修复的是产品 BPF capture policy，而不是放宽 oracle：`FIONREAD` 的 `_IOC` size bits 为零，必须由已知 command ABI 提供精确的 4 字节长度；否则 enter/exit 都会把无关用户内存带进 Ringbuf，既放大复制成本，也可能暴露错误的 payload 内容。
+- 真实运行结果已确认修复生效：成功 `ioctl` 的 arg2 IN/OUT section 均为 4 字节，OUT 值为 `17`；失败 `EBADF` 调用保留 IN section 且没有 OUT section。事件统计中的 reserve/copy/pending/orphan/mismatch/lifecycle-map 错误均为 `0`。
+- `TIOCGWINSZ` 与 `TCGETS/TCSETS*` 只是当前 handler 已有明确结构长度的同类命令；未知 zero-size command 仍走 bounded fallback，避免把不完整的 syscall metadata 伪装成完整 ioctl 字典。后续新增命令必须同时补 handler、BPF 长度合同和真实语义 fixture。
+
+### 14.339 补齐 recvmsg 分片退出与真实 payload 语义 fixture（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：纯 eBPF `recvmsg` 路径已经拆成 control fragment、name fragment 和最终 exit 三段，以绕开单条 Ringbuf record 的固定容量；最终用户态 correlation state 会把这些借用 section 按同一 TID/syscall 合并。现有合成 handler 单测和 `recvmmsg` fixture 不能证明这条专门路径在真实 syscall 中闭合。
+- Problem：当前真实 semantic workload 没有成功 `recvmsg`，因此无法发现 msghdr OUT、iovec OUT、SCM_RIGHTS 控制消息 OUT、UDP `msg_name` OUT 的捕获时点或分片顺序错误；失败路径也没有证明 `recvmsg` 失败时不会伪造 OUT snapshot。只看最终文本可能掩盖 fragment 丢失或 payload ownership 错误。
+- Goal：新增不依赖 procfs、外部网络或固定端口的真实 fixture，同时覆盖 Unix datagram 的 SCM_RIGHTS `recvmsg` 和 loopback UDP 的 `msg_name` `recvmsg`，再覆盖无效 FD 的失败调用；JSON oracle 验证 enter/exit 配对、fragment 标志、合并后的 section 顺序和关键 payload 内容。
+- Non-goals：不改变 `recvmsg` kretprobe attach 拓扑、event v2/TLV ABI、fragment flag、handler 文本格式、Ringbuf 容量或用户态 correlation 算法；不把本阶段的 IPv4/Unix datagram 结果泛化为所有协议、控制消息和 ancillary data。
+- Constraints：fixture 只能使用 `socketpair(AF_UNIX, SOCK_DGRAM)`、loopback UDP、内核分配的临时端口和 syscall 返回值驱动状态；禁止 sleep、procfs、ptrace、process_vm_readv 和外部服务。oracle 必须忽略动态 FD/端口，只检查稳定字段、section metadata、marker 和 errno；runtime reserve/copy/pending/orphan/mismatch/lifecycle-map 错误必须为零。
+
+#### 方案比较
+
+1. 只增加 `pkg/handler` 的 synthetic `recvmsg` section 单测：执行快、格式断言清晰，但不能覆盖 kretprobe 分片、Ringbuf record、真实用户指针和 merge ownership，拒绝作为架构门禁。
+2. 复用现有 `ebpf_mmsg_fixture`：能顺便触发消息 syscall，但 mmsg 的 slot 编号和单独的 `recvmsg` kretprobe 路径不同，无法验证 name/control fragment，拒绝。
+3. 新增 Unix datagram + UDP loopback fixture 与独立 JSON oracle：同时覆盖 OUT cmsg、OUT msg_name、OUT iovec、失败退出和真实分片 merge，归因边界清楚，选择。
+
+#### 实施边界
+
+- Unix datagram 阶段发送固定 marker 和一个 `SCM_RIGHTS` 文件描述符，再用 `recvmsg` 接收并校验返回数据与 ancillary data；UDP 阶段动态绑定 loopback 临时端口，用 `sendmsg` 发包并用带 `msg_name` 缓冲区的 `recvmsg` 接收。
+- 失败阶段调用 `recvmsg(-1, ...)`，要求 exit 为 `EBADF`、与 enter 配对且没有 OUT payload；成功阶段要求最终非 fragment exit 含 msghdr/iovec/bytes，独立 fragment 含 control/name，合并 JSON 事件不能丢失或重排 section。
+- 新增 Python oracle 及 happy/missing-fragment/runtime-counter 单测，并接入 `ebpf-semantic`；不改变 upstream reference suite 的职责。
+
+#### 实施结果
+
+- 新增 `test/fixtures/ebpf_recvmsg_fixture.c`。Unix datagram 阶段发送固定 `rx-cmsg` marker 和 `SCM_RIGHTS`，接收端通过 `recvmsg` 校验 marker 与传递的 FD；UDP 阶段使用 loopback 临时端口发送 `rx-name`，接收端用 `msg_name` 缓冲区接收并校验 `AF_INET`；最后调用 `recvmsg(-1, ...)` 验证失败路径。fixture 不读取 procfs、不使用外部网络、sleep 或用户态补读。
+- 新增 `test/ebpf_recvmsg_suite.py` 和 `test/test_ebpf_recvmsg_suite.py`。oracle 检查两次成功 paired exit、失败 `EBADF` 无 OUT section、enter msghdr/iovec/cmsg、合并后的 OUT cmsg/IPv4 sockaddr/msghdr/iovec bytes、动态 FD/端口无关的 SCM_RIGHTS header 和 sockaddr 文本，并校验 runtime 错误计数为零。
+- 真实运行首次发现 `orphan_exit=3`：成功 Unix/UDP 及失败 `recvmsg` 都已经产生正确最终事件，但 `bpf/exit_dispatch.h` 的 raw `exit_msg` 仍把 `recvmsg` 当作普通单消息 exit，先消费 pending；随后 `__sys_recvmsg` kretprobe 的 name/control/final 链找不到 pending，形成三个 orphan。新增 `TestBPFMsgRawExitLeavesRecvmsgToKretprobe` 源码回归门禁，将 raw dispatcher 限定为 `SYS_SENDMSG`，由 kretprobe 独占 `recvmsg` 的退出分片和 pending consume。
+- 重新生成 bpf2go 产物并保持 `recvmsg` kretprobe 的既有 tail-call 顺序；没有改变 event v2/TLV ABI、fragment flag、用户态 state merge 或 Ringbuf 记录容量。
+
+#### 当前验证
+
+- 失败优先证明：新增 Python 测试先因 `ebpf_recvmsg_suite` 缺失而失败；raw dispatcher 源码测试先因缺少 `SYS_SENDMSG` 限定而失败。实现后 `python3 test/test_ebpf_recvmsg_suite.py` 为 `3` 项通过，`gcc -O2 -Wall -Wextra` fixture 编译通过，`py_compile`、`git diff --check` 和消息相关 Go 测试通过。
+- 真实 `run_recvmsg_semantic` 产生 `27` 个 syscall events 并通过；成功 OUT cmsg、OUT `msg_name`、OUT msghdr、OUT iovec bytes 和失败无 OUT snapshot 均被解析到。首次真实运行的 `orphan_exit=3` 修复后为 `0`。
+- 完整 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` 通过：ioctl、signalfd、network `49`、recvmsg `27`、sockopt、thread、mount、dirent、mmsg 等 suite 全部通过；主 semantic `175` events、enter/exit `78/97`、lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误全为 `0`。
+
+#### Review 结论
+
+- 这是一个实际架构 bug 修复：raw `sys_exit` 与 kretprobe 不再对同一 `recvmsg` pending 双重消费；`sendmsg` 仍保留 raw exit 输出，`recvmsg` 的 control/name/final serialized chain 仍由专用 kretprobe 负责。
+- 用户态最终 JSON 不直接输出 exit fragment record，fragment 只进入单事件消费者的 correlation state；因此本阶段的真实门禁由已有 kretprobe source gate 证明 tail-call 顺序，再由 semantic oracle 证明 merge 后 section 内容和顺序，避免把“最终文本存在”误当作 fragment 已正确处理。
+- fixture 与 oracle 没有引入 procfs、ptrace、process_vm、第二事件消费者、mutex 或 timer；动态 FD、端口和收到的 SCM_RIGHTS 数值都没有进入稳定契约。后续扩展 `recvmsg` 的 IPv6、更多 ancillary data 或截断语义时，必须按同样方式增加独立 payload oracle。
+
+### 14.340 补齐 xattr 输入/输出 payload 的真实语义 fixture（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：xattr family 已经具备独立 direct TLV capture/emit provider。`setxattr` 在 enter 时捕获 pathname、name 和 value；`getxattr`/`listxattr` 在成功 exit 时捕获 OUT bytes；handler 也已经禁止回退到运行期读取 tracee 用户内存。但当前门禁只有 source gate、synthetic TLV merge 和 handler memory-policy 单测。
+- Problem：没有真实 eBPF workload 证明同一文件上的 set/get/list/remove 顺序能闭合，也没有证明成功 get/list 的返回长度会限制 OUT snapshot，失败 get 不会伪造 OUT payload。仅看文本或合成 section 无法发现 xattr probe-site 的指针、ret 长度和 pending 配对错误。
+- Goal：增加不依赖 procfs、外部目录内容、固定权限状态或外部服务的临时文件 fixture，真实触发 `setxattr`、`getxattr`、`listxattr`、`removexattr`，再触发移除后的失败 `getxattr`。JSON oracle 验证 pathname/name/value 的 IN section、get/list 的 OUT bytes、paired exit、失败 errno 和失败无 OUT section。
+- Non-goals：不在本阶段扩展 `*xattrat` 新 syscall、不改 xattr direct TLV ABI、capture 上限、handler 文本格式、Ringbuf 拓扑、用户态 correlation 或 upstream exact-output 集合；不把一个 filesystem 的成功结果泛化为所有 xattr namespace 和 filesystem 实现。
+- Constraints：fixture 只使用 `mkstemp` 创建的普通临时文件和 `user.` namespace；路径、fd 和 inode 都是动态值，oracle 只检查稳定 marker。fixture 必须在用户态校验每个 syscall 返回值和 errno，不能用 procfs 或 tracee 内存补读；runtime reserve/copy/pending/orphan/mismatch/lifecycle-map 错误必须为零。
+
+#### 方案比较
+
+1. 只增加 xattr handler/synthetic TLV 单测：执行快且稳定，但无法覆盖真实用户指针、BPF probe 时点、ret 驱动的 OUT 长度和 Ringbuf correlation，不能作为本阶段主门禁。
+2. 增加 AIO `io_submit`/`io_getevents` fixture：可以覆盖另一组复杂 payload，但依赖异步 I/O 上下文、内核支持和完成时序，失败归因会混入 AIO 生命周期问题，不适合先验证当前明确的 xattr 缺口。
+3. 增加单进程临时文件 xattr fixture 与 JSON semantic oracle：只引入本地 filesystem 前提，能同时覆盖 IN/OUT、成功/失败和动态路径，错误边界清楚，选择。
+
+#### 实施边界
+
+- fixture 通过直接 `syscall(2)` 调用设置固定 `user.fixture` 属性和值 `xattr-value`，读取并校验 `getxattr` 返回值，再通过 `listxattr` 校验 NUL 分隔的属性名，移除属性后用 `getxattr` 期望 `ENODATA`；退出时删除临时文件。
+- oracle 必须检查 `setxattr` enter 的 path/name/value、`getxattr` exit 的 name/value、`listxattr` exit 的 path/list、`removexattr` 的 name，以及失败 `getxattr` 的 paired exit 和无 OUT section；动态路径只通过 payload 中的 basename/marker 验证。
+- 新增 Python unit tests 覆盖成功事件、缺失 OUT section、失败伪造 OUT 和非零 runtime counter；接入 `ebpf-semantic`。任何 BPF 产品 bug 以 source regression test 锁定，不能用 oracle 放宽错误计数。
+
+#### 实施结果
+
+- 新增 `test/fixtures/ebpf_xattr_fixture.c`。fixture 使用 `mkstemp` 创建临时文件，直接调用 `setxattr` 写入固定 `user.fixture=xattr-value`，调用 `getxattr` 校验 OUT value，调用 `listxattr` 校验 NUL 分隔的 name，调用 `removexattr` 后再次 `getxattr` 期望 `ENODATA`，最后删除文件；没有 procfs、ptrace、外部服务或等待。
+- 新增 `test/ebpf_xattr_suite.py` 与 `test/test_ebpf_xattr_suite.py`。oracle 检查动态 pathname 的稳定前缀、name/value IN TLV、get/list OUT bytes、四个成功 paired exit、失败 `ENODATA` 和失败事件无 OUT section，并校验 reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 计数为零。
+- `run_ebpf_semantic` 已接入 xattr suite。现有 xattr direct source gate、TLV merge、JSON section 和 handler memory-policy 测试继续保留；本阶段没有新增运行期内存读取或改变 BPF event ABI。
+
+#### 当前验证
+
+- 失败优先证明：新增 Python 测试在 oracle 文件不存在时先因 `ModuleNotFoundError` 失败；实现后 xattr Python oracle `3` 项通过，fixture `gcc -O2 -Wall -Wextra` 编译并独立运行输出 `xattr-fixture-ok`，统一 Python suite 测试 `18` 项通过。
+- focused Go 验证通过：xattr BPF source、TLV merge 和 JSON section 测试通过，`go build -o strace-go ./cmd/strace-go` 通过。
+- 真实 `sudo -n` eBPF 运行产生 `10` 个 syscall events 并通过；`setxattr/getxattr/listxattr/removexattr` 的成功 payload 和删除后的 `getxattr=-ENODATA` 均被解析，失败事件没有 OUT section。
+
+#### Review 结论
+
+- xattr payload 的所有权仍在 eBPF event-time capture：path/name/value 在 enter 复制，get/list 的 OUT bytes 在 exit 按内核返回长度复制，Go handler 只消费 JSON/TLV section，不读取 procfs 或 tracee 用户内存。
+- 动态临时路径、fd 和 inode 没有进入契约；fixture 只依赖 `user.` namespace，因此如果后续覆盖 `security.*`、filesystem 特有 xattr 或 `*xattrat`，必须增加能力探测边界和独立 payload oracle。
+- 本阶段未发现需要修改产品 BPF 的新 bug；它完成了 xattr family 的真实语义门禁，但不等于 AIO、keyring 和所有新 xattrat syscall 已覆盖。后续继续从 direct provider 已存在而缺少真实 fixture 的 family 中逐项补齐。
+
+### 14.341 补齐 poll/ppoll/select 的真实 fdset 与 timeout 语义 fixture（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`poll`/`ppoll` 已有独立 direct capture/emit provider，能够在 enter/exit 捕获 pollfd、ppoll timespec 和 sigmask；`select` 也已有 fdset/timeval direct TLV 以及 nested FD path fragment。当前这些路径只有 source gate、synthetic TLV 和 handler 单测，真实 semantic workload 没有同时验证 IN/OUT fdset 的内核写回。
+- Problem：仅凭合成数据无法发现 pollfd 结构大小、`ppoll` 的低 32 位 nfds/timeout/sigmask 参数、select fdset 的 `(nfds+7)/8` 长度或失败调用的 OUT capture 条件错误。epoll fixture 只验证 epoll event 和 nested path，不能替代 poll/select 的不同 ABI。
+- Goal：增加只使用匿名 pipe 的 fixture，先写入一个字节使 read end 立即 ready，再真实调用 `poll`、`ppoll` 和 `select`；随后用无效用户指针触发每个 family 的 `EFAULT` 失败路径。JSON oracle 验证成功 paired exit、pollfd IN/OUT、ppoll timeout/sigmask、select fdset/timeval 和失败无 OUT section。
+- Non-goals：不在本阶段把 `pselect6` 泛化为 select direct family；当前 BPF route 没有 `pselect6` 的专用 payload provider，必须另立阶段设计其 sigmask wrapper ABI。不改变 poll/select TLV schema、nested FD path fragment、handler 文本或 filter 策略。
+- Constraints：fixture 不依赖 procfs、外部设备、sleep 或固定 fd 数字；fd 只作为结构语义输入，oracle 忽略动态 fd，只检查 `POLLIN`/ready bit、section 长度、方向和返回值。runtime reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 计数必须为零。
+
+#### 方案比较
+
+1. 复用现有 epoll fixture：能产生 ready fd，但 epoll event 的结构和输出方向不同，无法证明 pollfd/select fdset 的 bounded capture，拒绝。
+2. 直接跑 upstream `poll`/`ppoll`/`xselect` 测试：覆盖面大，但包含 EFAULT、精确文本和平台差异，不能把 Ringbuf section 合同作为独立 oracle，拒绝作为主门禁。
+3. 新增匿名 pipe + 三个 syscall family 的独立 fixture 与 JSON semantic oracle：ready 状态完全由本进程构造，成功/失败、IN/OUT 和结构长度可逐项归因，选择。
+
+#### 实施边界
+
+- C fixture 用 `pipe`、`write` 生成 ready byte；`poll` 使用一个 `struct pollfd`，`ppoll` 额外提供零 timeout 和 8 字节 sigmask，`select` 使用 read fdset、零 timeval；每个调用都校验返回值和 ready bit。
+- 失败阶段对 `poll`、`ppoll`、`select` 传入地址 `1` 并校验 `EFAULT`；oracle 只允许失败事件合并 enter IN section，不允许任何 OUT section。
+- 新增 Python oracle 和 happy/failure/runtime-counter 单测，接入 `ebpf-semantic`；真实运行若暴露 probe-site 或 dispatcher bug，必须先加 Go source regression，再修 BPF，不通过放宽 section 断言掩盖。
+
+#### 实施结果
+
+- 新增 `test/fixtures/ebpf_poll_select_fixture.c`。fixture 用匿名 pipe 写入一个 ready byte，直接调用 `poll`、`ppoll` 和 `select` 并校验返回值/ready bit；随后用用户地址 `1` 调用三者并校验 `EFAULT`。没有 procfs、固定设备、sleep 或外部服务。
+- 新增 `test/ebpf_poll_select_suite.py` 与 `test/test_ebpf_poll_select_suite.py`。oracle 检查 poll/ppoll 的 8 字节 pollfd IN/OUT、ppoll 的 16 字节 timeout 和 8 字节 sigmask、select 的按 `nfds` 截断 fdset 与 16 字节 timeval，并要求失败 exit 没有 OUT section。
+- `run_ebpf_semantic` 已接入 poll/select suite；没有修改 BPF provider、event v2 ABI、handler 或 filter 逻辑。`pselect6` 仍保持独立未覆盖状态，不通过把它错误归入 select direct family 来掩盖 route 缺口。
+
+#### 当前验证
+
+- 失败优先证明：新增 Python 测试在 oracle 文件不存在时先因 `ModuleNotFoundError` 失败；实现后 poll/select Python oracle `3` 项通过，fixture `gcc -O2 -Wall -Wextra` 编译并独立输出 `poll-select-fixture-ok`，统一 Python suite 测试 `18` 项通过。
+- focused Go direct/TLV/source 测试、`git diff --check` 和文件规模约束通过；真实 `sudo -n` eBPF 运行产生 `16` 个 syscall events 并通过。
+- 完整 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` 通过：poll/select `16` events、recvmsg `27`、network `49`、xattr `10`，主 semantic `175`，enter/exit `78/97`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误全为 `0`。
+
+#### Review 结论
+
+- poll/ppoll/select 的 OUT snapshot 都在 BPF exit 时按成功返回条件捕获；失败 `EFAULT` 只合并 enter IN section，不会由 Go 侧重新读取 fdset、pollfd 或 timeout。ready bit 与 `POLLIN` 文本由真实内核结果驱动。
+- fixture 忽略动态 fd 数值，select 的断言只要求非空 ready fdset 和 payload 长度；这避免把标准 fd 环境误当作 ABI 契约。`pselect6`、AIO 和 keyring 仍是后续独立 family，不能由本阶段结果代替。
+- 本阶段未发现 BPF 产品 bug；它完成了 poll/ppoll/select 的真实 payload 门禁，同时明确保留 `pselect6` route/payload 缺口，避免继续宣称所有 select-like syscall 已完成。
+
+### 14.342 补齐 pselect6 的 sigmask wrapper 与 timespec payload（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：handler registry 已注册 `pselect6`，但 BPF route 只为 `select` 绑定 select direct enter/exit；`pselect6` 当前会落到 generic event，fdset、timespec 和 sigmask wrapper 都没有 event-time semantic snapshot。现有 select provider 也只判断 `SYS_SELECT`，不能直接把 pselect6 当作五参数 select。
+- Problem：pselect6 的第 6 个参数不是 sigset 本身，而是用户态 wrapper `{sigmask pointer, sigsetsize}`；如果只把它当普通指针，Go 侧既无法输出稳定 sigset，也无法证明 kernel 写回 fdset/timeouts 的长度和时点。handler 还会错误地使用 timeval 语义并遗漏第 6 个参数。
+- Goal：扩展 select direct family 支持 `SYS_PSELECT6`，在 BPF enter 时捕获 arg1-3 fdset、arg4 16 字节 timespec、arg5 wrapper 和 wrapper 指向的 bounded sigmask；在成功 exit 时捕获 fdset OUT 与 timespec OUT。Go handler 为 pselect6 选择 timespec formatter，并从 semantic sections 渲染 wrapper/sigmask，不读取 tracee memory。
+- Non-goals：不支持其它架构的 `pselect6_time32/time64` 编号、不改变 `select`/`ppoll` ABI、不把 wrapper 指针传入 Go 后再解引用、不引入 procfs/ptrace、第二消费者或新并发模型；sigset 超过 8 字节只保留 bounded snapshot 和截断事实。
+- Constraints：wrapper 与实际 sigmask 的读取必须发生在 BPF enter probe；actual mask 使用 synthetic payload arg index `6`，wrapper 使用真实 arg index `5`，二者 section 顺序稳定；pselect6 失败 exit 不得产生 OUT section。fixture 只使用匿名 pipe、零 timeout、固定 8 字节 sigmask 和无效 fdset 地址。
+
+#### 方案比较
+
+1. 保持 pselect6 generic pointer 输出：改动最小，但违反 `arch.md` 的 snapshot-only handler 契约，且无法验证 wrapper ABI，拒绝。
+2. 复用 select provider 并把 arg5 当 sigset pointer：能减少代码，但会把 wrapper 地址误读为 sigset，属于静默数据错误，拒绝。
+3. 在 select direct provider 内增加 pselect6 selector、wrapper/actual-mask 两个 semantic sections，并让 `SelectHandler` 增加 pselect6 分支：复用 fdset/exit pipeline，明确表达 wrapper ABI，选择。
+
+#### 实施边界
+
+- BPF facade 增加 `SYS_PSELECT6` selector、pselect6 capacity 和 synthetic arg index；capture provider 读取 16 字节 wrapper，再按 wrapper 的 mask pointer/size bounded copy actual mask；emit provider 按 syscall 选择 timeout kind/arg5 capture。
+- `bpf_routes.go` 增加 pselect6 enter/exit direct route；source gate 锁定 route、wrapper read、actual mask section 和 emit/capture ownership。Go handler 只消费 arg5 wrapper/arg6 mask section，pselect6 timeout使用 `format.Timespec`。
+- 扩展 poll/select fixture 与 oracle，覆盖 pselect6 成功/`EFAULT`、wrapper 16 字节、actual mask 8 字节、timespec 16 字节、fdset IN/OUT 和无失败 OUT；新增 Go handler/TLV regression tests。
+
+#### 实施结果
+
+- `bpf/syscall_select_direct_event_v2.h` 将 `SYS_SELECT` 与 `SYS_PSELECT6` 收敛到同一 direct family，同时保留按 syscall 选择的 payload capacity；普通 select 不再为 pselect6 的 wrapper/mask 支付额外 Ringbuf 空间。
+- capture provider 在 enter probe 读取 arg5 的 16 字节 `{sigmask_ptr, sigsetsize}`，随后按 `sigsetsize` bounded 到 8 字节读取实际 mask，并以 synthetic arg index `6` 写入 STRUCT TLV。wrapper 读取失败时不会继续解引用未确认的 mask pointer。
+- emit provider 继续只负责 reserve、body/header 写入和 submit；pselect6 exit 不重新复制 wrapper/mask，只在成功返回时复制 fdset/timespec OUT。`bpf_routes.go` 已把 pselect6 绑定到 select direct enter 与 IO direct exit。
+- `SelectHandler` 为 pselect6 使用 `format.Timespec`，从 arg5/arg6 的 event-time sections 渲染 `{sigmask=..., sigsetsize=...}`；没有 section 时只回退到指针文本，不访问 tracee memory。
+- poll/select fixture 已加入真实 pselect6 成功和 `EFAULT` 调用；semantic oracle 检查 wrapper、mask、timespec、fdset OUT、paired exit 和失败无 OUT。没有引入 procfs、ptrace、sleep 或外部设备依赖。
+
+#### 当前验证
+
+- 失败优先测试先因 pselect6 source contract、handler 分支和 wrapper section 缺失而失败；实现后 `go test ./pkg/handler`、pselect6 BPF source/route/TLV 测试和 Python poll/select oracle 全部通过。
+- `sudo -n go generate ./cmd/strace-go`、`go build -o strace-go ./cmd/strace-go` 和 BPF 对象重新生成通过；真实内核 poll/select suite 产生 `20` 个事件，pselect6 成功与 `EFAULT` 两条路径均通过。
+- 完整 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` 通过：poll/select `20` events，主 semantic `175` events，enter/exit `78/97`，reserve/copy/pending/orphan/mismatch/lifecycle-map 错误全部为 `0`。
+
+#### Review 结论
+
+- pselect6 的 wrapper 和实际 sigmask 所有权完整留在 BPF enter event；Go 只消费 TLV，exit 不会因为 arg5 指针再次读取用户内存。synthetic arg index `6` 只表达 wrapper 指向的已捕获 mask，不改变原始 syscall args ABI。
+- `sigsetsize > 8` 时 section 的 `copied_len < user_len` 保留 bounded snapshot 事实；当前阶段不承诺其它架构的 `pselect6_time32/time64` 编号，也没有把 pselect6 错误地当作五参数 select。
+- 本阶段完成 pselect6 direct payload 的真实语义门禁，但不等于 `arch.md` 全部完成；AIO、keyring、更多 syscall payload 覆盖和最终架构 review 仍需继续。
+
+### 14.343 增加 AIO 真实事件语义门禁（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：AIO 已有 direct BPF provider、TLV merge 和 Go handler 单测，覆盖 `io_setup`、`io_submit`、`io_cancel`、`io_getevents` 与 `io_pgetevents` 的结构化字段；但当前真实 eBPF semantic workload 没有验证异步上下文、iocb 指针数组、完成事件、pselect-style sigset wrapper 和失败返回能否在同一 TID 上闭合。
+- Problem：只跑 upstream exact-output 或 synthetic TLV，无法发现 BPF 在真实用户指针上的拷贝时点、`io_submit` tail-call fragment 的关联、完成事件 OUT 长度、`io_pgetevents` wrapper/actual mask 的事件时点，以及失败调用是否错误产生 OUT snapshot。AIO 的异步完成还可能把生命周期或 pending 配对问题误报成格式问题。
+- Goal：增加一个不依赖 libaio、procfs、ptrace、外部设备或等待的 direct syscall fixture，真实覆盖 `io_setup` 成功、两次 `io_submit`/完成、`io_getevents`、`io_pgetevents`、`io_cancel` 失败和有效上下文上的 EFAULT 失败；JSON oracle 以 syscall/ret/paired_enter/TLV kind-direction-arg-index-length-content 为主断言。
+- Non-goals：不扩展所有 AIO opcode、PREADV/PWRITEV、time32/time64 变体或所有 kernel AIO 错误码；不改变 event v2/TLV ABI、AIO provider 容量、tail-call 拓扑、handler 文本格式或用户态状态机；不将一次本机 AIO 支持结果宣称为跨内核完整兼容。
+- Constraints：fixture 只使用 `linux/aio_abi.h`、匿名/临时本地文件和直接 `syscall(2)`；每个成功/失败返回都由 fixture 校验，不能用 sleep、procfs 或用户态补读。失败事件不得出现 OUT section；runtime reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 计数必须为零；新增 Python 文件、fixture 和 oracle 测试保持现有文件/函数边界。
+
+#### 方案比较
+
+1. 继续只依赖 upstream AIO 测试：能验证经典文本，但包含 ptrace 快照和平台特定时序，不能作为纯 eBPF event-time payload 门禁，拒绝。
+2. 只扩展已有 Go synthetic TLV 测试：能快速覆盖 handler 分支，但不能覆盖真实 `io_setup` context、iocb 指针数组、异步 completion 和 Ringbuf fragment，拒绝作为主门禁。
+3. 新增 direct syscall + 本地文件 AIO fixture 与独立 JSON semantic oracle：真实覆盖 producer、pending、OUT completion 和失败无 OUT，依赖最少且归因清楚，选择。
+
+#### 实施边界
+
+- fixture 先创建 AIO context，再提交两次确定性的 `IOCB_CMD_PWRITE`；第一次由 `io_getevents` 消费，第二次由 `io_pgetevents` 消费，后者使用 16 字节 sigset wrapper 和 8 字节实际 mask。另用有效 context 的坏 events 指针触发 `io_getevents/io_pgetevents` EFAULT，并对已完成 iocb 调用 `io_cancel` 记录稳定失败路径。
+- oracle 检查 `io_setup` OUT context、`io_submit` pointer array/iocb/buffer IN、`io_getevents` timeout 与 `io_event` OUT、`io_pgetevents` timeout/wrapper/mask 与 `io_event` OUT、`io_cancel` iocb IN；失败路径只允许 IN payload，不允许 OUT payload。
+- 先添加 Python oracle 的 happy/missing-payload/fabricated-OUT/runtime-counter 失败优先测试，再接入 `ebpf-semantic`；真实运行若发现 provider 缺口，补对应 source regression 后再修改 BPF。
+
+#### 实施结果
+
+- 新增 `test/fixtures/ebpf_aio_fixture.c`。fixture 通过 `mkstemp` 创建并立即 unlink 本地文件，直接调用 `io_setup`、两次 `IOCB_CMD_PWRITE`、`io_getevents`、`io_pgetevents`、已完成请求的 `io_cancel` 和 `io_destroy`；两次 completion 分别携带 `0x1111/0x2222` data 与 `ebpf-aio-first/second` buffer marker。
+- `io_pgetevents` 使用 16 字节 `{sigmask pointer, sigsetsize}` wrapper 和 8 字节实际 sigmask；失败 workload 使用有效 context、`min_nr=0/nr=0` 和坏 timeout 指针，稳定得到 `EFAULT`，避免“没有待完成事件时内核不访问坏 events 指针”的假失败。
+- 新增 `test/ebpf_aio_suite.py` 与 `test/test_ebpf_aio_suite.py`，并接入 `run_ebpf_semantic`。oracle 强制检查两笔 PWRITE 的 pointer array/iocb/buffer、setup context、两种 getevents 的 timeout/wrapper/mask/event、cancel iocb、paired exit、EFAULT 和失败无 OUT；runtime reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 必须为零。
+- 本阶段没有修改 AIO BPF provider、event v2 ABI、tail-call 拓扑或 Go handler；真实 fixture 证明现有 event-time capture 和用户态 correlation 已能闭合，新增内容是缺失的端到端语义门禁。
+
+#### 当前验证
+
+- 失败优先 oracle、Python `py_compile`、fixture `gcc -O2 -Wall -Wextra` 和独立运行通过；Python 单测总数为 `75`，新增 AIO oracle `3` 项。
+- 真实 AIO semantic 产生 `24` 个事件并通过；完整 `ebpf-semantic` 仍为 `175` 个事件、enter/exit `78/97`，AIO `24`、network `49`、recvmsg `27`、poll/select `20`、xattr `10`，所有运行时错误计数为 `0`。
+- Go `test`、`race`、`vet`、构建、`git diff --check` 通过；原生 `small` 为 `23 PASS / 0 FAIL`，`upstream-reference` 为 `120 PASS / 1 XFAIL / 0 FAIL`，AIO upstream `aio.gen.test` 与 `aio_pgetevents.gen.test` 均通过。
+- 当前 perf 复核的 trace-window 为 scalar `28028.75`、IO `17756.49`、lifecycle-storm `4320.47`、threads `15518.85 exit/s`；高压 reader 为 `63205136` bytes、`254.64 ns/sample`，reserve/copy/pending/orphan/mismatch/stale 全为 `0`。短命令 scalar/IO 的端到端 `6112.03/3780.47 exit/s` 仍受 setup、cleanup、输出和等待固定成本影响。
+- 随后的 `ebpf-capture` 高压对账仍闭合：reader/none 各 `3200035` records 且 producer attempts 相同、invalid `0`；handler/text/JSON 各 `1600035` routed records，JSON 交付 `1600000` 个事件、输出 `588231813` bytes、`8954` 次写出、write errors `0`。
+
+#### Review 结论
+
+- fixture 的所有用户态数据只用于内核 AIO 调用和返回值校验；tracee 没有 procfs、ptrace、process_vm、sleep 或外部服务依赖，路径创建后立即 unlink，cleanup 会销毁 context 并关闭 fd。
+- oracle 不依赖动态 fd、context、iocb 地址或文件名；两笔 buffer marker、结构长度、方向、arg index 和 completion 返回值构成稳定契约。已完成请求的 `io_cancel` 只要求负返回，不把某个内核版本的具体 errno 写成跨环境契约。
+- 本阶段确认 AIO 现有实现没有暴露新的 producer 或 pending bug，但不等于完成所有 AIO opcode、PREADV/PWRITEV、time32/time64 变体或所有内核错误码；keyring、更多 payload family 和最终架构 review 仍是剩余工作。
+
+### 14.344 增加 keyring direct payload 真实语义门禁（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`add_key`/`request_key` 已有 direct BPF enter provider、字符串/bytes TLV、Go handler memory-policy 测试和 synthetic merge；`keyctl` 仍是 generic syscall，没有对应 direct payload owner。当前 semantic fixture 没有真实触发 keyring 指针参数。
+- Problem：只跑 upstream `add_key`/`request_key` 文本测试会把大量权限、keyring 状态和精确文本组合混在一起，synthetic TLV 又无法证明 BPF 在真实用户指针处复制 type/description/payload/callout。没有真实 fixture 时，provider 可能只在合成地址上“看起来正确”。
+- Goal：增加无外部依赖的 direct syscall fixture，真实调用 `add_key` 和 `request_key`，验证两者的 enter IN TLV、paired exit、返回值无关的 payload marker 和 runtime 错误计数；不要求 keyring 实际创建成功，因为容器内 key quota、LSM 和 kernel config 不是本组件的稳定契约。
+- Non-goals：不实现 `keyctl` direct provider，不覆盖所有 key type、keyring 生命周期、权限组合或 keyctl 输出，不读取 procfs/tracee 内存，不把动态 key serial 或具体 errno 写成跨环境契约；不改变现有 BPF/Go provider。
+- Constraints：fixture 只使用固定 `user` key type、短 description、短 payload/callout，并立即返回；`request_key` 不使用会触发用户态 helper 的 callout 行为。oracle 只检查稳定 marker、section kind/direction/arg index/长度、paired exit 和错误计数为零。
+
+#### 方案比较
+
+1. 只扩展 upstream `add_key`/`request_key` exact diff：能验证经典文本，但受权限、keyring 状态和 ptrace 快照语义影响，不能作为纯 eBPF payload 门禁，拒绝。
+2. 只增加 synthetic key TLV/handler 测试：执行快且已覆盖现有格式分支，但不覆盖真实用户指针、Ringbuf ABI 和 syscall 返回路径，拒绝作为主门禁。
+3. 新增 direct syscall fixture 与 JSON semantic oracle：依赖最少，能证明真实 enter snapshot 和配对；对返回值/权限保持宽松，归因清楚，选择。
+
+#### 实施边界
+
+- fixture 直接调用 `SYS_ADD_KEY` 与 `SYS_REQUEST_KEY`，type 使用 `user`，description/payload/callout 使用固定 marker；不要求 add 成功或 request 命中，fixture 只保证 syscall 被执行并正常退出。
+- oracle 检查 `add_key` 的 arg0/arg1 字符串和 arg2 bytes、`request_key` 的三个字符串均为 IN 且包含 marker，两个 syscall 的 exit 都 paired；失败事件不能出现 OUT section。
+- 先添加 Python oracle 的 happy/missing-payload/runtime-counter 测试，再接入 `ebpf-semantic`；如果真实运行暴露 provider 问题，补 source regression 后才修改 BPF。
+
+### 14.345 收敛 keyctl operation-specific direct payload（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`add_key`/`request_key` 已经拥有独立 direct provider，但同一 keyring API 的 `keyctl` 仍走 generic enter/exit。`keyctl` 的五个 unsigned-long 参数中，`JOIN_SESSION_KEYRING`、`UPDATE`、`SEARCH`、`INSTANTIATE` 使用用户态输入指针，`REJECT` 的参数是 timeout/error/keyring 标量；`DESCRIBE`、`READ`、`GET_SECURITY`、`CAPABILITIES` 又在成功返回时写回用户缓冲区。
+- Problem：generic 事件只能保存指针数值，Go handler 无法在不读取 tracee 内存的前提下恢复 operation-specific 字符串、bytes 或 OUT buffer；如果为所有 operation 固定读取所有 arg，又会把无关地址带入 Ringbuf，并把未知 ABI 假装成已支持。
+- Goal：为 `keyctl` 建立 operation-specific direct TLV policy。覆盖稳定的字符串/bytes IN operation 和 bounded bytes OUT operation；未知 operation 仍输出原始 syscall args，但不进行未定义用户内存读取。增加真实 fixture，验证 add/read/describe/capabilities/update/search/join/request 的 event-time snapshot、paired exit 和失败无 OUT。
+- Non-goals：不在本阶段实现 `KEYCTL_DH_*`、PKEY、KDF、IOV、watch queue 等复杂嵌套 ABI；不把 key serial、权限、LSM、具体 errno 或 capability 内容写成跨内核契约；不引入 ptrace、procfs、process_vm、第二消费者、锁或定时器；不改变 event v2/TLV schema。
+- Constraints：BPF 只按 operation 选择有限的 arg index、长度上限和方向；成功 OUT 长度必须由 syscall return bounded；Go handler 只消费 TLV；unsupported operation 必须没有 payload；Ringbuf/runtime error counters 必须保持为零。
+
+#### 方案比较
+
+1. 继续使用 generic keyctl event，只在 Go 侧打印指针：改动最小，但违反纯 eBPF event-time snapshot 契约，且无法恢复异步失效的用户内存，拒绝。
+2. 为五个 keyctl 参数统一分配最大字符串/bytes 窗口：实现简单，但会对每次 operation 过度捕获、浪费 Ringbuf 容量，并可能读取本不属于该 ABI 的指针，拒绝。
+3. 在现有 key direct provider 内按 operation 选择 bounded TLV，并由 `exit_io` 复用一个 OUT emitter：复用现有 route/owner，capture 时点和未知 operation 边界明确，选择。
+
+#### 实施边界
+
+- BPF policy 支持 `JOIN_SESSION_KEYRING` 的 arg1 string、`UPDATE/INSTANTIATE` 的 arg2 bytes、`SEARCH` 的 arg2/arg3 string；`DESCRIBE/READ/GET_SECURITY` 捕获 arg2 OUT bytes，`CAPABILITIES` 捕获 arg1 OUT bytes，用户长度分别取对应 ABI 的 arg3/arg2 并由返回值截断。`REJECT` 保持原始标量参数，不读取用户内存。
+- `keyctl` enter 仍保存 pending args，exit route 绑定 `exit_io`；失败返回不产生 OUT section，unsupported operation 只产生无 payload 的 direct enter 和普通 exit。
+- 新增 keyctl handler、xlat operation table、C fixture、JSON semantic oracle、source ownership gate 和 synthetic handler/TLV tests；先让测试在 provider/handler 缺失时失败，再实现并重新生成 BPF/metadata 产物。
+
+#### 实施结果
+
+- 修正 `keyctl` 输出 ABI 的真实参数位置：`DESCRIBE`、`READ`、`GET_SECURITY` 的 buffer 是原始 `arg2`，`CAPABILITIES` 的 buffer 是原始 `arg1`；BPF 分别使用对应的用户长度 `arg3`/`arg2`，并取 syscall 返回值的最小值作为 OUT snapshot 长度。
+- `KEYCTL_REJECT` 已从 bytes capture policy 中移除。它的 `arg2` 是 timeout 标量，当前只输出原始标量参数，不读取用户内存；Go handler 增加相同边界。
+- 新增 `test/fixtures/ebpf_keyctl_fixture.c` 的 `KEYCTL_REJECT` 失败调用，semantic oracle 强制验证 paired exit 和无 payload；`KEYCTL_SEARCH` 同时修正为 enum 解码，不再被当作 bit flags 渲染。
+- keyctl direct route 继续复用 `enter_key` 与 `exit_io`，没有新增 ptrace、procfs、process_vm、第二 Ringbuf consumer、锁或定时器；生成产物已通过 `sudo -n go generate ./cmd/strace-go` 更新。
+
+#### 当前验证
+
+- 失败优先回归覆盖：Go handler 的 `REJECT` 标量边界、Python semantic 的缺失 payload/runtime counter/伪造 payload，以及 BPF source ownership contract；Python oracle 共 `4` 项通过。
+- `go test ./pkg/handler ./pkg/meta ./cmd/strace-go -run 'TestKeyctl|TestDecodeFlags|TestBPFKeyctlUsesOperationSpecificDirectPayload' -count=1`、`go build -o strace-go ./cmd/strace-go` 和 fixture `gcc -O2 -Wall -Wextra` 通过。
+- 真实 keyctl fixture 产生 `20` 个 syscall events：`DESCRIBE` OUT arg2、`READ` OUT arg2、`CAPABILITIES` OUT arg1 均 `probe_ret=0`，`REJECT` 没有 payload；`ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`lifecycle_map_update_fail`、`pending_stale` 全为 `0`。
+- 完整 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` 通过：主 semantic `175` events、enter/exit `78/97`，keyctl `20` events，所有主运行时错误计数为 `0`。
+- 原生 upstream 参考中 `add_key.gen.test` 与 `request_key.gen.test` 通过；手工运行 `keyctl.gen.test` 仍失败，原因是当前 generic text renderer 对尚未实现 operation-specific 的 keyctl 参数个数、整数类型和复杂 DH/PKEY/IOV 结构没有承诺精确 upstream 文本。这不是 eBPF semantic 主门禁，但已确认是后续兼容性工作项。
+- `ebpf-perf` 通过：scalar/io/lifecycle-storm/threads trace-window 分别为 `27925.86/17886.98/4320.21/15723.24 exit/s`，短命令端到端分别为 `5871.10/3857.20 exit/s`；io-long reader 为 `264.19 ns/sample`，所有运行时错误计数为 `0`。短命令端到端值仍包含 setup、BPF link cleanup、输出和等待固定成本，不能与 trace-window 热路径混比。
+- `ebpf-capture` 通过：reader/none 各读取并解码 `3200035` records，producer attempts 相同且 invalid `0`；handler/text/json 各路由 `1600035` records，JSON 交付 `1600000` 个 syscall events、`588131960` bytes、`8955` 次写出、write errors `0`。
+
+#### Review 结论
+
+- 本阶段修复的是一个真实 producer bug，而不是只改变显示：之前 `DESCRIBE/READ` 会把 key serial 当作用户指针，内核返回 `EFAULT`；现在 BPF 在 exit event-time 从正确的用户 buffer 复制 bounded bytes，Go 只消费 TLV。
+- operation-specific arg index 已与 Linux keyctl ABI 对齐；未知 operation 以及已知但暂未支持的 `REJECT` 不会因为“看起来像指针”而被读取。输出长度受用户 buflen 和 syscall return 双重约束，避免超出用户请求或返回范围。
+- 剩余边界明确为 `KEYCTL_DH_*`、PKEY、KDF、IOV、watch queue 以及完整 upstream keyctl 文本格式；这些需要独立的 ABI/schema 设计，不能通过扩大一个通用 bytes window 解决。本阶段可以继续推进其他 direct payload family，不把 keyctl exact diff 误标成纯 eBPF 语义契约。
+
+### 14.346 增加 BPF syscall direct 真实语义门禁（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`bpf` 已有独立的 enter direct provider，能够在 `sys_enter` 事件时复制 `union bpf_attr`，并按 command 复制 `BPF_PROG_LOAD` 的指令、license、log buffer、signature，以及对象路径、raw tracepoint 名称、BTF 和 link nested payload。Go handler 和 event v2/TLV 已有 synthetic 测试，但没有真实内核 workload 验证这些指针是否在 producer 侧正确复制并与 exit 配对。
+- Problem：只有源码门禁和合成 TLV，无法发现真实 `bpf(2)` 的权限失败、结构体布局、command selector、nested 指针时点或 Ringbuf 事件丢失。尤其是 `BPF_PROG_LOAD` 的 attr 内嵌指针可能被错误当成普通 attr 字节，导致 Go 侧看似有 handler、实际事件缺少 nested section。
+- Goal：新增无外部依赖的 BPF syscall fixture 和 JSON semantic oracle，真实覆盖 `BPF_MAP_CREATE` 的 attr snapshot、`BPF_PROG_LOAD` 的 attr/insns/license/log nested snapshot、至少一个失败返回和 enter/exit pairing；oracle 以 command、ret、TLV kind/direction/arg index/长度/marker 断言，不依赖动态 fd、地址或精确权限 errno。
+- Non-goals：本阶段不实现 `BPF_OBJ_GET_INFO_BY_FD` 的 sys_exit OUT snapshot、不扩展所有 BPF command 的 nested ABI、不承诺完整 upstream `bpf*.gen.test` exact 文本、不读取 procfs/ptrace/process_vm、不引入第二 Ringbuf consumer、锁、定时器或用户态补读。
+- Constraints：fixture 只使用 `linux/bpf.h` 和直接 `syscall(SYS_bpf, ...)`；成功与失败路径都必须由 fixture 自己校验到可稳定退出，不能依赖 bpftool、libbpf、外部设备或 sleep。失败事件不得伪造 OUT section；runtime reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 计数必须为零；新增文件保持现有测试边界和每文件 500 行约束。
+
+#### 方案比较
+
+1. 继续只依赖 upstream BPF exact 测试：能覆盖传统文本，但混入 ptrace 快照、权限和平台特定输出，不能作为纯 eBPF event-time payload 门禁，拒绝。
+2. 只增加 Go synthetic TLV/handler 测试：能覆盖解码分支且执行快，但无法验证真实用户指针、内核 ABI 布局、Ringbuf producer 和 pending pairing，拒绝作为主门禁。
+3. 新增 direct syscall fixture 与独立 JSON semantic oracle：依赖最少，能把 BPF producer、nested capture、退出配对和失败无 OUT 语义放入真实内核测试，选择；`BPF_OBJ_GET_INFO_BY_FD` OUT 快照另立下一阶段，避免把两种 ABI 时点混在一次变更中。
+
+#### 实施边界
+
+- fixture 先调用 `BPF_MAP_CREATE`，使用固定 map name 和确定的 key/value/max_entries 字段；再调用 `BPF_PROG_LOAD`，使用最小 `MOV64_REG/EXIT` 指令、`GPL` license、固定 log buffer 和故意可预测的 verifier 失败或权限失败路径。任何 kernel capability 差异都只影响返回值，不影响事件存在性和 enter/exit pairing。
+- oracle 检查 `BPF_MAP_CREATE` attr arg1 bytes IN、`BPF_PROG_LOAD` attr arg1 bytes IN、insns arg112 bytes IN、license arg101 string IN、log buffer arg102 bytes IN；至少一条 BPF exit 为 failed 或成功且 paired，所有失败事件无 OUT section，stats 错误计数为零。
+- 先添加 Python oracle 的 happy/missing-payload/fabricated-OUT/runtime-counter 单测，使测试在 suite/provider 接入前失败；再接入 `ebpf-semantic` 并运行真实 fixture。若 fixture 只暴露 provider 缺口，补对应 BPF/source regression；不在本阶段顺带加入 BPF exit OUT。
+
+#### 实施结果
+
+- 新增 `test/fixtures/ebpf_bpf_fixture.c`。fixture 直接执行一次带固定 `map_name` 的 `BPF_MAP_CREATE`、一次 `map_type=0` 的确定性失败 `BPF_MAP_CREATE`，以及带两条最小指令、`GPL` license、固定 verifier log buffer 的 `BPF_PROG_LOAD`；成功创建的 map/prog fd 会立即关闭，fixture 不依赖 bpftool、libbpf、procfs 或外部设备。
+- 新增 `test/ebpf_bpf_suite.py` 与 `test/test_ebpf_bpf_suite.py`，并接入 `run_ebpf_semantic`。oracle 强制检查 map/prog-load attr bytes、insns arg112、license arg101、log buffer arg102 的 event-time IN snapshot、两个 command 的 paired exit、invalid map failure 和失败事件无 OUT；runtime reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 必须为零。
+- 失败优先顺序已实际验证：先添加 oracle 测试时因模块缺失失败；补 oracle 后又由合成事件 marker/失败路径不一致暴露测试夹具错误；修正后 Python oracle、fixture 编译和真实 semantic 均通过。
+
+#### 当前验证
+
+- 真实 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` 通过；新增 BPF fixture 产生 `6` 个 syscall events，主 semantic 仍为 `175` 个事件、enter/exit `78/97`，所有主 runtime error counters 为 `0`。
+- BPF provider 没有为本阶段增加额外 Ringbuf 事件或用户态补读；现有 `enterProgBpf`、event v2/TLV 和 Go handler 直接通过真实内核 workload 证明了 IN/nested payload 闭环。
+
+#### Review 结论
+
+- 本阶段验证的是 producer 的真实复制时点和 nested payload 所有权，不是把 upstream 文本 diff 改成宽松匹配；动态 map/prog fd、权限差异和具体 verifier errno 均没有进入语义 oracle。
+- `BPF_OBJ_GET_INFO_BY_FD`、`BPF_MAP_LOOKUP_ELEM` 等会写回用户缓冲区的 command 仍没有 BPF-specific sys_exit OUT snapshot；当前失败事件无 OUT 的断言不能替代这个缺口。下一阶段应先为该 OUT ABI 写失败测试，再决定是否扩展 BPF exit route 和 event capacity。
+- 本阶段完成 BPF direct IN/nested 语义门禁，但不等于 `arch.md` 全部完成；BPF OUT、复杂 keyctl operation、剩余 direct payload family、upstream 兼容缺口和最终架构 review 仍需继续。
+
+### 14.347 增加 BPF_OBJ_GET_INFO_BY_FD exit-time OUT snapshot（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：BPF direct enter provider 已在事件产生时复制 `union bpf_attr` 和 command-specific IN nested payload；`BPF_OBJ_GET_INFO_BY_FD` 的 attr 中却包含一个由内核写回的 `info_len` 和用户态 `info` 指针，当前退出路由只发送 generic exit，因此 Go 只能看到指针，不能得到对象信息快照。
+- Problem：如果继续使用 enter 时的 attr bytes，读到的是调用前的 `info_len`，且 info buffer 尚未被内核写回；如果在 Go 侧补读，会重新引入 tracee 内存竞争，违反纯 eBPF event-time ownership。把所有 BPF command 都固定复制为 OUT 又会制造无关读取和 Ringbuf 浪费。
+- Goal：只为成功的 `BPF_OBJ_GET_INFO_BY_FD` 增加 BPF-specific exit TLV。BPF 在 `sys_exit` 事件时重新读取 attr 的 `info_len`/`info` 字段，以 `info_len` 为用户请求上限、以固定最大值为 capture 上限，从 `info` 用户指针复制 bytes OUT；Go handler/JSON 只消费该 TLV。失败返回不得读取或产生 OUT。
+- Non-goals：本阶段不实现 `BPF_MAP_LOOKUP_ELEM`、batch lookup、prog test run 等其它 BPF 输出 buffer，不解析所有版本的 `bpf_map_info`/`bpf_prog_info` 字段，不恢复 upstream BPF 完整 exact 文本，不读取 procfs/ptrace/process_vm，不改变 event v2/TLV ABI。
+- Constraints：新增 synthetic arg index `113` 表示 `BPF_OBJ_GET_INFO_BY_FD` 的嵌套 info buffer，不能冒充原始 syscall arg；最大复制长度固定且小于 Ringbuf 单事件预算；attr 二次读取失败时不得解引用未知指针；仅成功 `ret == 0` 允许 OUT；route 必须保持 enter/exit 一个 direct family、pending 只消费一次、runtime error counters 为零；新增 BPF/Go/Python 文件和函数遵守现有大小约束。
+
+#### 方案比较
+
+1. 继续使用 generic exit，只输出 info 指针：改动最小，但无法实现纯 eBPF 的输出快照契约，且用户态无法恢复已经变化的 info 内容，拒绝。
+2. 在 Go exit handler 中按 attr/info 指针补读 tracee memory：可以复用现有格式代码，但重新引入异步竞争和隐藏 I/O，直接违反纯 eBPF 约束，拒绝。
+3. 新增 BPF exit direct emitter，在 `sys_exit` event-time 重读内核更新过的 attr 元数据并复制 bounded info bytes，复用 `exit_io` 路由和现有 TLV/handler pipeline，选择。
+
+#### 实施边界
+
+- BPF provider 增加 `BPF_DIRECT_OBJ_INFO_ARG=113`、info 最大长度、attr offset reader 和 `capture_bpf_obj_info_exit_tlv_direct`；只在 command 15 且 `ret_value == 0` 时读 `info_len`/`info` 并生成 `PAYLOAD_TLV_KIND_BYTES | PAYLOAD_TLV_FLAG_DIRECTION_OUT`。
+- 新增 BPF exit emitter 文件并由 `syscall_bpf_direct_event_v2.h` 引入；`bpf/exit_dispatch.h` 在 IO family 中分派 BPF，`bpf_routes.go` 将 `bpf` exit route 指向 `exitProgIO`。没有可用 info pointer/length 时回退普通 exit，不制造空 OUT section。
+- Go `BpfHandler` 增加对 arg113 OUT section 的 bounded info bytes 消费，至少保证 JSON payload 与文本 pointer fallback 不访问 tracee 内存；新增 handler/TLV/source/route tests。
+- 扩展 BPF fixture：创建 map 后调用 `BPF_OBJ_GET_INFO_BY_FD`，先用足够大的 info buffer 验证 marker/基本布局，再用坏 info pointer 触发失败路径；semantic oracle 检查成功 OUT、paired exit、bounded length 和失败无 OUT。先补 synthetic 失败断言，再改 BPF/Go。
+
+#### 实施结果
+
+- 新增 `bpf/syscall_bpf_exit_direct_event_v2.h`。provider 在 `sys_exit` 时重新读取 attr offset `4` 的 `info_len` 和 offset `8` 的 `info` 指针，以 `512` 字节为上限，用 `bpf_probe_read_user` 复制 info buffer，并写入 `PAYLOAD_TLV_KIND_BYTES`、synthetic arg `113`、`PAYLOAD_TLV_FLAG_DIRECTION_OUT`。成功读取失败时丢弃预留记录并回退普通 exit，不产生伪造 OUT section。
+- BPF exit emitter 复用 `exit_io` tail-call family；`bpf` capability 现在同时绑定 `enterProgBpf` 和 `exitProgIO`。pending 仍由 `exit_io` 单次消费，event v2 header/body 与已有 TLV ABI 没有变化。
+- Go handler 增加 arg `113` 的 OUT section 消费：成功 command 15 输出 bounded `info_data`，没有可用 section 或返回值不是 `0` 时继续输出 info 指针；handler、source gate 和 route test 均验证不读取 tracee memory。
+- fixture 增加真实 map info 查询和坏 info 指针失败查询。内核对象名改为合法的 `strace_go_map`，避免 Linux BPF object-name 对连字符的 `EINVAL`；这个名字只作为稳定 payload marker，不进入动态地址或 errno 契约。
+- Python semantic oracle 新增成功 OUT、command 15 坏指针失败、bounded length、paired exit 和失败事件无 OUT 断言，并保留 map/prog-load IN/nested payload 断言。
+
+#### 当前验证
+
+- 失败优先验证已完成：新增 Python oracle 初始因缺失 suite 失败；handler/source/route 测试在 provider 和 route 缺失时失败；实现后相关 Go/Python 测试全部通过。
+- `sudo -n go generate ./cmd/strace-go`、`go build -o strace-go ./cmd/strace-go`、`go test ./...` 和 `go vet ./...` 通过；BPF clang/bpf2go 重新生成通过。
+- `python3 -m unittest discover -s test -p 'test_ebpf_bpf_suite.py'` 的 `4` 项 oracle 通过；真实 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` 通过，BPF fixture 产生 `10` 个事件，主 semantic 仍为 `175` 个事件，enter/exit `78/97`。
+- 真实 semantic 的 `ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`lifecycle_map_update_fail`、`pending_stale` 全部为 `0`；成功 command 15 的 arg `113` OUT marker 和坏指针 command 15 的失败无 OUT 均通过。
+- `sudo -n python3 test/run_tests.py --suite ebpf-perf --skip-build` 通过：trace-window scalar/io/lifecycle-storm/threads 分别为 `27023.50/17907.22/4316.49/15703.65 exit/s`；对应端到端值为 `5929.88/3861.43/2646.08/3270.83 exit/s`，所有 perf workload 的 Ringbuf/pending/lifecycle 错误计数均为 `0`。
+- `sudo -n python3 test/run_tests.py --suite ebpf-capture --skip-build` 通过：reader/none 各读取 `3200035` records 且 producer attempts 相同、invalid `0`；handler/text/json 各路由 `1600035` records，JSON 交付 `1600000` 个事件、输出 `588258289` bytes、`8956` 次写出、write errors `0`。
+
+#### Review 结论
+
+- 本阶段解决的是 BPF 输出 buffer 的事件时点所有权问题：`info` 在内核返回后由 BPF 立即复制，Go 不再按指针补读，满足纯 eBPF/no-ptrace/no-procfs 约束。
+- OUT capture 只绑定 `BPF_OBJ_GET_INFO_BY_FD` 且要求 `ret == 0`；其它 BPF command 仍走 generic exit，失败返回不会由该 provider 产生 OUT。512 字节固定上限和动态 payload bucket 控制了 Ringbuf 单事件预算。
+- 当前文本只提供 bounded `info_data` 原始快照，没有把所有版本的 `bpf_map_info`/`bpf_prog_info` 解码伪装成稳定 ABI；后续若要恢复更精确的 upstream 文本，应单独增加对象类型和内核版本语义测试。
+- 本阶段完成 BPF 一个关键 OUT ABI 的真实闭环，但不等于 `arch.md` 全部完成；其它 BPF 输出 command、更多 direct payload family、性能回归、upstream 兼容缺口和最终架构 review 仍是剩余工作。
+
+### 14.348 增加 BPF_PROG_LOAD verifier log exit-time OUT snapshot（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`BPF_PROG_LOAD` enter provider 已复制 `log_buf` 的调用前 bytes，Go handler 也能把这段 section 格式化为 `log_buf=...`；但 verifier 在失败返回时会把诊断文本写回同一用户 buffer，当前 exit 仍是 generic event，Go 看到的只是 enter 时的初始内容。
+- Problem：如果继续复用 enter log bytes，输出的可能是调用者预填充内容而不是 verifier 结果；如果 Go 在失败 exit 后按 `log_buf` 指针补读，会重新引入 tracee 内存竞争。为所有 BPF command 固定增加 exit bytes 又会扩大 Ringbuf 记录和读取范围。
+- Goal：只为失败的 `BPF_PROG_LOAD` 在 `sys_exit` event-time 重读 attr 中的 `log_buf`、`log_size` 和内核写回的 `log_true_size`，以 `min(log_true_size, log_size, 256)` 复制 bounded bytes OUT；继续使用 synthetic arg `102`，让同一逻辑 buffer 通过 direction 区分 IN/OUT。Go handler 优先消费失败 exit 的 OUT log，JSON 保留两段 payload 的时点事实。
+- Non-goals：不实现 `BPF_PROG_TEST_RUN`、`BPF_MAP_LOOKUP_ELEM`、BTF log 或其它 BPF 输出 buffer，不解析 verifier 文本为稳定 errno/版本 ABI，不恢复完整 upstream BPF exact 文本，不读取 procfs/ptrace/process_vm，不改变 event v2/TLV schema。
+- Constraints：只有 `ret < 0` 且 command 为 `BPF_PROG_LOAD` 才允许 log OUT；attr offset 使用 Linux `union bpf_attr` 的 `log_size=28`、`log_buf=32`、`log_true_size=140`；读取失败或长度为零时回退普通 exit，不产生空/伪造 OUT；pending 只消费一次，runtime counters 必须保持为零。
+
+#### 方案比较
+
+1. 继续只展示 enter log buffer：实现零改动，但无法表达 verifier 对用户 buffer 的 exit-time 写回，拒绝。
+2. Go handler 在失败 exit 中按 `log_buf` 指针补读：文本看起来接近传统 strace，但引入异步内存竞争和隐藏 I/O，违反纯 eBPF ownership，拒绝。
+3. 复用 BPF direct exit provider，在失败 `BPF_PROG_LOAD` 的 sys_exit 直接复制 bounded log bytes OUT，并让 `exit_io` 统一消费 pending：capture 时点、方向和回退边界清晰，选择。
+
+#### 实施边界
+
+- BPF exit provider 新增 log true-size/length/pointer attr reader 和 OUT TLV capture；command 15 的 info provider 与 command 5 的 log provider共享 exit record 写入边界，但各自拥有 command predicate、长度和 synthetic arg policy。
+- Go `formatBpfProgLoadLogBuf` 在失败返回时优先使用 arg `102` 的 OUT bytes，成功或缺少 OUT 时保持现有 IN/pointer fallback；不调用任何 tracee memory reader。
+- fixture 将 `BPF_PROG_LOAD` 改为稳定 verifier 失败 workload，并由 semantic oracle 检查 command 5 的 paired exit、OUT arg `102`、bounded length、非空 log bytes，以及其它失败 command 仍无 OUT。
+- 先补 source/handler/Python 失败测试，再实现 BPF/Go/fixture；真实 semantic、perf、capture 和 native reference 作为阶段收口门禁。
+
+#### 实施结果
+
+- 将 BPF exit bytes capture 抽成共享 `bpf_exit_bytes_request` 和 `emit_bpf_exit_bytes_event_v2_direct`。`BPF_OBJ_GET_INFO_BY_FD` 继续使用 OUT arg `113`，失败 `BPF_PROG_LOAD` 使用 OUT arg `102`；两者共用 header/body/TLV/submit 边界，但 command predicate、用户长度和最大复制长度仍独立定义。
+- `BPF_PROG_LOAD` exit provider 在 `ret < 0` 时重新读取 enter 保存的 attr 指针对应的 `log_size`、`log_buf` 和内核写回的 `log_true_size`，使用 `min(log_size, log_true_size)` 作为用户长度，最大复制 `256` 字节，并通过 `bpf_probe_read_user` 生成 OUT bytes TLV。读取失败、长度为零或成功返回都会回退普通 exit，不生成伪造 OUT。
+- eBPF verifier 不接受动态 reservation 与动态 dynptr bucket 的组合，因此共享 writer 固定预留已有的 `512` 字节最大 bucket；实际 log capture 仍只复制最多 `256` 字节，事件 body 的 `payload_size` 只包含真实 TLV。这个取舍保证 verifier 可证明内存边界，同时不改变用户态语义上限。
+- Go handler 的 `formatBpfProgLoadLogBuf` 在失败返回时优先使用 arg `102` 的 OUT section；没有 OUT 时继续使用 enter IN section 或指针 fallback。方向匹配、返回值门禁和所有测试均确保它不读取 tracee memory。
+- fixture 使用非法 BPF opcode `0xff`，要求 `BPF_PROG_LOAD` 必须失败，并保留 enter 时的 `bpf-verifier-log` marker。真实内核 exit snapshot 得到 verifier 的 `unknown opcode ff...` 文本，证明 OUT 内容不是调用前的预填充 buffer。
+- Python oracle 的失败输出白名单只允许失败 command 5 的 bytes/OUT/arg `102`/`probe_ret=0`/非空/不超过 `256`；失败 command 15 和 invalid map create 仍必须没有 OUT。新增缺失 verifier log、伪造失败 OUT、runtime counter 失败路径测试。
+
+#### 当前验证
+
+- 失败优先测试先按预期失败：source gate 缺少 log offset/provider，handler 先消费 enter `initial-log`；实现后 `go test ./pkg/handler ./cmd/strace-go` 相关测试通过。Python BPF oracle `5` 项通过，完整 Python unittest `87` 项通过。
+- `sudo -n go generate ./cmd/strace-go`、`go build -o strace-go ./cmd/strace-go`、`go test ./...`、`go vet ./...` 和 `git diff --check` 通过；生成的 BPF objects 已包含新的 exit provider。
+- 真实 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` 通过：BPF fixture `10` 个事件，command 5 失败 exit 包含 OUT arg `102`，实际 verifier log copied length 为 `116`，主 semantic `175` 个事件、enter/exit `78/97`；`ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`lifecycle_map_update_fail`、`pending_stale` 全为 `0`。
+- 真实 `ebpf-perf` 通过：trace-window scalar/io/lifecycle-storm/threads 分别为 `28025.00/17854.89/4318.94/15669.21 exit/s`；所有 workload 的 Ringbuf、pending 和 lifecycle 错误计数为 `0`。固定 reservation 没有造成可观测的错误计数回归。
+- 真实 `ebpf-capture` 通过：reader/none 各读取并解码 `3200035` records，producer attempts 相同且 invalid `0`；handler/text/json 各路由 `1600035` records，JSON 交付 `1600000` 个 syscall events、`594660716` bytes、`9055` 次写出、write errors `0`。
+- 原生 upstream reference 的 `bpf.gen.test` 与 `bpf-v.gen.test` 通过。`bpf-obj_get_info_by_fd*.gen.test` 的 exact diff 仍失败，差异来自纯 eBPF 当前明确采用的 bounded `info_data` snapshot、raw fd/path 和 extra field 渲染，不作为本阶段 eBPF semantic gate。
+
+#### Review 结论
+
+- 本阶段修复的是一个真实的 BPF producer 时点缺口：失败 `BPF_PROG_LOAD` 的 verifier 文本现在由 eBPF 在 syscall exit 时从内核已写回的用户 buffer复制，Go 不再按指针补读，也不会把 enter 的旧内容误当作 verifier 结果。
+- command 选择和方向约束是窄的：只有 `BPF_PROG_LOAD` 且 `ret < 0` 能产生 arg `102` OUT；成功加载、其它 BPF command、坏指针和 attr reread 失败都不会凭空产生 OUT。共享 writer 的固定 reservation 是 verifier 约束下的明确成本，后续若要缩小记录，需要单独设计编译期可证明的多 bucket emitter，不能恢复不受界限的动态 reservation。
+- 当前文本 formatter 仍展示 enter attr 中的 `log_true_size` 字段；真正的失败 verifier 内容通过 OUT payload 进入 JSON/文本 log_buf。若未来要精确展示内核写回后的 `log_true_size`，应新增 exit attr metadata snapshot，而不是在 Go 侧读取原始 attr。
+- 本阶段完成 BPF_PROG_LOAD verifier log 的纯 eBPF OUT 闭环，但不等于 `arch.md` 全部完成；剩余工作仍包括更多 BPF 输出 command、其它 direct payload family、upstream 非契约兼容缺口和最终架构收口 review。
+
+### 14.349 增加 BPF_BTF_LOAD verifier log exit-time OUT snapshot（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`BPF_BTF_LOAD` enter provider 已复制 BTF bytes IN，并且 Go formatter 能输出 `btf_log_buf` 指针、log size 和 log level；内核在 BTF 校验失败时会把诊断文本写入 `btf_log_buf`，当前退出事件没有这个 buffer 的快照。
+- Problem：只保留 enter 的 BTF attr 会让 Go 只能打印 log 指针，或者误把用户预填充内容当成内核诊断；Go 侧按指针补读会重新引入异步内存竞争。`BPF_MAP_LOOKUP_ELEM` 的 value 长度又不能从 syscall attr 独立确定，不适合与本阶段混合。
+- Goal：只为失败的 `BPF_BTF_LOAD` 在 `sys_exit` event-time 重读 `btf_log_buf`、`btf_log_size` 和 `btf_log_true_size`，以 `min(btf_log_size, btf_log_true_size)`、最大 `256` 字节复制 bytes OUT；使用新的 synthetic arg `114`，Go handler 优先消费该 OUT section。
+- Non-goals：不实现 map lookup/batch value buffer、不解析 BTF log 文本为稳定 errno、不读取 procfs/ptrace/process_vm、不改变 event v2/TLV schema、不承诺所有内核版本都产生非空 BTF log。
+- Constraints：只有 command `18` 且 `ret < 0` 才能生成 arg `114` OUT；attr offset 固定为 `btf_log_buf=8`、`btf_size=16`、`btf_log_size=20`、`btf_log_level=24`、`btf_log_true_size=28`；长度为零、attr reread 失败或用户指针无效时回退普通 exit，不产生空/伪造 OUT；共享 exit writer 必须继续满足 BPF verifier 的固定 dynptr reservation 约束。
+
+#### 方案比较
+
+1. 继续只输出 `btf_log_buf` 指针：改动最小，但无法证明 BTF verifier 文本在 exit 时被正确拥有，拒绝。
+2. 在 Go handler 中按 `btf_log_buf` 指针补读：可以接近传统 strace 文本，但重新引入 tracee 内存 TOCTOU，违反纯 eBPF ownership，拒绝。
+3. 复用 BPF direct exit bytes emitter，由 command-specific provider 读取 BTF log 元数据并生成 bounded OUT TLV：与 `BPF_PROG_LOAD` 共用事件边界，长度和 synthetic arg 清晰，选择。
+
+#### 实施边界
+
+- BPF nested metadata 增加 BTF log 的 offset、最大长度和 synthetic arg `114`；exit provider 只在 command `18`/失败返回时读取写回 attr，再调用共享 bytes OUT emitter。
+- Go `decodeBpfBtfLoad` 在失败返回时优先消费 arg `114` OUT bytes，成功或缺少 OUT 时保持现有 pointer fallback；不引入 memory reader。
+- BPF fixture 增加确定失败的 invalid BTF load，保留 enter BTF marker 和预填充 log marker；semantic oracle 检查 BTF IN、paired exit、OUT arg `114`、bounded/non-empty log 和其它失败 BPF command 无 OUT。
+- 先补 source/handler/Python 失败测试，再改 BPF provider、Go formatter 和 fixture；阶段门禁包括 Go、Python、真实 eBPF semantic/perf/capture 及 BPF upstream reference。
+
+#### 实施结果
+
+- 新增 BPF_BTF_LOAD exit provider，复用 `bpf_exit_bytes_request` 和固定 `PAYLOAD_TLV_HEADER_SIZE + 512` reservation；command `18` 且 `ret < 0` 时重新读取 attr offset `8/20/28` 的 `btf_log_buf`、`btf_log_size`、`btf_log_true_size`，以 `min(log_size, log_true_size)` 请求长度、最多 `256` 字节生成 OUT arg `114`。其它 command、成功返回、读取失败或空长度均回退普通 exit。
+- Go `decodeBpfBtfLoad` 只在失败返回且存在 arg `114`/OUT/bytes section 时消费 verifier log；成功返回不会因为伪造 OUT section 改变输出，缺少 OUT 时继续显示 `btf_log_buf` 指针。整个 handler 路径不再读取 tracee memory。
+- BPF fixture 新增 invalid BTF load：enter 侧保留 BTF marker，kernel exit 侧实际写入 verifier 诊断。真实运行得到 `btf_header not found`，证明 OUT 内容来自 syscall exit 时的内核写回，而不是 fixture 预填充的 enter buffer。
+- Python semantic oracle 的失败输出白名单现在同时覆盖 command `5 -> arg 102` 与 command `18 -> arg 114`，并拒绝其它失败 command 的伪造 OUT；BTF 入口、失败返回、paired exit、非空 bounded OUT 都是必需断言。
+
+#### 当前验证
+
+- 失败优先测试已验证：source gate、handler failure/success policy 和 Python semantic oracle 在 provider/OUT 缺失时按预期失败；实现后 BPF oracle `6` 项通过，Go focused tests、`go test ./...`、`go vet ./...`、构建和 `git diff --check` 全部通过。
+- `sudo -n go generate ./cmd/strace-go` 通过并更新 BPF objects；`sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` 通过。BPF fixture 产生 `12` 个事件，主 semantic 为 `175` 个事件、enter/exit 为 `78/97`，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 计数为 `0`。
+- `sudo -n python3 test/run_tests.py --suite ebpf-perf --skip-build` 通过：trace-window scalar/io/lifecycle-storm/threads 分别为 `27858.19/17932.40/4324.97/15644.01 exit/s`，短命令端到端 scalar/io/lifecycle-storm/threads 分别为 `6203.27/3745.12/2679.65/3369.09 exit/s`；io-long-reader 为 `292.29 ns/sample`，Go benchmark 全部 `0 B/op、0 allocs/op`，运行时错误计数为 `0`。
+- `sudo -n python3 test/run_tests.py --suite ebpf-capture --skip-build` 通过：reader/none 各读取、解码 `3200035` 条 record；handler/text/json 各路由 `1600035` 条，JSON 交付 `1600000` 个 syscall events；所有模式 `ringbuf_reserve_fail=0`、`records_invalid=0`、写错误为 `0`。
+- 原生 upstream reference 的 `bpf.gen.test` 与 `bpf-v.gen.test` 均通过。`bpf-obj_get_info_by_fd*.gen.test` 的深层 exact diff 仍属于当前 bounded OUT snapshot/raw pointer 渲染与传统 strace 文本之间的已知非契约差异，不作为本阶段 eBPF semantic gate。
+
+#### Review 结论
+
+- 本阶段闭合了 BPF verifier log 的第二类 exit-time ownership：BPF_BTF_LOAD 的诊断内容在内核写回后由 eBPF 立即复制，Go 不按 `btf_log_buf` 指针补读，因此没有重新引入 ptrace、procfs、process_vm 或异步用户内存竞争。
+- 此前 event/s 的主要断崖式下降已经在当前测试范围内解决：raw tracepoint 扇出已收敛为 dispatcher/tail-call，生命周期清理 PID 错误已修复，producer attempts 与 records read/decoded 在高压 capture 中闭合，reserve/copy/pending/lifecycle 错误均为零。当前 trace-window 约 `28k/18k exit/s` 是热路径证据。
+- 短命令端到端仍只有约 `6.2k/3.7k exit/s`，不能与 trace-window 混为一谈；它包含 BPF setup、进程等待、Ringbuf drain、stdout/JSON flush、link cleanup 和固定收尾时间。JSON capture 中 sink 写入约 `595 MB`，属于输出带宽/服务成本，不是 eBPF producer 丢事件。
+- 当前结论是“测试范围内真实丢事件和状态丢失已解决”，不是“无限持续高压无损”或“所有 syscall/payload 已完成”。Ringbuf 仍是有限容量，后续性能回归必须继续同时查看 producer attempts、records read/decoded、reserve/drop counters 和 trace-window rate；`arch.md` 尚未完成最终覆盖矩阵与全量架构收口。
+
+### 14.350 增加 BPF_PROG_TEST_RUN exit-time OUT snapshot（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：BPF direct enter provider 已能复制 `BPF_PROG_TEST_RUN` 的 `union bpf_attr`，Go handler 当前只能显示 `data_in`、`data_out`、`ctx_in`、`ctx_out` 指针；测试运行成功后，内核会把实际输出写回 `data_out`/`ctx_out`，但 exit 事件没有这些 buffer 的快照。
+- Problem：继续只输出指针会丢失测试结果；Go 侧按指针补读会重新引入 tracee 内存 TOCTOU。`BPF_MAP_LOOKUP_ELEM` 的 value 长度不能从该 syscall attr 独立得到，直接用固定窗口会把未知长度和本阶段的显式长度 ABI 混在一起。
+- Goal：只为成功的 `BPF_PROG_TEST_RUN` 在 `sys_exit` event-time 重读 `data_out`/`data_size_out` 与 `ctx_out`/`ctx_size_out`，分别以 `512` 字节为最大复制长度生成 OUT bytes TLV；使用 synthetic arg `115`/`116`，Go handler 优先消费对应 section。
+- Non-goals：本阶段不实现 BPF map lookup/update/batch 的未知 value 长度推断，不解析测试程序返回值为稳定 ABI，不读取 procfs/ptrace/process_vm，不改变 event v2/TLV schema，不把失败返回的未定义输出当作有效快照。
+- Constraints：只有 command `10` 且 `ret == 0` 才允许生成 OUT section；attr offsets 固定为 `data_size_out=12`、`data_out=24`、`ctx_size_out=44`、`ctx_out=56`；空指针/零长度/attr reread 失败时回退普通 exit，不产生空或伪造 OUT；两个输出 section 必须在同一个 exit record 内按稳定顺序写入，固定 reservation 必须满足 verifier 边界。
+
+#### 方案比较
+
+1. 继续只输出 `data_out`/`ctx_out` 指针：改动最小，但无法表达内核写回结果，拒绝。
+2. Go handler 在 exit 时按指针读取用户内存：文本更接近传统 strace，但违反纯 eBPF ownership 并有异步竞争，拒绝。
+3. 在现有 BPF exit IO family 增加 command-specific 双 OUT TLV emitter，按显式 ABI 长度 bounded capture，选择；它不需要 map 元数据或 procfs，并能保持一个 exit event。
+
+#### 实施边界
+
+- BPF nested metadata 增加 test-run 的两个 synthetic arg、四个 attr offset 和单 section 最大长度；exit provider 只处理 command `10`/成功返回，先捕获 `data_out`，再捕获 `ctx_out`，任一 section 失败都不伪造对应 TLV，若两者都没有则回退普通 exit。
+- 共享 exit writer 扩展为固定双 section reservation，实际 `payload_size` 只计入成功复制的 header/data；现有 command `15`、`5`、`18` 继续使用单 section writer，不改变它们的 predicate 和长度上限。
+- Go `decodeBpfProgTestRun` 在成功返回且存在 arg `115`/`116`、OUT、bytes section 时输出 bounded snapshot；失败返回和缺少 section 保持 pointer fallback，并增加 memory-policy 回归测试。
+- fixture 加载一个最小可运行 XDP BPF 程序，调用 `BPF_PROG_TEST_RUN` 写回 `data_out` 和 `ctx_out`，同时保留失败 test-run/invalid program 路径；semantic oracle 检查 enter attr、paired success exit、两个 OUT section、稳定输出顺序、失败无 OUT 和 runtime counters。
+
+#### 实施结果
+
+- BPF nested metadata 增加 `BPF_DIRECT_PROG_TEST_RUN=10`、data/ctx 两个 synthetic arg（`115`/`116`）、四个显式 attr offset 和 `512` 字节单 section 上限。exit provider 只接受 command `10` 且 `ret == 0`，从 `data_size_out`/`data_out` 开始，再处理 `ctx_size_out`/`ctx_out`；每个 section 都复用 OUT bytes TLV，复制失败不会伪造 section。
+- exit writer 对 test-run 使用固定的双 section reservation，实际 `payload_size` 只包含成功复制的 TLV；这样 verifier 能证明 dynptr 范围，同时不会改变普通 `BPF_OBJ_GET_INFO_BY_FD`、`BPF_PROG_LOAD` 和 `BPF_BTF_LOAD` 的单 section 路径。成功事件中的 OUT arg 顺序由 producer 和 semantic oracle 同时固定为 `115 -> 116`。
+- Go `decodeBpfProgTestRun` 只从 event TLV 消费成功返回的 OUT bytes，失败返回、缺 section 或非 TLV 事件继续显示指针；没有 reader、procfs、ptrace 或 `process_vm_readv` 回退。新增 memory-policy 测试验证 data/ctx 两个 section 和失败路径不会触发用户内存读取。
+- fixture 使用最小 XDP `MOV64_REG/EXIT` 程序，真实执行 `BPF_PROG_TEST_RUN` 并校验 data/context 输出长度和 marker；随后使用无效 program fd 触发失败路径。该 fixture 只依赖 `linux/bpf.h` 和 `SYS_bpf`，不依赖 bpftool 或外部服务。
+- semantic oracle 新增 output-order 断言和反向顺序回归，保证两个 OUT section 必须出现在同一个成功 exit 事件中且 data 在 ctx 之前。
+
+#### 当前验证
+
+- 失败优先回归已覆盖：BPF source ownership、Go handler memory policy、缺失 data/ctx payload、失败伪造 OUT、反向 output order。BPF Python oracle `8/8` 通过，全套 Python 单测 `90/90` 通过。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、`sudo -n go generate ./cmd/strace-go`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过。
+- 真实 `ebpf-semantic` 通过：主 semantic `175` 个事件、enter/exit `78/97`、lifecycle `6`，BPF fixture `18` 个事件；`ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`lifecycle_map_update_fail`、`pending_stale` 全为 `0`。真实 BPF test-run 成功 exit 同时包含 OUT arg `115`/`116`，失败 exit 没有 OUT。
+- 真实 `ebpf-perf` 通过：Go pipeline benchmark 均为 `0 B/op、0 allocs/op`；本轮 trace-window scalar/io/lifecycle-storm/threads 分别为 `27062.68/17859.12/4325.56/15696.98 exit/s`，对应短命令端到端为 `5628.23/3924.37/2675.01/3266.80 exit/s`，所有 perf workload 的运行时错误计数均为 `0`。短命令仍包含 setup、等待、drain、输出和 cleanup，不能用来估计 BPF 热路径。
+- 高压 `ebpf-capture` 通过：reader/none 各读取并解码 `3200035` 条 record，producer lower bound 完全相等且 invalid 为 `0`；handler/text/json 各路由 `1600035` 条，JSON 交付 `1600000` 个 syscall event，输出 `594612523` bytes、`9052` 次写出、write errors 为 `0`，`records_read_delta_reader_minus_none=0`。
+- 原生 upstream BPF reference 的 `bpf.gen.test` 与 `bpf-v.gen.test` 已通过；它们只作为兼容参考，不能替代上述 event-time semantic oracle。
+
+#### Review 结论
+
+- 本阶段没有恢复任何 Go 侧异步补读，新增成本只在 BPF command `10` 的成功 exit 路径上；普通 syscall 和其他 BPF command 仍走原有 dispatcher。固定双 section reservation 是 verifier 约束，实际 payload 不会把未复制区域报告给用户态。
+- 针对“event/s 下降”的判断保持分层：此前 raw tracepoint 多路 attach、生命周期 PID 清理错误和高压对账缺口已经修复；当前测试范围内 producer/reader 无丢失、pending/lifecycle 状态无错误，trace-window 仍在约 `27k/18k exit/s`。短命令约 `5.6k/3.9k exit/s` 的主要差异仍来自固定 setup/cleanup、stdout/JSON sink 和进程等待，不是新的 test-run payload 回退。
+- 本轮 scalar 热路径样本较前一轮 `~27.9k/s` 低约几个百分点，io/threads 基本在测量波动内；没有伴随 reserve/drop 或状态错误。后续若要宣称稳定性能收益，必须做重复 A/B，而不能用单轮数值下结论。
+- `BPF_MAP_LOOKUP_ELEM`、map batch 和其他未知长度 OUT ABI 仍未实现：没有可靠 value size 时不能用固定窗口冒充语义。无限持续高压下 Ringbuf 有限容量也仍不是绝对无损保证；这些是 arch.md 尚未最终收口的明确边界。
+
+### 14.351 增加 BPF_MAP_LOOKUP_ELEM 内核 metadata 驱动的 OUT snapshot（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`BPF_MAP_LOOKUP_ELEM` 和 `BPF_MAP_LOOKUP_AND_DELETE_ELEM` 会把 map value 写入用户态 `value` 指针。enter event 只能保存 attr 和指针，exit event 目前没有 value snapshot；但 map 的真实 `value_size` 保存在内核 `struct bpf_map` 中，不能从 lookup attr 本身推断。
+- Problem：Go 侧按指针补读违反 event-time ownership；固定复制 `512` 字节会在小 value buffer 后继续读取相邻用户内存，也无法把 `user_len` 解释为真实 value size；仅在 Go 侧维护 `BPF_MAP_CREATE` 返回 fd 的 catalog 又会遇到 fd close、fork/exec、fd reuse 和 producer/consumer 时序边界，不能决定 BPF exit 时的复制长度。
+- Goal：在 BPF sys_exit 中从当前任务的 map fd 找到 `struct file->private_data` 对应的 `struct bpf_map`，读取内核 `value_size`，只对 command `1`/`21` 且成功返回的 `value` 指针生成 bounded OUT bytes TLV；Go handler 只消费该 TLV。
+- Non-goals：本阶段不实现 map batch 的 `count * value_size` 计算、不维护 Go/BPF 跨生命周期 fd catalog、不读取 procfs/ptrace/process_vm、不对失败 lookup 伪造 OUT，不改变 event v2/TLV schema。
+- Constraints：只接受当前任务实际持有的 map fd；`value_size` 为零、fd 无效、private data 缺失、value 指针为空或 attr reread 失败时回退普通 exit；单 value 最大复制 `512` 字节并显式标记 truncation；synthetic arg 使用 `117`；producer 不增加第二 Ringbuf consumer、锁或定时器。
+
+#### 方案比较
+
+1. Go 侧维护 `BPF_MAP_CREATE` 返回 fd 到 `value_size` 的 catalog：普通 workload 可工作，但 fd close/reuse、fork 继承和 map fd 在不同 task 中的生命周期都需要额外状态同步，且 BPF producer 仍不知道 Go catalog，拒绝作为主路径。
+2. BPF exit 固定读取 `512` 字节：实现简单，但小 value 的用户 buffer 长度未知，可能越过合法对象边界并把相邻内存当作 map value，违反 bounded snapshot 的安全语义，拒绝。
+3. BPF event-time 从当前 fd 的 kernel file/private data 读取 `struct bpf_map.value_size`，再复用现有 exit bytes emitter：长度来源与 syscall 执行处于同一个内核时点，不依赖 procfs 或 Go 状态，选择；复杂 batch ABI 另立阶段。
+
+#### 实施边界
+
+- nested metadata 增加 map lookup command `1`/`21`、map value synthetic arg `117`、attr 的 `map_fd=0`/`value=16` offsets 和 `512` 上限。exit provider 通过现有 current-fd kernel lookup 读取 `file->private_data` 和 `struct bpf_map.value_size`，再调用共享 OUT bytes TLV writer。
+- fixture 改为 hash map，写入固定 `map-value` marker，真实执行成功的 `BPF_MAP_LOOKUP_ELEM`、失败的坏 value 指针和成功的 `BPF_MAP_LOOKUP_AND_DELETE_ELEM`；semantic oracle 检查两个 command 的 paired exit、OUT arg `117` marker、失败无 OUT 和 runtime counters。
+- Go `decodeBpfMapLookup` 在成功返回且存在 arg `117` OUT section 时渲染 bounded value bytes，否则保留 value pointer；memory-policy 测试验证成功/失败都不调用用户态 memory reader。
+- 先添加 source/handler/Python 失败优先测试，再实现 BPF/Go/fixture；阶段门禁包括生成、构建、Go/race/vet、真实 semantic/perf/capture 和原生 BPF reference。
+
+#### 实施结果
+
+- BPF nested metadata 增加 map lookup command `1`/`21`、synthetic arg `117`、attr offset `map_fd=0`/`value=16` 和 `512` 字节上限。新增 map exit provider 复用当前任务 fd 的 `lookup_current_fd_file`，从 `file->private_data` 读取 `struct bpf_map.value_size`，再调用共享 exit bytes emitter；没有 procfs、ptrace、process_vm 或 Go fd catalog。
+- provider 只在 BPF command `1`/`21` 且 `ret == 0` 时读取 value；fd 无效、private data 缺失、value size/指针为空或 attr reread 失败都会回退普通 exit。value size 大于 `512` 时只复制 bounded prefix，并由现有 TLV truncation 标志表达，不会越过固定 bucket。
+- map provider 已拆到独立的 `bpf/syscall_bpf_map_exit_direct_event_v2.h`，共享 BPF exit 头从 `505` 行降到 `453` 行，所有新增代码文件保持仓库的 `500` 行边界。Go handler 单独按 `copied_len/user_len` 渲染固定 value bytes，完整 value 不再被错误追加 `...`。
+- fixture 改为 hash map，value size 为 `16`，真实执行 update、成功 `BPF_MAP_LOOKUP_ELEM`、坏 value 指针失败和成功 `BPF_MAP_LOOKUP_AND_DELETE_ELEM`；真实 event 中两个成功 exit 都含 arg `117`、`map-value` marker，失败 exit 没有 OUT。
+- source gate、Go memory-policy、Python semantic 均覆盖成功/失败和缺失 OUT；Python oracle 同时拒绝失败 lookup 伪造 OUT，并要求两个 map command 的 exit pairing 与 bounded marker。
+
+#### 当前验证
+
+- 失败优先验证已完成：source gate 和 Go handler 在 provider/OUT 缺失时先失败；实现后 map source focused test、map handler focused tests、BPF Python oracle `9/9` 和全套 Python unittest `91/91` 通过。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、`sudo -n go generate ./cmd/strace-go`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 全部通过；BPF exit header `453` 行，map exit header `58` 行，fixture `232` 行。
+- 真实 `ebpf-semantic` 通过：BPF fixture `26` 个事件，主 semantic `175` 个事件、enter/exit `78/97`、lifecycle `6`；所有 reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 计数为 `0`。lookup 成功/失败和 lookup-and-delete 均 paired，成功 OUT 为 arg `117`。
+- 真实 `ebpf-perf` 通过：Go pipeline benchmark 仍为 `0 B/op、0 allocs/op`；trace-window scalar/io/lifecycle-storm/threads 为 `27917.47/17851.84/4321.80/15677.00 exit/s`，短命令端到端为 `6042.76/3989.00/2640.79/3166.35 exit/s`，所有运行时错误计数为 `0`。相较 Phase 14.349 的约 `27.9k/17.9k` 热路径基线，没有可归因的吞吐断崖。
+- 高压 `ebpf-capture` 通过：reader/none 各读取并解码 `3200035` 条 record，producer lower bound 完全相等且 invalid 为 `0`；handler/text/json 各路由 `1600035` 条，JSON 交付 `1600000` 个 syscall event，输出 `594851517` bytes、`9054` 次写出、write errors 为 `0`，reader/none 的 reserve failure 均为 `0`。
+- 原生 upstream reference 的 `bpf.gen.test` 与 `bpf-v.gen.test` 均通过；BPF 深层 exact 文本差异仍按 bounded eBPF snapshot 与传统 ptrace-sized 输出边界处理，不替代 semantic gate。
+
+#### Review 结论
+
+- 本阶段解决的是 BPF map value 的真实 event-time ownership 缺口，不是用 procfs 规避长度问题：长度直接来自当前 syscall 任务持有的内核 map object，fd close/reuse、fork 继承和 map delete 都不需要 Go 侧猜测状态。
+- 当前成功输出证明 `value_size=16` 时只复制合法的 16 bytes；坏 value 指针失败事件不产生 OUT。map batch、未知 map backing object 和超过 `512` 的完整 value 仍明确显示为 bounded/truncated 边界，不会扩大成不受控用户内存读取。
+- 新增 provider 只在 BPF exit dispatcher 的两个 command 分支执行；perf 和 capture 没有出现 reserve/copy/state 回归，scalar/io 热路径维持约 `28k/18k exit/s`。因此此前 event/s 下降的主要根因判断仍成立：旧 fanout、生命周期错误和高压对账问题已修复，短命令低速仍由固定 setup/cleanup、输出和等待成本主导。
+- `BPF_MAP_LOOKUP_BATCH`、update/delete batch、更多 BPF output ABI、其它 direct payload family、upstream 非契约 exact 文本和最终架构覆盖矩阵仍未完成；本阶段不应被标记为整个 `arch.md` 完成。
+
+### 14.352 增加 BPF_MAP_LOOKUP_BATCH bounded keys/values OUT snapshot（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：单值 map lookup 已经能够从当前任务的 `struct bpf_map` 读取 `key_size/value_size`。`BPF_MAP_LOOKUP_BATCH` 和 `BPF_MAP_LOOKUP_AND_DELETE_BATCH` 还会把 `count` 个 key、value 以及 `out_batch` cursor 写回用户态，当前事件仍只有指针和 count。
+- Problem：batch 的 OUT 长度是 `count * key_size`/`count * value_size`，不能用固定指针或 Go 侧补读；如果只复制 `512` 字节却不记录逻辑长度，用户态无法知道发生了截断；如果不做乘法溢出检查，恶意 attr 可以把长度计算绕回小值。
+- Goal：在 BPF sys_exit 中读取成功 batch 的 exit `count`，从当前 map fd 获取 `key_size/value_size`，生成 bounded OUT TLV：keys 使用 synthetic arg `118`、values 使用 `119`、out_batch cursor 使用 `120`；实际 logical length 保留在 TLV，复制最多 `512` 字节并设置 truncation。
+- Non-goals：本阶段不捕获 `BPF_MAP_UPDATE_BATCH` 的 IN values、不实现 batch value 的逐元素格式化、不维护用户态 map catalog、不读取 procfs/ptrace/process_vm、不改变 event v2/TLV schema，不承诺无限大小 batch 的完整用户内存快照。
+- Constraints：只处理 command `24`/`25` 且 `ret == 0`；map fd、map object、count、element pointer 或 attr reread 失败时回退普通 exit；`u64` 长度计算必须在转换为 TLV `u32` 前饱和/截断；一个 exit record 固定预留三个 bounded bytes bucket，未成功复制的 section 不得伪造。
+
+#### 方案比较
+
+1. Go 侧按 enter count 和 map catalog 补读 keys/values：依赖 fd 生命周期和用户内存时点，无法证明 exit 时 count 与 buffer 仍匹配，拒绝。
+2. BPF 固定复制三个 `512` 字节窗口且把 user length 写成 copied length：不会溢出，但丢失真实 batch 长度和 truncation 语义，无法区分小 batch 与大 batch，拒绝。
+3. BPF event-time 读取 kernel map metadata，使用 `u64 count * element_size` 做有界长度计算，复用 OUT bytes TLV 并固定三 bucket reservation：长度来源、溢出边界和 ownership 都在 producer 内闭合，选择。
+
+#### 实施边界
+
+- batch attr offsets 固定为 `keys=16`、`values=24`、`count=32`、`map_fd=36`、`out_batch=8`；key/value element size 来自 `struct bpf_map`，logical length 大于 `u32` 时饱和到 `UINT32_MAX`，复制长度仍不超过 `512`。
+- output sections 按稳定顺序写入：`out_batch` arg `120`、keys arg `118`、values arg `119`；缺少某个用户指针只跳过该 section，整个成功 exit 仍可保留其它成功 section。失败返回不允许任何 OUT section。
+- fixture 使用现有 hash map，先填充三个 entry 并读取两个，执行成功 lookup batch、坏 values 指针失败和 lookup-and-delete batch；semantic oracle 检查 paired exits、markers、section direction/arg/length/order、失败无 OUT 和 runtime counters。
+- 先添加 source/handler/Python 失败测试，再实现 batch provider、handler 和 fixture；阶段门禁与 14.351 相同，并额外运行原生 BPF reference。
+
+#### 实施结果
+
+- nested metadata 增加 command `24`/`25`、batch attr offsets 和 synthetic args `118`/`119`/`120`。exit provider 在当前任务中通过 map fd 找到 `struct bpf_map`，读取 `key_size`/`value_size`，对 `count * element_size` 先用 `u64` 计算再饱和到 `u32`，最后复用 bounded OUT bytes TLV；没有 Go map catalog、procfs、ptrace 或 `process_vm_readv`。
+- 一个成功 batch exit 固定预留三个最大 `512` 字节 bucket，实际只提交成功复制的 TLV，顺序固定为 `out_batch(120) -> keys(118) -> values(119)`。真实 fixture 的成功 events 显示：cursor `user_len/copied_len=4/4`，keys `8/8`，values `32/32`；handler 使用 TLV 的逻辑长度和 copied length，不再从指针读取，也不会把完整 map value 错误追加省略号。
+- 生产 provider 严格限制为 command `24`/`25` 且 `ret == 0`；坏 `values` 指针的失败 exit 仍只有 enter attr snapshot，没有伪造 OUT。fixture 使用三个 hash entries、一次读取两个元素来稳定走成功返回；这是因为 Linux batch API 在“本次已填充最后一批”时可能返回 `-ENOENT`，但同时保留有效的 `count`/keys/values，不能把这个终止迭代返回值误当成普通成功路径。
+- source gate、handler memory-policy 和 Python semantic oracle 都覆盖 provider 缺失、keys/values 缺失、方向/arg/order 错误、失败伪造 OUT 和长度边界；相关实现文件均保持 `500` 行以内：exit header `458` 行、map provider `244` 行、fixture `325` 行、handler `309` 行。
+
+#### 当前验证
+
+- 失败优先测试按预期先失败，补齐实现后 `go test ./...`、`go test -race ./...`、`go vet ./...`、`go generate ./cmd/strace-go`、`go build -o strace-go ./cmd/strace-go` 和 `git diff --check` 均通过。由于当前环境 `/tmp` 可能被调试用 bpffs 临时覆盖，Go 测试使用仓库外临时目录，避免 `findRepoRoot` 把测试目录误识别为真实仓库。
+- Python BPF oracle `10/10`、全套 Python unittest `92/92` 通过。完整 `ebpf-semantic` 通过：主 semantic `175` 个 syscall 事件、enter/exit `78/97`、lifecycle `6`，BPF fixture `42` 个事件；payload truncated `7`，reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 全为 `0`。
+- 最新 `ebpf-perf` 通过：Go pipeline benchmark 全部为 `0 B/op、0 allocs/op`；trace-window scalar/io/lifecycle-storm/threads 为 `27788.02/17680.61/4325.19/15698.96 exit/s`，端到端为 `5916.61/3937.29/2641.11/3218.65 exit/s`，所有运行时错误计数为 `0`。与 14.351 的约 `28k/18k` 热路径基线相比，没有出现可归因于 batch provider 的断崖。
+- 最新 `ebpf-capture` 通过：reader/none 各读取、解码 `3200035` 条 record，producer lower bound 与读取数相等且 invalid `0`；handler/text/json 各路由 `1600035` 条，JSON 交付 `1600000` 个 syscall event，输出 `594595120` bytes、`9055` 次写出、write errors `0`。
+- 原生 upstream reference 的 `bpf.gen.test` 与 `bpf-v.gen.test` 均通过；这些测试只验证兼容参考，不替代 batch 的 event-time semantic oracle。
+
+#### Review 结论
+
+- 这次 event/s 复测支持此前的根因判断：旧 raw tracepoint fanout、生命周期 PID 清理和高压对账问题已经修复；当前 producer/reader 数量闭合、错误计数为零，trace-window 保持约 `28k/18k exit/s`。短命令约 `5.9k/3.9k exit/s` 仍被 setup、进程等待、Ringbuf drain、输出和 cleanup 固定成本支配，不能用它代表 BPF 热路径。
+- batch provider 的长度来源和复制时点已闭合到内核 event-time；它不会因为 Go 侧 map 状态、fd close/reuse 或 fork 生命周期而猜错 value 长度。`count * element_size` 溢出会饱和，实际复制仍受 `512` 字节 bucket 限制，截断信息保留在 TLV 的 logical length/flags 中。
+- 当前明确的剩余边界是：终止迭代返回 `-ENOENT` 且带有效部分输出的 batch 不进入本阶段 `ret == 0` OUT 契约；hash map 的 cursor 最小宽度、per-CPU map value 展开、`BPF_MAP_UPDATE_BATCH` IN payload 和更多 BPF output command 仍需要独立 ABI/fixture。不能用本阶段的成功 workload 宣称所有 batch 结果都已完整复刻。
+- 因此，之前的 event/s 下降在已覆盖的架构和压力范围内已经解决，但全量 `arch.md` 仍未完成：剩余 direct payload family、未知长度 output ABI、upstream 非契约 exact 文本、终止 batch 语义和最终覆盖矩阵继续作为后续阶段。
+
+### 14.353 支持 BPF batch 终止迭代的部分 OUT snapshot（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.352 已为 `BPF_MAP_LOOKUP_BATCH`/`BPF_MAP_LOOKUP_AND_DELETE_BATCH` 建立 event-time keys、values、cursor 的 bounded OUT TLV，但 provider 只接受 `ret == 0`。
+- Problem：Linux batch API 在最后一批可能返回 `-ENOENT`，同时把已经成功处理的元素写入 keys/values、更新 count 和 out_batch。若把所有负返回都视为“无输出”，真实结果会在最常见的迭代终点丢失；若无条件允许失败 OUT，又会把 `EFAULT` 等错误路径误标为有效结果。
+- Goal：仅对 command `24`/`25` 的 `-ENOENT` 终止迭代，在 sys_exit event-time 读取更新后的 count 并复制有效的 bounded OUT sections；保留 exit 的失败 errno，同时允许 Go handler 只对这一个明确语义显示输出。
+- Non-goals：本阶段不把 `EFAULT`/`ENOSPC` 等其它错误推断为有效 partial batch，不实现 `BPF_MAP_UPDATE_BATCH`，不改变普通失败事件无 OUT 的合同，不读取 procfs/ptrace/process_vm，不改变 event v2/TLV schema。
+- Constraints：必须仍以当前 map 的 key/value metadata 计算长度；count 为零、attr/map/pointer 读取失败时回退普通失败 exit；OUT section 最大复制 `512` 字节并保留 logical length/truncation；单 Go consumer、无锁、无定时器和 producer/reader 对账不能回归。
+
+#### 方案比较
+
+1. 继续只接受 `ret == 0`：实现最简单，但丢掉 batch 终点已经成功返回的数据，拒绝。
+2. 所有负返回都按 partial output 捕获：可以覆盖更多内核分支，但 `EFAULT` 的 count 不可信，容易产生伪造/越界语义，拒绝。
+3. 只对白名单 command `24`/`25` 且 `ret == -ENOENT` 开启 bounded OUT，Go handler 使用同一明确 predicate：能表达 Linux 终止迭代合同并保持其它失败路径封闭，选择。
+
+#### 实施结果
+
+- BPF map batch exit provider 的 predicate 现在只允许 `ret == 0` 或 `ret == -ENOENT`，且 command 必须是 `BPF_MAP_LOOKUP_BATCH`/`BPF_MAP_LOOKUP_AND_DELETE_BATCH`；`ENOENT` 在 BPF 头中使用受保护的本地常量定义，避免依赖用户态 errno 头文件。其它失败返回仍然不产生 OUT snapshot。
+- provider 在 syscall exit 时重新读取已经由内核更新的 batch attr，继续从当前任务的 map fd 获取 `key_size/value_size`，按更新后的 `count` 计算 bounded logical length，并以固定顺序生成 `out_batch(120) -> keys(118) -> values(119)` 三段 OUT TLV。Go `bpfMapOutputAllowedAtExit` 只对同一 command 集合和 `-ENOENT` 放行，普通 lookup、`EFAULT` 和其它错误保持 pointer fallback。
+- fixture 在三个 hash entry 成功执行 lookup-and-delete batch 后，再执行一次 count 为 `2` 的 lookup batch；真实内核返回 `-ENOENT`，同时保留一条有效 entry。该调用使终止迭代成为稳定 semantic oracle，而不是依赖某次内核批量返回的偶然顺序。
+- Python oracle 增加 terminal `ENOENT` 的完整 section、方向、arg、长度和 errno 约束，并把成功 OUT 检查限定为 `ret == 0`，防止 partial event 冒充普通成功事件。Go handler regression 覆盖 terminal `ENOENT` 使用 payload、`EFAULT` 忽略 payload 两条路径。
+
+#### 当前验证
+
+- 失败优先验证已经完成：Python BPF oracle、Go handler policy 和 BPF source gate 在生产实现缺失时先失败；实现后 BPF Python focused suite `11/11` 通过，map handler focused tests 和 source tests通过。
+- `sudo -n env TMPDIR=/dev/shm GOTMPDIR=/dev/shm go generate ./cmd/strace-go`、`go build -o strace-go ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...` 和 `git diff --check` 通过。生成后的 BPF objects 可加载，未引入新的 verifier 编译错误。
+- 真实 `ebpf-semantic` 通过：BPF fixture `44` 个事件，主 semantic `175` 个 syscall events，enter/exit `78/97`，lifecycle `6`；reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 计数均为 `0`。terminal batch exit 实际为 `ret=-2`，OUT arg `120/118/119` 的 `user_len/copied_len` 为 `4/4`、`4/4`、`16/16`，并同时保留 attr IN snapshot。
+- 最新 `ebpf-perf` 通过：Go pipeline benchmark 全部为 `0 B/op、0 allocs/op`；trace-window scalar/io/lifecycle-storm/threads 为 `28078.95/17861.26/4326.32/15652.60 exit/s`，短命令端到端 scalar/io/lifecycle-storm/threads 为 `5793.63/3858.08/2587.37/3445.60 exit/s`。batch provider 没有带来可观测的吞吐断崖或错误计数回归。
+- 最新 `ebpf-capture` 通过：reader/none 各读取、解码 `3200035` 条 record，producer lower bound 与读取数相等且 invalid 为 `0`；handler/text/json 各路由 `1600035` 条，JSON 交付 `1600000` 个 syscall events，输出 `594789457` bytes、`9059` 次写出、write errors `0`。
+- 原生 upstream BPF reference 的 `bpf.gen.test` 和 `bpf-v.gen.test` 均通过；输出中的 `umoven: short read` 是原生测试自身的预期诊断，不影响测试返回码。它们继续只作为兼容参考，不替代 eBPF event-time semantic oracle。
+
+#### Review 结论
+
+- 这次修复闭合了一个真实的 batch 语义缺口，同时没有放宽普通失败事件的输出合同：只有 Linux 终止迭代的明确 `-ENOENT` 允许部分 OUT。BPF 和 Go 两侧 predicate 对齐，避免单侧误解 errno。
+- 对 event/s 的判断仍然需要分层。此前造成断崖的 raw tracepoint 多路 fanout、生命周期 PID 清理和 producer/reader 对账问题在当前压力范围内保持已修复；本轮热路径仍约 `28k/18k exit/s`，capture producer/read/decode 严格闭合，所有状态错误计数为零。短命令约 `5.8k/3.9k exit/s` 仍包含 setup、进程等待、Ringbuf drain、输出 flush 和 cleanup，不能拿来代表 BPF 热路径。
+- 当前残余边界没有被本阶段掩盖：hash map cursor 的最小宽度规则、per-CPU map value 展开、`BPF_MAP_UPDATE_BATCH` IN payload、其它 BPF output command、更多 direct payload family、upstream 非契约 exact 文本和最终覆盖矩阵仍需后续阶段。`count * element_size` 仍受 `u32` logical length 与 `512` 字节实际复制上限约束。
+- 因此，之前 event/s 下降在已覆盖的 dispatcher、生命周期、Ringbuf 对账和当前 payload workload 范围内已经解决；不能据此宣称所有 syscall/payload 和无限压力下 Ringbuf 都已达到无损、无截断的完整 strace 等价语义。
+
+### 14.354 修复 hash batch cursor 的最小宽度 ABI（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.352/14.353 已从当前任务的 `struct bpf_map` 读取 `key_size/value_size`，并为 batch 的 cursor、keys、values 生成 event-time OUT TLV；当前 cursor logical length 直接使用 `key_size`。
+- Problem：Linux BPF batch ABI 对 `HASH`、`PERCPU_HASH`、`LRU_HASH` 和 `LRU_PERCPU_HASH` 规定 `in_batch/out_batch` 至少为 4 字节，即使 map key size 小于 4。直接报告 `key_size` 会把合法的 1/2 字节 hash key cursor 错误编码成过短 snapshot，Go 侧无法区分 cursor 与 key buffer 的长度合同。
+- Goal：在 BPF producer 中读取 `map_type`，只对四类 hash map 把 cursor logical length提升到 `max(key_size, 4)`；keys 仍严格使用 `count * key_size`，values 仍严格使用 `count * value_size`。增加真实 `key_size=1` fixture 和 semantic oracle。
+- Non-goals：本阶段不扩大实际复制上限、不改变 keys/values 长度、不实现 per-CPU value 展开或 update batch、不把所有 map 类型统一强制 4 字节，不读取 procfs/ptrace/process_vm，不改变 event v2/TLV schema。
+- Constraints：map type 必须来自当前 fd 对应的内核 `struct bpf_map`；未知 map type 保持原 key size；cursor/keys/values 仍按固定 reservation 和 `512` 字节 bounded copy；Go handler 不读取用户态内存。
+
+#### 方案比较
+
+1. 继续使用 `key_size`：普通 hash fixture 不受影响，但违反 Linux hash batch cursor ABI，拒绝。
+2. 所有 map cursor 固定 4 字节：实现简单，但会对 array/lpm 等 map 产生错误 logical length，拒绝。
+3. event-time 读取 `map_type`，只对四类 hash map使用 `max(key_size, 4)`：与内核合同一一对应，选择。
+
+#### 实施边界
+
+- nested metadata 增加四类 hash map type 和 cursor 最小宽度常量；map exit provider 通过 `BPF_CORE_READ(map, map_type)` 计算 cursor logical length，keys/values 继续复用既有乘法溢出保护。
+- Go `bpfMapOutputAllowedAtExit` 收紧为 map lookup `1/21` 和 batch lookup `24/25` 的显式白名单；成功 update/delete batch 不消费伪造的 lookup OUT section，终止 `-ENOENT` 例外仍只适用于 `24/25`。
+- BPF fixture 增加 `key_size=1` 的 hash map，真实执行 batch lookup；oracle 必须同时看到 cursor `4` 字节、key `1` 字节和 value 的 map value size，避免只验证普通 4 字节 key map。
+- 先增加 source/handler/Python 失败测试，再实现 map type 分支和 fixture；阶段门禁包括生成、构建、Go/race/vet、真实 semantic/perf/capture 和 upstream BPF reference。
+
+#### 实施结果
+
+- nested metadata 增加 `BPF_DIRECT_MAP_BATCH_CURSOR_MIN=4` 以及四类 hash map type 常量。map exit provider 通过 `BPF_CORE_READ(map, map_type)` 计算 cursor 长度：hash 类且 `key_size < 4` 时使用 `4`，其它 map 保持 `key_size`；keys/values 仍使用各自 element size 和 `u64` 乘法饱和逻辑。
+- Go `bpfMapOutputAllowedAtExit` 改为显式 command 白名单：`1/21` 只接受成功返回，`24/25` 接受成功或 `-ENOENT`，`26/27` 等 update/delete batch 不消费 lookup OUT section。新增 handler regression 验证 update batch 的伪造 OUT 仍回退指针。
+- BPF fixture 新增 `key_size=1` 的 hash map 和 batch lookup。真实 JSON 事件显示：cursor `user_len/copied_len=4/4`，key `1/1`，value `16/16`；普通 4 字节 key map 的 cursor 仍为 `4/4`，没有改变既有 batch 输出顺序和 partial `ENOENT` 语义。
+- Python semantic oracle 增加 hash cursor 宽度、marker、方向、长度和 output order 约束，并加入短 cursor 的失败回归；source gate 锁定 map type 分支，防止未来重新只读 `key_size`。
+
+#### 当前验证
+
+- Python BPF oracle `12/12`、map handler focused tests 和 BPF source tests通过；`go generate`、构建和 clang/CO-RE 生成链通过，map provider 文件 `265` 行、fixture `404` 行，未超过项目文件边界。
+- 真实 `ebpf-semantic` 通过：BPF fixture `50` 个事件，主 semantic `175` 个 syscall events，enter/exit `78/97`，lifecycle `6`；reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 计数均为 `0`。hash cursor 真实 OUT 宽度为 `4/4`，不是只在 Go synthetic event 中成立。
+- 最新 `ebpf-perf` 通过：Go pipeline benchmark 为 `0 B/op、0 allocs/op`；trace-window scalar/io/lifecycle-storm/threads 为 `27988.28/17903.73/3783.56/15693.46 exit/s`，所有运行时错误计数为 `0`。lifecycle storm 的单轮数值有测量波动，但没有伴随 drop 或状态错误，不能据此宣称吞吐回退。
+- 最新 `ebpf-capture` 通过：reader/none 各读取、解码 `3200035` 条 record，producer lower bound 相等且 invalid 为 `0`；handler/text/json 各路由 `1600035` 条，JSON 交付 `1600000` 个 syscall events，输出 `594667277` bytes、`9053` 次写出、write errors `0`。
+
+#### Review 结论
+
+- 该阶段修复的是一个真实 ABI 边界，而不是为 fixture 特判：map type 和 key/value metadata 都在 BPF syscall exit 时从当前 fd 对应的内核对象读取，Go 没有新增 procfs、ptrace、process_vm 或用户态补读。
+- cursor、keys、values 三种 buffer 的 logical length 现在分别遵循内核合同；hash 类 cursor 的最小 4 字节规则不会污染 array/lpm 等非 hash map。成功/终止失败输出的 Go predicate 与 BPF producer 对齐，普通 update batch 不会误消费 lookup payload。
+- 当前未完成边界保持明确：per-CPU map 的每 CPU value 展开、`BPF_MAP_UPDATE_BATCH` 的 IN snapshot、更多 BPF output command 和最终 coverage matrix 仍需独立 ABI/fixture，不能把本阶段标记为所有 map batch 完成。
+
+### 14.355 补齐 BPF_MAP_UPDATE_BATCH 的 enter-time IN payload（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.354 已闭合 lookup batch 的 cursor、keys、values OUT ABI，但 `BPF_MAP_UPDATE_BATCH` 仍只有 `union bpf_attr` 快照；Go 只能打印 keys/values 指针。Linux 合同规定这两个 buffer 是 syscall enter 时的 IN 参数，长度分别为 `count * key_size` 和有效的 map value size 乘以 count。
+- Problem：在 Go exit handler 按指针补读会重新引入用户内存 TOCTOU；沿用 lookup 的 OUT provider 会把 update 输入错误地标记为内核写回；直接使用 `struct bpf_map.value_size` 又不能表达 per-CPU map 在 `BPF_F_CPU`/`BPF_F_ALL_CPUS` 下的有效 value buffer 长度。
+- Goal：只对可由当前内核 map metadata 无歧义确定长度的普通 map，在 `sys_enter` event-time 捕获 update batch 的 keys、values IN bytes TLV；使用稳定 synthetic args，并让 Go handler 只消费对应 IN section。per-CPU value 展开另立 ABI 阶段，不允许普通路径猜测长度。
+- Non-goals：本阶段不实现 per-CPU map 的多 CPU 展开、不实现 delete batch keys、不改变 event v2/TLV schema、不维护 Go map catalog、不读取 procfs/ptrace/process_vm、不在 exit 事件伪造 update 输出。
+- Constraints：command 必须是 `BPF_MAP_UPDATE_BATCH`；map fd、map object、count、用户指针或 metadata 读取失败时保持指针输出；普通 map 的逻辑长度必须使用 `u64` 乘法并在 TLV `u32` 边界饱和，实际复制不超过固定 `512` 字节 bucket；单 Go consumer、无锁、无定时器和 producer/reader 对账不能回归。
+
+#### 方案比较
+
+1. 在 Go 侧维护 map fd 到 key/value size 的 catalog：可以复用 enter 事件，但受 fd close/reuse、fork 继承和事件异步消费影响，不能证明 update 调用时的对象和长度，拒绝。
+2. 在 BPF enter 侧对所有 map 直接使用 `key_size/value_size`：普通 map 改动小，但会把 per-CPU map 的有效 value buffer 错报为单 CPU value，拒绝。
+3. BPF event-time 从当前 fd 获取 `struct bpf_map`，先限定普通 map并捕获 keys/values IN；per-CPU map 另用明确的 CPU 数量/flag ABI实现：所有权和长度来源闭合，且不会用错误快照冒充完整语义，选择。
+
+#### 实施边界
+
+- nested metadata 增加 update batch command、keys/values IN synthetic args 和固定最大 payload；provider 在 enter 读取 attr 的 keys、values、count、map_fd，使用当前任务 fd 对应的 `struct bpf_map` 校验为普通 map后计算长度。
+- 两段 IN TLV 按 `keys(arg 121) -> values(arg 122)` 的稳定顺序写入同一个 enter event；每段保留 `user_len/copied_len/probe_ret/user_ptr`，复制失败只影响对应 section，不生成伪造数据。
+- Go `decodeBpfMapBatch` 对 command `26` 只消费 `PayloadDirectionIn` 的 bytes section；command `24/25` 仍只消费 OUT，command `27` 仍不消费 values。增加 handler/source regression，确保方向错置或 exit payload 不会被使用。
+- fixture 增加确定的普通 hash `BPF_MAP_UPDATE_BATCH` 调用和坏 keys/values 指针失败路径；semantic oracle 检查 enter payload、paired exit、marker、长度、顺序以及失败路径无伪造 OUT/IN。随后再单独实现 per-CPU map ABI。
+
+#### 实施结果
+
+- 新增共享 `bpf/syscall_bpf_map_common_direct_event_v2.h`，统一当前任务 fd 到 `struct bpf_map` 的 event-time 查找、per-CPU map 类型判定和 `u64 count * element_size` 的 `u32` 饱和长度计算；lookup/batch OUT 与 update-batch IN 共用同一长度合同。
+- nested BPF enter provider 只对 command `26` 且 map 不是 per-CPU 类型时读取 `map_fd` 的 `key_size/value_size`，捕获 keys `arg 121`、values `arg 122` 两段 IN bytes TLV。两段按 `121 -> 122` 稳定写入同一个 enter event，实际复制最多 `512` 字节，逻辑长度仍保留在 TLV；无效指针产生带 `probe_ret` 的失败 section，不伪造数据。
+- `BPF_MAP_UPDATE_BATCH` 的 per-CPU map 暂不猜测有效 value buffer 长度，直接回退指针输出；`BPF_F_CPU`/`BPF_F_ALL_CPUS` 的展开合同留到下一阶段。这样当前实现不会把单 CPU `value_size` 错报成完整 per-CPU 输入。
+- Go `decodeBpfMapBatch` 对 command `26` 只消费 enter-side `arg 121/122`，lookup batch `24/25` 仍只消费 OUT `118/119/120`，delete batch `27` 仍不消费 values。新增 memory-policy 回归证明 Go 不读取用户态 memory reader。
+- BPF fixture 新增独立普通 hash map（key/value 各 `16` 字节）的成功 update batch、结果 lookup 和坏 keys 指针失败调用；真实输入 marker 为 `update-key!`/`update-value!`，避免污染已有 lookup batch 的输出顺序。
+
+#### 当前验证
+
+- 失败优先测试先验证了当前实现缺失 `121/122` 时的 Go/source/Python 失败；实现后 `PYTHONPATH=test python3 -m unittest test_ebpf_bpf_suite` 为 `13/13`，map handler focused tests、BPF source focused tests通过。
+- `sudo -n env TMPDIR=/dev/shm GOTMPDIR=/dev/shm go generate ./cmd/strace-go`、`go build -o strace-go ./cmd/strace-go` 和相关 Go package tests通过；生成链加载了新的 CO-RE map helper，没有 verifier 编译错误。
+- 真实 `ebpf-semantic` 通过：BPF fixture `58` 个事件，主 semantic `175` 个 syscall events、enter/exit `78/97`、lifecycle `6`；update batch 成功事件实际包含 `arg 121/122`、`user_len/copied_len=32/32`，坏 keys 事件为 `probe_ret=-14`、`copied_len=0`；reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 全为 `0`。
+- 最新 `ebpf-perf` 通过：Go pipeline benchmark 全部 `0 B/op、0 allocs/op`；trace-window scalar/io/lifecycle-storm/threads 分别为 `27894.17/16437.05/4321.72/15709.25 exit/s`，运行时错误计数均为 `0`。io workload 的单轮值低于前一轮，未伴随 drop 或状态错误，先视为测量波动，不能据此宣称回退。
+- 最新 `ebpf-capture` 通过：reader/none 各读取并解码 `3200035` 条 record，producer lower bound 相等且 invalid `0`；JSON 路由 `1600035` 条、交付 `1600000` 个 syscall events，输出 `596166103` bytes、`9109` 次写出、write errors `0`；`reserve_fail_delta_json_minus_none=0`、`records_read_delta_reader_minus_none=0`。
+
+#### Review 结论
+
+- 本阶段闭合了普通 map `BPF_MAP_UPDATE_BATCH` 的 enter-time ownership：keys/values 在 syscall enter 的 BPF event-time 复制，Go 只读 TLV，不再按 update 指针补读，也没有新增 procfs、ptrace、process_vm 或 Go map catalog。
+- 共享 map helper 消除了 lookup OUT 与 update IN 对 fd/object/长度来源的分叉；per-CPU map 明确拒绝猜测而回退指针，因此当前状态是“普通 map 语义完成、per-CPU update ABI 未完成”，不能把 command `26` 宣称为全 map 完整支持。
+- 本阶段没有改变 Ringbuf consumer、pending state 或生命周期路径；perf/capture 的 producer/reader 对账和错误计数保持闭合。之前 event/s 的断崖式下降仍未在本阶段复现，当前热路径约 `28k/16k exit/s` 的差异需要重复 A/B 才能归因。
+- 下一阶段应先为 `PERCPU_HASH`/`LRU_PERCPU_HASH` 建立真实 fixture，确认 lookup batch 的 `value_size * num_possible_cpus` 与 `BPF_F_CPU` 输出合同，再决定 bounded TLV 是否需要 CPU 数量元数据；在此之前不把 per-CPU buffer 当普通 bytes 处理。
+
+### 14.356 完成 per-CPU map value 的 event-time 长度 ABI（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.355 已让普通 map 的 `BPF_MAP_UPDATE_BATCH` 在 enter 时复制 keys/values IN，但 per-CPU map 的 value buffer 长度不是 `struct bpf_map.value_size` 本身。Linux 会按 `BPF_F_CPU`、`BPF_F_ALL_CPUS` 和 map 类型决定单 CPU value 或 `round_up(value_size, 8) * num_possible_cpus` 的逻辑长度；lookup、lookup batch 和 update batch 的方向也不同。
+- Problem：继续把 per-CPU map 当普通 bytes 会在无 flag 时少复制 CPU 展开值，在 `BPF_F_CPU`/`BPF_F_ALL_CPUS` 时又可能把长度放大；在 Go 侧读取 tracee buffer 或维护 map catalog 不能证明 syscall 时点的 fd、value size 和 flags 一致。BPF 程序本身没有可移植的 `num_possible_cpus` helper，直接依赖未确认的 kernel global 也会把 CO-RE 兼容性变成隐式前提。
+- Goal：在纯 eBPF event-time provider 中统一计算单值 lookup、lookup batch OUT 和 update batch IN 的 per-CPU value logical length；使用共享 runtime metadata map 注入启动时的系统 possible CPU 数量，不读取 tracee `/proc`、用户内存或 Go fd catalog。`BPF_F_CPU`/`BPF_F_ALL_CPUS` 使用单个 map value，未设置 CPU flag 的 per-CPU value 使用按 8 字节对齐后的全 CPU 展开长度。
+- Non-goals：不改变 event v2/TLV schema、Go 单消费者、普通 map 长度合同、BPF_F_LOCK 的格式化、不实现所有未覆盖的 BPF output command，不恢复 ptrace/procfs/process_vm fallback，不把 bounded `512` 字节复制上限伪装成完整物理 buffer。
+- Constraints：runtime metadata 必须是 core/handler 共享的显式 BPF map；CPU 数量读取失败或为零时 provider 必须回退指针，不产生猜测 payload；逻辑长度使用 `u64` 中间值并饱和到 TLV `u32`，实际复制继续受 `512` 字节 bucket 限制；flags 只影响对应 map 类型的 value 长度，keys/cursor 合同不能变化。
+
+#### 方案比较
+
+1. 把 possible CPU 数量塞进现有 `config_map`：用户态更新动作少，但现有所有 BPF 入口都把 value 当 `u32` flags 读取，改变布局会扩大共享 ABI 和 verifier 变更面，拒绝。
+2. 在 BPF 中读取未确认的 `nr_possible_cpus` kernel symbol：不需要用户态配置，但符号可用性、BTF 类型和发行版内核差异无法由当前 CO-RE 合同证明，拒绝。
+3. 增加 core/handler 共用的 `runtime_meta_map`，由 Go 使用 cilium/ebpf `PossibleCPU()` 在加载后写入 possible CPU 数量；BPF 只把它作为系统拓扑元数据参与 event-time 长度计算，不接触 tracee 内存，选择。
+
+#### 实施边界
+
+- `runtime_abi.h` 增加固定 key 为 `0` 的 `runtime_meta_map`，值包含 `possible_cpu_count`；map catalog 和生成后的 core/handler objects 保持同名共享替换。`traceBPFRuntime.configure` 在 config flags 更新时同时写入该 metadata，失败即阻止 session 进入 tracing。Linux 上的 `ebpf.PossibleCPU()` 读取宿主机 `/sys/devices/system/cpu/possible`，不是 tracee 的 `/proc`，且只在启动配置阶段读取一次。
+- common map helper 增加 per-CPU map 判定、8 字节 stride 对齐、`BPF_F_CPU`/`BPF_F_ALL_CPUS` 单值规则和 `u32` 饱和乘法；provider 不使用 `/proc`、ptrace、process_vm 或 Go 侧 map fd/value catalog。
+- map exit provider 为 `BPF_MAP_LOOKUP_ELEM`、`BPF_MAP_LOOKUP_AND_DELETE_ELEM`、`BPF_MAP_LOOKUP_BATCH` 和 `BPF_MAP_LOOKUP_AND_DELETE_BATCH` 读取 event-time flags，按 map type 和 flags 计算 values OUT；nested enter provider 为 `BPF_MAP_UPDATE_BATCH` 使用同一 helper 计算 values IN。keys、cursor、payload direction 和失败 predicate 保持既有合同。
+- fixture 增加 `PERCPU_HASH` 的无 flag 全 CPU 展开、`BPF_F_CPU` 和 `BPF_F_ALL_CPUS` update/lookup 路径；semantic oracle 检查 input/output logical length、CPU flag 分支、marker、bounded copy、enter/exit pairing 和失败事件无伪造 payload。先补 source/Go/Python 失败测试，再生成、构建并运行真实 eBPF semantic/perf/capture。
+
+#### 验收标准
+
+- 普通 map、per-CPU map 单值和 batch 的 value 长度都由 BPF event-time map metadata + flags 决定，Go 只消费 TLV，不进行异步用户内存读取。
+- per-CPU no-flag 的 logical length 能表达 `round_up(value_size, 8) * possible_cpu_count`，`BPF_F_CPU`/`BPF_F_ALL_CPUS` 只表达单个 `value_size`；实际超过 `512` 字节时只报告 bounded prefix 和 truncation。
+- 真实 fixture 与 semantic oracle 覆盖成功、失败、无 flag、CPU flag、ALL_CPUS flag；runtime counters、producer/reader 对账和现有性能基线无回归。
+
+#### 实际验收与 event/s 结论
+
+- 失败优先的 Python BPF oracle 在拆分 per-CPU 规则后为 `14/14`；`go test ./...`、`go test -race ./...`、`go vet ./...`、`go build -o /dev/shm/strace-go-phase14356-final ./cmd/strace-go` 和 `git diff --check` 全部通过。
+- 真实 `ebpf-semantic` 通过：BPF 专项合并事件 `72`，主 semantic `175`，enter/exit `78/97`，lifecycle `6`；`ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`lifecycle_map_update_fail` 和 `pending_stale` 全部为 `0`。per-CPU fixture 的无 flag、`BPF_F_CPU`、`BPF_F_ALL_CPUS`、batch OUT、bounded copy 和失败路径均通过。
+- 真实 `ebpf-perf` 的 trace-window exit throughput 为 scalar `26,823.43/s`、IO `17,893.67/s`、lifecycle-storm `4,320.22/s`、threads `15,641.74/s`；Go decode/context/handler/text/JSON/writer benchmark 全部为 `0 B/op、0 allocs/op`。短命令端到端速率约为 scalar `5,986.04/s`、IO `3,727.54/s`，其中包含 setup、进程等待、Ringbuf drain、输出和 cleanup，不能与 trace-window 热路径直接比较。
+- 真实 `ebpf-capture` 通过：reader/none 均为 `3,200,035` records read/decoded，producer lower bound 相等、invalid `0`、reserve/copy/pending/orphan/mismatch/stale 全为 `0`；handler/text/json 均为 `1,600,035` records routed，JSON syscall events `1,600,000`，output write errors `0`。
+- `upstream-reference` 为 `120 PASS / 0 FAIL / 1 XFAIL / 0 XPASS`；唯一 XFAIL 是既定 bounded eBPF read/write 快照不承诺 ptrace-sized hexdump，不是吞吐回退。
+
+这组证据确认此前 event/s 断崖式下降在当前覆盖范围内已经解决：旧 raw tracepoint 多路 fanout 已收敛为 dispatcher/tail-call，错误的生命周期 PID 清理已修复，BPF producer、Ringbuf、Go decode/route 和输出记录能够对账，且热路径不再支付每条事件的大对象分配。仍然存在的低端到端速率是短命令固定成本和 sink 服务成本，不是新的事件丢失；因此后续性能比较必须继续使用 trace-window、producer/reader 对账和错误计数三者联合判断，不能只看一个 event/s 数字。
+
+### 14.357 补齐 BPF_MAP_DELETE_BATCH 的 enter-time keys IN payload（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.355/14.356 已为 `BPF_MAP_UPDATE_BATCH` 的 keys/values IN 和 per-CPU value 长度建立 event-time provider，但 `BPF_MAP_DELETE_BATCH`（command `27`）仍只携带 `union bpf_attr` 指针字段；Go handler 虽然能格式化 batch，无法看到调用时真正提交的 keys。
+- Problem：delete batch 的 `keys` 是 syscall enter 时由用户态提供的 IN buffer，长度为 `count * key_size`；如果在 Go exit handler 按指针补读，keys 可能已经被修改、释放或复用，重新引入异步用户内存 TOCTOU。直接复用 update provider又会要求并捕获不存在的 values buffer。
+- Goal：在 BPF `sys_enter` 事件时，从当前 map fd 对应的内核 `struct bpf_map` 读取 `key_size`，按 `count * key_size` 生成 bounded keys IN TLV；command `27` 只捕获 keys，不捕获 values，不改变 delete batch 的 attr/text ABI。
+- Non-goals：不实现 `BPF_MAP_DELETE_ELEM` 的 key bytes、不改变普通 map/per-CPU value 长度合同、不捕获 delete batch 的 OUT payload、不维护 Go fd catalog、不读取 procfs/ptrace/process_vm、不引入第二消费者或新的 runtime mode。
+- Constraints：继续使用 `u64` 中间长度并饱和到 TLV `u32`；实际复制受 `BPF_DIRECT_MAP_VALUE_MAX` 限制；map fd、key metadata、count 或用户指针读取失败时保留指针输出；keys section 的 synthetic arg 与 update batch 共用稳定的 `BPF_DIRECT_MAP_BATCH_KEYS_IN_ARG`；成功/失败事件必须保持 enter/exit pairing 和既有 runtime counters。
+
+#### 方案比较
+
+1. 复用 update batch 的 keys/values provider：代码最少，但会读取 delete batch 不使用的 values 字段并把错误的 values section带入事件，拒绝。
+2. 在 Go exit handler 通过 `MemoryReader` 读取 keys：格式化直观，但违反 event-time ownership，并受 fd/key size 和用户 buffer 生命周期竞争影响，拒绝。
+3. 增加 keys-only BPF enter provider，复用当前 map metadata、bounded bytes emitter 和 Go input section decoder；语义局部、长度来源闭合，选择。
+
+#### 实施边界
+
+- nested BPF provider 增加 `BPF_DIRECT_MAP_DELETE_BATCH 27` 分支，读取 batch keys/count/map_fd，使用 `BPF_CORE_READ(map, key_size)` 和既有 `bpf_map_batch_buffer_len_direct` 生成一个 `BPF_DIRECT_MAP_BATCH_KEYS_IN_ARG` section。
+- fixture 增加真实 delete batch：先写入两个 keys，再用 `BPF_MAP_DELETE_BATCH` 删除并校验 count/返回值；同时触发坏 keys 指针失败调用。semantic oracle 检查 keys marker、logical length、IN direction、paired exit 和失败路径无 OUT/伪造 values。
+- Go `decodeBpfMapBatch` 只需沿用 command `27` 的 keys IN section选择；更新 handler regression，确保 command `27` 不消费 values IN/OUT，也不触发用户态 memory reader。
+- 重新生成 BPF objects，运行 focused Go/source/Python tests、真实 `ebpf-semantic`、`ebpf-perf`、`ebpf-capture` 和 upstream reference。
+
+#### 验收标准
+
+- command `27` 的 keys 在 BPF enter 时被复制并以稳定 IN TLV 交付，Go 输出不依赖 exit 时用户内存。
+- delete batch 不产生 values section；坏 keys 指针只保留 attr/pointer 信息，不产生成功 marker 或 OUT payload。
+- 现有普通/per-CPU map semantic、runtime counters、producer/reader 对账、性能基线和 upstream reference 无回归。
+
+#### 实施结果
+
+- 新增独立的 `syscall_bpf_delete_direct_event_v2.h`，把 command `3/27` 的 keys-only provider 从 nested BPF 大头文件中拆出；nested header 从 `503` 行降到 `479` 行，避免继续堆叠不同 BPF command 的 ABI 逻辑。
+- provider 在 `sys_enter` 读取当前任务 `map_fd` 对应的内核 `struct bpf_map`，使用 event-time `key_size` 和 `count` 计算 `arg 121` 的逻辑长度，只捕获 keys IN；delete batch 的 `values`、`out_batch` 和任何 Go 侧补读均不参与。
+- fixture 先恢复确定的 zero key，再真实执行成功的 `BPF_MAP_DELETE_BATCH`，并执行坏 keys 指针失败路径；这证明成功 marker 来自内核实际 delete，而不是只构造 syscall attr。Go handler regression 同时证明伪造 values section 不会被消费。
+- source gate、Python oracle 和 handler 测试均按“keys-only、enter-time、无 memory reader”约束检查；实现没有新增 ptrace、process_vm、procfs、第二消费者、锁或 runtime mode。
+
+#### 当前验证
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、生成链、正式构建和 `git diff --check` 全部通过；BPF Python 单测为 `16/16`，source/handler focused tests 通过。
+- 真实 `ebpf-semantic` 通过：BPF fixture `78` 个事件，主 semantic `175` 个 syscall events，enter/exit `78/97`，lifecycle `6`；reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 计数全部为 `0`，delete 成功和 `EFAULT` 失败路径均配对。
+- 真实 `ebpf-perf` 通过：Go pipeline benchmark 全部 `0 B/op、0 allocs/op`；trace-window scalar/io/lifecycle-storm/threads 分别为 `28090.59/17945.79/4324.74/15638.26 exit/s`，所有运行时错误计数为 `0`。短命令端到端 scalar/io 为 `6040.68/3790.06 exit/s`，仍包含 setup、等待、drain、输出和 cleanup，不能与热路径数值混比。
+- 真实 `ebpf-capture` 通过：reader/none 各读取并解码 `3200035` 条 record，producer lower bound 相等、invalid 为 `0`；handler/text/json 各路由 `1600035` 条，JSON 交付 `1600000` 个 syscall events，write errors 为 `0`，JSON 与 none 的 reserve/read 差值均为 `0`。
+- `upstream-reference` 完整结果为 `120 PASS / 0 FAIL / 1 XFAIL / 0 XPASS`；唯一 XFAIL 仍是既定 bounded read/write snapshot 边界。
+
+#### Review 结论
+
+- 本阶段闭合了 `BPF_MAP_DELETE_BATCH` 的 enter-time ownership，证明之前 event/s 下降涉及的 Ringbuf 丢失、生命周期状态丢失和 Go 热路径分配问题在当前覆盖范围内没有复现；新的 provider 也没有引入性能断崖。
+- 仍然要区分两个指标：当前热路径约 `28k/18k exit/s` 且 producer/reader 对账闭合；短命令约 `6.0k/3.8k exit/s` 是固定 setup/cleanup、进程等待和 sink 服务成本的结果，不等于事件丢失。
+- 全部 `arch.md` 尚未完成：`BPF_MAP_DELETE_ELEM` key bytes、更多 BPF output command、剩余 direct payload family 和最终 coverage matrix 仍需独立 ABI/fixture；Ringbuf 在无限持续高压下仍只提供有限容量保证。
+
+### 14.358 补齐 BPF_MAP_DELETE_ELEM 的 enter-time key IN payload（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.357 已让 `BPF_MAP_DELETE_BATCH` 在 enter 时复制 keys，但单项 `BPF_MAP_DELETE_ELEM` 仍只有 `union bpf_attr` 快照；Go handler 会把 `key` 打成用户指针，无法表达确定的 key 内容。
+- Problem：delete elem 的 key 同样属于 syscall enter 的 IN buffer。若在 exit handler 通过 `MemoryReader` 补读，tracee 可能已经修改、释放或复用了 key；若按 batch 逻辑猜测 count，还会把单项 attr 误解释成 batch ABI。
+- Goal：在 BPF enter event-time 从当前任务 `map_fd` 的内核 `struct bpf_map` 读取 `key_size`，复制一段稳定的 key IN TLV；Go 只消费这段 snapshot，不读取用户态内存。
+- Non-goals：不实现 `BPF_MAP_GET_NEXT_KEY` 的两个 key bytes、不改变 map batch/per-CPU value 合同、不捕获 delete elem 的 OUT payload、不维护 Go fd catalog、不读取 procfs/ptrace/process_vm、不引入第二消费者或新的 runtime mode。
+- Constraints：使用独立 synthetic arg `123`；key 长度必须来自 event-time map metadata，实际复制继续受 bounded `BPF_DIRECT_MAP_VALUE_MAX` 限制；无效 fd/key pointer/metadata 时回退指针；单 Go consumer、无锁和 producer/reader 对账不能回归。
+
+#### 方案比较
+
+1. 在 Go exit handler 使用 `MemoryReader` 读取 key：实现直接，但违反 enter-time ownership并重新引入异步 TOCTOU，拒绝。
+2. 复用 delete batch provider：代码较少，但 batch 的 count/keys-only request 语义会掩盖单项 attr 合同，未来容易把 command 3 误当成 count buffer，拒绝。
+3. 增加独立的 delete elem keys-only BPF provider，共用 map metadata、bounded bytes emitter 和 input section decoder：边界清晰、没有用户态补读，选择。
+
+#### 实施边界
+
+- nested BPF provider 增加 command `3` 分支，读取 attr 的 `map_fd`/`key`，用 `BPF_CORE_READ(map, key_size)` 生成 arg `123` 的 IN bytes TLV；command `27` 的 keys arg `121` 和 batch count 逻辑不变。
+- Go `decodeBpfMapDeleteElem` 只在 command `3` 查找 arg `123` 的 IN snapshot；失败或缺失时继续输出原始指针，避免把不完整 payload 当成真实 key。
+- fixture 增加成功的 `BPF_MAP_DELETE_ELEM` 和坏 key pointer 失败调用；Python oracle/source gate/handler regression 分别验证内容、方向、配对、失败路径和无 `MemoryReader`。
+
+#### 验收标准
+
+- command `3` 的 key 在 BPF enter 时被复制，JSON 中有稳定 arg `123` IN section，text 输出使用 key 内容而不是 exit 时指针读取。
+- 坏 key pointer 不产生成功 marker 或 OUT payload；普通 map batch、per-CPU map、semantic/perf/capture/upstream reference 无回归。
+
+#### 实施结果
+
+- 新增 `syscall_bpf_delete_direct_event_v2.h`，统一承载 command `3` 和 `27` 的 keys-only provider；nested dispatcher 只负责 command 路由，map metadata、长度计算和 bytes TLV 逻辑留在 delete provider 内。
+- command `3` 使用独立 arg `123` 和 attr offset `8`，command `27` 继续使用 arg `121`、batch offset `16`；两者都在 BPF enter 通过当前 fd 对应的 `struct bpf_map.key_size` 计算逻辑长度，并共享 bounded `512` 字节复制上限。
+- `decodeBpfMapDeleteElem` 只消费 command `3` 的 IN section；失败/缺失时保留指针。一次失败优先测试还捕获并修正了 update decoder 被误改的问题，避免 command `2` 意外消费 delete payload。
+- 将 map element 操作拆到 `ebpf_bpf_map_elem_fixture.c`，主 BPF fixture 从 `513` 行降到 `443` 行；fixture 使用严格的 delete attr（只填 `map_fd`/`key`），并覆盖真实成功和坏 pointer `EFAULT`。
+
+#### 当前验证
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、`go generate ./cmd/strace-go`、构建、`git diff --check` 全部通过；source/handler focused tests、Python BPF oracle `18/18` 通过，所有相关文件均不超过 `500` 行。
+- 真实 `ebpf-semantic` 通过：BPF fixture `84` 个事件，主 semantic `175` 个 syscall events，enter/exit `78/97`，lifecycle `6`；command `3` 成功/失败 key section 均已验证，reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 全为 `0`。
+- 真实 `ebpf-perf` 通过：Go pipeline benchmark 全部 `0 B/op、0 allocs/op`；trace-window scalar/io/lifecycle-storm/threads 为 `27803.45/17902.83/4321.13/15689.93 exit/s`，短命令端到端 scalar/io 为 `6002.57/3972.14 exit/s`，所有运行时错误计数为 `0`；long-reader service 为 `258.37 ns/sample`。
+- 真实 `ebpf-capture` 通过：reader/none 各读取并解码 `3200035` 条 record，producer lower bound 相等、invalid 为 `0`；handler/text/json 各路由 `1600035` 条，JSON `1600000` 个 syscall events，write errors 为 `0`，JSON 与 none 的 reserve/read 差值均为 `0`。
+- `upstream-reference` 完整结果为 `120 PASS / 0 FAIL / 1 XFAIL / 0 XPASS`；唯一 XFAIL 仍是既定 bounded read/write snapshot 边界。
+
+#### Review 结论
+
+- command `3` 和 `27` 现在都遵守纯 eBPF event-time ownership，Go 没有新增 ptrace、process_vm、procfs、fd catalog、第二消费者、锁或异步补读；失败事件允许合法 IN 错误 section，但不会伪造 OUT payload。
+- 新增一次 keys snapshot 的 perf 结果与此前约 `28k/18k exit/s` 热路径基线一致，capture producer/reader 对账闭合，因此没有证据表明本阶段造成 event/s 下降。
+- “之前 event/s 下降”在当前覆盖范围内仍可判定为已解决的真实丢事件/生命周期状态丢失问题；短命令约 `6k/4k exit/s` 仍是 setup、等待、drain、输出和 cleanup 固定成本，不是新的事件丢失。
+- 整体 `arch.md` 仍未收口：`BPF_MAP_GET_NEXT_KEY` key bytes、更多 BPF output command、剩余 direct payload family 和最终 coverage matrix 仍需独立阶段；有限 Ringbuf 在无限持续高压下不承诺绝对无损。
+
+### 14.359 补齐 BPF_MAP_GET_NEXT_KEY 的 enter key / exit next_key payload（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.357/14.358 已经让 `BPF_MAP_DELETE_BATCH`、`BPF_MAP_DELETE_ELEM` 的输入 key 在 syscall enter 时由 BPF 复制；`BPF_MAP_GET_NEXT_KEY` 仍只携带 `union bpf_attr` 快照，Go handler 对 `key` 和 `next_key` 都只能打印指针。
+- Problem：`key` 是可选的 enter-side 输入缓冲区，`next_key` 是成功 syscall 写回的 exit-side 输出缓冲区。若 Go 在 exit handler 按指针补读，输入 key 可能已经被 tracee 修改或复用，输出 next key 也可能在事件消费前失效；若把两个方向放进同一个 payload，还会破坏 enter/exit 事件的 ownership 和失败语义。
+- Goal：对 command `4` 建立稳定的双向 payload ABI：BPF enter 使用 event-time map `key_size` 捕获 `key` IN（key 为 NULL 时保持 NULL），BPF exit 在返回 `0` 时捕获 `next_key` OUT；Go 只消费对应方向的 TLV，缺失或失败时回退原始指针。
+- Non-goals：不改变 event v2/TLV schema、不扩展 pending state、不把 key bytes 复制到 exit 事件、不实现 map fd catalog、不读取 procfs/ptrace/process_vm、不引入第二消费者或新的 runtime mode。
+- Constraints：使用独立 synthetic args `124`（key IN）和 `125`（next_key OUT）；长度由 event-time `struct bpf_map.key_size` 决定，实际复制最多 `BPF_DIRECT_MAP_VALUE_MAX`；只有成功 `ret == 0` 才产生 OUT payload；单 Go consumer、无锁、producer/reader 对账和既有 map command ABI 不能回归。
+
+#### 方案比较
+
+1. 复用现有 bounded bytes emitter，增加 keys-only enter provider 和单 next_key exit provider：保持方向、失败 predicate 和 TLV 合同局部闭合，选择。
+2. 在 `pending_syscall` 中保存 key size，再由一个统一 emitter 合并 enter/exit 状态：可以减少 map fd lookup，但会扩大所有 pending state 的 ABI 和 verifier 影响面，本阶段拒绝。
+3. 在 Go handler 使用 `MemoryReader` 读取 key/next_key：格式化路径最短，但违反 event-time ownership 并重新引入异步内存竞争，拒绝。
+
+#### 实施边界与验收标准
+
+- nested BPF command `4` 在 enter 读取 map fd、key 指针和 event-time key size，捕获 `124` IN；map key 为 NULL 时不伪造空 payload。
+- BPF exit provider 只在 `ret_value == 0` 时读取 `next_key` 指针；`key_size` 使用 enter-time 保存的 pending `aux0`，捕获 `125` OUT；失败事件不产生 OUT section。
+- Go handler 只在 command `4` 查找 `124` IN 和 `125` OUT，加入成功、NULL key、坏 key pointer 和坏 next_key pointer fixture/oracle，验证无用户态补读。
+- source gate、handler regression、Python semantic oracle、真实 eBPF semantic/perf/capture 和 upstream reference 全部通过后，才记录本阶段结果。
+
+#### 实施结果
+
+- 新增 `bpf/syscall_bpf_get_next_key_direct_event_v2.h`，command `4` 的 enter provider 读取当前任务 map fd 的 `struct bpf_map.key_size`，只对非 NULL `key` 捕获 `124` IN bytes；NULL key 不伪造空 section。
+- `enter_bpf` 在已有 `pending_task_state.aux0` 中保存 enter-time `key_size`。exit provider 使用 `lookup_pending_syscall_aux0(p->tid)`，只读取 attr 中的 `next_key` 指针，不再在 exit 侧重新解析 map fd，避免 fd close/reuse 竞争，也没有扩大 pending state ABI。
+- 成功 `ret == 0` 时复用 bounded `emit_bpf_exit_bytes_event_v2_direct` 产生 `125` OUT；失败或坏指针路径不生成 OUT payload。Go handler 只消费 command `4` 的 `124` IN 和 `125` OUT，缺失/失败时保留原始指针。
+- fixture 使用真实 ARRAY map 覆盖 NULL key、有效 key `0 -> 1` 和坏 key pointer；新增 handler/source/oracle 回归，验证方向、长度、失败 predicate、无 memory reader 和 exit provider 不重新查 map fd。
+
+#### 当前验证
+
+- `go generate ./cmd/strace-go`、正式构建、`go test ./...`、`go test -race ./...`、`go vet ./...`、focused source/handler tests、Python BPF suite `18/18` 和 `git diff --check` 全部通过；nested header `496` 行，新增 provider `49` 行，相关文件均未超过 `500` 行。
+- 真实 `ebpf-semantic` 通过：BPF 专项 `96` 个事件，主 semantic `175` 个事件，enter/exit `78/97`，lifecycle `6`；command `4` 的 NULL/有效/坏指针路径均被 oracle 检查，reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 全为 `0`。
+- 真实 `ebpf-perf` 通过：Go pipeline benchmark 全部 `0 B/op、0 allocs/op`；trace-window scalar/io/lifecycle-storm/threads 分别为 `27770.73/17942.90/4324.49/15648.37 exit/s`，所有 runtime error counter 为 `0`。短命令端到端为 `5990.27/3803.23 exit/s`，仍包含 setup、等待、drain、输出和 cleanup。
+- 真实 `ebpf-capture` 通过：reader/none 各 `3200035` 条 records read/decoded，producer lower bound 相等、invalid `0`；handler/text/json 各 `1600035` 条 routed，JSON 交付 `1600000` 个 syscall events，输出 `596269274` bytes、`9105` 次写出、write errors `0`，reserve/read 差值均为 `0`。
+- `upstream-reference` 通过 `120 PASS / 0 FAIL / 1 XFAIL / 0 XPASS`；唯一 XFAIL 仍是既定 bounded read/write snapshot 不承诺 ptrace-sized hexdump。
+
+#### Review 结论
+
+- 本阶段未发现新的 correctness、ownership、并发或性能回归。command `4` 的 key/next_key 方向现在与 event v2 生命周期一致，Go 没有新增 ptrace、process_vm、procfs、第二消费者、锁或异步补读。
+- aux0 只在 BPF_MAP_GET_NEXT_KEY enter 路径保存 key size；现有网络/消息路径仍使用自己的 syscall-specific aux 合同，退出时统一由 pending consumption 清理，未改变通用 pending 结构布局。
+- 当前阶段进一步闭合了 map direct payload family，但整体 `arch.md` 仍未完成：更多 BPF output command、剩余 direct payload family、完整 coverage matrix 和有限 Ringbuf 在持续无限高压下的边界仍需后续阶段。
+
+### 14.360 补齐 BPF_MAP_UPDATE_ELEM 的 enter key/value payload（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：14.355/14.356 已经为 `BPF_MAP_UPDATE_BATCH` 建立普通 map 与 per-CPU value 的 event-time IN 长度合同；单项 `BPF_MAP_UPDATE_ELEM`（command `2`）仍只有 `union bpf_attr` 快照，Go handler 对 key/value 只能打印用户指针。
+- Problem：`key` 与 `value` 都是 syscall enter 时由 tracee 提供的 IN buffer。若 Go 在格式化阶段按指针补读，调用者可以在 syscall 返回后修改、释放或复用这两个 buffer；若复用 batch attr 解析，又会把单项字段和 count-based 长度混淆。
+- Goal：在 BPF enter event-time 从当前任务 fd 对应的 `struct bpf_map` 读取 `key_size/value_size`，使用现有 per-CPU 长度 helper 捕获 command `2` 的 key/value IN bytes；Go 只消费方向正确的 TLV，缺失或 probe 失败时回退指针。
+- Non-goals：不增加 exit payload、不维护 Go fd catalog、不读取 procfs/ptrace/process_vm、不改变 event v2/TLV schema、不把 update flags 当作 per-CPU CPU-selection flags，也不改变 batch command `24`/`25`/`26`/`27` 的既有 arg ABI。
+- Constraints：使用独立 synthetic args `126`（key IN）和 `127`（value IN）；key 长度来自 event-time `key_size`，value 长度来自 `bpf_map_effective_value_size_direct(map, value_size, 0)`；实际复制最多 `BPF_DIRECT_MAP_VALUE_MAX`，单 Go consumer、无锁和 producer/reader 对账不能回归。
+
+#### 方案比较
+
+1. 在现有 `capture_bpf_nested_tlv_direct` 中继续内联单项字段和 batch helper：改动表面最小，但会继续膨胀 dispatcher，重复 map-input 长度和 section 逻辑，拒绝。
+2. 由 Go 复用 `MemoryReader` 读取 key/value：格式化代码最短，但违反 event-time ownership 并重新引入异步 TOCTOU，拒绝。
+3. 抽出独立 map-input provider，统一承载 batch 与单项 update 的 request/capture 接口，dispatcher 只做 command 路由：职责边界清晰、复用既有长度合同并保持纯 eBPF，选择。
+
+#### 实施边界与验收标准
+
+- 新的 map-input provider 负责 `set_bpf_map_input_request_direct`、batch input request 以及 command `2` 的 key/value request；`nested` 只保留 command 分支和 event-time capture 调用。
+- command `2` 在 enter 生成 `126 -> 127` 顺序的 IN TLV；普通 map 和可由 runtime metadata 确定长度的 per-CPU map 都使用同一 bounded bytes emitter，失败 section 保留 `probe_ret`，不伪造成功内容。
+- `decodeBpfMapUpdate` 只消费 command `2` 的 IN sections；新增 handler/source/Python 回归、真实 fixture 成功/坏指针路径，并验证 Go 不触发用户态 memory reader。
+- 重新生成 BPF objects 后，Go/race/vet/build、semantic、perf、capture 和 upstream reference 必须通过，且相关源码文件仍不超过 500 行。
+
+#### 实施结果
+
+- 新增 `bpf/syscall_bpf_map_input_direct_event_v2.h`，将 batch input request、长度计算和 bounded bytes capture 从 nested dispatcher 抽出，并新增 command `2` 的 `126`（key）和 `127`（value）IN provider；nested 现在只保留 command 路由和 provider 调用。
+- command `2` 在 enter 使用当前任务 `map_fd` 对应的 `struct bpf_map.key_size/value_size`；value 长度统一经 `bpf_map_effective_value_size_direct(map, value_size, 0)` 计算，未把 `BPF_MAP_UPDATE_ELEM` 的 flags 错当成 per-CPU CPU-selection flags。成功和失败 probe 都保留对应 TLV 的 `probe_ret` 与 `user_ptr`。
+- `decodeBpfMapUpdate` 只消费 `126/127` 的 IN section；真实 JSON/text 已确认成功事件输出 key/value 内容，坏指针事件输出原始 `0x1` 指针，Go 不触发 `MemoryReader`。fixture 新增坏 key/value pointer 的 `EFAULT` update，并保留成功 `map-value` marker。
+- 随职责抽取同步修正旧 map batch source gate，使其读取新的 map-input provider；没有引入 ptrace、process_vm、procfs、fd catalog、第二消费者、锁或异步补读。
+
+#### 当前验证
+
+- `sudo -n env TMPDIR=/dev/shm GOTMPDIR=/dev/shm go generate ./cmd/strace-go`、`go build -o strace-go ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...` 和 `git diff --check` 全部通过；handler/source focused tests 通过，Python BPF oracle/suite 为 `18/18`，相关源码文件均不超过 `500` 行。
+- 真实 `ebpf-semantic` 通过：BPF 专项 `98` 个事件，主 semantic `175` 个事件，enter/exit `78/97`，lifecycle `6`；reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 全为 `0`，command `2` 成功与坏指针失败路径均配对。
+- 真实 `ebpf-perf` 通过：Go pipeline benchmark 全部 `0 B/op、0 allocs/op`；trace-window scalar/io/lifecycle-storm/threads 分别为 `28161.72/17984.92/4323.55/15705.16 exit/s`，短命令端到端 scalar/io 为 `5860.50/3780.61 exit/s`，long-reader service 为 `251.79 ns/sample`，所有 runtime error counter 为 `0`。
+- 真实 `ebpf-capture` 通过：reader/none 各读取并解码 `3200035` 条 record，producer lower bound 相等、invalid 为 `0`；handler/text/json 各路由 `1600035` 条，JSON 交付 `1600000` 个 syscall events，输出 `596364502` bytes、`9111` 次写出、write errors `0`，JSON 与 none 的 reserve/read 差值均为 `0`。
+- `upstream-reference` 通过 `120 PASS / 0 FAIL / 1 XFAIL / 0 XPASS`；唯一 XFAIL 仍是既定 bounded read/write snapshot 边界。
+
+#### Review 结论
+
+- command `2`、`26`、`27` 现在共享同一 map-input provider 边界，单项 update 与 batch update 的 event-time ownership、per-CPU value 长度和方向校验均由 BPF payload ABI 表达，Go 端不再为这些 IN buffer 做 exit-time 补读。
+- 本阶段没有观察到 event/s 下降或 Ringbuf 丢失：当前热路径仍在约 `28k/18k exit/s`，capture producer/reader 对账闭合；约 `5.9k/3.8k exit/s` 的短命令数字仍包含 setup、等待、drain、输出和 cleanup，不能作为事件丢失指标。
+- 整体 `arch.md` 仍未收口：更多 BPF output command、剩余 direct payload family、完整 coverage matrix 和有限 Ringbuf 在无限持续高压下的边界仍需后续阶段验证。
+
+### 14.361 修正 BPF_PROG_STREAM_READ_BY_FD 的 OUT payload ownership（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：现有 BPF nested provider 会在 command `37` 的 enter 阶段从 `stream_buf` 复制 arg `111` 的 IN bytes；用户态 `decodeStreamBuf` 也默认消费 IN section。Linux UAPI 对该 command 的定义是内核把 stream 数据写入 `stream_buf`，并返回实际读取字节数。
+- Problem：把 OUT buffer 当成 enter IN buffer 会在内核写回前读取旧内容，方向和时序都错误；即使 text 输出偶尔看起来正确，也无法作为 JSON/event ABI 的可靠语义。失败 syscall 还可能保留伪造的 stream 内容。
+- Goal：删除 command `37` 的 enter stream copy，在 exit 读取 attr 中的 buffer pointer/length，按 `min(stream_buf_len, 512)` 捕获 arg `111` 的 OUT bytes；Go 只消费 exit OUT section。即使 syscall 返回错误，只要 exit 时 buffer 可读，也保留该 command 的 bounded OUT snapshot 以匹配上游语义。
+- Non-goals：不改变 bpf attr snapshot、不改变 stream_id/prog_fd 字段、不实现 BPF stream producer、不在 Go 使用 `MemoryReader`/ptrace/process_vm/procfs、不增加第二消费者或新的 runtime mode。
+- Constraints：使用既有 `BPF_DIRECT_STREAM_BUF_MAX=512` 和 bounded exit bytes emitter；attr/buffer 不可读时不提交成功 OUT section；enter event 只能携带 attr IN snapshot，相关源码/handler/JSON 测试和 upstream `bpf` reference 必须保持通过。
+
+#### 方案比较
+
+1. 在 enter 和 exit 各复制一份 stream buffer：能保留旧显示路径，但 enter 数据不是 command 结果，浪费 Ringbuf 容量并继续污染方向语义，拒绝。
+2. 在 exit 重新使用用户态 `MemoryReader`：实现最短，但违反纯 eBPF event-time ownership，存在异步失效，拒绝。
+3. exit provider 读取 attr pointer/length 并复用 bounded OUT emitter，handler 按 command `37` 的 exit return 选择 OUT section：保持 kernel event-time ownership、复用现有 ABI/分配路径，选择。
+
+#### 实施边界与验收标准
+
+- nested dispatcher 不再调用 stream enter capture；`BPF_DIRECT_NESTED_CAPACITY` 不再为 stream enter payload 预留空间。
+- BPF exit provider 新增 command `37` 分支，读取 `stream_buf`/`stream_buf_len`，生成 arg `111`、`PAYLOAD_TLV_FLAG_DIRECTION_OUT` 的 bytes section；坏 buffer 或 attr 不可读时不生成成功 OUT，失败 return 本身不阻止对仍可读 buffer 的 bounded snapshot。
+- `decodeStreamBuf` 只在成功 exit 语义下查找 OUT section；旧 IN section 不得被当作结果消费。新增 source/handler/JSON/Python oracle 回归，并运行 upstream reference、semantic、perf、capture。
+
+### 14.362 显式化 BPF bytes payload 的 storage bucket（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：BPF nested bytes request 当前同时使用 `max_len` 表示用户语义上限和 Ringbuf dynptr 可写 bucket；capture primitive 通过比较若干数值常量推断 `bpf_dynptr_data` 的访问长度。
+- Problem：map key/value、batch values、`GET_NEXT_KEY` 和部分 exit bytes 的逻辑上限是 `512` 字节，但现有未知分支默认使用 `BPF_DIRECT_LINK_ITER_INFO_MAX=20` 字节 bucket。小于等于 16 字节的 fixture 无法发现该错误；更大的 map payload 会落入错误的 verifier/storage 合同，或者让复制长度和 dynptr 访问能力脱钩。
+- Goal：让每个 bytes capture request 显式声明 `storage_len`，由调用者选择与 Ringbuf reservation 一致的固定 bucket；`max_len` 只负责用户数据的 bounded copy 上限。为 map value 增加超过 20 字节的真实 fixture 和 semantic oracle，证明 512 字节前缀不会被错误截断为 20 字节。
+- Non-goals：不扩大单事件 512 字节事实快照上限，不改变 event v2/TLV ABI、payload direction、Go 单消费者或 Ringbuf reservation 策略，不恢复 ptrace/procfs/process_vm 补读，不实现新的 BPF command。
+- Constraints：所有现有 nested/exit bytes request 必须显式初始化 storage bucket；storage bucket 不得小于实际 `max_len`，也不得超过对应 reservation；失败 probe 仍保留 `probe_ret`，生成物必须通过真实 clang/verifier。
+
+#### 方案比较
+
+1. 继续根据 `max_len` 数值推断 bucket，并补一个 512 字节分支：改动最小，但 request 的两个语义仍耦合，新增 payload 类型还会继续扩大条件树，拒绝。
+2. 增加显式 `storage_len` 字段，所有 provider 在构造 request 时声明 bucket，capture primitive 只验证并使用该字段：调用点改动较多，但 storage ownership 清晰、可静态审计，选择。
+3. 为每个 payload 类型复制独立 capture 函数：能消除条件树，但重复 probe/header/truncation 逻辑并扩大 verifier 代码，拒绝。
+
+#### 实施边界与验收标准
+
+- `bpf_nested_bytes_capture_request` 与 `bpf_exit_bytes_request` 增加显式 `storage_len`；nested/exit primitive 不再以 `max_len` 反推 dynptr 访问长度。
+- license/string/kprobe 等已有 provider 继续使用各自 bucket；map input/output、stream、object info、test-run 和 BTF log 使用 512 字节 bucket；任何 request 若 `storage_len < max_len` 必须拒绝而不是越界复制。
+- fixture 增加 64 字节 map value marker，semantic oracle 检查 `copied_len > 20`、内容完整且 `probe_ret=0`；增加 source gate 检查所有 request 初始化都声明 storage bucket。
+- 运行 focused Go/source/Python tests、生成与 verifier、`go test`/race/vet、semantic、perf、capture 和 upstream reference；不改变已有错误计数与吞吐门禁。
+
+#### 实施结果
+
+- `bpf_nested_bytes_capture_request` 和 `bpf_exit_bytes_request` 现在都显式携带 `storage_len`；新增 20/64/256/512 四个固定 bucket，capture primitive 先验证 `storage_len >= max_len`，再通过固定常量分支获取 dynptr。`max_len` 不再承担 Ringbuf storage 推断职责，map input/output、stream、object info、test-run 和 BTF log 均声明 512 字节 bucket。
+- 新增 `bpf_nested_bytes_storage_direct`，避免把运行时长度直接传给 verifier 需要固定范围的 dynptr helper；map provider 统一通过 `BPF_DIRECT_BYTES_BUCKET_512` 配置。新增 64 字节 value map fixture，真实事件确认 `arg 127` 的 IN snapshot `user_len/copied_len=64/64`，内容包含 `large-map-value`，从而覆盖原先 20 字节错误分支没有覆盖的边界。
+- 将 `BPF_PROG_TEST_RUN` exit provider 拆到 `syscall_bpf_test_run_exit_direct_event_v2.h`；`syscall_bpf_exit_direct_event_v2.h` 从 511 行降为 355 行，新增 provider 为 162 行，减少 exit facade 的职责聚合且没有改变 dispatch 或 event ABI。
+
+#### 当前验证
+
+- 失败优先 source gate、focused handler/source tests、Python BPF oracle `19/19`、独立 fixture `-Wall -Wextra -Werror` 编译、`sudo -n env TMPDIR=/dev/shm GOTMPDIR=/dev/shm go generate ./cmd/strace-go`、正式构建、`go test ./...`、`go test -race ./...`、`go vet ./...` 和 `git diff --check` 全部通过；相关 BPF/Go/fixture 文件均不超过 500 行。
+- 真实 `ebpf-semantic` 通过：BPF 专项事件 `104`，主 semantic `175`，enter/exit `78/97`，lifecycle `6`，payload truncated `7`、write-only `6`；reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 全部为 `0`。
+- 真实 `ebpf-perf` 通过：Go pipeline benchmark 全部 `0 B/op、0 allocs/op`；trace-window scalar/io/lifecycle-storm/threads 为 `27817.59/17851.65/4322.13/15676.35 exit/s`，long-reader service 为 `258.14 ns/sample`，所有 runtime error counter 为 `0`。
+- 真实 `ebpf-capture` 通过：reader/none 各 `3200035` 条 records read/decoded，handler/text/json 各 `1600035` 条 routed，JSON 交付 `1600000` 个 syscall events，输出 `596311508` bytes、`9105` 次写出、write errors `0`；reserve/read 差值均为 `0`。
+- `upstream-reference` 通过 `120 PASS / 0 FAIL / 1 XFAIL / 0 XPASS`；唯一 XFAIL 仍是既定 bounded read/write snapshot 不承诺 ptrace-sized hexdump fetches。
+
+#### Review 结论
+
+- 本阶段修复的是一个真实的 payload storage contract 缺口，而非只增加测试：大于 20 字节的 map value 已由真实 eBPF event-time snapshot 证明可完整进入 Ringbuf，且没有恢复 Go 异步内存读取、ptrace、procfs、process_vm、第二消费者、锁或 runtime mode。
+- explicit bucket 让 provider 的语义上限和 Ringbuf 写入容量分离，后续新增 direct payload 只需声明合法 bucket，不再修改共享 primitive 的数值推断条件树；test-run facade 拆分也恢复了文件边界。
+- 本阶段未观察到 event/s、事件配对、生命周期、错误计数或 upstream 文本回退。整体 `arch.md` 仍未收口，剩余工作是更多 BPF output command/direct payload coverage、最终接口矩阵和持续无限高压下有限 Ringbuf 的边界验证。
+
+### 14.363 补齐 BPF_PROG_QUERY 的退出数组快照（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`BPF_PROG_QUERY`（command `16`）在 enter 的 attr 中携带 `prog_ids`、`prog_cnt`、`prog_attach_flags`、`link_ids` 和 `link_attach_flags` 指针；这些数组由内核在 syscall 期间写回，当前 BPF provider 尚未在 exit 侧复制，Go handler 只能打印异步指针。
+- Problem：如果格式化阶段按指针补读，数组内容可能已经被 tracee 修改、释放或复用；仅捕获 enter attr 也无法得到内核更新后的 `prog_cnt` 和数组元素，违反纯 eBPF event-time ownership。
+- Goal：在成功的 `BPF_PROG_QUERY` exit event 中，从 exit-time attr 读取更新后的 `prog_cnt`，并在同一个 Ringbuf record 中 bounded capture 四个输出数组；Go 只消费 OUT TLV，缺失时保留稳定的指针回退。
+- Non-goals：不增加 ptrace/process_vm/procfs 或 Go `MemoryReader` fallback，不读取 map/fd catalog，不改变 BPF UAPI attr snapshot，不承诺失败 syscall 的未定义输出数组，不改变通用 event v2/TLV schema。
+- Constraints：使用 synthetic args `128`（prog_ids）、`129`（prog_attach_flags）、`130`（link_ids）、`131`（link_attach_flags）和 `132`（exit-time prog_cnt）；每个数组元素按内核实际写入的 `u32` 处理，单数组最多复制 `512` 字节；单 Go consumer、无锁、事件配对和 producer/reader 对账不能回归。
+
+#### 方案比较
+
+1. 让 Go 在 handler 中读取四个用户指针：改动最小，但重新引入异步 TOCTOU，直接违反纯 eBPF ownership，拒绝。
+2. 只在 exit 复制 `prog_cnt`，数组仍输出指针：能证明数量变化，但核心结果仍不可测、不可复现，拒绝。
+3. exit provider 一次 reserve，按 count 顺序写入 count + 四个 bounded OUT TLV，handler 用 section 长度和 xlat 解码：事件语义完整、只做一次 reservation、可在真实 fixture 中验证，选择。
+
+#### 实施边界与验收标准
+
+- 新增独立 `BPF_PROG_QUERY` exit provider；只在 command `16` 且 return `0` 时读取 exit-time attr，所有数组 request 显式使用 `BPF_DIRECT_BYTES_BUCKET_512`。
+- handler 在存在方向正确且 `probe_ret=0` 的 payload 时输出数组值；count 为零输出 `[]`，截断数组保留 bounded 结果并以 `...` 表示，缺失或失败 section 回退原始指针。
+- fixture 创建并 attach 一个最小 cgroup BPF program，query 同一个 cgroup，覆盖成功 count、四个数组和清理 detach；Python oracle 检查 TLV 顺序、元素长度、非空结果和 paired exit；失败路径仍验证没有伪造 OUT。
+- 运行失败优先 Go/source/Python 测试、fixture 编译、BPF 生成/verifier、semantic、perf、capture、upstream reference；检查相关文件不超过 `500` 行，并记录 event/s 与零丢失对账。
+
+#### 实施结果
+
+- 新增 `bpf/syscall_bpf_prog_query_exit_direct_event_v2.h`，command `16` 的成功 exit provider 读取更新后的 `prog_cnt`，按 `[132, 128, 129, 130, 131]` 顺序一次 reserve 并写入 count、prog IDs、prog attach flags、link IDs 和 link attach flags；数组元素按 `u32` 复制，使用固定 `512` 字节 storage bucket。
+- `pkg/handler/bpf_prog_query.go` 将 query 解码职责从扩展文件拆出。handler 只接受方向为 OUT、`probe_ret=0` 的 section，按 count 解码 ID/flag 数组；不完整快照显示 bounded 前缀和 `...`，缺失/失败或非成功 exit 保留指针回退，未增加任何用户态内存读取。
+- 新增 cgroup BPF fixture：加载最小 `BPF_PROG_TYPE_CGROUP_SKB` 程序，使用 `BPF_F_ALLOW_MULTI` attach，查询并校验真实 program ID/attach flag 后 detach；新增 source、handler、Python oracle 覆盖成功数组、零 count、错误方向和失败 query 无 OUT payload。
+
+#### 当前验证
+
+- 失败优先 Go/source/Python 测试全部通过；`gcc -O2 -Wall -Wextra -Werror` fixture 编译和 root 下真实 fixture 通过；`go generate ./cmd/strace-go`、正式构建、`go test ./...`、`go test -race ./...`、`go vet ./...`、`git diff --check` 全部通过；相关 BPF/Go/fixture 文件均未超过 `500` 行。
+- 真实 `ebpf-semantic` 通过：BPF 专项事件 `112`，主 semantic `175`，enter/exit `78/97`，lifecycle `6`，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 错误计数为 `0`；真实 JSON 已观察到 query exit 的五个有序 OUT section，文本输出为数组而非地址。
+- 真实 `ebpf-perf` 两次重复均通过。scalar trace-window 为 `26192.86` 和 `27944.11 exit/s`，I/O 为 `16342.61` 和 `17838.87 exit/s`；lifecycle-storm 为 `4324.69` 和 `3779.71 exit/s`，threads 为 `15714.85` 和 `15675.83 exit/s`；两次的 reserve/copy 错误均为 `0`，Go pipeline 仍为 `0 B/op、0 allocs/op`。scalar/I/O 的短时差异与重复运行噪声一致，没有对应的事件丢失。
+- 真实 `ebpf-capture` 通过：reader/none 各 `3200035` 条 records read/decoded，handler/text/json 各 `1600035` 条 routed，JSON 交付 `1600000` 个 syscall events，输出 `596286927` bytes、`9105` 次写出、write errors `0`；producer/read 差值为 `0`。
+- `upstream-reference` 通过 `120 PASS / 0 FAIL / 1 XFAIL / 0 XPASS`；`bpf.gen.test` 单独复核通过，唯一 XFAIL 仍是既定 bounded read/write snapshot 不承诺 ptrace-sized hexdump fetches。
+
+#### Review 结论
+
+- 本阶段没有发现 correctness、ownership、并发或性能回归。query 的内核写回字段现在由 exit-time eBPF snapshot 负责，Go 不再对四个数组指针做异步补读；一个 record 内的固定顺序也使 JSON、text 和 semantic oracle 使用同一 ABI。
+- provider 只在 `ret == 0` 时生成输出，坏 attr、坏数组指针和失败 query 不伪造成功 OUT；count 为零仍能通过 arg `132` 表达内核更新后的空结果。cgroup fixture 的 link 数组值为零是合法的 legacy `BPF_PROG_ATTACH` 语义，oracle 仅要求字段存在且长度正确。
+- event/s 下降问题当前已解决到“无丢失、热窗口稳定”的程度：capture 是强证据，短命令端到端速率仍包含 setup/drain/output/cleanup，不能与 trace-window 直接比较。整体 `arch.md` 尚未收口，仍需继续补齐其余 BPF output/direct payload coverage、最终接口矩阵和持续无限高压下有限 Ringbuf 的边界。
+
+### 14.364 补齐 BPF_LINK_CREATE 的 BPF_TRACE_UPROBE_MULTI 输入快照（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`BPF_LINK_CREATE` 的 `BPF_TRACE_KPROBE_MULTI` 已在 enter probe 复制 `syms/addrs/cookies`，但 `BPF_TRACE_UPROBE_MULTI` 的 `path/offsets/ref_ctr_offsets/cookies` 仍只携带用户指针。两者共享同一个 `link_create` union 和相同的 syscall event v2/TLV 输出边界。
+- Problem：Go formatter 在异步阶段只能显示 uprobe_multi 的地址，无法证明 path 和数组在 syscall enter 时的真实内容；tracee 若在返回前复用或释放数组，后续任何用户态补读都会产生 TOCTOU，并且会把 BPF 版本重新拖回 ptrace/process_vm 语义。
+- Goal：在 `sys_enter` 的 BPF event 中 event-time capture uprobe_multi path、offsets、ref_ctr_offsets、cookies；bounded 前缀、失败 probe、截断标志和 NULL 指针均保持可观察。Go handler 只消费 synthetic IN sections，缺失/失败时稳定回退地址。
+- Non-goals：不捕获 uprobe link 的 kernel-written output（该命令没有需要回读的用户 OUT buffer），不引入 procfs/ptrace/process_vm/fd catalog，不改变普通 `BPF_LINK_CREATE` union 字段、不增加第二消费者或新的运行模式，不承诺超过单事件 bounded snapshot 的完整数组。
+- Constraints：新增 synthetic args `133`（path）、`134`（offsets）、`135`（ref_ctr_offsets）、`136`（cookies）；数组元素为 `u64`，最多复制既有 multi array bucket 的 4 个元素；path 最多 512 字节；provider 必须复用共享 bounded u64 capture，单次 reservation 的容量足以覆盖 path 和三个数组，相关文件不超过 500 行。
+
+#### 方案比较
+
+1. 让 Go 在 `decodeUprobeMulti` 中读取四个指针：改动最小，但违反 event-time ownership，并重新引入异步 TOCTOU，拒绝。
+2. 在现有 kprobe provider 中复制一套 uprobe path/array capture：能快速覆盖，但会重复 probe、截断和 TLV header 逻辑，后续修复容易出现两套 ABI 漂移，拒绝。
+3. 抽出共享 bounded `u64` array primitive，新增独立 uprobe provider 负责 union 字段和 synthetic arg 路由；复用已验证的 producer 合同、保持职责清晰且不扩张 kprobe handler，选择。
+
+#### 实施边界与验收标准
+
+- 新增 uprobe_multi BPF provider，按 path、offsets、ref_ctr_offsets、cookies 的稳定顺序写 IN sections；NULL optional pointer 不伪造 section，坏指针保留失败 section，count 超过 bounded 前缀设置 truncation。
+- Go handler 在存在正确 section 时输出 path 字符串和 u64 数组；没有 section 或 probe failure 时只输出原始指针，且 memory reader 读取次数保持为零。
+- BPF fixture 真实加载 `BPF_PROG_TYPE_KPROBE` 并创建/关闭一个 `BPF_TRACE_UPROBE_MULTI` link，使用自身可执行文件的真实 offset、cookies 和至少一个 non-NULL array；semantic oracle 检查 path/offsets/cookies section、paired exit、失败路径和错误计数。
+- 先运行失败优先 handler/source/Python 测试，再运行 BPF 生成/verifier、Go/race/vet/build、真实 semantic/perf/capture 和 upstream reference；记录 event/s 与 producer/reader 对账，不得出现 ptrace/procfs 生产依赖。
+
+#### 实施结果
+
+- 新增共享 `bpf_multi_u64_array_capture_request` 和 bounded `u64` array capture primitive；kprobe_multi 与 uprobe_multi provider 共用 probe、截断、TLV header 和失败语义。通用 BPF nested emitter 保留 kprobe 的两组数组，不再为 uprobe payload 预留空间；uprobe 专用 emitter 使用独立 reservation，容量覆盖 attr、path 和三个 u64 数组。
+- `BPF_LINK_CREATE` 的 uprobe 判定只在 `enter_bpf` 读取 attach type；匹配 `BPF_TRACE_UPROBE_MULTI` 后 tail-call 到 `enter_progs[51]` 的 `enter_bpf_uprobe_multi`。该 handler 复用现有 pending/event v2 生命周期，失败时 tail-call 回退仍由通用 BPF handler 负责，不改变普通 link union 的输出路径。
+- Go catalog、ProgArray ABI、selection closure 和 generated structured object 已同步。特别补上 `enter_bpf -> enter_bpf_uprobe_multi` 的动态依赖，否则正过滤 `-e trace=bpf` 会裁掉 slot 51，tail-call 失败后只能看到 attr 指针；该缺口由独立 selection regression 固定。
+- `decodeUprobeMulti` 只消费 arg `133`/`134`/`135`/`136` 的 event-time IN sections；section 缺失、失败或可选 NULL 指针继续稳定回退指针，handler 的 `MemoryReader` 读取次数保持为零。真实 JSON 已观察到 path、offset `0x3620` 和 cookie `0xfeedface12345678`。
+- 真实 fixture 使用 `dladdr` 计算自身 ELF 基址内 offset，加载 `BPF_PROG_TYPE_KPROBE` 并声明 `expected_attach_type=BPF_TRACE_UPROBE_MULTI`，创建后立即关闭 link；没有读取 tracer 的 procfs，也没有引入长期外部 link 状态。另有无效 fd 调用验证失败 enter/exit 配对。
+
+#### 当前验证
+
+- 失败优先 handler/source/selection/Python 测试全部通过；`test_ebpf_bpf_uprobe.py` 为 `4/4`。首次真实 verifier 暴露了 `enter_bpf` 超过 1M 指令复杂度，拆出 tail-call provider 后又暴露 `576/560` 字节组合调用栈，最终通过 provider 内联和通用/专用 reservation 分离解决；当前真实 runtime 加载成功。
+- `sudo -n env TMPDIR=/dev/shm GOTMPDIR=/dev/shm go generate ./cmd/strace-go`、`go build -a -o strace-go ./cmd/strace-go`、`go test ./...`、`go test -race ./...`、`go vet ./...` 和 `git diff --check` 全部通过；相关生产 header、Go、fixture 和测试文件均未超过 `500` 行，新增函数参数不超过 `5`。
+- 真实 `ebpf-semantic` 通过：BPF 专项 `118` 个事件，主 semantic `175` 个事件，enter/exit `78/97`，lifecycle `6`；uprobe input sections、失败配对、payload truncation 和所有 reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 计数均符合预期且为 `0`（truncation 是有界快照语义，不是丢事件）。
+- 真实 `ebpf-perf` 通过：Go pipeline benchmark 全部 `0 B/op、0 allocs/op`；本轮 trace-window scalar/io 为 `27784.42/16795.33 exit/s`，lifecycle-storm/threads 为 `3782.96/15581.11 exit/s`，所有运行时错误计数为 `0`。短命令端到端 scalar/io 为 `5558.91/3522.36 exit/s`，仍包含 setup、等待、drain、输出和 cleanup；与 arch.md 最近约 `27-28k/17-18k` 热路径基线一致，没有出现可归因于本阶段的吞吐断崖。
+- 真实 `ebpf-capture` 通过：reader/none 各 `3200035` 条 records read/decoded，handler/text/json 各 `1600035` 条 routed，JSON 交付 `1600000` 个 syscall events，`records_invalid=0`、producer/read 差值为 `0`、write errors 为 `0`；reserve/copy/pending/orphan/mismatch/stale 全为 `0`。
+- 受影响的原生参考 `bpf.gen.test` 通过 `1 PASS / 0 FAIL`。它只作为经典文本兼容参考，不改变纯 eBPF 语义门禁，也没有为通过该测试恢复 ptrace/procfs 读取。
+
+#### Review 结论
+
+- 本阶段的实际问题不是单纯“事件循环慢”：通用 BPF emitter 同时承载 kprobe/uprobe 重 payload 时触发 verifier 复杂度和调用栈上限；按动态 provider 拆分后，事件 ownership、route selection 和 verifier 边界都闭合。之前看到的 event/s 下降也必须按口径解释：短命令数字受固定 setup/等待/drain/output/cleanup 成本支配，热路径和 capture 对账才是 producer 性能与丢失判断依据。
+- 当前没有发现新的 correctness、ownership、并发或性能回归。生产路径没有新增 ptrace、`process_vm_readv`、procfs、fd catalog、第二消费者、mutex 或 runtime 双模式；所有 uprobe 输入在 BPF enter event-time 完成 bounded copy，Go 只解码事件内存。
+- 已知边界保持显式：数组最多复制 4 个 u64 元素，optional NULL section 不伪造；tail-call slot 缺失时只能回退为普通 BPF attr/pointer 输出，selection closure 已防止正常过滤路径发生该情况。整体 `arch.md` 仍未收口，后续还需继续补齐剩余 BPF output/direct payload coverage、最终接口矩阵和有限 Ringbuf 在持续无限高压下的边界。
+
+### 14.365 补齐 BPF_TASK_FD_QUERY 的 exit-time 字符串快照（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`BPF_TASK_FD_QUERY` 的 `task_fd_query.buf` 是内核在 syscall 期间写入的用户态字符串缓冲区；enter attr 只包含指针和调用者提供的 `buf_len`，当前 handler 只能在 exit 阶段显示地址。
+- Problem：Go 侧根据 enter 指针补读会遇到 tracee 修改/释放 buffer 的 TOCTOU；只保留 enter attr 也无法观察内核返回的 tracepoint/kprobe/uprobe 名称，和纯 eBPF event-time ownership 冲突。
+- Goal：在 syscall exit 阶段重新读取 attr 中的 `buf` 与更新后的 `buf_len`，按 `min(enter_buf_len, exit_buf_len, 512)` 使用 `bpf_probe_read_user_str` 复制字符串到 OUT TLV；Go 只消费 synthetic arg `137` 的 event-time section，缺失/失败时稳定回退指针。
+- Non-goals：不读取 procfs、ptrace、process_vm 或 Go `MemoryReader`，不复制未定义的失败 syscall 输出，不承诺超过 512 字节的 tracepoint 名称，不改变 task fd query 的其他字段和 event v2/TLV ABI。
+- Constraints：成功返回且 `buf != NULL` 时才生成 OUT string section；空/NULL buffer 不伪造 section；保留 `probe_ret`、`user_len`、`copied_len` 和 truncation 标志；单 Go consumer、pending 配对、Ringbuf 对账和现有 BPF exit family 路由不能回归。
+
+#### 方案比较
+
+1. handler 使用用户态 reader 补读：实现最短，但违反纯 eBPF ownership，且在异步阶段存在竞态，拒绝。
+2. 复用 bytes OUT provider：可以复制数据，但 payload kind 和字符串终止语义不明确，handler 还要重新猜测方向，拒绝。
+3. 增加 bounded exit string provider，复用现有 exit event emitter 的 header/body/reservation 合同：保留字符串语义和 OUT 方向，provider 只负责 task fd query 的 attr 偏移与长度裁剪，选择。
+
+#### 实施边界与验收标准
+
+- 新增 `BPF_TASK_FD_QUERY` exit provider，使用 synthetic arg `137`、最大 512 字节、`PAYLOAD_TLV_KIND_STRING | PAYLOAD_TLV_FLAG_DIRECTION_OUT`；长度取 enter/exit attr 的较小值。
+- handler 在存在成功 OUT string section 时输出 `buf=<字符串>`，否则继续输出 `buf=<地址>`；不触发任何用户态内存读取。
+- fixture 加载 tracepoint BPF 程序并挂到 perf event，调用 `BPF_TASK_FD_QUERY` 获得真实 tracepoint 名称；同时保留坏 buffer/失败 query 路径，semantic oracle 检查 paired exit、字符串内容和错误计数。
+- 运行失败优先 Go/source/Python 测试、fixture 编译、BPF 生成/verifier、semantic、perf、capture、upstream reference，并记录本阶段 event/s 变化。
+
+#### 实施结果
+
+- 新增 `bpf/syscall_bpf_task_fd_query_exit_direct_event_v2.h`，command `20` 的成功 exit provider 在同一个 event record 中按 `[attr OUT, buf OUT]` 顺序写入更新后的 attr 快照和 bounded 字符串；attr 使用 synthetic arg `138`、最大 `64` 字节，字符串使用 arg `137`、最大 `512` 字节和 `bpf_probe_read_user_str`。
+- enter 阶段只读取并保存原始 `buf_len` 到 pending auxiliary state；exit 阶段读取内核更新后的 attr，并使用 `min(enter_buf_len, exit_buf_len, 512)` 限制字符串复制。这样既没有把 enter attr 当成 exit 结果，也没有在 exit 重新读取 enter metadata。
+- `pkg/handler` 优先消费方向为 OUT、指针匹配的 attr/string section，文本和 JSON 现在能够显示真实的 `sys_enter_getpid`、更新后的 `prog_id`、`fd_type` 和 `buf_len`；缺失或失败 section 继续稳定输出指针，且 `MemoryReader` 读取次数为零。
+- fixture 通过 tracingfs tracepoint ID、perf event 和真实 `BPF_TASK_FD_QUERY` 验证成功字符串、更新后的长度以及坏 buffer 失败路径；fixture 本身不读取 procfs，也不依赖 tracer 外部状态。
+
+#### 当前验证
+
+- 失败优先 Go/source/Python 测试、fixture `-Wall -Wextra -Werror` 编译和 root 下真实运行、`go generate ./cmd/strace-go`、正式构建、`go test ./...`、`go test -race ./...`、`go vet ./...`、`git diff --check` 全部通过；相关 BPF/Go/fixture 文件均未超过 `500` 行。
+- 真实 `ebpf-semantic` 通过：BPF 专项 `124` 个事件，主 semantic `175` 个事件，enter/exit `78/97`，lifecycle `6`；payload truncated `7`、write-only `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 错误计数全部为 `0`。
+- 真实 `ebpf-perf` 通过：Go pipeline benchmark 全部 `0 B/op、0 allocs/op`；scalar/io trace-window 为 `27893.86/17844.36 exit/s`，短命令端到端为 `6010.63/3770.97 exit/s`，lifecycle-storm/threads 为 `4324.06/15666.92 exit/s`，long-reader service 为 `263.11 ns/sample`，所有运行时错误计数为 `0`。热路径仍在既有 `27-28k/17-18k exit/s` 区间，未出现吞吐断崖。
+- 最新 `ebpf-capture` 通过：reader/none 各 `3200035` 条 records read/decoded，handler/text/json 各 `1600035` 条 routed，JSON 交付 `1600000` 个 syscall events；`records_invalid=0`，producer/read 差值为 `0`，reserve/copy/pending/orphan/mismatch/stale 和 output write errors 全部为 `0`。
+- 受影响的原生参考 `bpf.gen.test` 通过 `1 PASS / 0 FAIL`。它仍只是经典文本兼容参考，不改变纯 eBPF 语义门禁，也没有为通过测试恢复 ptrace/procfs 读取。
+
+#### Review 结论
+
+- 之前 event/s 显著下降有两个口径和架构因素：短命令端到端数值包含启动、attach、等待、输出、Ringbuf drain 和 cleanup 的固定成本，不能与 trace-window 直接比较；此前重 payload 聚合还曾触发 verifier 指令/栈边界，导致 provider 拆分前的热路径不稳定。当前 provider 已独立，最新热窗口和高压 capture 均恢复并闭合。
+- 当前已解决的是“本覆盖范围和固定 workload 下的吞吐断崖/实际事件丢失”：高压 capture 的 producer/reader 完全对账，所有运行时错误计数为零，Go 事件处理 benchmark 无堆分配。不能据此宣称无限持续压力下 Ringbuf 永不溢出；有限 Ringbuf 的极限和背压策略仍是整体架构的后续边界。
+- 本阶段没有引入 ptrace、`process_vm_readv`、procfs、第二消费者、mutex 或 runtime 双模式；`BPF_TASK_FD_QUERY` 的字符串和写回 attr 全部由 event-time eBPF snapshot 拥有。整体 `arch.md` 尚未收口，剩余工作仍是更多 BPF output/direct payload coverage、最终接口矩阵和持续无限高压下有限 Ringbuf 的边界验证。
+
+### 14.366 补齐 BPF_MAP_LOOKUP_ELEM 的 enter-time key 快照（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`BPF_MAP_LOOKUP_ELEM` 和 `BPF_MAP_LOOKUP_AND_DELETE_ELEM` 已经在 exit 阶段按 map metadata 捕获 value OUT，但两个 command 的 `key` 仍只有 attr 中的用户指针；`BPF_MAP_UPDATE_ELEM`、delete elem 和 get-next-key 已有独立的 key IN snapshot 合同。
+- Problem：handler 在没有 key section 时只能显示地址。若补回 Go 用户态读取，tracee 可以在 syscall 返回前修改或释放 key，重新引入异步 TOCTOU；只捕获 value 也使同一个 map operation 的输入语义不完整。
+- Goal：在 enter event-time 根据当前任务 `struct bpf_map.key_size` 捕获 command `1/21` 的 key IN bytes，使用 synthetic arg `139`；Go 只消费该 section，缺失/失败时稳定回退指针。
+- Non-goals：不改变 value OUT provider、per-CPU value 长度 ABI、map fd catalog、event v2/TLV schema、BPF filter、单 Go consumer 或失败 syscall 的输出语义；不恢复 ptrace/procfs/process_vm/MemoryReader 补读。
+- Constraints：command `1` 与 `21` 共享同一个 bounded key provider；key 长度必须来自 event-time map metadata，最多受既有 `512` 字节 bucket 限制；坏 key 指针必须保留失败 section 或稳定回退，不得伪造成功 key；相关文件和函数继续满足项目大小约束。
+
+#### 方案比较
+
+1. 在 `decodeBpfMapLookup` 中复用用户态 reader 读取 key：改动最少，但违反纯 eBPF ownership 和无异步补读约束，拒绝。
+2. 把 lookup key 逻辑复制进 delete provider：实现快，但 provider 名称与职责不再准确，后续 lookup/delete ABI 容易漂移，拒绝。
+3. 新增共享 map-key request primitive，并由 lookup dispatcher 使用；delete/get-next 继续保持自己的 command-specific 长度和 exit 合同，复用 metadata/capture 边界且不扩大通用 map provider，选择。
+
+#### 实施边界与验收标准
+
+- 新增 `BPF_MAP_LOOKUP_KEY_IN_ARG=139` 和 lookup key enter provider，command `1/21` 均按 `[attr IN, key IN]` 稳定顺序写入 event record。
+- `decodeBpfMapLookup` 只在方向为 IN、指针匹配且 `probe_ret=0` 的 arg `139` section 存在时输出 key bytes；否则保留指针。value OUT 行为不改变。
+- 复用现有真实 map fixture 的 lookup/lookup-and-delete 成功调用和坏 value 指针失败调用；新增 semantic oracle、source gate、handler regression 和无 `MemoryReader` 断言，确认两个 command 都有 key snapshot。
+- 运行生成/verifier、focused Go/Python、真实 `ebpf-semantic`、`ebpf-perf`、`ebpf-capture`、upstream reference、race/vet/full test，并对比当前 `28k/18k exit/s` 热窗口基线。
+
+#### 实施结果
+
+- 新增 `syscall_bpf_map_key_direct_event_v2.h` 作为 map key metadata/capture primitive，新增 `syscall_bpf_map_lookup_direct_event_v2.h` 承担 command `1/21` 的路由，使用 synthetic arg `139`。delete elem 复用同一 key primitive，既避免重复 `map_fd/key_size` 逻辑，也没有把 lookup 的 exit value 语义混入 key provider。
+- `capture_bpf_nested_tlv_direct` 在 `BPF_MAP_LOOKUP_ELEM` 和 `BPF_MAP_LOOKUP_AND_DELETE_ELEM` 的 enter 路径按 attr IN 后 key IN 顺序写 TLV；key 长度来自当前任务 fd 对应的 `struct bpf_map.key_size`，存储 bucket 继续使用既有 `512` 字节 bounded contract。
+- `decodeBpfMapLookup` 优先消费 arg `139` 的 IN section，再消费 arg `117` 的 value OUT section。成功调用的 text/JSON 输出已从 `key=0x...` 变为 key bytes；坏 key 的 enter section 保留 `probe_ret=-14`，exit 不产生伪造 OUT payload，handler 测试确认 reader 读取次数为零。
+- 真实 fixture 新增坏 key 指针调用，成功覆盖 lookup 与 lookup-and-delete 两个 command；没有改变 map batch、per-CPU value、get-next-key 或 value OUT provider 的 ownership。
+
+#### 当前验证
+
+- 失败优先 source/handler/Python 测试通过；真实 fixture `-Wall -Wextra -Werror` 编译和 root 运行通过；`go generate ./cmd/strace-go`、正式构建、`go test ./...`、`go test -race ./...`、`go vet ./...`、`git diff --check` 和受影响的 `bpf.gen.test` 全部通过；新增相关文件均未超过 `500` 行。
+- 真实 `ebpf-semantic` 通过：BPF 专项 `126` 个事件，主 semantic `175`，enter/exit `78/97`，lifecycle `6`；key IN、value OUT、坏 key probe 失败和既有 payload 顺序均通过，reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 错误计数全部为 `0`。
+- 真实 `ebpf-perf` 通过：Go pipeline benchmark 全部 `0 B/op、0 allocs/op`；scalar/io trace-window 为 `28025.70/17791.45 exit/s`，lifecycle-storm/threads 为 `4321.33/15712.45 exit/s`，io-long-reader 为 `250.44 ns/sample`，所有运行时错误计数为 `0`。
+- 最新 `ebpf-capture` 通过：reader/none 各 `3200035` 条 records read/decoded，handler/text/json 各 `1600035` 条 routed，JSON 交付 `1600000` 个 syscall events；`records_invalid=0`，producer/read 差值为 `0`，reserve/copy/pending/orphan/mismatch/stale 和 output write errors 全部为 `0`。
+- `upstream-reference` 的 `bpf.gen.test` 通过 `1 PASS / 0 FAIL`；没有为了兼容参考测试恢复任何 ptrace/procfs/process_vm 路径。
+
+#### Review 结论
+
+- `BPF_MAP_LOOKUP_ELEM` map operation 现在在输入 key 和输出 value 两端都遵守 event-time ownership；command `21` 共享 key capture 但保留独立的 lookup-and-delete value exit contract，接口边界清晰。
+- 本阶段未观察到 verifier、吞吐、事件配对、Ringbuf 对账或 Go 分配回归；新增一次 key snapshot 后热路径仍在既有 `28k/18k exit/s` 区间。
+- 这进一步减少了 BPF handler 的指针回退面，但仍不代表所有 syscall payload 已完成。整体 `arch.md` 仍待继续收口：剩余 BPF output/direct payload coverage、最终接口矩阵，以及有限 Ringbuf 在持续无限高压下的边界验证仍需独立阶段。
+
+### 14.367 补齐 BPF *_GET_NEXT_ID 的 exit-time scalar snapshot（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`BPF_PROG_GET_NEXT_ID`、`BPF_MAP_GET_NEXT_ID`、`BPF_BTF_GET_NEXT_ID` 和 `BPF_LINK_GET_NEXT_ID` 共用 `union bpf_attr` 的 `start_id/next_id/open_flags` 字段。`next_id` 由内核在 syscall 期间写回；当前 enter attr snapshot 会在 Go handler 中被当成最终值使用。
+- Problem：Go 侧从 enter event 读取 `next_id` 会稳定地看到调用前的旧值，成功 syscall 的输出语义因此错误；按 attr 指针在 exit 重新读取会重新引入异步用户内存竞争，复制整份 attr 又会扩大 Ringbuf 记录和 ownership 边界。
+- Goal：在 sys_exit event-time 对四个 GET_NEXT_ID command 读取 attr 的 4 字节 `next_id` 字段，使用稳定 synthetic arg `140` 生成 bytes/OUT section；Go handler 优先消费该 section，缺失、失败或非零返回时保留 enter snapshot 的稳定回退。
+- Non-goals：不改变 BPF command attr 的 enter snapshot、不复制完整 exit attr、不为不存在的对象伪造成功事件、不改变 event v2/TLV schema、pending/lifecycle、过滤、单 Go consumer 或有限 Ringbuf 容量。
+- Constraints：只有 command `11/12/23/31` 且 `ret == 0` 才生成 section；attr size 必须覆盖 `next_id` 字段，`attr_ptr + 4` 溢出或用户地址不可读时不得提交成功 payload；section 固定为 4 字节，相关 provider/handler/fixture/oracle 文件保持项目大小边界。
+
+#### 方案比较
+
+1. 在 Go exit handler 使用 `MemoryReader` 读取 attr：改动最短，但违反纯 eBPF event-time ownership，并暴露 tracee 修改/释放 attr 的 TOCTOU，拒绝。
+2. 在 exit event 复制完整 `union bpf_attr`：可以复用现有 formatter，但每个 GET_NEXT_ID 只需要 4 字节，增加 Ringbuf 带宽并把未定义字段错误地声明为可信结果，拒绝。
+3. BPF exit provider 只复制 `next_id` 字段，复用 bounded exit bytes emitter：时点、长度、方向和 command predicate 都是显式合同，选择。
+
+#### 实施边界与验收标准
+
+- 新增 GET_NEXT_ID exit provider，四个 command 共用 4 字节 request 和 synthetic arg `140`；只在成功返回时提交 `PAYLOAD_TLV_KIND_BYTES`、`OUT` section。
+- `decodeBpfGetNextId` 只消费 arg `140`、OUT、指针匹配的 4 字节 section；Go memory reader 读取次数保持为零，section 缺失时才使用 enter attr 的 `next_id`。
+- BPF fixture 至少真实触发一个可用对象的 GET_NEXT_ID 成功调用，并保留坏 attr/失败路径；Python oracle 检查 exit 时点、arg、方向、长度、marker 和缺失/错误方向回归。
+- 覆盖矩阵登记四个 command 的 `enter attr -> exit scalar` ownership，防止未来新增 BPF command 只接入 formatter 而没有 exit 输出合同。
+
+#### 实施结果
+
+- 新增 `pkg/handler/bpf_coverage.go`，建立按 command ID 索引的 39 项 BPF coverage catalog。每一项同时登记实际 decoder、enter ownership、exit ownership 和 semantic evidence 名称；`decodeCmd` 直接消费这张表，未知 command 继续走原有 attr 指针回退，因此不会出现“formatter 已接入但二级分派遗漏”的静默分叉。
+- `pkg/handler/bpf_coverage_test.go` 将 coverage catalog 与生成的 `meta.bpf_commands` 逐项核对：command 数量、稳定 ID、符号名、decoder 和 ownership 字段必须完整。该测试把后续新增/变更 BPF command 变成显式失败，而不是依赖人工检查。
+- 当前 39 项 ownership 已明确覆盖：普通 attr、map key/value、map batch、嵌套 BPF 输入、失败 verifier/BTF 日志、对象 info、query 数组、task fd query attr/buf、stream buffer，以及四个 `*_GET_NEXT_ID` 的 exit scalar。矩阵没有把未实现的 `union bpf_attr` 字段或未验证的 pointer fallback 标成 event-time payload。
+
+#### event/s 下降原因与当前证据
+
+- 之前看到的下降首先是统计口径混淆：短命令 `end_to_end_exit_events_per_sec` 的分母包含 setup、BPF attach、目标进程等待、Ringbuf drain、输出和 cleanup；它不能与只覆盖目标运行窗口的 `trace_exit_events_per_sec` 直接比较。当前同一套 workload 的短命令端到端 scalar/io 为 `5.92k/3.91k exit/s`，而热窗口为 `27.84k/17.89k exit/s`，两者差异主要由固定生命周期成本解释。
+- 第二个真实因素是此前重 payload handler 聚合曾碰到 verifier 指令/组合调用栈边界；拆分 direct provider 后，BPF load、route selection 和 event ownership 稳定，未再观察到由 verifier 回退或 tail-call 缺失造成的吞吐断崖。
+- 第三个因素是输出路径：JSON/text sink 会引入序列化和写出成本。当前 Go pipeline benchmark 保持 `0 B/op、0 allocs/op`，但端到端输出数字仍然不等价于 Ringbuf producer 或 event decoder 的热路径数字。
+- 当前 `ebpf-perf` 热窗口为 scalar `27,842.82 exit/s`、I/O `17,891.01 exit/s`；此前 14.366 基线约为 `28,025.70/17,791.45 exit/s`，处于同一测量波动范围。`ebpf-capture` 的 reader/none 各读取并解码 `3,200,035` 条记录，handler/text/json 各路由 `1,600,035` 条记录，JSON 交付 `1,600,000` 个 syscall event；producer/read 差值和 `records_invalid` 均为 `0`。
+- 因此，本阶段已经解决“固定 workload 下 event/s 突然大幅下降且无法判断是否丢事件”的问题：现在能区分 producer 热窗口、端到端生命周期成本、consumer/输出成本，并有 capture 对账证明没有静默丢事件。它不等于宣称有限容量 Ringbuf 在无限持续压力下永不溢出；持续压力边界和背压策略仍是整体架构的后续工作。
+
+#### 当前验证
+
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、`git diff --check` 通过；coverage focused tests 和现有 BPF handler regression 全部通过。
+- 重新构建并真实加载 eBPF 后，`ebpf-semantic` 通过：BPF 专项 `128` 个事件，主 semantic `175` 个事件，enter/exit `78/97`，所有 reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 计数为 `0`。真实 `BPF_MAP_GET_NEXT_ID` event 的 exit scalar 为 `arg_index=140`、`user_ptr=attr+4`，输出内核写回的 `next_id=9`，不是 enter sentinel。
+- `ebpf-perf` 通过：scalar/io 热窗口分别为 `27.84k/17.89k exit/s`，Go pipeline 无堆分配，所有运行时错误计数为 `0`；`ebpf-capture` 通过上述 producer/reader 对账；受影响的 `upstream-reference` `bpf.gen.test` 为 `1 PASS / 0 FAIL`。
+
+#### Review 结论
+
+- 本阶段没有恢复 ptrace、`process_vm_readv`、procfs、Go `MemoryReader`、第二消费者、mutex 或运行期双模式；BPF command 的 input/output ownership 继续由 event-time eBPF snapshot 和单 Go consumer 管理。
+- 之前 event/s 下降的主因已经被拆成可测的口径、verifier/handler 边界和输出成本，当前热路径与既有基线一致，且高压 capture 证明事件没有静默丢失。
+- 整体 `arch.md` 仍未宣告完成：还需要继续补齐剩余 BPF output/direct payload coverage，并对有限 Ringbuf 在持续无限高压下的边界做独立验证。
+
+### 14.368 补齐 BPF_PROG_LOAD fd_array 的 enter-time 输入快照（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`BPF_PROG_LOAD` 的 `fd_array` 是用户态传入的 `u32` FD 数组，attr 只保存指针和 `fd_array_cnt`。当前 BPF enter provider 已快照指令、license、log buffer 和 signature，但 `fd_array` 仍只把地址交给 Go handler。
+- Problem：Go 侧按指针补读会重新引入 tracee 内存 TOCTOU；只保留 attr snapshot 又无法表达数组内容和真实输入长度，导致同一个 prog-load operation 的 nested input ownership 不完整。
+- Goal：在 sys_enter event-time 按 attr offset `fd_array=120`、`fd_array_cnt=148` 捕获 bounded `u32[]` bytes，使用 synthetic arg `141`；Go handler 只消费 event section，缺失/失败时稳定回退指针。
+- Non-goals：本阶段不复制 `func_info`、`line_info`、`core_relos` 等其它 prog-load nested ABI，不复制完整 `union bpf_attr`，不改变 verifier log exit provider、signature、instruction、license、event v2/TLV schema、pending/lifecycle、过滤、单 Go consumer 或 Ringbuf 策略；不恢复 ptrace/procfs/process_vm/MemoryReader 补读。
+- Constraints：`fd_array_cnt * 4` 必须先做 `u32` 溢出检查；实际复制最多 `512` bytes，TLV 保留 logical `user_len` 和 truncation；NULL/zero count 不伪造 section；坏指针保留失败 section；fixture 必须真实触发 `BPF_PROG_LOAD` 并同时覆盖成功/失败 probe。缺失/失败 section 回退指针，合法但截断的 section 输出已拥有的前缀和 `...`。
+
+#### 方案比较
+
+1. 在 `decodeBpfProgLoad` 中使用用户态 reader 读取 `fd_array`：改动最短，但违反纯 eBPF ownership，并把 enter 输入延迟到异步消费时点，拒绝。
+2. 在 enter event 中复制完整 `union bpf_attr`：可以复用现有 formatter，但会增加固定 Ringbuf 带宽，并把没有被验证的 padding/未来字段错误地当成可信快照，拒绝。
+3. 增加 `fd_array` 专用 bounded bytes request，复用现有 attr/bytes emitter：时点、长度、方向和 fallback 合同明确，记录增量固定，选择。
+
+#### 实施边界与验收标准
+
+- 新增 synthetic arg `141`、attr offset `120/148` 和最多 `512` bytes 的 enter `PayloadKindBytes`；section 顺序固定在 prog-load nested sections 中，方向为 `in`。
+- handler 输出 `fd_array=[...]`，只接受方向为 IN、arg `141`、指针匹配且 `probe_ret=0` 的 section；section 缺失或失败时不调用 reader，保留 `fd_array=0x...`；合法截断 section 输出前缀并追加 `...`。
+- fixture 使用两个确定的 `u32` marker 调用 invalid `BPF_PROG_LOAD` 验证成功输入快照，再使用坏 fd-array 指针验证 `probe_ret` 失败 section；Python semantic oracle 验证 paired exit、数据、长度、方向和坏指针不伪造成功内容。
+- 运行失败优先 Go/source/Python 测试、fixture 编译和 root 运行、BPF 生成/verifier、semantic、perf、capture、race/vet/full test，并对比当前 `28k/18k exit/s` 热窗口基线。
+
+#### 实施结果
+
+- `bpf/syscall_bpf_nested_direct_event_v2.h` 新增 `fd_array` enter-time provider：从 attr 的 `120/148` 偏移读取指针和 count，使用 synthetic arg `141`，通过既有 bounded bytes TLV 最多复制 `512` bytes；nested reservation capacity 同步扩大，未改变 event v2/TLV header。
+- `pkg/handler` 新增 `fd_array` section 解码，只接受方向为 IN、arg `141`、`probe_ret=0` 且指针匹配的 event-time bytes。完整数据输出 `[17, 23]`，合法截断输出 bounded 前缀和 `...`；section 缺失、坏指针、旧 attr 长度导致 count 不可用时保留地址，不调用 `MemoryReader`。
+- BPF fixture 的第一次非法 `BPF_PROG_LOAD` 传入 `{17, 23}`，第二次传入地址 `1`，真实 JSON 分别观察到 `user_len/copy=8`、数据 `[17,23]`，以及 `user_len=4/copy=0/probe_ret=-14`。这同时证明了成功和失败 probe 都在 enter event-time 完成，不依赖 Go 异步补读。
+- 失败优先 handler/source/Python 测试通过；Python BPF 专项为 `20/20`，fixture `-Wall -Wextra -Werror` 编译和 root 运行通过；BPF 重新生成、正式构建、`go test ./...`、`go test -race ./...`、`go vet ./...` 和 `git diff --check` 均通过。首次 `bpf.gen.test` 暴露旧 attr 长度下非空指针被误写为 `fd_array=[]`，已增加回归测试并修正为指针 fallback，最终 `bpf.gen.test` 为 `1 PASS / 0 FAIL`。
+
+#### 当前验证
+
+- 最终真实 `ebpf-semantic` 通过：BPF 专项 `130` 个事件，主 semantic `175` 个事件，主 enter/exit `78/97`，lifecycle `6`，非 leader attach `1001/1001` 配对；payload truncated `7`、write-only `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 全部为 `0`。一次完整长 suite 出现 BPF fixture 事件为空的启动窗口，独立 `run_bpf_semantic` 和第二次完整 semantic 均通过，未放宽 oracle。
+- 最终真实 `ebpf-perf` 通过：Go pipeline benchmark `0 B/op、0 allocs/op`；scalar/io trace-window 为 `28130.89/17801.19 exit/s`，lifecycle-storm/threads 为 `4323.91/15658.56 exit/s`，io-long-reader consumer service 为 `254.14 ns/sample`，所有 runtime error counter 和 `pending_stale` 为 `0`。端到端 scalar/io 为 `5925.51/3725.23 exit/s`，仍包含 setup、attach、等待、drain、输出和 cleanup。
+- 最终真实 `ebpf-capture` 通过：reader/none 各读取并解码 `3200035` 条 records，handler/text/json 各路由 `1600035` 条 records，JSON 交付 `1600000` 个 syscall events，`records_invalid=0`、producer/read 差值为 `0`、`reserve_fail_delta_json_minus_none=0`、output write errors 为 `0`。
+
+#### Review 结论
+
+- 本阶段没有发现 event/s 继续下降或静默丢事件。`28.1k/17.8k exit/s` 热窗口与此前 `27.8k/17.9k` 基线在同机测量波动范围内；高压 capture 的 producer/reader 完全对账，因此“之前下降”现在已经被拆分成可比较的热窗口、端到端固定生命周期成本和输出成本，而不是一个混合数字。
+- 本阶段没有引入 ptrace、`process_vm_readv`、procfs、Go `MemoryReader`、第二事件消费者、mutex 或 runtime 双模式；`fd_array` 的所有权仍在 BPF enter event-time，Go 只消费 Ringbuf 记录。
+- 当前剩余边界保持显式：`BPF_PROG_LOAD.func_info/line_info/core_relos` 等其它嵌套输入仍是指针 fallback；有限 Ringbuf 在无限持续压力下的 reserve failure/backpressure 策略也尚未形成“永不丢失”保证。整体 `arch.md` 仍未宣告完成，后续应继续按同一失败优先、真实 fixture、semantic oracle 和 capture 对账方式补齐这些边界。
+
+### 14.369 补齐 BPF_PROG_LOAD func_info 的 enter-time 记录快照（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`BPF_PROG_LOAD` 的 `func_info` 是用户态 `struct bpf_func_info[]`，由 `func_info_rec_size`、指针和 `func_info_cnt` 三个 attr 字段描述。当前实现只快照 prog-load attr 本身，`func_info` 仍是裸地址。
+- Problem：Go 若在 handler 阶段按指针补读，会重新引入 tracee 修改/释放数组的 TOCTOU；只捕获指针和 count 也无法验证函数信息输入是否在 syscall enter 时真实存在。
+- Goal：在 sys_enter event-time 对 `func_info` 做 bounded bytes snapshot，使用 synthetic arg `142`；Go 按 `rec_size` 解码每条 `{insn_off,type_id}`，缺失/失败/旧 attr 长度时稳定回退指针。
+- Non-goals：本阶段不捕获 `line_info`、`core_relos` 或完整 `union bpf_attr`，不改变 verifier log、fd_array、instruction、license、signature、event v2/TLV、pending/lifecycle、过滤、单 Go consumer 或 Ringbuf 策略；不恢复 ptrace/procfs/process_vm/MemoryReader 补读。
+- Constraints：`func_info_rec_size * func_info_cnt` 必须做溢出检查；最多复制 `512` bytes，保留 logical length、copy length、probe result 和 truncation；记录尺寸和 provider 复杂度不能破坏 verifier，相关文件继续小于 `500` 行；fixture 必须覆盖完整记录和坏指针。
+
+#### 方案比较
+
+1. 在 Go handler 使用 `MemoryReader` 读取 `func_info`：改动最少，但违反纯 eBPF event-time ownership，拒绝。
+2. 在 enter event 复制完整 `union bpf_attr`：能覆盖字段但会增加固定 Ringbuf 带宽，并把未验证的 padding/未来字段声明为可信，拒绝。
+3. 新增独立 prog-load bounded record provider，复制 `rec_size*cnt` 的 bytes，Go 只解码完整记录并对截断保留前缀：ownership、长度和 fallback 合同清晰，选择。
+
+#### 实施边界与验收标准
+
+- 新增 synthetic arg `142`，读取 attr offsets `76/80/88`，使用 `512` bytes storage bucket；provider 位于独立 prog-load header，和 `fd_array` 共用 bounded bytes primitive。
+- handler 只接受方向为 IN、arg `142`、指针匹配且 `probe_ret=0` 的 section；每条完整记录输出 `insn_off`/`type_id`，完整记录不足时输出前缀和 `...`，失败或旧 attr 缺少 count 时保留指针且不调用 reader。
+- fixture 第一次非法 `BPF_PROG_LOAD` 传入 marker `{insn_off=0,type_id=0x1234}`，第二次把 `func_info` 指针改为 `1`；Python oracle 检查数据、logical length、方向、paired exit 和坏指针 `probe_ret`。
+- 运行失败优先 handler/source/wire/Python 测试、fixture 编译和 root 运行、BPF 生成/verifier、semantic、perf、capture、race/vet/full test 和 `bpf.gen.test`。
+
+#### 实施结果
+
+- 新增 `BPF_DIRECT_PROG_LOAD_FUNC_INFO_ARG=142` 和独立 `syscall_bpf_prog_load_direct_event_v2.h` provider。provider 从 attr 的 `76/80/88` 偏移读取 record size、用户指针和 count，先做 `u64` 乘法及 `u32` 上界检查，再通过已有 bounded bytes TLV 最多复制 `512` bytes；函数使用 `__noinline` 以保持 verifier 状态边界可控。
+- `BPF_PROG_LOAD` 获得独立 enter tail-call slot `52` 和专用 emitter；通用 BPF composer 不再内联 prog-load 大 payload。Go 侧 `decodeBpfProgLoadFuncInfo` 只接受方向为 IN、arg `142`、指针匹配且 probe 成功的 event section，按完整 `rec_size` 解码 `{insn_off,type_id}`，失败或缺失时保留指针。
+- 生成的 structured BPF collection、Go program catalog/selection 和 `enter_progs` map 容量同步为 53。`enter_bpf` 在第一次 tail call 前缓存 prog-load/uprobe 两个 provider 判定，避免 verifier 将 tail-call 后继续读取修改过的 ctx 指针判为非法。
+- 失败优先测试覆盖完整记录、合法截断、方向错误、旧 attr 长度和坏指针；真实 fixture 的有效调用产生两条记录 `{0,4660}`、`{8,22136}`，坏指针产生 `probe_ret=-14`，Go fake reader 始终为零次读取。
+
+#### 当前验证
+
+- `sudo -n go generate ./cmd/strace-go`、`go build -a -o strace-go ./cmd/strace-go` 和真实内核 verifier 加载通过；`func_info`/`fd_array` JSON sections 同时出现在有效和失败 probe 中，fixture marker `bpf-fixture-ok` 保留。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、24 个 BPF Python 合约测试和 `git diff --check` 通过；`upstream-reference --filter bpf.gen.test` 为 `1 PASS / 0 FAIL`。
+- 最终真实 `ebpf-semantic` 通过：BPF 专项 `130` 个事件，主 semantic `175` 个事件，enter/exit `78/97`，lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 全部为 `0`。
+- 最终真实 `ebpf-perf` 通过：scalar/io trace-window 为 `27959.45/16844.06 exit/s`，lifecycle-storm/threads 为 `4325.09/15440.48 exit/s`，io-long-reader consumer service 为 `258.26 ns/sample`；Go pipeline `0 B/op、0 allocs/op`。
+- 最终真实 `ebpf-capture` 通过：reader/none 各读取并解码 `3200035` 条 records，handler/text/json 各路由 `1600035` 条 records，JSON 交付 `1600000` 个 syscall events，`records_invalid=0`、producer/read 差值为 `0`、reserve delta 为 `0`、output write errors 为 `0`。
+
+#### Review 结论
+
+- 本阶段没有保留 verifier 调试日志、ptrace、`process_vm_readv`、procfs、Go `MemoryReader` 补读、第二消费者、mutex 或 runtime 双模式；专用 provider 的 payload ownership 在 sys_enter event-time 完成。
+- 之前首次拆 provider 时 verifier 曾拒绝 tail-call 后再次从 ctx 读取动态 predicate；缓存两个 predicate 后真实 verifier、semantic、perf 和 capture 均通过，没有发现新的事件配对或静默丢失。
+- 剩余边界明确为 `line_info/core_relos` 等未实现 nested snapshot，以及有限 Ringbuf 在无限持续压力下的 reserve failure/backpressure 策略；整体 `arch.md` 仍未宣告完成。
+
+### 14.370 拆分通用 BPF nested reservation capacity（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`BPF_PROG_LOAD` 已经由独立 enter provider 负责 instruction、license、log、signature、fd_array 和 func_info；通用 `capture_bpf_nested_tlv_direct` 不再生成这些 section。
+- Problem：通用 `BPF_DIRECT_NESTED_CAPACITY` 仍把上述 prog-load 专用 buffer 的最大值加入每个普通 BPF event 的 Ringbuf reservation。它不一定造成逻辑错误，但会放大 record reservation、降低 Ringbuf 有效容量，并把普通 BPF 吞吐和 prog-load 的大 payload 成本混在一起。
+- Goal：通用 BPF emitter 只按仍由通用 nested composer 生成的 payload 计算 reservation；专用 prog-load emitter 保留自己的完整容量上界，保证 verifier 和 Ringbuf 边界都可证明。
+- Non-goals：不改变任一 TLV 字段、capture 顺序、handler fallback、tail-call 路由、event v2 ABI、Ringbuf map 大小或输出格式，不宣称无限压力下零丢失。
+- Constraints：容量必须覆盖每一个通用 nested branch；`BPF_DIRECT_PROG_LOAD_CAPACITY` 必须继续覆盖六个 prog-load nested section；source test 必须锁定两套容量不互相污染，且所有相关文件小于 `500` 行。
+
+#### 方案比较
+
+1. 保留统一的大容量公式：源码改动最小，但普通 BPF event 持续为未使用的 prog-load payload 预留空间，Ringbuf 压力和 event/s 会被无谓放大，拒绝。
+2. 让通用公式移除 prog-load 专用项、专用 provider 保留独立公式：reservation 与实际 ownership 一致，改动局部且可由 source test 固化，选择。
+
+#### 实施结果
+
+- `BPF_DIRECT_NESTED_CAPACITY` 现在只保留对象路径、raw tracepoint 名称、BTF、link/kprobe、多数组和 map value 等通用 nested payload 的上界；移除了 instruction、license、log、signature、fd_array、func_info 六类 prog-load 专用 buffer。
+- `BPF_DIRECT_PROG_LOAD_CAPACITY` 继续独立保留六个 prog-load TLV header 和六类 bounded buffer，`emit_bpf_prog_load_enter_event_v2_direct` 的 reservation 不受通用容量缩减影响。
+- 新增 source regression，直接截取通用容量公式，禁止重新引用任一 prog-load-only capacity；已有 provider ownership、tail-call catalog 和动态 predicate 顺序检查继续通过。
+
+#### 当前验证
+
+- `sudo -n go generate ./cmd/strace-go`、`go build -a -o strace-go ./cmd/strace-go` 通过，真实内核 verifier 加载通过。
+- `go test ./...`、`go test -race ./...`、`go vet ./...`、24 个 BPF Python 合约测试和 `git diff --check` 通过；`upstream-reference --filter bpf.gen.test` 为 `1 PASS / 0 FAIL`。
+- 最终 `ebpf-semantic` 通过：BPF 专项 `130` 个事件，主 semantic `175` 个事件，enter/exit `78/97`，lifecycle `6`，reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 全部为 `0`。
+- 最终 `ebpf-perf` 通过：scalar/io trace-window 为 `27959.45/16844.06 exit/s`，lifecycle-storm/threads 为 `4325.09/15440.48 exit/s`，io-long-reader consumer service 为 `258.26 ns/sample`；Go pipeline 仍为 `0 B/op、0 allocs/op`。本次只缩小普通 BPF reservation，scalar/io workload 不以 `bpf()` 为主，因此没有把单次测量波动误报成吞吐提升。
+- 最终 `ebpf-capture` 通过：reader/none 各读取并解码 `3200035` 条 records，handler/text/json 各路由 `1600035` 条 records，JSON 交付 `1600000` 个 syscall events，`records_invalid=0`、producer/read 差值为 `0`、reserve delta 为 `0`、output write errors 为 `0`。
+
+#### Review 结论
+
+- 本次 review 发现的高优先级问题是通用 reservation 误含 prog-load 专用容量，已修复并用 source test 固化；没有发现新的 verifier、事件配对、payload ownership 或静默丢事件回归。
+- 当前 event/s 结论仍应按口径解释：热窗口约 `28k/17k exit/s`，端到端数字还会包含 setup、attach、等待、drain、输出和 cleanup；容量拆分解决了普通 BPF event 的无谓 reservation，但不是无限高压下零丢失保证。
+- 仍保留的架构边界是 `BPF_PROG_LOAD.line_info/core_relos` 等未实现的 nested snapshot，以及有限 Ringbuf 持续压力下的 reserve failure/backpressure 策略。整体 `arch.md` 继续保持未完成状态，后续应沿用真实 fixture、semantic oracle 和 capture 对账推进。
+
+### 14.371 补齐 BPF_PROG_LOAD line_info/core_relos 的 enter-time 快照（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`BPF_PROG_LOAD` 的 `line_info` 和 `core_relos` 仍由 Go 只打印用户态指针；`func_info`、`fd_array` 已经拥有独立 event-time bytes snapshot provider，但同一 `union bpf_attr` 的两个调试/CO-RE 数组仍不完整。
+- Problem：异步用户态读取会遇到 tracee 修改、exec 或退出后的 TOCTOU；仅保留地址也无法验证 enter 时的记录内容，导致 BPF nested payload ownership 断裂。
+- Goal：在 sys_enter event-time bounded copy `line_info` 和 `core_relos`，分别使用 synthetic arg `143/144`；Go 按记录宽度解码稳定字段，缺失、失败、旧 attr 长度和截断时保留指针或已拥有的完整前缀。
+- Non-goals：不解析 `file_name_off` 指向的 BTF 字符串，不复制完整 `union bpf_attr`，不实现 CO-RE access string 解析，不改变 verifier log、func_info、fd_array、line/core record 的 TLV schema、pending/lifecycle、过滤、单 Go consumer 或 Ringbuf map 配置；不恢复 ptrace/procfs/process_vm/MemoryReader。
+- Constraints：`line_info` 与 `core_relos` 的 `rec_size * count` 必须做 64 位乘法和 `u32` 上界检查；两类记录各最多复制 `512` bytes；BPF provider 仍需通过真实 verifier，专用容量必须覆盖八个 prog-load nested sections，相关文件小于 `500` 行。
+
+#### 方案比较
+
+1. 在 Go handler 通过 MemoryReader 读取两个数组：改动最小，但违反纯 eBPF event-time ownership，拒绝。
+2. 每次复制完整 `union bpf_attr` 并让 Go 解析嵌套指针：带宽和 reservation 成本更高，还会把未验证 padding/未来字段误认为快照，拒绝。
+3. 在现有 prog-load provider 增加两个 bounded record bytes section，Go 只解码 section：复用既有 TLV、fallback 和单消费者合同，选择。
+
+#### 实施边界与验收标准
+
+- attr offsets 固定为 `line_info_rec_size=92`、`line_info=96`、`line_info_cnt=104`，`core_relo_cnt=116`、`core_relos=128`、`core_relo_rec_size=136`；synthetic arg 固定为 `143/144`。
+- `struct bpf_line_info` 按 `{insn_off,file_name_off,line_off,line_col}` 四个 `u32` 解码；`struct bpf_core_relo` 按 `{insn_off,type_id,access_str_off,kind}` 四个 `u32` 解码。Go 只消费方向为 IN、probe 成功、指针匹配的 section。
+- fixture 同时覆盖有效记录、坏指针、截断记录和 paired exit；Python oracle 检查 marker、logical/copy length、方向、失败 probe 和没有伪造 OUT。随后重新生成、加载 verifier，并跑 semantic/perf/capture/upstream/full Go 门禁。
+
+#### 实施结果
+
+- `BPF_PROG_LOAD` 现在拆成两个独立的纯 eBPF enter record。slot `52` 的 base provider 只负责 attr、instructions、license、log buffer 和 signature，保存一次 pending enter 后 tail-call 到 slot `53`；slot `53` 使用同一个 `pid/tid/sys_id/enter_time` 生成 `EVENT_TYPE_ENTER | EVENT_FLAG_ENTER_FRAGMENT`，负责 `fd_array`、`func_info`、`line_info` 和 `core_relos` 的 bounded bytes snapshot，不重复写 pending state。
+- base/debug reservation 分离：base capacity 只覆盖四个基础 nested payload，debug capacity 只覆盖四个 `512` bytes debug/input bucket 和 TLV header。所有四类记录仍在 BPF enter event-time 使用 `bpf_probe_read_user` 完成复制，`rec_size * count` 先做 64 位乘法和 `u32` 上界检查；坏指针保留 `probe_ret` 失败 section，超过 `512` bytes 只保留有界前缀和 truncation 事实。
+- Go `TraceState` 先消费 generic enter，再消费 enter fragment；fragment 通过 `rememberPayloadFragment` 合并到同一 TID 的 pending payload，最终 exit 继续输出合并后的 sections。fragment 不单独生成一行文本，也不触发用户态 MemoryReader；若 fragment 因过滤、reserve 或 probe 失败缺失，仍稳定回退到已有 attr/指针结果。
+- 增加 decoder、ABI、source gate、状态合并和 Python oracle 回归。Python oracle 同时接受“fragment 已合并到 paired exit”的结构化输出，真实 BPF JSON 已观察到 synthetic args `141/142/143/144` 以及坏指针 `probe_ret=-14`。
+
+#### event/s 下降原因与当前证据
+
+- 之前看到的数字首先存在统计口径差异：短命令端到端吞吐包含 setup、BPF attach、目标等待、Ringbuf drain、输出和 cleanup；`trace_exit_events_per_sec` 只覆盖目标运行窗口。两者不能直接比较，前者下降不等于 producer 变慢。
+- 另一个真实问题是重 payload 聚合：把 prog-load 的八类大块 bounded copy 和动态 nested 分支放进同一个 BPF program 后，verifier 曾报告 `BPF program is too large. Processed 1000001 insn`，该 provider 无法加载，受影响 workload 自然看不到正常事件。通用 reservation 还曾把 prog-load 专用容量带入普通 BPF event，放大了 Ringbuf reservation 和压力。
+- 当前通过独立 slot `53` 的 enter fragment 解决了 verifier/record 组合边界，并通过 base/debug capacity 分离减少无关 reservation。它没有把大 payload 移到 procfs、ptrace、`process_vm_readv` 或 Go 异步读取，ownership 仍在 eBPF event-time。
+- 最新一轮 `ebpf-perf` trace-window 为 scalar `27,708.55 exit/s`、I/O `17,904.68 exit/s`、lifecycle-storm `4,322.80 exit/s`、threads `15,577.55 exit/s`；与同机此前约 `27-28k/17-18k` 热路径基线一致。Go pipeline benchmark 仍为 `0 B/op、0 allocs/op`，io-long-reader consumer service 为 `330.41 ns/sample`。
+- 最新 `ebpf-capture` 在 reader/none 各读取并解码 `3,200,035` 条 records，handler/text/json 各路由 `1,600,035` 条，JSON 交付 `1,600,000` 个 syscall events；`records_invalid=0`、producer/read 差值为 `0`、reserve/copy/pending/orphan/mismatch/stale 错误计数为 `0`。因此，本阶段的 event/s 断崖和静默丢事件已在固定 workload 下解决并可复测；不能据此宣称有限 Ringbuf 在无限持续压力下永不溢出。
+
+#### 当前验证
+
+- `sudo -n go generate ./cmd/strace-go`、`go build -a -o strace-go ./cmd/strace-go` 和真实 verifier 加载通过。针对 BPF fixture 的命令 `sudo -n timeout 30s test/strace-sudo.sh --event-format=json -e trace=bpf /tmp/strace-go-ebpf-bpf-fixture` 返回 `0`；base/debug 两条 enter record 均能进入同一 paired exit 的 payload 合并路径。
+- `go test ./... -count=1`、`go test -race ./...`、`go vet ./...`、Python `unittest discover` 的 `141` 个测试和 `git diff --check` 全部通过。新增 fragment decoder、ABI 常量、base/debug ownership、状态合并和 oracle 测试均通过。
+- 真实 `ebpf-semantic` 通过：BPF 专项 `130` 个事件，主 semantic `175` 个事件，enter/exit `78/97`，lifecycle `6`；`ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`lifecycle_map_update_fail` 和 `pending_stale` 全为 `0`，bounded payload truncation `7` 仍是有界快照语义而不是记录丢失。
+- `upstream-reference` 全量通过 `120 PASS / 0 FAIL / 0 SKIP / 1 XFAIL`。唯一 XFAIL 是既定 bounded eBPF 快照不承诺 ptrace-sized read/write hexdump；它继续作为兼容参考，不改变纯 eBPF 主路径，也没有促使实现恢复 ptrace/procfs。
+
+#### Review 结论
+
+- 本阶段没有发现新的 correctness、ownership、状态机或并发回归。生产路径没有新增 ptrace、`process_vm_readv`、procfs、第二消费者、mutex 或 runtime 双模式；fragment 与最终 exit 由单个 Go Ringbuf consumer 按 TID 合并。
+- 本阶段真正解决的是“重 payload 让 BPF provider 无法加载，以及混合统计口径无法判断吞吐是否回落”。当前固定 workload 的热路径恢复到基线，持续 capture producer/reader 完全对账，之前的 event/s 问题已解决到可验证范围。
+- 整体 `arch.md` 仍不宣告完成：剩余工作包括更广的 BPF output/direct payload coverage、最终接口矩阵，以及有限 Ringbuf 在持续无限高压下的背压和丢失边界。后续继续沿用真实 fixture、semantic oracle、perf window 和 capture 对账，不引入 procfs/ptrace 过渡路径。
+
+### 14.372 增加 BPF 对象生命周期语义门禁并复核 event/s（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：BPF command ownership table 已登记 `*_GET_FD_BY_ID`、`BPF_MAP_FREEZE` 和 `BPF_ENABLE_STATS`，但原有真实 fixture 主要覆盖 map payload、prog load、query 和 uprobe；对象 ID 生命周期及冻结后的失败返回缺少独立语义证据。
+- Problem：只看 attr 入参或 handler 合成数据，不能证明纯 eBPF event-time 捕获覆盖了对象创建后的 ID 查询、无效 ID 失败、冻结后的写入失败和内核能力差异；同时会把 event/s 的短命令固定成本误认为 Ringbuf 或 Go 热路径退化。
+- Goal：增加独立 lifecycle fixture 和 JSON oracle，覆盖 map/prog `GET_FD_BY_ID` 的成功/失败、`MAP_FREEZE` 成功、冻结后 `MAP_UPDATE_ELEM` 的 `EPERM` 失败，以及 `ENABLE_STATS` 的成功或明确不支持结果；重新测量 trace-window 与端到端两种吞吐口径。
+- Non-goals：不恢复 ptrace、procfs、`process_vm_readv` 或用户态异步内存读取；不扩大现有单体 BPF fixture；不把 `BPF_ENABLE_STATS` 在旧内核上的能力差异伪装成 tracer 错误；不宣称有限 Ringbuf 无限压力下绝对无损。
+- Constraints：fixture 只使用 `SYS_bpf` 和内核分配的匿名 FD；oracle 只解析结构化 JSON，不做文本整行 diff；新增文件和函数保持边界；runtime reserve/copy/pending/orphan/mismatch/lifecycle/stale 错误必须为零。
+
+#### 方案比较
+
+1. 继续扩展现有 BPF 大 fixture：改动入口少，但会扩大已经接近上限的 C 文件，失败时难区分 payload 与对象生命周期回归，拒绝。
+2. 为对象生命周期建立独立 fixture/oracle，并在既有 `ebpf-semantic` BPF suite 中单独执行：编译和运行边界清楚，能分别断言成功/失败返回和 stats，选择。
+
+#### 实施结果
+
+- 新增 `test/fixtures/ebpf_bpf_lifecycle_fixture.c`：创建 map 和 socket-filter program，读取 kernel object ID，分别执行 `BPF_MAP_GET_FD_BY_ID`、`BPF_PROG_GET_FD_BY_ID` 的有效/无效 ID 路径；随后冻结 map，验证 update 返回 `EPERM`；`BPF_ENABLE_STATS` 成功时关闭匿名 FD，在 `EINVAL/ENOSYS/ENOTSUP/EOPNOTSUPP/EPERM` 等明确能力差异下保留结构化失败事件。
+- 新增 `test/ebpf_bpf_lifecycle_oracle.py` 和单元测试，要求每个命令有 attr IN snapshot、paired exit，ID 查询必须同时具备成功和失败，冻结必须成功且后续 update 必须失败；不支持的 stats 只放宽返回能力，不放宽事件配对和输入快照契约。
+- BPF suite 继续使用一个同步 Go Ringbuf consumer；lifecycle fixture 作为独立运行结果送入同一 JSON parser/oracle，不增加生产态线程、锁、MemoryReader 或第二事件通道。
+
+#### event/s 根因与当前证据
+
+- 之前的“下降”有两类原因。第一类是口径：短命令 `end_to_end_exit_events_per_sec` 把 setup、BPF attach、目标等待、Ringbuf drain、输出和 cleanup 放进分母；本轮 scalar/io 分别只有 `5718.61/3788.64 exit/s`，但同一次运行的 trace-window 分别为 `25920.64/16732.37 exit/s`，不能把两者直接比较。
+- 第二类是历史真实回归：旧 raw tracepoint 多程序扇出和错误的生命周期清理曾放大每次 syscall 成本，甚至误删仍存活任务的 filter state；重 payload 聚合还曾使 BPF provider 超过 verifier 指令上限。当前 dispatcher/tail-call、raw task identity、base/debug reservation 和 enter fragment 已分别处理这些问题。
+- 本轮 `ebpf-perf` trace-window 为 scalar `25920.64`、IO `16732.37`、lifecycle-storm `4321.52`、threads `15686.04 exit/s`；相对此前 `27~28k/17~18k` 的同机基线属于运行噪声范围，没有出现断崖式下降。`io-long-reader` consumer service 为 `251.00 ns/sample`，说明 reader/Ringbuf 物理链路仍在稳定工作。
+- 本轮所有 perf workload 的 `ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`lifecycle_map_update_fail`、`pending_stale` 均为 `0`；生命周期 storm 仍观察到 `5004` JSON、`3002` exit、`3003` lifecycle events，父任务 tracked `1000`、子过滤安装 `1000`、失败 `0`。
+
+#### 当前验证
+
+- 原生 lifecycle fixture 直接执行通过：`bpf-lifecycle-fixture-ok`；real `ebpf-semantic` 通过，BPF 专项事件数为 `152`，主 semantic 仍为 `175`，enter/exit `78/97`，lifecycle `6`，错误 counters 全为 `0`。
+- Go `test`、`race`、`vet`、强制 build、Python `unittest discover` 均通过；Python 测试数量从 `141` 增加到 `143`，`git diff --check` 通过。
+- `upstream-reference` 当前重跑为 `120 PASS / 0 FAIL / 0 SKIP / 1 XFAIL`；唯一 XFAIL 仍是 `read-write.gen.test` 的 bounded eBPF snapshot 不承诺 ptrace-sized hexdump，不是本轮生命周期或吞吐回归。
+
+#### Review 结论
+
+- 新增代码没有引入生产路径变化，review 未发现输入越界、FD 泄漏、伪造 OUT payload、未配对 exit 或将内核能力差异误判为 tracer 成功的问题；fixture 内 map/prog FD 均在对应路径关闭，测试文件均小于 `500` 行。
+- 因此，“真实事件被静默丢掉导致 event/s 断崖”在当前 semantic、lifecycle-storm、reader/capture 对账范围内已经解决；“短命令端到端 event/s 不高”仍存在，但主要是固定生命周期成本，不能作为热路径吞吐指标。
+- 整体架构仍未完成：还需继续补齐低频 BPF command 的真实 fixture/output coverage、最终接口与 ownership 合规矩阵，以及有限 Ringbuf 在持续无限高压下的明确背压策略。
+
+### 14.373 补齐 BPF 对象路径与程序-map 绑定的真实语义证据（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`BPF_OBJ_PIN`、`BPF_OBJ_GET` 和 `BPF_PROG_BIND_MAP` 已存在 handler、BPF route 和 coverage table，但真实 BPF semantic fixture 主要验证 map/prog ID、freeze 和 stats，尚未证明 pathname 在 enter-time 被复制，也未证明程序与 map 的绑定事件能完整配对。
+- Problem：只依赖合成 handler 测试无法覆盖 pathname 指针的 event-time ownership；只在 fixture 内执行 syscall 又无法证明 Ringbuf record、JSON payload section 和 formatter 使用了同一条纯 eBPF 链路。
+- Goal：在独立 lifecycle fixture 中触发 `OBJ_PIN/OBJ_GET` 的确定性失败路径和 pathname snapshot，触发 `PROG_BIND_MAP` 成功路径；oracle 必须同时检查 attr IN、pathname IN、返回语义和 paired exit。
+- Non-goals：不要求测试环境提供可写 bpffs，不把 `/tmp` 当作 BPF pin 成功目标；不恢复 ptrace/procfs/process_vm/Go MemoryReader，不增加生产事件消费者，不改变 event v2/TLV ABI。
+- Constraints：fixture 只使用 `SYS_bpf`、匿名 BPF FD 和固定无对象路径；pathname 失败必须仍可观察，绑定失败不能被静默放宽；所有 runtime reserve/copy/pending/orphan/mismatch/lifecycle/stale 计数必须保持为零。
+
+#### 方案比较
+
+1. 只增加 handler 合成数据：执行快，但不能证明 eBPF probe 点的指针复制和 Ringbuf ABI，拒绝。
+2. 依赖可写 bpffs 做 pin/get 成功测试：语义更完整，但环境权限和挂载状态不可控，会把 fixture 稳定性绑定到宿主机配置，拒绝。
+3. 使用固定无对象路径验证 `OBJ_PIN/GET` 的 event-time pathname 与失败配对，并使用现有 map/prog FD 验证 `PROG_BIND_MAP` 成功：覆盖 ownership 和返回边界且不依赖额外内核挂载，选择。
+
+#### 实施结果
+
+- lifecycle fixture 新增 `check_object_path_lifecycle`，使用 `/tmp/strace-go-bpf-no-object` 调用 `BPF_OBJ_PIN` 与 `BPF_OBJ_GET`；路径不存在或文件系统不是 bpffs 时只要求内核返回失败，但仍要求 tracer 捕获 pathname string section。
+- fixture 保持 map FD 到 program 生命周期结束，加载最小 socket-filter program 后调用 `BPF_PROG_BIND_MAP`，成功后显式关闭 program/map FD；失败路径也显式关闭已创建 FD，避免测试自身泄漏掩盖 tracer 结果。
+- lifecycle oracle 新增 pathname marker、command `6/7` 失败和 command `35` 成功断言；仍由既有单 Go Ringbuf consumer 解析，不引入锁、并发消费者、用户态补读或新的运行模式。
+
+#### 当前验证
+
+- fixture 使用 `gcc -O2 -Wall -Wextra -Werror` 编译并在 root 下运行通过，输出 `bpf-lifecycle-fixture-ok`；真实 `ebpf-semantic` 通过，BPF 专项事件数为 `158`，主 semantic 仍为 `175`，enter/exit `78/97`，runtime error counters 全部为 `0`。
+- `ebpf-perf` 通过：trace-window scalar/io/lifecycle-storm/threads 分别为 `28093.11/17999.07/4324.09/15677.63 exit/s`，io-long-reader consumer service 为 `251.66 ns/sample`；Go event pipeline benchmark 全部 `0 B/op、0 allocs/op`。
+- Python `unittest discover` 保持 `143` 项通过；`upstream-reference --filter bpf.gen.test` 为 `1 PASS / 0 FAIL / 0 SKIP / 0 XFAIL`；`git diff --check` 通过。
+
+#### Review 结论
+
+- pathname 现在由 BPF enter provider 直接拥有，Go handler 只消费 arg `104` 的 string section；不存在 bpffs 时的失败不会被当作成功，也不会因为无法 pin 而跳过输入 snapshot。`PROG_BIND_MAP` 的 attr、成功返回和 paired exit 已有真实 JSON 证据。
+- 本阶段没有生产路径性能回归或 Ringbuf 丢失；新增 fixture 只扩大语义验证面，未改变普通 syscall 的 reservation、dispatcher 或 consumer 路径。
+- 整体架构仍未收口：BTF/link ID 全族、raw tracepoint、stream/iterator/token 等低频 command 的真实语义证据，以及最终 coverage/ownership 矩阵和持续高压 Ringbuf 背压边界仍需继续推进。
+
+### 14.374 补齐 BPF next-id、BTF 与 raw tracepoint 的真实语义证据（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：BPF direct provider 和 handler 已支持 `BPF_PROG_GET_NEXT_ID`、`BPF_BTF_GET_NEXT_ID`、`BPF_BTF_GET_FD_BY_ID` 与 `BPF_RAW_TRACEPOINT_OPEN`，但 lifecycle fixture 只覆盖了 map/prog object ID 和普通对象操作；这些低频命令缺少从真实内核调用到 JSON event 的端到端证据。
+- Problem：只验证 decoder、synthetic event 或 coverage table，不能证明 next-id 输出在 sys_exit 被捕获、BTF FD 查询的成功/失败路径能配对，也不能证明 raw tracepoint 的用户态名字在 sys_enter event-time 被复制。缺少这类证据时，BPF command coverage 仍可能只是静态声明。
+- Goal：在不改变生产路径的前提下，用独立真实 fixture 触发 `PROG_GET_NEXT_ID`、`BTF_GET_NEXT_ID`、`BTF_GET_FD_BY_ID` 和 `RAW_TRACEPOINT_OPEN` 的成功/失败边界；oracle 同时检查 attr bytes、raw tracepoint name string、paired exit 和返回方向。
+- Non-goals：不要求 pin 到 bpffs，不实现额外 raw tracepoint 业务逻辑，不恢复 ptrace/procfs/process_vm/Go MemoryReader，不增加第二 Ringbuf consumer，不把内核能力差异伪装为成功，也不宣称有限 Ringbuf 在无限压力下绝对无损。
+- Constraints：fixture 只使用 `SYS_bpf` 和内核返回的匿名 FD；raw tracepoint 使用确定的 `sys_enter` 名称及固定无效名称；BTF 必须来自宿主机可用内核 BTF；oracle 只消费结构化 JSON；fixture、oracle 和单测均保持在 `500` 行以内。
+
+#### 方案比较
+
+1. 只增加 synthetic event/decoder 单元测试：执行快，但无法证明内核命令、用户指针和真实 Ringbuf record 的连接，拒绝。
+2. 依赖外部 pinned BTF/raw tracepoint 对象：能覆盖更多成功路径，但环境状态不可控，还会把测试绑定到 bpffs 和外部对象生命周期，拒绝。
+3. 在 lifecycle fixture 内直接调用 next-id、BTF ID 和 raw tracepoint 命令，并用固定成功/失败边界做 JSON 语义断言：不依赖外部对象，能够验证 event-time payload ownership 与 paired exit，选择。
+
+#### 实施结果
+
+- `load_program` 增加 program type 参数，fixture 可以加载 `BPF_PROG_TYPE_RAW_TRACEPOINT`；已有 socket-filter program 继续用于 `PROG_GET_NEXT_ID` 和 `PROG_BIND_MAP`，所有成功取得的 FD 都在对应路径关闭。
+- 新增 `check_program_next_id`，从 `start_id=0` 请求有效 program ID；新增 `check_btf_id_lifecycle`，先取得有效 BTF ID，再执行有效和 `UINT32_MAX` 无效的 `BPF_BTF_GET_FD_BY_ID`，同时覆盖 next-id attr enter snapshot、success exit 和 failure exit。
+- 新增 `check_raw_tracepoint`，对 `sys_enter` 执行成功的 `BPF_RAW_TRACEPOINT_OPEN`，随后用固定不存在的名称执行失败调用；oracle 要求 arg `105` 的 string section 包含 `sys_enter`，并要求成功/失败两条 paired exit 都存在。
+- `test/ebpf_bpf_lifecycle_oracle.py` 继续只解析 event v2 JSON/TLV 字段：BTF ID/next-id 使用 attr bytes，raw tracepoint 使用 string snapshot；没有用户态补读、文本 diff 或新的事件循环。
+
+#### 当前验证
+
+- fixture 使用 `gcc -O2 -Wall -Wextra -Werror` 编译，并在 root 下运行输出 `bpf-lifecycle-fixture-ok`；真实 `ebpf-semantic` 通过，BPF 专项事件数为 `174`，主 semantic 总数为 `175`，enter/exit 为 `78/97`，lifecycle 为 `6`。
+- lifecycle semantic 中 `ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`lifecycle_map_update_fail` 和 `pending_stale` 全部为 `0`；BTF 和 raw tracepoint 的新失败路径没有产生伪造 OUT payload 或未配对 exit。
+- 最新 `ebpf-perf` 通过：scalar/io trace-window 为 `27039.64/17862.67 exit/s`，lifecycle-storm/threads 为 `3780.89/15522.42 exit/s`，io-long-reader consumer service 为 `273.77 ns/sample`；Go pipeline benchmark 仍为 `0 B/op、0 allocs/op`。
+- `go test ./... -count=1`、`go test -race ./...`、`go vet ./...`、强制构建、Python `unittest discover` 的 `143` 个测试、`git diff --check` 均通过；`upstream-reference --filter bpf.gen.test` 为 `1 PASS / 0 FAIL / 0 SKIP / 0 XFAIL`。
+
+#### Review 结论
+
+- 本阶段没有改变生产 BPF program、dispatcher、Ringbuf consumer 或 handler ownership，只增加真实内核 fixture 和语义 oracle；没有引入 ptrace、procfs、process_vm、第二消费者、mutex 或 runtime 双模式。
+- 本轮进一步证明 event/s 下降不是 next-id/BTF/raw tracepoint 新路径造成的回归：固定 trace-window 仍处于此前 scalar `27~28k`、io `17~18k exit/s` 的同机范围；短流程端到端数字仍包含 setup、attach、等待、drain、输出和 cleanup，不能与热窗口直接比较。
+- 整体 `arch.md` 仍未完成：还需补齐 `BPF_LINK_*`、iterator/token/stream、关联结构操作等低频 command 的真实语义证据，完成最终 coverage/ownership/interface 矩阵，并明确有限 Ringbuf 持续高压下的 backpressure 与丢失边界。
+
+### 14.375 建立 raw tracepoint link 的 ID 查询与能力边界证据（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`BPF_LINK_GET_FD_BY_ID`、`BPF_LINK_GET_NEXT_ID`、`BPF_LINK_UPDATE` 和 `BPF_LINK_DETACH` 已登记在 BPF coverage table，但没有真实 link FD 贯穿这些命令；仅靠合成 attr 无法证明 link ID 和返回事件来自同一内核对象。
+- Problem：直接新增复杂的 `BPF_LINK_CREATE` attach 目标会把测试绑定到 tracing hook、BTF ID 和宿主机权限；直接把 raw tracepoint link 的 update/detach 假定为成功，又会把当前内核明确返回的能力边界误报成 tracer 回归。
+- Goal：复用 `BPF_RAW_TRACEPOINT_OPEN` 返回的真实 link FD，读取 link object ID，验证有效/无效 `GET_FD_BY_ID`、`GET_NEXT_ID`，并记录 `LINK_UPDATE`、`LINK_DETACH` 的真实能力错误；后续再用独立 `BPF_LINK_CREATE` fixture 补成功态。
+- Non-goals：本阶段不伪造 raw link update/detach 成功，不引入外部 pinned link，不依赖 bpffs，不恢复 ptrace/procfs/process_vm/Go MemoryReader，不增加第二事件消费者或新的 runtime 模式。
+- Constraints：替换 program 使用真实的 `BPF_PROG_TYPE_RAW_TRACEPOINT` FD；所有匿名 FD 必须显式关闭；update/detach 仅允许明确的 `EINVAL/ENOTSUP/EOPNOTSUPP/EPERM` 能力错误；oracle 只检查 event v2 JSON/TLV 和 paired exit。
+
+#### 方案比较
+
+1. 直接用复杂 `BPF_LINK_CREATE` 构造 fentry、kprobe 或 iterator link：可覆盖成功 update/detach，但依赖目标 BTF、hook 存在性和权限，失败时难区分测试环境与 tracer 语义，暂缓。
+2. 只补 synthetic link events：环境稳定，但完全没有真实 link object、ID 和内核返回证据，拒绝。
+3. 复用 raw tracepoint open 的真实 link，覆盖 ID 成功路径和 update/detach 能力失败路径，再单独规划 link-create success fixture：当前改动小、证据真实、边界明确，选择。
+
+#### 实施结果
+
+- lifecycle fixture 新增 `get_link_id`，通过 `BPF_OBJ_GET_INFO_BY_FD` 从 raw tracepoint link FD 取得 kernel link ID；随后执行有效和 `UINT32_MAX` 无效的 `BPF_LINK_GET_FD_BY_ID`，并关闭查询得到的 FD。
+- fixture 执行 `BPF_LINK_GET_NEXT_ID` 并检查非零 next ID；加载第二个有效 raw tracepoint program 作为 `LINK_UPDATE` 的 new program FD，确保 update 不是因为伪造空 FD 才失败。
+- 当前内核对 raw tracepoint link 的 `BPF_LINK_UPDATE` 和 `BPF_LINK_DETACH` 返回 `EINVAL/ENOTSUP/EOPNOTSUPP/EPERM` 能力错误。fixture 保留真实失败并在关闭 link FD 时完成释放，不把失败改写成成功；oracle 要求 command `29/34` 的 attr snapshot 与失败 paired exit。
+- lifecycle oracle 同时要求 command `30` 的成功/失败、command `31` 的成功，以及 command `29/34` 的失败；没有新增生产 BPF provider、handler、Ringbuf reader 或用户态补读逻辑。
+
+#### 当前验证
+
+- fixture 使用 `gcc -O2 -Wall -Wextra -Werror` 编译，在 root 下输出 `bpf-lifecycle-fixture-ok`；真实 `ebpf-semantic` 通过，BPF 专项事件数为 `190`，主 semantic 总数为 `175`，enter/exit 为 `78/97`，lifecycle 为 `6`。
+- link 相关事件均进入同一 JSON event stream；`ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`lifecycle_map_update_fail` 和 `pending_stale` 全部为 `0`。
+- lifecycle oracle 的 2 个单测和 Python `unittest discover` 的 `143` 个测试通过；`git diff --check` 通过。此前最新 Go `test`、`race`、`vet`、强制构建和 `upstream-reference --filter bpf.gen.test` 也均通过，fixture 仅扩展测试路径，未改生产对象。
+
+#### Review 结论
+
+- 本阶段修正了一个重要测试风险：第一次尝试把 raw tracepoint link 的 update/detach 写成成功契约，但本机内核真实返回不支持；现已改为能力失败语义，并用有效 replacement program 排除了空 FD 造成的假失败。
+- 当前已证明 link ID 的 event-time attr、scalar output、FD 查询成功/失败和能力失败都能进入纯 eBPF Ringbuf；还没有证明 `BPF_LINK_CREATE` 创建的可更新 link 的成功 update/detach，这个缺口保持显式，不以 raw link 结果冒充。
+- 整体 `arch.md` 仍未完成：下一步优先建立不依赖脆弱外部 hook 的 `BPF_LINK_CREATE` 成功 fixture，随后补 iterator/token/stream/struct-ops 低频命令和最终 coverage/ownership/interface 矩阵；持续高压 Ringbuf 背压边界仍需单独验收。
+
+### 14.376 补齐 BPF_LINK_CREATE 成功、update 与 detach 语义（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：raw tracepoint link 已经证明了 link ID 查询和 `LINK_UPDATE/DETACH` 的能力失败，但 raw link 本身在当前内核不支持这两个 mutation；如果只保留这条路径，`BPF_LINK_CREATE`、成功 update 和成功 detach 仍然没有真实门禁。
+- Problem：用 fentry、kprobe 或 iterator 作为成功目标会引入目标 BTF、内核符号、外部 hook 或复杂 iterator context 依赖；只检查 `BPF_LINK_CREATE` 的 attr 又无法证明 link 对象的生命周期和替换语义。
+- Goal：使用稳定的 cgroup ingress attach 建立真正的 `BPF_LINK_CREATE` link，读取其 ID，执行有效 `GET_FD_BY_ID/GET_NEXT_ID`，用同类型 replacement program 成功执行 `LINK_UPDATE`，最后成功 `LINK_DETACH`。
+- Non-goals：不读取 procfs，不创建外部 cgroup 目录，不依赖 bpffs，不覆盖 iterator/token/stream/struct-ops，不恢复 ptrace/procfs/process_vm/Go MemoryReader，不增加生产态事件消费者。
+- Constraints：fixture 只打开固定 `/sys/fs/cgroup` 目录并使用 root 下可用的 cgroup BPF 能力；两个 cgroup-skb program 必须显式关闭；raw tracepoint 的能力失败仍保留；oracle 必须同时区分 link mutation 的成功和失败事件。
+
+#### 方案比较
+
+1. 继续使用 raw tracepoint link：环境最简单，但当前内核对 update/detach 返回不支持，无法证明成功生命周期，排除。
+2. 使用 fentry/kprobe/iterator link：理论上可更新，但依赖 BTF 类型、符号或 iterator 私有结构，环境波动和副作用较大，暂缓。
+3. 使用 cgroup ingress link：attach type 和 program type 是稳定 UAPI，目标 FD 只需现有 cgroup 根目录，同类型 program 可替换并显式 detach，选择。
+
+#### 实施结果
+
+- lifecycle fixture 的 `load_program` 增加 `expected_attach_type` 参数；新增两个 `BPF_PROG_TYPE_CGROUP_SKB + BPF_CGROUP_INET_INGRESS` program，使用现有最小返回指令，分别作为原始和 replacement program。
+- fixture 打开 `/sys/fs/cgroup`，调用 `BPF_LINK_CREATE` 创建 link；复用 link ID 查询 helper 验证有效/无效 `BPF_LINK_GET_FD_BY_ID` 和 `BPF_LINK_GET_NEXT_ID`，随后使用 replacement FD 成功执行 `BPF_LINK_UPDATE` 与 `BPF_LINK_DETACH`。
+- raw tracepoint link 仍单独验证 `LINK_UPDATE/DETACH` 的明确能力失败，因此同一 semantic suite 同时覆盖成功态和失败态；cgroup link 的 cleanup 使用统一出口，link/program/cgroup FD 均显式关闭。
+- oracle 新增 command `28` 的 create success、command `29` 的 success+failure、command `34` 的 success+failure；测试没有新增生产路径，所有事件仍由单一 Go Ringbuf consumer 解析。
+
+#### 当前验证
+
+- fixture 使用 `gcc -O2 -Wall -Wextra -Werror` 编译，并在 root 下输出 `bpf-lifecycle-fixture-ok`；真实 `ebpf-semantic` 通过，BPF 专项事件数为 `212`，主 semantic 总数为 `175`，enter/exit 为 `78/97`，lifecycle 为 `6`。
+- cgroup link 的 create、ID 查询、update、detach 真实成功；raw link 的 update/detach 真实失败也均被捕获。`ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`lifecycle_map_update_fail` 和 `pending_stale` 全部为 `0`。
+- lifecycle oracle 单测通过，Python `unittest discover` 仍为 `143` 项；fixture 编译、root 直接运行、semantic suite 和 `git diff --check` 通过。生产 BPF program、dispatcher、handler 和 Go consumer 未改变。
+- 最新 `ebpf-perf` 通过：scalar/io trace-window 为 `27896.25/17567.54 exit/s`，lifecycle-storm/threads 为 `4322.76/15679.61 exit/s`，io-long-reader consumer service 为 `250.89 ns/sample`；Go event pipeline 仍为 `0 B/op、0 allocs/op`，说明 cgroup link fixture 没有改变生产热路径。
+
+#### Review 结论
+
+- 本阶段补上了之前明确缺失的成功态：现在已有真实 `BPF_LINK_CREATE -> LINK_UPDATE -> LINK_DETACH` 链路，不再用 raw tracepoint 的不支持结果代表所有 link 类型。
+- cgroup link 使用固定 UAPI 目标且 program 返回允许流量的 verdict，生命周期窗口很短；cleanup 路径覆盖 create 前、create 后、update 失败和 detach 失败，未发现 FD 泄漏或 link 残留。
+- lifecycle fixture 已接近 500 行上限，后续 iterator/token/stream/struct-ops 必须拆分新 fixture；整体 `arch.md` 仍未完成，剩余重点是低频命令覆盖、最终接口/ownership 矩阵和持续 Ringbuf 背压边界。
+
+### 14.377 增加 iterator、token、stream 与 struct-ops 的真实失败语义证据（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`BPF_ITER_CREATE`、`BPF_TOKEN_CREATE`、`BPF_PROG_STREAM_READ_BY_FD` 和 `BPF_PROG_ASSOC_STRUCT_OPS` 已有 direct attr provider、handler 和部分 synthetic oracle，但 lifecycle fixture 已接近 500 行，且这些命令不属于 link ID 成功生命周期。
+- Problem：没有真实调用时，无法证明四类低频命令的 attr 在 sys_enter 被拥有、失败 exit 能和 enter 配对，也无法证明 stream buffer 只在 sys_exit 作为 OUT payload 复制；继续依赖 synthetic data 会遗漏真实指针/返回边界。
+- Goal：拆出独立 rare fixture，使用匿名 hash map、socket-filter program 和固定 buffer 触发四条命令的真实失败路径；stream 必须验证 exit-time OUT snapshot，其他三条命令至少验证 attr snapshot 和失败 paired exit。
+- Non-goals：不伪造 iterator、token 或 struct-ops 成功对象，不把不存在的 BPF stream 当作成功，不创建 bpffs/struct_ops map，不恢复 procfs、ptrace、process_vm、Go MemoryReader，不扩展已有 lifecycle fixture。
+- Constraints：fixture、oracle、suite 和单测均保持在 500 行以内；所有 map/program FD 显式关闭；失败 errno 允许内核能力差异，但返回值必须为负；oracle 只能解析结构化 JSON/TLV。
+
+#### 方案比较
+
+1. 继续扩展 lifecycle fixture：入口少，但会突破 500 行边界并把 link、BTF、rare command 失败混在一个状态机中，拒绝。
+2. 只补 synthetic oracle：能覆盖字段格式，但不能证明真实 BPF syscall 的指针和返回语义，拒绝。
+3. 新建 rare fixture/oracle，并接入既有 `ebpf-semantic` suite：职责隔离，能独立观察命令失败和 stream OUT ownership，选择。
+
+#### 实施结果
+
+- 新增 `test/fixtures/ebpf_bpf_rare_fixture.c`：创建匿名 hash map 和最小 socket-filter program，分别调用 `BPF_ITER_CREATE`、`BPF_TOKEN_CREATE`、`BPF_PROG_STREAM_READ_BY_FD`、`BPF_PROG_ASSOC_STRUCT_OPS`，每条命令都要求内核返回失败，退出前关闭 map/program FD。
+- 新增 `test/ebpf_bpf_rare_oracle.py`、单测和 `ebpf_bpf_rare_suite.py`；suite 独立编译/运行 fixture，再把 JSON events 和 stats 送入 oracle，`ebpf_suites.py` 只增加一次调用，不改变生产代码。
+- rare oracle 对 command `33/36/37/38` 检查 attr arg `1` 的成功 IN snapshot 和失败 paired exit；对 command `37` 额外要求 arg `111` 的 exit-time OUT bytes 包含 `stream-data`，防止把 stream buffer 错当成 enter snapshot或异步补读。
+
+#### 当前验证
+
+- rare fixture 使用 `gcc -O2 -Wall -Wextra -Werror` 编译并在 root 下输出 `bpf-rare-fixture-ok`；真实 `ebpf-semantic` 通过，rare 专项产生 `12` 个事件，主 BPF semantic 为 `212` 个事件，错误 counters 全为 `0`。
+- rare 两个 oracle 单测通过；全量 semantic 中 `BPF_ITER_CREATE`、`BPF_TOKEN_CREATE`、`BPF_PROG_STREAM_READ_BY_FD`、`BPF_PROG_ASSOC_STRUCT_OPS` 均有失败 paired exit，stream OUT snapshot 已被真实 Ringbuf event 捕获。
+- 本阶段没有改变 BPF program、dispatcher、handler、event ABI 或 Go consumer；新文件均远小于 500 行，下一次全量回归继续复用 Go test、race、vet、Python、perf 和 upstream reference 门禁。
+
+#### Review 结论
+
+- 低频命令现在至少具备真实失败语义证据，不再只有静态 coverage table；stream ownership 也明确保持在 sys_exit event-time，未引入 procfs、ptrace 或用户态补读。
+- 成功态仍明确缺失：需要专用 iterator link、BPF token delegation、真实 stream producer 和 struct_ops map 才能覆盖；本阶段没有用失败调用冒充成功能力。
+- 整体 `arch.md` 仍未完成：下一步应继续补这些命令的可行成功态或正式记录内核能力边界，同时完成 coverage/ownership/interface 矩阵，并增加有限 Ringbuf 持续压力的丢失率验收。
+
+### 14.378 强化有限 Ringbuf 压力的精确交付门禁（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：capture workload 已经执行 16 个线程、每线程 100000 次 `getpid`，但 oracle 原先只要求有 syscall event，并用 `producer_attempts_lower_bound >= records_read` 做弱一致性检查。
+- Problem：只看“有事件”和下界不能证明确定性 workload 的完整交付；即使 producer 丢掉一部分 record，测试也可能继续通过。runtime reserve/copy/pending/lifecycle 错误也没有在每种 capture sink 下统一成为失败条件。
+- Goal：把 workload 的已知产出变成机器可检查的最小交付数 `16 * 100000 = 1,600,000`，并要求所有 capture 模式的 Ringbuf、pending 和 lifecycle 诊断计数为零；同时保留 record read/decode/route 对账。
+- Non-goals：不声称无限持续压力无损，不改变 Ringbuf 容量或 producer 策略，不为了测试引入 sleep、ptrace、procfs、第二消费者或特殊 runtime 模式。
+- Constraints：只强化 Python capture oracle；默认单元 fixture 必须继续支持 discard/text/reader/json 多种 sink；新增参数不超过现有函数边界，测试文件保持在 500 行以内。
+
+#### 方案比较
+
+1. 继续使用 `records_read` 下界：改动最小，但无法检测已知 workload 的静默少交付，拒绝。
+2. 对所有 workload 写死绝对 record 数：检测更强，但会把不同 fixture、enter/exit fragment 和 lifecycle 附加事件混为同一契约，拒绝。
+3. 只对确定性 JSON pressure workload 增加最小 syscall event 数，同时对所有 capture sink 统一要求零运行时错误：既能捕获压力丢失，又不扩大其它 workload 的错误契约，选择。
+
+#### 实施结果
+
+- `test/ebpf_capture_suite.py` 新增 `EXPECTED_JSON_SYSCALL_EVENTS=1_600_000`，`_validate_capture` 支持 `minimum_syscall_events`；json capture 必须达到该数量，少一个都失败。
+- 所有 capture 模式统一检查 `ringbuf_reserve_fail`、`ringbuf_copy_fail`、`pending_update_fail`、`orphan_exit`、`pending_mismatch`、`lifecycle_map_update_fail` 和 `pending_stale` 为零；原有 records read/decoded/routed/service timing 检查继续保留。
+- 单元测试新增“低于最小 JSON 事件数失败”和“discard capture 出现 reserve failure 失败”两个回归；没有改变生产 BPF 或 Go 事件循环。
+
+#### 当前验证
+
+- 真实 `ebpf-capture` 通过：reader/none 各读取并解码 `3,200,035` 条 records，handler/text/json 各路由 `1,600,035` 条；json 精确交付 `1,600,000` 个 syscall events。
+- reader 与 none 的 `records_read` 差值为 `0`，各模式 `records_invalid=0`、`producer_attempts_lower_bound == records_read`；全部 reserve/copy/pending/orphan/mismatch/lifecycle-map/stale 计数为 `0`，output write errors 为 `0`。
+- capture suite 的 9 个 Python 单测通过；这组证据证明固定有限压力下没有静默丢事件，但仍不把它外推为无限高压 Ringbuf 永不溢出。
+
+#### Review 结论
+
+- 本阶段修复的是测试 oracle 的“弱通过”缺口：现在已知 workload 的预期交付量和运行时错误共同构成门禁，event/s 不再是唯一指标。
+- 这项强化与之前的 trace-window perf 口径一致：它验证交付完整性，不把端到端启动/输出/清理时间误算成 producer 热路径吞吐；当前稳定热窗口仍约 scalar `28k`、IO `17k exit/s`。
+- 整体 `arch.md` 仍未完成：仍需把 coverage/ownership/interface 矩阵机器化，并继续补低频命令成功态和更长时间/更高并发的背压曲线；有限 Ringbuf 的明确丢失策略仍是最终边界。
+
+### 14.379 将 BPF command evidence 状态纳入机器化 coverage catalog（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：`pkg/handler/bpf_coverage.go` 已按稳定 command ID 登记 decoder、enter/exit ownership contract 和 evidence ID，但 evidence ID 只是字符串，无法区分真实成功、真实失败、fixture 间接证据和内核能力边界。
+- Problem：没有显式状态时，新增 command 很容易只接入 formatter 或 synthetic 测试，却被 review 误认为已经具备真实成功/失败语义；`BPF_ENABLE_STATS` 这类允许内核返回能力错误的命令也可能被错误标记为成功。
+- Goal：为 39 个 command 增加机器可检查的 evidence bitmask，分别表达 fixture success/failure、semantic success/failure 和 capability boundary；保持现有 event ABI、decoder 和 BPF 热路径不变。
+- Non-goals：不伪造 iterator/token/stream/struct-ops 成功，不新增第二 consumer，不改变 Ringbuf reservation，不把静态 catalog 当作动态 fixture 的替代品。
+- Constraints：所有生成的 BPF command 必须有非零 evidence 状态；能力边界不能同时声明方向性成功/失败；coverage 文件和测试文件均保持在 `500` 行以内。
+
+#### 方案比较
+
+1. 只在 coverage catalog 中加状态 bitmask，并用 Go 单测锁住高风险状态：无运行时成本，能阻止状态遗漏，选择。
+2. 新增独立 Python runtime matrix，重新编译并运行全部 fixture：动态证据更强，但会重复昂贵 fixture 并扩大 suite 生命周期；作为后续补强，不在本阶段混入。
+
+#### 实施结果
+
+- 新增 `bpfCommandEvidence` bitmask，状态分为 `fixture success`、`fixture failure`、`semantic success`、`semantic failure` 和 `capability boundary`；39 个 command 均显式填写状态。
+- 对 `BPF_ENABLE_STATS` 只登记 capability boundary；对 `BPF_ITER_CREATE`、`BPF_TOKEN_CREATE`、`BPF_PROG_STREAM_READ_BY_FD`、`BPF_PROG_ASSOC_STRUCT_OPS` 只登记真实失败语义，成功态仍保持未覆盖，不以失败调用冒充成功。
+- 新增 query oracle 要求 `BPF_PROG_ATTACH/DETACH` 的 enter attr、成功返回和 `paired_enter` exit；两项现在可以登记为 semantic success。`BPF_LINK_CREATE/UPDATE/DETACH` 则已登记当前真实成功/失败语义组合。
+- coverage 单测继续逐项校验生成表的数量、稳定 ID、符号名、decoder、ownership contract 和 evidence 状态，并额外锁住 capability 与低频失败状态不能被误改。
+
+#### 当前验证
+
+- `gofmt`、`go test ./pkg/handler -run 'TestBpfCommandCoverage' -count=1` 和 `go test ./... -count=1` 通过。
+- `pkg/handler/bpf_coverage.go` 与 `pkg/handler/bpf_coverage_test.go` 分别为 `105/68` 行；`git diff --check` 通过。
+- 本阶段只增加 Go-side catalog metadata 和单测，没有改变 BPF object、event v2/TLV、Ringbuf consumer、handler decoder 或输出格式。
+
+#### Review 结论
+
+- 当前 coverage catalog 已能机器区分“实现/fixture 证据”和“semantic 证据”，并把低频 command 的成功态缺口保留下来；它不再只是人工维护的命令名称清单。`BPF_PROG_ATTACH/DETACH` 的 runtime oracle 已补齐。
+- 这一步完成了 coverage 矩阵的静态状态层，但没有宣称整个 BPF 矩阵完成：低频 command 成功态和更强的动态 evidence 聚合仍需后续阶段补齐。
+- 生产路径没有新增 ptrace、procfs、process_vm、第二消费者、mutex 或 runtime 双模式；下一阶段继续做动态 fixture/oracle 对齐和持续高压 Ringbuf 边界验证。
+
+### 14.380 补齐 BPF_PROG_ATTACH/DETACH 的动态 paired-event oracle（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：BPF query fixture 已经真实执行 cgroup `BPF_PROG_ATTACH` 与 `BPF_PROG_DETACH`，但旧 semantic oracle 只检查 `BPF_PROG_QUERY` 的数组输出，没有检查 command `8/9` 是否真的进入同一 Ringbuf event stream。
+- Problem：fixture 进程成功并不等价于 tracer 捕获成功；如果 enter provider、route selection 或 pending 配对遗漏 command `8/9`，原测试仍可能通过，coverage catalog 会错误地把 fixture 行为当作事件语义证据。
+- Goal：增加独立 oracle，要求 command `8/9` 都有 attr arg `1` 的 enter snapshot、非负返回和 `paired_enter=true` 的 exit；同步更新 synthetic test data 和回归测试。
+- Non-goals：不改变 BPF attach UAPI、不读取生产 procfs、不新增 consumer、不改变 event v2/TLV 或输出格式。
+- Constraints：oracle 必须只依赖结构化 JSON event；测试 fixture 数据与真实检查使用同一字段合同；不扩大 lifecycle fixture。
+
+#### 方案比较
+
+1. 只在 Go coverage catalog 中把 command `8/9` 标成 semantic success：没有验证真实事件，拒绝。
+2. 在现有 BPF semantic oracle 中增加 paired enter/exit 检查，并为 oracle 增加独立 synthetic 回归：复用既有 query fixture、没有重复运行时拓扑，选择。
+
+#### 实施结果
+
+- `test/ebpf_bpf_query_oracle.py` 新增 `has_prog_attach_detach_lifecycle`，分别检查 command `8/9` 的 arg `1` IN bytes、`probe_ret=0`、正向复制长度、成功 exit 和 `paired_enter=true`。
+- `check_bpf_semantic` 接入该 oracle；`test/test_ebpf_bpf_query.py` 增加成功和缺少 detach 配对两条单测，`test/test_ebpf_bpf_suite.py` 的 synthetic `valid_events` 增加对应 enter/exit 样本。
+- Go coverage catalog 中 command `8/9` 的状态从 fixture-only 升级为 `fixture success + semantic success`，与真实 oracle 保持一致。
+
+#### 当前验证
+
+- query oracle 单测 `6` 项通过；Python 全量 `149` 项通过。
+- 重新运行真实 `ebpf-semantic` 通过：BPF 主 semantic `212` 个事件，rare `12` 个事件，主 semantic enter/exit `78/97`，所有 Ringbuf、pending、orphan、mismatch 和 lifecycle-map 错误计数为 `0`。
+- 没有新增 ptrace、procfs、process_vm、第二 Goroutine、mutex 或异步用户态补读；改动只收紧测试 oracle 和静态证据状态。
+
+#### Review 结论
+
+- `BPF_PROG_ATTACH/DETACH` 现在具有从真实 syscall、event-time attr snapshot 到 paired exit 的端到端证据，不再只是 fixture 返回码证据。
+- coverage 矩阵的动态缺口继续缩小，但低频 iterator/token/stream/struct-ops 的成功态仍未覆盖；下一阶段重点转向更长时间/更高并发的有限 Ringbuf 背压曲线，而不是伪造这些成功态。
+
+### 14.381 增加 32 线程长压 Ringbuf 背压曲线（2026-08-21）
+
+#### Problem 1-Pager
+
+- Context：现有 `16×100000 getpid` capture 已证明固定有限 workload 可以精确交付，但无法说明 32 线程、约 `6.4M` producer attempts 下单消费者和有限 Ringbuf 的背压边界。
+- Problem：如果把长压也要求零 `ringbuf_reserve_fail`，会把有限缓冲的调度差异误报成 tracer correctness 失败；如果完全不运行长压，又无法知道 reserve drop 是否可观测、record 是否损坏、producer/read/drop 是否能对账。
+- Goal：把压力 fixture 的线程上限扩展到 32，新增 `ebpf-capture-long` suite；严格校验 producer 下界、`records_read + ringbuf_reserve_fail` 对账、零 invalid record 和零 pending/lifecycle/copy 错误，同时报告 reserve loss rate。
+- Non-goals：不宣称无限压力无损，不增加 Ringbuf 第二消费者，不用 procfs/ptrace 补读，不把 reserve failure 隐藏成成功，不为测试引入 sleep 或特殊运行模式。
+- Constraints：默认 capture workload 保持 `16×100000` 不变；长压只运行 reader/none，避免把数 GB JSON 输出混入 Ringbuf 容量测量；长压超时为 `180s`，统计字段必须来自结构化 stats event。
+
+#### 方案比较
+
+1. 把默认 capture 扩大到 32 线程并继续要求所有诊断为零：门禁强但会污染常规回归口径，也无法区分有限容量与 correctness，拒绝。
+2. 新增独立长压 suite，允许并报告 reserve failure，严格要求其余结构性错误和 producer/drop 对账：能测出真实背压曲线且不伪造无损承诺，选择。
+
+#### 实施结果
+
+- `ebpf_perf_fixture.c` 的 thread workload 上限扩展为 32；原有默认 16 线程路径和迭代次数不变。
+- `ebpf_capture_suite.py` 新增 `long` workload、`allow_reserve_fail` capture 状态和 `_validate_long_capture`；长压只放宽 `ringbuf_reserve_fail`，`ringbuf_copy_fail`、pending、orphan、mismatch、lifecycle-map、stale 和 invalid record 仍是硬失败。
+- `run_tests.py` 新增 `--suite ebpf-capture-long`；suite 输出 producer attempts、records read/decoded/invalid、reserve failure 和 loss rate，避免只打印一个 event/s 数字。
+
+#### 当前验证
+
+- 两轮真实 `ebpf-capture-long` 均通过；每轮 producer lower bound 都是 `6,400,067`，`records_read + ringbuf_reserve_fail` 精确闭合，`records_invalid=0`，copy/pending/orphan/mismatch/lifecycle-map/stale 全为 `0`。
+- 第一轮：none `records_read=5,847,309`、reserve `552,758`、loss `8.64%`；reader 完整读取 `6,400,067`、reserve `0`、loss `0%`。
+- 第二轮：none `records_read=6,007,176`、reserve `392,891`、loss `6.14%`；reader `records_read=4,587,466`、reserve `1,812,601`、loss `28.32%`。
+- 结果明确显示长压受 CPU 调度和 Ringbuf 有限容量影响，reader loss rate 不能固定为零；但所有丢失都有 `ringbuf_reserve_fail` 计数，未出现静默损坏或状态机错误。
+
+#### Review 结论
+
+- 当前背压策略的可验证契约是“丢失可观测、record accounting 闭合、结构性错误不被吞掉”，而不是有限 Ringbuf 在无限压力下无损；这与单 Go consumer 的架构约束一致。
+- 固定 `16×100000` capture 继续作为零丢失主门禁；`32×100000` 长压作为容量/调度边界曲线，后续若要降低 loss rate，应单独优化 Ringbuf 容量、producer event size 或消费调度，并用该 suite 做 A/B，而不是改弱 oracle。
+
+### 14.382 补齐 BPF_ITER_CREATE 的真实成功语义证据（2026-08-22）
+
+#### Problem 1-Pager
+
+- Context：`BPF_ITER_CREATE` 已有 direct attr provider、handler 和失败 fixture，但低频命令仍缺少真实 iterator link、iterator FD 和 read 生命周期的成功证据。
+- Problem：只有失败 paired exit 不能证明 `BPF_PROG_LOAD -> BPF_LINK_CREATE -> BPF_ITER_CREATE` 的 event-time attr snapshot、成功返回和 FD 生命周期都能通过同一 Ringbuf stream 到达 Go；coverage catalog 也无法区分“只实现失败格式”和“成功/失败均验证”。
+- Goal：建立独立 iterator fixture，使用宿主机 BTF 的 `task` iterator target，真实执行成功的 `BPF_PROG_LOAD`、`BPF_LINK_CREATE`、`BPF_ITER_CREATE` 和 iterator `read`，并追加无效 link FD 的失败路径。
+- Non-goals：不在本阶段实现 token、stream、struct-ops 的成功态；不改变生产 BPF program、event v2/TLV、单 Go consumer、Ringbuf 容量或输出格式；不恢复 ptrace/procfs/process_vm/MemoryReader。
+- Constraints：fixture、oracle、suite 和单测均小于 `500` 行；BTF ID 通过 libbpf 根据当前内核动态解析，不硬编码宿主机 ID；成功 FD 必须显式关闭；oracle 只解析结构化 JSON/TLV 和 fixture marker。
+
+#### 方案比较
+
+1. 只把现有失败调用记录为 capability boundary：改动最小，但不能证明成功 link/iterator 生命周期，拒绝。
+2. 复用已有 lifecycle fixture：可以减少 suite 入口，但会继续膨胀接近 `500` 行的文件，并混淆 object lifecycle 与 iterator lifetime，拒绝。
+3. 新建独立 iterator fixture/oracle，动态解析 BTF target 并接入 `ebpf-semantic`：职责隔离、成功/失败边界明确，选择。
+
+#### 实施结果
+
+- 新增 `test/fixtures/ebpf_bpf_iter_fixture.c`，使用 `libbpf_find_vmlinux_btf_id("task", BPF_TRACE_ITER)` 动态取得 iterator target；最小 tracing program 通过真实 `BPF_LINK_CREATE` 建立 iterator link，再通过 `BPF_ITER_CREATE` 取得 iterator FD 并完整读取到 EOF。
+- fixture 随后用 `UINT32_MAX` link FD 触发确定性的 `BPF_ITER_CREATE` 失败，成功的 program/link/iterator FD 均在统一 cleanup 路径关闭；成功和失败都由同一目标进程发起，避免 synthetic event 替代真实内核调用。
+- 新增 `test/ebpf_bpf_iter_oracle.py`、`test/ebpf_bpf_iter_suite.py` 和两个 Python 单测；oracle 要求 `BPF_PROG_LOAD`、`BPF_LINK_CREATE` 成功，`BPF_ITER_CREATE` 同时具备成功和失败 paired exit，且所有运行时错误计数为零。
+- `pkg/handler/bpf_coverage.go` 将 command `33` 从 failure-only 升级为 fixture/semantic success + failure；coverage 单测同步锁定四种证据状态。
+
+#### 当前验证
+
+- iterator fixture 使用 `gcc -O2 -Wall -Wextra -Werror` 和 libbpf 编译，在 root 下输出 `bpf-iter-fixture-ok bytes=0`；真实 JSON 观察到 `BPF_PROG_LOAD ret=3`、`BPF_LINK_CREATE ret=4`、`BPF_ITER_CREATE ret=5`，以及无效 FD 的 `EBADF` 失败 paired exit。
+- 独立 iterator semantic suite 通过；全量 `ebpf-semantic` 通过，iterator success path verified，Ringbuf reserve/copy、pending、orphan、mismatch、lifecycle-map、stale 全为 `0`。
+- Python `unittest discover` 增加到 `154` 项并通过，`pkg/handler` coverage focused test 和 `git diff --check` 通过；新增 fixture/oracle/suite/单测共 `367` 行，均小于文件边界。
+
+#### Review 结论
+
+- 本阶段补上了 `BPF_ITER_CREATE` 的真实成功态，不再用失败调用代表全部 iterator 能力；成功 link、iterator FD、read EOF 和失败 FD 均由同一纯 eBPF event stream 观察。
+- BTF target ID 动态解析避免绑定当前宿主机的数值 ID；libbpf 仅属于测试 fixture 构建依赖，生产 `strace-go` 没有新增运行时依赖或读取路径。
+- 当前低频边界仍明确：`BPF_TOKEN_CREATE`、`BPF_PROG_STREAM_READ_BY_FD`、`BPF_PROG_ASSOC_STRUCT_OPS` 仍只有真实失败语义，后续要么补可行成功 fixture，要么将内核能力边界纳入独立的机器化 capability contract；整体 `arch.md` 仍未完成。
+
+### 14.383 将 BPF command capability boundary 变成机器化契约（2026-08-22）
+
+#### Problem 1-Pager
+
+- Context：coverage catalog 已能记录 fixture/semantic 的成功和失败证据，但仍缺少独立的宿主机能力维度。`BPF_ENABLE_STATS`、iterator、token、stream 和 struct-ops 的成功条件依赖内核配置、BTF、对象类型或 delegation 环境。
+- Problem：如果只看 evidence flags，当前宿主机上的一次成功可能被错误理解为跨内核稳定能力；反过来，环境不具备成功前置条件时，失败也可能被误报为实现缺陷。
+- Goal：为每个 BPF command 声明 `stable` 或 `environment-dependent` capability contract，并要求 environment-dependent command 带有 capability boundary evidence；允许 capability boundary 与方向性成功/失败 evidence 共存。
+- Non-goals：不把 capability metadata 当成运行时探测结果；不伪造 token、stream、struct-ops 成功；不改变 BPF program、event ABI、Ringbuf consumer 或生产运行时路径。
+- Constraints：coverage catalog 和测试保持在 `500` 行以内；新增契约必须通过 Go 单测机器检查；当前宿主机上的 iterator 成功证据仍需保留，不因环境依赖而降级为 failure-only。
+
+#### 方案比较
+
+1. 继续只维护 evidence flags：实现简单，但无法区分“已验证的事件方向”和“宿主机是否具备成功前置条件”，拒绝。
+2. 每次 suite 运行时动态覆盖所有 capability：动态信息更丰富，但会把环境探测、fixture 构造和事件语义混在一起，且会放大测试成本；作为后续 runtime matrix 的补强，不作为本阶段唯一契约。
+3. 在静态 coverage catalog 中增加 capability 维度，并用单测校验 boundary 一致性；保留动态 fixture 作为方向性证据，选择。
+
+#### 实施结果
+
+- `pkg/handler/bpf_coverage.go` 新增 `bpfCommandCapability`，当前只有两个明确值：`bpfCommandCapabilityStable` 和 `bpfCommandCapabilityEnvironmentDependent`；39 个 command 均显式声明其中之一。
+- `BPF_ENABLE_STATS`、`BPF_ITER_CREATE`、`BPF_TOKEN_CREATE`、`BPF_PROG_STREAM_READ_BY_FD`、`BPF_PROG_ASSOC_STRUCT_OPS` 标记为 environment-dependent，并带 `bpfEvidenceCapabilityBoundary`。
+- `BPF_ITER_CREATE` 同时保留真实 fixture/semantic success 和 failure flags：它证明当前宿主机的 iterator event semantics 已通，但不宣称所有支持 BPF 的内核都有可用的 `task` iterator BTF target。
+- 其它 command 标记为 stable；测试禁止 stable command 携带 capability boundary，也禁止 environment-dependent command 缺少 boundary；所有生成 command 还必须有非零 capability、decoder、ownership 和 evidence contract。
+
+#### 当前验证
+
+- `gofmt -w pkg/handler/bpf_coverage.go pkg/handler/bpf_coverage_test.go` 通过。
+- `go test ./pkg/handler -run 'TestBpfCommandCoverage' -count=1` 通过。
+- 本阶段没有改变生产 eBPF、dispatcher、event v2/TLV、Ringbuf 容量、单 Go consumer、handler decoder 或输出格式；新增约束只在 coverage metadata 和测试层生效。
+
+#### Review 结论
+
+- coverage catalog 现在可以同时回答两个问题：某个 command 是否有真实事件语义证据，以及该成功方向是否依赖宿主机能力边界；两者不再被一个 evidence 字段混淆。
+- 这不是 capability 自动发现的终点。`BPF_TOKEN_CREATE`、`BPF_PROG_STREAM_READ_BY_FD`、`BPF_PROG_ASSOC_STRUCT_OPS` 仍缺少成功 fixture；后续需要继续补可行成功对象，或建立独立的 runtime capability matrix，而不能把失败状态升级成成功。
+- 整体 `arch.md` 仍未完成；剩余工作包括最终 interface/ownership/coverage 机器化矩阵、低频成功态的可行覆盖，以及有限 Ringbuf 持续压力的最终边界验收。
+
+### 14.384 收口 interface、ownership 与 coverage 的静态矩阵契约（2026-08-22）
+
+#### Problem 1-Pager
+
+- Context：session composition 已经使用窄接口，BPF command catalog 也记录了 enter/exit ownership，但前者主要依靠编译断言，后者的合同字段仍是普通字符串。
+- Problem：新增 session dependency 或误拼 BPF payload 合同可能只在人工 review 中暴露；只检查非空不能证明合同属于已知 ownership 集合，也不能证明 composition boundary 没有漏字段。
+- Goal：让 Go 单测逐项校验 `traceSessionDeps` 的字段和类型，并让每个 BPF command 的 enter/exit contract 只能取已登记的受控值。
+- Non-goals：不改变接口方法集、不重写 session builder、不改变 BPF event ABI、decoder、Ringbuf consumer 或 handler 热路径；不把静态矩阵伪装成动态运行时能力探测。
+- Constraints：契约测试使用 AST 读取 composition source；生产代码只增加一个无运行时调用的 named contract type；所有文件继续满足 `500` 行边界。
+
+#### 方案比较
+
+1. 继续依靠编译断言和普通字符串：改动最小，但新增字段和合同拼写没有完整机器门禁，拒绝。
+2. 使用 AST dependency matrix 加 typed ownership contract：不改变运行时行为，能在字段缺失、类型漂移和未知合同时立即失败，选择。
+3. 使用反射扫描所有组件并在启动时注册：覆盖面更宽，但引入隐式运行时规则和启动复杂度，不采用。
+
+#### 实施结果
+
+- `pkg/handler/bpf_coverage.go` 将 `enterContract/exitContract` 收敛为 `bpfCommandContract`，并登记 attr 输入、nested 输入、scalar/array/buffer 输出和 no-output 等完整值域。
+- `pkg/handler/bpf_coverage_test.go` 现在除检查非空外，还拒绝未知 ownership contract；生成的 39 个 BPF command 仍必须同时具备 decoder、enter/exit contract、evidence 和 capability 声明。
+- `cmd/strace-go/architecture_contract_test.go` 新增 `traceSessionDependencyContracts`，逐项锁定 `traceSessionDeps` 的 20 个字段和类型；新增字段、删除字段或把窄 interface 替换成具体实现都会使测试失败。
+- 该矩阵明确保留唯一有意的 concrete metadata dependency `*syscallMetadataTable`；事件 reader、state、policy、FD state、catalog、runtime、output、summary 和 clock 均通过 named interface port 进入 composition boundary。
+
+#### 当前验证
+
+- `gofmt` 通过。
+- `go test ./pkg/handler -run 'TestBpfCommandCoverage' -count=1` 通过。
+- `go test ./cmd/strace-go -run 'TestArchitecture|TestTraceSessionDependency' -count=1` 通过。
+- 本阶段没有新增 ptrace、procfs、process_vm、MemoryReader、第二消费者、mutex 或 runtime 双模式；所有新增检查都位于 Go test 或静态 catalog 层。
+
+#### Review 结论
+
+- interface、ownership、coverage 三个矩阵现在都有机器化入口：compile-time assertion 保证实现关系，AST matrix 保证 composition 字段完整，typed contract 保证 BPF payload ownership 值域完整。
+- 这仍不是整个架构的完成标记：低频 token/stream/struct-ops 成功态、动态 capability matrix 和有限 Ringbuf 的最终背压边界仍需要独立证据；本阶段只收口静态边界，不夸大运行时覆盖。
+
+### 14.385 建立低频 BPF command 的 runtime capability matrix（2026-08-22）
+
+#### Problem 1-Pager
+
+- Context：静态 coverage 已把 `BPF_ENABLE_STATS`、`BPF_ITER_CREATE`、`BPF_TOKEN_CREATE`、`BPF_PROG_STREAM_READ_BY_FD` 和 `BPF_PROG_ASSOC_STRUCT_OPS` 标成 environment-dependent，但静态 metadata 不能说明本次运行究竟是成功、内核不支持、环境阻断，还是测试对象本身非法。
+- Problem：只保留失败事件会把 delegation mount、BTF/iterator target、stream producer 和 struct-ops map 的前置条件混在一起；这既不能指导后续成功 fixture，也容易把环境问题误报为 tracer 解码缺陷。
+- Goal：增加机器可解析的 runtime capability matrix。每条 probe 固定包含 command、name、status、errno 和 probe 类型，status 只能是 `supported`、`unsupported`、`environment_blocked` 或 `invalid_input`。
+- Non-goals：不把 invalid-object probe 当作成功语义；不修改生产 BPF、event v2/TLV、Ringbuf consumer、handler 或输出；不引入 ptrace、procfs、process_vm 或用户态 tracee 内存读取。
+- Constraints：fixture 继续只通过 `SYS_bpf` 和必要的环境 capability probe 工作；JSON records 必须稳定、无自由文本转义风险；token valid probe 与 invalid-input regression 必须同时保留；每个 `(command, probe)` 只能出现一次。
+
+#### 方案比较
+
+1. 直接为 token、stream、struct-ops 各写成功 fixture：成功证据最强，但分别依赖 delegated bpffs、能产生 stream 的 BPF 程序和动态 BTF struct-ops 对象，短期会把环境失败与实现失败混在一起，暂不选择。
+2. 先建立独立 runtime matrix，再逐项补成功对象：立即收敛真实环境边界，保留成功 fixture 的明确入口，且不会把失败升级为成功，选择。
+
+#### 实施结果
+
+- `test/fixtures/ebpf_bpf_rare_fixture.c` 新增 `BPF_ENABLE_STATS` valid probe、`BPF_TOKEN_CREATE` bpffs valid probe，以及 iterator/stream/struct-ops 的 invalid-object probes；token 同时保留错误 FD 的回归调用。
+- fixture 输出稳定的 `{"type":"bpf_capability",...}` records。valid probe 的 `EINVAL` 在 token/delegation 场景被记录为 `environment_blocked`；invalid-object 的 `ENOENT`、`EINVAL`、`EBADF` 等保留为 `invalid_input`，避免只按 errno 全局解释。
+- `test/ebpf_bpf_capability_matrix.py` 对 probe 集合、去重、名称、status/errno 关系和 `ENOSYS` unsupported 合同做机器校验；`test/ebpf_bpf_rare_suite.py` 将该 oracle 纳入主 rare semantic，并提供独立 `ebpf-capability` suite。
+- 当前宿主机 root probe 观察为：`BPF_ENABLE_STATS=supported`；token valid 为 `environment_blocked(errno=EINVAL)`；iterator、token invalid FD、stream invalid object、struct-ops invalid object 均为 `invalid_input`。这描述的是当前对象/环境，不宣称跨内核支持。
+
+#### 当前验证
+
+- `gcc -O2 -Wall -Wextra -Werror` 编译 rare fixture 通过。
+- `sudo -n python3 test/run_tests.py --suite ebpf-capability --skip-build` 通过，矩阵完整输出 `6` 条 probe records。
+- capability matrix Python 单测 `5` 项通过；原有 rare oracle 单测继续通过。
+- 该阶段仍未宣称 token、stream、struct-ops 成功语义完成；下一阶段应优先用当前 matrix 的 environment/input 证据指导真实成功对象实验。
+
+#### Review 结论
+
+- runtime matrix 已把“命令可达性”“环境阻断”和“对象非法”从静态 coverage 中分离出来，后续可以对成功 fixture 做逐命令推进，而不是重复猜测 errno。
+- 当前整体架构仍未完成：低频成功态、有限 Ringbuf 的最终背压策略，以及文档中历史 nested snapshot 结论的最终清理仍待完成。
+
+### 14.386 澄清 BPF_PROG_LOAD nested snapshot 的当前 ownership（2026-08-22）
+
+#### Audit 结论
+
+- 早期章节中“`func_info/line_info/core_relos` 仍是 pointer fallback”的描述已经落后于当前实现。该描述保留为历史阶段记录，不再代表当前架构状态。
+- 当前 `bpf/syscall_bpf_prog_load_direct_event_v2.h` 由 dedicated debug fragment provider 分别 capture `fd_array`、`func_info`、`line_info` 和 `core_relos`；每个 section 都在 `sys_enter` 的 event-time 通过 `bpf_probe_read_user` 写入 bounded TLV。
+- `bpf/enter_dispatch.h` 先由 `enter_bpf_prog_load` 发出 base event、保存 pending，再 tail-call 到 `enter_bpf_prog_load_debug` 发出 debug fragment；fragment 不创建新的 syscall 行，也不触发 Go 侧内存读取。
+- `pkg/handler/bpf_prog_load_line_info.go` 和 `bpf_prog_load_core_relos.go` 中的十六进制 pointer 输出只在 metadata 不完整、section 缺失或 probe 失败时作为稳定降级文本；它不是运行期 procfs、ptrace、process_vm 或 `MemoryReader` 补读。
+- `test/ebpf_bpf_prog_load_oracle.py` 与真实 `ebpf_bpf_suite.py` 已分别要求四类 nested input snapshot 和 failed-probe path；Go JSON/TLV 测试也验证 `line_info`/`core_relos` section 的方向、arg index 和顺序。
+
+#### Review 结论
+
+- 当前 nested snapshot ownership 已完成 event-time eBPF capture、fragment 合并、handler decode 和 semantic oracle 闭环；后续不应重复实现这四类 provider。
+- 仍需继续推进的是缺少成功对象的低频 BPF command，以及有限 Ringbuf 的背压边界；这两项与 `BPF_PROG_LOAD` nested snapshot 已是不同问题。
+
+### 14.387 补齐 BPF_PROG_STREAM_READ_BY_FD 的真实成功语义（2026-08-22）
+
+#### Problem 1-Pager
+
+- Context：`BPF_PROG_STREAM_READ_BY_FD` 已有 direct attr provider、sys_exit OUT snapshot 和真实失败 fixture，但 coverage 仍把它登记为 failure-only，无法证明 stream producer、`bpf_prog_stream_read` 用户态读取和 Go 侧 event-time payload 是同一条成功链路。
+- Problem：继续复用 rare failure fixture 只能证明无效 FD/stream 的返回和 buffer 边界，不能证明成功的 BPF 程序真的产生 stream 数据；直接在生产代码加入 libbpf 依赖又会污染 strace-go 的运行时边界。
+- Goal：建立独立 BPF ELF + C loader fixture，真实执行 `BPF_PROG_LOAD`、`BPF_PROG_TEST_RUN` 和 `bpf_prog_stream_read` 成功路径，同时保留无效 FD/stream 的失败路径；oracle 必须验证 enter/exit 配对、success/failure ret、exit-time OUT bytes 和 enter 阶段无 stream buffer snapshot。
+- Non-goals：不修改生产 BPF program、event v2/TLV、Ringbuf consumer、handler 或输出格式；不引入 ptrace、procfs、process_vm、Go MemoryReader、第二消费者或新的 runtime 模式；不把当前宿主机成功泛化为所有内核的稳定能力。
+- Constraints：fixture、oracle、suite 和单测均小于 `500` 行；BPF 对象使用宿主机 BTF 的 `bpf_stream_vprintk` kfunc；成功/失败均由同一目标进程触发，所有事件只从结构化 JSON/TLV 解析。
+
+#### 方案比较
+
+1. 把成功调用继续塞入 `ebpf_bpf_rare_fixture.c`：入口少，但会把 capability failure、invalid object 和成功 ELF 生命周期混在一个接近文件上限的 fixture 中，拒绝。
+2. 在生产代码中增加 libbpf stream producer：可以复用 loader，但会扩大产品运行时依赖和 ownership 边界，拒绝。
+3. 新建独立 `.bpf.o`、C loader、semantic suite 和 oracle，并通过扩展 suite 注册到 `ebpf-semantic`：测试职责隔离，能同时证明真实 success/failure 事件语义，选择。
+
+#### 实施结果
+
+- 新增 `test/fixtures/ebpf_bpf_stream_prog.bpf.c`，使用 `SEC("syscall")` 程序调用宿主 BTF 中四参数形式的 `bpf_stream_vprintk`，通过 `BPF_STDOUT` 写入固定 `stream-data`；由于安装的 `bpf_helpers.h` 宏与当前宿主 BTF 的参数形式不同，fixture 明确声明 kfunc，不修改生成的生产 `vmlinux.h`。
+- 新增 `test/fixtures/ebpf_bpf_stream_fixture.c`，用 libbpf 打开/加载 ELF，执行 `bpf_prog_test_run_opts`，成功调用 `bpf_prog_stream_read`，随后执行无效 program FD 和无效 stream ID 两条失败 probe；程序名查找、libbpf error、读取长度和 FD cleanup 均有显式检查。
+- 新增 `test/ebpf_bpf_stream_oracle.py`、`test/ebpf_bpf_stream_suite.py` 与独立 `ebpf-stream` runner；`ebpf_suites.py` 的 specialized semantic orchestration 已拆到 `ebpf_extended_semantic.py`，主编排文件从 `519` 行降至 `491` 行。
+- command coverage 将 `BPF_PROG_STREAM_READ_BY_FD` 更新为 fixture/semantic success + failure，同时保留 `environment-dependent` 和 capability boundary；这表示当前宿主机方向性成功已验证，不表示跨内核保证。
+
+#### 当前验证
+
+- BPF 对象和 C loader 均通过 `clang/gcc -O2 -Wall -Wextra -Werror` 编译；root 直接运行输出 `bpf-stream-fixture-ok`。
+- 独立 `ebpf-stream` 通过：成功 `BPF_PROG_STREAM_READ_BY_FD` 返回 `11`，exit-time OUT section 包含 `stream-data`；两个失败调用分别返回 `EBADF` 和 `ENOENT`，均有 paired exit 和合法 bounded OUT snapshot；enter event 没有 arg `111` 的 stream buffer snapshot。
+- 完整 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` 通过：BPF 专项 `212` 事件、rare `16` 事件、stream success/failure oracle 通过；Ringbuf reserve/copy、pending、orphan、mismatch、lifecycle-map、stale 计数均为 `0`。
+- stream/fixture/orchestration Python 单测 `14` 项通过；`pkg/handler` coverage focused test、`git diff --check` 和 Python syntax compile 通过。
+
+#### Review 结论
+
+- `BPF_PROG_STREAM_READ_BY_FD` 现在完成了真实 success/failure 的 event-time ownership 闭环：buffer 只在 sys_exit 进入 OUT payload，Go 不需要在事件到达后重新读取 tracee 内存。
+- 测试 fixture 只属于测试边界，生产运行时仍是单一 Go Ringbuf consumer 和纯 eBPF 事件流；没有恢复 ptrace/procfs/process_vm，也没有增加第二模式。
+- 整体 `arch.md` 仍未完成：`BPF_TOKEN_CREATE`、`BPF_PROG_ASSOC_STRUCT_OPS` 仍缺少成功对象，最终 coverage/ownership/interface 审计和持续 Ringbuf 背压边界仍需继续收口。
+
+### 14.388 补齐 BPF_PROG_ASSOC_STRUCT_OPS 的真实成功语义（2026-08-22）
+
+#### Problem 1-Pager
+
+- Context：`BPF_PROG_ASSOC_STRUCT_OPS` 已有 invalid-object 失败事件和 capability boundary，但没有成功对象；静态 coverage 无法证明 struct-ops map、普通 BPF program 和 command 38 的 attr snapshot 能走完整纯 eBPF Ringbuf 链路。
+- Problem：只复用失败 fixture 只能验证错误 FD/非法对象；只补合成 JSON 又无法证明宿主机 BTF、struct_ops map 创建、program FD 和内核返回值之间的真实关系。
+- Goal：建立独立 `.struct_ops.link` BPF object 和 libbpf loader，真实完成一个有效 command 38 关联，再执行一个无效 program FD 失败调用；oracle 同时验证 attr IN snapshot、success/failure paired exit 和运行时错误计数。
+- Non-goals：不要求 attach dummy ops 或调用 struct_ops callback；不改生产 BPF provider、event v2/TLV、Ringbuf consumer、handler 或输出格式；不引入 ptrace、procfs、process_vm、Go MemoryReader、第二消费者或新的运行模式。
+- Constraints：fixture 使用当前宿主 `vmlinux.h` 的 `bpf_dummy_ops` BTF 类型；用户态 libbpf 只负责 ELF load 和 FD 生命周期，command 38 使用 UAPI syscall，避免依赖宿主未导出的高层 helper；所有新增文件小于 `500` 行。
+
+#### 方案比较
+
+1. 把成功调用加入接近 `500` 行的 `ebpf_bpf_rare_fixture.c`：改动入口少，但会混合 capability probe、invalid object 和 struct_ops ELF 生命周期，失败定位变差，拒绝。
+2. 只扩展 handler/JSON 合成数据：执行快，但不能证明真实 kernel command、BTF map layout 和 Ringbuf attr snapshot，拒绝。
+3. 新建独立 `.struct_ops.link` object、C loader、semantic suite 和 oracle，并复用现有单 consumer 编排：职责隔离，成功/失败边界清晰，选择。
+
+#### 实施结果
+
+- 新增 `test/fixtures/ebpf_bpf_struct_ops_prog.bpf.c`：使用当前 BTF 的 `struct bpf_dummy_ops`，通过 `SEC("struct_ops/test_1")` 和 `SEC(".struct_ops.link")` 生成真实 struct_ops map，同时提供一个可被关联的 `SEC("syscall")` program。
+- 新增 `test/fixtures/ebpf_bpf_struct_ops_fixture.c`：libbpf 打开并加载 object，显式查找 `dummy_1` map 和 `assoc_syscall` program；由于系统 libbpf 头文件没有导出高层 association API，loader 保留 libbpf 的 object/FD 管理，直接使用 `SYS_bpf(BPF_PROG_ASSOC_STRUCT_OPS, ...)` 执行一次成功和一次 `prog_fd=-1` 失败调用。
+- 新增 `test/ebpf_bpf_struct_ops_oracle.py`、`test/ebpf_bpf_struct_ops_testdata.py`、`test/ebpf_bpf_struct_ops_suite.py` 和独立单测；oracle 严格要求 command `38` 两个 enter/exit、每个 enter 有 attr arg `1` snapshot、每个 exit `paired_enter=true`，且恰好一个 `ret=0` 和一个负返回。
+- `test/ebpf_extended_semantic.py`、`test/run_tests.py` 接入总 semantic 与独立 `ebpf-struct-ops` suite；`pkg/handler/bpf_coverage.go` 将 command `38` 更新为 fixture/semantic success + failure，同时保留 environment-dependent capability boundary。
+
+#### 当前验证
+
+- BPF object 和 C loader 均通过 `clang/gcc -O2 -Wall -Wextra -Werror` 编译；root 直接执行输出 `bpf-struct-ops-fixture-ok`。
+- 真实 JSON Ringbuf 观察到 command `38` 成功 `ret=0`，失败 `ret=-9 (EBADF)`；两条事件均有 `168` 字节 attr snapshot、`paired_enter=true`，成功 map/prog FD 分别为 `4/6`。
+- 独立 `sudo -n python3 test/run_tests.py --suite ebpf-struct-ops --skip-build` 通过；完整 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` 通过，新增输出为 `eBPF struct-ops semantic success/failure paths verified`，核心 Ringbuf/pending/orphan/mismatch/lifecycle 错误计数均为 `0`。
+- `go test ./pkg/handler -run 'TestBpfCommandCoverage' -count=1` 和 struct_ops/orchestration/fixture-builder Python focused tests 通过；fixture 不依赖 procfs、ptrace 或用户态 tracee 内存读取。
+
+#### Review 结论
+
+- command `38` 现在完成了真实成功/失败 event-time ownership 闭环：成功关联使用真实 BTF struct_ops map 和 program FD，Go 侧只消费 Ringbuf snapshot，不补读对象内存。
+- 由于 command 和 BTF object 受内核配置、BTF 类型及权限影响，coverage 仍明确标记 `environment-dependent`；当前宿主成功不能被解释成所有内核的稳定能力。
+- 低频成功态目前只剩 `BPF_TOKEN_CREATE`；最终架构审计仍需收口 coverage/ownership/interface 矩阵，以及有限 Ringbuf 在持续高压下的可观测背压边界，整体 `arch.md` 尚未完成。
+
+### 14.389 固化 BPF_TOKEN_CREATE 的环境能力边界（2026-08-22）
+
+#### Problem 1-Pager
+
+- Context：低频 BPF command 中只剩 `BPF_TOKEN_CREATE` 没有成功对象；runtime capability matrix 已能区分 valid probe 与 invalid-object probe，但需要确认当前环境是否具备 token 成功的必要条件。
+- Problem：在普通 init user namespace 和未配置 delegation 的 bpffs 上，valid token create 的失败不是 tracer 的 command decoder 缺陷。若为了得到一个 `ret >= 0` 强行构造用户 namespace、uid/gid 映射和 delegated mount，会把 procfs/mount 特权准备误当成产品语义，也会制造不可移植的测试假成功。
+- Goal：审计内核前置条件，把当前环境的 token 结果作为明确、机器可解析的 capability boundary；只在环境真正提供 delegated bpffs 时才允许未来新增成功 fixture。
+- Non-goals：不在生产路径加入 procfs、user namespace 管理、mount 操作或 token fallback；不把 `environment_blocked` 升级为 success；不为通过 coverage 人为伪造 command 36 的成功事件。
+- Constraints：保持 `BPF_TOKEN_CREATE` 的 valid/invalid 两条真实 probe；状态必须来自 errno 与 probe 类型的稳定矩阵；不改变纯 eBPF syscall event stream、单 Go consumer 或 event v2/TLV ABI。
+
+#### 方案比较
+
+1. 在普通 `/sys/fs/bpf` 上继续尝试 token create：当前挂载没有 delegation，且 token 不能在 init user namespace 中创建，重复调用不会产生新的成功证据，拒绝。
+2. 在 fixture 内自行创建 user/mount namespace 并写 uid/gid map、配置 delegated bpffs：理论上接近内核 selftest，但依赖 procfs 映射、mount namespace 能力和宿主安全策略，测试边界会掩盖产品语义，拒绝。
+3. 保留真实 valid probe、记录 environment-blocked，并把成功 fixture 作为具备 delegated bpffs 的未来环境任务：当前证据诚实、无伪成功、符合 capability contract，选择。
+
+#### 审计结果
+
+- 当前 `/sys/fs/bpf` 的文件系统类型为 `bpf_fs`，挂载选项没有 `delegate_cmds`、`delegate_maps`、`delegate_progs` 或 `delegate_attachs`；valid `BPF_TOKEN_CREATE` probe 真实返回 `errno=22`，runtime matrix 记录为 `environment_blocked`。
+- 当前内核 token 实现要求创建者不在 init user namespace、创建者与 bpffs superblock 属于同一 user namespace，并且 mount 至少配置一项 delegation mask；这些条件不是普通 root attach 的默认条件。
+- `sudo -n unshare -Ur true` 可用，但 user namespace 内直接 mount bpffs 返回 `permission denied`；因此本机没有足够的 delegated bpffs 外部状态来构造稳定 success fixture。
+- 现有 `test/fixtures/ebpf_bpf_rare_fixture.c` 继续执行 command `36` 的 valid probe 和 `bpffs_fd=UINT32_MAX` invalid-object probe；`test/ebpf_bpf_capability_matrix.py` 对二者分别校验 `environment_blocked` 与 `invalid_input`，不把它们混为同一失败。
+
+#### Review 结论
+
+- `BPF_TOKEN_CREATE` 当前不是生产 tracer 的实现缺陷，而是宿主 capability boundary；coverage 保持 `environment-dependent + capability boundary + semantic failure`，不增加伪 success flags。
+- struct-ops、stream、iterator 已分别具备真实成功对象；低频 BPF success fixture 的实现缺口已收敛到 token 的外部 delegation 条件，后续只需在具备该条件的内核环境复用独立 fixture 方式验证。
+- 下一阶段转入最终 coverage/ownership/interface 与性能/背压审计；有限 Ringbuf 在持续高压下仍以“丢失可观测、producer/read/drop 对账闭合、record 不损坏”为契约，不宣称无限无损。
+
+### 14.390 最终架构合规与性能审计（2026-08-22）
+
+#### 审计范围
+
+- **运行时边界**：生产 Go/BPF 源码扫描和 `TestProductSourceHasNoRuntimePtraceOrProcmemDependency`、`TestProductSourceHasNoProcfsDependency` 均通过；未发现 `ptrace()`、`process_vm_*()`、`MemoryReader` 或 event-time `/proc` 读取。
+- **接口与 ownership**：architecture contract tests 已覆盖 8 个 session port、5 个 domain state owner、20 个 `traceSessionDeps` 字段，以及 `TraceEventReader` 的单一同步 sink；composition、owner assertion、禁止 concrete/memory fallback 均通过。
+- **BPF command coverage**：39 个生成 command 均有 decoder、typed enter/exit contract、evidence flags 和 stable/environment-dependent capability；command `33/37/38` 已有真实 success/failure semantic，command `36` 的成功方向由 runtime matrix 明确标为 environment-blocked。
+- **事件与生命周期**：主 semantic 观察到 `175` 个事件、enter/exit `78/97`、lifecycle `6`；BPF 专项 `212`、rare `16`，stream 与 struct-ops success/failure oracle 均通过；Ringbuf reserve/copy、pending、orphan、mismatch、lifecycle-map、stale 计数均为 `0`。
+- **性能与分配**：本轮 `trace_exit_events_per_sec` 为 scalar `27968.02`、IO `17747.79`、lifecycle-storm `4321.39`、threads `15666.61`；Go pipeline benchmark 全部 `0 B/op/0 allocs/op`。短命令 `end_to_end_exit_events_per_sec` 仍包含 setup/cleanup，不作为热路径指标。
+- **Ringbuf 完整性**：固定 capture 的 reader/none 均为 `3,200,035` records，JSON 路由为 `1,600,000` events，producer/read/decode 对账闭合且 invalid/drop 为 `0`；长压 `6,400,067` attempts 两轮均完整读到，invalid/drop 为 `0`。长压门禁仍保留 reserve failure accounting，不宣称有限 Ringbuf 无限无损。
+- **参考与自动化**：`bpf.gen.test` 为 `1 PASS`；Go `test`、race、vet、build 和 Python `167` 项单测均通过，`git diff --check` 通过。
+
+#### 审计结论
+
+- 纯 eBPF 生产架构的主要结构性问题已经收口：event-time snapshot、compact pending、dispatcher/tail-call、单 Go consumer、分域状态 owner、窄接口 composition、结构化 oracle 和可观测 Ringbuf 背压均有代码与实机证据。
+- `event/s` 断崖式下降不再复现。当前性能读数与此前同机 `27~28k/17~18k` trace-window 基线一致；仍然偏低的端到端短命令值来自固定 setup、drain、cleanup 成本，而不是 producer/consumer 丢事件。
+- 当前不能宣称的边界只有两类：`BPF_TOKEN_CREATE` 成功依赖外部 delegated bpffs/user namespace；有限 Ringbuf 在任意无限压力下不提供绝对无损保证。两者均已由 capability/backpressure contract 显式表达，不通过兼容回退或伪成功掩盖。
+- upstream exact diff 仍只作为参考；bounded eBPF snapshot 不承诺 ptrace 的冻结点大块内存和跨任务严格交错。该差异属于产品语义选择，不应通过恢复 ptrace/procfs 来消除。
+
+### 14.391 收口 tracee completion port，移除第二等待 relay（2026-08-22）
+
+#### Problem 1-Pager
+
+- Context：生产事件链路已经是单一同步 Ringbuf consumer，但 `traceRunState` 仍通过额外 goroutine 调用 `traceCommandWaiter.Wait()`，再把结果转发到自己的 channel。该 goroutine 不消费事件，却扩大了生命周期 ownership，也让“单消费者/单状态机”的静态审计出现不必要的第二异步边界。
+- Problem：等待结果 relay 会增加 channel 和 goroutine 调度成本，且 command completion 的真正 owner 与 run state 的观察点分离；它不是本轮 `event/s` 断崖的主因，但属于最终架构中可以消除的额外同步路径。
+- Goal：由 `traceTargetRuntime` 保留唯一的 `exec.Cmd.Wait` owner；run state 只 select 一个只读 `Done()` channel，完成后同步读取已缓存的 wait result，不再创建 relay goroutine 或第二结果 channel。
+- Non-goals：不改变 BPF event ABI、Ringbuf producer、Go 解码/路由热路径、unfinished 输出语义或目标进程的 wait 结果；不引入 ptrace、procfs、process_vm、MemoryReader、第二事件 consumer 或 mutex。
+- Constraints：必须保持 close-before-read 的 happens-before 关系；target runtime 仍可用一个 goroutine 等待目标退出，但它只能发布 completion；新增回归测试必须证明 run state 不再创建 relay。
+
+#### 方案比较
+
+1. 保留 run state 内的结果 relay：实现改动最小，但保留了不必要的 goroutine/channel ownership 和第二异步边界，不选择。
+2. 让 run state 直接调用 `Wait()`：会阻塞唯一事件消费循环，可能延迟 Ringbuf drain，不选择。
+3. target runtime 缓存 `Wait()` 结果并关闭 `Done()`，run state select 后读取缓存结果：不阻塞事件循环，只有一个 wait owner，且同步关系明确，选择。
+
+#### 实施结果
+
+- `traceCommandWaiter` 增加只读 `Done() <-chan struct{}`；`traceCommandCompletion` 仍在 target runtime 的唯一 wait goroutine 中执行 `exec.Cmd.Wait()`，写入结果后关闭 done channel。
+- `newTraceRunState` 直接保存 `deps.command.Done()`；`collect` 收到 done 后调用同一 waiter 的 `Wait()` 读取已发布结果，并清理本地 waiter/channel 引用。
+- 删除 `traceRunState` 内部的 `make(chan traceCommandExitResult, 1)` 和结果转发 goroutine；事件 Ringbuf 读取、解码、路由仍保持 `TraceEventReader.Read -> HandleRecord -> sink.Handle` 的同步链路。
+- 测试先按旧实现运行并失败，再补生产实现；`target_runtime_source_test.go` 固化禁止 run state 出现 `go func`、结果 channel relay，并要求直接使用 `Done()`/`Wait()` 合同。
+
+#### 当前验证
+
+- Go focused test、`go test ./... -count=1`、`go test -race ./...`、`go vet ./...`、当前源码 build 和 `git diff --check` 均通过。
+- 真实 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` 通过：BPF 专项 `212` 事件、rare `16` 事件、主语义 `175` 事件，enter/exit `78/97`，lifecycle `6`；reserve/copy、pending、orphan、mismatch、lifecycle-map、stale 均为 `0`。
+- 真实 `sudo -n python3 test/run_tests.py --suite ebpf-perf --skip-build` 通过：scalar `trace_exit_events_per_sec=28092.63`，io `17782.08`，lifecycle-storm `3782.53`，threads `15658.58`；Go pipeline benchmark 仍为 `0 B/op/0 allocs/op`。
+- 端到端 scalar/io 分别为 `5509.96/3555.12`，但 setup、Ringbuf drain 和 cleanup 的固定成本约 `0.2s`；因此它们不代表持续 trace window 的 producer/consumer 吞吐，也不能与热路径 `trace_exit_events_per_sec` 混用。
+
+#### Review 结论
+
+- 之前 `event/s` 看起来大幅下降的主要原因是短命令端到端指标把 setup、attach、目标执行、Ringbuf drain、BPF link cleanup 等固定成本放进了分母；当 workload 很短时，固定成本会淹没真实热路径吞吐。此前更早的实现还叠加了多 fan-out、较大事件/payload 和高频分配，这些结构性问题已经通过 dispatcher、compact pending、bounded TLV 和零分配 Go pipeline 收口。
+- 本轮性能复测没有复现热路径断崖：scalar/io/threads 与此前同机基线一致，且 Ringbuf、pending、配对和生命周期错误计数均为零；所以“热路径 event/s 下降”已解决，端到端短 workload 的低值仍是测量口径和固定生命周期成本，不是事件丢失。
+- 这次修改进一步删除了无业务价值的 command completion relay，但它不是性能主修复；其价值是让 wait ownership 与单同步事件状态机的架构契约一致。
+- 仍保留两个明确边界：`BPF_TOKEN_CREATE` 成功依赖外部 delegated bpffs/user namespace；有限 Ringbuf 不承诺任意无限压力下绝对无损。二者均已由 capability/backpressure 契约表达。
+
+### 14.392 拆分 BPF semantic oracle 与 fixture 编排边界（2026-08-22）
+
+#### Problem 1-Pager
+
+- Context：生产路径已经完成 event v2、单 Ringbuf consumer 和 session port 收口，但 `test/ebpf_bpf_suite.py` 同时承载 payload 查询 helper、39 个 BPF command 的 semantic assertion、fixture 构建和进程执行，达到 `648` 行；`check_bpf_semantic` 也把所有 command 合同堆在一个超长函数中。
+- Problem：fixture 编排、事件查询和 semantic oracle 责任混在一起，新增 command 时容易绕过现有失败路径/错误计数合同；文件和函数超出项目约束，测试自身反而成为架构边界的隐式载体。
+- Goal：将 BPF 事件查询和 semantic assertions 移入独立模块，保留 `ebpf_bpf_suite` 的公开 `check_bpf_semantic`/`run_bpf_semantic` 导出；suite 只负责 fixture 构建、运行和结果合并，每个 oracle 按 payload/lifecycle/error domain 拆成小函数。
+- Non-goals：不改变生产 Go/BPF、event v2/TLV、fixture 输入、JSON schema、semantic failure 文本、测试 suite 名称或运行时并发拓扑；不把静态 oracle 当成 runtime capability 探测。
+- Constraints：不引入新的测试进程或第二 Ringbuf consumer；新增/修改 Python 文件与函数遵守 `500`/`80` 行约束；现有独立单测仍可从原模块导入公开函数，失败优先验证必须先于实现。
+
+#### 方案比较
+
+1. 只删除空白/压缩长函数：行数可能下降，但职责和 command 合同仍混在一个模块中，拒绝。
+2. 将所有 BPF 代码拆成每个 command 一个 suite：职责过细，fixture 组合和公共错误统计重复，维护成本过高，拒绝。
+3. 按 `event query helpers`、`semantic domain checks`、`fixture runner` 三层拆分，并保留原模块 facade：边界清晰、调用方无感、可逐层测试，选择。
+
+#### 预期验收
+
+- `ebpf_bpf_suite.py` 与新增 oracle 文件均小于 `500` 行，单个 Python 函数小于 `80` 行。
+- 纯合成 semantic 单测先因新模块入口缺失而失败，补实现后恢复；真实 `ebpf-semantic`、Go 门禁和 `git diff --check` 不回归。
+
+### 14.393 收口性能 runner 与测试数据的文件边界（2026-08-22）
+
+#### Problem 1-Pager
+
+- Context：BPF semantic suite 拆分后，剩余 `test/ebpf_perf_suite.py`（`629` 行）、`test/test_ebpf_perf_suite.py`（`554` 行）和 `test/test_ebpf_suites.py`（`504` 行）仍把性能模型、阶段校验、输出格式或多组单测数据堆在单文件中。
+- Problem：性能验证的 workload schema、capture 校验、输出和测试数据没有清晰边界；超限文件使函数规模门禁失效，也增加修改性能 oracle 时误伤执行编排的风险。
+- Goal：将性能 workload 定义/验证/输出与执行入口分开，将性能单测的 capture fixture 和测试类分开，并把通用 suite 的 event oracle 单测独立出来；保留所有公开导入和 suite 命令行为。
+- Non-goals：不改变 workload 数量、阈值、事件统计口径、`trace_exit_events_per_sec` 与端到端指标定义，不改变真实 eBPF 执行、Ringbuf consumer、BPF ABI 或 upstream reference。
+- Constraints：所有新旧 Python 文件小于 `500` 行，函数小于 `80` 行；拆分只使用模块导入，不增加并行 worker、第二 Ringbuf consumer 或新的运行时状态；单测先覆盖 facade 和失败路径，再运行完整 perf。
+
+#### 方案比较
+
+1. 只调低行数门禁或压缩字面量：不改善职责边界，拒绝。
+2. 按每个 workload 建立独立 Python 进程/suite：隔离过度，会改变性能运行时和资源成本，拒绝。
+3. 保留一个执行 facade，拆出 specs、validation/output、test fixtures 和 event-oracle tests：调用兼容、职责明确、性能口径不变，选择。
+
+#### 实施结果
+
+- `test/ebpf_perf_model.py`、`ebpf_perf_validation.py`、`ebpf_perf_reporting.py`、`ebpf_perf_testdata.py` 和 `ebpf_perf_suite.py` 已完成职责拆分；workload 数量、阈值、事件计数、`trace_exit_events_per_sec` 与端到端指标定义保持不变。
+- `test/ebpf_bpf_testdata_core.py` 提供 section/stats/fixture helper，`ebpf_bpf_testdata_events.py` 按 BPF command domain 构造合成事件，`test_ebpf_bpf_suite.py` 只保留 semantic failure regression。三个文件分别为 `193/435/223` 行，函数均不超过 `80` 行。
+- BPF semantic facade、事件 query、semantic checks、性能 model/validation/reporting/testdata 和通用 suite 的 event-oracle 均通过结构门禁；没有增加生产事件消费者、测试并行 worker、ptrace/procfs fallback 或新的运行模式。
+
+#### 当前验证
+
+- `PYTHONPATH=test python3 -m unittest discover -s test -p 'test_*.py'`：`169` 项通过；`python3 -m py_compile test/*.py` 和 `git diff --check` 通过。
+- `go test ./... -count=1`、`go test -race ./...`、`go vet ./...` 和 `go build -o strace-go ./cmd/strace-go` 均通过。
+- 真实 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` 通过：主语义 `175` 个事件、BPF 专项 `212`、rare `16`，enter/exit `78/97`，lifecycle `6`；reserve/copy、pending、orphan、mismatch、lifecycle-map、stale 均为 `0`。
+- 真实 `sudo -n python3 test/run_tests.py --suite ebpf-perf --skip-build` 通过：
+  - scalar：`trace_exit_events_per_sec=28017.11`，端到端 `5561.90`；
+  - io：`17988.47`，端到端 `3701.11`；
+  - lifecycle-storm：`3781.08`，端到端 `1947.56`；
+  - threads：`15650.66`，端到端 `2948.52`；
+  - `io-long-reader` 的 Ringbuf drain 读取 `6251` 条记录、约 `63.2 MB`，无 reserve/copy/pending/orphan/mismatch/stale 错误；Go event pipeline 全部为 `0 B/op`、`0 allocs/op`。
+
+#### Review 结论
+
+- 之前 `event/s` 看起来大幅下降，首先是测量口径问题：短 workload 的端到端分母包含 BPF spec/load、attach、目标退出后的 Ringbuf drain、link cleanup 和未归属的进程收尾时间。当前实测 scalar setup 约 `0.22s`、cleanup owner 约 `0.19s`，io 也有约 `0.19s` 固定收尾；几千条事件时，这些固定成本足以把端到端数字压低数倍。
+- 早期架构还同时承受大事件/payload、fan-out、pending 状态和 Go 高频分配；这些热路径问题已经由 event v2/TLV、bounded snapshot、compact pending、dispatcher/tail-call、单同步 Ringbuf consumer 和零分配 pipeline 收口。当前 `trace_sec` 吞吐回到 scalar `28k/s`、io `18k/s`、threads `15~16k/s` 的同机基线，且错误计数为零。
+- 因此本次已解决的是“热路径 event/s 断崖”和真实事件丢失问题；端到端短命令仍然会显示较低数值，这是生命周期成本，不应当被当作 producer/consumer 吞吐。性能门禁必须同时报告 `trace_exit_events_per_sec`、端到端值、阶段耗时和 Ringbuf accounting。
+- 仍然保留有限 Ringbuf 在任意无限压力下不保证绝对无损的边界；当前契约是丢失可观测、record 不损坏、producer/read/drop accounting 可对账，而不是伪装成无限容量。
+
+### 14.394 补齐 no-ptrace 运行时不变量证据（2026-08-22）
+
+#### 审计发现
+
+- `arch.md` 第 7.2 节要求运行时证明目标 `TracerPid == 0`，但此前 `test/test_ebpf_fixture_build.py` 只验证主 semantic fixture 不包含 `TracerPid`；源码 gate 能证明产品没有 ptrace/procfs 依赖，却不能证明实际目标没有被 ptrace 接管。
+- 该缺口与 FD/cwd/path 的 procfs 竞争问题不同：这里只验证一次 no-ptrace 不变量，不把 procfs 内容写入事件状态，也不参与产品运行时。
+
+#### 方案比较
+
+1. 把检查加入主 semantic fixture：实现最短，但会污染主要 syscall workload，并模糊测试 procfs 与产品 procfs 的边界，拒绝。
+2. 由 Python 在 tracer 运行中扫描目标 `/proc/<pid>/status`：无需修改 fixture，但需要重写当前阻塞式 target runner 的 ready/生命周期处理，时序更脆，拒绝。
+3. 新建独立 no-ptrace fixture，在目标自身读取 `/proc/self/status` 并输出结构化 `TracerPid` 结果，再接入 semantic 和独立 suite：证据直接、边界隔离，选择。
+
+#### 实施结果
+
+- 新增 `test/fixtures/ebpf_no_ptrace_fixture.c`，目标启动后读取一次自身 `/proc/self/status`，只有 `TracerPid == 0` 才输出 `no-ptrace-fixture-ok`。
+- 新增 `test/ebpf_no_ptrace_suite.py` 和 `test/test_ebpf_no_ptrace_suite.py`，覆盖 parser、happy path、失败返回、缺失/非法字段；`run_tests.py` 注册独立 `ebpf-no-ptrace` suite，并把它纳入 `ebpf-semantic`。
+- 主 semantic fixture、生产 Go/BPF 源码以及 FD/cwd/path 状态仍禁止 procfs；README 明确说明该 `/proc` 读取只属于 no-ptrace 测试证据。
+
+#### 当前验证
+
+- 失败优先：新增 oracle 在实现前因缺少模块入口失败；实现后 focused Python oracle `4` 项、fixture build/source policy `10` 项通过，完整 Python 单测为 `174` 项。
+- `gcc -O2 -Wall -Wextra -Werror` 编译 no-ptrace fixture 通过。
+- `sudo -n python3 test/run_tests.py --suite ebpf-no-ptrace --skip-build` 通过，真实输出 `TracerPid: 0` 和 `no-ptrace-fixture-ok`。
+- 完整 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` 通过；新增检查没有改变主语义 `175`、BPF `212`、rare `16` 事件及所有错误计数为零的结果。
+
+#### Review 结论
+
+- no-ptrace 现在同时具备静态产品 gate 和真实目标运行时证据；procfs 没有回流到生产路径或 event-sourced metadata。
+- 仍保留有限 Ringbuf 任意无限压力不保证绝对无损的边界；本阶段只补 no-ptrace 证据，不改变事件 ABI、性能口径或背压契约。
