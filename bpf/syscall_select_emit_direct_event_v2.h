@@ -13,7 +13,7 @@ static __always_inline void emit_select_enter_event_v2_direct(
 
     u32 body_offset = EVENT_V2_HEADER_LEN;
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_ENTER_BODY_LEN;
-    u32 out_size = payload_offset + SELECT_DIRECT_PAYLOAD_MAX;
+    u32 out_size = payload_offset + select_direct_payload_capacity(sys_id);
     struct bpf_dynptr ptr;
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
@@ -23,12 +23,16 @@ static __always_inline void emit_select_enter_event_v2_direct(
     }
 
     u16 flags = EVENT_FLAG_GENERIC_ENTER;
+    u8 capture_policy = SELECT_DIRECT_CAPTURE_FDSETS | SELECT_DIRECT_CAPTURE_TIMEOUT;
+    if (is_pselect6_direct_syscall(sys_id)) {
+        capture_policy |= SELECT_DIRECT_CAPTURE_SIGMASK;
+    }
     u32 payload_size = capture_select_payloads_tlv_direct(
         &ptr,
         payload_offset,
         body.args,
         0,
-        SELECT_DIRECT_CAPTURE_FDSETS | SELECT_DIRECT_CAPTURE_TIMEOUT);
+        capture_policy);
     if (payload_size > 0) {
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
@@ -60,7 +64,7 @@ static __always_inline void emit_select_exit_event_v2_direct(
 {
     u32 body_offset = EVENT_V2_HEADER_LEN;
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_EXIT_BODY_LEN;
-    u32 out_size = payload_offset + SELECT_DIRECT_PAYLOAD_MAX;
+    u32 out_size = payload_offset + select_direct_payload_capacity(p->sys_id);
     u64 ts_ns = p->enter_time + duration;
     struct bpf_dynptr ptr;
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);

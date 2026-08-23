@@ -28,9 +28,10 @@ func (st *TraceState) handleLifecycleEnvelope(envelope traceEventEnvelope, unfin
 	st.clearLifecyclePending(lifecycleView.tid)
 	st.markAttachTargetExited(lifecycleView.pid, lifecycleView.tid)
 	if pendingExit, ok := st.takePendingExitForTID(lifecycleView.tid); ok {
-		update.deferredExit = &TraceStateUpdate{
-			kind:            traceStateSyscallExit,
+		update.deferredExit = traceDeferredExit{
+			valid:           true,
 			syscallView:     pendingExit.view,
+			payloadStorage:  pendingExit.payloadStorage,
 			payloadSections: pendingExit.payloadSections,
 		}
 	}
@@ -48,6 +49,11 @@ func (st *TraceState) handleSyscallEnvelope(envelope traceEventEnvelope, unfinis
 	if isGenericEnterView(syscallView) {
 		st.noteSyscallTask(syscallView)
 		st.handleSyscallEnter(&update, envelope.payload)
+		return update
+	}
+	if isEnterFragmentView(syscallView) {
+		st.noteSyscallTask(syscallView)
+		st.handleSyscallFragment(&update, envelope.payload)
 		return update
 	}
 	if isExitFragmentView(syscallView) {
@@ -72,6 +78,7 @@ func (st *TraceState) handleSyscallEnter(update *TraceStateUpdate, payload []han
 func (st *TraceState) attachDeferredExit(update *TraceStateUpdate, pendingExit pendingExitState) {
 	pendingEnter := st.consumeEnterEvent(&pendingExit.view)
 	if pendingEnter == nil {
+		st.correlation.releasePendingExit(pendingExit)
 		return
 	}
 	if st.isTerminatingSyscall(&pendingExit.view) {
@@ -79,25 +86,37 @@ func (st *TraceState) attachDeferredExit(update *TraceStateUpdate, pendingExit p
 		st.markLifecyclePending(pendingExit.view.tid)
 		st.clearTaskPending(pendingExit.view.tid)
 	}
-	update.deferredExit = &TraceStateUpdate{
-		kind:            traceStateSyscallExit,
+	update.deferredExit = traceDeferredExit{
+		valid:           true,
 		syscallView:     pendingExit.view,
+		payloadStorage:  pendingExit.payloadStorage,
 		payloadSections: pendingExit.payloadSections,
 		pendingEnter:    pendingEnter,
 	}
 }
 
 func (st *TraceState) handleSyscallFragment(update *TraceStateUpdate, payload []handler.PayloadSection) {
-	st.rememberExitFragment(update.syscallView, payload)
+	st.rememberPayloadFragment(update.syscallView, payload)
 	update.kind = traceStateSyscallFragment
 	update.payloadSections = payload
+}
+
+func (st *TraceState) shouldSynthesizeElidedPlainEnter(sysID uint32) bool {
+	return st != nil && st.elidePlainEnter &&
+		shouldElidePlainEnterForSyscall(sysID, st.elideNonBlockingPlainEnter)
 }
 
 func (st *TraceState) handleSyscallExit(update *TraceStateUpdate, payload []handler.PayloadSection) {
 	view := &update.syscallView
 	pendingEnter := st.consumeEnterEvent(view)
 	if pendingEnter == nil {
-		st.noteSyscallTask(view)
+		elidedPlain := st.shouldSynthesizeElidedPlainEnter(view.sysID)
+		if !elidedPlain {
+			st.noteSyscallTask(view)
+		}
+		if elidedPlain {
+			pendingEnter = st.synthesizeGenericEnter(view)
+		}
 	}
 	if pendingEnter == nil && st.deferUnmatchedExits {
 		st.rememberPendingExit(view, payload)

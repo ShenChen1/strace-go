@@ -85,3 +85,24 @@ func TestBPFNonLeaderExecPreservesProcessTrackingAcrossLeaderReplacement(t *test
 		t.Fatal("leader replacement must clear only the old leader TID state")
 	}
 }
+
+func TestBPFFreeUsesTracepointTaskPID(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "bpf/lifecycle_dispatch.h"))
+	body, ok := bpfFunctionBody(source, "trace_sched_process_free")
+	if !ok {
+		t.Fatal("lifecycle dispatch missing sched_process_free")
+	}
+	for _, snippet := range []string{
+		"u32 tid = (u32)ctx->pid;",
+		"is_lifecycle_task_tracked(tid, tid)",
+		"clear_lifecycle_task_state(tid, tid);",
+		"emit_lifecycle_event(LIFECYCLE_FREE, tid, tid, tid, 0, 0);",
+	} {
+		if !strings.Contains(body, snippet) {
+			t.Fatalf("sched_process_free missing task-scoped snippet %q", snippet)
+		}
+	}
+	if strings.Contains(body, "bpf_get_current_pid_tgid()") {
+		t.Fatal("sched_process_free must not identify the freed task from current context")
+	}
+}

@@ -23,6 +23,44 @@ type bpfRouteCapability struct {
 	exitSlot  uint32
 }
 
+func isGenericEnterRoute(sysID uint32) bool {
+	syscall, ok := meta.SyscallTable[sysID]
+	if !ok {
+		return true
+	}
+	capability, ok := bpfRouteCapabilities[syscall.Name]
+	return !ok || capability.enterSlot == 0
+}
+
+func isPlainGenericEnterExitRoute(sysID uint32) bool {
+	// Elision is safe only when both directions use the generic event; specialized exits may carry OUT payload.
+	syscall, ok := meta.SyscallTable[sysID]
+	if !ok {
+		return true
+	}
+	capability, ok := bpfRouteCapabilities[syscall.Name]
+	return !ok || (capability.enterSlot == 0 && capability.exitSlot == 0)
+}
+
+// Only these direct exits carry all args and their bounded OUT snapshot in one
+// event, so text can synthesize their missing generic enter safely.
+func isStandaloneExitElisionRoute(sysID uint32) bool {
+	syscall, ok := meta.SyscallTable[sysID]
+	if !ok || !isGenericEnterRoute(sysID) {
+		return false
+	}
+	capability, ok := bpfRouteCapabilities[syscall.Name]
+	if !ok || capability.exitSlot == 0 {
+		return false
+	}
+	switch syscall.Name {
+	case "clock_gettime", "clock_getres", "gettimeofday", "arch_prctl", "get_robust_list":
+		return true
+	default:
+		return false
+	}
+}
+
 // BTF describes syscall arguments, but not which bounded capture handler owns
 // their lifetime and payload semantics. Keep that product policy explicit and
 // give each syscall one record so enter/exit choices cannot be overwritten by
@@ -62,7 +100,7 @@ var bpfRouteCapabilities = map[string]bpfRouteCapability{
 	"futex_wait": {enterSlot: enterProgFutex}, "futex_waitv": {enterSlot: enterProgFutex}, "futex_requeue": {enterSlot: enterProgFutex},
 	"cachestat": {enterSlot: enterProgCachestat, exitSlot: exitProgAsync}, "capget": {enterSlot: enterProgCapability, exitSlot: exitProgAsync},
 	"capset": {enterSlot: enterProgCapability, exitSlot: exitProgAsync}, "memfd_create": {enterSlot: enterProgMemfd},
-	"prctl": {enterSlot: enterProgPrctl, exitSlot: exitProgAsync}, "clone3": {enterSlot: enterProgClone3}, "bpf": {enterSlot: enterProgBpf},
+	"prctl": {enterSlot: enterProgPrctl, exitSlot: exitProgAsync}, "clone3": {enterSlot: enterProgClone3}, "bpf": {enterSlot: enterProgBpf, exitSlot: exitProgIO},
 	"readv": {enterSlot: enterProgIovec, exitSlot: exitProgIovecBase}, "writev": {enterSlot: enterProgIovec},
 	"preadv": {enterSlot: enterProgIovec, exitSlot: exitProgIovecBase}, "pwritev": {enterSlot: enterProgIovec},
 	"preadv2": {enterSlot: enterProgIovec, exitSlot: exitProgIovecBase}, "pwritev2": {enterSlot: enterProgIovec},
@@ -77,6 +115,7 @@ var bpfRouteCapabilities = map[string]bpfRouteCapability{
 	"getsockname": {enterSlot: enterProgNetwork, exitSlot: exitProgControl}, "getpeername": {enterSlot: enterProgNetwork, exitSlot: exitProgControl},
 	"setsockopt": {enterSlot: enterProgNetwork, exitSlot: exitProgControl}, "getsockopt": {enterSlot: enterProgNetwork, exitSlot: exitProgControl},
 	"add_key": {enterSlot: enterProgKey}, "request_key": {enterSlot: enterProgKey},
+	"keyctl":   {enterSlot: enterProgKey, exitSlot: exitProgIO},
 	"setxattr": {enterSlot: enterProgXattr}, "lsetxattr": {enterSlot: enterProgXattr}, "fsetxattr": {enterSlot: enterProgXattr},
 	"getxattr": {enterSlot: enterProgXattr, exitSlot: exitProgIO}, "lgetxattr": {enterSlot: enterProgXattr, exitSlot: exitProgIO},
 	"fgetxattr": {enterSlot: enterProgXattr, exitSlot: exitProgIO}, "listxattr": {enterSlot: enterProgXattr, exitSlot: exitProgIO},
@@ -88,6 +127,7 @@ var bpfRouteCapabilities = map[string]bpfRouteCapability{
 	"io_getevents": {enterSlot: enterProgAio, exitSlot: exitProgAsync}, "io_pgetevents": {enterSlot: enterProgAio, exitSlot: exitProgAsync},
 	"io_submit": {enterSlot: enterProgAio}, "io_cancel": {enterSlot: enterProgAio}, "poll": {enterSlot: enterProgPoll, exitSlot: exitProgAsync},
 	"ppoll": {enterSlot: enterProgPoll, exitSlot: exitProgAsync}, "select": {enterSlot: enterProgSelect, exitSlot: exitProgIO},
+	"pselect6":  {enterSlot: enterProgSelect, exitSlot: exitProgIO},
 	"epoll_ctl": {enterSlot: enterProgEpoll}, "epoll_pwait2": {enterSlot: enterProgEpoll, exitSlot: exitProgIO},
 	"epoll_wait": {exitSlot: exitProgIO}, "epoll_pwait": {exitSlot: exitProgIO}, "getdents": {exitSlot: exitProgIO},
 	"getdents64": {exitSlot: exitProgIO}, "quotactl": {enterSlot: enterProgQuota, exitSlot: exitProgQuota},

@@ -92,17 +92,27 @@ func TestTraceEventPolicySnapshotsStateOptions(t *testing.T) {
 	opts.SummaryOnly = true
 
 	state := newTraceStateForSession(policy)
-	if !state.deferUnmatchedExits || !state.trackForkIdentity {
+	if !state.deferUnmatchedExits || !state.lifecycle.trackForkIdentity || !state.elidePlainEnter || state.elideNonBlockingPlainEnter {
 		t.Fatalf("state policy changed after CLI mutation: %+v", state)
 	}
+	handlerPolicy := newTraceEventPolicy(&cli.Options{EventFormat: cli.EventFormatHandler})
+	handlerState := newTraceStateForSession(handlerPolicy)
+	if !handlerState.deferUnmatchedExits || !handlerState.elidePlainEnter || handlerState.elideNonBlockingPlainEnter {
+		t.Fatalf("handler-only state policy = %+v, want deferred synthetic plain exits", handlerState)
+	}
 
-	textPolicy := newTraceEventPolicy(&cli.Options{SummaryOnly: true})
-	textState := newTraceStateForSession(textPolicy)
-	if textState.deferUnmatchedExits || textState.trackForkIdentity {
-		t.Fatalf("summary-only state policy = %+v, want no defer and no fork identity", textState)
+	textState := newTraceStateForSession(newTraceEventPolicy(cli.ParseArgs([]string{"/bin/true"})))
+	if !textState.deferUnmatchedExits || !textState.elidePlainEnter || !textState.elideNonBlockingPlainEnter {
+		t.Fatalf("plain text state policy = %+v, want deferred synthetic plain exits", textState)
+	}
+
+	summaryPolicy := newTraceEventPolicy(&cli.Options{EventFormat: cli.EventFormatText, SummaryOnly: true})
+	summaryState := newTraceStateForSession(summaryPolicy)
+	if summaryState.deferUnmatchedExits || summaryState.lifecycle.trackForkIdentity {
+		t.Fatalf("summary-only state policy = %+v, want no defer and no fork identity", summaryState)
 	}
 	defaultState := newTraceStateForSession(nil)
-	if defaultState.deferUnmatchedExits || !defaultState.trackForkIdentity {
+	if defaultState.deferUnmatchedExits || !defaultState.lifecycle.trackForkIdentity {
 		t.Fatalf("nil state policy = %+v, want default state behavior", defaultState)
 	}
 }
@@ -121,7 +131,7 @@ func TestTraceEventPolicyIsSharedBySessionAndContext(t *testing.T) {
 	if deps.handlerOpts != policy.HandlerOptions() || deps.filter != policy.FilterOptions() {
 		t.Fatal("event context does not consume the session event policy ports")
 	}
-	if !state.deferUnmatchedExits || !state.trackForkIdentity {
+	if !state.deferUnmatchedExits || !state.lifecycle.trackForkIdentity {
 		t.Fatal("session state does not consume the shared event policy")
 	}
 }

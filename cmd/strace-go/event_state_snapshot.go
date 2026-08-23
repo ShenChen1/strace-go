@@ -14,18 +14,12 @@ type pendingSyscallSnapshot struct {
 	probeRetEnter     int32
 	genericEnterRaw   bool
 	unfinishedPrinted bool
+	payloadStorage    *tracePayloadStorage
 	payloadSections   []handler.PayloadSection
 }
 
-func (st *TraceState) acquirePendingSnapshot(pending *pendingSyscallState) *pendingSyscallSnapshot {
-	last := len(st.reusableSnapshots) - 1
-	var snapshot *pendingSyscallSnapshot
-	if last < 0 {
-		snapshot = &pendingSyscallSnapshot{}
-	} else {
-		snapshot = st.reusableSnapshots[last]
-		st.reusableSnapshots = st.reusableSnapshots[:last]
-	}
+func (st *traceSyscallCorrelationState) acquirePendingSnapshot(pending *pendingSyscallState) *pendingSyscallSnapshot {
+	snapshot := st.acquirePendingSnapshotSlot()
 	*snapshot = pendingSyscallSnapshot{
 		pid:               pending.pid,
 		tid:               pending.tid,
@@ -35,15 +29,47 @@ func (st *TraceState) acquirePendingSnapshot(pending *pendingSyscallState) *pend
 		probeRetEnter:     pending.probeRetEnter,
 		genericEnterRaw:   pending.genericEnterRaw,
 		unfinishedPrinted: pending.unfinishedPrinted,
-		payloadSections:   pending.payloadSections,
+		payloadStorage:    pending.payloadStorage,
+		payloadSections:   payloadSectionsFromStorage(pending.payloadStorage),
 	}
 	return snapshot
 }
 
-func (st *TraceState) releasePendingSnapshot(snapshot *pendingSyscallSnapshot) {
+func (st *traceSyscallCorrelationState) acquirePendingSnapshotSlot() *pendingSyscallSnapshot {
+	last := len(st.reusableSnapshots) - 1
+	if last < 0 {
+		return &pendingSyscallSnapshot{}
+	}
+	snapshot := st.reusableSnapshots[last]
+	st.reusableSnapshots = st.reusableSnapshots[:last]
+	return snapshot
+}
+
+func (st *traceSyscallCorrelationState) synthesizeGenericEnter(view *syscallEventView) *pendingSyscallSnapshot {
+	if st == nil || view == nil {
+		return nil
+	}
+	snapshot := st.acquirePendingSnapshotSlot()
+	*snapshot = pendingSyscallSnapshot{
+		pid:             view.pid,
+		tid:             view.tid,
+		sysID:           view.sysID,
+		enterTime:       view.enterTime,
+		args:            view.args,
+		probeRetEnter:   -1,
+		genericEnterRaw: true,
+	}
+	return snapshot
+}
+
+func (st *traceSyscallCorrelationState) releasePendingSnapshot(snapshot *pendingSyscallSnapshot) {
 	if st == nil || snapshot == nil {
 		return
 	}
+	storage := snapshot.payloadStorage
+	snapshot.payloadStorage = nil
+	snapshot.payloadSections = nil
+	st.releasePayloadStorage(storage)
 	*snapshot = pendingSyscallSnapshot{}
 	st.reusableSnapshots = append(st.reusableSnapshots, snapshot)
 }

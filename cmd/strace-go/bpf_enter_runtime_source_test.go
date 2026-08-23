@@ -9,6 +9,8 @@ import (
 func TestBPFEnterRuntimeContractHasDedicatedOwnership(t *testing.T) {
 	root := repoRootForTest(t)
 	runtimeSource := readTextFile(t, filepath.Join(root, "bpf/enter_runtime.h"))
+	abiSource := readTextFile(t, filepath.Join(root, "bpf/event_abi_generated.h"))
+	coreSource := readTextFile(t, filepath.Join(root, "bpf/syscall_event_core_v2.h"))
 	dispatch := readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h"))
 	fragment := readTextFile(t, filepath.Join(root, "bpf/enter_fragment_dispatch.h"))
 	quota := readTextFile(t, filepath.Join(root, "bpf/quota_dispatch.h"))
@@ -18,7 +20,7 @@ func TestBPFEnterRuntimeContractHasDedicatedOwnership(t *testing.T) {
 		"enum enter_prog_index",
 		"#define ENTER_PROLOGUE(ctx)",
 		"emit_enter_dispatch_fallback(",
-		"emit_no_payload_enter_event_v2_direct(",
+		"emit_plain_no_payload_enter_event_v2_direct(",
 		"save_pending_syscall_args(",
 	} {
 		if !strings.Contains(runtimeSource, snippet) {
@@ -46,6 +48,25 @@ func TestBPFEnterRuntimeContractHasDedicatedOwnership(t *testing.T) {
 		if !strings.Contains(source, "ENTER_PROLOGUE(ctx);") {
 			t.Fatal("enter family handler does not use shared ENTER_PROLOGUE")
 		}
+	}
+	for _, snippet := range []string{
+		"#define EVENT_V2_COMPACT_ENTER_BODY_LEN 48",
+	} {
+		if !strings.Contains(abiSource, snippet) {
+			t.Fatalf("compact enter ABI missing %q", snippet)
+		}
+	}
+	for _, snippet := range []string{
+		"struct syscall_compact_enter_event_v2",
+		"emit_compact_syscall_enter_event_v2_direct(",
+		"EVENT_FLAG_GENERIC_ENTER | EVENT_FLAG_COMPACT_ENTER",
+	} {
+		if !strings.Contains(coreSource, snippet) {
+			t.Fatalf("compact enter core missing %q", snippet)
+		}
+	}
+	if !strings.Contains(coreSource, "emit_compact_syscall_enter_event_v2_direct(pid, tid, sys_id, ctx, ts_ns);") {
+		t.Fatal("plain generic enter must use compact event emitter")
 	}
 	for name, source := range map[string]string{
 		"enter_runtime.h":           runtimeSource,

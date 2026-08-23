@@ -11,6 +11,7 @@ import (
 // exec.Cmd ownership to the event loop.
 type traceCommandWaiter interface {
 	Wait() traceCommandExitResult
+	Done() <-chan struct{}
 }
 
 type traceCommandCompletion struct {
@@ -52,6 +53,13 @@ func (c *traceCommandCompletion) Wait() traceCommandExitResult {
 	}
 	<-c.done
 	return c.result
+}
+
+func (c *traceCommandCompletion) Done() <-chan struct{} {
+	if c == nil {
+		return nil
+	}
+	return c.done
 }
 
 func (r *traceTargetRuntime) commandWaiter() traceCommandWaiter {

@@ -47,6 +47,7 @@ type TextRenderer struct {
 	timeFormatter traceTimeFormatter
 	stackTraces   traceStackTraceReader
 	resolver      traceSymbolResolver
+	lineBuffer    []byte
 }
 
 type TextRendererDeps struct {
@@ -77,6 +78,9 @@ func (s *traceSession) textRenderer() *TextRenderer {
 }
 
 func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.Result) {
+	if r.writePlainUnfinishedFast(ev, res) {
+		return
+	}
 	view := ev.eventView()
 	scMeta := ev.effectiveSyscallMeta()
 	args := strings.Join(res.ArgParts, ", ")
@@ -151,6 +155,9 @@ func (r *TextRenderer) ExitStatusLine(tid int, status uint64) string {
 
 // IMPACT: PrintSyscallEvent renders a decoded syscall from the stable event context view.
 func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Result) {
+	if r.writePlainSyscallFast(ev, res) {
+		return
+	}
 	view := ev.eventView()
 	scMeta := ev.effectiveSyscallMeta()
 	ctx := ev.handlerContextForFormatting()

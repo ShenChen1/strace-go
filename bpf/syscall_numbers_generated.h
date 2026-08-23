@@ -17,6 +17,8 @@
 #define SYS_BPF 321
 #define SYS_BRK 12
 #define SYS_CACHESTAT 451
+volatile const u32 SYS_CAPGET = 125;
+volatile const u32 SYS_CAPSET = 126;
 #define SYS_CHDIR 80
 #define SYS_CHMOD 90
 #define SYS_CHOWN 92
@@ -48,6 +50,10 @@
 #define SYS_EPOLL_WAIT_OLD 215
 #define SYS_EVENTFD 284
 #define SYS_EVENTFD2 290
+volatile const u32 SYS_EXECVE = 59;
+volatile const u32 SYS_EXECVEAT = 322;
+volatile const u32 SYS_EXIT = 60;
+volatile const u32 SYS_EXIT_GROUP = 231;
 #define SYS_FACCESSAT 269
 #define SYS_FACCESSAT2 439
 #define SYS_FADVISE64 221
@@ -199,6 +205,7 @@
 #define SYS_MUNLOCKALL 152
 #define SYS_MUNMAP 11
 #define SYS_NAME_TO_HANDLE_AT 303
+volatile const u32 SYS_NANOSLEEP = 35;
 #define SYS_NEWFSTATAT 262
 #define SYS_NFSSERVCTL 180
 #define SYS_OPEN 2
@@ -262,6 +269,8 @@
 #define SYS_RT_SIGPENDING 127
 #define SYS_RT_SIGPROCMASK 14
 #define SYS_RT_SIGQUEUEINFO 129
+volatile const u32 SYS_RT_SIGRETURN = 15;
+volatile const u32 SYS_RT_SIGSUSPEND = 130;
 #define SYS_RT_SIGTIMEDWAIT 128
 #define SYS_RT_TGSIGQUEUEINFO 297
 #define SYS_SCHED_GET_PRIORITY_MAX 146
@@ -374,5 +383,6 @@
 #define SYS_WAITID 247
 #define SYS_WRITE 1
 #define SYS_WRITEV 20
+volatile const u32 SYS_RT_SIGRETURN_COMPAT = 173;
 
 #endif

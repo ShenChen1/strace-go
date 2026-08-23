@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"testing"
+	"time"
 
 	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
@@ -139,6 +141,111 @@ func TestJSONEventWriterBatchesOnlyTraceOutputAndPreservesPhaseOrder(t *testing.
 	}
 	if underlying.writes != 3 {
 		t.Fatalf("underlying writes = %d, want batch/phase/batch", underlying.writes)
+	}
+}
+
+func TestJSONEventWriterReportsSyscallOutputStats(t *testing.T) {
+	underlying := &countingTraceOutputWriter{}
+	output, err := newTraceOutput(TraceOutputDeps{Writer: underlying})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: output})
+	event := syscallEventContext{
+		view: syscallEventView{valid: true, eventType: bpfEventTypeExit, pid: 101, tid: 101, sysID: 39, ret: 101},
+		meta: meta.Syscall{Name: "getpid"},
+	}
+
+	writer.WriteRaw(event)
+	writer.WriteRaw(event)
+	writer.WritePhase("trace_start", 7)
+	writer.WriteRaw(event)
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("JSON writer Flush() error = %v", err)
+	}
+
+	lines := bytes.Split(bytes.TrimSpace(underlying.data.Bytes()), []byte{'\n'})
+	var wantBytes uint64
+	for _, line := range lines {
+		var header struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(line, &header); err != nil {
+			t.Fatalf("decode output line: %v", err)
+		}
+		if header.Type == "syscall" {
+			wantBytes += uint64(len(line) + 1)
+		}
+	}
+	stats := writer.JSONOutputStats()
+	if stats.SyscallBytesWritten != wantBytes || stats.SyscallWriteCalls != 2 || stats.SyscallWriteErrors != 0 {
+		t.Fatalf("JSON syscall output stats = %+v, want bytes=%d writes=2 errors=0", stats, wantBytes)
+	}
+}
+
+func TestJSONEventWriterReportsSyscallOutputError(t *testing.T) {
+	writeErr := errors.New("syscall output failed")
+	output, err := newTraceOutput(TraceOutputDeps{
+		Writer: &fakeTraceOutputWriter{writeErr: writeErr, maxBytes: -1},
+	})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: output})
+	writer.WriteRaw(syscallEventContext{
+		view: syscallEventView{valid: true, eventType: bpfEventTypeExit, pid: 101, tid: 101, sysID: 39, ret: 101},
+		meta: meta.Syscall{Name: "getpid"},
+	})
+	wantBytes := len(writer.syscallBuffer)
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("JSON writer Flush() error = %v", err)
+	}
+	stats := writer.JSONOutputStats()
+	if stats.SyscallBytesWritten != uint64(wantBytes) || stats.SyscallWriteCalls != 1 || stats.SyscallWriteErrors != 1 {
+		t.Fatalf("JSON syscall output error stats = %+v, want bytes=%d writes=1 errors=1", stats, wantBytes)
+	}
+	if err := output.Close(); !errors.Is(err, writeErr) {
+		t.Fatalf("TraceOutput.Close() error = %v, want %v", err, writeErr)
+	}
+}
+
+func TestJSONEventWriterMeasuresSyscallWriteTimeWhenEnabled(t *testing.T) {
+	var output bytes.Buffer
+	clock := &diagnosticTraceClock{
+		now:    time.Unix(100, 0),
+		monoNS: []uint64{100, 145},
+	}
+	writer := newJSONEventWriter(JSONEventWriterDeps{
+		Out:                  &output,
+		Clock:                clock,
+		MeasureSyscallWrites: true,
+	})
+	writer.WriteRaw(syscallEventContext{
+		view: syscallEventView{valid: true, eventType: bpfEventTypeExit, pid: 101, tid: 101, sysID: 39, ret: 101},
+		meta: meta.Syscall{Name: "getpid"},
+	})
+
+	stats := writer.JSONOutputStats()
+	if stats.SyscallWriteTimeNS != 45 || stats.SyscallWriteTimeSamples != 1 || clock.monoCall != 2 {
+		t.Fatalf("JSON write timing = %+v, clock calls=%d; want 45ns/1 sample", stats, clock.monoCall)
+	}
+}
+
+func TestJSONEventWriterSkipsSyscallWriteClockWhenDisabled(t *testing.T) {
+	var output bytes.Buffer
+	clock := &diagnosticTraceClock{
+		now:    time.Unix(100, 0),
+		monoNS: []uint64{100, 145},
+	}
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: &output, Clock: clock})
+	writer.WriteRaw(syscallEventContext{
+		view: syscallEventView{valid: true, eventType: bpfEventTypeExit, pid: 101, tid: 101, sysID: 39, ret: 101},
+		meta: meta.Syscall{Name: "getpid"},
+	})
+
+	stats := writer.JSONOutputStats()
+	if stats.SyscallWriteTimeNS != 0 || stats.SyscallWriteTimeSamples != 0 || clock.monoCall != 0 {
+		t.Fatalf("disabled JSON write timing = %+v, clock calls=%d; want no timing", stats, clock.monoCall)
 	}
 }
 

@@ -7,6 +7,24 @@ import (
 	"strace-go/pkg/cli"
 )
 
+func TestTraceTaskLifecycleStateZeroValueIsSafe(t *testing.T) {
+	var owner traceTaskLifecycleState
+	if owner.lifecycleEventObserved(1) || !owner.quiescent(1) {
+		t.Fatal("zero-value lifecycle owner changed empty-state completion semantics")
+	}
+
+	owner.markLifecyclePending(1)
+	owner.clearLifecyclePending(1)
+	task := owner.ensureTaskState(1, 1)
+	if task == nil || task.TID != 1 || task.TGID != 1 {
+		t.Fatalf("zero-value task state = %+v", task)
+	}
+	owner.retireTask(1)
+	if len(owner.tasks) != 0 {
+		t.Fatalf("retired zero-value task map = %+v, want empty", owner.tasks)
+	}
+}
+
 func TestTraceStateRetiresTaskAfterLifecycleFree(t *testing.T) {
 	state := newTraceState()
 	state.handleEnvelope(lifecycleEnvelopeForTask(100, 100, lifecycleFork, 100, 101))
@@ -15,10 +33,10 @@ func TestTraceStateRetiresTaskAfterLifecycleFree(t *testing.T) {
 	if update.lifecycleTask == nil || update.lifecycleTask.TID != 101 {
 		t.Fatalf("lifecycle snapshot = %+v, want child snapshot", update.lifecycleTask)
 	}
-	if _, ok := state.tasks[101]; ok {
+	if _, ok := state.lifecycle.tasks[101]; ok {
 		t.Fatal("freed task remains in active task state")
 	}
-	if _, ok := state.pendingForks[101]; ok {
+	if _, ok := state.lifecycle.pendingForks[101]; ok {
 		t.Fatal("freed task remains in pending fork state")
 	}
 }
@@ -30,11 +48,11 @@ func TestTraceStateDoesNotRetainUnfollowedForkChild(t *testing.T) {
 	if update.lifecycleTask == nil || update.lifecycleTask.TID != 201 {
 		t.Fatalf("fork snapshot = %+v, want child snapshot", update.lifecycleTask)
 	}
-	if _, ok := state.tasks[201]; ok {
+	if _, ok := state.lifecycle.tasks[201]; ok {
 		t.Fatal("unfollowed child remains in active task state")
 	}
-	if len(state.pendingForks) != 0 {
-		t.Fatalf("pending forks = %v, want empty without follow-forks", state.pendingForks)
+	if len(state.lifecycle.pendingForks) != 0 {
+		t.Fatalf("pending forks = %v, want empty without follow-forks", state.lifecycle.pendingForks)
 	}
 }
 
@@ -52,7 +70,7 @@ func TestTraceStateKeepsTaskUntilLifecycleAfterTerminatingSyscall(t *testing.T) 
 		eventFlags: bpfEventFlagGenericEnter,
 	}
 	state.handleEnvelope(enter)
-	task, ok := state.tasks[300]
+	task, ok := state.lifecycle.tasks[300]
 	if !ok {
 		t.Fatal("terminating syscall enter did not create task state")
 	}
@@ -62,16 +80,16 @@ func TestTraceStateKeepsTaskUntilLifecycleAfterTerminatingSyscall(t *testing.T) 
 	exit.eventType = bpfEventTypeExit
 	exit.eventFlags = 0
 	state.handleEnvelope(exit)
-	if task := state.tasks[300]; task == nil || task.Executable != "/bin/target" {
+	if task := state.lifecycle.tasks[300]; task == nil || task.Executable != "/bin/target" {
 		t.Fatalf("terminating syscall task = %+v, want retained executable", task)
 	}
-	if _, ok := state.pendingExecArgs[300]; ok {
+	if _, ok := state.correlation.pendingExecArgs[300]; ok {
 		t.Fatal("terminating syscall exit left pending exec args")
 	}
-	if _, ok := state.suspendedSyscalls[300]; ok {
+	if _, ok := state.correlation.suspendedSyscalls[300]; ok {
 		t.Fatal("terminating syscall exit left suspended syscall state")
 	}
-	if _, ok := state.lifecyclePending[300]; !ok {
+	if _, ok := state.lifecycle.lifecyclePending[300]; !ok {
 		t.Fatal("terminating syscall exit did not mark lifecycle pending")
 	}
 
@@ -79,7 +97,7 @@ func TestTraceStateKeepsTaskUntilLifecycleAfterTerminatingSyscall(t *testing.T) 
 	if update.lifecycleTask == nil || update.lifecycleTask.Executable != "/bin/target" {
 		t.Fatalf("lifecycle snapshot = %+v, want retained executable", update.lifecycleTask)
 	}
-	if _, ok := state.tasks[300]; ok {
+	if _, ok := state.lifecycle.tasks[300]; ok {
 		t.Fatal("lifecycle exit did not retire task state")
 	}
 }

@@ -38,6 +38,14 @@ type traceEventReaderStats struct {
 	ServiceRecords    uint64
 	MaxServiceTimeNS  uint64
 	MaxRemainingBytes uint64
+	StageEnabled      bool
+	StageSampleRate   uint64
+	StateTimeNS       uint64
+	StateRecords      uint64
+	MaxStateTimeNS    uint64
+	DispatchTimeNS    uint64
+	DispatchRecords   uint64
+	MaxDispatchTimeNS uint64
 }
 
 type traceEventReaderStatsReader interface {
@@ -51,6 +59,7 @@ type TraceEventReader struct {
 	decoder        traceRecordDecoder
 	sink           traceEventSink
 	clock          traceClock
+	stageStats     traceEventStageStatsReader
 	deadlineActive bool
 	stats          traceEventReaderStats
 }
@@ -62,6 +71,7 @@ type TraceEventReaderDeps struct {
 	Clock             traceClock
 	MeasureService    bool
 	ServiceSampleRate uint64
+	StageStats        traceEventStageStatsReader
 }
 
 func newTraceEventReader(deps TraceEventReaderDeps) *TraceEventReader {
@@ -73,10 +83,11 @@ func newTraceEventReader(deps TraceEventReaderDeps) *TraceEventReader {
 		serviceSampleRate = 1
 	}
 	return &TraceEventReader{
-		reader:  deps.Reader,
-		decoder: deps.Decoder,
-		sink:    deps.Sink,
-		clock:   deps.Clock,
+		reader:     deps.Reader,
+		decoder:    deps.Decoder,
+		sink:       deps.Sink,
+		clock:      deps.Clock,
+		stageStats: deps.StageStats,
 		stats: traceEventReaderStats{
 			ServiceEnabled:    serviceEnabled,
 			ServiceSampleRate: serviceSampleRate,
@@ -201,7 +212,19 @@ func (r *TraceEventReader) ReaderStats() traceEventReaderStats {
 	if r == nil {
 		return traceEventReaderStats{}
 	}
-	return r.stats
+	stats := r.stats
+	if r.stageStats != nil {
+		stage := r.stageStats.EventStageStats()
+		stats.StageEnabled = stage.Enabled
+		stats.StageSampleRate = stage.SampleRate
+		stats.StateTimeNS = stage.StateTimeNS
+		stats.StateRecords = stage.StateRecords
+		stats.MaxStateTimeNS = stage.MaxStateTimeNS
+		stats.DispatchTimeNS = stage.DispatchTimeNS
+		stats.DispatchRecords = stage.DispatchRecords
+		stats.MaxDispatchTimeNS = stage.MaxDispatchTimeNS
+	}
+	return stats
 }
 
 func (r *TraceEventReader) recordRead(rec *ringbuf.Record) {

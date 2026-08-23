@@ -25,9 +25,22 @@ func TestTraceeWaitOwnershipIsCentralizedInTargetRuntime(t *testing.T) {
 		"type traceTargetRuntime struct",
 		"func newTraceTargetRuntime(",
 		"func (r *traceTargetRuntime) Abort()",
+		"Done() <-chan struct{}",
 	} {
 		if !strings.Contains(runtimeSource, required) {
 			t.Fatalf("target runtime is missing %q", required)
+		}
+	}
+	if strings.Contains(runSource, "go func") || strings.Contains(runSource, "make(chan traceCommandExitResult") {
+		t.Fatal("trace run state must not relay command completion through another goroutine")
+	}
+	for _, required := range []string{
+		"state.cmdDone = deps.command.Done()",
+		"case <-st.cmdDone:",
+		"result := st.command.Wait()",
+	} {
+		if !strings.Contains(runSource, required) {
+			t.Fatalf("trace run state is missing direct completion contract %q", required)
 		}
 	}
 	for _, required := range []string{

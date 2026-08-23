@@ -12,6 +12,16 @@ type fakeTraceAttachExitReader struct {
 	calls  []uint32
 }
 
+func TestTraceAttachStateZeroValueIsSafe(t *testing.T) {
+	var owner traceAttachState
+	if !owner.targetsDone() {
+		t.Fatal("zero-value attach owner reported pending targets")
+	}
+	if exited, err := owner.targetExitFact(1); err != nil || exited {
+		t.Fatalf("zero-value attach exit fact = %v/%v, want false/nil", exited, err)
+	}
+}
+
 func (r *fakeTraceAttachExitReader) IsExited(pid uint32) (bool, error) {
 	r.calls = append(r.calls, pid)
 	if r.err != nil {
@@ -29,10 +39,10 @@ func TestTraceStateRefreshesAttachTargetsFromExitFacts(t *testing.T) {
 	if err := state.RefreshAttachTargets(); err != nil {
 		t.Fatalf("RefreshAttachTargets() error = %v", err)
 	}
-	if _, ok := state.attachTargets[101]; ok {
+	if _, ok := state.attach.targets[101]; ok {
 		t.Fatal("exited attach target 101 was not removed")
 	}
-	if _, ok := state.attachTargets[202]; !ok {
+	if _, ok := state.attach.targets[202]; !ok {
 		t.Fatal("live attach target 202 was removed")
 	}
 	if len(reader.calls) != 2 {

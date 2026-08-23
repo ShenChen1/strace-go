@@ -235,8 +235,55 @@ int enter_clone3(struct trace_event_raw_sys_enter *ctx) {
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_bpf(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
+    int is_prog_load = is_bpf_prog_load_enter_direct(ctx);
+    int is_uprobe_multi = is_bpf_uprobe_multi_enter_direct(ctx);
+    if (is_prog_load) {
+        bpf_tail_call(ctx, &enter_progs, ENTER_PROG_BPF_PROG_LOAD);
+    }
+    if (is_uprobe_multi) {
+        bpf_tail_call(ctx, &enter_progs, ENTER_PROG_BPF_UPROBE_MULTI);
+    }
     emit_bpf_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+    if (ctx->args[0] == BPF_DIRECT_MAP_GET_NEXT_KEY) {
+        u32 key_size = bpf_map_get_next_key_key_size_direct(ctx->args[1], ctx->args[2]);
+        if (key_size > 0) {
+            save_pending_syscall_aux(tid, key_size);
+        }
+    } else if (ctx->args[0] == BPF_DIRECT_TASK_FD_QUERY) {
+        u32 buf_len = 0;
+        if (bpf_attr_read_u32_direct(
+                ctx->args[1],
+                ctx->args[2],
+                BPF_DIRECT_TASK_FD_QUERY_BUF_LEN_OFF,
+                &buf_len)) {
+            save_pending_syscall_aux(tid, buf_len);
+        }
+    }
+    return 0;
+}
+
+SEC("tracepoint/raw_syscalls/sys_enter")
+int enter_bpf_uprobe_multi(struct trace_event_raw_sys_enter *ctx) {
+    ENTER_PROLOGUE(ctx);
+    emit_bpf_uprobe_multi_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+    save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+    return 0;
+}
+
+SEC("tracepoint/raw_syscalls/sys_enter")
+int enter_bpf_prog_load(struct trace_event_raw_sys_enter *ctx) {
+    ENTER_PROLOGUE(ctx);
+    emit_bpf_prog_load_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+    save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+    bpf_tail_call(ctx, &enter_progs, ENTER_PROG_BPF_PROG_LOAD_DEBUG);
+    return 0;
+}
+
+SEC("tracepoint/raw_syscalls/sys_enter")
+int enter_bpf_prog_load_debug(struct trace_event_raw_sys_enter *ctx) {
+    ENTER_PROLOGUE(ctx);
+    emit_bpf_prog_load_debug_enter_fragment_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
     return 0;
 }
 #endif
@@ -326,7 +373,7 @@ int enter_xattr(struct trace_event_raw_sys_enter *ctx) {
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_fs(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
-    emit_fs_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+    emit_fs_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }
@@ -417,7 +464,7 @@ int enter_no_payload_direct(struct trace_event_raw_sys_enter *ctx) {
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_no_payload_generic(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
-    emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
+    emit_plain_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }

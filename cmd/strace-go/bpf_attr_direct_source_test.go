@@ -14,7 +14,9 @@ func TestBPFBpfAttrPayloadUsesDirectTLV(t *testing.T) {
 	bpfDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_direct_event_v2.h")) +
 		readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_nested_direct_event_v2.h")) +
 		readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_nested_capture_direct_event_v2.h")) +
-		readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_kprobe_multi_direct_event_v2.h"))
+		readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_prog_load_direct_event_v2.h")) +
+		readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_kprobe_multi_direct_event_v2.h")) +
+		readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_multi_array_direct_event_v2.h"))
 
 	for _, snippet := range []string{
 		"#define SYS_BPF 321",
@@ -68,12 +70,13 @@ func TestBPFBpfAttrPayloadUsesDirectTLV(t *testing.T) {
 		"capture_bpf_link_iter_info_tlv_direct(",
 		"capture_bpf_kprobe_multi_tlv_direct(",
 		"capture_bpf_kprobe_syms_tlv_direct(",
-		"capture_bpf_kprobe_u64_array_tlv_direct(",
-		"capture_bpf_prog_stream_read_tlv_direct(",
+		"capture_bpf_multi_u64_array_tlv_direct(",
 		"EVENT_FLAG_TRUNCATED",
 		"record_payload_truncated_event();",
 		"bpf_probe_read_user(payload_data, copied_len",
 		"init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);",
+		"emit_bpf_prog_load_enter_event_v2_direct(",
+		"BPF_DIRECT_PROG_LOAD_CAPACITY",
 	} {
 		if !strings.Contains(bpfDirectHeader, snippet) {
 			t.Fatalf("bpf direct header missing snippet %q", snippet)

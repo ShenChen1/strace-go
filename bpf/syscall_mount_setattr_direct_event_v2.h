@@ -2,11 +2,12 @@
 #define STRACE_GO_SYSCALL_MOUNT_SETATTR_DIRECT_EVENT_V2_H
 
 #include "syscall_path_direct_event_v2.h"
+#include "syscall_fd_path_direct_event_v2.h"
 
 #define MOUNT_SETATTR_BASE_SIZE 32
 #define MOUNT_SETATTR_EXTENSION_MAX 256
 #define MOUNT_SETATTR_DIRECT_PAYLOAD_CAPACITY \
-    (3 * PAYLOAD_TLV_HEADER_SIZE + PATH_ONLY_DIRECT_PATH_MAX + \
+    (FD_PATH_DIRECT_SECTION_MAX + 3 * PAYLOAD_TLV_HEADER_SIZE + PATH_ONLY_DIRECT_PATH_MAX + \
      MOUNT_SETATTR_BASE_SIZE + MOUNT_SETATTR_EXTENSION_MAX)
 
 static __always_inline u32 capture_mount_setattr_base_tlv_direct(
@@ -118,11 +119,20 @@ static __always_inline u32 capture_mount_setattr_enter_payload_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,
     struct trace_event_raw_sys_enter *ctx,
+    u32 *cfg,
     u16 *event_flags)
 {
-    u32 payload_size = capture_path_only_tlv_direct(
+    u32 payload_size = 0;
+    if (cfg && (*cfg & CONFIG_FD_STATE)) {
+        payload_size += capture_fd_path_tlv_direct(
+            ptr,
+            payload_offset + payload_size,
+            0,
+            (s32)ctx->args[0]);
+    }
+    payload_size += capture_path_only_tlv_direct(
         ptr,
-        payload_offset,
+        payload_offset + payload_size,
         1,
         ctx->args[1]);
     payload_size += capture_mount_setattr_base_tlv_direct(

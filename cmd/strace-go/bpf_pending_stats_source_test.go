@@ -85,13 +85,28 @@ func TestBPFTrackedMapUpdatesAreChecked(t *testing.T) {
 	if !strings.Contains(src.straceSource, "static __always_inline void record_lifecycle_map_update_fail(void)") {
 		t.Fatal("bpf/strace.c missing lifecycle map update helper")
 	}
+	for _, field := range []string{
+		"u64 lifecycle_fork_seen;",
+		"u64 lifecycle_fork_parent_tracked;",
+		"u64 lifecycle_fork_parent_untracked;",
+		"u64 lifecycle_fork_child_filter_installed;",
+		"u64 lifecycle_fork_child_filter_failed;",
+		"u64 lifecycle_exec_seen;",
+		"u64 lifecycle_exec_untracked;",
+		"u64 lifecycle_exit_seen;",
+		"u64 lifecycle_exit_untracked;",
+	} {
+		if !strings.Contains(src.straceSource, field) {
+			t.Fatalf("bpf_stats missing lifecycle diagnostic field %q", field)
+		}
+	}
 	forkBody, ok := bpfFunctionBody(src.straceSource, "trace_sched_process_fork")
 	if !ok {
 		t.Fatal("strace.c missing trace_sched_process_fork body")
 	}
 	for _, snippet := range []string{
 		"install_pre_exec_filter(child_pid);",
-		"install_tracked_filter(child_pid);",
+		"record_lifecycle_fork_child_filter(install_tracked_filter(child_pid));",
 	} {
 		if !strings.Contains(forkBody, snippet) {
 			t.Fatalf("fork lifecycle update gate missing %q", snippet)
@@ -134,7 +149,7 @@ func TestBPFOrphanExitIsFilteredAndCounted(t *testing.T) {
 		t.Fatal("bpf/pending_state.h missing unmatched-exit helper")
 	}
 	for _, snippet := range []string{
-		"if (!is_lifecycle_task_tracked(pid, tid)) return 0;",
+		"if (!is_lifecycle_task_tracked(pid, tid))",
 		"if (!should_trace_syscall(sys_id, cfg)",
 		"record_orphan_exit();",
 	} {

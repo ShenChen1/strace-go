@@ -5,20 +5,6 @@ import (
 	"strace-go/pkg/meta"
 )
 
-const (
-	bpfEventTypeEnter        uint16 = 1
-	bpfEventTypeExit         uint16 = 2
-	bpfEventTypeLifecycle    uint16 = 3
-	bpfEventFlagGenericEnter uint32 = 1
-	bpfEventFlagPayloadTLV   uint32 = 2
-	bpfEventFlagTruncated    uint32 = 4
-	bpfEventFlagExitFragment uint32 = 8
-	lifecycleFork            uint32 = 1
-	lifecycleExec            uint32 = 2
-	lifecycleExit            uint32 = 3
-	lifecycleFree            uint32 = 4
-)
-
 type jsonSyscallEvent struct {
 	Type            string               `json:"type"`
 	EventVersion    uint16               `json:"event_version,omitempty"`
@@ -100,33 +86,56 @@ type jsonPhaseEvent struct {
 }
 
 type jsonStatsEvent struct {
-	Type                   string `json:"type"`
-	RingbufReserveFail     uint64 `json:"ringbuf_reserve_fail"`
-	RingbufCopyFail        uint64 `json:"ringbuf_copy_fail"`
-	PayloadTruncatedEvents uint64 `json:"payload_truncated_events"`
-	PendingUpdateFail      uint64 `json:"pending_update_fail"`
-	OrphanExit             uint64 `json:"orphan_exit"`
-	PendingMismatch        uint64 `json:"pending_mismatch"`
-	LifecycleMapUpdateFail uint64 `json:"lifecycle_map_update_fail"`
-	PendingStale           uint64 `json:"pending_stale"`
-	RecordsRead            uint64 `json:"records_read"`
-	RecordsDecoded         uint64 `json:"records_decoded"`
-	RecordsInvalid         uint64 `json:"records_invalid"`
-	RecordsRouted          uint64 `json:"records_routed"`
-	ServiceEnabled         bool   `json:"service_enabled"`
-	ServiceSampleRate      uint64 `json:"service_sample_rate"`
-	BytesRead              uint64 `json:"bytes_read"`
-	MaxRecordBytes         uint64 `json:"max_record_bytes"`
-	ReadTimeNS             uint64 `json:"read_time_ns"`
-	DecodeTimeNS           uint64 `json:"decode_time_ns"`
-	SinkTimeNS             uint64 `json:"sink_time_ns"`
-	MinRemainingBytes      uint64 `json:"min_remaining_bytes"`
-	ServiceTimeNS          uint64 `json:"service_time_ns"`
-	ServiceRecords         uint64 `json:"service_records"`
-	MaxServiceTimeNS       uint64 `json:"max_service_time_ns"`
-	MaxRemainingBytes      uint64 `json:"max_remaining_bytes"`
-	Available              bool   `json:"available"`
-	Error                  string `json:"error,omitempty"`
+	Type                       string `json:"type"`
+	RingbufReserveFail         uint64 `json:"ringbuf_reserve_fail"`
+	RingbufCopyFail            uint64 `json:"ringbuf_copy_fail"`
+	PayloadTruncatedEvents     uint64 `json:"payload_truncated_events"`
+	PendingUpdateFail          uint64 `json:"pending_update_fail"`
+	OrphanExit                 uint64 `json:"orphan_exit"`
+	PendingMismatch            uint64 `json:"pending_mismatch"`
+	LifecycleMapUpdateFail     uint64 `json:"lifecycle_map_update_fail"`
+	LifecycleForkSeen          uint64 `json:"lifecycle_fork_seen"`
+	LifecycleForkTracked       uint64 `json:"lifecycle_fork_parent_tracked"`
+	LifecycleForkUntracked     uint64 `json:"lifecycle_fork_parent_untracked"`
+	LifecycleForkInstalled     uint64 `json:"lifecycle_fork_child_filter_installed"`
+	LifecycleForkFailed        uint64 `json:"lifecycle_fork_child_filter_failed"`
+	LifecycleExecSeen          uint64 `json:"lifecycle_exec_seen"`
+	LifecycleExecUntracked     uint64 `json:"lifecycle_exec_untracked"`
+	LifecycleExitSeen          uint64 `json:"lifecycle_exit_seen"`
+	LifecycleExitUntracked     uint64 `json:"lifecycle_exit_untracked"`
+	PendingStale               uint64 `json:"pending_stale"`
+	RecordsRead                uint64 `json:"records_read"`
+	ProducerAttemptsLowerBound uint64 `json:"producer_attempts_lower_bound"`
+	RecordsDecoded             uint64 `json:"records_decoded"`
+	RecordsInvalid             uint64 `json:"records_invalid"`
+	RecordsRouted              uint64 `json:"records_routed"`
+	ServiceEnabled             bool   `json:"service_enabled"`
+	ServiceSampleRate          uint64 `json:"service_sample_rate"`
+	BytesRead                  uint64 `json:"bytes_read"`
+	MaxRecordBytes             uint64 `json:"max_record_bytes"`
+	ReadTimeNS                 uint64 `json:"read_time_ns"`
+	DecodeTimeNS               uint64 `json:"decode_time_ns"`
+	SinkTimeNS                 uint64 `json:"sink_time_ns"`
+	MinRemainingBytes          uint64 `json:"min_remaining_bytes"`
+	ServiceTimeNS              uint64 `json:"service_time_ns"`
+	ServiceRecords             uint64 `json:"service_records"`
+	MaxServiceTimeNS           uint64 `json:"max_service_time_ns"`
+	MaxRemainingBytes          uint64 `json:"max_remaining_bytes"`
+	SyscallOutputBytes         uint64 `json:"syscall_output_bytes"`
+	SyscallOutputWrites        uint64 `json:"syscall_output_writes"`
+	SyscallOutputWriteErrors   uint64 `json:"syscall_output_write_errors"`
+	SyscallWriteTimeNS         uint64 `json:"syscall_write_time_ns"`
+	SyscallWriteTimeSamples    uint64 `json:"syscall_write_time_samples"`
+	StageEnabled               bool   `json:"stage_enabled"`
+	StageSampleRate            uint64 `json:"stage_sample_rate"`
+	StateTimeNS                uint64 `json:"state_time_ns"`
+	StateRecords               uint64 `json:"state_records"`
+	MaxStateTimeNS             uint64 `json:"max_state_time_ns"`
+	DispatchTimeNS             uint64 `json:"dispatch_time_ns"`
+	DispatchRecords            uint64 `json:"dispatch_records"`
+	MaxDispatchTimeNS          uint64 `json:"max_dispatch_time_ns"`
+	Available                  bool   `json:"available"`
+	Error                      string `json:"error,omitempty"`
 }
 
 func newJSONReadyEventAt(targetPID int, attachPIDs []int, startTimeNS uint64, timeNS uint64) jsonReadyEvent {
@@ -227,35 +236,59 @@ func newJSONStatsEvent(
 	stats bpfRuntimeStats,
 	pendingStale uint64,
 	readerStats traceEventReaderStats,
+	outputStats traceJSONOutputStats,
 ) jsonStatsEvent {
 	return jsonStatsEvent{
-		Type:                   "stats",
-		RingbufReserveFail:     stats.RingbufReserveFail,
-		RingbufCopyFail:        stats.RingbufCopyFail,
-		PayloadTruncatedEvents: stats.PayloadTruncatedEvents,
-		PendingUpdateFail:      stats.PendingUpdateFail,
-		OrphanExit:             stats.OrphanExit,
-		PendingMismatch:        stats.PendingMismatch,
-		LifecycleMapUpdateFail: stats.LifecycleMapUpdateFail,
-		PendingStale:           pendingStale,
-		RecordsRead:            readerStats.RecordsRead,
-		RecordsDecoded:         readerStats.RecordsDecoded,
-		RecordsInvalid:         readerStats.RecordsInvalid,
-		RecordsRouted:          readerStats.RecordsRouted,
-		ServiceEnabled:         readerStats.ServiceEnabled,
-		ServiceSampleRate:      readerStats.ServiceSampleRate,
-		BytesRead:              readerStats.BytesRead,
-		MaxRecordBytes:         readerStats.MaxRecordBytes,
-		ReadTimeNS:             readerStats.ReadTimeNS,
-		DecodeTimeNS:           readerStats.DecodeTimeNS,
-		SinkTimeNS:             readerStats.SinkTimeNS,
-		MinRemainingBytes:      readerStats.MinRemainingBytes,
-		ServiceTimeNS:          readerStats.ServiceTimeNS,
-		ServiceRecords:         readerStats.ServiceRecords,
-		MaxServiceTimeNS:       readerStats.MaxServiceTimeNS,
-		MaxRemainingBytes:      readerStats.MaxRemainingBytes,
-		Available:              stats.Available,
-		Error:                  stats.Error,
+		Type:                       "stats",
+		RingbufReserveFail:         stats.RingbufReserveFail,
+		RingbufCopyFail:            stats.RingbufCopyFail,
+		PayloadTruncatedEvents:     stats.PayloadTruncatedEvents,
+		PendingUpdateFail:          stats.PendingUpdateFail,
+		OrphanExit:                 stats.OrphanExit,
+		PendingMismatch:            stats.PendingMismatch,
+		LifecycleMapUpdateFail:     stats.LifecycleMapUpdateFail,
+		LifecycleForkSeen:          stats.LifecycleForkSeen,
+		LifecycleForkTracked:       stats.LifecycleForkTracked,
+		LifecycleForkUntracked:     stats.LifecycleForkUntracked,
+		LifecycleForkInstalled:     stats.LifecycleForkInstalled,
+		LifecycleForkFailed:        stats.LifecycleForkFailed,
+		LifecycleExecSeen:          stats.LifecycleExecSeen,
+		LifecycleExecUntracked:     stats.LifecycleExecUntracked,
+		LifecycleExitSeen:          stats.LifecycleExitSeen,
+		LifecycleExitUntracked:     stats.LifecycleExitUntracked,
+		PendingStale:               pendingStale,
+		RecordsRead:                readerStats.RecordsRead,
+		ProducerAttemptsLowerBound: producerAttemptLowerBound(stats, readerStats),
+		RecordsDecoded:             readerStats.RecordsDecoded,
+		RecordsInvalid:             readerStats.RecordsInvalid,
+		RecordsRouted:              readerStats.RecordsRouted,
+		ServiceEnabled:             readerStats.ServiceEnabled,
+		ServiceSampleRate:          readerStats.ServiceSampleRate,
+		BytesRead:                  readerStats.BytesRead,
+		MaxRecordBytes:             readerStats.MaxRecordBytes,
+		ReadTimeNS:                 readerStats.ReadTimeNS,
+		DecodeTimeNS:               readerStats.DecodeTimeNS,
+		SinkTimeNS:                 readerStats.SinkTimeNS,
+		MinRemainingBytes:          readerStats.MinRemainingBytes,
+		ServiceTimeNS:              readerStats.ServiceTimeNS,
+		ServiceRecords:             readerStats.ServiceRecords,
+		MaxServiceTimeNS:           readerStats.MaxServiceTimeNS,
+		MaxRemainingBytes:          readerStats.MaxRemainingBytes,
+		SyscallOutputBytes:         outputStats.SyscallBytesWritten,
+		SyscallOutputWrites:        outputStats.SyscallWriteCalls,
+		SyscallOutputWriteErrors:   outputStats.SyscallWriteErrors,
+		SyscallWriteTimeNS:         outputStats.SyscallWriteTimeNS,
+		SyscallWriteTimeSamples:    outputStats.SyscallWriteTimeSamples,
+		StageEnabled:               readerStats.StageEnabled,
+		StageSampleRate:            readerStats.StageSampleRate,
+		StateTimeNS:                readerStats.StateTimeNS,
+		StateRecords:               readerStats.StateRecords,
+		MaxStateTimeNS:             readerStats.MaxStateTimeNS,
+		DispatchTimeNS:             readerStats.DispatchTimeNS,
+		DispatchRecords:            readerStats.DispatchRecords,
+		MaxDispatchTimeNS:          readerStats.MaxDispatchTimeNS,
+		Available:                  stats.Available,
+		Error:                      stats.Error,
 	}
 }
 

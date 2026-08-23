@@ -141,6 +141,15 @@ func (s *bpfProgramSelection) addEnterSlot(slot uint32) error {
 		return err
 	}
 	switch slot {
+	case enterProgBpf:
+		// BPF command and attach type select nested providers at runtime.
+		if err := s.addEnterSlotUnchecked(enterProgBpfUprobeMulti); err != nil {
+			return err
+		}
+		if err := s.addEnterSlotUnchecked(enterProgBpfProgLoad); err != nil {
+			return err
+		}
+		return s.addEnterSlotUnchecked(enterProgBpfProgLoadDebug)
 	case enterProgIovec:
 		return s.addEnterSlotUnchecked(enterProgIovecBase)
 	case enterProgMsg:

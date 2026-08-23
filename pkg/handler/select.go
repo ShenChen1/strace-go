@@ -27,6 +27,7 @@ const (
 	pollPayloadLimit   = 512
 	selectFdSetArgBase = 1
 	selectFdSetArgLast = 3
+	pselect6SigmaskArg = 6
 )
 
 func (h *SelectHandler) Handle(ctx *Context) Result {
@@ -36,6 +37,9 @@ func (h *SelectHandler) Handle(ctx *Context) Result {
 
 	h.formatSelectFdSets(ctx, nfds, &res)
 	h.formatSelectTimeout(ctx, &res)
+	if ctx.SysName == "pselect6" {
+		h.formatPselect6Sigmask(ctx, &res)
+	}
 
 	if ctx.Ret == 0 {
 		res.ReturnDesc = "Timeout"
@@ -71,10 +75,43 @@ func (h *SelectHandler) formatSelectTimeout(ctx *Context, res *Result) {
 	}
 
 	if data, ok := selectTimeoutPayload(ctx); ok {
-		res.ArgParts = append(res.ArgParts, format.Timeval(data))
+		if ctx.SysName == "pselect6" {
+			res.ArgParts = append(res.ArgParts, format.Timespec(data))
+		} else {
+			res.ArgParts = append(res.ArgParts, format.Timeval(data))
+		}
 	} else {
 		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", tptr))
 	}
+}
+
+func (h *SelectHandler) formatPselect6Sigmask(ctx *Context, res *Result) {
+	ptr := ctx.Args[5]
+	if ptr == 0 {
+		res.ArgParts = append(res.ArgParts, "NULL")
+		return
+	}
+
+	wrapper, ok := ctx.PayloadStruct(5, PayloadDirectionIn)
+	if !ok || len(wrapper) < 16 {
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ptr))
+		return
+	}
+
+	maskPtr := binary.LittleEndian.Uint64(wrapper[0:8])
+	sigsetsize := binary.LittleEndian.Uint64(wrapper[8:16])
+	sigmask := fmt.Sprintf("%#x", maskPtr)
+	if sigsetsize > 0 && sigsetsize <= 8 {
+		if mask, ok := pselect6SigmaskSnapshot(ctx, int(sigsetsize)); ok {
+			if decoded := format.Sigset(mask); decoded != "" {
+				sigmask = decoded
+			}
+		}
+	}
+	res.ArgParts = append(
+		res.ArgParts,
+		fmt.Sprintf("{sigmask=%s, sigsetsize=%d}", sigmask, sigsetsize),
+	)
 }
 
 func (h *SelectHandler) formatSelectExit(ctx *Context, nfds int, res *Result) {
@@ -105,7 +142,11 @@ func (h *SelectHandler) formatSelectExit(ctx *Context, nfds int, res *Result) {
 	tptr := ctx.Args[4]
 	if tptr != 0 {
 		if data, ok := selectExitTimeoutPayload(ctx); ok {
-			outParts = append(outParts, "left "+format.Timeval(data))
+			if ctx.SysName == "pselect6" {
+				outParts = append(outParts, "left "+format.Timespec(data))
+			} else {
+				outParts = append(outParts, "left "+format.Timeval(data))
+			}
 		}
 	}
 	if len(outParts) > 0 {
@@ -234,6 +275,13 @@ func selectTimeoutPayload(ctx *Context) ([]byte, bool) {
 func selectExitTimeoutPayload(ctx *Context) ([]byte, bool) {
 	if data, ok := ctx.PayloadStruct(4, PayloadDirectionOut); ok {
 		return boundedBpfStructData(data, 16)
+	}
+	return nil, false
+}
+
+func pselect6SigmaskSnapshot(ctx *Context, size int) ([]byte, bool) {
+	if data, ok := ctx.PayloadStruct(pselect6SigmaskArg, PayloadDirectionIn); ok && len(data) >= size {
+		return data[:size], true
 	}
 	return nil, false
 }

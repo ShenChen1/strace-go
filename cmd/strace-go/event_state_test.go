@@ -45,11 +45,11 @@ func TestJSONEventsArePairedByTIDState(t *testing.T) {
 	}
 
 	session.handleEnvelope(enter)
-	if got := len(state.pendingSyscalls); got != 1 {
+	if got := len(state.correlation.pendingSyscalls); got != 1 {
 		t.Fatalf("pendingSyscalls after enter = %d, want 1", got)
 	}
 	session.handleEnvelope(exit)
-	if got := len(state.pendingSyscalls); got != 0 {
+	if got := len(state.correlation.pendingSyscalls); got != 0 {
 		t.Fatalf("pendingSyscalls after exit = %d, want 0", got)
 	}
 
@@ -115,12 +115,12 @@ func TestTraceStateHandlePairsEnterExitAndCleansLifecycle(t *testing.T) {
 	}
 
 	enterUpdate := state.handleEnvelope(enter)
-	if enterUpdate.kind != traceStateSyscallEnter || len(state.pendingSyscalls) != 1 {
-		t.Fatalf("enter update = %+v pending=%d, want enter with one pending", enterUpdate, len(state.pendingSyscalls))
+	if enterUpdate.kind != traceStateSyscallEnter || len(state.correlation.pendingSyscalls) != 1 {
+		t.Fatalf("enter update = %+v pending=%d, want enter with one pending", enterUpdate, len(state.correlation.pendingSyscalls))
 	}
 	exitUpdate := state.handleEnvelope(exit)
-	if exitUpdate.kind != traceStateSyscallExit || exitUpdate.pendingEnter == nil || len(state.pendingSyscalls) != 0 {
-		t.Fatalf("exit update = %+v pending=%d, want paired exit with no pending", exitUpdate, len(state.pendingSyscalls))
+	if exitUpdate.kind != traceStateSyscallExit || exitUpdate.pendingEnter == nil || len(state.correlation.pendingSyscalls) != 0 {
+		t.Fatalf("exit update = %+v pending=%d, want paired exit with no pending", exitUpdate, len(state.correlation.pendingSyscalls))
 	}
 
 	state.rememberPendingExecArgs(1235, "execve(...)")
@@ -135,7 +135,7 @@ func TestTraceStateHandlePairsEnterExitAndCleansLifecycle(t *testing.T) {
 	if lifecycleUpdate.kind != traceStateLifecycle || lifecycleUpdate.lifecycleView.action != lifecycleFree {
 		t.Fatalf("lifecycle update = %+v, want lifecycle free view", lifecycleUpdate)
 	}
-	if len(state.pendingExecArgs) != 0 || len(state.suspendedSyscalls) != 0 || len(state.pendingSyscalls) != 0 {
+	if len(state.correlation.pendingExecArgs) != 0 || len(state.correlation.suspendedSyscalls) != 0 || len(state.correlation.pendingSyscalls) != 0 {
 		t.Fatalf("lifecycle free did not clear pending state: %+v", state)
 	}
 }
@@ -151,9 +151,113 @@ func TestTraceStateExitWithoutEnterStillEnsuresTaskState(t *testing.T) {
 		enterTime: 80,
 	})
 
-	task := state.tasks[1235]
+	task := state.lifecycle.tasks[1235]
 	if task == nil || !task.Alive || task.LastSeenNS != 80 {
 		t.Fatalf("exit-only task state = %+v, want alive task at timestamp 80", task)
+	}
+}
+
+func TestTraceStateSynthesizesElidedPlainEnter(t *testing.T) {
+	for _, format := range []string{cli.EventFormatText, cli.EventFormatJSON, cli.EventFormatHandler} {
+		t.Run(format, func(t *testing.T) {
+			policy := newTraceEventPolicy(&cli.Options{EventFormat: format})
+			state := newTraceStateForSession(policy)
+			exit := traceEventEnvelope{
+				valid:     true,
+				pid:       1234,
+				tid:       1235,
+				sysID:     syscallIDByName(t, "getpid"),
+				eventType: bpfEventTypeExit,
+				args:      [6]uint64{7, 8},
+				enterTime: 80,
+				duration:  20,
+				ret:       1234,
+			}
+			update := state.handleEnvelope(exit)
+			if update.deferred || update.pendingEnter == nil || !update.pendingEnter.genericEnterRaw {
+				t.Fatalf("elided plain exit update = %+v, want synthetic paired enter", update)
+			}
+			if got := update.pendingEnter.args; got != exit.args {
+				t.Fatalf("synthetic args = %#v, want %#v", got, exit.args)
+			}
+			if len(state.lifecycle.tasks) != 0 {
+				t.Fatalf("synthetic plain exit created syscall task state: %+v", state.lifecycle.tasks)
+			}
+			state.releaseTraceStateUpdate(update)
+		})
+	}
+}
+
+func TestTraceStateSynthesizesTextStandaloneTimeExit(t *testing.T) {
+	textState := newTraceStateForSession(newTraceEventPolicy(cli.ParseArgs([]string{"/bin/true"})))
+	textExit := traceEventEnvelope{
+		valid:     true,
+		pid:       1234,
+		tid:       1235,
+		sysID:     syscallIDByName(t, "clock_gettime"),
+		eventType: bpfEventTypeExit,
+		args:      [6]uint64{1, 0x2000},
+		enterTime: 80,
+		duration:  20,
+		ret:       0,
+	}
+	update := textState.handleEnvelope(textExit)
+	if update.deferred || update.pendingEnter == nil || !update.pendingEnter.genericEnterRaw {
+		t.Fatalf("text standalone time exit update = %+v, want synthetic paired enter", update)
+	}
+	if update.pendingEnter.args != textExit.args {
+		t.Fatalf("synthetic time args = %#v, want %#v", update.pendingEnter.args, textExit.args)
+	}
+	textState.releaseTraceStateUpdate(update)
+
+	jsonState := newTraceStateForSession(newTraceEventPolicy(&cli.Options{EventFormat: cli.EventFormatJSON}))
+	deferred := jsonState.handleEnvelope(textExit)
+	if !deferred.deferred || deferred.pendingEnter != nil || len(jsonState.correlation.pendingExits) != 1 {
+		t.Fatalf("JSON standalone time exit update = %+v pending=%d, want conservative defer", deferred, len(jsonState.correlation.pendingExits))
+	}
+}
+
+func TestTraceStateSynthesizesTextStandaloneSmallStructExit(t *testing.T) {
+	for _, name := range []string{"arch_prctl", "get_robust_list"} {
+		t.Run(name, func(t *testing.T) {
+			state := newTraceStateForSession(newTraceEventPolicy(cli.ParseArgs([]string{"/bin/true"})))
+			args := [6]uint64{0, 0x2000, 0x3000}
+			if name == "arch_prctl" {
+				args[0] = 0x1003
+			}
+			update := state.handleEnvelope(traceEventEnvelope{
+				valid:     true,
+				pid:       1234,
+				tid:       1235,
+				sysID:     syscallIDByName(t, name),
+				eventType: bpfEventTypeExit,
+				args:      args,
+				enterTime: 80,
+				ret:       0,
+			})
+			if update.deferred || update.pendingEnter == nil || !update.pendingEnter.genericEnterRaw {
+				t.Fatalf("%s text exit update = %+v, want synthetic paired enter", name, update)
+			}
+			state.releaseTraceStateUpdate(update)
+		})
+	}
+}
+
+func TestTraceStateKeepsSpecialEnterExitDeferred(t *testing.T) {
+	policy := newTraceEventPolicy(&cli.Options{EventFormat: cli.EventFormatJSON})
+	state := newTraceStateForSession(policy)
+	exit := traceEventEnvelope{
+		valid:     true,
+		pid:       1234,
+		tid:       1235,
+		sysID:     syscallIDByName(t, "openat"),
+		eventType: bpfEventTypeExit,
+		enterTime: 80,
+		ret:       -2,
+	}
+	update := state.handleEnvelope(exit)
+	if !update.deferred || update.pendingEnter != nil || len(state.correlation.pendingExits) != 1 {
+		t.Fatalf("special route exit update = %+v pending=%d, want deferred", update, len(state.correlation.pendingExits))
 	}
 }
 
@@ -169,7 +273,7 @@ func TestTraceStateRecyclesMismatchedPendingExit(t *testing.T) {
 		eventType:  bpfEventTypeEnter,
 		eventFlags: bpfEventFlagGenericEnter,
 	})
-	pending := state.pendingSyscalls[1235]
+	pending := state.correlation.pendingSyscalls[1235]
 	if pending == nil {
 		t.Fatal("enter did not create pending syscall")
 	}
@@ -184,11 +288,11 @@ func TestTraceStateRecyclesMismatchedPendingExit(t *testing.T) {
 	if update.pendingEnter != nil {
 		t.Fatalf("mismatched exit paired with pending state: %+v", update.pendingEnter)
 	}
-	if len(state.pendingSyscalls) != 0 {
-		t.Fatalf("pending syscalls = %d, want zero after mismatch", len(state.pendingSyscalls))
+	if len(state.correlation.pendingSyscalls) != 0 {
+		t.Fatalf("pending syscalls = %d, want zero after mismatch", len(state.correlation.pendingSyscalls))
 	}
-	if len(state.reusablePending) != 1 || state.reusablePending[0] != pending {
-		t.Fatalf("reusable pending = %p, want mismatched object %p", state.reusablePending, pending)
+	if len(state.correlation.reusablePending) != 1 || state.correlation.reusablePending[0] != pending {
+		t.Fatalf("reusable pending = %p, want mismatched object %p", state.correlation.reusablePending, pending)
 	}
 }
 
@@ -206,8 +310,8 @@ func TestTraceStateReordersExitObservedBeforeEnter(t *testing.T) {
 		ret:       -21,
 	}
 	deferred := state.handleEnvelope(exit)
-	if !deferred.deferred || len(state.pendingExits) != 1 {
-		t.Fatalf("exit update = %+v pending exits = %d, want deferred exit", deferred, len(state.pendingExits))
+	if !deferred.deferred || len(state.correlation.pendingExits) != 1 {
+		t.Fatalf("exit update = %+v pending exits = %d, want deferred exit", deferred, len(state.correlation.pendingExits))
 	}
 
 	enter := traceEventEnvelope{
@@ -228,14 +332,14 @@ func TestTraceStateReordersExitObservedBeforeEnter(t *testing.T) {
 		}},
 	}
 	update := state.handleEnvelope(enter)
-	if update.deferredExit == nil || update.deferredExit.pendingEnter == nil {
+	if !update.deferredExit.valid || update.deferredExit.pendingEnter == nil {
 		t.Fatalf("enter update = %+v, want deferred exit paired with enter", update)
 	}
 	if len(update.deferredExit.pendingEnter.payloadSections) != 1 ||
 		string(update.deferredExit.pendingEnter.payloadSections[0].Data) != string(path) {
 		t.Fatalf("reordered payload = %+v, want path snapshot", update.deferredExit.pendingEnter.payloadSections)
 	}
-	if len(state.pendingSyscalls) != 0 || len(state.pendingExits) != 0 {
+	if len(state.correlation.pendingSyscalls) != 0 || len(state.correlation.pendingExits) != 0 {
 		t.Fatalf("state after reordered pair = %+v, want no pending syscall or exit", state)
 	}
 }
@@ -251,8 +355,8 @@ func TestTraceStateClearsDeferredExitOnLifecycleFree(t *testing.T) {
 		enterTime: 100,
 	}
 	state.handleEnvelope(exit)
-	if len(state.pendingExits) != 1 {
-		t.Fatalf("pending exits = %d, want one before lifecycle cleanup", len(state.pendingExits))
+	if len(state.correlation.pendingExits) != 1 {
+		t.Fatalf("pending exits = %d, want one before lifecycle cleanup", len(state.correlation.pendingExits))
 	}
 
 	update := state.handleEnvelope(traceEventEnvelope{
@@ -262,11 +366,11 @@ func TestTraceStateClearsDeferredExitOnLifecycleFree(t *testing.T) {
 		eventType:       bpfEventTypeLifecycle,
 		lifecycleAction: lifecycleFree,
 	})
-	if update.deferredExit == nil || update.deferredExit.syscallView.sysID != exit.sysID {
+	if !update.deferredExit.valid || update.deferredExit.syscallView.sysID != exit.sysID {
 		t.Fatalf("lifecycle update = %+v, want deferred unpaired exit", update)
 	}
-	if len(state.pendingExits) != 0 {
-		t.Fatalf("pending exits = %d, want zero after lifecycle free", len(state.pendingExits))
+	if len(state.correlation.pendingExits) != 0 {
+		t.Fatalf("pending exits = %d, want zero after lifecycle free", len(state.correlation.pendingExits))
 	}
 }
 
@@ -294,10 +398,10 @@ func TestTraceStateHandleEnvelopeUsesSyscallViewForPendingPair(t *testing.T) {
 	if enterUpdate.syscallView.tid != 201 || enterUpdate.syscallView.sysID != 60 || enterUpdate.syscallView.args[0] != 7 {
 		t.Fatalf("enter syscall view = %+v, want view tid/sysid/args", enterUpdate.syscallView)
 	}
-	if _, ok := state.pendingSyscalls[201]; !ok {
+	if _, ok := state.correlation.pendingSyscalls[201]; !ok {
 		t.Fatal("pending syscall missing under view tid 201")
 	}
-	if _, ok := state.pendingSyscalls[1]; ok {
+	if _, ok := state.correlation.pendingSyscalls[1]; ok {
 		t.Fatal("pending syscall unexpectedly stored under base envelope tid 1")
 	}
 

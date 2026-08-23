@@ -111,6 +111,106 @@ func TestJSONSyscallEventIncludesBpfProgLoadNestedPayloadSections(t *testing.T) 
 	}
 }
 
+func TestJSONSyscallEventIncludesBpfProgLoadFDArrayPayloadSection(t *testing.T) {
+	attrData := bytes.Repeat([]byte{0x7b}, 168)
+	fdArrayData := []byte{17, 0, 0, 0, 23, 0, 0, 0}
+	args := [6]uint64{5, 0x1000, uint64(len(attrData))}
+	payload := payloadTLVBytesForTest(t,
+		payloadTLVTestSection{
+			kind:    payloadTLVKindBytes,
+			arg:     1,
+			userPtr: args[1],
+			userLen: uint32(len(attrData)),
+			data:    attrData,
+		},
+		payloadTLVTestSection{
+			kind:    payloadTLVKindBytes,
+			arg:     141,
+			userPtr: 0x6000,
+			userLen: uint32(len(fdArrayData)),
+			data:    fdArrayData,
+		},
+	)
+
+	ev := newJSONSyscallEventFromTLVForTest(t, "bpf", bpfEventTypeEnter, args, 0, payload)
+	if len(ev.PayloadSections) != 2 {
+		t.Fatalf("PayloadSections = %d, want attr and fd_array", len(ev.PayloadSections))
+	}
+	section := ev.PayloadSections[1]
+	if section.Kind != "bytes" || section.Direction != "in" || section.ArgIndex != 141 {
+		t.Fatalf("fd_array section = %+v", section)
+	}
+	if data := mustDecodeBase64(t, section.DataBase64); !bytes.Equal(data, fdArrayData) {
+		t.Fatalf("fd_array section data = %v", data)
+	}
+}
+
+func TestJSONSyscallEventIncludesBpfProgLoadFuncInfoPayloadSection(t *testing.T) {
+	attrData := make([]byte, 168)
+	binary.LittleEndian.PutUint32(attrData[76:80], 8)
+	binary.LittleEndian.PutUint64(attrData[80:88], 0x7000)
+	binary.LittleEndian.PutUint32(attrData[88:92], 1)
+	funcInfoData := []byte{0, 0, 0, 0, 0x34, 0x12, 0, 0}
+	args := [6]uint64{5, 0x1000, uint64(len(attrData))}
+	payload := payloadTLVBytesForTest(t,
+		payloadTLVTestSection{
+			kind:    payloadTLVKindBytes,
+			arg:     1,
+			userPtr: args[1],
+			userLen: uint32(len(attrData)),
+			data:    attrData,
+		},
+		payloadTLVTestSection{
+			kind:    payloadTLVKindBytes,
+			arg:     142,
+			userPtr: 0x7000,
+			userLen: uint32(len(funcInfoData)),
+			data:    funcInfoData,
+		},
+	)
+
+	ev := newJSONSyscallEventFromTLVForTest(t, "bpf", bpfEventTypeEnter, args, 0, payload)
+	if len(ev.PayloadSections) != 2 {
+		t.Fatalf("PayloadSections = %d, want attr and func_info", len(ev.PayloadSections))
+	}
+	section := ev.PayloadSections[1]
+	if section.Kind != "bytes" || section.Direction != "in" || section.ArgIndex != 142 {
+		t.Fatalf("func_info section = %+v", section)
+	}
+	if data := mustDecodeBase64(t, section.DataBase64); !bytes.Equal(data, funcInfoData) {
+		t.Fatalf("func_info section data = %v", data)
+	}
+}
+
+func TestJSONSyscallEventIncludesBpfProgLoadDebugPayloadSections(t *testing.T) {
+	attrData := make([]byte, 168)
+	binary.LittleEndian.PutUint32(attrData[92:96], 16)
+	binary.LittleEndian.PutUint64(attrData[96:104], 0x8000)
+	binary.LittleEndian.PutUint32(attrData[104:108], 1)
+	binary.LittleEndian.PutUint32(attrData[116:120], 1)
+	binary.LittleEndian.PutUint64(attrData[128:136], 0x9000)
+	binary.LittleEndian.PutUint32(attrData[136:140], 16)
+	lineData := make([]byte, 16)
+	coreRelosData := make([]byte, 16)
+	args := [6]uint64{5, 0x1000, uint64(len(attrData))}
+	payload := payloadTLVBytesForTest(t,
+		payloadTLVTestSection{kind: payloadTLVKindBytes, arg: 1, userPtr: args[1], userLen: uint32(len(attrData)), data: attrData},
+		payloadTLVTestSection{kind: payloadTLVKindBytes, arg: 143, userPtr: 0x8000, userLen: 16, data: lineData},
+		payloadTLVTestSection{kind: payloadTLVKindBytes, arg: 144, userPtr: 0x9000, userLen: 16, data: coreRelosData},
+	)
+
+	ev := newJSONSyscallEventFromTLVForTest(t, "bpf", bpfEventTypeEnter, args, 0, payload)
+	if len(ev.PayloadSections) != 3 {
+		t.Fatalf("PayloadSections = %d, want attr, line_info, core_relos", len(ev.PayloadSections))
+	}
+	for index, arg := range []int{143, 144} {
+		section := ev.PayloadSections[index+1]
+		if section.Kind != "bytes" || section.Direction != "in" || section.ArgIndex != arg {
+			t.Fatalf("debug section %d = %+v", index, section)
+		}
+	}
+}
+
 func TestJSONSyscallEventIncludesBpfObjPathnamePayloadSection(t *testing.T) {
 	attrData := bytes.Repeat([]byte{0x11}, 12)
 	pathData := []byte("/sys/fs/bpf/test\x00")
@@ -296,7 +396,7 @@ func TestJSONSyscallEventIncludesBpfKprobeMultiPayloadSections(t *testing.T) {
 	}
 }
 
-func TestJSONSyscallEventIncludesBpfProgStreamReadPayloadSection(t *testing.T) {
+func TestJSONSyscallEventIncludesBpfProgStreamReadOutputPayloadSection(t *testing.T) {
 	attrData := bytes.Repeat([]byte{0x66}, 20)
 	streamData := []byte("bPf\x00daTum")
 	args := [6]uint64{37, 0x1000, uint64(len(attrData))}
@@ -317,12 +417,29 @@ func TestJSONSyscallEventIncludesBpfProgStreamReadPayloadSection(t *testing.T) {
 		},
 	)
 
-	ev := newJSONSyscallEventFromTLVForTest(t, "bpf", bpfEventTypeEnter, args, 0, payload)
+	payload = payloadTLVBytesForTest(t,
+		payloadTLVTestSection{
+			kind:    payloadTLVKindBytes,
+			arg:     1,
+			userPtr: args[1],
+			userLen: uint32(len(attrData)),
+			data:    attrData,
+		},
+		payloadTLVTestSection{
+			kind:    payloadTLVKindBytes,
+			arg:     111,
+			flags:   payloadTLVFlagDirectionOut,
+			userPtr: 0x9000,
+			userLen: uint32(len(streamData)),
+			data:    streamData,
+		},
+	)
+	ev := newJSONSyscallEventFromTLVForTest(t, "bpf", bpfEventTypeExit, args, 9, payload)
 	if len(ev.PayloadSections) != 2 {
-		t.Fatalf("PayloadSections = %d, want attr and stream_buf", len(ev.PayloadSections))
+		t.Fatalf("PayloadSections = %d, want attr and stream_buf output", len(ev.PayloadSections))
 	}
 	section := ev.PayloadSections[1]
-	if section.Kind != "bytes" || section.Direction != "in" || section.ArgIndex != 111 {
+	if section.Kind != "bytes" || section.Direction != "out" || section.ArgIndex != 111 {
 		t.Fatalf("stream_buf section = %+v", section)
 	}
 	if data := mustDecodeBase64(t, section.DataBase64); !bytes.Equal(data, streamData) {

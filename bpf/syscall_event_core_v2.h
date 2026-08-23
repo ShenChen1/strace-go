@@ -322,6 +322,56 @@ static __always_inline void emit_syscall_enter_event_v2_direct(
     bpf_ringbuf_submit_dynptr(&ptr, 0);
 }
 
+static __always_inline void emit_compact_syscall_enter_event_v2_direct(
+    u32 pid,
+    u32 tid,
+    u32 sys_id,
+    struct trace_event_raw_sys_enter *ctx,
+    u64 ts_ns)
+{
+    u32 out_size = EVENT_V2_HEADER_LEN + EVENT_V2_COMPACT_ENTER_BODY_LEN;
+    struct bpf_dynptr ptr;
+    long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
+    if (ret < 0) {
+        record_ringbuf_reserve_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    struct event_v2_header header = {};
+    init_syscall_event_v2_header_direct(
+        &header,
+        EVENT_TYPE_ENTER,
+        EVENT_FLAG_GENERIC_ENTER | EVENT_FLAG_COMPACT_ENTER,
+        pid,
+        tid,
+        sys_id,
+        out_size,
+        ts_ns);
+    ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    struct syscall_compact_enter_event_v2 body = {};
+    body.args[0] = ctx->args[0];
+    body.args[1] = ctx->args[1];
+    body.args[2] = ctx->args[2];
+    body.args[3] = ctx->args[3];
+    body.args[4] = ctx->args[4];
+    body.args[5] = ctx->args[5];
+    ret = bpf_dynptr_write(&ptr, EVENT_V2_HEADER_LEN, &body, sizeof(body), 0);
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return;
+    }
+
+    bpf_ringbuf_submit_dynptr(&ptr, 0);
+}
+
 static __always_inline void emit_no_payload_enter_event_v2_direct(
     u32 pid,
     u32 tid,
@@ -339,6 +389,26 @@ static __always_inline void emit_no_payload_enter_event_v2_direct(
             EVENT_FLAG_GENERIC_ENTER,
             ts_ns);
     }
+}
+
+static __always_inline void emit_plain_no_payload_enter_event_v2_direct(
+    u32 pid,
+    u32 tid,
+    u32 sys_id,
+    struct trace_event_raw_sys_enter *ctx,
+    u32 *cfg,
+    u64 ts_ns)
+{
+    if (!cfg || !(*cfg & CONFIG_EMIT_ENTER)) {
+        return;
+    }
+    if (*cfg & CONFIG_ELIDE_PLAIN_ENTER) {
+        u32 *elide = bpf_map_lookup_elem(&plain_enter_elide_map, &sys_id);
+        if (elide) {
+            return;
+        }
+    }
+    emit_compact_syscall_enter_event_v2_direct(pid, tid, sys_id, ctx, ts_ns);
 }
 
 static __always_inline void emit_terminating_exit_event_v2_direct(

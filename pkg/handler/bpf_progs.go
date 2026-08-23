@@ -12,6 +12,7 @@ const (
 	bpfProgLoadLicensePayloadArg   = 101
 	bpfProgLoadLogBufPayloadArg    = 102
 	bpfProgLoadSignaturePayloadArg = 103
+	bpfObjInfoPayloadArg           = 113
 )
 
 // decodeBpfProgLoad decodes BPF_PROG_LOAD arguments.
@@ -30,7 +31,7 @@ func decodeBpfProgLoad(ctx *Context, data []byte, size uint32) string {
 	parts = append(parts, decodeBpfInsns(ctx, insns, insnCnt))
 
 	decodedSize, parts = decodeBpfProgLoadParts1(ctx, parts, data, size, decodedSize)
-	decodedSize, parts = decodeBpfProgLoadParts2(parts, data, size, decodedSize)
+	decodedSize, parts = decodeBpfProgLoadParts2(ctx, parts, data, size, decodedSize)
 	decodedSize, parts = decodeBpfProgLoadParts3(ctx, parts, data, size, decodedSize)
 
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
@@ -105,6 +106,9 @@ func formatBpfProgLoadLogBuf(ctx *Context, data []byte, _ uint32) string {
 	if logBuf == 0 {
 		return "log_buf=NULL"
 	}
+	if text, ok := bpfProgLoadLogOutputPayload(ctx, logBuf, u32OrZero(data, 28)); ok {
+		return "log_buf=" + text
+	}
 	if text, ok := bpfNestedBytesStringPayload(ctx, bpfProgLoadLogBufPayloadArg, logBuf, u32OrZero(data, 28)); ok {
 		return "log_buf=" + text
 	}
@@ -112,7 +116,17 @@ func formatBpfProgLoadLogBuf(ctx *Context, data []byte, _ uint32) string {
 }
 
 func bpfNestedStringPayload(ctx *Context, argIndex int, ptr uint64, limit int) (string, bool) {
-	section, ok := bpfNestedPayloadSection(ctx, argIndex, PayloadKindString, ptr)
+	return bpfNestedStringPayloadDirection(ctx, argIndex, ptr, limit, PayloadDirectionIn)
+}
+
+func bpfNestedStringPayloadDirection(
+	ctx *Context,
+	argIndex int,
+	ptr uint64,
+	limit int,
+	direction PayloadDirection,
+) (string, bool) {
+	section, ok := bpfNestedPayloadSectionDirection(ctx, argIndex, PayloadKindString, ptr, direction)
 	if !ok {
 		return "", false
 	}
@@ -120,7 +134,17 @@ func bpfNestedStringPayload(ctx *Context, argIndex int, ptr uint64, limit int) (
 }
 
 func bpfNestedBytesStringPayload(ctx *Context, argIndex int, ptr uint64, userLen uint32) (string, bool) {
-	section, ok := bpfNestedPayloadSection(ctx, argIndex, PayloadKindBytes, ptr)
+	return bpfNestedBytesStringPayloadDirection(ctx, argIndex, ptr, userLen, PayloadDirectionIn)
+}
+
+func bpfNestedBytesStringPayloadDirection(
+	ctx *Context,
+	argIndex int,
+	ptr uint64,
+	userLen uint32,
+	direction PayloadDirection,
+) (string, bool) {
+	section, ok := bpfNestedPayloadSectionDirection(ctx, argIndex, PayloadKindBytes, ptr, direction)
 	if !ok {
 		return "", false
 	}
@@ -135,8 +159,31 @@ func bpfNestedBytesStringPayload(ctx *Context, argIndex int, ptr uint64, userLen
 	return format.BufferEscape(section.Data, limit, actualLen+1, ctx.Decoder.EscapeMode()), true
 }
 
+func bpfProgLoadLogOutputPayload(ctx *Context, ptr uint64, userLen uint32) (string, bool) {
+	if ctx == nil || ctx.Ret >= 0 {
+		return "", false
+	}
+	return bpfNestedBytesStringPayloadDirection(
+		ctx,
+		bpfProgLoadLogBufPayloadArg,
+		ptr,
+		userLen,
+		PayloadDirectionOut,
+	)
+}
+
 func bpfNestedBytesPayload(ctx *Context, argIndex int, ptr uint64, userLen uint32) ([]byte, bool) {
-	section, ok := bpfNestedPayloadSection(ctx, argIndex, PayloadKindBytes, ptr)
+	return bpfNestedBytesPayloadDirection(ctx, argIndex, ptr, userLen, PayloadDirectionIn)
+}
+
+func bpfNestedBytesPayloadDirection(
+	ctx *Context,
+	argIndex int,
+	ptr uint64,
+	userLen uint32,
+	direction PayloadDirection,
+) ([]byte, bool) {
+	section, ok := bpfNestedPayloadSectionDirection(ctx, argIndex, PayloadKindBytes, ptr, direction)
 	if !ok {
 		return nil, false
 	}
@@ -145,6 +192,29 @@ func bpfNestedBytesPayload(ctx *Context, argIndex int, ptr uint64, userLen uint3
 		limit = len(section.Data)
 	}
 	return section.Data[:limit], true
+}
+
+func bpfObjInfoPayload(ctx *Context, ptr uint64, userLen uint32) ([]byte, bool) {
+	if ctx == nil || ctx.Decoder == nil || ctx.Ret != 0 {
+		return nil, false
+	}
+	for _, section := range ctx.PayloadSections {
+		if section.ArgIndex != bpfObjInfoPayloadArg ||
+			section.Kind != PayloadKindBytes ||
+			section.Direction != PayloadDirectionOut ||
+			section.ProbeRet != 0 || len(section.Data) == 0 {
+			continue
+		}
+		if ptr != 0 && section.UserPtr != 0 && section.UserPtr != ptr {
+			continue
+		}
+		limit := int(userLen)
+		if limit <= 0 || limit > len(section.Data) {
+			limit = len(section.Data)
+		}
+		return section.Data[:limit], true
+	}
+	return nil, false
 }
 
 func bpfNestedStringLimit(ctx *Context) int {
@@ -159,11 +229,21 @@ func bpfProgLoadSignaturePayload(ctx *Context, ptr uint64, userLen uint32) ([]by
 }
 
 func bpfNestedPayloadSection(ctx *Context, argIndex int, kind PayloadKind, ptr uint64) (PayloadSection, bool) {
+	return bpfNestedPayloadSectionDirection(ctx, argIndex, kind, ptr, PayloadDirectionIn)
+}
+
+func bpfNestedPayloadSectionDirection(
+	ctx *Context,
+	argIndex int,
+	kind PayloadKind,
+	ptr uint64,
+	direction PayloadDirection,
+) (PayloadSection, bool) {
 	if ctx == nil || ctx.Decoder == nil {
 		return PayloadSection{}, false
 	}
 	for _, section := range ctx.PayloadSections {
-		if section.ArgIndex != argIndex || section.Kind != kind || section.Direction != PayloadDirectionIn {
+		if section.ArgIndex != argIndex || section.Kind != kind || section.Direction != direction {
 			continue
 		}
 		if section.ProbeRet != 0 || len(section.Data) == 0 {
@@ -209,7 +289,7 @@ func formatBpfProgLoadName(data []byte) string {
 
 // decodeBpfProgLoadParts2 decodes BTF and line info up to 128 bytes.
 // Impact: Appends debug types and lineage descriptors.
-func decodeBpfProgLoadParts2(parts []string, data []byte, size uint32, decodedSize int) (int, []string) {
+func decodeBpfProgLoadParts2(ctx *Context, parts []string, data []byte, size uint32, decodedSize int) (int, []string) {
 	if size >= 76 {
 		parts = append(parts, fmt.Sprintf("prog_btf_fd=%d", int32(u32OrZero(data, 72))))
 		decodedSize = 76
@@ -220,7 +300,11 @@ func decodeBpfProgLoadParts2(parts []string, data []byte, size uint32, decodedSi
 	}
 	if size >= 88 {
 		funcInfo := u64OrZero(data, 80)
-		parts = append(parts, formatPtr("func_info", funcInfo))
+		parts = append(parts, decodeBpfProgLoadFuncInfo(
+			ctx,
+			funcInfo,
+			u32OrZero(data, 76),
+			u32OrZero(data, 88)))
 		decodedSize = 88
 	}
 	if size >= 92 {
@@ -233,7 +317,11 @@ func decodeBpfProgLoadParts2(parts []string, data []byte, size uint32, decodedSi
 	}
 	if size >= 104 {
 		lineInfo := u64OrZero(data, 96)
-		parts = append(parts, formatPtr("line_info", lineInfo))
+		parts = append(parts, decodeBpfProgLoadLineInfo(
+			ctx,
+			lineInfo,
+			u32OrZero(data, 92),
+			u32OrZero(data, 104)))
 		decodedSize = 104
 	}
 	if size >= 108 {
@@ -254,7 +342,7 @@ func decodeBpfProgLoadParts2(parts []string, data []byte, size uint32, decodedSi
 	}
 	if size >= 128 {
 		fdArr := u64OrZero(data, 120)
-		parts = append(parts, formatPtr("fd_array", fdArr))
+		parts = append(parts, decodeBpfProgLoadFDArray(ctx, fdArr, u32OrZero(data, 148)))
 		if decodedSize < 128 {
 			decodedSize = 128
 		}
@@ -267,7 +355,11 @@ func decodeBpfProgLoadParts2(parts []string, data []byte, size uint32, decodedSi
 func decodeBpfProgLoadParts3(ctx *Context, parts []string, data []byte, size uint32, decodedSize int) (int, []string) {
 	if size >= 136 {
 		coreRelos := u64OrZero(data, 128)
-		parts = append(parts, formatPtr("core_relos", coreRelos))
+		parts = append(parts, decodeBpfProgLoadCoreRelos(
+			ctx,
+			coreRelos,
+			u32OrZero(data, 136),
+			u32OrZero(data, 116)))
 		decodedSize = 136
 	}
 	if size >= 140 {

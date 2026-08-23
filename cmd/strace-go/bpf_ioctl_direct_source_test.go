@@ -56,3 +56,19 @@ func TestBPFIoctlPayloadUsesDirectTLV(t *testing.T) {
 		}
 	}
 }
+
+func TestBPFIoctlKnownZeroSizeCommandsUseExactPayloadLengths(t *testing.T) {
+	root := repoRootForTest(t)
+	source := readTextFile(t, filepath.Join(root, "bpf/syscall_ioctl_direct_event_v2.h"))
+	for _, snippet := range []string{
+		"ioctl_direct_known_size(",
+		"case 0x541b:",
+		"case 0x5413:",
+		"return 4;",
+		"return 8;",
+	} {
+		if !strings.Contains(source, snippet) {
+			t.Fatalf("ioctl direct header missing exact zero-size command policy %q", snippet)
+		}
+	}
+}

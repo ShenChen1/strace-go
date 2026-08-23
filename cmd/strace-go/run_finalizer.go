@@ -120,6 +120,10 @@ func (f *TraceRunFinalizer) writeStats(stats bpfRuntimeStats) {
 		return
 	}
 	pendingStale := f.pendingStaleCount()
+	if isTraceDebugPhasesPolicy(f.formatPolicy) {
+		f.writeJSONStatsDiagnostic(stats, pendingStale)
+		return
+	}
 	if f.formatPolicy.DiscardEvents() {
 		f.writeJSONStatsDiagnostic(stats, pendingStale)
 		return
@@ -135,7 +139,12 @@ func (f *TraceRunFinalizer) writeJSONStatsDiagnostic(stats bpfRuntimeStats, pend
 	if f == nil || f.statsDiagnostic == nil {
 		return
 	}
-	_ = json.NewEncoder(f.statsDiagnostic).Encode(newJSONStatsEvent(stats, pendingStale, f.readerStatsSnapshot()))
+	_ = json.NewEncoder(f.statsDiagnostic).Encode(newJSONStatsEvent(
+		stats,
+		pendingStale,
+		f.readerStatsSnapshot(),
+		f.jsonOutputStatsSnapshot(),
+	))
 }
 
 func (f *TraceRunFinalizer) pendingStaleCount() uint64 {
@@ -151,8 +160,24 @@ func (f *TraceRunFinalizer) pendingStaleCount() uint64 {
 
 func (f *TraceRunFinalizer) writeJSONStats(stats bpfRuntimeStats, pendingStale uint64) {
 	if f.output != nil {
-		_ = json.NewEncoder(f.output).Encode(newJSONStatsEvent(stats, pendingStale, f.readerStatsSnapshot()))
+		_ = json.NewEncoder(f.output).Encode(newJSONStatsEvent(
+			stats,
+			pendingStale,
+			f.readerStatsSnapshot(),
+			f.jsonOutputStatsSnapshot(),
+		))
 	}
+}
+
+func (f *TraceRunFinalizer) jsonOutputStatsSnapshot() traceJSONOutputStats {
+	if f == nil || f.jsonWriter == nil {
+		return traceJSONOutputStats{}
+	}
+	reader, ok := f.jsonWriter.(traceJSONOutputStatsReader)
+	if !ok {
+		return traceJSONOutputStats{}
+	}
+	return reader.JSONOutputStats()
 }
 
 func (f *TraceRunFinalizer) readerStatsSnapshot() traceEventReaderStats {

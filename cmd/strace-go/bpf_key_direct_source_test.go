@@ -38,7 +38,7 @@ func TestBPFKeyPayloadsUseDirectTLV(t *testing.T) {
 		"PAYLOAD_TLV_KIND_STRING",
 		"PAYLOAD_TLV_KIND_BYTES",
 		"bpf_probe_read_user_str(payload_data, max_len",
-		"bpf_probe_read_user(payload_data, copied_len",
+		"bpf_probe_read_user(",
 		"init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);",
 	} {
 		if !strings.Contains(keyHeader, snippet) {

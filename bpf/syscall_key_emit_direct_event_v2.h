@@ -8,7 +8,8 @@ static __always_inline void emit_key_enter_event_v2_direct(
     struct trace_event_raw_sys_enter *ctx,
     u64 ts_ns)
 {
-    u32 payload_capacity = KEY_DIRECT_PAYLOAD_CAPACITY;
+    u32 payload_capacity = is_keyctl_direct_syscall(sys_id) ?
+        KEYCTL_DIRECT_PAYLOAD_CAPACITY : KEY_DIRECT_PAYLOAD_CAPACITY;
     u32 body_offset = EVENT_V2_HEADER_LEN;
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_ENTER_BODY_LEN;
     u32 out_size = payload_offset + payload_capacity;
@@ -46,6 +47,59 @@ static __always_inline void emit_key_enter_event_v2_direct(
     }
 
     bpf_ringbuf_submit_dynptr(&ptr, 0);
+}
+
+static __always_inline int emit_keyctl_exit_event_v2_direct(
+    struct pending_syscall *p,
+    s64 ret_value,
+    u64 duration)
+{
+    if (!is_keyctl_output_operation(p->args[0]) || ret_value <= 0) {
+        return 0;
+    }
+
+    u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + KEY_DIRECT_PAYLOAD_MAX;
+    u32 body_offset = EVENT_V2_HEADER_LEN;
+    u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_EXIT_BODY_LEN;
+    u32 out_size = payload_offset + payload_capacity;
+    struct bpf_dynptr ptr;
+    long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
+    if (ret < 0) {
+        record_ringbuf_reserve_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return 1;
+    }
+
+    u16 flags = 0;
+    u32 payload_size = capture_keyctl_output_tlv_direct(
+        &ptr, payload_offset, p, ret_value, &flags);
+    if (payload_size > 0) {
+        flags |= EVENT_FLAG_PAYLOAD_TLV;
+    }
+
+    struct event_v2_header header = {};
+    init_syscall_event_v2_header_direct(
+        &header, EVENT_TYPE_EXIT, flags, p->pid, p->tid, p->sys_id, out_size,
+        p->enter_time + duration);
+    ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return 1;
+    }
+
+    struct syscall_exit_event_v2 body = {};
+    init_syscall_exit_event_v2_from_pending(
+        &body, p, ret_value, duration, payload_size);
+    ret = bpf_dynptr_write(&ptr, body_offset, &body, sizeof(body), 0);
+    if (ret < 0) {
+        record_ringbuf_copy_fail();
+        bpf_ringbuf_discard_dynptr(&ptr, 0);
+        return 1;
+    }
+
+    bpf_ringbuf_submit_dynptr(&ptr, 0);
+    return 1;
 }
 
 #endif

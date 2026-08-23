@@ -23,6 +23,7 @@ func TestDecodeFlags(t *testing.T) {
 		{0xffffffff, "futex2_flags", "FUTEX2_SIZE_U64|FUTEX2_NUMA|FUTEX2_MPOL|FUTEX2_PRIVATE|0xffffff70"},
 		{0xffffffff, "futexbitset", "FUTEX_BITSET_MATCH_ANY"},
 		{0xfffffff1fffffff2, "futexbitset", "0xfffffff1fffffff2"},
+		{10, "keyctl_commands", "KEYCTL_SEARCH"},
 	}
 
 	for _, tt := range tests {

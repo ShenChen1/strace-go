@@ -190,6 +190,14 @@ static __always_inline int emit_generic_exit_io_event(
     s64 ret_value,
     u64 duration)
 {
+    if (is_bpf_direct_syscall(p->sys_id) &&
+        emit_bpf_exit_event_v2_direct(p, ret_value, duration)) {
+        return 1;
+    }
+    if (is_keyctl_direct_syscall(p->sys_id) &&
+        emit_keyctl_exit_event_v2_direct(p, ret_value, duration)) {
+        return 1;
+    }
     if (is_select_direct_syscall(p->sys_id) && ret_value >= 0) {
         emit_select_exit_event_v2_direct(p, ret_value, duration);
         return 1;
@@ -306,11 +314,12 @@ int exit_iovec_base(struct trace_event_raw_sys_exit *ctx) {
 
 SEC("tracepoint/raw_syscalls/sys_exit")
 int exit_msg(struct trace_event_raw_sys_exit *ctx) {
-    if (!is_single_msg_direct_syscall((u32)ctx->id)) {
+    // recvmsg owns a separate kretprobe fragment chain; only sendmsg exits here.
+    if ((u32)ctx->id != SYS_SENDMSG) {
         return 0;
     }
     EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid);
-    if (!is_single_msg_direct_syscall(p->sys_id)) {
+    if (p->sys_id != SYS_SENDMSG) {
         return 0;
     }
 

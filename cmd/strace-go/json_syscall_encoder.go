@@ -300,18 +300,63 @@ func appendJSONPayloadSections(dst []byte, values []jsonPayloadSection) []byte {
 }
 
 func appendJSONPayloadSection(dst []byte, value jsonPayloadSection) []byte {
-	builder := jsonLineBuilder{data: dst}
-	builder.beginObject()
-	builder.stringField(jsonFieldKind, value.Kind, false)
-	builder.stringField(jsonFieldDirection, value.Direction, false)
-	builder.intField(jsonFieldArgIndex, int64(value.ArgIndex))
-	builder.uintField(jsonFieldUserPtr, value.UserPtr, true)
-	builder.uintField(jsonFieldUserLen, uint64(value.UserLen), true)
-	builder.uintField(jsonFieldCopiedLen, uint64(value.CopiedLen), false)
-	builder.intField(jsonFieldProbeRet, int64(value.ProbeRet))
-	builder.base64Field(jsonFieldDataBase64, value.DataBase64, value.rawData)
-	builder.endObject()
-	return builder.data
+	return appendJSONPayloadSectionFields(dst, jsonPayloadSectionFields{
+		Kind:       value.Kind,
+		Direction:  value.Direction,
+		ArgIndex:   int64(value.ArgIndex),
+		UserPtr:    value.UserPtr,
+		UserLen:    uint64(value.UserLen),
+		CopiedLen:  uint64(value.CopiedLen),
+		ProbeRet:   int64(value.ProbeRet),
+		DataBase64: value.DataBase64,
+		RawData:    value.rawData,
+	})
+}
+
+type jsonPayloadSectionFields struct {
+	Kind       string
+	Direction  string
+	ArgIndex   int64
+	UserPtr    uint64
+	UserLen    uint64
+	CopiedLen  uint64
+	ProbeRet   int64
+	DataBase64 string
+	RawData    []byte
+}
+
+func appendJSONPayloadSectionFields(
+	dst []byte,
+	fields jsonPayloadSectionFields,
+) []byte {
+	dst = append(dst, `{"kind":`...)
+	dst = appendJSONString(dst, fields.Kind)
+	dst = append(dst, `,"direction":`...)
+	dst = appendJSONString(dst, fields.Direction)
+	dst = append(dst, `,"arg_index":`...)
+	dst = appendJSONInt(dst, fields.ArgIndex)
+	if fields.UserPtr != 0 {
+		dst = append(dst, `,"user_ptr":`...)
+		dst = appendJSONUint(dst, fields.UserPtr)
+	}
+	if fields.UserLen != 0 {
+		dst = append(dst, `,"user_len":`...)
+		dst = appendJSONUint(dst, fields.UserLen)
+	}
+	dst = append(dst, `,"copied_len":`...)
+	dst = appendJSONUint(dst, fields.CopiedLen)
+	dst = append(dst, `,"probe_ret":`...)
+	dst = appendJSONInt(dst, fields.ProbeRet)
+	if len(fields.RawData) != 0 || fields.DataBase64 != "" {
+		dst = append(dst, `,"data_base64":"`...)
+		if fields.RawData != nil {
+			dst = base64.StdEncoding.AppendEncode(dst, fields.RawData)
+		} else {
+			dst = append(dst, fields.DataBase64...)
+		}
+		dst = append(dst, '"')
+	}
+	return append(dst, '}')
 }
 
 func (b *jsonLineBuilder) base64Field(token, encoded string, raw []byte) {

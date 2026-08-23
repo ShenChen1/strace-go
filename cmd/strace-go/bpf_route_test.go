@@ -106,6 +106,74 @@ func TestBPFRouteCapabilitiesKeepEnterAndExitPolicyTogether(t *testing.T) {
 	}
 }
 
+func TestBPFRouteCapabilitiesUseBpfExitProviderForObjectInfo(t *testing.T) {
+	capability, ok := bpfRouteCapabilities["bpf"]
+	if !ok {
+		t.Fatal("bpf capability is missing")
+	}
+	if capability.enterSlot != enterProgBpf || capability.exitSlot != exitProgIO {
+		t.Fatalf("bpf capability = %+v, want enter bpf and exit IO", capability)
+	}
+
+	id, ok := routeSyscallIDByName(meta.SyscallTable, "bpf")
+	if !ok {
+		t.Fatal("bpf syscall is missing from generated table")
+	}
+	plan, err := newBPFRoutePlan(meta.SyscallTable)
+	if err != nil {
+		t.Fatalf("newBPFRoutePlan() error = %v", err)
+	}
+	if plan.exit[id] != exitProgIO {
+		t.Fatalf("bpf exit route = %d, want %d", plan.exit[id], exitProgIO)
+	}
+}
+
+func TestPlainEnterElisionRequiresGenericEnterAndExit(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		want bool
+	}{
+		{name: "getpid", want: true},
+		{name: "read", want: false},
+		{name: "openat", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			id := syscallIDByName(t, test.name)
+			if got := isPlainGenericEnterExitRoute(id); got != test.want {
+				t.Fatalf("isPlainGenericEnterExitRoute(%q) = %v, want %v", test.name, got, test.want)
+			}
+		})
+	}
+}
+
+func TestStandaloneExitElisionRoutesAreExplicitAndNarrow(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		want bool
+	}{
+		{name: "clock_gettime", want: true},
+		{name: "clock_getres", want: true},
+		{name: "gettimeofday", want: true},
+		{name: "arch_prctl", want: true},
+		{name: "get_robust_list", want: true},
+		{name: "read", want: false},
+		{name: "openat", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			id := syscallIDByName(t, test.name)
+			if got := isStandaloneExitElisionRoute(id); got != test.want {
+				t.Fatalf("isStandaloneExitElisionRoute(%q) = %v, want %v", test.name, got, test.want)
+			}
+		})
+	}
+	if !isGenericEnterRoute(syscallIDByName(t, "clock_gettime")) {
+		t.Fatal("clock_gettime should keep the generic enter route")
+	}
+	if isGenericEnterRoute(syscallIDByName(t, "openat")) {
+		t.Fatal("openat should use its specialized enter route")
+	}
+}
+
 func TestBPFRoutePlanRejectsInvalidCapabilitySlot(t *testing.T) {
 	table := map[uint32]meta.Syscall{
 		1: {Name: "getpid"},
@@ -146,7 +214,7 @@ func TestBPFRoutePlanCoversSplitDirectExitCatalog(t *testing.T) {
 			"prctl", "io_getevents", "io_pgetevents", "io_setup", "poll", "ppoll",
 		}},
 		{exitProgIO, []string{
-			"select", "epoll_wait", "epoll_pwait", "epoll_pwait2", "getdents", "getdents64",
+			"select", "pselect6", "epoll_wait", "epoll_pwait", "epoll_pwait2", "getdents", "getdents64",
 			"execve", "execveat", "getxattr", "lgetxattr", "fgetxattr", "listxattr",
 			"llistxattr", "flistxattr",
 		}},

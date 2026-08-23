@@ -27,9 +27,10 @@ func TestBPFCapabilityPayloadUsesDirectTLV(t *testing.T) {
 			t.Fatalf("BPF source missing capability direct snippet %q", snippet)
 		}
 	}
-	if !strings.Contains(runtimeSource, `{"SYS_CAPGET", "capget"},`) ||
-		!strings.Contains(runtimeSource, `{"SYS_CAPSET", "capset"},`) {
-		t.Fatal("BPF loader should set capability syscall ids")
+	for _, required := range []string{"spec.Variables", "meta.SyscallTable", "meta.RuntimeSyscallVariables"} {
+		if !strings.Contains(runtimeSource, required) {
+			t.Fatalf("BPF loader should discover capability syscall ids through generated variables: %q", required)
+		}
 	}
 
 	for _, snippet := range []string{

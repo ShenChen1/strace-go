@@ -154,8 +154,19 @@ func TestShouldQueueExitStatusSkipsExplicitAttachPid(t *testing.T) {
 	}
 }
 
-type fakeTraceCommandWaiter struct{}
+type fakeTraceCommandWaiter struct {
+	result traceCommandExitResult
+}
 
-func (fakeTraceCommandWaiter) Wait() traceCommandExitResult {
+func (w fakeTraceCommandWaiter) Wait() traceCommandExitResult {
+	if w.result.exited {
+		return w.result
+	}
 	return traceCommandExitResult{exited: true}
+}
+
+func (fakeTraceCommandWaiter) Done() <-chan struct{} {
+	done := make(chan struct{})
+	close(done)
+	return done
 }

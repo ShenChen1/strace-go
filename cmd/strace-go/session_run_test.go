@@ -87,14 +87,16 @@ func TestTraceSessionAttachPolicySnapshotsCLIState(t *testing.T) {
 }
 
 func TestTraceRunStateCollectMarksCommandExit(t *testing.T) {
-	done := make(chan traceCommandExitResult, 1)
-	done <- traceCommandExitResult{exited: true}
 	coordinator := newExitStatusCoordinator(ExitStatusCoordinatorDeps{Queue: newExitStatusQueue()})
 	handler := newTraceCommandExitHandler(TraceCommandExitHandlerDeps{
 		TargetPID:  77,
 		ExitStatus: coordinator,
 	})
-	state := traceRunState{cmdDone: done, clock: &fakeTraceClock{now: time.Unix(100, 0)}}
+	state := traceRunState{
+		command: fakeTraceCommandWaiter{},
+		cmdDone: closedTraceCommandDone(),
+		clock:   &fakeTraceClock{now: time.Unix(100, 0)},
+	}
 
 	state.collect(handler)
 	if !state.commandExited || state.cmdDone != nil {
@@ -150,8 +152,6 @@ func TestTraceRunStatePropagatesCommandLifecycleReadFailure(t *testing.T) {
 }
 
 func TestTraceRunStateCollectStoresCommandExitFallback(t *testing.T) {
-	done := make(chan traceCommandExitResult, 1)
-	done <- traceCommandExitResult{exited: true, exitCode: 3}
 	var output bytes.Buffer
 	opts := &cli.Options{EventFormat: cli.EventFormatText}
 	coordinator := newExitStatusCoordinator(ExitStatusCoordinatorDeps{
@@ -164,7 +164,11 @@ func TestTraceRunStateCollectStoresCommandExitFallback(t *testing.T) {
 		ExitStatus: coordinator,
 		Renderer:   newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts)}),
 	})
-	state := traceRunState{cmdDone: done, clock: &fakeTraceClock{now: time.Unix(100, 0)}}
+	state := traceRunState{
+		command: fakeTraceCommandWaiter{result: traceCommandExitResult{exited: true, exitCode: 3}},
+		cmdDone: closedTraceCommandDone(),
+		clock:   &fakeTraceClock{now: time.Unix(100, 0)},
+	}
 
 	state.collect(handler)
 	if output.Len() != 0 {
@@ -274,10 +278,10 @@ func TestTraceRunStateFinishesFromAttachLifecycleState(t *testing.T) {
 func TestTraceRunStateUsesInjectedClockForFallback(t *testing.T) {
 	now := time.Unix(200, 0)
 	clock := &fakeTraceClock{now: now}
-	done := make(chan traceCommandExitResult, 1)
-	done <- traceCommandExitResult{exited: true}
-	state := newTraceRunState(traceRunStateDeps{clock: clock})
-	state.cmdDone = done
+	state := newTraceRunState(traceRunStateDeps{
+		command: fakeTraceCommandWaiter{},
+		clock:   clock,
+	})
 
 	state.collect(nil)
 
@@ -346,4 +350,10 @@ func (c *fakeTraceClock) NowMonoNs() uint64 {
 		return c.monoNs
 	}
 	return uint64(c.now.UnixNano())
+}
+
+func closedTraceCommandDone() <-chan struct{} {
+	done := make(chan struct{})
+	close(done)
+	return done
 }

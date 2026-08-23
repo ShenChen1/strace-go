@@ -24,6 +24,7 @@ func TestBPFFSHasDedicatedCaptureAndEmitOwnership(t *testing.T) {
 		"capture_fs_string_tlv_direct(",
 		"capture_fs_bytes_tlv_direct(",
 		"capture_fs_enter_payload_tlv_direct(",
+		"capture_mount_setattr_enter_payload_tlv_direct(",
 		"capture_getdents_bytes_tlv_direct(",
 		"bpf_probe_read_user_str(payload_data, max_len",
 		"bpf_probe_read_user(payload_data, copied_len",
@@ -34,6 +35,7 @@ func TestBPFFSHasDedicatedCaptureAndEmitOwnership(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"emit_fs_enter_event_v2_direct(",
+		"cfg",
 		"emit_getdents_exit_event_v2_direct(",
 		"bpf_ringbuf_reserve_dynptr(&events",
 		"init_syscall_enter_event_v2_from_ctx(",

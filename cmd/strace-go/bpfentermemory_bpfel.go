@@ -14,14 +14,23 @@ import (
 )
 
 type bpfEnterMemoryBpfStats struct {
-	_                      structs.HostLayout
-	RingbufReserveFail     uint64
-	RingbufCopyFail        uint64
-	PayloadTruncatedEvents uint64
-	PendingUpdateFail      uint64
-	OrphanExit             uint64
-	PendingMismatch        uint64
-	LifecycleMapUpdateFail uint64
+	_                                 structs.HostLayout
+	RingbufReserveFail                uint64
+	RingbufCopyFail                   uint64
+	PayloadTruncatedEvents            uint64
+	PendingUpdateFail                 uint64
+	OrphanExit                        uint64
+	PendingMismatch                   uint64
+	LifecycleMapUpdateFail            uint64
+	LifecycleForkSeen                 uint64
+	LifecycleForkParentTracked        uint64
+	LifecycleForkParentUntracked      uint64
+	LifecycleForkChildFilterInstalled uint64
+	LifecycleForkChildFilterFailed    uint64
+	LifecycleExecSeen                 uint64
+	LifecycleExecUntracked            uint64
+	LifecycleExitSeen                 uint64
+	LifecycleExitUntracked            uint64
 }
 
 type bpfEnterMemoryFdPathScratch struct {
@@ -131,7 +140,9 @@ type bpfEnterMemoryMapSpecs struct {
 	MmsgBytesProgs     *ebpf.MapSpec `ebpf:"mmsg_bytes_progs"`
 	PendingExecMap     *ebpf.MapSpec `ebpf:"pending_exec_map"`
 	PendingTaskStorage *ebpf.MapSpec `ebpf:"pending_task_storage"`
+	PlainEnterElideMap *ebpf.MapSpec `ebpf:"plain_enter_elide_map"`
 	RecvmsgProgs       *ebpf.MapSpec `ebpf:"recvmsg_progs"`
+	RuntimeMetaMap     *ebpf.MapSpec `ebpf:"runtime_meta_map"`
 	StackTraces        *ebpf.MapSpec `ebpf:"stack_traces"`
 	StatsMap           *ebpf.MapSpec `ebpf:"stats_map"`
 	SyscallFilterMap   *ebpf.MapSpec `ebpf:"syscall_filter_map"`
@@ -188,7 +199,9 @@ type bpfEnterMemoryMaps struct {
 	MmsgBytesProgs     *ebpf.Map `ebpf:"mmsg_bytes_progs"`
 	PendingExecMap     *ebpf.Map `ebpf:"pending_exec_map"`
 	PendingTaskStorage *ebpf.Map `ebpf:"pending_task_storage"`
+	PlainEnterElideMap *ebpf.Map `ebpf:"plain_enter_elide_map"`
 	RecvmsgProgs       *ebpf.Map `ebpf:"recvmsg_progs"`
+	RuntimeMetaMap     *ebpf.Map `ebpf:"runtime_meta_map"`
 	StackTraces        *ebpf.Map `ebpf:"stack_traces"`
 	StatsMap           *ebpf.Map `ebpf:"stats_map"`
 	SyscallFilterMap   *ebpf.Map `ebpf:"syscall_filter_map"`
@@ -211,7 +224,9 @@ func (m *bpfEnterMemoryMaps) Close() error {
 		m.MmsgBytesProgs,
 		m.PendingExecMap,
 		m.PendingTaskStorage,
+		m.PlainEnterElideMap,
 		m.RecvmsgProgs,
+		m.RuntimeMetaMap,
 		m.StackTraces,
 		m.StatsMap,
 		m.SyscallFilterMap,

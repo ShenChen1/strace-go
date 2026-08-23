@@ -1,17 +1,7 @@
 #ifndef STRACE_GO_RUNTIME_ABI_H
 #define STRACE_GO_RUNTIME_ABI_H
 
-volatile const u32 SYS_RT_SIGRETURN = 15;
-volatile const u32 SYS_RT_SIGRETURN_COMPAT = 173;
-volatile const u32 SYS_NANOSLEEP = 35;
-volatile const u32 SYS_EXECVE = 59;
-volatile const u32 SYS_EXIT = 60;
-volatile const u32 SYS_CAPGET = 125;
-volatile const u32 SYS_CAPSET = 126;
-volatile const u32 SYS_RT_SIGSUSPEND = 130;
-volatile const u32 SYS_EXIT_GROUP = 231;
-volatile const u32 SYS_EXECVEAT = 322;
-
+#include "event_abi_generated.h"
 #include "syscall_numbers_generated.h"
 
 #define EXEC_SNAPSHOT_MAGIC 0x45584543
@@ -20,28 +10,6 @@ volatile const u32 SYS_EXECVEAT = 322;
 #define EXEC_ARG_MAX 48
 #define EXEC_ENV_MAX 64
 #define EXEC_ARG_DATA_SIZE 42
-#define EVENT_VERSION 2
-#define EVENT_TYPE_ENTER 1
-#define EVENT_TYPE_EXIT 2
-#define EVENT_TYPE_LIFECYCLE 3
-#define EVENT_FLAG_GENERIC_ENTER 1
-#define LIFECYCLE_FORK 1
-#define LIFECYCLE_EXEC 2
-#define LIFECYCLE_EXIT 3
-#define LIFECYCLE_FREE 4
-#define CONFIG_CAPTURE_STACK 1
-#define CONFIG_FOLLOW_FORKS 2
-#define CONFIG_EMIT_ENTER 4
-#define CONFIG_SYSCALL_FILTER 8
-#define CONFIG_SYSCALL_FILTER_NEGATED 16
-#define CONFIG_EMIT_LIFECYCLE 32
-#define CONFIG_FD_STATE 64
-#define FILTER_TASK_TRACKED 1
-#define FILTER_TASK_PRE_EXEC 2
-#define EVENT_V2_HEADER_LEN 40
-#define EVENT_V2_ENTER_BODY_LEN 72
-#define EVENT_V2_EXIT_BODY_LEN 80
-#define EVENT_V2_LIFECYCLE_BODY_LEN 56
 #define LIFECYCLE_SNAPSHOT_MAX 4096
 #define FD_PATH_NESTED_SCAN_BYTES 128
 #define FD_PATH_NESTED_MAX 4
@@ -94,6 +62,15 @@ struct bpf_stats {
     u64 orphan_exit;
     u64 pending_mismatch;
     u64 lifecycle_map_update_fail;
+    u64 lifecycle_fork_seen;
+    u64 lifecycle_fork_parent_tracked;
+    u64 lifecycle_fork_parent_untracked;
+    u64 lifecycle_fork_child_filter_installed;
+    u64 lifecycle_fork_child_filter_failed;
+    u64 lifecycle_exec_seen;
+    u64 lifecycle_exec_untracked;
+    u64 lifecycle_exit_seen;
+    u64 lifecycle_exit_untracked;
 };
 
 struct fd_path_scratch {
@@ -130,6 +107,10 @@ struct syscall_enter_event_v2 {
     u32 capture_flags;
 };
 
+struct syscall_compact_enter_event_v2 {
+    u64 args[6];
+};
+
 struct syscall_exit_event_v2 {
     s64 ret;
     u64 duration_ns;
@@ -146,14 +127,47 @@ struct lifecycle_event_v2 {
     u64 args[6];
 };
 
+_Static_assert(sizeof(struct event_v2_header) == EVENT_V2_HEADER_LEN, "event v2 header size drift");
+_Static_assert(__builtin_offsetof(struct event_v2_header, version) == EVENT_V2_HEADER_VERSION_OFFSET, "event v2 version offset drift");
+_Static_assert(__builtin_offsetof(struct event_v2_header, event_type) == EVENT_V2_HEADER_EVENT_TYPE_OFFSET, "event v2 type offset drift");
+_Static_assert(__builtin_offsetof(struct event_v2_header, flags) == EVENT_V2_HEADER_FLAGS_OFFSET, "event v2 flags offset drift");
+_Static_assert(__builtin_offsetof(struct event_v2_header, header_len) == EVENT_V2_HEADER_LEN_OFFSET, "event v2 header length offset drift");
+_Static_assert(__builtin_offsetof(struct event_v2_header, size) == EVENT_V2_HEADER_SIZE_OFFSET, "event v2 size offset drift");
+_Static_assert(__builtin_offsetof(struct event_v2_header, pid) == EVENT_V2_HEADER_PID_OFFSET, "event v2 pid offset drift");
+_Static_assert(__builtin_offsetof(struct event_v2_header, tid) == EVENT_V2_HEADER_TID_OFFSET, "event v2 tid offset drift");
+_Static_assert(__builtin_offsetof(struct event_v2_header, sys_id) == EVENT_V2_HEADER_SYS_ID_OFFSET, "event v2 syscall offset drift");
+_Static_assert(__builtin_offsetof(struct event_v2_header, seq) == EVENT_V2_HEADER_SEQ_OFFSET, "event v2 sequence offset drift");
+_Static_assert(__builtin_offsetof(struct event_v2_header, ts_ns) == EVENT_V2_HEADER_TS_NS_OFFSET, "event v2 timestamp offset drift");
+_Static_assert(sizeof(struct syscall_enter_event_v2) == EVENT_V2_ENTER_BODY_LEN, "event v2 enter size drift");
+_Static_assert(sizeof(struct syscall_compact_enter_event_v2) == EVENT_V2_COMPACT_ENTER_BODY_LEN, "event v2 compact enter size drift");
+_Static_assert(sizeof(struct syscall_exit_event_v2) == EVENT_V2_EXIT_BODY_LEN, "event v2 exit size drift");
+_Static_assert(sizeof(struct lifecycle_event_v2) == EVENT_V2_LIFECYCLE_BODY_LEN, "event v2 lifecycle size drift");
+_Static_assert(__builtin_offsetof(struct syscall_enter_event_v2, ret) == EVENT_V2_ENTER_RET_OFFSET, "event v2 enter ret offset drift");
+_Static_assert(__builtin_offsetof(struct syscall_enter_event_v2, probe_ret_enter) == EVENT_V2_ENTER_PROBE_RET_ENTER_OFFSET, "event v2 enter probe offset drift");
+_Static_assert(__builtin_offsetof(struct syscall_enter_event_v2, probe_ret_exit) == EVENT_V2_ENTER_PROBE_RET_EXIT_OFFSET, "event v2 enter exit probe offset drift");
+_Static_assert(__builtin_offsetof(struct syscall_enter_event_v2, args) == EVENT_V2_ENTER_ARGS_OFFSET, "event v2 enter args offset drift");
+_Static_assert(__builtin_offsetof(struct syscall_enter_event_v2, capture_len) == EVENT_V2_ENTER_CAPTURE_LEN_OFFSET, "event v2 enter capture offset drift");
+_Static_assert(__builtin_offsetof(struct syscall_enter_event_v2, capture_flags) == EVENT_V2_ENTER_CAPTURE_FLAGS_OFFSET, "event v2 enter capture flags offset drift");
+_Static_assert(__builtin_offsetof(struct syscall_compact_enter_event_v2, args) == EVENT_V2_COMPACT_ENTER_ARGS_OFFSET, "event v2 compact enter args offset drift");
+_Static_assert(__builtin_offsetof(struct syscall_exit_event_v2, ret) == EVENT_V2_EXIT_RET_OFFSET, "event v2 exit ret offset drift");
+_Static_assert(__builtin_offsetof(struct syscall_exit_event_v2, duration_ns) == EVENT_V2_EXIT_DURATION_OFFSET, "event v2 exit duration offset drift");
+_Static_assert(__builtin_offsetof(struct syscall_exit_event_v2, args) == EVENT_V2_EXIT_ARGS_OFFSET, "event v2 exit args offset drift");
+_Static_assert(__builtin_offsetof(struct syscall_exit_event_v2, capture_len) == EVENT_V2_EXIT_CAPTURE_LEN_OFFSET, "event v2 exit capture offset drift");
+_Static_assert(__builtin_offsetof(struct syscall_exit_event_v2, capture_flags) == EVENT_V2_EXIT_CAPTURE_FLAGS_OFFSET, "event v2 exit capture flags offset drift");
+_Static_assert(__builtin_offsetof(struct syscall_exit_event_v2, stack_id) == EVENT_V2_EXIT_STACK_ID_OFFSET, "event v2 exit stack offset drift");
+_Static_assert(__builtin_offsetof(struct syscall_exit_event_v2, reserved) == EVENT_V2_EXIT_RESERVED_OFFSET, "event v2 exit reserved offset drift");
+_Static_assert(__builtin_offsetof(struct lifecycle_event_v2, action) == EVENT_V2_LIFECYCLE_ACTION_OFFSET, "event v2 lifecycle action offset drift");
+_Static_assert(__builtin_offsetof(struct lifecycle_event_v2, snapshot_len) == EVENT_V2_LIFECYCLE_SNAPSHOT_LEN_OFFSET, "event v2 lifecycle snapshot offset drift");
+_Static_assert(__builtin_offsetof(struct lifecycle_event_v2, args) == EVENT_V2_LIFECYCLE_ARGS_OFFSET, "event v2 lifecycle args offset drift");
+
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 27);
+    __uint(max_entries, 1 << 28);
 } events SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 51);
+    __uint(max_entries, 54);
     __type(key, u32);
     __type(value, u32);
 } enter_progs SEC(".maps");
@@ -251,6 +265,13 @@ struct {
 } syscall_filter_map SEC(".maps");
 
 struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 512);
+    __type(key, u32);
+    __type(value, u32);
+} plain_enter_elide_map SEC(".maps");
+
+struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, 1);
     __type(key, u32);
@@ -263,6 +284,14 @@ struct {
     __type(key, u32);
     __type(value, u32);
 } config_map SEC(".maps");
+
+/* System topology metadata used only for bounded per-CPU map length calculation. */
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, u32);
+} runtime_meta_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_STACK_TRACE);

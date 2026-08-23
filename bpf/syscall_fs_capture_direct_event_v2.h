@@ -173,6 +173,7 @@ static __always_inline u32 capture_fs_enter_payload_tlv_direct(
     u32 payload_offset,
     u32 sys_id,
     struct trace_event_raw_sys_enter *ctx,
+    u32 *cfg,
     u16 *event_flags)
 {
     if (sys_id == SYS_MOUNT) {
@@ -190,7 +191,7 @@ static __always_inline u32 capture_fs_enter_payload_tlv_direct(
         return capture_fsconfig_payload_tlv_direct(ptr, payload_offset, ctx, event_flags);
     }
     if (sys_id == SYS_MOUNT_SETATTR) {
-        return capture_mount_setattr_enter_payload_tlv_direct(ptr, payload_offset, ctx, event_flags);
+        return capture_mount_setattr_enter_payload_tlv_direct(ptr, payload_offset, ctx, cfg, event_flags);
     }
     if (is_mount_query_direct_syscall(sys_id)) {
         return capture_mnt_id_req_enter_tlv_direct(ptr, payload_offset, ctx, event_flags);

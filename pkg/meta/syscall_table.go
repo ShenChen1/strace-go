@@ -384,3 +384,16 @@ var SyscallTable = map[uint32]Syscall{
 	466: {Name: "removexattrat", Args: []string{"dfd", "pathname", "at_flags", "name"}, ArgTypes: []string{"int", "const char *", "unsigned int", "const char *"}, Flags: "TD|TF"},
 	467: {Name: "open_tree_attr", Args: []string{"dfd", "filename", "flags", "uattr", "usize"}, ArgTypes: []string{"int", "const char *", "unsigned int", "struct mount_attr *", "size_t"}, Flags: "TD|TF"},
 }
+
+var RuntimeSyscallVariables = map[string]string{
+	"SYS_CAPGET": "capget",
+	"SYS_CAPSET": "capset",
+	"SYS_EXECVE": "execve",
+	"SYS_EXECVEAT": "execveat",
+	"SYS_EXIT": "exit",
+	"SYS_EXIT_GROUP": "exit_group",
+	"SYS_NANOSLEEP": "nanosleep",
+	"SYS_RT_SIGRETURN": "rt_sigreturn",
+	"SYS_RT_SIGRETURN_COMPAT": "",
+	"SYS_RT_SIGSUSPEND": "rt_sigsuspend",
+}

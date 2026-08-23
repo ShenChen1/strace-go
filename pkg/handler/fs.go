@@ -83,8 +83,8 @@ func decodeMountFlags(ctx *Context, flags uint64) string {
 	return "MS_MGC_VAL|" + decodeFlags(ctx, flags&0xffff, "mount_flags")
 }
 
-// decodeFsconfig decodes the arguments of fsconfig based on the command.
-// IMPACT: Extracted to keep function size under 80 LOC. Use ctx.Tid instead of ctx.Pid to read memory robustly under exit race conditions.
+// decodeFsconfig decodes fsconfig arguments from event-owned snapshot sections.
+// The TID selects the event state; no user memory is read from Go.
 func (h *FsHandler) decodeFsconfig(ctx *Context) []string {
 	fd := ctx.Args[0]
 	// IMPACT: Mask cmd to uint32 to strip any upper fill bits added by test programs.

@@ -34,7 +34,7 @@ func TestBPFRuntimeModulesOwnCoreDefinitions(t *testing.T) {
 		"struct pending_syscall {",
 		"struct pending_task_state {",
 		"struct event_v2_header {",
-		"__uint(max_entries, 1 << 27);",
+		"__uint(max_entries, 1 << 28);",
 		"} events SEC(\".maps\");",
 		"} pending_task_storage SEC(\".maps\");",
 	} {

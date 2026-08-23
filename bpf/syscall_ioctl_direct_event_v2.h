@@ -6,6 +6,23 @@
 #define IOCTL_DIRECT_SIZE_SHIFT 16
 #define IOCTL_DIRECT_SIZE_MASK 0x3fff
 
+static __always_inline u32 ioctl_direct_known_size(u64 cmd)
+{
+    switch ((u32)cmd) {
+    case 0x541b: /* FIONREAD */
+        return 4;
+    case 0x5413: /* TIOCGWINSZ */
+        return 8;
+    case 0x5401: /* TCGETS */
+    case 0x5402: /* TCSETS */
+    case 0x5403: /* TCSETSW */
+    case 0x5404: /* TCSETSF */
+        return 60;
+    default:
+        return 0;
+    }
+}
+
 static __always_inline int is_ioctl_direct_syscall(u32 sys_id)
 {
     return sys_id == SYS_IOCTL;
@@ -13,6 +30,10 @@ static __always_inline int is_ioctl_direct_syscall(u32 sys_id)
 
 static __always_inline u32 ioctl_direct_user_len(u64 cmd)
 {
+    u32 known_size = ioctl_direct_known_size(cmd);
+    if (known_size > 0) {
+        return known_size;
+    }
     u32 size = (u32)((cmd >> IOCTL_DIRECT_SIZE_SHIFT) & IOCTL_DIRECT_SIZE_MASK);
     if (size == 0) {
         return IOCTL_DIRECT_ZERO_SIZE_LEN;

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
@@ -14,6 +12,8 @@ type syscallEventContext struct {
 	view            syscallEventView
 	statePID        int
 	meta            meta.Syscall
+	traits          syscallEventTraits
+	traitsBound     bool
 	fdFlags         fdFlagDecoder
 	filter          traceFilterOptions
 	pathText        string
@@ -115,12 +115,14 @@ func newSyscallEventContextFromViewWithDeps(
 	pendingEnter *pendingSyscallSnapshot,
 	currentPayload []handler.PayloadSection,
 ) syscallEventContext {
-	scMeta := lookupSyscallMetadata(deps.syscallMetadata, view.sysID)
+	scMeta, traits, traitsBound := lookupSyscallMetadataWithTraits(deps.syscallMetadata, view)
 	if canUseFastSyscallEventContext(view, pendingEnter, currentPayload, deps.filter) {
 		ev := syscallEventContext{
 			view:            view,
 			statePID:        statePID,
 			meta:            scMeta,
+			traits:          traits,
+			traitsBound:     traitsBound,
 			fdFlags:         deps.catalog,
 			filter:          deps.filter,
 			shouldPrint:     true,
@@ -154,6 +156,8 @@ func newSyscallEventContextFromViewWithDeps(
 		view:            view,
 		statePID:        statePID,
 		meta:            scMeta,
+		traits:          traits,
+		traitsBound:     traitsBound,
 		fdFlags:         deps.catalog,
 		filter:          deps.filter,
 		pathText:        pathText,
@@ -215,6 +219,11 @@ func mergePendingPayloadSections(pendingEnter *pendingSyscallSnapshot, current [
 	}
 	if len(current) == 0 {
 		return pendingEnter.payloadSections
+	}
+	if pendingEnter.payloadStorage != nil {
+		merged := pendingEnter.payloadStorage.mergeView(current)
+		pendingEnter.payloadSections = merged
+		return merged
 	}
 
 	owned := pendingEnter.payloadSections[:0]
@@ -307,287 +316,18 @@ func newSyscallEnterEventContextFromDeps(
 func newSyscallEnterEventContextFromConfig(
 	config syscallEnterEventContextConfig,
 ) syscallEventContext {
-	scMeta := lookupSyscallMetadata(config.syscallMetadata, config.view.sysID)
+	scMeta, traits, traitsBound := lookupSyscallMetadataWithTraits(config.syscallMetadata, config.view)
 	fdPathOverlay := fdPathOverlayFromSections(config.payloadSections)
 	eventFDView := fdPathOverlay.resolve(config.view)
 	return syscallEventContext{
 		view:            config.view,
 		statePID:        config.statePID,
 		meta:            scMeta,
+		traits:          traits,
+		traitsBound:     traitsBound,
 		fdFlags:         config.flagDecoder,
 		filter:          config.filter,
 		payloadSections: config.payloadSections,
 		eventFDView:     eventFDView,
 	}
-}
-
-func (ev syscallEventContext) eventView() syscallEventView {
-	return ev.view
-}
-
-func (ev syscallEventContext) outputPayloadSections() []handler.PayloadSection {
-	return ev.payloadSections
-}
-
-func (ev syscallEventContext) effectiveSyscallMeta() meta.Syscall {
-	if ev.meta.Name != "" {
-		return ev.meta
-	}
-	if ev.handlerContext != nil {
-		if ev.handlerContext.ScMeta.Name != "" {
-			return ev.handlerContext.ScMeta
-		}
-		if ev.handlerContext.SysName != "" {
-			return meta.Syscall{Name: ev.handlerContext.SysName}
-		}
-	}
-	return ev.meta
-}
-
-func (ev syscallEventContext) syscallName() string {
-	if ev.meta.Name != "" {
-		return ev.meta.Name
-	}
-	return ev.effectiveSyscallMeta().Name
-}
-
-func (ev syscallEventContext) handlerContextForFormatting() *handler.Context {
-	return ev.handlerContext
-}
-
-func (ev syscallEventContext) decodedPayloadSections() []handler.PayloadSection {
-	if ev.handlerContext == nil {
-		return nil
-	}
-	return ev.handlerContext.PayloadSections
-}
-
-func (ev syscallEventContext) returnText(res handler.Result) string {
-	view := ev.eventView()
-	return formatSyscallRet(ev.syscallName(), view.ret, res, ev.handlerContextForFormatting())
-}
-
-func (ev syscallEventContext) pairedGenericEnter() bool {
-	return ev.pendingEnter != nil && ev.pendingEnter.genericEnterRaw
-}
-
-func (ev syscallEventContext) shouldSuppressOutput() bool {
-	return ev.syscallName() == "arch_prctl" && ev.eventView().args[0] == 0x1002
-}
-
-func (ev syscallEventContext) recordSummary(recorder traceSummaryRecorder) {
-	if recorder == nil || !ev.shouldOutput() {
-		return
-	}
-	view := ev.eventView()
-	recorder.Record(ev.syscallName(), view.duration, view.ret)
-}
-
-func (ev syscallEventContext) updateFDOffsets(port fdOffsetUpdatePort) {
-	if port == nil || !ev.shouldUpdateFDOffsets() {
-		return
-	}
-	port.ApplyFDOffsets(ev.fdOffsetUpdate())
-}
-
-func (ev syscallEventContext) fdOffsetUpdate() fdOffsetUpdate {
-	return fdOffsetUpdate{
-		view:     ev.eventView(),
-		meta:     ev.effectiveSyscallMeta(),
-		statePID: ev.statePID,
-	}
-}
-
-func (ev syscallEventContext) cleanupClosedFD(port fdCloseUpdatePort) {
-	if port == nil || !ev.shouldCleanupClosedFD() {
-		return
-	}
-	port.CleanupClosedFD(ev.fdCloseUpdate())
-}
-
-func (ev syscallEventContext) fdCloseUpdate() fdCloseUpdate {
-	return fdCloseUpdate{
-		view:     ev.eventView(),
-		meta:     ev.effectiveSyscallMeta(),
-		statePID: ev.statePID,
-	}
-}
-
-func (ev syscallEventContext) updateFDState(port fdStateUpdatePort) {
-	if port == nil {
-		return
-	}
-	port.ApplyFDState(ev.fdStateUpdate())
-}
-
-func (ev syscallEventContext) fdStateUpdate() fdStateUpdate {
-	view := ev.eventView()
-	return fdStateUpdate{
-		source: fdStateSource{
-			view:            view,
-			payloadSections: ev.outputPayloadSections(),
-		},
-		meta:        ev.effectiveSyscallMeta(),
-		flagDecoder: ev.fdFlags,
-		pathText:    ev.pathText,
-		targetPID:   ev.statePID,
-	}
-}
-
-func syscallMeta(sysID uint32) meta.Syscall {
-	if scMeta, ok := meta.SyscallTable[sysID]; ok {
-		return scMeta
-	}
-	return meta.Syscall{Name: unknownSyscallName(sysID)}
-}
-
-func unknownSyscallName(sysID uint32) string {
-	return fmt.Sprintf("sys_%d", sysID)
-}
-
-func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *handler.Context {
-	view := ev.eventView()
-	scMeta := ev.effectiveSyscallMeta()
-	context := deps.contextPool.acquire()
-	if deps.contextPool == nil {
-		applyHandlerContextSessionPorts(context, handlerContextSessionPortsFromDeps(deps))
-	}
-	context.Pid = int(view.pid)
-	context.Tid = int(view.tid)
-	context.TargetPid = ev.statePID
-	context.SysId = view.sysID
-	context.SysName = scMeta.Name
-	context.Args = view.args
-	context.Ret = view.ret
-	context.ProbeRetEnter = view.probeRetEnter
-	context.ProbeRetExit = view.probeRetExit
-	context.PayloadSections = ev.outputPayloadSections()
-	context.ScMeta = scMeta
-	context.EventFDView = ev.handlerEventFDView()
-	return context
-}
-
-func handlerContextSessionPortsFromDeps(deps syscallEventContextDeps) handlerContextSessionPorts {
-	return handlerContextSessionPorts{
-		meta:     deps.catalog,
-		registry: deps.registry,
-		dispatch: deps.handlerDispatch,
-		decoder:  deps.decoder,
-		opts:     deps.handlerOpts,
-		fdState:  deps.fdStateReader(),
-		runtime:  deps.runtimeService(),
-	}
-}
-
-func (ev syscallEventContext) handlerEventFDView() handler.EventFDStateReader {
-	if len(ev.eventFDView.paths) == 0 && len(ev.eventFDView.states) == 0 && ev.eventFDView.cwd == "" {
-		return nil
-	}
-	return ev.eventFDView
-}
-
-func (ev syscallEventContext) releaseHandlerContext() {
-	if ev.contextRecycler == nil {
-		return
-	}
-	ev.contextRecycler.release(ev.handlerContext)
-}
-
-func (ev syscallEventContext) shouldOutput() bool {
-	return ev.shouldPrint
-}
-
-func (ev syscallEventContext) shouldRunHandler() bool {
-	return ev.shouldPrint || ev.isFDStateSyscall()
-}
-
-func (ev syscallEventContext) shouldUpdateFDState() bool {
-	return shouldApplyFDStateEventWithTraits(
-		ev.view,
-		ev.payloadSections,
-		ev.eventTraits(),
-	)
-}
-
-func (ev syscallEventContext) shouldUpdateFDOffsets() bool {
-	return shouldApplyFDOffsetEventWithTraits(ev.view, ev.eventTraits())
-}
-
-func (ev syscallEventContext) shouldCleanupClosedFD() bool {
-	return shouldCleanupClosedFDEventWithTraits(ev.view, ev.eventTraits())
-}
-
-func (ev syscallEventContext) shouldEmitRawEnter(fdState event.FDPathReader) bool {
-	if ev.filter == nil {
-		return false
-	}
-	if ev.filter.DebugEvents() {
-		return true
-	}
-	return checkShouldPrintFromView(printFilterRequest{
-		view:          ev.eventView(),
-		scMeta:        ev.effectiveSyscallMeta(),
-		pathArguments: ev.pathArguments,
-		targetPid:     ev.statePID,
-		filter:        ev.filter,
-		fdState:       fdState,
-		eventFD:       ev.eventFDView,
-	})
-}
-
-func (ev syscallEventContext) handleWith(handle func(string, *handler.Context) handler.Result) handler.Result {
-	if ev.handlerContext == nil {
-		return handler.Result{}
-	}
-	if ev.handlerContext != nil && ev.handlerContext.HandlerDispatch != nil {
-		return ev.handlerContext.HandlerDispatch.Handle(
-			ev.handlerContext.SysId,
-			ev.syscallName(),
-			ev.handlerContext,
-		)
-	}
-	if handle == nil {
-		return handler.Result{}
-	}
-	return handle(ev.syscallName(), ev.handlerContext)
-}
-
-func (ev syscallEventContext) isFDStateSyscall() bool {
-	return ev.eventTraits()&syscallEventTraitHandler != 0
-}
-
-func (ev syscallEventContext) shouldEmitStatus(optsStatus successfulFailedOptions) bool {
-	return ev.eventView().shouldEmitStatus(ev.syscallName(), optsStatus)
-}
-
-func (view syscallEventView) shouldEmitStatus(syscallName string, optsStatus successfulFailedOptions) bool {
-	if optsStatus.successfulOnly || optsStatus.failedOnly || len(optsStatus.traceStatus) > 0 {
-		if view.probeRetEnter == 3 {
-			return false
-		}
-	}
-	if view.probeRetEnter == 3 {
-		return true
-	}
-
-	isFailed := view.ret < 0 && view.ret >= -4095
-	if syscallName == "exit" || syscallName == "exit_group" {
-		isFailed = false
-	}
-	if optsStatus.successfulOnly && isFailed {
-		return false
-	}
-	if optsStatus.failedOnly && !isFailed {
-		return false
-	}
-	if len(optsStatus.traceStatus) > 0 {
-		if optsStatus.traceStatus["successful"] && !isFailed {
-			return true
-		}
-		if optsStatus.traceStatus["failed"] && isFailed {
-			return true
-		}
-		return false
-	}
-	return true
 }

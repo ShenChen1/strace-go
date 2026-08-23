@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"testing"
+
+	"strace-go/pkg/cli"
 )
 
 type fakeTraceOutputWriter struct {
@@ -256,6 +258,30 @@ func TestTraceOutputRejectsWriteAfterClose(t *testing.T) {
 func TestNewTraceOutputRejectsNilWriter(t *testing.T) {
 	if _, err := newTraceOutput(TraceOutputDeps{}); err == nil {
 		t.Fatal("newTraceOutput() returned nil error for nil writer")
+	}
+}
+
+func TestShouldBufferTraceOutputOnlyRenderedFormats(t *testing.T) {
+	tests := []struct {
+		name string
+		opts *cli.Options
+		want bool
+	}{
+		{name: "text", opts: &cli.Options{EventFormat: cli.EventFormatText}, want: true},
+		{name: "json", opts: &cli.Options{EventFormat: cli.EventFormatJSON}, want: true},
+		{name: "none", opts: &cli.Options{EventFormat: cli.EventFormatNone}, want: false},
+		{name: "reader", opts: &cli.Options{EventFormat: cli.EventFormatReader}, want: false},
+		{name: "handler", opts: &cli.Options{EventFormat: cli.EventFormatHandler}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldBufferTraceOutput(newTraceOutputPolicy(tt.opts)); got != tt.want {
+				t.Fatalf("shouldBufferTraceOutput(%s) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+	if shouldBufferTraceOutput(nil) {
+		t.Fatal("shouldBufferTraceOutput(nil) = true, want false")
 	}
 }
 

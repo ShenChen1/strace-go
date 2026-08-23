@@ -9,16 +9,7 @@ import (
 	"strace-go/pkg/cli"
 )
 
-const (
-	bpfConfigCaptureStack         = 1 << 0
-	bpfConfigFollowForks          = 1 << 1
-	bpfConfigEmitEnter            = 1 << 2
-	bpfConfigSyscallFilter        = 1 << 3
-	bpfConfigSyscallFilterNegated = 1 << 4
-	bpfConfigEmitLifecycle        = 1 << 5
-	bpfConfigFdState              = 1 << 6
-)
-
+//go:generate go run ../generate-event-abi
 //go:generate go run -C ../generate-syscalls .
 //go:generate go run ../generate-xlats
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpf ../../bpf/strace.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
@@ -108,7 +99,7 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 	if err != nil {
 		return fmt.Errorf("failed to set up output: %w", err)
 	}
-	if config.session.outputPolicy != nil && config.session.outputPolicy.IsJSON() {
+	if shouldBufferTraceOutput(config.session.outputPolicy) {
 		if err := output.EnableBuffer(traceOutputBufferSize); err != nil {
 			return fmt.Errorf("failed to buffer output: %w", errors.Join(err, output.Close()))
 		}
@@ -144,6 +135,10 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 		return fmt.Errorf("failed to transfer trace target ownership: %w", err)
 	}
 	return nil
+}
+
+func shouldBufferTraceOutput(policy traceFormatPolicy) bool {
+	return policy != nil && !policy.DiscardEvents()
 }
 
 func joinTraceRunError(primary error, cleanup error) error {

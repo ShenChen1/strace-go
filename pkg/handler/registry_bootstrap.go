@@ -24,6 +24,7 @@ func buildBuiltinRegistry() *Registry {
 	registerBuiltinGetRobustList(registry)
 	registerBuiltinIo(registry)
 	registerBuiltinIoctl(registry)
+	registerBuiltinKeyctl(registry)
 	registerBuiltinMountPath(registry)
 	registerBuiltinMountQuery(registry)
 	registerBuiltinMountSetattr(registry)

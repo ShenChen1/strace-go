@@ -12,15 +12,19 @@ import (
 // event contexts. Its ports stay separate so handlers and filters cannot see
 // each other's policy fields.
 type cliTraceEventPolicy struct {
-	handlerOptions      handler.OptionsPort
-	filter              traceFilterOptions
-	deferUnmatchedExits bool
-	trackForkIdentity   bool
+	handlerOptions             handler.OptionsPort
+	filter                     traceFilterOptions
+	deferUnmatchedExits        bool
+	trackForkIdentity          bool
+	elidePlainEnter            bool
+	elideNonBlockingPlainEnter bool
 }
 
 type traceStatePolicy interface {
 	ShouldDeferUnmatchedExits() bool
 	TrackForkIdentity() bool
+	ElidePlainEnter() bool
+	ElideNonBlockingPlainEnter() bool
 }
 
 var _ traceStatePolicy = (*cliTraceEventPolicy)(nil)
@@ -30,10 +34,12 @@ func newTraceEventPolicy(opts *cli.Options) *cliTraceEventPolicy {
 		return nil
 	}
 	return &cliTraceEventPolicy{
-		handlerOptions:      newTraceHandlerOptions(opts),
-		filter:              newTraceFilterOptions(opts),
-		deferUnmatchedExits: shouldEmitGenericEnter(opts),
-		trackForkIdentity:   opts.FollowForks,
+		handlerOptions:             newTraceHandlerOptions(opts),
+		filter:                     newTraceFilterOptions(opts),
+		deferUnmatchedExits:        shouldEmitGenericEnter(opts),
+		trackForkIdentity:          opts.FollowForks,
+		elidePlainEnter:            shouldElidePlainEnter(opts, len(opts.TracePaths) > 0 || opts.ShowPaths),
+		elideNonBlockingPlainEnter: shouldElideNonBlockingPlainEnter(opts, len(opts.TracePaths) > 0 || opts.ShowPaths),
 	}
 }
 
@@ -43,6 +49,14 @@ func (p *cliTraceEventPolicy) ShouldDeferUnmatchedExits() bool {
 
 func (p *cliTraceEventPolicy) TrackForkIdentity() bool {
 	return p == nil || p.trackForkIdentity
+}
+
+func (p *cliTraceEventPolicy) ElidePlainEnter() bool {
+	return p != nil && p.elidePlainEnter
+}
+
+func (p *cliTraceEventPolicy) ElideNonBlockingPlainEnter() bool {
+	return p != nil && p.elideNonBlockingPlainEnter
 }
 
 func (p *cliTraceEventPolicy) HandlerOptions() handler.OptionsPort {

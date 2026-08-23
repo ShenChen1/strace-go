@@ -211,6 +211,9 @@ func TestTraceOutputPolicyDiscardsEventsWithoutBecomingJSON(t *testing.T) {
 	if policy.IsJSON() {
 		t.Fatal("discard policy unexpectedly reports JSON mode")
 	}
+	if !policy.ReaderOnly() {
+		t.Fatal("discard policy did not expose boundary-only reader capability")
+	}
 	if policy.ShouldEmit(syscallEventContext{}, false) {
 		t.Fatal("discard policy emitted a syscall event")
 	}

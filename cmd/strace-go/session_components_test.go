@@ -142,8 +142,14 @@ func TestNoneFormatSkipsPerEventOutputPipeline(t *testing.T) {
 	if session.lifecycleEventHandler() != nil {
 		t.Fatal("none format constructed a lifecycle output handler")
 	}
+	if session.components.eventReader.sink != nil {
+		t.Fatal("none format still routes records into the event state machine")
+	}
+	if _, ok := session.components.recordDecoder.(traceRingbufBoundaryDecoder); !ok {
+		t.Fatalf("none format decoder = %T, want traceRingbufBoundaryDecoder", session.components.recordDecoder)
+	}
 	state, ok := session.traceState().(*TraceState)
-	if !ok || state.unfinishedEnabled {
+	if !ok || state.unfinished.enabled {
 		t.Fatal("none format enabled unfinished output state")
 	}
 }
@@ -175,7 +181,7 @@ func TestHandlerFormatBuildsPipelineWithoutRenderedOutput(t *testing.T) {
 		t.Fatal("handler-only format did not suppress rendered output")
 	}
 	state, ok := session.traceState().(*TraceState)
-	if !ok || state.unfinishedEnabled {
+	if !ok || state.unfinished.enabled {
 		t.Fatal("handler-only format enabled unfinished rendering state")
 	}
 }
@@ -199,7 +205,7 @@ func TestTraceSessionEagerGraphUsesOneExitStatusCoordinator(t *testing.T) {
 }
 
 var _ traceRingbufReader = (*fakeRingbufReader)(nil)
-var _ traceRecordDecoder = traceRingbufRecordDecoder{}
+var _ traceRecordDecoder = (*traceRingbufRecordDecoder)(nil)
 var _ traceEventSink = (*TraceEventRouter)(nil)
 var _ traceEventSink = (*recordingEventSink)(nil)
 

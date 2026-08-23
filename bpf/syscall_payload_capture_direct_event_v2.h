@@ -64,7 +64,7 @@ static __always_inline u32 capture_write_bytes_tlv_direct(
             probe_ret = -1;
             copied_len = 0;
         } else {
-            void *payload_data = bpf_dynptr_data(ptr, data_offset, PAYLOAD_TLV_WRITE_MAX);
+            void *payload_data = payload_tlv_data_direct(ptr, data_offset, copied_len);
             if (!payload_data) {
                 record_ringbuf_copy_fail();
                 probe_ret = -1;
@@ -161,7 +161,7 @@ static __always_inline u32 capture_read_bytes_tlv_direct(
         probe_ret = -1;
         copied_len = 0;
     } else {
-        void *payload_data = bpf_dynptr_data(ptr, data_offset, PAYLOAD_TLV_READ_MAX);
+        void *payload_data = payload_tlv_data_direct(ptr, data_offset, copied_len);
         if (!payload_data) {
             record_ringbuf_copy_fail();
             probe_ret = -1;

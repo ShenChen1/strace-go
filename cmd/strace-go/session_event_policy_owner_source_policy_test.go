@@ -40,8 +40,10 @@ type fakeSessionEventPolicyOwner struct {
 	filter         traceFilterOptions
 }
 
-func (fakeSessionEventPolicyOwner) ShouldDeferUnmatchedExits() bool { return true }
-func (fakeSessionEventPolicyOwner) TrackForkIdentity() bool         { return true }
+func (fakeSessionEventPolicyOwner) ShouldDeferUnmatchedExits() bool  { return true }
+func (fakeSessionEventPolicyOwner) TrackForkIdentity() bool          { return true }
+func (fakeSessionEventPolicyOwner) ElidePlainEnter() bool            { return false }
+func (fakeSessionEventPolicyOwner) ElideNonBlockingPlainEnter() bool { return false }
 
 func (p fakeSessionEventPolicyOwner) HandlerOptions() handler.OptionsPort {
 	return p.handlerOptions

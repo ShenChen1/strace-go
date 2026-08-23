@@ -8,6 +8,7 @@ const syscallMetadataTableSize = 512
 type syscallMetadataTable struct {
 	entries [syscallMetadataTableSize]meta.Syscall
 	present [syscallMetadataTableSize]bool
+	traits  [syscallMetadataTableSize]syscallEventTraits
 }
 
 func newSyscallMetadataTable(source map[uint32]meta.Syscall) *syscallMetadataTable {
@@ -18,6 +19,7 @@ func newSyscallMetadataTable(source map[uint32]meta.Syscall) *syscallMetadataTab
 		}
 		table.entries[id] = syscall
 		table.present[id] = true
+		table.traits[id] = syscallEventTraitsForName(syscall.Name)
 	}
 	return table
 }
@@ -27,6 +29,17 @@ func (table *syscallMetadataTable) lookup(id uint32) (meta.Syscall, bool) {
 		return meta.Syscall{}, false
 	}
 	return table.entries[id], true
+}
+
+func lookupSyscallMetadataWithTraits(
+	table *syscallMetadataTable,
+	view syscallEventView,
+) (meta.Syscall, syscallEventTraits, bool) {
+	if table != nil && view.sysID < uint32(len(table.entries)) && table.present[view.sysID] {
+		return table.entries[view.sysID], table.traits[view.sysID], true
+	}
+	scMeta := syscallMeta(view.sysID)
+	return scMeta, syscallEventTraitsForView(view, scMeta.Name), false
 }
 
 func lookupSyscallMetadata(table *syscallMetadataTable, id uint32) meta.Syscall {

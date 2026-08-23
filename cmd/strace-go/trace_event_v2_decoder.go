@@ -1,13 +1,9 @@
 package main
 
-import "encoding/binary"
+import (
+	"encoding/binary"
 
-const (
-	traceEventV2Version          = 2
-	traceEventV2HeaderLen        = 40
-	traceEventV2EnterBodyLen     = 72
-	traceEventV2ExitBodyLen      = 80
-	traceEventV2LifecycleBodyLen = 56
+	"strace-go/pkg/handler"
 )
 
 type traceEventV2Header struct {
@@ -26,15 +22,25 @@ func isTraceEventV2Sample(rawSample []byte) bool {
 }
 
 func decodeTraceEventV2Envelope(rawSample []byte) (traceEventEnvelope, bool) {
+	return decodeTraceEventV2EnvelopeInto(rawSample, nil)
+}
+
+func decodeTraceEventV2EnvelopeInto(
+	rawSample []byte,
+	payloadScratch *[]handler.PayloadSection,
+) (traceEventEnvelope, bool) {
+	if payloadScratch != nil {
+		*payloadScratch = (*payloadScratch)[:0]
+	}
 	header, body, ok := decodeTraceEventV2Header(rawSample)
 	if !ok {
 		return traceEventEnvelope{}, false
 	}
 	switch header.eventType {
 	case bpfEventTypeEnter:
-		return decodeTraceEventV2EnterEnvelope(header, body)
+		return decodeTraceEventV2EnterEnvelope(header, body, payloadScratch)
 	case bpfEventTypeExit:
-		return decodeTraceEventV2ExitEnvelope(header, body)
+		return decodeTraceEventV2ExitEnvelope(header, body, payloadScratch)
 	case bpfEventTypeLifecycle:
 		return decodeTraceEventV2LifecycleEnvelope(header, body)
 	default:
@@ -46,10 +52,10 @@ func decodeTraceEventV2Header(rawSample []byte) (traceEventV2Header, []byte, boo
 	if len(rawSample) < traceEventV2HeaderLen {
 		return traceEventV2Header{}, nil, false
 	}
-	version := binary.LittleEndian.Uint16(rawSample[0:2])
-	eventType := binary.LittleEndian.Uint16(rawSample[2:4])
-	headerLen := binary.LittleEndian.Uint16(rawSample[6:8])
-	size := binary.LittleEndian.Uint32(rawSample[8:12])
+	version := binary.LittleEndian.Uint16(rawSample[traceEventV2HeaderVersionOffset : traceEventV2HeaderVersionOffset+traceEventV2U16Size])
+	eventType := binary.LittleEndian.Uint16(rawSample[traceEventV2HeaderEventTypeOffset : traceEventV2HeaderEventTypeOffset+traceEventV2U16Size])
+	headerLen := binary.LittleEndian.Uint16(rawSample[traceEventV2HeaderLenOffset : traceEventV2HeaderLenOffset+traceEventV2U16Size])
+	size := binary.LittleEndian.Uint32(rawSample[traceEventV2HeaderSizeOffset : traceEventV2HeaderSizeOffset+traceEventV2U32Size])
 	if version != traceEventV2Version ||
 		(eventType != bpfEventTypeEnter && eventType != bpfEventTypeExit &&
 			eventType != bpfEventTypeLifecycle) ||
@@ -63,24 +69,31 @@ func decodeTraceEventV2Header(rawSample []byte) (traceEventV2Header, []byte, boo
 	header := traceEventV2Header{
 		version:   version,
 		eventType: eventType,
-		flags:     binary.LittleEndian.Uint16(rawSample[4:6]),
-		pid:       binary.LittleEndian.Uint32(rawSample[12:16]),
-		tid:       binary.LittleEndian.Uint32(rawSample[16:20]),
-		sysID:     binary.LittleEndian.Uint32(rawSample[20:24]),
-		tsNs:      binary.LittleEndian.Uint64(rawSample[32:40]),
+		flags:     binary.LittleEndian.Uint16(rawSample[traceEventV2HeaderFlagsOffset : traceEventV2HeaderFlagsOffset+traceEventV2U16Size]),
+		pid:       binary.LittleEndian.Uint32(rawSample[traceEventV2HeaderPIDOffset : traceEventV2HeaderPIDOffset+traceEventV2U32Size]),
+		tid:       binary.LittleEndian.Uint32(rawSample[traceEventV2HeaderTIDOffset : traceEventV2HeaderTIDOffset+traceEventV2U32Size]),
+		sysID:     binary.LittleEndian.Uint32(rawSample[traceEventV2HeaderSysIDOffset : traceEventV2HeaderSysIDOffset+traceEventV2U32Size]),
+		tsNs:      binary.LittleEndian.Uint64(rawSample[traceEventV2HeaderTSNSOffset : traceEventV2HeaderTSNSOffset+traceEventV2U64Size]),
 	}
 	return header, rawSample[headerLenInt:sizeInt], true
 }
 
-func decodeTraceEventV2EnterEnvelope(header traceEventV2Header, body []byte) (traceEventEnvelope, bool) {
+func decodeTraceEventV2EnterEnvelope(
+	header traceEventV2Header,
+	body []byte,
+	payloadScratch *[]handler.PayloadSection,
+) (traceEventEnvelope, bool) {
+	if uint32(header.flags)&bpfEventFlagCompactEnter != 0 {
+		return decodeTraceEventV2CompactEnterEnvelope(header, body)
+	}
 	if len(body) < traceEventV2EnterBodyLen {
 		return traceEventEnvelope{}, false
 	}
-	ret := int64(binary.LittleEndian.Uint64(body[0:8]))
-	probeRetEnter := int32(binary.LittleEndian.Uint32(body[8:12]))
-	probeRetExit := int32(binary.LittleEndian.Uint32(body[12:16]))
-	args := traceEventV2Args(body[16:64])
-	captureLen := binary.LittleEndian.Uint32(body[64:68])
+	ret := int64(binary.LittleEndian.Uint64(body[traceEventV2EnterRetOffset : traceEventV2EnterRetOffset+traceEventV2U64Size]))
+	probeRetEnter := int32(binary.LittleEndian.Uint32(body[traceEventV2EnterProbeRetEnterOffset : traceEventV2EnterProbeRetEnterOffset+traceEventV2U32Size]))
+	probeRetExit := int32(binary.LittleEndian.Uint32(body[traceEventV2EnterProbeRetExitOffset : traceEventV2EnterProbeRetExitOffset+traceEventV2U32Size]))
+	args := traceEventV2Args(body[traceEventV2EnterArgsOffset : traceEventV2EnterArgsOffset+traceEventV2ArgsSize])
+	captureLen := binary.LittleEndian.Uint32(body[traceEventV2EnterCaptureLenOffset : traceEventV2EnterCaptureLenOffset+traceEventV2U32Size])
 	payload, ok := traceEventV2Payload(body, traceEventV2EnterBodyLen, captureLen)
 	if !ok {
 		return traceEventEnvelope{}, false
@@ -101,7 +114,7 @@ func decodeTraceEventV2EnterEnvelope(header traceEventV2Header, body []byte) (tr
 	}
 	// IMPACT: sections borrow the current ringbuf record; TraceState takes
 	// ownership only when it stores them beyond HandleRecord.
-	sections := payloadSectionsForRawPayloadEvent(raw)
+	sections := payloadSectionsForRawPayloadEventInto(raw, payloadScratch)
 	return traceEventEnvelope{
 		valid:         true,
 		eventVersion:  header.version,
@@ -119,15 +132,43 @@ func decodeTraceEventV2EnterEnvelope(header traceEventV2Header, body []byte) (tr
 	}, true
 }
 
-func decodeTraceEventV2ExitEnvelope(header traceEventV2Header, body []byte) (traceEventEnvelope, bool) {
+func decodeTraceEventV2CompactEnterEnvelope(header traceEventV2Header, body []byte) (traceEventEnvelope, bool) {
+	flags := uint32(header.flags)
+	if len(body) != traceEventV2CompactEnterBodyLen ||
+		flags&bpfEventFlagGenericEnter == 0 || flags&bpfEventFlagPayloadTLV != 0 {
+		return traceEventEnvelope{}, false
+	}
+	args := traceEventV2Args(body[traceEventV2CompactEnterArgsOffset : traceEventV2CompactEnterArgsOffset+traceEventV2ArgsSize])
+	eventFlags := traceEventV2EventFlags(header, nil)
+	return traceEventEnvelope{
+		valid:         true,
+		eventVersion:  header.version,
+		pid:           header.pid,
+		tid:           header.tid,
+		sysID:         header.sysID,
+		eventType:     header.eventType,
+		eventFlags:    eventFlags,
+		enterTime:     header.tsNs,
+		args:          args,
+		ret:           0,
+		probeRetEnter: -1,
+		probeRetExit:  -1,
+	}, true
+}
+
+func decodeTraceEventV2ExitEnvelope(
+	header traceEventV2Header,
+	body []byte,
+	payloadScratch *[]handler.PayloadSection,
+) (traceEventEnvelope, bool) {
 	if len(body) < traceEventV2ExitBodyLen {
 		return traceEventEnvelope{}, false
 	}
-	ret := int64(binary.LittleEndian.Uint64(body[0:8]))
-	duration := binary.LittleEndian.Uint64(body[8:16])
-	args := traceEventV2Args(body[16:64])
-	captureLen := binary.LittleEndian.Uint32(body[64:68])
-	stackID := int32(binary.LittleEndian.Uint32(body[72:76]))
+	ret := int64(binary.LittleEndian.Uint64(body[traceEventV2ExitRetOffset : traceEventV2ExitRetOffset+traceEventV2U64Size]))
+	duration := binary.LittleEndian.Uint64(body[traceEventV2ExitDurationOffset : traceEventV2ExitDurationOffset+traceEventV2U64Size])
+	args := traceEventV2Args(body[traceEventV2ExitArgsOffset : traceEventV2ExitArgsOffset+traceEventV2ArgsSize])
+	captureLen := binary.LittleEndian.Uint32(body[traceEventV2ExitCaptureLenOffset : traceEventV2ExitCaptureLenOffset+traceEventV2U32Size])
+	stackID := int32(binary.LittleEndian.Uint32(body[traceEventV2ExitStackIDOffset : traceEventV2ExitStackIDOffset+traceEventV2U32Size]))
 	payload, ok := traceEventV2Payload(body, traceEventV2ExitBodyLen, captureLen)
 	if !ok {
 		return traceEventEnvelope{}, false
@@ -143,7 +184,7 @@ func decodeTraceEventV2ExitEnvelope(header traceEventV2Header, body []byte) (tra
 	}
 	// IMPACT: the exit pipeline consumes borrowed sections synchronously unless
 	// TraceState first stores them as a deferred exit.
-	sections := payloadSectionsForRawPayloadEvent(raw)
+	sections := payloadSectionsForRawPayloadEventInto(raw, payloadScratch)
 	return traceEventEnvelope{
 		valid:        true,
 		eventVersion: header.version,
@@ -165,9 +206,9 @@ func decodeTraceEventV2LifecycleEnvelope(header traceEventV2Header, body []byte)
 	if len(body) < traceEventV2LifecycleBodyLen {
 		return traceEventEnvelope{}, false
 	}
-	action := binary.LittleEndian.Uint32(body[0:4])
-	captureLen := binary.LittleEndian.Uint32(body[4:8])
-	args := traceEventV2Args(body[8:56])
+	action := binary.LittleEndian.Uint32(body[traceEventV2LifecycleActionOffset : traceEventV2LifecycleActionOffset+traceEventV2U32Size])
+	captureLen := binary.LittleEndian.Uint32(body[traceEventV2LifecycleSnapshotLenOffset : traceEventV2LifecycleSnapshotLenOffset+traceEventV2U32Size])
+	args := traceEventV2Args(body[traceEventV2LifecycleArgsOffset : traceEventV2LifecycleArgsOffset+traceEventV2ArgsSize])
 	payload, ok := traceEventV2Payload(body, traceEventV2LifecycleBodyLen, captureLen)
 	if !ok {
 		return traceEventEnvelope{}, false
@@ -189,7 +230,7 @@ func decodeTraceEventV2LifecycleEnvelope(header traceEventV2Header, body []byte)
 func traceEventV2Args(data []byte) [6]uint64 {
 	var args [6]uint64
 	for i := range args {
-		args[i] = binary.LittleEndian.Uint64(data[i*8 : i*8+8])
+		args[i] = binary.LittleEndian.Uint64(data[i*traceEventV2U64Size : i*traceEventV2U64Size+traceEventV2U64Size])
 	}
 	return args
 }

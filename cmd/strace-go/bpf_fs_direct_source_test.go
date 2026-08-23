@@ -51,7 +51,7 @@ func assertFSDispatchSource(t *testing.T, sources fsDirectSources) {
 		"#define SYS_MOUNT_SETATTR 442",
 		`#include "syscall_fs_direct_event_v2.h"`,
 		"is_fs_enter_direct_syscall(sys_id)",
-		"emit_fs_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
+		"emit_fs_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);",
 		"is_getdents_direct_syscall(p->sys_id) && ret_value > 0",
 		"emit_getdents_exit_event_v2_direct(p, ret_value, duration);",
 		"is_fs_direct_syscall(sys_id) ||",
@@ -102,6 +102,9 @@ func assertMountSetattrDirectHeader(t *testing.T, mountSetattrHeader string, pat
 	for _, snippet := range []string{
 		"MOUNT_SETATTR_BASE_SIZE 32",
 		"MOUNT_SETATTR_EXTENSION_MAX 256",
+		"FD_PATH_DIRECT_SECTION_MAX",
+		"#include \"syscall_fd_path_direct_event_v2.h\"",
+		"capture_fd_path_tlv_direct(",
 		"ctx->args[1]",
 		"ctx->args[3]",
 		"ctx->args[4]",
@@ -115,6 +118,14 @@ func assertMountSetattrDirectHeader(t *testing.T, mountSetattrHeader string, pat
 	}
 	if !strings.Contains(pathCaptureHeader, "capture_path_only_tlv_direct(") {
 		t.Fatal("mount_setattr direct header should use the dedicated path capture helper")
+	}
+	for _, snippet := range []string{
+		"payload_offset + payload_size,\n            0,\n            (s32)ctx->args[0]",
+		"payload_offset + payload_size,\n        1,\n        ctx->args[1]",
+	} {
+		if !strings.Contains(mountSetattrHeader, snippet) {
+			t.Fatalf("mount_setattr direct header missing append offset %q", snippet)
+		}
 	}
 }
 

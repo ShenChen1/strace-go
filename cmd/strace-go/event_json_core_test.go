@@ -109,21 +109,40 @@ func TestJSONStatsEventIncludesRingbufFailures(t *testing.T) {
 		ReadTimeNS:        11,
 		DecodeTimeNS:      22,
 		SinkTimeNS:        33,
+		StageEnabled:      true,
+		StageSampleRate:   64,
+		StateTimeNS:       34,
+		StateRecords:      2,
+		MaxStateTimeNS:    20,
+		DispatchTimeNS:    35,
+		DispatchRecords:   2,
+		MaxDispatchTimeNS: 21,
 		MinRemainingBytes: 128,
 		ServiceTimeNS:     42,
 		ServiceRecords:    1,
 		MaxServiceTimeNS:  42,
+	}, traceJSONOutputStats{
+		SyscallBytesWritten:     256,
+		SyscallWriteCalls:       4,
+		SyscallWriteErrors:      1,
+		SyscallWriteTimeNS:      46,
+		SyscallWriteTimeSamples: 4,
 	})
 	if ev.Type != "stats" || ev.RingbufReserveFail != 8 || ev.RingbufCopyFail != 9 ||
 		ev.PayloadTruncatedEvents != 10 || ev.PendingUpdateFail != 11 || ev.OrphanExit != 12 || ev.PendingMismatch != 13 ||
 		ev.LifecycleMapUpdateFail != 14 ||
-		ev.PendingStale != 15 || !ev.Available || ev.Error != "" {
+		ev.PendingStale != 15 || ev.RecordsRead != 0 || ev.ProducerAttemptsLowerBound != 8 || !ev.Available || ev.Error != "" {
 		t.Fatalf("stats JSON event = %+v", ev)
 	}
 	if !ev.ServiceEnabled || ev.ServiceSampleRate != 1 || ev.BytesRead != 96 || ev.MaxRecordBytes != 64 ||
 		ev.ReadTimeNS != 11 || ev.DecodeTimeNS != 22 || ev.SinkTimeNS != 33 ||
 		ev.MinRemainingBytes != 128 || ev.ServiceTimeNS != 42 ||
-		ev.ServiceRecords != 1 || ev.MaxServiceTimeNS != 42 {
+		ev.ServiceRecords != 1 || ev.MaxServiceTimeNS != 42 ||
+		ev.SyscallOutputBytes != 256 || ev.SyscallOutputWrites != 4 ||
+		ev.SyscallOutputWriteErrors != 1 || ev.SyscallWriteTimeNS != 46 ||
+		ev.SyscallWriteTimeSamples != 4 || !ev.StageEnabled || ev.StageSampleRate != 64 ||
+		ev.StateTimeNS != 34 || ev.StateRecords != 2 || ev.MaxStateTimeNS != 20 ||
+		ev.DispatchTimeNS != 35 || ev.DispatchRecords != 2 || ev.MaxDispatchTimeNS != 21 {
 		t.Fatalf("stats JSON reader diagnostics = %+v", ev)
 	}
 }

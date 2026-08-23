@@ -117,8 +117,14 @@ func (d *TraceEventDispatcher) handleExit(update TraceStateUpdate, statePID int)
 	d.pipeline.Handle(ev)
 }
 
-func (d *TraceEventDispatcher) handleDeferredExit(update *TraceStateUpdate, statePID int) {
-	if update != nil {
-		d.handleExit(*update, statePID)
+func (d *TraceEventDispatcher) handleDeferredExit(update traceDeferredExit, statePID int) {
+	if !update.valid {
+		return
 	}
+	d.handleExit(TraceStateUpdate{
+		kind:            traceStateSyscallExit,
+		syscallView:     update.syscallView,
+		payloadSections: update.payloadSections,
+		pendingEnter:    update.pendingEnter,
+	}, statePID)
 }

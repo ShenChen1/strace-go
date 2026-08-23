@@ -8,6 +8,18 @@ struct select_fdset_capture_request {
     u16 tlv_flags;
 };
 
+struct pselect6_sigmask_wrapper {
+    u64 sigmask_ptr;
+    u64 sigsetsize;
+};
+
+struct pselect6_sigmask_capture_request {
+    u64 user_ptr;
+    u64 raw_user_len;
+    u16 arg_index;
+    u16 tlv_flags;
+};
+
 static __always_inline long select_direct_read_fdset_small(
     struct bpf_dynptr *ptr,
     u32 data_offset,
@@ -159,6 +171,101 @@ static __always_inline u32 capture_select_timeout_tlv_direct(
     return PAYLOAD_TLV_HEADER_SIZE + copied_len;
 }
 
+static __always_inline u32 capture_pselect6_sigmask_wrapper_tlv_direct(
+    struct bpf_dynptr *ptr,
+    u32 payload_offset,
+    u64 user_ptr,
+    u16 tlv_flags,
+    struct pselect6_sigmask_wrapper *wrapper)
+{
+    if (!user_ptr) {
+        return 0;
+    }
+
+    u32 copied_len = SELECT_DIRECT_PSELECT6_WRAPPER_SIZE;
+    s32 probe_ret = 0;
+    long err = bpf_probe_read_user(
+        wrapper,
+        SELECT_DIRECT_PSELECT6_WRAPPER_SIZE,
+        (void *)user_ptr);
+    if (err < 0) {
+        probe_ret = err;
+        copied_len = 0;
+    } else if (bpf_dynptr_write(
+                   ptr,
+                   payload_offset + PAYLOAD_TLV_HEADER_SIZE,
+                   wrapper,
+                   SELECT_DIRECT_PSELECT6_WRAPPER_SIZE,
+                   0) < 0) {
+        record_ringbuf_copy_fail();
+        probe_ret = -1;
+        copied_len = 0;
+    }
+
+    if (!payload_tlv_write_header_direct(
+            ptr,
+            payload_offset,
+            PAYLOAD_TLV_KIND_STRUCT,
+            5,
+            tlv_flags,
+            SELECT_DIRECT_PSELECT6_WRAPPER_SIZE,
+            copied_len,
+            probe_ret,
+            user_ptr)) {
+        return 0;
+    }
+    return PAYLOAD_TLV_HEADER_SIZE + copied_len;
+}
+
+static __always_inline u32 capture_pselect6_sigmask_tlv_direct(
+    struct bpf_dynptr *ptr,
+    u32 payload_offset,
+    const struct pselect6_sigmask_capture_request *request)
+{
+    u32 user_len = payload_tlv_clamp_u32(request->raw_user_len);
+    if (!request->user_ptr || user_len == 0) {
+        return 0;
+    }
+
+    u32 copied_len = payload_tlv_copy_len(
+        request->raw_user_len,
+        SELECT_DIRECT_PSELECT6_SIGMASK_SIZE);
+    s32 probe_ret = 0;
+    u32 data_offset = payload_offset + PAYLOAD_TLV_HEADER_SIZE;
+    void *payload_data = bpf_dynptr_data(
+        ptr,
+        data_offset,
+        SELECT_DIRECT_PSELECT6_SIGMASK_SIZE);
+    if (!payload_data) {
+        record_ringbuf_copy_fail();
+        probe_ret = -1;
+        copied_len = 0;
+    } else {
+        long err = bpf_probe_read_user(
+            payload_data,
+            copied_len,
+            (void *)request->user_ptr);
+        if (err < 0) {
+            probe_ret = err;
+            copied_len = 0;
+        }
+    }
+
+    if (!payload_tlv_write_header_direct(
+            ptr,
+            payload_offset,
+            PAYLOAD_TLV_KIND_STRUCT,
+            request->arg_index,
+            request->tlv_flags,
+            user_len,
+            copied_len,
+            probe_ret,
+            request->user_ptr)) {
+        return 0;
+    }
+    return PAYLOAD_TLV_HEADER_SIZE + copied_len;
+}
+
 static __always_inline long read_select_fdset_candidates_direct(
     struct fd_path_scratch *scratch,
     u64 user_ptr,
@@ -274,6 +381,26 @@ static __always_inline u32 capture_select_payloads_tlv_direct(
             payload_offset + payload_size,
             args[4],
             tlv_flags);
+    }
+    if (capture_policy & SELECT_DIRECT_CAPTURE_SIGMASK) {
+        struct pselect6_sigmask_wrapper wrapper = {};
+        payload_size += capture_pselect6_sigmask_wrapper_tlv_direct(
+            ptr,
+            payload_offset + payload_size,
+            args[5],
+            tlv_flags,
+            &wrapper);
+        if (wrapper.sigmask_ptr && wrapper.sigsetsize > 0) {
+            struct pselect6_sigmask_capture_request request = {};
+            request.user_ptr = wrapper.sigmask_ptr;
+            request.raw_user_len = wrapper.sigsetsize;
+            request.arg_index = SELECT_DIRECT_PSELECT6_SIGMASK_ARG_INDEX;
+            request.tlv_flags = tlv_flags;
+            payload_size += capture_pselect6_sigmask_tlv_direct(
+                ptr,
+                payload_offset + payload_size,
+                &request);
+        }
     }
     return payload_size;
 }

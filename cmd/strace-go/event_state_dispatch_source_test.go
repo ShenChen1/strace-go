@@ -24,7 +24,7 @@ func TestTraceStateEntryDelegatesEventOwnership(t *testing.T) {
 		"st.applyLifecycleEvent(",
 		"st.rememberEnterEvent(",
 		"st.consumeEnterEvent(",
-		"st.rememberExitFragment(",
+		"st.rememberPayloadFragment(",
 		"st.retireTask(",
 	} {
 		if strings.Contains(entry, forbidden) {

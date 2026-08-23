@@ -380,3 +380,50 @@ func TestAppendJSONPayloadSectionRawDataMatchesEagerBase64(t *testing.T) {
 		t.Fatalf("raw payload JSON differs from eager encoding:\n got: %s\nwant: %s", got, want)
 	}
 }
+
+func TestAppendJSONPayloadSectionFieldsUsesFixedWireLayout(t *testing.T) {
+	got := appendJSONPayloadSectionFields(nil, jsonPayloadSectionFields{
+		Kind:      "bytes",
+		Direction: "out",
+		ArgIndex:  1,
+		UserPtr:   0,
+		UserLen:   0,
+		CopiedLen: 5,
+		ProbeRet:  0,
+		RawData:   []byte{0, 1, 0xfe, 0xff, 2},
+	})
+	want := `{"kind":"bytes","direction":"out","arg_index":1,"copied_len":5,"probe_ret":0,"data_base64":"AAH+/wI="}`
+	if string(got) != want {
+		t.Fatalf("payload section wire layout = %q, want %q", got, want)
+	}
+}
+
+func TestJSONSyscallWireWriterHasZeroSteadyStateAllocations(t *testing.T) {
+	if raceBuild {
+		t.Skip("allocation counts include race instrumentation")
+	}
+	event := jsonSyscallWireEvent{
+		eventVersion:  traceEventV2Version,
+		eventType:     bpfEventTypeExit,
+		eventFlags:    bpfEventFlagPayloadTLV,
+		pid:           101,
+		tid:           101,
+		sysID:         39,
+		syscall:       "getpid",
+		args:          [6]uint64{101},
+		ret:           101,
+		duration:      50,
+		enterTime:     950,
+		stackID:       -1,
+		probeRetEnter: -1,
+		probeRetExit:  0,
+	}
+	buffer := make([]byte, 0, 512)
+	appendJSONSyscallWireEvent(buffer[:0], event)
+	allocs := testing.AllocsPerRun(100, func() {
+		appendJSONSyscallWireEvent(buffer[:0], event)
+	})
+	if allocs != 0 {
+		t.Fatalf("shared JSON wire writer allocations = %.1f, want zero", allocs)
+	}
+}

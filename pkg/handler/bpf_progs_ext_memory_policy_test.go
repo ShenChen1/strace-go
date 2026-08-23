@@ -196,3 +196,99 @@ func TestBpfBtfLoadUsesNestedBtfPayloadSection(t *testing.T) {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
+
+func makeBpfBtfLoadLogAttr() []byte {
+	data := make([]byte, 32)
+	binary.LittleEndian.PutUint64(data[8:16], 0x6000)
+	binary.LittleEndian.PutUint32(data[20:24], 32)
+	binary.LittleEndian.PutUint32(data[24:28], 1)
+	return data
+}
+
+func TestBpfBtfLoadFailurePrefersVerifierLogOutPayload(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{
+		0x6000: []byte("reader-must-not-run"),
+	}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.Ret = -22
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 114, UserPtr: 0x6000, UserLen: 13, CopiedLen: 13, ProbeRet: 0, Data: []byte("btf-verifier-log")},
+	}
+
+	got := decodeBpfBtfLoad(ctx, makeBpfBtfLoadLogAttr(), 32)
+	if !strings.Contains(got, `btf_log_buf="btf-verifier-log"`) {
+		t.Fatalf("decodeBpfBtfLoad() = %q, want verifier OUT snapshot", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestBpfBtfLoadSuccessIgnoresVerifierLogOutPayload(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 114, UserPtr: 0x6000, UserLen: 13, CopiedLen: 13, ProbeRet: 0, Data: []byte("btf-verifier-log")},
+	}
+
+	got := decodeBpfBtfLoad(ctx, makeBpfBtfLoadLogAttr(), 32)
+	if !strings.Contains(got, "btf_log_buf=0x6000") || strings.Contains(got, "btf-verifier-log") {
+		t.Fatalf("decodeBpfBtfLoad() = %q, success OUT payload must be ignored", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func makeBpfProgTestRunAttr() []byte {
+	data := make([]byte, 80)
+	binary.LittleEndian.PutUint32(data[8:12], 4)
+	binary.LittleEndian.PutUint32(data[12:16], 8)
+	binary.LittleEndian.PutUint64(data[16:24], 0x7000)
+	binary.LittleEndian.PutUint64(data[24:32], 0x7100)
+	binary.LittleEndian.PutUint32(data[40:44], 4)
+	binary.LittleEndian.PutUint32(data[44:48], 8)
+	binary.LittleEndian.PutUint64(data[48:56], 0x7200)
+	binary.LittleEndian.PutUint64(data[56:64], 0x7300)
+	return data
+}
+
+func TestBpfProgTestRunSuccessUsesOutputPayloadSections(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{
+		0x7100: []byte("reader-data-out"),
+		0x7300: []byte("reader-ctx-out"),
+	}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.Ret = 0
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 115, UserPtr: 0x7100, UserLen: 8, CopiedLen: 8, ProbeRet: 0, Data: []byte("data-out")},
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 116, UserPtr: 0x7300, UserLen: 8, CopiedLen: 8, ProbeRet: 0, Data: []byte("ctx-out!")},
+	}
+
+	got := decodeBpfProgTestRun(ctx, makeBpfProgTestRunAttr(), 80)
+	if !strings.Contains(got, `data_out="data-out"`) || !strings.Contains(got, `ctx_out="ctx-out!"`) {
+		t.Fatalf("decodeBpfProgTestRun() = %q, want both output snapshots", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestBpfProgTestRunFailureIgnoresOutputPayloadSections(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.Ret = -22
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 115, UserPtr: 0x7100, UserLen: 8, CopiedLen: 8, ProbeRet: 0, Data: []byte("data-out")},
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 116, UserPtr: 0x7300, UserLen: 8, CopiedLen: 8, ProbeRet: 0, Data: []byte("ctx-out!")},
+	}
+
+	got := decodeBpfProgTestRun(ctx, makeBpfProgTestRunAttr(), 80)
+	if strings.Contains(got, "data-out") || strings.Contains(got, "ctx-out!") ||
+		!strings.Contains(got, "data_out=0x7100") || !strings.Contains(got, "ctx_out=0x7300") {
+		t.Fatalf("decodeBpfProgTestRun() = %q, failure output sections must be ignored", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}

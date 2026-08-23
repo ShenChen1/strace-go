@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -47,48 +49,53 @@ type traceRingbufResource interface {
 	io.Closer
 }
 
-// setSyscallVariables resolves Go-managed BPF syscall ids only from the
-// generated SyscallTable. ABI-only constants remain owned by runtime_abi.h.
+// setSyscallVariables resolves every generated SYS_* variable from the
+// generated syscall metadata. An empty generated syscall name denotes an
+// explicit architecture ABI value whose C default must be preserved.
 func setSyscallVariables(spec *ebpf.CollectionSpec) error {
+	if spec == nil {
+		return fmt.Errorf("BPF collection spec is nil")
+	}
 	sysNameToID := make(map[string]uint32)
 	for id, sc := range meta.SyscallTable {
 		sysNameToID[sc.Name] = id
 	}
-
-	setVar := func(name string, val uint32) error {
-		if v, ok := spec.Variables[name]; ok {
-			if err := v.Set(val); err != nil {
-				return fmt.Errorf("set %s: %w", name, err)
-			}
-			return nil
+	for variableName := range spec.Variables {
+		if !strings.HasPrefix(variableName, "SYS_") {
+			continue
 		}
-		return fmt.Errorf("variable %s not found in BPF spec", name)
+		if _, ok := meta.RuntimeSyscallVariables[variableName]; !ok {
+			return fmt.Errorf("unknown generated runtime variable %q", variableName)
+		}
 	}
-
-	syscalls := []struct {
-		varName string
-		scName  string
-	}{
-		{"SYS_RT_SIGRETURN", "rt_sigreturn"},
-		{"SYS_NANOSLEEP", "nanosleep"},
-		{"SYS_EXECVE", "execve"},
-		{"SYS_EXIT", "exit"},
-		{"SYS_CAPGET", "capget"},
-		{"SYS_CAPSET", "capset"},
-		{"SYS_RT_SIGSUSPEND", "rt_sigsuspend"},
-		{"SYS_EXIT_GROUP", "exit_group"},
-		{"SYS_EXECVEAT", "execveat"},
-	}
-	for _, sc := range syscalls {
-		id, ok := sysNameToID[sc.scName]
+	variableNames := runtimeSyscallVariableNames(meta.RuntimeSyscallVariables)
+	for _, variableName := range variableNames {
+		variable, ok := spec.Variables[variableName]
 		if !ok {
-			return fmt.Errorf("syscall %q is missing from generated syscall table", sc.scName)
+			return fmt.Errorf("variable %s not found in BPF spec", variableName)
 		}
-		if err := setVar(sc.varName, id); err != nil {
-			return err
+		syscallName := meta.RuntimeSyscallVariables[variableName]
+		if syscallName == "" {
+			continue
+		}
+		id, ok := sysNameToID[syscallName]
+		if !ok {
+			return fmt.Errorf("syscall %q is missing from generated syscall table", syscallName)
+		}
+		if err := variable.Set(id); err != nil {
+			return fmt.Errorf("set %s: %w", variableName, err)
 		}
 	}
 	return nil
+}
+
+func runtimeSyscallVariableNames(variables map[string]string) []string {
+	names := make([]string, 0, len(variables))
+	for name := range variables {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (r *traceBPFRuntime) newEventReader() (traceRingbufResource, error) {
@@ -107,6 +114,9 @@ func (r *traceBPFRuntime) configure(config traceBPFConfig) error {
 	configMap := r.coreMap(bpfMapConfig)
 	if configMap == nil {
 		return fmt.Errorf("BPF config map is unavailable")
+	}
+	if err := configureBPFRuntimeMetadata(r.core); err != nil {
+		return fmt.Errorf("configure BPF runtime metadata: %w", err)
 	}
 	cfgVal, err := buildRuntimeConfig(config, r.core)
 	if err != nil {

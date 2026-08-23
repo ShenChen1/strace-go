@@ -176,15 +176,21 @@ func validateTraceSessionDeps(deps traceSessionDeps) error {
 func newTraceStateForSession(policy traceStatePolicy) *TraceState {
 	trackForkIdentity := true
 	deferUnmatchedExits := false
+	elidePlainEnter := false
+	elideNonBlockingPlainEnter := false
 	if policy != nil {
 		trackForkIdentity = policy.TrackForkIdentity()
 		deferUnmatchedExits = policy.ShouldDeferUnmatchedExits()
+		elidePlainEnter = policy.ElidePlainEnter()
+		elideNonBlockingPlainEnter = policy.ElideNonBlockingPlainEnter()
 	}
 	return &TraceState{
-		deferUnmatchedExits: deferUnmatchedExits,
-		trackForkIdentity:   trackForkIdentity,
-		unfinishedEnabled:   true,
-		lifecycleIDs:        newSyscallLifecycleIDs(meta.SyscallTable),
+		deferUnmatchedExits:        deferUnmatchedExits,
+		elidePlainEnter:            elidePlainEnter,
+		elideNonBlockingPlainEnter: elideNonBlockingPlainEnter,
+		unfinished:                 traceUnfinishedState{enabled: true},
+		lifecycle:                  traceTaskLifecycleState{trackForkIdentity: trackForkIdentity},
+		lifecycleIDs:               newSyscallLifecycleIDs(meta.SyscallTable),
 	}
 }
 
@@ -232,7 +238,11 @@ func buildTraceSessionBase(deps traceSessionDeps) traceSessionBaseComponents {
 	handlerRegistry := handler.NewRegistry()
 	handleSyscall := defaultHandleSyscall
 	outputPolicy := deps.OutputPolicy
-	jsonWriter := newJSONEventWriter(JSONEventWriterDeps{Out: deps.OutWriter})
+	jsonWriter := newJSONEventWriter(JSONEventWriterDeps{
+		Out:                  deps.OutWriter,
+		Clock:                deps.Clock,
+		MeasureSyscallWrites: deps.OutputPolicy != nil && deps.OutputPolicy.DebugPhases(),
+	})
 	return traceSessionBaseComponents{
 		jsonWriter:   jsonWriter,
 		debugPhases:  newTraceDebugPhaseWriter(outputPolicy, jsonWriter, deps.Clock),
@@ -352,9 +362,10 @@ func buildTraceSessionEvents(
 		ContextDeps: contextDeps,
 	})
 	router := newTraceEventRouter(TraceEventRouterDeps{
-		Scope:      newTraceScope(deps.TargetPID, base.outputPolicy),
-		State:      deps.State,
-		Dispatcher: dispatcher,
+		Scope:            newTraceScope(deps.TargetPID, base.outputPolicy),
+		State:            deps.State,
+		Dispatcher:       dispatcher,
+		StageDiagnostics: newTraceEventStageDiagnostics(base.outputPolicy.DebugPhases(), deps.Clock, traceDiagnosticServiceSampleRate),
 	})
 	return traceSessionEventComponents{
 		exitPipeline:     exitPipeline,
@@ -376,7 +387,7 @@ func buildTraceSessionRuntime(
 	base traceSessionBaseComponents,
 	router *TraceEventRouter,
 ) traceSessionRuntimeComponents {
-	var recordDecoder traceRecordDecoder = traceRingbufRecordDecoder{}
+	var recordDecoder traceRecordDecoder = newTraceRingbufRecordDecoder()
 	var eventSink traceEventSink = router
 	if isTraceReaderOnlyPolicy(base.outputPolicy) {
 		recordDecoder = traceRingbufBoundaryDecoder{}
@@ -389,6 +400,7 @@ func buildTraceSessionRuntime(
 		Clock:             deps.Clock,
 		MeasureService:    base.outputPolicy.DebugPhases(),
 		ServiceSampleRate: traceDiagnosticServiceSampleRate,
+		StageStats:        router,
 	})
 	return traceSessionRuntimeComponents{
 		recordDecoder: recordDecoder,

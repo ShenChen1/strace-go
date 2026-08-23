@@ -51,6 +51,78 @@ func TestDecodeTraceEventV2EnterEnvelope(t *testing.T) {
 	assertTraceEventV2PathSection(t, envelope.payload)
 }
 
+func TestDecodeTraceEventV2EnterFragmentEnvelope(t *testing.T) {
+	sysID := syscallIDByName(t, "bpf")
+	payload := payloadTLVBytes(t, payloadTLVTestSection{
+		kind:    payloadTLVKindBytes,
+		arg:     143,
+		userPtr: 0x2000,
+		userLen: 8,
+		data:    []byte("lineinfo"),
+	})
+	raw := traceEventV2EnterSample(t, traceEventV2SampleSpec{
+		pid:     201,
+		tid:     202,
+		sysID:   sysID,
+		flags:   bpfEventFlagPayloadTLV | bpfEventFlagEnterFragment,
+		tsNs:    1200,
+		args:    [6]uint64{1, 2, 3},
+		payload: payload,
+	})
+
+	envelope, ok := decodeTraceEventV2Envelope(raw)
+	if !ok {
+		t.Fatal("decodeTraceEventV2Envelope rejected a valid enter fragment")
+	}
+	if envelope.eventType != bpfEventTypeEnter || envelope.eventFlags&bpfEventFlagEnterFragment == 0 {
+		t.Fatalf("enter fragment envelope = %+v, want enter fragment", envelope)
+	}
+	if envelope.eventFlags&bpfEventFlagGenericEnter != 0 {
+		t.Fatalf("enter fragment was misclassified as generic enter: flags=%#x", envelope.eventFlags)
+	}
+	if len(envelope.payload) != 1 || envelope.payload[0].ArgIndex != 143 {
+		t.Fatalf("enter fragment payload = %+v, want arg 143", envelope.payload)
+	}
+}
+
+func TestDecodeTraceEventV2CompactEnterEnvelope(t *testing.T) {
+	sysID := syscallIDByName(t, "getpid")
+	args := [6]uint64{1, 2, 3, 4, 5, 6}
+	raw := traceEventV2CompactEnterSample(t, traceEventV2SampleSpec{
+		pid:   101,
+		tid:   102,
+		sysID: sysID,
+		flags: bpfEventFlagGenericEnter | bpfEventFlagCompactEnter,
+		tsNs:  900,
+		args:  args,
+	})
+
+	envelope, ok := decodeTraceEventV2Envelope(raw)
+	if !ok {
+		t.Fatal("decodeTraceEventV2Envelope rejected compact enter")
+	}
+	if envelope.args != args || envelope.enterTime != 900 {
+		t.Fatalf("compact enter = %+v, want args/time %#v/900", envelope, args)
+	}
+	if envelope.probeRetEnter != -1 || envelope.probeRetExit != -1 || len(envelope.payload) != 0 {
+		t.Fatalf("compact enter unavailable fields = %+v, want probe -1 and no payload", envelope)
+	}
+}
+
+func TestDecodeTraceEventV2RejectsInvalidCompactEnter(t *testing.T) {
+	raw := traceEventV2CompactEnterSample(t, traceEventV2SampleSpec{
+		sysID: syscallIDByName(t, "getpid"),
+		flags: bpfEventFlagGenericEnter | bpfEventFlagCompactEnter,
+	})
+	if _, ok := decodeTraceEventV2Envelope(raw[:len(raw)-1]); ok {
+		t.Fatal("decoder accepted truncated compact enter")
+	}
+	binary.LittleEndian.PutUint16(raw[traceEventV2HeaderFlagsOffset:traceEventV2HeaderFlagsOffset+traceEventV2U16Size], uint16(bpfEventFlagGenericEnter|bpfEventFlagCompactEnter|bpfEventFlagPayloadTLV))
+	if _, ok := decodeTraceEventV2Envelope(raw); ok {
+		t.Fatal("decoder accepted compact enter with payload flag")
+	}
+}
+
 func TestDecodeTraceEventV2EnterEnvelopePreservesStatus(t *testing.T) {
 	sysID := syscallIDByName(t, "execve")
 	raw := traceEventV2EnterSample(t, traceEventV2SampleSpec{
@@ -93,7 +165,7 @@ func TestTraceRingbufRecordDecoderAcceptsTraceEventV2Sample(t *testing.T) {
 		payload: payload,
 	})
 
-	envelope, ok := traceRingbufRecordDecoder{}.Decode(&ringbuf.Record{RawSample: raw})
+	envelope, ok := newTraceRingbufRecordDecoder().Decode(&ringbuf.Record{RawSample: raw})
 	if !ok {
 		t.Fatal("record decoder rejected a valid v2 sample")
 	}
@@ -268,7 +340,7 @@ func TestDecodeTraceEventV2RejectsShortCapture(t *testing.T) {
 		tsNs:  900,
 	})
 	bodyOffset := traceEventV2HeaderLen
-	binary.LittleEndian.PutUint32(raw[bodyOffset+64:bodyOffset+68], 1)
+	binary.LittleEndian.PutUint32(raw[bodyOffset+traceEventV2EnterCaptureLenOffset:bodyOffset+traceEventV2EnterCaptureLenOffset+traceEventV2U32Size], 1)
 
 	if _, ok := decodeTraceEventV2Envelope(raw); ok {
 		t.Fatal("decodeTraceEventV2Envelope accepted a capture_len beyond the sample body")
@@ -307,18 +379,27 @@ type traceEventV2SampleSpec struct {
 	payload       []byte
 }
 
-func traceEventV2EnterSample(t *testing.T, spec traceEventV2SampleSpec) []byte {
+func traceEventV2EnterSample(t testing.TB, spec traceEventV2SampleSpec) []byte {
 	t.Helper()
 	size := traceEventV2HeaderLen + traceEventV2EnterBodyLen + len(spec.payload)
 	spec.eventType = bpfEventTypeEnter
 	raw := traceEventV2HeaderSample(spec, size)
 	bodyOffset := traceEventV2HeaderLen
-	binary.LittleEndian.PutUint64(raw[bodyOffset:bodyOffset+8], uint64(spec.ret))
-	binary.LittleEndian.PutUint32(raw[bodyOffset+8:bodyOffset+12], uint32(spec.probeRetEnter))
-	binary.LittleEndian.PutUint32(raw[bodyOffset+12:bodyOffset+16], uint32(spec.probeRetExit))
-	putTraceEventV2Args(raw[bodyOffset+16:bodyOffset+64], spec.args)
-	binary.LittleEndian.PutUint32(raw[bodyOffset+64:bodyOffset+68], uint32(len(spec.payload)))
+	binary.LittleEndian.PutUint64(raw[bodyOffset+traceEventV2EnterRetOffset:bodyOffset+traceEventV2EnterRetOffset+traceEventV2U64Size], uint64(spec.ret))
+	binary.LittleEndian.PutUint32(raw[bodyOffset+traceEventV2EnterProbeRetEnterOffset:bodyOffset+traceEventV2EnterProbeRetEnterOffset+traceEventV2U32Size], uint32(spec.probeRetEnter))
+	binary.LittleEndian.PutUint32(raw[bodyOffset+traceEventV2EnterProbeRetExitOffset:bodyOffset+traceEventV2EnterProbeRetExitOffset+traceEventV2U32Size], uint32(spec.probeRetExit))
+	putTraceEventV2Args(raw[bodyOffset+traceEventV2EnterArgsOffset:bodyOffset+traceEventV2EnterArgsOffset+traceEventV2ArgsSize], spec.args)
+	binary.LittleEndian.PutUint32(raw[bodyOffset+traceEventV2EnterCaptureLenOffset:bodyOffset+traceEventV2EnterCaptureLenOffset+traceEventV2U32Size], uint32(len(spec.payload)))
 	copy(raw[bodyOffset+traceEventV2EnterBodyLen:], spec.payload)
+	return raw
+}
+
+func traceEventV2CompactEnterSample(t *testing.T, spec traceEventV2SampleSpec) []byte {
+	t.Helper()
+	size := traceEventV2HeaderLen + traceEventV2CompactEnterBodyLen
+	spec.eventType = bpfEventTypeEnter
+	raw := traceEventV2HeaderSample(spec, size)
+	putTraceEventV2Args(raw[traceEventV2HeaderLen+traceEventV2CompactEnterArgsOffset:traceEventV2HeaderLen+traceEventV2CompactEnterArgsOffset+traceEventV2ArgsSize], spec.args)
 	return raw
 }
 
@@ -328,40 +409,39 @@ func traceEventV2ExitSample(t *testing.T, spec traceEventV2SampleSpec) []byte {
 	spec.eventType = bpfEventTypeExit
 	raw := traceEventV2HeaderSample(spec, size)
 	bodyOffset := traceEventV2HeaderLen
-	binary.LittleEndian.PutUint64(raw[bodyOffset:bodyOffset+8], uint64(spec.ret))
-	binary.LittleEndian.PutUint64(raw[bodyOffset+8:bodyOffset+16], spec.duration)
-	putTraceEventV2Args(raw[bodyOffset+16:bodyOffset+64], spec.args)
-	binary.LittleEndian.PutUint32(raw[bodyOffset+64:bodyOffset+68], uint32(len(spec.payload)))
-	binary.LittleEndian.PutUint32(raw[bodyOffset+72:bodyOffset+76], uint32(spec.stackID))
+	binary.LittleEndian.PutUint64(raw[bodyOffset+traceEventV2ExitRetOffset:bodyOffset+traceEventV2ExitRetOffset+traceEventV2U64Size], uint64(spec.ret))
+	binary.LittleEndian.PutUint64(raw[bodyOffset+traceEventV2ExitDurationOffset:bodyOffset+traceEventV2ExitDurationOffset+traceEventV2U64Size], spec.duration)
+	putTraceEventV2Args(raw[bodyOffset+traceEventV2ExitArgsOffset:bodyOffset+traceEventV2ExitArgsOffset+traceEventV2ArgsSize], spec.args)
+	binary.LittleEndian.PutUint32(raw[bodyOffset+traceEventV2ExitCaptureLenOffset:bodyOffset+traceEventV2ExitCaptureLenOffset+traceEventV2U32Size], uint32(len(spec.payload)))
+	binary.LittleEndian.PutUint32(raw[bodyOffset+traceEventV2ExitStackIDOffset:bodyOffset+traceEventV2ExitStackIDOffset+traceEventV2U32Size], uint32(spec.stackID))
 	copy(raw[bodyOffset+traceEventV2ExitBodyLen:], spec.payload)
 	return raw
 }
 
 func traceEventV2LifecycleSample(t *testing.T, spec traceEventV2SampleSpec) []byte {
 	t.Helper()
-	const lifecycleBodyLen = 56
-	size := traceEventV2HeaderLen + lifecycleBodyLen + len(spec.payload)
+	size := traceEventV2HeaderLen + traceEventV2LifecycleBodyLen + len(spec.payload)
 	spec.eventType = bpfEventTypeLifecycle
 	raw := traceEventV2HeaderSample(spec, size)
 	bodyOffset := traceEventV2HeaderLen
-	binary.LittleEndian.PutUint32(raw[bodyOffset:bodyOffset+4], spec.action)
-	binary.LittleEndian.PutUint32(raw[bodyOffset+4:bodyOffset+8], uint32(len(spec.payload)))
-	putTraceEventV2Args(raw[bodyOffset+8:bodyOffset+56], spec.args)
-	copy(raw[bodyOffset+lifecycleBodyLen:], spec.payload)
+	binary.LittleEndian.PutUint32(raw[bodyOffset+traceEventV2LifecycleActionOffset:bodyOffset+traceEventV2LifecycleActionOffset+traceEventV2U32Size], spec.action)
+	binary.LittleEndian.PutUint32(raw[bodyOffset+traceEventV2LifecycleSnapshotLenOffset:bodyOffset+traceEventV2LifecycleSnapshotLenOffset+traceEventV2U32Size], uint32(len(spec.payload)))
+	putTraceEventV2Args(raw[bodyOffset+traceEventV2LifecycleArgsOffset:bodyOffset+traceEventV2LifecycleArgsOffset+traceEventV2ArgsSize], spec.args)
+	copy(raw[bodyOffset+traceEventV2LifecycleBodyLen:], spec.payload)
 	return raw
 }
 
 func traceEventV2HeaderSample(spec traceEventV2SampleSpec, size int) []byte {
 	raw := make([]byte, size)
-	binary.LittleEndian.PutUint16(raw[0:2], traceEventV2Version)
-	binary.LittleEndian.PutUint16(raw[2:4], spec.eventType)
-	binary.LittleEndian.PutUint16(raw[4:6], uint16(spec.flags))
-	binary.LittleEndian.PutUint16(raw[6:8], traceEventV2HeaderLen)
-	binary.LittleEndian.PutUint32(raw[8:12], uint32(size))
-	binary.LittleEndian.PutUint32(raw[12:16], spec.pid)
-	binary.LittleEndian.PutUint32(raw[16:20], spec.tid)
-	binary.LittleEndian.PutUint32(raw[20:24], spec.sysID)
-	binary.LittleEndian.PutUint64(raw[32:40], spec.tsNs)
+	binary.LittleEndian.PutUint16(raw[traceEventV2HeaderVersionOffset:traceEventV2HeaderVersionOffset+traceEventV2U16Size], traceEventV2Version)
+	binary.LittleEndian.PutUint16(raw[traceEventV2HeaderEventTypeOffset:traceEventV2HeaderEventTypeOffset+traceEventV2U16Size], spec.eventType)
+	binary.LittleEndian.PutUint16(raw[traceEventV2HeaderFlagsOffset:traceEventV2HeaderFlagsOffset+traceEventV2U16Size], uint16(spec.flags))
+	binary.LittleEndian.PutUint16(raw[traceEventV2HeaderLenOffset:traceEventV2HeaderLenOffset+traceEventV2U16Size], traceEventV2HeaderLen)
+	binary.LittleEndian.PutUint32(raw[traceEventV2HeaderSizeOffset:traceEventV2HeaderSizeOffset+traceEventV2U32Size], uint32(size))
+	binary.LittleEndian.PutUint32(raw[traceEventV2HeaderPIDOffset:traceEventV2HeaderPIDOffset+traceEventV2U32Size], spec.pid)
+	binary.LittleEndian.PutUint32(raw[traceEventV2HeaderTIDOffset:traceEventV2HeaderTIDOffset+traceEventV2U32Size], spec.tid)
+	binary.LittleEndian.PutUint32(raw[traceEventV2HeaderSysIDOffset:traceEventV2HeaderSysIDOffset+traceEventV2U32Size], spec.sysID)
+	binary.LittleEndian.PutUint64(raw[traceEventV2HeaderTSNSOffset:traceEventV2HeaderTSNSOffset+traceEventV2U64Size], spec.tsNs)
 	return raw
 }
 

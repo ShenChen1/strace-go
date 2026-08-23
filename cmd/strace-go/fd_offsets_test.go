@@ -7,7 +7,7 @@ import (
 	"strace-go/pkg/meta"
 )
 
-func syscallIDByName(t *testing.T, name string) uint32 {
+func syscallIDByName(t testing.TB, name string) uint32 {
 	t.Helper()
 	for id, sc := range meta.SyscallTable {
 		if sc.Name == name {

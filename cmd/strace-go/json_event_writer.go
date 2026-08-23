@@ -20,6 +20,18 @@ type traceDebugPhasePort interface {
 	EmitPhaseAt(string, uint64, uint64)
 }
 
+type traceJSONOutputStats struct {
+	SyscallBytesWritten     uint64
+	SyscallWriteCalls       uint64
+	SyscallWriteErrors      uint64
+	SyscallWriteTimeNS      uint64
+	SyscallWriteTimeSamples uint64
+}
+
+type traceJSONOutputStatsReader interface {
+	JSONOutputStats() traceJSONOutputStats
+}
+
 type traceDebugPhaseWriter struct {
 	policy traceReadyPolicy
 	writer *JSONEventWriter
@@ -52,22 +64,34 @@ func (w *traceDebugPhaseWriter) EmitPhaseAt(phase string, startTimeNS, timeNS ui
 // JSONEventWriter is the only user-space JSON encoding boundary for event
 // records. Filtering and event selection stay in the output policy objects.
 type JSONEventWriter struct {
-	encoder        *json.Encoder
-	out            io.Writer
-	flusher        interface{ Flush() error }
-	batchWriter    interface{ WriteBatch([]byte) (int, error) }
-	syscallBuffer  []byte
-	lifecycleEvent jsonLifecycleEvent
+	encoder             *json.Encoder
+	out                 io.Writer
+	flusher             interface{ Flush() error }
+	batchWriter         interface{ WriteBatch([]byte) (int, error) }
+	syscallBuffer       []byte
+	syscallBytesWritten uint64
+	syscallWriteCalls   uint64
+	syscallWriteErrors  uint64
+	syscallWriteTimeNS  uint64
+	syscallWriteSamples uint64
+	clock               traceClock
+	measureSyscallWrite bool
+	lifecycleEvent      jsonLifecycleEvent
 }
 
 const jsonSyscallBatchSize = traceOutputBufferSize + 1
 
 type JSONEventWriterDeps struct {
-	Out io.Writer
+	Out                  io.Writer
+	Clock                traceClock
+	MeasureSyscallWrites bool
 }
 
 func newJSONEventWriter(deps JSONEventWriterDeps) *JSONEventWriter {
-	writer := &JSONEventWriter{}
+	writer := &JSONEventWriter{
+		clock:               deps.Clock,
+		measureSyscallWrite: deps.MeasureSyscallWrites && deps.Clock != nil,
+	}
 	if deps.Out != nil {
 		writer.out = deps.Out
 		writer.encoder = json.NewEncoder(deps.Out)
@@ -92,6 +116,19 @@ func (w *JSONEventWriter) Flush() error {
 		return nil
 	}
 	return w.flusher.Flush()
+}
+
+func (w *JSONEventWriter) JSONOutputStats() traceJSONOutputStats {
+	if w == nil {
+		return traceJSONOutputStats{}
+	}
+	return traceJSONOutputStats{
+		SyscallBytesWritten:     w.syscallBytesWritten,
+		SyscallWriteCalls:       w.syscallWriteCalls,
+		SyscallWriteErrors:      w.syscallWriteErrors,
+		SyscallWriteTimeNS:      w.syscallWriteTimeNS,
+		SyscallWriteTimeSamples: w.syscallWriteSamples,
+	}
 }
 
 func (w *JSONEventWriter) WriteRaw(ev syscallEventContext) {
@@ -160,7 +197,10 @@ func (w *JSONEventWriter) writeSyscallBuffer() {
 	if w == nil || w.out == nil || len(w.syscallBuffer) == 0 {
 		return
 	}
-	_, _ = w.out.Write(w.syscallBuffer)
+	startNS, measured := w.beginSyscallWrite()
+	n, err := w.out.Write(w.syscallBuffer)
+	w.recordSyscallWrite(n, err)
+	w.finishSyscallWrite(startNS, measured)
 }
 
 func (w *JSONEventWriter) flushSyscallBufferIfFull() {
@@ -175,11 +215,49 @@ func (w *JSONEventWriter) flushSyscallBuffer() {
 		return
 	}
 	if w.batchWriter != nil {
-		_, _ = w.batchWriter.WriteBatch(w.syscallBuffer)
+		startNS, measured := w.beginSyscallWrite()
+		n, err := w.batchWriter.WriteBatch(w.syscallBuffer)
+		w.recordSyscallWrite(n, err)
+		w.finishSyscallWrite(startNS, measured)
 	} else {
-		_, _ = w.out.Write(w.syscallBuffer)
+		startNS, measured := w.beginSyscallWrite()
+		n, err := w.out.Write(w.syscallBuffer)
+		w.recordSyscallWrite(n, err)
+		w.finishSyscallWrite(startNS, measured)
 	}
 	w.syscallBuffer = w.syscallBuffer[:0]
+}
+
+func (w *JSONEventWriter) recordSyscallWrite(n int, err error) {
+	if w == nil {
+		return
+	}
+	w.syscallWriteCalls++
+	if n > 0 {
+		w.syscallBytesWritten += uint64(n)
+	}
+	if err != nil {
+		w.syscallWriteErrors++
+	}
+}
+
+func (w *JSONEventWriter) beginSyscallWrite() (uint64, bool) {
+	if w == nil || !w.measureSyscallWrite || w.clock == nil {
+		return 0, false
+	}
+	return w.clock.NowMonoNs(), true
+}
+
+func (w *JSONEventWriter) finishSyscallWrite(startNS uint64, measured bool) {
+	if w == nil || !measured || w.clock == nil {
+		return
+	}
+	endNS := w.clock.NowMonoNs()
+	if endNS < startNS {
+		return
+	}
+	w.syscallWriteSamples++
+	w.syscallWriteTimeNS += endNS - startNS
 }
 
 func (w *JSONEventWriter) canEncode() bool {

@@ -12,6 +12,7 @@ func TestWriteGeneratedSyscallNumberHeader(t *testing.T) {
 	numbers := []syscallNumberEntry{
 		{ID: 1, Name: "write"},
 		{ID: 35, Name: "nanosleep"},
+		{ID: 125, Name: "capget"},
 		{ID: 0, Name: "read"},
 	}
 
@@ -27,6 +28,15 @@ func TestWriteGeneratedSyscallNumberHeader(t *testing.T) {
 		macro := "#define SYS_" + strings.ToUpper(name) + " "
 		if strings.Contains(got, macro) {
 			t.Fatalf("generated header redefined BPF-managed volatile syscall %q", name)
+		}
+	}
+	for _, want := range []string{
+		"volatile const u32 SYS_NANOSLEEP = 35;",
+		"volatile const u32 SYS_CAPGET = 125;",
+		"volatile const u32 SYS_RT_SIGRETURN_COMPAT = 173;",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated header missing runtime variable %q:\n%s", want, got)
 		}
 	}
 	readIndex := strings.Index(got, "#define SYS_READ 0")

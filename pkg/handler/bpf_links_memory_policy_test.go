@@ -365,3 +365,106 @@ func TestBpfLinkStreamBufUsesNestedPayloadSection(t *testing.T) {
 		t.Fatalf("memory reads = %d, want 0", reader.reads)
 	}
 }
+
+func TestBpfLinkStreamBufUsesExitOutputPayloadSection(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.Args[0] = 37
+	ctx.Ret = 9
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindBytes,
+			Direction: PayloadDirectionOut,
+			ArgIndex:  bpfLinkStreamBufPayloadArg,
+			UserPtr:   0x5000,
+			UserLen:   9,
+			CopiedLen: 9,
+			ProbeRet:  0,
+			Data:      []byte("bPf\x00daTum"),
+		},
+	}
+
+	got := decodeStreamBuf(ctx, 0x5000, 9)
+	if got != `"bPf\0daTum"` {
+		t.Fatalf("decodeStreamBuf() = %q, want exit output snapshot", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestBpfLinkStreamBufUsesOutputSectionWhenExitReturnsZero(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.Args[0] = 37
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindBytes,
+			Direction: PayloadDirectionOut,
+			ArgIndex:  bpfLinkStreamBufPayloadArg,
+			UserPtr:   0x5000,
+			UserLen:   9,
+			CopiedLen: 9,
+			ProbeRet:  0,
+			Data:      []byte("bPf\x00daTum"),
+		},
+	}
+
+	if got := decodeStreamBuf(ctx, 0x5000, 9); got != `"bPf\0daTum"` {
+		t.Fatalf("decodeStreamBuf() = %q, want zero-byte exit output snapshot", got)
+	}
+}
+
+func TestBpfLinkStreamBufDoesNotConsumeEnterInputAsExitOutput(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.Args[0] = 37
+	ctx.Ret = 9
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindBytes,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  bpfLinkStreamBufPayloadArg,
+			UserPtr:   0x5000,
+			UserLen:   9,
+			CopiedLen: 9,
+			ProbeRet:  0,
+			Data:      []byte("stale-data"),
+		},
+	}
+
+	got := decodeStreamBuf(ctx, 0x5000, 9)
+	if got != "0x5000" {
+		t.Fatalf("decodeStreamBuf() = %q, enter payload must not be treated as output", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}
+
+func TestBpfLinkStreamBufUsesReadableOutputOnFailedExit(t *testing.T) {
+	reader := &bpfPolicyMemoryReader{data: map[uint64][]byte{}}
+	ctx := newBpfPolicyContext(reader, event.NewDecoder())
+	ctx.Args[0] = 37
+	ctx.Ret = -22
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindBytes,
+			Direction: PayloadDirectionOut,
+			ArgIndex:  bpfLinkStreamBufPayloadArg,
+			UserPtr:   0x5000,
+			UserLen:   9,
+			CopiedLen: 9,
+			ProbeRet:  0,
+			Data:      []byte("bPf\x00daTum"),
+		},
+	}
+
+	got := decodeStreamBuf(ctx, 0x5000, 9)
+	if got != `"bPf\0daTum"` {
+		t.Fatalf("decodeStreamBuf() = %q, want readable failed-exit snapshot", got)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("memory reads = %d, want 0", reader.reads)
+	}
+}

@@ -179,6 +179,7 @@ func TestBPFReadWritePayloadHelpersUseDirectTLV(t *testing.T) {
 	src := loadBPFSources(t)
 	straceSource := src.straceSource
 	directHeader := src.directHeader
+	tlvHeader := src.tlvHeader
 	if !strings.Contains(directHeader, "sys_id == SYS_OPENAT") ||
 		!strings.Contains(directHeader, "sys_id == SYS_WRITE") ||
 		!strings.Contains(directHeader, "sys_id == SYS_PWRITE64") ||
@@ -193,19 +194,35 @@ func TestBPFReadWritePayloadHelpersUseDirectTLV(t *testing.T) {
 	}
 	if !strings.Contains(directHeader, "return sys_id == SYS_WRITE || sys_id == SYS_PWRITE64;") ||
 		!strings.Contains(directHeader, "capture_write_bytes_tlv_direct(") ||
-		!strings.Contains(directHeader, "PAYLOAD_TLV_HEADER_SIZE + PAYLOAD_TLV_WRITE_MAX") ||
-		!strings.Contains(directHeader, "bpf_dynptr_data(ptr, data_offset, PAYLOAD_TLV_WRITE_MAX)") ||
+		!strings.Contains(directHeader, "payload_tlv_data_bucket(payload_tlv_copy_len(args[2], PAYLOAD_TLV_WRITE_MAX))") ||
+		!strings.Contains(directHeader, "payload_tlv_data_direct(ptr, data_offset, copied_len)") ||
 		!strings.Contains(directHeader, "record_payload_truncated_event();") {
-		t.Fatal("write direct helper should reserve TLV payload capacity, copy bytes, and record truncation")
+		t.Fatal("write direct helper should reserve bucketed TLV payload capacity, copy bytes, and record truncation")
+	}
+	for _, constant := range []string{
+		"PAYLOAD_TLV_DATA_BUCKET_64 64",
+		"PAYLOAD_TLV_DATA_BUCKET_128 128",
+		"PAYLOAD_TLV_DATA_BUCKET_256 256",
+		"PAYLOAD_TLV_DATA_BUCKET_512 512",
+	} {
+		if !strings.Contains(tlvHeader, constant) {
+			t.Fatalf("payload TLV header missing verifier-safe bucket %q", constant)
+		}
+	}
+	if !strings.Contains(tlvHeader, "bpf_dynptr_data(ptr, data_offset, PAYLOAD_TLV_DATA_BUCKET_64)") ||
+		!strings.Contains(tlvHeader, "payload_tlv_data_bucket(u32 copied_len)") {
+		t.Fatal("payload TLV helper must use constant dynptr sizes selected by bounded buckets")
 	}
 	if !strings.Contains(directHeader, "return sys_id == SYS_READ || sys_id == SYS_PREAD64;") ||
 		!strings.Contains(straceSource, "is_exit_payload_direct_syscall(p->sys_id)") ||
 		!strings.Contains(straceSource, "ret_value > 0") ||
 		!strings.Contains(directHeader, "capture_read_bytes_tlv_direct(") ||
 		!strings.Contains(directHeader, "emit_payload_exit_event_v2_direct(") ||
-		!strings.Contains(directHeader, "PAYLOAD_TLV_HEADER_SIZE + PAYLOAD_TLV_READ_MAX") ||
+		!strings.Contains(directHeader, "payload_tlv_data_bucket(") ||
+		!strings.Contains(directHeader, "payload_tlv_copy_len((u64)ret_value, PAYLOAD_TLV_READ_MAX)") ||
+		!strings.Contains(directHeader, "payload_tlv_data_direct(ptr, data_offset, copied_len)") ||
 		!strings.Contains(directHeader, "PAYLOAD_TLV_FLAG_DIRECTION_OUT") {
-		t.Fatal("read direct helper should reserve exit TLV payload capacity and copy bytes with out direction")
+		t.Fatal("read direct helper should reserve bucketed exit TLV payload capacity and copy bytes with out direction")
 	}
 }
 

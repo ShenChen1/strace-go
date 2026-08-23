@@ -14,13 +14,14 @@ type fakeRouterExitEffects struct {
 }
 
 type traceEventRouterTestDeps struct {
-	Scope       TraceScope
-	TargetPID   int
-	State       traceEventState
-	Lifecycle   lifecycleEventSink
-	JSON        syscallEnterSink
-	Pipeline    syscallExitSink
-	ContextDeps syscallEventContextDeps
+	Scope            TraceScope
+	TargetPID        int
+	State            traceEventState
+	Lifecycle        lifecycleEventSink
+	JSON             syscallEnterSink
+	Pipeline         syscallExitSink
+	ContextDeps      syscallEventContextDeps
+	StageDiagnostics *traceEventStageDiagnostics
 }
 
 func newTestTraceEventRouter(deps traceEventRouterTestDeps) *TraceEventRouter {
@@ -33,9 +34,10 @@ func newTestTraceEventRouter(deps traceEventRouterTestDeps) *TraceEventRouter {
 		ContextDeps: deps.ContextDeps,
 	})
 	return newTraceEventRouter(TraceEventRouterDeps{
-		Scope:      deps.Scope,
-		State:      deps.State,
-		Dispatcher: dispatcher,
+		Scope:            deps.Scope,
+		State:            deps.State,
+		Dispatcher:       dispatcher,
+		StageDiagnostics: deps.StageDiagnostics,
 	})
 }
 
@@ -66,8 +68,8 @@ func TestTraceEventRouterSkipsOutOfScopeEvents(t *testing.T) {
 		eventFlags: bpfEventFlagGenericEnter,
 	})
 
-	if len(state.pendingSyscalls) != 0 {
-		t.Fatalf("pending syscalls = %d, want no out-of-scope state update", len(state.pendingSyscalls))
+	if len(state.correlation.pendingSyscalls) != 0 {
+		t.Fatalf("pending syscalls = %d, want no out-of-scope state update", len(state.correlation.pendingSyscalls))
 	}
 }
 
@@ -178,7 +180,7 @@ func TestTraceEventRouterDoesNotCopyFDStateForThreadClone(t *testing.T) {
 	if len(effects.inherited) != 0 {
 		t.Fatalf("thread inherited = %v, want no process copy", effects.inherited)
 	}
-	if task := state.tasks[201]; task == nil || task.TGID != 200 {
+	if task := state.lifecycle.tasks[201]; task == nil || task.TGID != 200 {
 		t.Fatalf("thread task = %+v, want TGID 200", task)
 	}
 }
@@ -219,7 +221,7 @@ func TestTraceEventRouterRoutesGenericEnterToJSON(t *testing.T) {
 	if rawEvents != 1 {
 		t.Fatalf("rawEvents = %d, want one generic enter JSON event", rawEvents)
 	}
-	if got := len(state.pendingSyscalls); got != 1 {
+	if got := len(state.correlation.pendingSyscalls); got != 1 {
 		t.Fatalf("pending syscalls = %d, want generic enter cached", got)
 	}
 }
@@ -364,11 +366,11 @@ func TestTraceEventRouterDiscardsUnfinishedWithoutTextPipeline(t *testing.T) {
 		router.Handle(event)
 	}
 
-	if len(state.unqueuedUnfinished) != 0 || len(state.inFlightUnfinished) != 0 {
-		t.Fatalf("unfinished index = unqueued %d, in-flight %d; want empty without text output", len(state.unqueuedUnfinished), len(state.inFlightUnfinished))
+	if len(state.unfinished.unqueued) != 0 || len(state.unfinished.inFlight) != 0 {
+		t.Fatalf("unfinished index = unqueued %d, in-flight %d; want empty without text output", len(state.unfinished.unqueued), len(state.unfinished.inFlight))
 	}
-	if len(state.pendingSyscalls) != 3 {
-		t.Fatalf("pending syscalls = %d, want all three enter events retained", len(state.pendingSyscalls))
+	if len(state.correlation.pendingSyscalls) != 3 {
+		t.Fatalf("pending syscalls = %d, want all three enter events retained", len(state.correlation.pendingSyscalls))
 	}
 }
 

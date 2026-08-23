@@ -20,13 +20,13 @@ func TestEnterProgArrayEntriesComplete(t *testing.T) {
 	}
 	// Every dispatcher index from enter_dispatch.h must have a slot; missing
 	// slots silently drop that syscall family.
-	for i := 1; i <= enterProgNestedFDPath3; i++ {
+	for i := 1; i <= enterProgBpfProgLoadDebug; i++ {
 		if !seen[uint32(i)] {
 			t.Fatalf("enter prog array missing index %d", i)
 		}
 	}
-	if len(entries) != enterProgNestedFDPath3 {
-		t.Fatalf("enter prog array entries = %d, want %d", len(entries), enterProgNestedFDPath3)
+	if len(entries) != enterProgBpfProgLoadDebug {
+		t.Fatalf("enter prog array entries = %d, want %d", len(entries), enterProgBpfProgLoadDebug)
 	}
 }
 
@@ -120,24 +120,27 @@ func TestEnterProgIndicesMatchDispatchHeader(t *testing.T) {
 	root := repoRootForTest(t)
 	header := readTextFile(t, filepath.Join(root, "bpf/enter_runtime.h"))
 	pairs := map[string]uint32{
-		"ENTER_PROG_TERMINATING":       enterProgTerminating,
-		"ENTER_PROG_IOVEC":             enterProgIovec,
-		"ENTER_PROG_MSG":               enterProgMsg,
-		"ENTER_PROG_MMSG":              enterProgMmsg,
-		"ENTER_PROG_AIO":               enterProgAio,
-		"ENTER_PROG_NO_PAYLOAD_DIRECT": enterProgNoPayload,
-		"ENTER_PROG_PAYLOAD_DIRECT":    enterProgPayload,
-		"ENTER_PROG_IOVEC_BASE":        enterProgIovecBase,
-		"ENTER_PROG_MMSG_BASE01":       enterProgMmsgB01,
-		"ENTER_PROG_MMSG_BASE2":        enterProgMmsgB2,
-		"ENTER_PROG_MMSG_BASE3":        enterProgMmsgB3,
-		"ENTER_PROG_AIO_BUF":           enterProgAioBuf,
-		"ENTER_PROG_QUOTA":             enterProgQuota,
-		"ENTER_PROG_MOUNT_PATH":        enterProgMountPath,
-		"ENTER_PROG_NESTED_FD_PATH0":   enterProgNestedFDPath0,
-		"ENTER_PROG_NESTED_FD_PATH1":   enterProgNestedFDPath1,
-		"ENTER_PROG_NESTED_FD_PATH2":   enterProgNestedFDPath2,
-		"ENTER_PROG_NESTED_FD_PATH3":   enterProgNestedFDPath3,
+		"ENTER_PROG_TERMINATING":         enterProgTerminating,
+		"ENTER_PROG_BPF_UPROBE_MULTI":    enterProgBpfUprobeMulti,
+		"ENTER_PROG_BPF_PROG_LOAD":       enterProgBpfProgLoad,
+		"ENTER_PROG_BPF_PROG_LOAD_DEBUG": enterProgBpfProgLoadDebug,
+		"ENTER_PROG_IOVEC":               enterProgIovec,
+		"ENTER_PROG_MSG":                 enterProgMsg,
+		"ENTER_PROG_MMSG":                enterProgMmsg,
+		"ENTER_PROG_AIO":                 enterProgAio,
+		"ENTER_PROG_NO_PAYLOAD_DIRECT":   enterProgNoPayload,
+		"ENTER_PROG_PAYLOAD_DIRECT":      enterProgPayload,
+		"ENTER_PROG_IOVEC_BASE":          enterProgIovecBase,
+		"ENTER_PROG_MMSG_BASE01":         enterProgMmsgB01,
+		"ENTER_PROG_MMSG_BASE2":          enterProgMmsgB2,
+		"ENTER_PROG_MMSG_BASE3":          enterProgMmsgB3,
+		"ENTER_PROG_AIO_BUF":             enterProgAioBuf,
+		"ENTER_PROG_QUOTA":               enterProgQuota,
+		"ENTER_PROG_MOUNT_PATH":          enterProgMountPath,
+		"ENTER_PROG_NESTED_FD_PATH0":     enterProgNestedFDPath0,
+		"ENTER_PROG_NESTED_FD_PATH1":     enterProgNestedFDPath1,
+		"ENTER_PROG_NESTED_FD_PATH2":     enterProgNestedFDPath2,
+		"ENTER_PROG_NESTED_FD_PATH3":     enterProgNestedFDPath3,
 	}
 	for name, val := range pairs {
 		if !strings.Contains(header, fmt.Sprintf("%s = %d", name, val)) {
@@ -145,8 +148,8 @@ func TestEnterProgIndicesMatchDispatchHeader(t *testing.T) {
 		}
 	}
 	runtimeABI := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
-	if !strings.Contains(runtimeABI, "__uint(max_entries, 51)") {
-		t.Fatal("runtime_abi.h enter_progs map must include select path fragment slots")
+	if !strings.Contains(runtimeABI, "__uint(max_entries, 54)") {
+		t.Fatal("runtime_abi.h enter_progs map must include the prog_load slot")
 	}
 }
 
@@ -185,7 +188,7 @@ func TestExitProgIndicesMatchDispatchHeader(t *testing.T) {
 }
 
 func TestBuildRuntimeConfigEnablesFDStateForPathRendering(t *testing.T) {
-	plain, err := buildRuntimeConfig(newTraceBPFConfig(cli.ParseArgs([]string{"/bin/true"})), &bpfObjects{})
+	plain, err := buildRuntimeConfig(newTraceBPFConfig(cli.ParseArgs([]string{"--event-format=reader", "/bin/true"})), &bpfObjects{})
 	if err != nil {
 		t.Fatalf("buildRuntimeConfig(plain): %v", err)
 	}

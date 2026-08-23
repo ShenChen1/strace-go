@@ -27,10 +27,24 @@ func writeGoSyscallTable(path string, syscalls map[int]SyscallMeta) error {
 			id, meta.Name, formatStringSlice(meta.Args), formatStringSlice(meta.ArgTypes), meta.Flags)
 	}
 	fmt.Fprintln(&out, "}")
+	fmt.Fprintln(&out)
+	fmt.Fprintln(&out, "var RuntimeSyscallVariables = map[string]string{")
+	for _, variable := range sortedRuntimeABIVariables() {
+		fmt.Fprintf(&out, "\t%q: %q,\n", variable.variableName, variable.syscallName)
+	}
+	fmt.Fprintln(&out, "}")
 	if err := os.WriteFile(path, []byte(out.String()), 0644); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
+}
+
+func sortedRuntimeABIVariables() []runtimeABIVariable {
+	variables := append([]runtimeABIVariable(nil), runtimeABIVariables...)
+	sort.Slice(variables, func(i, j int) bool {
+		return variables[i].variableName < variables[j].variableName
+	})
+	return variables
 }
 
 func sortedKeys(m map[int]SyscallMeta) []int {

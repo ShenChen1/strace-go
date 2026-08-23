@@ -24,6 +24,9 @@ enum enter_prog_index {
     ENTER_PROG_PRCTL = 19,
     ENTER_PROG_CLONE3 = 20,
     ENTER_PROG_BPF = 21,
+    ENTER_PROG_BPF_UPROBE_MULTI = 51,
+    ENTER_PROG_BPF_PROG_LOAD = 52,
+    ENTER_PROG_BPF_PROG_LOAD_DEBUG = 53,
     ENTER_PROG_IOVEC = 22,
     ENTER_PROG_MSG = 23,
     ENTER_PROG_MMSG = 24,
@@ -82,7 +85,7 @@ static __always_inline void emit_enter_dispatch_fallback(
     if (cfg && (*cfg & CONFIG_CAPTURE_STACK)) {
         stack_id = bpf_get_stackid(ctx, &stack_traces, BPF_F_USER_STACK);
     }
-    emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
+    emit_plain_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
 }
 

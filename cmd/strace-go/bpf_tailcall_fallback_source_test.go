@@ -32,7 +32,7 @@ func TestBPFEnterDispatcherFallbackIsIsolated(t *testing.T) {
 	}
 	assertBPFSourceOrder(t, helper, []string{
 		"volatile s32 stack_id = -1;",
-		"emit_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);",
+		"emit_plain_no_payload_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);",
 		"save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);",
 	})
 }

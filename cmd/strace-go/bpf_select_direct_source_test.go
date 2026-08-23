@@ -116,7 +116,7 @@ func TestBPFSelectPathCaptureUsesTailCallFragments(t *testing.T) {
 	if strings.Contains(emit, "emit_nested_fd_path_fragment_event_v2_direct(") {
 		t.Fatal("select emit provider must not own shared nested path emitter")
 	}
-	if !strings.Contains(runtime, "__uint(max_entries, 51)") {
+	if !strings.Contains(runtime, "__uint(max_entries, 54)") {
 		t.Fatal("enter ProgArray does not reserve four select path fragment slots")
 	}
 }

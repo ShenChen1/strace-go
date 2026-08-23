@@ -10,6 +10,7 @@ func TestBPFBpfNestedCaptureHasDedicatedOwnership(t *testing.T) {
 	root := repoRootForTest(t)
 	nested := readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_nested_direct_event_v2.h"))
 	capture := readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_nested_capture_direct_event_v2.h"))
+	progLoad := readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_prog_load_direct_event_v2.h"))
 
 	for _, name := range []string{
 		"capture_bpf_license_tlv_direct",
@@ -26,11 +27,9 @@ func TestBPFBpfNestedCaptureHasDedicatedOwnership(t *testing.T) {
 	}
 
 	for _, name := range []string{
-		"capture_bpf_prog_load_nested_tlv_direct",
 		"capture_bpf_obj_pathname_tlv_direct",
 		"capture_bpf_raw_tracepoint_name_tlv_direct",
 		"capture_bpf_btf_tlv_direct",
-		"capture_bpf_prog_stream_read_tlv_direct",
 		"capture_bpf_link_iter_info_tlv_direct",
 		"capture_bpf_nested_tlv_direct",
 	} {
@@ -41,6 +40,12 @@ func TestBPFBpfNestedCaptureHasDedicatedOwnership(t *testing.T) {
 		if strings.Contains(capture, signature) {
 			t.Fatalf("nested capture module must not own command handler %q", name)
 		}
+	}
+	if !strings.Contains(progLoad, "static __noinline u32 capture_bpf_prog_load_nested_tlv_direct(") {
+		t.Fatal("prog_load provider must own the command handler")
+	}
+	if strings.Contains(nested, "static __always_inline u32 capture_bpf_prog_load_nested_tlv_direct(") {
+		t.Fatal("nested composer must not own the prog_load command handler")
 	}
 
 	if !strings.Contains(nested, `#include "syscall_bpf_nested_capture_direct_event_v2.h"`) {

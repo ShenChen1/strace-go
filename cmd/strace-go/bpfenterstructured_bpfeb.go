@@ -14,14 +14,23 @@ import (
 )
 
 type bpfEnterStructuredBpfStats struct {
-	_                      structs.HostLayout
-	RingbufReserveFail     uint64
-	RingbufCopyFail        uint64
-	PayloadTruncatedEvents uint64
-	PendingUpdateFail      uint64
-	OrphanExit             uint64
-	PendingMismatch        uint64
-	LifecycleMapUpdateFail uint64
+	_                                 structs.HostLayout
+	RingbufReserveFail                uint64
+	RingbufCopyFail                   uint64
+	PayloadTruncatedEvents            uint64
+	PendingUpdateFail                 uint64
+	OrphanExit                        uint64
+	PendingMismatch                   uint64
+	LifecycleMapUpdateFail            uint64
+	LifecycleForkSeen                 uint64
+	LifecycleForkParentTracked        uint64
+	LifecycleForkParentUntracked      uint64
+	LifecycleForkChildFilterInstalled uint64
+	LifecycleForkChildFilterFailed    uint64
+	LifecycleExecSeen                 uint64
+	LifecycleExecUntracked            uint64
+	LifecycleExitSeen                 uint64
+	LifecycleExitUntracked            uint64
 }
 
 type bpfEnterStructuredFdPathScratch struct {
@@ -95,21 +104,24 @@ type bpfEnterStructuredSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfEnterStructuredProgramSpecs struct {
-	EnterBpf         *ebpf.ProgramSpec `ebpf:"enter_bpf"`
-	EnterCachestat   *ebpf.ProgramSpec `ebpf:"enter_cachestat"`
-	EnterCapability  *ebpf.ProgramSpec `ebpf:"enter_capability"`
-	EnterClone3      *ebpf.ProgramSpec `ebpf:"enter_clone3"`
-	EnterFileTime    *ebpf.ProgramSpec `ebpf:"enter_file_time"`
-	EnterFutex       *ebpf.ProgramSpec `ebpf:"enter_futex"`
-	EnterItimer      *ebpf.ProgramSpec `ebpf:"enter_itimer"`
-	EnterMemfd       *ebpf.ProgramSpec `ebpf:"enter_memfd"`
-	EnterMiscStruct  *ebpf.ProgramSpec `ebpf:"enter_misc_struct"`
-	EnterPrctl       *ebpf.ProgramSpec `ebpf:"enter_prctl"`
-	EnterQuota       *ebpf.ProgramSpec `ebpf:"enter_quota"`
-	EnterSignal      *ebpf.ProgramSpec `ebpf:"enter_signal"`
-	EnterSleep       *ebpf.ProgramSpec `ebpf:"enter_sleep"`
-	EnterSmallStruct *ebpf.ProgramSpec `ebpf:"enter_small_struct"`
-	EnterTimeStruct  *ebpf.ProgramSpec `ebpf:"enter_time_struct"`
+	EnterBpf              *ebpf.ProgramSpec `ebpf:"enter_bpf"`
+	EnterBpfProgLoad      *ebpf.ProgramSpec `ebpf:"enter_bpf_prog_load"`
+	EnterBpfProgLoadDebug *ebpf.ProgramSpec `ebpf:"enter_bpf_prog_load_debug"`
+	EnterBpfUprobeMulti   *ebpf.ProgramSpec `ebpf:"enter_bpf_uprobe_multi"`
+	EnterCachestat        *ebpf.ProgramSpec `ebpf:"enter_cachestat"`
+	EnterCapability       *ebpf.ProgramSpec `ebpf:"enter_capability"`
+	EnterClone3           *ebpf.ProgramSpec `ebpf:"enter_clone3"`
+	EnterFileTime         *ebpf.ProgramSpec `ebpf:"enter_file_time"`
+	EnterFutex            *ebpf.ProgramSpec `ebpf:"enter_futex"`
+	EnterItimer           *ebpf.ProgramSpec `ebpf:"enter_itimer"`
+	EnterMemfd            *ebpf.ProgramSpec `ebpf:"enter_memfd"`
+	EnterMiscStruct       *ebpf.ProgramSpec `ebpf:"enter_misc_struct"`
+	EnterPrctl            *ebpf.ProgramSpec `ebpf:"enter_prctl"`
+	EnterQuota            *ebpf.ProgramSpec `ebpf:"enter_quota"`
+	EnterSignal           *ebpf.ProgramSpec `ebpf:"enter_signal"`
+	EnterSleep            *ebpf.ProgramSpec `ebpf:"enter_sleep"`
+	EnterSmallStruct      *ebpf.ProgramSpec `ebpf:"enter_small_struct"`
+	EnterTimeStruct       *ebpf.ProgramSpec `ebpf:"enter_time_struct"`
 }
 
 // bpfEnterStructuredMapSpecs contains maps before they are loaded into the kernel.
@@ -131,7 +143,9 @@ type bpfEnterStructuredMapSpecs struct {
 	MmsgBytesProgs     *ebpf.MapSpec `ebpf:"mmsg_bytes_progs"`
 	PendingExecMap     *ebpf.MapSpec `ebpf:"pending_exec_map"`
 	PendingTaskStorage *ebpf.MapSpec `ebpf:"pending_task_storage"`
+	PlainEnterElideMap *ebpf.MapSpec `ebpf:"plain_enter_elide_map"`
 	RecvmsgProgs       *ebpf.MapSpec `ebpf:"recvmsg_progs"`
+	RuntimeMetaMap     *ebpf.MapSpec `ebpf:"runtime_meta_map"`
 	StackTraces        *ebpf.MapSpec `ebpf:"stack_traces"`
 	StatsMap           *ebpf.MapSpec `ebpf:"stats_map"`
 	SyscallFilterMap   *ebpf.MapSpec `ebpf:"syscall_filter_map"`
@@ -188,7 +202,9 @@ type bpfEnterStructuredMaps struct {
 	MmsgBytesProgs     *ebpf.Map `ebpf:"mmsg_bytes_progs"`
 	PendingExecMap     *ebpf.Map `ebpf:"pending_exec_map"`
 	PendingTaskStorage *ebpf.Map `ebpf:"pending_task_storage"`
+	PlainEnterElideMap *ebpf.Map `ebpf:"plain_enter_elide_map"`
 	RecvmsgProgs       *ebpf.Map `ebpf:"recvmsg_progs"`
+	RuntimeMetaMap     *ebpf.Map `ebpf:"runtime_meta_map"`
 	StackTraces        *ebpf.Map `ebpf:"stack_traces"`
 	StatsMap           *ebpf.Map `ebpf:"stats_map"`
 	SyscallFilterMap   *ebpf.Map `ebpf:"syscall_filter_map"`
@@ -211,7 +227,9 @@ func (m *bpfEnterStructuredMaps) Close() error {
 		m.MmsgBytesProgs,
 		m.PendingExecMap,
 		m.PendingTaskStorage,
+		m.PlainEnterElideMap,
 		m.RecvmsgProgs,
+		m.RuntimeMetaMap,
 		m.StackTraces,
 		m.StatsMap,
 		m.SyscallFilterMap,
@@ -238,26 +256,32 @@ type bpfEnterStructuredVariables struct {
 //
 // It can be passed to loadBpfEnterStructuredObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfEnterStructuredPrograms struct {
-	EnterBpf         *ebpf.Program `ebpf:"enter_bpf"`
-	EnterCachestat   *ebpf.Program `ebpf:"enter_cachestat"`
-	EnterCapability  *ebpf.Program `ebpf:"enter_capability"`
-	EnterClone3      *ebpf.Program `ebpf:"enter_clone3"`
-	EnterFileTime    *ebpf.Program `ebpf:"enter_file_time"`
-	EnterFutex       *ebpf.Program `ebpf:"enter_futex"`
-	EnterItimer      *ebpf.Program `ebpf:"enter_itimer"`
-	EnterMemfd       *ebpf.Program `ebpf:"enter_memfd"`
-	EnterMiscStruct  *ebpf.Program `ebpf:"enter_misc_struct"`
-	EnterPrctl       *ebpf.Program `ebpf:"enter_prctl"`
-	EnterQuota       *ebpf.Program `ebpf:"enter_quota"`
-	EnterSignal      *ebpf.Program `ebpf:"enter_signal"`
-	EnterSleep       *ebpf.Program `ebpf:"enter_sleep"`
-	EnterSmallStruct *ebpf.Program `ebpf:"enter_small_struct"`
-	EnterTimeStruct  *ebpf.Program `ebpf:"enter_time_struct"`
+	EnterBpf              *ebpf.Program `ebpf:"enter_bpf"`
+	EnterBpfProgLoad      *ebpf.Program `ebpf:"enter_bpf_prog_load"`
+	EnterBpfProgLoadDebug *ebpf.Program `ebpf:"enter_bpf_prog_load_debug"`
+	EnterBpfUprobeMulti   *ebpf.Program `ebpf:"enter_bpf_uprobe_multi"`
+	EnterCachestat        *ebpf.Program `ebpf:"enter_cachestat"`
+	EnterCapability       *ebpf.Program `ebpf:"enter_capability"`
+	EnterClone3           *ebpf.Program `ebpf:"enter_clone3"`
+	EnterFileTime         *ebpf.Program `ebpf:"enter_file_time"`
+	EnterFutex            *ebpf.Program `ebpf:"enter_futex"`
+	EnterItimer           *ebpf.Program `ebpf:"enter_itimer"`
+	EnterMemfd            *ebpf.Program `ebpf:"enter_memfd"`
+	EnterMiscStruct       *ebpf.Program `ebpf:"enter_misc_struct"`
+	EnterPrctl            *ebpf.Program `ebpf:"enter_prctl"`
+	EnterQuota            *ebpf.Program `ebpf:"enter_quota"`
+	EnterSignal           *ebpf.Program `ebpf:"enter_signal"`
+	EnterSleep            *ebpf.Program `ebpf:"enter_sleep"`
+	EnterSmallStruct      *ebpf.Program `ebpf:"enter_small_struct"`
+	EnterTimeStruct       *ebpf.Program `ebpf:"enter_time_struct"`
 }
 
 func (p *bpfEnterStructuredPrograms) Close() error {
 	return _BpfEnterStructuredClose(
 		p.EnterBpf,
+		p.EnterBpfProgLoad,
+		p.EnterBpfProgLoadDebug,
+		p.EnterBpfUprobeMulti,
 		p.EnterCachestat,
 		p.EnterCapability,
 		p.EnterClone3,

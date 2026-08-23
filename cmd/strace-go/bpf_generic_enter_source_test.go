@@ -11,6 +11,7 @@ func TestBPFGenericEnterHandlerExcludesFDPathCapture(t *testing.T) {
 	dispatch := readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h"))
 	runtime := readTextFile(t, filepath.Join(root, "bpf/enter_runtime.h"))
 	abi := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
+	eventABI := readTextFile(t, filepath.Join(root, "bpf/event_abi_generated.h"))
 
 	start := strings.Index(dispatch, "int enter_no_payload_generic(")
 	if start < 0 {
@@ -21,7 +22,7 @@ func TestBPFGenericEnterHandlerExcludesFDPathCapture(t *testing.T) {
 		t.Fatal("generic no-payload handler has no bounded source region")
 	}
 	generic := dispatch[start : start+end]
-	if !strings.Contains(generic, "emit_no_payload_enter_event_v2_direct(") {
+	if !strings.Contains(generic, "emit_plain_no_payload_enter_event_v2_direct(") {
 		t.Fatal("generic no-payload handler does not use the ordinary enter emitter")
 	}
 	if strings.Contains(generic, "emit_fd_path_or_no_payload_enter_event_v2_direct(") {
@@ -29,9 +30,11 @@ func TestBPFGenericEnterHandlerExcludesFDPathCapture(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"ENTER_PROG_NO_PAYLOAD_GENERIC = 46",
-		"__uint(max_entries, 51)",
+		"__uint(max_entries, 54)",
+		"CONFIG_ELIDE_PLAIN_ENTER 128",
+		"plain_enter_elide_map",
 	} {
-		if !strings.Contains(runtime+abi, snippet) {
+		if !strings.Contains(runtime+abi+eventABI, snippet) {
 			t.Fatalf("generic enter ABI is missing %q", snippet)
 		}
 	}

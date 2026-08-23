@@ -181,10 +181,15 @@ func decodeTcxOrNetkitStruct(data []byte, flags uint32, parts *[]string, name st
 // Impact: Formats path, offsets, ref_ctr_offsets, cookies, cnt, flags, and pid.
 func decodeUprobeMulti(ctx *Context, data []byte, parts *[]string) int {
 	var up []string
-	up = append(up, formatPtr("path", u64OrZero(data, 16)))
-	up = append(up, formatPtr("offsets", u64OrZero(data, 24)))
-	up = append(up, formatPtr("ref_ctr_offsets", u64OrZero(data, 32)))
-	up = append(up, formatPtr("cookies", u64OrZero(data, 40)))
+	path := u64OrZero(data, 16)
+	if pathText, ok := bpfNestedStringPayload(ctx, bpfLinkUprobePathPayloadArg, path, 0); ok {
+		up = append(up, "path="+pathText)
+	} else {
+		up = append(up, formatPtr("path", path))
+	}
+	up = append(up, decodeUprobeU64Array(ctx, "offsets", bpfLinkUprobeOffsetsPayloadArg, u64OrZero(data, 24), u32OrZero(data, 48)))
+	up = append(up, decodeUprobeU64Array(ctx, "ref_ctr_offsets", bpfLinkUprobeRefPayloadArg, u64OrZero(data, 32), u32OrZero(data, 48)))
+	up = append(up, decodeUprobeU64Array(ctx, "cookies", bpfLinkUprobeCookiesPayloadArg, u64OrZero(data, 40), u32OrZero(data, 48)))
 	up = append(up, fmt.Sprintf("cnt=%d", u32OrZero(data, 48)))
 	upFlags := u32OrZero(data, 52)
 	if upFlags == 0 {
@@ -195,6 +200,19 @@ func decodeUprobeMulti(ctx *Context, data []byte, parts *[]string) int {
 	up = append(up, fmt.Sprintf("pid=%d", u32OrZero(data, 56)))
 	*parts = append(*parts, "uprobe_multi={"+strings.Join(up, ", ")+"}")
 	return 60
+}
+
+func decodeUprobeU64Array(ctx *Context, name string, argIndex int, addr uint64, count uint32) string {
+	if addr == 0 {
+		return name + "=NULL"
+	}
+	if count == 0 {
+		return name + "=[]"
+	}
+	if data, ok := bpfNestedBytesPayload(ctx, argIndex, addr, saturatingU32Product(count, 8)); ok {
+		return formatBpfU64ArrayPayload(name, addr, count, data)
+	}
+	return fmt.Sprintf("%s=%#x", name, addr)
 }
 
 // decodeBpfLinkUpdate decodes BPF_LINK_UPDATE.

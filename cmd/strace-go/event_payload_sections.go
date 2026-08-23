@@ -7,7 +7,14 @@ import (
 )
 
 func payloadSectionsForRawPayloadEvent(raw rawPayloadEvent) []handler.PayloadSection {
-	if sections, ok := payloadTLVSectionsForRaw(raw); ok {
+	return payloadSectionsForRawPayloadEventInto(raw, nil)
+}
+
+func payloadSectionsForRawPayloadEventInto(
+	raw rawPayloadEvent,
+	dst *[]handler.PayloadSection,
+) []handler.PayloadSection {
+	if sections, ok := payloadTLVSectionsForRawInto(raw, dst); ok {
 		return sections
 	}
 	return nil

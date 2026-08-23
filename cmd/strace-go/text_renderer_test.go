@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -23,6 +24,24 @@ func TestTextRendererPrintsBasicSyscallLine(t *testing.T) {
 
 	if got := output.String(); got != "getpid() = 101\n" {
 		t.Fatalf("syscall output = %q", got)
+	}
+}
+
+func TestTextRendererFastPathPreservesReturnAlignment(t *testing.T) {
+	var output bytes.Buffer
+	const alignCol = 40
+	opts := &cli.Options{AlignCol: alignCol}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState()})
+
+	renderer.PrintSyscallEvent(syscallEventContext{
+		view:           syscallEventView{valid: true, tid: 101, ret: 101},
+		meta:           meta.Syscall{Name: "getpid"},
+		handlerContext: &handler.Context{Opts: opts},
+	}, handler.Result{})
+
+	want := "getpid()" + strings.Repeat(" ", alignCol-len("getpid()")) + "= 101\n"
+	if got := output.String(); got != want {
+		t.Fatalf("aligned syscall output = %q, want %q", got, want)
 	}
 }
 
@@ -73,6 +92,22 @@ func TestTextRendererPrintsUnfinishedLine(t *testing.T) {
 
 	if got := output.String(); got != "101   nanosleep({tv_sec=1} <unfinished ...>\n" {
 		t.Fatalf("unfinished output = %q", got)
+	}
+}
+
+func TestTextRendererFastPathDoesNotAlignUnfinishedLine(t *testing.T) {
+	var output bytes.Buffer
+	const alignCol = 40
+	opts := &cli.Options{AlignCol: alignCol}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState()})
+
+	renderer.PrintUnfinishedEvent(syscallEventContext{
+		view: syscallEventView{valid: true, tid: 101},
+		meta: meta.Syscall{Name: "getpid"},
+	}, handler.Result{})
+
+	if got := output.String(); got != "getpid( <unfinished ...>\n" {
+		t.Fatalf("unfinished output = %q, want no trailing alignment spaces", got)
 	}
 }
 
@@ -234,6 +269,45 @@ func TestTextRendererConsumesSuspendedSyscall(t *testing.T) {
 	}
 	if state.consumeSuspendedSyscall(101) {
 		t.Fatal("suspended syscall marker was not consumed")
+	}
+}
+
+func TestTextRendererFastPathPreservesSuspendedNanosleep(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{}
+	state := newTraceState()
+	state.rememberSuspendedSyscall(101, "nanosleep")
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: state})
+
+	renderer.PrintSyscallEvent(syscallEventContext{
+		view:           syscallEventView{valid: true, tid: 101, ret: 0},
+		meta:           meta.Syscall{Name: "nanosleep"},
+		handlerContext: &handler.Context{Opts: opts},
+	}, handler.Result{})
+
+	if got := output.String(); !strings.Contains(got, "<... nanosleep resumed> <unfinished ...>) = 0") {
+		t.Fatalf("suspended nanosleep output = %q", got)
+	}
+}
+
+func TestTextRendererFastPathHasNoSteadyStateAllocations(t *testing.T) {
+	if raceBuild {
+		t.Skip("allocation counts include race instrumentation")
+	}
+	opts := &cli.Options{}
+	renderer := newTextRenderer(TextRendererDeps{Out: io.Discard, Policy: newTraceOutputPolicy(opts), State: newTraceState()})
+	ev := syscallEventContext{
+		view:           syscallEventView{valid: true, tid: 101, ret: 101},
+		meta:           meta.Syscall{Name: "getpid"},
+		handlerContext: &handler.Context{Opts: opts},
+	}
+	renderer.PrintSyscallEvent(ev, handler.Result{})
+
+	allocs := testing.AllocsPerRun(100, func() {
+		renderer.PrintSyscallEvent(ev, handler.Result{})
+	})
+	if allocs != 0 {
+		t.Fatalf("fast text renderer allocations = %.1f, want zero", allocs)
 	}
 }
 

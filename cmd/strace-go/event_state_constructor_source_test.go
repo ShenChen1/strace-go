@@ -20,12 +20,12 @@ func TestTraceStateProductionSourceHasNoFixtureConstructors(t *testing.T) {
 
 func TestTraceStateFixtureConstructorsKeepDefaults(t *testing.T) {
 	state := newTraceState()
-	if !state.trackForkIdentity || !state.unfinishedEnabled {
+	if !state.lifecycle.trackForkIdentity || !state.unfinished.enabled {
 		t.Fatalf("test state defaults = %+v, want fork identity and unfinished enabled", state)
 	}
 
 	deferred := newTraceStateWithDeferredExit(true)
-	if !deferred.deferUnmatchedExits || !deferred.trackForkIdentity || !deferred.unfinishedEnabled {
+	if !deferred.deferUnmatchedExits || !deferred.lifecycle.trackForkIdentity || !deferred.unfinished.enabled {
 		t.Fatalf("deferred state defaults = %+v, want all policy flags enabled", deferred)
 	}
 }

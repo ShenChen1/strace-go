@@ -27,6 +27,15 @@ func TestWriteGoSyscallTableDeterministic(t *testing.T) {
 	if first < 0 || second < 0 || first > second {
 		t.Fatalf("generated table order/content unexpected:\n%s", got)
 	}
+	for _, want := range []string{
+		"var RuntimeSyscallVariables = map[string]string{",
+		`"SYS_CAPGET": "capget",`,
+		`"SYS_RT_SIGRETURN_COMPAT": "",`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generated runtime variable metadata missing %q:\n%s", want, got)
+		}
+	}
 }
 
 func TestWriteGoSyscallTableReportsWriteError(t *testing.T) {

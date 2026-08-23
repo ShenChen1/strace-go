@@ -33,10 +33,10 @@ func TestTraceStateEnterUpdateCarriesSemanticPayloadSections(t *testing.T) {
 		t.Fatalf("enter update payload sections = %+v, want semantic path section", update.payloadSections)
 	}
 	path[0] = 'X'
-	if len(state.pendingSyscalls[101].payloadSections) != 1 {
-		t.Fatalf("pending payload sections = %+v, want cached enter payload", state.pendingSyscalls[101].payloadSections)
+	if len(state.correlation.pendingSyscalls[101].payloadSections) != 1 {
+		t.Fatalf("pending payload sections = %+v, want cached enter payload", state.correlation.pendingSyscalls[101].payloadSections)
 	}
-	if got := string(state.pendingSyscalls[101].payloadSections[0].Data); got != "typed.txt\x00" {
+	if got := string(state.correlation.pendingSyscalls[101].payloadSections[0].Data); got != "typed.txt\x00" {
 		t.Fatalf("pending payload data = %q, want owned enter snapshot", got)
 	}
 }
@@ -58,7 +58,7 @@ func TestTraceStateTransfersPendingPayloadOnExit(t *testing.T) {
 		}},
 	}
 	state.handleEnvelope(enter)
-	owned := state.pendingSyscalls[101]
+	owned := state.correlation.pendingSyscalls[101]
 	if owned == nil || len(owned.payloadSections[0].Data) == 0 {
 		t.Fatal("enter did not create owned pending payload")
 	}
@@ -71,7 +71,7 @@ func TestTraceStateTransfersPendingPayloadOnExit(t *testing.T) {
 	if update.pendingEnter == nil || update.pendingEnter.pid != wantPID || update.pendingEnter.sysID != wantSysID {
 		t.Fatalf("exit snapshot = %+v, want a detached pending view", update.pendingEnter)
 	}
-	if len(state.reusablePending) != 1 || state.reusablePending[0] != owned {
+	if len(state.correlation.reusablePending) != 1 || state.correlation.reusablePending[0] != owned {
 		t.Fatal("exit did not recycle the mutable pending owner")
 	}
 	if &update.pendingEnter.payloadSections[0].Data[0] != &ownedData[0] {
@@ -94,7 +94,7 @@ func TestTraceStateExitSnapshotSurvivesPendingOwnerReuse(t *testing.T) {
 		payload:    []handler.PayloadSection{{Kind: handler.PayloadKindString, ArgIndex: 1, Data: []byte("old.txt\x00")}},
 	}
 	state.handleEnvelope(enter)
-	owner := state.pendingSyscalls[101]
+	owner := state.correlation.pendingSyscalls[101]
 	if owner == nil {
 		t.Fatal("enter did not create pending owner")
 	}
@@ -105,8 +105,8 @@ func TestTraceStateExitSnapshotSurvivesPendingOwnerReuse(t *testing.T) {
 	if update.pendingEnter == nil {
 		t.Fatal("exit did not produce an enter snapshot")
 	}
-	if len(state.reusablePending) != 1 || state.reusablePending[0] != owner {
-		t.Fatalf("pending owner was not recycled immediately: reusable=%p owner=%p", state.reusablePending, owner)
+	if len(state.correlation.reusablePending) != 1 || state.correlation.reusablePending[0] != owner {
+		t.Fatalf("pending owner was not recycled immediately: reusable=%p owner=%p", state.correlation.reusablePending, owner)
 	}
 
 	nextEnter := enter
@@ -114,7 +114,7 @@ func TestTraceStateExitSnapshotSurvivesPendingOwnerReuse(t *testing.T) {
 	nextEnter.enterTime = 200
 	nextEnter.payload = nil
 	state.handleEnvelope(nextEnter)
-	if state.pendingSyscalls[101] != owner {
+	if state.correlation.pendingSyscalls[101] != owner {
 		t.Fatal("next enter did not reuse the pending owner")
 	}
 	if update.pendingEnter.sysID != sysID || string(update.pendingEnter.payloadSections[0].Data) != "old.txt\x00" {
@@ -122,8 +122,8 @@ func TestTraceStateExitSnapshotSurvivesPendingOwnerReuse(t *testing.T) {
 	}
 
 	state.releaseTraceStateUpdate(update)
-	if len(state.reusableSnapshots) != 1 || len(state.reusableSnapshots[0].payloadSections) != 0 {
-		t.Fatalf("released snapshot pool = %+v, want one cleared snapshot", state.reusableSnapshots)
+	if len(state.correlation.reusableSnapshots) != 1 || len(state.correlation.reusableSnapshots[0].payloadSections) != 0 {
+		t.Fatalf("released snapshot pool = %+v, want one cleared snapshot", state.correlation.reusableSnapshots)
 	}
 }
 
@@ -153,7 +153,7 @@ func TestTraceStateMergesMultipleEnterPayloadSections(t *testing.T) {
 	state.handleEnvelope(first)
 	state.handleEnvelope(second)
 
-	pending := state.pendingSyscalls[101]
+	pending := state.correlation.pendingSyscalls[101]
 	if pending == nil {
 		t.Fatal("pending syscall missing")
 	}
@@ -204,16 +204,70 @@ func TestTraceStateMergesExitFragmentPayloadSections(t *testing.T) {
 	if fragmentUpdate.kind != traceStateSyscallFragment {
 		t.Fatalf("fragment update kind = %d, want fragment", fragmentUpdate.kind)
 	}
-	pending := state.pendingSyscalls[101]
+	pending := state.correlation.pendingSyscalls[101]
 	if pending == nil || len(pending.payloadSections) != 2 {
 		t.Fatalf("pending after fragment = %+v, want merged enter and exit payloads", pending)
 	}
 	exitUpdate := state.handleEnvelope(exit)
-	if exitUpdate.pendingEnter == nil || len(state.pendingSyscalls) != 0 {
-		t.Fatalf("exit update = %+v pending=%d, want final consume", exitUpdate, len(state.pendingSyscalls))
+	if exitUpdate.pendingEnter == nil || len(state.correlation.pendingSyscalls) != 0 {
+		t.Fatalf("exit update = %+v pending=%d, want final consume", exitUpdate, len(state.correlation.pendingSyscalls))
 	}
 	if len(exitUpdate.pendingEnter.payloadSections) != 2 {
 		t.Fatalf("paired payload sections = %+v, want merged fragment payload", exitUpdate.pendingEnter.payloadSections)
+	}
+}
+
+func TestTraceStateMergesEnterFragmentPayloadSections(t *testing.T) {
+	state := newTraceState()
+	sysID := syscallIDByName(t, "bpf")
+	enter := traceEventEnvelope{
+		valid:      true,
+		pid:        101,
+		tid:        101,
+		sysID:      sysID,
+		eventType:  bpfEventTypeEnter,
+		eventFlags: bpfEventFlagGenericEnter | bpfEventFlagPayloadTLV,
+		payload: []handler.PayloadSection{{
+			Kind:     handler.PayloadKindBytes,
+			ArgIndex: 1,
+			Data:     []byte("attr"),
+		}},
+	}
+	fragment := enter
+	fragment.eventFlags = bpfEventFlagEnterFragment | bpfEventFlagPayloadTLV
+	fragment.payload = []handler.PayloadSection{
+		{
+			Kind:     handler.PayloadKindBytes,
+			ArgIndex: 143,
+			Data:     []byte("line-info"),
+		},
+		{
+			Kind:     handler.PayloadKindBytes,
+			ArgIndex: 144,
+			Data:     []byte("core-relos"),
+		},
+	}
+	exit := fragment
+	exit.eventType = bpfEventTypeExit
+	exit.eventFlags = 0
+	exit.payload = nil
+
+	state.handleEnvelope(enter)
+	fragmentUpdate := state.handleEnvelope(fragment)
+	if fragmentUpdate.kind != traceStateSyscallFragment {
+		t.Fatalf("enter fragment update kind = %d, want fragment", fragmentUpdate.kind)
+	}
+	pending := state.correlation.pendingSyscalls[101]
+	if pending == nil || len(pending.payloadSections) != 3 {
+		t.Fatalf("pending after enter fragment = %+v, want base plus two debug sections", pending)
+	}
+	if pending.payloadSections[1].ArgIndex != 143 || pending.payloadSections[2].ArgIndex != 144 {
+		t.Fatalf("enter fragment sections = %+v, want line_info/core_relos order", pending.payloadSections)
+	}
+
+	exitUpdate := state.handleEnvelope(exit)
+	if exitUpdate.pendingEnter == nil || len(exitUpdate.pendingEnter.payloadSections) != 3 {
+		t.Fatalf("paired enter fragment payloads = %+v, want all snapshots", exitUpdate.pendingEnter)
 	}
 }
 
@@ -257,7 +311,7 @@ func TestTraceStateKeepsSuccessfulNestedFDPathAfterFailedFragment(t *testing.T) 
 	state.handleEnvelope(failed)
 	state.handleEnvelope(succeeded)
 
-	pending := state.pendingSyscalls[101]
+	pending := state.correlation.pendingSyscalls[101]
 	if pending == nil || len(pending.payloadSections) != 2 {
 		t.Fatalf("nested path fragments = %+v, want failed and fd 9 snapshots", pending)
 	}
@@ -290,6 +344,86 @@ func TestTraceStateExitUpdateCarriesSemanticPayloadSections(t *testing.T) {
 	}
 	if len(update.payloadSections) != 1 || string(update.payloadSections[0].Data) != "typed" {
 		t.Fatalf("exit update payload sections = %+v, want semantic bytes section", update.payloadSections)
+	}
+}
+
+func TestTraceStateRecyclesReplacedPendingExitPayload(t *testing.T) {
+	state := newTraceStateWithDeferredExit(true)
+	sysID := syscallIDByName(t, "read")
+	first := traceEventEnvelope{
+		valid:     true,
+		pid:       101,
+		tid:       101,
+		sysID:     sysID,
+		enterTime: 100,
+		eventType: bpfEventTypeExit,
+		payload: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindBytes,
+			Direction: handler.PayloadDirectionOut,
+			ArgIndex:  1,
+			Data:      []byte("old"),
+		}},
+	}
+	state.releaseTraceStateUpdate(state.handleEnvelope(first))
+	second := first
+	second.payload = []handler.PayloadSection{{
+		Kind:      handler.PayloadKindBytes,
+		Direction: handler.PayloadDirectionOut,
+		ArgIndex:  1,
+		Data:      []byte("new"),
+	}}
+	state.releaseTraceStateUpdate(state.handleEnvelope(second))
+
+	pending := state.correlation.pendingExits[101]
+	if pending == nil || string(pending.payloadSections[0].Data) != "new" {
+		t.Fatalf("replaced pending exit = %+v, want new payload", pending)
+	}
+	enter := first
+	enter.eventType = bpfEventTypeEnter
+	enter.eventFlags = bpfEventFlagGenericEnter
+	enter.payload = nil
+	update := state.handleEnvelope(enter)
+	if !update.deferredExit.valid || string(update.deferredExit.payloadSections[0].Data) != "new" {
+		t.Fatalf("deferred replacement = %+v, want new payload", update.deferredExit)
+	}
+	state.releaseTraceStateUpdate(update)
+	if len(state.correlation.reusablePayload) != 1 {
+		t.Fatalf("reusable payload storage = %d, want one", len(state.correlation.reusablePayload))
+	}
+}
+
+func TestTraceStateRecyclesMismatchedPendingExitPayload(t *testing.T) {
+	state := newTraceStateWithDeferredExit(true)
+	readID := syscallIDByName(t, "read")
+	writeID := syscallIDByName(t, "write")
+	exit := traceEventEnvelope{
+		valid:     true,
+		pid:       101,
+		tid:       101,
+		sysID:     readID,
+		enterTime: 100,
+		eventType: bpfEventTypeExit,
+		payload: []handler.PayloadSection{{
+			Kind:      handler.PayloadKindBytes,
+			Direction: handler.PayloadDirectionOut,
+			ArgIndex:  1,
+			Data:      []byte("stale"),
+		}},
+	}
+	state.releaseTraceStateUpdate(state.handleEnvelope(exit))
+	enter := exit
+	enter.sysID = writeID
+	enter.eventType = bpfEventTypeEnter
+	enter.eventFlags = bpfEventFlagGenericEnter
+	enter.payload = nil
+	update := state.handleEnvelope(enter)
+	if update.deferredExit.valid || len(state.correlation.pendingExits) != 0 {
+		t.Fatalf("mismatched pending exit = %+v, pending=%d", update.deferredExit, len(state.correlation.pendingExits))
+	}
+	state.releaseTraceStateUpdate(update)
+	state.correlation.clearTask(101)
+	if len(state.correlation.reusablePayload) != 1 {
+		t.Fatalf("mismatched payload storage = %d, want one", len(state.correlation.reusablePayload))
 	}
 }
 

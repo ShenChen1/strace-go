@@ -12,7 +12,8 @@ static __always_inline void emit_payload_enter_event_v2_direct(
     copy_syscall_enter_args(args, ctx);
     u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + PAYLOAD_TLV_OPENAT_MAX;
     if (is_write_payload_direct_syscall(sys_id)) {
-        payload_capacity = PAYLOAD_TLV_HEADER_SIZE + PAYLOAD_TLV_WRITE_MAX;
+        payload_capacity = PAYLOAD_TLV_HEADER_SIZE +
+            payload_tlv_data_bucket(payload_tlv_copy_len(args[2], PAYLOAD_TLV_WRITE_MAX));
     } else if (is_exec_payload_direct_syscall(sys_id)) {
         payload_capacity = PAYLOAD_TLV_HEADER_SIZE + sizeof(struct exec_snapshot) +
             PAYLOAD_TLV_HEADER_SIZE + EXEC_PATH_SNAPSHOT_MAX;
@@ -258,7 +259,12 @@ static __always_inline void emit_payload_exit_event_v2_direct(
     s64 ret_value,
     u64 duration)
 {
-    u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + PAYLOAD_TLV_READ_MAX;
+    u32 payload_capacity = 0;
+    if (ret_value > 0) {
+        payload_capacity = PAYLOAD_TLV_HEADER_SIZE +
+            payload_tlv_data_bucket(
+                payload_tlv_copy_len((u64)ret_value, PAYLOAD_TLV_READ_MAX));
+    }
     u32 body_offset = EVENT_V2_HEADER_LEN;
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_EXIT_BODY_LEN;
     u32 out_size = payload_offset + payload_capacity;

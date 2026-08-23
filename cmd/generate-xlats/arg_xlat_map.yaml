@@ -25,6 +25,8 @@ syscalls:
     ringid: key_spec
   request_key:
     destringid: key_spec
+  keyctl:
+    option: keyctl_commands
   accept4:
     flags: sock_type_flags
   socket:

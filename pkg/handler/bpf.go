@@ -78,64 +78,67 @@ func u64OrZero(data []byte, off int) uint64 {
 }
 
 func decodeCmd(ctx *Context, cmd uint64, data []byte, size uint32, attr uint64) string {
-	switch cmd {
-	case 0:
-		return decodeBpfMapCreate(ctx, data, size)
-	case 1, 21: // BPF_MAP_LOOKUP_ELEM, BPF_MAP_LOOKUP_AND_DELETE_ELEM
-		return decodeBpfMapLookup(ctx, data, size)
-	case 2: // BPF_MAP_UPDATE_ELEM
-		return decodeBpfMapUpdate(ctx, data, size)
-	case 3: // BPF_MAP_DELETE_ELEM
-		return decodeBpfMapDeleteElem(ctx, data, size)
-	case 4: // BPF_MAP_GET_NEXT_KEY
-		return decodeBpfMapGetNextKey(ctx, data, size)
-	case 5:
-		return decodeBpfProgLoad(ctx, data, size)
-	case 6, 7: // BPF_OBJ_PIN, BPF_OBJ_GET
-		return decodeBpfObjPin(ctx, data, size)
-	case 8, 9: // BPF_PROG_ATTACH, BPF_PROG_DETACH
-		return decodeBpfProgAttach(ctx, data, size)
-	case 10: // BPF_PROG_TEST_RUN
-		return decodeBpfProgTestRun(ctx, data, size)
-	case 15:
-		return decodeBpfObjGetInfoByFd(ctx, data, size)
-	case 16: // BPF_PROG_QUERY
-		return decodeBpfProgQuery(ctx, data, size)
-	case 17: // BPF_RAW_TRACEPOINT_OPEN
-		return decodeBpfRawTracepointOpen(ctx, data, size)
-	case 18: // BPF_BTF_LOAD
-		return decodeBpfBtfLoad(ctx, data, size)
-	case 20: // BPF_TASK_FD_QUERY
-		return decodeBpfTaskFdQuery(ctx, data, size)
-	case 22: // BPF_MAP_FREEZE
-		return decodeBpfMapFreeze(ctx, data, size)
-	case 11, 12, 23, 31:
-		return decodeBpfGetNextId(ctx, data, size)
-	case 13, 14, 19, 30:
-		return decodeBpfGetFdById(ctx, data, size, attr)
-	case 32:
-		return decodeBpfEnableStats(ctx, data, size, attr)
-	case 33:
-		return decodeBpfIterCreate(ctx, data, size)
-	case 34:
-		return decodeBpfLinkDetach(ctx, data, size, attr)
-	case 35:
-		return decodeBpfProgBindMap(ctx, data, size)
-	case 36:
-		return decodeBpfTokenCreate(ctx, data, size)
-	case 37:
-		return decodeBpfProgStreamReadByFd(ctx, data, size)
-	case 28:
-		return decodeBpfLinkCreate(ctx, data, size)
-	case 29:
-		return decodeBpfLinkUpdate(ctx, data, size)
-	case 38:
-		return decodeBpfProgAssocStructOps(ctx, data, size)
-	case 24, 25, 26, 27:
-		return decodeBpfMapBatch(ctx, data, size)
-	default:
+	spec, ok := bpfCommandCoverageFor(cmd)
+	if !ok {
 		return fmt.Sprintf("%#x", attr)
 	}
+	switch spec.decoder {
+	case bpfDecodeMapCreate:
+		return decodeBpfMapCreate(ctx, data, size)
+	case bpfDecodeMapLookup:
+		return decodeBpfMapLookup(ctx, data, size)
+	case bpfDecodeMapUpdate:
+		return decodeBpfMapUpdate(ctx, data, size)
+	case bpfDecodeMapDelete:
+		return decodeBpfMapDeleteElem(ctx, data, size)
+	case bpfDecodeMapNextKey:
+		return decodeBpfMapGetNextKey(ctx, data, size)
+	case bpfDecodeProgLoad:
+		return decodeBpfProgLoad(ctx, data, size)
+	case bpfDecodeObjPin:
+		return decodeBpfObjPin(ctx, data, size)
+	case bpfDecodeProgAttach:
+		return decodeBpfProgAttach(ctx, data, size)
+	case bpfDecodeProgTestRun:
+		return decodeBpfProgTestRun(ctx, data, size)
+	case bpfDecodeObjInfo:
+		return decodeBpfObjGetInfoByFd(ctx, data, size)
+	case bpfDecodeProgQuery:
+		return decodeBpfProgQuery(ctx, data, size)
+	case bpfDecodeRawTracepoint:
+		return decodeBpfRawTracepointOpen(ctx, data, size)
+	case bpfDecodeBtfLoad:
+		return decodeBpfBtfLoad(ctx, data, size)
+	case bpfDecodeTaskFDQuery:
+		return decodeBpfTaskFdQuery(ctx, data, size)
+	case bpfDecodeMapFreeze:
+		return decodeBpfMapFreeze(ctx, data, size)
+	case bpfDecodeNextID:
+		return decodeBpfGetNextId(ctx, data, size)
+	case bpfDecodeGetFDByID:
+		return decodeBpfGetFdById(ctx, data, size, attr)
+	case bpfDecodeEnableStats:
+		return decodeBpfEnableStats(ctx, data, size, attr)
+	case bpfDecodeIterCreate:
+		return decodeBpfIterCreate(ctx, data, size)
+	case bpfDecodeLinkDetach:
+		return decodeBpfLinkDetach(ctx, data, size, attr)
+	case bpfDecodeProgBindMap:
+		return decodeBpfProgBindMap(ctx, data, size)
+	case bpfDecodeTokenCreate:
+		return decodeBpfTokenCreate(ctx, data, size)
+	case bpfDecodeStreamRead:
+		return decodeBpfProgStreamReadByFd(ctx, data, size)
+	case bpfDecodeLinkCreate:
+		return decodeBpfLinkCreate(ctx, data, size)
+	case bpfDecodeLinkUpdate:
+		return decodeBpfLinkUpdate(ctx, data, size)
+	case bpfDecodeProgAssocStructOps:
+		return decodeBpfProgAssocStructOps(ctx, data, size)
+	case bpfDecodeMapBatch:
+		return decodeBpfMapBatch(ctx, data, size)
+	}
+	return fmt.Sprintf("%#x", attr)
 }
 
 func checkAndFormatExtraData(ctx *Context, offset int, size uint32) string {

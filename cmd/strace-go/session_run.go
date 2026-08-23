@@ -60,7 +60,8 @@ type traceRunState struct {
 	commandLifecycleDone     bool
 	commandLifecycleObserved bool
 	commandLifecycleFallback bool
-	cmdDone                  <-chan traceCommandExitResult
+	command                  traceCommandWaiter
+	cmdDone                  <-chan struct{}
 	targetPID                uint32
 	commandLifecycle         traceCommandLifecycleReader
 	attachExited             bool
@@ -164,6 +165,7 @@ func newTraceRunState(deps traceRunStateDeps) traceRunState {
 	state := traceRunState{
 		commandExited:        commandExited,
 		commandLifecycleDone: commandExited || deps.targetPID == 0 || deps.commandLifecycle == nil,
+		command:              deps.command,
 		targetPID:            deps.targetPID,
 		commandLifecycle:     deps.commandLifecycle,
 		attachExited:         len(deps.attachPids) == 0,
@@ -171,12 +173,7 @@ func newTraceRunState(deps traceRunStateDeps) traceRunState {
 		attachState:          deps.attachState,
 	}
 	if !state.commandExited {
-		ch := make(chan traceCommandExitResult, 1)
-		state.cmdDone = ch
-		command := deps.command
-		go func() {
-			ch <- command.Wait()
-		}()
+		state.cmdDone = deps.command.Done()
 	}
 	state.attachPids = append([]int(nil), deps.attachPids...)
 	return state
@@ -189,9 +186,11 @@ func (st *traceRunState) collect(commandExit *TraceCommandExitHandler) error {
 	now := st.now()
 	if st.cmdDone != nil {
 		select {
-		case result := <-st.cmdDone:
+		case <-st.cmdDone:
+			result := st.command.Wait()
 			commandExit.MarkExited(result)
 			st.commandExited = true
+			st.command = nil
 			st.cmdDone = nil
 			// IMPACT: print the wait-derived exit line shortly after wait
 			// completes (once any lagging ringbuf exit event has been

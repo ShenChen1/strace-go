@@ -8,28 +8,42 @@ import (
 
 func TestUnfinishedCandidateIndexSourceContract(t *testing.T) {
 	root := repositoryRoot(t)
-	state := readTextFile(t, filepath.Join(root, "cmd/strace-go/event_state.go")) +
-		readTextFile(t, filepath.Join(root, "cmd/strace-go/event_unfinished_state.go"))
+	stateSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/event_state.go"))
+	ownerSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/event_unfinished_state.go"))
+	state := stateSource + ownerSource
+	if !strings.Contains(ownerSource, "type traceUnfinishedState struct") {
+		t.Fatal("unfinished state owner is missing")
+	}
+	for _, forbidden := range []string{
+		"\tunfinishedEnabled",
+		"\tunqueuedUnfinished",
+		"\tinFlightUnfinished",
+		"\treusableUnfinished",
+	} {
+		if strings.Contains(stateSource, forbidden) {
+			t.Fatalf("TraceState must not own unfinished field %q", forbidden)
+		}
+	}
 	for _, snippet := range []string{
-		"unqueuedUnfinished",
-		"inFlightUnfinished",
-		"requeueUnfinished",
-		"deleteUnfinishedCandidate",
-		"unfinishedEnabled",
-		"setUnfinishedEnabled",
+		"unqueued",
+		"inFlight",
+		"requeue(",
+		"deleteCandidate(",
+		"enabled",
+		"setEnabled(",
 		"unfinishedSyscallView",
 		"unfinishedView()",
-		"reusableUnfinished",
-		"acquireUnfinishedViews",
+		"reusable",
+		"acquireViews(",
 	} {
-		if !strings.Contains(state, snippet) {
+		if !strings.Contains(ownerSource, snippet) {
 			t.Fatalf("event state candidate index missing %q", snippet)
 		}
 	}
 	if strings.Contains(state, "copyPendingSyscallState") {
 		t.Fatal("unfinished candidate path must not deep-copy complete pending syscall state")
 	}
-	if !strings.Contains(state, "clear(update.unfinished)") {
+	if !strings.Contains(ownerSource, "clear(views)") {
 		t.Fatal("unfinished release must clear reusable view elements")
 	}
 	dispatcher := readTextFile(t, filepath.Join(root, "cmd/strace-go/event_dispatcher.go"))

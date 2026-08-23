@@ -155,6 +155,30 @@ func TestBPFProgramSelectionIncludesAIOFragmentDependencies(t *testing.T) {
 	}
 }
 
+func TestBPFProgramSelectionIncludesBPFDynamicDependencies(t *testing.T) {
+	table := map[uint32]meta.Syscall{1: {Name: "bpf"}}
+	plan, err := newBPFRoutePlan(table)
+	if err != nil {
+		t.Fatalf("newBPFRoutePlan() error = %v", err)
+	}
+	selection, err := newBPFProgramSelection(plan, table, traceBPFConfig{
+		syscallFilter: syscallFilterPlan{enabled: true, ids: []uint32{1}},
+	})
+	if err != nil {
+		t.Fatalf("newBPFProgramSelection() error = %v", err)
+	}
+	for _, name := range []string{"enter_bpf", "enter_bpf_uprobe_multi", "enter_bpf_prog_load", "enter_bpf_prog_load_debug"} {
+		if !selection.hasProgram(name) {
+			t.Fatalf("BPF selection missing dynamic tail-call dependency %q", name)
+		}
+	}
+	for _, slot := range []uint32{enterProgBpf, enterProgBpfUprobeMulti, enterProgBpfProgLoad, enterProgBpfProgLoadDebug} {
+		if _, ok := selection.enterSlots[slot]; !ok {
+			t.Fatalf("BPF selection missing dynamic tail-call slot %d", slot)
+		}
+	}
+}
+
 func TestBPFProgramSelectionPrunesFullRouteClosureWithoutFDState(t *testing.T) {
 	table := map[uint32]meta.Syscall{1: {Name: "getpid"}}
 	plan, err := newBPFRoutePlan(table)

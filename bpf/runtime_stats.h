@@ -108,6 +108,75 @@ static __always_inline void record_lifecycle_map_update_fail(void)
     }
 }
 
+static __always_inline void record_lifecycle_fork_seen(void)
+{
+    struct bpf_stats *stats = lookup_stats();
+    if (stats) {
+        stats->lifecycle_fork_seen++;
+    }
+}
+
+static __always_inline void record_lifecycle_fork_parent_tracked(void)
+{
+    struct bpf_stats *stats = lookup_stats();
+    if (stats) {
+        stats->lifecycle_fork_parent_tracked++;
+    }
+}
+
+static __always_inline void record_lifecycle_fork_parent_untracked(void)
+{
+    struct bpf_stats *stats = lookup_stats();
+    if (stats) {
+        stats->lifecycle_fork_parent_untracked++;
+    }
+}
+
+static __always_inline void record_lifecycle_fork_child_filter(int installed)
+{
+    struct bpf_stats *stats = lookup_stats();
+    if (!stats) {
+        return;
+    }
+    if (installed) {
+        stats->lifecycle_fork_child_filter_installed++;
+    } else {
+        stats->lifecycle_fork_child_filter_failed++;
+    }
+}
+
+static __always_inline void record_lifecycle_exec_seen(void)
+{
+    struct bpf_stats *stats = lookup_stats();
+    if (stats) {
+        stats->lifecycle_exec_seen++;
+    }
+}
+
+static __always_inline void record_lifecycle_exec_untracked(void)
+{
+    struct bpf_stats *stats = lookup_stats();
+    if (stats) {
+        stats->lifecycle_exec_untracked++;
+    }
+}
+
+static __always_inline void record_lifecycle_exit_seen(void)
+{
+    struct bpf_stats *stats = lookup_stats();
+    if (stats) {
+        stats->lifecycle_exit_seen++;
+    }
+}
+
+static __always_inline void record_lifecycle_exit_untracked(void)
+{
+    struct bpf_stats *stats = lookup_stats();
+    if (stats) {
+        stats->lifecycle_exit_untracked++;
+    }
+}
+
 static __always_inline void record_orphan_exit(void)
 {
     struct bpf_stats *stats = lookup_stats();

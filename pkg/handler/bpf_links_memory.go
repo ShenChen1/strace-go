@@ -16,6 +16,10 @@ const (
 	bpfLinkKprobeAddrsPayloadArg   = 109
 	bpfLinkKprobeCookiesPayloadArg = 110
 	bpfLinkStreamBufPayloadArg     = 111
+	bpfLinkUprobePathPayloadArg    = 133
+	bpfLinkUprobeOffsetsPayloadArg = 134
+	bpfLinkUprobeRefPayloadArg     = 135
+	bpfLinkUprobeCookiesPayloadArg = 136
 	bpfLinkKprobeSymDataSize       = 40
 	bpfLinkKprobeSymRecordSize     = 8 + 4 + bpfLinkKprobeSymDataSize
 )
@@ -79,7 +83,7 @@ func decodeU64Array(ctx *Context, name string, addr uint64, count uint32) string
 	}
 	if argIndex, ok := bpfLinkKprobeU64PayloadArg(name); ok {
 		if data, ok := bpfNestedBytesPayload(ctx, argIndex, addr, saturatingU32Product(count, 8)); ok {
-			return formatBpfKprobeU64ArrayPayload(name, addr, count, data)
+			return formatBpfU64ArrayPayload(name, addr, count, data)
 		}
 	}
 	return fmt.Sprintf("%s=%#x", name, addr)
@@ -137,7 +141,7 @@ func bpfLinkKprobeU64PayloadArg(name string) (int, bool) {
 	}
 }
 
-func formatBpfKprobeU64ArrayPayload(name string, addr uint64, count uint32, data []byte) string {
+func formatBpfU64ArrayPayload(name string, addr uint64, count uint32, data []byte) string {
 	available := len(data) / 8
 	if available > int(count) {
 		available = int(count)
@@ -212,10 +216,33 @@ func decodeStreamBuf(ctx *Context, addr uint64, length uint32) string {
 	if length == 0 {
 		return `""`
 	}
-	if data, ok := bpfNestedBytesPayload(ctx, bpfLinkStreamBufPayloadArg, addr, length); ok {
+	direction := PayloadDirectionIn
+	if ctx != nil && ctx.Args[0] == 37 {
+		direction = bpfStreamBufDirection(ctx)
+	}
+	if data, ok := bpfNestedBytesPayloadDirection(
+		ctx,
+		bpfLinkStreamBufPayloadArg,
+		addr,
+		length,
+		direction,
+	); ok {
 		return formatBpfStreamBuf(data)
 	}
 	return fmt.Sprintf("%#x", addr)
+}
+
+func bpfStreamBufDirection(ctx *Context) PayloadDirection {
+	if ctx.Ret != 0 {
+		return PayloadDirectionOut
+	}
+	for _, section := range ctx.PayloadSections {
+		if section.ArgIndex == bpfLinkStreamBufPayloadArg &&
+			section.Kind == PayloadKindBytes && section.Direction == PayloadDirectionOut {
+			return PayloadDirectionOut
+		}
+	}
+	return PayloadDirectionIn
 }
 
 func formatBpfStreamBuf(buf []byte) string {

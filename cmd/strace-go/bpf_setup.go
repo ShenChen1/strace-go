@@ -106,12 +106,17 @@ func setupBPFWithConfig(clock traceClock, config traceBPFConfig) (*traceBPFRunti
 	if clock == nil {
 		return nil, fmt.Errorf("BPF setup clock is nil")
 	}
+	var err error
+	config, err = normalizeTraceBPFConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("normalize BPF config: %w", err)
+	}
 	recorder := newBPFSetupRecorder()
 	if err := measureBPFSetupStage(clock, recorder, bpfSetupMemlockStage, rlimit.RemoveMemlock); err != nil {
 		return nil, fmt.Errorf("remove memlock: %w", err)
 	}
 
-	specs, err := loadBPFSpecWithTiming(clock, recorder)
+	specs, err := loadBPFSpecWithTiming(clock, recorder, config)
 	if err != nil {
 		return nil, err
 	}
@@ -178,12 +183,24 @@ func setupBPFWithConfig(clock traceClock, config traceBPFConfig) (*traceBPFRunti
 	}, nil
 }
 
-func loadBPFSpecWithTiming(clock traceClock, recorder traceBPFSetupObserver) (*bpfCollectionSpecSet, error) {
+func loadBPFSpecWithTiming(
+	clock traceClock,
+	recorder traceBPFSetupObserver,
+	config traceBPFConfig,
+) (*bpfCollectionSpecSet, error) {
+	var err error
+	config, err = normalizeTraceBPFConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("normalize BPF config: %w", err)
+	}
 	var specs bpfCollectionSpecSet
-	err := measureBPFSetupStage(clock, recorder, bpfSetupSpecStage, func() error {
+	err = measureBPFSetupStage(clock, recorder, bpfSetupSpecStage, func() error {
 		core, err := loadBpf()
 		if err != nil {
 			return fmt.Errorf("load BPF core spec: %w", err)
+		}
+		if err := configureBPFEventRingbufCapacity(core, config.eventRingbufCapacity); err != nil {
+			return fmt.Errorf("configure BPF event ringbuf: %w", err)
 		}
 		if err := setSyscallVariables(core); err != nil {
 			return fmt.Errorf("resolve BPF core syscall variables: %w", err)
@@ -191,6 +208,11 @@ func loadBPFSpecWithTiming(clock traceClock, recorder traceBPFSetupObserver) (*b
 		handlers, err := loadBPFHandlerSpecs()
 		if err != nil {
 			return fmt.Errorf("load BPF handler specs: %w", err)
+		}
+		for family, spec := range handlers {
+			if err := configureBPFEventRingbufCapacity(spec, config.eventRingbufCapacity); err != nil {
+				return fmt.Errorf("configure %s event ringbuf: %w", family, err)
+			}
 		}
 		specs = bpfCollectionSpecSet{core: core, handlers: handlers}
 		return nil

@@ -2,8 +2,11 @@ package main
 
 import (
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/cilium/ebpf"
 
 	"strace-go/pkg/meta"
 )
@@ -14,10 +17,51 @@ func TestSetSyscallVariablesDoesNotUseNumericFallback(t *testing.T) {
 		"fallback uint32",
 		"sc.fallback",
 		`{"SYS_RT_SIGRETURN_COMPAT"`,
+		"syscalls := []struct",
+		`{"SYS_CAPGET", "capget"}`,
 	} {
 		if strings.Contains(source, forbidden) {
 			t.Fatalf("setSyscallVariables still contains numeric fallback %q", forbidden)
 		}
+	}
+}
+
+func TestSetSyscallVariablesDiscoversGeneratedRuntimeVariables(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "cmd/strace-go/bpf_runtime.go"))
+	for _, required := range []string{
+		"spec.Variables",
+		"meta.SyscallTable",
+		"meta.RuntimeSyscallVariables",
+		"unknown generated runtime variable",
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("setSyscallVariables missing generated variable discovery marker %q", required)
+		}
+	}
+}
+
+func TestSetSyscallVariablesRejectsUnknownGeneratedVariable(t *testing.T) {
+	spec, err := loadBpf()
+	if err != nil {
+		t.Fatalf("loadBpf() failed: %v", err)
+	}
+	spec.Variables["SYS_NOT_A_SYSCALL"] = &ebpf.VariableSpec{}
+	err = setSyscallVariables(spec)
+	if err == nil || !strings.Contains(err.Error(), "unknown generated runtime variable") {
+		t.Fatalf("setSyscallVariables() error = %v, want unknown generated variable failure", err)
+	}
+}
+
+func TestRuntimeSyscallVariableNamesAreSortedAndIncludeCompat(t *testing.T) {
+	variables := map[string]string{
+		"SYS_Z":      "z",
+		"SYS_A":      "a",
+		"SYS_COMPAT": "",
+	}
+	names := runtimeSyscallVariableNames(variables)
+	want := []string{"SYS_A", "SYS_COMPAT", "SYS_Z"}
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("runtime variable names = %v, want %v", names, want)
 	}
 }
 

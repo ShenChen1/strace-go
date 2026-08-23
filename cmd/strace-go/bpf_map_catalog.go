@@ -8,28 +8,28 @@ type bpfMapProvider interface {
 }
 
 const (
-	bpfMapArmFork        = "arm_fork_map"
-	bpfMapAttachExited   = "attach_exited_map"
-	bpfMapAttachRoots    = "attach_roots_map"
-	bpfMapConfig         = "config_map"
-	bpfMapEnterProgs     = "enter_progs"
-	bpfMapEnterRoutes    = "enter_routes"
-	bpfMapEvents         = "events"
-	bpfMapExitProgs      = "exit_progs"
-	bpfMapExitRoutes     = "exit_routes"
-	bpfMapFDPathScratch  = "fd_path_scratch_map"
-	bpfMapFilter         = "filter_map"
-	bpfMapMainExited     = "main_exited_map"
-	bpfMapMmsgBytesProgs = "mmsg_bytes_progs"
-	bpfMapPendingExec    = "pending_exec_map"
-	bpfMapPendingTask    = "pending_task_storage"
-	bpfMapRecvmsgProgs   = "recvmsg_progs"
-	bpfMapStackTraces    = "stack_traces"
-	bpfMapStats          = "stats_map"
-	bpfMapSyscallFilter  = "syscall_filter_map"
+	bpfMapArmFork         = "arm_fork_map"
+	bpfMapAttachExited    = "attach_exited_map"
+	bpfMapAttachRoots     = "attach_roots_map"
+	bpfMapConfig          = "config_map"
+	bpfMapEnterProgs      = "enter_progs"
+	bpfMapEnterRoutes     = "enter_routes"
+	bpfMapEvents          = "events"
+	bpfMapExitProgs       = "exit_progs"
+	bpfMapExitRoutes      = "exit_routes"
+	bpfMapFDPathScratch   = "fd_path_scratch_map"
+	bpfMapFilter          = "filter_map"
+	bpfMapMainExited      = "main_exited_map"
+	bpfMapMmsgBytesProgs  = "mmsg_bytes_progs"
+	bpfMapPendingExec     = "pending_exec_map"
+	bpfMapPendingTask     = "pending_task_storage"
+	bpfMapPlainEnterElide = "plain_enter_elide_map"
+	bpfMapRecvmsgProgs    = "recvmsg_progs"
+	bpfMapRuntimeMeta     = "runtime_meta_map"
+	bpfMapStackTraces     = "stack_traces"
+	bpfMapStats           = "stats_map"
+	bpfMapSyscallFilter   = "syscall_filter_map"
 )
-
-const bpfFilterTaskTracked uint32 = 1
 
 // bpfCoreMapSpec owns one generated map binding used by the runtime.
 type bpfCoreMapSpec struct {
@@ -53,7 +53,9 @@ var bpfCoreMapCatalog = []bpfCoreMapSpec{
 	{name: bpfMapMmsgBytesProgs, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.MmsgBytesProgs }},
 	{name: bpfMapPendingExec, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PendingExecMap }},
 	{name: bpfMapPendingTask, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PendingTaskStorage }},
+	{name: bpfMapPlainEnterElide, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PlainEnterElideMap }},
 	{name: bpfMapRecvmsgProgs, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.RecvmsgProgs }},
+	{name: bpfMapRuntimeMeta, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.RuntimeMetaMap }},
 	{name: bpfMapStackTraces, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.StackTraces }},
 	{name: bpfMapStats, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.StatsMap }},
 	{name: bpfMapSyscallFilter, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.SyscallFilterMap }},

@@ -41,7 +41,7 @@ func TestSuspendedSyscallOutputPrintsUnfinishedAndRemembersState(t *testing.T) {
 	if got := out.String(); got != "101   nanosleep({tv_sec=1} <unfinished ...>\n" {
 		t.Fatalf("unfinished output = %q", got)
 	}
-	if _, ok := state.suspendedSyscalls[101]; !ok {
+	if _, ok := state.correlation.suspendedSyscalls[101]; !ok {
 		t.Fatal("suspended syscall state was not remembered")
 	}
 }
@@ -61,10 +61,10 @@ func TestSuspendedSyscallOutputUsesEventView(t *testing.T) {
 	if got := out.String(); got != "202   nanosleep({tv_sec=1} <unfinished ...>\n" {
 		t.Fatalf("unfinished output = %q", got)
 	}
-	if _, ok := state.suspendedSyscalls[202]; !ok {
+	if _, ok := state.correlation.suspendedSyscalls[202]; !ok {
 		t.Fatal("suspended syscall state was not remembered from view tid")
 	}
-	if _, ok := state.suspendedSyscalls[1]; ok {
+	if _, ok := state.correlation.suspendedSyscalls[1]; ok {
 		t.Fatal("suspended syscall state used raw tid")
 	}
 }
@@ -86,7 +86,7 @@ func TestSuspendedSyscallOutputRemembersHandlerMetadataName(t *testing.T) {
 	if got := out.String(); got != "101   nanosleep({tv_sec=1} <unfinished ...>\n" {
 		t.Fatalf("unfinished output = %q", got)
 	}
-	if got := state.suspendedSyscalls[101]; got != "nanosleep" {
+	if got := state.correlation.suspendedSyscalls[101]; got != "nanosleep" {
 		t.Fatalf("suspended syscall name = %q, want nanosleep", got)
 	}
 }
@@ -102,8 +102,8 @@ func TestSuspendedSyscallOutputConsumesSuppressedResumeProbe(t *testing.T) {
 	if !handled {
 		t.Fatal("probe_ret_enter=2 should be consumed")
 	}
-	if out.Len() != 0 || len(state.suspendedSyscalls) != 0 {
-		t.Fatalf("probe_ret_enter=2 side effects: out=%q state=%v", out.String(), state.suspendedSyscalls)
+	if out.Len() != 0 || len(state.correlation.suspendedSyscalls) != 0 {
+		t.Fatalf("probe_ret_enter=2 side effects: out=%q state=%v", out.String(), state.correlation.suspendedSyscalls)
 	}
 }
 

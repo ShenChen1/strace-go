@@ -12,6 +12,15 @@ type bpfRuntimeStats struct {
 	OrphanExit             uint64
 	PendingMismatch        uint64
 	LifecycleMapUpdateFail uint64
+	LifecycleForkSeen      uint64
+	LifecycleForkTracked   uint64
+	LifecycleForkUntracked uint64
+	LifecycleForkInstalled uint64
+	LifecycleForkFailed    uint64
+	LifecycleExecSeen      uint64
+	LifecycleExecUntracked uint64
+	LifecycleExitSeen      uint64
+	LifecycleExitUntracked uint64
 	Available              bool
 	Error                  string
 }
@@ -38,6 +47,15 @@ func sumBPFStatsValues(values []bpfBpfStats) bpfRuntimeStats {
 		stats.OrphanExit += value.OrphanExit
 		stats.PendingMismatch += value.PendingMismatch
 		stats.LifecycleMapUpdateFail += value.LifecycleMapUpdateFail
+		stats.LifecycleForkSeen += value.LifecycleForkSeen
+		stats.LifecycleForkTracked += value.LifecycleForkParentTracked
+		stats.LifecycleForkUntracked += value.LifecycleForkParentUntracked
+		stats.LifecycleForkInstalled += value.LifecycleForkChildFilterInstalled
+		stats.LifecycleForkFailed += value.LifecycleForkChildFilterFailed
+		stats.LifecycleExecSeen += value.LifecycleExecSeen
+		stats.LifecycleExecUntracked += value.LifecycleExecUntracked
+		stats.LifecycleExitSeen += value.LifecycleExitSeen
+		stats.LifecycleExitUntracked += value.LifecycleExitUntracked
 	}
 	return stats
 }

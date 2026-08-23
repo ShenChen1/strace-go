@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
+	"strings"
 	"testing"
 
+	"strace-go/pkg/cli"
 	"strace-go/pkg/handler"
 )
 
@@ -139,4 +142,94 @@ func assertSmallStructExitTLVSection(t *testing.T, syscallName string, args [6]u
 	if !ok || section.Direction != handler.PayloadDirectionOut || !bytes.Equal(section.Data, structData) {
 		t.Fatalf("%s OUT struct section = %+v, %v; want exit TLV struct", syscallName, section, ok)
 	}
+}
+
+func TestTextStandaloneSmallStructExitUsesOutTLV(t *testing.T) {
+	t.Run("arch_prctl", func(t *testing.T) {
+		args := [6]uint64{0x1003, 0x7000}
+		assertTextStandaloneSmallStructExit(t, "arch_prctl", args, 0, []payloadTLVTestSection{{
+			kind:    payloadTLVKindStruct,
+			flags:   payloadTLVFlagDirectionOut,
+			arg:     1,
+			userPtr: args[1],
+			userLen: 8,
+			data:    smallStructPayloadWord(0x1234),
+		}})
+	})
+	t.Run("get_robust_list", func(t *testing.T) {
+		args := [6]uint64{0, 0x8000, 0x9000}
+		assertTextStandaloneSmallStructExit(t, "get_robust_list", args, 0, []payloadTLVTestSection{
+			{kind: payloadTLVKindStruct, flags: payloadTLVFlagDirectionOut, arg: 1, userPtr: args[1], userLen: 8, data: smallStructPayloadWord(0xbeef)},
+			{kind: payloadTLVKindStruct, flags: payloadTLVFlagDirectionOut, arg: 2, userPtr: args[2], userLen: 8, data: smallStructPayloadWord(32)},
+		})
+	})
+}
+
+func assertTextStandaloneSmallStructExit(t *testing.T, name string, args [6]uint64, ret int64, sections []payloadTLVTestSection) {
+	t.Helper()
+	session := newTestTraceSessionWithOptions(cli.ParseArgs([]string{"-e", "trace=" + name, "/bin/true"}), traceSessionDeps{
+		TargetPID: 101,
+		FDState:   newFDStateStoreFromMaps(nil, nil),
+	})
+	payload := payloadTLVBytesForTest(t, sections...)
+	update := session.traceState().handleEnvelope(testTLVSyscallEnvelope(t, name, bpfEventTypeExit, args, ret, payload))
+	if update.deferred || update.pendingEnter == nil {
+		t.Fatalf("%s text exit update = %+v, want synthetic enter", name, update)
+	}
+	ev := newSyscallEventContextFromView(session, update.syscallView, 101, update.pendingEnter, update.payloadSections)
+	if ev.handlerContext == nil {
+		t.Fatal("standalone small-struct exit did not build handler context")
+	}
+	result := ev.handleWith(nil)
+	wantParts := 2
+	if name == "get_robust_list" {
+		wantParts = 3
+	}
+	if len(result.ArgParts) != wantParts {
+		t.Fatalf("%s handler result = %+v, want %d args", name, result, wantParts)
+	}
+	for _, section := range sections {
+		data, ok := ev.handlerContext.PayloadStruct(int(section.arg), handler.PayloadDirectionOut)
+		if !ok || !bytes.Equal(data, section.data) {
+			t.Fatalf("%s arg%d payload = %x, %v; want %x", name, section.arg, data, ok, section.data)
+		}
+	}
+	ev.releaseHandlerContext()
+	state := session.traceState()
+	state.releaseTraceStateUpdate(update)
+}
+
+func TestTextStandaloneSmallStructFailureFallsBackToPointers(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args [6]uint64
+	}{
+		{name: "arch_prctl", args: [6]uint64{0x1003, 0x7000}},
+		{name: "get_robust_list", args: [6]uint64{0, 0x8000, 0x9000}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			session := newTestTraceSessionWithOptions(cli.ParseArgs([]string{"-e", "trace=" + test.name, "/bin/true"}), traceSessionDeps{
+				TargetPID: 101,
+				FDState:   newFDStateStoreFromMaps(nil, nil),
+			})
+			update := session.traceState().handleEnvelope(testTLVSyscallEnvelope(t, test.name, bpfEventTypeExit, test.args, -14, nil))
+			if update.deferred || update.pendingEnter == nil {
+				t.Fatalf("%s failed exit update = %+v, want synthetic enter", test.name, update)
+			}
+			ev := newSyscallEventContextFromView(session, update.syscallView, 101, update.pendingEnter, nil)
+			result := ev.handleWith(nil)
+			if len(result.ArgParts) < 2 || !strings.Contains(result.ArgParts[1], "0x") {
+				t.Fatalf("%s failed result = %+v, want pointer fallback", test.name, result)
+			}
+			ev.releaseHandlerContext()
+			state := session.traceState()
+			state.releaseTraceStateUpdate(update)
+		})
+	}
+}
+
+func smallStructPayloadWord(value uint64) []byte {
+	data := make([]byte, 8)
+	binary.LittleEndian.PutUint64(data, value)
+	return data
 }

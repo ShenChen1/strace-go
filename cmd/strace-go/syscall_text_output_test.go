@@ -147,7 +147,7 @@ func TestSyscallTextOutputDelegatesSuspendedBeforeNormalPrint(t *testing.T) {
 	if got := out.String(); !strings.Contains(got, "101   nanosleep({tv_sec=1} <unfinished ...>") {
 		t.Fatalf("suspended output = %q", got)
 	}
-	if _, ok := state.suspendedSyscalls[101]; !ok {
+	if _, ok := state.correlation.suspendedSyscalls[101]; !ok {
 		t.Fatal("suspended output did not remember state")
 	}
 }

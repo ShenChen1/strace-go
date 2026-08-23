@@ -73,3 +73,21 @@ func TestBPFMsgExitHasFamilyOwnedEmitters(t *testing.T) {
 		}
 	}
 }
+
+func TestBPFMsgRawExitLeavesRecvmsgToKretprobe(t *testing.T) {
+	root := repoRootForTest(t)
+	source := readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h"))
+	body, ok := bpfFunctionBody(source, "exit_msg")
+	if !ok {
+		t.Fatal("exit_dispatch.h missing exit_msg body")
+	}
+	if !strings.Contains(body, "if ((u32)ctx->id != SYS_SENDMSG)") {
+		t.Fatal("raw message exit must be restricted to sendmsg")
+	}
+	if strings.Contains(body, "is_single_msg_direct_syscall((u32)ctx->id)") {
+		t.Fatal("raw message exit must not claim recvmsg pending state")
+	}
+	if !strings.Contains(body, "emit_single_msg_exit_event_v2_direct(p, ret_value, duration);") {
+		t.Fatal("raw message exit must retain the sendmsg exit emitter")
+	}
+}

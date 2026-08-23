@@ -19,6 +19,7 @@ var enumXlatNames = map[string]bool{
 	"futexops":              true,
 	"ioctl_cmds":            true,
 	"itimer_which":          true,
+	"keyctl_commands":       true,
 	"key_spec":              true,
 	"listmount_mnt_id":      true,
 	"madvise_cmds":          true,

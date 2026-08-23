@@ -8,6 +8,10 @@ type traceFormatPolicy interface {
 	DiscardEvents() bool
 }
 
+type traceDebugPhasesPolicy interface {
+	DebugPhases() bool
+}
+
 type traceReaderOnlyPolicy interface {
 	ReaderOnly() bool
 }
@@ -119,7 +123,7 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 	return &cliTraceOutputPolicy{
 		json:               opts.EventFormat == cli.EventFormatJSON,
 		discard:            opts.EventFormat == cli.EventFormatNone || opts.EventFormat == cli.EventFormatReader || opts.EventFormat == cli.EventFormatHandler,
-		readerOnly:         opts.EventFormat == cli.EventFormatReader,
+		readerOnly:         opts.EventFormat == cli.EventFormatReader || opts.EventFormat == cli.EventFormatNone,
 		handlerOnly:        opts.EventFormat == cli.EventFormatHandler,
 		debug:              opts.DebugEvents,
 		debugPhases:        opts.DebugPhases,
@@ -151,7 +155,7 @@ func (p *cliTraceOutputPolicy) DiscardEvents() bool {
 	return p != nil && p.discard
 }
 
-// ReaderOnly identifies the diagnostic path that stops after event-v2 bounds validation.
+// ReaderOnly identifies diagnostic paths that stop after event-v2 bounds validation.
 func (p *cliTraceOutputPolicy) ReaderOnly() bool {
 	return p != nil && p.readerOnly
 }
@@ -177,6 +181,11 @@ func (p *cliTraceOutputPolicy) DebugEvents() bool {
 
 func (p *cliTraceOutputPolicy) DebugPhases() bool {
 	return p != nil && p.debugPhases
+}
+
+func isTraceDebugPhasesPolicy(policy interface{}) bool {
+	debugPolicy, ok := policy.(traceDebugPhasesPolicy)
+	return ok && debugPolicy.DebugPhases()
 }
 
 func (p *cliTraceOutputPolicy) ShouldEmit(ev syscallEventContext, unfinished bool) bool {

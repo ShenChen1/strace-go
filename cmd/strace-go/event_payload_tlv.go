@@ -6,43 +6,55 @@ import (
 	"strace-go/pkg/handler"
 )
 
-const (
-	payloadTLVHeaderSize       = 32
-	payloadTLVKindString       = 1
-	payloadTLVKindBytes        = 2
-	payloadTLVKindStruct       = 3
-	payloadTLVKindIovec        = 4
-	payloadTLVKindSockaddr     = 5
-	payloadTLVKindExecArgs     = 6
-	payloadTLVKindCmsg         = 7
-	payloadTLVKindFDState      = 8
-	payloadTLVKindFDPath       = 9
-	payloadTLVFlagDirectionOut = 1
-)
-
-func payloadTLVSectionsForRaw(raw rawPayloadEvent) ([]handler.PayloadSection, bool) {
+func payloadTLVSectionsForRawInto(
+	raw rawPayloadEvent,
+	dst *[]handler.PayloadSection,
+) ([]handler.PayloadSection, bool) {
+	if dst != nil {
+		*dst = (*dst)[:0]
+	}
 	if !raw.valid || raw.eventFlags&bpfEventFlagPayloadTLV == 0 {
 		return nil, false
 	}
-	sections, ok := decodePayloadTLVSections(raw.data)
+	sections, ok := decodePayloadTLVSectionsInto(raw.data, dst)
 	if !ok {
+		if dst != nil {
+			*dst = (*dst)[:0]
+		}
 		return nil, true
 	}
 	return sections, true
 }
 
-func decodePayloadTLVSections(data []byte) ([]handler.PayloadSection, bool) {
-	sections := make([]handler.PayloadSection, 0, 4)
+func decodePayloadTLVSectionsInto(
+	data []byte,
+	dst *[]handler.PayloadSection,
+) ([]handler.PayloadSection, bool) {
+	var sections []handler.PayloadSection
+	if dst == nil {
+		sections = make([]handler.PayloadSection, 0, 4)
+	} else {
+		sections = (*dst)[:0]
+	}
 	for len(data) > 0 {
 		if len(data) < payloadTLVHeaderSize {
+			if dst != nil {
+				*dst = sections
+			}
 			return nil, false
 		}
 		section, next, ok := decodePayloadTLVSection(data)
 		if !ok {
+			if dst != nil {
+				*dst = sections
+			}
 			return nil, false
 		}
 		sections = append(sections, section)
 		data = next
+	}
+	if dst != nil {
+		*dst = sections
 	}
 	return sections, true
 }

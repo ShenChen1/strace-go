@@ -55,7 +55,7 @@ var builtinHandlerNames = []string{
 	"setsockopt", "getsockopt", "prctl", "clone3", "process_madvise", "quotactl", "quotactl_fd",
 	"select", "_newselect", "pselect6", "poll", "ppoll", "sendfile",
 	"rt_sigprocmask", "rt_sigaction", "rt_sigpending", "rt_sigsuspend", "signalfd", "signalfd4",
-	"statx", "open", "openat", "mknod", "mknodat", "brk", "mremap",
+	"statx", "open", "openat", "mknod", "mknodat", "brk", "mremap", "keyctl",
 	"adjtimex", "clock_adjtime", "clock_gettime", "clock_settime", "clock_getres", "waitid",
 }
 

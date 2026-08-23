@@ -26,7 +26,7 @@ type payloadTLVTestSection struct {
 	data     []byte
 }
 
-func payloadTLVBytes(t *testing.T, section payloadTLVTestSection) []byte {
+func payloadTLVBytes(t testing.TB, section payloadTLVTestSection) []byte {
 	t.Helper()
 	buf := make([]byte, payloadTLVHeaderSize+len(section.data))
 	binary.LittleEndian.PutUint16(buf[0:2], section.kind)

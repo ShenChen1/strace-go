@@ -85,6 +85,9 @@ func syscallEventTraitsForView(view syscallEventView, syscallName string) syscal
 }
 
 func (ev syscallEventContext) eventTraits() syscallEventTraits {
+	if ev.traitsBound {
+		return ev.traits
+	}
 	if ev.view.sysID > 0 && ev.view.sysID < uint32(len(syscallEventTraitsByID)) {
 		return syscallEventTraitsByID[ev.view.sysID]
 	}

@@ -3,7 +3,20 @@ package handler
 import (
 	"encoding/binary"
 	"fmt"
+	"strace-go/pkg/format"
 	"strings"
+	"syscall"
+)
+
+const (
+	bpfMapBatchKeysInputArg   = 121
+	bpfMapBatchValuesInputArg = 122
+	bpfMapDeleteKeyInputArg   = 123
+	bpfMapGetNextKeyInputArg  = 124
+	bpfMapGetNextKeyOutputArg = 125
+	bpfMapUpdateKeyInputArg   = 126
+	bpfMapUpdateValueInputArg = 127
+	bpfMapLookupKeyInputArg   = 139
 )
 
 // decodeBpfMapCreate decodes BPF_MAP_CREATE command arguments.
@@ -146,9 +159,17 @@ func decodeBpfMapLookup(ctx *Context, data []byte, size uint32) string {
 		decodedSize = 4
 	}
 	k := u64OrZero(data, 8)
-	parts = append(parts, formatPtr("key", k))
+	if input, ok := bpfMapInputPayload(ctx, bpfMapLookupKeyInputArg, k); ok {
+		parts = append(parts, "key="+input)
+	} else {
+		parts = append(parts, formatPtr("key", k))
+	}
 	v := u64OrZero(data, 16)
-	parts = append(parts, formatPtr("value", v))
+	if value, ok := bpfMapLookupOutputPayload(ctx, v); ok {
+		parts = append(parts, "value="+value)
+	} else {
+		parts = append(parts, formatPtr("value", v))
+	}
 	decodedSize = 24
 
 	if size >= 32 {
@@ -157,6 +178,73 @@ func decodeBpfMapLookup(ctx *Context, data []byte, size uint32) string {
 	}
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
 	return "{" + strings.Join(parts, ", ") + extra + "}"
+}
+
+func bpfMapLookupOutputPayload(ctx *Context, ptr uint64) (string, bool) {
+	return bpfMapOutputPayload(ctx, 117, ptr)
+}
+
+func bpfMapOutputAllowedAtExit(ctx *Context) bool {
+	switch ctx.Args[0] {
+	case 1, 21:
+		return ctx.Ret == 0
+	case 24, 25:
+		return ctx.Ret == 0 || ctx.Ret == -int64(syscall.ENOENT)
+	case 4:
+		return ctx.Ret == 0
+	default:
+		return false
+	}
+}
+
+func bpfMapOutputPayload(ctx *Context, argIndex int, ptr uint64) (string, bool) {
+	if ctx == nil || ctx.Decoder == nil || ptr == 0 || !bpfMapOutputAllowedAtExit(ctx) {
+		return "", false
+	}
+	section, ok := bpfNestedPayloadSectionDirection(
+		ctx, argIndex, PayloadKindBytes, ptr, PayloadDirectionOut)
+	if !ok {
+		return "", false
+	}
+	limit := int(section.CopiedLen)
+	if limit <= 0 || limit > len(section.Data) {
+		limit = len(section.Data)
+	}
+	actualLen := int(section.UserLen)
+	if actualLen <= 0 {
+		actualLen = limit
+	}
+	return format.BufferEscape(
+		section.Data[:limit],
+		limit,
+		actualLen,
+		ctx.Decoder.EscapeMode()), true
+}
+
+func bpfMapInputPayload(ctx *Context, argIndex int, ptr uint64) (string, bool) {
+	if ctx == nil || ctx.Decoder == nil || ptr == 0 ||
+		(ctx.Args[0] != 1 && ctx.Args[0] != 2 && ctx.Args[0] != 3 && ctx.Args[0] != 4 &&
+			ctx.Args[0] != 21 && ctx.Args[0] != 26 && ctx.Args[0] != 27) {
+		return "", false
+	}
+	section, ok := bpfNestedPayloadSectionDirection(
+		ctx, argIndex, PayloadKindBytes, ptr, PayloadDirectionIn)
+	if !ok {
+		return "", false
+	}
+	limit := int(section.CopiedLen)
+	if limit <= 0 || limit > len(section.Data) {
+		limit = len(section.Data)
+	}
+	actualLen := int(section.UserLen)
+	if actualLen <= 0 {
+		actualLen = limit
+	}
+	return format.BufferEscape(
+		section.Data[:limit],
+		limit,
+		actualLen,
+		ctx.Decoder.EscapeMode()), true
 }
 
 // decodeBpfMapUpdate decodes BPF_MAP_UPDATE_ELEM.
@@ -169,9 +257,17 @@ func decodeBpfMapUpdate(ctx *Context, data []byte, size uint32) string {
 		decodedSize = 4
 	}
 	k := u64OrZero(data, 8)
-	parts = append(parts, formatPtr("key", k))
+	if input, ok := bpfMapInputPayload(ctx, bpfMapUpdateKeyInputArg, k); ok {
+		parts = append(parts, "key="+input)
+	} else {
+		parts = append(parts, formatPtr("key", k))
+	}
 	v := u64OrZero(data, 16)
-	parts = append(parts, formatPtr("value", v))
+	if input, ok := bpfMapInputPayload(ctx, bpfMapUpdateValueInputArg, v); ok {
+		parts = append(parts, "value="+input)
+	} else {
+		parts = append(parts, formatPtr("value", v))
+	}
 	decodedSize = 24
 
 	flagsVal := u64OrZero(data, 24)
@@ -192,7 +288,11 @@ func decodeBpfMapDeleteElem(ctx *Context, data []byte, size uint32) string {
 		decodedSize = 4
 	}
 	k := u64OrZero(data, 8)
-	parts = append(parts, formatPtr("key", k))
+	if input, ok := bpfMapInputPayload(ctx, bpfMapDeleteKeyInputArg, k); ok {
+		parts = append(parts, "key="+input)
+	} else {
+		parts = append(parts, formatPtr("key", k))
+	}
 	decodedSize = 16
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
 	return "{" + strings.Join(parts, ", ") + extra + "}"
@@ -208,9 +308,17 @@ func decodeBpfMapGetNextKey(ctx *Context, data []byte, size uint32) string {
 		decodedSize = 4
 	}
 	k := u64OrZero(data, 8)
-	parts = append(parts, formatPtr("key", k))
+	if input, ok := bpfMapInputPayload(ctx, bpfMapGetNextKeyInputArg, k); ok {
+		parts = append(parts, "key="+input)
+	} else {
+		parts = append(parts, formatPtr("key", k))
+	}
 	nk := u64OrZero(data, 16)
-	parts = append(parts, formatPtr("next_key", nk))
+	if output, ok := bpfMapOutputPayload(ctx, bpfMapGetNextKeyOutputArg, nk); ok {
+		parts = append(parts, "next_key="+output)
+	} else {
+		parts = append(parts, formatPtr("next_key", nk))
+	}
 	decodedSize = 24
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
 	return "{" + strings.Join(parts, ", ") + extra + "}"
@@ -227,17 +335,33 @@ func decodeBpfMapBatch(ctx *Context, data []byte, size uint32) string {
 		inBatch := u64OrZero(data, 0)
 		parts = append(parts, formatPtr("in_batch", inBatch))
 		outBatch := u64OrZero(data, 8)
-		parts = append(parts, formatPtr("out_batch", outBatch))
+		if output, ok := bpfMapOutputPayload(ctx, 120, outBatch); ok {
+			parts = append(parts, "out_batch="+output)
+		} else {
+			parts = append(parts, formatPtr("out_batch", outBatch))
+		}
 	}
 
 	// 2. keys (all batch commands)
 	keys := u64OrZero(data, 16)
-	parts = append(parts, formatPtr("keys", keys))
+	if input, ok := bpfMapInputPayload(ctx, bpfMapBatchKeysInputArg, keys); ok {
+		parts = append(parts, "keys="+input)
+	} else if output, ok := bpfMapOutputPayload(ctx, 118, keys); ok {
+		parts = append(parts, "keys="+output)
+	} else {
+		parts = append(parts, formatPtr("keys", keys))
+	}
 
 	// 3. values (Lookup, Lookup & Delete, Update; not for Delete)
 	if cmd != 27 {
 		values := u64OrZero(data, 24)
-		parts = append(parts, formatPtr("values", values))
+		if input, ok := bpfMapInputPayload(ctx, bpfMapBatchValuesInputArg, values); ok {
+			parts = append(parts, "values="+input)
+		} else if output, ok := bpfMapOutputPayload(ctx, 119, values); ok {
+			parts = append(parts, "values="+output)
+		} else {
+			parts = append(parts, formatPtr("values", values))
+		}
 	}
 
 	// 4. Common fields: count, map_fd, elem_flags, flags

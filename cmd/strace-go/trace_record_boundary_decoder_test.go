@@ -28,9 +28,9 @@ func TestTraceRingbufBoundaryDecoderRejectsInvalidEvent(t *testing.T) {
 func validTraceEventV2Sample() []byte {
 	const size = traceEventV2HeaderLen + traceEventV2EnterBodyLen
 	raw := make([]byte, size)
-	binary.LittleEndian.PutUint16(raw[0:2], traceEventV2Version)
-	binary.LittleEndian.PutUint16(raw[2:4], bpfEventTypeEnter)
-	binary.LittleEndian.PutUint16(raw[6:8], traceEventV2HeaderLen)
-	binary.LittleEndian.PutUint32(raw[8:12], size)
+	binary.LittleEndian.PutUint16(raw[traceEventV2HeaderVersionOffset:traceEventV2HeaderVersionOffset+traceEventV2U16Size], traceEventV2Version)
+	binary.LittleEndian.PutUint16(raw[traceEventV2HeaderEventTypeOffset:traceEventV2HeaderEventTypeOffset+traceEventV2U16Size], bpfEventTypeEnter)
+	binary.LittleEndian.PutUint16(raw[traceEventV2HeaderLenOffset:traceEventV2HeaderLenOffset+traceEventV2U16Size], traceEventV2HeaderLen)
+	binary.LittleEndian.PutUint32(raw[traceEventV2HeaderSizeOffset:traceEventV2HeaderSizeOffset+traceEventV2U32Size], size)
 	return raw
 }

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/binary"
 	"fmt"
+	"strace-go/pkg/format"
 	"strings"
 )
 
@@ -10,6 +11,10 @@ const (
 	bpfObjPathnamePayloadArg = 104
 	bpfRawTracepointNameArg  = 105
 	bpfBtfPayloadArg         = 106
+	bpfBtfLogPayloadArg      = 114
+	bpfTestRunDataPayloadArg = 115
+	bpfTestRunCtxPayloadArg  = 116
+	bpfGetNextIDOutputArg    = 140
 )
 
 // decodeBpfObjPin decodes BPF_OBJ_PIN / BPF_OBJ_GET.
@@ -108,7 +113,11 @@ func decodeBpfProgTestRun(ctx *Context, data []byte, size uint32) string {
 	din := u64OrZero(data, 16)
 	parts = append(parts, formatPtr("data_in", din))
 	dout := u64OrZero(data, 24)
-	parts = append(parts, formatPtr("data_out", dout))
+	if text, ok := bpfProgTestRunOutputPayload(ctx, bpfTestRunDataPayloadArg, dout, u32OrZero(data, 12)); ok {
+		parts = append(parts, "data_out="+text)
+	} else {
+		parts = append(parts, formatPtr("data_out", dout))
+	}
 	parts = append(parts, fmt.Sprintf("repeat=%d", u32OrZero(data, 32)))
 	parts = append(parts, fmt.Sprintf("duration=%d", u32OrZero(data, 36)))
 	decodedSize = 40
@@ -125,7 +134,11 @@ func decodeBpfProgTestRun(ctx *Context, data []byte, size uint32) string {
 		cin := u64OrZero(data, 48)
 		parts = append(parts, formatPtr("ctx_in", cin))
 		cout := u64OrZero(data, 56)
-		parts = append(parts, formatPtr("ctx_out", cout))
+		if text, ok := bpfProgTestRunOutputPayload(ctx, bpfTestRunCtxPayloadArg, cout, u32OrZero(data, 44)); ok {
+			parts = append(parts, "ctx_out="+text)
+		} else {
+			parts = append(parts, formatPtr("ctx_out", cout))
+		}
 		decodedSize = 64
 	}
 	if size >= 68 {
@@ -144,6 +157,24 @@ func decodeBpfProgTestRun(ctx *Context, data []byte, size uint32) string {
 	return "{test={" + strings.Join(parts, ", ") + "}" + extra + "}"
 }
 
+func bpfProgTestRunOutputPayload(
+	ctx *Context,
+	argIndex int,
+	ptr uint64,
+	userLen uint32,
+) (string, bool) {
+	if ctx == nil || ctx.Ret != 0 || ptr == 0 {
+		return "", false
+	}
+	return bpfNestedBytesStringPayloadDirection(
+		ctx,
+		argIndex,
+		ptr,
+		userLen,
+		PayloadDirectionOut,
+	)
+}
+
 // decodeBpfObjGetInfoByFd decodes BPF_OBJ_GET_INFO_BY_FD.
 // Impact: Decodes info fd and ptr unconditionally to match upstream strace.
 func decodeBpfObjGetInfoByFd(ctx *Context, data []byte, size uint32) string {
@@ -151,7 +182,15 @@ func decodeBpfObjGetInfoByFd(ctx *Context, data []byte, size uint32) string {
 	parts = append(parts, fmt.Sprintf("bpf_fd=%d", int32(u32OrZero(data, 0))))
 	parts = append(parts, fmt.Sprintf("info_len=%d", u32OrZero(data, 4)))
 	info := u64OrZero(data, 8)
-	parts = append(parts, formatPtr("info", info))
+	if infoData, ok := bpfObjInfoPayload(ctx, info, u32OrZero(data, 4)); ok {
+		parts = append(parts, "info_data="+format.BufferEscape(
+			infoData,
+			len(infoData),
+			len(infoData),
+			ctx.Decoder.EscapeMode()))
+	} else {
+		parts = append(parts, formatPtr("info", info))
+	}
 	decodedSize := 16
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
 	return "{info={" + strings.Join(parts, ", ") + "}" + extra + "}"
@@ -162,10 +201,34 @@ func decodeBpfObjGetInfoByFd(ctx *Context, data []byte, size uint32) string {
 func decodeBpfGetNextId(ctx *Context, data []byte, size uint32) string {
 	parts := []string{}
 	parts = append(parts, fmt.Sprintf("start_id=%d", partialU32OrZero(data, 0)))
-	parts = append(parts, fmt.Sprintf("next_id=%d", partialU32OrZero(data, 4)))
+	nextID := partialU32OrZero(data, 4)
+	if output, ok := bpfGetNextIDOutputPayload(ctx); ok {
+		nextID = output
+	}
+	parts = append(parts, fmt.Sprintf("next_id=%d", nextID))
 	decodedSize := 8
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
 	return "{" + strings.Join(parts, ", ") + extra + "}"
+}
+
+func bpfGetNextIDOutputPayload(ctx *Context) (uint32, bool) {
+	if ctx == nil || ctx.Ret != 0 || ctx.Args[1] > ^uint64(0)-4 {
+		return 0, false
+	}
+	if ctx.Args[0] != 11 && ctx.Args[0] != 12 && ctx.Args[0] != 23 && ctx.Args[0] != 31 {
+		return 0, false
+	}
+	data, ok := bpfNestedBytesPayloadDirection(
+		ctx,
+		bpfGetNextIDOutputArg,
+		ctx.Args[1]+4,
+		4,
+		PayloadDirectionOut,
+	)
+	if !ok || len(data) < 4 {
+		return 0, false
+	}
+	return binary.LittleEndian.Uint32(data[:4]), true
 }
 
 func partialU32OrZero(data []byte, off int) uint32 {
@@ -268,60 +331,6 @@ func decodeBpfProgAssocStructOps(ctx *Context, data []byte, size uint32) string 
 	return "{prog_assoc_struct_ops={" + strings.Join(parts, ", ") + "}" + extra + "}"
 }
 
-// decodeBpfProgQuery decodes BPF_PROG_QUERY.
-// Impact: Decodes query properties including target FD/ifindex, attach type, flags and buffer details.
-func decodeBpfProgQuery(ctx *Context, data []byte, size uint32) string {
-	parts := []string{}
-	attachType := u32OrZero(data, 4)
-	targetVal := u32OrZero(data, 0)
-	if attachType == 46 || attachType == 47 || attachType == 54 || attachType == 55 {
-		parts = append(parts, "target_ifindex="+translateIfindex(targetVal))
-	} else {
-		parts = append(parts, fmt.Sprintf("target_fd=%d", int32(targetVal)))
-	}
-
-	parts = append(parts, "attach_type="+decodeFlags(ctx, uint64(attachType), "bpf_attach_type"))
-	parts = append(parts, "query_flags="+decodeFlags(ctx, uint64(u32OrZero(data, 8)), "bpf_query_flags"))
-	parts = append(parts, "attach_flags="+decodeFlags(ctx, uint64(u32OrZero(data, 12)), "bpf_attach_flags"))
-
-	progIds := u64OrZero(data, 16)
-	progCnt := u32OrZero(data, 24)
-	if progIds == 0 {
-		parts = append(parts, "prog_ids=NULL")
-	} else if progCnt == 0 {
-		parts = append(parts, "prog_ids=[]")
-	} else {
-		parts = append(parts, fmt.Sprintf("prog_ids=%#x", progIds))
-	}
-	parts = append(parts, fmt.Sprintf("prog_cnt=%d", progCnt))
-	decodedSize := 28
-
-	if size >= 40 {
-		progAttachFlags := u64OrZero(data, 32)
-		parts = append(parts, formatPtr("prog_attach_flags", progAttachFlags))
-		decodedSize = 40
-	}
-	if size >= 64 {
-		linkIds := u64OrZero(data, 40)
-		if linkIds == 0 {
-			parts = append(parts, "link_ids=NULL")
-		} else if progCnt == 0 {
-			parts = append(parts, "link_ids=[]")
-		} else {
-			parts = append(parts, fmt.Sprintf("link_ids=%#x", linkIds))
-		}
-
-		linkAttachFlags := u64OrZero(data, 48)
-		parts = append(parts, formatPtr("link_attach_flags", linkAttachFlags))
-
-		parts = append(parts, fmt.Sprintf("revision=%#x", u64OrZero(data, 56)))
-		decodedSize = 64
-	}
-
-	extra := checkAndFormatExtraData(ctx, decodedSize, size)
-	return "{query={" + strings.Join(parts, ", ") + "}" + extra + "}"
-}
-
 // decodeBpfRawTracepointOpen decodes BPF_RAW_TRACEPOINT_OPEN.
 // Impact: Formats raw tracepoint fields including name, prog fd and cookie.
 func decodeBpfRawTracepointOpen(ctx *Context, data []byte, size uint32) string {
@@ -363,7 +372,11 @@ func decodeBpfBtfLoad(ctx *Context, data []byte, size uint32) string {
 	}
 
 	btfLogBuf := u64OrZero(data, 8)
-	parts = append(parts, formatPtr("btf_log_buf", btfLogBuf))
+	if logData, ok := bpfBtfLoadLogOutputPayload(ctx, btfLogBuf, u32OrZero(data, 20)); ok {
+		parts = append(parts, "btf_log_buf="+logData)
+	} else {
+		parts = append(parts, formatPtr("btf_log_buf", btfLogBuf))
+	}
 
 	parts = append(parts, fmt.Sprintf("btf_size=%d", btfSize))
 	parts = append(parts, fmt.Sprintf("btf_log_size=%d", u32OrZero(data, 20)))
@@ -387,6 +400,19 @@ func decodeBpfBtfLoad(ctx *Context, data []byte, size uint32) string {
 
 	extra := checkAndFormatExtraData(ctx, decodedSize, size)
 	return "{" + strings.Join(parts, ", ") + extra + "}"
+}
+
+func bpfBtfLoadLogOutputPayload(ctx *Context, ptr uint64, userLen uint32) (string, bool) {
+	if ctx == nil || ctx.Ret >= 0 || ptr == 0 {
+		return "", false
+	}
+	return bpfNestedBytesStringPayloadDirection(
+		ctx,
+		bpfBtfLogPayloadArg,
+		ptr,
+		userLen,
+		PayloadDirectionOut,
+	)
 }
 
 // formatBtfData converts BTF raw bytes to double-quoted escaped string representation.

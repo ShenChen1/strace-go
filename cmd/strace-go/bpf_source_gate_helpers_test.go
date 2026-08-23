@@ -38,15 +38,16 @@ func loadBPFSources(t *testing.T) bpfSourceGateSources {
 	return bpfSourceGateSources{
 		straceSource:           combinedStraceSource,
 		legacyCaptureArtifacts: legacyCaptureArtifactsForTest(t),
-		tlvHeader:              readTextFile(t, filepath.Join(root, "bpf/payload_tlv.h")),
-		directHeader:           readDirectEventSources(t),
-		fdArrayDirectHeader:    readTextFile(t, filepath.Join(root, "bpf/syscall_fd_array_direct_event_v2.h")),
-		getcwdDirectHeader:     readTextFile(t, filepath.Join(root, "bpf/syscall_getcwd_direct_event_v2.h")),
-		miscDirectHeader:       readTextFile(t, filepath.Join(root, "bpf/syscall_misc_struct_direct_event_v2.h")),
-		statDirectHeader:       readTextFile(t, filepath.Join(root, "bpf/syscall_stat_direct_event_v2.h")),
-		waitidDirectHeader:     readTextFile(t, filepath.Join(root, "bpf/syscall_waitid_direct_event_v2.h")),
-		signalDirectHeader:     readTextFile(t, filepath.Join(root, "bpf/syscall_signal_direct_event_v2.h")),
-		pathStatDirectHeader:   readTextFile(t, filepath.Join(root, "bpf/syscall_path_stat_direct_event_v2.h")),
+		tlvHeader: readTextFile(t, filepath.Join(root, "bpf/event_abi_generated.h")) +
+			"\n" + readTextFile(t, filepath.Join(root, "bpf/payload_tlv.h")),
+		directHeader:         readDirectEventSources(t),
+		fdArrayDirectHeader:  readTextFile(t, filepath.Join(root, "bpf/syscall_fd_array_direct_event_v2.h")),
+		getcwdDirectHeader:   readTextFile(t, filepath.Join(root, "bpf/syscall_getcwd_direct_event_v2.h")),
+		miscDirectHeader:     readTextFile(t, filepath.Join(root, "bpf/syscall_misc_struct_direct_event_v2.h")),
+		statDirectHeader:     readTextFile(t, filepath.Join(root, "bpf/syscall_stat_direct_event_v2.h")),
+		waitidDirectHeader:   readTextFile(t, filepath.Join(root, "bpf/syscall_waitid_direct_event_v2.h")),
+		signalDirectHeader:   readTextFile(t, filepath.Join(root, "bpf/syscall_signal_direct_event_v2.h")),
+		pathStatDirectHeader: readTextFile(t, filepath.Join(root, "bpf/syscall_path_stat_direct_event_v2.h")),
 		readlinkDirectHeader: readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_direct_event_v2.h")) +
 			"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_capture_direct_event_v2.h")) +
 			"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_readlink_emit_direct_event_v2.h")),
@@ -127,6 +128,7 @@ func readCombinedBPFSources(t *testing.T) string {
 	t.Helper()
 	root := repoRootForTest(t)
 	return readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/event_abi_generated.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_numbers_generated.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/runtime_stats.h")) +
 		"\n" + readBPFHandlerFacades(t) +

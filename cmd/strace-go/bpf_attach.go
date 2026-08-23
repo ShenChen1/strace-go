@@ -121,6 +121,9 @@ const (
 	enterProgPrctl            = 19
 	enterProgClone3           = 20
 	enterProgBpf              = 21
+	enterProgBpfUprobeMulti   = 51
+	enterProgBpfProgLoad      = 52
+	enterProgBpfProgLoadDebug = 53
 	enterProgIovec            = 22
 	enterProgMsg              = 23
 	enterProgMmsg             = 24

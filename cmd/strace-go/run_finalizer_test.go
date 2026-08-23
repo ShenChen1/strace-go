@@ -173,6 +173,40 @@ func TestTraceRunFinalizerWritesJSONStats(t *testing.T) {
 	}
 }
 
+func TestTraceRunFinalizerSnapshotsJSONSyscallOutputBeforeStats(t *testing.T) {
+	var out bytes.Buffer
+	output, err := newTraceOutput(TraceOutputDeps{Writer: &out})
+	if err != nil {
+		t.Fatalf("newTraceOutput() error = %v", err)
+	}
+	writer := newJSONEventWriter(JSONEventWriterDeps{Out: output})
+	writer.WriteRaw(syscallEventContext{
+		view: syscallEventView{valid: true, eventType: bpfEventTypeExit, pid: 101, tid: 101, sysID: 39, ret: 101},
+	})
+
+	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{
+		FormatPolicy: newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatJSON}),
+		JSONWriter:   writer,
+		Output:       output,
+	})
+	if err := finalizer.Finish(); err != nil {
+		t.Fatalf("TraceRunFinalizer.Finish() error = %v", err)
+	}
+
+	lines := bytes.Split(bytes.TrimSpace(out.Bytes()), []byte{'\n'})
+	if len(lines) != 2 {
+		t.Fatalf("finalizer JSON lines = %d, want syscall and stats: %q", len(lines), out.String())
+	}
+	var stats jsonStatsEvent
+	if err := json.Unmarshal(lines[1], &stats); err != nil {
+		t.Fatalf("decode finalizer stats: %v", err)
+	}
+	wantBytes := uint64(len(lines[0]) + 1)
+	if stats.SyscallOutputBytes != wantBytes || stats.SyscallOutputWrites != 1 || stats.SyscallOutputWriteErrors != 0 {
+		t.Fatalf("finalizer JSON output stats = %+v, want bytes=%d writes=1 errors=0", stats, wantBytes)
+	}
+}
+
 func TestTraceRunFinalizerWritesDiscardStatsToDiagnostic(t *testing.T) {
 	var diagnostics bytes.Buffer
 	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{
@@ -230,6 +264,33 @@ func TestTraceRunFinalizerWritesTextStatsDiagnostic(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("diagnostic = %q, missing %q", got, want)
 		}
+	}
+}
+
+func TestTraceRunFinalizerWritesStructuredTextDebugStats(t *testing.T) {
+	var diagnostics bytes.Buffer
+	policy := newTraceOutputPolicy(&cli.Options{
+		EventFormat: cli.EventFormatText,
+		DebugPhases: true,
+	})
+	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{
+		FormatPolicy:    policy,
+		StatsDiagnostic: &diagnostics,
+		ReaderStats: fakeEventReaderStatsReader{stats: traceEventReaderStats{
+			RecordsRead:    7,
+			RecordsDecoded: 7,
+			RecordsRouted:  7,
+		}},
+	})
+
+	finalizer.writeStats(bpfRuntimeStats{Available: true})
+
+	var event jsonStatsEvent
+	if err := json.Unmarshal(bytes.TrimSpace(diagnostics.Bytes()), &event); err != nil {
+		t.Fatalf("decode text debug stats JSON: %v; output=%q", err, diagnostics.String())
+	}
+	if event.Type != "stats" || event.RecordsRead != 7 || !event.Available {
+		t.Fatalf("text debug stats = %+v, want structured records=7", event)
 	}
 }
 
