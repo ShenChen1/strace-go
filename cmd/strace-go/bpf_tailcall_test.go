@@ -50,7 +50,8 @@ func TestMmsgBytesProgArrayEntriesComplete(t *testing.T) {
 }
 
 func TestMmsgBytesProgIndicesMatchBPFSource(t *testing.T) {
-	source := readCombinedBPFSources(t)
+	root := repoRootForTest(t)
+	source := readTextFile(t, filepath.Join(root, "bpf/capture_manifest_generated.h"))
 	pairs := map[string]uint32{
 		"MMSG_BYTES_PROG_BASE0": mmsgBytesProgBase0,
 		"MMSG_BYTES_PROG_BASE1": mmsgBytesProgBase1,
@@ -59,7 +60,7 @@ func TestMmsgBytesProgIndicesMatchBPFSource(t *testing.T) {
 	}
 	for name, value := range pairs {
 		if !strings.Contains(source, fmt.Sprintf("%s = %d", name, value)) {
-			t.Fatalf("runtime ABI missing %s = %d", name, value)
+			t.Fatalf("capture manifest missing %s = %d", name, value)
 		}
 	}
 }
@@ -103,7 +104,8 @@ func TestRecvmsgProgArrayEntriesComplete(t *testing.T) {
 }
 
 func TestRecvmsgProgIndicesMatchBPFSource(t *testing.T) {
-	source := readCombinedBPFSources(t)
+	root := repoRootForTest(t)
+	source := readTextFile(t, filepath.Join(root, "bpf/capture_manifest_generated.h"))
 	pairs := map[string]uint32{
 		"RECVMSG_PROG_NAME":    recvmsgProgName,
 		"RECVMSG_PROG_CONTROL": recvmsgProgControl,
@@ -111,14 +113,14 @@ func TestRecvmsgProgIndicesMatchBPFSource(t *testing.T) {
 	}
 	for name, value := range pairs {
 		if !strings.Contains(source, fmt.Sprintf("%s = %d", name, value)) {
-			t.Fatalf("strace.c missing %s = %d", name, value)
+			t.Fatalf("capture manifest missing %s = %d", name, value)
 		}
 	}
 }
 
 func TestEnterProgIndicesMatchDispatchHeader(t *testing.T) {
 	root := repoRootForTest(t)
-	header := readTextFile(t, filepath.Join(root, "bpf/enter_runtime.h"))
+	header := readTextFile(t, filepath.Join(root, "bpf/capture_manifest_generated.h"))
 	pairs := map[string]uint32{
 		"ENTER_PROG_TERMINATING":         enterProgTerminating,
 		"ENTER_PROG_BPF_UPROBE_MULTI":    enterProgBpfUprobeMulti,
@@ -144,19 +146,17 @@ func TestEnterProgIndicesMatchDispatchHeader(t *testing.T) {
 	}
 	for name, val := range pairs {
 		if !strings.Contains(header, fmt.Sprintf("%s = %d", name, val)) {
-			t.Fatalf("enter_dispatch.h missing %s = %d", name, val)
+			t.Fatalf("capture manifest missing %s = %d", name, val)
 		}
 	}
-	runtimeABI := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
-	if !strings.Contains(runtimeABI, "__uint(max_entries, 54)") {
-		t.Fatal("runtime_abi.h enter_progs map must include the prog_load slot")
+	if !strings.Contains(header, "STRACE_GO_ENTER_PROG_ARRAY_MAX_ENTRIES 54") {
+		t.Fatal("capture manifest must include the enter prog array capacity")
 	}
 }
 
 func TestExitProgIndicesMatchDispatchHeader(t *testing.T) {
 	root := repoRootForTest(t)
-	header := readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h"))
-	runtimeABI := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
+	header := readTextFile(t, filepath.Join(root, "bpf/capture_manifest_generated.h"))
 	pairs := map[string]uint32{
 		"EXIT_PROG_GENERIC":         exitProgGeneric,
 		"EXIT_PROG_IOVEC_BASE":      exitProgIovecBase,
@@ -179,11 +179,11 @@ func TestExitProgIndicesMatchDispatchHeader(t *testing.T) {
 	}
 	for name, val := range pairs {
 		if !strings.Contains(header, fmt.Sprintf("%s = %d", name, val)) {
-			t.Fatalf("exit_dispatch.h missing %s = %d", name, val)
+			t.Fatalf("capture manifest missing %s = %d", name, val)
 		}
 	}
-	if !strings.Contains(runtimeABI, "__uint(max_entries, 18)") {
-		t.Fatal("runtime_abi.h exit_progs map must have capacity for nested exit fragments")
+	if !strings.Contains(header, "STRACE_GO_EXIT_PROG_ARRAY_MAX_ENTRIES 18") {
+		t.Fatal("capture manifest must include the exit prog array capacity")
 	}
 }
 

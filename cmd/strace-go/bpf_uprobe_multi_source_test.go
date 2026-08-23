@@ -9,6 +9,7 @@ import (
 func TestBPFUprobeMultiDirectSourceContract(t *testing.T) {
 	root := repoRootForTest(t)
 	runtime := readTextFile(t, filepath.Join(root, "bpf/enter_runtime.h"))
+	manifest := readTextFile(t, filepath.Join(root, "bpf/capture_manifest_generated.h"))
 	dispatch := readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h"))
 	direct := readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_direct_event_v2.h"))
 	nested := readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_nested_direct_event_v2.h"))
@@ -16,7 +17,7 @@ func TestBPFUprobeMultiDirectSourceContract(t *testing.T) {
 	for _, snippet := range []string{
 		"ENTER_PROG_BPF_UPROBE_MULTI = 51",
 	} {
-		if !strings.Contains(runtime, snippet) {
+		if !strings.Contains(runtime+manifest, snippet) {
 			t.Fatalf("BPF uprobe runtime ABI missing %q", snippet)
 		}
 	}

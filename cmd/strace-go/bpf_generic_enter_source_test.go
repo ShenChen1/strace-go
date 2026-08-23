@@ -10,6 +10,7 @@ func TestBPFGenericEnterHandlerExcludesFDPathCapture(t *testing.T) {
 	root := repoRootForTest(t)
 	dispatch := readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h"))
 	runtime := readTextFile(t, filepath.Join(root, "bpf/enter_runtime.h"))
+	manifest := readTextFile(t, filepath.Join(root, "bpf/capture_manifest_generated.h"))
 	abi := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
 	eventABI := readTextFile(t, filepath.Join(root, "bpf/event_abi_generated.h"))
 
@@ -30,11 +31,11 @@ func TestBPFGenericEnterHandlerExcludesFDPathCapture(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"ENTER_PROG_NO_PAYLOAD_GENERIC = 46",
-		"__uint(max_entries, 54)",
+		"STRACE_GO_ENTER_PROG_ARRAY_MAX_ENTRIES 54",
 		"CONFIG_ELIDE_PLAIN_ENTER 128",
 		"plain_enter_elide_map",
 	} {
-		if !strings.Contains(runtime+abi+eventABI, snippet) {
+		if !strings.Contains(runtime+abi+eventABI+manifest, snippet) {
 			t.Fatalf("generic enter ABI is missing %q", snippet)
 		}
 	}

@@ -9,6 +9,7 @@ import (
 func TestBPFProgLoadUsesDedicatedEnterProvider(t *testing.T) {
 	root := repoRootForTest(t)
 	runtime := readTextFile(t, filepath.Join(root, "bpf/enter_runtime.h"))
+	manifest := readTextFile(t, filepath.Join(root, "bpf/capture_manifest_generated.h"))
 	dispatch := readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h"))
 	direct := readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_direct_event_v2.h"))
 	nested := readTextFile(t, filepath.Join(root, "bpf/syscall_bpf_nested_direct_event_v2.h"))
@@ -18,7 +19,7 @@ func TestBPFProgLoadUsesDedicatedEnterProvider(t *testing.T) {
 		"ENTER_PROG_BPF_PROG_LOAD = 52",
 		"ENTER_PROG_BPF_PROG_LOAD_DEBUG = 53",
 	} {
-		if !strings.Contains(runtime, snippet) {
+		if !strings.Contains(runtime+manifest, snippet) {
 			t.Fatalf("BPF prog_load runtime ABI missing %q", snippet)
 		}
 	}

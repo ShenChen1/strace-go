@@ -127,7 +127,8 @@ func repoRootForTest(t *testing.T) string {
 func readCombinedBPFSources(t *testing.T) string {
 	t.Helper()
 	root := repoRootForTest(t)
-	return readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h")) +
+	return readTextFile(t, filepath.Join(root, "bpf/capture_manifest_generated.h")) +
+		"\n" + readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/event_abi_generated.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_numbers_generated.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/runtime_stats.h")) +

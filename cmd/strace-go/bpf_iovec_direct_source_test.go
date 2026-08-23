@@ -13,6 +13,7 @@ func TestBPFIovecPayloadsUseDirectTLV(t *testing.T) {
 	// scan both the attacher and catalog for the generated wiring contract.
 	attachSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_attach.go"))
 	catalogSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_program_catalog.go"))
+	catalogSource += "\n" + readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_capture_manifest_generated.go"))
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
 	timeDirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_time_direct_event_v2.h"))
 	iovecCaptureHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_iovec_capture_direct_event_v2.h"))

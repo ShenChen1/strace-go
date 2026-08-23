@@ -18,7 +18,7 @@ func TestBPFPollNestedFDPathUsesProbeSiteFragments(t *testing.T) {
 	enter := read("bpf/enter_dispatch.h")
 	dispatch := read("bpf/nested_fd_path_dispatch.h")
 	pathEmit := read("bpf/syscall_fd_path_emit_direct_event_v2.h")
-	runtime := read("bpf/runtime_abi.h")
+	manifest := read("bpf/capture_manifest_generated.h")
 
 	for _, snippet := range []string{
 		"collect_poll_fd_path_candidates_direct(",
@@ -76,7 +76,7 @@ func TestBPFPollNestedFDPathUsesProbeSiteFragments(t *testing.T) {
 			t.Fatalf("nested path emitter missing %q", snippet)
 		}
 	}
-	if !strings.Contains(runtime, "__uint(max_entries, 54)") {
+	if !strings.Contains(manifest, "STRACE_GO_ENTER_PROG_ARRAY_MAX_ENTRIES 54") {
 		t.Fatal("enter ProgArray does not reserve four nested path fragment slots")
 	}
 }

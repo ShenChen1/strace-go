@@ -15,7 +15,7 @@ func TestBPFEpollNestedFDPathUsesExitFragments(t *testing.T) {
 	capture := read("bpf/syscall_epoll_capture_direct_event_v2.h")
 	exitDispatch := read("bpf/nested_fd_path_exit_dispatch.h")
 	exitDirect := read("bpf/exit_direct_dispatch.h")
-	runtime := read("bpf/runtime_abi.h")
+	manifest := read("bpf/capture_manifest_generated.h")
 	attach := read("bpf/handlers_exit.c")
 
 	for _, snippet := range []string{
@@ -65,7 +65,7 @@ func TestBPFEpollNestedFDPathUsesExitFragments(t *testing.T) {
 	if !strings.Contains(attach, `#include "nested_fd_path_exit_dispatch.h"`) {
 		t.Fatal("exit handler does not own nested exit dispatcher")
 	}
-	if !strings.Contains(runtime, "__uint(max_entries, 18)") {
-		t.Fatal("exit_progs map must reserve four nested exit fragment slots")
+	if !strings.Contains(manifest, "STRACE_GO_EXIT_PROG_ARRAY_MAX_ENTRIES 18") {
+		t.Fatal("capture manifest must reserve four nested exit fragment slots")
 	}
 }

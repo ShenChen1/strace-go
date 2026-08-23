@@ -9,6 +9,7 @@ import (
 func TestBPFEnterRuntimeContractHasDedicatedOwnership(t *testing.T) {
 	root := repoRootForTest(t)
 	runtimeSource := readTextFile(t, filepath.Join(root, "bpf/enter_runtime.h"))
+	manifestHeader := readTextFile(t, filepath.Join(root, "bpf/capture_manifest_generated.h"))
 	abiSource := readTextFile(t, filepath.Join(root, "bpf/event_abi_generated.h"))
 	coreSource := readTextFile(t, filepath.Join(root, "bpf/syscall_event_core_v2.h"))
 	dispatch := readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h"))
@@ -17,7 +18,6 @@ func TestBPFEnterRuntimeContractHasDedicatedOwnership(t *testing.T) {
 	mountPath := readTextFile(t, filepath.Join(root, "bpf/mount_path_dispatch.h"))
 
 	for _, snippet := range []string{
-		"enum enter_prog_index",
 		"#define ENTER_PROLOGUE(ctx)",
 		"emit_enter_dispatch_fallback(",
 		"emit_plain_no_payload_enter_event_v2_direct(",
@@ -26,6 +26,12 @@ func TestBPFEnterRuntimeContractHasDedicatedOwnership(t *testing.T) {
 		if !strings.Contains(runtimeSource, snippet) {
 			t.Fatalf("enter runtime module missing %q", snippet)
 		}
+	}
+	if !strings.Contains(manifestHeader, "enum enter_prog_index") {
+		t.Fatal("capture manifest header missing enter program enum")
+	}
+	if strings.Contains(runtimeSource, "enum enter_prog_index") {
+		t.Fatal("enter runtime still owns generated slot enum")
 	}
 	if !strings.Contains(dispatch, `#include "enter_runtime.h"`) {
 		t.Fatal("enter dispatch missing enter runtime include")

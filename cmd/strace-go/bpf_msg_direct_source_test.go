@@ -13,6 +13,7 @@ func TestBPFMsgPayloadsUseDirectTLV(t *testing.T) {
 	// scan both the attacher and catalog for the generated wiring contract.
 	attachSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_attach.go"))
 	catalogSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_program_catalog.go"))
+	catalogSource += "\n" + readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_capture_manifest_generated.go"))
 	mapCatalogSource := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_map_catalog.go"))
 	msgDirectSources := readMsgDirectEventSources(t)
 	legacyCaptureArtifacts := legacyCaptureArtifactsForTest(t)
@@ -195,6 +196,7 @@ func TestBPFMmsgEnterFragmentsBoundVerifierState(t *testing.T) {
 	capture := readMmsgCaptureSources(t)
 	dispatch := readTextFile(t, filepath.Join(root, "bpf/mmsg_enter_dispatch.h"))
 	runtimeABI := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
+	manifestHeader := readTextFile(t, filepath.Join(root, "bpf/capture_manifest_generated.h"))
 
 	for _, snippet := range []string{
 		"MSG_DIRECT_MMSG_BASE_ENTER_MAX",
@@ -221,13 +223,13 @@ func TestBPFMmsgEnterFragmentsBoundVerifierState(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"mmsg_bytes_progs",
-		"__uint(max_entries, 4)",
+		"STRACE_GO_MMSG_BYTES_PROG_ARRAY_MAX_ENTRIES 4",
 		"MMSG_BYTES_PROG_BASE0",
 		"MMSG_BYTES_PROG_BASE1",
 		"MMSG_BYTES_PROG_BASE2",
 		"MMSG_BYTES_PROG_BASE3",
 	} {
-		if !strings.Contains(runtimeABI, snippet) {
+		if !strings.Contains(runtimeABI+manifestHeader, snippet) {
 			t.Fatalf("mmsg bytes prog array missing %q", snippet)
 		}
 	}

@@ -18,7 +18,8 @@ func TestBPFSelectPayloadsUseDirectTLV(t *testing.T) {
 	fdPathEmitHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_fd_path_emit_direct_event_v2.h"))
 	enterHeader := readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h"))
 	runtimeABI := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
-	selectDirectSources := runtimeABI + "\n" + enterHeader + "\n" + selectDirectHeader + "\n" + selectCaptureHeader + "\n" + selectEmitHeader + "\n" + fdPathEmitHeader
+	manifest := readTextFile(t, filepath.Join(root, "bpf/capture_manifest_generated.h"))
+	selectDirectSources := manifest + "\n" + runtimeABI + "\n" + enterHeader + "\n" + selectDirectHeader + "\n" + selectCaptureHeader + "\n" + selectEmitHeader + "\n" + fdPathEmitHeader
 
 	for _, snippet := range []string{
 		"#define SYS_SELECT 23",
@@ -81,8 +82,7 @@ func TestBPFSelectPathCaptureUsesTailCallFragments(t *testing.T) {
 	enter := readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h"))
 	fragments := readTextFile(t, filepath.Join(root, "bpf/nested_fd_path_dispatch.h"))
 	emit := readTextFile(t, filepath.Join(root, "bpf/syscall_select_emit_direct_event_v2.h"))
-	enterRuntime := readTextFile(t, filepath.Join(root, "bpf/enter_runtime.h"))
-	runtime := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
+	manifest := readTextFile(t, filepath.Join(root, "bpf/capture_manifest_generated.h"))
 
 	enterBody, ok := bpfFunctionBody(enter, "enter_select")
 	if !ok {
@@ -99,7 +99,7 @@ func TestBPFSelectPathCaptureUsesTailCallFragments(t *testing.T) {
 			t.Fatalf("select fragment handler %s is missing", name)
 		}
 		slot := fmt.Sprintf("ENTER_PROG_NESTED_FD_PATH%d = %d", index, 47+index)
-		if !strings.Contains(enterRuntime, slot) {
+		if !strings.Contains(manifest, slot) {
 			t.Fatalf("select fragment slot %d is missing", index)
 		}
 	}
@@ -116,7 +116,7 @@ func TestBPFSelectPathCaptureUsesTailCallFragments(t *testing.T) {
 	if strings.Contains(emit, "emit_nested_fd_path_fragment_event_v2_direct(") {
 		t.Fatal("select emit provider must not own shared nested path emitter")
 	}
-	if !strings.Contains(runtime, "__uint(max_entries, 54)") {
+	if !strings.Contains(manifest, "STRACE_GO_ENTER_PROG_ARRAY_MAX_ENTRIES 54") {
 		t.Fatal("enter ProgArray does not reserve four select path fragment slots")
 	}
 }

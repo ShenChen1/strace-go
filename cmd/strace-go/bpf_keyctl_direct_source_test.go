@@ -16,6 +16,7 @@ func TestBPFKeyctlUsesOperationSpecificDirectPayload(t *testing.T) {
 	emit := read("syscall_key_emit_direct_event_v2.h")
 	numbers := read("syscall_numbers_generated.h")
 	routes := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_routes.go"))
+	routes += "\n" + readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_capture_manifest_generated.go"))
 	routes = strings.Join(strings.Fields(routes), " ")
 	for _, snippet := range []string{
 		"#define SYS_KEYCTL 250",
@@ -34,7 +35,7 @@ func TestBPFKeyctlUsesOperationSpecificDirectPayload(t *testing.T) {
 		"capture_keyctl_payload_tlv_direct(",
 		"capture_keyctl_output_tlv_direct(",
 		"emit_keyctl_exit_event_v2_direct(",
-		`"keyctl": {enterSlot: enterProgKey, exitSlot: exitProgIO}`,
+		`"keyctl": {enterSlot: enterProgKey, exitSlot: exitProgIO, standaloneExitElision: false}`,
 	} {
 		if !strings.Contains(facade+capture+emit+numbers+routes, snippet) {
 			t.Fatalf("keyctl direct source missing %q", snippet)
