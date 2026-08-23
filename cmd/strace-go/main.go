@@ -9,6 +9,7 @@ import (
 	"strace-go/pkg/cli"
 )
 
+//go:generate go run ../generate-capture-manifest
 //go:generate go run ../generate-event-abi
 //go:generate go run -C ../generate-syscalls .
 //go:generate go run ../generate-xlats

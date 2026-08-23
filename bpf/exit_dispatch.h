@@ -13,27 +13,6 @@
  * straight to the final handler.
  */
 
-enum exit_prog_index {
-    EXIT_PROG_GENERIC = 0,
-    EXIT_PROG_IOVEC_BASE = 1,
-    EXIT_PROG_MSG = 2,
-    EXIT_PROG_MMSG_FINAL = 3,
-    EXIT_PROG_RECVMMSG_BASE01 = 4,
-    EXIT_PROG_RECVMMSG_BASE23 = 5,
-    EXIT_PROG_QUOTA = 6,
-    EXIT_PROG_MOUNT_QUERY = 7,
-    EXIT_PROG_PATH = 8,
-    EXIT_PROG_FD_TIME = 9,
-    EXIT_PROG_STRUCT = 10,
-    EXIT_PROG_ASYNC = 11,
-    EXIT_PROG_IO = 12,
-    EXIT_PROG_CONTROL = 13,
-    EXIT_PROG_NESTED_FD_PATH0 = 14,
-    EXIT_PROG_NESTED_FD_PATH1 = 15,
-    EXIT_PROG_NESTED_FD_PATH2 = 16,
-    EXIT_PROG_NESTED_FD_PATH3 = 17,
-};
-
 static __always_inline void emit_exit_dispatch_fallback(
     u32 pid,
     u32 tid,

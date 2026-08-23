@@ -3,6 +3,7 @@
 
 #include "event_abi_generated.h"
 #include "syscall_numbers_generated.h"
+#include "capture_manifest_generated.h"
 
 #define EXEC_SNAPSHOT_MAGIC 0x45584543
 #define EXEC_PATH_SNAPSHOT_MAX 512
@@ -167,7 +168,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 54);
+    __uint(max_entries, STRACE_GO_ENTER_PROG_ARRAY_MAX_ENTRIES);
     __type(key, u32);
     __type(value, u32);
 } enter_progs SEC(".maps");
@@ -175,48 +176,35 @@ struct {
 /* Direct syscall-id routing keeps the raw dispatcher independent of family predicates. */
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 512);
+    __uint(max_entries, STRACE_GO_CAPTURE_ROUTE_MAP_MAX_ENTRIES);
     __type(key, u32);
     __type(value, u32);
 } enter_routes SEC(".maps");
 
-enum mmsg_bytes_prog_index {
-    MMSG_BYTES_PROG_BASE0 = 0,
-    MMSG_BYTES_PROG_BASE1 = 1,
-    MMSG_BYTES_PROG_BASE2 = 2,
-    MMSG_BYTES_PROG_BASE3 = 3,
-};
-
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 4);
+    __uint(max_entries, STRACE_GO_MMSG_BYTES_PROG_ARRAY_MAX_ENTRIES);
     __type(key, u32);
     __type(value, u32);
 } mmsg_bytes_progs SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 18);
+    __uint(max_entries, STRACE_GO_EXIT_PROG_ARRAY_MAX_ENTRIES);
     __type(key, u32);
     __type(value, u32);
 } exit_progs SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 512);
+    __uint(max_entries, STRACE_GO_CAPTURE_ROUTE_MAP_MAX_ENTRIES);
     __type(key, u32);
     __type(value, u32);
 } exit_routes SEC(".maps");
 
-enum recvmsg_prog_index {
-    RECVMSG_PROG_NAME = 0,
-    RECVMSG_PROG_CONTROL = 1,
-    RECVMSG_PROG_FINAL = 2,
-};
-
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 3);
+    __uint(max_entries, STRACE_GO_RECVMSG_PROG_ARRAY_MAX_ENTRIES);
     __type(key, u32);
     __type(value, u32);
 } recvmsg_progs SEC(".maps");

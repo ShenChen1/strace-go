@@ -68,12 +68,27 @@ func bpfCoreProgramSpecByName(name string) (bpfCoreProgramSpec, bool) {
 	return bpfCoreProgramSpec{}, false
 }
 
-// bpfTailCallProgramSpec is the single Go-side description of a handler
+type bpfProgramArray uint8
+
+const (
+	bpfProgramArrayEnter bpfProgramArray = iota
+	bpfProgramArrayExit
+	bpfProgramArrayRecvmsg
+	bpfProgramArrayMmsgBytes
+)
+
+type bpfProgramRef struct {
+	array bpfProgramArray
+	slot  uint32
+}
+
+// bpfTailCallProgramSpec is the generated Go-side description of a handler
 // program exposed through a BPF ProgArray.
 type bpfTailCallProgramSpec struct {
-	slot   uint32
-	name   string
-	family bpfHandlerFamily
+	slot         uint32
+	name         string
+	family       bpfHandlerFamily
+	dependencies []bpfProgramRef
 }
 
 // bpfStandaloneProgramSpec describes a handler attached directly to a kernel
@@ -83,100 +98,10 @@ type bpfStandaloneProgramSpec struct {
 	family bpfHandlerFamily
 }
 
-var bpfEnterProgramCatalog = []bpfTailCallProgramSpec{
-	{enterProgTerminating, "enter_terminating", bpfHandlerEnterGenericFamily},
-	{enterProgExec, "enter_exec", bpfHandlerEnterPayloadFamily},
-	{enterProgPathStat, "enter_path_stat", bpfHandlerEnterPathFamily},
-	{enterProgPathOnly, "enter_path_only", bpfHandlerEnterPathFamily},
-	{enterProgDualPath, "enter_dual_path", bpfHandlerEnterPathFamily},
-	{enterProgOpenat2, "enter_openat2", bpfHandlerEnterPathFamily},
-	{enterProgReadlink, "enter_readlink", bpfHandlerEnterPathFamily},
-	{enterProgMiscStruct, "enter_misc_struct", bpfHandlerEnterStructuredFamily},
-	{enterProgSmallStruct, "enter_small_struct", bpfHandlerEnterStructuredFamily},
-	{enterProgItimer, "enter_itimer", bpfHandlerEnterStructuredFamily},
-	{enterProgTimeStruct, "enter_time_struct", bpfHandlerEnterStructuredFamily},
-	{enterProgSignal, "enter_signal", bpfHandlerEnterStructuredFamily},
-	{enterProgFileTime, "enter_file_time", bpfHandlerEnterStructuredFamily},
-	{enterProgSleep, "enter_sleep", bpfHandlerEnterStructuredFamily},
-	{enterProgFutex, "enter_futex", bpfHandlerEnterStructuredFamily},
-	{enterProgCachestat, "enter_cachestat", bpfHandlerEnterStructuredFamily},
-	{enterProgCapability, "enter_capability", bpfHandlerEnterStructuredFamily},
-	{enterProgMemfd, "enter_memfd", bpfHandlerEnterStructuredFamily},
-	{enterProgPrctl, "enter_prctl", bpfHandlerEnterStructuredFamily},
-	{enterProgClone3, "enter_clone3", bpfHandlerEnterStructuredFamily},
-	{enterProgBpf, "enter_bpf", bpfHandlerEnterStructuredFamily},
-	{enterProgBpfUprobeMulti, "enter_bpf_uprobe_multi", bpfHandlerEnterStructuredFamily},
-	{enterProgBpfProgLoad, "enter_bpf_prog_load", bpfHandlerEnterStructuredFamily},
-	{enterProgBpfProgLoadDebug, "enter_bpf_prog_load_debug", bpfHandlerEnterStructuredFamily},
-	{enterProgIovec, "enter_iovec", bpfHandlerEnterMemoryFamily},
-	{enterProgMsg, "enter_msg", bpfHandlerEnterMemoryFamily},
-	{enterProgMmsg, "enter_mmsg", bpfHandlerEnterMemoryFamily},
-	{enterProgFcntl, "enter_fcntl", bpfHandlerEnterControlFamily},
-	{enterProgIoctl, "enter_ioctl", bpfHandlerEnterControlFamily},
-	{enterProgNetwork, "enter_network", bpfHandlerEnterControlFamily},
-	{enterProgKey, "enter_key", bpfHandlerEnterControlFamily},
-	{enterProgXattr, "enter_xattr", bpfHandlerEnterControlFamily},
-	{enterProgFs, "enter_fs", bpfHandlerEnterControlFamily},
-	{enterProgAio, "enter_aio", bpfHandlerEnterMemoryFamily},
-	{enterProgPoll, "enter_poll", bpfHandlerEnterControlFamily},
-	{enterProgSelect, "enter_select", bpfHandlerEnterControlFamily},
-	{enterProgEpoll, "enter_epoll", bpfHandlerEnterControlFamily},
-	{enterProgNoPayload, "enter_no_payload_direct", bpfHandlerEnterPathFamily},
-	{enterProgPayload, "enter_payload_direct", bpfHandlerEnterPayloadFamily},
-	{enterProgNoPayloadGeneric, "enter_no_payload_generic", bpfHandlerEnterGenericFamily},
-	{enterProgIovecBase, "enter_iovec_base", bpfHandlerEnterMemoryFamily},
-	{enterProgSendmsgBase, "enter_sendmsg_base", bpfHandlerEnterMemoryFamily},
-	{enterProgMmsgB01, "enter_mmsg_base01", bpfHandlerEnterMemoryFamily},
-	{enterProgMmsgB2, "enter_mmsg_base2", bpfHandlerEnterMemoryFamily},
-	{enterProgMmsgB3, "enter_mmsg_base3", bpfHandlerEnterMemoryFamily},
-	{enterProgAioIovec, "enter_aio_iovec", bpfHandlerEnterMemoryFamily},
-	{enterProgAioBuf, "enter_aio_buf", bpfHandlerEnterMemoryFamily},
-	{enterProgQuota, "enter_quota", bpfHandlerEnterStructuredFamily},
-	{enterProgMountPath, "enter_mount_path", bpfHandlerEnterPathFamily},
-	{enterProgNestedFDPath0, "enter_nested_fd_path0", bpfHandlerEnterControlFamily},
-	{enterProgNestedFDPath1, "enter_nested_fd_path1", bpfHandlerEnterControlFamily},
-	{enterProgNestedFDPath2, "enter_nested_fd_path2", bpfHandlerEnterControlFamily},
-	{enterProgNestedFDPath3, "enter_nested_fd_path3", bpfHandlerEnterControlFamily},
-}
-
-var bpfExitProgramCatalog = []bpfTailCallProgramSpec{
-	{exitProgGeneric, "exit_generic", bpfHandlerExitFamily},
-	{exitProgIovecBase, "exit_iovec_base", bpfHandlerExitFamily},
-	{exitProgMsg, "exit_msg", bpfHandlerExitFamily},
-	{exitProgMmsgFinal, "exit_mmsg_final", bpfHandlerExitFamily},
-	{exitProgRecvmmsgBase01, "exit_recvmmsg_base01", bpfHandlerExitFamily},
-	{exitProgRecvmmsgBase23, "exit_recvmmsg_base23", bpfHandlerExitFamily},
-	{exitProgQuota, "exit_quota", bpfHandlerExitFamily},
-	{exitProgMountQuery, "exit_mount_query", bpfHandlerExitFamily},
-	{exitProgPath, "exit_path", bpfHandlerExitFamily},
-	{exitProgFDTime, "exit_fd_time", bpfHandlerExitFamily},
-	{exitProgStruct, "exit_struct", bpfHandlerExitFamily},
-	{exitProgAsync, "exit_async", bpfHandlerExitFamily},
-	{exitProgIO, "exit_io", bpfHandlerExitFamily},
-	{exitProgControl, "exit_control", bpfHandlerExitFamily},
-	{exitProgNestedFDPath0, "exit_nested_fd_path0", bpfHandlerExitFamily},
-	{exitProgNestedFDPath1, "exit_nested_fd_path1", bpfHandlerExitFamily},
-	{exitProgNestedFDPath2, "exit_nested_fd_path2", bpfHandlerExitFamily},
-	{exitProgNestedFDPath3, "exit_nested_fd_path3", bpfHandlerExitFamily},
-}
-
-var bpfRecvmsgProgramCatalog = []bpfTailCallProgramSpec{
-	{recvmsgProgName, "trace_kretprobe_recvmsg_name", bpfHandlerRecvmsgFamily},
-	{recvmsgProgControl, "trace_kretprobe_recvmsg_control", bpfHandlerRecvmsgFamily},
-	{recvmsgProgFinal, "trace_kretprobe_recvmsg_final", bpfHandlerRecvmsgFamily},
-}
-
-var bpfMmsgByteProgramCatalog = []bpfTailCallProgramSpec{
-	{mmsgBytesProgBase0, "enter_mmsg_bytes0", bpfHandlerEnterMemoryFamily},
-	{mmsgBytesProgBase1, "enter_mmsg_bytes1", bpfHandlerEnterMemoryFamily},
-	{mmsgBytesProgBase2, "enter_mmsg_bytes2", bpfHandlerEnterMemoryFamily},
-	{mmsgBytesProgBase3, "enter_mmsg_bytes3", bpfHandlerEnterMemoryFamily},
-}
-
-const bpfRecvmsgDispatchProgramName = "trace_kretprobe_recvmsg_dispatch"
-
-var bpfStandaloneProgramCatalog = []bpfStandaloneProgramSpec{
-	{bpfRecvmsgDispatchProgramName, bpfHandlerRecvmsgFamily},
+type bpfProgramRootSpec struct {
+	programs         []string
+	refs             []bpfProgramRef
+	recvmsgKretprobe bool
 }
 
 func bpfTailCallProgramBySlot(

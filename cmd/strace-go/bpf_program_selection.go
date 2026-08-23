@@ -11,6 +11,7 @@ import (
 type bpfProgramSelection struct {
 	loadAll          bool
 	programs         map[string]struct{}
+	visited          map[bpfProgramRef]struct{}
 	enterSlots       map[uint32]struct{}
 	exitSlots        map[uint32]struct{}
 	recvmsgSlots     map[uint32]struct{}
@@ -76,6 +77,7 @@ func newBPFProgramSelection(
 	selection := bpfProgramSelection{
 		loadAll:       shouldLoadAllBPFPrograms(config),
 		programs:      make(map[string]struct{}),
+		visited:       make(map[bpfProgramRef]struct{}),
 		enterSlots:    make(map[uint32]struct{}),
 		exitSlots:     make(map[uint32]struct{}),
 		recvmsgSlots:  make(map[uint32]struct{}),
@@ -99,11 +101,13 @@ func newBPFProgramSelection(
 			return bpfProgramSelection{}, err
 		}
 	}
-	if routePlanHasSyscall(table, plan, "recvmsg") {
-		selection.addRecvmsgPrograms()
-	}
-	if routePlanHasSyscall(table, plan, "sendmmsg") {
-		selection.addMmsgBytePrograms()
+	for syscallName, root := range bpfSyscallProgramRoots {
+		if !routePlanHasSyscall(table, plan, syscallName) {
+			continue
+		}
+		if err := selection.addProgramRoot(root); err != nil {
+			return bpfProgramSelection{}, err
+		}
 	}
 	return selection, nil
 }
@@ -130,99 +134,95 @@ func (s *bpfProgramSelection) addCorePrograms(fdState bool) error {
 	if fdState {
 		noPayloadSlot = enterProgNoPayload
 	}
-	if err := s.addEnterSlotUnchecked(noPayloadSlot); err != nil {
+	if err := s.addEnterSlot(noPayloadSlot); err != nil {
 		return err
 	}
-	return s.addExitSlotUnchecked(exitProgGeneric)
+	return s.addExitSlot(exitProgGeneric)
 }
 
 func (s *bpfProgramSelection) addEnterSlot(slot uint32) error {
-	if err := s.addEnterSlotUnchecked(slot); err != nil {
-		return err
-	}
-	switch slot {
-	case enterProgBpf:
-		// BPF command and attach type select nested providers at runtime.
-		if err := s.addEnterSlotUnchecked(enterProgBpfUprobeMulti); err != nil {
-			return err
-		}
-		if err := s.addEnterSlotUnchecked(enterProgBpfProgLoad); err != nil {
-			return err
-		}
-		return s.addEnterSlotUnchecked(enterProgBpfProgLoadDebug)
-	case enterProgIovec:
-		return s.addEnterSlotUnchecked(enterProgIovecBase)
-	case enterProgMsg:
-		return s.addEnterSlotUnchecked(enterProgSendmsgBase)
-	case enterProgMmsg:
-		if err := s.addEnterSlotUnchecked(enterProgMmsgB01); err != nil {
-			return err
-		}
-		if err := s.addEnterSlotUnchecked(enterProgMmsgB2); err != nil {
-			return err
-		}
-		return s.addEnterSlotUnchecked(enterProgMmsgB3)
-	case enterProgAio:
-		return s.addEnterSlot(enterProgAioIovec)
-	case enterProgAioIovec:
-		return s.addEnterSlotUnchecked(enterProgAioBuf)
-	case enterProgMmsgB01:
-		return s.addEnterSlotUnchecked(enterProgMmsgB2)
-	case enterProgMmsgB2:
-		return s.addEnterSlotUnchecked(enterProgMmsgB3)
-	}
-	return nil
-}
-
-func (s *bpfProgramSelection) addEnterSlotUnchecked(slot uint32) error {
-	program, ok := bpfTailCallProgramBySlot(bpfEnterProgramCatalog, slot)
-	if !ok {
-		return fmt.Errorf("unknown BPF enter program slot %d", slot)
-	}
-	s.enterSlots[slot] = struct{}{}
-	s.addProgram(program.name)
-	return nil
+	return s.addProgramRef(bpfProgramRef{array: bpfProgramArrayEnter, slot: slot})
 }
 
 func (s *bpfProgramSelection) addExitSlot(slot uint32) error {
-	if err := s.addExitSlotUnchecked(slot); err != nil {
-		return err
+	return s.addProgramRef(bpfProgramRef{array: bpfProgramArrayExit, slot: slot})
+}
+
+func (s *bpfProgramSelection) addProgramRoot(root bpfProgramRootSpec) error {
+	for _, name := range root.programs {
+		s.addProgram(name)
 	}
-	switch slot {
-	case exitProgRecvmmsgBase01:
-		if err := s.addExitSlotUnchecked(exitProgRecvmmsgBase23); err != nil {
+	for _, ref := range root.refs {
+		if err := s.addProgramRef(ref); err != nil {
 			return err
 		}
-		return s.addExitSlotUnchecked(exitProgMmsgFinal)
-	case exitProgRecvmmsgBase23:
-		return s.addExitSlotUnchecked(exitProgMmsgFinal)
+	}
+	if root.recvmsgKretprobe {
+		s.recvmsgKretprobe = true
 	}
 	return nil
 }
 
-func (s *bpfProgramSelection) addExitSlotUnchecked(slot uint32) error {
-	program, ok := bpfTailCallProgramBySlot(bpfExitProgramCatalog, slot)
+func (s *bpfProgramSelection) addProgramRef(ref bpfProgramRef) error {
+	if s.visited == nil {
+		s.visited = make(map[bpfProgramRef]struct{})
+	}
+	if _, ok := s.visited[ref]; ok {
+		return nil
+	}
+	program, ok := bpfTailCallProgramByRef(ref)
 	if !ok {
-		return fmt.Errorf("unknown BPF exit program slot %d", slot)
+		return fmt.Errorf("unknown BPF %s program slot %d", bpfProgramArrayName(ref.array), ref.slot)
 	}
-	s.exitSlots[slot] = struct{}{}
+	s.visited[ref] = struct{}{}
 	s.addProgram(program.name)
+	switch ref.array {
+	case bpfProgramArrayEnter:
+		s.enterSlots[ref.slot] = struct{}{}
+	case bpfProgramArrayExit:
+		s.exitSlots[ref.slot] = struct{}{}
+	case bpfProgramArrayRecvmsg:
+		s.recvmsgSlots[ref.slot] = struct{}{}
+	case bpfProgramArrayMmsgBytes:
+		s.mmsgByteSlots[ref.slot] = struct{}{}
+	default:
+		return fmt.Errorf("unknown BPF program array %d", ref.array)
+	}
+	for _, dependency := range program.dependencies {
+		if err := s.addProgramRef(dependency); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-func (s *bpfProgramSelection) addRecvmsgPrograms() {
-	s.recvmsgKretprobe = true
-	s.addProgram(bpfRecvmsgDispatchProgramName)
-	for _, program := range bpfRecvmsgProgramCatalog {
-		s.recvmsgSlots[program.slot] = struct{}{}
-		s.addProgram(program.name)
+func bpfTailCallProgramByRef(ref bpfProgramRef) (bpfTailCallProgramSpec, bool) {
+	switch ref.array {
+	case bpfProgramArrayEnter:
+		return bpfTailCallProgramBySlot(bpfEnterProgramCatalog, ref.slot)
+	case bpfProgramArrayExit:
+		return bpfTailCallProgramBySlot(bpfExitProgramCatalog, ref.slot)
+	case bpfProgramArrayRecvmsg:
+		return bpfTailCallProgramBySlot(bpfRecvmsgProgramCatalog, ref.slot)
+	case bpfProgramArrayMmsgBytes:
+		return bpfTailCallProgramBySlot(bpfMmsgByteProgramCatalog, ref.slot)
+	default:
+		return bpfTailCallProgramSpec{}, false
 	}
 }
 
-func (s *bpfProgramSelection) addMmsgBytePrograms() {
-	for _, program := range bpfMmsgByteProgramCatalog {
-		s.mmsgByteSlots[program.slot] = struct{}{}
-		s.addProgram(program.name)
+func bpfProgramArrayName(array bpfProgramArray) string {
+	switch array {
+	case bpfProgramArrayEnter:
+		return "enter"
+	case bpfProgramArrayExit:
+		return "exit"
+	case bpfProgramArrayRecvmsg:
+		return "recvmsg"
+	case bpfProgramArrayMmsgBytes:
+		return "mmsg_bytes"
+	default:
+		return "unknown"
 	}
 }
 
