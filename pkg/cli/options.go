@@ -18,6 +18,8 @@ const (
 // Options holds all parsed command-line options.
 type Options struct {
 	CmdArgs              []string
+	Argv0                string
+	Argv0Set             bool
 	AttachPids           []int
 	EventFormat          string
 	DebugEvents          bool

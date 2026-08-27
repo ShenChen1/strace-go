@@ -86,6 +86,18 @@ func TestParseOptionTerminator(t *testing.T) {
 	}
 }
 
+func TestParseArgv0(t *testing.T) {
+	opts := ParseArgs([]string{"--argv0=sample", "/bin/true"})
+	if !opts.Argv0Set || opts.Argv0 != "sample" {
+		t.Fatalf("argv0 = set:%v value:%q, want true/sample", opts.Argv0Set, opts.Argv0)
+	}
+
+	empty := ParseArgs([]string{"--argv0=", "/bin/true"})
+	if !empty.Argv0Set || empty.Argv0 != "" {
+		t.Fatalf("empty argv0 = set:%v value:%q, want true/empty", empty.Argv0Set, empty.Argv0)
+	}
+}
+
 func TestParseTraceClassAndAliases(t *testing.T) {
 	opts := ParseArgs([]string{"-e", "trace=%process,rename", "/bin/true"})
 

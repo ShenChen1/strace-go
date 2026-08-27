@@ -16,6 +16,8 @@ import (
 type traceCommandSpec struct {
 	args       []string
 	envActions []string
+	argv0      string
+	argv0Set   bool
 }
 
 // traceTargetBootstrap owns target-start side effects until target ownership is
@@ -220,6 +222,9 @@ func closeFiles(files []*os.File) error {
 func newTraceCommand(spec traceCommandSpec, inheritedFiles []*os.File) *exec.Cmd {
 	cmdArgs := spec.args
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+	if spec.argv0Set {
+		cmd.Args[0] = spec.argv0
+	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

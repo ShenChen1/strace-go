@@ -173,6 +173,9 @@ func parseLongTargetOption(state *longOptionState) bool {
 		parseTraceFDSet(requiredLongValue(state), state.opts)
 	case "env":
 		state.opts.EnvActions = append(state.opts.EnvActions, requiredLongValue(state))
+	case "argv0":
+		state.opts.Argv0 = requiredLongValue(state)
+		state.opts.Argv0Set = true
 	case "attach":
 		parseAttachPIDs(requiredLongValue(state), state.opts)
 	case "detach-on":

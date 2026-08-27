@@ -40,5 +40,7 @@ func traceCommandSpecFromCLI(opts *cli.Options) traceCommandSpec {
 	return traceCommandSpec{
 		args:       append([]string(nil), opts.CmdArgs...),
 		envActions: append([]string(nil), opts.EnvActions...),
+		argv0:      opts.Argv0,
+		argv0Set:   opts.Argv0Set,
 	}
 }

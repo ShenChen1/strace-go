@@ -34,6 +34,8 @@ func TestRunOrchestratorConsumesLaunchSnapshot(t *testing.T) {
 func TestNewTraceLaunchConfigSnapshotsBootstrapInputs(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-f", "/bin/true", "original"})
 	opts.EnvActions = []string{"TRACE=original"}
+	opts.Argv0 = "original-argv0"
+	opts.Argv0Set = true
 	opts.AttachPids = []int{101, 202}
 	opts.OutFile = "/tmp/original.trace"
 	opts.OutAppendMode = true
@@ -44,11 +46,13 @@ func TestNewTraceLaunchConfigSnapshotsBootstrapInputs(t *testing.T) {
 
 	opts.CmdArgs[1] = "mutated"
 	opts.EnvActions[0] = "TRACE=mutated"
+	opts.Argv0 = "mutated-argv0"
 	opts.AttachPids[0] = 303
 	opts.OutFile = "/tmp/mutated.trace"
 	opts.OutAppendMode = false
 
-	if config.targets.command.args[1] != "original" || config.targets.command.envActions[0] != "TRACE=original" {
+	if config.targets.command.args[1] != "original" || config.targets.command.envActions[0] != "TRACE=original" ||
+		config.targets.command.argv0 != "original-argv0" || !config.targets.command.argv0Set {
 		t.Fatalf("launch command snapshot aliases CLI slices: %+v", config.targets.command)
 	}
 	if config.targets.attachPIDs[0] != 101 || config.outputPath != "/tmp/original.trace" || !config.outputAppend {
