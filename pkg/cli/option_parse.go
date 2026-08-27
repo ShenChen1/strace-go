@@ -29,7 +29,7 @@ func parseShortOptions(args []string, index *int, opts *Options) {
 }
 
 func shortOptionTakesValue(flag byte) bool {
-	return strings.ContainsRune("eoasPXpEb", rune(flag))
+	return strings.ContainsRune("eoasPXpEbIO", rune(flag))
 }
 
 func applyShortBoolean(flag byte, opts *Options) {
@@ -216,6 +216,9 @@ func parseLongControlOption(state *longOptionState) bool {
 	case "version":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		state.opts.VersionRequested = true
+	case "seccomp-bpf":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		rejectArchitectureConflict("--seccomp-bpf", "syscall filtering already occurs in eBPF")
 	default:
 		return false
 	}
@@ -272,6 +275,15 @@ func parseLongValueOption(state *longOptionState) bool {
 		applyValueOption("-s", requiredLongValue(state), state.opts)
 	case "const-print-style":
 		applyValueOption("-X", requiredLongValue(state), state.opts)
+	case "interruptible":
+		requiredLongValue(state)
+		rejectArchitectureConflict("-I/--interruptible", "it controls ptrace stop signal blocking")
+	case "summary-syscall-overhead":
+		requiredLongValue(state)
+		rejectArchitectureConflict("-O/--summary-syscall-overhead", "there is no ptrace syscall-stop overhead")
+	case "inject", "fault":
+		requiredLongValue(state)
+		rejectArchitectureConflict("--"+state.name, "pure eBPF tracing cannot modify tracee state")
 	case "status", "read", "write", "verbose", "abbrev", "raw":
 		parseEFlag(state.name+"="+requiredLongValue(state), state.opts)
 	case "quiet":
@@ -339,6 +351,10 @@ func applyValueOption(flag, value string, opts *Options) {
 		if value != "execve" {
 			failOption("Syscall '%s' for -b isn't supported", value)
 		}
+	case "-I":
+		rejectArchitectureConflict("-I/--interruptible", "it controls ptrace stop signal blocking")
+	case "-O":
+		rejectArchitectureConflict("-O/--summary-syscall-overhead", "there is no ptrace syscall-stop overhead")
 	}
 }
 
@@ -396,54 +412,6 @@ func applyDecodeFDMode(opts *Options, mode int) {
 	opts.ShowPaths = mode > 0
 }
 
-func parseTimePrecision(arg, value string) string {
-	switch value {
-	case "s", "ms", "us", "ns":
-		return value
-	default:
-		failOption("invalid %s argument: '%s'", strings.SplitN(arg, "=", 2)[0], value)
-		return ""
-	}
-}
-
-func parseAbsoluteTimestamp(value string, opts *Options) {
-	if opts.AbsoluteTimeFormat == "" {
-		opts.AbsoluteTimeFormat = "time"
-		opts.AbsoluteTimePrecision = "s"
-	}
-	for _, token := range strings.Split(value, ",") {
-		if token == "" {
-			continue
-		}
-		key, item, qualified := strings.Cut(token, ":")
-		if qualified {
-			switch key {
-			case "format":
-				setAbsoluteTimeFormat(item, opts)
-			case "precision":
-				opts.AbsoluteTimePrecision = parseTimePrecision("--absolute-timestamps", item)
-			default:
-				failOption("invalid --absolute-timestamps argument: '%s'", token)
-			}
-			continue
-		}
-		if token == "time" || token == "unix" || token == "none" {
-			setAbsoluteTimeFormat(token, opts)
-		} else {
-			opts.AbsoluteTimePrecision = parseTimePrecision("--absolute-timestamps", token)
-		}
-	}
-}
-
-func setAbsoluteTimeFormat(value string, opts *Options) {
-	switch value {
-	case "time", "unix", "none":
-		opts.AbsoluteTimeFormat = value
-	default:
-		failOption("invalid --absolute-timestamps argument: '%s'", value)
-	}
-}
-
 func parseStringsInHex(arg, value string, opts *Options) {
 	switch value {
 	case "non-ascii":
@@ -492,4 +460,8 @@ func setNoAbbrevAll(opts *Options) {
 func failOption(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "%s: %s\n", os.Args[0], fmt.Sprintf(format, args...))
 	os.Exit(1)
+}
+
+func rejectArchitectureConflict(option, reason string) {
+	failOption("option '%s' conflicts with pure eBPF tracing: %s", option, reason)
 }

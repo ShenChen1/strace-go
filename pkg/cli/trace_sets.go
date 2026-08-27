@@ -79,6 +79,8 @@ func parseEFlag(val string, opts *Options) {
 		parseAbbrevSet(strings.TrimPrefix(val, "abbrev="), opts)
 	case strings.HasPrefix(val, "raw="):
 		parseRawSet(strings.TrimPrefix(val, "raw="), opts)
+	case strings.HasPrefix(val, "inject="), strings.HasPrefix(val, "fault="):
+		rejectArchitectureConflict("-e inject/fault", "pure eBPF tracing cannot modify tracee state")
 	case strings.HasPrefix(val, "signal="):
 		return
 	case strings.HasPrefix(val, "quiet="):
