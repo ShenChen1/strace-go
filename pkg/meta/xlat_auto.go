@@ -566,6 +566,19 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 1, Str: "FD_CLOEXEC"},
 		},
 	},
+	"flockcmds": {
+		Prefix: "LOCK_",
+		Entries: []XlatVal{
+			{Val: 1, Str: "LOCK_SH"},
+			{Val: 2, Str: "LOCK_EX"},
+			{Val: 4, Str: "LOCK_NB"},
+			{Val: 8, Str: "LOCK_UN"},
+			{Val: 32, Str: "LOCK_MAND"},
+			{Val: 192, Str: "LOCK_RW"},
+			{Val: 64, Str: "LOCK_READ"},
+			{Val: 128, Str: "LOCK_WRITE"},
+		},
+	},
 	"fsmagic": {
 		Prefix: "",
 		Entries: []XlatVal{
@@ -5860,6 +5873,9 @@ var generatedSyscallArgXlatMap = map[string]map[string]string{
 	},
 	"fcntl": {
 		"cmd": "fcntlcmds",
+	},
+	"flock": {
+		"op": "flockcmds",
 	},
 	"fsetxattr": {
 		"flags": "xattrflags",

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"strace-go/pkg/handler"
+	"strace-go/pkg/meta"
 )
 
 type traceTimeFormatter interface {
@@ -83,10 +84,11 @@ func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.
 	}
 	view := ev.eventView()
 	scMeta := ev.effectiveSyscallMeta()
-	args := strings.Join(res.ArgParts, ", ")
+	parts := res.ArgParts
 	if scMeta.Name == "nanosleep" && len(res.ArgParts) > 0 {
-		args = res.ArgParts[0]
+		parts = res.ArgParts[:1]
 	}
+	args := formatSyscallArguments(scMeta.Args, parts, r.renderOptions().printArgNames)
 	line := fmt.Sprintf("%s%s(%s <unfinished ...>", r.syscallNumberPrefix(view), scMeta.Name, args)
 	fmt.Fprintf(r.out, "%s%s%s\n", r.timePrefix(view.enterTime), r.pidPrefix(int(view.tid)), line)
 }
@@ -133,7 +135,7 @@ func (r *TextRenderer) PrintThreadExecveSupersededFromView(view syscallEventView
 }
 
 func (r *TextRenderer) PrintExitSyscallEvent(ev syscallEventContext, res handler.Result) {
-	line := r.exitSyscallLine(ev.eventView(), ev.effectiveSyscallMeta().Name, res)
+	line := r.exitSyscallLine(ev.eventView(), ev.effectiveSyscallMeta(), res)
 	fmt.Fprint(r.out, line)
 }
 
@@ -165,7 +167,8 @@ func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Res
 	ctx := ev.handlerContextForFormatting()
 	tid := int(view.tid)
 	numberPrefix := r.syscallNumberPrefix(view)
-	line := fmt.Sprintf("%s%s(%s)", numberPrefix, scMeta.Name, strings.Join(res.ArgParts, ", "))
+	args := formatSyscallArguments(scMeta.Args, res.ArgParts, r.renderOptions().printArgNames)
+	line := fmt.Sprintf("%s%s(%s)", numberPrefix, scMeta.Name, args)
 	if ev.pendingEnter != nil && ev.pendingEnter.unfinishedPrinted {
 		line = fmt.Sprintf("%s<... %s resumed>)", numberPrefix, scMeta.Name)
 	} else if r.consumeSuspended(tid) {
@@ -191,11 +194,25 @@ func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Res
 	r.printStackTrace(view.stackID)
 }
 
-func (r *TextRenderer) exitSyscallLine(view syscallEventView, syscallName string, res handler.Result) string {
+func (r *TextRenderer) exitSyscallLine(view syscallEventView, scMeta meta.Syscall, res handler.Result) string {
 	timePrefix := r.timePrefix(view.enterTime)
 	pidPrefix := r.pidPrefix(int(view.tid))
-	argLine := fmt.Sprintf("%s%s(%s)", r.syscallNumberPrefix(view), syscallName, strings.Join(res.ArgParts, ", "))
+	args := formatSyscallArguments(scMeta.Args, res.ArgParts, r.renderOptions().printArgNames)
+	argLine := fmt.Sprintf("%s%s(%s)", r.syscallNumberPrefix(view), scMeta.Name, args)
 	return fmt.Sprintf("%s%s%s%s= ?\n", timePrefix, pidPrefix, argLine, r.padding(timePrefix, pidPrefix, argLine))
+}
+
+func formatSyscallArguments(argNames []string, parts []string, showNames bool) string {
+	if !showNames || len(parts) == 0 {
+		return strings.Join(parts, ", ")
+	}
+	namedParts := append([]string(nil), parts...)
+	for index := 0; index < len(namedParts) && index < len(argNames); index++ {
+		if argNames[index] != "" {
+			namedParts[index] = argNames[index] + "=" + namedParts[index]
+		}
+	}
+	return strings.Join(namedParts, ", ")
 }
 
 func trimTrailingParen(argLine string) string {

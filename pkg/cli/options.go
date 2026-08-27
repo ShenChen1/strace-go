@@ -63,6 +63,7 @@ type Options struct {
 	PrintRelativeTime    bool     // -r
 	PrintSyscallTime     bool     // -T
 	PrintSyscallNumber   bool     // -n
+	PrintArgNames        bool     // -N
 	StackTrace           bool     // -k, --stack-trace
 	SuccessfulOnly       bool     // -z
 	FailedOnly           bool     // -Z

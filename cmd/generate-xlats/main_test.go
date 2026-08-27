@@ -37,6 +37,13 @@ func TestSignalFD4UsesGeneratedFlagXlat(t *testing.T) {
 	}
 }
 
+func TestFlockUsesGeneratedOperationXlat(t *testing.T) {
+	argXlat := readArgXlatMap()
+	if got := argXlat.Syscalls["flock"]["op"]; got != "flockcmds" {
+		t.Fatalf("flock operation xlat = %q, want flockcmds", got)
+	}
+}
+
 func TestNormalizeXlatPrefixUsesOpenTreeUnknownContract(t *testing.T) {
 	prefix := "OPEN_TREE_ AT_"
 	normalizeXlatPrefix("open_tree_flags", &prefix)

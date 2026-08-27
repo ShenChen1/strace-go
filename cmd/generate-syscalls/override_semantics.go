@@ -32,6 +32,13 @@ var semanticOverrideSpecs = map[string]semanticOverrideSpec{
 		BTFArgs:      []string{"fd", "filename", "argv", "envp", "flags"},
 		BTFType:      []string{"int", "const char *", "const char *const *", "const char *const *", "int"},
 	},
+	"flock": {
+		Reason:       "strace_argument_names",
+		OverrideArgs: []string{"fd", "op"},
+		OverrideType: []string{"int", "int"},
+		BTFArgs:      []string{"fd", "cmd"},
+		BTFType:      []string{"unsigned int", "unsigned int"},
+	},
 	"fstat": {
 		Reason:       "strace_stat_struct",
 		OverrideArgs: []string{"fd", "statbuf"},

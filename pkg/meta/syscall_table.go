@@ -76,7 +76,7 @@ var SyscallTable = map[uint32]Syscall{
 	70: {Name: "msgrcv", Args: []string{"msqid", "msgp", "msgsz", "msgtyp", "msgflg"}, ArgTypes: []string{"int", "struct msgbuf *", "size_t", "long int", "int"}, Flags: "TI"},
 	71: {Name: "msgctl", Args: []string{"msqid", "cmd", "buf"}, ArgTypes: []string{"int", "int", "struct msqid_ds *"}, Flags: "TI"},
 	72: {Name: "fcntl", Args: []string{"fd", "cmd", "arg"}, ArgTypes: []string{"unsigned int", "unsigned int", "unsigned long"}, Flags: "TD"},
-	73: {Name: "flock", Args: []string{"fd", "cmd"}, ArgTypes: []string{"unsigned int", "unsigned int"}, Flags: "TD"},
+	73: {Name: "flock", Args: []string{"fd", "op"}, ArgTypes: []string{"int", "int"}, Flags: "TD"},
 	74: {Name: "fsync", Args: []string{"fd"}, ArgTypes: []string{"unsigned int"}, Flags: "TD"},
 	75: {Name: "fdatasync", Args: []string{"fd"}, ArgTypes: []string{"unsigned int"}, Flags: "TD"},
 	76: {Name: "truncate", Args: []string{"path", "length"}, ArgTypes: []string{"const char *", "long"}, Flags: "TF"},

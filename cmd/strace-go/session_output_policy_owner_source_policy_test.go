@@ -62,6 +62,7 @@ func (fakeSessionOutputPolicyOwner) TimeOptions() traceTimeOptions {
 }
 
 func (fakeSessionOutputPolicyOwner) FollowForks() bool { return false }
+func (fakeSessionOutputPolicyOwner) ArgNames() bool    { return false }
 
 func (fakeSessionOutputPolicyOwner) IsAttachTarget(int) bool { return false }
 func (p fakeSessionOutputPolicyOwner) AttachPIDs() []int {

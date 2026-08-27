@@ -51,6 +51,7 @@ type traceRenderOptions struct {
 	alignCol           int
 	printSyscallTime   bool
 	printSyscallNumber bool
+	printArgNames      bool
 	stackTrace         bool
 	quietThreadExecve  bool
 }
@@ -66,9 +67,10 @@ type traceTimePolicy interface {
 	TimeOptions() traceTimeOptions
 }
 
-// traceFollowForkPolicy is the only exec-specific render decision.
+// traceFollowForkPolicy exposes the exec-specific render decisions.
 type traceFollowForkPolicy interface {
 	FollowForks() bool
+	ArgNames() bool
 }
 
 type traceLifecyclePolicy interface {
@@ -143,6 +145,7 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 			alignCol:           opts.AlignCol,
 			printSyscallTime:   opts.PrintSyscallTime,
 			printSyscallNumber: opts.PrintSyscallNumber,
+			printArgNames:      opts.PrintArgNames,
 			stackTrace:         opts.StackTrace,
 			quietThreadExecve:  opts.QuietThreadExecve,
 		},
@@ -234,6 +237,10 @@ func (p *cliTraceOutputPolicy) TimeOptions() traceTimeOptions {
 
 func (p *cliTraceOutputPolicy) FollowForks() bool {
 	return p != nil && p.render.followForks
+}
+
+func (p *cliTraceOutputPolicy) ArgNames() bool {
+	return p != nil && p.render.printArgNames
 }
 
 func (p *cliTraceOutputPolicy) IsAttachTarget(pid int) bool {

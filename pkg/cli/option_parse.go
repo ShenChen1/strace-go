@@ -80,6 +80,8 @@ func applyShortRenderFlag(flag byte, opts *Options) bool {
 		opts.StackTrace = true
 	case 'n':
 		opts.PrintSyscallNumber = true
+	case 'N':
+		opts.PrintArgNames = true
 	case 'z':
 		setSuccessfulOnly(opts)
 	case 'Z':
@@ -238,6 +240,9 @@ func parseLongRenderOption(state *longOptionState) bool {
 	case "syscall-number":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		state.opts.PrintSyscallNumber = true
+	case "arg-names":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		state.opts.PrintArgNames = true
 	case "successful-only":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		setSuccessfulOnly(state.opts)

@@ -43,6 +43,41 @@ func TestTextRendererPrintsSyscallNumberOnDecodedLine(t *testing.T) {
 	}
 }
 
+func TestFormatSyscallArgumentsPrintsNamesAndFallsBackSafely(t *testing.T) {
+	tests := []struct {
+		name     string
+		argNames []string
+		parts    []string
+		show     bool
+		want     string
+	}{
+		{name: "disabled", argNames: []string{"fd", "op"}, parts: []string{"-1", "LOCK_SH"}, want: "-1, LOCK_SH"},
+		{name: "enabled", argNames: []string{"fd", "op"}, parts: []string{"-1", "LOCK_SH"}, show: true, want: "fd=-1, op=LOCK_SH"},
+		{name: "missing metadata", argNames: []string{"fd"}, parts: []string{"-1", "LOCK_SH"}, show: true, want: "fd=-1, LOCK_SH"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatSyscallArguments(tt.argNames, tt.parts, tt.show); got != tt.want {
+				t.Fatalf("formatSyscallArguments() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTextRendererPrintsArgumentNamesOnDecodedLine(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{AlignCol: 40, PrintArgNames: true}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState()})
+	renderer.PrintSyscallEvent(syscallEventContext{
+		view: syscallEventView{valid: true, tid: 101, ret: -9},
+		meta: meta.Syscall{Name: "flock", Args: []string{"fd", "op"}},
+	}, handler.Result{ArgParts: []string{"-1", "LOCK_SH"}})
+
+	if got := output.String(); !strings.Contains(got, "flock(fd=-1, op=LOCK_SH)") {
+		t.Fatalf("argument-name output = %q", got)
+	}
+}
+
 func TestTextRendererFastPathPrintsSyscallNumber(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{PrintSyscallNumber: true}

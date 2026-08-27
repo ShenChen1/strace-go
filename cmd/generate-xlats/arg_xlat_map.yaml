@@ -222,6 +222,8 @@ syscalls:
     resource: resources
   fcntl:
     cmd: fcntlcmds
+  flock:
+    op: flockcmds
 
 
 # Custom mapping logic can be added later if needed.

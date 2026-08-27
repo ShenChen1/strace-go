@@ -106,6 +106,14 @@ func TestParseSyscallNumber(t *testing.T) {
 	}
 }
 
+func TestParseArgumentNames(t *testing.T) {
+	for _, flag := range []string{"-N", "--arg-names"} {
+		if opts := ParseArgs([]string{flag, "/bin/true"}); !opts.PrintArgNames {
+			t.Fatalf("%s did not enable argument-name output", flag)
+		}
+	}
+}
+
 func TestParseTraceClassAndAliases(t *testing.T) {
 	opts := ParseArgs([]string{"-e", "trace=%process,rename", "/bin/true"})
 

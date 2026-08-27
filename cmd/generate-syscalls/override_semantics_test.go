@@ -47,6 +47,16 @@ func TestExecveatUsesStraceDirectoryFDName(t *testing.T) {
 	}
 }
 
+func TestFlockUsesStraceOperationName(t *testing.T) {
+	meta, ok := semanticOverrides["flock"]
+	if !ok {
+		t.Fatal("flock must be a semantic override")
+	}
+	if len(meta.Args) != 2 || meta.Args[1] != "op" {
+		t.Fatalf("flock arguments = %#v, want fd/op", meta.Args)
+	}
+}
+
 func TestSplitOffsetOverridesStaySemantic(t *testing.T) {
 	for _, name := range []string{"preadv", "pwritev"} {
 		spec, ok := semanticOverrideSpecs[name]

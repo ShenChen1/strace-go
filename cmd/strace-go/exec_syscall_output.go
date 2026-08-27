@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
@@ -130,7 +129,7 @@ func (o *ExecSyscallOutput) rememberPendingArgs(tid int, scMeta meta.Syscall, re
 	if o.state == nil {
 		return
 	}
-	o.state.rememberPendingExecArgs(tid, execArgLine(scMeta, res))
+	o.state.rememberPendingExecArgs(tid, execArgLine(scMeta, res, o.argNames()))
 }
 
 func (o *ExecSyscallOutput) pendingArgLine(tid int, scMeta meta.Syscall, res handler.Result) string {
@@ -139,15 +138,19 @@ func (o *ExecSyscallOutput) pendingArgLine(tid int, scMeta meta.Syscall, res han
 			return argLine
 		}
 	}
-	return execArgLine(scMeta, res)
+	return execArgLine(scMeta, res, o.argNames())
 }
 
 func (o *ExecSyscallOutput) followForks() bool {
 	return o.policy != nil && o.policy.FollowForks() && o.renderer != nil
 }
 
-func execArgLine(scMeta meta.Syscall, res handler.Result) string {
-	return fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
+func (o *ExecSyscallOutput) argNames() bool {
+	return o.policy != nil && o.policy.ArgNames()
+}
+
+func execArgLine(scMeta meta.Syscall, res handler.Result, showArgNames bool) string {
+	return fmt.Sprintf("%s(%s)", scMeta.Name, formatSyscallArguments(scMeta.Args, res.ArgParts, showArgNames))
 }
 
 func isExecSyscall(name string) bool {

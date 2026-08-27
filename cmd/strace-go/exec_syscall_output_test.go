@@ -79,6 +79,26 @@ func TestExecSyscallOutputLeaderRestartAndResume(t *testing.T) {
 	}
 }
 
+func TestExecSyscallOutputPreservesArgumentNamesAcrossRestart(t *testing.T) {
+	output, state, out, _ := newExecSyscallOutputForTest(&cli.Options{FollowForks: true, PrintArgNames: true})
+	scMeta := meta.Syscall{Name: "execve", Args: []string{"filename", "argv", "envp"}}
+	res := handler.Result{ArgParts: []string{`"/bin/true"`, `["true"]`, `0x1 /* 1 var */`}}
+
+	if !output.HandleEvent(execOutputEvent(scMeta, 200, 200, -514), res) {
+		t.Fatal("leader exec restart should be handled")
+	}
+	wantArgs := `execve(filename="/bin/true", argv=["true"], envp=0x1 /* 1 var */)`
+	if got, ok := state.pendingExecArgsFor(200); !ok || got != wantArgs {
+		t.Fatalf("pending exec args = %q ok=%v, want %q", got, ok, wantArgs)
+	}
+	if !output.HandleEvent(execOutputEvent(scMeta, 200, 200, 0), res) {
+		t.Fatal("leader exec success should be handled")
+	}
+	if got := out.String(); !strings.Contains(got, wantArgs) {
+		t.Fatalf("exec argument-name output = %q", got)
+	}
+}
+
 func TestExecSyscallOutputLeaderRestartAndResumeFromEventView(t *testing.T) {
 	output, state, out, _ := newExecSyscallOutputForTest(&cli.Options{FollowForks: true})
 	scMeta := meta.Syscall{Name: "execve"}
