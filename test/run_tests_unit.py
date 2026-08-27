@@ -1,3 +1,4 @@
+import os
 import unittest
 
 import run_tests
@@ -61,6 +62,22 @@ class RootRequirementTest(unittest.TestCase):
 
 
 class UpstreamReferenceSuiteTest(unittest.TestCase):
+    def test_registered_tests_exist_in_current_upstream(self):
+        valid = {
+            name
+            for name in os.listdir(run_tests.TESTS_DIR)
+            if name.endswith(".test")
+            and not name.endswith(".sh")
+            and name != "strace-k.test"
+        }
+        registered = set(
+            upstream_suites.SMOKE_TESTS
+            + upstream_suites.MORE_TESTS
+            + upstream_suites.UPSTREAM_REFERENCE_TESTS
+        )
+
+        self.assertEqual(sorted(registered - valid), [])
+
     def test_stable_more_snapshot_is_explicit_and_unique(self):
         stable = upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
         reference = upstream_suites.UPSTREAM_REFERENCE_TESTS

@@ -18,12 +18,10 @@ SMOKE_TESTS = [
     "mmap.test",
     "open.gen.test",
     "openat.gen.test",
-    "read.gen.test",
     "stat.gen.test",
     "statfs.gen.test",
     "symlinkat.gen.test",
     "sync.gen.test",
-    "write.gen.test",
 ]
 
 # Curated pure-eBPF reference subset. These tests are diagnostic references,
@@ -148,7 +146,9 @@ UPSTREAM_REFERENCE_STABLE_MORE_TESTS = [
     "ioctl_fs_0x15.gen.test",
     "arch_prctl-Xraw.gen.test",
     "status-successful.gen.test",
+    "status-successful-long.gen.test",
     "status-failed.gen.test",
+    "status-failed-long.gen.test",
     "status-all.gen.test",
     "status-none.gen.test",
     "fork-f.gen.test",
@@ -189,12 +189,7 @@ MORE_TOLERATED_XPASSES = {"attach-p-cmd.test"}
 # Tests for the next feature we are tackling.
 # Add tests here when working on a new syscall or feature.
 MORE_TESTS = [
-    "strace-A.test",
-    "strace-p.test",
     "strace-C.test",
-    "strace-e-negation.test",
-    "strace-e-class.test",
-    "strace-e-class2.test",
     "strace-E.test",
     "strace-x.gen.test",
     "strace-xx.gen.test",
@@ -257,7 +252,9 @@ MORE_TESTS = [
     "ioctl_fs_0x15.gen.test",
     "arch_prctl-Xraw.gen.test",
     "status-successful.gen.test",
+    "status-successful-long.gen.test",
     "status-failed.gen.test",
+    "status-failed-long.gen.test",
     "status-all.gen.test",
     "status-none.gen.test",
     "fork-f.gen.test",
