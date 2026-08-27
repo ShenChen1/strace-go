@@ -27,6 +27,38 @@ func TestTextRendererPrintsBasicSyscallLine(t *testing.T) {
 	}
 }
 
+func TestTextRendererPrintsSyscallNumberOnDecodedLine(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{AlignCol: 12, PrintSyscallNumber: true}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState()})
+
+	renderer.PrintSyscallEvent(syscallEventContext{
+		view:           syscallEventView{valid: true, sysID: 50, ret: 0},
+		meta:           meta.Syscall{Name: "listen"},
+		handlerContext: &handler.Context{Opts: opts},
+	}, handler.Result{ArgParts: []string{"0", "0"}})
+
+	if got := output.String(); got != "[  50] listen(0, 0) = 0\n" {
+		t.Fatalf("numbered syscall output = %q", got)
+	}
+}
+
+func TestTextRendererFastPathPrintsSyscallNumber(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{PrintSyscallNumber: true}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState()})
+
+	renderer.PrintSyscallEvent(syscallEventContext{
+		view:           syscallEventView{valid: true, sysID: 39, ret: 101},
+		meta:           meta.Syscall{Name: "getpid"},
+		handlerContext: &handler.Context{Opts: opts},
+	}, handler.Result{})
+
+	if got := output.String(); got != "[  39] getpid() = 101\n" {
+		t.Fatalf("fast numbered syscall output = %q", got)
+	}
+}
+
 func TestTextRendererFastPathPreservesReturnAlignment(t *testing.T) {
 	var output bytes.Buffer
 	const alignCol = 40

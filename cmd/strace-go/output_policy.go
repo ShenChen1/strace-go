@@ -46,12 +46,13 @@ type traceTimeOptions struct {
 }
 
 type traceRenderOptions struct {
-	time              traceTimeOptions
-	followForks       bool
-	alignCol          int
-	printSyscallTime  bool
-	stackTrace        bool
-	quietThreadExecve bool
+	time               traceTimeOptions
+	followForks        bool
+	alignCol           int
+	printSyscallTime   bool
+	printSyscallNumber bool
+	stackTrace         bool
+	quietThreadExecve  bool
 }
 
 // traceRenderPolicy exposes the immutable scalar options used by text output.
@@ -138,11 +139,12 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 				printTimeMode:     opts.PrintTimeMode,
 				printRelativeTime: opts.PrintRelativeTime,
 			},
-			followForks:       opts.FollowForks,
-			alignCol:          opts.AlignCol,
-			printSyscallTime:  opts.PrintSyscallTime,
-			stackTrace:        opts.StackTrace,
-			quietThreadExecve: opts.QuietThreadExecve,
+			followForks:        opts.FollowForks,
+			alignCol:           opts.AlignCol,
+			printSyscallTime:   opts.PrintSyscallTime,
+			printSyscallNumber: opts.PrintSyscallNumber,
+			stackTrace:         opts.StackTrace,
+			quietThreadExecve:  opts.QuietThreadExecve,
 		},
 	}
 }

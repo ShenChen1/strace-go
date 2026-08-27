@@ -87,13 +87,14 @@ func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.
 	if scMeta.Name == "nanosleep" && len(res.ArgParts) > 0 {
 		args = res.ArgParts[0]
 	}
-	line := fmt.Sprintf("%s(%s <unfinished ...>", scMeta.Name, args)
+	line := fmt.Sprintf("%s%s(%s <unfinished ...>", r.syscallNumberPrefix(view), scMeta.Name, args)
 	fmt.Fprintf(r.out, "%s%s%s\n", r.timePrefix(view.enterTime), r.pidPrefix(int(view.tid)), line)
 }
 
 func (r *TextRenderer) PrintExecResumeFromView(view syscallEventView, argLine string) {
 	timePrefix := r.timePrefix(view.enterTime)
 	pidPrefix := r.pidPrefix(int(view.tid))
+	argLine = r.syscallNumberPrefix(view) + argLine
 	fmt.Fprintf(r.out, "%s%s%s%s= 0%s\n",
 		timePrefix, pidPrefix, argLine, r.padding(timePrefix, pidPrefix, argLine), r.durationSuffix(view.duration))
 }
@@ -101,22 +102,23 @@ func (r *TextRenderer) PrintExecResumeFromView(view syscallEventView, argLine st
 func (r *TextRenderer) PrintExecPidChangedFromView(view syscallEventView, argLine string) {
 	tid := int(view.tid)
 	tgid := int(view.pid)
-	fmt.Fprintf(r.out, "%s%-5d %s <pid changed to %d ...>\n", r.timePrefix(view.enterTime), tid, trimTrailingParen(argLine), tgid)
+	fmt.Fprintf(r.out, "%s%-5d %s%s <pid changed to %d ...>\n", r.timePrefix(view.enterTime), tid, r.syscallNumberPrefix(view), trimTrailingParen(argLine), tgid)
 }
 
 func (r *TextRenderer) PrintExecSupersededUnfinishedFromView(view syscallEventView, argLine string) {
 	tid := int(view.tid)
-	fmt.Fprintf(r.out, "%s%-5d %s <unfinished ...>\n", r.timePrefix(view.enterTime), tid, trimTrailingParen(argLine))
+	fmt.Fprintf(r.out, "%s%-5d %s%s <unfinished ...>\n", r.timePrefix(view.enterTime), tid, r.syscallNumberPrefix(view), trimTrailingParen(argLine))
 }
 
 func (r *TextRenderer) PrintSupersededSuspendedResumeFromView(view syscallEventView, syscallName string) {
 	timePrefix := r.timePrefix(view.enterTime)
 	tgid := int(view.pid)
+	numberPrefix := r.syscallNumberPrefix(view)
 	switch syscallName {
 	case "rt_sigsuspend":
-		fmt.Fprintf(r.out, "%s%-5d <... rt_sigsuspend resumed>) = ?\n", timePrefix, tgid)
+		fmt.Fprintf(r.out, "%s%-5d %s<... rt_sigsuspend resumed>) = ?\n", timePrefix, tgid, numberPrefix)
 	case "nanosleep":
-		fmt.Fprintf(r.out, "%s%-5d <... nanosleep resumed> <unfinished ...>) = ?\n", timePrefix, tgid)
+		fmt.Fprintf(r.out, "%s%-5d %s<... nanosleep resumed> <unfinished ...>) = ?\n", timePrefix, tgid, numberPrefix)
 	}
 }
 
@@ -127,7 +129,7 @@ func (r *TextRenderer) PrintThreadExecveSupersededFromView(view syscallEventView
 	if !r.renderOptions().quietThreadExecve {
 		fmt.Fprintf(r.out, "%s%-5d +++ superseded by execve in pid %d +++\n", timePrefix, tgid, tid)
 	}
-	fmt.Fprintf(r.out, "%s%-5d <... %s resumed>) = 0\n", timePrefix, tgid, syscallName)
+	fmt.Fprintf(r.out, "%s%-5d %s<... %s resumed>) = 0\n", timePrefix, tgid, r.syscallNumberPrefix(view), syscallName)
 }
 
 func (r *TextRenderer) PrintExitSyscallEvent(ev syscallEventContext, res handler.Result) {
@@ -162,14 +164,15 @@ func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Res
 	scMeta := ev.effectiveSyscallMeta()
 	ctx := ev.handlerContextForFormatting()
 	tid := int(view.tid)
-	line := fmt.Sprintf("%s(%s)", scMeta.Name, strings.Join(res.ArgParts, ", "))
+	numberPrefix := r.syscallNumberPrefix(view)
+	line := fmt.Sprintf("%s%s(%s)", numberPrefix, scMeta.Name, strings.Join(res.ArgParts, ", "))
 	if ev.pendingEnter != nil && ev.pendingEnter.unfinishedPrinted {
-		line = fmt.Sprintf("<... %s resumed>)", scMeta.Name)
+		line = fmt.Sprintf("%s<... %s resumed>)", numberPrefix, scMeta.Name)
 	} else if r.consumeSuspended(tid) {
 		if scMeta.Name == "nanosleep" {
-			line = fmt.Sprintf("<... %s resumed> <unfinished ...>)", scMeta.Name)
+			line = fmt.Sprintf("%s<... %s resumed> <unfinished ...>)", numberPrefix, scMeta.Name)
 		} else {
-			line = fmt.Sprintf("<... %s resumed>)", scMeta.Name)
+			line = fmt.Sprintf("%s<... %s resumed>)", numberPrefix, scMeta.Name)
 		}
 	}
 
@@ -191,7 +194,7 @@ func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Res
 func (r *TextRenderer) exitSyscallLine(view syscallEventView, syscallName string, res handler.Result) string {
 	timePrefix := r.timePrefix(view.enterTime)
 	pidPrefix := r.pidPrefix(int(view.tid))
-	argLine := fmt.Sprintf("%s(%s)", syscallName, strings.Join(res.ArgParts, ", "))
+	argLine := fmt.Sprintf("%s%s(%s)", r.syscallNumberPrefix(view), syscallName, strings.Join(res.ArgParts, ", "))
 	return fmt.Sprintf("%s%s%s%s= ?\n", timePrefix, pidPrefix, argLine, r.padding(timePrefix, pidPrefix, argLine))
 }
 
@@ -228,6 +231,13 @@ func (r *TextRenderer) pidPrefix(tid int) string {
 		return fmt.Sprintf("%-5d ", tid)
 	}
 	return ""
+}
+
+func (r *TextRenderer) syscallNumberPrefix(view syscallEventView) string {
+	if !r.renderOptions().printSyscallNumber {
+		return ""
+	}
+	return fmt.Sprintf("[%4d] ", view.sysID)
 }
 
 func (r *TextRenderer) padding(timePrefix string, pidPrefix string, line string) string {

@@ -62,6 +62,7 @@ type Options struct {
 	PrintTimeMode        int      // 0 = none, 1 = -t (HH:MM:SS), 2 = -tt (HH:MM:SS.UUUUUU), 3 = -ttt (UNIX.UUUUUU)
 	PrintRelativeTime    bool     // -r
 	PrintSyscallTime     bool     // -T
+	PrintSyscallNumber   bool     // -n
 	StackTrace           bool     // -k, --stack-trace
 	SuccessfulOnly       bool     // -z
 	FailedOnly           bool     // -Z

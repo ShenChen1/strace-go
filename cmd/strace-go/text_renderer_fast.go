@@ -91,15 +91,24 @@ func (r *TextRenderer) startFastTextLine(view syscallEventView, options traceRen
 	buffer := r.lineBuffer[:0]
 	timePrefix := r.timePrefix(view.enterTime)
 	buffer = append(buffer, timePrefix...)
-	if !options.followForks {
-		return buffer, len(buffer)
-	}
-	start := len(buffer)
-	buffer = strconv.AppendInt(buffer, int64(view.tid), 10)
-	for len(buffer)-start < 5 {
+	if options.followForks {
+		start := len(buffer)
+		buffer = strconv.AppendInt(buffer, int64(view.tid), 10)
+		for len(buffer)-start < 5 {
+			buffer = append(buffer, ' ')
+		}
 		buffer = append(buffer, ' ')
 	}
-	buffer = append(buffer, ' ')
+	if options.printSyscallNumber {
+		buffer = append(buffer, '[')
+		var scratch [20]byte
+		number := strconv.AppendUint(scratch[:0], uint64(view.sysID), 10)
+		for padding := 4 - len(number); padding > 0; padding-- {
+			buffer = append(buffer, ' ')
+		}
+		buffer = append(buffer, number...)
+		buffer = append(buffer, ']', ' ')
+	}
 	return buffer, len(buffer)
 }
 

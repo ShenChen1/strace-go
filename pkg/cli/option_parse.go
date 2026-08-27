@@ -78,6 +78,8 @@ func applyShortRenderFlag(flag byte, opts *Options) bool {
 		opts.PrintSyscallTime = true
 	case 'k':
 		opts.StackTrace = true
+	case 'n':
+		opts.PrintSyscallNumber = true
 	case 'z':
 		setSuccessfulOnly(opts)
 	case 'Z':
@@ -233,6 +235,9 @@ func parseLongRenderOption(state *longOptionState) bool {
 			failOption("stack trace mode '%s' conflicts with the pure eBPF address-only contract", state.inlineValue)
 		}
 		state.opts.StackTrace = true
+	case "syscall-number":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		state.opts.PrintSyscallNumber = true
 	case "successful-only":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		setSuccessfulOnly(state.opts)

@@ -98,6 +98,14 @@ func TestParseArgv0(t *testing.T) {
 	}
 }
 
+func TestParseSyscallNumber(t *testing.T) {
+	for _, flag := range []string{"-n", "--syscall-number"} {
+		if opts := ParseArgs([]string{flag, "/bin/true"}); !opts.PrintSyscallNumber {
+			t.Fatalf("%s did not enable syscall-number output", flag)
+		}
+	}
+}
+
 func TestParseTraceClassAndAliases(t *testing.T) {
 	opts := ParseArgs([]string{"-e", "trace=%process,rename", "/bin/true"})
 
