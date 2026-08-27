@@ -1,6 +1,6 @@
 # strace-go 当前架构
 
-本文档描述 `strace-go` 当前生效的运行时架构、所有权、协议和验证契约。它是架构评审的权威入口，不是实施日记。
+本文档描述 `strace-go` 当前生效的运行时架构、所有权、协议和验证契约。它是架构评审的权威入口；CLI 兼容边界见 [`cli-compatibility.md`](cli-compatibility.md)。
 
 历史迁移计划、逐 syscall 落地记录和旧性能实验由 Git 保存；需要追溯时使用：
 
