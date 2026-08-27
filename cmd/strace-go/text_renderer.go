@@ -244,7 +244,7 @@ func (r *TextRenderer) timePrefix(enterTimeMonoNs uint64) string {
 }
 
 func (r *TextRenderer) pidPrefix(tid int) string {
-	if r.renderOptions().followForks {
+	if r.renderOptions().showPID {
 		return fmt.Sprintf("%-5d ", tid)
 	}
 	return ""

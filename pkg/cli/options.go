@@ -64,6 +64,7 @@ type Options struct {
 	PrintSyscallTime     bool     // -T
 	PrintSyscallNumber   bool     // -n
 	PrintArgNames        bool     // -N
+	AlwaysShowPID        bool     // --always-show-pid
 	StackTrace           bool     // -k, --stack-trace
 	SuccessfulOnly       bool     // -z
 	FailedOnly           bool     // -Z

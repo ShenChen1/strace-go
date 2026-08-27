@@ -48,6 +48,7 @@ type traceTimeOptions struct {
 type traceRenderOptions struct {
 	time               traceTimeOptions
 	followForks        bool
+	showPID            bool
 	alignCol           int
 	printSyscallTime   bool
 	printSyscallNumber bool
@@ -142,6 +143,7 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 				printRelativeTime: opts.PrintRelativeTime,
 			},
 			followForks:        opts.FollowForks,
+			showPID:            opts.FollowForks || opts.AlwaysShowPID,
 			alignCol:           opts.AlignCol,
 			printSyscallTime:   opts.PrintSyscallTime,
 			printSyscallNumber: opts.PrintSyscallNumber,

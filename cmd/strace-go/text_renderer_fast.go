@@ -76,7 +76,7 @@ func fastTextReturnAllowed(ev syscallEventContext, options traceRenderOptions) b
 	if ev.handlerContext != nil && ev.handlerContext.Opts != nil && ev.handlerContext.Opts.ShowPathsValue() {
 		return false
 	}
-	if options.followForks && ev.view.tid == 0 {
+	if options.showPID && ev.view.tid == 0 {
 		return false
 	}
 	switch ev.syscallName() {
@@ -91,7 +91,7 @@ func (r *TextRenderer) startFastTextLine(view syscallEventView, options traceRen
 	buffer := r.lineBuffer[:0]
 	timePrefix := r.timePrefix(view.enterTime)
 	buffer = append(buffer, timePrefix...)
-	if options.followForks {
+	if options.showPID {
 		start := len(buffer)
 		buffer = strconv.AppendInt(buffer, int64(view.tid), 10)
 		for len(buffer)-start < 5 {

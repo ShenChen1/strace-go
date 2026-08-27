@@ -243,6 +243,9 @@ func parseLongRenderOption(state *longOptionState) bool {
 	case "arg-names":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		state.opts.PrintArgNames = true
+	case "always-show-pid":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		state.opts.AlwaysShowPID = true
 	case "successful-only":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		setSuccessfulOnly(state.opts)

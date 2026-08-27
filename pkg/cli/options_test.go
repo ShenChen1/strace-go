@@ -114,6 +114,16 @@ func TestParseArgumentNames(t *testing.T) {
 	}
 }
 
+func TestParseAlwaysShowPIDDoesNotEnableFollowForks(t *testing.T) {
+	opts := ParseArgs([]string{"--always-show-pid", "/bin/true"})
+	if !opts.AlwaysShowPID {
+		t.Fatal("--always-show-pid did not enable PID output")
+	}
+	if opts.FollowForks {
+		t.Fatal("--always-show-pid must not enable fork following")
+	}
+}
+
 func TestParseTraceClassAndAliases(t *testing.T) {
 	opts := ParseArgs([]string{"-e", "trace=%process,rename", "/bin/true"})
 

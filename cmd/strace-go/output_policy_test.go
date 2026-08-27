@@ -104,6 +104,7 @@ func TestTraceOutputPolicySnapshotsMutableCLIState(t *testing.T) {
 		FollowForks:    true,
 		PrintTimeMode:  3,
 		PrintArgNames:  true,
+		AlwaysShowPID:  true,
 		AttachPids:     []int{101},
 		TraceStatus:    map[string]bool{"successful": true},
 	}
@@ -115,6 +116,7 @@ func TestTraceOutputPolicySnapshotsMutableCLIState(t *testing.T) {
 	opts.FollowForks = false
 	opts.PrintTimeMode = 0
 	opts.PrintArgNames = false
+	opts.AlwaysShowPID = false
 	opts.AttachPids[0] = 202
 	opts.TraceStatus["successful"] = false
 	opts.TraceStatus["failed"] = true
@@ -133,7 +135,7 @@ func TestTraceOutputPolicySnapshotsMutableCLIState(t *testing.T) {
 		t.Fatal("policy status changed after snapshot")
 	}
 	options := policy.RenderOptions()
-	if !options.followForks || options.time.printTimeMode != 3 || !options.printArgNames {
+	if !options.followForks || !options.showPID || options.time.printTimeMode != 3 || !options.printArgNames {
 		t.Fatalf("render policy changed after snapshot: %+v", options)
 	}
 	if !policy.IsAttachTarget(101) || policy.IsAttachTarget(202) {
@@ -268,6 +270,7 @@ func TestTraceRenderPolicyPortsCanBeInjected(t *testing.T) {
 	policy := fakeTraceRenderPolicy{options: traceRenderOptions{
 		time:              traceTimeOptions{printRelativeTime: true},
 		followForks:       true,
+		showPID:           true,
 		alignCol:          40,
 		printSyscallTime:  true,
 		quietThreadExecve: true,

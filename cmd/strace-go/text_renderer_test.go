@@ -78,6 +78,38 @@ func TestTextRendererPrintsArgumentNamesOnDecodedLine(t *testing.T) {
 	}
 }
 
+func TestTextRendererAlwaysShowsPIDWithoutFollowForks(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{AlignCol: 15, AlwaysShowPID: true}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState()})
+	renderer.PrintSyscallEvent(syscallEventContext{
+		view: syscallEventView{valid: true, tid: 321, ret: -9},
+		meta: meta.Syscall{Name: "fchdir", Args: []string{"fd"}},
+	}, handler.Result{ArgParts: []string{"-1"}})
+	output.WriteString(renderer.ExitStatusLine(321, 0))
+
+	got := output.String()
+	for _, want := range []string{"321   fchdir(-1)", "321   +++ exited with 0 +++"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("always-show-pid output missing %q in %q", want, got)
+		}
+	}
+}
+
+func TestTextRendererFastPathAlwaysShowsPID(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{AlwaysShowPID: true}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState()})
+	renderer.PrintSyscallEvent(syscallEventContext{
+		view: syscallEventView{valid: true, tid: 321, ret: 321},
+		meta: meta.Syscall{Name: "getpid"},
+	}, handler.Result{})
+
+	if got := output.String(); !strings.HasPrefix(got, "321   getpid()") {
+		t.Fatalf("fast always-show-pid output = %q", got)
+	}
+}
+
 func TestTextRendererFastPathPrintsSyscallNumber(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{PrintSyscallNumber: true}
