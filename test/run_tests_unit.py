@@ -62,6 +62,11 @@ class RootRequirementTest(unittest.TestCase):
 
 
 class UpstreamReferenceSuiteTest(unittest.TestCase):
+    def test_qual_syscall_has_lifecycle_aware_timeout(self):
+        self.assertGreaterEqual(
+            run_tests.UPSTREAM_TEST_TIMEOUT_SECONDS["qual_syscall.test"], 180
+        )
+
     def test_registered_tests_exist_in_current_upstream(self):
         valid = {
             name

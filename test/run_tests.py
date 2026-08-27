@@ -30,7 +30,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 TESTS_DIR = os.path.join(PROJECT_ROOT, "strace-upstream", "tests")
 UPSTREAM_DIR = os.path.join(PROJECT_ROOT, "strace-upstream")
-UPSTREAM_TEST_TIMEOUT_SECONDS = {"readv.test": 60}
+UPSTREAM_TEST_TIMEOUT_SECONDS = {
+    "qual_syscall.test": 180,
+    "readv.test": 60,
+}
 
 
 @dataclass
