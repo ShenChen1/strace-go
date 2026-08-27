@@ -74,16 +74,21 @@ func (p *cliTraceEventPolicy) FilterOptions() traceFilterOptions {
 }
 
 type cliTraceHandlerOptions struct {
-	stringLimit       int
-	hexEscapeMode     int
-	verbose           bool
-	verboseDisabled   map[string]bool
-	showPaths         bool
-	showPathsMode     int
-	traceReadFDs      map[int32]bool
-	traceReadNegated  bool
-	traceWriteFDs     map[int32]bool
-	traceWriteNegated bool
+	stringLimit        int
+	hexEscapeMode      int
+	verbose            bool
+	verboseDisabled    map[string]bool
+	rawSyscalls        map[string]bool
+	noAbbrevSyscalls   map[string]bool
+	noAbbrevConfigured bool
+	verboseSyscalls    map[string]bool
+	verboseConfigured  bool
+	showPaths          bool
+	showPathsMode      int
+	traceReadFDs       map[int32]bool
+	traceReadNegated   bool
+	traceWriteFDs      map[int32]bool
+	traceWriteNegated  bool
 }
 
 func newTraceHandlerOptions(opts *cli.Options) handler.OptionsPort {
@@ -91,16 +96,21 @@ func newTraceHandlerOptions(opts *cli.Options) handler.OptionsPort {
 		return nil
 	}
 	return &cliTraceHandlerOptions{
-		stringLimit:       opts.StringLimit,
-		hexEscapeMode:     opts.HexEscapeMode,
-		verbose:           opts.Verbose,
-		verboseDisabled:   copyStringBoolMap(opts.VerboseDisabled),
-		showPaths:         opts.ShowPaths,
-		showPathsMode:     opts.ShowPathsMode,
-		traceReadFDs:      copyInt32BoolMap(opts.TraceReadFDs),
-		traceReadNegated:  opts.TraceReadFDsNegated,
-		traceWriteFDs:     copyInt32BoolMap(opts.TraceWriteFDs),
-		traceWriteNegated: opts.TraceWriteFDsNegated,
+		stringLimit:        opts.StringLimit,
+		hexEscapeMode:      opts.HexEscapeMode,
+		verbose:            opts.Verbose,
+		verboseDisabled:    copyStringBoolMap(opts.VerboseDisabled),
+		rawSyscalls:        copyStringBoolMap(opts.RawSyscalls),
+		noAbbrevSyscalls:   copyStringBoolMap(opts.NoAbbrevSyscalls),
+		noAbbrevConfigured: opts.NoAbbrevConfigured,
+		verboseSyscalls:    copyStringBoolMap(opts.VerboseSyscalls),
+		verboseConfigured:  opts.VerboseConfigured,
+		showPaths:          opts.ShowPaths,
+		showPathsMode:      opts.ShowPathsMode,
+		traceReadFDs:       copyInt32BoolMap(opts.TraceReadFDs),
+		traceReadNegated:   opts.TraceReadFDsNegated,
+		traceWriteFDs:      copyInt32BoolMap(opts.TraceWriteFDs),
+		traceWriteNegated:  opts.TraceWriteFDsNegated,
 	}
 }
 
@@ -111,7 +121,25 @@ func (o cliTraceHandlerOptions) HexEscapeModeValue() int { return o.hexEscapeMod
 func (o cliTraceHandlerOptions) VerboseValue() bool { return o.verbose }
 
 func (o cliTraceHandlerOptions) VerboseDisabledFor(name string) bool {
-	return o.verboseDisabled[name]
+	return !o.VerboseDecodeFor(name)
+}
+
+func (o cliTraceHandlerOptions) NoAbbrevFor(name string) bool {
+	if o.noAbbrevConfigured {
+		return o.noAbbrevSyscalls[name]
+	}
+	return o.verbose
+}
+
+func (o cliTraceHandlerOptions) VerboseDecodeFor(name string) bool {
+	if o.verboseConfigured {
+		return o.verboseSyscalls[name]
+	}
+	return !o.verboseDisabled[name]
+}
+
+func (o cliTraceHandlerOptions) RawSyscallFor(name string) bool {
+	return o.rawSyscalls[name]
 }
 
 func (o cliTraceHandlerOptions) ShowPathsValue() bool { return o.showPaths }
@@ -142,11 +170,11 @@ func newTraceFilterOptions(opts *cli.Options) traceFilterOptions {
 	if candidate := event.TracePathSet(paths); !candidate.Empty() {
 		pathFilter = candidate
 	}
+	traceConfigured := opts.TraceConfigured || opts.TraceSetIsNegated ||
+		len(opts.TraceSyscalls) > 0 || len(opts.TraceSyscallRegexps) > 0
 	filter := &cliTraceFilter{
 		debug: opts.DebugEvents,
-		unfiltered: !opts.TraceSetIsNegated &&
-			len(opts.TraceSyscalls) == 0 &&
-			len(opts.TraceSyscallRegexps) == 0 &&
+		unfiltered: (!traceConfigured || opts.TraceMatchesAll) &&
 			len(opts.TraceFDs) == 0 &&
 			!opts.TraceFDsNegated &&
 			len(opts.TraceReadFDs) == 0 &&
@@ -156,6 +184,8 @@ func newTraceFilterOptions(opts *cli.Options) traceFilterOptions {
 			(pathFilter == nil || pathFilter.Empty()),
 		traceSyscalls:       copyStringBoolMap(opts.TraceSyscalls),
 		traceSyscallRegexps: append([]*regexp.Regexp(nil), opts.TraceSyscallRegexps...),
+		traceConfigured:     traceConfigured,
+		traceMatchesAll:     opts.TraceMatchesAll,
 		traceSetIsNegated:   opts.TraceSetIsNegated,
 		traceFDs:            copyInt32BoolMap(opts.TraceFDs),
 		traceFDsNegated:     opts.TraceFDsNegated,

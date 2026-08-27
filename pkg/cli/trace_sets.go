@@ -2,29 +2,8 @@ package cli
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
-
-	"strace-go/pkg/meta"
 )
-
-func addSyscallTrace(opts *Options, s string) {
-	if strings.HasPrefix(s, "/") {
-		pattern := strings.TrimPrefix(s, "/")
-		if r, err := regexp.Compile(pattern); err == nil {
-			opts.TraceSyscallRegexps = append(opts.TraceSyscallRegexps, r)
-		}
-		return
-	}
-
-	if classFlag := traceClassFlag(s); classFlag != "" {
-		addTraceClass(opts, classFlag)
-		return
-	}
-
-	opts.TraceSyscalls[s] = true
-	addTraceAliases(opts, s)
-}
 
 func traceClassFlag(s string) string {
 	switch s {
@@ -55,38 +34,26 @@ func traceClassFlag(s string) string {
 	}
 }
 
-func addTraceClass(opts *Options, classFlag string) {
-	for _, sc := range meta.SyscallTable {
-		flags := strings.Split(sc.Flags, "|")
-		for _, f := range flags {
-			if f == classFlag {
-				opts.TraceSyscalls[sc.Name] = true
-				break
-			}
-		}
-	}
-}
-
-func addTraceAliases(opts *Options, s string) {
+func addTraceAliasesTo(names map[string]bool, s string) {
 	switch s {
 	case "access":
-		opts.TraceSyscalls["faccessat"] = true
-		opts.TraceSyscalls["faccessat2"] = true
+		names["faccessat"] = true
+		names["faccessat2"] = true
 	case "stat", "lstat":
-		opts.TraceSyscalls["newfstatat"] = true
+		names["newfstatat"] = true
 	case "chmod":
-		opts.TraceSyscalls["chmodat"] = true
+		names["chmodat"] = true
 	case "mkdir":
-		opts.TraceSyscalls["mkdirat"] = true
+		names["mkdirat"] = true
 	case "rename":
-		opts.TraceSyscalls["renameat"] = true
-		opts.TraceSyscalls["renameat2"] = true
+		names["renameat"] = true
+		names["renameat2"] = true
 	case "chdir":
-		opts.TraceSyscalls["fchdir"] = true
+		names["fchdir"] = true
 	case "chown":
-		opts.TraceSyscalls["fchown"] = true
-		opts.TraceSyscalls["lchown"] = true
-		opts.TraceSyscalls["fchownat"] = true
+		names["fchown"] = true
+		names["lchown"] = true
+		names["fchownat"] = true
 	}
 }
 
@@ -108,6 +75,10 @@ func parseEFlag(val string, opts *Options) {
 		parseStatusSet(strings.TrimPrefix(val, "status="), opts)
 	case strings.HasPrefix(val, "verbose="):
 		parseVerboseSet(strings.TrimPrefix(val, "verbose="), opts)
+	case strings.HasPrefix(val, "abbrev="):
+		parseAbbrevSet(strings.TrimPrefix(val, "abbrev="), opts)
+	case strings.HasPrefix(val, "raw="):
+		parseRawSet(strings.TrimPrefix(val, "raw="), opts)
 	case strings.HasPrefix(val, "signal="):
 		return
 	case strings.HasPrefix(val, "quiet="):
@@ -118,12 +89,17 @@ func parseEFlag(val string, opts *Options) {
 }
 
 func parseTraceSet(val string, opts *Options) {
-	if strings.HasPrefix(val, "!") {
-		opts.TraceSetIsNegated = true
-		val = strings.TrimPrefix(val, "!")
-	}
-	for _, s := range strings.Split(val, ",") {
-		addSyscallTrace(opts, s)
+	selector := parseSyscallSelector(val)
+	opts.TraceConfigured = true
+	opts.TraceSyscalls = selector.names
+	opts.TraceSyscallRegexps = selector.regexps
+	opts.TraceSetIsNegated = selector.negated
+	opts.TraceMatchesAll = false
+	if matchesAll, explicit := selector.explicitAllOrNone(); explicit {
+		opts.TraceMatchesAll = matchesAll
+		opts.TraceSyscalls = make(map[string]bool)
+		opts.TraceSyscallRegexps = nil
+		opts.TraceSetIsNegated = false
 	}
 }
 
@@ -146,17 +122,20 @@ func parseQuietSet(val string, opts *Options) {
 }
 
 func parseVerboseSet(val string, opts *Options) {
-	if strings.HasPrefix(val, "!") {
-		for _, s := range strings.Split(strings.TrimPrefix(val, "!"), ",") {
-			if s != "" {
-				opts.VerboseDisabled[s] = true
-			}
-		}
-		return
-	}
-	for _, s := range strings.Split(val, ",") {
-		delete(opts.VerboseDisabled, s)
-	}
+	selected := materializeSyscallSelector(parseSyscallSelector(val))
+	opts.VerboseConfigured = true
+	opts.VerboseSyscalls = selected
+	opts.VerboseDisabled = complementSyscallSet(selected)
+}
+
+func parseAbbrevSet(val string, opts *Options) {
+	abbreviated := materializeSyscallSelector(parseSyscallSelector(val))
+	opts.NoAbbrevConfigured = true
+	opts.NoAbbrevSyscalls = complementSyscallSet(abbreviated)
+}
+
+func parseRawSet(val string, opts *Options) {
+	opts.RawSyscalls = materializeSyscallSelector(parseSyscallSelector(val))
 }
 
 func parseTraceFDSet(val string, opts *Options) {

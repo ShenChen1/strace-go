@@ -49,7 +49,7 @@ func applyShortControlFlag(flag byte, opts *Options) bool {
 		}
 		opts.FollowForks = true
 	case 'v':
-		opts.Verbose = true
+		setNoAbbrevAll(opts)
 	case 'c':
 		setSummaryOnly(opts)
 	case 'C':
@@ -193,7 +193,7 @@ func parseLongControlOption(state *longOptionState) bool {
 		state.opts.FollowForks = true
 	case "no-abbrev":
 		rejectLongValue(state.arg, state.hasInlineValue)
-		state.opts.Verbose = true
+		setNoAbbrevAll(state.opts)
 	case "summary-only":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		setSummaryOnly(state.opts)
@@ -254,7 +254,7 @@ func parseLongValueOption(state *longOptionState) bool {
 		applyValueOption("-s", requiredLongValue(state), state.opts)
 	case "const-print-style":
 		applyValueOption("-X", requiredLongValue(state), state.opts)
-	case "status", "read", "write", "verbose":
+	case "status", "read", "write", "verbose", "abbrev", "raw":
 		parseEFlag(state.name+"="+requiredLongValue(state), state.opts)
 	case "quiet":
 		parseLongQuiet(optionalLongValue(state.inlineValue, state.hasInlineValue, "attach,personality"), state.opts)
@@ -421,6 +421,12 @@ func setSuccessfulOnly(opts *Options) {
 func setFailedOnly(opts *Options) {
 	opts.FailedOnly = true
 	opts.SuccessfulOnly = false
+}
+
+func setNoAbbrevAll(opts *Options) {
+	opts.Verbose = true
+	opts.NoAbbrevConfigured = false
+	opts.NoAbbrevSyscalls = make(map[string]bool)
 }
 
 func failOption(format string, args ...any) {

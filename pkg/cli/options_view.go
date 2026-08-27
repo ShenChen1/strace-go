@@ -21,9 +21,36 @@ func (opts *Options) VerboseValue() bool {
 	return opts != nil && opts.Verbose
 }
 
-// VerboseDisabledFor reports whether a syscall is explicitly abbreviated.
+// VerboseDisabledFor reports whether a syscall should keep pointer structures opaque.
 func (opts *Options) VerboseDisabledFor(syscallName string) bool {
-	return opts != nil && opts.VerboseDisabled[syscallName]
+	return opts != nil && !opts.VerboseDecodeFor(syscallName)
+}
+
+// NoAbbrevFor reports whether arrays and structures should be rendered in full.
+func (opts *Options) NoAbbrevFor(syscallName string) bool {
+	if opts == nil {
+		return false
+	}
+	if opts.NoAbbrevConfigured {
+		return opts.NoAbbrevSyscalls[syscallName]
+	}
+	return opts.Verbose
+}
+
+// VerboseDecodeFor reports whether pointer structures should be decoded.
+func (opts *Options) VerboseDecodeFor(syscallName string) bool {
+	if opts == nil {
+		return false
+	}
+	if opts.VerboseConfigured {
+		return opts.VerboseSyscalls[syscallName]
+	}
+	return !opts.VerboseDisabled[syscallName]
+}
+
+// RawSyscallFor reports whether all arguments should remain undecoded.
+func (opts *Options) RawSyscallFor(syscallName string) bool {
+	return opts != nil && opts.RawSyscalls[syscallName]
 }
 
 // ShowPathsValue reports whether fd path rendering is enabled.

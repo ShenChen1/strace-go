@@ -6,6 +6,9 @@ type FormattingOptions interface {
 	HexEscapeModeValue() int
 	VerboseValue() bool
 	VerboseDisabledFor(syscallName string) bool
+	NoAbbrevFor(syscallName string) bool
+	VerboseDecodeFor(syscallName string) bool
+	RawSyscallFor(syscallName string) bool
 }
 
 // FDTraceOptions exposes path and buffer-dump policy without CLI maps.

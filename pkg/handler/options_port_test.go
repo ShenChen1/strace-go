@@ -33,6 +33,18 @@ func (stub optionsPortTestStub) VerboseDisabledFor(string) bool {
 	return stub.verboseDisabled
 }
 
+func (stub optionsPortTestStub) NoAbbrevFor(string) bool {
+	return stub.verbose
+}
+
+func (stub optionsPortTestStub) VerboseDecodeFor(string) bool {
+	return !stub.verboseDisabled
+}
+
+func (stub optionsPortTestStub) RawSyscallFor(string) bool {
+	return false
+}
+
 func (stub optionsPortTestStub) ShowPathsValue() bool {
 	return stub.showPaths
 }

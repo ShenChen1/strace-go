@@ -54,6 +54,15 @@ func TestBuildSyscallFilterPlanTraceAllStaysDisabled(t *testing.T) {
 	}
 }
 
+func TestBuildSyscallFilterPlanTraceNoneRejectsAll(t *testing.T) {
+	opts := cli.ParseArgs([]string{"-e", "trace=none", "/bin/true"})
+	plan := newTraceBPFConfig(opts).syscallFilter
+
+	if !plan.enabled || plan.negated || len(plan.ids) != 0 {
+		t.Fatalf("trace=none plan = %+v, want enabled empty include filter", plan)
+	}
+}
+
 func requirePlanHasSyscall(t *testing.T, plan syscallFilterPlan, name string) {
 	t.Helper()
 	id := syscallIDByName(t, name)

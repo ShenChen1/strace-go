@@ -29,6 +29,8 @@ type Options struct {
 	TraceSyscalls        map[string]bool
 	TracePaths           map[string]bool
 	TraceSyscallRegexps  []*regexp.Regexp
+	TraceConfigured      bool
+	TraceMatchesAll      bool
 	TraceSetIsNegated    bool
 	TraceFDs             map[int32]bool
 	TraceFDsNegated      bool
@@ -38,6 +40,11 @@ type Options struct {
 	TraceWriteFDsNegated bool
 	TraceStatus          map[string]bool
 	VerboseDisabled      map[string]bool
+	RawSyscalls          map[string]bool
+	NoAbbrevSyscalls     map[string]bool
+	NoAbbrevConfigured   bool
+	VerboseSyscalls      map[string]bool
+	VerboseConfigured    bool
 	ShowPaths            bool
 	ShowPathsMode        int // 0 = none, 1 = -y, 2 = -yy
 	Verbose              bool
@@ -66,18 +73,21 @@ type Options struct {
 // It initializes defaults and loops through args calling specialized sub-parsers.
 func ParseArgs(args []string) *Options {
 	opts := &Options{
-		AlignCol:        40,
-		StringLimit:     32,
-		HexEscapeMode:   0,
-		EventFormat:     EventFormatText,
-		XlatFormat:      "abbrev",
-		TraceSyscalls:   make(map[string]bool),
-		TracePaths:      make(map[string]bool),
-		TraceFDs:        make(map[int32]bool),
-		TraceReadFDs:    make(map[int32]bool),
-		TraceWriteFDs:   make(map[int32]bool),
-		TraceStatus:     make(map[string]bool),
-		VerboseDisabled: make(map[string]bool),
+		AlignCol:         40,
+		StringLimit:      32,
+		HexEscapeMode:    0,
+		EventFormat:      EventFormatText,
+		XlatFormat:       "abbrev",
+		TraceSyscalls:    make(map[string]bool),
+		TracePaths:       make(map[string]bool),
+		TraceFDs:         make(map[int32]bool),
+		TraceReadFDs:     make(map[int32]bool),
+		TraceWriteFDs:    make(map[int32]bool),
+		TraceStatus:      make(map[string]bool),
+		VerboseDisabled:  make(map[string]bool),
+		RawSyscalls:      make(map[string]bool),
+		NoAbbrevSyscalls: make(map[string]bool),
+		VerboseSyscalls:  make(map[string]bool),
 	}
 
 	for i := 0; i < len(args); i++ {

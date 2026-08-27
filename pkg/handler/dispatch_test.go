@@ -3,6 +3,7 @@ package handler
 import (
 	"testing"
 
+	"strace-go/pkg/cli"
 	"strace-go/pkg/meta"
 )
 
@@ -62,5 +63,27 @@ func TestDispatchTableDecodePlanKeepsRequiredHandlers(t *testing.T) {
 				t.Fatalf("NeedsDecode(%d, %q) = %v, want %v", tt.sysID, tt.syscall, got, tt.wantDecode)
 			}
 		})
+	}
+}
+
+func TestDispatchTableRawSelectorBypassesDecodedHandler(t *testing.T) {
+	custom := &dispatchTestHandler{}
+	registry := NewRegistry()
+	registry.Register("dispatch_test", custom)
+	table := NewDispatchTable(registry, map[uint32]meta.Syscall{
+		400: {Name: "dispatch_test", ArgTypes: []string{"void *", "int"}},
+	})
+	ctx := &Context{
+		ScMeta: meta.Syscall{Name: "dispatch_test", ArgTypes: []string{"void *", "int"}},
+		Args:   [6]uint64{0x1234, 0},
+		Opts:   &cli.Options{RawSyscalls: map[string]bool{"dispatch_test": true}},
+	}
+
+	got := table.Handle(400, "dispatch_test", ctx)
+	if len(got.ArgParts) != 2 || got.ArgParts[0] != "0x1234" || got.ArgParts[1] != "0" {
+		t.Fatalf("raw dispatch args = %#v, want [0x1234 0]", got.ArgParts)
+	}
+	if custom.calls != 0 {
+		t.Fatalf("decoded handler calls = %d, want 0", custom.calls)
 	}
 }

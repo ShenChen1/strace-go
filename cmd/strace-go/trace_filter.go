@@ -23,6 +23,8 @@ type cliTraceFilter struct {
 	unfiltered          bool
 	traceSyscalls       map[string]bool
 	traceSyscallRegexps []*regexp.Regexp
+	traceConfigured     bool
+	traceMatchesAll     bool
 	traceSetIsNegated   bool
 	traceFDs            map[int32]bool
 	traceFDsNegated     bool
@@ -44,7 +46,10 @@ func (filter cliTraceFilter) IsUnfiltered() bool {
 }
 
 func (filter cliTraceFilter) MatchSyscall(name string) bool {
-	matched := len(filter.traceSyscalls) == 0 && len(filter.traceSyscallRegexps) == 0
+	if !filter.traceConfigured || filter.traceMatchesAll {
+		return true
+	}
+	matched := false
 	if !matched {
 		matched = filter.traceSyscalls[name]
 		if !matched {

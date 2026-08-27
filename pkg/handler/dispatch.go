@@ -65,6 +65,9 @@ func (t *DispatchTable) Handle(sysID uint32, name string, ctx *Context) Result {
 	if t == nil {
 		return Result{}
 	}
+	if ctx != nil && ctx.Opts != nil && ctx.Opts.RawSyscallFor(name) {
+		return RawHandler{}.Handle(ctx)
+	}
 	if sysID < uint32(len(t.handlers)) {
 		if h := t.handlers[sysID]; h != nil {
 			return h.Handle(ctx)

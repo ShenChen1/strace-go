@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"strace-go/pkg/meta"
 )
 
 func TestParseCombinedVerboseTraceFlag(t *testing.T) {
@@ -92,6 +94,53 @@ func TestParseTraceClassAndAliases(t *testing.T) {
 	}
 	if !opts.TraceSyscalls["rename"] || !opts.TraceSyscalls["renameat"] || !opts.TraceSyscalls["renameat2"] {
 		t.Fatalf("rename aliases missing from trace set: %#v", opts.TraceSyscalls)
+	}
+}
+
+func TestParseTraceSetReplacesPreviousSelector(t *testing.T) {
+	opts := ParseArgs([]string{"-e/", "-e42", "/bin/true"})
+	want := meta.SyscallTable[42].Name
+
+	if !opts.TraceConfigured || opts.TraceMatchesAll || opts.TraceSetIsNegated {
+		t.Fatalf("trace selector state = configured:%v all:%v negated:%v", opts.TraceConfigured, opts.TraceMatchesAll, opts.TraceSetIsNegated)
+	}
+	if len(opts.TraceSyscallRegexps) != 0 || len(opts.TraceSyscalls) != 1 || !opts.TraceSyscalls[want] {
+		t.Fatalf("trace selector = names:%v regexps:%v, want only syscall 42 (%s)", opts.TraceSyscalls, opts.TraceSyscallRegexps, want)
+	}
+}
+
+func TestParseTraceAllAndNone(t *testing.T) {
+	all := ParseArgs([]string{"--trace=all", "/bin/true"})
+	if !all.TraceConfigured || !all.TraceMatchesAll {
+		t.Fatalf("trace=all state = configured:%v all:%v", all.TraceConfigured, all.TraceMatchesAll)
+	}
+	allWithName := ParseArgs([]string{"--trace=all,read", "/bin/true"})
+	if !allWithName.TraceMatchesAll {
+		t.Fatal("trace=all,read should retain universal-set semantics")
+	}
+
+	none := ParseArgs([]string{"--trace=!all", "/bin/true"})
+	if !none.TraceConfigured || none.TraceMatchesAll || none.TraceSetIsNegated || len(none.TraceSyscalls) != 0 {
+		t.Fatalf("trace=!all state = configured:%v all:%v negated:%v names:%v", none.TraceConfigured, none.TraceMatchesAll, none.TraceSetIsNegated, none.TraceSyscalls)
+	}
+}
+
+func TestParseSyscallFormattingSelectors(t *testing.T) {
+	opts := ParseArgs([]string{
+		"--abbrev=execve",
+		"--raw=!chdir",
+		"--verbose=!execve",
+		"/bin/true",
+	})
+
+	if opts.NoAbbrevFor("execve") || !opts.NoAbbrevFor("chdir") {
+		t.Fatalf("abbrev selector mismatch: execve=%v chdir=%v", opts.NoAbbrevFor("execve"), opts.NoAbbrevFor("chdir"))
+	}
+	if !opts.RawSyscallFor("execve") || opts.RawSyscallFor("chdir") {
+		t.Fatalf("raw selector mismatch: execve=%v chdir=%v", opts.RawSyscallFor("execve"), opts.RawSyscallFor("chdir"))
+	}
+	if opts.VerboseDecodeFor("execve") || !opts.VerboseDecodeFor("chdir") {
+		t.Fatalf("verbose selector mismatch: execve=%v chdir=%v", opts.VerboseDecodeFor("execve"), opts.VerboseDecodeFor("chdir"))
 	}
 }
 

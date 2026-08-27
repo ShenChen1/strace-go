@@ -59,6 +59,18 @@ func TestTraceFilterBindsUnfilteredDecisionAtComposition(t *testing.T) {
 	}
 }
 
+func TestTraceFilterDistinguishesAllFromNone(t *testing.T) {
+	all := newTraceFilterOptions(cli.ParseArgs([]string{"--trace=all", "/bin/true"}))
+	if !all.IsUnfiltered() || !all.MatchSyscall("read") {
+		t.Fatal("trace=all should be an unfiltered syscall selector")
+	}
+
+	none := newTraceFilterOptions(cli.ParseArgs([]string{"--trace=none", "/bin/true"}))
+	if none.IsUnfiltered() || none.MatchSyscall("read") {
+		t.Fatal("trace=none should reject every syscall")
+	}
+}
+
 func rawFD(fd int32) uint64 {
 	return uint64(uint32(fd))
 }

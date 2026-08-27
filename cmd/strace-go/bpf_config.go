@@ -28,10 +28,14 @@ func newTraceBPFConfig(opts *cli.Options) traceBPFConfig {
 	if opts == nil {
 		return traceBPFConfig{eventRingbufCapacity: traceDefaultEventRingbufCapacity}
 	}
+	traceConfigured := opts.TraceConfigured || opts.TraceSetIsNegated ||
+		len(opts.TraceSyscalls) > 0 || len(opts.TraceSyscallRegexps) > 0
 	filterInput := syscallFilterInput{
-		names:   copyStringBoolMap(opts.TraceSyscalls),
-		regexps: append([]*regexp.Regexp(nil), opts.TraceSyscallRegexps...),
-		negated: opts.TraceSetIsNegated,
+		names:      copyStringBoolMap(opts.TraceSyscalls),
+		regexps:    append([]*regexp.Regexp(nil), opts.TraceSyscallRegexps...),
+		configured: traceConfigured,
+		matchesAll: opts.TraceMatchesAll,
+		negated:    opts.TraceSetIsNegated,
 	}
 	fdState := len(opts.TracePaths) > 0 || opts.ShowPaths
 	return traceBPFConfig{

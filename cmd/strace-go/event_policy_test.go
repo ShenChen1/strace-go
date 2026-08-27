@@ -14,6 +14,11 @@ func TestTraceEventPolicySnapshotsHandlerOptions(t *testing.T) {
 	opts.HexEscapeMode = 2
 	opts.Verbose = true
 	opts.VerboseDisabled["read"] = true
+	opts.RawSyscalls = map[string]bool{"write": true}
+	opts.NoAbbrevConfigured = true
+	opts.NoAbbrevSyscalls = map[string]bool{"execve": true}
+	opts.VerboseConfigured = true
+	opts.VerboseSyscalls = map[string]bool{"execve": true}
 	opts.ShowPaths = true
 	opts.ShowPathsMode = 2
 	opts.TraceReadFDs[cli.TraceAllFDs] = true
@@ -21,6 +26,9 @@ func TestTraceEventPolicySnapshotsHandlerOptions(t *testing.T) {
 	policy := newTraceEventPolicy(opts)
 
 	delete(opts.VerboseDisabled, "read")
+	delete(opts.RawSyscalls, "write")
+	delete(opts.NoAbbrevSyscalls, "execve")
+	delete(opts.VerboseSyscalls, "execve")
 	opts.StringLimit = 1
 	opts.Verbose = false
 	opts.ShowPaths = false
@@ -33,6 +41,9 @@ func TestTraceEventPolicySnapshotsHandlerOptions(t *testing.T) {
 	}
 	if !options.VerboseDisabledFor("read") || !options.ShowPathsValue() || options.ShowPathsModeValue() != 2 {
 		t.Fatal("handler map/scalar snapshot changed after CLI mutation")
+	}
+	if !options.RawSyscallFor("write") || !options.NoAbbrevFor("execve") || !options.VerboseDecodeFor("execve") {
+		t.Fatal("handler syscall-format selector snapshot changed after CLI mutation")
 	}
 	if !options.TraceReadFD(3) || !options.TraceWriteFD(7) || options.TraceWriteFD(8) {
 		t.Fatal("handler FD snapshot changed after CLI mutation")

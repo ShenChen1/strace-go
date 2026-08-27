@@ -32,6 +32,9 @@ func decodeExecStringArraySnapshot(ctx *Context, val uint64, argName string) (st
 	if val == 0 {
 		return "NULL", true
 	}
+	if ctx.Opts != nil && !ctx.Opts.VerboseDecodeFor(ctx.ScMeta.Name) {
+		return fmt.Sprintf("%#x", val), true
+	}
 	snapshot, ok := execSnapshotData(ctx)
 	if !ok || len(snapshot) < execSnapshotHeaderSize {
 		return "", false
@@ -53,7 +56,7 @@ func decodeExecStringArraySnapshot(ctx *Context, val uint64, argName string) (st
 		if envStatus == -1 && envCount == 0 {
 			return fmt.Sprintf("%#x", val), true
 		}
-		if ctx.Opts.VerboseValue() {
+		if ctx.Opts.NoAbbrevFor(ctx.ScMeta.Name) {
 			envOffset := execSnapshotHeaderSize + execArgSnapshotCount*execArgSnapshotSize
 			return decodeExecSnapshotRecords(ctx, snapshot, envOffset, envCount, envStatus, envNext, execEnvSnapshotCount)
 		}
@@ -77,7 +80,7 @@ func decodeExecStringArraySnapshot(ctx *Context, val uint64, argName string) (st
 	if argvStatus == -1 && argvCount == 0 {
 		return fmt.Sprintf("%#x", val), true
 	}
-	if !ctx.Opts.VerboseValue() && argvCount > execArgDisplayCount {
+	if !ctx.Opts.NoAbbrevFor(ctx.ScMeta.Name) && argvCount > execArgDisplayCount {
 		argvCount = execArgDisplayCount
 		argvStatus = 1
 	}

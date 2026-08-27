@@ -11,9 +11,11 @@ import (
 )
 
 type syscallFilterInput struct {
-	names   map[string]bool
-	regexps []*regexp.Regexp
-	negated bool
+	names      map[string]bool
+	regexps    []*regexp.Regexp
+	configured bool
+	matchesAll bool
+	negated    bool
 }
 
 type syscallFilterPlan struct {
@@ -23,10 +25,7 @@ type syscallFilterPlan struct {
 }
 
 func buildSyscallFilterPlan(input syscallFilterInput) syscallFilterPlan {
-	if len(input.names) == 0 && len(input.regexps) == 0 {
-		return syscallFilterPlan{}
-	}
-	if input.names["all"] || input.names["%all"] {
+	if !input.configured || input.matchesAll {
 		return syscallFilterPlan{}
 	}
 
