@@ -1,0 +1,429 @@
+package cli
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+)
+
+const maxStringLimit = 1<<30 - 1
+
+// IMPACT: parseShortOptions expands one short-option cluster left to right.
+// A value-taking option consumes the remainder of the cluster or the next argument.
+func parseShortOptions(args []string, index *int, opts *Options) {
+	arg := args[*index]
+	cluster := arg[1:]
+	for offset := 0; offset < len(cluster); offset++ {
+		flag := cluster[offset]
+		if shortOptionTakesValue(flag) {
+			value := cluster[offset+1:]
+			if value == "" {
+				value = consumeOptionValue(args, index, "-"+string(flag))
+			}
+			applyValueOption("-"+string(flag), value, opts)
+			return
+		}
+		applyShortBoolean(flag, opts)
+	}
+}
+
+func shortOptionTakesValue(flag byte) bool {
+	return strings.ContainsRune("eoasPXpEb", rune(flag))
+}
+
+func applyShortBoolean(flag byte, opts *Options) {
+	if applyShortControlFlag(flag, opts) || applyShortRenderFlag(flag, opts) {
+		return
+	}
+	failOption("unrecognized option '-%c'", flag)
+}
+
+func applyShortControlFlag(flag byte, opts *Options) bool {
+	switch flag {
+	case 'A':
+		opts.OutAppendMode = true
+	case 'f':
+		if opts.FollowForks {
+			failOption("option '-ff' is not implemented yet")
+		}
+		opts.FollowForks = true
+	case 'v':
+		opts.Verbose = true
+	case 'c':
+		setSummaryOnly(opts)
+	case 'C':
+		setSummaryAndPrint(opts)
+	case 'w':
+		opts.WallTime = true
+	case 'h':
+		opts.HelpRequested = true
+	case 'V':
+		opts.VersionRequested = true
+	default:
+		return false
+	}
+	return true
+}
+
+func applyShortRenderFlag(flag byte, opts *Options) bool {
+	switch flag {
+	case 'y':
+		applyDecodeFDMode(opts, nextRepeatedMode(opts.ShowPathsMode, 2))
+	case 't':
+		opts.PrintTimeMode = nextRepeatedMode(opts.PrintTimeMode, 3)
+	case 'r':
+		opts.PrintRelativeTime = true
+	case 'T':
+		opts.PrintSyscallTime = true
+	case 'k':
+		opts.StackTrace = true
+	case 'z':
+		setSuccessfulOnly(opts)
+	case 'Z':
+		setFailedOnly(opts)
+	case 'x':
+		opts.HexEscapeMode = nextRepeatedMode(opts.HexEscapeMode, 2)
+	case 'q':
+		applyShortQuiet(opts)
+	default:
+		return false
+	}
+	return true
+}
+
+func nextRepeatedMode(current, maximum int) int {
+	if current < maximum {
+		return current + 1
+	}
+	return maximum
+}
+
+func applyShortQuiet(opts *Options) {
+	opts.quietLevel++
+	if opts.quietLevel >= 2 {
+		opts.QuietExit = true
+		opts.QuietUnknownPid = true
+	}
+	if opts.quietLevel >= 3 {
+		opts.QuietThreadExecve = true
+	}
+}
+
+type longOptionState struct {
+	args           []string
+	index          *int
+	opts           *Options
+	arg            string
+	name           string
+	inlineValue    string
+	hasInlineValue bool
+}
+
+// IMPACT: parseLongOption normalizes one long option onto the same fields used
+// by short flags. Domain parsers keep each option family explicit and bounded.
+func parseLongOption(args []string, index *int, opts *Options) {
+	arg := args[*index]
+	name, inlineValue, hasInlineValue := splitLongOption(arg)
+	state := &longOptionState{
+		args:           args,
+		index:          index,
+		opts:           opts,
+		arg:            arg,
+		name:           name,
+		inlineValue:    inlineValue,
+		hasInlineValue: hasInlineValue,
+	}
+	if parseLongProjectOption(state) || parseLongTargetOption(state) ||
+		parseLongControlOption(state) || parseLongRenderOption(state) ||
+		parseLongValueOption(state) {
+		return
+	}
+	failOption("unrecognized option '%s'", arg)
+}
+
+func parseLongProjectOption(state *longOptionState) bool {
+	switch state.name {
+	case "mode":
+		failOption("--mode has been removed; strace-go always uses pure eBPF tracing")
+	case "event-format":
+		state.opts.EventFormat = requiredLongValue(state)
+		validateEventFormat(state.opts.EventFormat)
+	case "debug-events":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		state.opts.EventFormat = EventFormatJSON
+		state.opts.DebugEvents = true
+	case "debug-phases":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		state.opts.EventFormat = EventFormatJSON
+		state.opts.DebugPhases = true
+	default:
+		return false
+	}
+	return true
+}
+
+func parseLongTargetOption(state *longOptionState) bool {
+	switch state.name {
+	case "trace":
+		parseTraceSet(requiredLongValue(state), state.opts)
+	case "trace-path":
+		state.opts.TracePaths[requiredLongValue(state)] = true
+	case "trace-fds", "trace-fd":
+		parseTraceFDSet(requiredLongValue(state), state.opts)
+	case "env":
+		state.opts.EnvActions = append(state.opts.EnvActions, requiredLongValue(state))
+	case "attach":
+		parseAttachPIDs(requiredLongValue(state), state.opts)
+	case "detach-on":
+		applyValueOption("-b", requiredLongValue(state), state.opts)
+	default:
+		return false
+	}
+	return true
+}
+
+func parseLongControlOption(state *longOptionState) bool {
+	switch state.name {
+	case "output-append-mode":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		state.opts.OutAppendMode = true
+	case "follow-forks":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		state.opts.FollowForks = true
+	case "no-abbrev":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		state.opts.Verbose = true
+	case "summary-only":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		setSummaryOnly(state.opts)
+	case "summary":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		setSummaryAndPrint(state.opts)
+	case "summary-wall-clock":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		state.opts.WallTime = true
+	case "help":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		state.opts.HelpRequested = true
+	case "version":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		state.opts.VersionRequested = true
+	default:
+		return false
+	}
+	return true
+}
+
+func parseLongRenderOption(state *longOptionState) bool {
+	switch state.name {
+	case "decode-fds":
+		parseDecodeFDValue(optionalLongValue(state.inlineValue, state.hasInlineValue, "path"), state.opts)
+	case "relative-timestamps":
+		parseFixedPrecision(state.arg, optionalLongValue(state.inlineValue, state.hasInlineValue, "us"))
+		state.opts.PrintRelativeTime = true
+	case "syscall-times":
+		parseFixedPrecision(state.arg, optionalLongValue(state.inlineValue, state.hasInlineValue, "us"))
+		state.opts.PrintSyscallTime = true
+	case "stack-trace":
+		if state.hasInlineValue && state.inlineValue != "" {
+			failOption("stack trace mode '%s' conflicts with the pure eBPF address-only contract", state.inlineValue)
+		}
+		state.opts.StackTrace = true
+	case "successful-only":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		setSuccessfulOnly(state.opts)
+	case "failed-only":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		setFailedOnly(state.opts)
+	case "strings-in-hex":
+		parseStringsInHex(state.arg, optionalLongValue(state.inlineValue, state.hasInlineValue, "non-ascii"), state.opts)
+	default:
+		return false
+	}
+	return true
+}
+
+func parseLongValueOption(state *longOptionState) bool {
+	switch state.name {
+	case "columns":
+		applyValueOption("-a", requiredLongValue(state), state.opts)
+	case "output":
+		applyValueOption("-o", requiredLongValue(state), state.opts)
+	case "string-limit":
+		applyValueOption("-s", requiredLongValue(state), state.opts)
+	case "const-print-style":
+		applyValueOption("-X", requiredLongValue(state), state.opts)
+	case "status", "read", "write", "verbose":
+		parseEFlag(state.name+"="+requiredLongValue(state), state.opts)
+	case "quiet":
+		parseLongQuiet(optionalLongValue(state.inlineValue, state.hasInlineValue, "attach,personality"), state.opts)
+	default:
+		return false
+	}
+	return true
+}
+
+func splitLongOption(arg string) (string, string, bool) {
+	name, value, found := strings.Cut(strings.TrimPrefix(arg, "--"), "=")
+	return name, value, found
+}
+
+func requiredLongValue(state *longOptionState) string {
+	if state.hasInlineValue {
+		return state.inlineValue
+	}
+	return consumeOptionValue(state.args, state.index, state.arg)
+}
+
+func optionalLongValue(inlineValue string, hasInlineValue bool, defaultValue string) string {
+	if hasInlineValue {
+		return inlineValue
+	}
+	return defaultValue
+}
+
+func consumeOptionValue(args []string, index *int, option string) string {
+	if *index+1 >= len(args) {
+		failOption("option '%s' requires an argument", option)
+		return ""
+	}
+	*index++
+	return args[*index]
+}
+
+func rejectLongValue(arg string, hasInlineValue bool) {
+	if hasInlineValue {
+		failOption("option '%s' does not allow an argument", arg)
+	}
+}
+
+func applyValueOption(flag, value string, opts *Options) {
+	switch flag {
+	case "-o":
+		opts.OutFile = value
+	case "-a":
+		opts.AlignCol = parseBoundedInt(value, 1, int(^uint(0)>>1), "invalid -a argument")
+	case "-s":
+		opts.StringLimit = parseBoundedInt(value, 0, maxStringLimit, "invalid -s argument")
+	case "-P":
+		opts.TracePaths[value] = true
+	case "-p":
+		parseAttachPIDs(value, opts)
+	case "-e":
+		parseEFlag(value, opts)
+	case "-X":
+		validateXlatFormat(value)
+		opts.XlatFormat = value
+	case "-E":
+		opts.EnvActions = append(opts.EnvActions, value)
+	case "-b":
+		if value != "execve" {
+			failOption("Syscall '%s' for -b isn't supported", value)
+		}
+	}
+}
+
+func parseAttachPIDs(value string, opts *Options) {
+	for _, item := range strings.Split(value, ",") {
+		pid, err := strconv.Atoi(item)
+		if err != nil || pid <= 0 {
+			failOption("Invalid process id: '%s'", item)
+		}
+		opts.AttachPids = append(opts.AttachPids, pid)
+	}
+}
+
+func parseBoundedInt(value string, minimum, maximum int, label string) int {
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed < int64(minimum) || parsed > int64(maximum) {
+		failOption("%s: '%s'", label, value)
+	}
+	return int(parsed)
+}
+
+func validateXlatFormat(value string) {
+	switch value {
+	case "raw", "abbrev", "verbose":
+		return
+	default:
+		failOption("invalid -X argument: '%s'", value)
+	}
+}
+
+func validateEventFormat(format string) {
+	switch format {
+	case EventFormatText, EventFormatJSON, EventFormatNone, EventFormatReader, EventFormatHandler:
+		return
+	default:
+		failOption("unsupported --event-format value '%s'", format)
+	}
+}
+
+func parseDecodeFDValue(value string, opts *Options) {
+	switch value {
+	case "none":
+		applyDecodeFDMode(opts, 0)
+	case "path":
+		applyDecodeFDMode(opts, 1)
+	case "all":
+		applyDecodeFDMode(opts, 2)
+	default:
+		failOption("decode-fds value '%s' is not implemented yet", value)
+	}
+}
+
+func applyDecodeFDMode(opts *Options, mode int) {
+	opts.ShowPathsMode = mode
+	opts.ShowPaths = mode > 0
+}
+
+func parseFixedPrecision(arg, value string) {
+	if value != "us" {
+		failOption("precision '%s' for %s is not implemented yet", value, arg)
+	}
+}
+
+func parseStringsInHex(arg, value string, opts *Options) {
+	switch value {
+	case "non-ascii":
+		opts.HexEscapeMode = 1
+	case "all":
+		opts.HexEscapeMode = 2
+	default:
+		failOption("invalid %s argument: '%s'", strings.SplitN(arg, "=", 2)[0], value)
+	}
+}
+
+func parseLongQuiet(value string, opts *Options) {
+	parseQuietSet(value, opts)
+}
+
+func setSummaryOnly(opts *Options) {
+	if opts.SummaryAndPrint {
+		failOption("-c/--summary-only and -C/--summary are mutually exclusive")
+	}
+	opts.SummaryOnly = true
+}
+
+func setSummaryAndPrint(opts *Options) {
+	if opts.SummaryOnly {
+		failOption("-c/--summary-only and -C/--summary are mutually exclusive")
+	}
+	opts.SummaryAndPrint = true
+}
+
+func setSuccessfulOnly(opts *Options) {
+	opts.SuccessfulOnly = true
+	opts.FailedOnly = false
+}
+
+func setFailedOnly(opts *Options) {
+	opts.FailedOnly = true
+	opts.SuccessfulOnly = false
+}
+
+func failOption(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "%s: %s\n", os.Args[0], fmt.Sprintf(format, args...))
+	os.Exit(1)
+}

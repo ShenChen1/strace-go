@@ -3,10 +3,7 @@
 package cli
 
 import (
-	"fmt"
-	"os"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
@@ -62,6 +59,7 @@ type Options struct {
 	EnvActions           []string // -E
 	OutAppendMode        bool
 	WallTime             bool // -w
+	quietLevel           int
 }
 
 // IMPACT: ParseArgs parses strace-go command-line arguments and returns Options.
@@ -84,265 +82,20 @@ func ParseArgs(args []string) *Options {
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if !strings.HasPrefix(arg, "-") {
+		if arg == "--" {
+			opts.CmdArgs = append([]string(nil), args[i+1:]...)
+			break
+		}
+		if arg == "-" || !strings.HasPrefix(arg, "-") {
 			opts.CmdArgs = args[i:]
 			break
 		}
-
-		if parseQuiet(arg, opts) {
-			continue
-		}
-		if parseBasicFlags(arg, opts) {
-			continue
-		}
-		if parseTraceFlags(arg, opts) {
-			continue
-		}
-		if parseValueFlag(args, &i, opts) {
-			continue
+		if strings.HasPrefix(arg, "--") {
+			parseLongOption(args, &i, opts)
+		} else {
+			parseShortOptions(args, &i, opts)
 		}
 	}
 
 	return opts
-}
-
-// IMPACT: parseQuiet parses quiet flags like -q, -qq, -qqq, and --quiet.
-func parseQuiet(arg string, opts *Options) bool {
-	if arg == "-q" {
-		return true
-	}
-	if arg == "-qq" {
-		opts.QuietExit = true
-		opts.QuietUnknownPid = true
-		return true
-	}
-	if arg == "-qqq" {
-		opts.QuietExit = true
-		opts.QuietUnknownPid = true
-		opts.QuietThreadExecve = true
-		return true
-	}
-	if strings.HasPrefix(arg, "--quiet=") {
-		val := strings.TrimPrefix(arg, "--quiet=")
-		for _, item := range strings.Split(val, ",") {
-			if item == "exit" || item == "all" {
-				opts.QuietExit = true
-			}
-			if item == "all" {
-				opts.QuietUnknownPid = true
-			}
-			if item == "thread-execve" || item == "all" {
-				opts.QuietThreadExecve = true
-			}
-		}
-		return true
-	}
-	return false
-}
-
-// IMPACT: parseBasicFlags parses boolean flags such as fork following, help, version and verbose.
-func parseBasicFlags(arg string, opts *Options) bool {
-	switch {
-	case strings.HasPrefix(arg, "-ve") && len(arg) > 3:
-		opts.Verbose = true
-		parseEFlag(arg[3:], opts)
-	case arg == "-A" || arg == "--output-append-mode":
-		opts.OutAppendMode = true
-	case arg == "-f":
-		opts.FollowForks = true
-	case arg == "-v" || arg == "--no-abbrev":
-		opts.Verbose = true
-	case arg == "-c":
-		opts.SummaryOnly = true
-	case arg == "-C":
-		opts.SummaryAndPrint = true
-	case arg == "-w" || arg == "--summary-wall-clock":
-		opts.WallTime = true
-	case arg == "-h" || arg == "--help":
-		opts.HelpRequested = true
-	case arg == "-V" || arg == "--version":
-		opts.VersionRequested = true
-	case arg == "-y":
-		opts.ShowPaths = true
-		if opts.ShowPathsMode == 1 {
-			opts.ShowPathsMode = 2
-		} else if opts.ShowPathsMode == 0 {
-			opts.ShowPathsMode = 1
-		}
-	case arg == "--decode-fds" || arg == "--decode-fds=path":
-		opts.ShowPaths = true
-		if opts.ShowPathsMode == 0 {
-			opts.ShowPathsMode = 1
-		}
-	case arg == "-t":
-		opts.PrintTimeMode = 1
-	case arg == "-tt":
-		opts.PrintTimeMode = 2
-	case arg == "-ttt":
-		opts.PrintTimeMode = 3
-	case arg == "-r":
-		opts.PrintRelativeTime = true
-	case arg == "-T":
-		opts.PrintSyscallTime = true
-	case arg == "-k" || arg == "--stack-trace":
-		opts.StackTrace = true
-	case arg == "-z":
-		opts.SuccessfulOnly = true
-	case arg == "-Z":
-		opts.FailedOnly = true
-	case arg == "-yy" || arg == "--decode-fds=all":
-		opts.ShowPaths = true
-		opts.ShowPathsMode = 2
-	case arg == "-x":
-		if opts.HexEscapeMode == 1 {
-			opts.HexEscapeMode = 2
-		} else if opts.HexEscapeMode == 0 {
-			opts.HexEscapeMode = 1
-		}
-	case arg == "-xx":
-		opts.HexEscapeMode = 2
-	case strings.HasPrefix(arg, "-v") && len(arg) > 2:
-		opts.Verbose = true
-	default:
-		return false
-	}
-	return true
-}
-
-// IMPACT: parseTraceFlags parses long trace flags: --trace and --trace-path.
-func parseTraceFlags(arg string, opts *Options) bool {
-	if arg == "--mode" || strings.HasPrefix(arg, "--mode=") {
-		fmt.Fprintf(os.Stderr, "%s: --mode has been removed; strace-go always uses pure eBPF tracing\n", os.Args[0])
-		os.Exit(1)
-		return true
-	}
-	if strings.HasPrefix(arg, "--event-format=") {
-		opts.EventFormat = strings.TrimPrefix(arg, "--event-format=")
-		validateEventFormat(opts.EventFormat)
-		return true
-	}
-	if arg == "--debug-events" {
-		opts.EventFormat = EventFormatJSON
-		opts.DebugEvents = true
-		return true
-	}
-	if arg == "--debug-phases" {
-		opts.EventFormat = EventFormatJSON
-		opts.DebugPhases = true
-		return true
-	}
-	if strings.HasPrefix(arg, "--trace=") {
-		val := strings.TrimPrefix(arg, "--trace=")
-		for _, s := range strings.Split(val, ",") {
-			addSyscallTrace(opts, s)
-		}
-		return true
-	}
-	if strings.HasPrefix(arg, "--trace-path=") {
-		opts.TracePaths[strings.TrimPrefix(arg, "--trace-path=")] = true
-		return true
-	}
-	if strings.HasPrefix(arg, "--trace-fds=") {
-		parseTraceFDSet(strings.TrimPrefix(arg, "--trace-fds="), opts)
-		return true
-	}
-	if strings.HasPrefix(arg, "--trace-fd=") {
-		parseTraceFDSet(strings.TrimPrefix(arg, "--trace-fd="), opts)
-		return true
-	}
-	if strings.HasPrefix(arg, "--env=") {
-		opts.EnvActions = append(opts.EnvActions, strings.TrimPrefix(arg, "--env="))
-		return true
-	}
-	if strings.HasPrefix(arg, "--attach=") {
-		val := strings.TrimPrefix(arg, "--attach=")
-		for _, s := range strings.Split(val, ",") {
-			pid, err := strconv.Atoi(s)
-			if err != nil || pid <= 0 {
-				fmt.Fprintf(os.Stderr, "%s: Invalid process id: '%s'\n", os.Args[0], s)
-				os.Exit(1)
-			}
-			opts.AttachPids = append(opts.AttachPids, pid)
-		}
-		return true
-	}
-	return false
-}
-
-func validateEventFormat(format string) {
-	switch format {
-	case EventFormatText, EventFormatJSON, EventFormatNone, EventFormatReader, EventFormatHandler:
-		return
-	default:
-		fmt.Fprintf(os.Stderr, "%s: unsupported --event-format value '%s'\n", os.Args[0], format)
-		os.Exit(1)
-	}
-}
-
-// IMPACT: parseValueFlag parses flags that take additional arguments.
-func parseValueFlag(args []string, i *int, opts *Options) bool {
-	arg := args[*i]
-	var val string
-	foundVal := false
-	flag := ""
-
-	for _, f := range []string{"-e", "-o", "-a", "-s", "-P", "-X", "-p", "-E", "-b", "--detach-on="} {
-		if strings.HasPrefix(arg, f) {
-			flag = f
-			if len(arg) > len(f) {
-				val = arg[len(f):]
-				foundVal = true
-			}
-			break
-		}
-	}
-
-	if flag == "" {
-		return false
-	}
-
-	if !foundVal && *i+1 < len(args) {
-		*i++
-		val = args[*i]
-		foundVal = true
-	}
-
-	if foundVal {
-		applyValueFlag(flag, val, opts)
-	}
-	return true
-}
-
-// IMPACT: applyValueFlag applies value-based flags to the configuration.
-func applyValueFlag(flag string, val string, opts *Options) {
-	switch flag {
-	case "-o":
-		opts.OutFile = val
-	case "-a":
-		fmt.Sscanf(val, "%d", &opts.AlignCol)
-	case "-s":
-		fmt.Sscanf(val, "%d", &opts.StringLimit)
-	case "-P":
-		opts.TracePaths[val] = true
-	case "-p":
-		for _, s := range strings.Split(val, ",") {
-			pid, err := strconv.Atoi(s)
-			if err != nil || pid <= 0 {
-				fmt.Fprintf(os.Stderr, "%s: Invalid process id: '%s'\n", os.Args[0], s)
-				os.Exit(1)
-			}
-			opts.AttachPids = append(opts.AttachPids, pid)
-		}
-	case "-e":
-		parseEFlag(val, opts)
-	case "-X":
-		opts.XlatFormat = val
-	case "-E":
-		opts.EnvActions = append(opts.EnvActions, val)
-	case "-b", "--detach-on=":
-		if val != "execve" {
-			fmt.Fprintf(os.Stderr, "%s: Syscall '%s' for -b isn't supported\n", os.Args[0], val)
-			os.Exit(1)
-		}
-	}
 }

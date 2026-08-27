@@ -142,7 +142,7 @@ func TestSyscallEventContextUsesDecodeCapabilityBoundaries(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.showPaths {
-				deps.handlerOpts = cli.ParseArgs([]string{"--show-paths"})
+				deps.handlerOpts = cli.ParseArgs([]string{"--decode-fds=path"})
 			}
 			ev := newSyscallEventContextFromViewWithDeps(
 				deps,

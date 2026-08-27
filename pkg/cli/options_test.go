@@ -22,6 +22,68 @@ func TestParseCombinedVerboseTraceFlag(t *testing.T) {
 	}
 }
 
+func TestParseCombinedShortFlags(t *testing.T) {
+	opts := ParseArgs([]string{"-ct", "/bin/true"})
+
+	if !opts.SummaryOnly || opts.PrintTimeMode != 1 {
+		t.Fatalf("combined flags = summary:%v time:%d, want true/1", opts.SummaryOnly, opts.PrintTimeMode)
+	}
+}
+
+func TestParseImplementedLongAliases(t *testing.T) {
+	opts := ParseArgs([]string{
+		"--follow-forks",
+		"--successful-only",
+		"--columns=48",
+		"--output=trace.log",
+		"--string-limit=64",
+		"--const-print-style=raw",
+		"--relative-timestamps",
+		"--syscall-times",
+		"--strings-in-hex=all",
+		"--status=successful",
+		"--read=0",
+		"--write=1",
+		"/bin/true",
+	})
+
+	if !opts.FollowForks || !opts.SuccessfulOnly {
+		t.Fatalf("long boolean aliases = follow:%v successful:%v, want true/true", opts.FollowForks, opts.SuccessfulOnly)
+	}
+	if opts.AlignCol != 48 || opts.OutFile != "trace.log" || opts.StringLimit != 64 || opts.XlatFormat != "raw" {
+		t.Fatalf("long value aliases = column:%d output:%q limit:%d xlat:%q", opts.AlignCol, opts.OutFile, opts.StringLimit, opts.XlatFormat)
+	}
+	if !opts.PrintRelativeTime || !opts.PrintSyscallTime || opts.HexEscapeMode != 2 {
+		t.Fatalf("long render aliases = relative:%v duration:%v hex:%d", opts.PrintRelativeTime, opts.PrintSyscallTime, opts.HexEscapeMode)
+	}
+	if !opts.TraceStatus["successful"] || !opts.TraceReadFD(0) || !opts.TraceWriteFD(1) {
+		t.Fatalf("long qualifier aliases = status:%v read:%v write:%v", opts.TraceStatus, opts.TraceReadFDs, opts.TraceWriteFDs)
+	}
+}
+
+func TestParseLongSummaryAliases(t *testing.T) {
+	if opts := ParseArgs([]string{"--summary-only", "/bin/true"}); !opts.SummaryOnly {
+		t.Fatal("--summary-only did not enable summary-only mode")
+	}
+	if opts := ParseArgs([]string{"--summary", "/bin/true"}); !opts.SummaryAndPrint {
+		t.Fatal("--summary did not enable summary-and-print mode")
+	}
+	if opts := ParseArgs([]string{"--failed-only", "/bin/true"}); !opts.FailedOnly {
+		t.Fatal("--failed-only did not enable failed-only filtering")
+	}
+}
+
+func TestParseOptionTerminator(t *testing.T) {
+	opts := ParseArgs([]string{"-f", "--", "-command", "argument"})
+
+	if !opts.FollowForks {
+		t.Fatal("-f did not enable fork following")
+	}
+	if got := strings.Join(opts.CmdArgs, " "); got != "-command argument" {
+		t.Fatalf("CmdArgs = %q, want option-terminated command", got)
+	}
+}
+
 func TestParseTraceClassAndAliases(t *testing.T) {
 	opts := ParseArgs([]string{"-e", "trace=%process,rename", "/bin/true"})
 
@@ -240,5 +302,67 @@ func TestParseModeFlagRejected(t *testing.T) {
 	msg := stderr.String()
 	if !strings.Contains(msg, "--mode has been removed") || !strings.Contains(msg, "pure eBPF") {
 		t.Fatalf("stderr = %q, want removed-mode pure-eBPF message", msg)
+	}
+}
+
+func TestParseInvalidOptionRejected(t *testing.T) {
+	if os.Getenv("STRACE_GO_PARSE_INVALID_EXIT") == "1" {
+		ParseArgs([]string{"--definitely-unknown", "/bin/true"})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestParseInvalidOptionRejected")
+	cmd.Env = append(os.Environ(), "STRACE_GO_PARSE_INVALID_EXIT=1")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok || exitErr.ExitCode() != 1 {
+		t.Fatalf("ParseArgs(unknown) exit = %v, want status 1; stderr=%q", err, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "unrecognized option '--definitely-unknown'") {
+		t.Fatalf("stderr = %q, want unrecognized option diagnostic", stderr.String())
+	}
+}
+
+func TestParseInvalidValueRejected(t *testing.T) {
+	caseID := os.Getenv("STRACE_GO_PARSE_INVALID_VALUE")
+	if caseID != "" {
+		argsByCase := map[string][]string{
+			"columns": {"--columns=-1", "/bin/true"},
+			"limit":   {"--string-limit=-1", "/bin/true"},
+			"xlat":    {"--const-print-style=test", "/bin/true"},
+			"missing": {"--output"},
+		}
+		ParseArgs(argsByCase[caseID])
+		return
+	}
+
+	tests := []struct {
+		name string
+		want string
+	}{
+		{name: "columns", want: "invalid -a argument: '-1'"},
+		{name: "limit", want: "invalid -s argument: '-1'"},
+		{name: "xlat", want: "invalid -X argument: 'test'"},
+		{name: "missing", want: "option '--output' requires an argument"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=TestParseInvalidValueRejected")
+			cmd.Env = append(os.Environ(), "STRACE_GO_PARSE_INVALID_VALUE="+test.name)
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			exitErr, ok := err.(*exec.ExitError)
+			if !ok || exitErr.ExitCode() != 1 {
+				t.Fatalf("ParseArgs(%s) exit = %v, want status 1; stderr=%q", test.name, err, stderr.String())
+			}
+			if !strings.Contains(stderr.String(), test.want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), test.want)
+			}
+		})
 	}
 }
