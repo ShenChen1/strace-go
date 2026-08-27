@@ -28,10 +28,15 @@ func (tf *TimeFormatter) Prefix(enterTimeMonoNs uint64, policy traceTimePolicy) 
 		return ""
 	}
 	options := policy.TimeOptions()
-	if options.printTimeMode == 0 && !options.printRelativeTime {
+	if options.absoluteFormat == "" && !options.printRelativeTime {
 		return ""
 	}
 
+	absolutePrefix := ""
+	if options.absoluteFormat != "" {
+		realTimeNs := int64(enterTimeMonoNs) + tf.bootTimeOffsetNs
+		absolutePrefix = formatAbsoluteTimestamp(realTimeNs, options.absoluteFormat, options.absolutePrecision)
+	}
 	if options.printRelativeTime {
 		var diff uint64
 		if tf.lastSyscallTimeNs != 0 {
@@ -40,30 +45,47 @@ func (tf *TimeFormatter) Prefix(enterTimeMonoNs uint64, policy traceTimePolicy) 
 			}
 		}
 		tf.lastSyscallTimeNs = enterTimeMonoNs
-		return formatSecondsUsec(diff)
+		relative := formatSeconds(diff, options.relativePrecision, 6)
+		if absolutePrefix != "" {
+			return absolutePrefix + " (+" + relative + ") "
+		}
+		return relative + " "
 	}
-
-	realTimeNs := int64(enterTimeMonoNs) + tf.bootTimeOffsetNs
-	t := time.Unix(0, realTimeNs)
-
-	switch options.printTimeMode {
-	case 3:
-		sec := realTimeNs / 1e9
-		usec := (realTimeNs % 1e9) / 1000
-		return fmt.Sprintf("%d.%06d ", sec, usec)
-	case 2:
-		return t.Format("15:04:05.000000") + " "
-	case 1:
-		return t.Format("15:04:05") + " "
-	default:
-		return ""
-	}
+	return absolutePrefix + " "
 }
 
-func formatSecondsUsec(ns uint64) string {
+func formatSeconds(ns uint64, precision int, minimumWidth int) string {
 	sec := ns / 1e9
-	usec := (ns % 1e9) / 1000
-	return fmt.Sprintf("%6d.%06d ", sec, usec)
+	result := fmt.Sprintf("%*d", minimumWidth, sec)
+	if precision == 0 {
+		return result
+	}
+	fraction := (ns % 1e9) / precisionScale(precision)
+	return fmt.Sprintf("%s.%0*d", result, precision, fraction)
+}
+
+func formatAbsoluteTimestamp(realTimeNs int64, format string, precision int) string {
+	seconds := realTimeNs / 1e9
+	base := fmt.Sprintf("%d", seconds)
+	if format == "time" {
+		base = time.Unix(0, realTimeNs).Format("15:04:05")
+	}
+	if precision == 0 {
+		return base
+	}
+	fraction := uint64(realTimeNs % 1e9)
+	return fmt.Sprintf("%s.%0*d", base, precision, fraction/precisionScale(precision))
+}
+
+func precisionScale(precision int) uint64 {
+	switch precision {
+	case 3:
+		return 1_000_000
+	case 6:
+		return 1_000
+	default:
+		return 1
+	}
 }
 
 func (s *traceSession) timePrefix(enterTimeMonoNs uint64) string {

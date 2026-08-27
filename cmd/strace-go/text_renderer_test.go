@@ -110,6 +110,20 @@ func TestTextRendererFastPathAlwaysShowsPID(t *testing.T) {
 	}
 }
 
+func TestTextRendererUsesConfiguredSyscallTimePrecision(t *testing.T) {
+	var output bytes.Buffer
+	opts := &cli.Options{AlignCol: 20, PrintSyscallTime: true, SyscallTimePrecision: "ms"}
+	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState()})
+	renderer.PrintSyscallEvent(syscallEventContext{
+		view: syscallEventView{valid: true, tid: 101, ret: 0, duration: 1_234_567_890},
+		meta: meta.Syscall{Name: "getpid"},
+	}, handler.Result{})
+
+	if got := output.String(); !strings.Contains(got, "<1.234>") {
+		t.Fatalf("millisecond syscall time output = %q", got)
+	}
+}
+
 func TestTextRendererFastPathPrintsSyscallNumber(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{PrintSyscallNumber: true}

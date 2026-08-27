@@ -124,6 +124,22 @@ func TestParseAlwaysShowPIDDoesNotEnableFollowForks(t *testing.T) {
 	}
 }
 
+func TestParseTimestampPrecisions(t *testing.T) {
+	opts := ParseArgs([]string{
+		"--relative-timestamps=ms",
+		"--syscall-times=ns",
+		"--absolute-timestamps=format:unix",
+		"--absolute-timestamps=precision:s",
+		"/bin/true",
+	})
+	if opts.RelativeTimePrecision != "ms" || opts.SyscallTimePrecision != "ns" {
+		t.Fatalf("relative/syscall precision = %q/%q, want ms/ns", opts.RelativeTimePrecision, opts.SyscallTimePrecision)
+	}
+	if opts.AbsoluteTimeFormat != "unix" || opts.AbsoluteTimePrecision != "s" {
+		t.Fatalf("absolute timestamp = %q/%q, want unix/s", opts.AbsoluteTimeFormat, opts.AbsoluteTimePrecision)
+	}
+}
+
 func TestParseTraceClassAndAliases(t *testing.T) {
 	opts := ParseArgs([]string{"-e", "trace=%process,rename", "/bin/true"})
 

@@ -271,9 +271,8 @@ func (r *TextRenderer) durationSuffix(duration uint64) string {
 	if !r.renderOptions().printSyscallTime {
 		return ""
 	}
-	sec := duration / 1e9
-	usec := (duration % 1e9) / 1000
-	return fmt.Sprintf(" <%d.%06d>", sec, usec)
+	options := r.renderOptions()
+	return " <" + formatSeconds(duration, options.syscallTimePrecision, 1) + ">"
 }
 
 func (r *TextRenderer) printStackTrace(stackID int32) {

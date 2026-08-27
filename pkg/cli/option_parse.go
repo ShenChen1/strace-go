@@ -227,11 +227,13 @@ func parseLongRenderOption(state *longOptionState) bool {
 	case "decode-fds":
 		parseDecodeFDValue(optionalLongValue(state.inlineValue, state.hasInlineValue, "path"), state.opts)
 	case "relative-timestamps":
-		parseFixedPrecision(state.arg, optionalLongValue(state.inlineValue, state.hasInlineValue, "us"))
+		state.opts.RelativeTimePrecision = parseTimePrecision(state.arg, optionalLongValue(state.inlineValue, state.hasInlineValue, "us"))
 		state.opts.PrintRelativeTime = true
 	case "syscall-times":
-		parseFixedPrecision(state.arg, optionalLongValue(state.inlineValue, state.hasInlineValue, "us"))
+		state.opts.SyscallTimePrecision = parseTimePrecision(state.arg, optionalLongValue(state.inlineValue, state.hasInlineValue, "us"))
 		state.opts.PrintSyscallTime = true
+	case "absolute-timestamps", "timestamps":
+		parseAbsoluteTimestamp(optionalLongValue(state.inlineValue, state.hasInlineValue, "format:time"), state.opts)
 	case "stack-trace":
 		if state.hasInlineValue && state.inlineValue != "" {
 			failOption("stack trace mode '%s' conflicts with the pure eBPF address-only contract", state.inlineValue)
@@ -394,9 +396,51 @@ func applyDecodeFDMode(opts *Options, mode int) {
 	opts.ShowPaths = mode > 0
 }
 
-func parseFixedPrecision(arg, value string) {
-	if value != "us" {
-		failOption("precision '%s' for %s is not implemented yet", value, arg)
+func parseTimePrecision(arg, value string) string {
+	switch value {
+	case "s", "ms", "us", "ns":
+		return value
+	default:
+		failOption("invalid %s argument: '%s'", strings.SplitN(arg, "=", 2)[0], value)
+		return ""
+	}
+}
+
+func parseAbsoluteTimestamp(value string, opts *Options) {
+	if opts.AbsoluteTimeFormat == "" {
+		opts.AbsoluteTimeFormat = "time"
+		opts.AbsoluteTimePrecision = "s"
+	}
+	for _, token := range strings.Split(value, ",") {
+		if token == "" {
+			continue
+		}
+		key, item, qualified := strings.Cut(token, ":")
+		if qualified {
+			switch key {
+			case "format":
+				setAbsoluteTimeFormat(item, opts)
+			case "precision":
+				opts.AbsoluteTimePrecision = parseTimePrecision("--absolute-timestamps", item)
+			default:
+				failOption("invalid --absolute-timestamps argument: '%s'", token)
+			}
+			continue
+		}
+		if token == "time" || token == "unix" || token == "none" {
+			setAbsoluteTimeFormat(token, opts)
+		} else {
+			opts.AbsoluteTimePrecision = parseTimePrecision("--absolute-timestamps", token)
+		}
+	}
+}
+
+func setAbsoluteTimeFormat(value string, opts *Options) {
+	switch value {
+	case "time", "unix", "none":
+		opts.AbsoluteTimeFormat = value
+	default:
+		failOption("invalid --absolute-timestamps argument: '%s'", value)
 	}
 }
 

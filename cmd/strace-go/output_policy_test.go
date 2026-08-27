@@ -268,12 +268,13 @@ func TestTraceOutputPolicyHandlerOnlyKeepsPipelineWithoutOutput(t *testing.T) {
 
 func TestTraceRenderPolicyPortsCanBeInjected(t *testing.T) {
 	policy := fakeTraceRenderPolicy{options: traceRenderOptions{
-		time:              traceTimeOptions{printRelativeTime: true},
-		followForks:       true,
-		showPID:           true,
-		alignCol:          40,
-		printSyscallTime:  true,
-		quietThreadExecve: true,
+		time:                 traceTimeOptions{printRelativeTime: true, relativePrecision: 6},
+		followForks:          true,
+		showPID:              true,
+		alignCol:             40,
+		printSyscallTime:     true,
+		syscallTimePrecision: 6,
+		quietThreadExecve:    true,
 	}}
 	if got := newTimeFormatter(0).Prefix(1_000_000_000, policy); got != "     0.000000 " {
 		t.Fatalf("fake render time policy = %q", got)

@@ -17,61 +17,65 @@ const (
 
 // Options holds all parsed command-line options.
 type Options struct {
-	CmdArgs              []string
-	Argv0                string
-	Argv0Set             bool
-	AttachPids           []int
-	EventFormat          string
-	DebugEvents          bool
-	DebugPhases          bool
-	OutFile              string
-	AlignCol             int
-	StringLimit          int
-	HexEscapeMode        int // 0 = default, 1 = hex non-ascii (-x), 2 = hex all (-xx)
-	TraceSyscalls        map[string]bool
-	TracePaths           map[string]bool
-	TraceSyscallRegexps  []*regexp.Regexp
-	TraceConfigured      bool
-	TraceMatchesAll      bool
-	TraceSetIsNegated    bool
-	TraceFDs             map[int32]bool
-	TraceFDsNegated      bool
-	TraceReadFDs         map[int32]bool
-	TraceReadFDsNegated  bool
-	TraceWriteFDs        map[int32]bool
-	TraceWriteFDsNegated bool
-	TraceStatus          map[string]bool
-	VerboseDisabled      map[string]bool
-	RawSyscalls          map[string]bool
-	NoAbbrevSyscalls     map[string]bool
-	NoAbbrevConfigured   bool
-	VerboseSyscalls      map[string]bool
-	VerboseConfigured    bool
-	ShowPaths            bool
-	ShowPathsMode        int // 0 = none, 1 = -y, 2 = -yy
-	Verbose              bool
-	HelpRequested        bool
-	VersionRequested     bool
-	SummaryOnly          bool
-	SummaryAndPrint      bool
-	QuietExit            bool
-	QuietUnknownPid      bool
-	QuietThreadExecve    bool
-	FollowForks          bool
-	XlatFormat           string   // "raw", "abbrev", "verbose"
-	PrintTimeMode        int      // 0 = none, 1 = -t (HH:MM:SS), 2 = -tt (HH:MM:SS.UUUUUU), 3 = -ttt (UNIX.UUUUUU)
-	PrintRelativeTime    bool     // -r
-	PrintSyscallTime     bool     // -T
-	PrintSyscallNumber   bool     // -n
-	PrintArgNames        bool     // -N
-	AlwaysShowPID        bool     // --always-show-pid
-	StackTrace           bool     // -k, --stack-trace
-	SuccessfulOnly       bool     // -z
-	FailedOnly           bool     // -Z
-	EnvActions           []string // -E
-	OutAppendMode        bool
-	WallTime             bool // -w
-	quietLevel           int
+	CmdArgs               []string
+	Argv0                 string
+	Argv0Set              bool
+	AttachPids            []int
+	EventFormat           string
+	DebugEvents           bool
+	DebugPhases           bool
+	OutFile               string
+	AlignCol              int
+	StringLimit           int
+	HexEscapeMode         int // 0 = default, 1 = hex non-ascii (-x), 2 = hex all (-xx)
+	TraceSyscalls         map[string]bool
+	TracePaths            map[string]bool
+	TraceSyscallRegexps   []*regexp.Regexp
+	TraceConfigured       bool
+	TraceMatchesAll       bool
+	TraceSetIsNegated     bool
+	TraceFDs              map[int32]bool
+	TraceFDsNegated       bool
+	TraceReadFDs          map[int32]bool
+	TraceReadFDsNegated   bool
+	TraceWriteFDs         map[int32]bool
+	TraceWriteFDsNegated  bool
+	TraceStatus           map[string]bool
+	VerboseDisabled       map[string]bool
+	RawSyscalls           map[string]bool
+	NoAbbrevSyscalls      map[string]bool
+	NoAbbrevConfigured    bool
+	VerboseSyscalls       map[string]bool
+	VerboseConfigured     bool
+	ShowPaths             bool
+	ShowPathsMode         int // 0 = none, 1 = -y, 2 = -yy
+	Verbose               bool
+	HelpRequested         bool
+	VersionRequested      bool
+	SummaryOnly           bool
+	SummaryAndPrint       bool
+	QuietExit             bool
+	QuietUnknownPid       bool
+	QuietThreadExecve     bool
+	FollowForks           bool
+	XlatFormat            string   // "raw", "abbrev", "verbose"
+	PrintTimeMode         int      // 0 = none, 1 = -t (HH:MM:SS), 2 = -tt (HH:MM:SS.UUUUUU), 3 = -ttt (UNIX.UUUUUU)
+	PrintRelativeTime     bool     // -r
+	PrintSyscallTime      bool     // -T
+	AbsoluteTimeFormat    string   // --absolute-timestamps format: time, unix, none
+	AbsoluteTimePrecision string   // --absolute-timestamps precision: s, ms, us, ns
+	RelativeTimePrecision string   // --relative-timestamps precision: s, ms, us, ns
+	SyscallTimePrecision  string   // --syscall-times precision: s, ms, us, ns
+	PrintSyscallNumber    bool     // -n
+	PrintArgNames         bool     // -N
+	AlwaysShowPID         bool     // --always-show-pid
+	StackTrace            bool     // -k, --stack-trace
+	SuccessfulOnly        bool     // -z
+	FailedOnly            bool     // -Z
+	EnvActions            []string // -E
+	OutAppendMode         bool
+	WallTime              bool // -w
+	quietLevel            int
 }
 
 // IMPACT: ParseArgs parses strace-go command-line arguments and returns Options.

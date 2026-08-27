@@ -43,18 +43,22 @@ type traceExitPolicy interface {
 type traceTimeOptions struct {
 	printTimeMode     int
 	printRelativeTime bool
+	absoluteFormat    string
+	absolutePrecision int
+	relativePrecision int
 }
 
 type traceRenderOptions struct {
-	time               traceTimeOptions
-	followForks        bool
-	showPID            bool
-	alignCol           int
-	printSyscallTime   bool
-	printSyscallNumber bool
-	printArgNames      bool
-	stackTrace         bool
-	quietThreadExecve  bool
+	time                 traceTimeOptions
+	followForks          bool
+	showPID              bool
+	alignCol             int
+	printSyscallTime     bool
+	syscallTimePrecision int
+	printSyscallNumber   bool
+	printArgNames        bool
+	stackTrace           bool
+	quietThreadExecve    bool
 }
 
 // traceRenderPolicy exposes the immutable scalar options used by text output.
@@ -138,19 +142,58 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 		quietExit:          opts.QuietExit,
 		attachPIDs:         append([]int(nil), opts.AttachPids...),
 		render: traceRenderOptions{
-			time: traceTimeOptions{
-				printTimeMode:     opts.PrintTimeMode,
-				printRelativeTime: opts.PrintRelativeTime,
-			},
-			followForks:        opts.FollowForks,
-			showPID:            opts.FollowForks || opts.AlwaysShowPID,
-			alignCol:           opts.AlignCol,
-			printSyscallTime:   opts.PrintSyscallTime,
-			printSyscallNumber: opts.PrintSyscallNumber,
-			printArgNames:      opts.PrintArgNames,
-			stackTrace:         opts.StackTrace,
-			quietThreadExecve:  opts.QuietThreadExecve,
+			time:                 normalizedTimeOptions(opts),
+			followForks:          opts.FollowForks,
+			showPID:              opts.FollowForks || opts.AlwaysShowPID,
+			alignCol:             opts.AlignCol,
+			printSyscallTime:     opts.PrintSyscallTime,
+			syscallTimePrecision: timestampPrecisionWidth(opts.SyscallTimePrecision, 6),
+			printSyscallNumber:   opts.PrintSyscallNumber,
+			printArgNames:        opts.PrintArgNames,
+			stackTrace:           opts.StackTrace,
+			quietThreadExecve:    opts.QuietThreadExecve,
 		},
+	}
+}
+
+func normalizedTimeOptions(opts *cli.Options) traceTimeOptions {
+	options := traceTimeOptions{
+		printTimeMode:     opts.PrintTimeMode,
+		printRelativeTime: opts.PrintRelativeTime,
+		relativePrecision: timestampPrecisionWidth(opts.RelativeTimePrecision, 6),
+	}
+	if opts.AbsoluteTimeFormat != "" {
+		if opts.AbsoluteTimeFormat != "none" {
+			options.absoluteFormat = opts.AbsoluteTimeFormat
+			options.absolutePrecision = timestampPrecisionWidth(opts.AbsoluteTimePrecision, 0)
+		}
+		return options
+	}
+	switch opts.PrintTimeMode {
+	case 1:
+		options.absoluteFormat = "time"
+	case 2:
+		options.absoluteFormat = "time"
+		options.absolutePrecision = 6
+	case 3:
+		options.absoluteFormat = "unix"
+		options.absolutePrecision = 6
+	}
+	return options
+}
+
+func timestampPrecisionWidth(precision string, defaultWidth int) int {
+	switch precision {
+	case "s":
+		return 0
+	case "ms":
+		return 3
+	case "us":
+		return 6
+	case "ns":
+		return 9
+	default:
+		return defaultWidth
 	}
 }
 

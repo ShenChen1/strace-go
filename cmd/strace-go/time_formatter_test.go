@@ -43,6 +43,37 @@ func TestTimeFormatterUnixPrefixUsesBootOffset(t *testing.T) {
 	}
 }
 
+func TestTimeFormatterUsesConfiguredNanosecondPrecision(t *testing.T) {
+	formatter := newTimeFormatter(2_000_000_000)
+	policy := newTraceOutputPolicy(&cli.Options{
+		AbsoluteTimeFormat:    "time",
+		AbsoluteTimePrecision: "ns",
+	})
+
+	if got := formatter.Prefix(1_234_567_890, policy); got != "00:00:03.234567890 " {
+		t.Fatalf("nanosecond prefix = %q", got)
+	}
+}
+
+func TestTimeFormatterUsesConfiguredRelativeSecondPrecision(t *testing.T) {
+	formatter := newTimeFormatter(0)
+	policy := newTraceOutputPolicy(&cli.Options{PrintRelativeTime: true, RelativeTimePrecision: "s"})
+	formatter.Prefix(1_000_000_000, policy)
+
+	if got := formatter.Prefix(2_234_567_890, policy); got != "     1 " {
+		t.Fatalf("second relative prefix = %q", got)
+	}
+}
+
+func TestTimeFormatterCombinesAbsoluteAndRelativePrefixes(t *testing.T) {
+	formatter := newTimeFormatter(2_000_000_000)
+	policy := newTraceOutputPolicy(&cli.Options{PrintTimeMode: 2, PrintRelativeTime: true})
+
+	if got := formatter.Prefix(1_234_567_000, policy); got != "00:00:03.234567 (+     0.000000) " {
+		t.Fatalf("combined timestamp prefix = %q", got)
+	}
+}
+
 func TestTimeFormatterReturnsEmptyWhenDisabled(t *testing.T) {
 	formatter := newTimeFormatter(0)
 
