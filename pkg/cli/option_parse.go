@@ -29,7 +29,7 @@ func parseShortOptions(args []string, index *int, opts *Options) {
 }
 
 func shortOptionTakesValue(flag byte) bool {
-	return strings.ContainsRune("eoasPXpEbIO", rune(flag))
+	return strings.ContainsRune("eoasPXpEbIOSU", rune(flag))
 }
 
 func applyShortBoolean(flag byte, opts *Options) {
@@ -275,6 +275,10 @@ func parseLongValueOption(state *longOptionState) bool {
 		applyValueOption("-s", requiredLongValue(state), state.opts)
 	case "const-print-style":
 		applyValueOption("-X", requiredLongValue(state), state.opts)
+	case "summary-sort-by":
+		applyValueOption("-S", requiredLongValue(state), state.opts)
+	case "summary-columns":
+		applyValueOption("-U", requiredLongValue(state), state.opts)
 	case "syscall-limit":
 		state.opts.SyscallLimit = parseSyscallLimit(requiredLongValue(state))
 	case "interruptible":
@@ -357,6 +361,11 @@ func applyValueOption(flag, value string, opts *Options) {
 		rejectArchitectureConflict("-I/--interruptible", "it controls ptrace stop signal blocking")
 	case "-O":
 		rejectArchitectureConflict("-O/--summary-syscall-overhead", "there is no ptrace syscall-stop overhead")
+	case "-S":
+		opts.SummarySortBy = parseSummarySort(value)
+	case "-U":
+		opts.SummaryColumns = parseSummaryColumns(value)
+		opts.SummaryColumnsSet = true
 	}
 }
 

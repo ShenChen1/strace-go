@@ -58,6 +58,9 @@ type Options struct {
 	VersionRequested      bool
 	SummaryOnly           bool
 	SummaryAndPrint       bool
+	SummarySortBy         string
+	SummaryColumns        []string
+	SummaryColumnsSet     bool
 	QuietExit             bool
 	QuietUnknownPid       bool
 	QuietThreadExecve     bool
@@ -121,6 +124,7 @@ func ParseArgs(args []string) *Options {
 			parseShortOptions(args, &i, opts)
 		}
 	}
+	validateParsedOptions(opts)
 
 	return opts
 }
