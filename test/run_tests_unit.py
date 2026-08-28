@@ -110,6 +110,8 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
 
     def test_decode_fds_path_regressions_are_registered(self):
         for test in (
+            "dev--decode-fds-all.gen.test",
+            "dev--decode-fds-dev.gen.test",
             "dev--decode-fds-none.gen.test",
             "dev--decode-fds-path.gen.test",
         ):
