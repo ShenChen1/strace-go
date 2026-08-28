@@ -15,6 +15,13 @@ const (
 	EventFormatHandler = "handler"
 )
 
+const (
+	DecodeFDModeNone = iota
+	DecodeFDModePath
+	DecodeFDModeAll
+	DecodeFDModeDevice
+)
+
 // Options holds all parsed command-line options.
 type Options struct {
 	CmdArgs               []string
@@ -52,7 +59,7 @@ type Options struct {
 	VerboseSyscalls       map[string]bool
 	VerboseConfigured     bool
 	ShowPaths             bool
-	ShowPathsMode         int // 0 = none, 1 = -y, 2 = -yy
+	ShowPathsMode         int
 	Verbose               bool
 	HelpRequested         bool
 	VersionRequested      bool

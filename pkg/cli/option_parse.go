@@ -69,7 +69,7 @@ func applyShortControlFlag(flag byte, opts *Options) bool {
 func applyShortRenderFlag(flag byte, opts *Options) bool {
 	switch flag {
 	case 'y':
-		applyDecodeFDMode(opts, nextRepeatedMode(opts.ShowPathsMode, 2))
+		applyDecodeFDMode(opts, nextRepeatedMode(opts.ShowPathsMode, DecodeFDModeAll))
 	case 't':
 		opts.PrintTimeMode = nextRepeatedMode(opts.PrintTimeMode, 3)
 	case 'r':
@@ -413,11 +413,13 @@ func validateEventFormat(format string) {
 func parseDecodeFDValue(value string, opts *Options) {
 	switch value {
 	case "none":
-		applyDecodeFDMode(opts, 0)
+		applyDecodeFDMode(opts, DecodeFDModeNone)
 	case "path":
-		applyDecodeFDMode(opts, 1)
+		applyDecodeFDMode(opts, DecodeFDModePath)
+	case "dev":
+		applyDecodeFDMode(opts, DecodeFDModeDevice)
 	case "all":
-		applyDecodeFDMode(opts, 2)
+		applyDecodeFDMode(opts, DecodeFDModeAll)
 	default:
 		failOption("decode-fds value '%s' is not implemented yet", value)
 	}

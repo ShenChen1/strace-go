@@ -401,6 +401,14 @@ func TestParseDecodeFDsEFlagPreservesTraceSet(t *testing.T) {
 	}
 }
 
+func TestParseDecodeFDsDeviceMode(t *testing.T) {
+	opts := ParseArgs([]string{"-e", "decode-fds=dev", "/bin/true"})
+
+	if !opts.ShowPaths || opts.ShowPathsMode != DecodeFDModeDevice {
+		t.Fatalf("decode fds = enabled:%v mode:%d, want true/device", opts.ShowPaths, opts.ShowPathsMode)
+	}
+}
+
 func TestParseModeFlagRejected(t *testing.T) {
 	if os.Getenv("STRACE_GO_PARSE_MODE_EXIT") == "1" {
 		ParseArgs([]string{"--mode=compat", "/bin/true"})

@@ -5,12 +5,18 @@ import (
 	"strings"
 )
 
+const (
+	decodeFDModePath   = 1
+	decodeFDModeAll    = 2
+	decodeFDModeDevice = 3
+)
+
 // formatFdArg handles file descriptor scalar values and AT_FDCWD logic.
 func (h *DefaultHandler) formatFdArg(ctx *Context, argName string, val uint64) string {
 	// IMPACT: Only translate AtFdcwd to AT_FDCWD if the argument represents a directory fd (contains "dfd" or "dirfd").
 	if int32(val) == AtFdcwd && (strings.Contains(argName, "dfd") || argName == "dirfd") {
 		s := formatAtFdcwd(ctx)
-		if ctx.Opts == nil || !ctx.Opts.ShowPathsValue() {
+		if !showFDPath(ctx) {
 			return s
 		}
 
@@ -67,13 +73,30 @@ func FormatFdWithPath(ctx *Context, fd int32) string {
 }
 
 func formatFDTarget(ctx *Context, fd int32, target string) string {
-	if ctx.Opts.ShowPathsModeValue() == 2 {
+	mode := ctx.Opts.ShowPathsModeValue()
+	if mode == decodeFDModeAll {
 		return fmt.Sprintf("%d<%s>", fd, formatDetailedPath(ctx, target, fd))
+	}
+	if mode == decodeFDModeDevice {
+		if observation, ok := eventFDState(ctx, fd); ok {
+			if detailed := formatDevicePath(target, observation); detailed != "" {
+				return fmt.Sprintf("%d<%s>", fd, detailed)
+			}
+		}
+		return fmt.Sprintf("%d<%s>", fd, target)
 	}
 	if strings.HasPrefix(target, "socket:[") {
 		target = formatSocketPath(ctx, target, fd)
 	}
 	return fmt.Sprintf("%d<%s>", fd, target)
+}
+
+func showFDPath(ctx *Context) bool {
+	if ctx == nil || ctx.Opts == nil || !ctx.Opts.ShowPathsValue() {
+		return false
+	}
+	mode := ctx.Opts.ShowPathsModeValue()
+	return mode == decodeFDModePath || mode == decodeFDModeAll
 }
 
 func lookupTrackedFDPath(ctx *Context, fd int32) (string, bool) {
@@ -159,7 +182,7 @@ func formatSocketPath(ctx *Context, target string, fd int32) string {
 		return fmt.Sprintf("NETLINK:[%s]", inode)
 	}
 
-	if ctx.Opts != nil && ctx.Opts.ShowPathsModeValue() == 2 {
+	if ctx.Opts != nil && ctx.Opts.ShowPathsModeValue() == decodeFDModeAll {
 		if strings.HasPrefix(domainInfo, "AF_INET") {
 			return fmt.Sprintf("TCP:[%s]", inode)
 		}
