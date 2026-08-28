@@ -79,6 +79,20 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
                 test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
             )
 
+    def test_signal_delivery_regressions_are_registered(self):
+        for test in (
+            "qual_signal.test",
+            "nanosleep.gen.test",
+            "clock_nanosleep.gen.test",
+        ):
+            self.assertIn(test, upstream_suites.MORE_TESTS)
+            self.assertIn(
+                test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
+            )
+        self.assertGreaterEqual(
+            run_tests.UPSTREAM_TEST_TIMEOUT_SECONDS["qual_signal.test"], 180
+        )
+
     def test_registered_tests_exist_in_current_upstream(self):
         valid = {
             name
