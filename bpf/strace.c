@@ -7,6 +7,7 @@ char LICENSE[] SEC("license") = "GPL";
 #include "runtime_abi.h"
 #include "runtime_stats.h"
 #include "lifecycle_event_v2.h"
+#include "signal_event_v2.h"
 
 #include "syscall_direct_event_v2.h"
 #include "syscall_fd_state_direct_event_v2.h"
@@ -54,6 +55,7 @@ char LICENSE[] SEC("license") = "GPL";
 #include "pending_state.h"
 #include "lifecycle_state.h"
 #include "lifecycle_dispatch.h"
+#include "signal_dispatch.h"
 #define STRACE_GO_CORE_ONLY 1
 #include "enter_dispatch.h"
 #include "enter_fragment_dispatch.h"

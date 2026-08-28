@@ -108,6 +108,7 @@ type bpfProgramSpecs struct {
 	TraceSchedProcessExit *ebpf.ProgramSpec `ebpf:"trace_sched_process_exit"`
 	TraceSchedProcessFork *ebpf.ProgramSpec `ebpf:"trace_sched_process_fork"`
 	TraceSchedProcessFree *ebpf.ProgramSpec `ebpf:"trace_sched_process_free"`
+	TraceSignalDeliver    *ebpf.ProgramSpec `ebpf:"trace_signal_deliver"`
 	TraceSysEnter         *ebpf.ProgramSpec `ebpf:"trace_sys_enter"`
 	TraceSysExit          *ebpf.ProgramSpec `ebpf:"trace_sys_exit"`
 }
@@ -248,6 +249,7 @@ type bpfPrograms struct {
 	TraceSchedProcessExit *ebpf.Program `ebpf:"trace_sched_process_exit"`
 	TraceSchedProcessFork *ebpf.Program `ebpf:"trace_sched_process_fork"`
 	TraceSchedProcessFree *ebpf.Program `ebpf:"trace_sched_process_free"`
+	TraceSignalDeliver    *ebpf.Program `ebpf:"trace_signal_deliver"`
 	TraceSysEnter         *ebpf.Program `ebpf:"trace_sys_enter"`
 	TraceSysExit          *ebpf.Program `ebpf:"trace_sys_exit"`
 }
@@ -258,6 +260,7 @@ func (p *bpfPrograms) Close() error {
 		p.TraceSchedProcessExit,
 		p.TraceSchedProcessFork,
 		p.TraceSchedProcessFree,
+		p.TraceSignalDeliver,
 		p.TraceSysEnter,
 		p.TraceSysExit,
 	)

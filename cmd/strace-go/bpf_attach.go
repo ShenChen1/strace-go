@@ -17,6 +17,11 @@ type tracepointSpec struct {
 	name     string
 }
 
+type rawTracepointSpec struct {
+	program *ebpf.Program
+	name    string
+}
+
 // bpfAttacher owns the program attachment policy for the eBPF runtime.
 // It keeps runtime loading separate from program-to-tracepoint wiring and
 // makes that wiring declarative and unit-testable.
@@ -36,7 +41,7 @@ func newBpfAttacherWithPrograms(
 	return &bpfAttacher{core: core, programs: programs}
 }
 
-// attachAll attaches every raw syscall, lifecycle and recvmsg kretprobe program.
+// attachAll attaches every syscall, lifecycle, signal and recvmsg program.
 func (a *bpfAttacher) attachAll() ([]link.Link, error) {
 	if a == nil || a.core == nil {
 		return nil, fmt.Errorf("BPF core resources are nil")
@@ -56,7 +61,7 @@ func (a *bpfAttacher) attachAll() ([]link.Link, error) {
 	return links, nil
 }
 
-// attachRequired owns only the raw syscall and lifecycle links. Partial links
+// attachRequired owns the syscall, lifecycle and signal links. Partial links
 // are returned so the caller can roll them back when a later attach fails.
 func (a *bpfAttacher) attachRequired() ([]link.Link, error) {
 	if a == nil || a.core == nil {
@@ -70,7 +75,12 @@ func (a *bpfAttacher) attachRequired() ([]link.Link, error) {
 	if err != nil {
 		return append(links, lifecycleLinks...), err
 	}
-	return append(links, lifecycleLinks...), nil
+	links = append(links, lifecycleLinks...)
+	signalLink, err := attachRawTracepoint(signalDeliverRawTracepointSpec(a.programs))
+	if err != nil {
+		return links, err
+	}
+	return append(links, signalLink), nil
 }
 
 func (a *bpfAttacher) attachOptionalRecvmsg() (link.Link, error) {
@@ -198,10 +208,18 @@ func lifecycleTracepointSpecs(programs bpfProgramProvider) []tracepointSpec {
 	return bpfCoreTracepointSpecs(programs, bpfLifecycleTracepointCategory)
 }
 
+func signalDeliverRawTracepointSpec(programs bpfProgramProvider) rawTracepointSpec {
+	program, _ := bpfCoreProgramSpecByName(bpfSignalDeliverProgramName)
+	return rawTracepointSpec{
+		program: bpfProgram(programs, program.name),
+		name:    program.tracepoint,
+	}
+}
+
 func bpfCoreTracepointSpecs(programs bpfProgramProvider, category string) []tracepointSpec {
 	specs := make([]tracepointSpec, 0)
 	for _, program := range bpfCoreProgramCatalog {
-		if program.category != category {
+		if program.attachKind != bpfProgramAttachTracepoint || program.category != category {
 			continue
 		}
 		var loaded *ebpf.Program
@@ -215,6 +233,20 @@ func bpfCoreTracepointSpecs(programs bpfProgramProvider, category string) []trac
 		})
 	}
 	return specs
+}
+
+func attachRawTracepoint(spec rawTracepointSpec) (link.Link, error) {
+	if spec.program == nil {
+		return nil, fmt.Errorf("attach raw tracepoint %s: program is unavailable", spec.name)
+	}
+	attached, err := link.AttachRawTracepoint(link.RawTracepointOptions{
+		Name:    spec.name,
+		Program: spec.program,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("attach raw tracepoint %s: %w", spec.name, err)
+	}
+	return attached, nil
 }
 
 // attachTracepoints attaches each required spec and aborts on the first

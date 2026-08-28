@@ -124,6 +124,27 @@ func TestBPFCoreProgramCatalogOwnsTracepointBinding(t *testing.T) {
 	if program.category != "sched" || program.tracepoint != "sched_process_exit" {
 		t.Fatalf("trace_sched_process_exit catalog entry = %+v, want lifecycle binding", program)
 	}
+
+	program, ok = bpfCoreProgramSpecByName(bpfSignalDeliverProgramName)
+	if !ok {
+		t.Fatal("trace_signal_deliver is missing from the core program catalog")
+	}
+	if program.attachKind != bpfProgramAttachRawTracepoint || program.tracepoint != "signal_deliver" {
+		t.Fatalf("trace_signal_deliver catalog entry = %+v, want raw signal binding", program)
+	}
+}
+
+func TestSignalDeliverRawTracepointIsRequired(t *testing.T) {
+	spec := signalDeliverRawTracepointSpec(&bpfObjects{})
+	if spec.name != "signal_deliver" {
+		t.Fatalf("signal raw tracepoint name = %q, want signal_deliver", spec.name)
+	}
+	if spec.program != nil {
+		t.Fatal("empty BPF objects unexpectedly exposed a signal program")
+	}
+	if _, err := attachRawTracepoint(spec); err == nil || !strings.Contains(err.Error(), "program is unavailable") {
+		t.Fatalf("attachRawTracepoint(nil) error = %v, want unavailable program", err)
+	}
 }
 
 func TestBPFCoreProgramCatalogHasUniqueNamesAndTracepoints(t *testing.T) {

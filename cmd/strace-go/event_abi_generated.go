@@ -26,6 +26,7 @@ const (
 	bpfConfigEmitLifecycle                        = 32
 	bpfConfigFdState                              = 64
 	bpfConfigElidePlainEnter                      = 128
+	bpfConfigEmitSignal                           = 256
 	bpfFilterTaskTracked                   uint32 = 1
 	bpfFilterTaskPreExec                   uint32 = 2
 	traceEventV2HeaderLen                         = 40

@@ -10,11 +10,20 @@ type bpfProgramProvider interface {
 const (
 	bpfRawSyscallTracepointCategory = "raw_syscalls"
 	bpfLifecycleTracepointCategory  = "sched"
+	bpfSignalDeliverProgramName     = "trace_signal_deliver"
+)
+
+type bpfProgramAttachKind uint8
+
+const (
+	bpfProgramAttachTracepoint bpfProgramAttachKind = iota
+	bpfProgramAttachRawTracepoint
 )
 
 // bpfCoreProgramSpec owns the generated core program name and its kernel hook.
 type bpfCoreProgramSpec struct {
 	name       string
+	attachKind bpfProgramAttachKind
 	category   string
 	tracepoint string
 	lookup     func(*bpfObjects) *ebpf.Program
@@ -56,6 +65,12 @@ var bpfCoreProgramCatalog = []bpfCoreProgramSpec{
 		category:   bpfLifecycleTracepointCategory,
 		tracepoint: "sched_process_free",
 		lookup:     func(objects *bpfObjects) *ebpf.Program { return objects.TraceSchedProcessFree },
+	},
+	{
+		name:       bpfSignalDeliverProgramName,
+		attachKind: bpfProgramAttachRawTracepoint,
+		tracepoint: "signal_deliver",
+		lookup:     func(objects *bpfObjects) *ebpf.Program { return objects.TraceSignalDeliver },
 	},
 }
 

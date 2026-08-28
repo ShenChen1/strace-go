@@ -32,6 +32,7 @@ var protocolConstants = []protocolConstant{
 	{cName: "CONFIG_EMIT_LIFECYCLE", goName: "bpfConfigEmitLifecycle", cValue: "32"},
 	{cName: "CONFIG_FD_STATE", goName: "bpfConfigFdState", cValue: "64"},
 	{cName: "CONFIG_ELIDE_PLAIN_ENTER", goName: "bpfConfigElidePlainEnter", cValue: "128"},
+	{cName: "CONFIG_EMIT_SIGNAL", goName: "bpfConfigEmitSignal", cValue: "256"},
 	{cName: "FILTER_TASK_TRACKED", goName: "bpfFilterTaskTracked", cValue: "1", goType: "uint32"},
 	{cName: "FILTER_TASK_PRE_EXEC", goName: "bpfFilterTaskPreExec", cValue: "2", goType: "uint32"},
 	{cName: "EVENT_V2_HEADER_LEN", goName: "traceEventV2HeaderLen", cValue: "40"},
