@@ -95,7 +95,7 @@ func composeTraceSession(
 		Runtime:       handler.NewRuntime(),
 		OutWriter:     output,
 		Output:        output,
-		Summary:       newSummaryStats(),
+		Summary:       newConfiguredSummaryStats(config.summaryOptions),
 		TimeFormatter: newTimeFormatterWithClock(calculateTimeOffsetWithClock(clock), clock),
 		StackTraces:   bootstrap.bpfReads.StackTraces,
 		Stats:         bootstrap.bpfReads.Stats,
@@ -333,12 +333,13 @@ func buildTraceSessionEvents(
 	if !base.outputPolicy.DiscardEvents() || isTraceHandlerOnlyPolicy(base.outputPolicy) {
 		contextDeps.contextPool = newHandlerContextRecyclerWithPorts(handlerContextSessionPortsFromDeps(contextDeps))
 		exitPipeline = newSyscallExitPipeline(SyscallExitPipelineDeps{
-			Summary:   base.outputPolicy,
-			JSON:      outputs.syscallJSON,
-			Exit:      outputs.exitSyscall,
-			Runner:    base.handlerRunner,
-			Text:      outputs.syscallText,
-			Finalizer: newTraceSessionSyscallExitFinalizer(deps.Summary, deps.FDState, deps.FDState),
+			Summary:     base.outputPolicy,
+			EventPolicy: base.outputPolicy,
+			JSON:        outputs.syscallJSON,
+			Exit:        outputs.exitSyscall,
+			Runner:      base.handlerRunner,
+			Text:        outputs.syscallText,
+			Finalizer:   newTraceSessionSyscallExitFinalizer(deps.Summary, deps.FDState, deps.FDState),
 		})
 		lifecycle = newLifecycleEventHandler(LifecycleEventHandlerDeps{
 			Policy: base.outputPolicy,

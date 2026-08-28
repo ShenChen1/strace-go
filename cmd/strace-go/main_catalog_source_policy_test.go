@@ -17,7 +17,7 @@ func TestMainCatalogCompositionUsesCLIFormat(t *testing.T) {
 			t.Fatalf("main catalog source contains implicit policy %q", forbidden)
 		}
 	}
-	if !strings.Contains(source, "catalog:      meta.NewCatalog(opts.XlatFormat)") {
+	if !strings.Contains(source, "catalog:") || !strings.Contains(source, "meta.NewCatalog(opts.XlatFormat)") {
 		t.Fatal("session config must create catalog from CLI XlatFormat")
 	}
 }

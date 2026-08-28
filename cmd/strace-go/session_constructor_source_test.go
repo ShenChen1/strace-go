@@ -18,7 +18,7 @@ func TestMainInjectsSessionRuntimeAndSummary(t *testing.T) {
 	if !strings.Contains(source, "Runtime:       handler.NewRuntime()") {
 		t.Fatal("main must inject the session runtime service")
 	}
-	if !strings.Contains(source, "Summary:       newSummaryStats()") {
+	if !strings.Contains(source, "Summary:       newConfiguredSummaryStats(config.summaryOptions)") {
 		t.Fatal("main must inject session summary stats")
 	}
 }

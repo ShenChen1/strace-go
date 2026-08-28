@@ -1,20 +1,22 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"sort"
-	"strconv"
 )
 
 type syscallStat struct {
 	calls    int
 	errors   int
 	duration uint64
+	minimum  uint64
+	maximum  uint64
 }
 
 type SummaryStats struct {
-	stats map[string]*syscallStat
+	stats   map[string]*syscallStat
+	order   []string
+	options summaryOptions
 }
 
 // traceSummaryOwner is only the composition boundary for one shared summary state.
@@ -25,7 +27,15 @@ type traceSummaryOwner interface {
 }
 
 func newSummaryStats() *SummaryStats {
-	return &SummaryStats{}
+	return newConfiguredSummaryStats(defaultSummaryOptions())
+}
+
+func newConfiguredSummaryStats(options summaryOptions) *SummaryStats {
+	options.columns = append([]summaryColumn(nil), options.columns...)
+	if len(options.columns) == 0 {
+		options = defaultSummaryOptions()
+	}
+	return &SummaryStats{options: options}
 }
 
 func (s *traceSession) summaryStats() traceSummaryOwner {
@@ -43,44 +53,23 @@ func (st *SummaryStats) Record(name string, duration uint64, ret int64) {
 	if stat == nil {
 		stat = &syscallStat{}
 		st.stats[name] = stat
+		st.order = append(st.order, name)
 	}
 	stat.calls++
 	stat.duration += duration
+	if stat.calls == 1 || duration < stat.minimum {
+		stat.minimum = duration
+	}
+	if duration > stat.maximum {
+		stat.maximum = duration
+	}
 	if ret < 0 && ret >= -4095 {
 		stat.errors++
 	}
 }
 
 func (st *SummaryStats) Print(w io.Writer) {
-	fmt.Fprintf(w, "%6s %11s %11s %9s %9s %s\n", "% time", "seconds", "usecs/call", "calls", "errors", "syscall")
-	fmt.Fprintf(w, "------ ----------- ----------- --------- --------- ----------------\n")
-
-	totalCalls, totalErrors, totalDurationNs := st.totals()
-	for _, entry := range st.sortedEntries() {
-		stat := entry.stat
-		errStr := ""
-		if stat.errors > 0 {
-			errStr = strconv.Itoa(stat.errors)
-		}
-		pct := 0.0
-		if totalDurationNs > 0 {
-			pct = float64(stat.duration) / float64(totalDurationNs) * 100.0
-		}
-		secs := float64(stat.duration) / 1e9
-		usecs := uint64(0)
-		if stat.calls > 0 {
-			usecs = stat.duration / uint64(stat.calls) / 1000
-		}
-		fmt.Fprintf(w, "%6.2f %11.6f %11d %9d %9s %s\n", pct, secs, usecs, stat.calls, errStr, entry.name)
-	}
-
-	fmt.Fprintf(w, "------ ----------- ----------- --------- --------- ----------------\n")
-	errStr := ""
-	if totalErrors > 0 {
-		errStr = strconv.Itoa(totalErrors)
-	}
-	totalSecs := float64(totalDurationNs) / 1e9
-	fmt.Fprintf(w, "%6.2f %11.6f %11s %9d %9s %s\n", 100.0, totalSecs, "", totalCalls, errStr, "total")
+	st.printTable(w)
 }
 
 type summaryStatEntry struct {
@@ -89,19 +78,14 @@ type summaryStatEntry struct {
 }
 
 func (st *SummaryStats) sortedEntries() []summaryStatEntry {
-	entries := make([]summaryStatEntry, 0, len(st.stats))
-	for name, stat := range st.stats {
-		entries = append(entries, summaryStatEntry{name: name, stat: stat})
+	entries := make([]summaryStatEntry, 0, len(st.order))
+	for _, name := range st.order {
+		entries = append(entries, summaryStatEntry{name: name, stat: st.stats[name]})
 	}
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].stat.duration != entries[j].stat.duration {
-			return entries[i].stat.duration > entries[j].stat.duration
-		}
-		if entries[i].stat.calls != entries[j].stat.calls {
-			return entries[i].stat.calls > entries[j].stat.calls
-		}
-		return entries[i].name < entries[j].name
-	})
+	if st.options.sortBy == summaryColumnNone {
+		return entries
+	}
+	sort.SliceStable(entries, func(i, j int) bool { return st.entryLess(entries[i], entries[j]) })
 	return entries
 }
 

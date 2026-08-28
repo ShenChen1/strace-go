@@ -3,21 +3,23 @@ package main
 import "strace-go/pkg/handler"
 
 type SyscallExitPipeline struct {
-	summary   traceSummaryPolicy
-	json      syscallJSONOutputPort
-	exit      exitSyscallOutputPort
-	runner    syscallHandlerRunnerPort
-	text      syscallTextOutputPort
-	finalizer syscallExitFinalizerPort
+	summary     traceSummaryPolicy
+	eventPolicy traceEventOutputPolicy
+	json        syscallJSONOutputPort
+	exit        exitSyscallOutputPort
+	runner      syscallHandlerRunnerPort
+	text        syscallTextOutputPort
+	finalizer   syscallExitFinalizerPort
 }
 
 type SyscallExitPipelineDeps struct {
-	Summary   traceSummaryPolicy
-	JSON      syscallJSONOutputPort
-	Exit      exitSyscallOutputPort
-	Runner    syscallHandlerRunnerPort
-	Text      syscallTextOutputPort
-	Finalizer syscallExitFinalizerPort
+	Summary     traceSummaryPolicy
+	EventPolicy traceEventOutputPolicy
+	JSON        syscallJSONOutputPort
+	Exit        exitSyscallOutputPort
+	Runner      syscallHandlerRunnerPort
+	Text        syscallTextOutputPort
+	Finalizer   syscallExitFinalizerPort
 }
 
 // syscallExitFinalizerPort owns side effects that must run after every exit
@@ -66,12 +68,13 @@ func (f *traceSessionSyscallExitFinalizer) Finalize(ev syscallEventContext) {
 
 func newSyscallExitPipeline(deps SyscallExitPipelineDeps) *SyscallExitPipeline {
 	return &SyscallExitPipeline{
-		summary:   deps.Summary,
-		json:      deps.JSON,
-		exit:      deps.Exit,
-		runner:    deps.Runner,
-		text:      deps.Text,
-		finalizer: defaultSyscallExitFinalizer(deps.Finalizer),
+		summary:     deps.Summary,
+		eventPolicy: deps.EventPolicy,
+		json:        deps.JSON,
+		exit:        deps.Exit,
+		runner:      deps.Runner,
+		text:        deps.Text,
+		finalizer:   defaultSyscallExitFinalizer(deps.Finalizer),
 	}
 }
 
@@ -144,7 +147,11 @@ func (p *SyscallExitPipeline) recordSummaryIfNeeded(ev syscallEventContext) bool
 	if p.summary == nil || (!p.summary.SummaryOnly() && !p.summary.SummaryAndPrint()) {
 		return false
 	}
-	if p.finalizer != nil {
+	shouldRecord := ev.shouldOutput()
+	if shouldRecord && p.eventPolicy != nil {
+		shouldRecord = p.eventPolicy.ShouldEmit(ev, false)
+	}
+	if shouldRecord && p.finalizer != nil {
 		p.finalizer.RecordSummary(ev)
 	}
 	return p.summary.SummaryOnly()

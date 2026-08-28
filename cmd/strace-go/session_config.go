@@ -10,12 +10,13 @@ import (
 // traceSessionConfig is the construction-time snapshot passed to session
 // composition. It does not contain the mutable CLI owner.
 type traceSessionConfig struct {
-	eventPolicy  *cliTraceEventPolicy
-	outputPolicy *cliTraceOutputPolicy
-	syscallLimit uint64
-	catalog      *meta.Catalog
-	decoder      *event.Decoder
-	resolver     *stacktrace.Resolver
+	eventPolicy    *cliTraceEventPolicy
+	outputPolicy   *cliTraceOutputPolicy
+	syscallLimit   uint64
+	summaryOptions summaryOptions
+	catalog        *meta.Catalog
+	decoder        *event.Decoder
+	resolver       *stacktrace.Resolver
 }
 
 func newTraceSessionConfig(opts *cli.Options) traceSessionConfig {
@@ -30,11 +31,12 @@ func newTraceSessionConfig(opts *cli.Options) traceSessionConfig {
 		resolver = stacktrace.NewResolver()
 	}
 	return traceSessionConfig{
-		eventPolicy:  newTraceEventPolicy(opts),
-		outputPolicy: newTraceOutputPolicy(opts),
-		syscallLimit: opts.SyscallLimit,
-		catalog:      meta.NewCatalog(opts.XlatFormat),
-		decoder:      decoder,
-		resolver:     resolver,
+		eventPolicy:    newTraceEventPolicy(opts),
+		outputPolicy:   newTraceOutputPolicy(opts),
+		syscallLimit:   opts.SyscallLimit,
+		summaryOptions: newSummaryOptions(opts.SummarySortBy, opts.SummaryColumns),
+		catalog:        meta.NewCatalog(opts.XlatFormat),
+		decoder:        decoder,
+		resolver:       resolver,
 	}
 }
