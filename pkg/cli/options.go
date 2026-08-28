@@ -85,6 +85,7 @@ type Options struct {
 	OutAppendMode         bool
 	WallTime              bool // -w
 	quietLevel            int
+	quietSetConfigured    bool
 }
 
 // IMPACT: ParseArgs parses strace-go command-line arguments and returns Options.

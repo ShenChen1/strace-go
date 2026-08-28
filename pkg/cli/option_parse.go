@@ -104,14 +104,18 @@ func nextRepeatedMode(current, maximum int) int {
 }
 
 func applyShortQuiet(opts *Options) {
+	if opts.quietSetConfigured {
+		failQuietModeConflict()
+	}
 	opts.quietLevel++
+	selected := quietMessageAttach | quietMessagePersonality
 	if opts.quietLevel >= 2 {
-		opts.QuietExit = true
-		opts.QuietUnknownPid = true
+		selected |= quietMessageExit
 	}
 	if opts.quietLevel >= 3 {
-		opts.QuietThreadExecve = true
+		selected = quietMessageAll
 	}
+	applyQuietMessageSet(selected, opts)
 }
 
 type longOptionState struct {

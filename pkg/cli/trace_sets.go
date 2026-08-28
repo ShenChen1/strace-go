@@ -85,6 +85,10 @@ func parseEFlag(val string, opts *Options) {
 		parseSignalSet(strings.TrimPrefix(val, "signal="), opts)
 	case strings.HasPrefix(val, "quiet="):
 		parseQuietSet(strings.TrimPrefix(val, "quiet="), opts)
+	case strings.HasPrefix(val, "q="):
+		parseQuietSet(strings.TrimPrefix(val, "q="), opts)
+	case strings.HasPrefix(val, "silent="):
+		parseQuietSet(strings.TrimPrefix(val, "silent="), opts)
 	default:
 		parseTraceSet(val, opts)
 	}
@@ -108,18 +112,6 @@ func parseTraceSet(val string, opts *Options) {
 func parseStatusSet(val string, opts *Options) {
 	for _, s := range strings.Split(val, ",") {
 		opts.TraceStatus[s] = true
-	}
-}
-
-func parseQuietSet(val string, opts *Options) {
-	for _, s := range strings.Split(val, ",") {
-		if s == "exit" {
-			opts.QuietExit = true
-		}
-		if s == "all" {
-			opts.QuietUnknownPid = true
-			opts.QuietThreadExecve = true
-		}
 	}
 }
 
