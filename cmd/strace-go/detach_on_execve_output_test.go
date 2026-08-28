@@ -30,3 +30,23 @@ func TestExecSyscallOutputPrintsDetachedLine(t *testing.T) {
 		t.Fatal("detached exec did not consume pending arguments")
 	}
 }
+
+func TestExecSyscallOutputPrintsDetachedNonLeaderIdentityChange(t *testing.T) {
+	output, _, out, discarded := newExecSyscallOutputForTest(&cli.Options{FollowForks: true})
+	syscall := meta.Syscall{Name: "execve"}
+	result := handler.Result{ArgParts: []string{`"../status-detached-threads"`, `["../status-detached-threads", "0"]`, `NULL`}}
+	detached := execOutputEvent(syscall, 200, 201, 0)
+	detached.detached = true
+
+	if !output.HandleEvent(detached, result) {
+		t.Fatal("detached non-leader exec should be handled")
+	}
+	want := "201   execve(\"../status-detached-threads\", [\"../status-detached-threads\", \"0\"], NULL <pid changed to 200 ...>\n" +
+		"200   +++ superseded by execve in pid 201 +++\n"
+	if got := out.String(); got != want {
+		t.Fatalf("detached non-leader output = %q, want %q", got, want)
+	}
+	if len(*discarded) != 1 || (*discarded)[0] != 200 {
+		t.Fatalf("discarded exit statuses = %v, want [200]", *discarded)
+	}
+}

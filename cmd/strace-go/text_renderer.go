@@ -33,6 +33,7 @@ type execSyscallRenderer interface {
 	PrintExecDetachedFromView(syscallEventView, string)
 	PrintExecResumeFromView(syscallEventView, string)
 	PrintExecPidChangedFromView(syscallEventView, string)
+	PrintExecDetachedThreadSupersededFromView(syscallEventView)
 	PrintExecSupersededUnfinishedFromView(syscallEventView, string)
 	PrintSupersededSuspendedResumeFromView(syscallEventView, string)
 	PrintThreadExecveSupersededFromView(syscallEventView, string)
@@ -114,6 +115,14 @@ func (r *TextRenderer) PrintExecPidChangedFromView(view syscallEventView, argLin
 	tid := int(view.tid)
 	tgid := int(view.pid)
 	fmt.Fprintf(r.out, "%s%-5d %s%s <pid changed to %d ...>\n", r.timePrefix(view.enterTime), tid, r.syscallNumberPrefix(view), trimTrailingParen(argLine), tgid)
+}
+
+func (r *TextRenderer) PrintExecDetachedThreadSupersededFromView(view syscallEventView) {
+	if r.renderOptions().quietThreadExecve {
+		return
+	}
+	fmt.Fprintf(r.out, "%s%-5d +++ superseded by execve in pid %d +++\n",
+		r.timePrefix(view.enterTime), view.pid, view.tid)
 }
 
 func (r *TextRenderer) PrintExecSupersededUnfinishedFromView(view syscallEventView, argLine string) {

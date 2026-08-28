@@ -104,6 +104,9 @@ func (r *fakeExecSyscallRenderer) PrintExecPidChangedFromView(syscallEventView, 
 	r.pidChangedCalls++
 }
 
+func (r *fakeExecSyscallRenderer) PrintExecDetachedThreadSupersededFromView(syscallEventView) {
+}
+
 func (r *fakeExecSyscallRenderer) PrintExecSupersededUnfinishedFromView(syscallEventView, string) {
 	r.supersededCalls++
 }

@@ -61,6 +61,14 @@ func (ev syscallEventContext) shouldEmitStatus(optsStatus successfulFailedOption
 	return ev.eventView().shouldEmitStatus(ev.syscallName(), optsStatus)
 }
 
+func (ev syscallEventContext) withNonLeaderExecDetachedStatus() syscallEventContext {
+	view := ev.eventView()
+	if view.ret == 0 && view.pid != 0 && view.pid != view.tid && isExecSyscall(ev.syscallName()) {
+		ev.detached = true
+	}
+	return ev
+}
+
 func (view syscallEventView) shouldEmitStatus(syscallName string, optsStatus successfulFailedOptions) bool {
 	if optsStatus.successfulOnly || optsStatus.failedOnly || len(optsStatus.traceStatus) > 0 {
 		if view.probeRetEnter == 3 {

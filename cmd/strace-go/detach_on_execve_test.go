@@ -24,12 +24,74 @@ func TestDetachOnExecveCommandSkipsInitialSuccessfulExec(t *testing.T) {
 	}
 }
 
+func TestDetachOnExecveLifecycleHandlesMissingInitialExit(t *testing.T) {
+	policy := newTraceDetachOnExecve(true, true)
+	initialLifecycle := lifecycleEventView{action: lifecycleExec, pid: 200, tid: 200}
+	secondLifecycle := lifecycleEventView{action: lifecycleExec, pid: 200, tid: 200}
+
+	policy.ObserveLifecycle(initialLifecycle)
+	policy.ObserveLifecycle(secondLifecycle)
+	second := policy.Observe(detachExecEvent("execve", 0))
+	if !second.detached || !policy.Reached() {
+		t.Fatal("missing initial syscall exit caused the second exec to be skipped")
+	}
+}
+
+func TestDetachOnExecveLifecycleMatchesInitialExit(t *testing.T) {
+	policy := newTraceDetachOnExecve(true, true)
+	policy.ObserveLifecycle(lifecycleEventView{action: lifecycleExec, pid: 200, tid: 200, enterTime: 100})
+	initial := detachExecEvent("execve", 0)
+	initial.view.pid = 200
+	initial.view.tid = 200
+	initial.view.enterTime = 90
+
+	initial = policy.Observe(initial)
+	if initial.detached || policy.Reached() {
+		t.Fatal("initial exec completion was not matched to its lifecycle event")
+	}
+	secondEvent := initial
+	secondEvent.view.enterTime = 200
+	second := policy.Observe(secondEvent)
+	if !second.detached || !policy.Reached() {
+		t.Fatal("second exec was skipped after matching the initial completion")
+	}
+}
+
+func TestDetachOnExecveRecognizesNextExitBeforeNextLifecycle(t *testing.T) {
+	policy := newTraceDetachOnExecve(true, true)
+	policy.ObserveLifecycle(lifecycleEventView{action: lifecycleExec, pid: 200, tid: 200, enterTime: 100})
+	next := detachExecEvent("execve", 0)
+	next.view.pid = 200
+	next.view.tid = 200
+	next.view.enterTime = 200
+
+	next = policy.Observe(next)
+	if !next.detached || !policy.Reached() {
+		t.Fatal("later exec exit was mistaken for a delayed initial completion")
+	}
+}
+
 func TestDetachOnExecveAttachStopsOnFirstSuccessfulExec(t *testing.T) {
 	policy := newTraceDetachOnExecve(true, false)
 
 	event := policy.Observe(detachExecEvent("execve", 0))
 	if !event.detached || !policy.Reached() {
 		t.Fatal("attach policy did not detach on the first successful exec")
+	}
+}
+
+func TestDetachOnExecveNonLeaderKeepsReplacementLeaderTracked(t *testing.T) {
+	policy := newTraceDetachOnExecve(true, false)
+	event := detachExecEvent("execve", 0)
+	event.view.pid = 200
+	event.view.tid = 201
+
+	event = policy.Observe(event)
+	if !event.detached {
+		t.Fatal("non-leader exec was not classified as detached")
+	}
+	if policy.Reached() {
+		t.Fatal("non-leader exec ended the session while the replacement leader remains tracked")
 	}
 }
 
@@ -81,6 +143,30 @@ func TestDetachOnExecveMarksEventBeforeExitPipeline(t *testing.T) {
 
 	if len(sink.events) != 1 || !sink.events[0].detached {
 		t.Fatalf("pipeline events = %+v, want one detached exec", sink.events)
+	}
+}
+
+func TestNonLeaderExecHasDetachedStatusWithoutDetachOption(t *testing.T) {
+	sink := &capturingDetachExitSink{}
+	dispatcher := newTraceEventDispatcher(TraceEventDispatcherDeps{
+		State:    newTraceState(),
+		Pipeline: sink,
+		ContextDeps: syscallEventContextDeps{
+			syscallMetadata: newSyscallMetadataTable(meta.SyscallTable),
+		},
+	})
+	dispatcher.handleExit(TraceStateUpdate{
+		syscallView: syscallEventView{
+			valid: true,
+			pid:   200,
+			tid:   201,
+			sysID: syscallIDByName(t, "execve"),
+			ret:   0,
+		},
+	}, 200)
+
+	if len(sink.events) != 1 || !sink.events[0].detached {
+		t.Fatalf("non-leader pipeline events = %+v, want detached status", sink.events)
 	}
 }
 

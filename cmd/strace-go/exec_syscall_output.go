@@ -64,14 +64,23 @@ func (o *ExecSyscallOutput) HandleEvent(ev syscallEventContext, res handler.Resu
 }
 
 func (o *ExecSyscallOutput) handleDetached(ev syscallEventContext, tid int, scMeta meta.Syscall, res handler.Result) bool {
+	view := ev.eventView()
 	argLine := execArgLine(scMeta, res, o.argNames())
 	if o.state != nil {
 		if pending, ok := o.state.takePendingExecArgs(tid); ok {
 			argLine = pending
 		}
 	}
+	if int(view.pid) != tid && o.followForks() {
+		if o.discardExitStatus != nil {
+			o.discardExitStatus(int(view.pid))
+		}
+		o.renderer.PrintExecPidChangedFromView(view, argLine)
+		o.renderer.PrintExecDetachedThreadSupersededFromView(view)
+		return true
+	}
 	if o.renderer != nil {
-		o.renderer.PrintExecDetachedFromView(ev.eventView(), argLine)
+		o.renderer.PrintExecDetachedFromView(view, argLine)
 	}
 	return true
 }

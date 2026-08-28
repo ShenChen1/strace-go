@@ -92,6 +92,9 @@ func (d *TraceEventDispatcher) handleUnfinished(pendingSyscalls []unfinishedSysc
 }
 
 func (d *TraceEventDispatcher) handleLifecycle(update TraceStateUpdate) {
+	if d.detachOnExec != nil {
+		d.detachOnExec.ObserveLifecycle(update.lifecycleView)
+	}
 	if d.lifecycle != nil {
 		d.lifecycle.Handle(update.lifecycleView, update.lifecycleTask)
 	}
@@ -120,6 +123,7 @@ func (d *TraceEventDispatcher) handleExit(update TraceStateUpdate, statePID int)
 		update.pendingEnter,
 		update.payloadSections,
 	)
+	ev = ev.withNonLeaderExecDetachedStatus()
 	if d.detachOnExec != nil {
 		ev = d.detachOnExec.Observe(ev)
 	}
