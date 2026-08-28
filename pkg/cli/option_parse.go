@@ -275,6 +275,8 @@ func parseLongValueOption(state *longOptionState) bool {
 		applyValueOption("-s", requiredLongValue(state), state.opts)
 	case "const-print-style":
 		applyValueOption("-X", requiredLongValue(state), state.opts)
+	case "syscall-limit":
+		state.opts.SyscallLimit = parseSyscallLimit(requiredLongValue(state))
 	case "interruptible":
 		requiredLongValue(state)
 		rejectArchitectureConflict("-I/--interruptible", "it controls ptrace stop signal blocking")

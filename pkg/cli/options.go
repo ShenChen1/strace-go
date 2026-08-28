@@ -69,6 +69,7 @@ type Options struct {
 	PrintSyscallNumber    bool     // -n
 	PrintArgNames         bool     // -N
 	AlwaysShowPID         bool     // --always-show-pid
+	SyscallLimit          uint64   // --syscall-limit; zero disables the limit
 	StackTrace            bool     // -k, --stack-trace
 	SuccessfulOnly        bool     // -z
 	FailedOnly            bool     // -Z
