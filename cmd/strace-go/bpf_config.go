@@ -37,6 +37,10 @@ func newTraceBPFConfig(opts *cli.Options) traceBPFConfig {
 		matchesAll: opts.TraceMatchesAll,
 		negated:    opts.TraceSetIsNegated,
 	}
+	syscallFilter := buildSyscallFilterPlan(filterInput)
+	if opts.DetachOnExecve {
+		syscallFilter = includeSyscalls(syscallFilter, "execve", "execveat")
+	}
 	fdState := len(opts.TracePaths) > 0 || opts.ShowPaths
 	return traceBPFConfig{
 		captureStack:               opts.StackTrace,
@@ -46,7 +50,7 @@ func newTraceBPFConfig(opts *cli.Options) traceBPFConfig {
 		elidePlainEnter:            shouldElidePlainEnter(opts, fdState),
 		elideNonBlockingPlainEnter: shouldElideNonBlockingPlainEnter(opts, fdState),
 		eventRingbufCapacity:       traceDefaultEventRingbufCapacity,
-		syscallFilter:              buildSyscallFilterPlan(filterInput),
+		syscallFilter:              syscallFilter,
 	}
 }
 

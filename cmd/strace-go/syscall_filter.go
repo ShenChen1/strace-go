@@ -57,6 +57,43 @@ func buildSyscallFilterPlan(input syscallFilterInput) syscallFilterPlan {
 	return plan
 }
 
+// includeSyscalls keeps runtime-control syscalls observable without changing
+// the user-space output selector that decides whether they are published.
+func includeSyscalls(plan syscallFilterPlan, names ...string) syscallFilterPlan {
+	if !plan.enabled {
+		return plan
+	}
+	ids := make(map[uint32]bool, len(plan.ids)+len(names))
+	for _, id := range plan.ids {
+		ids[id] = true
+	}
+	for id, syscall := range meta.SyscallTable {
+		if !containsString(names, syscall.Name) {
+			continue
+		}
+		if plan.negated {
+			delete(ids, id)
+		} else {
+			ids[id] = true
+		}
+	}
+	plan.ids = plan.ids[:0]
+	for id := range ids {
+		plan.ids = append(plan.ids, id)
+	}
+	sort.Slice(plan.ids, func(i, j int) bool { return plan.ids[i] < plan.ids[j] })
+	return plan
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func configureSyscallFilter(plan syscallFilterPlan, maps bpfMapProvider) (uint32, error) {
 	if !plan.enabled {
 		return 0, nil
