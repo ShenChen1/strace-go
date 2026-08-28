@@ -7,6 +7,7 @@ const (
 	bpfEventTypeEnter                      uint16 = 1
 	bpfEventTypeExit                       uint16 = 2
 	bpfEventTypeLifecycle                  uint16 = 3
+	bpfEventTypeSignal                     uint16 = 4
 	bpfEventFlagGenericEnter               uint32 = 1
 	bpfEventFlagPayloadTLV                 uint32 = 2
 	bpfEventFlagTruncated                  uint32 = 4
@@ -32,6 +33,7 @@ const (
 	traceEventV2CompactEnterBodyLen               = 48
 	traceEventV2ExitBodyLen                       = 80
 	traceEventV2LifecycleBodyLen                  = 56
+	traceEventV2SignalBodyLen                     = 24
 	traceEventV2U16Size                           = 2
 	traceEventV2U32Size                           = 4
 	traceEventV2U64Size                           = 8
@@ -63,6 +65,12 @@ const (
 	traceEventV2LifecycleActionOffset             = 0
 	traceEventV2LifecycleSnapshotLenOffset        = 4
 	traceEventV2LifecycleArgsOffset               = 8
+	traceEventV2SignalNumberOffset                = 0
+	traceEventV2SignalErrnoOffset                 = 4
+	traceEventV2SignalCodeOffset                  = 8
+	traceEventV2SignalSenderPIDOffset             = 12
+	traceEventV2SignalSenderUIDOffset             = 16
+	traceEventV2SignalReservedOffset              = 20
 	payloadTLVHeaderSize                          = 32
 	payloadTLVKindString                          = 1
 	payloadTLVKindBytes                           = 2

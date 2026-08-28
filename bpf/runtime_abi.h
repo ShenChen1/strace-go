@@ -128,6 +128,15 @@ struct lifecycle_event_v2 {
     u64 args[6];
 };
 
+struct signal_event_v2 {
+    u32 signo;
+    s32 error;
+    s32 code;
+    u32 sender_pid;
+    u32 sender_uid;
+    u32 reserved;
+};
+
 _Static_assert(sizeof(struct event_v2_header) == EVENT_V2_HEADER_LEN, "event v2 header size drift");
 _Static_assert(__builtin_offsetof(struct event_v2_header, version) == EVENT_V2_HEADER_VERSION_OFFSET, "event v2 version offset drift");
 _Static_assert(__builtin_offsetof(struct event_v2_header, event_type) == EVENT_V2_HEADER_EVENT_TYPE_OFFSET, "event v2 type offset drift");
@@ -143,6 +152,7 @@ _Static_assert(sizeof(struct syscall_enter_event_v2) == EVENT_V2_ENTER_BODY_LEN,
 _Static_assert(sizeof(struct syscall_compact_enter_event_v2) == EVENT_V2_COMPACT_ENTER_BODY_LEN, "event v2 compact enter size drift");
 _Static_assert(sizeof(struct syscall_exit_event_v2) == EVENT_V2_EXIT_BODY_LEN, "event v2 exit size drift");
 _Static_assert(sizeof(struct lifecycle_event_v2) == EVENT_V2_LIFECYCLE_BODY_LEN, "event v2 lifecycle size drift");
+_Static_assert(sizeof(struct signal_event_v2) == EVENT_V2_SIGNAL_BODY_LEN, "event v2 signal size drift");
 _Static_assert(__builtin_offsetof(struct syscall_enter_event_v2, ret) == EVENT_V2_ENTER_RET_OFFSET, "event v2 enter ret offset drift");
 _Static_assert(__builtin_offsetof(struct syscall_enter_event_v2, probe_ret_enter) == EVENT_V2_ENTER_PROBE_RET_ENTER_OFFSET, "event v2 enter probe offset drift");
 _Static_assert(__builtin_offsetof(struct syscall_enter_event_v2, probe_ret_exit) == EVENT_V2_ENTER_PROBE_RET_EXIT_OFFSET, "event v2 enter exit probe offset drift");
@@ -160,6 +170,12 @@ _Static_assert(__builtin_offsetof(struct syscall_exit_event_v2, reserved) == EVE
 _Static_assert(__builtin_offsetof(struct lifecycle_event_v2, action) == EVENT_V2_LIFECYCLE_ACTION_OFFSET, "event v2 lifecycle action offset drift");
 _Static_assert(__builtin_offsetof(struct lifecycle_event_v2, snapshot_len) == EVENT_V2_LIFECYCLE_SNAPSHOT_LEN_OFFSET, "event v2 lifecycle snapshot offset drift");
 _Static_assert(__builtin_offsetof(struct lifecycle_event_v2, args) == EVENT_V2_LIFECYCLE_ARGS_OFFSET, "event v2 lifecycle args offset drift");
+_Static_assert(__builtin_offsetof(struct signal_event_v2, signo) == EVENT_V2_SIGNAL_NUMBER_OFFSET, "event v2 signal number offset drift");
+_Static_assert(__builtin_offsetof(struct signal_event_v2, error) == EVENT_V2_SIGNAL_ERRNO_OFFSET, "event v2 signal errno offset drift");
+_Static_assert(__builtin_offsetof(struct signal_event_v2, code) == EVENT_V2_SIGNAL_CODE_OFFSET, "event v2 signal code offset drift");
+_Static_assert(__builtin_offsetof(struct signal_event_v2, sender_pid) == EVENT_V2_SIGNAL_SENDER_PID_OFFSET, "event v2 signal sender pid offset drift");
+_Static_assert(__builtin_offsetof(struct signal_event_v2, sender_uid) == EVENT_V2_SIGNAL_SENDER_UID_OFFSET, "event v2 signal sender uid offset drift");
+_Static_assert(__builtin_offsetof(struct signal_event_v2, reserved) == EVENT_V2_SIGNAL_RESERVED_OFFSET, "event v2 signal reserved offset drift");
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);

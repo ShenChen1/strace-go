@@ -20,6 +20,11 @@ type traceEventEnvelope struct {
 	probeRetEnter   int32
 	probeRetExit    int32
 	snapshotText    string
+	signal          uint32
+	signalErr       int32
+	signalCode      int32
+	senderPID       uint32
+	senderUID       uint32
 	payload         []handler.PayloadSection
 }
 
@@ -59,6 +64,10 @@ func (envelope traceEventEnvelope) syscallView() syscallEventView {
 
 func (envelope traceEventEnvelope) isLifecycle() bool {
 	return envelope.eventType == bpfEventTypeLifecycle
+}
+
+func (envelope traceEventEnvelope) isSignal() bool {
+	return envelope.eventType == bpfEventTypeSignal
 }
 
 func (envelope traceEventEnvelope) isExit() bool {

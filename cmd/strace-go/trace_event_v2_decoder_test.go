@@ -377,6 +377,11 @@ type traceEventV2SampleSpec struct {
 	stackID       int32
 	args          [6]uint64
 	payload       []byte
+	signal        uint32
+	signalErr     int32
+	signalCode    int32
+	senderPID     uint32
+	senderUID     uint32
 }
 
 func traceEventV2EnterSample(t testing.TB, spec traceEventV2SampleSpec) []byte {

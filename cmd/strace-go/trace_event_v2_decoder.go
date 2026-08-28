@@ -43,6 +43,8 @@ func decodeTraceEventV2EnvelopeInto(
 		return decodeTraceEventV2ExitEnvelope(header, body, payloadScratch)
 	case bpfEventTypeLifecycle:
 		return decodeTraceEventV2LifecycleEnvelope(header, body)
+	case bpfEventTypeSignal:
+		return decodeTraceEventV2SignalEnvelope(header, body)
 	default:
 		return traceEventEnvelope{}, false
 	}
@@ -58,7 +60,7 @@ func decodeTraceEventV2Header(rawSample []byte) (traceEventV2Header, []byte, boo
 	size := binary.LittleEndian.Uint32(rawSample[traceEventV2HeaderSizeOffset : traceEventV2HeaderSizeOffset+traceEventV2U32Size])
 	if version != traceEventV2Version ||
 		(eventType != bpfEventTypeEnter && eventType != bpfEventTypeExit &&
-			eventType != bpfEventTypeLifecycle) ||
+			eventType != bpfEventTypeLifecycle && eventType != bpfEventTypeSignal) ||
 		headerLen < traceEventV2HeaderLen ||
 		uint32(headerLen) > size ||
 		size > uint32(len(rawSample)) {
@@ -224,6 +226,25 @@ func decodeTraceEventV2LifecycleEnvelope(header traceEventV2Header, body []byte)
 		enterTime:       header.tsNs,
 		args:            args,
 		snapshotText:    lifecycleSnapshotString(payload),
+	}, true
+}
+
+func decodeTraceEventV2SignalEnvelope(header traceEventV2Header, body []byte) (traceEventEnvelope, bool) {
+	if len(body) != traceEventV2SignalBodyLen {
+		return traceEventEnvelope{}, false
+	}
+	return traceEventEnvelope{
+		valid:        true,
+		eventVersion: header.version,
+		pid:          header.pid,
+		tid:          header.tid,
+		eventType:    header.eventType,
+		enterTime:    header.tsNs,
+		signal:       binary.LittleEndian.Uint32(body[traceEventV2SignalNumberOffset:]),
+		signalErr:    int32(binary.LittleEndian.Uint32(body[traceEventV2SignalErrnoOffset:])),
+		signalCode:   int32(binary.LittleEndian.Uint32(body[traceEventV2SignalCodeOffset:])),
+		senderPID:    binary.LittleEndian.Uint32(body[traceEventV2SignalSenderPIDOffset:]),
+		senderUID:    binary.LittleEndian.Uint32(body[traceEventV2SignalSenderUIDOffset:]),
 	}, true
 }
 

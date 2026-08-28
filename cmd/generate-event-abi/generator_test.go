@@ -31,6 +31,8 @@ func TestWriteProtocolHeader(t *testing.T) {
 		"#define CONFIG_ELIDE_PLAIN_ENTER 128",
 		"#define EVENT_V2_HEADER_TS_NS_OFFSET 32",
 		"#define EVENT_V2_EXIT_STACK_ID_OFFSET 72",
+		"#define EVENT_TYPE_SIGNAL 4",
+		"#define EVENT_V2_SIGNAL_SENDER_UID_OFFSET 16",
 		"#define PAYLOAD_TLV_KIND_FD_PATH 9",
 		"#define PAYLOAD_TLV_FD_PATH_NESTED_ARG_INDEX 0xfffd",
 	} {
@@ -63,6 +65,8 @@ func TestWriteProtocolGo(t *testing.T) {
 		"bpfConfigElidePlainEnter = 128",
 		"traceEventV2HeaderTSNSOffset = 32",
 		"traceEventV2ExitStackIDOffset = 72",
+		"bpfEventTypeSignal uint16 = 4",
+		"traceEventV2SignalSenderUIDOffset = 16",
 		"payloadTLVKindFDPath = 9",
 	} {
 		if !strings.Contains(got, want) {
