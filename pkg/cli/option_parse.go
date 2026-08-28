@@ -357,6 +357,7 @@ func applyValueOption(flag, value string, opts *Options) {
 		if value != "execve" {
 			failOption("Syscall '%s' for -b isn't supported", value)
 		}
+		opts.DetachOnExecve = true
 	case "-I":
 		rejectArchitectureConflict("-I/--interruptible", "it controls ptrace stop signal blocking")
 	case "-O":
