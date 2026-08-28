@@ -120,6 +120,11 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
                 test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
             )
 
+    def test_non_ascii_character_escape_regression_is_registered(self):
+        test = "strace--strings-in-hex-non-ascii-chars.gen.test"
+        self.assertIn(test, upstream_suites.MORE_TESTS)
+        self.assertIn(test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS)
+
     def test_registered_tests_exist_in_current_upstream(self):
         valid = {
             name
