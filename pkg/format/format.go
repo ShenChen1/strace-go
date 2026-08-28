@@ -4,21 +4,25 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
-
 )
 
 // Whence formats the whence argument of lseek.
 func Whence(val uint64) string {
 	switch val {
-	case 0: return "SEEK_SET"
-	case 1: return "SEEK_CUR"
-	case 2: return "SEEK_END"
-	case 3: return "SEEK_DATA"
-	case 4: return "SEEK_HOLE"
-	default: return fmt.Sprintf("%d", val)
+	case 0:
+		return "SEEK_SET"
+	case 1:
+		return "SEEK_CUR"
+	case 2:
+		return "SEEK_END"
+	case 3:
+		return "SEEK_DATA"
+	case 4:
+		return "SEEK_HOLE"
+	default:
+		return fmt.Sprintf("%d", val)
 	}
 }
-
 
 // Termios formats a struct termios.
 func Termios(data []byte) string { return "{...}" }
@@ -28,10 +32,16 @@ func Winsize(data []byte) string { return "{...}" }
 
 // Sigset formats a sigset_t bitmask into a list of signals.
 func Sigset(data []byte) string {
-	if len(data) < 8 { return "[]" }
+	if len(data) < 8 {
+		return "[]"
+	}
 	mask := binary.LittleEndian.Uint64(data[0:8])
-	if mask == 0 { return "[]" }
-	if mask == ^uint64(0) { return "~[]" }
+	if mask == 0 {
+		return "[]"
+	}
+	if mask == ^uint64(0) {
+		return "~[]"
+	}
 
 	names := []string{
 		"HUP", "INT", "QUIT", "ILL", "TRAP", "ABRT", "BUS", "FPE",
@@ -43,7 +53,9 @@ func Sigset(data []byte) string {
 	// Determine if we should show it normally or inverted
 	count := 0
 	for i := 0; i < 64; i++ {
-		if (mask & (1 << uint(i))) != 0 { count++ }
+		if (mask & (1 << uint(i))) != 0 {
+			count++
+		}
 	}
 
 	useInverted := count > 32
@@ -66,21 +78,27 @@ func Sigset(data []byte) string {
 		}
 	}
 
-	if len(res) == 0 && prefix == "" { return "[]" }
+	if len(res) == 0 && prefix == "" {
+		return "[]"
+	}
 	return prefix + "[" + strings.Join(res, " ") + "]"
 }
-
-
 
 // BufferEscape formats a byte slice as a string, respecting a limit and escape mode.
 // escapeMode: 0 = default (octal for non-ascii), 1 = hex for non-ascii (-x), 2 = hex for all (-xx)
 func BufferEscape(data []byte, limit int, actualLen int, escapeMode int) string {
-	if len(data) == 0 { return "\"\"" }
-	
+	if len(data) == 0 {
+		return "\"\""
+	}
+
 	printLimit := limit
-	if printLimit <= 0 { printLimit = len(data) }
-	if printLimit > len(data) { printLimit = len(data) }
-	
+	if printLimit <= 0 {
+		printLimit = len(data)
+	}
+	if printLimit > len(data) {
+		printLimit = len(data)
+	}
+
 	if escapeMode == 1 {
 		hasUnprintable := false
 		for i := 0; i < printLimit; i++ {
@@ -98,25 +116,32 @@ func BufferEscape(data []byte, limit int, actualLen int, escapeMode int) string 
 			escapeMode = 2
 		}
 	}
-	
+
 	var sb strings.Builder
 	sb.WriteByte('"')
-	
+
 	for i := 0; i < printLimit; i++ {
 		b := data[i]
 		if escapeMode == 2 {
 			sb.WriteString(fmt.Sprintf("\\x%02x", b))
 			continue
 		}
-		
+
 		switch b {
-		case '\n': sb.WriteString("\\n")
-		case '\r': sb.WriteString("\\r")
-		case '\t': sb.WriteString("\\t")
-		case '\v': sb.WriteString("\\v")
-		case '\f': sb.WriteString("\\f")
-		case '\\': sb.WriteString("\\\\")
-		case '"':  sb.WriteString("\\\"")
+		case '\n':
+			sb.WriteString("\\n")
+		case '\r':
+			sb.WriteString("\\r")
+		case '\t':
+			sb.WriteString("\\t")
+		case '\v':
+			sb.WriteString("\\v")
+		case '\f':
+			sb.WriteString("\\f")
+		case '\\':
+			sb.WriteString("\\\\")
+		case '"':
+			sb.WriteString("\\\"")
 		default:
 			if b >= 32 && b <= 126 {
 				sb.WriteByte(b)
@@ -129,11 +154,11 @@ func BufferEscape(data []byte, limit int, actualLen int, escapeMode int) string 
 			}
 		}
 	}
-	
+
 	sb.WriteByte('"')
-	if actualLen > printLimit || len(data) > printLimit { 
-        sb.WriteString("...") 
-    }
+	if actualLen > printLimit || len(data) > printLimit {
+		sb.WriteString("...")
+	}
 	return sb.String()
 }
 
@@ -141,7 +166,6 @@ func BufferEscape(data []byte, limit int, actualLen int, escapeMode int) string 
 func Buffer(data []byte, limit int, actualLen int) string {
 	return BufferEscape(data, limit, actualLen, 0)
 }
-
 
 // Ioc formats a generic ioctl command number.
 func Ioc(val uint64) string {
@@ -157,27 +181,43 @@ func Ioc(val uint64) string {
 		ev := nr - 0x20
 		evStr := ""
 		switch ev {
-		case 0: evStr = "0"
-		case 1: evStr = "EV_KEY"
-		case 2: evStr = "EV_REL"
-		case 3: evStr = "EV_ABS"
-		case 4: evStr = "EV_MSC"
-		case 5: evStr = "EV_SW"
-		case 6: evStr = "EV_LED"
-		case 7: evStr = "EV_SND"
-		case 8: evStr = "EV_REP"
-		case 9: evStr = "EV_FF"
-		case 10: evStr = "EV_PWR"
-		case 11: evStr = "EV_FF_STATUS"
-		default: evStr = fmt.Sprintf("%#x /* EV_??? */", ev)
+		case 0:
+			evStr = "0"
+		case 1:
+			evStr = "EV_KEY"
+		case 2:
+			evStr = "EV_REL"
+		case 3:
+			evStr = "EV_ABS"
+		case 4:
+			evStr = "EV_MSC"
+		case 5:
+			evStr = "EV_SW"
+		case 6:
+			evStr = "EV_LED"
+		case 7:
+			evStr = "EV_SND"
+		case 8:
+			evStr = "EV_REP"
+		case 9:
+			evStr = "EV_FF"
+		case 10:
+			evStr = "EV_PWR"
+		case 11:
+			evStr = "EV_FF_STATUS"
+		default:
+			evStr = fmt.Sprintf("%#x /* EV_??? */", ev)
 		}
 		return fmt.Sprintf("EVIOCGBIT(%s, %d)", evStr, size)
 	}
 	if typ == 0x5a {
 		switch nr {
-		case 0: return "ZFS_IOC_POOL_CREATE"
-		case 0x41: return "ZFS_IOC_SEND_SPACE"
-		default: return fmt.Sprintf("ZFS_IOC_%#x", nr)
+		case 0:
+			return "ZFS_IOC_POOL_CREATE"
+		case 0x41:
+			return "ZFS_IOC_SEND_SPACE"
+		default:
+			return fmt.Sprintf("ZFS_IOC_%#x", nr)
 		}
 	}
 	if dir == 2 && typ == 0x12 && nr == 0x7d && size == 256 {
@@ -189,18 +229,24 @@ func Ioc(val uint64) string {
 
 	dirStr := ""
 	switch dir {
-	case 0: dirStr = "_IOC_NONE"
-	case 1: dirStr = "_IOC_WRITE"
-	case 2: dirStr = "_IOC_READ"
-	case 3: dirStr = "_IOC_READ|_IOC_WRITE"
+	case 0:
+		dirStr = "_IOC_NONE"
+	case 1:
+		dirStr = "_IOC_WRITE"
+	case 2:
+		dirStr = "_IOC_READ"
+	case 3:
+		dirStr = "_IOC_READ|_IOC_WRITE"
 	}
-	
+
 	if dir == 0 && typ == 0 && nr == 0 && size == 0 {
 		return "0"
 	}
 
 	fh := func(v uint64) string {
-		if v == 0 { return "0" }
+		if v == 0 {
+			return "0"
+		}
 		return fmt.Sprintf("%#x", v)
 	}
 
@@ -231,27 +277,29 @@ func Hexdump(data []byte, targetSize int) string {
 			end = len(data)
 		}
 		row := data[i:end]
-		
+
 		var hexStr string
 		var asciiStr string
-		
+
 		for j, b := range row {
 			if j == 8 {
 				hexStr += " "
 			}
 			hexStr += fmt.Sprintf("%02x ", b)
-			
+
 			if b >= 32 && b <= 126 {
 				asciiStr += string(b)
 			} else {
 				asciiStr += "."
 			}
 		}
-		
+
 		hexStr = strings.TrimSuffix(hexStr, " ")
 		res = append(res, fmt.Sprintf(formatStr, i, hexStr, asciiStr))
 	}
-	if len(res) == 0 { return "" }
+	if len(res) == 0 {
+		return ""
+	}
 	return strings.Join(res, "\n") + "\n"
 }
 
@@ -331,10 +379,11 @@ func MknodMode(val uint16) string {
 	return typeStr + "|" + perms
 }
 
-
 // Flock formats a struct flock buffer.
 func Flock(data []byte, showsPid bool) string {
-	if len(data) < 24 { return "{...}" }
+	if len(data) < 24 {
+		return "{...}"
+	}
 	l_type := binary.LittleEndian.Uint16(data[0:2])
 	l_whence := binary.LittleEndian.Uint16(data[2:4])
 	l_start := int64(binary.LittleEndian.Uint64(data[8:16]))
@@ -342,10 +391,14 @@ func Flock(data []byte, showsPid bool) string {
 
 	typeStr := ""
 	switch l_type {
-	case 0: typeStr = "F_RDLCK"
-	case 1: typeStr = "F_WRLCK"
-	case 2: typeStr = "F_UNLCK"
-	default: typeStr = fmt.Sprintf("%d", l_type)
+	case 0:
+		typeStr = "F_RDLCK"
+	case 1:
+		typeStr = "F_WRLCK"
+	case 2:
+		typeStr = "F_UNLCK"
+	default:
+		typeStr = fmt.Sprintf("%d", l_type)
 	}
 
 	res := fmt.Sprintf("{l_type=%s, l_whence=%s, l_start=%d, l_len=%d", typeStr, Whence(uint64(l_whence)), l_start, l_len)
@@ -359,17 +412,23 @@ func Flock(data []byte, showsPid bool) string {
 
 // FOwnerEx formats a struct f_owner_ex buffer.
 func FOwnerEx(data []byte) string {
-	if len(data) < 8 { return "{...}" }
+	if len(data) < 8 {
+		return "{...}"
+	}
 	typ := binary.LittleEndian.Uint32(data[0:4])
 	pid := int32(binary.LittleEndian.Uint32(data[4:8]))
-	
+
 	typeStr := ""
 	// IMPACT: Correct enum type constants for f_owner_ex where TID=0, PID=1, PGRP=2.
 	switch typ {
-	case 0: typeStr = "F_OWNER_TID"
-	case 1: typeStr = "F_OWNER_PID"
-	case 2: typeStr = "F_OWNER_PGRP"
-	default: typeStr = fmt.Sprintf("%d", typ)
+	case 0:
+		typeStr = "F_OWNER_TID"
+	case 1:
+		typeStr = "F_OWNER_PID"
+	case 2:
+		typeStr = "F_OWNER_PGRP"
+	default:
+		typeStr = fmt.Sprintf("%d", typ)
 	}
 	return fmt.Sprintf("{type=%s, pid=%d}", typeStr, pid)
 }
@@ -377,29 +436,35 @@ func FOwnerEx(data []byte) string {
 // Delegation formats a struct delegation buffer.
 // IMPACT: Decodes struct delegation fields (d_flags, d_type, and __pad) for F_GETDELEG/F_SETDELEG.
 func Delegation(data []byte) string {
-	if len(data) < 8 { return "{...}" }
+	if len(data) < 8 {
+		return "{...}"
+	}
 	d_flags := binary.LittleEndian.Uint32(data[0:4])
 	d_type := binary.LittleEndian.Uint16(data[4:6])
 	pad := binary.LittleEndian.Uint16(data[6:8])
-	
+
 	typeStr := ""
 	switch d_type {
-	case 0: typeStr = "F_RDLCK"
-	case 1: typeStr = "F_WRLCK"
-	case 2: typeStr = "F_UNLCK"
-	default: typeStr = fmt.Sprintf("%#x /* F_??? */", d_type)
+	case 0:
+		typeStr = "F_RDLCK"
+	case 1:
+		typeStr = "F_WRLCK"
+	case 2:
+		typeStr = "F_UNLCK"
+	default:
+		typeStr = fmt.Sprintf("%#x /* F_??? */", d_type)
 	}
-	
+
 	padStr := fmt.Sprintf("%#x", pad)
 	if pad == 0 {
 		padStr = "0"
 	}
-	
+
 	flagsStr := fmt.Sprintf("%#x", d_flags)
 	if d_flags == 0 {
 		flagsStr = "0"
 	}
-	
+
 	return fmt.Sprintf("{d_flags=%s, d_type=%s, __pad=%s}", flagsStr, typeStr, padStr)
 }
 
