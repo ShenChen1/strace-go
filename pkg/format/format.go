@@ -84,8 +84,10 @@ func Sigset(data []byte) string {
 	return prefix + "[" + strings.Join(res, " ") + "]"
 }
 
+const escapeModeHexNonASCIIChars = 3
+
 // BufferEscape formats a byte slice as a string, respecting a limit and escape mode.
-// escapeMode: 0 = default (octal for non-ascii), 1 = hex for non-ascii (-x), 2 = hex for all (-xx)
+// escapeMode: 0 = default (octal for non-ascii), 1 = hex for non-ascii (-x), 2 = hex for all (-xx), 3 = hex for escaped chars.
 func BufferEscape(data []byte, limit int, actualLen int, escapeMode int) string {
 	if len(data) == 0 {
 		return "\"\""
@@ -146,7 +148,7 @@ func BufferEscape(data []byte, limit int, actualLen int, escapeMode int) string 
 			if b >= 32 && b <= 126 {
 				sb.WriteByte(b)
 			} else {
-				if escapeMode == 1 {
+				if escapeMode == 1 || escapeMode == escapeModeHexNonASCIIChars {
 					sb.WriteString(fmt.Sprintf("\\x%02x", b))
 				} else {
 					sb.WriteString(fmt.Sprintf("\\%o", b))

@@ -434,6 +434,8 @@ func parseStringsInHex(arg, value string, opts *Options) {
 	switch value {
 	case "non-ascii":
 		opts.HexEscapeMode = 1
+	case "non-ascii-chars":
+		opts.HexEscapeMode = hexEscapeModeNonASCIIChars
 	case "all":
 		opts.HexEscapeMode = 2
 	default:

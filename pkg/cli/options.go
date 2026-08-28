@@ -22,6 +22,8 @@ const (
 	DecodeFDModeDevice
 )
 
+const hexEscapeModeNonASCIIChars = 3
+
 // Options holds all parsed command-line options.
 type Options struct {
 	CmdArgs               []string
@@ -34,7 +36,7 @@ type Options struct {
 	OutFile               string
 	AlignCol              int
 	StringLimit           int
-	HexEscapeMode         int // 0 = default, 1 = hex non-ascii (-x), 2 = hex all (-xx)
+	HexEscapeMode         int // 0 = default, 1 = hex non-ascii (-x), 2 = hex all (-xx), 3 = hex escaped chars
 	TraceSyscalls         map[string]bool
 	TracePaths            map[string]bool
 	TraceSyscallRegexps   []*regexp.Regexp
