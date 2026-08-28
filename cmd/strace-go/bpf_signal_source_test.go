@@ -35,3 +35,10 @@ func TestSignalDeliveryProjectsSenderForUserCodes(t *testing.T) {
 		}
 	}
 }
+
+func TestSignalDeliveryRejectsKernelSiginfoSentinels(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "bpf/signal_dispatch.h"))
+	if !strings.Contains(source, "if (info_address <= 1)") {
+		t.Fatal("signal dispatcher does not reject kernel siginfo sentinels")
+	}
+}

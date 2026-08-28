@@ -24,15 +24,16 @@ int trace_signal_deliver(struct bpf_raw_tracepoint_args *ctx)
     struct signal_event_v2 body = {};
     body.signo = (u32)ctx->args[0];
     unsigned long info_address = ctx->args[1];
-    if (info_address > 1) {
-        struct kernel_siginfo *info = (void *)info_address;
-        bpf_core_read(&body.error, sizeof(body.error), &info->si_errno);
-        bpf_core_read(&body.code, sizeof(body.code), &info->si_code);
-        if (body.code == SIGNAL_CODE_USER || body.code == SIGNAL_CODE_QUEUE ||
-            body.code == SIGNAL_CODE_TKILL) {
-            bpf_core_read(&body.sender_pid, sizeof(body.sender_pid), &info->_sifields._kill._pid);
-            bpf_core_read(&body.sender_uid, sizeof(body.sender_uid), &info->_sifields._kill._uid);
-        }
+    if (info_address <= 1) {
+        return 0;
+    }
+    struct kernel_siginfo *info = (void *)info_address;
+    bpf_core_read(&body.error, sizeof(body.error), &info->si_errno);
+    bpf_core_read(&body.code, sizeof(body.code), &info->si_code);
+    if (body.code == SIGNAL_CODE_USER || body.code == SIGNAL_CODE_QUEUE ||
+        body.code == SIGNAL_CODE_TKILL) {
+        bpf_core_read(&body.sender_pid, sizeof(body.sender_pid), &info->_sifields._kill._pid);
+        bpf_core_read(&body.sender_uid, sizeof(body.sender_uid), &info->_sifields._kill._uid);
     }
 
     emit_signal_event_v2(pid, tid, &body);
