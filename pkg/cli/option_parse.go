@@ -286,7 +286,7 @@ func parseLongValueOption(state *longOptionState) bool {
 	case "inject", "fault":
 		requiredLongValue(state)
 		rejectArchitectureConflict("--"+state.name, "pure eBPF tracing cannot modify tracee state")
-	case "status", "read", "write", "verbose", "abbrev", "raw":
+	case "status", "signal", "read", "write", "verbose", "abbrev", "raw":
 		parseEFlag(state.name+"="+requiredLongValue(state), state.opts)
 	case "quiet":
 		parseLongQuiet(optionalLongValue(state.inlineValue, state.hasInlineValue, "attach,personality"), state.opts)

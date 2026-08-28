@@ -41,6 +41,10 @@ type Options struct {
 	TraceWriteFDs         map[int32]bool
 	TraceWriteFDsNegated  bool
 	TraceStatus           map[string]bool
+	TraceSignals          map[int]bool
+	SignalConfigured      bool
+	SignalMatchesAll      bool
+	SignalSetIsNegated    bool
 	VerboseDisabled       map[string]bool
 	RawSyscalls           map[string]bool
 	NoAbbrevSyscalls      map[string]bool
@@ -94,6 +98,7 @@ func ParseArgs(args []string) *Options {
 		TraceReadFDs:     make(map[int32]bool),
 		TraceWriteFDs:    make(map[int32]bool),
 		TraceStatus:      make(map[string]bool),
+		TraceSignals:     make(map[int]bool),
 		VerboseDisabled:  make(map[string]bool),
 		RawSyscalls:      make(map[string]bool),
 		NoAbbrevSyscalls: make(map[string]bool),

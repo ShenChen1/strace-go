@@ -82,7 +82,7 @@ func parseEFlag(val string, opts *Options) {
 	case strings.HasPrefix(val, "inject="), strings.HasPrefix(val, "fault="):
 		rejectArchitectureConflict("-e inject/fault", "pure eBPF tracing cannot modify tracee state")
 	case strings.HasPrefix(val, "signal="):
-		return
+		parseSignalSet(strings.TrimPrefix(val, "signal="), opts)
 	case strings.HasPrefix(val, "quiet="):
 		parseQuietSet(strings.TrimPrefix(val, "quiet="), opts)
 	default:
