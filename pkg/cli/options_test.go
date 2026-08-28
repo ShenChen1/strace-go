@@ -386,6 +386,21 @@ func TestParseDecodeFDsLongFlags(t *testing.T) {
 	}
 }
 
+func TestParseDecodeFDsEFlagPreservesTraceSet(t *testing.T) {
+	opts := ParseArgs([]string{
+		"-e", "trace=openat,fsync",
+		"-e", "decode-fds=path",
+		"/bin/true",
+	})
+
+	if !opts.ShowPaths || opts.ShowPathsMode != 1 {
+		t.Fatalf("decode fds = enabled:%v mode:%d, want true/1", opts.ShowPaths, opts.ShowPathsMode)
+	}
+	if !opts.TraceSyscalls["openat"] || !opts.TraceSyscalls["fsync"] || len(opts.TraceSyscalls) != 2 {
+		t.Fatalf("TraceSyscalls = %#v, want openat and fsync", opts.TraceSyscalls)
+	}
+}
+
 func TestParseModeFlagRejected(t *testing.T) {
 	if os.Getenv("STRACE_GO_PARSE_MODE_EXIT") == "1" {
 		ParseArgs([]string{"--mode=compat", "/bin/true"})
