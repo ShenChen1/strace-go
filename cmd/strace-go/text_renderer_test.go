@@ -424,7 +424,7 @@ func TestTextRendererFastPathHasNoSteadyStateAllocations(t *testing.T) {
 	}
 }
 
-func TestTextRendererAppendsHexDumpAndSignalLine(t *testing.T) {
+func TestTextRendererAppendsHexDumpWithoutSyntheticSignal(t *testing.T) {
 	var output bytes.Buffer
 	opts := &cli.Options{}
 	renderer := newTextRenderer(TextRendererDeps{Out: &output, Policy: newTraceOutputPolicy(opts), State: newTraceState(), TimeFormatter: newTimeFormatter(0)})
@@ -436,12 +436,12 @@ func TestTextRendererAppendsHexDumpAndSignalLine(t *testing.T) {
 	}, handler.Result{ArgParts: []string{"0x1"}, HexDumpStr: "HEX\n"})
 
 	got := output.String()
-	if !strings.Contains(got, "HEX\n") || !strings.Contains(got, "--- SIGALRM") {
+	if !strings.Contains(got, "HEX\n") || strings.Contains(got, "--- SIGALRM") {
 		t.Fatalf("extra text output = %q", got)
 	}
 }
 
-func TestTextRendererPrintsClockNanosleepSignalLines(t *testing.T) {
+func TestTextRendererDoesNotSynthesizeClockNanosleepSignals(t *testing.T) {
 	for _, ret := range []int64{-516, -514} {
 		var output bytes.Buffer
 		opts := &cli.Options{}
@@ -453,8 +453,8 @@ func TestTextRendererPrintsClockNanosleepSignalLines(t *testing.T) {
 			handlerContext: &handler.Context{Opts: opts},
 		}, handler.Result{ArgParts: []string{"CLOCK_REALTIME", "0", "0x1", "0x2"}})
 
-		if got := output.String(); !strings.Contains(got, "--- SIGALRM") {
-			t.Fatalf("clock_nanosleep ret %d output = %q, want SIGALRM line", ret, got)
+		if got := output.String(); strings.Contains(got, "--- SIGALRM") {
+			t.Fatalf("clock_nanosleep ret %d output = %q, want no fabricated signal", ret, got)
 		}
 	}
 }

@@ -205,10 +205,6 @@ func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Res
 	if res.HexDumpStr != "" {
 		fmt.Fprint(r.out, res.HexDumpStr)
 	}
-	if shouldPrintSyntheticAlarmSignal(scMeta.Name, view.ret) {
-		fmt.Fprintf(r.out, "%s%s--- SIGALRM {si_signo=SIGALRM, si_code=SI_KERNEL} ---\n", timePrefix, pidPrefix)
-	}
-
 	r.printStackTrace(view.stackID)
 }
 
@@ -238,16 +234,6 @@ func trimTrailingParen(argLine string) string {
 		return argLine[:len(argLine)-1]
 	}
 	return argLine
-}
-
-func shouldPrintSyntheticAlarmSignal(syscallName string, ret int64) bool {
-	if syscallName == "nanosleep" {
-		return ret == -516
-	}
-	if syscallName == "clock_nanosleep" {
-		return ret == -516 || ret == -514
-	}
-	return false
 }
 
 func (r *TextRenderer) consumeSuspended(tid int) bool {

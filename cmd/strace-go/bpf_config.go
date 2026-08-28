@@ -17,6 +17,7 @@ type traceBPFConfig struct {
 	captureStack               bool
 	followForks                bool
 	emitEnter                  bool
+	emitSignal                 bool
 	fdState                    bool
 	elidePlainEnter            bool
 	elideNonBlockingPlainEnter bool
@@ -46,6 +47,7 @@ func newTraceBPFConfig(opts *cli.Options) traceBPFConfig {
 		captureStack:               opts.StackTrace,
 		followForks:                opts.FollowForks,
 		emitEnter:                  shouldEmitGenericEnter(opts),
+		emitSignal:                 shouldEmitSignalEvents(opts),
 		fdState:                    fdState,
 		elidePlainEnter:            shouldElidePlainEnter(opts, fdState),
 		elideNonBlockingPlainEnter: shouldElideNonBlockingPlainEnter(opts, fdState),
@@ -76,6 +78,9 @@ func buildRuntimeConfig(config traceBPFConfig, maps bpfMapProvider) (uint32, err
 	}
 	if config.emitEnter {
 		cfgVal |= bpfConfigEmitEnter
+	}
+	if config.emitSignal {
+		cfgVal |= bpfConfigEmitSignal
 	}
 	// Lifecycle events always flow so task/fd state and attach exit status work
 	// in text mode too; JSON rendering is gated separately.
@@ -173,4 +178,11 @@ func shouldElidePlainEnter(opts *cli.Options, fdState bool) bool {
 
 func shouldElideNonBlockingPlainEnter(opts *cli.Options, fdState bool) bool {
 	return opts != nil && opts.EventFormat == cli.EventFormatText && shouldElidePlainEnter(opts, fdState)
+}
+
+func shouldEmitSignalEvents(opts *cli.Options) bool {
+	if opts == nil || opts.EventFormat != cli.EventFormatText || opts.SummaryOnly {
+		return false
+	}
+	return !opts.SignalConfigured || opts.SignalMatchesAll || opts.SignalSetIsNegated || len(opts.TraceSignals) > 0
 }
