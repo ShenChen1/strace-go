@@ -231,6 +231,8 @@ func parseLongControlOption(state *longOptionState) bool {
 
 func parseLongRenderOption(state *longOptionState) bool {
 	switch state.name {
+	case "color":
+		state.opts.ColorMode = parseColorMode(optionalLongValue(state.inlineValue, state.hasInlineValue, ColorModeAuto))
 	case "decode-fds":
 		parseDecodeFDValue(optionalLongValue(state.inlineValue, state.hasInlineValue, "path"), state.opts)
 	case "relative-timestamps":
@@ -267,6 +269,16 @@ func parseLongRenderOption(state *longOptionState) bool {
 		return false
 	}
 	return true
+}
+
+func parseColorMode(value string) string {
+	switch value {
+	case ColorModeAuto, ColorModeAlways, ColorModeNever:
+		return value
+	default:
+		failOption("invalid --color argument: '%s'", value)
+		return ""
+	}
 }
 
 func parseLongValueOption(state *longOptionState) bool {

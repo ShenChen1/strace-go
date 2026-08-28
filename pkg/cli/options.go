@@ -16,6 +16,12 @@ const (
 )
 
 const (
+	ColorModeAuto   = "auto"
+	ColorModeAlways = "always"
+	ColorModeNever  = "never"
+)
+
+const (
 	DecodeFDModeNone = iota
 	DecodeFDModePath
 	DecodeFDModeAll
@@ -33,6 +39,7 @@ type Options struct {
 	EventFormat           string
 	DebugEvents           bool
 	DebugPhases           bool
+	ColorMode             string
 	OutFile               string
 	AlignCol              int
 	StringLimit           int
@@ -105,6 +112,7 @@ func ParseArgs(args []string) *Options {
 		StringLimit:      32,
 		HexEscapeMode:    0,
 		EventFormat:      EventFormatText,
+		ColorMode:        ColorModeAuto,
 		XlatFormat:       "abbrev",
 		TraceSyscalls:    make(map[string]bool),
 		TracePaths:       make(map[string]bool),
