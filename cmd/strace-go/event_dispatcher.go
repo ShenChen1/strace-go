@@ -1,31 +1,34 @@
 package main
 
 type TraceEventDispatcher struct {
-	targetPID   int
-	state       traceEventState
-	lifecycle   lifecycleEventSink
-	json        syscallEnterSink
-	pipeline    syscallExitSink
-	contextDeps syscallEventContextDeps
+	targetPID    int
+	state        traceEventState
+	lifecycle    lifecycleEventSink
+	json         syscallEnterSink
+	pipeline     syscallExitSink
+	syscallLimit traceSyscallLimitObserver
+	contextDeps  syscallEventContextDeps
 }
 
 type TraceEventDispatcherDeps struct {
-	TargetPID   int
-	State       traceEventState
-	Lifecycle   lifecycleEventSink
-	JSON        syscallEnterSink
-	Pipeline    syscallExitSink
-	ContextDeps syscallEventContextDeps
+	TargetPID    int
+	State        traceEventState
+	Lifecycle    lifecycleEventSink
+	JSON         syscallEnterSink
+	Pipeline     syscallExitSink
+	SyscallLimit traceSyscallLimitObserver
+	ContextDeps  syscallEventContextDeps
 }
 
 func newTraceEventDispatcher(deps TraceEventDispatcherDeps) *TraceEventDispatcher {
 	return &TraceEventDispatcher{
-		targetPID:   deps.TargetPID,
-		state:       deps.State,
-		lifecycle:   deps.Lifecycle,
-		json:        deps.JSON,
-		pipeline:    deps.Pipeline,
-		contextDeps: deps.ContextDeps,
+		targetPID:    deps.TargetPID,
+		state:        deps.State,
+		lifecycle:    deps.Lifecycle,
+		json:         deps.JSON,
+		pipeline:     deps.Pipeline,
+		syscallLimit: deps.SyscallLimit,
+		contextDeps:  deps.ContextDeps,
 	}
 }
 
@@ -104,7 +107,7 @@ func (d *TraceEventDispatcher) handleEnter(update TraceStateUpdate, statePID int
 }
 
 func (d *TraceEventDispatcher) handleExit(update TraceStateUpdate, statePID int) {
-	if d.pipeline == nil {
+	if d.pipeline == nil && d.syscallLimit == nil {
 		return
 	}
 	ev := newSyscallEventContextFromViewWithDeps(
@@ -114,7 +117,14 @@ func (d *TraceEventDispatcher) handleExit(update TraceStateUpdate, statePID int)
 		update.pendingEnter,
 		update.payloadSections,
 	)
-	d.pipeline.Handle(ev)
+	if d.syscallLimit != nil {
+		d.syscallLimit.Observe(ev)
+	}
+	if d.pipeline != nil {
+		d.pipeline.Handle(ev)
+		return
+	}
+	ev.releaseHandlerContext()
 }
 
 func (d *TraceEventDispatcher) handleDeferredExit(update traceDeferredExit, statePID int) {

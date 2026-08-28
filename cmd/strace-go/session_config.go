@@ -12,6 +12,7 @@ import (
 type traceSessionConfig struct {
 	eventPolicy  *cliTraceEventPolicy
 	outputPolicy *cliTraceOutputPolicy
+	syscallLimit uint64
 	catalog      *meta.Catalog
 	decoder      *event.Decoder
 	resolver     *stacktrace.Resolver
@@ -31,6 +32,7 @@ func newTraceSessionConfig(opts *cli.Options) traceSessionConfig {
 	return traceSessionConfig{
 		eventPolicy:  newTraceEventPolicy(opts),
 		outputPolicy: newTraceOutputPolicy(opts),
+		syscallLimit: opts.SyscallLimit,
 		catalog:      meta.NewCatalog(opts.XlatFormat),
 		decoder:      decoder,
 		resolver:     resolver,
