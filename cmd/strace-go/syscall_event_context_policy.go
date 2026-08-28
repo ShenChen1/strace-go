@@ -49,6 +49,15 @@ func (ev syscallEventContext) isFDStateSyscall() bool {
 }
 
 func (ev syscallEventContext) shouldEmitStatus(optsStatus successfulFailedOptions) bool {
+	if ev.detached {
+		if optsStatus.successfulOnly || optsStatus.failedOnly {
+			return false
+		}
+		if len(optsStatus.traceStatus) > 0 {
+			return optsStatus.traceStatus["detached"]
+		}
+		return true
+	}
 	return ev.eventView().shouldEmitStatus(ev.syscallName(), optsStatus)
 }
 

@@ -93,6 +93,9 @@ func (r *fakeExecSyscallRenderer) PrintSyscallEvent(syscallEventContext, handler
 	r.eventCalls++
 }
 
+func (r *fakeExecSyscallRenderer) PrintExecDetachedFromView(syscallEventView, string) {
+}
+
 func (r *fakeExecSyscallRenderer) PrintExecResumeFromView(syscallEventView, string) {
 	r.resumeCalls++
 }

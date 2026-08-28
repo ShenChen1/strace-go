@@ -7,17 +7,19 @@ type TraceEventDispatcher struct {
 	json         syscallEnterSink
 	pipeline     syscallExitSink
 	syscallLimit traceSyscallLimitObserver
+	detachOnExec traceDetachOnExecveObserver
 	contextDeps  syscallEventContextDeps
 }
 
 type TraceEventDispatcherDeps struct {
-	TargetPID    int
-	State        traceEventState
-	Lifecycle    lifecycleEventSink
-	JSON         syscallEnterSink
-	Pipeline     syscallExitSink
-	SyscallLimit traceSyscallLimitObserver
-	ContextDeps  syscallEventContextDeps
+	TargetPID      int
+	State          traceEventState
+	Lifecycle      lifecycleEventSink
+	JSON           syscallEnterSink
+	Pipeline       syscallExitSink
+	SyscallLimit   traceSyscallLimitObserver
+	DetachOnExecve traceDetachOnExecveObserver
+	ContextDeps    syscallEventContextDeps
 }
 
 func newTraceEventDispatcher(deps TraceEventDispatcherDeps) *TraceEventDispatcher {
@@ -28,6 +30,7 @@ func newTraceEventDispatcher(deps TraceEventDispatcherDeps) *TraceEventDispatche
 		json:         deps.JSON,
 		pipeline:     deps.Pipeline,
 		syscallLimit: deps.SyscallLimit,
+		detachOnExec: deps.DetachOnExecve,
 		contextDeps:  deps.ContextDeps,
 	}
 }
@@ -107,7 +110,7 @@ func (d *TraceEventDispatcher) handleEnter(update TraceStateUpdate, statePID int
 }
 
 func (d *TraceEventDispatcher) handleExit(update TraceStateUpdate, statePID int) {
-	if d.pipeline == nil && d.syscallLimit == nil {
+	if d.pipeline == nil && d.syscallLimit == nil && !d.detachOnExecEnabled() {
 		return
 	}
 	ev := newSyscallEventContextFromViewWithDeps(
@@ -117,6 +120,9 @@ func (d *TraceEventDispatcher) handleExit(update TraceStateUpdate, statePID int)
 		update.pendingEnter,
 		update.payloadSections,
 	)
+	if d.detachOnExec != nil {
+		ev = d.detachOnExec.Observe(ev)
+	}
 	if d.syscallLimit != nil {
 		d.syscallLimit.Observe(ev)
 	}
@@ -125,6 +131,10 @@ func (d *TraceEventDispatcher) handleExit(update TraceStateUpdate, statePID int)
 		return
 	}
 	ev.releaseHandlerContext()
+}
+
+func (d *TraceEventDispatcher) detachOnExecEnabled() bool {
+	return d != nil && d.detachOnExec != nil && d.detachOnExec.Enabled()
 }
 
 func (d *TraceEventDispatcher) handleDeferredExit(update traceDeferredExit, statePID int) {

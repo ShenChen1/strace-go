@@ -24,6 +24,7 @@ type syscallEventContext struct {
 	contextRecycler *handlerContextRecycler
 	payloadSections []handler.PayloadSection
 	eventFDView     eventFDStateView
+	detached        bool
 }
 
 // syscallEventView is the stable syscall field set used after context construction.

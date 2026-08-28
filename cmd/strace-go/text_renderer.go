@@ -30,6 +30,7 @@ type syscallTextRenderer interface {
 
 type execSyscallRenderer interface {
 	PrintSyscallEvent(syscallEventContext, handler.Result)
+	PrintExecDetachedFromView(syscallEventView, string)
 	PrintExecResumeFromView(syscallEventView, string)
 	PrintExecPidChangedFromView(syscallEventView, string)
 	PrintExecSupersededUnfinishedFromView(syscallEventView, string)
@@ -99,6 +100,14 @@ func (r *TextRenderer) PrintExecResumeFromView(view syscallEventView, argLine st
 	argLine = r.syscallNumberPrefix(view) + argLine
 	fmt.Fprintf(r.out, "%s%s%s%s= 0%s\n",
 		timePrefix, pidPrefix, argLine, r.padding(timePrefix, pidPrefix, argLine), r.durationSuffix(view.duration))
+}
+
+func (r *TextRenderer) PrintExecDetachedFromView(view syscallEventView, argLine string) {
+	fmt.Fprintf(r.out, "%s%s%s%s <detached ...>\n",
+		r.timePrefix(view.enterTime),
+		r.pidPrefix(int(view.tid)),
+		r.syscallNumberPrefix(view),
+		trimTrailingParen(argLine))
 }
 
 func (r *TextRenderer) PrintExecPidChangedFromView(view syscallEventView, argLine string) {

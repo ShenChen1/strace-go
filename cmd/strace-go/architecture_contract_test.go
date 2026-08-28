@@ -183,6 +183,7 @@ var traceArchitectureSessionDependencyContracts = [...]architectureSessionDepend
 	{field: "CommandWaiter", typeName: "traceCommandWaiter"},
 	{field: "Events", typeName: "traceRingbufReader"},
 	{field: "TargetPID", typeName: "int"},
+	{field: "DetachOnExecve", typeName: "bool"},
 	{field: "SyscallLimit", typeName: "uint64"},
 	{field: "EventPolicy", typeName: "traceEventPolicyOwner"},
 	{field: "OutputPolicy", typeName: "traceOutputPolicyOwner"},

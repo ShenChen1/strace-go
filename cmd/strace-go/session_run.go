@@ -125,6 +125,9 @@ func (s *traceSession) run() error {
 		if status == traceReadClosed {
 			return s.finishRun()
 		}
+		if s.detachOnExecveReached() {
+			return s.finishRun()
+		}
 		if s.syscallLimitReached() {
 			fmt.Fprintln(os.Stderr, "strace-go: System call limit has been reached, detaching tracees")
 			return s.finishRun()
@@ -133,10 +136,15 @@ func (s *traceSession) run() error {
 }
 
 func (s *traceSession) eventBatchLimit() int {
-	if s != nil && s.components != nil && s.components.syscallLimit.Enabled() {
+	if s != nil && s.components != nil &&
+		(s.components.syscallLimit.Enabled() || s.components.detachOnExecve.Enabled()) {
 		return 1
 	}
 	return traceEventBatchLimit
+}
+
+func (s *traceSession) detachOnExecveReached() bool {
+	return s != nil && s.components != nil && s.components.detachOnExecve.Reached()
 }
 
 func (s *traceSession) syscallLimitReached() bool {

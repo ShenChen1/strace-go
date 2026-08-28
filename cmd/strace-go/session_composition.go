@@ -26,6 +26,7 @@ type traceSessionComponents struct {
 	exitPipeline       *SyscallExitPipeline
 	lifecycleHandler   *LifecycleEventHandler
 	eventDispatcher    *TraceEventDispatcher
+	detachOnExecve     *traceDetachOnExecve
 	syscallLimit       *traceSyscallLimit
 	exitStatus         *ExitStatusCoordinator
 	eventRouter        *TraceEventRouter
@@ -56,6 +57,7 @@ type traceSessionEventComponents struct {
 	exitPipeline     *SyscallExitPipeline
 	lifecycleHandler *LifecycleEventHandler
 	eventDispatcher  *TraceEventDispatcher
+	detachOnExecve   *traceDetachOnExecve
 	syscallLimit     *traceSyscallLimit
 	eventRouter      *TraceEventRouter
 }
@@ -102,6 +104,8 @@ func composeTraceSession(
 		Resolver:      config.resolver,
 		State:         state,
 		Clock:         clock,
+
+		DetachOnExecve: config.detachOnExecve,
 	})
 }
 
@@ -128,6 +132,8 @@ type traceSessionDeps struct {
 	Resolver      traceSymbolResolver
 	State         traceStateOwner
 	Clock         traceClock
+
+	DetachOnExecve bool
 
 	SyscallMetadata *syscallMetadataTable
 }
@@ -229,6 +235,7 @@ func buildTraceSessionComponents(
 		exitPipeline:       events.exitPipeline,
 		lifecycleHandler:   events.lifecycleHandler,
 		eventDispatcher:    events.eventDispatcher,
+		detachOnExecve:     events.detachOnExecve,
 		syscallLimit:       events.syscallLimit,
 		exitStatus:         base.exitStatus,
 		eventRouter:        events.eventRouter,
@@ -324,6 +331,7 @@ func buildTraceSessionEvents(
 	outputs traceSessionOutputComponents,
 	contextDeps syscallEventContextDeps,
 ) traceSessionEventComponents {
+	detachOnExecve := newTraceDetachOnExecve(deps.DetachOnExecve, deps.HasCommand)
 	syscallLimit := newTraceSyscallLimit(deps.SyscallLimit, base.outputPolicy)
 	var exitPipeline *SyscallExitPipeline
 	var lifecycle *LifecycleEventHandler
@@ -361,13 +369,14 @@ func buildTraceSessionEvents(
 	}
 	deps.State.setUnfinishedEnabled(outputs.syscallText.textMode())
 	dispatcher := newTraceEventDispatcher(TraceEventDispatcherDeps{
-		TargetPID:    deps.TargetPID,
-		State:        deps.State,
-		Lifecycle:    lifecycleSink,
-		JSON:         jsonSink,
-		Pipeline:     exitSink,
-		SyscallLimit: syscallLimit,
-		ContextDeps:  contextDeps,
+		TargetPID:      deps.TargetPID,
+		State:          deps.State,
+		Lifecycle:      lifecycleSink,
+		JSON:           jsonSink,
+		Pipeline:       exitSink,
+		SyscallLimit:   syscallLimit,
+		DetachOnExecve: detachOnExecve,
+		ContextDeps:    contextDeps,
 	})
 	router := newTraceEventRouter(TraceEventRouterDeps{
 		Scope:            newTraceScope(deps.TargetPID, base.outputPolicy),
@@ -379,6 +388,7 @@ func buildTraceSessionEvents(
 		exitPipeline:     exitPipeline,
 		lifecycleHandler: lifecycle,
 		eventDispatcher:  dispatcher,
+		detachOnExecve:   detachOnExecve,
 		syscallLimit:     syscallLimit,
 		eventRouter:      router,
 	}

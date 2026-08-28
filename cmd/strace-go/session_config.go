@@ -12,6 +12,7 @@ import (
 type traceSessionConfig struct {
 	eventPolicy    *cliTraceEventPolicy
 	outputPolicy   *cliTraceOutputPolicy
+	detachOnExecve bool
 	syscallLimit   uint64
 	summaryOptions summaryOptions
 	catalog        *meta.Catalog
@@ -33,6 +34,7 @@ func newTraceSessionConfig(opts *cli.Options) traceSessionConfig {
 	return traceSessionConfig{
 		eventPolicy:    newTraceEventPolicy(opts),
 		outputPolicy:   newTraceOutputPolicy(opts),
+		detachOnExecve: opts.DetachOnExecve,
 		syscallLimit:   opts.SyscallLimit,
 		summaryOptions: newSummaryOptions(opts.SummarySortBy, opts.SummaryColumns),
 		catalog:        meta.NewCatalog(opts.XlatFormat),

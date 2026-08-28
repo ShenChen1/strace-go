@@ -39,6 +39,9 @@ func (o *ExecSyscallOutput) HandleEvent(ev syscallEventContext, res handler.Resu
 	view := ev.eventView()
 	tid := int(view.tid)
 	tgid := int(view.pid)
+	if ev.detached {
+		return o.handleDetached(ev, tid, scMeta, res)
+	}
 
 	switch view.ret {
 	case -514:
@@ -58,6 +61,19 @@ func (o *ExecSyscallOutput) HandleEvent(ev syscallEventContext, res handler.Resu
 		}
 		return false
 	}
+}
+
+func (o *ExecSyscallOutput) handleDetached(ev syscallEventContext, tid int, scMeta meta.Syscall, res handler.Result) bool {
+	argLine := execArgLine(scMeta, res, o.argNames())
+	if o.state != nil {
+		if pending, ok := o.state.takePendingExecArgs(tid); ok {
+			argLine = pending
+		}
+	}
+	if o.renderer != nil {
+		o.renderer.PrintExecDetachedFromView(ev.eventView(), argLine)
+	}
+	return true
 }
 
 func (o *ExecSyscallOutput) handleLeaderSuccess(ev syscallEventContext, tid int, res handler.Result) bool {
