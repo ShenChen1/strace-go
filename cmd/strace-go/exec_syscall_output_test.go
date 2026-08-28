@@ -177,6 +177,9 @@ func TestExecSyscallOutputNonLeaderSuperseded(t *testing.T) {
 	if !output.HandleEvent(execOutputEvent(scMeta, 200, 201, -514), res) {
 		t.Fatal("non-leader exec restart should be handled")
 	}
+	if out.Len() != 0 {
+		t.Fatalf("non-leader exec restart output = %q, want deferred output", out.String())
+	}
 	if _, ok := state.pendingExecArgsFor(201); !ok {
 		t.Fatal("non-leader exec restart did not remember args")
 	}
@@ -186,7 +189,7 @@ func TestExecSyscallOutputNonLeaderSuperseded(t *testing.T) {
 
 	got := out.String()
 	for _, want := range []string{
-		`201   execve("/bin/true", ["true"], 0x1 /* 1 var */ <unfinished ...>`,
+		`201   execve("/bin/true", ["true"], 0x1 /* 1 var */ <pid changed to 200 ...>`,
 		`200   +++ superseded by execve in pid 201 +++`,
 		`200   <... execve resumed>) = 0`,
 	} {
@@ -216,6 +219,9 @@ func TestExecSyscallOutputNonLeaderSupersededFromEventView(t *testing.T) {
 	if !output.HandleEvent(restart, res) {
 		t.Fatal("non-leader exec restart should be handled from event view")
 	}
+	if out.Len() != 0 {
+		t.Fatalf("non-leader exec restart output = %q, want deferred output", out.String())
+	}
 	if _, ok := state.pendingExecArgsFor(201); !ok {
 		t.Fatal("non-leader exec restart did not remember view tid")
 	}
@@ -225,7 +231,7 @@ func TestExecSyscallOutputNonLeaderSupersededFromEventView(t *testing.T) {
 
 	got := out.String()
 	for _, want := range []string{
-		`201   execve("/bin/true", ["true"], 0x1 /* 1 var */ <unfinished ...>`,
+		`201   execve("/bin/true", ["true"], 0x1 /* 1 var */ <pid changed to 200 ...>`,
 		`200   +++ superseded by execve in pid 201 +++`,
 		`200   <... execve resumed>) = 0`,
 	} {
@@ -238,6 +244,38 @@ func TestExecSyscallOutputNonLeaderSupersededFromEventView(t *testing.T) {
 	}
 	if len(*discarded) != 1 || (*discarded)[0] != 200 {
 		t.Fatalf("discarded exit statuses = %v, want view tgid [200]", *discarded)
+	}
+}
+
+func TestExecSyscallOutputQuietNonLeaderDefersUntilSuccess(t *testing.T) {
+	output, _, out, _ := newExecSyscallOutputForTest(&cli.Options{
+		FollowForks:       true,
+		QuietThreadExecve: true,
+	})
+	scMeta := meta.Syscall{Name: "execveat"}
+	res := handler.Result{ArgParts: []string{`AT_FDCWD`, `"/bin/true"`, `["true"]`, `NULL`, `0`}}
+
+	if !output.HandleEvent(execOutputEvent(scMeta, 200, 201, -514), res) {
+		t.Fatal("quiet non-leader exec restart should be handled")
+	}
+	if out.Len() != 0 {
+		t.Fatalf("quiet non-leader exec restart output = %q, want deferred output", out.String())
+	}
+	if !output.HandleEvent(execOutputEvent(scMeta, 200, 201, 0), res) {
+		t.Fatal("quiet non-leader exec success should be handled")
+	}
+
+	got := out.String()
+	for _, want := range []string{
+		`201   execveat(AT_FDCWD, "/bin/true", ["true"], NULL, 0 <pid changed to 200 ...>`,
+		`200   <... execveat resumed>) = 0`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("quiet non-leader exec output missing %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, "superseded by execve") {
+		t.Fatalf("quiet non-leader exec output leaked superseded message: %q", got)
 	}
 }
 

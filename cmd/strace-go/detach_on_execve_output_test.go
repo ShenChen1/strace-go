@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"strace-go/pkg/cli"
@@ -18,6 +19,7 @@ func TestExecSyscallOutputPrintsDetachedLine(t *testing.T) {
 	}
 	detached := execOutputEvent(syscall, 200, 200, 0)
 	detached.detached = true
+	detached.detachedByExecPolicy = true
 	if !output.HandleEvent(detached, result) {
 		t.Fatal("detached exec success should be handled")
 	}
@@ -37,6 +39,7 @@ func TestExecSyscallOutputPrintsDetachedNonLeaderIdentityChange(t *testing.T) {
 	result := handler.Result{ArgParts: []string{`"../status-detached-threads"`, `["../status-detached-threads", "0"]`, `NULL`}}
 	detached := execOutputEvent(syscall, 200, 201, 0)
 	detached.detached = true
+	detached.detachedByExecPolicy = true
 
 	if !output.HandleEvent(detached, result) {
 		t.Fatal("detached non-leader exec should be handled")
@@ -48,5 +51,24 @@ func TestExecSyscallOutputPrintsDetachedNonLeaderIdentityChange(t *testing.T) {
 	}
 	if len(*discarded) != 1 || (*discarded)[0] != 200 {
 		t.Fatalf("discarded exit statuses = %v, want [200]", *discarded)
+	}
+}
+
+func TestExecSyscallOutputDoesNotTreatDetachedStatusAsDetachPolicy(t *testing.T) {
+	output, _, out, _ := newExecSyscallOutputForTest(&cli.Options{FollowForks: true})
+	syscall := meta.Syscall{Name: "execve"}
+	result := handler.Result{ArgParts: []string{`"/bin/true"`, `["true"]`, `NULL`}}
+
+	if !output.HandleEvent(execOutputEvent(syscall, 200, 201, -514), result) {
+		t.Fatal("non-leader exec restart should be handled")
+	}
+	success := execOutputEvent(syscall, 200, 201, 0)
+	success.detached = true
+	if !output.HandleEvent(success, result) {
+		t.Fatal("status-detached non-leader exec should be handled")
+	}
+
+	if got := out.String(); !strings.Contains(got, "<... execve resumed>) = 0") {
+		t.Fatalf("status-detached exec used detach output path: %q", got)
 	}
 }

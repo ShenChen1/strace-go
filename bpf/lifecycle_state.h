@@ -56,6 +56,26 @@ static __always_inline int clear_pre_exec_filter(u32 tid)
     return 1;
 }
 
+static __always_inline int adopt_exec_task_tracking(
+    u32 pid,
+    u32 tid,
+    u32 old_tid)
+{
+    if (is_lifecycle_task_tracked(pid, tid)) return 1;
+    if (old_tid == 0 || old_tid == tid) return 0;
+
+    u32 *old_flags = bpf_map_lookup_elem(&filter_map, &old_tid);
+    if (!old_flags) return 0;
+    u32 value = *old_flags;
+    if (!(value & FILTER_TASK_TRACKED)) return 0;
+    if (bpf_map_update_elem(&filter_map, &pid, &value, BPF_ANY) != 0) {
+        record_lifecycle_map_update_fail();
+        return 0;
+    }
+    bpf_map_delete_elem(&filter_map, &old_tid);
+    return 1;
+}
+
 static __always_inline void clear_process_lifecycle_state(u32 pid)
 {
     bpf_map_delete_elem(&filter_map, &pid);

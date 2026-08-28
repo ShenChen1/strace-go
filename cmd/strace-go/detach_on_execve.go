@@ -63,6 +63,7 @@ func (d *traceDetachOnExecve) Observe(event syscallEventContext) syscallEventCon
 		}
 	}
 	event.detached = true
+	event.detachedByExecPolicy = true
 	if view.pid != 0 && view.pid != view.tid {
 		return event
 	}

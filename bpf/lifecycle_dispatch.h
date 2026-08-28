@@ -3,6 +3,19 @@
 
 /* lifecycle_dispatch.h owns the sched lifecycle tracepoint programs. */
 
+static __always_inline void emit_successful_exec_completion(u32 pid)
+{
+    struct pending_task_state *state = current_pending_task_state();
+    if (!state || !state->valid) return;
+
+    struct pending_syscall *pending = &state->syscall;
+    if (!is_exec_payload_direct_syscall(pending->sys_id)) return;
+
+    u64 duration = pending_syscall_duration(pending);
+    emit_syscall_exit_event_v2_direct(pending, 0, duration, 0);
+    consume_pending_syscall(pid, pending->tid, pending, 0);
+}
+
 SEC("tracepoint/sched/sched_process_fork")
 int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {
     record_lifecycle_fork_seen();
@@ -53,7 +66,7 @@ int trace_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx) {
     // governed by follow-forks instead.
     u32 arm_key = 0;
     u32 *arm_parent = bpf_map_lookup_elem(&arm_fork_map, &arm_key);
-    int tracked = is_lifecycle_task_tracked(pid, tid);
+    int tracked = adopt_exec_task_tracking(pid, tid, ctx->old_pid);
     if (tracked) {
         // IMPACT: only an armed child may consume the initial-fork arm;
         // unrelated tracked execs must not clear another target's startup arm.
@@ -72,6 +85,8 @@ int trace_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx) {
         record_lifecycle_exec_untracked();
         return 0;
     }
+
+    emit_successful_exec_completion(pid);
 
     u32 filename_offset = ctx->__data_loc_filename & 0xffff;
     void *filename = 0;

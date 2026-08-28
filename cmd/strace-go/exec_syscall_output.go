@@ -39,7 +39,7 @@ func (o *ExecSyscallOutput) HandleEvent(ev syscallEventContext, res handler.Resu
 	view := ev.eventView()
 	tid := int(view.tid)
 	tgid := int(view.pid)
-	if ev.detached {
+	if ev.detachedByExecPolicy {
 		return o.handleDetached(ev, tid, scMeta, res)
 	}
 
@@ -49,12 +49,12 @@ func (o *ExecSyscallOutput) HandleEvent(ev syscallEventContext, res handler.Resu
 		if tid == tgid {
 			return true
 		}
-		return o.handleNonLeaderRestart(ev, tid, scMeta, res)
+		return o.handleNonLeaderRestart(tid)
 	case 0:
 		if tid == tgid {
 			return o.handleLeaderSuccess(ev, tid, res)
 		}
-		return o.handleNonLeaderSuccess(ev, tid, tgid, scMeta)
+		return o.handleNonLeaderSuccess(ev, tid, tgid, scMeta, res)
 	default:
 		if o.state != nil {
 			o.state.deletePendingExecArgs(tid)
@@ -105,40 +105,37 @@ func (o *ExecSyscallOutput) handleLeaderSuccess(ev syscallEventContext, tid int,
 	return true
 }
 
-func (o *ExecSyscallOutput) handleNonLeaderRestart(ev syscallEventContext, tid int, scMeta meta.Syscall, res handler.Result) bool {
+func (o *ExecSyscallOutput) handleNonLeaderRestart(tid int) bool {
 	if !o.followForks() {
 		if o.state != nil {
 			o.state.deletePendingExecArgs(tid)
 		}
 		return false
 	}
-	if ev.pendingEnter != nil && ev.pendingEnter.unfinishedPrinted {
-		return true
-	}
-	view := ev.eventView()
-	argLine := o.pendingArgLine(tid, scMeta, res)
-	if view.probeRetEnter == 1 {
-		o.renderer.PrintExecPidChangedFromView(view, argLine)
-		return true
-	}
-	o.renderer.PrintExecSupersededUnfinishedFromView(view, argLine)
 	return true
 }
 
-func (o *ExecSyscallOutput) handleNonLeaderSuccess(ev syscallEventContext, tid int, tgid int, scMeta meta.Syscall) bool {
+func (o *ExecSyscallOutput) handleNonLeaderSuccess(
+	ev syscallEventContext,
+	tid int,
+	tgid int,
+	scMeta meta.Syscall,
+	res handler.Result,
+) bool {
 	if !o.followForks() {
 		return false
 	}
 	view := ev.eventView()
+	argLine := execArgLine(scMeta, res, o.argNames())
 	if o.state != nil {
-		o.state.deletePendingExecArgs(tid)
+		if pending, ok := o.state.takePendingExecArgs(tid); ok {
+			argLine = pending
+		}
 	}
 	if o.discardExitStatus != nil {
 		o.discardExitStatus(tgid)
 	}
-	if view.probeRetEnter == 1 {
-		return true
-	}
+	o.renderer.PrintExecPidChangedFromView(view, argLine)
 	if view.probeRetExit > 0 && o.state != nil {
 		suspendedSysID := uint32(view.probeRetExit)
 		if suspMeta, ok := meta.SyscallTable[suspendedSysID]; ok {
@@ -155,15 +152,6 @@ func (o *ExecSyscallOutput) rememberPendingArgs(tid int, scMeta meta.Syscall, re
 		return
 	}
 	o.state.rememberPendingExecArgs(tid, execArgLine(scMeta, res, o.argNames()))
-}
-
-func (o *ExecSyscallOutput) pendingArgLine(tid int, scMeta meta.Syscall, res handler.Result) string {
-	if o.state != nil {
-		if argLine, ok := o.state.pendingExecArgsFor(tid); ok {
-			return argLine
-		}
-	}
-	return execArgLine(scMeta, res, o.argNames())
 }
 
 func (o *ExecSyscallOutput) followForks() bool {

@@ -86,6 +86,62 @@ func TestBPFNonLeaderExecPreservesProcessTrackingAcrossLeaderReplacement(t *test
 	}
 }
 
+func TestBPFSchedExecCompletesPendingSyscallBeforeLifecycle(t *testing.T) {
+	source := readCombinedBPFSources(t)
+	helper, ok := bpfFunctionBody(source, "emit_successful_exec_completion")
+	if !ok {
+		t.Fatal("lifecycle dispatch missing successful exec completion helper")
+	}
+	for _, snippet := range []string{
+		"current_pending_task_state()",
+		"is_exec_payload_direct_syscall(pending->sys_id)",
+		"emit_syscall_exit_event_v2_direct(pending, 0, duration, 0)",
+		"consume_pending_syscall(pid, pending->tid, pending, 0)",
+	} {
+		if !strings.Contains(helper, snippet) {
+			t.Fatalf("successful exec completion helper missing %q", snippet)
+		}
+	}
+
+	execBody, ok := bpfFunctionBody(source, "trace_sched_process_exec")
+	if !ok {
+		t.Fatal("lifecycle dispatch missing sched_process_exec")
+	}
+	completion := strings.Index(execBody, "emit_successful_exec_completion(pid);")
+	lifecycle := strings.Index(execBody, "emit_lifecycle_event(LIFECYCLE_EXEC")
+	if completion < 0 || lifecycle < completion {
+		t.Fatal("sched_process_exec must complete the syscall before emitting lifecycle")
+	}
+}
+
+func TestBPFSchedExecAdoptsOldThreadTracking(t *testing.T) {
+	source := readCombinedBPFSources(t)
+	helper, ok := bpfFunctionBody(source, "adopt_exec_task_tracking")
+	if !ok {
+		t.Fatal("lifecycle state missing exec task tracking adoption helper")
+	}
+	for _, snippet := range []string{
+		"bpf_map_lookup_elem(&filter_map, &old_tid)",
+		"value & FILTER_TASK_TRACKED",
+		"bpf_map_update_elem(&filter_map, &pid, &value, BPF_ANY)",
+		"bpf_map_delete_elem(&filter_map, &old_tid)",
+	} {
+		if !strings.Contains(helper, snippet) {
+			t.Fatalf("exec task tracking adoption helper missing %q", snippet)
+		}
+	}
+
+	execBody, ok := bpfFunctionBody(source, "trace_sched_process_exec")
+	if !ok {
+		t.Fatal("lifecycle dispatch missing sched_process_exec")
+	}
+	adopt := strings.Index(execBody, "adopt_exec_task_tracking(pid, tid, ctx->old_pid)")
+	untracked := strings.Index(execBody, "if (!tracked) {")
+	if adopt < 0 || untracked < adopt {
+		t.Fatal("sched_process_exec must adopt old thread tracking before rejecting untracked exec")
+	}
+}
+
 func TestBPFFreeUsesTracepointTaskPID(t *testing.T) {
 	source := readTextFile(t, filepath.Join(repoRootForTest(t), "bpf/lifecycle_dispatch.h"))
 	body, ok := bpfFunctionBody(source, "trace_sched_process_free")

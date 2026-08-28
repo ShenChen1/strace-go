@@ -67,8 +67,8 @@ func TestNonLeaderExecvePrintsSupersededTGID(t *testing.T) {
 	}, res)
 
 	got := out.String()
-	if !strings.Contains(got, "201") || !strings.Contains(got, "<unfinished ...>") {
-		t.Fatalf("non-leader execve enter output = %q, want unfinished line for tid 201", got)
+	if !strings.Contains(got, "201") || !strings.Contains(got, "<pid changed to 200 ...>") {
+		t.Fatalf("non-leader execve output = %q, want pid change for tid 201", got)
 	}
 	if !strings.Contains(got, "200") || !strings.Contains(got, "+++ superseded by execve in pid 201 +++") {
 		t.Fatalf("non-leader execve output = %q, want superseded message for tgid 200", got)

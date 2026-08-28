@@ -9,22 +9,23 @@ import (
 var _ handler.SnapshotDecoder = (*event.Decoder)(nil)
 
 type syscallEventContext struct {
-	view            syscallEventView
-	statePID        int
-	meta            meta.Syscall
-	traits          syscallEventTraits
-	traitsBound     bool
-	fdFlags         fdFlagDecoder
-	filter          traceFilterOptions
-	pathText        string
-	pathArguments   []event.PathArgument
-	shouldPrint     bool
-	pendingEnter    *pendingSyscallSnapshot
-	handlerContext  *handler.Context
-	contextRecycler *handlerContextRecycler
-	payloadSections []handler.PayloadSection
-	eventFDView     eventFDStateView
-	detached        bool
+	view                 syscallEventView
+	statePID             int
+	meta                 meta.Syscall
+	traits               syscallEventTraits
+	traitsBound          bool
+	fdFlags              fdFlagDecoder
+	filter               traceFilterOptions
+	pathText             string
+	pathArguments        []event.PathArgument
+	shouldPrint          bool
+	pendingEnter         *pendingSyscallSnapshot
+	handlerContext       *handler.Context
+	contextRecycler      *handlerContextRecycler
+	payloadSections      []handler.PayloadSection
+	eventFDView          eventFDStateView
+	detached             bool
+	detachedByExecPolicy bool
 }
 
 // syscallEventView is the stable syscall field set used after context construction.

@@ -19,7 +19,7 @@ func TestDetachOnExecveCommandSkipsInitialSuccessfulExec(t *testing.T) {
 		t.Fatal("command detached on a failed exec")
 	}
 	next := policy.Observe(detachExecEvent("execveat", 0))
-	if !next.detached || !policy.Reached() {
+	if !next.detached || !next.detachedByExecPolicy || !policy.Reached() {
 		t.Fatal("command did not detach on the next successful exec")
 	}
 }
@@ -32,7 +32,7 @@ func TestDetachOnExecveLifecycleHandlesMissingInitialExit(t *testing.T) {
 	policy.ObserveLifecycle(initialLifecycle)
 	policy.ObserveLifecycle(secondLifecycle)
 	second := policy.Observe(detachExecEvent("execve", 0))
-	if !second.detached || !policy.Reached() {
+	if !second.detached || !second.detachedByExecPolicy || !policy.Reached() {
 		t.Fatal("missing initial syscall exit caused the second exec to be skipped")
 	}
 }
@@ -52,7 +52,7 @@ func TestDetachOnExecveLifecycleMatchesInitialExit(t *testing.T) {
 	secondEvent := initial
 	secondEvent.view.enterTime = 200
 	second := policy.Observe(secondEvent)
-	if !second.detached || !policy.Reached() {
+	if !second.detached || !second.detachedByExecPolicy || !policy.Reached() {
 		t.Fatal("second exec was skipped after matching the initial completion")
 	}
 }
@@ -66,7 +66,7 @@ func TestDetachOnExecveRecognizesNextExitBeforeNextLifecycle(t *testing.T) {
 	next.view.enterTime = 200
 
 	next = policy.Observe(next)
-	if !next.detached || !policy.Reached() {
+	if !next.detached || !next.detachedByExecPolicy || !policy.Reached() {
 		t.Fatal("later exec exit was mistaken for a delayed initial completion")
 	}
 }
@@ -75,7 +75,7 @@ func TestDetachOnExecveAttachStopsOnFirstSuccessfulExec(t *testing.T) {
 	policy := newTraceDetachOnExecve(true, false)
 
 	event := policy.Observe(detachExecEvent("execve", 0))
-	if !event.detached || !policy.Reached() {
+	if !event.detached || !event.detachedByExecPolicy || !policy.Reached() {
 		t.Fatal("attach policy did not detach on the first successful exec")
 	}
 }
@@ -87,7 +87,7 @@ func TestDetachOnExecveNonLeaderKeepsReplacementLeaderTracked(t *testing.T) {
 	event.view.tid = 201
 
 	event = policy.Observe(event)
-	if !event.detached {
+	if !event.detached || !event.detachedByExecPolicy {
 		t.Fatal("non-leader exec was not classified as detached")
 	}
 	if policy.Reached() {
@@ -99,7 +99,7 @@ func TestDetachOnExecveDisabledIgnoresExec(t *testing.T) {
 	policy := newTraceDetachOnExecve(false, false)
 
 	event := policy.Observe(detachExecEvent("execve", 0))
-	if event.detached || policy.Enabled() || policy.Reached() {
+	if event.detached || event.detachedByExecPolicy || policy.Enabled() || policy.Reached() {
 		t.Fatal("disabled detach policy changed session state")
 	}
 }
@@ -141,7 +141,7 @@ func TestDetachOnExecveMarksEventBeforeExitPipeline(t *testing.T) {
 		},
 	}, 101)
 
-	if len(sink.events) != 1 || !sink.events[0].detached {
+	if len(sink.events) != 1 || !sink.events[0].detached || !sink.events[0].detachedByExecPolicy {
 		t.Fatalf("pipeline events = %+v, want one detached exec", sink.events)
 	}
 }
@@ -165,7 +165,7 @@ func TestNonLeaderExecHasDetachedStatusWithoutDetachOption(t *testing.T) {
 		},
 	}, 200)
 
-	if len(sink.events) != 1 || !sink.events[0].detached {
+	if len(sink.events) != 1 || !sink.events[0].detached || sink.events[0].detachedByExecPolicy {
 		t.Fatalf("non-leader pipeline events = %+v, want detached status", sink.events)
 	}
 }
