@@ -67,6 +67,11 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
             run_tests.UPSTREAM_TEST_TIMEOUT_SECONDS["qual_syscall.test"], 180
         )
 
+    def test_strace_summary_sort_has_multi_session_timeout(self):
+        self.assertGreaterEqual(
+            run_tests.UPSTREAM_TEST_TIMEOUT_SECONDS["strace-S.test"], 120
+        )
+
     def test_registered_tests_exist_in_current_upstream(self):
         valid = {
             name

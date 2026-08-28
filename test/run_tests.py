@@ -33,6 +33,7 @@ UPSTREAM_DIR = os.path.join(PROJECT_ROOT, "strace-upstream")
 UPSTREAM_TEST_TIMEOUT_SECONDS = {
     "qual_syscall.test": 180,
     "readv.test": 60,
+    "strace-S.test": 120,
 }
 
 
