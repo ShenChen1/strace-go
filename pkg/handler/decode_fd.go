@@ -83,7 +83,7 @@ func formatFDTarget(ctx *Context, fd int32, target string) string {
 				return fmt.Sprintf("%d<%s>", fd, detailed)
 			}
 		}
-		return fmt.Sprintf("%d<%s>", fd, target)
+		return fmt.Sprintf("%d", fd)
 	}
 	if strings.HasPrefix(target, "socket:[") {
 		target = formatSocketPath(ctx, target, fd)
