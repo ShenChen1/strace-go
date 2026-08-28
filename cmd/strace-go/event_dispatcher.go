@@ -4,6 +4,7 @@ type TraceEventDispatcher struct {
 	targetPID    int
 	state        traceEventState
 	lifecycle    lifecycleEventSink
+	signal       signalEventSink
 	json         syscallEnterSink
 	pipeline     syscallExitSink
 	syscallLimit traceSyscallLimitObserver
@@ -15,6 +16,7 @@ type TraceEventDispatcherDeps struct {
 	TargetPID      int
 	State          traceEventState
 	Lifecycle      lifecycleEventSink
+	Signal         signalEventSink
 	JSON           syscallEnterSink
 	Pipeline       syscallExitSink
 	SyscallLimit   traceSyscallLimitObserver
@@ -27,6 +29,7 @@ func newTraceEventDispatcher(deps TraceEventDispatcherDeps) *TraceEventDispatche
 		targetPID:    deps.TargetPID,
 		state:        deps.State,
 		lifecycle:    deps.Lifecycle,
+		signal:       deps.Signal,
 		json:         deps.JSON,
 		pipeline:     deps.Pipeline,
 		syscallLimit: deps.SyscallLimit,
@@ -48,6 +51,10 @@ func (d *TraceEventDispatcher) Dispatch(envelope traceEventEnvelope, update Trac
 	case traceStateLifecycle:
 		d.handleDeferredExit(update.deferredExit, statePID)
 		d.handleLifecycle(update)
+	case traceStateSignal:
+		if d.signal != nil {
+			d.signal.HandleSignal(update.signalView)
+		}
 	case traceStateSyscallEnter:
 		d.handleEnter(update, statePID)
 		d.handleDeferredExit(update.deferredExit, statePID)

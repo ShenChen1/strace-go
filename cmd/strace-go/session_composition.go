@@ -25,6 +25,7 @@ type traceSessionComponents struct {
 	handlerDecodePlan  *syscallDecodePlan
 	exitPipeline       *SyscallExitPipeline
 	lifecycleHandler   *LifecycleEventHandler
+	signalOutput       *SignalEventOutput
 	eventDispatcher    *TraceEventDispatcher
 	detachOnExecve     *traceDetachOnExecve
 	syscallLimit       *traceSyscallLimit
@@ -56,6 +57,7 @@ type traceSessionOutputComponents struct {
 type traceSessionEventComponents struct {
 	exitPipeline     *SyscallExitPipeline
 	lifecycleHandler *LifecycleEventHandler
+	signalOutput     *SignalEventOutput
 	eventDispatcher  *TraceEventDispatcher
 	detachOnExecve   *traceDetachOnExecve
 	syscallLimit     *traceSyscallLimit
@@ -234,6 +236,7 @@ func buildTraceSessionComponents(
 		handlerDecodePlan:  handlerDecodePlan,
 		exitPipeline:       events.exitPipeline,
 		lifecycleHandler:   events.lifecycleHandler,
+		signalOutput:       events.signalOutput,
 		eventDispatcher:    events.eventDispatcher,
 		detachOnExecve:     events.detachOnExecve,
 		syscallLimit:       events.syscallLimit,
@@ -335,8 +338,10 @@ func buildTraceSessionEvents(
 	syscallLimit := newTraceSyscallLimit(deps.SyscallLimit, base.outputPolicy)
 	var exitPipeline *SyscallExitPipeline
 	var lifecycle *LifecycleEventHandler
+	var signalOutput *SignalEventOutput
 	var exitSink syscallExitSink
 	var lifecycleSink lifecycleEventSink
+	var signalSink signalEventSink
 	var jsonSink syscallEnterSink
 	if !base.outputPolicy.DiscardEvents() || isTraceHandlerOnlyPolicy(base.outputPolicy) {
 		contextDeps.contextPool = newHandlerContextRecyclerWithPorts(handlerContextSessionPortsFromDeps(contextDeps))
@@ -366,12 +371,15 @@ func buildTraceSessionEvents(
 		exitSink = exitPipeline
 		lifecycleSink = lifecycle
 		jsonSink = outputs.syscallJSON
+		signalOutput = newSignalEventOutput(base.outputPolicy, base.renderer, deps.Catalog)
+		signalSink = signalOutput
 	}
 	deps.State.setUnfinishedEnabled(outputs.syscallText.textMode())
 	dispatcher := newTraceEventDispatcher(TraceEventDispatcherDeps{
 		TargetPID:      deps.TargetPID,
 		State:          deps.State,
 		Lifecycle:      lifecycleSink,
+		Signal:         signalSink,
 		JSON:           jsonSink,
 		Pipeline:       exitSink,
 		SyscallLimit:   syscallLimit,
@@ -387,6 +395,7 @@ func buildTraceSessionEvents(
 	return traceSessionEventComponents{
 		exitPipeline:     exitPipeline,
 		lifecycleHandler: lifecycle,
+		signalOutput:     signalOutput,
 		eventDispatcher:  dispatcher,
 		detachOnExecve:   detachOnExecve,
 		syscallLimit:     syscallLimit,

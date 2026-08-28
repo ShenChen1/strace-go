@@ -4,6 +4,13 @@ import "strace-go/pkg/handler"
 
 func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpdate {
 	unfinished := st.pendingForOtherTID(envelope.tid)
+	if envelope.isSignal() {
+		return TraceStateUpdate{
+			kind:       traceStateSignal,
+			signalView: envelope.signalView(),
+			unfinished: unfinished,
+		}
+	}
 	if envelope.isLifecycle() {
 		return st.handleLifecycleEnvelope(envelope, unfinished)
 	}

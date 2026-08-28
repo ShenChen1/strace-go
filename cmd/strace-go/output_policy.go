@@ -33,6 +33,11 @@ type traceSummaryPolicy interface {
 	SummaryAndPrint() bool
 }
 
+// traceSignalOutputPolicy owns signal-set selection independently of syscalls.
+type traceSignalOutputPolicy interface {
+	ShouldEmitSignal(signo uint32) bool
+}
+
 // traceExitPolicy controls command and exit-syscall fallback output.
 type traceExitPolicy interface {
 	traceFormatPolicy
@@ -104,20 +109,25 @@ type cliTraceOutputPolicy struct {
 	quietExit          bool
 	render             traceRenderOptions
 	attachPIDs         []int
+	signals            map[int]bool
+	signalConfigured   bool
+	signalMatchesAll   bool
+	signalSetIsNegated bool
 }
 
 var (
-	_ traceFormatPolicy      = (*cliTraceOutputPolicy)(nil)
-	_ traceEventOutputPolicy = (*cliTraceOutputPolicy)(nil)
-	_ traceSummaryPolicy     = (*cliTraceOutputPolicy)(nil)
-	_ traceExitPolicy        = (*cliTraceOutputPolicy)(nil)
-	_ traceRenderPolicy      = (*cliTraceOutputPolicy)(nil)
-	_ traceTimePolicy        = (*cliTraceOutputPolicy)(nil)
-	_ traceFollowForkPolicy  = (*cliTraceOutputPolicy)(nil)
-	_ traceScopePolicy       = (*cliTraceOutputPolicy)(nil)
-	_ traceLifecyclePolicy   = (*cliTraceOutputPolicy)(nil)
-	_ traceReadyPolicy       = (*cliTraceOutputPolicy)(nil)
-	_ traceHandlerOnlyPolicy = (*cliTraceOutputPolicy)(nil)
+	_ traceFormatPolicy       = (*cliTraceOutputPolicy)(nil)
+	_ traceEventOutputPolicy  = (*cliTraceOutputPolicy)(nil)
+	_ traceSummaryPolicy      = (*cliTraceOutputPolicy)(nil)
+	_ traceSignalOutputPolicy = (*cliTraceOutputPolicy)(nil)
+	_ traceExitPolicy         = (*cliTraceOutputPolicy)(nil)
+	_ traceRenderPolicy       = (*cliTraceOutputPolicy)(nil)
+	_ traceTimePolicy         = (*cliTraceOutputPolicy)(nil)
+	_ traceFollowForkPolicy   = (*cliTraceOutputPolicy)(nil)
+	_ traceScopePolicy        = (*cliTraceOutputPolicy)(nil)
+	_ traceLifecyclePolicy    = (*cliTraceOutputPolicy)(nil)
+	_ traceReadyPolicy        = (*cliTraceOutputPolicy)(nil)
+	_ traceHandlerOnlyPolicy  = (*cliTraceOutputPolicy)(nil)
 )
 
 func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
@@ -127,6 +137,10 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 	traceStatus := make(map[string]bool, len(opts.TraceStatus))
 	for name, enabled := range opts.TraceStatus {
 		traceStatus[name] = enabled
+	}
+	traceSignals := make(map[int]bool, len(opts.TraceSignals))
+	for signal, enabled := range opts.TraceSignals {
+		traceSignals[signal] = enabled
 	}
 	return &cliTraceOutputPolicy{
 		json:               opts.EventFormat == cli.EventFormatJSON,
@@ -141,6 +155,10 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 		summaryAndPrint:    opts.SummaryAndPrint,
 		quietExit:          opts.QuietExit,
 		attachPIDs:         append([]int(nil), opts.AttachPids...),
+		signals:            traceSignals,
+		signalConfigured:   opts.SignalConfigured,
+		signalMatchesAll:   opts.SignalMatchesAll,
+		signalSetIsNegated: opts.SignalSetIsNegated,
 		render: traceRenderOptions{
 			time:                 normalizedTimeOptions(opts),
 			followForks:          opts.FollowForks,
@@ -252,6 +270,23 @@ func (p *cliTraceOutputPolicy) ShouldEmit(ev syscallEventContext, unfinished boo
 		return true
 	}
 	return ev.shouldEmitStatus(p.status)
+}
+
+func (p *cliTraceOutputPolicy) ShouldEmitSignal(signo uint32) bool {
+	if p == nil {
+		return true
+	}
+	if p.discard || p.json || p.summaryOnly {
+		return false
+	}
+	if !p.signalConfigured || p.signalMatchesAll {
+		return true
+	}
+	matched := p.signals[int(signo)]
+	if p.signalSetIsNegated {
+		return !matched
+	}
+	return matched
 }
 
 func (p *cliTraceOutputPolicy) SummaryOnly() bool {

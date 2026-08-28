@@ -17,6 +17,7 @@ type syscallExitSink interface {
 
 var (
 	_ lifecycleEventSink = (*LifecycleEventHandler)(nil)
+	_ signalEventSink    = (*SignalEventOutput)(nil)
 	_ syscallEnterSink   = (*SyscallJSONOutput)(nil)
 	_ syscallExitSink    = (*SyscallExitPipeline)(nil)
 )

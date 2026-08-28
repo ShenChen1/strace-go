@@ -6,6 +6,7 @@ type traceOutputPolicyOwner interface {
 	traceFormatPolicy
 	traceEventOutputPolicy
 	traceSummaryPolicy
+	traceSignalOutputPolicy
 	traceExitPolicy
 	traceRenderPolicy
 	traceTimePolicy

@@ -62,6 +62,19 @@ func (envelope traceEventEnvelope) syscallView() syscallEventView {
 	}
 }
 
+func (envelope traceEventEnvelope) signalView() signalEventView {
+	return signalEventView{
+		pid:       envelope.pid,
+		tid:       envelope.tid,
+		enterTime: envelope.enterTime,
+		signo:     envelope.signal,
+		error:     envelope.signalErr,
+		code:      envelope.signalCode,
+		senderPID: envelope.senderPID,
+		senderUID: envelope.senderUID,
+	}
+}
+
 func (envelope traceEventEnvelope) isLifecycle() bool {
 	return envelope.eventType == bpfEventTypeLifecycle
 }

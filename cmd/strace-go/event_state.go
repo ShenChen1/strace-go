@@ -45,6 +45,7 @@ const (
 	traceStateSyscallExit traceStateEventKind = iota
 	traceStateSyscallEnter
 	traceStateLifecycle
+	traceStateSignal
 	traceStateSyscallFragment
 )
 
@@ -53,6 +54,7 @@ type TraceStateUpdate struct {
 	deferred        bool
 	syscallView     syscallEventView
 	lifecycleView   lifecycleEventView
+	signalView      signalEventView
 	payloadSections []handler.PayloadSection
 	pendingEnter    *pendingSyscallSnapshot
 	lifecycleTask   *TaskState

@@ -49,6 +49,8 @@ func (fakeSessionOutputPolicyOwner) ShouldEmit(syscallEventContext, bool) bool {
 	return true
 }
 
+func (fakeSessionOutputPolicyOwner) ShouldEmitSignal(uint32) bool { return true }
+
 func (fakeSessionOutputPolicyOwner) SummaryOnly() bool     { return false }
 func (fakeSessionOutputPolicyOwner) SummaryAndPrint() bool { return false }
 func (fakeSessionOutputPolicyOwner) QuietExit() bool       { return false }
