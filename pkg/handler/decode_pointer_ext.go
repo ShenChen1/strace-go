@@ -13,9 +13,9 @@ const (
 	execSnapshotMagic      = 0x45584543
 	execSnapshotOffset     = 4096
 	execSnapshotHeaderSize = 32
-	execArgSnapshotSize    = 56
+	execArgSnapshotSize    = 64
 	execArgDataOffset      = 12
-	execArgDataSize        = 42
+	execArgDataSize        = 50
 	execArgSnapshotCount   = 48
 	execArgDisplayCount    = 32
 	execEnvSnapshotCount   = 64

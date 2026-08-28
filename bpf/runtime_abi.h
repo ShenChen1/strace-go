@@ -10,7 +10,7 @@
 #define EXEC_SNAPSHOT_OFFSET 4096
 #define EXEC_ARG_MAX 48
 #define EXEC_ENV_MAX 64
-#define EXEC_ARG_DATA_SIZE 42
+#define EXEC_ARG_DATA_SIZE 50
 #define LIFECYCLE_SNAPSHOT_MAX 4096
 #define FD_PATH_NESTED_SCAN_BYTES 128
 #define FD_PATH_NESTED_MAX 4
@@ -31,6 +31,8 @@ struct exec_arg_snapshot {
     u8 data[EXEC_ARG_DATA_SIZE];
     u8 pad[2];
 };
+
+_Static_assert(sizeof(struct exec_arg_snapshot) == 64, "exec arg snapshot size drift");
 
 struct exec_snapshot {
     struct exec_snapshot_header header;

@@ -212,6 +212,37 @@ func TestDecodeExecSnapshotHonorsStringLimit40(t *testing.T) {
 	}
 }
 
+func TestDecodeExecSnapshotHonorsStringLimit48(t *testing.T) {
+	buf := make([]byte, execSnapshotHeaderSize+execArgSnapshotCount*execArgSnapshotSize)
+	binary.LittleEndian.PutUint32(buf[0:4], execSnapshotMagic)
+	binary.LittleEndian.PutUint16(buf[4:6], 1)
+
+	value := strings.Repeat("a", 48)
+	record := buf[execSnapshotHeaderSize : execSnapshotHeaderSize+execArgSnapshotSize]
+	binary.LittleEndian.PutUint64(record[0:8], 0x2000)
+	readLen := len(value) + 1
+	if readLen > execArgDataSize {
+		readLen = execArgDataSize
+	}
+	binary.LittleEndian.PutUint32(record[8:12], uint32(readLen))
+	copyLen := len(value)
+	if copyLen >= execArgDataSize {
+		copyLen = execArgDataSize - 1
+	}
+	copy(record[execArgDataOffset:], value[:copyLen])
+	record[execArgDataOffset+copyLen] = 0
+
+	ctx := stringArrayContext()
+	setExecPayloadSnapshot(ctx, buf)
+	cliOptionsForTest(ctx).StringLimit = 48
+
+	got, ok := decodeExecStringArraySnapshot(ctx, 0x1000, "argv")
+	want := `[` + `"` + value + `"` + `]`
+	if !ok || got != want {
+		t.Fatalf("decode -s48 argv snapshot = %q, %v; want %q", got, ok, want)
+	}
+}
+
 func TestDecodeExecIgnoresProbeSuccessWithoutPayloadSection(t *testing.T) {
 	ctx := stringArrayContext()
 	ctx.ProbeRetEnter = 0
