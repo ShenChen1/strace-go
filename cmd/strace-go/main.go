@@ -40,10 +40,11 @@ func runMain(args []string) error {
 	}
 	normalizeTraceTargetOptions(opts)
 	opts.TracePaths = expandTracePathSet(opts.TracePaths)
-	if err := runTraceSession(newTraceLaunchConfig(opts), systemTraceClock{}); err != nil {
+	config := newTraceLaunchConfig(opts)
+	if err := runTraceSession(config, systemTraceClock{}); err != nil {
 		return err
 	}
-	return renderTraceTip(os.Stderr, opts.TipsMode, opts.TipsID)
+	return renderTraceTip(os.Stderr, config.tipsMode, config.tipsID)
 }
 
 func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error) {

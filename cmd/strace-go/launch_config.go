@@ -17,6 +17,8 @@ type traceLaunchConfig struct {
 	outputAppend bool
 	outputColor  string
 	textOutput   bool
+	tipsMode     string
+	tipsID       int
 }
 
 func newTraceLaunchConfig(opts *cli.Options) *traceLaunchConfig {
@@ -34,6 +36,8 @@ func newTraceLaunchConfig(opts *cli.Options) *traceLaunchConfig {
 		outputAppend: opts.OutAppendMode,
 		outputColor:  opts.ColorMode,
 		textOutput:   opts.EventFormat == cli.EventFormatText,
+		tipsMode:     opts.TipsMode,
+		tipsID:       opts.TipsID,
 	}
 }
 

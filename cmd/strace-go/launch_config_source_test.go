@@ -26,7 +26,8 @@ func TestRunOrchestratorConsumesLaunchSnapshot(t *testing.T) {
 		!strings.Contains(launchSource, "type traceTargetConfig struct") {
 		t.Fatal("launch snapshot types are missing")
 	}
-	if !strings.Contains(mainSource, "return runTraceSession(newTraceLaunchConfig(opts)") {
+	if !strings.Contains(mainSource, "config := newTraceLaunchConfig(opts)") ||
+		!strings.Contains(mainSource, "runTraceSession(config, systemTraceClock{})") {
 		t.Fatal("runMain must form launch snapshot before run orchestration")
 	}
 }
@@ -39,6 +40,8 @@ func TestNewTraceLaunchConfigSnapshotsBootstrapInputs(t *testing.T) {
 	opts.AttachPids = []int{101, 202}
 	opts.OutFile = "/tmp/original.trace"
 	opts.OutAppendMode = true
+	opts.TipsMode = cli.TipsModeFull
+	opts.TipsID = 7
 	config := newTraceLaunchConfig(opts)
 	if config == nil {
 		t.Fatal("newTraceLaunchConfig() returned nil for non-nil options")
@@ -50,6 +53,8 @@ func TestNewTraceLaunchConfigSnapshotsBootstrapInputs(t *testing.T) {
 	opts.AttachPids[0] = 303
 	opts.OutFile = "/tmp/mutated.trace"
 	opts.OutAppendMode = false
+	opts.TipsMode = cli.TipsModeNone
+	opts.TipsID = 9
 
 	if config.targets.command.args[1] != "original" || config.targets.command.envActions[0] != "TRACE=original" ||
 		config.targets.command.argv0 != "original-argv0" || !config.targets.command.argv0Set {
@@ -57,6 +62,9 @@ func TestNewTraceLaunchConfigSnapshotsBootstrapInputs(t *testing.T) {
 	}
 	if config.targets.attachPIDs[0] != 101 || config.outputPath != "/tmp/original.trace" || !config.outputAppend {
 		t.Fatalf("launch scalar/slice snapshot changed after CLI mutation: %+v", config)
+	}
+	if config.tipsMode != cli.TipsModeFull || config.tipsID != 7 {
+		t.Fatalf("launch tips snapshot changed after CLI mutation: %+v", config)
 	}
 }
 
