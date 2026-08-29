@@ -25,6 +25,7 @@ type traceEventEnvelope struct {
 	signalCode      int32
 	senderPID       uint32
 	senderUID       uint32
+	comm            string
 	payload         []handler.PayloadSection
 }
 
@@ -40,6 +41,7 @@ func (envelope traceEventEnvelope) lifecycleView() lifecycleEventView {
 		args:         envelope.args,
 		enterTime:    envelope.enterTime,
 		snapshotText: envelope.snapshotText,
+		comm:         envelope.comm,
 	}
 }
 
@@ -59,6 +61,7 @@ func (envelope traceEventEnvelope) syscallView() syscallEventView {
 		stackID:       envelope.stackID,
 		probeRetEnter: envelope.probeRetEnter,
 		probeRetExit:  envelope.probeRetExit,
+		comm:          envelope.comm,
 	}
 }
 

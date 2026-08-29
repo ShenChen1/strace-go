@@ -64,6 +64,7 @@ type traceRenderOptions struct {
 	printArgNames        bool
 	stackTrace           bool
 	quietThreadExecve    bool
+	decodePIDsComm       bool
 }
 
 // traceRenderPolicy exposes the immutable scalar options used by text output.
@@ -176,6 +177,7 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 			printArgNames:        opts.PrintArgNames,
 			stackTrace:           opts.StackTrace,
 			quietThreadExecve:    opts.QuietThreadExecve,
+			decodePIDsComm:       opts.DecodePIDsComm,
 		},
 	}
 }

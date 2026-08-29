@@ -384,6 +384,7 @@ func buildTraceSessionEvents(
 		Pipeline:       exitSink,
 		SyscallLimit:   syscallLimit,
 		DetachOnExecve: detachOnExecve,
+		CommObserver:   base.renderer,
 		ContextDeps:    contextDeps,
 	})
 	router := newTraceEventRouter(TraceEventRouterDeps{

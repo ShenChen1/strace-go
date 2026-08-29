@@ -44,6 +44,7 @@ type syscallEventView struct {
 	stackID       int32
 	probeRetEnter int32
 	probeRetExit  int32
+	comm          string
 }
 
 type syscallEventContextDeps struct {

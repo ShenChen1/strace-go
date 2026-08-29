@@ -13,6 +13,7 @@ type lifecycleEventView struct {
 	args         [6]uint64
 	enterTime    uint64
 	snapshotText string
+	comm         string
 }
 
 type processStateInheritance struct {

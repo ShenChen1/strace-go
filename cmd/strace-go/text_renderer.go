@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"strace-go/pkg/handler"
@@ -51,6 +52,7 @@ type TextRenderer struct {
 	stackTraces   traceStackTraceReader
 	resolver      traceSymbolResolver
 	lineBuffer    []byte
+	taskComms     *taskCommStore
 }
 
 type TextRendererDeps struct {
@@ -63,7 +65,7 @@ type TextRendererDeps struct {
 }
 
 func newTextRenderer(deps TextRendererDeps) *TextRenderer {
-	return &TextRenderer{
+	renderer := &TextRenderer{
 		out:           deps.Out,
 		policy:        deps.Policy,
 		state:         deps.State,
@@ -71,6 +73,11 @@ func newTextRenderer(deps TextRendererDeps) *TextRenderer {
 		stackTraces:   deps.StackTraces,
 		resolver:      deps.Resolver,
 	}
+	if renderer.renderOptions().decodePIDsComm {
+		renderer.taskComms = newTaskCommStore()
+		renderer.taskComms.Observe(uint32(os.Getpid()), "strace")
+	}
+	return renderer
 }
 
 func (s *traceSession) textRenderer() *TextRenderer {
@@ -81,6 +88,7 @@ func (s *traceSession) textRenderer() *TextRenderer {
 }
 
 func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.Result) {
+	r.observeTaskComm(ev.eventView())
 	r.selectOutputPID(int(ev.eventView().tid))
 	if r.writePlainUnfinishedFast(ev, res) {
 		return
@@ -91,12 +99,13 @@ func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.
 	if scMeta.Name == "nanosleep" && len(res.ArgParts) > 0 {
 		parts = res.ArgParts[:1]
 	}
-	args := formatSyscallArguments(scMeta.Args, parts, r.renderOptions().printArgNames)
+	args := r.formatArguments(ev.eventView(), scMeta, parts)
 	line := fmt.Sprintf("%s%s(%s <unfinished ...>", r.syscallNumberPrefix(view), scMeta.Name, args)
 	fmt.Fprintf(r.out, "%s%s%s\n", r.timePrefix(view.enterTime), r.pidPrefix(int(view.tid)), line)
 }
 
 func (r *TextRenderer) PrintExecResumeFromView(view syscallEventView, argLine string) {
+	r.observeTaskComm(view)
 	r.selectOutputPID(int(view.tid))
 	timePrefix := r.timePrefix(view.enterTime)
 	pidPrefix := r.pidPrefix(int(view.tid))
@@ -106,6 +115,7 @@ func (r *TextRenderer) PrintExecResumeFromView(view syscallEventView, argLine st
 }
 
 func (r *TextRenderer) PrintExecDetachedFromView(view syscallEventView, argLine string) {
+	r.observeTaskComm(view)
 	r.selectOutputPID(int(view.tid))
 	fmt.Fprintf(r.out, "%s%s%s%s <detached ...>\n",
 		r.timePrefix(view.enterTime),
@@ -115,6 +125,7 @@ func (r *TextRenderer) PrintExecDetachedFromView(view syscallEventView, argLine 
 }
 
 func (r *TextRenderer) PrintExecPidChangedFromView(view syscallEventView, argLine string) {
+	r.observeTaskComm(view)
 	r.selectOutputPID(int(view.tid))
 	tid := int(view.tid)
 	tgid := int(view.pid)
@@ -122,6 +133,7 @@ func (r *TextRenderer) PrintExecPidChangedFromView(view syscallEventView, argLin
 }
 
 func (r *TextRenderer) PrintExecDetachedThreadSupersededFromView(view syscallEventView) {
+	r.observeTaskComm(view)
 	if r.renderOptions().quietThreadExecve {
 		return
 	}
@@ -131,12 +143,14 @@ func (r *TextRenderer) PrintExecDetachedThreadSupersededFromView(view syscallEve
 }
 
 func (r *TextRenderer) PrintExecSupersededUnfinishedFromView(view syscallEventView, argLine string) {
+	r.observeTaskComm(view)
 	r.selectOutputPID(int(view.tid))
 	tid := int(view.tid)
 	fmt.Fprintf(r.out, "%s%-5d %s%s <unfinished ...>\n", r.timePrefix(view.enterTime), tid, r.syscallNumberPrefix(view), trimTrailingParen(argLine))
 }
 
 func (r *TextRenderer) PrintSupersededSuspendedResumeFromView(view syscallEventView, syscallName string) {
+	r.observeTaskComm(view)
 	r.selectOutputPID(int(view.pid))
 	timePrefix := r.timePrefix(view.enterTime)
 	tgid := int(view.pid)
@@ -150,6 +164,7 @@ func (r *TextRenderer) PrintSupersededSuspendedResumeFromView(view syscallEventV
 }
 
 func (r *TextRenderer) PrintThreadExecveSupersededFromView(view syscallEventView, syscallName string) {
+	r.observeTaskComm(view)
 	r.selectOutputPID(int(view.pid))
 	timePrefix := r.timePrefix(view.enterTime)
 	tid := int(view.tid)
@@ -161,12 +176,14 @@ func (r *TextRenderer) PrintThreadExecveSupersededFromView(view syscallEventView
 }
 
 func (r *TextRenderer) PrintExitSyscallEvent(ev syscallEventContext, res handler.Result) {
+	r.observeTaskComm(ev.eventView())
 	r.selectOutputPID(int(ev.eventView().tid))
 	line := r.exitSyscallLine(ev.eventView(), ev.effectiveSyscallMeta(), res)
 	fmt.Fprint(r.out, line)
 }
 
 func (r *TextRenderer) ExitStatusLineFromView(view syscallEventView) string {
+	r.observeTaskComm(view)
 	return fmt.Sprintf("%s%s+++ exited with %d +++\n",
 		r.timePrefix(view.enterTime), r.pidPrefix(int(view.tid)), view.args[0])
 }
@@ -186,6 +203,7 @@ func (r *TextRenderer) ExitStatusLine(tid int, status uint64) string {
 
 // IMPACT: PrintSyscallEvent renders a decoded syscall from the stable event context view.
 func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Result) {
+	r.observeTaskComm(ev.eventView())
 	r.selectOutputPID(int(ev.eventView().tid))
 	if r.writePlainSyscallFast(ev, res) {
 		return
@@ -195,7 +213,7 @@ func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Res
 	ctx := ev.handlerContextForFormatting()
 	tid := int(view.tid)
 	numberPrefix := r.syscallNumberPrefix(view)
-	args := formatSyscallArguments(scMeta.Args, res.ArgParts, r.renderOptions().printArgNames)
+	args := r.formatArguments(view, scMeta, res.ArgParts)
 	line := fmt.Sprintf("%s%s(%s)", numberPrefix, scMeta.Name, args)
 	if ev.pendingEnter != nil && ev.pendingEnter.unfinishedPrinted {
 		line = fmt.Sprintf("%s<... %s resumed>)", numberPrefix, scMeta.Name)
@@ -210,6 +228,7 @@ func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Res
 	timePrefix := r.timePrefix(view.enterTime)
 	pidPrefix := r.pidPrefix(tid)
 	retStr := formatSyscallRet(scMeta.Name, view.ret, res, ctx)
+	retStr = r.decoratePIDReturn(scMeta.Name, view.ret, retStr)
 	fmt.Fprintf(r.out, "%s%s%s%s= %s%s\n",
 		timePrefix, pidPrefix, line, r.padding(timePrefix, pidPrefix, line), retStr, r.durationSuffix(view.duration))
 	if res.HexDumpStr != "" {
@@ -221,7 +240,7 @@ func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Res
 func (r *TextRenderer) exitSyscallLine(view syscallEventView, scMeta meta.Syscall, res handler.Result) string {
 	timePrefix := r.timePrefix(view.enterTime)
 	pidPrefix := r.pidPrefix(int(view.tid))
-	args := formatSyscallArguments(scMeta.Args, res.ArgParts, r.renderOptions().printArgNames)
+	args := r.formatArguments(view, scMeta, res.ArgParts)
 	argLine := fmt.Sprintf("%s%s(%s)", r.syscallNumberPrefix(view), scMeta.Name, args)
 	return fmt.Sprintf("%s%s%s%s= ?\n", timePrefix, pidPrefix, argLine, r.padding(timePrefix, pidPrefix, argLine))
 }
@@ -259,6 +278,9 @@ func (r *TextRenderer) timePrefix(enterTimeMonoNs uint64) string {
 
 func (r *TextRenderer) pidPrefix(tid int) string {
 	if r.renderOptions().showPID {
+		if comm, ok := r.taskComms.Lookup(uint32(tid)); ok {
+			return fmt.Sprintf("%d<%s> ", tid, escapeTaskComm(comm))
+		}
 		return fmt.Sprintf("%-5d ", tid)
 	}
 	return ""
@@ -318,5 +340,49 @@ func (r *TextRenderer) selectOutputPID(pid int) {
 	}
 	if output, ok := r.out.(interface{ SelectPID(int) error }); ok {
 		_ = output.SelectPID(pid)
+	}
+}
+
+func (r *TextRenderer) observeTaskComm(view syscallEventView) {
+	if r == nil || r.taskComms == nil || view.comm == "" {
+		return
+	}
+	r.taskComms.Observe(view.tid, view.comm)
+}
+
+func (r *TextRenderer) formatArguments(view syscallEventView, scMeta meta.Syscall, parts []string) string {
+	formatted := append([]string(nil), parts...)
+	for index := 0; index < len(formatted) && index < len(scMeta.ArgTypes); index++ {
+		if scMeta.ArgTypes[index] == "pid_t" {
+			formatted[index] = r.decoratePID(int32(view.args[index]), formatted[index])
+		}
+	}
+	return formatSyscallArguments(scMeta.Args, formatted, r.renderOptions().printArgNames)
+}
+
+func (r *TextRenderer) decoratePID(pid int32, text string) string {
+	if pid <= 0 || r == nil || r.taskComms == nil {
+		return text
+	}
+	comm, ok := r.taskComms.Lookup(uint32(pid))
+	if !ok {
+		return text
+	}
+	return text + "<" + escapeTaskComm(comm) + ">"
+}
+
+func (r *TextRenderer) decoratePIDReturn(syscallName string, ret int64, text string) string {
+	if ret <= 0 || !isPIDReturnSyscall(syscallName) {
+		return text
+	}
+	return r.decoratePID(int32(ret), text)
+}
+
+func isPIDReturnSyscall(name string) bool {
+	switch name {
+	case "getpid", "getppid", "gettid", "getpgid", "getsid":
+		return true
+	default:
+		return false
 	}
 }

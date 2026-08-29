@@ -9,6 +9,7 @@ type TraceEventDispatcher struct {
 	pipeline     syscallExitSink
 	syscallLimit traceSyscallLimitObserver
 	detachOnExec traceDetachOnExecveObserver
+	commObserver traceTaskCommObserver
 	contextDeps  syscallEventContextDeps
 }
 
@@ -21,6 +22,7 @@ type TraceEventDispatcherDeps struct {
 	Pipeline       syscallExitSink
 	SyscallLimit   traceSyscallLimitObserver
 	DetachOnExecve traceDetachOnExecveObserver
+	CommObserver   traceTaskCommObserver
 	ContextDeps    syscallEventContextDeps
 }
 
@@ -34,6 +36,7 @@ func newTraceEventDispatcher(deps TraceEventDispatcherDeps) *TraceEventDispatche
 		pipeline:     deps.Pipeline,
 		syscallLimit: deps.SyscallLimit,
 		detachOnExec: deps.DetachOnExecve,
+		commObserver: deps.CommObserver,
 		contextDeps:  deps.ContextDeps,
 	}
 }
@@ -42,6 +45,9 @@ func newTraceEventDispatcher(deps TraceEventDispatcherDeps) *TraceEventDispatche
 func (d *TraceEventDispatcher) Dispatch(envelope traceEventEnvelope, update TraceStateUpdate) {
 	if d == nil || d.state == nil {
 		return
+	}
+	if d.commObserver != nil && envelope.comm != "" {
+		d.commObserver.ObserveTaskComm(envelope.tid, envelope.comm)
 	}
 	d.applyProcessStateInheritance(update.processInherit)
 	d.handleUnfinished(update.unfinished)
