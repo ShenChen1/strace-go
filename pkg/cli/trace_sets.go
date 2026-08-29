@@ -81,6 +81,8 @@ func parseEFlag(val string, opts *Options) {
 		parseRawSet(strings.TrimPrefix(val, "raw="), opts)
 	case strings.HasPrefix(val, "decode-fds="):
 		parseDecodeFDValue(strings.TrimPrefix(val, "decode-fds="), opts)
+	case strings.HasPrefix(val, "decode-pids="):
+		parseDecodePIDs(strings.TrimPrefix(val, "decode-pids="), opts)
 	case strings.HasPrefix(val, "inject="), strings.HasPrefix(val, "fault="):
 		rejectArchitectureConflict("-e inject/fault", "pure eBPF tracing cannot modify tracee state")
 	case strings.HasPrefix(val, "signal="):

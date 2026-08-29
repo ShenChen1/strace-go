@@ -66,43 +66,6 @@ func applyShortControlFlag(flag byte, opts *Options) bool {
 	return true
 }
 
-func applyShortRenderFlag(flag byte, opts *Options) bool {
-	switch flag {
-	case 'y':
-		applyDecodeFDMode(opts, nextRepeatedMode(opts.ShowPathsMode, DecodeFDModeAll))
-	case 't':
-		opts.PrintTimeMode = nextRepeatedMode(opts.PrintTimeMode, 3)
-	case 'r':
-		opts.PrintRelativeTime = true
-	case 'T':
-		opts.PrintSyscallTime = true
-	case 'k':
-		opts.StackTrace = true
-	case 'n':
-		opts.PrintSyscallNumber = true
-	case 'N':
-		opts.PrintArgNames = true
-	case 'z':
-		setSuccessfulOnly(opts)
-	case 'Z':
-		setFailedOnly(opts)
-	case 'x':
-		opts.HexEscapeMode = nextRepeatedMode(opts.HexEscapeMode, 2)
-	case 'q':
-		applyShortQuiet(opts)
-	default:
-		return false
-	}
-	return true
-}
-
-func nextRepeatedMode(current, maximum int) int {
-	if current < maximum {
-		return current + 1
-	}
-	return maximum
-}
-
 func applyShortQuiet(opts *Options) {
 	if opts.quietSetConfigured {
 		failQuietModeConflict()
@@ -305,6 +268,8 @@ func parseLongValueOption(state *longOptionState) bool {
 		parseEFlag(state.name+"="+requiredLongValue(state), state.opts)
 	case "quiet":
 		parseLongQuiet(optionalLongValue(state.inlineValue, state.hasInlineValue, "attach,personality"), state.opts)
+	case "decode-pids":
+		parseDecodePIDs(requiredLongValue(state), state.opts)
 	default:
 		return false
 	}

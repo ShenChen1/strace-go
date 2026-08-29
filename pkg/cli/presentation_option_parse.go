@@ -5,6 +5,58 @@ import (
 	"strings"
 )
 
+func applyShortRenderFlag(flag byte, opts *Options) bool {
+	switch flag {
+	case 'y':
+		applyDecodeFDMode(opts, nextRepeatedMode(opts.ShowPathsMode, DecodeFDModeAll))
+	case 'Y':
+		opts.DecodePIDsComm = true
+	case 't':
+		opts.PrintTimeMode = nextRepeatedMode(opts.PrintTimeMode, 3)
+	case 'r':
+		opts.PrintRelativeTime = true
+	case 'T':
+		opts.PrintSyscallTime = true
+	case 'k':
+		opts.StackTrace = true
+	case 'n':
+		opts.PrintSyscallNumber = true
+	case 'N':
+		opts.PrintArgNames = true
+	case 'z':
+		setSuccessfulOnly(opts)
+	case 'Z':
+		setFailedOnly(opts)
+	case 'x':
+		opts.HexEscapeMode = nextRepeatedMode(opts.HexEscapeMode, 2)
+	case 'q':
+		applyShortQuiet(opts)
+	default:
+		return false
+	}
+	return true
+}
+
+func nextRepeatedMode(current, maximum int) int {
+	if current < maximum {
+		return current + 1
+	}
+	return maximum
+}
+
+func parseDecodePIDs(value string, opts *Options) {
+	switch value {
+	case "comm", "all", "!none":
+		opts.DecodePIDsComm = true
+	case "none", "!all", "!comm":
+		opts.DecodePIDsComm = false
+	case "pidns":
+		failOption("decode-pids value 'pidns' is not implemented yet")
+	default:
+		failOption("invalid decode-pids '%s'", value)
+	}
+}
+
 func parseColorMode(value string) string {
 	switch value {
 	case ColorModeAuto, ColorModeAlways, ColorModeNever:
