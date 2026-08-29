@@ -34,10 +34,16 @@ func main() {
 
 func runMain(args []string) error {
 	opts := cli.ParseArgs(args)
-	handlePrelude(opts)
+	handled, err := handlePrelude(opts)
+	if err != nil || handled {
+		return err
+	}
 	normalizeTraceTargetOptions(opts)
 	opts.TracePaths = expandTracePathSet(opts.TracePaths)
-	return runTraceSession(newTraceLaunchConfig(opts), systemTraceClock{})
+	if err := runTraceSession(newTraceLaunchConfig(opts), systemTraceClock{}); err != nil {
+		return err
+	}
+	return renderTraceTip(os.Stderr, opts.TipsMode, opts.TipsID)
 }
 
 func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error) {
@@ -147,11 +153,12 @@ func joinTraceRunError(primary error, cleanup error) error {
 	return errors.Join(primary, cleanup)
 }
 
-// handlePrelude handles help/version requests and rejects sessions without targets.
-func handlePrelude(opts *cli.Options) {
+// handlePrelude handles requests that do not start a trace session.
+func handlePrelude(opts *cli.Options) (bool, error) {
 	if opts.HelpRequested {
 		fmt.Printf("%s", cli.HelpText)
 		os.Exit(0)
+		return true, nil
 	}
 	if opts.VersionRequested {
 		fmt.Printf("strace -- version 6.19\n")
@@ -160,11 +167,17 @@ func handlePrelude(opts *cli.Options) {
 		fmt.Printf("warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n")
 		fmt.Printf("Optional features enabled: stack-trace=libunwind stack-demangle m32-mpers mx32-mpers\n")
 		os.Exit(0)
+		return true, nil
 	}
 	if len(opts.CmdArgs) == 0 && len(opts.AttachPids) == 0 {
+		if opts.TipsMode != "" {
+			return true, renderTraceTip(os.Stderr, opts.TipsMode, opts.TipsID)
+		}
 		fmt.Println("Usage: strace-go [options] <command> [args...]")
 		os.Exit(1)
+		return true, nil
 	}
+	return false, nil
 }
 
 // normalizeTraceTargetOptions resolves implicit lifecycle policy before BPF
