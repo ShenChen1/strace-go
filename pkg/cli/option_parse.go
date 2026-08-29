@@ -45,7 +45,7 @@ func applyShortControlFlag(flag byte, opts *Options) bool {
 		opts.OutAppendMode = true
 	case 'f':
 		if opts.FollowForks {
-			failOption("option '-ff' is not implemented yet")
+			opts.OutputSeparate = true
 		}
 		opts.FollowForks = true
 	case 'v':
@@ -202,6 +202,9 @@ func parseLongControlOption(state *longOptionState) bool {
 	case "follow-forks":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		state.opts.FollowForks = true
+	case "output-separately":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		state.opts.OutputSeparate = true
 	case "no-abbrev":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		setNoAbbrevAll(state.opts)

@@ -55,4 +55,7 @@ func validateParsedOptions(opts *Options) {
 	if opts.SummaryColumnsSet && !opts.SummaryOnly && !opts.SummaryAndPrint {
 		failOption("-U/--summary-columns must be given with (-c/--summary-only or -C/--summary)")
 	}
+	if opts.OutputSeparate && (opts.SummaryOnly || opts.SummaryAndPrint) {
+		failOption("(-c/--summary-only or -C/--summary) and -ff/--output-separately are mutually exclusive")
+	}
 }

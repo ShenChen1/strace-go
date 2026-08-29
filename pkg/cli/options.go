@@ -90,6 +90,7 @@ type Options struct {
 	QuietUnknownPid       bool
 	QuietThreadExecve     bool
 	FollowForks           bool
+	OutputSeparate        bool
 	XlatFormat            string   // "raw", "abbrev", "verbose"
 	PrintTimeMode         int      // 0 = none, 1 = -t (HH:MM:SS), 2 = -tt (HH:MM:SS.UUUUUU), 3 = -ttt (UNIX.UUUUUU)
 	PrintRelativeTime     bool     // -r
