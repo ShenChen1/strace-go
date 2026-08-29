@@ -214,6 +214,8 @@ func parseLongControlOption(state *longOptionState) bool {
 	case "summary-wall-clock":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		state.opts.WallTime = true
+	case "tips":
+		parseTipsOption(optionalLongValue(state.inlineValue, state.hasInlineValue, ""), state.opts)
 	case "help":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		state.opts.HelpRequested = true
@@ -269,16 +271,6 @@ func parseLongRenderOption(state *longOptionState) bool {
 		return false
 	}
 	return true
-}
-
-func parseColorMode(value string) string {
-	switch value {
-	case ColorModeAuto, ColorModeAlways, ColorModeNever:
-		return value
-	default:
-		failOption("invalid --color argument: '%s'", value)
-		return ""
-	}
 }
 
 func parseLongValueOption(state *longOptionState) bool {

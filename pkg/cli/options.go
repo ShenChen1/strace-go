@@ -22,6 +22,13 @@ const (
 )
 
 const (
+	TipsModeNone    = "none"
+	TipsModeCompact = "compact"
+	TipsModeFull    = "full"
+	TipsIDRandom    = -1
+)
+
+const (
 	DecodeFDModeNone = iota
 	DecodeFDModePath
 	DecodeFDModeAll
@@ -40,6 +47,8 @@ type Options struct {
 	DebugEvents           bool
 	DebugPhases           bool
 	ColorMode             string
+	TipsMode              string
+	TipsID                int
 	OutFile               string
 	AlignCol              int
 	StringLimit           int
@@ -113,6 +122,7 @@ func ParseArgs(args []string) *Options {
 		HexEscapeMode:    0,
 		EventFormat:      EventFormatText,
 		ColorMode:        ColorModeAuto,
+		TipsID:           TipsIDRandom,
 		XlatFormat:       "abbrev",
 		TraceSyscalls:    make(map[string]bool),
 		TracePaths:       make(map[string]bool),
