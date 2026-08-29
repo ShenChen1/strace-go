@@ -160,6 +160,19 @@ static __always_inline void init_syscall_event_v2_header_direct(
     capture_event_v2_comm(header);
 }
 
+static __always_inline struct event_v2_header *event_v2_header_from_dynptr_direct(
+    struct bpf_dynptr *ptr)
+{
+    struct event_v2_header *header = bpf_dynptr_data(
+        ptr,
+        0,
+        EVENT_V2_HEADER_LEN);
+    if (!header) {
+        record_ringbuf_copy_fail();
+    }
+    return header;
+}
+
 static __always_inline void init_syscall_enter_event_v2_from_ctx(
     struct syscall_enter_event_v2 *body,
     struct trace_event_raw_sys_enter *ctx,

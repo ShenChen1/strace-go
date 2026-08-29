@@ -94,14 +94,12 @@ static __noinline void emit_bpf_enter_event_v2_direct(
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
 
-    struct event_v2_header header = {};
-    init_syscall_event_v2_header_direct(&header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
-    ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
-    if (ret < 0) {
-        record_ringbuf_copy_fail();
+    struct event_v2_header *header = event_v2_header_from_dynptr_direct(&ptr);
+    if (!header) {
         bpf_ringbuf_discard_dynptr(&ptr, 0);
         return;
     }
+    init_syscall_event_v2_header_direct(header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
 
     struct syscall_enter_event_v2 body = {};
     init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);
@@ -148,14 +146,12 @@ static __noinline void emit_bpf_prog_load_enter_event_v2_direct(
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
 
-    struct event_v2_header header = {};
-    init_syscall_event_v2_header_direct(&header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
-    ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
-    if (ret < 0) {
-        record_ringbuf_copy_fail();
+    struct event_v2_header *header = event_v2_header_from_dynptr_direct(&ptr);
+    if (!header) {
         bpf_ringbuf_discard_dynptr(&ptr, 0);
         return;
     }
+    init_syscall_event_v2_header_direct(header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
 
     struct syscall_enter_event_v2 body = {};
     init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);
@@ -201,14 +197,12 @@ static __noinline void emit_bpf_prog_load_debug_enter_fragment_event_v2_direct(
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
 
-    struct event_v2_header header = {};
-    init_syscall_event_v2_header_direct(&header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
-    ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
-    if (ret < 0) {
-        record_ringbuf_copy_fail();
+    struct event_v2_header *header = event_v2_header_from_dynptr_direct(&ptr);
+    if (!header) {
         bpf_ringbuf_discard_dynptr(&ptr, 0);
         return;
     }
+    init_syscall_event_v2_header_direct(header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
 
     struct syscall_enter_event_v2 body = {};
     init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);
@@ -255,14 +249,12 @@ static __noinline void emit_bpf_uprobe_multi_enter_event_v2_direct(
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
 
-    struct event_v2_header header = {};
-    init_syscall_event_v2_header_direct(&header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
-    ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
-    if (ret < 0) {
-        record_ringbuf_copy_fail();
+    struct event_v2_header *header = event_v2_header_from_dynptr_direct(&ptr);
+    if (!header) {
         bpf_ringbuf_discard_dynptr(&ptr, 0);
         return;
     }
+    init_syscall_event_v2_header_direct(header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
 
     struct syscall_enter_event_v2 body = {};
     init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);
