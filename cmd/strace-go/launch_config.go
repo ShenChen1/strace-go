@@ -15,6 +15,8 @@ type traceLaunchConfig struct {
 	targets      traceTargetConfig
 	outputPath   string
 	outputAppend bool
+	outputColor  string
+	textOutput   bool
 }
 
 func newTraceLaunchConfig(opts *cli.Options) *traceLaunchConfig {
@@ -30,6 +32,8 @@ func newTraceLaunchConfig(opts *cli.Options) *traceLaunchConfig {
 		},
 		outputPath:   opts.OutFile,
 		outputAppend: opts.OutAppendMode,
+		outputColor:  opts.ColorMode,
+		textOutput:   opts.EventFormat == cli.EventFormatText,
 	}
 }
 

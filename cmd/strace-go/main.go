@@ -100,6 +100,7 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 	if err != nil {
 		return fmt.Errorf("failed to set up output: %w", err)
 	}
+	enableTraceColor(output, config.outputColor, config.textOutput)
 	if shouldBufferTraceOutput(config.session.outputPolicy) {
 		if err := output.EnableBuffer(traceOutputBufferSize); err != nil {
 			return fmt.Errorf("failed to buffer output: %w", errors.Join(err, output.Close()))
