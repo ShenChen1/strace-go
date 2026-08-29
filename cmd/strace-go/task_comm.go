@@ -50,8 +50,8 @@ func escapeTaskComm(comm string) string {
 	if len(escaped) >= 2 {
 		escaped = escaped[1 : len(escaped)-1]
 	}
-	escaped = strings.ReplaceAll(escaped, "<", `\x3c`)
-	return strings.ReplaceAll(escaped, ">", `\x3e`)
+	escaped = strings.ReplaceAll(escaped, "<", `\74`)
+	return strings.ReplaceAll(escaped, ">", `\76`)
 }
 
 func (r *TextRenderer) ObserveTaskComm(pid uint32, comm string) {

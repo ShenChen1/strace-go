@@ -14,7 +14,7 @@ func TestEscapeTaskCommMatchesUpstreamPIDDecoration(t *testing.T) {
 	tests := map[string]string{
 		"plain":         "plain",
 		"foo\x1b[2Jbar": `foo\33[2Jbar`,
-		"foo<bar>":      `foo\x3cbar\x3e`,
+		"foo<bar>":      `foo\74bar\76`,
 	}
 	for input, want := range tests {
 		if got := escapeTaskComm(input); got != want {
