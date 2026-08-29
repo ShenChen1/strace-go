@@ -17,6 +17,7 @@ type traceCommandSpec struct {
 	envActions []string
 	argv0      string
 	argv0Set   bool
+	killOnExit bool
 }
 
 // traceTargetBootstrap owns target-start side effects until target ownership is
@@ -227,6 +228,9 @@ func newTraceCommand(spec traceCommandSpec, inheritedFiles []*os.File) *exec.Cmd
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	if spec.killOnExit {
+		cmd.SysProcAttr = &unix.SysProcAttr{Pdeathsig: unix.SIGKILL}
+	}
 
 	envMap := make(map[string]string)
 	for _, entry := range os.Environ() {

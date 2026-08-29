@@ -42,6 +42,13 @@ func TestNewTraceCommandDoesNotConfigurePtrace(t *testing.T) {
 	}
 }
 
+func TestNewTraceCommandConfiguresKillOnExit(t *testing.T) {
+	cmd := newTraceCommand(traceCommandSpec{args: []string{"/bin/true"}, killOnExit: true}, nil)
+	if cmd.SysProcAttr == nil || cmd.SysProcAttr.Pdeathsig != unix.SIGKILL {
+		t.Fatalf("SysProcAttr = %#v, want parent-death SIGKILL", cmd.SysProcAttr)
+	}
+}
+
 func TestNewTraceCommandOverridesArgv0WithoutChangingExecutable(t *testing.T) {
 	cmd := newTraceCommand(traceCommandSpec{
 		args:     []string{"/bin/true", "argument"},
@@ -71,13 +78,14 @@ func TestTraceCommandSpecCopiesCLIInputs(t *testing.T) {
 		EnvActions: []string{"TRACE=original", "REMOVE"},
 		Argv0:      "original-argv0",
 		Argv0Set:   true,
+		KillOnExit: true,
 	}
 	spec := traceCommandSpecFromCLI(opts)
 	opts.CmdArgs[1] = "mutated"
 	opts.EnvActions[0] = "TRACE=mutated"
 	opts.Argv0 = "mutated-argv0"
 
-	if spec.args[1] != "original" || spec.envActions[0] != "TRACE=original" || spec.argv0 != "original-argv0" || !spec.argv0Set {
+	if spec.args[1] != "original" || spec.envActions[0] != "TRACE=original" || spec.argv0 != "original-argv0" || !spec.argv0Set || !spec.killOnExit {
 		t.Fatalf("trace command spec aliases CLI slices: %+v", spec)
 	}
 }

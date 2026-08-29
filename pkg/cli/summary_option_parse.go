@@ -58,4 +58,7 @@ func validateParsedOptions(opts *Options) {
 	if opts.OutputSeparate && (opts.SummaryOnly || opts.SummaryAndPrint) {
 		failOption("(-c/--summary-only or -C/--summary) and -ff/--output-separately are mutually exclusive")
 	}
+	if opts.KillOnExit && len(opts.AttachPids) > 0 {
+		failOption("--kill-on-exit and -p/--attach are mutually exclusive options")
+	}
 }

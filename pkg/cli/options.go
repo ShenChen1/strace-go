@@ -104,6 +104,7 @@ type Options struct {
 	AlwaysShowPID         bool     // --always-show-pid
 	DecodePIDsComm        bool     // -Y, --decode-pids=comm
 	DetachOnExecve        bool     // -b execve, --detach-on=execve
+	KillOnExit            bool     // --kill-on-exit
 	SyscallLimit          uint64   // --syscall-limit; zero disables the limit
 	StackTrace            bool     // -k, --stack-trace
 	SuccessfulOnly        bool     // -z

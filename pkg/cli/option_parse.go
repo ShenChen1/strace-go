@@ -168,6 +168,9 @@ func parseLongControlOption(state *longOptionState) bool {
 	case "output-separately":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		state.opts.OutputSeparate = true
+	case "kill-on-exit":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		state.opts.KillOnExit = true
 	case "no-abbrev":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		setNoAbbrevAll(state.opts)
