@@ -392,26 +392,6 @@ func validateEventFormat(format string) {
 	}
 }
 
-func parseDecodeFDValue(value string, opts *Options) {
-	switch value {
-	case "none":
-		applyDecodeFDMode(opts, DecodeFDModeNone)
-	case "path":
-		applyDecodeFDMode(opts, DecodeFDModePath)
-	case "dev":
-		applyDecodeFDMode(opts, DecodeFDModeDevice)
-	case "all":
-		applyDecodeFDMode(opts, DecodeFDModeAll)
-	default:
-		failOption("decode-fds value '%s' is not implemented yet", value)
-	}
-}
-
-func applyDecodeFDMode(opts *Options, mode int) {
-	opts.ShowPathsMode = mode
-	opts.ShowPaths = mode > 0
-}
-
 func parseStringsInHex(arg, value string, opts *Options) {
 	switch value {
 	case "non-ascii":

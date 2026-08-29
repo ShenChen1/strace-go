@@ -13,6 +13,9 @@ type optionsPortTestStub struct {
 	verboseDisabled bool
 	showPaths       bool
 	showPathsMode   int
+	showFDPath      bool
+	showFDDevice    bool
+	showFDSocket    bool
 	traceRead       bool
 	traceWrite      bool
 }
@@ -52,6 +55,12 @@ func (stub optionsPortTestStub) ShowPathsValue() bool {
 func (stub optionsPortTestStub) ShowPathsModeValue() int {
 	return stub.showPathsMode
 }
+
+func (stub optionsPortTestStub) ShowFDPathValue() bool { return stub.showFDPath }
+
+func (stub optionsPortTestStub) ShowFDDeviceValue() bool { return stub.showFDDevice }
+
+func (stub optionsPortTestStub) ShowFDSocketValue() bool { return stub.showFDSocket }
 
 func (stub optionsPortTestStub) TraceReadFD(int32) bool {
 	return stub.traceRead

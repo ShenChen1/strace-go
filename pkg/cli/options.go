@@ -33,6 +33,19 @@ const (
 	DecodeFDModePath
 	DecodeFDModeAll
 	DecodeFDModeDevice
+	DecodeFDModeSocket
+	DecodeFDModeSelected
+)
+
+const (
+	DecodeFDDetailPath uint32 = 1 << iota
+	DecodeFDDetailDevice
+	DecodeFDDetailEventFD
+	DecodeFDDetailPIDFD
+	DecodeFDDetailSocket
+	DecodeFDDetailSignalFD
+	DecodeFDDetailsAll = DecodeFDDetailPath | DecodeFDDetailDevice | DecodeFDDetailEventFD |
+		DecodeFDDetailPIDFD | DecodeFDDetailSocket | DecodeFDDetailSignalFD
 )
 
 const hexEscapeModeNonASCIIChars = 3
@@ -79,6 +92,7 @@ type Options struct {
 	VerboseConfigured     bool
 	ShowPaths             bool
 	ShowPathsMode         int
+	DecodeFDDetails       uint32
 	Verbose               bool
 	HelpRequested         bool
 	VersionRequested      bool

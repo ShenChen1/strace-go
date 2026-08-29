@@ -46,3 +46,22 @@ func TestFormatFdWithDeviceOnlyMode(t *testing.T) {
 		t.Fatalf("AT_FDCWD formatting = %q, want no cwd path", got)
 	}
 }
+
+func TestFormatFdWithSocketOnlyMode(t *testing.T) {
+	ctx := &Context{
+		Pid:       101,
+		TargetPid: 101,
+		Meta:      meta.NewCatalog("abbrev"),
+		Opts:      cli.ParseArgs([]string{"--decode-fds=socket", "/bin/true"}),
+		EventFDView: testEventFDStateView{
+			paths: map[int32]string{7: "/dev/null", 8: "socket:[42]|AF_NETLINK"},
+		},
+	}
+
+	if got := FormatFdWithPath(ctx, 7); got != "7" {
+		t.Fatalf("non-socket formatting = %q, want bare fd", got)
+	}
+	if got := FormatFdWithPath(ctx, 8); got != "8<NETLINK:[42]>" {
+		t.Fatalf("socket formatting = %q, want NETLINK details", got)
+	}
+}

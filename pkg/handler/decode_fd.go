@@ -9,6 +9,7 @@ const (
 	decodeFDModePath   = 1
 	decodeFDModeAll    = 2
 	decodeFDModeDevice = 3
+	decodeFDModeSocket = 4
 )
 
 // formatFdArg handles file descriptor scalar values and AT_FDCWD logic.
@@ -73,30 +74,30 @@ func FormatFdWithPath(ctx *Context, fd int32) string {
 }
 
 func formatFDTarget(ctx *Context, fd int32, target string) string {
-	mode := ctx.Opts.ShowPathsModeValue()
-	if mode == decodeFDModeAll {
-		return fmt.Sprintf("%d<%s>", fd, formatDetailedPath(ctx, target, fd))
+	if strings.HasPrefix(target, "socket:[") {
+		if ctx.Opts.ShowFDSocketValue() || ctx.Opts.ShowFDPathValue() {
+			return fmt.Sprintf("%d<%s>", fd, formatSocketPath(ctx, target, fd))
+		}
+		return fmt.Sprintf("%d", fd)
 	}
-	if mode == decodeFDModeDevice {
+	if ctx.Opts.ShowFDDeviceValue() {
 		if observation, ok := eventFDState(ctx, fd); ok {
 			if detailed := formatDevicePath(target, observation); detailed != "" {
 				return fmt.Sprintf("%d<%s>", fd, detailed)
 			}
 		}
-		return fmt.Sprintf("%d", fd)
 	}
-	if strings.HasPrefix(target, "socket:[") {
-		target = formatSocketPath(ctx, target, fd)
+	if ctx.Opts.ShowFDPathValue() {
+		return fmt.Sprintf("%d<%s>", fd, target)
 	}
-	return fmt.Sprintf("%d<%s>", fd, target)
+	return fmt.Sprintf("%d", fd)
 }
 
 func showFDPath(ctx *Context) bool {
 	if ctx == nil || ctx.Opts == nil || !ctx.Opts.ShowPathsValue() {
 		return false
 	}
-	mode := ctx.Opts.ShowPathsModeValue()
-	return mode == decodeFDModePath || mode == decodeFDModeAll
+	return ctx.Opts.ShowFDPathValue()
 }
 
 func lookupTrackedFDPath(ctx *Context, fd int32) (string, bool) {
@@ -162,12 +163,11 @@ func deviceMinor(dev uint64) uint32 {
 // formatSocketPath converts socket inode description using event-sourced domain information.
 func formatSocketPath(ctx *Context, target string, fd int32) string {
 	inode := strings.TrimSuffix(strings.TrimPrefix(target, "socket:["), "]")
-	if ctx == nil || ctx.FDStateView == nil {
-		return target
-	}
-	info, ok := ctx.FDStateView.Path(ctx.TargetPid, fd)
-	if !ok {
-		return target
+	info := target
+	if !strings.Contains(info, "|") && ctx != nil && ctx.FDStateView != nil {
+		if tracked, ok := ctx.FDStateView.Path(ctx.TargetPid, fd); ok {
+			info = tracked
+		}
 	}
 
 	domainInfo := info
@@ -182,7 +182,7 @@ func formatSocketPath(ctx *Context, target string, fd int32) string {
 		return fmt.Sprintf("NETLINK:[%s]", inode)
 	}
 
-	if ctx.Opts != nil && ctx.Opts.ShowPathsModeValue() == decodeFDModeAll {
+	if ctx.Opts != nil && (ctx.Opts.ShowPathsModeValue() == decodeFDModeAll || ctx.Opts.ShowFDSocketValue()) {
 		if strings.HasPrefix(domainInfo, "AF_INET") {
 			return fmt.Sprintf("TCP:[%s]", inode)
 		}

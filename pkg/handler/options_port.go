@@ -15,6 +15,9 @@ type FormattingOptions interface {
 type FDTraceOptions interface {
 	ShowPathsValue() bool
 	ShowPathsModeValue() int
+	ShowFDPathValue() bool
+	ShowFDDeviceValue() bool
+	ShowFDSocketValue() bool
 	TraceReadFD(fd int32) bool
 	TraceWriteFD(fd int32) bool
 }

@@ -65,3 +65,39 @@ func (opts *Options) ShowPathsModeValue() int {
 	}
 	return opts.ShowPathsMode
 }
+
+// ShowFDPathValue reports whether path details were selected.
+func (opts *Options) ShowFDPathValue() bool {
+	return opts.decodeFDDetailsValue()&DecodeFDDetailPath != 0
+}
+
+// ShowFDDeviceValue reports whether device details were selected.
+func (opts *Options) ShowFDDeviceValue() bool {
+	return opts.decodeFDDetailsValue()&DecodeFDDetailDevice != 0
+}
+
+// ShowFDSocketValue reports whether socket details were selected.
+func (opts *Options) ShowFDSocketValue() bool {
+	return opts.decodeFDDetailsValue()&DecodeFDDetailSocket != 0
+}
+
+func (opts *Options) decodeFDDetailsValue() uint32 {
+	if opts == nil {
+		return 0
+	}
+	if opts.DecodeFDDetails != 0 || opts.ShowPathsMode == DecodeFDModeNone {
+		return opts.DecodeFDDetails
+	}
+	switch opts.ShowPathsMode {
+	case DecodeFDModePath:
+		return DecodeFDDetailPath
+	case DecodeFDModeDevice:
+		return DecodeFDDetailDevice
+	case DecodeFDModeSocket:
+		return DecodeFDDetailSocket
+	case DecodeFDModeAll:
+		return DecodeFDDetailsAll
+	default:
+		return 0
+	}
+}
