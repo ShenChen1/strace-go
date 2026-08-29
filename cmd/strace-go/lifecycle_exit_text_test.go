@@ -37,6 +37,7 @@ func TestTraceLifecycleExitTextWriterSuppressesConfiguredLines(t *testing.T) {
 		{name: "summary", policy: fakeTraceExitPolicy{only: true}, tid: 202, targetPID: 101},
 		{name: "json", policy: fakeTraceExitPolicy{json: true}, tid: 202, targetPID: 101},
 		{name: "command target", hasCommand: true, tid: 101, targetPID: 101},
+		{name: "separate attach target", policy: fakeTraceExitPolicy{separate: true, attachPID: 202}, tid: 202, targetPID: 101},
 	}
 
 	for _, tt := range tests {

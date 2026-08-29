@@ -50,6 +50,32 @@ func setupOutput(outFileOpt string, appendMode bool) (*TraceOutput, error) {
 	return output, nil
 }
 
+func setupSeparateOutput(outFileOpt string, appendMode bool) (*TraceOutput, error) {
+	if outFileOpt == "" {
+		return nil, fmt.Errorf("--output-separately requires -o/--output")
+	}
+	if strings.HasPrefix(outFileOpt, "|") || strings.HasPrefix(outFileOpt, "!") {
+		return nil, fmt.Errorf("piping output and --output-separately are mutually exclusive")
+	}
+	router := newSeparateTraceOutputWriter(outFileOpt, appendMode)
+	return newTraceOutput(TraceOutputDeps{
+		Writer:   router,
+		Closer:   router,
+		Flush:    router.Flush,
+		Selector: router,
+	})
+}
+
+func setupConfiguredOutput(config *traceLaunchConfig) (*TraceOutput, error) {
+	if config == nil {
+		return nil, fmt.Errorf("trace launch config is nil")
+	}
+	if config.outputSeparate {
+		return setupSeparateOutput(config.outputPath, config.outputAppend)
+	}
+	return setupOutput(config.outputPath, config.outputAppend)
+}
+
 func cleanupOutputBootstrap(writer io.Closer, command traceOutputWaiter) error {
 	var cleanupErr error
 	if writer != nil {

@@ -40,6 +40,7 @@ func TestNewTraceLaunchConfigSnapshotsBootstrapInputs(t *testing.T) {
 	opts.AttachPids = []int{101, 202}
 	opts.OutFile = "/tmp/original.trace"
 	opts.OutAppendMode = true
+	opts.OutputSeparate = true
 	opts.TipsMode = cli.TipsModeFull
 	opts.TipsID = 7
 	config := newTraceLaunchConfig(opts)
@@ -53,6 +54,7 @@ func TestNewTraceLaunchConfigSnapshotsBootstrapInputs(t *testing.T) {
 	opts.AttachPids[0] = 303
 	opts.OutFile = "/tmp/mutated.trace"
 	opts.OutAppendMode = false
+	opts.OutputSeparate = false
 	opts.TipsMode = cli.TipsModeNone
 	opts.TipsID = 9
 
@@ -60,7 +62,8 @@ func TestNewTraceLaunchConfigSnapshotsBootstrapInputs(t *testing.T) {
 		config.targets.command.argv0 != "original-argv0" || !config.targets.command.argv0Set {
 		t.Fatalf("launch command snapshot aliases CLI slices: %+v", config.targets.command)
 	}
-	if config.targets.attachPIDs[0] != 101 || config.outputPath != "/tmp/original.trace" || !config.outputAppend {
+	if config.targets.attachPIDs[0] != 101 || config.outputPath != "/tmp/original.trace" ||
+		!config.outputAppend || !config.outputSeparate {
 		t.Fatalf("launch scalar/slice snapshot changed after CLI mutation: %+v", config)
 	}
 	if config.tipsMode != cli.TipsModeFull || config.tipsID != 7 {

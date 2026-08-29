@@ -126,7 +126,7 @@ func (c *ExitStatusCoordinator) Queue(pid int, line string) {
 		return
 	}
 	if line, ok := c.queue.Queue(pid, line); ok {
-		c.write(line)
+		c.write(pid, line)
 	}
 }
 
@@ -135,7 +135,7 @@ func (c *ExitStatusCoordinator) MarkExited(pid int) {
 		return
 	}
 	if line, ok := c.queue.MarkExited(pid); ok {
-		c.write(line)
+		c.write(pid, line)
 	}
 }
 
@@ -144,7 +144,7 @@ func (c *ExitStatusCoordinator) MarkExitedWithFallback(pid int, fallback string)
 		return
 	}
 	if line, ok := c.queue.MarkExitedWithFallback(pid, fallback); ok {
-		c.write(line)
+		c.write(pid, line)
 	}
 }
 
@@ -153,7 +153,7 @@ func (c *ExitStatusCoordinator) FlushFallback(pid int) {
 		return
 	}
 	if line, ok := c.queue.FlushFallback(pid); ok {
-		c.write(line)
+		c.write(pid, line)
 	}
 }
 
@@ -164,8 +164,9 @@ func (c *ExitStatusCoordinator) Discard(pid int) {
 	c.queue.Discard(pid)
 }
 
-func (c *ExitStatusCoordinator) write(line string) {
+func (c *ExitStatusCoordinator) write(pid int, line string) {
 	if c.out != nil {
+		selectTraceOutputPID(c.out, pid)
 		fmt.Fprint(c.out, line)
 	}
 }

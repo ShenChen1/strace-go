@@ -94,6 +94,7 @@ func (o *ExitSyscallOutput) printExitStatus(ev syscallEventContext) {
 		return
 	}
 	if o.out != nil {
+		selectTraceOutputPID(o.out, int(view.tid))
 		fmt.Fprint(o.out, exitLine)
 	}
 }

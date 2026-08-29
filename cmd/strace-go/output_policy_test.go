@@ -38,16 +38,20 @@ func (p fakeTraceSummaryPolicy) SummaryOnly() bool     { return p.only }
 func (p fakeTraceSummaryPolicy) SummaryAndPrint() bool { return p.andPrint }
 
 type fakeTraceExitPolicy struct {
-	json    bool
-	discard bool
-	only    bool
-	quiet   bool
+	json      bool
+	discard   bool
+	only      bool
+	quiet     bool
+	separate  bool
+	attachPID int
 }
 
-func (p fakeTraceExitPolicy) IsJSON() bool        { return p.json }
-func (p fakeTraceExitPolicy) DiscardEvents() bool { return p.discard }
-func (p fakeTraceExitPolicy) SummaryOnly() bool   { return p.only }
-func (p fakeTraceExitPolicy) QuietExit() bool     { return p.quiet }
+func (p fakeTraceExitPolicy) IsJSON() bool                { return p.json }
+func (p fakeTraceExitPolicy) DiscardEvents() bool         { return p.discard }
+func (p fakeTraceExitPolicy) SummaryOnly() bool           { return p.only }
+func (p fakeTraceExitPolicy) QuietExit() bool             { return p.quiet }
+func (p fakeTraceExitPolicy) SeparateOutput() bool        { return p.separate }
+func (p fakeTraceExitPolicy) IsAttachTarget(pid int) bool { return pid == p.attachPID }
 
 type fakeTraceRenderPolicy struct{ options traceRenderOptions }
 

@@ -103,9 +103,12 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 		return fmt.Errorf("register target cleanup: %w", err)
 	}
 
-	output, err := setupOutput(config.outputPath, config.outputAppend)
+	output, err := setupConfiguredOutput(config)
 	if err != nil {
 		return fmt.Errorf("failed to set up output: %w", err)
+	}
+	if err := output.SelectPID(targetPid); err != nil {
+		return fmt.Errorf("failed to select initial output pid: %w", errors.Join(err, output.Close()))
 	}
 	enableTraceColor(output, config.outputColor, config.textOutput)
 	if shouldBufferTraceOutput(config.session.outputPolicy) {

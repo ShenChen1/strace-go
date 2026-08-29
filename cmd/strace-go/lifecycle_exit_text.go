@@ -43,10 +43,22 @@ func (w *traceLifecycleExitTextWriter) WriteExitText(tid int, exitCode uint64) {
 	if w.hasCommand && tid == w.targetPID {
 		return
 	}
+	separate, separateOK := w.policy.(traceSeparateOutputPolicy)
+	attach, attachOK := w.policy.(interface{ IsAttachTarget(int) bool })
+	if separateOK && separate.SeparateOutput() && attachOK && attach.IsAttachTarget(tid) {
+		return
+	}
 	if w.out == nil || w.renderer == nil {
 		return
 	}
+	selectTraceOutputPID(w.out, tid)
 	fmt.Fprint(w.out, w.renderer.ExitStatusLine(tid, exitCode))
+}
+
+func selectTraceOutputPID(out io.Writer, pid int) {
+	if output, ok := out.(interface{ SelectPID(int) error }); ok {
+		_ = output.SelectPID(pid)
+	}
 }
 
 var _ traceLifecycleExitTextPort = (*traceLifecycleExitTextWriter)(nil)

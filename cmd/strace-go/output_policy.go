@@ -94,6 +94,10 @@ type traceReadyPolicy interface {
 	AttachPIDs() []int
 }
 
+type traceSeparateOutputPolicy interface {
+	SeparateOutput() bool
+}
+
 // cliTraceOutputPolicy is a session-scoped immutable snapshot of output policy.
 type cliTraceOutputPolicy struct {
 	json               bool
@@ -107,6 +111,7 @@ type cliTraceOutputPolicy struct {
 	summaryOnly        bool
 	summaryAndPrint    bool
 	quietExit          bool
+	outputSeparate     bool
 	render             traceRenderOptions
 	attachPIDs         []int
 	signals            map[int]bool
@@ -154,6 +159,7 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 		summaryOnly:        opts.SummaryOnly,
 		summaryAndPrint:    opts.SummaryAndPrint,
 		quietExit:          opts.QuietExit,
+		outputSeparate:     opts.OutputSeparate,
 		attachPIDs:         append([]int(nil), opts.AttachPids...),
 		signals:            traceSignals,
 		signalConfigured:   opts.SignalConfigured,
@@ -162,7 +168,7 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 		render: traceRenderOptions{
 			time:                 normalizedTimeOptions(opts),
 			followForks:          opts.FollowForks,
-			showPID:              opts.FollowForks || opts.AlwaysShowPID,
+			showPID:              (opts.FollowForks || opts.AlwaysShowPID) && !opts.OutputSeparate,
 			alignCol:             opts.AlignCol,
 			printSyscallTime:     opts.PrintSyscallTime,
 			syscallTimePrecision: timestampPrecisionWidth(opts.SyscallTimePrecision, 6),
@@ -299,6 +305,10 @@ func (p *cliTraceOutputPolicy) SummaryAndPrint() bool {
 
 func (p *cliTraceOutputPolicy) QuietExit() bool {
 	return p != nil && p.quietExit
+}
+
+func (p *cliTraceOutputPolicy) SeparateOutput() bool {
+	return p != nil && p.outputSeparate
 }
 
 func (p *cliTraceOutputPolicy) RenderOptions() traceRenderOptions {

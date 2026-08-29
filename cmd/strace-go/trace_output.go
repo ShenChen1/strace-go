@@ -14,6 +14,10 @@ type traceOutputWaiter interface {
 	Wait() error
 }
 
+type traceOutputPIDSelector interface {
+	SelectPID(pid int) error
+}
+
 type execTraceOutputWaiter struct {
 	command *exec.Cmd
 }
@@ -29,6 +33,7 @@ type TraceOutput struct {
 	writer   io.Writer
 	closer   io.Closer
 	command  traceOutputWaiter
+	selector traceOutputPIDSelector
 	flushFn  func() error
 	closed   bool
 	writeErr error
@@ -37,10 +42,11 @@ type TraceOutput struct {
 }
 
 type TraceOutputDeps struct {
-	Writer  io.Writer
-	Closer  io.Closer
-	Command traceOutputWaiter
-	Flush   func() error
+	Writer   io.Writer
+	Closer   io.Closer
+	Command  traceOutputWaiter
+	Selector traceOutputPIDSelector
+	Flush    func() error
 }
 
 // traceOutputHandoff owns a bootstrap-created output until session composition
@@ -88,11 +94,22 @@ func newTraceOutput(deps TraceOutputDeps) (*TraceOutput, error) {
 		return nil, fmt.Errorf("trace output writer is nil")
 	}
 	return &TraceOutput{
-		writer:  deps.Writer,
-		closer:  deps.Closer,
-		command: deps.Command,
-		flushFn: deps.Flush,
+		writer:   deps.Writer,
+		closer:   deps.Closer,
+		command:  deps.Command,
+		selector: deps.Selector,
+		flushFn:  deps.Flush,
 	}, nil
+}
+
+func (o *TraceOutput) SelectPID(pid int) error {
+	if o == nil || o.closed {
+		return fmt.Errorf("trace output is unavailable")
+	}
+	if o.selector == nil {
+		return nil
+	}
+	return o.selector.SelectPID(pid)
 }
 
 // EnableBuffer batches output at the ownership boundary without adding an

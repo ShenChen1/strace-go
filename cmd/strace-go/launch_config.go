@@ -10,15 +10,16 @@ type traceTargetConfig struct {
 // traceLaunchConfig is the immutable bootstrap input for one trace run.
 // It ends at session construction and is never stored in traceSessionDeps.
 type traceLaunchConfig struct {
-	bpfConfig    traceBPFConfig
-	session      traceSessionConfig
-	targets      traceTargetConfig
-	outputPath   string
-	outputAppend bool
-	outputColor  string
-	textOutput   bool
-	tipsMode     string
-	tipsID       int
+	bpfConfig      traceBPFConfig
+	session        traceSessionConfig
+	targets        traceTargetConfig
+	outputPath     string
+	outputAppend   bool
+	outputSeparate bool
+	outputColor    string
+	textOutput     bool
+	tipsMode       string
+	tipsID         int
 }
 
 func newTraceLaunchConfig(opts *cli.Options) *traceLaunchConfig {
@@ -32,12 +33,13 @@ func newTraceLaunchConfig(opts *cli.Options) *traceLaunchConfig {
 			command:    traceCommandSpecFromCLI(opts),
 			attachPIDs: append([]int(nil), opts.AttachPids...),
 		},
-		outputPath:   opts.OutFile,
-		outputAppend: opts.OutAppendMode,
-		outputColor:  opts.ColorMode,
-		textOutput:   opts.EventFormat == cli.EventFormatText,
-		tipsMode:     opts.TipsMode,
-		tipsID:       opts.TipsID,
+		outputPath:     opts.OutFile,
+		outputAppend:   opts.OutAppendMode,
+		outputSeparate: opts.OutputSeparate,
+		outputColor:    opts.ColorMode,
+		textOutput:     opts.EventFormat == cli.EventFormatText,
+		tipsMode:       opts.TipsMode,
+		tipsID:         opts.TipsID,
 	}
 }
 

@@ -81,6 +81,7 @@ func (s *traceSession) textRenderer() *TextRenderer {
 }
 
 func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.Result) {
+	r.selectOutputPID(int(ev.eventView().tid))
 	if r.writePlainUnfinishedFast(ev, res) {
 		return
 	}
@@ -96,6 +97,7 @@ func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.
 }
 
 func (r *TextRenderer) PrintExecResumeFromView(view syscallEventView, argLine string) {
+	r.selectOutputPID(int(view.tid))
 	timePrefix := r.timePrefix(view.enterTime)
 	pidPrefix := r.pidPrefix(int(view.tid))
 	argLine = r.syscallNumberPrefix(view) + argLine
@@ -104,6 +106,7 @@ func (r *TextRenderer) PrintExecResumeFromView(view syscallEventView, argLine st
 }
 
 func (r *TextRenderer) PrintExecDetachedFromView(view syscallEventView, argLine string) {
+	r.selectOutputPID(int(view.tid))
 	fmt.Fprintf(r.out, "%s%s%s%s <detached ...>\n",
 		r.timePrefix(view.enterTime),
 		r.pidPrefix(int(view.tid)),
@@ -112,6 +115,7 @@ func (r *TextRenderer) PrintExecDetachedFromView(view syscallEventView, argLine 
 }
 
 func (r *TextRenderer) PrintExecPidChangedFromView(view syscallEventView, argLine string) {
+	r.selectOutputPID(int(view.tid))
 	tid := int(view.tid)
 	tgid := int(view.pid)
 	fmt.Fprintf(r.out, "%s%-5d %s%s <pid changed to %d ...>\n", r.timePrefix(view.enterTime), tid, r.syscallNumberPrefix(view), trimTrailingParen(argLine), tgid)
@@ -121,16 +125,19 @@ func (r *TextRenderer) PrintExecDetachedThreadSupersededFromView(view syscallEve
 	if r.renderOptions().quietThreadExecve {
 		return
 	}
+	r.selectOutputPID(int(view.pid))
 	fmt.Fprintf(r.out, "%s%-5d +++ superseded by execve in pid %d +++\n",
 		r.timePrefix(view.enterTime), view.pid, view.tid)
 }
 
 func (r *TextRenderer) PrintExecSupersededUnfinishedFromView(view syscallEventView, argLine string) {
+	r.selectOutputPID(int(view.tid))
 	tid := int(view.tid)
 	fmt.Fprintf(r.out, "%s%-5d %s%s <unfinished ...>\n", r.timePrefix(view.enterTime), tid, r.syscallNumberPrefix(view), trimTrailingParen(argLine))
 }
 
 func (r *TextRenderer) PrintSupersededSuspendedResumeFromView(view syscallEventView, syscallName string) {
+	r.selectOutputPID(int(view.pid))
 	timePrefix := r.timePrefix(view.enterTime)
 	tgid := int(view.pid)
 	numberPrefix := r.syscallNumberPrefix(view)
@@ -143,6 +150,7 @@ func (r *TextRenderer) PrintSupersededSuspendedResumeFromView(view syscallEventV
 }
 
 func (r *TextRenderer) PrintThreadExecveSupersededFromView(view syscallEventView, syscallName string) {
+	r.selectOutputPID(int(view.pid))
 	timePrefix := r.timePrefix(view.enterTime)
 	tid := int(view.tid)
 	tgid := int(view.pid)
@@ -153,6 +161,7 @@ func (r *TextRenderer) PrintThreadExecveSupersededFromView(view syscallEventView
 }
 
 func (r *TextRenderer) PrintExitSyscallEvent(ev syscallEventContext, res handler.Result) {
+	r.selectOutputPID(int(ev.eventView().tid))
 	line := r.exitSyscallLine(ev.eventView(), ev.effectiveSyscallMeta(), res)
 	fmt.Fprint(r.out, line)
 }
@@ -177,6 +186,7 @@ func (r *TextRenderer) ExitStatusLine(tid int, status uint64) string {
 
 // IMPACT: PrintSyscallEvent renders a decoded syscall from the stable event context view.
 func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Result) {
+	r.selectOutputPID(int(ev.eventView().tid))
 	if r.writePlainSyscallFast(ev, res) {
 		return
 	}
@@ -300,4 +310,13 @@ func (r *TextRenderer) renderOptions() traceRenderOptions {
 		return traceRenderOptions{}
 	}
 	return r.policy.RenderOptions()
+}
+
+func (r *TextRenderer) selectOutputPID(pid int) {
+	if r == nil {
+		return
+	}
+	if output, ok := r.out.(interface{ SelectPID(int) error }); ok {
+		_ = output.SelectPID(pid)
+	}
 }

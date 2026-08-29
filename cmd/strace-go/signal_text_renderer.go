@@ -6,6 +6,7 @@ import (
 )
 
 func (r *TextRenderer) PrintSignalEvent(view signalEventView, signalName string) {
+	r.selectOutputPID(int(view.tid))
 	fields := []string{"si_signo=" + signalName}
 	if view.error != 0 {
 		fields = append(fields, fmt.Sprintf("si_errno=%d", view.error))
