@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -18,6 +19,8 @@ type traceCommandSpec struct {
 	argv0      string
 	argv0Set   bool
 	killOnExit bool
+	runAsUser  string
+	credential *syscall.Credential
 }
 
 // traceTargetBootstrap owns target-start side effects until target ownership is
@@ -269,10 +272,13 @@ func (b *traceTargetBootstrap) startTraceCmd(
 	if err != nil {
 		return nil, 0, fdStateSeed{}, err
 	}
+	cmd := newTraceCommand(spec, b.inheritedFiles)
+	if err := applyTraceCommandCredential(cmd, spec.credential); err != nil {
+		return nil, 0, fdStateSeed{}, fmt.Errorf("configure command user: %w", err)
+	}
 	if err := b.armNextFork(); err != nil {
 		return nil, 0, fdStateSeed{}, fmt.Errorf("arm initial fork: %w", err)
 	}
-	cmd := newTraceCommand(spec, b.inheritedFiles)
 	if err := cmd.Start(); err != nil {
 		return nil, 0, fdStateSeed{}, fmt.Errorf("start command: %w", errors.Join(err, b.disarmNextFork()))
 	}

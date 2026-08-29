@@ -79,13 +79,15 @@ func TestTraceCommandSpecCopiesCLIInputs(t *testing.T) {
 		Argv0:      "original-argv0",
 		Argv0Set:   true,
 		KillOnExit: true,
+		RunAsUser:  "1000:1001",
 	}
 	spec := traceCommandSpecFromCLI(opts)
 	opts.CmdArgs[1] = "mutated"
 	opts.EnvActions[0] = "TRACE=mutated"
 	opts.Argv0 = "mutated-argv0"
 
-	if spec.args[1] != "original" || spec.envActions[0] != "TRACE=original" || spec.argv0 != "original-argv0" || !spec.argv0Set || !spec.killOnExit {
+	if spec.args[1] != "original" || spec.envActions[0] != "TRACE=original" || spec.argv0 != "original-argv0" || !spec.argv0Set || !spec.killOnExit ||
+		spec.runAsUser != "1000:1001" {
 		t.Fatalf("trace command spec aliases CLI slices: %+v", spec)
 	}
 }

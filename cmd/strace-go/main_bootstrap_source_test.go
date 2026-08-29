@@ -21,7 +21,7 @@ func TestMainUsesErrorReturningBootstrap(t *testing.T) {
 	}
 	for _, required := range []string{
 		"setupBPFWithConfig(clock, config.bpfConfig)",
-		"newTraceTargetHandoff(config.targets, targetRuntime, bpfRuntime, targetPid)",
+		"newTraceTargetHandoff(targets, targetRuntime, bpfRuntime, targetPid)",
 		"targetHandoff.Transfer()",
 	} {
 		if !strings.Contains(source, required) {

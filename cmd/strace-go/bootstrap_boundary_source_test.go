@@ -43,12 +43,18 @@ func TestBootstrapSideEffectsStayOutsideSessionRuntime(t *testing.T) {
 		t.Fatal("output bootstrap does not own setupOutput")
 	}
 	for _, required := range []string{
+		"prepareTraceTargetConfig(config.targets, os.Geteuid())",
 		"newTraceTargetBootstrap(bpfRuntime)",
-		"targetBootstrap.Resolve(config.targets)",
+		"targetBootstrap.Resolve(targets)",
 		"cleanup.Add(\"target_bootstrap\", targetBootstrap.Close)",
 	} {
 		if !strings.Contains(mainSource, required) {
 			t.Fatalf("main is missing bootstrap composition step %q", required)
 		}
+	}
+	prepareTargets := strings.Index(mainSource, "prepareTraceTargetConfig(config.targets, os.Geteuid())")
+	setupBPF := strings.Index(mainSource, "setupBPFWithConfig(clock, config.bpfConfig)")
+	if prepareTargets < 0 || setupBPF < 0 || prepareTargets > setupBPF {
+		t.Fatalf("target credentials must be prepared before BPF setup: prepare=%d setup=%d", prepareTargets, setupBPF)
 	}
 }

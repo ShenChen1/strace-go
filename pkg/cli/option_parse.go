@@ -29,7 +29,7 @@ func parseShortOptions(args []string, index *int, opts *Options) {
 }
 
 func shortOptionTakesValue(flag byte) bool {
-	return strings.ContainsRune("eoasPXpEbIOSU", rune(flag))
+	return strings.ContainsRune("eoasPXpEbuIOSU", rune(flag))
 }
 
 func applyShortBoolean(flag byte, opts *Options) {
@@ -147,6 +147,8 @@ func parseLongTargetOption(state *longOptionState) bool {
 	case "argv0":
 		state.opts.Argv0 = requiredLongValue(state)
 		state.opts.Argv0Set = true
+	case "user":
+		applyValueOption("-u", requiredLongValue(state), state.opts)
 	case "attach":
 		parseAttachPIDs(requiredLongValue(state), state.opts)
 	case "detach-on":
@@ -337,6 +339,11 @@ func applyValueOption(flag, value string, opts *Options) {
 			failOption("Syscall '%s' for -b isn't supported", value)
 		}
 		opts.DetachOnExecve = true
+	case "-u":
+		if value == "" {
+			failOption("invalid -u/--user argument: empty value")
+		}
+		opts.RunAsUser = value
 	case "-I":
 		rejectArchitectureConflict("-I/--interruptible", "it controls ptrace stop signal blocking")
 	case "-O":

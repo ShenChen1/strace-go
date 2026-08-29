@@ -42,6 +42,7 @@ type Options struct {
 	CmdArgs               []string
 	Argv0                 string
 	Argv0Set              bool
+	RunAsUser             string
 	AttachPids            []int
 	EventFormat           string
 	DebugEvents           bool

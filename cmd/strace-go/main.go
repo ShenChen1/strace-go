@@ -54,6 +54,10 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 	if clock == nil {
 		return fmt.Errorf("trace clock is nil")
 	}
+	targets, err := prepareTraceTargetConfig(config.targets, os.Geteuid())
+	if err != nil {
+		return err
+	}
 	cleanupObserver := newTraceCleanupPhaseWriter(config.session.outputPolicy, os.Stderr)
 	cleanup := newTraceCleanupPlan(traceCleanupPlanDeps{
 		Clock:    clock,
@@ -91,11 +95,11 @@ func runTraceSession(config *traceLaunchConfig, clock traceClock) (runErr error)
 		return fmt.Errorf("register target bootstrap cleanup: %w", err)
 	}
 
-	targetRuntime, targetPid, fdSeed, err := targetBootstrap.Resolve(config.targets)
+	targetRuntime, targetPid, fdSeed, err := targetBootstrap.Resolve(targets)
 	if err != nil {
 		return fmt.Errorf("failed to resolve trace targets: %w", err)
 	}
-	targetHandoff, err := newTraceTargetHandoff(config.targets, targetRuntime, bpfRuntime, targetPid)
+	targetHandoff, err := newTraceTargetHandoff(targets, targetRuntime, bpfRuntime, targetPid)
 	if err != nil {
 		return fmt.Errorf("failed to own trace targets: %w", errors.Join(err, targetBootstrap.abortTraceTarget(targetRuntime, targetPid)))
 	}

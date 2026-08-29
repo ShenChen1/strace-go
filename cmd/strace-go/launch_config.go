@@ -53,5 +53,6 @@ func traceCommandSpecFromCLI(opts *cli.Options) traceCommandSpec {
 		argv0:      opts.Argv0,
 		argv0Set:   opts.Argv0Set,
 		killOnExit: opts.KillOnExit,
+		runAsUser:  opts.RunAsUser,
 	}
 }

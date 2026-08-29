@@ -38,6 +38,7 @@ func TestNewTraceLaunchConfigSnapshotsBootstrapInputs(t *testing.T) {
 	opts.Argv0 = "original-argv0"
 	opts.Argv0Set = true
 	opts.KillOnExit = true
+	opts.RunAsUser = "1000:1001"
 	opts.AttachPids = []int{101, 202}
 	opts.OutFile = "/tmp/original.trace"
 	opts.OutAppendMode = true
@@ -60,7 +61,8 @@ func TestNewTraceLaunchConfigSnapshotsBootstrapInputs(t *testing.T) {
 	opts.TipsID = 9
 
 	if config.targets.command.args[1] != "original" || config.targets.command.envActions[0] != "TRACE=original" ||
-		config.targets.command.argv0 != "original-argv0" || !config.targets.command.argv0Set || !config.targets.command.killOnExit {
+		config.targets.command.argv0 != "original-argv0" || !config.targets.command.argv0Set || !config.targets.command.killOnExit ||
+		config.targets.command.runAsUser != "1000:1001" {
 		t.Fatalf("launch command snapshot aliases CLI slices: %+v", config.targets.command)
 	}
 	if config.targets.attachPIDs[0] != 101 || config.outputPath != "/tmp/original.trace" ||
