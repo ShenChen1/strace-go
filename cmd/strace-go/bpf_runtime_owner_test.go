@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"log"
 	"testing"
 )
 
@@ -54,6 +56,11 @@ func (p *fakeBPFTargetPort) armedForkPID() (uint32, bool) {
 }
 
 func TestStartTraceCmdUsesTargetPortLifecycle(t *testing.T) {
+	var logs bytes.Buffer
+	previousLogOutput := log.Writer()
+	log.SetOutput(&logs)
+	defer log.SetOutput(previousLogOutput)
+
 	port := &fakeBPFTargetPort{armedSnapshot: 123}
 	bootstrap := &traceTargetBootstrap{bpfRuntime: port}
 	target, pid, _, err := bootstrap.startTraceCmd(traceCommandSpec{args: []string{"/bin/true"}})
@@ -66,6 +73,9 @@ func TestStartTraceCmdUsesTargetPortLifecycle(t *testing.T) {
 	}
 	if port.armCalls != 1 || port.disarmCalls != 1 {
 		t.Fatalf("arm/disarm calls = %d/%d, want 1/1", port.armCalls, port.disarmCalls)
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("default target startup log = %q, want empty", logs.String())
 	}
 }
 

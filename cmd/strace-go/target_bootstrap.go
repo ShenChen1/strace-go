@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -279,9 +278,6 @@ func (b *traceTargetBootstrap) startTraceCmd(
 	if err := b.bpfRuntime.addFilterPID(uint32(targetPID)); err != nil {
 		cleanupErr := errors.Join(b.disarmNextFork(), b.abortTraceTarget(targetRuntime, targetPID))
 		return nil, 0, fdStateSeed{}, fmt.Errorf("add tracee %d to filter: %w", targetPID, errors.Join(err, cleanupErr))
-	}
-	if armedPID, ok := b.bpfRuntime.armedForkPID(); ok {
-		log.Printf("DEBUG arm after start = %d, tracee = %d", armedPID, targetPID)
 	}
 	if err := b.disarmNextFork(); err != nil {
 		return nil, 0, fdStateSeed{}, fmt.Errorf("disarm initial fork: %w", errors.Join(err, b.abortTraceTarget(targetRuntime, targetPID)))
