@@ -145,6 +145,16 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
                 test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
             )
 
+    def test_separate_output_regressions_are_registered(self):
+        for test in (
+            "strace-ff.test",
+            "strace--follow-forks-output-separately.gen.test",
+        ):
+            self.assertIn(test, upstream_suites.MORE_TESTS)
+            self.assertIn(
+                test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
+            )
+
     def test_registered_tests_exist_in_current_upstream(self):
         valid = {
             name
