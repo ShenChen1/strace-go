@@ -18,6 +18,7 @@ static __always_inline void init_lifecycle_event_v2_header(
     header->sys_id = 0;
     header->seq = 0;
     header->ts_ns = ts_ns;
+    capture_event_v2_comm(header);
 }
 
 static __always_inline void init_lifecycle_event_v2_body(

@@ -27,6 +27,7 @@ static __always_inline void emit_signal_event_v2(
     event->header.sys_id = 0;
     event->header.seq = 0;
     event->header.ts_ns = bpf_ktime_get_ns();
+    capture_event_v2_comm(&event->header);
     event->body = *body;
 
     bpf_ringbuf_submit(event, 0);

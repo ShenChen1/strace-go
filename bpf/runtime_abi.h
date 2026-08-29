@@ -99,6 +99,7 @@ struct event_v2_header {
     u32 sys_id;
     u64 seq;
     u64 ts_ns;
+    char comm[EVENT_V2_COMM_SIZE];
 };
 
 struct syscall_enter_event_v2 {
@@ -150,6 +151,7 @@ _Static_assert(__builtin_offsetof(struct event_v2_header, tid) == EVENT_V2_HEADE
 _Static_assert(__builtin_offsetof(struct event_v2_header, sys_id) == EVENT_V2_HEADER_SYS_ID_OFFSET, "event v2 syscall offset drift");
 _Static_assert(__builtin_offsetof(struct event_v2_header, seq) == EVENT_V2_HEADER_SEQ_OFFSET, "event v2 sequence offset drift");
 _Static_assert(__builtin_offsetof(struct event_v2_header, ts_ns) == EVENT_V2_HEADER_TS_NS_OFFSET, "event v2 timestamp offset drift");
+_Static_assert(__builtin_offsetof(struct event_v2_header, comm) == EVENT_V2_HEADER_COMM_OFFSET, "event v2 comm offset drift");
 _Static_assert(sizeof(struct syscall_enter_event_v2) == EVENT_V2_ENTER_BODY_LEN, "event v2 enter size drift");
 _Static_assert(sizeof(struct syscall_compact_enter_event_v2) == EVENT_V2_COMPACT_ENTER_BODY_LEN, "event v2 compact enter size drift");
 _Static_assert(sizeof(struct syscall_exit_event_v2) == EVENT_V2_EXIT_BODY_LEN, "event v2 exit size drift");
@@ -290,6 +292,16 @@ struct {
     __type(key, u32);
     __type(value, u32);
 } config_map SEC(".maps");
+
+static __always_inline void capture_event_v2_comm(struct event_v2_header *header)
+{
+    __builtin_memset(header->comm, 0, sizeof(header->comm));
+    u32 key = 0;
+    u32 *config = bpf_map_lookup_elem(&config_map, &key);
+    if (config && (*config & CONFIG_DECODE_PID_COMM)) {
+        bpf_get_current_comm(header->comm, sizeof(header->comm));
+    }
+}
 
 /* System topology metadata used only for bounded per-CPU map length calculation. */
 struct {

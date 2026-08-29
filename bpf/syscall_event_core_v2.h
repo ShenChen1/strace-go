@@ -157,6 +157,7 @@ static __always_inline void init_syscall_event_v2_header_direct(
     header->sys_id = sys_id;
     header->seq = 0;
     header->ts_ns = ts_ns;
+    capture_event_v2_comm(header);
 }
 
 static __always_inline void init_syscall_enter_event_v2_from_ctx(

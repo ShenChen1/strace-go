@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 
 	"strace-go/pkg/handler"
@@ -14,6 +15,7 @@ type traceEventV2Header struct {
 	tid       uint32
 	sysID     uint32
 	tsNs      uint64
+	comm      string
 }
 
 func isTraceEventV2Sample(rawSample []byte) bool {
@@ -76,6 +78,7 @@ func decodeTraceEventV2Header(rawSample []byte) (traceEventV2Header, []byte, boo
 		tid:       binary.LittleEndian.Uint32(rawSample[traceEventV2HeaderTIDOffset : traceEventV2HeaderTIDOffset+traceEventV2U32Size]),
 		sysID:     binary.LittleEndian.Uint32(rawSample[traceEventV2HeaderSysIDOffset : traceEventV2HeaderSysIDOffset+traceEventV2U32Size]),
 		tsNs:      binary.LittleEndian.Uint64(rawSample[traceEventV2HeaderTSNSOffset : traceEventV2HeaderTSNSOffset+traceEventV2U64Size]),
+		comm:      decodeTraceEventV2Comm(rawSample[traceEventV2HeaderCommOffset : traceEventV2HeaderCommOffset+traceEventV2CommSize]),
 	}
 	return header, rawSample[headerLenInt:sizeInt], true
 }
@@ -122,6 +125,7 @@ func decodeTraceEventV2EnterEnvelope(
 		eventVersion:  header.version,
 		pid:           header.pid,
 		tid:           header.tid,
+		comm:          header.comm,
 		sysID:         header.sysID,
 		eventType:     header.eventType,
 		eventFlags:    eventFlags,
@@ -147,6 +151,7 @@ func decodeTraceEventV2CompactEnterEnvelope(header traceEventV2Header, body []by
 		eventVersion:  header.version,
 		pid:           header.pid,
 		tid:           header.tid,
+		comm:          header.comm,
 		sysID:         header.sysID,
 		eventType:     header.eventType,
 		eventFlags:    eventFlags,
@@ -192,6 +197,7 @@ func decodeTraceEventV2ExitEnvelope(
 		eventVersion: header.version,
 		pid:          header.pid,
 		tid:          header.tid,
+		comm:         header.comm,
 		sysID:        header.sysID,
 		eventType:    header.eventType,
 		eventFlags:   eventFlags,
@@ -220,6 +226,7 @@ func decodeTraceEventV2LifecycleEnvelope(header traceEventV2Header, body []byte)
 		eventVersion:    header.version,
 		pid:             header.pid,
 		tid:             header.tid,
+		comm:            header.comm,
 		eventType:       header.eventType,
 		eventFlags:      traceEventV2EventFlags(header, payload),
 		lifecycleAction: action,
@@ -238,6 +245,7 @@ func decodeTraceEventV2SignalEnvelope(header traceEventV2Header, body []byte) (t
 		eventVersion: header.version,
 		pid:          header.pid,
 		tid:          header.tid,
+		comm:         header.comm,
 		eventType:    header.eventType,
 		enterTime:    header.tsNs,
 		signal:       binary.LittleEndian.Uint32(body[traceEventV2SignalNumberOffset:]),
@@ -246,6 +254,13 @@ func decodeTraceEventV2SignalEnvelope(header traceEventV2Header, body []byte) (t
 		senderPID:    binary.LittleEndian.Uint32(body[traceEventV2SignalSenderPIDOffset:]),
 		senderUID:    binary.LittleEndian.Uint32(body[traceEventV2SignalSenderUIDOffset:]),
 	}, true
+}
+
+func decodeTraceEventV2Comm(raw []byte) string {
+	if end := bytes.IndexByte(raw, 0); end >= 0 {
+		raw = raw[:end]
+	}
+	return string(raw)
 }
 
 func traceEventV2Args(data []byte) [6]uint64 {

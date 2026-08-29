@@ -27,9 +27,11 @@ const (
 	bpfConfigFdState                              = 64
 	bpfConfigElidePlainEnter                      = 128
 	bpfConfigEmitSignal                           = 256
+	bpfConfigDecodePIDComm                        = 512
 	bpfFilterTaskTracked                   uint32 = 1
 	bpfFilterTaskPreExec                   uint32 = 2
-	traceEventV2HeaderLen                         = 40
+	traceEventV2HeaderLen                         = 56
+	traceEventV2CommSize                          = 16
 	traceEventV2EnterBodyLen                      = 72
 	traceEventV2CompactEnterBodyLen               = 48
 	traceEventV2ExitBodyLen                       = 80
@@ -49,6 +51,7 @@ const (
 	traceEventV2HeaderSysIDOffset                 = 20
 	traceEventV2HeaderSeqOffset                   = 24
 	traceEventV2HeaderTSNSOffset                  = 32
+	traceEventV2HeaderCommOffset                  = 40
 	traceEventV2EnterRetOffset                    = 0
 	traceEventV2EnterProbeRetEnterOffset          = 8
 	traceEventV2EnterProbeRetExitOffset           = 12

@@ -25,20 +25,31 @@ func TestBPFConfigurationConsumesBootstrapSnapshot(t *testing.T) {
 }
 
 func TestNewTraceBPFConfigSnapshotsCLIInputs(t *testing.T) {
-	opts := cli.ParseArgs([]string{"-f", "-k", "-y", "-e", "trace=write", "/bin/true"})
+	opts := cli.ParseArgs([]string{"-f", "-k", "-y", "-Y", "-e", "trace=write", "/bin/true"})
 	config := newTraceBPFConfig(opts)
 
 	opts.FollowForks = false
 	opts.StackTrace = false
 	opts.ShowPaths = false
+	opts.DecodePIDsComm = false
 	opts.TraceSyscalls["write"] = false
 	opts.TraceSyscalls["read"] = true
 
-	if !config.followForks || !config.captureStack || !config.fdState || config.elidePlainEnter || config.elideNonBlockingPlainEnter {
+	if !config.followForks || !config.captureStack || !config.fdState || !config.decodePIDsComm || config.elidePlainEnter || config.elideNonBlockingPlainEnter {
 		t.Fatalf("BPF config lost scalar snapshot: %#v", config)
 	}
 	requirePlanHasSyscall(t, config.syscallFilter, "write")
 	requirePlanLacksSyscall(t, config.syscallFilter, "read")
+}
+
+func TestBuildRuntimeConfigEnablesPIDCommCapture(t *testing.T) {
+	value, err := buildRuntimeConfig(traceBPFConfig{decodePIDsComm: true}, nil)
+	if err != nil {
+		t.Fatalf("buildRuntimeConfig(decode-pids=comm) error = %v", err)
+	}
+	if value&bpfConfigDecodePIDComm == 0 {
+		t.Fatalf("runtime config = %#x, want pid comm capture bit", value)
+	}
 }
 
 func TestNewTraceBPFConfigNilOptionsIsEmpty(t *testing.T) {

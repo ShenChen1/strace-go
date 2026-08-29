@@ -13,7 +13,9 @@ func TestEventABIConstantsHaveOneGeneratedSource(t *testing.T) {
 	normalizedGeneratedGo := strings.Join(strings.Fields(generatedGo), " ")
 	for _, required := range []string{
 		"#define EVENT_VERSION 2",
-		"#define EVENT_V2_HEADER_LEN 40",
+		"#define EVENT_V2_HEADER_LEN 56",
+		"#define EVENT_V2_HEADER_COMM_OFFSET 40",
+		"#define EVENT_V2_COMM_SIZE 16",
 		"#define EVENT_V2_HEADER_VERSION_OFFSET 0",
 		"#define EVENT_V2_EXIT_STACK_ID_OFFSET 72",
 		"#define EVENT_V2_ARGS_SIZE 48",
@@ -32,6 +34,9 @@ func TestEventABIConstantsHaveOneGeneratedSource(t *testing.T) {
 		"bpfEventFlagPayloadTLV uint32 = 2",
 		"bpfEventFlagEnterFragment uint32 = 32",
 		"bpfConfigEmitLifecycle = 32",
+		"bpfConfigDecodePIDComm = 512",
+		"traceEventV2HeaderCommOffset = 40",
+		"traceEventV2CommSize = 16",
 	} {
 		if !strings.Contains(normalizedGeneratedGo, required) {
 			t.Fatalf("generated event ABI Go missing %q", required)
@@ -53,7 +58,7 @@ func TestEventABIConstantsHaveOneGeneratedSource(t *testing.T) {
 			"#define EVENT_FLAG_PAYLOAD_TLV 2",
 			"#define CONFIG_CAPTURE_STACK 1",
 			"#define FILTER_TASK_TRACKED 1",
-			"#define EVENT_V2_HEADER_LEN 40",
+			"#define EVENT_V2_HEADER_LEN 56",
 			"#define PAYLOAD_TLV_HEADER_SIZE 32",
 			"bpfConfigCaptureStack         = 1 << 0",
 			"bpfEventTypeEnter        uint16 = 1",

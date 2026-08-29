@@ -51,6 +51,23 @@ func TestDecodeTraceEventV2EnterEnvelope(t *testing.T) {
 	assertTraceEventV2PathSection(t, envelope.payload)
 }
 
+func TestDecodeTraceEventV2EnvelopeCapturesTaskComm(t *testing.T) {
+	raw := traceEventV2ExitSample(t, traceEventV2SampleSpec{
+		pid:   103,
+		tid:   104,
+		sysID: syscallIDByName(t, "getpid"),
+		comm:  "worker",
+	})
+
+	envelope, ok := decodeTraceEventV2Envelope(raw)
+	if !ok {
+		t.Fatal("decodeTraceEventV2Envelope rejected a sample with task comm")
+	}
+	if envelope.comm != "worker" {
+		t.Fatalf("task comm = %q, want worker", envelope.comm)
+	}
+}
+
 func TestDecodeTraceEventV2EnterFragmentEnvelope(t *testing.T) {
 	sysID := syscallIDByName(t, "bpf")
 	payload := payloadTLVBytes(t, payloadTLVTestSection{
@@ -382,6 +399,7 @@ type traceEventV2SampleSpec struct {
 	signalCode    int32
 	senderPID     uint32
 	senderUID     uint32
+	comm          string
 }
 
 func traceEventV2EnterSample(t testing.TB, spec traceEventV2SampleSpec) []byte {
@@ -447,6 +465,7 @@ func traceEventV2HeaderSample(spec traceEventV2SampleSpec, size int) []byte {
 	binary.LittleEndian.PutUint32(raw[traceEventV2HeaderTIDOffset:traceEventV2HeaderTIDOffset+traceEventV2U32Size], spec.tid)
 	binary.LittleEndian.PutUint32(raw[traceEventV2HeaderSysIDOffset:traceEventV2HeaderSysIDOffset+traceEventV2U32Size], spec.sysID)
 	binary.LittleEndian.PutUint64(raw[traceEventV2HeaderTSNSOffset:traceEventV2HeaderTSNSOffset+traceEventV2U64Size], spec.tsNs)
+	copy(raw[traceEventV2HeaderCommOffset:traceEventV2HeaderCommOffset+traceEventV2CommSize], spec.comm)
 	return raw
 }
 
