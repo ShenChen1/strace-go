@@ -259,6 +259,7 @@ MORE_TESTS = [
     "pidfd_open--decode-fd-path.gen.test",
     "pidfd_open--decode-fd-pidfd.gen.test",
     "pidfd_open--decode-fd-socket.gen.test",
+    "signalfd4-yy.gen.test",
     "strace-C.test",
     "strace-E.test",
     "strace-x.gen.test",

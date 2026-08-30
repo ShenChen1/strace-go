@@ -86,6 +86,11 @@ func (opts *Options) ShowFDPIDFDValue() bool {
 	return opts.decodeFDDetailsValue()&DecodeFDDetailPIDFD != 0
 }
 
+// ShowFDSignalFDValue reports whether signalfd mask details were selected.
+func (opts *Options) ShowFDSignalFDValue() bool {
+	return opts.decodeFDDetailsValue()&DecodeFDDetailSignalFD != 0
+}
+
 // ShowFDSocketValue reports whether socket details were selected.
 func (opts *Options) ShowFDSocketValue() bool {
 	return opts.decodeFDDetailsValue()&DecodeFDDetailSocket != 0

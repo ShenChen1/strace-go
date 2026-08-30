@@ -76,7 +76,7 @@ func decodeFDDetailBit(value string) uint32 {
 	case "pidfd":
 		return DecodeFDDetailPIDFD
 	case "signalfd":
-		failOption("decode-fds value '%s' is not implemented yet", value)
+		return DecodeFDDetailSignalFD
 	default:
 		failOption("invalid decode-fds '%s'", value)
 	}
