@@ -118,7 +118,7 @@ func IoEvents(data []byte, count int) string {
 }
 
 // StatWithCatalog formats stat mode bits using the session catalog.
-func StatWithCatalog(catalog FlagDecoder, data []byte) string {
+func StatWithCatalog(catalog XlatCatalog, data []byte) string {
 	if len(data) < 144 {
 		return "{...}"
 	}
@@ -140,21 +140,29 @@ func StatWithCatalog(catalog FlagDecoder, data []byte) string {
 	st_ctime := int64(binary.LittleEndian.Uint64(data[104:112]))
 	st_ctime_nsec := int64(binary.LittleEndian.Uint64(data[112:120]))
 
-	modeStr := catalog.DecodeFlags(uint64(st_mode&0170000), "modetypes")
-	if modeStr == fmt.Sprintf("%#x", uint64(st_mode&0170000)) {
-		modeStr = fmt.Sprintf("%#o", st_mode)
-	} else {
-		modeStr += fmt.Sprintf("|%#03o", st_mode&07777)
-	}
+	modeStr := formatStatMode(st_mode, catalog.Format())
 
-	res := fmt.Sprintf("{st_dev=%s, st_ino=%d, st_mode=%s, st_nlink=%d, st_uid=%d, st_gid=%d, st_blksize=%d, st_blocks=%d", Dev(st_dev), st_ino, modeStr, st_nlink, st_uid, st_gid, st_blksize, st_blocks)
+	res := fmt.Sprintf("{st_dev=%s, st_ino=%d, st_mode=%s, st_nlink=%d, st_uid=%d, st_gid=%d, st_blksize=%d, st_blocks=%d", devWithFormat(st_dev, catalog.Format()), st_ino, modeStr, st_nlink, st_uid, st_gid, st_blksize, st_blocks)
 	if (st_mode&0170000) != 0020000 && (st_mode&0170000) != 0060000 {
 		res += fmt.Sprintf(", st_size=%d", st_size)
 	} else {
-		res += fmt.Sprintf(", st_rdev=%s", Dev(st_rdev))
+		res += fmt.Sprintf(", st_rdev=%s", devWithFormat(st_rdev, catalog.Format()))
 	}
 	res += fmt.Sprintf(", st_atime=%d /* %s */, st_atime_nsec=%d, st_mtime=%d /* %s */, st_mtime_nsec=%d, st_ctime=%d /* %s */, st_ctime_nsec=%d}", st_atime, time.Unix(st_atime, 0).UTC().Format("2006-01-02T15:04:05")+"."+fmt.Sprintf("%09d", st_atime_nsec)+"+0000", st_atime_nsec, st_mtime, time.Unix(st_mtime, 0).UTC().Format("2006-01-02T15:04:05")+"."+fmt.Sprintf("%09d", st_mtime_nsec)+"+0000", st_mtime_nsec, st_ctime, time.Unix(st_ctime, 0).UTC().Format("2006-01-02T15:04:05")+"."+fmt.Sprintf("%09d", st_ctime_nsec)+"+0000", st_ctime_nsec)
 	return res
+}
+
+func formatStatMode(mode uint32, xlatMode string) string {
+	raw := fmt.Sprintf("%#03o", mode)
+	typeName, ok := getFileTypeStr(mode & 0170000)
+	if !ok || xlatMode == "raw" {
+		return raw
+	}
+	symbolic := typeName + "|" + formatPerms(mode&07777)
+	if xlatMode == "verbose" {
+		return fmt.Sprintf("%s /* %s */", raw, symbolic)
+	}
+	return symbolic
 }
 
 // TimexWithCatalog formats timex status using the session catalog.

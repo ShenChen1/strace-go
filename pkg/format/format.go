@@ -305,23 +305,6 @@ func Hexdump(data []byte, targetSize int) string {
 	return strings.Join(res, "\n") + "\n"
 }
 
-// Dev formats a dev_t major/minor pair in the form makedev(major, minor).
-func Dev(dev uint64) string {
-	maj := uint32((dev >> 8) & 0xfff)
-	min := uint32(dev & 0xff)
-	maj |= uint32((dev >> 32) & 0xfffff000)
-	min |= uint32((dev >> 12) & 0xffffff00)
-	resMaj := fmt.Sprintf("%#x", maj)
-	if maj == 0 {
-		resMaj = "0"
-	}
-	resMin := fmt.Sprintf("%#x", min)
-	if min == 0 {
-		resMin = "0"
-	}
-	return fmt.Sprintf("makedev(%s, %s)", resMaj, resMin)
-}
-
 // formatPerms formats the permission bits (low 12 bits) of a mode.
 func formatPerms(mode uint32) string {
 	var parts []string
