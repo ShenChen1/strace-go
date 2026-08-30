@@ -35,6 +35,12 @@ UPSTREAM_TEST_TIMEOUT_SECONDS = {
     "qual_syscall.test": 180,
     "readv.test": 60,
     "strace-S.test": 120,
+    "trace_clock.gen.test": 180,
+    "trace_fstat.gen.test": 600,
+    "trace_fstatfs.gen.test": 180,
+    "trace_stat_like.gen.test": 600,
+    "trace_statfs.gen.test": 180,
+    "trace_statfs_like.gen.test": 180,
 }
 
 
@@ -104,6 +110,7 @@ def setup_env():
     os.environ["SIZEOF_LONG"] = "8"
     os.environ["STRACE_ARCH"] = "x86_64"
     os.environ["STRACE_NATIVE_ARCH"] = "x86_64"
+    os.environ["MIPS_ABI"] = ""
 
 
 def root_requirement_error(euid):

@@ -5,33 +5,52 @@ import (
 	"strings"
 )
 
+var traceClassFlags = [...]struct {
+	name string
+	flag string
+}{
+	{name: "file", flag: "TF"},
+	{name: "%file", flag: "TF"},
+	{name: "process", flag: "TP"},
+	{name: "%process", flag: "TP"},
+	{name: "network", flag: "TN"},
+	{name: "%network", flag: "TN"},
+	{name: "%net", flag: "TN"},
+	{name: "signal", flag: "TS"},
+	{name: "%signal", flag: "TS"},
+	{name: "ipc", flag: "TI"},
+	{name: "%ipc", flag: "TI"},
+	{name: "desc", flag: "TD"},
+	{name: "%desc", flag: "TD"},
+	{name: "memory", flag: "TM"},
+	{name: "%memory", flag: "TM"},
+	{name: "creds", flag: "TC"},
+	{name: "%creds", flag: "TC"},
+	{name: "stat", flag: "TST"},
+	{name: "%stat", flag: "TST"},
+	{name: "lstat", flag: "TLST"},
+	{name: "%lstat", flag: "TLST"},
+	{name: "fstat", flag: "TFST"},
+	{name: "%fstat", flag: "TFST"},
+	{name: "%%stat", flag: "TSTA"},
+	{name: "statfs", flag: "TSF"},
+	{name: "%statfs", flag: "TSF"},
+	{name: "fstatfs", flag: "TFSF"},
+	{name: "%fstatfs", flag: "TFSF"},
+	{name: "%%statfs", flag: "TSFA"},
+	{name: "pure", flag: "TPU"},
+	{name: "%pure", flag: "TPU"},
+	{name: "clock", flag: "TCL"},
+	{name: "%clock", flag: "TCL"},
+}
+
 func traceClassFlag(s string) string {
-	switch s {
-	case "file", "%file":
-		return "TF"
-	case "process", "%process":
-		return "TP"
-	case "network", "%network":
-		return "TN"
-	case "signal", "%signal":
-		return "TS"
-	case "ipc", "%ipc":
-		return "TI"
-	case "desc", "%desc":
-		return "TD"
-	case "memory", "%memory":
-		return "TM"
-	case "creds", "%creds":
-		return "TC"
-	case "stat", "%stat":
-		return "TST"
-	case "lstat", "%lstat":
-		return "TLST"
-	case "pure", "%pure":
-		return "TPU"
-	default:
-		return ""
+	for _, class := range traceClassFlags {
+		if class.name == s {
+			return class.flag
+		}
 	}
+	return ""
 }
 
 func addTraceAliasesTo(names map[string]bool, s string) {

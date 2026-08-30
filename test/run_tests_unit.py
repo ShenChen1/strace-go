@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest import mock
 
 import run_tests
 import upstream_suites
@@ -61,10 +62,54 @@ class RootRequirementTest(unittest.TestCase):
         self.assertIn("sudo -n", run_tests.root_requirement_error(1000))
 
 
+class UpstreamEnvironmentTest(unittest.TestCase):
+    def test_x86_environment_defines_empty_mips_abi(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            run_tests.setup_env()
+
+            self.assertEqual(os.environ["MIPS_ABI"], "")
+
+
 class UpstreamReferenceSuiteTest(unittest.TestCase):
     def test_qual_syscall_has_lifecycle_aware_timeout(self):
         self.assertGreaterEqual(
             run_tests.UPSTREAM_TEST_TIMEOUT_SECONDS["qual_syscall.test"], 180
+        )
+
+    def test_trace_group_regressions_have_qualifier_timeout(self):
+        for test in (
+            "trace_clock.gen.test",
+            "trace_fstat.gen.test",
+            "trace_fstatfs.gen.test",
+            "trace_stat_like.gen.test",
+            "trace_statfs.gen.test",
+            "trace_statfs_like.gen.test",
+        ):
+            self.assertGreaterEqual(run_tests.UPSTREAM_TEST_TIMEOUT_SECONDS[test], 180)
+
+        for test in ("trace_fstat.gen.test", "trace_stat_like.gen.test"):
+            self.assertGreaterEqual(run_tests.UPSTREAM_TEST_TIMEOUT_SECONDS[test], 600)
+
+    def test_trace_group_regressions_are_candidates(self):
+        for test in self.trace_group_regressions():
+            self.assertIn(test, upstream_suites.MORE_TESTS)
+
+    def test_trace_group_regressions_are_stable(self):
+        for test in self.trace_group_regressions():
+            self.assertIn(
+                test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
+            )
+
+    @staticmethod
+    def trace_group_regressions():
+        return (
+            "xettimeofday.gen.test",
+            "trace_clock.gen.test",
+            "trace_fstat.gen.test",
+            "trace_fstatfs.gen.test",
+            "trace_stat_like.gen.test",
+            "trace_statfs.gen.test",
+            "trace_statfs_like.gen.test",
         )
 
     def test_strace_summary_sort_has_multi_session_timeout(self):
