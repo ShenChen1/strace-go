@@ -14,7 +14,7 @@ static __always_inline int is_fd_state_exit_direct_syscall(u32 sys_id)
         sys_id == SYS_EVENTFD2 || sys_id == SYS_EPOLL_CREATE1 ||
         sys_id == SYS_INOTIFY_INIT || sys_id == SYS_INOTIFY_INIT1 ||
         sys_id == SYS_SIGNALFD || sys_id == SYS_SIGNALFD4 ||
-        sys_id == SYS_SOCKET;
+        sys_id == SYS_SOCKET || sys_id == SYS_PIDFD_OPEN;
 }
 
 static __always_inline struct file *lookup_current_fd_file(s32 fd)

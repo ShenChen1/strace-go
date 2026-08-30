@@ -300,6 +300,7 @@ var bpfRouteCapabilities = map[string]bpfRouteCapability{
 	"open_tree":         {enterSlot: enterProgPathOnly, exitSlot: exitProgPath, standaloneExitElision: false},
 	"openat":            {enterSlot: enterProgPayload, exitSlot: exitProgPath, standaloneExitElision: false},
 	"openat2":           {enterSlot: enterProgOpenat2, exitSlot: exitProgPath, standaloneExitElision: false},
+	"pidfd_open":        {enterSlot: 0, exitSlot: exitProgFDTime, standaloneExitElision: false},
 	"pipe":              {enterSlot: 0, exitSlot: exitProgStruct, standaloneExitElision: false},
 	"pipe2":             {enterSlot: 0, exitSlot: exitProgStruct, standaloneExitElision: false},
 	"poll":              {enterSlot: enterProgPoll, exitSlot: exitProgAsync, standaloneExitElision: false},

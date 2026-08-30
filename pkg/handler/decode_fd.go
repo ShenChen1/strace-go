@@ -83,6 +83,15 @@ func formatFDTarget(ctx *Context, fd int32, target string) string {
 		}
 		return fmt.Sprintf("%d", fd)
 	}
+	if path, details, ok := decodePIDFDTarget(target); ok {
+		if ctx.Opts.ShowFDPIDFDValue() && details != "" {
+			return fmt.Sprintf("%d<%s>", fd, details)
+		}
+		if ctx.Opts.ShowFDPathValue() {
+			return fmt.Sprintf("%d<%s>", fd, path)
+		}
+		return fmt.Sprintf("%d", fd)
+	}
 	if strings.HasPrefix(target, "socket:[") {
 		if ctx.Opts.ShowFDSocketValue() || ctx.Opts.ShowFDPathValue() {
 			return fmt.Sprintf("%d<%s>", fd, formatSocketPath(ctx, target, fd))

@@ -73,7 +73,9 @@ func decodeFDDetailBit(value string) uint32 {
 		return DecodeFDDetailSocket
 	case "eventfd":
 		return DecodeFDDetailEventFD
-	case "pidfd", "signalfd":
+	case "pidfd":
+		return DecodeFDDetailPIDFD
+	case "signalfd":
 		failOption("decode-fds value '%s' is not implemented yet", value)
 	default:
 		failOption("invalid decode-fds '%s'", value)

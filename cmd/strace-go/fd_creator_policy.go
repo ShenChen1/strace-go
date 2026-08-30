@@ -106,6 +106,7 @@ var fdCreatorPolicies = map[string]fdCreatorPolicy{
 		path:        "anon_inode:[eventfd]",
 		flagsArg:    1,
 	},
+	"pidfd_open": pidfdCreatorPolicy{},
 	"epoll_create": simpleFDCreatorPolicy{
 		syscallName:  "epoll_create",
 		path:         "anon_inode:[eventpoll]",
@@ -139,7 +140,7 @@ func isFDStateCreatorName(syscallName string) bool {
 	switch syscallName {
 	case "signalfd", "signalfd4", "eventfd", "eventfd2",
 		"epoll_create", "epoll_create1", "timerfd_create",
-		"inotify_init", "inotify_init1":
+		"inotify_init", "inotify_init1", "pidfd_open":
 		return true
 	default:
 		return false

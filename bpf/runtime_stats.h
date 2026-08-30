@@ -51,6 +51,7 @@ static __always_inline int is_fd_state_direct_syscall(u32 sys_id)
     case SYS_FSTAT:
     case SYS_READ:
     case SYS_WRITE:
+    case SYS_PIDFD_OPEN:
         return 1;
     default:
         return 0;

@@ -219,6 +219,11 @@ UPSTREAM_REFERENCE_STABLE_MORE_TESTS = [
     "strace--absolute-timestamps-format-unix-precision-us.gen.test",
     "pread64-pwrite64.gen.test",
     "opipe.test",
+    "pidfd_open--decode-fd-all.gen.test",
+    "pidfd_open--decode-fd-none.gen.test",
+    "pidfd_open--decode-fd-path.gen.test",
+    "pidfd_open--decode-fd-pidfd.gen.test",
+    "pidfd_open--decode-fd-socket.gen.test",
 ]
 
 UPSTREAM_REFERENCE_TESTS = list(
@@ -249,6 +254,11 @@ MORE_TESTS = [
     "net--decode-fds-socket-netlink.gen.test",
     "eventfd--decode-fd-eventfd.gen.test",
     "eventfd-yy.gen.test",
+    "pidfd_open--decode-fd-all.gen.test",
+    "pidfd_open--decode-fd-none.gen.test",
+    "pidfd_open--decode-fd-path.gen.test",
+    "pidfd_open--decode-fd-pidfd.gen.test",
+    "pidfd_open--decode-fd-socket.gen.test",
     "strace-C.test",
     "strace-E.test",
     "strace-x.gen.test",

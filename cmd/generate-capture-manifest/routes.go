@@ -162,6 +162,7 @@ func captureRouteSpecs() []captureRouteSpec {
 		{syscallName: "timerfd_create", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},
 		{syscallName: "eventfd", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},
 		{syscallName: "eventfd2", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},
+		{syscallName: "pidfd_open", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},
 		{syscallName: "epoll_create1", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},
 		{syscallName: "inotify_init", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},
 		{syscallName: "inotify_init1", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},

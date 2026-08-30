@@ -16,6 +16,7 @@ type optionsPortTestStub struct {
 	showFDPath      bool
 	showFDDevice    bool
 	showFDEventFD   bool
+	showFDPIDFD     bool
 	showFDSocket    bool
 	traceRead       bool
 	traceWrite      bool
@@ -62,6 +63,8 @@ func (stub optionsPortTestStub) ShowFDPathValue() bool { return stub.showFDPath 
 func (stub optionsPortTestStub) ShowFDDeviceValue() bool { return stub.showFDDevice }
 
 func (stub optionsPortTestStub) ShowFDEventFDValue() bool { return stub.showFDEventFD }
+
+func (stub optionsPortTestStub) ShowFDPIDFDValue() bool { return stub.showFDPIDFD }
 
 func (stub optionsPortTestStub) ShowFDSocketValue() bool { return stub.showFDSocket }
 

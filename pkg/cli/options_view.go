@@ -81,6 +81,11 @@ func (opts *Options) ShowFDEventFDValue() bool {
 	return opts.decodeFDDetailsValue()&DecodeFDDetailEventFD != 0
 }
 
+// ShowFDPIDFDValue reports whether pidfd process details were selected.
+func (opts *Options) ShowFDPIDFDValue() bool {
+	return opts.decodeFDDetailsValue()&DecodeFDDetailPIDFD != 0
+}
+
 // ShowFDSocketValue reports whether socket details were selected.
 func (opts *Options) ShowFDSocketValue() bool {
 	return opts.decodeFDDetailsValue()&DecodeFDDetailSocket != 0
