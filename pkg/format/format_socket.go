@@ -260,6 +260,13 @@ func Sockaddr(data []byte, alen uint32, inLen uint32) string {
 		port := binary.BigEndian.Uint16(data[2:4])
 		ip := data[8:24]
 		return fmt.Sprintf("{sa_family=AF_INET6, sin6_port=htons(%d), sin6_addr=inet_pty(%q)}", port, fmt.Sprintf("%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x", ip[0], ip[1], ip[2], ip[3], ip[4], ip[5], ip[6], ip[7], ip[8], ip[9], ip[10], ip[11], ip[12], ip[13], ip[14], ip[15]))
+	case 16: // AF_NETLINK
+		if len(data) < 12 {
+			return "{sa_family=AF_NETLINK, ...}"
+		}
+		pid := binary.LittleEndian.Uint32(data[4:8])
+		groups := binary.LittleEndian.Uint32(data[8:12])
+		return fmt.Sprintf("{sa_family=AF_NETLINK, nl_pid=%d, nl_groups=%08x}", pid, groups)
 	default:
 		return fmt.Sprintf("{sa_family=%d, ...}", family)
 	}

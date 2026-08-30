@@ -35,7 +35,7 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 	for i := 0; i < len(ctx.ScMeta.Args); i++ {
 		argName, argTyp, val := ctx.ScMeta.Args[i], ctx.ScMeta.ArgTypes[i], ctx.Args[i]
 
-		if part, ok := h.formatNetworkFd(argName, val); ok {
+		if part, ok := h.formatNetworkFd(ctx, argName, val); ok {
 			res.ArgParts = append(res.ArgParts, part)
 			continue
 		}
@@ -63,15 +63,19 @@ func (h *NetworkHandler) Handle(ctx *Context) Result {
 			res.ArgParts = append(res.ArgParts, part)
 			continue
 		}
+		if part, ok := h.formatSocketArgument(ctx, argName, val); ok {
+			res.ArgParts = append(res.ArgParts, part)
+			continue
+		}
 
 		res.ArgParts = append(res.ArgParts, h.formatFallback(ctx, i, argName, argTyp, val))
 	}
 	return res
 }
 
-func (h *NetworkHandler) formatNetworkFd(argName string, val uint64) (string, bool) {
+func (h *NetworkHandler) formatNetworkFd(ctx *Context, argName string, val uint64) (string, bool) {
 	if argName == "fd" {
-		return fmt.Sprintf("%d", int32(val)), true
+		return FormatFdWithPath(ctx, int32(val)), true
 	}
 	return "", false
 }

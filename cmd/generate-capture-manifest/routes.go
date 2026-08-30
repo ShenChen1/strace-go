@@ -157,6 +157,7 @@ func captureRouteSpecs() []captureRouteSpec {
 		{syscallName: "dup", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},
 		{syscallName: "dup2", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},
 		{syscallName: "dup3", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},
+		{syscallName: "socket", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},
 		{syscallName: "epoll_create", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},
 		{syscallName: "timerfd_create", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},
 		{syscallName: "eventfd", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},

@@ -346,6 +346,7 @@ var bpfRouteCapabilities = map[string]bpfRouteCapability{
 	"setxattr":          {enterSlot: enterProgXattr, exitSlot: 0, standaloneExitElision: false},
 	"signalfd":          {enterSlot: enterProgSignal, exitSlot: exitProgFDTime, standaloneExitElision: false},
 	"signalfd4":         {enterSlot: enterProgSignal, exitSlot: exitProgFDTime, standaloneExitElision: false},
+	"socket":            {enterSlot: 0, exitSlot: exitProgFDTime, standaloneExitElision: false},
 	"socketpair":        {enterSlot: 0, exitSlot: exitProgStruct, standaloneExitElision: false},
 	"stat":              {enterSlot: enterProgPathStat, exitSlot: exitProgStruct, standaloneExitElision: false},
 	"statfs":            {enterSlot: enterProgPathStat, exitSlot: exitProgStruct, standaloneExitElision: false},

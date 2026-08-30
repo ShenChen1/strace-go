@@ -24,6 +24,8 @@ var enumXlatNames = map[string]bool{
 	"listmount_mnt_id":      true,
 	"madvise_cmds":          true,
 	"open_access_modes":     true,
+	"netlink_protocols":     true,
+	"protocols":             true,
 	"quota_formats":         true,
 	"quotacmds":             true,
 	"quotatypes":            true,

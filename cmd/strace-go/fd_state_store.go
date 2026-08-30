@@ -170,7 +170,7 @@ func updateFDMapFromSource(
 	updatePipeFDMapFromPayload(src, scMeta, targetPID, fdMap)
 	updateSocketpairFDMap(src, scMeta, targetPID, fdMap, flagDecoder)
 	updateNetlinkFDMap(src, scMeta, targetPID, fdMap)
-	updateSocketFDMapFromView(src.view, scMeta, targetPID, fdMap, flagDecoder)
+	updateSocketFDMapFromSource(src, scMeta, targetPID, fdMap, flagDecoder)
 	updateCwdFDMapFromView(src, scMeta, pathText, targetPID, fdMap)
 }
 

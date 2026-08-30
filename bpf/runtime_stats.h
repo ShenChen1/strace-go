@@ -40,6 +40,7 @@ static __always_inline int is_fd_state_direct_syscall(u32 sys_id)
     case SYS_PIPE:
     case SYS_PIPE2:
     case SYS_SOCKETPAIR:
+    case SYS_SOCKET:
     case SYS_CHDIR:
     case SYS_FCHDIR:
     case SYS_FACCESSAT:

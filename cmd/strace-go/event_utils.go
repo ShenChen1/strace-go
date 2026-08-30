@@ -185,14 +185,23 @@ func fdArrayPayloadData(sections []handler.PayloadSection, argIndex int) ([]byte
 	return nil, false
 }
 
-func updateSocketFDMapFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string, flagDecoder fdFlagDecoder) {
+func updateSocketFDMapFromSource(src fdStateSource, scMeta meta.Syscall, targetPid int, fdMap map[string]string, flagDecoder fdFlagDecoder) {
+	view := src.view
 	if !view.valid || scMeta.Name != "socket" || view.ret < 0 {
 		return
 	}
 	fd := int32(view.ret)
 	info := socketFDInfoFromFlags(flagDecoder, view)
+	inode := "unknown"
+	for _, section := range src.payloadSections {
+		observation, ok := fdStateObservationFromSection(section)
+		if ok && observation.FD == fd && observation.Inode != 0 {
+			inode = fmt.Sprintf("%d", observation.Inode)
+			break
+		}
+	}
 	key := fmt.Sprintf("%d:%d", targetPid, fd)
-	fdMap[key] = "socket:[unknown]|" + info
+	fdMap[key] = "socket:[" + inode + "]|" + info
 }
 
 func socketFDInfoFromFlags(flagDecoder fdFlagDecoder, view syscallEventView) string {
@@ -216,7 +225,10 @@ func updateNetlinkFDMap(src fdStateSource, scMeta meta.Syscall, targetPid int, f
 		return
 	}
 	nlPid := binary.LittleEndian.Uint32(data[4:8])
-	fdMap[fmt.Sprintf("%d:%d", targetPid, fd)] = fmt.Sprintf("NETLINK:[SOCK_DIAG:%d]", nlPid)
+	fdMap[fmt.Sprintf("%d:%d", targetPid, fd)] = fmt.Sprintf(
+		"socket:[SOCK_DIAG:%d]|AF_NETLINK:NETLINK_SOCK_DIAG",
+		nlPid,
+	)
 }
 
 func netlinkSockaddrPayload(src fdStateSource, scMeta meta.Syscall) ([]byte, bool) {

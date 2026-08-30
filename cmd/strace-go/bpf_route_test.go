@@ -199,7 +199,7 @@ func TestBPFRoutePlanCoversSplitDirectExitCatalog(t *testing.T) {
 		{exitProgFDTime, []string{
 			"read", "pread64", "gettimeofday", "clock_gettime", "clock_getres",
 			"getitimer", "setitimer", "adjtimex", "clock_adjtime", "nanosleep",
-			"clock_nanosleep", "dup", "dup2", "dup3", "epoll_create", "timerfd_create",
+			"clock_nanosleep", "dup", "dup2", "dup3", "socket", "epoll_create", "timerfd_create",
 			"eventfd", "eventfd2", "epoll_create1", "inotify_init", "inotify_init1",
 			"signalfd", "signalfd4",
 		}},

@@ -80,9 +80,8 @@ UPSTREAM_REFERENCE_TESTS = [
     "statx.gen.test",
 ]
 
-# 2026-08-13: every available test below passed in the full `more` run. Keep
-# this snapshot explicit so a future diagnostic test is not promoted without
-# first being observed as stable on the pure-eBPF path.
+# The 2026-08-13 baseline passed in a full `more` run; later additions are
+# promoted only after their exact focused upstream test passes on pure eBPF.
 UPSTREAM_REFERENCE_STABLE_MORE_TESTS = [
     "strace-E.test",
     "strace-x.gen.test",
@@ -104,6 +103,7 @@ UPSTREAM_REFERENCE_STABLE_MORE_TESTS = [
     "dev--decode-fds-dev.gen.test",
     "dev--decode-fds-none.gen.test",
     "dev--decode-fds-path.gen.test",
+    "dev--decode-fds-socket.gen.test",
     "dup-trace-fds-0.gen.test",
     "dup-trace-fds-not-9.gen.test",
     "dup-P.gen.test",
@@ -156,6 +156,7 @@ UPSTREAM_REFERENCE_STABLE_MORE_TESTS = [
     "qual_syscall.test",
     "qual_signal.test",
     "nanosleep.gen.test",
+    "net--decode-fds-socket-netlink.gen.test",
     "maybe_switch_current_tcp--quiet-thread-execve.gen.test",
     "strace--argv0.test",
     "strace--always-show-pid.gen.test",
@@ -242,6 +243,8 @@ MORE_TOLERATED_XPASSES = {"attach-p-cmd.test"}
 # Tests for the next feature we are tackling.
 # Add tests here when working on a new syscall or feature.
 MORE_TESTS = [
+    "dev--decode-fds-socket.gen.test",
+    "net--decode-fds-socket-netlink.gen.test",
     "strace-C.test",
     "strace-E.test",
     "strace-x.gen.test",

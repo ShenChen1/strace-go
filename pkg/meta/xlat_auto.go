@@ -1971,6 +1971,20 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 255, Str: "SOCK_TXREHASH_DEFAULT"},
 		},
 	},
+	"socktypes": {
+		Prefix: "SOCK_",
+		Entries: []XlatVal{
+			{Val: 2, Str: "SOCK_DGRAM"},
+			{Val: 1, Str: "SOCK_STREAM"},
+			{Val: 1, Str: "SOCK_STREAM"},
+			{Val: 2, Str: "SOCK_DGRAM"},
+			{Val: 3, Str: "SOCK_RAW"},
+			{Val: 4, Str: "SOCK_RDM"},
+			{Val: 5, Str: "SOCK_SEQPACKET"},
+			{Val: 6, Str: "SOCK_DCCP"},
+			{Val: 10, Str: "SOCK_PACKET"},
+		},
+	},
 	"splice_flags": {
 		Prefix: "SPLICE_F_",
 		Entries: []XlatVal{

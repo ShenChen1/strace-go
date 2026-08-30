@@ -120,6 +120,16 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
                 test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
             )
 
+    def test_decode_fds_socket_regressions_are_registered(self):
+        for test in (
+            "dev--decode-fds-socket.gen.test",
+            "net--decode-fds-socket-netlink.gen.test",
+        ):
+            self.assertIn(test, upstream_suites.MORE_TESTS)
+            self.assertIn(
+                test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
+            )
+
     def test_non_ascii_character_escape_regression_is_registered(self):
         test = "strace--strings-in-hex-non-ascii-chars.gen.test"
         self.assertIn(test, upstream_suites.MORE_TESTS)

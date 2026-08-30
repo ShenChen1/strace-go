@@ -27,6 +27,7 @@ func updateFDMapForTest(
 		view:            view,
 		statePID:        targetPid,
 		meta:            scMeta,
+		fdFlags:         meta.NewCatalog("abbrev"),
 		pathText:        pathText,
 		payloadSections: payloadSections,
 	}
@@ -253,10 +254,32 @@ func TestUpdateFDMapUsesNetlinkSockaddrPayloadSection(t *testing.T) {
 			fdMap := make(map[string]string)
 			store := updateFDMapForTest(view, meta.Syscall{Name: test.name}, sections, "", 101, fdMap)
 
-			if got, ok := store.Path(101, 7); !ok || got != "NETLINK:[SOCK_DIAG:42]" {
+			if got, ok := store.Path(101, 7); !ok || got != "socket:[SOCK_DIAG:42]|AF_NETLINK:NETLINK_SOCK_DIAG" {
 				t.Fatalf("fdMap[101:7] = %q, want NETLINK socket", got)
 			}
 		})
+	}
+}
+
+func TestUpdateFDMapUsesSocketFDStateInode(t *testing.T) {
+	view := syscallEventView{
+		valid:     true,
+		pid:       1234,
+		tid:       1234,
+		args:      [6]uint64{syscall.AF_NETLINK, syscall.SOCK_RAW, 4},
+		eventType: bpfEventTypeExit,
+		ret:       7,
+	}
+	sections := []handler.PayloadSection{fdStatePayloadSection(fdStateSnapshotBytes(
+		7, handler.FDStateFlagIdentity, 0140777, 1, 0, 3373601, 0,
+	))}
+
+	store := updateFDMapForTest(view, meta.Syscall{Name: "socket"}, sections, "", 101, nil)
+	if got, ok := store.Path(101, 7); !ok || got != "socket:[3373601]|AF_NETLINK:NETLINK_SOCK_DIAG" {
+		t.Fatalf("socket fd target = %q, %v; want event-time inode and protocol", got, ok)
+	}
+	if observation, ok := store.Observation(101, 7); !ok || observation.Inode != 3373601 {
+		t.Fatalf("socket observation = %+v, %v; want inode 3373601", observation, ok)
 	}
 }
 
@@ -318,7 +341,7 @@ func TestSyscallEventContextUpdateFDStateUsesViewForNetlinkFD(t *testing.T) {
 	store := newFDStateStoreFromMaps(fdMap, nil)
 	ev.updateFDState(store)
 
-	if got, ok := store.Path(101, 5); !ok || got != "NETLINK:[SOCK_DIAG:42]" {
+	if got, ok := store.Path(101, 5); !ok || got != "socket:[SOCK_DIAG:42]|AF_NETLINK:NETLINK_SOCK_DIAG" {
 		t.Fatalf("fdMap[101:5] = %q, want NETLINK socket from view fd", got)
 	}
 	if got, ok := store.Path(101, 7); ok && got != "" {

@@ -35,7 +35,7 @@ func TestBPFFDStateUsesEventTimeCoreSnapshot(t *testing.T) {
 			t.Fatalf("fd state helper missing %q", token)
 		}
 	}
-	for _, token := range []string{"SYS_DUP", "SYS_DUP2", "SYS_DUP3", "SYS_EVENTFD", "SYS_EVENTFD2", "SYS_EPOLL_CREATE", "SYS_EPOLL_CREATE1", "SYS_TIMERFD_CREATE", "SYS_INOTIFY_INIT", "SYS_INOTIFY_INIT1", "SYS_SIGNALFD", "SYS_SIGNALFD4"} {
+	for _, token := range []string{"SYS_DUP", "SYS_DUP2", "SYS_DUP3", "SYS_SOCKET", "SYS_EVENTFD", "SYS_EVENTFD2", "SYS_EPOLL_CREATE", "SYS_EPOLL_CREATE1", "SYS_TIMERFD_CREATE", "SYS_INOTIFY_INIT", "SYS_INOTIFY_INIT1", "SYS_SIGNALFD", "SYS_SIGNALFD4"} {
 		if !strings.Contains(src.fdStateHeader, token) {
 			t.Fatalf("fd state helper missing duplicated-fd syscall %q", token)
 		}
