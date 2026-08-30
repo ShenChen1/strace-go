@@ -15,6 +15,65 @@ func makeTimexStruct(modes uint32) []byte {
 	return data
 }
 
+func makeTimeTValue(sec int64) []byte {
+	data := make([]byte, 8)
+	binary.LittleEndian.PutUint64(data, uint64(sec))
+	return data
+}
+
+func TestTimeHandlerFormatsTimeSyscall(t *testing.T) {
+	tests := []struct {
+		name       string
+		arg        uint64
+		ret        int64
+		payload    []PayloadSection
+		wantArg    string
+		wantReturn string
+	}{
+		{
+			name: "output snapshot",
+			arg:  0x1000,
+			ret:  1492350678,
+			payload: []PayloadSection{
+				{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 0, ProbeRet: 0, Data: makeTimeTValue(1492350678)},
+			},
+			wantArg:    "[1492350678 /* 2017-04-16T13:51:18+0000 */]",
+			wantReturn: "2017-04-16T13:51:18+0000",
+		},
+		{
+			name:       "null output",
+			ret:        1492350678,
+			wantArg:    "NULL",
+			wantReturn: "2017-04-16T13:51:18+0000",
+		},
+		{
+			name:    "failed output",
+			arg:     0x1000,
+			ret:     -14,
+			wantArg: "0x1000",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := &Context{
+				SysName:         "time",
+				Args:            [6]uint64{test.arg},
+				Ret:             test.ret,
+				PayloadSections: test.payload,
+			}
+
+			got := (&TimeHandler{}).Handle(ctx)
+			if len(got.ArgParts) != 1 || got.ArgParts[0] != test.wantArg {
+				t.Fatalf("time args = %v, want [%q]", got.ArgParts, test.wantArg)
+			}
+			if got.ReturnDesc != test.wantReturn {
+				t.Fatalf("time return description = %q, want %q", got.ReturnDesc, test.wantReturn)
+			}
+		})
+	}
+}
+
 func TestTimeHandlerClockGettimeDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(9, 10)}
 	decoder := event.NewDecoder()

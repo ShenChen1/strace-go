@@ -2,6 +2,7 @@
 #define STRACE_GO_SYSCALL_TIME_DIRECT_EVENT_V2_H
 
 #define TIME_DIRECT_TIMESPEC_SIZE 16
+#define TIME_DIRECT_TIME_T_SIZE 8
 #define TIME_DIRECT_TIMEZONE_SIZE 8
 #define TIME_DIRECT_ITIMERVAL_SIZE 32
 #define TIME_DIRECT_TIMEX_SIZE 208
@@ -14,6 +15,11 @@ static __always_inline int is_clock_time_struct_direct_syscall(u32 sys_id)
 static __always_inline int is_gettimeofday_direct_syscall(u32 sys_id)
 {
     return sys_id == SYS_GETTIMEOFDAY;
+}
+
+static __always_inline int is_time_direct_syscall(u32 sys_id)
+{
+    return sys_id == SYS_TIME;
 }
 
 static __always_inline int is_settimeofday_direct_syscall(u32 sys_id)
@@ -66,6 +72,7 @@ static __always_inline int is_futex_direct_syscall(u32 sys_id)
 static __always_inline int is_time_struct_direct_syscall(u32 sys_id)
 {
     return is_clock_time_struct_direct_syscall(sys_id) ||
+        is_time_direct_syscall(sys_id) ||
         is_gettimeofday_direct_syscall(sys_id) ||
         is_time_struct_enter_direct_syscall(sys_id) ||
         is_file_time_direct_syscall(sys_id) ||

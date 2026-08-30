@@ -358,6 +358,7 @@ var bpfRouteCapabilities = map[string]bpfRouteCapability{
 	"symlink":           {enterSlot: enterProgDualPath, exitSlot: exitProgPath, standaloneExitElision: false},
 	"symlinkat":         {enterSlot: enterProgDualPath, exitSlot: exitProgPath, standaloneExitElision: false},
 	"sysinfo":           {enterSlot: 0, exitSlot: exitProgStruct, standaloneExitElision: false},
+	"time":              {enterSlot: 0, exitSlot: exitProgFDTime, standaloneExitElision: false},
 	"timerfd_create":    {enterSlot: 0, exitSlot: exitProgFDTime, standaloneExitElision: false},
 	"truncate":          {enterSlot: enterProgPathOnly, exitSlot: exitProgPath, standaloneExitElision: false},
 	"umount2":           {enterSlot: enterProgFs, exitSlot: 0, standaloneExitElision: false},

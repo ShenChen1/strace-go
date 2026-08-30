@@ -178,6 +178,28 @@ func TestDecodeTimevalUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
+func TestRegistryDecodesKernelOldTimevalPayload(t *testing.T) {
+	decoder := NewRegistry().StructDecoder("struct __kernel_old_timeval *")
+	if decoder == nil {
+		t.Fatal("kernel old timeval decoder is missing")
+	}
+	ctx := &Context{
+		Ret:    0,
+		ScMeta: meta.Syscall{Name: "gettimeofday"},
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 0, ProbeRet: 0, Data: makeTimeStruct(3, 4)},
+		},
+	}
+
+	got, ok := decoder.Decode(ctx, 0, "struct __kernel_old_timeval *", 0x1000)
+	if !ok {
+		t.Fatal("kernel old timeval decoder returned ok=false")
+	}
+	if got != "{tv_sec=3, tv_usec=4}" {
+		t.Fatalf("kernel old timeval = %q", got)
+	}
+}
+
 func TestDecodeTimevalFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(99, 100)}
 	decoder := event.NewDecoder()

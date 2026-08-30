@@ -12,6 +12,7 @@ func TestBPFTimeEmittersHaveDedicatedOwnership(t *testing.T) {
 	emit := readTextFile(t, filepath.Join(root, "bpf/syscall_time_emit_direct_event_v2.h"))
 
 	for _, name := range []string{
+		"emit_time_exit_event_v2_direct",
 		"emit_time_struct_exit_event_v2_direct",
 		"emit_time_struct_enter_event_v2_direct",
 		"emit_itimer_enter_event_v2_direct",
@@ -33,6 +34,7 @@ func TestBPFTimeEmittersHaveDedicatedOwnership(t *testing.T) {
 	for _, snippet := range []string{
 		"capture_time_struct_tlv_direct_from_ptr(",
 		"capture_time_struct_tlv_direct(",
+		"TIME_DIRECT_TIME_T_SIZE 8",
 		"TIME_DIRECT_TIMEX_SIZE 208",
 	} {
 		if !strings.Contains(base, snippet) {

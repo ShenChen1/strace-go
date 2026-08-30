@@ -148,6 +148,7 @@ func captureRouteSpecs() []captureRouteSpec {
 		{syscallName: "pwrite64", enterProgram: "enter_payload_direct", exitProgram: "", standaloneExitElision: false},
 		{syscallName: "read", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},
 		{syscallName: "pread64", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},
+		{syscallName: "time", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: false},
 		{syscallName: "gettimeofday", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: true},
 		{syscallName: "clock_gettime", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: true},
 		{syscallName: "clock_getres", enterProgram: "", exitProgram: "exit_fd_time", standaloneExitElision: true},

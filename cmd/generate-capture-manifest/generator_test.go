@@ -41,6 +41,19 @@ func TestCaptureManifestRendersCheckedInFiles(t *testing.T) {
 	}
 }
 
+func TestCaptureManifestRoutesTimeOutputThroughFDTime(t *testing.T) {
+	for _, route := range captureRouteSpecs() {
+		if route.syscallName != "time" {
+			continue
+		}
+		if route.enterProgram != "" || route.exitProgram != "exit_fd_time" {
+			t.Fatalf("time route = enter %q, exit %q", route.enterProgram, route.exitProgram)
+		}
+		return
+	}
+	t.Fatal("time capture route is missing")
+}
+
 func TestCaptureManifestValidationRejectsInvalidReferences(t *testing.T) {
 	tests := []struct {
 		name string

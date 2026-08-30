@@ -41,3 +41,20 @@ func secondsWithComment(sec int64) string {
 	}
 	return text
 }
+
+// TimeT formats a time_t value with its UTC representation.
+func TimeT(sec int64) string {
+	text := fmt.Sprintf("%d", sec)
+	if description := TimeTDescription(sec); description != "" {
+		text += " /* " + description + " */"
+	}
+	return text
+}
+
+// TimeTDescription formats the parenthesized return description of time(2).
+func TimeTDescription(sec int64) string {
+	if sec < 0 || sec >= 253402300799 {
+		return ""
+	}
+	return time.Unix(sec, 0).UTC().Format("2006-01-02T15:04:05") + "+0000"
+}

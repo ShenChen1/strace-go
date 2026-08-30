@@ -69,6 +69,10 @@ static __always_inline int emit_generic_exit_fd_time_event(
         emit_payload_exit_event_v2_direct(p, ret_value, duration);
         return 1;
     }
+    if (is_time_direct_syscall(p->sys_id) && ret_value >= 0) {
+        emit_time_exit_event_v2_direct(p, ret_value, duration);
+        return 1;
+    }
     if (is_gettimeofday_direct_syscall(p->sys_id) && ret_value >= 0) {
         emit_gettimeofday_exit_event_v2_direct(p, ret_value, duration);
         return 1;

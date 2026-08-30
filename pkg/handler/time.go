@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"strace-go/pkg/format"
@@ -8,6 +9,7 @@ import (
 
 func registerBuiltinTime(r *Registry) {
 	h := &TimeHandler{}
+	r.Register("time", h)
 	r.Register("adjtimex", h)
 	r.Register("clock_adjtime", h)
 	r.Register("clock_gettime", h)
@@ -25,6 +27,8 @@ const (
 func (h *TimeHandler) Handle(ctx *Context) Result {
 	res := Result{}
 	switch ctx.SysName {
+	case "time":
+		return handleTimeSyscall(ctx)
 	case "clock_gettime", "clock_settime", "clock_getres":
 		clockId := int32(ctx.Args[0])
 		res.ArgParts = append(res.ArgParts, decodeFlags(ctx, uint64(clockId), "clocknames"))
@@ -66,6 +70,24 @@ func (h *TimeHandler) Handle(ctx *Context) Result {
 		} else {
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ptr))
 		}
+	}
+	return res
+}
+
+func handleTimeSyscall(ctx *Context) Result {
+	res := Result{}
+	ptr := ctx.Args[0]
+	if ptr == 0 {
+		res.ArgParts = append(res.ArgParts, "NULL")
+	} else if data, ok := timeHandlerStructSnapshot(ctx, 0, PayloadDirectionOut, 8); ok &&
+		ctx.Ret >= 0 && len(data) >= 8 {
+		sec := int64(binary.LittleEndian.Uint64(data[:8]))
+		res.ArgParts = append(res.ArgParts, "["+format.TimeT(sec)+"]")
+	} else {
+		res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ptr))
+	}
+	if ctx.Ret >= 0 {
+		res.ReturnDesc = format.TimeTDescription(ctx.Ret)
 	}
 	return res
 }
