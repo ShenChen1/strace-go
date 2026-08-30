@@ -6,15 +6,16 @@ import "strings"
 type PayloadKind string
 
 const (
-	PayloadKindString   PayloadKind = "string"
-	PayloadKindBytes    PayloadKind = "bytes"
-	PayloadKindStruct   PayloadKind = "struct"
-	PayloadKindIovec    PayloadKind = "iovec"
-	PayloadKindSockaddr PayloadKind = "sockaddr"
-	PayloadKindExecArgs PayloadKind = "exec_args"
-	PayloadKindCmsg     PayloadKind = "cmsg"
-	PayloadKindFDState  PayloadKind = "fd_state"
-	PayloadKindFDPath   PayloadKind = "fd_path"
+	PayloadKindString       PayloadKind = "string"
+	PayloadKindBytes        PayloadKind = "bytes"
+	PayloadKindStruct       PayloadKind = "struct"
+	PayloadKindIovec        PayloadKind = "iovec"
+	PayloadKindSockaddr     PayloadKind = "sockaddr"
+	PayloadKindExecArgs     PayloadKind = "exec_args"
+	PayloadKindCmsg         PayloadKind = "cmsg"
+	PayloadKindFDState      PayloadKind = "fd_state"
+	PayloadKindFDPath       PayloadKind = "fd_path"
+	PayloadKindEventFDState PayloadKind = "eventfd_state"
 )
 
 // PayloadDirection records whether a payload was captured on syscall enter or exit.

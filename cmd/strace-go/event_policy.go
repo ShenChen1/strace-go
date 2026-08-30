@@ -87,6 +87,7 @@ type cliTraceHandlerOptions struct {
 	showPathsMode      int
 	showFDPath         bool
 	showFDDevice       bool
+	showFDEventFD      bool
 	showFDSocket       bool
 	traceReadFDs       map[int32]bool
 	traceReadNegated   bool
@@ -112,6 +113,7 @@ func newTraceHandlerOptions(opts *cli.Options) handler.OptionsPort {
 		showPathsMode:      opts.ShowPathsMode,
 		showFDPath:         opts.ShowFDPathValue(),
 		showFDDevice:       opts.ShowFDDeviceValue(),
+		showFDEventFD:      opts.ShowFDEventFDValue(),
 		showFDSocket:       opts.ShowFDSocketValue(),
 		traceReadFDs:       copyInt32BoolMap(opts.TraceReadFDs),
 		traceReadNegated:   opts.TraceReadFDsNegated,
@@ -155,6 +157,8 @@ func (o cliTraceHandlerOptions) ShowPathsModeValue() int { return o.showPathsMod
 func (o cliTraceHandlerOptions) ShowFDPathValue() bool { return o.showFDPath }
 
 func (o cliTraceHandlerOptions) ShowFDDeviceValue() bool { return o.showFDDevice }
+
+func (o cliTraceHandlerOptions) ShowFDEventFDValue() bool { return o.showFDEventFD }
 
 func (o cliTraceHandlerOptions) ShowFDSocketValue() bool { return o.showFDSocket }
 

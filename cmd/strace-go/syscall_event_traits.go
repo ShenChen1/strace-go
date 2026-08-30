@@ -7,7 +7,7 @@ type syscallEventTraits uint8
 const (
 	syscallEventTraitHandler syscallEventTraits = 1 << iota
 	syscallEventTraitState
-	syscallEventTraitStateRead
+	syscallEventTraitStateIO
 	syscallEventTraitOffset
 	syscallEventTraitOffsetIO
 	syscallEventTraitCreator
@@ -50,8 +50,8 @@ func syscallEventTraitsForName(name string) syscallEventTraits {
 		"dup", "dup2", "dup3", "fcntl", "fcntl64", "socket", "chdir",
 		"fchdir", "close_range":
 		traits |= syscallEventTraitState
-	case "read":
-		traits |= syscallEventTraitStateRead
+	case "read", "write":
+		traits |= syscallEventTraitStateIO
 	}
 
 	switch name {

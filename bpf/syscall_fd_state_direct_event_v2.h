@@ -128,12 +128,78 @@ static __always_inline u32 capture_fd_state_tlv_direct(
     return PAYLOAD_TLV_HEADER_SIZE + copied_len;
 }
 
+static __always_inline s32 read_eventfd_state_snapshot(
+    s32 fd,
+    struct eventfd_state_snapshot *snapshot)
+{
+    struct file *file = lookup_current_fd_file(fd);
+    if (!file) {
+        return FD_STATE_PROBE_READ_FAILED;
+    }
+    struct eventfd_ctx *eventfd = BPF_CORE_READ(file, private_data);
+    if (!eventfd) {
+        return FD_STATE_PROBE_READ_FAILED;
+    }
+
+    u32 flags = BPF_CORE_READ(eventfd, flags);
+    *snapshot = (struct eventfd_state_snapshot){
+        .count = (u64)BPF_CORE_READ(eventfd, count),
+        .id = (s32)BPF_CORE_READ(eventfd, id),
+        .semaphore = flags & 1U ? 1U : 0U,
+    };
+    return 0;
+}
+
+static __always_inline u32 capture_eventfd_state_tlv_direct(
+    struct bpf_dynptr *ptr,
+    u32 payload_offset,
+    s32 fd)
+{
+    struct eventfd_state_snapshot snapshot = {};
+    s32 probe_ret = read_eventfd_state_snapshot(fd, &snapshot);
+    u32 copied_len = probe_ret == 0 ? sizeof(snapshot) : 0;
+    if (copied_len > 0) {
+        long write_ret = bpf_dynptr_write(
+            ptr,
+            payload_offset + PAYLOAD_TLV_HEADER_SIZE,
+            &snapshot,
+            sizeof(snapshot),
+            0);
+        if (write_ret < 0) {
+            record_ringbuf_copy_fail();
+            probe_ret = FD_STATE_PROBE_READ_FAILED;
+            copied_len = 0;
+        }
+    }
+    if (!payload_tlv_write_header_direct(
+            ptr,
+            payload_offset,
+            PAYLOAD_TLV_KIND_EVENTFD_STATE,
+            PAYLOAD_TLV_EVENTFD_STATE_ARG_INDEX,
+            PAYLOAD_TLV_FLAG_DIRECTION_OUT,
+            sizeof(snapshot),
+            copied_len,
+            probe_ret,
+            0)) {
+        return 0;
+    }
+    return PAYLOAD_TLV_HEADER_SIZE + copied_len;
+}
+
+static __always_inline int is_eventfd_state_syscall(u32 sys_id)
+{
+    return sys_id == SYS_EVENTFD || sys_id == SYS_EVENTFD2;
+}
+
 static __always_inline void emit_fd_state_exit_event_v2_direct(
     struct pending_syscall *p,
     s64 ret_value,
     u64 duration)
 {
     u32 payload_capacity = PAYLOAD_TLV_HEADER_SIZE + FD_STATE_SNAPSHOT_SIZE;
+    if (is_eventfd_state_syscall(p->sys_id)) {
+        payload_capacity += PAYLOAD_TLV_HEADER_SIZE + EVENTFD_STATE_SNAPSHOT_SIZE;
+    }
     u32 body_offset = EVENT_V2_HEADER_LEN;
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_EXIT_BODY_LEN;
     u32 out_size = payload_offset + payload_capacity;
@@ -148,6 +214,12 @@ static __always_inline void emit_fd_state_exit_event_v2_direct(
 
     u16 flags = 0;
     u32 payload_size = capture_fd_state_tlv_direct(&ptr, payload_offset, (s32)ret_value);
+    if (is_eventfd_state_syscall(p->sys_id)) {
+        payload_size += capture_eventfd_state_tlv_direct(
+            &ptr,
+            payload_offset + payload_size,
+            (s32)ret_value);
+    }
     if (payload_size > 0) {
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }

@@ -14,6 +14,12 @@ struct fd_state_snapshot {
     s64 offset;
 };
 
+struct eventfd_state_snapshot {
+    u64 count;
+    s32 id;
+    u32 semaphore;
+};
+
 struct payload_tlv_header {
     u16 kind;
     u16 arg_index;

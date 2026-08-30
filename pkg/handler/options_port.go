@@ -17,6 +17,7 @@ type FDTraceOptions interface {
 	ShowPathsModeValue() int
 	ShowFDPathValue() bool
 	ShowFDDeviceValue() bool
+	ShowFDEventFDValue() bool
 	ShowFDSocketValue() bool
 	TraceReadFD(fd int32) bool
 	TraceWriteFD(fd int32) bool

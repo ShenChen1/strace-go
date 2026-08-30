@@ -85,8 +85,10 @@ const (
 	payloadTLVKindCmsg                            = 7
 	payloadTLVKindFDState                         = 8
 	payloadTLVKindFDPath                          = 9
+	payloadTLVKindEventFDState                    = 10
 	payloadTLVFDStateArgIndex                     = 0xffff
 	payloadTLVFDPathCwdArgIndex                   = 0xfffe
 	payloadTLVFDPathNestedArgIndex                = 0xfffd
+	payloadTLVEventFDStateArgIndex                = 0xfffc
 	payloadTLVFlagDirectionOut                    = 1
 )

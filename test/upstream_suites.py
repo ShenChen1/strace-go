@@ -120,6 +120,8 @@ UPSTREAM_REFERENCE_STABLE_MORE_TESTS = [
     "epoll_wait.gen.test",
     "erestartsys.gen.test",
     "eventfd.test",
+    "eventfd--decode-fd-eventfd.gen.test",
+    "eventfd-yy.gen.test",
     "fchmod.gen.test",
     "fchmodat.gen.test",
     "fchown.gen.test",
@@ -245,6 +247,8 @@ MORE_TOLERATED_XPASSES = {"attach-p-cmd.test"}
 MORE_TESTS = [
     "dev--decode-fds-socket.gen.test",
     "net--decode-fds-socket-netlink.gen.test",
+    "eventfd--decode-fd-eventfd.gen.test",
+    "eventfd-yy.gen.test",
     "strace-C.test",
     "strace-E.test",
     "strace-x.gen.test",

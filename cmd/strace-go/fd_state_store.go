@@ -137,7 +137,7 @@ func shouldApplyFDStateEventWithTraits(
 	if !view.valid {
 		return false
 	}
-	if traits&syscallEventTraitStateRead != 0 {
+	if traits&syscallEventTraitStateIO != 0 {
 		return view.ret == 8
 	}
 	return traits&syscallEventTraitState != 0
@@ -151,27 +151,27 @@ func (st *FDStateStore) ApplyFDState(update fdStateUpdate) {
 	updateFDPathStateFromSource(update.source, update.targetPID, st.paths, st.fdStates)
 	updateFDStateObservationFromSource(update.source, update.meta, update.targetPID, st.fdStates)
 	updateFDStateOffsetsFromSource(update.source, update.meta, update.targetPID, st.offsets)
-	updateFDMapFromSource(update.source, update.meta, update.pathText, update.targetPID, st.paths, update.flagDecoder)
+	updateFDMapFromSource(update, st.paths)
+	updateEventFDMapFromSource(update.source, update.meta, update.targetPID, st.paths)
+	updateEventFDCountFromSource(update.source, update.meta, update.targetPID, st.paths)
 	st.updateFDCloexecFromSource(update.source, update.meta, update.targetPID)
 }
 
 func updateFDMapFromSource(
-	src fdStateSource,
-	scMeta meta.Syscall,
-	pathText string,
-	targetPID int,
+	update fdStateUpdate,
 	fdMap map[string]string,
-	flagDecoder fdFlagDecoder,
 ) {
+	src := update.source
+	scMeta := update.meta
+	targetPID := update.targetPID
 	updateFdReturnMapFromSource(src, scMeta, targetPID, fdMap)
-	updateEventfdCountFromView(src.view, scMeta, targetPID, fdMap)
-	updateOpenedPathFDMapFromView(src.view, scMeta, pathText, targetPID, fdMap)
+	updateOpenedPathFDMapFromView(src.view, scMeta, update.pathText, targetPID, fdMap)
 	updateDupFDMapFromSource(src, scMeta, targetPID, fdMap)
 	updatePipeFDMapFromPayload(src, scMeta, targetPID, fdMap)
-	updateSocketpairFDMap(src, scMeta, targetPID, fdMap, flagDecoder)
+	updateSocketpairFDMap(src, scMeta, targetPID, fdMap, update.flagDecoder)
 	updateNetlinkFDMap(src, scMeta, targetPID, fdMap)
-	updateSocketFDMapFromSource(src, scMeta, targetPID, fdMap, flagDecoder)
-	updateCwdFDMapFromView(src, scMeta, pathText, targetPID, fdMap)
+	updateSocketFDMapFromSource(src, scMeta, targetPID, fdMap, update.flagDecoder)
+	updateCwdFDMapFromView(src, scMeta, update.pathText, targetPID, fdMap)
 }
 
 func (st *FDStateStore) CleanupClosedFD(update fdCloseUpdate) {

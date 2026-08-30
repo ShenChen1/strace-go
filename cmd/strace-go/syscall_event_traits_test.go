@@ -9,8 +9,8 @@ func TestSyscallEventTraitsUseSyscallID(t *testing.T) {
 	}{
 		{name: "getpid"},
 		{name: "openat", flags: syscallEventTraitHandler | syscallEventTraitState | syscallEventTraitOffset},
-		{name: "read", flags: syscallEventTraitStateRead | syscallEventTraitOffsetIO},
-		{name: "write", flags: syscallEventTraitOffsetIO},
+		{name: "read", flags: syscallEventTraitStateIO | syscallEventTraitOffsetIO},
+		{name: "write", flags: syscallEventTraitStateIO | syscallEventTraitOffsetIO},
 		{name: "close", flags: syscallEventTraitHandler | syscallEventTraitClose},
 		{name: "eventfd2", flags: syscallEventTraitHandler | syscallEventTraitState | syscallEventTraitOffset | syscallEventTraitCreator},
 		{name: "exit_group", flags: syscallEventTraitExit},

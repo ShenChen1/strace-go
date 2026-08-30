@@ -102,6 +102,8 @@ func payloadKindFromTLV(kind uint16) (handler.PayloadKind, bool) {
 		return handler.PayloadKindFDState, true
 	case payloadTLVKindFDPath:
 		return handler.PayloadKindFDPath, true
+	case payloadTLVKindEventFDState:
+		return handler.PayloadKindEventFDState, true
 	default:
 		return "", false
 	}

@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"strace-go/pkg/event"
@@ -31,39 +30,6 @@ func updateFdReturnMapFromSource(src fdStateSource, scMeta meta.Syscall, targetP
 		return
 	}
 	fdMap[key] = state.path
-}
-
-func updateEventfdCountFromView(view syscallEventView, scMeta meta.Syscall, targetPid int, fdMap map[string]string) {
-	if !view.valid || scMeta.Name != "read" || view.ret != 8 {
-		return
-	}
-	fd := int32(view.args[0])
-	key := fmt.Sprintf("%d:%d", targetPid, fd)
-	target, ok := fdMap[key]
-	if !ok || !strings.Contains(target, "eventfd-count=") {
-		return
-	}
-	isSem := strings.Contains(target, "eventfd-semaphore=1")
-	re := regexp.MustCompile(`eventfd-count=([^,]+)`)
-	m := re.FindStringSubmatch(target)
-	if len(m) != 2 {
-		return
-	}
-	var oldVal uint64
-	if strings.HasPrefix(m[1], "0x") {
-		fmt.Sscanf(m[1], "0x%x", &oldVal)
-	} else {
-		fmt.Sscanf(m[1], "%d", &oldVal)
-	}
-	newVal := uint64(0)
-	if isSem && oldVal > 0 {
-		newVal = oldVal - 1
-	}
-	newValStr := fmt.Sprintf("0x%x", newVal)
-	if newVal == 0 {
-		newValStr = "0"
-	}
-	fdMap[key] = re.ReplaceAllString(target, "eventfd-count="+newValStr)
 }
 
 func updateOpenedPathFDMapFromView(view syscallEventView, scMeta meta.Syscall, pathText string, targetPid int, fdMap map[string]string) {

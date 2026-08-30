@@ -39,6 +39,9 @@ func TestWriteProtocolHeader(t *testing.T) {
 		"#define EVENT_V2_SIGNAL_SENDER_UID_OFFSET 16",
 		"#define PAYLOAD_TLV_KIND_FD_PATH 9",
 		"#define PAYLOAD_TLV_FD_PATH_NESTED_ARG_INDEX 0xfffd",
+		"#define PAYLOAD_TLV_KIND_EVENTFD_STATE 10",
+		"#define PAYLOAD_TLV_EVENTFD_STATE_ARG_INDEX 0xfffc",
+		"#define EVENTFD_STATE_SNAPSHOT_SIZE 16",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated header missing %q:\n%s", want, got)
@@ -76,6 +79,8 @@ func TestWriteProtocolGo(t *testing.T) {
 		"bpfEventTypeSignal uint16 = 4",
 		"traceEventV2SignalSenderUIDOffset = 16",
 		"payloadTLVKindFDPath = 9",
+		"payloadTLVKindEventFDState = 10",
+		"payloadTLVEventFDStateArgIndex = 0xfffc",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated Go missing %q:\n%s", want, got)
