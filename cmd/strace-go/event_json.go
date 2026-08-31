@@ -378,4 +378,9 @@ type successfulFailedOptions struct {
 	successfulOnly bool
 	failedOnly     bool
 	traceStatus    map[string]bool
+	statusSet      bool
+}
+
+func (o successfulFailedOptions) hasStatusSet() bool {
+	return o.statusSet || len(o.traceStatus) > 0
 }

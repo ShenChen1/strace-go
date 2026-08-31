@@ -65,7 +65,7 @@ func TestBPFEpollNestedFDPathUsesExitFragments(t *testing.T) {
 	if !strings.Contains(attach, `#include "nested_fd_path_exit_dispatch.h"`) {
 		t.Fatal("exit handler does not own nested exit dispatcher")
 	}
-	if !strings.Contains(manifest, "STRACE_GO_EXIT_PROG_ARRAY_MAX_ENTRIES 19") {
+	if !strings.Contains(manifest, "STRACE_GO_EXIT_PROG_ARRAY_MAX_ENTRIES 20") {
 		t.Fatal("capture manifest must reserve four nested exit fragment slots")
 	}
 }

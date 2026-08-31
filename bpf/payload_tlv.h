@@ -32,8 +32,15 @@ struct namespace_snapshot {
     u32 user;
 };
 
+struct pid_namespace_snapshot {
+    u32 tid;
+    u32 tgid;
+};
+
 _Static_assert(sizeof(struct namespace_snapshot) == NAMESPACE_SNAPSHOT_SIZE,
     "namespace snapshot size drift");
+_Static_assert(sizeof(struct pid_namespace_snapshot) == PID_NAMESPACE_SNAPSHOT_SIZE,
+    "PID namespace snapshot size drift");
 
 struct payload_tlv_header {
     u16 kind;

@@ -40,6 +40,9 @@ func selectBPFRoutePlan(
 	if config.namespaceNew {
 		useNamespaceExitRoutes(selected.exit, table)
 	}
+	if config.decodePIDsPIDNS {
+		usePIDNamespaceExitRoutes(selected.exit, table)
+	}
 	return selected
 }
 
@@ -49,6 +52,17 @@ func useNamespaceExitRoutes(routes map[uint32]uint32, table map[uint32]meta.Sysc
 		case "clone", "clone3", "setns", "unshare":
 			if _, exists := routes[id]; exists {
 				routes[id] = exitProgNamespace
+			}
+		}
+	}
+}
+
+func usePIDNamespaceExitRoutes(routes map[uint32]uint32, table map[uint32]meta.Syscall) {
+	for id, syscall := range table {
+		switch syscall.Name {
+		case "getpid", "gettid":
+			if _, exists := routes[id]; exists {
+				routes[id] = exitProgPIDNS
 			}
 		}
 	}

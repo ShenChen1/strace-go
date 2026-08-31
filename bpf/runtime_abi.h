@@ -58,6 +58,13 @@ struct pending_task_state {
     u32 valid;
 };
 
+struct pid_namespace_config {
+    u32 nonce;
+    u32 level;
+    u32 inum;
+    u32 ready;
+};
+
 struct bpf_stats {
     u64 ringbuf_reserve_fail;
     u64 ringbuf_copy_fail;
@@ -302,6 +309,13 @@ struct {
     __type(key, u32);
     __type(value, u32);
 } config_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, struct pid_namespace_config);
+} pid_namespace_config_map SEC(".maps");
 
 static __always_inline void capture_event_v2_comm(struct event_v2_header *header)
 {

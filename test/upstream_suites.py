@@ -84,6 +84,7 @@ UPSTREAM_REFERENCE_TESTS = [
 # promoted only after their exact focused upstream test passes on pure eBPF.
 UPSTREAM_REFERENCE_STABLE_MORE_TESTS = [
     "clone3-report-ns-id.gen.test",
+    "gettid--pidns-translation.test",
     "setns-report-ns-id.gen.test",
     "unshare-report-ns-id.gen.test",
     "strace-E.test",
@@ -271,6 +272,7 @@ MORE_TOLERATED_XPASSES = {"attach-p-cmd.test"}
 # Add tests here when working on a new syscall or feature.
 MORE_TESTS = [
     "clone3-report-ns-id.gen.test",
+    "gettid--pidns-translation.test",
     "setns-report-ns-id.gen.test",
     "unshare-report-ns-id.gen.test",
     "dev--decode-fds-socket.gen.test",

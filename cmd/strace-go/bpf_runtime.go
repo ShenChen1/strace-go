@@ -118,6 +118,9 @@ func (r *traceBPFRuntime) configure(config traceBPFConfig) error {
 	if err := configureBPFRuntimeMetadata(r.core); err != nil {
 		return fmt.Errorf("configure BPF runtime metadata: %w", err)
 	}
+	if err := configurePIDNamespaceIdentity(config, r.core); err != nil {
+		return fmt.Errorf("configure BPF PID namespace identity: %w", err)
+	}
 	cfgVal, err := buildRuntimeConfig(config, r.core)
 	if err != nil {
 		return fmt.Errorf("build runtime config: %w", err)

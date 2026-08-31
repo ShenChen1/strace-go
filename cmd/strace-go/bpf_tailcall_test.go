@@ -74,13 +74,13 @@ func TestExitProgArrayEntriesComplete(t *testing.T) {
 		}
 		seen[entry.index] = true
 	}
-	for i := uint32(exitProgGeneric); i <= exitProgNamespace; i++ {
+	for i := uint32(exitProgGeneric); i <= exitProgPIDNS; i++ {
 		if !seen[i] {
 			t.Fatalf("exit prog array missing index %d", i)
 		}
 	}
-	if len(entries) != exitProgNamespace+1 {
-		t.Fatalf("exit prog array entries = %d, want %d", len(entries), exitProgNamespace+1)
+	if len(entries) != exitProgPIDNS+1 {
+		t.Fatalf("exit prog array entries = %d, want %d", len(entries), exitProgPIDNS+1)
 	}
 }
 
@@ -177,13 +177,14 @@ func TestExitProgIndicesMatchDispatchHeader(t *testing.T) {
 		"EXIT_PROG_NESTED_FD_PATH2": exitProgNestedFDPath2,
 		"EXIT_PROG_NESTED_FD_PATH3": exitProgNestedFDPath3,
 		"EXIT_PROG_NAMESPACE":       exitProgNamespace,
+		"EXIT_PROG_PID_NAMESPACE":   exitProgPIDNS,
 	}
 	for name, val := range pairs {
 		if !strings.Contains(header, fmt.Sprintf("%s = %d", name, val)) {
 			t.Fatalf("capture manifest missing %s = %d", name, val)
 		}
 	}
-	if !strings.Contains(header, "STRACE_GO_EXIT_PROG_ARRAY_MAX_ENTRIES 19") {
+	if !strings.Contains(header, "STRACE_GO_EXIT_PROG_ARRAY_MAX_ENTRIES 20") {
 		t.Fatal("capture manifest must include the exit prog array capacity")
 	}
 }

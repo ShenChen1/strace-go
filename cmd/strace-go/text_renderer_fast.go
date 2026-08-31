@@ -70,7 +70,8 @@ func (r *TextRenderer) writePlainSyscallFast(ev syscallEventContext, res handler
 func fastTextPrefixAllowed(options traceRenderOptions) bool {
 	return options.printSyscallTime == false && options.stackTrace == false &&
 		options.instructionPointer == false &&
-		options.time.printTimeMode == 0 && !options.time.printRelativeTime && !options.decodePIDsComm
+		options.time.printTimeMode == 0 && !options.time.printRelativeTime &&
+		!options.decodePIDsComm && !options.decodePIDsPIDNS
 }
 
 func fastTextReturnAllowed(ev syscallEventContext, options traceRenderOptions) bool {

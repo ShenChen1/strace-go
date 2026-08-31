@@ -104,6 +104,8 @@ func parseEFlag(val string, opts *Options) {
 		parseDecodeFDValue(strings.TrimPrefix(val, "decode-fd="), opts)
 	case strings.HasPrefix(val, "decode-pids="):
 		parseDecodePIDs(strings.TrimPrefix(val, "decode-pids="), opts)
+	case strings.HasPrefix(val, "decode-pid="):
+		parseDecodePIDs(strings.TrimPrefix(val, "decode-pid="), opts)
 	case strings.HasPrefix(val, "namespace="):
 		parseNamespaceSet(strings.TrimPrefix(val, "namespace="), opts)
 	case strings.HasPrefix(val, "inject="), strings.HasPrefix(val, "fault="):
@@ -151,9 +153,45 @@ func parseTraceSet(val string, opts *Options) {
 }
 
 func parseStatusSet(val string, opts *Options) {
-	for _, s := range strings.Split(val, ",") {
-		opts.TraceStatus[s] = true
+	allStatuses := [...]string{"successful", "failed", "unfinished", "unavailable", "detached"}
+	inverted := false
+	for strings.HasPrefix(val, "!") {
+		inverted = !inverted
+		val = strings.TrimPrefix(val, "!")
 	}
+	selected := make(map[string]bool, len(allStatuses))
+	switch val {
+	case "all":
+		for _, status := range allStatuses {
+			selected[status] = true
+		}
+	case "none":
+	default:
+		for _, token := range strings.Split(val, ",") {
+			valid := false
+			for _, status := range allStatuses {
+				if token == status {
+					valid = true
+					selected[token] = true
+					break
+				}
+			}
+			if !valid {
+				failOption("invalid status '%s'", token)
+			}
+		}
+	}
+	if inverted {
+		complement := make(map[string]bool, len(allStatuses)-len(selected))
+		for _, status := range allStatuses {
+			if !selected[status] {
+				complement[status] = true
+			}
+		}
+		selected = complement
+	}
+	opts.TraceStatus = selected
+	opts.StatusConfigured = true
 }
 
 func parseVerboseSet(val string, opts *Options) {

@@ -5,7 +5,7 @@ package main
 const (
 	bpfRouteMapMaxEntries           = 512
 	bpfEnterProgArrayMaxEntries     = 54
-	bpfExitProgArrayMaxEntries      = 19
+	bpfExitProgArrayMaxEntries      = 20
 	bpfRecvmsgProgArrayMaxEntries   = 3
 	bpfMmsgBytesProgArrayMaxEntries = 4
 )
@@ -86,6 +86,7 @@ const (
 	exitProgNestedFDPath2  = 16
 	exitProgNestedFDPath3  = 17
 	exitProgNamespace      = 18
+	exitProgPIDNS          = 19
 )
 
 const (
@@ -177,6 +178,7 @@ var bpfExitProgramCatalog = []bpfTailCallProgramSpec{
 	{slot: exitProgNestedFDPath2, name: "exit_nested_fd_path2", family: bpfHandlerExitFamily},
 	{slot: exitProgNestedFDPath3, name: "exit_nested_fd_path3", family: bpfHandlerExitFamily},
 	{slot: exitProgNamespace, name: "exit_namespace", family: bpfHandlerExitFamily},
+	{slot: exitProgPIDNS, name: "exit_pid_namespace", family: bpfHandlerExitFamily},
 }
 
 var bpfRecvmsgProgramCatalog = []bpfTailCallProgramSpec{

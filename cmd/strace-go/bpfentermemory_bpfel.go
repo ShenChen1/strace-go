@@ -74,6 +74,14 @@ type bpfEnterMemoryPendingTaskState struct {
 	Valid uint32
 }
 
+type bpfEnterMemoryPidNamespaceConfig struct {
+	_     structs.HostLayout
+	Nonce uint32
+	Level uint32
+	Inum  uint32
+	Ready uint32
+}
+
 // loadBpfEnterMemory returns the embedded CollectionSpec for bpfEnterMemory.
 func loadBpfEnterMemory() (*ebpf.CollectionSpec, error) {
 	reader := bytes.NewReader(_BpfEnterMemoryBytes)
@@ -137,28 +145,29 @@ type bpfEnterMemoryProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfEnterMemoryMapSpecs struct {
-	ArmForkMap         *ebpf.MapSpec `ebpf:"arm_fork_map"`
-	AttachExitedMap    *ebpf.MapSpec `ebpf:"attach_exited_map"`
-	AttachRootsMap     *ebpf.MapSpec `ebpf:"attach_roots_map"`
-	ConfigMap          *ebpf.MapSpec `ebpf:"config_map"`
-	EnterProgs         *ebpf.MapSpec `ebpf:"enter_progs"`
-	EnterRoutes        *ebpf.MapSpec `ebpf:"enter_routes"`
-	Events             *ebpf.MapSpec `ebpf:"events"`
-	ExitProgs          *ebpf.MapSpec `ebpf:"exit_progs"`
-	ExitRoutes         *ebpf.MapSpec `ebpf:"exit_routes"`
-	FdPathScratchMap   *ebpf.MapSpec `ebpf:"fd_path_scratch_map"`
-	FilterMap          *ebpf.MapSpec `ebpf:"filter_map"`
-	MainExitedMap      *ebpf.MapSpec `ebpf:"main_exited_map"`
-	MmsgBytesProgs     *ebpf.MapSpec `ebpf:"mmsg_bytes_progs"`
-	PendingExecMap     *ebpf.MapSpec `ebpf:"pending_exec_map"`
-	PendingStackMap    *ebpf.MapSpec `ebpf:"pending_stack_map"`
-	PendingTaskStorage *ebpf.MapSpec `ebpf:"pending_task_storage"`
-	PlainEnterElideMap *ebpf.MapSpec `ebpf:"plain_enter_elide_map"`
-	RecvmsgProgs       *ebpf.MapSpec `ebpf:"recvmsg_progs"`
-	RuntimeMetaMap     *ebpf.MapSpec `ebpf:"runtime_meta_map"`
-	StackTraces        *ebpf.MapSpec `ebpf:"stack_traces"`
-	StatsMap           *ebpf.MapSpec `ebpf:"stats_map"`
-	SyscallFilterMap   *ebpf.MapSpec `ebpf:"syscall_filter_map"`
+	ArmForkMap            *ebpf.MapSpec `ebpf:"arm_fork_map"`
+	AttachExitedMap       *ebpf.MapSpec `ebpf:"attach_exited_map"`
+	AttachRootsMap        *ebpf.MapSpec `ebpf:"attach_roots_map"`
+	ConfigMap             *ebpf.MapSpec `ebpf:"config_map"`
+	EnterProgs            *ebpf.MapSpec `ebpf:"enter_progs"`
+	EnterRoutes           *ebpf.MapSpec `ebpf:"enter_routes"`
+	Events                *ebpf.MapSpec `ebpf:"events"`
+	ExitProgs             *ebpf.MapSpec `ebpf:"exit_progs"`
+	ExitRoutes            *ebpf.MapSpec `ebpf:"exit_routes"`
+	FdPathScratchMap      *ebpf.MapSpec `ebpf:"fd_path_scratch_map"`
+	FilterMap             *ebpf.MapSpec `ebpf:"filter_map"`
+	MainExitedMap         *ebpf.MapSpec `ebpf:"main_exited_map"`
+	MmsgBytesProgs        *ebpf.MapSpec `ebpf:"mmsg_bytes_progs"`
+	PendingExecMap        *ebpf.MapSpec `ebpf:"pending_exec_map"`
+	PendingStackMap       *ebpf.MapSpec `ebpf:"pending_stack_map"`
+	PendingTaskStorage    *ebpf.MapSpec `ebpf:"pending_task_storage"`
+	PidNamespaceConfigMap *ebpf.MapSpec `ebpf:"pid_namespace_config_map"`
+	PlainEnterElideMap    *ebpf.MapSpec `ebpf:"plain_enter_elide_map"`
+	RecvmsgProgs          *ebpf.MapSpec `ebpf:"recvmsg_progs"`
+	RuntimeMetaMap        *ebpf.MapSpec `ebpf:"runtime_meta_map"`
+	StackTraces           *ebpf.MapSpec `ebpf:"stack_traces"`
+	StatsMap              *ebpf.MapSpec `ebpf:"stats_map"`
+	SyscallFilterMap      *ebpf.MapSpec `ebpf:"syscall_filter_map"`
 }
 
 // bpfEnterMemoryVariableSpecs contains global variables before they are loaded into the kernel.
@@ -197,28 +206,29 @@ func (o *bpfEnterMemoryObjects) Close() error {
 //
 // It can be passed to loadBpfEnterMemoryObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfEnterMemoryMaps struct {
-	ArmForkMap         *ebpf.Map `ebpf:"arm_fork_map"`
-	AttachExitedMap    *ebpf.Map `ebpf:"attach_exited_map"`
-	AttachRootsMap     *ebpf.Map `ebpf:"attach_roots_map"`
-	ConfigMap          *ebpf.Map `ebpf:"config_map"`
-	EnterProgs         *ebpf.Map `ebpf:"enter_progs"`
-	EnterRoutes        *ebpf.Map `ebpf:"enter_routes"`
-	Events             *ebpf.Map `ebpf:"events"`
-	ExitProgs          *ebpf.Map `ebpf:"exit_progs"`
-	ExitRoutes         *ebpf.Map `ebpf:"exit_routes"`
-	FdPathScratchMap   *ebpf.Map `ebpf:"fd_path_scratch_map"`
-	FilterMap          *ebpf.Map `ebpf:"filter_map"`
-	MainExitedMap      *ebpf.Map `ebpf:"main_exited_map"`
-	MmsgBytesProgs     *ebpf.Map `ebpf:"mmsg_bytes_progs"`
-	PendingExecMap     *ebpf.Map `ebpf:"pending_exec_map"`
-	PendingStackMap    *ebpf.Map `ebpf:"pending_stack_map"`
-	PendingTaskStorage *ebpf.Map `ebpf:"pending_task_storage"`
-	PlainEnterElideMap *ebpf.Map `ebpf:"plain_enter_elide_map"`
-	RecvmsgProgs       *ebpf.Map `ebpf:"recvmsg_progs"`
-	RuntimeMetaMap     *ebpf.Map `ebpf:"runtime_meta_map"`
-	StackTraces        *ebpf.Map `ebpf:"stack_traces"`
-	StatsMap           *ebpf.Map `ebpf:"stats_map"`
-	SyscallFilterMap   *ebpf.Map `ebpf:"syscall_filter_map"`
+	ArmForkMap            *ebpf.Map `ebpf:"arm_fork_map"`
+	AttachExitedMap       *ebpf.Map `ebpf:"attach_exited_map"`
+	AttachRootsMap        *ebpf.Map `ebpf:"attach_roots_map"`
+	ConfigMap             *ebpf.Map `ebpf:"config_map"`
+	EnterProgs            *ebpf.Map `ebpf:"enter_progs"`
+	EnterRoutes           *ebpf.Map `ebpf:"enter_routes"`
+	Events                *ebpf.Map `ebpf:"events"`
+	ExitProgs             *ebpf.Map `ebpf:"exit_progs"`
+	ExitRoutes            *ebpf.Map `ebpf:"exit_routes"`
+	FdPathScratchMap      *ebpf.Map `ebpf:"fd_path_scratch_map"`
+	FilterMap             *ebpf.Map `ebpf:"filter_map"`
+	MainExitedMap         *ebpf.Map `ebpf:"main_exited_map"`
+	MmsgBytesProgs        *ebpf.Map `ebpf:"mmsg_bytes_progs"`
+	PendingExecMap        *ebpf.Map `ebpf:"pending_exec_map"`
+	PendingStackMap       *ebpf.Map `ebpf:"pending_stack_map"`
+	PendingTaskStorage    *ebpf.Map `ebpf:"pending_task_storage"`
+	PidNamespaceConfigMap *ebpf.Map `ebpf:"pid_namespace_config_map"`
+	PlainEnterElideMap    *ebpf.Map `ebpf:"plain_enter_elide_map"`
+	RecvmsgProgs          *ebpf.Map `ebpf:"recvmsg_progs"`
+	RuntimeMetaMap        *ebpf.Map `ebpf:"runtime_meta_map"`
+	StackTraces           *ebpf.Map `ebpf:"stack_traces"`
+	StatsMap              *ebpf.Map `ebpf:"stats_map"`
+	SyscallFilterMap      *ebpf.Map `ebpf:"syscall_filter_map"`
 }
 
 func (m *bpfEnterMemoryMaps) Close() error {
@@ -239,6 +249,7 @@ func (m *bpfEnterMemoryMaps) Close() error {
 		m.PendingExecMap,
 		m.PendingStackMap,
 		m.PendingTaskStorage,
+		m.PidNamespaceConfigMap,
 		m.PlainEnterElideMap,
 		m.RecvmsgProgs,
 		m.RuntimeMetaMap,

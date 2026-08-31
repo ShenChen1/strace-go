@@ -31,6 +31,7 @@ func TestWriteProtocolHeader(t *testing.T) {
 		"#define CONFIG_ELIDE_PLAIN_ENTER 128",
 		"#define CONFIG_EMIT_SIGNAL 256",
 		"#define CONFIG_DECODE_PID_COMM 512",
+		"#define CONFIG_DECODE_PID_NS 1024",
 		"#define EVENT_V2_HEADER_TS_NS_OFFSET 32",
 		"#define EVENT_V2_HEADER_COMM_OFFSET 40",
 		"#define EVENT_V2_COMM_SIZE 16",
@@ -48,6 +49,9 @@ func TestWriteProtocolHeader(t *testing.T) {
 		"#define PAYLOAD_TLV_KIND_NAMESPACE 11",
 		"#define PAYLOAD_TLV_NAMESPACE_ARG_INDEX 0xfffb",
 		"#define NAMESPACE_SNAPSHOT_SIZE 40",
+		"#define PAYLOAD_TLV_KIND_PID_NAMESPACE 12",
+		"#define PAYLOAD_TLV_PID_NAMESPACE_ARG_INDEX 0xfffa",
+		"#define PID_NAMESPACE_SNAPSHOT_SIZE 8",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated header missing %q:\n%s", want, got)
@@ -78,6 +82,7 @@ func TestWriteProtocolGo(t *testing.T) {
 		"bpfConfigElidePlainEnter = 128",
 		"bpfConfigEmitSignal = 256",
 		"bpfConfigDecodePIDComm = 512",
+		"bpfConfigDecodePIDNS = 1024",
 		"traceEventV2HeaderTSNSOffset = 32",
 		"traceEventV2HeaderCommOffset = 40",
 		"traceEventV2CommSize = 16",
@@ -93,6 +98,9 @@ func TestWriteProtocolGo(t *testing.T) {
 		"payloadTLVKindNamespace = 11",
 		"payloadTLVNamespaceArgIndex = 0xfffb",
 		"namespaceSnapshotSize = 40",
+		"payloadTLVKindPIDNamespace = 12",
+		"payloadTLVPIDNamespaceArgIndex = 0xfffa",
+		"pidNamespaceSnapshotSize = 8",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated Go missing %q:\n%s", want, got)

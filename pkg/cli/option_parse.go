@@ -233,6 +233,9 @@ func parseLongRenderOption(state *longOptionState) bool {
 	case "always-show-pid":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		state.opts.AlwaysShowPID = true
+	case "pidns-translation":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		parseDecodePIDs("pidns", state.opts)
 	case "successful-only":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		setSuccessfulOnly(state.opts)
@@ -275,7 +278,7 @@ func parseLongValueOption(state *longOptionState) bool {
 		parseEFlag(state.name+"="+requiredLongValue(state), state.opts)
 	case "quiet", "silent", "silence":
 		parseLongQuiet(optionalLongValue(state.inlineValue, state.hasInlineValue, "attach,personality"), state.opts)
-	case "decode-pids":
+	case "decode-pid", "decode-pids":
 		parseDecodePIDs(requiredLongValue(state), state.opts)
 	default:
 		return false

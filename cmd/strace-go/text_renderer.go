@@ -267,6 +267,9 @@ func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Res
 	pidPrefix := r.pidPrefix(tid)
 	retStr := formatSyscallRet(scMeta.Name, view.ret, res, ctx)
 	retStr = r.decoratePIDReturn(scMeta.Name, view.ret, retStr)
+	if r.renderOptions().decodePIDsPIDNS {
+		retStr += pidNamespaceReturnComment(scMeta.Name, view.ret, ctx)
+	}
 	fmt.Fprintf(r.out, "%s%s%s%s= %s%s\n",
 		timePrefix, pidPrefix, line, r.padding(timePrefix, pidPrefix, line), retStr, r.durationSuffix(view.duration))
 	if res.HexDumpStr != "" {

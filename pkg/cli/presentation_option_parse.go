@@ -10,7 +10,7 @@ func applyShortRenderFlag(flag byte, opts *Options) bool {
 	case 'y':
 		applyDecodeFDMode(opts, nextRepeatedMode(opts.ShowPathsMode, DecodeFDModeAll))
 	case 'Y':
-		opts.DecodePIDsComm = true
+		parseDecodePIDs("comm", opts)
 	case 't':
 		opts.PrintTimeMode = nextRepeatedMode(opts.PrintTimeMode, 3)
 	case 'r':
@@ -47,16 +47,34 @@ func nextRepeatedMode(current, maximum int) int {
 }
 
 func parseDecodePIDs(value string, opts *Options) {
-	switch value {
-	case "comm", "all", "!none":
-		opts.DecodePIDsComm = true
-	case "none", "!all", "!comm":
-		opts.DecodePIDsComm = false
-	case "pidns":
-		failOption("decode-pids value 'pidns' is not implemented yet")
-	default:
-		failOption("invalid decode-pids '%s'", value)
+	inverted := false
+	for strings.HasPrefix(value, "!") {
+		inverted = !inverted
+		value = strings.TrimPrefix(value, "!")
 	}
+
+	comm, pidns := false, false
+	switch value {
+	case "all":
+		comm, pidns = true, true
+	case "none":
+	default:
+		for _, token := range strings.Split(value, ",") {
+			switch token {
+			case "comm":
+				comm = true
+			case "pidns":
+				pidns = true
+			default:
+				failOption("invalid decode-pids '%s'", token)
+			}
+		}
+	}
+	if inverted {
+		comm, pidns = !comm, !pidns
+	}
+	opts.DecodePIDsComm = comm
+	opts.DecodePIDsPIDNS = pidns
 }
 
 func parseColorMode(value string) string {

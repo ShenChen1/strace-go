@@ -28,6 +28,7 @@ const (
 	bpfConfigElidePlainEnter                      = 128
 	bpfConfigEmitSignal                           = 256
 	bpfConfigDecodePIDComm                        = 512
+	bpfConfigDecodePIDNS                          = 1024
 	bpfFilterTaskTracked                   uint32 = 1
 	bpfFilterTaskPreExec                   uint32 = 2
 	traceEventV2HeaderLen                         = 56
@@ -88,11 +89,14 @@ const (
 	payloadTLVKindFDPath                          = 9
 	payloadTLVKindEventFDState                    = 10
 	payloadTLVKindNamespace                       = 11
+	payloadTLVKindPIDNamespace                    = 12
 	payloadTLVFDStateArgIndex                     = 0xffff
 	payloadTLVFDPathCwdArgIndex                   = 0xfffe
 	payloadTLVFDPathNestedArgIndex                = 0xfffd
 	payloadTLVEventFDStateArgIndex                = 0xfffc
 	payloadTLVNamespaceArgIndex                   = 0xfffb
+	payloadTLVPIDNamespaceArgIndex                = 0xfffa
 	payloadTLVFlagDirectionOut                    = 1
 	namespaceSnapshotSize                         = 40
+	pidNamespaceSnapshotSize                      = 8
 )

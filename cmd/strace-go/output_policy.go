@@ -67,6 +67,7 @@ type traceRenderOptions struct {
 	stackTrace           bool
 	quietThreadExecve    bool
 	decodePIDsComm       bool
+	decodePIDsPIDNS      bool
 }
 
 // traceRenderPolicy exposes the immutable scalar options used by text output.
@@ -150,15 +151,22 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 	for signal, enabled := range opts.TraceSignals {
 		traceSignals[signal] = enabled
 	}
+	alwaysShowPID := opts.AlwaysShowPID ||
+		(opts.FollowForks && opts.OutFile != "" && !opts.OutputSeparate)
 	return &cliTraceOutputPolicy{
-		json:               opts.EventFormat == cli.EventFormatJSON,
-		discard:            opts.EventFormat == cli.EventFormatNone || opts.EventFormat == cli.EventFormatReader || opts.EventFormat == cli.EventFormatHandler,
-		readerOnly:         opts.EventFormat == cli.EventFormatReader || opts.EventFormat == cli.EventFormatNone,
-		handlerOnly:        opts.EventFormat == cli.EventFormatHandler,
-		debug:              opts.DebugEvents,
-		debugPhases:        opts.DebugPhases,
-		status:             successfulFailedOptions{successfulOnly: opts.SuccessfulOnly, failedOnly: opts.FailedOnly, traceStatus: traceStatus},
-		statusFilterActive: opts.SuccessfulOnly || opts.FailedOnly || len(traceStatus) > 0,
+		json:        opts.EventFormat == cli.EventFormatJSON,
+		discard:     opts.EventFormat == cli.EventFormatNone || opts.EventFormat == cli.EventFormatReader || opts.EventFormat == cli.EventFormatHandler,
+		readerOnly:  opts.EventFormat == cli.EventFormatReader || opts.EventFormat == cli.EventFormatNone,
+		handlerOnly: opts.EventFormat == cli.EventFormatHandler,
+		debug:       opts.DebugEvents,
+		debugPhases: opts.DebugPhases,
+		status: successfulFailedOptions{
+			successfulOnly: opts.SuccessfulOnly,
+			failedOnly:     opts.FailedOnly,
+			traceStatus:    traceStatus,
+			statusSet:      opts.StatusConfigured,
+		},
+		statusFilterActive: opts.SuccessfulOnly || opts.FailedOnly || opts.StatusConfigured || len(traceStatus) > 0,
 		summaryOnly:        opts.SummaryOnly,
 		summaryAndPrint:    opts.SummaryAndPrint,
 		quietExit:          opts.QuietExit,
@@ -172,7 +180,7 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 			time:                 normalizedTimeOptions(opts),
 			followForks:          opts.FollowForks,
 			showPID:              (opts.FollowForks || opts.AlwaysShowPID) && !opts.OutputSeparate,
-			alwaysShowPID:        opts.AlwaysShowPID,
+			alwaysShowPID:        alwaysShowPID,
 			alignCol:             opts.AlignCol,
 			printSyscallTime:     opts.PrintSyscallTime,
 			syscallTimePrecision: timestampPrecisionWidth(opts.SyscallTimePrecision, 6),
@@ -182,6 +190,7 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 			stackTrace:           opts.StackTrace,
 			quietThreadExecve:    opts.QuietThreadExecve,
 			decodePIDsComm:       opts.DecodePIDsComm,
+			decodePIDsPIDNS:      opts.DecodePIDsPIDNS,
 		},
 	}
 }
@@ -276,7 +285,8 @@ func (p *cliTraceOutputPolicy) ShouldEmit(ev syscallEventContext, unfinished boo
 		return false
 	}
 	if unfinished {
-		return !p.statusFilterActive
+		return !p.statusFilterActive ||
+			(p.status.hasStatusSet() && p.status.traceStatus["unfinished"])
 	}
 	if !p.statusFilterActive {
 		return true

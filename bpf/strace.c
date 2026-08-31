@@ -55,6 +55,7 @@ char LICENSE[] SEC("license") = "GPL";
 #include "pending_state.h"
 #include "lifecycle_state.h"
 #include "syscall_namespace_direct_event_v2.h"
+#include "syscall_pidns_direct_event_v2.h"
 #include "namespace_dispatch.h"
 #include "lifecycle_dispatch.h"
 #include "signal_dispatch.h"
@@ -77,6 +78,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u32 tid = (u32)pid_tgid;
     u32 pid = (u32)(pid_tgid >> 32);
+    capture_tracer_pid_namespace(ctx, sys_id);
 
     u32 *filter_flags = lookup_lifecycle_task_filter_flags(pid, tid);
     if (!filter_flags) return 0;

@@ -80,6 +80,7 @@ type Options struct {
 	TraceWriteFDs         map[int32]bool
 	TraceWriteFDsNegated  bool
 	TraceStatus           map[string]bool
+	StatusConfigured      bool
 	TraceSignals          map[int]bool
 	SignalConfigured      bool
 	SignalMatchesAll      bool
@@ -120,6 +121,7 @@ type Options struct {
 	PrintArgNames         bool     // -N
 	AlwaysShowPID         bool     // --always-show-pid
 	DecodePIDsComm        bool     // -Y, --decode-pids=comm
+	DecodePIDsPIDNS       bool     // --decode-pids=pidns
 	DetachOnExecve        bool     // -b execve, --detach-on=execve
 	KillOnExit            bool     // --kill-on-exit
 	SyscallLimit          uint64   // --syscall-limit; zero disables the limit

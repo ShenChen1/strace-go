@@ -53,7 +53,7 @@ func (ev syscallEventContext) shouldEmitStatus(optsStatus successfulFailedOption
 		if optsStatus.successfulOnly || optsStatus.failedOnly {
 			return false
 		}
-		if len(optsStatus.traceStatus) > 0 {
+		if optsStatus.hasStatusSet() {
 			return optsStatus.traceStatus["detached"]
 		}
 		return true
@@ -70,12 +70,13 @@ func (ev syscallEventContext) withNonLeaderExecDetachedStatus() syscallEventCont
 }
 
 func (view syscallEventView) shouldEmitStatus(syscallName string, optsStatus successfulFailedOptions) bool {
-	if optsStatus.successfulOnly || optsStatus.failedOnly || len(optsStatus.traceStatus) > 0 {
-		if view.probeRetEnter == 3 {
+	if view.probeRetEnter == 3 {
+		if optsStatus.successfulOnly || optsStatus.failedOnly {
 			return false
 		}
-	}
-	if view.probeRetEnter == 3 {
+		if optsStatus.hasStatusSet() {
+			return optsStatus.traceStatus["unavailable"]
+		}
 		return true
 	}
 
@@ -89,7 +90,7 @@ func (view syscallEventView) shouldEmitStatus(syscallName string, optsStatus suc
 	if optsStatus.failedOnly && !isFailed {
 		return false
 	}
-	if len(optsStatus.traceStatus) > 0 {
+	if optsStatus.hasStatusSet() {
 		if optsStatus.traceStatus["successful"] && !isFailed {
 			return true
 		}
