@@ -11,6 +11,7 @@ const (
 	bpfRawSyscallTracepointCategory = "raw_syscalls"
 	bpfLifecycleTracepointCategory  = "sched"
 	bpfSignalDeliverProgramName     = "trace_signal_deliver"
+	bpfSignalGenerateProgramName    = "trace_signal_generate"
 )
 
 type bpfProgramAttachKind uint8
@@ -71,6 +72,12 @@ var bpfCoreProgramCatalog = []bpfCoreProgramSpec{
 		attachKind: bpfProgramAttachRawTracepoint,
 		tracepoint: "signal_deliver",
 		lookup:     func(objects *bpfObjects) *ebpf.Program { return objects.TraceSignalDeliver },
+	},
+	{
+		name:       bpfSignalGenerateProgramName,
+		attachKind: bpfProgramAttachRawTracepoint,
+		tracepoint: "signal_generate",
+		lookup:     func(objects *bpfObjects) *ebpf.Program { return objects.TraceSignalGenerate },
 	},
 }
 

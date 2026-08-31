@@ -14,7 +14,6 @@ import (
 const traceEventPollInterval = 100 * time.Millisecond
 const traceExitLifecycleDrainGrace = 200 * time.Millisecond
 const traceExitDrainPollInterval = 10 * time.Millisecond
-const traceExitFallbackGrace = 100 * time.Millisecond
 const traceEventBatchLimit = 64
 
 type traceReadStatus uint8
@@ -67,7 +66,6 @@ type traceRunState struct {
 	attachExited             bool
 	attachPids               []int
 	attachState              traceAttachStateReader
-	fallbackFlush            time.Time
 	lifecycleFallbackAt      time.Time
 	clock                    traceClock
 }
@@ -206,7 +204,6 @@ func (st *traceRunState) collect(commandExit *TraceCommandExitHandler) error {
 	if st == nil || st.clock == nil || (len(st.attachPids) > 0 && st.attachState == nil) {
 		return nil
 	}
-	now := st.now()
 	if st.cmdDone != nil {
 		select {
 		case <-st.cmdDone:
@@ -215,20 +212,11 @@ func (st *traceRunState) collect(commandExit *TraceCommandExitHandler) error {
 			st.commandExited = true
 			st.command = nil
 			st.cmdDone = nil
-			// IMPACT: print the wait-derived exit line shortly after wait
-			// completes (once any lagging ringbuf exit event has been
-			// processed) instead of waiting for the end-of-run drain, so
-			// exit lines keep event-stream ordering.
-			st.fallbackFlush = now.Add(traceExitFallbackGrace)
 		default:
 		}
 	}
 	if err := st.collectCommandLifecycle(); err != nil {
 		return err
-	}
-	if st.commandExited && st.commandLifecycleDone && !st.fallbackFlush.IsZero() && now.After(st.fallbackFlush) {
-		st.fallbackFlush = time.Time{}
-		commandExit.FlushFallback()
 	}
 	if len(st.attachPids) == 0 {
 		st.attachExited = true

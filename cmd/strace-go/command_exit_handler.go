@@ -9,6 +9,7 @@ type traceCommandExitStatusPort interface {
 
 type traceExitStatusLinePort interface {
 	ExitStatusLine(tid int, status uint64) string
+	LifecycleExitStatusLine(tid int, rawStatus uint64) string
 }
 
 type TraceCommandExitHandler struct {

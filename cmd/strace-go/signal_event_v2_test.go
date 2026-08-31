@@ -16,6 +16,8 @@ func TestDecodeTraceEventV2SignalEnvelope(t *testing.T) {
 		senderPID:  201,
 		senderUID:  1000,
 	})
+	body := raw[traceEventV2HeaderLen:]
+	binary.LittleEndian.PutUint64(body[traceEventV2SignalAddressOffset:], 0x1234)
 
 	envelope, ok := decodeTraceEventV2Envelope(raw)
 	if !ok {
@@ -25,7 +27,7 @@ func TestDecodeTraceEventV2SignalEnvelope(t *testing.T) {
 		t.Fatalf("signal envelope = %+v, want valid signal at 900", envelope)
 	}
 	if envelope.signal != 2 || envelope.signalErr != 0 || envelope.signalCode != 0 ||
-		envelope.senderPID != 201 || envelope.senderUID != 1000 {
+		envelope.senderPID != 201 || envelope.senderUID != 1000 || envelope.signalAddress != 0x1234 {
 		t.Fatalf("signal identity = %+v", envelope)
 	}
 }

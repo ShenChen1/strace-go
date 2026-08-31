@@ -74,6 +74,9 @@ static __always_inline void clear_pending_task_state(void)
 {
     struct pending_task_state *state = current_pending_task_state();
     if (state) {
+        if (state->valid && state->syscall.stack_id >= 0) {
+            bpf_map_delete_elem(&pending_stack_map, &state->syscall.tid);
+        }
         state->aux0 = 0;
         state->valid = 0;
     }
@@ -90,6 +93,10 @@ static __always_inline int save_pending_syscall_value(struct pending_syscall *pe
     state->syscall = *pending;
     state->aux0 = 0;
     state->valid = 1;
+    if (pending->stack_id >= 0 &&
+        bpf_map_update_elem(&pending_stack_map, &pending->tid, &pending->stack_id, BPF_ANY) != 0) {
+        record_pending_update_fail();
+    }
     return 1;
 }
 

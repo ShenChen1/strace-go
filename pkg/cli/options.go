@@ -115,6 +115,7 @@ type Options struct {
 	RelativeTimePrecision string   // --relative-timestamps precision: s, ms, us, ns
 	SyscallTimePrecision  string   // --syscall-times precision: s, ms, us, ns
 	PrintSyscallNumber    bool     // -n
+	InstructionPointer    bool     // -i
 	PrintArgNames         bool     // -N
 	AlwaysShowPID         bool     // --always-show-pid
 	DecodePIDsComm        bool     // -Y, --decode-pids=comm

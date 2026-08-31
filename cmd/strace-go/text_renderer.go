@@ -4,11 +4,22 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
+	"syscall"
+
+	"golang.org/x/sys/unix"
 
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
 )
+
+const instructionPointerHexWidth = strconv.IntSize / 4
+
+type traceStackSnapshot struct {
+	ips       [127]uint64
+	available bool
+}
 
 type traceTimeFormatter interface {
 	Prefix(enterTimeMonoNs uint64, policy traceTimePolicy) string
@@ -51,6 +62,7 @@ type TextRenderer struct {
 	timeFormatter traceTimeFormatter
 	stackTraces   traceStackTraceReader
 	resolver      traceSymbolResolver
+	targetPID     int
 	lineBuffer    []byte
 	taskComms     *taskCommStore
 }
@@ -62,6 +74,7 @@ type TextRendererDeps struct {
 	TimeFormatter traceTimeFormatter
 	StackTraces   traceStackTraceReader
 	Resolver      traceSymbolResolver
+	TargetPID     int
 }
 
 func newTextRenderer(deps TextRendererDeps) *TextRenderer {
@@ -72,6 +85,7 @@ func newTextRenderer(deps TextRendererDeps) *TextRenderer {
 		timeFormatter: deps.TimeFormatter,
 		stackTraces:   deps.StackTraces,
 		resolver:      deps.Resolver,
+		targetPID:     deps.TargetPID,
 	}
 	if renderer.renderOptions().decodePIDsComm {
 		renderer.taskComms = newTaskCommStore()
@@ -100,7 +114,7 @@ func (r *TextRenderer) PrintUnfinishedEvent(ev syscallEventContext, res handler.
 		parts = res.ArgParts[:1]
 	}
 	args := r.formatArguments(ev.eventView(), scMeta, parts)
-	line := fmt.Sprintf("%s%s(%s <unfinished ...>", r.syscallNumberPrefix(view), scMeta.Name, args)
+	line := fmt.Sprintf("%s%s%s(%s <unfinished ...>", r.instructionPointerPrefix(traceStackSnapshot{}), r.syscallNumberPrefix(view), scMeta.Name, args)
 	fmt.Fprintf(r.out, "%s%s%s\n", r.timePrefix(view.enterTime), r.pidPrefix(int(view.tid)), line)
 }
 
@@ -184,8 +198,9 @@ func (r *TextRenderer) PrintExitSyscallEvent(ev syscallEventContext, res handler
 
 func (r *TextRenderer) ExitStatusLineFromView(view syscallEventView) string {
 	r.observeTaskComm(view)
-	return fmt.Sprintf("%s%s+++ exited with %d +++\n",
-		r.timePrefix(view.enterTime), r.pidPrefix(int(view.tid)), view.args[0])
+	return fmt.Sprintf("%s%s%s+++ exited with %d +++\n",
+		r.timePrefix(view.enterTime), r.pidPrefix(int(view.tid)),
+		r.instructionPointerPrefix(traceStackSnapshot{}), view.args[0])
 }
 
 func (r *TextRenderer) ExitStatusLine(tid int, status uint64) string {
@@ -201,6 +216,27 @@ func (r *TextRenderer) ExitStatusLine(tid int, status uint64) string {
 	})
 }
 
+func (r *TextRenderer) LifecycleExitStatusLine(tid int, rawStatus uint64) string {
+	status := syscall.WaitStatus(rawStatus)
+	if !status.Signaled() {
+		return r.ExitStatusLine(tid, uint64(status.ExitStatus()))
+	}
+	signalName := unix.SignalName(status.Signal())
+	if signalName == "" {
+		signalName = fmt.Sprintf("SIG%d", status.Signal())
+	}
+	return r.statusLine(tid, "+++ killed by "+signalName+" +++")
+}
+
+func (r *TextRenderer) statusLine(tid int, message string) string {
+	enterTime := uint64(0)
+	if r.timeFormatter != nil {
+		enterTime = r.timeFormatter.NowMonoNs()
+	}
+	return fmt.Sprintf("%s%s%s%s\n", r.timePrefix(enterTime), r.pidPrefix(tid),
+		r.instructionPointerPrefix(traceStackSnapshot{}), message)
+}
+
 // IMPACT: PrintSyscallEvent renders a decoded syscall from the stable event context view.
 func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Result) {
 	r.observeTaskComm(ev.eventView())
@@ -212,16 +248,18 @@ func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Res
 	scMeta := ev.effectiveSyscallMeta()
 	ctx := ev.handlerContextForFormatting()
 	tid := int(view.tid)
+	stack := r.readStackSnapshot(view.stackID)
 	numberPrefix := r.syscallNumberPrefix(view)
 	args := r.formatArguments(view, scMeta, res.ArgParts)
-	line := fmt.Sprintf("%s%s(%s)", numberPrefix, scMeta.Name, args)
+	linePrefix := r.instructionPointerPrefix(stack) + numberPrefix
+	line := fmt.Sprintf("%s%s(%s)", linePrefix, scMeta.Name, args)
 	if ev.pendingEnter != nil && ev.pendingEnter.unfinishedPrinted {
-		line = fmt.Sprintf("%s<... %s resumed>)", numberPrefix, scMeta.Name)
+		line = fmt.Sprintf("%s<... %s resumed>)", linePrefix, scMeta.Name)
 	} else if r.consumeSuspended(tid) {
 		if scMeta.Name == "nanosleep" {
-			line = fmt.Sprintf("%s<... %s resumed> <unfinished ...>)", numberPrefix, scMeta.Name)
+			line = fmt.Sprintf("%s<... %s resumed> <unfinished ...>)", linePrefix, scMeta.Name)
 		} else {
-			line = fmt.Sprintf("%s<... %s resumed>)", numberPrefix, scMeta.Name)
+			line = fmt.Sprintf("%s<... %s resumed>)", linePrefix, scMeta.Name)
 		}
 	}
 
@@ -234,14 +272,15 @@ func (r *TextRenderer) PrintSyscallEvent(ev syscallEventContext, res handler.Res
 	if res.HexDumpStr != "" {
 		fmt.Fprint(r.out, res.HexDumpStr)
 	}
-	r.printStackTrace(view.stackID)
+	r.printStackTrace(stack)
 }
 
 func (r *TextRenderer) exitSyscallLine(view syscallEventView, scMeta meta.Syscall, res handler.Result) string {
 	timePrefix := r.timePrefix(view.enterTime)
 	pidPrefix := r.pidPrefix(int(view.tid))
 	args := r.formatArguments(view, scMeta, res.ArgParts)
-	argLine := fmt.Sprintf("%s%s(%s)", r.syscallNumberPrefix(view), scMeta.Name, args)
+	stack := r.readStackSnapshot(view.stackID)
+	argLine := fmt.Sprintf("%s%s%s(%s)", r.instructionPointerPrefix(stack), r.syscallNumberPrefix(view), scMeta.Name, args)
 	return fmt.Sprintf("%s%s%s%s= ?\n", timePrefix, pidPrefix, argLine, r.padding(timePrefix, pidPrefix, argLine))
 }
 
@@ -277,7 +316,14 @@ func (r *TextRenderer) timePrefix(enterTimeMonoNs uint64) string {
 }
 
 func (r *TextRenderer) pidPrefix(tid int) string {
-	if r.renderOptions().showPID {
+	options := r.renderOptions()
+	if options.showPID {
+		if options.followForks && !options.alwaysShowPID && r.targetPID > 0 {
+			if tid == r.targetPID {
+				return ""
+			}
+			return fmt.Sprintf("[pid %5d] ", tid)
+		}
 		if comm, ok := r.taskComms.Lookup(uint32(tid)); ok {
 			return fmt.Sprintf("%d<%s> ", tid, escapeTaskComm(comm))
 		}
@@ -311,15 +357,34 @@ func (r *TextRenderer) durationSuffix(duration uint64) string {
 	return " <" + formatSeconds(duration, options.syscallTimePrecision, 1) + ">"
 }
 
-func (r *TextRenderer) printStackTrace(stackID int32) {
-	if !r.renderOptions().stackTrace || r.stackTraces == nil || r.resolver == nil || stackID <= 0 {
+func (r *TextRenderer) readStackSnapshot(stackID int32) traceStackSnapshot {
+	options := r.renderOptions()
+	if (!options.stackTrace && !options.instructionPointer) || r.stackTraces == nil || stackID < 0 {
+		return traceStackSnapshot{}
+	}
+	var snapshot traceStackSnapshot
+	if err := r.stackTraces.ReadStackTrace(uint32(stackID), &snapshot.ips); err != nil {
+		return traceStackSnapshot{}
+	}
+	snapshot.available = true
+	return snapshot
+}
+
+func (r *TextRenderer) instructionPointerPrefix(snapshot traceStackSnapshot) string {
+	if !r.renderOptions().instructionPointer {
+		return ""
+	}
+	if snapshot.available && snapshot.ips[0] != 0 {
+		return fmt.Sprintf("[%0*x] ", instructionPointerHexWidth, snapshot.ips[0])
+	}
+	return "[" + strings.Repeat("?", instructionPointerHexWidth) + "] "
+}
+
+func (r *TextRenderer) printStackTrace(snapshot traceStackSnapshot) {
+	if !r.renderOptions().stackTrace || !snapshot.available || r.resolver == nil {
 		return
 	}
-	var ips [127]uint64
-	if err := r.stackTraces.ReadStackTrace(uint32(stackID), &ips); err != nil {
-		return
-	}
-	for _, ip := range ips {
+	for _, ip := range snapshot.ips {
 		if ip == 0 {
 			break
 		}

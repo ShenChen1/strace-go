@@ -28,7 +28,7 @@ func newTraceSessionConfig(opts *cli.Options) traceSessionConfig {
 	decoder.HexEscapeMode = opts.HexEscapeMode
 	decoder.StringLimit = opts.StringLimit
 	var resolver *stacktrace.Resolver
-	if opts.StackTrace {
+	if opts.StackTrace || opts.InstructionPointer {
 		resolver = stacktrace.NewResolver()
 	}
 	return traceSessionConfig{

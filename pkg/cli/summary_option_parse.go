@@ -61,4 +61,7 @@ func validateParsedOptions(opts *Options) {
 	if opts.KillOnExit && len(opts.AttachPids) > 0 {
 		failOption("--kill-on-exit and -p/--attach are mutually exclusive options")
 	}
+	if opts.InstructionPointer && opts.SummaryOnly {
+		failOption("-i/--instruction-pointer has no effect with -c/--summary-only")
+	}
 }

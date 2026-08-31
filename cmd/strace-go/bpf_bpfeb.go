@@ -109,6 +109,7 @@ type bpfProgramSpecs struct {
 	TraceSchedProcessFork *ebpf.ProgramSpec `ebpf:"trace_sched_process_fork"`
 	TraceSchedProcessFree *ebpf.ProgramSpec `ebpf:"trace_sched_process_free"`
 	TraceSignalDeliver    *ebpf.ProgramSpec `ebpf:"trace_signal_deliver"`
+	TraceSignalGenerate   *ebpf.ProgramSpec `ebpf:"trace_signal_generate"`
 	TraceSysEnter         *ebpf.ProgramSpec `ebpf:"trace_sys_enter"`
 	TraceSysExit          *ebpf.ProgramSpec `ebpf:"trace_sys_exit"`
 }
@@ -131,6 +132,7 @@ type bpfMapSpecs struct {
 	MainExitedMap      *ebpf.MapSpec `ebpf:"main_exited_map"`
 	MmsgBytesProgs     *ebpf.MapSpec `ebpf:"mmsg_bytes_progs"`
 	PendingExecMap     *ebpf.MapSpec `ebpf:"pending_exec_map"`
+	PendingStackMap    *ebpf.MapSpec `ebpf:"pending_stack_map"`
 	PendingTaskStorage *ebpf.MapSpec `ebpf:"pending_task_storage"`
 	PlainEnterElideMap *ebpf.MapSpec `ebpf:"plain_enter_elide_map"`
 	RecvmsgProgs       *ebpf.MapSpec `ebpf:"recvmsg_progs"`
@@ -190,6 +192,7 @@ type bpfMaps struct {
 	MainExitedMap      *ebpf.Map `ebpf:"main_exited_map"`
 	MmsgBytesProgs     *ebpf.Map `ebpf:"mmsg_bytes_progs"`
 	PendingExecMap     *ebpf.Map `ebpf:"pending_exec_map"`
+	PendingStackMap    *ebpf.Map `ebpf:"pending_stack_map"`
 	PendingTaskStorage *ebpf.Map `ebpf:"pending_task_storage"`
 	PlainEnterElideMap *ebpf.Map `ebpf:"plain_enter_elide_map"`
 	RecvmsgProgs       *ebpf.Map `ebpf:"recvmsg_progs"`
@@ -215,6 +218,7 @@ func (m *bpfMaps) Close() error {
 		m.MainExitedMap,
 		m.MmsgBytesProgs,
 		m.PendingExecMap,
+		m.PendingStackMap,
 		m.PendingTaskStorage,
 		m.PlainEnterElideMap,
 		m.RecvmsgProgs,
@@ -250,6 +254,7 @@ type bpfPrograms struct {
 	TraceSchedProcessFork *ebpf.Program `ebpf:"trace_sched_process_fork"`
 	TraceSchedProcessFree *ebpf.Program `ebpf:"trace_sched_process_free"`
 	TraceSignalDeliver    *ebpf.Program `ebpf:"trace_signal_deliver"`
+	TraceSignalGenerate   *ebpf.Program `ebpf:"trace_signal_generate"`
 	TraceSysEnter         *ebpf.Program `ebpf:"trace_sys_enter"`
 	TraceSysExit          *ebpf.Program `ebpf:"trace_sys_exit"`
 }
@@ -261,6 +266,7 @@ func (p *bpfPrograms) Close() error {
 		p.TraceSchedProcessFork,
 		p.TraceSchedProcessFree,
 		p.TraceSignalDeliver,
+		p.TraceSignalGenerate,
 		p.TraceSysEnter,
 		p.TraceSysExit,
 	)

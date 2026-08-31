@@ -36,7 +36,7 @@ const (
 	traceEventV2CompactEnterBodyLen               = 48
 	traceEventV2ExitBodyLen                       = 80
 	traceEventV2LifecycleBodyLen                  = 56
-	traceEventV2SignalBodyLen                     = 24
+	traceEventV2SignalBodyLen                     = 32
 	traceEventV2U16Size                           = 2
 	traceEventV2U32Size                           = 4
 	traceEventV2U64Size                           = 8
@@ -74,7 +74,8 @@ const (
 	traceEventV2SignalCodeOffset                  = 8
 	traceEventV2SignalSenderPIDOffset             = 12
 	traceEventV2SignalSenderUIDOffset             = 16
-	traceEventV2SignalReservedOffset              = 20
+	traceEventV2SignalStackIDOffset               = 20
+	traceEventV2SignalAddressOffset               = 24
 	payloadTLVHeaderSize                          = 32
 	payloadTLVKindString                          = 1
 	payloadTLVKindBytes                           = 2

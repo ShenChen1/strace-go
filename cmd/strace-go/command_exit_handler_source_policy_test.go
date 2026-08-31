@@ -61,6 +61,12 @@ func (p *fakeExitStatusLinePort) ExitStatusLine(tid int, status uint64) string {
 	return "fallback\n"
 }
 
+func (p *fakeExitStatusLinePort) LifecycleExitStatusLine(tid int, status uint64) string {
+	p.tid = tid
+	p.status = status
+	return "fallback\n"
+}
+
 func TestCommandExitHandlerUsesInjectedPorts(t *testing.T) {
 	status := &fakeCommandExitStatusPort{}
 	line := &fakeExitStatusLinePort{}

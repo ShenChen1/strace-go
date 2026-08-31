@@ -162,8 +162,9 @@ func TestPendingTaskStorageUsesTaskLocalValue(t *testing.T) {
 	if pending.Flags&uint32(unix.BPF_F_NO_PREALLOC) == 0 {
 		t.Fatal("pending task storage must use BPF_F_NO_PREALLOC")
 	}
-	if pending.ValueSize != 80 {
-		t.Fatalf("pending task storage value size = %d, want 80 bytes", pending.ValueSize)
+	const wantValueSize = 80
+	if pending.ValueSize != wantValueSize {
+		t.Fatalf("pending task storage value size = %d, want %d bytes", pending.ValueSize, wantValueSize)
 	}
 }
 

@@ -269,6 +269,7 @@ func buildTraceSessionBase(deps traceSessionDeps) traceSessionBaseComponents {
 			TimeFormatter: deps.TimeFormatter,
 			StackTraces:   deps.StackTraces,
 			Resolver:      deps.Resolver,
+			TargetPID:     deps.TargetPID,
 		}),
 		exitStatus: newExitStatusCoordinator(ExitStatusCoordinatorDeps{
 			Queue:      newExitStatusQueue(),

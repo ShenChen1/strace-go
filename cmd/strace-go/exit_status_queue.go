@@ -47,11 +47,6 @@ func (s *traceSession) exitStatusCoordinator() *ExitStatusCoordinator {
 
 // IMPACT: Queue records an exit line until process wait confirms that tracee termination is visible.
 func (q *ExitStatusQueue) Queue(pid int, line string) (string, bool) {
-	if q.exited != nil && q.exited[pid] {
-		delete(q.exited, pid)
-		delete(q.fallback, pid)
-		return line, true
-	}
 	if q.pending == nil {
 		q.pending = make(map[int]string)
 	}
@@ -59,20 +54,13 @@ func (q *ExitStatusQueue) Queue(pid int, line string) (string, bool) {
 	return "", false
 }
 
-// IMPACT: MarkExited records process wait completion or releases a previously queued exit line.
+// IMPACT: MarkExited records process wait completion without overtaking lagging ringbuf records.
 func (q *ExitStatusQueue) MarkExited(pid int) (string, bool) {
 	return q.MarkExitedWithFallback(pid, "")
 }
 
-// IMPACT: MarkExitedWithFallback keeps a wait-derived exit line only until the ringbuf drain proves no real exit event arrived.
+// IMPACT: MarkExitedWithFallback defers both real and wait-derived lines until the ringbuf drain completes.
 func (q *ExitStatusQueue) MarkExitedWithFallback(pid int, fallback string) (string, bool) {
-	if q.pending != nil {
-		if line, ok := q.pending[pid]; ok {
-			delete(q.pending, pid)
-			delete(q.fallback, pid)
-			return line, true
-		}
-	}
 	if q.exited == nil {
 		q.exited = make(map[int]bool)
 	}
@@ -97,10 +85,14 @@ func (q *ExitStatusQueue) HasExited(pid int) bool {
 }
 
 func (q *ExitStatusQueue) FlushFallback(pid int) (string, bool) {
-	if q.exited == nil || !q.exited[pid] || q.fallback == nil {
+	if q.exited == nil || !q.exited[pid] {
 		return "", false
 	}
-	line, ok := q.fallback[pid]
+	line, ok := q.pending[pid]
+	if !ok && q.fallback != nil {
+		line, ok = q.fallback[pid]
+	}
+	delete(q.pending, pid)
 	delete(q.exited, pid)
 	delete(q.fallback, pid)
 	if !ok || line == "" {

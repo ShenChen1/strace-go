@@ -137,7 +137,8 @@ struct signal_event_v2 {
     s32 code;
     u32 sender_pid;
     u32 sender_uid;
-    u32 reserved;
+    s32 stack_id;
+    u64 address;
 };
 
 _Static_assert(sizeof(struct event_v2_header) == EVENT_V2_HEADER_LEN, "event v2 header size drift");
@@ -179,7 +180,8 @@ _Static_assert(__builtin_offsetof(struct signal_event_v2, error) == EVENT_V2_SIG
 _Static_assert(__builtin_offsetof(struct signal_event_v2, code) == EVENT_V2_SIGNAL_CODE_OFFSET, "event v2 signal code offset drift");
 _Static_assert(__builtin_offsetof(struct signal_event_v2, sender_pid) == EVENT_V2_SIGNAL_SENDER_PID_OFFSET, "event v2 signal sender pid offset drift");
 _Static_assert(__builtin_offsetof(struct signal_event_v2, sender_uid) == EVENT_V2_SIGNAL_SENDER_UID_OFFSET, "event v2 signal sender uid offset drift");
-_Static_assert(__builtin_offsetof(struct signal_event_v2, reserved) == EVENT_V2_SIGNAL_RESERVED_OFFSET, "event v2 signal reserved offset drift");
+_Static_assert(__builtin_offsetof(struct signal_event_v2, stack_id) == EVENT_V2_SIGNAL_STACK_ID_OFFSET, "event v2 signal stack offset drift");
+_Static_assert(__builtin_offsetof(struct signal_event_v2, address) == EVENT_V2_SIGNAL_ADDRESS_OFFSET, "event v2 signal address offset drift");
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
@@ -243,6 +245,13 @@ struct {
     __uint(max_entries, 0);
     __type(value, struct pending_task_state);
 } pending_task_storage SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 16384);
+    __type(key, u32);
+    __type(value, s32);
+} pending_stack_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);

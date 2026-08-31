@@ -132,17 +132,31 @@ func TestBPFCoreProgramCatalogOwnsTracepointBinding(t *testing.T) {
 	if program.attachKind != bpfProgramAttachRawTracepoint || program.tracepoint != "signal_deliver" {
 		t.Fatalf("trace_signal_deliver catalog entry = %+v, want raw signal binding", program)
 	}
+
+	program, ok = bpfCoreProgramSpecByName(bpfSignalGenerateProgramName)
+	if !ok {
+		t.Fatal("trace_signal_generate is missing from the core program catalog")
+	}
+	if program.attachKind != bpfProgramAttachRawTracepoint || program.tracepoint != "signal_generate" {
+		t.Fatalf("trace_signal_generate catalog entry = %+v, want raw signal binding", program)
+	}
 }
 
-func TestSignalDeliverRawTracepointIsRequired(t *testing.T) {
-	spec := signalDeliverRawTracepointSpec(&bpfObjects{})
-	if spec.name != "signal_deliver" {
-		t.Fatalf("signal raw tracepoint name = %q, want signal_deliver", spec.name)
+func TestSignalRawTracepointsAreRequired(t *testing.T) {
+	specs := signalRawTracepointSpecs(&bpfObjects{})
+	want := []string{"signal_deliver", "signal_generate"}
+	if len(specs) != len(want) {
+		t.Fatalf("signal raw tracepoint specs = %d, want %d", len(specs), len(want))
 	}
-	if spec.program != nil {
-		t.Fatal("empty BPF objects unexpectedly exposed a signal program")
+	for index, name := range want {
+		if specs[index].name != name {
+			t.Fatalf("signal raw tracepoint spec %d = %q, want %q", index, specs[index].name, name)
+		}
+		if specs[index].program != nil {
+			t.Fatalf("empty BPF objects unexpectedly exposed signal program %q", name)
+		}
 	}
-	if _, err := attachRawTracepoint(spec); err == nil || !strings.Contains(err.Error(), "program is unavailable") {
+	if _, err := attachRawTracepoint(specs[0]); err == nil || !strings.Contains(err.Error(), "program is unavailable") {
 		t.Fatalf("attachRawTracepoint(nil) error = %v, want unavailable program", err)
 	}
 }

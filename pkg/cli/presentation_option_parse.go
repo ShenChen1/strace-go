@@ -19,6 +19,8 @@ func applyShortRenderFlag(flag byte, opts *Options) bool {
 		opts.PrintSyscallTime = true
 	case 'k':
 		opts.StackTrace = true
+	case 'i':
+		opts.InstructionPointer = true
 	case 'n':
 		opts.PrintSyscallNumber = true
 	case 'N':

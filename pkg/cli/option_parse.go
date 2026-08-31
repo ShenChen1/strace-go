@@ -224,6 +224,9 @@ func parseLongRenderOption(state *longOptionState) bool {
 	case "syscall-number":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		state.opts.PrintSyscallNumber = true
+	case "instruction-pointer":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		state.opts.InstructionPointer = true
 	case "arg-names":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		state.opts.PrintArgNames = true

@@ -128,6 +128,7 @@ func (s *bpfProgramSelection) addCorePrograms(fdState bool) error {
 		"trace_sched_process_exit",
 		"trace_sched_process_free",
 		bpfSignalDeliverProgramName,
+		bpfSignalGenerateProgramName,
 	} {
 		s.addProgram(name)
 	}

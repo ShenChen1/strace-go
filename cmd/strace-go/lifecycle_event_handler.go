@@ -88,9 +88,8 @@ func (h *LifecycleEventHandler) Handle(view lifecycleEventView, task *TaskState)
 	case lifecycleExit:
 		h.cleanupProcess(view, task)
 		isAttachTarget := h.policy != nil && h.policy.IsAttachTarget(int(view.tid))
-		isThread := task != nil && task.TID != task.TGID
-		if !h.jsonMode() && !h.discardMode() &&
-			(isAttachTarget || isThread || task != nil && task.Execed) {
+		isKnownTask := task != nil && (task.Execed || task.ParentTID != 0 || task.TID != task.TGID)
+		if !h.jsonMode() && !h.discardMode() && (isAttachTarget || isKnownTask) {
 			h.writeExitText(int(view.tid), view.args[0])
 		}
 	case lifecycleFree:

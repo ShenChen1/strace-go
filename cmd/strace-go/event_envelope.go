@@ -25,6 +25,7 @@ type traceEventEnvelope struct {
 	signalCode      int32
 	senderPID       uint32
 	senderUID       uint32
+	signalAddress   uint64
 	comm            string
 	payload         []handler.PayloadSection
 }
@@ -75,6 +76,8 @@ func (envelope traceEventEnvelope) signalView() signalEventView {
 		code:      envelope.signalCode,
 		senderPID: envelope.senderPID,
 		senderUID: envelope.senderUID,
+		stackID:   envelope.stackID,
+		address:   envelope.signalAddress,
 	}
 }
 

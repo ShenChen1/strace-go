@@ -22,6 +22,7 @@ const (
 	bpfMapMainExited      = "main_exited_map"
 	bpfMapMmsgBytesProgs  = "mmsg_bytes_progs"
 	bpfMapPendingExec     = "pending_exec_map"
+	bpfMapPendingStack    = "pending_stack_map"
 	bpfMapPendingTask     = "pending_task_storage"
 	bpfMapPlainEnterElide = "plain_enter_elide_map"
 	bpfMapRecvmsgProgs    = "recvmsg_progs"
@@ -52,6 +53,7 @@ var bpfCoreMapCatalog = []bpfCoreMapSpec{
 	{name: bpfMapMainExited, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.MainExitedMap }},
 	{name: bpfMapMmsgBytesProgs, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.MmsgBytesProgs }},
 	{name: bpfMapPendingExec, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PendingExecMap }},
+	{name: bpfMapPendingStack, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PendingStackMap }},
 	{name: bpfMapPendingTask, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PendingTaskStorage }},
 	{name: bpfMapPlainEnterElide, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PlainEnterElideMap }},
 	{name: bpfMapRecvmsgProgs, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.RecvmsgProgs }},

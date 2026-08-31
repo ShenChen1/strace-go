@@ -30,7 +30,7 @@
 | 过滤 | `trace-fds`、`-P/--trace-path` | 应实现 | `options-syntax`、`*-P` |
 | 输出 | `-a`、color、abbrev/verbose/raw、read/write、quiet | 应实现 | `options-syntax`、`qual_syscall`、read/write tests |
 | 输出 | KVM、namespace、decode-fds | 应实现 | 对应 upstream tests 与 event-snapshot semantic tests |
-| 输出 | `-i`、`-n`、`-N` | 应实现 | `strace-n` 加 IP/arg-name focused tests |
+| 输出 | `-i`、`-n`、`-N` | 应实现 | `pc.test`、`strace-n` 加 arg-name focused tests |
 | 输出 | `-o/-A/--output-separately` | 应实现 | `strace-A`、`strace-ff`、output tests |
 | 输出 | timestamps、string/hex/xlat formats | 应实现 | `strace-r/t/tt/ttt/T/x/xx` 和 `*-X*` |
 | 输出 | `-y/-yy` | 应实现 | `*-y`、`*-yy`；未知 attach 前状态保持 unknown |

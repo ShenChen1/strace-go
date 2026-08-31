@@ -91,6 +91,9 @@ func TestLifecycleEventHandlerHandlesExitAndFreeCleanup(t *testing.T) {
 	if state.effects.jsonEventSeen {
 		t.Fatal("json should not be written outside json mode")
 	}
+	if len(state.effects.exitText) != 0 {
+		t.Fatalf("unrelated exitText = %v, want none", state.effects.exitText)
+	}
 }
 
 func TestLifecycleEventHandlerDoesNotCleanupProcessForNonLeaderThread(t *testing.T) {
@@ -165,6 +168,21 @@ func TestLifecycleEventHandlerWritesExitTextThroughEffects(t *testing.T) {
 	}
 	if got := state.effects.exitText[0]; got != (fakeLifecycleExitText{tid: 101, exitCode: 7}) {
 		t.Fatalf("exitText[0] = %#v, want tid=101 exitCode=7", got)
+	}
+}
+
+func TestLifecycleEventHandlerWritesFollowedChildExitText(t *testing.T) {
+	state := newLifecycleHandlerTestState(&cli.Options{FollowForks: true})
+
+	state.handler.Handle(lifecycleEventView{
+		action: lifecycleExit,
+		pid:    202,
+		tid:    202,
+		args:   [6]uint64{11},
+	}, &TaskState{TID: 202, TGID: 202, ParentTID: 101})
+
+	if len(state.effects.exitText) != 1 {
+		t.Fatalf("followed child exitText = %v, want one write", state.effects.exitText)
 	}
 }
 

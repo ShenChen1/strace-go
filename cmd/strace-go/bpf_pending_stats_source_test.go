@@ -22,6 +22,14 @@ func TestBPFPendingSaveChecksUpdateResult(t *testing.T) {
 			t.Fatalf("%s does not route pending state through task storage failure accounting", name)
 		}
 	}
+	source := readTextFile(t, filepath.Join(root, "bpf/syscall_event_core_v2.h"))
+	body, ok := bpfFunctionBody(source, "save_pending_syscall_value")
+	if !ok {
+		t.Fatal("BPF source missing save_pending_syscall_value body")
+	}
+	if !strings.Contains(body, "bpf_map_update_elem(&pending_stack_map, &pending->tid, &pending->stack_id, BPF_ANY) != 0") {
+		t.Fatal("pending stack map update failure is not checked")
+	}
 }
 
 func TestBPFPendingAuxSaveChecksUpdateResult(t *testing.T) {

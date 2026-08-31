@@ -45,7 +45,7 @@ func newTraceBPFConfig(opts *cli.Options) traceBPFConfig {
 	}
 	fdState := len(opts.TracePaths) > 0 || opts.ShowPaths
 	return traceBPFConfig{
-		captureStack:               opts.StackTrace,
+		captureStack:               opts.StackTrace || opts.InstructionPointer,
 		followForks:                opts.FollowForks,
 		emitEnter:                  shouldEmitGenericEnter(opts),
 		emitSignal:                 shouldEmitSignalEvents(opts),

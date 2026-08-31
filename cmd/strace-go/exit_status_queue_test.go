@@ -12,8 +12,12 @@ func TestExitStatusQueueWaitsForProcessExit(t *testing.T) {
 		t.Fatalf("Queue before MarkExited = (%q, %v), want no output", line, ok)
 	}
 	line, ok := queue.MarkExited(101)
+	if ok || line != "" {
+		t.Fatalf("MarkExited after Queue = (%q, %v), want deferred output", line, ok)
+	}
+	line, ok = queue.FlushFallback(101)
 	if !ok || line != "exited\n" {
-		t.Fatalf("MarkExited after Queue = (%q, %v), want queued line", line, ok)
+		t.Fatalf("FlushFallback after Queue = (%q, %v), want queued line", line, ok)
 	}
 }
 
@@ -24,8 +28,12 @@ func TestExitStatusQueueHandlesWaitBeforeRingEvent(t *testing.T) {
 		t.Fatalf("MarkExited before Queue = (%q, %v), want no output", line, ok)
 	}
 	line, ok := queue.Queue(101, "exited\n")
+	if ok || line != "" {
+		t.Fatalf("Queue after MarkExited = (%q, %v), want deferred output", line, ok)
+	}
+	line, ok = queue.FlushFallback(101)
 	if !ok || line != "exited\n" {
-		t.Fatalf("Queue after MarkExited = (%q, %v), want immediate line", line, ok)
+		t.Fatalf("FlushFallback after MarkExited = (%q, %v), want queued line", line, ok)
 	}
 }
 
@@ -49,11 +57,11 @@ func TestExitStatusQueuePrefersRingEventOverWaitFallback(t *testing.T) {
 
 	queue.MarkExitedWithFallback(101, "fallback\n")
 	line, ok := queue.Queue(101, "ring\n")
-	if !ok || line != "ring\n" {
-		t.Fatalf("Queue after fallback = (%q, %v), want ring line", line, ok)
+	if ok || line != "" {
+		t.Fatalf("Queue after fallback = (%q, %v), want deferred output", line, ok)
 	}
-	if line, ok := queue.FlushFallback(101); ok || line != "" {
-		t.Fatalf("FlushFallback after ring line = (%q, %v), want no fallback", line, ok)
+	if line, ok := queue.FlushFallback(101); !ok || line != "ring\n" {
+		t.Fatalf("FlushFallback after ring line = (%q, %v), want ring line", line, ok)
 	}
 }
 
@@ -82,8 +90,12 @@ func TestTraceSessionExitStatusWritesQueuedLineAfterMark(t *testing.T) {
 		t.Fatalf("exit status printed before wait exit: %q", output.String())
 	}
 	coordinator.MarkExited(101)
+	if output.Len() != 0 {
+		t.Fatalf("exit status printed before drain: %q", output.String())
+	}
+	coordinator.FlushFallback(101)
 	if output.String() != "exited\n" {
-		t.Fatalf("exit status output = %q", output.String())
+		t.Fatalf("exit status output after flush = %q", output.String())
 	}
 }
 

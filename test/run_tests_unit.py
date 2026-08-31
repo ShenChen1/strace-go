@@ -171,6 +171,11 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
             run_tests.UPSTREAM_TEST_TIMEOUT_SECONDS["qual_signal.test"], 180
         )
 
+    def test_instruction_pointer_regression_is_registered(self):
+        test = "pc.test"
+        self.assertIn(test, upstream_suites.MORE_TESTS)
+        self.assertIn(test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS)
+
     def test_quiet_thread_execve_regression_is_registered(self):
         test = "maybe_switch_current_tcp--quiet-thread-execve.gen.test"
         self.assertIn(test, upstream_suites.MORE_TESTS)

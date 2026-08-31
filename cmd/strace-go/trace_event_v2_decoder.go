@@ -241,18 +241,20 @@ func decodeTraceEventV2SignalEnvelope(header traceEventV2Header, body []byte) (t
 		return traceEventEnvelope{}, false
 	}
 	return traceEventEnvelope{
-		valid:        true,
-		eventVersion: header.version,
-		pid:          header.pid,
-		tid:          header.tid,
-		comm:         header.comm,
-		eventType:    header.eventType,
-		enterTime:    header.tsNs,
-		signal:       binary.LittleEndian.Uint32(body[traceEventV2SignalNumberOffset:]),
-		signalErr:    int32(binary.LittleEndian.Uint32(body[traceEventV2SignalErrnoOffset:])),
-		signalCode:   int32(binary.LittleEndian.Uint32(body[traceEventV2SignalCodeOffset:])),
-		senderPID:    binary.LittleEndian.Uint32(body[traceEventV2SignalSenderPIDOffset:]),
-		senderUID:    binary.LittleEndian.Uint32(body[traceEventV2SignalSenderUIDOffset:]),
+		valid:         true,
+		eventVersion:  header.version,
+		pid:           header.pid,
+		tid:           header.tid,
+		comm:          header.comm,
+		eventType:     header.eventType,
+		enterTime:     header.tsNs,
+		signal:        binary.LittleEndian.Uint32(body[traceEventV2SignalNumberOffset:]),
+		signalErr:     int32(binary.LittleEndian.Uint32(body[traceEventV2SignalErrnoOffset:])),
+		signalCode:    int32(binary.LittleEndian.Uint32(body[traceEventV2SignalCodeOffset:])),
+		senderPID:     binary.LittleEndian.Uint32(body[traceEventV2SignalSenderPIDOffset:]),
+		senderUID:     binary.LittleEndian.Uint32(body[traceEventV2SignalSenderUIDOffset:]),
+		stackID:       int32(binary.LittleEndian.Uint32(body[traceEventV2SignalStackIDOffset:])),
+		signalAddress: binary.LittleEndian.Uint64(body[traceEventV2SignalAddressOffset:]),
 	}, true
 }
 

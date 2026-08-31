@@ -7,21 +7,26 @@ import (
 
 func (r *TextRenderer) PrintSignalEvent(view signalEventView, signalName string) {
 	r.selectOutputPID(int(view.tid))
+	stack := r.readStackSnapshot(view.stackID)
 	fields := []string{"si_signo=" + signalName}
 	if view.error != 0 {
 		fields = append(fields, fmt.Sprintf("si_errno=%d", view.error))
 	}
-	codeName := signalCodeName(view.code)
+	codeName := signalCodeName(signalName, view.code)
 	if codeName == "" {
 		codeName = fmt.Sprintf("%d", view.code)
 	}
 	fields = append(fields, "si_code="+codeName)
-	if signalCodeHasSender(view.code) {
+	if signalCodeHasSender(signalName, view.code) {
 		fields = append(fields,
 			fmt.Sprintf("si_pid=%d", view.senderPID),
 			fmt.Sprintf("si_uid=%d", view.senderUID),
 		)
 	}
-	fmt.Fprintf(r.out, "%s%s--- %s {%s} ---\n",
-		r.timePrefix(view.enterTime), r.pidPrefix(int(view.tid)), signalName, strings.Join(fields, ", "))
+	if signalName == "SIGSEGV" && view.code > 0 {
+		fields = append(fields, fmt.Sprintf("si_addr=%#x", view.address))
+	}
+	fmt.Fprintf(r.out, "%s%s%s--- %s {%s} ---\n",
+		r.timePrefix(view.enterTime), r.pidPrefix(int(view.tid)),
+		r.instructionPointerPrefix(stack), signalName, strings.Join(fields, ", "))
 }

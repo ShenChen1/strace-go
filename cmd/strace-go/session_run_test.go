@@ -275,19 +275,30 @@ func TestTraceRunStateFinishesFromAttachLifecycleState(t *testing.T) {
 	}
 }
 
-func TestTraceRunStateUsesInjectedClockForFallback(t *testing.T) {
-	now := time.Unix(200, 0)
-	clock := &fakeTraceClock{now: now}
+func TestTraceRunStateDefersCommandExitFlushUntilFinalizer(t *testing.T) {
+	var output bytes.Buffer
+	clock := &fakeTraceClock{now: time.Unix(200, 0)}
+	coordinator := newExitStatusCoordinator(ExitStatusCoordinatorDeps{
+		Queue: newExitStatusQueue(),
+		Out:   &output,
+	})
+	handler := newTraceCommandExitHandler(TraceCommandExitHandlerDeps{
+		Policy:     newTraceOutputPolicy(&cli.Options{EventFormat: cli.EventFormatText}),
+		TargetPID:  77,
+		ExitStatus: coordinator,
+		Renderer:   newTextRenderer(TextRendererDeps{Policy: newTraceOutputPolicy(&cli.Options{})}),
+	})
 	state := newTraceRunState(traceRunStateDeps{
 		command: fakeTraceCommandWaiter{},
 		clock:   clock,
 	})
 
-	state.collect(nil)
+	state.collect(handler)
+	clock.now = clock.now.Add(time.Second)
+	state.collect(handler)
 
-	want := now.Add(traceExitFallbackGrace)
-	if !state.fallbackFlush.Equal(want) {
-		t.Fatalf("fallback flush = %s, want %s", state.fallbackFlush, want)
+	if output.Len() != 0 {
+		t.Fatalf("command exit output before finalizer = %q", output.String())
 	}
 }
 

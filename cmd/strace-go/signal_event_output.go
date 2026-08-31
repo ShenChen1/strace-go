@@ -7,14 +7,16 @@ import (
 )
 
 const (
-	signalCodeUser   int32 = 0
-	signalCodeKernel int32 = 128
-	signalCodeQueue  int32 = -1
-	signalCodeTimer  int32 = -2
-	signalCodeMesgQ  int32 = -3
-	signalCodeAsync  int32 = -4
-	signalCodeSigIO  int32 = -5
-	signalCodeTKill  int32 = -6
+	signalCodeUser       int32 = 0
+	signalCodeKernel     int32 = 128
+	signalCodeQueue      int32 = -1
+	signalCodeTimer      int32 = -2
+	signalCodeMesgQ      int32 = -3
+	signalCodeAsync      int32 = -4
+	signalCodeSigIO      int32 = -5
+	signalCodeTKill      int32 = -6
+	signalCodeSegvMapErr int32 = 1
+	signalCodeSegvAccErr int32 = 2
 )
 
 type signalEventView struct {
@@ -26,6 +28,8 @@ type signalEventView struct {
 	code      int32
 	senderPID uint32
 	senderUID uint32
+	stackID   int32
+	address   uint64
 }
 
 type signalEventSink interface {
@@ -64,7 +68,18 @@ func (o *SignalEventOutput) HandleSignal(view signalEventView) {
 	o.renderer.PrintSignalEvent(view, signalName)
 }
 
-func signalCodeName(code int32) string {
+func signalCodeName(signalName string, code int32) string {
+	if signalName == "SIGSEGV" {
+		switch code {
+		case signalCodeSegvMapErr:
+			return "SEGV_MAPERR"
+		case signalCodeSegvAccErr:
+			return "SEGV_ACCERR"
+		}
+	}
+	if signalName == "SIGCHLD" {
+		return childSignalCodeName(code)
+	}
 	switch code {
 	case signalCodeUser:
 		return "SI_USER"
@@ -87,8 +102,27 @@ func signalCodeName(code int32) string {
 	}
 }
 
-func signalCodeHasSender(code int32) bool {
-	return code == signalCodeUser || code == signalCodeQueue || code == signalCodeTKill
+func childSignalCodeName(code int32) string {
+	switch code {
+	case 1:
+		return "CLD_EXITED"
+	case 2:
+		return "CLD_KILLED"
+	case 3:
+		return "CLD_DUMPED"
+	case 4:
+		return "CLD_TRAPPED"
+	case 5:
+		return "CLD_STOPPED"
+	case 6:
+		return "CLD_CONTINUED"
+	default:
+		return ""
+	}
+}
+
+func signalCodeHasSender(signalName string, code int32) bool {
+	return signalName == "SIGCHLD" || code == signalCodeUser || code == signalCodeQueue || code == signalCodeTKill
 }
 
 var _ signalEventSink = (*SignalEventOutput)(nil)

@@ -52,7 +52,7 @@ func (w *traceLifecycleExitTextWriter) WriteExitText(tid int, exitCode uint64) {
 		return
 	}
 	selectTraceOutputPID(w.out, tid)
-	fmt.Fprint(w.out, w.renderer.ExitStatusLine(tid, exitCode))
+	fmt.Fprint(w.out, w.renderer.LifecycleExitStatusLine(tid, exitCode))
 }
 
 func selectTraceOutputPID(out io.Writer, pid int) {

@@ -131,6 +131,7 @@ type bpfEnterPathMapSpecs struct {
 	MainExitedMap      *ebpf.MapSpec `ebpf:"main_exited_map"`
 	MmsgBytesProgs     *ebpf.MapSpec `ebpf:"mmsg_bytes_progs"`
 	PendingExecMap     *ebpf.MapSpec `ebpf:"pending_exec_map"`
+	PendingStackMap    *ebpf.MapSpec `ebpf:"pending_stack_map"`
 	PendingTaskStorage *ebpf.MapSpec `ebpf:"pending_task_storage"`
 	PlainEnterElideMap *ebpf.MapSpec `ebpf:"plain_enter_elide_map"`
 	RecvmsgProgs       *ebpf.MapSpec `ebpf:"recvmsg_progs"`
@@ -190,6 +191,7 @@ type bpfEnterPathMaps struct {
 	MainExitedMap      *ebpf.Map `ebpf:"main_exited_map"`
 	MmsgBytesProgs     *ebpf.Map `ebpf:"mmsg_bytes_progs"`
 	PendingExecMap     *ebpf.Map `ebpf:"pending_exec_map"`
+	PendingStackMap    *ebpf.Map `ebpf:"pending_stack_map"`
 	PendingTaskStorage *ebpf.Map `ebpf:"pending_task_storage"`
 	PlainEnterElideMap *ebpf.Map `ebpf:"plain_enter_elide_map"`
 	RecvmsgProgs       *ebpf.Map `ebpf:"recvmsg_progs"`
@@ -215,6 +217,7 @@ func (m *bpfEnterPathMaps) Close() error {
 		m.MainExitedMap,
 		m.MmsgBytesProgs,
 		m.PendingExecMap,
+		m.PendingStackMap,
 		m.PendingTaskStorage,
 		m.PlainEnterElideMap,
 		m.RecvmsgProgs,

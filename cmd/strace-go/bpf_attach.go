@@ -76,11 +76,11 @@ func (a *bpfAttacher) attachRequired() ([]link.Link, error) {
 		return append(links, lifecycleLinks...), err
 	}
 	links = append(links, lifecycleLinks...)
-	signalLink, err := attachRawTracepoint(signalDeliverRawTracepointSpec(a.programs))
+	signalLinks, err := attachRawTracepoints(signalRawTracepointSpecs(a.programs))
 	if err != nil {
-		return links, err
+		return append(links, signalLinks...), err
 	}
-	return append(links, signalLink), nil
+	return append(links, signalLinks...), nil
 }
 
 func (a *bpfAttacher) attachOptionalRecvmsg() (link.Link, error) {
@@ -208,12 +208,18 @@ func lifecycleTracepointSpecs(programs bpfProgramProvider) []tracepointSpec {
 	return bpfCoreTracepointSpecs(programs, bpfLifecycleTracepointCategory)
 }
 
-func signalDeliverRawTracepointSpec(programs bpfProgramProvider) rawTracepointSpec {
-	program, _ := bpfCoreProgramSpecByName(bpfSignalDeliverProgramName)
-	return rawTracepointSpec{
-		program: bpfProgram(programs, program.name),
-		name:    program.tracepoint,
+func signalRawTracepointSpecs(programs bpfProgramProvider) []rawTracepointSpec {
+	specs := make([]rawTracepointSpec, 0, 2)
+	for _, program := range bpfCoreProgramCatalog {
+		if program.attachKind != bpfProgramAttachRawTracepoint {
+			continue
+		}
+		specs = append(specs, rawTracepointSpec{
+			program: bpfProgram(programs, program.name),
+			name:    program.tracepoint,
+		})
 	}
+	return specs
 }
 
 func bpfCoreTracepointSpecs(programs bpfProgramProvider, category string) []tracepointSpec {
@@ -247,6 +253,18 @@ func attachRawTracepoint(spec rawTracepointSpec) (link.Link, error) {
 		return nil, fmt.Errorf("attach raw tracepoint %s: %w", spec.name, err)
 	}
 	return attached, nil
+}
+
+func attachRawTracepoints(specs []rawTracepointSpec) ([]link.Link, error) {
+	links := make([]link.Link, 0, len(specs))
+	for _, spec := range specs {
+		attached, err := attachRawTracepoint(spec)
+		if err != nil {
+			return links, err
+		}
+		links = append(links, attached)
+	}
+	return links, nil
 }
 
 // attachTracepoints attaches each required spec and aborts on the first

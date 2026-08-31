@@ -57,10 +57,12 @@ type traceRenderOptions struct {
 	time                 traceTimeOptions
 	followForks          bool
 	showPID              bool
+	alwaysShowPID        bool
 	alignCol             int
 	printSyscallTime     bool
 	syscallTimePrecision int
 	printSyscallNumber   bool
+	instructionPointer   bool
 	printArgNames        bool
 	stackTrace           bool
 	quietThreadExecve    bool
@@ -170,10 +172,12 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 			time:                 normalizedTimeOptions(opts),
 			followForks:          opts.FollowForks,
 			showPID:              (opts.FollowForks || opts.AlwaysShowPID) && !opts.OutputSeparate,
+			alwaysShowPID:        opts.AlwaysShowPID,
 			alignCol:             opts.AlignCol,
 			printSyscallTime:     opts.PrintSyscallTime,
 			syscallTimePrecision: timestampPrecisionWidth(opts.SyscallTimePrecision, 6),
 			printSyscallNumber:   opts.PrintSyscallNumber,
+			instructionPointer:   opts.InstructionPointer,
 			printArgNames:        opts.PrintArgNames,
 			stackTrace:           opts.StackTrace,
 			quietThreadExecve:    opts.QuietThreadExecve,
