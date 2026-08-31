@@ -273,7 +273,7 @@ func parseLongValueOption(state *longOptionState) bool {
 		rejectTamperingSelector("--"+state.name, requiredLongValue(state))
 	case "status", "signal", "read", "write", "verbose", "abbrev", "raw", "namespace":
 		parseEFlag(state.name+"="+requiredLongValue(state), state.opts)
-	case "quiet":
+	case "quiet", "silent", "silence":
 		parseLongQuiet(optionalLongValue(state.inlineValue, state.hasInlineValue, "attach,personality"), state.opts)
 	case "decode-pids":
 		parseDecodePIDs(requiredLongValue(state), state.opts)

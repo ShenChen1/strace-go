@@ -47,6 +47,15 @@ func TestParseQuietSelectorAliases(t *testing.T) {
 	}
 }
 
+func TestParseQuietSelectorLongAliases(t *testing.T) {
+	for _, option := range []string{"--silent=exits", "--silence=exits"} {
+		opts := ParseArgs([]string{option, "/bin/true"})
+		if !opts.QuietExit {
+			t.Fatalf("quiet alias %q did not suppress exits", option)
+		}
+	}
+}
+
 func TestParseInvalidQuietRejected(t *testing.T) {
 	caseName := os.Getenv("STRACE_GO_INVALID_QUIET")
 	if caseName != "" {
