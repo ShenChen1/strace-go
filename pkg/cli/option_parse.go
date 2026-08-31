@@ -267,8 +267,7 @@ func parseLongValueOption(state *longOptionState) bool {
 		requiredLongValue(state)
 		rejectArchitectureConflict("-O/--summary-syscall-overhead", "there is no ptrace syscall-stop overhead")
 	case "inject", "fault":
-		requiredLongValue(state)
-		rejectArchitectureConflict("--"+state.name, "pure eBPF tracing cannot modify tracee state")
+		rejectTamperingSelector("--"+state.name, requiredLongValue(state))
 	case "status", "signal", "read", "write", "verbose", "abbrev", "raw":
 		parseEFlag(state.name+"="+requiredLongValue(state), state.opts)
 	case "quiet":

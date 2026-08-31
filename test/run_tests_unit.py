@@ -76,6 +76,39 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
             run_tests.UPSTREAM_TEST_TIMEOUT_SECONDS["qual_syscall.test"], 180
         )
 
+    def test_syscall_selector_syntax_is_candidate(self):
+        test = "filtering_syscall-syntax.test"
+        self.assertIn(test, upstream_suites.MORE_TESTS)
+        self.assertGreaterEqual(run_tests.UPSTREAM_TEST_TIMEOUT_SECONDS[test], 180)
+
+    def test_syscall_personality_regressions_are_candidates(self):
+        for test in self.syscall_personality_regressions():
+            self.assertIn(test, upstream_suites.MORE_TESTS)
+            self.assertGreaterEqual(run_tests.UPSTREAM_TEST_TIMEOUT_SECONDS[test], 180)
+
+    def test_syscall_selector_regressions_are_stable(self):
+        regressions = (
+            "filtering_syscall-syntax.test",
+            *self.syscall_personality_regressions(),
+        )
+        for test in regressions:
+            self.assertIn(
+                test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
+            )
+
+    @staticmethod
+    def syscall_personality_regressions():
+        return (
+            "trace_personality_64.gen.test",
+            "trace_personality_32.gen.test",
+            "trace_personality_x32.gen.test",
+            "trace_personality_number_64.gen.test",
+            "trace_personality_regex_64.gen.test",
+            "trace_personality_statfs_64.gen.test",
+            "trace_personality_all_32.gen.test",
+            "trace_personality_all_x32.gen.test",
+        )
+
     def test_trace_group_regressions_have_qualifier_timeout(self):
         for test in (
             "trace_clock.gen.test",

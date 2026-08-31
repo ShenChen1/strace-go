@@ -46,6 +46,17 @@
 | 杂项 | `--seccomp-bpf` | 架构冲突 | eBPF syscall filter 已在 probe 入口执行，无 ptrace stop 可优化 |
 | 杂项 | `--tips`、`-h`、`-V` | 应实现 | `strace--tips*`、help/version tests |
 
+## 当前 ABI designator 边界
+
+`@64`、`@32` 和 `@x32` 已进入统一 syscall selector parser：native personality
+表达式参与当前 syscall 集，受支持的非 native personality 表达式会完成名称、类别、编号和
+正则校验，但不会改变 native syscall 集。该阶段只证明 CLI grammar 兼容，不代表已经支持
+compat tracee 解码。
+
+完整的非 native tracing 仍需 event ABI 携带 personality，并由生成器提供对应 syscall
+元数据表；在这些运行时合同完成前，不能把非 native selector 伪装为 native selector。
+当前语法合同由 `filtering_syscall-syntax.test` 和选定的 `trace_personality_*` 用例覆盖。
+
 ## 实施规则
 
 1. 未知、缺值、非法或架构冲突参数必须返回具体错误，不能静默忽略。

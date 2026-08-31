@@ -2,6 +2,7 @@ package cli
 
 import (
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -15,43 +16,125 @@ type syscallSelector struct {
 	negated bool
 }
 
+type syscallSelectorTerm struct {
+	expression string
+	diagnostic string
+	optional   bool
+	active     bool
+}
+
 func parseSyscallSelector(value string) syscallSelector {
+	originalValue := value
 	selector := syscallSelector{names: make(map[string]bool)}
 	selector.negated = strings.HasPrefix(value, "!")
 	value = strings.TrimPrefix(value, "!")
-	for _, token := range strings.Split(value, ",") {
-		selector.add(token)
+	if strings.Trim(value, ",") == "" {
+		failOption("invalid system call '%s'", originalValue)
+	}
+	tokens := strings.FieldsFunc(value, func(separator rune) bool {
+		return separator == ','
+	})
+	for _, token := range tokens {
+		selector.add(parseSyscallSelectorTerm(token), len(tokens))
 	}
 	return selector
 }
 
-func (selector *syscallSelector) add(token string) {
-	switch token {
-	case "all", "%all":
-		selector.all = true
-	case "none":
-		return
+func parseSyscallSelectorTerm(token string) syscallSelectorTerm {
+	term := syscallSelectorTerm{
+		diagnostic: token,
+		optional:   strings.HasPrefix(token, "?"),
+		active:     true,
+	}
+	term.expression = strings.TrimPrefix(token, "?")
+	separator := strings.LastIndexByte(term.expression, '@')
+	if separator < 0 {
+		return term
+	}
+	personality := term.expression[separator+1:]
+	if !supportedSyscallPersonality(personality) {
+		failOption("incorrect personality designator '%s' in qualification '%s'", personality, term.diagnostic)
+	}
+	term.expression = term.expression[:separator]
+	term.active = personality == nativeSyscallPersonality()
+	return term
+}
+
+func supportedSyscallPersonality(personality string) bool {
+	switch runtime.GOARCH {
+	case "amd64":
+		return personality == "64" || personality == "32" || personality == "x32"
+	case "arm64", "ppc64", "ppc64le", "s390x", "sparc64":
+		return personality == "64" || personality == "32"
 	default:
-		selector.addExpression(token)
+		return personality == nativeSyscallPersonality()
 	}
 }
 
-func (selector *syscallSelector) addExpression(token string) {
+func nativeSyscallPersonality() string {
+	return strconv.Itoa(strconv.IntSize)
+}
+
+func (selector *syscallSelector) add(term syscallSelectorTerm, tokenCount int) {
+	switch term.expression {
+	case "all", "%all":
+		if term.active {
+			selector.all = true
+		}
+	case "none":
+		if tokenCount == 1 {
+			return
+		}
+		selector.rejectInvalid(term)
+	default:
+		target := selector
+		if !term.active {
+			target = &syscallSelector{names: make(map[string]bool)}
+		}
+		if !target.addExpression(term.expression) {
+			selector.rejectInvalid(term)
+		}
+	}
+}
+
+func (selector *syscallSelector) rejectInvalid(term syscallSelectorTerm) {
+	if !term.optional {
+		failOption("invalid system call '%s'", term.diagnostic)
+	}
+}
+
+func (selector *syscallSelector) addExpression(token string) bool {
 	if strings.HasPrefix(token, "/") {
-		expression, err := regexp.Compile(strings.TrimPrefix(token, "/"))
+		pattern := strings.TrimPrefix(token, "/")
+		if strings.HasPrefix(pattern, "{") {
+			failOption("regcomp: %s: invalid repetition operator", pattern)
+		}
+		expression, err := regexp.Compile(pattern)
 		if err != nil {
-			failOption("invalid syscall regular expression '%s': %v", token, err)
+			failOption("regcomp: %s: %v", pattern, err)
+		}
+		if !regexpMatchesSyscall(expression) {
+			return false
 		}
 		selector.regexps = append(selector.regexps, expression)
-		return
+		return true
 	}
 	if addSyscallClass(selector.names, token) {
-		return
+		return true
 	}
 	if addSyscallNumber(selector.names, token) {
-		return
+		return true
 	}
-	addSyscallName(selector.names, token)
+	return addSyscallName(selector.names, token)
+}
+
+func regexpMatchesSyscall(expression *regexp.Regexp) bool {
+	for _, syscall := range meta.SyscallTable {
+		if expression.MatchString(syscall.Name) {
+			return true
+		}
+	}
+	return false
 }
 
 func addSyscallClass(names map[string]bool, token string) bool {
@@ -81,18 +164,24 @@ func addSyscallNumber(names map[string]bool, token string) bool {
 	if err != nil {
 		return false
 	}
-	if syscall, ok := meta.SyscallTable[uint32(number)]; ok {
-		names[syscall.Name] = true
+	syscall, ok := meta.SyscallTable[uint32(number)]
+	if !ok {
+		return false
 	}
+	names[syscall.Name] = true
 	return true
 }
 
-func addSyscallName(names map[string]bool, name string) {
-	if name == "" {
-		return
+func addSyscallName(names map[string]bool, name string) bool {
+	for _, syscall := range meta.SyscallTable {
+		if syscall.Name != name {
+			continue
+		}
+		names[name] = true
+		addTraceAliasesTo(names, name)
+		return true
 	}
-	names[name] = true
-	addTraceAliasesTo(names, name)
+	return false
 }
 
 func (selector syscallSelector) matches(name string) bool {

@@ -105,7 +105,8 @@ func parseEFlag(val string, opts *Options) {
 	case strings.HasPrefix(val, "decode-pids="):
 		parseDecodePIDs(strings.TrimPrefix(val, "decode-pids="), opts)
 	case strings.HasPrefix(val, "inject="), strings.HasPrefix(val, "fault="):
-		rejectArchitectureConflict("-e inject/fault", "pure eBPF tracing cannot modify tracee state")
+		name, value, _ := strings.Cut(val, "=")
+		rejectTamperingSelector("-e "+name, value)
 	case strings.HasPrefix(val, "signal="):
 		parseSignalSet(strings.TrimPrefix(val, "signal="), opts)
 	case strings.HasPrefix(val, "quiet="):
@@ -117,6 +118,12 @@ func parseEFlag(val string, opts *Options) {
 	default:
 		parseTraceSet(val, opts)
 	}
+}
+
+func rejectTamperingSelector(option, value string) {
+	selector, _, _ := strings.Cut(value, ":")
+	parseSyscallSelector(selector)
+	rejectArchitectureConflict(option, "pure eBPF tracing cannot modify tracee state")
 }
 
 func parseTraceSet(val string, opts *Options) {
