@@ -22,7 +22,7 @@ func TestBPFProgramSelectionKeepsPositiveFilterDependencies(t *testing.T) {
 	config := traceBPFConfig{
 		syscallFilter: syscallFilterPlan{enabled: true, ids: []uint32{1}},
 	}
-	plan := selectBPFRoutePlan(fullPlan, config)
+	plan := selectBPFRoutePlan(fullPlan, table, config)
 	selection, err := newBPFProgramSelection(plan, table, config)
 	if err != nil {
 		t.Fatalf("newBPFProgramSelection() error = %v", err)
@@ -32,6 +32,9 @@ func TestBPFProgramSelectionKeepsPositiveFilterDependencies(t *testing.T) {
 		t.Fatal("positive filter selected all BPF programs")
 	}
 	for _, program := range bpfCoreProgramCatalog {
+		if program.feature != bpfProgramFeatureRequired {
+			continue
+		}
 		if !selection.hasProgram(program.name) {
 			t.Fatalf("selection missing required core program %q", program.name)
 		}
@@ -60,7 +63,7 @@ func TestBPFProgramSelectionUsesGenericNoPayloadWithoutFDState(t *testing.T) {
 	config := traceBPFConfig{
 		syscallFilter: syscallFilterPlan{enabled: true, ids: []uint32{1}},
 	}
-	plan := selectBPFRoutePlan(fullPlan, config)
+	plan := selectBPFRoutePlan(fullPlan, table, config)
 	if got := plan.enter[1]; got != enterProgNoPayloadGeneric {
 		t.Fatalf("plain enter route = %d, want generic slot %d", got, enterProgNoPayloadGeneric)
 	}
@@ -86,7 +89,7 @@ func TestBPFProgramSelectionKeepsFDStateNoPayloadHandler(t *testing.T) {
 		fdState:       true,
 		syscallFilter: syscallFilterPlan{enabled: true, ids: []uint32{1}},
 	}
-	selectedPlan := selectBPFRoutePlan(plan, config)
+	selectedPlan := selectBPFRoutePlan(plan, table, config)
 	if got := selectedPlan.enter[1]; got != enterProgNoPayload {
 		t.Fatalf("FD-state enter route = %d, want path-aware slot %d", got, enterProgNoPayload)
 	}
@@ -186,7 +189,7 @@ func TestBPFProgramSelectionPrunesFullRouteClosureWithoutFDState(t *testing.T) {
 		t.Fatalf("newBPFRoutePlan() error = %v", err)
 	}
 	config := traceBPFConfig{}
-	selectedPlan := selectBPFRoutePlan(plan, config)
+	selectedPlan := selectBPFRoutePlan(plan, table, config)
 	selection, err := newBPFProgramSelection(selectedPlan, table, config)
 	if err != nil {
 		t.Fatalf("newBPFProgramSelection() error = %v", err)
@@ -211,7 +214,7 @@ func TestBPFProgramSelectionPrunesNegatedFilterClosureWithoutFDState(t *testing.
 	config := traceBPFConfig{
 		syscallFilter: syscallFilterPlan{enabled: true, negated: true, ids: []uint32{1}},
 	}
-	selectedPlan := selectBPFRoutePlan(plan, config)
+	selectedPlan := selectBPFRoutePlan(plan, table, config)
 	selection, err := newBPFProgramSelection(selectedPlan, table, config)
 	if err != nil {
 		t.Fatalf("newBPFProgramSelection() error = %v", err)
@@ -240,7 +243,7 @@ func TestBPFProgramSelectionUsesConservativeModes(t *testing.T) {
 		}, wantAll: true},
 	}
 	for index, test := range tests {
-		selected := selectBPFRoutePlan(plan, test.config)
+		selected := selectBPFRoutePlan(plan, map[uint32]meta.Syscall{1: {Name: "getpid"}}, test.config)
 		selection, err := newBPFProgramSelection(selected, map[uint32]meta.Syscall{1: {Name: "getpid"}}, test.config)
 		if err != nil {
 			t.Fatalf("case %d newBPFProgramSelection() error = %v", index, err)

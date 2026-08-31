@@ -271,7 +271,7 @@ func parseLongValueOption(state *longOptionState) bool {
 		rejectArchitectureConflict("-O/--summary-syscall-overhead", "there is no ptrace syscall-stop overhead")
 	case "inject", "fault":
 		rejectTamperingSelector("--"+state.name, requiredLongValue(state))
-	case "status", "signal", "read", "write", "verbose", "abbrev", "raw":
+	case "status", "signal", "read", "write", "verbose", "abbrev", "raw", "namespace":
 		parseEFlag(state.name+"="+requiredLongValue(state), state.opts)
 	case "quiet":
 		parseLongQuiet(optionalLongValue(state.inlineValue, state.hasInlineValue, "attach,personality"), state.opts)

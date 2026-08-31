@@ -83,6 +83,9 @@ UPSTREAM_REFERENCE_TESTS = [
 # The 2026-08-13 baseline passed in a full `more` run; later additions are
 # promoted only after their exact focused upstream test passes on pure eBPF.
 UPSTREAM_REFERENCE_STABLE_MORE_TESTS = [
+    "clone3-report-ns-id.gen.test",
+    "setns-report-ns-id.gen.test",
+    "unshare-report-ns-id.gen.test",
     "strace-E.test",
     "strace-x.gen.test",
     "strace-xx.gen.test",
@@ -267,6 +270,9 @@ MORE_TOLERATED_XPASSES = {"attach-p-cmd.test"}
 # Tests for the next feature we are tackling.
 # Add tests here when working on a new syscall or feature.
 MORE_TESTS = [
+    "clone3-report-ns-id.gen.test",
+    "setns-report-ns-id.gen.test",
+    "unshare-report-ns-id.gen.test",
     "dev--decode-fds-socket.gen.test",
     "net--decode-fds-socket-netlink.gen.test",
     "eventfd--decode-fd-eventfd.gen.test",

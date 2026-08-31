@@ -17,9 +17,14 @@ type bpfProgramSelection struct {
 	recvmsgSlots     map[uint32]struct{}
 	mmsgByteSlots    map[uint32]struct{}
 	recvmsgKretprobe bool
+	namespaceNew     bool
 }
 
-func selectBPFRoutePlan(plan bpfRoutePlan, config traceBPFConfig) bpfRoutePlan {
+func selectBPFRoutePlan(
+	plan bpfRoutePlan,
+	table map[uint32]meta.Syscall,
+	config traceBPFConfig,
+) bpfRoutePlan {
 	selected := copyBPFRoutePlan(plan)
 	if !config.syscallFilter.negated && config.syscallFilter.enabled && !config.fdState {
 		ids := make(map[uint32]struct{}, len(config.syscallFilter.ids))
@@ -32,7 +37,21 @@ func selectBPFRoutePlan(plan bpfRoutePlan, config traceBPFConfig) bpfRoutePlan {
 	if !config.fdState {
 		selected.enter = useGenericNoPayloadEnterSlot(selected.enter)
 	}
+	if config.namespaceNew {
+		useNamespaceExitRoutes(selected.exit, table)
+	}
 	return selected
+}
+
+func useNamespaceExitRoutes(routes map[uint32]uint32, table map[uint32]meta.Syscall) {
+	for id, syscall := range table {
+		switch syscall.Name {
+		case "clone", "clone3", "setns", "unshare":
+			if _, exists := routes[id]; exists {
+				routes[id] = exitProgNamespace
+			}
+		}
+	}
 }
 
 func useGenericNoPayloadEnterSlot(routes map[uint32]uint32) map[uint32]uint32 {
@@ -82,13 +101,14 @@ func newBPFProgramSelection(
 		exitSlots:     make(map[uint32]struct{}),
 		recvmsgSlots:  make(map[uint32]struct{}),
 		mmsgByteSlots: make(map[uint32]struct{}),
+		namespaceNew:  config.namespaceNew,
 	}
 	if selection.loadAll {
 		selection.recvmsgKretprobe = true
 		return selection, nil
 	}
 
-	if err := selection.addCorePrograms(config.fdState); err != nil {
+	if err := selection.addCorePrograms(config.fdState, config.namespaceNew); err != nil {
 		return bpfProgramSelection{}, err
 	}
 	for _, slot := range plan.enter {
@@ -119,7 +139,7 @@ func shouldLoadAllBPFPrograms(config traceBPFConfig) bool {
 	return config.fdState
 }
 
-func (s *bpfProgramSelection) addCorePrograms(fdState bool) error {
+func (s *bpfProgramSelection) addCorePrograms(fdState, namespaceNew bool) error {
 	for _, name := range []string{
 		"trace_sys_enter",
 		"trace_sys_exit",
@@ -131,6 +151,9 @@ func (s *bpfProgramSelection) addCorePrograms(fdState bool) error {
 		bpfSignalGenerateProgramName,
 	} {
 		s.addProgram(name)
+	}
+	if namespaceNew {
+		s.addProgram(bpfNamespaceForkProgramName)
 	}
 	noPayloadSlot := uint32(enterProgNoPayloadGeneric)
 	if fdState {

@@ -87,9 +87,12 @@ const (
 	payloadTLVKindFDState                         = 8
 	payloadTLVKindFDPath                          = 9
 	payloadTLVKindEventFDState                    = 10
+	payloadTLVKindNamespace                       = 11
 	payloadTLVFDStateArgIndex                     = 0xffff
 	payloadTLVFDPathCwdArgIndex                   = 0xfffe
 	payloadTLVFDPathNestedArgIndex                = 0xfffd
 	payloadTLVEventFDStateArgIndex                = 0xfffc
+	payloadTLVNamespaceArgIndex                   = 0xfffb
 	payloadTLVFlagDirectionOut                    = 1
+	namespaceSnapshotSize                         = 40
 )

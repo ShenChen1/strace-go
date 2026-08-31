@@ -16,6 +16,7 @@ const (
 	PayloadKindFDState      PayloadKind = "fd_state"
 	PayloadKindFDPath       PayloadKind = "fd_path"
 	PayloadKindEventFDState PayloadKind = "eventfd_state"
+	PayloadKindNamespace    PayloadKind = "namespace"
 )
 
 // PayloadDirection records whether a payload was captured on syscall enter or exit.

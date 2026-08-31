@@ -176,6 +176,17 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
         self.assertIn(test, upstream_suites.MORE_TESTS)
         self.assertIn(test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS)
 
+    def test_namespace_new_regressions_are_registered(self):
+        for test in (
+            "clone3-report-ns-id.gen.test",
+            "setns-report-ns-id.gen.test",
+            "unshare-report-ns-id.gen.test",
+        ):
+            self.assertIn(test, upstream_suites.MORE_TESTS)
+            self.assertIn(
+                test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
+            )
+
     def test_quiet_thread_execve_regression_is_registered(self):
         test = "maybe_switch_current_tcp--quiet-thread-execve.gen.test"
         self.assertIn(test, upstream_suites.MORE_TESTS)

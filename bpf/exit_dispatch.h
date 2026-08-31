@@ -247,6 +247,19 @@ int exit_generic(struct trace_event_raw_sys_exit *ctx) {
 }
 
 SEC("tracepoint/raw_syscalls/sys_exit")
+int exit_namespace(struct trace_event_raw_sys_exit *ctx) {
+    u32 sys_id = (u32)ctx->id;
+    if (sys_id != SYS_CLONE && sys_id != SYS_CLONE3 &&
+        sys_id != SYS_SETNS && sys_id != SYS_UNSHARE) {
+        return 0;
+    }
+    EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid);
+    emit_namespace_exit_event_v2_direct(p, ret_value, duration);
+    consume_pending_syscall(pid, pending_tid, p, is_pending_lookup);
+    return 0;
+}
+
+SEC("tracepoint/raw_syscalls/sys_exit")
 int exit_path(struct trace_event_raw_sys_exit *ctx) {
     u32 sys_id = (u32)ctx->id;
     if (!is_path_only_direct_syscall(sys_id) &&

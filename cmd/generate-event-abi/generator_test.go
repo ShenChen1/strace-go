@@ -45,6 +45,9 @@ func TestWriteProtocolHeader(t *testing.T) {
 		"#define PAYLOAD_TLV_KIND_EVENTFD_STATE 10",
 		"#define PAYLOAD_TLV_EVENTFD_STATE_ARG_INDEX 0xfffc",
 		"#define EVENTFD_STATE_SNAPSHOT_SIZE 16",
+		"#define PAYLOAD_TLV_KIND_NAMESPACE 11",
+		"#define PAYLOAD_TLV_NAMESPACE_ARG_INDEX 0xfffb",
+		"#define NAMESPACE_SNAPSHOT_SIZE 40",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated header missing %q:\n%s", want, got)
@@ -87,6 +90,9 @@ func TestWriteProtocolGo(t *testing.T) {
 		"payloadTLVKindFDPath = 9",
 		"payloadTLVKindEventFDState = 10",
 		"payloadTLVEventFDStateArgIndex = 0xfffc",
+		"payloadTLVKindNamespace = 11",
+		"payloadTLVNamespaceArgIndex = 0xfffb",
+		"namespaceSnapshotSize = 40",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated Go missing %q:\n%s", want, got)

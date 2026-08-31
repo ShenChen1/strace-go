@@ -58,6 +58,18 @@ type bpfPendingTaskState struct {
 		Tid       uint32
 		StackId   int32
 	}
+	NamespaceSnapshot struct {
+		_      structs.HostLayout
+		Flags  uint64
+		Cgroup uint32
+		Ipc    uint32
+		Mnt    uint32
+		Net    uint32
+		Pid    uint32
+		Time   uint32
+		Uts    uint32
+		User   uint32
+	}
 	Aux0  uint32
 	Valid uint32
 }
@@ -104,6 +116,7 @@ type bpfSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfProgramSpecs struct {
+	TraceNamespaceFork    *ebpf.ProgramSpec `ebpf:"trace_namespace_fork"`
 	TraceSchedProcessExec *ebpf.ProgramSpec `ebpf:"trace_sched_process_exec"`
 	TraceSchedProcessExit *ebpf.ProgramSpec `ebpf:"trace_sched_process_exit"`
 	TraceSchedProcessFork *ebpf.ProgramSpec `ebpf:"trace_sched_process_fork"`
@@ -249,6 +262,7 @@ type bpfVariables struct {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfPrograms struct {
+	TraceNamespaceFork    *ebpf.Program `ebpf:"trace_namespace_fork"`
 	TraceSchedProcessExec *ebpf.Program `ebpf:"trace_sched_process_exec"`
 	TraceSchedProcessExit *ebpf.Program `ebpf:"trace_sched_process_exit"`
 	TraceSchedProcessFork *ebpf.Program `ebpf:"trace_sched_process_fork"`
@@ -261,6 +275,7 @@ type bpfPrograms struct {
 
 func (p *bpfPrograms) Close() error {
 	return _BpfClose(
+		p.TraceNamespaceFork,
 		p.TraceSchedProcessExec,
 		p.TraceSchedProcessExit,
 		p.TraceSchedProcessFork,

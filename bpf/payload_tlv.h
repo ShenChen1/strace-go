@@ -20,6 +20,21 @@ struct eventfd_state_snapshot {
     u32 semaphore;
 };
 
+struct namespace_snapshot {
+    u64 flags;
+    u32 cgroup;
+    u32 ipc;
+    u32 mnt;
+    u32 net;
+    u32 pid;
+    u32 time;
+    u32 uts;
+    u32 user;
+};
+
+_Static_assert(sizeof(struct namespace_snapshot) == NAMESPACE_SNAPSHOT_SIZE,
+    "namespace snapshot size drift");
+
 struct payload_tlv_header {
     u16 kind;
     u16 arg_index;

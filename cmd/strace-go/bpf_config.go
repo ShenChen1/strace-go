@@ -19,6 +19,7 @@ type traceBPFConfig struct {
 	emitEnter                  bool
 	emitSignal                 bool
 	decodePIDsComm             bool
+	namespaceNew               bool
 	fdState                    bool
 	elidePlainEnter            bool
 	elideNonBlockingPlainEnter bool
@@ -50,6 +51,7 @@ func newTraceBPFConfig(opts *cli.Options) traceBPFConfig {
 		emitEnter:                  shouldEmitGenericEnter(opts),
 		emitSignal:                 shouldEmitSignalEvents(opts),
 		decodePIDsComm:             opts.DecodePIDsComm,
+		namespaceNew:               opts.NamespaceNew,
 		fdState:                    fdState,
 		elidePlainEnter:            shouldElidePlainEnter(opts, fdState),
 		elideNonBlockingPlainEnter: shouldElideNonBlockingPlainEnter(opts, fdState),

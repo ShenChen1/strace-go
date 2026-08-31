@@ -143,7 +143,7 @@ func setupBPFWithConfig(clock traceClock, config traceBPFConfig) (*traceBPFRunti
 		return nil, closeBPFSetupFailure("configure BPF route maps", err, nil, bundle)
 	}
 
-	attacher := newBpfAttacherWithPrograms(core, bundle.programs)
+	attacher := newBpfAttacherWithSelection(core, bundle.programs, selection)
 	if err := measureBPFSetupStage(clock, recorder, bpfSetupProgArraysStage, func() error {
 		return attacher.populateProgArraysFor(selection)
 	}); err != nil {
@@ -253,7 +253,7 @@ func buildBPFSelectionWithTiming(
 		if err != nil {
 			return err
 		}
-		routePlan = selectBPFRoutePlan(fullPlan, config)
+		routePlan = selectBPFRoutePlan(fullPlan, meta.SyscallTable, config)
 		selection, err = newBPFProgramSelection(routePlan, meta.SyscallTable, config)
 		return err
 	})

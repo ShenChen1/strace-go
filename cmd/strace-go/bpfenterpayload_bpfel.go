@@ -58,6 +58,18 @@ type bpfEnterPayloadPendingTaskState struct {
 		Tid       uint32
 		StackId   int32
 	}
+	NamespaceSnapshot struct {
+		_      structs.HostLayout
+		Flags  uint64
+		Cgroup uint32
+		Ipc    uint32
+		Mnt    uint32
+		Net    uint32
+		Pid    uint32
+		Time   uint32
+		Uts    uint32
+		User   uint32
+	}
 	Aux0  uint32
 	Valid uint32
 }

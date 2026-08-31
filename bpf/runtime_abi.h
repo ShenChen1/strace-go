@@ -53,6 +53,7 @@ struct pending_syscall {
 
 struct pending_task_state {
     struct pending_syscall syscall;
+    struct namespace_snapshot namespace_snapshot;
     u32 aux0;
     u32 valid;
 };

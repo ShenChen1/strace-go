@@ -116,6 +116,7 @@ type Options struct {
 	SyscallTimePrecision  string   // --syscall-times precision: s, ms, us, ns
 	PrintSyscallNumber    bool     // -n
 	InstructionPointer    bool     // -i
+	NamespaceNew          bool     // -e namespace=new, --namespace=new
 	PrintArgNames         bool     // -N
 	AlwaysShowPID         bool     // --always-show-pid
 	DecodePIDsComm        bool     // -Y, --decode-pids=comm

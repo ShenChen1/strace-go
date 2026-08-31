@@ -91,6 +91,7 @@ static __always_inline int save_pending_syscall_value(struct pending_syscall *pe
         return 0;
     }
     state->syscall = *pending;
+    state->namespace_snapshot = (struct namespace_snapshot){};
     state->aux0 = 0;
     state->valid = 1;
     if (pending->stack_id >= 0 &&

@@ -53,6 +53,7 @@ func (r *SyscallHandlerRunner) Handle(ev syscallEventContext) (handler.Result, b
 		return handler.Result{}, false
 	}
 	res := ev.handleWith(r.handleSyscall)
+	res = decorateNamespaceResult(res, ev.handlerContext)
 	r.update(ev)
 	return res, ev.shouldOutput()
 }
@@ -61,7 +62,8 @@ func (r *SyscallHandlerRunner) Decode(ev syscallEventContext) handler.Result {
 	if r == nil || !ev.shouldRunHandler() {
 		return handler.Result{}
 	}
-	return ev.handleWith(r.handleSyscall)
+	res := ev.handleWith(r.handleSyscall)
+	return decorateNamespaceResult(res, ev.handlerContext)
 }
 
 func (r *SyscallHandlerRunner) update(ev syscallEventContext) {

@@ -58,6 +58,18 @@ type bpfExitPendingTaskState struct {
 		Tid       uint32
 		StackId   int32
 	}
+	NamespaceSnapshot struct {
+		_      structs.HostLayout
+		Flags  uint64
+		Cgroup uint32
+		Ipc    uint32
+		Mnt    uint32
+		Net    uint32
+		Pid    uint32
+		Time   uint32
+		Uts    uint32
+		User   uint32
+	}
 	Aux0  uint32
 	Valid uint32
 }
@@ -113,6 +125,7 @@ type bpfExitProgramSpecs struct {
 	ExitMmsgFinal      *ebpf.ProgramSpec `ebpf:"exit_mmsg_final"`
 	ExitMountQuery     *ebpf.ProgramSpec `ebpf:"exit_mount_query"`
 	ExitMsg            *ebpf.ProgramSpec `ebpf:"exit_msg"`
+	ExitNamespace      *ebpf.ProgramSpec `ebpf:"exit_namespace"`
 	ExitNestedFdPath0  *ebpf.ProgramSpec `ebpf:"exit_nested_fd_path0"`
 	ExitNestedFdPath1  *ebpf.ProgramSpec `ebpf:"exit_nested_fd_path1"`
 	ExitNestedFdPath2  *ebpf.ProgramSpec `ebpf:"exit_nested_fd_path2"`
@@ -268,6 +281,7 @@ type bpfExitPrograms struct {
 	ExitMmsgFinal      *ebpf.Program `ebpf:"exit_mmsg_final"`
 	ExitMountQuery     *ebpf.Program `ebpf:"exit_mount_query"`
 	ExitMsg            *ebpf.Program `ebpf:"exit_msg"`
+	ExitNamespace      *ebpf.Program `ebpf:"exit_namespace"`
 	ExitNestedFdPath0  *ebpf.Program `ebpf:"exit_nested_fd_path0"`
 	ExitNestedFdPath1  *ebpf.Program `ebpf:"exit_nested_fd_path1"`
 	ExitNestedFdPath2  *ebpf.Program `ebpf:"exit_nested_fd_path2"`
@@ -290,6 +304,7 @@ func (p *bpfExitPrograms) Close() error {
 		p.ExitMmsgFinal,
 		p.ExitMountQuery,
 		p.ExitMsg,
+		p.ExitNamespace,
 		p.ExitNestedFdPath0,
 		p.ExitNestedFdPath1,
 		p.ExitNestedFdPath2,

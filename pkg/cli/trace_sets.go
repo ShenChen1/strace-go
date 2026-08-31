@@ -104,6 +104,8 @@ func parseEFlag(val string, opts *Options) {
 		parseDecodeFDValue(strings.TrimPrefix(val, "decode-fd="), opts)
 	case strings.HasPrefix(val, "decode-pids="):
 		parseDecodePIDs(strings.TrimPrefix(val, "decode-pids="), opts)
+	case strings.HasPrefix(val, "namespace="):
+		parseNamespaceSet(strings.TrimPrefix(val, "namespace="), opts)
 	case strings.HasPrefix(val, "inject="), strings.HasPrefix(val, "fault="):
 		name, value, _ := strings.Cut(val, "=")
 		rejectTamperingSelector("-e "+name, value)
@@ -118,6 +120,13 @@ func parseEFlag(val string, opts *Options) {
 	default:
 		parseTraceSet(val, opts)
 	}
+}
+
+func parseNamespaceSet(value string, opts *Options) {
+	if value != "new" {
+		failOption("invalid -e namespace= argument: '%s'", value)
+	}
+	opts.NamespaceNew = true
 }
 
 func rejectTamperingSelector(option, value string) {

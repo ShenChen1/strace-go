@@ -12,6 +12,15 @@ const (
 	bpfLifecycleTracepointCategory  = "sched"
 	bpfSignalDeliverProgramName     = "trace_signal_deliver"
 	bpfSignalGenerateProgramName    = "trace_signal_generate"
+	bpfNamespaceForkProgramName     = "trace_namespace_fork"
+	bpfNamespaceForkTracepoint      = "sched_process_fork"
+)
+
+type bpfProgramFeature uint8
+
+const (
+	bpfProgramFeatureRequired bpfProgramFeature = iota
+	bpfProgramFeatureNamespace
 )
 
 type bpfProgramAttachKind uint8
@@ -27,6 +36,7 @@ type bpfCoreProgramSpec struct {
 	attachKind bpfProgramAttachKind
 	category   string
 	tracepoint string
+	feature    bpfProgramFeature
 	lookup     func(*bpfObjects) *ebpf.Program
 }
 
@@ -78,6 +88,13 @@ var bpfCoreProgramCatalog = []bpfCoreProgramSpec{
 		attachKind: bpfProgramAttachRawTracepoint,
 		tracepoint: "signal_generate",
 		lookup:     func(objects *bpfObjects) *ebpf.Program { return objects.TraceSignalGenerate },
+	},
+	{
+		name:       bpfNamespaceForkProgramName,
+		attachKind: bpfProgramAttachRawTracepoint,
+		tracepoint: bpfNamespaceForkTracepoint,
+		feature:    bpfProgramFeatureNamespace,
+		lookup:     func(objects *bpfObjects) *ebpf.Program { return objects.TraceNamespaceFork },
 	},
 }
 

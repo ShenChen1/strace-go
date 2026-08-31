@@ -26,8 +26,9 @@ type rawTracepointSpec struct {
 // It keeps runtime loading separate from program-to-tracepoint wiring and
 // makes that wiring declarative and unit-testable.
 type bpfAttacher struct {
-	core     bpfMapProvider
-	programs bpfProgramProvider
+	core      bpfMapProvider
+	programs  bpfProgramProvider
+	selection bpfProgramSelection
 }
 
 func newBpfAttacher(core bpfCoreResourceProvider) *bpfAttacher {
@@ -39,6 +40,14 @@ func newBpfAttacherWithPrograms(
 	programs bpfProgramProvider,
 ) *bpfAttacher {
 	return &bpfAttacher{core: core, programs: programs}
+}
+
+func newBpfAttacherWithSelection(
+	core bpfMapProvider,
+	programs bpfProgramProvider,
+	selection bpfProgramSelection,
+) *bpfAttacher {
+	return &bpfAttacher{core: core, programs: programs, selection: selection}
 }
 
 // attachAll attaches every syscall, lifecycle, signal and recvmsg program.
@@ -76,7 +85,7 @@ func (a *bpfAttacher) attachRequired() ([]link.Link, error) {
 		return append(links, lifecycleLinks...), err
 	}
 	links = append(links, lifecycleLinks...)
-	signalLinks, err := attachRawTracepoints(signalRawTracepointSpecs(a.programs))
+	signalLinks, err := attachRawTracepoints(requiredRawTracepointSpecs(a.programs, a.selection))
 	if err != nil {
 		return append(links, signalLinks...), err
 	}
@@ -211,7 +220,8 @@ func lifecycleTracepointSpecs(programs bpfProgramProvider) []tracepointSpec {
 func signalRawTracepointSpecs(programs bpfProgramProvider) []rawTracepointSpec {
 	specs := make([]rawTracepointSpec, 0, 2)
 	for _, program := range bpfCoreProgramCatalog {
-		if program.attachKind != bpfProgramAttachRawTracepoint {
+		if program.attachKind != bpfProgramAttachRawTracepoint ||
+			program.feature != bpfProgramFeatureRequired {
 			continue
 		}
 		specs = append(specs, rawTracepointSpec{
@@ -220,6 +230,20 @@ func signalRawTracepointSpecs(programs bpfProgramProvider) []rawTracepointSpec {
 		})
 	}
 	return specs
+}
+
+func requiredRawTracepointSpecs(
+	programs bpfProgramProvider,
+	selection bpfProgramSelection,
+) []rawTracepointSpec {
+	specs := signalRawTracepointSpecs(programs)
+	if !selection.namespaceNew {
+		return specs
+	}
+	return append(specs, rawTracepointSpec{
+		program: bpfProgram(programs, bpfNamespaceForkProgramName),
+		name:    bpfNamespaceForkTracepoint,
+	})
 }
 
 func bpfCoreTracepointSpecs(programs bpfProgramProvider, category string) []tracepointSpec {
