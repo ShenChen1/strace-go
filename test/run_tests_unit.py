@@ -228,6 +228,11 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
         self.assertIn(test, upstream_suites.MORE_TESTS)
         self.assertIn(test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS)
 
+    def test_looping_threads_regression_is_registered(self):
+        test = "looping_threads.test"
+        self.assertIn(test, upstream_suites.MORE_TESTS)
+        self.assertIn(test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS)
+
     def test_trace_fds_regressions_are_registered(self):
         for test in (
             "dup-trace-fds-0.gen.test",
