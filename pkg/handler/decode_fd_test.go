@@ -65,3 +65,18 @@ func TestFormatFdWithSocketOnlyMode(t *testing.T) {
 		t.Fatalf("socket formatting = %q, want NETLINK details", got)
 	}
 }
+
+func TestFormatFdWithNetlinkPathPreservesSocketInode(t *testing.T) {
+	ctx := &Context{
+		Pid:       101,
+		TargetPid: 101,
+		Opts:      cli.ParseArgs([]string{"--decode-fds=path", "/bin/true"}),
+		EventFDView: testEventFDStateView{paths: map[int32]string{
+			8: "socket:[42]|AF_NETLINK:NETLINK_SOCK_DIAG|SOCK_DIAG:101",
+		}},
+	}
+
+	if got := FormatFdWithPath(ctx, 8); got != "8<socket:[42]>" {
+		t.Fatalf("netlink path formatting = %q, want socket inode", got)
+	}
+}

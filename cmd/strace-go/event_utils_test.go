@@ -251,11 +251,14 @@ func TestUpdateFDMapUsesNetlinkSockaddrPayloadSection(t *testing.T) {
 			}
 			sections := []handler.PayloadSection{netlinkSockaddrPayloadSectionForTest(test.direction, test.args[1], 42)}
 
-			fdMap := make(map[string]string)
+			fdMap := map[string]string{
+				"101:7": "socket:[3373601]|AF_NETLINK:NETLINK_SOCK_DIAG",
+			}
 			store := updateFDMapForTest(view, meta.Syscall{Name: test.name}, sections, "", 101, fdMap)
 
-			if got, ok := store.Path(101, 7); !ok || got != "socket:[SOCK_DIAG:42]|AF_NETLINK:NETLINK_SOCK_DIAG" {
-				t.Fatalf("fdMap[101:7] = %q, want NETLINK socket", got)
+			want := "socket:[3373601]|AF_NETLINK:NETLINK_SOCK_DIAG|SOCK_DIAG:42"
+			if got, ok := store.Path(101, 7); !ok || got != want {
+				t.Fatalf("fdMap[101:7] = %q, want %q", got, want)
 			}
 		})
 	}
@@ -341,7 +344,7 @@ func TestSyscallEventContextUpdateFDStateUsesViewForNetlinkFD(t *testing.T) {
 	store := newFDStateStoreFromMaps(fdMap, nil)
 	ev.updateFDState(store)
 
-	if got, ok := store.Path(101, 5); !ok || got != "socket:[SOCK_DIAG:42]|AF_NETLINK:NETLINK_SOCK_DIAG" {
+	if got, ok := store.Path(101, 5); !ok || got != "socket:[unknown]|AF_NETLINK:NETLINK_SOCK_DIAG|SOCK_DIAG:42" {
 		t.Fatalf("fdMap[101:5] = %q, want NETLINK socket from view fd", got)
 	}
 	if got, ok := store.Path(101, 7); ok && got != "" {

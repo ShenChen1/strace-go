@@ -191,10 +191,12 @@ func updateNetlinkFDMap(src fdStateSource, scMeta meta.Syscall, targetPid int, f
 		return
 	}
 	nlPid := binary.LittleEndian.Uint32(data[4:8])
-	fdMap[fmt.Sprintf("%d:%d", targetPid, fd)] = fmt.Sprintf(
-		"socket:[SOCK_DIAG:%d]|AF_NETLINK:NETLINK_SOCK_DIAG",
-		nlPid,
-	)
+	key := fmt.Sprintf("%d:%d", targetPid, fd)
+	base := "socket:[unknown]"
+	if parts := strings.Split(fdMap[key], "|"); len(parts) > 0 && strings.HasPrefix(parts[0], "socket:[") {
+		base = parts[0]
+	}
+	fdMap[key] = fmt.Sprintf("%s|AF_NETLINK:NETLINK_SOCK_DIAG|SOCK_DIAG:%d", base, nlPid)
 }
 
 func netlinkSockaddrPayload(src fdStateSource, scMeta meta.Syscall) ([]byte, bool) {

@@ -251,6 +251,18 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
                 test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
             )
 
+    def test_decode_fds_netlink_modes_are_registered(self):
+        for test in (
+            "net--decode-fds-all-netlink.gen.test",
+            "net--decode-fds-dev-netlink.gen.test",
+            "net--decode-fds-none-netlink.gen.test",
+            "net--decode-fds-path-netlink.gen.test",
+        ):
+            self.assertIn(test, upstream_suites.MORE_TESTS)
+            self.assertIn(
+                test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
+            )
+
     def test_non_ascii_character_escape_regression_is_registered(self):
         test = "strace--strings-in-hex-non-ascii-chars.gen.test"
         self.assertIn(test, upstream_suites.MORE_TESTS)

@@ -39,11 +39,11 @@ func TestNetworkFDUsesSelectedSocketDetails(t *testing.T) {
 	ctx.Args = [6]uint64{7, 0, 0}
 	ctx.Opts = cli.ParseArgs([]string{"--decode-fds=socket", "/bin/true"})
 	ctx.FDStateView = testFDStateView{paths: map[string]string{
-		"1234:7": "socket:[42]|AF_NETLINK:NETLINK_SOCK_DIAG",
+		"1234:7": "socket:[42]|AF_NETLINK:NETLINK_SOCK_DIAG|SOCK_DIAG:1234",
 	}}
 
 	got := (&NetworkHandler{}).Handle(ctx).ArgParts
-	if len(got) == 0 || got[0] != "7<NETLINK:[42]>" {
+	if len(got) == 0 || got[0] != "7<NETLINK:[SOCK_DIAG:1234]>" {
 		t.Fatalf("bind fd = %#v, want decorated netlink fd", got)
 	}
 }
