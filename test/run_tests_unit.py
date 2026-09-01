@@ -271,6 +271,8 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
 
     def test_output_alias_regressions_are_registered(self):
         tests = (
+            "strace--strings-in-hex.gen.test",
+            "strace--strings-in-hex-none.gen.test",
             "strace--strings-in-hex-all.gen.test",
             "strace--strings-in-hex-non-ascii.gen.test",
             "strace-no-x.gen.test",

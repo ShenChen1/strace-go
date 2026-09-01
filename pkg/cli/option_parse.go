@@ -252,7 +252,7 @@ func parseLongRenderOption(state *longOptionState) bool {
 		rejectLongValue(state.arg, state.hasInlineValue)
 		setFailedOnly(state.opts)
 	case "strings-in-hex":
-		parseStringsInHex(state.arg, optionalLongValue(state.inlineValue, state.hasInlineValue, "non-ascii"), state.opts)
+		parseStringsInHex(state.arg, optionalLongValue(state.inlineValue, state.hasInlineValue, "all"), state.opts)
 	default:
 		return false
 	}
@@ -408,6 +408,8 @@ func validateEventFormat(format string) {
 
 func parseStringsInHex(arg, value string, opts *Options) {
 	switch value {
+	case "none":
+		opts.HexEscapeMode = 0
 	case "non-ascii":
 		opts.HexEscapeMode = 1
 	case "non-ascii-chars":
