@@ -81,6 +81,11 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
         self.assertIn(test, upstream_suites.MORE_TESTS)
         self.assertGreaterEqual(run_tests.UPSTREAM_TEST_TIMEOUT_SECONDS[test], 180)
 
+    def test_descriptor_selector_syntax_is_registered(self):
+        test = "filtering_fd-syntax.test"
+        self.assertIn(test, upstream_suites.MORE_TESTS)
+        self.assertIn(test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS)
+
     def test_syscall_personality_regressions_are_candidates(self):
         for test in self.syscall_personality_regressions():
             self.assertIn(test, upstream_suites.MORE_TESTS)

@@ -1,11 +1,13 @@
 package cli
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 )
 
 const TraceAllFDs int32 = -1
+
+const descriptorLeadingWhitespace = " \t\n\r\v\f"
 
 // TraceReadFD reports whether read buffer dumps are enabled for fd.
 func (opts *Options) TraceReadFD(fd int32) bool {
@@ -29,35 +31,47 @@ func (opts *Options) TraceWriteFD(fd int32) bool {
 	return opts.TraceWriteFDs[TraceAllFDs] || opts.TraceWriteFDs[fd]
 }
 
-func parseReadWriteFDSet(val string, dst map[int32]bool) bool {
+// IMPACT: parseReadWriteFDSet owns upstream-compatible descriptor validation
+// for every read/write qualifier spelling.
+func parseReadWriteFDSet(value string, dst map[int32]bool) bool {
 	for fd := range dst {
 		delete(dst, fd)
 	}
-	val = strings.TrimSpace(val)
-	switch val {
+	switch value {
 	case "all", "!none":
 		dst[TraceAllFDs] = true
 		return false
-	case "", "none", "!all":
+	case "none", "!all":
 		return false
 	}
-	negated := strings.HasPrefix(val, "!")
+	original := value
+	negated := strings.HasPrefix(value, "!")
 	if negated {
-		val = strings.TrimPrefix(val, "!")
+		value = strings.TrimPrefix(value, "!")
 	}
-	for _, s := range strings.Split(val, ",") {
-		s = strings.TrimSpace(s)
-		switch s {
-		case "all":
-			dst[TraceAllFDs] = true
-			continue
-		case "", "none":
+	parsedAny := false
+	for _, descriptor := range strings.Split(value, ",") {
+		if descriptor == "" {
 			continue
 		}
-		var fd int32
-		if n, _ := fmt.Sscanf(s, "%d", &fd); n == 1 {
-			dst[fd] = true
+		fd, valid := parseDescriptor(descriptor)
+		if !valid {
+			failOption("invalid descriptor '%s'", descriptor)
 		}
+		dst[fd] = true
+		parsedAny = true
+	}
+	if !parsedAny {
+		failOption("invalid descriptor '%s'", original)
 	}
 	return negated
+}
+
+func parseDescriptor(value string) (int32, bool) {
+	normalized := strings.TrimLeft(value, descriptorLeadingWhitespace)
+	parsed, err := strconv.ParseInt(normalized, 10, 32)
+	if err != nil || parsed < 0 {
+		return 0, false
+	}
+	return int32(parsed), true
 }
