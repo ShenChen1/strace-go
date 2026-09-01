@@ -169,6 +169,17 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
                 test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
             )
 
+    def test_status_qualifier_regressions_are_registered(self):
+        for test in (
+            "status-successful-status.gen.test",
+            "status-failed-status.gen.test",
+            "status-unfinished.gen.test",
+        ):
+            self.assertIn(test, upstream_suites.MORE_TESTS)
+            self.assertIn(
+                test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
+            )
+
     def test_signal_delivery_regressions_are_registered(self):
         for test in (
             "qual_signal.test",
