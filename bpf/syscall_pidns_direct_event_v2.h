@@ -53,10 +53,35 @@ static __always_inline void capture_tracer_pid_namespace(
     config->ready = config->inum != 0;
 }
 
+static __always_inline void capture_pid_namespace_fork_child(
+    struct pending_task_state *state,
+    struct task_struct *child)
+{
+    if (!state || !state->valid || !child ||
+        (state->syscall.sys_id != SYS_FORK &&
+         state->syscall.sys_id != SYS_VFORK)) {
+        return;
+    }
+
+    u32 key = 0;
+    struct pid_namespace_config *config =
+        bpf_map_lookup_elem(&pid_namespace_config_map, &key);
+    struct pid *child_pid = BPF_CORE_READ(child, thread_pid);
+    u32 translated = 0;
+    if (read_pid_namespace_number(child_pid, config, &translated)) {
+        state->aux0 = translated;
+    }
+}
+
 static __always_inline int read_pid_namespace_snapshot(
     struct pending_syscall *pending,
     struct pid_namespace_snapshot *snapshot)
 {
+    if (pending->sys_id == SYS_FORK || pending->sys_id == SYS_VFORK) {
+        snapshot->tgid = lookup_pending_syscall_aux0(pending->tid);
+        return snapshot->tgid != 0;
+    }
+
     u32 key = 0;
     struct pid_namespace_config *config =
         bpf_map_lookup_elem(&pid_namespace_config_map, &key);

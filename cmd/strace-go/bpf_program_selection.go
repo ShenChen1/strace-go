@@ -17,7 +17,7 @@ type bpfProgramSelection struct {
 	recvmsgSlots     map[uint32]struct{}
 	mmsgByteSlots    map[uint32]struct{}
 	recvmsgKretprobe bool
-	namespaceNew     bool
+	forkSnapshot     bool
 }
 
 func selectBPFRoutePlan(
@@ -60,7 +60,7 @@ func useNamespaceExitRoutes(routes map[uint32]uint32, table map[uint32]meta.Sysc
 func usePIDNamespaceExitRoutes(routes map[uint32]uint32, table map[uint32]meta.Syscall) {
 	for id, syscall := range table {
 		switch syscall.Name {
-		case "getpid", "gettid":
+		case "getpid", "gettid", "fork", "vfork":
 			if _, exists := routes[id]; exists {
 				routes[id] = exitProgPIDNS
 			}
@@ -107,6 +107,7 @@ func newBPFProgramSelection(
 	table map[uint32]meta.Syscall,
 	config traceBPFConfig,
 ) (bpfProgramSelection, error) {
+	forkSnapshot := config.namespaceNew || config.decodePIDsPIDNS
 	selection := bpfProgramSelection{
 		loadAll:       shouldLoadAllBPFPrograms(config),
 		programs:      make(map[string]struct{}),
@@ -115,14 +116,14 @@ func newBPFProgramSelection(
 		exitSlots:     make(map[uint32]struct{}),
 		recvmsgSlots:  make(map[uint32]struct{}),
 		mmsgByteSlots: make(map[uint32]struct{}),
-		namespaceNew:  config.namespaceNew,
+		forkSnapshot:  forkSnapshot,
 	}
 	if selection.loadAll {
 		selection.recvmsgKretprobe = true
 		return selection, nil
 	}
 
-	if err := selection.addCorePrograms(config.fdState, config.namespaceNew); err != nil {
+	if err := selection.addCorePrograms(config.fdState, forkSnapshot); err != nil {
 		return bpfProgramSelection{}, err
 	}
 	for _, slot := range plan.enter {
@@ -153,7 +154,7 @@ func shouldLoadAllBPFPrograms(config traceBPFConfig) bool {
 	return config.fdState
 }
 
-func (s *bpfProgramSelection) addCorePrograms(fdState, namespaceNew bool) error {
+func (s *bpfProgramSelection) addCorePrograms(fdState, forkSnapshot bool) error {
 	for _, name := range []string{
 		"trace_sys_enter",
 		"trace_sys_exit",
@@ -166,7 +167,7 @@ func (s *bpfProgramSelection) addCorePrograms(fdState, namespaceNew bool) error 
 	} {
 		s.addProgram(name)
 	}
-	if namespaceNew {
+	if forkSnapshot {
 		s.addProgram(bpfNamespaceForkProgramName)
 	}
 	noPayloadSlot := uint32(enterProgNoPayloadGeneric)

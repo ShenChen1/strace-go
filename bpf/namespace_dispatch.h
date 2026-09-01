@@ -25,12 +25,14 @@ int trace_namespace_fork(struct bpf_raw_tracepoint_args *ctx)
     struct pending_task_state *state = current_pending_task_state();
     if (!state || !state->valid) return 0;
 
+    struct task_struct *child = (struct task_struct *)ctx->args[1];
+    capture_pid_namespace_fork_child(state, child);
+
     u64 flags = 0;
     if (!namespace_clone_flags(&state->syscall, &flags) ||
         !(flags & NAMESPACE_FLAG_MASK)) {
         return 0;
     }
-    struct task_struct *child = (struct task_struct *)ctx->args[1];
     if (read_namespace_snapshot(child, flags, &state->namespace_snapshot) < 0) {
         state->namespace_snapshot = (struct namespace_snapshot){};
     }

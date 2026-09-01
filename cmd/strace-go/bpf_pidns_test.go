@@ -24,8 +24,10 @@ func TestPIDNamespaceDecodingSelectsOnlyPIDReturnExitRoutes(t *testing.T) {
 	table := map[uint32]meta.Syscall{
 		1: {Name: "getpid"},
 		2: {Name: "gettid"},
-		3: {Name: "getppid"},
-		4: {Name: "read"},
+		3: {Name: "fork"},
+		4: {Name: "vfork"},
+		5: {Name: "getppid"},
+		6: {Name: "read"},
 	}
 	fullPlan, err := newBPFRoutePlan(table)
 	if err != nil {
@@ -33,12 +35,12 @@ func TestPIDNamespaceDecodingSelectsOnlyPIDReturnExitRoutes(t *testing.T) {
 	}
 	plain := selectBPFRoutePlan(fullPlan, table, traceBPFConfig{})
 	selected := selectBPFRoutePlan(fullPlan, table, traceBPFConfig{decodePIDsPIDNS: true})
-	for _, id := range []uint32{1, 2} {
+	for _, id := range []uint32{1, 2, 3, 4} {
 		if selected.exit[id] != exitProgPIDNS {
 			t.Fatalf("pid return exit route %d = %d, want %d", id, selected.exit[id], exitProgPIDNS)
 		}
 	}
-	for _, id := range []uint32{3, 4} {
+	for _, id := range []uint32{5, 6} {
 		if selected.exit[id] != plain.exit[id] {
 			t.Fatalf("unimplemented pidns exit route %d changed from %d to %d", id, plain.exit[id], selected.exit[id])
 		}
@@ -72,6 +74,12 @@ func TestPIDNamespacePayloadTLVAndReturnComment(t *testing.T) {
 	if got := pidNamespaceReturnComment("gettid", 1, ctx); got != " /* 501 in strace's PID NS */" {
 		t.Fatalf("gettid comment = %q", got)
 	}
+	if got := pidNamespaceReturnComment("fork", 2, ctx); got != " /* 502 in strace's PID NS */" {
+		t.Fatalf("fork comment = %q", got)
+	}
+	if got := pidNamespaceReturnComment("vfork", 2, ctx); got != " /* 502 in strace's PID NS */" {
+		t.Fatalf("vfork comment = %q", got)
+	}
 	if got := pidNamespaceReturnComment("getpid", 502, ctx); got != "" {
 		t.Fatalf("identity translation comment = %q, want empty", got)
 	}
@@ -80,20 +88,42 @@ func TestPIDNamespacePayloadTLVAndReturnComment(t *testing.T) {
 func TestPIDNamespaceBPFSourceUsesTracerNamespaceIdentity(t *testing.T) {
 	root := repoRootForTest(t)
 	sources := map[string]string{
-		"runtime": readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h")),
-		"capture": readTextFile(t, filepath.Join(root, "bpf/syscall_pidns_direct_event_v2.h")),
-		"exit":    readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h")),
+		"runtime":  readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h")),
+		"capture":  readTextFile(t, filepath.Join(root, "bpf/syscall_pidns_direct_event_v2.h")),
+		"forkHook": readTextFile(t, filepath.Join(root, "bpf/namespace_dispatch.h")),
+		"exit":     readTextFile(t, filepath.Join(root, "bpf/exit_dispatch.h")),
 	}
 	for name, snippets := range map[string][]string{
-		"runtime": {"pid_namespace_config_map", "struct pid_namespace_config"},
-		"capture": {"capture_tracer_pid_namespace", "!config->nonce", "read_pid_namespace_number", "PAYLOAD_TLV_KIND_PID_NAMESPACE", "emit_pid_namespace_exit_event_v2_direct"},
-		"exit":    {"int exit_pid_namespace(", "emit_pid_namespace_exit_event_v2_direct", "consume_pending_syscall"},
+		"runtime":  {"pid_namespace_config_map", "struct pid_namespace_config"},
+		"capture":  {"capture_tracer_pid_namespace", "!config->nonce", "read_pid_namespace_number", "PAYLOAD_TLV_KIND_PID_NAMESPACE", "emit_pid_namespace_exit_event_v2_direct"},
+		"forkHook": {"capture_pid_namespace_fork_child", "ctx->args[1]"},
+		"exit":     {"int exit_pid_namespace(", "emit_pid_namespace_exit_event_v2_direct", "consume_pending_syscall"},
 	} {
 		for _, snippet := range snippets {
 			if !strings.Contains(sources[name], snippet) {
 				t.Fatalf("%s pidns source missing %q", name, snippet)
 			}
 		}
+	}
+}
+
+func TestPIDNamespaceProgramSelectionIncludesForkSnapshotHook(t *testing.T) {
+	table := map[uint32]meta.Syscall{1: {Name: "fork"}}
+	fullPlan, err := newBPFRoutePlan(table)
+	if err != nil {
+		t.Fatalf("newBPFRoutePlan() error = %v", err)
+	}
+	config := traceBPFConfig{decodePIDsPIDNS: true}
+	plan := selectBPFRoutePlan(fullPlan, table, config)
+	selection, err := newBPFProgramSelection(plan, table, config)
+	if err != nil {
+		t.Fatalf("pidns selection error = %v", err)
+	}
+	if !selection.hasProgram(bpfNamespaceForkProgramName) || !selection.hasProgram("exit_pid_namespace") {
+		t.Fatalf("pidns selection = %#v, want fork snapshot hook and exit handler", selection.programs)
+	}
+	if !rawTracepointSpecNames(requiredRawTracepointSpecs(&bpfObjects{}, selection))[bpfNamespaceForkTracepoint] {
+		t.Fatal("pidns attachment is missing sched_process_fork raw tracepoint")
 	}
 }
 

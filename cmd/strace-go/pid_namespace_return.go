@@ -22,7 +22,7 @@ func pidNamespaceReturnComment(syscallName string, ret int64, ctx *handler.Conte
 	}
 	var translated uint32
 	switch syscallName {
-	case "getpid":
+	case "getpid", "fork", "vfork":
 		translated = binary.LittleEndian.Uint32(data[pidNamespaceTGIDOffset:])
 	case "gettid":
 		translated = binary.LittleEndian.Uint32(data[pidNamespaceTIDOffset:])

@@ -20,7 +20,7 @@ type bpfProgramFeature uint8
 
 const (
 	bpfProgramFeatureRequired bpfProgramFeature = iota
-	bpfProgramFeatureNamespace
+	bpfProgramFeatureForkSnapshot
 )
 
 type bpfProgramAttachKind uint8
@@ -93,7 +93,7 @@ var bpfCoreProgramCatalog = []bpfCoreProgramSpec{
 		name:       bpfNamespaceForkProgramName,
 		attachKind: bpfProgramAttachRawTracepoint,
 		tracepoint: bpfNamespaceForkTracepoint,
-		feature:    bpfProgramFeatureNamespace,
+		feature:    bpfProgramFeatureForkSnapshot,
 		lookup:     func(objects *bpfObjects) *ebpf.Program { return objects.TraceNamespaceFork },
 	},
 }

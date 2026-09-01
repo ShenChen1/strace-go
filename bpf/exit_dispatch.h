@@ -262,7 +262,8 @@ int exit_namespace(struct trace_event_raw_sys_exit *ctx) {
 SEC("tracepoint/raw_syscalls/sys_exit")
 int exit_pid_namespace(struct trace_event_raw_sys_exit *ctx) {
     u32 sys_id = (u32)ctx->id;
-    if (sys_id != SYS_GETPID && sys_id != SYS_GETTID) {
+    if (sys_id != SYS_GETPID && sys_id != SYS_GETTID &&
+        sys_id != SYS_FORK && sys_id != SYS_VFORK) {
         return 0;
     }
     EXIT_PROLOGUE(ctx, ret_value, tid, pid, p, is_pending_lookup, pending_tid);

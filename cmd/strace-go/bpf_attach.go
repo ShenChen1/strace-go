@@ -237,7 +237,7 @@ func requiredRawTracepointSpecs(
 	selection bpfProgramSelection,
 ) []rawTracepointSpec {
 	specs := signalRawTracepointSpecs(programs)
-	if !selection.namespaceNew {
+	if !selection.forkSnapshot {
 		return specs
 	}
 	return append(specs, rawTracepointSpec{
