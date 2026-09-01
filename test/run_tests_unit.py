@@ -218,6 +218,11 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
                 test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
             )
 
+    def test_pidns_cache_regression_is_registered(self):
+        test = "pidns-cache.test"
+        self.assertIn(test, upstream_suites.MORE_TESTS)
+        self.assertIn(test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS)
+
     def test_quiet_thread_execve_regression_is_registered(self):
         test = "maybe_switch_current_tcp--quiet-thread-execve.gen.test"
         self.assertIn(test, upstream_suites.MORE_TESTS)
