@@ -27,11 +27,11 @@ func TestRuntimeDebugWriterReportsOnlyUnknownSyscalls(t *testing.T) {
 	}
 }
 
-func TestRuntimeDebugBypassesOnlyBPFSyscallPreFilter(t *testing.T) {
+func TestRuntimeDebugPreservesBPFSelectorAndUnknownOutput(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-d", "--trace=none", "/bin/true"})
 	config := newTraceBPFConfig(opts)
-	if config.syscallFilter.enabled {
-		t.Fatal("runtime debug retained BPF syscall pre-filter")
+	if !config.syscallFilter.enabled {
+		t.Fatal("runtime debug disabled the BPF syscall pre-filter")
 	}
 	eventPolicy := newTraceEventPolicy(opts)
 	filter := eventPolicy.FilterOptions()

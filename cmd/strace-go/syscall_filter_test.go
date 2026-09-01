@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"strace-go/pkg/cli"
+	"strace-go/pkg/meta"
 )
 
 func TestBuildSyscallFilterPlanExplicitTrace(t *testing.T) {
@@ -60,6 +61,28 @@ func TestBuildSyscallFilterPlanTraceNoneRejectsAll(t *testing.T) {
 
 	if !plan.enabled || plan.negated || len(plan.ids) != 0 {
 		t.Fatalf("trace=none plan = %+v, want enabled empty include filter", plan)
+	}
+}
+
+func TestMaterializeSyscallFilterEntriesDistinguishesUnknownIDs(t *testing.T) {
+	plan := syscallFilterPlan{enabled: true, ids: []uint32{9}}
+	table := map[uint32]meta.Syscall{
+		1: {Name: "read"},
+		9: {Name: "write"},
+	}
+
+	entries := materializeSyscallFilterEntries(plan, table)
+	want := []syscallFilterEntry{
+		{id: 1, selected: 0},
+		{id: 9, selected: 1},
+	}
+	if len(entries) != len(want) {
+		t.Fatalf("filter entries = %+v, want %+v", entries, want)
+	}
+	for index := range want {
+		if entries[index] != want[index] {
+			t.Fatalf("filter entry %d = %+v, want %+v", index, entries[index], want[index])
+		}
 	}
 }
 

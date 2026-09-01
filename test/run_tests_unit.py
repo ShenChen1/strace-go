@@ -86,6 +86,13 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
         self.assertIn(test, upstream_suites.MORE_TESTS)
         self.assertIn(test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS)
 
+    def test_unknown_syscall_regressions_are_registered(self):
+        for test in ("nsyscalls.test", "nsyscalls-nd.test", "nsyscalls-d.test"):
+            self.assertIn(test, upstream_suites.MORE_TESTS)
+            self.assertIn(
+                test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
+            )
+
     def test_syscall_personality_regressions_are_candidates(self):
         for test in self.syscall_personality_regressions():
             self.assertIn(test, upstream_suites.MORE_TESTS)

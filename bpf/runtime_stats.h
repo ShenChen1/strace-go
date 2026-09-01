@@ -7,11 +7,16 @@ static __always_inline int should_trace_syscall(u32 sys_id, u32 *cfg)
         return 1;
     }
 
-    u32 *enabled = bpf_map_lookup_elem(&syscall_filter_map, &sys_id);
-    if (*cfg & CONFIG_SYSCALL_FILTER_NEGATED) {
-        return enabled ? 0 : 1;
+    u32 *selected = bpf_map_lookup_elem(&syscall_filter_map, &sys_id);
+    // A missing key is outside generated syscall metadata, so name filters
+    // cannot classify it and must preserve the event for generic decoding.
+    if (!selected) {
+        return 1;
     }
-    return enabled ? 1 : 0;
+    if (*cfg & CONFIG_SYSCALL_FILTER_NEGATED) {
+        return *selected ? 0 : 1;
+    }
+    return *selected ? 1 : 0;
 }
 
 static __always_inline int is_fd_state_direct_syscall(u32 sys_id)

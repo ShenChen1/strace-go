@@ -24,6 +24,11 @@ type syscallFilterPlan struct {
 	ids     []uint32
 }
 
+type syscallFilterEntry struct {
+	id       uint32
+	selected uint32
+}
+
 func buildSyscallFilterPlan(input syscallFilterInput) syscallFilterPlan {
 	if !input.configured || input.matchesAll {
 		return syscallFilterPlan{}
@@ -94,6 +99,31 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
+// IMPACT: every known syscall gets an explicit selection value so a BPF map
+// miss uniquely identifies an unknown syscall that must bypass name filters.
+func materializeSyscallFilterEntries(
+	plan syscallFilterPlan,
+	table map[uint32]meta.Syscall,
+) []syscallFilterEntry {
+	if !plan.enabled {
+		return nil
+	}
+	selected := make(map[uint32]bool, len(plan.ids))
+	for _, id := range plan.ids {
+		selected[id] = true
+	}
+	entries := make([]syscallFilterEntry, 0, len(table))
+	for id := range table {
+		value := uint32(0)
+		if selected[id] {
+			value = 1
+		}
+		entries = append(entries, syscallFilterEntry{id: id, selected: value})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].id < entries[j].id })
+	return entries
+}
+
 func configureSyscallFilter(plan syscallFilterPlan, maps bpfMapProvider) (uint32, error) {
 	if !plan.enabled {
 		return 0, nil
@@ -106,9 +136,8 @@ func configureSyscallFilter(plan syscallFilterPlan, maps bpfMapProvider) (uint32
 		return 0, fmt.Errorf("BPF syscall filter map is unavailable")
 	}
 
-	var one uint32 = 1
-	for _, id := range plan.ids {
-		if err := filterMap.Update(id, one, ebpf.UpdateAny); err != nil {
+	for _, entry := range materializeSyscallFilterEntries(plan, meta.SyscallTable) {
+		if err := filterMap.Update(entry.id, entry.selected, ebpf.UpdateAny); err != nil {
 			return 0, err
 		}
 	}
