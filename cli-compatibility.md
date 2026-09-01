@@ -20,7 +20,7 @@
 | 启动 | `-E/--env`、`-p/--attach` | 应实现 | `strace-E*`、`strace-p`、attach tests |
 | 启动 | `-u/--user`、`--argv0` | 应实现 | `options-syntax`、`strace--argv0` |
 | 追踪 | `-b/--detach-on=execve` | 应实现 | `options-syntax` 加 exec lifecycle 回归 |
-| 追踪 | `-D/-DD/-DDD/--daemonize` | 应实现 | `strace-D/DD/DDD` |
+| 追踪 | `-D/-DD/-DDD/--daemonize` | 架构冲突 | upstream 契约依赖 `/proc/*/TracerPid` 的 ptrace 父子关系 |
 | 追踪 | `-f/--follow-forks`、`-ff/--output-separately` | 应实现 | `fork-f`、`vfork-f`、`strace-ff` |
 | 追踪 | `--kill-on-exit` | 应实现 | `options-syntax` 加真实信号回归 |
 | 追踪 | `-I/--interruptible` | 架构冲突 | 该选项控制 ptrace wait/解码期间的 signal blocking |

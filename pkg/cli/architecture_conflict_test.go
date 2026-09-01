@@ -12,6 +12,8 @@ func TestParseArchitectureConflictsRejected(t *testing.T) {
 	caseID := os.Getenv("STRACE_GO_PARSE_CONFLICT")
 	if caseID != "" {
 		argsByCase := map[string][]string{
+			"daemon_short":  {"-DDD", "/bin/true"},
+			"daemon_long":   {"--daemonize=session", "/bin/true"},
 			"interruptible": {"--interruptible=waiting", "/bin/true"},
 			"overhead":      {"--summary-syscall-overhead=1us", "/bin/true"},
 			"seccomp":       {"--seccomp-bpf", "/bin/true"},
@@ -42,6 +44,8 @@ func TestParseArchitectureConflictsRejected(t *testing.T) {
 
 func architectureConflictCases() []struct{ name, want string } {
 	return []struct{ name, want string }{
+		{name: "daemon_short", want: "ptrace TracerPid parentage"},
+		{name: "daemon_long", want: "ptrace TracerPid parentage"},
 		{name: "interruptible", want: "ptrace stop signal blocking"},
 		{name: "overhead", want: "no ptrace syscall-stop overhead"},
 		{name: "seccomp", want: "filtering already occurs in eBPF"},

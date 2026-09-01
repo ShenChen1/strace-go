@@ -58,6 +58,8 @@ func applyShortControlFlag(flag byte, opts *Options) bool {
 		opts.WallTime = true
 	case 'd':
 		opts.RuntimeDebug = true
+	case 'D':
+		rejectDaemonizeConflict()
 	case 'h':
 		opts.HelpRequested = true
 	case 'V':
@@ -190,6 +192,8 @@ func parseLongControlOption(state *longOptionState) bool {
 	case "debug":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		state.opts.RuntimeDebug = true
+	case "daemonize":
+		rejectDaemonizeConflict()
 	case "tips":
 		parseTipsOption(optionalLongValue(state.inlineValue, state.hasInlineValue, ""), state.opts)
 	case "help":
@@ -456,4 +460,8 @@ func failOption(format string, args ...any) {
 
 func rejectArchitectureConflict(option, reason string) {
 	failOption("option '%s' conflicts with pure eBPF tracing: %s", option, reason)
+}
+
+func rejectDaemonizeConflict() {
+	rejectArchitectureConflict("-D/--daemonize", "upstream semantics require ptrace TracerPid parentage")
 }
