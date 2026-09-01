@@ -29,4 +29,5 @@ func (r *TextRenderer) PrintSignalEvent(view signalEventView, signalName string)
 	fmt.Fprintf(r.out, "%s%s%s--- %s {%s} ---\n",
 		r.timePrefix(view.enterTime), r.pidPrefix(int(view.tid)),
 		r.instructionPointerPrefix(stack), signalName, strings.Join(fields, ", "))
+	r.printStackTrace(stack)
 }

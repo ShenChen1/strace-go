@@ -46,6 +46,11 @@
 | 杂项 | `--seccomp-bpf` | 架构冲突 | eBPF syscall filter 已在 probe 入口执行，无 ptrace stop 可优化 |
 | 杂项 | `--tips`、`-h`、`-V` | 应实现 | `strace--tips*`、help/version tests |
 
+`--stack-trace-frame-limit` 适用于现有纯 eBPF 地址栈：默认上限为 256，用户态输出在
+指定帧数后截断。`strace-k-with-depth-limit.test` 还强制断言 tracee ELF 符号与精确
+ptrace signal-stop 栈，因此只登记为具名 XFAIL；地址帧截断由 event-snapshot semantic
+测试负责，不以 procfs/ELF fallback 消除该差异。
+
 ## 当前 ABI designator 边界
 
 `@64`、`@32` 和 `@x32` 已进入统一 syscall selector parser：native personality

@@ -50,6 +50,8 @@ const (
 
 const hexEscapeModeNonASCIIChars = 3
 
+const DefaultStackTraceFrameLimit = 256
+
 // Options holds all parsed command-line options.
 type Options struct {
 	CmdArgs               []string
@@ -128,6 +130,8 @@ type Options struct {
 	KillOnExit            bool     // --kill-on-exit
 	SyscallLimit          uint64   // --syscall-limit; zero disables the limit
 	StackTrace            bool     // -k, --stack-trace
+	StackFrameLimit       int      // maximum address frames printed by -k
+	StackFrameLimitSet    bool     // --stack-trace-frame-limit was explicit
 	SuccessfulOnly        bool     // -z
 	FailedOnly            bool     // -Z
 	EnvActions            []string // -E
@@ -143,6 +147,7 @@ func ParseArgs(args []string) *Options {
 	opts := &Options{
 		AlignCol:         40,
 		StringLimit:      32,
+		StackFrameLimit:  DefaultStackTraceFrameLimit,
 		HexEscapeMode:    0,
 		EventFormat:      EventFormatText,
 		ColorMode:        ColorModeAuto,

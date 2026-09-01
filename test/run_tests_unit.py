@@ -207,6 +207,14 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
         self.assertIn(test, upstream_suites.MORE_TESTS)
         self.assertIn(test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS)
 
+    def test_address_stack_depth_limit_gap_is_explicit(self):
+        test = "strace-k-with-depth-limit.test"
+        self.assertIn(test, upstream_suites.MORE_TESTS)
+        self.assertIn(test, upstream_suites.MORE_EXPECTED_FAILURES)
+        self.assertNotIn(
+            test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
+        )
+
     def test_namespace_new_regressions_are_registered(self):
         for test in (
             "clone3-report-ns-id.gen.test",

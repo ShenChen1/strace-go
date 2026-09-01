@@ -65,6 +65,7 @@ type traceRenderOptions struct {
 	instructionPointer   bool
 	printArgNames        bool
 	stackTrace           bool
+	stackTraceFrameLimit int
 	quietThreadExecve    bool
 	decodePIDsComm       bool
 	decodePIDsPIDNS      bool
@@ -188,11 +189,19 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 			instructionPointer:   opts.InstructionPointer,
 			printArgNames:        opts.PrintArgNames,
 			stackTrace:           opts.StackTrace,
+			stackTraceFrameLimit: normalizedStackTraceFrameLimit(opts.StackFrameLimit),
 			quietThreadExecve:    opts.QuietThreadExecve,
 			decodePIDsComm:       opts.DecodePIDsComm,
 			decodePIDsPIDNS:      opts.DecodePIDsPIDNS,
 		},
 	}
+}
+
+func normalizedStackTraceFrameLimit(limit int) int {
+	if limit <= 0 {
+		return cli.DefaultStackTraceFrameLimit
+	}
+	return limit
 }
 
 func normalizedTimeOptions(opts *cli.Options) traceTimeOptions {

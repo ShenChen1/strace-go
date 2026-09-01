@@ -296,6 +296,7 @@ UPSTREAM_REFERENCE_EXPECTED_FAILURES = {
 MORE_EXPECTED_FAILURES = {
     "read-write.gen.test": "bounded eBPF snapshot does not promise ptrace-sized read/write hexdump fetches",
     "attach-p-cmd.test": "pure eBPF does not promise exact cross-task lifecycle exit ordering",
+    "strace-k-with-depth-limit.test": "pure eBPF address stacks do not resolve tracee ELF symbols or ptrace signal-stop stacks",
 }
 
 # This test is scheduler-sensitive: the same pure-eBPF implementation can
@@ -474,6 +475,7 @@ MORE_TESTS = [
     "strace-t.test",
     "strace-tt.test",
     "strace-ttt.test",
+    "strace-k-with-depth-limit.test",
     "strace-T_upper.test",
     "strace--relative-timestamps.gen.test",
     "strace--relative-timestamps-ms.gen.test",

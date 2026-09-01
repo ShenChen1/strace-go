@@ -52,6 +52,9 @@ func validateParsedOptions(opts *Options) {
 	if opts == nil || opts.HelpRequested || opts.VersionLevel > 0 {
 		return
 	}
+	if opts.StackFrameLimitSet && !opts.StackTrace {
+		warnOption("--stack-trace-frame-limit has no effect without -k/--stack-trace")
+	}
 	if opts.WallTime && !opts.SummaryOnly && !opts.SummaryAndPrint {
 		failOptionWithHelp("-w/--summary-wall-clock must be given with (-c/--summary-only or -C/--summary)")
 	}

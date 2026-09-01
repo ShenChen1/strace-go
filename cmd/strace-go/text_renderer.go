@@ -387,8 +387,13 @@ func (r *TextRenderer) printStackTrace(snapshot traceStackSnapshot) {
 	if !r.renderOptions().stackTrace || !snapshot.available || r.resolver == nil {
 		return
 	}
-	for _, ip := range snapshot.ips {
+	limit := r.renderOptions().stackTraceFrameLimit
+	for index, ip := range snapshot.ips {
 		if ip == 0 {
+			break
+		}
+		if index >= limit {
+			fmt.Fprintln(r.out, " > too many stack frames")
 			break
 		}
 		fmt.Fprintf(r.out, " > %s\n", r.resolver.Resolve(ip))

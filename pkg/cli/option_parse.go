@@ -275,6 +275,9 @@ func parseLongValueOption(state *longOptionState) bool {
 		applyValueOption("-U", requiredLongValue(state), state.opts)
 	case "syscall-limit":
 		state.opts.SyscallLimit = parseSyscallLimit(requiredLongValue(state))
+	case "stack-trace-frame-limit":
+		state.opts.StackFrameLimit = parseStackTraceFrameLimit(requiredLongValue(state))
+		state.opts.StackFrameLimitSet = true
 	case "interruptible":
 		requiredLongValue(state)
 		rejectArchitectureConflict("-I/--interruptible", "it controls ptrace stop signal blocking")
@@ -388,6 +391,14 @@ func parseBoundedInt(value string, minimum, maximum int, label string) int {
 	return int(parsed)
 }
 
+func parseStackTraceFrameLimit(value string) int {
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed < 1 || parsed > maxStringLimit {
+		failOptionWithHelp("invalid --stack-trace-frame-limit argument: '%s'", value)
+	}
+	return int(parsed)
+}
+
 func validateXlatFormat(value string) {
 	switch value {
 	case "raw", "abbrev", "verbose":
@@ -464,6 +475,10 @@ func failOptionWithHelp(format string, args ...any) {
 	failMessage := fmt.Sprintf(format, args...)
 	fmt.Fprintf(os.Stderr, "%s: %s\nTry '%s -h' for more information.\n", os.Args[0], failMessage, os.Args[0])
 	os.Exit(1)
+}
+
+func warnOption(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "%s: %s\n", os.Args[0], fmt.Sprintf(format, args...))
 }
 
 func rejectArchitectureConflict(option, reason string) {
