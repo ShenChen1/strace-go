@@ -1,6 +1,10 @@
 package main
 
-import "strace-go/pkg/handler"
+import (
+	"fmt"
+
+	"strace-go/pkg/handler"
+)
 
 type SyscallHandlerRunner struct {
 	handleSyscall func(string, *handler.Context) handler.Result
@@ -44,6 +48,10 @@ func (s *traceSession) syscallHandlerRunner() *SyscallHandlerRunner {
 
 // IMPACT: Handle owns handler decoding and FD state side effects for syscall exit events.
 func (r *SyscallHandlerRunner) Handle(ev syscallEventContext) (handler.Result, bool) {
+	if isUnknownSyscallName(ev.syscallName()) {
+		r.update(ev)
+		return formatUnknownSyscallArguments(ev.view), ev.shouldOutput()
+	}
 	if ev.handlerContext == nil {
 		r.update(ev)
 		return handler.Result{}, ev.shouldOutput()
@@ -56,6 +64,14 @@ func (r *SyscallHandlerRunner) Handle(ev syscallEventContext) (handler.Result, b
 	res = decorateNamespaceResult(res, ev.handlerContext)
 	r.update(ev)
 	return res, ev.shouldOutput()
+}
+
+func formatUnknownSyscallArguments(view syscallEventView) handler.Result {
+	parts := make([]string, len(view.args))
+	for index, argument := range view.args {
+		parts[index] = fmt.Sprintf("%#x", argument)
+	}
+	return handler.Result{ArgParts: parts}
 }
 
 func (r *SyscallHandlerRunner) Decode(ev syscallEventContext) handler.Result {

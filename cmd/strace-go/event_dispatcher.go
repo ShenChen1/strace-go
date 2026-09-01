@@ -6,6 +6,7 @@ type TraceEventDispatcher struct {
 	lifecycle    lifecycleEventSink
 	signal       signalEventSink
 	json         syscallEnterSink
+	runtimeDebug traceRuntimeDebugObserver
 	pipeline     syscallExitSink
 	syscallLimit traceSyscallLimitObserver
 	detachOnExec traceDetachOnExecveObserver
@@ -19,6 +20,7 @@ type TraceEventDispatcherDeps struct {
 	Lifecycle      lifecycleEventSink
 	Signal         signalEventSink
 	JSON           syscallEnterSink
+	RuntimeDebug   traceRuntimeDebugObserver
 	Pipeline       syscallExitSink
 	SyscallLimit   traceSyscallLimitObserver
 	DetachOnExecve traceDetachOnExecveObserver
@@ -33,6 +35,7 @@ func newTraceEventDispatcher(deps TraceEventDispatcherDeps) *TraceEventDispatche
 		lifecycle:    deps.Lifecycle,
 		signal:       deps.Signal,
 		json:         deps.JSON,
+		runtimeDebug: deps.RuntimeDebug,
 		pipeline:     deps.Pipeline,
 		syscallLimit: deps.SyscallLimit,
 		detachOnExec: deps.DetachOnExecve,
@@ -114,6 +117,9 @@ func (d *TraceEventDispatcher) handleLifecycle(update TraceStateUpdate) {
 }
 
 func (d *TraceEventDispatcher) handleEnter(update TraceStateUpdate, statePID int) {
+	if d.runtimeDebug != nil {
+		d.runtimeDebug.Observe(update.syscallView)
+	}
 	if d.json == nil {
 		return
 	}

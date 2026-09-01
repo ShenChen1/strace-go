@@ -9,6 +9,10 @@ type syscallEnterSink interface {
 	HandleEnter(syscallEventContext)
 }
 
+type traceRuntimeDebugObserver interface {
+	Observe(syscallEventView)
+}
+
 type syscallExitSink interface {
 	Handle(syscallEventContext)
 	HandleUnfinished(syscallEventContext) bool

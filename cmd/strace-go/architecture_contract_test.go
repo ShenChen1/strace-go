@@ -200,6 +200,9 @@ var traceArchitectureSessionDependencyContracts = [...]architectureSessionDepend
 	{field: "Resolver", typeName: "traceSymbolResolver"},
 	{field: "State", typeName: "traceStateOwner"},
 	{field: "Clock", typeName: "traceClock"},
+	{field: "RuntimeDebug", typeName: "bool"},
+	{field: "DebugOutput", typeName: "io.Writer"},
+	{field: "ProgramName", typeName: "string"},
 	{field: "SyscallMetadata", typeName: "*syscallMetadataTable"},
 }
 

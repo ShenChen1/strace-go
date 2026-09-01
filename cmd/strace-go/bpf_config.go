@@ -42,6 +42,11 @@ func newTraceBPFConfig(opts *cli.Options) traceBPFConfig {
 		negated:    opts.TraceSetIsNegated,
 	}
 	syscallFilter := buildSyscallFilterPlan(filterInput)
+	if opts.RuntimeDebug {
+		// Runtime diagnostics must observe unknown syscall IDs before the Go
+		// output policy applies the user's trace selector.
+		syscallFilter = syscallFilterPlan{}
+	}
 	if opts.DetachOnExecve {
 		syscallFilter = includeSyscalls(syscallFilter, "execve", "execveat")
 	}

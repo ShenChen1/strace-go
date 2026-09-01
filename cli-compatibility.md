@@ -42,7 +42,7 @@
 | 统计 | `-O/--summary-syscall-overhead` | 架构冲突 | 不存在需要扣除的 ptrace syscall-stop overhead |
 | 停止 | `--syscall-limit` | 应实现 | `strace--syscall-limit*` |
 | 修改 | `inject`、`fault`、delay、poke | 架构冲突 | 需要修改 syscall 结果、时序、signal 或 tracee 内存 |
-| 杂项 | `-d/--debug` | 应实现为 eBPF runtime debug | 本地 debug contract；不伪造 ptrace diagnostics |
+| 杂项 | `-d/--debug` | 应实现为 eBPF runtime debug | `nsyscalls-d` 加本地 debug contract；不伪造 ptrace diagnostics |
 | 杂项 | `--seccomp-bpf` | 架构冲突 | eBPF syscall filter 已在 probe 入口执行，无 ptrace stop 可优化 |
 | 杂项 | `--tips`、`-h`、`-V` | 应实现 | `strace--tips*`、help/version tests |
 

@@ -56,6 +56,8 @@ func applyShortControlFlag(flag byte, opts *Options) bool {
 		setSummaryAndPrint(opts)
 	case 'w':
 		opts.WallTime = true
+	case 'd':
+		opts.RuntimeDebug = true
 	case 'h':
 		opts.HelpRequested = true
 	case 'V':
@@ -185,6 +187,9 @@ func parseLongControlOption(state *longOptionState) bool {
 	case "summary-wall-clock":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		state.opts.WallTime = true
+	case "debug":
+		rejectLongValue(state.arg, state.hasInlineValue)
+		state.opts.RuntimeDebug = true
 	case "tips":
 		parseTipsOption(optionalLongValue(state.inlineValue, state.hasInlineValue, ""), state.opts)
 	case "help":

@@ -60,6 +60,7 @@ type Options struct {
 	EventFormat           string
 	DebugEvents           bool
 	DebugPhases           bool
+	RuntimeDebug          bool
 	ColorMode             string
 	TipsMode              string
 	TipsID                int

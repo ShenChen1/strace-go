@@ -197,7 +197,8 @@ func newTraceFilterOptions(opts *cli.Options) traceFilterOptions {
 	traceConfigured := opts.TraceConfigured || opts.TraceSetIsNegated ||
 		len(opts.TraceSyscalls) > 0 || len(opts.TraceSyscallRegexps) > 0
 	filter := &cliTraceFilter{
-		debug: opts.DebugEvents,
+		debug:        opts.DebugEvents,
+		runtimeDebug: opts.RuntimeDebug,
 		unfiltered: (!traceConfigured || opts.TraceMatchesAll) &&
 			len(opts.TraceFDs) == 0 &&
 			!opts.TraceFDsNegated &&

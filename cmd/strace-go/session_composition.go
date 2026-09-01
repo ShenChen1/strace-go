@@ -106,6 +106,9 @@ func composeTraceSession(
 		Resolver:      config.resolver,
 		State:         state,
 		Clock:         clock,
+		RuntimeDebug:  config.runtimeDebug,
+		DebugOutput:   os.Stderr,
+		ProgramName:   os.Args[0],
 
 		DetachOnExecve: config.detachOnExecve,
 	})
@@ -134,6 +137,9 @@ type traceSessionDeps struct {
 	Resolver      traceSymbolResolver
 	State         traceStateOwner
 	Clock         traceClock
+	RuntimeDebug  bool
+	DebugOutput   io.Writer
+	ProgramName   string
 
 	DetachOnExecve bool
 
@@ -382,6 +388,7 @@ func buildTraceSessionEvents(
 		Lifecycle:      lifecycleSink,
 		Signal:         signalSink,
 		JSON:           jsonSink,
+		RuntimeDebug:   newRuntimeDebugWriter(deps.RuntimeDebug, deps.DebugOutput, deps.ProgramName, deps.SyscallMetadata),
 		Pipeline:       exitSink,
 		SyscallLimit:   syscallLimit,
 		DetachOnExecve: detachOnExecve,

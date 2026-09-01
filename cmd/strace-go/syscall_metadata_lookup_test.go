@@ -26,7 +26,7 @@ func TestSyscallMetadataLookupFallsBackForUnknownTableEntries(t *testing.T) {
 	}
 
 	unknown := lookupSyscallMetadata(newSyscallMetadataTable(nil), 511)
-	if unknown.Name != "sys_511" {
-		t.Fatalf("unknown metadata name = %q, want sys_511", unknown.Name)
+	if unknown.Name != "syscall_0x1ff" {
+		t.Fatalf("unknown metadata name = %q, want syscall_0x1ff", unknown.Name)
 	}
 }

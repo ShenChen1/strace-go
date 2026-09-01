@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"strace-go/pkg/handler"
 	"strace-go/pkg/meta"
@@ -78,7 +79,11 @@ func syscallMeta(sysID uint32) meta.Syscall {
 }
 
 func unknownSyscallName(sysID uint32) string {
-	return fmt.Sprintf("sys_%d", sysID)
+	return fmt.Sprintf("syscall_%#x", sysID)
+}
+
+func isUnknownSyscallName(name string) bool {
+	return strings.HasPrefix(name, "syscall_0x")
 }
 
 func (ev syscallEventContext) newHandlerContext(deps syscallEventContextDeps) *handler.Context {
