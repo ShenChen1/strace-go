@@ -75,6 +75,7 @@ type Options struct {
 	TraceMatchesAll       bool
 	TraceSetIsNegated     bool
 	TraceFDs              map[int32]bool
+	TraceFDsConfigured    bool
 	TraceFDsNegated       bool
 	TraceReadFDs          map[int32]bool
 	TraceReadFDsNegated   bool

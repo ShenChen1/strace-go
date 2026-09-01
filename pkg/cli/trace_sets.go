@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -90,6 +89,8 @@ func parseEFlag(val string, opts *Options) {
 		parseTraceFDSet(strings.TrimPrefix(val, "trace-fd="), opts)
 	case strings.HasPrefix(val, "fd="):
 		parseTraceFDSet(strings.TrimPrefix(val, "fd="), opts)
+	case strings.HasPrefix(val, "fds="):
+		parseTraceFDSet(strings.TrimPrefix(val, "fds="), opts)
 	case strings.HasPrefix(val, "status="):
 		parseStatusSet(strings.TrimPrefix(val, "status="), opts)
 	case strings.HasPrefix(val, "verbose="):
@@ -211,16 +212,9 @@ func parseRawSet(val string, opts *Options) {
 	opts.RawSyscalls = materializeSyscallSelector(parseSyscallSelector(val))
 }
 
-func parseTraceFDSet(val string, opts *Options) {
-	opts.TraceFDsNegated = strings.HasPrefix(val, "!")
-	if opts.TraceFDsNegated {
-		val = strings.TrimPrefix(val, "!")
-	}
-	opts.TraceFDs = make(map[int32]bool)
-	for _, s := range strings.Split(val, ",") {
-		var fd int32
-		if n, _ := fmt.Sscanf(s, "%d", &fd); n == 1 {
-			opts.TraceFDs[fd] = true
-		}
-	}
+func parseTraceFDSet(value string, opts *Options) {
+	parsed := parseDescriptorSet(value)
+	opts.TraceFDs = parsed.fds
+	opts.TraceFDsConfigured = true
+	opts.TraceFDsNegated = parsed.negated
 }

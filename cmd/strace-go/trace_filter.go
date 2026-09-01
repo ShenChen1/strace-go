@@ -3,6 +3,7 @@ package main
 import (
 	"regexp"
 
+	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 )
 
@@ -27,6 +28,7 @@ type cliTraceFilter struct {
 	traceMatchesAll     bool
 	traceSetIsNegated   bool
 	traceFDs            map[int32]bool
+	traceFDsConfigured  bool
 	traceFDsNegated     bool
 	traceReadFDs        map[int32]bool
 	traceReadNegated    bool
@@ -71,7 +73,7 @@ func (filter cliTraceFilter) MatchSyscall(name string) bool {
 }
 
 func (filter cliTraceFilter) MatchFDs(fds []int32) bool {
-	if len(filter.traceFDs) == 0 {
+	if !filter.traceFDsConfigured {
 		return false
 	}
 	hasValidFD := false
@@ -82,7 +84,7 @@ func (filter cliTraceFilter) MatchFDs(fds []int32) bool {
 			continue
 		}
 		hasValidFD = true
-		if filter.traceFDs[fd] {
+		if filter.traceFDs[cli.TraceAllFDs] || filter.traceFDs[fd] {
 			matchesSet = true
 		} else {
 			matchesNegatedSet = true
@@ -95,7 +97,7 @@ func (filter cliTraceFilter) MatchFDs(fds []int32) bool {
 }
 
 func (filter cliTraceFilter) HasFDFilter() bool {
-	return len(filter.traceFDs) > 0
+	return filter.traceFDsConfigured
 }
 
 func (filter cliTraceFilter) TraceReadFD(fd int32) bool {

@@ -24,6 +24,8 @@ func invalidDescriptorTestCases() []invalidDescriptorTestCase {
 		{name: "mixed-none", args: []string{"-e", "read=1,!none", "/bin/true"}, want: "!none"},
 		{name: "embedded-negation", args: []string{"--write=1,!", "/bin/true"}, want: "!"},
 		{name: "trailing-space", args: []string{"--read=1 ", "/bin/true"}, want: "1 "},
+		{name: "trace-fds-negative", args: []string{"--trace-fds=-1", "/bin/true"}, want: "-1"},
+		{name: "trace-fd-overflow", args: []string{"--trace-fd=2147483648", "/bin/true"}, want: "2147483648"},
 	}
 }
 
@@ -35,6 +37,23 @@ func TestParseDescriptorSetCompatibleForms(t *testing.T) {
 	}
 	if opts.TraceWriteFD(0) || opts.TraceWriteFD(2) || !opts.TraceWriteFD(1) {
 		t.Fatalf("negated write descriptor set = %#v, want !{0, 2}", opts.TraceWriteFDs)
+	}
+}
+
+func TestParseTraceFDDescriptorSets(t *testing.T) {
+	all := ParseArgs([]string{"--trace-fds=all", "/bin/true"})
+	if !all.TraceFDsConfigured || all.TraceFDsNegated || !all.TraceFDs[TraceAllFDs] {
+		t.Fatalf("trace-fds=all = configured:%v negated:%v set:%#v", all.TraceFDsConfigured, all.TraceFDsNegated, all.TraceFDs)
+	}
+
+	none := ParseArgs([]string{"--trace-fd=none", "/bin/true"})
+	if !none.TraceFDsConfigured || none.TraceFDsNegated || len(none.TraceFDs) != 0 {
+		t.Fatalf("trace-fd=none = configured:%v negated:%v set:%#v", none.TraceFDsConfigured, none.TraceFDsNegated, none.TraceFDs)
+	}
+
+	alias := ParseArgs([]string{"-e", "fds=!0,,2", "/bin/true"})
+	if !alias.TraceFDsConfigured || !alias.TraceFDsNegated || !alias.TraceFDs[0] || !alias.TraceFDs[2] {
+		t.Fatalf("fds alias = configured:%v negated:%v set:%#v", alias.TraceFDsConfigured, alias.TraceFDsNegated, alias.TraceFDs)
 	}
 }
 

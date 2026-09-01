@@ -218,7 +218,11 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
     def test_trace_fds_regressions_are_registered(self):
         for test in (
             "dup-trace-fds-0.gen.test",
+            "dup-trace-fds-0-9.gen.test",
             "dup-trace-fds-not-9.gen.test",
+            "ppoll-e-trace-fds-23.gen.test",
+            "ppoll-e-trace-fds-23-42.gen.test",
+            "ppoll-e-trace-fds-not-9-42-P.gen.test",
         ):
             self.assertIn(test, upstream_suites.MORE_TESTS)
             self.assertIn(

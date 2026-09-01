@@ -196,11 +196,11 @@ func newTraceFilterOptions(opts *cli.Options) traceFilterOptions {
 	}
 	traceConfigured := opts.TraceConfigured || opts.TraceSetIsNegated ||
 		len(opts.TraceSyscalls) > 0 || len(opts.TraceSyscallRegexps) > 0
+	traceFDsConfigured := opts.TraceFDsConfigured || len(opts.TraceFDs) > 0 || opts.TraceFDsNegated
 	filter := &cliTraceFilter{
 		debug: opts.DebugEvents,
 		unfiltered: (!traceConfigured || opts.TraceMatchesAll) &&
-			len(opts.TraceFDs) == 0 &&
-			!opts.TraceFDsNegated &&
+			!traceFDsConfigured &&
 			len(opts.TraceReadFDs) == 0 &&
 			!opts.TraceReadFDsNegated &&
 			len(opts.TraceWriteFDs) == 0 &&
@@ -212,6 +212,7 @@ func newTraceFilterOptions(opts *cli.Options) traceFilterOptions {
 		traceMatchesAll:     opts.TraceMatchesAll,
 		traceSetIsNegated:   opts.TraceSetIsNegated,
 		traceFDs:            copyInt32BoolMap(opts.TraceFDs),
+		traceFDsConfigured:  traceFDsConfigured,
 		traceFDsNegated:     opts.TraceFDsNegated,
 		traceReadFDs:        copyInt32BoolMap(opts.TraceReadFDs),
 		traceReadNegated:    opts.TraceReadFDsNegated,
