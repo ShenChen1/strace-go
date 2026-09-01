@@ -26,7 +26,7 @@ type fakeSessionSummaryOwner struct {
 	printCalls  int
 }
 
-func (s *fakeSessionSummaryOwner) Record(string, uint64, int64) {
+func (s *fakeSessionSummaryOwner) Record(string, uint64, uint64, int64) {
 	s.recordCalls++
 }
 

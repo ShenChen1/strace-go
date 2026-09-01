@@ -70,6 +70,20 @@ static __always_inline struct pending_syscall *current_pending_syscall(void)
     return state && state->valid ? &state->syscall : 0;
 }
 
+static __always_inline u64 current_task_cpu_runtime(void)
+{
+    struct task_struct *task = (struct task_struct *)bpf_get_current_task_btf();
+    if (!task) return 0;
+    return BPF_CORE_READ(task, se.sum_exec_runtime);
+}
+
+static __always_inline u64 pending_syscall_cpu_duration(struct pending_syscall *pending)
+{
+    u64 cpu_exit_time = current_task_cpu_runtime();
+    if (cpu_exit_time <= pending->cpu_enter_time) return 0;
+    return cpu_exit_time - pending->cpu_enter_time;
+}
+
 static __always_inline void clear_pending_task_state(void)
 {
     struct pending_task_state *state = current_pending_task_state();
@@ -90,6 +104,7 @@ static __always_inline int save_pending_syscall_value(struct pending_syscall *pe
         record_pending_update_fail();
         return 0;
     }
+    pending->cpu_enter_time = current_task_cpu_runtime();
     state->syscall = *pending;
     state->namespace_snapshot = (struct namespace_snapshot){};
     state->aux0 = 0;
@@ -254,6 +269,7 @@ static __always_inline void init_syscall_exit_event_v2_from_pending(
     body->capture_flags = 0;
     body->stack_id = p->stack_id;
     body->reserved = 0;
+    body->cpu_duration_ns = pending_syscall_cpu_duration(p);
 }
 
 static __always_inline void init_syscall_exit_event_v2_from_ctx(
@@ -276,6 +292,7 @@ static __always_inline void init_syscall_exit_event_v2_from_ctx(
     body->capture_flags = 0;
     body->stack_id = stack_id;
     body->reserved = 0;
+    body->cpu_duration_ns = 0;
 }
 
 static __always_inline int payload_tlv_write_header_direct(

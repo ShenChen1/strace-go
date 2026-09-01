@@ -35,7 +35,7 @@ const (
 	traceEventV2CommSize                          = 16
 	traceEventV2EnterBodyLen                      = 72
 	traceEventV2CompactEnterBodyLen               = 48
-	traceEventV2ExitBodyLen                       = 80
+	traceEventV2ExitBodyLen                       = 88
 	traceEventV2LifecycleBodyLen                  = 56
 	traceEventV2SignalBodyLen                     = 32
 	traceEventV2U16Size                           = 2
@@ -67,6 +67,7 @@ const (
 	traceEventV2ExitCaptureFlagsOffset            = 68
 	traceEventV2ExitStackIDOffset                 = 72
 	traceEventV2ExitReservedOffset                = 76
+	traceEventV2ExitCPUDurationOffset             = 80
 	traceEventV2LifecycleActionOffset             = 0
 	traceEventV2LifecycleSnapshotLenOffset        = 4
 	traceEventV2LifecycleArgsOffset               = 8

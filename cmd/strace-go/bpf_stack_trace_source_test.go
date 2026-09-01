@@ -7,7 +7,7 @@ import (
 
 func TestBPFExitEventCarriesPendingStackID(t *testing.T) {
 	sources := loadBPFSources(t)
-	if !strings.Contains(sources.straceSource, "#define EVENT_V2_EXIT_BODY_LEN 80") {
+	if !strings.Contains(sources.straceSource, "#define EVENT_V2_EXIT_BODY_LEN 88") {
 		t.Fatal("exit event v2 body must reserve space for stack metadata")
 	}
 	for _, snippet := range []string{

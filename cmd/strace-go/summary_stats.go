@@ -5,12 +5,27 @@ import (
 	"sort"
 )
 
+type durationStat struct {
+	total   uint64
+	minimum uint64
+	maximum uint64
+}
+
+func (stat *durationStat) record(duration uint64, first bool) {
+	stat.total += duration
+	if first || duration < stat.minimum {
+		stat.minimum = duration
+	}
+	if duration > stat.maximum {
+		stat.maximum = duration
+	}
+}
+
 type syscallStat struct {
-	calls    int
-	errors   int
-	duration uint64
-	minimum  uint64
-	maximum  uint64
+	calls  int
+	errors int
+	cpu    durationStat
+	wall   durationStat
 }
 
 type SummaryStats struct {
@@ -45,7 +60,7 @@ func (s *traceSession) summaryStats() traceSummaryOwner {
 	return s.dependencies.Summary
 }
 
-func (st *SummaryStats) Record(name string, duration uint64, ret int64) {
+func (st *SummaryStats) Record(name string, cpuDuration, wallDuration uint64, ret int64) {
 	if st.stats == nil {
 		st.stats = make(map[string]*syscallStat)
 	}
@@ -55,14 +70,10 @@ func (st *SummaryStats) Record(name string, duration uint64, ret int64) {
 		st.stats[name] = stat
 		st.order = append(st.order, name)
 	}
+	first := stat.calls == 0
 	stat.calls++
-	stat.duration += duration
-	if stat.calls == 1 || duration < stat.minimum {
-		stat.minimum = duration
-	}
-	if duration > stat.maximum {
-		stat.maximum = duration
-	}
+	stat.cpu.record(cpuDuration, first)
+	stat.wall.record(wallDuration, first)
 	if ret < 0 && ret >= -4095 {
 		stat.errors++
 	}
@@ -96,7 +107,7 @@ func (st *SummaryStats) totals() (int, int, uint64) {
 	for _, stat := range st.stats {
 		totalCalls += stat.calls
 		totalErrors += stat.errors
-		totalDurationNs += stat.duration
+		totalDurationNs += st.primaryTiming(stat).total
 	}
 	return totalCalls, totalErrors, totalDurationNs
 }

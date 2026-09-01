@@ -29,16 +29,18 @@ func TestSummaryRecordingUsesNarrowRecorderPort(t *testing.T) {
 }
 
 type fakeSummaryRecorder struct {
-	calls    int
-	name     string
-	duration uint64
-	ret      int64
+	calls int
+	name  string
+	cpu   uint64
+	wall  uint64
+	ret   int64
 }
 
-func (r *fakeSummaryRecorder) Record(name string, duration uint64, ret int64) {
+func (r *fakeSummaryRecorder) Record(name string, cpuDuration, wallDuration uint64, ret int64) {
 	r.calls++
 	r.name = name
-	r.duration = duration
+	r.cpu = cpuDuration
+	r.wall = wallDuration
 	r.ret = ret
 }
 
@@ -48,14 +50,15 @@ func TestSyscallEventContextRecordsThroughSummaryPort(t *testing.T) {
 		meta:        meta.Syscall{Name: "getpid"},
 		shouldPrint: true,
 		view: syscallEventView{
-			valid:    true,
-			duration: 12,
-			ret:      -2,
+			valid:       true,
+			cpuDuration: 3,
+			duration:    12,
+			ret:         -2,
 		},
 	}
 
 	ev.recordSummary(recorder)
-	if recorder.calls != 1 || recorder.name != "getpid" || recorder.duration != 12 || recorder.ret != -2 {
+	if recorder.calls != 1 || recorder.name != "getpid" || recorder.cpu != 3 || recorder.wall != 12 || recorder.ret != -2 {
 		t.Fatalf("recorder = %+v, want one getpid record", recorder)
 	}
 

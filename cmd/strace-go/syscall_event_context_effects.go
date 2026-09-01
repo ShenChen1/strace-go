@@ -13,7 +13,7 @@ func (ev syscallEventContext) recordSummary(recorder traceSummaryRecorder) {
 		return
 	}
 	view := ev.eventView()
-	recorder.Record(ev.syscallName(), view.duration, view.ret)
+	recorder.Record(ev.syscallName(), view.cpuDuration, view.duration, view.ret)
 }
 
 func (ev syscallEventContext) updateFDOffsets(port fdOffsetUpdatePort) {

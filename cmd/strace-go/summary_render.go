@@ -7,16 +7,22 @@ import (
 )
 
 type summaryTotals struct {
-	calls    int
-	errors   int
-	duration uint64
-	minimum  uint64
-	maximum  uint64
+	calls  int
+	errors int
+	cpu    durationStat
+	wall   durationStat
 }
 
 type summaryColumnLayout struct {
 	column summaryColumn
 	width  int
+}
+
+type summaryRow struct {
+	name   string
+	stat   *syscallStat
+	totals summaryTotals
+	total  bool
 }
 
 func (st *SummaryStats) printTable(w io.Writer) {
@@ -29,10 +35,10 @@ func (st *SummaryStats) printTable(w io.Writer) {
 	printSummaryHeader(w, layout)
 	printSummaryDivider(w, layout)
 	for _, entry := range entries {
-		printSummaryRow(w, layout, entry.name, entry.stat, totals, false)
+		st.printSummaryRow(w, layout, summaryRow{name: entry.name, stat: entry.stat, totals: totals})
 	}
 	printSummaryDivider(w, layout)
-	printSummaryRow(w, layout, "total", nil, totals, true)
+	st.printSummaryRow(w, layout, summaryRow{name: "total", totals: totals, total: true})
 }
 
 func (st *SummaryStats) summaryTotals() summaryTotals {
@@ -41,13 +47,8 @@ func (st *SummaryStats) summaryTotals() summaryTotals {
 	for _, stat := range st.stats {
 		totals.calls += stat.calls
 		totals.errors += stat.errors
-		totals.duration += stat.duration
-		if first || stat.minimum < totals.minimum {
-			totals.minimum = stat.minimum
-		}
-		if stat.maximum > totals.maximum {
-			totals.maximum = stat.maximum
-		}
+		mergeSummaryTiming(&totals.cpu, stat.cpu, first)
+		mergeSummaryTiming(&totals.wall, stat.wall, first)
 		first = false
 	}
 	return totals
@@ -57,9 +58,9 @@ func (st *SummaryStats) columnLayout(entries []summaryStatEntry, totals summaryT
 	layout := make([]summaryColumnLayout, 0, len(st.options.columns))
 	for _, column := range st.options.columns {
 		width := summaryColumnBaseWidth(column)
-		width = maxInt(width, summaryColumnDataWidth(column, totals))
+		width = maxInt(width, st.summaryColumnDataWidth(column, totals))
 		for _, entry := range entries {
-			width = maxInt(width, summaryEntryColumnWidth(column, entry))
+			width = maxInt(width, st.summaryEntryColumnWidth(column, entry))
 		}
 		layout = append(layout, summaryColumnLayout{column: column, width: width})
 	}
@@ -95,12 +96,12 @@ func printSummaryDivider(w io.Writer, layout []summaryColumnLayout) {
 	fmt.Fprintln(w)
 }
 
-func printSummaryRow(w io.Writer, layout []summaryColumnLayout, name string, stat *syscallStat, totals summaryTotals, total bool) {
+func (st *SummaryStats) printSummaryRow(w io.Writer, layout []summaryColumnLayout, row summaryRow) {
 	for index, item := range layout {
 		if index > 0 {
 			fmt.Fprint(w, " ")
 		}
-		value := summaryCellValue(item.column, name, stat, totals, total)
+		value := st.summaryCellValue(item.column, row)
 		lastName := index == len(layout)-1 && item.column == summaryColumnName
 		if lastName {
 			fmt.Fprint(w, value)
@@ -113,58 +114,61 @@ func printSummaryRow(w io.Writer, layout []summaryColumnLayout, name string, sta
 	fmt.Fprintln(w)
 }
 
-func summaryCellValue(column summaryColumn, name string, stat *syscallStat, totals summaryTotals, total bool) string {
+func (st *SummaryStats) summaryCellValue(column summaryColumn, row summaryRow) string {
 	if column == summaryColumnName {
-		return name
+		return row.name
 	}
-	if total {
-		return summaryTotalCellValue(column, totals)
+	if row.total {
+		return st.summaryTotalCellValue(column, row.totals)
 	}
-	if stat == nil {
+	if row.stat == nil {
 		return ""
 	}
+	timing := st.timingForColumn(row.stat, column)
 	switch column {
 	case summaryColumnTimePercent:
 		percent := 0.0
-		if totals.duration > 0 {
-			percent = float64(stat.duration) / float64(totals.duration) * 100
+		totalTiming := row.totals.primaryTiming(st.options.wallClock)
+		if totalTiming.total > 0 {
+			percent = float64(timing.total) / float64(totalTiming.total) * 100
 		}
 		return fmt.Sprintf("%.2f", percent)
 	case summaryColumnTotalTime, summaryColumnWallTotal:
-		return formatSummarySeconds(stat.duration)
+		return formatSummarySeconds(timing.total)
 	case summaryColumnMinTime, summaryColumnWallMin:
-		return formatSummarySeconds(stat.minimum)
+		return formatSummarySeconds(timing.minimum)
 	case summaryColumnMaxTime, summaryColumnWallMax:
-		return formatSummarySeconds(stat.maximum)
+		return formatSummarySeconds(timing.maximum)
 	case summaryColumnAvgTime, summaryColumnWallAvg:
-		return strconv.FormatUint(summaryAverage(stat)/1000, 10)
+		return strconv.FormatUint(summaryAverage(timing, row.stat.calls)/1000, 10)
 	case summaryColumnCalls:
-		return strconv.Itoa(stat.calls)
+		return strconv.Itoa(row.stat.calls)
 	case summaryColumnErrors:
-		if stat.errors == 0 {
+		if row.stat.errors == 0 {
 			return ""
 		}
-		return strconv.Itoa(stat.errors)
+		return strconv.Itoa(row.stat.errors)
 	default:
 		return ""
 	}
 }
 
-func summaryTotalCellValue(column summaryColumn, totals summaryTotals) string {
+func (st *SummaryStats) summaryTotalCellValue(column summaryColumn, totals summaryTotals) string {
+	timing := totals.timingForColumn(column, st.options.wallClock)
 	switch column {
 	case summaryColumnTimePercent:
 		return "100.00"
 	case summaryColumnTotalTime, summaryColumnWallTotal:
-		return formatSummarySeconds(totals.duration)
+		return formatSummarySeconds(timing.total)
 	case summaryColumnMinTime, summaryColumnWallMin:
-		return formatSummarySeconds(totals.minimum)
+		return formatSummarySeconds(timing.minimum)
 	case summaryColumnMaxTime, summaryColumnWallMax:
-		return formatSummarySeconds(totals.maximum)
+		return formatSummarySeconds(timing.maximum)
 	case summaryColumnAvgTime, summaryColumnWallAvg:
 		if totals.calls == 0 {
 			return "0"
 		}
-		return strconv.FormatUint(totals.duration/uint64(totals.calls)/1000, 10)
+		return strconv.FormatUint(timing.total/uint64(totals.calls)/1000, 10)
 	case summaryColumnCalls:
 		return strconv.Itoa(totals.calls)
 	case summaryColumnErrors:
@@ -223,15 +227,41 @@ func summaryColumnBaseWidth(column summaryColumn) int {
 	}
 }
 
-func summaryColumnDataWidth(column summaryColumn, totals summaryTotals) int {
-	return len(summaryTotalCellValue(column, totals))
+func (st *SummaryStats) summaryColumnDataWidth(column summaryColumn, totals summaryTotals) int {
+	return len(st.summaryTotalCellValue(column, totals))
 }
 
-func summaryEntryColumnWidth(column summaryColumn, entry summaryStatEntry) int {
+func (st *SummaryStats) summaryEntryColumnWidth(column summaryColumn, entry summaryStatEntry) int {
 	if column == summaryColumnName {
 		return len(entry.name) + 1
 	}
-	return len(summaryCellValue(column, entry.name, entry.stat, summaryTotals{duration: entry.stat.duration}, false))
+	totals := summaryTotals{calls: entry.stat.calls, cpu: entry.stat.cpu, wall: entry.stat.wall}
+	return len(st.summaryCellValue(column, summaryRow{name: entry.name, stat: entry.stat, totals: totals}))
+}
+
+func mergeSummaryTiming(total *durationStat, timing durationStat, first bool) {
+	total.total += timing.total
+	if first || timing.minimum < total.minimum {
+		total.minimum = timing.minimum
+	}
+	if timing.maximum > total.maximum {
+		total.maximum = timing.maximum
+	}
+}
+
+func (totals summaryTotals) primaryTiming(wallClock bool) durationStat {
+	if wallClock {
+		return totals.wall
+	}
+	return totals.cpu
+}
+
+func (totals summaryTotals) timingForColumn(column summaryColumn, wallClock bool) durationStat {
+	if column == summaryColumnWallTotal || column == summaryColumnWallMin ||
+		column == summaryColumnWallMax || column == summaryColumnWallAvg {
+		return totals.wall
+	}
+	return totals.primaryTiming(wallClock)
 }
 
 func formatSummarySeconds(duration uint64) string {

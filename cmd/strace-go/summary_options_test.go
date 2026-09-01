@@ -9,10 +9,10 @@ import (
 )
 
 func TestSummaryStatsPrintsSelectedColumnsExactly(t *testing.T) {
-	stats := newConfiguredSummaryStats(newSummaryOptions("name", []string{"calls", "name"}))
-	stats.Record("unlinkat", 3000, -2)
-	stats.Record("chdir", 1000, 0)
-	stats.Record("chdir", 2000, 0)
+	stats := newConfiguredSummaryStats(newSummaryOptions("name", []string{"calls", "name"}, false))
+	stats.Record("unlinkat", 3000, 3000, -2)
+	stats.Record("chdir", 1000, 1000, 0)
+	stats.Record("chdir", 2000, 2000, 0)
 
 	var output bytes.Buffer
 	stats.Print(&output)
@@ -28,10 +28,10 @@ func TestSummaryStatsPrintsSelectedColumnsExactly(t *testing.T) {
 }
 
 func TestSummaryStatsSortsByMinimumAndMaximumDuration(t *testing.T) {
-	stats := newConfiguredSummaryStats(newSummaryOptions("min-time", nil))
-	stats.Record("read", 10, 0)
-	stats.Record("read", 100, 0)
-	stats.Record("write", 50, 0)
+	stats := newConfiguredSummaryStats(newSummaryOptions("min-time", nil, false))
+	stats.Record("read", 10, 10, 0)
+	stats.Record("read", 100, 100, 0)
+	stats.Record("write", 50, 50, 0)
 
 	entries := stats.sortedEntries()
 	if len(entries) != 2 || entries[0].name != "write" {
@@ -71,11 +71,53 @@ func summaryEntryNames(entries []summaryStatEntry) []string {
 }
 
 func TestSummaryOptionsAppendNameColumn(t *testing.T) {
-	options := newSummaryOptions("calls", []string{"calls"})
+	options := newSummaryOptions("calls", []string{"calls"}, false)
 	if got := options.columns[len(options.columns)-1]; got != summaryColumnName {
 		t.Fatalf("last summary column = %v, want name", got)
 	}
 	if strings.TrimSpace(summaryColumnHeader(summaryColumnName)) != "syscall" {
 		t.Fatal("name column header must remain syscall")
+	}
+}
+
+func TestSummaryWallClockOptionSelectsWallTime(t *testing.T) {
+	stats := newConfiguredSummaryStats(newSummaryOptions("total-time", nil, true))
+	stats.Record("nanosleep", 2_000_000, 1_000_000_000, 0)
+
+	var output bytes.Buffer
+	stats.Print(&output)
+	if !strings.Contains(output.String(), "1.000000") {
+		t.Fatalf("wall-clock summary must render wall time:\n%s", output.String())
+	}
+}
+
+func TestSummaryWallColumnsRemainWallClockInCPUMode(t *testing.T) {
+	stats := newConfiguredSummaryStats(newSummaryOptions("wall-total", []string{"total-time", "wall-total"}, false))
+	stats.Record("nanosleep", 2_000_000, 1_000_000_000, 0)
+
+	var output bytes.Buffer
+	stats.Print(&output)
+	line := output.String()
+	if !strings.Contains(line, "0.002000") || !strings.Contains(line, "1.000000") {
+		t.Fatalf("CPU and explicit wall columns must use distinct clocks:\n%s", line)
+	}
+}
+
+func TestSummaryStatsSortsCPUAndWallDurationsIndependently(t *testing.T) {
+	stats := newConfiguredSummaryStats(newSummaryOptions("total-time", nil, false))
+	stats.Record("cpu-heavy", 100, 10, 0)
+	stats.Record("wall-heavy", 10, 100, 0)
+
+	if got := stats.sortedEntries()[0].name; got != "cpu-heavy" {
+		t.Fatalf("CPU total-time first = %q, want cpu-heavy", got)
+	}
+	stats.options.sortBy = summaryColumnWallTotal
+	if got := stats.sortedEntries()[0].name; got != "wall-heavy" {
+		t.Fatalf("wall-total first = %q, want wall-heavy", got)
+	}
+	stats.options.sortBy = summaryColumnTotalTime
+	stats.options.wallClock = true
+	if got := stats.sortedEntries()[0].name; got != "wall-heavy" {
+		t.Fatalf("-w total-time first = %q, want wall-heavy", got)
 	}
 }

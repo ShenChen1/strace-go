@@ -173,6 +173,7 @@ func decodeTraceEventV2ExitEnvelope(
 	}
 	ret := int64(binary.LittleEndian.Uint64(body[traceEventV2ExitRetOffset : traceEventV2ExitRetOffset+traceEventV2U64Size]))
 	duration := binary.LittleEndian.Uint64(body[traceEventV2ExitDurationOffset : traceEventV2ExitDurationOffset+traceEventV2U64Size])
+	cpuDuration := binary.LittleEndian.Uint64(body[traceEventV2ExitCPUDurationOffset : traceEventV2ExitCPUDurationOffset+traceEventV2U64Size])
 	args := traceEventV2Args(body[traceEventV2ExitArgsOffset : traceEventV2ExitArgsOffset+traceEventV2ArgsSize])
 	captureLen := binary.LittleEndian.Uint32(body[traceEventV2ExitCaptureLenOffset : traceEventV2ExitCaptureLenOffset+traceEventV2U32Size])
 	stackID := int32(binary.LittleEndian.Uint32(body[traceEventV2ExitStackIDOffset : traceEventV2ExitStackIDOffset+traceEventV2U32Size]))
@@ -205,6 +206,7 @@ func decodeTraceEventV2ExitEnvelope(
 		args:         args,
 		ret:          ret,
 		duration:     duration,
+		cpuDuration:  cpuDuration,
 		stackID:      stackID,
 		payload:      sections,
 	}, true

@@ -19,8 +19,9 @@ const (
 )
 
 type summaryOptions struct {
-	sortBy  summaryColumn
-	columns []summaryColumn
+	sortBy    summaryColumn
+	columns   []summaryColumn
+	wallClock bool
 }
 
 func defaultSummaryOptions() summaryOptions {
@@ -37,8 +38,9 @@ func defaultSummaryOptions() summaryOptions {
 	}
 }
 
-func newSummaryOptions(sortBy string, columnNames []string) summaryOptions {
+func newSummaryOptions(sortBy string, columnNames []string, wallClock bool) summaryOptions {
 	options := defaultSummaryOptions()
+	options.wallClock = wallClock
 	if sortBy != "" {
 		options.sortBy = summaryColumnFromName(sortBy)
 	}
@@ -98,19 +100,41 @@ func (st *SummaryStats) entryLess(left, right summaryStatEntry) bool {
 	case summaryColumnErrors:
 		return left.stat.errors > right.stat.errors
 	case summaryColumnMinTime, summaryColumnWallMin:
-		return left.stat.minimum > right.stat.minimum
+		return st.timingForColumn(left.stat, st.options.sortBy).minimum > st.timingForColumn(right.stat, st.options.sortBy).minimum
 	case summaryColumnMaxTime, summaryColumnWallMax:
-		return left.stat.maximum > right.stat.maximum
+		return st.timingForColumn(left.stat, st.options.sortBy).maximum > st.timingForColumn(right.stat, st.options.sortBy).maximum
 	case summaryColumnAvgTime, summaryColumnWallAvg:
-		return summaryAverage(left.stat) > summaryAverage(right.stat)
+		return summaryAverage(st.timingForColumn(left.stat, st.options.sortBy), left.stat.calls) >
+			summaryAverage(st.timingForColumn(right.stat, st.options.sortBy), right.stat.calls)
 	default:
-		return left.stat.duration > right.stat.duration
+		return st.timingForColumn(left.stat, st.options.sortBy).total > st.timingForColumn(right.stat, st.options.sortBy).total
 	}
 }
 
-func summaryAverage(stat *syscallStat) uint64 {
-	if stat == nil || stat.calls == 0 {
+func (st *SummaryStats) primaryTiming(stat *syscallStat) durationStat {
+	if stat == nil {
+		return durationStat{}
+	}
+	if st.options.wallClock {
+		return stat.wall
+	}
+	return stat.cpu
+}
+
+func (st *SummaryStats) timingForColumn(stat *syscallStat, column summaryColumn) durationStat {
+	if stat == nil {
+		return durationStat{}
+	}
+	if column == summaryColumnWallTotal || column == summaryColumnWallMin ||
+		column == summaryColumnWallMax || column == summaryColumnWallAvg {
+		return stat.wall
+	}
+	return st.primaryTiming(stat)
+}
+
+func summaryAverage(timing durationStat, calls int) uint64 {
+	if calls == 0 {
 		return 0
 	}
-	return stat.duration / uint64(stat.calls)
+	return timing.total / uint64(calls)
 }

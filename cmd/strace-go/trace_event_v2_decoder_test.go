@@ -257,23 +257,24 @@ func TestDecodeTraceEventV2ExitEnvelope(t *testing.T) {
 		data:    []byte("data"),
 	})
 	raw := traceEventV2ExitSample(t, traceEventV2SampleSpec{
-		pid:      201,
-		tid:      202,
-		sysID:    sysID,
-		flags:    bpfEventFlagPayloadTLV,
-		tsNs:     1000,
-		duration: 55,
-		ret:      4,
-		args:     args,
-		payload:  payload,
+		pid:         201,
+		tid:         202,
+		sysID:       sysID,
+		flags:       bpfEventFlagPayloadTLV,
+		tsNs:        1000,
+		duration:    55,
+		cpuDuration: 7,
+		ret:         4,
+		args:        args,
+		payload:     payload,
 	})
 
 	envelope, ok := decodeTraceEventV2Envelope(raw)
 	if !ok {
 		t.Fatal("decodeTraceEventV2Envelope rejected a valid exit sample")
 	}
-	if envelope.ret != 4 || envelope.duration != 55 || envelope.enterTime != 945 {
-		t.Fatalf("exit result fields = ret %d duration %d enter %d", envelope.ret, envelope.duration, envelope.enterTime)
+	if envelope.ret != 4 || envelope.duration != 55 || envelope.cpuDuration != 7 || envelope.enterTime != 945 {
+		t.Fatalf("exit result fields = ret %d wall %d CPU %d enter %d", envelope.ret, envelope.duration, envelope.cpuDuration, envelope.enterTime)
 	}
 	if len(envelope.payload) != 1 || envelope.payload[0].Direction != handler.PayloadDirectionOut ||
 		!bytes.Equal(envelope.payload[0].Data, []byte("data")) {
@@ -388,6 +389,7 @@ type traceEventV2SampleSpec struct {
 	tsNs          uint64
 	action        uint32
 	duration      uint64
+	cpuDuration   uint64
 	ret           int64
 	probeRetEnter int32
 	probeRetExit  int32
@@ -434,6 +436,7 @@ func traceEventV2ExitSample(t *testing.T, spec traceEventV2SampleSpec) []byte {
 	bodyOffset := traceEventV2HeaderLen
 	binary.LittleEndian.PutUint64(raw[bodyOffset+traceEventV2ExitRetOffset:bodyOffset+traceEventV2ExitRetOffset+traceEventV2U64Size], uint64(spec.ret))
 	binary.LittleEndian.PutUint64(raw[bodyOffset+traceEventV2ExitDurationOffset:bodyOffset+traceEventV2ExitDurationOffset+traceEventV2U64Size], spec.duration)
+	binary.LittleEndian.PutUint64(raw[bodyOffset+traceEventV2ExitCPUDurationOffset:bodyOffset+traceEventV2ExitCPUDurationOffset+traceEventV2U64Size], spec.cpuDuration)
 	putTraceEventV2Args(raw[bodyOffset+traceEventV2ExitArgsOffset:bodyOffset+traceEventV2ExitArgsOffset+traceEventV2ArgsSize], spec.args)
 	binary.LittleEndian.PutUint32(raw[bodyOffset+traceEventV2ExitCaptureLenOffset:bodyOffset+traceEventV2ExitCaptureLenOffset+traceEventV2U32Size], uint32(len(spec.payload)))
 	binary.LittleEndian.PutUint32(raw[bodyOffset+traceEventV2ExitStackIDOffset:bodyOffset+traceEventV2ExitStackIDOffset+traceEventV2U32Size], uint32(spec.stackID))

@@ -50,13 +50,14 @@ type bpfRecvmsgFdPathScratch struct {
 type bpfRecvmsgPendingTaskState struct {
 	_       structs.HostLayout
 	Syscall struct {
-		_         structs.HostLayout
-		EnterTime uint64
-		Args      [6]uint64
-		Pid       uint32
-		SysId     uint32
-		Tid       uint32
-		StackId   int32
+		_            structs.HostLayout
+		EnterTime    uint64
+		CpuEnterTime uint64
+		Args         [6]uint64
+		Pid          uint32
+		SysId        uint32
+		Tid          uint32
+		StackId      int32
 	}
 	NamespaceSnapshot struct {
 		_      structs.HostLayout

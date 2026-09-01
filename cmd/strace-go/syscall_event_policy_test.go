@@ -174,13 +174,14 @@ func TestSyscallEventContextSuppressOutputUsesEffectiveMetadata(t *testing.T) {
 func TestSyscallEventContextRecordSummaryUsesEffectiveMetadata(t *testing.T) {
 	stats := &SummaryStats{}
 	view := syscallEventView{
-		valid:     true,
-		pid:       101,
-		tid:       101,
-		sysID:     syscallIDByName(t, "getpid"),
-		duration:  12,
-		ret:       -2,
-		eventType: bpfEventTypeExit,
+		valid:       true,
+		pid:         101,
+		tid:         101,
+		sysID:       syscallIDByName(t, "getpid"),
+		duration:    12,
+		cpuDuration: 3,
+		ret:         -2,
+		eventType:   bpfEventTypeExit,
 	}
 	visibleSession := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"-e", "trace=getpid", "/bin/true"}), traceSessionDeps{
 		Decoder: event.NewDecoder(),
@@ -194,8 +195,8 @@ func TestSyscallEventContextRecordSummaryUsesEffectiveMetadata(t *testing.T) {
 	if !ok {
 		t.Fatalf("summary entries = %+v, want getpid", stats.stats)
 	}
-	if entry.calls != 1 || entry.duration != 12 || entry.errors != 1 {
-		t.Fatalf("summary entry = %+v, want count=1 time=12 errors=1", entry)
+	if entry.calls != 1 || entry.cpu.total != 3 || entry.wall.total != 12 || entry.errors != 1 {
+		t.Fatalf("summary entry = %+v, want count=1 CPU=3 wall=12 errors=1", entry)
 	}
 
 	hiddenSession := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"-e", "trace=write", "/bin/true"}), traceSessionDeps{

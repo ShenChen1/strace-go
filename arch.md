@@ -8,7 +8,7 @@
 git show b2c0609:arch.md
 ```
 
-文档基线日期：2026-08-23。
+文档基线日期：2026-09-01。
 
 ## 1. 产品契约
 
@@ -165,7 +165,7 @@ Go 的 route capability registry 决定每个 syscall 的 enter/exit family。BT
 | lifecycle maps | Hash/Task state | exec identity、attach completion 和清理事实 |
 | stats | Per-CPU array | reserve/copy/truncate/pending/lifecycle 诊断 |
 
-task storage value 只保存 enter 时间、参数、PID/TID、syscall ID、stack ID 和少量辅助状态；不保存大 payload 或完整输出事件。exit 消费完成后清除有效标记，task 销毁时 storage 由内核回收。
+task storage value 只保存 enter 墙钟时间、task CPU runtime 快照、参数、PID/TID、syscall ID、stack ID 和少量辅助状态；不保存大 payload 或完整输出事件。exit 消费完成后清除有效标记，task 销毁时 storage 由内核回收。
 
 ### 4.4 捕获规则
 
@@ -176,7 +176,7 @@ task storage value 只保存 enter 时间、参数、PID/TID、syscall ID、stac
 - copied length 小于 user length 时设置 truncation 标志并累计统计。
 - probe read 失败时保留地址、长度和错误信息；Go 不进行二次读取。
 - 复杂 payload 可以分 fragment 发送；Go 按 TID、syscall 和方向合并。
-- 未专项支持的 syscall 仍发送 args/ret/duration，不伪造结构内容。
+- 未专项支持的 syscall 仍发送 args/ret、墙钟 duration 和 task CPU duration，不伪造结构内容。
 
 ### 4.5 生命周期
 
@@ -198,10 +198,10 @@ wire format 使用 little-endian。当前固定长度为：
 
 | 结构 | 长度 |
 | --- | ---: |
-| event-v2 header | 40 bytes |
+| event-v2 header | 56 bytes |
 | syscall enter body | 72 bytes |
 | compact enter body | 48 bytes |
-| syscall exit body | 80 bytes |
+| syscall exit body | 88 bytes |
 | lifecycle body | 56 bytes |
 | TLV header | 32 bytes |
 
@@ -293,7 +293,7 @@ handler registry 是 session-local：
 
 - text：strace-like 行、unfinished/resumed、exit status、hexdump 和 stack address。
 - JSON：稳定的 event/version/flags、paired enter、payload sections 和 runtime stats。
-- summary：syscall 次数、错误和 wall-clock duration 聚合。
+- summary：syscall 次数、错误以及独立的 task CPU/wall-clock duration 聚合；默认时间列用 CPU，`-w` 和 `wall-*` 用墙钟。
 - diagnostic-only modes：用于 reader、handler、discard 和分阶段性能测量，不是第二产品模式。
 
 ### 6.4 FD、cwd 与 path

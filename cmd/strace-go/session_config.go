@@ -38,7 +38,7 @@ func newTraceSessionConfig(opts *cli.Options) traceSessionConfig {
 		detachOnExecve: opts.DetachOnExecve,
 		runtimeDebug:   opts.RuntimeDebug,
 		syscallLimit:   opts.SyscallLimit,
-		summaryOptions: newSummaryOptions(opts.SummarySortBy, opts.SummaryColumns),
+		summaryOptions: newSummaryOptions(opts.SummarySortBy, opts.SummaryColumns, opts.WallTime),
 		catalog:        meta.NewCatalog(opts.XlatFormat),
 		decoder:        decoder,
 		resolver:       resolver,

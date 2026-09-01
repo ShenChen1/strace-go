@@ -293,7 +293,8 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
         expected = set(upstream_suites.MORE_EXPECTED_FAILURES)
 
         self.assertTrue(promoted.isdisjoint(expected))
-        self.assertNotIn("strace-C.test", promoted)
+        self.assertIn("strace-C.test", promoted)
+        self.assertNotIn("strace-C.test", expected)
         self.assertNotIn("attach-p-cmd.test", promoted)
 
 

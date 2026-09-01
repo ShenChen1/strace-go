@@ -298,7 +298,7 @@ func TestTraceRunFinalizerPrintsSummaryAndClosesPipe(t *testing.T) {
 	var out bytes.Buffer
 	pipe := &fakeRunFinalizerPipe{}
 	summary := newSummaryStats()
-	summary.Record("getpid", 1000, 0)
+	summary.Record("getpid", 1000, 1000, 0)
 	output, err := newTraceOutput(TraceOutputDeps{Writer: &out, Closer: pipe})
 	if err != nil {
 		t.Fatalf("newTraceOutput() error = %v", err)

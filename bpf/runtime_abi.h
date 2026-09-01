@@ -44,6 +44,7 @@ struct exec_snapshot {
 
 struct pending_syscall {
     u64 enter_time;
+    u64 cpu_enter_time;
     u64 args[6];
     u32 pid;
     u32 sys_id;
@@ -131,6 +132,7 @@ struct syscall_exit_event_v2 {
     u32 capture_flags;
     s32 stack_id;
     u32 reserved;
+    u64 cpu_duration_ns;
 };
 
 struct lifecycle_event_v2 {
@@ -180,6 +182,7 @@ _Static_assert(__builtin_offsetof(struct syscall_exit_event_v2, capture_len) == 
 _Static_assert(__builtin_offsetof(struct syscall_exit_event_v2, capture_flags) == EVENT_V2_EXIT_CAPTURE_FLAGS_OFFSET, "event v2 exit capture flags offset drift");
 _Static_assert(__builtin_offsetof(struct syscall_exit_event_v2, stack_id) == EVENT_V2_EXIT_STACK_ID_OFFSET, "event v2 exit stack offset drift");
 _Static_assert(__builtin_offsetof(struct syscall_exit_event_v2, reserved) == EVENT_V2_EXIT_RESERVED_OFFSET, "event v2 exit reserved offset drift");
+_Static_assert(__builtin_offsetof(struct syscall_exit_event_v2, cpu_duration_ns) == EVENT_V2_EXIT_CPU_DURATION_OFFSET, "event v2 exit CPU duration offset drift");
 _Static_assert(__builtin_offsetof(struct lifecycle_event_v2, action) == EVENT_V2_LIFECYCLE_ACTION_OFFSET, "event v2 lifecycle action offset drift");
 _Static_assert(__builtin_offsetof(struct lifecycle_event_v2, snapshot_len) == EVENT_V2_LIFECYCLE_SNAPSHOT_LEN_OFFSET, "event v2 lifecycle snapshot offset drift");
 _Static_assert(__builtin_offsetof(struct lifecycle_event_v2, args) == EVENT_V2_LIFECYCLE_ARGS_OFFSET, "event v2 lifecycle args offset drift");

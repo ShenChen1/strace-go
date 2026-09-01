@@ -40,6 +40,7 @@ type syscallEventView struct {
 	args          [6]uint64
 	ret           int64
 	duration      uint64
+	cpuDuration   uint64
 	enterTime     uint64
 	stackID       int32
 	probeRetEnter int32
@@ -67,7 +68,7 @@ type syscallEventContextDependencySource interface {
 }
 
 type traceSummaryRecorder interface {
-	Record(name string, duration uint64, ret int64)
+	Record(name string, cpuDuration, wallDuration uint64, ret int64)
 }
 
 func newSyscallEventContextDeps(source syscallEventContextDependencySource) syscallEventContextDeps {

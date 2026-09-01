@@ -87,6 +87,7 @@ UPSTREAM_REFERENCE_STABLE_MORE_TESTS = [
     "fork--pidns-translation.test",
     "gettid--pidns-translation.test",
     "nsyscalls-d.test",
+    "strace-C.test",
     "setns-report-ns-id.gen.test",
     "unshare-report-ns-id.gen.test",
     "strace-E.test",
@@ -259,7 +260,6 @@ UPSTREAM_REFERENCE_EXPECTED_FAILURES = {
 
 # Known non-contract differences for the growing compatibility list.
 MORE_EXPECTED_FAILURES = {
-    "strace-C.test": "upstream -c summary counts per-syscall CPU time; eBPF only observes wall-clock duration",
     "read-write.gen.test": "bounded eBPF snapshot does not promise ptrace-sized read/write hexdump fetches",
     "attach-p-cmd.test": "pure eBPF does not promise exact cross-task lifecycle exit ordering",
 }
