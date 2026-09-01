@@ -264,6 +264,30 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
         self.assertIn(test, upstream_suites.MORE_TESTS)
         self.assertIn(test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS)
 
+    def test_output_alias_regressions_are_registered(self):
+        tests = (
+            "strace--strings-in-hex-all.gen.test",
+            "strace--strings-in-hex-non-ascii.gen.test",
+            "strace-no-x.gen.test",
+            "strace--timestamps-time-ms.gen.test",
+            "strace--timestamps-time-ns.gen.test",
+            "strace--timestamps-time-s.gen.test",
+            "strace--timestamps-time-us.gen.test",
+            "strace--timestamps-time.gen.test",
+            "strace--timestamps-unix-ms.gen.test",
+            "strace--timestamps-unix-ns.gen.test",
+            "strace--timestamps-unix-s.gen.test",
+            "strace--timestamps-unix-us.gen.test",
+            "strace--timestamps.gen.test",
+            "strace-Y-0123456789.gen.test",
+            "strace-p-Y-p.test",
+        )
+        for test in tests:
+            self.assertIn(test, upstream_suites.MORE_TESTS)
+            self.assertIn(
+                test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
+            )
+
     def test_registered_tests_exist_in_current_upstream(self):
         valid = {
             name
