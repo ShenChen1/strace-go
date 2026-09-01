@@ -3,7 +3,7 @@
 本文档记录 `--help` 功能与纯 eBPF 产品架构之间的边界，并作为 CLI
 兼容工作的验收矩阵。它描述目标状态，不代表所有“应实现”项目当前已经完成。
 
-基线日期：2026-08-27。
+基线日期：2026-09-01。
 
 ## 状态定义
 
@@ -37,8 +37,8 @@
 | 输出 | `-k` 地址栈 | 应实现 | BPF stack semantic test |
 | 输出 | symbol/source/demangle stack | 架构冲突 | 当前契约不读取 tracee mapping 或 ELF 做事后符号化 |
 | 输出 | decode-pids、always-show-pid | 应实现 | `strace--decode-pids-*`、always-show-pid tests |
-| 统计 | `-c/-C/-S/-U` | 应实现 | `strace-c/C/S`、count tests |
-| 统计 | `-w` | 架构原生差异 | eBPF duration 原生为 wall clock；`strace-cw` |
+| 统计 | `-c/-C/-S/-U` | 应实现 | `strace-C/S`、summary tests；`strace-c` 的非 `-O` 分支 |
+| 统计 | `-w` | 应实现 | CPU/wall 双时钟运行时回归；`strace-cw` 的非 `-O` 分支 |
 | 统计 | `-O/--summary-syscall-overhead` | 架构冲突 | 不存在需要扣除的 ptrace syscall-stop overhead |
 | 停止 | `--syscall-limit` | 应实现 | `strace--syscall-limit*` |
 | 修改 | `inject`、`fault`、delay、poke | 架构冲突 | 需要修改 syscall 结果、时序、signal 或 tracee 内存 |
