@@ -45,6 +45,7 @@ func TestParseInvalidSummaryOptionRejected(t *testing.T) {
 			"column":    {"-c", "-U", "invalid", "/bin/true"},
 			"duplicate": {"-c", "-U", "time,time_percent", "/bin/true"},
 			"mode":      {"-U", "calls", "/bin/true"},
+			"wall-time": {"-w", "/bin/true"},
 		}
 		ParseArgs(args[caseID])
 		return
@@ -55,6 +56,7 @@ func TestParseInvalidSummaryOptionRejected(t *testing.T) {
 		"column":    "unknown column name",
 		"duplicate": "provided more than once",
 		"mode":      "must be given with (-c/--summary-only or -C/--summary)",
+		"wall-time": "-w/--summary-wall-clock must be given with (-c/--summary-only or -C/--summary)",
 	}
 	for name, want := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -70,6 +72,9 @@ func TestParseInvalidSummaryOptionRejected(t *testing.T) {
 			}
 			if !strings.Contains(stderr.String(), want) {
 				t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+			}
+			if name == "wall-time" && !strings.Contains(stderr.String(), "Try '"+os.Args[0]+" -h' for more information.") {
+				t.Fatalf("stderr = %q, want help hint", stderr.String())
 			}
 		})
 	}

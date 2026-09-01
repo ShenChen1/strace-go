@@ -28,9 +28,16 @@ import (
 // work stays in error-returning helpers so deferred cleanup always runs.
 func main() {
 	if err := runMain(os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "strace-go: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%s: %v\n", invocationName(), err)
 		os.Exit(1)
 	}
+}
+
+func invocationName() string {
+	if len(os.Args) > 0 && os.Args[0] != "" {
+		return os.Args[0]
+	}
+	return "strace"
 }
 
 func runMain(args []string) error {
@@ -176,9 +183,10 @@ func handlePrelude(opts *cli.Options) (bool, error) {
 		if opts.TipsMode != "" {
 			return true, renderTraceTip(os.Stderr, opts.TipsMode, opts.TipsID)
 		}
-		fmt.Println("Usage: strace-go [options] <command> [args...]")
-		os.Exit(1)
-		return true, nil
+		return true, fmt.Errorf(
+			"must have PROG [ARGS] or -p PID\nTry '%s -h' for more information.",
+			invocationName(),
+		)
 	}
 	return false, nil
 }

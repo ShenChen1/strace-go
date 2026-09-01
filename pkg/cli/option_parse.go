@@ -460,6 +460,12 @@ func failOption(format string, args ...any) {
 	os.Exit(1)
 }
 
+func failOptionWithHelp(format string, args ...any) {
+	failMessage := fmt.Sprintf(format, args...)
+	fmt.Fprintf(os.Stderr, "%s: %s\nTry '%s -h' for more information.\n", os.Args[0], failMessage, os.Args[0])
+	os.Exit(1)
+}
+
 func rejectArchitectureConflict(option, reason string) {
 	failOption("option '%s' conflicts with pure eBPF tracing: %s", option, reason)
 }

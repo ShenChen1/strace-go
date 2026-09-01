@@ -52,6 +52,9 @@ func validateParsedOptions(opts *Options) {
 	if opts == nil || opts.HelpRequested || opts.VersionLevel > 0 {
 		return
 	}
+	if opts.WallTime && !opts.SummaryOnly && !opts.SummaryAndPrint {
+		failOptionWithHelp("-w/--summary-wall-clock must be given with (-c/--summary-only or -C/--summary)")
+	}
 	if opts.SummaryColumnsSet && !opts.SummaryOnly && !opts.SummaryAndPrint {
 		failOption("-U/--summary-columns must be given with (-c/--summary-only or -C/--summary)")
 	}
