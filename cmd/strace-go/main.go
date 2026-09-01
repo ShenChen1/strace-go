@@ -12,6 +12,7 @@ import (
 //go:generate go run ../generate-capture-manifest
 //go:generate go run ../generate-event-abi
 //go:generate go run -C ../generate-syscalls .
+//go:generate go run ../generate-version
 //go:generate go run ../generate-xlats
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpf ../../bpf/strace.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfEnterGeneric ../../bpf/handlers_enter_generic.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
@@ -168,14 +169,8 @@ func handlePrelude(opts *cli.Options) (bool, error) {
 		os.Exit(0)
 		return true, nil
 	}
-	if opts.VersionRequested {
-		fmt.Printf("strace -- version 6.19\n")
-		fmt.Printf("Copyright (c) 1991-2026 The strace developers <https://strace.io>.\n")
-		fmt.Printf("This is free software; see the source for copying conditions.  There is NO\n")
-		fmt.Printf("warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n")
-		fmt.Printf("Optional features enabled: stack-trace=libunwind stack-demangle m32-mpers mx32-mpers\n")
-		os.Exit(0)
-		return true, nil
+	if opts.VersionLevel > 0 {
+		return true, renderVersion(os.Stdout, opts.VersionLevel)
 	}
 	if len(opts.CmdArgs) == 0 && len(opts.AttachPids) == 0 {
 		if opts.TipsMode != "" {

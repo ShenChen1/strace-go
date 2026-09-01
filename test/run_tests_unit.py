@@ -69,6 +69,14 @@ class UpstreamEnvironmentTest(unittest.TestCase):
 
             self.assertEqual(os.environ["MIPS_ABI"], "")
 
+    def test_upstream_configuration_disables_optional_ptrace_features(self):
+        args = run_tests.UPSTREAM_CONFIGURE_ARGS
+
+        self.assertIn("--enable-mpers=no", args)
+        self.assertIn("--enable-stacktrace=no", args)
+        self.assertIn("--without-libiberty", args)
+        self.assertIn("--without-libselinux", args)
+
 
 class UpstreamReferenceSuiteTest(unittest.TestCase):
     def test_qual_syscall_has_lifecycle_aware_timeout(self):
@@ -287,6 +295,11 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
             self.assertIn(
                 test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
             )
+
+    def test_version_regression_is_registered(self):
+        test = "strace-V.test"
+        self.assertIn(test, upstream_suites.MORE_TESTS)
+        self.assertIn(test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS)
 
     def test_separate_output_regressions_are_registered(self):
         for test in (

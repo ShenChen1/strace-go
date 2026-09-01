@@ -49,7 +49,7 @@ func parseSummaryColumns(value string) []string {
 }
 
 func validateParsedOptions(opts *Options) {
-	if opts == nil || opts.HelpRequested || opts.VersionRequested {
+	if opts == nil || opts.HelpRequested || opts.VersionLevel > 0 {
 		return
 	}
 	if opts.SummaryColumnsSet && !opts.SummaryOnly && !opts.SummaryAndPrint {

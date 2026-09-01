@@ -63,7 +63,7 @@ func applyShortControlFlag(flag byte, opts *Options) bool {
 	case 'h':
 		opts.HelpRequested = true
 	case 'V':
-		opts.VersionRequested = true
+		opts.VersionLevel++
 	default:
 		return false
 	}
@@ -201,7 +201,7 @@ func parseLongControlOption(state *longOptionState) bool {
 		state.opts.HelpRequested = true
 	case "version":
 		rejectLongValue(state.arg, state.hasInlineValue)
-		state.opts.VersionRequested = true
+		state.opts.VersionLevel++
 	case "seccomp-bpf":
 		rejectLongValue(state.arg, state.hasInlineValue)
 		rejectArchitectureConflict("--seccomp-bpf", "syscall filtering already occurs in eBPF")

@@ -30,6 +30,14 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 TESTS_DIR = os.path.join(PROJECT_ROOT, "strace-upstream", "tests")
 UPSTREAM_DIR = os.path.join(PROJECT_ROOT, "strace-upstream")
+UPSTREAM_CONFIGURE_ARGS = [
+    "./configure",
+    "--enable-mpers=no",
+    "--enable-stacktrace=no",
+    "--without-libiberty",
+    "--without-libselinux",
+    "CFLAGS=-g -O2 -Wno-error",
+]
 UPSTREAM_TEST_TIMEOUT_SECONDS = {
     "qual_signal.test": 180,
     "qual_syscall.test": 180,
@@ -133,12 +141,7 @@ def build_upstream():
         print("=> Configuring upstream strace...")
         subprocess.run(["./bootstrap"], cwd=UPSTREAM_DIR, check=True)
         subprocess.run(
-            [
-                "./configure",
-                "--enable-mpers=no",
-                "CFLAGS=-g -O2 -Wno-error",
-                "--disable-werror",
-            ],
+            UPSTREAM_CONFIGURE_ARGS,
             cwd=UPSTREAM_DIR,
             check=True,
         )

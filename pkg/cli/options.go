@@ -98,7 +98,7 @@ type Options struct {
 	DecodeFDDetails       uint32
 	Verbose               bool
 	HelpRequested         bool
-	VersionRequested      bool
+	VersionLevel          int
 	SummaryOnly           bool
 	SummaryAndPrint       bool
 	SummarySortBy         string
