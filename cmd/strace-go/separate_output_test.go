@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -44,4 +46,21 @@ func TestSeparateTraceOutputRejectsWriteBeforePIDSelection(t *testing.T) {
 		t.Fatal("Write() before SelectPID returned nil error")
 	}
 	_ = output.Close()
+}
+
+func TestSeparateTraceOutputPreservesBasePathDiagnostic(t *testing.T) {
+	basePath := strings.Repeat(" ", 4084)
+	writer := newSeparateTraceOutputWriter(basePath, false)
+	if err := writer.SelectPID(101); err != nil {
+		t.Fatalf("SelectPID() error = %v", err)
+	}
+	_, writeErr := writer.Write([]byte("trace\n"))
+	if writeErr == nil {
+		t.Fatal("long separate output path unexpectedly opened")
+	}
+
+	err := fmt.Errorf("failed to finalize trace session: write trace output: %w", writeErr)
+	if got, want := mainErrorText(err), basePath+": File name too long"; got != want {
+		t.Fatalf("main error = %q, want %q", got, want)
+	}
 }

@@ -41,7 +41,7 @@ func setupOutput(outFileOpt string, appendMode bool) (*TraceOutput, error) {
 	}
 	outFile, err := os.OpenFile(outFileOpt, flags, 0666)
 	if err != nil {
-		return nil, fmt.Errorf("create output file: %w", err)
+		return nil, fmt.Errorf("create output file: %w", newTraceOutputPathError(outFileOpt, err))
 	}
 	output, err := newTraceOutput(TraceOutputDeps{Writer: outFile, Closer: outFile})
 	if err != nil {

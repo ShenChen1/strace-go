@@ -34,6 +34,52 @@ type traceTargetBootstrap struct {
 
 type traceWorkingDirectoryReader func() (string, error)
 
+// traceCommandExecError keeps the structured launch error while exposing the
+// same concise exec diagnostic as upstream strace at the process boundary.
+type traceCommandExecError struct {
+	cause error
+}
+
+func newTraceCommandExecError(command *exec.Cmd, startErr error) *traceCommandExecError {
+	return &traceCommandExecError{cause: traceCommandExecCause(command, startErr)}
+}
+
+func (e *traceCommandExecError) Error() string {
+	if e == nil || e.cause == nil {
+		return "exec: Unknown error"
+	}
+	return "exec: " + capitalizedDiagnosticError(e.cause)
+}
+
+func (e *traceCommandExecError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
+func traceCommandExecCause(command *exec.Cmd, startErr error) error {
+	if errors.Is(startErr, exec.ErrNotFound) {
+		if traceCommandNameTooLong(command) {
+			return unix.ENAMETOOLONG
+		}
+		return unix.ENOENT
+	}
+	var pathErr *os.PathError
+	if errors.As(startErr, &pathErr) {
+		return pathErr.Err
+	}
+	return startErr
+}
+
+func traceCommandNameTooLong(command *exec.Cmd) bool {
+	if command == nil || command.Path == "" {
+		return false
+	}
+	var stat unix.Stat_t
+	return errors.Is(unix.Stat(command.Path, &stat), unix.ENAMETOOLONG)
+}
+
 func newTraceTargetBootstrap(bpfRuntime traceBPFTargetPort) (*traceTargetBootstrap, error) {
 	if bpfRuntime == nil {
 		return nil, fmt.Errorf("BPF target port is unavailable")
@@ -280,7 +326,8 @@ func (b *traceTargetBootstrap) startTraceCmd(
 		return nil, 0, fdStateSeed{}, fmt.Errorf("arm initial fork: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, 0, fdStateSeed{}, fmt.Errorf("start command: %w", errors.Join(err, b.disarmNextFork()))
+		startErr := newTraceCommandExecError(cmd, err)
+		return nil, 0, fdStateSeed{}, fmt.Errorf("start command: %w", errors.Join(startErr, b.disarmNextFork()))
 	}
 
 	targetRuntime := newTraceTargetRuntime(cmd)

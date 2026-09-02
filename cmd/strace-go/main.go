@@ -28,9 +28,24 @@ import (
 // work stays in error-returning helpers so deferred cleanup always runs.
 func main() {
 	if err := runMain(os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "%s: %v\n", invocationName(), err)
+		fmt.Fprintf(os.Stderr, "%s: %s\n", invocationName(), mainErrorText(err))
 		os.Exit(1)
 	}
+}
+
+func mainErrorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	var execErr *traceCommandExecError
+	if errors.As(err, &execErr) {
+		return execErr.Error()
+	}
+	var outputErr *traceOutputPathError
+	if errors.As(err, &outputErr) {
+		return outputErr.Error()
+	}
+	return err.Error()
 }
 
 func invocationName() string {

@@ -56,3 +56,14 @@ func TestCleanupOutputBootstrapNoResourcesIsNil(t *testing.T) {
 		t.Fatalf("cleanupOutputBootstrap(nil, nil) = %v, want nil", err)
 	}
 }
+
+func TestSetupOutputPreservesConfiguredPathDiagnostic(t *testing.T) {
+	path := strings.Repeat(" ", 4096)
+	_, err := setupOutput(path, false)
+	if err == nil {
+		t.Fatal("long output path unexpectedly opened")
+	}
+	if got, want := mainErrorText(err), path+": File name too long"; got != want {
+		t.Fatalf("main error = %q, want %q", got, want)
+	}
+}

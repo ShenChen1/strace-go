@@ -67,7 +67,7 @@ func (w *separateTraceOutputWriter) fileForPID(pid int) (*separateTracePIDFile, 
 	path := w.basePath + "." + strconv.Itoa(pid)
 	file, err := os.OpenFile(path, w.flags, 0666)
 	if err != nil {
-		return nil, fmt.Errorf("create separate output file %s: %w", path, err)
+		return nil, fmt.Errorf("create separate output file %s: %w", path, newTraceOutputPathError(w.basePath, err))
 	}
 	if w.files == nil {
 		w.files = make(map[int]*separateTracePIDFile)
