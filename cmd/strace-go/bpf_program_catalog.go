@@ -14,6 +14,9 @@ const (
 	bpfSignalGenerateProgramName    = "trace_signal_generate"
 	bpfNamespaceForkProgramName     = "trace_namespace_fork"
 	bpfNamespaceForkTracepoint      = "sched_process_fork"
+	bpfKVMUserspaceExitProgramName  = "trace_kvm_userspace_exit"
+	bpfKVMTracepointCategory        = "kvm"
+	bpfKVMUserspaceExitTracepoint   = "kvm_userspace_exit"
 )
 
 type bpfProgramFeature uint8
@@ -21,6 +24,7 @@ type bpfProgramFeature uint8
 const (
 	bpfProgramFeatureRequired bpfProgramFeature = iota
 	bpfProgramFeatureForkSnapshot
+	bpfProgramFeatureKVMExit
 )
 
 type bpfProgramAttachKind uint8
@@ -95,6 +99,13 @@ var bpfCoreProgramCatalog = []bpfCoreProgramSpec{
 		tracepoint: bpfNamespaceForkTracepoint,
 		feature:    bpfProgramFeatureForkSnapshot,
 		lookup:     func(objects *bpfObjects) *ebpf.Program { return objects.TraceNamespaceFork },
+	},
+	{
+		name:       bpfKVMUserspaceExitProgramName,
+		category:   bpfKVMTracepointCategory,
+		tracepoint: bpfKVMUserspaceExitTracepoint,
+		feature:    bpfProgramFeatureKVMExit,
+		lookup:     func(objects *bpfObjects) *ebpf.Program { return objects.TraceKvmUserspaceExit },
 	},
 }
 

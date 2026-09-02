@@ -177,6 +177,7 @@ func decodeTraceEventV2ExitEnvelope(
 	args := traceEventV2Args(body[traceEventV2ExitArgsOffset : traceEventV2ExitArgsOffset+traceEventV2ArgsSize])
 	captureLen := binary.LittleEndian.Uint32(body[traceEventV2ExitCaptureLenOffset : traceEventV2ExitCaptureLenOffset+traceEventV2U32Size])
 	stackID := int32(binary.LittleEndian.Uint32(body[traceEventV2ExitStackIDOffset : traceEventV2ExitStackIDOffset+traceEventV2U32Size]))
+	kvmExitReason := binary.LittleEndian.Uint32(body[traceEventV2ExitReservedOffset : traceEventV2ExitReservedOffset+traceEventV2U32Size])
 	payload, ok := traceEventV2Payload(body, traceEventV2ExitBodyLen, captureLen)
 	if !ok {
 		return traceEventEnvelope{}, false
@@ -194,21 +195,22 @@ func decodeTraceEventV2ExitEnvelope(
 	// TraceState first stores them as a deferred exit.
 	sections := payloadSectionsForRawPayloadEventInto(raw, payloadScratch)
 	return traceEventEnvelope{
-		valid:        true,
-		eventVersion: header.version,
-		pid:          header.pid,
-		tid:          header.tid,
-		comm:         header.comm,
-		sysID:        header.sysID,
-		eventType:    header.eventType,
-		eventFlags:   eventFlags,
-		enterTime:    traceEventV2EnterTime(header.tsNs, duration),
-		args:         args,
-		ret:          ret,
-		duration:     duration,
-		cpuDuration:  cpuDuration,
-		stackID:      stackID,
-		payload:      sections,
+		valid:         true,
+		eventVersion:  header.version,
+		pid:           header.pid,
+		tid:           header.tid,
+		comm:          header.comm,
+		sysID:         header.sysID,
+		eventType:     header.eventType,
+		eventFlags:    eventFlags,
+		enterTime:     traceEventV2EnterTime(header.tsNs, duration),
+		args:          args,
+		ret:           ret,
+		duration:      duration,
+		cpuDuration:   cpuDuration,
+		stackID:       stackID,
+		kvmExitReason: kvmExitReason,
+		payload:       sections,
 	}, true
 }
 

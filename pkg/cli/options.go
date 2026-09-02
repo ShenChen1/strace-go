@@ -122,6 +122,7 @@ type Options struct {
 	PrintSyscallNumber    bool     // -n
 	InstructionPointer    bool     // -i
 	NamespaceNew          bool     // -e namespace=new, --namespace=new
+	KVMExitReason         bool     // -e kvm=vcpu, --kvm=vcpu
 	PrintArgNames         bool     // -N
 	AlwaysShowPID         bool     // --always-show-pid
 	DecodePIDsComm        bool     // -Y, --decode-pids=comm

@@ -29,7 +29,8 @@
 | 过滤 | `status`、`-z/-Z` | 应实现 | `status-*` |
 | 过滤 | `trace-fds`、`-P/--trace-path` | 应实现 | `options-syntax`、`*-P` |
 | 输出 | `-a`、color、abbrev/verbose/raw、read/write、quiet | 应实现 | `options-syntax`、`qual_syscall`、read/write tests |
-| 输出 | KVM、namespace、decode-fds | 应实现 | 对应 upstream tests 与 event-snapshot semantic tests |
+| 输出 | `kvm=vcpu`、namespace、decode-fds | 应实现 | 对应 upstream tests 与 event-snapshot semantic tests |
+| 输出 | `kvm=vcpu+` 完整 `kvm_run` | 架构冲突 | 需要发现并读取 tracee 的共享 mmap，违反当前 bounded snapshot 边界 |
 | 输出 | `-i`、`-n`、`-N` | 应实现 | `pc.test`、`strace-n` 加 arg-name focused tests |
 | 输出 | `-o/-A/--output-separately` | 应实现 | `strace-A`、`strace-ff`、output tests |
 | 输出 | timestamps、string/hex/xlat formats | 应实现 | `strace-r/t/tt/ttt/T/x/xx` 和 `*-X*` |

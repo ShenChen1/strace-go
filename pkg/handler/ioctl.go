@@ -8,6 +8,8 @@ import (
 	"strace-go/pkg/format"
 )
 
+const kvmRunIOCTL uint64 = 0xae80
+
 func registerBuiltinIoctl(r *Registry) {
 	r.Register("ioctl", &IoctlHandler{})
 }
@@ -29,7 +31,9 @@ func (h *IoctlHandler) Handle(ctx *Context) Result {
 
 	cmdpattern := format.Ioc(cmd)
 	cmdName := decodeFlags(ctx, cmd, "ioctl_cmds")
-	if cmd == 0x80044d0d {
+	if cmd == kvmRunIOCTL {
+		cmdName = "KVM_RUN"
+	} else if cmd == 0x80044d0d {
 		cmdName = "MIXER_READ(13) or OTPSELECT"
 	} else if xlatFormat(ctx) != "raw" {
 		isFailed := strings.Contains(cmdName, "???") || (strings.HasPrefix(cmdName, "0x") && !strings.Contains(cmdName, "/*"))
@@ -55,7 +59,7 @@ func (h *IoctlHandler) decodeIoctlArg(ctx *Context, cmd, arg uint64, cmdName str
 		return ""
 	}
 	if arg == 0 {
-		if strings.HasPrefix(cmdName, "_IOC") {
+		if cmd == kvmRunIOCTL || strings.HasPrefix(cmdName, "_IOC") {
 			return "0"
 		}
 		return "NULL"

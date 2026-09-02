@@ -54,7 +54,7 @@ func (r *SyscallHandlerRunner) Handle(ev syscallEventContext) (handler.Result, b
 	}
 	if ev.handlerContext == nil {
 		r.update(ev)
-		return handler.Result{}, ev.shouldOutput()
+		return decorateKVMResult(handler.Result{}, ev.syscallName(), ev.view), ev.shouldOutput()
 	}
 	if !ev.shouldRunHandler() {
 		r.update(ev)
@@ -62,6 +62,7 @@ func (r *SyscallHandlerRunner) Handle(ev syscallEventContext) (handler.Result, b
 	}
 	res := ev.handleWith(r.handleSyscall)
 	res = decorateNamespaceResult(res, ev.handlerContext)
+	res = decorateKVMResult(res, ev.syscallName(), ev.view)
 	r.update(ev)
 	return res, ev.shouldOutput()
 }
@@ -79,7 +80,8 @@ func (r *SyscallHandlerRunner) Decode(ev syscallEventContext) handler.Result {
 		return handler.Result{}
 	}
 	res := ev.handleWith(r.handleSyscall)
-	return decorateNamespaceResult(res, ev.handlerContext)
+	res = decorateNamespaceResult(res, ev.handlerContext)
+	return decorateKVMResult(res, ev.syscallName(), ev.view)
 }
 
 func (r *SyscallHandlerRunner) update(ev syscallEventContext) {

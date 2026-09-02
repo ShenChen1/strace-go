@@ -85,6 +85,11 @@ func (a *bpfAttacher) attachRequired() ([]link.Link, error) {
 		return append(links, lifecycleLinks...), err
 	}
 	links = append(links, lifecycleLinks...)
+	kvmLinks, err := a.attachTracepoints(kvmTracepointSpecs(a.programs, a.selection))
+	if err != nil {
+		return append(links, kvmLinks...), err
+	}
+	links = append(links, kvmLinks...)
 	signalLinks, err := attachRawTracepoints(requiredRawTracepointSpecs(a.programs, a.selection))
 	if err != nil {
 		return append(links, signalLinks...), err
@@ -215,6 +220,16 @@ func (a *bpfAttacher) populateProgArraysFor(selection bpfProgramSelection) error
 // event-sourced task state contract.
 func lifecycleTracepointSpecs(programs bpfProgramProvider) []tracepointSpec {
 	return bpfCoreTracepointSpecs(programs, bpfLifecycleTracepointCategory)
+}
+
+func kvmTracepointSpecs(
+	programs bpfProgramProvider,
+	selection bpfProgramSelection,
+) []tracepointSpec {
+	if !selection.kvmExitReason {
+		return nil
+	}
+	return bpfCoreTracepointSpecs(programs, bpfKVMTracepointCategory)
 }
 
 func signalRawTracepointSpecs(programs bpfProgramProvider) []rawTracepointSpec {

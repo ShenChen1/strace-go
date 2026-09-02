@@ -41,6 +41,20 @@ static __always_inline u32 ioctl_direct_user_len(u64 cmd)
     return size;
 }
 
+static __always_inline int ioctl_kvm_exit_reason(
+    struct pending_syscall *pending,
+    s64 ret_value,
+    u32 *reason)
+{
+    if (ret_value < 0 || pending->args[1] != KVM_RUN_IOCTL) return 0;
+
+    u32 aux = lookup_pending_syscall_aux0(pending->tid);
+    if (!(aux & KVM_EXIT_AUX_VALID)) return 0;
+
+    *reason = aux & KVM_EXIT_AUX_REASON_MASK;
+    return 1;
+}
+
 static __always_inline u32 capture_ioctl_arg_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,
@@ -161,6 +175,10 @@ static __always_inline void emit_ioctl_exit_event_v2_direct(
     }
 
     u16 flags = 0;
+    u32 kvm_exit_reason = 0;
+    if (ioctl_kvm_exit_reason(p, ret_value, &kvm_exit_reason)) {
+        flags |= EVENT_FLAG_KVM_EXIT;
+    }
     u32 payload_size = 0;
     if (ret_value >= 0) {
         payload_size = capture_ioctl_arg_tlv_direct(
@@ -186,6 +204,7 @@ static __always_inline void emit_ioctl_exit_event_v2_direct(
 
     struct syscall_exit_event_v2 body = {};
     init_syscall_exit_event_v2_from_pending(&body, p, ret_value, duration, payload_size);
+    body.reserved = kvm_exit_reason;
     ret = bpf_dynptr_write(&ptr, body_offset, &body, sizeof(body), 0);
     if (ret < 0) {
         record_ringbuf_copy_fail();

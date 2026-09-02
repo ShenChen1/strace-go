@@ -43,6 +43,7 @@ type syscallEventView struct {
 	cpuDuration   uint64
 	enterTime     uint64
 	stackID       int32
+	kvmExitReason uint32
 	probeRetEnter int32
 	probeRetExit  int32
 	comm          string

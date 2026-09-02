@@ -125,6 +125,7 @@ type bpfSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfProgramSpecs struct {
+	TraceKvmUserspaceExit *ebpf.ProgramSpec `ebpf:"trace_kvm_userspace_exit"`
 	TraceNamespaceFork    *ebpf.ProgramSpec `ebpf:"trace_namespace_fork"`
 	TraceSchedProcessExec *ebpf.ProgramSpec `ebpf:"trace_sched_process_exec"`
 	TraceSchedProcessExit *ebpf.ProgramSpec `ebpf:"trace_sched_process_exit"`
@@ -274,6 +275,7 @@ type bpfVariables struct {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfPrograms struct {
+	TraceKvmUserspaceExit *ebpf.Program `ebpf:"trace_kvm_userspace_exit"`
 	TraceNamespaceFork    *ebpf.Program `ebpf:"trace_namespace_fork"`
 	TraceSchedProcessExec *ebpf.Program `ebpf:"trace_sched_process_exec"`
 	TraceSchedProcessExit *ebpf.Program `ebpf:"trace_sched_process_exit"`
@@ -287,6 +289,7 @@ type bpfPrograms struct {
 
 func (p *bpfPrograms) Close() error {
 	return _BpfClose(
+		p.TraceKvmUserspaceExit,
 		p.TraceNamespaceFork,
 		p.TraceSchedProcessExec,
 		p.TraceSchedProcessExit,

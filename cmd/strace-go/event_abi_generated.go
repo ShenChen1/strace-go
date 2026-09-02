@@ -14,6 +14,7 @@ const (
 	bpfEventFlagExitFragment               uint32 = 8
 	bpfEventFlagCompactEnter               uint32 = 16
 	bpfEventFlagEnterFragment              uint32 = 32
+	bpfEventFlagKVMExit                    uint32 = 64
 	lifecycleFork                          uint32 = 1
 	lifecycleExec                          uint32 = 2
 	lifecycleExit                          uint32 = 3
@@ -29,6 +30,7 @@ const (
 	bpfConfigEmitSignal                           = 256
 	bpfConfigDecodePIDComm                        = 512
 	bpfConfigDecodePIDNS                          = 1024
+	bpfConfigKVMExit                              = 2048
 	bpfFilterTaskTracked                   uint32 = 1
 	bpfFilterTaskPreExec                   uint32 = 2
 	traceEventV2HeaderLen                         = 56

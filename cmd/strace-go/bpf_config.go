@@ -21,6 +21,7 @@ type traceBPFConfig struct {
 	decodePIDsComm             bool
 	decodePIDsPIDNS            bool
 	namespaceNew               bool
+	kvmExitReason              bool
 	fdState                    bool
 	elidePlainEnter            bool
 	elideNonBlockingPlainEnter bool
@@ -54,6 +55,7 @@ func newTraceBPFConfig(opts *cli.Options) traceBPFConfig {
 		decodePIDsComm:             opts.DecodePIDsComm,
 		decodePIDsPIDNS:            opts.DecodePIDsPIDNS,
 		namespaceNew:               opts.NamespaceNew,
+		kvmExitReason:              opts.KVMExitReason,
 		fdState:                    fdState,
 		elidePlainEnter:            shouldElidePlainEnter(opts, fdState),
 		elideNonBlockingPlainEnter: shouldElideNonBlockingPlainEnter(opts, fdState),
@@ -93,6 +95,9 @@ func buildRuntimeConfig(config traceBPFConfig, maps bpfMapProvider) (uint32, err
 	}
 	if config.decodePIDsPIDNS {
 		cfgVal |= bpfConfigDecodePIDNS
+	}
+	if config.kvmExitReason {
+		cfgVal |= bpfConfigKVMExit
 	}
 	// Lifecycle events always flow so task/fd state and attach exit status work
 	// in text mode too; JSON rendering is gated separately.

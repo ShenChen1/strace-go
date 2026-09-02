@@ -18,6 +18,7 @@ type bpfProgramSelection struct {
 	mmsgByteSlots    map[uint32]struct{}
 	recvmsgKretprobe bool
 	forkSnapshot     bool
+	kvmExitReason    bool
 }
 
 func selectBPFRoutePlan(
@@ -117,13 +118,14 @@ func newBPFProgramSelection(
 		recvmsgSlots:  make(map[uint32]struct{}),
 		mmsgByteSlots: make(map[uint32]struct{}),
 		forkSnapshot:  forkSnapshot,
+		kvmExitReason: config.kvmExitReason,
 	}
 	if selection.loadAll {
 		selection.recvmsgKretprobe = true
 		return selection, nil
 	}
 
-	if err := selection.addCorePrograms(config.fdState, forkSnapshot); err != nil {
+	if err := selection.addCorePrograms(config.fdState, forkSnapshot, config.kvmExitReason); err != nil {
 		return bpfProgramSelection{}, err
 	}
 	for _, slot := range plan.enter {
@@ -154,7 +156,7 @@ func shouldLoadAllBPFPrograms(config traceBPFConfig) bool {
 	return config.fdState
 }
 
-func (s *bpfProgramSelection) addCorePrograms(fdState, forkSnapshot bool) error {
+func (s *bpfProgramSelection) addCorePrograms(fdState, forkSnapshot, kvmExitReason bool) error {
 	for _, name := range []string{
 		"trace_sys_enter",
 		"trace_sys_exit",
@@ -169,6 +171,9 @@ func (s *bpfProgramSelection) addCorePrograms(fdState, forkSnapshot bool) error 
 	}
 	if forkSnapshot {
 		s.addProgram(bpfNamespaceForkProgramName)
+	}
+	if kvmExitReason {
+		s.addProgram(bpfKVMUserspaceExitProgramName)
 	}
 	noPayloadSlot := uint32(enterProgNoPayloadGeneric)
 	if fdState {

@@ -300,6 +300,25 @@ func TestDecodeTraceEventV2ExitEnvelopePreservesStackID(t *testing.T) {
 	}
 }
 
+func TestDecodeTraceEventV2ExitEnvelopePreservesKVMReason(t *testing.T) {
+	raw := traceEventV2ExitSample(t, traceEventV2SampleSpec{
+		pid:           601,
+		tid:           602,
+		sysID:         syscallIDByName(t, "ioctl"),
+		flags:         bpfEventFlagKVMExit,
+		args:          [6]uint64{3, kvmRunIOCTL, 0},
+		kvmExitReason: 6,
+	})
+
+	envelope, ok := decodeTraceEventV2Envelope(raw)
+	if !ok {
+		t.Fatal("decodeTraceEventV2Envelope rejected a KVM exit sample")
+	}
+	if envelope.kvmExitReason != 6 || envelope.syscallView().kvmExitReason != 6 {
+		t.Fatalf("KVM exit reason = envelope:%d view:%d, want 6", envelope.kvmExitReason, envelope.syscallView().kvmExitReason)
+	}
+}
+
 func TestDecodeTraceEventV2LifecycleEnvelope(t *testing.T) {
 	raw := traceEventV2LifecycleSample(t, traceEventV2SampleSpec{
 		pid:     401,
@@ -394,6 +413,7 @@ type traceEventV2SampleSpec struct {
 	probeRetEnter int32
 	probeRetExit  int32
 	stackID       int32
+	kvmExitReason uint32
 	args          [6]uint64
 	payload       []byte
 	signal        uint32
@@ -440,6 +460,7 @@ func traceEventV2ExitSample(t *testing.T, spec traceEventV2SampleSpec) []byte {
 	putTraceEventV2Args(raw[bodyOffset+traceEventV2ExitArgsOffset:bodyOffset+traceEventV2ExitArgsOffset+traceEventV2ArgsSize], spec.args)
 	binary.LittleEndian.PutUint32(raw[bodyOffset+traceEventV2ExitCaptureLenOffset:bodyOffset+traceEventV2ExitCaptureLenOffset+traceEventV2U32Size], uint32(len(spec.payload)))
 	binary.LittleEndian.PutUint32(raw[bodyOffset+traceEventV2ExitStackIDOffset:bodyOffset+traceEventV2ExitStackIDOffset+traceEventV2U32Size], uint32(spec.stackID))
+	binary.LittleEndian.PutUint32(raw[bodyOffset+traceEventV2ExitReservedOffset:bodyOffset+traceEventV2ExitReservedOffset+traceEventV2U32Size], spec.kvmExitReason)
 	copy(raw[bodyOffset+traceEventV2ExitBodyLen:], spec.payload)
 	return raw
 }

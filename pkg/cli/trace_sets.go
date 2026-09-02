@@ -109,6 +109,8 @@ func parseEFlag(val string, opts *Options) {
 		parseDecodePIDs(strings.TrimPrefix(val, "decode-pid="), opts)
 	case strings.HasPrefix(val, "namespace="):
 		parseNamespaceSet(strings.TrimPrefix(val, "namespace="), opts)
+	case strings.HasPrefix(val, "kvm="):
+		parseKVMQualifier(strings.TrimPrefix(val, "kvm="), opts)
 	case strings.HasPrefix(val, "inject="), strings.HasPrefix(val, "fault="):
 		name, value, _ := strings.Cut(val, "=")
 		rejectTamperingSelector("-e "+name, value)
@@ -122,6 +124,17 @@ func parseEFlag(val string, opts *Options) {
 		parseQuietSet(strings.TrimPrefix(val, "silent="), opts)
 	default:
 		parseTraceSet(val, opts)
+	}
+}
+
+func parseKVMQualifier(value string, opts *Options) {
+	switch value {
+	case "vcpu":
+		opts.KVMExitReason = true
+	case "vcpu+":
+		rejectArchitectureConflict("-e kvm=vcpu+", "full kvm_run decoding requires tracee mmap memory")
+	default:
+		failOption("invalid -e kvm= argument: '%s'", value)
 	}
 }
 

@@ -14,6 +14,9 @@
 #define LIFECYCLE_SNAPSHOT_MAX 4096
 #define FD_PATH_NESTED_SCAN_BYTES 128
 #define FD_PATH_NESTED_MAX 4
+#define KVM_RUN_IOCTL 0xae80
+#define KVM_EXIT_AUX_VALID (1U << 31)
+#define KVM_EXIT_AUX_REASON_MASK (~KVM_EXIT_AUX_VALID)
 
 struct exec_snapshot_header {
     u32 magic;
