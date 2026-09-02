@@ -52,6 +52,9 @@ func validateParsedOptions(opts *Options) {
 	if opts == nil || opts.HelpRequested || opts.VersionLevel > 0 {
 		return
 	}
+	if opts.PrintTimeMode > 0 && opts.AbsoluteTimeFormat != "" {
+		failOption("-t and --absolute-timestamps cannot be provided simultaneously")
+	}
 	if opts.StackFrameLimitSet && !opts.StackTrace {
 		warnOption("--stack-trace-frame-limit has no effect without -k/--stack-trace")
 	}

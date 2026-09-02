@@ -224,7 +224,7 @@ func parseLongRenderOption(state *longOptionState) bool {
 		state.opts.SyscallTimePrecision = parseTimePrecision(state.arg, optionalLongValue(state.inlineValue, state.hasInlineValue, "us"))
 		state.opts.PrintSyscallTime = true
 	case "absolute-timestamps", "timestamps":
-		parseAbsoluteTimestamp(optionalLongValue(state.inlineValue, state.hasInlineValue, "format:time"), state.opts)
+		parseAbsoluteTimestamp(state.arg, optionalLongValue(state.inlineValue, state.hasInlineValue, "format:time"), state.opts)
 	case "stack-trace":
 		if state.hasInlineValue && state.inlineValue != "" {
 			failOption("stack trace mode '%s' conflicts with the pure eBPF address-only contract", state.inlineValue)
