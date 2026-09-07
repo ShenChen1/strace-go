@@ -71,6 +71,18 @@ func TestTraceFilterDistinguishesAllFromNone(t *testing.T) {
 	}
 }
 
+func TestTraceFilterQualifiedSelectorRejectsUnknownSyscalls(t *testing.T) {
+	qualified := newTraceFilterOptions(cli.ParseArgs([]string{"--trace=getpid@64", "/bin/true"}))
+	if qualified.MatchSyscall(unknownSyscallName(472)) {
+		t.Fatal("qualified selector matched unknown syscall")
+	}
+
+	plain := newTraceFilterOptions(cli.ParseArgs([]string{"--trace=getpid", "/bin/true"}))
+	if !plain.MatchSyscall(unknownSyscallName(472)) {
+		t.Fatal("plain selector stopped matching unknown syscall")
+	}
+}
+
 func rawFD(fd int32) uint64 {
 	return uint64(uint32(fd))
 }

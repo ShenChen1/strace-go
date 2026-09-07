@@ -27,6 +27,7 @@ type cliTraceFilter struct {
 	traceConfigured     bool
 	traceMatchesAll     bool
 	traceSetIsNegated   bool
+	strictUnknown       bool
 	traceFDs            map[int32]bool
 	traceFDsConfigured  bool
 	traceFDsNegated     bool
@@ -49,7 +50,7 @@ func (filter cliTraceFilter) IsUnfiltered() bool {
 
 func (filter cliTraceFilter) MatchSyscall(name string) bool {
 	if isUnknownSyscallName(name) {
-		return true
+		return !filter.strictUnknown
 	}
 	if !filter.traceConfigured || filter.traceMatchesAll {
 		return true

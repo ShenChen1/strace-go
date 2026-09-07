@@ -33,6 +33,7 @@ const (
 	bpfConfigDecodePIDComm                         = 512
 	bpfConfigDecodePIDNS                           = 1024
 	bpfConfigKVMExit                               = 2048
+	bpfConfigSyscallFilterStrictUnknown            = 4096
 	bpfFilterTaskTracked                    uint32 = 1
 	bpfFilterTaskPreExec                    uint32 = 2
 	traceEventV2HeaderLen                          = 56

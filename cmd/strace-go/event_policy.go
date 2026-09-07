@@ -211,6 +211,7 @@ func newTraceFilterOptions(opts *cli.Options) traceFilterOptions {
 		traceConfigured:     traceConfigured,
 		traceMatchesAll:     opts.TraceMatchesAll,
 		traceSetIsNegated:   opts.TraceSetIsNegated,
+		strictUnknown:       opts.TracePersonalityQualified && !opts.TraceMatchesAll,
 		traceFDs:            copyInt32BoolMap(opts.TraceFDs),
 		traceFDsConfigured:  traceFDsConfigured,
 		traceFDsNegated:     opts.TraceFDsNegated,

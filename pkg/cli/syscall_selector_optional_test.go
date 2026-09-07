@@ -77,6 +77,18 @@ func TestParseSyscallPersonalitySelectors(t *testing.T) {
 	}
 }
 
+func TestParseSyscallPersonalitySelectorMarksStrictUnknowns(t *testing.T) {
+	qualified := ParseArgs([]string{"--trace=getpid@64", "/bin/true"})
+	if !qualified.TracePersonalityQualified {
+		t.Fatal("qualified trace selector did not enable strict unknown filtering")
+	}
+
+	plain := ParseArgs([]string{"--trace=getpid", "/bin/true"})
+	if plain.TracePersonalityQualified {
+		t.Fatal("plain trace selector unexpectedly enabled strict unknown filtering")
+	}
+}
+
 func TestInvalidSyscallSelectorsRejected(t *testing.T) {
 	caseID := os.Getenv("STRACE_GO_INVALID_SYSCALL_SELECTOR")
 	if caseID != "" {

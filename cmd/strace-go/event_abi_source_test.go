@@ -23,6 +23,7 @@ func TestEventABIConstantsHaveOneGeneratedSource(t *testing.T) {
 		"#define EVENT_FLAG_ENTER_FRAGMENT 32",
 		"#define EVENT_FLAG_KVM_EXIT 64",
 		"#define CONFIG_KVM_EXIT 2048",
+		"#define CONFIG_SYSCALL_FILTER_STRICT_UNKNOWN 4096",
 	} {
 		if !strings.Contains(generatedHeader, required) {
 			t.Fatalf("generated event ABI header missing %q", required)
@@ -39,6 +40,7 @@ func TestEventABIConstantsHaveOneGeneratedSource(t *testing.T) {
 		"bpfConfigEmitLifecycle = 32",
 		"bpfConfigDecodePIDComm = 512",
 		"bpfConfigKVMExit = 2048",
+		"bpfConfigSyscallFilterStrictUnknown = 4096",
 		"traceEventV2HeaderCommOffset = 40",
 		"traceEventV2CommSize = 16",
 	} {

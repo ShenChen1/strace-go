@@ -163,6 +163,7 @@ type bpfEnterStructuredMapSpecs struct {
 	MainExitedMap         *ebpf.MapSpec `ebpf:"main_exited_map"`
 	MmsgBytesProgs        *ebpf.MapSpec `ebpf:"mmsg_bytes_progs"`
 	PendingExecMap        *ebpf.MapSpec `ebpf:"pending_exec_map"`
+	PendingForkFlagsMap   *ebpf.MapSpec `ebpf:"pending_fork_flags_map"`
 	PendingStackMap       *ebpf.MapSpec `ebpf:"pending_stack_map"`
 	PendingTaskStorage    *ebpf.MapSpec `ebpf:"pending_task_storage"`
 	PidNamespaceConfigMap *ebpf.MapSpec `ebpf:"pid_namespace_config_map"`
@@ -172,6 +173,7 @@ type bpfEnterStructuredMapSpecs struct {
 	StackTraces           *ebpf.MapSpec `ebpf:"stack_traces"`
 	StatsMap              *ebpf.MapSpec `ebpf:"stats_map"`
 	SyscallFilterMap      *ebpf.MapSpec `ebpf:"syscall_filter_map"`
+	UnknownChildrenMap    *ebpf.MapSpec `ebpf:"unknown_children_map"`
 }
 
 // bpfEnterStructuredVariableSpecs contains global variables before they are loaded into the kernel.
@@ -224,6 +226,7 @@ type bpfEnterStructuredMaps struct {
 	MainExitedMap         *ebpf.Map `ebpf:"main_exited_map"`
 	MmsgBytesProgs        *ebpf.Map `ebpf:"mmsg_bytes_progs"`
 	PendingExecMap        *ebpf.Map `ebpf:"pending_exec_map"`
+	PendingForkFlagsMap   *ebpf.Map `ebpf:"pending_fork_flags_map"`
 	PendingStackMap       *ebpf.Map `ebpf:"pending_stack_map"`
 	PendingTaskStorage    *ebpf.Map `ebpf:"pending_task_storage"`
 	PidNamespaceConfigMap *ebpf.Map `ebpf:"pid_namespace_config_map"`
@@ -233,6 +236,7 @@ type bpfEnterStructuredMaps struct {
 	StackTraces           *ebpf.Map `ebpf:"stack_traces"`
 	StatsMap              *ebpf.Map `ebpf:"stats_map"`
 	SyscallFilterMap      *ebpf.Map `ebpf:"syscall_filter_map"`
+	UnknownChildrenMap    *ebpf.Map `ebpf:"unknown_children_map"`
 }
 
 func (m *bpfEnterStructuredMaps) Close() error {
@@ -251,6 +255,7 @@ func (m *bpfEnterStructuredMaps) Close() error {
 		m.MainExitedMap,
 		m.MmsgBytesProgs,
 		m.PendingExecMap,
+		m.PendingForkFlagsMap,
 		m.PendingStackMap,
 		m.PendingTaskStorage,
 		m.PidNamespaceConfigMap,
@@ -260,6 +265,7 @@ func (m *bpfEnterStructuredMaps) Close() error {
 		m.StackTraces,
 		m.StatsMap,
 		m.SyscallFilterMap,
+		m.UnknownChildrenMap,
 	)
 }
 

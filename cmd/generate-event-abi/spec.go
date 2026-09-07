@@ -39,6 +39,7 @@ var protocolConstants = []protocolConstant{
 	{cName: "CONFIG_DECODE_PID_COMM", goName: "bpfConfigDecodePIDComm", cValue: "512"},
 	{cName: "CONFIG_DECODE_PID_NS", goName: "bpfConfigDecodePIDNS", cValue: "1024"},
 	{cName: "CONFIG_KVM_EXIT", goName: "bpfConfigKVMExit", cValue: "2048"},
+	{cName: "CONFIG_SYSCALL_FILTER_STRICT_UNKNOWN", goName: "bpfConfigSyscallFilterStrictUnknown", cValue: "4096"},
 	{cName: "FILTER_TASK_TRACKED", goName: "bpfFilterTaskTracked", cValue: "1", goType: "uint32"},
 	{cName: "FILTER_TASK_PRE_EXEC", goName: "bpfFilterTaskPreExec", cValue: "2", goType: "uint32"},
 	{cName: "EVENT_V2_HEADER_LEN", goName: "traceEventV2HeaderLen", cValue: "56"},

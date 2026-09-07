@@ -54,28 +54,31 @@ const DefaultStackTraceFrameLimit = 256
 
 // Options holds all parsed command-line options.
 type Options struct {
-	CmdArgs               []string
-	Argv0                 string
-	Argv0Set              bool
-	RunAsUser             string
-	AttachPids            []int
-	EventFormat           string
-	DebugEvents           bool
-	DebugPhases           bool
-	RuntimeDebug          bool
-	ColorMode             string
-	TipsMode              string
-	TipsID                int
-	OutFile               string
-	AlignCol              int
-	StringLimit           int
-	HexEscapeMode         int // 0 = default, 1 = hex non-ascii (-x), 2 = hex all (-xx), 3 = hex escaped chars
-	TraceSyscalls         map[string]bool
-	TracePaths            map[string]bool
-	TraceSyscallRegexps   []*regexp.Regexp
-	TraceConfigured       bool
-	TraceMatchesAll       bool
-	TraceSetIsNegated     bool
+	CmdArgs             []string
+	Argv0               string
+	Argv0Set            bool
+	RunAsUser           string
+	AttachPids          []int
+	EventFormat         string
+	DebugEvents         bool
+	DebugPhases         bool
+	RuntimeDebug        bool
+	ColorMode           string
+	TipsMode            string
+	TipsID              int
+	OutFile             string
+	AlignCol            int
+	StringLimit         int
+	HexEscapeMode       int // 0 = default, 1 = hex non-ascii (-x), 2 = hex all (-xx), 3 = hex escaped chars
+	TraceSyscalls       map[string]bool
+	TracePaths          map[string]bool
+	TraceSyscallRegexps []*regexp.Regexp
+	TraceConfigured     bool
+	TraceMatchesAll     bool
+	TraceSetIsNegated   bool
+
+	TracePersonalityQualified bool
+
 	TraceFDs              map[int32]bool
 	TraceFDsConfigured    bool
 	TraceFDsNegated       bool

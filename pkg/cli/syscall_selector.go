@@ -10,17 +10,19 @@ import (
 )
 
 type syscallSelector struct {
-	names   map[string]bool
-	regexps []*regexp.Regexp
-	all     bool
-	negated bool
+	names                map[string]bool
+	regexps              []*regexp.Regexp
+	all                  bool
+	negated              bool
+	personalityQualified bool
 }
 
 type syscallSelectorTerm struct {
-	expression string
-	diagnostic string
-	optional   bool
-	active     bool
+	expression           string
+	diagnostic           string
+	optional             bool
+	active               bool
+	personalityQualified bool
 }
 
 func parseSyscallSelector(value string) syscallSelector {
@@ -57,6 +59,7 @@ func parseSyscallSelectorTerm(token string) syscallSelectorTerm {
 	}
 	term.expression = term.expression[:separator]
 	term.active = personality == nativeSyscallPersonality()
+	term.personalityQualified = true
 	return term
 }
 
@@ -76,6 +79,7 @@ func nativeSyscallPersonality() string {
 }
 
 func (selector *syscallSelector) add(term syscallSelectorTerm, tokenCount int) {
+	selector.personalityQualified = selector.personalityQualified || term.personalityQualified
 	switch term.expression {
 	case "all", "%all":
 		if term.active {

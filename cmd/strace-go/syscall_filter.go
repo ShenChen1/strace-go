@@ -11,17 +11,19 @@ import (
 )
 
 type syscallFilterInput struct {
-	names      map[string]bool
-	regexps    []*regexp.Regexp
-	configured bool
-	matchesAll bool
-	negated    bool
+	names         map[string]bool
+	regexps       []*regexp.Regexp
+	configured    bool
+	matchesAll    bool
+	negated       bool
+	strictUnknown bool
 }
 
 type syscallFilterPlan struct {
-	enabled bool
-	negated bool
-	ids     []uint32
+	enabled       bool
+	negated       bool
+	strictUnknown bool
+	ids           []uint32
 }
 
 type syscallFilterEntry struct {
@@ -49,9 +51,10 @@ func buildSyscallFilterPlan(input syscallFilterInput) syscallFilterPlan {
 	}
 
 	plan := syscallFilterPlan{
-		enabled: true,
-		negated: input.negated,
-		ids:     make([]uint32, 0, len(ids)),
+		enabled:       true,
+		negated:       input.negated,
+		strictUnknown: input.strictUnknown,
+		ids:           make([]uint32, 0, len(ids)),
 	}
 	for id := range ids {
 		plan.ids = append(plan.ids, id)
@@ -145,6 +148,9 @@ func configureSyscallFilter(plan syscallFilterPlan, maps bpfMapProvider) (uint32
 	cfg := uint32(bpfConfigSyscallFilter)
 	if plan.negated {
 		cfg |= bpfConfigSyscallFilterNegated
+	}
+	if plan.strictUnknown {
+		cfg |= bpfConfigSyscallFilterStrictUnknown
 	}
 	return cfg, nil
 }

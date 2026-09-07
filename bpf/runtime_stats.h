@@ -8,10 +8,10 @@ static __always_inline int should_trace_syscall(u32 sys_id, u32 *cfg)
     }
 
     u32 *selected = bpf_map_lookup_elem(&syscall_filter_map, &sys_id);
-    // A missing key is outside generated syscall metadata, so name filters
-    // cannot classify it and must preserve the event for generic decoding.
+    // Qualified ABI selectors use strict unknown handling; ordinary selectors
+    // preserve unknown events for generic decoding and diagnostics.
     if (!selected) {
-        return 1;
+        return (*cfg & CONFIG_SYSCALL_FILTER_STRICT_UNKNOWN) ? 0 : 1;
     }
     if (*cfg & CONFIG_SYSCALL_FILTER_NEGATED) {
         return *selected ? 0 : 1;

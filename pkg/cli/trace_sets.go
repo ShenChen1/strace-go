@@ -157,6 +157,7 @@ func parseTraceSet(val string, opts *Options) {
 	opts.TraceSyscalls = selector.names
 	opts.TraceSyscallRegexps = selector.regexps
 	opts.TraceSetIsNegated = selector.negated
+	opts.TracePersonalityQualified = selector.personalityQualified
 	opts.TraceMatchesAll = false
 	if matchesAll, explicit := selector.explicitAllOrNone(); explicit {
 		opts.TraceMatchesAll = matchesAll

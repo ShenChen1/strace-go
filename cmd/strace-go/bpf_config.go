@@ -36,11 +36,12 @@ func newTraceBPFConfig(opts *cli.Options) traceBPFConfig {
 	traceConfigured := opts.TraceConfigured || opts.TraceSetIsNegated ||
 		len(opts.TraceSyscalls) > 0 || len(opts.TraceSyscallRegexps) > 0
 	filterInput := syscallFilterInput{
-		names:      copyStringBoolMap(opts.TraceSyscalls),
-		regexps:    append([]*regexp.Regexp(nil), opts.TraceSyscallRegexps...),
-		configured: traceConfigured,
-		matchesAll: opts.TraceMatchesAll,
-		negated:    opts.TraceSetIsNegated,
+		names:         copyStringBoolMap(opts.TraceSyscalls),
+		regexps:       append([]*regexp.Regexp(nil), opts.TraceSyscallRegexps...),
+		configured:    traceConfigured,
+		matchesAll:    opts.TraceMatchesAll,
+		negated:       opts.TraceSetIsNegated,
+		strictUnknown: opts.TracePersonalityQualified && !opts.TraceMatchesAll,
 	}
 	syscallFilter := buildSyscallFilterPlan(filterInput)
 	if opts.DetachOnExecve {

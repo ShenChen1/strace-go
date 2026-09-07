@@ -11,7 +11,7 @@ func TestBPFSyscallFilterPassesOnlyUnknownMapMisses(t *testing.T) {
 	source := readTextFile(t, filepath.Join(root, "bpf/runtime_stats.h"))
 
 	for _, contract := range []string{
-		"if (!selected) {\n        return 1;",
+		"if (!selected) {\n        return (*cfg & CONFIG_SYSCALL_FILTER_STRICT_UNKNOWN) ? 0 : 1;",
 		"return *selected ? 0 : 1;",
 		"return *selected ? 1 : 0;",
 	} {

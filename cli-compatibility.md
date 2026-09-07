@@ -55,13 +55,14 @@ ptrace signal-stop 栈，因此只登记为具名 XFAIL；地址帧截断由 eve
 ## 当前 ABI designator 边界
 
 `@64`、`@32` 和 `@x32` 已进入统一 syscall selector parser：native personality
-表达式参与当前 syscall 集，受支持的非 native personality 表达式会完成名称、类别、编号和
-正则校验，但不会改变 native syscall 集。该阶段只证明 CLI grammar 兼容，不代表已经支持
-compat tracee 解码。
+表达式参与当前 syscall 集，并在 BPF 入口严格丢弃不在生成元数据中的 syscall ID；受支持的
+非 native personality 表达式会完成名称、类别、编号和正则校验，但不会改变 native syscall
+集。普通（未带 `@PERSONALITY`）选择器仍保留未知 syscall 诊断，以兼容 `nsyscalls*` 行为。
+该阶段不代表已经支持 compat tracee 解码。
 
 完整的非 native tracing 仍需 event ABI 携带 personality，并由生成器提供对应 syscall
 元数据表；在这些运行时合同完成前，不能把非 native selector 伪装为 native selector。
-当前语法合同由 `filtering_syscall-syntax.test` 和选定的 `trace_personality_*` 用例覆盖。
+当前合同由 `filtering_syscall-syntax.test`、`trace_personality_*` 和 `nsyscalls*` 用例覆盖。
 
 ## 实施规则
 

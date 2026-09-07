@@ -64,6 +64,14 @@ func TestBuildSyscallFilterPlanTraceNoneRejectsAll(t *testing.T) {
 	}
 }
 
+func TestBuildSyscallFilterPlanQualifiedTraceRejectsUnknownIDs(t *testing.T) {
+	opts := cli.ParseArgs([]string{"--trace=getpid@64", "/bin/true"})
+	plan := newTraceBPFConfig(opts).syscallFilter
+	if !plan.strictUnknown {
+		t.Fatal("qualified trace selector did not enable strict unknown filtering")
+	}
+}
+
 func TestMaterializeSyscallFilterEntriesDistinguishesUnknownIDs(t *testing.T) {
 	plan := syscallFilterPlan{enabled: true, ids: []uint32{9}}
 	table := map[uint32]meta.Syscall{
