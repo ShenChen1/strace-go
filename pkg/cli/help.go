@@ -111,7 +111,7 @@ Output format:
   -n, --syscall-number
                  print syscall number
   -N, --arg-names
-                 print syscall argument names
+		 print syscall argument names
   -o FILE, --output=FILE
                  send trace output to FILE instead of stderr
   -A, --output-append-mode
@@ -178,7 +178,7 @@ Statistics:
                  calls, errors, name, nothing (default time)
   -U COLUMNS, --summary-columns=COLUMNS
                  show specific columns in the summary report: comma-separated
-                 list of time-percent, total-time, min-time, max-time,
+                 list of time-percent, total-time, min-time, max-time,` + " " + `
                  avg-time, calls, errors, name
                  (default time-percent,total-time,avg-time,calls,errors,name)
   -w, --summary-wall-clock
