@@ -115,3 +115,24 @@ func TestTraceSessionExitStatusWritesFallbackAfterFlush(t *testing.T) {
 		t.Fatalf("fallback output = %q", output.String())
 	}
 }
+
+func TestTraceSessionExitStatusFlushesAttachedCommandAtWait(t *testing.T) {
+	var output bytes.Buffer
+	coordinator := newExitStatusCoordinator(ExitStatusCoordinatorDeps{
+		Queue:      newExitStatusQueue(),
+		Out:        &output,
+		HasCommand: true,
+		AttachPids: []int{202},
+	})
+
+	coordinator.Queue(101, "command exit\n")
+	coordinator.MarkExitedWithFallback(101, "fallback exit\n")
+
+	if got := output.String(); got != "command exit\n" {
+		t.Fatalf("attached command exit output = %q, want queued command line", got)
+	}
+	coordinator.Queue(101, "late exit\n")
+	if got := output.String(); got != "command exit\n" {
+		t.Fatalf("late attached command exit output = %q, want no duplicate", got)
+	}
+}

@@ -9,6 +9,7 @@ type ExitStatusQueue struct {
 	pending  map[int]string
 	exited   map[int]bool
 	fallback map[int]string
+	released map[int]bool
 }
 
 type ExitStatusCoordinator struct {
@@ -47,6 +48,9 @@ func (s *traceSession) exitStatusCoordinator() *ExitStatusCoordinator {
 
 // IMPACT: Queue records an exit line until process wait confirms that tracee termination is visible.
 func (q *ExitStatusQueue) Queue(pid int, line string) (string, bool) {
+	if q.released != nil && q.released[pid] {
+		return "", false
+	}
 	if q.pending == nil {
 		q.pending = make(map[int]string)
 	}
@@ -78,6 +82,7 @@ func (q *ExitStatusQueue) Discard(pid int) {
 	delete(q.pending, pid)
 	delete(q.exited, pid)
 	delete(q.fallback, pid)
+	delete(q.released, pid)
 }
 
 func (q *ExitStatusQueue) HasExited(pid int) bool {
@@ -98,6 +103,20 @@ func (q *ExitStatusQueue) FlushFallback(pid int) (string, bool) {
 	if !ok || line == "" {
 		return "", false
 	}
+	return line, true
+}
+
+// IMPACT: FlushAfterWait releases a command status early only for attach runs.
+// A later ringbuf status for the same command is stale after this point.
+func (q *ExitStatusQueue) FlushAfterWait(pid int) (string, bool) {
+	line, ok := q.FlushFallback(pid)
+	if !ok {
+		return "", false
+	}
+	if q.released == nil {
+		q.released = make(map[int]bool)
+	}
+	q.released[pid] = true
 	return line, true
 }
 
@@ -136,6 +155,13 @@ func (c *ExitStatusCoordinator) MarkExitedWithFallback(pid int, fallback string)
 		return
 	}
 	if line, ok := c.queue.MarkExitedWithFallback(pid, fallback); ok {
+		c.write(pid, line)
+		return
+	}
+	if len(c.attachPids) == 0 {
+		return
+	}
+	if line, ok := c.queue.FlushAfterWait(pid); ok {
 		c.write(pid, line)
 	}
 }
