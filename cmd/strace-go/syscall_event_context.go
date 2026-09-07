@@ -25,6 +25,7 @@ type syscallEventContext struct {
 	payloadSections      []handler.PayloadSection
 	eventFDView          eventFDStateView
 	detached             bool
+	detachedByStatus     bool
 	detachedByExecPolicy bool
 }
 

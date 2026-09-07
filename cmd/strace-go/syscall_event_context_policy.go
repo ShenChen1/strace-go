@@ -65,6 +65,7 @@ func (ev syscallEventContext) withNonLeaderExecDetachedStatus() syscallEventCont
 	view := ev.eventView()
 	if view.ret == 0 && view.pid != 0 && view.pid != view.tid && isExecSyscall(ev.syscallName()) {
 		ev.detached = true
+		ev.detachedByStatus = true
 	}
 	return ev
 }

@@ -143,6 +143,10 @@ func (o *ExecSyscallOutput) handleNonLeaderSuccess(
 			o.renderer.PrintSupersededSuspendedResumeFromView(view, suspMeta.Name)
 		}
 	}
+	if ev.detachedByStatus {
+		o.renderer.PrintExecDetachedThreadSupersededFromView(view)
+		return true
+	}
 	o.renderer.PrintThreadExecveSupersededFromView(view, scMeta.Name)
 	return true
 }

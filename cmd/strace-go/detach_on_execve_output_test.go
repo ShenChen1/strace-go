@@ -72,3 +72,27 @@ func TestExecSyscallOutputDoesNotTreatDetachedStatusAsDetachPolicy(t *testing.T)
 		t.Fatalf("status-detached exec used detach output path: %q", got)
 	}
 }
+
+func TestExecSyscallOutputStatusDetachedOmitsResumeLine(t *testing.T) {
+	output, _, out, _ := newExecSyscallOutputForTest(&cli.Options{FollowForks: true})
+	syscall := meta.Syscall{Name: "execve"}
+	result := handler.Result{ArgParts: []string{`"/bin/true"`, `["true"]`, `NULL`}}
+
+	if !output.HandleEvent(execOutputEvent(syscall, 200, 201, -514), result) {
+		t.Fatal("non-leader exec restart should be handled")
+	}
+	success := execOutputEvent(syscall, 200, 201, 0)
+	success.detached = true
+	success.detachedByStatus = true
+	if !output.HandleEvent(success, result) {
+		t.Fatal("status-detached non-leader exec should be handled")
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "+++ superseded by execve in pid 201 +++") {
+		t.Fatalf("status-detached output = %q, want superseded marker", got)
+	}
+	if strings.Contains(got, "<... execve resumed>) = 0") {
+		t.Fatalf("status-detached output = %q, want no exec resume", got)
+	}
+}

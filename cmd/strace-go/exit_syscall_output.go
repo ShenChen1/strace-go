@@ -9,6 +9,7 @@ import (
 
 type ExitSyscallOutput struct {
 	policy            traceExitPolicy
+	eventPolicy       traceEventOutputPolicy
 	renderer          exitSyscallRenderer
 	out               io.Writer
 	handleSyscall     func(string, *handler.Context) handler.Result
@@ -19,6 +20,7 @@ type ExitSyscallOutput struct {
 
 type ExitSyscallOutputDeps struct {
 	Policy            traceExitPolicy
+	EventPolicy       traceEventOutputPolicy
 	Renderer          exitSyscallRenderer
 	Out               io.Writer
 	HandleSyscall     func(string, *handler.Context) handler.Result
@@ -30,6 +32,7 @@ type ExitSyscallOutputDeps struct {
 func newExitSyscallOutput(deps ExitSyscallOutputDeps) *ExitSyscallOutput {
 	return &ExitSyscallOutput{
 		policy:            deps.Policy,
+		eventPolicy:       deps.EventPolicy,
 		renderer:          deps.Renderer,
 		out:               deps.Out,
 		handleSyscall:     deps.HandleSyscall,
@@ -58,7 +61,7 @@ func (o *ExitSyscallOutput) Handle(ev syscallEventContext) bool {
 		return true
 	}
 
-	if ev.shouldOutput() {
+	if o.shouldEmitEvent(ev) {
 		handleSyscall := o.handleSyscall
 		if handleSyscall == nil {
 			handleSyscall = defaultHandleSyscall
@@ -74,8 +77,24 @@ func (o *ExitSyscallOutput) Handle(ev syscallEventContext) bool {
 			o.renderer.PrintExitSyscallEvent(ev, res)
 		}
 	}
-	o.printExitStatus(ev)
+	if o.shouldEmitStatus(ev) {
+		o.printExitStatus(ev)
+	}
 	return true
+}
+
+func (o *ExitSyscallOutput) shouldEmitEvent(ev syscallEventContext) bool {
+	if !ev.shouldOutput() {
+		return false
+	}
+	return o.eventPolicy == nil || o.eventPolicy.ShouldEmit(ev, false)
+}
+
+func (o *ExitSyscallOutput) shouldEmitStatus(ev syscallEventContext) bool {
+	if o.eventPolicy == nil {
+		return true
+	}
+	return o.eventPolicy.ShouldEmit(ev, false)
 }
 
 func (o *ExitSyscallOutput) printExitStatus(ev syscallEventContext) {

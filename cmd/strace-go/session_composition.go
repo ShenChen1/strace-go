@@ -321,6 +321,7 @@ func buildTraceSessionOutputs(
 	})
 	exitSyscall := newExitSyscallOutput(ExitSyscallOutputDeps{
 		Policy:            base.outputPolicy,
+		EventPolicy:       base.outputPolicy,
 		Renderer:          base.renderer,
 		Out:               deps.OutWriter,
 		HandleSyscall:     base.handleSyscall,

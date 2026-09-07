@@ -25,16 +25,18 @@ type exitOutputTestState struct {
 func newExitOutputTestState(opts *cli.Options) *exitOutputTestState {
 	out := &bytes.Buffer{}
 	state := &exitOutputTestState{opts: opts, out: out}
+	policy := newTraceOutputPolicy(opts)
 	renderer := newTextRenderer(TextRendererDeps{
 		Out:           out,
-		Policy:        newTraceOutputPolicy(opts),
+		Policy:        policy,
 		State:         newTraceState(),
 		TimeFormatter: newTimeFormatter(0),
 	})
 	state.output = newExitSyscallOutput(ExitSyscallOutputDeps{
-		Policy:   newTraceOutputPolicy(opts),
-		Renderer: renderer,
-		Out:      out,
+		Policy:      policy,
+		EventPolicy: policy,
+		Renderer:    renderer,
+		Out:         out,
 		ShouldQueueStatus: func(pid int) bool {
 			state.shouldQueuePID = pid
 			return state.shouldQueue
@@ -161,6 +163,20 @@ func TestExitSyscallOutputHiddenExitPrintsStatusOnly(t *testing.T) {
 	}
 	if !strings.Contains(got, "101   +++ exited with 7 +++") {
 		t.Fatalf("hidden exit output = %q, want status line", got)
+	}
+}
+
+func TestExitSyscallOutputStatusNoneSuppressesExitAndStatus(t *testing.T) {
+	state := newExitOutputTestState(&cli.Options{
+		FollowForks:      true,
+		StatusConfigured: true,
+	})
+
+	if !state.output.Handle(exitEventContext(state.opts, "exit_group", true)) {
+		t.Fatal("status-filtered exit_group should still be handled")
+	}
+	if state.out.Len() != 0 || state.jsonCalled || state.queuedLine != "" {
+		t.Fatalf("status=none exit output leaked: out=%q json=%v queued=%q", state.out.String(), state.jsonCalled, state.queuedLine)
 	}
 }
 
