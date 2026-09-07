@@ -215,6 +215,11 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
             test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
         )
 
+    def test_address_stack_status_filter_regression_is_registered(self):
+        test = "strace-k-z.test"
+        self.assertIn(test, upstream_suites.MORE_TESTS)
+        self.assertIn(test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS)
+
     def test_namespace_new_regressions_are_registered(self):
         for test in (
             "clone3-report-ns-id.gen.test",
