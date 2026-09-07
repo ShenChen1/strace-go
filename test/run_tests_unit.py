@@ -260,6 +260,25 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
                 test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
             )
 
+    def test_file_attribute_regressions_are_registered(self):
+        for test in (
+            "file_getattr.gen.test",
+            "file_getattr-P.gen.test",
+            "file_getattr-y.gen.test",
+            "file_getattr-yy.gen.test",
+            "file_setattr.gen.test",
+            "file_setattr-P.gen.test",
+            "file_setattr-Xabbrev.gen.test",
+            "file_setattr-Xraw.gen.test",
+            "file_setattr-Xverbose.gen.test",
+            "file_setattr-y.gen.test",
+            "file_setattr-yy.gen.test",
+        ):
+            self.assertIn(test, upstream_suites.MORE_TESTS)
+            self.assertIn(
+                test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
+            )
+
     def test_decode_fds_path_regressions_are_registered(self):
         for test in (
             "dev--decode-fds-all.gen.test",
