@@ -101,6 +101,53 @@ class UpstreamReferenceSuiteTest(unittest.TestCase):
                 test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
             )
 
+    def test_new_pure_ebpf_upstream_cases_are_registered(self):
+        for test in (
+            "count_unknown.test",
+            "count_unknown-S.test",
+            "count_unknown-wall.test",
+            "count_unknown_many.test",
+            "count_unknown_mixed.test",
+            "rseq_slice_yield.gen.test",
+            "futex_wait.gen.test",
+            "futex_wait-Xabbrev.gen.test",
+            "futex_wait-Xraw.gen.test",
+            "futex_wait-Xverbose.gen.test",
+            "futex_waitv.gen.test",
+            "futex_requeue.gen.test",
+            "futex_requeue-Xabbrev.gen.test",
+            "futex_requeue-Xraw.gen.test",
+            "futex_requeue-Xverbose.gen.test",
+            "futex_wake.gen.test",
+            "futex_wake-Xabbrev.gen.test",
+            "futex_wake-Xraw.gen.test",
+            "futex_wake-Xverbose.gen.test",
+            "process_madvise.gen.test",
+            "process_madvise-y.gen.test",
+            "process_madvise-yy.gen.test",
+            "openat2.gen.test",
+            "openat2-Xabbrev.gen.test",
+            "openat2-Xraw.gen.test",
+            "openat2-Xverbose.gen.test",
+            "openat2-v.gen.test",
+            "dup-y.gen.test",
+            "dup-trace-fds-0-P.gen.test",
+            "fsync.gen.test",
+            "inotify_init-y.test",
+            "inotify_init1.gen.test",
+            "pidfd_open.gen.test",
+            "pidfd_open-P.gen.test",
+            "pidfd_open-y.gen.test",
+            "pidfd_open-yy.gen.test",
+            "pidfd_getfd.gen.test",
+            "quotactl_fd-P.gen.test",
+            "quotactl_fd-y.gen.test",
+        ):
+            self.assertIn(test, upstream_suites.MORE_TESTS)
+            self.assertIn(
+                test, upstream_suites.UPSTREAM_REFERENCE_STABLE_MORE_TESTS
+            )
+
     def test_syscall_personality_regressions_are_candidates(self):
         for test in self.syscall_personality_regressions():
             self.assertIn(test, upstream_suites.MORE_TESTS)
