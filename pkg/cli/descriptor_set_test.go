@@ -40,6 +40,17 @@ func TestParseDescriptorSetCompatibleForms(t *testing.T) {
 	}
 }
 
+func TestParseDescriptorSetRepeatedNegation(t *testing.T) {
+	opts := ParseArgs([]string{"-eread=!!!0,1", "/bin/true"})
+
+	if opts.TraceReadFD(0) {
+		t.Fatal("repeated negation unexpectedly enabled fd 0")
+	}
+	if !opts.TraceReadFD(2) {
+		t.Fatal("repeated negation disabled fd 2")
+	}
+}
+
 func TestParseTraceFDDescriptorSets(t *testing.T) {
 	all := ParseArgs([]string{"--trace-fds=all", "/bin/true"})
 	if !all.TraceFDsConfigured || all.TraceFDsNegated || !all.TraceFDs[TraceAllFDs] {

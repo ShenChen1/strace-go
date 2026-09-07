@@ -51,17 +51,25 @@ func parseReadWriteFDSet(value string, dst map[int32]bool) bool {
 
 func parseDescriptorSet(value string) descriptorSet {
 	parsed := descriptorSet{fds: make(map[int32]bool)}
-	switch value {
-	case "all", "!none":
-		parsed.fds[TraceAllFDs] = true
-		return parsed
-	case "none", "!all":
+	original := value
+	negations := 0
+	for strings.HasPrefix(value, "!") {
+		negations++
+		value = strings.TrimPrefix(value, "!")
+	}
+	parsed.negated = negations%2 == 1
+	if value == "all" {
+		if !parsed.negated {
+			parsed.fds[TraceAllFDs] = true
+		}
 		return parsed
 	}
-	original := value
-	parsed.negated = strings.HasPrefix(value, "!")
-	if parsed.negated {
-		value = strings.TrimPrefix(value, "!")
+	if value == "none" {
+		if parsed.negated {
+			parsed.fds[TraceAllFDs] = true
+			parsed.negated = false
+		}
+		return parsed
 	}
 	parsedAny := false
 	for _, descriptor := range strings.Split(value, ",") {
