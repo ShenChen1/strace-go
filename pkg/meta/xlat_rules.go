@@ -14,6 +14,7 @@ var enumXlatNames = map[string]bool{
 	"clocknames":            true,
 	"epollctls":             true,
 	"fcntlcmds":             true,
+	"file_attr_at_flags":    true,
 	"fsconfig_cmds":         true,
 	"fsmagic":               true,
 	"futexops":              true,
@@ -45,28 +46,31 @@ var bitflagXlatNames = map[string]bool{
 }
 
 var unknownEnumDecimalExcluded = map[string]bool{
-	"archvals":          true,
-	"clocknames":        true,
-	"fcntlcmds":         true,
-	"fsconfig_cmds":     true,
-	"ioctl_cmds":        true,
-	"madvise_cmds":      true,
-	"resources":         true,
-	"sock_options":      true,
-	"socketlayers":      true,
-	"x86_xfeature_bits": true,
+	"archvals":           true,
+	"clocknames":         true,
+	"fcntlcmds":          true,
+	"file_attr_at_flags": true,
+	"fsconfig_cmds":      true,
+	"ioctl_cmds":         true,
+	"madvise_cmds":       true,
+	"resources":          true,
+	"sock_options":       true,
+	"socketlayers":       true,
+	"x86_xfeature_bits":  true,
 }
 
 var rawEnumDecimalExcluded = map[string]bool{
-	"archvals":          true,
-	"clocknames":        true,
-	"fcntlcmds":         true,
-	"ioctl_cmds":        true,
-	"madvise_cmds":      true,
-	"resources":         true,
-	"sock_options":      true,
-	"socketlayers":      true,
-	"x86_xfeature_bits": true,
+	"archvals":           true,
+	"clocknames":         true,
+	"fcntlcmds":          true,
+	"file_attr_at_flags": true,
+	"ioctl_cmds":         true,
+	"madvise_cmds":       true,
+	"resources":          true,
+	"fs_xflags":          true,
+	"sock_options":       true,
+	"socketlayers":       true,
+	"x86_xfeature_bits":  true,
 }
 
 var unknownEnumDecimalComment = map[string]bool{
@@ -82,6 +86,7 @@ var fullWidthXlatNames = map[string]bool{
 	"statmount_mnt_propagation": true,
 	"listmount_mnt_id":          true,
 	"unshare_flags":             true,
+	"fs_xflags":                 true,
 }
 
 func isEnumXlat(xlatName string) bool {

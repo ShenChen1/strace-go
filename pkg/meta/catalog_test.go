@@ -72,7 +72,7 @@ func TestCatalogKeepsFormattingModesSessionLocal(t *testing.T) {
 func TestCatalogCopiesRuntimeTablesAndArgumentMappings(t *testing.T) {
 	catalog := meta.NewCatalog("abbrev")
 
-	for _, tableName := range []string{"fsconfig_cmds", "fsopen_flags", "fspick_flags", "fiemap_flags", "fiemap_extent_flags"} {
+	for _, tableName := range []string{"fsconfig_cmds", "fsopen_flags", "fspick_flags", "fiemap_flags", "fiemap_extent_flags", "file_attr_at_flags", "fs_xflags"} {
 		if _, ok := catalog.Table(tableName); !ok {
 			t.Fatalf("Catalog.Table(%q) is missing", tableName)
 		}
@@ -86,6 +86,8 @@ func TestCatalogCopiesRuntimeTablesAndArgumentMappings(t *testing.T) {
 		{syscall: "fsconfig", arg: "cmd", xlat: "fsconfig_cmds"},
 		{syscall: "fsopen", arg: "flags", xlat: "fsopen_flags"},
 		{syscall: "fspick", arg: "flags", xlat: "fspick_flags"},
+		{syscall: "file_getattr", arg: "at_flags", xlat: "file_attr_at_flags"},
+		{syscall: "file_setattr", arg: "at_flags", xlat: "file_attr_at_flags"},
 	}
 	for _, tt := range tests {
 		got, ok := catalog.SyscallArgXlat(tt.syscall, tt.arg)

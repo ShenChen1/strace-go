@@ -55,6 +55,21 @@ func TestCheckedInSemanticSourceIsSortedAndStable(t *testing.T) {
 	}
 }
 
+func TestCheckedInSemanticSourceIncludesCurrentKernelSyscalls(t *testing.T) {
+	want := map[string]syscallSemanticEntry{
+		"file_getattr":     {Argc: 5, Flags: "TD|TF"},
+		"file_setattr":     {Argc: 5, Flags: "TD|TF"},
+		"listns":           {Argc: 4, Flags: "0"},
+		"rseq_slice_yield": {Argc: 0, Flags: "0"},
+		"uprobe":           {Argc: 0, Flags: "0"},
+	}
+	for name, expected := range want {
+		if got, ok := syscallSemanticCatalog[name]; !ok || got != expected {
+			t.Fatalf("semantic catalog[%q] = %#v, want %#v", name, got, expected)
+		}
+	}
+}
+
 func TestCheckedInSemanticSourceRejectsInvalidCatalogEntry(t *testing.T) {
 	original := syscallSemanticCatalog
 	syscallSemanticCatalog = map[string]syscallSemanticEntry{"bad": {Argc: -1, Flags: "0"}}

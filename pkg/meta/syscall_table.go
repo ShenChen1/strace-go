@@ -339,6 +339,7 @@ var SyscallTable = map[uint32]Syscall{
 	333: {Name: "io_pgetevents", Args: []string{"ctx_id", "min_nr", "nr", "events", "timeout", "usig"}, ArgTypes: []string{"aio_context_t", "long", "long", "struct io_event *", "struct __kernel_timespec *", "const struct __aio_sigset *"}, Flags: "0"},
 	334: {Name: "rseq", Args: []string{"rseq", "rseq_len", "flags", "sig"}, ArgTypes: []string{"struct rseq *", "u32", "int", "u32"}, Flags: "0"},
 	335: {Name: "uretprobe", Args: []string{}, ArgTypes: []string{}, Flags: "0"},
+	336: {Name: "uprobe", Args: []string{}, ArgTypes: []string{}, Flags: "0"},
 	424: {Name: "pidfd_send_signal", Args: []string{"pidfd", "sig", "info", "flags"}, ArgTypes: []string{"int", "int", "siginfo_t *", "unsigned int"}, Flags: "TD|TS|TP"},
 	425: {Name: "io_uring_setup", Args: []string{"entries", "params"}, ArgTypes: []string{"u32", "struct io_uring_params *"}, Flags: "TD"},
 	426: {Name: "io_uring_enter", Args: []string{"fd", "to_submit", "min_complete", "flags", "argp", "argsz"}, ArgTypes: []string{"unsigned int", "u32", "u32", "u32", "const void *", "size_t"}, Flags: "TD|TS"},
@@ -383,6 +384,10 @@ var SyscallTable = map[uint32]Syscall{
 	465: {Name: "listxattrat", Args: []string{"dfd", "pathname", "at_flags", "list", "size"}, ArgTypes: []string{"int", "const char *", "unsigned int", "char *", "size_t"}, Flags: "TD|TF"},
 	466: {Name: "removexattrat", Args: []string{"dfd", "pathname", "at_flags", "name"}, ArgTypes: []string{"int", "const char *", "unsigned int", "const char *"}, Flags: "TD|TF"},
 	467: {Name: "open_tree_attr", Args: []string{"dfd", "filename", "flags", "uattr", "usize"}, ArgTypes: []string{"int", "const char *", "unsigned int", "struct mount_attr *", "size_t"}, Flags: "TD|TF"},
+	468: {Name: "file_getattr", Args: []string{"dfd", "filename", "ufattr", "usize", "at_flags"}, ArgTypes: []string{"int", "const char *", "struct file_attr *", "size_t", "unsigned int"}, Flags: "TD|TF"},
+	469: {Name: "file_setattr", Args: []string{"dfd", "filename", "ufattr", "usize", "at_flags"}, ArgTypes: []string{"int", "const char *", "struct file_attr *", "size_t", "unsigned int"}, Flags: "TD|TF"},
+	470: {Name: "listns", Args: []string{"req", "ns_ids", "nr_ns_ids", "flags"}, ArgTypes: []string{"const struct ns_id_req *", "u64 *", "size_t", "unsigned int"}, Flags: "0"},
+	471: {Name: "rseq_slice_yield", Args: []string{}, ArgTypes: []string{}, Flags: "0"},
 }
 
 var RuntimeSyscallVariables = map[string]string{

@@ -52,10 +52,44 @@ var supplementalXlatTables = map[string]XlatTable{
 			{Val: 0x00002000, Str: "FIEMAP_EXTENT_SHARED"},
 		},
 	},
+	"file_attr_at_flags": {
+		Prefix: "AT_",
+		Entries: []XlatVal{
+			{Val: 0, Str: "0"},
+			{Val: 0x100, Str: "AT_SYMLINK_NOFOLLOW"},
+			{Val: 0x1000, Str: "AT_EMPTY_PATH"},
+			{Val: 0x1100, Str: "AT_SYMLINK_NOFOLLOW|AT_EMPTY_PATH"},
+		},
+	},
+	"fs_xflags": {
+		Prefix: "FS_XFLAG_",
+		Entries: []XlatVal{
+			{Val: 0x00000001, Str: "FS_XFLAG_REALTIME"},
+			{Val: 0x00000002, Str: "FS_XFLAG_PREALLOC"},
+			{Val: 0x00000008, Str: "FS_XFLAG_IMMUTABLE"},
+			{Val: 0x00000010, Str: "FS_XFLAG_APPEND"},
+			{Val: 0x00000020, Str: "FS_XFLAG_SYNC"},
+			{Val: 0x00000040, Str: "FS_XFLAG_NOATIME"},
+			{Val: 0x00000080, Str: "FS_XFLAG_NODUMP"},
+			{Val: 0x00000100, Str: "FS_XFLAG_RTINHERIT"},
+			{Val: 0x00000200, Str: "FS_XFLAG_PROJINHERIT"},
+			{Val: 0x00000400, Str: "FS_XFLAG_NOSYMLINKS"},
+			{Val: 0x00000800, Str: "FS_XFLAG_EXTSIZE"},
+			{Val: 0x00001000, Str: "FS_XFLAG_EXTSZINHERIT"},
+			{Val: 0x00002000, Str: "FS_XFLAG_NODEFRAG"},
+			{Val: 0x00004000, Str: "FS_XFLAG_FILESTREAM"},
+			{Val: 0x00008000, Str: "FS_XFLAG_DAX"},
+			{Val: 0x00010000, Str: "FS_XFLAG_COWEXTSIZE"},
+			{Val: 0x00020000, Str: "FS_XFLAG_VERITY"},
+			{Val: 0x80000000, Str: "FS_XFLAG_HASATTR"},
+		},
+	},
 }
 
 var supplementalSyscallArgXlatMap = map[string]map[string]string{
-	"fsconfig": {"cmd": "fsconfig_cmds"},
-	"fsopen":   {"flags": "fsopen_flags"},
-	"fspick":   {"flags": "fspick_flags"},
+	"file_getattr": {"at_flags": "file_attr_at_flags"},
+	"file_setattr": {"at_flags": "file_attr_at_flags"},
+	"fsconfig":     {"cmd": "fsconfig_cmds"},
+	"fsopen":       {"flags": "fsopen_flags"},
+	"fspick":       {"flags": "fspick_flags"},
 }
