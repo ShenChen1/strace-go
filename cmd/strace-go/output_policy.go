@@ -91,6 +91,8 @@ type traceFollowForkPolicy interface {
 type traceLifecyclePolicy interface {
 	traceFormatPolicy
 	IsAttachTarget(pid int) bool
+	QuietAttach() bool
+	QuietExit() bool
 }
 
 type traceReadyPolicy interface {
@@ -116,6 +118,7 @@ type cliTraceOutputPolicy struct {
 	summaryOnly        bool
 	summaryAndPrint    bool
 	quietExit          bool
+	quietAttach        bool
 	outputSeparate     bool
 	render             traceRenderOptions
 	attachPIDs         []int
@@ -171,6 +174,7 @@ func newTraceOutputPolicy(opts *cli.Options) *cliTraceOutputPolicy {
 		summaryOnly:        opts.SummaryOnly,
 		summaryAndPrint:    opts.SummaryAndPrint,
 		quietExit:          opts.QuietExit,
+		quietAttach:        opts.QuietUnknownPid,
 		outputSeparate:     opts.OutputSeparate,
 		attachPIDs:         append([]int(nil), opts.AttachPids...),
 		signals:            traceSignals,
@@ -330,6 +334,10 @@ func (p *cliTraceOutputPolicy) SummaryAndPrint() bool {
 
 func (p *cliTraceOutputPolicy) QuietExit() bool {
 	return p != nil && p.quietExit
+}
+
+func (p *cliTraceOutputPolicy) QuietAttach() bool {
+	return p != nil && p.quietAttach
 }
 
 func (p *cliTraceOutputPolicy) SeparateOutput() bool {

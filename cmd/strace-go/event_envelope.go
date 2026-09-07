@@ -4,32 +4,35 @@ import "strace-go/pkg/handler"
 
 // traceEventEnvelope is the boundary object projected from the BPF carrier.
 type traceEventEnvelope struct {
-	valid           bool
-	eventVersion    uint16
-	pid             uint32
-	tid             uint32
-	sysID           uint32
-	eventType       uint16
-	eventFlags      uint32
-	lifecycleAction uint32
-	enterTime       uint64
-	args            [6]uint64
-	ret             int64
-	duration        uint64
-	cpuDuration     uint64
-	stackID         int32
-	kvmExitReason   uint32
-	probeRetEnter   int32
-	probeRetExit    int32
-	snapshotText    string
-	signal          uint32
-	signalErr       int32
-	signalCode      int32
-	senderPID       uint32
-	senderUID       uint32
-	signalAddress   uint64
-	comm            string
-	payload         []handler.PayloadSection
+	valid            bool
+	eventVersion     uint16
+	pid              uint32
+	tid              uint32
+	sysID            uint32
+	eventType        uint16
+	eventFlags       uint32
+	lifecycleAction  uint32
+	enterTime        uint64
+	args             [6]uint64
+	ret              int64
+	duration         uint64
+	cpuDuration      uint64
+	stackID          int32
+	kvmExitReason    uint32
+	probeRetEnter    int32
+	probeRetExit     int32
+	snapshotText     string
+	signal           uint32
+	signalErr        int32
+	signalCode       int32
+	senderPID        uint32
+	senderUID        uint32
+	signalAddress    uint64
+	signalStatus     int32
+	signalUserTime   int64
+	signalSystemTime int64
+	comm             string
+	payload          []handler.PayloadSection
 }
 
 func (envelope traceEventEnvelope) lifecycleView() lifecycleEventView {
@@ -72,16 +75,19 @@ func (envelope traceEventEnvelope) syscallView() syscallEventView {
 
 func (envelope traceEventEnvelope) signalView() signalEventView {
 	return signalEventView{
-		pid:       envelope.pid,
-		tid:       envelope.tid,
-		enterTime: envelope.enterTime,
-		signo:     envelope.signal,
-		error:     envelope.signalErr,
-		code:      envelope.signalCode,
-		senderPID: envelope.senderPID,
-		senderUID: envelope.senderUID,
-		stackID:   envelope.stackID,
-		address:   envelope.signalAddress,
+		pid:        envelope.pid,
+		tid:        envelope.tid,
+		enterTime:  envelope.enterTime,
+		signo:      envelope.signal,
+		error:      envelope.signalErr,
+		code:       envelope.signalCode,
+		senderPID:  envelope.senderPID,
+		senderUID:  envelope.senderUID,
+		stackID:    envelope.stackID,
+		address:    envelope.signalAddress,
+		status:     envelope.signalStatus,
+		userTime:   envelope.signalUserTime,
+		systemTime: envelope.signalSystemTime,
 	}
 }
 

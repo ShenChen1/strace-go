@@ -36,6 +36,11 @@ static __always_inline int populate_signal_event_v2(
     bpf_core_read(&body->sender_pid, sizeof(body->sender_pid), &info->_sifields._kill._pid);
     bpf_core_read(&body->sender_uid, sizeof(body->sender_uid), &info->_sifields._kill._uid);
     bpf_core_read(&body->address, sizeof(body->address), &info->_sifields._sigfault._addr);
+    if (signo == SIGNAL_NUMBER_CHLD) {
+        bpf_core_read(&body->child_status, sizeof(body->child_status), &info->_sifields._sigchld._status);
+        bpf_core_read(&body->child_user_time, sizeof(body->child_user_time), &info->_sifields._sigchld._utime);
+        bpf_core_read(&body->child_system_time, sizeof(body->child_system_time), &info->_sifields._sigchld._stime);
+    }
     return 0;
 }
 

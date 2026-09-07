@@ -20,16 +20,19 @@ const (
 )
 
 type signalEventView struct {
-	pid       uint32
-	tid       uint32
-	enterTime uint64
-	signo     uint32
-	error     int32
-	code      int32
-	senderPID uint32
-	senderUID uint32
-	stackID   int32
-	address   uint64
+	pid        uint32
+	tid        uint32
+	enterTime  uint64
+	signo      uint32
+	error      int32
+	code       int32
+	senderPID  uint32
+	senderUID  uint32
+	stackID    int32
+	address    uint64
+	status     int32
+	userTime   int64
+	systemTime int64
 }
 
 type signalEventSink interface {

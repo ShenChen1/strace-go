@@ -67,13 +67,17 @@ func (p fakeTraceFollowForkPolicy) FollowForks() bool { return p.follow }
 func (p fakeTraceFollowForkPolicy) ArgNames() bool    { return p.argNames }
 
 type fakeTraceLifecyclePolicy struct {
-	json      bool
-	discard   bool
-	attachPID int
+	json        bool
+	discard     bool
+	attachPID   int
+	quietAttach bool
+	quietExit   bool
 }
 
 func (p fakeTraceLifecyclePolicy) IsJSON() bool        { return p.json }
 func (p fakeTraceLifecyclePolicy) DiscardEvents() bool { return p.discard }
+func (p fakeTraceLifecyclePolicy) QuietAttach() bool   { return p.quietAttach }
+func (p fakeTraceLifecyclePolicy) QuietExit() bool     { return p.quietExit }
 
 func (p fakeTraceLifecyclePolicy) IsAttachTarget(pid int) bool {
 	return pid == p.attachPID

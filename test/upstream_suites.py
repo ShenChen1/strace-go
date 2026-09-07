@@ -84,6 +84,14 @@ UPSTREAM_REFERENCE_TESTS = [
 # promoted only after their exact focused upstream test passes on pure eBPF.
 UPSTREAM_REFERENCE_STABLE_MORE_TESTS = [
     "clone3-report-ns-id.gen.test",
+    "clone_parent.gen.test",
+    "clone_parent--quiet-exit.gen.test",
+    "clone_parent-q.gen.test",
+    "clone_parent-qq.gen.test",
+    "clone_ptrace--quiet-attach.gen.test",
+    "clone_ptrace--quiet-exit.gen.test",
+    "clone_ptrace-q.gen.test",
+    "clone_ptrace-qq.gen.test",
     "fork--pidns-translation.test",
     "gettid--pidns-translation.test",
     "nsyscalls.test",
@@ -309,6 +317,14 @@ MORE_TOLERATED_XPASSES = {"attach-p-cmd.test"}
 # Add tests here when working on a new syscall or feature.
 MORE_TESTS = [
     "clone3-report-ns-id.gen.test",
+    "clone_parent.gen.test",
+    "clone_parent--quiet-exit.gen.test",
+    "clone_parent-q.gen.test",
+    "clone_parent-qq.gen.test",
+    "clone_ptrace--quiet-attach.gen.test",
+    "clone_ptrace--quiet-exit.gen.test",
+    "clone_ptrace-q.gen.test",
+    "clone_ptrace-qq.gen.test",
     "fork--pidns-translation.test",
     "gettid--pidns-translation.test",
     "nsyscalls.test",

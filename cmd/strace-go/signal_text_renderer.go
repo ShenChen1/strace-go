@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"strings"
+	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 func (r *TextRenderer) PrintSignalEvent(view signalEventView, signalName string) {
@@ -23,6 +26,13 @@ func (r *TextRenderer) PrintSignalEvent(view signalEventView, signalName string)
 			fmt.Sprintf("si_uid=%d", view.senderUID),
 		)
 	}
+	if signalName == "SIGCHLD" {
+		fields = append(fields,
+			"si_status="+formatChildSignalStatus(view.code, view.status),
+			fmt.Sprintf("si_utime=%d", view.userTime),
+			fmt.Sprintf("si_stime=%d", view.systemTime),
+		)
+	}
 	if signalName == "SIGSEGV" && view.code > 0 {
 		fields = append(fields, fmt.Sprintf("si_addr=%#x", view.address))
 	}
@@ -30,4 +40,14 @@ func (r *TextRenderer) PrintSignalEvent(view signalEventView, signalName string)
 		r.timePrefix(view.enterTime), r.pidPrefix(int(view.tid)),
 		r.instructionPointerPrefix(stack), signalName, strings.Join(fields, ", "))
 	r.printStackTrace(stack)
+}
+
+func formatChildSignalStatus(code int32, status int32) string {
+	if code == 1 {
+		return fmt.Sprintf("%d", status)
+	}
+	if name := unix.SignalName(syscall.Signal(status)); name != "" {
+		return name
+	}
+	return fmt.Sprintf("%d", status)
 }

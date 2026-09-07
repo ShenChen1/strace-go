@@ -22,6 +22,7 @@ const (
 	bpfMapMainExited         = "main_exited_map"
 	bpfMapMmsgBytesProgs     = "mmsg_bytes_progs"
 	bpfMapPendingExec        = "pending_exec_map"
+	bpfMapPendingForkFlags   = "pending_fork_flags_map"
 	bpfMapPendingStack       = "pending_stack_map"
 	bpfMapPendingTask        = "pending_task_storage"
 	bpfMapPIDNamespaceConfig = "pid_namespace_config_map"
@@ -31,6 +32,7 @@ const (
 	bpfMapStackTraces        = "stack_traces"
 	bpfMapStats              = "stats_map"
 	bpfMapSyscallFilter      = "syscall_filter_map"
+	bpfMapUnknownChildren    = "unknown_children_map"
 )
 
 // bpfCoreMapSpec owns one generated map binding used by the runtime.
@@ -54,6 +56,7 @@ var bpfCoreMapCatalog = []bpfCoreMapSpec{
 	{name: bpfMapMainExited, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.MainExitedMap }},
 	{name: bpfMapMmsgBytesProgs, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.MmsgBytesProgs }},
 	{name: bpfMapPendingExec, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PendingExecMap }},
+	{name: bpfMapPendingForkFlags, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PendingForkFlagsMap }},
 	{name: bpfMapPendingStack, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PendingStackMap }},
 	{name: bpfMapPendingTask, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PendingTaskStorage }},
 	{name: bpfMapPIDNamespaceConfig, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.PidNamespaceConfigMap }},
@@ -63,6 +66,7 @@ var bpfCoreMapCatalog = []bpfCoreMapSpec{
 	{name: bpfMapStackTraces, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.StackTraces }},
 	{name: bpfMapStats, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.StatsMap }},
 	{name: bpfMapSyscallFilter, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.SyscallFilterMap }},
+	{name: bpfMapUnknownChildren, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.UnknownChildrenMap }},
 }
 
 func bpfCoreMapSpecByName(name string) (bpfCoreMapSpec, bool) {

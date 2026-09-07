@@ -152,6 +152,10 @@ struct signal_event_v2 {
     u32 sender_uid;
     s32 stack_id;
     u64 address;
+    s32 child_status;
+    u32 reserved;
+    s64 child_user_time;
+    s64 child_system_time;
 };
 
 _Static_assert(sizeof(struct event_v2_header) == EVENT_V2_HEADER_LEN, "event v2 header size drift");
@@ -196,6 +200,9 @@ _Static_assert(__builtin_offsetof(struct signal_event_v2, sender_pid) == EVENT_V
 _Static_assert(__builtin_offsetof(struct signal_event_v2, sender_uid) == EVENT_V2_SIGNAL_SENDER_UID_OFFSET, "event v2 signal sender uid offset drift");
 _Static_assert(__builtin_offsetof(struct signal_event_v2, stack_id) == EVENT_V2_SIGNAL_STACK_ID_OFFSET, "event v2 signal stack offset drift");
 _Static_assert(__builtin_offsetof(struct signal_event_v2, address) == EVENT_V2_SIGNAL_ADDRESS_OFFSET, "event v2 signal address offset drift");
+_Static_assert(__builtin_offsetof(struct signal_event_v2, child_status) == EVENT_V2_SIGNAL_CHILD_STATUS_OFFSET, "event v2 signal child status offset drift");
+_Static_assert(__builtin_offsetof(struct signal_event_v2, child_user_time) == EVENT_V2_SIGNAL_CHILD_USER_TIME_OFFSET, "event v2 signal child user time offset drift");
+_Static_assert(__builtin_offsetof(struct signal_event_v2, child_system_time) == EVENT_V2_SIGNAL_CHILD_SYSTEM_TIME_OFFSET, "event v2 signal child system time offset drift");
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
@@ -287,6 +294,20 @@ struct {
     __type(key, u32);
     __type(value, u32);
 } attach_roots_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 1024);
+    __type(key, u32);
+    __type(value, u64);
+} pending_fork_flags_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 1024);
+    __type(key, u32);
+    __type(value, u32);
+} unknown_children_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);

@@ -18,11 +18,18 @@ type fakeLifecycleEffects struct {
 	jsonEventSeen bool
 	jsonTaskSeen  *TaskState
 	exitText      []fakeLifecycleExitText
+	unknownChild  []fakeUnknownChildEffect
 }
 
 type fakeLifecycleExitText struct {
 	tid      int
 	exitCode uint64
+}
+
+type fakeUnknownChildEffect struct {
+	action uint32
+	pid    int
+	quiet  bool
 }
 
 func (e *fakeLifecycleEffects) InheritProcessState(parentPID int, childPID int) {
@@ -44,6 +51,10 @@ func (e *fakeLifecycleEffects) WriteJSON(_ lifecycleEventView, task *TaskState) 
 
 func (e *fakeLifecycleEffects) WriteExitText(tid int, exitCode uint64) {
 	e.exitText = append(e.exitText, fakeLifecycleExitText{tid: tid, exitCode: exitCode})
+}
+
+func (e *fakeLifecycleEffects) HandleUnknownChild(action uint32, pid int, quiet bool) {
+	e.unknownChild = append(e.unknownChild, fakeUnknownChildEffect{action: action, pid: pid, quiet: quiet})
 }
 
 func newLifecycleHandlerTestState(opts *cli.Options) *lifecycleHandlerTestState {
@@ -201,5 +212,29 @@ func TestLifecycleEventHandlerAcceptsFakeLifecyclePolicy(t *testing.T) {
 
 	if len(effects.exitText) != 1 || effects.exitText[0] != (fakeLifecycleExitText{tid: 101, exitCode: 9}) {
 		t.Fatalf("exitText = %v, want fake lifecycle policy target output", effects.exitText)
+	}
+}
+
+func TestLifecycleEventHandlerAppliesUnknownChildQuietPolicy(t *testing.T) {
+	tests := []struct {
+		name      string
+		args      []string
+		action    uint32
+		wantQuiet bool
+	}{
+		{name: "detach visible", args: []string{"/bin/true"}, action: lifecycleUnknownDetach},
+		{name: "detach quiet", args: []string{"-q", "/bin/true"}, action: lifecycleUnknownDetach, wantQuiet: true},
+		{name: "exit visible with q", args: []string{"-q", "/bin/true"}, action: lifecycleUnknownExit},
+		{name: "exit quiet", args: []string{"--quiet=exit", "/bin/true"}, action: lifecycleUnknownExit, wantQuiet: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state := newLifecycleHandlerTestState(cli.ParseArgs(test.args))
+			state.handler.Handle(lifecycleEventView{action: test.action, args: [6]uint64{202}}, nil)
+			want := fakeUnknownChildEffect{action: test.action, pid: 202, quiet: test.wantQuiet}
+			if len(state.effects.unknownChild) != 1 || state.effects.unknownChild[0] != want {
+				t.Fatalf("unknown child effects = %+v, want %+v", state.effects.unknownChild, want)
+			}
+		})
 	}
 }

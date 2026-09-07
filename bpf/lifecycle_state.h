@@ -3,6 +3,59 @@
 
 /* lifecycle_state.h owns process/TID-scoped cleanup for lifecycle events. */
 
+#define CLONE_PTRACE_FLAG 0x00002000
+#define CLONE_PARENT_FLAG 0x00008000
+
+static __always_inline void capture_pending_fork_flags(
+    u32 tid,
+    u32 sys_id,
+    struct trace_event_raw_sys_enter *ctx)
+{
+    u64 flags = 0;
+    if (sys_id == SYS_CLONE) {
+        flags = ctx->args[0];
+    } else if (sys_id == SYS_CLONE3) {
+        void *clone_args = (void *)ctx->args[0];
+        if (!clone_args || bpf_probe_read_user(&flags, sizeof(flags), clone_args) != 0) {
+            return;
+        }
+    } else {
+        return;
+    }
+    if (bpf_map_update_elem(&pending_fork_flags_map, &tid, &flags, BPF_ANY) != 0) {
+        record_lifecycle_map_update_fail();
+    }
+}
+
+static __always_inline u64 pending_fork_flags(u32 tid)
+{
+    u64 *flags = bpf_map_lookup_elem(&pending_fork_flags_map, &tid);
+    return flags ? *flags : 0;
+}
+
+static __always_inline void clear_pending_fork_flags(u32 tid, u32 sys_id)
+{
+    if (sys_id == SYS_CLONE || sys_id == SYS_CLONE3) {
+        bpf_map_delete_elem(&pending_fork_flags_map, &tid);
+    }
+}
+
+static __always_inline void mark_unknown_child(u32 tid, u32 parent_tgid)
+{
+    if (bpf_map_update_elem(&unknown_children_map, &tid, &parent_tgid, BPF_ANY) != 0) {
+        record_lifecycle_map_update_fail();
+    }
+}
+
+static __always_inline u32 take_unknown_child(u32 tid)
+{
+    u32 *parent_tgid = bpf_map_lookup_elem(&unknown_children_map, &tid);
+    if (!parent_tgid) return 0;
+    u32 parent = *parent_tgid;
+    bpf_map_delete_elem(&unknown_children_map, &tid);
+    return parent;
+}
+
 static __always_inline void clear_armed_fork_parent(u32 pid)
 {
     u32 arm_key = 0;
@@ -82,6 +135,8 @@ static __always_inline void clear_process_lifecycle_state(u32 pid)
     bpf_map_delete_elem(&attach_roots_map, &pid);
     bpf_map_delete_elem(&pending_exec_map, &pid);
     bpf_map_delete_elem(&main_exited_map, &pid);
+    bpf_map_delete_elem(&pending_fork_flags_map, &pid);
+    bpf_map_delete_elem(&unknown_children_map, &pid);
     clear_armed_fork_parent(pid);
 }
 
@@ -123,6 +178,8 @@ static __always_inline void clear_lifecycle_task_state(u32 pid, u32 tid)
         }
         bpf_map_delete_elem(&filter_map, &tid);
         bpf_map_delete_elem(&attach_roots_map, &tid);
+        bpf_map_delete_elem(&pending_fork_flags_map, &tid);
+        bpf_map_delete_elem(&unknown_children_map, &tid);
         return;
     }
 

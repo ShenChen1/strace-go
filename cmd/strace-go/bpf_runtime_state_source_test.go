@@ -61,7 +61,7 @@ func TestBPFFDStateTrackingGate(t *testing.T) {
 		"u64 parent_pid_tgid = bpf_get_current_pid_tgid();",
 		"u32 parent_tid = (u32)parent_pid_tgid;",
 		"is_lifecycle_task_tracked(parent_tgid, parent_tid)",
-		"emit_lifecycle_event(LIFECYCLE_FORK, parent_tgid, parent_tid, parent_tgid, child_pid, 0);",
+		"emit_lifecycle_event(LIFECYCLE_FORK, parent_tgid, parent_tid, fork_identity, child_pid, 0);",
 	} {
 		if !strings.Contains(src.straceSource, snippet) {
 			t.Fatalf("BPF source missing next-fork arm snippet %q", snippet)

@@ -26,6 +26,7 @@ int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {
     u64 parent_pid_tgid = bpf_get_current_pid_tgid();
     u32 parent_tgid = (u32)(parent_pid_tgid >> 32);
     u32 parent_tid = (u32)parent_pid_tgid;
+    u64 fork_flags = pending_fork_flags(parent_tid);
 
     // IMPACT: when strace-go arms the next fork, the tracee's pid filter is
     // installed at fork time so its initial execve (which happens before
@@ -46,10 +47,18 @@ int trace_sched_process_fork(struct trace_event_raw_sched_process_fork *ctx) {
 
     u32 cfg_key = 0;
     u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);
-    if (cfg && (*cfg & CONFIG_FOLLOW_FORKS)) {
+    int follows_child = cfg && (*cfg & CONFIG_FOLLOW_FORKS);
+    if (follows_child) {
         record_lifecycle_fork_child_filter(install_tracked_filter(child_pid));
     }
-    emit_lifecycle_event(LIFECYCLE_FORK, parent_tgid, parent_tid, parent_tgid, child_pid, 0);
+    u64 fork_identity = ((fork_flags & 0xffffffff) << 32) | parent_tgid;
+    emit_lifecycle_event(LIFECYCLE_FORK, parent_tgid, parent_tid, fork_identity, child_pid, 0);
+    if (!follows_child && (fork_flags & CLONE_PTRACE_FLAG)) {
+        emit_lifecycle_event(LIFECYCLE_UNKNOWN_DETACH, parent_tgid, parent_tid, child_pid, 0, 0);
+    }
+    if (!follows_child && (fork_flags & CLONE_PARENT_FLAG)) {
+        mark_unknown_child(child_pid, parent_tgid);
+    }
     return 0;
 }
 
@@ -105,6 +114,10 @@ int trace_sched_process_exit(struct trace_event_raw_sched_process_template *ctx)
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u32 pid = (u32)(pid_tgid >> 32);
     u32 tid = (u32)pid_tgid;
+    u32 unknown_parent = take_unknown_child(tid);
+    if (unknown_parent) {
+        emit_lifecycle_event(LIFECYCLE_UNKNOWN_EXIT, unknown_parent, unknown_parent, tid, 0, 0);
+    }
     if (!is_lifecycle_task_tracked(pid, tid)) {
         record_lifecycle_exit_untracked();
         return 0;

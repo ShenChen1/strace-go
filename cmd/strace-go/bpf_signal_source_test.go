@@ -28,6 +28,9 @@ func TestSignalGenerationProjectsChildNotification(t *testing.T) {
 		"SIGNAL_NUMBER_CHLD",
 		"BPF_CORE_READ(target, tgid)",
 		"BPF_CORE_READ(target, pid)",
+		"_sifields._sigchld._status",
+		"_sifields._sigchld._utime",
+		"_sifields._sigchld._stime",
 		"target_pending_stack_id(tid)",
 		"emit_signal_event_v2(pid, tid, &body)",
 	} {

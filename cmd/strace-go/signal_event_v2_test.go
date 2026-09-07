@@ -7,14 +7,17 @@ import (
 
 func TestDecodeTraceEventV2SignalEnvelope(t *testing.T) {
 	raw := traceEventV2SignalSample(traceEventV2SampleSpec{
-		pid:        101,
-		tid:        102,
-		tsNs:       900,
-		signal:     2,
-		signalErr:  0,
-		signalCode: 0,
-		senderPID:  201,
-		senderUID:  1000,
+		pid:              101,
+		tid:              102,
+		tsNs:             900,
+		signal:           2,
+		signalErr:        0,
+		signalCode:       0,
+		senderPID:        201,
+		senderUID:        1000,
+		signalStatus:     10,
+		signalUserTime:   11,
+		signalSystemTime: 12,
 	})
 	body := raw[traceEventV2HeaderLen:]
 	binary.LittleEndian.PutUint64(body[traceEventV2SignalAddressOffset:], 0x1234)
@@ -27,7 +30,8 @@ func TestDecodeTraceEventV2SignalEnvelope(t *testing.T) {
 		t.Fatalf("signal envelope = %+v, want valid signal at 900", envelope)
 	}
 	if envelope.signal != 2 || envelope.signalErr != 0 || envelope.signalCode != 0 ||
-		envelope.senderPID != 201 || envelope.senderUID != 1000 || envelope.signalAddress != 0x1234 {
+		envelope.senderPID != 201 || envelope.senderUID != 1000 || envelope.signalAddress != 0x1234 ||
+		envelope.signalStatus != 10 || envelope.signalUserTime != 11 || envelope.signalSystemTime != 12 {
 		t.Fatalf("signal identity = %+v", envelope)
 	}
 }
@@ -49,5 +53,8 @@ func traceEventV2SignalSample(spec traceEventV2SampleSpec) []byte {
 	binary.LittleEndian.PutUint32(body[traceEventV2SignalCodeOffset:], uint32(spec.signalCode))
 	binary.LittleEndian.PutUint32(body[traceEventV2SignalSenderPIDOffset:], spec.senderPID)
 	binary.LittleEndian.PutUint32(body[traceEventV2SignalSenderUIDOffset:], spec.senderUID)
+	binary.LittleEndian.PutUint32(body[traceEventV2SignalChildStatusOffset:], uint32(spec.signalStatus))
+	binary.LittleEndian.PutUint64(body[traceEventV2SignalChildUserTimeOffset:], uint64(spec.signalUserTime))
+	binary.LittleEndian.PutUint64(body[traceEventV2SignalChildSystemTimeOffset:], uint64(spec.signalSystemTime))
 	return raw
 }

@@ -16,23 +16,27 @@ type LifecycleEffects interface {
 	CloseOnExecState(pid int)
 	WriteJSON(lifecycleEventView, *TaskState)
 	WriteExitText(tid int, exitCode uint64)
+	HandleUnknownChild(action uint32, pid int, quiet bool)
 }
 
 type traceSessionLifecycleEffects struct {
-	fdState    fdLifecycleUpdatePort
-	jsonWriter jsonEventWriter
-	exitText   traceLifecycleExitTextPort
+	fdState      fdLifecycleUpdatePort
+	jsonWriter   jsonEventWriter
+	exitText     traceLifecycleExitTextPort
+	unknownChild traceUnknownChildEffect
 }
 
 func newTraceSessionLifecycleEffects(
 	fdState fdLifecycleUpdatePort,
 	jsonWriter jsonEventWriter,
 	exitText traceLifecycleExitTextPort,
+	unknownChild traceUnknownChildEffect,
 ) *traceSessionLifecycleEffects {
 	return &traceSessionLifecycleEffects{
-		fdState:    fdState,
-		jsonWriter: jsonWriter,
-		exitText:   exitText,
+		fdState:      fdState,
+		jsonWriter:   jsonWriter,
+		exitText:     exitText,
+		unknownChild: unknownChild,
 	}
 }
 
@@ -66,6 +70,12 @@ func (e *traceSessionLifecycleEffects) WriteExitText(tid int, exitCode uint64) {
 	}
 }
 
+func (e *traceSessionLifecycleEffects) HandleUnknownChild(action uint32, pid int, quiet bool) {
+	if e.unknownChild != nil {
+		e.unknownChild.HandleUnknownChild(action, pid, quiet)
+	}
+}
+
 func newLifecycleEventHandler(deps LifecycleEventHandlerDeps) *LifecycleEventHandler {
 	return &LifecycleEventHandler{
 		policy:  deps.Policy,
@@ -83,6 +93,10 @@ func (s *traceSession) lifecycleEventHandler() *LifecycleEventHandler {
 // IMPACT: Handle owns lifecycle side effects after TraceState has updated task state.
 func (h *LifecycleEventHandler) Handle(view lifecycleEventView, task *TaskState) {
 	switch view.action {
+	case lifecycleUnknownDetach:
+		h.handleUnknownChild(view, h.policy != nil && h.policy.QuietAttach())
+	case lifecycleUnknownExit:
+		h.handleUnknownChild(view, h.policy != nil && h.policy.QuietExit())
 	case lifecycleExec:
 		h.closeOnExec(view, task)
 	case lifecycleExit:
@@ -97,6 +111,19 @@ func (h *LifecycleEventHandler) Handle(view lifecycleEventView, task *TaskState)
 	}
 	if h.jsonMode() {
 		h.writeLifecycleJSON(view, task)
+	}
+}
+
+func (h *LifecycleEventHandler) handleUnknownChild(view lifecycleEventView, quiet bool) {
+	if h.effects == nil {
+		return
+	}
+	pid := int(view.args[0])
+	if pid <= 0 {
+		pid = int(view.tid)
+	}
+	if pid > 0 {
+		h.effects.HandleUnknownChild(view.action, pid, quiet)
 	}
 }
 

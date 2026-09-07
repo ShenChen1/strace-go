@@ -111,7 +111,8 @@ func TestLifecycleExitTextDoesNotCaptureSession(t *testing.T) {
 		t.Fatal("composition must create the lifecycle exit-text writer")
 	}
 	if !strings.Contains(exitTextSource, "type traceLifecycleExitTextPort interface") ||
-		!strings.Contains(lifecycleSource, "exitText   traceLifecycleExitTextPort") {
+		!strings.Contains(lifecycleSource, "exitText") ||
+		!strings.Contains(lifecycleSource, "traceLifecycleExitTextPort") {
 		t.Fatal("lifecycle effects must depend on an exit-text port")
 	}
 }

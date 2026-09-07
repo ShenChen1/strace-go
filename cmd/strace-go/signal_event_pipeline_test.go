@@ -90,3 +90,29 @@ func TestSignalEventDispatchRendersExactUserSiginfo(t *testing.T) {
 		t.Fatalf("signal output = %q, want %q", got, want)
 	}
 }
+
+func TestSignalEventDispatchRendersExactChildSiginfo(t *testing.T) {
+	var output bytes.Buffer
+	options := cli.ParseArgs([]string{"-e", "signal=SIGCHLD", "/bin/true"})
+	policy := newTraceOutputPolicy(options)
+	renderer := newTextRenderer(TextRendererDeps{
+		Out:    &output,
+		Policy: policy,
+	})
+	signalOutput := newSignalEventOutput(policy, renderer, meta.NewCatalog("abbrev"))
+	signalOutput.HandleSignal(signalEventView{
+		tid:        101,
+		signo:      17,
+		code:       2,
+		senderPID:  201,
+		senderUID:  1000,
+		status:     10,
+		userTime:   11,
+		systemTime: 12,
+	})
+
+	want := "--- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=201, si_uid=1000, si_status=SIGUSR1, si_utime=11, si_stime=12} ---\n"
+	if got := output.String(); got != want {
+		t.Fatalf("child signal output = %q, want %q", got, want)
+	}
+}

@@ -85,6 +85,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     if (!filter_flags) return 0;
 
     if (is_pre_exec_suppressed_syscall(filter_flags, sys_id)) return 0;
+    capture_pending_fork_flags(tid, sys_id, ctx);
     u32 key = 0;
     u32 *cfg = bpf_map_lookup_elem(&config_map, &key);
     if (!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)) return 0;
@@ -96,6 +97,7 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
 
 SEC("tracepoint/raw_syscalls/sys_exit")
 int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
+    if (ctx->id < 0) return 0;
     u32 sys_id = (u32)ctx->id;
     s64 ret_value = ctx->ret;
     if (sys_id == SYS_RT_SIGRETURN || sys_id == SYS_RT_SIGRETURN_COMPAT) return 0;
@@ -106,6 +108,7 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     u32 *filter_flags = lookup_lifecycle_task_filter_flags(pid, tid);
     if (!filter_flags) return 0;
     if (is_pre_exec_suppressed_syscall(filter_flags, sys_id)) return 0;
+    clear_pending_fork_flags(tid, sys_id);
     u32 cfg_key = 0;
     u32 *cfg = bpf_map_lookup_elem(&config_map, &cfg_key);
     if (!should_trace_syscall(sys_id, cfg) && !is_fd_state_tracked(sys_id, cfg)) {

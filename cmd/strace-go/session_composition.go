@@ -373,6 +373,12 @@ func buildTraceSessionEvents(
 					Out:        deps.OutWriter,
 					Renderer:   base.renderer,
 				}),
+				newTraceUnknownChildDiagnostics(traceUnknownChildDiagnosticDeps{
+					Output:      os.Stderr,
+					ProgramName: deps.ProgramName,
+					Reap:        deps.HasCommand,
+					Wait:        waitUnknownChild,
+				}),
 			),
 		})
 		exitSink = exitPipeline

@@ -59,10 +59,12 @@ func TestBPFCoreMapCatalogHasUniqueNamesAndBindings(t *testing.T) {
 		bpfMapEvents,
 		bpfMapPendingStack,
 		bpfMapPendingTask,
+		bpfMapPendingForkFlags,
 		bpfMapPIDNamespaceConfig,
 		bpfMapEnterRoutes,
 		bpfMapExitRoutes,
 		bpfMapStats,
+		bpfMapUnknownChildren,
 	} {
 		if _, ok := bpfCoreMapSpecByName(name); !ok {
 			t.Fatalf("core map catalog is missing %q", name)
@@ -112,6 +114,7 @@ func TestBPFRuntimeMapConsumersUseCatalog(t *testing.T) {
 			".MainExitedMap",
 			".MmsgBytesProgs",
 			".PendingExecMap",
+			".PendingForkFlagsMap",
 			".PendingStackMap",
 			".PendingTaskStorage",
 			".PidNamespaceConfigMap",
@@ -120,6 +123,7 @@ func TestBPFRuntimeMapConsumersUseCatalog(t *testing.T) {
 			".StackTraces",
 			".StatsMap",
 			".SyscallFilterMap",
+			".UnknownChildrenMap",
 		} {
 			if strings.Contains(source, forbidden) {
 				t.Fatalf("%s directly references generated map field %q", name, forbidden)

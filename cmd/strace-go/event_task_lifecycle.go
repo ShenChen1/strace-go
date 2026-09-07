@@ -139,6 +139,8 @@ func taskTIDForSyscall(view *syscallEventView) uint32 {
 
 func (st *traceTaskLifecycleState) applyLifecycleEvent(view lifecycleEventView) (*TaskState, *processStateInheritance) {
 	switch view.action {
+	case lifecycleUnknownDetach, lifecycleUnknownExit:
+		return nil, nil
 	case lifecycleFork:
 		return st.applyFork(view)
 	case lifecycleExec:

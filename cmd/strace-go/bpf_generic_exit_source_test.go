@@ -66,6 +66,17 @@ func TestBPFGenericExitOwnsPendingAroundEmissionHelper(t *testing.T) {
 	}
 }
 
+func TestBPFRawExitRejectsNegativeSyscallID(t *testing.T) {
+	source := readTextFile(t, filepath.Join(repoRootForTest(t), "bpf/strace.c"))
+	body, ok := bpfFunctionBody(source, "trace_sys_exit")
+	if !ok {
+		t.Fatal("strace.c missing trace_sys_exit")
+	}
+	if !strings.Contains(body, "if (ctx->id < 0) return 0;") {
+		t.Fatal("raw syscall exit must reject the negative rt_sigreturn sentinel")
+	}
+}
+
 type bpfExitGroupExpectation struct {
 	name     string
 	snippets []string

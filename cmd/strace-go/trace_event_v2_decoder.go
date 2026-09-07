@@ -221,6 +221,9 @@ func decodeTraceEventV2LifecycleEnvelope(header traceEventV2Header, body []byte)
 	action := binary.LittleEndian.Uint32(body[traceEventV2LifecycleActionOffset : traceEventV2LifecycleActionOffset+traceEventV2U32Size])
 	captureLen := binary.LittleEndian.Uint32(body[traceEventV2LifecycleSnapshotLenOffset : traceEventV2LifecycleSnapshotLenOffset+traceEventV2U32Size])
 	args := traceEventV2Args(body[traceEventV2LifecycleArgsOffset : traceEventV2LifecycleArgsOffset+traceEventV2ArgsSize])
+	if action == lifecycleFork {
+		args[0] = uint64(uint32(args[0]))
+	}
 	payload, ok := traceEventV2Payload(body, traceEventV2LifecycleBodyLen, captureLen)
 	if !ok {
 		return traceEventEnvelope{}, false
@@ -245,20 +248,23 @@ func decodeTraceEventV2SignalEnvelope(header traceEventV2Header, body []byte) (t
 		return traceEventEnvelope{}, false
 	}
 	return traceEventEnvelope{
-		valid:         true,
-		eventVersion:  header.version,
-		pid:           header.pid,
-		tid:           header.tid,
-		comm:          header.comm,
-		eventType:     header.eventType,
-		enterTime:     header.tsNs,
-		signal:        binary.LittleEndian.Uint32(body[traceEventV2SignalNumberOffset:]),
-		signalErr:     int32(binary.LittleEndian.Uint32(body[traceEventV2SignalErrnoOffset:])),
-		signalCode:    int32(binary.LittleEndian.Uint32(body[traceEventV2SignalCodeOffset:])),
-		senderPID:     binary.LittleEndian.Uint32(body[traceEventV2SignalSenderPIDOffset:]),
-		senderUID:     binary.LittleEndian.Uint32(body[traceEventV2SignalSenderUIDOffset:]),
-		stackID:       int32(binary.LittleEndian.Uint32(body[traceEventV2SignalStackIDOffset:])),
-		signalAddress: binary.LittleEndian.Uint64(body[traceEventV2SignalAddressOffset:]),
+		valid:            true,
+		eventVersion:     header.version,
+		pid:              header.pid,
+		tid:              header.tid,
+		comm:             header.comm,
+		eventType:        header.eventType,
+		enterTime:        header.tsNs,
+		signal:           binary.LittleEndian.Uint32(body[traceEventV2SignalNumberOffset:]),
+		signalErr:        int32(binary.LittleEndian.Uint32(body[traceEventV2SignalErrnoOffset:])),
+		signalCode:       int32(binary.LittleEndian.Uint32(body[traceEventV2SignalCodeOffset:])),
+		senderPID:        binary.LittleEndian.Uint32(body[traceEventV2SignalSenderPIDOffset:]),
+		senderUID:        binary.LittleEndian.Uint32(body[traceEventV2SignalSenderUIDOffset:]),
+		stackID:          int32(binary.LittleEndian.Uint32(body[traceEventV2SignalStackIDOffset:])),
+		signalAddress:    binary.LittleEndian.Uint64(body[traceEventV2SignalAddressOffset:]),
+		signalStatus:     int32(binary.LittleEndian.Uint32(body[traceEventV2SignalChildStatusOffset:])),
+		signalUserTime:   int64(binary.LittleEndian.Uint64(body[traceEventV2SignalChildUserTimeOffset:])),
+		signalSystemTime: int64(binary.LittleEndian.Uint64(body[traceEventV2SignalChildSystemTimeOffset:])),
 	}, true
 }
 
