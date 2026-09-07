@@ -180,6 +180,25 @@ func TestExitSyscallOutputStatusNoneSuppressesExitAndStatus(t *testing.T) {
 	}
 }
 
+func TestExitSyscallOutputStatusUnfinishedKeepsExitLine(t *testing.T) {
+	state := newExitOutputTestState(&cli.Options{
+		FollowForks:      true,
+		StatusConfigured: true,
+		TraceStatus:      map[string]bool{"unfinished": true},
+	})
+
+	if !state.output.Handle(exitEventContext(state.opts, "exit_group", true)) {
+		t.Fatal("status=unfinished exit_group should still be handled")
+	}
+	got := state.out.String()
+	if !strings.Contains(got, "101   exit_group(7) = ?") {
+		t.Fatalf("status=unfinished output = %q, want exit syscall line", got)
+	}
+	if strings.Contains(got, "+++ exited") {
+		t.Fatalf("status=unfinished output = %q, want no syscall exit status line", got)
+	}
+}
+
 func TestExitSyscallOutputPrintsExitTextFromEventView(t *testing.T) {
 	state := newExitOutputTestState(&cli.Options{FollowForks: true})
 	ev := exitEventContextWithView(

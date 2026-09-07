@@ -12,6 +12,7 @@ type TraceEventDispatcher struct {
 	detachOnExec traceDetachOnExecveObserver
 	commObserver traceTaskCommObserver
 	contextDeps  syscallEventContextDeps
+	eventPolicy  traceEventOutputPolicy
 }
 
 type TraceEventDispatcherDeps struct {
@@ -26,6 +27,7 @@ type TraceEventDispatcherDeps struct {
 	DetachOnExecve traceDetachOnExecveObserver
 	CommObserver   traceTaskCommObserver
 	ContextDeps    syscallEventContextDeps
+	EventPolicy    traceEventOutputPolicy
 }
 
 func newTraceEventDispatcher(deps TraceEventDispatcherDeps) *TraceEventDispatcher {
@@ -41,6 +43,7 @@ func newTraceEventDispatcher(deps TraceEventDispatcherDeps) *TraceEventDispatche
 		detachOnExec: deps.DetachOnExecve,
 		commObserver: deps.CommObserver,
 		contextDeps:  deps.ContextDeps,
+		eventPolicy:  deps.EventPolicy,
 	}
 }
 
@@ -142,7 +145,7 @@ func (d *TraceEventDispatcher) handleExit(update TraceStateUpdate, statePID int)
 		update.pendingEnter,
 		update.payloadSections,
 	)
-	ev = ev.withNonLeaderExecDetachedStatus()
+	ev = ev.withNonLeaderExecDetachedStatus(d.eventPolicy)
 	if d.detachOnExec != nil {
 		ev = d.detachOnExec.Observe(ev)
 	}

@@ -165,7 +165,8 @@ func TestNonLeaderExecHasDetachedStatusWithoutDetachOption(t *testing.T) {
 		},
 	}, 200)
 
-	if len(sink.events) != 1 || !sink.events[0].detached || sink.events[0].detachedByExecPolicy {
+	if len(sink.events) != 1 || !sink.events[0].detached ||
+		sink.events[0].detachedByExecPolicy || sink.events[0].detachedByStatus {
 		t.Fatalf("non-leader pipeline events = %+v, want detached status", sink.events)
 	}
 }

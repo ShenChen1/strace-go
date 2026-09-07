@@ -27,6 +27,11 @@ type traceEventOutputPolicy interface {
 	ShouldEmit(ev syscallEventContext, unfinished bool) bool
 }
 
+// traceDetachedStatusPolicy exposes the one status category that changes exec output shape.
+type traceDetachedStatusPolicy interface {
+	DetachedStatusSelected() bool
+}
+
 // traceSummaryPolicy controls summary-only and summary-plus-output modes.
 type traceSummaryPolicy interface {
 	SummaryOnly() bool
@@ -305,6 +310,10 @@ func (p *cliTraceOutputPolicy) ShouldEmit(ev syscallEventContext, unfinished boo
 		return true
 	}
 	return ev.shouldEmitStatus(p.status)
+}
+
+func (p *cliTraceOutputPolicy) DetachedStatusSelected() bool {
+	return p != nil && p.statusFilterActive && p.status.traceStatus["detached"]
 }
 
 func (p *cliTraceOutputPolicy) ShouldEmitSignal(signo uint32) bool {

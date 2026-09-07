@@ -87,7 +87,10 @@ func (o *ExitSyscallOutput) shouldEmitEvent(ev syscallEventContext) bool {
 	if !ev.shouldOutput() {
 		return false
 	}
-	return o.eventPolicy == nil || o.eventPolicy.ShouldEmit(ev, false)
+	if o.eventPolicy == nil || o.eventPolicy.ShouldEmit(ev, false) {
+		return true
+	}
+	return ev.isExitSyscallEvent() && o.eventPolicy.ShouldEmit(ev, true)
 }
 
 func (o *ExitSyscallOutput) shouldEmitStatus(ev syscallEventContext) bool {

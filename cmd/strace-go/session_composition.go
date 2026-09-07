@@ -401,6 +401,7 @@ func buildTraceSessionEvents(
 		DetachOnExecve: detachOnExecve,
 		CommObserver:   base.renderer,
 		ContextDeps:    contextDeps,
+		EventPolicy:    base.outputPolicy,
 	})
 	router := newTraceEventRouter(TraceEventRouterDeps{
 		Scope:            newTraceScope(deps.TargetPID, base.outputPolicy),
