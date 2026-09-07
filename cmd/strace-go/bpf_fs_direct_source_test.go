@@ -49,6 +49,7 @@ func assertFSDispatchSource(t *testing.T, sources fsDirectSources) {
 		"#define SYS_GETDENTS64 217",
 		"#define SYS_FSCONFIG 431",
 		"#define SYS_MOUNT_SETATTR 442",
+		"#define SYS_FILE_SETATTR 469",
 		`#include "syscall_fs_direct_event_v2.h"`,
 		"is_fs_enter_direct_syscall(sys_id)",
 		"emit_fs_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);",
@@ -90,6 +91,8 @@ func assertFSDirectHeader(t *testing.T, fsDirectHeader string, fsCapture string,
 		`#include "syscall_mount_setattr_direct_event_v2.h"`,
 		"sys_id == SYS_MOUNT_SETATTR",
 		"capture_mount_setattr_enter_payload_tlv_direct(",
+		"sys_id == SYS_FILE_SETATTR",
+		"capture_file_attr_tlvs_direct(",
 	} {
 		if !strings.Contains(fsSource, snippet) {
 			t.Fatalf("fs direct header missing snippet %q", snippet)

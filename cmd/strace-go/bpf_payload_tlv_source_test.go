@@ -82,7 +82,8 @@ func TestBPFDirectStructSyscallConstantsPresent(t *testing.T) {
 	if !strings.Contains(straceSource, "#define SYS_GETRLIMIT 97") ||
 		!strings.Contains(straceSource, "#define SYS_SYSINFO 99") ||
 		!strings.Contains(straceSource, "#define SYS_SETRLIMIT 160") ||
-		!strings.Contains(straceSource, "#define SYS_PRLIMIT64 302") {
+		!strings.Contains(straceSource, "#define SYS_PRLIMIT64 302") ||
+		!strings.Contains(straceSource, "#define SYS_FILE_GETATTR 468") {
 		t.Fatal("strace.c missing misc struct direct event v2 constants")
 	}
 	if !strings.Contains(straceSource, "#define SYS_CLOCK_GETTIME 228") ||
@@ -399,9 +400,11 @@ func TestBPFMiscStructPayloadsUseDirectTLV(t *testing.T) {
 		!strings.Contains(miscDirectHeader, "MISC_DIRECT_RLIMIT_SIZE 16") ||
 		!strings.Contains(miscDirectHeader, "MISC_DIRECT_SYSINFO_SIZE 112") ||
 		!strings.Contains(miscDirectHeader, "MISC_DIRECT_UTSNAME_SIZE 390") ||
+		!strings.Contains(miscDirectHeader, "SYS_FILE_GETATTR") ||
+		!strings.Contains(miscDirectHeader, "capture_file_attr_tlvs_direct(") ||
 		!strings.Contains(miscDirectHeader, "is_misc_struct_direct_syscall(") ||
 		!strings.Contains(miscDirectHeader, "sys_id == SYS_UNAME || sys_id == SYS_SYSINFO ||") ||
-		!strings.Contains(miscDirectHeader, "sys_id == SYS_GETRLIMIT || sys_id == SYS_SETRLIMIT || sys_id == SYS_PRLIMIT64;") ||
+		!strings.Contains(miscDirectHeader, "sys_id == SYS_GETRLIMIT || sys_id == SYS_SETRLIMIT || sys_id == SYS_PRLIMIT64") ||
 		!strings.Contains(miscDirectHeader, "is_misc_struct_enter_direct_syscall(") ||
 		!strings.Contains(miscDirectHeader, "return sys_id == SYS_SETRLIMIT || sys_id == SYS_PRLIMIT64;") ||
 		!strings.Contains(miscDirectHeader, "is_misc_struct_exit_direct_syscall(") ||

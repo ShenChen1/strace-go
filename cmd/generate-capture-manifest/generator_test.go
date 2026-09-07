@@ -54,6 +54,31 @@ func TestCaptureManifestRoutesTimeOutputThroughFDTime(t *testing.T) {
 	t.Fatal("time capture route is missing")
 }
 
+func TestCaptureManifestRoutesFileAttributesThroughDedicatedFamilies(t *testing.T) {
+	want := map[string]struct {
+		enter string
+		exit  string
+	}{
+		"file_getattr": {enter: "enter_path_only", exit: "exit_struct"},
+		"file_setattr": {enter: "enter_fs", exit: ""},
+	}
+	for name, expected := range want {
+		for _, route := range captureRouteSpecs() {
+			if route.syscallName != name {
+				continue
+			}
+			if route.enterProgram != expected.enter || route.exitProgram != expected.exit {
+				t.Fatalf("%s route = enter %q, exit %q; want enter %q, exit %q", name, route.enterProgram, route.exitProgram, expected.enter, expected.exit)
+			}
+			delete(want, name)
+			break
+		}
+	}
+	for name := range want {
+		t.Fatalf("%s capture route is missing", name)
+	}
+}
+
 func TestCaptureManifestValidationRejectsInvalidReferences(t *testing.T) {
 	tests := []struct {
 		name string

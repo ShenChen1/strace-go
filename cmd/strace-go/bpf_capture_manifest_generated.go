@@ -247,6 +247,8 @@ var bpfRouteCapabilities = map[string]bpfRouteCapability{
 	"fchownat":          {enterSlot: enterProgPathOnly, exitSlot: exitProgPath, standaloneExitElision: false},
 	"fcntl":             {enterSlot: enterProgFcntl, exitSlot: exitProgControl, standaloneExitElision: false},
 	"fgetxattr":         {enterSlot: enterProgXattr, exitSlot: exitProgIO, standaloneExitElision: false},
+	"file_getattr":      {enterSlot: enterProgPathOnly, exitSlot: exitProgStruct, standaloneExitElision: false},
+	"file_setattr":      {enterSlot: enterProgFs, exitSlot: 0, standaloneExitElision: false},
 	"flistxattr":        {enterSlot: enterProgXattr, exitSlot: exitProgIO, standaloneExitElision: false},
 	"fremovexattr":      {enterSlot: enterProgXattr, exitSlot: 0, standaloneExitElision: false},
 	"fsconfig":          {enterSlot: enterProgFs, exitSlot: 0, standaloneExitElision: false},

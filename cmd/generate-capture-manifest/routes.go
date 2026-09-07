@@ -37,6 +37,8 @@ func captureRouteSpecs() []captureRouteSpec {
 		{syscallName: "faccessat2", enterProgram: "enter_path_only", exitProgram: "exit_path", standaloneExitElision: false},
 		{syscallName: "fspick", enterProgram: "enter_path_only", exitProgram: "exit_path", standaloneExitElision: false},
 		{syscallName: "open_tree", enterProgram: "enter_path_only", exitProgram: "exit_path", standaloneExitElision: false},
+		{syscallName: "file_getattr", enterProgram: "enter_path_only", exitProgram: "exit_struct", standaloneExitElision: false},
+		{syscallName: "file_setattr", enterProgram: "enter_fs", exitProgram: "", standaloneExitElision: false},
 		{syscallName: "rename", enterProgram: "enter_dual_path", exitProgram: "exit_path", standaloneExitElision: false},
 		{syscallName: "link", enterProgram: "enter_dual_path", exitProgram: "exit_path", standaloneExitElision: false},
 		{syscallName: "symlink", enterProgram: "enter_dual_path", exitProgram: "exit_path", standaloneExitElision: false},

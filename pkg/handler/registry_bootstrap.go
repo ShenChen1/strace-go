@@ -18,6 +18,7 @@ func buildBuiltinRegistry() *Registry {
 	registerBuiltinDefault(registry)
 	registerBuiltinEpoll(registry)
 	registerBuiltinFcntl(registry)
+	registerBuiltinFileAttr(registry)
 	registerBuiltinFs(registry)
 	registerBuiltinFutex(registry)
 	registerBuiltinFutex2(registry)

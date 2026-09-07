@@ -35,6 +35,7 @@ func TestBPFPathOnlyPayloadsUseDirectTLV(t *testing.T) {
 		"is_path_only_arg0_direct_syscall(",
 		"sys_id == SYS_CHDIR",
 		"is_path_only_arg1_direct_syscall(",
+		"sys_id == SYS_FILE_GETATTR",
 		"emit_path_only_enter_event_v2_direct(",
 		"emit_path_only_exit_event_v2_direct(",
 		"init_syscall_enter_event_v2_from_ctx(&body, ctx, 0, 0, -1, -1);",
@@ -43,6 +44,9 @@ func TestBPFPathOnlyPayloadsUseDirectTLV(t *testing.T) {
 		if !strings.Contains(pathSource, snippet) {
 			t.Fatalf("path direct header missing snippet %q", snippet)
 		}
+	}
+	if strings.Contains(pathDirectHeader, "sys_id == SYS_FILE_SETATTR") {
+		t.Fatal("file_setattr should use the filesystem structured enter family")
 	}
 
 	for _, snippet := range []string{

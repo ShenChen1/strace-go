@@ -190,6 +190,22 @@ static __always_inline u32 capture_fs_enter_payload_tlv_direct(
     if (sys_id == SYS_FSCONFIG) {
         return capture_fsconfig_payload_tlv_direct(ptr, payload_offset, ctx, event_flags);
     }
+    if (sys_id == SYS_FILE_SETATTR) {
+        u32 payload_size = capture_path_only_tlv_direct(
+            ptr,
+            payload_offset,
+            1,
+            ctx->args[1]);
+        payload_size += capture_file_attr_tlvs_direct(
+            ptr,
+            payload_offset + payload_size,
+            2,
+            ctx->args[2],
+            ctx->args[3],
+            event_flags,
+            0);
+        return payload_size;
+    }
     if (sys_id == SYS_MOUNT_SETATTR) {
         return capture_mount_setattr_enter_payload_tlv_direct(ptr, payload_offset, ctx, cfg, event_flags);
     }

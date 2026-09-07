@@ -1,6 +1,7 @@
 #ifndef STRACE_GO_SYSCALL_FS_DIRECT_EVENT_V2_H
 #define STRACE_GO_SYSCALL_FS_DIRECT_EVENT_V2_H
 
+#include "syscall_file_attr_direct_event_v2.h"
 #include "syscall_mount_setattr_direct_event_v2.h"
 #include "syscall_mount_query_direct_event_v2.h"
 
@@ -17,7 +18,7 @@ static __always_inline int is_fs_enter_direct_syscall(u32 sys_id)
 {
     return sys_id == SYS_MOUNT || sys_id == SYS_UMOUNT2 ||
         sys_id == SYS_FSCONFIG || sys_id == SYS_MOUNT_SETATTR ||
-        is_mount_query_direct_syscall(sys_id);
+        sys_id == SYS_FILE_SETATTR || is_mount_query_direct_syscall(sys_id);
 }
 
 static __always_inline int is_getdents_direct_syscall(u32 sys_id)

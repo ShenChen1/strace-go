@@ -1,6 +1,8 @@
 #ifndef STRACE_GO_SYSCALL_MISC_STRUCT_DIRECT_EVENT_V2_H
 #define STRACE_GO_SYSCALL_MISC_STRUCT_DIRECT_EVENT_V2_H
 
+#include "syscall_file_attr_direct_event_v2.h"
+
 #define MISC_DIRECT_RLIMIT_SIZE 16
 #define MISC_DIRECT_SYSINFO_SIZE 112
 #define MISC_DIRECT_UTSNAME_SIZE 390
@@ -9,7 +11,8 @@
 static __always_inline int is_misc_struct_direct_syscall(u32 sys_id)
 {
     return sys_id == SYS_UNAME || sys_id == SYS_SYSINFO ||
-        sys_id == SYS_GETRLIMIT || sys_id == SYS_SETRLIMIT || sys_id == SYS_PRLIMIT64;
+        sys_id == SYS_GETRLIMIT || sys_id == SYS_SETRLIMIT || sys_id == SYS_PRLIMIT64 ||
+        sys_id == SYS_FILE_GETATTR;
 }
 
 static __always_inline int is_misc_struct_enter_direct_syscall(u32 sys_id)
@@ -20,11 +23,14 @@ static __always_inline int is_misc_struct_enter_direct_syscall(u32 sys_id)
 static __always_inline int is_misc_struct_exit_direct_syscall(u32 sys_id)
 {
     return sys_id == SYS_UNAME || sys_id == SYS_SYSINFO ||
-        sys_id == SYS_GETRLIMIT || sys_id == SYS_PRLIMIT64;
+        sys_id == SYS_GETRLIMIT || sys_id == SYS_PRLIMIT64 || sys_id == SYS_FILE_GETATTR;
 }
 
 static __always_inline u32 misc_struct_direct_size(u32 sys_id)
 {
+    if (sys_id == SYS_FILE_GETATTR) {
+        return FILE_ATTR_DIRECT_BASE_SIZE;
+    }
     if (sys_id == SYS_UNAME) {
         return MISC_DIRECT_UTSNAME_SIZE;
     }
@@ -36,6 +42,9 @@ static __always_inline u32 misc_struct_direct_size(u32 sys_id)
 
 static __always_inline u16 misc_struct_exit_arg_index(u32 sys_id)
 {
+    if (sys_id == SYS_FILE_GETATTR) {
+        return 2;
+    }
     if (sys_id == SYS_GETRLIMIT) {
         return 1;
     }
@@ -47,6 +56,9 @@ static __always_inline u16 misc_struct_exit_arg_index(u32 sys_id)
 
 static __always_inline u64 misc_struct_exit_user_ptr(struct pending_syscall *p)
 {
+    if (p->sys_id == SYS_FILE_GETATTR) {
+        return p->args[2];
+    }
     if (p->sys_id == SYS_GETRLIMIT) {
         return p->args[1];
     }
@@ -195,13 +207,25 @@ static __always_inline void emit_misc_struct_exit_event_v2_direct(
     u16 flags = 0;
     u16 arg_index = misc_struct_exit_arg_index(p->sys_id);
     u64 user_ptr = misc_struct_exit_user_ptr(p);
-    u32 payload_size = capture_misc_struct_tlv_direct(
-        &ptr,
-        payload_offset,
-        p->sys_id,
-        arg_index,
-        user_ptr,
-        PAYLOAD_TLV_FLAG_DIRECTION_OUT);
+    u32 payload_size;
+    if (p->sys_id == SYS_FILE_GETATTR) {
+        payload_size = capture_file_attr_tlvs_direct(
+            &ptr,
+            payload_offset,
+            arg_index,
+            user_ptr,
+            p->args[3],
+            &flags,
+            PAYLOAD_TLV_FLAG_DIRECTION_OUT);
+    } else {
+        payload_size = capture_misc_struct_tlv_direct(
+            &ptr,
+            payload_offset,
+            p->sys_id,
+            arg_index,
+            user_ptr,
+            PAYLOAD_TLV_FLAG_DIRECTION_OUT);
+    }
     if (payload_size > 0) {
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
