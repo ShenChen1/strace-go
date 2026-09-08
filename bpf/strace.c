@@ -84,6 +84,15 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     u32 *filter_flags = lookup_lifecycle_task_filter_flags(pid, tid);
     if (!filter_flags) return 0;
 
+    // Keep non-leader exec identity across a group-leader replacement even
+    // when the exec syscall itself is filtered out of rendered output.
+    if (is_exec_payload_direct_syscall(sys_id) && tid != pid &&
+        is_lifecycle_task_tracked(pid, tid)) {
+        if (bpf_map_update_elem(&pending_exec_map, &pid, &tid, BPF_ANY) != 0) {
+            record_lifecycle_map_update_fail();
+        }
+    }
+
     if (is_pre_exec_suppressed_syscall(filter_flags, sys_id)) return 0;
     capture_pending_fork_flags(tid, sys_id, ctx);
     u32 key = 0;

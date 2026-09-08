@@ -16,6 +16,7 @@ type LifecycleEffects interface {
 	CloseOnExecState(pid int)
 	WriteJSON(lifecycleEventView, *TaskState)
 	WriteExitText(tid int, exitCode uint64)
+	WriteExecSuperseded(oldPID int, newPID int, enterTime uint64)
 	HandleUnknownChild(action uint32, pid int, quiet bool)
 }
 
@@ -70,6 +71,12 @@ func (e *traceSessionLifecycleEffects) WriteExitText(tid int, exitCode uint64) {
 	}
 }
 
+func (e *traceSessionLifecycleEffects) WriteExecSuperseded(oldPID int, newPID int, enterTime uint64) {
+	if e.exitText != nil {
+		e.exitText.WriteExecSuperseded(oldPID, newPID, enterTime)
+	}
+}
+
 func (e *traceSessionLifecycleEffects) HandleUnknownChild(action uint32, pid int, quiet bool) {
 	if e.unknownChild != nil {
 		e.unknownChild.HandleUnknownChild(action, pid, quiet)
@@ -98,12 +105,14 @@ func (h *LifecycleEventHandler) Handle(view lifecycleEventView, task *TaskState)
 	case lifecycleUnknownExit:
 		h.handleUnknownChild(view, h.policy != nil && h.policy.QuietExit())
 	case lifecycleExec:
+		h.writeExecSuperseded(view)
 		h.closeOnExec(view, task)
 	case lifecycleExit:
 		h.cleanupProcess(view, task)
 		isAttachTarget := h.policy != nil && h.policy.IsAttachTarget(int(view.tid))
 		isKnownTask := task != nil && (task.Execed || task.ParentTID != 0 || task.TID != task.TGID)
-		if !h.jsonMode() && !h.discardMode() && (isAttachTarget || isKnownTask) {
+		replacedChild := task != nil && task.ExecReplaced && task.ParentTID != 0
+		if !h.jsonMode() && !h.discardMode() && !replacedChild && (isAttachTarget || isKnownTask) {
 			h.writeExitText(int(view.tid), view.args[0])
 		}
 	case lifecycleFree:
@@ -183,6 +192,25 @@ func (h *LifecycleEventHandler) writeExitText(tid int, exitCode uint64) {
 	if h.effects != nil {
 		h.effects.WriteExitText(tid, exitCode)
 	}
+}
+
+func (h *LifecycleEventHandler) writeExecSuperseded(view lifecycleEventView) {
+	if h.effects == nil {
+		return
+	}
+	// The exec payload keeps the replaced thread in arg0 and the new leader in arg1.
+	leaderPID := uint32(view.args[1])
+	execTID := uint32(view.args[0])
+	if leaderPID == 0 {
+		leaderPID = view.pid
+	}
+	if execTID == 0 {
+		execTID = view.tid
+	}
+	if leaderPID == 0 || execTID == 0 || leaderPID == execTID {
+		return
+	}
+	h.effects.WriteExecSuperseded(int(leaderPID), int(execTID), view.enterTime)
 }
 
 func (h *LifecycleEventHandler) jsonMode() bool {

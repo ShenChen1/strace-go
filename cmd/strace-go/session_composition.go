@@ -368,11 +368,12 @@ func buildTraceSessionEvents(
 				deps.FDState,
 				base.jsonWriter,
 				newTraceLifecycleExitTextWriter(traceLifecycleExitTextWriterDeps{
-					Policy:     deps.OutputPolicy,
-					HasCommand: deps.HasCommand,
-					TargetPID:  deps.TargetPID,
-					Out:        deps.OutWriter,
-					Renderer:   base.renderer,
+					Policy:       deps.OutputPolicy,
+					HasCommand:   deps.HasCommand,
+					TargetPID:    deps.TargetPID,
+					Out:          deps.OutWriter,
+					Renderer:     base.renderer,
+					ExecRenderer: base.renderer,
 				}),
 				newTraceUnknownChildDiagnostics(traceUnknownChildDiagnosticDeps{
 					Output:      os.Stderr,

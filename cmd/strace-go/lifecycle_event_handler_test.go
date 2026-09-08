@@ -12,18 +12,25 @@ type lifecycleHandlerTestState struct {
 }
 
 type fakeLifecycleEffects struct {
-	inherited     [][2]int
-	cleaned       []int
-	execCleared   []int
-	jsonEventSeen bool
-	jsonTaskSeen  *TaskState
-	exitText      []fakeLifecycleExitText
-	unknownChild  []fakeUnknownChildEffect
+	inherited      [][2]int
+	cleaned        []int
+	execCleared    []int
+	jsonEventSeen  bool
+	jsonTaskSeen   *TaskState
+	exitText       []fakeLifecycleExitText
+	execSuperseded []fakeLifecycleExecSuperseded
+	unknownChild   []fakeUnknownChildEffect
 }
 
 type fakeLifecycleExitText struct {
 	tid      int
 	exitCode uint64
+}
+
+type fakeLifecycleExecSuperseded struct {
+	oldPID    int
+	newPID    int
+	enterTime uint64
 }
 
 type fakeUnknownChildEffect struct {
@@ -51,6 +58,12 @@ func (e *fakeLifecycleEffects) WriteJSON(_ lifecycleEventView, task *TaskState) 
 
 func (e *fakeLifecycleEffects) WriteExitText(tid int, exitCode uint64) {
 	e.exitText = append(e.exitText, fakeLifecycleExitText{tid: tid, exitCode: exitCode})
+}
+
+func (e *fakeLifecycleEffects) WriteExecSuperseded(oldPID int, newPID int, enterTime uint64) {
+	e.execSuperseded = append(e.execSuperseded, fakeLifecycleExecSuperseded{
+		oldPID: oldPID, newPID: newPID, enterTime: enterTime,
+	})
 }
 
 func (e *fakeLifecycleEffects) HandleUnknownChild(action uint32, pid int, quiet bool) {
@@ -164,6 +177,22 @@ func TestLifecycleEventHandlerClosesCloexecStateForExecProcess(t *testing.T) {
 	}
 }
 
+func TestLifecycleEventHandlerWritesThreadExecSupersededText(t *testing.T) {
+	state := newLifecycleHandlerTestState(&cli.Options{FollowForks: true})
+	state.handler.Handle(lifecycleEventView{
+		action:    lifecycleExec,
+		pid:       200,
+		tid:       201,
+		args:      [6]uint64{201, 200},
+		enterTime: 42,
+	}, &TaskState{TID: 201, TGID: 200})
+
+	want := fakeLifecycleExecSuperseded{oldPID: 200, newPID: 201, enterTime: 42}
+	if len(state.effects.execSuperseded) != 1 || state.effects.execSuperseded[0] != want {
+		t.Fatalf("exec superseded effects = %v, want [%+v]", state.effects.execSuperseded, want)
+	}
+}
+
 func TestLifecycleEventHandlerWritesExitTextThroughEffects(t *testing.T) {
 	opts := cli.ParseArgs([]string{"-p", "101", "/bin/true"})
 	state := newLifecycleHandlerTestState(opts)
@@ -194,6 +223,21 @@ func TestLifecycleEventHandlerWritesFollowedChildExitText(t *testing.T) {
 
 	if len(state.effects.exitText) != 1 {
 		t.Fatalf("followed child exitText = %v, want one write", state.effects.exitText)
+	}
+}
+
+func TestLifecycleEventHandlerSuppressesReplacedChildExitText(t *testing.T) {
+	state := newLifecycleHandlerTestState(&cli.Options{FollowForks: true})
+
+	state.handler.Handle(lifecycleEventView{
+		action: lifecycleExit,
+		pid:    202,
+		tid:    202,
+		args:   [6]uint64{0},
+	}, &TaskState{TID: 202, TGID: 202, ParentTID: 101, ExecReplaced: true})
+
+	if len(state.effects.exitText) != 0 {
+		t.Fatalf("replaced child exitText = %v, want none", state.effects.exitText)
 	}
 }
 

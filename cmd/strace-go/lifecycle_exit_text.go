@@ -7,31 +7,39 @@ import (
 
 type traceLifecycleExitTextPort interface {
 	WriteExitText(tid int, exitCode uint64)
+	WriteExecSuperseded(oldPID int, newPID int, enterTime uint64)
+}
+
+type traceLifecycleExecRenderer interface {
+	PrintExecDetachedThreadSupersededFromView(syscallEventView)
 }
 
 type traceLifecycleExitTextWriter struct {
-	policy     traceExitPolicy
-	hasCommand bool
-	targetPID  int
-	out        io.Writer
-	renderer   traceExitStatusLinePort
+	policy       traceExitPolicy
+	hasCommand   bool
+	targetPID    int
+	out          io.Writer
+	renderer     traceExitStatusLinePort
+	execRenderer traceLifecycleExecRenderer
 }
 
 type traceLifecycleExitTextWriterDeps struct {
-	Policy     traceExitPolicy
-	HasCommand bool
-	TargetPID  int
-	Out        io.Writer
-	Renderer   traceExitStatusLinePort
+	Policy       traceExitPolicy
+	HasCommand   bool
+	TargetPID    int
+	Out          io.Writer
+	Renderer     traceExitStatusLinePort
+	ExecRenderer traceLifecycleExecRenderer
 }
 
 func newTraceLifecycleExitTextWriter(deps traceLifecycleExitTextWriterDeps) *traceLifecycleExitTextWriter {
 	return &traceLifecycleExitTextWriter{
-		policy:     deps.Policy,
-		hasCommand: deps.HasCommand,
-		targetPID:  deps.TargetPID,
-		out:        deps.Out,
-		renderer:   deps.Renderer,
+		policy:       deps.Policy,
+		hasCommand:   deps.HasCommand,
+		targetPID:    deps.TargetPID,
+		out:          deps.Out,
+		renderer:     deps.Renderer,
+		execRenderer: deps.ExecRenderer,
 	}
 }
 
@@ -53,6 +61,25 @@ func (w *traceLifecycleExitTextWriter) WriteExitText(tid int, exitCode uint64) {
 	}
 	selectTraceOutputPID(w.out, tid)
 	fmt.Fprint(w.out, w.renderer.LifecycleExitStatusLine(tid, exitCode))
+}
+
+func (w *traceLifecycleExitTextWriter) WriteExecSuperseded(oldPID int, newPID int, enterTime uint64) {
+	if w == nil || w.policy == nil || w.policy.IsJSON() || w.policy.DiscardEvents() ||
+		w.policy.SummaryOnly() {
+		return
+	}
+	follow, ok := w.policy.(traceFollowForkPolicy)
+	if !ok || !follow.FollowForks() || oldPID <= 0 || newPID <= 0 || oldPID == newPID ||
+		w.out == nil || w.execRenderer == nil {
+		return
+	}
+	selectTraceOutputPID(w.out, oldPID)
+	w.execRenderer.PrintExecDetachedThreadSupersededFromView(syscallEventView{
+		valid:     true,
+		pid:       uint32(oldPID),
+		tid:       uint32(newPID),
+		enterTime: enterTime,
+	})
 }
 
 func selectTraceOutputPID(out io.Writer, pid int) {

@@ -3,7 +3,17 @@ package main
 import (
 	"bytes"
 	"testing"
+
+	"strace-go/pkg/cli"
 )
+
+type fakeLifecycleExecRenderer struct {
+	views []syscallEventView
+}
+
+func (r *fakeLifecycleExecRenderer) PrintExecDetachedThreadSupersededFromView(view syscallEventView) {
+	r.views = append(r.views, view)
+}
 
 func TestTraceLifecycleExitTextWriterWritesExitLine(t *testing.T) {
 	var output bytes.Buffer
@@ -57,5 +67,40 @@ func TestTraceLifecycleExitTextWriterSuppressesConfiguredLines(t *testing.T) {
 				t.Fatalf("suppressed exit text = %q, want empty", output.String())
 			}
 		})
+	}
+}
+
+func TestTraceLifecycleExitTextWriterWritesThreadExecSuperseded(t *testing.T) {
+	var output bytes.Buffer
+	execRenderer := &fakeLifecycleExecRenderer{}
+	writer := newTraceLifecycleExitTextWriter(traceLifecycleExitTextWriterDeps{
+		Policy:       newTraceOutputPolicy(&cli.Options{FollowForks: true}),
+		Out:          &output,
+		ExecRenderer: execRenderer,
+	})
+
+	writer.WriteExecSuperseded(200, 201, 42)
+
+	if len(execRenderer.views) != 1 {
+		t.Fatalf("superseded views = %v, want one view", execRenderer.views)
+	}
+	view := execRenderer.views[0]
+	if view.pid != 200 || view.tid != 201 || view.enterTime != 42 {
+		t.Fatalf("superseded view = %+v, want pid/tid/time 200/201/42", view)
+	}
+}
+
+func TestTraceLifecycleExitTextWriterSkipsSupersededWithoutFollowForks(t *testing.T) {
+	execRenderer := &fakeLifecycleExecRenderer{}
+	writer := newTraceLifecycleExitTextWriter(traceLifecycleExitTextWriterDeps{
+		Policy:       newTraceOutputPolicy(&cli.Options{}),
+		Out:          &bytes.Buffer{},
+		ExecRenderer: execRenderer,
+	})
+
+	writer.WriteExecSuperseded(200, 201, 42)
+
+	if len(execRenderer.views) != 0 {
+		t.Fatalf("superseded views = %v, want none without -f", execRenderer.views)
 	}
 }

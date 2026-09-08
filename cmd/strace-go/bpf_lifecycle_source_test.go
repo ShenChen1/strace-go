@@ -63,8 +63,7 @@ func TestBPFNonLeaderExecPreservesProcessTrackingAcrossLeaderReplacement(t *test
 	}
 	for _, snippet := range []string{
 		"bpf_map_lookup_elem(&pending_exec_map, &pid)",
-		"BPF_CORE_READ(task, signal, group_exec_task)",
-		"BPF_CORE_READ(exec_task, pid)",
+		"*pending_tid != pid",
 	} {
 		if !strings.Contains(helper, snippet) {
 			t.Fatalf("exec-replaced leader predicate missing %q", snippet)
@@ -83,6 +82,31 @@ func TestBPFNonLeaderExecPreservesProcessTrackingAcrossLeaderReplacement(t *test
 	}
 	if !strings.Contains(exitBody, "clear_replaced_leader_task_state(tid)") {
 		t.Fatal("leader replacement must clear only the old leader TID state")
+	}
+}
+
+func TestBPFUnselectedNonLeaderExecArmsReplacementGuard(t *testing.T) {
+	source := readCombinedBPFSources(t)
+	body, ok := bpfFunctionBody(source, "trace_sys_enter")
+	if !ok {
+		t.Fatal("strace dispatcher missing sys_enter body")
+	}
+	for _, snippet := range []string{
+		"is_exec_payload_direct_syscall(sys_id)",
+		"is_lifecycle_task_tracked(pid, tid)",
+		"bpf_map_update_elem(&pending_exec_map, &pid, &tid, BPF_ANY)",
+	} {
+		if !strings.Contains(body, snippet) {
+			t.Fatalf("unselected exec path missing replacement-arm snippet %q", snippet)
+		}
+	}
+
+	execBody, ok := bpfFunctionBody(source, "trace_sched_process_exec")
+	if !ok {
+		t.Fatal("lifecycle dispatch missing sched_process_exec")
+	}
+	if !strings.Contains(execBody, "bpf_map_delete_elem(&pending_exec_map, &pid)") {
+		t.Fatal("sched_process_exec must clear the replacement arm after lifecycle emission")
 	}
 }
 

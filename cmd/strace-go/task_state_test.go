@@ -167,6 +167,9 @@ func TestTraceStateMigratesNonLeaderExecTaskWithoutDroppingPending(t *testing.T)
 	if update.lifecycleTask.ParentTID != 100 {
 		t.Fatalf("exec lifecycle parent = %d, want existing leader parent 100", update.lifecycleTask.ParentTID)
 	}
+	if !update.lifecycleTask.ExecReplaced {
+		t.Fatal("non-leader exec must retain replacement identity for final lifecycle cleanup")
+	}
 	if _, ok := state.lifecycle.tasks[201]; ok {
 		t.Fatal("old non-leader task remains after exec lifecycle migration")
 	}

@@ -1,14 +1,15 @@
 package main
 
 type TaskState struct {
-	TID        uint32
-	TGID       uint32
-	ParentTID  uint32
-	Alive      bool
-	Execed     bool
-	Executable string
-	LastAction string
-	LastSeenNS uint64
+	TID          uint32
+	TGID         uint32
+	ParentTID    uint32
+	Alive        bool
+	Execed       bool
+	ExecReplaced bool
+	Executable   string
+	LastAction   string
+	LastSeenNS   uint64
 }
 
 type pendingForkState struct {
@@ -202,6 +203,7 @@ func (st *traceTaskLifecycleState) applyExec(view lifecycleEventView) (*TaskStat
 	processInherit := st.resolveForkIdentity(identityTID, view.pid)
 	task := st.ensureExecTaskState(oldTID, tid, view.pid)
 	task.Execed = true
+	task.ExecReplaced = oldTID != 0 && oldTID != tid
 	task.Executable = view.snapshotText
 	task.Alive = true
 	task.LastAction = "exec"

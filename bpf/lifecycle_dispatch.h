@@ -103,6 +103,7 @@ int trace_sched_process_exec(struct trace_event_raw_sched_process_exec *ctx) {
         filename = (void *)((char *)ctx + filename_offset);
     }
     emit_lifecycle_event(LIFECYCLE_EXEC, pid, tid, ctx->old_pid, tid, filename);
+    bpf_map_delete_elem(&pending_exec_map, &pid);
     return 0;
 }
 
