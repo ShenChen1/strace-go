@@ -104,3 +104,18 @@ func TestTraceLifecycleExitTextWriterSkipsSupersededWithoutFollowForks(t *testin
 		t.Fatalf("superseded views = %v, want none without -f", execRenderer.views)
 	}
 }
+
+func TestTraceLifecycleExitTextWriterSkipsSupersededForDetachedStatus(t *testing.T) {
+	execRenderer := &fakeLifecycleExecRenderer{}
+	writer := newTraceLifecycleExitTextWriter(traceLifecycleExitTextWriterDeps{
+		Policy:       newTraceOutputPolicy(&cli.Options{FollowForks: true, StatusConfigured: true, TraceStatus: map[string]bool{"detached": true}}),
+		Out:          &bytes.Buffer{},
+		ExecRenderer: execRenderer,
+	})
+
+	writer.WriteExecSuperseded(200, 201, 42)
+
+	if len(execRenderer.views) != 0 {
+		t.Fatalf("detached-status superseded views = %v, want none", execRenderer.views)
+	}
+}

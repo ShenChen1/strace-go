@@ -68,6 +68,9 @@ func (w *traceLifecycleExitTextWriter) WriteExecSuperseded(oldPID int, newPID in
 		w.policy.SummaryOnly() {
 		return
 	}
+	if detached, ok := w.policy.(traceDetachedStatusPolicy); ok && detached.DetachedStatusSelected() {
+		return
+	}
 	follow, ok := w.policy.(traceFollowForkPolicy)
 	if !ok || !follow.FollowForks() || oldPID <= 0 || newPID <= 0 || oldPID == newPID ||
 		w.out == nil || w.execRenderer == nil {
