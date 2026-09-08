@@ -4,8 +4,6 @@ import (
 	"errors"
 	"os"
 	"testing"
-
-	"golang.org/x/sys/unix"
 )
 
 func TestCollectInheritedFilesFromFDsPreservesFDSlots(t *testing.T) {
@@ -71,11 +69,6 @@ func TestIsPassThroughFDTreatsClosedDescriptorAsRace(t *testing.T) {
 }
 
 func TestNewTraceCommandPreservesSparseExtraFileSlots(t *testing.T) {
-	if os.Getenv("STRACE_GO_EXTRA_FILE_HELPER") == "1" {
-		verifySparseExtraFileSlots(t)
-		return
-	}
-
 	first, err := os.CreateTemp(t.TempDir(), "extra-file-first-")
 	if err != nil {
 		t.Fatalf("create first extra file: %v", err)
@@ -88,8 +81,7 @@ func TestNewTraceCommandPreservesSparseExtraFileSlots(t *testing.T) {
 	defer second.Close()
 
 	cmd := newTraceCommand(traceCommandSpec{
-		args:       []string{os.Args[0], "-test.run=TestNewTraceCommandPreservesSparseExtraFileSlots"},
-		envActions: []string{"STRACE_GO_EXTRA_FILE_HELPER=1"},
+		args: []string{"/bin/sh", "-c", "set -eu; test -e /proc/self/fd/3; test ! -e /proc/self/fd/4; test -e /proc/self/fd/5; printf fd3 >&3; printf fd5 >&5"},
 	}, []*os.File{first, nil, second})
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("sparse ExtraFiles helper failed: %v", err)
@@ -97,31 +89,6 @@ func TestNewTraceCommandPreservesSparseExtraFileSlots(t *testing.T) {
 
 	assertFileContents(t, first, "fd3")
 	assertFileContents(t, second, "fd5")
-}
-
-func verifySparseExtraFileSlots(t *testing.T) {
-	for _, fd := range []int{3, 5} {
-		var stat unix.Stat_t
-		if err := unix.Fstat(fd, &stat); err != nil {
-			t.Fatalf("Fstat(%d) error = %v, want inherited file", fd, err)
-		}
-	}
-	var stat unix.Stat_t
-	if err := unix.Fstat(4, &stat); !errors.Is(err, unix.EBADF) {
-		t.Fatalf("Fstat(4) error = %v, want EBADF for nil ExtraFiles slot", err)
-	}
-	for _, item := range []struct {
-		fd   int
-		data string
-	}{
-		{fd: 3, data: "fd3"},
-		{fd: 5, data: "fd5"},
-	} {
-		written, err := unix.Write(item.fd, []byte(item.data))
-		if err != nil || written != len(item.data) {
-			t.Fatalf("write fd %d = (%d, %v), want %d bytes", item.fd, written, err, len(item.data))
-		}
-	}
 }
 
 func assertFileContents(t *testing.T, file *os.File, want string) {
