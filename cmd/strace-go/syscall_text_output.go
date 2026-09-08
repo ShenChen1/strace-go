@@ -45,10 +45,10 @@ func (s *traceSession) syscallTextOutput() *SyscallTextOutput {
 
 // IMPACT: HandleEvent owns text-mode syscall output from the stable syscall event context.
 func (o *SyscallTextOutput) HandleEvent(ev syscallEventContext, res handler.Result) {
-	if !o.shouldEmitEvent(ev) {
+	if o.suspended != nil && o.suspended.HandleEvent(ev, res) {
 		return
 	}
-	if o.suspended != nil && o.suspended.HandleEvent(ev, res) {
+	if !o.shouldEmitEvent(ev) {
 		return
 	}
 	if o.exec != nil && o.exec.HandleEvent(ev, res) {
