@@ -8,6 +8,8 @@
 
 ## 状态定义
 
+- **已闭环**：解析、immutable policy、运行时/输出路径和回归验收均已完成；若 upstream
+  断言 ptrace 专属细节，则以本地纯 eBPF 合同测试作为验收依据。
 - **应实现**：不改变纯 eBPF 产品路径，必须补齐解析、运行时行为和 upstream 测试。
 - **架构原生差异**：功能存在，但数据来源决定其语义与 ptrace `strace` 不完全相同；
   必须提供当前架构的运行时证据并明确 upstream XFAIL。
@@ -18,37 +20,37 @@
 
 | 功能域 | 参数 | 目标状态 | 验收依据 |
 | --- | --- | --- | --- |
-| 启动 | `-E/--env`、`-p/--attach` | 应实现 | `strace-E*`、`strace-p`、attach tests |
-| 启动 | `-u/--user`、`--argv0` | 应实现 | `strace--argv0`、credential parser/runtime tests |
-| 追踪 | `-b/--detach-on=execve` | 应实现 | `status-detached*`、exec lifecycle regression |
+| 启动 | `-E/--env`、`-p/--attach` | 已闭环 | `strace-E*`、`strace-p`、attach tests |
+| 启动 | `-u/--user`、`--argv0` | 已闭环 | `strace--argv0`、credential parser/runtime tests |
+| 追踪 | `-b/--detach-on=execve` | 已闭环 | `status-detached*`、exec lifecycle regression |
 | 追踪 | `-D/-DD/-DDD/--daemonize` | 架构冲突 | upstream 契约依赖 `/proc/*/TracerPid` 的 ptrace 父子关系 |
-| 追踪 | `-f/--follow-forks`、`-ff/--output-separately` | 应实现 | `fork-f`、`vfork-f`、`strace-ff` |
-| 追踪 | `--kill-on-exit` | 应实现 | parser tests 加 `TestKillOnExitTerminatesTraceCommand` |
+| 追踪 | `-f/--follow-forks`、`-ff/--output-separately` | 已闭环 | `fork-f`、`vfork-f`、`strace-ff` |
+| 追踪 | `--kill-on-exit` | 已闭环 | parser tests 加 `TestKillOnExitTerminatesTraceCommand` |
 | 追踪 | `-I/--interruptible` | 架构冲突 | 该选项控制 ptrace wait/解码期间的 signal blocking |
-| 过滤 | `trace`、syscall class、regex | 应实现 | `qual_syscall`、`filtering_syscall-syntax` |
+| 过滤 | `trace`、syscall class、regex | 已闭环 | `qual_syscall`、`filtering_syscall-syntax` |
 | 过滤 | ABI designator（`@64/@32/@x32`） | 架构原生差异 | selector syntax/qualification tests；非 native tracee decode 尚未纳入纯 eBPF ABI |
-| 过滤 | `signal` | 应实现 | `qual_signal` 和 BPF signal event semantic suite |
-| 过滤 | `status`、`-z/-Z` | 应实现 | `status-*` |
-| 过滤 | `trace-fds`、`-P/--trace-path` | 应实现 | `options-syntax`、`*-P` |
-| 输出 | `-a`、color、abbrev/verbose/raw、quiet | 应实现 | `strace-a*`、`qual_syscall`、format/output tests |
+| 过滤 | `signal` | 已闭环 | `qual_signal` 和 BPF signal event semantic suite |
+| 过滤 | `status`、`-z/-Z` | 已闭环 | `status-*` |
+| 过滤 | `trace-fds`、`-P/--trace-path` | 已闭环 | `*-P`、trace-fds tests |
+| 输出 | `-a`、color、abbrev/verbose/raw、quiet | 已闭环 | `strace-a*`、`qual_syscall`、format/output tests |
 | 输出 | `read/write` | 架构原生差异 | bounded snapshot tests；`read-write.gen.test` 具名 XFAIL |
-| 输出 | `kvm=vcpu`、namespace、decode-fds | 应实现 | 对应 upstream tests 与 event-snapshot semantic tests |
+| 输出 | `kvm=vcpu`、namespace、decode-fds | 已闭环 | 对应 upstream tests 与 event-snapshot semantic tests |
 | 输出 | `kvm=vcpu+` 完整 `kvm_run` | 架构冲突 | 需要发现并读取 tracee 的共享 mmap，违反当前 bounded snapshot 边界 |
-| 输出 | `-i`、`-n`、`-N` | 应实现 | `pc.test`、`strace-n` 加 arg-name focused tests |
-| 输出 | `-o/-A/--output-separately` | 应实现 | `strace-A`、`strace-ff`、output tests |
-| 输出 | timestamps、string/hex/xlat formats | 应实现 | `strace-r/t/tt/ttt/T/x/xx` 和 `*-X*` |
-| 输出 | `-y/-yy` | 应实现 | `*-y`、`*-yy`；未知 attach 前状态保持 unknown |
-| 输出 | `-k` 地址栈 | 应实现 | BPF stack semantic test |
+| 输出 | `-i`、`-n`、`-N` | 已闭环 | `pc.test`、`strace-n` 加 arg-name focused tests |
+| 输出 | `-o/-A/--output-separately` | 已闭环 | `strace-A`、`strace-ff`、output tests |
+| 输出 | timestamps、string/hex/xlat formats | 已闭环 | `strace-r/t/tt/ttt/T/x/xx` 和 `*-X*` |
+| 输出 | `-y/-yy` | 已闭环 | `*-y`、`*-yy`；未知 attach 前状态保持 unknown |
+| 输出 | `-k` 地址栈 | 已闭环 | BPF stack semantic test |
 | 输出 | symbol/source/demangle stack | 架构冲突 | 当前契约不读取 tracee mapping 或 ELF 做事后符号化 |
-| 输出 | decode-pids、always-show-pid | 应实现 | `strace--decode-pids-*`、always-show-pid tests |
-| 统计 | `-c/-C/-S/-U` | 应实现 | `strace-C/S`、summary tests；`strace-c` 的非 `-O` 分支 |
-| 统计 | `-w` | 应实现 | CPU/wall 双时钟运行时回归；`strace-cw` 的非 `-O` 分支 |
+| 输出 | decode-pids、always-show-pid | 已闭环 | `strace--decode-pids-*`、always-show-pid tests |
+| 统计 | `-c/-C/-S/-U` | 已闭环 | `strace-C/S`、summary tests；`strace-c` 的非 `-O` 分支 |
+| 统计 | `-w` | 已闭环 | CPU/wall 双时钟运行时回归；`strace-cw` 的非 `-O` 分支 |
 | 统计 | `-O/--summary-syscall-overhead` | 架构冲突 | 不存在需要扣除的 ptrace syscall-stop overhead |
-| 停止 | `--syscall-limit` | 应实现 | `strace--syscall-limit*` |
+| 停止 | `--syscall-limit` | 已闭环 | `strace--syscall-limit*` |
 | 修改 | `inject`、`fault`、delay、poke | 架构冲突 | 需要修改 syscall 结果、时序、signal 或 tracee 内存 |
-| 杂项 | `-d/--debug` | 应实现为 eBPF runtime debug | `nsyscalls-d` 加本地 debug contract；不伪造 ptrace diagnostics |
+| 杂项 | `-d/--debug` | 已闭环（eBPF runtime debug） | `nsyscalls-d` 加本地 debug contract；不伪造 ptrace diagnostics |
 | 杂项 | `--seccomp-bpf` | 架构冲突 | eBPF syscall filter 已在 probe 入口执行，无 ptrace stop 可优化 |
-| 杂项 | `--tips`、`-h`、`-V` | 应实现 | `strace--tips*`、help/version tests |
+| 杂项 | `--tips`、`-h`、`-V` | 已闭环 | `strace--tips*`、help/version tests |
 
 ## 当前闭环证据
 
@@ -60,7 +62,8 @@ handoff、零返回 iovec、suspended probe 的 status 过滤和稀疏继承 fd 
 
 - `GOCACHE=/tmp/strace-go-gocache go test ./...`；
 - `./build.sh`（重新生成并编译 BPF/元数据）；
-- 已登记的 `more` upstream suite；
+- 已登记的 `more` upstream suite：265 项中 262 PASS、0 FAIL、2 个具名 XFAIL、
+  1 个非契约 XPASS-ALLOWED；
 - root 下 `--kill-on-exit`、`-u`、`-b` 的真实运行回归。
 
 `options-syntax.test` 和 upstream `kill-on-exit.test` 不作为纯 eBPF exact gate：前者还
