@@ -206,6 +206,9 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 56, Str: "BPF_TRACE_KPROBE_SESSION"},
 			{Val: 57, Str: "BPF_TRACE_UPROBE_SESSION"},
 			{Val: 58, Str: "BPF_TRACE_FSESSION"},
+			{Val: 59, Str: "BPF_TRACE_FENTRY_MULTI"},
+			{Val: 60, Str: "BPF_TRACE_FEXIT_MULTI"},
+			{Val: 61, Str: "BPF_TRACE_FSESSION_MULTI"},
 		},
 	},
 	"bpf_commands": {
@@ -309,6 +312,7 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 32, Str: "BPF_MAP_TYPE_CGRP_STORAGE"},
 			{Val: 33, Str: "BPF_MAP_TYPE_ARENA"},
 			{Val: 34, Str: "BPF_MAP_TYPE_INSN_ARRAY"},
+			{Val: 35, Str: "BPF_MAP_TYPE_RHASH"},
 		},
 	},
 	"bpf_prog_flags": {
@@ -645,6 +649,7 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 1145913666, Str: "DMA_BUF_MAGIC"},
 			{Val: 1161678120, Str: "CRAMFS_MAGIC_WEND"},
 			{Val: 1162691661, Str: "DEVMEM_MAGIC"},
+			{Val: 1178683724, Str: "FAIL_FS_MAGIC"},
 			{Val: 1196246349, Str: "GUEST_MEMFD_MAGIC"},
 			{Val: 1196443219, Str: "GPFS_SUPER_MAGIC"},
 			{Val: 1314212940, Str: "NULL_FS_MAGIC"},
@@ -762,19 +767,6 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 11, Str: "FUTEX_WAIT_REQUEUE_PI"},
 			{Val: 12, Str: "FUTEX_CMP_REQUEUE_PI"},
 			{Val: 13, Str: "FUTEX_LOCK_PI2"},
-			{Val: 128, Str: "FUTEX_WAIT_PRIVATE"},
-			{Val: 129, Str: "FUTEX_WAKE_PRIVATE"},
-			{Val: 131, Str: "FUTEX_REQUEUE_PRIVATE"},
-			{Val: 132, Str: "FUTEX_CMP_REQUEUE_PRIVATE"},
-			{Val: 133, Str: "FUTEX_WAKE_OP_PRIVATE"},
-			{Val: 134, Str: "FUTEX_LOCK_PI_PRIVATE"},
-			{Val: 135, Str: "FUTEX_UNLOCK_PI_PRIVATE"},
-			{Val: 136, Str: "FUTEX_TRYLOCK_PI_PRIVATE"},
-			{Val: 137, Str: "FUTEX_WAIT_BITSET_PRIVATE"},
-			{Val: 138, Str: "FUTEX_WAKE_BITSET_PRIVATE"},
-			{Val: 139, Str: "FUTEX_WAIT_REQUEUE_PI_PRIVATE"},
-			{Val: 140, Str: "FUTEX_CMP_REQUEUE_PI_PRIVATE"},
-			{Val: 141, Str: "FUTEX_LOCK_PI2_PRIVATE"},
 		},
 	},
 	"if_dqblk_valid": {
@@ -1854,6 +1846,9 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 84, Str: "SO_INQ"},
 			{Val: 84, Str: "SO_INQ"},
 			{Val: 84, Str: "SO_INQ"},
+			{Val: 85, Str: "SO_RIGHTS_NOTRUNC"},
+			{Val: 85, Str: "SO_RIGHTS_NOTRUNC"},
+			{Val: 85, Str: "SO_RIGHTS_NOTRUNC"},
 		},
 	},
 	"sock_tcp_options": {
@@ -2353,6 +2348,7 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 3222299719, Str: "DRM_IOCTL_AMDXDNA_GET_INFO"}, // From drm/amdxdna_accel.h
 			{Val: 3222299720, Str: "DRM_IOCTL_AMDXDNA_SET_STATE"}, // From drm/amdxdna_accel.h
 			{Val: 3222824005, Str: "DRM_IOCTL_AMDXDNA_SYNC_BO"}, // From drm/amdxdna_accel.h
+			{Val: 1074816073, Str: "DRM_IOCTL_AMDXDNA_WAIT_CMD"}, // From drm/amdxdna_accel.h
 			{Val: 3221775424, Str: "DRM_IOCTL_ARMADA_GEM_CREATE"}, // From drm/armada_drm.h
 			{Val: 3223348290, Str: "DRM_IOCTL_ARMADA_GEM_MMAP"}, // From drm/armada_drm.h
 			{Val: 1075340355, Str: "DRM_IOCTL_ARMADA_GEM_PWRITE"}, // From drm/armada_drm.h
@@ -2587,6 +2583,7 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 3222299714, Str: "DRM_IOCTL_MSM_GEM_NEW"}, // From drm/msm_drm.h
 			{Val: 3225969734, Str: "DRM_IOCTL_MSM_GEM_SUBMIT"}, // From drm/msm_drm.h
 			{Val: 3222824000, Str: "DRM_IOCTL_MSM_GET_PARAM"}, // From drm/msm_drm.h
+			{Val: 1075864654, Str: "DRM_IOCTL_MSM_PERFCNTR_CONFIG"}, // From drm/msm_drm.h
 			{Val: 1075340353, Str: "DRM_IOCTL_MSM_SET_PARAM"}, // From drm/msm_drm.h
 			{Val: 1074029643, Str: "DRM_IOCTL_MSM_SUBMITQUEUE_CLOSE"}, // From drm/msm_drm.h
 			{Val: 3222037578, Str: "DRM_IOCTL_MSM_SUBMITQUEUE_NEW"}, // From drm/msm_drm.h
@@ -2765,7 +2762,7 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 3222824009, Str: "DRM_IOCTL_VIRTGPU_GET_CAPS"}, // From drm/virtgpu_drm.h
 			{Val: 3222299713, Str: "DRM_IOCTL_VIRTGPU_MAP"}, // From drm/virtgpu_drm.h
 			{Val: 3224921156, Str: "DRM_IOCTL_VIRTGPU_RESOURCE_CREATE"}, // From drm/virtgpu_drm.h
-			{Val: 3224396874, Str: "DRM_IOCTL_VIRTGPU_RESOURCE_CREATE_BLOB"}, // From drm/virtgpu_drm.h
+			{Val: 3224921162, Str: "DRM_IOCTL_VIRTGPU_RESOURCE_CREATE_BLOB"}, // From drm/virtgpu_drm.h
 			{Val: 3222299717, Str: "DRM_IOCTL_VIRTGPU_RESOURCE_INFO"}, // From drm/virtgpu_drm.h
 			{Val: 3224134726, Str: "DRM_IOCTL_VIRTGPU_TRANSFER_FROM_HOST"}, // From drm/virtgpu_drm.h
 			{Val: 3224134727, Str: "DRM_IOCTL_VIRTGPU_TRANSFER_TO_HOST"}, // From drm/virtgpu_drm.h
@@ -2900,36 +2897,9 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 1074835969, Str: "ASPEED_LPC_CTRL_IOCTL_MAP"}, // From linux/aspeed-lpc-ctrl.h
 			{Val: 3222319873, Str: "ASPEED_P2A_CTRL_IOCTL_GET_MEMORY_CONFIG"}, // From linux/aspeed-p2a-ctrl.h
 			{Val: 1074836224, Str: "ASPEED_P2A_CTRL_IOCTL_SET_WINDOW"}, // From linux/aspeed-p2a-ctrl.h
-			{Val: 1074815328, Str: "ENI_MEMDUMP"}, // From linux/atm_eni.h
-			{Val: 1074815335, Str: "ENI_SETMULT"}, // From linux/atm_eni.h
-			{Val: 1074815328, Str: "HE_GET_REG"}, // From linux/atm_he.h
-			{Val: 1074815282, Str: "IDT77105_GETSTAT"}, // From linux/atm_idt77105.h
-			{Val: 1074815283, Str: "IDT77105_GETSTATZ"}, // From linux/atm_idt77105.h
-			{Val: 24931, Str: "NS_ADJBUFLEV"}, // From linux/atm_nicstar.h
-			{Val: 3222298977, Str: "NS_GETPSTAT"}, // From linux/atm_nicstar.h
-			{Val: 1074815330, Str: "NS_SETBUFLEV"}, // From linux/atm_nicstar.h
-			{Val: 24974, Str: "ATMTCP_CREATE"}, // From linux/atm_tcp.h
-			{Val: 24975, Str: "ATMTCP_REMOVE"}, // From linux/atm_tcp.h
-			{Val: 24960, Str: "SIOCSIFATMTCP"}, // From linux/atm_tcp.h
-			{Val: 1074815329, Str: "ZATM_GETPOOL"}, // From linux/atm_zatm.h
-			{Val: 1074815330, Str: "ZATM_GETPOOLZ"}, // From linux/atm_zatm.h
-			{Val: 1074815331, Str: "ZATM_SETPOOL"}, // From linux/atm_zatm.h
-			{Val: 25057, Str: "ATMARPD_CTRL"}, // From linux/atmarp.h
-			{Val: 25061, Str: "ATMARP_ENCAP"}, // From linux/atmarp.h
-			{Val: 25058, Str: "ATMARP_MKIP"}, // From linux/atmarp.h
-			{Val: 25059, Str: "ATMARP_SETENTRY"}, // From linux/atmarp.h
 			{Val: 1075601808, Str: "BR2684_SETFILT"}, // From linux/atmbr2684.h
-			{Val: 25056, Str: "SIOCMKCLIP"}, // From linux/atmclip.h
-			{Val: 1074815368, Str: "ATM_ADDADDR"}, // From linux/atmdev.h
-			{Val: 1074815374, Str: "ATM_ADDLECSADDR"}, // From linux/atmdev.h
-			{Val: 1074815476, Str: "ATM_ADDPARTY"}, // From linux/atmdev.h
-			{Val: 1074815369, Str: "ATM_DELADDR"}, // From linux/atmdev.h
-			{Val: 1074815375, Str: "ATM_DELLECSADDR"}, // From linux/atmdev.h
-			{Val: 1074029045, Str: "ATM_DROPPARTY"}, // From linux/atmdev.h
-			{Val: 1074815366, Str: "ATM_GETADDR"}, // From linux/atmdev.h
 			{Val: 1074815370, Str: "ATM_GETCIRANGE"}, // From linux/atmdev.h
 			{Val: 1074815365, Str: "ATM_GETESI"}, // From linux/atmdev.h
-			{Val: 1074815376, Str: "ATM_GETLECSADDR"}, // From linux/atmdev.h
 			{Val: 1074815361, Str: "ATM_GETLINKRATE"}, // From linux/atmdev.h
 			{Val: 1074815314, Str: "ATM_GETLOOP"}, // From linux/atmdev.h
 			{Val: 1074815363, Str: "ATM_GETNAMES"}, // From linux/atmdev.h
@@ -2938,19 +2908,12 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 1074815364, Str: "ATM_GETTYPE"}, // From linux/atmdev.h
 			{Val: 1073897971, Str: "ATM_NEWBACKENDIF"}, // From linux/atmdev.h
 			{Val: 1074815316, Str: "ATM_QUERYLOOP"}, // From linux/atmdev.h
-			{Val: 1074815367, Str: "ATM_RSTADDR"}, // From linux/atmdev.h
 			{Val: 1073897970, Str: "ATM_SETBACKEND"}, // From linux/atmdev.h
 			{Val: 1074815371, Str: "ATM_SETCIRANGE"}, // From linux/atmdev.h
 			{Val: 1074815372, Str: "ATM_SETESI"}, // From linux/atmdev.h
 			{Val: 1074815373, Str: "ATM_SETESIF"}, // From linux/atmdev.h
 			{Val: 1074815315, Str: "ATM_SETLOOP"}, // From linux/atmdev.h
 			{Val: 1074029041, Str: "ATM_SETSC"}, // From linux/atmdev.h
-			{Val: 25040, Str: "ATMLEC_CTRL"}, // From linux/atmlec.h
-			{Val: 25041, Str: "ATMLEC_DATA"}, // From linux/atmlec.h
-			{Val: 25042, Str: "ATMLEC_MCAST"}, // From linux/atmlec.h
-			{Val: 25048, Str: "ATMMPC_CTRL"}, // From linux/atmmpc.h
-			{Val: 25049, Str: "ATMMPC_DATA"}, // From linux/atmmpc.h
-			{Val: 25072, Str: "ATMSIGD_CTRL"}, // From linux/atmsvc.h
 			{Val: 3222836093, Str: "AUTOFS_DEV_IOCTL_ASKUMOUNT"}, // From linux/auto_dev-ioctl.h
 			{Val: 3222836089, Str: "AUTOFS_DEV_IOCTL_CATATONIC"}, // From linux/auto_dev-ioctl.h
 			{Val: 3222836085, Str: "AUTOFS_DEV_IOCTL_CLOSEMOUNT"}, // From linux/auto_dev-ioctl.h
@@ -3007,6 +2970,7 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 3222836278, Str: "BTRFS_IOC_FILE_EXTENT_SAME"}, // From linux/btrfs.h
 			{Val: 1342215173, Str: "BTRFS_IOC_FORGET_DEV"}, // From linux/btrfs.h
 			{Val: 2214630431, Str: "BTRFS_IOC_FS_INFO"}, // From linux/btrfs.h
+			{Val: 3223360578, Str: "BTRFS_IOC_GET_CSUMS"}, // From linux/btrfs.h
 			{Val: 3288896564, Str: "BTRFS_IOC_GET_DEV_STATS"}, // From linux/btrfs.h
 			{Val: 2149094457, Str: "BTRFS_IOC_GET_FEATURES"}, // From linux/btrfs.h
 			{Val: 2180551740, Str: "BTRFS_IOC_GET_SUBVOL_INFO"}, // From linux/btrfs.h
@@ -3878,6 +3842,7 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 2148027137, Str: "AMDKFD_IOC_GET_VERSION"}, // From linux/kfd_ioctl.h
 			{Val: 3222817565, Str: "AMDKFD_IOC_IMPORT_DMABUF"}, // From linux/kfd_ioctl.h
 			{Val: 3222817560, Str: "AMDKFD_IOC_MAP_MEMORY_TO_GPU"}, // From linux/kfd_ioctl.h
+			{Val: 3222293288, Str: "AMDKFD_IOC_PROFILER"}, // From linux/kfd_ioctl.h
 			{Val: 1074285323, Str: "AMDKFD_IOC_RESET_EVENT"}, // From linux/kfd_ioctl.h
 			{Val: 3222293285, Str: "AMDKFD_IOC_RUNTIME_ENABLE"}, // From linux/kfd_ioctl.h
 			{Val: 1074809626, Str: "AMDKFD_IOC_SET_CU_MASK"}, // From linux/kfd_ioctl.h
@@ -3913,6 +3878,7 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 47616, Str: "LIVEUPDATE_IOCTL_CREATE_SESSION"}, // From linux/liveupdate.h
 			{Val: 47617, Str: "LIVEUPDATE_IOCTL_RETRIEVE_SESSION"}, // From linux/liveupdate.h
 			{Val: 47682, Str: "LIVEUPDATE_SESSION_FINISH"}, // From linux/liveupdate.h
+			{Val: 47683, Str: "LIVEUPDATE_SESSION_GET_NAME"}, // From linux/liveupdate.h
 			{Val: 47680, Str: "LIVEUPDATE_SESSION_PRESERVE_FD"}, // From linux/liveupdate.h
 			{Val: 47681, Str: "LIVEUPDATE_SESSION_RETRIEVE_FD"}, // From linux/liveupdate.h
 			{Val: 1074023424, Str: "LOADPIN_IOC_SET_TRUSTED_VERITY_DIGESTS"}, // From linux/loadpin.h
@@ -4670,26 +4636,6 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 3224911364, Str: "SYNC_IOC_FILE_INFO"}, // From linux/sync_file.h
 			{Val: 3224387075, Str: "SYNC_IOC_MERGE"}, // From linux/sync_file.h
 			{Val: 1074806277, Str: "SYNC_IOC_SET_DEADLINE"}, // From linux/sync_file.h
-			{Val: 27919, Str: "MGSL_IOCCLRMODCOUNT"}, // From linux/synclink.h
-			{Val: 2148560145, Str: "MGSL_IOCGGPIO"}, // From linux/synclink.h
-			{Val: 27915, Str: "MGSL_IOCGIF"}, // From linux/synclink.h
-			{Val: 2150657281, Str: "MGSL_IOCGPARAMS"}, // From linux/synclink.h
-			{Val: 27911, Str: "MGSL_IOCGSTATS"}, // From linux/synclink.h
-			{Val: 27907, Str: "MGSL_IOCGTXIDLE"}, // From linux/synclink.h
-			{Val: 27926, Str: "MGSL_IOCGXCTRL"}, // From linux/synclink.h
-			{Val: 27924, Str: "MGSL_IOCGXSYNC"}, // From linux/synclink.h
-			{Val: 27913, Str: "MGSL_IOCLOOPTXDONE"}, // From linux/synclink.h
-			{Val: 27909, Str: "MGSL_IOCRXENABLE"}, // From linux/synclink.h
-			{Val: 1074818320, Str: "MGSL_IOCSGPIO"}, // From linux/synclink.h
-			{Val: 27914, Str: "MGSL_IOCSIF"}, // From linux/synclink.h
-			{Val: 1076915456, Str: "MGSL_IOCSPARAMS"}, // From linux/synclink.h
-			{Val: 27906, Str: "MGSL_IOCSTXIDLE"}, // From linux/synclink.h
-			{Val: 27925, Str: "MGSL_IOCSXCTRL"}, // From linux/synclink.h
-			{Val: 27923, Str: "MGSL_IOCSXSYNC"}, // From linux/synclink.h
-			{Val: 27910, Str: "MGSL_IOCTXABORT"}, // From linux/synclink.h
-			{Val: 27908, Str: "MGSL_IOCTXENABLE"}, // From linux/synclink.h
-			{Val: 3221515528, Str: "MGSL_IOCWAITEVENT"}, // From linux/synclink.h
-			{Val: 3222301970, Str: "MGSL_IOCWAITGPIO"}, // From linux/synclink.h
 			{Val: 3292550145, Str: "TDX_CMD_GET_REPORT0"}, // From linux/tdx-guest.h
 			{Val: 2148049924, Str: "TEE_IOC_CANCEL"}, // From linux/tee.h
 			{Val: 2147787781, Str: "TEE_IOC_CLOSE_SESSION"}, // From linux/tee.h
@@ -4876,6 +4822,8 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 3223890437, Str: "UFFDIO_MOVE"}, // From linux/userfaultfd.h
 			{Val: 3223366152, Str: "UFFDIO_POISON"}, // From linux/userfaultfd.h
 			{Val: 3223366144, Str: "UFFDIO_REGISTER"}, // From linux/userfaultfd.h
+			{Val: 3222841865, Str: "UFFDIO_RWPROTECT"}, // From linux/userfaultfd.h
+			{Val: 1074833930, Str: "UFFDIO_SET_MODE"}, // From linux/userfaultfd.h
 			{Val: 2148575745, Str: "UFFDIO_UNREGISTER"}, // From linux/userfaultfd.h
 			{Val: 2148575746, Str: "UFFDIO_WAKE"}, // From linux/userfaultfd.h
 			{Val: 3222841862, Str: "UFFDIO_WRITEPROTECT"}, // From linux/userfaultfd.h

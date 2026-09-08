@@ -233,8 +233,10 @@ strace-go/
 │   └── stacktrace/          # BPF 用户栈地址处理
 ├── test/                    # upstream runner、semantic、capability、perf 和 capture suites
 ├── strace-upstream/         # 上游 strace submodule，作为参考和生成输入
+├── doc/
+│   ├── arch.md              # 当前架构、关键决策、验证契约和技术债
+│   └── cli-compatibility.md # CLI 兼容性契约和验收矩阵
 ├── AGENTS.md                # 仓库开发与验证规则
-├── arch.md                  # 当前架构、关键决策、验证契约和技术债
 └── build.sh                 # 完整重新生成并构建
 ```
 
@@ -244,4 +246,4 @@ strace-go/
 - 修改格式或解码行为时，先运行受影响的精确测试，再运行快速 Go 门禁和相关 suite。
 - 不直接编辑生成文件；修改生成器输入并审查生成结果。
 - 性能报告必须区分 trace-window throughput、端到端 setup/cleanup 成本、Ringbuf accounting 和错误计数。
-- 当前架构、关键决策和验证契约见 [`arch.md`](arch.md)。
+- 当前架构、关键决策和验证契约见 [`doc/arch.md`](doc/arch.md)。
