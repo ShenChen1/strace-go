@@ -1,9 +1,10 @@
 # CLI 兼容性契约
 
 本文档记录 `--help` 功能与纯 eBPF 产品架构之间的边界，并作为 CLI
-兼容工作的验收矩阵。它描述目标状态，不代表所有“应实现”项目当前已经完成。
+兼容工作的验收矩阵。下表以当前代码、快速门禁和已登记的 upstream 用例为准；
+“应实现”只保留仍需按纯 eBPF 路径闭环的能力。
 
-基线日期：2026-09-01。
+基线日期：2026-09-08。
 
 ## 状态定义
 
@@ -18,17 +19,19 @@
 | 功能域 | 参数 | 目标状态 | 验收依据 |
 | --- | --- | --- | --- |
 | 启动 | `-E/--env`、`-p/--attach` | 应实现 | `strace-E*`、`strace-p`、attach tests |
-| 启动 | `-u/--user`、`--argv0` | 应实现 | `options-syntax`、`strace--argv0` |
-| 追踪 | `-b/--detach-on=execve` | 应实现 | `options-syntax` 加 exec lifecycle 回归 |
+| 启动 | `-u/--user`、`--argv0` | 应实现 | `strace--argv0`、credential parser/runtime tests |
+| 追踪 | `-b/--detach-on=execve` | 应实现 | `status-detached*`、exec lifecycle regression |
 | 追踪 | `-D/-DD/-DDD/--daemonize` | 架构冲突 | upstream 契约依赖 `/proc/*/TracerPid` 的 ptrace 父子关系 |
 | 追踪 | `-f/--follow-forks`、`-ff/--output-separately` | 应实现 | `fork-f`、`vfork-f`、`strace-ff` |
-| 追踪 | `--kill-on-exit` | 应实现 | `options-syntax` 加真实信号回归 |
+| 追踪 | `--kill-on-exit` | 应实现 | parser tests 加 `TestKillOnExitTerminatesTraceCommand` |
 | 追踪 | `-I/--interruptible` | 架构冲突 | 该选项控制 ptrace wait/解码期间的 signal blocking |
-| 过滤 | `trace`、syscall class、regex、ABI designator | 应实现 | `qual_syscall`、`qualify_personality*` |
+| 过滤 | `trace`、syscall class、regex | 应实现 | `qual_syscall`、`filtering_syscall-syntax` |
+| 过滤 | ABI designator（`@64/@32/@x32`） | 架构原生差异 | selector syntax/qualification tests；非 native tracee decode 尚未纳入纯 eBPF ABI |
 | 过滤 | `signal` | 应实现 | `qual_signal` 和 BPF signal event semantic suite |
 | 过滤 | `status`、`-z/-Z` | 应实现 | `status-*` |
 | 过滤 | `trace-fds`、`-P/--trace-path` | 应实现 | `options-syntax`、`*-P` |
-| 输出 | `-a`、color、abbrev/verbose/raw、read/write、quiet | 应实现 | `options-syntax`、`qual_syscall`、read/write tests |
+| 输出 | `-a`、color、abbrev/verbose/raw、quiet | 应实现 | `strace-a*`、`qual_syscall`、format/output tests |
+| 输出 | `read/write` | 架构原生差异 | bounded snapshot tests；`read-write.gen.test` 具名 XFAIL |
 | 输出 | `kvm=vcpu`、namespace、decode-fds | 应实现 | 对应 upstream tests 与 event-snapshot semantic tests |
 | 输出 | `kvm=vcpu+` 完整 `kvm_run` | 架构冲突 | 需要发现并读取 tracee 的共享 mmap，违反当前 bounded snapshot 边界 |
 | 输出 | `-i`、`-n`、`-N` | 应实现 | `pc.test`、`strace-n` 加 arg-name focused tests |
@@ -47,6 +50,24 @@
 | 杂项 | `--seccomp-bpf` | 架构冲突 | eBPF syscall filter 已在 probe 入口执行，无 ptrace stop 可优化 |
 | 杂项 | `--tips`、`-h`、`-V` | 应实现 | `strace--tips*`、help/version tests |
 
+## 当前闭环证据
+
+当前实现已经把可由纯 eBPF 完成的 CLI 路径接通：参数解析进入 immutable policy，policy
+再进入 BPF 过滤、生命周期状态和用户态输出；重复 descriptor `!`、非 leader exec
+handoff、零返回 iovec、suspended probe 的 status 过滤和稀疏继承 fd 均有回归覆盖。
+
+本轮门禁包括：
+
+- `GOCACHE=/tmp/strace-go-gocache go test ./...`；
+- `./build.sh`（重新生成并编译 BPF/元数据）；
+- 已登记的 `more` upstream suite；
+- root 下 `--kill-on-exit`、`-u`、`-b` 的真实运行回归。
+
+`options-syntax.test` 和 upstream `kill-on-exit.test` 不作为纯 eBPF exact gate：前者还
+断言 `--secontext` 等本产品明确不提供的 ptrace/SELinux 诊断，后者寻找
+`PTRACE_O_EXITKILL` 标记而不是验证实际退出信号行为。对应行为由本地 parser/runtime
+测试覆盖，不能用伪造诊断把架构差异标成通过。
+
 `--stack-trace-frame-limit` 适用于现有纯 eBPF 地址栈：默认上限为 256，用户态输出在
 指定帧数后截断。`strace-k-with-depth-limit.test` 还强制断言 tracee ELF 符号与精确
 ptrace signal-stop 栈，因此只登记为具名 XFAIL；地址帧截断由 event-snapshot semantic
@@ -63,6 +84,9 @@ ptrace signal-stop 栈，因此只登记为具名 XFAIL；地址帧截断由 eve
 完整的非 native tracing 仍需 event ABI 携带 personality，并由生成器提供对应 syscall
 元数据表；在这些运行时合同完成前，不能把非 native selector 伪装为 native selector。
 当前合同由 `filtering_syscall-syntax.test`、`trace_personality_*` 和 `nsyscalls*` 用例覆盖。
+
+因此，ABI designator 的“应实现”部分已经闭环为语法、名称/类别/编号/正则校验和 native
+过滤；非 native tracee 的完整解码是单独的 ABI 扩展，不把它伪装成已经完成的兼容能力。
 
 ## 实施规则
 
