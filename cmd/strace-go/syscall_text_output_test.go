@@ -168,6 +168,22 @@ func TestSyscallTextOutputRendersSuspendedEventForUnfinishedStatus(t *testing.T)
 	}
 }
 
+func TestSyscallTextOutputSuppressesSuspendedEventForSuccessfulStatus(t *testing.T) {
+	output, _, out := newSyscallTextOutputForTest(&cli.Options{
+		FollowForks:      true,
+		StatusConfigured: true,
+		TraceStatus:      map[string]bool{"successful": true},
+	})
+
+	output.HandleEvent(syscallTextEvent("nanosleep", 101, 101, 0, 3), handler.Result{
+		ArgParts: []string{"{tv_sec=1}", "0x0"},
+	})
+
+	if got := out.String(); got != "" {
+		t.Fatalf("successful status rendered unfinished event = %q, want no output", got)
+	}
+}
+
 func TestSyscallTextOutputDelegatesExecBeforeNormalPrint(t *testing.T) {
 	output, state, out := newSyscallTextOutputForTest(&cli.Options{FollowForks: true})
 	scMeta := meta.Syscall{Name: "execve"}
