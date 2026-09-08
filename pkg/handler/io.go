@@ -337,7 +337,7 @@ func iovecDisplayLimitForContext(ctx *Context, argIndex int) int {
 
 func iovecBasePayloadOutRemaining(ctx *Context, argIndex int) int64 {
 	direction, ok := iovecBasePayloadDirection(ctx, argIndex)
-	if !ok || direction != PayloadDirectionOut || ctx.Ret <= 0 {
+	if !ok || direction != PayloadDirectionOut || ctx.Ret < 0 {
 		return -1
 	}
 	return ctx.Ret

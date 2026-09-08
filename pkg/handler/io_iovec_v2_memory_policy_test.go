@@ -96,6 +96,34 @@ func TestPwritev2HandlerPrintsZeroRwfFlagsAsZero(t *testing.T) {
 	assertArgParts(t, "pwritev2 zero flags", got, want)
 }
 
+func TestReadvHandlerFormatsEmptyBuffersOnZeroReturn(t *testing.T) {
+	ctx := newIovecPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.SysName = "readv"
+	ctx.Ret = 0
+	ctx.ScMeta = meta.Syscall{
+		Name:     "readv",
+		Args:     []string{"fd", "iov", "vlen"},
+		ArgTypes: []string{"int", "const struct iovec *", "unsigned long"},
+	}
+	ctx.Args = [6]uint64{4, 0x1000, 1, 0, 0, 0}
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindIovec,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  1,
+			UserPtr:   0x1000,
+			UserLen:   iovecSize,
+			CopiedLen: iovecSize,
+			ProbeRet:  0,
+			Data:      iovecBytes([2]uint64{0x2000, 4}),
+		},
+	}
+
+	got := (&IoHandler{}).Handle(ctx).ArgParts
+	want := []string{"4", `[{iov_base="", iov_len=4}]`, "1"}
+	assertArgParts(t, "readv zero return", got, want)
+}
+
 func TestVmspliceHandlerDecodesSpliceFlags(t *testing.T) {
 	ctx := newIovecPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
 	ctx.SysName = "vmsplice"
