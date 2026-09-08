@@ -155,6 +155,22 @@ static __always_inline int is_exec_replaced_leader(
 	return pending_tid && *pending_tid != pid;
 }
 
+// Keep the leader-replacement handoff in lifecycle ownership, away from the
+// raw syscall dispatcher and its single route/filter decision.
+static __always_inline void arm_pending_exec_replacement(
+    u32 pid,
+    u32 tid,
+    u32 sys_id)
+{
+    if (!is_exec_payload_direct_syscall(sys_id) || tid == pid ||
+        !is_lifecycle_task_tracked(pid, tid)) {
+        return;
+    }
+    if (bpf_map_update_elem(&pending_exec_map, &pid, &tid, BPF_ANY) != 0) {
+        record_lifecycle_map_update_fail();
+    }
+}
+
 static __always_inline void clear_replaced_leader_task_state(u32 tid)
 {
     clear_pending_task_state();

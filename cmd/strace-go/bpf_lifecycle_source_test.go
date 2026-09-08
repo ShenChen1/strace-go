@@ -87,9 +87,9 @@ func TestBPFNonLeaderExecPreservesProcessTrackingAcrossLeaderReplacement(t *test
 
 func TestBPFUnselectedNonLeaderExecArmsReplacementGuard(t *testing.T) {
 	source := readCombinedBPFSources(t)
-	body, ok := bpfFunctionBody(source, "trace_sys_enter")
+	body, ok := bpfFunctionBody(source, "arm_pending_exec_replacement")
 	if !ok {
-		t.Fatal("strace dispatcher missing sys_enter body")
+		t.Fatal("lifecycle state missing pending exec replacement helper")
 	}
 	for _, snippet := range []string{
 		"is_exec_payload_direct_syscall(sys_id)",
@@ -99,6 +99,11 @@ func TestBPFUnselectedNonLeaderExecArmsReplacementGuard(t *testing.T) {
 		if !strings.Contains(body, snippet) {
 			t.Fatalf("unselected exec path missing replacement-arm snippet %q", snippet)
 		}
+	}
+
+	enterBody, ok := bpfFunctionBody(source, "trace_sys_enter")
+	if !ok || !strings.Contains(enterBody, "arm_pending_exec_replacement(pid, tid, sys_id);") {
+		t.Fatal("trace_sys_enter must delegate pending exec replacement ownership")
 	}
 
 	execBody, ok := bpfFunctionBody(source, "trace_sched_process_exec")
