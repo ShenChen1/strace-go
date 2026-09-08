@@ -12,6 +12,7 @@ func TestPwritev2HandlerAddsIovecWriteHexDumpFromPayloadSections(t *testing.T) {
 	ctx := newIovecPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
 	ctx.SysName = "pwritev2"
 	ctx.Ret = 15
+	ctx.ProbeRetExit = 0
 	ctx.Args = [6]uint64{1, 0x1000, 3, 0, 0, 0}
 	ctx.Opts = &cli.Options{StringLimit: 32, TraceWriteFDs: map[int32]bool{1: true}}
 	ctx.PayloadSections = []PayloadSection{
@@ -51,6 +52,7 @@ func TestPwritev2HandlerSkipsIovecWriteHexDumpOnFailedReturn(t *testing.T) {
 	ctx := newIovecPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
 	ctx.SysName = "pwritev2"
 	ctx.Ret = -14
+	ctx.ProbeRetExit = 0
 	ctx.Args = [6]uint64{1, 0x1000, 1, 0, 0, 0}
 	ctx.Opts = &cli.Options{StringLimit: 32, TraceWriteFDs: map[int32]bool{1: true}}
 	ctx.PayloadSections = []PayloadSection{
@@ -76,6 +78,7 @@ func TestPreadv2HandlerAddsIovecReadHexDumpLimitedByReturnValue(t *testing.T) {
 	ctx := newIovecPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
 	ctx.SysName = "preadv2"
 	ctx.Ret = 7
+	ctx.ProbeRetExit = 0
 	ctx.Args = [6]uint64{0, 0x1000, 2, 8, 0, 0}
 	ctx.Opts = &cli.Options{StringLimit: 32, TraceReadFDs: map[int32]bool{0: true}}
 	ctx.PayloadSections = []PayloadSection{

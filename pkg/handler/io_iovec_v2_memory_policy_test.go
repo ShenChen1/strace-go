@@ -12,6 +12,7 @@ func TestPreadv2HandlerUsesFiveArgOffsetAndFlagsContract(t *testing.T) {
 	ctx.SysName = "preadv2"
 	cliOptionsForTest(ctx).StringLimit = 8
 	ctx.Ret = 8
+	ctx.ProbeRetExit = 0
 	ctx.Args = [6]uint64{0, 0x1000, 1, 0x7ac5fed6dad7bef8, 0xbadc0deddeadbeef, 1}
 	ctx.PayloadSections = []PayloadSection{
 		{
@@ -100,6 +101,7 @@ func TestReadvHandlerFormatsEmptyBuffersOnZeroReturn(t *testing.T) {
 	ctx := newIovecPolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
 	ctx.SysName = "readv"
 	ctx.Ret = 0
+	ctx.ProbeRetExit = 0
 	ctx.ScMeta = meta.Syscall{
 		Name:     "readv",
 		Args:     []string{"fd", "iov", "vlen"},

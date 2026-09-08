@@ -11,12 +11,13 @@ import (
 
 func newIovecPolicyContext(reader *fetchPolicyMemoryReader, decoder *event.Decoder) *Context {
 	return &Context{
-		Pid:     1234,
-		Tid:     1234,
-		SysName: "readv",
-		Decoder: decoder,
-		Meta:    meta.NewCatalog("abbrev"),
-		Opts:    &cli.Options{StringLimit: 32},
+		Pid:          1234,
+		Tid:          1234,
+		SysName:      "readv",
+		Decoder:      decoder,
+		Meta:         meta.NewCatalog("abbrev"),
+		Opts:         &cli.Options{StringLimit: 32},
+		ProbeRetExit: -1,
 	}
 }
 

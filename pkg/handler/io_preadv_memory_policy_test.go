@@ -11,6 +11,7 @@ func TestPreadvHandlerUsesNestedIovecBaseOutPayload(t *testing.T) {
 	ctx.SysName = "preadv"
 	cliOptionsForTest(ctx).StringLimit = 8
 	ctx.Ret = 23
+	ctx.ProbeRetExit = 0
 	ctx.Args = [6]uint64{0, 0x1000, 2, 0xdefaceddeadbeef}
 	ctx.PayloadSections = []PayloadSection{
 		{
@@ -70,6 +71,7 @@ func TestPreadvHandlerLimitsOutPayloadByReturnValue(t *testing.T) {
 	ctx.SysName = "preadv"
 	cliOptionsForTest(ctx).StringLimit = 32
 	ctx.Ret = 7
+	ctx.ProbeRetExit = 0
 	ctx.Args = [6]uint64{3, 0x1000, 2, 8}
 	ctx.PayloadSections = []PayloadSection{
 		{
