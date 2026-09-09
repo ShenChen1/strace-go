@@ -2,6 +2,7 @@
 import argparse
 import multiprocessing
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -38,6 +39,11 @@ UPSTREAM_CONFIGURE_ARGS = [
     "--without-libselinux",
     "CFLAGS=-g -O2 -Wno-error",
 ]
+CONFIGURED_TESTS_MAKE_RULE = (
+    ".PHONY: print-strace-go-tests\n"
+    "print-strace-go-tests:\n"
+    "\t@printf '%s\\n' $(TESTS)\n"
+)
 UPSTREAM_TEST_TIMEOUT_SECONDS = {
     "qual_signal.test": 180,
     "qual_syscall.test": 180,
@@ -59,6 +65,10 @@ UPSTREAM_TEST_TIMEOUT_SECONDS = {
     "trace_statfs.gen.test": 180,
     "trace_statfs_like.gen.test": 180,
 }
+
+
+class UpstreamSetupError(RuntimeError):
+    pass
 
 
 @dataclass
@@ -136,29 +146,103 @@ def root_requirement_error(euid):
     return "test suites require root; rerun with sudo -n python3 test/run_tests.py"
 
 
+def run_upstream_command(command, cwd, stage, input_text=None):
+    try:
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            input=input_text,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as exc:
+        raise UpstreamSetupError(
+            f"{stage} could not start: {shlex.join(command)}: {exc}"
+        ) from exc
+    if result.returncode == 0:
+        return result.stdout
+
+    output = "\n".join(
+        part.strip() for part in (result.stdout, result.stderr) if part.strip()
+    )
+    message = (
+        f"{stage} failed with exit code {result.returncode}: {shlex.join(command)}"
+    )
+    if output:
+        message = f"{message}\n{output}"
+    raise UpstreamSetupError(message)
+
+
 def build_upstream():
     if not os.path.isfile(os.path.join(UPSTREAM_DIR, "Makefile")):
         print("=> Configuring upstream strace...")
-        subprocess.run(["./bootstrap"], cwd=UPSTREAM_DIR, check=True)
-        subprocess.run(
+        run_upstream_command(["./bootstrap"], UPSTREAM_DIR, "upstream bootstrap")
+        run_upstream_command(
             UPSTREAM_CONFIGURE_ARGS,
-            cwd=UPSTREAM_DIR,
-            check=True,
+            UPSTREAM_DIR,
+            "upstream configure",
         )
     print("=> Building upstream strace (make -j)...")
     try:
         cpus = multiprocessing.cpu_count()
     except NotImplementedError:
         cpus = 4
-    subprocess.run(
+    run_upstream_command(
         ["make", f"-j{cpus}"],
-        cwd=UPSTREAM_DIR,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        UPSTREAM_DIR,
+        "upstream build",
+    )
+    print("=> Building upstream test prerequisites...")
+    run_upstream_command(
+        [
+            "make",
+            "--no-print-directory",
+            "-C",
+            "tests",
+            "check-prerequisites-local",
+        ],
+        UPSTREAM_DIR,
+        "upstream test prerequisite build",
     )
 
 
+def parse_configured_upstream_tests(output):
+    entries = output.split()
+    if not entries:
+        raise UpstreamSetupError("configured upstream test inventory is empty")
+    invalid = [
+        entry
+        for entry in entries
+        if not entry.endswith(".test") or os.path.basename(entry) != entry
+    ]
+    if invalid:
+        raise UpstreamSetupError(f"unexpected configured test entry: {invalid[0]}")
+    return sorted(set(entries))
+
+
+def configured_upstream_tests():
+    output = run_upstream_command(
+        [
+            "make",
+            "--no-print-directory",
+            "-s",
+            "-f",
+            "Makefile",
+            "-f",
+            "-",
+            "print-strace-go-tests",
+        ],
+        TESTS_DIR,
+        "configured upstream test inventory",
+        input_text=CONFIGURED_TESTS_MAKE_RULE,
+    )
+    return parse_configured_upstream_tests(output)
+
+
 def get_tests(suite):
+    if suite == "all":
+        return configured_upstream_tests()
     if not os.path.exists(TESTS_DIR):
         print(f"Tests dir {TESTS_DIR} not found.")
         return []
@@ -175,42 +259,7 @@ def get_tests(suite):
         return [test for test in MORE_TESTS if test in valid_tests]
     if suite == "upstream-reference":
         return [test for test in UPSTREAM_REFERENCE_TESTS if test in valid_tests]
-    if suite == "all":
-        return valid_tests
     return [test for test in valid_tests if suite in test]
-
-
-def build_upstream_test_helper(test):
-    binary = test.replace(".test", "").replace(".gen", "")
-    subprocess.run(
-        ["make", binary],
-        cwd=TESTS_DIR,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    if binary != "sleep-timing":
-        return
-    subprocess.run(
-        [
-            "gcc",
-            "-g",
-            "-O2",
-            "-Wno-error",
-            "-I../src",
-            "-I.",
-            "-isystem",
-            "./bundled/linux/arch/x86/include/uapi",
-            "-isystem",
-            "./bundled/linux/include/uapi",
-            "sleep-timing.c",
-            "libtests.a",
-            "-o",
-            "sleep-timing",
-        ],
-        cwd=TESTS_DIR,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
 
 
 def wait_for_upstream_test(process, test):
@@ -226,7 +275,6 @@ def wait_for_upstream_test(process, test):
 
 
 def run_test(test):
-    build_upstream_test_helper(test)
     out_fd, out_path = tempfile.mkstemp()
     err_fd, err_path = tempfile.mkstemp()
     try:
@@ -352,9 +400,13 @@ def record_and_print(
 
 
 def run_upstream_suite(args):
-    if not args.skip_build:
-        build_upstream()
-    tests = selected_tests(args)
+    try:
+        if not args.skip_build:
+            build_upstream()
+        tests = selected_tests(args)
+    except UpstreamSetupError as exc:
+        print(f"=> Upstream setup failed: {exc}", file=sys.stderr)
+        return 2
     print(f"=> Running {len(tests)} tests from '{args.suite}' suite...")
     results = SuiteResults()
     expected = expected_failures_for_suite(args.suite)
