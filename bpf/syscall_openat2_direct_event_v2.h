@@ -6,6 +6,7 @@
 #define OPENAT2_DIRECT_HOW_MAX 64
 #define OPENAT2_DIRECT_PAYLOAD_CAPACITY \
     (2 * PAYLOAD_TLV_HEADER_SIZE + OPENAT2_DIRECT_PATH_MAX + OPENAT2_DIRECT_HOW_MAX)
+#define OPENAT2_DIRECT_FD_PATH_CAPACITY FD_PATH_DIRECT_SECTION_MAX
 #define OPENAT2_DIRECT_EXIT_PAYLOAD_CAPACITY \
     (OPENAT2_DIRECT_PAYLOAD_CAPACITY + PAYLOAD_TLV_HEADER_SIZE + FD_STATE_SNAPSHOT_SIZE)
 
@@ -120,9 +121,14 @@ static __always_inline void emit_openat2_enter_event_v2_direct(
     u32 tid,
     u32 sys_id,
     struct trace_event_raw_sys_enter *ctx,
+    u32 *cfg,
     u64 ts_ns)
 {
-    u32 payload_capacity = OPENAT2_DIRECT_PAYLOAD_CAPACITY;
+    u32 fd_path_capacity = 0;
+    if (cfg && (*cfg & CONFIG_FD_STATE)) {
+        fd_path_capacity = OPENAT2_DIRECT_FD_PATH_CAPACITY;
+    }
+    u32 payload_capacity = fd_path_capacity + OPENAT2_DIRECT_PAYLOAD_CAPACITY;
     u32 body_offset = EVENT_V2_HEADER_LEN;
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_ENTER_BODY_LEN;
     u32 out_size = payload_offset + payload_capacity;
@@ -135,7 +141,15 @@ static __always_inline void emit_openat2_enter_event_v2_direct(
     }
 
     u16 flags = EVENT_FLAG_GENERIC_ENTER;
-    u32 payload_size = capture_openat2_path_tlv_direct(&ptr, payload_offset, ctx->args[1]);
+    u32 payload_size = 0;
+    if (fd_path_capacity > 0) {
+        payload_size = capture_fd_path_tlv_direct(
+            &ptr,
+            payload_offset,
+            0,
+            (s32)ctx->args[0]);
+    }
+    payload_size += capture_openat2_path_tlv_direct(&ptr, payload_offset + payload_size, ctx->args[1]);
     payload_size += capture_openat2_how_tlv_direct(
         &ptr,
         payload_offset + payload_size,

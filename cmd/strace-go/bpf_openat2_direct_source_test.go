@@ -17,7 +17,7 @@ func TestBPFOpenat2PayloadUsesDirectTLV(t *testing.T) {
 		"#define SYS_OPENAT2 437",
 		`#include "syscall_openat2_direct_event_v2.h"`,
 		"is_openat2_direct_syscall(sys_id)",
-		"emit_openat2_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);",
+		"emit_openat2_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);",
 		"is_openat2_direct_syscall(sys_id) ||",
 		"emit_openat2_exit_event_v2_direct(p, ret_value, duration);",
 		"is_openat2_direct_syscall(p->sys_id)",
@@ -56,6 +56,24 @@ func TestBPFOpenat2PayloadUsesDirectTLV(t *testing.T) {
 	} {
 		if strings.Contains(legacyCaptureArtifacts, legacyRule) {
 			t.Fatalf("openat2 still uses old fixed-window rule %q", legacyRule)
+		}
+	}
+}
+
+func TestBPFOpenat2CapturesConfiguredDfdPath(t *testing.T) {
+	root := repoRootForTest(t)
+	openat2DirectHeader := readTextFile(t, filepath.Join(root, "bpf/syscall_openat2_direct_event_v2.h"))
+	enterDispatch := readTextFile(t, filepath.Join(root, "bpf/enter_dispatch.h"))
+
+	for _, snippet := range []string{
+		"FD_PATH_DIRECT_SECTION_MAX",
+		"CONFIG_FD_STATE",
+		"capture_fd_path_tlv_direct(",
+		"payload_capacity = fd_path_capacity + OPENAT2_DIRECT_PAYLOAD_CAPACITY",
+		"emit_openat2_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);",
+	} {
+		if !strings.Contains(openat2DirectHeader, snippet) && !strings.Contains(enterDispatch, snippet) {
+			t.Fatalf("openat2 direct path capture missing snippet %q", snippet)
 		}
 	}
 }

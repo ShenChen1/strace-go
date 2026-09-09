@@ -81,7 +81,7 @@ int enter_dual_path(struct trace_event_raw_sys_enter *ctx) {
 SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_openat2(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
-    emit_openat2_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+    emit_openat2_enter_event_v2_direct(pid, tid, sys_id, ctx, cfg, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }

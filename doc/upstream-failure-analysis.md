@@ -61,7 +61,7 @@
 | 修复后 `sudo -n python3 test/run_tests.py --suite all --filter dup2-y.gen.test --skip-build` | 1 PASS / 0 FAIL | dup2 成功覆盖目标 FD 的返回 path 已使用源 FD event-time overlay |
 | 修复后 `sudo -n python3 test/run_tests.py --suite all --filter dup2-yy.gen.test --skip-build` | 1 PASS / 0 FAIL | dup2 返回 path 和详细 device metadata 均与 upstream 一致 |
 | 修复后 openat2 非 `-y` 变体（`openat2.gen.test`、`-Xabbrev`、`-Xraw`、`-Xverbose`、`-v`） | 5 PASS / 0 FAIL | `OPENAT2_REGULAR` 已从专用生成 xlat 合并到 `open_how.flags`，raw 仍保持数值输出 |
-| 修复后 openat2 `-y` 变体（`openat2-y` 及 4 个 `v-y` 变体） | 0 PASS / 5 FAIL | 共同只剩首行 `dfd=0` 的 `/dev/full` FD path 缺失；不再包含 `OPENAT2_REGULAR` 差异 |
+| 修复后 openat2 `-y` 变体（`openat2-y` 及 4 个 `v-y` 变体） | 5 PASS / 0 FAIL | openat2 direct enter event 已在 `CONFIG_FD_STATE` 下捕获 arg0 的 event-time FD_PATH；首行 `/dev/full` 路径与 upstream 一致 |
 
 历史语义 suite 的复现统计更具体：`records_decoded=185`、`records_invalid=0`、`pending_mismatch=0`、`pending_update_fail=0`、`lifecycle_map_update_fail=0`、`orphan_exit=2`。最新 fresh root 运行已将 normal fixture 的 orphan 清零；同时 BPF fixture、signalfd fixture、attach fixture 和 non-leader attach 的语义断言均已通过。attach fixture 仍按契约报告 1 个 attach orphan，non-leader attach 的 orphan 为 0。
 
@@ -108,6 +108,12 @@ dup3-yy.gen.test: PASS
 focused 基线中，`openat2` 的 9 个非 raw 变体把 `OPENAT2_REGULAR` 输出成 `0x100000000`；`-Xraw` 本来就是数值契约。修复新增独立的 `openat2_flags` 生成表，并在 openat2 专用 handler 中与 `open_mode_flags` 合并；普通 `open/openat` 不共享该专用表。由于当前系统头没有该常量，generator 以 upstream bundled header 对应的 `1<<32` 提供稳定 fallback，已有系统定义时不会覆盖。
 
 重新生成 `pkg/meta/xlat_auto.go` 后，`openat2.gen.test`、`openat2-Xabbrev.gen.test`、`openat2-Xraw.gen.test`、`openat2-Xverbose.gen.test`、`openat2-v.gen.test` 均通过。剩余 5 个带 `-y` 变体只保留首行 `openat2(0</dev/full>, ...)` 与当前 `openat2(0, ...)` 的 FD path 差异，归入下一项 event-time FD path 修复。
+
+### 2026-09-09 openat2 dfd event-time path 修复
+
+`openat2` 走专用 direct event，不会经过通用 no-payload FD_PATH enter 分支；因此即使 `fd_path_arg_mask` 已包含 `SYS_OPENAT2`，`dfd`（arg0）的路径也没有进入事件。修复把 `CONFIG_FD_STATE` 作为 openat2 enter emitter 的显式配置输入，仅在 `-y/-yy/-P` 开启时为 arg0 追加 `capture_fd_path_tlv_direct`，同时为该 TLV 预留容量；pathname、`open_how` 和成功返回 FD_STATE 的既有采集顺序保持不变。没有增加 formatter 推断，也没有引入 procfs、ptrace 或 process-vm 读取。
+
+修复前新增的 BPF 源码门禁会因缺少 FD_PATH 容量、配置门控和捕获调用而失败；修复后 `go generate`、`go build`、`go test ./... -count=1` 和 `go vet ./...` 均通过。重新生成 BPF ELF 后，以下 5 个带路径变体全部通过：`openat2-y.gen.test`、`openat2-v-y.gen.test`、`openat2-v-y-Xabbrev.gen.test`、`openat2-v-y-Xraw.gen.test`、`openat2-v-y-Xverbose.gen.test`；之前已通过的 5 个无路径变体也全部复跑通过，确认路径不会泄漏到普通输出。
 
 ### 2026-09-09 最新 fresh root semantic 结果
 
@@ -277,7 +283,7 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 5a. 修 dup2 event-time FD path（已完成） | 将已验证的 return-only overlay 复用于 dup2，不复制状态逻辑 | `dup2-y.gen.test`、`dup2-yy.gen.test` 通过；dup3 四项交叉回归仍通过 | `fix(handler): render dup2 return path from exit event` |
 | 6. 修复 orphan exit（已完成） | 成功 exec 的 lifecycle-owned raw exit 不再计为 orphan；保留其他 unmatched 统计 | root semantic `PASS`；normal `orphan_exit=0`；attach 仍报告预期 orphan；focused/全量本地测试通过 | `fix(bpf): classify lifecycle-owned exec exits` |
 | 7a. 修 openat2 `OPENAT2_REGULAR` xlat（已完成） | 生成独立专用表并在 openat2 handler 合并；保留 raw 数值语义 | 5 个非 `-y` openat2 变体通过；handler/generator 单测和完整 Go 门禁通过 | `fix(decoder): decode openat2 regular flag` |
-| 7b. 修 openat2 `-y` 的 dfd path | 只处理首行 `dfd=0` 的 event-time FD path，不改已完成 xlat | 5 个带 `-y` openat2 变体通过；非 `-y` 变体保持通过 | 下一独立 `fix(handler): render openat2 dfd path` |
+| 7b. 修 openat2 `-y` 的 dfd path（已完成） | 只处理首行 `dfd=0` 的 event-time FD path，不改已完成 xlat | 5 个带 `-y` openat2 变体通过；非 `-y` 变体保持通过；Go 全量门禁通过 | `fix(handler): render openat2 dfd path` |
 | 7c. 逐 syscall 修兼容性 | 完成 openat2 path 后再处理 `file_setattr`，每次一个 family | focused upstream tests、相关 Go 测试、`small` 和受影响 `more` | 每个 family 一个 `fix(decoder):` 或 `fix(handler):` 提交 |
 | 8. 整理契约分类 | 只登记有架构证据和 focused evidence 的 XFAIL | unexpected XPASS 仍失败；无批量未知 XFAIL；无 ptrace/procfs/process-vm fallback | `test: document upstream compatibility exceptions` |
 
