@@ -75,6 +75,8 @@ sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build
 
 因此 semantic fixture 已改为 `--decode-fds=signalfd`，并增加 Python 单测锁定启动参数。修改后需要再用 fresh binary 重跑 `ebpf-semantic`；在这次重跑前，阶段 4 仍不标记为完全闭环。`orphan_exit=2` 没有和参数选择问题合并，继续进入阶段 6 的独立诊断。
 
+再次运行后，两个 signalfd 返回路径断言已经消失，说明阶段 4 的 event-time path 和详情选择均生效。该轮新增的 BPF 失败表现为主 fixture 没有输出 `bpf-fixture-ok`，随后所有 BPF payload/配对断言成簇失败；由于旧 runner 丢弃了 fixture 自身的非 JSON stderr，当前不能从汇总判断是哪个 BPF 命令和 errno 导致主 fixture提前退出。已增加失败 stderr 提取和单测，下一轮 semantic 输出会带出 fixture 的具体错误；在拿到该错误前，不修改 BPF handler 或批量标记 XFAIL。
+
 ### 阶段 3 全量基线的首轮归因
 
 本次执行命令为 `sudo -n python3 test/run_tests.py --suite all --skip-build`。配置后的 1494 项全部进入 runner，最终计数为 466 PASS、851 FAIL、177 SKIP；`all` 当前没有复用 `more` 的 XFAIL 映射，因此 `XFailed=0` 和 `XPassed=0`。这次结果证明 runner inventory、共享 helper 和 prerequisite 边界已经工作，但不代表 851 个失败都是同一类实现问题。

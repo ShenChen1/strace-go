@@ -62,6 +62,21 @@ def _check_percpu_stats(run):
     return failures
 
 
+def _fixture_diagnostic_lines(stderr):
+    return [
+        line.strip()
+        for line in stderr.splitlines()
+        if line.strip() and not line.lstrip().startswith("{")
+    ][-8:]
+
+
+def _append_fixture_diagnostics(failures, label, run, marker):
+    if run.returncode == 0 and marker in run.stdout:
+        return
+    for line in _fixture_diagnostic_lines(run.stderr):
+        failures.append(f"{label} stderr: {line}")
+
+
 def run_bpf_semantic(wrapper, root):
     runs = _run_main_fixtures(wrapper, root)
     lifecycle_fixture = build_named_fixture(
@@ -78,6 +93,13 @@ def run_bpf_semantic(wrapper, root):
         combined_stdout,
         combined_events,
         parse_stats_events(runs[0].stderr),
+    )
+    _append_fixture_diagnostics(failures, "BPF main fixture", runs[0], "bpf-fixture-ok")
+    _append_fixture_diagnostics(
+        failures,
+        "BPF per-CPU fixture",
+        runs[1],
+        "bpf-percpu-fixture-ok",
     )
     failures.extend(
         check_bpf_lifecycle(

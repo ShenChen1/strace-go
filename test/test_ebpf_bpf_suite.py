@@ -2,13 +2,21 @@
 import base64
 import unittest
 
-from ebpf_bpf_suite import check_bpf_semantic
+from ebpf_bpf_suite import _fixture_diagnostic_lines, check_bpf_semantic
 from ebpf_bpf_delete_oracle import has_delete_batch_keys
 from ebpf_bpf_testdata_core import clean_stats, section
 from ebpf_bpf_testdata_events import valid_events
 
 
 class BpfSemanticOracleTests(unittest.TestCase):
+    def test_extracts_fixture_stderr_without_json_trace_lines(self):
+        stderr = '{"type":"syscall"}\nfixture: BPF_MAP_CREATE: Operation not permitted\n'
+
+        self.assertEqual(
+            _fixture_diagnostic_lines(stderr),
+            ["fixture: BPF_MAP_CREATE: Operation not permitted"],
+        )
+
     def test_accepts_delete_batch_keys_snapshot(self):
         events = valid_events()
         self.assertTrue(has_delete_batch_keys(events))
