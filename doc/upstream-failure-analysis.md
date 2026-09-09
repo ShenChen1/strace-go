@@ -2,7 +2,7 @@
 
 基线日期：2026-09-08；语义复现日期：2026-09-09。
 
-本文把 upstream exact diff、纯 eBPF 架构边界、测试 runner 缺陷和真实实现缺口分开记录。2026-09-08 的 `--suite all` 基线来自目录扫描，其失败数量只用于保留历史现场，不能直接等同于实现 bug 数量或 upstream 全量通过率。阶段 1 已让 runner 改用 configure 后的官方 `TESTS` 集合，但尚未重跑完整 `all`。
+本文把 upstream exact diff、纯 eBPF 架构边界、测试 runner 缺陷和真实实现缺口分开记录。2026-09-08 的 `--suite all` 基线来自目录扫描，其失败数量只用于保留历史现场，不能直接等同于实现 bug 数量或 upstream 全量通过率。阶段 1 已让 runner 改用 configure 后的官方 `TESTS` 集合；阶段 3 已完成一次配置一致的完整 `all`，当前失败仍需按下文分类，不能直接当作实现 bug 总数。
 
 ## Problem 1-Pager
 
@@ -51,11 +51,28 @@
 | `GOCACHE=/tmp/strace-go-gocache go vet ./...` | PASS | 静态检查通过 |
 | `python3 -m unittest -v run_tests_unit.py run_tests_upstream_setup_unit.py` | 55 PASS | runner 原有门禁和新增配置清单、prerequisite、失败传播测试全部通过 |
 | 配置后的 upstream `TESTS` 查询 | 1494 项 | 相比旧目录扫描的 1500 项，排除了当前 `--enable-stacktrace=no` 配置下的 6 个 stacktrace 测试 |
+| `sudo -n python3 test/run_tests.py --suite all --skip-build` | 466 PASS / 851 FAIL / 177 SKIP；0 XFAIL / 0 XPASS | 阶段 3 的配置一致全量基线；runner 已完成汇总，退出码 1 由 851 个失败用例导致，不是清单或 helper 构建失败 |
 | `sudo -n python3 test/run_tests.py --suite small --skip-build` | 23 PASS / 0 FAIL | 阶段 1 已消除 helper/environment false negative；阶段 2 补齐 `O_EMPTYPATH` 后 small 全绿 |
 | `dup3.gen.test`、`dup3-P.gen.test` | 2 PASS / 0 FAIL | `dup3_flags` 派生表的基础和 path-filter flag 输出通过 |
 | `dup3-y.gen.test`、`dup3-yy.gen.test` | 2 FAIL | flag 输出已经匹配；剩余 diff 仅为成功覆盖目标 FD 后，同一 exit 事件仍显示调用前的目标路径 |
 
 语义 suite 的复现统计更具体：`records_decoded=185`、`records_invalid=0`、`pending_mismatch=0`、`pending_update_fail=0`、`lifecycle_map_update_fail=0`、`orphan_exit=2`。attach fixture 另报告 1 个 attach orphan，但 non-leader attach 的 orphan 为 0。
+
+### 阶段 3 全量基线的首轮归因
+
+本次执行命令为 `sudo -n python3 test/run_tests.py --suite all --skip-build`。配置后的 1494 项全部进入 runner，最终计数为 466 PASS、851 FAIL、177 SKIP；`all` 当前没有复用 `more` 的 XFAIL 映射，因此 `XFailed=0` 和 `XPassed=0`。这次结果证明 runner inventory、共享 helper 和 prerequisite 边界已经工作，但不代表 851 个失败都是同一类实现问题。
+
+日志中有 224 个失败测试块明确报出 `pure eBPF tracing cannot modify tracee state`，集中在 `-e inject`、`-e fault`、延迟和 poke 场景，例如 `arch_prctl-success*.gen.test`、`clone3-success*.gen.test`、`qual_inject*.test`、`qual_fault*.test`、`delay.test` 和 `poke*.test`。这些测试要求 ptrace 修改返回值、错误、时序或 tracee 内存，和当前纯 eBPF 边界冲突，不能通过补 decoder 变绿；后续应把它们作为有证据的契约例外登记，而不是逐个修改 syscall handler。
+
+剩余失败不是一个单一簇，当前按修复价值分为以下几类：
+
+1. **FD event-time path（真实实现缺口）**：`dup2-y/yy.gen.test`、`dup3-y/yy.gen.test` 等在成功覆盖目标 FD 的同一 exit 事件中仍看到调用前 path。`dup3` 的 flag 文本已经通过，剩余 diff 与持久 FD state 更新晚于 handler 格式化一致，优先处理 event-time overlay；signalfd 的同类问题仍由 `ebpf-semantic` 回归负责。
+2. **PID namespace translation（能力簇）**：多个 `--pidns-translation` 用例（例如 `xet_robust_list--pidns-translation.gen.test`、`xetpgid--pidns-translation.gen.test`、`xetpriority--pidns-translation.gen.test`）缺少经典 strace 的 `/* PID in strace's PID NS */` 注释。它们不能和普通参数解码混修，先确认项目是否承诺 PID namespace 映射，再决定实现或登记契约差异。
+3. **bounded snapshot / decoder / xlat（实现簇）**：`xetitimer.gen.test` 把应解码的 `itimerval` 留成裸地址，`clone3*.gen.test` 对尾部结构字段只输出地址或截断，`bpf*.gen.test`、`io_uring*.gen.test`、`file_setattr*.gen.test` 和大量 `ioctl*` 变体存在结构字段、unknown bits 或新常量差异。这些必须按 syscall family 取最小 diff，先确认是 eBPF snapshot 没采到、decoder 没消费，还是 generator/xlat 输入缺失。
+4. **ptrace/lifecycle 和环境条件**：`attach-p-eperm-yama.test`、`bexecve.test`、`detach-vfork.test`、`filter_seccomp-*`、`get_regs.test`、`ptrace*.gen.test` 依赖 ptrace stop、`ptrace_scope`、`PTRACE_O_EXITKILL` 或 tracee 调度；`getpid--pidns-translation.gen.test` 等还受 user namespace/内核策略影响。这些不应作为普通 syscall 格式化回归处理。
+5. **大面积协议/结构族差异**：`prctl`、`ioctl`、netlink、socket option、scheduler 和 signal 相关失败数量较大，且同一 family 同时包含普通 decode、`-y/-yy`、PID namespace 和 inject 变体。先用不含 inject、ptrace 和 pidns 的最小测试确定一个可修复样本，避免被变体数量误导。
+
+阶段 3 的结论是：先清理契约分类，再击破已经有 focused evidence 的 FD event-time path；其后每次只选择一个具体 decoder/xlat family。不能根据 851 这个总数批量添加 XFAIL，也不能把 PID namespace、ptrace 和纯 eBPF bounded snapshot 差异混为“解码失败”。
 
 ## 分类结论
 
@@ -199,7 +216,7 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | --- | --- | --- | --- |
 | 1. 修 runner inventory 和 prerequisite（已完成） | `test/run_tests.py`、`test/run_tests_upstream_setup_unit.py`；读取配置后的 `TESTS`，调用 `check-prerequisites-local`，传播构建错误 | 55 项 Python 单测通过；干净 upstream 可自行配置并构建 helper；清单为 1494 项且排除 6 个禁用 stacktrace 测试；`small` 为 22 PASS / 1 个明确 xlat FAIL | `test: honor configured upstream test inventory` |
 | 2. 关闭 dup3 生成输入所有权（已完成） | `cmd/generate-xlats/`、生成结果及测试；删除 submodule 未跟踪输入 | generator/meta 单测和 `go test ./...` 通过；`small` 23/23；dup3 基础用例 2/2，y/yy 仅剩具名 FD path diff；submodule clean | `f51471f fix(generator): derive dup3 flags from open flags` |
-| 3. 重建可信基线 | 不改 syscall 实现，只重跑配置后的 `all` 并按 environment / contract / implementation 分类 | 保存最终总数、失败名单和代表性 exact diff；运行结束后再更新本文 | `docs: refresh upstream failure inventory` |
+| 3. 重建可信基线（已完成） | 不改 syscall 实现，只重跑配置后的 `all` 并按 environment / contract / implementation 分类 | 配置清单 1494 项；466 PASS / 851 FAIL / 177 SKIP；保留纯 eBPF、PID namespace、FD path、decoder 和环境类代表性 diff | `docs: refresh upstream failure inventory` |
 | 4. 修 signalfd event-time FD path | handler event-time overlay 和回归测试 | 两个 signalfd semantic 断言归零；相关 Go 测试和 `ebpf-semantic` | `fix(handler): render signalfd path from exit event` |
 | 5. 修 dup3 event-time FD path | 复用 overlay 边界，但只处理 dup3 成功覆盖目标 FD | `dup3-y.gen.test`、`dup3-yy.gen.test` 通过；失败返回不改变 path；cloexec 状态保持正确 | `fix(handler): render dup3 return path from exit event` |
 | 6. 定位 orphan exit | 仅增加原因级诊断，再按证据修 pending/lifecycle 路径 | 最小 fixture 定位 sys_id/TID/reason；正常 semantic fixture `orphan_exit=0`；attach 诊断契约不被破坏 | 分成 `test:` 诊断提交和一个窄 `fix(bpf):` 提交 |
