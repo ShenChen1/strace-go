@@ -89,14 +89,15 @@ func eventFDViewFromSections(
 	return eventView
 }
 
-func dup3ReturnFDView(
+func dupReturnFDView(
 	eventView eventFDStateView,
 	syscallName string,
 	view syscallEventView,
 	fdState handler.FDStateReader,
 	statePID int,
 ) (eventFDStateView, bool) {
-	if syscallName != "dup3" || !view.valid || view.eventType != bpfEventTypeExit || view.ret < 0 {
+	if (syscallName != "dup2" && syscallName != "dup3") ||
+		!view.valid || view.eventType != bpfEventTypeExit || view.ret < 0 {
 		return eventView, false
 	}
 	oldFD := int32(view.args[0])

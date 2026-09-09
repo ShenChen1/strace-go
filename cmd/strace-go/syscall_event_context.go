@@ -144,7 +144,7 @@ func newSyscallEventContextFromViewWithDeps(
 	}
 	payloadSections := mergePendingPayloadSections(pendingEnter, currentPayload)
 	eventFDView := eventFDViewFromSections(scMeta.Name, view, payloadSections)
-	returnFDView, hasReturnFDView := dup3ReturnFDView(
+	returnFDView, hasReturnFDView := dupReturnFDView(
 		eventFDView,
 		scMeta.Name,
 		view,
