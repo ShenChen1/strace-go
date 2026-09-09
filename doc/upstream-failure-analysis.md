@@ -51,7 +51,9 @@
 | `GOCACHE=/tmp/strace-go-gocache go vet ./...` | PASS | 静态检查通过 |
 | `python3 -m unittest -v run_tests_unit.py run_tests_upstream_setup_unit.py` | 55 PASS | runner 原有门禁和新增配置清单、prerequisite、失败传播测试全部通过 |
 | 配置后的 upstream `TESTS` 查询 | 1494 项 | 相比旧目录扫描的 1500 项，排除了当前 `--enable-stacktrace=no` 配置下的 6 个 stacktrace 测试 |
-| `sudo -n python3 test/run_tests.py --suite small --skip-build` | 22 PASS / 1 FAIL | 所有共享 helper 已就绪；唯一失败为 `openat` 缺少 `O_EMPTYPATH` xlat，不再有 helper/environment false negative |
+| `sudo -n python3 test/run_tests.py --suite small --skip-build` | 23 PASS / 0 FAIL | 阶段 1 已消除 helper/environment false negative；阶段 2 补齐 `O_EMPTYPATH` 后 small 全绿 |
+| `dup3.gen.test`、`dup3-P.gen.test` | 2 PASS / 0 FAIL | `dup3_flags` 派生表的基础和 path-filter flag 输出通过 |
+| `dup3-y.gen.test`、`dup3-yy.gen.test` | 2 FAIL | flag 输出已经匹配；剩余 diff 仅为成功覆盖目标 FD 后，同一 exit 事件仍显示调用前的目标路径 |
 
 语义 suite 的复现统计更具体：`records_decoded=185`、`records_invalid=0`、`pending_mismatch=0`、`pending_update_fail=0`、`lifecycle_map_update_fail=0`、`orphan_exit=2`。attach fixture 另报告 1 个 attach orphan，但 non-leader attach 的 orphan 为 0。
 
@@ -110,7 +112,7 @@
 
 选择第一种，但只允许有明确理由、focused evidence 和文档记录的 XFAIL；不能把未知失败批量加入列表。
 
-### C. signalfd 同一 exit 事件的 FD path 没进入格式化上下文（P0，明确实现缺口）
+### C. FD creator 同一 exit 事件的新 path 没进入格式化上下文（P0，明确实现缺口）
 
 当前 signalfd 流程已经在 eBPF 端捕获了：
 
@@ -125,14 +127,16 @@
 
 这不是缺少 eBPF 快照，而是“事件内状态 overlay”没有覆盖 signalfd 特殊 FD creator。
 
+阶段 2 还确认了同类的 dup3 缺口：成功的 `dup3(oldfd, newfd, flags)` 会把 `newfd` 指向 `oldfd` 的对象，但 handler 格式化发生在持久 FD state 更新之前，因此 `dup3-y.gen.test` 和 `dup3-yy.gen.test` 的返回值仍显示调用前的 `newfd` 路径。两项测试的 flag 文本已经完全匹配，剩余 diff 只涉及 event-time path。
+
 方案比较：
 
 | 方案 | 优点 | 风险 |
 | --- | --- | --- |
-| 在 event-time view 中根据当前 exit 的 mask、ret 和 syscall 构造临时 signalfd path | 不改变持久 FD state 更新顺序，符合事件时间语义 | 需要增加一个窄的 overlay 解码入口和回归测试 |
+| 在 event-time view 中根据当前 exit payload 和 syscall 构造临时 path；signalfd 使用 mask/ret，dup3 使用 oldfd/newfd/ret | 不改变持久 FD state 更新顺序，符合事件时间语义 | 需要为不同 FD creator 增加窄的 overlay 解码入口和回归测试 |
 | 先把 FD state 写入持久 store，再执行 handler | 改动表面较小 | 改变副作用顺序，可能让 handler 观察到不应提前可见的状态 |
 
-选择第一种。下一步应先写一个失败回归，验证同一 exit event 的 `return_text`，再实现 event-time overlay。
+选择第一种。signalfd 和 dup3 分成两个窄提交：各自先写失败回归，验证同一 exit event 的 `return_text`，再复用 event-time overlay 边界；不把持久 store 的副作用提前。
 
 ### D. `orphan_exit` 是真实的生命周期/关联缺口，尚未定位到具体 syscall（P0）
 
@@ -148,9 +152,9 @@
 
 下一步不是放宽 counter，而是增加仅用于 debug/semantic fixture 的原因分类：至少记录 `sys_id`、`tid`、pending lookup 结果、tracked/filter 状态和 lifecycle teardown 状态，然后用最小 fixture 重现。确认具体路径后再补 BPF 回归测试。
 
-### E. `dup3_flags` 生成输入位于 submodule 未跟踪区（P0，先关闭可复现性）
+### E. `dup3_flags` 生成输入位于 submodule 未跟踪区（P0，阶段 2 已关闭）
 
-当前 `strace-upstream/src/xlat/dup3_flags.in` 是 submodule 内的未跟踪文件。父仓库只能提交 submodule gitlink，无法携带这个文件；干净检出后，生成器仍会写出 `dup3 -> dup3_flags` 映射，却不会生成对应表。
+阶段 2 前，`strace-upstream/src/xlat/dup3_flags.in` 是 submodule 内的未跟踪文件。父仓库只能提交 submodule gitlink，无法携带这个文件；干净检出后，生成器仍会写出 `dup3 -> dup3_flags` 映射，却不会生成对应表。
 
 upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项目的通用 decoder 会对名称包含 `open_mode_flags` 的表额外解释 `O_RDONLY`、`O_WRONLY` 和 `O_RDWR`。因此不能简单把 dup3 映射改成 `open_mode_flags`：dup3 的 `0` 必须输出 `0`，访问模式位必须按未知 `O_???` 处理。
 
@@ -162,11 +166,14 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 在主仓库维护一份静态 `dup3_flags` 表 | 实现直接 | 与 upstream `open_mode_flags.in` 重复，后续新增 flag 容易漂移 |
 | 在 submodule 创建并提交该输入 | 文件可追踪 | 需要维护非 upstream patch 和新 gitlink，不符合参考 submodule 的所有权边界 |
 
-选择第一种。实现时从已经解析、求值后的 `open_mode_flags` 数据生成第二个表名，并让两个表共享稳定 fallback；只有 `open_mode_flags` 触发 access-mode 解码。回归测试必须在不存在 `dup3_flags.in` 的临时 xlat 目录中验证：
+选择并已实现第一种。生成器先收集 upstream xlat，再从已经解析、求值后的 `open_mode_flags` 数据生成第二个表名，最后按表名排序输出；显式 upstream 表存在时优先使用显式输入，派生 source 缺失时立即失败。两个表共享稳定 fallback，只有 `open_mode_flags` 触发 access-mode 解码。
+
+阶段 2 验证结果：
 
 - 生成结果同时包含 `open_mode_flags` 和 `dup3_flags`；
 - dup3 的 `0` 输出 `0`，`O_TRUNC|O_CLOEXEC` 正常解码，访问模式位保留 `O_???` 语义；
-- `dup3.gen.test`、`dup3-P.gen.test`、`dup3-y.gen.test` 和 `dup3-yy.gen.test` 通过；
+- `O_EMPTYPATH` 使用稳定值 `67108864` 补入 open/dup3 表，`openat.gen.test` 和完整 `small` 通过；
+- `dup3.gen.test`、`dup3-P.gen.test` 通过；`dup3-y.gen.test`、`dup3-yy.gen.test` 仅剩 C 节记录的 FD event-time path diff；
 - 完整生成后 submodule 保持 clean。
 
 ### F. 生成的 xlat/格式差异（P1，逐项聚焦）
@@ -191,14 +198,15 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 阶段 | 改动边界 | 验收 | 建议提交 |
 | --- | --- | --- | --- |
 | 1. 修 runner inventory 和 prerequisite（已完成） | `test/run_tests.py`、`test/run_tests_upstream_setup_unit.py`；读取配置后的 `TESTS`，调用 `check-prerequisites-local`，传播构建错误 | 55 项 Python 单测通过；干净 upstream 可自行配置并构建 helper；清单为 1494 项且排除 6 个禁用 stacktrace 测试；`small` 为 22 PASS / 1 个明确 xlat FAIL | `test: honor configured upstream test inventory` |
-| 2. 关闭 dup3 生成输入所有权 | `cmd/generate-xlats/`、生成结果及测试；删除 submodule 未跟踪输入 | generator 单测；`go test ./...`；四个 `dup3*` focused tests；submodule clean | `fix(generator): derive dup3 flags from upstream open flags` |
+| 2. 关闭 dup3 生成输入所有权（已完成） | `cmd/generate-xlats/`、生成结果及测试；删除 submodule 未跟踪输入 | generator/meta 单测和 `go test ./...` 通过；`small` 23/23；dup3 基础用例 2/2，y/yy 仅剩具名 FD path diff；submodule clean | `f51471f fix(generator): derive dup3 flags from open flags` |
 | 3. 重建可信基线 | 不改 syscall 实现，只重跑配置后的 `all` 并按 environment / contract / implementation 分类 | 保存最终总数、失败名单和代表性 exact diff；运行结束后再更新本文 | `docs: refresh upstream failure inventory` |
 | 4. 修 signalfd event-time FD path | handler event-time overlay 和回归测试 | 两个 signalfd semantic 断言归零；相关 Go 测试和 `ebpf-semantic` | `fix(handler): render signalfd path from exit event` |
-| 5. 定位 orphan exit | 仅增加原因级诊断，再按证据修 pending/lifecycle 路径 | 最小 fixture 定位 sys_id/TID/reason；正常 semantic fixture `orphan_exit=0`；attach 诊断契约不被破坏 | 分成 `test:` 诊断提交和一个窄 `fix(bpf):` 提交 |
-| 6. 逐 syscall 修兼容性 | 先 `OPENAT2_REGULAR`，再 `file_setattr`，每次一个 family | focused upstream tests、相关 Go 测试、`small` 和受影响 `more` | 每个 family 一个 `fix(decoder):` 或 `fix(handler):` 提交 |
-| 7. 整理契约分类 | 只登记有架构证据和 focused evidence 的 XFAIL | unexpected XPASS 仍失败；无批量未知 XFAIL；无 ptrace/procfs/process-vm fallback | `test: document upstream compatibility exceptions` |
+| 5. 修 dup3 event-time FD path | 复用 overlay 边界，但只处理 dup3 成功覆盖目标 FD | `dup3-y.gen.test`、`dup3-yy.gen.test` 通过；失败返回不改变 path；cloexec 状态保持正确 | `fix(handler): render dup3 return path from exit event` |
+| 6. 定位 orphan exit | 仅增加原因级诊断，再按证据修 pending/lifecycle 路径 | 最小 fixture 定位 sys_id/TID/reason；正常 semantic fixture `orphan_exit=0`；attach 诊断契约不被破坏 | 分成 `test:` 诊断提交和一个窄 `fix(bpf):` 提交 |
+| 7. 逐 syscall 修兼容性 | 先 `OPENAT2_REGULAR`，再 `file_setattr`，每次一个 family | focused upstream tests、相关 Go 测试、`small` 和受影响 `more` | 每个 family 一个 `fix(decoder):` 或 `fix(handler):` 提交 |
+| 8. 整理契约分类 | 只登记有架构证据和 focused evidence 的 XFAIL | unexpected XPASS 仍失败；无批量未知 XFAIL；无 ptrace/procfs/process-vm fallback | `test: document upstream compatibility exceptions` |
 
-阶段 1 和阶段 2 都是可信测试基线的前置条件，应先分别提交，避免 runner 变化和生成器变化混在一个 diff。阶段 3 只刷新证据，不夹带实现修复。从阶段 4 开始，每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
+阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复。从阶段 4 开始，每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
 
 ## 重跑注意事项
 
