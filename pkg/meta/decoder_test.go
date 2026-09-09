@@ -169,13 +169,20 @@ func TestDecodeFileAttrAtFlagsAsEnum(t *testing.T) {
 		{name: "raw known", mode: "raw", val: 0x100, want: "0x100"},
 		{name: "verbose known", mode: "verbose", val: 0x100, want: "0x100 /* AT_SYMLINK_NOFOLLOW */"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := decodeFlagsForTest(tt.mode, tt.val, "file_attr_at_flags"); got != tt.want {
 				t.Fatalf("DecodeFlags(%#x, file_attr_at_flags) in %s mode = %q, want %q", tt.val, tt.mode, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDecodeFSXflagsIncludesBundledKernelBits(t *testing.T) {
+	const want = "FS_XFLAG_REALTIME|FS_XFLAG_PREALLOC|FS_XFLAG_IMMUTABLE|FS_XFLAG_APPEND|FS_XFLAG_SYNC|FS_XFLAG_NOATIME|FS_XFLAG_NODUMP|FS_XFLAG_RTINHERIT|FS_XFLAG_PROJINHERIT|FS_XFLAG_NOSYMLINKS|FS_XFLAG_EXTSIZE|FS_XFLAG_EXTSZINHERIT|FS_XFLAG_NODEFRAG|FS_XFLAG_FILESTREAM|FS_XFLAG_DAX|FS_XFLAG_COWEXTSIZE|FS_XFLAG_VERITY|FS_XFLAG_HASATTR|FS_XFLAG_CASEFOLD|FS_XFLAG_CASENONPRESERVING"
+
+	if got := decodeFlagsForTest("abbrev", 0x800ffffb, "fs_xflags"); got != want {
+		t.Fatalf("DecodeFlags(%#x, fs_xflags) = %q, want %q", 0x800ffffb, got, want)
 	}
 }
 

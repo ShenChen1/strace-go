@@ -115,6 +115,14 @@ focused 基线中，`openat2` 的 9 个非 raw 变体把 `OPENAT2_REGULAR` 输�
 
 修复前新增的 BPF 源码门禁会因缺少 FD_PATH 容量、配置门控和捕获调用而失败；修复后 `go generate`、`go build`、`go test ./... -count=1` 和 `go vet ./...` 均通过。重新生成 BPF ELF 后，以下 5 个带路径变体全部通过：`openat2-y.gen.test`、`openat2-v-y.gen.test`、`openat2-v-y-Xabbrev.gen.test`、`openat2-v-y-Xraw.gen.test`、`openat2-v-y-Xverbose.gen.test`；之前已通过的 5 个无路径变体也全部复跑通过，确认路径不会泄漏到普通输出。
 
+### 2026-09-09 file_setattr xlat 修复
+
+`file_setattr` 的 7 个变体中，修复前只有 `-P` 和 `-Xraw` 通过；普通、`-Xabbrev`、`-Xverbose`、`-y`、`-yy` 的唯一有效差异都是 `fa_xflags` 中剩余的 `0xc0000`。这两个 bit 在当前系统头文件中没有定义，但 pinned upstream 的 `fs_xflags.in` 和测试契约明确要求输出 `FS_XFLAG_CASEFOLD`（`0x00040000`）与 `FS_XFLAG_CASENONPRESERVING`（`0x00080000`）。
+
+修复将两个稳定的上游值补入 `pkg/meta/runtime_xlat.go` 的 supplemental `fs_xflags` 表，并把它们放在 `FS_XFLAG_HASATTR` 之后，以保持 upstream 的组合输出顺序。没有修改通用 decoder、BPF snapshot 或 handler，也没有把 `file_attr_at_flags` 的 verbose 规则改成纯符号名；该字段当前的 `0x100 /* AT_SYMLINK_NOFOLLOW */` 包装是 upstream 的既有 verbose 契约，raw 模式仍保持纯数值。
+
+新回归测试先验证了缺失 bit 和 verbose 输出的失败基线。实现后 `file_setattr.gen.test`、`file_setattr-P.gen.test`、`file_setattr-Xabbrev.gen.test`、`file_setattr-Xraw.gen.test`、`file_setattr-Xverbose.gen.test`、`file_setattr-y.gen.test`、`file_setattr-yy.gen.test` 全部通过；`file_getattr` 的基础、`-P`、`-y`、`-yy` 变体交叉回归也全部通过。
+
 ### 2026-09-09 最新 fresh root semantic 结果
 
 用户随后用更新后的二进制执行了 root semantic suite。中间结果为：BPF semantic 212 个事件通过，signalfd semantic 16 个事件通过，attach 与 non-leader attach 的生命周期检查通过；新增诊断明确显示两个 orphan 都是成功 `execve`：`orphan_first_pid=1369783`、`orphan_first_tid=1369783`、`orphan_first_sys_id=59`、`orphan_first_ret=0`，以及 `orphan_last_pid=1369784`、`orphan_last_tid=1369784`、`orphan_last_sys_id=59`、`orphan_last_ret=0`。统计仍为 `pending_mismatch=0`、`pending_update_fail=0`、`lifecycle_map_update_fail=0`、`records_read=185`、`records_decoded=185`、`records_invalid=0`，因此根因收敛到 lifecycle 已消费成功 exec pending 后的 raw exit 分类，不是 handler 或 Ringbuf 丢失。随后刷新 BPF object 重跑，最终 `PASS: ebpf-semantic`，normal fixture `orphan_exit=0`。
@@ -259,7 +267,7 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 已观察到的代表性差异包括：
 
 - `openat2` 的 `OPENAT2_REGULAR` xlat 已闭环：专用表来自 `strace-upstream/src/xlat/openat2_flags.in`，并由 generator fallback 保证在缺少系统头常量时仍生成 `1<<32`；剩余 `openat2-y` 失败是独立的 `dfd=0` FD path 事件视图问题；
-- `file_setattr` 的 `at_flags`/未知位输出与 upstream 不一致，需要用 `file_setattr*.gen.test` 的精确 diff 确认是 supplemental xlat 表还是 decoder 的 unknown-bit 规则；
+- `file_setattr` 的 `fs_xflags` 缺失两个 bundled upstream bit 已闭环：supplemental xlat 表补入 `FS_XFLAG_CASEFOLD` 与 `FS_XFLAG_CASENONPRESERVING` 后，7 个格式和路径变体全部通过；`file_attr_at_flags` 保留通用 verbose 的数值加注释输出；
 - 时间类失败中有一部分来自 `sleep`/`sleep-timing` helper 缺失，不能和格式化 bug 混修。
 
 方案比较：
@@ -284,10 +292,10 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 6. 修复 orphan exit（已完成） | 成功 exec 的 lifecycle-owned raw exit 不再计为 orphan；保留其他 unmatched 统计 | root semantic `PASS`；normal `orphan_exit=0`；attach 仍报告预期 orphan；focused/全量本地测试通过 | `fix(bpf): classify lifecycle-owned exec exits` |
 | 7a. 修 openat2 `OPENAT2_REGULAR` xlat（已完成） | 生成独立专用表并在 openat2 handler 合并；保留 raw 数值语义 | 5 个非 `-y` openat2 变体通过；handler/generator 单测和完整 Go 门禁通过 | `fix(decoder): decode openat2 regular flag` |
 | 7b. 修 openat2 `-y` 的 dfd path（已完成） | 只处理首行 `dfd=0` 的 event-time FD path，不改已完成 xlat | 5 个带 `-y` openat2 变体通过；非 `-y` 变体保持通过；Go 全量门禁通过 | `fix(handler): render openat2 dfd path` |
-| 7c. 逐 syscall 修兼容性 | 完成 openat2 path 后再处理 `file_setattr`，每次一个 family | focused upstream tests、相关 Go 测试、`small` 和受影响 `more` | 每个 family 一个 `fix(decoder):` 或 `fix(handler):` 提交 |
+| 7c. 修 `file_setattr` xlat（已完成） | 只补 supplemental `fs_xflags` 中缺失的两个 bundled upstream bit；保持 `file_attr_at_flags`、raw 和 BPF snapshot 契约不变 | `file_setattr` 7 个变体通过；`file_getattr` 基础/路径 4 个变体交叉通过；相关 Go 测试和 vet 通过 | `fix(decoder): align file attribute xlat output` |
 | 8. 整理契约分类 | 只登记有架构证据和 focused evidence 的 XFAIL | unexpected XPASS 仍失败；无批量未知 XFAIL；无 ptrace/procfs/process-vm fallback | `test: document upstream compatibility exceptions` |
 
-阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复；阶段 4 的 fresh root semantic 验收、阶段 5 的 dup3 focused 验收、5a 的 dup2 focused 验收和 7a 的 openat2 xlat 验收均已闭环。当前转入 7b 的 openat2 `-y` dfd path，再按一个 syscall family 一个提交处理。每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
+阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复；阶段 4 的 fresh root semantic 验收、阶段 5 的 dup3 focused 验收、5a 的 dup2 focused 验收、7a 的 openat2 xlat 验收、7b 的 openat2 `-y` dfd path 验收和 7c 的 `file_setattr` xlat 验收均已闭环。下一步继续按一个 syscall family 一个提交处理。每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
 
 ## 重跑注意事项
 

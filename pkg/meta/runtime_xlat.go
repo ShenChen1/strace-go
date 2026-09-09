@@ -82,6 +82,8 @@ var supplementalXlatTables = map[string]XlatTable{
 			{Val: 0x00010000, Str: "FS_XFLAG_COWEXTSIZE"},
 			{Val: 0x00020000, Str: "FS_XFLAG_VERITY"},
 			{Val: 0x80000000, Str: "FS_XFLAG_HASATTR"},
+			{Val: 0x00040000, Str: "FS_XFLAG_CASEFOLD"},
+			{Val: 0x00080000, Str: "FS_XFLAG_CASENONPRESERVING"},
 		},
 	},
 }
