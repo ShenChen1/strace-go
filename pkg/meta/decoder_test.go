@@ -17,6 +17,11 @@ func TestDecodeFlags(t *testing.T) {
 		want      string
 	}{
 		{0, "open_mode_flags", "O_RDONLY"},
+		{67108864, "open_mode_flags", "O_RDONLY|O_EMPTYPATH"},
+		{0, "dup3_flags", "0"},
+		{1, "dup3_flags", "0x1 /* O_??? */"},
+		{512 | 524288, "dup3_flags", "O_TRUNC|O_CLOEXEC"},
+		{67108864, "dup3_flags", "O_EMPTYPATH"},
 		{0, "futex2_flags", "FUTEX2_SIZE_U8"},
 		{0x87, "futex2_flags", "FUTEX2_SIZE_U64|FUTEX2_NUMA|FUTEX2_PRIVATE"},
 		{0xffffff70, "futex2_flags", "FUTEX2_SIZE_U8|0xffffff70"},

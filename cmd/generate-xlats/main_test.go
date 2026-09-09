@@ -199,3 +199,86 @@ func TestQuotaXlatCDefinitionsAreScoped(t *testing.T) {
 		}
 	}
 }
+
+func TestAppendDerivedXlatTablesAddsDup3Flags(t *testing.T) {
+	openFlags := xlatTableData{
+		name:   "open_mode_flags",
+		prefix: "O_",
+		keys:   []string{"O_TRUNC", "O_CLOEXEC", "O_EMPTYPATH"},
+		entries: map[string]string{
+			"O_TRUNC":   "512",
+			"O_CLOEXEC": "524288",
+		},
+	}
+
+	tables := appendDerivedXlatTables(
+		[]xlatTableData{openFlags},
+		map[string]bool{"dup3_flags": true},
+	)
+	if len(tables) != 2 {
+		t.Fatalf("derived tables = %d, want 2", len(tables))
+	}
+	dup3Flags := tables[1]
+	if dup3Flags.name != "dup3_flags" {
+		t.Fatalf("derived table name = %q, want dup3_flags", dup3Flags.name)
+	}
+	if !reflect.DeepEqual(dup3Flags.keys, openFlags.keys) {
+		t.Fatalf("derived keys = %#v, want %#v", dup3Flags.keys, openFlags.keys)
+	}
+
+	var out bytes.Buffer
+	writeXlatTable(&out, dup3Flags)
+	for _, want := range []string{
+		"O_TRUNC", "O_CLOEXEC", "O_EMPTYPATH", "O_LARGEFILE",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("derived dup3 table missing %s:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestAppendDerivedXlatTablesKeepsExplicitDup3Flags(t *testing.T) {
+	explicit := xlatTableData{
+		name:    "dup3_flags",
+		prefix:  "O_",
+		keys:    []string{"O_CLOEXEC"},
+		entries: map[string]string{"O_CLOEXEC": "524288"},
+	}
+	tables := appendDerivedXlatTables(
+		[]xlatTableData{{name: "open_mode_flags"}, explicit},
+		map[string]bool{"dup3_flags": true},
+	)
+
+	if len(tables) != 2 {
+		t.Fatalf("derived tables = %d, want explicit table without duplicate", len(tables))
+	}
+	if !reflect.DeepEqual(tables[1], explicit) {
+		t.Fatalf("explicit dup3 table changed: %#v", tables[1])
+	}
+}
+
+func TestDerivedXlatSourceIsAllowed(t *testing.T) {
+	argXlat := ArgXlatMap{Syscalls: map[string]map[string]string{
+		"dup3": {"flags": "dup3_flags"},
+	}}
+
+	allowed := allowedXlatNames(argXlat)
+	if !allowed["open_mode_flags"] {
+		t.Fatal("dup3_flags did not enable its open_mode_flags source")
+	}
+}
+
+func TestAppendDerivedXlatTablesRejectsMissingSource(t *testing.T) {
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("missing derived xlat source did not panic")
+		}
+		message, ok := recovered.(string)
+		if !ok || !strings.Contains(message, "requires missing source") {
+			t.Fatalf("unexpected panic: %#v", recovered)
+		}
+	}()
+
+	appendDerivedXlatTables(nil, map[string]bool{"dup3_flags": true})
+}

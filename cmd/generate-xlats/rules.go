@@ -135,6 +135,7 @@ func keepZeroXlatValue(name string) bool {
 func writeOpenModeFlagFallbacks(out io.Writer) {
 	for _, entry := range []stableXlatEntry{
 		{"O_DIRECT", "16384"},
+		{"O_EMPTYPATH", "67108864"},
 		{"O_TMPFILE", "4259840"},
 		{"O_SYNC", "1052672"},
 		{"__O_TMPFILE", "4194304"},

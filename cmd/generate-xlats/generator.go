@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -14,6 +15,15 @@ type xlatTableData struct {
 	prefix  string
 	keys    []string
 	entries map[string]string
+}
+
+type derivedXlatTableSpec struct {
+	name   string
+	source string
+}
+
+var derivedXlatTableSpecs = []derivedXlatTableSpec{
+	{name: "dup3_flags", source: "open_mode_flags"},
 }
 
 func writeXlatAutoFile(out io.Writer, argXlat ArgXlatMap, xlatDir string) {
@@ -40,15 +50,35 @@ func allowedXlatNames(argXlat ArgXlatMap) map[string]bool {
 	for _, xlat := range staticOnlyXlats {
 		delete(allowed, xlat)
 	}
+	for _, spec := range derivedXlatTableSpecs {
+		if allowed[spec.name] {
+			allowed[spec.source] = true
+		}
+	}
 	return allowed
 }
 
 func writeUpstreamXlatTables(out io.Writer, xlatDir string, allowed map[string]bool) map[string]bool {
+	tables := loadUpstreamXlatTables(xlatDir, allowed)
+	tables = appendDerivedXlatTables(tables, allowed)
+	sort.Slice(tables, func(i, j int) bool {
+		return tables[i].name < tables[j].name
+	})
+
+	emitted := make(map[string]bool, len(tables))
+	for _, table := range tables {
+		writeXlatTable(out, table)
+		emitted[table.name] = true
+	}
+	return emitted
+}
+
+func loadUpstreamXlatTables(xlatDir string, allowed map[string]bool) []xlatTableData {
 	files, err := os.ReadDir(xlatDir)
 	if err != nil {
 		panic(fmt.Sprintf("failed to read xlat dir %s: %v", xlatDir, err))
 	}
-	emitted := make(map[string]bool)
+	tables := make([]xlatTableData, 0, len(files))
 	for _, f := range files {
 		if !strings.HasSuffix(f.Name(), ".in") {
 			continue
@@ -57,11 +87,37 @@ func writeUpstreamXlatTables(out io.Writer, xlatDir string, allowed map[string]b
 		if !allowed[name] {
 			continue
 		}
-		table := buildXlatTable(xlatDir, name, f.Name())
-		writeXlatTable(out, table)
-		emitted[name] = true
+		tables = append(tables, buildXlatTable(xlatDir, name, f.Name()))
 	}
-	return emitted
+	return tables
+}
+
+func appendDerivedXlatTables(tables []xlatTableData, allowed map[string]bool) []xlatTableData {
+	byName := make(map[string]xlatTableData, len(tables))
+	for _, table := range tables {
+		byName[table.name] = table
+	}
+	for _, spec := range derivedXlatTableSpecs {
+		if !allowed[spec.name] {
+			continue
+		}
+		if _, exists := byName[spec.name]; exists {
+			continue
+		}
+		source, exists := byName[spec.source]
+		if !exists {
+			panic(fmt.Sprintf(
+				"derived xlat table %q requires missing source %q",
+				spec.name,
+				spec.source,
+			))
+		}
+		derived := source
+		derived.name = spec.name
+		tables = append(tables, derived)
+		byName[spec.name] = derived
+	}
+	return tables
 }
 
 func buildXlatTable(xlatDir string, name string, fileName string) xlatTableData {
@@ -219,7 +275,7 @@ func writeXlatTable(out io.Writer, table xlatTableData) {
 		}
 		fmt.Fprintf(out, "\t\t\t{Val: %s, Str: %q},\n", value, key)
 	}
-	if table.name == "open_mode_flags" {
+	if table.name == "open_mode_flags" || table.name == "dup3_flags" {
 		writeOpenModeFlagFallbacks(out)
 	}
 	fmt.Fprintf(out, "\t\t},\n\t},\n")
