@@ -23,6 +23,10 @@ func applyStableXlatFallbacks(name string, prefix *string, entries map[string]st
 			prefix:  "O_ UFFD_",
 			entries: []stableXlatEntry{{"UFFD_USER_MODE_ONLY", "1"}, {"O_NONBLOCK", "2048"}, {"O_CLOEXEC", "524288"}},
 		},
+		"openat2_flags": {
+			prefix:  "OPENAT2_",
+			entries: []stableXlatEntry{{"OPENAT2_REGULAR", "4294967296"}},
+		},
 	}
 	fallback, ok := fallbacks[name]
 	if !ok {

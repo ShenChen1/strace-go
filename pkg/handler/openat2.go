@@ -119,6 +119,9 @@ func decodeOpenHowBitFlags64(ctx *Context, val uint64, xlatName string) string {
 		res = append(res, entry.Str)
 		handled |= entry.Val
 	}
+	if xlatName == "open_mode_flags" {
+		appendOpenHowFlagEntries(ctx, val, &res, &handled)
+	}
 	if len(res) == 0 {
 		return openHowUnknownFlags(val, table)
 	}
@@ -126,6 +129,25 @@ func decodeOpenHowBitFlags64(ctx *Context, val uint64, xlatName string) string {
 		res = append(res, openHowRawHex(remaining))
 	}
 	return strings.Join(res, "|")
+}
+
+func appendOpenHowFlagEntries(
+	ctx *Context,
+	val uint64,
+	parts *[]string,
+	handled *uint64,
+) {
+	table, ok := xlatTable(ctx, "openat2_flags")
+	if !ok {
+		return
+	}
+	for _, entry := range table.Entries {
+		if entry.Val == 0 || (val&entry.Val) != entry.Val || (*handled&entry.Val) == entry.Val {
+			continue
+		}
+		*parts = append(*parts, entry.Str)
+		*handled |= entry.Val
+	}
 }
 
 func openHowAccessModeParts(val uint64, xlatName string) []string {

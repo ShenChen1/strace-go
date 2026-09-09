@@ -30,10 +30,34 @@ func TestApplyStableXlatFallbacksAddsMissingEntries(t *testing.T) {
 	}
 }
 
+func TestApplyStableXlatFallbacksAddsOpenat2Regular(t *testing.T) {
+	prefix := ""
+	entries := map[string]string{}
+	keys := []string{}
+
+	applyStableXlatFallbacks("openat2_flags", &prefix, entries, &keys)
+
+	if prefix != "OPENAT2_" {
+		t.Fatalf("openat2 prefix = %q, want OPENAT2_", prefix)
+	}
+	if entries["OPENAT2_REGULAR"] != "4294967296" {
+		t.Fatalf("OPENAT2_REGULAR = %q, want 4294967296", entries["OPENAT2_REGULAR"])
+	}
+	if len(keys) != 1 || keys[0] != "OPENAT2_REGULAR" {
+		t.Fatalf("openat2 keys = %#v, want OPENAT2_REGULAR", keys)
+	}
+}
+
 func TestSignalFD4UsesGeneratedFlagXlat(t *testing.T) {
 	argXlat := readArgXlatMap()
 	if got := argXlat.Syscalls["signalfd4"]["flags"]; got != "sfd_flags" {
 		t.Fatalf("signalfd4 flags xlat = %q, want sfd_flags", got)
+	}
+}
+
+func TestOpenat2UsesGeneratedFlagXlat(t *testing.T) {
+	if !allowedXlatNames(ArgXlatMap{})["openat2_flags"] {
+		t.Fatal("openat2_flags is not always generated for the custom openat2 handler")
 	}
 }
 

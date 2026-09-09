@@ -60,6 +60,8 @@
 | 修复后 `sudo -n python3 test/run_tests.py --suite all --filter dup3-yy.gen.test --skip-build` | 1 PASS / 0 FAIL | 返回 path 和 `char 1:3` / `char 1:7` 详细 metadata 均与 upstream 一致 |
 | 修复后 `sudo -n python3 test/run_tests.py --suite all --filter dup2-y.gen.test --skip-build` | 1 PASS / 0 FAIL | dup2 成功覆盖目标 FD 的返回 path 已使用源 FD event-time overlay |
 | 修复后 `sudo -n python3 test/run_tests.py --suite all --filter dup2-yy.gen.test --skip-build` | 1 PASS / 0 FAIL | dup2 返回 path 和详细 device metadata 均与 upstream 一致 |
+| 修复后 openat2 非 `-y` 变体（`openat2.gen.test`、`-Xabbrev`、`-Xraw`、`-Xverbose`、`-v`） | 5 PASS / 0 FAIL | `OPENAT2_REGULAR` 已从专用生成 xlat 合并到 `open_how.flags`，raw 仍保持数值输出 |
+| 修复后 openat2 `-y` 变体（`openat2-y` 及 4 个 `v-y` 变体） | 0 PASS / 5 FAIL | 共同只剩首行 `dfd=0` 的 `/dev/full` FD path 缺失；不再包含 `OPENAT2_REGULAR` 差异 |
 
 历史语义 suite 的复现统计更具体：`records_decoded=185`、`records_invalid=0`、`pending_mismatch=0`、`pending_update_fail=0`、`lifecycle_map_update_fail=0`、`orphan_exit=2`。最新 fresh root 运行已将 normal fixture 的 orphan 清零；同时 BPF fixture、signalfd fixture、attach fixture 和 non-leader attach 的语义断言均已通过。attach fixture 仍按契约报告 1 个 attach orphan，non-leader attach 的 orphan 为 0。
 
@@ -100,6 +102,12 @@ dup3-yy.gen.test: PASS
 `dup2-y.gen.test` 的基线与 dup3 相同：成功覆盖目标 FD 时，参数中的 `newfd` 必须保留旧目标 path，返回值必须切换为源 FD path。修复前新增单测先复现了 `5</dev/full>` 的错误返回；随后将 return-only overlay 收敛为只接受 `dup2/dup3` 的共享 helper，保留失败返回不覆盖、参数使用原 event view、详细 metadata 从源 snapshot/reader 获取等约束。
 
 最新构建下 `dup2-y.gen.test`、`dup2-yy.gen.test` 均 `PASS`，并交叉重跑 `dup3-y/dup3-yy` 均 `PASS`。`dup` 和 fcntl 尚未纳入该 helper，避免未经 focused evidence 扩大语义范围。
+
+### 2026-09-09 openat2 xlat 修复
+
+focused 基线中，`openat2` 的 9 个非 raw 变体把 `OPENAT2_REGULAR` 输出成 `0x100000000`；`-Xraw` 本来就是数值契约。修复新增独立的 `openat2_flags` 生成表，并在 openat2 专用 handler 中与 `open_mode_flags` 合并；普通 `open/openat` 不共享该专用表。由于当前系统头没有该常量，generator 以 upstream bundled header 对应的 `1<<32` 提供稳定 fallback，已有系统定义时不会覆盖。
+
+重新生成 `pkg/meta/xlat_auto.go` 后，`openat2.gen.test`、`openat2-Xabbrev.gen.test`、`openat2-Xraw.gen.test`、`openat2-Xverbose.gen.test`、`openat2-v.gen.test` 均通过。剩余 5 个带 `-y` 变体只保留首行 `openat2(0</dev/full>, ...)` 与当前 `openat2(0, ...)` 的 FD path 差异，归入下一项 event-time FD path 修复。
 
 ### 2026-09-09 最新 fresh root semantic 结果
 
@@ -244,7 +252,7 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 
 已观察到的代表性差异包括：
 
-- `openat2` 输出缺少 upstream 新增的 `OPENAT2_REGULAR`，并把 `0x100000000` 留作未知位；该常量来自 `strace-upstream/src/xlat/openat2_flags.in` 和 bundled `linux/openat2.h`，而当前生成器只把 `open_mode_flags` 用于 openat2 handler，没有纳入该 flag；
+- `openat2` 的 `OPENAT2_REGULAR` xlat 已闭环：专用表来自 `strace-upstream/src/xlat/openat2_flags.in`，并由 generator fallback 保证在缺少系统头常量时仍生成 `1<<32`；剩余 `openat2-y` 失败是独立的 `dfd=0` FD path 事件视图问题；
 - `file_setattr` 的 `at_flags`/未知位输出与 upstream 不一致，需要用 `file_setattr*.gen.test` 的精确 diff 确认是 supplemental xlat 表还是 decoder 的 unknown-bit 规则；
 - 时间类失败中有一部分来自 `sleep`/`sleep-timing` helper 缺失，不能和格式化 bug 混修。
 
@@ -255,7 +263,7 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 先修 generator input、xlat mapping 和 focused handler test | 生成边界清晰，后续不会被 build 覆盖 | 需要补生成器/生成结果两层验证 |
 | 直接编辑 `pkg/meta/xlat_auto.go` | 见效快 | 下次 `build.sh` 丢失，违反生成文件约束 |
 
-选择第一种。`OPENAT2_REGULAR` 是最适合的第一个兼容性小修：输入来源明确、值明确、upstream 用例集中。
+选择第一种。`OPENAT2_REGULAR` 已完成 focused 修复；下一项只处理 openat2 `-y` 变体的 `dfd=0` path，不把 FD snapshot 问题混回 xlat 生成器。
 
 ## 分阶段修复计划
 
@@ -268,10 +276,12 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 5. 修 dup3 event-time FD path（已完成） | 复用 overlay 边界，但只处理 dup3 成功覆盖目标 FD；参数继续使用调用前 snapshot | `dup3-y.gen.test`、`dup3-yy.gen.test` 通过；失败返回不创建 overlay；cloexec 状态保持原有更新路径 | `fix(handler): render dup3 return path from exit event` |
 | 5a. 修 dup2 event-time FD path（已完成） | 将已验证的 return-only overlay 复用于 dup2，不复制状态逻辑 | `dup2-y.gen.test`、`dup2-yy.gen.test` 通过；dup3 四项交叉回归仍通过 | `fix(handler): render dup2 return path from exit event` |
 | 6. 修复 orphan exit（已完成） | 成功 exec 的 lifecycle-owned raw exit 不再计为 orphan；保留其他 unmatched 统计 | root semantic `PASS`；normal `orphan_exit=0`；attach 仍报告预期 orphan；focused/全量本地测试通过 | `fix(bpf): classify lifecycle-owned exec exits` |
-| 7. 逐 syscall 修兼容性 | 先 `OPENAT2_REGULAR`，再 `file_setattr`，每次一个 family | focused upstream tests、相关 Go 测试、`small` 和受影响 `more` | 每个 family 一个 `fix(decoder):` 或 `fix(handler):` 提交 |
+| 7a. 修 openat2 `OPENAT2_REGULAR` xlat（已完成） | 生成独立专用表并在 openat2 handler 合并；保留 raw 数值语义 | 5 个非 `-y` openat2 变体通过；handler/generator 单测和完整 Go 门禁通过 | `fix(decoder): decode openat2 regular flag` |
+| 7b. 修 openat2 `-y` 的 dfd path | 只处理首行 `dfd=0` 的 event-time FD path，不改已完成 xlat | 5 个带 `-y` openat2 变体通过；非 `-y` 变体保持通过 | 下一独立 `fix(handler): render openat2 dfd path` |
+| 7c. 逐 syscall 修兼容性 | 完成 openat2 path 后再处理 `file_setattr`，每次一个 family | focused upstream tests、相关 Go 测试、`small` 和受影响 `more` | 每个 family 一个 `fix(decoder):` 或 `fix(handler):` 提交 |
 | 8. 整理契约分类 | 只登记有架构证据和 focused evidence 的 XFAIL | unexpected XPASS 仍失败；无批量未知 XFAIL；无 ptrace/procfs/process-vm fallback | `test: document upstream compatibility exceptions` |
 
-阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复；阶段 4 的 fresh root semantic 验收、阶段 5 的 dup3 focused 验收和 5a 的 dup2 focused 验收均已闭环。下一步回到 decoder/xlat family，继续按一个 syscall family 一个提交处理。每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
+阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复；阶段 4 的 fresh root semantic 验收、阶段 5 的 dup3 focused 验收、5a 的 dup2 focused 验收和 7a 的 openat2 xlat 验收均已闭环。当前转入 7b 的 openat2 `-y` dfd path，再按一个 syscall family 一个提交处理。每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
 
 ## 重跑注意事项
 

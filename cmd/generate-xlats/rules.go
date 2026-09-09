@@ -60,6 +60,7 @@ var alwaysAllowedXlats = []string{
 	"mount_attr_propagation",
 	"mount_setattr_flags",
 	"open_tree_flags",
+	"openat2_flags",
 	"move_mount_flags",
 	"statmount_flags",
 	"statmount_mask",

@@ -38,6 +38,27 @@ func TestDecodeOpenHowUsesPayloadStructSection(t *testing.T) {
 	}
 }
 
+func TestDecodeOpenHowIncludesOpenat2RegularFlag(t *testing.T) {
+	decoder := event.NewDecoder()
+
+	ctx := openHowContext(decoder, uint64(openHowMinSize))
+	ctx.PayloadSections = []PayloadSection{
+		{
+			Kind:      PayloadKindStruct,
+			Direction: PayloadDirectionIn,
+			ArgIndex:  2,
+			UserPtr:   0x2000,
+			Data:      openHowBytes(1<<32, 0777, 0),
+		},
+	}
+
+	got, ok := decodeOpenHow(ctx, 2, "struct open_how *", 0x2000)
+	want := "{flags=O_RDONLY|OPENAT2_REGULAR, mode=0777, resolve=0}"
+	if !ok || got != want {
+		t.Fatalf("decodeOpenHow OPENAT2_REGULAR = %q, %v; want %q", got, ok, want)
+	}
+}
+
 func TestDecodeOpenHowMarksMissingExtensionUnknown(t *testing.T) {
 	decoder := event.NewDecoder()
 

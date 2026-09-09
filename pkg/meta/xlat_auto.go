@@ -1280,6 +1280,12 @@ var generatedXlatTables = map[string]XlatTable{
 			{Val: 32768, Str: "AT_RECURSIVE"},
 		},
 	},
+	"openat2_flags": {
+		Prefix: "OPENAT2_",
+		Entries: []XlatVal{
+			{Val: 4294967296, Str: "OPENAT2_REGULAR"},
+		},
+	},
 	"pidfd_open_flags": {
 		Prefix: "PIDFD_",
 		Entries: []XlatVal{
