@@ -58,6 +58,19 @@
 
 语义 suite 的复现统计更具体：`records_decoded=185`、`records_invalid=0`、`pending_mismatch=0`、`pending_update_fail=0`、`lifecycle_map_update_fail=0`、`orphan_exit=2`。attach fixture 另报告 1 个 attach orphan，但 non-leader attach 的 orphan 为 0。
 
+### 2026-09-09 外部 semantic 结果的二进制复核
+
+用户在宿主机执行了 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build`，输出为正常 semantic fixture `orphan_exit=2`，并报告两个 signalfd 返回路径断言失败。复核本工作区时发现：该命令使用的 `./strace-go` 二进制时间戳为 `2026-09-09 03:32:42 UTC`，而包含 signalfd event-time 修复的 `5e058ff` 提交时间为 `2026-09-09 05:12:51 UTC`。因此这次 `--skip-build` 运行没有执行当前提交中的 Go 代码，两个 signalfd 失败不能作为 HEAD 的有效回归证据。
+
+当前源码已用以下命令重新构建，并通过 `cmd/strace-go` 单测、`go test ./... -count=1` 和 `go vet ./...`；仍需在具备 root/eBPF 能力的宿主机用这个新二进制重新执行 semantic suite：
+
+```sh
+GOCACHE=/tmp/strace-go-gocache go build -o strace-go ./cmd/strace-go
+sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build
+```
+
+重新运行前若 BPF object 被清理，则先执行 `GOCACHE=/tmp/strace-go-gocache ./build.sh`。在 fresh binary 结果出来前，阶段 4 只算“实现和本地回归已完成、真实 semantic 验收待确认”；`orphan_exit=2` 仍作为独立生命周期关联问题保留，不能和旧二进制的 signalfd 失败合并。
+
 ### 阶段 3 全量基线的首轮归因
 
 本次执行命令为 `sudo -n python3 test/run_tests.py --suite all --skip-build`。配置后的 1494 项全部进入 runner，最终计数为 466 PASS、851 FAIL、177 SKIP；`all` 当前没有复用 `more` 的 XFAIL 映射，因此 `XFailed=0` 和 `XPassed=0`。这次结果证明 runner inventory、共享 helper 和 prerequisite 边界已经工作，但不代表 851 个失败都是同一类实现问题。
@@ -217,14 +230,14 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 1. 修 runner inventory 和 prerequisite（已完成） | `test/run_tests.py`、`test/run_tests_upstream_setup_unit.py`；读取配置后的 `TESTS`，调用 `check-prerequisites-local`，传播构建错误 | 55 项 Python 单测通过；干净 upstream 可自行配置并构建 helper；清单为 1494 项且排除 6 个禁用 stacktrace 测试；`small` 为 22 PASS / 1 个明确 xlat FAIL | `test: honor configured upstream test inventory` |
 | 2. 关闭 dup3 生成输入所有权（已完成） | `cmd/generate-xlats/`、生成结果及测试；删除 submodule 未跟踪输入 | generator/meta 单测和 `go test ./...` 通过；`small` 23/23；dup3 基础用例 2/2，y/yy 仅剩具名 FD path diff；submodule clean | `f51471f fix(generator): derive dup3 flags from open flags` |
 | 3. 重建可信基线（已完成） | 不改 syscall 实现，只重跑配置后的 `all` 并按 environment / contract / implementation 分类 | 配置清单 1494 项；466 PASS / 851 FAIL / 177 SKIP；保留纯 eBPF、PID namespace、FD path、decoder 和环境类代表性 diff | `docs: refresh upstream failure inventory` |
-| 4. 修 signalfd event-time FD path | handler event-time overlay 和回归测试 | 两个 signalfd semantic 断言归零；相关 Go 测试和 `ebpf-semantic` | `fix(handler): render signalfd path from exit event` |
+| 4. 验证 signalfd event-time FD path | handler event-time overlay 和回归测试已提交；用 fresh binary 做 root semantic 验收 | 两个 signalfd semantic 断言归零；相关 Go 测试和 fresh `ebpf-semantic` | `fix(handler): render signalfd path from exit event` |
 | 5. 修 dup3 event-time FD path | 复用 overlay 边界，但只处理 dup3 成功覆盖目标 FD | `dup3-y.gen.test`、`dup3-yy.gen.test` 通过；失败返回不改变 path；cloexec 状态保持正确 | `fix(handler): render dup3 return path from exit event` |
 | 6. 定位 orphan exit | 仅增加原因级诊断，再按证据修 pending/lifecycle 路径 | 最小 fixture 定位 sys_id/TID/reason；正常 semantic fixture `orphan_exit=0`；attach 诊断契约不被破坏 | 分成 `test:` 诊断提交和一个窄 `fix(bpf):` 提交 |
 | 7. 逐 syscall 修兼容性 | 先 `OPENAT2_REGULAR`，再 `file_setattr`，每次一个 family | focused upstream tests、相关 Go 测试、`small` 和受影响 `more` | 每个 family 一个 `fix(decoder):` 或 `fix(handler):` 提交 |
 | 8. 整理契约分类 | 只登记有架构证据和 focused evidence 的 XFAIL | unexpected XPASS 仍失败；无批量未知 XFAIL；无 ptrace/procfs/process-vm fallback | `test: document upstream compatibility exceptions` |
 
-阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复。从阶段 4 开始，每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
+阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复。阶段 4 的实现提交和本地回归已完成，但由于此前 root 命令使用了早于该提交的二进制，真实 semantic 验收仍未闭环。从阶段 4 开始，每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
 
 ## 重跑注意事项
 
-`--skip-build` 只跳过 upstream build，不会替仓库生成 `/opt/strace-go/strace-go` 或 BPF object。若这些被清理，应先运行 `GOCACHE=/tmp/strace-go-gocache ./build.sh`，再运行 semantic suite；否则得到的是“binary missing”，不是测试结论。2026-09-08 的 `--suite all` 历史结果统一称为“文件系统扫测”；阶段 1 之后的新 `all` 才使用配置后的 upstream `TESTS`。
+`--skip-build` 只跳过 upstream build，不会替仓库生成 `/opt/strace-go/strace-go` 或 BPF object，也不会自动重编 Go 二进制。源码提交后必须先执行 `GOCACHE=/tmp/strace-go-gocache go build -o strace-go ./cmd/strace-go`；若 BPF object 被清理，则改为先执行 `GOCACHE=/tmp/strace-go-gocache ./build.sh`，再运行 semantic suite。否则即使二进制存在，也可能得到旧代码的测试结论。2026-09-08 的 `--suite all` 历史结果统一称为“文件系统扫测”；阶段 1 之后的新 `all` 才使用配置后的 upstream `TESTS`。
