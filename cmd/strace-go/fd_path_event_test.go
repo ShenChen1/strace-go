@@ -206,6 +206,93 @@ func TestFDPathOverlayDoesNotOverwriteKnownCWD(t *testing.T) {
 	}
 }
 
+func TestSignalFDEventTimePathReachesReturnFormatter(t *testing.T) {
+	tests := []struct {
+		name     string
+		syscall  string
+		args     [6]uint64
+		ret      int64
+		mask     uint64
+		wantPath string
+	}{
+		{
+			name:     "signalfd4 create",
+			syscall:  "signalfd4",
+			args:     [6]uint64{^uint64(0), 0x1000, 8, 0x80000},
+			ret:      8,
+			mask:     1 << 11,
+			wantPath: "8<signalfd:[USR2]>",
+		},
+		{
+			name:     "signalfd update",
+			syscall:  "signalfd",
+			args:     [6]uint64{7, 0x2000, 8},
+			ret:      7,
+			mask:     1<<11 | 1<<16,
+			wantPath: "7<signalfd:[USR2 CHLD]>",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			opts := cli.ParseArgs([]string{"--decode-fds=signalfd", "/bin/true"})
+			store := newFDStateStoreFromMaps(nil, nil)
+			deps := syscallEventContextDeps{
+				decoder:     event.NewDecoder(),
+				handlerOpts: opts,
+				filter:      newTraceFilterOptions(opts),
+				fdState:     store,
+				registry:    handler.NewRegistry(),
+			}
+			sections := []handler.PayloadSection{
+				signalMaskPayloadSection(test.mask),
+				fdStatePayloadSection(fdStateSnapshotBytes(
+					int32(test.ret), handler.FDStateFlagIdentity|handler.FDStateFlagOffset,
+					0100600, 1, 2, uint64(test.ret)+100, 37,
+				)),
+			}
+			ev := newSyscallEventContextFromViewWithDeps(deps, syscallEventView{
+				valid:     true,
+				eventType: bpfEventTypeExit,
+				sysID:     syscallIDByName(t, test.syscall),
+				args:      test.args,
+				ret:       test.ret,
+			}, 101, nil, sections)
+
+			if got := formatSyscallRet(test.syscall, test.ret, handler.Result{}, ev.handlerContext); got != test.wantPath {
+				t.Fatalf("signalfd return = %q, want %q", got, test.wantPath)
+			}
+			if _, ok := store.Path(101, int32(test.ret)); ok {
+				t.Fatal("event-time signalfd overlay mutated the persistent store")
+			}
+		})
+	}
+}
+
+func TestSignalFDEventTimePathIgnoresFailedReturn(t *testing.T) {
+	opts := cli.ParseArgs([]string{"--decode-fds=signalfd", "/bin/true"})
+	deps := syscallEventContextDeps{
+		decoder:     event.NewDecoder(),
+		handlerOpts: opts,
+		filter:      newTraceFilterOptions(opts),
+		fdState:     newFDStateStoreFromMaps(nil, nil),
+		registry:    handler.NewRegistry(),
+	}
+	ev := newSyscallEventContextFromViewWithDeps(deps, syscallEventView{
+		valid:     true,
+		eventType: bpfEventTypeExit,
+		sysID:     syscallIDByName(t, "signalfd"),
+		args:      [6]uint64{7, 0x1000, 8},
+		ret:       -14,
+	}, 101, nil, []handler.PayloadSection{
+		signalMaskPayloadSection(1 << 11),
+	})
+
+	if _, ok := ev.eventFDView.Path(7); ok {
+		t.Fatal("failed signalfd return received an event-time path")
+	}
+}
+
 func TestFDPathOverlayDecodesCWDAsPathOnly(t *testing.T) {
 	data := append([]byte("/abc"), []byte{3, 0, 0, 0}...)
 	data = append(data, []byte(strings.Repeat("x", 40))...)

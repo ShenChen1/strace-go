@@ -141,8 +141,7 @@ func newSyscallEventContextFromViewWithDeps(
 		return ev
 	}
 	payloadSections := mergePendingPayloadSections(pendingEnter, currentPayload)
-	fdPathOverlay := fdPathOverlayFromSections(payloadSections)
-	eventFDView := fdPathOverlay.resolve(view)
+	eventFDView := eventFDViewFromSections(scMeta.Name, view, payloadSections)
 	pathArguments := decodePathArguments(deps, view, scMeta, payloadSections)
 	pathText := primaryPathText(pathArguments)
 	shouldPrint := true
