@@ -91,17 +91,21 @@ def successful_exit_count(events, syscall):
     )
 
 
+def signalfd_trace_command(wrapper, fixture):
+    return [
+        wrapper,
+        "--event-format=json",
+        "--decode-fds=signalfd",
+        "-e",
+        "trace=signalfd,signalfd4,close,exit,exit_group",
+        fixture,
+    ]
+
+
 def run_signalfd_semantic(wrapper, project_root):
     fixture = build_fixture(project_root)
     result = subprocess.run(
-        [
-            wrapper,
-            "--event-format=json",
-            "-y",
-            "-e",
-            "trace=signalfd,signalfd4,close,exit,exit_group",
-            fixture,
-        ],
+        signalfd_trace_command(wrapper, fixture),
         cwd=project_root,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

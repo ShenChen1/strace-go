@@ -71,6 +71,10 @@ sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build
 
 重新运行前若 BPF object 被清理，则先执行 `GOCACHE=/tmp/strace-go-gocache ./build.sh`。在 fresh binary 结果出来前，阶段 4 只算“实现和本地回归已完成、真实 semantic 验收待确认”；`orphan_exit=2` 仍作为独立生命周期关联问题保留，不能和旧二进制的 signalfd 失败合并。
 
+随后用重新构建的二进制重跑后，signalfd 的 mask snapshot、FD_STATE snapshot、失败返回和事件计数均通过，仍失败的只有两个 `return_text` 断言。这两个断言不是 eBPF payload 缺失，而是 semantic fixture 使用 `-y` 启动；当前 CLI 中 `-y` 选择普通 path，signalfd mask 详情必须显式选择 `--decode-fds=signalfd`。对应的 Go handler 单测已经分别锁定了两种语义：`--decode-fds=path` 输出 `anon_inode:[signalfd]`，`--decode-fds=signalfd` 输出 mask 详情。
+
+因此 semantic fixture 已改为 `--decode-fds=signalfd`，并增加 Python 单测锁定启动参数。修改后需要再用 fresh binary 重跑 `ebpf-semantic`；在这次重跑前，阶段 4 仍不标记为完全闭环。`orphan_exit=2` 没有和参数选择问题合并，继续进入阶段 6 的独立诊断。
+
 ### 阶段 3 全量基线的首轮归因
 
 本次执行命令为 `sudo -n python3 test/run_tests.py --suite all --skip-build`。配置后的 1494 项全部进入 runner，最终计数为 466 PASS、851 FAIL、177 SKIP；`all` 当前没有复用 `more` 的 XFAIL 映射，因此 `XFailed=0` 和 `XPassed=0`。这次结果证明 runner inventory、共享 helper 和 prerequisite 边界已经工作，但不代表 851 个失败都是同一类实现问题。
@@ -230,7 +234,7 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 1. 修 runner inventory 和 prerequisite（已完成） | `test/run_tests.py`、`test/run_tests_upstream_setup_unit.py`；读取配置后的 `TESTS`，调用 `check-prerequisites-local`，传播构建错误 | 55 项 Python 单测通过；干净 upstream 可自行配置并构建 helper；清单为 1494 项且排除 6 个禁用 stacktrace 测试；`small` 为 22 PASS / 1 个明确 xlat FAIL | `test: honor configured upstream test inventory` |
 | 2. 关闭 dup3 生成输入所有权（已完成） | `cmd/generate-xlats/`、生成结果及测试；删除 submodule 未跟踪输入 | generator/meta 单测和 `go test ./...` 通过；`small` 23/23；dup3 基础用例 2/2，y/yy 仅剩具名 FD path diff；submodule clean | `f51471f fix(generator): derive dup3 flags from open flags` |
 | 3. 重建可信基线（已完成） | 不改 syscall 实现，只重跑配置后的 `all` 并按 environment / contract / implementation 分类 | 配置清单 1494 项；466 PASS / 851 FAIL / 177 SKIP；保留纯 eBPF、PID namespace、FD path、decoder 和环境类代表性 diff | `docs: refresh upstream failure inventory` |
-| 4. 验证 signalfd event-time FD path | handler event-time overlay 和回归测试已提交；用 fresh binary 做 root semantic 验收 | 两个 signalfd semantic 断言归零；相关 Go 测试和 fresh `ebpf-semantic` | `fix(handler): render signalfd path from exit event` |
+| 4. 验证 signalfd event-time FD path | handler event-time overlay、CLI 详情选择和回归测试已提交；用 fresh binary 做 root semantic 验收 | 两个 signalfd semantic 断言归零；相关 Go/Python 测试和 fresh `ebpf-semantic` | `fix(handler): render signalfd path from exit event` + `test(ebpf): select signalfd details` |
 | 5. 修 dup3 event-time FD path | 复用 overlay 边界，但只处理 dup3 成功覆盖目标 FD | `dup3-y.gen.test`、`dup3-yy.gen.test` 通过；失败返回不改变 path；cloexec 状态保持正确 | `fix(handler): render dup3 return path from exit event` |
 | 6. 定位 orphan exit | 仅增加原因级诊断，再按证据修 pending/lifecycle 路径 | 最小 fixture 定位 sys_id/TID/reason；正常 semantic fixture `orphan_exit=0`；attach 诊断契约不被破坏 | 分成 `test:` 诊断提交和一个窄 `fix(bpf):` 提交 |
 | 7. 逐 syscall 修兼容性 | 先 `OPENAT2_REGULAR`，再 `file_setattr`，每次一个 family | focused upstream tests、相关 Go 测试、`small` 和受影响 `more` | 每个 family 一个 `fix(decoder):` 或 `fix(handler):` 提交 |
