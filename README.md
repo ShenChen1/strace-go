@@ -206,7 +206,8 @@ suite 按目标分组：
 
 | 分组 | Suite | 作用 |
 | --- | --- | --- |
-| upstream 参考 | `small`, `more`, `upstream-reference`, `all` | 对照选定或全部 upstream test；exact diff 受纯 eBPF 契约约束 |
+| upstream 参考 | `small`, `more`, `upstream-reference` | 对照选定的 upstream test；exact diff 受纯 eBPF 契约约束 |
+| 配置全量 | `all` | 读取 configure 后 Makefile 展开的 `TESTS`，并在运行前一次性构建 upstream test prerequisites |
 | 核心语义 | `ebpf-semantic`, `ebpf-no-ptrace` | 校验结构化事件、生命周期和 `TracerPid: 0` |
 | BPF capability | `ebpf-capability`, `ebpf-stream`, `ebpf-struct-ops` | 校验低频 BPF command 及宿主能力边界 |
 | 性能与完整性 | `ebpf-perf`, `ebpf-capture`, `ebpf-capture-long` | 分离热窗口吞吐、端到端生命周期、Ringbuf 对账和错误计数 |
@@ -235,7 +236,8 @@ strace-go/
 ├── strace-upstream/         # 上游 strace submodule，作为参考和生成输入
 ├── doc/
 │   ├── arch.md              # 当前架构、关键决策、验证契约和技术债
-│   └── cli-compatibility.md # CLI 兼容性契约和验收矩阵
+│   ├── cli-compatibility.md # CLI 兼容性契约和验收矩阵
+│   └── upstream-failure-analysis.md # upstream 失败分类和逐项修复路线
 ├── AGENTS.md                # 仓库开发与验证规则
 └── build.sh                 # 完整重新生成并构建
 ```
@@ -247,3 +249,4 @@ strace-go/
 - 不直接编辑生成文件；修改生成器输入并审查生成结果。
 - 性能报告必须区分 trace-window throughput、端到端 setup/cleanup 成本、Ringbuf accounting 和错误计数。
 - 当前架构、关键决策和验证契约见 [`doc/arch.md`](doc/arch.md)。
+- upstream 测试失败分析和击破顺序见 [`doc/upstream-failure-analysis.md`](doc/upstream-failure-analysis.md)。
