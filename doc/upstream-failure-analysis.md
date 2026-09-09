@@ -123,6 +123,14 @@ focused 基线中，`openat2` 的 9 个非 raw 变体把 `OPENAT2_REGULAR` 输�
 
 新回归测试先验证了缺失 bit 和 verbose 输出的失败基线。实现后 `file_setattr.gen.test`、`file_setattr-P.gen.test`、`file_setattr-Xabbrev.gen.test`、`file_setattr-Xraw.gen.test`、`file_setattr-Xverbose.gen.test`、`file_setattr-y.gen.test`、`file_setattr-yy.gen.test` 全部通过；`file_getattr` 的基础、`-P`、`-y`、`-yy` 变体交叉回归也全部通过。
 
+### 2026-09-09 xetitimer 类型别名修复
+
+`xetitimer.gen.test` 的初始 diff 把成功 `setitimer/getitimer` 的结构参数全部显示成地址。重新生成并检查 raw payload 后，enter/exit 事件已经分别携带 32 字节 `itimerval` TLV，`copied_len=32`、`probe_ret=0`；因此问题不在 BPF 采集或 pure eBPF 边界。
+
+根因是生成的 `pkg/meta/syscall_table.go` 为这两个 syscall 使用 `struct __kernel_old_itimerval *`，而 builtin registry 只注册了 `struct itimerval *`。handler registry 因类型名未匹配而回退到指针格式。修复为同一个 `decodeItimerval` 增加 kernel-old 类型别名，并新增真实 metadata 类型的 payload 回归测试；没有增加内存读取或修改事件 ABI。
+
+回归测试先验证了 registry 缺少 decoder 的失败基线。修复后 `xetitimer.gen.test` 通过，证明 `setitimer` 的 enter/exit 两个结构和 `getitimer` 的 exit 结构均能按 upstream 格式渲染。
+
 ### 2026-09-09 最新 fresh root semantic 结果
 
 用户随后用更新后的二进制执行了 root semantic suite。中间结果为：BPF semantic 212 个事件通过，signalfd semantic 16 个事件通过，attach 与 non-leader attach 的生命周期检查通过；新增诊断明确显示两个 orphan 都是成功 `execve`：`orphan_first_pid=1369783`、`orphan_first_tid=1369783`、`orphan_first_sys_id=59`、`orphan_first_ret=0`，以及 `orphan_last_pid=1369784`、`orphan_last_tid=1369784`、`orphan_last_sys_id=59`、`orphan_last_ret=0`。统计仍为 `pending_mismatch=0`、`pending_update_fail=0`、`lifecycle_map_update_fail=0`、`records_read=185`、`records_decoded=185`、`records_invalid=0`，因此根因收敛到 lifecycle 已消费成功 exec pending 后的 raw exit 分类，不是 handler 或 Ringbuf 丢失。随后刷新 BPF object 重跑，最终 `PASS: ebpf-semantic`，normal fixture `orphan_exit=0`。
@@ -268,6 +276,7 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 
 - `openat2` 的 `OPENAT2_REGULAR` xlat 已闭环：专用表来自 `strace-upstream/src/xlat/openat2_flags.in`，并由 generator fallback 保证在缺少系统头常量时仍生成 `1<<32`；剩余 `openat2-y` 失败是独立的 `dfd=0` FD path 事件视图问题；
 - `file_setattr` 的 `fs_xflags` 缺失两个 bundled upstream bit 已闭环：supplemental xlat 表补入 `FS_XFLAG_CASEFOLD` 与 `FS_XFLAG_CASENONPRESERVING` 后，7 个格式和路径变体全部通过；`file_attr_at_flags` 保留通用 verbose 的数值加注释输出；
+- `xetitimer` 的结构输出已闭环：BPF 已有 32 字节 TLV，补齐 `struct __kernel_old_itimerval *` registry 别名后，`setitimer/getitimer` 的 focused 测试通过；
 - 时间类失败中有一部分来自 `sleep`/`sleep-timing` helper 缺失，不能和格式化 bug 混修。
 
 方案比较：
@@ -293,9 +302,10 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 7a. 修 openat2 `OPENAT2_REGULAR` xlat（已完成） | 生成独立专用表并在 openat2 handler 合并；保留 raw 数值语义 | 5 个非 `-y` openat2 变体通过；handler/generator 单测和完整 Go 门禁通过 | `fix(decoder): decode openat2 regular flag` |
 | 7b. 修 openat2 `-y` 的 dfd path（已完成） | 只处理首行 `dfd=0` 的 event-time FD path，不改已完成 xlat | 5 个带 `-y` openat2 变体通过；非 `-y` 变体保持通过；Go 全量门禁通过 | `fix(handler): render openat2 dfd path` |
 | 7c. 修 `file_setattr` xlat（已完成） | 只补 supplemental `fs_xflags` 中缺失的两个 bundled upstream bit；保持 `file_attr_at_flags`、raw 和 BPF snapshot 契约不变 | `file_setattr` 7 个变体通过；`file_getattr` 基础/路径 4 个变体交叉通过；相关 Go 测试和 vet 通过 | `fix(decoder): align file attribute xlat output` |
+| 7d. 修 `xetitimer` 类型注册（已完成） | 为生成 metadata 使用的 `struct __kernel_old_itimerval *` 注册既有 `decodeItimerval`；不改 BPF TLV 和内存读取边界 | registry 回归先失败后通过；`xetitimer.gen.test` 通过；Go 全量门禁通过 | `fix(handler): register legacy itimerval type` |
 | 8. 整理契约分类 | 只登记有架构证据和 focused evidence 的 XFAIL | unexpected XPASS 仍失败；无批量未知 XFAIL；无 ptrace/procfs/process-vm fallback | `test: document upstream compatibility exceptions` |
 
-阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复；阶段 4 的 fresh root semantic 验收、阶段 5 的 dup3 focused 验收、5a 的 dup2 focused 验收、7a 的 openat2 xlat 验收、7b 的 openat2 `-y` dfd path 验收和 7c 的 `file_setattr` xlat 验收均已闭环。下一步继续按一个 syscall family 一个提交处理。每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
+阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复；阶段 4 的 fresh root semantic 验收、阶段 5 的 dup3 focused 验收、5a 的 dup2 focused 验收、7a 的 openat2 xlat 验收、7b 的 openat2 `-y` dfd path 验收、7c 的 `file_setattr` xlat 验收和 7d 的 `xetitimer` 类型注册验收均已闭环。下一步继续按一个 syscall family 一个提交处理。每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
 
 ## 重跑注意事项
 

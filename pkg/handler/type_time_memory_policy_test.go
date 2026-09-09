@@ -200,6 +200,29 @@ func TestRegistryDecodesKernelOldTimevalPayload(t *testing.T) {
 	}
 }
 
+func TestRegistryDecodesKernelOldItimervalPayload(t *testing.T) {
+	decoder := NewRegistry().StructDecoder("struct __kernel_old_itimerval *")
+	if decoder == nil {
+		t.Fatal("kernel old itimerval decoder is missing")
+	}
+	ctx := &Context{
+		Ret:    0,
+		ScMeta: meta.Syscall{Name: "getitimer"},
+		PayloadSections: []PayloadSection{
+			{Kind: PayloadKindStruct, Direction: PayloadDirectionOut, ArgIndex: 1, ProbeRet: 0, Data: makeDoubleTimeStruct(5, 6, 7, 8)},
+		},
+	}
+
+	got, ok := decoder.Decode(ctx, 1, "struct __kernel_old_itimerval *", 0x1000)
+	if !ok {
+		t.Fatal("kernel old itimerval decoder returned ok=false")
+	}
+	want := "{it_interval={tv_sec=5, tv_usec=6}, it_value={tv_sec=7, tv_usec=8}}"
+	if got != want {
+		t.Fatalf("kernel old itimerval = %q, want %q", got, want)
+	}
+}
+
 func TestDecodeTimevalFallsBackToPointerWithoutSnapshot(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeTimeStruct(99, 100)}
 	decoder := event.NewDecoder()

@@ -13,6 +13,7 @@ func registerBuiltinTypeTime(r *Registry) {
 	r.RegisterStructDecoder("struct timex *", StructDecoderFunc(decodeTimex))
 	r.RegisterStructDecoder("struct __kernel_timex *", StructDecoderFunc(decodeTimex))
 	r.RegisterStructDecoder("struct itimerval *", StructDecoderFunc(decodeItimerval))
+	r.RegisterStructDecoder("struct __kernel_old_itimerval *", StructDecoderFunc(decodeItimerval))
 	r.RegisterStructDecoder("struct itimerspec *", StructDecoderFunc(decodeItimerspec))
 	r.RegisterStructDecoder("struct timezone *", StructDecoderFunc(decodeTimezone))
 }
