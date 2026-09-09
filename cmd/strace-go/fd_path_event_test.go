@@ -9,6 +9,7 @@ import (
 	"strace-go/pkg/cli"
 	"strace-go/pkg/event"
 	"strace-go/pkg/handler"
+	"strace-go/pkg/meta"
 )
 
 func TestFDPathOverlayFeedsPathFilterAndFormatter(t *testing.T) {
@@ -84,6 +85,75 @@ func TestFDPathOverlayReaderDoesNotMutateStoreBeforeCommit(t *testing.T) {
 	}
 	if got, ok := store.Path(101, 9); !ok || got != "/old" {
 		t.Fatalf("store path before commit = %q, %v; want /old", got, ok)
+	}
+}
+
+func TestDup3ReturnUsesSourcePathButArgumentsKeepTargetSnapshot(t *testing.T) {
+	store := newFDStateStoreFromMaps(map[string]string{
+		"101:0": "/dev/null",
+		"101:5": "/dev/full",
+	}, nil)
+	opts := cli.ParseArgs([]string{"-y", "--trace=dup3", "/bin/true"})
+	deps := syscallEventContextDeps{
+		decoder:     event.NewDecoder(),
+		handlerOpts: opts,
+		filter:      newTraceFilterOptions(opts),
+		fdState:     store,
+		registry:    handler.NewRegistry(),
+		catalog:     meta.NewCatalog("abbrev"),
+	}
+	view := syscallEventView{
+		valid:     true,
+		pid:       101,
+		tid:       101,
+		sysID:     syscallIDByName(t, "dup3"),
+		eventType: bpfEventTypeExit,
+		args:      [6]uint64{0, 5},
+		ret:       5,
+	}
+	ev := newSyscallEventContextFromViewWithDeps(deps, view, 101, nil, []handler.PayloadSection{
+		{
+			Kind:      handler.PayloadKindFDPath,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  0,
+			ProbeRet:  0,
+			Data:      []byte("/dev/null\x00"),
+		},
+		{
+			Kind:      handler.PayloadKindFDPath,
+			Direction: handler.PayloadDirectionIn,
+			ArgIndex:  1,
+			ProbeRet:  0,
+			Data:      []byte("/dev/full\x00"),
+		},
+	})
+	result := defaultHandleSyscall("dup3", ev.handlerContext)
+	if got, want := result.ArgParts, []string{"0</dev/null>", "5</dev/full>", "0"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("dup3 args = %#v, want %#v", got, want)
+	}
+
+	ev.updateFDState(store)
+	if got := formatSyscallRet("dup3", view.ret, result, ev.handlerContextForFormatting()); got != "5</dev/null>" {
+		t.Fatalf("dup3 return = %q, want 5</dev/null>", got)
+	}
+}
+
+func TestDup3ReturnOverlayIgnoresFailedReturn(t *testing.T) {
+	eventView := eventFDStateView{paths: map[int32]string{
+		0: "/dev/null",
+		5: "/dev/full",
+	}}
+	got, applied := dup3ReturnFDView(eventView, "dup3", syscallEventView{
+		valid:     true,
+		eventType: bpfEventTypeExit,
+		args:      [6]uint64{0, 5},
+		ret:       -9,
+	}, newFDStateStoreFromMaps(map[string]string{"101:0": "/dev/null"}, nil), 101)
+	if applied {
+		t.Fatal("failed dup3 return received an event-time path overlay")
+	}
+	if path, ok := got.Path(5); !ok || path != "/dev/full" {
+		t.Fatalf("failed dup3 target path = %q, %v; want /dev/full", path, ok)
 	}
 }
 

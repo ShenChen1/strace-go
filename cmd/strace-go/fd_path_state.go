@@ -89,6 +89,71 @@ func eventFDViewFromSections(
 	return eventView
 }
 
+func dup3ReturnFDView(
+	eventView eventFDStateView,
+	syscallName string,
+	view syscallEventView,
+	fdState handler.FDStateReader,
+	statePID int,
+) (eventFDStateView, bool) {
+	if syscallName != "dup3" || !view.valid || view.eventType != bpfEventTypeExit || view.ret < 0 {
+		return eventView, false
+	}
+	oldFD := int32(view.args[0])
+	newFD := int32(view.ret)
+	if oldFD == newFD {
+		return eventView, false
+	}
+	path, ok := eventView.Path(oldFD)
+	var observation handler.FDStateObservation
+	observation, hasObservation := eventView.Observation(oldFD)
+	if !ok && fdState != nil {
+		path, ok = fdState.Path(statePID, oldFD)
+	}
+	if !hasObservation && fdState != nil {
+		observation, hasObservation = fdState.Observation(statePID, oldFD)
+	}
+	if !ok || path == "" {
+		return eventView, false
+	}
+	returnView := cloneEventFDStateView(eventView)
+	returnView.paths[newFD] = normalizeTrackedFDPath(path)
+	if hasObservation {
+		returnView.states[newFD] = observation
+	}
+	return returnView, true
+}
+
+func cloneEventFDStateView(view eventFDStateView) eventFDStateView {
+	clone := eventFDStateView{cwd: view.cwd}
+	if view.paths != nil {
+		clone.paths = make(map[int32]string, len(view.paths))
+		for fd, path := range view.paths {
+			clone.paths[fd] = path
+		}
+	}
+	if view.states != nil {
+		clone.states = make(map[int32]handler.FDStateObservation, len(view.states))
+		for fd, observation := range view.states {
+			clone.states[fd] = observation
+		}
+	}
+	if clone.paths == nil {
+		clone.paths = make(map[int32]string)
+	}
+	if clone.states == nil {
+		clone.states = make(map[int32]handler.FDStateObservation)
+	}
+	return clone
+}
+
+func normalizeTrackedFDPath(path string) string {
+	if len(path) >= 2 && path[0] == '"' && path[len(path)-1] == '"' {
+		return path[1 : len(path)-1]
+	}
+	return path
+}
+
 func applySignalfdEventPath(
 	eventView *eventFDStateView,
 	syscallName string,

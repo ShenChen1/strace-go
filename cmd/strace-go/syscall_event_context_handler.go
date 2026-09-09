@@ -39,7 +39,19 @@ func (ev syscallEventContext) syscallName() string {
 }
 
 func (ev syscallEventContext) handlerContextForFormatting() *handler.Context {
-	return ev.handlerContext
+	if ev.handlerContext == nil || !ev.hasReturnFDView {
+		return ev.handlerContext
+	}
+	context := *ev.handlerContext
+	context.EventFDView = ev.returnHandlerEventFDView()
+	return &context
+}
+
+func (ev syscallEventContext) returnHandlerEventFDView() handler.EventFDStateReader {
+	if len(ev.returnFDView.paths) == 0 && len(ev.returnFDView.states) == 0 && ev.returnFDView.cwd == "" {
+		return nil
+	}
+	return ev.returnFDView
 }
 
 func (ev syscallEventContext) decodedPayloadSections() []handler.PayloadSection {

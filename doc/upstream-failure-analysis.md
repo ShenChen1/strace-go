@@ -56,6 +56,9 @@
 | `sudo -n python3 test/run_tests.py --suite small --skip-build` | 23 PASS / 0 FAIL | 阶段 1 已消除 helper/environment false negative；阶段 2 补齐 `O_EMPTYPATH` 后 small 全绿 |
 | `dup3.gen.test`、`dup3-P.gen.test` | 2 PASS / 0 FAIL | `dup3_flags` 派生表的基础和 path-filter flag 输出通过 |
 | `dup3-y.gen.test`、`dup3-yy.gen.test` | 2 FAIL | flag 输出已经匹配；剩余 diff 仅为成功覆盖目标 FD 后，同一 exit 事件仍显示调用前的目标路径 |
+| 修复后 `sudo -n python3 test/run_tests.py --suite all --filter dup3-y.gen.test --skip-build` | 1 PASS / 0 FAIL | return-only FD overlay 已使成功覆盖目标 FD 的返回 path 与 upstream 一致 |
+| 修复后 `sudo -n python3 test/run_tests.py --suite all --filter dup3-yy.gen.test --skip-build` | 1 PASS / 0 FAIL | 返回 path 和 `char 1:3` / `char 1:7` 详细 metadata 均与 upstream 一致 |
+| 当前 `dup2-y.gen.test` | 1 FAIL | 与 dup3 同类的 event-time path 缺口仍在，留作下一项独立修复 |
 
 历史语义 suite 的复现统计更具体：`records_decoded=185`、`records_invalid=0`、`pending_mismatch=0`、`pending_update_fail=0`、`lifecycle_map_update_fail=0`、`orphan_exit=2`。最新 fresh root 运行已将 normal fixture 的 orphan 清零；同时 BPF fixture、signalfd fixture、attach fixture 和 non-leader attach 的语义断言均已通过。attach fixture 仍按契约报告 1 个 attach orphan，non-leader attach 的 orphan 为 0。
 
@@ -77,6 +80,19 @@ sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build
 因此 semantic fixture 已改为 `--decode-fds=signalfd`，并增加 Python 单测锁定启动参数。修改后需要再用 fresh binary 重跑 `ebpf-semantic`；在这次重跑前，阶段 4 仍不标记为完全闭环。`orphan_exit=2` 没有和参数选择问题合并，继续进入阶段 6 的独立诊断。
 
 再次运行后，两个 signalfd 返回路径断言已经消失，说明阶段 4 的 event-time path 和详情选择均生效。中间一轮曾出现 BPF 主 fixture 没有输出 `bpf-fixture-ok` 的成簇失败；当时已增加失败 stderr 提取和单测，避免把 fixture 启动错误误判成大量 payload/配对回归。最新 fresh root 运行中 BPF semantic 已通过，因此该中间环境问题不再作为当前实现缺口。
+
+### 2026-09-09 dup3 event-time path 修复
+
+修复前的 `dup3-y/dup3-yy` diff 只剩成功覆盖目标 FD 的返回值：参数仍需显示替换前的目标 path，而返回值应显示源 FD path。修复保持 `SyscallHandlerRunner` 的副作用顺序不变，在 syscall context 内增加 return-only FD view：源 path/observation 优先取同一事件的 FD snapshot，缺失时从只读持久 FD reader 兜底；handler 参数继续使用原 event view，因此 `newfd` 参数不会提前显示新对象。
+
+回归测试先在修复前确认返回值错误为 `5</dev/full>`，随后通过新增的 dup3 成功/失败单测；重新构建后以下 root focused upstream 测试均通过：
+
+```text
+dup3-y.gen.test: PASS
+dup3-yy.gen.test: PASS
+```
+
+`dup3-yy` 的设备 metadata 也由源 FD snapshot 提供。失败返回不创建 overlay，持久 FD state 和 cloexec 更新仍由原有提交路径负责。相邻的 `dup2-y.gen.test` 当前仍失败，下一步单独处理同一类 event-time path，不与本次 dup3 提交混合。
 
 ### 2026-09-09 最新 fresh root semantic 结果
 
@@ -168,7 +184,7 @@ sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build
 
 这不是缺少 eBPF 快照，而是“事件内状态 overlay”没有覆盖 signalfd 特殊 FD creator。
 
-阶段 2 还确认了同类的 dup3 缺口：成功的 `dup3(oldfd, newfd, flags)` 会把 `newfd` 指向 `oldfd` 的对象，但 handler 格式化发生在持久 FD state 更新之前，因此 `dup3-y.gen.test` 和 `dup3-yy.gen.test` 的返回值仍显示调用前的 `newfd` 路径。两项测试的 flag 文本已经完全匹配，剩余 diff 只涉及 event-time path。
+阶段 2 还确认了同类的 dup2/dup3 缺口：成功的复制 syscall 会把 `newfd` 指向 `oldfd` 的对象，但 event payload 中的参数 snapshot 仍代表调用前状态。阶段 5 已为 `dup3` 增加 return-only overlay，`dup3-y/dup3-yy` 已通过；`dup2-y/dup2-yy` 仍保留为下一项窄修复，不能因为 dup3 已闭环而视为整个 FD family 已完成。
 
 方案比较：
 
@@ -242,12 +258,12 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 2. 关闭 dup3 生成输入所有权（已完成） | `cmd/generate-xlats/`、生成结果及测试；删除 submodule 未跟踪输入 | generator/meta 单测和 `go test ./...` 通过；`small` 23/23；dup3 基础用例 2/2，y/yy 仅剩具名 FD path diff；submodule clean | `f51471f fix(generator): derive dup3 flags from open flags` |
 | 3. 重建可信基线（已完成） | 不改 syscall 实现，只重跑配置后的 `all` 并按 environment / contract / implementation 分类 | 配置清单 1494 项；466 PASS / 851 FAIL / 177 SKIP；保留纯 eBPF、PID namespace、FD path、decoder 和环境类代表性 diff | `docs: refresh upstream failure inventory` |
 | 4. 验证 signalfd event-time FD path | handler event-time overlay、CLI 详情选择和回归测试已提交；用 fresh binary 做 root semantic 验收 | 两个 signalfd semantic 断言归零；相关 Go/Python 测试和 fresh `ebpf-semantic` | `fix(handler): render signalfd path from exit event` + `test(ebpf): select signalfd details` |
-| 5. 修 dup3 event-time FD path | 复用 overlay 边界，但只处理 dup3 成功覆盖目标 FD | `dup3-y.gen.test`、`dup3-yy.gen.test` 通过；失败返回不改变 path；cloexec 状态保持正确 | `fix(handler): render dup3 return path from exit event` |
+| 5. 修 dup3 event-time FD path（已完成） | 复用 overlay 边界，但只处理 dup3 成功覆盖目标 FD；参数继续使用调用前 snapshot | `dup3-y.gen.test`、`dup3-yy.gen.test` 通过；失败返回不创建 overlay；cloexec 状态保持原有更新路径 | `fix(handler): render dup3 return path from exit event` |
 | 6. 修复 orphan exit（已完成） | 成功 exec 的 lifecycle-owned raw exit 不再计为 orphan；保留其他 unmatched 统计 | root semantic `PASS`；normal `orphan_exit=0`；attach 仍报告预期 orphan；focused/全量本地测试通过 | `fix(bpf): classify lifecycle-owned exec exits` |
 | 7. 逐 syscall 修兼容性 | 先 `OPENAT2_REGULAR`，再 `file_setattr`，每次一个 family | focused upstream tests、相关 Go 测试、`small` 和受影响 `more` | 每个 family 一个 `fix(decoder):` 或 `fix(handler):` 提交 |
 | 8. 整理契约分类 | 只登记有架构证据和 focused evidence 的 XFAIL | unexpected XPASS 仍失败；无批量未知 XFAIL；无 ptrace/procfs/process-vm fallback | `test: document upstream compatibility exceptions` |
 
-阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复。阶段 4 的实现提交和本地回归已完成，但由于此前 root 命令使用了早于该提交的二进制，真实 semantic 验收仍未闭环。从阶段 4 开始，每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
+阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复；阶段 4 的 fresh root semantic 验收和阶段 5 的 dup3 focused 验收均已闭环。阶段 5 之后转入 `dup2-y/dup2-yy`，再按一个 syscall family 一个提交继续处理。每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
 
 ## 重跑注意事项
 

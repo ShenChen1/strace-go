@@ -24,6 +24,8 @@ type syscallEventContext struct {
 	contextRecycler      *handlerContextRecycler
 	payloadSections      []handler.PayloadSection
 	eventFDView          eventFDStateView
+	returnFDView         eventFDStateView
+	hasReturnFDView      bool
 	detached             bool
 	detachedByStatus     bool
 	detachedByExecPolicy bool
@@ -142,6 +144,13 @@ func newSyscallEventContextFromViewWithDeps(
 	}
 	payloadSections := mergePendingPayloadSections(pendingEnter, currentPayload)
 	eventFDView := eventFDViewFromSections(scMeta.Name, view, payloadSections)
+	returnFDView, hasReturnFDView := dup3ReturnFDView(
+		eventFDView,
+		scMeta.Name,
+		view,
+		deps.fdStateReader(),
+		statePID,
+	)
 	pathArguments := decodePathArguments(deps, view, scMeta, payloadSections)
 	pathText := primaryPathText(pathArguments)
 	shouldPrint := true
@@ -172,6 +181,8 @@ func newSyscallEventContextFromViewWithDeps(
 		contextRecycler: deps.contextPool,
 		payloadSections: payloadSections,
 		eventFDView:     eventFDView,
+		returnFDView:    returnFDView,
+		hasReturnFDView: hasReturnFDView,
 	}
 	if shouldBuildHandlerContext(ev, deps) {
 		ev.handlerContext = ev.newHandlerContext(deps)
