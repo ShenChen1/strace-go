@@ -17,6 +17,7 @@
 #define KVM_RUN_IOCTL 0xae80
 #define KVM_EXIT_AUX_VALID (1U << 31)
 #define KVM_EXIT_AUX_REASON_MASK (~KVM_EXIT_AUX_VALID)
+#define ORPHAN_REASON_NO_PENDING 1
 
 struct exec_snapshot_header {
     u32 magic;
@@ -75,6 +76,18 @@ struct bpf_stats {
     u64 payload_truncated_events;
     u64 pending_update_fail;
     u64 orphan_exit;
+    u64 orphan_first_pid;
+    u64 orphan_first_tid;
+    u64 orphan_first_sys_id;
+    s64 orphan_first_ret;
+    u64 orphan_first_reason;
+    u64 orphan_first_time_ns;
+    u64 orphan_last_pid;
+    u64 orphan_last_tid;
+    u64 orphan_last_sys_id;
+    s64 orphan_last_ret;
+    u64 orphan_last_reason;
+    u64 orphan_last_time_ns;
     u64 pending_mismatch;
     u64 lifecycle_map_update_fail;
     u64 lifecycle_fork_seen;

@@ -34,6 +34,16 @@ def print_semantic_summary(context, filter_event_count):
     print(f"=> eBPF payload truncated events: {stats.get('payload_truncated_events')}")
     print(f"=> eBPF pending update failures: {stats.get('pending_update_fail')}")
     print(f"=> eBPF orphan exits: {stats.get('orphan_exit')}")
+    print(
+        f"=> eBPF orphan first: pid={stats.get('orphan_first_pid')} "
+        f"tid={stats.get('orphan_first_tid')} sys_id={stats.get('orphan_first_sys_id')} "
+        f"ret={stats.get('orphan_first_ret')} reason={stats.get('orphan_first_reason')}"
+    )
+    print(
+        f"=> eBPF orphan last: pid={stats.get('orphan_last_pid')} "
+        f"tid={stats.get('orphan_last_tid')} sys_id={stats.get('orphan_last_sys_id')} "
+        f"ret={stats.get('orphan_last_ret')} reason={stats.get('orphan_last_reason')}"
+    )
     print(f"=> eBPF pending mismatches: {stats.get('pending_mismatch')}")
     print(
         f"=> eBPF lifecycle map update failures: "

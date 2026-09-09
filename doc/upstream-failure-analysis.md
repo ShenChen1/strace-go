@@ -46,6 +46,7 @@
 | `sudo -n python3 test/run_tests.py --suite all` | 374 PASS / 954 FAIL / 172 SKIP | runner 对生成目录进行文件系统扫测；混合了非配置测试、helper 缺失、exact output 差异和纯 eBPF 非契约差异，不能作为 upstream 官方全量结果或实现 bug 总数 |
 | `sudo -n python3 test/run_tests.py --suite more --skip-build` | 199 PASS / 63 FAIL / 3 XFAIL / 0 XPASS | `more` 只登记了 3 个已知非契约差异，其余失败仍需分类 |
 | `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` | 3 FAIL | `orphan_exit` 2 个，以及两个 signalfd 同事件路径输出失败 |
+| 最新 fresh root `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` | PASS | BPF、signalfd、生命周期和 normal fixture 均通过；`orphan_exit=0` |
 | `sudo -n python3 test/run_tests.py --suite ebpf-no-ptrace --skip-build` | PASS | 未观察到 ptrace 运行时介入 |
 | `GOCACHE=/tmp/strace-go-gocache go test ./... -count=1` | PASS | Go 单测和生成结果可编译、可运行 |
 | `GOCACHE=/tmp/strace-go-gocache go vet ./...` | PASS | 静态检查通过 |
@@ -56,7 +57,7 @@
 | `dup3.gen.test`、`dup3-P.gen.test` | 2 PASS / 0 FAIL | `dup3_flags` 派生表的基础和 path-filter flag 输出通过 |
 | `dup3-y.gen.test`、`dup3-yy.gen.test` | 2 FAIL | flag 输出已经匹配；剩余 diff 仅为成功覆盖目标 FD 后，同一 exit 事件仍显示调用前的目标路径 |
 
-语义 suite 的复现统计更具体：`records_decoded=185`、`records_invalid=0`、`pending_mismatch=0`、`pending_update_fail=0`、`lifecycle_map_update_fail=0`、`orphan_exit=2`。attach fixture 另报告 1 个 attach orphan，但 non-leader attach 的 orphan 为 0。
+历史语义 suite 的复现统计更具体：`records_decoded=185`、`records_invalid=0`、`pending_mismatch=0`、`pending_update_fail=0`、`lifecycle_map_update_fail=0`、`orphan_exit=2`。最新 fresh root 运行已将 normal fixture 的 orphan 清零；同时 BPF fixture、signalfd fixture、attach fixture 和 non-leader attach 的语义断言均已通过。attach fixture 仍按契约报告 1 个 attach orphan，non-leader attach 的 orphan 为 0。
 
 ### 2026-09-09 外部 semantic 结果的二进制复核
 
@@ -75,7 +76,11 @@ sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build
 
 因此 semantic fixture 已改为 `--decode-fds=signalfd`，并增加 Python 单测锁定启动参数。修改后需要再用 fresh binary 重跑 `ebpf-semantic`；在这次重跑前，阶段 4 仍不标记为完全闭环。`orphan_exit=2` 没有和参数选择问题合并，继续进入阶段 6 的独立诊断。
 
-再次运行后，两个 signalfd 返回路径断言已经消失，说明阶段 4 的 event-time path 和详情选择均生效。该轮新增的 BPF 失败表现为主 fixture 没有输出 `bpf-fixture-ok`，随后所有 BPF payload/配对断言成簇失败；由于旧 runner 丢弃了 fixture 自身的非 JSON stderr，当前不能从汇总判断是哪个 BPF 命令和 errno 导致主 fixture提前退出。已增加失败 stderr 提取和单测，下一轮 semantic 输出会带出 fixture 的具体错误；在拿到该错误前，不修改 BPF handler 或批量标记 XFAIL。
+再次运行后，两个 signalfd 返回路径断言已经消失，说明阶段 4 的 event-time path 和详情选择均生效。中间一轮曾出现 BPF 主 fixture 没有输出 `bpf-fixture-ok` 的成簇失败；当时已增加失败 stderr 提取和单测，避免把 fixture 启动错误误判成大量 payload/配对回归。最新 fresh root 运行中 BPF semantic 已通过，因此该中间环境问题不再作为当前实现缺口。
+
+### 2026-09-09 最新 fresh root semantic 结果
+
+用户随后用更新后的二进制执行了 root semantic suite。中间结果为：BPF semantic 212 个事件通过，signalfd semantic 16 个事件通过，attach 与 non-leader attach 的生命周期检查通过；新增诊断明确显示两个 orphan 都是成功 `execve`：`orphan_first_pid=1369783`、`orphan_first_tid=1369783`、`orphan_first_sys_id=59`、`orphan_first_ret=0`，以及 `orphan_last_pid=1369784`、`orphan_last_tid=1369784`、`orphan_last_sys_id=59`、`orphan_last_ret=0`。统计仍为 `pending_mismatch=0`、`pending_update_fail=0`、`lifecycle_map_update_fail=0`、`records_read=185`、`records_decoded=185`、`records_invalid=0`，因此根因收敛到 lifecycle 已消费成功 exec pending 后的 raw exit 分类，不是 handler 或 Ringbuf 丢失。随后刷新 BPF object 重跑，最终 `PASS: ebpf-semantic`，normal fixture `orphan_exit=0`。
 
 ### 阶段 3 全量基线的首轮归因
 
@@ -184,9 +189,9 @@ sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build
 - syscall 不属于已知的 terminating、fork child 或 exec restart unmatched 情况；
 - task-local pending state 查不到。
 
-因此当前的 `orphan_exit=2` 不能直接归因于 Ringbuf 丢失：本次统计同时显示 `ringbuf_reserve_fail=0`、`ringbuf_copy_fail=0`、`pending_update_fail=0`。更可能的候选是某个 raw `sys_exit` 与 task storage/lifecycle cleanup 的竞态，或某个 route 没有建立对应 pending state；但现有 counter 只记录总数，没有 syscall ID/TID/reason，不能安全猜修。
+因此当前的 `orphan_exit=2` 不能直接归因于 Ringbuf 丢失：本次统计同时显示 `ringbuf_reserve_fail=0`、`ringbuf_copy_fail=0`、`pending_update_fail=0`。更可能的候选是某个 raw `sys_exit` 与 task storage/lifecycle cleanup 的竞态，或某个 route 没有建立对应 pending state。
 
-下一步不是放宽 counter，而是增加仅用于 debug/semantic fixture 的原因分类：至少记录 `sys_id`、`tid`、pending lookup 结果、tracked/filter 状态和 lifecycle teardown 状态，然后用最小 fixture 重现。确认具体路径后再补 BPF 回归测试。
+诊断提交已完成：`bpf_stats` 现在记录首个/最后一个 orphan 的 `pid`、`tid`、`sys_id`、返回值、reason 和时间戳；Go 聚合按时间戳选择跨 CPU 的首末记录；文本、JSON 和 semantic summary 都会暴露这些字段。当前 `reason=1` 表示“没有 pending state 的 unmatched exit”，不改变 orphan 判定。根因修复已加入 `is_expected_unmatched_exit`：成功 `execve/execveat` 的 raw exit `ret=0` 由 `sched_process_exec` 生命周期路径补发并消费，因此后续无 pending 的 raw edge 属于预期 unmatched。宿主机刷新 BPF ELF 后重跑已得到 `orphan_exit=0` 和 `PASS: ebpf-semantic`，阶段 6 闭环。
 
 ### E. `dup3_flags` 生成输入位于 submodule 未跟踪区（P0，阶段 2 已关闭）
 
@@ -238,7 +243,7 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 3. 重建可信基线（已完成） | 不改 syscall 实现，只重跑配置后的 `all` 并按 environment / contract / implementation 分类 | 配置清单 1494 项；466 PASS / 851 FAIL / 177 SKIP；保留纯 eBPF、PID namespace、FD path、decoder 和环境类代表性 diff | `docs: refresh upstream failure inventory` |
 | 4. 验证 signalfd event-time FD path | handler event-time overlay、CLI 详情选择和回归测试已提交；用 fresh binary 做 root semantic 验收 | 两个 signalfd semantic 断言归零；相关 Go/Python 测试和 fresh `ebpf-semantic` | `fix(handler): render signalfd path from exit event` + `test(ebpf): select signalfd details` |
 | 5. 修 dup3 event-time FD path | 复用 overlay 边界，但只处理 dup3 成功覆盖目标 FD | `dup3-y.gen.test`、`dup3-yy.gen.test` 通过；失败返回不改变 path；cloexec 状态保持正确 | `fix(handler): render dup3 return path from exit event` |
-| 6. 定位 orphan exit | 仅增加原因级诊断，再按证据修 pending/lifecycle 路径 | 最小 fixture 定位 sys_id/TID/reason；正常 semantic fixture `orphan_exit=0`；attach 诊断契约不被破坏 | 分成 `test:` 诊断提交和一个窄 `fix(bpf):` 提交 |
+| 6. 修复 orphan exit（已完成） | 成功 exec 的 lifecycle-owned raw exit 不再计为 orphan；保留其他 unmatched 统计 | root semantic `PASS`；normal `orphan_exit=0`；attach 仍报告预期 orphan；focused/全量本地测试通过 | `fix(bpf): classify lifecycle-owned exec exits` |
 | 7. 逐 syscall 修兼容性 | 先 `OPENAT2_REGULAR`，再 `file_setattr`，每次一个 family | focused upstream tests、相关 Go 测试、`small` 和受影响 `more` | 每个 family 一个 `fix(decoder):` 或 `fix(handler):` 提交 |
 | 8. 整理契约分类 | 只登记有架构证据和 focused evidence 的 XFAIL | unexpected XPASS 仍失败；无批量未知 XFAIL；无 ptrace/procfs/process-vm fallback | `test: document upstream compatibility exceptions` |
 

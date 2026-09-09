@@ -229,7 +229,7 @@ func bpfStatsDiagnosticLine(stats bpfRuntimeStats) (string, bool) {
 		stats.LifecycleMapUpdateFail == 0 {
 		return "", false
 	}
-	return fmt.Sprintf(
+	line := fmt.Sprintf(
 		"strace-go: event diagnostics: ringbuf_reserve_fail=%d ringbuf_copy_fail=%d pending_update_fail=%d orphan_exit=%d pending_mismatch=%d lifecycle_map_update_fail=%d",
 		stats.RingbufReserveFail,
 		stats.RingbufCopyFail,
@@ -237,5 +237,21 @@ func bpfStatsDiagnosticLine(stats bpfRuntimeStats) (string, bool) {
 		stats.OrphanExit,
 		stats.PendingMismatch,
 		stats.LifecycleMapUpdateFail,
-	), true
+	)
+	if stats.OrphanExit > 0 {
+		line += fmt.Sprintf(
+			" orphan_first=(pid=%d tid=%d sys_id=%d ret=%d reason=%d) orphan_last=(pid=%d tid=%d sys_id=%d ret=%d reason=%d)",
+			stats.OrphanFirstPid,
+			stats.OrphanFirstTid,
+			stats.OrphanFirstSysID,
+			stats.OrphanFirstRet,
+			stats.OrphanFirstReason,
+			stats.OrphanLastPid,
+			stats.OrphanLastTid,
+			stats.OrphanLastSysID,
+			stats.OrphanLastRet,
+			stats.OrphanLastReason,
+		)
+	}
+	return line, true
 }

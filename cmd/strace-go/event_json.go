@@ -92,6 +92,18 @@ type jsonStatsEvent struct {
 	PayloadTruncatedEvents     uint64 `json:"payload_truncated_events"`
 	PendingUpdateFail          uint64 `json:"pending_update_fail"`
 	OrphanExit                 uint64 `json:"orphan_exit"`
+	OrphanFirstPid             uint64 `json:"orphan_first_pid"`
+	OrphanFirstTid             uint64 `json:"orphan_first_tid"`
+	OrphanFirstSysID           uint64 `json:"orphan_first_sys_id"`
+	OrphanFirstRet             int64  `json:"orphan_first_ret"`
+	OrphanFirstReason          uint64 `json:"orphan_first_reason"`
+	OrphanFirstTimeNS          uint64 `json:"orphan_first_time_ns"`
+	OrphanLastPid              uint64 `json:"orphan_last_pid"`
+	OrphanLastTid              uint64 `json:"orphan_last_tid"`
+	OrphanLastSysID            uint64 `json:"orphan_last_sys_id"`
+	OrphanLastRet              int64  `json:"orphan_last_ret"`
+	OrphanLastReason           uint64 `json:"orphan_last_reason"`
+	OrphanLastTimeNS           uint64 `json:"orphan_last_time_ns"`
 	PendingMismatch            uint64 `json:"pending_mismatch"`
 	LifecycleMapUpdateFail     uint64 `json:"lifecycle_map_update_fail"`
 	LifecycleForkSeen          uint64 `json:"lifecycle_fork_seen"`
@@ -245,6 +257,18 @@ func newJSONStatsEvent(
 		PayloadTruncatedEvents:     stats.PayloadTruncatedEvents,
 		PendingUpdateFail:          stats.PendingUpdateFail,
 		OrphanExit:                 stats.OrphanExit,
+		OrphanFirstPid:             stats.OrphanFirstPid,
+		OrphanFirstTid:             stats.OrphanFirstTid,
+		OrphanFirstSysID:           stats.OrphanFirstSysID,
+		OrphanFirstRet:             stats.OrphanFirstRet,
+		OrphanFirstReason:          stats.OrphanFirstReason,
+		OrphanFirstTimeNS:          stats.OrphanFirstTimeNS,
+		OrphanLastPid:              stats.OrphanLastPid,
+		OrphanLastTid:              stats.OrphanLastTid,
+		OrphanLastSysID:            stats.OrphanLastSysID,
+		OrphanLastRet:              stats.OrphanLastRet,
+		OrphanLastReason:           stats.OrphanLastReason,
+		OrphanLastTimeNS:           stats.OrphanLastTimeNS,
 		PendingMismatch:            stats.PendingMismatch,
 		LifecycleMapUpdateFail:     stats.LifecycleMapUpdateFail,
 		LifecycleForkSeen:          stats.LifecycleForkSeen,

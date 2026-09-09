@@ -28,6 +28,11 @@ static __always_inline int is_expected_unmatched_exit(u32 sys_id, s64 ret_value)
     if (is_process_creation_direct_syscall(sys_id) && ret_value == 0) {
         return 1;
     }
+    // sched_process_exec emits and consumes the successful exec completion;
+    // the later raw sys_exit edge has no independent pending state.
+    if (is_exec_payload_direct_syscall(sys_id) && ret_value == 0) {
+        return 1;
+    }
     return is_exec_payload_direct_syscall(sys_id) &&
         is_exec_restart_return(ret_value);
 }
@@ -47,7 +52,7 @@ static __always_inline void record_unmatched_exit_if_needed(u32 pid, u32 tid, u3
         return;
     }
     if (is_expected_unmatched_exit(sys_id, ret_value)) return;
-    record_orphan_exit();
+    record_orphan_exit(pid, tid, sys_id, ret_value, ORPHAN_REASON_NO_PENDING);
 }
 
 // IMPACT: normal exits use task-local state; only a successful non-leader exec

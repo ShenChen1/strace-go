@@ -10,6 +10,18 @@ type bpfRuntimeStats struct {
 	PayloadTruncatedEvents uint64
 	PendingUpdateFail      uint64
 	OrphanExit             uint64
+	OrphanFirstPid         uint64
+	OrphanFirstTid         uint64
+	OrphanFirstSysID       uint64
+	OrphanFirstRet         int64
+	OrphanFirstReason      uint64
+	OrphanFirstTimeNS      uint64
+	OrphanLastPid          uint64
+	OrphanLastTid          uint64
+	OrphanLastSysID        uint64
+	OrphanLastRet          int64
+	OrphanLastReason       uint64
+	OrphanLastTimeNS       uint64
 	PendingMismatch        uint64
 	LifecycleMapUpdateFail uint64
 	LifecycleForkSeen      uint64
@@ -45,6 +57,23 @@ func sumBPFStatsValues(values []bpfBpfStats) bpfRuntimeStats {
 		stats.PayloadTruncatedEvents += value.PayloadTruncatedEvents
 		stats.PendingUpdateFail += value.PendingUpdateFail
 		stats.OrphanExit += value.OrphanExit
+		if value.OrphanFirstTimeNs > 0 &&
+			(stats.OrphanFirstTimeNS == 0 || value.OrphanFirstTimeNs < stats.OrphanFirstTimeNS) {
+			stats.OrphanFirstPid = value.OrphanFirstPid
+			stats.OrphanFirstTid = value.OrphanFirstTid
+			stats.OrphanFirstSysID = value.OrphanFirstSysId
+			stats.OrphanFirstRet = value.OrphanFirstRet
+			stats.OrphanFirstReason = value.OrphanFirstReason
+			stats.OrphanFirstTimeNS = value.OrphanFirstTimeNs
+		}
+		if value.OrphanLastTimeNs > stats.OrphanLastTimeNS {
+			stats.OrphanLastPid = value.OrphanLastPid
+			stats.OrphanLastTid = value.OrphanLastTid
+			stats.OrphanLastSysID = value.OrphanLastSysId
+			stats.OrphanLastRet = value.OrphanLastRet
+			stats.OrphanLastReason = value.OrphanLastReason
+			stats.OrphanLastTimeNS = value.OrphanLastTimeNs
+		}
 		stats.PendingMismatch += value.PendingMismatch
 		stats.LifecycleMapUpdateFail += value.LifecycleMapUpdateFail
 		stats.LifecycleForkSeen += value.LifecycleForkSeen

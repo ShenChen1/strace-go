@@ -98,6 +98,18 @@ func TestJSONStatsEventIncludesRingbufFailures(t *testing.T) {
 		PayloadTruncatedEvents: 10,
 		PendingUpdateFail:      11,
 		OrphanExit:             12,
+		OrphanFirstPid:         101,
+		OrphanFirstTid:         102,
+		OrphanFirstSysID:       39,
+		OrphanFirstRet:         101,
+		OrphanFirstReason:      1,
+		OrphanFirstTimeNS:      20,
+		OrphanLastPid:          103,
+		OrphanLastTid:          104,
+		OrphanLastSysID:        60,
+		OrphanLastRet:          -1,
+		OrphanLastReason:       1,
+		OrphanLastTimeNS:       30,
 		PendingMismatch:        13,
 		LifecycleMapUpdateFail: 14,
 		Available:              true,
@@ -131,6 +143,10 @@ func TestJSONStatsEventIncludesRingbufFailures(t *testing.T) {
 	if ev.Type != "stats" || ev.RingbufReserveFail != 8 || ev.RingbufCopyFail != 9 ||
 		ev.PayloadTruncatedEvents != 10 || ev.PendingUpdateFail != 11 || ev.OrphanExit != 12 || ev.PendingMismatch != 13 ||
 		ev.LifecycleMapUpdateFail != 14 ||
+		ev.OrphanFirstPid != 101 || ev.OrphanFirstTid != 102 || ev.OrphanFirstSysID != 39 ||
+		ev.OrphanFirstRet != 101 || ev.OrphanFirstReason != 1 || ev.OrphanFirstTimeNS != 20 ||
+		ev.OrphanLastPid != 103 || ev.OrphanLastTid != 104 || ev.OrphanLastSysID != 60 ||
+		ev.OrphanLastRet != -1 || ev.OrphanLastReason != 1 || ev.OrphanLastTimeNS != 30 ||
 		ev.PendingStale != 15 || ev.RecordsRead != 0 || ev.ProducerAttemptsLowerBound != 8 || !ev.Available || ev.Error != "" {
 		t.Fatalf("stats JSON event = %+v", ev)
 	}

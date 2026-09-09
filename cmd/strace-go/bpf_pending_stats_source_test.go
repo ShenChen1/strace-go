@@ -150,7 +150,7 @@ func TestBPFOrphanExitIsFilteredAndCounted(t *testing.T) {
 	if !strings.Contains(src.straceSource, "u64 orphan_exit;") {
 		t.Fatal("bpf/strace.c bpf_stats missing orphan_exit counter")
 	}
-	if !strings.Contains(src.straceSource, "static __always_inline void record_orphan_exit(void)") {
+	if !strings.Contains(src.straceSource, "static __always_inline void record_orphan_exit(") {
 		t.Fatal("bpf/strace.c missing record_orphan_exit helper")
 	}
 	if !strings.Contains(src.straceSource, "static __always_inline void record_unmatched_exit_if_needed(") {
@@ -159,7 +159,7 @@ func TestBPFOrphanExitIsFilteredAndCounted(t *testing.T) {
 	for _, snippet := range []string{
 		"if (!is_lifecycle_task_tracked(pid, tid))",
 		"if (!should_trace_syscall(sys_id, cfg)",
-		"record_orphan_exit();",
+		"record_orphan_exit(pid, tid, sys_id, ret_value, ORPHAN_REASON_NO_PENDING);",
 	} {
 		if !strings.Contains(src.straceSource, snippet) {
 			t.Fatalf("unmatched-exit helper missing %q", snippet)
@@ -181,6 +181,7 @@ func TestBPFOrphanExitIgnoresExpectedLifecycleReturns(t *testing.T) {
 		"return sys_id == SYS_CLONE || sys_id == SYS_CLONE3 ||",
 		"sys_id == SYS_FORK || sys_id == SYS_VFORK;",
 		"is_process_creation_direct_syscall(sys_id) && ret_value == 0",
+		"is_exec_payload_direct_syscall(sys_id) && ret_value == 0",
 		"ret_value == -512 || ret_value == -513 ||",
 		"ret_value == -514 || ret_value == -516;",
 	} {
@@ -190,7 +191,7 @@ func TestBPFOrphanExitIgnoresExpectedLifecycleReturns(t *testing.T) {
 	}
 	helperStart := strings.Index(unmatched, "static __always_inline void record_unmatched_exit_if_needed(")
 	classification := strings.Index(unmatched[helperStart:], "if (is_expected_unmatched_exit(sys_id, ret_value)) return;")
-	count := strings.Index(unmatched[helperStart:], "record_orphan_exit();")
+	count := strings.Index(unmatched[helperStart:], "record_orphan_exit(pid, tid, sys_id, ret_value, ORPHAN_REASON_NO_PENDING);")
 	if classification < 0 || count < classification {
 		t.Fatal("expected unmatched exits must be classified before orphan_exit is recorded")
 	}
@@ -204,7 +205,7 @@ func TestBPFOrphanExitIgnoresAttachTeardownAfterExitFact(t *testing.T) {
 		t.Fatalf("unmatched exit helper must consult attach exit fact %q", guard)
 	}
 	guardIndex := strings.Index(unmatched, guard)
-	orphanIndex := strings.Index(unmatched, "record_orphan_exit();")
+	orphanIndex := strings.Index(unmatched, "record_orphan_exit(pid, tid, sys_id, ret_value, ORPHAN_REASON_NO_PENDING);")
 	if guardIndex < 0 || orphanIndex < 0 || guardIndex > orphanIndex {
 		t.Fatalf("attach teardown guard must precede orphan accounting: guard=%d orphan=%d", guardIndex, orphanIndex)
 	}

@@ -248,6 +248,16 @@ func TestTraceRunFinalizerWritesTextStatsDiagnostic(t *testing.T) {
 		RingbufCopyFail:        2,
 		PendingUpdateFail:      3,
 		OrphanExit:             4,
+		OrphanFirstPid:         101,
+		OrphanFirstTid:         102,
+		OrphanFirstSysID:       39,
+		OrphanFirstRet:         101,
+		OrphanFirstReason:      1,
+		OrphanLastPid:          103,
+		OrphanLastTid:          104,
+		OrphanLastSysID:        60,
+		OrphanLastRet:          -1,
+		OrphanLastReason:       1,
 		PendingMismatch:        5,
 		LifecycleMapUpdateFail: 6,
 	})
@@ -260,6 +270,8 @@ func TestTraceRunFinalizerWritesTextStatsDiagnostic(t *testing.T) {
 		"orphan_exit=4",
 		"pending_mismatch=5",
 		"lifecycle_map_update_fail=6",
+		"orphan_first=(pid=101 tid=102 sys_id=39 ret=101 reason=1)",
+		"orphan_last=(pid=103 tid=104 sys_id=60 ret=-1 reason=1)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("diagnostic = %q, missing %q", got, want)

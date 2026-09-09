@@ -20,6 +20,18 @@ type bpfRecvmsgBpfStats struct {
 	PayloadTruncatedEvents            uint64
 	PendingUpdateFail                 uint64
 	OrphanExit                        uint64
+	OrphanFirstPid                    uint64
+	OrphanFirstTid                    uint64
+	OrphanFirstSysId                  uint64
+	OrphanFirstRet                    int64
+	OrphanFirstReason                 uint64
+	OrphanFirstTimeNs                 uint64
+	OrphanLastPid                     uint64
+	OrphanLastTid                     uint64
+	OrphanLastSysId                   uint64
+	OrphanLastRet                     int64
+	OrphanLastReason                  uint64
+	OrphanLastTimeNs                  uint64
 	PendingMismatch                   uint64
 	LifecycleMapUpdateFail            uint64
 	LifecycleForkSeen                 uint64

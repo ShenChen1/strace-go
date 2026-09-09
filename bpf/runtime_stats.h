@@ -186,12 +186,34 @@ static __always_inline void record_lifecycle_exit_untracked(void)
     }
 }
 
-static __always_inline void record_orphan_exit(void)
+static __always_inline void record_orphan_exit(
+    u32 pid,
+    u32 tid,
+    u32 sys_id,
+    s64 ret_value,
+    u64 reason)
 {
     struct bpf_stats *stats = lookup_stats();
-    if (stats) {
-        stats->orphan_exit++;
+    if (!stats) {
+        return;
     }
+
+    stats->orphan_exit++;
+    u64 timestamp_ns = bpf_ktime_get_ns();
+    if (stats->orphan_first_time_ns == 0) {
+        stats->orphan_first_pid = pid;
+        stats->orphan_first_tid = tid;
+        stats->orphan_first_sys_id = sys_id;
+        stats->orphan_first_ret = ret_value;
+        stats->orphan_first_reason = reason;
+        stats->orphan_first_time_ns = timestamp_ns;
+    }
+    stats->orphan_last_pid = pid;
+    stats->orphan_last_tid = tid;
+    stats->orphan_last_sys_id = sys_id;
+    stats->orphan_last_ret = ret_value;
+    stats->orphan_last_reason = reason;
+    stats->orphan_last_time_ns = timestamp_ns;
 }
 
 static __always_inline void record_pending_mismatch(void)
