@@ -145,6 +145,99 @@ func TestClone3SetTidUsesNestedPayloadSection(t *testing.T) {
 	}
 }
 
+func TestClone3ShowsNonZeroUnknownTailFromPayload(t *testing.T) {
+	ctx := newClone3PolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.Args[1] = 96
+	data := make([]byte, 96)
+	copy(data, makeClone3Data(0))
+	copy(data[88:], []byte{0xde, 0xc0, 0xad, 0xde, 0xed, 0xfe, 0xce, 0xfa})
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 0, UserLen: 96, CopiedLen: 96, ProbeRet: 0, Data: data},
+	}
+
+	got := (&ProcessHandler{}).Handle(ctx)
+	want := `{flags=0, exit_signal=0, stack=NULL, stack_size=0, /* bytes 88..95 */ "\xde\xc0\xad\xde\xed\xfe\xce\xfa"}`
+	if got.ArgParts[0] != want {
+		t.Fatalf("clone3 args = %q, want %q", got.ArgParts[0], want)
+	}
+}
+
+func TestClone3ShowsUnknownTailWhenPayloadIsPartial(t *testing.T) {
+	ctx := newClone3PolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.Args[1] = 96
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 0, UserLen: 96, CopiedLen: 88, ProbeRet: 0, Data: makeClone3Data(0)},
+	}
+
+	got := (&ProcessHandler{}).Handle(ctx)
+	want := "{flags=0, exit_signal=0, stack=NULL, stack_size=0, ???}"
+	if got.ArgParts[0] != want {
+		t.Fatalf("clone3 args = %q, want %q", got.ArgParts[0], want)
+	}
+}
+
+func TestClone3ExitSignalPreservesUnsignedValue(t *testing.T) {
+	tests := []struct {
+		name   string
+		signal uint64
+		want   string
+	}{
+		{name: "wide", signal: 0xdeadface00000011, want: "16045756810061152273"},
+		{name: "unsigned 32 bit", signal: 0xdeadc0de, want: "3735929054"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := newClone3PolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+			ctx.Args[1] = 64
+			data := makeClone3Data(0)
+			binary.LittleEndian.PutUint64(data[32:40], tt.signal)
+			ctx.PayloadSections = []PayloadSection{
+				{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 0, UserLen: 64, CopiedLen: 64, ProbeRet: 0, Data: data},
+			}
+
+			got := (&ProcessHandler{}).Handle(ctx)
+			want := "{flags=0, exit_signal=" + tt.want + ", stack=NULL, stack_size=0}"
+			if got.ArgParts[0] != want {
+				t.Fatalf("clone3 args = %q, want %q", got.ArgParts[0], want)
+			}
+		})
+	}
+}
+
+func TestClone3IncludesChildTidForClearFlag(t *testing.T) {
+	ctx := newClone3PolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.Args[1] = 64
+	data := makeClone3Data(0x00200000) // CLONE_CHILD_CLEARTID
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 0, UserLen: 64, CopiedLen: 64, ProbeRet: 0, Data: data},
+	}
+
+	got := (&ProcessHandler{}).Handle(ctx)
+	want := "{flags=CLONE_CHILD_CLEARTID, child_tid=NULL, exit_signal=0, stack=NULL, stack_size=0}"
+	if got.ArgParts[0] != want {
+		t.Fatalf("clone3 args = %q, want %q", got.ArgParts[0], want)
+	}
+}
+
+func TestClone3DoesNotRenderPointerFieldsWithoutFlags(t *testing.T) {
+	ctx := newClone3PolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	ctx.Args[1] = 64
+	data := makeClone3Data(0)
+	for _, offset := range []int{8, 16, 24, 56} {
+		binary.LittleEndian.PutUint64(data[offset:offset+8], 0x4000)
+	}
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 0, UserLen: 64, CopiedLen: 64, ProbeRet: 0, Data: data},
+	}
+
+	got := (&ProcessHandler{}).Handle(ctx)
+	want := "{flags=0, exit_signal=0, stack=NULL, stack_size=0}"
+	if got.ArgParts[0] != want {
+		t.Fatalf("clone3 args = %q, want %q", got.ArgParts[0], want)
+	}
+}
+
 func TestClone3PostDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeUint32Slice(777)}
 	decoder := event.NewDecoder()

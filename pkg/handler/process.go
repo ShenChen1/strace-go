@@ -3,13 +3,22 @@ package handler
 import (
 	"encoding/binary"
 	"fmt"
+	"strconv"
 	"strings"
+
+	"strace-go/pkg/format"
 )
 
 const (
 	// Must match PAYLOAD_TLV_CLONE3_SET_TID_ARG_INDEX in the generated ABI.
 	clone3SetTidPayloadArgIndex = 0xfff9
 	clone3SetTidMaxEntries      = 32
+	clone3KnownArgsSize         = 88
+	clone3FlagPIDFD             = 0x00001000
+	clone3FlagChildClearTID     = 0x00200000
+	clone3FlagParentSetTID      = 0x00100000
+	clone3FlagChildSetTID       = 0x01000000
+	clone3FlagSetTLS            = 0x00080000
 )
 
 func registerBuiltinProcess(r *Registry) {
@@ -42,10 +51,11 @@ func (h *ProcessHandler) formatClone3(ctx *Context, uargs, size uint64) string {
 	if capLen > 256 {
 		capLen = 256
 	}
-	data, ok := ctx.PayloadStruct(0, PayloadDirectionIn)
-	if !ok || len(data) == 0 {
+	section, ok := clone3ArgsPayloadSection(ctx)
+	if !ok {
 		return fmt.Sprintf("%#x", uargs)
 	}
+	data := section.Data
 	if len(data) > capLen {
 		data = data[:capLen]
 	}
@@ -63,12 +73,50 @@ func (h *ProcessHandler) formatClone3(ctx *Context, uargs, size uint64) string {
 		}
 	}
 
+	parts = append(parts, h.decodeCloneArgsUnknownTail(section, size)...)
 	structStr := "{" + strings.Join(parts, ", ") + "}"
 	postStr := h.decodeCloneArgsPost(ctx, data, size)
 	if postStr != "" {
 		structStr += " => " + postStr
 	}
 	return structStr
+}
+
+func clone3ArgsPayloadSection(ctx *Context) (PayloadSection, bool) {
+	if ctx == nil {
+		return PayloadSection{}, false
+	}
+	for _, section := range ctx.PayloadSections {
+		if section.ArgIndex == 0 && section.Kind == PayloadKindStruct &&
+			section.Direction == PayloadDirectionIn && section.ProbeRet == 0 &&
+			len(section.Data) > 0 {
+			return section, true
+		}
+	}
+	return PayloadSection{}, false
+}
+
+func (h *ProcessHandler) decodeCloneArgsUnknownTail(section PayloadSection, size uint64) []string {
+	if size <= clone3KnownArgsSize {
+		return nil
+	}
+
+	data := copiedPayloadData(section)
+	if len(data) > clone3KnownArgsSize {
+		data = data[clone3KnownArgsSize:]
+		if lastNonZeroByte(data) >= 0 {
+			parts := []string{fmt.Sprintf("/* bytes %d..%d */ %s", clone3KnownArgsSize,
+				clone3KnownArgsSize+len(data)-1, format.BufferEscape(data, len(data), len(data), 2))}
+			if section.CopiedLen < section.UserLen {
+				parts = append(parts, "???")
+			}
+			return parts
+		}
+	}
+	if section.CopiedLen < section.UserLen {
+		return []string{"???"}
+	}
+	return nil
 }
 
 func (h *ProcessHandler) u64OrZero(data []byte, off int) uint64 {
@@ -86,19 +134,19 @@ func (h *ProcessHandler) decodeCloneArgsCore(ctx *Context, data []byte, size uin
 	}
 	if size >= 16 {
 		pfd := h.u64OrZero(data, 8)
-		if pfd != 0 || (flags&0x00001000 != 0) { // CLONE_PIDFD
+		if flags&clone3FlagPIDFD != 0 {
 			parts = append(parts, formatPtr("pidfd", pfd))
 		}
 	}
 	if size >= 24 {
 		ctid := h.u64OrZero(data, 16)
-		if ctid != 0 || (flags&0x01000000 != 0) { // CLONE_CHILD_SETTID
+		if flags&(clone3FlagChildSetTID|clone3FlagChildClearTID) != 0 {
 			parts = append(parts, formatPtr("child_tid", ctid))
 		}
 	}
 	if size >= 32 {
 		ptid := h.u64OrZero(data, 24)
-		if ptid != 0 || (flags&0x00100000 != 0) { // CLONE_PARENT_SETTID
+		if flags&clone3FlagParentSetTID != 0 {
 			parts = append(parts, formatPtr("parent_tid", ptid))
 		}
 	}
@@ -107,7 +155,7 @@ func (h *ProcessHandler) decodeCloneArgsCore(ctx *Context, data []byte, size uin
 		if sig == 0 {
 			parts = append(parts, "exit_signal=0")
 		} else {
-			parts = append(parts, fmt.Sprintf("exit_signal=%s", decodeFlags(ctx, sig, "signalnames")))
+			parts = append(parts, fmt.Sprintf("exit_signal=%s", decodeCloneArgsExitSignal(ctx, sig)))
 		}
 	}
 	if size >= 48 {
@@ -124,11 +172,23 @@ func (h *ProcessHandler) decodeCloneArgsCore(ctx *Context, data []byte, size uin
 	}
 	if size >= 64 {
 		tls := h.u64OrZero(data, 56)
-		if tls != 0 || (flags&0x00080000 != 0) { // CLONE_SETTLS
+		if flags&clone3FlagSetTLS != 0 {
 			parts = append(parts, formatPtr("tls", tls))
 		}
 	}
 	return parts
+}
+
+func decodeCloneArgsExitSignal(ctx *Context, signal uint64) string {
+	table, ok := xlatTable(ctx, "signalnames")
+	if ok {
+		for _, entry := range table.Entries {
+			if entry.Val == signal {
+				return decodeFlags(ctx, signal, "signalnames")
+			}
+		}
+	}
+	return strconv.FormatUint(signal, 10)
 }
 
 func (h *ProcessHandler) decodeCloneArgsSetTid(ctx *Context, data []byte, size uint64) []string {
@@ -174,7 +234,7 @@ func (h *ProcessHandler) decodeCloneArgsPost(ctx *Context, data []byte, size uin
 		return ""
 	}
 	flags := h.u64OrZero(data, 0)
-	if size >= 32 && (flags&0x00100000 != 0) { // CLONE_PARENT_SETTID
+	if size >= 32 && flags&clone3FlagParentSetTID != 0 {
 		ptidPtr := h.u64OrZero(data, 24)
 		if ptidPtr != 0 {
 			return ""

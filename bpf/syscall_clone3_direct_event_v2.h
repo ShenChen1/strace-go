@@ -2,6 +2,7 @@
 #define STRACE_GO_SYSCALL_CLONE3_DIRECT_EVENT_V2_H
 
 #define CLONE3_DIRECT_ARGS_MAX 256
+#define CLONE3_DIRECT_KNOWN_ARGS_SIZE 88
 #define CLONE3_DIRECT_SET_TID_MAX_ENTRIES 32
 #define CLONE3_DIRECT_SET_TID_BYTES_MAX \
     (CLONE3_DIRECT_SET_TID_MAX_ENTRIES * sizeof(s32))
@@ -94,6 +95,16 @@ static __always_inline u32 capture_clone3_args_tlv_direct(
         if (err < 0) {
             probe_ret = err;
             copied_len = 0;
+            if (requested_len > CLONE3_DIRECT_KNOWN_ARGS_SIZE) {
+                long prefix_err = bpf_probe_read_user(
+                    payload_data, CLONE3_DIRECT_KNOWN_ARGS_SIZE, (void *)user_ptr);
+                if (prefix_err == 0) {
+                    probe_ret = 0;
+                    copied_len = CLONE3_DIRECT_KNOWN_ARGS_SIZE;
+                    *event_flags |= EVENT_FLAG_TRUNCATED;
+                    record_payload_truncated_event();
+                }
+            }
         }
     }
 

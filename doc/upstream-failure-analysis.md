@@ -143,6 +143,14 @@ focused 基线中，`openat2` 的 9 个非 raw 变体把 `OPENAT2_REGULAR` 输�
 
 回归测试先在无二级快照时复现指针输出，再验证 bytes TLV 能渲染 `[11, 22]`；BPF 对象重编后，root focused 测试确认 32 项 `set_tid` 数组在基础、`-Xabbrev`、`-Xraw` 和 `-Xverbose` 四个变体中均已与 upstream 一致。四个测试仍整体失败的剩余 diff 都收敛为 `size=96/104` 时外层结构体已知字段之后的 `???` 未知尾部，不与本次二级数组修复合并。
 
+### 2026-09-11 clone3 外层扩展字段与 flag 条件修复
+
+`size=96/104` 的剩余 diff 分成三种外层结构解码问题。第一，完整的 8 字节未知尾部应输出 `/* bytes 88..95 */` 和转义字节；尾部不可读时，已知的 88 字节前缀仍应保留并追加 `???`。第二，`exit_signal` 是无符号 64 位字段，未知高位值不能被通用 `signalnames` decoder 收窄为 32 位有符号数。第三，`pidfd`、`child_tid`、`parent_tid` 和 `tls` 是否出现只由对应 `CLONE_*` flag 决定，不能因测试循环复用的旧非零指针而泄漏到下一次输出。
+
+修复在 BPF 侧为外层 snapshot 增加已知 88 字节前缀重试：完整读取失败但前缀成功时，事件携带 `CopiedLen=88` 的有界快照并保留截断状态；Go 侧据此渲染未知尾部，不补读 tracee 内存。`clone3` handler 对已知 signal 值继续使用当前 xlat 模式，对未知值保留完整无符号十进制；结构指针字段改为 flag-only 条件。二级 `set_tid[]` TLV 保持独立，未扩大读取范围。
+
+回归测试先分别复现了未知尾部、无符号 `exit_signal` 和 stale pointer 输出，再通过实现。重新生成结构化 eBPF 对象后，以下 root focused 测试全部通过：`clone3.gen.test`、`clone3-Xabbrev.gen.test`、`clone3-Xraw.gen.test`、`clone3-Xverbose.gen.test`。这四项现在均为 `PASS`，clone3 family 的已知 focused diff 已归零。
+
 ### 阶段 3 全量基线的首轮归因
 
 本次执行命令为 `sudo -n python3 test/run_tests.py --suite all --skip-build`。配置后的 1494 项全部进入 runner，最终计数为 466 PASS、851 FAIL、177 SKIP；`all` 当前没有复用 `more` 的 XFAIL 映射，因此 `XFailed=0` 和 `XPassed=0`。这次结果证明 runner inventory、共享 helper 和 prerequisite 边界已经工作，但不代表 851 个失败都是同一类实现问题。
@@ -312,10 +320,10 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 7c. 修 `file_setattr` xlat（已完成） | 只补 supplemental `fs_xflags` 中缺失的两个 bundled upstream bit；保持 `file_attr_at_flags`、raw 和 BPF snapshot 契约不变 | `file_setattr` 7 个变体通过；`file_getattr` 基础/路径 4 个变体交叉通过；相关 Go 测试和 vet 通过 | `fix(decoder): align file attribute xlat output` |
 | 7d. 修 `xetitimer` 类型注册（已完成） | 为生成 metadata 使用的 `struct __kernel_old_itimerval *` 注册既有 `decodeItimerval`；不改 BPF TLV 和内存读取边界 | registry 回归先失败后通过；`xetitimer.gen.test` 通过；Go 全量门禁通过 | `fix(handler): register legacy itimerval type` |
 | 7e. 修 `clone3` 的 `set_tid[]` 二级快照（已完成） | 在 clone3 enter event 中追加最多 32 个 `int` 的 bounded bytes TLV；handler 只消费完整快照，失败或超限保留指针 | 回归测试先失败后通过；`clone3` 基础及 3 个 `-X` 变体的 `set_tid[]` diff 归零；Go 全量门禁和 BPF 重编通过 | `fix(clone3): capture set_tid array snapshot` |
-| 7f. 修 `clone3` 未知尾部输出 | 对 `size` 超过已知 `struct clone_args` 布局的成功外层 snapshot 输出 upstream 要求的 `???`/bytes 尾部；保持二级数组 TLV 独立 | `clone3` 基础及 3 个 `-X` 变体只剩 0 diff；失败路径和 bounded snapshot 契约有回归测试 | 待定 |
+| 7f. 修 `clone3` 未知尾部和外层字段条件（已完成） | 对 `size` 超过已知 `struct clone_args` 布局的 snapshot 输出 upstream 要求的 `???`/bytes 尾部；保留无符号 `exit_signal`，并按 flag 控制指针字段；保持二级数组 TLV 独立 | 回归测试先失败后通过；`clone3` 基础及 3 个 `-X` 变体全部通过；失败路径和 bounded snapshot 契约有回归测试 | `fix(clone3): preserve unknown tail output` |
 | 8. 整理契约分类 | 只登记有架构证据和 focused evidence 的 XFAIL | unexpected XPASS 仍失败；无批量未知 XFAIL；无 ptrace/procfs/process-vm fallback | `test: document upstream compatibility exceptions` |
 
-阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复；阶段 4 的 fresh root semantic 验收、阶段 5 的 dup3 focused 验收、5a 的 dup2 focused 验收、7a 的 openat2 xlat 验收、7b 的 openat2 `-y` dfd path 验收、7c 的 `file_setattr` xlat 验收和 7d 的 `xetitimer` 类型注册验收均已闭环。下一步继续按一个 syscall family 一个提交处理。每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
+阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复；阶段 4 的 fresh root semantic 验收、阶段 5 的 dup3 focused 验收、5a 的 dup2 focused 验收、7a 的 openat2 xlat 验收、7b 的 openat2 `-y` dfd path 验收、7c 的 `file_setattr` xlat 验收、7d 的 `xetitimer` 类型注册验收和 7f 的 clone3 外层字段验收均已闭环。下一步继续按一个 syscall family 一个提交处理。每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
 
 ## 重跑注意事项
 
