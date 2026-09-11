@@ -1,8 +1,8 @@
 # upstream 测试失败分析与击破路线
 
-基线日期：2026-09-08；语义复现日期：2026-09-09。
+基线日期：2026-09-08；语义复现日期：2026-09-09；最新 clean rebuild 重跑日期：2026-09-11。
 
-本文把 upstream exact diff、纯 eBPF 架构边界、测试 runner 缺陷和真实实现缺口分开记录。2026-09-08 的 `--suite all` 基线来自目录扫描，其失败数量只用于保留历史现场，不能直接等同于实现 bug 数量或 upstream 全量通过率。阶段 1 已让 runner 改用 configure 后的官方 `TESTS` 集合；阶段 3 已完成一次配置一致的完整 `all`，当前失败仍需按下文分类，不能直接当作实现 bug 总数。
+本文把 upstream exact diff、纯 eBPF 架构边界、测试 runner 缺陷和真实实现缺口分开记录。2026-09-08 的 `--suite all` 基线来自目录扫描，其失败数量只用于保留历史现场，不能直接等同于实现 bug 数量或 upstream 全量通过率。阶段 1 已让 runner 改用 configure 后的官方 `TESTS` 集合；2026-09-11 又在清空中间产物并 fresh rebuild 后重跑了配置一致的 `all`、`more` 和 eBPF semantic，当前结果仍需按生成可复现性、环境、架构契约和实现缺口分类，不能直接把失败总数当作实现 bug 总数。
 
 ## Problem 1-Pager
 
@@ -45,15 +45,18 @@
 | --- | --- | --- |
 | `sudo -n python3 test/run_tests.py --suite all` | 374 PASS / 954 FAIL / 172 SKIP | runner 对生成目录进行文件系统扫测；混合了非配置测试、helper 缺失、exact output 差异和纯 eBPF 非契约差异，不能作为 upstream 官方全量结果或实现 bug 总数 |
 | `sudo -n python3 test/run_tests.py --suite more --skip-build` | 199 PASS / 63 FAIL / 3 XFAIL / 0 XPASS | `more` 只登记了 3 个已知非契约差异，其余失败仍需分类 |
-| 2026-09-11 fresh root `sudo -n python3 test/run_tests.py --suite more --skip-build` | 260 PASS / 2 FAIL / 2 XFAIL / 1 XPASS-ALLOWED | `bpf.gen.test` 和 `bpf-v.gen.test` 已通过；剩余 `file_setattr-Xabbrev` 与 `trace_statfs_like` 是独立的环境敏感失败 |
+| 2026-09-11 prior generated artifact `sudo -n python3 test/run_tests.py --suite more --skip-build` | 260 PASS / 2 FAIL / 2 XFAIL / 1 XPASS-ALLOWED | 这是 clean rebuild 前、使用旧生成产物的历史结果；不能覆盖本轮 fresh rebuild 结果 |
 | `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` | 3 FAIL | `orphan_exit` 2 个，以及两个 signalfd 同事件路径输出失败 |
-| 最新 fresh root `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` | PASS | BPF、signalfd、生命周期和 normal fixture 均通过；`orphan_exit=0` |
+| 2026-09-11 clean rebuild 后 `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` | PASS | BPF、signalfd、生命周期和 normal fixture 均通过；`orphan_exit=0` |
 | `sudo -n python3 test/run_tests.py --suite ebpf-no-ptrace --skip-build` | PASS | 未观察到 ptrace 运行时介入 |
-| `GOCACHE=/tmp/strace-go-gocache go test ./... -count=1` | PASS | Go 单测和生成结果可编译、可运行 |
+| 此前 `GOCACHE=/tmp/strace-go-gocache go test ./... -count=1` | PASS | 旧生成产物下的 Go 单测和生成结果可编译、可运行 |
+| 2026-09-11 clean rebuild 后 `GOCACHE=/tmp/strace-go-gocache go test ./... -count=1` | 3 FAIL | fresh 生成的 `inotify_init1`、`pidfd_open` 和 quota decoder 测试暴露 xlat 缺项；不是 eBPF 运行时失败 |
 | `GOCACHE=/tmp/strace-go-gocache go vet ./...` | PASS | 静态检查通过 |
 | `python3 -m unittest -v run_tests_unit.py run_tests_upstream_setup_unit.py` | 55 PASS | runner 原有门禁和新增配置清单、prerequisite、失败传播测试全部通过 |
 | 配置后的 upstream `TESTS` 查询 | 1494 项 | 相比旧目录扫描的 1500 项，排除了当前 `--enable-stacktrace=no` 配置下的 6 个 stacktrace 测试 |
 | `sudo -n python3 test/run_tests.py --suite all --skip-build` | 466 PASS / 851 FAIL / 177 SKIP；0 XFAIL / 0 XPASS | 阶段 3 的配置一致全量基线；runner 已完成汇总，退出码 1 由 851 个失败用例导致，不是清单或 helper 构建失败 |
+| 2026-09-11 clean rebuild 后 `sudo -n python3 test/run_tests.py --suite all` | 472 PASS / 845 FAIL / 177 SKIP；0 XFAIL / 0 XPASS | 配置后的 1494 项全部执行；`all` 不应用 `more` 的 XFAIL 映射，845 不能直接等同于实现 bug 数量；本轮 fresh 生成 xlat 与旧提交产物不同 |
+| 2026-09-11 clean rebuild 后 `sudo -n python3 test/run_tests.py --suite more --skip-build` | 248 PASS / 14 FAIL / 2 XFAIL / 1 XPASS-ALLOWED | 14 个失败收敛为 PIDFD xlat 8 项、BPF map flags xlat 2 项、signalfd/inotify flags 各 1 项，以及 `file_setattr-Xabbrev`、`trace_statfs_like` 各 1 项 |
 | `sudo -n python3 test/run_tests.py --suite small --skip-build` | 23 PASS / 0 FAIL | 阶段 1 已消除 helper/environment false negative；阶段 2 补齐 `O_EMPTYPATH` 后 small 全绿 |
 | `dup3.gen.test`、`dup3-P.gen.test` | 2 PASS / 0 FAIL | `dup3_flags` 派生表的基础和 path-filter flag 输出通过 |
 | `dup3-y.gen.test`、`dup3-yy.gen.test` | 2 FAIL | flag 输出已经匹配；剩余 diff 仅为成功覆盖目标 FD 后，同一 exit 事件仍显示调用前的目标路径 |
@@ -175,7 +178,22 @@ focused 基线中，`openat2` 的 9 个非 raw 变体把 `OPENAT2_REGULAR` 输�
 - `TestBPFTracingMultiDirectSourceContract` 通过，锁定专用 header、tail-call 路由、manifest 槽位和 noinline verifier 边界；
 - `GOCACHE=/tmp/strace-go-gocache go test ./...` 通过；
 - root `bpf.gen.test` 和 `bpf-v.gen.test` 均 `PASS`；
-- 最新 root `more` 中上述两个 BPF 用例均 `PASS`。同一轮的两个剩余失败为 `file_setattr-Xabbrev.gen.test` 的环境敏感指针输出和 `trace_statfs_like.gen.test` 的 `syscall_0x1d8` 噪声，单独保留，未归因于本修复。
+- clean rebuild 前的 root `more` 中上述两个 BPF 用例均 `PASS`。随后在清空中间产物并重新生成 xlat 后，fresh `more` 重新暴露了 `bpf.gen.test`、`bpf-v.gen.test` 以及 PIDFD/signalfd/inotify 的 xlat 缺项；这批差异归入生成器可复现性问题，不回溯归因于本 BPF_LINK_CREATE 修复。
+
+### 2026-09-11 清空中间产物后的 fresh 全量重跑
+
+本轮在 root 能力恢复后，先清理仓库和 `strace-upstream` 的 ignored 中间产物以及临时 Go cache，再执行 `GOCACHE=/tmp/strace-go-gocache ./build.sh`。构建命令退出码为 0，但重新生成的 `pkg/meta/xlat_auto.go` 与已提交生成文件产生差异：`BPF_F_*` 的移位常量、`PIDFD_*`、`SFD_*`、`IN_*` 以及 quota 常量没有完整进入表中，同时部分字面量格式从十进制变成十六进制。
+
+这说明当前生成器在 clean environment 下不能稳定重建已提交的 xlat 结果。它直接解释了 fresh Go 门禁的 3 个失败：`TestDefaultHandlerDecodesBasicFlagXlats/inotify_init1`、`TestDefaultHandlerDecodesBasicFlagXlats/pidfd_open` 和 `TestQuotaFlagsOnlyAnnotateFullyUnknownValues`。这不是 eBPF payload、Ringbuf 或生命周期问题，下一步应先修生成器输入/常量求值和生成结果回归。
+
+随后使用同一 fresh binary 和 BPF object 执行了配置后的 1494 项 upstream `all`：
+
+- `472 PASS / 845 FAIL / 177 SKIP / 0 XFAIL / 0 XPASS`；`all` 不应用 `more` 的 XFAIL 映射，845 不能直接视为实现 bug 数量。
+- `more` 为 `248 PASS / 14 FAIL / 2 XFAIL / 1 XPASS-ALLOWED`。14 个失败收敛为 6 个簇：PIDFD flags 8 项、BPF map flags 2 项、signalfd flags 1 项、inotify flags 1 项、`file_setattr-Xabbrev.gen.test` 1 项、`trace_statfs_like.gen.test` 1 项。
+- eBPF semantic 为 `PASS`：normal fixture `orphan_exit=0`，BPF/signalfd/attach/non-leader attach 语义断言通过；Ringbuf reserve/copy、pending update/mismatch、lifecycle map update 和 orphan 统计均无异常。
+- `go vet ./...` 通过；`go test ./... -count=1` 因上述 xlat 缺项失败，不能记录为本轮全绿。
+
+`file_setattr-Xabbrev.gen.test` 的指针输出和 `trace_statfs_like.gen.test` 的 `syscall_0x1d8`/ENOSYS 噪声仍需单独复现；它们没有和生成器缺项合并。当前可执行顺序是：先恢复 clean rebuild 的 xlat 可复现性，再按 focused upstream 用例处理剩余环境敏感项。
 
 ### 2026-09-11 signalfd 参数与返回 FD 视图分离
 
@@ -196,10 +214,11 @@ focused 基线中，`openat2` 的 9 个非 raw 变体把 `OPENAT2_REGULAR` 输�
 1. **FD event-time path（真实实现缺口）**：`dup2-y/yy.gen.test`、`dup3-y/yy.gen.test` 等在成功覆盖目标 FD 的同一 exit 事件中仍看到调用前 path。`dup3` 的 flag 文本已经通过，剩余 diff 与持久 FD state 更新晚于 handler 格式化一致，优先处理 event-time overlay；signalfd 的同类问题仍由 `ebpf-semantic` 回归负责。
 2. **PID namespace translation（能力簇）**：多个 `--pidns-translation` 用例（例如 `xet_robust_list--pidns-translation.gen.test`、`xetpgid--pidns-translation.gen.test`、`xetpriority--pidns-translation.gen.test`）缺少经典 strace 的 `/* PID in strace's PID NS */` 注释。它们不能和普通参数解码混修，先确认项目是否承诺 PID namespace 映射，再决定实现或登记契约差异。
 3. **bounded snapshot / decoder / xlat（实现簇）**：`xetitimer.gen.test` 把应解码的 `itimerval` 留成裸地址，`clone3*.gen.test` 对尾部结构字段只输出地址或截断，`bpf*.gen.test`、`io_uring*.gen.test`、`file_setattr*.gen.test` 和大量 `ioctl*` 变体存在结构字段、unknown bits 或新常量差异。这些必须按 syscall family 取最小 diff，先确认是 eBPF snapshot 没采到、decoder 没消费，还是 generator/xlat 输入缺失。
-4. **ptrace/lifecycle 和环境条件**：`attach-p-eperm-yama.test`、`bexecve.test`、`detach-vfork.test`、`filter_seccomp-*`、`get_regs.test`、`ptrace*.gen.test` 依赖 ptrace stop、`ptrace_scope`、`PTRACE_O_EXITKILL` 或 tracee 调度；`getpid--pidns-translation.gen.test` 等还受 user namespace/内核策略影响。这些不应作为普通 syscall 格式化回归处理。
-5. **大面积协议/结构族差异**：`prctl`、`ioctl`、netlink、socket option、scheduler 和 signal 相关失败数量较大，且同一 family 同时包含普通 decode、`-y/-yy`、PID namespace 和 inject 变体。先用不含 inject、ptrace 和 pidns 的最小测试确定一个可修复样本，避免被变体数量误导。
+4. **clean rebuild 的 xlat 可复现性（当前最高优先级实现缺口）**：fresh `build.sh` 后，`pkg/meta/xlat_auto.go` 丢失 `BPF_F_*` 移位常量以及 `PIDFD_*`、`SFD_*`、`IN_*` 别名，quota 表也不完整；这同时造成 3 个 Go 单测失败和 `more` 的 12 个 flags 相关失败。应先修 `cmd/generate-xlats` 的常量解析/alias fallback，并增加“生成后关键表完整”的回归，禁止直接编辑生成文件。
+5. **ptrace/lifecycle 和环境条件**：`attach-p-eperm-yama.test`、`bexecve.test`、`detach-vfork.test`、`filter_seccomp-*`、`get_regs.test`、`ptrace*.gen.test` 依赖 ptrace stop、`ptrace_scope`、`PTRACE_O_EXITKILL` 或 tracee 调度；`getpid--pidns-translation.gen.test` 等还受 user namespace/内核策略影响。这些不应作为普通 syscall 格式化回归处理。
+6. **大面积协议/结构族差异**：`prctl`、`ioctl`、netlink、socket option、scheduler 和 signal 相关失败数量较大，且同一 family 同时包含普通 decode、`-y/-yy`、PID namespace 和 inject 变体。先用不含 inject、ptrace 和 pidns 的最小测试确定一个可修复样本，避免被变体数量误导。
 
-阶段 3 的结论是：先清理契约分类，再击破已经有 focused evidence 的 FD event-time path；其后每次只选择一个具体 decoder/xlat family。不能根据 851 这个总数批量添加 XFAIL，也不能把 PID namespace、ptrace 和纯 eBPF bounded snapshot 差异混为“解码失败”。
+阶段 3 的结论是：先清理契约分类，再处理 clean rebuild 的 xlat 可复现性；之后每次只选择一个具体 decoder/xlat family。不能根据 845 这个总数批量添加 XFAIL，也不能把 PID namespace、ptrace 和纯 eBPF bounded snapshot 差异混为“解码失败”。
 
 ## 分类结论
 
@@ -327,6 +346,7 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 - `openat2` 的 `OPENAT2_REGULAR` xlat 已闭环：专用表来自 `strace-upstream/src/xlat/openat2_flags.in`，并由 generator fallback 保证在缺少系统头常量时仍生成 `1<<32`；剩余 `openat2-y` 失败是独立的 `dfd=0` FD path 事件视图问题；
 - `file_setattr` 的 `fs_xflags` 缺失两个 bundled upstream bit 已闭环：supplemental xlat 表补入 `FS_XFLAG_CASEFOLD` 与 `FS_XFLAG_CASENONPRESERVING` 后，7 个格式和路径变体全部通过；`file_attr_at_flags` 保留通用 verbose 的数值加注释输出；
 - `xetitimer` 的结构输出已闭环：BPF 已有 32 字节 TLV，补齐 `struct __kernel_old_itimerval *` registry 别名后，`setitimer/getitimer` 的 focused 测试通过；
+- clean rebuild 暴露了 xlat generator 的常量求值/别名缺项：`bpf_map_flags` 的移位 bit、`pidfd_open_flags`、`sfd_flags`、`inotify_init_flags` 和 quota 表在 `pkg/meta/xlat_auto.go` 中退化为空或不完整表；这是下一项 generator 修复，不应直接编辑生成文件；
 - 时间类失败中有一部分来自 `sleep`/`sleep-timing` helper 缺失，不能和格式化 bug 混修。
 
 方案比较：
@@ -336,7 +356,7 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 先修 generator input、xlat mapping 和 focused handler test | 生成边界清晰，后续不会被 build 覆盖 | 需要补生成器/生成结果两层验证 |
 | 直接编辑 `pkg/meta/xlat_auto.go` | 见效快 | 下次 `build.sh` 丢失，违反生成文件约束 |
 
-选择第一种。`OPENAT2_REGULAR` 已完成 focused 修复；下一项只处理 openat2 `-y` 变体的 `dfd=0` path，不把 FD snapshot 问题混回 xlat 生成器。
+选择第一种。`OPENAT2_REGULAR` 已完成 focused 修复；下一项改为先修 clean rebuild 的 xlat alias/constant 求值，再处理 `file_setattr-Xabbrev` 和 `trace_statfs_like` 两个独立差异，不把 FD snapshot 问题混回 xlat 生成器。
 
 ## 分阶段修复计划
 
@@ -357,9 +377,10 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 7e. 修 `clone3` 的 `set_tid[]` 二级快照（已完成） | 在 clone3 enter event 中追加最多 32 个 `int` 的 bounded bytes TLV；handler 只消费完整快照，失败或超限保留指针 | 回归测试先失败后通过；`clone3` 基础及 3 个 `-X` 变体的 `set_tid[]` diff 归零；Go 全量门禁和 BPF 重编通过 | `fix(clone3): capture set_tid array snapshot` |
 | 7f. 修 `clone3` 未知尾部和外层字段条件（已完成） | 对 `size` 超过已知 `struct clone_args` 布局的 snapshot 输出 upstream 要求的 `???`/bytes 尾部；保留无符号 `exit_signal`，并按 flag 控制指针字段；保持二级数组 TLV 独立 | 回归测试先失败后通过；`clone3` 基础及 3 个 `-X` 变体全部通过；失败路径和 bounded snapshot 契约有回归测试 | `fix(clone3): preserve unknown tail output` |
 | 7g. 修 BPF_LINK_CREATE tracing_multi/uprobe_multi（已完成） | 增加专用 bounded payload 和 tail-call；补齐 59/60/61 union 解码及 size-dependent `path_fd`；不扩大通用 nested handler | 回归测试先失败后通过；root `bpf.gen.test`、`bpf-v.gen.test` 和完整 Go 门禁通过；最新 `more` 不再失败于 BPF 用例 | `fix(bpf): decode tracing multi link attributes` |
+| 7h. 修 clean rebuild 的 xlat 可复现性（下一步） | 只修改 `cmd/generate-xlats` 的常量解析/alias fallback 与 generator 回归；覆盖 BPF 移位常量、`O_*` 别名和 quota C 宏；不手改 `pkg/meta/xlat_auto.go` | clean `./build.sh` 后生成结果稳定；`go test ./...` 通过；PIDFD 8 项、BPF 2 项、signalfd/inotify focused 用例归零 | `fix(generator): preserve aliased xlat constants` |
 | 8. 整理契约分类 | 只登记有架构证据和 focused evidence 的 XFAIL | unexpected XPASS 仍失败；无批量未知 XFAIL；无 ptrace/procfs/process-vm fallback | `test: document upstream compatibility exceptions` |
 
-阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复；阶段 4 的 fresh root semantic 验收、4a 的 signalfd 参数/返回视图验收、阶段 5 的 dup3 focused 验收、5a 的 dup2 focused 验收、7a 的 openat2 xlat 验收、7b 的 openat2 `-y` dfd path 验收、7c 的 `file_setattr` xlat 验收、7d 的 `xetitimer` 类型注册验收、7f 的 clone3 外层字段验收和 7g 的 BPF_LINK_CREATE 验收均已闭环。下一步继续按一个 syscall family 一个提交处理。每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
+阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复；阶段 4 的 fresh root semantic 验收、4a 的 signalfd 参数/返回视图验收、阶段 5 的 dup3 focused 验收、5a 的 dup2 focused 验收、7a 的 openat2 xlat 验收、7b 的 openat2 `-y` dfd path 验收、7c 的 `file_setattr` xlat 验收、7d 的 `xetitimer` 类型注册验收、7f 的 clone3 外层字段验收和 7g 的 BPF_LINK_CREATE 验收均已闭环。2026-09-11 fresh rebuild 新增的 7h 尚未修复；下一步继续按一个 generator/syscall family 一个提交处理。每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、clean rebuild 后 `go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
 
 ## 重跑注意事项
 

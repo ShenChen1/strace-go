@@ -4,7 +4,7 @@
 兼容工作的验收矩阵。下表以当前代码、快速门禁和已登记的 upstream 用例为准；
 “应实现”只保留仍需按纯 eBPF 路径闭环的能力。
 
-基线日期：2026-09-08。
+基线日期：2026-09-08；最新 clean rebuild 复核：2026-09-11。
 
 ## 状态定义
 
@@ -62,8 +62,9 @@ handoff、零返回 iovec、suspended probe 的 status 过滤和稀疏继承 fd 
 
 - `GOCACHE=/tmp/strace-go-gocache go test ./...`；
 - `./build.sh`（重新生成并编译 BPF/元数据）；
-- 已登记的 `more` upstream suite：265 项中 262 PASS、0 FAIL、2 个具名 XFAIL、
-  1 个非契约 XPASS-ALLOWED；
+- clean rebuild 后的 `more` upstream suite：265 项中 248 PASS、14 FAIL、2 个具名 XFAIL、
+  1 个非契约 XPASS-ALLOWED；14 个失败主要由 xlat generator 在 fresh 环境下丢失
+  PIDFD/BPF/signalfd/inotify 常量引起，不能继续沿用旧生成物下的 262 PASS 统计；
 - root 下 `--kill-on-exit`、`-u`、`-b` 的真实运行回归。
 
 `options-syntax.test` 和 upstream `kill-on-exit.test` 不作为纯 eBPF exact gate：前者还
