@@ -151,6 +151,14 @@ focused 基线中，`openat2` 的 9 个非 raw 变体把 `OPENAT2_REGULAR` 输�
 
 回归测试先分别复现了未知尾部、无符号 `exit_signal` 和 stale pointer 输出，再通过实现。重新生成结构化 eBPF 对象后，以下 root focused 测试全部通过：`clone3.gen.test`、`clone3-Xabbrev.gen.test`、`clone3-Xraw.gen.test`、`clone3-Xverbose.gen.test`。这四项现在均为 `PASS`，clone3 family 的已知 focused diff 已归零。
 
+### 2026-09-11 signalfd 参数与返回 FD 视图分离
+
+`signalfd4-yy.gen.test` 的唯一差异是同一个成功更新调用的 `fd=4`：参数应保留调用前的 `signalfd:[USR2]`，返回值才应显示 exit event 产生的 `signalfd:[USR2 CHLD]`。此前 event-time signalfd overlay 直接修改了参数使用的 `eventFDView`，导致新 mask 提前出现在参数中。
+
+修复让 `eventFDViewFromSections` 只解析 enter/event-time 的 FD_PATH 快照；signalfd 成功返回时复制该视图并在独立 `returnFDView` 中写入新 mask。handler 参数、path filter 和持久 state 更新继续使用原视图，text/JSON 返回格式化使用 return-only 视图；失败返回不创建覆盖，也不提前修改持久 FD store。该边界与已验证的 dup2/dup3 return-only overlay 一致。
+
+新增回归测试同时断言参数旧 path、返回新 path 和持久 store 不被 event-time overlay 修改；root `signalfd4-yy.gen.test` 通过，`ebpf-semantic` 重新验证为 `PASS`，signalfd semantic 16 个事件和 2 个失败返回检查均通过。
+
 ### 阶段 3 全量基线的首轮归因
 
 本次执行命令为 `sudo -n python3 test/run_tests.py --suite all --skip-build`。配置后的 1494 项全部进入 runner，最终计数为 466 PASS、851 FAIL、177 SKIP；`all` 当前没有复用 `more` 的 XFAIL 映射，因此 `XFailed=0` 和 `XPassed=0`。这次结果证明 runner inventory、共享 helper 和 prerequisite 边界已经工作，但不代表 851 个失败都是同一类实现问题。
@@ -312,6 +320,7 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 2. 关闭 dup3 生成输入所有权（已完成） | `cmd/generate-xlats/`、生成结果及测试；删除 submodule 未跟踪输入 | generator/meta 单测和 `go test ./...` 通过；`small` 23/23；dup3 基础用例 2/2，y/yy 仅剩具名 FD path diff；submodule clean | `f51471f fix(generator): derive dup3 flags from open flags` |
 | 3. 重建可信基线（已完成） | 不改 syscall 实现，只重跑配置后的 `all` 并按 environment / contract / implementation 分类 | 配置清单 1494 项；466 PASS / 851 FAIL / 177 SKIP；保留纯 eBPF、PID namespace、FD path、decoder 和环境类代表性 diff | `docs: refresh upstream failure inventory` |
 | 4. 验证 signalfd event-time FD path | handler event-time overlay、CLI 详情选择和回归测试已提交；用 fresh binary 做 root semantic 验收 | 两个 signalfd semantic 断言归零；相关 Go/Python 测试和 fresh `ebpf-semantic` | `fix(handler): render signalfd path from exit event` + `test(ebpf): select signalfd details` |
+| 4a. 分离 signalfd 参数与返回 FD 视图（已完成） | 参数继续使用调用前 event view，只有成功返回的 `returnFDView` 写入新 mask；不改变持久 state 顺序 | `signalfd4-yy.gen.test` 通过；signalfd handler 回归和 root `ebpf-semantic` 通过；失败返回不产生 overlay | `fix(handler): keep signalfd argument event state` |
 | 5. 修 dup3 event-time FD path（已完成） | 复用 overlay 边界，但只处理 dup3 成功覆盖目标 FD；参数继续使用调用前 snapshot | `dup3-y.gen.test`、`dup3-yy.gen.test` 通过；失败返回不创建 overlay；cloexec 状态保持原有更新路径 | `fix(handler): render dup3 return path from exit event` |
 | 5a. 修 dup2 event-time FD path（已完成） | 将已验证的 return-only overlay 复用于 dup2，不复制状态逻辑 | `dup2-y.gen.test`、`dup2-yy.gen.test` 通过；dup3 四项交叉回归仍通过 | `fix(handler): render dup2 return path from exit event` |
 | 6. 修复 orphan exit（已完成） | 成功 exec 的 lifecycle-owned raw exit 不再计为 orphan；保留其他 unmatched 统计 | root semantic `PASS`；normal `orphan_exit=0`；attach 仍报告预期 orphan；focused/全量本地测试通过 | `fix(bpf): classify lifecycle-owned exec exits` |
@@ -323,7 +332,7 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 7f. 修 `clone3` 未知尾部和外层字段条件（已完成） | 对 `size` 超过已知 `struct clone_args` 布局的 snapshot 输出 upstream 要求的 `???`/bytes 尾部；保留无符号 `exit_signal`，并按 flag 控制指针字段；保持二级数组 TLV 独立 | 回归测试先失败后通过；`clone3` 基础及 3 个 `-X` 变体全部通过；失败路径和 bounded snapshot 契约有回归测试 | `fix(clone3): preserve unknown tail output` |
 | 8. 整理契约分类 | 只登记有架构证据和 focused evidence 的 XFAIL | unexpected XPASS 仍失败；无批量未知 XFAIL；无 ptrace/procfs/process-vm fallback | `test: document upstream compatibility exceptions` |
 
-阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复；阶段 4 的 fresh root semantic 验收、阶段 5 的 dup3 focused 验收、5a 的 dup2 focused 验收、7a 的 openat2 xlat 验收、7b 的 openat2 `-y` dfd path 验收、7c 的 `file_setattr` xlat 验收、7d 的 `xetitimer` 类型注册验收和 7f 的 clone3 外层字段验收均已闭环。下一步继续按一个 syscall family 一个提交处理。每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
+阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复；阶段 4 的 fresh root semantic 验收、4a 的 signalfd 参数/返回视图验收、阶段 5 的 dup3 focused 验收、5a 的 dup2 focused 验收、7a 的 openat2 xlat 验收、7b 的 openat2 `-y` dfd path 验收、7c 的 `file_setattr` xlat 验收、7d 的 `xetitimer` 类型注册验收和 7f 的 clone3 外层字段验收均已闭环。下一步继续按一个 syscall family 一个提交处理。每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
 
 ## 重跑注意事项
 

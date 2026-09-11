@@ -79,14 +79,11 @@ func fdPathOverlayFromSections(sections []handler.PayloadSection) fdPathOverlay 
 }
 
 func eventFDViewFromSections(
-	syscallName string,
 	view syscallEventView,
 	sections []handler.PayloadSection,
 ) eventFDStateView {
 	overlay := fdPathOverlayFromSections(sections)
-	eventView := overlay.resolve(view)
-	applySignalfdEventPath(&eventView, syscallName, view, sections)
-	return eventView
+	return overlay.resolve(view)
 }
 
 func dupReturnFDView(
@@ -155,30 +152,29 @@ func normalizeTrackedFDPath(path string) string {
 	return path
 }
 
-func applySignalfdEventPath(
-	eventView *eventFDStateView,
+func signalfdReturnFDView(
+	eventView eventFDStateView,
 	syscallName string,
 	view syscallEventView,
 	sections []handler.PayloadSection,
-) {
-	if eventView == nil || view.eventType != bpfEventTypeExit || view.ret < 0 {
-		return
+) (eventFDStateView, bool) {
+	if view.eventType != bpfEventTypeExit || view.ret < 0 {
+		return eventView, false
 	}
 	if syscallName != "signalfd" && syscallName != "signalfd4" {
-		return
+		return eventView, false
 	}
 	policy, ok := fdCreatorPolicyFor(syscallName, view)
 	if !ok {
-		return
+		return eventView, false
 	}
 	state := policy.state(fdStateSource{view: view, payloadSections: sections})
 	if !state.pathKnown {
-		return
+		return eventView, false
 	}
-	if eventView.paths == nil {
-		eventView.paths = make(map[int32]string)
-	}
-	eventView.paths[int32(view.ret)] = state.path
+	returnView := cloneEventFDStateView(eventView)
+	returnView.paths[int32(view.ret)] = state.path
+	return returnView, true
 }
 
 func (overlay fdPathOverlay) resolve(view syscallEventView) eventFDStateView {

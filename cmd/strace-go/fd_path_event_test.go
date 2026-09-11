@@ -379,13 +379,49 @@ func TestSignalFDEventTimePathReachesReturnFormatter(t *testing.T) {
 				ret:       test.ret,
 			}, 101, nil, sections)
 
-			if got := formatSyscallRet(test.syscall, test.ret, handler.Result{}, ev.handlerContext); got != test.wantPath {
+			if got := formatSyscallRet(test.syscall, test.ret, handler.Result{}, ev.handlerContextForFormatting()); got != test.wantPath {
 				t.Fatalf("signalfd return = %q, want %q", got, test.wantPath)
 			}
 			if _, ok := store.Path(101, int32(test.ret)); ok {
 				t.Fatal("event-time signalfd overlay mutated the persistent store")
 			}
 		})
+	}
+}
+
+func TestSignalFDReturnOverlayKeepsArgumentState(t *testing.T) {
+	store := newFDStateStoreFromMaps(map[string]string{
+		"101:4": "signalfd:[USR2]",
+	}, nil)
+	opts := cli.ParseArgs([]string{"-yy", "--decode-fds=signalfd", "--trace=signalfd4", "/bin/true"})
+	deps := syscallEventContextDeps{
+		decoder:     event.NewDecoder(),
+		handlerOpts: opts,
+		filter:      newTraceFilterOptions(opts),
+		catalog:     meta.NewCatalog("abbrev"),
+		fdState:     store,
+		registry:    handler.NewRegistry(),
+	}
+	view := syscallEventView{
+		valid:     true,
+		eventType: bpfEventTypeExit,
+		sysID:     syscallIDByName(t, "signalfd4"),
+		args:      [6]uint64{4, 0x1000, 8, 0},
+		ret:       4,
+	}
+	ev := newSyscallEventContextFromViewWithDeps(deps, view, 101, nil, []handler.PayloadSection{
+		signalMaskPayloadSection(1<<11 | 1<<16),
+		fdStatePayloadSection(fdStateSnapshotBytes(
+			4, handler.FDStateFlagIdentity|handler.FDStateFlagOffset,
+			0100600, 1, 2, 104, 37,
+		)),
+	})
+	result := defaultHandleSyscall("signalfd4", ev.handlerContext)
+	if got := result.ArgParts[0]; got != "4<signalfd:[USR2]>" {
+		t.Fatalf("signalfd argument = %q, want old mask path", got)
+	}
+	if got := formatSyscallRet("signalfd4", view.ret, result, ev.handlerContextForFormatting()); got != "4<signalfd:[USR2 CHLD]>" {
+		t.Fatalf("signalfd return = %q, want new mask path", got)
 	}
 }
 

@@ -143,7 +143,7 @@ func newSyscallEventContextFromViewWithDeps(
 		return ev
 	}
 	payloadSections := mergePendingPayloadSections(pendingEnter, currentPayload)
-	eventFDView := eventFDViewFromSections(scMeta.Name, view, payloadSections)
+	eventFDView := eventFDViewFromSections(view, payloadSections)
 	returnFDView, hasReturnFDView := dupReturnFDView(
 		eventFDView,
 		scMeta.Name,
@@ -151,6 +151,16 @@ func newSyscallEventContextFromViewWithDeps(
 		deps.fdStateReader(),
 		statePID,
 	)
+	signalfdView, hasSignalfdReturn := signalfdReturnFDView(
+		eventFDView,
+		scMeta.Name,
+		view,
+		payloadSections,
+	)
+	if hasSignalfdReturn {
+		returnFDView = signalfdView
+		hasReturnFDView = true
+	}
 	pathArguments := decodePathArguments(deps, view, scMeta, payloadSections)
 	pathText := primaryPathText(pathArguments)
 	shouldPrint := true
