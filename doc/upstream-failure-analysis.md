@@ -45,6 +45,7 @@
 | --- | --- | --- |
 | `sudo -n python3 test/run_tests.py --suite all` | 374 PASS / 954 FAIL / 172 SKIP | runner 对生成目录进行文件系统扫测；混合了非配置测试、helper 缺失、exact output 差异和纯 eBPF 非契约差异，不能作为 upstream 官方全量结果或实现 bug 总数 |
 | `sudo -n python3 test/run_tests.py --suite more --skip-build` | 199 PASS / 63 FAIL / 3 XFAIL / 0 XPASS | `more` 只登记了 3 个已知非契约差异，其余失败仍需分类 |
+| 2026-09-11 fresh root `sudo -n python3 test/run_tests.py --suite more --skip-build` | 260 PASS / 2 FAIL / 2 XFAIL / 1 XPASS-ALLOWED | `bpf.gen.test` 和 `bpf-v.gen.test` 已通过；剩余 `file_setattr-Xabbrev` 与 `trace_statfs_like` 是独立的环境敏感失败 |
 | `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` | 3 FAIL | `orphan_exit` 2 个，以及两个 signalfd 同事件路径输出失败 |
 | 最新 fresh root `sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build` | PASS | BPF、signalfd、生命周期和 normal fixture 均通过；`orphan_exit=0` |
 | `sudo -n python3 test/run_tests.py --suite ebpf-no-ptrace --skip-build` | PASS | 未观察到 ptrace 运行时介入 |
@@ -150,6 +151,31 @@ focused 基线中，`openat2` 的 9 个非 raw 变体把 `OPENAT2_REGULAR` 输�
 修复在 BPF 侧为外层 snapshot 增加已知 88 字节前缀重试：完整读取失败但前缀成功时，事件携带 `CopiedLen=88` 的有界快照并保留截断状态；Go 侧据此渲染未知尾部，不补读 tracee 内存。`clone3` handler 对已知 signal 值继续使用当前 xlat 模式，对未知值保留完整无符号十进制；结构指针字段改为 flag-only 条件。二级 `set_tid[]` TLV 保持独立，未扩大读取范围。
 
 回归测试先分别复现了未知尾部、无符号 `exit_signal` 和 stale pointer 输出，再通过实现。重新生成结构化 eBPF 对象后，以下 root focused 测试全部通过：`clone3.gen.test`、`clone3-Xabbrev.gen.test`、`clone3-Xraw.gen.test`、`clone3-Xverbose.gen.test`。这四项现在均为 `PASS`，clone3 family 的已知 focused diff 已归零。
+
+### 2026-09-11 BPF_LINK_CREATE tracing_multi 与 uprobe_multi 解码
+
+修复前最新 `more` 基线为 `260 PASS / 2 FAIL / 2 XFAIL / 1 XPASS-ALLOWED`，两个失败均来自 `bpf.gen.test` 和 `bpf-v.gen.test`。两项的有效 diff 收敛到同一个 `BPF_LINK_CREATE` union 缺口：`BPF_TRACE_UPROBE_MULTI` 的新布局在属性偏移 60 增加 `path_fd`，而 `BPF_TRACE_FENTRY_MULTI`、`BPF_TRACE_FEXIT_MULTI` 和 `BPF_TRACE_FSESSION_MULTI`（attach type 59、60、61）需要输出 `tracing_multi={ids=..., cookies=..., cnt=...}`。
+
+根因分成两层。Go decoder 只认识旧的 union 字段，未按 `bpf_attr` size 解码 `path_fd`，也没有 59/60/61 的结构分支。更重要的是，`ids` 和 `cookies` 是属性中的用户态二级指针，不能依靠有限的外层 `bpf_attr` snapshot 得到数组内容；因此不能只修改 Go formatter，否则只能输出地址。
+
+方案比较：
+
+| 方案 | 优点 | 风险 |
+| --- | --- | --- |
+| 为 tracing_multi 增加专用 enter tail-call，在事件中追加有界的原生宽度数组 TLV；Go 侧按 TLV 解码，uprobe_multi 按 size 输出 `path_fd` | 保持纯 eBPF bounded snapshot 边界，避免把大数组逻辑塞进通用 BPF handler；ABI 语义清晰 | 增加一个 manifest 槽位并需要重生成全部相关 BPF 对象 |
+| 只扩大通用 nested capture 并让所有 BPF_LINK_CREATE 共用 | 路由改动少 | verifier 指令规模超过上限，且会让无关 BPF 命令承担 tracing_multi 数组采集成本 |
+
+选择第一种。BPF 侧新增 `enter_bpf_tracing_multi` tail-call，最多捕获 4 个 `u32 ids` 和 4 个 `u64 cookies`，保留声明的 `cnt`，超出有界前缀时由 Go formatter 输出剩余指针位置。`uprobe_multi` 在 attr size 达到 64 字节时追加 `path_fd`，旧 size 仍保持 60 字节解码。新增 manifest slot 54 后，enter prog array 容量由 54 调整为 55，并由 generator 重新生成，未手改生成产物。
+
+首次实际加载时 verifier 拒绝了 inline 分类代码生成的修改后 context 指针解引用。修复把 tracing_multi 分类函数设为 `static __noinline`，直接接收原始 context；生成指令随后使用固定偏移访问 `ctx->args`，collection 可以正常加载。整个路径没有引入 ptrace、`process_vm_readv` 或 procfs 补读。
+
+回归测试先在缺少字段/快照时失败，再通过以下门禁：
+
+- `TestBpfUprobeMultiDecodesPathFD`、`TestBpfTracingMultiUsesEventPayloadSections`、`TestBpfTracingMultiFallsBackToPointersWithoutPayload` 通过；
+- `TestBPFTracingMultiDirectSourceContract` 通过，锁定专用 header、tail-call 路由、manifest 槽位和 noinline verifier 边界；
+- `GOCACHE=/tmp/strace-go-gocache go test ./...` 通过；
+- root `bpf.gen.test` 和 `bpf-v.gen.test` 均 `PASS`；
+- 最新 root `more` 中上述两个 BPF 用例均 `PASS`。同一轮的两个剩余失败为 `file_setattr-Xabbrev.gen.test` 的环境敏感指针输出和 `trace_statfs_like.gen.test` 的 `syscall_0x1d8` 噪声，单独保留，未归因于本修复。
 
 ### 2026-09-11 signalfd 参数与返回 FD 视图分离
 
@@ -330,9 +356,10 @@ upstream 的 `src/dup.c` 使用 `open_mode_flags` 打印 dup3 flags，但本项�
 | 7d. 修 `xetitimer` 类型注册（已完成） | 为生成 metadata 使用的 `struct __kernel_old_itimerval *` 注册既有 `decodeItimerval`；不改 BPF TLV 和内存读取边界 | registry 回归先失败后通过；`xetitimer.gen.test` 通过；Go 全量门禁通过 | `fix(handler): register legacy itimerval type` |
 | 7e. 修 `clone3` 的 `set_tid[]` 二级快照（已完成） | 在 clone3 enter event 中追加最多 32 个 `int` 的 bounded bytes TLV；handler 只消费完整快照，失败或超限保留指针 | 回归测试先失败后通过；`clone3` 基础及 3 个 `-X` 变体的 `set_tid[]` diff 归零；Go 全量门禁和 BPF 重编通过 | `fix(clone3): capture set_tid array snapshot` |
 | 7f. 修 `clone3` 未知尾部和外层字段条件（已完成） | 对 `size` 超过已知 `struct clone_args` 布局的 snapshot 输出 upstream 要求的 `???`/bytes 尾部；保留无符号 `exit_signal`，并按 flag 控制指针字段；保持二级数组 TLV 独立 | 回归测试先失败后通过；`clone3` 基础及 3 个 `-X` 变体全部通过；失败路径和 bounded snapshot 契约有回归测试 | `fix(clone3): preserve unknown tail output` |
+| 7g. 修 BPF_LINK_CREATE tracing_multi/uprobe_multi（已完成） | 增加专用 bounded payload 和 tail-call；补齐 59/60/61 union 解码及 size-dependent `path_fd`；不扩大通用 nested handler | 回归测试先失败后通过；root `bpf.gen.test`、`bpf-v.gen.test` 和完整 Go 门禁通过；最新 `more` 不再失败于 BPF 用例 | `fix(bpf): decode tracing multi link attributes` |
 | 8. 整理契约分类 | 只登记有架构证据和 focused evidence 的 XFAIL | unexpected XPASS 仍失败；无批量未知 XFAIL；无 ptrace/procfs/process-vm fallback | `test: document upstream compatibility exceptions` |
 
-阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复；阶段 4 的 fresh root semantic 验收、4a 的 signalfd 参数/返回视图验收、阶段 5 的 dup3 focused 验收、5a 的 dup2 focused 验收、7a 的 openat2 xlat 验收、7b 的 openat2 `-y` dfd path 验收、7c 的 `file_setattr` xlat 验收、7d 的 `xetitimer` 类型注册验收和 7f 的 clone3 外层字段验收均已闭环。下一步继续按一个 syscall family 一个提交处理。每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
+阶段 1 和阶段 2 是可信测试基线的前置条件，现已分别提交，runner 变化和生成器变化没有混在一个 diff。阶段 3 只刷新证据，不夹带实现修复；阶段 4 的 fresh root semantic 验收、4a 的 signalfd 参数/返回视图验收、阶段 5 的 dup3 focused 验收、5a 的 dup2 focused 验收、7a 的 openat2 xlat 验收、7b 的 openat2 `-y` dfd path 验收、7c 的 `file_setattr` xlat 验收、7d 的 `xetitimer` 类型注册验收、7f 的 clone3 外层字段验收和 7g 的 BPF_LINK_CREATE 验收均已闭环。下一步继续按一个 syscall family 一个提交处理。每一步的共同完成条件是：失败回归先失败、实现后 focused test 通过、`go test ./...` 通过，并且没有引入 ptrace/procfs/process-vm fallback。
 
 ## 重跑注意事项
 

@@ -80,6 +80,9 @@ func decodeLinkCreateUnion(ctx *Context, data []byte, size, attachType, flags ui
 	case 24, 25, 26, 27, 58: // tracing attach types
 		*parts = append(*parts, fmt.Sprintf("tracing={target_btf_id=%d, cookie=%s}", u32OrZero(data, 16), fmtHex64(u64OrZero(data, 24))))
 		return 32
+	case 59, 60, 61: // BPF_TRACE_FENTRY_MULTI, BPF_TRACE_FEXIT_MULTI, BPF_TRACE_FSESSION_MULTI
+		*parts = append(*parts, formatTracingMulti(ctx, u64OrZero(data, 16), u64OrZero(data, 24), u32OrZero(data, 32)))
+		return 36
 	case 41: // BPF_PERF_EVENT
 		cookie := u64OrZero(data, 16)
 		if cookie == 0 {
@@ -97,7 +100,7 @@ func decodeLinkCreateUnion(ctx *Context, data []byte, size, attachType, flags ui
 	case 46, 47: // BPF_TCX_INGRESS, BPF_TCX_EGRESS
 		return decodeTcxOrNetkitStruct(data, flags, parts, "tcx")
 	case 48: // BPF_TRACE_UPROBE_MULTI
-		return decodeUprobeMulti(ctx, data, parts)
+		return decodeUprobeMulti(ctx, data, size, parts)
 	case 54, 55: // BPF_NETKIT_PRIMARY, BPF_NETKIT_PEER
 		return decodeTcxOrNetkitStruct(data, flags, parts, "netkit")
 	default:
@@ -148,6 +151,15 @@ func formatKprobeMulti(ctx *Context, kflags, cnt uint32, syms, addrs, cookies ui
 	return "kprobe_multi={" + strings.Join(kparts, ", ") + "}"
 }
 
+func formatTracingMulti(ctx *Context, ids, cookies uint64, count uint32) string {
+	parts := []string{
+		decodeBpfU32Array(ctx, "ids", bpfLinkTracingMultiIDsPayloadArg, ids, count),
+		decodeBpfU64ArrayPayload(ctx, "cookies", bpfLinkTracingMultiCookiesPayloadArg, cookies, count),
+		fmt.Sprintf("cnt=%d", count),
+	}
+	return "tracing_multi={" + strings.Join(parts, ", ") + "}"
+}
+
 // isIfindexAttachType returns true if the attach type uses target_ifindex instead of target_fd.
 func isIfindexAttachType(t uint32) bool {
 	return t == 37 || t == 46 || t == 47 || t == 54 || t == 55
@@ -179,7 +191,7 @@ func decodeTcxOrNetkitStruct(data []byte, flags uint32, parts *[]string, name st
 
 // decodeUprobeMulti decodes uprobe_multi struct in BPF_LINK_CREATE.
 // Impact: Formats path, offsets, ref_ctr_offsets, cookies, cnt, flags, and pid.
-func decodeUprobeMulti(ctx *Context, data []byte, parts *[]string) int {
+func decodeUprobeMulti(ctx *Context, data []byte, size uint32, parts *[]string) int {
 	var up []string
 	path := u64OrZero(data, 16)
 	if pathText, ok := bpfNestedStringPayload(ctx, bpfLinkUprobePathPayloadArg, path, 0); ok {
@@ -187,9 +199,9 @@ func decodeUprobeMulti(ctx *Context, data []byte, parts *[]string) int {
 	} else {
 		up = append(up, formatPtr("path", path))
 	}
-	up = append(up, decodeUprobeU64Array(ctx, "offsets", bpfLinkUprobeOffsetsPayloadArg, u64OrZero(data, 24), u32OrZero(data, 48)))
-	up = append(up, decodeUprobeU64Array(ctx, "ref_ctr_offsets", bpfLinkUprobeRefPayloadArg, u64OrZero(data, 32), u32OrZero(data, 48)))
-	up = append(up, decodeUprobeU64Array(ctx, "cookies", bpfLinkUprobeCookiesPayloadArg, u64OrZero(data, 40), u32OrZero(data, 48)))
+	up = append(up, decodeBpfU64ArrayPayload(ctx, "offsets", bpfLinkUprobeOffsetsPayloadArg, u64OrZero(data, 24), u32OrZero(data, 48)))
+	up = append(up, decodeBpfU64ArrayPayload(ctx, "ref_ctr_offsets", bpfLinkUprobeRefPayloadArg, u64OrZero(data, 32), u32OrZero(data, 48)))
+	up = append(up, decodeBpfU64ArrayPayload(ctx, "cookies", bpfLinkUprobeCookiesPayloadArg, u64OrZero(data, 40), u32OrZero(data, 48)))
 	up = append(up, fmt.Sprintf("cnt=%d", u32OrZero(data, 48)))
 	upFlags := u32OrZero(data, 52)
 	if upFlags == 0 {
@@ -198,11 +210,16 @@ func decodeUprobeMulti(ctx *Context, data []byte, parts *[]string) int {
 		up = append(up, "flags="+decodeFlags(ctx, uint64(upFlags), "bpf_uprobe_multi_flags"))
 	}
 	up = append(up, fmt.Sprintf("pid=%d", u32OrZero(data, 56)))
+	decodedSize := 60
+	if size > 60 {
+		up = append(up, fmt.Sprintf("path_fd=%d", int32(u32OrZero(data, 60))))
+		decodedSize = 64
+	}
 	*parts = append(*parts, "uprobe_multi={"+strings.Join(up, ", ")+"}")
-	return 60
+	return decodedSize
 }
 
-func decodeUprobeU64Array(ctx *Context, name string, argIndex int, addr uint64, count uint32) string {
+func decodeBpfU64ArrayPayload(ctx *Context, name string, argIndex int, addr uint64, count uint32) string {
 	if addr == 0 {
 		return name + "=NULL"
 	}

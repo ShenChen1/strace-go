@@ -170,12 +170,12 @@ func TestBPFProgramSelectionIncludesBPFDynamicDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newBPFProgramSelection() error = %v", err)
 	}
-	for _, name := range []string{"enter_bpf", "enter_bpf_uprobe_multi", "enter_bpf_prog_load", "enter_bpf_prog_load_debug"} {
+	for _, name := range []string{"enter_bpf", "enter_bpf_uprobe_multi", "enter_bpf_tracing_multi", "enter_bpf_prog_load", "enter_bpf_prog_load_debug"} {
 		if !selection.hasProgram(name) {
 			t.Fatalf("BPF selection missing dynamic tail-call dependency %q", name)
 		}
 	}
-	for _, slot := range []uint32{enterProgBpf, enterProgBpfUprobeMulti, enterProgBpfProgLoad, enterProgBpfProgLoadDebug} {
+	for _, slot := range []uint32{enterProgBpf, enterProgBpfUprobeMulti, enterProgBpfTracingMulti, enterProgBpfProgLoad, enterProgBpfProgLoadDebug} {
 		if _, ok := selection.enterSlots[slot]; !ok {
 			t.Fatalf("BPF selection missing dynamic tail-call slot %d", slot)
 		}

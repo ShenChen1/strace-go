@@ -237,11 +237,15 @@ int enter_bpf(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
     int is_prog_load = is_bpf_prog_load_enter_direct(ctx);
     int is_uprobe_multi = is_bpf_uprobe_multi_enter_direct(ctx);
+    int is_tracing_multi = is_bpf_tracing_multi_enter_direct(ctx);
     if (is_prog_load) {
         bpf_tail_call(ctx, &enter_progs, ENTER_PROG_BPF_PROG_LOAD);
     }
     if (is_uprobe_multi) {
         bpf_tail_call(ctx, &enter_progs, ENTER_PROG_BPF_UPROBE_MULTI);
+    }
+    if (is_tracing_multi) {
+        bpf_tail_call(ctx, &enter_progs, ENTER_PROG_BPF_TRACING_MULTI);
     }
     emit_bpf_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
@@ -267,6 +271,14 @@ SEC("tracepoint/raw_syscalls/sys_enter")
 int enter_bpf_uprobe_multi(struct trace_event_raw_sys_enter *ctx) {
     ENTER_PROLOGUE(ctx);
     emit_bpf_uprobe_multi_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
+    save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
+    return 0;
+}
+
+SEC("tracepoint/raw_syscalls/sys_enter")
+int enter_bpf_tracing_multi(struct trace_event_raw_sys_enter *ctx) {
+    ENTER_PROLOGUE(ctx);
+    emit_bpf_tracing_multi_enter_event_v2_direct(pid, tid, sys_id, ctx, enter_time);
     save_pending_syscall_args(tid, pid, sys_id, ctx, enter_time, stack_id);
     return 0;
 }

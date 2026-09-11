@@ -57,6 +57,7 @@ static __always_inline u32 capture_bpf_attr_tlv_direct(
 }
 
 #include "syscall_bpf_nested_direct_event_v2.h"
+#include "syscall_bpf_tracing_multi_direct_event_v2.h"
 #include "syscall_bpf_exit_direct_event_v2.h"
 
 static __noinline void emit_bpf_enter_event_v2_direct(

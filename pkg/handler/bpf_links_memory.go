@@ -8,20 +8,22 @@ import (
 )
 
 const (
-	bpfLinkArrayReadLimit          = 16
-	bpfLinkSymbolReadLimit         = 38
-	bpfLinkStreamReadLimit         = 512
-	bpfLinkIterInfoPayloadArg      = 107
-	bpfLinkKprobeSymsPayloadArg    = 108
-	bpfLinkKprobeAddrsPayloadArg   = 109
-	bpfLinkKprobeCookiesPayloadArg = 110
-	bpfLinkStreamBufPayloadArg     = 111
-	bpfLinkUprobePathPayloadArg    = 133
-	bpfLinkUprobeOffsetsPayloadArg = 134
-	bpfLinkUprobeRefPayloadArg     = 135
-	bpfLinkUprobeCookiesPayloadArg = 136
-	bpfLinkKprobeSymDataSize       = 40
-	bpfLinkKprobeSymRecordSize     = 8 + 4 + bpfLinkKprobeSymDataSize
+	bpfLinkArrayReadLimit                = 16
+	bpfLinkSymbolReadLimit               = 38
+	bpfLinkStreamReadLimit               = 512
+	bpfLinkIterInfoPayloadArg            = 107
+	bpfLinkKprobeSymsPayloadArg          = 108
+	bpfLinkKprobeAddrsPayloadArg         = 109
+	bpfLinkKprobeCookiesPayloadArg       = 110
+	bpfLinkStreamBufPayloadArg           = 111
+	bpfLinkUprobePathPayloadArg          = 133
+	bpfLinkUprobeOffsetsPayloadArg       = 134
+	bpfLinkUprobeRefPayloadArg           = 135
+	bpfLinkUprobeCookiesPayloadArg       = 136
+	bpfLinkTracingMultiIDsPayloadArg     = 145
+	bpfLinkTracingMultiCookiesPayloadArg = 146
+	bpfLinkKprobeSymDataSize             = 40
+	bpfLinkKprobeSymRecordSize           = 8 + 4 + bpfLinkKprobeSymDataSize
 )
 
 // decodeSymsArray decodes the syms pointer array.
@@ -152,6 +154,35 @@ func formatBpfU64ArrayPayload(name string, addr uint64, count uint32, data []byt
 	}
 	if count > uint32(available) {
 		elements = append(elements, fmt.Sprintf("... /* %#x */", addr+uint64(available*8)))
+	}
+	return name + "=[" + strings.Join(elements, ", ") + "]"
+}
+
+// decodeBpfU32Array decodes a 32-bit integer pointer array from an event payload.
+func decodeBpfU32Array(ctx *Context, name string, argIndex int, addr uint64, count uint32) string {
+	if addr == 0 {
+		return name + "=NULL"
+	}
+	if count == 0 {
+		return name + "=[]"
+	}
+	if data, ok := bpfNestedBytesPayload(ctx, argIndex, addr, saturatingU32Product(count, 4)); ok {
+		return formatBpfU32ArrayPayload(name, addr, count, data)
+	}
+	return fmt.Sprintf("%s=%#x", name, addr)
+}
+
+func formatBpfU32ArrayPayload(name string, addr uint64, count uint32, data []byte) string {
+	available := len(data) / 4
+	if available > int(count) {
+		available = int(count)
+	}
+	elements := make([]string, 0, available+1)
+	for i := 0; i < available; i++ {
+		elements = append(elements, fmt.Sprintf("%d", binary.LittleEndian.Uint32(data[i*4:i*4+4])))
+	}
+	if count > uint32(available) {
+		elements = append(elements, fmt.Sprintf("... /* %#x */", addr+uint64(available*4)))
 	}
 	return name + "=[" + strings.Join(elements, ", ") + "]"
 }

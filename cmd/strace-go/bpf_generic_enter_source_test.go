@@ -31,7 +31,7 @@ func TestBPFGenericEnterHandlerExcludesFDPathCapture(t *testing.T) {
 	}
 	for _, snippet := range []string{
 		"ENTER_PROG_NO_PAYLOAD_GENERIC = 46",
-		"STRACE_GO_ENTER_PROG_ARRAY_MAX_ENTRIES 54",
+		"STRACE_GO_ENTER_PROG_ARRAY_MAX_ENTRIES 55",
 		"CONFIG_ELIDE_PLAIN_ENTER 128",
 		"plain_enter_elide_map",
 	} {

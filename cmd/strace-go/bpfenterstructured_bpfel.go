@@ -140,6 +140,7 @@ type bpfEnterStructuredProgramSpecs struct {
 	EnterBpf              *ebpf.ProgramSpec `ebpf:"enter_bpf"`
 	EnterBpfProgLoad      *ebpf.ProgramSpec `ebpf:"enter_bpf_prog_load"`
 	EnterBpfProgLoadDebug *ebpf.ProgramSpec `ebpf:"enter_bpf_prog_load_debug"`
+	EnterBpfTracingMulti  *ebpf.ProgramSpec `ebpf:"enter_bpf_tracing_multi"`
 	EnterBpfUprobeMulti   *ebpf.ProgramSpec `ebpf:"enter_bpf_uprobe_multi"`
 	EnterCachestat        *ebpf.ProgramSpec `ebpf:"enter_cachestat"`
 	EnterCapability       *ebpf.ProgramSpec `ebpf:"enter_capability"`
@@ -304,6 +305,7 @@ type bpfEnterStructuredPrograms struct {
 	EnterBpf              *ebpf.Program `ebpf:"enter_bpf"`
 	EnterBpfProgLoad      *ebpf.Program `ebpf:"enter_bpf_prog_load"`
 	EnterBpfProgLoadDebug *ebpf.Program `ebpf:"enter_bpf_prog_load_debug"`
+	EnterBpfTracingMulti  *ebpf.Program `ebpf:"enter_bpf_tracing_multi"`
 	EnterBpfUprobeMulti   *ebpf.Program `ebpf:"enter_bpf_uprobe_multi"`
 	EnterCachestat        *ebpf.Program `ebpf:"enter_cachestat"`
 	EnterCapability       *ebpf.Program `ebpf:"enter_capability"`
@@ -326,6 +328,7 @@ func (p *bpfEnterStructuredPrograms) Close() error {
 		p.EnterBpf,
 		p.EnterBpfProgLoad,
 		p.EnterBpfProgLoadDebug,
+		p.EnterBpfTracingMulti,
 		p.EnterBpfUprobeMulti,
 		p.EnterCachestat,
 		p.EnterCapability,

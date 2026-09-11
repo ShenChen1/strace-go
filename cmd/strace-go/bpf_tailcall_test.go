@@ -20,13 +20,13 @@ func TestEnterProgArrayEntriesComplete(t *testing.T) {
 	}
 	// Every dispatcher index from enter_dispatch.h must have a slot; missing
 	// slots silently drop that syscall family.
-	for i := 1; i <= enterProgBpfProgLoadDebug; i++ {
+	for i := 1; i <= enterProgBpfTracingMulti; i++ {
 		if !seen[uint32(i)] {
 			t.Fatalf("enter prog array missing index %d", i)
 		}
 	}
-	if len(entries) != enterProgBpfProgLoadDebug {
-		t.Fatalf("enter prog array entries = %d, want %d", len(entries), enterProgBpfProgLoadDebug)
+	if len(entries) != enterProgBpfTracingMulti {
+		t.Fatalf("enter prog array entries = %d, want %d", len(entries), enterProgBpfTracingMulti)
 	}
 }
 
@@ -124,6 +124,7 @@ func TestEnterProgIndicesMatchDispatchHeader(t *testing.T) {
 	pairs := map[string]uint32{
 		"ENTER_PROG_TERMINATING":         enterProgTerminating,
 		"ENTER_PROG_BPF_UPROBE_MULTI":    enterProgBpfUprobeMulti,
+		"ENTER_PROG_BPF_TRACING_MULTI":   enterProgBpfTracingMulti,
 		"ENTER_PROG_BPF_PROG_LOAD":       enterProgBpfProgLoad,
 		"ENTER_PROG_BPF_PROG_LOAD_DEBUG": enterProgBpfProgLoadDebug,
 		"ENTER_PROG_IOVEC":               enterProgIovec,
@@ -149,7 +150,7 @@ func TestEnterProgIndicesMatchDispatchHeader(t *testing.T) {
 			t.Fatalf("capture manifest missing %s = %d", name, val)
 		}
 	}
-	if !strings.Contains(header, "STRACE_GO_ENTER_PROG_ARRAY_MAX_ENTRIES 54") {
+	if !strings.Contains(header, "STRACE_GO_ENTER_PROG_ARRAY_MAX_ENTRIES 55") {
 		t.Fatal("capture manifest must include the enter prog array capacity")
 	}
 }

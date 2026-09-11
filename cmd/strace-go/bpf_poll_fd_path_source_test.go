@@ -76,7 +76,7 @@ func TestBPFPollNestedFDPathUsesProbeSiteFragments(t *testing.T) {
 			t.Fatalf("nested path emitter missing %q", snippet)
 		}
 	}
-	if !strings.Contains(manifest, "STRACE_GO_ENTER_PROG_ARRAY_MAX_ENTRIES 54") {
+	if !strings.Contains(manifest, "STRACE_GO_ENTER_PROG_ARRAY_MAX_ENTRIES 55") {
 		t.Fatal("enter ProgArray does not reserve four nested path fragment slots")
 	}
 }

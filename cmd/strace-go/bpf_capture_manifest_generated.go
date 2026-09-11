@@ -4,7 +4,7 @@ package main
 
 const (
 	bpfRouteMapMaxEntries           = 512
-	bpfEnterProgArrayMaxEntries     = 54
+	bpfEnterProgArrayMaxEntries     = 55
 	bpfExitProgArrayMaxEntries      = 20
 	bpfRecvmsgProgArrayMaxEntries   = 3
 	bpfMmsgBytesProgArrayMaxEntries = 4
@@ -64,6 +64,7 @@ const (
 	enterProgBpfUprobeMulti   = 51
 	enterProgBpfProgLoad      = 52
 	enterProgBpfProgLoadDebug = 53
+	enterProgBpfTracingMulti  = 54
 )
 
 const (
@@ -123,7 +124,7 @@ var bpfEnterProgramCatalog = []bpfTailCallProgramSpec{
 	{slot: enterProgMemfd, name: "enter_memfd", family: bpfHandlerEnterStructuredFamily},
 	{slot: enterProgPrctl, name: "enter_prctl", family: bpfHandlerEnterStructuredFamily},
 	{slot: enterProgClone3, name: "enter_clone3", family: bpfHandlerEnterStructuredFamily},
-	{slot: enterProgBpf, name: "enter_bpf", family: bpfHandlerEnterStructuredFamily, dependencies: []bpfProgramRef{{array: bpfProgramArrayEnter, slot: enterProgBpfUprobeMulti}, {array: bpfProgramArrayEnter, slot: enterProgBpfProgLoad}, {array: bpfProgramArrayEnter, slot: enterProgBpfProgLoadDebug}}},
+	{slot: enterProgBpf, name: "enter_bpf", family: bpfHandlerEnterStructuredFamily, dependencies: []bpfProgramRef{{array: bpfProgramArrayEnter, slot: enterProgBpfUprobeMulti}, {array: bpfProgramArrayEnter, slot: enterProgBpfTracingMulti}, {array: bpfProgramArrayEnter, slot: enterProgBpfProgLoad}, {array: bpfProgramArrayEnter, slot: enterProgBpfProgLoadDebug}}},
 	{slot: enterProgIovec, name: "enter_iovec", family: bpfHandlerEnterMemoryFamily, dependencies: []bpfProgramRef{{array: bpfProgramArrayEnter, slot: enterProgIovecBase}}},
 	{slot: enterProgMsg, name: "enter_msg", family: bpfHandlerEnterMemoryFamily, dependencies: []bpfProgramRef{{array: bpfProgramArrayEnter, slot: enterProgSendmsgBase}}},
 	{slot: enterProgMmsg, name: "enter_mmsg", family: bpfHandlerEnterMemoryFamily, dependencies: []bpfProgramRef{{array: bpfProgramArrayEnter, slot: enterProgMmsgB01}, {array: bpfProgramArrayEnter, slot: enterProgMmsgB2}, {array: bpfProgramArrayEnter, slot: enterProgMmsgB3}}},
@@ -156,6 +157,7 @@ var bpfEnterProgramCatalog = []bpfTailCallProgramSpec{
 	{slot: enterProgBpfUprobeMulti, name: "enter_bpf_uprobe_multi", family: bpfHandlerEnterStructuredFamily},
 	{slot: enterProgBpfProgLoad, name: "enter_bpf_prog_load", family: bpfHandlerEnterStructuredFamily},
 	{slot: enterProgBpfProgLoadDebug, name: "enter_bpf_prog_load_debug", family: bpfHandlerEnterStructuredFamily},
+	{slot: enterProgBpfTracingMulti, name: "enter_bpf_tracing_multi", family: bpfHandlerEnterStructuredFamily},
 }
 
 var bpfExitProgramCatalog = []bpfTailCallProgramSpec{
