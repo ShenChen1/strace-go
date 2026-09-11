@@ -59,6 +59,7 @@ func TestWriteProtocolHeader(t *testing.T) {
 		"#define NAMESPACE_SNAPSHOT_SIZE 40",
 		"#define PAYLOAD_TLV_KIND_PID_NAMESPACE 12",
 		"#define PAYLOAD_TLV_PID_NAMESPACE_ARG_INDEX 0xfffa",
+		"#define PAYLOAD_TLV_CLONE3_SET_TID_ARG_INDEX 0xfff9",
 		"#define PID_NAMESPACE_SNAPSHOT_SIZE 8",
 	} {
 		if !strings.Contains(got, want) {
@@ -116,6 +117,7 @@ func TestWriteProtocolGo(t *testing.T) {
 		"namespaceSnapshotSize = 40",
 		"payloadTLVKindPIDNamespace = 12",
 		"payloadTLVPIDNamespaceArgIndex = 0xfffa",
+		"payloadTLVClone3SetTidArgIndex = 0xfff9",
 		"pidNamespaceSnapshotSize = 8",
 	} {
 		if !strings.Contains(got, want) {

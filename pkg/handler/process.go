@@ -6,6 +6,12 @@ import (
 	"strings"
 )
 
+const (
+	// Must match PAYLOAD_TLV_CLONE3_SET_TID_ARG_INDEX in the generated ABI.
+	clone3SetTidPayloadArgIndex = 0xfff9
+	clone3SetTidMaxEntries      = 32
+)
+
 func registerBuiltinProcess(r *Registry) {
 	r.Register("clone3", &ProcessHandler{})
 }
@@ -131,12 +137,36 @@ func (h *ProcessHandler) decodeCloneArgsSetTid(ctx *Context, data []byte, size u
 	setTidSize := h.u64OrZero(data, 72)
 
 	if setTidPtr != 0 && setTidSize > 0 {
+		if setTidSize <= clone3SetTidMaxEntries {
+			setTidBytes := uint32(setTidSize * 4)
+			if setTidData, ok := bpfNestedBytesPayload(
+				ctx, clone3SetTidPayloadArgIndex, setTidPtr, setTidBytes); ok {
+				if setTidText, ok := formatClone3SetTidPayload(setTidData, setTidSize); ok {
+					parts = append(parts, fmt.Sprintf("set_tid=%s, set_tid_size=%d", setTidText, setTidSize))
+					return parts
+				}
+			}
+		}
 		parts = append(parts, fmt.Sprintf("set_tid=%#x, set_tid_size=%d", setTidPtr, setTidSize))
 	} else if setTidPtr != 0 || setTidSize != 0 {
 		parts = append(parts, formatPtr("set_tid", setTidPtr))
 		parts = append(parts, fmt.Sprintf("set_tid_size=%d", setTidSize))
 	}
 	return parts
+}
+
+func formatClone3SetTidPayload(data []byte, count uint64) (string, bool) {
+	wantLen := int(count) * 4
+	if count == 0 || count > clone3SetTidMaxEntries || len(data) < wantLen {
+		return "", false
+	}
+
+	values := make([]string, 0, int(count))
+	for offset := 0; offset < wantLen; offset += 4 {
+		value := int32(binary.LittleEndian.Uint32(data[offset : offset+4]))
+		values = append(values, fmt.Sprintf("%d", value))
+	}
+	return "[" + strings.Join(values, ", ") + "]", true
 }
 
 func (h *ProcessHandler) decodeCloneArgsPost(ctx *Context, data []byte, size uint64) string {

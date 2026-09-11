@@ -105,6 +105,7 @@ const (
 	payloadTLVEventFDStateArgIndex                 = 0xfffc
 	payloadTLVNamespaceArgIndex                    = 0xfffb
 	payloadTLVPIDNamespaceArgIndex                 = 0xfffa
+	payloadTLVClone3SetTidArgIndex                 = 0xfff9
 	payloadTLVFlagDirectionOut                     = 1
 	namespaceSnapshotSize                          = 40
 	pidNamespaceSnapshotSize                       = 8

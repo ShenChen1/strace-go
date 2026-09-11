@@ -27,6 +27,9 @@ func TestBPFClone3PayloadUsesDirectTLV(t *testing.T) {
 
 	for _, snippet := range []string{
 		"CLONE3_DIRECT_ARGS_MAX 256",
+		"CLONE3_DIRECT_SET_TID_MAX_ENTRIES 32",
+		"CLONE3_DIRECT_SET_TID_BYTES_MAX",
+		"capture_clone3_set_tid_tlv_direct(",
 		"is_clone3_direct_syscall(",
 		"capture_clone3_args_tlv_direct(",
 		"payload_tlv_clamp_u32(requested_len)",
@@ -35,6 +38,8 @@ func TestBPFClone3PayloadUsesDirectTLV(t *testing.T) {
 		"EVENT_FLAG_TRUNCATED",
 		"record_payload_truncated_event();",
 		"bpf_probe_read_user(payload_data, copied_len",
+		"PAYLOAD_TLV_CLONE3_SET_TID_ARG_INDEX",
+		"ctx->args[0], ctx->args[1], &flags);",
 		"init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);",
 	} {
 		if !strings.Contains(clone3DirectHeader, snippet) {

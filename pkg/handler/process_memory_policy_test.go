@@ -127,6 +127,24 @@ func TestClone3SetTidDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	}
 }
 
+func TestClone3SetTidUsesNestedPayloadSection(t *testing.T) {
+	const setTidPtr = 0x3000
+	ctx := newClone3PolicyContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
+	data := makeClone3Data(0)
+	binary.LittleEndian.PutUint64(data[64:72], setTidPtr)
+	binary.LittleEndian.PutUint64(data[72:80], 2)
+	ctx.PayloadSections = []PayloadSection{
+		{Kind: PayloadKindStruct, Direction: PayloadDirectionIn, ArgIndex: 0, ProbeRet: 0, Data: data},
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: clone3SetTidPayloadArgIndex, UserPtr: setTidPtr, UserLen: 8, CopiedLen: 8, ProbeRet: 0, Data: makeUint32Slice(11, 22)},
+	}
+
+	got := (&ProcessHandler{}).Handle(ctx)
+	want := "{flags=0, exit_signal=0, stack=NULL, stack_size=0, set_tid=[11, 22], set_tid_size=2}"
+	if got.ArgParts[0] != want {
+		t.Fatalf("clone3 args = %q, want %q", got.ArgParts[0], want)
+	}
+}
+
 func TestClone3PostDoesNotReadWhenFallbackDisabled(t *testing.T) {
 	reader := &fetchPolicyMemoryReader{data: makeUint32Slice(777)}
 	decoder := event.NewDecoder()

@@ -118,6 +118,7 @@ var protocolConstants = []protocolConstant{
 	{cName: "PAYLOAD_TLV_EVENTFD_STATE_ARG_INDEX", goName: "payloadTLVEventFDStateArgIndex", cValue: "0xfffc"},
 	{cName: "PAYLOAD_TLV_NAMESPACE_ARG_INDEX", goName: "payloadTLVNamespaceArgIndex", cValue: "0xfffb"},
 	{cName: "PAYLOAD_TLV_PID_NAMESPACE_ARG_INDEX", goName: "payloadTLVPIDNamespaceArgIndex", cValue: "0xfffa"},
+	{cName: "PAYLOAD_TLV_CLONE3_SET_TID_ARG_INDEX", goName: "payloadTLVClone3SetTidArgIndex", cValue: "0xfff9"},
 	{cName: "PAYLOAD_TLV_FLAG_DIRECTION_OUT", goName: "payloadTLVFlagDirectionOut", cValue: "1"},
 	{cName: "FD_STATE_SNAPSHOT_SIZE", cValue: "48"},
 	{cName: "FD_STATE_FLAG_IDENTITY", cValue: "1"},
