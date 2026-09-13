@@ -20,11 +20,13 @@ type pendingForkState struct {
 // Cross-owner pending cleanup remains coordinated by TraceState.
 type traceTaskLifecycleState struct {
 	trackForkIdentity bool
-	tasks             map[uint32]*TaskState
-	pendingForks      map[uint32]pendingForkState
-	lifecyclePending  map[uint32]struct{}
-	commandTargetPID  uint32
-	lifecycleExited   map[uint32]struct{}
+	// historyTainted blocks inferred inheritance without disabling observed liveness.
+	historyTainted   bool
+	tasks            map[uint32]*TaskState
+	pendingForks     map[uint32]pendingForkState
+	lifecyclePending map[uint32]struct{}
+	commandTargetPID uint32
+	lifecycleExited  map[uint32]struct{}
 }
 
 func snapshotTaskState(task *TaskState) *TaskState {
@@ -99,6 +101,9 @@ func (st *traceTaskLifecycleState) quiescent(pid uint32) bool {
 		if fork.parentTGID == pid {
 			return false
 		}
+	}
+	if st.trackForkIdentity && st.historyTainted {
+		return false
 	}
 	return true
 }
@@ -176,12 +181,14 @@ func (st *traceTaskLifecycleState) applyFork(view lifecycleEventView) (*TaskStat
 	if st.trackForkIdentity {
 		child = st.ensureTaskState(childTID, 0)
 	}
-	child.ParentTID = parentTID
-	child.Executable = parent.Executable
+	if !st.historyTainted {
+		child.ParentTID = parentTID
+		child.Executable = parent.Executable
+	}
 	child.Alive = true
 	child.LastAction = "fork"
 	child.LastSeenNS = view.enterTime
-	if st.trackForkIdentity {
+	if st.trackForkIdentity && !st.historyTainted {
 		if st.pendingForks == nil {
 			st.pendingForks = make(map[uint32]pendingForkState)
 		}

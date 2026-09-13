@@ -23,6 +23,8 @@ func TestSessionUsesTraceStateOwnerPort(t *testing.T) {
 
 type fakeSessionStateOwner struct{}
 
+func (fakeSessionStateOwner) TaintHistory() {}
+
 func (fakeSessionStateOwner) handleEnvelope(traceEventEnvelope) TraceStateUpdate {
 	return TraceStateUpdate{}
 }

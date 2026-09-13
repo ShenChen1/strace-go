@@ -77,8 +77,11 @@ static __always_inline struct bpf_stats *lookup_stats(void)
     return bpf_map_lookup_elem(&stats_map, &key);
 }
 
+#include "event_integrity.h"
+
 static __always_inline void record_ringbuf_reserve_fail(void)
 {
+    record_event_integrity_loss();
     struct bpf_stats *stats = lookup_stats();
     if (stats) {
         stats->ringbuf_reserve_fail++;
@@ -87,6 +90,7 @@ static __always_inline void record_ringbuf_reserve_fail(void)
 
 static __always_inline void record_ringbuf_copy_fail(void)
 {
+    record_event_integrity_loss();
     struct bpf_stats *stats = lookup_stats();
     if (stats) {
         stats->ringbuf_copy_fail++;
@@ -103,6 +107,7 @@ static __always_inline void record_payload_truncated_event(void)
 
 static __always_inline void record_pending_update_fail(void)
 {
+    record_event_integrity_loss();
     struct bpf_stats *stats = lookup_stats();
     if (stats) {
         stats->pending_update_fail++;
@@ -111,6 +116,7 @@ static __always_inline void record_pending_update_fail(void)
 
 static __always_inline void record_lifecycle_map_update_fail(void)
 {
+    record_event_integrity_loss();
     struct bpf_stats *stats = lookup_stats();
     if (stats) {
         stats->lifecycle_map_update_fail++;
@@ -151,6 +157,7 @@ static __always_inline void record_lifecycle_fork_child_filter(int installed)
         stats->lifecycle_fork_child_filter_installed++;
     } else {
         stats->lifecycle_fork_child_filter_failed++;
+        record_event_integrity_loss();
     }
 }
 
@@ -218,6 +225,7 @@ static __always_inline void record_orphan_exit(
 
 static __always_inline void record_pending_mismatch(void)
 {
+    record_event_integrity_loss();
     struct bpf_stats *stats = lookup_stats();
     if (stats) {
         stats->pending_mismatch++;

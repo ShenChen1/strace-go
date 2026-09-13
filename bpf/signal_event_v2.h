@@ -11,6 +11,7 @@ static __always_inline void emit_signal_event_v2(
     u32 tid,
     const struct signal_event_v2 *body)
 {
+    u64 sequence = next_event_sequence();
     struct signal_record_v2 *event = bpf_ringbuf_reserve(&events, sizeof(*event), 0);
     if (!event) {
         record_ringbuf_reserve_fail();
@@ -25,7 +26,8 @@ static __always_inline void emit_signal_event_v2(
     event->header.pid = pid;
     event->header.tid = tid;
     event->header.sys_id = 0;
-    event->header.seq = 0;
+    event->header.seq = sequence;
+    capture_event_integrity(&event->header);
     event->header.ts_ns = bpf_ktime_get_ns();
     capture_event_v2_comm(&event->header);
     event->body = *body;

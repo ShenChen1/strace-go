@@ -99,6 +99,13 @@ struct bpf_stats {
     u64 lifecycle_exec_untracked;
     u64 lifecycle_exit_seen;
     u64 lifecycle_exit_untracked;
+    u64 event_seq;
+    u64 integrity_first_time_ns;
+};
+
+struct event_loss_state {
+    u64 epoch;
+    u64 first_time_ns;
 };
 
 struct fd_path_scratch {
@@ -125,6 +132,10 @@ struct event_v2_header {
     u64 seq;
     u64 ts_ns;
     char comm[EVENT_V2_COMM_SIZE];
+    u32 cpu;
+    u32 reserved;
+    u64 loss_epoch;
+    u64 loss_time_ns;
 };
 
 struct syscall_enter_event_v2 {
@@ -183,6 +194,9 @@ _Static_assert(__builtin_offsetof(struct event_v2_header, sys_id) == EVENT_V2_HE
 _Static_assert(__builtin_offsetof(struct event_v2_header, seq) == EVENT_V2_HEADER_SEQ_OFFSET, "event v2 sequence offset drift");
 _Static_assert(__builtin_offsetof(struct event_v2_header, ts_ns) == EVENT_V2_HEADER_TS_NS_OFFSET, "event v2 timestamp offset drift");
 _Static_assert(__builtin_offsetof(struct event_v2_header, comm) == EVENT_V2_HEADER_COMM_OFFSET, "event v2 comm offset drift");
+_Static_assert(__builtin_offsetof(struct event_v2_header, cpu) == EVENT_V2_HEADER_CPU_OFFSET, "event CPU offset drift");
+_Static_assert(__builtin_offsetof(struct event_v2_header, loss_epoch) == EVENT_V2_HEADER_LOSS_EPOCH_OFFSET, "event loss epoch offset drift");
+_Static_assert(__builtin_offsetof(struct event_v2_header, loss_time_ns) == EVENT_V2_HEADER_LOSS_TIME_OFFSET, "event loss time offset drift");
 _Static_assert(sizeof(struct syscall_enter_event_v2) == EVENT_V2_ENTER_BODY_LEN, "event v2 enter size drift");
 _Static_assert(sizeof(struct syscall_compact_enter_event_v2) == EVENT_V2_COMPACT_ENTER_BODY_LEN, "event v2 compact enter size drift");
 _Static_assert(sizeof(struct syscall_exit_event_v2) == EVENT_V2_EXIT_BODY_LEN, "event v2 exit size drift");
@@ -388,6 +402,13 @@ struct {
     __type(key, u32);
     __type(value, struct bpf_stats);
 } stats_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, u32);
+    __type(value, struct event_loss_state);
+} event_loss_map SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);

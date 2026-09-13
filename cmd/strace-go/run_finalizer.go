@@ -26,6 +26,7 @@ type traceJSONWriterFlusher interface {
 }
 
 type TraceRunFinalizer struct {
+	integrity       *TraceIntegrity
 	formatPolicy    traceFormatPolicy
 	summaryPolicy   traceSummaryPolicy
 	targetPID       int
@@ -41,6 +42,7 @@ type TraceRunFinalizer struct {
 }
 
 type TraceRunFinalizerDeps struct {
+	Integrity       *TraceIntegrity
 	FormatPolicy    traceFormatPolicy
 	SummaryPolicy   traceSummaryPolicy
 	TargetPID       int
@@ -61,6 +63,7 @@ func newTraceRunFinalizer(deps TraceRunFinalizerDeps) *TraceRunFinalizer {
 		diagnostic = os.Stderr
 	}
 	return &TraceRunFinalizer{
+		integrity:       deps.Integrity,
 		formatPolicy:    deps.FormatPolicy,
 		summaryPolicy:   deps.SummaryPolicy,
 		targetPID:       deps.TargetPID,
@@ -84,11 +87,24 @@ func (s *traceSession) traceRunFinalizer() *TraceRunFinalizer {
 }
 
 func (f *TraceRunFinalizer) Finish() error {
+	return f.finish(true)
+}
+
+func (f *TraceRunFinalizer) FinishAtIntentionalStop() error {
+	return f.finish(false)
+}
+
+func (f *TraceRunFinalizer) finish(accountSequenceCompletion bool) error {
 	if f.exitStatus != nil {
 		f.exitStatus.FlushFallback(f.targetPID)
 	}
-	flushErr := f.flushOutput()
 	stats := collectBPFStatsFromReader(f.statsReader)
+	if accountSequenceCompletion {
+		f.integrity.Finalize(stats)
+	} else {
+		f.integrity.FinalizeAtIntentionalStop()
+	}
+	flushErr := f.flushOutput()
 	f.writeStats(stats)
 	f.printSummary()
 	if f.debugPhases != nil {
@@ -188,6 +204,7 @@ func (f *TraceRunFinalizer) readerStatsSnapshot() traceEventReaderStats {
 }
 
 func (f *TraceRunFinalizer) writeTextStatsDiagnostic(stats bpfRuntimeStats, pendingStale uint64) {
+	writeIntegritySummary(f.statsDiagnostic, f.integrity.Snapshot(), stats)
 	line, ok := bpfStatsDiagnosticLine(stats)
 	if pendingStale > 0 {
 		if ok {

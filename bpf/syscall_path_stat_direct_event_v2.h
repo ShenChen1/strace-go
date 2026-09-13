@@ -79,6 +79,7 @@ static __always_inline void emit_path_stat_enter_event_v2_direct_with_path(
     body.capture_len = 0;
     body.capture_flags = 0;
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
         record_ringbuf_reserve_fail();
@@ -92,7 +93,7 @@ static __always_inline void emit_path_stat_enter_event_v2_direct_with_path(
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(&header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
     ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
     if (ret < 0) {

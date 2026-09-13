@@ -5,6 +5,7 @@ import "strace-go/pkg/handler"
 // jsonSyscallWireEvent is the already-decided syscall output. It contains no
 // session state, so the hot writer can encode raw and decoded events alike.
 type jsonSyscallWireEvent struct {
+	integrity         traceRecordIntegrity
 	eventVersion      uint16
 	eventType         uint16
 	eventFlags        uint32
@@ -37,6 +38,7 @@ func appendJSONSyscallWireEvent(dst []byte, event jsonSyscallWireEvent) []byte {
 	dst = appendJSONSyscallWireIdentity(dst, event)
 	dst = appendJSONSyscallWireReturn(dst, event)
 	dst = appendJSONSyscallWireMetadata(dst, event)
+	dst = appendJSONRecordIntegrity(dst, event.integrity)
 	return append(dst, "}\n"...)
 }
 

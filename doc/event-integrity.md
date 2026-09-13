@@ -25,18 +25,20 @@
 
 每 CPU seq 从 1 开始，在每次 reserve 前为 record emission attempt 分配一个序号。之后 reserve/copy/discard 失败都不退回或重复分配。copy failure 有时仅丢失 record 内一个 section，故分类统计不等于丢失记录数。过滤、enter elision 不分配序号。所有 enter/exit/fragment/lifecycle/signal 使用相同编号源。先 reserve 后发现无可选 payload 的路径提交无 payload 的完整 exit，避免取消后 fallback 产生无意义缺口。
 
-reserve/copy/pending/mismatch/lifecycle update failure 以及非预期 orphan 增加全局 loss epoch；payload probe fault/truncation 不增加。附加首次异常时间，尾部异常同时保存在 per-CPU stats，最终 drain 后对账。
+reserve/copy/pending/mismatch/lifecycle update failure 增加全局 loss epoch；payload probe fault/truncation 不增加。`orphan_exit` 保留为关联诊断，但 attach 到正在执行 syscall 的任务时可能自然出现，不能单独证明 producer loss。附加首次异常时间，尾部异常同时保存在 per-CPU stats，最终 drain 后对账。
 
-seq 用于连续性检查，不用于排序。每 CPU 首次记录建立基线，允许 attach mid-stream；重复、倒退与前向缺口分别统计。uint64 自然回绕按模加法处理。CPU 编号不复用为 task 身份。嵌套 producer 可使编号与 reservation 重排，不能把倒退当作巨大丢失数量；缺口估计与最终 producer counters 分别报告。
+seq 用于连续性检查，不用于排序。sequence map 随 session 创建且从零初始化，因此每 CPU 首条记录的 expected seq 是 1；首条 seq > 1 也必须纳入缺口估计。前向跳号先登记为未决区间，后到的较小 seq 只有命中该区间才算嵌套 producer 重排，并从 gap/lost 估计中扣除；重复或未命中区间的倒退仍是 invariant violation。loss epoch 会立即触发 taint；没有 producer loss 证据的未决区间只在正常流结束时确认，避免 sequence 分配早于 reservation 所造成的误报。uint64 自然回绕按模加法处理。CPU 编号不复用为 task 身份。
 
-所有记录在用户态 scope/output filter 之前检查；invalid record 立即形成完整性屏障。输出记录消费位置、CPU、expected/observed seq、loss epoch、首次异常时间。检测之前已经输出的行不能撤销，也不能宣称是已认证的完整前缀；时间和消费位置只界定观测证据。CPU 没有后继事件的损失通过其他 CPU 的 epoch 或最终统计发现。
+所有记录在用户态 scope/output filter 之前检查；invalid record 立即形成完整性屏障。输出记录消费位置、CPU、expected/observed seq、loss epoch、首次异常时间。检测时间使用 record header 的 emission timestamp；exit 的 enter timestamp 是由 duration 反推的 syscall 起点，不能用来定位 gap。检测之前已经输出的行不能撤销，也不能宣称是已认证的完整前缀；时间和消费位置只界定观测证据。CPU 没有后继事件的损失通过其他 CPU 的 epoch 或最终统计发现。
+
+正常完成会在已 drain 的消费边界对账未决区间、per-CPU seq 和 BPF counters。`--syscall-limit`、`--detach-on=execve` 的触发记录则定义主动停止边界；此时 BPF links 尚未释放，最终读取到的 seq/counters 可能包含边界后的 producer 活动，因此只作为原始 stats 输出，不再反向改变该消费前缀的 integrity state，也不计算 unobserved tail。
 
 ## 降级与恢复
 
 - 清除当前所有 pending enter/exit、fragment、exec 参数、suspended/unfinished 数据及待解析 fork 继承；释放持有的 payload。
 - 历史 FD/path/cwd/offset/identity/cloexec 不再用于解释；后续事件和 fork/exec 都不能恢复旧历史。
 - 当前记录内的 args/ret、bounded payload、FD/path snapshot 仍是直接观测事实。correlation 每个 TID 单独恢复：缺口后清理所有 pending；新的 generic enter 可建立候选，只有 sys_id、enter_time、args 匹配的 exit 才完成恢复。fragment 不能单独恢复，也不能跨 syscall 身份合并。新的缺口再次清除候选。
-- task 的历史 executable/parent 推断失效；已明确观测的退出事实仍可用于控制面清理，不能把清空任务表当作“全部 task 已退出”。
+- task 的历史 executable/parent 推断失效；污染后明确观测到的 fork child 仍作为存活事实参与 follow-forks/quiescence，但不建立 executable、parent 或 FD inheritance。已明确观测的退出事实仍可用于控制面清理，不能把清空任务表当作“全部 task 已退出”。
 - 文本输出立即报告 session taint；JSON 提供 integrity 诊断和后续事件的 degraded 标记；summary 仅统计已观察事件，完整性状态同时报告。
 - FD/path 与 topology 历史不自动恢复；exec 保留非 CLOEXEC FD，也不能证明共享 files/fs 图完整。close_range 只能证明范围内描述符的关闭，不能恢复 cwd、范围外 FD 或未知共享关系。当前快照仅重建当前事件的局部事实，不授权未来复用。task exit/free 结束该 task 的 correlation 污染；exec 清理旧/新 TID，后续完整 pair 恢复。累计输出/summary 缺失保持到 session 结束。
 
@@ -57,5 +59,11 @@ seq 用于连续性检查，不用于排序。每 CPU 首次记录建立基线�
 ## 验证
 
 需覆盖正常跨 CPU/迁移、首条 gap、间隔 gap、重复/倒退/回绕、其他 CPU 传播 epoch、invalid record、尾部损失、旧 FD/cwd 不复活、当前快照保留、fragment/deferred/unfinished 释放、fork/exec 不恢复。运行结果在实现验证后补充。
+
+已完成的验证包括：Go `test ./...`、`go vet ./...`、`go build ./cmd/strace-go`；root 下的真实 reserve/copy-discard/tail fault、所有 integrity 单元测试，以及 path/control/structured handler collection load；upstream small 23/23；纯 eBPF semantic（含 no-ptrace、FD/path、lifecycle、BPF rare/stream/struct-ops）通过，attach baseline orphan 仅保留诊断且 integrity 保持 clean。一个 root baseline/candidate trace-window 对照显示完整性字段使记录从 136 字节增至 160 字节；该成本与用户态 service time 单独报告，不把微基准当作端到端吞吐。
+
+在当前 Linux 7.0 verifier 上，新增公共 header 状态曾使 bounded path/select capture 的完全展开超过一百万条指令；实现改为保持相同 probe-time 上限但关闭这些循环的完全展开，并将 select payload helper 拆分为独立子程序。handler load 回归已覆盖这一约束。
+
+已测 Go consumer 微基准（i5-13500H，`-count=3`）约为：state baseline 164--168 ns/event，单独完整性观察 79 ns/event，完整性观察加 state 232--236 ns/event，污染态继续处理 242--247 ns/event；均为 0 alloc/event。独立 BPF fixture 中，单 producer 的 per-CPU/global atomic 约 7 ns/attempt；4 个并发 producer 时 per-CPU 约 9--10 ns、global atomic 约 76--82 ns。后者是 kernel program microbenchmark，不等同于完整 tracer throughput。
 
 参考：[Linux Ringbuf 文档](https://docs.kernel.org/bpf/ringbuf.html)明确消费者按 reservation 顺序观察，commit 独立；seq 不替代该顺序。

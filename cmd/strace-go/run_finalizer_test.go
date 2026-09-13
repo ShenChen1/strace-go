@@ -101,6 +101,48 @@ func TestTraceRunFinalizerWritesPendingStaleCount(t *testing.T) {
 	}
 }
 
+func TestTraceRunFinalizerIntentionalStopIgnoresActiveProducerTail(t *testing.T) {
+	integrity := newTraceIntegrity(traceIntegrityDeps{})
+	ev := traceEventEnvelope{seq: 1}
+	integrity.Observe(&ev)
+	ev.seq = 3
+	integrity.Observe(&ev)
+	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{
+		Integrity: integrity,
+		Stats: &fakeTraceStatsReader{values: []bpfBpfStats{{
+			EventSeq:           4,
+			RingbufReserveFail: 1,
+		}},
+		},
+	})
+
+	if err := finalizer.FinishAtIntentionalStop(); err != nil {
+		t.Fatalf("TraceRunFinalizer.FinishAtIntentionalStop() error = %v", err)
+	}
+	if snapshot := integrity.Snapshot(); snapshot.Tainted || snapshot.StreamGaps != 0 ||
+		snapshot.EstimatedLost != 0 || snapshot.UnobservedTail != 0 {
+		t.Fatalf("intentional stop counted active producer tail: %+v", snapshot)
+	}
+}
+
+func TestTraceRunFinalizerIntentionalStopPreservesConfirmedGap(t *testing.T) {
+	integrity := newTraceIntegrity(traceIntegrityDeps{})
+	ev := traceEventEnvelope{seq: 1}
+	integrity.Observe(&ev)
+	ev.seq = 3
+	ev.lossEpoch = 1
+	integrity.Observe(&ev)
+	finalizer := newTraceRunFinalizer(TraceRunFinalizerDeps{Integrity: integrity})
+
+	if err := finalizer.FinishAtIntentionalStop(); err != nil {
+		t.Fatalf("TraceRunFinalizer.FinishAtIntentionalStop() error = %v", err)
+	}
+	snapshot := integrity.Snapshot()
+	if !snapshot.Tainted || snapshot.StreamGaps != 1 || snapshot.EstimatedLost != 1 || snapshot.LostCount != 1 {
+		t.Fatalf("intentional stop discarded confirmed gap: %+v", snapshot)
+	}
+}
+
 func TestTraceRunFinalizerFlushesBufferedEventsBeforeStats(t *testing.T) {
 	underlying := &recordingOutputWriter{}
 	output, err := newTraceOutput(TraceOutputDeps{

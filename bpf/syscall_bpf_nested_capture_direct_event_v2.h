@@ -94,6 +94,14 @@ static __always_inline u32 capture_bpf_bytes_tlv_direct(
         probe_ret = -1;
         copied_len = 0;
     } else {
+        /* Preserve a verifier-visible bound after dynptr pointer selection. */
+        asm volatile("" : "+r"(copied_len));
+        if (copied_len > BPF_DIRECT_BYTES_BUCKET_512) {
+            copied_len = BPF_DIRECT_BYTES_BUCKET_512;
+        }
+        if (copied_len > storage_len) {
+            copied_len = storage_len;
+        }
         long err = bpf_probe_read_user(payload_data, copied_len, (void *)user_ptr);
         if (err < 0) {
             probe_ret = err;

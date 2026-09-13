@@ -89,7 +89,7 @@ static __always_inline long select_direct_read_fdset_wide(
     return payload_data ? bpf_probe_read_user(payload_data, SELECT_DIRECT_FDSET_SIZE, (void *)user_ptr) : -1;
 }
 
-static __always_inline u32 capture_select_fdset_tlv_direct(
+static __noinline u32 capture_select_fdset_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,
     const struct select_fdset_capture_request *request)
@@ -130,7 +130,7 @@ static __always_inline u32 capture_select_fdset_tlv_direct(
     return PAYLOAD_TLV_HEADER_SIZE + copied_len;
 }
 
-static __always_inline u32 capture_select_timeout_tlv_direct(
+static __noinline u32 capture_select_timeout_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,
     u64 user_ptr,
@@ -171,7 +171,7 @@ static __always_inline u32 capture_select_timeout_tlv_direct(
     return PAYLOAD_TLV_HEADER_SIZE + copied_len;
 }
 
-static __always_inline u32 capture_pselect6_sigmask_wrapper_tlv_direct(
+static __noinline u32 capture_pselect6_sigmask_wrapper_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,
     u64 user_ptr,
@@ -217,7 +217,7 @@ static __always_inline u32 capture_pselect6_sigmask_wrapper_tlv_direct(
     return PAYLOAD_TLV_HEADER_SIZE + copied_len;
 }
 
-static __always_inline u32 capture_pselect6_sigmask_tlv_direct(
+static __noinline u32 capture_pselect6_sigmask_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,
     const struct pselect6_sigmask_capture_request *request)
@@ -342,7 +342,7 @@ static __always_inline u32 collect_select_fd_path_candidates_direct(
     return scratch->nested_fd_count;
 }
 
-static __always_inline u32 capture_select_payloads_tlv_direct(
+static __noinline u32 capture_select_payloads_tlv_direct(
     struct bpf_dynptr *ptr,
     u32 payload_offset,
     const u64 *args,

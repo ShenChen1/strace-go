@@ -26,6 +26,8 @@ func TestSessionUsesFDStateOwnerPort(t *testing.T) {
 
 type fakeSessionFDStateOwner struct{}
 
+func (fakeSessionFDStateOwner) TaintHistory() {}
+
 func (fakeSessionFDStateOwner) Path(int, int32) (string, bool) {
 	return "", false
 }

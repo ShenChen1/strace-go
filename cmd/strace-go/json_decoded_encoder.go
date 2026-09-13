@@ -7,6 +7,7 @@ func appendJSONRawSyscallEvent(dst []byte, ev syscallEventContext) []byte {
 	scMeta := ev.effectiveSyscallMeta()
 	failed, errno := syscallFailure(view.ret)
 	return appendJSONSyscallWireEvent(dst, jsonSyscallWireEvent{
+		integrity:       view.integrity,
 		eventVersion:    view.eventVersion,
 		eventType:       view.eventType,
 		eventFlags:      view.eventFlags,
@@ -41,6 +42,7 @@ func appendJSONDecodedSyscallEvent(
 	scMeta := ev.effectiveSyscallMeta()
 	failed, errno := syscallFailure(view.ret)
 	return appendJSONSyscallWireEvent(dst, jsonSyscallWireEvent{
+		integrity:         view.integrity,
 		eventVersion:      view.eventVersion,
 		eventType:         view.eventType,
 		eventFlags:        view.eventFlags,
@@ -139,6 +141,7 @@ func appendJSONPlainDecodedSyscallEvent(
 	if ev.pairedGenericEnter() {
 		dst = append(dst, `,"paired_enter":true`...)
 	}
+	dst = appendJSONRecordIntegrity(dst, view.integrity)
 	return append(dst, "}\n"...)
 }
 

@@ -13,7 +13,10 @@ func TestEventABIConstantsHaveOneGeneratedSource(t *testing.T) {
 	normalizedGeneratedGo := strings.Join(strings.Fields(generatedGo), " ")
 	for _, required := range []string{
 		"#define EVENT_VERSION 2",
-		"#define EVENT_V2_HEADER_LEN 56",
+		"#define EVENT_V2_HEADER_LEN 80",
+		"#define EVENT_V2_HEADER_CPU_OFFSET 56",
+		"#define EVENT_V2_HEADER_LOSS_EPOCH_OFFSET 64",
+		"#define EVENT_V2_HEADER_LOSS_TIME_OFFSET 72",
 		"#define EVENT_V2_HEADER_COMM_OFFSET 40",
 		"#define EVENT_V2_COMM_SIZE 16",
 		"#define EVENT_V2_HEADER_VERSION_OFFSET 0",
@@ -64,7 +67,7 @@ func TestEventABIConstantsHaveOneGeneratedSource(t *testing.T) {
 			"#define EVENT_FLAG_PAYLOAD_TLV 2",
 			"#define CONFIG_CAPTURE_STACK 1",
 			"#define FILTER_TASK_TRACKED 1",
-			"#define EVENT_V2_HEADER_LEN 56",
+			"#define EVENT_V2_HEADER_LEN 80",
 			"#define PAYLOAD_TLV_HEADER_SIZE 32",
 			"bpfConfigCaptureStack         = 1 << 0",
 			"bpfEventTypeEnter        uint16 = 1",

@@ -20,6 +20,7 @@ type fdFlagDecoder interface {
 }
 
 type FDStateStore struct {
+	tainted   bool
 	paths     map[string]string
 	offsets   map[string]int64
 	fdStates  map[string]handler.FDStateObservation
@@ -74,7 +75,7 @@ func (st *FDStateStore) ensureMaps() {
 
 // Path returns the event-sourced path for one process descriptor.
 func (st *FDStateStore) Path(pid int, fd int32) (string, bool) {
-	if st == nil {
+	if st == nil || st.tainted {
 		return "", false
 	}
 	path, ok := st.paths[fdStateKey(pid, fd)]
@@ -83,7 +84,7 @@ func (st *FDStateStore) Path(pid int, fd int32) (string, bool) {
 
 // Cwd returns the event-sourced working directory for one process.
 func (st *FDStateStore) Cwd(pid int) (string, bool) {
-	if st == nil {
+	if st == nil || st.tainted {
 		return "", false
 	}
 	path, ok := st.paths[fmt.Sprintf("%d:cwd", pid)]
@@ -92,7 +93,7 @@ func (st *FDStateStore) Cwd(pid int) (string, bool) {
 
 // Observation returns the event-time FD snapshot for one process descriptor.
 func (st *FDStateStore) Observation(pid int, fd int32) (handler.FDStateObservation, bool) {
-	if st == nil {
+	if st == nil || st.tainted {
 		return handler.FDStateObservation{}, false
 	}
 	observation, ok := st.fdStates[fdStateKey(pid, fd)]
@@ -144,7 +145,7 @@ func shouldApplyFDStateEventWithTraits(
 }
 
 func (st *FDStateStore) ApplyFDState(update fdStateUpdate) {
-	if !shouldApplyFDStateUpdate(update) {
+	if st.tainted || !shouldApplyFDStateUpdate(update) {
 		return
 	}
 	st.ensureMaps()

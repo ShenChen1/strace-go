@@ -6,6 +6,7 @@ import (
 )
 
 type jsonSyscallEvent struct {
+	traceRecordIntegrity
 	Type            string               `json:"type"`
 	EventVersion    uint16               `json:"event_version,omitempty"`
 	EventType       string               `json:"event_type"`
@@ -48,6 +49,7 @@ type jsonPayloadSection struct {
 }
 
 type jsonLifecycleEvent struct {
+	traceRecordIntegrity
 	Type           string `json:"type"`
 	EventVersion   uint16 `json:"event_version,omitempty"`
 	EventType      string `json:"event_type"`
@@ -86,68 +88,69 @@ type jsonPhaseEvent struct {
 }
 
 type jsonStatsEvent struct {
-	Type                       string `json:"type"`
-	RingbufReserveFail         uint64 `json:"ringbuf_reserve_fail"`
-	RingbufCopyFail            uint64 `json:"ringbuf_copy_fail"`
-	PayloadTruncatedEvents     uint64 `json:"payload_truncated_events"`
-	PendingUpdateFail          uint64 `json:"pending_update_fail"`
-	OrphanExit                 uint64 `json:"orphan_exit"`
-	OrphanFirstPid             uint64 `json:"orphan_first_pid"`
-	OrphanFirstTid             uint64 `json:"orphan_first_tid"`
-	OrphanFirstSysID           uint64 `json:"orphan_first_sys_id"`
-	OrphanFirstRet             int64  `json:"orphan_first_ret"`
-	OrphanFirstReason          uint64 `json:"orphan_first_reason"`
-	OrphanFirstTimeNS          uint64 `json:"orphan_first_time_ns"`
-	OrphanLastPid              uint64 `json:"orphan_last_pid"`
-	OrphanLastTid              uint64 `json:"orphan_last_tid"`
-	OrphanLastSysID            uint64 `json:"orphan_last_sys_id"`
-	OrphanLastRet              int64  `json:"orphan_last_ret"`
-	OrphanLastReason           uint64 `json:"orphan_last_reason"`
-	OrphanLastTimeNS           uint64 `json:"orphan_last_time_ns"`
-	PendingMismatch            uint64 `json:"pending_mismatch"`
-	LifecycleMapUpdateFail     uint64 `json:"lifecycle_map_update_fail"`
-	LifecycleForkSeen          uint64 `json:"lifecycle_fork_seen"`
-	LifecycleForkTracked       uint64 `json:"lifecycle_fork_parent_tracked"`
-	LifecycleForkUntracked     uint64 `json:"lifecycle_fork_parent_untracked"`
-	LifecycleForkInstalled     uint64 `json:"lifecycle_fork_child_filter_installed"`
-	LifecycleForkFailed        uint64 `json:"lifecycle_fork_child_filter_failed"`
-	LifecycleExecSeen          uint64 `json:"lifecycle_exec_seen"`
-	LifecycleExecUntracked     uint64 `json:"lifecycle_exec_untracked"`
-	LifecycleExitSeen          uint64 `json:"lifecycle_exit_seen"`
-	LifecycleExitUntracked     uint64 `json:"lifecycle_exit_untracked"`
-	PendingStale               uint64 `json:"pending_stale"`
-	RecordsRead                uint64 `json:"records_read"`
-	ProducerAttemptsLowerBound uint64 `json:"producer_attempts_lower_bound"`
-	RecordsDecoded             uint64 `json:"records_decoded"`
-	RecordsInvalid             uint64 `json:"records_invalid"`
-	RecordsRouted              uint64 `json:"records_routed"`
-	ServiceEnabled             bool   `json:"service_enabled"`
-	ServiceSampleRate          uint64 `json:"service_sample_rate"`
-	BytesRead                  uint64 `json:"bytes_read"`
-	MaxRecordBytes             uint64 `json:"max_record_bytes"`
-	ReadTimeNS                 uint64 `json:"read_time_ns"`
-	DecodeTimeNS               uint64 `json:"decode_time_ns"`
-	SinkTimeNS                 uint64 `json:"sink_time_ns"`
-	MinRemainingBytes          uint64 `json:"min_remaining_bytes"`
-	ServiceTimeNS              uint64 `json:"service_time_ns"`
-	ServiceRecords             uint64 `json:"service_records"`
-	MaxServiceTimeNS           uint64 `json:"max_service_time_ns"`
-	MaxRemainingBytes          uint64 `json:"max_remaining_bytes"`
-	SyscallOutputBytes         uint64 `json:"syscall_output_bytes"`
-	SyscallOutputWrites        uint64 `json:"syscall_output_writes"`
-	SyscallOutputWriteErrors   uint64 `json:"syscall_output_write_errors"`
-	SyscallWriteTimeNS         uint64 `json:"syscall_write_time_ns"`
-	SyscallWriteTimeSamples    uint64 `json:"syscall_write_time_samples"`
-	StageEnabled               bool   `json:"stage_enabled"`
-	StageSampleRate            uint64 `json:"stage_sample_rate"`
-	StateTimeNS                uint64 `json:"state_time_ns"`
-	StateRecords               uint64 `json:"state_records"`
-	MaxStateTimeNS             uint64 `json:"max_state_time_ns"`
-	DispatchTimeNS             uint64 `json:"dispatch_time_ns"`
-	DispatchRecords            uint64 `json:"dispatch_records"`
-	MaxDispatchTimeNS          uint64 `json:"max_dispatch_time_ns"`
-	Available                  bool   `json:"available"`
-	Error                      string `json:"error,omitempty"`
+	Integrity                  traceIntegritySnapshot `json:"integrity"`
+	Type                       string                 `json:"type"`
+	RingbufReserveFail         uint64                 `json:"ringbuf_reserve_fail"`
+	RingbufCopyFail            uint64                 `json:"ringbuf_copy_fail"`
+	PayloadTruncatedEvents     uint64                 `json:"payload_truncated_events"`
+	PendingUpdateFail          uint64                 `json:"pending_update_fail"`
+	OrphanExit                 uint64                 `json:"orphan_exit"`
+	OrphanFirstPid             uint64                 `json:"orphan_first_pid"`
+	OrphanFirstTid             uint64                 `json:"orphan_first_tid"`
+	OrphanFirstSysID           uint64                 `json:"orphan_first_sys_id"`
+	OrphanFirstRet             int64                  `json:"orphan_first_ret"`
+	OrphanFirstReason          uint64                 `json:"orphan_first_reason"`
+	OrphanFirstTimeNS          uint64                 `json:"orphan_first_time_ns"`
+	OrphanLastPid              uint64                 `json:"orphan_last_pid"`
+	OrphanLastTid              uint64                 `json:"orphan_last_tid"`
+	OrphanLastSysID            uint64                 `json:"orphan_last_sys_id"`
+	OrphanLastRet              int64                  `json:"orphan_last_ret"`
+	OrphanLastReason           uint64                 `json:"orphan_last_reason"`
+	OrphanLastTimeNS           uint64                 `json:"orphan_last_time_ns"`
+	PendingMismatch            uint64                 `json:"pending_mismatch"`
+	LifecycleMapUpdateFail     uint64                 `json:"lifecycle_map_update_fail"`
+	LifecycleForkSeen          uint64                 `json:"lifecycle_fork_seen"`
+	LifecycleForkTracked       uint64                 `json:"lifecycle_fork_parent_tracked"`
+	LifecycleForkUntracked     uint64                 `json:"lifecycle_fork_parent_untracked"`
+	LifecycleForkInstalled     uint64                 `json:"lifecycle_fork_child_filter_installed"`
+	LifecycleForkFailed        uint64                 `json:"lifecycle_fork_child_filter_failed"`
+	LifecycleExecSeen          uint64                 `json:"lifecycle_exec_seen"`
+	LifecycleExecUntracked     uint64                 `json:"lifecycle_exec_untracked"`
+	LifecycleExitSeen          uint64                 `json:"lifecycle_exit_seen"`
+	LifecycleExitUntracked     uint64                 `json:"lifecycle_exit_untracked"`
+	PendingStale               uint64                 `json:"pending_stale"`
+	RecordsRead                uint64                 `json:"records_read"`
+	ProducerAttemptsLowerBound uint64                 `json:"producer_attempts_lower_bound"`
+	RecordsDecoded             uint64                 `json:"records_decoded"`
+	RecordsInvalid             uint64                 `json:"records_invalid"`
+	RecordsRouted              uint64                 `json:"records_routed"`
+	ServiceEnabled             bool                   `json:"service_enabled"`
+	ServiceSampleRate          uint64                 `json:"service_sample_rate"`
+	BytesRead                  uint64                 `json:"bytes_read"`
+	MaxRecordBytes             uint64                 `json:"max_record_bytes"`
+	ReadTimeNS                 uint64                 `json:"read_time_ns"`
+	DecodeTimeNS               uint64                 `json:"decode_time_ns"`
+	SinkTimeNS                 uint64                 `json:"sink_time_ns"`
+	MinRemainingBytes          uint64                 `json:"min_remaining_bytes"`
+	ServiceTimeNS              uint64                 `json:"service_time_ns"`
+	ServiceRecords             uint64                 `json:"service_records"`
+	MaxServiceTimeNS           uint64                 `json:"max_service_time_ns"`
+	MaxRemainingBytes          uint64                 `json:"max_remaining_bytes"`
+	SyscallOutputBytes         uint64                 `json:"syscall_output_bytes"`
+	SyscallOutputWrites        uint64                 `json:"syscall_output_writes"`
+	SyscallOutputWriteErrors   uint64                 `json:"syscall_output_write_errors"`
+	SyscallWriteTimeNS         uint64                 `json:"syscall_write_time_ns"`
+	SyscallWriteTimeSamples    uint64                 `json:"syscall_write_time_samples"`
+	StageEnabled               bool                   `json:"stage_enabled"`
+	StageSampleRate            uint64                 `json:"stage_sample_rate"`
+	StateTimeNS                uint64                 `json:"state_time_ns"`
+	StateRecords               uint64                 `json:"state_records"`
+	MaxStateTimeNS             uint64                 `json:"max_state_time_ns"`
+	DispatchTimeNS             uint64                 `json:"dispatch_time_ns"`
+	DispatchRecords            uint64                 `json:"dispatch_records"`
+	MaxDispatchTimeNS          uint64                 `json:"max_dispatch_time_ns"`
+	Available                  bool                   `json:"available"`
+	Error                      string                 `json:"error,omitempty"`
 }
 
 func newJSONReadyEventAt(targetPID int, attachPIDs []int, startTimeNS uint64, timeNS uint64) jsonReadyEvent {
@@ -215,25 +218,26 @@ func newJSONSyscallEventFromViewWithPayloadMode(
 		payloadSections = jsonPayloadSectionsInto(payloadStorage, sections)
 	}
 	return jsonSyscallEvent{
-		Type:            "syscall",
-		EventVersion:    view.eventVersion,
-		EventType:       bpfEventTypeNameFromID(view.eventType),
-		EventTypeID:     view.eventType,
-		EventFlags:      view.eventFlags,
-		Pid:             view.pid,
-		Tid:             view.tid,
-		SysID:           view.sysID,
-		Syscall:         scMeta.Name,
-		Args:            view.args,
-		Ret:             view.ret,
-		Failed:          failed,
-		Errno:           errno,
-		DurationNS:      view.duration,
-		EnterTimeNS:     view.enterTime,
-		StackID:         view.stackID,
-		PayloadSections: payloadSections,
-		ProbeRetEnter:   view.probeRetEnter,
-		ProbeRetExit:    view.probeRetExit,
+		traceRecordIntegrity: view.integrity,
+		Type:                 "syscall",
+		EventVersion:         view.eventVersion,
+		EventType:            bpfEventTypeNameFromID(view.eventType),
+		EventTypeID:          view.eventType,
+		EventFlags:           view.eventFlags,
+		Pid:                  view.pid,
+		Tid:                  view.tid,
+		SysID:                view.sysID,
+		Syscall:              scMeta.Name,
+		Args:                 view.args,
+		Ret:                  view.ret,
+		Failed:               failed,
+		Errno:                errno,
+		DurationNS:           view.duration,
+		EnterTimeNS:          view.enterTime,
+		StackID:              view.stackID,
+		PayloadSections:      payloadSections,
+		ProbeRetEnter:        view.probeRetEnter,
+		ProbeRetExit:         view.probeRetExit,
 	}
 }
 
@@ -251,6 +255,7 @@ func newJSONStatsEvent(
 	outputStats traceJSONOutputStats,
 ) jsonStatsEvent {
 	return jsonStatsEvent{
+		Integrity:                  readerStats.Integrity,
 		Type:                       "stats",
 		RingbufReserveFail:         stats.RingbufReserveFail,
 		RingbufCopyFail:            stats.RingbufCopyFail,

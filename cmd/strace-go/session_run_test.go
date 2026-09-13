@@ -201,7 +201,15 @@ func TestFinishRunWritesJSONStatsEvent(t *testing.T) {
 		Available          bool   `json:"available"`
 		Error              string `json:"error"`
 	}
-	if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &ev); err != nil {
+	decoder := json.NewDecoder(&output)
+	var integrity struct {
+		Type string `json:"type"`
+		Tainted bool `json:"tainted"`
+	}
+	if err := decoder.Decode(&integrity); err != nil || integrity.Type != "integrity" || !integrity.Tainted {
+		t.Fatalf("missing final integrity diagnostic: %+v, %v", integrity, err)
+	}
+	if err := decoder.Decode(&ev); err != nil {
 		t.Fatalf("decode stats JSON: %v", err)
 	}
 	if ev.Type != "stats" || ev.RingbufReserveFail != 0 || ev.PendingMismatch != 0 || ev.Available || ev.Error == "" {

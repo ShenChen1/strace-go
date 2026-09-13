@@ -205,6 +205,7 @@ static __always_inline void emit_fd_state_exit_event_v2_direct(
     u32 out_size = payload_offset + payload_capacity;
     u64 ts_ns = p->enter_time + duration;
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long reserve_ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (reserve_ret < 0) {
         record_ringbuf_reserve_fail();
@@ -224,7 +225,7 @@ static __always_inline void emit_fd_state_exit_event_v2_direct(
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(
         &header,
         EVENT_TYPE_EXIT,

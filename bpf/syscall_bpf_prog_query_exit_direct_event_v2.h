@@ -128,6 +128,7 @@ static __always_inline int emit_bpf_prog_query_record_v2_direct(
     u32 out_size = payload_offset + payload_capacity;
     u64 ts_ns = p->enter_time + duration;
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
         record_ringbuf_reserve_fail();
@@ -141,13 +142,11 @@ static __always_inline int emit_bpf_prog_query_record_v2_direct(
         payload_offset,
         requests,
         &flags);
-    if (payload_size == 0) {
-        bpf_ringbuf_discard_dynptr(&ptr, 0);
-        return 0;
+    if (payload_size > 0) {
+        flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
-    flags |= EVENT_FLAG_PAYLOAD_TLV;
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(
         &header,
         EVENT_TYPE_EXIT,

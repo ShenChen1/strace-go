@@ -178,13 +178,13 @@ static __always_inline void init_syscall_event_v2_header_direct(
     header->pid = pid;
     header->tid = tid;
     header->sys_id = sys_id;
-    header->seq = 0;
+    capture_event_integrity(header);
     header->ts_ns = ts_ns;
     capture_event_v2_comm(header);
 }
 
 static __always_inline struct event_v2_header *event_v2_header_from_dynptr_direct(
-    struct bpf_dynptr *ptr)
+    struct bpf_dynptr *ptr, u64 sequence)
 {
     struct event_v2_header *header = bpf_dynptr_data(
         ptr,
@@ -192,6 +192,8 @@ static __always_inline struct event_v2_header *event_v2_header_from_dynptr_direc
         EVENT_V2_HEADER_LEN);
     if (!header) {
         record_ringbuf_copy_fail();
+    } else {
+        header->seq = sequence;
     }
     return header;
 }
@@ -333,6 +335,7 @@ static __always_inline void emit_syscall_enter_event_v2_direct(
 {
     u32 out_size = EVENT_V2_HEADER_LEN + EVENT_V2_ENTER_BODY_LEN;
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
         record_ringbuf_reserve_fail();
@@ -340,7 +343,7 @@ static __always_inline void emit_syscall_enter_event_v2_direct(
         return;
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(&header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
     ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
     if (ret < 0) {
@@ -370,6 +373,7 @@ static __always_inline void emit_compact_syscall_enter_event_v2_direct(
 {
     u32 out_size = EVENT_V2_HEADER_LEN + EVENT_V2_COMPACT_ENTER_BODY_LEN;
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
         record_ringbuf_reserve_fail();
@@ -377,7 +381,7 @@ static __always_inline void emit_compact_syscall_enter_event_v2_direct(
         return;
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(
         &header,
         EVENT_TYPE_ENTER,
@@ -460,6 +464,7 @@ static __always_inline void emit_terminating_exit_event_v2_direct(
 {
     u32 out_size = EVENT_V2_HEADER_LEN + EVENT_V2_EXIT_BODY_LEN;
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
         record_ringbuf_reserve_fail();
@@ -467,7 +472,7 @@ static __always_inline void emit_terminating_exit_event_v2_direct(
         return;
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(&header, EVENT_TYPE_EXIT, 0, pid, tid, sys_id, out_size, ts_ns);
     ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
     if (ret < 0) {

@@ -3,6 +3,7 @@ package main
 import "strace-go/pkg/handler"
 
 type lifecycleEventView struct {
+	integrity    traceRecordIntegrity
 	valid        bool
 	eventVersion uint16
 	eventType    uint16
@@ -30,6 +31,7 @@ type traceDeferredExit struct {
 }
 
 type TraceState struct {
+	tainted                    bool
 	deferUnmatchedExits        bool
 	elidePlainEnter            bool
 	elideNonBlockingPlainEnter bool
@@ -152,6 +154,12 @@ func (st *TraceState) releaseTraceStateUpdateResources(update *TraceStateUpdate)
 }
 
 func (st *TraceState) rememberPayloadFragment(view syscallEventView, payload []handler.PayloadSection) {
+	if st.tainted {
+		pending := st.correlation.pendingSyscalls[view.tid]
+		if pending == nil || pending.enterTime != view.enterTime || pending.args != view.args {
+			return
+		}
+	}
 	st.correlation.rememberPayloadFragment(view, payload)
 }
 
@@ -168,6 +176,12 @@ func (st *TraceState) takePendingExitForTID(tid uint32) (pendingExitState, bool)
 }
 
 func (st *TraceState) consumeEnterEvent(view *syscallEventView) *pendingSyscallSnapshot {
+	if st.tainted && view != nil {
+		pending := st.correlation.pendingSyscalls[view.tid]
+		if pending != nil && (pending.enterTime != view.enterTime || pending.args != view.args) {
+			st.correlation.clearTask(view.tid)
+		}
+	}
 	snapshot := st.correlation.consumeEnterEvent(view)
 	if view != nil {
 		st.unfinished.deleteCandidate(view.tid)
@@ -180,6 +194,9 @@ func (st *TraceState) synthesizeGenericEnter(view *syscallEventView) *pendingSys
 }
 
 func (st *TraceState) rememberPendingExecArgs(tid int, argLine string) {
+	if st.tainted {
+		return
+	}
 	st.correlation.rememberPendingExecArgs(tid, argLine)
 }
 
@@ -196,6 +213,9 @@ func (st *TraceState) deletePendingExecArgs(tid int) {
 }
 
 func (st *TraceState) rememberSuspendedSyscall(tid int, name string) {
+	if st.tainted {
+		return
+	}
 	st.correlation.rememberSuspendedSyscall(tid, name)
 }
 

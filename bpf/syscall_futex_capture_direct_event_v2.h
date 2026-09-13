@@ -89,6 +89,10 @@ static __always_inline u32 capture_futex_waitv_waiters_tlv_direct(
             copied_len = 0;
         } else if (requested_len > FUTEX_DIRECT_WAITV_ELEM_SIZE) {
             u32 rest_len = requested_len - FUTEX_DIRECT_WAITV_ELEM_SIZE;
+            asm volatile("" : "+r"(rest_len));
+            if (rest_len > FUTEX_DIRECT_WAITV_MAX_BYTES - FUTEX_DIRECT_WAITV_ELEM_SIZE) {
+                rest_len = FUTEX_DIRECT_WAITV_MAX_BYTES - FUTEX_DIRECT_WAITV_ELEM_SIZE;
+            }
             void *payload_rest = bpf_dynptr_data(
                 ptr,
                 data_offset + FUTEX_DIRECT_WAITV_ELEM_SIZE,

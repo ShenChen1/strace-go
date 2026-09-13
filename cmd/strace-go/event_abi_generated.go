@@ -36,7 +36,8 @@ const (
 	bpfConfigSyscallFilterStrictUnknown            = 4096
 	bpfFilterTaskTracked                    uint32 = 1
 	bpfFilterTaskPreExec                    uint32 = 2
-	traceEventV2HeaderLen                          = 56
+	traceEventV2HeaderLen                          = 80
+	traceEventV2BaseHeaderLen                      = 56
 	traceEventV2CommSize                           = 16
 	traceEventV2EnterBodyLen                       = 72
 	traceEventV2CompactEnterBodyLen                = 48
@@ -58,6 +59,9 @@ const (
 	traceEventV2HeaderSeqOffset                    = 24
 	traceEventV2HeaderTSNSOffset                   = 32
 	traceEventV2HeaderCommOffset                   = 40
+	traceEventV2HeaderCPUOffset                    = 56
+	traceEventV2HeaderLossEpochOffset              = 64
+	traceEventV2HeaderLossTimeOffset               = 72
 	traceEventV2EnterRetOffset                     = 0
 	traceEventV2EnterProbeRetEnterOffset           = 8
 	traceEventV2EnterProbeRetExitOffset            = 12

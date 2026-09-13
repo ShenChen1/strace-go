@@ -181,6 +181,7 @@ func appendJSONSyscallEvent(dst []byte, event *jsonSyscallEvent) []byte {
 	builder.intField(jsonFieldProbeRetEnter, int64(event.ProbeRetEnter))
 	builder.intField(jsonFieldProbeRetExit, int64(event.ProbeRetExit))
 	builder.boolField(jsonFieldPairedEnter, event.PairedEnter, true)
+	builder.data = appendJSONRecordIntegrity(builder.data, event.traceRecordIntegrity)
 	return builder.endLine()
 }
 

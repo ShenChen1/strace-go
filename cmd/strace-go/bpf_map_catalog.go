@@ -15,6 +15,7 @@ const (
 	bpfMapEnterProgs         = "enter_progs"
 	bpfMapEnterRoutes        = "enter_routes"
 	bpfMapEvents             = "events"
+	bpfMapEventLoss          = "event_loss_map"
 	bpfMapExitProgs          = "exit_progs"
 	bpfMapExitRoutes         = "exit_routes"
 	bpfMapFDPathScratch      = "fd_path_scratch_map"
@@ -49,6 +50,7 @@ var bpfCoreMapCatalog = []bpfCoreMapSpec{
 	{name: bpfMapEnterProgs, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.EnterProgs }},
 	{name: bpfMapEnterRoutes, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.EnterRoutes }},
 	{name: bpfMapEvents, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.Events }},
+	{name: bpfMapEventLoss, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.EventLossMap }},
 	{name: bpfMapExitProgs, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.ExitProgs }},
 	{name: bpfMapExitRoutes, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.ExitRoutes }},
 	{name: bpfMapFDPathScratch, lookup: func(objects *bpfObjects) *ebpf.Map { return objects.FdPathScratchMap }},

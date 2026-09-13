@@ -153,6 +153,15 @@ func TestBPFOrphanExitIsFilteredAndCounted(t *testing.T) {
 	if !strings.Contains(src.straceSource, "static __always_inline void record_orphan_exit(") {
 		t.Fatal("bpf/strace.c missing record_orphan_exit helper")
 	}
+	runtimeStats := readTextFile(t, filepath.Join(repoRootForTest(t), "bpf/runtime_stats.h"))
+	orphanStart := strings.Index(runtimeStats, "static __always_inline void record_orphan_exit(")
+	orphanEnd := strings.Index(runtimeStats, "static __always_inline void record_pending_mismatch(void)")
+	if orphanStart < 0 || orphanEnd <= orphanStart {
+		t.Fatal("bpf/strace.c missing record_orphan_exit body")
+	}
+	if strings.Contains(runtimeStats[orphanStart:orphanEnd], "record_event_integrity_loss()") {
+		t.Fatal("orphan diagnostics must not advance the producer loss epoch")
+	}
 	if !strings.Contains(src.straceSource, "static __always_inline void record_unmatched_exit_if_needed(") {
 		t.Fatal("bpf/pending_state.h missing unmatched-exit helper")
 	}

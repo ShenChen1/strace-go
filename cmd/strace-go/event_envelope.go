@@ -4,39 +4,50 @@ import "strace-go/pkg/handler"
 
 // traceEventEnvelope is the boundary object projected from the BPF carrier.
 type traceEventEnvelope struct {
-	valid            bool
-	eventVersion     uint16
-	pid              uint32
-	tid              uint32
-	sysID            uint32
-	eventType        uint16
-	eventFlags       uint32
-	lifecycleAction  uint32
-	enterTime        uint64
-	args             [6]uint64
-	ret              int64
-	duration         uint64
-	cpuDuration      uint64
-	stackID          int32
-	kvmExitReason    uint32
-	probeRetEnter    int32
-	probeRetExit     int32
-	snapshotText     string
-	signal           uint32
-	signalErr        int32
-	signalCode       int32
-	senderPID        uint32
-	senderUID        uint32
-	signalAddress    uint64
-	signalStatus     int32
-	signalUserTime   int64
-	signalSystemTime int64
-	comm             string
-	payload          []handler.PayloadSection
+	legacyIntegrity    bool
+	integrityEpoch     uint64
+	correlationTainted bool
+	valid              bool
+	seq                uint64
+	cpu                uint32
+	lossEpoch          uint64
+	lossTimeNS         uint64
+	recordIndex        uint64
+	tainted            bool
+	eventVersion       uint16
+	pid                uint32
+	tid                uint32
+	sysID              uint32
+	eventType          uint16
+	eventFlags         uint32
+	lifecycleAction    uint32
+	recordTime         uint64
+	enterTime          uint64
+	args               [6]uint64
+	ret                int64
+	duration           uint64
+	cpuDuration        uint64
+	stackID            int32
+	kvmExitReason      uint32
+	probeRetEnter      int32
+	probeRetExit       int32
+	snapshotText       string
+	signal             uint32
+	signalErr          int32
+	signalCode         int32
+	senderPID          uint32
+	senderUID          uint32
+	signalAddress      uint64
+	signalStatus       int32
+	signalUserTime     int64
+	signalSystemTime   int64
+	comm               string
+	payload            []handler.PayloadSection
 }
 
 func (envelope traceEventEnvelope) lifecycleView() lifecycleEventView {
 	return lifecycleEventView{
+		integrity:    envelope.recordIntegrity(),
 		valid:        envelope.valid,
 		eventVersion: envelope.eventVersion,
 		eventType:    envelope.eventType,
@@ -53,6 +64,7 @@ func (envelope traceEventEnvelope) lifecycleView() lifecycleEventView {
 
 func (envelope traceEventEnvelope) syscallView() syscallEventView {
 	return syscallEventView{
+		integrity:     envelope.recordIntegrity(),
 		valid:         envelope.valid,
 		eventVersion:  envelope.eventVersion,
 		pid:           envelope.pid,
@@ -101,4 +113,13 @@ func (envelope traceEventEnvelope) isSignal() bool {
 
 func (envelope traceEventEnvelope) isExit() bool {
 	return envelope.eventType == bpfEventTypeExit
+}
+
+// integrityTimestamp returns the carrier timestamp. Exit enterTime is a
+// reconstructed syscall-start timestamp and must not locate a stream gap.
+func (envelope traceEventEnvelope) integrityTimestamp() uint64 {
+	if envelope.recordTime != 0 {
+		return envelope.recordTime
+	}
+	return envelope.enterTime
 }

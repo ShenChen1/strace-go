@@ -124,11 +124,11 @@ func (s *traceSession) run() error {
 			return s.finishRun()
 		}
 		if s.detachOnExecveReached() {
-			return s.finishRun()
+			return s.finishRunAtIntentionalStop()
 		}
 		if s.syscallLimitReached() {
 			fmt.Fprintln(os.Stderr, "strace-go: System call limit has been reached, detaching tracees")
-			return s.finishRun()
+			return s.finishRunAtIntentionalStop()
 		}
 	}
 }
@@ -358,4 +358,10 @@ func (s *traceSession) finishRun() error {
 	s.emitDebugPhase("trace_end")
 	s.emitDebugPhase("finalize_start")
 	return s.traceRunFinalizer().Finish()
+}
+
+func (s *traceSession) finishRunAtIntentionalStop() error {
+	s.emitDebugPhase("trace_end")
+	s.emitDebugPhase("finalize_start")
+	return s.traceRunFinalizer().FinishAtIntentionalStop()
 }

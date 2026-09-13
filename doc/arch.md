@@ -198,14 +198,14 @@ wire format 使用 little-endian。当前固定长度为：
 
 | 结构 | 长度 |
 | --- | ---: |
-| event-v2 header | 56 bytes |
+| event-v2 header | 80 bytes（56-byte legacy header 仍可解码） |
 | syscall enter body | 72 bytes |
 | compact enter body | 48 bytes |
 | syscall exit body | 88 bytes |
 | lifecycle body | 56 bytes |
 | TLV header | 32 bytes |
 
-header 包含 version、event type、flags、header length、record size、PID、TID、syscall ID、`seq` 和 monotonic timestamp。`seq` 为前向兼容字段，当前写入零，不能作为排序依据。
+header 包含 version、event type、flags、header length、record size、PID、TID、syscall ID、per-CPU `seq`、monotonic timestamp、CPU ID、producer loss epoch 和首次异常时间。`seq` 在 logical emission attempt 的 Ringbuf reserve 前分配，仅用于检测每 CPU 的事件缺口，不建立全局排序；56-byte legacy header 的 `seq=0` 不参与完整性判断。完整 taint/recovery 语义见 `doc/event-integrity.md`。
 
 TLV section 描述：
 

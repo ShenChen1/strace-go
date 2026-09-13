@@ -59,6 +59,9 @@ func (st *FDStateStore) bufferFileOffsetFromView(view syscallEventView, scMeta m
 	st.ensureMaps()
 	switch scMeta.Name {
 	case "write":
+		if st.tainted {
+			return 0, false
+		}
 		fd := int32(view.args[0])
 		key := fdStateKey(statePID, fd)
 		if off, ok := st.offsets[key]; ok {
@@ -71,6 +74,9 @@ func (st *FDStateStore) bufferFileOffsetFromView(view syscallEventView, scMeta m
 }
 
 func (st *FDStateStore) ApplyFDOffsets(update fdOffsetUpdate) {
+	if st.tainted {
+		return
+	}
 	st.updateOffsetsFromView(update.view, update.meta, update.statePID)
 }
 

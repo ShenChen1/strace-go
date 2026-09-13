@@ -43,6 +43,14 @@ type bpfEnterPathBpfStats struct {
 	LifecycleExecUntracked            uint64
 	LifecycleExitSeen                 uint64
 	LifecycleExitUntracked            uint64
+	EventSeq                          uint64
+	IntegrityFirstTimeNs              uint64
+}
+
+type bpfEnterPathEventLossState struct {
+	_           structs.HostLayout
+	Epoch       uint64
+	FirstTimeNs uint64
 }
 
 type bpfEnterPathFdPathScratch struct {
@@ -156,6 +164,7 @@ type bpfEnterPathMapSpecs struct {
 	ConfigMap             *ebpf.MapSpec `ebpf:"config_map"`
 	EnterProgs            *ebpf.MapSpec `ebpf:"enter_progs"`
 	EnterRoutes           *ebpf.MapSpec `ebpf:"enter_routes"`
+	EventLossMap          *ebpf.MapSpec `ebpf:"event_loss_map"`
 	Events                *ebpf.MapSpec `ebpf:"events"`
 	ExitProgs             *ebpf.MapSpec `ebpf:"exit_progs"`
 	ExitRoutes            *ebpf.MapSpec `ebpf:"exit_routes"`
@@ -219,6 +228,7 @@ type bpfEnterPathMaps struct {
 	ConfigMap             *ebpf.Map `ebpf:"config_map"`
 	EnterProgs            *ebpf.Map `ebpf:"enter_progs"`
 	EnterRoutes           *ebpf.Map `ebpf:"enter_routes"`
+	EventLossMap          *ebpf.Map `ebpf:"event_loss_map"`
 	Events                *ebpf.Map `ebpf:"events"`
 	ExitProgs             *ebpf.Map `ebpf:"exit_progs"`
 	ExitRoutes            *ebpf.Map `ebpf:"exit_routes"`
@@ -248,6 +258,7 @@ func (m *bpfEnterPathMaps) Close() error {
 		m.ConfigMap,
 		m.EnterProgs,
 		m.EnterRoutes,
+		m.EventLossMap,
 		m.Events,
 		m.ExitProgs,
 		m.ExitRoutes,

@@ -74,7 +74,7 @@ func TestBPFBpfAttrPayloadUsesDirectTLV(t *testing.T) {
 		"EVENT_FLAG_TRUNCATED",
 		"record_payload_truncated_event();",
 		"bpf_probe_read_user(payload_data, copied_len",
-		"init_syscall_enter_event_v2_from_ctx(&body, ctx, payload_size, 0, -1, -1);",
+		"init_syscall_enter_event_v2_from_ctx(body, ctx, payload_size, 0, -1, -1);",
 		"emit_bpf_prog_load_enter_event_v2_direct(",
 		"BPF_DIRECT_PROG_LOAD_CAPACITY",
 	} {

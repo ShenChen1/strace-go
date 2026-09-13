@@ -139,7 +139,7 @@ static __always_inline s32 read_dentry_path_direct(
     u32 component_count = 0;
     u32 reached_root = 0;
 
-#pragma unroll
+#pragma clang loop unroll(disable)
     for (u32 i = 0; i < FD_PATH_DENTRY_MAX; i++) {
         if (!dentry) {
             break;
@@ -172,7 +172,7 @@ static __always_inline s32 read_dentry_path_direct(
     }
 
     u32 path_len = 0;
-#pragma unroll
+#pragma clang loop unroll(disable)
     for (u32 i = 0; i < FD_PATH_DENTRY_MAX; i++) {
         if (i >= component_count) {
             break;

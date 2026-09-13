@@ -12,6 +12,7 @@ static __always_inline void emit_mmsg_bytes_base0_enter_event_v2_direct(
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_ENTER_BODY_LEN;
     u32 out_size = payload_offset + MSG_DIRECT_MMSG_BYTES_ENTER_MAX;
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
         record_ringbuf_reserve_fail();
@@ -25,7 +26,7 @@ static __always_inline void emit_mmsg_bytes_base0_enter_event_v2_direct(
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(&header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
     ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
     if (ret < 0) {
@@ -57,6 +58,7 @@ static __always_inline void emit_mmsg_bytes_base1_enter_event_v2_direct(
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_ENTER_BODY_LEN;
     u32 out_size = payload_offset + MSG_DIRECT_MMSG_BYTES_ENTER_MAX;
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
         record_ringbuf_reserve_fail();
@@ -70,7 +72,7 @@ static __always_inline void emit_mmsg_bytes_base1_enter_event_v2_direct(
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(&header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
     ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
     if (ret < 0) {
@@ -102,6 +104,7 @@ static __always_inline void emit_mmsg_bytes_base2_enter_event_v2_direct(
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_ENTER_BODY_LEN;
     u32 out_size = payload_offset + MSG_DIRECT_MMSG_BYTES_ENTER_MAX;
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
         record_ringbuf_reserve_fail();
@@ -115,7 +118,7 @@ static __always_inline void emit_mmsg_bytes_base2_enter_event_v2_direct(
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(&header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
     ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
     if (ret < 0) {
@@ -147,6 +150,7 @@ static __always_inline void emit_mmsg_bytes_base3_enter_event_v2_direct(
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_ENTER_BODY_LEN;
     u32 out_size = payload_offset + MSG_DIRECT_MMSG_BYTES_ENTER_MAX;
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
         record_ringbuf_reserve_fail();
@@ -160,7 +164,7 @@ static __always_inline void emit_mmsg_bytes_base3_enter_event_v2_direct(
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(&header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
     ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
     if (ret < 0) {

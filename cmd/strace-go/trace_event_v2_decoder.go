@@ -8,14 +8,19 @@ import (
 )
 
 type traceEventV2Header struct {
-	version   uint16
-	eventType uint16
-	flags     uint16
-	pid       uint32
-	tid       uint32
-	sysID     uint32
-	tsNs      uint64
-	comm      string
+	legacy     bool
+	seq        uint64
+	cpu        uint32
+	lossEpoch  uint64
+	lossTimeNS uint64
+	version    uint16
+	eventType  uint16
+	flags      uint16
+	pid        uint32
+	tid        uint32
+	sysID      uint32
+	tsNs       uint64
+	comm       string
 }
 
 func isTraceEventV2Sample(rawSample []byte) bool {
@@ -38,22 +43,30 @@ func decodeTraceEventV2EnvelopeInto(
 	if !ok {
 		return traceEventEnvelope{}, false
 	}
+	var envelope traceEventEnvelope
 	switch header.eventType {
 	case bpfEventTypeEnter:
-		return decodeTraceEventV2EnterEnvelope(header, body, payloadScratch)
+		envelope, ok = decodeTraceEventV2EnterEnvelope(header, body, payloadScratch)
 	case bpfEventTypeExit:
-		return decodeTraceEventV2ExitEnvelope(header, body, payloadScratch)
+		envelope, ok = decodeTraceEventV2ExitEnvelope(header, body, payloadScratch)
 	case bpfEventTypeLifecycle:
-		return decodeTraceEventV2LifecycleEnvelope(header, body)
+		envelope, ok = decodeTraceEventV2LifecycleEnvelope(header, body)
 	case bpfEventTypeSignal:
-		return decodeTraceEventV2SignalEnvelope(header, body)
+		envelope, ok = decodeTraceEventV2SignalEnvelope(header, body)
 	default:
 		return traceEventEnvelope{}, false
 	}
+	envelope.seq = header.seq
+	envelope.legacyIntegrity = header.legacy
+	envelope.cpu = header.cpu
+	envelope.lossEpoch = header.lossEpoch
+	envelope.lossTimeNS = header.lossTimeNS
+	envelope.recordTime = header.tsNs
+	return envelope, ok
 }
 
 func decodeTraceEventV2Header(rawSample []byte) (traceEventV2Header, []byte, bool) {
-	if len(rawSample) < traceEventV2HeaderLen {
+	if len(rawSample) < traceEventV2BaseHeaderLen {
 		return traceEventV2Header{}, nil, false
 	}
 	version := binary.LittleEndian.Uint16(rawSample[traceEventV2HeaderVersionOffset : traceEventV2HeaderVersionOffset+traceEventV2U16Size])
@@ -63,7 +76,7 @@ func decodeTraceEventV2Header(rawSample []byte) (traceEventV2Header, []byte, boo
 	if version != traceEventV2Version ||
 		(eventType != bpfEventTypeEnter && eventType != bpfEventTypeExit &&
 			eventType != bpfEventTypeLifecycle && eventType != bpfEventTypeSignal) ||
-		headerLen < traceEventV2HeaderLen ||
+		(headerLen != traceEventV2BaseHeaderLen && headerLen < traceEventV2HeaderLen) ||
 		uint32(headerLen) > size ||
 		size > uint32(len(rawSample)) {
 		return traceEventV2Header{}, nil, false
@@ -71,6 +84,7 @@ func decodeTraceEventV2Header(rawSample []byte) (traceEventV2Header, []byte, boo
 	headerLenInt := int(headerLen)
 	sizeInt := int(size)
 	header := traceEventV2Header{
+		seq:       binary.LittleEndian.Uint64(rawSample[traceEventV2HeaderSeqOffset:]),
 		version:   version,
 		eventType: eventType,
 		flags:     binary.LittleEndian.Uint16(rawSample[traceEventV2HeaderFlagsOffset : traceEventV2HeaderFlagsOffset+traceEventV2U16Size]),
@@ -79,6 +93,12 @@ func decodeTraceEventV2Header(rawSample []byte) (traceEventV2Header, []byte, boo
 		sysID:     binary.LittleEndian.Uint32(rawSample[traceEventV2HeaderSysIDOffset : traceEventV2HeaderSysIDOffset+traceEventV2U32Size]),
 		tsNs:      binary.LittleEndian.Uint64(rawSample[traceEventV2HeaderTSNSOffset : traceEventV2HeaderTSNSOffset+traceEventV2U64Size]),
 		comm:      decodeTraceEventV2Comm(rawSample[traceEventV2HeaderCommOffset : traceEventV2HeaderCommOffset+traceEventV2CommSize]),
+	}
+	header.legacy = headerLen == traceEventV2BaseHeaderLen
+	if !header.legacy {
+		header.cpu = binary.LittleEndian.Uint32(rawSample[traceEventV2HeaderCPUOffset:])
+		header.lossEpoch = binary.LittleEndian.Uint64(rawSample[traceEventV2HeaderLossEpochOffset:])
+		header.lossTimeNS = binary.LittleEndian.Uint64(rawSample[traceEventV2HeaderLossTimeOffset:])
 	}
 	return header, rawSample[headerLenInt:sizeInt], true
 }

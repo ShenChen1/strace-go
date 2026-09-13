@@ -12,6 +12,7 @@ static __always_inline void emit_mount_query_exit_event_v2_direct(
     u32 payload_offset = body_offset + EVENT_V2_EXIT_BODY_LEN;
     u32 out_size = payload_offset + payload_capacity;
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long reserve_ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (reserve_ret < 0) {
         record_ringbuf_reserve_fail();
@@ -27,7 +28,7 @@ static __always_inline void emit_mount_query_exit_event_v2_direct(
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(
         &header, EVENT_TYPE_EXIT, flags, p->pid, p->tid, p->sys_id,
         out_size, p->enter_time + duration);

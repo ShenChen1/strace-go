@@ -19,7 +19,15 @@ func (st *TraceState) handleEnvelope(envelope traceEventEnvelope) TraceStateUpda
 
 func (st *TraceState) handleLifecycleEnvelope(envelope traceEventEnvelope, unfinished []unfinishedSyscallView) TraceStateUpdate {
 	lifecycleView := envelope.lifecycleView()
+	if st.tainted && lifecycleView.action == lifecycleExec {
+		st.clearTaskPending(lifecycleView.tid)
+		st.clearTaskPending(uint32(lifecycleView.args[0]))
+		st.clearTaskPending(uint32(lifecycleView.args[1]))
+	}
 	task, processInherit := st.applyLifecycleEvent(lifecycleView)
+	if st.tainted {
+		processInherit = nil
+	}
 	update := TraceStateUpdate{
 		kind:           traceStateLifecycle,
 		lifecycleView:  lifecycleView,
@@ -74,9 +82,12 @@ func (st *TraceState) handleSyscallEnvelope(envelope traceEventEnvelope, unfinis
 
 func (st *TraceState) handleSyscallEnter(update *TraceStateUpdate, payload []handler.PayloadSection) {
 	view := &update.syscallView
-	st.rememberEnterEvent(view, payload)
 	update.kind = traceStateSyscallEnter
 	update.payloadSections = payload
+	if st.tainted {
+		st.correlation.clearTask(view.tid)
+	}
+	st.rememberEnterEvent(view, payload)
 	if pendingExit, ok := st.takePendingExit(view); ok {
 		st.attachDeferredExit(update, pendingExit)
 	}
@@ -125,7 +136,7 @@ func (st *TraceState) handleSyscallExit(update *TraceStateUpdate, payload []hand
 			pendingEnter = st.synthesizeGenericEnter(view)
 		}
 	}
-	if pendingEnter == nil && st.deferUnmatchedExits {
+	if pendingEnter == nil && st.deferUnmatchedExits && !st.tainted {
 		st.rememberPendingExit(view, payload)
 		update.kind = traceStateSyscallExit
 		update.deferred = true

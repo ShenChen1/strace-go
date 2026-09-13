@@ -22,6 +22,7 @@ type traceEventSink interface {
 }
 
 type traceEventReaderStats struct {
+	Integrity         traceIntegritySnapshot
 	RecordsRead       uint64
 	RecordsDecoded    uint64
 	RecordsInvalid    uint64
@@ -55,6 +56,7 @@ type traceEventReaderStatsReader interface {
 // TraceEventReader owns the synchronous ringbuf boundary. It decodes and
 // routes each sample before returning control to the session loop.
 type TraceEventReader struct {
+	integrity      *TraceIntegrity
 	reader         traceRingbufReader
 	decoder        traceRecordDecoder
 	sink           traceEventSink
@@ -65,6 +67,7 @@ type TraceEventReader struct {
 }
 
 type TraceEventReaderDeps struct {
+	Integrity         *TraceIntegrity
 	Reader            traceRingbufReader
 	Decoder           traceRecordDecoder
 	Sink              traceEventSink
@@ -83,6 +86,7 @@ func newTraceEventReader(deps TraceEventReaderDeps) *TraceEventReader {
 		serviceSampleRate = 1
 	}
 	return &TraceEventReader{
+		integrity:  deps.Integrity,
 		reader:     deps.Reader,
 		decoder:    deps.Decoder,
 		sink:       deps.Sink,
@@ -189,11 +193,16 @@ func (r *TraceEventReader) HandleRecord(rec *ringbuf.Record) bool {
 	}
 	if !ok {
 		r.stats.RecordsInvalid++
+		r.integrity.InvalidRecord()
 		r.finishServiceMeasurement(startNS, decodeEndNS, measureService)
 		return false
 	}
 	r.stats.RecordsDecoded++
+	r.integrity.Observe(&envelope)
 	serviceEndNS := decodeEndNS
+	if r.integrity != nil {
+		serviceEndNS = r.monotonicNow(measureService)
+	}
 	if r.sink != nil {
 		sinkStartNS := r.monotonicNow(measureService)
 		r.sink.Handle(envelope)
@@ -213,6 +222,7 @@ func (r *TraceEventReader) ReaderStats() traceEventReaderStats {
 		return traceEventReaderStats{}
 	}
 	stats := r.stats
+	stats.Integrity = r.integrity.Snapshot()
 	if r.stageStats != nil {
 		stage := r.stageStats.EventStageStats()
 		stats.StageEnabled = stage.Enabled

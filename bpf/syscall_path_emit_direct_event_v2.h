@@ -31,6 +31,7 @@ static __always_inline void emit_path_only_enter_event_v2_direct_with_path(
     init_syscall_enter_event_v2_from_ctx(&body, ctx, 0, 0, -1, -1);
 
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
         record_ringbuf_reserve_fail();
@@ -44,7 +45,7 @@ static __always_inline void emit_path_only_enter_event_v2_direct_with_path(
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(&header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
     ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
     if (ret < 0) {
@@ -99,6 +100,7 @@ static __always_inline void emit_path_only_exit_event_v2_direct(
     u32 out_size = payload_offset + payload_capacity;
     u64 ts_ns = p->enter_time + duration;
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
         record_ringbuf_reserve_fail();
@@ -112,7 +114,7 @@ static __always_inline void emit_path_only_exit_event_v2_direct(
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(&header, EVENT_TYPE_EXIT, flags, p->pid, p->tid, p->sys_id, out_size, ts_ns);
     ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
     if (ret < 0) {
@@ -158,6 +160,7 @@ static __always_inline void emit_dual_path_exit_event_v2_direct(
     u32 out_size = payload_offset + payload_capacity;
     u64 ts_ns = p->enter_time + duration;
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
         record_ringbuf_reserve_fail();
@@ -180,7 +183,7 @@ static __always_inline void emit_dual_path_exit_event_v2_direct(
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(
         &header,
         EVENT_TYPE_EXIT,
@@ -229,6 +232,7 @@ static __always_inline void emit_dual_path_enter_event_v2_direct_with_paths(
     init_syscall_enter_event_v2_from_ctx(&body, ctx, 0, 0, -1, -1);
 
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
         record_ringbuf_reserve_fail();
@@ -243,7 +247,7 @@ static __always_inline void emit_dual_path_enter_event_v2_direct_with_paths(
         flags |= EVENT_FLAG_PAYLOAD_TLV;
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(&header, EVENT_TYPE_ENTER, flags, pid, tid, sys_id, out_size, ts_ns);
     ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
     if (ret < 0) {

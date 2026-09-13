@@ -14,15 +14,15 @@ import (
 //go:generate go run -C ../generate-syscalls .
 //go:generate go run ../generate-version
 //go:generate go run ../generate-xlats
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpf ../../bpf/strace.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfEnterGeneric ../../bpf/handlers_enter_generic.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfEnterPayload ../../bpf/handlers_enter_payload.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfEnterPath ../../bpf/handlers_enter_path.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfEnterMemory ../../bpf/handlers_enter_memory.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfEnterControl ../../bpf/handlers_enter_control.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfEnterStructured ../../bpf/handlers_enter_structured.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfExit ../../bpf/handlers_exit.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfRecvmsg ../../bpf/handlers_recvmsg.c -- -I/usr/include -I/usr/include/x86_64-linux-gnu
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpf ../../bpf/strace.c -- -mcpu=v3 -I/usr/include -I/usr/include/x86_64-linux-gnu
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfEnterGeneric ../../bpf/handlers_enter_generic.c -- -mcpu=v3 -I/usr/include -I/usr/include/x86_64-linux-gnu
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfEnterPayload ../../bpf/handlers_enter_payload.c -- -mcpu=v3 -I/usr/include -I/usr/include/x86_64-linux-gnu
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfEnterPath ../../bpf/handlers_enter_path.c -- -mcpu=v3 -I/usr/include -I/usr/include/x86_64-linux-gnu
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfEnterMemory ../../bpf/handlers_enter_memory.c -- -mcpu=v3 -I/usr/include -I/usr/include/x86_64-linux-gnu
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfEnterControl ../../bpf/handlers_enter_control.c -- -mcpu=v3 -I/usr/include -I/usr/include/x86_64-linux-gnu
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfEnterStructured ../../bpf/handlers_enter_structured.c -- -mcpu=v3 -I/usr/include -I/usr/include/x86_64-linux-gnu
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfExit ../../bpf/handlers_exit.c -- -mcpu=v3 -I/usr/include -I/usr/include/x86_64-linux-gnu
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang bpfRecvmsg ../../bpf/handlers_recvmsg.c -- -mcpu=v3 -I/usr/include -I/usr/include/x86_64-linux-gnu
 
 // IMPACT: main is the final process error boundary; resource-owning bootstrap
 // work stays in error-returning helpers so deferred cleanup always runs.

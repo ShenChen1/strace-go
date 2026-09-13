@@ -266,18 +266,19 @@ func (w *JSONEventWriter) canEncode() bool {
 
 func newJSONLifecycleEvent(view lifecycleEventView, task *TaskState) jsonLifecycleEvent {
 	ev := jsonLifecycleEvent{
-		Type:         "lifecycle",
-		EventVersion: view.eventVersion,
-		EventType:    bpfEventTypeNameFromID(view.eventType),
-		EventTypeID:  view.eventType,
-		EventFlags:   view.eventFlags,
-		Action:       lifecycleActionName(view.action),
-		ActionID:     view.action,
-		Pid:          view.pid,
-		Tid:          view.tid,
-		Arg0:         view.args[0],
-		Arg1:         view.args[1],
-		TimeNS:       view.enterTime,
+		traceRecordIntegrity: view.integrity,
+		Type:                 "lifecycle",
+		EventVersion:         view.eventVersion,
+		EventType:            bpfEventTypeNameFromID(view.eventType),
+		EventTypeID:          view.eventType,
+		EventFlags:           view.eventFlags,
+		Action:               lifecycleActionName(view.action),
+		ActionID:             view.action,
+		Pid:                  view.pid,
+		Tid:                  view.tid,
+		Arg0:                 view.args[0],
+		Arg1:                 view.args[1],
+		TimeNS:               view.enterTime,
 	}
 	if view.action == lifecycleExec {
 		ev.Filename = view.snapshotText

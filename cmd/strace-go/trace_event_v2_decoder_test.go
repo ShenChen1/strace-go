@@ -273,8 +273,10 @@ func TestDecodeTraceEventV2ExitEnvelope(t *testing.T) {
 	if !ok {
 		t.Fatal("decodeTraceEventV2Envelope rejected a valid exit sample")
 	}
-	if envelope.ret != 4 || envelope.duration != 55 || envelope.cpuDuration != 7 || envelope.enterTime != 945 {
-		t.Fatalf("exit result fields = ret %d wall %d CPU %d enter %d", envelope.ret, envelope.duration, envelope.cpuDuration, envelope.enterTime)
+	if envelope.ret != 4 || envelope.duration != 55 || envelope.cpuDuration != 7 ||
+		envelope.enterTime != 945 || envelope.recordTime != 1000 {
+		t.Fatalf("exit result fields = ret %d wall %d CPU %d enter %d record %d",
+			envelope.ret, envelope.duration, envelope.cpuDuration, envelope.enterTime, envelope.recordTime)
 	}
 	if len(envelope.payload) != 1 || envelope.payload[0].Direction != handler.PayloadDirectionOut ||
 		!bytes.Equal(envelope.payload[0].Data, []byte("data")) {

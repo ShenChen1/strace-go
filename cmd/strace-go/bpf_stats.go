@@ -5,6 +5,8 @@ import (
 )
 
 type bpfRuntimeStats struct {
+	IntegrityFirstTimeNS   uint64
+	EventSequences         []uint64
 	RingbufReserveFail     uint64
 	RingbufCopyFail        uint64
 	PayloadTruncatedEvents uint64
@@ -52,6 +54,10 @@ func collectBPFStatsFromReader(reader traceStatsReader) bpfRuntimeStats {
 func sumBPFStatsValues(values []bpfBpfStats) bpfRuntimeStats {
 	stats := bpfRuntimeStats{Available: true}
 	for _, value := range values {
+		stats.EventSequences = append(stats.EventSequences, value.EventSeq)
+		if value.IntegrityFirstTimeNs != 0 && (stats.IntegrityFirstTimeNS == 0 || value.IntegrityFirstTimeNs < stats.IntegrityFirstTimeNS) {
+			stats.IntegrityFirstTimeNS = value.IntegrityFirstTimeNs
+		}
 		stats.RingbufReserveFail += value.RingbufReserveFail
 		stats.RingbufCopyFail += value.RingbufCopyFail
 		stats.PayloadTruncatedEvents += value.PayloadTruncatedEvents

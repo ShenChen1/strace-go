@@ -144,6 +144,7 @@ static __always_inline void emit_pid_namespace_exit_event_v2_direct(
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_EXIT_BODY_LEN;
     u32 out_size = payload_offset + payload_size;
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
         record_ringbuf_reserve_fail();
@@ -155,7 +156,7 @@ static __always_inline void emit_pid_namespace_exit_event_v2_direct(
         return;
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_syscall_event_v2_header_direct(
         &header,
         EVENT_TYPE_EXIT,

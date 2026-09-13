@@ -433,6 +433,10 @@ func buildTraceSessionRuntime(
 	base traceSessionBaseComponents,
 	router *TraceEventRouter,
 ) traceSessionRuntimeComponents {
+	integrity := newTraceIntegrity(traceIntegrityDeps{
+		State: deps.State, FDState: deps.FDState,
+		Notify: traceIntegrityReporter(base.outputPolicy, base.jsonWriter, deps.DebugOutput),
+	})
 	var recordDecoder traceRecordDecoder = newTraceRingbufRecordDecoder()
 	var eventSink traceEventSink = router
 	if isTraceReaderOnlyPolicy(base.outputPolicy) {
@@ -440,6 +444,7 @@ func buildTraceSessionRuntime(
 		eventSink = nil
 	}
 	eventReader := newTraceEventReader(TraceEventReaderDeps{
+		Integrity:         integrity,
 		Reader:            deps.Events,
 		Decoder:           recordDecoder,
 		Sink:              eventSink,
@@ -452,6 +457,7 @@ func buildTraceSessionRuntime(
 		recordDecoder: recordDecoder,
 		eventReader:   eventReader,
 		runFinalizer: newTraceRunFinalizer(TraceRunFinalizerDeps{
+			Integrity:       integrity,
 			FormatPolicy:    base.outputPolicy,
 			SummaryPolicy:   base.outputPolicy,
 			TargetPID:       deps.TargetPID,

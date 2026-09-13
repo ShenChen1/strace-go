@@ -33,6 +33,7 @@ type syscallEventContext struct {
 
 // syscallEventView is the stable syscall field set used after context construction.
 type syscallEventView struct {
+	integrity     traceRecordIntegrity
 	valid         bool
 	eventVersion  uint16
 	pid           uint32

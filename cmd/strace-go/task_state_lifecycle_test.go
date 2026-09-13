@@ -56,6 +56,57 @@ func TestTraceStateDoesNotRetainUnfollowedForkChild(t *testing.T) {
 	}
 }
 
+func TestTraceStateTaintKeepsObservedForkChildForQuiescence(t *testing.T) {
+	state := newTraceState()
+	parent := state.ensureTaskState(250, 250)
+	parent.Alive = true
+	parent.Executable = "/bin/parent"
+	state.TaintHistory()
+
+	state.handleEnvelope(lifecycleEnvelopeForTask(250, 250, lifecycleFork, 250, 251))
+	child := state.lifecycle.tasks[251]
+	if child == nil || !child.Alive {
+		t.Fatalf("observed post-gap child = %+v, want tracked alive", child)
+	}
+	if child.ParentTID != 0 || child.Executable != "" || len(state.lifecycle.pendingForks) != 0 {
+		t.Fatalf("tainted fork inherited historical identity: child=%+v pending=%v", child, state.lifecycle.pendingForks)
+	}
+
+	state.handleEnvelope(lifecycleEnvelopeForTask(250, 250, lifecycleExit, 0, 0))
+	if state.TargetLifecycleQuiescent(250) {
+		t.Fatal("observed live child was ignored after parent exit")
+	}
+	state.handleEnvelope(lifecycleEnvelopeForTask(251, 251, lifecycleExit, 0, 0))
+	if state.TargetLifecycleQuiescent(250) {
+		t.Fatal("tainted lifecycle history incorrectly proved quiescence from observed tasks alone")
+	}
+}
+
+func TestTraceStateTaintedLifecycleKeepsCurrentTaskFacts(t *testing.T) {
+	state := newTraceState()
+	state.TaintHistory()
+
+	update := state.handleEnvelope(lifecycleEnvelopeForTask(260, 260, lifecycleFork, 260, 261))
+	if update.lifecycleTask == nil || update.lifecycleTask.TID != 261 || !update.lifecycleTask.Alive {
+		t.Fatalf("tainted lifecycle task = %+v, want observed child alive", update.lifecycleTask)
+	}
+	if update.processInherit != nil {
+		t.Fatalf("tainted lifecycle inherited process state: %+v", update.processInherit)
+	}
+	if event := newJSONLifecycleEvent(update.lifecycleView, update.lifecycleTask); !event.Alive {
+		t.Fatalf("tainted lifecycle JSON lost observed liveness: %+v", event)
+	}
+}
+
+func TestTraceStateTaintedLifecycleWithoutFollowForksCanQuiesce(t *testing.T) {
+	state := newTraceStateForSession(newTraceEventPolicy(&cli.Options{FollowForks: false}))
+	state.TaintHistory()
+
+	if !state.TargetLifecycleQuiescent(270) {
+		t.Fatal("lifecycle taint delayed completion without follow-forks")
+	}
+}
+
 func TestTraceStateKeepsTaskUntilLifecycleAfterTerminatingSyscall(t *testing.T) {
 	state := newTraceState()
 	id := syscallIDByName(t, "exit_group")

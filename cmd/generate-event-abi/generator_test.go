@@ -27,6 +27,10 @@ func TestWriteProtocolHeader(t *testing.T) {
 	got := string(data)
 	for _, want := range []string{
 		"#define EVENT_VERSION 2",
+		"#define EVENT_V2_HEADER_LEN 80",
+		"#define EVENT_V2_HEADER_CPU_OFFSET 56",
+		"#define EVENT_V2_HEADER_LOSS_EPOCH_OFFSET 64",
+		"#define EVENT_V2_HEADER_LOSS_TIME_OFFSET 72",
 		"#define EVENT_FLAG_COMPACT_ENTER 16",
 		"#define LIFECYCLE_UNKNOWN_DETACH 5",
 		"#define LIFECYCLE_UNKNOWN_EXIT 6",
@@ -87,6 +91,10 @@ func TestWriteProtocolGo(t *testing.T) {
 	got := strings.Join(strings.Fields(string(data)), " ")
 	for _, want := range []string{
 		"traceEventV2Version = 2",
+		"traceEventV2HeaderLen = 80",
+		"traceEventV2HeaderCPUOffset = 56",
+		"traceEventV2HeaderLossEpochOffset = 64",
+		"traceEventV2HeaderLossTimeOffset = 72",
 		"bpfEventFlagCompactEnter uint32 = 16",
 		"lifecycleUnknownDetach uint32 = 5",
 		"lifecycleUnknownExit uint32 = 6",

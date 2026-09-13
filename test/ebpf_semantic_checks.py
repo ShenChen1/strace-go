@@ -181,6 +181,8 @@ def check_attach(context, failures):
     require(capture.result.returncode == 0, failures, f"attach tracer rc={capture.result.returncode}")
     require(len(capture.stats_events) == 1 and valid_stats_event(capture.stats_events[0]), failures, "attach stats event missing")
     require(capture.stats_events and capture.stats_events[0].get("orphan_exit", 0) > 0, failures, "attach orphan_exit diagnostic missing")
+    integrity = capture.stats_events[0].get("integrity", {}) if capture.stats_events else {}
+    require(not integrity.get("tainted", False), failures, "expected attach orphan tainted tracing integrity")
 
 
 def check_attach_thread(context, failures):

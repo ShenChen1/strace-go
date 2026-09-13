@@ -8,6 +8,7 @@ import (
 // traceFDStateOwner exists only at the session composition boundary.
 // Runtime consumers receive one of its narrower reader or mutation ports.
 type traceFDStateOwner interface {
+	traceHistoryInvalidator
 	event.FDPathReader
 	handler.FDStateReader
 	fdStateUpdatePort

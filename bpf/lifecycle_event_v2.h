@@ -16,7 +16,7 @@ static __always_inline void init_lifecycle_event_v2_header(
     header->pid = pid;
     header->tid = tid;
     header->sys_id = 0;
-    header->seq = 0;
+    capture_event_integrity(header);
     header->ts_ns = ts_ns;
     capture_event_v2_comm(header);
 }
@@ -52,6 +52,7 @@ static __always_inline void emit_lifecycle_event_v2_direct(
     u32 payload_offset = EVENT_V2_HEADER_LEN + EVENT_V2_LIFECYCLE_BODY_LEN;
 
     struct bpf_dynptr ptr;
+    u64 sequence = next_event_sequence();
     long ret = bpf_ringbuf_reserve_dynptr(&events, out_size, 0, &ptr);
     if (ret < 0) {
         record_ringbuf_reserve_fail();
@@ -71,7 +72,7 @@ static __always_inline void emit_lifecycle_event_v2_direct(
         }
     }
 
-    struct event_v2_header header = {};
+    struct event_v2_header header = {.seq = sequence};
     init_lifecycle_event_v2_header(&header, pid, tid, out_size, bpf_ktime_get_ns());
     ret = bpf_dynptr_write(&ptr, 0, &header, sizeof(header), 0);
     if (ret < 0) {
