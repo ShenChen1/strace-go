@@ -13,7 +13,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+
 	"sort"
+	"strace-go/internal/architecture"
 	"strings"
 )
 
@@ -23,10 +25,14 @@ type syscallNumberEntry struct {
 	Name string
 }
 
-type unixSyscallSource struct{}
+type unixSyscallSource struct{ target architecture.Architecture }
 
-func (unixSyscallSource) LoadSyscallNumbers() ([]syscallNumberEntry, error) {
-	path, err := unixSysnumPath()
+func (source unixSyscallSource) LoadSyscallNumbers() ([]syscallNumberEntry, error) {
+	target := source.target
+	if target == "" {
+		target = architecture.Architecture(runtime.GOARCH)
+	}
+	path, err := unixSysnumPathFor(target)
 	if err != nil {
 		return nil, err
 	}
@@ -43,6 +49,9 @@ func (unixSyscallSource) LoadSyscallNumbers() ([]syscallNumberEntry, error) {
 	entries := make([]syscallNumberEntry, 0, len(constants))
 	for constantName, id := range constants {
 		name := strings.ToLower(strings.TrimPrefix(constantName, "SYS_"))
+		if name == "arch_specific_syscall" {
+			continue
+		}
 		if name == "" {
 			return nil, fmt.Errorf("invalid empty syscall name from constant %s", constantName)
 		}
@@ -57,7 +66,10 @@ func (unixSyscallSource) LoadSyscallNumbers() ([]syscallNumberEntry, error) {
 	return entries, nil
 }
 
-func unixSysnumPath() (string, error) {
+func unixSysnumPathFor(target architecture.Architecture) (string, error) {
+	if _, err := architecture.Parse(string(target)); err != nil {
+		return "", err
+	}
 	output, err := exec.Command("go", "list", "-f", "{{.Dir}}", "golang.org/x/sys/unix").CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("locate golang.org/x/sys/unix: %w: %s", err, strings.TrimSpace(string(output)))
@@ -66,7 +78,7 @@ func unixSysnumPath() (string, error) {
 	if directory == "" {
 		return "", fmt.Errorf("locate golang.org/x/sys/unix: empty module directory")
 	}
-	return filepath.Join(directory, fmt.Sprintf("zsysnum_%s_%s.go", runtime.GOOS, runtime.GOARCH)), nil
+	return filepath.Join(directory, fmt.Sprintf("zsysnum_%s_%s.go", "linux", target)), nil
 }
 
 func parseUnixSyscallConstants(reader io.Reader) (map[string]int, error) {
