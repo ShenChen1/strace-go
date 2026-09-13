@@ -14,7 +14,7 @@ func TestBPFPselect6UsesEventTimeWrapperCapture(t *testing.T) {
 
 	sources := strings.Join([]string{
 		read("bpf/capture_manifest_generated.h"),
-		read("bpf/syscall_numbers_generated.h"),
+		read("bpf/syscall_numbers_amd64_generated.h"),
 		read("bpf/syscall_select_direct_event_v2.h"),
 		read("bpf/syscall_select_capture_direct_event_v2.h"),
 		read("bpf/syscall_select_emit_direct_event_v2.h"),

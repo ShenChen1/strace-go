@@ -208,7 +208,8 @@ func TestProductGoFilesCoverRuntimeTree(t *testing.T) {
 	for _, expected := range []string{
 		"cmd/strace-go/main.go",
 		"pkg/handler/handler.go",
-		"pkg/meta/syscall_table.go",
+		"pkg/meta/syscall_table_amd64.go",
+		"pkg/meta/syscall_table_arm64.go",
 		"pkg/stacktrace/resolver.go",
 	} {
 		if !found[expected] {

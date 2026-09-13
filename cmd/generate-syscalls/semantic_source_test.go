@@ -23,7 +23,7 @@ func TestCheckedInSemanticSourceCoversUnixNumbers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadSyscallEntries() error = %v", err)
 	}
-	if len(entries) != len(numbers) {
+	if len(entries) < len(numbers) {
 		t.Fatalf("semantic catalog size = %d, unix source size = %d", len(entries), len(numbers))
 	}
 	semanticNames := make(map[string]struct{}, len(entries))

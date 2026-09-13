@@ -53,6 +53,9 @@ type traceRingbufResource interface {
 // generated syscall metadata. An empty generated syscall name denotes an
 // explicit architecture ABI value whose C default must be preserved.
 func setSyscallVariables(spec *ebpf.CollectionSpec) error {
+	if err := validateBPFArchitecture(spec, meta.SyscallABIHash); err != nil {
+		return err
+	}
 	if spec == nil {
 		return fmt.Errorf("BPF collection spec is nil")
 	}

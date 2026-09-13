@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 )
@@ -52,6 +51,10 @@ func runtimeABIVariableForSyscall(name string) (runtimeABIVariable, bool) {
 }
 
 func (generatedSyscallNumberHeaderWriter) Write(path string, numbers []syscallNumberEntry) error {
+	return writeGeneratedOutput(path, renderSyscallNumberHeader(numbers), false)
+}
+
+func renderSyscallNumberHeader(numbers []syscallNumberEntry) []byte {
 	entries := append([]syscallNumberEntry(nil), numbers...)
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Name < entries[j].Name
@@ -78,8 +81,5 @@ func (generatedSyscallNumberHeaderWriter) Write(path string, numbers []syscallNu
 	fmt.Fprintln(&out)
 	fmt.Fprintln(&out, "#endif")
 
-	if err := os.WriteFile(path, []byte(out.String()), 0644); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	return nil
+	return []byte(out.String())
 }

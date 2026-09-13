@@ -127,7 +127,7 @@ func TestBPFPendingTaskStateOwnsAuxiliaryMetadata(t *testing.T) {
 func TestBPFRuntimeSyscallNumbersAreGenerated(t *testing.T) {
 	root := repoRootForTest(t)
 	abi := readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h"))
-	generated := readTextFile(t, filepath.Join(root, "bpf/syscall_numbers_generated.h"))
+	generated := readTextFile(t, filepath.Join(root, "bpf/syscall_numbers_amd64_generated.h"))
 	if !strings.Contains(abi, `#include "syscall_numbers_generated.h"`) {
 		t.Fatal("runtime_abi.h must include generated syscall numbers")
 	}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 )
@@ -14,6 +13,10 @@ func (goSyscallTableWriter) Write(path string, syscalls map[int]SyscallMeta) err
 }
 
 func writeGoSyscallTable(path string, syscalls map[int]SyscallMeta) error {
+	return writeGeneratedOutput(path, renderGoSyscallTable(syscalls), false)
+}
+
+func renderGoSyscallTable(syscalls map[int]SyscallMeta) []byte {
 	var out strings.Builder
 
 	fmt.Fprintln(&out, "package meta")
@@ -33,10 +36,7 @@ func writeGoSyscallTable(path string, syscalls map[int]SyscallMeta) error {
 		fmt.Fprintf(&out, "\t%q: %q,\n", variable.variableName, variable.syscallName)
 	}
 	fmt.Fprintln(&out, "}")
-	if err := os.WriteFile(path, []byte(out.String()), 0644); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	return nil
+	return []byte(out.String())
 }
 
 func sortedRuntimeABIVariables() []runtimeABIVariable {

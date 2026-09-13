@@ -48,7 +48,6 @@ func runGenerateSyscalls(args []string, stdout io.Writer) error {
 
 func newGeneratorCommand() generatorCommand {
 	return generatorCommand{
-		loader:           defaultSyscallMetadataLoader{},
 		resolutionLoader: defaultSyscallMetadataLoader{},
 		writer:           goSyscallTableWriter{},
 		auditSource:      kernelBTFSource{},
@@ -66,6 +65,8 @@ func (c generatorCommand) Run(args []string, stdout io.Writer) error {
 	auditOverrideDetails := flags.Bool("audit-overrides-detail", false, "print detailed manual override audit rows")
 	auditTracepointOverrides := flags.Bool("audit-tracepoint-overrides", false, "print manual override coverage from syscall tracepoint formats")
 	auditResolution := flags.Bool("audit-resolution", false, "print final syscall metadata resolution provenance")
+	target := flags.String("arch", "", "target architecture: amd64, arm64, or all")
+	check := flags.Bool("check", false, "check generated target metadata without writing")
 	outputPath := flags.String("output", c.defaultOutputPath, "generated syscall table output path")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -83,12 +84,19 @@ func (c generatorCommand) Run(args []string, stdout io.Writer) error {
 		return writeResolutionAudit(stdout, c.resolutionLoader)
 	}
 
+	if c.loader == nil {
+		return generateTargetMetadata(*target, *outputPath, *check)
+	}
+	return c.generateLoadedMetadata(*outputPath)
+}
+
+func (c generatorCommand) generateLoadedMetadata(outputPath string) error {
 	syscalls, err := c.loader.Load()
 	if err != nil {
 		return fmt.Errorf("load syscalls: %w", err)
 	}
 
-	resolvedOutputPath, err := c.outputPath(*outputPath)
+	resolvedOutputPath, err := c.outputPath(outputPath)
 	if err != nil {
 		return fmt.Errorf("resolve output path: %w", err)
 	}

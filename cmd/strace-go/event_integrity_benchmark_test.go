@@ -49,7 +49,7 @@ func BenchmarkIntegrityBPFSequence(b *testing.B) {
 	}
 	object := filepath.Join(b.TempDir(), "sequence.bpf.o")
 	command := exec.Command("clang", "-target", "bpfel", "-O2", "-g", "-mcpu=v3",
-		"-I../../bpf", "-I/usr/include/x86_64-linux-gnu", "-c",
+		"-I../../bpf", "-c",
 		"../../test/fixtures/ebpf_integrity_perf.bpf.c", "-o", object)
 	if output, err := command.CombinedOutput(); err != nil {
 		b.Fatalf("compile sequence benchmark: %v\n%s", err, output)

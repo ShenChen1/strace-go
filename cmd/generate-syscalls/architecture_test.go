@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"runtime"
 	"testing"
 
 	"strace-go/internal/architecture"
@@ -40,8 +41,8 @@ func assertTargetNumbers(t *testing.T, target architecture.Architecture, ids []i
 	}
 }
 
-func TestCheckedSchemaPreservesAMD64Metadata(t *testing.T) {
-	table, err := loadTargetSyscalls(architecture.AMD64)
+func TestCheckedSchemaPreservesNativeMetadata(t *testing.T) {
+	table, err := loadTargetSyscalls(architecture.Architecture(runtime.GOARCH))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,7 +14,7 @@ func TestBPFKeyctlUsesOperationSpecificDirectPayload(t *testing.T) {
 	facade := read("syscall_key_direct_event_v2.h")
 	capture := read("syscall_key_capture_direct_event_v2.h")
 	emit := read("syscall_key_emit_direct_event_v2.h")
-	numbers := read("syscall_numbers_generated.h")
+	numbers := read("syscall_numbers_amd64_generated.h")
 	routes := readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_routes.go"))
 	routes += "\n" + readTextFile(t, filepath.Join(root, "cmd/strace-go/bpf_capture_manifest_generated.go"))
 	routes = strings.Join(strings.Fields(routes), " ")
