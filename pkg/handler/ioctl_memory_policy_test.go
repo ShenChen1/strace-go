@@ -207,7 +207,7 @@ func TestIoctlTcgetsUsesPayloadBytesSection(t *testing.T) {
 	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
 	ctx.Ret = 0
 	ctx.PayloadSections = []PayloadSection{
-		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 2, UserPtr: 0x5000, ProbeRet: 0, Data: make([]byte, 60)},
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 2, UserPtr: 0x5000, ProbeRet: 0, Data: make([]byte, 36)},
 	}
 
 	got := (&IoctlHandler{}).decodeStandardIoctlArg(ctx, 0x5401, 0x5000)
@@ -220,7 +220,7 @@ func TestIoctlTcsetsUsesInputPayloadBytesSection(t *testing.T) {
 	ctx := newIoctlPolicyContext(&ioctlPolicyMemoryReader{}, event.NewDecoder())
 	ctx.Ret = 0
 	ctx.PayloadSections = []PayloadSection{
-		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x5000, ProbeRet: 0, Data: make([]byte, 60)},
+		{Kind: PayloadKindBytes, Direction: PayloadDirectionIn, ArgIndex: 2, UserPtr: 0x5000, ProbeRet: 0, Data: make([]byte, 36)},
 	}
 
 	got := (&IoctlHandler{}).decodeStandardIoctlArg(ctx, 0x5402, 0x5000)

@@ -1,6 +1,8 @@
 #ifndef STRACE_GO_SYSCALL_IOCTL_DIRECT_EVENT_V2_H
 #define STRACE_GO_SYSCALL_IOCTL_DIRECT_EVENT_V2_H
 
+#include "native_abi_layout.h"
+
 #define IOCTL_DIRECT_BYTES_MAX 512
 #define IOCTL_DIRECT_ZERO_SIZE_LEN 128
 #define IOCTL_DIRECT_SIZE_SHIFT 16
@@ -17,7 +19,7 @@ static __always_inline u32 ioctl_direct_known_size(u64 cmd)
     case 0x5402: /* TCSETS */
     case 0x5403: /* TCSETSW */
     case 0x5404: /* TCSETSF */
-        return 60;
+        return NATIVE_KERNEL_TERMIOS_SIZE;
     default:
         return 0;
     }

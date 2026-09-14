@@ -73,9 +73,6 @@ func syscallEventTraitsForName(name string) syscallEventTraits {
 
 func syscallEventTraitsForView(view syscallEventView, syscallName string) syscallEventTraits {
 	if view.sysID == 0 {
-		if syscallName == "read" {
-			return syscallEventTraitsByID[0]
-		}
 		return syscallEventTraitsForName(syscallName)
 	}
 	if view.sysID < uint32(len(syscallEventTraitsByID)) {

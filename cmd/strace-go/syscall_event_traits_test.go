@@ -34,3 +34,10 @@ func TestSyscallEventTraitsKeepSyntheticNameFallback(t *testing.T) {
 		t.Fatalf("synthetic traits = %#x, want %#x", got, want)
 	}
 }
+
+func TestSyntheticReadDoesNotAssumeSyscallZero(t *testing.T) {
+	want := syscallEventTraitStateIO | syscallEventTraitOffsetIO
+	if got := syscallEventTraitsForView(syscallEventView{}, "read"); got != want {
+		t.Fatalf("synthetic read traits = %#x, want %#x", got, want)
+	}
+}

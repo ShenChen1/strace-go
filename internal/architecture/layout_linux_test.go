@@ -33,6 +33,8 @@ func TestNativeBPFLayout(t *testing.T) {
 
 func TestSharedNativeLayouts(t *testing.T) {
 	tests := map[string]struct{ got, want uintptr }{
+		"kernel termios": {uintptr(KernelTermiosSize), 36},
+		"termios2":       {unsafe.Sizeof(unix.Termios{}), 44},
 		"pointer":        {unsafe.Sizeof(uintptr(0)), 8},
 		"iovec":          {unsafe.Sizeof(unix.Iovec{}), 16},
 		"iovec.len":      {unsafe.Offsetof(unix.Iovec{}.Len), 8},

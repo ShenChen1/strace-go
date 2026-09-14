@@ -28,6 +28,7 @@ func NewCatalog(format string) *Catalog {
 	mergeMissingXlatTables(catalog.tables, bpfRuntimeXlatTables)
 	mergeXlatTables(catalog.tables, supplementalXlatTables)
 	mergeSyscallArgXlatMap(catalog.syscallArgXlat, supplementalSyscallArgXlatMap)
+	applyNativeXlat(catalog.tables)
 	return catalog
 }
 

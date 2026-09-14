@@ -24,6 +24,17 @@ func validateTracingArchitecture() error {
 	return architecture.ValidateRuntime(runtime.GOOS, runtime.GOARCH, unix.ByteSliceToString(identity.Machine[:]))
 }
 
+func validateArchitectureCapabilities(target string, kvmExitReason bool) error {
+	arch, err := architecture.Parse(target)
+	if err != nil {
+		return err
+	}
+	if arch == architecture.ARM64 && kvmExitReason {
+		return fmt.Errorf("unsupported capability on arm64: KVM vCPU exit reason decoding; only amd64 is validated")
+	}
+	return nil
+}
+
 func validateBPFArchitecture(spec *ebpf.CollectionSpec, expected uint64) error {
 	if spec == nil {
 		return fmt.Errorf("BPF collection spec is nil")

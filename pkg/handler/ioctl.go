@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"strace-go/internal/architecture"
+
 	"strace-go/pkg/format"
 )
 
@@ -115,7 +117,7 @@ func (h *IoctlHandler) decodeStandardIoctlArg(ctx *Context, cmd, arg uint64) str
 			return fmt.Sprintf("%#x", arg)
 		}
 		direction := ioctlTermiosDirection(cmd)
-		if data, ok := ioctlArgPayload(ctx, direction, 60); ok {
+		if data, ok := ioctlArgPayload(ctx, direction, architecture.KernelTermiosSize); ok {
 			return format.Termios(data)
 		}
 		return fmt.Sprintf("%#x", arg)

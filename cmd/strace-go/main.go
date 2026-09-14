@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"strace-go/pkg/cli"
 )
@@ -50,6 +51,9 @@ func runMain(args []string) error {
 	opts := cli.ParseArgs(args)
 	handled, err := handlePrelude(opts)
 	if err != nil || handled {
+		return err
+	}
+	if err := validateArchitectureCapabilities(runtime.GOARCH, opts.KVMExitReason); err != nil {
 		return err
 	}
 	normalizeTraceTargetOptions(opts)
