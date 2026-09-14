@@ -45,6 +45,11 @@ func decodeTraceEventV2EnvelopeInto(
 	}
 	var envelope traceEventEnvelope
 	switch header.eventType {
+	case bpfEventTypeUnsupportedABI:
+		if len(body) != 0 {
+			return traceEventEnvelope{}, false
+		}
+		envelope = traceEventEnvelope{valid: true, eventType: header.eventType, pid: header.pid, tid: header.tid, sysID: header.sysID}
 	case bpfEventTypeEnter:
 		envelope, ok = decodeTraceEventV2EnterEnvelope(header, body, payloadScratch)
 	case bpfEventTypeExit:
@@ -75,7 +80,7 @@ func decodeTraceEventV2Header(rawSample []byte) (traceEventV2Header, []byte, boo
 	size := binary.LittleEndian.Uint32(rawSample[traceEventV2HeaderSizeOffset : traceEventV2HeaderSizeOffset+traceEventV2U32Size])
 	if version != traceEventV2Version ||
 		(eventType != bpfEventTypeEnter && eventType != bpfEventTypeExit &&
-			eventType != bpfEventTypeLifecycle && eventType != bpfEventTypeSignal) ||
+			eventType != bpfEventTypeLifecycle && eventType != bpfEventTypeSignal && eventType != bpfEventTypeUnsupportedABI) ||
 		(headerLen != traceEventV2BaseHeaderLen && headerLen < traceEventV2HeaderLen) ||
 		uint32(headerLen) > size ||
 		size > uint32(len(rawSample)) {

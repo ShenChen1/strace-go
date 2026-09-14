@@ -343,9 +343,8 @@ var RuntimeSyscallVariables = map[string]string{
 	"SYS_EXIT_GROUP": "exit_group",
 	"SYS_NANOSLEEP": "nanosleep",
 	"SYS_RT_SIGRETURN": "rt_sigreturn",
-	"SYS_RT_SIGRETURN_COMPAT": "",
 	"SYS_RT_SIGSUSPEND": "rt_sigsuspend",
 }
 
 const SyscallArchitecture = "arm64"
-const SyscallABIHash uint64 = 0xa784c0297ae66ee
+const SyscallABIHash uint64 = 0xafbe9c8321a2609b

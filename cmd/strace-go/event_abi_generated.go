@@ -8,6 +8,7 @@ const (
 	bpfEventTypeExit                        uint16 = 2
 	bpfEventTypeLifecycle                   uint16 = 3
 	bpfEventTypeSignal                      uint16 = 4
+	bpfEventTypeUnsupportedABI              uint16 = 5
 	bpfEventFlagGenericEnter                uint32 = 1
 	bpfEventFlagPayloadTLV                  uint32 = 2
 	bpfEventFlagTruncated                   uint32 = 4

@@ -33,7 +33,6 @@ func TestWriteGeneratedSyscallNumberHeader(t *testing.T) {
 	for _, want := range []string{
 		"volatile const u32 SYS_NANOSLEEP = 35;",
 		"volatile const u32 SYS_CAPGET = 125;",
-		"volatile const u32 SYS_RT_SIGRETURN_COMPAT = 173;",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated header missing runtime variable %q:\n%s", want, got)

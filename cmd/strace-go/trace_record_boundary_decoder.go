@@ -14,7 +14,7 @@ func (traceRingbufBoundaryDecoder) Decode(rec *ringbuf.Record) (traceEventEnvelo
 	if !ok {
 		return traceEventEnvelope{}, false
 	}
-	return traceEventEnvelope{valid: true, seq: header.seq, cpu: header.cpu,
+	return traceEventEnvelope{valid: true, eventType: header.eventType, pid: header.pid, tid: header.tid, sysID: header.sysID, seq: header.seq, cpu: header.cpu,
 		lossEpoch: header.lossEpoch, lossTimeNS: header.lossTimeNS, recordTime: header.tsNs,
 		legacyIntegrity: header.legacy}, true
 }

@@ -54,6 +54,7 @@ char LICENSE[] SEC("license") = "GPL";
 #include "kvm_dispatch.h"
 
 #include "pending_state.h"
+#include "unsupported_abi.h"
 #include "lifecycle_state.h"
 #include "syscall_namespace_direct_event_v2.h"
 #include "syscall_pidns_direct_event_v2.h"
@@ -75,7 +76,6 @@ char LICENSE[] SEC("license") = "GPL";
 SEC("tracepoint/raw_syscalls/sys_enter")
 int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
     u32 sys_id = (u32)ctx->id;
-    if (sys_id == SYS_RT_SIGRETURN || sys_id == SYS_RT_SIGRETURN_COMPAT) return 0;
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u32 tid = (u32)pid_tgid;
     u32 pid = (u32)(pid_tgid >> 32);
@@ -83,6 +83,8 @@ int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
 
     u32 *filter_flags = lookup_lifecycle_task_filter_flags(pid, tid);
     if (!filter_flags) return 0;
+    if (reject_unsupported_syscall_abi(pid, tid, sys_id)) return 0;
+    if (sys_id == SYS_RT_SIGRETURN) return 0;
 
     arm_pending_exec_replacement(pid, tid, sys_id);
 
@@ -102,13 +104,14 @@ int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
     if (ctx->id < 0) return 0;
     u32 sys_id = (u32)ctx->id;
     s64 ret_value = ctx->ret;
-    if (sys_id == SYS_RT_SIGRETURN || sys_id == SYS_RT_SIGRETURN_COMPAT) return 0;
     u64 pid_tgid = bpf_get_current_pid_tgid();
     u32 tid = (u32)pid_tgid;
     u32 pid = (u32)(pid_tgid >> 32);
 
     u32 *filter_flags = lookup_lifecycle_task_filter_flags(pid, tid);
     if (!filter_flags) return 0;
+    if (reject_unsupported_syscall_abi(pid, tid, sys_id)) return 0;
+    if (sys_id == SYS_RT_SIGRETURN) return 0;
     if (is_pre_exec_suppressed_syscall(filter_flags, sys_id)) return 0;
     clear_pending_fork_flags(tid, sys_id);
     u32 cfg_key = 0;

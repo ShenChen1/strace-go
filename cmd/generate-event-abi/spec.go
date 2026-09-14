@@ -14,6 +14,7 @@ var protocolConstants = []protocolConstant{
 	{cName: "EVENT_TYPE_EXIT", goName: "bpfEventTypeExit", cValue: "2", goType: "uint16"},
 	{cName: "EVENT_TYPE_LIFECYCLE", goName: "bpfEventTypeLifecycle", cValue: "3", goType: "uint16"},
 	{cName: "EVENT_TYPE_SIGNAL", goName: "bpfEventTypeSignal", cValue: "4", goType: "uint16"},
+	{cName: "EVENT_TYPE_UNSUPPORTED_ABI", goName: "bpfEventTypeUnsupportedABI", cValue: "5", goType: "uint16"},
 	{cName: "EVENT_FLAG_GENERIC_ENTER", goName: "bpfEventFlagGenericEnter", cValue: "1", goType: "uint32"},
 	{cName: "EVENT_FLAG_PAYLOAD_TLV", goName: "bpfEventFlagPayloadTLV", cValue: "2", goType: "uint32"},
 	{cName: "EVENT_FLAG_TRUNCATED", goName: "bpfEventFlagTruncated", cValue: "4", goType: "uint32"},

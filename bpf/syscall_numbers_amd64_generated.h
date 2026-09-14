@@ -388,8 +388,8 @@ volatile const u32 SYS_RT_SIGSUSPEND = 130;
 #define SYS_WAITID 247
 #define SYS_WRITE 1
 #define SYS_WRITEV 20
-volatile const u32 SYS_RT_SIGRETURN_COMPAT = 173;
+
+
+volatile const u64 STRACE_GO_SYSCALL_ABI = 0x61f80397de96b252ULL;
 
 #endif
-
-volatile const u64 STRACE_GO_SYSCALL_ABI = 0x6bf74a1c12963fd0ULL;

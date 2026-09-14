@@ -87,7 +87,7 @@ func targetNumberHeader(target architecture.Architecture, table map[int]SyscallM
 		numbers = append(numbers, syscallNumberEntry{ID: id, Name: sc.Name})
 		present[sc.Name] = true
 	}
-	header := renderSyscallNumberHeader(numbers)
+	header := bytes.TrimSuffix(renderSyscallNumberHeader(numbers), []byte("#endif\n"))
 	var tail strings.Builder
 	fmt.Fprintf(&tail, "\nvolatile const u64 STRACE_GO_SYSCALL_ABI = %#xULL;\n", hash)
 	// Unavailable names remain distinct compile-time sentinels outside every native route map.
@@ -101,6 +101,7 @@ func targetNumberHeader(target architecture.Architecture, table map[int]SyscallM
 	for i, name := range names {
 		fmt.Fprintf(&tail, "#define SYS_%s %dU /* unavailable on %s */\n", strings.ToUpper(name), 0xffff0000+i, target)
 	}
+	tail.WriteString("\n#endif\n")
 	return append(header, []byte(tail.String())...), nil
 }
 

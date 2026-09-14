@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"runtime"
+
+	"strace-go/internal/architecture"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -327,7 +330,11 @@ func (a *bpfAttacher) attachRecvmsgKretprobe() (link.Link, error) {
 		return nil, fmt.Errorf("recvmsg kretprobe program is unavailable")
 	}
 	var lastErr error
-	for _, symbol := range []string{"__sys_recvmsg", "__x64_sys_recvmsg"} {
+	target, err := architecture.Parse(runtime.GOARCH)
+	if err != nil {
+		return nil, err
+	}
+	for _, symbol := range []string{"__sys_recvmsg", target.SyscallWrapperPrefix() + "recvmsg"} {
 		kp, err := link.Kretprobe(symbol, program, nil)
 		if err == nil {
 			return kp, nil

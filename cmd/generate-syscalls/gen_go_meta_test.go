@@ -30,7 +30,6 @@ func TestWriteGoSyscallTableDeterministic(t *testing.T) {
 	for _, want := range []string{
 		"var RuntimeSyscallVariables = map[string]string{",
 		`"SYS_CAPGET": "capget",`,
-		`"SYS_RT_SIGRETURN_COMPAT": "",`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("generated runtime variable metadata missing %q:\n%s", want, got)

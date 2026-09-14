@@ -15,7 +15,6 @@ type generatedSyscallNumberHeaderWriter struct{}
 type runtimeABIVariable struct {
 	variableName string
 	syscallName  string
-	defaultID    uint32
 }
 
 var runtimeABIVariables = []runtimeABIVariable{
@@ -27,7 +26,6 @@ var runtimeABIVariables = []runtimeABIVariable{
 	{variableName: "SYS_EXIT_GROUP", syscallName: "exit_group"},
 	{variableName: "SYS_NANOSLEEP", syscallName: "nanosleep"},
 	{variableName: "SYS_RT_SIGRETURN", syscallName: "rt_sigreturn"},
-	{variableName: "SYS_RT_SIGRETURN_COMPAT", defaultID: 173},
 	{variableName: "SYS_RT_SIGSUSPEND", syscallName: "rt_sigsuspend"},
 }
 
@@ -72,11 +70,6 @@ func renderSyscallNumberHeader(numbers []syscallNumberEntry) []byte {
 			continue
 		}
 		fmt.Fprintf(&out, "#define SYS_%s %d\n", strings.ToUpper(entry.Name), entry.ID)
-	}
-	for _, variable := range runtimeABIVariables {
-		if variable.syscallName == "" {
-			fmt.Fprintf(&out, "volatile const u32 %s = %d;\n", variable.variableName, variable.defaultID)
-		}
 	}
 	fmt.Fprintln(&out)
 	fmt.Fprintln(&out, "#endif")

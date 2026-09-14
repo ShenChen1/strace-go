@@ -56,6 +56,7 @@ type traceEventReaderStatsReader interface {
 // TraceEventReader owns the synchronous ringbuf boundary. It decodes and
 // routes each sample before returning control to the session loop.
 type TraceEventReader struct {
+	terminalErr    error
 	integrity      *TraceIntegrity
 	reader         traceRingbufReader
 	decoder        traceRecordDecoder
@@ -107,6 +108,9 @@ func (s *traceSession) traceEventReader() *TraceEventReader {
 }
 
 func (r *TraceEventReader) Read(rec *ringbuf.Record, timeout time.Duration) (traceReadStatus, error) {
+	if r != nil && r.terminalErr != nil {
+		return traceReadNoEvent, r.terminalErr
+	}
 	if r == nil || r.reader == nil || r.clock == nil {
 		return traceReadNoEvent, nil
 	}
@@ -132,10 +136,13 @@ func (r *TraceEventReader) Read(rec *ringbuf.Record, timeout time.Duration) (tra
 	if r.HandleRecord(rec) {
 		return traceReadHandled, nil
 	}
-	return traceReadNoEvent, nil
+	return traceReadNoEvent, r.terminalErr
 }
 
 func (r *TraceEventReader) Drain(rec *ringbuf.Record) error {
+	if r != nil && r.terminalErr != nil {
+		return r.terminalErr
+	}
 	if r == nil || r.reader == nil {
 		return nil
 	}
@@ -155,6 +162,9 @@ func (r *TraceEventReader) Drain(rec *ringbuf.Record) error {
 		r.finishReadMeasurement(readStartNS, measureRead)
 		r.recordRead(rec)
 		r.HandleRecord(rec)
+		if r.terminalErr != nil {
+			return r.terminalErr
+		}
 	}
 }
 
@@ -179,7 +189,7 @@ func (r *TraceEventReader) DrainAfterDone(rec *ringbuf.Record, grace time.Durati
 }
 
 func (r *TraceEventReader) HandleRecord(rec *ringbuf.Record) bool {
-	if r == nil || r.decoder == nil {
+	if r == nil || r.decoder == nil || r.terminalErr != nil {
 		return false
 	}
 	startNS, measureService := r.startServiceMeasurement()
@@ -195,6 +205,10 @@ func (r *TraceEventReader) HandleRecord(rec *ringbuf.Record) bool {
 		r.stats.RecordsInvalid++
 		r.integrity.InvalidRecord()
 		r.finishServiceMeasurement(startNS, decodeEndNS, measureService)
+		return false
+	}
+	if envelope.eventType == bpfEventTypeUnsupportedABI {
+		r.terminalErr = fmt.Errorf("unsupported syscall ABI: pid=%d tid=%d syscall=%d; native 64-bit ABI only (compat and x32 unsupported)", envelope.pid, envelope.tid, envelope.sysID)
 		return false
 	}
 	r.stats.RecordsDecoded++

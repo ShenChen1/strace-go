@@ -198,17 +198,16 @@ type bpfEnterMemoryMapSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfEnterMemoryVariableSpecs struct {
-	STRACE_GO_SYSCALL_ABI   *ebpf.VariableSpec `ebpf:"STRACE_GO_SYSCALL_ABI"`
-	SYS_CAPGET              *ebpf.VariableSpec `ebpf:"SYS_CAPGET"`
-	SYS_CAPSET              *ebpf.VariableSpec `ebpf:"SYS_CAPSET"`
-	SYS_EXECVE              *ebpf.VariableSpec `ebpf:"SYS_EXECVE"`
-	SYS_EXECVEAT            *ebpf.VariableSpec `ebpf:"SYS_EXECVEAT"`
-	SYS_EXIT                *ebpf.VariableSpec `ebpf:"SYS_EXIT"`
-	SYS_EXIT_GROUP          *ebpf.VariableSpec `ebpf:"SYS_EXIT_GROUP"`
-	SYS_NANOSLEEP           *ebpf.VariableSpec `ebpf:"SYS_NANOSLEEP"`
-	SYS_RT_SIGRETURN        *ebpf.VariableSpec `ebpf:"SYS_RT_SIGRETURN"`
-	SYS_RT_SIGRETURN_COMPAT *ebpf.VariableSpec `ebpf:"SYS_RT_SIGRETURN_COMPAT"`
-	SYS_RT_SIGSUSPEND       *ebpf.VariableSpec `ebpf:"SYS_RT_SIGSUSPEND"`
+	STRACE_GO_SYSCALL_ABI *ebpf.VariableSpec `ebpf:"STRACE_GO_SYSCALL_ABI"`
+	SYS_CAPGET            *ebpf.VariableSpec `ebpf:"SYS_CAPGET"`
+	SYS_CAPSET            *ebpf.VariableSpec `ebpf:"SYS_CAPSET"`
+	SYS_EXECVE            *ebpf.VariableSpec `ebpf:"SYS_EXECVE"`
+	SYS_EXECVEAT          *ebpf.VariableSpec `ebpf:"SYS_EXECVEAT"`
+	SYS_EXIT              *ebpf.VariableSpec `ebpf:"SYS_EXIT"`
+	SYS_EXIT_GROUP        *ebpf.VariableSpec `ebpf:"SYS_EXIT_GROUP"`
+	SYS_NANOSLEEP         *ebpf.VariableSpec `ebpf:"SYS_NANOSLEEP"`
+	SYS_RT_SIGRETURN      *ebpf.VariableSpec `ebpf:"SYS_RT_SIGRETURN"`
+	SYS_RT_SIGSUSPEND     *ebpf.VariableSpec `ebpf:"SYS_RT_SIGSUSPEND"`
 }
 
 // bpfEnterMemoryObjects contains all objects after they have been loaded into the kernel.
@@ -294,17 +293,16 @@ func (m *bpfEnterMemoryMaps) Close() error {
 //
 // It can be passed to loadBpfEnterMemoryObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfEnterMemoryVariables struct {
-	STRACE_GO_SYSCALL_ABI   *ebpf.Variable `ebpf:"STRACE_GO_SYSCALL_ABI"`
-	SYS_CAPGET              *ebpf.Variable `ebpf:"SYS_CAPGET"`
-	SYS_CAPSET              *ebpf.Variable `ebpf:"SYS_CAPSET"`
-	SYS_EXECVE              *ebpf.Variable `ebpf:"SYS_EXECVE"`
-	SYS_EXECVEAT            *ebpf.Variable `ebpf:"SYS_EXECVEAT"`
-	SYS_EXIT                *ebpf.Variable `ebpf:"SYS_EXIT"`
-	SYS_EXIT_GROUP          *ebpf.Variable `ebpf:"SYS_EXIT_GROUP"`
-	SYS_NANOSLEEP           *ebpf.Variable `ebpf:"SYS_NANOSLEEP"`
-	SYS_RT_SIGRETURN        *ebpf.Variable `ebpf:"SYS_RT_SIGRETURN"`
-	SYS_RT_SIGRETURN_COMPAT *ebpf.Variable `ebpf:"SYS_RT_SIGRETURN_COMPAT"`
-	SYS_RT_SIGSUSPEND       *ebpf.Variable `ebpf:"SYS_RT_SIGSUSPEND"`
+	STRACE_GO_SYSCALL_ABI *ebpf.Variable `ebpf:"STRACE_GO_SYSCALL_ABI"`
+	SYS_CAPGET            *ebpf.Variable `ebpf:"SYS_CAPGET"`
+	SYS_CAPSET            *ebpf.Variable `ebpf:"SYS_CAPSET"`
+	SYS_EXECVE            *ebpf.Variable `ebpf:"SYS_EXECVE"`
+	SYS_EXECVEAT          *ebpf.Variable `ebpf:"SYS_EXECVEAT"`
+	SYS_EXIT              *ebpf.Variable `ebpf:"SYS_EXIT"`
+	SYS_EXIT_GROUP        *ebpf.Variable `ebpf:"SYS_EXIT_GROUP"`
+	SYS_NANOSLEEP         *ebpf.Variable `ebpf:"SYS_NANOSLEEP"`
+	SYS_RT_SIGRETURN      *ebpf.Variable `ebpf:"SYS_RT_SIGRETURN"`
+	SYS_RT_SIGSUSPEND     *ebpf.Variable `ebpf:"SYS_RT_SIGSUSPEND"`
 }
 
 // bpfEnterMemoryPrograms contains all programs after they have been loaded into the kernel.

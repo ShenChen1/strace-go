@@ -330,11 +330,9 @@ volatile const u32 SYS_RT_SIGSUSPEND = 133;
 #define SYS_WAITID 95
 #define SYS_WRITE 64
 #define SYS_WRITEV 66
-volatile const u32 SYS_RT_SIGRETURN_COMPAT = 173;
 
-#endif
 
-volatile const u64 STRACE_GO_SYSCALL_ABI = 0xa784c0297ae66eeULL;
+volatile const u64 STRACE_GO_SYSCALL_ABI = 0xafbe9c8321a2609bULL;
 #define SYS__SYSCTL 4294901760U /* unavailable on arm64 */
 #define SYS_ACCESS 4294901761U /* unavailable on arm64 */
 #define SYS_AFS_SYSCALL 4294901762U /* unavailable on arm64 */
@@ -393,3 +391,5 @@ volatile const u64 STRACE_GO_SYSCALL_ABI = 0xa784c0297ae66eeULL;
 #define SYS_UTIMES 4294901815U /* unavailable on arm64 */
 #define SYS_VFORK 4294901816U /* unavailable on arm64 */
 #define SYS_VSERVER 4294901817U /* unavailable on arm64 */
+
+#endif

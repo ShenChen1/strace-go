@@ -43,3 +43,11 @@ func TestTargetPrecedence(t *testing.T) {
 		t.Fatal("invalid explicit target fell back")
 	}
 }
+
+func TestSyscallWrapperPrefixes(t *testing.T) {
+	for target, want := range map[Architecture]string{AMD64: "__x64_sys_", ARM64: "__arm64_sys_", "riscv64": ""} {
+		if got := target.SyscallWrapperPrefix(); got != want {
+			t.Fatalf("%s wrapper = %q, want %q", target, got, want)
+		}
+	}
+}

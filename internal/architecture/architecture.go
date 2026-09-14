@@ -40,6 +40,17 @@ func (a Architecture) LinuxName() string {
 	}
 }
 
+func (a Architecture) SyscallWrapperPrefix() string {
+	switch a {
+	case AMD64:
+		return "__x64_sys_"
+	case ARM64:
+		return "__arm64_sys_"
+	default:
+		return ""
+	}
+}
+
 func ValidateRuntime(goos, target, machine string) error {
 	arch, err := Parse(target)
 	if err != nil {
