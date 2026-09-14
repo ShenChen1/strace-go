@@ -5,14 +5,15 @@ import (
 	"strings"
 	"testing"
 
+	"strace-go/internal/architecture"
 	"strace-go/pkg/format"
 	"strace-go/pkg/meta"
 )
 
 func TestStatWithCatalogFormatsDeviceByXlatMode(t *testing.T) {
-	data := make([]byte, 144)
+	data := make([]byte, architecture.StatSize)
 	binary.LittleEndian.PutUint64(data[0:8], 0xfc00)
-	binary.LittleEndian.PutUint32(data[24:28], 0100640)
+	binary.LittleEndian.PutUint32(data[architecture.StatModeOffset:], 0100640)
 
 	tests := []struct {
 		mode     string
@@ -35,7 +36,7 @@ func TestStatWithCatalogFormatsDeviceByXlatMode(t *testing.T) {
 }
 
 func TestStatWithCatalogRejectsShortBuffer(t *testing.T) {
-	if got := format.StatWithCatalog(meta.NewCatalog("abbrev"), make([]byte, 143)); got != "{...}" {
+	if got := format.StatWithCatalog(meta.NewCatalog("abbrev"), make([]byte, architecture.StatSize-1)); got != "{...}" {
 		t.Fatalf("short stat = %q, want {…}", got)
 	}
 }

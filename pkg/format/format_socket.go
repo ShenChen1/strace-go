@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"strace-go/internal/architecture"
 )
 
 // Timespec formats a struct timespec buffer into a human-readable string.
@@ -56,17 +58,17 @@ func PollfdsWithCatalog(catalog FlagDecoder, data []byte, nfds uint32) string {
 
 // EpollEventsWithCatalog formats epoll events using the session catalog.
 func EpollEventsWithCatalog(catalog FlagDecoder, data []byte, count int) string {
-	if len(data) < 12 {
+	if len(data) < architecture.EpollEventSize {
 		return "[]"
 	}
 	var res []string
 	for i := 0; i < count && i < 16; i++ {
-		off := i * 12
-		if off+12 > len(data) {
+		off := i * architecture.EpollEventSize
+		if off+architecture.EpollEventSize > len(data) {
 			break
 		}
 		events := binary.LittleEndian.Uint32(data[off : off+4])
-		data_ := binary.LittleEndian.Uint64(data[off+4 : off+12])
+		data_ := binary.LittleEndian.Uint64(data[off+architecture.EpollDataOffset : off+architecture.EpollDataOffset+8])
 		eventsStr := catalog.DecodeFlags(uint64(events), "epollevents")
 		if (data_ >> 32) == 0 {
 			res = append(res, fmt.Sprintf("{events=%s, data={u32=%d, u64=%#x}}", eventsStr, uint32(data_), data_))
@@ -82,11 +84,11 @@ func EpollEventsWithCatalog(catalog FlagDecoder, data []byte, count int) string 
 
 // EpollEventWithCatalog formats one epoll event using the session catalog.
 func EpollEventWithCatalog(catalog FlagDecoder, data []byte) string {
-	if len(data) < 12 {
+	if len(data) < architecture.EpollEventSize {
 		return "{...}"
 	}
 	events := binary.LittleEndian.Uint32(data[0:4])
-	data_ := binary.LittleEndian.Uint64(data[4:12])
+	data_ := binary.LittleEndian.Uint64(data[architecture.EpollDataOffset : architecture.EpollDataOffset+8])
 	eventsStr := catalog.DecodeFlags(uint64(events), "epollevents")
 	if (data_ >> 32) == 0 {
 		return fmt.Sprintf("{events=%s, data={u32=%d, u64=%#x}}", eventsStr, uint32(data_), data_)
@@ -119,19 +121,18 @@ func IoEvents(data []byte, count int) string {
 
 // StatWithCatalog formats stat mode bits using the session catalog.
 func StatWithCatalog(catalog XlatCatalog, data []byte) string {
-	if len(data) < 144 {
+	if len(data) < architecture.StatSize {
 		return "{...}"
 	}
 	st_dev := binary.LittleEndian.Uint64(data[0:8])
 	st_ino := binary.LittleEndian.Uint64(data[8:16])
-	st_nlink := binary.LittleEndian.Uint64(data[16:24])
-	st_mode := binary.LittleEndian.Uint32(data[24:28])
-	st_uid := binary.LittleEndian.Uint32(data[28:32])
-	st_gid := binary.LittleEndian.Uint32(data[32:36])
-	// data[36:40] is padding
-	st_rdev := binary.LittleEndian.Uint64(data[40:48])
+	st_nlink := nativeUnsigned(data, architecture.StatNlinkOffset, architecture.StatNlinkSize)
+	st_mode := binary.LittleEndian.Uint32(data[architecture.StatModeOffset:])
+	st_uid := binary.LittleEndian.Uint32(data[architecture.StatUIDOffset:])
+	st_gid := binary.LittleEndian.Uint32(data[architecture.StatGIDOffset:])
+	st_rdev := binary.LittleEndian.Uint64(data[architecture.StatRdevOffset:])
 	st_size := int64(binary.LittleEndian.Uint64(data[48:56]))
-	st_blksize := int64(binary.LittleEndian.Uint64(data[56:64]))
+	st_blksize := nativeSigned(data, 56, architecture.StatBlksizeSize)
 	st_blocks := int64(binary.LittleEndian.Uint64(data[64:72]))
 	st_atime := int64(binary.LittleEndian.Uint64(data[72:80]))
 	st_atime_nsec := int64(binary.LittleEndian.Uint64(data[80:88]))
@@ -352,4 +353,18 @@ func StatfsWithCatalog(catalog FlagDecoder, data []byte) string {
 
 	return fmt.Sprintf("{f_type=%s, f_bsize=%d, f_blocks=%d, f_bfree=%d, f_bavail=%d, f_files=%d, f_ffree=%d, f_fsid={val=[%s, %s]}, f_namelen=%d, f_frsize=%d, f_flags=%s}",
 		typeStr, f_bsize, f_blocks, f_bfree, f_bavail, f_files, f_ffree, f_fsid_str0, f_fsid_str1, f_namelen, f_frsize, flagsStr)
+}
+
+func nativeUnsigned(data []byte, offset, size int) uint64 {
+	if size == 4 {
+		return uint64(binary.LittleEndian.Uint32(data[offset:]))
+	}
+	return binary.LittleEndian.Uint64(data[offset:])
+}
+
+func nativeSigned(data []byte, offset, size int) int64 {
+	if size == 4 {
+		return int64(int32(binary.LittleEndian.Uint32(data[offset:])))
+	}
+	return int64(binary.LittleEndian.Uint64(data[offset:]))
 }

@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 
+	"strace-go/internal/architecture"
 	"strace-go/pkg/format"
 )
 
@@ -17,7 +18,7 @@ func registerBuiltinEpoll(r *Registry) {
 type EpollHandler struct{}
 
 const (
-	epollEventSize          = 12
+	epollEventSize          = architecture.EpollEventSize
 	epollEventSnapshotLimit = 512
 )
 
@@ -60,7 +61,7 @@ func (h *EpollHandler) Handle(ctx *Context) Result {
 			res.ArgParts = append(res.ArgParts, fmt.Sprintf("%#x", ptr))
 		} else {
 			count := int(ctx.Ret)
-			capLen := count * 12
+			capLen := count * epollEventSize
 			if capLen > epollEventSnapshotLimit {
 				capLen = epollEventSnapshotLimit
 			}

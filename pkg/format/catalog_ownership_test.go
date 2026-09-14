@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strace-go/internal/architecture"
 	"strings"
 	"testing"
 )
@@ -35,7 +36,7 @@ func TestFormatSourceDoesNotConstructCatalog(t *testing.T) {
 }
 
 func TestCatalogFormattersAcceptFlagDecoder(t *testing.T) {
-	got := EpollEventWithCatalog(flagDecoderTestStub{}, make([]byte, 12))
+	got := EpollEventWithCatalog(flagDecoderTestStub{}, make([]byte, architecture.EpollEventSize))
 	want := "{events=flag-port, data={u32=0, u64=0x0}}"
 	if got != want {
 		t.Fatalf("EpollEventWithCatalog() = %q, want %q", got, want)

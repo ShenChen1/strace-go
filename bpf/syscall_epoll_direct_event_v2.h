@@ -1,11 +1,13 @@
 #ifndef STRACE_GO_SYSCALL_EPOLL_DIRECT_EVENT_V2_H
 #define STRACE_GO_SYSCALL_EPOLL_DIRECT_EVENT_V2_H
 
-#define EPOLL_DIRECT_EVENT_SIZE 12
-#define EPOLL_DIRECT_EVENT_DATA_OFFSET 4
+#include "native_abi_layout.h"
+
+#define EPOLL_DIRECT_EVENT_SIZE NATIVE_EPOLL_EVENT_SIZE
+#define EPOLL_DIRECT_EVENT_DATA_OFFSET NATIVE_EPOLL_DATA_OFFSET
 #define EPOLL_DIRECT_TIMEOUT_SIZE 16
-#define EPOLL_DIRECT_EVENTS_MAX 504
-#define EPOLL_DIRECT_EVENT_SLOT_MAX 42
+#define EPOLL_DIRECT_EVENT_SLOT_MAX (504 / EPOLL_DIRECT_EVENT_SIZE)
+#define EPOLL_DIRECT_EVENTS_MAX (EPOLL_DIRECT_EVENT_SLOT_MAX * EPOLL_DIRECT_EVENT_SIZE)
 
 static __always_inline int is_epoll_pwait2_direct_syscall(u32 sys_id)
 {
@@ -34,7 +36,7 @@ static __always_inline u32 epoll_events_user_len(s64 count)
     if (count <= 0) {
         return 0;
     }
-    if (count > 0x15555555LL) {
+    if (count > 0xffffffffULL / EPOLL_DIRECT_EVENT_SIZE) {
         return 0xffffffffU;
     }
     return (u32)count * EPOLL_DIRECT_EVENT_SIZE;

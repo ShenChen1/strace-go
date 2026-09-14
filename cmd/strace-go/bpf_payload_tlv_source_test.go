@@ -258,7 +258,7 @@ func TestBPFTimeAndStatStructPayloadsUseDirectTLV(t *testing.T) {
 		!strings.Contains(statDirectHeader, "if (sys_id == SYS_NEWFSTATAT)") ||
 		!strings.Contains(statDirectHeader, "return p->args[2];") ||
 		!strings.Contains(statDirectHeader, "return p->args[4];") ||
-		!strings.Contains(statDirectHeader, "STAT_DIRECT_STRUCT_SIZE 144") ||
+		!strings.Contains(statDirectHeader, "STAT_DIRECT_STRUCT_SIZE NATIVE_STAT_SIZE") ||
 		!strings.Contains(statDirectHeader, "STATFS_DIRECT_STRUCT_SIZE 120") ||
 		!strings.Contains(statDirectHeader, "STATX_DIRECT_STRUCT_SIZE 256") ||
 		!strings.Contains(pathStatDirectHeader, "sys_id == SYS_NEWFSTATAT || sys_id == SYS_STATX;") ||

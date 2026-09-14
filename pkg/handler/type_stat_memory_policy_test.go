@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/binary"
+	"strace-go/internal/architecture"
 	"strings"
 	"testing"
 
@@ -12,8 +13,8 @@ import (
 func makeStatSnapshot(ino uint64, mode uint32) []byte {
 	data := make([]byte, statStructSize)
 	binary.LittleEndian.PutUint64(data[8:16], ino)
-	binary.LittleEndian.PutUint64(data[16:24], 1)
-	binary.LittleEndian.PutUint32(data[24:28], mode)
+	binary.LittleEndian.PutUint32(data[architecture.StatNlinkOffset:], 1)
+	binary.LittleEndian.PutUint32(data[architecture.StatModeOffset:], mode)
 	return data
 }
 

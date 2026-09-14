@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 
+	"strace-go/internal/architecture"
 	"strace-go/pkg/format"
 )
 
@@ -16,7 +17,7 @@ func registerBuiltinTypeStat(r *Registry) {
 }
 
 const (
-	statStructSize   = 144
+	statStructSize   = architecture.StatSize
 	statfsStructSize = 120
 )
 

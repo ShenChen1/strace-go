@@ -32,10 +32,10 @@ func TestBPFEpollWaitPayloadsUseDirectTLV(t *testing.T) {
 	}
 
 	for _, snippet := range []string{
-		"EPOLL_DIRECT_EVENT_SIZE 12",
+		"EPOLL_DIRECT_EVENT_SIZE NATIVE_EPOLL_EVENT_SIZE",
 		"EPOLL_DIRECT_TIMEOUT_SIZE 16",
-		"EPOLL_DIRECT_EVENTS_MAX 504",
-		"EPOLL_DIRECT_EVENT_SLOT_MAX 42",
+		"EPOLL_DIRECT_EVENTS_MAX (EPOLL_DIRECT_EVENT_SLOT_MAX * EPOLL_DIRECT_EVENT_SIZE)",
+		"EPOLL_DIRECT_EVENT_SLOT_MAX (504 / EPOLL_DIRECT_EVENT_SIZE)",
 		"is_epoll_direct_syscall(",
 		"is_epoll_wait_direct_syscall(",
 		"is_epoll_pwait2_direct_syscall(",
