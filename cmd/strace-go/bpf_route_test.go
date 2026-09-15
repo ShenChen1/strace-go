@@ -227,6 +227,11 @@ func TestBPFRoutePlanCoversSplitDirectExitCatalog(t *testing.T) {
 		for _, name := range family.names {
 			id, ok := routeSyscallIDByName(meta.SyscallTable, name)
 			if !ok {
+				if meta.SyscallArchitecture == "arm64" {
+					if _, known := routeSyscallIDByName(architectureTableForTest(t, "amd64"), name); known {
+						continue
+					}
+				}
 				t.Fatalf("split exit catalog syscall %q is missing from generated table", name)
 			}
 			if plan.exit[id] != family.slot {

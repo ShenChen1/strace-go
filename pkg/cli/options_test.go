@@ -141,12 +141,16 @@ func TestParseTimestampPrecisions(t *testing.T) {
 }
 
 func TestParseTraceClassAndAliases(t *testing.T) {
-	opts := ParseArgs([]string{"-e", "trace=%process,rename", "/bin/true"})
+	name := "rename"
+	if meta.SyscallArchitecture == "arm64" {
+		name = "renameat"
+	}
+	opts := ParseArgs([]string{"-e", "trace=%process," + name, "/bin/true"})
 
 	if !opts.TraceSyscalls["execve"] {
 		t.Fatalf("process trace class did not include execve: %#v", opts.TraceSyscalls)
 	}
-	if !opts.TraceSyscalls["rename"] || !opts.TraceSyscalls["renameat"] || !opts.TraceSyscalls["renameat2"] {
+	if !opts.TraceSyscalls["renameat"] || (name == "rename" && !opts.TraceSyscalls["renameat2"]) {
 		t.Fatalf("rename aliases missing from trace set: %#v", opts.TraceSyscalls)
 	}
 }
@@ -224,7 +228,7 @@ func TestParseTraceFDNegationFromEFlag(t *testing.T) {
 }
 
 func TestParseFDSetsFromEFlagAlias(t *testing.T) {
-	opts := ParseArgs([]string{"--trace=dup2", "-e", "fd=0,9", "/bin/true"})
+	opts := ParseArgs([]string{"--trace=dup3", "-e", "fd=0,9", "/bin/true"})
 
 	if opts.TraceFDsNegated {
 		t.Fatal("TraceFDsNegated = true, want false")
@@ -232,7 +236,7 @@ func TestParseFDSetsFromEFlagAlias(t *testing.T) {
 	if !opts.TraceFDs[0] || !opts.TraceFDs[9] || len(opts.TraceFDs) != 2 {
 		t.Fatalf("TraceFDs = %#v, want {0, 9}", opts.TraceFDs)
 	}
-	if !opts.TraceSyscalls["dup2"] {
+	if !opts.TraceSyscalls["dup3"] {
 		t.Fatal("trace syscall was not preserved after -e fd")
 	}
 }

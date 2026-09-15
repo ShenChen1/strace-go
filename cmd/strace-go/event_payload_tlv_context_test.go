@@ -134,6 +134,7 @@ func assertPathStatSectionsMerged(
 	fill byte,
 ) {
 	t.Helper()
+	syscallIDByName(t, syscallName)
 	session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + syscallName, "/bin/true"}), traceSessionDeps{
 		TargetPID: 101,
 		Decoder:   event.NewDecoder(),
@@ -240,6 +241,7 @@ func TestSyscallEventContextUsesFDArrayExitStructSection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			syscallIDByName(t, tt.name)
 			session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + tt.name, "/bin/true"}), traceSessionDeps{
 				TargetPID: 101,
 				Decoder:   event.NewDecoder(),
@@ -275,6 +277,7 @@ type readlinkTLVCase struct {
 
 func assertReadlinkSectionsMerged(t *testing.T, tt readlinkTLVCase) {
 	t.Helper()
+	syscallIDByName(t, tt.name)
 	session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"--event-format=json", "-e", "trace=" + tt.name, "/bin/true"}), traceSessionDeps{
 		TargetPID: 101,
 		Decoder:   event.NewDecoder(),

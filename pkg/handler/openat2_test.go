@@ -2,6 +2,8 @@ package handler
 
 import (
 	"encoding/binary"
+	"fmt"
+	"golang.org/x/sys/unix"
 	"testing"
 
 	"strace-go/pkg/event"
@@ -118,7 +120,7 @@ func TestDecodeOpenHowPrintsNonZeroModeWithoutCreate(t *testing.T) {
 			ArgIndex:  2,
 			UserPtr:   0x2000,
 			Data: openHowBytes(
-				0x8002,
+				unix.O_RDWR|unix.O_NOFOLLOW,
 				0xbadc0dedfacebeef,
 				1,
 			),
@@ -126,7 +128,7 @@ func TestDecodeOpenHowPrintsNonZeroModeWithoutCreate(t *testing.T) {
 	}
 
 	got, ok := decodeOpenHow(ctx, 2, "struct open_how *", 0x2000)
-	want := "{flags=O_RDWR|O_LARGEFILE, mode=01353340336677263537357, resolve=RESOLVE_NO_XDEV}"
+	want := "{flags=O_RDWR|O_NOFOLLOW, mode=01353340336677263537357, resolve=RESOLVE_NO_XDEV}"
 	if !ok || got != want {
 		t.Fatalf("decodeOpenHow nonzero mode = %q, %v; want %q", got, ok, want)
 	}
@@ -184,12 +186,12 @@ func TestDecodeOpenHowVerboseXlatDoesNotWrapUnknownComments(t *testing.T) {
 			Direction: PayloadDirectionIn,
 			ArgIndex:  2,
 			UserPtr:   0x2000,
-			Data:      openHowBytes(0x410003, 0, 0xdec0dedbeeffffc0),
+			Data:      openHowBytes(unix.O_TMPFILE|unix.O_ACCMODE, 0, 0xdec0dedbeeffffc0),
 		},
 	}
 
 	got, ok := decodeOpenHow(ctx, 2, "struct open_how *", 0x2000)
-	want := "{flags=0x410003 /* O_ACCMODE|O_TMPFILE */, mode=000, resolve=0xdec0dedbeeffffc0 /* RESOLVE_??? */}"
+	want := fmt.Sprintf("{flags=%#x /* O_ACCMODE|O_TMPFILE */, mode=000, resolve=0xdec0dedbeeffffc0 /* RESOLVE_??? */}", unix.O_TMPFILE|unix.O_ACCMODE)
 	if !ok || got != want {
 		t.Fatalf("decodeOpenHow verbose unknown = %q, %v; want %q", got, ok, want)
 	}

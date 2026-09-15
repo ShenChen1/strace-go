@@ -25,7 +25,7 @@ func TestFDPathOverlayFeedsPathFilterAndFormatter(t *testing.T) {
 		valid:     true,
 		pid:       101,
 		tid:       101,
-		sysID:     32,
+		sysID:     syscallIDByName(t, "dup"),
 		eventType: bpfEventTypeExit,
 		args:      [6]uint64{9},
 		ret:       5,
@@ -67,7 +67,7 @@ func TestFDPathOverlayReaderDoesNotMutateStoreBeforeCommit(t *testing.T) {
 		valid:     true,
 		pid:       101,
 		tid:       101,
-		sysID:     32,
+		sysID:     syscallIDByName(t, "dup"),
 		eventType: bpfEventTypeExit,
 		args:      [6]uint64{9},
 		ret:       5,
@@ -158,6 +158,7 @@ func TestDup3ReturnOverlayIgnoresFailedReturn(t *testing.T) {
 }
 
 func TestDup2ReturnUsesSourcePathButArgumentsKeepTargetSnapshot(t *testing.T) {
+	syscallIDByName(t, "dup2")
 	store := newFDStateStoreFromMaps(map[string]string{
 		"101:0": "/dev/null",
 		"101:5": "/dev/full",
@@ -280,7 +281,7 @@ func TestFDPathSnapshotReachesHandlerFormatter(t *testing.T) {
 		valid: true,
 		pid:   101,
 		tid:   101,
-		sysID: 32,
+		sysID: syscallIDByName(t, "dup"),
 		args:  [6]uint64{0},
 		ret:   3,
 	}, 101, nil, []handler.PayloadSection{{

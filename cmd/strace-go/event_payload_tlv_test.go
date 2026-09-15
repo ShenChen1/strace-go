@@ -140,7 +140,7 @@ func TestPayloadSectionsForRawPayloadEventUsesStatTLVSection(t *testing.T) {
 		flags:   payloadTLVFlagDirectionOut,
 		arg:     1,
 		userPtr: 0x2000,
-		userLen: statPayloadStructSize,
+		userLen: uint32(statPayloadStructSize),
 		data:    statData,
 	})
 	raw := rawPayloadEvent{
@@ -159,7 +159,7 @@ func TestPayloadSectionsForRawPayloadEventUsesStatTLVSection(t *testing.T) {
 	}
 	section := sections[0]
 	if section.Kind != handler.PayloadKindStruct || section.Direction != handler.PayloadDirectionOut ||
-		section.ArgIndex != 1 || section.UserPtr != 0x2000 || section.UserLen != statPayloadStructSize {
+		section.ArgIndex != 1 || section.UserPtr != 0x2000 || section.UserLen != uint32(statPayloadStructSize) {
 		t.Fatalf("stat section metadata = %+v", section)
 	}
 	if !bytes.Equal(section.Data, statData) {

@@ -402,7 +402,7 @@ func TestSyscallEnterEventContextUsesEventViewAndMetadata(t *testing.T) {
 		valid: true,
 		pid:   101,
 		tid:   102,
-		sysID: 39,
+		sysID: syscallIDByName(t, "getpid"),
 		args:  [6]uint64{7},
 		ret:   -2,
 	}
@@ -419,13 +419,13 @@ func TestSyscallEnterEventContextUsesEventViewAndMetadata(t *testing.T) {
 		t.Fatalf("enter context payload sections = %+v, want nil", sections)
 	}
 	gotView := ev.eventView()
-	if gotView.pid != 101 || gotView.tid != 102 || gotView.sysID != 39 || gotView.args[0] != 7 || gotView.ret != -2 {
+	if gotView.pid != 101 || gotView.tid != 102 || gotView.sysID != syscallIDByName(t, "getpid") || gotView.args[0] != 7 || gotView.ret != -2 {
 		t.Fatalf("enter context view = %+v, want view-derived syscall fields", gotView)
 	}
 }
 
 func TestSyscallEnterEventContextUsesSessionCatalog(t *testing.T) {
-	view := syscallEventView{valid: true, sysID: 39}
+	view := syscallEventView{valid: true, sysID: syscallIDByName(t, "getpid")}
 	catalog := meta.NewCatalog("raw")
 
 	ev := newSyscallEnterEventContextWithFlagDecoder(view, 201, nil, catalog, nil)

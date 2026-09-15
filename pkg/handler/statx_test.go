@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/binary"
+	"golang.org/x/sys/unix"
 	"strings"
 	"testing"
 
@@ -81,11 +82,11 @@ func statxTestContext(ret int64) *Context {
 	return &Context{
 		Pid:       1234,
 		Tid:       1234,
-		SysId:     332,
+		SysId:     unix.SYS_STATX,
 		SysName:   "statx",
 		Args:      [6]uint64{uint64(uint32(dfd)), 0x1000, 0, 0x102b, 0x2000},
 		Ret:       ret,
-		ScMeta:    meta.SyscallTable[332],
+		ScMeta:    meta.SyscallTable[unix.SYS_STATX],
 		Decoder:   event.NewDecoder(),
 		Opts:      &cli.Options{StringLimit: 32, XlatFormat: "abbrev", Verbose: true},
 		Meta:      meta.NewCatalog("abbrev"),

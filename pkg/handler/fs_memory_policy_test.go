@@ -283,7 +283,7 @@ func TestGetdentsUsesPayloadBytesSection(t *testing.T) {
 func TestLegacyGetdentsUsesPayloadBytesSection(t *testing.T) {
 	ctx := newGetdentsContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
 	ctx.SysName = "getdents"
-	ctx.ScMeta = meta.SyscallTable[78]
+	ctx.ScMeta = nativeSyscallMetadataForTest(t, "getdents")
 	ctx.Ret = int64(len(makeGetdents64Dirents(24, 32)))
 	ctx.PayloadSections = []PayloadSection{
 		{Kind: PayloadKindBytes, Direction: PayloadDirectionOut, ArgIndex: 1, UserPtr: 0x3000, ProbeRet: 0, Data: makeGetdents64Dirents(24, 32)},
@@ -317,7 +317,7 @@ func TestGetdentsVerboseUsesLayoutSpecificFields(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := newGetdentsContext(&fetchPolicyMemoryReader{}, event.NewDecoder())
 			ctx.SysName = test.name
-			ctx.ScMeta = meta.SyscallTable[map[string]uint32{"getdents": 78, "getdents64": 217}[test.name]]
+			ctx.ScMeta = nativeSyscallMetadataForTest(t, test.name)
 			ctx.Ret = int64(len(test.data))
 			ctx.Opts = &cli.Options{Verbose: true}
 			ctx.PayloadSections = []PayloadSection{

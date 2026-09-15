@@ -1,6 +1,8 @@
 package main
 
+import "strace-go/internal/architecture"
+
 const (
-	statPayloadStructSize   = 144
+	statPayloadStructSize   = architecture.StatSize
 	statfsPayloadStructSize = 120
 )

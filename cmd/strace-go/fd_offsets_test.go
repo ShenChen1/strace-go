@@ -14,6 +14,11 @@ func syscallIDByName(t testing.TB, name string) uint32 {
 			return id
 		}
 	}
+	if meta.SyscallArchitecture == "arm64" {
+		if _, known := routeSyscallIDByName(architectureTableForTest(t, "amd64"), name); known {
+			t.Skipf("%s is unavailable in the native arm64 ABI", name)
+		}
+	}
 	t.Fatalf("syscall %s not found", name)
 	return 0
 }

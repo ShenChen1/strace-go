@@ -20,6 +20,7 @@ func TestSyscallEventContextMergesOpenCreatDirectTLVPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			syscallIDByName(t, tt.name)
 			fdState := newFDStateStoreFromMaps(nil, nil)
 			session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{"-e", "trace=" + tt.name, "/bin/true"}), traceSessionDeps{
 				TargetPID: 101,
@@ -72,6 +73,7 @@ func TestSyscallEventContextPrefersOpenCreatExitRetryTLVPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			syscallIDByName(t, tt.name)
 			session := newBareTestTraceSessionWithOptions(cli.ParseArgs([]string{
 				"-e",
 				"trace=" + tt.name,

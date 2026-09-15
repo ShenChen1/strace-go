@@ -167,6 +167,7 @@ func TestTextStandaloneSmallStructExitUsesOutTLV(t *testing.T) {
 
 func assertTextStandaloneSmallStructExit(t *testing.T, name string, args [6]uint64, ret int64, sections []payloadTLVTestSection) {
 	t.Helper()
+	syscallIDByName(t, name)
 	session := newTestTraceSessionWithOptions(cli.ParseArgs([]string{"-e", "trace=" + name, "/bin/true"}), traceSessionDeps{
 		TargetPID: 101,
 		FDState:   newFDStateStoreFromMaps(nil, nil),
@@ -208,6 +209,7 @@ func TestTextStandaloneSmallStructFailureFallsBackToPointers(t *testing.T) {
 		{name: "get_robust_list", args: [6]uint64{0, 0x8000, 0x9000}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			syscallIDByName(t, test.name)
 			session := newTestTraceSessionWithOptions(cli.ParseArgs([]string{"-e", "trace=" + test.name, "/bin/true"}), traceSessionDeps{
 				TargetPID: 101,
 				FDState:   newFDStateStoreFromMaps(nil, nil),

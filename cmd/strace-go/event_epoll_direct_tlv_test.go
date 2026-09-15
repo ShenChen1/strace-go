@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"testing"
 
+	"strace-go/internal/architecture"
 	"strace-go/pkg/handler"
 )
 
@@ -111,7 +112,7 @@ func TestSyscallEventContextMergesEpollPwait2DirectTLVSections(t *testing.T) {
 func epollDirectTestEventData(events uint32, data uint64) []byte {
 	buf := make([]byte, epollPayloadEventSize)
 	binary.LittleEndian.PutUint32(buf[0:4], events)
-	binary.LittleEndian.PutUint64(buf[4:12], data)
+	binary.LittleEndian.PutUint64(buf[architecture.EpollDataOffset:], data)
 	return buf
 }
 

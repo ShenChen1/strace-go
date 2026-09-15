@@ -190,7 +190,7 @@ func TestJSONSyscallEventIncludesEpollCtlStructPayloadSection(t *testing.T) {
 		kind:    payloadTLVKindStruct,
 		arg:     3,
 		userPtr: 0x3000,
-		userLen: epollPayloadEventSize,
+		userLen: uint32(epollPayloadEventSize),
 		data:    bytes.Repeat([]byte{0x11}, epollPayloadEventSize),
 	})
 }
@@ -201,8 +201,8 @@ func TestJSONSyscallEventIncludesEpollWaitStructPayloadSection(t *testing.T) {
 		flags:   payloadTLVFlagDirectionOut,
 		arg:     1,
 		userPtr: 0x2000,
-		userLen: 24,
-		data:    bytes.Repeat([]byte{0x33}, 24),
+		userLen: uint32(2 * epollPayloadEventSize),
+		data:    bytes.Repeat([]byte{0x33}, 2*epollPayloadEventSize),
 	})
 }
 
@@ -220,8 +220,8 @@ func TestJSONSyscallEventIncludesEpollPwait2StructPayloadSections(t *testing.T) 
 			flags:   payloadTLVFlagDirectionOut,
 			arg:     1,
 			userPtr: 0x2000,
-			userLen: 24,
-			data:    bytes.Repeat([]byte{0x33}, 24),
+			userLen: uint32(2 * epollPayloadEventSize),
+			data:    bytes.Repeat([]byte{0x33}, 2*epollPayloadEventSize),
 		},
 	)
 }

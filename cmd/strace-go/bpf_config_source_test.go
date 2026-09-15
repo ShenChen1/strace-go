@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"strace-go/pkg/cli"
+	"strace-go/pkg/meta"
 )
 
 func TestBPFConfigurationConsumesBootstrapSnapshot(t *testing.T) {
@@ -106,6 +107,10 @@ func TestPlainEnterElisionIDsKeepBlockingAndSpecializedRoutes(t *testing.T) {
 		}
 	}
 	for _, name := range []string{"clock_gettime", "clock_getres", "gettimeofday", "arch_prctl", "get_robust_list"} {
+		_, available := routeSyscallIDByName(meta.SyscallTable, name)
+		if !available && name == "arch_prctl" && meta.SyscallArchitecture == "arm64" {
+			continue
+		}
 		if !containsUint32(restricted, syscallIDByName(t, name)) {
 			t.Fatalf("restricted plain-enter set is missing standalone exit syscall %s", name)
 		}

@@ -1,3 +1,5 @@
 package main
 
-const epollPayloadEventSize = 12
+import "strace-go/internal/architecture"
+
+const epollPayloadEventSize = architecture.EpollEventSize

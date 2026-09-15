@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/binary"
+	"strace-go/internal/architecture"
 	"strings"
 	"testing"
 
@@ -10,9 +11,9 @@ import (
 )
 
 func makeEpollEvent(events uint32, data uint64) []byte {
-	buf := make([]byte, 12)
+	buf := make([]byte, architecture.EpollEventSize)
 	binary.LittleEndian.PutUint32(buf[0:4], events)
-	binary.LittleEndian.PutUint64(buf[4:12], data)
+	binary.LittleEndian.PutUint64(buf[architecture.EpollDataOffset:], data)
 	return buf
 }
 

@@ -19,7 +19,7 @@ func TestSyscallMetadataLookupUsesBoundTable(t *testing.T) {
 }
 
 func TestSyscallMetadataLookupFallsBackForUnknownTableEntries(t *testing.T) {
-	const syscallID = 39
+	syscallID := syscallIDByName(t, "getpid")
 	got := lookupSyscallMetadata(nil, syscallID)
 	if got.Name != "getpid" {
 		t.Fatalf("fallback metadata name = %q, want getpid", got.Name)

@@ -26,7 +26,7 @@ func TestJSONEventsArePairedByTIDState(t *testing.T) {
 		valid:        true,
 		pid:          1234,
 		tid:          1234,
-		sysID:        39, // getpid
+		sysID:        syscallIDByName(t, "getpid"), // getpid
 		eventVersion: 2,
 		eventType:    bpfEventTypeEnter,
 		eventFlags:   bpfEventFlagGenericEnter,
@@ -36,7 +36,7 @@ func TestJSONEventsArePairedByTIDState(t *testing.T) {
 		valid:        true,
 		pid:          1234,
 		tid:          1234,
-		sysID:        39, // getpid
+		sysID:        syscallIDByName(t, "getpid"), // getpid
 		eventVersion: 2,
 		eventType:    bpfEventTypeExit,
 		enterTime:    100,
@@ -101,7 +101,7 @@ func TestTraceStateHandlePairsEnterExitAndCleansLifecycle(t *testing.T) {
 		valid:      true,
 		pid:        1234,
 		tid:        1235,
-		sysID:      39,
+		sysID:      syscallIDByName(t, "getpid"),
 		eventType:  bpfEventTypeEnter,
 		eventFlags: bpfEventFlagGenericEnter,
 		enterTime:  100,
@@ -110,7 +110,7 @@ func TestTraceStateHandlePairsEnterExitAndCleansLifecycle(t *testing.T) {
 		valid:     true,
 		pid:       1234,
 		tid:       1235,
-		sysID:     39,
+		sysID:     syscallIDByName(t, "getpid"),
 		eventType: bpfEventTypeExit,
 	}
 
@@ -146,7 +146,7 @@ func TestTraceStateExitWithoutEnterStillEnsuresTaskState(t *testing.T) {
 		valid:     true,
 		pid:       1234,
 		tid:       1235,
-		sysID:     39,
+		sysID:     syscallIDByName(t, "getpid"),
 		eventType: bpfEventTypeExit,
 		enterTime: 80,
 	})
@@ -380,7 +380,7 @@ func TestTraceStateHandleEnvelopeUsesSyscallViewForPendingPair(t *testing.T) {
 		valid:      true,
 		pid:        1,
 		tid:        1,
-		sysID:      39,
+		sysID:      syscallIDByName(t, "getpid"),
 		eventType:  bpfEventTypeEnter,
 		eventFlags: bpfEventFlagGenericEnter,
 		enterTime:  100,

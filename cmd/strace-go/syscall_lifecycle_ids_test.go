@@ -23,7 +23,7 @@ func TestSyscallLifecycleIDsResolveFromCatalog(t *testing.T) {
 
 func TestTraceStateFallsBackToMetadataWithoutLifecycleIDs(t *testing.T) {
 	state := &TraceState{}
-	if !state.isTerminatingSyscall(&syscallEventView{sysID: 60}) {
+	if !state.isTerminatingSyscall(&syscallEventView{sysID: syscallIDByName(t, "exit")}) {
 		t.Fatal("unconfigured state did not preserve exit metadata fallback")
 	}
 }
