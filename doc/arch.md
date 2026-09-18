@@ -389,7 +389,10 @@ producer attempts
 
 运行时依赖 BTF、Ringbuf、task storage、dynptr 和相应 tracing helpers。README 不用单一内核版本号代替真实能力；加载错误和 capability suite 是最终判断。
 
-当前主要生成和验证目标是 x86_64 Linux。大端 BPF binding 并不自动证明 syscall ABI、UAPI struct layout、semantic catalog 或 upstream reference 已支持其他架构。
+当前正式生成和验证目标是 Linux amd64 与 arm64 的 native 64-bit ABI。两者都使用
+little-endian `bpfel`；这不代表 syscall number、UAPI struct layout、semantic
+catalog 或 upstream reference 可以跨架构复用。CO-RE 只处理内核 BTF relocation，
+compat ABI 和 architecture-specific ioctl 仍必须单独确认。
 
 ## 10. 已知限制与技术债
 
@@ -421,7 +424,12 @@ composition 和领域 owner 的窄接口是有价值的，但部分单实现内�
 
 ### P2：完整生成的宿主耦合
 
-完整 `go generate` 依赖 root、当前 BTF/tracingfs、clang 和 x86_64 系统 include path。checked-in artifacts 解决普通构建，不等于跨主机完全可复现生成。
+`make generate-bpf ARCH=amd64|arm64` 使用目标明确的 bpf2go 入口、项目头和目标
+syscall metadata，不依赖散落的 host libc multiarch include path。完整 BPF 生成仍
+依赖 root、当前 BTF/tracingfs 和 clang；checked-in artifacts 解决普通构建，不等于
+跨主机完全可复现加载。`cmd/generate-xlats` 仍是共享 xlat 的 host-header 生成器，
+目标相关的实际差异由 `pkg/meta/native_xlat_<arch>.go` 覆盖，不能把它的宿主执行
+结果当成 ARM64 native runtime 证据。
 
 演进方向：记录 capability matrix，隔离 host-derived inputs，并对生成差异做明确审查；不静默使用旧或伪造 metadata。
 

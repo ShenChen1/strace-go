@@ -207,18 +207,20 @@ make test ARCH=arm64 GO_TEST_EXEC=qemu-aarch64
 ### 完整重新生成
 
 ```bash
-./build.sh
+make generate-metadata
+make generate-bpf ARCH=amd64
+make generate-bpf ARCH=arm64
 ```
 
 > [!WARNING]
-> `build.sh` 会先删除现有生成物，再使用 `sudo go generate ./...` 读取宿主 tracing/BTF 数据并重新生成 event ABI、syscall metadata、xlat 表和多个 BPF collection。请只在具备完整生成依赖的 Linux 主机上运行，并在提交前审查所有生成文件差异。
+> `build.sh` 现在只是 `make build` 的兼容包装器；它不会删除生成物，也不会偷偷把宿主架构写入目标产物。BPF generation 需要 clang、当前 BTF/tracingfs 和相应权限；请在提交前审查生成文件差异。
 
 生成链包括：
 
 - `cmd/generate-capture-manifest`：捕获 slot、C/Go program catalog、syscall route、依赖闭包和辅助 roots 的唯一输入；生成 C/Go 合同并支持 `-check` 漂移检查。
 - `cmd/generate-event-abi`：生成 C/Go event-v2/TLV ABI 常量。
 - `cmd/generate-syscalls`：结合 BTF、tracepoint 信息和显式 override 生成 syscall metadata。
-- `cmd/generate-xlats`：从 `strace-upstream` 生成常量翻译表。
+- `cmd/generate-xlats`：从 `strace-upstream` 生成共享常量翻译表。它会编译宿主 C header，目标相关差异由 `pkg/meta/native_xlat_<arch>.go` 覆盖；不要用一次宿主生成结果证明 ARM64 runtime。
 - `bpf2go`：编译 core、enter handler families、exit handlers 和 recvmsg handlers。
 
 syscall metadata 的唯一目标输入是项目固定的 `golang.org/x/sys` syscall constants

@@ -221,6 +221,12 @@ amd64 native root smoke 覆盖 openat、close、read/write 和兼容 ABI 拒绝�
 `ebpf-semantic` suite 由 CI 的 privileged amd64 job 执行。ARM64 userspace 单测和
 BPF compile 在 QEMU/交叉模式通过，但当前 x86_64 开发机没有 ARM64 kernel runner，
 所以 ARM64 原生 BPF load、路径/生命周期/FD-state semantic suite 仍是明确的验证缺口。
+历史 BPF source gates 中仍有按 amd64 数字字面量检查的静态契约；它们已显式使用
+`//go:build amd64`，ARM64 使用独立的 target metadata、ABI contract 和 dispatcher
+route tests，避免把 amd64 source fixture 当成 ARM64 语义证据。
+`test/ebpf_semantic_checks.py` 的固定结构尺寸和 `arch_prctl` 断言同样属于 amd64
+privileged contract；在 ARM64 runner 上不能直接复用，必须先改成 target-aware
+expectations 并通过 native load/semantic suite 后才能扩大 ARM64 的验证声明。
 
 当前不支持 KVM vCPU exit-reason 的 ARM64 解码、32-bit compat ABI、x32 以及其他
 Linux 架构。增加第三个架构时，只需增加 `internal/architecture` target、目标
