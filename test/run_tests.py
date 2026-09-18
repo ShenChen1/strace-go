@@ -2,6 +2,7 @@
 import argparse
 import multiprocessing
 import os
+import platform
 import shlex
 import signal
 import subprocess
@@ -129,14 +130,39 @@ def parse_args():
     parser.add_argument("--parallel", type=int, default=1, help="Parallel workers")
     parser.add_argument("--filter", type=str, default="", help="Filter by exact test name")
     parser.add_argument("--skip-build", action="store_true", help="Skip upstream build")
+    parser.add_argument(
+        "--arch",
+        choices=("amd64", "arm64"),
+        default="",
+        help="native target architecture; defaults to ARCH, GOARCH, or uname",
+    )
     return parser.parse_args()
 
 
-def setup_env():
+def native_linux_architecture(explicit="", goarch="", machine=""):
+    requested = explicit or goarch or machine or platform.machine()
+    aliases = {
+        "amd64": "x86_64",
+        "x86_64": "x86_64",
+        "arm64": "aarch64",
+        "aarch64": "aarch64",
+    }
+    try:
+        return aliases[requested]
+    except KeyError as exc:
+        raise ValueError(
+            f"unsupported architecture: {requested}; supported architectures: amd64, arm64"
+        ) from exc
+
+
+def setup_env(explicit_arch=""):
+    linux_arch = native_linux_architecture(
+        explicit_arch, os.environ.get("ARCH", "") or os.environ.get("GOARCH", "")
+    )
     os.environ["STRACE"] = os.path.join(SCRIPT_DIR, "strace-sudo.sh")
     os.environ["SIZEOF_LONG"] = "8"
-    os.environ["STRACE_ARCH"] = "x86_64"
-    os.environ["STRACE_NATIVE_ARCH"] = "x86_64"
+    os.environ["STRACE_ARCH"] = linux_arch
+    os.environ["STRACE_NATIVE_ARCH"] = linux_arch
     os.environ["MIPS_ABI"] = ""
 
 
@@ -435,7 +461,11 @@ def main():
     if root_error:
         print(root_error, file=sys.stderr)
         return 2
-    setup_env()
+    try:
+        setup_env(args.arch)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     if args.suite == "ebpf-semantic":
         return run_ebpf_semantic(args)
     if args.suite == "ebpf-capability":

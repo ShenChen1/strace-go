@@ -69,6 +69,25 @@ class UpstreamEnvironmentTest(unittest.TestCase):
 
             self.assertEqual(os.environ["MIPS_ABI"], "")
 
+    def test_native_architecture_maps_go_and_linux_names(self):
+        self.assertEqual(run_tests.native_linux_architecture("amd64"), "x86_64")
+        self.assertEqual(run_tests.native_linux_architecture("arm64"), "aarch64")
+        self.assertEqual(
+            run_tests.native_linux_architecture("", "", "aarch64"), "aarch64"
+        )
+
+    def test_native_architecture_rejects_unsupported_target(self):
+        with self.assertRaisesRegex(
+            ValueError, "supported architectures: amd64, arm64"
+        ):
+            run_tests.native_linux_architecture("riscv64")
+
+    def test_setup_env_uses_explicit_target(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            run_tests.setup_env("arm64")
+            self.assertEqual(os.environ["STRACE_ARCH"], "aarch64")
+            self.assertEqual(os.environ["STRACE_NATIVE_ARCH"], "aarch64")
+
     def test_upstream_configuration_disables_optional_ptrace_features(self):
         args = run_tests.UPSTREAM_CONFIGURE_ARGS
 
