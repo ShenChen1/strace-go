@@ -3,6 +3,6 @@
 package main
 
 const (
-	straceVersion       = "7.1.0.100.0681e"
+	straceVersion       = "7.2.0.31.0681e"
 	straceCopyrightYear = "2026"
 )
