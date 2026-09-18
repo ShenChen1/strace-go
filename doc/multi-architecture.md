@@ -127,7 +127,8 @@ ARM64 缺少 open/stat/lstat/pipe/poll/select/fork/vfork/dup2/epoll_wait/arch_pr
 | U | native ARM64 runner | 仓库未配置第一方 CI workflow，当前执行环境为 x86_64；不能声称 ARM64 已 native 验证。 |
 | N | 源码策略、event-v2 envelope tests | 自有 wire ABI 可共享；架构影响的 source assertions 需同步更新。 |
 
-当前实测：`GOCACHE=/tmp/strace-go-gocache go test ./...` 全通过；`sudo -n id -u` 返回 0。
+审计基线实测：`GOCACHE=/tmp/strace-go-gocache go test ./...` 全通过；当时
+`sudo -n id -u` 返回 0。
 编译 core/recvmsg 无 libc multiarch include 通过。尚未在本阶段运行 root semantic 或 ARM64 tests。
 
 ### 7. documentation assumptions

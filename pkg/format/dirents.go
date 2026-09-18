@@ -13,7 +13,7 @@ const (
 	dirent64NameOffset = 19
 )
 
-// DirentLayout identifies the native x86_64 directory entry ABI.
+// DirentLayout identifies the Linux legacy and dirent64 record formats.
 type DirentLayout uint8
 
 const (
