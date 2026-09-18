@@ -49,7 +49,7 @@ static __always_inline u32 select_direct_fdset_user_len(u64 nfds_raw)
     if (nfds > SELECT_DIRECT_FDSET_SIZE * 8) {
         return SELECT_DIRECT_FDSET_SIZE;
     }
-    return (u32)((nfds + 7) / 8);
+    return (u32)(((u32)nfds + 7U) / 8U);
 }
 
 #include "syscall_select_capture_direct_event_v2.h"

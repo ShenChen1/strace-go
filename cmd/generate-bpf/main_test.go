@@ -32,6 +32,22 @@ func TestBPFTargetArguments(t *testing.T) {
 	}
 }
 
+func TestSelectFDSetLengthUsesUnsignedDivision(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	header := filepath.Join(filepath.Dir(file), "../..", "bpf", "syscall_select_direct_event_v2.h")
+	data, err := os.ReadFile(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(data)
+	if !strings.Contains(source, "return (u32)(((u32)nfds + 7U) / 8U);") {
+		t.Fatal("select fdset length must use unsigned division for eBPF compilation")
+	}
+	if strings.Contains(source, "return (u32)((nfds + 7) / 8);") {
+		t.Fatal("select fdset length still uses signed division")
+	}
+}
+
 func TestNormalizeGeneratedBuildTagRestrictsX86ToAMD64(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "cmd", "strace-go")
