@@ -12,6 +12,7 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
 	"golang.org/x/sys/unix"
+	"strace-go/internal/architecture"
 )
 
 const (
@@ -91,8 +92,16 @@ func newIntegrityBPFHarness(t *testing.T) integrityBPFHarness {
 	}
 	root := repoRootForTest(t)
 	object := filepath.Join(t.TempDir(), "integrity.bpf.o")
+	target, err := architecture.Parse(runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clangArch := "__TARGET_ARCH_x86"
+	if target == architecture.ARM64 {
+		clangArch = "__TARGET_ARCH_arm64"
+	}
 	command := exec.Command("clang", "-target", "bpfel", "-O2", "-g", "-mcpu=v3",
-		"-I"+filepath.Join(root, "bpf"), "-I/usr/include/x86_64-linux-gnu",
+		"-D"+clangArch, "-I"+filepath.Join(root, "bpf"),
 		"-c", filepath.Join(root, "test/fixtures/ebpf_integrity.bpf.c"), "-o", object)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("compile integrity fixture: %v\n%s", err, output)
