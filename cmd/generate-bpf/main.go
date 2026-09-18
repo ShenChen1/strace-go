@@ -42,6 +42,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	directory, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolve BPF source directory: %w", err)
+	}
 	fmt.Printf("Target architecture: %s\nLinux architecture: %s\nBPF target: bpfel\nSyscall metadata: linux/%s\n", target, target.LinuxName(), target)
 	for _, generator := range []string{"generate-capture-manifest", "generate-event-abi"} {
 		if err := command("go", "run", "./cmd/"+generator); err != nil {
@@ -52,9 +56,7 @@ func run() error {
 		return err
 	}
 	for _, collection := range collections {
-		args := []string{"run", "github.com/cilium/ebpf/cmd/bpf2go", "-cc", *compiler,
-			"-go-package", "main", "-target", string(target), "-tags", "linux",
-			"-output-dir", "cmd/strace-go", collection.name, filepath.Join("bpf", collection.source), "--", "-mcpu=v3", "-fdebug-prefix-map=" + mustWorkingDirectory() + "=."}
+		args := bpfArguments(target, *compiler, directory, collection.name, collection.source)
 		if err := command("go", args...); err != nil {
 			return fmt.Errorf("generate %s/%s: %w", target, collection.name, err)
 		}
@@ -69,10 +71,9 @@ func command(name string, args ...string) error {
 	return cmd.Run()
 }
 
-func mustWorkingDirectory() string {
-	directory, err := os.Getwd()
-	if err != nil {
-		return "."
-	}
-	return directory
+func bpfArguments(target architecture.Architecture, compiler, directory, name, source string) []string {
+	return []string{"run", "github.com/cilium/ebpf/cmd/bpf2go", "-cc", compiler,
+		"-go-package", "main", "-target", string(target), "-tags", "linux",
+		"-output-dir", "cmd/strace-go", name, filepath.Join("bpf", source),
+		"--", "-mcpu=v3", "-fdebug-prefix-map=" + directory + "=."}
 }
