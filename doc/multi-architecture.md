@@ -190,7 +190,9 @@ BPF generation 的唯一入口是 `scripts/generate-bpf.sh` / `make generate-bpf
 collection 使用 `bpf2go -target amd64|arm64` 和项目头，不再散落
 `/usr/include/x86_64-linux-gnu`。生成输出包含 target 和 Linux architecture，且
 每个 collection 在加载前校验 metadata ABI hash；重复 ARM64 生成的 object SHA-256
-在本次验证中一致。
+在本次验证中一致。bpf2go 对 x86 默认产生的 `(386 || amd64)` userspace tag
+由统一入口规范为 `linux && amd64`，因此 generated artifact 也不会暴露 32-bit
+伪支持。
 
 真实 ABI 差异集中在 `internal/architecture/layout_linux.go`、
 `bpf/native_abi_layout.h` 和目标 xlat 表：amd64 stat/epoll 分别为 144/12 字节，
