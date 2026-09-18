@@ -10,6 +10,45 @@
 
 #include "ebpf_bpf_fixture.h"
 
+enum {
+	BPF_PROG_LOAD_FD_ARRAY_OFFSET = 120,
+	BPF_PROG_LOAD_FD_ARRAY_CNT_OFFSET = 148,
+	BPF_PROG_LOAD_ATTR_SIZE = 168,
+};
+
+/*
+ * fd_array_cnt was added to the BPF_PROG_LOAD UAPI after the other fields
+ * used by this fixture. Keep the complete attr buffer independent of the
+ * version of the host linux/bpf.h header used to compile the test.
+ */
+union bpf_prog_load_attr_storage {
+	union bpf_attr attr;
+	uint64_t alignment;
+	unsigned char bytes[BPF_PROG_LOAD_ATTR_SIZE];
+};
+
+_Static_assert(sizeof(uintptr_t) == sizeof(uint64_t),
+	"BPF fixture requires a native 64-bit userspace ABI");
+_Static_assert(BPF_PROG_LOAD_FD_ARRAY_OFFSET + sizeof(uint64_t) <= BPF_PROG_LOAD_ATTR_SIZE,
+	"BPF_PROG_LOAD fd_array offset is outside the fixture attr");
+_Static_assert(BPF_PROG_LOAD_FD_ARRAY_CNT_OFFSET + sizeof(uint32_t) <= BPF_PROG_LOAD_ATTR_SIZE,
+	"BPF_PROG_LOAD fd_array_cnt offset is outside the fixture attr");
+_Static_assert(sizeof(union bpf_attr) <= BPF_PROG_LOAD_ATTR_SIZE,
+	"host BPF UAPI attr grew beyond the fixture ABI");
+
+static void set_bpf_prog_load_fd_array(
+	union bpf_prog_load_attr_storage *storage,
+	uint64_t fd_array,
+	uint32_t fd_array_cnt)
+{
+	memcpy(storage->bytes + BPF_PROG_LOAD_FD_ARRAY_OFFSET,
+		&fd_array,
+		sizeof(fd_array));
+	memcpy(storage->bytes + BPF_PROG_LOAD_FD_ARRAY_CNT_OFFSET,
+		&fd_array_cnt,
+		sizeof(fd_array_cnt));
+}
+
 static int batch_values_have_markers(const char values[][16], uint32_t count)
 {
 	int saw_value = 0;
@@ -355,39 +394,41 @@ static int run_prog_load(void)
 		0, 0x1234, 4, 1,
 		16, 0x5678, 8, 2,
 	};
-	union bpf_attr attr = {};
-	attr.prog_type = BPF_PROG_TYPE_SOCKET_FILTER;
-	attr.insn_cnt = sizeof(instructions) / sizeof(instructions[0]);
-	attr.insns = (uint64_t)(uintptr_t)instructions;
-	attr.func_info_rec_size = 8;
-	attr.func_info = (uint64_t)(uintptr_t)func_info;
-	attr.func_info_cnt = 2;
-	attr.line_info_rec_size = 16;
-	attr.line_info = (uint64_t)(uintptr_t)line_info;
-	attr.line_info_cnt = 2;
-	attr.core_relo_cnt = 2;
-	attr.core_relos = (uint64_t)(uintptr_t)core_relos;
-	attr.core_relo_rec_size = 16;
-	attr.fd_array = (uint64_t)(uintptr_t)fd_array;
-	attr.fd_array_cnt = sizeof(fd_array) / sizeof(fd_array[0]);
-	attr.license = (uint64_t)(uintptr_t)license;
-	attr.log_buf = (uint64_t)(uintptr_t)log_buffer;
-	attr.log_size = sizeof(log_buffer);
-	attr.log_level = 1;
+	union bpf_prog_load_attr_storage storage = {};
+	union bpf_attr *attr = &storage.attr;
+	attr->prog_type = BPF_PROG_TYPE_SOCKET_FILTER;
+	attr->insn_cnt = sizeof(instructions) / sizeof(instructions[0]);
+	attr->insns = (uint64_t)(uintptr_t)instructions;
+	attr->func_info_rec_size = 8;
+	attr->func_info = (uint64_t)(uintptr_t)func_info;
+	attr->func_info_cnt = 2;
+	attr->line_info_rec_size = 16;
+	attr->line_info = (uint64_t)(uintptr_t)line_info;
+	attr->line_info_cnt = 2;
+	attr->core_relo_cnt = 2;
+	attr->core_relos = (uint64_t)(uintptr_t)core_relos;
+	attr->core_relo_rec_size = 16;
+	attr->license = (uint64_t)(uintptr_t)license;
+	attr->log_buf = (uint64_t)(uintptr_t)log_buffer;
+	attr->log_size = sizeof(log_buffer);
+	attr->log_level = 1;
+	set_bpf_prog_load_fd_array(
+		&storage,
+		(uint64_t)(uintptr_t)fd_array,
+		sizeof(fd_array) / sizeof(fd_array[0]));
 
-	long prog_fd = bpf_call(BPF_PROG_LOAD, &attr, sizeof(attr));
+	long prog_fd = bpf_call(BPF_PROG_LOAD, attr, BPF_PROG_LOAD_ATTR_SIZE);
 	if (prog_fd >= 0) {
 		fprintf(stderr, "bpf fixture: invalid BPF_PROG_LOAD unexpectedly succeeded\n");
 		(void)close((int)prog_fd);
 		return 1;
 	}
 
-	attr.func_info = 1;
-	attr.fd_array = 1;
-	attr.fd_array_cnt = 1;
-	attr.line_info = 1;
-	attr.core_relos = 1;
-	prog_fd = bpf_call(BPF_PROG_LOAD, &attr, sizeof(attr));
+	attr->func_info = 1;
+	set_bpf_prog_load_fd_array(&storage, 1, 1);
+	attr->line_info = 1;
+	attr->core_relos = 1;
+	prog_fd = bpf_call(BPF_PROG_LOAD, attr, BPF_PROG_LOAD_ATTR_SIZE);
 	if (prog_fd >= 0) {
 		fprintf(stderr, "bpf fixture: invalid nested pointer BPF_PROG_LOAD unexpectedly succeeded\n");
 		(void)close((int)prog_fd);

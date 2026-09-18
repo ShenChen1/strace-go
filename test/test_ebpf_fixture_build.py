@@ -57,6 +57,19 @@ class SemanticFixtureSourcePolicyTests(unittest.TestCase):
 
 
 class FixtureBuildTests(unittest.TestCase):
+    def test_bpf_prog_load_fixture_uses_header_compatible_fd_array_abi(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "fixtures", "ebpf_bpf_fixture.c"
+        )
+        with open(path, "r", encoding="utf-8") as fixture_file:
+            text = fixture_file.read()
+
+        self.assertIn("BPF_PROG_LOAD_FD_ARRAY_OFFSET = 120", text)
+        self.assertIn("BPF_PROG_LOAD_FD_ARRAY_CNT_OFFSET = 148", text)
+        self.assertIn("unsigned char bytes[BPF_PROG_LOAD_ATTR_SIZE]", text)
+        self.assertIn("set_bpf_prog_load_fd_array(", text)
+        self.assertNotIn("attr.fd_array_cnt", text)
+
     @mock.patch.object(ebpf_fixture_build.os, "chmod")
     @mock.patch.object(ebpf_fixture_build.subprocess, "run")
     def test_build_fixture_compiles_all_sources(self, run, chmod):
