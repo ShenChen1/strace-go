@@ -79,12 +79,28 @@ func TestBuildEntryRejectsUnsupportedTargets(t *testing.T) {
 	}
 }
 
-func TestMakeTestUsesRequestedArchitecture(t *testing.T) {
+func TestMakeTestRequiresNativeHost(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
-	cmd := exec.Command("make", "-n", "test", "ARCH=arm64", "GO_TEST_EXEC=qemu-aarch64")
+	cmd := exec.Command("make", "-n", "test", "ARCH=arm64")
 	cmd.Dir = filepath.Join(filepath.Dir(file), "../..")
 	out, err := cmd.CombinedOutput()
-	if err != nil || !strings.Contains(string(out), `GOARCH="arm64" go test -exec "qemu-aarch64"`) {
-		t.Fatalf("cross test command: %v\n%s", err, out)
+	if runtime.GOARCH == "arm64" {
+		if err != nil || !strings.Contains(string(out), `GOARCH="arm64" go test ./...`) {
+			t.Fatalf("native arm64 test command: %v\n%s", err, out)
+		}
+		return
+	}
+	if err == nil || !strings.Contains(string(out), "native tests require a native Linux/arm64 host") {
+		t.Fatalf("cross-architecture test was not rejected: %v\n%s", err, out)
+	}
+}
+
+func TestMakeTestRejectsExecutionWrapper(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	cmd := exec.Command("make", "-n", "test", "ARCH="+runtime.GOARCH, "GO_TEST_EXEC=external-runner")
+	cmd.Dir = filepath.Join(filepath.Dir(file), "../..")
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "GO_TEST_EXEC is disabled") {
+		t.Fatalf("execution wrapper was accepted: %v\n%s", err, out)
 	}
 }

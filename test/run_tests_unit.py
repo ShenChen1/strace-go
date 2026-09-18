@@ -84,9 +84,14 @@ class UpstreamEnvironmentTest(unittest.TestCase):
 
     def test_setup_env_uses_explicit_target(self):
         with mock.patch.dict(os.environ, {}, clear=True):
-            run_tests.setup_env("arm64")
+            run_tests.setup_env("arm64", "aarch64")
             self.assertEqual(os.environ["STRACE_ARCH"], "aarch64")
             self.assertEqual(os.environ["STRACE_NATIVE_ARCH"], "aarch64")
+
+    def test_setup_env_rejects_non_native_target(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "native Linux/aarch64 host"):
+                run_tests.setup_env("arm64", "x86_64")
 
     def test_upstream_configuration_disables_optional_ptrace_features(self):
         args = run_tests.UPSTREAM_CONFIGURE_ARGS

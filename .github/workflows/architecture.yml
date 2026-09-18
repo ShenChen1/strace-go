@@ -6,12 +6,18 @@ on:
 
 jobs:
   build-and-unit:
-    name: ${{ matrix.arch }} build and unit tests
-    runs-on: ubuntu-24.04
+    name: ${{ matrix.arch }} native build and unit tests
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            machine: x86_64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            machine: aarch64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -19,8 +25,16 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
+      - name: Verify native runner architecture
+        env:
+          EXPECTED_GOARCH: ${{ matrix.arch }}
+          EXPECTED_MACHINE: ${{ matrix.machine }}
+        run: |
+          test "$(go env GOOS)" = linux
+          test "$(go env GOHOSTARCH)" = "$EXPECTED_GOARCH"
+          test "$(uname -m)" = "$EXPECTED_MACHINE"
       - name: Install BPF and userspace test tools
-        run: sudo apt-get update && sudo apt-get install -y clang llvm libbpf-dev qemu-user-static
+        run: sudo apt-get update && sudo apt-get install -y clang llvm libbpf-dev
       - name: Check generated syscall metadata
         run: GOCACHE=/tmp/strace-go-gocache make check-metadata
       - name: Generate target BPF artifacts
@@ -30,12 +44,7 @@ jobs:
       - name: Build target userspace
         run: GOCACHE=/tmp/strace-go-gocache make build ARCH=${{ matrix.arch }}
       - name: Run target unit tests
-        run: |
-          if [ "${{ matrix.arch }}" = arm64 ]; then
-            GOCACHE=/tmp/strace-go-gocache make test ARCH=arm64 GO_TEST_EXEC=qemu-aarch64-static
-          else
-            GOCACHE=/tmp/strace-go-gocache make test ARCH=amd64
-          fi
+        run: GOCACHE=/tmp/strace-go-gocache make test ARCH=${{ matrix.arch }}
 
   amd64-semantic:
     name: amd64 privileged eBPF semantic suite

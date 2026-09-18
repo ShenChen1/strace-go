@@ -124,7 +124,7 @@ ARM64 缺少 open/stat/lstat/pipe/poll/select/fork/vfork/dup2/epoll_wait/arch_pr
 | H | `test/run_tests.py` | STRACE_ARCH/STRACE_NATIVE_ARCH 固定 x86_64；SIZEOF_LONG=8 仅在明确 native LP64 后才合理。 |
 | H | `test/ebpf_semantic_checks.py` | 强制 stat/lstat/arch_prctl/pipe/getdents，fstat 固定 144；在 ARM64 必须按 availability 和 ABI oracle 调整。 |
 | H | Go payload/route fixtures | 大量 synthetic ID 使用 amd64 literal，可能验证错误 handler；需要目标名称查表与独立双架构 oracle。 |
-| U | native ARM64 runner | 仓库未配置第一方 CI workflow，当前执行环境为 x86_64；不能声称 ARM64 已 native 验证。 |
+| A/U | native ARM64 runner | CI 使用 `ubuntu-24.04-arm` 执行 ARM64 build/unit；当前仍未配置 ARM64 privileged semantic suite，不能把 build/unit 当作完整 native tracing 验证。 |
 | N | 源码策略、event-v2 envelope tests | 自有 wire ABI 可共享；架构影响的 source assertions 需同步更新。 |
 
 审计基线实测：`GOCACHE=/tmp/strace-go-gocache go test ./...` 全通过；当时
@@ -163,7 +163,7 @@ ARM64 缺少 open/stat/lstat/pipe/poll/select/fork/vfork/dup2/epoll_wait/arch_pr
 2. Phase 3：固定输入生成双架构 metadata、C numbers，检查 unavailable syscall 与 manifest；双目标 ID→semantic handler、filter/lifecycle tests。
 3. Phase 4：stat/epoll/open constants/clone/recvmsg 的真实差异；其余布局用 target UAPI 编译断言；compat 在 dispatch 前保护。
 4. Phase 5：amd64/arm64 全部 BPF collection 和 Go build，重复生成比较；检测错误 artifact。
-5. Phase 6：amd64 root semantic、小范围 upstream 和 small；ARM64 无 native runner 则保留明确缺口；新增可移植 semantic fixtures。
+5. Phase 6：amd64 root semantic、小范围 upstream 和 small；ARM64 使用 native runner 做 build/unit，privileged semantic 缺口保持明确；新增可移植 semantic fixtures。
 6. Phase 7：CI build/test/generation matrix、README support matrix、开发者 native/cross 命令及实际验证结果。
 
 参考：
@@ -218,17 +218,19 @@ compat binary 尚未声称支持。
 
 ```text
 GOCACHE=/tmp/strace-go-gocache go test ./...
-GOCACHE=/tmp/strace-go-gocache make test ARCH=arm64 GO_TEST_EXEC=qemu-aarch64
 go run ./cmd/generate-syscalls -arch all -check
 go run ./cmd/generate-capture-manifest -check
 make generate-bpf ARCH=amd64
 make generate-bpf ARCH=arm64
+make build ARCH=arm64
 ```
 
 amd64 native root smoke 覆盖 openat、close、read/write 和兼容 ABI 拒绝；完整
-`ebpf-semantic` suite 由 CI 的 privileged amd64 job 执行。ARM64 userspace 单测和
-BPF compile 在 QEMU/交叉模式通过，但当前 x86_64 开发机没有 ARM64 kernel runner，
-所以 ARM64 原生 BPF load、路径/生命周期/FD-state semantic suite 仍是明确的验证缺口。
+`ebpf-semantic` suite 由 CI 的 privileged amd64 job 执行。ARM64 build/unit job
+使用 GitHub 的 native `ubuntu-24.04-arm` runner，workflow 不安装或调用 QEMU；本地
+x86_64 开发机只完成 ARM64 的交叉构建、生成和 metadata/route 静态验证。ARM64
+privileged BPF load、路径/生命周期/FD-state semantic suite 仍是明确的验证缺口，
+必须在匹配的 native ARM64 Linux host 上执行后才能扩大支持声明。
 历史 BPF source gates 中仍有按 amd64 数字字面量检查的静态契约；它们已显式使用
 `//go:build amd64`，ARM64 使用独立的 target metadata、ABI contract 和 dispatcher
 route tests，避免把 amd64 source fixture 当成 ARM64 语义证据。

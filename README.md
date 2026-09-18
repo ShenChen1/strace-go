@@ -27,7 +27,7 @@
 | Host/kernel arch | Native 64-bit syscall tracing | Userspace/BPF build | Unit tests | Native semantic tests |
 | --- | --- | --- | --- | --- |
 | x86_64 / amd64 | Yes | Yes | Yes | amd64 root suite 已验证 |
-| aarch64 / arm64 | Yes（需匹配的 arm64 BPF artifact） | Yes | Yes（QEMU userspace） | 当前开发机未执行；需要 privileged ARM64 runner |
+| aarch64 / arm64 | Yes（需匹配的 arm64 BPF artifact） | Yes | 需要 native ARM64 host | 当前开发机未执行；需要 privileged ARM64 runner |
 | 32-bit compat ABI、x32 | No，启动或事件边界明确拒绝 | — | — | — |
 | Other architectures | No，fail fast | No | No | No |
 
@@ -43,11 +43,12 @@ make generate-bpf ARCH=arm64
 make build ARCH=amd64
 make build ARCH=arm64
 make test ARCH=amd64
-make test ARCH=arm64 GO_TEST_EXEC=qemu-aarch64
+make test ARCH=arm64       # 必须在 native ARM64 Linux host 上执行
 ```
 
-`GO_TEST_EXEC` 只用于能执行目标二进制的 userspace runner；它不能加载 ARM64
-BPF 到当前 x86_64 内核，也不能替代原生 ARM64 privileged semantic suite。
+`make test` 强制目标架构与 Linux host 架构一致，并拒绝 `GO_TEST_EXEC` 执行器。
+ARM64 可以在 x86_64 host 上交叉构建和生成 BPF，但测试和 tracing 必须在 native
+ARM64 kernel 上执行；项目不使用 QEMU、binfmt 或其他处理器模拟路径。
 
 ### 环境要求
 
@@ -200,9 +201,13 @@ go build -o strace-go ./cmd/strace-go
 跨架构构建使用目标参数；不要用 `uname -m` 代替目标选择：
 
 ```bash
-make build ARCH=arm64       # x86_64 host 也可执行
-make test ARCH=arm64 GO_TEST_EXEC=qemu-aarch64
+make build ARCH=arm64       # x86_64 host 可交叉构建
+make test ARCH=arm64       # 仅限 native ARM64 host
 ```
+
+这里的 ARM64 构建是交叉构建：x86_64 host 可以生成 ELF 和 BPF artifact，但不能
+把生成的 ARM64 `strace-go` 当作本机程序运行。`make test` 会在执行前拒绝 host 与
+target 不一致的情况。
 
 ### 完整重新生成
 

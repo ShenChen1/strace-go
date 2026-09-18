@@ -1,7 +1,6 @@
 ARCH ?= $(shell go env GOARCH)
 HOST_GOARCH := $(shell go env GOHOSTARCH)
 HOST_GOOS := $(shell go env GOHOSTOS)
-GO_TEST_EXEC ?=
 
 ifeq ($(ARCH),amd64)
 else ifeq ($(ARCH),arm64)
@@ -13,8 +12,21 @@ endif
 build: generate-bpf
 	GOOS=linux GOARCH="$(ARCH)" go build -o strace-go ./cmd/strace-go
 
+NATIVE_TEST_ERROR :=
+ifneq ($(strip $(GO_TEST_EXEC)),)
+NATIVE_TEST_ERROR := GO_TEST_EXEC is disabled; tests must run on the matching native host
+else ifneq ($(HOST_GOOS),linux)
+NATIVE_TEST_ERROR := native tests require a Linux host; current host is $(HOST_GOOS)/$(HOST_GOARCH)
+else ifneq ($(HOST_GOARCH),$(ARCH))
+NATIVE_TEST_ERROR := native tests require a native Linux/$(ARCH) host; current host is $(HOST_GOOS)/$(HOST_GOARCH)
+endif
+
 test:
-	GOOS=linux GOARCH="$(ARCH)" go test $(if $(GO_TEST_EXEC),-exec "$(GO_TEST_EXEC)") ./...
+ifneq ($(strip $(NATIVE_TEST_ERROR)),)
+	$(error $(NATIVE_TEST_ERROR))
+else
+	GOOS=linux GOARCH="$(ARCH)" go test ./...
+endif
 
 generate-bpf:
 	./scripts/generate-bpf.sh "$(ARCH)"

@@ -134,7 +134,7 @@ def parse_args():
         "--arch",
         choices=("amd64", "arm64"),
         default="",
-        help="native target architecture; defaults to ARCH, GOARCH, or uname",
+        help="native target architecture; must match the host; defaults to ARCH, GOARCH, or uname",
     )
     return parser.parse_args()
 
@@ -155,10 +155,15 @@ def native_linux_architecture(explicit="", goarch="", machine=""):
         ) from exc
 
 
-def setup_env(explicit_arch=""):
+def setup_env(explicit_arch="", machine=""):
     linux_arch = native_linux_architecture(
         explicit_arch, os.environ.get("ARCH", "") or os.environ.get("GOARCH", "")
     )
+    host_arch = native_linux_architecture("", "", machine or platform.machine())
+    if linux_arch != host_arch:
+        raise ValueError(
+            f"native tests require a native Linux/{linux_arch} host; current host is {host_arch}"
+        )
     os.environ["STRACE"] = os.path.join(SCRIPT_DIR, "strace-sudo.sh")
     os.environ["SIZEOF_LONG"] = "8"
     os.environ["STRACE_ARCH"] = linux_arch
