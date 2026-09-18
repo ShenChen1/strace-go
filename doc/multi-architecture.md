@@ -171,3 +171,58 @@ ARM64 缺少 open/stat/lstat/pipe/poll/select/fork/vfork/dup2/epoll_wait/arch_pr
 - https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/thread_info.h
 - https://github.com/torvalds/linux/blob/master/arch/arm64/include/asm/thread_info.h
 - 项目固定依赖 `golang.org/x/sys v0.47.0` 的 zsysnum/zerrors/ztypes_linux_{amd64,arm64}.go。
+
+## 实施结果（Phase 2–7）
+
+目标模型由 `internal/architecture` 持有。它只接受 Go 名称 `amd64`、`arm64`，并
+提供到 Linux 名称 `x86_64`、`aarch64`、BPF wrapper 前缀和运行时校验的显式映射。
+生成脚本的目标优先级是命令行参数、环境 `ARCH/GOARCH`、宿主默认值；不支持的目标
+在 Makefile、生成器和程序启动处都返回带支持列表的错误。
+
+syscall metadata 由名称/参数 schema、semantic catalog 和固定版本 `x/sys` 号码
+合并生成。每个目标有独立 Go 表和 C `SYS_*` header，header selector 只按 clang 的
+`__TARGET_ARCH_x86` 或 `__TARGET_ARCH_arm64` 选择。route map 在生成期消费当前表，
+因此缺失的 ARM64 syscall 不会被当成另一个号码；双表测试覆盖 read、write、close、
+openat、readlinkat、clone、clone3、execve、socket、connect、dup、fcntl、ioctl、
+futex 和 epoll_pwait 等代表调用。
+
+BPF generation 的唯一入口是 `scripts/generate-bpf.sh` / `make generate-bpf`。所有
+collection 使用 `bpf2go -target amd64|arm64` 和项目头，不再散落
+`/usr/include/x86_64-linux-gnu`。生成输出包含 target 和 Linux architecture，且
+每个 collection 在加载前校验 metadata ABI hash；重复 ARM64 生成的 object SHA-256
+在本次验证中一致。
+
+真实 ABI 差异集中在 `internal/architecture/layout_linux.go`、
+`bpf/native_abi_layout.h` 和目标 xlat 表：amd64 stat/epoll 分别为 144/12 字节，
+arm64 为 128/16 字节；epoll data offset 为 4/8；native open flags、termios 和
+clone 参数也按目标生成。iovec、msghdr、cmsghdr、sockaddr、timespec/timeval、
+statx、open_how、flock 等在两个 native LP64 目标的 layout contract 中确认一致，
+没有为了文件对称性引入伪架构分支。
+
+compat 边界在 BPF native dispatch 前检查：x86_64 的 compat task 和 x32 syscall、
+ARM64 的 32-bit task 都发出 `unsupported_abi` 终止事件；userspace 不会继续使用
+native decoder。amd64 上用 `int 0x80` fixture 实际验证了 fail-fast；32-bit ARM
+compat binary 尚未声称支持。
+
+### 验证证据
+
+已运行：
+
+```text
+GOCACHE=/tmp/strace-go-gocache go test ./...
+GOCACHE=/tmp/strace-go-gocache make test ARCH=arm64 GO_TEST_EXEC=qemu-aarch64
+go run ./cmd/generate-syscalls -arch all -check
+go run ./cmd/generate-capture-manifest -check
+make generate-bpf ARCH=amd64
+make generate-bpf ARCH=arm64
+```
+
+amd64 native root smoke 覆盖 openat、close、read/write 和兼容 ABI 拒绝；完整
+`ebpf-semantic` suite 由 CI 的 privileged amd64 job 执行。ARM64 userspace 单测和
+BPF compile 在 QEMU/交叉模式通过，但当前 x86_64 开发机没有 ARM64 kernel runner，
+所以 ARM64 原生 BPF load、路径/生命周期/FD-state semantic suite 仍是明确的验证缺口。
+
+当前不支持 KVM vCPU exit-reason 的 ARM64 解码、32-bit compat ABI、x32 以及其他
+Linux 架构。增加第三个架构时，只需增加 `internal/architecture` target、目标
+syscall table/header、真实 ABI contract、BPF build target、route/metadata tests 和
+CI runner；共同 tracing engine 不应加入散落的架构条件分支。

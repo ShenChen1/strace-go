@@ -17,6 +17,38 @@
 
 ## 快速开始
 
+## Architecture Support
+
+`strace-go` 当前只支持 Linux native 64-bit syscall ABI：`amd64`（Linux 内核名
+`x86_64`）和 `arm64`（Linux 内核名 `aarch64`）。目标选择使用 `ARCH` 显式值，
+其次使用 `GOARCH`，最后才使用构建机架构；BPF 两个目标都使用 little-endian
+`bpfel`，这与 CPU architecture 是两个独立概念。
+
+| Host/kernel arch | Native 64-bit syscall tracing | Userspace/BPF build | Unit tests | Native semantic tests |
+| --- | --- | --- | --- | --- |
+| x86_64 / amd64 | Yes | Yes | Yes | amd64 root suite 已验证 |
+| aarch64 / arm64 | Yes（需匹配的 arm64 BPF artifact） | Yes | Yes（QEMU userspace） | 当前开发机未执行；需要 privileged ARM64 runner |
+| 32-bit compat ABI、x32 | No，启动或事件边界明确拒绝 | — | — | — |
+| Other architectures | No，fail fast | No | No | No |
+
+CO-RE 只负责内核 BTF 类型 relocation，不会统一 syscall number、userspace UAPI
+layout、compat ABI 或 architecture-specific ioctl。因而 cross build 成功不代表
+该架构已经通过 syscall semantic validation。
+
+生成和构建命令：
+
+```bash
+make generate-bpf ARCH=amd64
+make generate-bpf ARCH=arm64
+make build ARCH=amd64
+make build ARCH=arm64
+make test ARCH=amd64
+make test ARCH=arm64 GO_TEST_EXEC=qemu-aarch64
+```
+
+`GO_TEST_EXEC` 只用于能执行目标二进制的 userspace runner；它不能加载 ARM64
+BPF 到当前 x86_64 内核，也不能替代原生 ARM64 privileged semantic suite。
+
 ### 环境要求
 
 - Linux，启用 BTF，并提供本项目使用的 BPF Ringbuf、task storage、dynptr 和 tracing helper。
@@ -165,6 +197,13 @@ Ringbuf reader、decoder、状态机、handler 和 renderer 在同一个事件 g
 go build -o strace-go ./cmd/strace-go
 ```
 
+跨架构构建使用目标参数；不要用 `uname -m` 代替目标选择：
+
+```bash
+make build ARCH=arm64       # x86_64 host 也可执行
+make test ARCH=arm64 GO_TEST_EXEC=qemu-aarch64
+```
+
 ### 完整重新生成
 
 ```bash
@@ -181,6 +220,17 @@ go build -o strace-go ./cmd/strace-go
 - `cmd/generate-syscalls`：结合 BTF、tracepoint 信息和显式 override 生成 syscall metadata。
 - `cmd/generate-xlats`：从 `strace-upstream` 生成常量翻译表。
 - `bpf2go`：编译 core、enter handler families、exit handlers 和 recvmsg handlers。
+
+syscall metadata 的唯一目标输入是项目固定的 `golang.org/x/sys` syscall constants
+和项目 semantic catalog；生成器分别写出 `pkg/meta/syscall_table_amd64.go`、
+`pkg/meta/syscall_table_arm64.go` 及对应的 BPF `SYS_*` header。BPF dispatcher 的
+route map 在生成期按目标表建立，目标不存在的 syscall 不会落到另一个架构的号码。
+
+当前 ABI 合同覆盖 native LP64 的 stat、epoll、termios、open flags、clone 参数和
+recvmsg 返回寄存器路径。两架构共同使用 raw syscall tracepoint 的 `id/args[6]/ret`
+观察 ABI，因此主 syscall observation path 不依赖 userspace calling convention；
+专用 kretprobe 仍使用目标 wrapper。ARM64 的 KVM vCPU exit-reason 解码目前是显式
+不支持能力。
 
 ## 测试
 

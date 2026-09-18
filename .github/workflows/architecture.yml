@@ -1,0 +1,55 @@
+name: native-architecture
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-unit:
+    name: ${{ matrix.arch }} build and unit tests
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Install BPF and userspace test tools
+        run: sudo apt-get update && sudo apt-get install -y clang llvm libbpf-dev qemu-user-static
+      - name: Check generated syscall metadata
+        run: GOCACHE=/tmp/strace-go-gocache make check-metadata
+      - name: Generate target BPF artifacts
+        run: GOCACHE=/tmp/strace-go-gocache make generate-bpf ARCH=${{ matrix.arch }}
+      - name: Ensure generation is clean
+        run: git diff --exit-code
+      - name: Build target userspace
+        run: GOCACHE=/tmp/strace-go-gocache make build ARCH=${{ matrix.arch }}
+      - name: Run target unit tests
+        run: |
+          if [ "${{ matrix.arch }}" = arm64 ]; then
+            GOCACHE=/tmp/strace-go-gocache make test ARCH=arm64 GO_TEST_EXEC=qemu-aarch64-static
+          else
+            GOCACHE=/tmp/strace-go-gocache make test ARCH=amd64
+          fi
+
+  amd64-semantic:
+    name: amd64 privileged eBPF semantic suite
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Install BPF test tools
+        run: sudo apt-get update && sudo apt-get install -y clang llvm libbpf-dev
+      - name: Build amd64 tracer
+        run: GOCACHE=/tmp/strace-go-gocache make build ARCH=amd64
+      - name: Run privileged semantic suite
+        run: sudo -n python3 test/run_tests.py --suite ebpf-semantic --skip-build
