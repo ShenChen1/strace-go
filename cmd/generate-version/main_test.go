@@ -25,6 +25,23 @@ func TestVersionMetadataRendersCheckedInFile(t *testing.T) {
 	}
 }
 
+func TestCIWorkflowFetchesHistoryForVersionMetadata(t *testing.T) {
+	root, err := findVersionRepoRoot()
+	if err != nil {
+		t.Fatalf("find repository root: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "architecture.yml"))
+	if err != nil {
+		t.Fatalf("read architecture workflow: %v", err)
+	}
+	workflow := string(data)
+	checkoutCount := strings.Count(workflow, "uses: actions/checkout@v4")
+	fetchAllCount := strings.Count(workflow, "fetch-depth: 0")
+	if checkoutCount == 0 || fetchAllCount != checkoutCount {
+		t.Fatalf("architecture workflow checkout blocks=%d fetch-depth: 0=%d", checkoutCount, fetchAllCount)
+	}
+}
+
 func TestVersionMetadataValidationRejectsInvalidValues(t *testing.T) {
 	tests := []struct {
 		name     string
