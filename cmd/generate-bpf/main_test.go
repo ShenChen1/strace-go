@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -31,10 +32,40 @@ func TestBPFTargetArguments(t *testing.T) {
 	}
 }
 
+func TestNormalizeGeneratedBuildTagRestrictsX86ToAMD64(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "cmd", "strace-go")
+	if err := os.MkdirAll(path, 0755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(path, "bpf_x86_bpfel.go")
+	data := []byte("//go:build (386 || amd64) && linux\n\npackage main\n")
+	if err := os.WriteFile(file, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := normalizeGeneratedBuildTag(architecture.AMD64, directory, "bpf"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "//go:build linux && amd64"; !strings.Contains(string(got), want) {
+		t.Fatalf("normalized build tag = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeGeneratedBuildTagLeavesARM64ArtifactUntouched(t *testing.T) {
+	directory := t.TempDir()
+	if err := normalizeGeneratedBuildTag(architecture.ARM64, directory, "bpf"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestBuildEntryRejectsUnsupportedTargets(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	root := filepath.Join(filepath.Dir(file), "../..")
-	for _, target := range []string{"riscv64", "aarch64", "amd64 arm64", ""} {
+	for _, target := range []string{"386", "arm", "riscv64", "aarch64", "amd64 arm64", ""} {
 		cmd := exec.Command("make", "-n", "build", "ARCH="+target)
 		cmd.Dir = root
 		out, err := cmd.CombinedOutput()

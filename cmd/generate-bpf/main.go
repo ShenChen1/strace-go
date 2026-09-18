@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"strace-go/internal/architecture"
 )
@@ -60,6 +62,31 @@ func run() error {
 		if err := command("go", args...); err != nil {
 			return fmt.Errorf("generate %s/%s: %w", target, collection.name, err)
 		}
+		if err := normalizeGeneratedBuildTag(target, directory, collection.name); err != nil {
+			return fmt.Errorf("normalize %s/%s: %w", target, collection.name, err)
+		}
+	}
+	return nil
+}
+
+// bpf2go emits the generic x86 userspace tag; this project only supports native amd64.
+func normalizeGeneratedBuildTag(target architecture.Architecture, directory, collection string) error {
+	if target != architecture.AMD64 {
+		return nil
+	}
+	path := filepath.Join(directory, "cmd", "strace-go", strings.ToLower(collection)+"_x86_bpfel.go")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	const generatedTag = "//go:build (386 || amd64) && linux"
+	const targetTag = "//go:build linux && amd64"
+	if !bytes.Contains(data, []byte(generatedTag)) {
+		return fmt.Errorf("generated build tag missing: %s", path)
+	}
+	updated := bytes.Replace(data, []byte(generatedTag), []byte(targetTag), 1)
+	if err := os.WriteFile(path, updated, 0644); err != nil {
+		return err
 	}
 	return nil
 }
