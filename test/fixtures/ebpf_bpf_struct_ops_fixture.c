@@ -3,13 +3,14 @@
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include <errno.h>
-#include <linux/bpf.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
-static long bpf_call(enum bpf_cmd command, union bpf_attr *attr)
+#include "ebpf_bpf_uapi_compat.h"
+
+static long bpf_call(uint32_t command, union bpf_attr *attr)
 {
 	return syscall(SYS_bpf, command, attr, sizeof(*attr));
 }
@@ -61,19 +62,31 @@ static int associate_program(struct bpf_object *object)
 		union bpf_attr attr = {};
 		long call_result;
 
-		attr.prog_assoc_struct_ops.map_fd = (unsigned int)map_fd;
-		attr.prog_assoc_struct_ops.prog_fd = (unsigned int)program_fd;
-		call_result = bpf_call(BPF_PROG_ASSOC_STRUCT_OPS, &attr);
+		strace_bpf_attr_set_u32(
+			&attr,
+			STRACE_BPF_PROG_ASSOC_STRUCT_OPS_MAP_FD_OFFSET,
+			(unsigned int)map_fd);
+		strace_bpf_attr_set_u32(
+			&attr,
+			STRACE_BPF_PROG_ASSOC_STRUCT_OPS_PROG_FD_OFFSET,
+			(unsigned int)program_fd);
+		call_result = bpf_call(STRACE_BPF_PROG_ASSOC_STRUCT_OPS, &attr);
 		if (call_result < 0) {
 			fprintf(stderr, "struct-ops: valid association: %s\n",
 				strerror(errno));
 			return -1;
 		}
 	}
-	result = (int)bpf_call(BPF_PROG_ASSOC_STRUCT_OPS, &(union bpf_attr){
-		.prog_assoc_struct_ops.map_fd = (unsigned int)map_fd,
-		.prog_assoc_struct_ops.prog_fd = (unsigned int)-1,
-	});
+	union bpf_attr invalid = {};
+	strace_bpf_attr_set_u32(
+		&invalid,
+		STRACE_BPF_PROG_ASSOC_STRUCT_OPS_MAP_FD_OFFSET,
+		(unsigned int)map_fd);
+	strace_bpf_attr_set_u32(
+		&invalid,
+		STRACE_BPF_PROG_ASSOC_STRUCT_OPS_PROG_FD_OFFSET,
+		(unsigned int)-1);
+	result = (int)bpf_call(STRACE_BPF_PROG_ASSOC_STRUCT_OPS, &invalid);
 	if (result >= 0) {
 		fprintf(stderr, "struct-ops: invalid association unexpectedly succeeded\n");
 		return -1;

@@ -82,6 +82,32 @@ class FixtureBuildTests(unittest.TestCase):
         self.assertIn("#ifndef BPF_F_ALL_CPUS", text)
         self.assertIn("#define BPF_F_ALL_CPUS 16U", text)
 
+    def test_bpf_uapi_compat_header_owns_new_command_abi(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "fixtures", "ebpf_bpf_uapi_compat.h"
+        )
+        with open(path, "r", encoding="utf-8") as fixture_file:
+            text = fixture_file.read()
+
+        self.assertIn("STRACE_BPF_TOKEN_CREATE = 36", text)
+        self.assertIn("STRACE_BPF_PROG_STREAM_READ_BY_FD = 37", text)
+        self.assertIn("STRACE_BPF_PROG_ASSOC_STRUCT_OPS = 38", text)
+        self.assertIn("STRACE_BPF_ATTR_MIN_SIZE = 24", text)
+        self.assertIn("STRACE_BPF_PROG_STREAM_READ_PROG_FD_OFFSET = 16", text)
+        self.assertIn("strace_bpf_attr_set_u32(", text)
+
+    def test_bpf_new_command_fixtures_use_shared_uapi_compat_header(self):
+        fixture_dir = os.path.join(os.path.dirname(__file__), "fixtures")
+        for name in ("ebpf_bpf_rare_fixture.c", "ebpf_bpf_struct_ops_fixture.c"):
+            with open(
+                os.path.join(fixture_dir, name), "r", encoding="utf-8"
+            ) as fixture_file:
+                text = fixture_file.read()
+            self.assertIn('#include "ebpf_bpf_uapi_compat.h"', text, name)
+            self.assertNotIn("attr.token_create", text, name)
+            self.assertNotIn("attr.prog_stream_read", text, name)
+            self.assertNotIn("attr.prog_assoc_struct_ops", text, name)
+
     @mock.patch.object(ebpf_fixture_build.os, "chmod")
     @mock.patch.object(ebpf_fixture_build.subprocess, "run")
     def test_build_fixture_compiles_all_sources(self, run, chmod):
