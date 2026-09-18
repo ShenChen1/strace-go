@@ -70,6 +70,18 @@ class FixtureBuildTests(unittest.TestCase):
         self.assertIn("set_bpf_prog_load_fd_array(", text)
         self.assertNotIn("attr.fd_array_cnt", text)
 
+    def test_bpf_percpu_fixture_defines_newer_uapi_flags(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "fixtures", "ebpf_bpf_percpu_fixture.c"
+        )
+        with open(path, "r", encoding="utf-8") as fixture_file:
+            text = fixture_file.read()
+
+        self.assertIn("#ifndef BPF_F_CPU", text)
+        self.assertIn("#define BPF_F_CPU 8U", text)
+        self.assertIn("#ifndef BPF_F_ALL_CPUS", text)
+        self.assertIn("#define BPF_F_ALL_CPUS 16U", text)
+
     @mock.patch.object(ebpf_fixture_build.os, "chmod")
     @mock.patch.object(ebpf_fixture_build.subprocess, "run")
     def test_build_fixture_compiles_all_sources(self, run, chmod):

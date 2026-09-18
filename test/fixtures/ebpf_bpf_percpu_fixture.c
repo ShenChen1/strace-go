@@ -9,6 +9,19 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+/*
+ * These flags are stable BPF syscall UAPI values, but older linux/bpf.h
+ * headers do not declare their enum names. Keep the fixture buildable with
+ * those headers without changing the values sent to the kernel.
+ */
+#ifndef BPF_F_CPU
+#define BPF_F_CPU 8U
+#endif
+
+#ifndef BPF_F_ALL_CPUS
+#define BPF_F_ALL_CPUS 16U
+#endif
+
 #define VALUE_SIZE 16
 #define BATCH_CAPACITY 4
 
