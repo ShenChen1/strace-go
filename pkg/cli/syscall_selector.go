@@ -67,10 +67,10 @@ func supportedSyscallPersonality(personality string) bool {
 	switch runtime.GOARCH {
 	case "amd64":
 		return personality == "64" || personality == "32" || personality == "x32"
-	case "arm64", "ppc64", "ppc64le", "s390x", "sparc64":
+	case "arm64":
 		return personality == "64" || personality == "32"
 	default:
-		return personality == nativeSyscallPersonality()
+		return false
 	}
 }
 

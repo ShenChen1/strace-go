@@ -1,3 +1,5 @@
+//go:build amd64 && linux
+
 package main
 
 import (
@@ -391,19 +393,4 @@ func TestBPFRecvmmsgBase23PreservesFragmentOrder(t *testing.T) {
 		strings.Contains(source, "int exit_recvmmsg_base3(") {
 		t.Fatal("recvmmsg base2/base3 handlers must be replaced by base23")
 	}
-}
-
-func bpfFunctionBody(source string, name string) (string, bool) {
-	start := strings.Index(source, name+"(")
-	if start < 0 {
-		return "", false
-	}
-	end := strings.Index(source[start:], "\nSEC(")
-	if end < 0 {
-		end = strings.Index(source[start:], "\n#endif")
-		if end < 0 {
-			end = len(source[start:])
-		}
-	}
-	return source[start : start+end], true
 }

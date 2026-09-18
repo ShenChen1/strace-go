@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"strace-go/pkg/meta"
 )
 
 // bpfSourceGateSources holds BPF sources shared by the direct-TLV source gates.
@@ -127,10 +129,11 @@ func repoRootForTest(t *testing.T) string {
 func readCombinedBPFSources(t *testing.T) string {
 	t.Helper()
 	root := repoRootForTest(t)
+	numberHeader := filepath.Join(root, "bpf/syscall_numbers_"+meta.SyscallArchitecture+"_generated.h")
 	return readTextFile(t, filepath.Join(root, "bpf/capture_manifest_generated.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/runtime_abi.h")) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/event_abi_generated.h")) +
-		"\n" + readTextFile(t, filepath.Join(root, "bpf/syscall_numbers_amd64_generated.h")) +
+		"\n" + readTextFile(t, numberHeader) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/runtime_stats.h")) +
 		"\n" + readBPFHandlerFacades(t) +
 		"\n" + readTextFile(t, filepath.Join(root, "bpf/lifecycle_event_v2.h")) +
@@ -213,6 +216,21 @@ func readTextFile(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(data)
+}
+
+func bpfFunctionBody(source string, name string) (string, bool) {
+	start := strings.Index(source, name+"(")
+	if start < 0 {
+		return "", false
+	}
+	end := strings.Index(source[start:], "\nSEC(")
+	if end < 0 {
+		end = strings.Index(source[start:], "\n#endif")
+		if end < 0 {
+			end = len(source[start:])
+		}
+	}
+	return source[start : start+end], true
 }
 
 func legacyCaptureArtifactsForTest(t *testing.T) string {
