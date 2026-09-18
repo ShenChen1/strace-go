@@ -199,6 +199,11 @@ clone 参数也按目标生成。iovec、msghdr、cmsghdr、sockaddr、timespec/
 statx、open_how、flock 等在两个 native LP64 目标的 layout contract 中确认一致，
 没有为了文件对称性引入伪架构分支。
 
+syscall observation path 继续使用 `tracepoint/raw_syscalls/sys_enter` 和
+`tracepoint/raw_syscalls/sys_exit` 的 `id`、`args[6]`、`ret` 字段，因此不读取
+userspace calling convention 的寄存器。只有 recvmsg kretprobe 需要返回寄存器，
+它通过 `native_kretprobe_return` 和目标 wrapper symbol 显式分支处理。
+
 compat 边界在 BPF native dispatch 前检查：x86_64 的 compat task 和 x32 syscall、
 ARM64 的 32-bit task 都发出 `unsupported_abi` 终止事件；userspace 不会继续使用
 native decoder。amd64 上用 `int 0x80` fixture 实际验证了 fail-fast；32-bit ARM
