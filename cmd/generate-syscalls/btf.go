@@ -215,6 +215,8 @@ func syscallNameFromBTFFunc(name string) (string, bool) {
 	switch {
 	case strings.HasPrefix(name, "__x64_sys_"):
 		return strings.TrimPrefix(name, "__x64_sys_"), true
+	case strings.HasPrefix(name, "__arm64_sys_"):
+		return strings.TrimPrefix(name, "__arm64_sys_"), true
 	case strings.HasPrefix(name, "__do_sys_"):
 		return strings.TrimPrefix(name, "__do_sys_"), true
 	case strings.HasPrefix(name, "__sys_"):

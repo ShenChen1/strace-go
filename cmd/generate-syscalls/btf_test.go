@@ -217,6 +217,7 @@ func TestSyscallNameFromBTFFunc(t *testing.T) {
 		ok   bool
 	}{
 		{name: "__x64_sys_openat", want: "openat", ok: true},
+		{name: "__arm64_sys_openat", want: "openat", ok: true},
 		{name: "__do_sys_read", want: "read", ok: true},
 		{name: "__sys_connect", want: "connect", ok: true},
 		{name: "__sys_setuid", ok: false},
