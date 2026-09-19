@@ -3,10 +3,38 @@
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include <errno.h>
-#include <linux/bpf.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/syscall.h>
 #include <unistd.h>
+
+#include "ebpf_bpf_uapi_compat.h"
+
+static long read_program_stream(
+	int program_fd,
+	uint32_t stream_id,
+	char *buffer,
+	uint32_t buffer_len)
+{
+	union bpf_attr attr = {};
+	strace_bpf_attr_set_u64(
+		&attr,
+		STRACE_BPF_PROG_STREAM_READ_STREAM_BUF_OFFSET,
+		(uint64_t)(uintptr_t)buffer);
+	strace_bpf_attr_set_u32(
+		&attr,
+		STRACE_BPF_PROG_STREAM_READ_STREAM_BUF_LEN_OFFSET,
+		buffer_len);
+	strace_bpf_attr_set_u32(
+		&attr,
+		STRACE_BPF_PROG_STREAM_READ_STREAM_ID_OFFSET,
+		stream_id);
+	strace_bpf_attr_set_u32(
+		&attr,
+		STRACE_BPF_PROG_STREAM_READ_PROG_FD_OFFSET,
+		(uint32_t)program_fd);
+	return syscall(SYS_bpf, STRACE_BPF_PROG_STREAM_READ_BY_FD, &attr, sizeof(attr));
+}
 
 static int load_stream_program(const char *object_path, struct bpf_object **object_out)
 {
@@ -47,21 +75,17 @@ static int run_stream_program(int program_fd)
 		return -1;
 	}
 	char buffer[64] = {};
-	struct bpf_prog_stream_read_opts read_opts = {
-		.sz = sizeof(read_opts),
-	};
-	int count = bpf_prog_stream_read(
+	long count = read_program_stream(
 		program_fd,
-		BPF_STREAM_STDOUT,
+		STRACE_BPF_STREAM_STDOUT,
 		buffer,
-		sizeof(buffer) - 1,
-		&read_opts);
+		sizeof(buffer) - 1);
 	if (count > 0 && (size_t)count < sizeof(buffer)) {
 		buffer[count] = '\0';
 	}
 	if (count <= 0 || (size_t)count >= sizeof(buffer) ||
 		strcmp(buffer, "stream-data") != 0) {
-		fprintf(stderr, "stream: output mismatch count=%d errno=%d\n", count, errno);
+		fprintf(stderr, "stream: output mismatch count=%ld errno=%d\n", count, errno);
 		return -1;
 	}
 	return 0;
@@ -70,14 +94,15 @@ static int run_stream_program(int program_fd)
 static int run_stream_failure_probes(int program_fd)
 {
 	char buffer[16] = "stream-data";
-	struct bpf_prog_stream_read_opts read_opts = {
-		.sz = sizeof(read_opts),
-	};
-	if (bpf_prog_stream_read(-1, BPF_STREAM_STDOUT, buffer, sizeof(buffer), &read_opts) >= 0) {
+	if (read_program_stream(
+			-1,
+			STRACE_BPF_STREAM_STDOUT,
+			buffer,
+			sizeof(buffer)) >= 0) {
 		fprintf(stderr, "stream: invalid program fd unexpectedly succeeded\n");
 		return -1;
 	}
-	if (bpf_prog_stream_read(program_fd, 0, buffer, sizeof(buffer), &read_opts) >= 0) {
+	if (read_program_stream(program_fd, 0, buffer, sizeof(buffer)) >= 0) {
 		fprintf(stderr, "stream: invalid stream id unexpectedly succeeded\n");
 		return -1;
 	}

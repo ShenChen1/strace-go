@@ -92,9 +92,25 @@ class FixtureBuildTests(unittest.TestCase):
         self.assertIn("STRACE_BPF_TOKEN_CREATE = 36", text)
         self.assertIn("STRACE_BPF_PROG_STREAM_READ_BY_FD = 37", text)
         self.assertIn("STRACE_BPF_PROG_ASSOC_STRUCT_OPS = 38", text)
+        self.assertIn("STRACE_BPF_STREAM_STDOUT = 1", text)
         self.assertIn("STRACE_BPF_ATTR_MIN_SIZE = 24", text)
         self.assertIn("STRACE_BPF_PROG_STREAM_READ_PROG_FD_OFFSET = 16", text)
         self.assertIn("strace_bpf_attr_set_u32(", text)
+
+    def test_bpf_stream_fixture_uses_raw_compatible_syscall_abi(self):
+        path = os.path.join(
+            os.path.dirname(__file__), "fixtures", "ebpf_bpf_stream_fixture.c"
+        )
+        with open(path, "r", encoding="utf-8") as fixture_file:
+            text = fixture_file.read()
+
+        self.assertIn('#include "ebpf_bpf_uapi_compat.h"', text)
+        self.assertIn("static long read_program_stream(", text)
+        self.assertIn("syscall(SYS_bpf, STRACE_BPF_PROG_STREAM_READ_BY_FD", text)
+        self.assertIn("STRACE_BPF_STREAM_STDOUT", text)
+        self.assertNotIn("bpf_prog_stream_read(", text)
+        self.assertNotIn("bpf_prog_stream_read_opts", text)
+        self.assertNotRegex(text, r"(?<!STRACE_)BPF_STREAM_STDOUT")
 
     def test_bpf_new_command_fixtures_use_shared_uapi_compat_header(self):
         fixture_dir = os.path.join(os.path.dirname(__file__), "fixtures")
