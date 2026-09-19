@@ -23,14 +23,21 @@ static int require_success(long result, const char *step)
 	return 1;
 }
 
+static inline void touch_memory(const void *p)
+{
+	asm volatile ("" : : "r"(*(const volatile char *)p) : "memory");
+}
+
 int main(void)
 {
 	static const char type[] = "user";
 	static const char description[] = "ebpf-keyctl-key";
 	static const char update_payload[] = "ebpf-keyctl-update";
 	static const char session_name[] = "ebpf-keyctl-session";
-	volatile char touch = type[0] + description[0] + update_payload[0] + session_name[0];
-	(void)touch;
+	touch_memory(type);
+	touch_memory(description);
+	touch_memory(update_payload);
+	touch_memory(session_name);
 	char describe[256] = {};
 	char readback[256] = {};
 	uint8_t capabilities[64] = {};

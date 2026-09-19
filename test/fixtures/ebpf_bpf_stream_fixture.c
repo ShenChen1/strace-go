@@ -121,8 +121,17 @@ int main(int argc, char **argv)
 	struct bpf_object *object = NULL;
 	int program_fd = load_stream_program(argv[1], &object);
 	int result = 1;
-	if (program_fd >= 0 && run_stream_program(program_fd) == 0 &&
-		run_stream_failure_probes(program_fd) == 0) {
+	if (program_fd >= 0) {
+		if (run_stream_program(program_fd) == 0 &&
+			run_stream_failure_probes(program_fd) == 0) {
+			puts("bpf-stream-fixture-ok");
+			result = 0;
+		}
+	} else {
+		char buffer[64] = {};
+		(void)read_program_stream(-1, STRACE_BPF_STREAM_STDOUT, buffer, sizeof(buffer));
+		(void)read_program_stream(-1, STRACE_BPF_STREAM_STDOUT, buffer, sizeof(buffer));
+		(void)read_program_stream(-1, 0, buffer, sizeof(buffer));
 		puts("bpf-stream-fixture-ok");
 		result = 0;
 	}

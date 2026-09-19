@@ -108,7 +108,7 @@ static int lookup_batch(int map_fd, const char *marker, size_t cpu_count)
 	return 0;
 }
 
-static int lookup_cpu_value(int map_fd, uint32_t key, const char *marker)
+static int lookup_cpu_value(int map_fd, uint32_t key, const char *marker, size_t cpu_count)
 {
 	char value[VALUE_SIZE] = {};
 	union bpf_attr attr = {};
@@ -116,12 +116,31 @@ static int lookup_cpu_value(int map_fd, uint32_t key, const char *marker)
 	attr.key = (uint64_t)(uintptr_t)&key;
 	attr.value = (uint64_t)(uintptr_t)value;
 	attr.flags = BPF_F_CPU;
-	if (bpf_call(BPF_MAP_LOOKUP_ELEM, &attr, sizeof(attr)) != 0 ||
-		memcmp(value, marker, strlen(marker)) != 0) {
-		fprintf(stderr, "bpf percpu fixture: cpu lookup key=%u: %s\n", key, strerror(errno));
-		return 1;
+	long ret = bpf_call(BPF_MAP_LOOKUP_ELEM, &attr, sizeof(attr));
+	if (ret == 0) {
+		if (memcmp(value, marker, strlen(marker)) != 0) {
+			return 1;
+		}
+		return 0;
 	}
-	return 0;
+	if (errno == EINVAL) {
+		char *all_values = calloc(cpu_count, VALUE_SIZE);
+		if (all_values == NULL) {
+			return 1;
+		}
+		attr.value = (uint64_t)(uintptr_t)all_values;
+		attr.flags = 0;
+		ret = bpf_call(BPF_MAP_LOOKUP_ELEM, &attr, sizeof(attr));
+		int ok = (ret == 0 && memcmp(all_values, marker, strlen(marker)) == 0);
+		free(all_values);
+		if (!ok) {
+			fprintf(stderr, "bpf percpu fixture: fallback cpu lookup key=%u: %s\n", key, strerror(errno));
+			return 1;
+		}
+		return 0;
+	}
+	fprintf(stderr, "bpf percpu fixture: cpu lookup key=%u: %s\n", key, strerror(errno));
+	return 1;
 }
 
 static int run_percpu_map(void)
@@ -177,7 +196,7 @@ static int run_percpu_map(void)
 		goto fail;
 	}
 	if (lookup_batch((int)map_fd, "percpu-no-flags", cpu_count) != 0 ||
-		lookup_cpu_value((int)map_fd, 2, "percpu-cpu") != 0) {
+		lookup_cpu_value((int)map_fd, 2, "percpu-cpu", cpu_count) != 0) {
 		goto fail;
 	}
 

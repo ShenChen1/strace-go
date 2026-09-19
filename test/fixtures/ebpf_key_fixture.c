@@ -5,16 +5,23 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+static inline void touch_memory(const void *p)
+{
+	asm volatile ("" : : "r"(*(const volatile char *)p) : "memory");
+}
+
 int main(void)
 {
-	static const char type[] = "user";
-	static const char add_description[] = "ebpf-key-add";
-	static const char add_payload[] = "ebpf-key-payload";
-	static const char request_description[] = "ebpf-key-request";
-	static const char callout_info[] = "ebpf-key-callout";
-	volatile char touch = type[0] + add_description[0] + add_payload[0] +
-		request_description[0] + callout_info[0];
-	(void)touch;
+	char type[] = "user";
+	char add_description[] = "ebpf-key-add";
+	char add_payload[] = "ebpf-key-payload";
+	char request_description[] = "ebpf-key-request";
+	char callout_info[] = "ebpf-key-callout";
+	touch_memory(type);
+	touch_memory(add_description);
+	touch_memory(add_payload);
+	touch_memory(request_description);
+	touch_memory(callout_info);
 
 	(void)syscall(
 		SYS_add_key,

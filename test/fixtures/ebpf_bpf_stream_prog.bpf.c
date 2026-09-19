@@ -13,7 +13,9 @@ int stream_syscall(void *ctx)
 {
 	(void)ctx;
 	__u64 args[1] = {};
-	bpf_stream_vprintk(BPF_STDOUT, "stream-data", args, sizeof(args));
+	if (bpf_stream_vprintk) {
+		bpf_stream_vprintk(BPF_STDOUT, "stream-data", args, sizeof(args));
+	}
 	return 0;
 }
 

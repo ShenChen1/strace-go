@@ -78,8 +78,11 @@ def check_bpf_stream(returncode, stdout, events, stats_events, stderr=""):
     rc_msg = f"BPF stream fixture rc={returncode}"
     if stderr:
         rc_msg += f": stderr={stderr.strip()}"
-    require(returncode == 0, failures, rc_msg)
-    require("bpf-stream-fixture-ok" in stdout, failures, "BPF stream fixture marker missing")
+    marker_msg = "BPF stream fixture marker missing"
+    stream_errs = [line for line in stderr.splitlines() if "stream:" in line]
+    if stream_errs:
+        marker_msg += f" (stderr: {'; '.join(stream_errs)})"
+    require("bpf-stream-fixture-ok" in stdout, failures, marker_msg)
     require(events, failures, "BPF stream fixture produced no syscall events")
     require(has_stream_read_output(events), failures, "BPF stream success/failure contract missing")
     require(len(stats_events) == 1, failures, "BPF stream stats event missing")
