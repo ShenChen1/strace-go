@@ -16,6 +16,8 @@ int main(void)
 {
 	static const char source[] = "/dev/full";
 	static const char target[] = "/tmp/strace-go-ebpf-move-target";
+	volatile char touch = source[0] + target[0];
+	(void)touch;
 	unsigned int open_flags = FIXTURE_OPEN_TREE_CLONE |
 		FIXTURE_OPEN_TREE_CLOEXEC;
 	long tree_fd = syscall(FIXTURE_SYS_OPEN_TREE, AT_FDCWD, source,

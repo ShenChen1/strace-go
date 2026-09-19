@@ -12,6 +12,9 @@ int main(void)
 	static const char add_payload[] = "ebpf-key-payload";
 	static const char request_description[] = "ebpf-key-request";
 	static const char callout_info[] = "ebpf-key-callout";
+	volatile char touch = type[0] + add_description[0] + add_payload[0] +
+		request_description[0] + callout_info[0];
+	(void)touch;
 
 	(void)syscall(
 		SYS_add_key,

@@ -29,6 +29,8 @@ int main(void)
 	static const char description[] = "ebpf-keyctl-key";
 	static const char update_payload[] = "ebpf-keyctl-update";
 	static const char session_name[] = "ebpf-keyctl-session";
+	volatile char touch = type[0] + description[0] + update_payload[0] + session_name[0];
+	(void)touch;
 	char describe[256] = {};
 	char readback[256] = {};
 	uint8_t capabilities[64] = {};

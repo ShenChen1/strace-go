@@ -166,6 +166,10 @@ static __always_inline u32 capture_aio_pgetevents_sigmask_tlv_direct(
 
     u8 sigmask_data[AIO_PGETEVENTS_DIRECT_SIGMASK_MAX] = {};
     u32 copied_len = (u32)user_len;
+    asm volatile ("" : "+r"(copied_len));
+    if (copied_len > AIO_PGETEVENTS_DIRECT_SIGMASK_MAX) {
+        copied_len = AIO_PGETEVENTS_DIRECT_SIGMASK_MAX;
+    }
     s32 probe_ret = 0;
     long err = bpf_probe_read_user(&sigmask_data, copied_len, (void *)user_ptr);
     if (err < 0) {

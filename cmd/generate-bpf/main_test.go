@@ -145,6 +145,10 @@ func TestExitCaptureHelpersBoundDynamicReadLengths(t *testing.T) {
 			relPath: "bpf/syscall_key_capture_direct_event_v2.h",
 			snippet: "if (copied_len > KEY_DIRECT_PAYLOAD_MAX)",
 		},
+		{
+			relPath: "bpf/syscall_aio_getevents_capture_direct_event_v2.h",
+			snippet: "if (copied_len > AIO_PGETEVENTS_DIRECT_SIGMASK_MAX)",
+		},
 	}
 
 	for _, check := range checks {
