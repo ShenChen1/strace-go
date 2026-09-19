@@ -118,7 +118,10 @@ def run_signalfd_semantic(wrapper, project_root):
     stats = parse_stats_events(result.stderr)
     failures = []
     if result.returncode != 0:
-        failures.append(f"signalfd fixture rc={result.returncode}")
+        rc_msg = f"signalfd fixture rc={result.returncode}"
+        if result.stderr.strip():
+            rc_msg += f": stderr={result.stderr.strip()}"
+        failures.append(rc_msg)
     if "signalfd-fixture-ok" not in result.stdout:
         failures.append("signalfd fixture stdout marker missing")
     if len(stats) != 1 or not stats[0].get("available"):

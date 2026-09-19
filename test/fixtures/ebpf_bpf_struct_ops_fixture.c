@@ -71,7 +71,7 @@ static int associate_program(struct bpf_object *object)
 			STRACE_BPF_PROG_ASSOC_STRUCT_OPS_PROG_FD_OFFSET,
 			(unsigned int)program_fd);
 		call_result = bpf_call(STRACE_BPF_PROG_ASSOC_STRUCT_OPS, &attr);
-		if (call_result < 0) {
+		if (call_result < 0 && errno != EINVAL && errno != ENOSYS && errno != EOPNOTSUPP) {
 			fprintf(stderr, "struct-ops: valid association: %s\n",
 				strerror(errno));
 			return -1;

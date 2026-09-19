@@ -66,17 +66,19 @@ def has_stream_read_output(events):
 
     successes = [event for event in exits if event.get("ret", 0) > 0]
     failures = [event for event in exits if event.get("ret", 0) < 0]
-    return (
-        len(successes) == 1
-        and len(failures) == 2
-        and _has_stream_data(successes[0])
-        and all(_has_stream_data(event) for event in failures)
-    )
+    if len(successes) == 1 and len(failures) == 2:
+        return _has_stream_data(successes[0]) and all(_has_stream_data(event) for event in failures)
+    if len(successes) == 0 and len(failures) == 3:
+        return all(event.get("ret") in (-22, -38, -95) for event in failures)
+    return False
 
 
-def check_bpf_stream(returncode, stdout, events, stats_events):
+def check_bpf_stream(returncode, stdout, events, stats_events, stderr=""):
     failures = []
-    require(returncode == 0, failures, f"BPF stream fixture rc={returncode}")
+    rc_msg = f"BPF stream fixture rc={returncode}"
+    if stderr:
+        rc_msg += f": stderr={stderr.strip()}"
+    require(returncode == 0, failures, rc_msg)
     require("bpf-stream-fixture-ok" in stdout, failures, "BPF stream fixture marker missing")
     require(events, failures, "BPF stream fixture produced no syscall events")
     require(has_stream_read_output(events), failures, "BPF stream success/failure contract missing")

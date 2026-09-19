@@ -41,6 +41,7 @@ def run_bpf_struct_ops_semantic(wrapper, root):
 		result.stdout,
 		parse_json_events(result.stderr),
 		parse_stats_events(result.stderr),
+		result.stderr,
 	)
 	if not failures:
 		print("=> eBPF struct-ops semantic success/failure paths verified")

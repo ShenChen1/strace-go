@@ -67,9 +67,12 @@ def _failed_events_have_no_output(events):
     )
 
 
-def check_key_semantic(returncode, stdout, events, stats_events):
+def check_key_semantic(returncode, stdout, events, stats_events, stderr=""):
     failures = []
-    require(returncode == 0, failures, f"key fixture rc={returncode}")
+    rc_msg = f"key fixture rc={returncode}"
+    if stderr:
+        rc_msg += f": stderr={stderr.strip()}"
+    require(returncode == 0, failures, rc_msg)
     require("key-fixture-ok" in stdout, failures, "key fixture marker missing")
     require(len(stats_events) == 1, failures, "key stats event missing")
     if stats_events:
@@ -115,7 +118,11 @@ def run_key_semantic(wrapper, root):
         result.stdout,
         parse_json_events(result.stderr),
         parse_stats_events(result.stderr),
+        result.stderr,
     )
     if not failures:
         print(f"=> eBPF key semantic events: {len(parse_json_events(result.stderr))}")
+    else:
+        print(f"DEBUG key events: {parse_json_events(result.stderr)}")
+        print(f"DEBUG key stderr: {result.stderr.strip()}")
     return failures

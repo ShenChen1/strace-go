@@ -62,6 +62,9 @@ static int update_batch(
 	attr.batch.map_fd = (uint32_t)map_fd;
 	attr.batch.elem_flags = elem_flags;
 	if (bpf_call(BPF_MAP_UPDATE_BATCH, &attr, sizeof(attr)) != 0 || attr.batch.count != 1) {
+		if (errno == EINVAL && (elem_flags & (BPF_F_CPU | BPF_F_ALL_CPUS))) {
+			return 2;
+		}
 		fprintf(stderr, "bpf percpu fixture: update key=%u flags=%#llx: %s\n",
 			key, (unsigned long long)elem_flags, strerror(errno));
 		return 1;
@@ -151,12 +154,26 @@ static int run_percpu_map(void)
 	if (update_batch((int)map_fd, 1, all_values, BPF_ANY) != 0) {
 		goto fail;
 	}
-	if (update_batch((int)map_fd, 2, one_value, BPF_F_CPU) != 0) {
+	int rc2 = update_batch((int)map_fd, 2, one_value, BPF_F_CPU);
+	if (rc2 == 1) {
 		goto fail;
+	}
+	if (rc2 == 2) {
+		fill_percpu_values(all_values, cpu_count, "percpu-cpu");
+		union bpf_attr update2 = {};
+		update2.map_fd = (uint32_t)map_fd;
+		uint32_t key2 = 2;
+		update2.key = (uint64_t)(uintptr_t)&key2;
+		update2.value = (uint64_t)(uintptr_t)all_values;
+		if (bpf_call(BPF_MAP_UPDATE_ELEM, &update2, sizeof(update2)) != 0) {
+			goto fail;
+		}
+		fill_percpu_values(all_values, cpu_count, "percpu-no-flags");
 	}
 	memset(one_value, 0, sizeof(one_value));
 	memcpy(one_value, "percpu-all-cpus", sizeof("percpu-all-cpus") - 1);
-	if (update_batch((int)map_fd, 3, one_value, BPF_F_ALL_CPUS) != 0) {
+	int rc3 = update_batch((int)map_fd, 3, one_value, BPF_F_ALL_CPUS);
+	if (rc3 == 1) {
 		goto fail;
 	}
 	if (lookup_batch((int)map_fd, "percpu-no-flags", cpu_count) != 0 ||

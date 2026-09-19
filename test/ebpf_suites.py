@@ -476,6 +476,23 @@ def finish_semantic(context, failures, filter_event_count):
         print(f"FAIL: {failure}")
     print("\n--- stderr tail ---")
     print("\n".join(context.main.result.stderr.splitlines()[-40:]))
+    captures = [
+        ("fcntl", context.fcntl),
+        ("dirent", context.dirent),
+        ("mmsg", context.mmsg),
+        ("mount_query", context.mount_query),
+        ("mount_path", context.mount_path),
+        ("mount_path_filtered", context.mount_path_filtered),
+        ("thread", context.thread),
+    ]
+    for name, cap in captures:
+        res = getattr(cap, "result", None)
+        if res is not None and res.returncode != 0:
+            print(f"\n--- {name} failure stderr (rc={res.returncode}) ---")
+            print(res.stderr.strip() or "(empty stderr)")
+            if res.stdout.strip():
+                print(f"--- {name} stdout ---")
+                print(res.stdout.strip())
     return 1
 
 

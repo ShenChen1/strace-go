@@ -83,9 +83,12 @@ def run_cloexec_semantic():
     lifecycle = parse_lifecycle_events(result.stderr)
     failures = []
     if result.returncode != 0 or presence_result.returncode != 0:
-        failures.append(
-            f"cloexec fixture rc={result.returncode}/{presence_result.returncode}"
-        )
+        err_msg = f"cloexec fixture rc={result.returncode}/{presence_result.returncode}"
+        if result.returncode != 0 and result.stderr.strip():
+            err_msg += f" (filtered stderr: {result.stderr.strip()})"
+        if presence_result.returncode != 0 and presence_result.stderr.strip():
+            err_msg += f" (presence stderr: {presence_result.stderr.strip()})"
+        failures.append(err_msg)
     if "cloexec-child-ebadf" not in result.stdout:
         failures.append("cloexec child did not observe EBADF after exec")
     for syscall_name in (

@@ -81,9 +81,12 @@ def _failed_events_have_no_output(events):
     return True
 
 
-def check_aio_semantic(returncode, stdout, events, stats_events):
+def check_aio_semantic(returncode, stdout, events, stats_events, stderr=""):
     failures = []
-    require(returncode == 0, failures, f"AIO fixture rc={returncode}")
+    rc_msg = f"AIO fixture rc={returncode}"
+    if stderr:
+        rc_msg += f": stderr={stderr.strip()}"
+    require(returncode == 0, failures, rc_msg)
     require("aio-fixture-ok" in stdout, failures, "AIO fixture marker missing")
     require(len(stats_events) == 1, failures, "AIO stats event missing")
     if stats_events:
@@ -169,6 +172,7 @@ def run_aio_semantic(wrapper, root):
         result.stdout,
         parse_json_events(result.stderr),
         parse_stats_events(result.stderr),
+        result.stderr,
     )
     if not failures:
         print(f"=> eBPF AIO semantic events: {len(parse_json_events(result.stderr))}")

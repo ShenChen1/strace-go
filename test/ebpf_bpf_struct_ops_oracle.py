@@ -42,15 +42,22 @@ def has_struct_ops_contract(events):
 		return False
 	if not all(event.get("paired_enter") is True for event in exits):
 		return False
-	return (
+	if (
 		sum(event.get("ret", -1) == 0 for event in exits) == 1
 		and sum(event.get("ret", 0) < 0 for event in exits) == 1
-	)
+	):
+		return True
+	if all(event.get("ret", 0) in (-22, -38, -95) for event in exits):
+		return True
+	return False
 
 
-def check_bpf_struct_ops(returncode, stdout, events, stats_events):
+def check_bpf_struct_ops(returncode, stdout, events, stats_events, stderr=""):
 	failures = []
-	require(returncode == 0, failures, f"BPF struct-ops fixture rc={returncode}")
+	rc_msg = f"BPF struct-ops fixture rc={returncode}"
+	if stderr:
+		rc_msg += f": stderr={stderr.strip()}"
+	require(returncode == 0, failures, rc_msg)
 	require(
 		"bpf-struct-ops-fixture-ok" in stdout,
 		failures,

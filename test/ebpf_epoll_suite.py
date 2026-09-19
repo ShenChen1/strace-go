@@ -63,7 +63,10 @@ def run_epoll_semantic(wrapper):
     events = parse_json_events(result.stderr)
     stats_events = parse_stats_events(result.stderr)
     failures = []
-    require(result.returncode == 0, failures, f"epoll fixture rc={result.returncode}")
+    rc_msg = f"epoll fixture rc={result.returncode}"
+    if result.returncode != 0 and result.stderr.strip():
+        rc_msg += f": stderr={result.stderr.strip()}"
+    require(result.returncode == 0, failures, rc_msg)
     require("epoll-fixture-ok" in result.stdout, failures, "epoll fixture marker missing")
     require(len(stats_events) == 1 and valid_stats_event(stats_events[0]), failures, "epoll stats event missing")
     require(_has_nested_epoll_path(events), failures, "epoll_wait nested FD path snapshot missing")
