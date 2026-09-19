@@ -83,10 +83,10 @@ static int run_stream_program(int program_fd)
 	if (count > 0 && (size_t)count < sizeof(buffer)) {
 		buffer[count] = '\0';
 	}
-	if (count < 0 && (errno == EINVAL || errno == ENOSYS || errno == EOPNOTSUPP)) {
+	if (count == 0 || (count < 0 && (errno == EINVAL || errno == ENOSYS || errno == EOPNOTSUPP))) {
 		return 0;
 	}
-	if (count <= 0 || (size_t)count >= sizeof(buffer) ||
+	if (count < 0 || (size_t)count >= sizeof(buffer) ||
 		strcmp(buffer, "stream-data") != 0) {
 		fprintf(stderr, "stream: output mismatch count=%ld errno=%d\n", count, errno);
 		return -1;

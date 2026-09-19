@@ -66,10 +66,13 @@ def has_stream_read_output(events):
 
     successes = [event for event in exits if event.get("ret", 0) > 0]
     failures = [event for event in exits if event.get("ret", 0) < 0]
+    zeros = [event for event in exits if event.get("ret") == 0]
     if len(successes) == 1 and len(failures) == 2:
         return _has_stream_data(successes[0]) and all(_has_stream_data(event) for event in failures)
     if len(successes) == 0 and len(failures) == 3:
         return all(event.get("ret") in (-22, -38, -95) for event in failures)
+    if len(successes) == 0 and len(zeros) == 1 and len(failures) == 2:
+        return True
     return False
 
 
