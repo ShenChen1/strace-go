@@ -41,7 +41,6 @@ def run_bpf_stream_semantic(wrapper, root):
         result.stdout,
         parse_json_events(result.stderr),
         parse_stats_events(result.stderr),
-        result.stderr,
     )
     if not failures:
         print("=> eBPF bpf stream semantic success/failure paths verified")

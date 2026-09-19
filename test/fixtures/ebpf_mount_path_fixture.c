@@ -12,17 +12,10 @@
 #define FIXTURE_MOVE_MOUNT_F_SYMLINKS 1U
 #define FIXTURE_MOVE_MOUNT_BENEATH 0x200U
 
-static inline void touch_memory(const void *p)
-{
-	asm volatile ("" : : "r"(*(const volatile char *)p) : "memory");
-}
-
 int main(void)
 {
 	static const char source[] = "/dev/full";
 	static const char target[] = "/tmp/strace-go-ebpf-move-target";
-	touch_memory(source);
-	touch_memory(target);
 	unsigned int open_flags = FIXTURE_OPEN_TREE_CLONE |
 		FIXTURE_OPEN_TREE_CLOEXEC;
 	long tree_fd = syscall(FIXTURE_SYS_OPEN_TREE, AT_FDCWD, source,

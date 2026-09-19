@@ -287,11 +287,7 @@ def check_mount_path_capture(capture, failures, label, snapshot_event_type):
 
     open_sections = matching_sections(capture.events, "open_tree", snapshot_event_type)
     move_sections = matching_sections(capture.events, "move_mount", snapshot_event_type)
-    if not has_text_section(open_sections, 1, "/dev/full") and snapshot_event_type == "enter":
-        open_sections = matching_sections(capture.events, "open_tree", "exit")
-    if not has_text_section(open_sections, 1, "/dev/full"):
-        debug_open = [e for e in capture.events if e.get("syscall") == "open_tree"]
-        failures.append(f"{label} open_tree path snapshot missing (events={debug_open})")
+    require(has_text_section(open_sections, 1, "/dev/full"), failures, f"{label} open_tree path snapshot missing")
     require(has_text_section(move_sections, 1, "/dev/full"), failures, f"{label} move_mount source snapshot missing")
     require(has_text_section(move_sections, 3, "/tmp/strace-go-ebpf-move-target"), failures, f"{label} move_mount target snapshot missing")
     for syscall in ("open_tree", "move_mount"):

@@ -66,26 +66,18 @@ def has_stream_read_output(events):
 
     successes = [event for event in exits if event.get("ret", 0) > 0]
     failures = [event for event in exits if event.get("ret", 0) < 0]
-    zeros = [event for event in exits if event.get("ret") == 0]
-    if len(successes) == 1 and len(failures) == 2:
-        return _has_stream_data(successes[0]) and all(_has_stream_data(event) for event in failures)
-    if len(successes) == 0 and len(failures) == 3:
-        return all(event.get("ret") in (-22, -38, -95) for event in failures)
-    if len(successes) == 0 and len(zeros) == 1 and len(failures) == 2:
-        return True
-    return False
+    return (
+        len(successes) == 1
+        and len(failures) == 2
+        and _has_stream_data(successes[0])
+        and all(_has_stream_data(event) for event in failures)
+    )
 
 
-def check_bpf_stream(returncode, stdout, events, stats_events, stderr=""):
+def check_bpf_stream(returncode, stdout, events, stats_events):
     failures = []
-    rc_msg = f"BPF stream fixture rc={returncode}"
-    if stderr:
-        rc_msg += f": stderr={stderr.strip()}"
-    marker_msg = "BPF stream fixture marker missing"
-    stream_errs = [line for line in stderr.splitlines() if "stream:" in line]
-    if stream_errs:
-        marker_msg += f" (stderr: {'; '.join(stream_errs)})"
-    require("bpf-stream-fixture-ok" in stdout, failures, marker_msg)
+    require(returncode == 0, failures, f"BPF stream fixture rc={returncode}")
+    require("bpf-stream-fixture-ok" in stdout, failures, "BPF stream fixture marker missing")
     require(events, failures, "BPF stream fixture produced no syscall events")
     require(has_stream_read_output(events), failures, "BPF stream success/failure contract missing")
     require(len(stats_events) == 1, failures, "BPF stream stats event missing")

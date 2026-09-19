@@ -83,10 +83,7 @@ static int run_stream_program(int program_fd)
 	if (count > 0 && (size_t)count < sizeof(buffer)) {
 		buffer[count] = '\0';
 	}
-	if (count == 0 || (count < 0 && (errno == EINVAL || errno == ENOSYS || errno == EOPNOTSUPP))) {
-		return 0;
-	}
-	if (count < 0 || (size_t)count >= sizeof(buffer) ||
+	if (count <= 0 || (size_t)count >= sizeof(buffer) ||
 		strcmp(buffer, "stream-data") != 0) {
 		fprintf(stderr, "stream: output mismatch count=%ld errno=%d\n", count, errno);
 		return -1;
@@ -121,17 +118,8 @@ int main(int argc, char **argv)
 	struct bpf_object *object = NULL;
 	int program_fd = load_stream_program(argv[1], &object);
 	int result = 1;
-	if (program_fd >= 0) {
-		if (run_stream_program(program_fd) == 0 &&
-			run_stream_failure_probes(program_fd) == 0) {
-			puts("bpf-stream-fixture-ok");
-			result = 0;
-		}
-	} else {
-		char buffer[64] = {};
-		(void)read_program_stream(-1, STRACE_BPF_STREAM_STDOUT, buffer, sizeof(buffer));
-		(void)read_program_stream(-1, STRACE_BPF_STREAM_STDOUT, buffer, sizeof(buffer));
-		(void)read_program_stream(-1, 0, buffer, sizeof(buffer));
+	if (program_fd >= 0 && run_stream_program(program_fd) == 0 &&
+		run_stream_failure_probes(program_fd) == 0) {
 		puts("bpf-stream-fixture-ok");
 		result = 0;
 	}
