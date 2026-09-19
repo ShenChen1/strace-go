@@ -29,7 +29,6 @@ static __always_inline u32 capture_bpf_exit_bytes_tlv_direct(
     }
 
     u32 user_len = payload_tlv_clamp_u32(request->user_len);
-    u32 copied_len = payload_tlv_copy_len(request->user_len, request->max_len);
     u32 data_offset = payload_offset + PAYLOAD_TLV_HEADER_SIZE;
     // The shared writer reserves the 512-byte bucket; keep the dynptr access fixed for verifier range tracking.
     void *payload_data = bpf_dynptr_data(ptr, data_offset, BPF_DIRECT_OBJ_INFO_MAX);
@@ -38,6 +37,11 @@ static __always_inline u32 capture_bpf_exit_bytes_tlv_direct(
         return 0;
     }
 
+    u32 copied_len = payload_tlv_copy_len(request->user_len, request->max_len);
+    asm volatile ("" : "+r"(copied_len));
+    if (copied_len > BPF_DIRECT_OBJ_INFO_MAX) {
+        copied_len = BPF_DIRECT_OBJ_INFO_MAX;
+    }
     long err = bpf_probe_read_user(payload_data, copied_len, (void *)request->user_ptr);
     if (err < 0) {
         return 0;

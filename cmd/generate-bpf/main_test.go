@@ -120,3 +120,41 @@ func TestMakeTestRejectsExecutionWrapper(t *testing.T) {
 		t.Fatalf("execution wrapper was accepted: %v\n%s", err, out)
 	}
 }
+
+func TestExitCaptureHelpersBoundDynamicReadLengths(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	root := filepath.Join(filepath.Dir(file), "../..")
+
+	checks := []struct {
+		relPath string
+		snippet string
+	}{
+		{
+			relPath: "bpf/syscall_bpf_exit_direct_event_v2.h",
+			snippet: "if (copied_len > BPF_DIRECT_OBJ_INFO_MAX)",
+		},
+		{
+			relPath: "bpf/syscall_fs_capture_direct_event_v2.h",
+			snippet: "if (copied_len > FS_DIRECT_GETDENTS_BYTES_MAX)",
+		},
+		{
+			relPath: "bpf/syscall_xattr_capture_direct_event_v2.h",
+			snippet: "if (copied_len > XATTR_DIRECT_VALUE_MAX)",
+		},
+		{
+			relPath: "bpf/syscall_key_capture_direct_event_v2.h",
+			snippet: "if (copied_len > KEY_DIRECT_PAYLOAD_MAX)",
+		},
+	}
+
+	for _, check := range checks {
+		data, err := os.ReadFile(filepath.Join(root, check.relPath))
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", check.relPath, err)
+		}
+		if !strings.Contains(string(data), `asm volatile ("" : "+r"(copied_len));`) ||
+			!strings.Contains(string(data), check.snippet) {
+			t.Fatalf("%s must bound copied_len with inline asm before bpf_probe_read_user", check.relPath)
+		}
+	}
+}

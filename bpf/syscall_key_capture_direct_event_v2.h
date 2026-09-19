@@ -71,16 +71,20 @@ static __always_inline u32 capture_key_bytes_tlv_direct(
         return 0;
     }
 
-    u32 copied_len = payload_tlv_copy_len(
-        request->raw_user_len, KEY_DIRECT_PAYLOAD_MAX);
     s32 probe_ret = 0;
+    u32 copied_len = 0;
     u32 data_offset = payload_offset + PAYLOAD_TLV_HEADER_SIZE;
     void *payload_data = bpf_dynptr_data(ptr, data_offset, KEY_DIRECT_PAYLOAD_MAX);
     if (!payload_data) {
         record_ringbuf_copy_fail();
         probe_ret = -1;
-        copied_len = 0;
     } else {
+        copied_len = payload_tlv_copy_len(
+            request->raw_user_len, KEY_DIRECT_PAYLOAD_MAX);
+        asm volatile ("" : "+r"(copied_len));
+        if (copied_len > KEY_DIRECT_PAYLOAD_MAX) {
+            copied_len = KEY_DIRECT_PAYLOAD_MAX;
+        }
         long err = bpf_probe_read_user(
             payload_data, copied_len, (void *)request->user_ptr);
         if (err < 0) {

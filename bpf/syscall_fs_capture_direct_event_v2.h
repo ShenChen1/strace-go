@@ -228,20 +228,23 @@ static __always_inline u32 capture_getdents_bytes_tlv_direct(
 
     u64 user_ptr = p->args[1];
     u32 user_len = payload_tlv_clamp_u32((u64)ret_value);
-    u32 copied_len = payload_tlv_copy_len((u64)ret_value, FS_DIRECT_GETDENTS_BYTES_MAX);
+    u32 copied_len = 0;
     s32 probe_ret = 0;
     u32 data_offset = payload_offset + PAYLOAD_TLV_HEADER_SIZE;
 
     if (!user_ptr) {
         probe_ret = -1;
-        copied_len = 0;
     } else {
         void *payload_data = bpf_dynptr_data(ptr, data_offset, FS_DIRECT_GETDENTS_BYTES_MAX);
         if (!payload_data) {
             record_ringbuf_copy_fail();
             probe_ret = -1;
-            copied_len = 0;
         } else {
+            copied_len = payload_tlv_copy_len((u64)ret_value, FS_DIRECT_GETDENTS_BYTES_MAX);
+            asm volatile ("" : "+r"(copied_len));
+            if (copied_len > FS_DIRECT_GETDENTS_BYTES_MAX) {
+                copied_len = FS_DIRECT_GETDENTS_BYTES_MAX;
+            }
             long err = bpf_probe_read_user(payload_data, copied_len, (void *)user_ptr);
             if (err < 0) {
                 probe_ret = err;
